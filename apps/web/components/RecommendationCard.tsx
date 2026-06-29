@@ -115,7 +115,7 @@ export function RecommendationCard({
             url: place.place_url
           });
         } else {
-          // 구미 매칭 결과가 없으면(타지 체인만 잡히거나 검색 실패) 우리 데이터의 구미 주소로 폴백.
+          // 경주 매칭 결과가 없으면(타지 체인만 잡히거나 검색 실패) 우리 데이터의 경주 주소로 폴백.
           setPlaceInfo({
             address: facility?.features?.address || '경상북도 경주시 황남동',
             phone: facility?.features?.phone || '054-123-4567',
