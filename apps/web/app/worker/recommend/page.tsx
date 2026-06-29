@@ -159,8 +159,8 @@ function RecommendContent() {
   const [feedbackVotes, setFeedbackVotes] = useState<Record<string, "up" | "down">>({});
 
   // Coordinates used for recommendations
-  const [lat, setLat] = useState<number>(36.1198);
-  const [lng, setLng] = useState<number>(128.3471);
+  const [lat, setLat] = useState<number>(35.8362);
+  const [lng, setLng] = useState<number>(129.2095);
 
   // ── 음성 비서(Hey Gemini 컨시어지) 상태 ──
   // Gemini가 만든 추천 사유를 한국어 TTS로 읽어주고(speechSynthesis), 사용자의 음성 응답을
@@ -283,8 +283,8 @@ function RecommendContent() {
       if (session?.user) {
         setUserId(session.user.id);
       } else {
-        console.warn("No active session found, falling back to mock user IT-WORKER-01.");
-        setUserId("a2222222-2222-2222-2222-222222222222"); // Fallback mock worker ID from seeds
+        console.warn("No active session found, falling back to mock visitor GYEONGJU-VISITOR-01.");
+        setUserId("a2222222-2222-2222-2222-222222222222"); // Fallback mock visitor ID
       }
     });
 
@@ -322,157 +322,157 @@ function RecommendContent() {
           let userLat = pos.coords.latitude;
           let userLng = pos.coords.longitude;
 
-          // Check if coordinates are outside Gumi National Industrial Complex boundaries
-          const isWithinGumi = userLat >= 36.05 && userLat <= 36.18 && userLng >= 128.32 && userLng <= 128.46;
-          if (!isWithinGumi) {
-            userLat = 36.1198; // Gumi Complex Center (Han솥)
-            userLng = 128.3471;
-            console.log("User is outside Gumi. Mocking location to Gumi Complex:", userLat, userLng);
+          // Check if coordinates are outside Gyeongju Hwangnidan-gil boundaries
+          const isWithinGyeongju = userLat >= 35.82 && userLat <= 35.85 && userLng >= 129.19 && userLng <= 129.24;
+          if (!isWithinGyeongju) {
+            userLat = 35.8362; // Hwangnidan-gil center
+            userLng = 129.2095;
+            console.log("User is outside Gyeongju. Mocking location to Hwangnidan-gil:", userLat, userLng);
           }
 
           setLat(userLat);
           setLng(userLng);
         },
         (err) => {
-          console.warn("Geolocation fallback failed, using default Gumi center.", err);
+          console.warn("Geolocation fallback failed, using default Gyeongju center.", err);
         }
       );
     }
   }, [paramLat, paramLng]);
 
-  // Fallback Mock Seed Data for Resilient Local Demos (Gumi National Industrial Complex)
+  // Fallback Mock Seed Data for Resilient Local Demos (경주 황리단길)
   const MOCK_SEED_FACILITIES = [
     {
       id: "f1000000-0000-0000-0000-000000000001",
-      name: "푸드스퀘어 한식관",
-      type: "cafeteria",
-      latitude: 36.1198,
-      longitude: 128.3471,
-      capacity: 150,
-      operating_hours: { weekday: "11:00-20:00", weekend: "11:00-14:00" },
-      features: { has_vegetarian: true, average_price: 7500, average_processing_time: 20 },
-      congestion_logs: [{ congestion_level: 0.85, current_count: 127, timestamp: new Date().toISOString() }]
+      name: "황남쌈밥",
+      type: "restaurant",
+      latitude: 35.8378,
+      longitude: 129.2096,
+      capacity: 60,
+      operating_hours: { weekday: "10:30-21:00", weekend: "10:30-21:00" },
+      features: { cuisine_tags: ["한식", "쌈밥"], signature_menu: "보리쌈밥정식", barrier_free: true, average_price: 13000, average_processing_time: 25 },
+      congestion_logs: [{ congestion_level: 0.85, current_count: 51, timestamp: new Date().toISOString() }]
     },
     {
       id: "f1000000-0000-0000-0000-000000000002",
-      name: "Indu 뷔페 식당",
-      type: "cafeteria",
-      latitude: 36.1215,
-      longitude: 128.3497,
-      capacity: 200,
-      operating_hours: { weekday: "11:30-19:00", weekend: "closed" },
-      features: { buffet_style: true, average_price: 8000, average_processing_time: 20 },
-      congestion_logs: [{ congestion_level: 0.45, current_count: 90, timestamp: new Date().toISOString() }]
+      name: "교리김밥 황리단길점",
+      type: "restaurant",
+      latitude: 35.8369,
+      longitude: 129.2103,
+      capacity: 30,
+      operating_hours: { weekday: "08:00-18:00", weekend: "08:00-18:00" },
+      features: { cuisine_tags: ["분식", "김밥"], signature_menu: "교리김밥", average_price: 6000, average_processing_time: 20 },
+      congestion_logs: [{ congestion_level: 0.45, current_count: 13, timestamp: new Date().toISOString() }]
     },
     {
       id: "f1000000-0000-0000-0000-000000000003",
-      name: "단지내 중식당 화성",
-      type: "cafeteria",
-      latitude: 36.1228,
-      longitude: 128.3454,
-      capacity: 80,
-      operating_hours: { weekday: "11:00-21:00", weekend: "11:00-15:00" },
-      features: { has_delivery: true, average_price: 9000, average_processing_time: 20 },
-      congestion_logs: [{ congestion_level: 0.20, current_count: 16, timestamp: new Date().toISOString() }]
-    },
-    {
-      id: "f1000000-0000-0000-0000-000000000004",
-      name: "밀스밀 간편식 코너",
-      type: "cafeteria",
-      latitude: 36.1184,
-      longitude: 128.3508,
+      name: "황리단길 한우국밥",
+      type: "restaurant",
+      latitude: 35.8362,
+      longitude: 129.2091,
       capacity: 50,
-      operating_hours: { weekday: "08:00-22:00", weekend: "09:00-18:00" },
-      features: { sandwich_bar: true, average_price: 5500, average_processing_time: 15 },
-      congestion_logs: [{ congestion_level: 0.15, current_count: 7, timestamp: new Date().toISOString() }]
-    },
-    {
-      id: "f1000000-0000-0000-0000-000000000005",
-      name: "산단 남부 한식뷔페",
-      type: "cafeteria",
-      latitude: 36.1243,
-      longitude: 128.3476,
-      capacity: 180,
-      operating_hours: { weekday: "11:00-18:30", weekend: "closed" },
-      features: { buffet_style: true, average_price: 7000, average_processing_time: 20 },
-      congestion_logs: [{ congestion_level: 0.75, current_count: 135, timestamp: new Date().toISOString() }]
+      operating_hours: { weekday: "09:00-20:00", weekend: "09:00-20:00" },
+      features: { cuisine_tags: ["한식", "국밥"], signature_menu: "한우국밥", barrier_free: false, average_price: 10000, average_processing_time: 25 },
+      congestion_logs: [{ congestion_level: 0.20, current_count: 10, timestamp: new Date().toISOString() }]
     },
     {
       id: "f2000000-0000-0000-0000-000000000001",
-      name: "중앙 주차타워 A동",
-      type: "parking",
-      latitude: 36.1208,
-      longitude: 128.3486,
-      capacity: 400,
-      operating_hours: { "24_7": true },
-      features: { has_ev_charger: true, indoor: true, average_processing_time: 5 },
-      congestion_logs: [{ congestion_level: 0.90, current_count: 360, timestamp: new Date().toISOString() }]
+      name: "황리단길 감성카페 봄",
+      type: "cafe",
+      latitude: 35.8366,
+      longitude: 129.2099,
+      capacity: 40,
+      operating_hours: { weekday: "10:00-22:00", weekend: "10:00-23:00" },
+      features: { signature_menu: "황남빵라떼", instagrammable: true, average_price: 6500, average_processing_time: 12 },
+      congestion_logs: [{ congestion_level: 0.75, current_count: 30, timestamp: new Date().toISOString() }]
     },
     {
       id: "f2000000-0000-0000-0000-000000000002",
-      name: "지상 남부 주차장",
-      type: "parking",
-      latitude: 36.1255,
-      longitude: 128.3461,
-      capacity: 250,
-      operating_hours: { "24_7": true },
-      features: { has_ev_charger: false, indoor: false, average_processing_time: 5 },
-      congestion_logs: [{ congestion_level: 0.35, current_count: 87, timestamp: new Date().toISOString() }]
+      name: "한옥카페 다랑",
+      type: "cafe",
+      latitude: 35.8372,
+      longitude: 129.2085,
+      capacity: 35,
+      operating_hours: { weekday: "10:30-21:00", weekend: "10:00-22:00" },
+      features: { signature_menu: "쑥라떼", instagrammable: true, barrier_free: false, average_price: 7000, average_processing_time: 12 },
+      congestion_logs: [{ congestion_level: 0.55, current_count: 19, timestamp: new Date().toISOString() }]
     },
     {
-      id: "f2000000-0000-0000-0000-000000000003",
-      name: "서부 복합주차장 B",
-      type: "parking",
-      latitude: 36.1173,
-      longitude: 128.3441,
-      capacity: 300,
-      operating_hours: { "24_7": true },
-      features: { has_ev_charger: true, indoor: true, average_processing_time: 5 },
-      congestion_logs: [{ congestion_level: 0.10, current_count: 30, timestamp: new Date().toISOString() }]
+      id: "f2000000-0000-0000-0000-000000000004",
+      name: "십원빵 황리단길",
+      type: "cafe",
+      latitude: 35.8375,
+      longitude: 129.2094,
+      capacity: 20,
+      operating_hours: { weekday: "10:00-21:00", weekend: "10:00-21:30" },
+      features: { signature_menu: "십원빵", instagrammable: true, average_price: 4000, average_processing_time: 12 },
+      congestion_logs: [{ congestion_level: 0.15, current_count: 3, timestamp: new Date().toISOString() }]
     },
     {
       id: "f3000000-0000-0000-0000-000000000001",
-      name: "본관 1층 컨퍼런스룸 101",
-      type: "meeting_room",
-      latitude: 36.1203,
-      longitude: 128.3481,
-      capacity: 30,
-      operating_hours: { weekday: "09:00-18:00", weekend: "closed" },
-      features: { has_beam_projector: true, has_video_conf: true, average_processing_time: 10 },
-      congestion_logs: [{ congestion_level: 0.50, current_count: 15, timestamp: new Date().toISOString() }]
+      name: "대릉원(천마총)",
+      type: "attraction",
+      latitude: 35.8389,
+      longitude: 129.2099,
+      capacity: 800,
+      operating_hours: { weekday: "09:00-22:00", weekend: "09:00-22:00" },
+      features: { barrier_free: true, entry_fee: 3000, category: "고분군", average_processing_time: 15 },
+      congestion_logs: [{ congestion_level: 0.90, current_count: 720, timestamp: new Date().toISOString() }]
     },
     {
       id: "f3000000-0000-0000-0000-000000000002",
-      name: "혁신센터 스마트회의실 B",
-      type: "meeting_room",
-      latitude: 36.1221,
-      longitude: 128.3511,
-      capacity: 12,
-      operating_hours: { weekday: "08:00-20:00", weekend: "09:00-18:00" },
-      features: { has_beam_projector: true, whiteboard: true, average_processing_time: 10 },
-      congestion_logs: [{ congestion_level: 0.80, current_count: 10, timestamp: new Date().toISOString() }]
+      name: "첨성대",
+      type: "attraction",
+      latitude: 35.8347,
+      longitude: 129.2189,
+      capacity: 600,
+      operating_hours: { weekday: "00:00-24:00", weekend: "00:00-24:00" },
+      features: { barrier_free: true, entry_fee: 0, category: "유적", average_processing_time: 15 },
+      congestion_logs: [{ congestion_level: 0.70, current_count: 420, timestamp: new Date().toISOString() }]
+    },
+    {
+      id: "f3000000-0000-0000-0000-000000000003",
+      name: "동궁과 월지",
+      type: "attraction",
+      latitude: 35.8348,
+      longitude: 129.2265,
+      capacity: 700,
+      operating_hours: { weekday: "09:00-22:00", weekend: "09:00-22:00" },
+      features: { barrier_free: true, entry_fee: 3000, category: "야경", average_processing_time: 15 },
+      congestion_logs: [{ congestion_level: 0.35, current_count: 245, timestamp: new Date().toISOString() }]
     },
     {
       id: "f4000000-0000-0000-0000-000000000001",
-      name: "북부 직원 휴게라운지 D-1",
-      type: "rest_area",
-      latitude: 36.1263,
-      longitude: 128.3501,
-      capacity: 10,
-      operating_hours: { "24_7": true },
-      features: { massageChairs: { inUse: 3, total: 3 }, sleepCapsules: { inUse: 2, total: 2 }, playstation: { inUse: 1, total: 1 }, average_processing_time: 10 },
-      congestion_logs: [{ congestion_level: 0.95, current_count: 9, timestamp: new Date().toISOString() }]
+      name: "국립경주박물관",
+      type: "culture",
+      latitude: 35.8297,
+      longitude: 129.2278,
+      capacity: 500,
+      operating_hours: { weekday: "10:00-18:00", weekend: "10:00-19:00", closed: "monday" },
+      features: { barrier_free: true, entry_fee: 0, category: "박물관", average_processing_time: 15 },
+      congestion_logs: [{ congestion_level: 0.50, current_count: 250, timestamp: new Date().toISOString() }]
     },
     {
       id: "f4000000-0000-0000-0000-000000000002",
-      name: "남부 직원 휴게라운지 E-2",
-      type: "rest_area",
-      latitude: 36.1163,
-      longitude: 128.3466,
-      capacity: 6,
-      operating_hours: { "24_7": true },
-      features: { massageChairs: { inUse: 0, total: 3 }, sleepCapsules: { inUse: 0, total: 2 }, playstation: { inUse: 0, total: 1 }, average_processing_time: 10 },
-      congestion_logs: [{ congestion_level: 0.15, current_count: 1, timestamp: new Date().toISOString() }]
+      name: "경주 교촌마을",
+      type: "culture",
+      latitude: 35.8296,
+      longitude: 129.2156,
+      capacity: 300,
+      operating_hours: { weekday: "09:00-18:00", weekend: "09:00-18:00" },
+      features: { barrier_free: false, entry_fee: 0, category: "한옥마을", average_processing_time: 15 },
+      congestion_logs: [{ congestion_level: 0.30, current_count: 90, timestamp: new Date().toISOString() }]
+    },
+    {
+      id: "f4000000-0000-0000-0000-000000000004",
+      name: "황리단길 공예공방거리",
+      type: "culture",
+      latitude: 35.8360,
+      longitude: 129.2085,
+      capacity: 100,
+      operating_hours: { weekday: "10:00-19:00", weekend: "10:00-20:00" },
+      features: { barrier_free: true, entry_fee: 0, category: "공예", average_processing_time: 15 },
+      congestion_logs: [{ congestion_level: 0.15, current_count: 15, timestamp: new Date().toISOString() }]
     }
   ];
 
@@ -520,17 +520,16 @@ function RecommendContent() {
           originalFacilityTypeRef.current = originalData.type;
 
           const defaultTimes: Record<string, number> = {
-            cafeteria: 20,
-            parking: 5,
-            meeting_room: 10,
-            rest_area: 10,
-            loading_dock: 30,
+            restaurant: 25,
+            cafe: 12,
+            attraction: 15,
+            culture: 15,
           };
           const avgProcessTime = originalData.features?.average_processing_time ?? defaultTimes[originalData.type] ?? 15;
           const hour = new Date().getHours();
           let timeMultiplier = 1.0;
-          if (hour >= 12 && hour < 14) timeMultiplier = 1.3;
-          else if (hour === 7 || hour === 15) timeMultiplier = 1.2;
+          if (hour >= 11 && hour < 14) timeMultiplier = 1.3;
+          else if (hour >= 14 && hour < 18) timeMultiplier = 1.2;
 
           const predicted = level * avgProcessTime * timeMultiplier;
           setOriginalWaitTime(predicted.toFixed(1));
@@ -586,7 +585,7 @@ function RecommendContent() {
 
         // Demo Fallback Recommendations — 원시설 type 은 deps 에서 originalFacility 객체를 뺀 대신 ref 로 읽는다.
         const filteredMock = MOCK_SEED_FACILITIES
-          .filter(f => f.id !== facilityId && f.type === (originalFacilityTypeRef.current || "cafeteria"));
+          .filter(f => f.id !== facilityId && f.type === (originalFacilityTypeRef.current || "restaurant"));
 
         const fallbacks: RecommendationResponse[] = filteredMock
           .slice(0, 5)
@@ -631,7 +630,7 @@ function RecommendContent() {
   // 추천 API 실패 시 데모용 목업 추천 생성 (회복탄력성)
   const buildMockRecommendations = (): RecommendationResponse[] => {
     const filteredMock = MOCK_SEED_FACILITIES
-      .filter((f) => f.id !== facilityId && f.type === (originalFacility?.type || "cafeteria"));
+      .filter((f) => f.id !== facilityId && f.type === (originalFacility?.type || "restaurant"));
     return filteredMock.slice(0, 5).map((f, i) => ({
       recommendationId: `mock-rec-id-${i}`,
       facility: {
@@ -712,10 +711,10 @@ function RecommendContent() {
       console.warn("NL preference parse failed, client-side keyword fallback:", err);
       const low = nlText.toLowerCase();
       const kw: Record<string, string[]> = {
-        cafeteria: ["식당", "밥", "점심", "먹", "한식", "중식", "양식", "분식", "카페테리아"],
-        parking: ["주차", "전기차", "충전", "차"],
-        meeting_room: ["회의", "미팅", "컨퍼런스", "회의실"],
-        rest_area: ["휴게", "쉬", "쉴", "낮잠", "안마", "수면", "라운지", "휴식"],
+        restaurant: ["식당", "밥", "점심", "먹", "맛집", "한식", "국밥", "고기", "분식"],
+        cafe: ["카페", "커피", "디저트", "빵", "베이커리", "감성"],
+        attraction: ["관광", "명소", "구경", "유적", "첨성대", "대릉원", "야경"],
+        culture: ["문화", "박물관", "전시", "한옥", "공예", "체험", "고택"],
       };
       const cats = Object.entries(kw)
         .filter(([, ws]) => ws.some((w) => low.includes(w)))
@@ -753,7 +752,7 @@ function RecommendContent() {
   // Handle Onboarding Preferences Submission
   const handleOnboardingSubmit = async () => {
     if (selectedOnboardingCats.length < 3) {
-      alert("선호하는 인프라 종류를 3개 이상 선택해 주세요!");
+      alert("선호하는 장소 종류를 3개 이상 선택해 주세요!");
       return;
     }
     if (!userId || !facilityId) return;
@@ -782,7 +781,7 @@ function RecommendContent() {
       console.warn("Error during onboarding fetch fallback:", err);
       // Fallback: If FastAPI recommend API fails, load mock recommendations
       const filteredMock = MOCK_SEED_FACILITIES
-        .filter(f => f.id !== facilityId && f.type === (originalFacility?.type || "cafeteria"));
+        .filter(f => f.id !== facilityId && f.type === (originalFacility?.type || "restaurant"));
       
       const fallbacks: RecommendationResponse[] = filteredMock
         .slice(0, 5)
@@ -832,9 +831,9 @@ function RecommendContent() {
 
       // 2. Prepare toast category-specific greeting
       let greeting = "즐거운 시간 되세요!";
-      if (rec.facility.type === "cafeteria") greeting = "맛있게 드세요!";
-      else if (rec.facility.type === "parking") greeting = "안전 주차 하세요!";
-      else if (rec.facility.type === "rest_area") greeting = "푹 쉬세요!";
+      if (rec.facility.type === "restaurant") greeting = "맛있게 드세요!";
+      else if (rec.facility.type === "cafe") greeting = "여유로운 시간 되세요!";
+      else if (rec.facility.type === "attraction" || rec.facility.type === "culture") greeting = "즐거운 관람 되세요!";
 
       toast.success(`${greeting} 다음 추천이 더 정확해집니다 🎯`);
 
@@ -1226,16 +1225,16 @@ function RecommendContent() {
 
   const getTypeName = (type: string) => {
     switch (type) {
-      case "cafeteria":
-        return "식당";
-      case "parking":
-        return "주차장";
-      case "meeting_room":
-        return "회의실";
-      case "rest_area":
-        return "휴게실";
+      case "restaurant":
+        return "음식점";
+      case "cafe":
+        return "카페";
+      case "attraction":
+        return "관광지";
+      case "culture":
+        return "문화시설";
       default:
-        return "공용시설";
+        return "장소";
     }
   };
 
@@ -1247,10 +1246,10 @@ function RecommendContent() {
   };
 
   const categoriesList = [
-    { id: "cafeteria", label: "식당 🍴" },
-    { id: "parking", label: "주차장 🚗" },
-    { id: "meeting_room", label: "회의실 🤝" },
-    { id: "rest_area", label: "휴게실 🛋️" },
+    { id: "restaurant", label: "음식점 🍴" },
+    { id: "cafe", label: "카페 ☕" },
+    { id: "attraction", label: "관광지 📸" },
+    { id: "culture", label: "문화시설 🏛️" },
   ];
 
   return (
@@ -1268,7 +1267,7 @@ function RecommendContent() {
           >
             ← 지도 보기
           </button>
-          <span className="text-sm font-extrabold tracking-tight gradient-text">InduSpot 추천 AI</span>
+          <span className="text-sm font-extrabold tracking-tight gradient-text">NextSpot 추천 AI</span>
           <div className="w-14"></div> {/* spacer */}
         </header>
 
@@ -1496,7 +1495,7 @@ function RecommendContent() {
                   <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
                 </span>
-                <span className="text-[10px] font-bold tracking-wide gradient-text">InduSpot 음성 비서</span>
+                <span className="text-[10px] font-bold tracking-wide gradient-text">NextSpot 음성 비서</span>
               </div>
               <p className="text-[11px] leading-snug text-slate-200 min-h-[1.1rem]">
                 {voiceState === "listening"
@@ -1592,7 +1591,7 @@ function RecommendContent() {
               <span className="text-xl">🎯</span>
               <h3 className="text-lg font-extrabold text-slate-100">맞춤형 추천 온보딩</h3>
               <p className="text-xs text-slate-400 leading-relaxed">
-                InduSpot AI의 최적화된 TTTV 대안 경로 매칭을 제공받기 위해, 평소에 자주 방문하시는 시설 종류를 **3개 이상** 선택해 주세요.
+                NextSpot AI의 최적화된 TTTV 대안 경로 매칭을 위해, 관심 있는 장소 종류를 **3개 이상** 선택해 주세요.
               </p>
             </div>
 
@@ -1606,7 +1605,7 @@ function RecommendContent() {
                   value={nlText}
                   onChange={(e) => setNlText(e.target.value)}
                   rows={2}
-                  placeholder="예: 조용한 회의실이랑 전기차 충전되는 가까운 주차장이 좋아요"
+                  placeholder="예: 조용한 한옥카페랑 무장애 되는 가까운 관광지가 좋아요"
                   className="w-full bg-black/40 border border-white/10 rounded-2xl p-3 pr-11 text-xs text-slate-100 placeholder:text-slate-500 outline-none focus:border-sky-400/50 resize-none"
                 />
                 <button
