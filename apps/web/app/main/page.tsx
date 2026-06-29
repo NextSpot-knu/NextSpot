@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Script from 'next/script';
-import { Home, Bookmark, User, Search, Mic, Utensils, ParkingCircle, Building2, Coffee, Sparkles, ChevronDown, ChevronUp } from 'lucide-react';
+import { Home, Bookmark, User, Search, Mic, Utensils, MapPin, Building2, Coffee, Sparkles, ChevronDown, ChevronUp } from 'lucide-react';
 import { RecommendationCard } from '@/components/RecommendationCard';
 import { createPublicClient } from '@/lib/supabase';
 import { getMarkerSvg } from '@/lib/utils';
@@ -39,7 +39,7 @@ export default function MainPage() {
   const activeOverlayRef = useRef<any>(null);
 
   const [activeTab, setActiveTab] = useState('Home');
-  const [activeFilter, setActiveFilter] = useState('식당'); // 첫 접속 시 식당 세션을 먼저 표시(탭 순서와 일치)
+  const [activeFilter, setActiveFilter] = useState('음식점'); // 첫 접속 시 음식점 세션을 먼저 표시(탭 순서와 일치)
   const [facilities, setFacilities] = useState<any[]>([]);
   const [selectedFacility, setSelectedFacility] = useState<any>(null);
   // 음성 선호 필터(예: '양식 먹고 싶어'→양식 식당 id들). null이면 필터 없음.
@@ -225,8 +225,7 @@ export default function MainPage() {
            };
         });
 
-        const finalFacilities = [...mapped, dummyLoungeGroup, dummyMeetingGroup, ...dummyMeetingsOutside];
-        setFacilities(finalFacilities);
+        setFacilities(mapped);
       } catch (err) {
         console.error("Error loading facilities:", err);
       }
@@ -247,19 +246,19 @@ export default function MainPage() {
         const pop = Math.abs(hash2 % 100) / 100; // deterministic popularity (0.0~1.0)
 
         if (mockHour === 12.5) { // 점심 피크
-          if (f.type === 'cafeteria') {
+          if (f.type === 'restaurant') {
             currentCongestion = pop > 0.6 ? (0.7 + pop * 0.3) : (pop + 0.2);
-          } else if (f.type === 'parking') {
+          } else if (f.type === 'attraction') {
             currentCongestion = pop > 0.8 ? (0.6 + pop * 0.4) : (pop * 0.8);
           } else {
             currentCongestion = pop * 0.5;
           }
         } else if (mockHour === 18.5) { // 저녁 피크
-          if (f.type === 'parking') {
+          if (f.type === 'attraction') {
             currentCongestion = pop > 0.5 ? (0.6 + pop * 0.4) : (pop + 0.1);
-          } else if (f.type === 'cafeteria') {
+          } else if (f.type === 'restaurant') {
             currentCongestion = pop > 0.7 ? (0.6 + pop * 0.4) : (pop * 0.6);
-          } else if (f.type === 'loading_dock') {
+          } else if (f.type === 'cafe') {
             currentCongestion = pop > 0.6 ? (0.5 + pop * 0.5) : (pop * 0.7);
           } else {
             currentCongestion = pop * 0.5;
@@ -273,7 +272,7 @@ export default function MainPage() {
   const [rankedFacilities, setRankedFacilities] = useState<any[]>([]);
   const [rejectedIds, setRejectedIds] = useState<Set<string>>(new Set());
   const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
-  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number }>({ lat: 36.1198, lng: 128.3471 });
+  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number }>({ lat: 35.8362, lng: 129.2095 });
   const [preferredCategories, setPreferredCategories] = useState<string[]>([]);
   const [userId, setUserId] = useState<string | null>(null);
 
@@ -303,12 +302,12 @@ export default function MainPage() {
           let lat = position.coords.latitude;
           let lng = position.coords.longitude;
 
-          // Check if coordinates are outside Gumi National Industrial Complex boundaries
-          const isWithinGumi = lat >= 36.05 && lat <= 36.18 && lng >= 128.32 && lng <= 128.46;
-          if (!isWithinGumi) {
-            lat = 36.1198; // Gumi Complex Center (Han솥)
-            lng = 128.3471;
-            console.log("User is outside Gumi. Mocking location to Gumi Complex:", lat, lng);
+          // Check if coordinates are outside Gyeongju Hwangnidan-gil boundaries
+          const isWithinGyeongju = lat >= 35.82 && lat <= 35.85 && lng >= 129.19 && lng <= 129.24;
+          if (!isWithinGyeongju) {
+            lat = 35.8362; // Hwangnidan-gil center
+            lng = 129.2095;
+            console.log("User is outside Gyeongju. Mocking location to Hwangnidan-gil:", lat, lng);
           }
 
           setUserLocation({ lat, lng });
@@ -363,7 +362,7 @@ export default function MainPage() {
   useEffect(() => {
     if (typeof window !== 'undefined') {
       try {
-        const saved = localStorage.getItem('induspot_saved_facilities');
+        const saved = localStorage.getItem('nextspot_saved_facilities');
         if (saved) {
           const parsed = JSON.parse(saved);
           const ids = new Set<string>(parsed.map((item: any) => item.id));
@@ -375,7 +374,7 @@ export default function MainPage() {
 
 
       try {
-        const rejected = sessionStorage.getItem('induspot_rejected_ids');
+        const rejected = sessionStorage.getItem('nextspot_rejected_ids');
         if (rejected) {
           setRejectedIds(new Set(JSON.parse(rejected)));
         }
@@ -384,7 +383,7 @@ export default function MainPage() {
       }
 
       try {
-        const savedFilter = sessionStorage.getItem('induspot_active_filter');
+        const savedFilter = sessionStorage.getItem('nextspot_active_filter');
         if (savedFilter) {
           setActiveFilter(savedFilter);
         }
@@ -397,10 +396,10 @@ export default function MainPage() {
   // 온보딩(setup)에서 고른 음식 선호를 '음식 의도' 기본값으로 로드(음성 발화가 있으면 그쪽이 덮어씀).
   useEffect(() => {
     try {
-      const raw = localStorage.getItem('induspot_setup_prefs');
+      const raw = localStorage.getItem('nextspot_setup_prefs');
       if (raw) {
         const food = String(JSON.parse(raw)?.food || '').trim();
-        if (food) cuisineIntentRef.current = food === '간편식' ? '분식 김밥 떡볶이' : food;
+        if (food) cuisineIntentRef.current = food === '분식·국밥' ? '분식 국밥 김밥' : food === '카페·디저트' ? '카페 디저트' : food;
       }
     } catch { /* noop */ }
   }, []);
@@ -442,10 +441,10 @@ export default function MainPage() {
     if (facilities.length === 0) return;
 
     const filterMap: Record<string, string> = {
-      '식당': 'cafeteria',
-      '주차장': 'parking',
-      '회의실': 'meeting_room',
-      '휴게실': 'rest_area'
+      '음식점': 'restaurant',
+      '카페': 'cafe',
+      '관광지': 'attraction',
+      '문화시설': 'culture'
     };
     const targetType = filterMap[activeFilter];
 
@@ -552,9 +551,9 @@ export default function MainPage() {
     if (!fac) return;
 
     let greeting = "즐거운 시간 되세요!";
-    if (fac.type === "cafeteria") greeting = "맛있게 드세요!";
-    else if (fac.type === "parking") greeting = "안전 주차 하세요!";
-    else if (fac.type === "meeting_room") greeting = "성공적인 회의 되세요!";
+    if (fac.type === "restaurant") greeting = "맛있게 드세요!";
+    else if (fac.type === "cafe") greeting = "여유로운 시간 되세요!";
+    else if (fac.type === "attraction" || fac.type === "culture") greeting = "즐거운 관람 되세요!";
     
     showToast(`${greeting} 다음 추천이 더 정확해집니다 🎯`);
 
@@ -604,12 +603,12 @@ export default function MainPage() {
     // Clear selection from sessionStorage immediately to prevent restoration logic from sticking to this item
     if (typeof window !== 'undefined') {
       try {
-        sessionStorage.removeItem('induspot_selected_facility_id');
+        sessionStorage.removeItem('nextspot_selected_facility_id');
       } catch (e) {}
     }
 
     const filterMap: Record<string, string> = {
-      '식당': 'cafeteria', '주차장': 'parking', '회의실': 'meeting_room', '휴게실': 'rest_area'
+      '음식점': 'restaurant', '카페': 'cafe', '관광지': 'attraction', '문화시설': 'culture'
     };
     const targetType = filterMap[activeFilter];
 
@@ -640,7 +639,7 @@ export default function MainPage() {
     });
 
     try {
-      const existing = localStorage.getItem('induspot_saved_facilities');
+      const existing = localStorage.getItem('nextspot_saved_facilities');
       const bookmarks = existing ? JSON.parse(existing) : [];
       
       const tttv = fac.tttv || calculateTTTV(fac);
@@ -648,13 +647,13 @@ export default function MainPage() {
         bookmarks.push({
           id: fac.id,
           name: fac.name,
-          category: fac.type === 'cafeteria' ? '식당' : fac.type === 'parking' ? '주차장' : fac.type === 'meeting_room' ? '회의실' : '휴게실',
+          category: fac.type === 'restaurant' ? '음식점' : fac.type === 'cafe' ? '카페' : fac.type === 'attraction' ? '관광지' : '문화시설',
           trafficStatus: fac.congestionLevel >= 0.75 ? 'orange' : fac.congestionLevel >= 0.50 ? 'yellow' : fac.congestionLevel >= 0.25 ? 'green' : 'blue',
           waitTime: `${tttv?.expectedWait || 0}분`,
           tttv: tttv,
           reason: fac.reason || ""
         });
-        localStorage.setItem('induspot_saved_facilities', JSON.stringify(bookmarks));
+        localStorage.setItem('nextspot_saved_facilities', JSON.stringify(bookmarks));
       }
     } catch (e) {
       console.error("Failed to save bookmark:", e);
@@ -669,12 +668,12 @@ export default function MainPage() {
     // Clear selection from sessionStorage immediately to prevent restoration logic from sticking to this item
     if (typeof window !== 'undefined') {
       try {
-        sessionStorage.removeItem('induspot_selected_facility_id');
+        sessionStorage.removeItem('nextspot_selected_facility_id');
       } catch (e) {}
     }
 
     const filterMap: Record<string, string> = {
-      '식당': 'cafeteria', '주차장': 'parking', '회의실': 'meeting_room', '휴게실': 'rest_area'
+      '음식점': 'restaurant', '카페': 'cafe', '관광지': 'attraction', '문화시설': 'culture'
     };
     const targetType = filterMap[activeFilter];
 
@@ -707,7 +706,7 @@ export default function MainPage() {
       next.add(fac.id);
       if (typeof window !== 'undefined') {
         try {
-          sessionStorage.setItem('induspot_rejected_ids', JSON.stringify(Array.from(next)));
+          sessionStorage.setItem('nextspot_rejected_ids', JSON.stringify(Array.from(next)));
         } catch (e) {
           console.error("Failed to save rejected IDs to sessionStorage:", e);
         }
@@ -779,7 +778,7 @@ export default function MainPage() {
     },
     // 사용자 발화를 백엔드 Vertex Gemini(/api/v1/voice/turn)로 해석. 현재 타입 후보 목록(이름/혼잡/거리)을 동봉.
     interpret: async (utterance, f) => {
-      const filterMap: Record<string, string> = { '식당': 'cafeteria', '주차장': 'parking', '회의실': 'meeting_room', '휴게실': 'rest_area' };
+      const filterMap: Record<string, string> = { '음식점': 'restaurant', '카페': 'cafe', '관광지': 'attraction', '문화시설': 'culture' };
       const type = f?.type || filterMap[activeFilter] || 'cafeteria';
 
       // 주차장 전용: '공영' 필터 + 랜드마크('구미세무서 가까운') 근접은 임베딩 의미검색이 아니라 플래그/좌표로
@@ -854,14 +853,14 @@ export default function MainPage() {
     if (mapInstanceRef.current) return;
     if (window.kakao && window.kakao.maps && mapContainerRef.current) {
       window.kakao.maps.load(() => {
-        let centerLat = 36.1198;
-        let centerLng = 128.3471;
+        let centerLat = 35.8362;
+        let centerLng = 129.2095;
         let level = 4;
 
         if (typeof window !== 'undefined') {
-          const savedLat = sessionStorage.getItem('induspot_map_center_lat');
-          const savedLng = sessionStorage.getItem('induspot_map_center_lng');
-          const savedLevel = sessionStorage.getItem('induspot_map_level');
+          const savedLat = sessionStorage.getItem('nextspot_map_center_lat');
+          const savedLng = sessionStorage.getItem('nextspot_map_center_lng');
+          const savedLevel = sessionStorage.getItem('nextspot_map_level');
           
           if (savedLat && savedLng) {
             const parsedLat = parseFloat(savedLat);
@@ -891,9 +890,9 @@ export default function MainPage() {
         window.kakao.maps.event.addListener(map, 'idle', () => {
           const center = map.getCenter();
           const lvl = map.getLevel();
-          sessionStorage.setItem('induspot_map_center_lat', center.getLat().toString());
-          sessionStorage.setItem('induspot_map_center_lng', center.getLng().toString());
-          sessionStorage.setItem('induspot_map_level', lvl.toString());
+          sessionStorage.setItem('nextspot_map_center_lat', center.getLat().toString());
+          sessionStorage.setItem('nextspot_map_center_lng', center.getLng().toString());
+          sessionStorage.setItem('nextspot_map_level', lvl.toString());
         });
 
         // 빈 지도(마커 외) 클릭 시 그룹 팝업 닫기 + 그룹 하이라이트 해제 + 추천 카드 선택해제 — 일반 지도앱 UX
@@ -930,10 +929,10 @@ export default function MainPage() {
 
     // Map active filter label to DB type name
     const filterMap: Record<string, string> = {
-      '식당': 'cafeteria',
-      '주차장': 'parking',
-      '회의실': 'meeting_room',
-      '휴게실': 'rest_area'
+      '음식점': 'restaurant',
+      '카페': 'cafe',
+      '관광지': 'attraction',
+      '문화시설': 'culture'
     };
     const targetType = filterMap[activeFilter];
 
@@ -1037,10 +1036,10 @@ export default function MainPage() {
   }, [facilities, activeFilter, mapLoaded, selectedFacility?.id, activeGroupId]);
 
   const filters = [
-    { id: '식당', icon: Utensils },
-    { id: '주차장', icon: ParkingCircle },
-    { id: '회의실', icon: Building2 },
-    { id: '휴게실', icon: Coffee },
+    { id: '음식점', icon: Utensils },
+    { id: '카페', icon: Coffee },
+    { id: '관광지', icon: MapPin },
+    { id: '문화시설', icon: Building2 },
   ];
 
   const handleTabClick = (tabId: string) => {
@@ -1095,7 +1094,7 @@ export default function MainPage() {
                     activeOverlayRef.current = null;
                   }
                   if (typeof window !== 'undefined') {
-                    sessionStorage.setItem('induspot_active_filter', filter.id);
+                    sessionStorage.setItem('nextspot_active_filter', filter.id);
                   }
                 }}
                 className={`flex shrink-0 items-center whitespace-nowrap rounded-full border px-3 py-1.5 transition-all fractal-glass sm:px-4 sm:py-2 ${
@@ -1202,12 +1201,12 @@ export default function MainPage() {
             <div className="px-3 pb-3 border-t border-white/5">
               <div className="grid grid-cols-2 gap-1.5 w-32 mt-2">
                 {[
-                  { id: 1, lat: 36.1220, lng: 128.3760 },
-                  { id: 2, lat: 36.1193, lng: 128.3646 },
-                  { id: 3, lat: 36.1100, lng: 128.3650 },
-                  { id: 4, lat: 36.0920, lng: 128.3460 },
-                  { id: 5, lat: 36.0857, lng: 128.3664 },
-                  { id: 6, lat: 36.1080, lng: 128.3814 }
+                  { id: 1, lat: 35.8362, lng: 129.2095 },
+                  { id: 2, lat: 35.8389, lng: 129.2099 },
+                  { id: 3, lat: 35.8347, lng: 129.2189 },
+                  { id: 4, lat: 35.8348, lng: 129.2265 },
+                  { id: 5, lat: 35.8389, lng: 129.2117 },
+                  { id: 6, lat: 35.8296, lng: 129.2156 }
                 ].map((loc) => {
                   const isCurrent = Math.abs(userLocation.lat - loc.lat) < 0.0001 && Math.abs(userLocation.lng - loc.lng) < 0.0001;
                   return (
@@ -1219,7 +1218,7 @@ export default function MainPage() {
                           mapInstanceRef.current.setCenter(new window.kakao.maps.LatLng(loc.lat, loc.lng));
                         }
                         if (typeof window !== 'undefined') {
-                          sessionStorage.removeItem('induspot_selected_facility_id');
+                          sessionStorage.removeItem('nextspot_selected_facility_id');
                         }
                         showToast(`사용자 위치가 가상 ${loc.id}번 지점으로 설정되었습니다.`);
                       }}
