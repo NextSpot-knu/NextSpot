@@ -1,0 +1,22 @@
+services:
+  # FastAPI Backend API Service (로컬 전용 · 비-GCP)
+  api:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+    container_name: induspot-api
+    # 컨테이너는 8080(Dockerfile)을 리슨한다 → 호스트 8000 → 컨테이너 8080 매핑.
+    ports:
+      - "8000:8080"
+    volumes:
+      - ./apps/api:/app   # 코드/모델(model.pkl) 라이브 마운트
+    environment:
+      - ENV=development
+      # 값은 루트 .env 에서 치환된다(docker-compose 자동 로드).
+      - SUPABASE_URL=${SUPABASE_URL:-https://your-supabase-project.supabase.co}
+      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY:-your-supabase-anon-key}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY:-}
+      - JWT_SECRET=${JWT_SECRET:-your-supabase-jwt-secret}
+      - ADMIN_API_TOKEN=${ADMIN_API_TOKEN:-induspot-admin-local}
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-*}
+    restart: unless-stopped

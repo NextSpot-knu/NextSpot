@@ -1,0 +1,22 @@
+# 빌드 컨텍스트에서 제외 — runner 스테이지의 `COPY . .` 가 시크릿/대용량 산출물을 이미지 레이어에
+# 박제하지 않도록 한다. 시크릿은 Cloud Run 환경변수 또는 GCP Secret Manager(config.load_gcp_secrets)로만 주입.
+
+# 시크릿 (단, 온보딩 참조용 예시는 유지)
+.env
+.env.*
+!.env.example
+
+# 가상환경 / 빌드 캐시
+.venv/
+.venv_deploy/
+__pycache__/
+*.pyc
+
+# 배포 로그 / 모델 아티팩트 (런타임은 GCS/Vertex 경로 사용)
+*.log
+*.joblib
+
+# 테스트 / VCS
+tests/
+.git/
+.gitignore

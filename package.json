@@ -1,0 +1,21 @@
+{
+  "name": "nextspot-monorepo",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "web:dev": "npm run dev --workspace=apps/web",
+    "web:build": "npm run build --workspace=apps/web",
+    "web:install": "npm install --workspace=apps/web",
+    "api:dev": "docker-compose up -d",
+    "api:dev:local": "cd apps/api && uvicorn app.main:app --reload",
+    "api:install": "cd apps/api && pip install -r requirements.txt",
+    "api:stop": "docker-compose down"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.106.2"
+  }
+}

@@ -1,0 +1,107 @@
+@import "tailwindcss";
+
+:root {
+  --background: #0a0a0a;
+  --foreground: #ededed;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+}
+
+@keyframes fade-in-up {
+  0% {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in {
+  animation: fade-in-up 1s ease-out forwards;
+}
+
+@keyframes page-enter {
+  0% {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-page-enter {
+  animation: page-enter 0.25s cubic-bezier(0.2, 0, 0, 1) forwards;
+}
+
+@keyframes slide-up {
+  0% {
+    opacity: 0;
+    transform: translateY(30px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-slide-up {
+  animation: slide-up 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes toast-in-up {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, 20px);
+  }
+  100% {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+.animate-toast {
+  animation: toast-in-up 0.25s cubic-bezier(0.21, 1.02, 0.73, 1) forwards;
+}
+
+/* 스크롤바 숨김(스크롤은 가능, 바만 비표시) */
+.no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* 다크 지도: 타일 이미지(http)만 어둡게 invert. 마커/오버레이는 data: URI 라 제외되어
+   필터에 눌리지 않은 본래의 선명한 색으로 표시된다(마커 색이 어둡게 보이던 문제 해소). */
+.map-dark-tiles img:not([src^="data:"]) {
+  filter: invert(90%) hue-rotate(180deg) brightness(80%) contrast(120%) grayscale(20%);
+}
+
+/* 사용자 위치 마커는 어떤 다크/invert 필터 레이어에도 눌리지 않도록 강제(흰 테두리가 검게 반전되던 문제 차단) */
+.user-loc-marker,
+.user-loc-marker * {
+  filter: none !important;
+  -webkit-filter: none !important;
+}
+
+/* 글래스 효과(필터 칩 등). 이전엔 .fractal-glass 가 미정의라 효과가 없었음.
+   테두리/배경색은 Tailwind 유틸(border, border-*, bg-*)이 처리하므로 여기선 blur 만 적용해 충돌 방지. */
+.fractal-glass {
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+}
