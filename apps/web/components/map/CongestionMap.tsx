@@ -20,19 +20,18 @@ declare global {
 
 const calculateWaitTime = (type: string, level: number, features: any = {}) => {
   const defaultTimes: Record<string, number> = {
-    cafeteria: 20,
-    parking: 5,
-    meeting_room: 10,
-    rest_area: 10,
-    loading_dock: 30,
+    restaurant: 25,
+    cafe: 12,
+    attraction: 15,
+    culture: 15,
   };
   const avgProcessTime = features?.average_processing_time ?? defaultTimes[type] ?? 15;
 
   const hour = new Date().getHours();
   let timeMultiplier = 1.0;
-  if (hour >= 12 && hour < 14) {
+  if (hour >= 11 && hour < 14) {
     timeMultiplier = 1.3;
-  } else if (hour === 7 || hour === 15) {
+  } else if (hour >= 14 && hour < 18) {
     timeMultiplier = 1.2;
   }
 
@@ -69,12 +68,12 @@ export default function CongestionMap({ initialFacilities }: CongestionMapProps)
   const markersRef = useRef<any[]>([]);
   const userMarkerRef = useRef<any>(null);
 
-  // Projection helper: maps lat/lng of Gumi industrial complex to percentage grid coords
+  // Projection helper: maps lat/lng of Gyeongju Hwangnidan-gil area to percentage grid coords
   const getCoordinatesOnGrid = (lat: number, lng: number) => {
-    const minLat = 36.0500;
-    const maxLat = 36.1800;
-    const minLng = 128.3200;
-    const maxLng = 128.4600;
+    const minLat = 35.8250;
+    const maxLat = 35.8480;
+    const minLng = 129.2000;
+    const maxLng = 129.2320;
 
     const y = 100 - ((lat - minLat) / (maxLat - minLat)) * 100;
     const x = ((lng - minLng) / (maxLng - minLng)) * 100;
@@ -89,7 +88,7 @@ export default function CongestionMap({ initialFacilities }: CongestionMapProps)
     if (isMock) {
       setIsSimulation(true);
       setMapLoaded(true);
-      setUserLocation({ lat: 36.1198, lng: 128.3471 });
+      setUserLocation({ lat: 35.8362, lng: 129.2095 });
       return;
     }
 
@@ -141,7 +140,7 @@ export default function CongestionMap({ initialFacilities }: CongestionMapProps)
     if (!mapLoaded || !mapContainerRef.current || isSimulation) return;
 
     const kakao = window.kakao;
-    const defaultCenter = new kakao.maps.LatLng(36.1198, 128.3471);
+    const defaultCenter = new kakao.maps.LatLng(35.8362, 129.2095);
 
     const mapOptions = {
       center: defaultCenter,
@@ -182,12 +181,12 @@ export default function CongestionMap({ initialFacilities }: CongestionMapProps)
           let lat = position.coords.latitude;
           let lng = position.coords.longitude;
 
-          // Check if coordinates are outside Gumi National Industrial Complex boundaries
-          const isWithinGumi = lat >= 36.05 && lat <= 36.18 && lng >= 128.32 && lng <= 128.46;
-          if (!isWithinGumi) {
-            lat = 36.1198;
-            lng = 128.3471;
-            console.log("User is outside Gumi. Mocking location to Gumi Complex:", lat, lng);
+          // Check if coordinates are outside Gyeongju Hwangnidan-gil boundaries
+          const isWithinGyeongju = lat >= 35.82 && lat <= 35.85 && lng >= 129.19 && lng <= 129.24;
+          if (!isWithinGyeongju) {
+            lat = 35.8362;
+            lng = 129.2095;
+            console.log("User is outside Gyeongju. Mocking location to Hwangnidan-gil:", lat, lng);
           }
 
           setUserLocation({ lat, lng });
@@ -248,7 +247,7 @@ export default function CongestionMap({ initialFacilities }: CongestionMapProps)
     });
 
     const newMarkers = filtered.map((f) => {
-      const isPrivateParking = f.type === "parking" && (f.features?.is_private === true || f.features?.parking_type === "사내");
+      const isPrivateParking = false; // 관광 POI엔 사내주차 개념이 없어 표준 마커 사용
       // 마커 크기 반응형(좁은 화면=작게, 넓은 화면=크게)
       const isNarrow = typeof window !== "undefined" && window.innerWidth < 640;
       const nW = isNarrow ? 40 : 48, nH = isNarrow ? 51 : 61, sq = isNarrow ? 38 : 46;
@@ -355,17 +354,16 @@ export default function CongestionMap({ initialFacilities }: CongestionMapProps)
 
   const getTypeName = (type: string) => {
     switch (type) {
-      case "cafeteria":
-        return "식당 🍴";
-      case "parking":
-        return "주차장 🚗";
-      case "meeting_room":
-        return "회의실 🤝";
-      case "rest_area":
-      case "loading_dock":
-        return "휴게실 🛋️";
+      case "restaurant":
+        return "음식점 🍴";
+      case "cafe":
+        return "카페 ☕";
+      case "attraction":
+        return "관광지 📸";
+      case "culture":
+        return "문화시설 🏛️";
       default:
-        return "공용시설 📍";
+        return "장소 📍";
     }
   };
 
@@ -380,10 +378,10 @@ export default function CongestionMap({ initialFacilities }: CongestionMapProps)
 
   const filterChips = [
     { label: "전체", value: "all" },
-    { label: "식당 🍴", value: "cafeteria" },
-    { label: "주차장 🚗", value: "parking" },
-    { label: "회의실 🤝", value: "meeting_room" },
-    { label: "휴게실 🛋️", value: "rest_area" },
+    { label: "음식점 🍴", value: "restaurant" },
+    { label: "카페 ☕", value: "cafe" },
+    { label: "관광지 📸", value: "attraction" },
+    { label: "문화시설 🏛️", value: "culture" },
   ];
 
   const filteredFacilities = facilities.filter((f) => {
@@ -396,7 +394,7 @@ export default function CongestionMap({ initialFacilities }: CongestionMapProps)
     const handleSwitchToSimulation = () => {
       setIsSimulation(true);
       setMapLoaded(true);
-      setUserLocation({ lat: 36.1213, lng: 128.3476 });
+      setUserLocation({ lat: 35.8366, lng: 129.2099 });
       setMapError(false);
     };
 
@@ -447,8 +445,8 @@ export default function CongestionMap({ initialFacilities }: CongestionMapProps)
 
           {/* Technical Info Label */}
           <div className="absolute bottom-6 left-6 text-[9px] text-slate-500 font-mono space-y-0.5 z-10 pointer-events-none">
-            <div>SYSTEM: SIMULATED SMART INDUSTRIAL PARK DIGITAL TWIN</div>
-            <div>COORDINATES IN USE: GUMI INDUSTRIAL COMPLEX SEED CLUSTER</div>
+            <div>SYSTEM: SIMULATED GYEONGJU TOURISM DIGITAL TWIN</div>
+            <div>COORDINATES IN USE: GYEONGJU HWANGNIDAN-GIL SEED CLUSTER</div>
             <div>KAKAOMAPS: BYPASSED (SIMULATOR MODE ACTIVE)</div>
           </div>
 
@@ -470,7 +468,7 @@ export default function CongestionMap({ initialFacilities }: CongestionMapProps)
           {filteredFacilities.map((f) => {
             const pos = getCoordinatesOnGrid(f.latitude, f.longitude);
             const markerSvg = getMarkerSvg(f.type, f.congestionLevel, f.features);
-            const isPrivateParking = f.type === "parking" && (f.features?.is_private === true || f.features?.parking_type === "사내");
+            const isPrivateParking = false; // 관광 POI엔 사내주차 개념이 없어 표준 마커 사용
             const translateClass = isPrivateParking ? "-translate-x-1/2 -translate-y-1/2" : "-translate-x-1/2 -translate-y-[85%]";
 
             return (
@@ -500,7 +498,7 @@ export default function CongestionMap({ initialFacilities }: CongestionMapProps)
       {/* Floating Header */}
       <div className="absolute top-4 left-4 z-10 flex items-center gap-2 bg-slate-900/85 backdrop-blur-md px-4 py-2.5 rounded-2xl border border-white/10 shadow-xl">
         <span className="text-sm font-extrabold tracking-tight">
-          <span className="gradient-text">InduSpot</span> Map
+          <span className="gradient-text">NextSpot</span> Map
         </span>
         <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse ml-1" />
         <span className="text-[10px] text-emerald-400 font-bold uppercase tracking-wider">Live</span>
