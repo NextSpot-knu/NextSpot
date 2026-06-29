@@ -2,21 +2,21 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, MapPin, Building, Utensils, Coffee, Pizza, Soup, Sun, Moon, ArrowRight } from 'lucide-react';
+import { ArrowLeft, MapPin, Building, Utensils, Coffee, Pizza, Soup, Sun, Sunset, Moon, ArrowRight } from 'lucide-react';
 
 export default function SetupPage() {
   const router = useRouter();
-  
+
   const [step, setStep] = useState(1);
   const [preferences, setPreferences] = useState({
+    category: '',
     food: '',
-    parking: '',
-    shift: ''
+    visitTime: ''
   });
 
   const totalSteps = 3;
 
-  const stepKey = (step === 1 ? 'food' : step === 2 ? 'parking' : 'shift') as keyof typeof preferences;
+  const stepKey = (step === 1 ? 'category' : step === 2 ? 'food' : 'visitTime') as keyof typeof preferences;
   const canProceed = !!preferences[stepKey];
 
   const handleNext = () => {
@@ -25,9 +25,9 @@ export default function SetupPage() {
     if (step < totalSteps) {
       setStep(step + 1);
     } else {
-      // 온보딩 음식 선호(food)를 '음식 의도'로 저장 → main 추천의 선호 일치율이 음식종류를 반영한다(localStorage).
-      // (facility type 카테고리 학습은 worker/recommend 온보딩이 Supabase users.preferred_categories 로 별도 담당.)
-      try { localStorage.setItem('induspot_setup_prefs', JSON.stringify(preferences)); } catch { /* noop */ }
+      // 온보딩 선호(관심 카테고리·음식 취향·방문 시간대)를 저장 → main 추천의 선호 일치율·음식 의도에 반영(localStorage).
+      // (카테고리 학습은 worker/recommend 온보딩이 Supabase users.preferred_categories 로 별도 담당.)
+      try { localStorage.setItem('nextspot_setup_prefs', JSON.stringify(preferences)); } catch { /* noop */ }
       router.push('/main');
     }
   };
@@ -54,22 +54,22 @@ export default function SetupPage() {
 
       {/* Header & Progress */}
       <div className="z-10 w-full max-w-md mx-auto pt-8 px-6">
-        <button 
+        <button
           onClick={handleBack}
           className="w-10 h-10 flex items-center justify-center rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 transition-colors mb-6"
         >
           <ArrowLeft size={20} />
         </button>
-        
+
         <div className="w-full h-1.5 bg-gray-800 rounded-full mb-6 overflow-hidden">
-          <div 
+          <div
             className="h-full bg-blue-600 transition-all duration-500 ease-out"
             style={{ width: `${(step / totalSteps) * 100}%` }}
           />
         </div>
 
         <p className="text-sm text-gray-400 mb-12">
-          환영합니다! 맞춤형 추천을 위해 선호도를 알려주세요.
+          환영합니다! 맞춤형 경주 여행 추천을 위해 취향을 알려주세요.
         </p>
       </div>
 
@@ -78,24 +78,24 @@ export default function SetupPage() {
         {step === 1 && (
           <div className="animate-slide-up flex-1">
             <h2 className="text-2xl font-bold mb-8 text-center break-keep">
-              주로 선호하는 식당 메뉴는<br/>무엇인가요?
+              어떤 장소에<br/>가장 관심이 있으세요?
             </h2>
             <div className="grid grid-cols-2 gap-4">
               {[
-                { id: 'korean', label: '한식', icon: Soup },
-                { id: 'chinese', label: '중식', icon: Utensils },
-                { id: 'western', label: '양식', icon: Pizza },
-                { id: 'fastfood', label: '간편식', icon: Coffee }
+                { id: 'restaurant', label: '음식점', icon: Utensils },
+                { id: 'cafe', label: '카페', icon: Coffee },
+                { id: 'attraction', label: '관광지', icon: MapPin },
+                { id: 'culture', label: '문화시설', icon: Building }
               ].map(option => {
                 const Icon = option.icon;
-                const isSelected = preferences.food === option.label;
+                const isSelected = preferences.category === option.label;
                 return (
                   <button
                     key={option.id}
-                    onClick={() => setPreference('food', option.label)}
+                    onClick={() => setPreference('category', option.label)}
                     className={`flex flex-col items-center justify-center p-6 rounded-2xl border backdrop-blur-md transition-all ${
-                      isSelected 
-                        ? 'bg-blue-600/20 border-blue-500 text-white' 
+                      isSelected
+                        ? 'bg-blue-600/20 border-blue-500 text-white'
                         : 'bg-white/5 border-white/5 text-gray-400 hover:bg-white/10 hover:text-gray-200'
                     }`}
                   >
@@ -111,30 +111,29 @@ export default function SetupPage() {
         {step === 2 && (
           <div className="animate-slide-up flex-1">
             <h2 className="text-2xl font-bold mb-8 text-center break-keep">
-              자주 이용하는 주차 구역은<br/>어디인가요?
+              어떤 음식을<br/>좋아하세요?
             </h2>
             <div className="grid grid-cols-2 gap-4">
               {[
-                { id: 'A', label: 'A-Zone', sub: 'North Wing', icon: MapPin },
-                { id: 'B', label: 'B-Zone', sub: 'South Wing', icon: MapPin },
-                { id: 'C', label: 'C-Zone', sub: 'East Wing', icon: MapPin },
-                { id: 'Central', label: 'Central Lot', sub: 'Main Hub', icon: Building },
+                { id: 'korean', label: '한식', icon: Soup },
+                { id: 'snack', label: '분식·국밥', icon: Utensils },
+                { id: 'western', label: '양식', icon: Pizza },
+                { id: 'dessert', label: '카페·디저트', icon: Coffee }
               ].map(option => {
                 const Icon = option.icon;
-                const isSelected = preferences.parking === option.label;
+                const isSelected = preferences.food === option.label;
                 return (
                   <button
                     key={option.id}
-                    onClick={() => setPreference('parking', option.label)}
+                    onClick={() => setPreference('food', option.label)}
                     className={`flex flex-col items-center justify-center p-6 rounded-2xl border backdrop-blur-md transition-all ${
-                      isSelected 
-                        ? 'bg-blue-600/20 border-blue-500 text-white' 
+                      isSelected
+                        ? 'bg-blue-600/20 border-blue-500 text-white'
                         : 'bg-white/5 border-white/5 text-gray-400 hover:bg-white/10 hover:text-gray-200'
                     }`}
                   >
-                    <Icon size={32} className={`mb-3 ${isSelected ? 'text-cyan-400' : ''}`} />
-                    <span className="font-semibold text-lg">{option.label}</span>
-                    <span className="text-xs opacity-60 mt-1">{option.sub}</span>
+                    <Icon size={32} className="mb-3" />
+                    <span className="font-semibold">{option.label}</span>
                   </button>
                 );
               })}
@@ -145,22 +144,23 @@ export default function SetupPage() {
         {step === 3 && (
           <div className="animate-slide-up flex-1">
             <h2 className="text-2xl font-bold mb-8 text-center break-keep">
-              주 업무 시간대를<br/>선택해주세요.
+              주로 언제<br/>여행을 즐기세요?
             </h2>
             <div className="flex flex-col gap-4">
               {[
-                { id: 'day', label: '주간조', sub: '09:00 - 18:00', icon: Sun },
-                { id: 'night', label: '야간조', sub: '18:00 - 09:00', icon: Moon },
+                { id: 'morning', label: '오전', sub: '한적한 아침', icon: Sun },
+                { id: 'afternoon', label: '오후', sub: '활기찬 한낮', icon: Sunset },
+                { id: 'evening', label: '저녁', sub: '노을·야경', icon: Moon },
               ].map(option => {
                 const Icon = option.icon;
-                const isSelected = preferences.shift === option.label;
+                const isSelected = preferences.visitTime === option.label;
                 return (
                   <button
                     key={option.id}
-                    onClick={() => setPreference('shift', option.label)}
+                    onClick={() => setPreference('visitTime', option.label)}
                     className={`flex items-center p-6 rounded-2xl border backdrop-blur-md transition-all ${
-                      isSelected 
-                        ? 'bg-blue-600/20 border-blue-500 text-white' 
+                      isSelected
+                        ? 'bg-blue-600/20 border-blue-500 text-white'
                         : 'bg-white/5 border-white/5 text-gray-400 hover:bg-white/10 hover:text-gray-200'
                     }`}
                   >
