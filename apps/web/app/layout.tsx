@@ -11,8 +11,8 @@ const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"]
 const notoSansKr = Noto_Sans_KR({ variable: "--font-noto-sans-kr", subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "InduSpot",
-  description: "기다림 없는 스마트한 공단 생활",
+  title: "NextSpot",
+  description: "오버투어리즘 없는 스마트한 경주 여행",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

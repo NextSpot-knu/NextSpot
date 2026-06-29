@@ -6,7 +6,7 @@ from pydantic import field_validator
 
 class Settings(BaseSettings):
     ENV: str = "development"
-    PROJECT_NAME: str = "InduSpot API"
+    PROJECT_NAME: str = "NextSpot API"
 
     # Supabase Settings (주 데이터 저장소 — GCP 아님)
     SUPABASE_URL: str
@@ -20,7 +20,7 @@ class Settings(BaseSettings):
 
     # 관리자 데모 가드용 공유 토큰. 프런트(apps/web/lib/admin-auth.ts)의 SESSION_TOKEN 과 동일해야 한다.
     # (대회용 Firebase Authentication 가드를 제거하고 비-GCP 단순 토큰 검증으로 대체.)
-    ADMIN_API_TOKEN: str = "induspot-admin-local"
+    ADMIN_API_TOKEN: str = "nextspot-admin-local"
 
     # Kakao Mobility Directions API (도보/차량 실거리·실시간 이동시간).
     # 비어 있으면 Haversine 직선거리 도보 환산으로 폴백(기본). 키가 있으면 실경로 호출.

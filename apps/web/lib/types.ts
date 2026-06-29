@@ -45,10 +45,9 @@ export interface UserFeedback {
 
 export interface User {
   id: string;
-  employee_id: string;
-  company_name: string;
+  nickname: string | null;
   preferred_categories: string[];
-  work_shift: string;
+  visit_time_pref: string | null;
   role: string;
   created_at: string;
   updated_at: string;

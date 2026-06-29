@@ -4,7 +4,7 @@ services:
     build:
       context: ./apps/api
       dockerfile: Dockerfile
-    container_name: induspot-api
+    container_name: nextspot-api
     # 컨테이너는 8080(Dockerfile)을 리슨한다 → 호스트 8000 → 컨테이너 8080 매핑.
     ports:
       - "8000:8080"
@@ -17,6 +17,6 @@ services:
       - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY:-your-supabase-anon-key}
       - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY:-}
       - JWT_SECRET=${JWT_SECRET:-your-supabase-jwt-secret}
-      - ADMIN_API_TOKEN=${ADMIN_API_TOKEN:-induspot-admin-local}
+      - ADMIN_API_TOKEN=${ADMIN_API_TOKEN:-nextspot-admin-local}
       - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-*}
     restart: unless-stopped

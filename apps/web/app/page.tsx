@@ -38,10 +38,10 @@ export default function LoadingPage() {
         }`}
       >
         <h1 className="text-5xl font-bold tracking-tight text-white mb-4">
-          InduSpot
+          NextSpot
         </h1>
         <p className="text-lg text-gray-300 font-medium">
-          기다림 없는 스마트한 공단 생활
+          기다림 없는 스마트한 경주 여행
         </p>
       </div>
     </div>

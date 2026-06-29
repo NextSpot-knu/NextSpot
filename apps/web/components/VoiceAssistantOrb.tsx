@@ -57,7 +57,7 @@ export default function VoiceAssistantOrb({
           <div className="flex items-center gap-1.5 mb-1">
             <GeminiIcon size={18} />
             <span className="text-[10px] font-bold tracking-wide bg-gradient-to-r from-sky-400 to-purple-400 bg-clip-text text-transparent">
-              InduSpot 음성비서
+              NextSpot 음성비서
             </span>
           </div>
           <p className="text-[11px] leading-snug text-slate-200 min-h-[1.1rem]">

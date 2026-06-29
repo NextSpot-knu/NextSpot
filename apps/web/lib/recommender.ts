@@ -1,7 +1,7 @@
 // 클라이언트 추천 점수·정렬·사유 엔진 — 백엔드 TTTV 메커니즘의 "미러".
 //
 // 용도(데모를 따로 분리):
-//  1) 데모 전용 시설(합성 휴게실/회의실 그룹, 시간대 시뮬 mockHour)의 점수·사유
+//  1) 데모 전용 시설(합성 카페/관광지 그룹, 시간대 시뮬 mockHour)의 점수·사유
 //  2) 백엔드(/api/v1/recommendations/by-type) 미가용 시 폴백
 //  3) 지도 마커 정렬 캡 등 대량 점수(백엔드 호출 없이)
 //
@@ -12,11 +12,11 @@
 import type { RecommendationResponse } from "./api-client";
 
 export const CATEGORY_VECTORS: Record<string, number[]> = {
-  cafeteria: [1.0, 0.0, 0.0, 0.0, 0.2, 0.1, 0.0, 0.0],
-  parking: [0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.3, 0.1],
-  meeting_room: [0.0, 0.0, 1.0, 0.0, 0.1, 0.0, 0.0, 0.2],
-  rest_area: [0.0, 0.0, 0.0, 1.0, 0.0, 0.2, 0.0, 0.0],
-  loading_dock: [0.0, 0.0, 0.0, 1.0, 0.0, 0.2, 0.0, 0.0], // 레거시 별칭
+  // dim0-3: 카테고리 원핫 / dim4: 맛·평점 / dim5: 감성·인스타 / dim6: 접근성·무장애 / dim7: 한적함
+  restaurant: [1.0, 0.0, 0.0, 0.0, 0.3, 0.0, 0.0, 0.0],
+  cafe: [0.0, 1.0, 0.0, 0.0, 0.1, 0.3, 0.0, 0.0],
+  attraction: [0.0, 0.0, 1.0, 0.0, 0.0, 0.1, 0.2, 0.0],
+  culture: [0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.2, 0.2],
 };
 
 export interface Tttv {
@@ -70,8 +70,8 @@ function _facilityCuisineTokens(facility: any): string[] {
 // 음식 의도와 시설의 매칭도(0~1). 의도가 없거나 인식 불가면 null → 호출측에서 카테고리 선호로 폴백.
 export function cuisineMatch(facility: any, intent: string | null | undefined): number | null {
   if (!intent) return null;
-  // 음식 매칭은 식당(cafeteria)에만 적용. 주차/회의/휴게는 null → 카테고리 선호로 폴백(비식당 선호% 오염 방지).
-  if (facility?.type && facility.type !== "cafeteria") return null;
+  // 음식 매칭은 음식점(restaurant)에만 적용. 카페/관광지/문화시설은 null → 카테고리 선호로 폴백(비음식점 선호% 오염 방지).
+  if (facility?.type && facility.type !== "restaurant") return null;
   const it = String(intent).toLowerCase();
   const targetTags = new Set<string>();
   for (const grp of CUISINE_INTENT_MAP) {
@@ -134,8 +134,8 @@ function preferenceMatch(facility: any, preferredCategories: string[]): number {
 
   const fv = [...(CATEGORY_VECTORS[facility.type] || [0, 0, 0, 0, 0, 0, 0, 0])];
   if (facility.features) {
-    if (facility.features.has_ev_charger && facility.type === "parking") fv[6] += 0.3;
-    if (facility.features.has_vegetarian && facility.type === "cafeteria") fv[4] += 0.2;
+    if (facility.features.barrier_free) fv[6] += 0.3;
+    if (facility.features.instagrammable && facility.type === "cafe") fv[5] += 0.2;
   }
   const fn = Math.sqrt(fv.reduce((s, v) => s + v * v, 0));
   const ff = fv.map((v) => (fn > 0 ? v / fn : v));
@@ -169,19 +169,18 @@ export function scoreFacility(facility: any, opts: ScoreOpts): Tttv {
   const pref = cMatch !== null ? cMatch : preferenceMatch(facility, opts.preferredCategories || []);
 
   const defaultTimes: Record<string, number> = {
-    cafeteria: 20,
-    parking: 5,
-    meeting_room: 10,
-    rest_area: 10,
-    loading_dock: 30,
+    restaurant: 25,
+    cafe: 12,
+    attraction: 15,
+    culture: 15,
   };
   const avgProcess = facility.features?.average_processing_time ?? defaultTimes[facility.type] ?? 15;
   // 라이브 폴백 시각은 백엔드(score.py/wait_time.py)가 UTC arrival_hour 로 피크 배수를 판정하는 것과
   // 정합되도록 getUTCHours() 를 쓴다(getHours()=브라우저 로컬=KST 면 9시간 어긋남). mockHour(데모 시뮬값)는 그대로.
   const hour = opts.mockHour !== null && opts.mockHour !== undefined ? opts.mockHour : new Date().getUTCHours();
   let mult = 1.0;
-  if (hour >= 12 && hour < 14) mult = 1.3;
-  else if (hour === 7 || hour === 15) mult = 1.2;
+  if (hour >= 11 && hour < 14) mult = 1.3;
+  else if (hour >= 14 && hour < 18) mult = 1.2;
 
   const cong = facility.congestionLevel ?? 0;
   const expectedWait = cong * avgProcess * mult;

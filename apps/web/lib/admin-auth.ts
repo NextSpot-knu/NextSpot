@@ -9,9 +9,9 @@
 //    비밀번호가 번들에 포함되며, 누구나 우회할 수 있다. 진짜 권한이 필요한 백엔드
 //    작업은 서버에서 별도로 인증·인가를 검증해야 한다.
 
-const STORAGE_KEY = "induspot_admin_session";
+const STORAGE_KEY = "nextspot_admin_session";
 const ADMIN_PASSWORD = "admin";
-const SESSION_TOKEN = "induspot-admin-local";
+const SESSION_TOKEN = "nextspot-admin-local";
 
 function hasWindow(): boolean {
   return typeof window !== "undefined";

@@ -10,7 +10,7 @@ setup_logging()
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
-    description="InduSpot 스마트 공단 인프라 수요 분산 AI 엔진 API",
+    description="NextSpot 관광 수요 분산·대안 장소 추천 AI 엔진 API",
     version="0.1.0"
 )
 
