@@ -1,4 +1,4 @@
-# InduSpot API 런타임 의존성 (로컬 전용 · 비-GCP).
+# NextSpot API 런타임 의존성 (로컬 전용).
 #   로컬 구동:  pip install -r requirements.txt  →  uvicorn app.main:app
 #   Dockerfile 도 이 파일로 pip install 한다(poetry 미사용).
 #   의존성 명세 참고본은 pyproject.toml 과 수동 동기화한다.

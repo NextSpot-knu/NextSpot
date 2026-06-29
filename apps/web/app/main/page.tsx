@@ -15,8 +15,8 @@ import VoiceAssistantOrb from '@/components/VoiceAssistantOrb';
 
 const supabase = createPublicClient();
 
-// 술집(bar)은 라이브 DB 에 type=cafeteria 로 적재돼 '식당' 추천을 오염시킨다(데이터 한계).
-// cuisine_tags 로 술집을 식별해 식당 추천 후보에서만 제외(지도 마커로는 계속 표시 — 삭제 아님).
+// 술집(bar)이 음식점(restaurant)으로 적재되면 '음식점' 추천을 오염시킨다(데이터 한계).
+// cuisine_tags 로 술집을 식별해 음식점 추천 후보에서만 제외(지도 마커로는 계속 표시 — 삭제 아님).
 const _BAR_TAGS_MAIN = ['술집', '호프', '오뎅바', '실내포장마차', '일본식주점', '호프,요리주점', '포차', '선술집'];
 function isBarFacility(f: any): boolean {
   const raw = f?.features?.cuisine_tags ?? f?.features?.cuisine;
@@ -50,7 +50,7 @@ export default function MainPage() {
   const applyVoiceFilter = (s: Set<string> | null) => { voiceFilterIdsRef.current = s; setVoiceFilterIds(s); };
   // 음식 의도(음성 발화 '고기/국밥/피자' 또는 온보딩 food 선호). 선호 일치율을 음식종류 매칭으로 산출하는 데 쓴다.
   const cuisineIntentRef = useRef<string | null>(null);
-  // 랜드마크 상대거리 정렬 기준점(예: '구미세무서 가까운 주차장' → 세무서 좌표). null이면 사용자 위치 기준.
+  // 랜드마크 상대거리 정렬 기준점(예: '첨성대 가까운 카페' → 첨성대 좌표). null이면 사용자 위치 기준.
   const rankingOriginRef = useRef<{ lat: number; lng: number } | null>(null);
   // 그룹(모음) 마커 하이라이트 id — 카드 선택(selectedFacility)과 분리해 마커 확대/색상변경만 적용
   const [activeGroupId, setActiveGroupId] = useState<string | null>(null);
@@ -135,94 +135,6 @@ export default function MainPage() {
             currentCount: latestLog ? latestLog.current_count : Math.floor(baseCongestion * (f.capacity || 100)),
             lastUpdated: latestLog ? latestLog.timestamp : new Date().toISOString(),
           };
-        });
-
-        // --- Mock Data Injection for Lounges and Meeting Rooms ---
-        const companyLat = 36.109031;
-        const companyLng = 128.388471;
-        
-        const dummyLoungesSub = Array.from({length: 5}).map((_, i) => {
-           // 혼잡도 하나로 이용 인원·설비 이용수를 함께 결정(혼잡↑ → 이용↑ → 잔여↓, 서로 연관되게)
-           const congestionLevel = Math.random();
-           const currentCount = Math.round(congestionLevel * 10);
-           return {
-             id: `dummy-lounge-${i}`,
-             name: `사내 휴게실 ${i+1}`,
-             type: 'rest_area',
-             latitude: companyLat,
-             longitude: companyLng,
-             capacity: 10,
-             congestionLevel,
-             currentCount,
-             features: {
-               massageChairs: { total: 3, inUse: Math.round(congestionLevel * 3) },
-               sleepCapsules: { total: 2, inUse: Math.round(congestionLevel * 2) },
-               playstation: { total: 1, inUse: Math.round(congestionLevel) }
-             }
-           };
-        });
-
-        const dummyLoungeGroup = {
-           id: `dummy-lounge-group`,
-           name: `사내 휴게실 모음`,
-           type: 'rest_area',
-           latitude: companyLat,
-           longitude: companyLng,
-           congestionLevel: dummyLoungesSub.reduce((acc, curr) => acc + curr.congestionLevel, 0) / 5,
-           capacity: dummyLoungesSub.reduce((a, c) => a + c.capacity, 0),
-           currentCount: dummyLoungesSub.reduce((a, c) => a + c.currentCount, 0),
-           isGroup: true,
-           subFacilities: dummyLoungesSub
-        };
-        
-        const dummyMeetingsInsideSub = Array.from({length: 8}).map((_, i) => {
-           // 혼잡도로 사용 여부·이용 인원·남은 시간(예상 대기)을 일관되게 결정
-           const congestionLevel = Math.random();
-           const occupied = congestionLevel >= 0.5; // 보통(>=0.5) 이상이면 사용중
-           const currentCount = occupied ? Math.max(1, Math.round(congestionLevel * 8)) : 0;
-           const remainingMinutes = occupied ? Math.max(5, Math.round(congestionLevel * 55)) : 0; // 혼잡↑ → 대기↑
-           return {
-             id: `dummy-meeting-in-${i}`,
-             name: `사내 회의실 ${i+1}호`,
-             type: 'meeting_room',
-             latitude: companyLat,
-             longitude: companyLng,
-             capacity: 8,
-             congestionLevel,
-             currentCount,
-             features: { remainingMinutes }
-           };
-        });
-
-        const dummyMeetingGroup = {
-           id: `dummy-meeting-group`,
-           name: `사내 회의실 모음`,
-           type: 'meeting_room',
-           latitude: companyLat,
-           longitude: companyLng,
-           congestionLevel: dummyMeetingsInsideSub.reduce((acc, curr) => acc + curr.congestionLevel, 0) / 8,
-           capacity: dummyMeetingsInsideSub.reduce((a, c) => a + c.capacity, 0),
-           currentCount: dummyMeetingsInsideSub.reduce((a, c) => a + c.currentCount, 0),
-           isGroup: true,
-           subFacilities: dummyMeetingsInsideSub
-        };
-
-        const dummyMeetingsOutside = Array.from({length: 2}).map((_, i) => {
-           const congestionLevel = Math.random();
-           const occupied = congestionLevel >= 0.5; // 보통(>=0.5) 이상이면 사용중
-           const currentCount = occupied ? Math.max(1, Math.round(congestionLevel * 12)) : 0;
-           const remainingMinutes = occupied ? Math.max(5, Math.round(congestionLevel * 55)) : 0;
-           return {
-             id: `dummy-meeting-out-${i}`,
-             name: `외부 공유오피스 회의실 ${['A','B'][i]}`,
-             type: 'meeting_room',
-             latitude: companyLat + (Math.random() > 0.5 ? 0.006 : -0.006) + (Math.random() * 0.001),
-             longitude: companyLng - 0.02 + (Math.random() * 0.005),
-             capacity: 12,
-             congestionLevel,
-             currentCount,
-             features: { remainingMinutes }
-           };
         });
 
         setFacilities(mapped);
@@ -448,7 +360,7 @@ export default function MainPage() {
     };
     const targetType = filterMap[activeFilter];
 
-    const typeOk = (f: any) => f.type === targetType && !(targetType === 'cafeteria' && isBarFacility(f)); // 식당 추천에서 술집 제외
+    const typeOk = (f: any) => f.type === targetType && !(targetType === 'restaurant' && isBarFacility(f)); // 식당 추천에서 술집 제외
     let candidates = facilities.filter(
       f => typeOk(f) && !rejectedIds.has(f.id) && !savedIds.has(f.id)
     );
@@ -466,7 +378,7 @@ export default function MainPage() {
     const demoCands = expandGroups(candidates.filter(isDemo))
       .filter((f: any) => !rejectedIds.has(f.id) && !savedIds.has(f.id));
     const liveMode = mockHour === null; // 시간대 시뮬이 켜지면 데모(목업) 모드로 일관 처리
-    if (targetType !== 'parking') rankingOriginRef.current = null; // 랜드마크 기준점은 주차 쿼리에서만 유지(식당 등으로 전환 시 리셋)
+    rankingOriginRef.current = null; // 랜드마크 기준점 리셋(카테고리 전환 시)
     const scoreOpts = { userLocation: rankingOriginRef.current ?? userLocation, preferredCategories, mockHour, cuisineIntent: cuisineIntentRef.current };
 
     let cancelled = false;
@@ -779,36 +691,11 @@ export default function MainPage() {
     // 사용자 발화를 백엔드 Vertex Gemini(/api/v1/voice/turn)로 해석. 현재 타입 후보 목록(이름/혼잡/거리)을 동봉.
     interpret: async (utterance, f) => {
       const filterMap: Record<string, string> = { '음식점': 'restaurant', '카페': 'cafe', '관광지': 'attraction', '문화시설': 'culture' };
-      const type = f?.type || filterMap[activeFilter] || 'cafeteria';
-
-      // 주차장 전용: '공영' 필터 + 랜드마크('구미세무서 가까운') 근접은 임베딩 의미검색이 아니라 플래그/좌표로
-      // 로컬 처리한다(주차장은 cuisine 임베딩이 없어 백엔드 의미검색이 무력). 점수계산 이전 prefilter 라 가중치 불변.
-      if (type === 'parking') {
-        const wantPublic = /공영|공용|무료|시민/.test(utterance);
-        const wantEv = /전기차|충전|이브이|EV/i.test(utterance); // 전기차 충전 선호 발화
-        const lm = findLandmark(utterance);
-        if (wantPublic || wantEv || lm) {
-          const origin = lm ? { lat: lm.lat, lng: lm.lng } : userLocation;
-          rankingOriginRef.current = lm ? origin : null; // 랜드마크가 있으면 그 좌표 기준으로 TTTV 거리 재정렬
-          cuisineIntentRef.current = null;
-          let pool = facilities.filter((x: any) => x.type === 'parking' && !rejectedIds.has(x.id) && !savedIds.has(x.id));
-          if (wantPublic) pool = pool.filter((x: any) => x.features?.is_public === true); // 공영(gumi_parking.csv: is_public=true)만
-          if (wantEv) pool = pool.filter((x: any) => x.features?.has_ev_charger === true); // 전기차 충전 가능 주차장만(features.has_ev_charger)
-          if (pool.length === 0) {
-            return { action: 'unknown', targetId: null, matchIds: [], spoken: wantEv ? '근처에 전기차 충전이 되는 주차장을 찾지 못했어요.' : wantPublic ? '근처에 공영주차장을 찾지 못했어요.' : null };
-          }
-          const ids = pool
-            .map((x: any) => ({ id: x.id, d: haversineMeters(origin.lat, origin.lng, x.latitude, x.longitude) }))
-            .sort((a, b) => a.d - b.d).slice(0, 6).map((o) => o.id);
-          const where = lm ? `${lm.name} 근처 ` : '';
-          const kind = wantEv ? '전기차 충전 주차장' : wantPublic ? '공영주차장' : '주차장';
-          return { action: 'filter', targetId: null, matchIds: ids, spoken: `${where}${kind}으로 안내할게요.` };
-        }
-      }
+      const type = f?.type || filterMap[activeFilter] || 'restaurant';
 
       rankingOriginRef.current = null; // 식당/일반 경로는 사용자 위치 기준 정렬
       const cands = expandGroups(facilities)
-        .filter((x: any) => x.type === type && !(type === 'cafeteria' && isBarFacility(x)) && !rejectedIds.has(x.id) && !savedIds.has(x.id)) // 식당이면 술집 제외
+        .filter((x: any) => x.type === type && !(type === 'restaurant' && isBarFacility(x)) && !rejectedIds.has(x.id) && !savedIds.has(x.id)) // 식당이면 술집 제외
         .map((x: any) => ({
           id: x.id,
           name: x.name,
@@ -820,7 +707,7 @@ export default function MainPage() {
         .slice(0, 30);                              // 의미검색 도달 후보 폭(백엔드 입력 상한 30). 분류별(중식 등) 후보 포함 확률↑
       const res = await voiceTurn(utterance, type, f?.name ?? null, cands);
       // 음식 선호 발화(filter)는 '식당'일 때만 음식 의도로 저장(주차/회의/휴게 선호% 오염 방지).
-      if (res.action === 'filter' && type === 'cafeteria') cuisineIntentRef.current = utterance;
+      if (res.action === 'filter' && type === 'restaurant') cuisineIntentRef.current = utterance;
       return { action: res.action, targetId: res.targetFacilityId, matchIds: res.matchIds, spoken: res.spoken };
     },
   });
@@ -951,8 +838,8 @@ export default function MainPage() {
     const selH = isNarrow ? 52 : 64;
 
     const newMarkers = displayFacilities.map((f) => {
-      // 사내 주차장은 정사각형 마커 → 정사각 크기 + 중앙 앵커(가로세로 비율 유지). 그 외 핀은 바닥(끝) 앵커.
-      const isPriv = f.type === 'parking' && f.features && (f.features.is_private === true || f.features.is_public === false);
+      // 관광 POI는 모두 핀 마커(바닥 앵커).
+      const isPriv = false;
       // 그룹 마커는 activeGroupId 로, 개별 마커는 selectedFacility 로 선택 판정 → 둘 다 진한 색 + 확대
       const isSel = f.isGroup
         ? activeGroupId === f.id

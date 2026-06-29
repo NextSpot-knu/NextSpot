@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { createPublicClient } from "@/lib/supabase";
 const supabase = createPublicClient();
-import { FacilityWithCongestion } from "@/app/worker/map/page";
+import { FacilityWithCongestion } from "@/app/explore/map/page";
 // 마커 SVG는 lib/utils 의 공용 getMarkerSvg 로 통일(예쁜 핀 + 올바른 흰색 렌더). 중복 인라인 제거.
 import { getMarkerSvg } from "@/lib/utils";
 
@@ -369,7 +369,7 @@ export default function CongestionMap({ initialFacilities }: CongestionMapProps)
 
   const handleFindAlternative = () => {
     if (!activeSelectedFacility) return;
-    let url = `/worker/recommend?facilityId=${activeSelectedFacility.id}`;
+    let url = `/explore/recommend?facilityId=${activeSelectedFacility.id}`;
     if (userLocation) {
       url += `&lat=${userLocation.lat}&lng=${userLocation.lng}`;
     }

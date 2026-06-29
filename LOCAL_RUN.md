@@ -1,6 +1,6 @@
 # 로컬 구동 가이드 (LOCAL_RUN)
 
-InduSpot 을 **추가 클라우드 없이 로컬에서** 구동하는 방법입니다. 데이터 저장소만 Supabase(비-GCP)를 사용합니다.
+NextSpot 을 **로컬에서** 구동하는 방법입니다. 데이터 저장소는 Supabase 를 사용합니다.
 
 ## 1. 전제조건
 
@@ -16,7 +16,7 @@ SUPABASE_URL=...
 SUPABASE_ANON_KEY=...
 SUPABASE_SERVICE_ROLE_KEY=...
 JWT_SECRET=...
-ADMIN_API_TOKEN=induspot-admin-local   # 프론트 admin-auth.ts SESSION_TOKEN 과 동일
+ADMIN_API_TOKEN=nextspot-admin-local   # 프론트 admin-auth.ts SESSION_TOKEN 과 동일
 ALLOWED_ORIGINS=http://localhost:3000
 ```
 > `JWT_SECRET` 은 비어 있으면 부팅이 실패합니다(의도된 fail-fast). Supabase 프로젝트의 JWT Secret 을 넣으세요.
@@ -82,11 +82,11 @@ curl http://localhost:8000/api/v1/infrastructures
 # 음성 1턴(무인증) — 키워드 분류 동작 확인
 curl -X POST http://localhost:8000/api/v1/voice/turn \
   -H "Content-Type: application/json" \
-  -d '{"utterance":"양식 먹고 싶어","facility_type":"cafeteria","candidates":[{"id":"a","name":"이탈리아노","cuisine":["양식"]},{"id":"b","name":"한밥","cuisine":["한식"]}]}'
+  -d '{"utterance":"양식 먹고 싶어","facility_type":"restaurant","candidates":[{"id":"a","name":"이탈리아노","cuisine":["양식"]},{"id":"b","name":"한밥","cuisine":["한식"]}]}'
 
 # 관리자 데모 피크 생성
 curl -X POST http://localhost:8000/api/v1/admin/simulate-peak \
-  -H "Authorization: Bearer induspot-admin-local"
+  -H "Authorization: Bearer nextspot-admin-local"
 ```
 
 프론트(`http://localhost:3000`)에서 지도/추천/음성 비서(브라우저 TTS)와 관리자 시뮬레이트 버튼이 동작하면 성공입니다.

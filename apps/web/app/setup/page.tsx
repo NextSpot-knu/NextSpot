@@ -26,7 +26,7 @@ export default function SetupPage() {
       setStep(step + 1);
     } else {
       // 온보딩 선호(관심 카테고리·음식 취향·방문 시간대)를 저장 → main 추천의 선호 일치율·음식 의도에 반영(localStorage).
-      // (카테고리 학습은 worker/recommend 온보딩이 Supabase users.preferred_categories 로 별도 담당.)
+      // (카테고리 학습은 explore/recommend 온보딩이 Supabase users.preferred_categories 로 별도 담당.)
       try { localStorage.setItem('nextspot_setup_prefs', JSON.stringify(preferences)); } catch { /* noop */ }
       router.push('/main');
     }
