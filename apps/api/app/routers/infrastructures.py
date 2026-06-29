@@ -160,7 +160,7 @@ async def simulate_peak(admin_claims: dict = Depends(require_admin)):
                 level = round(random.uniform(0.72, 0.95), 2)
                 
             current_count = int(capacity * level)
-            source = "iot_sensor" if f["type"] in ["parking", "rest_area", "loading_dock"] else "cctv"
+            source = "traffic_cctv" if f["type"] in ["attraction", "culture"] else "user_report"
             
             logs.append({
                 "facility_id": fid,

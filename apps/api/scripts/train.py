@@ -19,18 +19,17 @@ load_dotenv(os.path.join(parent_dir, ".env"))
 from app.core.config import settings
 
 def normalize_facility_type(facility_type: str) -> str:
-    if facility_type in ["restaurant", "cafe"]:
-        return "cafeteria"
-    elif facility_type == "gym":
-        return "loading_dock"
-    elif facility_type == "office":
-        return "meeting_room"
-    # 휴게 공간(rest_area)의 학습 버킷은 loading_dock (4번째 카테고리 개명 호환)
-    elif facility_type in ["rest_area", "lounge"]:
-        return "loading_dock"
-    elif facility_type in ["cafeteria", "parking", "meeting_room", "loading_dock"]:
+    # 관광 canonical 4타입: restaurant / cafe / attraction / culture
+    # (predict_service.normalize_facility_type 와 동일 로직 유지 — 학습/추론 버킷 정합)
+    if facility_type in ["restaurant", "cafe", "attraction", "culture"]:
         return facility_type
-    return facility_type
+    aliases = {
+        "음식점": "restaurant", "식당": "restaurant", "cafeteria": "restaurant",
+        "카페": "cafe", "coffee": "cafe",
+        "관광지": "attraction", "명소": "attraction", "sight": "attraction",
+        "문화시설": "culture", "박물관": "culture", "museum": "culture",
+    }
+    return aliases.get(facility_type, facility_type)
 
 def main():
     supabase_url = settings.SUPABASE_URL

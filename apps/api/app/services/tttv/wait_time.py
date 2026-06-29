@@ -2,11 +2,10 @@ from datetime import datetime, timezone
 
 # 시설 타입별 기본 평균 처리 시간 (단위: 분)
 DEFAULT_PROCESSING_TIMES = {
-    "cafeteria": 20,
-    "parking": 5,
-    "meeting_room": 10,
-    "rest_area": 10,      # 휴게 공간: 좌석/시설 이용 대기
-    "loading_dock": 30,   # 레거시 호환
+    "restaurant": 25,   # 식사·웨이팅
+    "cafe": 12,         # 주문·좌석 회전
+    "attraction": 15,   # 입장·관람 대기
+    "culture": 15,      # 관람 대기
 }
 
 async def calculate_predicted_wait_time(
@@ -33,11 +32,11 @@ async def calculate_predicted_wait_time(
         hour = datetime.now(timezone.utc).hour
 
     time_multiplier = 1.0
-    if 12 <= hour < 14:
-        # 점심 피크 보정 (12시 ~ 13시 59분)
+    if 11 <= hour < 14:
+        # 점심·정오 관광 피크 보정 (11시 ~ 13시 59분)
         time_multiplier = 1.3
-    elif hour == 7 or hour == 15:
-        # 교대 근무 타임 보정 (07시, 15시)
+    elif 14 <= hour < 18:
+        # 오후 관광 피크 보정 (14시 ~ 17시 59분)
         time_multiplier = 1.2
 
     # 3. 예측 대기 시간 공식 계산

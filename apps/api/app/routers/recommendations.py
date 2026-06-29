@@ -369,7 +369,7 @@ async def recommend_by_type(
 class VoiceTurnRequest(BaseModel):
     # 무인증 엔드포인트 — 입력 크기 제한(과대 페이로드/프롬프트 비대화 방지). 출력은 _coerce 가 enum·후보 id 로 강제.
     utterance: str = Field("", max_length=500)
-    facility_type: str = "cafeteria"
+    facility_type: str = "restaurant"
     current_name: str | None = Field(None, max_length=120)
     candidates: list[dict] = Field(default_factory=list, max_length=30)  # [{id, name, congestion(0~1), distance_m}]
 
@@ -381,7 +381,7 @@ class VoiceTurnResponse(BaseModel):
     spoken: str | None = None  # 백엔드 생성 한국어 응답(없으면 프런트가 자체 멘트)
 
 
-_VOICE_TYPE_KO = {"cafeteria": "식당", "parking": "주차장", "meeting_room": "회의실", "rest_area": "휴게실"}
+_VOICE_TYPE_KO = {"restaurant": "음식점", "cafe": "카페", "attraction": "관광지", "culture": "문화시설"}
 
 
 @router.post("/voice/turn", response_model=VoiceTurnResponse)

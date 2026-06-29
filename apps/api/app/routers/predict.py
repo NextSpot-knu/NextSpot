@@ -5,7 +5,7 @@ from app.services.predict_service import predict_congestion
 router = APIRouter(tags=["predict"])
 
 class PredictRequest(BaseModel):
-    facility_type: str = Field(..., description="Facility type (e.g., cafeteria, parking, meeting_room, rest_area)")
+    facility_type: str = Field(..., description="Facility type (e.g., restaurant, cafe, attraction, culture)")
     hour: int = Field(..., ge=0, le=23, description="Hour of the day (0-23)")
     day_of_week: int = Field(..., ge=0, le=6, description="Day of the week (0-6, where 0=Monday, 6=Sunday)")
 

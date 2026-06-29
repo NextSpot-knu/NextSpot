@@ -2,28 +2,26 @@
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- NOTE: auth.users is managed by Supabase and already exists in cloud.
--- The local-only mock block has been removed.
 
--- 1. users 테이블 (Supabase Auth 확장)
+-- 1. users 테이블 (Supabase Auth 확장 · 관광객 프로필)
 CREATE TABLE IF NOT EXISTS public.users (
     id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
-    employee_id VARCHAR(50) NOT NULL UNIQUE,
-    company_name VARCHAR(100) NOT NULL,
-    preferred_categories JSONB DEFAULT '[]'::jsonb,
-    work_shift VARCHAR(20) CHECK (work_shift IN ('morning', 'afternoon', 'night')),
-    role VARCHAR(20) DEFAULT 'worker' CHECK (role IN ('worker', 'admin')),
+    nickname VARCHAR(100),                                   -- 관광객 닉네임(선택)
+    preferred_categories JSONB DEFAULT '[]'::jsonb,          -- 선호 카테고리(restaurant/cafe/attraction/culture)
+    visit_time_pref VARCHAR(20) CHECK (visit_time_pref IN ('morning', 'afternoon', 'evening')),  -- 선호 방문 시간대
+    role VARCHAR(20) DEFAULT 'tourist' CHECK (role IN ('tourist', 'admin')),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
--- 2. facilities 테이블 (공용 인프라 POI)
+-- 2. facilities 테이블 (관광 POI)
 CREATE TABLE IF NOT EXISTS public.facilities (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name VARCHAR(255) NOT NULL,
-    type VARCHAR(50) NOT NULL CHECK (type IN ('cafeteria', 'parking', 'meeting_room', 'rest_area')),
+    type VARCHAR(50) NOT NULL CHECK (type IN ('restaurant', 'cafe', 'attraction', 'culture')),
     latitude DOUBLE PRECISION NOT NULL,
     longitude DOUBLE PRECISION NOT NULL,
-    capacity INT NOT NULL,
+    capacity INT NOT NULL,                                   -- 수용 추정치(좌석/적정 동시 수용 인원)
     operating_hours JSONB DEFAULT '{}'::jsonb,
     features JSONB DEFAULT '{}'::jsonb,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
@@ -37,7 +35,7 @@ CREATE TABLE IF NOT EXISTS public.congestion_logs (
     timestamp TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
     current_count INT NOT NULL,
     congestion_level DOUBLE PRECISION NOT NULL CHECK (congestion_level >= 0.0 AND congestion_level <= 1.0),
-    source VARCHAR(50) NOT NULL CHECK (source IN ('iot_sensor', 'cctv', 'access_card'))
+    source VARCHAR(50) NOT NULL CHECK (source IN ('traffic_cctv', 'tour_api', 'event', 'user_report'))
 );
 
 -- 4. recommendations 테이블 (추천 이력)
@@ -63,15 +61,15 @@ CREATE TABLE IF NOT EXISTS public.user_feedback (
 
 -- --- 인덱스 설정 ---
 -- congestion_logs: (facility_id, timestamp DESC) 복합 인덱스
-CREATE INDEX IF NOT EXISTS idx_congestion_logs_facility_time 
+CREATE INDEX IF NOT EXISTS idx_congestion_logs_facility_time
 ON public.congestion_logs (facility_id, timestamp DESC);
 
 -- recommendations: user_id 인덱스
-CREATE INDEX IF NOT EXISTS idx_recommendations_user_id 
+CREATE INDEX IF NOT EXISTS idx_recommendations_user_id
 ON public.recommendations (user_id);
 
 -- user_feedback: user_id 인덱스
-CREATE INDEX IF NOT EXISTS idx_user_feedback_user_id 
+CREATE INDEX IF NOT EXISTS idx_user_feedback_user_id
 ON public.user_feedback (user_id);
 
 

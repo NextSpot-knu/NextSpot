@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS public.system_settings (
 
 -- 기본 설정 행 시드 (없을 때만)
 INSERT INTO public.system_settings (id, notice_text)
-VALUES (1, '현재 구내식당 메뉴 개편으로 인해 관련 데이터가 부정확할 수 있습니다.')
+VALUES (1, '경주 황리단길 실시간 혼잡도와 대안 장소 추천을 제공합니다. 축제·행사 기간에는 혼잡도가 평소보다 높을 수 있습니다.')
 ON CONFLICT (id) DO NOTHING;
 
 -- updated_at 자동 갱신 (init.sql 의 handle_updated_at 재사용)
@@ -41,19 +41,9 @@ DROP POLICY IF EXISTS select_settings ON public.system_settings;
 CREATE POLICY select_settings ON public.system_settings
     FOR SELECT TO authenticated USING (true);
 
--- 수정은 admin 만 (rls.sql 의 get_auth_user_info 재사용; JWT role 이 아닌 users.role 로 판정)
+-- 수정은 admin 만 (rls.sql 의 get_auth_user_role 재사용; JWT role 이 아닌 users.role 로 판정)
 DROP POLICY IF EXISTS admin_update_settings ON public.system_settings;
 CREATE POLICY admin_update_settings ON public.system_settings
     FOR UPDATE TO authenticated
-    USING (
-        EXISTS (
-            SELECT 1 FROM public.get_auth_user_info() AS ac
-            WHERE ac.user_role = 'admin'
-        )
-    )
-    WITH CHECK (
-        EXISTS (
-            SELECT 1 FROM public.get_auth_user_info() AS ac
-            WHERE ac.user_role = 'admin'
-        )
-    );
+    USING (public.get_auth_user_role() = 'admin')
+    WITH CHECK (public.get_auth_user_role() = 'admin');

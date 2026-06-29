@@ -2,14 +2,13 @@
 import math
 from app.services.preference_vector_service import preference_vector_service
 
-# 8차원 카테고리 벡터 매핑 테이블 (canonical 4타입: 식당/주차장/회의실/휴게공간)
+# 8차원 카테고리 벡터 매핑 테이블 (관광 4타입: 음식점/카페/관광지/문화시설)
+# dim0-3: 카테고리 원핫 / dim4: 맛·평점 / dim5: 감성·인스타 / dim6: 접근성·무장애 / dim7: 한적함
 CATEGORY_VECTORS = {
-    "cafeteria": [1.0, 0.0, 0.0, 0.0, 0.2, 0.1, 0.0, 0.0],
-    "parking": [0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.3, 0.1],
-    "meeting_room": [0.0, 0.0, 1.0, 0.0, 0.1, 0.0, 0.0, 0.2],
-    "rest_area": [0.0, 0.0, 0.0, 1.0, 0.0, 0.2, 0.0, 0.0],
-    # 레거시 호환: 기존 loading_dock 데이터도 동일 벡터로 취급
-    "loading_dock": [0.0, 0.0, 0.0, 1.0, 0.0, 0.2, 0.0, 0.0],
+    "restaurant": [1.0, 0.0, 0.0, 0.0, 0.3, 0.0, 0.0, 0.0],
+    "cafe":       [0.0, 1.0, 0.0, 0.0, 0.1, 0.3, 0.0, 0.0],
+    "attraction": [0.0, 0.0, 1.0, 0.0, 0.0, 0.1, 0.2, 0.0],
+    "culture":    [0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.2, 0.2],
 }
 
 def get_category_average_vector(preferred_categories: list[str]) -> list[float]:
@@ -68,10 +67,10 @@ async def calculate_preference_similarity(
     if facility_features:
         # copy하여 수정
         facility_vector = list(facility_vector)
-        if facility_features.get("has_ev_charger") and facility_type == "parking":
-            facility_vector[6] += 0.3  # 친환경/충전 차원 부스트
-        if facility_features.get("has_vegetarian") and facility_type == "cafeteria":
-            facility_vector[4] += 0.2  # 편의성/채식 차원 부스트
+        if facility_features.get("barrier_free"):
+            facility_vector[6] += 0.3  # 접근성/무장애 차원 부스트
+        if facility_features.get("instagrammable") and facility_type == "cafe":
+            facility_vector[5] += 0.2  # 감성/인스타 차원 부스트
             
     # 시설 벡터 정규화
     sq_sum = sum(x ** 2 for x in facility_vector)

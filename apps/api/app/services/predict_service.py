@@ -35,19 +35,17 @@ _init_lock = threading.Lock()
 
 
 def normalize_facility_type(facility_type: str) -> str:
-    if facility_type in ["restaurant", "cafe"]:
-        return "cafeteria"
-    elif facility_type == "gym":
-        return "loading_dock"
-    elif facility_type == "office":
-        return "meeting_room"
-    # 휴게 공간(rest_area)의 ML 학습 버킷은 loading_dock 이다.
-    # (모델을 재학습하지 않고 4번째 카테고리를 rest_area 로 개명하기 위한 매핑)
-    elif facility_type in ["rest_area", "lounge"]:
-        return "loading_dock"
-    elif facility_type in ["cafeteria", "parking", "meeting_room", "loading_dock"]:
+    # 관광 canonical 4타입: restaurant / cafe / attraction / culture
+    if facility_type in ["restaurant", "cafe", "attraction", "culture"]:
         return facility_type
-    return facility_type
+    # 한국어 라벨·동의어·레거시(산업) 타입 → canonical 매핑
+    aliases = {
+        "음식점": "restaurant", "식당": "restaurant", "cafeteria": "restaurant",
+        "카페": "cafe", "coffee": "cafe",
+        "관광지": "attraction", "명소": "attraction", "sight": "attraction",
+        "문화시설": "culture", "박물관": "culture", "museum": "culture",
+    }
+    return aliases.get(facility_type, facility_type)
 
 
 # --- 로컬 모델 lazy 로드 ---

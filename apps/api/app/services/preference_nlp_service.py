@@ -1,7 +1,7 @@
 """자연어 선호 입력 → 구조화 선호로 변환하는 서비스 (로컬 키워드 규칙).
 
 (대회 종료 후 Vertex AI Gemini 의존성을 제거하고, 기존 한국어 키워드 폴백을 단일 경로로 승격.)
-근로자가 "조용한 회의실이랑 전기차 충전되는 주차장이 좋아요" 처럼 자연어로 말하면 이 서비스가
+관광객이 "조용한 한옥카페랑 무장애 되는 관광지가 좋아요" 처럼 자연어로 말하면 이 서비스가
 그것을 추천 알고리즘이 쓰는 구조(선호 카테고리 + 속성 + 8차원 선호 벡터)로 바꾼다.
 
 공개 시그니처 `parse_preference(text) -> dict` 와 반환 키(preferred_categories/attributes/summary/
@@ -16,40 +16,39 @@ from app.services.tttv.preference import get_category_average_vector
 
 logger = structlog.get_logger()
 
-# 서비스의 4개 표준 카테고리 (식당/주차장/회의실/휴게 공간).
-# rest_area 는 predict_service.normalize_facility_type 에서 ML 버킷 loading_dock 으로 매핑된다.
-VALID_CATEGORIES = ["cafeteria", "parking", "meeting_room", "rest_area"]
+# 서비스의 4개 표준 카테고리 (음식점/카페/관광지/문화시설).
+VALID_CATEGORIES = ["restaurant", "cafe", "attraction", "culture"]
 CATEGORY_KO = {
-    "cafeteria": "식당",
-    "parking": "주차장",
-    "meeting_room": "회의실",
-    "rest_area": "휴게 공간",
+    "restaurant": "음식점",
+    "cafe": "카페",
+    "attraction": "관광지",
+    "culture": "문화시설",
 }
 
 # 허용 속성 → 8차원 선호 벡터의 보정 차원 인덱스.
-# (preference.py 의 features 보정과 동일 의미축: idx4=편의/채식, idx6=친환경/충전 …)
+# (preference.py 의 features 보정과 동일 의미축: idx4=맛/평점, idx5=감성/인스타, idx6=접근성/무장애, idx7=한적함)
 ATTR_DIM = {
-    "vegetarian": 4,    # 채식/비건
-    "convenience": 5,   # 간편/빠름
-    "ev_charger": 6,    # 전기차 충전
-    "quiet": 7,         # 조용함
+    "tasty": 4,            # 맛집/평점
+    "instagrammable": 5,   # 감성/인스타
+    "barrier_free": 6,     # 무장애/접근성
+    "quiet": 7,            # 한적/조용
 }
 VALID_ATTRIBUTES = list(ATTR_DIM.keys()) + ["near", "indoor"]  # near/indoor 는 벡터 보정 없이 요약/메타에만 사용
 
 # 한국어 키워드 규칙
 _CATEGORY_KEYWORDS = {
-    "cafeteria": ["식당", "밥", "점심", "끼니", "먹을", "먹고", "먹는", "구내식당", "카페테리아", "메뉴", "한식", "중식", "양식", "분식"],
-    "parking": ["주차", "차 ", "차를", "주차장", "전기차", "충전", "ev충전"],
-    "meeting_room": ["회의", "회의실", "미팅", "컨퍼런스", "회의공간"],
-    "rest_area": ["휴게", "쉬", "쉴", "낮잠", "안마", "수면", "라운지", "휴식", "잠깐"],
+    "restaurant": ["맛집", "밥", "식당", "점심", "저녁", "먹을", "먹고", "먹는", "한식", "국밥", "쌈밥", "고기", "분식", "맛있"],
+    "cafe": ["카페", "커피", "디저트", "빵", "베이커리", "브런치", "감성카페", "차 한잔"],
+    "attraction": ["관광", "명소", "구경", "볼거리", "유적", "고분", "첨성대", "대릉원", "월지", "야경", "포토"],
+    "culture": ["문화", "박물관", "전시", "한옥", "공예", "체험", "고택", "역사"],
 }
 _ATTR_KEYWORDS = {
-    "vegetarian": ["채식", "비건", "샐러드", "베지"],
-    "convenience": ["간편", "빠른", "빨리", "빠르게", "테이크아웃", "포장"],
-    "ev_charger": ["전기차", "충전", "ev충전"],
-    "quiet": ["조용", "한적", "방해", "집중"],
+    "tasty": ["맛집", "맛있", "유명", "현지", "로컬", "평점", "웨이팅"],
+    "instagrammable": ["감성", "인스타", "예쁜", "분위기", "포토", "사진", "뷰"],
+    "barrier_free": ["무장애", "휠체어", "유모차", "배리어프리", "접근"],
+    "quiet": ["조용", "한적", "여유", "붐비지", "한산", "방해", "집중"],
     "near": ["가까", "근처", "가깝", "인근", "주변"],
-    "indoor": ["실내", "지하", "비 안", "비안", "실내주차"],
+    "indoor": ["실내", "지붕", "비 안", "비안"],
 }
 
 
@@ -76,17 +75,17 @@ def _build_summary(preferred_categories: list[str], attributes: list[str]) -> st
     """표시용 결정적 한국어 요약."""
     cats = [CATEGORY_KO[c] for c in preferred_categories if c in CATEGORY_KO]
     attr_ko = {
-        "vegetarian": "채식 가능",
-        "convenience": "간편·빠른 이용",
-        "ev_charger": "전기차 충전",
-        "quiet": "조용한 곳",
+        "tasty": "맛집",
+        "instagrammable": "감성·인스타",
+        "barrier_free": "무장애·접근성",
+        "quiet": "한적한 곳",
         "near": "가까운 곳",
         "indoor": "실내",
     }
     attrs = [attr_ko[a] for a in attributes if a in attr_ko]
     if not cats and not attrs:
         return "선호 정보를 충분히 파악하지 못했어요. 다시 말씀해 주세요."
-    cat_str = "·".join(cats) if cats else "공용 시설"
+    cat_str = "·".join(cats) if cats else "관광 장소"
     attr_str = (", ".join(attrs) + " 선호") if attrs else "선호"
     return f"{cat_str} 중심으로 {attr_str}로 이해했어요."
 

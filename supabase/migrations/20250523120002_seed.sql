@@ -6,177 +6,123 @@
 -- 아래 UUID를 생성된 사용자 UUID로 교체하여 public.users에 프로필을 등록합니다.
 --
 -- 예시 INSERT (사용자 생성 후 실행):
--- INSERT INTO public.users (id, employee_id, company_name, preferred_categories, work_shift, role)
+-- INSERT INTO public.users (id, nickname, preferred_categories, visit_time_pref, role)
 -- VALUES
---   ('<생성된-uuid>', 'IT-WORKER-01', 'InduTech', '["cafeteria","parking"]'::jsonb, 'morning', 'worker')
+--   ('<생성된-uuid>', '경주여행자', '["restaurant","cafe","attraction"]'::jsonb, 'afternoon', 'tourist')
 -- ON CONFLICT (id) DO NOTHING;
 
 
 -- =========================================================================
--- 2. 공용 인프라 POI 시드 데이터 (facilities)
+-- 2. 관광 POI 시드 데이터 (facilities) — 경주 황리단길 일대
 -- =========================================================================
-
--- 좌표계: 구미국가산업단지 기준(중심 36.1198, 128.3471). 프런트엔드/지도 기본값 및 라이브 DB(구미)와 정합.
--- 일부 시설은 클램프 중심 150m 이내에 배치되어 fresh seed 에서도 반경 추천이 후보를 산출한다.
+-- 좌표계: 경주 황리단길/황남동 일대(중심 ≈ 35.836, 129.210). 프런트엔드/지도 기본값과 정합.
+-- ⚠️ 수기 큐레이션(interim) 데이터 — 이름/좌표/운영시간은 TourAPI 연동(P1) 시 정합·갱신 예정.
+-- 일부 POI는 황리단길 중심 150m 이내에 배치되어 fresh seed 에서도 반경 추천이 후보를 산출한다.
 INSERT INTO public.facilities (id, name, type, latitude, longitude, capacity, operating_hours, features) VALUES
--- 식당 (cafeteria) - 5개
-('f1000000-0000-0000-0000-000000000001', '푸드스퀘어 한식관', 'cafeteria', 36.1198, 128.3471, 150,
- '{"weekday": "11:00-20:00", "weekend": "11:00-14:00"}'::jsonb, '{"has_vegetarian": true, "average_price": 7500}'::jsonb),
-('f1000000-0000-0000-0000-000000000002', 'Indu 뷔페 식당', 'cafeteria', 36.1205, 128.3464, 200,
- '{"weekday": "11:30-19:00", "weekend": "closed"}'::jsonb, '{"buffet_style": true, "average_price": 8000}'::jsonb),
-('f1000000-0000-0000-0000-000000000003', '단지내 중식당 화성', 'cafeteria', 36.1212, 128.3485, 80,
- '{"weekday": "11:00-21:00", "weekend": "11:00-15:00"}'::jsonb, '{"has_delivery": true, "average_price": 9000}'::jsonb),
-('f1000000-0000-0000-0000-000000000004', '밀스밀 간편식 코너', 'cafeteria', 36.1180, 128.3455, 50,
- '{"weekday": "08:00-22:00", "weekend": "09:00-18:00"}'::jsonb, '{"sandwich_bar": true, "average_price": 5500}'::jsonb),
-('f1000000-0000-0000-0000-000000000005', '산단 남부 한식뷔페', 'cafeteria', 36.1172, 128.3470, 180,
- '{"weekday": "11:00-18:30", "weekend": "closed"}'::jsonb, '{"buffet_style": true, "average_price": 7000}'::jsonb),
+-- 음식점 (restaurant) - 4개
+('f1000000-0000-0000-0000-000000000001', '황남쌈밥', 'restaurant', 35.8378, 129.2096, 60,
+ '{"weekday": "10:30-21:00", "weekend": "10:30-21:00"}'::jsonb, '{"cuisine_tags": ["한식","쌈밥"], "signature_menu": "보리쌈밥정식", "barrier_free": true, "average_price": 13000}'::jsonb),
+('f1000000-0000-0000-0000-000000000002', '교리김밥 황리단길점', 'restaurant', 35.8369, 129.2103, 30,
+ '{"weekday": "08:00-18:00", "weekend": "08:00-18:00"}'::jsonb, '{"cuisine_tags": ["분식","김밥"], "signature_menu": "교리김밥", "average_price": 6000}'::jsonb),
+('f1000000-0000-0000-0000-000000000003', '황리단길 한우국밥', 'restaurant', 35.8362, 129.2091, 50,
+ '{"weekday": "09:00-20:00", "weekend": "09:00-20:00"}'::jsonb, '{"cuisine_tags": ["한식","국밥"], "signature_menu": "한우국밥", "barrier_free": false, "average_price": 10000}'::jsonb),
+('f1000000-0000-0000-0000-000000000004', '경주 한정식 다온', 'restaurant', 35.8385, 129.2088, 80,
+ '{"weekday": "11:00-21:30", "weekend": "11:00-21:30"}'::jsonb, '{"cuisine_tags": ["한식","한정식"], "signature_menu": "다온정식", "barrier_free": true, "average_price": 22000}'::jsonb),
 
--- 주차장 (parking) - 3개
-('f2000000-0000-0000-0000-000000000001', '중앙 주차타워 A동', 'parking', 36.1203, 128.3477, 400,
- '{"24_7": true}'::jsonb, '{"has_ev_charger": true, "indoor": true}'::jsonb),
-('f2000000-0000-0000-0000-000000000002', '지상 남부 주차장', 'parking', 36.1189, 128.3463, 250,
- '{"24_7": true}'::jsonb, '{"has_ev_charger": false, "indoor": false}'::jsonb),
-('f2000000-0000-0000-0000-000000000003', '서부 복합주차장 B', 'parking', 36.1178, 128.3488, 300,
- '{"24_7": true}'::jsonb, '{"has_ev_charger": true, "indoor": true}'::jsonb),
+-- 카페 (cafe) - 4개
+('f2000000-0000-0000-0000-000000000001', '황리단길 감성카페 봄', 'cafe', 35.8366, 129.2099, 40,
+ '{"weekday": "10:00-22:00", "weekend": "10:00-23:00"}'::jsonb, '{"signature_menu": "황남빵라떼", "instagrammable": true, "average_price": 6500}'::jsonb),
+('f2000000-0000-0000-0000-000000000002', '한옥카페 다랑', 'cafe', 35.8372, 129.2085, 35,
+ '{"weekday": "10:30-21:00", "weekend": "10:00-22:00"}'::jsonb, '{"signature_menu": "쑥라떼", "instagrammable": true, "barrier_free": false, "average_price": 7000}'::jsonb),
+('f2000000-0000-0000-0000-000000000003', '첨성대뷰 루프탑카페', 'cafe', 35.8358, 129.2110, 50,
+ '{"weekday": "11:00-22:00", "weekend": "11:00-23:00"}'::jsonb, '{"signature_menu": "에이드", "instagrammable": true, "barrier_free": true, "average_price": 7500}'::jsonb),
+('f2000000-0000-0000-0000-000000000004', '십원빵 황리단길', 'cafe', 35.8375, 129.2094, 20,
+ '{"weekday": "10:00-21:00", "weekend": "10:00-21:30"}'::jsonb, '{"signature_menu": "십원빵", "instagrammable": true, "average_price": 4000}'::jsonb),
 
--- 회의실 (meeting_room) - 4개
-('f3000000-0000-0000-0000-000000000001', '본관 1층 컨퍼런스룸 101', 'meeting_room', 36.1193, 128.3466, 30,
- '{"weekday": "09:00-18:00", "weekend": "closed"}'::jsonb, '{"has_beam_projector": true, "has_video_conf": true}'::jsonb),
-('f3000000-0000-0000-0000-000000000002', '혁신센터 스마트회의실 B', 'meeting_room', 36.1207, 128.3473, 12,
- '{"weekday": "08:00-20:00", "weekend": "09:00-18:00"}'::jsonb, '{"has_beam_projector": true, "whiteboard": true}'::jsonb),
-('f3000000-0000-0000-0000-000000000003', '지원동 소회의실 203', 'meeting_room', 36.1215, 128.3460, 8,
- '{"weekday": "09:00-18:00", "weekend": "closed"}'::jsonb, '{"whiteboard": true}'::jsonb),
-('f3000000-0000-0000-0000-000000000004', '테크노타워 다목적홀 C', 'meeting_room', 36.1225, 128.3450, 60,
- '{"weekday": "09:00-22:00", "weekend": "09:00-18:00"}'::jsonb, '{"has_beam_projector": true, "has_audio_system": true}'::jsonb),
+-- 관광지 (attraction) - 4개
+('f3000000-0000-0000-0000-000000000001', '대릉원(천마총)', 'attraction', 35.8389, 129.2099, 800,
+ '{"weekday": "09:00-22:00", "weekend": "09:00-22:00"}'::jsonb, '{"barrier_free": true, "entry_fee": 3000, "category": "고분군"}'::jsonb),
+('f3000000-0000-0000-0000-000000000002', '첨성대', 'attraction', 35.8347, 129.2189, 600,
+ '{"weekday": "00:00-24:00", "weekend": "00:00-24:00"}'::jsonb, '{"barrier_free": true, "entry_fee": 0, "category": "유적"}'::jsonb),
+('f3000000-0000-0000-0000-000000000003', '동궁과 월지', 'attraction', 35.8348, 129.2265, 700,
+ '{"weekday": "09:00-22:00", "weekend": "09:00-22:00"}'::jsonb, '{"barrier_free": true, "entry_fee": 3000, "category": "야경"}'::jsonb),
+('f3000000-0000-0000-0000-000000000004', '월정교', 'attraction', 35.8316, 129.2167, 400,
+ '{"weekday": "00:00-24:00", "weekend": "00:00-24:00"}'::jsonb, '{"barrier_free": true, "entry_fee": 0, "category": "야경"}'::jsonb),
 
--- 휴게실 (rest_area) - 2개
-('f4000000-0000-0000-0000-000000000001', '북부 직원 휴게라운지 D-1', 'rest_area', 36.1191, 128.3478, 10,
- '{"24_7": true}'::jsonb, '{"massageChairs": {"total": 3, "inUse": 3}, "sleepCapsules": {"total": 2, "inUse": 2}, "playstation": {"total": 1, "inUse": 1}}'::jsonb),
-('f4000000-0000-0000-0000-000000000002', '남부 직원 휴게라운지 E-2', 'rest_area', 36.1220, 128.3490, 6,
- '{"24_7": true}'::jsonb, '{"massageChairs": {"total": 3, "inUse": 0}, "sleepCapsules": {"total": 2, "inUse": 0}, "playstation": {"total": 1, "inUse": 0}}'::jsonb)
+-- 문화시설 (culture) - 4개
+('f4000000-0000-0000-0000-000000000001', '국립경주박물관', 'culture', 35.8297, 129.2278, 500,
+ '{"weekday": "10:00-18:00", "weekend": "10:00-19:00", "closed": "monday"}'::jsonb, '{"barrier_free": true, "entry_fee": 0, "category": "박물관"}'::jsonb),
+('f4000000-0000-0000-0000-000000000002', '경주 교촌마을', 'culture', 35.8296, 129.2156, 300,
+ '{"weekday": "09:00-18:00", "weekend": "09:00-18:00"}'::jsonb, '{"barrier_free": false, "entry_fee": 0, "category": "한옥마을"}'::jsonb),
+('f4000000-0000-0000-0000-000000000003', '경주 최부자댁', 'culture', 35.8302, 129.2161, 150,
+ '{"weekday": "09:00-18:00", "weekend": "09:00-18:00", "closed": "monday"}'::jsonb, '{"barrier_free": false, "entry_fee": 0, "category": "고택"}'::jsonb),
+('f4000000-0000-0000-0000-000000000004', '황리단길 공예공방거리', 'culture', 35.8360, 129.2085, 100,
+ '{"weekday": "10:00-19:00", "weekend": "10:00-20:00"}'::jsonb, '{"barrier_free": true, "entry_fee": 0, "category": "공예"}'::jsonb)
 ON CONFLICT (id) DO NOTHING;
 
 
 -- =========================================================================
 -- 3. 7일치 혼잡도 이력 데이터 생성 (congestion_logs)
 -- =========================================================================
-
--- generate_series를 이용하여 각 시설별로 지난 7일(168시간)간의 시간대별 패턴을 생성해 적재합니다.
+-- generate_series로 각 POI별 지난 7일(168시간)간 시간대별 관광 혼잡 패턴을 생성한다.
+-- 산업(평일 점심·교대) 패턴이 아니라 관광 패턴: 주말·낮 시간대 포화, 카페 오후 피크, 박물관 월요일 휴관.
+-- 혼잡도(lvl)를 LATERAL 로 1회 계산해 current_count(=capacity*lvl)와 congestion_level 에 일관 적용.
 INSERT INTO public.congestion_logs (facility_id, timestamp, current_count, congestion_level, source)
-SELECT 
+SELECT
     f.id AS facility_id,
     t AS timestamp,
-    -- current_count 계산 (capacity * congestion_level)
-    ROUND(f.capacity * 
-      CASE
-        -- 1) 식당 (cafeteria) 패턴
-        WHEN f.type = 'cafeteria' THEN
-          CASE
-            -- 주말 패턴: 거의 이용하지 않음
-            WHEN EXTRACT(ISODOW FROM t) IN (6, 7) THEN 0.02 + random() * 0.08
-            -- 점심 피크 (11:30 ~ 13:30)
-            WHEN EXTRACT(HOUR FROM t) BETWEEN 11 AND 13 THEN 0.70 + random() * 0.25
-            -- 저녁 피크 (17:30 ~ 19:30)
-            WHEN EXTRACT(HOUR FROM t) BETWEEN 17 AND 19 THEN 0.50 + random() * 0.25
-            -- 기타 일과 시간대
-            WHEN EXTRACT(HOUR FROM t) BETWEEN 9 AND 20 THEN 0.10 + random() * 0.20
-            -- 야간/새벽
-            ELSE 0.0 + random() * 0.03
-          END
-        
-        -- 2) 주차장 (parking) 패턴
-        WHEN f.type = 'parking' THEN
-          CASE
-            -- 주말 패턴: 한산함
-            WHEN EXTRACT(ISODOW FROM t) IN (6, 7) THEN 0.10 + random() * 0.15
-            -- 평일 출근 피크 (08:00 ~ 09:30)
-            WHEN EXTRACT(HOUR FROM t) BETWEEN 8 AND 9 THEN 0.75 + random() * 0.20
-            -- 평일 근무 시간대 유지 (10:00 ~ 17:00)
-            WHEN EXTRACT(HOUR FROM t) BETWEEN 10 AND 16 THEN 0.65 + random() * 0.15
-            -- 평일 퇴근 시간대 및 감소 (17:00 ~ 20:00)
-            WHEN EXTRACT(HOUR FROM t) BETWEEN 17 AND 19 THEN 0.40 + random() * 0.20
-            -- 평일 야간/새벽 (21:00 ~ 07:00)
-            ELSE 0.15 + random() * 0.10
-          END
-
-        -- 3) 회의실 (meeting_room) 패턴
-        WHEN f.type = 'meeting_room' THEN
-          CASE
-            -- 주말: 닫음
-            WHEN EXTRACT(ISODOW FROM t) IN (6, 7) THEN 0.0
-            -- 평일 일과 시간 회의 (09:00 ~ 18:00)
-            WHEN EXTRACT(HOUR FROM t) BETWEEN 9 AND 17 THEN 0.20 + random() * 0.60
-            -- 야간 예약 회의
-            WHEN EXTRACT(HOUR FROM t) BETWEEN 18 AND 21 THEN 0.05 + random() * 0.25
-            ELSE 0.0
-          END
-
-        -- 4) 휴게실 (rest_area) 패턴
-        WHEN f.type = 'rest_area' THEN
-          CASE
-            -- 주말 패턴: 한산
-            WHEN EXTRACT(ISODOW FROM t) IN (6, 7) THEN 0.05 + random() * 0.10
-            -- 평일 오전 휴식 피크 (08:00 ~ 11:30)
-            WHEN EXTRACT(HOUR FROM t) BETWEEN 8 AND 11 THEN 0.60 + random() * 0.35
-            -- 평일 점심 직후 휴식 피크 (13:30 ~ 16:30)
-            WHEN EXTRACT(HOUR FROM t) BETWEEN 13 AND 16 THEN 0.55 + random() * 0.35
-            -- 평일 야간 교대 휴식
-            WHEN EXTRACT(HOUR FROM t) BETWEEN 21 AND 23 THEN 0.20 + random() * 0.30
-            ELSE 0.05 + random() * 0.15
-          END
-      END
-    ) AS current_count,
-
-    -- congestion_level 계산 (위 CASE 수식을 그대로 차용하되 0~1 바운드 처리)
-    GREATEST(0.0, LEAST(1.0, 
-      CASE
-        WHEN f.type = 'cafeteria' THEN
-          CASE
-            WHEN EXTRACT(ISODOW FROM t) IN (6, 7) THEN 0.02 + random() * 0.08
-            WHEN EXTRACT(HOUR FROM t) BETWEEN 11 AND 13 THEN 0.70 + random() * 0.25
-            WHEN EXTRACT(HOUR FROM t) BETWEEN 17 AND 19 THEN 0.50 + random() * 0.25
-            WHEN EXTRACT(HOUR FROM t) BETWEEN 9 AND 20 THEN 0.10 + random() * 0.20
-            ELSE 0.0 + random() * 0.03
-          END
-        WHEN f.type = 'parking' THEN
-          CASE
-            WHEN EXTRACT(ISODOW FROM t) IN (6, 7) THEN 0.10 + random() * 0.15
-            WHEN EXTRACT(HOUR FROM t) BETWEEN 8 AND 9 THEN 0.75 + random() * 0.20
-            WHEN EXTRACT(HOUR FROM t) BETWEEN 10 AND 16 THEN 0.65 + random() * 0.15
-            WHEN EXTRACT(HOUR FROM t) BETWEEN 17 AND 19 THEN 0.40 + random() * 0.20
-            ELSE 0.15 + random() * 0.10
-          END
-        WHEN f.type = 'meeting_room' THEN
-          CASE
-            WHEN EXTRACT(ISODOW FROM t) IN (6, 7) THEN 0.0
-            WHEN EXTRACT(HOUR FROM t) BETWEEN 9 AND 17 THEN 0.20 + random() * 0.60
-            WHEN EXTRACT(HOUR FROM t) BETWEEN 18 AND 21 THEN 0.05 + random() * 0.25
-            ELSE 0.0
-          END
-        WHEN f.type = 'rest_area' THEN
-          CASE
-            WHEN EXTRACT(ISODOW FROM t) IN (6, 7) THEN 0.05 + random() * 0.10
-            WHEN EXTRACT(HOUR FROM t) BETWEEN 8 AND 11 THEN 0.60 + random() * 0.35
-            WHEN EXTRACT(HOUR FROM t) BETWEEN 13 AND 16 THEN 0.55 + random() * 0.35
-            WHEN EXTRACT(HOUR FROM t) BETWEEN 21 AND 23 THEN 0.20 + random() * 0.30
-            ELSE 0.05 + random() * 0.15
-          END
-      END
-    )) AS congestion_level,
-    
-    -- 로그 소스 지정
-    CASE 
-      WHEN f.type = 'parking' THEN 'iot_sensor'
-      WHEN f.type = 'cafeteria' THEN 'cctv'
-      WHEN f.type = 'meeting_room' THEN 'access_card'
-      ELSE 'iot_sensor'
+    ROUND(f.capacity * g.lvl) AS current_count,
+    g.lvl AS congestion_level,
+    CASE
+        WHEN f.type IN ('attraction', 'culture') THEN 'traffic_cctv'
+        WHEN f.type IN ('restaurant', 'cafe') THEN 'user_report'
+        ELSE 'tour_api'
     END AS source
-
-FROM 
+FROM
     public.facilities f
-CROSS JOIN 
+CROSS JOIN
     generate_series(
-        timezone('utc'::text, date_trunc('hour', now()) - interval '7 days'), 
-        timezone('utc'::text, date_trunc('hour', now())), 
+        timezone('utc'::text, date_trunc('hour', now()) - interval '7 days'),
+        timezone('utc'::text, date_trunc('hour', now())),
         interval '1 hour'
-    ) AS t;
+    ) AS t
+CROSS JOIN LATERAL (
+    SELECT GREATEST(0.0, LEAST(1.0,
+        CASE
+            -- 음식점: 점심·저녁 피크, 주말 식사시간 포화
+            WHEN f.type = 'restaurant' THEN
+                CASE
+                    WHEN EXTRACT(ISODOW FROM t) IN (6, 7) AND EXTRACT(HOUR FROM t) BETWEEN 11 AND 20 THEN 0.70 + random() * 0.28
+                    WHEN EXTRACT(HOUR FROM t) BETWEEN 11 AND 13 THEN 0.60 + random() * 0.25
+                    WHEN EXTRACT(HOUR FROM t) BETWEEN 17 AND 19 THEN 0.50 + random() * 0.25
+                    WHEN EXTRACT(HOUR FROM t) BETWEEN 9 AND 21 THEN 0.15 + random() * 0.20
+                    ELSE 0.02 + random() * 0.05
+                END
+            -- 카페: 오후 피크, 주말 종일 붐빔
+            WHEN f.type = 'cafe' THEN
+                CASE
+                    WHEN EXTRACT(ISODOW FROM t) IN (6, 7) AND EXTRACT(HOUR FROM t) BETWEEN 11 AND 19 THEN 0.65 + random() * 0.30
+                    WHEN EXTRACT(HOUR FROM t) BETWEEN 13 AND 18 THEN 0.50 + random() * 0.25
+                    WHEN EXTRACT(HOUR FROM t) BETWEEN 9 AND 21 THEN 0.15 + random() * 0.20
+                    ELSE 0.02 + random() * 0.05
+                END
+            -- 관광지: 낮 시간 피크, 주말 포화
+            WHEN f.type = 'attraction' THEN
+                CASE
+                    WHEN EXTRACT(ISODOW FROM t) IN (6, 7) AND EXTRACT(HOUR FROM t) BETWEEN 10 AND 17 THEN 0.75 + random() * 0.23
+                    WHEN EXTRACT(HOUR FROM t) BETWEEN 10 AND 17 THEN 0.45 + random() * 0.25
+                    WHEN EXTRACT(HOUR FROM t) BETWEEN 9 AND 18 THEN 0.20 + random() * 0.20
+                    ELSE 0.02 + random() * 0.05
+                END
+            -- 문화시설: 낮 시간 관람, 월요일 휴관, 주말 붐빔
+            WHEN f.type = 'culture' THEN
+                CASE
+                    WHEN EXTRACT(ISODOW FROM t) = 1 THEN 0.0
+                    WHEN EXTRACT(ISODOW FROM t) IN (6, 7) AND EXTRACT(HOUR FROM t) BETWEEN 10 AND 17 THEN 0.60 + random() * 0.30
+                    WHEN EXTRACT(HOUR FROM t) BETWEEN 10 AND 17 THEN 0.35 + random() * 0.25
+                    ELSE 0.03 + random() * 0.05
+                END
+            ELSE 0.10 + random() * 0.10
+        END
+    )) AS lvl
+) AS g;
