@@ -30,6 +30,28 @@
 
 ---
 
+## ✅ 실행 진행 현황 (자율 세션 · 2026-06-30)
+
+**완료 (커밋됨):**
+- **Phase 1 데이터** — 더미 6종·`scratch/`·구미 카카오 스크래퍼·산업 시더·`rename_loading_dock` 마이그레이션 삭제 (`b1330ac`)
+- **Phase 3 DB** — `init.sql`(관광 스키마: type/source/users)·`rls.sql`(회사 멀티테넌시 제거→`get_auth_user_role`)·`seed.sql`(경주 16 POI + 관광 혼잡 패턴)·`system_settings` 공지문구 (`b1330ac`)
+- **Phase 3 백엔드** — `preference`/`wait_time`/`predict_service`/`train`(normalize 2벌)/`preference_nlp`/`recommendations`/`infrastructures`/`predict` + `test_tttv` 정합. py_compile 통과 (`b1330ac`)
+- **Phase 2/3 프런트 lib** — `landmarks`(경주 8)·`recommender`(벡터·시간·피크·cuisine)·`utils`(마커 아이콘)·`types`(User) (`79ee70a`)
+- **Phase 4 브랜딩 코어** — `config`·`main`·`admin-auth`(키/토큰)·`layout`·`page`·`AdminSidebar`·`VoiceOrb`·`docker-compose` (`79ee70a`)
+- **Phase 2 라이브 지도** — `CongestionMap` 좌표(grid/geofence/center)·타입(필터/라벨)·브랜딩 (`c1afb2f`)
+
+**남은 작업 (다음 세션 — 대형 페이지 컴포넌트 중심):**
+- **좌표(구미 잔존 4파일):** `app/main/page.tsx`(기본 userLoc·geofence·map init·6 데모프리셋·companyLat/Lng·`induspot_map_*` sessionStorage)·`app/worker/recommend/page.tsx`(기본 lat/lng·geofence·MOCK_SEED 12)·`app/worker/map/page.tsx`(MOCK_SEED 12)·`components/admin/FacilityTable.tsx`(신규시설 기본좌표)
+- **타입 잔존(11파일):** 위 + `admin/dashboard`·`admin/infrastructure`·`admin/reports`·`DashboardCharts`·`RecommendationCard`(meeting_room 예약·rest_area 안마의자 패널 → 관광 정보로 교체)·`saved`
+- **브랜딩 induspot(12파일):** `lib/api-client.ts`(IT-WORKER-01 mock)·`lib/voiceIntent.ts`(주석)·`saved`·`mypage`·`admin/login`·`admin/reports`/`admin/dashboard`(CSV 파일명)·README·.env.example
+- **산업어휘(16파일):** `app/setup`(주간조/야간조·주차구역 온보딩 → 선호 카테고리·방문 시간대)·admin 카피(관제소·수요분산·인프라)·근로자/회의실 주석
+- **라우트 리네임:** `app/worker/`→`app/explore/` + 참조 3곳(`CongestionMap.tsx:7` import, `:374` link, `worker/recommend` `router.push`)
+- **데이터 스크립트:** `scripts/seed.js`(⚠️ 하드코딩 Supabase URL `xdwnwrthrgflbzpvkouq` 스크럽 + 타입/혼잡패턴 관광화)
+- **설정/문서 잔재:** `apps/api/.env.example`·`apps/web/.env.example`·`LOCAL_RUN.md`·`run_local.ps1`·`Dockerfile`·`requirements.txt`·`apps/api/README.md`·`apps/web/README.md`(induspot/공단 문구)
+- **⚠️ 크레덴셜 필요(사용자 액션):** 신규 Supabase 프로젝트 생성 → `.env` 갱신(+하드코딩 URL 제거) → `supabase db push`(마이그레이션 적용) → `python apps/api/scripts/train.py`(model.pkl 재학습) → 앱 스모크
+
+---
+
 ## 2. 경주 황리단길 기준값 (실행 시 지도/TourAPI로 좌표 최종 검증)
 
 - **중심좌표(매직 상수 대체):** 황남동 황리단길 ≈ **35.838, 129.210** *(검증 필요)*
