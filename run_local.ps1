@@ -1,4 +1,4 @@
-# run_local.ps1 - Run InduSpot locally (no GCP / no Firebase).
+# run_local.ps1 - Run NextSpot locally.
 #
 #   .\run_local.ps1                Install backend deps, then start backend (8000) and frontend (3000) in new windows.
 #   .\run_local.ps1 -Train         Also (re)train the local prediction model (apps/api/model.pkl) from Supabase first.

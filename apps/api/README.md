@@ -1,7 +1,7 @@
-# InduSpot API (FastAPI) — 로컬 백엔드 (비-GCP)
+# NextSpot API (FastAPI) — 로컬 백엔드
 
-스마트 공단 인프라 혼잡 분산 추천 엔진. 로컬 uvicorn(또는 컨테이너)으로 구동되며, 예측·추천·음성
-계층이 모두 로컬에서 동작한다. 데이터 저장소는 Supabase(비-GCP).
+경주 관광 수요 분산·대안 장소 추천 엔진. 로컬 uvicorn(또는 컨테이너)으로 구동되며, 예측·추천·음성
+계층이 모두 로컬에서 동작한다. 데이터 저장소는 Supabase.
 
 > 대회용 GCP 네이티브 계층(Vertex AI Endpoint·BigQuery/BQML·Pub/Sub·Firestore·Secret Manager·
 > Cloud Run·API Gateway)은 모두 제거되었다. 기존에 폴백으로 존재하던 로컬 경로를 주 경로로 사용한다.
@@ -69,8 +69,8 @@ filter 의 후보 매칭은 `embedding_service.filter_candidates` 가 후보 이
 ## 주요 엔드포인트
 
 - `GET /health` — 헬스 체크
-- `GET /api/v1/infrastructures` — 시설 목록 + 최신 혼잡도
-- `POST /api/v1/recommendations` — 혼잡한 원본 시설의 대안 추천(반경 150m)
+- `GET /api/v1/infrastructures` — 관광 POI 목록 + 최신 혼잡도
+- `POST /api/v1/recommendations` — 혼잡한 원본 장소의 대안 추천(반경 150m)
 - `POST /api/v1/recommendations/by-type` — 타입별 랭킹(메인 지도 브라우즈)
 - `POST /api/v1/feedback` — 수락/거절 피드백 → 선호 벡터 보정
 - `POST /api/v1/preferences/parse` — 자연어 선호 → 구조화(키워드)

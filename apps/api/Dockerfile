@@ -1,4 +1,4 @@
-# --- InduSpot API 컨테이너 (로컬/배포 공용, 비-GCP) ---
+# --- NextSpot API 컨테이너 (로컬/배포 공용) ---
 # 단일 스테이지 + pip(requirements.txt). 대회용 Poetry/Cloud Run 빌드 경로는 제거됨.
 FROM python:3.11-slim
 

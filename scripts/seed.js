@@ -1,6 +1,6 @@
 const { createClient } = require('@supabase/supabase-js');
 
-const supabaseUrl = process.env.SUPABASE_URL || 'https://xdwnwrthrgflbzpvkouq.supabase.co';
+const supabaseUrl = process.env.SUPABASE_URL || '';
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 if (!supabaseServiceKey) {
@@ -56,7 +56,7 @@ async function seed() {
   const logsToInsert = [];
   
   // Categorize facilities to apply realistic patterns based on actual facility type.
-  // Real taxonomy: cafeteria (구내식당), parking (주차장), meeting_room (회의실), rest_area (휴게실)
+  // 관광 taxonomy: restaurant(음식점), cafe(카페), attraction(관광지), culture(문화시설)
   const categorizedFacilities = facilities.map(f => {
     return { ...f, facilityType: f.type };
   });
@@ -64,20 +64,19 @@ async function seed() {
   // Helper to determine congestion level by hour and facility type
   function getCongestion(type, hour) {
     let base = 0.15;
-    if (type === 'cafeteria') {
-      if (hour >= 11 && hour <= 13) base = 0.75 + Math.random() * 0.15; // 점심 피크
-      else if (hour >= 17 && hour <= 19) base = 0.60 + Math.random() * 0.20; // 저녁 피크
+    if (type === 'restaurant') {
+      if (hour >= 11 && hour <= 13) base = 0.70 + Math.random() * 0.20; // 점심 피크
+      else if (hour >= 17 && hour <= 19) base = 0.55 + Math.random() * 0.25; // 저녁 피크
+      else base = 0.10 + Math.random() * 0.1;
+    } else if (type === 'cafe') {
+      if (hour >= 13 && hour <= 18) base = 0.55 + Math.random() * 0.25; // 오후 피크
+      else base = 0.10 + Math.random() * 0.15;
+    } else if (type === 'attraction') {
+      if (hour >= 10 && hour <= 17) base = 0.50 + Math.random() * 0.30; // 낮 시간 피크
       else base = 0.05 + Math.random() * 0.1;
-    } else if (type === 'parking') {
-      if (hour >= 7 && hour <= 9) base = 0.70 + Math.random() * 0.22; // 출근 입차 피크
-      else if (hour >= 17 && hour <= 19) base = 0.45 + Math.random() * 0.15; // 퇴근 출차
-      else base = 0.30 + Math.random() * 0.15;
-    } else if (type === 'meeting_room') {
-      if (hour >= 9 && hour <= 18) base = 0.40 + Math.random() * 0.25; // 업무 시간 일정한 흐름
+    } else { // culture (문화시설)
+      if (hour >= 10 && hour <= 17) base = 0.40 + Math.random() * 0.25; // 관람 피크
       else base = 0.05 + Math.random() * 0.1;
-    } else { // rest_area / 휴게실
-      if (hour === 10 || hour === 13 || hour === 15) base = 0.65 + Math.random() * 0.20; // 휴식시간 피크
-      else base = 0.20 + Math.random() * 0.15;
     }
     return Math.min(Math.max(base, 0), 1);
   }
@@ -94,7 +93,7 @@ async function seed() {
         timestamp: timestamp.toISOString(),
         current_count,
         congestion_level: Math.round(congestion_level * 100) / 100,
-        source: 'iot_sensor'
+        source: 'traffic_cctv'
       });
     }
   }
@@ -115,7 +114,7 @@ async function seed() {
           timestamp: timestamp.toISOString(),
           current_count,
           congestion_level: Math.round(congestion_level * 100) / 100,
-          source: 'iot_sensor'
+          source: 'traffic_cctv'
         });
       }
     }
@@ -135,38 +134,38 @@ async function seed() {
   }
 
   // 4. Generate Anomaly Alerts for Today (Explicitly insert high congestion records)
-  // Let's create an anomaly for the parking lot and one cafeteria today
+  // Inject anomalies for one attraction and one restaurant today
   console.log('Injecting explicit anomalies for today...');
-  const parking = categorizedFacilities.find(f => f.facilityType === 'parking');
-  const cafeteria = categorizedFacilities.find(f => f.facilityType === 'cafeteria');
+  const attraction = categorizedFacilities.find(f => f.facilityType === 'attraction');
+  const restaurant = categorizedFacilities.find(f => f.facilityType === 'restaurant');
 
   const anomalyLogs = [];
-  if (parking) {
-    // Parking anomaly from 18:30 to 19:45 today (duration 75 mins)
-    const times = [30, 45, 60, 75]; // offsets in minutes from 18:00
+  if (attraction) {
+    // Attraction anomaly around 14:00 today (afternoon peak crowd)
+    const times = [0, 15, 30, 45]; // offsets in minutes from 14:00
     for (const t of times) {
-      const timestamp = getKstDate(0, 18, t);
+      const timestamp = getKstDate(0, 14, t);
       anomalyLogs.push({
-        facility_id: parking.id,
+        facility_id: attraction.id,
         timestamp: timestamp.toISOString(),
-        current_count: Math.round(parking.capacity * 0.95),
+        current_count: Math.round(attraction.capacity * 0.95),
         congestion_level: 0.95,
-        source: 'iot_sensor'
+        source: 'traffic_cctv'
       });
     }
   }
 
-  if (cafeteria) {
-    // Cafeteria anomaly from 12:00 to 12:45 today (duration 45 mins)
+  if (restaurant) {
+    // Restaurant anomaly from 12:00 to 12:45 today (lunch peak)
     const times = [0, 15, 30, 45];
     for (const t of times) {
       const timestamp = getKstDate(0, 12, t);
       anomalyLogs.push({
-        facility_id: cafeteria.id,
+        facility_id: restaurant.id,
         timestamp: timestamp.toISOString(),
-        current_count: Math.round(cafeteria.capacity * 0.92),
+        current_count: Math.round(restaurant.capacity * 0.92),
         congestion_level: 0.92,
-        source: 'iot_sensor'
+        source: 'traffic_cctv'
       });
     }
   }
@@ -182,9 +181,9 @@ async function seed() {
   const recsToInsert = [];
   
   // Find pairable facilities of the same type
-  const cafeterias = categorizedFacilities.filter(f => f.facilityType === 'cafeteria');
-  const parkings = categorizedFacilities.filter(f => f.facilityType === 'parking');
-  const restAreas = categorizedFacilities.filter(f => f.facilityType === 'rest_area');
+  const restaurants = categorizedFacilities.filter(f => f.facilityType === 'restaurant');
+  const cafes = categorizedFacilities.filter(f => f.facilityType === 'cafe');
+  const attractions = categorizedFacilities.filter(f => f.facilityType === 'attraction');
 
   for (let d = -29; d <= 0; d++) {
     // 10 recommendations per day
@@ -196,15 +195,15 @@ async function seed() {
       const randType = Math.random();
       let original, recommended;
       
-      if (randType < 0.5 && cafeterias.length >= 2) {
-        original = cafeterias[0];
-        recommended = cafeterias[1];
-      } else if (randType < 0.8 && parkings.length >= 2) {
-        original = parkings[0];
-        recommended = parkings[1];
-      } else if (restAreas.length >= 2) {
-        original = restAreas[0];
-        recommended = restAreas[1];
+      if (randType < 0.5 && restaurants.length >= 2) {
+        original = restaurants[0];
+        recommended = restaurants[1];
+      } else if (randType < 0.8 && cafes.length >= 2) {
+        original = cafes[0];
+        recommended = cafes[1];
+      } else if (attractions.length >= 2) {
+        original = attractions[0];
+        recommended = attractions[1];
       } else {
         original = facilities[0];
         recommended = facilities[1];

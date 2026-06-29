@@ -1,6 +1,6 @@
-# InduSpot - 스마트 공단 인프라 수요 분산 AI 플랫폼
+# NextSpot - 경주 관광 수요 분산 AI 플랫폼
 
-산업단지 내 공용 인프라(식당, 주차장, 회의실, 휴게 공간)의 실시간 혼잡도를 분석하고, 혼잡 발생 시 TTTV(Total Time to Value) 알고리즘 기반 대안 경로 및 시간대를 추천하는 B2B SaaS 모노레포 프로젝트입니다.
+경주 황리단길 관광 POI(음식점, 카페, 관광지, 문화시설)의 실시간 혼잡도를 분석하고, 혼잡 발생 시 TTTV(Total Time to Value) 알고리즘 기반 대안 장소 및 시간대를 추천하는 관광 수요 재배치 모노레포 프로젝트입니다.
 
 ## 기술 스택
 - **Frontend / BFF**: Next.js 14 (App Router) + TypeScript + Tailwind CSS
@@ -12,9 +12,9 @@
 
 ## 프로젝트 구조
 ```text
-induspot/
+nextspot/
 ├── apps/
-│   ├── web/                  # Next.js 14
+│   ├── web/                  # Next.js 16
 │   └── api/                  # FastAPI (Python 3.11)
 ├── packages/
 │   └── shared-types/         # Next.js ↔ FastAPI 공유 타입 정의
