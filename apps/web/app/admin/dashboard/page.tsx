@@ -61,19 +61,19 @@ function generateClientFallbackData(realFacilities?: any[]) {
       for (let hour = 0; hour < 24; hour++) {
         const noise = ((facSeed * (hour + 1)) % 100) / 100;
         let mockVal = 0.1;
-        if (type === 'cafeteria') {
+        if (type === 'restaurant') {
           if (hour >= 11 && hour <= 13) mockVal = 0.65 + noise * 0.25;
-          else if (hour >= 17 && hour <= 19) mockVal = 0.45 + noise * 0.25;
-          else mockVal = 0.05 + noise * 0.15;
-        } else if (type === 'parking') {
-          if (hour >= 8 && hour <= 18) mockVal = 0.55 + noise * 0.35;
-          else mockVal = 0.15 + noise * 0.2;
-        } else if (type === 'meeting_room') {
-          if (hour >= 9 && hour <= 17) mockVal = 0.3 + noise * 0.55;
-          else mockVal = 0.02 + noise * 0.1;
-        } else { // rest_area, loading_dock 등
-          if (hour >= 8 && hour <= 20) mockVal = 0.15 + noise * 0.45;
-          else mockVal = 0.02 + noise * 0.15;
+          else if (hour >= 17 && hour <= 19) mockVal = 0.5 + noise * 0.25;
+          else mockVal = 0.1 + noise * 0.15;
+        } else if (type === 'cafe') {
+          if (hour >= 13 && hour <= 18) mockVal = 0.55 + noise * 0.3;
+          else mockVal = 0.1 + noise * 0.2;
+        } else if (type === 'attraction') {
+          if (hour >= 10 && hour <= 17) mockVal = 0.5 + noise * 0.4;
+          else mockVal = 0.05 + noise * 0.1;
+        } else { // culture 등
+          if (hour >= 10 && hour <= 17) mockVal = 0.35 + noise * 0.4;
+          else mockVal = 0.03 + noise * 0.1;
         }
         
         dummyHeatmap.push({
@@ -86,12 +86,12 @@ function generateClientFallbackData(realFacilities?: any[]) {
     });
   } else {
     // 2. DB 연결 실패 시 최후의 폴백 (하드코딩 더미 장소)
-    const facilityTypes = ['cafeteria', 'parking', 'meeting_room', 'loading_dock'];
+    const facilityTypes = ['restaurant', 'cafe', 'attraction', 'culture'];
     const baseNames: Record<string, string[]> = {
-      cafeteria: ['중앙식당', '서브카페', '구내식당 A', '구내식당 B'],
-      parking: ['A1 주차장', 'B2 주차타워', '야외 주차장', '화물 주차구역'],
-      meeting_room: ['대회의실 1', '소회의실 A', '컨퍼런스룸', '세미나실 B'],
-      loading_dock: ['남부 하역장 A', '북부 하역장 B', '중앙 대기소']
+      restaurant: ['황남쌈밥', '교리김밥', '한우국밥', '경주 한정식'],
+      cafe: ['감성카페 봄', '한옥카페 다랑', '루프탑카페', '십원빵'],
+      attraction: ['대릉원', '첨성대', '동궁과 월지', '월정교'],
+      culture: ['국립경주박물관', '교촌마을', '최부자댁']
     };
 
     facilityTypes.forEach((type) => {
@@ -99,23 +99,23 @@ function generateClientFallbackData(realFacilities?: any[]) {
       names.forEach((name) => {
         let facSeed = 0;
         for (let i = 0; i < name.length; i++) facSeed += name.charCodeAt(i);
-        
+
         for (let hour = 0; hour < 24; hour++) {
           const noise = ((facSeed * (hour + 1)) % 100) / 100;
           let mockVal = 0.1;
-          if (type === 'cafeteria') {
+          if (type === 'restaurant') {
             if (hour >= 11 && hour <= 13) mockVal = 0.65 + noise * 0.25;
-            else if (hour >= 17 && hour <= 19) mockVal = 0.45 + noise * 0.25;
-            else mockVal = 0.05 + noise * 0.15;
-          } else if (type === 'parking') {
-            if (hour >= 8 && hour <= 18) mockVal = 0.55 + noise * 0.35;
-            else mockVal = 0.15 + noise * 0.2;
-          } else if (type === 'meeting_room') {
-            if (hour >= 9 && hour <= 17) mockVal = 0.3 + noise * 0.55;
-            else mockVal = 0.02 + noise * 0.1;
+            else if (hour >= 17 && hour <= 19) mockVal = 0.5 + noise * 0.25;
+            else mockVal = 0.1 + noise * 0.15;
+          } else if (type === 'cafe') {
+            if (hour >= 13 && hour <= 18) mockVal = 0.55 + noise * 0.3;
+            else mockVal = 0.1 + noise * 0.2;
+          } else if (type === 'attraction') {
+            if (hour >= 10 && hour <= 17) mockVal = 0.5 + noise * 0.4;
+            else mockVal = 0.05 + noise * 0.1;
           } else {
-            if (hour >= 8 && hour <= 20) mockVal = 0.15 + noise * 0.45;
-            else mockVal = 0.02 + noise * 0.15;
+            if (hour >= 10 && hour <= 17) mockVal = 0.35 + noise * 0.4;
+            else mockVal = 0.03 + noise * 0.1;
           }
           
           dummyHeatmap.push({
@@ -155,8 +155,8 @@ function generateClientFallbackData(realFacilities?: any[]) {
 
   // 이상 알림 내역
   const dummyAnomalies = [
-    { id: "a1", facilityName: "A1 주차장", timestamp: new Date(Date.now() - 30 * 60 * 1000).toISOString(), congestionLevel: 0.92, durationMinutes: 45 },
-    { id: "a2", facilityName: "중앙식당", timestamp: new Date(Date.now() - 120 * 60 * 1000).toISOString(), congestionLevel: 0.95, durationMinutes: 60 }
+    { id: "a1", facilityName: "대릉원", timestamp: new Date(Date.now() - 30 * 60 * 1000).toISOString(), congestionLevel: 0.92, durationMinutes: 45 },
+    { id: "a2", facilityName: "황남쌈밥", timestamp: new Date(Date.now() - 120 * 60 * 1000).toISOString(), congestionLevel: 0.95, durationMinutes: 60 }
   ];
 
   return {
@@ -445,7 +445,7 @@ export default function DashboardPage() {
       const a = document.createElement('a');
       const today = new Date().toISOString().split('T')[0];
       a.href = url;
-      a.download = `induspot-dashboard-${today}.csv`;
+      a.download = `nextspot-dashboard-${today}.csv`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -466,7 +466,7 @@ export default function DashboardPage() {
       <main className="flex-1 flex flex-col h-full overflow-hidden">
         {/* Top Header */}
         <header className="h-20 bg-slate-900 border-b border-slate-800 flex items-center justify-between px-8 flex-shrink-0">
-          <h2 className="text-xl font-bold text-slate-100">공단 시설 종합 대시보드</h2>
+          <h2 className="text-xl font-bold text-slate-100">경주 관광 혼잡 종합 대시보드</h2>
           <div className="flex items-center gap-6">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={18} />

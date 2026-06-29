@@ -202,7 +202,7 @@ export default function TTTVSimulator() {
                     <div>
                         <p className="mb-4 leading-relaxed">
                             <strong className="text-slate-100">TTTV란?</strong><br/>
-                            사용자가 서비스를 이용하기 위해 소비하는 <span className="font-semibold text-blue-400">대기 시간과 이동 시간의 기회비용을 가치(Value)로 환산</span>하여 최적의 스팟을 추천하는 InduSpot만의 핵심 알고리즘입니다. 점수(0~100점)가 높을수록 현재 상황에서 가장 합리적인 선택지임을 의미합니다.
+                            사용자가 서비스를 이용하기 위해 소비하는 <span className="font-semibold text-blue-400">대기 시간과 이동 시간의 기회비용을 가치(Value)로 환산</span>하여 최적의 스팟을 추천하는 NextSpot만의 핵심 알고리즘입니다. 점수(0~100점)가 높을수록 현재 상황에서 가장 합리적인 선택지임을 의미합니다.
                         </p>
                         <p className="leading-relaxed">
                             <strong className="text-slate-100">시뮬레이터 활용법:</strong><br/>
@@ -229,7 +229,7 @@ export default function TTTVSimulator() {
                             <div className="w-2 h-2 rounded-full bg-emerald-500 mt-1.5 flex-shrink-0"></div>
                             <div>
                                 <strong className="text-slate-100">혼잡도 인센티브 (Congestion Incentive)</strong>
-                                <p className="text-xs mt-0.5 text-slate-400">가중치를 높이면 한적한 틈새 스팟에 강력한 보너스 점수를 부여하여 단지 내 트래픽을 적극적으로 분산시킵니다.</p>
+                                <p className="text-xs mt-0.5 text-slate-400">가중치를 높이면 한적한 틈새 스팟에 강력한 보너스 점수를 부여하여 골목·도심의 관광 수요를 적극적으로 분산시킵니다.</p>
                             </div>
                         </div>
                     </div>

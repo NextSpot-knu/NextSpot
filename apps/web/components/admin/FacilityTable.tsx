@@ -17,15 +17,15 @@ interface FacilityData {
 export function FacilityTable() {
   const [facilities, setFacilities] = useState<FacilityData[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedCategory, setSelectedCategory] = useState('cafeteria');
+  const [selectedCategory, setSelectedCategory] = useState('restaurant');
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
 
   const categories = [
-    { id: 'cafeteria', name: '식당' },
-    { id: 'parking', name: '주차장' },
-    { id: 'meeting_room', name: '회의실' },
-    { id: 'rest_area', name: '휴게실' },
+    { id: 'restaurant', name: '음식점' },
+    { id: 'cafe', name: '카페' },
+    { id: 'attraction', name: '관광지' },
+    { id: 'culture', name: '문화시설' },
   ];
 
   const fetchFacilities = async () => {
@@ -86,24 +86,24 @@ export function FacilityTable() {
       <div className="p-6 border-b border-slate-800 flex justify-between items-center bg-slate-800/30">
         <div className="flex items-center gap-2">
           <Settings className="text-slate-400" size={20} />
-          <h3 className="text-lg font-bold text-slate-100">시설 관리 (CRUD)</h3>
+          <h3 className="text-lg font-bold text-slate-100">장소 관리 (CRUD)</h3>
         </div>
         <button 
           onClick={() => {
-            const name = prompt('새로운 시설명을 입력하세요:');
+            const name = prompt('새로운 장소명을 입력하세요:');
             if (!name) return;
-            const type = prompt('시설 유형을 입력하세요 (cafeteria, parking, meeting_room, rest_area):', selectedCategory);
+            const type = prompt('장소 유형을 입력하세요 (restaurant, cafe, attraction, culture):', selectedCategory);
             if (!type) return;
-            if (!['cafeteria', 'parking', 'meeting_room', 'rest_area'].includes(type)) {
-              alert('올바른 유형을 입력하세요 (cafeteria, parking, meeting_room, rest_area).');
+            if (!['restaurant', 'cafe', 'attraction', 'culture'].includes(type)) {
+              alert('올바른 유형을 입력하세요 (restaurant, cafe, attraction, culture).');
               return;
             }
             const capacityStr = prompt('수용 인원(숫자)을 입력하세요:', '50');
             const capacity = parseInt(capacityStr || '50') || 50;
-            
+
             supabase
               .from('facilities')
-              .insert([{ name, type, capacity, latitude: 36.109031, longitude: 128.388471 }])
+              .insert([{ name, type, capacity, latitude: 35.8362, longitude: 129.2095 }])
               .select()
               .then(({ data, error }) => {
                 if (error) {
@@ -116,7 +116,7 @@ export function FacilityTable() {
           }}
           className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-bold transition-colors"
         >
-          <Plus size={16} /> 신규 시설 등록
+          <Plus size={16} /> 신규 장소 등록
         </button>
       </div>
 
@@ -162,7 +162,7 @@ export function FacilityTable() {
                     <td className="p-4 font-bold text-slate-100">{fac.name}</td>
                     <td className="p-4">
                       <span className="px-2 py-1 bg-slate-800 text-slate-300 rounded-md text-xs font-semibold uppercase">
-                        {fac.type === 'cafeteria' ? '식당' : fac.type === 'parking' ? '주차장' : fac.type === 'meeting_room' ? '회의실' : fac.type === 'rest_area' ? '휴게실' : fac.type}
+                        {fac.type === 'restaurant' ? '음식점' : fac.type === 'cafe' ? '카페' : fac.type === 'attraction' ? '관광지' : fac.type === 'culture' ? '문화시설' : fac.type}
                       </span>
                     </td>
                     <td className="p-4 text-slate-300">{fac.capacity}명/대</td>
@@ -206,7 +206,7 @@ export function FacilityTable() {
                 ))}
                 {filteredFacilities.length === 0 && (
                   <tr>
-                    <td colSpan={6} className="text-center p-8 text-slate-500 font-medium">등록된 시설이 없습니다.</td>
+                    <td colSpan={6} className="text-center p-8 text-slate-500 font-medium">등록된 장소가 없습니다.</td>
                   </tr>
                 )}
               </tbody>

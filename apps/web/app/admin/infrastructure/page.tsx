@@ -1,8 +1,8 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { 
-  Building2, Search, Bell, Utensils, ParkingCircle, Filter, 
+import {
+  Building2, Search, Bell, Utensils, MapPin, Filter,
   ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, AlertTriangle, Users, Clock, Activity, Coffee
 } from 'lucide-react';
 import { AdminSidebar } from '@/components/AdminSidebar';
@@ -13,7 +13,7 @@ import { createPublicClient } from '@/lib/supabase';
 interface Infrastructure {
   id: string;
   name: string;
-  type: '식당' | '주차장' | '회의실' | '휴게실';
+  type: '음식점' | '카페' | '관광지' | '문화시설';
   status: 'blue' | 'green' | 'yellow' | 'orange';
   capacity: string;
   expectedDemand: string;
@@ -26,13 +26,13 @@ interface ChartDataPoint {
 
 // 데모 폴백: 백엔드가 비어있거나 응답이 없을 때 보여줄 샘플 시설(데모 페이지 무중단).
 const DEMO_FACILITIES: Infrastructure[] = [
-  { id: 'demo-cafe-1', name: '중앙 구내식당', type: '식당', status: 'orange', capacity: '430/500', expectedDemand: '매우 높음 (점심 피크 예측)' },
-  { id: 'demo-cafe-2', name: 'A동 카페테리아', type: '식당', status: 'yellow', capacity: '180/300', expectedDemand: '보통 (일반 점심 패턴)' },
-  { id: 'demo-park-1', name: 'A1 지상주차장', type: '주차장', status: 'orange', capacity: '385/400', expectedDemand: '매우 높음 (출근 피크 혼잡)' },
-  { id: 'demo-park-2', name: 'B2 주차타워', type: '주차장', status: 'green', capacity: '120/450', expectedDemand: '낮음 (여유 상태)' },
-  { id: 'demo-meet-1', name: '대회의실 1', type: '회의실', status: 'yellow', capacity: '14/20', expectedDemand: '보통' },
-  { id: 'demo-meet-2', name: '소회의실 A', type: '회의실', status: 'blue', capacity: '2/8', expectedDemand: '매우 낮음 (한산)' },
-  { id: 'demo-rest-1', name: '북측 휴게실', type: '휴게실', status: 'green', capacity: '9/30', expectedDemand: '낮음 (여유 상태)' },
+  { id: 'demo-rest-1', name: '황남쌈밥', type: '음식점', status: 'orange', capacity: '54/60', expectedDemand: '매우 높음 (점심 피크 예측)' },
+  { id: 'demo-rest-2', name: '교리김밥 황리단길점', type: '음식점', status: 'yellow', capacity: '14/30', expectedDemand: '보통 (일반 식사 패턴)' },
+  { id: 'demo-cafe-1', name: '황리단길 감성카페 봄', type: '카페', status: 'orange', capacity: '32/40', expectedDemand: '매우 높음 (오후 피크)' },
+  { id: 'demo-cafe-2', name: '한옥카페 다랑', type: '카페', status: 'green', capacity: '12/35', expectedDemand: '낮음 (여유 상태)' },
+  { id: 'demo-attr-1', name: '대릉원', type: '관광지', status: 'orange', capacity: '720/800', expectedDemand: '매우 높음 (주말 포화 예측)' },
+  { id: 'demo-attr-2', name: '첨성대', type: '관광지', status: 'yellow', capacity: '420/600', expectedDemand: '보통' },
+  { id: 'demo-cult-1', name: '국립경주박물관', type: '문화시설', status: 'green', capacity: '250/500', expectedDemand: '낮음 (여유 상태)' },
 ];
 
 // 데모 시설 선택 시 보여줄 합성 시간대 추이. 백엔드 의존 없이 가벼운 곡선 생성.
@@ -55,7 +55,7 @@ export default function InfrastructurePage() {
   const [facilities, setFacilities] = useState<Infrastructure[]>([]);
   const [selectedInfra, setSelectedInfra] = useState<Infrastructure | null>(null);
   const [chartData, setChartData] = useState<ChartDataPoint[]>([]);
-  const [activeFilter, setActiveFilter] = useState('식당');
+  const [activeFilter, setActiveFilter] = useState('음식점');
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
   const [loading, setLoading] = useState(true);
@@ -90,14 +90,13 @@ export default function InfrastructurePage() {
           const currentCount = latestLog ? latestLog.current_count : 0;
 
           // 타입 매핑
-          const typeMap: Record<string, '식당' | '주차장' | '회의실' | '휴게실'> = {
-            cafeteria: '식당',
-            parking: '주차장',
-            meeting_room: '회의실',
-            rest_area: '휴게실',
-            loading_dock: '휴게실'  // 레거시 호환
+          const typeMap: Record<string, '음식점' | '카페' | '관광지' | '문화시설'> = {
+            restaurant: '음식점',
+            cafe: '카페',
+            attraction: '관광지',
+            culture: '문화시설'
           };
-          const mappedType = typeMap[f.type] || '회의실';
+          const mappedType = typeMap[f.type] || '관광지';
 
           // 상태 매핑 (orange, yellow, green, blue)
           let status: 'blue' | 'green' | 'yellow' | 'orange' = 'blue';
@@ -108,12 +107,12 @@ export default function InfrastructurePage() {
           // expectedDemand 문구 매핑
           let expectedDemand = '낮음';
           if (level >= 0.75) {
-            expectedDemand = mappedType === '식당' ? '매우 높음 (선호 메뉴 통계 반영)' 
-              : mappedType === '주차장' ? '매우 높음 (출퇴근 피크 혼잡 예측)'
+            expectedDemand = mappedType === '음식점' ? '매우 높음 (점심·저녁 피크 예측)'
+              : mappedType === '관광지' ? '매우 높음 (주말·낮 시간 포화 예측)'
               : '매우 높음';
           } else if (level >= 0.50) {
-            expectedDemand = mappedType === '식당' ? '보통 (일반적인 회식/점심 시간 패턴)'
-              : mappedType === '주차장' ? '보통 (오후 부품 입출고 진입 예측)'
+            expectedDemand = mappedType === '음식점' ? '보통 (일반 식사 시간 패턴)'
+              : mappedType === '관광지' ? '보통 (관람객 유입 진행)'
               : '보통';
           } else if (level >= 0.25) {
             expectedDemand = '낮음 (여유 상태)';
@@ -213,10 +212,10 @@ export default function InfrastructurePage() {
 
   const getTypeIcon = (type: string) => {
     switch (type) {
-      case '식당': return <Utensils size={18} />;
-      case '주차장': return <ParkingCircle size={18} />;
-      case '회의실': return <Building2 size={18} />;
-      case '휴게실': return <Coffee size={18} />;
+      case '음식점': return <Utensils size={18} />;
+      case '카페': return <Coffee size={18} />;
+      case '관광지': return <MapPin size={18} />;
+      case '문화시설': return <Building2 size={18} />;
       default: return <Building2 size={18} />;
     }
   };
@@ -238,7 +237,7 @@ export default function InfrastructurePage() {
       <main className="flex-1 flex flex-col h-full overflow-hidden">
         {/* Top Header */}
         <header className="h-20 bg-slate-900 border-b border-slate-800 flex items-center justify-between px-8 flex-shrink-0">
-          <h2 className="text-xl font-bold text-slate-100">인프라 모니터링</h2>
+          <h2 className="text-xl font-bold text-slate-100">관광지 모니터링</h2>
           <div className="flex items-center gap-6">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
@@ -261,7 +260,7 @@ export default function InfrastructurePage() {
           <div className="w-1/3 bg-slate-900 border-r border-slate-800 flex flex-col h-full">
             <div className="p-4 border-b border-slate-800">
               <div className="flex gap-2 overflow-x-auto no-scrollbar pb-2">
-                {['식당', '주차장', '회의실', '휴게실'].map(filter => (
+                {['음식점', '카페', '관광지', '문화시설'].map(filter => (
                   <button
                     key={filter}
                     onClick={() => {
@@ -292,7 +291,7 @@ export default function InfrastructurePage() {
                 </div>
               ) : filteredInfras.length === 0 ? (
                 <div className="text-center p-8 text-slate-400">
-                  등록된 인프라가 없습니다.
+                  등록된 장소가 없습니다.
                 </div>
               ) : (
                 paginatedInfras.map(infra => (
