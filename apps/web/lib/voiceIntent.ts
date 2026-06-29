@@ -2,7 +2,7 @@
 //
 // 추천 카드를 음성으로 안내한 뒤 사용자의 한국어 음성 응답을 행동으로 매핑한다. 의도 분류는
 // 100% 클라이언트 키워드 매칭이다(좁고 닫힌 의도 집합, 0ms 지연, 오프라인 안전, 신규 백엔드 0).
-// "Gemini 음성 체감"은 낭독 콘텐츠(rec.reason)가 Gemini 산출물이라는 점으로 충족된다.
+// 음성 안내 체감은 낭독 콘텐츠(rec.reason)가 추천 사유라는 점으로 충족된다.
 
 export type VoiceIntent =
   | "accept" // 이 추천 수락 → 길안내
@@ -61,8 +61,8 @@ export function classifyIntent(transcripts: string[]): VoiceIntent {
 }
 
 /**
- * 카드 진입 발화 문장. 핵심은 Gemini가 만든 reason을 그대로 읽어주는 것.
- * 예: "1번째 추천이에요. Indu 뷔페 식당. 도보 2분, 예상 대기 8분 수준으로 지금 가장 여유로워요. 여기로 안내할까요?"
+ * 카드 진입 발화 문장. 핵심은 백엔드가 만든 reason을 그대로 읽어주는 것.
+ * 예: "1번째 추천이에요. 황리단길 감성카페 봄. 도보 2분, 예상 대기 8분 수준으로 지금 가장 여유로워요. 여기로 안내할까요?"
  */
 export function buildCardSpeech(name: string, reason: string, indexZeroBased: number): string {
   const r = (reason || "").slice(0, 200).trim();

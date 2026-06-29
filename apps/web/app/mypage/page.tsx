@@ -39,8 +39,8 @@ export default function MyPage() {
         // UI 확인을 위한 임시 목업 상태 (API 연동 전)
         setProfile({
           name: 'Yun Seong',
-          email: 'yun.seong@induspot.global',
-          role: 'Senior Operator',
+          email: 'yun.seong@nextspot.app',
+          role: 'Explorer',
           routes: 24,
           saved: 7,
           rating: 4.9,
@@ -101,7 +101,7 @@ export default function MyPage() {
         <button className="text-gray-400 hover:text-white transition-colors">
           <Menu size={24} />
         </button>
-        <h1 className="text-xl font-bold text-white tracking-wide">InduSpot</h1>
+        <h1 className="text-xl font-bold text-white tracking-wide">NextSpot</h1>
         <button className="text-gray-400 hover:text-white transition-colors">
           <Bell size={24} />
         </button>
