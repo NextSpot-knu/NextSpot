@@ -68,12 +68,6 @@ export function RecommendationCard({
     return () => clearInterval(interval);
   }, [mockHour]);
   
-  // Meeting room mock state
-  const [showScheduleModal, setShowScheduleModal] = useState(false);
-  const [showBookingModal, setShowBookingModal] = useState(false);
-  const [bookingTime, setBookingTime] = useState('09:00');
-  const [bookingName, setBookingName] = useState('');
-  
   const [placeInfo, setPlaceInfo] = useState<{
     address?: string;
     phone?: string;
@@ -90,7 +84,7 @@ export function RecommendationCard({
     if (!window.kakao.maps.services) {
       console.warn("Kakao Places services library not loaded");
       setPlaceInfo({
-        address: facility?.features?.address || '경상북도 구미시 산단로',
+        address: facility?.features?.address || '경상북도 경주시 황남동',
         phone: facility?.features?.phone || '054-123-4567',
         rating: 4.5,
         reviewCount: 28,
@@ -102,10 +96,10 @@ export function RecommendationCard({
     try {
       const ps = new window.kakao.maps.services.Places();
       ps.keywordSearch(title, (data: any, status: any) => {
-        // 동명 체인이 타지로 잡히는 것을 차단: '지코바 송정점'→부산 해운대, '선비꼬마김밥'→서울 본사 처럼
-        // 카카오 1순위가 다른 도시일 수 있다. '구미' 주소를 가진 첫 결과만 채택하고, 없으면 우리 DB(구미) 주소로 폴백.
+        // 동명 체인이 타지로 잡히는 것을 차단: 카카오 1순위가 다른 도시일 수 있다.
+        // '경주' 주소를 가진 첫 결과만 채택하고, 없으면 우리 DB(경주) 주소로 폴백.
         const place = (status === window.kakao.maps.services.Status.OK && Array.isArray(data))
-          ? data.find((p: any) => ((p.road_address_name || p.address_name || '').includes('구미')))
+          ? data.find((p: any) => ((p.road_address_name || p.address_name || '').includes('경주')))
           : null;
         if (place) {
           // Stable mock rating and reviews based on place ID
@@ -123,7 +117,7 @@ export function RecommendationCard({
         } else {
           // 구미 매칭 결과가 없으면(타지 체인만 잡히거나 검색 실패) 우리 데이터의 구미 주소로 폴백.
           setPlaceInfo({
-            address: facility?.features?.address || '경상북도 구미시 산단로',
+            address: facility?.features?.address || '경상북도 경주시 황남동',
             phone: facility?.features?.phone || '054-123-4567',
             rating: 4.3,
             reviewCount: 15,
@@ -182,7 +176,7 @@ export function RecommendationCard({
   return (
     <motion.div 
       className={`w-full bg-[#111622]/95 backdrop-blur-2xl border border-white/10 rounded-3xl ${isMinimized ? 'p-3' : 'p-5'} shadow-[0_10px_35px_rgba(0,0,0,0.5)] flex flex-col ${isMinimized ? 'gap-1' : 'gap-3'} select-none relative overflow-hidden`}
-      drag={(showScheduleModal || showBookingModal) ? false : "y"}
+      drag="y"
       dragConstraints={{ top: 0, bottom: 0 }}
       dragElastic={0.2}
       onDragEnd={handleDragEnd}
@@ -276,7 +270,7 @@ export function RecommendationCard({
             <div className="absolute top-full right-0 mt-3 w-[260px] p-3.5 bg-[#161c28]/95 backdrop-blur-xl border border-purple-500/20 rounded-xl shadow-[0_10px_30px_rgba(0,0,0,0.5)] opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50 pointer-events-none">
               <p className="text-[11px] text-slate-300 leading-relaxed text-right break-keep space-y-1">
                 <span className="block mb-1.5"><strong className="text-purple-300 font-bold text-[12px]">TTTV Score란?</strong></span>
-                <span className="block">InduSpot의 핵심 기술로, 도착 시점의 혼잡도를 미리 예측하는 <strong className="text-purple-200">머신러닝 AI 모델</strong>과 사용자의 선호도를 분석하는 <strong className="text-purple-200">벡터 알고리즘</strong>의 결합.</span>
+                <span className="block">NextSpot의 핵심 기술로, 도착 시점의 혼잡도를 미리 예측하는 <strong className="text-purple-200">머신러닝 AI 모델</strong>과 사용자의 선호도를 분석하는 <strong className="text-purple-200">벡터 알고리즘</strong>의 결합.</span>
                 <span className="block mt-1.5">지금 이 순간, 사용자의 시간 가치를 극대화하는 가장 완벽한 목적지를 제안합니다.</span>
               </p>
             </div>
@@ -294,24 +288,8 @@ export function RecommendationCard({
 
 
       {/* TTTV Metric Grid (Only if metrics are provided) */}
-      {hasTttvMetrics && facilityType !== 'rest_area' && (
+      {hasTttvMetrics && (
         <div className="flex flex-col gap-2 mt-1 cursor-pointer" onClick={toggleExpand}>
-          {facilityType === 'meeting_room' ? (
-            <div className="grid grid-cols-2 gap-1 bg-white/5 rounded-2xl p-2.5 border border-white/5 text-[11px]">
-              <div className="text-center">
-                <span className="text-slate-400 block text-[9px] mb-0.5 font-medium">현재 이용현황</span>
-                <span className={`font-extrabold ${(facility?.currentCount ?? 0) > 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
-                  {(facility?.currentCount ?? 0) > 0 ? `사용중 ${facility.currentCount}/${facility.capacity}` : '비어있음'}
-                </span>
-              </div>
-              <div className="text-center border-l border-white/10">
-                <span className="text-slate-400 block text-[9px] mb-0.5 font-medium">예상 대기</span>
-                <span className="font-extrabold text-amber-400">
-                  {(facility?.currentCount ?? 0) > 0 ? `${facility?.features?.remainingMinutes || 15}분` : '즉시 이용'}
-                </span>
-              </div>
-            </div>
-          ) : (
             <div className="flex flex-col gap-2">
               <div className="flex gap-2">
                 {/* Time Cost Column */}
@@ -380,50 +358,12 @@ export function RecommendationCard({
                     <div className="flex flex-col items-center z-10 w-12">
                       <div className="w-2 h-2 rounded-full bg-amber-400 ring-4 ring-[#1a2133] mb-1.5" />
                       <span className="text-[10px] text-white font-bold">{formatTime(serviceTime)}</span>
-                      <span className="text-[9px] text-slate-400 mt-0.5">{facilityType === 'cafeteria' ? '식사' : '이용'}</span>
+                      <span className="text-[9px] text-slate-400 mt-0.5">{facilityType === 'restaurant' || facilityType === 'cafe' ? '식사' : '관람'}</span>
                     </div>
                   </div>
                 </div>
               )}
             </div>
-          )}
-        </div>
-      )}
-
-      {/* 휴게실 특화 UI (TTTV 미사용) */}
-      {facilityType === 'rest_area' && (
-        <div className="flex flex-col gap-2 mt-1 cursor-pointer" onClick={toggleExpand}>
-          {/* 예상 대기 — 혼잡도와 연관(혼잡↑ → 대기↑) */}
-          <div className="flex justify-between items-center bg-white/5 rounded-2xl p-3 border border-white/10 text-xs">
-            <span className="text-slate-300 font-medium">예상 대기</span>
-            <span className="font-extrabold text-rose-300">
-              {(() => {
-                const c = facility?.congestionLevel ?? 0;
-                if (c >= 0.75) return `약 ${10 + Math.round(((c - 0.75) / 0.25) * 20)}분`; // 혼잡 10~30분
-                if (c >= 0.5) return `약 ${5 + Math.round(((c - 0.5) / 0.25) * 5)}분`;     // 보통 5~10분
-                if (c >= 0.25) return `약 ${2 + Math.round(((c - 0.25) / 0.25) * 3)}분`;    // 여유 2~5분
-                return '즉시 이용 가능';                                                      // 한산
-              })()}
-            </span>
-          </div>
-          <div className="flex justify-between items-center bg-white/5 rounded-2xl p-3 border border-white/10 text-xs">
-            <span className="text-slate-300 font-medium">안마의자 이용현황</span>
-            <span className="font-extrabold text-amber-400">
-              {facility?.features?.massageChairs ? `${facility.features.massageChairs.inUse} / ${facility.features.massageChairs.total}` : '0 / 3'}
-            </span>
-          </div>
-          <div className="flex justify-between items-center bg-white/5 rounded-2xl p-3 border border-white/10 text-xs">
-            <span className="text-slate-300 font-medium">수면캡슐 이용현황</span>
-            <span className="font-extrabold text-sky-400">
-              {facility?.features?.sleepCapsules ? `${facility.features.sleepCapsules.inUse} / ${facility.features.sleepCapsules.total}` : '0 / 2'}
-            </span>
-          </div>
-          <div className="flex justify-between items-center bg-white/5 rounded-2xl p-3 border border-white/10 text-xs">
-            <span className="text-slate-300 font-medium">플레이스테이션 이용현황</span>
-            <span className="font-extrabold text-purple-400">
-              {facility?.features?.playstation ? `${facility.features.playstation.inUse} / ${facility.features.playstation.total}` : '0 / 1'}
-            </span>
-          </div>
         </div>
       )}
 
@@ -500,24 +440,8 @@ export function RecommendationCard({
         )}
       </AnimatePresence>
 
-      {/* Action Buttons: Reject, Put off, Accept Route (or custom for meeting rooms) */}
-      {facilityType === 'rest_area' ? null : facilityType === 'meeting_room' ? (
-        <div className="flex gap-2 mt-1">
-          <button
-            onClick={() => setShowScheduleModal(true)}
-            className="flex-1 bg-white/5 hover:bg-white/10 text-gray-300 font-bold py-3 rounded-2xl border border-white/10 transition-all text-xs"
-          >
-            예약 현황
-          </button>
-          <button
-            onClick={() => setShowBookingModal(true)}
-            className="flex-1 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold py-3 rounded-2xl transition-all text-xs shadow-md shadow-blue-500/20"
-          >
-            예약하기
-          </button>
-        </div>
-      ) : (
-        <div className="flex gap-2 mt-1">
+      {/* Action Buttons: Reject, Put off, Accept Route */}
+      <div className="flex gap-2 mt-1">
           <button
             onClick={onReject}
             className="flex-1 bg-white/5 hover:bg-rose-500/10 hover:text-rose-400 hover:border-rose-500/30 text-gray-300 font-bold py-3 rounded-2xl border border-white/10 transition-all text-xs focus:outline-none"
@@ -539,79 +463,7 @@ export function RecommendationCard({
             Accept Route
           </button>
         </div>
-      )}
-
-      {/* Meeting Room Schedule Modal (Mock) */}
-      {showScheduleModal && (
-        <div className="absolute inset-0 z-50 bg-[#111622]/95 backdrop-blur-xl flex flex-col p-5">
-          <div className="flex justify-between items-center mb-4">
-            <h4 className="text-white font-bold text-lg">오늘 예약 현황</h4>
-            <button onClick={() => setShowScheduleModal(false)} className="text-gray-400 hover:text-white">✕</button>
-          </div>
-          <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain space-y-2 pr-2 custom-scrollbar">
-            {['08:00', '08:30', '09:00', '09:30', '10:00', '10:30', '11:00', '11:30', '12:00', '12:30', '13:00', '13:30', '14:00', '14:30', '15:00', '15:30', '16:00', '16:30', '17:00'].map((time, idx) => {
-              const isBooked = idx % 3 === 1 || idx % 4 === 2; // dummy logic
-              return (
-                <div key={time} className={`flex items-center justify-between p-3 rounded-xl border ${isBooked ? 'bg-white/5 border-white/10' : 'bg-blue-500/10 border-blue-500/20'}`}>
-                  <span className="text-sm font-bold text-slate-300">{time} ~</span>
-                  {isBooked ? (
-                    <span className="text-xs text-slate-400">예약됨 (홍길동)</span>
-                  ) : (
-                    <span className="text-xs text-blue-400 font-bold">예약 가능</span>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
       </>
-      )}
-
-      {/* Meeting Room Booking Modal (Mock) */}
-      {showBookingModal && (
-        <div className="absolute inset-0 z-50 bg-[#111622]/95 backdrop-blur-xl flex flex-col p-5 justify-center">
-          <div className="flex justify-between items-center mb-6">
-            <h4 className="text-white font-bold text-lg">회의실 예약하기</h4>
-            <button onClick={() => setShowBookingModal(false)} className="text-gray-400 hover:text-white">✕</button>
-          </div>
-          <div className="space-y-4">
-            <div>
-              <label className="block text-xs text-slate-400 mb-1">예약 시간 (비어있는 시간대)</label>
-              <select 
-                className="w-full bg-black/50 border border-white/20 text-white rounded-xl p-3 outline-none"
-                value={bookingTime}
-                onChange={(e) => setBookingTime(e.target.value)}
-              >
-                <option value="09:00">09:00 ~ 09:30</option>
-                <option value="11:00">11:00 ~ 11:30</option>
-                <option value="13:30">13:30 ~ 14:00</option>
-                <option value="15:00">15:00 ~ 15:30</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs text-slate-400 mb-1">예약자명</label>
-              <input 
-                type="text" 
-                placeholder="이름을 입력하세요"
-                className="w-full bg-black/50 border border-white/20 text-white rounded-xl p-3 outline-none"
-                value={bookingName}
-                onChange={(e) => setBookingName(e.target.value)}
-              />
-            </div>
-            <button 
-              onClick={() => {
-                if (!bookingName) return alert('예약자명을 입력해주세요.');
-                alert(`${bookingName}님, ${bookingTime} 예약이 완료되었습니다.`);
-                setShowBookingModal(false);
-                setBookingName('');
-              }}
-              className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-xl mt-4"
-            >
-              예약 완료
-            </button>
-          </div>
-        </div>
       )}
     </motion.div>
   );

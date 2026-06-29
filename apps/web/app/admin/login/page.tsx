@@ -62,10 +62,10 @@ export default function AdminLoginPage() {
               <ShieldCheck size={28} className="animate-pulse" />
             </div>
             <h1 className="text-2xl font-black text-white tracking-tight">
-              InduSpot <span className="text-blue-500 text-base font-semibold">B2B Admin</span>
+              NextSpot <span className="text-blue-500 text-base font-semibold">관광 관제</span>
             </h1>
             <p className="text-slate-400 text-sm mt-2">
-              공단 안전 및 시설 관리를 위한 관리자 인증
+              경주 관광 혼잡 관리를 위한 관리자 인증
             </p>
           </div>
 
