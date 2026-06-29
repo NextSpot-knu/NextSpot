@@ -58,7 +58,7 @@ export default function SavedPage() {
     const fetchBookmarks = async () => {
       setIsLoading(true);
       try {
-        const saved = localStorage.getItem('induspot_saved_facilities');
+        const saved = localStorage.getItem('nextspot_saved_facilities');
         if (saved) {
           const parsed = JSON.parse(saved);
           const compareBookmarks = (a: any, b: any) => {
@@ -90,7 +90,7 @@ export default function SavedPage() {
     e.stopPropagation();
     const updated = bookmarks.filter(b => b.id !== id);
     setBookmarks(updated);
-    localStorage.setItem('induspot_saved_facilities', JSON.stringify(updated));
+    localStorage.setItem('nextspot_saved_facilities', JSON.stringify(updated));
     if (selectedBookmark?.id === id) {
       setSelectedBookmark(null);
     }
@@ -100,7 +100,7 @@ export default function SavedPage() {
   const handleClearAll = () => {
     if (confirm('모든 저장된 스팟을 초기화하시겠습니까?')) {
       setBookmarks([]);
-      localStorage.removeItem('induspot_saved_facilities');
+      localStorage.removeItem('nextspot_saved_facilities');
       setSelectedBookmark(null);
       showToast('모든 저장된 스팟이 초기화되었습니다.');
     }
@@ -126,7 +126,7 @@ export default function SavedPage() {
         <button className="text-gray-400 hover:text-white transition-colors">
           <Menu size={24} />
         </button>
-        <h1 className="text-xl font-bold text-white tracking-wide">InduSpot</h1>
+        <h1 className="text-xl font-bold text-white tracking-wide">NextSpot</h1>
         <button className="text-gray-400 hover:text-white transition-colors">
           <Bell size={24} />
         </button>
@@ -147,7 +147,7 @@ export default function SavedPage() {
               </div>
               <h2 className="text-xl font-bold text-white mb-3">No saved locations yet</h2>
               <p className="text-gray-400 text-sm leading-relaxed mb-8 px-2">
-                Locations you pin across the industrial complex will securely appear here.
+                Spots you pin around Gyeongju Hwangnidan-gil will securely appear here.
               </p>
               <button 
                 onClick={() => router.push('/main')}
@@ -263,7 +263,7 @@ export default function SavedPage() {
                         <div className="flex flex-col items-center z-10 w-12">
                           <div className="w-2 h-2 rounded-full bg-amber-400 ring-4 ring-[#1a2133] mb-1.5" />
                           <span className="text-[10px] text-white font-bold">{formatTime(serviceTime)}</span>
-                          <span className="text-[9px] text-slate-400 mt-0.5">{bookmark.category === '식당' ? '식사' : '이용'}</span>
+                          <span className="text-[9px] text-slate-400 mt-0.5">{bookmark.category === '음식점' || bookmark.category === '카페' ? '식사' : '관람'}</span>
                         </div>
                       </div>
                     </div>
@@ -288,7 +288,7 @@ export default function SavedPage() {
             expectedWait={selectedBookmark.tttv?.expectedWait ?? parseInt(selectedBookmark.waitTime) ?? 0}
             expectedTravel={selectedBookmark.tttv?.expectedTravel ?? 0}
             timeToService={selectedBookmark.tttv?.timeToService ?? parseInt(selectedBookmark.waitTime) ?? 0}
-            facilityType={selectedBookmark.category === '식당' ? 'cafeteria' : selectedBookmark.category === '주차장' ? 'parking' : selectedBookmark.category === '회의실' ? 'meeting_room' : selectedBookmark.category === '휴게실' ? 'rest_area' : 'cafeteria'}
+            facilityType={selectedBookmark.category === '음식점' ? 'restaurant' : selectedBookmark.category === '카페' ? 'cafe' : selectedBookmark.category === '관광지' ? 'attraction' : selectedBookmark.category === '문화시설' ? 'culture' : 'restaurant'}
             facility={{
               congestionLevel: selectedBookmark.trafficStatus === 'orange' ? 0.85 : selectedBookmark.trafficStatus === 'yellow' ? 0.6 : selectedBookmark.trafficStatus === 'green' ? 0.4 : 0.1,
               capacity: 100,
@@ -303,7 +303,7 @@ export default function SavedPage() {
             onReject={() => {
               const updated = bookmarks.filter(b => b.id !== selectedBookmark.id);
               setBookmarks(updated);
-              localStorage.setItem('induspot_saved_facilities', JSON.stringify(updated));
+              localStorage.setItem('nextspot_saved_facilities', JSON.stringify(updated));
               setSelectedBookmark(null);
               showToast(`'${selectedBookmark.name}'이(가) 저장된 목록에서 삭제되었습니다.`);
             }}

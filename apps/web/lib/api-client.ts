@@ -147,7 +147,7 @@ export async function getRecommendations(
   let userId = session?.user?.id;
   
   if (!userId) {
-    console.warn("인증 세션이 없습니다. 데모용 모의 사용자 ID(IT-WORKER-01)를 사용합니다.");
+    console.warn("인증 세션이 없습니다. 데모용 모의 사용자 ID(GYEONGJU-VISITOR-01)를 사용합니다.");
     userId = "a2222222-2222-2222-2222-222222222222";
   }
 
@@ -170,7 +170,7 @@ export async function submitFeedback(
 }
 
 /**
- * 타입별(식당/주차장/회의실/휴게실) 추천 랭킹 — 메인 지도 브라우즈용.
+ * 타입별(음식점/카페/관광지/문화시설) 추천 랭킹 — 메인 지도 브라우즈용.
  * 백엔드가 사용자 선호 벡터·실시간 혼잡·거리로 TTTV 점수를 매기고 상위 N개에 Gemini 사유를 붙여 반환.
  * (/recommendations 가 '혼잡한 원본의 대안'을 주는 것과 달리, 원본 없이 타입 전체를 랭킹한다.)
  */
@@ -183,7 +183,7 @@ export async function recommendByType(
   const { data: { session } } = await supabase.auth.getSession();
   let userId = session?.user?.id;
   if (!userId) {
-    console.warn("인증 세션이 없습니다. 데모용 모의 사용자 ID(IT-WORKER-01)를 사용합니다.");
+    console.warn("인증 세션이 없습니다. 데모용 모의 사용자 ID(GYEONGJU-VISITOR-01)를 사용합니다.");
     userId = "a2222222-2222-2222-2222-222222222222";
   }
   return apiClient.post("/api/v1/recommendations/by-type", {
@@ -208,8 +208,8 @@ export interface ParsePreferenceResult {
 }
 
 /**
- * 근로자가 자연어로 말한/적은 선호를 백엔드(Gemini)로 보내 구조화하고,
- * 선호 벡터(Pinecone)와 preferred_categories 에 즉시 반영한다.
+ * 사용자가 자연어로 말한/적은 선호를 백엔드로 보내 구조화하고,
+ * 선호 벡터와 preferred_categories 에 즉시 반영한다.
  */
 export async function parsePreference(text: string): Promise<ParsePreferenceResult> {
   return apiClient.post("/api/v1/preferences/parse", { text });
@@ -220,7 +220,7 @@ export async function parsePreference(text: string): Promise<ParsePreferenceResu
 export interface VoiceTurnCandidate {
   id: string;
   name: string;
-  cuisine?: string[] | string | null; // 식당 종류(한식/중식/일식/양식/분식 등) — Gemini 메뉴/종류 매칭용
+  cuisine?: string[] | string | null; // 음식 종류(한식/분식/카페·디저트 등) — 메뉴/종류 매칭용
   congestion?: number; // 0~1
   distanceM?: number;
 }
