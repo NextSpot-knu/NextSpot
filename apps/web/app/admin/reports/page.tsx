@@ -16,13 +16,13 @@ const supabase = createPublicClient();
 
 // --- Fallback(목업): 실데이터 로드 전 즉시 렌더 + 데이터 없을 때 대체 ---
 const MOCK_WEEKLY = [
-  { day: '월', 식당: 1200, 주차장: 800, 회의실: 400, 휴게실: 200 },
-  { day: '화', 식당: 1350, 주차장: 850, 회의실: 450, 휴게실: 250 },
-  { day: '수', 식당: 1400, 주차장: 900, 회의실: 500, 휴게실: 300 },
-  { day: '목', 식당: 1300, 주차장: 880, 회의실: 480, 휴게실: 280 },
-  { day: '금', 식당: 1100, 주차장: 750, 회의실: 350, 휴게실: 400 },
-  { day: '토', 식당: 300, 주차장: 200, 회의실: 50, 휴게실: 100 },
-  { day: '일', 식당: 250, 주차장: 150, 회의실: 20, 휴게실: 80 },
+  { day: '월', 음식점: 900, 카페: 700, 관광지: 1100, 문화시설: 500 },
+  { day: '화', 음식점: 950, 카페: 720, 관광지: 1150, 문화시설: 520 },
+  { day: '수', 음식점: 1000, 카페: 760, 관광지: 1250, 문화시설: 560 },
+  { day: '목', 음식점: 1050, 카페: 800, 관광지: 1300, 문화시설: 580 },
+  { day: '금', 음식점: 1300, 카페: 1100, 관광지: 1600, 문화시설: 700 },
+  { day: '토', 음식점: 1900, 카페: 1700, 관광지: 2400, 문화시설: 1100 },
+  { day: '일', 음식점: 1750, 카페: 1500, 관광지: 2200, 문화시설: 950 },
 ];
 
 const MOCK_AI = [
@@ -33,16 +33,16 @@ const MOCK_AI = [
 ];
 
 const MOCK_TABLE = [
-  { id: 1, category: '구내식당', totalUsers: '6,600명', growth: '+12%', status: '활발' },
-  { id: 2, category: '주차장', totalUsers: '4,530대', growth: '+5%', status: '안정' },
-  { id: 3, category: '회의실', totalUsers: '2,250건', growth: '-2%', status: '보통' },
-  { id: 4, category: '휴게실', totalUsers: '1,610명', growth: '+25%', status: '급증' },
+  { id: 1, category: '음식점', totalUsers: '8,650명', growth: '+12%', status: '활발' },
+  { id: 2, category: '카페', totalUsers: '7,280명', growth: '+18%', status: '급증' },
+  { id: 3, category: '관광지', totalUsers: '11,000명', growth: '+8%', status: '활발' },
+  { id: 4, category: '문화시설', totalUsers: '4,910명', growth: '-2%', status: '보통' },
 ];
 
 const TYPE_KO: Record<string, string> = {
-  cafeteria: '식당', parking: '주차장', meeting_room: '회의실', rest_area: '휴게실', loading_dock: '휴게실',
+  restaurant: '음식점', cafe: '카페', attraction: '관광지', culture: '문화시설',
 };
-const TYPE_UNIT: Record<string, string> = { 식당: '명', 주차장: '대', 회의실: '건', 휴게실: '명' };
+const TYPE_UNIT: Record<string, string> = { 음식점: '명', 카페: '명', 관광지: '명', 문화시설: '명' };
 const WEEK_ORDER = ['월', '화', '수', '목', '금', '토', '일'];
 const WD_KO = ['일', '월', '화', '수', '목', '금', '토']; // getUTCDay() 인덱스
 
@@ -127,9 +127,9 @@ export default function ReportsPage() {
         // (1) 주간 사용량 + (2) 카테고리 요약 (current_count 합 = 누적 footfall)
         if (logs.length > 0) {
           const wk: Record<string, any> = {};
-          for (const d of WEEK_ORDER) wk[d] = { day: d, 식당: 0, 주차장: 0, 회의실: 0, 휴게실: 0 };
-          const thisWeek: Record<string, number> = { 식당: 0, 주차장: 0, 회의실: 0, 휴게실: 0 };
-          const lastWeek: Record<string, number> = { 식당: 0, 주차장: 0, 회의실: 0, 휴게실: 0 };
+          for (const d of WEEK_ORDER) wk[d] = { day: d, 음식점: 0, 카페: 0, 관광지: 0, 문화시설: 0 };
+          const thisWeek: Record<string, number> = { 음식점: 0, 카페: 0, 관광지: 0, 문화시설: 0 };
+          const lastWeek: Record<string, number> = { 음식점: 0, 카페: 0, 관광지: 0, 문화시설: 0 };
 
           for (const l of logs) {
             const t = joinedType(l);
@@ -149,7 +149,7 @@ export default function ReportsPage() {
 
           if (Object.values(thisWeek).some((v) => v > 0)) {
             setWeekly(WEEK_ORDER.map((d) => wk[d]));
-            const types = ['식당', '주차장', '회의실', '휴게실'];
+            const types = ['음식점', '카페', '관광지', '문화시설'];
             setTable(
               types.map((ko, i) => {
                 const cur = thisWeek[ko];
@@ -157,7 +157,7 @@ export default function ReportsPage() {
                 const g = prev > 0 ? Math.round(((cur - prev) / prev) * 100) : cur > 0 ? 100 : 0;
                 return {
                   id: i + 1,
-                  category: ko === '식당' ? '구내식당' : ko,
+                  category: ko,
                   totalUsers: `${cur.toLocaleString()}${TYPE_UNIT[ko]}`,
                   growth: `${g >= 0 ? '+' : ''}${g}%`,
                   status: statusFromGrowth(g),
@@ -208,16 +208,16 @@ export default function ReportsPage() {
         lines.push(`${r.category},${String(r.totalUsers).replace(/,/g, '')},${r.growth},${r.status}`);
       }
       lines.push('');
-      lines.push('요일,식당,주차장,회의실,휴게실');
+      lines.push('요일,음식점,카페,관광지,문화시설');
       for (const w of weekly) {
-        lines.push(`${w.day},${w.식당},${w.주차장},${w.회의실},${w.휴게실}`);
+        lines.push(`${w.day},${w.음식점},${w.카페},${w.관광지},${w.문화시설}`);
       }
       const csv = '﻿' + lines.join('\n');
       const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `induspot-report-${new Date().toISOString().split('T')[0]}.csv`;
+      a.download = `nextspot-report-${new Date().toISOString().split('T')[0]}.csv`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -300,7 +300,7 @@ export default function ReportsPage() {
             <div className="bg-slate-900 p-6 rounded-2xl border border-slate-800 shadow-sm flex flex-col">
               <div className="flex items-center gap-2 mb-6">
                 <BarChart2 className="text-blue-400" size={20} />
-                <h3 className="text-lg font-bold text-slate-100">주간 인프라별 누적 이용량</h3>
+                <h3 className="text-lg font-bold text-slate-100">요일별 관광 장소 누적 방문량</h3>
               </div>
               <div className="flex-1 w-full h-[250px]">
                 <ResponsiveContainer width="100%" height="100%">
@@ -310,10 +310,10 @@ export default function ReportsPage() {
                     <YAxis axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 12}} />
                     <Tooltip cursor={{fill: '#1e293b'}} contentStyle={{ borderRadius: '8px', backgroundColor: '#0f172a', border: '1px solid #1e293b', color: '#e2e8f0', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
                     <Legend iconType="circle" wrapperStyle={{ fontSize: '12px' }} />
-                    <Bar dataKey="식당" stackId="a" fill="#3b82f6" radius={[0, 0, 4, 4]} />
-                    <Bar dataKey="주차장" stackId="a" fill="#10b981" />
-                    <Bar dataKey="회의실" stackId="a" fill="#8b5cf6" />
-                    <Bar dataKey="휴게실" stackId="a" fill="#f59e0b" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="음식점" stackId="a" fill="#3b82f6" radius={[0, 0, 4, 4]} />
+                    <Bar dataKey="카페" stackId="a" fill="#10b981" />
+                    <Bar dataKey="관광지" stackId="a" fill="#8b5cf6" />
+                    <Bar dataKey="문화시설" stackId="a" fill="#f59e0b" radius={[4, 4, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>

@@ -8,46 +8,16 @@ import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-r
 
 export function DashboardCharts({ distribution }: { distribution: any[] }) {
   // distribution = [ { date: string, beforeCongestion: number, afterCongestion: number, alternativeUsage: number } ]
-  const [viewMode, setViewMode] = useState<'local' | 'looker'>('local');
-  
-  // Looker Studio 보고서 공유 URL (기본 템플릿/데모)
-  const lookerStudioUrl = "https://lookerstudio.google.com/embed/reporting/3253f16c-63b1-432a-b6fe-5f3e800614ba/page/d1234";
-
   // recharts tooltip formatter to show percentage
   const formatPercent = (value: any) => `${(Number(value) * 100).toFixed(1)}%`;
 
   return (
     <div className="bg-slate-900 p-6 rounded-2xl border border-slate-800 shadow-sm col-span-4 flex flex-col gap-4">
       <div className="flex justify-between items-center">
-        <h3 className="text-lg font-bold text-slate-100">최근 30일 수요 분산 효과 분석</h3>
-
-        {/* 시각화 모드 토글 (GCP 6계층 마이그레이션) */}
-        <div className="flex bg-slate-800 p-1 rounded-lg border border-slate-700">
-          <button
-            onClick={() => setViewMode('local')}
-            className={`px-3 py-1 text-xs font-semibold rounded-md transition-all ${
-              viewMode === 'local'
-                ? 'bg-slate-700 text-blue-300 shadow-sm'
-                : 'text-slate-300 hover:text-slate-100'
-            }`}
-          >
-            차트 뷰
-          </button>
-          <button
-            onClick={() => setViewMode('looker')}
-            className={`px-3 py-1 text-xs font-semibold rounded-md transition-all ${
-              viewMode === 'looker'
-                ? 'bg-slate-700 text-blue-300 shadow-sm'
-                : 'text-slate-300 hover:text-slate-100'
-            }`}
-          >
-            Looker Studio 뷰
-          </button>
-        </div>
+        <h3 className="text-lg font-bold text-slate-100">최근 30일 관광 수요 분산 효과 분석</h3>
       </div>
 
-      {viewMode === 'local' ? (
-        <div className="h-[300px] w-full">
+      <div className="h-[300px] w-full">
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={distribution} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#1e293b" />
@@ -55,22 +25,12 @@ export function DashboardCharts({ distribution }: { distribution: any[] }) {
               <YAxis axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 12}} domain={[0, 1]} tickFormatter={(val) => `${Math.round(val * 100)}%`} />
               <Tooltip formatter={formatPercent} contentStyle={{ borderRadius: '8px', backgroundColor: '#0f172a', border: '1px solid #1e293b', color: '#e2e8f0', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
               <Legend iconType="circle" wrapperStyle={{ fontSize: '12px' }} />
-              <Line name="원본 시설(도입 전)" type="monotone" dataKey="beforeCongestion" stroke="#94a3b8" strokeDasharray="5 5" strokeWidth={2} dot={false} />
-              <Line name="원본 시설(도입 후)" type="monotone" dataKey="afterCongestion" stroke="#3b82f6" strokeWidth={3} dot={{r: 4}} activeDot={{r: 6}} />
-              <Line name="대안 시설 활용률" type="monotone" dataKey="alternativeUsage" stroke="#10b981" strokeWidth={3} dot={{r: 4}} activeDot={{r: 6}} />
+              <Line name="원본 장소(도입 전)" type="monotone" dataKey="beforeCongestion" stroke="#94a3b8" strokeDasharray="5 5" strokeWidth={2} dot={false} />
+              <Line name="원본 장소(도입 후)" type="monotone" dataKey="afterCongestion" stroke="#3b82f6" strokeWidth={3} dot={{r: 4}} activeDot={{r: 6}} />
+              <Line name="대안 장소 활용률" type="monotone" dataKey="alternativeUsage" stroke="#10b981" strokeWidth={3} dot={{r: 4}} activeDot={{r: 6}} />
             </LineChart>
           </ResponsiveContainer>
         </div>
-      ) : (
-        <div className="h-[300px] w-full border border-slate-800 rounded-xl overflow-hidden shadow-inner">
-          <iframe
-            src={lookerStudioUrl}
-            className="w-full h-full border-0"
-            allowFullScreen
-            sandbox="allow-storage-access-by-user-activation allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox"
-          ></iframe>
-        </div>
-      )}
     </div>
   );
 }
@@ -79,15 +39,15 @@ export function DashboardCharts({ distribution }: { distribution: any[] }) {
 export function DashboardHeatmap({ heatmapData }: { heatmapData: any[] }) {
   // heatmapData: [ { facility: string, facilityType: string, hour: number, value: number } ]
   
-  const [selectedCategory, setSelectedCategory] = useState('cafeteria');
+  const [selectedCategory, setSelectedCategory] = useState('restaurant');
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
 
   const categories = [
-    { id: 'cafeteria', name: '식당' },
-    { id: 'parking', name: '주차장' },
-    { id: 'meeting_room', name: '회의실' },
-    { id: 'rest_area', name: '휴게실' },
+    { id: 'restaurant', name: '음식점' },
+    { id: 'cafe', name: '카페' },
+    { id: 'attraction', name: '관광지' },
+    { id: 'culture', name: '문화시설' },
   ];
 
   // Selected category data
@@ -128,7 +88,7 @@ export function DashboardHeatmap({ heatmapData }: { heatmapData: any[] }) {
     <div className="bg-slate-900 p-6 rounded-2xl border border-slate-800 shadow-sm col-span-4 flex flex-col justify-between overflow-x-auto min-h-[500px]">
       <div>
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
-          <h3 className="text-lg font-bold text-slate-100">시설별 시간대 혼잡 히트맵</h3>
+          <h3 className="text-lg font-bold text-slate-100">장소별 시간대 혼잡 히트맵</h3>
           
           {/* Category Filters */}
           <div className="flex gap-2">
@@ -181,7 +141,7 @@ export function DashboardHeatmap({ heatmapData }: { heatmapData: any[] }) {
             ))}
             {paginatedFacilities.length === 0 && (
               <div className="h-32 flex items-center justify-center text-slate-500 text-sm">
-                해당 카테고리의 시설 데이터가 없습니다.
+                해당 카테고리의 장소 데이터가 없습니다.
               </div>
             )}
           </div>
