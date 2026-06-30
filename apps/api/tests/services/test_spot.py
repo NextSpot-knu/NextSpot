@@ -2,10 +2,10 @@ import pytest
 from unittest.mock import AsyncMock, patch
 
 # 테스트 대상 모듈 임포트
-from app.services.tttv.score import calculate_tttv_score
-from app.services.tttv.wait_time import calculate_predicted_wait_time
-from app.services.tttv.travel import calculate_haversine_distance, get_travel_time_and_distance
-from app.services.tttv.preference import get_category_average_vector
+from app.services.spot.score import calculate_spot_score
+from app.services.spot.wait_time import calculate_predicted_wait_time
+from app.services.spot.travel import calculate_haversine_distance, get_travel_time_and_distance
+from app.services.spot.preference import get_category_average_vector
 
 @pytest.mark.asyncio
 async def test_category_average_vector():
@@ -47,9 +47,9 @@ async def test_haversine_distance():
 
 
 @pytest.mark.asyncio
-@patch("app.services.tttv.preference.preference_vector_service")
-async def test_calculate_tttv_score(mock_pref):
-    # 4. TTTV 종합 추천 점수 계산 테스트
+@patch("app.services.spot.preference.preference_vector_service")
+async def test_calculate_spot_score(mock_pref):
+    # 4. SPOT 종합 추천 점수 계산 테스트
     # 선호 벡터 저장소 조회 시 모의 8차원 정규 벡터 반환 모킹
     mock_pref.get_user_vector = AsyncMock(return_value=[1.0 / 3.0] * 8)
 
@@ -62,7 +62,7 @@ async def test_calculate_tttv_score(mock_pref):
         "features": {"average_processing_time": 15}
     }
 
-    result = await calculate_tttv_score(
+    result = await calculate_spot_score(
         user_id="test-user-id",
         preferred_categories=["restaurant"],
         original_facility_type="restaurant",

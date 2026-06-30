@@ -1,7 +1,7 @@
 [tool.poetry]
 name = "api"
 version = "0.1.0"
-description = "NextSpot — TTTV 기반 관광 수요 분산·대안 장소 추천 API 엔진"
+description = "NextSpot — SPOT 기반 관광 수요 분산·대안 장소 추천 API 엔진"
 authors = ["Your Name <you@example.com>"]
 readme = "README.md"
 

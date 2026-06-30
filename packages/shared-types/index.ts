@@ -26,8 +26,8 @@ export interface CongestionLog {
   recordedAt: string;
 }
 
-// 3. TTTV(Total Time to Value) 대안 장소 추천 타입
-export interface TTTVRecommendation {
+// 3. SPOT(Smart Place Optimization for Tourism) 대안 장소 추천 타입
+export interface SPOTRecommendation {
   id?: string;
   userId?: string;
   requestedFacilityId: string;

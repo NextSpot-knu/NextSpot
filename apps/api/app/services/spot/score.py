@@ -1,9 +1,9 @@
 import asyncio
 from datetime import datetime, timedelta, timezone
 from pydantic import BaseModel
-from app.services.tttv.preference import calculate_preference_similarity
-from app.services.tttv.wait_time import calculate_predicted_wait_time
-from app.services.tttv.travel import get_travel_time_and_distance
+from app.services.spot.preference import calculate_preference_similarity
+from app.services.spot.wait_time import calculate_predicted_wait_time
+from app.services.spot.travel import get_travel_time_and_distance
 from app.services.predict_service import predict_congestion
 
 # 가중치 정의 (황금비: 0.45 : 0.25 : 0.30)
@@ -11,11 +11,11 @@ W1 = 0.45  # 선호도 가중치
 W2 = 0.25  # 시간 비용(대기+이동) 가중치
 W3 = 0.30  # 혼잡 분산 인센티브 가중치
 
-class TTTVScoreResult(BaseModel):
+class SPOTScoreResult(BaseModel):
     score: float
     breakdown: dict  # { preference, wait_time, travel_time, incentive }
 
-async def calculate_tttv_score(
+async def calculate_spot_score(
     user_id: str,
     preferred_categories: list[str],
     original_facility_type: str,
@@ -25,10 +25,10 @@ async def calculate_tttv_score(
     user_lat: float,
     user_lng: float,
     user_vector: list[float] | None = None,  # 호출측에서 1회 조회해 넘기면 후보마다 선호 벡터 저장소 재조회 안 함
-) -> TTTVScoreResult:
+) -> SPOTScoreResult:
     """
     사용자 정보, 원본 시설 혼잡 정보, 후보 대안 시설 정보 및 사용자 현재 위치를 입력받아
-    TTTV(Total Time to Value) 추천 스코어를 산출합니다.
+    SPOT(Smart Place Optimization for Tourism) 추천 스코어를 산출합니다.
     """
     # 1. 선호도 코사인 유사도 (w1)
     preference_sim = await calculate_preference_similarity(
@@ -100,16 +100,16 @@ async def calculate_tttv_score(
     # 통일하려면 가중치 고정 정책상 사전 합의가 필요하다. 현 시점에선 시점 차이를 명시만 한다.
     incentive = max(0.0, original_congestion_level - candidate_congestion_level)
 
-    # 6. TTTV 종합 스코어 계산 및 Min-Max 정규화 적용
+    # 6. SPOT 종합 스코어 계산 및 Min-Max 정규화 적용
     # 공식: w1 * preference - w2 * time_cost + w3 * incentive
-    tttv_score = (W1 * preference_sim) - (W2 * time_cost) + (W3 * incentive)
+    spot_score = (W1 * preference_sim) - (W2 * time_cost) + (W3 * incentive)
 
     # 시간비용 감산 패널티로 인한 점수 하향 왜곡 방지를 위해 Min-Max 정규화 적용
     # min_possible = -W2, max_possible = W1 + W3, range_width = W1 + W2 + W3
-    normalized_score = (tttv_score + W2) / (W1 + W2 + W3)
+    normalized_score = (spot_score + W2) / (W1 + W2 + W3)
     final_score = round(max(0.0, min(1.0, normalized_score)), 3)
 
-    return TTTVScoreResult(
+    return SPOTScoreResult(
         score=final_score,
         breakdown={
             "preference": round(preference_sim, 3),

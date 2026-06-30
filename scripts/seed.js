@@ -219,7 +219,7 @@ async function seed() {
         user_id: user.id,
         original_facility_id: original.id,
         recommended_facility_id: recommended.id,
-        tttv_score: Math.round((0.6 + Math.random() * 0.35) * 1000) / 1000,
+        spot_score: Math.round((0.6 + Math.random() * 0.35) * 1000) / 1000,
         score_breakdown: { preference: 0.45, wait_time: 0.25, travel_time: 0.30, incentive: 0.0 },
         accepted,
         created_at: created_at.toISOString()

@@ -65,7 +65,7 @@ CREATE TABLE IF NOT EXISTS public.recommendations (
     user_id UUID NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
     original_facility_id UUID NOT NULL REFERENCES public.facilities(id) ON DELETE SET NULL,
     recommended_facility_id UUID NOT NULL REFERENCES public.facilities(id) ON DELETE SET NULL,
-    tttv_score DOUBLE PRECISION NOT NULL,
+    spot_score DOUBLE PRECISION NOT NULL,
     score_breakdown JSONB DEFAULT '{}'::jsonb,
     accepted BOOLEAN DEFAULT FALSE NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL

@@ -7,7 +7,7 @@ import { Home, Bookmark, User, Search, Mic, Utensils, MapPin, Building2, Coffee,
 import { RecommendationCard } from '@/components/RecommendationCard';
 import { createPublicClient } from '@/lib/supabase';
 import { getMarkerSvg } from '@/lib/utils';
-import { scoreFacility, compareTttv, rankFacilities, recToTttv, haversineMeters, cuisineMatch, rescoreWithPreference, filterReachable } from '@/lib/recommender';
+import { scoreFacility, compareSpot, rankFacilities, recToSpot, haversineMeters, cuisineMatch, rescoreWithPreference, filterReachable } from '@/lib/recommender';
 import { findLandmark } from '@/lib/landmarks';
 import { recommendByType, voiceTurn } from '@/lib/api-client';
 import { useVoiceAssistant } from '@/lib/useVoiceAssistant';
@@ -43,7 +43,7 @@ export default function MainPage() {
   const [facilities, setFacilities] = useState<any[]>([]);
   const [selectedFacility, setSelectedFacility] = useState<any>(null);
   // 음성 선호 필터(예: '양식 먹고 싶어'→양식 식당 id들). null이면 필터 없음.
-  // Gemini가 실시간으로 추천 풀을 좁혀 그 안에서 TTTV로 재랭킹한다.
+  // Gemini가 실시간으로 추천 풀을 좁혀 그 안에서 SPOT로 재랭킹한다.
   // state = 카드/핸들러 렌더용, ref = 추천 effect가 dep 없이 최신값을 읽기 위함(필터 변경 시 더블셋 방지).
   const [voiceFilterIds, setVoiceFilterIds] = useState<Set<string> | null>(null);
   const voiceFilterIdsRef = useRef<Set<string> | null>(null);
@@ -317,12 +317,12 @@ export default function MainPage() {
     } catch { /* noop */ }
   }, []);
 
-  // 추천 점수·정렬·사유 로직은 lib/recommender(백엔드 TTTV 미러)로 분리.
+  // 추천 점수·정렬·사유 로직은 lib/recommender(백엔드 SPOT 미러)로 분리.
   // CATEGORY_VECTORS·점수 계산·거리(haversine)는 모듈에 있고, 아래는 호출부 유지를 위한 얇은 위임 래퍼다.
-  const calculateTTTV = (facility: any) =>
+  const calculateSPOT = (facility: any) =>
     scoreFacility(facility, { userLocation: rankingOriginRef.current ?? userLocation, preferredCategories, mockHour, cuisineIntent: cuisineIntentRef.current });
 
-  const compareFacilities = compareTttv;
+  const compareFacilities = compareSpot;
 
   // 모음(그룹)은 추천/카드 랭킹에서 내부 sub로 펼친다 — 그룹 자체는 카드로 띄우지 않고
   // 모음 안에서 '가장 최적의 개별 장소'를 추천한다(지도 마커는 그대로 모음으로 유지).
@@ -388,7 +388,7 @@ export default function MainPage() {
         let all: any[];
         const vfilter = voiceFilterIdsRef.current; // ref로 최신 필터를 읽음(이 effect는 voiceFilterIds를 dep로 안 둠)
         if (vfilter) {
-          // 음성 선호 필터(예: '양식'): 후보를 Gemini가 고른 id들로 좁혀 클라 미러로 TTTV 재랭킹(실시간).
+          // 음성 선호 필터(예: '양식'): 후보를 Gemini가 고른 id들로 좁혀 클라 미러로 SPOT 재랭킹(실시간).
           // (필터 변경 직후 첫 카드는 onFilter가 동기로 직접 set하므로 여기선 이후 재실행 케이스만 처리.)
           const filtered = expandGroups(candidates)
             .filter((f: any) => vfilter.has(f.id) && !rejectedIds.has(f.id) && !savedIds.has(f.id));
@@ -404,20 +404,20 @@ export default function MainPage() {
                 .filter(r => byId.has(r.facility.id))
                 .map(r => {
                   const base = byId.get(r.facility.id);
-                  const tttv = recToTttv(r);
-                  return { ...base, tttv, reason: r.reason || "" }; // 백엔드 Gemini 사유만
+                  const spot = recToSpot(r);
+                  return { ...base, spot, reason: r.reason || "" }; // 백엔드 Gemini 사유만
                 });
               // 음식 의도(음성/온보딩)가 있으면 선호%·점수를 음식종류 매칭으로 재산출해 표시·랭킹을 의도와 일치시킨다.
               // (백엔드 선호는 시설타입 4종 벡터라 식당별로 고정 → 의도가 있을 땐 미러로 음식종류 반영. 사유는 백엔드 유지.)
               if (cuisineIntentRef.current) {
-                // 백엔드 TTTV(예측 대기·이동·incentive) 보존 + 선호항만 cuisineMatch 로 교체해 재점수.
-                // 비식당/미인식(cm=null)은 백엔드 tttv 그대로 유지 → 통째 재계산이 사유·수치를 어긋나게 하던 문제 해소.
+                // 백엔드 SPOT(예측 대기·이동·incentive) 보존 + 선호항만 cuisineMatch 로 교체해 재점수.
+                // 비식당/미인식(cm=null)은 백엔드 spot 그대로 유지 → 통째 재계산이 사유·수치를 어긋나게 하던 문제 해소.
                 realRanked = realRanked
                   .map(f => {
                     const cm = cuisineMatch(f, cuisineIntentRef.current);
-                    return cm !== null ? { ...f, tttv: rescoreWithPreference(f.tttv, cm, f.congestionLevel ?? 0) } : f;
+                    return cm !== null ? { ...f, spot: rescoreWithPreference(f.spot, cm, f.congestionLevel ?? 0) } : f;
                   })
-                  .sort(compareTttv);
+                  .sort(compareSpot);
               }
             } catch (e) {
               console.warn("by-type 추천 실패 → 목업 미러로 폴백:", e);
@@ -430,7 +430,7 @@ export default function MainPage() {
           }
           // 합성/데모 시설은 항상 클라 미러로 점수 부여
           const demoRanked = rankFacilities(demoCands, scoreOpts);
-          all = [...realRanked, ...demoRanked].sort(compareTttv);
+          all = [...realRanked, ...demoRanked].sort(compareSpot);
           all.forEach((f, i) => { 
             f.apiRank = i + 1; 
             f.totalCandidates = all.length; 
@@ -555,15 +555,15 @@ export default function MainPage() {
       const existing = localStorage.getItem('nextspot_saved_facilities');
       const bookmarks = existing ? JSON.parse(existing) : [];
       
-      const tttv = fac.tttv || calculateTTTV(fac);
+      const spot = fac.spot || calculateSPOT(fac);
       if (!bookmarks.some((b: any) => b.id === fac.id)) {
         bookmarks.push({
           id: fac.id,
           name: fac.name,
           category: fac.type === 'restaurant' ? '음식점' : fac.type === 'cafe' ? '카페' : fac.type === 'attraction' ? '관광지' : '문화시설',
           trafficStatus: fac.congestionLevel >= 0.75 ? 'orange' : fac.congestionLevel >= 0.50 ? 'yellow' : fac.congestionLevel >= 0.25 ? 'green' : 'blue',
-          waitTime: `${tttv?.expectedWait || 0}분`,
-          tttv: tttv,
+          waitTime: `${spot?.expectedWait || 0}분`,
+          spot: spot,
           reason: fac.reason || ""
         });
         localStorage.setItem('nextspot_saved_facilities', JSON.stringify(bookmarks));
@@ -603,7 +603,7 @@ export default function MainPage() {
     }
 
     if (nextCandidates.length > 0) {
-      const nextScored = nextCandidates.map(f => ({ ...f, tttv: calculateTTTV(f) }));
+      const nextScored = nextCandidates.map(f => ({ ...f, spot: calculateSPOT(f) }));
       nextScored.sort(compareFacilities);
       setSelectedFacility(nextScored[0]);
       if (mapInstanceRef.current) {
@@ -637,7 +637,7 @@ export default function MainPage() {
     const voicePass = (f: any) => !voiceFilterIds || voiceFilterIds.has(f.id);
     const pool = expandGroups(facilities.filter(f => f.type === fac.type))
       .filter((f: any) => voicePass(f) && !rejectedIds.has(f.id) && !savedIds.has(f.id))
-      .map((f: any) => ({ ...f, tttv: calculateTTTV(f) }))
+      .map((f: any) => ({ ...f, spot: calculateSPOT(f) }))
       .sort(compareFacilities);
     if (pool.length <= 1) { showToast('다른 추천이 없어요.'); return; }
     const curIdx = pool.findIndex(f => f.id === fac.id);
@@ -653,7 +653,7 @@ export default function MainPage() {
     getReason: (f) => f?.reason || '', // 백엔드 Gemini 사유만(없으면 이름만 안내) — 하드코딩 제거
     // Gemini가 spoken으로 실데이터 상세를 주는 게 우선. 이건 Gemini 불가 시 폴백 — 종류/혼잡/도보로 구성.
     getDetail: (f) => {
-      const t = f?.tttv || calculateTTTV(f);
+      const t = f?.spot || calculateSPOT(f);
       const parts: string[] = [];
       const tags = f?.features?.cuisine_tags;
       const kind = Array.isArray(tags) ? tags.join(', ') : (typeof tags === 'string' ? tags : null);
@@ -685,7 +685,7 @@ export default function MainPage() {
         return;
       }
       applyVoiceFilter(set); // ref+state 동시 갱신(effect는 이후 재실행 시 ref로 읽음)
-      const ranked = pool.map((f: any) => ({ ...f, tttv: calculateTTTV(f) })).sort(compareFacilities);
+      const ranked = pool.map((f: any) => ({ ...f, spot: calculateSPOT(f) })).sort(compareFacilities);
       setSelectedFacility(spoken ? { ...ranked[0], reason: spoken } : ranked[0]);
       if (mapInstanceRef.current && typeof ranked[0].latitude === 'number') panToVisible(ranked[0].latitude, ranked[0].longitude);
     },
@@ -829,9 +829,9 @@ export default function MainPage() {
     const filtered = facilities.filter(f => f.type === targetType);
 
     // 줌 레벨별 마커 밀집도 — 시중 지도앱처럼 멀리 볼수록(레벨↑) 핵심 장소만, 확대할수록(레벨↓) 더 많이 표시.
-    // Kakao level은 작을수록 확대. TTTV 상위 순으로 잘라 '대표 장소'를 우선 노출한다(브라우저 프리징도 방지).
+    // Kakao level은 작을수록 확대. SPOT 상위 순으로 잘라 '대표 장소'를 우선 노출한다(브라우저 프리징도 방지).
     const densityCap = mapLevel <= 3 ? 200 : mapLevel <= 4 ? 60 : mapLevel <= 5 ? 30 : mapLevel <= 6 ? 14 : 6;
-    const scoredFacilities = filtered.map(f => ({ ...f, tttv: calculateTTTV(f) }));
+    const scoredFacilities = filtered.map(f => ({ ...f, spot: calculateSPOT(f) }));
     scoredFacilities.sort(compareFacilities);
     const displayFacilities = scoredFacilities.slice(0, densityCap);
 
@@ -1015,7 +1015,7 @@ export default function MainPage() {
               .filter((f: any) => (!voiceFilterIds || voiceFilterIds.has(f.id)) && !rejectedIds.has(f.id) && !savedIds.has(f.id));
             const activeScored = activeCandidates.map(f => ({
               ...f,
-              tttv: calculateTTTV(f)
+              spot: calculateSPOT(f)
             })).sort(compareFacilities);
 
             const rankIndex = activeScored.findIndex(f => f.id === selectedFacility.id);
@@ -1023,7 +1023,7 @@ export default function MainPage() {
             totalCandidates = activeScored.length;
           }
 
-          const tttv = selectedFacility.tttv || calculateTTTV(selectedFacility);
+          const spot = selectedFacility.spot || calculateSPOT(selectedFacility);
           // 사유: 자동 추천된 실 시설은 백엔드 Gemini 사유, 마커 직접 클릭/데모는 미러 사유로 폴백
           const reason = selectedFacility.reason || ""; // 백엔드 Gemini 사유만(하드코딩 제거)
           return (
@@ -1047,11 +1047,11 @@ export default function MainPage() {
                 onAccept={() => handleAccept(selectedFacility)}
                 onReject={() => handleReject(selectedFacility)}
                 onPutOff={() => handlePutOff(selectedFacility)}
-                tttvScore={tttv.score}
-                preferencePercent={tttv.preferencePercent}
-                expectedWait={tttv.expectedWait}
-                expectedTravel={tttv.expectedTravel}
-                timeToService={tttv.timeToService}
+                spotScore={spot.score}
+                preferencePercent={spot.preferencePercent}
+                expectedWait={spot.expectedWait}
+                expectedTravel={spot.expectedTravel}
+                timeToService={spot.timeToService}
                 facilityType={selectedFacility.type}
                 facility={selectedFacility}
                 rank={rank}

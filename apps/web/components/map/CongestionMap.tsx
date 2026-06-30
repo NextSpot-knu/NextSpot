@@ -652,7 +652,7 @@ export default function CongestionMap({ initialFacilities }: CongestionMapProps)
                 onClick={handleFindAlternative}
                 className="flex-1 py-3 bg-gradient-to-r from-sky-500 to-purple-600 rounded-xl font-bold text-sm transition-all duration-300 hover:opacity-90 hover:shadow-lg hover:shadow-sky-500/25 active:scale-[0.98] text-center"
               >
-                ⚡ TTTV AI 대안 추천 탐색
+                ⚡ SPOT AI 대안 추천 탐색
               </button>
             </div>
           </div>

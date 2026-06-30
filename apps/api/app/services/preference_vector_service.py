@@ -3,7 +3,7 @@
 (대회 종료 후 GCP Firestore 백엔드를 제거하고 Supabase 테이블 `user_preference_vectors` 로 이전.)
 
 설계 노트: 이 저장소는 ANN(최근접 이웃) 검색이 아니라 **user_id 로 벡터를 저장/조회(KV)** 하는 용도다.
-(코사인 유사도는 tttv/preference.py 가 CATEGORY_VECTORS 와 로컬 계산.)
+(코사인 유사도는 spot/preference.py 가 CATEGORY_VECTORS 와 로컬 계산.)
 
 폴백 우선: Supabase 미가용/실패(예: 테이블 미생성) 시 프로세스 메모리 dict 로 graceful 폴백.
 외부 인터페이스(_normalize_vector / get_user_vector / upsert_user_vector /

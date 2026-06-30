@@ -29,7 +29,7 @@ export interface Recommendation {
   user_id: string;
   original_facility_id: string;
   recommended_facility_id: string;
-  tttv_score: number;
+  spot_score: number;
   score_breakdown: Record<string, unknown>;
   accepted: boolean;
   created_at: string;

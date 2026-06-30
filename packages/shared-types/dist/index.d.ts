@@ -19,7 +19,7 @@ export interface CongestionLog {
     status: 'smooth' | 'normal' | 'crowded' | 'critical';
     recordedAt: string;
 }
-export interface TTTVRecommendation {
+export interface SPOTRecommendation {
     id?: string;
     userId?: string;
     requestedFacilityId: string;

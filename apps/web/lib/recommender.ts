@@ -1,11 +1,11 @@
-// 클라이언트 추천 점수·정렬·사유 엔진 — 백엔드 TTTV 메커니즘의 "미러".
+// 클라이언트 추천 점수·정렬·사유 엔진 — 백엔드 SPOT 메커니즘의 "미러".
 //
 // 용도(데모를 따로 분리):
 //  1) 데모 전용 시설(합성 카페/관광지 그룹, 시간대 시뮬 mockHour)의 점수·사유
 //  2) 백엔드(/api/v1/recommendations/by-type) 미가용 시 폴백
 //  3) 지도 마커 정렬 캡 등 대량 점수(백엔드 호출 없이)
 //
-// 가중치는 백엔드 services/tttv/score.py 와 동일하게 맞춘다(이전 main 인라인은
+// 가중치는 백엔드 services/spot/score.py 와 동일하게 맞춘다(이전 main 인라인은
 // 시간/혼잡분산 가중치가 뒤바뀐 0.30/0.25 였음 → 0.25/0.30 으로 정정).
 //   W1(선호)=0.45, W2(시간비용)=0.25, W3(혼잡분산)=0.30
 
@@ -19,7 +19,7 @@ export const CATEGORY_VECTORS: Record<string, number[]> = {
   culture: [0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.2, 0.2],
 };
 
-export interface Tttv {
+export interface Spot {
   score: number; // 0~100
   preferencePercent: number; // 0~100
   expectedWait: number; // 분
@@ -145,10 +145,10 @@ function preferenceMatch(facility: any, preferredCategories: string[]): number {
   return Math.max(0, Math.min(1, dot));
 }
 
-// 백엔드 TTTV(예측 대기·이동·incentive)를 '보존'하고 선호 항만 cuisineMatch 로 교체해 동일 가중치·산식으로
+// 백엔드 SPOT(예측 대기·이동·incentive)를 '보존'하고 선호 항만 cuisineMatch 로 교체해 동일 가중치·산식으로
 // score 만 재유도한다. 라이브 by-type 경로에서 scoreFacility 통째 재계산이 백엔드 Vertex 예측값을 버려
-// 사유와 수치가 어긋나던 문제를 막는다. 비식당/미인식(cMatch=null)은 호출측이 이 함수를 안 부르고 백엔드 tttv 유지.
-export function rescoreWithPreference(t: Tttv, pref: number, congestionLevel: number): Tttv {
+// 사유와 수치가 어긋나던 문제를 막는다. 비식당/미인식(cMatch=null)은 호출측이 이 함수를 안 부르고 백엔드 spot 유지.
+export function rescoreWithPreference(t: Spot, pref: number, congestionLevel: number): Spot {
   const w1 = 0.45, w2 = 0.25, w3 = 0.3;
   const timeCost = Math.min(1.0, ((t.expectedWait || 0) + (t.expectedTravel || 0)) / 60.0);
   const incentive = Math.max(0, BROWSE_BASELINE_CONGESTION - (congestionLevel ?? 0));
@@ -161,7 +161,7 @@ export function rescoreWithPreference(t: Tttv, pref: number, congestionLevel: nu
   };
 }
 
-export function scoreFacility(facility: any, opts: ScoreOpts): Tttv {
+export function scoreFacility(facility: any, opts: ScoreOpts): Spot {
   if (!facility) return { score: 0, preferencePercent: 0, expectedWait: 0, expectedTravel: 0, timeToService: 0 };
 
   // 음식 의도(음성/온보딩)가 있으면 선호 = 음식종류 매칭(식당별로 변동), 없으면 기존 카테고리 선호.
@@ -209,9 +209,9 @@ export function scoreFacility(facility: any, opts: ScoreOpts): Tttv {
   };
 }
 
-export function compareTttv(a: any, b: any): number {
-  const at = a.tttv,
-    bt = b.tttv;
+export function compareSpot(a: any, b: any): number {
+  const at = a.spot,
+    bt = b.spot;
   if (!at || !bt) return (a.name || "").localeCompare(b.name || "", "ko-KR");
   if (bt.score !== at.score) return bt.score - at.score; // 1. 높은 점수
   if (at.timeToService !== bt.timeToService) return at.timeToService - bt.timeToService; // 2. 짧은 총 소요
@@ -220,22 +220,22 @@ export function compareTttv(a: any, b: any): number {
   return (a.name || "").localeCompare(b.name || "", "ko-KR"); // 5. 가나다
 }
 
-// 시설 배열에 tttv+reason 을 부여하고 정렬(데모/폴백/마커 공용). 기존 reason 은 보존.
+// 시설 배열에 spot+reason 을 부여하고 정렬(데모/폴백/마커 공용). 기존 reason 은 보존.
 export function rankFacilities(facilities: any[], opts: ScoreOpts): any[] {
   const scored = facilities.map((f) => {
-    const tttv = scoreFacility(f, opts);
-    return { ...f, tttv, reason: f.reason || "" }; // 사유는 백엔드 Gemini(f.reason)만. 하드코딩 템플릿 제거.
+    const spot = scoreFacility(f, opts);
+    return { ...f, spot, reason: f.reason || "" }; // 사유는 백엔드 Gemini(f.reason)만. 하드코딩 템플릿 제거.
   });
-  scored.sort(compareTttv);
+  scored.sort(compareSpot);
   return scored;
 }
 
-// 백엔드 RecommendItem(camelCase) → 카드용 Tttv 형태로 변환.
-export function recToTttv(rec: RecommendationResponse): Tttv {
+// 백엔드 RecommendItem(camelCase) → 카드용 Spot 형태로 변환.
+export function recToSpot(rec: RecommendationResponse): Spot {
   const b = (rec.breakdown || {}) as any;
   const wait = typeof b.waitTime === "number" ? b.waitTime : 0;
   const travel = typeof b.travelTime === "number" ? b.travelTime : (rec.distanceM || 0) / WALK_M_PER_MIN;
-  const score01 = rec.tttvScore <= 1 ? rec.tttvScore : rec.tttvScore / 100;
+  const score01 = rec.spotScore <= 1 ? rec.spotScore : rec.spotScore / 100;
   return {
     score: Math.round(score01 * 100),
     preferencePercent: Math.round((typeof b.preference === "number" ? b.preference : 0) * 100),

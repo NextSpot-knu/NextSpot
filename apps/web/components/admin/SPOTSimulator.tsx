@@ -4,7 +4,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { apiClient } from '@/lib/api-client';
 
-export default function TTTVSimulator() {
+export default function SPOTSimulator() {
     // 슬라이더 및 입력 필드 동기화 상태 (기본 황금비: 45 : 30 : 25)
     const [weights, setWeights] = useState({ pref: 45, time: 30, inc: 25 });
     const [userVector, setUserVector] = useState<number[] | null>(null);
@@ -110,7 +110,7 @@ export default function TTTVSimulator() {
     return (
         <div className="w-full bg-slate-900 p-6 rounded-xl shadow-sm border border-slate-800">
             <div className="mb-6 border-b border-slate-800 pb-4">
-                <h2 className="text-xl font-bold text-slate-100">TTTV 추천 알고리즘 튜닝 센터</h2>
+                <h2 className="text-xl font-bold text-slate-100">SPOT 추천 알고리즘 튜닝 센터</h2>
                 <p className="text-sm text-slate-400 mt-1">
                     가중치(총합 100)를 입력하거나 슬라이더를 조작하여 1,000개 모의 시설의 점수 군집화를 분석하십시오.
                 </p>
@@ -191,17 +191,17 @@ export default function TTTVSimulator() {
                 </div>
             </div>
 
-            {/* TTTV Explanation Guide */}
+            {/* SPOT Explanation Guide */}
             <div className="mt-8 bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-800">
                 <h3 className="text-lg font-bold text-slate-100 mb-4 flex items-center gap-2">
                     <span className="bg-blue-500/15 text-blue-400 p-1.5 rounded-lg"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg></span>
-                    TTTV (Total Time To Value) 알고리즘 가이드
+                    SPOT (Smart Place Optimization for Tourism) 알고리즘 가이드
                 </h3>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-sm text-slate-300">
                     <div>
                         <p className="mb-4 leading-relaxed">
-                            <strong className="text-slate-100">TTTV란?</strong><br/>
+                            <strong className="text-slate-100">SPOT란?</strong><br/>
                             사용자가 서비스를 이용하기 위해 소비하는 <span className="font-semibold text-blue-400">대기 시간과 이동 시간의 기회비용을 가치(Value)로 환산</span>하여 최적의 스팟을 추천하는 NextSpot만의 핵심 알고리즘입니다. 점수(0~100점)가 높을수록 현재 상황에서 가장 합리적인 선택지임을 의미합니다.
                         </p>
                         <p className="leading-relaxed">

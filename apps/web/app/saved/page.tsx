@@ -13,7 +13,7 @@ interface BookmarkData {
   waitTime: string;
   latitude?: number;
   longitude?: number;
-  tttv?: any;
+  spot?: any;
   reason?: string; // 저장 시점의 추천 사유(백엔드 Gemini 또는 미러)
 }
 
@@ -62,11 +62,11 @@ export default function SavedPage() {
         if (saved) {
           const parsed = JSON.parse(saved);
           const compareBookmarks = (a: any, b: any) => {
-            if (!a.tttv || !b.tttv) return (a.name || '').localeCompare(b.name || '', 'ko-KR');
-            if (b.tttv.score !== a.tttv.score) return b.tttv.score - a.tttv.score;
-            if (a.tttv.timeToService !== b.tttv.timeToService) return a.tttv.timeToService - b.tttv.timeToService;
-            if (b.tttv.preferencePercent !== a.tttv.preferencePercent) return b.tttv.preferencePercent - a.tttv.preferencePercent;
-            if (a.tttv.expectedTravel !== b.tttv.expectedTravel) return a.tttv.expectedTravel - b.tttv.expectedTravel;
+            if (!a.spot || !b.spot) return (a.name || '').localeCompare(b.name || '', 'ko-KR');
+            if (b.spot.score !== a.spot.score) return b.spot.score - a.spot.score;
+            if (a.spot.timeToService !== b.spot.timeToService) return a.spot.timeToService - b.spot.timeToService;
+            if (b.spot.preferencePercent !== a.spot.preferencePercent) return b.spot.preferencePercent - a.spot.preferencePercent;
+            if (a.spot.expectedTravel !== b.spot.expectedTravel) return a.spot.expectedTravel - b.spot.expectedTravel;
             return (a.name || '').localeCompare(b.name || '', 'ko-KR');
           };
           parsed.sort(compareBookmarks);
@@ -217,9 +217,9 @@ export default function SavedPage() {
 
                 {/* 하단: 타임라인 */}
                 {(() => {
-                  const travelMins = bookmark.tttv?.expectedTravel ?? 0;
-                  const waitMins = bookmark.tttv?.expectedWait ?? parseInt(bookmark.waitTime) ?? 0;
-                  const timeToService = bookmark.tttv?.timeToService ?? parseInt(bookmark.waitTime) ?? 0;
+                  const travelMins = bookmark.spot?.expectedTravel ?? 0;
+                  const waitMins = bookmark.spot?.expectedWait ?? parseInt(bookmark.waitTime) ?? 0;
+                  const timeToService = bookmark.spot?.timeToService ?? parseInt(bookmark.waitTime) ?? 0;
                   
                   const arrivalTime = currentTime ? new Date(currentTime.getTime() + travelMins * 60000) : null;
                   const serviceTime = arrivalTime ? new Date(arrivalTime.getTime() + waitMins * 60000) : null;
@@ -283,11 +283,11 @@ export default function SavedPage() {
             matchPercentage={100}
             reason={selectedBookmark.reason}
             description={`현재 혼잡도: ${selectedBookmark.trafficStatus === 'orange' ? '혼잡' : selectedBookmark.trafficStatus === 'yellow' ? '보통' : selectedBookmark.trafficStatus === 'green' ? '여유' : '한산'}. 예상 대기 시간: ${selectedBookmark.waitTime}.`}
-            tttvScore={selectedBookmark.tttv?.score}
-            preferencePercent={selectedBookmark.tttv?.preferencePercent}
-            expectedWait={selectedBookmark.tttv?.expectedWait ?? parseInt(selectedBookmark.waitTime) ?? 0}
-            expectedTravel={selectedBookmark.tttv?.expectedTravel ?? 0}
-            timeToService={selectedBookmark.tttv?.timeToService ?? parseInt(selectedBookmark.waitTime) ?? 0}
+            spotScore={selectedBookmark.spot?.score}
+            preferencePercent={selectedBookmark.spot?.preferencePercent}
+            expectedWait={selectedBookmark.spot?.expectedWait ?? parseInt(selectedBookmark.waitTime) ?? 0}
+            expectedTravel={selectedBookmark.spot?.expectedTravel ?? 0}
+            timeToService={selectedBookmark.spot?.timeToService ?? parseInt(selectedBookmark.waitTime) ?? 0}
             facilityType={selectedBookmark.category === '음식점' ? 'restaurant' : selectedBookmark.category === '카페' ? 'cafe' : selectedBookmark.category === '관광지' ? 'attraction' : selectedBookmark.category === '문화시설' ? 'culture' : 'restaurant'}
             facility={{
               congestionLevel: selectedBookmark.trafficStatus === 'orange' ? 0.85 : selectedBookmark.trafficStatus === 'yellow' ? 0.6 : selectedBookmark.trafficStatus === 'green' ? 0.4 : 0.1,

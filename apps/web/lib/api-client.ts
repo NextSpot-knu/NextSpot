@@ -109,7 +109,7 @@ export const apiClient = {
     request(path, { ...options, method: "DELETE" }),
 };
 
-// --- TTTV 추천 엔진 연동 API 함수 ---
+// --- SPOT 추천 엔진 연동 API 함수 ---
 
 export interface RecommendationResponse {
   recommendationId: string;
@@ -125,7 +125,7 @@ export interface RecommendationResponse {
     currentCount?: number;
     congestionLevel?: number;
   };
-  tttvScore: number;
+  spotScore: number;
   breakdown: {
     preference: number;
     waitTime: number;
@@ -171,7 +171,7 @@ export async function submitFeedback(
 
 /**
  * 타입별(음식점/카페/관광지/문화시설) 추천 랭킹 — 메인 지도 브라우즈용.
- * 백엔드가 사용자 선호 벡터·실시간 혼잡·거리로 TTTV 점수를 매기고 상위 N개에 Gemini 사유를 붙여 반환.
+ * 백엔드가 사용자 선호 벡터·실시간 혼잡·거리로 SPOT 점수를 매기고 상위 N개에 Gemini 사유를 붙여 반환.
  * (/recommendations 가 '혼잡한 원본의 대안'을 주는 것과 달리, 원본 없이 타입 전체를 랭킹한다.)
  */
 export async function recommendByType(

@@ -469,7 +469,7 @@ function RecommendContent() {
               operatingHours: f.operating_hours,
               features: f.features
             },
-            tttvScore: 85 - (i * 10),
+            spotScore: 85 - (i * 10),
             breakdown: {
               preference: 0.9 - (i * 0.15),
               waitTime: 5 + (i * 3),
@@ -511,7 +511,7 @@ function RecommendContent() {
         operatingHours: f.operating_hours,
         features: f.features,
       },
-      tttvScore: 85 - i * 10,
+      spotScore: 85 - i * 10,
       breakdown: { preference: 0.9 - i * 0.15, waitTime: 5 + i * 3, travelTime: 2.5 + i, incentive: 0.2 },
       distanceM: 120 + i * 35,
       reason: buildMockReason(f.name, 5 + i * 3, 120 + i * 35, f.congestion_logs?.[0]?.congestion_level ?? 0),
@@ -665,7 +665,7 @@ function RecommendContent() {
             operatingHours: f.operating_hours,
             features: f.features
           },
-          tttvScore: 85 - (i * 10),
+          spotScore: 85 - (i * 10),
           breakdown: {
             preference: 0.9 - (i * 0.15),
             waitTime: 5 + (i * 3),
@@ -1159,7 +1159,7 @@ function RecommendContent() {
               </h2>
               <p className="text-xs text-slate-400 mt-1 leading-relaxed">
                 현재 대기 시간은 약 <span className="font-semibold text-rose-400">{originalWaitTime}분</span>으로
-                예상됩니다. 아래의 최적화된 TTTV 대안 시설을 권장합니다.
+                예상됩니다. 아래의 최적화된 SPOT 대안 시설을 권장합니다.
               </p>
             </div>
           ) : (
@@ -1189,7 +1189,7 @@ function RecommendContent() {
           ) : recommendations.length > 0 ? (
             recommendations.map((rec, idx) => {
               const waitTime = rec.breakdown?.waitTime?.toFixed(1) || "--";
-              const travelTime = (rec.breakdown?.travelTime ?? rec.distanceM / 66.67).toFixed(1); // 백엔드 TTTV travelTime 우선(66.67m/min=4km/h, 백엔드 일치), 없으면 거리환산
+              const travelTime = (rec.breakdown?.travelTime ?? rec.distanceM / 66.67).toFixed(1); // 백엔드 SPOT travelTime 우선(66.67m/min=4km/h, 백엔드 일치), 없으면 거리환산
               const preferencePct = Math.round((rec.breakdown?.preference || 0) * 100);
               const isVoiceActive = assistantActive && idx === activeRecIndex; // 음성 비서가 지금 안내 중인 카드
 
@@ -1223,9 +1223,9 @@ function RecommendContent() {
                       </h4>
                     </div>
                     <div className="text-right">
-                      <span className="text-[10px] text-slate-400 block">TTTV 지수</span>
+                      <span className="text-[10px] text-slate-400 block">SPOT 지수</span>
                       <span className="text-sm font-extrabold text-purple-400">
-                        {Math.round(rec.tttvScore <= 1.0 ? rec.tttvScore * 100 : rec.tttvScore)}점
+                        {Math.round(rec.spotScore <= 1.0 ? rec.spotScore * 100 : rec.spotScore)}점
                       </span>
                     </div>
                   </div>
@@ -1246,7 +1246,7 @@ function RecommendContent() {
                     />
                   </div>
 
-                  {/* TTTV Breakdown Indicators */}
+                  {/* SPOT Breakdown Indicators */}
                   <div className="grid grid-cols-3 gap-2 py-2 border-t border-b border-white/5 my-3 text-[11px] text-slate-300">
                     <div className="text-center">
                       <span className="text-slate-500 block text-[9px] uppercase">선호 일치율</span>
@@ -1459,7 +1459,7 @@ function RecommendContent() {
               <span className="text-xl">🎯</span>
               <h3 className="text-lg font-extrabold text-slate-100">맞춤형 추천 온보딩</h3>
               <p className="text-xs text-slate-400 leading-relaxed">
-                NextSpot AI의 최적화된 TTTV 대안 경로 매칭을 위해, 관심 있는 장소 종류를 **3개 이상** 선택해 주세요.
+                NextSpot AI의 최적화된 SPOT 대안 경로 매칭을 위해, 관심 있는 장소 종류를 **3개 이상** 선택해 주세요.
               </p>
             </div>
 

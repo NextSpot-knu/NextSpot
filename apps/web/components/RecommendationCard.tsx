@@ -13,7 +13,7 @@ interface RecommendationCardProps {
   onReject: () => void;
   onPutOff?: () => void;
   onClose?: () => void; // Added close/hide callback
-  tttvScore?: number;
+  spotScore?: number;
   preferencePercent?: number;
   expectedWait?: number;
   expectedTravel?: number;
@@ -34,7 +34,7 @@ export function RecommendationCard({
   onReject,
   onPutOff,
   onClose,
-  tttvScore,
+  spotScore,
   preferencePercent,
   expectedWait,
   expectedTravel,
@@ -160,7 +160,7 @@ export function RecommendationCard({
     setIsExpanded(!isExpanded);
   };
 
-  const hasTttvMetrics = tttvScore !== undefined;
+  const hasSpotMetrics = spotScore !== undefined;
 
   const travelMins = expectedTravel || 0;
   const waitMins = expectedWait || 0;
@@ -251,14 +251,14 @@ export function RecommendationCard({
           )}
         </div>
 
-        {/* Dynamic Badge (TTTV Score or match percentage) */}
-        {hasTttvMetrics ? (
+        {/* Dynamic Badge (SPOT Score or match percentage) */}
+        {hasSpotMetrics ? (
           <div className="relative group">
             <div
               className="flex flex-col items-center justify-center min-w-[60px] h-[60px] rounded-2xl border border-purple-500/40 bg-gradient-to-b from-purple-500/20 to-purple-500/5 cursor-pointer shadow-lg shadow-purple-500/10"
             >
-              <span className="text-[9px] text-purple-300 font-bold uppercase mb-0.5">TTTV 점수</span>
-              <span className="text-white font-black text-xl leading-none">{Math.round(tttvScore || 0)}<span className="text-[10px] font-normal text-purple-200 ml-0.5">점</span></span>
+              <span className="text-[9px] text-purple-300 font-bold uppercase mb-0.5">SPOT 점수</span>
+              <span className="text-white font-black text-xl leading-none">{Math.round(spotScore || 0)}<span className="text-[10px] font-normal text-purple-200 ml-0.5">점</span></span>
             </div>
             
             {/* Info Icon */}
@@ -269,7 +269,7 @@ export function RecommendationCard({
             {/* Tooltip */}
             <div className="absolute top-full right-0 mt-3 w-[260px] p-3.5 bg-[#161c28]/95 backdrop-blur-xl border border-purple-500/20 rounded-xl shadow-[0_10px_30px_rgba(0,0,0,0.5)] opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50 pointer-events-none">
               <p className="text-[11px] text-slate-300 leading-relaxed text-right break-keep space-y-1">
-                <span className="block mb-1.5"><strong className="text-purple-300 font-bold text-[12px]">TTTV Score란?</strong></span>
+                <span className="block mb-1.5"><strong className="text-purple-300 font-bold text-[12px]">SPOT Score란?</strong></span>
                 <span className="block">NextSpot의 핵심 기술로, 도착 시점의 혼잡도를 미리 예측하는 <strong className="text-purple-200">머신러닝 AI 모델</strong>과 사용자의 선호도를 분석하는 <strong className="text-purple-200">벡터 알고리즘</strong>의 결합.</span>
                 <span className="block mt-1.5">지금 이 순간, 사용자의 시간 가치를 극대화하는 가장 완벽한 목적지를 제안합니다.</span>
               </p>
@@ -287,8 +287,8 @@ export function RecommendationCard({
 
 
 
-      {/* TTTV Metric Grid (Only if metrics are provided) */}
-      {hasTttvMetrics && (
+      {/* SPOT Metric Grid (Only if metrics are provided) */}
+      {hasSpotMetrics && (
         <div className="flex flex-col gap-2 mt-1 cursor-pointer" onClick={toggleExpand}>
             <div className="flex flex-col gap-2">
               <div className="flex gap-2">

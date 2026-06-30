@@ -1,6 +1,6 @@
 # NextSpot - 경주 관광 수요 분산 AI 플랫폼
 
-경주 황리단길 관광 POI(음식점, 카페, 관광지, 문화시설)의 실시간 혼잡도를 분석하고, 혼잡 발생 시 TTTV(Total Time to Value) 알고리즘 기반 대안 장소 및 시간대를 추천하는 관광 수요 재배치 모노레포 프로젝트입니다.
+경주 황리단길 관광 POI(음식점, 카페, 관광지, 문화시설)의 실시간 혼잡도를 분석하고, 혼잡 발생 시 SPOT(Smart Place Optimization for Tourism) 알고리즘 기반 대안 장소 및 시간대를 추천하는 관광 수요 재배치 모노레포 프로젝트입니다.
 
 ## 기술 스택
 - **Frontend / BFF**: Next.js 14 (App Router) + TypeScript + Tailwind CSS

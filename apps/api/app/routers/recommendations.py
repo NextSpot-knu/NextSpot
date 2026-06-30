@@ -15,9 +15,9 @@ from app.services.reason_service import generate_reason
 from app.services.voice_intent_service import interpret_turn
 from app.services.embedding_service import filter_candidates as vector_filter_candidates
 from app.services.embedding_service import enrich_candidates as enrich_voice_candidates
-from app.services.tttv.score import calculate_tttv_score
-from app.services.tttv.travel import calculate_haversine_distance, WALKING_SPEED_M_PER_MIN
-from app.services.tttv.preference import CATEGORY_VECTORS, get_category_average_vector
+from app.services.spot.score import calculate_spot_score
+from app.services.spot.travel import calculate_haversine_distance, WALKING_SPEED_M_PER_MIN
+from app.services.spot.preference import CATEGORY_VECTORS, get_category_average_vector
 
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1", tags=["recommendations"])
@@ -32,7 +32,7 @@ class RecommendRequest(BaseModel):
 class RecommendItem(BaseModel):
     recommendation_id: str
     facility: dict
-    tttv_score: float
+    spot_score: float
     breakdown: dict
     distance_m: float
     reason: str | None = None  # WP3: 백엔드 생성 사유(실패 시 템플릿 폴백)
@@ -145,7 +145,7 @@ async def get_recommendations(
         user_vector = get_category_average_vector(user_info.get("preferred_categories", []))
         await preference_vector_service.upsert_user_vector(req.user_id, user_vector)
 
-    # 3. 각 후보군에 대해 TTTV 스코어를 병렬 연산
+    # 3. 각 후보군에 대해 SPOT 스코어를 병렬 연산
     #    (후보 수만큼 직렬 await 하던 것을 asyncio.gather 로 동시 실행 → 후보가 많아도 지연이 누적되지 않음)
     async def _score_candidate(f: dict, dist: float) -> dict:
         candidate_congestion = await fetch_latest_congestion(f["id"])
@@ -153,7 +153,7 @@ async def get_recommendations(
         # facilities 스키마에는 current_count 컬럼이 없고 실시간 인원은 congestion_logs 에만 있으므로,
         # capacity × 혼잡도(0~1)로 추정해 프런트 주차 카드의 '주차자리' 표시가 깨지지 않게 한다.
         f = {**f, "current_count": round(f.get("capacity", 0) * candidate_congestion)}
-        score_res = await calculate_tttv_score(
+        score_res = await calculate_spot_score(
             user_id=req.user_id,
             preferred_categories=user_info.get("preferred_categories", []),
             original_facility_type=original_infra["type"],
@@ -166,7 +166,7 @@ async def get_recommendations(
         )
         return {
             "facility": f,
-            "tttv_score": score_res.score,
+            "spot_score": score_res.score,
             "breakdown": score_res.breakdown,
             "distance_m": dist,
             "candidate_congestion": candidate_congestion,
@@ -177,7 +177,7 @@ async def get_recommendations(
     )
 
     # 4. 스코어 기준 내림차순 정렬 및 상위 3개 선별
-    recommendation_results.sort(key=lambda x: x["tttv_score"], reverse=True)
+    recommendation_results.sort(key=lambda x: x["spot_score"], reverse=True)
     top_n = recommendation_results[:5]  # 추천 제안 개수(요청: 3 → 5)
 
     # 4-1. WP3: 상위 N개(=top_n)에만 백엔드 사유 생성 (동시 호출, 실패 시 템플릿 폴백)
@@ -204,7 +204,7 @@ async def get_recommendations(
                 "user_id": req.user_id,
                 "original_facility_id": req.original_facility_id,
                 "recommended_facility_id": item["facility"]["id"],
-                "tttv_score": item["tttv_score"],
+                "spot_score": item["spot_score"],
                 "score_breakdown": item["breakdown"],
                 "accepted": False
             }).execute
@@ -231,7 +231,7 @@ async def get_recommendations(
         response_items.append(RecommendItem(
             recommendation_id=rec_id,
             facility=item["facility"],
-            tttv_score=item["tttv_score"],
+            spot_score=item["spot_score"],
             breakdown=item["breakdown"],
             distance_m=item["distance_m"],
             reason=reasons[idx],
@@ -309,7 +309,7 @@ async def recommend_by_type(
         cong = await fetch_latest_congestion(f["id"])
         dist = calculate_haversine_distance(req.user_lat, req.user_lng, f["latitude"], f["longitude"])
         f2 = {**f, "current_count": round(f.get("capacity", 0) * cong)}
-        res = await calculate_tttv_score(
+        res = await calculate_spot_score(
             user_id=req.user_id,
             preferred_categories=user_info.get("preferred_categories", []),
             original_facility_type=req.facility_type,
@@ -322,14 +322,14 @@ async def recommend_by_type(
         )
         return {
             "facility": f2,
-            "tttv_score": res.score,
+            "spot_score": res.score,
             "breakdown": res.breakdown,
             "distance_m": dist,
             "candidate_congestion": cong,
         }
 
     scored = list(await asyncio.gather(*[_score(f) for f in candidates]))
-    scored.sort(key=lambda x: x["tttv_score"], reverse=True)
+    scored.sort(key=lambda x: x["spot_score"], reverse=True)
     top = scored[: max(1, req.limit)]
 
     async def _reason_for(item: dict) -> str:
@@ -353,7 +353,7 @@ async def recommend_by_type(
         RecommendItem(
             recommendation_id=f"bytype-{item['facility']['id']}",
             facility=item["facility"],
-            tttv_score=item["tttv_score"],
+            spot_score=item["spot_score"],
             breakdown=item["breakdown"],
             distance_m=item["distance_m"],
             reason=reasons[idx],

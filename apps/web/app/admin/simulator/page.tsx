@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import TTTVSimulator from '@/components/admin/TTTVSimulator';
+import SPOTSimulator from '@/components/admin/SPOTSimulator';
 import { AdminSidebar } from '@/components/AdminSidebar';
 
 export default function SimulatorPage() {
@@ -15,7 +15,7 @@ export default function SimulatorPage() {
         {/* Top Header */}
         <header className="h-20 bg-slate-900 border-b border-slate-800 flex items-center justify-between px-8 flex-shrink-0">
           <div>
-            <h2 className="text-xl font-bold text-slate-100">TTTV 알고리즘 관제소</h2>
+            <h2 className="text-xl font-bold text-slate-100">SPOT 알고리즘 관제소</h2>
             <p className="text-xs text-slate-400 mt-0.5">추천 알고리즘(Preference, Time Cost, Incentive) 가중치 시뮬레이션 및 다봉 분포 분석</p>
           </div>
         </header>
@@ -23,7 +23,7 @@ export default function SimulatorPage() {
         {/* Simulator Content Area */}
         <div className="flex-1 min-h-0 p-8 overflow-y-auto pb-20">
           <div className="max-w-7xl mx-auto space-y-6">
-            <TTTVSimulator />
+            <SPOTSimulator />
           </div>
         </div>
       </main>

@@ -1,7 +1,7 @@
 # 시스템 아키텍처 개요 — 상속 베이스 (로컬 전용 · 비-GCP)
 
 > ⚠️ **이 문서는 NextSpot이 상속한 InduSpot 로컬 베이스의 아키텍처입니다.** 스택(Next.js 웹 + FastAPI +
-> Supabase + 로컬 sklearn)과 TTTV 엔진은 그대로 재사용하되, 도메인(산업단지→관광)·데이터 소스
+> Supabase + 로컬 sklearn)과 SPOT 엔진은 그대로 재사용하되, 도메인(산업단지→관광)·데이터 소스
 > (IoT/CCTV→TourAPI·경주 교통데이터)·브랜딩은 관광용으로 재구성 중입니다.
 > 관광 적응 계획·개조 백로그는 [`docs/NEXTSPOT_PIVOT.md`](./docs/NEXTSPOT_PIVOT.md)를 참조하세요.
 > 아래 내용은 InduSpot 원문 그대로이며, 가중치/도메인 용어(근로자·공단·시설)는 피벗 대상입니다.
@@ -26,21 +26,21 @@
 - **프론트엔드**: Next.js 16 정적 export. 근로자 앱(main/saved/mypage)과 관리자 앱(admin/*). 지도는
   Kakao Maps SDK. 음성 비서는 브라우저 Web Speech API(TTS/STT). 백엔드 주소는
   `NEXT_PUBLIC_FASTAPI_URL`(기본 `http://localhost:8000`).
-- **백엔드**: FastAPI. 추천(TTTV), 혼잡 예측(로컬 sklearn), 추천 사유(템플릿), 음성 의도(키워드),
+- **백엔드**: FastAPI. 추천(SPOT), 혼잡 예측(로컬 sklearn), 추천 사유(템플릿), 음성 의도(키워드),
   선호 벡터(Supabase) 를 제공. 외부 클라우드 호출 없음.
 - **데이터**: Supabase PostgreSQL. 시설/혼잡로그/추천/피드백/선호벡터. RLS + service_role 백엔드 경로.
 
-## 2. 추천 엔진 (TTTV)
+## 2. 추천 엔진 (SPOT)
 
 ```
-TTTV = 0.45 · 선호도 − 0.25 · 시간비용 + 0.30 · 혼잡분산
+SPOT = 0.45 · 선호도 − 0.25 · 시간비용 + 0.30 · 혼잡분산
 ```
 도착 예상 시점(이동시간 반영)의 혼잡도 예측을 입력으로 사용한다. 가중치(0.45/0.25/0.30)는 고정.
 
-- `services/tttv/score.py` — TTTV 산식(가중치 불변), `predict_congestion` 을 워커 스레드로 오프로드.
-- `services/tttv/preference.py` — 카테고리 8차원 벡터 + 사용자 선호 벡터 코사인.
-- `services/tttv/travel.py` — Kakao 길찾기(키 있으면) 또는 Haversine 직선거리 도보 환산.
-- `services/tttv/wait_time.py` — 혼잡도 기반 예상 대기시간.
+- `services/spot/score.py` — SPOT 산식(가중치 불변), `predict_congestion` 을 워커 스레드로 오프로드.
+- `services/spot/preference.py` — 카테고리 8차원 벡터 + 사용자 선호 벡터 코사인.
+- `services/spot/travel.py` — Kakao 길찾기(키 있으면) 또는 Haversine 직선거리 도보 환산.
+- `services/spot/wait_time.py` — 혼잡도 기반 예상 대기시간.
 
 ## 3. 혼잡 예측 (로컬 ML)
 

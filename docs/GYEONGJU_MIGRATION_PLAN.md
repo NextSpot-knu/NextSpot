@@ -2,7 +2,7 @@
 
 > 구미(산업단지) 더미 데이터를 경주 황리단길(관광) 데이터로 전면 교체하고, 모의 위치를 수정하며,
 > **InduSpot/산업 도메인 잔재를 0으로** 만드는 정비의 단일 실행 체크리스트.
-> 검증된 TTTV 엔진·모노레포 아키텍처는 보존한다. 4개 차원 전수 조사(좌표/데이터/도메인/브랜딩) 결과에 근거.
+> 검증된 SPOT 엔진·모노레포 아키텍처는 보존한다. 4개 차원 전수 조사(좌표/데이터/도메인/브랜딩) 결과에 근거.
 
 ---
 
@@ -35,7 +35,7 @@
 **완료 (커밋됨):**
 - **Phase 1 데이터** — 더미 6종·`scratch/`·구미 카카오 스크래퍼·산업 시더·`rename_loading_dock` 마이그레이션 삭제 (`b1330ac`)
 - **Phase 3 DB** — `init.sql`(관광 스키마: type/source/users)·`rls.sql`(회사 멀티테넌시 제거→`get_auth_user_role`)·`seed.sql`(경주 16 POI + 관광 혼잡 패턴)·`system_settings` 공지문구 (`b1330ac`)
-- **Phase 3 백엔드** — `preference`/`wait_time`/`predict_service`/`train`(normalize 2벌)/`preference_nlp`/`recommendations`/`infrastructures`/`predict` + `test_tttv` 정합. py_compile 통과 (`b1330ac`)
+- **Phase 3 백엔드** — `preference`/`wait_time`/`predict_service`/`train`(normalize 2벌)/`preference_nlp`/`recommendations`/`infrastructures`/`predict` + `test_spot` 정합. py_compile 통과 (`b1330ac`)
 - **Phase 2/3 프런트 lib** — `landmarks`(경주 8)·`recommender`(벡터·시간·피크·cuisine)·`utils`(마커 아이콘)·`types`(User) (`79ee70a`)
 - **Phase 4 브랜딩 코어** — `config`·`main`·`admin-auth`(키/토큰)·`layout`·`page`·`AdminSidebar`·`VoiceOrb`·`docker-compose` (`79ee70a`)
 - **Phase 2 라이브 지도** — `CongestionMap` 좌표(grid/geofence/center)·타입(필터/라벨)·브랜딩 (`c1afb2f`)
@@ -126,7 +126,7 @@
 | `apps/web/lib/landmarks.ts` | 12-22 | 구미 랜드마크 9 → 경주 랜드마크(§2) |
 | `apps/web/components/RecommendationCard.tsx` | 93,126 / 106-124 | 폴백 주소 `경상북도 구미시 산단로` → 경주 / Kakao geocode `'구미'` 필터 → `'경주'` |
 | `apps/web/components/admin/FacilityTable.tsx` | 106 | 신규 시설 기본 좌표(구미) → 황리단길 |
-| `apps/api/tests/services/test_tttv.py` | 41,45,59-60,72-73 | 테스트 좌표(구미) → 경주 |
+| `apps/api/tests/services/test_spot.py` | 41,45,59-60,72-73 | 테스트 좌표(구미) → 경주 |
 | (선택) `apps/api/app/routers/recommendations.py` | 255 | `_MAX_RECO_DISTANCE_M=1500` 재튜닝 — **150m(L124/136/139)는 유지** |
 | (선택) `apps/web/lib/recommender.ts` | 107 | `MAX_RECO_DISTANCE_M=1500` 재튜닝 |
 
@@ -163,9 +163,9 @@
 
 ## 7. Phase 4 — 브랜딩 & 산업 카피 잔재 제거
 
-**InduSpot → NextSpot (사용자 노출):** `layout.tsx:14`(title), `page.tsx:41`, `mypage:104`, `mypage:42`(@induspot.global), `saved:129`, `VoiceAssistantOrb:60`, `AdminSidebar:30`, `admin/login:65`, `CongestionMap:503`, `RecommendationCard:279`, `TTTVSimulator:205`, `worker/recommend:1271,1499,1595`.
+**InduSpot → NextSpot (사용자 노출):** `layout.tsx:14`(title), `page.tsx:41`, `mypage:104`, `mypage:42`(@induspot.global), `saved:129`, `VoiceAssistantOrb:60`, `AdminSidebar:30`, `admin/login:65`, `CongestionMap:503`, `RecommendationCard:279`, `SPOTSimulator:205`, `worker/recommend:1271,1499,1595`.
 
-**산업 카피 → 관광 (사용자 노출):** `page.tsx:44`·`layout:15`("공단 생활"→관광), `setup:148-176`(주간조/야간조·주차구역 → 관광 온보딩: 선호 카테고리 3개+·방문 시간대), `admin/login:68`(공단), `admin/simulator:18`(관제소), `DashboardCharts:22`(수요 분산), `TTTVSimulator:137`, `FacilityTable:89`, `admin/reports:303,19,43`, `admin/infrastructure:241,295,467`, `admin/settings:212`, `admin/dashboard:90-94`(하역장 mock), `mypage/support:115`, `mypage:43`(Senior Operator), `worker/recommend:756`.
+**산업 카피 → 관광 (사용자 노출):** `page.tsx:44`·`layout:15`("공단 생활"→관광), `setup:148-176`(주간조/야간조·주차구역 → 관광 온보딩: 선호 카테고리 3개+·방문 시간대), `admin/login:68`(공단), `admin/simulator:18`(관제소), `DashboardCharts:22`(수요 분산), `SPOTSimulator:137`, `FacilityTable:89`, `admin/reports:303,19,43`, `admin/infrastructure:241,295,467`, `admin/settings:212`, `admin/dashboard:90-94`(하역장 mock), `mypage/support:115`, `mypage:43`(Senior Operator), `worker/recommend:756`.
 
 **config/build/deploy (내부):** `docker-compose.yml:7,20`(container `induspot-api`→`nextspot-api`, token), `run_local.ps1:1`, `LOCAL_RUN.md:3,19,89`, `apps/api/.env.example`, `apps/web/.env.example`, `config.py:9,23`(PROJECT_NAME, ADMIN_API_TOKEN), `main.py:13`(OpenAPI desc), `Dockerfile:1`, `requirements.txt:1`, `apps/api/README.md:1`, `apps/web/README.md:1,3,15`.
 
@@ -184,7 +184,7 @@
 
 ## 8. Phase 5 — 검증 (적대적)
 
-1. `apps/api/tests/services/test_tttv.py` 갱신 후 `pytest apps/api`.
+1. `apps/api/tests/services/test_spot.py` 갱신 후 `pytest apps/api`.
 2. `npm run build --workspace=apps/web` (정적 빌드 통과).
 3. `run_local.ps1` 구동 스모크: 지도가 황리단길 중심 / 추천이 경주 POI 산출 / 음성·관리자 정상.
 4. **잔재 0 grep 스위프**(heritage 문서 제외): `induspot|InduSpot|구미|Gumi|근로자|worker(식별자)|공단|산업단지|회의실|휴게실|하역장|loading_dock|work_shift|주간조|야간조` = 0.

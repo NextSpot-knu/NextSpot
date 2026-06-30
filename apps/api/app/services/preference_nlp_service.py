@@ -12,7 +12,7 @@ import math
 
 import structlog
 
-from app.services.tttv.preference import get_category_average_vector
+from app.services.spot.preference import get_category_average_vector
 
 logger = structlog.get_logger()
 

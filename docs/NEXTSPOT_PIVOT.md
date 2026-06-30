@@ -13,7 +13,7 @@
 ## 0. 한 줄 정의
 
 포화한 관광 수요를 실시간으로 **분산·재배치**하는 AI 기반 대안 장소 추천 웹 서비스.
-초기 서비스 지역은 **경주 황리단길**. 핵심 알고리즘은 **TTTV_Score**, 필수 데이터는 **TourAPI(한국관광공사 OpenAPI)**.
+초기 서비스 지역은 **경주 황리단길**. 핵심 알고리즘은 **SPOT_Score**, 필수 데이터는 **TourAPI(한국관광공사 OpenAPI)**.
 
 ---
 
@@ -30,18 +30,18 @@
 | 선호 벡터 | 시설 타입/특성 8차원 | TourAPI `contentTypeId` 기반 카테고리 벡터 | 매핑 재정의 |
 | 지역 | 구미국가산업단지 | 경주 황리단길 (반경 400m 고밀도) | 좌표/데이터 |
 | 사업 모델 | B2B SaaS (사업주) | B2G(경북문화관광공사) + 소상공인 상권 | 대시보드 reframe |
-| TTTV 가중치 | 0.45 / 0.25 / 0.30 | **0.40 / 0.40 / 0.20** (제안서) | 상수/정규화 |
+| SPOT 가중치 | 0.45 / 0.25 / 0.30 | **0.40 / 0.40 / 0.20** (제안서) | 상수/정규화 |
 | 인센티브 항 | `max(0, 원본혼잡 − 후보혼잡)` (혼잡 분산) | 제안서는 "제휴 쿠폰 0/1" — **정의 확정 필요** | 설계 결정 |
 
 **그대로 재사용(변경 최소):** 모노레포 골격, FastAPI 라우팅/인증 골격, Supabase 접근 계층,
-TTTV 산식 구조와 정규화, Next.js 앱 셸·지도·차트, 로컬 예측 모델 파이프라인(`train.py`) 형태.
+SPOT 산식 구조와 정규화, Next.js 앱 셸·지도·차트, 로컬 예측 모델 파이프라인(`train.py`) 형태.
 
 ---
 
-## 2. TTTV_Score (관광 버전)
+## 2. SPOT_Score (관광 버전)
 
 ```
-TTTV_Score = w₁ · (취향 일치율) − w₂ · (예측 대기시간[혼잡 반영] + 이동시간) + w₃ · (인센티브)
+SPOT_Score = w₁ · (취향 일치율) − w₂ · (예측 대기시간[혼잡 반영] + 이동시간) + w₃ · (인센티브)
 ```
 
 | 변수 | 가중치(제안서) | 계산 방법 | 데이터 |
@@ -52,9 +52,9 @@ TTTV_Score = w₁ · (취향 일치율) − w₂ · (예측 대기시간[혼잡 
 | 인센티브 | w₃ = 0.20 | 제휴 가맹점 할인 쿠폰 제공 여부(0/1) | 파트너 |
 
 ### ⚠️ 베이스와의 차이 — 결정 필요 항목
-1. **가중치:** 베이스 코드는 `W1=0.45, W2=0.25, W3=0.30` (`apps/api/app/services/tttv/score.py:9-12`).
+1. **가중치:** 베이스 코드는 `W1=0.45, W2=0.25, W3=0.30` (`apps/api/app/services/spot/score.py:9-12`).
    제안서는 `0.40/0.40/0.20`. → 상수 변경 + 정규화식(`normalized = (raw + W2)/(W1+W2+W3)`) 재검토 +
-   `apps/api/tests/services/test_tttv.py` 기대값 갱신.
+   `apps/api/tests/services/test_spot.py` 기대값 갱신.
 2. **인센티브 의미 충돌:** 베이스는 *혼잡 분산 보너스* `max(0, 원본−후보 혼잡)`.
    제안서 w₃은 *제휴 쿠폰 0/1*. 두 개념은 다르다 → **(a) 혼잡분산 유지, (b) 쿠폰으로 교체,
    (c) 둘을 분리 항으로 결합** 중 택1. 발표 일관성을 위해 제안서 기준 정렬 권장하되 실증 효과(수요 분산)는
@@ -66,7 +66,7 @@ TTTV_Score = w₁ · (취향 일치율) − w₂ · (예측 대기시간[혼잡 
 
 ### 3-1. TourAPI(한국관광공사 OpenAPI) 엔드포인트
 
-| 엔드포인트 | 용도 | TTTV 반영 |
+| 엔드포인트 | 용도 | SPOT 반영 |
 | --- | --- | --- |
 | `areaBasedList` | 경주 지역 POI 목록 → 대안 후보 DB 기초 구축 | 후보군 |
 | `locationBasedList` | 사용자 현위치 반경 500m POI 실시간 조회 | 후보군(실시간) |
@@ -82,7 +82,7 @@ TTTV_Score = w₁ · (취향 일치율) − w₂ · (예측 대기시간[혼잡 
 | 준실시간 | 경주시 교통 CCTV AI 분석(공공데이터포털) | 일 단위 배치 | 시간대별 유동 패턴 베이스라인 |
 | 실시간(행사) | TourAPI `eventBasedList` | 일 1회 + 당일 조회 | 축제·행사 시 혼잡 가중치 상향 |
 | 인앱 피드백 | 추천 수락/거부 | 즉시 | 알고리즘 가중치 점진 보정 |
-| 경로 | Tmap 도보 경로 API (SKT, 무료) | 호출 시 | 이동 시간(TTTV 핵심 변수) |
+| 경로 | Tmap 도보 경로 API (SKT, 무료) | 호출 시 | 이동 시간(SPOT 핵심 변수) |
 
 ---
 
@@ -90,10 +90,10 @@ TTTV_Score = w₁ · (취향 일치율) − w₂ · (예측 대기시간[혼잡 
 
 | 베이스 위치 | 현재(InduSpot) | NextSpot 변경 |
 | --- | --- | --- |
-| `apps/api/app/services/tttv/score.py` | W=0.45/0.25/0.30, 인센티브=혼잡분산 | 가중치 0.40/0.40/0.20, 인센티브 정의 확정 |
-| `apps/api/app/services/tttv/preference.py` | 시설 타입/특성 → 8차원 벡터 | TourAPI `contentTypeId` → 카테고리 벡터 매핑 |
-| `apps/api/app/services/tttv/travel.py` | Kakao/Haversine 도보 환산 | **Tmap 도보 경로 API 어댑터** |
-| `apps/api/app/services/tttv/wait_time.py` | 시설 유형+혼잡+시각 | 관광 POI 유형 + 행사 변수 반영 |
+| `apps/api/app/services/spot/score.py` | W=0.45/0.25/0.30, 인센티브=혼잡분산 | 가중치 0.40/0.40/0.20, 인센티브 정의 확정 |
+| `apps/api/app/services/spot/preference.py` | 시설 타입/특성 → 8차원 벡터 | TourAPI `contentTypeId` → 카테고리 벡터 매핑 |
+| `apps/api/app/services/spot/travel.py` | Kakao/Haversine 도보 환산 | **Tmap 도보 경로 API 어댑터** |
+| `apps/api/app/services/spot/wait_time.py` | 시설 유형+혼잡+시각 | 관광 POI 유형 + 행사 변수 반영 |
 | `apps/api/app/services/predict_service.py` | 로컬 Ridge(`model.pkl`) facility/hour/dow | 경주 교통 베이스라인 + 행사로 재학습 |
 | `apps/api/scripts/train.py` | Supabase `congestion_logs` 학습 | 경주 유동/CCTV 시계열로 데이터 소스 교체 |
 | `supabase/` 스키마 | `facilities`, `congestion_logs`, `users` | POI(TourAPI 스키마: contentid·contenttypeid·좌표·주소·운영시간·무장애), 거점 혼잡 시계열 |
@@ -123,7 +123,7 @@ TTTV_Score = w₁ · (취향 일치율) − w₂ · (예측 대기시간[혼잡 
 - [ ] 경주시 교통데이터(공공데이터포털) 연동 → 시간대별 유동 베이스라인
 
 **P2 — 알고리즘**
-- [ ] TTTV 가중치 0.40/0.40/0.20 적용 + 정규화 재검토 + 테스트 갱신
+- [ ] SPOT 가중치 0.40/0.40/0.20 적용 + 정규화 재검토 + 테스트 갱신
 - [ ] 인센티브 항 정의 확정(혼잡분산 / 쿠폰 / 결합)
 - [ ] `preference.py` 카테고리 벡터를 `contentTypeId` 기준으로 재정의
 - [ ] `travel.py` → Tmap 도보 경로 어댑터
@@ -156,7 +156,7 @@ TTTV_Score = w₁ · (취향 일치율) − w₂ · (예측 대기시간[혼잡 
 | --- | --- | --- | --- |
 | 정보 유형 | 현재 혼잡/인기도 | 개별 식당 웨이팅 | **미래 도착시점 혼잡 예측 + 대안 제시** |
 | 대안 제시 | ✕ | ✕ | **최소 기회비용 대안 추천(핵심 차별점)** |
-| 최적화 기준 | 광고·거리·평점 | 대기팀 수 | **TTTV_Score** |
+| 최적화 기준 | 광고·거리·평점 | 대기팀 수 | **SPOT_Score** |
 | TourAPI 연동 | ✕ | ✕ | **POI DB 적극 활용** |
 | 수요 재배치 | ✕ | ✕ | **O** |
 
