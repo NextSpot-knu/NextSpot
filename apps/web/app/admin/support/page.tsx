@@ -18,12 +18,7 @@ interface Ticket {
 }
 
 // 데모 폴백: 백엔드가 비어있거나 응답이 없을 때 보여줄 샘플 문의(데모 페이지 무중단).
-const DEMO_TICKETS: Ticket[] = [
-  { id: 'demo-1', user: '김현수', type: '혼잡도 오류 신고', title: '점심시간 황남쌈밥 혼잡도가 실제와 달라요', content: '12시쯤 갔는데 앱에서는 여유라고 떴는데 실제로는 만석이었습니다. 확인 부탁드립니다.', status: 'new', time: '8분 전' },
-  { id: 'demo-2', user: '이지은', type: '기능 문의', title: '관광지 혼잡 알림 받을 수 있나요?', content: '대릉원이 한산해지면 푸시 알림을 받고 싶은데 설정 방법이 있을까요?', status: 'new', time: '32분 전' },
-  { id: 'demo-3', user: '박서준', type: '계정 문의', title: '닉네임 변경 후 로그인이 안 됩니다', content: '닉네임을 바꿨는데 기존 계정으로 로그인이 안 됩니다.', status: 'in_progress', time: '2시간 전' },
-  { id: 'demo-4', user: '정민아', type: '칭찬/제안', title: '대안 장소 추천 기능 정말 편리해요', content: '맛집이 혼잡할 때 근처 한적한 카페를 추천해주는 기능 덕분에 여행이 훨씬 여유로워졌어요. 감사합니다!', status: 'resolved', time: '어제' },
-];
+const DEMO_TICKETS: Ticket[] = [];
 
 function formatRelativeTime(dateString: string) {
   try {

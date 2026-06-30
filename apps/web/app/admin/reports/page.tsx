@@ -15,29 +15,11 @@ import { createPublicClient } from '@/lib/supabase';
 const supabase = createPublicClient();
 
 // --- Fallback(목업): 실데이터 로드 전 즉시 렌더 + 데이터 없을 때 대체 ---
-const MOCK_WEEKLY = [
-  { day: '월', 음식점: 900, 카페: 700, 관광지: 1100, 문화시설: 500 },
-  { day: '화', 음식점: 950, 카페: 720, 관광지: 1150, 문화시설: 520 },
-  { day: '수', 음식점: 1000, 카페: 760, 관광지: 1250, 문화시설: 560 },
-  { day: '목', 음식점: 1050, 카페: 800, 관광지: 1300, 문화시설: 580 },
-  { day: '금', 음식점: 1300, 카페: 1100, 관광지: 1600, 문화시설: 700 },
-  { day: '토', 음식점: 1900, 카페: 1700, 관광지: 2400, 문화시설: 1100 },
-  { day: '일', 음식점: 1750, 카페: 1500, 관광지: 2200, 문화시설: 950 },
-];
+const MOCK_WEEKLY: any[] = [];
 
-const MOCK_AI = [
-  { date: '1주차', 수락: 65, 거절: 35 },
-  { date: '2주차', 수락: 68, 거절: 32 },
-  { date: '3주차', 수락: 72, 거절: 28 },
-  { date: '4주차', 수락: 78, 거절: 22 },
-];
+const MOCK_AI: any[] = [];
 
-const MOCK_TABLE = [
-  { id: 1, category: '음식점', totalUsers: '8,650명', growth: '+12%', status: '활발' },
-  { id: 2, category: '카페', totalUsers: '7,280명', growth: '+18%', status: '급증' },
-  { id: 3, category: '관광지', totalUsers: '11,000명', growth: '+8%', status: '활발' },
-  { id: 4, category: '문화시설', totalUsers: '4,910명', growth: '-2%', status: '보통' },
-];
+const MOCK_TABLE: any[] = [];
 
 const TYPE_KO: Record<string, string> = {
   restaurant: '음식점', cafe: '카페', attraction: '관광지', culture: '문화시설',

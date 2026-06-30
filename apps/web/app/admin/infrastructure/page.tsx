@@ -25,15 +25,7 @@ interface ChartDataPoint {
 }
 
 // 데모 폴백: 백엔드가 비어있거나 응답이 없을 때 보여줄 샘플 시설(데모 페이지 무중단).
-const DEMO_FACILITIES: Infrastructure[] = [
-  { id: 'demo-rest-1', name: '황남쌈밥', type: '음식점', status: 'orange', capacity: '54/60', expectedDemand: '매우 높음 (점심 피크 예측)' },
-  { id: 'demo-rest-2', name: '교리김밥 황리단길점', type: '음식점', status: 'yellow', capacity: '14/30', expectedDemand: '보통 (일반 식사 패턴)' },
-  { id: 'demo-cafe-1', name: '황리단길 감성카페 봄', type: '카페', status: 'orange', capacity: '32/40', expectedDemand: '매우 높음 (오후 피크)' },
-  { id: 'demo-cafe-2', name: '한옥카페 다랑', type: '카페', status: 'green', capacity: '12/35', expectedDemand: '낮음 (여유 상태)' },
-  { id: 'demo-attr-1', name: '대릉원', type: '관광지', status: 'orange', capacity: '720/800', expectedDemand: '매우 높음 (주말 포화 예측)' },
-  { id: 'demo-attr-2', name: '첨성대', type: '관광지', status: 'yellow', capacity: '420/600', expectedDemand: '보통' },
-  { id: 'demo-cult-1', name: '국립경주박물관', type: '문화시설', status: 'green', capacity: '250/500', expectedDemand: '낮음 (여유 상태)' },
-];
+const DEMO_FACILITIES: Infrastructure[] = [];
 
 // 데모 시설 선택 시 보여줄 합성 시간대 추이. 백엔드 의존 없이 가벼운 곡선 생성.
 function genDemoChart(seedStr: string): ChartDataPoint[] {
