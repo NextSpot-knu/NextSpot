@@ -55,6 +55,7 @@ export default function MainPage() {
   // 그룹(모음) 마커 하이라이트 id — 카드 선택(selectedFacility)과 분리해 마커 확대/색상변경만 적용
   const [activeGroupId, setActiveGroupId] = useState<string | null>(null);
   const [mapLoaded, setMapLoaded] = useState(false);
+  const [mapLevel, setMapLevel] = useState(4); // 지도 줌 레벨(작을수록 확대) — 줌별 마커 밀집도 제어
   const [isMockLocationMinimized, setIsMockLocationMinimized] = useState(true);
   const [isMockTimeMinimized, setIsMockTimeMinimized] = useState(true);
   const [mockHour, setMockHour] = useState<number | null>(null);
@@ -774,9 +775,11 @@ export default function MainPage() {
         setMapLoaded(true);
 
         // Save center and level on map idle
+        setMapLevel(map.getLevel());
         window.kakao.maps.event.addListener(map, 'idle', () => {
           const center = map.getCenter();
           const lvl = map.getLevel();
+          setMapLevel(lvl); // 줌 변경 시 마커 밀집도 재계산 트리거
           sessionStorage.setItem('nextspot_map_center_lat', center.getLat().toString());
           sessionStorage.setItem('nextspot_map_center_lng', center.getLng().toString());
           sessionStorage.setItem('nextspot_map_level', lvl.toString());
@@ -825,10 +828,12 @@ export default function MainPage() {
 
     const filtered = facilities.filter(f => f.type === targetType);
 
-    // Optimize: Cap markers to top 100 highest TTTV score to prevent browser UI freezing
+    // 줌 레벨별 마커 밀집도 — 시중 지도앱처럼 멀리 볼수록(레벨↑) 핵심 장소만, 확대할수록(레벨↓) 더 많이 표시.
+    // Kakao level은 작을수록 확대. TTTV 상위 순으로 잘라 '대표 장소'를 우선 노출한다(브라우저 프리징도 방지).
+    const densityCap = mapLevel <= 3 ? 200 : mapLevel <= 4 ? 60 : mapLevel <= 5 ? 30 : mapLevel <= 6 ? 14 : 6;
     const scoredFacilities = filtered.map(f => ({ ...f, tttv: calculateTTTV(f) }));
     scoredFacilities.sort(compareFacilities);
-    const displayFacilities = scoredFacilities.slice(0, 100);
+    const displayFacilities = scoredFacilities.slice(0, densityCap);
 
     // 마커 크기: 평소엔 작게, 선택 시엔 확대(뒤쪽 펄스/이펙트 없이 크기만 키움). 화면 폭에 따라 반응형.
     const isNarrow = typeof window !== 'undefined' && window.innerWidth < 640;
@@ -920,7 +925,7 @@ export default function MainPage() {
 
     markersRef.current = newMarkers;
     // selectedFacility 변경 시에도 재렌더해 선택 마커만 진한 색으로 갱신(기존 마커는 effect 시작부에서 정리)
-  }, [facilities, activeFilter, mapLoaded, selectedFacility?.id, activeGroupId]);
+  }, [facilities, activeFilter, mapLoaded, selectedFacility?.id, activeGroupId, mapLevel]);
 
   const filters = [
     { id: '음식점', icon: Utensils },
