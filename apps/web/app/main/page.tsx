@@ -1086,14 +1086,14 @@ export default function MainPage() {
           
           {!isMockLocationMinimized && (
             <div className="px-3 pb-3 border-t border-white/5">
-              <div className="grid grid-cols-2 gap-1.5 w-32 mt-2">
+              <div className="grid grid-cols-1 gap-1.5 w-36 mt-2">
                 {[
-                  { id: 1, lat: 35.8362, lng: 129.2095 },
-                  { id: 2, lat: 35.8389, lng: 129.2099 },
-                  { id: 3, lat: 35.8347, lng: 129.2189 },
-                  { id: 4, lat: 35.8348, lng: 129.2265 },
-                  { id: 5, lat: 35.8389, lng: 129.2117 },
-                  { id: 6, lat: 35.8296, lng: 129.2156 }
+                  { id: 1, name: '황리단길', lat: 35.8362, lng: 129.2095 },
+                  { id: 2, name: '대릉원', lat: 35.8389, lng: 129.2099 },
+                  { id: 3, name: '첨성대', lat: 35.8347, lng: 129.2189 },
+                  { id: 4, name: '동궁과 월지', lat: 35.8348, lng: 129.2265 },
+                  { id: 5, name: '황남빵 본점', lat: 35.8389, lng: 129.2117 },
+                  { id: 6, name: '교촌마을', lat: 35.8296, lng: 129.2156 }
                 ].map((loc) => {
                   const isCurrent = Math.abs(userLocation.lat - loc.lat) < 0.0001 && Math.abs(userLocation.lng - loc.lng) < 0.0001;
                   return (
@@ -1107,7 +1107,7 @@ export default function MainPage() {
                         if (typeof window !== 'undefined') {
                           sessionStorage.removeItem('nextspot_selected_facility_id');
                         }
-                        showToast(`사용자 위치가 가상 ${loc.id}번 지점으로 설정되었습니다.`);
+                        showToast(`현재 위치를 '${loc.name}'(으)로 이동했어요.`);
                       }}
                       className={`py-1.5 px-2 rounded-lg text-xs font-bold transition-all ${
                         isCurrent
@@ -1115,7 +1115,7 @@ export default function MainPage() {
                           : 'bg-white/5 border border-white/10 text-gray-300 hover:bg-white/10'
                       }`}
                     >
-                      {loc.id}번
+                      {loc.name}
                     </button>
                   );
                 })}
