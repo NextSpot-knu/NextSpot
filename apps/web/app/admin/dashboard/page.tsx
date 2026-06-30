@@ -13,162 +13,19 @@ import { createPublicClient } from '@/lib/supabase';
 
 const supabase = createPublicClient();
 
-// KST 시간대 보정 헬퍼. Date.now()는 이미 UTC epoch 이므로 +9h 후 getUTCHours()만 하면 KST 벽시계 시(時)다.
-// (기존엔 getTimezoneOffset 까지 더해 KST 브라우저에서 KST 가 아닌 UTC 시를 반환하는 이중보정 버그가 있었음.
-//  같은 파일 line 263 히트맵 집계가 쓰는 검증된 idiom 과 일치시킴.)
-function getKstHours() {
-  return new Date(Date.now() + 9 * 60 * 60 * 1000).getUTCHours();
-}
 
-// 클라이언트 단의 실시간 Fallback 데이터 생성기
-function generateClientFallbackData(realFacilities?: any[]) {
-  const kstHour = getKstHours();
-  const seed = new Date().getDate() * 100 + kstHour;
-  
-  const pseudoRand = (offset: number) => {
-    const x = Math.sin(seed + offset) * 10000;
-    return x - Math.floor(x);
-  };
-
-  // 시간대별 혼잡도 패턴 (출퇴근·점심 피크 반영)
-  let baseCongestion = 0.3;
-  if (kstHour >= 8 && kstHour <= 10) baseCongestion = 0.55 + pseudoRand(1) * 0.15; // 출근 피크
-  else if (kstHour >= 11 && kstHour <= 13) baseCongestion = 0.65 + pseudoRand(2) * 0.2; // 점심 피크
-  else if (kstHour >= 17 && kstHour <= 19) baseCongestion = 0.58 + pseudoRand(3) * 0.18; // 퇴근 피크
-  else if (kstHour >= 22 || kstHour < 7) baseCongestion = 0.08 + pseudoRand(4) * 0.08; // 야간
-  else baseCongestion = 0.35 + pseudoRand(5) * 0.15;
-
-  const changePercent = Math.round((-8 + pseudoRand(6) * 20) * 10) / 10;
-  const acceptRateVal = 0.62 + pseudoRand(7) * 0.23;
-  const total = 80 + Math.floor(pseudoRand(8) * 60);
-  const accepted = Math.round(total * acceptRateVal);
-  const activeUsers = 180 + Math.floor(pseudoRand(9) * 240);
-  const isPeak = (kstHour >= 11 && kstHour <= 13) || (kstHour >= 17 && kstHour <= 19);
-  const anomalyCount = isPeak ? 2 + Math.floor(pseudoRand(10) * 4) : Math.floor(pseudoRand(10) * 3);
-
-  // 히트맵용 가상 데이터 생성 (실제 DB 시설 엔티티 연동 우선)
-  const dummyHeatmap: any[] = [];
-  
-  if (realFacilities && realFacilities.length > 0) {
-    // 1. DB에서 로드된 실제 시설을 기반으로 혼잡도 수치만 Fallback 채우기
-    realFacilities.forEach((fac) => {
-      const name = fac.name;
-      const type = fac.type;
-      
-      let facSeed = 0;
-      for (let i = 0; i < name.length; i++) facSeed += name.charCodeAt(i);
-      
-      for (let hour = 0; hour < 24; hour++) {
-        const noise = ((facSeed * (hour + 1)) % 100) / 100;
-        let mockVal = 0.1;
-        if (type === 'restaurant') {
-          if (hour >= 11 && hour <= 13) mockVal = 0.65 + noise * 0.25;
-          else if (hour >= 17 && hour <= 19) mockVal = 0.5 + noise * 0.25;
-          else mockVal = 0.1 + noise * 0.15;
-        } else if (type === 'cafe') {
-          if (hour >= 13 && hour <= 18) mockVal = 0.55 + noise * 0.3;
-          else mockVal = 0.1 + noise * 0.2;
-        } else if (type === 'attraction') {
-          if (hour >= 10 && hour <= 17) mockVal = 0.5 + noise * 0.4;
-          else mockVal = 0.05 + noise * 0.1;
-        } else { // culture 등
-          if (hour >= 10 && hour <= 17) mockVal = 0.35 + noise * 0.4;
-          else mockVal = 0.03 + noise * 0.1;
-        }
-        
-        dummyHeatmap.push({
-          facility: name,
-          facilityType: type,
-          hour,
-          value: Math.max(0, Math.min(1, Math.round(mockVal * 100) / 100))
-        });
-      }
-    });
-  } else {
-    // 2. DB 연결 실패 시 최후의 폴백 (하드코딩 더미 장소)
-    const facilityTypes = ['restaurant', 'cafe', 'attraction', 'culture'];
-    const baseNames: Record<string, string[]> = {
-      restaurant: ['황남쌈밥', '교리김밥', '한우국밥', '경주 한정식'],
-      cafe: ['감성카페 봄', '한옥카페 다랑', '루프탑카페', '십원빵'],
-      attraction: ['대릉원', '첨성대', '동궁과 월지', '월정교'],
-      culture: ['국립경주박물관', '교촌마을', '최부자댁']
-    };
-
-    facilityTypes.forEach((type) => {
-      const names = baseNames[type] || [];
-      names.forEach((name) => {
-        let facSeed = 0;
-        for (let i = 0; i < name.length; i++) facSeed += name.charCodeAt(i);
-
-        for (let hour = 0; hour < 24; hour++) {
-          const noise = ((facSeed * (hour + 1)) % 100) / 100;
-          let mockVal = 0.1;
-          if (type === 'restaurant') {
-            if (hour >= 11 && hour <= 13) mockVal = 0.65 + noise * 0.25;
-            else if (hour >= 17 && hour <= 19) mockVal = 0.5 + noise * 0.25;
-            else mockVal = 0.1 + noise * 0.15;
-          } else if (type === 'cafe') {
-            if (hour >= 13 && hour <= 18) mockVal = 0.55 + noise * 0.3;
-            else mockVal = 0.1 + noise * 0.2;
-          } else if (type === 'attraction') {
-            if (hour >= 10 && hour <= 17) mockVal = 0.5 + noise * 0.4;
-            else mockVal = 0.05 + noise * 0.1;
-          } else {
-            if (hour >= 10 && hour <= 17) mockVal = 0.35 + noise * 0.4;
-            else mockVal = 0.03 + noise * 0.1;
-          }
-          
-          dummyHeatmap.push({
-            facility: name,
-            facilityType: type,
-            hour,
-            value: Math.max(0, Math.min(1, Math.round(mockVal * 100) / 100))
-          });
-        }
-      });
-    });
-  }
-
-  // 최근 30일 추이 가상 데이터 생성
-  const dummyDistribution: any[] = [];
-  for (let i = 29; i >= 0; i--) {
-    const d = new Date();
-    d.setDate(d.getDate() - i);
-    const dateStr = d.toISOString().split('T')[0];
-    const isWeekend = d.getDay() === 0 || d.getDay() === 6;
-    
-    const beforeCong = isWeekend 
-      ? 0.08 + Math.sin(i * 0.5) * 0.02 + pseudoRand(i) * 0.03
-      : 0.45 + Math.sin(i * 0.5) * 0.1 + pseudoRand(i) * 0.08;
-    const afterCong = beforeCong * (1 - (0.65 + pseudoRand(i) * 0.15) * 0.48);
-    const altUsage = isWeekend
-      ? 0.03 + pseudoRand(i) * 0.03
-      : 0.2 + Math.cos(i * 0.5) * 0.06 + pseudoRand(i) * 0.06;
-
-    dummyDistribution.push({
-      date: dateStr,
-      beforeCongestion: Math.round(beforeCong * 100) / 100,
-      afterCongestion: Math.round(afterCong * 100) / 100,
-      alternativeUsage: Math.round(altUsage * 100) / 100
-    });
-  }
-
-  // 이상 알림 내역
-  const dummyAnomalies = [
-    { id: "a1", facilityName: "대릉원", timestamp: new Date(Date.now() - 30 * 60 * 1000).toISOString(), congestionLevel: 0.92, durationMinutes: 45 },
-    { id: "a2", facilityName: "황남쌈밥", timestamp: new Date(Date.now() - 120 * 60 * 1000).toISOString(), congestionLevel: 0.95, durationMinutes: 60 }
-  ];
-
+// 실데이터 전용: 합성 폴백 제거(목업 미사용). 실데이터가 없으면 0/빈 값으로 표시.
+function generateClientFallbackData(_realFacilities?: any[]) {
   return {
     kpi: {
-      avgCongestion: { value: Math.round(baseCongestion * 100) / 100, changePercent },
-      acceptRate: { value: Math.round(acceptRateVal * 1000) / 1000, total, accepted },
-      activeUsers,
-      anomalyCount
+      avgCongestion: { value: 0, changePercent: 0 },
+      acceptRate: { value: 0, total: 0, accepted: 0 },
+      activeUsers: 0,
+      anomalyCount: 0,
     },
-    heatmap: dummyHeatmap,
-    distribution: dummyDistribution,
-    anomalies: dummyAnomalies
+    heatmap: [] as any[],
+    distribution: [] as any[],
+    anomalies: [] as any[],
   };
 }
 

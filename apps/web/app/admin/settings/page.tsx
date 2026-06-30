@@ -10,7 +10,7 @@ import { createPublicClient } from '@/lib/supabase';
 
 const supabase = createPublicClient();
 
-const DEFAULT_NOTICE = '현재 구내식당 메뉴 개편으로 인해 관련 데이터가 부정확할 수 있습니다.';
+const DEFAULT_NOTICE = '현재 일부 식당·카페 정보 갱신 중으로 관련 데이터가 일시적으로 부정확할 수 있습니다.';
 
 export default function SettingsPage() {
   // 즉시 렌더용 기본값 → 마운트 후 system_settings 실값으로 교체(스피너 없음).

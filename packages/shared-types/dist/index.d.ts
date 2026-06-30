@@ -1,8 +1,8 @@
-export type InfrastructureType = 'cafeteria' | 'parking' | 'meeting_room' | 'rest_area';
-export interface Infrastructure {
+export type FacilityType = 'restaurant' | 'cafe' | 'attraction' | 'culture';
+export interface Facility {
     id: string;
     name: string;
-    type: InfrastructureType;
+    type: FacilityType;
     location?: string;
     latitude?: number;
     longitude?: number;
@@ -13,27 +13,18 @@ export interface Infrastructure {
 }
 export interface CongestionLog {
     id: string;
-    infrastructureId: string;
-    currentOccupancy: number;
+    facilityId: string;
+    currentCount: number;
     congestionRate: number;
     status: 'smooth' | 'normal' | 'crowded' | 'critical';
     recordedAt: string;
 }
-export interface Reservation {
-    id: string;
-    infrastructureId: string;
-    userId: string;
-    startTime: string;
-    endTime: string;
-    status: 'confirmed' | 'cancelled' | 'completed';
-    createdAt: string;
-}
 export interface TTTVRecommendation {
     id?: string;
     userId?: string;
-    requestedInfraId: string;
-    recommendedInfraId: string;
-    recommendedInfraName?: string;
+    requestedFacilityId: string;
+    recommendedFacilityId: string;
+    recommendedFacilityName?: string;
     originalEstimatedWaitTime: number;
     recommendedEstimatedWaitTime: number;
     travelTimeSaved: number;

@@ -517,7 +517,7 @@ CREATE POLICY anon_select_feedback ON public.user_feedback
 -- ============================= migrations/20260608120000_add_user_preference_vectors.sql =============================
 -- user_preference_vectors: 사용자 8차원 선호 벡터 저장소.
 -- (대회 종료 후 GCP Firestore 선호벡터 저장소를 제거하고 Supabase 테이블로 이전 — 로컬 전용 전환.)
--- 백엔드(FastAPI)는 service_role 로 적재/조회하고, 근로자는 본인 벡터만 조회한다.
+-- 백엔드(FastAPI)는 service_role 로 적재/조회하고, 사용자는 본인 벡터만 조회한다.
 
 CREATE TABLE IF NOT EXISTS public.user_preference_vectors (
     user_id UUID PRIMARY KEY REFERENCES public.users(id) ON DELETE CASCADE,
