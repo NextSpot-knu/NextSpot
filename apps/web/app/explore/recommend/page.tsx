@@ -5,6 +5,7 @@ import { useSearchParams, useRouter } from "next/navigation";
 import { createPublicClient } from "@/lib/supabase";
 const supabase = createPublicClient();
 import { getRecommendations, submitFeedback, parsePreference, RecommendationResponse } from "@/lib/api-client";
+import { MAX_RECO_DISTANCE_M } from "@/lib/recommender"; // 빈 상태 문구의 반경(1.5km) — 하드코딩 대신 실제 컷오프 상수 사용
 import { classifyIntent, buildCardSpeech } from "@/lib/voiceIntent";
 import { toast } from "sonner";
 
@@ -1271,21 +1272,8 @@ function RecommendContent() {
                       <span className="font-bold text-sky-300">{preferencePct}%</span>
                     </div>
                     <div className="text-center border-l border-r border-white/5">
-                      {rec.facility.type === 'parking' ? (
-                        <>
-                          <span className="text-slate-500 block text-[9px] uppercase">주차자리</span>
-                          <span className="font-bold text-amber-400">
-                            {(rec.facility as any).capacity && (rec.facility as any).currentCount !== undefined 
-                              ? `${Math.max(0, (rec.facility as any).capacity - (rec.facility as any).currentCount)} / ${(rec.facility as any).capacity}`
-                              : '-'}
-                          </span>
-                        </>
-                      ) : (
-                        <>
-                          <span className="text-slate-500 block text-[9px] uppercase">예상 대기</span>
-                          <span className="font-bold text-amber-400">{waitTime}분</span>
-                        </>
-                      )}
+                      <span className="text-slate-500 block text-[9px] uppercase">예상 대기</span>
+                      <span className="font-bold text-amber-400">{waitTime}분</span>
                     </div>
                     <div className="text-center">
                       <span className="text-slate-500 block text-[9px] uppercase">예상 도보</span>
@@ -1332,7 +1320,7 @@ function RecommendContent() {
             })
           ) : (
             <div className="glass-panel p-8 rounded-2xl border border-white/5 text-center text-sm text-slate-400">
-              주변 150m 이내에 추천 가능한 대안 시설이 없습니다.
+              주변 {MAX_RECO_DISTANCE_M / 1000}km 이내에 추천 가능한 대안 시설이 없습니다.
             </div>
           )}
         </section>

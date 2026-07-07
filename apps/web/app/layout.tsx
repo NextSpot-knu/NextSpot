@@ -17,7 +17,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${geistSans.variable} ${geistMono.variable} ${notoSansKr.variable} h-full antialiased`}>
+    <html lang="ko" className={`${geistSans.variable} ${geistMono.variable} ${notoSansKr.variable} h-full antialiased`}>
       <head>
         <Script
           id="kakao-maps-sdk"

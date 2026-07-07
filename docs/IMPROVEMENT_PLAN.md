@@ -18,7 +18,7 @@
 
 | # | 결정 항목 | 선택지 | 권고 |
 |---|---|---|---|
-| D1 | **인센티브 항(w₃) 정의** | (a) 혼잡분산 유지 (b) 제안서대로 쿠폰 0/1 (c) 결합 | 발표 일관성이면 (b), 실증 효과면 (c). **WS-C 착수 전 필수 결정** |
+| D1 | **인센티브 항(w₃) 정의** | ✅ **확정(2026-07-07): (c) 결합** — `incentive = 0.5·min(1, coupon_rate/0.20) + 0.5·max(0, 원본혼잡 − 후보 도착시점 예측혼잡)`. 쿠폰은 0/1 이 아닌 제휴 등급(할인율) 연속값, 분산 항은 도착시점 예측 기준으로 w2 와 시간축 통일 | 구현: score.py · shared-types/spot.ts(SPOT_INCENTIVE) · 20260707150000 마이그레이션 |
 | D2 | **스키마 소스 오브 트루스** | migrations 단일화(RESET은 자동 생성) vs RESET 단일화 | migrations 단일화 권고 (WS-B/WS-F 전제) |
 | D3 | **관리자 인증 수준** | 데모 수준 유지(단, 쓰기 경로만 서버 뒤로) vs Supabase Auth 정식 도입 | 공모전 일정 고려 시 전자 → WS-A 범위 |
 | D4 | **카카오 REST 키 로테이션** | 유출된 키 `8b9591c…` 폐기·재발급 | **즉시, 사람이 카카오 콘솔에서 수행** |
@@ -54,7 +54,7 @@
 3. **[DB] `facilities`→`pois` 마이그레이션** — `contentid VARCHAR UNIQUE`, `contenttypeid INT`, `address TEXT`, `barrier_free BOOLEAN` 정규 컬럼 추가. 백엔드 `.from("facilities")`·프론트 참조 동시 수정. ⚠️ `recommendations` FK의 `NOT NULL + ON DELETE SET NULL` 모순(`20250523120000_init.sql:45-46`)도 이 마이그레이션에서 함께 해소(NOT NULL 제거 권장).
 4. **[DB] 인덱스** — `congestion_logs(timestamp DESC)` 단독, `(facility_id, timestamp)` UNIQUE(+upsert), inquiries `(status, created_at DESC)`. TourAPI 대량 적재 대비 `(latitude, longitude)` btree 또는 PostGIS.
 5. **`.env.example` 갱신** — `TOURAPI_KEY`, `TMAP_APP_KEY`(WS-C 선행), 경주 좌표 기준값.
-6. **드리프트 해소** — `apps/api/sql/add_preference_note.sql`의 `users.preference_note`가 migrations/RESET 양쪽에 없음 → 정식 타임스탬프 마이그레이션으로 승격. D2 결정에 따라 RESET_AND_SETUP.sql 재생성.
+6. **드리프트 해소** — ✅ 완료(2026-07-07, D2 확정: migrations 단일화): 고아 SQL `apps/api/sql/add_preference_note.sql` 을 `supabase/migrations/20260707140000_add_preference_note.sql` 로 승격 후 삭제. `RESET_AND_SETUP.sql` 은 이제 `scripts/build_reset.mjs` 가 migrations/ 에서 자동 생성(직접 수정 금지), CI `schema` job 이 일치를 검증.
 
 **검증**: `python scripts/ingest_tourapi.py --dry-run`으로 실 API 응답 파싱 확인, 적재 후 `/api/v1/infrastructures` 응답에 contentid 포함, 기존 추천 플로우 회귀 없음.
 

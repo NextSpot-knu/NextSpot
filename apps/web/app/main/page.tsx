@@ -115,13 +115,9 @@ export default function MainPage() {
 
         const mapped = facilitiesData.map((f: any) => {
           const latestLog = latestLogsMap[f.id];
-          let baseCongestion = latestLog ? latestLog.congestion_level : 0.0;
-          if (!latestLog) {
-            let hash = 0;
-            const str = f.id;
-            for (let i = 0; i < str.length; i++) hash = Math.imul(31, hash) + str.charCodeAt(i);
-            baseCongestion = Math.abs(hash % 100) / 100;
-          }
+          // 혼잡 로그가 없는 시설은 값을 합성(id 해시)하지 않고 null 로 둔다 —
+          // 마커/카드가 '데이터 없음'(회색·—) 상태로 표시하도록 소비측에서 null 을 처리한다.
+          const baseCongestion = latestLog ? latestLog.congestion_level : null;
 
           return {
             id: f.id,
@@ -133,8 +129,8 @@ export default function MainPage() {
             features: f.features,
             baseCongestion: baseCongestion,
             congestionLevel: baseCongestion,
-            currentCount: latestLog ? latestLog.current_count : Math.floor(baseCongestion * (f.capacity || 100)),
-            lastUpdated: latestLog ? latestLog.timestamp : new Date().toISOString(),
+            currentCount: latestLog ? latestLog.current_count : null,
+            lastUpdated: latestLog ? latestLog.timestamp : null,
           };
         });
 
@@ -178,7 +174,9 @@ export default function MainPage() {
           }
         }
       }
-      return { ...f, congestionLevel: Math.min(1.0, currentCongestion) };
+      // 로그 없는 시설(null)은 라이브 모드에서 null 유지 — '데이터 없음' 표시.
+      // (mockHour 피크는 명시적 '시간 모킹' 시뮬레이션이라 합성 혼잡도를 그대로 사용한다.)
+      return { ...f, congestionLevel: currentCongestion == null ? null : Math.min(1.0, currentCongestion) };
     }));
   }, [mockHour]);
 
@@ -415,7 +413,7 @@ export default function MainPage() {
                 realRanked = realRanked
                   .map(f => {
                     const cm = cuisineMatch(f, cuisineIntentRef.current);
-                    return cm !== null ? { ...f, spot: rescoreWithPreference(f.spot, cm, f.congestionLevel ?? 0) } : f;
+                    return cm !== null ? { ...f, spot: rescoreWithPreference(f.spot, cm, f) } : f;
                   })
                   .sort(compareSpot);
               }
@@ -601,20 +599,24 @@ export default function MainPage() {
     const nextRejectedIds = new Set(rejectedIds);
     nextRejectedIds.add(fac.id);
     const voicePass = (f: any) => !voiceFilterIds || voiceFilterIds.has(f.id); // 음성 선호 필터 유지
-    let nextCandidates = expandGroups(facilities.filter(f => f.type === targetType))
+
+    // 다음 추천은 첫 추천과 동일한 점수 체계 유지를 위해 백엔드 랭킹(rankedFacilities)에서 소비한다
+    // (기존: 클라 calculateSPOT 재계산 → 거절 시 점수 체계가 몰래 바뀌던 문제).
+    let nextCandidates = rankedFacilities
       .filter((f: any) => voicePass(f) && !nextRejectedIds.has(f.id) && !savedIds.has(f.id));
 
-    // Loop back if all exhausted (음성 필터는 그대로 유지)
+    // 랭킹 리스트가 소진된 경우에만 클라 미러(calculateSPOT)로 폴백 — 전체 후보 루프백(음성 필터는 유지)
     if (nextCandidates.length === 0) {
-      nextCandidates = expandGroups(facilities.filter(f => f.type === targetType)).filter(voicePass);
+      nextCandidates = expandGroups(facilities.filter(f => f.type === targetType))
+        .filter(voicePass)
+        .map((f: any) => ({ ...f, spot: calculateSPOT(f) }))
+        .sort(compareFacilities);
     }
 
     if (nextCandidates.length > 0) {
-      const nextScored = nextCandidates.map(f => ({ ...f, spot: calculateSPOT(f) }));
-      nextScored.sort(compareFacilities);
-      setSelectedFacility(nextScored[0]);
-      if (mapInstanceRef.current) {
-        panToVisible(nextScored[0].latitude, nextScored[0].longitude);
+      setSelectedFacility(nextCandidates[0]);
+      if (mapInstanceRef.current && typeof nextCandidates[0].latitude === 'number') {
+        panToVisible(nextCandidates[0].latitude, nextCandidates[0].longitude);
       }
     } else {
       setSelectedFacility(null);
@@ -851,7 +853,6 @@ export default function MainPage() {
 
     const newMarkers = displayFacilities.map((f) => {
       // 관광 POI는 모두 핀 마커(바닥 앵커).
-      const isPriv = false;
       // 그룹 마커는 activeGroupId 로, 개별 마커는 selectedFacility 로 선택 판정 → 둘 다 진한 색 + 확대
       const isSel = f.isGroup
         ? activeGroupId === f.id
@@ -860,8 +861,8 @@ export default function MainPage() {
       const h = isSel ? selH : baseH;
       const markerImage = new kakao.maps.MarkerImage(
         getMarkerSvg(f.type, f.congestionLevel, f.features, isSel),
-        isPriv ? new kakao.maps.Size(w, w) : new kakao.maps.Size(w, h),
-        { offset: isPriv ? new kakao.maps.Point(w / 2, w / 2) : new kakao.maps.Point(w / 2, h) }
+        new kakao.maps.Size(w, h),
+        { offset: new kakao.maps.Point(w / 2, h) }
       );
 
       const marker = new kakao.maps.Marker({
@@ -1050,7 +1051,12 @@ export default function MainPage() {
               <RecommendationCard
                 title={selectedFacility.name}
                 reason={reason}
-                description={`실시간 혼잡도: ${selectedFacility.congestionLevel >= 0.75 ? '혼잡' : selectedFacility.congestionLevel >= 0.5 ? '보통' : selectedFacility.congestionLevel >= 0.25 ? '여유' : '한산'} · 수용현황: ${selectedFacility.currentCount}/${selectedFacility.capacity}명`}
+                description={
+                  // 혼잡 로그 없는 시설 — 합성값 대신 '데이터 없음' 표기
+                  typeof selectedFacility.congestionLevel === 'number'
+                    ? `실시간 혼잡도: ${selectedFacility.congestionLevel >= 0.75 ? '혼잡' : selectedFacility.congestionLevel >= 0.5 ? '보통' : selectedFacility.congestionLevel >= 0.25 ? '여유' : '한산'} · 수용현황: ${selectedFacility.currentCount ?? '—'}/${selectedFacility.capacity}명`
+                    : '실시간 혼잡도: 데이터 없음'
+                }
                 onAccept={() => handleAccept(selectedFacility)}
                 onReject={() => handleReject(selectedFacility)}
                 onPutOff={() => handlePutOff(selectedFacility)}

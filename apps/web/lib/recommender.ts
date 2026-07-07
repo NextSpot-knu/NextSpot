@@ -5,10 +5,12 @@
 //  2) 백엔드(/api/v1/recommendations/by-type) 미가용 시 폴백
 //  3) 지도 마커 정렬 캡 등 대량 점수(백엔드 호출 없이)
 //
-// 가중치는 백엔드 services/spot/score.py 와 동일하게 맞춘다(이전 main 인라인은
-// 시간/혼잡분산 가중치가 뒤바뀐 0.30/0.25 였음 → 0.25/0.30 으로 정정).
-//   W1(선호)=0.45, W2(시간비용)=0.25, W3(혼잡분산)=0.30
+// 가중치는 공유 상수(packages/shared-types/spot.ts)의 SPOT_WEIGHTS 를 그대로 쓴다 — 하드코딩 금지.
+// 소스 오브 트루스는 백엔드 apps/api/app/services/spot/score.py 이며, score.py ↔ shared-types 의
+// 정합성은 apps/api 의 패리티 테스트(test_spot.py)가 CI 에서 강제한다.
+// 인센티브 항(w3, 2026-07-07 설계): 0.5·쿠폰항(coupon_rate/0.20 상한) + 0.5·수요재배치(완화)항.
 
+import { SPOT_WEIGHTS, SPOT_INCENTIVE } from "shared-types";
 import type { RecommendationResponse } from "./api-client";
 
 export const CATEGORY_VECTORS: Record<string, number[]> = {
@@ -89,7 +91,19 @@ export function cuisineMatch(facility: any, intent: string | null | undefined): 
 }
 
 const WALK_M_PER_MIN = 66.67; // 백엔드 WALKING_SPEED_M_PER_MIN 와 동일
-const BROWSE_BASELINE_CONGESTION = 0.7; // 원본이 없는 브라우즈 랭킹의 혼잡 분산 기준선(백엔드와 동일)
+const BROWSE_BASELINE_CONGESTION = 0.7; // 원본이 없는 브라우즈 랭킹의 완화항 기준(원점) 혼잡 — 백엔드와 동일
+
+// 인센티브(w3) = couponShare·쿠폰항 + (1−couponShare)·완화항 — 백엔드 score.py 산식 미러.
+//  - 쿠폰항: 할인율 coupon_rate(0.10=10%)를 상한 couponRateCap(20%)으로 정규화. 컬럼 없는 행은 0.
+//  - 완화항: max(0, min(1, 원점 혼잡 − 후보 혼잡)) — 수요 재배치 기여. 백엔드는 '도착시점 예측' 혼잡을
+//    쓰지만 클라 미러는 예측이 없어 현재 혼잡으로 근사한다. 혼잡 로그가 없으면(null) 완화항 0.
+function incentiveTerm(facility: any, candidateCongestion: number | null | undefined, originCongestion: number): number {
+  const coupon = Math.min(1, (facility?.coupon_rate ?? 0) / SPOT_INCENTIVE.couponRateCap);
+  const relief = typeof candidateCongestion === "number"
+    ? Math.max(0, Math.min(1, originCongestion - candidateCongestion))
+    : 0;
+  return SPOT_INCENTIVE.couponShare * coupon + (1 - SPOT_INCENTIVE.couponShare) * relief;
+}
 
 export function haversineMeters(lat1: number, lng1: number, lat2: number, lng2: number): number {
   const R = 6371000;
@@ -148,10 +162,10 @@ function preferenceMatch(facility: any, preferredCategories: string[]): number {
 // 백엔드 SPOT(예측 대기·이동·incentive)를 '보존'하고 선호 항만 cuisineMatch 로 교체해 동일 가중치·산식으로
 // score 만 재유도한다. 라이브 by-type 경로에서 scoreFacility 통째 재계산이 백엔드 Vertex 예측값을 버려
 // 사유와 수치가 어긋나던 문제를 막는다. 비식당/미인식(cMatch=null)은 호출측이 이 함수를 안 부르고 백엔드 spot 유지.
-export function rescoreWithPreference(t: Spot, pref: number, congestionLevel: number): Spot {
-  const w1 = 0.45, w2 = 0.25, w3 = 0.3;
+export function rescoreWithPreference(t: Spot, pref: number, facility?: any): Spot {
+  const { preference: w1, time: w2, incentive: w3 } = SPOT_WEIGHTS;
   const timeCost = Math.min(1.0, ((t.expectedWait || 0) + (t.expectedTravel || 0)) / 60.0);
-  const incentive = Math.max(0, BROWSE_BASELINE_CONGESTION - (congestionLevel ?? 0));
+  const incentive = incentiveTerm(facility, facility?.congestionLevel, BROWSE_BASELINE_CONGESTION);
   const raw = w1 * pref - w2 * timeCost + w3 * incentive;
   const finalScore = Math.max(0, Math.min(1, (raw + w2) / (w1 + w2 + w3)));
   return {
@@ -190,12 +204,11 @@ export function scoreFacility(facility: any, opts: ScoreOpts): Spot {
   const distanceM = haversineMeters(opts.userLocation.lat, opts.userLocation.lng, fLat, fLng);
   const expectedTravel = distanceM / WALK_M_PER_MIN;
 
-  // 백엔드 동일 가중치: 선호 0.45 − 시간비용 0.25 + 혼잡분산 0.30, Min-Max 정규화
-  const w1 = 0.45,
-    w2 = 0.25,
-    w3 = 0.3;
+  // 백엔드 동일 가중치(shared-types SPOT_WEIGHTS): w1·선호 − w2·시간비용 + w3·인센티브, Min-Max 정규화
+  const { preference: w1, time: w2, incentive: w3 } = SPOT_WEIGHTS;
   const timeCost = Math.min(1.0, (expectedWait + expectedTravel) / 60.0);
-  const incentive = Math.max(0, BROWSE_BASELINE_CONGESTION - cong);
+  // 혼잡 로그 없는 시설은 congestionLevel=null → 완화항 0 (합성값 사용 금지)
+  const incentive = incentiveTerm(facility, facility.congestionLevel, BROWSE_BASELINE_CONGESTION);
   const raw = w1 * pref - w2 * timeCost + w3 * incentive;
   const normalized = (raw + w2) / (w1 + w2 + w3);
   const finalScore = Math.max(0, Math.min(1, normalized));

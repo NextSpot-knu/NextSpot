@@ -73,6 +73,7 @@ python scripts/train.py        # Supabase 혼잡 로그 → sklearn Ridge → ap
 > - **기존 DB 유지** = `supabase/migrations/*` 순차 적용(`supabase db push`).
 > - 기존 DB에는 2026-07-07 `security_hardening` 마이그레이션
 >   (`supabase/migrations/20260707120000_security_hardening.sql`)을 **반드시** 적용하세요(RLS 보안 수정).
+> - `RESET_AND_SETUP.sql` 은 **자동 생성 파일**입니다(직접 수정 금지 — 스키마 변경은 migrations 에 추가 후 `node scripts/build_reset.mjs` 재실행).
 
 선호 학습 영속화를 위해 마이그레이션을 적용하세요:
 `supabase/migrations/20260608120000_add_user_preference_vectors.sql`

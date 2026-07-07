@@ -1,4 +1,8 @@
-// @deprecated 미사용 — 실제 계약은 apps/web/lib/types.ts 및 supabase/migrations/20250523120000_init.sql 기준. 어느 코드에서도 import되지 않음.
+// web↔api 공유 계약 — SPOT 상수(spot.ts)의 단일 공급점.
+// (과거 @deprecated 미사용 상태였으나 D5 결정(2026-07-07)으로 승격: 프론트는 이 패키지에서
+//  SPOT 가중치를 import 하고, 백엔드 score.py 와의 정합성은 CI 패리티 테스트가 강제한다.)
+
+export * from './spot';
 
 // 1. 관광 장소(POI) 타입 정의
 export type FacilityType = 'restaurant' | 'cafe' | 'attraction' | 'culture';

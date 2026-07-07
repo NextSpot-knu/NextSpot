@@ -247,12 +247,11 @@ export default function CongestionMap({ initialFacilities }: CongestionMapProps)
     });
 
     const newMarkers = filtered.map((f) => {
-      const isPrivateParking = false; // 관광 POI엔 사내주차 개념이 없어 표준 마커 사용
-      // 마커 크기 반응형(좁은 화면=작게, 넓은 화면=크게)
+      // 관광 POI는 모두 핀 마커(바닥 앵커). 마커 크기 반응형(좁은 화면=작게, 넓은 화면=크게)
       const isNarrow = typeof window !== "undefined" && window.innerWidth < 640;
-      const nW = isNarrow ? 40 : 48, nH = isNarrow ? 51 : 61, sq = isNarrow ? 38 : 46;
-      const size = isPrivateParking ? new kakao.maps.Size(sq, sq) : new kakao.maps.Size(nW, nH);
-      const offset = isPrivateParking ? new kakao.maps.Point(sq / 2, sq / 2) : new kakao.maps.Point(nW / 2, nH);
+      const nW = isNarrow ? 40 : 48, nH = isNarrow ? 51 : 61;
+      const size = new kakao.maps.Size(nW, nH);
+      const offset = new kakao.maps.Point(nW / 2, nH);
 
       const markerImage = new kakao.maps.MarkerImage(
         getMarkerSvg(f.type, f.congestionLevel, f.features),
@@ -468,8 +467,7 @@ export default function CongestionMap({ initialFacilities }: CongestionMapProps)
           {filteredFacilities.map((f) => {
             const pos = getCoordinatesOnGrid(f.latitude, f.longitude);
             const markerSvg = getMarkerSvg(f.type, f.congestionLevel, f.features);
-            const isPrivateParking = false; // 관광 POI엔 사내주차 개념이 없어 표준 마커 사용
-            const translateClass = isPrivateParking ? "-translate-x-1/2 -translate-y-1/2" : "-translate-x-1/2 -translate-y-[85%]";
+            const translateClass = "-translate-x-1/2 -translate-y-[85%]"; // 관광 POI는 모두 핀 마커(바닥 앵커)
 
             return (
               <button
@@ -484,7 +482,7 @@ export default function CongestionMap({ initialFacilities }: CongestionMapProps)
                 <img
                   src={markerSvg}
                   alt={f.name}
-                  className={`${isPrivateParking ? 'w-9 h-9' : 'w-9 h-[46px]'} drop-shadow-[0_6px_10px_rgba(0,0,0,0.6)]`}
+                  className="w-9 h-[46px] drop-shadow-[0_6px_10px_rgba(0,0,0,0.6)]"
                 />
               </button>
             );

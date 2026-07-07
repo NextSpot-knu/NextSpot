@@ -66,7 +66,6 @@ async function request(path: string, options: RequestOptions = {}) {
   }
 
   // query parameter 처리
-  // query parameter 처리
   let url = `${BASE_URL}${path}`;
   if (options.params) {
     const queryParams = new URLSearchParams(keysToSnake(options.params));

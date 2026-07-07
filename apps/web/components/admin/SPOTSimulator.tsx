@@ -3,10 +3,19 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { apiClient } from '@/lib/api-client';
+import { SPOT_WEIGHTS } from 'shared-types';
+
+// 기본 가중치는 공유 상수(packages/shared-types/spot.ts)에서 유도 — 백엔드 score.py 와 단일 정의점.
+// (이전 하드코딩 45:30:25 는 실제 엔진과 스왑·불일치 상태였음.)
+const DEFAULT_WEIGHTS = {
+    pref: Math.round(SPOT_WEIGHTS.preference * 100),
+    time: Math.round(SPOT_WEIGHTS.time * 100),
+    inc: Math.round(SPOT_WEIGHTS.incentive * 100),
+};
 
 export default function SPOTSimulator() {
-    // 슬라이더 및 입력 필드 동기화 상태 (기본 황금비: 45 : 30 : 25)
-    const [weights, setWeights] = useState({ pref: 45, time: 30, inc: 25 });
+    // 슬라이더 및 입력 필드 동기화 상태 (기본값 = 공유 상수 유도)
+    const [weights, setWeights] = useState({ ...DEFAULT_WEIGHTS });
     const [userVector, setUserVector] = useState<number[] | null>(null);
 
     useEffect(() => {
@@ -51,7 +60,7 @@ export default function SPOTSimulator() {
             const totalW = newWeights.pref + newWeights.time + newWeights.inc;
 
             // 총합이 0이 되는 것을 방지 (모두 0을 입력했을 경우 기본값 복귀)
-            if (totalW === 0) return { pref: 45, time: 30, inc: 25 };
+            if (totalW === 0) return { ...DEFAULT_WEIGHTS };
 
             // 입력한 값은 고정하고, 나머지 두 값의 비율을 유지하며 총합 100으로 정규화
             const otherKeys = (Object.keys(newWeights) as Array<'pref' | 'time' | 'inc'>).filter(k => k !== key);

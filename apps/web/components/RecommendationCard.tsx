@@ -230,22 +230,31 @@ export function RecommendationCard({
           </div>
           <h3 className="text-xl font-bold text-white tracking-tight leading-tight">{title}</h3>
           
-          {/* Status Pills — 펼쳐도(상세 표시 중에도) 혼잡도·잔여석은 항상 표시 */}
+          {/* Status Pills — 펼쳐도(상세 표시 중에도) 혼잡도·잔여석은 항상 표시.
+              혼잡 로그가 없는 시설(congestionLevel=null)은 합성값 대신 회색 '데이터 없음'으로 표기. */}
           {facility && facility.congestionLevel !== undefined && (
             <div className="flex flex-wrap items-center gap-1.5 mt-2">
-              <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold border ${
-                facility.congestionLevel >= 0.75
-                  ? 'bg-orange-500/10 border-orange-500/20 text-orange-400'
-                  : facility.congestionLevel >= 0.5
-                  ? 'bg-amber-500/10 border-amber-500/20 text-amber-400'
-                  : facility.congestionLevel >= 0.25
-                  ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
-                  : 'bg-blue-500/10 border-blue-500/20 text-blue-400'
-              }`}>
-                혼잡도: {facility.congestionLevel >= 0.75 ? '혼잡' : facility.congestionLevel >= 0.5 ? '보통' : facility.congestionLevel >= 0.25 ? '여유' : '한산'}
-              </span>
+              {typeof facility.congestionLevel === 'number' ? (
+                <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold border ${
+                  facility.congestionLevel >= 0.75
+                    ? 'bg-orange-500/10 border-orange-500/20 text-orange-400'
+                    : facility.congestionLevel >= 0.5
+                    ? 'bg-amber-500/10 border-amber-500/20 text-amber-400'
+                    : facility.congestionLevel >= 0.25
+                    ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
+                    : 'bg-blue-500/10 border-blue-500/20 text-blue-400'
+                }`}>
+                  혼잡도: {facility.congestionLevel >= 0.75 ? '혼잡' : facility.congestionLevel >= 0.5 ? '보통' : facility.congestionLevel >= 0.25 ? '여유' : '한산'}
+                </span>
+              ) : (
+                <span className="px-2 py-0.5 rounded-md text-[10px] font-bold border bg-gray-500/10 border-gray-500/20 text-gray-400">
+                  혼잡도: 데이터 없음
+                </span>
+              )}
               <span className="px-2 py-0.5 rounded-md text-[10px] font-medium bg-white/5 border border-white/10 text-slate-300">
-                잔여: {Math.max(0, (facility.capacity || 0) - (facility.currentCount || 0))}자리 (총 {facility.capacity})
+                잔여: {facility.currentCount != null && facility.capacity != null
+                  ? `${Math.max(0, facility.capacity - facility.currentCount)}자리 (총 ${facility.capacity})`
+                  : '—'}
               </span>
             </div>
           )}
@@ -316,11 +325,7 @@ export function RecommendationCard({
                     <span className="text-xl font-black text-sky-400">{preferencePercent}</span>
                     <span className="text-xs text-sky-400/80 font-bold">%</span>
                   </div>
-                  {facilityType === 'parking' ? (
-                    <span className="text-[9px] text-slate-500 mt-0.5 line-clamp-2">주차공간 맞춤</span>
-                  ) : (
-                    <span className="text-[9px] text-slate-500 mt-0.5 line-clamp-2">사용자 패턴 기반</span>
-                  )}
+                  <span className="text-[9px] text-slate-500 mt-0.5 line-clamp-2">사용자 패턴 기반</span>
                 </div>
               </div>
 

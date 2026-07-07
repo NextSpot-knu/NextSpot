@@ -20,14 +20,17 @@ const ICON_PATHS: Record<string, string> = {
 
 export const getMarkerSvg = (
   type: string,
-  level: number,
+  level: number | null | undefined,
   features?: any,
   selected: boolean = false
 ) => {
   // 마커는 지도 다크 필터를 우회(타일에만 적용)하므로 본래의 색으로 표시된다.
   // 평소 = 700계열(톤 다운), 선택 = 200 밝은 500계열.
+  // 혼잡 로그가 없는 시설(level=null/undefined)은 합성값 대신 회색 '데이터 없음' 마커.
   const p =
-    level >= 0.75
+    typeof level !== 'number'
+      ? { base: "#4b5563", sel: "#9ca3af" } // 데이터 없음 (gray 600/400)
+      : level >= 0.75
       ? { base: "#b91c1c", sel: "#ef4444" } // 혼잡 (red 700/500)
       : level >= 0.5
       ? { base: "#b45309", sel: "#f59e0b" } // 보통 (amber 700/500)

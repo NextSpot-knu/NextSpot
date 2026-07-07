@@ -1,8 +1,14 @@
 -- =====================================================================
--- NextSpot — 기존(팀원) Supabase 프로젝트 재사용: RESET + 관광 스키마 일괄 적용
+-- NextSpot — RESET + 관광 스키마/시드 일괄 적용 (Supabase SQL Editor 용)
+--
+-- ⚠️ 자동 생성 파일 — 직접 수정 금지!
+--    이 파일은 scripts/build_reset.mjs 가 supabase/migrations/ 에서 자동 생성한다.
+--    스키마 변경은 migrations/ 에 새 마이그레이션을 추가한 뒤
+--    `node scripts/build_reset.mjs` 를 재실행해 이 파일을 재생성할 것. (D2, docs/IMPROVEMENT_PLAN.md)
+--
 -- 사용법: Supabase Dashboard > SQL Editor 에 이 파일 전체를 붙여넣고 [Run].
--- ⚠️ 기존 InduSpot(산업) 스키마/데이터를 모두 삭제 후 관광 스키마+경주 시드를 생성합니다(되돌릴 수 없음).
--- DB 비밀번호 공유 없이, 대시보드 SQL Editor 접근만으로 1회 실행하면 됩니다.
+-- ⚠️ 기존 스키마/데이터를 모두 삭제한 뒤 관광 스키마+경주 시드를 생성합니다(되돌릴 수 없음).
+--    DB 비밀번호 공유 없이, 대시보드 SQL Editor 접근만으로 1회 실행하면 됩니다.
 -- =====================================================================
 DROP TABLE IF EXISTS public.user_feedback CASCADE;
 DROP TABLE IF EXISTS public.recommendations CASCADE;
@@ -15,8 +21,6 @@ DROP TABLE IF EXISTS public.user_preference_vectors CASCADE;
 DROP FUNCTION IF EXISTS public.get_auth_user_info() CASCADE;
 DROP FUNCTION IF EXISTS public.get_auth_user_role() CASCADE;
 DROP FUNCTION IF EXISTS public.handle_updated_at() CASCADE;
-
-
 
 -- ============================= migrations/20250523120000_init.sql =============================
 -- 0. Enable UUID extension
@@ -124,7 +128,6 @@ END $$;
 
 ALTER PUBLICATION supabase_realtime ADD TABLE public.congestion_logs;
 -- Realtime 활성화 확인 완료
-
 
 -- ============================= migrations/20250523120001_rls.sql =============================
 -- 1. RLS 활성화
@@ -242,7 +245,6 @@ CREATE POLICY select_feedback ON public.user_feedback FOR SELECT TO authenticate
 -- 본인 피드백만 작성(INSERT) 가능
 CREATE POLICY insert_feedback ON public.user_feedback FOR INSERT TO authenticated
     WITH CHECK (user_id = auth.uid());
-
 
 -- ============================= migrations/20250523120002_seed.sql =============================
 -- =========================================================================
@@ -374,7 +376,6 @@ CROSS JOIN LATERAL (
     )) AS lvl
 ) AS g;
 
-
 -- ============================= migrations/20260531220000_add_inquiries_table.sql =============================
 -- 1. Create inquiries table
 CREATE TABLE IF NOT EXISTS public.inquiries (
@@ -409,7 +410,6 @@ CREATE TRIGGER update_inquiries_modtime
     FOR EACH ROW
     EXECUTE PROCEDURE public.handle_updated_at();
 
-
 -- ============================= migrations/20260601120000_tighten_inquiries_rls.sql =============================
 -- =========================================================================
 -- inquiries RLS 강화
@@ -435,7 +435,6 @@ USING (true);
 CREATE POLICY "Allow update on inquiries"
 ON public.inquiries FOR UPDATE
 USING (true) WITH CHECK (true);
-
 
 -- ============================= migrations/20260602120000_add_system_settings.sql =============================
 -- =========================================================================
@@ -488,7 +487,6 @@ CREATE POLICY admin_update_settings ON public.system_settings
     USING (public.get_auth_user_role() = 'admin')
     WITH CHECK (public.get_auth_user_role() = 'admin');
 
-
 -- ============================= migrations/20260602130000_relax_dashboard_rls.sql =============================
 -- [프로토타입] 관리자 인증을 Firebase(Identity Platform)로 이관하면서, 관리자는 Supabase 세션이 없다.
 -- admin 대시보드/리포트가 createPublicClient(anon)로도 실데이터를 읽도록, 대시보드용 '읽기' 테이블을
@@ -512,7 +510,6 @@ CREATE POLICY anon_select_recommendations ON public.recommendations
 DROP POLICY IF EXISTS anon_select_feedback ON public.user_feedback;
 CREATE POLICY anon_select_feedback ON public.user_feedback
     FOR SELECT TO anon USING (true);
-
 
 -- ============================= migrations/20260608120000_add_user_preference_vectors.sql =============================
 -- user_preference_vectors: 사용자 8차원 선호 벡터 저장소.
@@ -541,14 +538,27 @@ CREATE TRIGGER update_user_pref_vectors_modtime
     FOR EACH ROW
     EXECUTE PROCEDURE public.handle_updated_at();
 
-
 -- ============================= migrations/20260707120000_security_hardening.sql =============================
+-- =========================================================================
 -- 보안 강화 (2026-07-07 전방위 감사 후속) — docs/IMPROVEMENT_PLAN.md WS-A-1/2
---  1) users 자기 role 승격 차단  2) anon 의 recommendations/user_feedback 열람 제거
---  3) inquiries 무제한 읽기/수정 제거(익명 INSERT 는 유지)  4) recommendations FK NOT NULL 모순 해소
--- 관리자 화면의 해당 데이터 접근은 FastAPI /api/v1/admin/* (service_role) 경유로 대체된다.
+-- =========================================================================
+-- 1) [P0] users 자기 role 승격(privilege escalation) 차단
+--    기존 update_users 의 WITH CHECK 이 행 소유권만 검증해, 로그인 사용자가
+--    `UPDATE users SET role='admin'` 으로 자기 role 을 바꿔 admin 전용 정책
+--    (admin_all_facilities / admin_all_logs / admin_update_settings)을 탈취할 수 있었다.
+-- 2) [P1] anon 의 recommendations / user_feedback 전체 열람 제거
+--    (relax_dashboard_rls 가 열었던 사용자 단위 행위 데이터 노출. 관리자 대시보드의
+--     해당 지표는 FastAPI /api/v1/admin/metrics — service_role — 경유로 대체된다.)
+-- 3) [P1] inquiries 의 무제한(public) 읽기/수정 제거 — PII(user_name/content) 보호.
+--    익명 문의 '접수'(INSERT) 는 유지. 관리자 목록/상태변경은 FastAPI /api/v1/admin/inquiries 경유.
+-- 4) [P1] recommendations FK 의 NOT NULL + ON DELETE SET NULL 모순 해소
+--    (POI 삭제 시 SET NULL 이 NOT NULL 제약을 위반해 삭제가 런타임 에러로 실패했다.
+--     이력 보존 의도에 맞게 NULL 허용으로 변경.)
+-- 멱등: 재실행 가능하도록 DROP IF EXISTS 후 CREATE.
 
 -- 1) users: 본인 행만 수정 가능 + role 은 변경 불가(권한 상승 차단)
+--    get_auth_user_role() 은 SECURITY DEFINER 라 users 정책 안에서 재귀 없이 기존 role 을 읽는다.
+--    (동일 문장 스냅샷 기준이므로 NEW.role = OLD.role 강제와 동치 — role 변경은 service_role 전용.)
 DROP POLICY IF EXISTS update_users ON public.users;
 CREATE POLICY update_users ON public.users FOR UPDATE TO authenticated
     USING (id = auth.uid())
@@ -557,7 +567,7 @@ CREATE POLICY update_users ON public.users FOR UPDATE TO authenticated
         AND role = public.get_auth_user_role()
     );
 
--- 2) anon 의 사용자 행위 데이터 열람 제거 (facilities/congestion_logs 공개 읽기는 유지)
+-- 2) anon 의 사용자 행위 데이터 열람 제거 (facilities/congestion_logs 공개 읽기는 공용 데이터라 유지)
 DROP POLICY IF EXISTS anon_select_recommendations ON public.recommendations;
 DROP POLICY IF EXISTS anon_select_feedback ON public.user_feedback;
 
@@ -576,11 +586,15 @@ CREATE POLICY admin_update_inquiries ON public.inquiries FOR UPDATE TO authentic
 ALTER TABLE public.recommendations ALTER COLUMN original_facility_id DROP NOT NULL;
 ALTER TABLE public.recommendations ALTER COLUMN recommended_facility_id DROP NOT NULL;
 
-
 -- ============================= migrations/20260707130000_add_tourapi_fields.sql =============================
 -- TourAPI 필드 추가 (2026-07-07) — docs/IMPROVEMENT_PLAN.md WS-B-3
 -- 한국관광공사 TourAPI 적재(scripts/ingest_tourapi.py)를 위한 **가산적(additive)** 스키마 확장.
--- 설계 결정: 테이블명은 `facilities` 유지 — facilities→pois 개명은 D2 결정 확정 전까지 보류.
+--
+-- 설계 결정: 테이블명은 `facilities` 를 유지한다. IMPROVEMENT_PLAN 의 facilities→pois 개명은
+--   백엔드 .from("facilities")·프론트 참조 전면 수정을 동반하는 침습적 변경이라
+--   D2(스키마 소스 오브 트루스) 결정 확정 전까지 보류한다. 본 마이그레이션은 컬럼 추가만 수행.
+--
+-- 적용: Supabase SQL Editor 또는 `supabase db push` 로 1회 실행(재실행해도 안전 — IF NOT EXISTS).
 
 -- TourAPI 콘텐츠 식별자 (upsert 기준키)
 ALTER TABLE public.facilities ADD COLUMN IF NOT EXISTS contentid VARCHAR(20);
@@ -601,3 +615,36 @@ ALTER TABLE public.facilities ADD COLUMN IF NOT EXISTS image_url TEXT;
 -- 부분(partial) 인덱스로 두어 contentid 가 NULL 인 기존 수동 시드 행들과 공존 가능하게 한다.
 CREATE UNIQUE INDEX IF NOT EXISTS uq_facilities_contentid
 ON public.facilities (contentid) WHERE contentid IS NOT NULL;
+
+-- ============================= migrations/20260707140000_add_preference_note.sql =============================
+-- users.preference_note 추가 (2026-07-07) — docs/IMPROVEMENT_PLAN.md WS-B-6 / §1 D2
+-- 원래 apps/api/sql/add_preference_note.sql 로 방치되어 있던 고아 SQL을
+-- D2 결정(migrations/ 단일 소스 오브 트루스)에 따라 정식 마이그레이션으로 승격했다.
+-- (승격 전에는 신규 셋업에서 이 컬럼이 조용히 누락되어 자연어 선호 기능의 DB 보존이 실패했다.)
+--
+-- 자연어 선호 기능(선택): 사용자가 말한 원문 + AI 요약을 보관할 컬럼.
+-- 없어도 동작한다(서버가 저장 실패를 무시함).
+--
+--   POST /api/v1/preferences/parse 가 다음 형태로 기록:
+--   { "text": "조용한 한옥카페 선호", "summary": "카페 중심으로 조용한 곳 선호로 이해했어요." }
+
+ALTER TABLE public.users
+  ADD COLUMN IF NOT EXISTS preference_note jsonb;
+
+-- ============================= migrations/20260707150000_add_coupon_incentive.sql =============================
+-- 인센티브 항(w3) 데이터 — D1 재결정(2026-07-07): '쿠폰 강도 + 수요 재배치 기여' 결합형.
+--   incentive = 0.5 × min(1, coupon_rate/0.20) + 0.5 × max(0, 원본혼잡 − 후보 도착시점 예측혼잡)
+-- 쿠폰을 0/1 로 두는 대신 제휴 등급(할인율)을 연속값으로 반영하고, InduSpot 에서 검증된
+-- 혼잡분산 항을 도착시점 예측 기준으로 유지한다. 산식 구현: apps/api/app/services/spot/score.py,
+-- 상수 공유: packages/shared-types/spot.ts (CI 패리티 테스트로 정합 강제).
+
+-- coupon_rate: 제휴 가맹점 할인율 (0.10 = 10%). 0 = 제휴 없음. 상한은 산식에서 20% 캡.
+ALTER TABLE public.facilities ADD COLUMN IF NOT EXISTS coupon_rate DOUBLE PRECISION NOT NULL DEFAULT 0
+    CHECK (coupon_rate >= 0 AND coupon_rate <= 1);
+
+-- 데모용 제휴 가맹점 시드: 핫스팟(첨성대·대릉원 등)이 아닌 '분산 목적지' 위주로 등급을 달리 지정해
+-- 쿠폰 강도가 수요 재배치 방향으로 차등 작동하는 모습을 시연한다.
+-- (TourAPI 적재 행은 contentid 기준이라 name 매칭 무해 — 기본 0 유지.)
+UPDATE public.facilities SET coupon_rate = 0.20 WHERE name IN ('황리단길 한우국밥', '황리단길 공예공방거리');
+UPDATE public.facilities SET coupon_rate = 0.15 WHERE name IN ('경주 한정식 다온', '한옥카페 다랑');
+UPDATE public.facilities SET coupon_rate = 0.10 WHERE name IN ('월정교', '경주 최부자댁');

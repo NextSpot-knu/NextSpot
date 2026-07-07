@@ -1,6 +1,7 @@
 # NextSpot CI — docs/IMPROVEMENT_PLAN.md WS-E
 # web: lint → typecheck → 단위테스트(voiceIntent) → 정적 export 빌드
 # api: ruff → pytest (Python 3.11, Dockerfile 과 동일 버전)
+# schema: RESET_AND_SETUP.sql 이 migrations/ 와 일치하는지 검증 (D2 — migrations 가 소스 오브 트루스)
 name: CI
 
 on:
@@ -47,3 +48,17 @@ jobs:
           SUPABASE_ANON_KEY: ci-placeholder-anon-key
           JWT_SECRET: ci-placeholder-jwt-secret
           ADMIN_API_TOKEN: ci-placeholder-admin-token
+
+  schema:
+    name: schema (RESET ↔ migrations 일치 검증)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      # RESET_AND_SETUP.sql 은 자동 생성 산출물 — 재생성 결과가 커밋본과 다르면 실패.
+      # 실패 시: RESET 이 migrations 와 불일치 — `node scripts/build_reset.mjs` 재실행 후 커밋할 것.
+      #          (RESET_AND_SETUP.sql 을 직접 수정했다면 되돌리고 migrations/ 에 반영할 것.)
+      - run: node scripts/build_reset.mjs
+      - run: git diff --exit-code supabase/RESET_AND_SETUP.sql

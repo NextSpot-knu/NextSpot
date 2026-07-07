@@ -15,6 +15,7 @@ from app.services.reason_service import generate_reason
 from app.services.voice_intent_service import interpret_turn
 from app.services.embedding_service import filter_candidates as vector_filter_candidates
 from app.services.embedding_service import enrich_candidates as enrich_voice_candidates
+from app.routers.infrastructures import fetch_latest_congestion_for_all
 from app.services.spot.score import calculate_spot_score
 from app.services.spot.travel import calculate_haversine_distance
 from app.services.spot.preference import CATEGORY_VECTORS, get_category_average_vector
@@ -87,12 +88,24 @@ async def fetch_latest_congestion(facility_id: str) -> float:
         .select("congestion_level")
         .eq("facility_id", facility_id)
         .order("timestamp", desc=True)
+        .order("id", desc=True)  # 동일 timestamp 동률 시 결정적 정렬(infrastructures 라우터와 통일)
         .limit(1)
         .execute
     )
     if res.data:
         return res.data[0]["congestion_level"]
     return 0.0
+
+
+async def fetch_congestion_map(facility_ids: list[str]) -> dict[str, float]:
+    """후보 시설들의 최신 혼잡도를 일괄 조회해 {facility_id: level} 로 반환한다.
+
+    후보마다 개별 쿼리를 무제한 gather 하던 N+1 팬아웃(스레드풀 고갈 위험)을
+    infrastructures.fetch_latest_congestion_for_all(시설별 limit 1, 결정적 정렬) 재사용으로 대체.
+    로그가 없는 시설은 0.0.
+    """
+    congestion_map = await fetch_latest_congestion_for_all(facility_ids)
+    return {fid: data["level"] for fid, data in congestion_map.items()}
 
 
 # --- Endpoints ---
@@ -146,20 +159,21 @@ async def get_recommendations(
         await preference_vector_service.upsert_user_vector(req.user_id, user_vector)
 
     # 3. 각 후보군에 대해 SPOT 스코어를 병렬 연산
-    #    (후보 수만큼 직렬 await 하던 것을 asyncio.gather 로 동시 실행 → 후보가 많아도 지연이 누적되지 않음)
+    #    후보별 최신 혼잡도는 일괄 조회(fetch_congestion_map) 후 맵 참조 — 후보 수만큼의
+    #    개별 쿼리 팬아웃(N+1, 스레드풀 고갈 위험)을 제거한다.
+    congestion_by_id = await fetch_congestion_map([f["id"] for f, _ in candidates])
+
     async def _score_candidate(f: dict, dist: float) -> dict:
-        candidate_congestion = await fetch_latest_congestion(f["id"])
+        candidate_congestion = congestion_by_id.get(f["id"], 0.0)
         # 현재 인원 추정치를 응답 facility 에 주입한다(원본 리스트는 건드리지 않도록 얕은 복사).
         # facilities 스키마에는 current_count 컬럼이 없고 실시간 인원은 congestion_logs 에만 있으므로,
-        # capacity × 혼잡도(0~1)로 추정해 프런트 주차 카드의 '주차자리' 표시가 깨지지 않게 한다.
+        # capacity × 혼잡도(0~1)로 추정해 프런트 카드의 혼잡/여유 인원 표시가 깨지지 않게 한다.
         f = {**f, "current_count": round(f.get("capacity", 0) * candidate_congestion)}
         score_res = await calculate_spot_score(
             user_id=req.user_id,
             preferred_categories=user_info.get("preferred_categories", []),
-            original_facility_type=original_infra["type"],
             original_congestion_level=original_congestion,
             candidate_facility=f,
-            candidate_congestion_level=candidate_congestion,
             user_lat=req.user_lat,
             user_lng=req.user_lng,
             user_vector=user_vector,
@@ -245,11 +259,11 @@ async def get_recommendations(
 
 # --- 타입별 추천(메인 지도 브라우즈): 원본 없이 특정 종류를 선호/혼잡/거리로 랭킹 + 사유 ---
 # /recommendations 가 '혼잡한 원본의 대안'(반경 150m)을 주는 것과 달리, 여기선 원본이 없으므로
-# 혼잡 분산 기준선(_BROWSE_BASELINE_CONGESTION)을 원본 혼잡도로 삼아 incentive 를 산출한다.
-# (클라 lib/recommender.ts 미러와 동일 기준선)
+# 혼잡 기준선(_BROWSE_BASELINE_CONGESTION)을 원본 혼잡도로 삼아 인센티브의 재배치기여
+# 성분과 추천 사유 문맥을 산출한다. (인센티브 = 쿠폰강도 + 재배치기여 결합 — score.py 참조)
 _BROWSE_BASELINE_CONGESTION = 0.7
 # 현실성 필터: 도보로 닿기 힘든 거리의 시설은 추천에서 제외(사용자 위치 기준 직선거리, m).
-# 약 1.5km ≈ 도보 22분. 가중치(0.45/0.25/0.30)는 보존하되, time_cost 가 60분에서 캡되어 원거리
+# 약 1.5km ≈ 도보 22분. time_cost 가 60분에서 캡되어 원거리
 # 페널티가 약한 점을 후보 단계의 reachability 컷오프로 보완한다. 후보가 limit 미만이면 가까운
 # 순으로 폴백해 빈손/엣지(사용자가 외곽) 위치에서도 추천이 끊기지 않게 한다.
 _MAX_RECO_DISTANCE_M = 1500.0
@@ -305,17 +319,18 @@ async def recommend_by_type(
         user_vector = get_category_average_vector(user_info.get("preferred_categories", []))
         await preference_vector_service.upsert_user_vector(req.user_id, user_vector)
 
+    # 후보별 최신 혼잡도 일괄 조회(N+1 제거) — get_recommendations 와 동일 패턴
+    congestion_by_id = await fetch_congestion_map([f["id"] for f in candidates])
+
     async def _score(f: dict) -> dict:
-        cong = await fetch_latest_congestion(f["id"])
+        cong = congestion_by_id.get(f["id"], 0.0)
         dist = calculate_haversine_distance(req.user_lat, req.user_lng, f["latitude"], f["longitude"])
         f2 = {**f, "current_count": round(f.get("capacity", 0) * cong)}
         res = await calculate_spot_score(
             user_id=req.user_id,
             preferred_categories=user_info.get("preferred_categories", []),
-            original_facility_type=req.facility_type,
             original_congestion_level=_BROWSE_BASELINE_CONGESTION,
             candidate_facility=f2,
-            candidate_congestion_level=cong,
             user_lat=req.user_lat,
             user_lng=req.user_lng,
             user_vector=user_vector,
@@ -482,8 +497,13 @@ async def submit_feedback(
     # 4. 선호 벡터 저장소 사용자 선호도 벡터 학습 보정
     # 시설 특성 및 카테고리에 맞는 기본 벡터 획득
     facility_type = facility["type"]
-    facility_vector = CATEGORY_VECTORS.get(facility_type, [0.0] * 8)
-    
+    facility_vector = CATEGORY_VECTORS.get(facility_type)
+    if facility_vector is None:
+        # 미지 카테고리는 제로 벡터 학습(정규화 시 균등벡터로 대체 → 무의미한 보정)이 되므로
+        # 조용히 반영하지 않고 경고 후 스킵한다. 피드백 이력 저장 자체는 위에서 완료됨.
+        logger.warning("feedback_vector_skip_unknown_type", facility_type=facility_type, user_id=user_id)
+        return {"success": True, "updated_vector": False}
+
     # 피드백 학습 반영
     await preference_vector_service.adjust_user_vector_on_feedback(
         user_id=user_id,
