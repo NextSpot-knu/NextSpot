@@ -2,7 +2,7 @@
 import asyncio
 from typing import Literal
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 # 이 라우터는 인증된 사용자 컨텍스트에서 본인 소유 데이터만 다루는 서버→서버 신뢰 경로다.
 # recommendations/user_feedback 는 RLS 가 service_role/authenticated 만 INSERT 를 허용하는데,
@@ -16,7 +16,7 @@ from app.services.voice_intent_service import interpret_turn
 from app.services.embedding_service import filter_candidates as vector_filter_candidates
 from app.services.embedding_service import enrich_candidates as enrich_voice_candidates
 from app.services.spot.score import calculate_spot_score
-from app.services.spot.travel import calculate_haversine_distance, WALKING_SPEED_M_PER_MIN
+from app.services.spot.travel import calculate_haversine_distance
 from app.services.spot.preference import CATEGORY_VECTORS, get_category_average_vector
 
 logger = structlog.get_logger()
@@ -68,7 +68,7 @@ async def fetch_all_facilities():
     while True:
         # Avoid lambda scope capture issues by specifying start/limit explicitly
         res = await asyncio.to_thread(
-            lambda s=start, l=limit: supabase_client.table("facilities").select("*").range(s, s + l - 1).execute()
+            lambda s=start, n=limit: supabase_client.table("facilities").select("*").range(s, s + n - 1).execute()
         )
         if not res.data:
             break

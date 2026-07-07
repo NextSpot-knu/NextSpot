@@ -2,6 +2,7 @@
 #   로컬 구동:  pip install -r requirements.txt  →  uvicorn app.main:app
 #   Dockerfile 도 이 파일로 pip install 한다(poetry 미사용).
 #   의존성 명세 참고본은 pyproject.toml 과 수동 동기화한다.
+#   테스트/린트 도구는 requirements-dev.txt (pytest 로 테스트하려면 dev 파일도 설치할 것).
 
 fastapi>=0.110.0
 uvicorn[standard]>=0.28.0

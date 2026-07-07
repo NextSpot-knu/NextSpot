@@ -10,10 +10,14 @@
     "web:dev": "npm run dev --workspace=apps/web",
     "web:build": "npm run build --workspace=apps/web",
     "web:install": "npm install --workspace=apps/web",
-    "api:dev": "docker-compose up -d",
+    "api:dev": "docker compose up -d",
     "api:dev:local": "cd apps/api && uvicorn app.main:app --reload",
-    "api:install": "cd apps/api && pip install -r requirements.txt",
-    "api:stop": "docker-compose down"
+    "api:install": "cd apps/api && pip install -r requirements.txt -r requirements-dev.txt",
+    "api:test": "cd apps/api && pytest -q",
+    "api:stop": "docker compose down"
+  },
+  "engines": {
+    "node": ">=20"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.106.2"

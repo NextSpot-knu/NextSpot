@@ -54,7 +54,7 @@ async def get_travel_time_and_distance(
     if kakao_key:
         try:
             headers = {"Authorization": f"KakaoAK {kakao_key}"}
-            url = f"https://apis-navi.kakaomobility.com/v1/directions"
+            url = "https://apis-navi.kakaomobility.com/v1/directions"
             params = {
                 "origin": f"{start_lng},{start_lat}",
                 "destination": f"{end_lng},{end_lat}",

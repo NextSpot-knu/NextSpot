@@ -575,3 +575,29 @@ CREATE POLICY admin_update_inquiries ON public.inquiries FOR UPDATE TO authentic
 -- 4) recommendations FK: 이력 보존형 SET NULL 이 실제로 동작하도록 NOT NULL 해제
 ALTER TABLE public.recommendations ALTER COLUMN original_facility_id DROP NOT NULL;
 ALTER TABLE public.recommendations ALTER COLUMN recommended_facility_id DROP NOT NULL;
+
+
+-- ============================= migrations/20260707130000_add_tourapi_fields.sql =============================
+-- TourAPI 필드 추가 (2026-07-07) — docs/IMPROVEMENT_PLAN.md WS-B-3
+-- 한국관광공사 TourAPI 적재(scripts/ingest_tourapi.py)를 위한 **가산적(additive)** 스키마 확장.
+-- 설계 결정: 테이블명은 `facilities` 유지 — facilities→pois 개명은 D2 결정 확정 전까지 보류.
+
+-- TourAPI 콘텐츠 식별자 (upsert 기준키)
+ALTER TABLE public.facilities ADD COLUMN IF NOT EXISTS contentid VARCHAR(20);
+
+-- TourAPI 관광타입 (관광지 12 / 문화시설 14 / 음식점 39)
+ALTER TABLE public.facilities ADD COLUMN IF NOT EXISTS contenttypeid INTEGER;
+
+-- 주소(addr1)
+ALTER TABLE public.facilities ADD COLUMN IF NOT EXISTS address TEXT;
+
+-- 무장애(barrier-free) 여부 — detailInfo2 기반. NULL = 정보 없음(미상)
+ALTER TABLE public.facilities ADD COLUMN IF NOT EXISTS barrier_free BOOLEAN;
+
+-- 대표 이미지(firstimage)
+ALTER TABLE public.facilities ADD COLUMN IF NOT EXISTS image_url TEXT;
+
+-- contentid 부분 유니크 인덱스: TourAPI 적재분의 upsert(on_conflict) 기준.
+-- 부분(partial) 인덱스로 두어 contentid 가 NULL 인 기존 수동 시드 행들과 공존 가능하게 한다.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_facilities_contentid
+ON public.facilities (contentid) WHERE contentid IS NOT NULL;

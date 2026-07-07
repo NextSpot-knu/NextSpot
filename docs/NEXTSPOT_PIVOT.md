@@ -96,10 +96,10 @@ SPOT_Score = w₁ · (취향 일치율) − w₂ · (예측 대기시간[혼잡 
 | `apps/api/app/services/spot/wait_time.py` | 시설 유형+혼잡+시각 | 관광 POI 유형 + 행사 변수 반영 |
 | `apps/api/app/services/predict_service.py` | 로컬 Ridge(`model.pkl`) facility/hour/dow | 경주 교통 베이스라인 + 행사로 재학습 |
 | `apps/api/scripts/train.py` | Supabase `congestion_logs` 학습 | 경주 유동/CCTV 시계열로 데이터 소스 교체 |
-| `supabase/` 스키마 | `facilities`, `congestion_logs`, `users` | POI(TourAPI 스키마: contentid·contenttypeid·좌표·주소·운영시간·무장애), 거점 혼잡 시계열 |
-| `apps/web` 사용자 앱 | worker/recommend·main·saved·mypage·setup | 관광객 앱으로 카피/플로우 reframe |
+| `supabase/` 스키마 | `facilities`, `congestion_logs`, `users` | ✅ 좌표·시드 경주 이관 및 `users` worker→tourist 스키마 완료(2026-07-07 검증) — POI TourAPI 필드 확장(contentid·contenttypeid·주소·운영시간·무장애)·거점 혼잡 시계열은 진행 예정 |
+| `apps/web` 사용자 앱 | worker/recommend·main·saved·mypage·setup | ✅ 관광객 앱으로 카피/플로우 reframe 완료 — 라우트 worker→explore 리네임(2026-07-07 검증) |
 | `apps/web` 관리자 | 공단 수요 분산 대시보드 | 경북문화관광공사 혼잡 관리 대시보드(B2G) |
-| 브랜딩 | `InduSpot` 63건/32파일 | `NextSpot`으로 일괄 교체(UI 카피 포함) |
+| 브랜딩 | `InduSpot` 63건/32파일 | ✅ `NextSpot`으로 일괄 교체 완료 — 코드 내 잔재 0건(2026-07-07 검증) |
 
 ### 신규 추가가 필요한 모듈
 - `apps/api/app/services/tourapi/` — TourAPI 클라이언트(areaBased/location/detail/event), 일배치 캐시.
@@ -112,14 +112,17 @@ SPOT_Score = w₁ · (취향 일치율) − w₂ · (예측 대기시간[혼잡 
 
 **P0 — 정체성/구동**
 - [x] 패키지명·README·아키텍처 배너·에이전트 가이드 NextSpot 전환 (시드 커밋)
-- [ ] UI/코드 내 `InduSpot`→`NextSpot` 잔여 브랜딩 일괄 교체 (63건/32파일)
-- [ ] `apps/web/app/layout.tsx` 메타데이터(title/description) 교체
-- [ ] 환경변수 키 정리(`.env.example`): TourAPI 키, Tmap 키, 경주 좌표 기준값
+- [x] UI/코드 내 `InduSpot`→`NextSpot` 잔여 브랜딩 일괄 교체 — 코드 내 잔재 0건 (검증일 2026-07-07)
+- [x] `apps/web/app/layout.tsx` 메타데이터(title/description) 교체 완료 (검증일 2026-07-07)
+- [x] 환경변수 키 정리(`.env.example`): TourAPI 키, Tmap 키, 경주 좌표 기준값 (2026-07-07)
 
 **P1 — 데이터 파이프라인**
-- [ ] TourAPI 클라이언트(`services/tourapi/`) + 일배치 캐시
-- [ ] 경주 황리단길 POI 적재 스크립트(`ingest_tourapi.py`) — 관광지12·문화시설14·음식점39
-- [ ] Supabase 스키마: `facilities`→`pois`(TourAPI 필드) 마이그레이션
+- [x] TourAPI 클라이언트(`services/tourapi/`) + 일배치 캐시 (2026-07-07 — KorService2, 24h TTL)
+- [x] 경주 황리단길 POI 적재 스크립트(`ingest_tourapi.py`) — 관광지12·문화시설14·음식점39
+      (2026-07-07 — 실적재는 `TOURAPI_KEY` 발급 후 실행 필요)
+- [x] Supabase 스키마: TourAPI 필드 확장 완료(`20260707130000_add_tourapi_fields.sql` —
+      contentid·contenttypeid·address·barrier_free·image_url). `facilities`→`pois` 리네임은
+      침습적이라 D2 결정까지 보류(가산적 확장으로 대체).
 - [ ] 경주시 교통데이터(공공데이터포털) 연동 → 시간대별 유동 베이스라인
 
 **P2 — 알고리즘**
@@ -137,16 +140,16 @@ SPOT_Score = w₁ · (취향 일치율) − w₂ · (예측 대기시간[혼잡 
 
 ---
 
-## 6. 산업(InduSpot) 잔재 — 제거/교체 대상
+## 6. 산업(InduSpot) 잔재 — 제거 완료 (2026-07-07 검증)
 
-> 원본은 `NextSpot-knu/Induspot`에 보존돼 있으므로, NextSpot에서는 안전하게 정리 가능.
-> (현 시드 커밋에는 **참고용으로 유지**했으며, 도메인 빌드 시 교체/삭제 권장.)
+> 아래 7개 항목은 모두 저장소에서 삭제 완료됨(2026-07-07 전수 검증 — 코드 내 InduSpot/구미/산업 잔재 0건).
+> 원본은 `NextSpot-knu/Induspot`에 보존돼 있음. 목록은 이력 참고용으로 유지.
 
-- `Gumi kakao restaurant.py` (루트) — 구미 식당 카카오 스크래퍼(일회성)
-- `samples/gumi_*.csv`, `samples/facility_enrichment.json`, `samples/dummy.csv` — 구미 산업 데이터
-- `docs/FACILITY_ENRICHMENT.md` — 산업 시설 정본화 문서
-- `scratch/convert_gumi.py`, `scratch/upload_*` — 구미 데이터 업로드 도구
-- `scripts/fetch_ev_chargers.py`, `scripts/enrich_facilities.js`, `scripts/update_coords.js` — 산업 POI 도구(TourAPI 적재로 대체)
+- `Gumi kakao restaurant.py` (루트) — 구미 식당 카카오 스크래퍼(일회성) — **삭제 완료**
+- `samples/gumi_*.csv`, `samples/facility_enrichment.json`, `samples/dummy.csv` — 구미 산업 데이터 — **삭제 완료**
+- `docs/FACILITY_ENRICHMENT.md` — 산업 시설 정본화 문서 — **삭제 완료**
+- `scratch/convert_gumi.py`, `scratch/upload_*` — 구미 데이터 업로드 도구 — **삭제 완료**
+- `scripts/fetch_ev_chargers.py`, `scripts/enrich_facilities.js`, `scripts/update_coords.js` — 산업 POI 도구(TourAPI 적재로 대체) — **삭제 완료**
 
 ---
 

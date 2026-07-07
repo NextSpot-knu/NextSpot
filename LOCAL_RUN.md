@@ -68,6 +68,12 @@ python scripts/train.py        # Supabase 혼잡 로그 → sklearn Ridge → ap
 
 ## 5. 선호 벡터 테이블 (Supabase 마이그레이션)
 
+> **DB 셋업 경로 정리** (`docs/DEPLOY_AND_ENV.md` 와 공통 기준):
+> - **신규/초기화 셋업** = `supabase/RESET_AND_SETUP.sql` **1회 실행**(스키마+시드 일괄).
+> - **기존 DB 유지** = `supabase/migrations/*` 순차 적용(`supabase db push`).
+> - 기존 DB에는 2026-07-07 `security_hardening` 마이그레이션
+>   (`supabase/migrations/20260707120000_security_hardening.sql`)을 **반드시** 적용하세요(RLS 보안 수정).
+
 선호 학습 영속화를 위해 마이그레이션을 적용하세요:
 `supabase/migrations/20260608120000_add_user_preference_vectors.sql`
 (Supabase CLI `supabase db push` 또는 SQL 편집기로 실행). 미적용 시 선호 벡터는 프로세스 메모리로
@@ -86,7 +92,7 @@ curl -X POST http://localhost:8000/api/v1/voice/turn \
 
 # 관리자 데모 피크 생성
 curl -X POST http://localhost:8000/api/v1/admin/simulate-peak \
-  -H "Authorization: Bearer nextspot-admin-local"
+  -H "X-Admin-Authorization: Bearer nextspot-admin-local"
 ```
 
 프론트(`http://localhost:3000`)에서 지도/추천/음성 비서(브라우저 TTS)와 관리자 시뮬레이트 버튼이 동작하면 성공입니다.

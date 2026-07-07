@@ -75,6 +75,9 @@ scratch/
 # Scoped to repo root so the broad dotted-JSON glob can't swallow nested config JSON that must stay tracked.
 /*-*.json
 /knudc-*.json
+# ↑ 글롭이 package-lock.json 까지 삼켜 루트 락파일이 커밋되지 않던 footgun 수정 —
+#   CI(npm ci) 재현성을 위해 락파일은 반드시 추적한다.
+!/package-lock.json
 
 # Stray env files beyond the committed .example templates (belt-and-suspenders; .env* already ignored above)
 *.env

@@ -10,7 +10,7 @@
 
 - **카테고리 4종 유지 → 8차원 선호 벡터 불변.** 현재 `[0.0]*8`·`len==8`이 백/프론트 ~10곳에 박혀 있다(load-bearing). 산업 4타입(식당/주차장/회의실/휴게실)을 **관광 4타입으로 1:1 치환**하면 차원 수를 안 건드리고 값/의미만 바꿔 리스크가 최소화된다.
 - ⚠️ **ML 재학습 함정.** 타입을 바꾸면 `normalize_facility_type`(predict_service.py + train.py **2벌**, 동기화 필수)과 `model.pkl`이 옛 버킷(`cafeteria/parking/meeting_room/loading_dock`)에 묶여 추론이 조용히 `0.5`로 깨진다. **반드시 재시드 → normalize 갱신 → `train.py` 재학습** 순서.
-- ⚠️ **하드코딩 라이브 Supabase URL** `xdwnwrthrgflbzpvkouq.supabase.co`가 JS 시더 4곳에 폴백으로 박힘 → 스크럽.
+- ⚠️ **하드코딩 라이브 Supabase URL** `<old-project-ref>.supabase.co`가 JS 시더 4곳에 폴백으로 박힘 → 스크럽.
 - **매직 상수 `36.1198, 128.3471`** 이 코드 5파일 + SQL 시드의 기본 중심/지오펜스 폴백. 이걸 황리단길 중심으로 일괄 치환이 좌표 작업의 핵심.
 - **storage key `induspot_*` 변경 시** 로컬 북마크/온보딩이 리셋됨 → 실사용자 없으므로 무방(주의만).
 - **반경 150m는 유지**(제안서 "반경 150m 내 대안" 과 일치 — 구미 잔재 아님). `_MAX_RECO_DISTANCE_M=1500`만 도심 밀집도에 맞춰 선택적 재튜닝.
@@ -46,7 +46,7 @@
 - **브랜딩 induspot(12파일):** `lib/api-client.ts`(IT-WORKER-01 mock)·`lib/voiceIntent.ts`(주석)·`saved`·`mypage`·`admin/login`·`admin/reports`/`admin/dashboard`(CSV 파일명)·README·.env.example
 - **산업어휘(16파일):** `app/setup`(주간조/야간조·주차구역 온보딩 → 선호 카테고리·방문 시간대)·admin 카피(관제소·수요분산·인프라)·근로자/회의실 주석
 - **라우트 리네임:** `app/worker/`→`app/explore/` + 참조 3곳(`CongestionMap.tsx:7` import, `:374` link, `worker/recommend` `router.push`)
-- **데이터 스크립트:** `scripts/seed.js`(⚠️ 하드코딩 Supabase URL `xdwnwrthrgflbzpvkouq` 스크럽 + 타입/혼잡패턴 관광화)
+- **데이터 스크립트:** `scripts/seed.js`(⚠️ 하드코딩 Supabase URL `<old-project-ref>` 스크럽 + 타입/혼잡패턴 관광화)
 - **설정/문서 잔재:** `apps/api/.env.example`·`apps/web/.env.example`·`LOCAL_RUN.md`·`run_local.ps1`·`Dockerfile`·`requirements.txt`·`apps/api/README.md`·`apps/web/README.md`(induspot/공단 문구)
 - **⚠️ 크레덴셜 필요(사용자 액션):** 신규 Supabase 프로젝트 생성 → `.env` 갱신(+하드코딩 URL 제거) → `supabase db push`(마이그레이션 적용) → `python apps/api/scripts/train.py`(model.pkl 재학습) → 앱 스모크
 

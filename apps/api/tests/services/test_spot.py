@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, patch
 # 테스트 대상 모듈 임포트
 from app.services.spot.score import calculate_spot_score
 from app.services.spot.wait_time import calculate_predicted_wait_time
-from app.services.spot.travel import calculate_haversine_distance, get_travel_time_and_distance
+from app.services.spot.travel import calculate_haversine_distance
 from app.services.spot.preference import get_category_average_vector
 
 @pytest.mark.asyncio

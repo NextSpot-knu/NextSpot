@@ -1,10 +1,11 @@
 # 시스템 아키텍처 개요 — 상속 베이스 (로컬 전용 · 비-GCP)
 
 > ⚠️ **이 문서는 NextSpot이 상속한 InduSpot 로컬 베이스의 아키텍처입니다.** 스택(Next.js 웹 + FastAPI +
-> Supabase + 로컬 sklearn)과 SPOT 엔진은 그대로 재사용하되, 도메인(산업단지→관광)·데이터 소스
-> (IoT/CCTV→TourAPI·경주 교통데이터)·브랜딩은 관광용으로 재구성 중입니다.
-> 관광 적응 계획·개조 백로그는 [`docs/NEXTSPOT_PIVOT.md`](./docs/NEXTSPOT_PIVOT.md)를 참조하세요.
-> 아래 내용은 InduSpot 원문 그대로이며, 가중치/도메인 용어(근로자·공단·시설)는 피벗 대상입니다.
+> Supabase + 로컬 sklearn)과 SPOT 엔진은 그대로 재사용합니다. 도메인(산업단지→관광객)·좌표(구미→경주)·
+> 라우트(worker→explore)·브랜딩의 코드 반영은 완료됐습니다(2026-07-07 검증). 데이터 소스
+> (TourAPI·경주 교통데이터) 연동과 SPOT 가중치 정렬은 진행 예정입니다.
+> 관광 적응 계획은 [`docs/NEXTSPOT_PIVOT.md`](./docs/NEXTSPOT_PIVOT.md), 남은 작업 로드맵은
+> `docs/IMPROVEMENT_PLAN.md`를 참조하세요.
 
 > Google Cloud AI Agent Challenge 종료 후, 모든 GCP/Firebase 의존성을 제거하고 추가 클라우드 없이
 > 로컬에서 구동되도록 재구성한 정본 문서입니다. 데이터 저장소만 Supabase(비-GCP, PostgreSQL)를 유지합니다.
@@ -14,7 +15,7 @@
 ```
 ┌──────────────────────────┐        ┌───────────────────────────┐        ┌──────────────────┐
 │  Next.js 16 (apps/web)   │  HTTP  │   FastAPI (apps/api)       │  REST  │  Supabase        │
-│  근로자/관리자 앱         │ ─────▶ │   추천·혼잡예측·음성 백엔드 │ ─────▶ │  (PostgreSQL)    │
+│  관광객/관리자 앱         │ ─────▶ │   추천·혼잡예측·음성 백엔드 │ ─────▶ │  (PostgreSQL)    │
 │  정적 export, 브라우저    │        │   uvicorn / docker-compose │        │  주 데이터 저장소 │
 │  Web Speech(TTS/STT)·지도 │        │   로컬 sklearn model.pkl   │        │                  │
 └──────────────────────────┘        └───────────────────────────┘        └──────────────────┘
@@ -23,7 +24,8 @@
    사용자 위치/시설 마커
 ```
 
-- **프론트엔드**: Next.js 16 정적 export. 근로자 앱(main/saved/mypage)과 관리자 앱(admin/*). 지도는
+- **프론트엔드**: Next.js 16 정적 export. 관광객 앱(main / explore(map·recommend) / saved / mypage /
+  setup — InduSpot 시절: 근로자 앱 `app/worker/`)과 관리자 앱(admin/*). 지도는
   Kakao Maps SDK. 음성 비서는 브라우저 Web Speech API(TTS/STT). 백엔드 주소는
   `NEXT_PUBLIC_FASTAPI_URL`(기본 `http://localhost:8000`).
 - **백엔드**: FastAPI. 추천(SPOT), 혼잡 예측(로컬 sklearn), 추천 사유(템플릿), 음성 의도(키워드),
@@ -68,9 +70,11 @@ SPOT = 0.45 · 선호도 − 0.25 · 시간비용 + 0.30 · 혼잡분산
 
 ## 6. 인증
 
-- **근로자**: Supabase JWT(HS256, `JWT_SECRET`) — `core/supabase.py:get_current_user`.
+- **관광객(사용자)**: Supabase JWT(HS256, `JWT_SECRET`) — `core/supabase.py:get_current_user`.
 - **관리자(데모)**: 프론트 로컬 세션 토큰(`apps/web/lib/admin-auth.ts`)을
-  `X-Admin-Authorization: Bearer <token>` 로 전송 → 백엔드 `require_admin` 이 `ADMIN_API_TOKEN` 과 비교.
+  `X-Admin-Authorization: Bearer <token>` 헤더 **전용**으로 전송(일반 `Authorization` 폴백 없음) →
+  백엔드 `require_admin` 이 `ADMIN_API_TOKEN` 과 상수시간 비교(`hmac.compare_digest`).
+  `ADMIN_API_TOKEN` 은 기본값 없는 필수 env — 미설정 시 부팅이 실패한다.
   (이전 Firebase Authentication 가드 대체. 데모 게이트일 뿐 강한 보안 경계는 아님.)
 
 ## 7. 구동 / 배포
