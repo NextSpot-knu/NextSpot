@@ -515,4 +515,4 @@ async def get_my_vector(
         return UserVectorResponse(user_id=user_id, vector=vec)
     except Exception as e:
         logger.error("get_my_vector_failed", user_id=user_id, error=str(e))
-        raise HTTPException(status_code=500, detail=f"내 선호도 벡터 조회 실패: {str(e)}")
+        raise HTTPException(status_code=500, detail="내 선호도 벡터 조회에 실패했습니다.")

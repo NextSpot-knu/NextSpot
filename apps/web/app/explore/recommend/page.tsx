@@ -432,13 +432,20 @@ function RecommendContent() {
     async function checkHistoryAndFetch() {
       setLoadingRecommendations(true);
       try {
+        // 온보딩 완료 로컬 플래그: RLS 강화로 세션 없는(데모) 사용자는 recommendations count 가
+        // 항상 0 으로 보이므로, DB count 만으로 판정하면 매 방문마다 온보딩이 뜬다(WS-A 후속).
+        let onboardingDone = false;
+        try {
+          onboardingDone = localStorage.getItem("nextspot_onboarding_done") === "1";
+        } catch { /* localStorage 차단 환경 — DB count 판정만 사용 */ }
+
         const { count, error } = await supabase
           .from("recommendations")
           .select("id", { count: "exact", head: true })
           .eq("user_id", userId);
 
         if (cancelled) return;
-        if (!error && count === 0) {
+        if (!error && count === 0 && !onboardingDone) {
           setShowOnboarding(true);
           setLoadingRecommendations(false);
           return;
@@ -638,6 +645,9 @@ function RecommendContent() {
       }
 
       setShowOnboarding(false);
+      try {
+        localStorage.setItem("nextspot_onboarding_done", "1");
+      } catch { /* localStorage 차단 환경 — 무시 */ }
       toast.success("선호 정보가 등록되었습니다! 맞춤 추천을 계산합니다.");
 
       // 2. Fetch recommendations (FastAPI will detect missing Pinecone vector,
@@ -713,9 +723,17 @@ function RecommendContent() {
         if (newWindow) newWindow.location.href = destUrl;
         else window.location.href = destUrl;
       } else {
-        const restApiKey = process.env.NEXT_PUBLIC_KAKAO_REST_API_KEY || "8b9591c379e8cc301162469a713c4f4d";
+        // 키는 env 전용 — 하드코딩 폴백 금지(커밋된 키는 유출로 간주, 로테이션 대상).
+        const restApiKey = process.env.NEXT_PUBLIC_KAKAO_REST_API_KEY;
+        if (!restApiKey) {
+          // 키 미설정: 좌표 변환(transcoord) 없이 텍스트 채우기 방식 길찾기로 폴백(아래 catch 와 동일 경로).
+          const destUrl = `https://map.kakao.com/?sName=${encodeURIComponent("현재 위치")}&eName=${encodeURIComponent(rec.facility.name)}&sY=${lat}&sX=${lng}&eY=${rec.facility.latitude}&eX=${rec.facility.longitude}`;
+          if (newWindow) newWindow.location.href = destUrl;
+          else window.location.href = destUrl;
+          return;
+        }
         const headers = { 'Authorization': `KakaoAK ${restApiKey}` };
-        
+
         const urlStart = `https://dapi.kakao.com/v2/local/geo/transcoord.json?x=${lng}&y=${lat}&input_coord=WGS84&output_coord=WCONGNAMUL`;
         const urlEnd = `https://dapi.kakao.com/v2/local/geo/transcoord.json?x=${rec.facility.longitude}&y=${rec.facility.latitude}&input_coord=WGS84&output_coord=WCONGNAMUL`;
 

@@ -7,7 +7,10 @@ import {
 } from 'lucide-react';
 import { AdminSidebar } from '@/components/AdminSidebar';
 import { createPublicClient } from '@/lib/supabase';
+import { adminApi } from '@/lib/admin-api';
 
+// DB 통계(count)는 anon 읽기(facilities/congestion_logs 공개 유지), system_settings 읽기/쓰기는
+// 관리자 API(FastAPI service_role) 경유 — anon 은 RLS 로 거부된다(WS-A-6).
 const supabase = createPublicClient();
 
 const DEFAULT_NOTICE = '현재 일부 식당·카페 정보 갱신 중으로 관련 데이터가 일시적으로 부정확할 수 있습니다.';
@@ -51,7 +54,7 @@ export default function SettingsPage() {
     let active = true;
     (async () => {
       try {
-        const { data } = await supabase.from('system_settings').select('*').eq('id', 1).maybeSingle();
+        const data = await adminApi.get('/api/v1/admin/settings');
         if (active && data) {
           setIsMaintenance(!!data.maintenance_mode);
           if (typeof data.notice_text === 'string') setNotice(data.notice_text);
@@ -70,23 +73,13 @@ export default function SettingsPage() {
     setSaving(true);
     setSaveMsg(null);
     try {
-      const { data, error } = await supabase
-        .from('system_settings')
-        .update({
-          maintenance_mode: isMaintenance,
-          notice_text: notice,
-          congestion_threshold: threshold,
-          coldstart_weight: weight,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', 1)
-        .select();
-      if (error) throw error;
-      if (!data || data.length === 0) {
-        setSaveMsg({ type: 'err', text: '저장 대상이 없습니다. system_settings 마이그레이션 적용이 필요합니다.' });
-      } else {
-        setSaveMsg({ type: 'ok', text: '시스템 설정이 저장되었습니다.' });
-      }
+      await adminApi.put('/api/v1/admin/settings', {
+        maintenance_mode: isMaintenance,
+        notice_text: notice,
+        congestion_threshold: threshold,
+        coldstart_weight: weight,
+      });
+      setSaveMsg({ type: 'ok', text: '시스템 설정이 저장되었습니다.' });
     } catch (e: any) {
       setSaveMsg({ type: 'err', text: `저장 실패: ${e?.message || '권한 또는 연결 오류'}` });
     } finally {

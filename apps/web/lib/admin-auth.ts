@@ -10,8 +10,11 @@
 //    작업은 서버에서 별도로 인증·인가를 검증해야 한다.
 
 const STORAGE_KEY = "nextspot_admin_session";
-const ADMIN_PASSWORD = "admin";
-const SESSION_TOKEN = "nextspot-admin-local";
+// 데모 기본값은 유지하되 빌드 타임 env 로 오버라이드 가능(정적 export 라 NEXT_PUBLIC_* 는 번들에 포함됨 —
+// 즉 이 게이트는 여전히 데모 수준이다. 진짜 권한 검증은 백엔드 require_admin(ADMIN_API_TOKEN)이 수행).
+const ADMIN_PASSWORD = process.env.NEXT_PUBLIC_ADMIN_PASSWORD || "admin";
+// 백엔드 apps/api ADMIN_API_TOKEN 과 동일한 값이어야 관리자 API(simulate-peak, admin CRUD)가 동작한다.
+const SESSION_TOKEN = process.env.NEXT_PUBLIC_ADMIN_API_TOKEN || "nextspot-admin-local";
 
 function hasWindow(): boolean {
   return typeof window !== "undefined";

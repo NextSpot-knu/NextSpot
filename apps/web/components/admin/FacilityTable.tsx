@@ -3,7 +3,10 @@
 import { useState, useEffect } from 'react';
 import { Settings, Plus, Edit2, Trash2, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
 import { createPublicClient } from '@/lib/supabase';
+import { adminApi } from '@/lib/admin-api';
 
+// 읽기는 anon(RLS: anon_select_facilities 유지), 쓰기는 관리자 API(FastAPI service_role) 경유 —
+// anon 직접 쓰기는 RLS 로 거부되며, 과거엔 0행 갱신이 성공으로 표시되는 무음 실패였다(WS-A-6).
 const supabase = createPublicClient();
 
 interface FacilityData {
@@ -51,16 +54,11 @@ export function FacilityTable() {
   const handleDelete = async (id: string, name: string) => {
     if (confirm(`정말로 이 시설(${name})을 삭제하시겠습니까?`)) {
       try {
-        const { error } = await supabase
-          .from('facilities')
-          .delete()
-          .eq('id', id);
-
-        if (error) throw error;
+        await adminApi.delete(`/api/v1/admin/facilities/${id}`);
         setFacilities(prev => prev.filter(f => f.id !== id));
-      } catch (err) {
+      } catch (err: any) {
         console.error('Failed to delete facility:', err);
-        alert('시설 삭제 중 오류가 발생했습니다.');
+        alert(`시설 삭제 중 오류가 발생했습니다: ${err?.message || '알 수 없는 오류'}`);
       }
     }
   };
@@ -101,17 +99,14 @@ export function FacilityTable() {
             const capacityStr = prompt('수용 인원(숫자)을 입력하세요:', '50');
             const capacity = parseInt(capacityStr || '50') || 50;
 
-            supabase
-              .from('facilities')
-              .insert([{ name, type, capacity, latitude: 35.8362, longitude: 129.2095 }])
-              .select()
-              .then(({ data, error }) => {
-                if (error) {
-                  alert('시설 등록에 실패했습니다: ' + error.message);
-                } else {
-                  alert('시설이 성공적으로 등록되었습니다.');
-                  fetchFacilities();
-                }
+            adminApi
+              .post('/api/v1/admin/facilities', { name, type, capacity, latitude: 35.8362, longitude: 129.2095 })
+              .then(() => {
+                alert('시설이 성공적으로 등록되었습니다.');
+                fetchFacilities();
+              })
+              .catch((err: any) => {
+                alert('시설 등록에 실패했습니다: ' + (err?.message || '알 수 없는 오류'));
               });
           }}
           className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-bold transition-colors"
@@ -178,17 +173,14 @@ export function FacilityTable() {
                           const newCapStr = prompt('수정할 수용 인원을 입력하세요:', String(fac.capacity));
                           const newCapacity = parseInt(newCapStr || '50') || fac.capacity;
 
-                          supabase
-                            .from('facilities')
-                            .update({ name: newName, capacity: newCapacity })
-                            .eq('id', fac.id)
-                            .then(({ error }) => {
-                              if (error) {
-                                alert('시설 정보 수정 실패: ' + error.message);
-                              } else {
-                                alert('시설 정보가 수정되었습니다.');
-                                fetchFacilities();
-                              }
+                          adminApi
+                            .patch(`/api/v1/admin/facilities/${fac.id}`, { name: newName, capacity: newCapacity })
+                            .then(() => {
+                              alert('시설 정보가 수정되었습니다.');
+                              fetchFacilities();
+                            })
+                            .catch((err: any) => {
+                              alert('시설 정보 수정 실패: ' + (err?.message || '알 수 없는 오류'));
                             });
                         }}
                         className="p-1.5 text-slate-500 hover:text-blue-400 transition-colors bg-slate-900 border border-slate-800 rounded-md"

@@ -1,3 +1,4 @@
+import hmac
 # pyrefly: ignore [missing-import]
 import jwt
 import structlog
@@ -24,7 +25,14 @@ supabase_client: Client = _create_client(settings.SUPABASE_URL, settings.SUPABAS
 
 # 1-1. 서버→서버 신뢰 경로용 클라이언트(관리자 시뮬레이트 등).
 #      service_role 키가 있으면 RLS 를 우회해 congestion_logs 에 insert 할 수 있다.
-#      (없으면 anon 으로 폴백 — 기존 동작과 동일.)
+#      (없으면 anon 으로 폴백 — 이 경우 추천 이력 INSERT/관리자 쓰기가 RLS 로 조용히 실패하므로
+#       부팅 시점에 명확히 경고를 남긴다. 감사 항목 WS-A-4.)
+if not settings.SUPABASE_SERVICE_ROLE_KEY:
+    _logger.warning(
+        "supabase_service_role_key_missing",
+        detail="SUPABASE_SERVICE_ROLE_KEY 미설정 — supabase_admin 이 anon 으로 폴백합니다. "
+               "추천 이력 저장·관리자 쓰기(simulate-peak, admin CRUD)가 RLS 로 거부됩니다.",
+    )
 supabase_admin: Client = _create_client(settings.SUPABASE_URL, settings.SUPABASE_KEY, role="service_role")
 
 # 2. HTTP Bearer 인증 체계 정의 (프록시 상황에서 누락 에러 방지를 위해 auto_error=False 설정)
@@ -88,28 +96,30 @@ def get_current_user(
     except jwt.PyJWTError as e:
         # InvalidTokenError 뿐 아니라 InvalidKeyError(빈 JWT_SECRET 시 'HMAC key must not be empty')도 포섭.
         # (좁게 InvalidTokenError 만 잡으면 빈 시크릿이 미처리 예외→500 으로 새어나간다.)
+        # 검증 실패 원문은 서버 로그로만 — 클라이언트에 라이브러리 내부 메시지를 노출하지 않는다.
+        _logger.warning("jwt_verification_failed", error=str(e))
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"유효하지 않은 JWT 토큰입니다: {str(e)}",
+            detail="유효하지 않은 JWT 토큰입니다.",
         )
 
 
 def require_admin(request: Request) -> dict:
-    """관리자 전용 가드 — 로컬 데모용 공유 토큰 검증(비-GCP).
+    """관리자 전용 가드 — 공유 토큰 검증(비-GCP).
 
-    워커 경로(Supabase JWT, get_current_user)와 분리된다. 관리자 프런트(admin/*)는 로컬 세션 토큰을
-    X-Admin-Authorization 헤더(Bearer)로 보내고, 여기서 settings.ADMIN_API_TOKEN 과 단순 비교한다.
-    (대회용 Firebase Authentication 가드를 제거하고 GCP 의존성 없는 토큰 검증으로 대체.)
-    ⚠️ 데모 게이트일 뿐 강한 보안 경계가 아니다 — 사용자 결정.
+    워커 경로(Supabase JWT, get_current_user)와 분리된다. 관리자 프런트(admin/*)는 세션 토큰을
+    X-Admin-Authorization 헤더(Bearer)로만 보낸다.
+    - 일반 Authorization 헤더 폴백은 제거 — 워커용 JWT 헤더가 관리자 가드에 흘러들지 않게 경로를 분리한다.
+    - 토큰 비교는 hmac.compare_digest(상수시간) — 타이밍 공격으로 토큰을 유추할 수 없게 한다.
     """
-    auth = request.headers.get("x-admin-authorization") or request.headers.get("authorization") or ""
+    auth = request.headers.get("x-admin-authorization") or ""
     if not auth.startswith("Bearer "):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="관리자 인증 토큰이 없습니다.",
         )
     token = auth.split(" ", 1)[1].strip()
-    if not token or token != settings.ADMIN_API_TOKEN:
+    if not token or not hmac.compare_digest(token, settings.ADMIN_API_TOKEN):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="유효하지 않은 관리자 토큰입니다.",

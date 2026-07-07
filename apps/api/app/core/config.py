@@ -19,8 +19,9 @@ class Settings(BaseSettings):
         return self.SUPABASE_SERVICE_ROLE_KEY or self.SUPABASE_ANON_KEY
 
     # 관리자 데모 가드용 공유 토큰. 프런트(apps/web/lib/admin-auth.ts)의 SESSION_TOKEN 과 동일해야 한다.
-    # (대회용 Firebase Authentication 가드를 제거하고 비-GCP 단순 토큰 검증으로 대체.)
-    ADMIN_API_TOKEN: str = "nextspot-admin-local"
+    # 기본값 없음(필수) — 공개 저장소에 박힌 상수가 곧 관리자 토큰이 되는 것을 막는다.
+    # 로컬은 .env(.env.example 참고), 배포는 강한 랜덤값으로 반드시 오버라이드할 것.
+    ADMIN_API_TOKEN: str
 
     # Kakao Mobility Directions API (도보/차량 실거리·실시간 이동시간).
     # 비어 있으면 Haversine 직선거리 도보 환산으로 폴백(기본). 키가 있으면 실경로 호출.
@@ -51,6 +52,14 @@ class Settings(BaseSettings):
         if not v or not v.strip():
             raise ValueError("JWT_SECRET must be a non-empty secret")
         return v
+
+    @field_validator("ADMIN_API_TOKEN")
+    @classmethod
+    def _nonempty_admin_token(cls, v: str) -> str:
+        # 빈 토큰이면 `Bearer ` 만으로 관리자 가드가 뚫린다 — 부팅 시점에 실패시킨다.
+        if not v or not v.strip():
+            raise ValueError("ADMIN_API_TOKEN must be a non-empty secret (set it in .env)")
+        return v.strip()
 
     model_config = SettingsConfigDict(
         env_file=".env",

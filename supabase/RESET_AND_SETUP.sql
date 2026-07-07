@@ -540,3 +540,38 @@ CREATE TRIGGER update_user_pref_vectors_modtime
     BEFORE UPDATE ON public.user_preference_vectors
     FOR EACH ROW
     EXECUTE PROCEDURE public.handle_updated_at();
+
+
+-- ============================= migrations/20260707120000_security_hardening.sql =============================
+-- 보안 강화 (2026-07-07 전방위 감사 후속) — docs/IMPROVEMENT_PLAN.md WS-A-1/2
+--  1) users 자기 role 승격 차단  2) anon 의 recommendations/user_feedback 열람 제거
+--  3) inquiries 무제한 읽기/수정 제거(익명 INSERT 는 유지)  4) recommendations FK NOT NULL 모순 해소
+-- 관리자 화면의 해당 데이터 접근은 FastAPI /api/v1/admin/* (service_role) 경유로 대체된다.
+
+-- 1) users: 본인 행만 수정 가능 + role 은 변경 불가(권한 상승 차단)
+DROP POLICY IF EXISTS update_users ON public.users;
+CREATE POLICY update_users ON public.users FOR UPDATE TO authenticated
+    USING (id = auth.uid())
+    WITH CHECK (
+        id = auth.uid()
+        AND role = public.get_auth_user_role()
+    );
+
+-- 2) anon 의 사용자 행위 데이터 열람 제거 (facilities/congestion_logs 공개 읽기는 유지)
+DROP POLICY IF EXISTS anon_select_recommendations ON public.recommendations;
+DROP POLICY IF EXISTS anon_select_feedback ON public.user_feedback;
+
+-- 3) inquiries: 무제한 SELECT/UPDATE 정책 제거 → 본인 또는 admin 만
+DROP POLICY IF EXISTS "Allow select on inquiries" ON public.inquiries;
+DROP POLICY IF EXISTS "Allow update on inquiries" ON public.inquiries;
+
+CREATE POLICY select_own_or_admin_inquiries ON public.inquiries FOR SELECT TO authenticated
+    USING (user_id = auth.uid() OR public.get_auth_user_role() = 'admin');
+
+CREATE POLICY admin_update_inquiries ON public.inquiries FOR UPDATE TO authenticated
+    USING (public.get_auth_user_role() = 'admin')
+    WITH CHECK (public.get_auth_user_role() = 'admin');
+
+-- 4) recommendations FK: 이력 보존형 SET NULL 이 실제로 동작하도록 NOT NULL 해제
+ALTER TABLE public.recommendations ALTER COLUMN original_facility_id DROP NOT NULL;
+ALTER TABLE public.recommendations ALTER COLUMN recommended_facility_id DROP NOT NULL;

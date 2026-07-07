@@ -10,6 +10,7 @@ import { FacilityTable } from '@/components/admin/FacilityTable';
 import { SimulatePeakButton } from '@/components/admin/SimulatePeakButton';
 
 import { createPublicClient } from '@/lib/supabase';
+import { adminApi } from '@/lib/admin-api';
 
 const supabase = createPublicClient();
 
@@ -51,9 +52,8 @@ function joinedFacility(log: any): { name: string | null; type: string | null } 
 }
 
 // 정적 export 환경에서는 서버 라우트가 없으므로, 관리자 대시보드의 실데이터는
-// 로그인된 admin 세션을 실은 publicClient 로 브라우저에서 직접 조회한다.
-//  - congestion_logs/facilities: RLS 가 authenticated 에 USING(true) → 실데이터.
-//  - recommendations/user_feedback: 같은 회사 admin 에게만 열려 있어, 데모 계정 권한 밖이면 빈 배열 → null 반환.
+//  - congestion_logs/facilities: anon 공개 읽기(RLS anon_select_*) → publicClient 직접 조회.
+//  - recommendations/user_feedback: RLS 강화로 anon 열람 불가 → 관리자 API(/admin/metrics) 경유.
 // 반환값의 null 지표는 호출부에서 합성 폴백으로 채운다(프로토타입 데모 무중단).
 async function fetchRealDashboard(supabaseClient: any) {
   const { start, end } = getKstTodayRangeUtc();
@@ -162,32 +162,27 @@ async function fetchRealDashboard(supabaseClient: any) {
       .slice(0, 6);
   }
 
-  // 5) 추천 수락률(최근 7일) / DAU(오늘 피드백) — RLS 권한 밖이면 빈 배열 → null
+  // 5) 추천 수락률(최근 7일) / DAU(오늘 피드백) — recommendations/user_feedback 은 RLS 강화로
+  //    anon 열람이 막혀(20260707 security_hardening) 관리자 API(/admin/metrics, service_role) 경유(WS-A-6).
+  //    API 실패 시 null → 호출부 폴백(기존과 동일한 강등 동작).
   let acceptRate: { value: number; total: number; accepted: number } | null = null;
   let activeUsers: number | null = null;
   try {
     const weekAgo = new Date(new Date(start).getTime() - 6 * 24 * 60 * 60 * 1000).toISOString();
-    const { data: recs } = await supabaseClient
-      .from('recommendations')
-      .select('accepted')
-      .gte('created_at', weekAgo)
-      .lte('created_at', end)
-      .limit(5000);
-    if (recs && recs.length > 0) {
+    const metrics = await adminApi.get('/api/v1/admin/metrics?days=8');
+    const recs = (metrics?.recommendations || []).filter(
+      (r: any) => r.created_at >= weekAgo && r.created_at <= end
+    );
+    if (recs.length > 0) {
       const total = recs.length;
       const accepted = recs.filter((r: any) => r.accepted).length;
       acceptRate = { value: Math.round((accepted / total) * 1000) / 1000, total, accepted };
     }
-  } catch { /* 권한/스키마 차이 시 폴백 */ }
-  try {
-    const { data: fb } = await supabaseClient
-      .from('user_feedback')
-      .select('user_id')
-      .gte('timestamp', start)
-      .lte('timestamp', end)
-      .limit(5000);
-    if (fb && fb.length > 0) activeUsers = new Set(fb.map((f: any) => f.user_id)).size;
-  } catch { /* 권한/스키마 차이 시 폴백 */ }
+    const fb = (metrics?.feedback || []).filter(
+      (f: any) => f.timestamp >= start && f.timestamp <= end
+    );
+    if (fb.length > 0) activeUsers = new Set(fb.map((f: any) => f.user_id)).size;
+  } catch { /* 백엔드 미기동/권한 차이 시 폴백 */ }
 
   return { hasLogs, avgCongestion, anomalyCount, heatmap, anomalies, acceptRate, activeUsers };
 }

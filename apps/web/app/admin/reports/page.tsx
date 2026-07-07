@@ -11,6 +11,7 @@ import {
   Tooltip, ResponsiveContainer, Legend
 } from 'recharts';
 import { createPublicClient } from '@/lib/supabase';
+import { adminApi } from '@/lib/admin-api';
 
 const supabase = createPublicClient();
 
@@ -70,16 +71,12 @@ async function fetchLogs14d() {
   return out;
 }
 async function fetchRecs28d() {
-  // 추천 이력은 RLS 로 같은 회사 admin 에게만 열려 있어 비거나 막힐 수 있다 →
+  // 추천 이력은 RLS 강화(20260707 security_hardening)로 anon 열람 불가 →
+  // 관리자 API(/admin/metrics, service_role) 경유(WS-A-6).
   // 실패해도 로그 기반(막대/표) 실데이터는 살리도록 여기서 격리(빈 배열 반환).
   try {
-    const since = new Date(Date.now() - 28 * 24 * 60 * 60 * 1000).toISOString();
-    const { data } = await supabase
-      .from('recommendations')
-      .select('accepted, created_at')
-      .gte('created_at', since)
-      .limit(5000);
-    return data || [];
+    const metrics = await adminApi.get('/api/v1/admin/metrics?days=28');
+    return metrics?.recommendations || [];
   } catch {
     return [];
   }

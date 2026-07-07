@@ -5,7 +5,7 @@ import {
   Search, Bell, MessageSquare, CheckCircle, Clock, FileText, Send 
 } from 'lucide-react';
 import { AdminSidebar } from '@/components/AdminSidebar';
-import { createPublicClient } from '@/lib/supabase';
+import { adminApi } from '@/lib/admin-api';
 
 interface Ticket {
   id: string;
@@ -53,13 +53,8 @@ export default function SupportPage() {
   useEffect(() => {
     async function fetchTickets() {
       try {
-        const supabase = createPublicClient();
-        const { data, error } = await supabase
-          .from('inquiries')
-          .select('*')
-          .order('created_at', { ascending: false });
-
-        if (error) throw error;
+        // 문의는 PII(user_name/content) — RLS 강화로 anon 열람이 막혀 관리자 API 경유로만 읽는다(WS-A-6).
+        const data = await adminApi.get('/api/v1/admin/inquiries');
 
         const mappedTickets: Ticket[] = (data || []).map((item: any) => ({
           id: item.id,
@@ -101,21 +96,8 @@ export default function SupportPage() {
     }
 
     try {
-      const supabase = createPublicClient();
-      // .select() 로 영향 행을 확인한다(settings 페이지와 동일 패턴). update().eq() 만으론 0행 갱신도
-      // error 없이 통과해 무음 실패가 성공으로 표시된다.
-      const { data, error } = await supabase
-        .from('inquiries')
-        .update({ status: 'resolved' })
-        .eq('id', selectedTicket.id)
-        .select();
-
-      if (error) throw error;
-      if (!data || data.length === 0) {
-        // 0행 갱신(권한/RLS 로 행 미가시 또는 이미 삭제됨) → 무음 실패를 성공으로 단언하지 않는다.
-        alert('저장 대상 문의를 찾지 못했습니다(권한/RLS 또는 삭제됨). 상태가 변경되지 않았습니다.');
-        return;
-      }
+      // 관리자 API 경유(0행 갱신은 백엔드가 404 로 반환 — 무음 실패가 성공으로 표시되지 않는다).
+      await adminApi.patch(`/api/v1/admin/inquiries/${selectedTicket.id}`, { status: 'resolved' });
 
       // 실제 갱신 성공 시에만 로컬 상태 + 성공 알림.
       const updatedTickets = tickets.map(t =>

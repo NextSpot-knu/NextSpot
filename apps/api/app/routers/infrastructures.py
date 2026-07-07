@@ -118,8 +118,9 @@ async def get_infrastructures(
         logger.info("infrastructures_returned", count=len(result))
         return result
     except Exception as e:
+        # 예외 원문은 서버 로그로만 — DB 오류/스택 문자열을 클라이언트에 노출하지 않는다.
         logger.error("infrastructures_fetch_error", error=str(e))
-        raise HTTPException(status_code=500, detail=f"시설 데이터 조회 실패: {str(e)}")
+        raise HTTPException(status_code=500, detail="시설 데이터 조회에 실패했습니다.")
 
 
 @router.post("/admin/simulate-peak")
@@ -181,6 +182,8 @@ async def simulate_peak(admin_claims: dict = Depends(require_admin)):
         logger.info("simulate_peak_success", inserted_logs=inserted_count)
         return {"status": "success", "message": f"모의 피크타임 혼잡 로그 {inserted_count}개가 성공적으로 삽입되었습니다."}
         
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error("simulate_peak_failed", error=str(e))
-        raise HTTPException(status_code=500, detail=f"피크타임 모의 생성 실패: {str(e)}")
+        raise HTTPException(status_code=500, detail="피크타임 모의 생성에 실패했습니다.")
