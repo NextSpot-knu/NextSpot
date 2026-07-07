@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { Settings, Plus, Edit2, Trash2, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
 import { createPublicClient } from '@/lib/supabase';
 import { adminApi } from '@/lib/admin-api';
+import { REGION } from '@/lib/region';
 
 // 읽기는 anon(RLS: anon_select_facilities 유지), 쓰기는 관리자 API(FastAPI service_role) 경유 —
 // anon 직접 쓰기는 RLS 로 거부되며, 과거엔 0행 갱신이 성공으로 표시되는 무음 실패였다(WS-A-6).
@@ -100,7 +101,7 @@ export function FacilityTable() {
             const capacity = parseInt(capacityStr || '50') || 50;
 
             adminApi
-              .post('/api/v1/admin/facilities', { name, type, capacity, latitude: 35.8362, longitude: 129.2095 })
+              .post('/api/v1/admin/facilities', { name, type, capacity, latitude: REGION.center.lat, longitude: REGION.center.lng }) // 신규 시설 기본좌표 = 지역 중심점(lib/region.ts)
               .then(() => {
                 alert('시설이 성공적으로 등록되었습니다.');
                 fetchFacilities();

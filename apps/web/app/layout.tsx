@@ -13,6 +13,13 @@ const notoSansKr = Noto_Sans_KR({ variable: "--font-noto-sans-kr", subsets: ["la
 export const metadata: Metadata = {
   title: "NextSpot",
   description: "오버투어리즘 없는 스마트한 경주 여행",
+  // PWA: 관광객은 이동 중 모바일 사용이 기본 — 홈 화면 설치를 지원한다(정적 export 호환).
+  manifest: "/manifest.webmanifest",
+  appleWebApp: { capable: true, statusBarStyle: "black-translucent", title: "NextSpot" },
+};
+
+export const viewport = {
+  themeColor: "#0b101e",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

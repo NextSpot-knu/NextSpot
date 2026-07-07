@@ -9,6 +9,7 @@ import { createPublicClient } from '@/lib/supabase';
 import { getMarkerSvg } from '@/lib/utils';
 import { scoreFacility, compareSpot, rankFacilities, recToSpot, haversineMeters, cuisineMatch, rescoreWithPreference, filterReachable } from '@/lib/recommender';
 import { findLandmark } from '@/lib/landmarks';
+import { REGION, isWithinRegion } from '@/lib/region';
 import { recommendByType, voiceTurn } from '@/lib/api-client';
 import { useVoiceAssistant } from '@/lib/useVoiceAssistant';
 import VoiceAssistantOrb from '@/components/VoiceAssistantOrb';
@@ -183,7 +184,7 @@ export default function MainPage() {
   const [rankedFacilities, setRankedFacilities] = useState<any[]>([]);
   const [rejectedIds, setRejectedIds] = useState<Set<string>>(new Set());
   const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
-  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number }>({ lat: 35.8362, lng: 129.2095 });
+  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number }>({ ...REGION.center });
   const [preferredCategories, setPreferredCategories] = useState<string[]>([]);
   const [userId, setUserId] = useState<string | null>(null);
 
@@ -213,12 +214,11 @@ export default function MainPage() {
           let lat = position.coords.latitude;
           let lng = position.coords.longitude;
 
-          // Check if coordinates are outside Gyeongju Hwangnidan-gil boundaries
-          const isWithinGyeongju = lat >= 35.82 && lat <= 35.85 && lng >= 129.19 && lng <= 129.24;
-          if (!isWithinGyeongju) {
-            lat = 35.8362; // Hwangnidan-gil center
-            lng = 129.2095;
-            console.log("User is outside Gyeongju. Mocking location to Hwangnidan-gil:", lat, lng);
+          // 서비스 지역(지오펜스) 밖이면 지역 중심점으로 모킹 — 경계/중심은 lib/region.ts 단일 소스
+          if (!isWithinRegion(lat, lng)) {
+            lat = REGION.center.lat;
+            lng = REGION.center.lng;
+            console.log(`User is outside ${REGION.name}. Mocking location to region center:`, lat, lng);
           }
 
           setUserLocation({ lat, lng });
@@ -750,8 +750,8 @@ export default function MainPage() {
     if (mapInstanceRef.current) return;
     if (window.kakao && window.kakao.maps && mapContainerRef.current) {
       window.kakao.maps.load(() => {
-        let centerLat = 35.8362;
-        let centerLng = 129.2095;
+        let centerLat = REGION.center.lat as number;
+        let centerLng = REGION.center.lng as number;
         let level = 4;
 
         if (typeof window !== 'undefined') {
@@ -1105,14 +1105,7 @@ export default function MainPage() {
           {!isMockLocationMinimized && (
             <div className="px-3 pb-3 border-t border-white/5">
               <div className="grid grid-cols-1 gap-1.5 w-36 mt-2">
-                {[
-                  { id: 1, name: '황리단길', lat: 35.8362, lng: 129.2095 },
-                  { id: 2, name: '대릉원', lat: 35.8389, lng: 129.2099 },
-                  { id: 3, name: '첨성대', lat: 35.8347, lng: 129.2189 },
-                  { id: 4, name: '동궁과 월지', lat: 35.8348, lng: 129.2265 },
-                  { id: 5, name: '황남빵 본점', lat: 35.8389, lng: 129.2117 },
-                  { id: 6, name: '교촌마을', lat: 35.8296, lng: 129.2156 }
-                ].map((loc) => {
+                {REGION.presets.map((loc) => {
                   const isCurrent = Math.abs(userLocation.lat - loc.lat) < 0.0001 && Math.abs(userLocation.lng - loc.lng) < 0.0001;
                   return (
                     <button

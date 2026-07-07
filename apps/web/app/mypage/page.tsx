@@ -8,6 +8,7 @@ import {
   HelpCircle, Settings as SettingsIcon, BellRing, Star, Sparkles
 } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
+import TasteRadar from '@/components/TasteRadar';
 
 interface UserProfile {
   name: string;
@@ -171,6 +172,9 @@ export default function MyPage() {
                 </div>
               )}
             </div>
+
+            {/* AI 취향 프로필 — 8차원 선호 벡터 레이더 시각화 (개인화 엔진 가시화) */}
+            <TasteRadar />
 
             {/* Stats Section */}
             <div className="grid grid-cols-3 gap-3 mb-6">

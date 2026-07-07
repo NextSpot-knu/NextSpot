@@ -7,6 +7,7 @@ const supabase = createPublicClient();
 import { getRecommendations, submitFeedback, parsePreference, RecommendationResponse } from "@/lib/api-client";
 import { MAX_RECO_DISTANCE_M } from "@/lib/recommender"; // 빈 상태 문구의 반경(1.5km) — 하드코딩 대신 실제 컷오프 상수 사용
 import { classifyIntent, buildCardSpeech } from "@/lib/voiceIntent";
+import { REGION, isWithinRegion } from "@/lib/region";
 import { toast } from "sonner";
 
 // Extend global Window
@@ -160,8 +161,8 @@ function RecommendContent() {
   const [feedbackVotes, setFeedbackVotes] = useState<Record<string, "up" | "down">>({});
 
   // Coordinates used for recommendations
-  const [lat, setLat] = useState<number>(35.8362);
-  const [lng, setLng] = useState<number>(129.2095);
+  const [lat, setLat] = useState<number>(REGION.center.lat);
+  const [lng, setLng] = useState<number>(REGION.center.lng);
 
   // ── 음성 비서(Hey Gemini 컨시어지) 상태 ──
   // Gemini가 만든 추천 사유를 한국어 TTS로 읽어주고(speechSynthesis), 사용자의 음성 응답을
@@ -323,12 +324,11 @@ function RecommendContent() {
           let userLat = pos.coords.latitude;
           let userLng = pos.coords.longitude;
 
-          // Check if coordinates are outside Gyeongju Hwangnidan-gil boundaries
-          const isWithinGyeongju = userLat >= 35.82 && userLat <= 35.85 && userLng >= 129.19 && userLng <= 129.24;
-          if (!isWithinGyeongju) {
-            userLat = 35.8362; // Hwangnidan-gil center
-            userLng = 129.2095;
-            console.log("User is outside Gyeongju. Mocking location to Hwangnidan-gil:", userLat, userLng);
+          // 서비스 지역(지오펜스) 밖이면 지역 중심점으로 모킹 — 경계/중심은 lib/region.ts 단일 소스
+          if (!isWithinRegion(userLat, userLng)) {
+            userLat = REGION.center.lat;
+            userLng = REGION.center.lng;
+            console.log(`User is outside ${REGION.name}. Mocking location to region center:`, userLat, userLng);
           }
 
           setLat(userLat);

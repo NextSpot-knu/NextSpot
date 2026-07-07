@@ -1,0 +1,20 @@
+{
+  "name": "NextSpot — 경주 스마트 관광",
+  "short_name": "NextSpot",
+  "description": "오버투어리즘 없는 스마트한 경주 여행 — AI 대안 장소 추천",
+  "id": "/",
+  "start_url": "/main/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0b101e",
+  "theme_color": "#0b101e",
+  "lang": "ko",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

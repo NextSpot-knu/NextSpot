@@ -1,12 +1,14 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import { createPublicClient } from "@/lib/supabase";
 const supabase = createPublicClient();
 import { FacilityWithCongestion } from "@/app/explore/map/page";
 // 마커 SVG는 lib/utils 의 공용 getMarkerSvg 로 통일(예쁜 핀 + 올바른 흰색 렌더). 중복 인라인 제거.
 import { getMarkerSvg } from "@/lib/utils";
+import { apiClient } from "@/lib/api-client";
 
 interface CongestionMapProps {
   initialFacilities: FacilityWithCongestion[];
@@ -56,10 +58,62 @@ export default function CongestionMap({ initialFacilities }: CongestionMapProps)
   // Location State
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
 
+  // 예측 타임슬라이더 상태 (0 = 지금/실측, 1~3 = +N시간 후 AI 예측)
+  const [hoursAhead, setHoursAhead] = useState<number>(0);
+  const [predictionMap, setPredictionMap] = useState<Record<
+    string,
+    { level: number; anchored: boolean }
+  > | null>(null);
+  const [predictionLoading, setPredictionLoading] = useState(false);
+
   // Sync state with updated initialFacilities from SSR
   useEffect(() => {
     setFacilities(initialFacilities);
   }, [initialFacilities]);
+
+  // 예측 모드 여부 — 예측 데이터 수신에 성공한 경우에만 켜진다(실패 시 지금 모드 유지)
+  const isForecast = hoursAhead > 0 && predictionMap !== null;
+
+  // 타임슬라이더 전환: 지금(0)은 실측 그대로, +N시간은 백엔드 배치 예측으로 마커 재채색.
+  // 실패 시 지금 모드를 유지해 지도가 깨진 상태로 남지 않게 한다.
+  const handleTimeShift = async (n: number) => {
+    if (n === hoursAhead || predictionLoading) return;
+    if (n === 0) {
+      setHoursAhead(0);
+      setPredictionMap(null); // 실측 표시 복귀 (실시간 구독 데이터 그대로)
+      return;
+    }
+    setPredictionLoading(true);
+    try {
+      // 주의: predict 라우터는 /api/v1 이 아닌 /predict 프리픽스(main.py) 아래에 있다.
+      // apiClient 가 body 를 snake_case(hours_ahead)로, 응답을 camelCase 로 변환한다.
+      const res = await apiClient.post("/predict/batch", { hoursAhead: n });
+      const map: Record<string, { level: number; anchored: boolean }> = {};
+      for (const p of res?.predictions ?? []) {
+        map[p.facilityId] = {
+          level: p.predictedCongestion,
+          anchored: p.anchored !== false,
+        };
+      }
+      setPredictionMap(map);
+      setHoursAhead(n);
+    } catch (err) {
+      console.warn("혼잡 예측 조회 실패 — 실측(지금) 모드를 유지합니다.", err);
+      toast.error("AI 혼잡 예측을 불러오지 못했습니다. 실측 모드를 유지합니다.");
+    } finally {
+      setPredictionLoading(false);
+    }
+  };
+
+  // 화면 표시용 시설 목록: 예측 모드에서는 혼잡도만 예측값으로 치환(마커·필터·시트가 공유).
+  // facilities 원본(실측 + 실시간 구독)은 건드리지 않아 '지금'으로 돌아오면 즉시 실측 복귀.
+  const displayFacilities = useMemo(() => {
+    if (!isForecast || !predictionMap) return facilities;
+    return facilities.map((f) => {
+      const pred = predictionMap[f.id];
+      return pred ? { ...f, congestionLevel: pred.level } : f;
+    });
+  }, [facilities, predictionMap, isForecast]);
 
   // Map references
   const mapContainerRef = useRef<HTMLDivElement>(null);
@@ -240,7 +294,8 @@ export default function CongestionMap({ initialFacilities }: CongestionMapProps)
     markersRef.current.forEach((m) => m.setMap(null));
     markersRef.current = [];
 
-    const filtered = facilities.filter((f) => {
+    // 예측 모드에서는 예측 혼잡도가 반영된 displayFacilities 로 마커를 재채색한다
+    const filtered = displayFacilities.filter((f) => {
       if (filterType !== "all" && f.type !== filterType) return false;
       if (onlyRelaxed && f.congestionLevel >= 0.25) return false;
       return true;
@@ -276,7 +331,7 @@ export default function CongestionMap({ initialFacilities }: CongestionMapProps)
 
     markersRef.current = newMarkers;
     clustererRef.current.addMarkers(newMarkers);
-  }, [facilities, filterType, onlyRelaxed, mapLoaded, isSimulation]);
+  }, [displayFacilities, filterType, onlyRelaxed, mapLoaded, isSimulation]);
 
   // Supabase Realtime Subscription for congestion logs
   useEffect(() => {
@@ -319,8 +374,9 @@ export default function CongestionMap({ initialFacilities }: CongestionMapProps)
     };
   }, []);
 
+  // 시트도 예측 모드에서는 예측 혼잡도가 반영된 목록에서 찾는다
   const activeSelectedFacility = selectedFacility
-    ? facilities.find((f) => f.id === selectedFacility.id) || selectedFacility
+    ? displayFacilities.find((f) => f.id === selectedFacility.id) || selectedFacility
     : null;
 
   const getCongestionBadge = (level: number) => {
@@ -383,7 +439,7 @@ export default function CongestionMap({ initialFacilities }: CongestionMapProps)
     { label: "문화시설 🏛️", value: "culture" },
   ];
 
-  const filteredFacilities = facilities.filter((f) => {
+  const filteredFacilities = displayFacilities.filter((f) => {
     if (filterType !== "all" && f.type !== filterType) return false;
     if (onlyRelaxed && f.congestionLevel >= 0.25) return false;
     return true;
@@ -498,8 +554,17 @@ export default function CongestionMap({ initialFacilities }: CongestionMapProps)
         <span className="text-sm font-extrabold tracking-tight">
           <span className="gradient-text">NextSpot</span> Map
         </span>
-        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse ml-1" />
-        <span className="text-[10px] text-emerald-400 font-bold uppercase tracking-wider">Live</span>
+        {isForecast ? (
+          <>
+            <span className="w-2 h-2 rounded-full bg-purple-500 animate-pulse ml-1" />
+            <span className="text-[10px] text-purple-400 font-bold uppercase tracking-wider">Forecast</span>
+          </>
+        ) : (
+          <>
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse ml-1" />
+            <span className="text-[10px] text-emerald-400 font-bold uppercase tracking-wider">Live</span>
+          </>
+        )}
       </div>
 
       {/* Floating Filter Controls */}
@@ -539,6 +604,38 @@ export default function CongestionMap({ initialFacilities }: CongestionMapProps)
         </button>
       </div>
 
+      {/* 예측 타임슬라이더 — 미래 도착시점 혼잡 예측 (지금 · +1h · +2h · +3h) */}
+      <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-10 flex flex-col items-center gap-2">
+        {/* 정직성 표기: 예측 모드임을 명확히 알리는 배지 (실측과 혼동 방지) */}
+        {isForecast && (
+          <span className="px-3 py-1 rounded-full text-[11px] font-bold bg-purple-600/90 border border-purple-400/40 text-white shadow-lg shadow-purple-500/40 whitespace-nowrap">
+            🔮 AI 예측 · +{hoursAhead}시간 후
+          </span>
+        )}
+        <div
+          className={`flex gap-1 bg-slate-900/85 backdrop-blur-md p-1.5 rounded-2xl border shadow-xl transition-colors duration-300 ${
+            isForecast ? "border-purple-500/40" : "border-white/10"
+          } ${predictionLoading ? "opacity-60" : ""}`}
+        >
+          {[0, 1, 2, 3].map((n) => (
+            <button
+              key={n}
+              onClick={() => handleTimeShift(n)}
+              disabled={predictionLoading}
+              className={`shrink-0 whitespace-nowrap px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all duration-200 disabled:cursor-wait ${
+                hoursAhead === n
+                  ? n === 0
+                    ? "bg-gradient-to-r from-sky-500 to-emerald-500 text-white shadow-md shadow-emerald-500/25"
+                    : "bg-gradient-to-r from-purple-500 to-fuchsia-600 text-white shadow-md shadow-purple-500/25"
+                  : "text-slate-300 hover:text-white hover:bg-white/5"
+              }`}
+            >
+              {n === 0 ? "지금" : `+${n}h`}
+            </button>
+          ))}
+        </div>
+      </div>
+
       {/* Dynamic Bottom Sheet */}
       {isBottomSheetOpen && activeSelectedFacility && (
         <div className="absolute bottom-0 left-0 right-0 z-20 p-4 md:p-6 bg-gradient-to-t from-[#050814] to-[#0d132a]/95 border-t border-white/10 backdrop-blur-lg rounded-t-3xl shadow-2xl transition-all duration-300 animate-in slide-in-from-bottom">
@@ -567,9 +664,12 @@ export default function CongestionMap({ initialFacilities }: CongestionMapProps)
               return (
                 <div className="bg-white/5 border border-white/5 p-4 rounded-2xl space-y-2">
                   <div className="flex justify-between items-center">
-                    <span className="text-xs text-slate-400">실시간 혼잡 비율</span>
+                    {/* 정직성 표기: 예측 모드에서는 실측이 아닌 AI 예측값임을 라벨과 ~ 접두어로 구분 */}
+                    <span className={`text-xs ${isForecast ? "text-purple-300 font-semibold" : "text-slate-400"}`}>
+                      {isForecast ? `🔮 AI 예측 혼잡 비율 · +${hoursAhead}시간 후` : "실시간 혼잡 비율"}
+                    </span>
                     <span className={`text-xs px-2 py-0.5 rounded-full border font-bold ${badge.colorClass}`}>
-                      {badge.text} ({percentage}%)
+                      {badge.text} ({isForecast ? "~" : ""}{percentage}%)
                     </span>
                   </div>
                   <div className="w-full bg-white/5 h-2.5 rounded-full overflow-hidden">

@@ -66,7 +66,7 @@
 | # | 액션 | 효과 | 노력 |
 |---|---|---|---|
 | D1 | **일배치 자동 동기화** — GitHub Actions cron 으로 `ingest_tourapi.py` 일 1회 실행 (지속성의 '실물' 증빙: 수동이 아니라 자동으로 신선한 데이터) | 지속성 증빙 최강 | 小 |
-| D2 | **다지역 설정화** — 경주 하드코딩 좌표/반경을 `region config` 로 추출 → "전주 한옥마을·부산 감천도 config 1개로" 확장성 실증 | 확장성 '코드 증빙' | 中 |
+| D2 | ✅ **다지역 설정화(완료)** — `apps/web/lib/region.ts` 신설 + 소비처(main/recommend/FacilityTable) 마이그레이션 (CongestionMap 은 후속) | 확장성 '코드 증빙' | 中 |
 | D3 | **PWA** — manifest+아이콘+설치 배너 (정적 export 라 저비용). 관광객=모바일 | 실용성(이용 편의성) | 小 |
 | D4 | **FastAPI OpenAPI 문서** 공개(/docs) + README 아키텍처 다이어그램 | 생태계 확장 서사 + 심사위원 기술 검증 용이 | 小 |
 | D5 | 데이터 신선도 표시 — 홈/관리자에 "TourAPI 최종 동기화 N시간 전" | 지속성 가시화 | 小 |
