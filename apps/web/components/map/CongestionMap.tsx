@@ -9,6 +9,10 @@ import { FacilityWithCongestion } from "@/app/explore/map/page";
 // 마커 SVG는 lib/utils 의 공용 getMarkerSvg 로 통일(예쁜 핀 + 올바른 흰색 렌더). 중복 인라인 제거.
 import { getMarkerSvg } from "@/lib/utils";
 import { apiClient } from "@/lib/api-client";
+// 지역(리전) 단일 소스 — 지도 중심/지오펜스 하드코딩을 대체(다지역 확장 대비).
+import { REGION, isWithinRegion } from "@/lib/region";
+// 히트맵 blob 의 색·크기 규칙(마커/배지 임계와 일관) 공용 헬퍼.
+import { getHeatGradient, getHeatRadius } from "@/lib/heatmap";
 
 interface CongestionMapProps {
   initialFacilities: FacilityWithCongestion[];
@@ -54,6 +58,9 @@ export default function CongestionMap({ initialFacilities }: CongestionMapProps)
   // Filters State
   const [filterType, setFilterType] = useState<string>("all");
   const [onlyRelaxed, setOnlyRelaxed] = useState<boolean>(false);
+
+  // 히트맵 오버레이 표시 여부 (혼잡 핀 마커와 별개로 켜고 끄는 열지도 레이어). 기본 꺼짐.
+  const [showHeatmap, setShowHeatmap] = useState<boolean>(false);
 
   // Location State
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
@@ -121,9 +128,14 @@ export default function CongestionMap({ initialFacilities }: CongestionMapProps)
   const clustererRef = useRef<any>(null);
   const markersRef = useRef<any[]>([]);
   const userMarkerRef = useRef<any>(null);
+  // 카카오맵 히트맵 CustomOverlay 배열 — 토글/데이터 변경 시 정리(cleanup)를 위해 ref 로 관리.
+  const heatmapOverlaysRef = useRef<any[]>([]);
 
   // Projection helper: maps lat/lng of Gyeongju Hwangnidan-gil area to percentage grid coords
   const getCoordinatesOnGrid = (lat: number, lng: number) => {
+    // 지도 투영 범위(지오펜스와 별개) — 시뮬 그리드에 시각적으로 넉넉히 담기 위한 로컬 상수.
+    // REGION.bounds(지오펜스: 35.82~35.85 / 129.19~129.24)보다 의도적으로 넓으므로
+    // REGION.bounds 로 치환하면 시뮬 마커 위치가 어긋난다 — 이 값은 그대로 둔다.
     const minLat = 35.8250;
     const maxLat = 35.8480;
     const minLng = 129.2000;
@@ -142,7 +154,7 @@ export default function CongestionMap({ initialFacilities }: CongestionMapProps)
     if (isMock) {
       setIsSimulation(true);
       setMapLoaded(true);
-      setUserLocation({ lat: 35.8362, lng: 129.2095 });
+      setUserLocation({ lat: REGION.center.lat, lng: REGION.center.lng });
       return;
     }
 
@@ -194,7 +206,7 @@ export default function CongestionMap({ initialFacilities }: CongestionMapProps)
     if (!mapLoaded || !mapContainerRef.current || isSimulation) return;
 
     const kakao = window.kakao;
-    const defaultCenter = new kakao.maps.LatLng(35.8362, 129.2095);
+    const defaultCenter = new kakao.maps.LatLng(REGION.center.lat, REGION.center.lng);
 
     const mapOptions = {
       center: defaultCenter,
@@ -235,11 +247,10 @@ export default function CongestionMap({ initialFacilities }: CongestionMapProps)
           let lat = position.coords.latitude;
           let lng = position.coords.longitude;
 
-          // Check if coordinates are outside Gyeongju Hwangnidan-gil boundaries
-          const isWithinGyeongju = lat >= 35.82 && lat <= 35.85 && lng >= 129.19 && lng <= 129.24;
-          if (!isWithinGyeongju) {
-            lat = 35.8362;
-            lng = 129.2095;
+          // 서비스 지역(지오펜스)을 벗어난 위치는 REGION.center 로 모킹(다지역 확장 단일 소스)
+          if (!isWithinRegion(lat, lng)) {
+            lat = REGION.center.lat;
+            lng = REGION.center.lng;
             console.log("User is outside Gyeongju. Mocking location to Hwangnidan-gil:", lat, lng);
           }
 
@@ -332,6 +343,58 @@ export default function CongestionMap({ initialFacilities }: CongestionMapProps)
     markersRef.current = newMarkers;
     clustererRef.current.addMarkers(newMarkers);
   }, [displayFacilities, filterType, onlyRelaxed, mapLoaded, isSimulation]);
+
+  // 진짜 히트맵 레이어 (실 카카오맵 모드) — 혼잡 핀과 별개의 CustomOverlay blob.
+  // showHeatmap 이 켜져 있을 때만 시설 좌표마다 혼잡도 색 radial-gradient 원을 얹는다.
+  // 마커 동기화와 같은 의존성(displayFacilities·필터·모드)으로 갱신하며, 오버레이는 ref 로
+  // 관리해 토글 off / 데이터·필터 변경 / 언마운트 시 정리(cleanup)를 철저히 보장한다.
+  useEffect(() => {
+    if (isSimulation || !mapLoaded || !mapRef.current) return;
+    const kakao = window.kakao;
+
+    // 이전 오버레이 제거(잔상 방지) — 토글을 껐거나 데이터/필터가 바뀐 경우 모두 커버.
+    heatmapOverlaysRef.current.forEach((o) => o.setMap(null));
+    heatmapOverlaysRef.current = [];
+
+    if (!showHeatmap) return;
+
+    // 마커와 동일한 필터를 적용 — 지도에 표시 중인 시설만 열지도에 반영(정직성 유지).
+    const filtered = displayFacilities.filter((f) => {
+      if (filterType !== "all" && f.type !== filterType) return false;
+      if (onlyRelaxed && f.congestionLevel >= 0.25) return false;
+      return true;
+    });
+
+    const overlays = filtered.map((f) => {
+      const size = getHeatRadius(f.congestionLevel);
+      const blob = document.createElement("div");
+      blob.style.width = `${size}px`;
+      blob.style.height = `${size}px`;
+      blob.style.borderRadius = "50%";
+      blob.style.background = getHeatGradient(f.congestionLevel);
+      // 겹칠수록 색이 가산 합성되어 번지는 열지도 효과(screen 블렌드).
+      blob.style.mixBlendMode = "screen";
+      blob.style.pointerEvents = "none";
+
+      const overlay = new kakao.maps.CustomOverlay({
+        position: new kakao.maps.LatLng(f.latitude, f.longitude),
+        content: blob,
+        xAnchor: 0.5, // 시설 좌표를 blob 중앙에 정렬
+        yAnchor: 0.5,
+        clickable: false, // 클릭은 아래 마커로 통과(마커 상호작용 회귀 방지)
+        zIndex: 1, // 마커 레이어보다 낮게 — 핀이 blob 위에 보이도록
+      });
+      overlay.setMap(mapRef.current);
+      return overlay;
+    });
+
+    heatmapOverlaysRef.current = overlays;
+
+    return () => {
+      heatmapOverlaysRef.current.forEach((o) => o.setMap(null));
+      heatmapOverlaysRef.current = [];
+    };
+  }, [displayFacilities, filterType, onlyRelaxed, mapLoaded, isSimulation, showHeatmap]);
 
   // Supabase Realtime Subscription for congestion logs
   useEffect(() => {
@@ -449,7 +512,7 @@ export default function CongestionMap({ initialFacilities }: CongestionMapProps)
     const handleSwitchToSimulation = () => {
       setIsSimulation(true);
       setMapLoaded(true);
-      setUserLocation({ lat: 35.8366, lng: 129.2099 });
+      setUserLocation({ lat: REGION.center.lat, lng: REGION.center.lng });
       setMapError(false);
     };
 
@@ -518,6 +581,28 @@ export default function CongestionMap({ initialFacilities }: CongestionMapProps)
               </div>
             );
           })()}
+
+          {/* 진짜 히트맵 레이어 (시뮬레이션 모드) — 마커 버튼(z-20) 뒤에 절대배치되는 blob.
+              카카오맵 모드와 동일한 색·크기 규칙(getHeatGradient/getHeatRadius)을 공유한다. */}
+          {showHeatmap &&
+            filteredFacilities.map((f) => {
+              const pos = getCoordinatesOnGrid(f.latitude, f.longitude);
+              const size = getHeatRadius(f.congestionLevel);
+              return (
+                <div
+                  key={`heat-${f.id}`}
+                  className="absolute z-[15] -translate-x-1/2 -translate-y-1/2 rounded-full pointer-events-none"
+                  style={{
+                    left: pos.x,
+                    top: pos.y,
+                    width: `${size}px`,
+                    height: `${size}px`,
+                    background: getHeatGradient(f.congestionLevel),
+                    mixBlendMode: "screen",
+                  }}
+                />
+              );
+            })}
 
           {/* Simulated Markers */}
           {filteredFacilities.map((f) => {
@@ -601,6 +686,23 @@ export default function CongestionMap({ initialFacilities }: CongestionMapProps)
             }`}
           />
           한산한 곳만 보기 (25% 미만)
+        </button>
+
+        {/* Heatmap Toggle — 혼잡 핀과 별개의 열지도 오버레이 on/off (Live/Forecast 배지와 어울리는 웜톤) */}
+        <button
+          onClick={() => setShowHeatmap((prev) => !prev)}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl border text-xs font-semibold transition-all duration-250 shadow-xl bg-slate-900/85 backdrop-blur-md ${
+            showHeatmap
+              ? "border-orange-500/50 text-orange-400 shadow-orange-500/10"
+              : "border-white/10 text-slate-300 hover:text-white hover:bg-white/5"
+          }`}
+        >
+          <span
+            className={`w-2 h-2 rounded-full ${
+              showHeatmap ? "bg-orange-500 animate-pulse" : "bg-slate-500"
+            }`}
+          />
+          🔥 히트맵
         </button>
       </div>
 
