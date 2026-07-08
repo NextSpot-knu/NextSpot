@@ -27,6 +27,7 @@ DEFAULT_CONGESTION = 0.5
 
 # --- lazy 캐시 (모듈 전역, 최초 사용 시 1회 로드) ---
 _local_artifacts: Optional[Tuple[Any, Any]] = None    # (model, encoder)
+_local_metrics: Optional[dict] = None                 # train.py 가 내장한 학습/백테스트 메트릭
 _local_loaded = False
 
 # 추천 채점이 후보를 병렬(asyncio.to_thread)로 돌리므로, 최초 1회 lazy 로드가 여러 워커
@@ -50,7 +51,7 @@ def normalize_facility_type(facility_type: str) -> str:
 
 # --- 로컬 모델 lazy 로드 ---
 def _load_local_artifacts() -> Optional[Tuple[Any, Any]]:
-    global _local_artifacts, _local_loaded
+    global _local_artifacts, _local_metrics, _local_loaded
     if _local_loaded:
         return _local_artifacts
     with _init_lock:
@@ -65,6 +66,8 @@ def _load_local_artifacts() -> Optional[Tuple[Any, Any]]:
                 with open(local_model_path, "rb") as f:
                     model_data = pickle.load(f)
                 _local_artifacts = (model_data["model"], model_data["encoder"])
+                # metrics 는 train.py --evaluate 가 내장(구버전 model.pkl 은 키 부재 → None 유지)
+                _local_metrics = model_data.get("metrics")
                 logger.info("predict_model_loaded", source="local", path=local_model_path)
             else:
                 _local_artifacts = None
@@ -73,6 +76,16 @@ def _load_local_artifacts() -> Optional[Tuple[Any, Any]]:
             _local_artifacts = None
         _local_loaded = True
     return _local_artifacts
+
+
+def get_model_info() -> dict:
+    """모델 학습/백테스트 메타데이터 — GET /predict/model-info(관리자 정확도 배지)용.
+
+    train.py 가 model.pkl 에 내장한 metrics(홀드아웃 MAE·기준선 MAE·행수·시각)를 그대로 노출한다.
+    model.pkl 부재(미학습)면 trained=False, 구버전 model.pkl(metrics 미내장)이면 metrics=None.
+    """
+    artifacts = _load_local_artifacts()
+    return {"trained": artifacts is not None, "metrics": _local_metrics}
 
 
 def _predict_with_artifacts(artifacts: Tuple[Any, Any], norm_type: str, hour: int, dow: int) -> Optional[float]:

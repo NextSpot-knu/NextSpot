@@ -18,6 +18,7 @@ from app.services.embedding_service import enrich_candidates as enrich_voice_can
 from app.routers.infrastructures import fetch_latest_congestion_for_all
 from app.services.spot.score import calculate_spot_score
 from app.services.spot.travel import calculate_haversine_distance
+from app.services.spot.wait_time import calculate_predicted_wait_time
 from app.services.spot.preference import CATEGORY_VECTORS, get_category_average_vector
 
 logger = structlog.get_logger()
@@ -134,6 +135,17 @@ async def get_recommendations(
     # 원본 시설의 실시간 혼잡도 조회
     original_congestion = await fetch_latest_congestion(req.original_facility_id)
 
+    # 원본 시설의 '지금 그대로 머물 경우' 예상 대기(분) — 요청당 1회 계산해 각 추천의
+    # score_breakdown 에 original_wait_time 으로 저장한다. 수락 추천의 절감 대기시간
+    # (원본 예상대기 − 대안 도착시점 예상대기)을 사후 재계산 없이 집계하기 위한 스냅샷
+    # (관리자 분산 효과 위젯: GET /api/v1/admin/impact). 사용자는 원본에 '지금' 있으므로
+    # 도착시점 보정 없이 현재 시각 기준(hour=None → 현재 UTC)으로 계산한다.
+    original_wait_time = await calculate_predicted_wait_time(
+        facility_type=original_infra["type"],
+        congestion_level=original_congestion,
+        facility_features=original_infra.get("features"),
+    )
+
     # 2. 반경 150m 이내 후보 시설 필터링 (본인 시설 제외)
     candidates = []
     for f in all_facilities:
@@ -181,7 +193,9 @@ async def get_recommendations(
         return {
             "facility": f,
             "spot_score": score_res.score,
-            "breakdown": score_res.breakdown,
+            # original_wait_time 은 후보와 무관하게 요청당 1개지만, 추천 행 단독으로도
+            # 절감분을 계산할 수 있도록 각 breakdown 에 함께 저장한다(비정규화 스냅샷).
+            "breakdown": {**score_res.breakdown, "original_wait_time": original_wait_time},
             "distance_m": dist,
             "candidate_congestion": candidate_congestion,
         }

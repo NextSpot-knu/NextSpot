@@ -39,6 +39,9 @@ class FacilityCreate(BaseModel):
 class FacilityUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=100)
     capacity: int | None = Field(default=None, ge=1, le=100000)
+    # 쿠폰 정책 개입(폐루프): 제휴 할인율(0.10=10%). DB CHECK(0~1)와 동일 범위.
+    # 변경 즉시 다음 추천 요청의 w3 쿠폰강도(min(1, rate/0.20))에 반영된다 — score.py 참조.
+    coupon_rate: float | None = Field(default=None, ge=0, le=1)
 
 
 @router.post("/facilities")
@@ -219,3 +222,70 @@ async def get_metrics(days: int = 28):
     except Exception as e:
         logger.error("admin_metrics_fetch_failed", error=str(e))
         raise HTTPException(status_code=500, detail="지표 조회에 실패했습니다.")
+
+
+# =========================================================================
+# 분산 효과 정량화 — 수락된 추천의 '절감 대기시간' 합산 (admin/dashboard 위젯)
+# 산식: Σ max(0, 원본 예상대기 − 대안 도착시점 예상대기)  [수락 건만]
+#  · original_wait_time/wait_time 은 추천 생성 시점에 score_breakdown 으로 저장된다
+#    (recommendations 라우터). 그 시점의 실측 혼잡 기반이라 사후 재계산보다 정직하다.
+#  · original_wait_time 이 없는 레거시 행은 incentive_relief(원본혼잡−도착시점 예측혼잡, 0~1)
+#    × 15분(타입 기본 처리시간 중앙값)으로 보수적으로 근사한다 — 근사 건수는 estimated 로 구분 표기.
+# =========================================================================
+
+_LEGACY_RELIEF_TO_MINUTES = 15.0  # wait_time.DEFAULT_PROCESSING_TIMES 중앙값(카페12·식당25·관광15·문화15)
+
+
+@router.get("/impact")
+async def get_impact(since: str | None = None, days: int = 1):
+    """수락 추천 기준 재배치 건수·절감 대기시간(분) 집계.
+
+    since(ISO8601, UTC)가 오면 그 시각 이후, 없으면 최근 days(기본 1)일 롤링 윈도우.
+    프런트(대시보드)는 KST '오늘 00:00' 을 since 로 넘겨 '오늘' 지표로 쓴다.
+    """
+    days = max(1, min(days, 90))
+    if since:
+        try:
+            # 검증 겸 정규화 — 잘못된 문자열이 PostgREST 필터로 그대로 흘러가지 않게 한다.
+            since = datetime.fromisoformat(since.replace("Z", "+00:00")).isoformat()
+        except ValueError:
+            raise HTTPException(status_code=422, detail="since 는 ISO8601 형식이어야 합니다.")
+    else:
+        since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+
+    try:
+        res = await asyncio.to_thread(
+            supabase_admin.table("recommendations")
+            .select("score_breakdown, created_at")
+            .eq("accepted", True)
+            .gte("created_at", since)
+            .limit(5000)
+            .execute
+        )
+    except Exception as e:
+        logger.error("admin_impact_fetch_failed", error=str(e))
+        raise HTTPException(status_code=500, detail="분산 효과 집계에 실패했습니다.")
+
+    relocations = 0
+    saved_minutes = 0.0
+    measured = 0   # original_wait_time 실측 저장 행
+    estimated = 0  # 레거시 근사(incentive_relief 기반) 행
+    for row in res.data or []:
+        relocations += 1
+        bd = row.get("score_breakdown") or {}
+        original_wait = bd.get("original_wait_time")
+        candidate_wait = bd.get("wait_time")
+        if original_wait is not None and candidate_wait is not None:
+            saved_minutes += max(0.0, float(original_wait) - float(candidate_wait))
+            measured += 1
+        elif bd.get("incentive_relief") is not None:
+            saved_minutes += max(0.0, float(bd["incentive_relief"])) * _LEGACY_RELIEF_TO_MINUTES
+            estimated += 1
+
+    return {
+        "since": since,
+        "relocations": relocations,
+        "saved_wait_minutes": round(saved_minutes, 1),
+        "measured": measured,
+        "estimated": estimated,
+    }

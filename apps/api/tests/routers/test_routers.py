@@ -16,7 +16,10 @@ from app.services.preference_vector_service import preference_vector_service
 # --- 공통 상수 (경주 황리단길 좌표 기준 — 기존 서비스 테스트와 통일) ---
 BASE_LAT, BASE_LNG = 35.8360, 129.2100
 AUTH_USER_ID = "u-1"
-BREAKDOWN_KEYS = ("preference", "wait_time", "travel_time", "incentive", "incentive_coupon", "incentive_relief")
+BREAKDOWN_KEYS = (
+    "preference", "wait_time", "travel_time", "incentive", "incentive_coupon", "incentive_relief",
+    "original_wait_time",  # 분산 효과 집계용 스냅샷(원본 예상대기) — /admin/impact 가 소비
+)
 
 
 def _admin_headers(token: str | None = None) -> dict:
@@ -286,6 +289,25 @@ def test_admin_facility_update_no_fields_422(client):
     assert res.status_code == 422
 
 
+def test_admin_facility_update_coupon_rate_out_of_range_422(client):
+    # coupon_rate 는 DB CHECK 와 동일한 0~1 범위 — 초과 값은 라우터 진입 전 422
+    res = client.patch(
+        "/api/v1/admin/facilities/f-1", headers=_admin_headers(), json={"coupon_rate": 1.5}
+    )
+    assert res.status_code == 422
+
+
+def test_admin_facility_update_coupon_rate_ok(client):
+    # 개입 폐루프: 쿠폰 정책 패널이 coupon_rate 만 단독 PATCH 한다(0.0 도 유효한 '제휴 해제').
+    updated = {"id": "f-1", "name": "시설-f-1", "coupon_rate": 0.15}
+    with patch("app.routers.admin.supabase_admin", new=FakeSupabase({"facilities": [updated]})):
+        res = client.patch(
+            "/api/v1/admin/facilities/f-1", headers=_admin_headers(), json={"coupon_rate": 0.15}
+        )
+    assert res.status_code == 200
+    assert res.json()["coupon_rate"] == 0.15
+
+
 # =========================================================================
 # 7. 관리자 시스템 설정(PUT /api/v1/admin/settings)
 # =========================================================================
@@ -311,6 +333,62 @@ def test_admin_settings_put_404_when_no_row(client):
     with patch("app.routers.admin.supabase_admin", new=FakeSupabase({"system_settings": []})):
         res = client.put("/api/v1/admin/settings", headers=_admin_headers(), json=SETTINGS_BODY)
     assert res.status_code == 404
+
+
+# =========================================================================
+# 7-1. 분산 효과 집계(GET /api/v1/admin/impact) — 절감 대기시간 산식
+# =========================================================================
+
+def test_admin_impact_no_header_401(client):
+    res = client.get("/api/v1/admin/impact")
+    assert res.status_code == 401
+
+
+def test_admin_impact_invalid_since_422(client):
+    res = client.get("/api/v1/admin/impact?since=not-a-date", headers=_admin_headers())
+    assert res.status_code == 422
+
+
+def test_admin_impact_aggregation(client):
+    # 수락 추천 3건: 실측(original_wait_time) 1건 + 레거시 근사(incentive_relief×15분) 1건 + 데이터 없음 1건
+    accepted_rows = [
+        {"created_at": "2026-07-09T01:00:00+00:00",
+         "score_breakdown": {"original_wait_time": 20.0, "wait_time": 5.0}},   # 절감 15.0분(실측)
+        {"created_at": "2026-07-09T02:00:00+00:00",
+         "score_breakdown": {"incentive_relief": 0.4, "wait_time": 3.0}},      # 절감 0.4×15=6.0분(근사)
+        {"created_at": "2026-07-09T03:00:00+00:00", "score_breakdown": {}},    # 절감 산정 불가 — 건수만 집계
+    ]
+    with patch("app.routers.admin.supabase_admin", new=FakeSupabase({"recommendations": accepted_rows})):
+        res = client.get("/api/v1/admin/impact?since=2026-07-09T00:00:00Z", headers=_admin_headers())
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["relocations"] == 3
+    assert body["saved_wait_minutes"] == 21.0
+    assert body["measured"] == 1
+    assert body["estimated"] == 1
+
+
+# =========================================================================
+# 7-2. 예측 모델 메타(GET /predict/model-info) — 정확도 배지 데이터
+# =========================================================================
+
+def test_predict_model_info(client):
+    canned = {"trained": True, "metrics": {"mae": 0.08, "baseline_mae": 0.15, "holdout_n": 200}}
+    with patch("app.routers.predict.get_model_info", return_value=canned):
+        res = client.get("/predict/model-info")
+    assert res.status_code == 200
+    body = res.json()
+    assert body["trained"] is True
+    assert body["metrics"]["mae"] == 0.08
+
+
+def test_predict_model_info_untrained(client):
+    # model.pkl 부재(미학습) — trained=False, metrics=None (배지는 '평가 전' 표기)
+    with patch("app.routers.predict.get_model_info", return_value={"trained": False, "metrics": None}):
+        res = client.get("/predict/model-info")
+    assert res.status_code == 200
+    assert res.json() == {"trained": False, "metrics": None}
 
 
 # =========================================================================

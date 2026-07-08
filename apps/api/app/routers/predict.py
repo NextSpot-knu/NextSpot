@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 
 from app.core.supabase import supabase_client
 from app.routers.infrastructures import fetch_latest_congestion_for_all
-from app.services.predict_service import predict_congestion
+from app.services.predict_service import get_model_info, predict_congestion
 
 logger = structlog.get_logger()
 
@@ -28,6 +28,20 @@ def predict_endpoint(req: PredictRequest):
     # 내부 전용으로 닫으려면 get_current_user 의존성을 추가하면 된다(응답 스키마 불변).
     pred = predict_congestion(req.facility_type, req.hour, req.day_of_week)
     return PredictResponse(predicted_congestion=pred)
+
+
+class ModelInfoResponse(BaseModel):
+    trained: bool
+    # train.py --evaluate 가 model.pkl 에 내장한 메트릭(mae·baseline_mae·train_n·holdout_n·
+    # holdout_start·evaluated_at·n_rows·r2_train·trained_at). 구버전 model.pkl 이면 None.
+    metrics: dict | None = None
+
+
+@router.get("/model-info", response_model=ModelInfoResponse)
+def model_info_endpoint():
+    # 공개 조회용(무인증) — 비식별 학습 메타데이터만 노출한다(관리자 대시보드 정확도 배지,
+    # docs/MODEL_CARD.md 의 '재현' 절 참조). 평가 수치 생성은 `python scripts/train.py --evaluate`.
+    return ModelInfoResponse(**get_model_info())
 
 
 # --- 배치 예측 (지도 '미래 도착시점 혼잡' 타임슬라이더용) ---

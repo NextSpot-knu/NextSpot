@@ -1,9 +1,19 @@
-# 세션 인계 문서 (2026-07-07 기준)
+# 세션 인계 문서 (2026-07-09 기준)
 
 > 다음 작업 세션(사람 또는 AI 에이전트)을 위한 현재 상태 스냅샷 + 즉시 실행 가능한 다음 단계.
 > 전략 정본: [`CONTEST_STRATEGY.md`](./CONTEST_STRATEGY.md) · 로드맵: [`IMPROVEMENT_PLAN.md`](./IMPROVEMENT_PLAN.md)
 
-## 1. 현재 상태 (HEAD `0c2b37a`, CI green)
+## 1. 현재 상태
+
+**완료된 것 (2026-07-09 세션) — "심사위원 지적 대응 3종":**
+- 개입 폐루프: `PATCH /admin/facilities/{id}` 에 coupon_rate 확장 + 대시보드 쿠폰 정책 패널
+  (`CouponPolicyPanel` — POI별 슬라이더, 저장 즉시 사용자 추천 w3 반영)
+- 분산 효과 정량화: 추천 생성 시 score_breakdown 에 original_wait_time 스냅샷 저장 +
+  `GET /admin/impact`(Σ max(0, 원본대기−대안대기), 레거시 행은 relief×15분 근사) + 대시보드
+  `ImpactWidget`("오늘 절감 대기시간 N분 · 재배치 M건")
+- 예측 백테스트: `train.py --evaluate`(시간순 홀드아웃 20% MAE vs 평균예측 기준선, metrics 를
+  model.pkl 내장) + `GET /predict/model-info` + 대시보드 `ModelAccuracyBadge` + `docs/MODEL_CARD.md`
+- 검증: pytest 50 · ruff clean · web lint 0 errors · typecheck · vitest 29 · build 전부 통과
 
 **완료된 것 (2026-07-07 하루 작업):**
 - 보안 핫픽스(WS-A): RLS 권한상승 차단·anon 노출 제거·admin API 단일 관문·카카오 키 제거 — 마이그레이션 `20260707120000`
@@ -21,10 +31,10 @@
 
 ## 2. 다음 작업 큐 (우선순위 순)
 
-### 즉시 (키 불필요) — "심사위원 지적 대응 3종"
-1. **개입 폐루프**: 관리자 대시보드에 쿠폰 정책 패널(POI 별 coupon_rate 슬라이더, `PATCH /api/v1/admin/facilities/{id}` 확장 필요 — 현재 name/capacity 만 수정 가능) → 사용자 앱 추천 순위 실시간 변동 시연. B2G "관제→개입" 완성.
-2. **분산 효과 정량화 위젯**: `수락 추천 × (원본 예상대기 − 대안 대기)` 합산 → 관리자 홈 "오늘 절감 대기시간 N분 · 재배치 M건". 데이터는 recommendations.score_breakdown 에 이미 있음.
-3. **예측 백테스트**: `train.py --evaluate` (홀드아웃 MAE) + `docs/MODEL_CARD.md` + 관리자 정확도 배지.
+### 즉시 (키 불필요)
+1. **모델 실평가 1회 실행**: `python apps/api/scripts/train.py --evaluate` (Supabase 로그 필요) —
+   실행해야 대시보드 정확도 배지가 '평가 전'에서 실측 MAE 로 바뀐다.
+2. Phase 3 데모 완성기 항목(아래) 착수.
 
 ### TOURAPI_KEY 수령 즉시 (Phase 2)
 - `python apps/api/scripts/ingest_tourapi.py --dry-run` 으로 파싱 확인 → 실적재

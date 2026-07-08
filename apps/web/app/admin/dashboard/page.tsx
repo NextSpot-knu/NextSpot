@@ -8,6 +8,9 @@ import { AdminSidebar } from '@/components/AdminSidebar';
 import { DashboardCharts, DashboardHeatmap } from '@/components/admin/DashboardCharts';
 import { FacilityTable } from '@/components/admin/FacilityTable';
 import { SimulatePeakButton } from '@/components/admin/SimulatePeakButton';
+import { CouponPolicyPanel } from '@/components/admin/CouponPolicyPanel';
+import { ImpactWidget } from '@/components/admin/ImpactWidget';
+import { ModelAccuracyBadge } from '@/components/admin/ModelAccuracyBadge';
 
 import { createPublicClient } from '@/lib/supabase';
 import { adminApi } from '@/lib/admin-api';
@@ -318,7 +321,10 @@ export default function DashboardPage() {
       <main className="flex-1 flex flex-col h-full overflow-hidden">
         {/* Top Header */}
         <header className="h-20 bg-slate-900 border-b border-slate-800 flex items-center justify-between px-8 flex-shrink-0">
-          <h2 className="text-xl font-bold text-slate-100">경주 관광 혼잡 종합 대시보드</h2>
+          <div className="flex items-center gap-4">
+            <h2 className="text-xl font-bold text-slate-100">경주 관광 혼잡 종합 대시보드</h2>
+            <ModelAccuracyBadge />
+          </div>
           <div className="flex items-center gap-6">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
@@ -421,6 +427,12 @@ export default function DashboardPage() {
                 </div>
               </div>
             </div>
+          </div>
+
+          {/* 개입 폐루프 Row — 쿠폰 정책(관제→개입) + 분산 효과(개입→효과 정량화) */}
+          <div className="grid grid-cols-3 gap-6">
+            <CouponPolicyPanel />
+            <ImpactWidget />
           </div>
 
           {/* Charts Row (Client Components) */}
