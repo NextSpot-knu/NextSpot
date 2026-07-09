@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.core.logging import setup_logging
-from app.routers import recommendations, infrastructures, predict, preferences, admin, reports
+from app.routers import recommendations, infrastructures, predict, preferences, admin, reports, coupons
 
 
 # 로깅 설정 초기화
@@ -42,6 +42,7 @@ app.include_router(predict.router, prefix="/predict")
 app.include_router(preferences.router)  # 자연어 선호 → 키워드 파싱 → 추천 반영
 app.include_router(admin.router)  # 관리자 전용(require_admin) — 시설 CRUD·설정·문의·지표 (WS-A-6)
 app.include_router(reports.router)  # 혼잡 제보(크라우드소싱) — 인증 사용자가 실시간 혼잡을 service_role 로 기록
+app.include_router(coupons.router)  # 내 쿠폰함(인센티브 지갑) — SPOT w3(coupon_rate)를 고객에게 노출
 
 # 1. Health Check Endpoint
 @app.get("/")
