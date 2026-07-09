@@ -11,6 +11,8 @@ const eslintConfig = defineConfig([
     ".next/**",
     "out/**",
     "build/**",
+    // `vercel build` 산출물(minified 빌드 아티팩트) — 소스가 아니므로 린트 대상에서 제외.
+    ".vercel/**",
     "next-env.d.ts",
   ]),
   {
