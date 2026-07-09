@@ -73,6 +73,8 @@ export default function MainPage() {
 
   // 히트맵 레이어 on/off — 혼잡 핀과 별개의 열지도 오버레이(CongestionMap 에서 이식). 기본 꺼짐.
   const [showHeatmap, setShowHeatmap] = useState(false);
+  // ♿ 배리어프리 필터 on/off — 켜지면 features.barrier_free 가 truthy 인(휠체어 등 무장애) 시설만 마커·히트맵에 표시. 기본 꺼짐.
+  const [showBarrierFree, setShowBarrierFree] = useState(false);
   // 예측 타임슬라이더 상태 — 0=지금(실측), 1~3=+N시간 후 AI 예측. predictionMap 은 시설별 예측 혼잡도.
   const [hoursAhead, setHoursAhead] = useState(0);
   const [predictionMap, setPredictionMap] = useState<Record<string, { level: number; anchored: boolean }> | null>(null);
@@ -423,12 +425,17 @@ export default function MainPage() {
   // 파생 목록. 원본 facilities 는 불변 → '지금'으로 복귀 시 즉시 실측 표시, 추천/카드 로직에 영향 없음.
   // (예측 대상은 실 시설. 그룹/데모 합성 시설은 predictionMap 에 없어 그대로 유지된다.)
   const markerFacilities = useMemo(() => {
-    if (!isForecast || !predictionMap) return facilities;
-    return facilities.map((f) => {
-      const pred = predictionMap[f.id];
-      return pred ? { ...f, congestionLevel: pred.level } : f;
-    });
-  }, [facilities, predictionMap, isForecast]);
+    const src = (!isForecast || !predictionMap)
+      ? facilities
+      : facilities.map((f) => {
+          const pred = predictionMap[f.id];
+          return pred ? { ...f, congestionLevel: pred.level } : f;
+        });
+    // ♿ 배리어프리 필터: 켜지면 features.barrier_free 가 truthy 인 시설만 남긴다.
+    // 마커·히트맵 공용 소스에서 한 번만 걸러 두 레이어가 항상 동일 집합을 그린다.
+    // (추천/카드 로직은 원본 facilities 를 쓰므로 필터의 영향을 받지 않는다 — 지도 표시만 좁힘.)
+    return showBarrierFree ? src.filter((f) => !!f?.features?.barrier_free) : src;
+  }, [facilities, predictionMap, isForecast, showBarrierFree]);
 
   // 타임슬라이더 전환: 지금(0)=실측 복귀, +N시간=백엔드 배치 예측으로 마커·히트맵 재채색.
   // 실패 시 예측을 적용하지 않고 '지금' 모드를 유지(토스트 안내) — 회귀 없이 안전.
@@ -1111,6 +1118,10 @@ export default function MainPage() {
   const searchMatchCount = searchActive
     ? facilities.filter(f => f.type === _filterTypeMap[activeFilter] && String(f.name ?? '').toLowerCase().includes(searchQuery.trim().toLowerCase())).length
     : 0;
+  // ♿ 배리어프리 필터가 켜졌는데 현재 카테고리에 무장애 시설이 0건이면 '빈 지도' 혼란을 막기 위해 안내(검색 빈 상태와 동일 패턴).
+  const barrierFreeMatchCount = showBarrierFree
+    ? facilities.filter(f => f.type === _filterTypeMap[activeFilter] && !!f?.features?.barrier_free).length
+    : 0;
 
   return (
     <div className="relative w-full h-screen overflow-hidden flex flex-col">
@@ -1161,6 +1172,15 @@ export default function MainPage() {
           <div className="pointer-events-auto px-2 -mt-1">
             <span className="inline-block text-muk text-xs bg-white/90 border border-line rounded-full px-3 py-1 shadow-[0_2px_14px_rgba(43,35,32,0.06)]">
               &apos;{searchQuery.trim()}&apos; 검색 결과가 없어요
+            </span>
+          </div>
+        )}
+
+        {/* ♿ 배리어프리 필터 결과 없음 안내 — 검색 빈 상태와 동일 톤(검색 안내가 우선일 땐 중복 표시하지 않음) */}
+        {showBarrierFree && barrierFreeMatchCount === 0 && !(searchActive && searchMatchCount === 0) && (
+          <div className="pointer-events-auto px-2 -mt-1">
+            <span className="inline-block text-muk text-xs bg-white/90 border border-line rounded-full px-3 py-1 shadow-[0_2px_14px_rgba(43,35,32,0.06)]">
+              ♿ 이 카테고리엔 배리어프리 장소가 없어요
             </span>
           </div>
         )}
@@ -1216,6 +1236,21 @@ export default function MainPage() {
           >
             <span className={`w-2 h-2 rounded-full ${showHeatmap ? 'bg-terracotta animate-pulse' : 'bg-muk-soft/40'}`} />
             🔥 히트맵
+          </button>
+
+          {/* ♿ 배리어프리 토글 — 켜지면 features.barrier_free 시설만 지도에 표시(무장애 여행 동선용) */}
+          <button
+            type="button"
+            onClick={() => setShowBarrierFree((prev) => !prev)}
+            aria-pressed={showBarrierFree}
+            className={`flex shrink-0 items-center gap-2 rounded-full border px-3 py-1.5 text-[13px] font-medium transition-all fractal-glass shadow-[0_2px_14px_rgba(43,35,32,0.06)] sm:px-4 sm:py-2 sm:text-sm ${
+              showBarrierFree
+                ? 'bg-jade/15 border-jade text-muk'
+                : 'bg-white/80 border-line text-muk-soft hover:bg-white hover:text-muk'
+            }`}
+          >
+            <span className={`w-2 h-2 rounded-full ${showBarrierFree ? 'bg-jade animate-pulse' : 'bg-muk-soft/40'}`} />
+            ♿ 배리어프리
           </button>
 
           {/* 예측 정직성 배지 — 실측(Live)과 혼동 방지 */}
