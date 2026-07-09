@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { motion, PanInfo, AnimatePresence } from 'framer-motion';
 import { Bookmark, Sparkles, Star, Phone, MapPin, Clock, ChevronUp, ChevronDown, Info } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
+import { CongestionReportButton } from '@/components/CongestionReportButton';
 
 interface RecommendationCardProps {
   title: string;
@@ -562,6 +563,11 @@ export function RecommendationCard({
             여기로 갈래요
           </button>
         </div>
+        {facility?.id && (
+          <div className="mt-2 flex justify-center">
+            <CongestionReportButton facility={facility} />
+          </div>
+        )}
       </>
       )}
     </motion.div>

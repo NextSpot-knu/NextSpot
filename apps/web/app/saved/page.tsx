@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Menu, Bell, Home, Bookmark, User, Compass, Star, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { RecommendationCard } from '@/components/RecommendationCard';
+import { CongestionAlertToggle } from '@/components/CongestionAlertToggle';
 
 interface BookmarkData {
   id: string;
@@ -169,7 +170,11 @@ export default function SavedPage() {
                 전체 초기화
               </button>
             </div>
-            
+            {/* 저장한 곳이 한산해지면 인앱 알림(옵트인) */}
+            <div className="px-1 -mt-1 mb-1">
+              <CongestionAlertToggle />
+            </div>
+
             {bookmarks.map((bookmark, index) => (
               // 카드 안에 실제 삭제 <button> 을 두어야 하므로 카드 자체는 button 대신
               // role="button" 컨테이너로 둔다(button-in-button 무효 HTML 방지 + 키보드 접근).

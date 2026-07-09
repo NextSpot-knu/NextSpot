@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { 
   Menu, Bell, Home, Bookmark, User, 
   Edit2, ChevronRight, LogOut, Shield, 
-  HelpCircle, Settings as SettingsIcon, BellRing, Star, Sparkles
+  HelpCircle, Settings as SettingsIcon, BellRing, Star, Sparkles, Route, Ticket
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { apiClient } from '@/lib/api-client';
@@ -263,11 +263,15 @@ export default function MyPage() {
               </div>
 
               {/* 기타 메뉴 */}
-              {[
-                { id: 'privacy', icon: Shield, label: '개인정보', path: '#' },
-                { id: 'help', icon: HelpCircle, label: '고객지원', path: '/mypage/support' },
-                { id: 'settings', icon: SettingsIcon, label: '설정', path: '#' },
-              ].map((menu, index) => {
+              {(() => {
+                const menus = [
+                  { id: 'course', icon: Route, label: '분산 코스 추천', path: '/course' },
+                  { id: 'coupons', icon: Ticket, label: '내 쿠폰함', path: '/mypage/coupons' },
+                  { id: 'privacy', icon: Shield, label: '개인정보', path: '#' },
+                  { id: 'help', icon: HelpCircle, label: '고객지원', path: '/mypage/support' },
+                  { id: 'settings', icon: SettingsIcon, label: '설정', path: '#' },
+                ];
+                return menus.map((menu, index) => {
                 const Icon = menu.icon;
                 return (
                   <button
@@ -278,7 +282,7 @@ export default function MyPage() {
                       if (menu.path === '#') { handleComingSoon(); return; }
                       router.push(menu.path);
                     }}
-                    className={`w-full flex items-center justify-between p-5 hover:bg-hanji transition-colors ${index !== 2 ? 'border-b border-line' : ''}`}
+                    className={`w-full flex items-center justify-between p-5 hover:bg-hanji transition-colors ${index !== menus.length - 1 ? 'border-b border-line' : ''}`}
                   >
                     <div className="flex items-center gap-4">
                       <div className="w-10 h-10 rounded-full bg-hanji-deep flex items-center justify-center">
@@ -289,7 +293,8 @@ export default function MyPage() {
                     <ChevronRight size={20} className="text-muk-soft" />
                   </button>
                 );
-              })}
+                });
+              })()}
             </div>
 
             {/* Sign Out Button */}
