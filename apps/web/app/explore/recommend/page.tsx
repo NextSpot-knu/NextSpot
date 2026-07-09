@@ -1149,7 +1149,7 @@ function RecommendContent() {
         {/* Header */}
         <header className="flex items-center justify-between border-b border-white/10 pb-4">
           <button
-            onClick={() => { quietAssistant(); router.push("/explore/map"); }}
+            onClick={() => { quietAssistant(); router.push("/main"); }}
             className="text-xs text-slate-400 hover:text-white flex items-center gap-1.5 transition-all duration-200"
           >
             ← 지도 보기

@@ -30,3 +30,5 @@ venv/
 # Logs
 *.log
 npm-debug.log*
+.vercel
+.env*
