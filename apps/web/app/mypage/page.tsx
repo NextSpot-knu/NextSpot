@@ -159,8 +159,24 @@ export default function MyPage() {
       {/* Main Content Area */}
       <main className="flex-1 flex flex-col relative z-10 px-6 overflow-y-auto pb-[120px] md:pb-6 no-scrollbar">
         {isLoading || !profile ? (
-          <div className="flex-1 flex items-center justify-center">
-            <div className="w-8 h-8 border-4 border-gold border-t-transparent rounded-full animate-spin"></div>
+          // 프로필 블록 + 취향 레이더 + 통계 형태의 스켈레톤(스피너 대체) — 실제 레이아웃을 암시한다.
+          <div className="flex flex-col mt-4" aria-hidden>
+            {/* Profile 스켈레톤 */}
+            <div className="bg-white border border-line rounded-3xl p-6 flex flex-col items-center shadow-[0_2px_14px_rgba(43,35,32,0.06)] mb-4 animate-pulse">
+              <div className="w-20 h-20 rounded-full bg-hanji-deep mb-4" />
+              <div className="h-6 bg-hanji-deep w-1/3 rounded-md mb-2" />
+              <div className="h-4 bg-hanji-deep w-1/2 rounded-md mb-4" />
+              <div className="h-6 bg-hanji-deep w-24 rounded-full" />
+            </div>
+            {/* 취향 레이더 스켈레톤 */}
+            <div className="bg-white border border-line rounded-3xl p-6 flex flex-col items-center shadow-[0_2px_14px_rgba(43,35,32,0.06)] mb-4 animate-pulse">
+              <div className="h-4 bg-hanji-deep w-2/5 rounded-md mb-4" />
+              <div className="w-40 h-40 rounded-full bg-hanji-deep/60" />
+            </div>
+            {/* 통계 스켈레톤 */}
+            <div className="bg-white border border-line rounded-2xl p-4 flex items-center justify-center gap-3 shadow-[0_2px_14px_rgba(43,35,32,0.06)] mb-6 animate-pulse">
+              <div className="h-6 bg-hanji-deep w-24 rounded-md" />
+            </div>
           </div>
         ) : (
           <div className="flex flex-col animate-fade-in mt-4">

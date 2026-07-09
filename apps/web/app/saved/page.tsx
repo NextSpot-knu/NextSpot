@@ -145,8 +145,18 @@ export default function SavedPage() {
       {/* Main Content Area */}
       <main className="flex-1 flex flex-col relative z-10 p-6 overflow-y-auto pb-[120px] md:pb-6">
         {isLoading ? (
-          <div className="flex-1 flex items-center justify-center">
-            <div className="w-8 h-8 border-4 border-gold border-t-transparent rounded-full animate-spin"></div>
+          // 저장 카드 형태의 스켈레톤(스피너 대체) — 실제 목록 레이아웃을 미리 암시한다.
+          <div className="flex flex-col gap-4" aria-hidden>
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="bg-white rounded-2xl border border-line p-4 space-y-3 shadow-[0_2px_14px_rgba(43,35,32,0.06)] animate-pulse">
+                <div className="flex items-center gap-2">
+                  <div className="h-5 w-16 bg-hanji-deep rounded-md" />
+                  <div className="w-3 h-3 rounded-full bg-hanji-deep" />
+                </div>
+                <div className="h-5 bg-hanji-deep w-2/3 rounded-md" />
+                <div className="h-16 bg-hanji-deep/60 rounded-2xl w-full" />
+              </div>
+            ))}
           </div>
         ) : bookmarks.length === 0 ? (
           // Empty State

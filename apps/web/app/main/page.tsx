@@ -1157,7 +1157,7 @@ export default function MainPage() {
               onClick={() => setSearchQuery('')}
               title={t('map.searchClear')}
               aria-label={t('map.searchClear')}
-              className="ml-3 text-muk-soft hover:text-muk transition-colors"
+              className="ml-3 rounded-full text-muk-soft hover:text-muk transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
             >
               <X size={18} />
             </button>
@@ -1213,7 +1213,7 @@ export default function MainPage() {
                     sessionStorage.setItem('nextspot_active_filter', filter.id);
                   }
                 }}
-                className={`flex shrink-0 items-center whitespace-nowrap rounded-full border px-3 py-1.5 transition-all fractal-glass shadow-[0_2px_14px_rgba(43,35,32,0.06)] sm:px-4 sm:py-2 ${
+                className={`flex shrink-0 items-center whitespace-nowrap rounded-full border px-3 py-1.5 transition-all fractal-glass shadow-[0_2px_14px_rgba(43,35,32,0.06)] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 sm:px-4 sm:py-2 ${
                   isActive
                     ? 'bg-gold/15 border-gold text-muk'
                     : 'bg-white/80 border-line text-muk-soft hover:bg-white hover:text-muk'
@@ -1235,7 +1235,7 @@ export default function MainPage() {
             type="button"
             onClick={() => setShowHeatmap((prev) => !prev)}
             aria-pressed={showHeatmap}
-            className={`flex shrink-0 items-center gap-2 rounded-full border px-3 py-1.5 text-[13px] font-medium transition-all fractal-glass shadow-[0_2px_14px_rgba(43,35,32,0.06)] sm:px-4 sm:py-2 sm:text-sm ${
+            className={`flex shrink-0 items-center gap-2 rounded-full border px-3 py-1.5 text-[13px] font-medium transition-all fractal-glass shadow-[0_2px_14px_rgba(43,35,32,0.06)] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 sm:px-4 sm:py-2 sm:text-sm ${
               showHeatmap
                 ? 'bg-terracotta/15 border-terracotta text-muk'
                 : 'bg-white/80 border-line text-muk-soft hover:bg-white hover:text-muk'
@@ -1250,7 +1250,7 @@ export default function MainPage() {
             type="button"
             onClick={() => setShowBarrierFree((prev) => !prev)}
             aria-pressed={showBarrierFree}
-            className={`flex shrink-0 items-center gap-2 rounded-full border px-3 py-1.5 text-[13px] font-medium transition-all fractal-glass shadow-[0_2px_14px_rgba(43,35,32,0.06)] sm:px-4 sm:py-2 sm:text-sm ${
+            className={`flex shrink-0 items-center gap-2 rounded-full border px-3 py-1.5 text-[13px] font-medium transition-all fractal-glass shadow-[0_2px_14px_rgba(43,35,32,0.06)] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 sm:px-4 sm:py-2 sm:text-sm ${
               showBarrierFree
                 ? 'bg-jade/15 border-jade text-muk'
                 : 'bg-white/80 border-line text-muk-soft hover:bg-white hover:text-muk'

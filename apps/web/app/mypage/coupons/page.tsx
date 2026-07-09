@@ -101,8 +101,18 @@ export default function CouponsPage() {
       {/* Main Content */}
       <main className="flex-1 flex flex-col relative z-10 px-6 overflow-y-auto pb-[120px] md:pb-6 no-scrollbar">
         {isLoading ? (
-          <div className="flex-1 flex items-center justify-center">
-            <div className="w-8 h-8 border-4 border-gold border-t-transparent rounded-full animate-spin"></div>
+          // 티켓 카드 형태의 스켈레톤(스피너 대체) — 좌측 할인 스텁 + 우측 정보 레이아웃을 암시한다.
+          <div className="flex flex-col gap-4 mt-2" aria-hidden>
+            {[0, 1].map((i) => (
+              <div key={i} className="flex items-stretch rounded-2xl border border-line overflow-hidden shadow-[0_2px_14px_rgba(43,35,32,0.06)] animate-pulse">
+                <div className="w-20 shrink-0 bg-hanji-deep" />
+                <div className="flex-1 flex flex-col justify-center gap-2 px-4 py-4">
+                  <div className="h-4 bg-hanji-deep w-1/3 rounded-md" />
+                  <div className="h-5 bg-hanji-deep w-2/3 rounded-md" />
+                  <div className="h-3 bg-hanji-deep w-1/4 rounded-md" />
+                </div>
+              </div>
+            ))}
           </div>
         ) : needsAuth ? (
           // Auth-required State — 관광객 로그인이 없어 쿠폰함이 비어 있는 것이 정상이다.
