@@ -92,7 +92,8 @@ async def issue_coupon(
     if coupon_rate <= 0:
         raise HTTPException(status_code=422, detail="제휴 할인이 없는 시설이라 쿠폰을 발급할 수 없습니다.")
 
-    # 2) 발급(upsert) — 재발급 시 할인율 갱신 + status 를 'issued' 로 되돌린다.
+    # 2) 발급 — 이미 보유 시 무시(ignore_duplicates)해 사용/발급 상태를 되돌리지 않는다(리뷰 P2#8).
+    #    issued_at/used_at 은 신규 INSERT 에만 적용(DB 기본값 대비 명시). 기존 행은 손대지 않는다.
     payload = {
         "user_id": user_id,
         "facility_id": req.facility_id,
@@ -104,17 +105,31 @@ async def issue_coupon(
     try:
         res = await asyncio.to_thread(
             supabase_admin.table("user_coupons")
-            .upsert(payload, on_conflict="user_id,facility_id")
+            .upsert(payload, on_conflict="user_id,facility_id", ignore_duplicates=True)
             .execute
         )
     except Exception as e:
         logger.error("coupon_issue_failed", user_id=user_id, facility_id=req.facility_id, error=str(e))
         raise HTTPException(status_code=500, detail="쿠폰 발급에 실패했습니다.")
 
-    if not res.data:
+    row = res.data[0] if res.data else None
+    if row is None:
+        # 이미 보유(중복 무시로 INSERT 안 됨) → 기존 쿠폰을 조회해 그대로 반환한다(되돌리지 않음).
+        try:
+            ex = await asyncio.to_thread(
+                supabase_admin.table("user_coupons")
+                .select("*")
+                .eq("user_id", user_id)
+                .eq("facility_id", req.facility_id)
+                .execute
+            )
+        except Exception as e:
+            logger.error("coupon_issue_lookup_failed", user_id=user_id, facility_id=req.facility_id, error=str(e))
+            raise HTTPException(status_code=500, detail="쿠폰 발급에 실패했습니다.")
+        row = ex.data[0] if ex.data else None
+    if row is None:
         raise HTTPException(status_code=500, detail="쿠폰 발급에 실패했습니다.")
     logger.info("coupon_issued", user_id=user_id, facility_id=req.facility_id, coupon_rate=coupon_rate)
-    row = res.data[0]
     return {
         "id": row.get("id"),
         "facility_id": row.get("facility_id"),

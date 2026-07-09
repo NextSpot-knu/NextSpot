@@ -507,6 +507,28 @@ async def submit_feedback(
             .eq("id", req.recommendation_id)
             .execute
         )
+        # 3-1. 제휴 시설이면 '내 쿠폰함'에 쿠폰 발급 — 실제 '수락'을 게이트로 w3 인센티브(coupon_rate)를
+        #      현물화한다(리뷰 P1#1: 발급 경로 미연결 → 지갑이 늘 비던 문제 해소, P2#8: 발급 게이팅).
+        #      중복(이미 보유) 시 무시(ignore_duplicates)해 이미 사용/발급된 쿠폰을 되돌리지 않는다.
+        #      쿠폰 발급 실패가 피드백 처리를 깨지 않도록 best-effort(예외 로깅 후 무시)로 둔다.
+        coupon_rate = facility.get("coupon_rate") or 0
+        if coupon_rate > 0:
+            try:
+                await asyncio.to_thread(
+                    supabase_client.table("user_coupons").upsert(
+                        {
+                            "user_id": user_id,
+                            "facility_id": facility["id"],
+                            "coupon_rate": coupon_rate,
+                            "status": "issued",
+                        },
+                        on_conflict="user_id,facility_id",
+                        ignore_duplicates=True,
+                    ).execute
+                )
+                logger.info("coupon_issued_on_accept", user_id=user_id, facility_id=facility["id"])
+            except Exception as e:
+                logger.warning("coupon_issue_on_accept_failed", user_id=user_id, facility_id=facility.get("id"), error=str(e))
 
     # 4. 선호 벡터 저장소 사용자 선호도 벡터 학습 보정
     # 시설 특성 및 카테고리에 맞는 기본 벡터 획득
