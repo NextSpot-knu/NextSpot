@@ -49,7 +49,7 @@ export default function LoadingPage() {
   return (
     <div
       onClick={go}
-      className="flex flex-col items-center justify-center min-h-screen bg-[url('/bg.png')] bg-cover bg-center relative overflow-hidden cursor-pointer"
+      className="flex flex-col items-center justify-center min-h-screen bg-gradient-to-b from-[#0b101e] via-[#0d1526] to-[#070b16] relative overflow-hidden cursor-pointer"
     >
       {/* Dark overlay for readability */}
       <div className="absolute inset-0 bg-[#0b101e]/70 z-0"></div>

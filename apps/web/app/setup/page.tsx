@@ -89,7 +89,7 @@ export default function SetupPage() {
   };
 
   return (
-    <div className="flex flex-col min-h-screen bg-[url('/bg.png')] bg-cover bg-center text-white relative overflow-hidden">
+    <div className="flex flex-col min-h-screen bg-gradient-to-b from-[#0b101e] via-[#0d1526] to-[#070b16] text-white relative overflow-hidden">
       {/* Dark overlay for readability */}
       <div className="absolute inset-0 bg-[#0b101e]/70 z-0"></div>
 

@@ -129,7 +129,7 @@ export default function MyPage() {
 
 
   return (
-    <div className="relative w-full h-[100dvh] bg-[url('/bg.png')] bg-cover bg-center flex flex-col overflow-hidden">
+    <div className="relative w-full h-[100dvh] bg-gradient-to-b from-[#0b101e] via-[#0d1526] to-[#070b16] flex flex-col overflow-hidden">
       {/* Dark overlay for readability */}
       <div className="absolute inset-0 bg-[#0b101e]/80 z-0"></div>
 

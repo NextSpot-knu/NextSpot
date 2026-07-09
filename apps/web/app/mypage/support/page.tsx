@@ -65,7 +65,7 @@ export default function UserSupportForm() {
   };
 
   return (
-    <div className="relative w-full min-h-screen bg-[url('/bg.png')] bg-cover bg-center flex flex-col overflow-hidden">
+    <div className="relative w-full min-h-screen bg-gradient-to-b from-[#0b101e] via-[#0d1526] to-[#070b16] flex flex-col overflow-hidden">
       {/* Dark overlay */}
       <div className="absolute inset-0 bg-[#0b101e]/80 z-0"></div>
 
