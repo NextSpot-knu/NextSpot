@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { Ticket, Search } from 'lucide-react';
+import { toast } from 'sonner';
 import { createPublicClient } from '@/lib/supabase';
 import { adminApi } from '@/lib/admin-api';
 import { SPOT_WEIGHTS, SPOT_INCENTIVE } from 'shared-types';
@@ -50,6 +51,10 @@ export function CouponPolicyPanel() {
   // 동일 시설의 in-flight PATCH 를 동기적으로 차단(이중 발사 방지). state 는 비동기라
   // 커밋 재진입 가드로는 늦어, 렌더와 무관한 ref 로 즉시 판정한다.
   const inFlight = useRef<Set<string>>(new Set());
+  // commitRate 의 finally 는 await 이후에 실행돼 클로저의 pending 이 낡을 수 있다.
+  // 최신 pending 을 동기적으로 읽으려고 렌더마다 갱신되는 ref 로 미러링한다.
+  const pendingRef = useRef(pending);
+  pendingRef.current = pending;
 
   useEffect(() => {
     (async () => {
@@ -76,7 +81,9 @@ export function CouponPolicyPanel() {
     pending[f.id] ?? Math.round((f.coupon_rate || 0) * 100);
 
   const commitRate = async (f: CouponFacility) => {
-    const percent = pending[f.id];
+    // 커밋 값은 항상 최신 pending(ref)에서 읽는다 — finally 의 재커밋이 낡은 클로저로
+    // 호출돼도 사용자의 마지막 값을 집도록.
+    const percent = pendingRef.current[f.id];
     // 변경 없음(스냅 값과 동일)이거나 동일 시설이 이미 저장 중이면 재커밋하지 않는다.
     // 후자 가드가 없으면 포인터 릴리즈+포커스 이탈이 겹칠 때 같은 시설에 PATCH 가 이중 발사된다.
     if (percent === undefined || percent === Math.round((f.coupon_rate || 0) * 100)) return;
@@ -94,19 +101,28 @@ export function CouponPolicyPanel() {
         return next;
       }), 1500);
     } catch (err: any) {
-      alert(`쿠폰 정책 저장 실패: ${err?.message || '알 수 없는 오류'}`);
+      toast.error(`쿠폰 정책 저장 실패: ${err?.message || '알 수 없는 오류'}`);
     } finally {
       inFlight.current.delete(f.id);
-      setPending(prev => {
-        const next = { ...prev };
-        delete next[f.id];
-        return next;
-      });
+      // in-flight 사이 사용자가 값을 더 바꿨을 수 있다(두 번째 릴리즈가 inFlight 가드에 막힌 경우).
+      // 방금 커밋한 percent 와 최신 pending 이 같을 때만 pending 을 정리한다. 값이 그새 바뀌었으면
+      // pending 을 유지한 채 최신 값으로 재커밋해, 낡은 값으로 '저장됨 ✓' 이 뜨는 레이스를 막는다.
+      const latest = pendingRef.current[f.id];
+      const superseded = latest !== undefined && latest !== percent;
+      if (!superseded) {
+        setPending(prev => {
+          const next = { ...prev };
+          delete next[f.id];
+          return next;
+        });
+      }
       setSavingIds(prev => {
         const next = { ...prev };
         delete next[f.id];
         return next;
       });
+      // 재커밋의 no-op 가드가 방금 저장한 값(rate)을 기준으로 판정하도록 f.coupon_rate 를 갱신해 넘긴다.
+      if (superseded) commitRate({ ...f, coupon_rate: rate });
     }
   };
 

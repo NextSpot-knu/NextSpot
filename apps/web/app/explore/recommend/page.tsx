@@ -628,7 +628,7 @@ function RecommendContent() {
   // Handle Onboarding Preferences Submission
   const handleOnboardingSubmit = async () => {
     if (selectedOnboardingCats.length < 3) {
-      alert("선호하는 장소 종류를 3개 이상 선택해 주세요!");
+      toast.info("선호하는 장소 종류를 3개 이상 선택해 주세요!");
       return;
     }
     if (!userId || !facilityId) return;

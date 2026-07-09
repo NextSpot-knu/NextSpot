@@ -40,11 +40,9 @@ export default function BottomNav() {
     
     // 즉각적인 60fps 시각 피드백 제공 (Next.js 렌더링 블락 회피)
     setOptimisticTab(tab.id);
-    
-    // 애니메이션이 부드럽게 시작할 시간을 주고 라우팅 (프레임 드랍 완전 방지)
-    setTimeout(() => {
-      router.push(tab.path);
-    }, 100);
+
+    // 인위적 지연 없이 즉시 라우팅 (낙관적 인디케이터는 위에서 이미 갱신됨)
+    router.push(tab.path);
   };
 
   return (
@@ -65,6 +63,7 @@ export default function BottomNav() {
             <button
               key={tab.id}
               onClick={() => handleTabClick(tab)}
+              aria-current={isActive ? 'page' : undefined}
               className={`relative z-10 flex flex-col items-center justify-center transition-colors w-16 h-16 ${
                 isActive ? 'text-[#104bce]' : 'text-gray-500 hover:text-gray-400'
               }`}

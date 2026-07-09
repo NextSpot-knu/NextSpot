@@ -7,7 +7,9 @@ import {
   Edit2, ChevronRight, LogOut, Shield, 
   HelpCircle, Settings as SettingsIcon, BellRing, Star, Sparkles
 } from 'lucide-react';
+import { toast } from 'sonner';
 import { apiClient } from '@/lib/api-client';
+import { createPublicClient } from '@/lib/supabase';
 import TasteRadar from '@/components/TasteRadar';
 
 interface UserProfile {
@@ -37,10 +39,26 @@ export default function MyPage() {
         // const data = await response.json();
         // setProfile(data);
         
-        // UI 확인을 위한 임시 목업 상태 (API 연동 전)
+        // 프로필명/이메일은 하드코딩 실명 대신 로그인 세션에서 파생한다.
+        // 비로그인·목 세션이면 user 가 null 이므로 명확한 플레이스홀더로 폴백(회귀 없이 데모 무중단).
+        let displayName = '게스트 탐험가';
+        let displayEmail = 'guest@nextspot.app';
+        try {
+          const supabase = createPublicClient();
+          const { data: { user } } = await supabase.auth.getUser();
+          if (user?.email) {
+            displayEmail = user.email;
+            // 이메일 앞부분(@ 이전)을 표시 이름으로 사용
+            displayName = user.email.split('@')[0];
+          }
+        } catch (authErr) {
+          console.error('Failed to fetch session user in mypage', authErr);
+        }
+
+        // UI 확인을 위한 임시 목업 상태 (통계 수치는 API 연동 전 목업, 이름/이메일은 세션 파생)
         setProfile({
-          name: 'Yun Seong',
-          email: 'yun.seong@nextspot.app',
+          name: displayName,
+          email: displayEmail,
           role: 'Explorer',
           routes: 24,
           saved: 7,
@@ -90,6 +108,24 @@ export default function MyPage() {
     }
   };
 
+  // 미구현 항목 공통 안내: 죽은 버튼이 무반응으로 보이지 않도록 '준비 중' 토스트를 띄운다.
+  const handleComingSoon = () => {
+    toast.info('준비 중인 기능이에요');
+  };
+
+  // 로그아웃: 세션을 종료한 뒤 루트로 이동한다(목/비로그인 세션이어도 안전하게 폴백).
+  const handleSignOut = async () => {
+    try {
+      const supabase = createPublicClient();
+      await supabase.auth.signOut();
+    } catch (err) {
+      console.error('Sign out failed', err);
+    } finally {
+      toast.success('로그아웃되었습니다');
+      router.push('/');
+    }
+  };
+
 
 
   return (
@@ -99,11 +135,21 @@ export default function MyPage() {
 
       {/* Header */}
       <header className="flex justify-between items-center p-5 z-10 relative">
-        <button className="text-gray-400 hover:text-white transition-colors">
+        <button
+          type="button"
+          aria-label="메뉴"
+          onClick={handleComingSoon}
+          className="text-gray-400 hover:text-white transition-colors"
+        >
           <Menu size={24} />
         </button>
         <h1 className="text-xl font-bold text-white tracking-wide">NextSpot</h1>
-        <button className="text-gray-400 hover:text-white transition-colors">
+        <button
+          type="button"
+          aria-label="알림"
+          onClick={handleComingSoon}
+          className="text-gray-400 hover:text-white transition-colors"
+        >
           <Bell size={24} />
         </button>
       </header>
@@ -134,7 +180,11 @@ export default function MyPage() {
                 {profile.role}
               </div>
 
-              <button className="flex items-center gap-2 px-5 py-2.5 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-white text-sm font-medium transition-colors">
+              <button
+                type="button"
+                onClick={handleComingSoon}
+                className="flex items-center gap-2 px-5 py-2.5 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-white text-sm font-medium transition-colors"
+              >
                 <Edit2 size={14} />
                 <span>Edit Profile</span>
               </button>
@@ -222,9 +272,14 @@ export default function MyPage() {
               ].map((menu, index) => {
                 const Icon = menu.icon;
                 return (
-                  <button 
-                    key={menu.id} 
-                    onClick={() => { if (menu.path !== '#') router.push(menu.path); }}
+                  <button
+                    key={menu.id}
+                    type="button"
+                    onClick={() => {
+                      // 라우트가 없는(path:'#') 미구현 메뉴는 '준비 중' 안내, 나머지는 실제 이동.
+                      if (menu.path === '#') { handleComingSoon(); return; }
+                      router.push(menu.path);
+                    }}
                     className={`w-full flex items-center justify-between p-5 hover:bg-white/5 transition-colors ${index !== 2 ? 'border-b border-white/5' : ''}`}
                   >
                     <div className="flex items-center gap-4">
@@ -240,7 +295,11 @@ export default function MyPage() {
             </div>
 
             {/* Sign Out Button */}
-            <button className="w-full flex items-center justify-center gap-2 py-4 rounded-2xl border border-white/5 bg-transparent hover:bg-white/5 text-gray-500 font-semibold transition-colors mb-4">
+            <button
+              type="button"
+              onClick={handleSignOut}
+              className="w-full flex items-center justify-center gap-2 py-4 rounded-2xl border border-white/5 bg-transparent hover:bg-white/5 text-gray-500 font-semibold transition-colors mb-4"
+            >
               <LogOut size={18} className="text-[#fca5a5]" />
               <span className="text-[#fca5a5]/80">SIGN OUT</span>
             </button>

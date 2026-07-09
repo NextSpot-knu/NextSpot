@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Menu, Bell, Home, Bookmark, User, Compass, Star, Trash2 } from 'lucide-react';
+import { toast } from 'sonner';
 import { RecommendationCard } from '@/components/RecommendationCard';
 
 interface BookmarkData {
@@ -22,7 +23,6 @@ export default function SavedPage() {
   const [bookmarks, setBookmarks] = useState<BookmarkData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedBookmark, setSelectedBookmark] = useState<BookmarkData | null>(null);
-  const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [currentTime, setCurrentTime] = useState<Date | null>(null);
 
   useEffect(() => {
@@ -37,19 +37,6 @@ export default function SavedPage() {
     if (!date) return '';
     return date.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false });
   };
-
-  const showToast = (msg: string) => {
-    setToastMessage(msg);
-  };
-
-  useEffect(() => {
-    if (toastMessage) {
-      const timer = setTimeout(() => {
-        setToastMessage(null);
-      }, 3000);
-      return () => clearTimeout(timer);
-    }
-  }, [toastMessage]);
 
   useEffect(() => {
     // API Fetch Mockup
@@ -94,16 +81,29 @@ export default function SavedPage() {
     if (selectedBookmark?.id === id) {
       setSelectedBookmark(null);
     }
-    showToast('저장된 스팟이 삭제되었습니다.');
+    toast.success('저장된 스팟이 삭제되었습니다.');
   };
 
+  // 전체 초기화: 되돌릴 수 없는 파괴적 동작이므로 네이티브 confirm() 대신
+  // 전역 sonner 토스트의 action/cancel 버튼으로 인페이지 확인을 받는다(다크 글래스 UI 유지).
   const handleClearAll = () => {
-    if (confirm('모든 저장된 스팟을 초기화하시겠습니까?')) {
-      setBookmarks([]);
-      localStorage.removeItem('nextspot_saved_facilities');
-      setSelectedBookmark(null);
-      showToast('모든 저장된 스팟이 초기화되었습니다.');
-    }
+    toast('모든 저장된 스팟을 초기화할까요?', {
+      description: '삭제된 목록은 되돌릴 수 없습니다.',
+      duration: 8000,
+      action: {
+        label: '초기화',
+        onClick: () => {
+          setBookmarks([]);
+          localStorage.removeItem('nextspot_saved_facilities');
+          setSelectedBookmark(null);
+          toast.success('모든 저장된 스팟이 초기화되었습니다.');
+        },
+      },
+      cancel: {
+        label: '취소',
+        onClick: () => {},
+      },
+    });
   };
 
   const renderTrafficIndicator = (status: 'orange' | 'yellow' | 'green' | 'blue') => {
@@ -172,10 +172,23 @@ export default function SavedPage() {
             </div>
             
             {bookmarks.map((bookmark, index) => (
-              <button
+              // 카드 안에 실제 삭제 <button> 을 두어야 하므로 카드 자체는 button 대신
+              // role="button" 컨테이너로 둔다(button-in-button 무효 HTML 방지 + 키보드 접근).
+              <div
                 key={bookmark.id}
+                role="button"
+                tabIndex={0}
+                aria-pressed={selectedBookmark?.id === bookmark.id}
                 onClick={() => setSelectedBookmark(bookmark)}
-                className={`group flex flex-col p-4 rounded-2xl border backdrop-blur-md transition-all text-left relative overflow-hidden ${
+                onKeyDown={(e) => {
+                  // 내부 요소(삭제 버튼)에서 버블링된 키 이벤트는 무시해 중복 실행을 막는다.
+                  if (e.target !== e.currentTarget) return;
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    setSelectedBookmark(bookmark);
+                  }
+                }}
+                className={`group flex flex-col p-4 rounded-2xl border backdrop-blur-md transition-all text-left relative overflow-hidden cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/70 ${
                   selectedBookmark?.id === bookmark.id
                     ? 'bg-blue-600/20 border-blue-500'
                     : 'bg-white/5 border-white/10 hover:bg-white/10'
@@ -198,20 +211,24 @@ export default function SavedPage() {
                     <h3 className="text-lg font-bold text-white">{bookmark.name}</h3>
                   </div>
                   
-                  {/* Delete Button */}
+                  {/* Delete Button — 실제 <button> 으로 시맨틱 교정(키보드 포커스/스크린리더 지원) */}
                   <div className="flex flex-col items-end pr-1 z-20">
-                    <div 
+                    <button
+                      type="button"
+                      aria-label={`${bookmark.name} 저장 삭제`}
                       onClick={(e) => handleDelete(bookmark.id, e)}
-                      className="p-2 rounded-xl bg-red-500/10 text-red-400 hover:bg-red-500/20 opacity-0 group-hover:opacity-100 transition-opacity md:flex hidden"
+                      className="p-2 rounded-xl bg-red-500/10 text-red-400 hover:bg-red-500/20 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-400/70 transition-opacity md:flex hidden"
                     >
                       <Trash2 size={18} />
-                    </div>
-                    <div 
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={`${bookmark.name} 저장 삭제`}
                       onClick={(e) => handleDelete(bookmark.id, e)}
-                      className="p-1.5 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 md:hidden flex"
+                      className="p-1.5 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-400/70 md:hidden flex"
                     >
                       <Trash2 size={16} />
-                    </div>
+                    </button>
                   </div>
                 </div>
 
@@ -269,7 +286,7 @@ export default function SavedPage() {
                     </div>
                   );
                 })()}
-              </button>
+              </div>
             ))}
           </div>
         )}
@@ -305,7 +322,7 @@ export default function SavedPage() {
               setBookmarks(updated);
               localStorage.setItem('nextspot_saved_facilities', JSON.stringify(updated));
               setSelectedBookmark(null);
-              showToast(`'${selectedBookmark.name}'이(가) 저장된 목록에서 삭제되었습니다.`);
+              toast.success(`'${selectedBookmark.name}'이(가) 저장된 목록에서 삭제되었습니다.`);
             }}
           />
         </div>
@@ -313,17 +330,6 @@ export default function SavedPage() {
 
       {/* Background Glow */}
       <div className="absolute top-1/4 left-1/4 w-[300px] h-[300px] bg-blue-500/10 rounded-full blur-[100px] pointer-events-none z-0"></div>
-
-
-
-      {/* Toast Notification */}
-      {toastMessage && (
-        <div className="fixed bottom-[350px] left-1/2 -translate-x-1/2 z-50 pointer-events-none w-full max-w-sm px-4 animate-toast">
-          <div className="bg-black/85 backdrop-blur-md text-white text-xs sm:text-sm px-5 py-3 rounded-full shadow-lg text-center font-medium break-keep">
-            {toastMessage}
-          </div>
-        </div>
-      )}
     </div>
   );
 }

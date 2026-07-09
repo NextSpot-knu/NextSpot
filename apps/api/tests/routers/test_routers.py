@@ -3,6 +3,7 @@
 #         관리자 가드(require_admin)는 실제 헤더 경로(X-Admin-Authorization)를 그대로 태운다.
 #  · DB: 라우터 헬퍼(fetch_user 등)는 AsyncMock 으로, supabase 클라이언트는 체이닝을 흡수하는
 #        FakeSupabase(canned 데이터) 로 대체 — PostgREST 호출이 전혀 발생하지 않는다.
+from datetime import datetime
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -364,6 +365,92 @@ def test_admin_impact_aggregation(client):
     assert res.status_code == 200
     body = res.json()
     assert body["relocations"] == 3
+    assert body["saved_wait_minutes"] == 21.0
+    assert body["measured"] == 1
+    assert body["estimated"] == 1
+
+
+# --- 이 테스트 전용 '필터 인지' 가짜 ---
+# 공유 FakeTable 은 .eq/.gte 를 흡수만 해 accepted·since 필터 회귀를 못 잡는다(집계 산술만 검증).
+# 아래 가짜는 .eq/.gte 인자를 기록했다가 execute()에서 canned 행에 파이썬으로 실제 적용한다.
+# (공유 FakeSupabase/FakeTable 은 손대지 않아 나머지 테스트가 그대로 통과한다.)
+def _as_dt(value):
+    # ISO8601 문자열을 비교용 datetime 으로 변환. router 가 since 를 fromisoformat 로
+    # 정규화해 넘기고 canned created_at 도 동일 형식이라 파싱이 안전하다.
+    return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+
+
+class FilteringFakeTable:
+    """.eq/.gte 를 기록해 execute()에서 실제로 필터링하는 FakeTable(이 테스트 전용).
+
+    - eq(col, val)  : row.get(col) == val 인 행만 통과
+    - gte(col, val) : _as_dt(row.get(col)) >= _as_dt(val) 인 행만 통과
+    - 그 외 체이닝(select/limit 등)은 흡수(self 반환) — 필터와 무관.
+    """
+
+    def __init__(self, data):
+        self._data = data
+        self._eq = []   # [(column, value), ...]
+        self._gte = []  # [(column, value), ...]
+
+    def eq(self, column, value):
+        self._eq.append((column, value))
+        return self
+
+    def gte(self, column, value):
+        self._gte.append((column, value))
+        return self
+
+    def __getattr__(self, _name):
+        def _chain(*_args, **_kwargs):
+            return self
+
+        return _chain
+
+    def execute(self):
+        rows = list(self._data)
+        for column, value in self._eq:
+            rows = [r for r in rows if r.get(column) == value]
+        for column, value in self._gte:
+            rows = [r for r in rows if _as_dt(r.get(column)) >= _as_dt(value)]
+        return _FakeResult(rows)
+
+
+class FilteringFakeSupabase:
+    """table(name) → FilteringFakeTable. (공유 FakeSupabase 와 분리)"""
+
+    def __init__(self, tables: dict):
+        self._tables = tables
+
+    def table(self, name: str) -> FilteringFakeTable:
+        return FilteringFakeTable(self._tables.get(name, []))
+
+
+def test_admin_impact_filters_accepted_and_since(client):
+    # 필터 회귀 방지: /impact 의 .eq("accepted",True)·.gte("created_at",since) 가 실제로 동작해
+    # accepted=False 행과 since 이전 행이 집계에서 제외되는지 검증한다.
+    rows = [
+        # 포함(실측): accepted & since 이후 → 절감 15.0분
+        {"accepted": True, "created_at": "2026-07-09T01:00:00+00:00",
+         "score_breakdown": {"original_wait_time": 20.0, "wait_time": 5.0}},
+        # 포함(근사): accepted & since 이후 → 0.4×15=6.0분
+        {"accepted": True, "created_at": "2026-07-09T02:00:00+00:00",
+         "score_breakdown": {"incentive_relief": 0.4, "wait_time": 3.0}},
+        # 제외: accepted=False(미수락 추천) — 큰 값이라 잘못 포함되면 즉시 드러난다.
+        {"accepted": False, "created_at": "2026-07-09T04:00:00+00:00",
+         "score_breakdown": {"original_wait_time": 99.0, "wait_time": 1.0}},
+        # 제외: since 이전(윈도우 밖) — 역시 큰 값으로 회귀를 노출한다.
+        {"accepted": True, "created_at": "2026-07-08T23:00:00+00:00",
+         "score_breakdown": {"original_wait_time": 88.0, "wait_time": 1.0}},
+    ]
+    with patch("app.routers.admin.supabase_admin",
+               new=FilteringFakeSupabase({"recommendations": rows})):
+        res = client.get("/api/v1/admin/impact?since=2026-07-09T00:00:00Z", headers=_admin_headers())
+
+    assert res.status_code == 200
+    body = res.json()
+    # 4행 중 accepted & since 이후 2행만 집계 — 나머지 2행(미수락/윈도우 밖)은 제외.
+    assert body["relocations"] == 2
     assert body["saved_wait_minutes"] == 21.0
     assert body["measured"] == 1
     assert body["estimated"] == 1

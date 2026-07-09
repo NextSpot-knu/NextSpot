@@ -445,27 +445,35 @@ export function RecommendationCard({
         )}
       </AnimatePresence>
 
-      {/* Action Buttons: Reject, Put off, Accept Route */}
+      {/* Action Buttons: 관심 없어요 · 나중에 볼게요(저장) · 여기로 갈래요 */}
       <div className="flex gap-2 mt-1">
           <button
             onClick={onReject}
-            className="flex-1 bg-white/5 hover:bg-rose-500/10 hover:text-rose-400 hover:border-rose-500/30 text-gray-300 font-bold py-3 rounded-2xl border border-white/10 transition-all text-xs focus:outline-none"
+            aria-label="이 추천에 관심 없음, 다른 장소 추천받기"
+            className="flex-1 bg-white/5 hover:bg-rose-500/10 hover:text-rose-400 hover:border-rose-500/30 text-gray-300 font-bold py-3 rounded-2xl border border-white/10 transition-all active:scale-95 text-xs focus:outline-none"
           >
-            Reject
+            관심 없어요
           </button>
           {onPutOff && (
             <button
               onClick={onPutOff}
-              className="flex-1 bg-white/5 hover:bg-amber-500/10 hover:text-amber-400 hover:border-amber-500/30 text-gray-300 font-bold py-3 rounded-2xl border border-white/10 transition-all text-xs focus:outline-none"
+              aria-label="이 장소를 나중에 볼 목록에 저장"
+              className="group flex-1 flex items-center justify-center gap-1.5 bg-white/5 hover:bg-amber-500/10 hover:text-amber-400 hover:border-amber-500/30 text-gray-300 font-bold py-3 rounded-2xl border border-white/10 transition-all active:scale-95 text-xs focus:outline-none"
             >
-              Put off
+              {/* 저장 인지 강화용 북마크 — hover/press 시 채워지며 살짝 팝(순수 Tailwind, 과하지 않게) */}
+              <Bookmark
+                size={14}
+                className="fill-transparent transition-all duration-300 group-hover:fill-amber-400 group-hover:scale-110 group-active:scale-125"
+              />
+              나중에 볼게요
             </button>
           )}
           <button
             onClick={onAccept}
-            className="flex-1 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold py-3 rounded-2xl transition-all text-xs shadow-md shadow-blue-500/20 focus:outline-none"
+            aria-label="여기로 길안내 시작"
+            className="flex-1 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold py-3 rounded-2xl transition-all active:scale-95 text-xs shadow-md shadow-blue-500/20 focus:outline-none"
           >
-            Accept Route
+            여기로 갈래요
           </button>
         </div>
       </>
