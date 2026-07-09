@@ -5,6 +5,7 @@ import Script from "next/script";
 import { Toaster } from "sonner";
 import PageTransition from "@/components/PageTransition";
 import BottomNav from "@/components/BottomNav";
+import ServiceWorkerRegister from "@/components/ServiceWorkerRegister";
 import { I18nProvider } from "@/lib/i18n/I18nProvider";
 
 const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
@@ -37,6 +38,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         />
       </head>
       <body className="min-h-full flex font-sans bg-hanji">
+        {/* PWA 오프라인 복원력 — /sw.js 등록(프로덕션 유사 환경 전용, 자체 가드). */}
+        <ServiceWorkerRegister />
         {/* 왼쪽 세로 내비게이션 레일(인플로우) — 숨김 경로에서 null 이면 콘텐츠가 전체폭을 차지. */}
         <I18nProvider>
           <BottomNav />
