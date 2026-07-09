@@ -214,15 +214,30 @@ export function useCongestionAlerts(): UseCongestionAlerts {
       return;
     }
 
-    void check(); // 켜자마자 즉시 1회 확인
-    timerRef.current = setInterval(() => {
+    // 백그라운드 탭에서는 폴링을 건너뛴다(숨은 탭이 전체 데이터셋을 계속 조회하지 않도록).
+    const pollIfVisible = () => {
+      if (typeof document !== 'undefined' && document.hidden) return;
       void check();
-    }, POLL_INTERVAL_MS);
+    };
+
+    pollIfVisible(); // 켜자마자(보이는 경우) 즉시 1회 확인
+    timerRef.current = setInterval(pollIfVisible, POLL_INTERVAL_MS);
+
+    // 탭이 다시 보이게 되면 즉시 한 번 재확인(숨어 있는 동안 놓친 전이 반영).
+    const onVisibility = () => {
+      if (typeof document !== 'undefined' && !document.hidden) void check();
+    };
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', onVisibility);
+    }
 
     return () => {
       if (timerRef.current) {
         clearInterval(timerRef.current);
         timerRef.current = null;
+      }
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', onVisibility);
       }
     };
   }, [enabled, permission, check]);

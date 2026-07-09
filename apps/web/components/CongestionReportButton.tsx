@@ -11,6 +11,7 @@
 // 통합: 이 컴포넌트는 자기완결형이다. 통합 담당자가 facility prop 을 넘겨 원하는 곳에 마운트한다.
 
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Users, X, Check } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
@@ -53,6 +54,12 @@ export function CongestionReportButton({ facility, onReported, className = '' }:
   const [submitting, setSubmitting] = useState(false);
   const [toast, setToast] = useState<{ msg: string; kind: 'success' | 'error' } | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // position:fixed 오버레이(모달·토스트)는 이 컴포넌트가 transform+overflow-hidden 인
+  // RecommendationCard(motion.div) 안에 마운트되면 카드 크기로 클리핑된다. document.body 로
+  // 포털해 변형된 조상에서 탈출시킨다. SSR/정적 export 안전을 위해 마운트 후에만 포털한다.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
 
   const showToast = (msg: string, kind: 'success' | 'error') => {
     setToast({ msg, kind });
@@ -113,8 +120,9 @@ export function CongestionReportButton({ facility, onReported, className = '' }:
         {t('report.trigger')}
       </button>
 
-      {/* 토스트 — 성공(청록)/에러(주칠). 부모 토스트를 안 쓸 때의 내장 폴백. */}
-      <AnimatePresence>
+      {/* 토스트 — 성공(청록)/에러(주칠). 부모 토스트를 안 쓸 때의 내장 폴백. body 로 포털. */}
+      {mounted && createPortal(
+        <AnimatePresence>
         {toast && (
           <motion.div
             initial={{ opacity: 0, y: 12 }}
@@ -133,10 +141,13 @@ export function CongestionReportButton({ facility, onReported, className = '' }:
             </div>
           </motion.div>
         )}
-      </AnimatePresence>
+        </AnimatePresence>,
+        document.body,
+      )}
 
-      {/* 모달 */}
-      <AnimatePresence>
+      {/* 모달 — body 로 포털(변형된 조상 클리핑 회피). */}
+      {mounted && createPortal(
+        <AnimatePresence>
         {isOpen && (
           <motion.div
             initial={{ opacity: 0 }}
@@ -234,7 +245,9 @@ export function CongestionReportButton({ facility, onReported, className = '' }:
             </motion.div>
           </motion.div>
         )}
-      </AnimatePresence>
+        </AnimatePresence>,
+        document.body,
+      )}
     </>
   );
 }

@@ -84,9 +84,15 @@ export default function CoursePage() {
 
   // 1) 세션(사용자 ID) — 없으면 데모 방문자로 폴백.
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setUserId(session?.user?.id ?? MOCK_VISITOR_ID);
-    });
+    supabase.auth
+      .getSession()
+      .then(({ data: { session } }) => {
+        setUserId(session?.user?.id ?? MOCK_VISITOR_ID);
+      })
+      .catch(() => {
+        // 인증 서버 미도달 등 → 데모 방문자로 폴백(성공 경로의 세션 없음과 동일).
+        setUserId(MOCK_VISITOR_ID);
+      });
   }, []);
 
   // 2) 위치 — 브라우저 Geolocation, 서비스 지역 밖이면 지역 중심으로 모킹(explore/recommend 와 동일).

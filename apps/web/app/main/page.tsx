@@ -436,7 +436,7 @@ export default function MainPage() {
     // ♿ 배리어프리 필터: 켜지면 features.barrier_free 가 truthy 인 시설만 남긴다.
     // 마커·히트맵 공용 소스에서 한 번만 걸러 두 레이어가 항상 동일 집합을 그린다.
     // (추천/카드 로직은 원본 facilities 를 쓰므로 필터의 영향을 받지 않는다 — 지도 표시만 좁힘.)
-    return showBarrierFree ? src.filter((f) => !!f?.features?.barrier_free) : src;
+    return showBarrierFree ? src.filter((f) => !!(f?.barrier_free ?? f?.features?.barrier_free)) : src;
   }, [facilities, predictionMap, isForecast, showBarrierFree]);
 
   // 타임슬라이더 전환: 지금(0)=실측 복귀, +N시간=백엔드 배치 예측으로 마커·히트맵 재채색.
@@ -1122,7 +1122,7 @@ export default function MainPage() {
     : 0;
   // ♿ 배리어프리 필터가 켜졌는데 현재 카테고리에 무장애 시설이 0건이면 '빈 지도' 혼란을 막기 위해 안내(검색 빈 상태와 동일 패턴).
   const barrierFreeMatchCount = showBarrierFree
-    ? facilities.filter(f => f.type === _filterTypeMap[activeFilter] && !!f?.features?.barrier_free).length
+    ? facilities.filter(f => f.type === _filterTypeMap[activeFilter] && !!(f?.barrier_free ?? f?.features?.barrier_free)).length
     : 0;
 
   return (

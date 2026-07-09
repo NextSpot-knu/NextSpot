@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { ChevronLeft, Ticket, Compass, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
@@ -37,25 +37,26 @@ export default function CouponsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [hasError, setHasError] = useState(false);
 
-  useEffect(() => {
-    let cancelled = false;
-    const fetchCoupons = async () => {
-      setIsLoading(true);
-      setHasError(false);
-      try {
-        // api-client 가 Supabase 세션 토큰을 실어 보낸다(다른 관광객 페이지와 동일 경로).
-        const data = await apiClient.get('/api/v1/coupons/mine');
-        if (!cancelled) setCoupons(Array.isArray(data) ? data : []);
-      } catch (err) {
-        console.warn('Failed to fetch coupons', err);
-        if (!cancelled) setHasError(true);
-      } finally {
-        if (!cancelled) setIsLoading(false);
-      }
-    };
-    fetchCoupons();
-    return () => { cancelled = true; };
+  // 쿠폰 조회 — 마운트 effect 와 에러 상태의 '다시 시도' 버튼이 함께 재사용한다.
+  // (output: 'export' 에서는 router.refresh() 가 무동작이라 직접 재호출해야 한다.)
+  const fetchCoupons = useCallback(async () => {
+    setIsLoading(true);
+    setHasError(false);
+    try {
+      // api-client 가 Supabase 세션 토큰을 실어 보낸다(다른 관광객 페이지와 동일 경로).
+      const data = await apiClient.get('/api/v1/coupons/mine');
+      setCoupons(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.warn('Failed to fetch coupons', err);
+      setHasError(true);
+    } finally {
+      setIsLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    void fetchCoupons();
+  }, [fetchCoupons]);
 
   return (
     <div className="relative w-full h-[100dvh] bg-hanji flex flex-col overflow-hidden">
@@ -91,7 +92,7 @@ export default function CouponsPage() {
                 {t('coupons.errorBody')}
               </p>
               <button
-                onClick={() => router.refresh()}
+                onClick={() => void fetchCoupons()}
                 className="px-5 py-2.5 rounded-xl bg-gold hover:bg-gold-deep text-white text-sm font-semibold transition-all"
               >
                 {t('common.retry')}

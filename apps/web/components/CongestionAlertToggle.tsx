@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import { Bell, BellOff, BellRing } from 'lucide-react';
 import { useCongestionAlerts } from '@/lib/useCongestionAlerts';
 import { useT } from '@/lib/i18n/I18nProvider';
@@ -15,8 +16,14 @@ export function CongestionAlertToggle({ className = '' }: { className?: string }
   const { enabled, permission, supported, toggle } = useCongestionAlerts();
   const t = useT();
 
+  // supported/permission 은 window·Notification 에서 파생되므로 서버/정적 export 렌더와 클라이언트가
+  // 어긋난다(하이드레이션 불일치·깜빡임). 마운트 전에는 안정적인 '꺼짐' 상태로 그리고,
+  // 마운트 후에만 실제 지원/권한 상태를 반영한다(I18nProvider 의 마운트-후-스왑 패턴과 동일).
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+
   // 미지원: 조용히 비활성 안내(정직성 — 되지 않는 버튼을 켜진 것처럼 보이지 않게)
-  if (!supported) {
+  if (mounted && !supported) {
     return (
       <div
         className={`flex items-center gap-2.5 rounded-2xl border border-line bg-hanji-deep/60 px-4 py-3 text-muk-soft ${className}`}
@@ -27,8 +34,8 @@ export function CongestionAlertToggle({ className = '' }: { className?: string }
     );
   }
 
-  const denied = permission === 'denied';
-  const on = enabled && permission === 'granted';
+  const denied = mounted && permission === 'denied';
+  const on = mounted && enabled && permission === 'granted';
 
   const label = denied
     ? t('alert.denied')
