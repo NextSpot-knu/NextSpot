@@ -138,3 +138,48 @@ async def issue_coupon(
         "status": row.get("status"),
         "issued_at": row.get("issued_at"),
     }
+
+
+@router.post("/{coupon_id}/use")
+async def use_coupon(coupon_id: str, current_user: dict = Depends(get_current_user)):
+    """쿠폰 사용 처리 — 본인 소유의 'issued' 쿠폰을 'used'(used_at=now)로 전환한다.
+
+    소유권(IDOR) 가드: 대상 쿠폰의 user_id 가 토큰 주체와 일치해야 한다.
+    멱등: 이미 'used' 인 쿠폰은 상태를 바꾸지 않고 그대로 반환한다(중복 탭/재요청 안전).
+    """
+    user_id = current_user["id"]
+
+    # 1) 대상 쿠폰 조회 + 소유권/상태 확인
+    try:
+        res = await asyncio.to_thread(
+            supabase_admin.table("user_coupons").select("*").eq("id", coupon_id).limit(1).execute
+        )
+    except Exception as e:
+        logger.error("coupon_use_fetch_failed", coupon_id=coupon_id, error=str(e))
+        raise HTTPException(status_code=500, detail="쿠폰 조회에 실패했습니다.")
+
+    if not res.data:
+        raise HTTPException(status_code=404, detail="해당 쿠폰을 찾을 수 없습니다.")
+    coupon = res.data[0]
+    if coupon.get("user_id") != user_id:
+        raise HTTPException(status_code=403, detail="본인 쿠폰만 사용할 수 있습니다.")
+    if coupon.get("status") == "used":
+        # 이미 사용됨 — 멱등 반환(에러 아님).
+        return {"id": coupon.get("id"), "status": "used", "used_at": coupon.get("used_at")}
+
+    # 2) 'issued' → 'used' 전환(user_id 조건으로 이중 방어)
+    try:
+        upd = await asyncio.to_thread(
+            supabase_admin.table("user_coupons")
+            .update({"status": "used", "used_at": datetime.now(timezone.utc).isoformat()})
+            .eq("id", coupon_id)
+            .eq("user_id", user_id)
+            .execute
+        )
+    except Exception as e:
+        logger.error("coupon_use_failed", coupon_id=coupon_id, user_id=user_id, error=str(e))
+        raise HTTPException(status_code=500, detail="쿠폰 사용 처리에 실패했습니다.")
+
+    row = (upd.data or [{}])[0]
+    logger.info("coupon_used", coupon_id=coupon_id, user_id=user_id)
+    return {"id": row.get("id", coupon_id), "status": row.get("status", "used"), "used_at": row.get("used_at")}

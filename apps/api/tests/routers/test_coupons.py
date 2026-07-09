@@ -135,3 +135,40 @@ def test_coupons_issue_facility_not_found_404(auth_client):
                new=FakeSupabase({"facilities": [], "user_coupons": []})):
         res = auth_client.post("/api/v1/coupons/issue", json={"facility_id": "nope"})
     assert res.status_code == 404
+
+
+# =========================================================================
+# 쿠폰 사용(POST /api/v1/coupons/{id}/use) — 인증·소유권·멱등
+# =========================================================================
+
+def test_coupon_use_requires_auth(client):
+    res = client.post("/api/v1/coupons/c-1/use")
+    assert res.status_code == 401
+
+
+def test_coupon_use_ownership_403(auth_client):
+    other = [{"id": "c-1", "user_id": "other-user", "status": "issued"}]
+    with patch("app.routers.coupons.supabase_admin", new=FakeSupabase({"user_coupons": other})):
+        res = auth_client.post("/api/v1/coupons/c-1/use")
+    assert res.status_code == 403
+
+
+def test_coupon_use_not_found_404(auth_client):
+    with patch("app.routers.coupons.supabase_admin", new=FakeSupabase({"user_coupons": []})):
+        res = auth_client.post("/api/v1/coupons/ghost/use")
+    assert res.status_code == 404
+
+
+def test_coupon_use_happy_path(auth_client):
+    mine = [{"id": "c-1", "user_id": AUTH_USER_ID, "status": "issued", "used_at": None}]
+    with patch("app.routers.coupons.supabase_admin", new=FakeSupabase({"user_coupons": mine})):
+        res = auth_client.post("/api/v1/coupons/c-1/use")
+    assert res.status_code == 200
+
+
+def test_coupon_use_already_used_idempotent(auth_client):
+    used = [{"id": "c-1", "user_id": AUTH_USER_ID, "status": "used", "used_at": "2026-07-10T00:00:00+00:00"}]
+    with patch("app.routers.coupons.supabase_admin", new=FakeSupabase({"user_coupons": used})):
+        res = auth_client.post("/api/v1/coupons/c-1/use")
+    assert res.status_code == 200
+    assert res.json()["status"] == "used"
