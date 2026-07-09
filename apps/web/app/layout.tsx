@@ -5,6 +5,7 @@ import Script from "next/script";
 import { Toaster } from "sonner";
 import PageTransition from "@/components/PageTransition";
 import BottomNav from "@/components/BottomNav";
+import { I18nProvider } from "@/lib/i18n/I18nProvider";
 
 const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
 const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
@@ -37,8 +38,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
       <body className="min-h-full flex font-sans bg-hanji">
         {/* 왼쪽 세로 내비게이션 레일(인플로우) — 숨김 경로에서 null 이면 콘텐츠가 전체폭을 차지. */}
-        <BottomNav />
-        <PageTransition>{children}</PageTransition>
+        <I18nProvider>
+          <BottomNav />
+          <PageTransition>{children}</PageTransition>
+        </I18nProvider>
         <Toaster position="bottom-center" theme="dark" richColors toastOptions={{
           style: { background: '#0f172a', border: '1px solid rgba(255,255,255,0.1)', color: '#f1f5f9' },
           className: 'backdrop-blur-md'
