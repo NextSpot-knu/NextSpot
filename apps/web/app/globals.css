@@ -5,16 +5,57 @@
   --foreground: #ededed;
 }
 
+/* ─────────────────────────────────────────────────────────────
+   경주 관광 디자인 토큰 (단일 정의점). InduSpot 관제 콜드 팔레트를
+   경주 관광 톤으로 전환하기 위한 중앙 토큰 — 각 화면은 인라인 hex 대신
+   이 토큰(bg-hanji / text-muk / text-gold …)을 쓴다. 여기만 바꾸면 전파된다.
+   방향: 관광객 = 한지 라이트, 관리자 = 한옥 웜다크, 강조 = 단청 오방색.
+   ───────────────────────────────────────────────────────────── */
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
+  /* 서체: 본문=한글 산세(Noto Sans KR), 제목=한글 명조(Noto Serif KR) */
+  --font-sans: var(--font-noto-sans-kr), var(--font-geist-sans), system-ui, sans-serif;
+  --font-serif: var(--font-noto-serif-kr), Georgia, serif;
   --font-mono: var(--font-geist-mono);
+
+  /* 한지(관광객 라이트) */
+  --color-hanji: #faf5ec;       /* 배경 — 한지 아이보리 */
+  --color-hanji-deep: #f1e7d3;  /* 한 단계 짙은 서페이스 */
+  --color-muk: #2b2320;         /* 먹빛 본문 텍스트 */
+  --color-muk-soft: #6b5d4f;    /* 보조 텍스트(흙빛 그레이) */
+  --color-line: #e6dcc6;        /* 경계선(따뜻한) */
+
+  /* 한옥(관리자 웜다크) */
+  --color-hanok: #1b1712;       /* 배경 — 한옥 먹빛 */
+  --color-hanok-panel: #241d17; /* 패널 */
+  --color-hanok-card: #2c241c;  /* 중첩 카드 */
+  --color-hanok-line: #3a2f24;  /* 경계선 */
+  --color-hanok-ink: #f0e7d8;   /* 다크 위 밝은 텍스트 */
+  --color-hanok-muted: #b8a894; /* 다크 위 보조 텍스트 */
+
+  /* 단청 오방색 강조(관광객·관리자 공용) */
+  --color-gold: #c19a3e;        /* 신라 금 — 주 강조 */
+  --color-gold-deep: #a37f2a;
+  --color-jade: #3e7c6a;        /* 단청 청록 — 보조 */
+  --color-terracotta: #c1553b;  /* 주칠 — 따뜻한 CTA/혼잡 */
+  --color-dan-red: #b5322e;     /* 단청 적 */
+  --color-sunset-1: #e8895a;    /* 노을 그라데이션 */
+  --color-sunset-2: #c15b7a;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
+}
+
+/* 단청 그라디언트 텍스트 — 워드마크/타이틀용. 이전엔 미정의(no-op)라 효과가 없었다.
+   금→주칠 웜 그라데이션으로 실제 정의(사용처가 자동으로 웜톤이 된다). */
+.gradient-text {
+  background-image: linear-gradient(90deg, var(--color-gold), var(--color-terracotta));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
 }
 
 @keyframes fade-in-up {

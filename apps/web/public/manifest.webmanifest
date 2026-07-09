@@ -6,8 +6,8 @@
   "start_url": "/main/",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#0b101e",
-  "theme_color": "#0b101e",
+  "background_color": "#faf5ec",
+  "theme_color": "#faf5ec",
   "lang": "ko",
   "icons": [
     {
