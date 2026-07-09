@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Script from 'next/script';
-import { Home, Bookmark, User, Search, Mic, Utensils, MapPin, Building2, Coffee, Sparkles, ChevronDown, ChevronUp } from 'lucide-react';
+import { Home, Bookmark, User, Search, Mic, X, Utensils, MapPin, Building2, Coffee, Sparkles, ChevronDown, ChevronUp } from 'lucide-react';
 import { RecommendationCard } from '@/components/RecommendationCard';
 import { createPublicClient } from '@/lib/supabase';
 import { getMarkerSvg } from '@/lib/utils';
@@ -41,7 +41,12 @@ export default function MainPage() {
 
   const [activeTab, setActiveTab] = useState('Home');
   const [activeFilter, setActiveFilter] = useState('음식점'); // 첫 접속 시 음식점 세션을 먼저 표시(탭 순서와 일치)
+  const [searchQuery, setSearchQuery] = useState(''); // 로컬 시설명 검색(마커 필터). TourAPI 의미검색 연동은 범위 밖.
   const [facilities, setFacilities] = useState<any[]>([]);
+  // 시설 로드 상태(데모 사고 방지선): 로딩 스피너·재시도·전체 빈 상태 안내 렌더용.
+  const [isLoadingFacilities, setIsLoadingFacilities] = useState(true);
+  const [facilitiesLoadError, setFacilitiesLoadError] = useState(false);
+  const [facilitiesReloadNonce, setFacilitiesReloadNonce] = useState(0); // '다시 시도' 트리거(로드 effect 재실행)
   const [selectedFacility, setSelectedFacility] = useState<any>(null);
   // 음성 선호 필터(예: '양식 먹고 싶어'→양식 식당 id들). null이면 필터 없음.
   // Gemini가 실시간으로 추천 풀을 좁혀 그 안에서 SPOT로 재랭킹한다.
@@ -82,6 +87,8 @@ export default function MainPage() {
   // Load facilities from Supabase
   useEffect(() => {
     async function loadFacilities() {
+      setIsLoadingFacilities(true);
+      setFacilitiesLoadError(false);
       try {
         // Fetch facilities (limit 2000)
         const { data: facilitiesData, error: facError } = await supabase
@@ -91,6 +98,8 @@ export default function MainPage() {
 
         if (facError) {
           console.warn("Failed to load facilities:", facError);
+          setFacilitiesLoadError(true); // 백엔드/Supabase 다운 → 빈 지도 대신 재시도 안내 표시
+          setIsLoadingFacilities(false);
           return;
         }
 
@@ -136,13 +145,16 @@ export default function MainPage() {
         });
 
         setFacilities(mapped);
+        setIsLoadingFacilities(false);
       } catch (err) {
         console.error("Error loading facilities:", err);
+        setFacilitiesLoadError(true);
+        setIsLoadingFacilities(false);
       }
     }
 
     loadFacilities();
-  }, []);
+  }, [facilitiesReloadNonce]);
 
   // Apply mock hour congestion scaling
   useEffect(() => {
@@ -182,6 +194,7 @@ export default function MainPage() {
   }, [mockHour]);
 
   const [rankedFacilities, setRankedFacilities] = useState<any[]>([]);
+  const [noRecommendation, setNoRecommendation] = useState(false); // 현재 카테고리 추천 후보 0건 여부(빈 상태 안내용)
   const [rejectedIds, setRejectedIds] = useState<Set<string>>(new Set());
   const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number }>({ ...REGION.center });
@@ -368,8 +381,10 @@ export default function MainPage() {
     }
     if (candidates.length === 0) {
       setSelectedFacility(null);
+      setNoRecommendation(true); // (b) 후보 0건 → 카드 자리에 빈 상태 안내
       return;
     }
+    setNoRecommendation(false); // 후보 존재 확인 → 이전 카테고리의 빈 상태 안내 즉시 해제(async 지연 중 오표시 방지)
 
     const isDemo = (f: any) => f.isGroup || String(f.id).startsWith('dummy-');
     const realCands = candidates.filter(f => !isDemo(f));
@@ -439,8 +454,10 @@ export default function MainPage() {
         setRankedFacilities(all);
         if (all.length === 0) {
           setSelectedFacility(null);
+          setNoRecommendation(true); // (b) 랭킹 결과 0건 → 빈 상태 안내
           return;
         }
+        setNoRecommendation(false); // 후보 있음 → 안내 숨김
         const top = all[0];
         setSelectedFacility(top);
         if (mapInstanceRef.current && typeof top.latitude === 'number') {
@@ -548,6 +565,7 @@ export default function MainPage() {
       }
     } else {
       setSelectedFacility(null);
+      setNoRecommendation(true); // (b) 후보 소진 → 빈 상태 안내
     }
 
     setSavedIds(prev => {
@@ -620,6 +638,7 @@ export default function MainPage() {
       }
     } else {
       setSelectedFacility(null);
+      setNoRecommendation(true); // (b) 후보 소진 → 빈 상태 안내
     }
     // ★ Force card open so the next recommendation is visible
 
@@ -835,7 +854,9 @@ export default function MainPage() {
     };
     const targetType = filterMap[activeFilter];
 
-    const filtered = facilities.filter(f => f.type === targetType);
+    // (c) 로컬 시설명 검색 — 입력값이 있으면 이름 부분일치 마커만 표시(TourAPI 연동은 범위 밖)
+    const q = searchQuery.trim().toLowerCase();
+    const filtered = facilities.filter(f => f.type === targetType && (q === '' || String(f.name ?? '').toLowerCase().includes(q)));
 
     // 줌 레벨별 마커 밀집도 — 시중 지도앱처럼 멀리 볼수록(레벨↑) 핵심 장소만, 확대할수록(레벨↓) 더 많이 표시.
     // Kakao level은 작을수록 확대. SPOT 상위 순으로 잘라 '대표 장소'를 우선 노출한다(브라우저 프리징도 방지).
@@ -933,7 +954,7 @@ export default function MainPage() {
 
     markersRef.current = newMarkers;
     // selectedFacility 변경 시에도 재렌더해 선택 마커만 진한 색으로 갱신(기존 마커는 effect 시작부에서 정리)
-  }, [facilities, activeFilter, mapLoaded, selectedFacility?.id, activeGroupId, mapLevel]);
+  }, [facilities, activeFilter, mapLoaded, selectedFacility?.id, activeGroupId, mapLevel, searchQuery]);
 
   const filters = [
     { id: '음식점', icon: Utensils },
@@ -949,6 +970,13 @@ export default function MainPage() {
     if (tabId === 'MyPage') router.push('/mypage');
   };
 
+  // (c) 검색 결과 유무 — 현재 카테고리에서 이름 일치 마커가 0건이면 '빈 지도' 혼란을 막기 위해 안내를 띄운다.
+  const _filterTypeMap: Record<string, string> = { '음식점': 'restaurant', '카페': 'cafe', '관광지': 'attraction', '문화시설': 'culture' };
+  const searchActive = searchQuery.trim() !== '';
+  const searchMatchCount = searchActive
+    ? facilities.filter(f => f.type === _filterTypeMap[activeFilter] && String(f.name ?? '').toLowerCase().includes(searchQuery.trim().toLowerCase())).length
+    : 0;
+
   return (
     <div className="relative w-full h-screen overflow-hidden flex flex-col">
 
@@ -962,19 +990,45 @@ export default function MainPage() {
       {/* Top Layer: Search & Filters */}
       <div className="absolute top-0 w-full z-20 pt-12 pb-4 px-4 bg-gradient-to-b from-black/80 to-transparent flex flex-col gap-4 pointer-events-none">
         
-        {/* Search Bar */}
+        {/* Search Bar — (c) 로컬 시설명 검색(마커 필터). 음성 검색(Mic)은 미구현이라 '준비 중' 비활성 표기. */}
         <div className="flex items-center bg-[#131a28]/90 backdrop-blur-xl rounded-full px-4 py-3 border border-white/10 shadow-lg pointer-events-auto">
           <Search size={20} className="text-gray-400 mr-3" />
-          <input 
-            type="text" 
-            placeholder="Search facilities, spots" 
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="장소·시설 이름 검색"
             className="flex-1 bg-transparent text-white outline-none placeholder:text-gray-500 text-sm"
           />
-          <Mic size={20} className="text-gray-400 ml-3" />
+          {searchQuery ? (
+            <button
+              type="button"
+              onClick={() => setSearchQuery('')}
+              title="검색 지우기"
+              aria-label="검색 지우기"
+              className="ml-3 text-gray-300 hover:text-white transition-colors"
+            >
+              <X size={18} />
+            </button>
+          ) : (
+            // 실제 음성 안내는 추천 카드의 오브(VoiceAssistantOrb)를 사용 — 여기 마이크는 아직 미구현이므로 죽은 컨트롤 오해를 막기 위해 비활성 표기.
+            <span title="음성 검색 준비 중" aria-disabled="true" className="ml-3 flex items-center cursor-not-allowed">
+              <Mic size={20} className="text-gray-600" />
+            </span>
+          )}
           <div className="w-8 h-8 rounded-full bg-blue-500/20 ml-4 flex items-center justify-center border border-blue-400/50">
             <User size={16} className="text-cyan-300" />
           </div>
         </div>
+
+        {/* (c) 검색 결과 없음 안내 — 입력값은 있으나 현재 카테고리에 일치 장소가 없을 때 */}
+        {searchActive && searchMatchCount === 0 && (
+          <div className="pointer-events-auto px-2 -mt-1">
+            <span className="inline-block text-gray-200 text-xs bg-black/60 rounded-full px-3 py-1">
+              &apos;{searchQuery.trim()}&apos; 검색 결과가 없어요
+            </span>
+          </div>
+        )}
 
         {/* Filter Chips */}
         <div className="flex gap-3 overflow-x-auto no-scrollbar pointer-events-auto">
@@ -1010,6 +1064,41 @@ export default function MainPage() {
           })}
         </div>
       </div>
+
+      {/* (a) 시설 로드 상태 안내 — 로딩 스피너 / 로드 실패 재시도 / 전체 빈 상태 (데모 사고 방지선) */}
+      {isLoadingFacilities && (
+        <div className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-3 pointer-events-none">
+          <div className="w-10 h-10 rounded-full border-2 border-white/20 border-t-blue-400 animate-spin" />
+          <span className="text-gray-200 text-sm font-medium">추천 장소를 불러오는 중...</span>
+        </div>
+      )}
+
+      {!isLoadingFacilities && facilitiesLoadError && (
+        <div className="absolute inset-0 z-30 flex items-center justify-center px-6 pointer-events-none">
+          <div className="bg-[#111622]/95 backdrop-blur-xl border border-white/10 rounded-2xl px-6 py-5 shadow-2xl flex flex-col items-center gap-3 max-w-xs text-center pointer-events-auto">
+            <span className="text-2xl">⚠️</span>
+            <p className="text-white text-sm font-semibold">장소 정보를 불러오지 못했어요</p>
+            <p className="text-gray-400 text-xs leading-relaxed">네트워크 또는 서버 연결을 확인한 뒤 다시 시도해 주세요.</p>
+            <button
+              type="button"
+              onClick={() => setFacilitiesReloadNonce(n => n + 1)}
+              className="mt-1 px-4 py-2 rounded-full bg-blue-600 hover:bg-blue-500 text-white text-sm font-bold transition-colors"
+            >
+              다시 시도
+            </button>
+          </div>
+        </div>
+      )}
+
+      {!isLoadingFacilities && !facilitiesLoadError && facilities.length === 0 && (
+        <div className="absolute inset-0 z-30 flex items-center justify-center px-6 pointer-events-none">
+          <div className="bg-[#111622]/95 backdrop-blur-xl border border-white/10 rounded-2xl px-6 py-5 shadow-2xl flex flex-col items-center gap-2 max-w-xs text-center">
+            <span className="text-2xl">🗺️</span>
+            <p className="text-white text-sm font-semibold">표시할 장소가 없어요</p>
+            <p className="text-gray-400 text-xs leading-relaxed">현재 지역에 등록된 장소 데이터가 없습니다.</p>
+          </div>
+        </div>
+      )}
 
       {/* AI Recommendation Card (Floating Bottom Sheet) */}
       {selectedFacility && (() => {
@@ -1078,6 +1167,17 @@ export default function MainPage() {
           return null;
         }
       })()}
+
+      {/* (b) 현재 카테고리 추천 후보 0건 — 카드가 조용히 사라지는 대신 안내 표시 */}
+      {!isLoadingFacilities && !facilitiesLoadError && facilities.length > 0 && !selectedFacility && noRecommendation && (
+        <div className="absolute bottom-[90px] w-full z-20 px-4">
+          <div className="bg-[#111622]/95 backdrop-blur-xl border border-white/10 rounded-2xl px-5 py-4 shadow-2xl flex flex-col items-center gap-1.5 text-center">
+            <span className="text-xl">🧭</span>
+            <p className="text-white text-sm font-semibold">이 카테고리엔 지금 추천할 곳이 없어요</p>
+            <p className="text-gray-400 text-xs leading-relaxed">다른 카테고리를 선택하거나 잠시 후 다시 확인해 주세요.</p>
+          </div>
+        </div>
+      )}
 
       {/* Test Mock Sidebar (Right Side) */}
       <div className="absolute right-4 top-[170px] z-20 flex flex-col gap-3 pointer-events-auto">

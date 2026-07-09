@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { 
-  Users, Activity, TrendingUp, AlertTriangle, Search, Bell, Download
+import { useState, useEffect, useCallback, useRef } from 'react';
+import {
+  Users, Activity, TrendingUp, AlertTriangle, Search, Bell, Download, Info
 } from 'lucide-react';
 import { AdminSidebar } from '@/components/AdminSidebar';
 import { DashboardCharts, DashboardHeatmap } from '@/components/admin/DashboardCharts';
@@ -31,6 +31,81 @@ function generateClientFallbackData(_realFacilities?: any[]) {
     distribution: [] as any[],
     anomalies: [] as any[],
   };
+}
+
+// 30일 수요 분산 '예시' 추이(데모) — 실측 집계 파이프라인이 아직 없어, 도입 전/후 혼잡도와
+// 대안 장소 활용률의 기대 패턴을 합성해 폐루프의 '③ 분산 효과'를 시각적으로 설명한다.
+// 반드시 차트에 '예시 추이(데모)' 라벨과 함께 노출해 실측으로 오인되지 않게 한다(정직성 원칙).
+function buildDemoDistribution() {
+  const days = 30;
+  const rows: any[] = [];
+  const today = new Date();
+  const clamp = (v: number) => Math.round(Math.min(0.98, Math.max(0.02, v)) * 1000) / 1000;
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date(today.getTime() - i * 24 * 60 * 60 * 1000);
+    const label = `${d.getMonth() + 1}/${d.getDate()}`;
+    const progress = (days - 1 - i) / (days - 1); // 0(30일 전) → 1(오늘)
+    // 도입 전(반사실 기준선): 고혼잡을 유지 + 요일성 변동
+    const before = 0.82 + 0.04 * Math.sin(i * 0.9);
+    // 도입 후: 개입이 누적되며 점진적 혼잡 감소
+    const after = 0.78 - 0.3 * progress + 0.03 * Math.sin(i * 1.3);
+    // 대안 장소 활용률: 점진적 상승
+    const alt = 0.08 + 0.42 * progress + 0.02 * Math.cos(i * 1.1);
+    rows.push({
+      date: label,
+      beforeCongestion: clamp(before),
+      afterCongestion: clamp(after),
+      alternativeUsage: clamp(alt),
+    });
+  }
+  return rows;
+}
+
+// 폐루프 내러티브 스텝 헤더(①실시간 관제 → ②정책 개입 → ③분산 효과) — 심사위원이 흐름을 즉시 읽도록.
+function StepBanner({
+  badge,
+  title,
+  subtitle,
+  color,
+}: {
+  badge: string;
+  title: string;
+  subtitle: string;
+  color: 'blue' | 'amber' | 'emerald';
+}) {
+  const palette: Record<string, string> = {
+    blue: 'bg-blue-500/15 text-blue-300 border-blue-500/30',
+    amber: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
+    emerald: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
+  };
+  return (
+    <div className="flex items-center gap-3">
+      <span
+        className={`flex-shrink-0 w-9 h-9 flex items-center justify-center rounded-full text-base font-black border ${palette[color]}`}
+      >
+        {badge}
+      </span>
+      <div className="min-w-0">
+        <h3 className="text-base font-bold text-slate-100 leading-tight">{title}</h3>
+        <p className="text-xs text-slate-500 truncate">{subtitle}</p>
+      </div>
+    </div>
+  );
+}
+
+// KPI 근거/기준 툴팁 — info 아이콘 hover 시 노출(간단 CSS 툴팁, 카드 우측 정렬로 좌측으로 펼침).
+function InfoTip({ text }: { text: string }) {
+  return (
+    <span className="relative inline-flex align-middle group/tip">
+      <Info size={14} className="text-slate-500 hover:text-slate-300 cursor-help" />
+      <span
+        role="tooltip"
+        className="pointer-events-none absolute right-0 top-6 z-30 w-48 rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-left text-[11px] font-normal leading-snug text-slate-300 opacity-0 shadow-xl transition-opacity duration-150 group-hover/tip:opacity-100"
+      >
+        {text}
+      </span>
+    </span>
+  );
 }
 
 // KST '오늘' 00:00~23:59:59 구간을 UTC ISO 문자열로 반환.
@@ -194,76 +269,88 @@ export default function DashboardPage() {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
+  // 언마운트 이후 setState 방지 가드(마운트 동안 true).
+  const mountedRef = useRef(true);
   useEffect(() => {
-    let active = true;
-    async function loadData() {
-      // 1) 실시간 시설 목록 로드 (publicClient + 로그인된 admin 세션 → RLS 통과).
-      let databaseFacilities: any[] = [];
-      try {
-        let from = 0;
-        const limit = 1000;
-        while (true) {
-          const { data, error } = await supabase
-            .from('facilities')
-            .select('id, name, type, capacity')
-            .order('name', { ascending: true })
-            .range(from, from + limit - 1);
-          if (error) throw error;
-          if (!data || data.length === 0) break;
-          databaseFacilities = [...databaseFacilities, ...data];
-          if (data.length < limit) break;
-          from += limit;
-        }
-      } catch (dbErr) {
-        console.warn("시설 목록 로드 실패, 합성 폴백 사용:", dbErr);
-      }
-
-      // 2) 실시설 기반 합성 폴백 준비 (실데이터가 비는 지표를 채울 안전망).
-      const fallback = generateClientFallbackData(databaseFacilities);
-
-      // 3) 실데이터를 직접 조회한 뒤, 지표별로 실데이터 우선·폴백 보완으로 병합.
-      try {
-        const real = await fetchRealDashboard(supabase);
-        const merged = {
-          kpi: {
-            avgCongestion: real.avgCongestion ?? fallback.kpi.avgCongestion,
-            acceptRate: real.acceptRate ?? fallback.kpi.acceptRate,
-            activeUsers: real.activeUsers ?? fallback.kpi.activeUsers,
-            anomalyCount:
-              real.hasLogs && real.anomalyCount != null ? real.anomalyCount : fallback.kpi.anomalyCount,
-          },
-          // 오늘자 로그가 있으면 실측 히트맵을 사용하되, 실측 데이터가 없는 시간대(예: 14시 이후 미래 시간대)는 fallback 생성기의 가상 데이터로 채웁니다.
-          heatmap: (() => {
-            if (!real.heatmap || !real.heatmap.length) return fallback.heatmap;
-            return real.heatmap.map((rCell: any) => {
-              if (rCell.value !== null) return rCell;
-              const fCell = fallback.heatmap.find(
-                (f: any) => f.facility === rCell.facility && f.hour === rCell.hour
-              );
-              return {
-                ...rCell,
-                value: fCell ? fCell.value : null
-              };
-            });
-          })(),
-          // 30일 수요 분산 효과는 장기 A/B 추이라 일관된 합성 추이를 유지(데모 가독성).
-          distribution: fallback.distribution,
-          // 실측 이상 알림이 있으면 그것을, 없으면 합성 알림으로 패널이 비지 않게.
-          anomalies: real.anomalies && real.anomalies.length ? real.anomalies : fallback.anomalies,
-        };
-        if (active) setData(merged);
-      } catch (err) {
-        console.warn("실데이터 조회 실패, 합성 폴백으로 대체:", err);
-        if (active) setData(fallback);
-      } finally {
-        if (active) setLoading(false);
-      }
-    }
-    loadData();
+    mountedRef.current = true;
     return () => {
-      active = false;
+      mountedRef.current = false;
     };
   }, []);
+
+  // 대시보드 데이터 로드/재조회 — 초기 마운트와 '모의 발생' 성공 콜백에서 공용으로 호출한다.
+  // 정적 export 라 라우터 refresh 가 안 통하므로, 전체 리로드 대신 이 함수를 재실행해
+  // 리마운트·깜빡임 없이 데이터만 갱신한다(재조회 시 loading 스피너를 띄우지 않아 스크롤이 유지된다).
+  const loadData = useCallback(async () => {
+    // 1) 실시간 시설 목록 로드 (publicClient + 로그인된 admin 세션 → RLS 통과).
+    let databaseFacilities: any[] = [];
+    try {
+      let from = 0;
+      const limit = 1000;
+      while (true) {
+        const { data, error } = await supabase
+          .from('facilities')
+          .select('id, name, type, capacity')
+          .order('name', { ascending: true })
+          .range(from, from + limit - 1);
+        if (error) throw error;
+        if (!data || data.length === 0) break;
+        databaseFacilities = [...databaseFacilities, ...data];
+        if (data.length < limit) break;
+        from += limit;
+      }
+    } catch (dbErr) {
+      console.warn("시설 목록 로드 실패, 합성 폴백 사용:", dbErr);
+    }
+
+    // 2) 실시설 기반 합성 폴백 준비 (실데이터가 비는 지표를 채울 안전망).
+    const fallback = generateClientFallbackData(databaseFacilities);
+
+    // 3) 실데이터를 직접 조회한 뒤, 지표별로 실데이터 우선·폴백 보완으로 병합.
+    try {
+      const real = await fetchRealDashboard(supabase);
+      const merged = {
+        kpi: {
+          avgCongestion: real.avgCongestion ?? fallback.kpi.avgCongestion,
+          acceptRate: real.acceptRate ?? fallback.kpi.acceptRate,
+          activeUsers: real.activeUsers ?? fallback.kpi.activeUsers,
+          anomalyCount:
+            real.hasLogs && real.anomalyCount != null ? real.anomalyCount : fallback.kpi.anomalyCount,
+        },
+        // 오늘자 로그가 있으면 실측 히트맵을 사용하되, 실측 데이터가 없는 시간대(예: 14시 이후 미래 시간대)는 fallback 생성기의 가상 데이터로 채웁니다.
+        heatmap: (() => {
+          if (!real.heatmap || !real.heatmap.length) return fallback.heatmap;
+          return real.heatmap.map((rCell: any) => {
+            if (rCell.value !== null) return rCell;
+            const fCell = fallback.heatmap.find(
+              (f: any) => f.facility === rCell.facility && f.hour === rCell.hour
+            );
+            return {
+              ...rCell,
+              value: fCell ? fCell.value : null
+            };
+          });
+        })(),
+        // 30일 수요 분산 효과는 장기 A/B 추이 — 실시간 집계 파이프라인이 없어 '예시 추이(데모)'로
+        // 표시한다(차트 헤더의 '예시 추이(데모)' 배지로 실측 오인 방지 — 정직성 원칙).
+        distribution: buildDemoDistribution(),
+        // 실측 이상 알림이 있으면 그것을, 없으면 합성 알림으로 패널이 비지 않게.
+        anomalies: real.anomalies && real.anomalies.length ? real.anomalies : fallback.anomalies,
+      };
+      if (mountedRef.current) setData(merged);
+    } catch (err) {
+      console.warn("실데이터 조회 실패, 합성 폴백으로 대체:", err);
+      // 전면 실패 시에도 30일 차트는 동일한 데모 추이를 유지(성공/실패 경로 일관).
+      if (mountedRef.current) setData({ ...fallback, distribution: buildDemoDistribution() });
+    }
+  }, []);
+
+  useEffect(() => {
+    setLoading(true);
+    loadData().finally(() => {
+      if (mountedRef.current) setLoading(false);
+    });
+  }, [loadData]);
 
   if (loading || !data) {
     return (
@@ -351,7 +438,8 @@ export default function DashboardPage() {
           
           {/* Action Bar (Export & Simulation) */}
           <div className="flex justify-end items-center gap-4">
-            <SimulatePeakButton />
+            {/* onSimulated: 리로드 대신 loadData 재조회로 히트맵을 갱신하고 관제 영역으로 스크롤한다. */}
+            <SimulatePeakButton onSimulated={loadData} />
             <button
               type="button"
               onClick={handleExportCsv}
@@ -361,6 +449,14 @@ export default function DashboardPage() {
             </button>
           </div>
 
+          {/* ───────── 폐루프 ① 실시간 관제 ───────── */}
+          <StepBanner
+            badge="①"
+            title="실시간 관제"
+            subtitle="현재 혼잡을 모니터링하고 이상 피크를 탐지합니다"
+            color="blue"
+          />
+
           {/* KPI Cards (Server Rendered) */}
           <div className="grid grid-cols-4 gap-6">
             {/* 오늘 평균 혼잡도 */}
@@ -369,9 +465,15 @@ export default function DashboardPage() {
                 <div className="p-3 bg-blue-500/10 rounded-xl text-blue-400">
                   <Activity size={24} />
                 </div>
-                <span className={`px-2 py-1 text-xs font-bold rounded-full ${kpi.avgCongestion.changePercent < 0 ? 'bg-emerald-500/15 text-emerald-300' : 'bg-rose-500/15 text-rose-300'}`}>
-                  {kpi.avgCongestion.changePercent > 0 ? '+' : ''}{kpi.avgCongestion.changePercent}%
-                </span>
+                <div className="flex items-center gap-2">
+                  <span
+                    title="전일 동시간대 평균 대비 변화율입니다. 음수(초록)면 혼잡이 줄어든 것으로 분산 효과를 의미합니다."
+                    className={`px-2 py-1 text-xs font-bold rounded-full cursor-help ${kpi.avgCongestion.changePercent < 0 ? 'bg-emerald-500/15 text-emerald-300' : 'bg-rose-500/15 text-rose-300'}`}
+                  >
+                    {kpi.avgCongestion.changePercent > 0 ? '+' : ''}{kpi.avgCongestion.changePercent}%
+                  </span>
+                  <InfoTip text="오늘(KST) 수집된 혼잡 로그의 평균 혼잡도입니다. 시설 정원 대비 실시간 인원 비율을 0~100%로 환산해 평균낸 값입니다." />
+                </div>
               </div>
               <div>
                 <h3 className="text-slate-400 text-sm font-semibold mb-1">오늘 평균 혼잡도</h3>
@@ -387,7 +489,10 @@ export default function DashboardPage() {
                 <div className="p-3 bg-purple-500/10 rounded-xl text-purple-400">
                   <TrendingUp size={24} />
                 </div>
-                <span className="text-xs font-bold text-slate-500">지난 7일</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-slate-500">지난 7일</span>
+                  <InfoTip text="지난 7일간 생성된 AI 대안 추천 중 사용자가 실제 수락한 비율입니다. (수락 건수 ÷ 전체 추천 건수)" />
+                </div>
               </div>
               <div>
                 <h3 className="text-slate-400 text-sm font-semibold mb-1">AI 추천 수락률</h3>
@@ -404,6 +509,7 @@ export default function DashboardPage() {
                 <div className="p-3 bg-emerald-500/10 rounded-xl text-emerald-400">
                   <Users size={24} />
                 </div>
+                <InfoTip text="오늘(KST) 피드백을 남긴 순 사용자 수(DAU, Daily Active Users)입니다." />
               </div>
               <div>
                 <h3 className="text-slate-400 text-sm font-semibold mb-1">활성 사용자 수 (DAU)</h3>
@@ -419,6 +525,7 @@ export default function DashboardPage() {
                 <div className="p-3 bg-rose-500/10 rounded-xl text-rose-400">
                   <AlertTriangle size={24} />
                 </div>
+                <InfoTip text="오늘(KST) 혼잡도 90% 이상 피크가 발생한 로그 건수입니다. 관제 임계치를 초과한 상황을 의미합니다." />
               </div>
               <div>
                 <h3 className="text-slate-400 text-sm font-semibold mb-1">이상 혼잡 발생 (오늘)</h3>
@@ -429,15 +536,40 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* 개입 폐루프 Row — 쿠폰 정책(관제→개입) + 분산 효과(개입→효과 정량화) */}
+          {/* 관제 핵심 히트맵 — 개입(simulate-peak)이 바꾸는 화면이므로 개입 행 '위'에 배치해
+              스크롤 없이 보이게 한다. id 앵커: '모의 발생' 성공 후 이 영역으로 스크롤해 분산 변화를 즉시 보여준다. */}
+          <div id="congestion-heatmap" className="grid grid-cols-4 gap-6 scroll-mt-4">
+            <DashboardHeatmap heatmapData={heatmap} />
+          </div>
+
+          {/* ───────── 폐루프 ② 정책 개입 · ③ 분산 효과 ───────── (아래 행의 두 컬럼에 각각 정렬) */}
+          <div className="grid grid-cols-3 gap-6">
+            <div className="col-span-2">
+              <StepBanner
+                badge="②"
+                title="정책 개입"
+                subtitle="쿠폰 인센티브로 분산 목적지의 추천 순위를 조정합니다"
+                color="amber"
+              />
+            </div>
+            <div className="col-span-1">
+              <StepBanner
+                badge="③"
+                title="분산 효과"
+                subtitle="개입이 덜어낸 혼잡을 정량화합니다"
+                color="emerald"
+              />
+            </div>
+          </div>
+
+          {/* 개입 폐루프 Row — 쿠폰 정책(②개입) + 분산 효과(③효과 정량화) */}
           <div className="grid grid-cols-3 gap-6">
             <CouponPolicyPanel />
             <ImpactWidget />
           </div>
 
-          {/* Charts Row (Client Components) */}
+          {/* 30일 분산 효과 추이(③) — 장기 A/B 추이. 차트 헤더의 '예시 추이(데모)' 라벨로 실측 오인 방지. */}
           <div className="grid grid-cols-4 gap-6">
-            <DashboardHeatmap heatmapData={heatmap} />
             <DashboardCharts distribution={distribution} />
           </div>
 

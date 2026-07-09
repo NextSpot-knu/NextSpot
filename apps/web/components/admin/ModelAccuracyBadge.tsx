@@ -19,6 +19,7 @@ interface ModelInfo {
 
 export function ModelAccuracyBadge() {
   const [info, setInfo] = useState<ModelInfo | null>(null);
+  const [failed, setFailed] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -28,14 +29,31 @@ export function ModelAccuracyBadge() {
         if (active) setInfo(res);
       })
       .catch(() => {
-        /* 백엔드 미기동 — 배지 비표시 */
+        // 백엔드 미기동/네트워크 실패 — 배지를 지우지 않고 중립 상태로 자리 유지
+        if (active) setFailed(true);
       });
     return () => {
       active = false;
     };
   }, []);
 
-  if (!info) return null;
+  // 응답 전(로딩)·실패 시 — null 반환으로 헤더에서 증발하지 않도록 중립 배지로 자리 유지.
+  // failed 여부로 '오프라인'과 '상태 확인 중'을 구분(정상 분기는 info 도착 후 아래에서 처리).
+  if (!info) {
+    return (
+      <span
+        title={
+          failed
+            ? '예측모델 상태를 가져오지 못했습니다 — 백엔드(8000) 기동 여부를 확인하세요.'
+            : '예측모델 상태 확인 중 — 백엔드 응답 대기'
+        }
+        className="flex items-center gap-1.5 px-2.5 py-1 bg-slate-800 border border-slate-700 text-slate-400 rounded-full text-xs font-bold"
+      >
+        <BrainCircuit size={14} />
+        {failed ? '예측모델 오프라인' : '예측모델 상태 확인 중'}
+      </span>
+    );
+  }
 
   const mae = info.metrics?.mae;
   if (info.trained && mae != null) {

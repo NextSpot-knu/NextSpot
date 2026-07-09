@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Settings, Plus, Edit2, Trash2, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
+import { Settings, Plus, Edit2, Trash2, X, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
+import { toast } from 'sonner';
 import { createPublicClient } from '@/lib/supabase';
 import { adminApi } from '@/lib/admin-api';
 import { REGION } from '@/lib/region';
@@ -18,6 +19,16 @@ interface FacilityData {
   operating_hours?: Record<string, string>;
 }
 
+// 시설 유형 목록(값=DB type, name=한글 라벨). 카테고리 탭·모달 select 가 공유한다.
+const CATEGORIES = [
+  { id: 'restaurant', name: '음식점' },
+  { id: 'cafe', name: '카페' },
+  { id: 'attraction', name: '관광지' },
+  { id: 'culture', name: '문화시설' },
+] as const;
+
+type ModalMode = 'create' | 'edit';
+
 export function FacilityTable() {
   const [facilities, setFacilities] = useState<FacilityData[]>([]);
   const [loading, setLoading] = useState(true);
@@ -25,12 +36,17 @@ export function FacilityTable() {
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
 
-  const categories = [
-    { id: 'restaurant', name: '음식점' },
-    { id: 'cafe', name: '카페' },
-    { id: 'attraction', name: '관광지' },
-    { id: 'culture', name: '문화시설' },
-  ];
+  // 단일 모달 폼 상태 — 네이티브 prompt()/confirm()/alert() 연쇄를 대체(B2G 관제 데모 신뢰도).
+  const [modalOpen, setModalOpen] = useState(false);
+  const [modalMode, setModalMode] = useState<ModalMode>('create');
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [formName, setFormName] = useState('');
+  const [formType, setFormType] = useState('restaurant');
+  const [formCapacity, setFormCapacity] = useState('50'); // 제어 입력이라 문자열로 보관, 저장 시 파싱
+  const [formError, setFormError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  const categories = CATEGORIES;
 
   const fetchFacilities = async () => {
     try {
@@ -52,16 +68,111 @@ export function FacilityTable() {
     fetchFacilities();
   }, []);
 
-  const handleDelete = async (id: string, name: string) => {
-    if (confirm(`정말로 이 시설(${name})을 삭제하시겠습니까?`)) {
-      try {
-        await adminApi.delete(`/api/v1/admin/facilities/${id}`);
-        setFacilities(prev => prev.filter(f => f.id !== id));
-      } catch (err: any) {
-        console.error('Failed to delete facility:', err);
-        alert(`시설 삭제 중 오류가 발생했습니다: ${err?.message || '알 수 없는 오류'}`);
-      }
+  // 모달이 열려 있을 때 Esc 로 닫기(저장 중에는 무시). 백드롭 클릭·취소 버튼과 함께 3중 이탈 경로.
+  useEffect(() => {
+    if (!modalOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !submitting) setModalOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [modalOpen, submitting]);
+
+  const openCreateModal = () => {
+    setModalMode('create');
+    setEditingId(null);
+    setFormName('');
+    setFormType(selectedCategory); // 신규 유형 기본값 = 현재 선택된 카테고리 탭(기존 prompt 기본값과 동일)
+    setFormCapacity('50');
+    setFormError(null);
+    setModalOpen(true);
+  };
+
+  const openEditModal = (fac: FacilityData) => {
+    setModalMode('edit');
+    setEditingId(fac.id);
+    setFormName(fac.name);
+    setFormType(fac.type);
+    setFormCapacity(String(fac.capacity));
+    setFormError(null);
+    setModalOpen(true);
+  };
+
+  const handleSubmit = async () => {
+    // 간단 검증: 빈 값·수용 인원 범위(백엔드 FacilityCreate/Update 와 동일한 1~100000 정수).
+    const trimmedName = formName.trim();
+    if (!trimmedName) {
+      setFormError('장소명을 입력하세요.');
+      return;
     }
+    const cap = Number(formCapacity);
+    if (!Number.isInteger(cap) || cap < 1 || cap > 100000) {
+      setFormError('수용 인원은 1~100000 사이의 정수여야 합니다.');
+      return;
+    }
+    if (modalMode === 'create' && !categories.some(c => c.id === formType)) {
+      setFormError('올바른 유형을 선택하세요.');
+      return;
+    }
+
+    setSubmitting(true);
+    setFormError(null);
+    try {
+      if (modalMode === 'create') {
+        // 신규 시설 기본좌표 = 지역 중심점(lib/region.ts). 기존 prompt 흐름과 동일한 페이로드.
+        await adminApi.post('/api/v1/admin/facilities', {
+          name: trimmedName,
+          type: formType,
+          capacity: cap,
+          latitude: REGION.center.lat,
+          longitude: REGION.center.lng,
+        });
+        toast.success('시설이 성공적으로 등록되었습니다.');
+      } else if (editingId) {
+        // 수정은 name/capacity 만 전송한다 — 백엔드 FacilityUpdate 는 type 을 받지 않으므로(무음 무시)
+        // 모달의 유형 select 는 수정 모드에서 읽기 전용으로만 노출한다(회귀 방지).
+        await adminApi.patch(`/api/v1/admin/facilities/${editingId}`, {
+          name: trimmedName,
+          capacity: cap,
+        });
+        toast.success('시설 정보가 수정되었습니다.');
+      }
+      await fetchFacilities();
+      setModalOpen(false);
+    } catch (err: any) {
+      // 실패 시 모달은 열어 둔 채 토스트로 안내(사용자가 값 수정 후 재시도 가능).
+      const prefix = modalMode === 'create' ? '시설 등록에 실패했습니다: ' : '시설 정보 수정 실패: ';
+      toast.error(prefix + (err?.message || '알 수 없는 오류'));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleDelete = (id: string, name: string) => {
+    // 파괴적 동작이므로 네이티브 confirm() 대신 전역 sonner 토스트의 action/cancel 로 인페이지 확인.
+    toast(`'${name}' 시설을 삭제할까요?`, {
+      description: '삭제된 시설은 되돌릴 수 없습니다.',
+      duration: 8000,
+      action: {
+        label: '삭제',
+        onClick: () => {
+          adminApi
+            .delete(`/api/v1/admin/facilities/${id}`)
+            .then(() => {
+              setFacilities(prev => prev.filter(f => f.id !== id));
+              toast.success('시설이 삭제되었습니다.');
+            })
+            .catch((err: any) => {
+              console.error('Failed to delete facility:', err);
+              toast.error(`시설 삭제 중 오류가 발생했습니다: ${err?.message || '알 수 없는 오류'}`);
+            });
+        },
+      },
+      cancel: {
+        label: '취소',
+        onClick: () => {},
+      },
+    });
   };
 
   const getHoursText = (hours?: Record<string, string>) => {
@@ -81,178 +192,243 @@ export function FacilityTable() {
   const paginatedFacilities = filteredFacilities.slice(startIndex, startIndex + itemsPerPage);
 
   return (
-    <div className="bg-slate-900 rounded-2xl border border-slate-800 shadow-sm overflow-hidden col-span-2">
-      <div className="p-6 border-b border-slate-800 flex justify-between items-center bg-slate-800/30">
-        <div className="flex items-center gap-2">
-          <Settings className="text-slate-400" size={20} />
-          <h3 className="text-lg font-bold text-slate-100">장소 관리 (CRUD)</h3>
-        </div>
-        <button 
-          onClick={() => {
-            const name = prompt('새로운 장소명을 입력하세요:');
-            if (!name) return;
-            const type = prompt('장소 유형을 입력하세요 (restaurant, cafe, attraction, culture):', selectedCategory);
-            if (!type) return;
-            if (!['restaurant', 'cafe', 'attraction', 'culture'].includes(type)) {
-              alert('올바른 유형을 입력하세요 (restaurant, cafe, attraction, culture).');
-              return;
-            }
-            const capacityStr = prompt('수용 인원(숫자)을 입력하세요:', '50');
-            const capacity = parseInt(capacityStr || '50') || 50;
-
-            adminApi
-              .post('/api/v1/admin/facilities', { name, type, capacity, latitude: REGION.center.lat, longitude: REGION.center.lng }) // 신규 시설 기본좌표 = 지역 중심점(lib/region.ts)
-              .then(() => {
-                alert('시설이 성공적으로 등록되었습니다.');
-                fetchFacilities();
-              })
-              .catch((err: any) => {
-                alert('시설 등록에 실패했습니다: ' + (err?.message || '알 수 없는 오류'));
-              });
-          }}
-          className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-bold transition-colors"
-        >
-          <Plus size={16} /> 신규 장소 등록
-        </button>
-      </div>
-
-      {/* Category Tabs */}
-      <div className="flex gap-2 p-4 border-b border-slate-800 bg-slate-900/50">
-        {categories.map((cat) => (
+    <>
+      <div className="bg-slate-900 rounded-2xl border border-slate-800 shadow-sm overflow-hidden col-span-2">
+        <div className="p-6 border-b border-slate-800 flex justify-between items-center bg-slate-800/30">
+          <div className="flex items-center gap-2">
+            <Settings className="text-slate-400" size={20} />
+            <h3 className="text-lg font-bold text-slate-100">장소 관리 (CRUD)</h3>
+          </div>
           <button
-            key={cat.id}
-            onClick={() => {
-              setSelectedCategory(cat.id);
-              setCurrentPage(1);
-            }}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
-              selectedCategory === cat.id
-                ? 'bg-blue-500/25 border-blue-500/50 text-blue-400 font-bold shadow-sm'
-                : 'bg-slate-800/80 border-slate-700/80 text-slate-400 hover:bg-slate-800 hover:text-slate-200'
-            }`}
+            onClick={openCreateModal}
+            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-bold transition-colors"
           >
-            {cat.name}
+            <Plus size={16} /> 신규 장소 등록
           </button>
-        ))}
+        </div>
+
+        {/* Category Tabs */}
+        <div className="flex gap-2 p-4 border-b border-slate-800 bg-slate-900/50">
+          {categories.map((cat) => (
+            <button
+              key={cat.id}
+              onClick={() => {
+                setSelectedCategory(cat.id);
+                setCurrentPage(1);
+              }}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
+                selectedCategory === cat.id
+                  ? 'bg-blue-500/25 border-blue-500/50 text-blue-400 font-bold shadow-sm'
+                  : 'bg-slate-800/80 border-slate-700/80 text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+              }`}
+            >
+              {cat.name}
+            </button>
+          ))}
+        </div>
+
+        <div className="overflow-x-auto">
+          {loading ? (
+            <div className="p-8 text-center text-slate-500">데이터 로딩 중...</div>
+          ) : (
+            <>
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-slate-900 text-slate-400 text-sm border-b border-slate-800">
+                    <th className="p-4 font-semibold">시설명</th>
+                    <th className="p-4 font-semibold">유형</th>
+                    <th className="p-4 font-semibold">수용 인원</th>
+                    <th className="p-4 font-semibold">운영 시간</th>
+                    <th className="p-4 font-semibold">상태</th>
+                    <th className="p-4 font-semibold text-right">관리</th>
+                  </tr>
+                </thead>
+                <tbody className="text-sm">
+                  {paginatedFacilities.map((fac) => (
+                    <tr key={fac.id} className="border-b border-slate-800 hover:bg-slate-800 transition-colors">
+                      <td className="p-4 font-bold text-slate-100">{fac.name}</td>
+                      <td className="p-4">
+                        <span className="px-2 py-1 bg-slate-800 text-slate-300 rounded-md text-xs font-semibold uppercase">
+                          {fac.type === 'restaurant' ? '음식점' : fac.type === 'cafe' ? '카페' : fac.type === 'attraction' ? '관광지' : fac.type === 'culture' ? '문화시설' : fac.type}
+                        </span>
+                      </td>
+                      <td className="p-4 text-slate-300">{fac.capacity}명/대</td>
+                      <td className="p-4 text-slate-300">{getHoursText(fac.operating_hours)}</td>
+                      <td className="p-4">
+                        <span className="px-2 py-1 bg-emerald-500/15 text-emerald-300 text-xs font-bold rounded-md">활성</span>
+                      </td>
+                      <td className="p-4 flex justify-end gap-2">
+                        <button
+                          onClick={() => openEditModal(fac)}
+                          className="p-1.5 text-slate-500 hover:text-blue-400 transition-colors bg-slate-900 border border-slate-800 rounded-md"
+                        >
+                          <Edit2 size={16} />
+                        </button>
+                        <button
+                          onClick={() => handleDelete(fac.id, fac.name)}
+                          className="p-1.5 text-slate-500 hover:text-rose-400 transition-colors bg-slate-900 border border-slate-800 rounded-md"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                  {filteredFacilities.length === 0 && (
+                    <tr>
+                      <td colSpan={6} className="text-center p-8 text-slate-500 font-medium">등록된 장소가 없습니다.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+
+              {/* Pagination Controls */}
+              {totalPages > 1 && (
+                <div className="flex items-center justify-between border-t border-slate-800 p-4 bg-slate-900/30">
+                  <div className="text-xs text-slate-400 font-medium">
+                    총 {totalItems}개 중 {startIndex + 1}-{Math.min(startIndex + itemsPerPage, totalItems)}개 표시
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setCurrentPage(prev => Math.max(prev - 10, 1))}
+                      disabled={currentPage === 1}
+                      title="10페이지 이전"
+                      className="p-1 rounded border border-slate-800 text-slate-400 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    >
+                      <ChevronsLeft size={16} />
+                    </button>
+                    <button
+                      onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                      disabled={currentPage === 1}
+                      title="이전 페이지"
+                      className="p-1 rounded border border-slate-800 text-slate-400 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    >
+                      <ChevronLeft size={16} />
+                    </button>
+                    <span className="text-xs text-slate-300 font-semibold px-2">
+                      {currentPage} / {totalPages}
+                    </span>
+                    <button
+                      onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                      disabled={currentPage === totalPages}
+                      title="다음 페이지"
+                      className="p-1 rounded border border-slate-800 text-slate-400 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    >
+                      <ChevronRight size={16} />
+                    </button>
+                    <button
+                      onClick={() => setCurrentPage(prev => Math.min(prev + 10, totalPages))}
+                      disabled={currentPage === totalPages}
+                      title="10페이지 다음"
+                      className="p-1 rounded border border-slate-800 text-slate-400 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    >
+                      <ChevronsRight size={16} />
+                    </button>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
       </div>
 
-      <div className="overflow-x-auto">
-        {loading ? (
-          <div className="p-8 text-center text-slate-500">데이터 로딩 중...</div>
-        ) : (
-          <>
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="bg-slate-900 text-slate-400 text-sm border-b border-slate-800">
-                  <th className="p-4 font-semibold">시설명</th>
-                  <th className="p-4 font-semibold">유형</th>
-                  <th className="p-4 font-semibold">수용 인원</th>
-                  <th className="p-4 font-semibold">운영 시간</th>
-                  <th className="p-4 font-semibold">상태</th>
-                  <th className="p-4 font-semibold text-right">관리</th>
-                </tr>
-              </thead>
-              <tbody className="text-sm">
-                {paginatedFacilities.map((fac) => (
-                  <tr key={fac.id} className="border-b border-slate-800 hover:bg-slate-800 transition-colors">
-                    <td className="p-4 font-bold text-slate-100">{fac.name}</td>
-                    <td className="p-4">
-                      <span className="px-2 py-1 bg-slate-800 text-slate-300 rounded-md text-xs font-semibold uppercase">
-                        {fac.type === 'restaurant' ? '음식점' : fac.type === 'cafe' ? '카페' : fac.type === 'attraction' ? '관광지' : fac.type === 'culture' ? '문화시설' : fac.type}
-                      </span>
-                    </td>
-                    <td className="p-4 text-slate-300">{fac.capacity}명/대</td>
-                    <td className="p-4 text-slate-300">{getHoursText(fac.operating_hours)}</td>
-                    <td className="p-4">
-                      <span className="px-2 py-1 bg-emerald-500/15 text-emerald-300 text-xs font-bold rounded-md">활성</span>
-                    </td>
-                    <td className="p-4 flex justify-end gap-2">
-                      <button 
-                        onClick={() => {
-                          const newName = prompt('수정할 시설명을 입력하세요:', fac.name);
-                          if (!newName) return;
-                          const newCapStr = prompt('수정할 수용 인원을 입력하세요:', String(fac.capacity));
-                          const newCapacity = parseInt(newCapStr || '50') || fac.capacity;
+      {/* 신규 등록/수정 단일 모달 폼 — prompt() 3연속을 대체 */}
+      {modalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+          onClick={() => { if (!submitting) setModalOpen(false); }} // 백드롭 클릭으로 닫기(저장 중 제외)
+        >
+          <div
+            className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl shadow-xl"
+            onClick={(e) => e.stopPropagation()} // 카드 내부 클릭은 닫기로 전파되지 않게
+          >
+            <div className="flex items-center justify-between p-5 border-b border-slate-800">
+              <h4 className="text-base font-bold text-slate-100">
+                {modalMode === 'create' ? '신규 장소 등록' : '장소 정보 수정'}
+              </h4>
+              <button
+                onClick={() => setModalOpen(false)}
+                disabled={submitting}
+                className="p-1 text-slate-500 hover:text-slate-200 transition-colors disabled:opacity-50"
+                aria-label="닫기"
+              >
+                <X size={18} />
+              </button>
+            </div>
 
-                          adminApi
-                            .patch(`/api/v1/admin/facilities/${fac.id}`, { name: newName, capacity: newCapacity })
-                            .then(() => {
-                              alert('시설 정보가 수정되었습니다.');
-                              fetchFacilities();
-                            })
-                            .catch((err: any) => {
-                              alert('시설 정보 수정 실패: ' + (err?.message || '알 수 없는 오류'));
-                            });
-                        }}
-                        className="p-1.5 text-slate-500 hover:text-blue-400 transition-colors bg-slate-900 border border-slate-800 rounded-md"
-                      >
-                        <Edit2 size={16} />
-                      </button>
-                      <button 
-                        onClick={() => handleDelete(fac.id, fac.name)}
-                        className="p-1.5 text-slate-500 hover:text-rose-400 transition-colors bg-slate-900 border border-slate-800 rounded-md"
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-                {filteredFacilities.length === 0 && (
-                  <tr>
-                    <td colSpan={6} className="text-center p-8 text-slate-500 font-medium">등록된 장소가 없습니다.</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-
-            {/* Pagination Controls */}
-            {totalPages > 1 && (
-              <div className="flex items-center justify-between border-t border-slate-800 p-4 bg-slate-900/30">
-                <div className="text-xs text-slate-400 font-medium">
-                  총 {totalItems}개 중 {startIndex + 1}-{Math.min(startIndex + itemsPerPage, totalItems)}개 표시
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => setCurrentPage(prev => Math.max(prev - 10, 1))}
-                    disabled={currentPage === 1}
-                    title="10페이지 이전"
-                    className="p-1 rounded border border-slate-800 text-slate-400 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                  >
-                    <ChevronsLeft size={16} />
-                  </button>
-                  <button
-                    onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
-                    disabled={currentPage === 1}
-                    title="이전 페이지"
-                    className="p-1 rounded border border-slate-800 text-slate-400 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                  >
-                    <ChevronLeft size={16} />
-                  </button>
-                  <span className="text-xs text-slate-300 font-semibold px-2">
-                    {currentPage} / {totalPages}
-                  </span>
-                  <button
-                    onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
-                    disabled={currentPage === totalPages}
-                    title="다음 페이지"
-                    className="p-1 rounded border border-slate-800 text-slate-400 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                  >
-                    <ChevronRight size={16} />
-                  </button>
-                  <button
-                    onClick={() => setCurrentPage(prev => Math.min(prev + 10, totalPages))}
-                    disabled={currentPage === totalPages}
-                    title="10페이지 다음"
-                    className="p-1 rounded border border-slate-800 text-slate-400 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                  >
-                    <ChevronsRight size={16} />
-                  </button>
-                </div>
+            <form
+              onSubmit={(e) => { e.preventDefault(); handleSubmit(); }}
+              className="p-5 space-y-4"
+            >
+              {/* 장소명 */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-400 mb-1.5">장소명</label>
+                <input
+                  type="text"
+                  value={formName}
+                  onChange={(e) => setFormName(e.target.value)}
+                  placeholder="예: 황리단길 카페"
+                  autoFocus
+                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-blue-500/60"
+                />
               </div>
-            )}
-          </>
-        )}
-      </div>
-    </div>
+
+              {/* 유형 — 수정 모드에서는 백엔드가 type 변경을 지원하지 않아 읽기 전용으로 노출 */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-400 mb-1.5">유형</label>
+                <select
+                  value={formType}
+                  onChange={(e) => setFormType(e.target.value)}
+                  disabled={modalMode === 'edit'}
+                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm text-slate-100 focus:outline-none focus:border-blue-500/60 disabled:opacity-60 disabled:cursor-not-allowed"
+                >
+                  {categories.map((cat) => (
+                    <option key={cat.id} value={cat.id}>{cat.name}</option>
+                  ))}
+                </select>
+                {modalMode === 'edit' && (
+                  <p className="mt-1 text-[11px] text-slate-500">유형은 등록 후 이 화면에서 변경할 수 없습니다.</p>
+                )}
+              </div>
+
+              {/* 수용 인원 */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-400 mb-1.5">수용 인원(명/대)</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={100000}
+                  value={formCapacity}
+                  onChange={(e) => setFormCapacity(e.target.value)}
+                  placeholder="예: 50"
+                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-blue-500/60"
+                />
+              </div>
+
+              {formError && (
+                <p className="text-xs font-medium text-rose-400">{formError}</p>
+              )}
+
+              <div className="flex justify-end gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setModalOpen(false)}
+                  disabled={submitting}
+                  className="px-4 py-2 rounded-lg text-sm font-semibold text-slate-300 bg-slate-800 border border-slate-700 hover:bg-slate-700 transition-colors disabled:opacity-50"
+                >
+                  취소
+                </button>
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="px-4 py-2 rounded-lg text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                >
+                  {submitting ? '저장 중...' : modalMode === 'create' ? '등록' : '저장'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </>
   );
 }

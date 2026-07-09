@@ -87,6 +87,7 @@ export default function ReportsPage() {
   const [aiTrend, setAiTrend] = useState(MOCK_AI);
   const [table, setTable] = useState<any[]>(MOCK_TABLE);
   const [isLive, setIsLive] = useState(false);
+  const [loading, setLoading] = useState(true); // 최초 로드 중 여부(빈 상태 안내를 '불러오는 중' vs '데이터 없음'으로 구분)
   const [rangeLabel, setRangeLabel] = useState('최근 7일');
 
   useEffect(() => {
@@ -171,6 +172,9 @@ export default function ReportsPage() {
         if (gotReal) setIsLive(true);
       } catch (e) {
         console.warn('리포트 실데이터 로드 실패, 목업 유지:', e);
+      } finally {
+        // 로딩 종료 표시: 이후 빈 상태는 '데이터 없음'으로 안내
+        if (active) setLoading(false);
       }
     })();
     return () => {
@@ -254,7 +258,7 @@ export default function ReportsPage() {
                 }`}
               >
                 <Database size={13} />
-                {isLive ? 'DB 실시간 반영' : '데모 데이터'}
+                {isLive ? 'DB 실시간 반영' : loading ? '불러오는 중' : '데이터 없음'}
               </span>
             </div>
             <div className="flex items-center gap-3">
@@ -282,6 +286,12 @@ export default function ReportsPage() {
                 <h3 className="text-lg font-bold text-slate-100">요일별 관광 장소 누적 방문량</h3>
               </div>
               <div className="flex-1 w-full h-[250px]">
+                {weekly.length === 0 ? (
+                  // 빈 상태 안내: 실측 방문량 데이터 없음
+                  <div className="flex items-center justify-center h-full text-slate-500 text-sm">
+                    {loading ? '데이터를 불러오는 중...' : '표시할 방문량 데이터가 아직 없습니다.'}
+                  </div>
+                ) : (
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={weekly} margin={{ top: 5, right: 0, bottom: 5, left: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#1e293b" />
@@ -295,6 +305,7 @@ export default function ReportsPage() {
                     <Bar dataKey="문화시설" stackId="a" fill="#f59e0b" radius={[4, 4, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
+                )}
               </div>
             </div>
 
@@ -305,6 +316,12 @@ export default function ReportsPage() {
                 <h3 className="text-lg font-bold text-slate-100">AI 추천 알고리즘 수락 트렌드</h3>
               </div>
               <div className="flex-1 w-full h-[250px]">
+                {aiTrend.length === 0 ? (
+                  // 빈 상태 안내: AI 추천 수락 트렌드 데이터 없음(추천 이력 부족 또는 관리자 API 미응답)
+                  <div className="flex items-center justify-center h-full text-slate-500 text-sm">
+                    {loading ? '데이터를 불러오는 중...' : 'AI 추천 수락 데이터가 아직 없습니다.'}
+                  </div>
+                ) : (
                 <ResponsiveContainer width="100%" height="100%">
                   <AreaChart data={aiTrend} margin={{ top: 5, right: 0, bottom: 5, left: 0 }}>
                     <defs>
@@ -326,6 +343,7 @@ export default function ReportsPage() {
                     <Area type="monotone" dataKey="거절" stroke="#94a3b8" fillOpacity={1} fill="url(#colorReject)" />
                   </AreaChart>
                 </ResponsiveContainer>
+                )}
               </div>
             </div>
           </div>
@@ -347,7 +365,15 @@ export default function ReportsPage() {
                   </tr>
                 </thead>
                 <tbody className="text-sm">
-                  {table.map((row) => (
+                  {table.length === 0 ? (
+                    // 빈 상태 행: 요약 데이터 없음
+                    <tr>
+                      <td colSpan={4} className="p-8 text-center text-slate-500">
+                        {loading ? '데이터를 불러오는 중...' : '표시할 요약 데이터가 아직 없습니다.'}
+                      </td>
+                    </tr>
+                  ) : (
+                    table.map((row) => (
                     <tr key={row.id} className="border-b border-slate-800 hover:bg-slate-800 transition-colors">
                       <td className="p-4 font-bold text-slate-200">{row.category}</td>
                       <td className="p-4 text-slate-300">{row.totalUsers}</td>
@@ -367,7 +393,8 @@ export default function ReportsPage() {
                         </span>
                       </td>
                     </tr>
-                  ))}
+                    ))
+                  )}
                 </tbody>
               </table>
             </div>

@@ -11,13 +11,30 @@ export function DashboardCharts({ distribution }: { distribution: any[] }) {
   // recharts tooltip formatter to show percentage
   const formatPercent = (value: any) => `${(Number(value) * 100).toFixed(1)}%`;
 
+  // 데이터가 비면 recharts 는 축만 그리고 선이 없어 '빈 화면'처럼 보인다 → 빈 상태 가드로 안내 문구 표시.
+  const hasData = Array.isArray(distribution) && distribution.length > 0;
+
   return (
     <div className="bg-slate-900 p-6 rounded-2xl border border-slate-800 shadow-sm col-span-4 flex flex-col gap-4">
-      <div className="flex justify-between items-center">
-        <h3 className="text-lg font-bold text-slate-100">최근 30일 관광 수요 분산 효과 분석</h3>
+      <div className="flex justify-between items-center flex-wrap gap-2">
+        <div className="flex items-center gap-2">
+          {/* ③ 분산 효과 — 폐루프의 마지막 단계(개입이 만든 장기 추이) */}
+          <span className="flex-shrink-0 px-2 py-0.5 rounded-full text-[11px] font-bold border bg-emerald-500/15 text-emerald-300 border-emerald-500/30">
+            ③ 분산 효과
+          </span>
+          <h3 className="text-lg font-bold text-slate-100">최근 30일 관광 수요 분산 효과 분석</h3>
+        </div>
+        {/* 실측 오인 방지(정직성 원칙) — 도입 전/후 추이는 합성한 데모용 예시임을 명시한다. */}
+        <span
+          title="실측 집계가 아닌 데모용 예시 추이입니다. 도입 전/후 혼잡도와 대안 장소 활용률의 기대 패턴을 보여줍니다."
+          className="flex-shrink-0 px-2 py-0.5 rounded-md text-[11px] font-semibold border bg-amber-500/10 text-amber-300 border-amber-500/25 cursor-help"
+        >
+          예시 추이(데모)
+        </span>
       </div>
 
       <div className="h-[300px] w-full">
+        {hasData ? (
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={distribution} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#1e293b" />
@@ -30,7 +47,13 @@ export function DashboardCharts({ distribution }: { distribution: any[] }) {
               <Line name="대안 장소 활용률" type="monotone" dataKey="alternativeUsage" stroke="#10b981" strokeWidth={3} dot={{r: 4}} activeDot={{r: 6}} />
             </LineChart>
           </ResponsiveContainer>
-        </div>
+        ) : (
+          <div className="h-full flex flex-col items-center justify-center gap-1 text-slate-500">
+            <p className="text-sm font-semibold">표시할 분산 효과 추이가 없습니다.</p>
+            <p className="text-xs text-slate-600">30일 도입 전/후 A/B 추이가 집계되면 이 영역에 표시됩니다.</p>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -88,8 +111,14 @@ export function DashboardHeatmap({ heatmapData }: { heatmapData: any[] }) {
     <div className="bg-slate-900 p-6 rounded-2xl border border-slate-800 shadow-sm col-span-4 flex flex-col justify-between overflow-x-auto min-h-[500px]">
       <div>
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
-          <h3 className="text-lg font-bold text-slate-100">장소별 시간대 혼잡 히트맵</h3>
-          
+          <div className="flex items-center gap-2">
+            {/* ① 실시간 관제 — 폐루프 첫 단계(현재 혼잡 모니터링) */}
+            <span className="flex-shrink-0 px-2 py-0.5 rounded-full text-[11px] font-bold border bg-blue-500/15 text-blue-300 border-blue-500/30">
+              ① 실시간 관제
+            </span>
+            <h3 className="text-lg font-bold text-slate-100">장소별 시간대 혼잡 히트맵</h3>
+          </div>
+
           {/* Category Filters */}
           <div className="flex gap-2">
             {categories.map((cat) => (

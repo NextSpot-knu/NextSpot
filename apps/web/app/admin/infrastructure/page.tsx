@@ -8,6 +8,7 @@ import {
 import { AdminSidebar } from '@/components/AdminSidebar';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { createPublicClient } from '@/lib/supabase';
+import { toast } from 'sonner';
 
 // --- Types ---
 interface Infrastructure {
@@ -222,6 +223,22 @@ export default function InfrastructurePage() {
     }
   };
 
+  // 관리자 액션: 수동 상태 변경(Override) — 실제 쓰기 연동 전이라 준비중 안내로 무반응(dead) 제거.
+  const handleOverride = () => {
+    if (!selectedInfra) return;
+    toast.info('수동 상태 변경 (Override)', {
+      description: `'${selectedInfra.name}'의 혼잡 상태 수동 변경 기능은 준비 중입니다.`,
+    });
+  };
+
+  // 관리자 액션: 근처 유저에게 분산 안내 발송 — 개입 스토리 데모 확인 토스트(실발송 연동 전, 데모 시뮬레이션).
+  const handleDispatch = () => {
+    if (!selectedInfra) return;
+    toast.success('분산 안내 발송 완료', {
+      description: `'${selectedInfra.name}' 인근 유저에게 대안 장소 안내를 전송했습니다. (데모)`,
+    });
+  };
+
   return (
     <div className="flex h-screen bg-[#070b19] text-slate-100 font-sans overflow-hidden">
       <AdminSidebar />
@@ -231,15 +248,22 @@ export default function InfrastructurePage() {
         <header className="h-20 bg-slate-900 border-b border-slate-800 flex items-center justify-between px-8 flex-shrink-0">
           <h2 className="text-xl font-bold text-slate-100">관광지 모니터링</h2>
           <div className="flex items-center gap-6">
+            {/* 검색/알림은 아직 미구현 → 무반응(dead) 오해 방지를 위해 비활성 처리 */}
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-600" size={18} />
               <input
                 type="text"
-                placeholder="Search..."
-                className="pl-10 pr-4 py-2 bg-slate-800 text-slate-100 placeholder-slate-500 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 w-64"
+                placeholder="검색 준비 중"
+                disabled
+                title="검색 기능 준비 중"
+                className="pl-10 pr-4 py-2 bg-slate-800 text-slate-100 placeholder-slate-500 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 w-64 opacity-50 cursor-not-allowed"
               />
             </div>
-            <button className="relative text-slate-400 hover:text-slate-200">
+            <button
+              disabled
+              title="알림 기능 준비 중"
+              className="relative text-slate-500 opacity-50 cursor-not-allowed"
+            >
               <Bell size={24} />
             </button>
           </div>
@@ -442,10 +466,16 @@ export default function InfrastructurePage() {
                     관리자 액션
                   </h3>
                   <div className="flex gap-4">
-                    <button className="flex-1 bg-slate-800 border border-slate-700 hover:bg-slate-700 text-slate-200 font-semibold py-3 rounded-xl transition-colors">
+                    <button
+                      onClick={handleOverride}
+                      className="flex-1 bg-slate-800 border border-slate-700 hover:bg-slate-700 text-slate-200 font-semibold py-3 rounded-xl transition-colors"
+                    >
                       수동 상태 변경 (Override)
                     </button>
-                    <button className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-xl transition-colors shadow-sm shadow-blue-500/30">
+                    <button
+                      onClick={handleDispatch}
+                      className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-xl transition-colors shadow-sm shadow-blue-500/30"
+                    >
                       근처 유저에게 분산 안내 발송
                     </button>
                   </div>

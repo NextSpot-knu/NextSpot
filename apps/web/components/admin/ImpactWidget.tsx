@@ -55,41 +55,41 @@ export function ImpactWidget() {
       </div>
 
       <div className="flex-1 p-6 flex flex-col justify-center gap-6">
-        {failed ? (
-          <div className="text-center text-slate-500 text-sm py-6">
-            집계를 불러오지 못했습니다.
-            <div className="text-xs mt-1 text-slate-600">백엔드(8000) 기동 여부를 확인하세요.</div>
+        {/* 실패해도 패널을 비우지 않는다 — 수치는 '—'로 두고 대기 안내만 덧붙여 자리를 유지. */}
+        {/* 실패를 실데이터로 위장하지 않으려 0/공란이 아닌 '—'로 명시. */}
+        <div className="flex items-center gap-4">
+          <div className="p-3 bg-emerald-500/10 rounded-xl text-emerald-400">
+            <TimerOff size={24} />
           </div>
+          <div>
+            <div className="text-3xl font-black text-emerald-300">
+              {data ? Math.round(data.saved_wait_minutes).toLocaleString() : '—'}분
+            </div>
+            <div className="text-xs text-slate-400 font-semibold mt-0.5">절감 대기시간 합계</div>
+          </div>
+        </div>
+        <div className="flex items-center gap-4">
+          <div className="p-3 bg-blue-500/10 rounded-xl text-blue-400">
+            <Route size={24} />
+          </div>
+          <div>
+            <div className="text-3xl font-black text-slate-100">
+              {data ? data.relocations.toLocaleString() : '—'}건
+            </div>
+            <div className="text-xs text-slate-400 font-semibold mt-0.5">수요 재배치 (추천 수락)</div>
+          </div>
+        </div>
+        {failed ? (
+          <p className="text-[11px] text-slate-500">
+            백엔드 연결 대기 중 — 집계 표시에는 백엔드(8000) 기동이 필요합니다.
+          </p>
         ) : (
-          <>
-            <div className="flex items-center gap-4">
-              <div className="p-3 bg-emerald-500/10 rounded-xl text-emerald-400">
-                <TimerOff size={24} />
-              </div>
-              <div>
-                <div className="text-3xl font-black text-emerald-300">
-                  {data ? Math.round(data.saved_wait_minutes).toLocaleString() : '—'}분
-                </div>
-                <div className="text-xs text-slate-400 font-semibold mt-0.5">절감 대기시간 합계</div>
-              </div>
-            </div>
-            <div className="flex items-center gap-4">
-              <div className="p-3 bg-blue-500/10 rounded-xl text-blue-400">
-                <Route size={24} />
-              </div>
-              <div>
-                <div className="text-3xl font-black text-slate-100">
-                  {data ? data.relocations.toLocaleString() : '—'}건
-                </div>
-                <div className="text-xs text-slate-400 font-semibold mt-0.5">수요 재배치 (추천 수락)</div>
-              </div>
-            </div>
-            {data && data.estimated > 0 && (
-              <p className="text-[11px] text-slate-600">
-                실측 {data.measured}건 · 근사 {data.estimated}건 (구버전 추천 행은 혼잡 감소분 기반 근사)
-              </p>
-            )}
-          </>
+          data &&
+          data.estimated > 0 && (
+            <p className="text-[11px] text-slate-600">
+              실측 {data.measured}건 · 근사 {data.estimated}건 (구버전 추천 행은 혼잡 감소분 기반 근사)
+            </p>
+          )
         )}
       </div>
     </div>
