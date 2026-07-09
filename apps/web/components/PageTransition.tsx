@@ -8,7 +8,7 @@ export default function PageTransition({ children }: { children: React.ReactNode
   return (
     <div
       key={pathname}
-      className="flex-1 flex flex-col h-full w-full relative animate-page-enter"
+      className="flex-1 min-w-0 flex flex-col h-full w-full relative animate-page-enter"
     >
       {children}
     </div>

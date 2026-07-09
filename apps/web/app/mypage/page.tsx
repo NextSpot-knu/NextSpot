@@ -153,7 +153,7 @@ export default function MyPage() {
       </header>
 
       {/* Main Content Area */}
-      <main className="flex-1 flex flex-col relative z-10 px-6 overflow-y-auto pb-[120px] no-scrollbar">
+      <main className="flex-1 flex flex-col relative z-10 px-6 overflow-y-auto pb-[120px] md:pb-6 no-scrollbar">
         {isLoading || !profile ? (
           <div className="flex-1 flex items-center justify-center">
             <div className="w-8 h-8 border-4 border-gold border-t-transparent rounded-full animate-spin"></div>
