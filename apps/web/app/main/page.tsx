@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import Script from 'next/script';
 import { Home, Bookmark, User, Search, Mic, X, Utensils, MapPin, Building2, Coffee, Sparkles, ChevronDown, ChevronUp } from 'lucide-react';
@@ -10,7 +10,9 @@ import { getMarkerSvg } from '@/lib/utils';
 import { scoreFacility, compareSpot, rankFacilities, recToSpot, haversineMeters, cuisineMatch, rescoreWithPreference, filterReachable } from '@/lib/recommender';
 import { findLandmark } from '@/lib/landmarks';
 import { REGION, isWithinRegion } from '@/lib/region';
-import { recommendByType, voiceTurn } from '@/lib/api-client';
+import { recommendByType, voiceTurn, apiClient } from '@/lib/api-client';
+// 히트맵 blob 의 색·크기 규칙(마커/배지 임계와 일관) 공용 헬퍼 — 중복 정의 금지, 그대로 재사용.
+import { getHeatGradient, getHeatRadius } from '@/lib/heatmap';
 import { useVoiceAssistant } from '@/lib/useVoiceAssistant';
 import VoiceAssistantOrb from '@/components/VoiceAssistantOrb';
 
@@ -38,6 +40,8 @@ export default function MainPage() {
   const markersRef = useRef<any[]>([]);
   const userMarkerRef = useRef<any>(null);
   const activeOverlayRef = useRef<any>(null);
+  // 히트맵 CustomOverlay blob 배열 — 토글 off / 데이터·필터·예측 변경 / 언마운트 시 정리(cleanup)용.
+  const heatmapOverlaysRef = useRef<any[]>([]);
 
   const [activeTab, setActiveTab] = useState('Home');
   const [activeFilter, setActiveFilter] = useState('음식점'); // 첫 접속 시 음식점 세션을 먼저 표시(탭 순서와 일치)
@@ -66,6 +70,13 @@ export default function MainPage() {
   const [isMockTimeMinimized, setIsMockTimeMinimized] = useState(true);
   const [mockHour, setMockHour] = useState<number | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // 히트맵 레이어 on/off — 혼잡 핀과 별개의 열지도 오버레이(CongestionMap 에서 이식). 기본 꺼짐.
+  const [showHeatmap, setShowHeatmap] = useState(false);
+  // 예측 타임슬라이더 상태 — 0=지금(실측), 1~3=+N시간 후 AI 예측. predictionMap 은 시설별 예측 혼잡도.
+  const [hoursAhead, setHoursAhead] = useState(0);
+  const [predictionMap, setPredictionMap] = useState<Record<string, { level: number; anchored: boolean }> | null>(null);
+  const [predictionLoading, setPredictionLoading] = useState(false);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -355,6 +366,62 @@ export default function MainPage() {
       map.panTo(target);
     } catch (e) {
       map.panTo(latlng);
+    }
+  };
+
+  // 표시 시설 선택(카테고리 필터 + 이름 검색 + 줌 레벨별 밀집도 상한)을 한 곳에 모은 헬퍼.
+  // 마커 동기화 effect 와 히트맵 effect 가 '동일한 시설 집합'을 그리도록(열지도=마커 정직성) 공용 사용한다.
+  // (기존 마커 effect 의 인라인 계산을 그대로 옮긴 것 — 동작 불변, source 만 파라미터화.)
+  const computeDisplayFacilities = (source: any[]) => {
+    const filterMap: Record<string, string> = { '음식점': 'restaurant', '카페': 'cafe', '관광지': 'attraction', '문화시설': 'culture' };
+    const targetType = filterMap[activeFilter];
+    const q = searchQuery.trim().toLowerCase();
+    const filtered = source.filter(f => f.type === targetType && (q === '' || String(f.name ?? '').toLowerCase().includes(q)));
+    const densityCap = mapLevel <= 3 ? 200 : mapLevel <= 4 ? 60 : mapLevel <= 5 ? 30 : mapLevel <= 6 ? 14 : 6;
+    const scored = filtered.map(f => ({ ...f, spot: calculateSPOT(f) }));
+    scored.sort(compareFacilities);
+    return scored.slice(0, densityCap);
+  };
+
+  // 예측 모드 여부 — 예측 데이터 수신 성공 시에만 true(실패 시 '지금' 모드 유지 → 지도가 깨지지 않음).
+  const isForecast = hoursAhead > 0 && predictionMap !== null;
+
+  // 마커/히트맵 소스: '지금'은 실측 facilities 그대로, 예측 모드에선 congestionLevel 만 예측값으로 치환한
+  // 파생 목록. 원본 facilities 는 불변 → '지금'으로 복귀 시 즉시 실측 표시, 추천/카드 로직에 영향 없음.
+  // (예측 대상은 실 시설. 그룹/데모 합성 시설은 predictionMap 에 없어 그대로 유지된다.)
+  const markerFacilities = useMemo(() => {
+    if (!isForecast || !predictionMap) return facilities;
+    return facilities.map((f) => {
+      const pred = predictionMap[f.id];
+      return pred ? { ...f, congestionLevel: pred.level } : f;
+    });
+  }, [facilities, predictionMap, isForecast]);
+
+  // 타임슬라이더 전환: 지금(0)=실측 복귀, +N시간=백엔드 배치 예측으로 마커·히트맵 재채색.
+  // 실패 시 예측을 적용하지 않고 '지금' 모드를 유지(토스트 안내) — 회귀 없이 안전.
+  const handleTimeShift = async (n: number) => {
+    if (n === hoursAhead || predictionLoading) return;
+    if (n === 0) {
+      setHoursAhead(0);
+      setPredictionMap(null); // 실측 표시 복귀
+      return;
+    }
+    setPredictionLoading(true);
+    try {
+      // 주의: predict 라우터는 /api/v1 이 아닌 /predict 프리픽스(main.py) 아래에 있다.
+      // apiClient 가 body 를 snake_case(hours_ahead)로, 응답을 camelCase 로 변환한다.
+      const res = await apiClient.post('/predict/batch', { hoursAhead: n });
+      const map: Record<string, { level: number; anchored: boolean }> = {};
+      for (const p of res?.predictions ?? []) {
+        map[p.facilityId] = { level: p.predictedCongestion, anchored: p.anchored !== false };
+      }
+      setPredictionMap(map);
+      setHoursAhead(n);
+    } catch (err) {
+      console.warn('혼잡 예측 조회 실패 — 실측(지금) 모드를 유지합니다.', err);
+      showToast('AI 혼잡 예측을 불러오지 못했어요. 지금(실측) 모드를 유지합니다.');
+    } finally {
+      setPredictionLoading(false);
     }
   };
 
@@ -838,32 +905,16 @@ export default function MainPage() {
 
   // Synchronize Markers (Filters & Facilities updates)
   useEffect(() => {
-    if (!mapLoaded || !mapInstanceRef.current || facilities.length === 0) return;
+    if (!mapLoaded || !mapInstanceRef.current || markerFacilities.length === 0) return;
     const kakao = window.kakao;
 
     // Clear old markers
     markersRef.current.forEach((m) => m.setMap(null));
     markersRef.current = [];
 
-    // Map active filter label to DB type name
-    const filterMap: Record<string, string> = {
-      '음식점': 'restaurant',
-      '카페': 'cafe',
-      '관광지': 'attraction',
-      '문화시설': 'culture'
-    };
-    const targetType = filterMap[activeFilter];
-
-    // (c) 로컬 시설명 검색 — 입력값이 있으면 이름 부분일치 마커만 표시(TourAPI 연동은 범위 밖)
-    const q = searchQuery.trim().toLowerCase();
-    const filtered = facilities.filter(f => f.type === targetType && (q === '' || String(f.name ?? '').toLowerCase().includes(q)));
-
-    // 줌 레벨별 마커 밀집도 — 시중 지도앱처럼 멀리 볼수록(레벨↑) 핵심 장소만, 확대할수록(레벨↓) 더 많이 표시.
-    // Kakao level은 작을수록 확대. SPOT 상위 순으로 잘라 '대표 장소'를 우선 노출한다(브라우저 프리징도 방지).
-    const densityCap = mapLevel <= 3 ? 200 : mapLevel <= 4 ? 60 : mapLevel <= 5 ? 30 : mapLevel <= 6 ? 14 : 6;
-    const scoredFacilities = filtered.map(f => ({ ...f, spot: calculateSPOT(f) }));
-    scoredFacilities.sort(compareFacilities);
-    const displayFacilities = scoredFacilities.slice(0, densityCap);
+    // 표시 시설 선택(카테고리 필터 + 이름 검색 + 줌 밀집도 상한)을 computeDisplayFacilities 로 통일.
+    // markerFacilities 는 '지금'=실측, 예측 모드=예측 혼잡도가 반영된 파생 목록 → 마커가 자동 재채색된다.
+    const displayFacilities = computeDisplayFacilities(markerFacilities);
 
     // 마커 크기: 평소엔 작게, 선택 시엔 확대(뒤쪽 펄스/이펙트 없이 크기만 키움). 화면 폭에 따라 반응형.
     const isNarrow = typeof window !== 'undefined' && window.innerWidth < 640;
@@ -954,7 +1005,58 @@ export default function MainPage() {
 
     markersRef.current = newMarkers;
     // selectedFacility 변경 시에도 재렌더해 선택 마커만 진한 색으로 갱신(기존 마커는 effect 시작부에서 정리)
-  }, [facilities, activeFilter, mapLoaded, selectedFacility?.id, activeGroupId, mapLevel, searchQuery]);
+    // markerFacilities 를 dep 으로 둬 예측(hoursAhead) 전환 시에도 마커가 예측 혼잡도로 재채색된다.
+  }, [markerFacilities, activeFilter, mapLoaded, selectedFacility?.id, activeGroupId, mapLevel, searchQuery]);
+
+  // 히트맵 레이어 (실 카카오맵) — 혼잡 핀과 별개의 CustomOverlay blob(CongestionMap 에서 이식).
+  // showHeatmap 이 켜졌을 때만, 마커와 '동일한 표시 시설 집합'(computeDisplayFacilities)에
+  // 혼잡도 색 radial-gradient 원을 얹는다. clickable=false + 낮은 zIndex 로 마커 클릭/상호작용을
+  // 방해하지 않으며, ref 로 오버레이를 관리해 토글 off / 데이터·필터·예측 변경 / 언마운트 시 정리한다.
+  // (main 은 실 카카오맵 모드만 지원 → 시뮬레이션 blob 은 해당 없음.)
+  useEffect(() => {
+    if (!mapLoaded || !mapInstanceRef.current || typeof window === 'undefined' || !window.kakao) return;
+    const kakao = window.kakao;
+
+    // 이전 오버레이 제거(잔상 방지) — 토글 off / 데이터·필터·예측 변경 모두 커버.
+    heatmapOverlaysRef.current.forEach((o) => o.setMap(null));
+    heatmapOverlaysRef.current = [];
+
+    if (!showHeatmap) return;
+
+    // 혼잡 로그 없는 시설(congestionLevel === null)은 열지도에서 제외 — '데이터 없음'을 색으로 합성하지 않음(정직성).
+    const displayFacilities = computeDisplayFacilities(markerFacilities).filter(
+      (f) => typeof f.congestionLevel === 'number' && typeof f.latitude === 'number' && typeof f.longitude === 'number'
+    );
+
+    const overlays = displayFacilities.map((f) => {
+      const size = getHeatRadius(f.congestionLevel);
+      const blob = document.createElement('div');
+      blob.style.width = `${size}px`;
+      blob.style.height = `${size}px`;
+      blob.style.borderRadius = '50%';
+      blob.style.background = getHeatGradient(f.congestionLevel);
+      blob.style.mixBlendMode = 'screen'; // 겹칠수록 가산 합성되어 번지는 열지도 효과
+      blob.style.pointerEvents = 'none';
+
+      const overlay = new kakao.maps.CustomOverlay({
+        position: new kakao.maps.LatLng(f.latitude, f.longitude),
+        content: blob,
+        xAnchor: 0.5, // 시설 좌표를 blob 중앙에 정렬
+        yAnchor: 0.5,
+        clickable: false, // 클릭은 아래 마커로 통과(마커 상호작용 회귀 방지)
+        zIndex: 0, // 마커(zIndex 1/100)·사용자 위치(zIndex 10) 아래 — 핀이 blob 위에 보이도록
+      });
+      overlay.setMap(mapInstanceRef.current);
+      return overlay;
+    });
+
+    heatmapOverlaysRef.current = overlays;
+
+    return () => {
+      heatmapOverlaysRef.current.forEach((o) => o.setMap(null));
+      heatmapOverlaysRef.current = [];
+    };
+  }, [markerFacilities, activeFilter, mapLoaded, mapLevel, searchQuery, showHeatmap]);
 
   const filters = [
     { id: '음식점', icon: Utensils },
@@ -1062,6 +1164,58 @@ export default function MainPage() {
               </button>
             );
           })}
+        </div>
+
+        {/* 지도 레이어 컨트롤 — 🔥 히트맵 토글 + 예측 타임슬라이더(지금·+1h·+2h·+3h).
+            CongestionMap 의 두 기능을 정본 지도에 통합. 예측 모드는 정직성 배지로 실측과 구분한다.
+            (하단은 추천 카드/탭바가 차지하므로, 항상 보이고 충돌 없는 상단 컨트롤 영역에 배치.) */}
+        <div className="flex flex-wrap items-center gap-2 pointer-events-auto">
+          {/* 히트맵 토글 */}
+          <button
+            type="button"
+            onClick={() => setShowHeatmap((prev) => !prev)}
+            aria-pressed={showHeatmap}
+            className={`flex shrink-0 items-center gap-2 rounded-full border px-3 py-1.5 text-[13px] font-medium transition-all fractal-glass sm:px-4 sm:py-2 sm:text-sm ${
+              showHeatmap
+                ? 'bg-orange-600/30 border-orange-400 text-white shadow-[0_0_15px_rgba(249,115,22,0.3)]'
+                : 'border-white/10 text-gray-400 hover:bg-white/10 hover:text-white'
+            }`}
+          >
+            <span className={`w-2 h-2 rounded-full ${showHeatmap ? 'bg-orange-400 animate-pulse' : 'bg-gray-500'}`} />
+            🔥 히트맵
+          </button>
+
+          {/* 예측 정직성 배지 — 실측(Live)과 혼동 방지 */}
+          {isForecast && (
+            <span className="shrink-0 px-3 py-1 rounded-full text-[11px] font-bold bg-purple-600/90 border border-purple-400/40 text-white shadow-lg shadow-purple-500/30 whitespace-nowrap">
+              🔮 AI 예측 · +{hoursAhead}시간 후
+            </span>
+          )}
+
+          {/* 예측 타임슬라이더 — 미래 도착시점 혼잡 예측 */}
+          <div
+            className={`flex shrink-0 gap-1 rounded-full border p-1 fractal-glass transition-colors ${
+              isForecast ? 'border-purple-400/50' : 'border-white/10'
+            } ${predictionLoading ? 'opacity-60' : ''}`}
+          >
+            {[0, 1, 2, 3].map((n) => (
+              <button
+                key={n}
+                type="button"
+                onClick={() => handleTimeShift(n)}
+                disabled={predictionLoading}
+                className={`shrink-0 whitespace-nowrap rounded-full px-3 py-1 text-xs font-semibold transition-all disabled:cursor-wait ${
+                  hoursAhead === n
+                    ? n === 0
+                      ? 'bg-gradient-to-r from-sky-500 to-emerald-500 text-white shadow-md shadow-emerald-500/25'
+                      : 'bg-gradient-to-r from-purple-500 to-fuchsia-600 text-white shadow-md shadow-purple-500/25'
+                    : 'text-gray-300 hover:text-white hover:bg-white/10'
+                }`}
+              >
+                {n === 0 ? '지금' : `+${n}h`}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
