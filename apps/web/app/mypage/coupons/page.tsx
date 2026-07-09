@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { ChevronLeft, Ticket, Compass, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { toast } from 'sonner';
 import { apiClient } from '@/lib/api-client';
 import { useT } from '@/lib/i18n/I18nProvider';
 
@@ -36,6 +37,7 @@ export default function CouponsPage() {
   const [coupons, setCoupons] = useState<Coupon[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [hasError, setHasError] = useState(false);
+  const [usingId, setUsingId] = useState<string | null>(null);
 
   // 쿠폰 조회 — 마운트 effect 와 에러 상태의 '다시 시도' 버튼이 함께 재사용한다.
   // (output: 'export' 에서는 router.refresh() 가 무동작이라 직접 재호출해야 한다.)
@@ -53,6 +55,21 @@ export default function CouponsPage() {
       setIsLoading(false);
     }
   }, []);
+
+  // 쿠폰 사용 처리 — 매장에서 즉시 제시하는 흐름이라 별도 확인 없이 사용 후 목록 갱신.
+  const handleUse = useCallback(async (couponId: string) => {
+    setUsingId(couponId);
+    try {
+      await apiClient.post(`/api/v1/coupons/${couponId}/use`);
+      toast.success(t('coupons.useSuccess'));
+      await fetchCoupons();
+    } catch (err) {
+      console.warn('coupon use failed', err);
+      toast.error(t('coupons.useFail'));
+    } finally {
+      setUsingId(null);
+    }
+  }, [t, fetchCoupons]);
 
   useEffect(() => {
     void fetchCoupons();
@@ -170,6 +187,16 @@ export default function CouponsPage() {
                       <p className="text-[11px] text-muk-soft mt-0.5">
                         {t('coupons.issued', { date: formatDate(coupon.issuedAt) })}
                       </p>
+                    )}
+                    {!used && (
+                      <button
+                        type="button"
+                        onClick={() => handleUse(coupon.id)}
+                        disabled={usingId === coupon.id}
+                        className="mt-2 self-start px-3 py-1.5 rounded-lg bg-gold hover:bg-gold-deep text-white text-xs font-bold transition-colors disabled:opacity-50"
+                      >
+                        {usingId === coupon.id ? t('common.loading') : t('coupons.use')}
+                      </button>
                     )}
                   </div>
                 </div>
