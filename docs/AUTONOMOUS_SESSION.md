@@ -33,9 +33,16 @@
 - PWA 오프라인: service worker(앱셸 캐시+오프라인 폴백) + 192/512/maskable PNG 아이콘 + standalone manifest
 - 폴리시: saved/mypage/coupons 스켈레톤, main 컨트롤 포커스링
 
-**남은(저가치 P2, 8시까지 페이싱으로 진행):** 작은 라벨 대비(#14), explore/recommend·course geo 실패 안내(#12), main 마커 재생성 성능(#13, 위험도 있어 검토), 코스 SPOT 하위항 누적도착(#4, score.py 리팩터 필요).
+**추가 완료:** explore/recommend·course geo 실패 안내(#12, `1d9210d`).
 
-**루프 방식:** 남은 항목은 저가치라 ScheduleWakeup 로 간격을 두고 증분 진행(토큰 지속). 각 증분: 구현→검증(tsc/build 또는 pytest)→커밋→푸시. 마지막 tip 은 항상 origin/feature/jinseok.
+**사람 검토로 남긴 항목(자율로 하기엔 주관적/위험):**
+- #14 작은 라벨 대비 — muk-soft 대비는 대략 AA 통과(≈4.9:1), 실제 이슈는 9px '크기'라 일괄 확대 시 타임라인 레이아웃이 흔들릴 수 있어 디자인 판단 필요. 수면 중 주관적 변경 지양.
+- #13 main 마커 재생성 성능 — 지도 렌더 경로 리팩터라 회귀 위험. 신중한 검토 후 진행 권장.
+- #4 코스 SPOT 하위항 누적도착 — score.py 시그니처 리팩터(공유 함수) 필요, 패리티 테스트 영향 확인 후.
+
+**최종 검증(2026-07-10, tip `1d9210d`):** web build 21p ✓ · pytest 80 passed ✓ · ruff ✓ · 스키마 파리티 ✓. 브랜치 견고.
+
+**현재 상태:** 감사 Top5 + PWA + a11y/스켈레톤/i18n/geo 안내까지 반영 완료. 가치 높은 백로그 소진. 8시까지 ScheduleWakeup 로 가벼운 idle-check 페이싱(재검증·유실 방지) 유지, 새 지시나 회귀 발견 시에만 실작업.
 
 ## 검증 커맨드
 ```
