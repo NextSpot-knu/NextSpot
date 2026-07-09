@@ -96,7 +96,7 @@ export default function BottomNav() {
       {/* ── 모바일: 하단 가로 바 (fixed 오버레이) ── */}
       <nav
         aria-label="주요 내비게이션"
-        className="md:hidden fixed bottom-0 left-0 w-full z-40 bg-white/90 backdrop-blur-xl border-t border-line shadow-[0_-2px_14px_rgba(43,35,32,0.06)] px-6 py-4 pb-8"
+        className="md:hidden fixed bottom-0 left-0 w-full z-40 bg-white/90 backdrop-blur-xl border-t border-line shadow-[0_-2px_14px_rgba(43,35,32,0.06)] px-6 py-4 pb-[calc(1rem+env(safe-area-inset-bottom))]"
       >
         <div className="relative flex justify-around items-center w-full">
           {/* 활성 탭 가로 슬라이딩 인디케이터 */}

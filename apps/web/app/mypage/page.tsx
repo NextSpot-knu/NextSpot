@@ -5,10 +5,9 @@ import { useRouter } from 'next/navigation';
 import { 
   Menu, Bell, Home, Bookmark, User, 
   Edit2, ChevronRight, LogOut, Shield, 
-  HelpCircle, Settings as SettingsIcon, BellRing, Star, Sparkles, Route, Ticket
+  HelpCircle, Settings as SettingsIcon, BellRing, Route, Ticket
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { apiClient } from '@/lib/api-client';
 import { createPublicClient } from '@/lib/supabase';
 import TasteRadar from '@/components/TasteRadar';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
@@ -29,7 +28,6 @@ export default function MyPage() {
   const t = useT();
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [userVector, setUserVector] = useState<number[] | null>(null);
 
   useEffect(() => {
     // API Fetch Mockup
@@ -58,28 +56,28 @@ export default function MyPage() {
           console.warn('Failed to fetch session user in mypage', authErr);
         }
 
-        // UI 확인을 위한 임시 목업 상태 (통계 수치는 API 연동 전 목업, 이름/이메일은 세션 파생)
+        // 저장한 장소 수는 localStorage 북마크에서 실제 값을 파생한다(가짜 통계 제거).
+        let savedCount = 0;
+        try {
+          const raw = localStorage.getItem('nextspot_saved_facilities');
+          if (raw) {
+            const arr = JSON.parse(raw);
+            savedCount = Array.isArray(arr) ? arr.length : 0;
+          }
+        } catch {
+          /* 파싱 실패 시 0 */
+        }
+
+        // 실제 소스가 있는 항목만 채운다(경로수·평점은 소스가 없어 0 → 통계에서 미표시).
         setProfile({
           name: displayName,
           email: displayEmail,
           role: 'Explorer',
-          routes: 24,
-          saved: 7,
-          rating: 4.9,
+          routes: 0,
+          saved: savedCount,
+          rating: 0,
           alertEnabled: true,
         });
-
-        // 8차원 사용자 선호도 벡터 조회
-        try {
-          const data = await apiClient.get('/api/v1/users/me/vector');
-          if (data && data.vector) {
-            setUserVector(data.vector);
-          }
-        } catch (vectorErr) {
-          console.warn("Failed to fetch vector in mypage", vectorErr);
-          // Fallback mockup vector
-          setUserVector([0.45, 0.12, 0.35, 0.05, 0.61, 0.22, 0.10, 0.45]);
-        }
       } catch (error) {
         console.warn('Failed to fetch profile', error);
       } finally {
@@ -194,57 +192,16 @@ export default function MyPage() {
               </button>
             </div>
 
-            {/* 8-Dimensional User Vector Embedding Card */}
-            <div className="bg-white border border-line rounded-3xl p-6 shadow-[0_2px_14px_rgba(43,35,32,0.06)] mb-4">
-              <h3 className="text-sm font-bold text-gold-deep mb-3 tracking-wider flex items-center gap-2">
-                <Sparkles size={16} />
-                <span>{t('mypage.vectorTitle')}</span>
-              </h3>
-              {userVector ? (
-                <div className="space-y-3">
-                  <div className="text-[11px] text-muk-soft bg-hanji p-3 rounded-xl border border-line font-mono select-all break-all leading-relaxed">
-                    [{userVector.map(v => v.toFixed(4)).join(', ')}]
-                  </div>
-                  <div className="grid grid-cols-8 gap-1">
-                    {userVector.map((val, idx) => (
-                      <div key={idx} className="flex flex-col items-center gap-1">
-                        <div className="w-full bg-hanji-deep rounded h-16 border border-line relative overflow-hidden">
-                          <div
-                            className="bg-gradient-to-t from-gold to-sunset-1 absolute bottom-0 left-0 right-0 rounded-t-sm transition-all duration-500"
-                            style={{ height: `${Math.max(0, Math.min(100, (val + 1) * 50))}%` }}
-                          />
-                        </div>
-                        <span className="text-[9px] text-muk-soft font-mono">D{idx+1}</span>
-                        <span className="text-[8px] font-bold text-gold-deep font-mono">{val.toFixed(2)}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ) : (
-                <div className="flex justify-center py-4">
-                  <div className="w-5 h-5 border-2 border-gold border-t-transparent rounded-full animate-spin"></div>
-                </div>
-              )}
-            </div>
-
-            {/* AI 취향 프로필 — 8차원 선호 벡터 레이더 시각화 (개인화 엔진 가시화) */}
+            {/* AI 취향 프로필 — 8차원 선호 벡터 레이더 시각화 (관광객용 친화 시각화).
+                과거 개발자용 원시 float 배열 카드는 제거하고 TasteRadar 만 남긴다. */}
             <TasteRadar />
 
-            {/* Stats Section */}
-            <div className="grid grid-cols-3 gap-3 mb-6">
-              <div className="bg-white border border-line rounded-2xl p-4 flex flex-col items-center justify-center shadow-[0_2px_14px_rgba(43,35,32,0.06)]">
-                <div className="text-xl font-bold text-muk mb-1">{profile.routes}</div>
-                <div className="text-xs text-muk-soft font-medium">{t('mypage.statRoutes')}</div>
-              </div>
-              <div className="bg-white border border-line rounded-2xl p-4 flex flex-col items-center justify-center shadow-[0_2px_14px_rgba(43,35,32,0.06)]">
-                <Bookmark size={20} className="text-terracotta mb-2" fill="currentColor" />
-                <div className="text-xl font-bold text-muk mb-1">{profile.saved}</div>
-                <div className="text-xs text-muk-soft font-medium">{t('mypage.statSaved')}</div>
-              </div>
-              <div className="bg-white border border-line rounded-2xl p-4 flex flex-col items-center justify-center shadow-[0_2px_14px_rgba(43,35,32,0.06)]">
-                <Star size={20} className="text-gold mb-2" fill="currentColor" />
-                <div className="text-xl font-bold text-muk mb-1">{profile.rating}</div>
-                <div className="text-xs text-muk-soft font-medium">{t('mypage.statRating')}</div>
+            {/* 통계 — 실제 소스가 있는 '저장한 장소'만 표시(가짜 경로수·평점 제거). */}
+            <div className="mb-6 mt-4">
+              <div className="bg-white border border-line rounded-2xl p-4 flex items-center justify-center gap-3 shadow-[0_2px_14px_rgba(43,35,32,0.06)]">
+                <Bookmark size={20} className="text-terracotta" fill="currentColor" />
+                <span className="text-xl font-bold text-muk">{profile.saved}</span>
+                <span className="text-xs text-muk-soft font-medium">{t('mypage.statSaved')}</span>
               </div>
             </div>
 

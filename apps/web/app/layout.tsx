@@ -42,8 +42,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <BottomNav />
           <PageTransition>{children}</PageTransition>
         </I18nProvider>
-        <Toaster position="bottom-center" theme="dark" richColors toastOptions={{
-          style: { background: '#0f172a', border: '1px solid rgba(255,255,255,0.1)', color: '#f1f5f9' },
+        {/* 한지 라이트 토스트 — 앱의 웜 팔레트와 통일(과거 InduSpot 콜드 슬레이트 제거). richColors 는 성공/에러 의미색 유지. */}
+        <Toaster position="bottom-center" theme="light" richColors toastOptions={{
+          style: { background: '#faf5ec', border: '1px solid #e6dcc6', color: '#2b2320' },
           className: 'backdrop-blur-md'
         }} />
       </body>
