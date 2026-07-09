@@ -287,8 +287,8 @@ export default function MainPage() {
         (error) => {
           console.warn("Geolocation failed, using default:", error);
           // 위치 권한 거부/실패 시 조용히 경주 중심으로 폴백하면 거리·도보시간이 이유 없이 어긋나 보인다.
-          // 흐름을 막지 않는 가벼운 토스트로 '경주 중심 기준'임을 알린다(하드코딩 — i18n 후속 반영).
-          showToast('위치를 확인할 수 없어 경주 중심을 기준으로 안내해요.');
+          // 흐름을 막지 않는 가벼운 토스트로 '경주 중심 기준'임을 알린다.
+          showToast(t('map.locationFallback'));
         }
       );
     }
@@ -1166,7 +1166,7 @@ export default function MainPage() {
             // 모바일엔 title 툴팁이 뜨지 않아 보이지 않으므로, '준비 중' 텍스트 배지 + 흐린 처리(opacity)로 비활성 상태를 명확히 노출한다.
             <span title={t('map.voiceSearchSoon')} aria-disabled="true" className="ml-3 flex items-center gap-1 cursor-not-allowed opacity-40 select-none">
               <Mic size={18} className="text-muk-soft" />
-              <span className="text-[10px] font-medium text-muk-soft whitespace-nowrap">준비 중</span>
+              <span className="text-[10px] font-medium text-muk-soft whitespace-nowrap">{t('map.soon')}</span>
             </span>
           )}
           <div className="w-8 h-8 rounded-full bg-gold/15 ml-4 flex items-center justify-center border border-gold/40">

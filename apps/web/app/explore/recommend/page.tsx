@@ -9,6 +9,7 @@ import { MAX_RECO_DISTANCE_M } from "@/lib/recommender"; // 빈 상태 문구의
 import { classifyIntent, buildCardSpeech } from "@/lib/voiceIntent";
 import { REGION, isWithinRegion } from "@/lib/region";
 import { toast } from "sonner";
+import { useT } from "@/lib/i18n/I18nProvider";
 
 // Extend global Window
 declare global {
@@ -37,6 +38,7 @@ interface MiniMapProps {
 }
 
 const MiniMap = React.memo(({ latitude, longitude, mapLoaded }: MiniMapProps) => {
+  const t = useT();
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<any>(null);
   const [isSimulation, setIsSimulation] = useState(false);
@@ -82,8 +84,8 @@ const MiniMap = React.memo(({ latitude, longitude, mapLoaded }: MiniMapProps) =>
         {/* 위치 핀 */}
         <span className="relative z-10 text-lg" aria-hidden="true">📍</span>
         <div className="relative z-10 text-center leading-tight">
-          <div className="text-[11px] font-semibold text-muk">경주 관광지</div>
-          <div className="text-[9px] text-muk-soft mt-0.5">위치 미리보기</div>
+          <div className="text-[11px] font-semibold text-muk">{t("recommend.mapPreviewRegion")}</div>
+          <div className="text-[9px] text-muk-soft mt-0.5">{t("recommend.mapPreviewLabel")}</div>
         </div>
       </div>
     );
@@ -111,6 +113,7 @@ interface OriginalFacility {
 
 // The core content wrapper component that handles Search Params
 function RecommendContent() {
+  const t = useT();
   const searchParams = useSearchParams();
   const router = useRouter();
 
@@ -521,7 +524,7 @@ function RecommendContent() {
   const startVoice = () => {
     const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SR) {
-      toast.error("이 브라우저는 음성 인식을 지원하지 않아요. 텍스트로 입력해 주세요.");
+      toast.error(t("recommend.voiceUnsupported"));
       return;
     }
     try {
@@ -536,14 +539,14 @@ function RecommendContent() {
       rec.onend = () => setIsListening(false);
       rec.onerror = () => {
         setIsListening(false);
-        toast.error("음성 인식에 실패했어요. 텍스트로 입력해 주세요.");
+        toast.error(t("recommend.voiceFailed"));
       };
       recognitionRef.current = rec;
       setIsListening(true);
       rec.start();
     } catch {
       setIsListening(false);
-      toast.error("음성 인식을 시작할 수 없어요.");
+      toast.error(t("recommend.voiceStartFailed"));
     }
   };
 
@@ -559,7 +562,7 @@ function RecommendContent() {
   // 자연어 → Gemini 파싱 → 선호 벡터/카테고리 반영 (서버가 저장까지 수행)
   const handleNlAnalyze = async () => {
     if (!nlText.trim()) {
-      toast.info("선호하는 시설이나 분위기를 말하거나 적어주세요.");
+      toast.info(t("recommend.nlEmpty"));
       return;
     }
     setIsParsingNl(true);
@@ -570,7 +573,7 @@ function RecommendContent() {
         setSelectedOnboardingCats(result.preferredCategories);
       }
       setNlApplied(true);
-      toast.success(result.isFallback ? "선호를 반영했어요 (키워드 분석)" : "AI가 선호를 반영했어요 🎯");
+      toast.success(result.isFallback ? t("recommend.nlAppliedKeyword") : t("recommend.nlAppliedAi"));
     } catch (err) {
       // 서버(Gemini) 연결 실패 시 클라이언트 키워드 폴백 — 데모가 끊기지 않게.
       console.warn("NL preference parse failed, client-side keyword fallback:", err);
@@ -586,11 +589,11 @@ function RecommendContent() {
         .map(([c]) => c);
       if (cats.length) {
         setSelectedOnboardingCats(cats);
-        setNlSummary("AI 서버에 연결하지 못해 키워드로 분석했어요. 아래에서 조정할 수 있어요.");
+        setNlSummary(t("recommend.nlSummaryFallback"));
         setNlApplied(true);
-        toast.success("키워드로 선호를 반영했어요");
+        toast.success(t("recommend.nlAppliedKeyword2"));
       } else {
-        toast.error("AI 분석에 실패했어요. 아래에서 직접 선택해 주세요.");
+        toast.error(t("recommend.nlAnalyzeFailed"));
       }
     } finally {
       setIsParsingNl(false);
@@ -617,7 +620,7 @@ function RecommendContent() {
   // Handle Onboarding Preferences Submission
   const handleOnboardingSubmit = async () => {
     if (selectedOnboardingCats.length < 3) {
-      toast.info("선호하는 장소 종류를 3개 이상 선택해 주세요!");
+      toast.info(t("recommend.selectAtLeast3"));
       return;
     }
     if (!userId || !facilityId) return;
@@ -638,7 +641,7 @@ function RecommendContent() {
       try {
         localStorage.setItem("nextspot_onboarding_done", "1");
       } catch { /* localStorage 차단 환경 — 무시 */ }
-      toast.success("선호 정보가 등록되었습니다! 맞춤 추천을 계산합니다.");
+      toast.success(t("recommend.prefSaved"));
 
       // 2. Fetch recommendations (FastAPI will detect missing Pinecone vector,
       // load the updated DB categories, generate the average vector, upsert, and query).
@@ -692,18 +695,18 @@ function RecommendContent() {
     const newWindow = window.open("about:blank", "_blank");
     
     try {
-      toast.success("선택 경로 수락 완료! 안내를 시작합니다.");
-      
+      toast.success(t("recommend.acceptStart"));
+
       // 1. Submit feedback accepted to FastAPI
       await submitFeedback(rec.recommendationId, "accepted");
 
       // 2. Prepare toast category-specific greeting
-      let greeting = "즐거운 시간 되세요!";
-      if (rec.facility.type === "restaurant") greeting = "맛있게 드세요!";
-      else if (rec.facility.type === "cafe") greeting = "여유로운 시간 되세요!";
-      else if (rec.facility.type === "attraction" || rec.facility.type === "culture") greeting = "즐거운 관람 되세요!";
+      let greeting = t("map.greetingDefault");
+      if (rec.facility.type === "restaurant") greeting = t("map.greetingRestaurant");
+      else if (rec.facility.type === "cafe") greeting = t("map.greetingCafe");
+      else if (rec.facility.type === "attraction" || rec.facility.type === "culture") greeting = t("map.greetingView");
 
-      toast.success(`${greeting} 다음 추천이 더 정확해집니다 🎯`);
+      toast.success(`${greeting}${t("map.greetingSuffix")}`);
 
       // 3. Open Kakao Maps Directions (Hybrid approach)
       const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
@@ -775,8 +778,8 @@ function RecommendContent() {
     setFeedbackVotes((prev) => ({ ...prev, [rec.recommendationId]: vote }));
     toast.success(
       vote === "up"
-        ? "좋아요! 이런 추천을 더 보여드릴게요 🎯"
-        : "알려줘서 고마워요. 다음 추천에 반영할게요 🙏"
+        ? t("recommend.feedbackUp")
+        : t("recommend.feedbackDown")
     );
     if (rec.recommendationId.startsWith("mock-")) return; // 데모 폴백 추천은 서버에 기록 없음
     try {
@@ -808,10 +811,10 @@ function RecommendContent() {
         console.warn("refresh fetch failed, mock fallback:", e);
         setRecommendations(buildMockRecommendations());
       }
-      toast.success("선호도를 조정하여 새로운 대안을 추천했습니다 🔍");
+      toast.success(t("recommend.refreshed"));
     } catch (err) {
       console.warn("Error during rejecting and refreshing:", err);
-      toast.error("새 추천 대안을 불러오는 도중 오류가 발생했습니다.");
+      toast.error(t("recommend.refreshError"));
     } finally {
       setIsRefreshing(false);
     }
@@ -890,7 +893,7 @@ function RecommendContent() {
       repromptCountRef.current = 0;
       speakCard(next);
     } else {
-      finishAssistant("추천을 모두 안내했어요. 마음에 드는 곳을 선택해 주세요.");
+      finishAssistant(t("recommend.voiceAllDone"));
     }
   };
 
@@ -898,7 +901,7 @@ function RecommendContent() {
     if (voiceStateRef.current === "idle") return;
     if (repromptCountRef.current < 1) {
       repromptCountRef.current += 1;
-      const msg = "수락하려면 '응', 넘기려면 '다음'이라고 말해 주세요.";
+      const msg = t("recommend.voiceReprompt");
       setVoice("speaking");
       setSpokenCaption(msg);
       speak(msg, () => scheduleListen());
@@ -927,32 +930,32 @@ function RecommendContent() {
     const intent = classifyIntent(alts);
     switch (intent) {
       case "cancel":
-        finishAssistant("음성 안내를 마칠게요.");
+        finishAssistant(t("recommend.voiceEnd"));
         break;
       case "rejectAll":
         // 확인 멘트를 끝까지 들려준 뒤 새로고침(직후 호출하면 그 핸들러의 quietAssistant가 발화를 끊음).
-        sayThen("새로운 대안을 찾아볼게요.", () => handleRejectAllAndRefresh());
+        sayThen(t("recommend.voiceFindNew"), () => handleRejectAllAndRefresh());
         break;
       case "accept":
         // 확인 멘트를 끝까지 들려준 뒤 길안내(onEnd 시점엔 발화가 끝나 handleAccept의 cancel이 무해).
-        sayThen("알겠어요, 여기로 안내할게요!", () => handleAccept(rec));
+        sayThen(t("recommend.voiceGuiding"), () => handleAccept(rec));
         break;
       case "detail": {
         const waitTime = rec.breakdown?.waitTime?.toFixed(1) || "--";
         const travelTime = (rec.distanceM / 80).toFixed(1);
         const preferencePct = Math.round((rec.breakdown?.preference || 0) * 100);
         sayThen(
-          `예상 대기 ${waitTime}분, 도보 ${travelTime}분, 선호 일치율 ${preferencePct}%예요. 여기로 안내할까요?`,
+          t("recommend.voiceDetail", { wait: waitTime, travel: travelTime, pref: preferencePct }),
           () => scheduleListen()
         );
         break;
       }
       case "negative":
         handleSatisfactionFeedback(rec, "down");
-        sayThen("알려줘서 고마워요. 다음 추천 보여드릴게요.", () => advanceOrFinish(cardIndex));
+        sayThen(t("recommend.voiceThanksNext"), () => advanceOrFinish(cardIndex));
         break;
       case "next":
-        sayThen("다음 추천 보여드릴게요.", () => advanceOrFinish(cardIndex));
+        sayThen(t("recommend.voiceNext"), () => advanceOrFinish(cardIndex));
         break;
       default: // unknown
         handleNoResponse();
@@ -1006,7 +1009,7 @@ function RecommendContent() {
         const err = e?.error;
         if (err === "not-allowed" || err === "service-not-allowed") {
           setSttSupported(false);
-          toast.info("마이크 권한이 없어 음성 응답은 끌게요. 카드 버튼으로 응답해 주세요.");
+          toast.info(t("recommend.micDenied"));
           voiceStateRef.current = "idle";
           setVoiceState("idle");
           setAssistantActive(false); // 권한 거부 시 비서 종료(assistantActive=true로 남는 UI 불일치 방지)
@@ -1054,7 +1057,7 @@ function RecommendContent() {
   const startAssistant = () => {
     if (typeof window === "undefined") return;
     if (!("speechSynthesis" in window)) {
-      toast.info("이 브라우저는 음성 안내를 지원하지 않아요.");
+      toast.info(t("recommend.ttsUnsupported"));
       return;
     }
     if (!recommendationsRef.current.length) return;
@@ -1102,30 +1105,31 @@ function RecommendContent() {
   const getTypeName = (type: string) => {
     switch (type) {
       case "restaurant":
-        return "음식점";
+        return t("category.restaurant");
       case "cafe":
-        return "카페";
+        return t("category.cafe");
       case "attraction":
-        return "관광지";
+        return t("category.attraction");
       case "culture":
-        return "문화시설";
+        return t("category.culture");
       default:
-        return "장소";
+        return t("course.typeFallback");
     }
   };
 
   const getCongestionLabel = (level: number) => {
-    if (level >= 0.75) return "혼잡";
-    if (level >= 0.5) return "보통";
-    if (level >= 0.25) return "여유";
-    return "한산";
+    if (level >= 0.75) return t("congestion.busy");
+    if (level >= 0.5) return t("congestion.moderate");
+    if (level >= 0.25) return t("congestion.relaxed");
+    return t("congestion.quiet");
   };
 
+  // 카테고리 칩: id 는 로직 키(선택·저장·백엔드), 표시명은 category.* 사전에서, 이모지는 디자인 유지.
   const categoriesList = [
-    { id: "restaurant", label: "음식점 🍴" },
-    { id: "cafe", label: "카페 ☕" },
-    { id: "attraction", label: "관광지 📸" },
-    { id: "culture", label: "문화시설 🏛️" },
+    { id: "restaurant", labelKey: "category.restaurant", emoji: "🍴" },
+    { id: "cafe", labelKey: "category.cafe", emoji: "☕" },
+    { id: "attraction", labelKey: "category.attraction", emoji: "📸" },
+    { id: "culture", labelKey: "category.culture", emoji: "🏛️" },
   ];
 
   return (
@@ -1141,9 +1145,9 @@ function RecommendContent() {
             onClick={() => { quietAssistant(); router.push("/main"); }}
             className="text-xs text-muk-soft hover:text-muk flex items-center gap-1.5 transition-all duration-200"
           >
-            ← 지도 보기
+            ← {t("recommend.backToMap")}
           </button>
-          <span className="text-sm font-extrabold tracking-tight gradient-text">NextSpot 추천 AI</span>
+          <span className="text-sm font-extrabold tracking-tight gradient-text">{t("recommend.headerBrand")}</span>
           <div className="w-14"></div> {/* spacer */}
         </header>
 
@@ -1159,27 +1163,27 @@ function RecommendContent() {
               <div className="absolute top-0 right-0 w-24 h-24 bg-terracotta/10 rounded-full blur-2xl pointer-events-none" />
               <div className="flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full bg-terracotta animate-pulse" />
-                <span className="text-[10px] text-terracotta font-bold tracking-wider">우회 필요</span>
+                <span className="text-[10px] text-terracotta font-bold tracking-wider">{t("recommend.detourNeeded")}</span>
               </div>
               <h2 className="text-base md:text-lg font-serif font-bold text-muk mt-2">
-                지금 <span className="text-terracotta">{originalFacility.name}</span>은{" "}
-                <span className="text-terracotta">혼잡</span>합니다.
+                {t("recommend.congestedPrefix")}<span className="text-terracotta">{originalFacility.name}</span>{t("recommend.congestedSuffix")}
               </h2>
               <p className="text-xs text-muk-soft mt-1 leading-relaxed">
-                현재 대기 시간은 약 <span className="font-semibold text-terracotta">{originalWaitTime}분</span>으로
-                예상됩니다. 아래의 최적화된 SPOT 대안 시설을 권장합니다.
+                {t("recommend.waitPrefix")}
+                <span className="font-semibold text-terracotta">{t("recommend.waitValue", { wait: originalWaitTime })}</span>
+                {t("recommend.waitSuffix")}
               </p>
             </div>
           ) : (
             <div className="bg-white p-5 rounded-2xl border border-line shadow-[0_2px_14px_rgba(43,35,32,0.06)] text-center text-xs text-muk-soft">
-              시설 정보를 불러오지 못했습니다.
+              {t("recommend.facilityLoadError")}
             </div>
           )}
         </section>
 
         {/* 2. Alternative Recommendation Cards List */}
         <section className="space-y-4">
-          <h3 className="text-sm font-bold text-muk">실시간 추천 대안 (최대 3개)</h3>
+          <h3 className="text-sm font-bold text-muk">{t("recommend.altListTitle")}</h3>
 
           {loadingRecommendations ? (
             // Skeleton Loader
@@ -1218,12 +1222,12 @@ function RecommendContent() {
                       </span>
                       {rec.rank && rec.totalCandidates && (
                         <span className="text-[10px] font-bold text-gold-deep bg-gold/10 px-2 py-0.5 rounded-md ml-2">
-                          대안 {rec.totalCandidates}개 중 {rec.rank}등
+                          {t("recommend.rankOfTotal", { total: rec.totalCandidates, rank: rec.rank })}
                         </span>
                       )}
                       {isVoiceActive && voiceState !== "idle" && (
                         <span className="text-[10px] font-bold text-jade bg-jade/10 px-2 py-0.5 rounded-md ml-2 inline-flex items-center gap-1 align-middle">
-                          {voiceState === "speaking" ? "🔊 안내 중" : voiceState === "listening" ? "🎙️ 듣는 중" : "✨ 해석 중"}
+                          {voiceState === "speaking" ? t("recommend.stateSpeaking") : voiceState === "listening" ? t("recommend.stateListening") : t("recommend.stateThinking")}
                         </span>
                       )}
                       <h4 className="text-base font-extrabold text-muk mt-1.5">
@@ -1231,9 +1235,9 @@ function RecommendContent() {
                       </h4>
                     </div>
                     <div className="text-right">
-                      <span className="text-[10px] text-muk-soft block">SPOT 지수</span>
+                      <span className="text-[10px] text-muk-soft block">{t("recommend.spotIndex")}</span>
                       <span className="text-sm font-extrabold text-gold-deep">
-                        {Math.round(rec.spotScore <= 1.0 ? rec.spotScore * 100 : rec.spotScore)}점
+                        {Math.round(rec.spotScore <= 1.0 ? rec.spotScore * 100 : rec.spotScore)}{t("card.pointSuffix")}
                       </span>
                     </div>
                   </div>
@@ -1257,41 +1261,41 @@ function RecommendContent() {
                   {/* SPOT Breakdown Indicators */}
                   <div className="grid grid-cols-3 gap-2 py-2 border-t border-b border-line my-3 text-[11px] text-muk-soft">
                     <div className="text-center">
-                      <span className="text-muk-soft block text-[9px]">선호 일치율</span>
+                      <span className="text-muk-soft block text-[9px]">{t("recommend.prefMatch")}</span>
                       <span className="font-bold text-jade">{preferencePct}%</span>
                     </div>
                     <div className="text-center border-l border-r border-line">
-                      <span className="text-muk-soft block text-[9px]">예상 대기</span>
-                      <span className="font-bold text-gold-deep">{waitTime}분</span>
+                      <span className="text-muk-soft block text-[9px]">{t("recommend.expectedWait")}</span>
+                      <span className="font-bold text-gold-deep">{t("recommend.minutesValue", { n: waitTime })}</span>
                     </div>
                     <div className="text-center">
-                      <span className="text-muk-soft block text-[9px]">예상 도보</span>
-                      <span className="font-bold text-jade">{travelTime}분 ({Math.round(rec.distanceM)}m)</span>
+                      <span className="text-muk-soft block text-[9px]">{t("recommend.expectedWalk")}</span>
+                      <span className="font-bold text-jade">{t("recommend.walkValue", { n: travelTime, dist: Math.round(rec.distanceM) })}</span>
                     </div>
                   </div>
 
                   {/* 만족도 피드백 (👍/👎) — 선호 벡터를 보정해 다음 추천에 반영 */}
                   <div className="flex items-center justify-between gap-2 mb-2.5">
-                    <span className="text-[10px] text-muk-soft">이 추천이 도움이 됐나요?</span>
+                    <span className="text-[10px] text-muk-soft">{t("recommend.feedbackQuestion")}</span>
                     {feedbackVotes[rec.recommendationId] ? (
                       <span className="text-[10px] font-semibold text-jade">
-                        {feedbackVotes[rec.recommendationId] === "up" ? "👍 반영했어요" : "👎 반영했어요"}
+                        {feedbackVotes[rec.recommendationId] === "up" ? "👍" : "👎"} {t("recommend.feedbackApplied")}
                       </span>
                     ) : (
                       <div className="flex items-center gap-1.5">
                         <button
                           onClick={() => handleSatisfactionFeedback(rec, "up")}
-                          aria-label="이 추천이 도움이 됐어요"
+                          aria-label={t("recommend.feedbackUpAria")}
                           className="px-2.5 py-1 rounded-lg text-[11px] font-semibold border bg-hanji-deep border-line text-muk-soft hover:border-jade/50 hover:text-jade transition-all active:scale-95"
                         >
-                          👍 좋아요
+                          👍 {t("recommend.like")}
                         </button>
                         <button
                           onClick={() => handleSatisfactionFeedback(rec, "down")}
-                          aria-label="이 추천은 별로예요"
+                          aria-label={t("recommend.feedbackDownAria")}
                           className="px-2.5 py-1 rounded-lg text-[11px] font-semibold border bg-hanji-deep border-line text-muk-soft hover:border-terracotta/50 hover:text-terracotta transition-all active:scale-95"
                         >
-                          👎 별로예요
+                          👎 {t("recommend.dislike")}
                         </button>
                       </div>
                     )}
@@ -1302,14 +1306,14 @@ function RecommendContent() {
                     onClick={() => handleAccept(rec)}
                     className="w-full py-2.5 bg-gradient-to-r from-gold to-terracotta text-white rounded-xl font-bold text-xs transition-all duration-300 hover:opacity-90 active:scale-[0.98] shadow-sm"
                   >
-                    여기로 갈래요
+                    {t("card.accept")}
                   </button>
                 </div>
               );
             })
           ) : (
             <div className="bg-white p-8 rounded-2xl border border-line shadow-[0_2px_14px_rgba(43,35,32,0.06)] text-center text-sm text-muk-soft">
-              주변 {MAX_RECO_DISTANCE_M / 1000}km 이내에 추천 가능한 대안 시설이 없습니다.
+              {t("recommend.noAlternatives", { km: MAX_RECO_DISTANCE_M / 1000 })}
             </div>
           )}
         </section>
@@ -1325,11 +1329,11 @@ function RecommendContent() {
               {isRefreshing ? (
                 <>
                   <span className="w-3.5 h-3.5 border-2 border-muk-soft border-t-transparent rounded-full animate-spin" />
-                  새로운 대안 로드 중...
+                  {t("recommend.loadingMore")}
                 </>
               ) : (
                 <>
-                  🔄 다른 대안 보기
+                  🔄 {t("recommend.seeOther")}
                 </>
               )}
             </button>
@@ -1359,22 +1363,22 @@ function RecommendContent() {
                   <span className="w-1.5 h-1.5 rounded-full bg-jade" />
                   <span className="w-1.5 h-1.5 rounded-full bg-dan-red" />
                 </span>
-                <span className="text-[10px] font-bold tracking-wide gradient-text">NextSpot 음성 비서</span>
+                <span className="text-[10px] font-bold tracking-wide gradient-text">{t("recommend.assistantName")}</span>
               </div>
               <p className="text-[11px] leading-snug text-muk min-h-[1.1rem]">
                 {voiceState === "listening"
                   ? liveTranscript
                     ? `“${liveTranscript}”`
-                    : "듣고 있어요…"
+                    : t("recommend.listening")
                   : voiceState === "thinking"
-                  ? "✨ 응답을 해석하고 있어요…"
+                  ? t("recommend.interpreting")
                   : voiceState === "speaking"
-                  ? spokenCaption || "추천을 안내하고 있어요. 끝나면 말씀해 주세요."
-                  : "음성으로 응답할 수 있어요."}
+                  ? spokenCaption || t("recommend.speakingDefault")
+                  : t("recommend.canRespondByVoice")}
               </p>
-              <p className="text-[9px] text-muk-soft mt-1">응=수락 · 다음=넘기기 · 자세히 · 그만</p>
+              <p className="text-[9px] text-muk-soft mt-1">{t("recommend.voiceHint")}</p>
               {!sttSupported && (
-                <p className="text-[9px] text-gold-deep mt-1">음성 응답 미지원 — 아래 카드 버튼으로 응답해 주세요</p>
+                <p className="text-[9px] text-gold-deep mt-1">{t("recommend.sttUnsupportedHint")}</p>
               )}
             </div>
           )}
@@ -1383,7 +1387,7 @@ function RecommendContent() {
             {assistantActive && (
               <button
                 onClick={toggleAssistantMute}
-                aria-label={assistantMuted ? "음성 안내 켜기" : "음성 안내 끄기"}
+                aria-label={assistantMuted ? t("recommend.unmuteAria") : t("recommend.muteAria")}
                 className="w-9 h-9 rounded-full flex items-center justify-center border border-line bg-white text-muk-soft hover:text-muk text-sm transition-all shadow-sm"
               >
                 {assistantMuted ? "🔇" : "🔈"}
@@ -1391,7 +1395,7 @@ function RecommendContent() {
             )}
             <button
               onClick={onOrbClick}
-              aria-label={assistantActive ? "음성 안내 정지" : "AI 음성 추천 듣기"}
+              aria-label={assistantActive ? t("recommend.stopAria") : t("recommend.listenCta")}
               className={`relative w-14 h-14 rounded-full flex items-center justify-center text-xl shadow-sm transition-all active:scale-95 border ${
                 voiceState === "listening"
                   ? "bg-jade/15 border-jade/60"
@@ -1440,7 +1444,7 @@ function RecommendContent() {
 
           {!assistantActive && (
             <span className="text-[10px] text-muk bg-white/90 border border-line rounded-full px-2.5 py-1 animate-pulse shadow-sm">
-              🔊 AI 음성 추천 듣기
+              🔊 {t("recommend.listenCta")}
             </span>
           )}
         </div>
@@ -1453,29 +1457,29 @@ function RecommendContent() {
             <div className="absolute top-0 right-0 w-32 h-32 bg-gold/10 rounded-full blur-3xl pointer-events-none" />
             <div className="space-y-2 text-center">
               <span className="text-xl">🎯</span>
-              <h3 className="text-lg font-serif font-extrabold text-muk">맞춤형 추천 온보딩</h3>
+              <h3 className="text-lg font-serif font-extrabold text-muk">{t("recommend.onboardingTitle")}</h3>
               <p className="text-xs text-muk-soft leading-relaxed">
-                NextSpot AI의 최적화된 SPOT 대안 경로 매칭을 위해, 관심 있는 장소 종류를 **3개 이상** 선택해 주세요.
+                {t("recommend.onboardingBody")}
               </p>
             </div>
 
             {/* 자연어 선호 입력 (텍스트 + 음성) */}
             <div className="space-y-2">
               <label className="text-[11px] font-bold text-gold-deep flex items-center gap-1.5">
-                🎙️ 선호를 자연어로 말하거나 적어주세요 (AI가 분석)
+                🎙️ {t("recommend.nlLabel")}
               </label>
               <div className="relative">
                 <textarea
                   value={nlText}
                   onChange={(e) => setNlText(e.target.value)}
                   rows={2}
-                  placeholder="예: 조용한 한옥카페랑 무장애 되는 가까운 관광지가 좋아요"
+                  placeholder={t("recommend.nlPlaceholder")}
                   className="w-full bg-hanji-deep border border-line rounded-2xl p-3 pr-11 text-xs text-muk placeholder:text-muk-soft outline-none focus:border-gold/60 resize-none"
                 />
                 <button
                   type="button"
                   onClick={isListening ? stopVoice : startVoice}
-                  title="음성으로 말하기"
+                  title={t("recommend.speakByVoice")}
                   className={`absolute right-2 top-2 w-8 h-8 rounded-full flex items-center justify-center border transition-all ${
                     isListening
                       ? "bg-terracotta/20 border-terracotta text-terracotta animate-pulse"
@@ -1491,7 +1495,7 @@ function RecommendContent() {
                 disabled={isParsingNl || !nlText.trim()}
                 className="w-full py-2.5 bg-gold/15 border border-gold/30 text-gold-deep rounded-xl font-bold text-xs transition-all hover:bg-gold/25 disabled:opacity-40"
               >
-                {isParsingNl ? "AI 분석 중..." : "AI로 선호 분석하기 ✨"}
+                {isParsingNl ? t("recommend.nlAnalyzing") : t("recommend.nlAnalyzeCta")}
               </button>
               {nlSummary && (
                 <p className="text-[11px] leading-snug text-muk bg-jade/10 border border-jade/20 rounded-xl px-3 py-2">
@@ -1504,7 +1508,7 @@ function RecommendContent() {
                   onClick={handleApplyNlAndFetch}
                   className="w-full py-2.5 bg-gradient-to-r from-jade to-gold text-white rounded-xl font-bold text-xs transition-all hover:opacity-90 active:scale-[0.98] shadow-sm"
                 >
-                  이 선호로 추천 받기 →
+                  {t("recommend.nlGetRecs")} →
                 </button>
               )}
             </div>
@@ -1512,7 +1516,7 @@ function RecommendContent() {
             {/* 구분선 */}
             <div className="flex items-center gap-3 text-[10px] text-muk-soft">
               <div className="flex-1 h-px bg-line" />
-              또는 직접 선택
+              {t("recommend.orSelectManually")}
               <div className="flex-1 h-px bg-line" />
             </div>
 
@@ -1536,7 +1540,7 @@ function RecommendContent() {
                         : "bg-hanji-deep border-line text-muk-soft hover:border-gold/40 hover:text-muk"
                     }`}
                   >
-                    {cat.label}
+                    {t(cat.labelKey)} {cat.emoji}
                   </button>
                 );
               })}
@@ -1548,7 +1552,7 @@ function RecommendContent() {
               disabled={selectedOnboardingCats.length < 3 || isOnboardingSubmitting}
               className="w-full py-3 bg-gradient-to-r from-gold to-terracotta text-white rounded-xl font-bold text-xs transition-all duration-300 hover:opacity-90 active:scale-[0.98] shadow-sm disabled:opacity-50"
             >
-              {isOnboardingSubmitting ? "설정 저장 중..." : `선택 완료 (${selectedOnboardingCats.length}/3+)`}
+              {isOnboardingSubmitting ? t("recommend.savingSettings") : t("recommend.selectDone", { n: selectedOnboardingCats.length })}
             </button>
           </div>
         </div>
@@ -1560,16 +1564,20 @@ function RecommendContent() {
   );
 }
 
+// Suspense fallback — useT 로 로케일 반영(정적 export: 최초 렌더는 ko 기본 후 스왑).
+function RecommendFallback() {
+  const t = useT();
+  return (
+    <div className="min-h-screen bg-hanji text-muk flex items-center justify-center">
+      <div className="text-muk-soft text-sm animate-pulse">{t("recommend.preparing")}</div>
+    </div>
+  );
+}
+
 // Suspense wrapped Page Export
 export default function RecommendPage() {
   return (
-    <Suspense
-      fallback={
-        <div className="min-h-screen bg-hanji text-muk flex items-center justify-center">
-          <div className="text-muk-soft text-sm animate-pulse">추천 준비 중...</div>
-        </div>
-      }
-    >
+    <Suspense fallback={<RecommendFallback />}>
       <RecommendContent />
     </Suspense>
   );
