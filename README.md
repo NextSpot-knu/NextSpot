@@ -21,6 +21,8 @@
 | 4 | **피드백 학습 취향 벡터** | 수락(+10%)/거절(−5%)이 8차원 선호 벡터를 실시간 보정 — 쓸수록 나에게 맞는 추천. |
 | 5 | **B2G 관제 대시보드** | 경북문화관광공사 관점의 혼잡 히트맵·수요 분산 지표·제휴(쿠폰) 관리 — 소비자 앱과 데이터가 순환하는 양면 구조. |
 
+→ 위 5종의 심사 서사·비즈니스/수익모델 관점 설명: [`docs/CONTEST_NARRATIVE.md`](./docs/CONTEST_NARRATIVE.md)
+
 ## 핵심 알고리즘 — SPOT_Score
 
 ```
@@ -48,6 +50,8 @@ SPOT_Score = w₁ · 취향 일치율 − w₂ · (도착시점 예측 대기 + 
 - 클라이언트: [`apps/api/app/services/tourapi/`](./apps/api/app/services/tourapi/) (비동기 + 일 1회 캐시)
 - 적재 배치: `python apps/api/scripts/ingest_tourapi.py` (contentid 기준 upsert, `--dry-run` 지원)
 - 보조 데이터: 경주시 교통데이터(공공데이터포털, 혼잡 베이스라인) · Kakao/Tmap(이동시간) · Supabase Realtime(실시간 갱신)
+
+→ 엔드포인트별 활용 근거·데이터 흐름 상세: [`docs/DATA_UTILIZATION.md`](./docs/DATA_UTILIZATION.md)
 
 ## 아키텍처
 
@@ -158,6 +162,7 @@ pytest apps/api -q && npm run test --workspace=apps/web
 
 > **프로젝트 계보**: 산업단지 혼잡 분산 플랫폼 InduSpot 의 검증된 SPOT 엔진·아키텍처를 시드로,
 > 관광 도메인(TourAPI·경주)으로 전면 재구성했습니다. 적응 명세: [`docs/NEXTSPOT_PIVOT.md`](./docs/NEXTSPOT_PIVOT.md) ·
-> 개선 로드맵: [`docs/IMPROVEMENT_PLAN.md`](./docs/IMPROVEMENT_PLAN.md) · 심사 대응: [`docs/CONTEST_STRATEGY.md`](./docs/CONTEST_STRATEGY.md)
+> 개선 로드맵: [`docs/IMPROVEMENT_PLAN.md`](./docs/IMPROVEMENT_PLAN.md) · 심사 대응: [`docs/CONTEST_STRATEGY.md`](./docs/CONTEST_STRATEGY.md) ·
+> 데이터 활용 상세: [`docs/DATA_UTILIZATION.md`](./docs/DATA_UTILIZATION.md) · 공모전 서사·수익모델: [`docs/CONTEST_NARRATIVE.md`](./docs/CONTEST_NARRATIVE.md)
 
 **팀 Next Spot** · 서진석(PM/기획) · 오윤성(AI/Backend) · 정동기(Frontend) · 김승용(Data/Infra)

@@ -11,6 +11,7 @@ import { SimulatePeakButton } from '@/components/admin/SimulatePeakButton';
 import { CouponPolicyPanel } from '@/components/admin/CouponPolicyPanel';
 import { ImpactWidget } from '@/components/admin/ImpactWidget';
 import { ModelAccuracyBadge } from '@/components/admin/ModelAccuracyBadge';
+import { DataFreshnessBadge } from '@/components/admin/DataFreshnessBadge';
 
 import { createPublicClient } from '@/lib/supabase';
 import { adminApi } from '@/lib/admin-api';
@@ -411,6 +412,7 @@ export default function DashboardPage() {
           <div className="flex items-center gap-4">
             <h2 className="text-xl font-bold text-slate-100">경주 관광 혼잡 종합 대시보드</h2>
             <ModelAccuracyBadge />
+            <DataFreshnessBadge />
           </div>
           <div className="flex items-center gap-6">
             <div className="relative">
