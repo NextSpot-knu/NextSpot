@@ -9,6 +9,7 @@
 - 예외 원문은 서버 로그로만 남기고 클라이언트에는 일반 메시지를 준다.
 """
 import asyncio
+import math
 from datetime import datetime, timedelta, timezone
 
 import structlog
@@ -288,4 +289,165 @@ async def get_impact(since: str | None = None, days: int = 1):
         "saved_wait_minutes": round(saved_minutes, 1),
         "measured": measured,
         "estimated": estimated,
+    }
+
+
+# =========================================================================
+# 오늘(KST) 혼잡 집계 — 12k행 클라이언트 집계를 서버측으로 이관 (최적화 #4)
+# 기존엔 admin/dashboard(page.tsx fetchCongestion)가 congestion_logs 최대 ~12,000행을
+# 브라우저로 내려받아 JS 로 평균/이상건수/히트맵/이상알림을 집계했다. 이 엔드포인트가 동일 산식으로
+# 서버에서 집계해 compact JSON 만 반환한다(네트워크·클라이언트 CPU 절감). 산식은 fetchCongestion 과 1:1.
+# =========================================================================
+
+_KST_OFFSET = timedelta(hours=9)
+_DASHBOARD_LOG_CAP = 12000  # 클라이언트 페이지네이션(1000행×12페이지)과 동일한 과다조회 상한
+
+
+def _js_round(value: float, digits: int) -> float:
+    """JS Math.round(x·10^d)/10^d 재현(round-half-up).
+    파이썬 round() 는 은행가 반올림이라 .x5 경계에서 클라이언트 값과 어긋날 수 있어 직접 구현한다."""
+    factor = 10 ** digits
+    return math.floor(value * factor + 0.5) / factor
+
+
+def _kst_today_range_utc() -> tuple[str, str]:
+    """KST '오늘' 00:00~23:59:59.999 를 UTC ISO 문자열로. page.tsx getKstTodayRangeUtc 미러.
+    congestion_logs.timestamp 는 UTC 적재라 서버 로컬 TZ 와 무관하게 KST(UTC+9) 고정 환산한다."""
+    kst_now = datetime.now(timezone.utc) + _KST_OFFSET  # KST 벽시계(UTC 라벨로 표현)
+    start = datetime(kst_now.year, kst_now.month, kst_now.day, 0, 0, 0, tzinfo=timezone.utc) - _KST_OFFSET
+    end = datetime(kst_now.year, kst_now.month, kst_now.day, 23, 59, 59, 999000, tzinfo=timezone.utc) - _KST_OFFSET
+    return start.isoformat(), end.isoformat()
+
+
+def _joined_facility(log: dict) -> tuple[str | None, str | None]:
+    """조인된 facility 가 dict/list 어느 형태로 와도 name/type 안전 추출(page.tsx joinedFacility 미러)."""
+    f = log.get("facility")
+    if not f:
+        return None, None
+    o = f[0] if isinstance(f, list) else f
+    if not isinstance(o, dict):
+        return None, None
+    return o.get("name"), o.get("type")
+
+
+def _kst_hour(ts: str) -> int:
+    """UTC 타임스탬프의 KST(UTC+9) 시(0..23). page.tsx: getTime()+9h → getUTCHours() 미러."""
+    dt = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return (dt.astimezone(timezone.utc) + _KST_OFFSET).hour
+
+
+@router.get("/dashboard/today")
+async def get_dashboard_today():
+    """오늘(KST) 혼잡 집계 — page.tsx fetchCongestion 과 동일 산식의 compact JSON.
+
+    반환: { hasLogs, avgCongestion, anomalyCount, heatmap, anomalies }
+      · hasLogs = 오늘 로그 수 >= 5
+      · avgCongestion.value = 평균 혼잡도(소수 2자리), changePercent = 전일 평균 대비(소수 1자리, 없으면 0)
+      · anomalyCount = congestion_level >= 0.9 건수
+      · heatmap = 시설명×KST시(0..23) 평균(2자리), 로그 없는 칸은 null 센티넬(실측 0.0 과 구분)
+      · anomalies = 시설별 >=0.9 피크 상위 6건
+    로그가 5건 미만이면 hasLogs=false + 나머지 null(클라이언트 폴백과 동일 shape).
+    """
+    start, end = _kst_today_range_utc()
+    # 전일 동일 구간(변화율 보정용) — 오늘 구간을 하루 앞으로 민다.
+    y_start = (datetime.fromisoformat(start) - timedelta(days=1)).isoformat()
+    y_end = (datetime.fromisoformat(end) - timedelta(days=1)).isoformat()
+
+    empty = {"hasLogs": False, "avgCongestion": None, "anomalyCount": None, "heatmap": None, "anomalies": None}
+    try:
+        # 오늘 로그(시설명/유형 조인)와 어제 로그(변화율용, congestion_level만)를 동시에 조회한다(직렬 왕복 제거).
+        today_res, y_res = await asyncio.gather(
+            asyncio.to_thread(
+                supabase_admin.table("congestion_logs")
+                .select("congestion_level, current_count, timestamp, facility:facilities(name, type)")
+                .gte("timestamp", start)
+                .lte("timestamp", end)
+                .order("timestamp", desc=False)
+                .limit(_DASHBOARD_LOG_CAP)
+                .execute
+            ),
+            asyncio.to_thread(
+                supabase_admin.table("congestion_logs")
+                .select("congestion_level")
+                .gte("timestamp", y_start)
+                .lte("timestamp", y_end)
+                .limit(5000)
+                .execute
+            ),
+        )
+    except Exception as e:
+        logger.error("admin_dashboard_today_failed", error=str(e))
+        raise HTTPException(status_code=500, detail="혼잡 집계 조회에 실패했습니다.")
+
+    logs = today_res.data or []
+    y_logs = y_res.data or []
+    if len(logs) < 5:
+        return empty
+
+    # 1) KPI: 평균 혼잡도 + 이상(>=0.9) 건수 + 전일 대비 변화율
+    avg = sum(float(row.get("congestion_level") or 0) for row in logs) / len(logs)
+    value = _js_round(avg, 2)
+    anomaly_count = sum(1 for row in logs if float(row.get("congestion_level") or 0) >= 0.9)
+    change_percent = 0.0
+    if y_logs:
+        y_avg = sum(float(row.get("congestion_level") or 0) for row in y_logs) / len(y_logs)
+        if y_avg > 0:
+            # JS: Math.round((value - yAvg)/yAvg * 1000)/10 == _js_round(... * 100, 1)
+            change_percent = _js_round((value - y_avg) / y_avg * 100, 1)
+    avg_congestion = {"value": value, "changePercent": change_percent}
+
+    # 2) 히트맵: 시설명 × KST시 평균(로그 있는 시설만, 첫 등장 순서 유지)
+    cells: dict[str, dict[str, float]] = {}
+    type_of: dict[str, str] = {}
+    names: list[str] = []
+    for row in logs:
+        name, ftype = _joined_facility(row)
+        if not name:
+            continue
+        if name not in type_of:
+            type_of[name] = ftype or "unknown"
+            names.append(name)
+        key = f"{name}__{_kst_hour(row.get('timestamp'))}"
+        acc = cells.setdefault(key, {"sum": 0.0, "n": 0})
+        acc["sum"] += float(row.get("congestion_level") or 0)
+        acc["n"] += 1
+    heatmap: list[dict] = []
+    for name in names:
+        for h in range(24):
+            acc = cells.get(f"{name}__{h}")
+            heatmap.append({
+                "facility": name,
+                "facilityType": type_of[name],
+                "hour": h,
+                # 로그 없는 시간대는 null(데이터 없음 센티넬) — 실측 0.00 과 구분한다.
+                "value": _js_round(acc["sum"] / acc["n"], 2) if acc and acc["n"] else None,
+            })
+
+    # 3) 이상 알림: 오늘 >=0.9 피크(시설별 최고 1건), congestionLevel 내림차순 상위 6
+    peak: dict[str, dict] = {}
+    for row in logs:
+        level = float(row.get("congestion_level") or 0)
+        if level < 0.9:
+            continue
+        name, _ = _joined_facility(row)
+        if not name:
+            continue
+        if name not in peak or level > peak[name]["congestionLevel"]:
+            peak[name] = {
+                "id": f"{name}-{row.get('timestamp')}",
+                "facilityName": name,
+                "timestamp": row.get("timestamp"),
+                "congestionLevel": level,
+                "durationMinutes": 30,
+            }
+    anomalies = sorted(peak.values(), key=lambda a: a["congestionLevel"], reverse=True)[:6]
+
+    return {
+        "hasLogs": True,
+        "avgCongestion": avg_congestion,
+        "anomalyCount": anomaly_count,
+        "heatmap": heatmap,
+        "anomalies": anomalies,
     }

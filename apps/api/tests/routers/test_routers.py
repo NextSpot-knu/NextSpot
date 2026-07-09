@@ -457,6 +457,59 @@ def test_admin_impact_filters_accepted_and_since(client):
 
 
 # =========================================================================
+# 7-3. 오늘(KST) 혼잡 집계(GET /api/v1/admin/dashboard/today) — 서버측 집계 이관(최적화 #4)
+# =========================================================================
+
+def test_admin_dashboard_today_no_header_401(client):
+    res = client.get("/api/v1/admin/dashboard/today")
+    assert res.status_code == 401
+
+
+def test_admin_dashboard_today_aggregation(client):
+    # 시설 2곳의 오늘 로그(>=5건, 이상 피크 1건 포함). 공유 FakeSupabase 는 gte/lte 를 흡수하므로
+    # 어제(변화율) 쿼리도 동일 canned 를 돌려주지만, shape/집계 검증에는 영향이 없다.
+    # KST시 환산: 00:00Z→9시, 00:30Z→9시, 01:00Z→10시.
+    logs = [
+        {"congestion_level": 0.5, "current_count": 25, "timestamp": "2026-07-09T00:00:00+00:00",
+         "facility": {"name": "황리단길", "type": "attraction"}},
+        {"congestion_level": 0.6, "current_count": 30, "timestamp": "2026-07-09T00:30:00+00:00",
+         "facility": {"name": "황리단길", "type": "attraction"}},
+        {"congestion_level": 0.95, "current_count": 48, "timestamp": "2026-07-09T01:00:00+00:00",
+         "facility": {"name": "황리단길", "type": "attraction"}},
+        # 조인이 list 형태로 와도 안전 추출되는지 겸사겸사 검증(_joined_facility)
+        {"congestion_level": 0.2, "current_count": 10, "timestamp": "2026-07-09T00:00:00+00:00",
+         "facility": [{"name": "대릉원", "type": "culture"}]},
+        {"congestion_level": 0.3, "current_count": 15, "timestamp": "2026-07-09T00:00:00+00:00",
+         "facility": [{"name": "대릉원", "type": "culture"}]},
+    ]
+    with patch("app.routers.admin.supabase_admin", new=FakeSupabase({"congestion_logs": logs})):
+        res = client.get("/api/v1/admin/dashboard/today", headers=_admin_headers())
+
+    assert res.status_code == 200
+    body = res.json()
+    assert set(body) == {"hasLogs", "avgCongestion", "anomalyCount", "heatmap", "anomalies"}
+    assert body["hasLogs"] is True
+    # 평균 (0.5+0.6+0.95+0.2+0.3)/5 = 0.51, 이상(>=0.9) 1건
+    assert body["avgCongestion"]["value"] == 0.51
+    assert body["anomalyCount"] == 1
+
+    # 히트맵 셀: 황리단길 9시 = (0.5+0.6)/2 = 0.55, 로그 없는 시간대(0시)는 null 센티넬
+    cell = next(c for c in body["heatmap"] if c["facility"] == "황리단길" and c["hour"] == 9)
+    assert cell["value"] == 0.55
+    assert cell["facilityType"] == "attraction"
+    empty_cell = next(c for c in body["heatmap"] if c["facility"] == "황리단길" and c["hour"] == 0)
+    assert empty_cell["value"] is None
+
+    # 이상 알림: 황리단길 0.95 피크 1건(시설별 최고 1건)
+    assert len(body["anomalies"]) == 1
+    anomaly = body["anomalies"][0]
+    assert anomaly["facilityName"] == "황리단길"
+    assert anomaly["congestionLevel"] == 0.95
+    assert anomaly["durationMinutes"] == 30
+    assert anomaly["id"] == "황리단길-2026-07-09T01:00:00+00:00"
+
+
+# =========================================================================
 # 7-2. 예측 모델 메타(GET /predict/model-info) — 정확도 배지 데이터
 # =========================================================================
 

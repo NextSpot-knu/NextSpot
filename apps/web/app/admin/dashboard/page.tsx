@@ -13,10 +13,7 @@ import { ImpactWidget } from '@/components/admin/ImpactWidget';
 import { ModelAccuracyBadge } from '@/components/admin/ModelAccuracyBadge';
 import { DataFreshnessBadge } from '@/components/admin/DataFreshnessBadge';
 
-import { createPublicClient } from '@/lib/supabase';
 import { adminApi } from '@/lib/admin-api';
-
-const supabase = createPublicClient();
 
 
 // 섹션별 로딩 스켈레톤 — 전면 스피너 게이트 제거 후, 각 지표가 준비될 때까지 자리에 표시한다.
@@ -112,130 +109,14 @@ function getKstTodayRangeUtc() {
   return { start: new Date(startUtcMs).toISOString(), end: new Date(endUtcMs).toISOString() };
 }
 
-// 조인된 facility 가 배열/객체 어느 형태로 와도 안전하게 name/type 추출
-function joinedFacility(log: any): { name: string | null; type: string | null } {
-  const f = log?.facility;
-  if (!f) return { name: null, type: null };
-  const o = Array.isArray(f) ? f[0] : f;
-  return { name: o?.name ?? null, type: o?.type ?? null };
-}
-
-// 정적 export 환경에서는 서버 라우트가 없으므로, 관리자 대시보드의 실데이터는
-//  - congestion_logs/facilities: anon 공개 읽기(RLS anon_select_*) → publicClient 직접 조회.
-//  - recommendations/user_feedback: RLS 강화로 anon 열람 불가 → 관리자 API(/admin/metrics) 경유.
-// 반환값의 null 지표는 호출부에서 합성 폴백으로 채운다(프로토타입 데모 무중단).
-// 혼잡 집계 슬라이스 — 오늘 로그(페이지네이션)와 어제 로그(변화율 보정용)를 '동시에' 시작해
-// 직렬 왕복을 줄인다. 추천 수락률/DAU 는 fetchMetrics 로 분리해 이 슬라이스와 병렬 로드한다.
-async function fetchCongestion(supabaseClient: any) {
-  const { start, end } = getKstTodayRangeUtc();
-  const yStart = new Date(new Date(start).getTime() - 24 * 60 * 60 * 1000).toISOString();
-  const yEnd = new Date(new Date(end).getTime() - 24 * 60 * 60 * 1000).toISOString();
-
-  // 오늘 로그(페이지 루프)와 어제 로그(변화율용) 조회를 병렬로 시작한다. maxPages 로 과다 조회 방지.
-  const todayPromise = (async () => {
-    let acc: any[] = [];
-    const limit = 1000;
-    const maxPages = 12;
-    let from = 0;
-    for (let p = 0; p < maxPages; p++) {
-      const { data, error } = await supabaseClient
-        .from('congestion_logs')
-        .select('congestion_level, current_count, timestamp, facility:facilities(name, type)')
-        .gte('timestamp', start)
-        .lte('timestamp', end)
-        .order('timestamp', { ascending: true })
-        .range(from, from + limit - 1);
-      if (error) throw error;
-      if (!data || data.length === 0) break;
-      acc = acc.concat(data);
-      if (data.length < limit) break;
-      from += limit;
-    }
-    return acc;
-  })();
-  const yesterdayPromise: Promise<any[]> = supabaseClient
-    .from('congestion_logs')
-    .select('congestion_level')
-    .gte('timestamp', yStart)
-    .lte('timestamp', yEnd)
-    .limit(5000)
-    .then((r: any) => r.data || [])
-    .catch(() => []); // 변화율은 보조 지표 — 실패 시 빈 배열
-
-  const [logs, yLogs] = await Promise.all([todayPromise, yesterdayPromise]);
-  const hasLogs = logs.length >= 5;
-
-  // 2) KPI: 평균 혼잡도 + 이상(>=0.9) 건수 (어제 로그는 위에서 병렬로 이미 받아둠 → 변화율 즉시 보정)
-  let avgCongestion: { value: number; changePercent: number } | null = null;
-  let anomalyCount: number | null = null;
-  if (hasLogs) {
-    const avg = logs.reduce((a: number, l: any) => a + (l.congestion_level || 0), 0) / logs.length;
-    avgCongestion = { value: Math.round(avg * 100) / 100, changePercent: 0 };
-    anomalyCount = logs.filter((l: any) => (l.congestion_level || 0) >= 0.9).length;
-    if (yLogs.length > 0) {
-      const yAvg = yLogs.reduce((a: number, l: any) => a + (l.congestion_level || 0), 0) / yLogs.length;
-      if (yAvg > 0) {
-        avgCongestion.changePercent = Math.round(((avgCongestion.value - yAvg) / yAvg) * 1000) / 10;
-      }
-    }
-  }
-
-  // 3) 히트맵: 시설명 × KST시간 평균 (로그가 있는 시설만)
-  let heatmap: any[] | null = null;
-  if (hasLogs) {
-    const cell: Record<string, { sum: number; n: number }> = {};
-    const typeOf: Record<string, string> = {};
-    const names: string[] = [];
-    for (const l of logs) {
-      const { name, type } = joinedFacility(l);
-      if (!name) continue;
-      if (!(name in typeOf)) { typeOf[name] = type || 'unknown'; names.push(name); }
-      const hour = new Date(new Date(l.timestamp).getTime() + 9 * 60 * 60 * 1000).getUTCHours();
-      const key = `${name}__${hour}`;
-      if (!cell[key]) cell[key] = { sum: 0, n: 0 };
-      cell[key].sum += l.congestion_level || 0;
-      cell[key].n += 1;
-    }
-    const cells: any[] = [];
-    for (const name of names) {
-      for (let h = 0; h < 24; h++) {
-        const c = cell[`${name}__${h}`];
-        cells.push({
-          facility: name,
-          facilityType: typeOf[name],
-          hour: h,
-          // 로그 없는 시간대는 null(데이터 없음 센티넬). 실측 0.00 과 구분돼 '여유 0%'가 회색으로 묻히지 않는다.
-          value: c && c.n ? Math.round((c.sum / c.n) * 100) / 100 : null,
-        });
-      }
-    }
-    heatmap = cells;
-  }
-
-  // 4) 이상 알림: 오늘 >=0.9 피크 (시설별 최고 1건, 상위 6)
-  let anomalies: any[] | null = null;
-  if (hasLogs) {
-    const peak: Record<string, any> = {};
-    for (const l of logs) {
-      if ((l.congestion_level || 0) < 0.9) continue;
-      const { name } = joinedFacility(l);
-      if (!name) continue;
-      if (!peak[name] || l.congestion_level > peak[name].congestionLevel) {
-        peak[name] = {
-          id: `${name}-${l.timestamp}`,
-          facilityName: name,
-          timestamp: l.timestamp,
-          congestionLevel: l.congestion_level,
-          durationMinutes: 30,
-        };
-      }
-    }
-    anomalies = Object.values(peak)
-      .sort((a: any, b: any) => b.congestionLevel - a.congestionLevel)
-      .slice(0, 6);
-  }
-
-  return { hasLogs, avgCongestion, anomalyCount, heatmap, anomalies };
+// 혼잡 집계 슬라이스 — 12k행 클라이언트 집계를 서버(/admin/dashboard/today, service_role)로 이관(최적화 #4).
+// 서버가 오늘/어제 congestion_logs 를 집계해 compact JSON 만 내려주므로, 브라우저는 페이지네이션·JS 집계 없이
+// 슬라이스({ hasLogs, avgCongestion, anomalyCount, heatmap, anomalies })를 그대로 소비한다.
+// 산식(KST 오늘 구간·평균·이상건수·히트맵·이상알림)은 서버(admin.py get_dashboard_today)가 단일 소스로 보유한다.
+// 실패 시 예외를 그대로 전파 → 호출부 .catch 가 0/빈 값 슬라이스로 강등(기존 동작 유지). 추천 수락률/DAU 는
+// fetchMetrics 로 분리해 이 슬라이스와 병렬 로드한다.
+async function fetchCongestion() {
+  return adminApi.get('/api/v1/admin/dashboard/today');
 }
 
 // 추천 수락률(최근 7일)/DAU(오늘) 슬라이스 — recommendations/user_feedback 은 RLS 강화로 anon 열람이
@@ -287,7 +168,7 @@ export default function DashboardPage() {
   // 두 독립 슬라이스(혼잡 집계·추천/DAU 지표)를 '병렬'로 로드하고 각자 완료되는 대로 setState 한다
   // (직렬 워터폴·전면 스피너 제거). 정적 export 라 재실행 시 리마운트 없이 슬라이스만 갱신한다.
   const loadData = useCallback(async () => {
-    const congestionTask = fetchCongestion(supabase)
+    const congestionTask = fetchCongestion()
       .then((c) => { if (mountedRef.current) setCongestion(c); })
       .catch((err) => {
         console.warn('혼잡 집계 조회 실패, 0/빈 값으로 대체:', err);
