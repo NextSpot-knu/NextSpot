@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { motion, PanInfo, AnimatePresence } from 'framer-motion';
 import { Bookmark, Sparkles, Star, Phone, MapPin, Clock, ChevronUp, ChevronDown, Info } from 'lucide-react';
+import { apiClient } from '@/lib/api-client';
 
 interface RecommendationCardProps {
   title: string;
@@ -47,11 +48,21 @@ export function RecommendationCard({
 }: RecommendationCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
-  
+
+  // '최적 방문 시각' — 펼쳤을 때 백엔드(/predict/day)에서 받아오는 오늘 24시간 예측 혼잡 곡선.
+  // 백엔드 미기동/실패 시 null 로 남아 조용히 숨긴다(카드 나머지는 그대로).
+  const [dayPred, setDayPred] = useState<{
+    hours: { hour: number; congestion: number }[];
+    bestHour: number;
+    bestCongestion: number;
+  } | null>(null);
+
   const [currentTime, setCurrentTime] = useState<Date | null>(null);
   useEffect(() => {
     setIsExpanded(false);
     setIsMinimized(false);
+    // 다른 장소로 바뀌면 이전 장소의 '최적 방문 시각' 데이터가 남아 깜빡이지 않게 초기화
+    setDayPred(null);
   }, [title]);
 
   useEffect(() => {
@@ -130,6 +141,26 @@ export function RecommendationCard({
     }
   }, [title, facility]);
 
+  // 펼쳐졌을 때만 '최적 방문 시각'(오늘 24시간 예측)을 지연 로드한다 — 접힌 카드까지 백엔드를 때리지 않게.
+  const dayFacilityType = facilityType || facility?.type;
+  useEffect(() => {
+    if (!isExpanded || !dayFacilityType) return;
+    let active = true;
+    apiClient
+      .get(`/predict/day?facilityType=${encodeURIComponent(dayFacilityType)}`)
+      .then((res) => {
+        // 24개 시간 값이 온전할 때만 반영(방어적) — 아니면 조용히 숨김 유지
+        if (active && res?.hours?.length === 24) setDayPred(res);
+      })
+      .catch(() => {
+        // 백엔드 미기동/네트워크 실패 — 막대를 그리지 않고 조용히 숨긴다(카드 나머지는 영향 없음)
+        if (active) setDayPred(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [isExpanded, dayFacilityType]);
+
   // Framer Motion Drag Handler
   const handleDragEnd = (event: MouseEvent | TouchEvent | PointerEvent, info: PanInfo) => {
     const offset = info.offset.y;
@@ -172,6 +203,17 @@ export function RecommendationCard({
     if (!date) return '';
     return date.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false });
   };
+
+  // 0-23시 → '오전/오후 N시' (0시=오전 12시, 12시=오후 12시). 예: 16 → '오후 4시'
+  const formatKoreanHour = (h: number) => {
+    const period = h < 12 ? '오전' : '오후';
+    const h12 = h % 12 === 0 ? 12 : h % 12;
+    return `${period} ${h12}시`;
+  };
+
+  // 카드 상단 혼잡 pill 과 동일한 4단계 임계값(혼잡/보통/여유/한산)
+  const congestionLabel = (c: number) =>
+    c >= 0.75 ? '혼잡' : c >= 0.5 ? '보통' : c >= 0.25 ? '여유' : '한산';
 
   return (
     <motion.div 
@@ -440,6 +482,50 @@ export function RecommendationCard({
               </span>
             </div>
           </div>
+
+          {/* 최적 방문 시각 — 오늘 24시간 예측 혼잡 미니 막대(백엔드 성공 시에만). 가장 한산한 시각을 옥(jade)으로 강조. */}
+          {dayPred && (
+            <div className="border-t border-line/70 pt-3">
+              <div className="flex items-center gap-1.5 mb-2">
+                <Clock size={13} className="text-gold-deep flex-shrink-0" />
+                <span className="text-[11px] font-bold text-muk">오늘 시간대별 혼잡 예측</span>
+              </div>
+              <div
+                className="flex items-end gap-[2px] h-10"
+                role="img"
+                aria-label={`오늘 시간대별 예측 혼잡도. 가장 한산한 시간은 ${formatKoreanHour(dayPred.bestHour)}입니다.`}
+              >
+                {dayPred.hours.map((h) => {
+                  const isBest = h.hour === dayPred.bestHour;
+                  return (
+                    <div
+                      key={h.hour}
+                      className="flex-1 flex items-end h-full"
+                      title={`${formatKoreanHour(h.hour)} · ${congestionLabel(h.congestion)}`}
+                    >
+                      <div
+                        aria-hidden="true"
+                        className={`w-full rounded-sm transition-colors ${isBest ? 'bg-jade' : 'bg-gold/35'}`}
+                        style={{ height: `${Math.max(8, Math.round(h.congestion * 100))}%` }}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+              {/* 시각 축(0·6·12·18·23시) — 대략 위치만 안내하는 경량 눈금 */}
+              <div className="flex justify-between mt-1 text-[8px] text-muk-soft/70 font-medium" aria-hidden="true">
+                <span>0시</span>
+                <span>6시</span>
+                <span>12시</span>
+                <span>18시</span>
+                <span>23시</span>
+              </div>
+              <p className="text-[11px] text-jade font-bold mt-2 flex items-center gap-1">
+                <Sparkles size={11} className="text-jade flex-shrink-0" />
+                가장 한산한 시간 · {formatKoreanHour(dayPred.bestHour)}
+              </p>
+            </div>
+          )}
             </div>
           </motion.div>
         )}

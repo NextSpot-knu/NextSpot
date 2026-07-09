@@ -3,7 +3,7 @@ import time
 from datetime import datetime, timedelta, timezone
 
 import structlog
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from app.core.supabase import supabase_client
@@ -161,3 +161,61 @@ async def predict_batch(req: BatchPredictRequest):
     _batch_cache[req.hours_ahead] = (time.monotonic(), response)
     logger.info("predict_batch_returned", hours_ahead=req.hours_ahead, count=len(predictions))
     return response
+
+
+# --- 하루 예측 (추천 카드 '최적 방문 시각' 24시간 미니 막대용) ---
+
+# 관광객에게 보여줄 시각은 KST(한국 표준시)다. 모델은 UTC 시각 기준으로 학습되어(위 _utcnow 주석 참조)
+# batch 와 동일하게 UTC hour/dow 로 추론한다. 따라서 화면용 KST 시(0-23)를 모델용 UTC hour/dow 로 변환한다.
+_KST = timezone(timedelta(hours=9))
+
+
+class DayHour(BaseModel):
+    hour: int  # KST 기준 시(0-23)
+    congestion: float
+
+
+class DayPredictResponse(BaseModel):
+    facility_type: str
+    dow: int  # 예측 대상 요일(KST, 0=월 … 6=일)
+    hours: list[DayHour]
+    best_hour: int          # 가장 한산한 KST 시(0-23)
+    best_congestion: float
+
+
+def _kst_hour_to_utc(kst_hour: int, kst_dow: int) -> tuple[int, int]:
+    """KST(=UTC+9) 시/요일을 모델이 쓰는 UTC hour/dow 로 변환.
+
+    KST hour 가 9 미만이면 UTC 로는 전날(-9h) 이 되어 요일이 하루 당겨진다.
+    """
+    if kst_hour >= 9:
+        return kst_hour - 9, kst_dow
+    return kst_hour + 15, (kst_dow - 1) % 7
+
+
+@router.get("/day", response_model=DayPredictResponse)
+async def predict_day(
+    facility_type: str = Query(..., alias="facilityType", description="시설 타입 (restaurant/cafe/attraction/culture)"),
+    dow: int | None = Query(None, ge=0, le=6, description="요일(KST, 0=월 … 6=일). 생략 시 오늘(KST)."),
+):
+    # 단건 /predict 와 동일하게 공개 조회용(무인증) 엔드포인트다(추천 카드는 로그인 없이 열람 가능).
+    # 로컬 model.pkl 미학습 시 predict_congestion 이 0.5 폴백이라 비용 부담이 없다.
+    resolved_dow = dow if dow is not None else _utcnow().astimezone(_KST).weekday()
+
+    hours: list[DayHour] = []
+    for kst_hour in range(24):
+        utc_hour, utc_dow = _kst_hour_to_utc(kst_hour, resolved_dow)
+        # predict_congestion 은 동기 sklearn 추론 — 이벤트 루프를 막지 않게 워커 스레드로 오프로드(batch 와 동일).
+        value = await asyncio.to_thread(predict_congestion, facility_type, utc_hour, utc_dow)
+        hours.append(DayHour(hour=kst_hour, congestion=round(value, 4)))
+
+    # 가장 한산한 시각(동률이면 이른 시각). min 은 안정 정렬이라 앞선(이른) hour 가 선택된다.
+    best = min(hours, key=lambda h: h.congestion)
+    logger.info("predict_day_returned", facility_type=facility_type, dow=resolved_dow, best_hour=best.hour)
+    return DayPredictResponse(
+        facility_type=facility_type,
+        dow=resolved_dow,
+        hours=hours,
+        best_hour=best.hour,
+        best_congestion=best.congestion,
+    )
