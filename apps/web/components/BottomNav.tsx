@@ -3,6 +3,7 @@
 import { usePathname, useRouter } from 'next/navigation';
 import { Home, Bookmark, User } from 'lucide-react';
 import { useState, useEffect } from 'react';
+import { useT } from '@/lib/i18n/I18nProvider';
 
 // 관광객 앱 주 내비게이션 — 반응형:
 //  · 데스크톱(md+): 왼쪽 세로 레일(인플로우 flex 자식 → 콘텐츠 폭을 차지).
@@ -11,6 +12,7 @@ import { useState, useEffect } from 'react';
 export default function BottomNav() {
   const pathname = usePathname();
   const router = useRouter();
+  const t = useT();
 
   // 빠른 UI 반응을 위한 낙관적 탭 상태
   const [optimisticTab, setOptimisticTab] = useState<string | null>(null);
@@ -24,9 +26,9 @@ export default function BottomNav() {
   if (!pathname || pathname === '/' || pathname.includes('/admin') || pathname.includes('/setup')) return null;
 
   const tabs = [
-    { id: 'Home', icon: Home, label: '홈', path: '/main' },
-    { id: 'Saved', icon: Bookmark, label: '저장', path: '/saved' },
-    { id: 'MyPage', icon: User, label: '마이', path: '/mypage' }
+    { id: 'Home', icon: Home, label: t('nav.home'), path: '/main' },
+    { id: 'Saved', icon: Bookmark, label: t('nav.saved'), path: '/saved' },
+    { id: 'MyPage', icon: User, label: t('nav.mypage'), path: '/mypage' }
   ];
 
   const getActiveTab = () => {

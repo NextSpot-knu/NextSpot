@@ -2,9 +2,12 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
+import { useT } from '@/lib/i18n/I18nProvider';
+import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 
 export default function LoadingPage() {
   const router = useRouter();
+  const t = useT();
   const [isVisible, setIsVisible] = useState(false);
   // 자동 리다이렉트와 탭 스킵이 겹쳐 중복 이동하는 것을 방지
   const navigatedRef = useRef(false);
@@ -51,6 +54,11 @@ export default function LoadingPage() {
       onClick={go}
       className="flex flex-col items-center justify-center min-h-screen bg-gradient-to-b from-hanji via-hanji-deep to-sunset-1/25 relative overflow-hidden cursor-pointer"
     >
+      {/* 언어 선택 — 진입 즉시 외국인 관광객이 전환 가능(부모 onClick 이동 방지) */}
+      <div className="absolute top-4 right-4 z-20" onClick={(e) => e.stopPropagation()}>
+        <LanguageSwitcher />
+      </div>
+
       {/* 은은한 금빛 광원 (기존 콜드 blue 글로우 대체) */}
       <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[300px] h-[300px] bg-gold/15 rounded-full blur-[100px] pointer-events-none z-0"></div>
 
@@ -66,7 +74,7 @@ export default function LoadingPage() {
           NextSpot
         </h1>
         <p className="text-lg text-muk-soft font-medium">
-          기다림 없는 스마트한 경주 여행
+          {t('landing.tagline')}
         </p>
       </div>
     </div>
