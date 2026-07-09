@@ -553,3 +553,59 @@ def test_infrastructures_happy_path(client):
     assert [item["id"] for item in items] == ["f-1", "f-2"]
     assert items[0]["congestion"] == {"level": 0.4, "current_count": 20, "timestamp": "2026-07-07T09:00:00+00:00"}
     assert items[1]["congestion"] is None
+
+
+# =========================================================================
+# 9. 혼잡 제보(POST /api/v1/reports/congestion) — 인증 가드·라벨 매핑·행복 경로
+# =========================================================================
+
+def test_report_congestion_requires_auth(client):
+    # 인증 헤더 없음 → 401 (get_current_user 실경로 — 익명 대량 조작 1차 차단)
+    res = client.post("/api/v1/reports/congestion", json={"facility_id": "f-1", "level": "혼잡"})
+    assert res.status_code == 401
+
+
+def test_report_congestion_facility_not_found_404(auth_client):
+    # 존재하지 않는 시설 → 404 (유령 로그/FK 위반 방지)
+    with patch("app.routers.reports.supabase_admin", new=FakeSupabase({"facilities": []})):
+        res = auth_client.post(
+            "/api/v1/reports/congestion", json={"facility_id": "ghost", "level": "보통"}
+        )
+    assert res.status_code == 404
+
+
+def test_report_congestion_invalid_label_422(auth_client):
+    # 잘못된 라벨(3지선다·수치 아님)은 pydantic union 검증에서 422
+    res = auth_client.post(
+        "/api/v1/reports/congestion", json={"facility_id": "f-1", "level": "매우혼잡"}
+    )
+    assert res.status_code == 422
+
+
+def test_report_congestion_happy_path(auth_client):
+    # '혼잡'(→0.9) 제보 → capacity(50)×0.9=45, source='user_report' 로 기록.
+    # FakeSupabase 는 facilities 조회와 congestion_logs INSERT 둘 다 canned 로 응답.
+    facility = _facility("f-1", "cafe", 0.0002)  # capacity=50
+    inserted = {
+        "id": "log-1",
+        "facility_id": "f-1",
+        "congestion_level": 0.9,
+        "current_count": 45,
+        "source": "user_report",
+        "timestamp": "2026-07-10T05:00:00+00:00",
+    }
+    with patch(
+        "app.routers.reports.supabase_admin",
+        new=FakeSupabase({"facilities": [facility], "congestion_logs": [inserted]}),
+    ):
+        res = auth_client.post(
+            "/api/v1/reports/congestion", json={"facility_id": "f-1", "level": "혼잡"}
+        )
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["success"] is True
+    assert body["facility_id"] == "f-1"
+    assert body["congestion_level"] == 0.9
+    assert body["current_count"] == 45
+    assert body["source"] == "user_report"
