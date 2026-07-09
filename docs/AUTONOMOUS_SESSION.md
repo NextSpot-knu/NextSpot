@@ -27,9 +27,15 @@
 **진행 중:**
 - [에이전트] 프론트 리뷰 수정 6건: ①제보 모달 portal(clip 버그) ②배리어프리 top-level 컬럼 ③알림토글 하이드레이션 ④폴링 visibility ⑤쿠폰 재시도 no-op ⑥코스 세션 catch. 완료 시 병합·검증·푸시.
 
-**다음(예정):** 매력 기능 추가(공유·오늘의추천 등), 추가 품질(모바일/a11y/성능/오프라인), README·HANDOVER 현행화, 필요 시 쿠폰 사용(redeem) 루프 완성.
+**추가 완료(감사 2차 라운드, 전부 커밋·푸시):**
+- 매력 기능: 공유(Share, Web Share API), 쿠폰 사용(redeem) 루프 완성(발급→지갑→사용)
+- 감사 P0/P1: 데모 모킹패널 env 게이팅, 로그아웃 401 정직 안내(무한재시도 제거), 조작 데이터(별점·리뷰·전화) 제거, 마이페이지 가짜통계/원시벡터 제거, 토스트 한지 라이트, 모바일 dvh + safe-area, 카드 a11y(포커스링·툴팁 토글), **추천 플로우(explore/recommend) 전체 i18n**
+- PWA 오프라인: service worker(앱셸 캐시+오프라인 폴백) + 192/512/maskable PNG 아이콘 + standalone manifest
+- 폴리시: saved/mypage/coupons 스켈레톤, main 컨트롤 포커스링
 
-**남은 리뷰 수정(있으면):** #4 코스 SPOT 하위항 누적도착 미반영(P2, 응답 predicted_congestion 은 정직 — score.py 시그니처 리팩터 필요, 위험도 있어 보류 후 검토).
+**남은(저가치 P2, 8시까지 페이싱으로 진행):** 작은 라벨 대비(#14), explore/recommend·course geo 실패 안내(#12), main 마커 재생성 성능(#13, 위험도 있어 검토), 코스 SPOT 하위항 누적도착(#4, score.py 리팩터 필요).
+
+**루프 방식:** 남은 항목은 저가치라 ScheduleWakeup 로 간격을 두고 증분 진행(토큰 지속). 각 증분: 구현→검증(tsc/build 또는 pytest)→커밋→푸시. 마지막 tip 은 항상 origin/feature/jinseok.
 
 ## 검증 커맨드
 ```
