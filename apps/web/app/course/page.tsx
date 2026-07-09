@@ -10,6 +10,7 @@ import Link from "next/link";
 import { createPublicClient } from "@/lib/supabase";
 import { apiClient, isAuthError } from "@/lib/api-client";
 import { REGION, isWithinRegion } from "@/lib/region";
+import { toast } from "sonner";
 import { useT } from "@/lib/i18n/I18nProvider";
 import { ShareButton } from "@/components/ShareButton";
 
@@ -110,10 +111,11 @@ export default function CoursePage() {
         setCoords({ lat, lng });
       },
       () => {
-        /* 권한 거부/실패 → 지역 중심 기본값 유지 */
+        // 권한 거부/실패 → 지역 중심 기본값 유지 + 조용히 안내(무음 폴백 방지).
+        toast.info(t("map.locationFallback"));
       }
     );
-  }, []);
+  }, [t]);
 
   // 3) 코스 조회.
   const fetchCourse = useCallback(async () => {

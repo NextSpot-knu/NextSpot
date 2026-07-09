@@ -328,6 +328,8 @@ function RecommendContent() {
         },
         (err) => {
           console.warn("Geolocation fallback failed, using default Gyeongju center.", err);
+          // 위치 실패 시 조용히 안내 — 거리·도보 시간이 경주 중심 기준임을 알린다(무음 폴백 방지).
+          toast.info(t("map.locationFallback"));
         }
       );
     }
