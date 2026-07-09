@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
   Users, Activity, TrendingUp, AlertTriangle, Search, Bell, Download, Info
 } from 'lucide-react';
@@ -19,19 +19,9 @@ import { adminApi } from '@/lib/admin-api';
 const supabase = createPublicClient();
 
 
-// 실데이터 전용: 합성 폴백 제거(목업 미사용). 실데이터가 없으면 0/빈 값으로 표시.
-function generateClientFallbackData(_realFacilities?: any[]) {
-  return {
-    kpi: {
-      avgCongestion: { value: 0, changePercent: 0 },
-      acceptRate: { value: 0, total: 0, accepted: 0 },
-      activeUsers: 0,
-      anomalyCount: 0,
-    },
-    heatmap: [] as any[],
-    distribution: [] as any[],
-    anomalies: [] as any[],
-  };
+// 섹션별 로딩 스켈레톤 — 전면 스피너 게이트 제거 후, 각 지표가 준비될 때까지 자리에 표시한다.
+function Skeleton({ className = '' }: { className?: string }) {
+  return <div className={`animate-pulse rounded-md bg-hanok-line/60 ${className}`} />;
 }
 
 // 30일 수요 분산 '예시' 추이(데모) — 실측 집계 파이프라인이 아직 없어, 도입 전/후 혼잡도와
@@ -134,56 +124,60 @@ function joinedFacility(log: any): { name: string | null; type: string | null } 
 //  - congestion_logs/facilities: anon 공개 읽기(RLS anon_select_*) → publicClient 직접 조회.
 //  - recommendations/user_feedback: RLS 강화로 anon 열람 불가 → 관리자 API(/admin/metrics) 경유.
 // 반환값의 null 지표는 호출부에서 합성 폴백으로 채운다(프로토타입 데모 무중단).
-async function fetchRealDashboard(supabaseClient: any) {
+// 혼잡 집계 슬라이스 — 오늘 로그(페이지네이션)와 어제 로그(변화율 보정용)를 '동시에' 시작해
+// 직렬 왕복을 줄인다. 추천 수락률/DAU 는 fetchMetrics 로 분리해 이 슬라이스와 병렬 로드한다.
+async function fetchCongestion(supabaseClient: any) {
   const { start, end } = getKstTodayRangeUtc();
+  const yStart = new Date(new Date(start).getTime() - 24 * 60 * 60 * 1000).toISOString();
+  const yEnd = new Date(new Date(end).getTime() - 24 * 60 * 60 * 1000).toISOString();
 
-  // 1) 오늘자 혼잡 로그 (페이지네이션, 시설명/유형 조인). maxPages 로 과다 조회 방지.
-  let logs: any[] = [];
-  const limit = 1000;
-  const maxPages = 12;
-  let from = 0;
-  for (let p = 0; p < maxPages; p++) {
-    const { data, error } = await supabaseClient
-      .from('congestion_logs')
-      .select('congestion_level, current_count, timestamp, facility:facilities(name, type)')
-      .gte('timestamp', start)
-      .lte('timestamp', end)
-      .order('timestamp', { ascending: true })
-      .range(from, from + limit - 1);
-    if (error) throw error;
-    if (!data || data.length === 0) break;
-    logs = logs.concat(data);
-    if (data.length < limit) break;
-    from += limit;
-  }
+  // 오늘 로그(페이지 루프)와 어제 로그(변화율용) 조회를 병렬로 시작한다. maxPages 로 과다 조회 방지.
+  const todayPromise = (async () => {
+    let acc: any[] = [];
+    const limit = 1000;
+    const maxPages = 12;
+    let from = 0;
+    for (let p = 0; p < maxPages; p++) {
+      const { data, error } = await supabaseClient
+        .from('congestion_logs')
+        .select('congestion_level, current_count, timestamp, facility:facilities(name, type)')
+        .gte('timestamp', start)
+        .lte('timestamp', end)
+        .order('timestamp', { ascending: true })
+        .range(from, from + limit - 1);
+      if (error) throw error;
+      if (!data || data.length === 0) break;
+      acc = acc.concat(data);
+      if (data.length < limit) break;
+      from += limit;
+    }
+    return acc;
+  })();
+  const yesterdayPromise: Promise<any[]> = supabaseClient
+    .from('congestion_logs')
+    .select('congestion_level')
+    .gte('timestamp', yStart)
+    .lte('timestamp', yEnd)
+    .limit(5000)
+    .then((r: any) => r.data || [])
+    .catch(() => []); // 변화율은 보조 지표 — 실패 시 빈 배열
 
+  const [logs, yLogs] = await Promise.all([todayPromise, yesterdayPromise]);
   const hasLogs = logs.length >= 5;
 
-  // 2) KPI: 평균 혼잡도 + 이상(>=0.9) 건수
+  // 2) KPI: 평균 혼잡도 + 이상(>=0.9) 건수 (어제 로그는 위에서 병렬로 이미 받아둠 → 변화율 즉시 보정)
   let avgCongestion: { value: number; changePercent: number } | null = null;
   let anomalyCount: number | null = null;
   if (hasLogs) {
-    const avg = logs.reduce((a, l) => a + (l.congestion_level || 0), 0) / logs.length;
+    const avg = logs.reduce((a: number, l: any) => a + (l.congestion_level || 0), 0) / logs.length;
     avgCongestion = { value: Math.round(avg * 100) / 100, changePercent: 0 };
-    anomalyCount = logs.filter((l) => (l.congestion_level || 0) >= 0.9).length;
-
-    // 전일 평균으로 변화율 보정 (있을 때만)
-    try {
-      const yStart = new Date(new Date(start).getTime() - 24 * 60 * 60 * 1000).toISOString();
-      const yEnd = new Date(new Date(end).getTime() - 24 * 60 * 60 * 1000).toISOString();
-      const { data: yLogs } = await supabaseClient
-        .from('congestion_logs')
-        .select('congestion_level')
-        .gte('timestamp', yStart)
-        .lte('timestamp', yEnd)
-        .limit(5000);
-      if (yLogs && yLogs.length > 0) {
-        const yAvg = yLogs.reduce((a: number, l: any) => a + (l.congestion_level || 0), 0) / yLogs.length;
-        if (yAvg > 0) {
-          avgCongestion.changePercent = Math.round(((avgCongestion.value - yAvg) / yAvg) * 1000) / 10;
-        }
+    anomalyCount = logs.filter((l: any) => (l.congestion_level || 0) >= 0.9).length;
+    if (yLogs.length > 0) {
+      const yAvg = yLogs.reduce((a: number, l: any) => a + (l.congestion_level || 0), 0) / yLogs.length;
+      if (yAvg > 0) {
+        avgCongestion.changePercent = Math.round(((avgCongestion.value - yAvg) / yAvg) * 1000) / 10;
       }
-    } catch { /* 변화율은 보조 지표 — 실패 시 0 유지 */ }
+    }
   }
 
   // 3) 히트맵: 시설명 × KST시간 평균 (로그가 있는 시설만)
@@ -241,14 +235,19 @@ async function fetchRealDashboard(supabaseClient: any) {
       .slice(0, 6);
   }
 
-  // 5) 추천 수락률(최근 7일) / DAU(오늘 피드백) — recommendations/user_feedback 은 RLS 강화로
-  //    anon 열람이 막혀(20260707 security_hardening) 관리자 API(/admin/metrics, service_role) 경유(WS-A-6).
-  //    API 실패 시 null → 호출부 폴백(기존과 동일한 강등 동작).
-  let acceptRate: { value: number; total: number; accepted: number } | null = null;
-  let activeUsers: number | null = null;
+  return { hasLogs, avgCongestion, anomalyCount, heatmap, anomalies };
+}
+
+// 추천 수락률(최근 7일)/DAU(오늘) 슬라이스 — recommendations/user_feedback 은 RLS 강화로 anon 열람이
+// 막혀(20260707 security_hardening) 관리자 API(/admin/metrics, service_role) 경유(WS-A-6).
+// 혼잡 집계와 별개 슬라이스라 병렬 로드하며, 실패 시 null(호출부에서 0/빈 값으로 강등).
+async function fetchMetrics() {
+  const { start, end } = getKstTodayRangeUtc();
   try {
     const weekAgo = new Date(new Date(start).getTime() - 6 * 24 * 60 * 60 * 1000).toISOString();
     const metrics = await adminApi.get('/api/v1/admin/metrics?days=8');
+    let acceptRate: { value: number; total: number; accepted: number } | null = null;
+    let activeUsers: number | null = null;
     const recs = (metrics?.recommendations || []).filter(
       (r: any) => r.created_at >= weekAgo && r.created_at <= end
     );
@@ -261,14 +260,19 @@ async function fetchRealDashboard(supabaseClient: any) {
       (f: any) => f.timestamp >= start && f.timestamp <= end
     );
     if (fb.length > 0) activeUsers = new Set(fb.map((f: any) => f.user_id)).size;
-  } catch { /* 백엔드 미기동/권한 차이 시 폴백 */ }
-
-  return { hasLogs, avgCongestion, anomalyCount, heatmap, anomalies, acceptRate, activeUsers };
+    return { acceptRate, activeUsers };
+  } catch {
+    return { acceptRate: null, activeUsers: null }; // 백엔드 미기동/권한 차이 시 폴백
+  }
 }
 
 export default function DashboardPage() {
-  const [data, setData] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
+  // 슬라이스별 상태 — 혼잡 집계(오늘/어제 로그)와 추천/DAU 지표를 각각 독립 보관해 준비되는 대로 렌더한다
+  // (전면 스피너 게이트 제거 → 섹션별 스켈레톤). null = 아직 로딩 중.
+  const [congestion, setCongestion] = useState<any>(null); // { hasLogs, avgCongestion, anomalyCount, heatmap, anomalies }
+  const [metrics, setMetrics] = useState<any>(null);        // { acceptRate, activeUsers }
+  // 30일 분산 효과는 실측 집계 파이프라인이 없어 데모 추이(한 번만 계산).
+  const distribution = useMemo(() => buildDemoDistribution(), []);
 
   // 언마운트 이후 setState 방지 가드(마운트 동안 true).
   const mountedRef = useRef(true);
@@ -280,91 +284,36 @@ export default function DashboardPage() {
   }, []);
 
   // 대시보드 데이터 로드/재조회 — 초기 마운트와 '모의 발생' 성공 콜백에서 공용으로 호출한다.
-  // 정적 export 라 라우터 refresh 가 안 통하므로, 전체 리로드 대신 이 함수를 재실행해
-  // 리마운트·깜빡임 없이 데이터만 갱신한다(재조회 시 loading 스피너를 띄우지 않아 스크롤이 유지된다).
+  // 두 독립 슬라이스(혼잡 집계·추천/DAU 지표)를 '병렬'로 로드하고 각자 완료되는 대로 setState 한다
+  // (직렬 워터폴·전면 스피너 제거). 정적 export 라 재실행 시 리마운트 없이 슬라이스만 갱신한다.
   const loadData = useCallback(async () => {
-    // 1) 실시간 시설 목록 로드 (publicClient + 로그인된 admin 세션 → RLS 통과).
-    let databaseFacilities: any[] = [];
-    try {
-      let from = 0;
-      const limit = 1000;
-      while (true) {
-        const { data, error } = await supabase
-          .from('facilities')
-          .select('id, name, type, capacity')
-          .order('name', { ascending: true })
-          .range(from, from + limit - 1);
-        if (error) throw error;
-        if (!data || data.length === 0) break;
-        databaseFacilities = [...databaseFacilities, ...data];
-        if (data.length < limit) break;
-        from += limit;
-      }
-    } catch (dbErr) {
-      console.warn("시설 목록 로드 실패, 합성 폴백 사용:", dbErr);
-    }
-
-    // 2) 실시설 기반 합성 폴백 준비 (실데이터가 비는 지표를 채울 안전망).
-    const fallback = generateClientFallbackData(databaseFacilities);
-
-    // 3) 실데이터를 직접 조회한 뒤, 지표별로 실데이터 우선·폴백 보완으로 병합.
-    try {
-      const real = await fetchRealDashboard(supabase);
-      const merged = {
-        kpi: {
-          avgCongestion: real.avgCongestion ?? fallback.kpi.avgCongestion,
-          acceptRate: real.acceptRate ?? fallback.kpi.acceptRate,
-          activeUsers: real.activeUsers ?? fallback.kpi.activeUsers,
-          anomalyCount:
-            real.hasLogs && real.anomalyCount != null ? real.anomalyCount : fallback.kpi.anomalyCount,
-        },
-        // 오늘자 로그가 있으면 실측 히트맵을 사용하되, 실측 데이터가 없는 시간대(예: 14시 이후 미래 시간대)는 fallback 생성기의 가상 데이터로 채웁니다.
-        heatmap: (() => {
-          if (!real.heatmap || !real.heatmap.length) return fallback.heatmap;
-          return real.heatmap.map((rCell: any) => {
-            if (rCell.value !== null) return rCell;
-            const fCell = fallback.heatmap.find(
-              (f: any) => f.facility === rCell.facility && f.hour === rCell.hour
-            );
-            return {
-              ...rCell,
-              value: fCell ? fCell.value : null
-            };
-          });
-        })(),
-        // 30일 수요 분산 효과는 장기 A/B 추이 — 실시간 집계 파이프라인이 없어 '예시 추이(데모)'로
-        // 표시한다(차트 헤더의 '예시 추이(데모)' 배지로 실측 오인 방지 — 정직성 원칙).
-        distribution: buildDemoDistribution(),
-        // 실측 이상 알림이 있으면 그것을, 없으면 합성 알림으로 패널이 비지 않게.
-        anomalies: real.anomalies && real.anomalies.length ? real.anomalies : fallback.anomalies,
-      };
-      if (mountedRef.current) setData(merged);
-    } catch (err) {
-      console.warn("실데이터 조회 실패, 합성 폴백으로 대체:", err);
-      // 전면 실패 시에도 30일 차트는 동일한 데모 추이를 유지(성공/실패 경로 일관).
-      if (mountedRef.current) setData({ ...fallback, distribution: buildDemoDistribution() });
-    }
+    const congestionTask = fetchCongestion(supabase)
+      .then((c) => { if (mountedRef.current) setCongestion(c); })
+      .catch((err) => {
+        console.warn('혼잡 집계 조회 실패, 0/빈 값으로 대체:', err);
+        if (mountedRef.current) setCongestion({ hasLogs: false, avgCongestion: null, anomalyCount: null, heatmap: null, anomalies: null });
+      });
+    const metricsTask = fetchMetrics()
+      .then((m) => { if (mountedRef.current) setMetrics(m); })
+      .catch(() => { if (mountedRef.current) setMetrics({ acceptRate: null, activeUsers: null }); });
+    await Promise.all([congestionTask, metricsTask]);
   }, []);
 
   useEffect(() => {
-    setLoading(true);
-    loadData().finally(() => {
-      if (mountedRef.current) setLoading(false);
-    });
+    loadData();
   }, [loadData]);
 
-  if (loading || !data) {
-    return (
-      <div className="flex h-screen w-screen bg-hanok items-center justify-center font-sans text-hanok-muted">
-        <div className="flex flex-col items-center gap-4">
-          <div className="w-10 h-10 border-4 border-gold border-t-transparent rounded-full animate-spin"></div>
-          <p className="font-semibold text-sm">대시보드 데이터를 조회 중입니다...</p>
-        </div>
-      </div>
-    );
-  }
-
-  const { kpi, heatmap, distribution, anomalies } = data;
+  // 슬라이스 → 렌더 파생값. 도착 전에는 0/빈 값으로 두고, *Ready 로 스켈레톤 표시 여부를 판별한다.
+  const congestionReady = congestion !== null;
+  const metricsReady = metrics !== null;
+  const kpi = {
+    avgCongestion: congestion?.avgCongestion ?? { value: 0, changePercent: 0 },
+    anomalyCount: congestion?.anomalyCount ?? 0,
+    acceptRate: metrics?.acceptRate ?? { value: 0, total: 0, accepted: 0 },
+    activeUsers: metrics?.activeUsers ?? 0,
+  };
+  const heatmap = congestion?.heatmap ?? [];
+  const anomalies = congestion?.anomalies ?? [];
 
   // 정적 export 에는 서버 라우트(/api/admin/export)가 없으므로, 현재 로드된 데이터로
   // 클라이언트에서 CSV 를 생성해 다운로드한다(엑셀 한글 깨짐 방지를 위해 BOM 부착).
@@ -468,20 +417,28 @@ export default function DashboardPage() {
                   <Activity size={24} />
                 </div>
                 <div className="flex items-center gap-2">
-                  <span
-                    title="전일 동시간대 평균 대비 변화율입니다. 음수(초록)면 혼잡이 줄어든 것으로 분산 효과를 의미합니다."
-                    className={`px-2 py-1 text-xs font-bold rounded-full cursor-help ${kpi.avgCongestion.changePercent < 0 ? 'bg-emerald-500/15 text-emerald-300' : 'bg-rose-500/15 text-rose-300'}`}
-                  >
-                    {kpi.avgCongestion.changePercent > 0 ? '+' : ''}{kpi.avgCongestion.changePercent}%
-                  </span>
+                  {congestionReady ? (
+                    <span
+                      title="전일 동시간대 평균 대비 변화율입니다. 음수(초록)면 혼잡이 줄어든 것으로 분산 효과를 의미합니다."
+                      className={`px-2 py-1 text-xs font-bold rounded-full cursor-help ${kpi.avgCongestion.changePercent < 0 ? 'bg-emerald-500/15 text-emerald-300' : 'bg-rose-500/15 text-rose-300'}`}
+                    >
+                      {kpi.avgCongestion.changePercent > 0 ? '+' : ''}{kpi.avgCongestion.changePercent}%
+                    </span>
+                  ) : (
+                    <Skeleton className="h-6 w-12" />
+                  )}
                   <InfoTip text="오늘(KST) 수집된 혼잡 로그의 평균 혼잡도입니다. 시설 정원 대비 실시간 인원 비율을 0~100%로 환산해 평균낸 값입니다." />
                 </div>
               </div>
               <div>
                 <h3 className="text-hanok-muted text-sm font-semibold mb-1">오늘 평균 혼잡도</h3>
-                <div className="text-3xl font-black text-hanok-ink">
-                  {(kpi.avgCongestion.value * 100).toFixed(1)}%
-                </div>
+                {congestionReady ? (
+                  <div className="text-3xl font-black text-hanok-ink">
+                    {(kpi.avgCongestion.value * 100).toFixed(1)}%
+                  </div>
+                ) : (
+                  <Skeleton className="h-9 w-24 mt-1" />
+                )}
               </div>
             </div>
 
@@ -498,10 +455,19 @@ export default function DashboardPage() {
               </div>
               <div>
                 <h3 className="text-hanok-muted text-sm font-semibold mb-1">AI 추천 수락률</h3>
-                <div className="text-3xl font-black text-hanok-ink">
-                  {(kpi.acceptRate.value * 100).toFixed(1)}%
-                </div>
-                <div className="text-xs text-hanok-muted mt-1">총 {kpi.acceptRate.total}건 중 {kpi.acceptRate.accepted}건 수락</div>
+                {metricsReady ? (
+                  <>
+                    <div className="text-3xl font-black text-hanok-ink">
+                      {(kpi.acceptRate.value * 100).toFixed(1)}%
+                    </div>
+                    <div className="text-xs text-hanok-muted mt-1">총 {kpi.acceptRate.total}건 중 {kpi.acceptRate.accepted}건 수락</div>
+                  </>
+                ) : (
+                  <>
+                    <Skeleton className="h-9 w-24 mt-1" />
+                    <Skeleton className="h-3 w-32 mt-2" />
+                  </>
+                )}
               </div>
             </div>
 
@@ -515,9 +481,13 @@ export default function DashboardPage() {
               </div>
               <div>
                 <h3 className="text-hanok-muted text-sm font-semibold mb-1">활성 사용자 수 (DAU)</h3>
-                <div className="text-3xl font-black text-hanok-ink">
-                  {kpi.activeUsers.toLocaleString()}명
-                </div>
+                {metricsReady ? (
+                  <div className="text-3xl font-black text-hanok-ink">
+                    {kpi.activeUsers.toLocaleString()}명
+                  </div>
+                ) : (
+                  <Skeleton className="h-9 w-20 mt-1" />
+                )}
               </div>
             </div>
 
@@ -531,9 +501,13 @@ export default function DashboardPage() {
               </div>
               <div>
                 <h3 className="text-hanok-muted text-sm font-semibold mb-1">이상 혼잡 발생 (오늘)</h3>
-                <div className="text-3xl font-black text-rose-600">
-                  {kpi.anomalyCount}건
-                </div>
+                {congestionReady ? (
+                  <div className="text-3xl font-black text-rose-600">
+                    {kpi.anomalyCount}건
+                  </div>
+                ) : (
+                  <Skeleton className="h-9 w-16 mt-1" />
+                )}
               </div>
             </div>
           </div>
@@ -541,7 +515,9 @@ export default function DashboardPage() {
           {/* 관제 핵심 히트맵 — 개입(simulate-peak)이 바꾸는 화면이므로 개입 행 '위'에 배치해
               스크롤 없이 보이게 한다. id 앵커: '모의 발생' 성공 후 이 영역으로 스크롤해 분산 변화를 즉시 보여준다. */}
           <div id="congestion-heatmap" className="grid grid-cols-4 gap-6 scroll-mt-4">
-            <DashboardHeatmap heatmapData={heatmap} />
+            {congestionReady
+              ? <DashboardHeatmap heatmapData={heatmap} />
+              : <Skeleton className="col-span-4 min-h-[500px] rounded-2xl" />}
           </div>
 
           {/* ───────── 폐루프 ② 정책 개입 · ③ 분산 효과 ───────── (아래 행의 두 컬럼에 각각 정렬) */}
@@ -603,11 +579,14 @@ export default function DashboardPage() {
                       </div>
                     </div>
                   ))}
-                  {anomalies.length === 0 && (
+                  {congestionReady && anomalies.length === 0 && (
                     <div className="text-center text-hanok-muted py-10 text-sm">
                       현재 발생한 이상 알림이 없습니다.
                     </div>
                   )}
+                  {!congestionReady && [0, 1, 2].map((i) => (
+                    <Skeleton key={i} className="h-20 rounded-xl" />
+                  ))}
                 </div>
               </div>
             </div>
