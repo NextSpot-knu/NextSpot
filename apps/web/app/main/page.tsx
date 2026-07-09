@@ -104,32 +104,61 @@ export default function MainPage() {
     async function loadFacilities() {
       setIsLoadingFacilities(true);
       setFacilitiesLoadError(false);
-      try {
-        // Fetch facilities (limit 2000)
-        const { data: facilitiesData, error: facError } = await supabase
-          .from("facilities")
-          .select("id, name, type, latitude, longitude, capacity, operating_hours, features")
-          .limit(2000);
 
-        if (facError) {
-          console.warn("Failed to load facilities:", facError);
-          setFacilitiesLoadError(true); // 백엔드/Supabase 다운 → 빈 지도 대신 재시도 안내 표시
+      // 1순위: 백엔드 /infrastructures — 시설별 '최신' 혼잡을 서버가 결정적으로 조인(시설별 limit-1)해 내려준다.
+      //   기존 supabase 경로(최근 3000행을 받아 클라이언트 dedup)는 로그가 잦은 시설이 캡을 채우면
+      //   다른 시설이 congestion=null 로 조용히 누락되는 문제가 있었다 → 서버 조인이 이를 해소하고 전송량도 줄인다.
+      try {
+        const items = await apiClient.get("/api/v1/infrastructures");
+        if (!Array.isArray(items)) throw new Error("unexpected infrastructures payload");
+        const mapped = items.map((f: any) => {
+          const level = f.congestion ? f.congestion.level : null; // 혼잡 로그 없는 시설은 null(데이터 없음)
+          return {
+            id: f.id,
+            name: f.name,
+            type: f.type,
+            latitude: f.latitude,
+            longitude: f.longitude,
+            capacity: f.capacity,
+            features: f.features,
+            baseCongestion: level,
+            congestionLevel: level,
+            currentCount: f.congestion ? f.congestion.currentCount : null,
+            lastUpdated: f.congestion ? f.congestion.timestamp : null,
+          };
+        });
+        setFacilities(mapped);
+        setIsLoadingFacilities(false);
+        return;
+      } catch (apiErr) {
+        // 백엔드 미기동/네트워크 실패 → anon supabase 직접 조회로 폴백(회귀 없이 지도 렌더 유지).
+        console.warn("시설 로드(백엔드 /infrastructures) 실패 — supabase 폴백:", apiErr);
+      }
+
+      // 2순위 폴백: anon supabase 직접 조회. 독립적인 두 쿼리를 병렬(Promise.all)로 — 직렬 await 제거.
+      try {
+        const [facRes, logRes] = await Promise.all([
+          supabase
+            .from("facilities")
+            .select("id, name, type, latitude, longitude, capacity, operating_hours, features")
+            .limit(2000),
+          supabase
+            .from("congestion_logs")
+            .select("facility_id, congestion_level, current_count, timestamp")
+            .order("timestamp", { ascending: false })
+            .limit(3000),
+        ]);
+
+        if (facRes.error) {
+          console.warn("Failed to load facilities:", facRes.error);
+          setFacilitiesLoadError(true); // 백엔드/Supabase 모두 다운 → 빈 지도 대신 재시도 안내 표시
           setIsLoadingFacilities(false);
           return;
         }
-
-        // Fetch only recent logs (limit 3000) to get the latest per facility
-        const { data: logs, error: logsError } = await supabase
-          .from("congestion_logs")
-          .select("facility_id, congestion_level, current_count, timestamp")
-          .order("timestamp", { ascending: false })
-          .limit(3000);
-
-        if (logsError) {
-          console.warn("Failed to load congestion logs:", logsError);
-        }
+        if (logRes.error) console.warn("Failed to load congestion logs:", logRes.error);
 
         const latestLogsMap: Record<string, any> = {};
+        const logs = logRes.data;
         if (logs && logs.length > 0) {
           for (const log of logs) {
             if (!latestLogsMap[log.facility_id]) {
@@ -138,7 +167,7 @@ export default function MainPage() {
           }
         }
 
-        const mapped = facilitiesData.map((f: any) => {
+        const mapped = (facRes.data || []).map((f: any) => {
           const latestLog = latestLogsMap[f.id];
           // 혼잡 로그가 없는 시설은 값을 합성(id 해시)하지 않고 null 로 둔다 —
           // 마커/카드가 '데이터 없음'(회색·—) 상태로 표시하도록 소비측에서 null 을 처리한다.
