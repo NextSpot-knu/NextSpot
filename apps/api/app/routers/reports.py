@@ -8,11 +8,12 @@
   엔드포인트를 거쳐 supabase_admin(service_role) 으로 기록해야 한다. 신뢰 경계는
   get_current_user(로그인 필수)로 강제한다 — 익명 대량 조작을 1차 차단.
 
-주의(레이트리밋): 본 엔드포인트는 인증만 강제하고 사용자별 제보 빈도 제한은 범위 밖이다.
-  운영 배포 시에는 사용자·시설당 쿨다운(예: 5분) 또는 Redis 토큰버킷으로 스팸/조작을
-  막는 레이트리밋을 추가해야 한다(현재는 데모 신뢰 경계만 확보).
+레이트리밋: 사용자·시설당 5분 쿨다운(_REPORT_COOLDOWN_SEC)을 프로세스 인메모리로 적용해
+  스팸/조작이 ML 혼잡 신호를 오염시키는 것을 1차 차단한다. 단일 인스턴스 데모 기준이며,
+  다중 인스턴스 배포 시에는 Redis 등 공유 저장소 기반 토큰버킷으로 승격해야 한다.
 """
 import asyncio
+import time
 from datetime import datetime, timezone
 from typing import Literal
 
@@ -34,6 +35,11 @@ _LEVEL_ENUM = {"한산": 0.2, "보통": 0.55, "혼잡": 0.9}
 # congestion_logs.source CHECK 제약은 ('traffic_cctv','tour_api','event','user_report') 만 허용한다.
 # 사용자 제보는 'user_report' 로 기록한다(스키마 제약을 만족하는 정식 값).
 _USER_REPORT_SOURCE = "user_report"
+
+# 사용자·시설당 제보 쿨다운(초) — 스팸/조작이 ML 혼잡 신호를 오염시키지 않도록 1차 차단.
+# 프로세스 인메모리(단일 인스턴스 데모 기준). 다중 인스턴스는 Redis 등 공유 저장소로 승격 필요.
+_REPORT_COOLDOWN_SEC = 300.0
+_last_report_at: dict[tuple[str, str], float] = {}
 
 
 class CongestionReportRequest(BaseModel):
@@ -101,6 +107,18 @@ async def report_congestion(
     if not fac_res.data:
         raise HTTPException(status_code=404, detail="시설 정보를 찾을 수 없습니다.")
 
+    # 1-1. 레이트리밋: 사용자·시설당 쿨다운(스팸/조작 1차 차단). 성공 제보 후에만 타임스탬프를 갱신한다.
+    cooldown_key = (current_user["id"], req.facility_id)
+    last_at = _last_report_at.get(cooldown_key)
+    now_mono = time.monotonic()
+    if last_at is not None and (now_mono - last_at) < _REPORT_COOLDOWN_SEC:
+        retry_after = max(1, int(_REPORT_COOLDOWN_SEC - (now_mono - last_at)))
+        raise HTTPException(
+            status_code=429,
+            detail=f"제보는 {int(_REPORT_COOLDOWN_SEC // 60)}분에 한 번만 가능합니다. 잠시 후 다시 시도해 주세요.",
+            headers={"Retry-After": str(retry_after)},
+        )
+
     capacity = fac_res.data[0].get("capacity") or 0
     current_count = round(capacity * level)
     now_str = datetime.now(timezone.utc).isoformat()
@@ -122,6 +140,7 @@ async def report_congestion(
         logger.error("congestion_report_insert_failed", error=str(e), facility_id=req.facility_id)
         raise HTTPException(status_code=500, detail="혼잡 제보 저장에 실패했습니다.")
 
+    _last_report_at[cooldown_key] = now_mono  # 성공 제보 후 쿨다운 시작
     inserted = (ins.data or [{}])[0]
     logger.info("congestion_report_saved", facility_id=req.facility_id, level=level)
 

@@ -609,3 +609,23 @@ def test_report_congestion_happy_path(auth_client):
     assert body["congestion_level"] == 0.9
     assert body["current_count"] == 45
     assert body["source"] == "user_report"
+
+
+def test_report_congestion_rate_limited_429(auth_client):
+    # 같은 사용자·시설로 연속 제보 → 두 번째는 쿨다운(5분)으로 429 (스팸/조작 1차 차단).
+    from app.routers.reports import _last_report_at
+    _last_report_at.clear()  # 다른 테스트가 남긴 전역 쿨다운 상태 격리
+    facility = _facility("f-1", "cafe", 0.0002)
+    inserted = {
+        "id": "log-1", "facility_id": "f-1", "congestion_level": 0.9,
+        "current_count": 45, "source": "user_report", "timestamp": "2026-07-10T05:00:00+00:00",
+    }
+    with patch(
+        "app.routers.reports.supabase_admin",
+        new=FakeSupabase({"facilities": [facility], "congestion_logs": [inserted]}),
+    ):
+        first = auth_client.post("/api/v1/reports/congestion", json={"facility_id": "f-1", "level": "혼잡"})
+        second = auth_client.post("/api/v1/reports/congestion", json={"facility_id": "f-1", "level": "혼잡"})
+    assert first.status_code == 200
+    assert second.status_code == 429
+    assert "Retry-After" in second.headers
