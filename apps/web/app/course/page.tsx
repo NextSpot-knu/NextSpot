@@ -8,7 +8,7 @@
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { createPublicClient } from "@/lib/supabase";
-import { apiClient } from "@/lib/api-client";
+import { apiClient, isAuthError } from "@/lib/api-client";
 import { REGION, isWithinRegion } from "@/lib/region";
 import { useT } from "@/lib/i18n/I18nProvider";
 import { ShareButton } from "@/components/ShareButton";
@@ -82,6 +82,7 @@ export default function CoursePage() {
   const [stops, setStops] = useState<CourseStop[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [needsAuth, setNeedsAuth] = useState(false);
 
   // 1) 세션(사용자 ID) — 없으면 데모 방문자로 폴백.
   useEffect(() => {
@@ -119,6 +120,7 @@ export default function CoursePage() {
     if (!userId) return;
     setLoading(true);
     setError(null);
+    setNeedsAuth(false);
     try {
       const body: Record<string, unknown> = {
         userId,
@@ -130,8 +132,13 @@ export default function CoursePage() {
       setStops(Array.isArray(data) ? data : []);
     } catch (err) {
       console.warn("코스 추천 호출 실패:", err);
-      setError(t("course.fetchError"));
       setStops([]);
+      // 401(인증 필요)은 서버 장애가 아니다 → 성공할 수 없는 '다시 시도' 대신 정직한 안내.
+      if (isAuthError(err)) {
+        setNeedsAuth(true);
+      } else {
+        setError(t("course.fetchError"));
+      }
     } finally {
       setLoading(false);
     }
@@ -199,6 +206,8 @@ export default function CoursePage() {
         {/* 본문 상태 */}
         {loading ? (
           <TimelineSkeleton />
+        ) : needsAuth ? (
+          <AuthState />
         ) : error ? (
           <ErrorState message={error} onRetry={fetchCourse} />
         ) : stops.length === 0 ? (
@@ -309,6 +318,25 @@ function ErrorState({ message, onRetry }: { message: string; onRetry: () => void
       >
         {t('common.retry')}
       </button>
+    </div>
+  );
+}
+
+// 인증 필요(401) 상태 — 관광객 로그인이 없어 코스 추천 API 가 401 을 준다.
+// '다시 시도'는 결코 성공하지 못하므로, 지도에서 추천을 받도록 정직하게 유도한다.
+function AuthState() {
+  const t = useT();
+  return (
+    <div className="bg-white rounded-2xl border border-gold/30 shadow-[0_2px_14px_rgba(43,35,32,0.06)] p-8 text-center space-y-3">
+      <div className="text-3xl">🗺️</div>
+      <p className="text-sm font-semibold text-muk">{t('course.authTitle')}</p>
+      <p className="text-xs text-muk-soft leading-relaxed">{t('course.authBody')}</p>
+      <Link
+        href="/main"
+        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full bg-gold text-white text-xs font-bold hover:bg-gold-deep transition-colors"
+      >
+        {t('course.authCta')}
+      </Link>
     </div>
   );
 }

@@ -138,6 +138,9 @@ const ko: Messages = {
     fetchError: '추천 서버에 연결하지 못했어요. 잠시 후 다시 시도해 주세요.',
     emptyTitle: '추천할 코스를 찾지 못했어요',
     emptyBody: '근처에 조건에 맞는 장소가 부족해요. 종류 필터를 넓히거나 잠시 후 다시 시도해 주세요.',
+    authTitle: '로그인이 필요해요',
+    authBody: '지도에서 마음에 드는 곳을 고르면 혼잡을 피하는 분산 코스를 짜 드려요.',
+    authCta: '지도에서 추천받기',
   },
   coupons: {
     title: '내 쿠폰함',
@@ -156,6 +159,9 @@ const ko: Messages = {
     useFail: '쿠폰 사용에 실패했어요. 잠시 후 다시 시도해 주세요.',
     partner: '제휴 가맹점',
     issued: '{date} 발급',
+    authTitle: '추천을 수락하면 쿠폰이 발급돼요',
+    authBody: '지도에서 분산 추천을 받아 제휴 가맹점을 방문하면 할인 쿠폰이 여기에 쌓여요.',
+    authCta: '지도로 가기',
   },
   card: {
     reject: '관심 없어요',
@@ -347,6 +353,9 @@ const en: Messages = {
     fetchError: 'Couldn’t reach the recommendation server. Please try again shortly.',
     emptyTitle: 'No course found to recommend',
     emptyBody: 'Not enough matching places nearby. Widen the type filter or try again later.',
+    authTitle: 'Sign-in required',
+    authBody: 'Pick a place you like on the map and we’ll build a dispersal route that dodges the crowds.',
+    authCta: 'Get picks on the map',
   },
   coupons: {
     title: 'My coupons',
@@ -365,6 +374,9 @@ const en: Messages = {
     useFail: 'Could not use the coupon. Please try again.',
     partner: 'Partner store',
     issued: 'Issued {date}',
+    authTitle: 'Accept a pick to earn coupons',
+    authBody: 'Follow a dispersal recommendation on the map and visit a partner store to collect discount coupons here.',
+    authCta: 'Go to the map',
   },
   card: {
     reject: 'Not interested',
@@ -556,6 +568,9 @@ const ja: Messages = {
     fetchError: 'おすすめサーバーに接続できませんでした。しばらくして再試行してください。',
     emptyTitle: 'おすすめできるコースが見つかりませんでした',
     emptyBody: '近くに条件に合う場所が不足しています。種類フィルターを広げるか、しばらくして再試行してください。',
+    authTitle: 'ログインが必要です',
+    authBody: '地図でお気に入りの場所を選ぶと、混雑を避ける分散コースをご提案します。',
+    authCta: '地図でおすすめを受ける',
   },
   coupons: {
     title: 'マイクーポン',
@@ -574,6 +589,9 @@ const ja: Messages = {
     useFail: 'クーポンの使用に失敗しました。しばらくして再度お試しください。',
     partner: '提携店舗',
     issued: '{date} 発行',
+    authTitle: 'おすすめを受け入れるとクーポンが発行されます',
+    authBody: '地図で分散おすすめを受けて提携店舗を訪れると、割引クーポンがここに貯まります。',
+    authCta: '地図へ移動',
   },
   card: {
     reject: '興味なし',
@@ -765,6 +783,9 @@ const zh: Messages = {
     fetchError: '无法连接推荐服务器。请稍后再试。',
     emptyTitle: '未找到可推荐的路线',
     emptyBody: '附近符合条件的地点不足。请放宽类型筛选或稍后再试。',
+    authTitle: '需要登录',
+    authBody: '在地图上选择喜欢的地点，我们会为你规划避开拥挤的分流路线。',
+    authCta: '去地图获取推荐',
   },
   coupons: {
     title: '我的优惠券',
@@ -783,6 +804,9 @@ const zh: Messages = {
     useFail: '优惠券使用失败，请稍后重试。',
     partner: '合作商户',
     issued: '{date} 发放',
+    authTitle: '接受推荐即可获得优惠券',
+    authBody: '在地图上接受分流推荐并到访合作商户，折扣券就会汇集在这里。',
+    authCta: '前往地图',
   },
   card: {
     reject: '不感兴趣',

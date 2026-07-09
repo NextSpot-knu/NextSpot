@@ -1,6 +1,25 @@
 import { createPublicClient } from "./supabase";
 const supabase = createPublicClient();
 
+// 인증 필요(HTTP 401)를 서버 장애·기타 오류와 구분하기 위한 전용 에러 타입.
+// 관광객 로그인이 없어 인증 필수 엔드포인트(/coupons/mine, /courses/recommend 등)는 401 을 준다.
+// 호출부는 isAuthError() 로 이 경우를 가려내 '다시 시도' 대신 정직한 안내를 보여준다.
+export class AuthError extends Error {
+  readonly status = 401;
+  constructor(message = "Authentication required") {
+    super(message);
+    this.name = "AuthError";
+  }
+}
+
+// AuthError(또는 status === 401 이 붙은 임의 에러) 여부 판별 가드.
+export function isAuthError(err: unknown): err is AuthError {
+  return (
+    err instanceof AuthError ||
+    (typeof err === "object" && err !== null && (err as { status?: number }).status === 401)
+  );
+}
+
 // 헬퍼: snake_case -> camelCase
 function snakeToCamel(s: string): string {
   return s.replace(/(_\w)/g, (k) => k[1].toUpperCase());
@@ -86,7 +105,12 @@ async function request(path: string, options: RequestOptions = {}) {
 
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
-    throw new Error(errorData.detail || `HTTP error! status: ${response.status}`);
+    const message = errorData.detail || `HTTP error! status: ${response.status}`;
+    // 401 은 서버 장애가 아니라 '인증 필요' 신호 → 호출부가 구분할 수 있게 전용 타입으로 던진다.
+    if (response.status === 401) {
+      throw new AuthError(message);
+    }
+    throw new Error(message);
   }
 
   // 응답 데이터 json 파싱 및 snake_case -> camelCase 변환

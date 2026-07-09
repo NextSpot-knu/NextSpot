@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { ChevronLeft, Ticket, Compass, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { apiClient } from '@/lib/api-client';
+import { apiClient, isAuthError } from '@/lib/api-client';
 import { useT } from '@/lib/i18n/I18nProvider';
 
 // 백엔드 /api/v1/coupons/mine 응답(snake_case)을 api-client 가 camelCase 로 변환해 준다.
@@ -37,6 +37,7 @@ export default function CouponsPage() {
   const [coupons, setCoupons] = useState<Coupon[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [hasError, setHasError] = useState(false);
+  const [needsAuth, setNeedsAuth] = useState(false);
   const [usingId, setUsingId] = useState<string | null>(null);
 
   // 쿠폰 조회 — 마운트 effect 와 에러 상태의 '다시 시도' 버튼이 함께 재사용한다.
@@ -44,13 +45,19 @@ export default function CouponsPage() {
   const fetchCoupons = useCallback(async () => {
     setIsLoading(true);
     setHasError(false);
+    setNeedsAuth(false);
     try {
       // api-client 가 Supabase 세션 토큰을 실어 보낸다(다른 관광객 페이지와 동일 경로).
       const data = await apiClient.get('/api/v1/coupons/mine');
       setCoupons(Array.isArray(data) ? data : []);
     } catch (err) {
       console.warn('Failed to fetch coupons', err);
-      setHasError(true);
+      // 401(인증 필요)은 서버 장애가 아니다 → 무한 재시도 대신 정직한 안내를 보여준다.
+      if (isAuthError(err)) {
+        setNeedsAuth(true);
+      } else {
+        setHasError(true);
+      }
     } finally {
       setIsLoading(false);
     }
@@ -96,6 +103,27 @@ export default function CouponsPage() {
         {isLoading ? (
           <div className="flex-1 flex items-center justify-center">
             <div className="w-8 h-8 border-4 border-gold border-t-transparent rounded-full animate-spin"></div>
+          </div>
+        ) : needsAuth ? (
+          // Auth-required State — 관광객 로그인이 없어 쿠폰함이 비어 있는 것이 정상이다.
+          // '다시 시도'는 절대 성공할 수 없으므로, 대신 추천을 받으러 지도로 유도한다.
+          <div className="flex-1 flex items-center justify-center">
+            <div className="bg-white border border-line rounded-3xl p-8 flex flex-col items-center text-center w-full max-w-[320px] shadow-[0_2px_14px_rgba(43,35,32,0.06)]">
+              <div className="w-16 h-16 rounded-full bg-gradient-to-b from-gold/20 to-gold/10 border border-line flex items-center justify-center mb-6">
+                <Ticket className="text-gold" size={32} />
+              </div>
+              <h2 className="text-xl font-bold font-serif text-muk mb-3">{t('coupons.authTitle')}</h2>
+              <p className="text-muk-soft text-sm leading-relaxed mb-8 px-2">
+                {t('coupons.authBody')}
+              </p>
+              <button
+                onClick={() => router.push('/main')}
+                className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gold hover:bg-gold-deep text-white text-sm font-semibold transition-all"
+              >
+                <Compass size={18} className="text-white" />
+                <span>{t('coupons.authCta')}</span>
+              </button>
+            </div>
           </div>
         ) : hasError ? (
           // Error State
