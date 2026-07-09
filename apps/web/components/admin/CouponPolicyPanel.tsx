@@ -131,45 +131,45 @@ export function CouponPolicyPanel() {
   );
 
   return (
-    <div className="bg-slate-900 rounded-2xl border border-slate-800 shadow-sm overflow-hidden col-span-2 flex flex-col">
-      <div className="p-6 border-b border-slate-800 bg-slate-800/30 flex justify-between items-center">
+    <div className="bg-hanok-panel rounded-2xl border border-hanok-line shadow-sm overflow-hidden col-span-2 flex flex-col">
+      <div className="p-6 border-b border-hanok-line bg-hanok-card/30 flex justify-between items-center">
         <div>
           <div className="flex items-center gap-2">
             <Ticket className="text-amber-400" size={20} />
-            <h3 className="text-lg font-bold text-slate-100">쿠폰 정책 개입 (w3 인센티브)</h3>
+            <h3 className="text-lg font-bold text-hanok-ink">쿠폰 정책 개입 (w3 인센티브)</h3>
           </div>
-          <p className="text-xs text-slate-500 mt-1">
+          <p className="text-xs text-hanok-muted mt-1">
             제휴 할인율을 조정하면 즉시 저장되어 사용자 앱의 추천 순위에 실시간 반영됩니다 — 분산
             목적지에 쿠폰을 걸어 수요를 유도하세요.
           </p>
         </div>
         <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={14} />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-hanok-muted" size={14} />
           <input
             type="text"
             value={search}
             onChange={e => setSearch(e.target.value)}
             placeholder="시설명 검색"
-            className="pl-8 pr-3 py-1.5 bg-slate-800 text-slate-100 placeholder-slate-500 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-amber-500 w-40"
+            className="pl-8 pr-3 py-1.5 bg-hanok-card text-hanok-ink placeholder-hanok-muted rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-amber-500 w-40"
           />
         </div>
       </div>
 
       <div className="flex-1 overflow-y-auto max-h-96">
         {loading ? (
-          <div className="p-8 text-center text-slate-500 text-sm">데이터 로딩 중...</div>
+          <div className="p-8 text-center text-hanok-muted text-sm">데이터 로딩 중...</div>
         ) : loadError ? (
-          <div className="p-8 text-center text-slate-500 text-sm">
+          <div className="p-8 text-center text-hanok-muted text-sm">
             시설 목록을 불러오지 못했습니다.
-            <div className="text-xs mt-2 text-slate-600">
+            <div className="text-xs mt-2 text-hanok-muted">
               coupon_rate 마이그레이션(20260707150000) 미적용이면 <code>supabase db push</code> 후
               새로고침하세요.
             </div>
           </div>
         ) : (
           <table className="w-full text-left border-collapse">
-            <thead className="sticky top-0 bg-slate-900 z-10">
-              <tr className="text-slate-400 text-xs border-b border-slate-800">
+            <thead className="sticky top-0 bg-hanok-panel z-10">
+              <tr className="text-hanok-muted text-xs border-b border-hanok-line">
                 <th className="px-4 py-3 font-semibold">시설명</th>
                 <th className="px-4 py-3 font-semibold w-24">유형</th>
                 <th className="px-4 py-3 font-semibold w-64">할인율 (0–{MAX_RATE_PERCENT}%)</th>
@@ -181,10 +181,10 @@ export function CouponPolicyPanel() {
                 const percent = ratePercentOf(f);
                 const boost = couponScoreBoost(percent / 100);
                 return (
-                  <tr key={f.id} className="border-b border-slate-800/60 hover:bg-slate-800/40 transition-colors">
-                    <td className="px-4 py-2.5 font-semibold text-slate-200">{f.name}</td>
+                  <tr key={f.id} className="border-b border-hanok-line/60 hover:bg-hanok-card/40 transition-colors">
+                    <td className="px-4 py-2.5 font-semibold text-hanok-ink">{f.name}</td>
                     <td className="px-4 py-2.5">
-                      <span className="px-2 py-0.5 bg-slate-800 text-slate-400 rounded-md text-xs">
+                      <span className="px-2 py-0.5 bg-hanok-card text-hanok-muted rounded-md text-xs">
                         {TYPE_KO[f.type] || f.type}
                       </span>
                     </td>
@@ -209,7 +209,7 @@ export function CouponPolicyPanel() {
                         />
                         <span
                           className={`text-xs font-bold w-16 ${
-                            percent > 0 ? 'text-amber-300' : 'text-slate-500'
+                            percent > 0 ? 'text-amber-300' : 'text-hanok-muted'
                           }`}
                         >
                           {percent > 0 ? `${percent}% 할인` : '제휴 없음'}
@@ -218,13 +218,13 @@ export function CouponPolicyPanel() {
                     </td>
                     <td className="px-4 py-2.5 text-right">
                       {savingIds[f.id] ? (
-                        <span className="text-xs text-slate-500">저장 중…</span>
+                        <span className="text-xs text-hanok-muted">저장 중…</span>
                       ) : savedIds[f.id] ? (
                         <span className="text-xs font-bold text-emerald-400">저장됨 ✓</span>
                       ) : (
                         <span
                           className={`text-xs font-bold ${
-                            boost > 0 ? 'text-amber-300' : 'text-slate-600'
+                            boost > 0 ? 'text-amber-300' : 'text-hanok-muted'
                           }`}
                         >
                           +{boost.toFixed(3)}점
@@ -236,7 +236,7 @@ export function CouponPolicyPanel() {
               })}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={4} className="text-center p-8 text-slate-500 text-sm">
+                  <td colSpan={4} className="text-center p-8 text-hanok-muted text-sm">
                     검색 결과가 없습니다.
                   </td>
                 </tr>

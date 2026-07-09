@@ -20,9 +20,9 @@ export default function BottomNav() {
   if (!pathname || pathname === '/' || pathname.includes('/admin') || pathname.includes('/setup')) return null;
 
   const tabs = [
-    { id: 'Home', icon: Home, label: 'Home', path: '/main' },
-    { id: 'Saved', icon: Bookmark, label: 'Saved', path: '/saved' },
-    { id: 'MyPage', icon: User, label: 'My Page', path: '/mypage' }
+    { id: 'Home', icon: Home, label: '홈', path: '/main' },
+    { id: 'Saved', icon: Bookmark, label: '저장', path: '/saved' },
+    { id: 'MyPage', icon: User, label: '마이', path: '/mypage' }
   ];
 
   const getActiveTab = () => {
@@ -46,11 +46,11 @@ export default function BottomNav() {
   };
 
   return (
-    <div className="fixed bottom-0 w-full z-[100] bg-[#0b101e]/90 backdrop-blur-xl border-t border-white/10 px-6 py-4 pb-8">
+    <div className="fixed bottom-0 w-full z-[100] bg-white/90 backdrop-blur-xl border-t border-line shadow-[0_-2px_14px_rgba(43,35,32,0.06)] px-6 py-4 pb-8">
       <div className="relative flex justify-around items-center w-full">
-        {/* CSS GPU-Accelerated Sliding Indicator */}
-        <div 
-          className="absolute top-0 h-16 w-16 bg-[#104bce]/10 rounded-2xl transition-all duration-300 ease-[cubic-bezier(0.2,0,0,1)] pointer-events-none"
+        {/* 활성 탭 슬라이딩 인디케이터 — 콜드 블루 네온 제거, 은은한 신라금 웜 배경 */}
+        <div
+          className="absolute top-0 h-16 w-16 bg-gold/15 rounded-2xl transition-all duration-300 ease-[cubic-bezier(0.2,0,0,1)] pointer-events-none"
           style={{
             left: `calc(${(activeIndex * 33.333) + 16.666}% - 2rem)`
           }}
@@ -65,13 +65,13 @@ export default function BottomNav() {
               onClick={() => handleTabClick(tab)}
               aria-current={isActive ? 'page' : undefined}
               className={`relative z-10 flex flex-col items-center justify-center transition-colors w-16 h-16 ${
-                isActive ? 'text-[#104bce]' : 'text-gray-500 hover:text-gray-400'
+                isActive ? 'text-gold-deep' : 'text-muk-soft hover:text-muk'
               }`}
             >
               <div className="mb-1 transition-transform duration-300 ease-out hover:scale-110">
-                <Icon size={24} className={isActive ? 'text-[#104bce]' : 'text-gray-500'} />
+                <Icon size={24} className={isActive ? 'text-gold-deep' : 'text-muk-soft'} />
               </div>
-              <span className={`text-xs font-medium ${isActive ? 'text-[#104bce]' : ''}`}>
+              <span className={`text-xs font-medium ${isActive ? 'text-gold-deep' : ''}`}>
                 {tab.label}
               </span>
             </button>

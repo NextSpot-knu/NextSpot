@@ -98,23 +98,23 @@ export default function SettingsPage() {
   };
 
   return (
-    <div className="flex h-screen bg-[#070b19] text-slate-100 font-sans overflow-hidden">
+    <div className="flex h-screen bg-hanok text-hanok-ink font-sans overflow-hidden">
       <AdminSidebar />
 
       <main className="flex-1 flex flex-col h-full overflow-hidden">
         {/* Top Header */}
-        <header className="h-20 bg-slate-900 border-b border-slate-800 flex items-center justify-between px-8 flex-shrink-0">
-          <h2 className="text-xl font-bold text-slate-100">시스템 설정</h2>
+        <header className="h-20 bg-hanok-panel border-b border-hanok-line flex items-center justify-between px-8 flex-shrink-0">
+          <h2 className="text-xl font-bold text-hanok-ink">시스템 설정</h2>
           <div className="flex items-center gap-6">
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-hanok-muted" size={18} />
               <input
                 type="text"
                 placeholder="Search settings..."
-                className="pl-10 pr-4 py-2 bg-slate-800 text-slate-100 placeholder-slate-500 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 w-64"
+                className="pl-10 pr-4 py-2 bg-hanok-card text-hanok-ink placeholder-hanok-muted rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gold w-64"
               />
             </div>
-            <button className="relative text-slate-400 hover:text-slate-200">
+            <button className="relative text-hanok-muted hover:text-hanok-ink">
               <Bell size={24} />
             </button>
           </div>
@@ -127,8 +127,8 @@ export default function SettingsPage() {
             {/* Header Area */}
             <div className="flex justify-between items-end">
               <div>
-                <h3 className="text-2xl font-bold text-slate-100 mb-2">환경 설정</h3>
-                <p className="text-slate-400">앱 서비스의 상태 및 AI 추천 알고리즘의 세부 파라미터를 조정합니다.</p>
+                <h3 className="text-2xl font-bold text-hanok-ink mb-2">환경 설정</h3>
+                <p className="text-hanok-muted">앱 서비스의 상태 및 AI 추천 알고리즘의 세부 파라미터를 조정합니다.</p>
               </div>
               <div className="flex items-center gap-3">
                 {saveMsg && (
@@ -140,7 +140,7 @@ export default function SettingsPage() {
                 <button
                   onClick={handleSave}
                   disabled={saving}
-                  className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-900 disabled:cursor-not-allowed text-white px-6 py-2.5 rounded-xl font-bold shadow-sm shadow-blue-500/20 transition-colors"
+                  className="flex items-center gap-2 bg-gold hover:bg-gold-deep disabled:bg-gold-deep disabled:cursor-not-allowed text-white px-6 py-2.5 rounded-xl font-bold shadow-sm shadow-gold/20 transition-colors"
                 >
                   {saving ? <Loader2 size={18} className="animate-spin" /> : <Save size={18} />}
                   {saving ? '저장 중…' : '변경사항 저장'}
@@ -149,22 +149,22 @@ export default function SettingsPage() {
             </div>
 
             {/* Section A: 일반 설정 */}
-            <section className="bg-slate-900 rounded-2xl border border-slate-800 shadow-sm overflow-hidden">
-              <div className="p-5 border-b border-slate-800 bg-slate-800/30 flex items-center gap-2">
-                <SettingsIcon size={20} className="text-slate-400" />
-                <h4 className="font-bold text-slate-100">일반 설정 (General)</h4>
+            <section className="bg-hanok-panel rounded-2xl border border-hanok-line shadow-sm overflow-hidden">
+              <div className="p-5 border-b border-hanok-line bg-hanok-card/30 flex items-center gap-2">
+                <SettingsIcon size={20} className="text-hanok-muted" />
+                <h4 className="font-bold text-hanok-ink">일반 설정 (General)</h4>
               </div>
               <div className="p-6 flex flex-col gap-6">
 
                 {/* Maintenance Toggle */}
                 <div className="flex items-center justify-between">
                   <div>
-                    <h5 className="font-bold text-slate-100 mb-1">서비스 점검 모드</h5>
-                    <p className="text-sm text-slate-400">점검 모드를 활성화하면 사용자들의 앱 접속이 제한되고 공지사항이 표시됩니다.</p>
+                    <h5 className="font-bold text-hanok-ink mb-1">서비스 점검 모드</h5>
+                    <p className="text-sm text-hanok-muted">점검 모드를 활성화하면 사용자들의 앱 접속이 제한되고 공지사항이 표시됩니다.</p>
                   </div>
                   <button
                     onClick={() => setIsMaintenance(!isMaintenance)}
-                    className={`w-14 h-7 rounded-full p-1 transition-colors flex-shrink-0 ${isMaintenance ? 'bg-rose-500' : 'bg-slate-600'}`}
+                    className={`w-14 h-7 rounded-full p-1 transition-colors flex-shrink-0 ${isMaintenance ? 'bg-rose-500' : 'bg-hanok-line'}`}
                   >
                     <div className={`w-5 h-5 bg-white rounded-full shadow-sm transform transition-transform ${isMaintenance ? 'translate-x-7' : 'translate-x-0'}`} />
                   </button>
@@ -172,26 +172,26 @@ export default function SettingsPage() {
 
                 {/* Notice Input */}
                 <div>
-                  <h5 className="font-bold text-slate-100 mb-2">앱 상단 고정 공지사항</h5>
+                  <h5 className="font-bold text-hanok-ink mb-2">앱 상단 고정 공지사항</h5>
                   <input
                     type="text"
                     value={notice}
                     onChange={(e) => setNotice(e.target.value)}
                     placeholder="사용자 앱 상단에 표시할 공지 문구"
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-3 text-slate-100 placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full bg-hanok border border-hanok-line rounded-lg px-4 py-3 text-hanok-ink placeholder-hanok-muted focus:outline-none focus:ring-2 focus:ring-gold"
                   />
                 </div>
               </div>
             </section>
 
             {/* Section B: AI 추천 엔진 설정 */}
-            <section className="bg-slate-900 rounded-2xl border border-slate-800 shadow-sm overflow-hidden border-l-4 border-l-purple-500">
-              <div className="p-5 border-b border-slate-800 bg-slate-800/30 flex items-center justify-between">
+            <section className="bg-hanok-panel rounded-2xl border border-hanok-line shadow-sm overflow-hidden border-l-4 border-l-purple-500">
+              <div className="p-5 border-b border-hanok-line bg-hanok-card/30 flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <Sliders size={20} className="text-purple-400" />
-                  <h4 className="font-bold text-slate-100">AI 추천 알고리즘 설정</h4>
+                  <Sliders size={20} className="text-jade" />
+                  <h4 className="font-bold text-hanok-ink">AI 추천 알고리즘 설정</h4>
                 </div>
-                <span className="text-xs font-bold px-2 py-1 bg-purple-500/15 text-purple-300 rounded-md">
+                <span className="text-xs font-bold px-2 py-1 bg-jade/15 text-jade rounded-md">
                   CORE CONFIG
                 </span>
               </div>
@@ -201,8 +201,8 @@ export default function SettingsPage() {
                 <div>
                   <div className="flex justify-between items-end mb-2">
                     <div>
-                      <h5 className="font-bold text-slate-100 mb-1">혼잡도 임계값 (Congestion Threshold)</h5>
-                      <p className="text-sm text-slate-400">인프라 수용량 대비 몇 %일 때 &apos;혼잡(Red)&apos; 상태로 판단할지 설정합니다.</p>
+                      <h5 className="font-bold text-hanok-ink mb-1">혼잡도 임계값 (Congestion Threshold)</h5>
+                      <p className="text-sm text-hanok-muted">인프라 수용량 대비 몇 %일 때 &apos;혼잡(Red)&apos; 상태로 판단할지 설정합니다.</p>
                     </div>
                     <span className="text-2xl font-black text-rose-400">{threshold}%</span>
                   </div>
@@ -211,9 +211,9 @@ export default function SettingsPage() {
                     min="50" max="100"
                     value={threshold}
                     onChange={(e) => setThreshold(Number(e.target.value))}
-                    className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-rose-500"
+                    className="w-full h-2 bg-hanok-line rounded-lg appearance-none cursor-pointer accent-rose-500"
                   />
-                  <div className="flex justify-between text-xs text-slate-500 mt-2 font-medium">
+                  <div className="flex justify-between text-xs text-hanok-muted mt-2 font-medium">
                     <span>50% (매우 민감)</span>
                     <span>100% (둔감)</span>
                   </div>
@@ -223,8 +223,8 @@ export default function SettingsPage() {
                 <div>
                   <div className="flex justify-between items-end mb-2">
                     <div>
-                      <h5 className="font-bold text-slate-100 mb-1">콜드 스타트 방지 데이터 가중치</h5>
-                      <p className="text-sm text-slate-400">추천 시 &apos;실시간 빈자리&apos;와 &apos;유저 온보딩 선호도&apos; 중 어느 쪽에 가중치를 둘지 설정합니다.</p>
+                      <h5 className="font-bold text-hanok-ink mb-1">콜드 스타트 방지 데이터 가중치</h5>
+                      <p className="text-sm text-hanok-muted">추천 시 &apos;실시간 빈자리&apos;와 &apos;유저 온보딩 선호도&apos; 중 어느 쪽에 가중치를 둘지 설정합니다.</p>
                     </div>
                   </div>
                   <div className="relative pt-4">
@@ -233,12 +233,12 @@ export default function SettingsPage() {
                       min="0" max="100"
                       value={weight}
                       onChange={(e) => setWeight(Number(e.target.value))}
-                      className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-purple-600"
+                      className="w-full h-2 bg-hanok-line rounded-lg appearance-none cursor-pointer accent-purple-600"
                     />
                     <div className="flex justify-between text-xs font-bold mt-3">
-                      <span className={weight < 50 ? 'text-purple-400' : 'text-slate-500'}>실시간 빈자리 우선</span>
-                      <span className={weight === 50 ? 'text-purple-400' : 'text-slate-500'}>균형 50:50</span>
-                      <span className={weight > 50 ? 'text-purple-400' : 'text-slate-500'}>개인 선호도 우선</span>
+                      <span className={weight < 50 ? 'text-jade' : 'text-hanok-muted'}>실시간 빈자리 우선</span>
+                      <span className={weight === 50 ? 'text-jade' : 'text-hanok-muted'}>균형 50:50</span>
+                      <span className={weight > 50 ? 'text-jade' : 'text-hanok-muted'}>개인 선호도 우선</span>
                     </div>
                   </div>
                 </div>
@@ -246,48 +246,48 @@ export default function SettingsPage() {
             </section>
 
             {/* Section C: 데이터베이스 현황 (실DB) */}
-            <section className="bg-slate-900 rounded-2xl border border-slate-800 shadow-sm overflow-hidden">
-              <div className="p-5 border-b border-slate-800 bg-slate-800/30 flex items-center justify-between">
+            <section className="bg-hanok-panel rounded-2xl border border-hanok-line shadow-sm overflow-hidden">
+              <div className="p-5 border-b border-hanok-line bg-hanok-card/30 flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <Database size={20} className="text-slate-400" />
-                  <h4 className="font-bold text-slate-100">데이터베이스 현황</h4>
+                  <Database size={20} className="text-hanok-muted" />
+                  <h4 className="font-bold text-hanok-ink">데이터베이스 현황</h4>
                 </div>
                 <button
                   onClick={loadStats}
                   disabled={statsLoading}
-                  className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 border border-slate-700 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-lg transition-colors disabled:opacity-60"
+                  className="flex items-center gap-2 px-3 py-1.5 bg-hanok-card border border-hanok-line hover:bg-hanok-line text-hanok-ink text-xs font-semibold rounded-lg transition-colors disabled:opacity-60"
                 >
                   <RefreshCw size={14} className={statsLoading ? 'animate-spin' : ''} /> 새로고침
                 </button>
               </div>
               <div className="p-6 grid grid-cols-1 sm:grid-cols-3 gap-4">
                 {/* 시설 수 */}
-                <div className="p-4 bg-slate-950 border border-slate-800 rounded-xl flex flex-col gap-2">
-                  <div className="flex items-center gap-2 text-slate-400">
-                    <Building2 size={16} className="text-blue-400" />
+                <div className="p-4 bg-hanok border border-hanok-line rounded-xl flex flex-col gap-2">
+                  <div className="flex items-center gap-2 text-hanok-muted">
+                    <Building2 size={16} className="text-gold" />
                     <span className="text-xs font-semibold">등록 시설</span>
                   </div>
-                  <div className="text-2xl font-black text-slate-100">
+                  <div className="text-2xl font-black text-hanok-ink">
                     {statsLoading && stats.facilities === null ? '…' : `${(stats.facilities ?? 0).toLocaleString()}개`}
                   </div>
                 </div>
                 {/* 누적 로그 */}
-                <div className="p-4 bg-slate-950 border border-slate-800 rounded-xl flex flex-col gap-2">
-                  <div className="flex items-center gap-2 text-slate-400">
+                <div className="p-4 bg-hanok border border-hanok-line rounded-xl flex flex-col gap-2">
+                  <div className="flex items-center gap-2 text-hanok-muted">
                     <Activity size={16} className="text-emerald-400" />
                     <span className="text-xs font-semibold">누적 혼잡 로그</span>
                   </div>
-                  <div className="text-2xl font-black text-slate-100">
+                  <div className="text-2xl font-black text-hanok-ink">
                     {statsLoading && stats.logs === null ? '…' : `${(stats.logs ?? 0).toLocaleString()}건`}
                   </div>
                 </div>
                 {/* 최근 로그 시각 */}
-                <div className="p-4 bg-slate-950 border border-slate-800 rounded-xl flex flex-col gap-2">
-                  <div className="flex items-center gap-2 text-slate-400">
+                <div className="p-4 bg-hanok border border-hanok-line rounded-xl flex flex-col gap-2">
+                  <div className="flex items-center gap-2 text-hanok-muted">
                     <Clock size={16} className="text-amber-400" />
                     <span className="text-xs font-semibold">최근 데이터 수집</span>
                   </div>
-                  <div className="text-lg font-bold text-slate-100">
+                  <div className="text-lg font-bold text-hanok-ink">
                     {statsLoading && stats.lastLog === null ? '…' : fmtTime(stats.lastLog)}
                   </div>
                 </div>

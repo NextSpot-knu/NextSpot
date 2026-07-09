@@ -193,22 +193,22 @@ export function FacilityTable() {
 
   return (
     <>
-      <div className="bg-slate-900 rounded-2xl border border-slate-800 shadow-sm overflow-hidden col-span-2">
-        <div className="p-6 border-b border-slate-800 flex justify-between items-center bg-slate-800/30">
+      <div className="bg-hanok-panel rounded-2xl border border-hanok-line shadow-sm overflow-hidden col-span-2">
+        <div className="p-6 border-b border-hanok-line flex justify-between items-center bg-hanok-card/30">
           <div className="flex items-center gap-2">
-            <Settings className="text-slate-400" size={20} />
-            <h3 className="text-lg font-bold text-slate-100">장소 관리 (CRUD)</h3>
+            <Settings className="text-hanok-muted" size={20} />
+            <h3 className="text-lg font-bold text-hanok-ink">장소 관리 (CRUD)</h3>
           </div>
           <button
             onClick={openCreateModal}
-            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-bold transition-colors"
+            className="flex items-center gap-2 bg-gold hover:bg-gold-deep text-white px-4 py-2 rounded-lg text-sm font-bold transition-colors"
           >
             <Plus size={16} /> 신규 장소 등록
           </button>
         </div>
 
         {/* Category Tabs */}
-        <div className="flex gap-2 p-4 border-b border-slate-800 bg-slate-900/50">
+        <div className="flex gap-2 p-4 border-b border-hanok-line bg-hanok-panel/50">
           {categories.map((cat) => (
             <button
               key={cat.id}
@@ -218,8 +218,8 @@ export function FacilityTable() {
               }}
               className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
                 selectedCategory === cat.id
-                  ? 'bg-blue-500/25 border-blue-500/50 text-blue-400 font-bold shadow-sm'
-                  : 'bg-slate-800/80 border-slate-700/80 text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+                  ? 'bg-gold/25 border-gold/50 text-gold font-bold shadow-sm'
+                  : 'bg-hanok-card/80 border-hanok-line/80 text-hanok-muted hover:bg-hanok-card hover:text-hanok-ink'
               }`}
             >
               {cat.name}
@@ -229,12 +229,12 @@ export function FacilityTable() {
 
         <div className="overflow-x-auto">
           {loading ? (
-            <div className="p-8 text-center text-slate-500">데이터 로딩 중...</div>
+            <div className="p-8 text-center text-hanok-muted">데이터 로딩 중...</div>
           ) : (
             <>
               <table className="w-full text-left border-collapse">
                 <thead>
-                  <tr className="bg-slate-900 text-slate-400 text-sm border-b border-slate-800">
+                  <tr className="bg-hanok-panel text-hanok-muted text-sm border-b border-hanok-line">
                     <th className="p-4 font-semibold">시설명</th>
                     <th className="p-4 font-semibold">유형</th>
                     <th className="p-4 font-semibold">수용 인원</th>
@@ -245,28 +245,28 @@ export function FacilityTable() {
                 </thead>
                 <tbody className="text-sm">
                   {paginatedFacilities.map((fac) => (
-                    <tr key={fac.id} className="border-b border-slate-800 hover:bg-slate-800 transition-colors">
-                      <td className="p-4 font-bold text-slate-100">{fac.name}</td>
+                    <tr key={fac.id} className="border-b border-hanok-line hover:bg-hanok-card transition-colors">
+                      <td className="p-4 font-bold text-hanok-ink">{fac.name}</td>
                       <td className="p-4">
-                        <span className="px-2 py-1 bg-slate-800 text-slate-300 rounded-md text-xs font-semibold uppercase">
+                        <span className="px-2 py-1 bg-hanok-card text-hanok-muted rounded-md text-xs font-semibold uppercase">
                           {fac.type === 'restaurant' ? '음식점' : fac.type === 'cafe' ? '카페' : fac.type === 'attraction' ? '관광지' : fac.type === 'culture' ? '문화시설' : fac.type}
                         </span>
                       </td>
-                      <td className="p-4 text-slate-300">{fac.capacity}명/대</td>
-                      <td className="p-4 text-slate-300">{getHoursText(fac.operating_hours)}</td>
+                      <td className="p-4 text-hanok-muted">{fac.capacity}명/대</td>
+                      <td className="p-4 text-hanok-muted">{getHoursText(fac.operating_hours)}</td>
                       <td className="p-4">
                         <span className="px-2 py-1 bg-emerald-500/15 text-emerald-300 text-xs font-bold rounded-md">활성</span>
                       </td>
                       <td className="p-4 flex justify-end gap-2">
                         <button
                           onClick={() => openEditModal(fac)}
-                          className="p-1.5 text-slate-500 hover:text-blue-400 transition-colors bg-slate-900 border border-slate-800 rounded-md"
+                          className="p-1.5 text-hanok-muted hover:text-gold transition-colors bg-hanok-panel border border-hanok-line rounded-md"
                         >
                           <Edit2 size={16} />
                         </button>
                         <button
                           onClick={() => handleDelete(fac.id, fac.name)}
-                          className="p-1.5 text-slate-500 hover:text-rose-400 transition-colors bg-slate-900 border border-slate-800 rounded-md"
+                          className="p-1.5 text-hanok-muted hover:text-rose-400 transition-colors bg-hanok-panel border border-hanok-line rounded-md"
                         >
                           <Trash2 size={16} />
                         </button>
@@ -275,7 +275,7 @@ export function FacilityTable() {
                   ))}
                   {filteredFacilities.length === 0 && (
                     <tr>
-                      <td colSpan={6} className="text-center p-8 text-slate-500 font-medium">등록된 장소가 없습니다.</td>
+                      <td colSpan={6} className="text-center p-8 text-hanok-muted font-medium">등록된 장소가 없습니다.</td>
                     </tr>
                   )}
                 </tbody>
@@ -283,8 +283,8 @@ export function FacilityTable() {
 
               {/* Pagination Controls */}
               {totalPages > 1 && (
-                <div className="flex items-center justify-between border-t border-slate-800 p-4 bg-slate-900/30">
-                  <div className="text-xs text-slate-400 font-medium">
+                <div className="flex items-center justify-between border-t border-hanok-line p-4 bg-hanok-panel/30">
+                  <div className="text-xs text-hanok-muted font-medium">
                     총 {totalItems}개 중 {startIndex + 1}-{Math.min(startIndex + itemsPerPage, totalItems)}개 표시
                   </div>
                   <div className="flex items-center gap-2">
@@ -292,7 +292,7 @@ export function FacilityTable() {
                       onClick={() => setCurrentPage(prev => Math.max(prev - 10, 1))}
                       disabled={currentPage === 1}
                       title="10페이지 이전"
-                      className="p-1 rounded border border-slate-800 text-slate-400 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                      className="p-1 rounded border border-hanok-line text-hanok-muted hover:bg-hanok-card disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                     >
                       <ChevronsLeft size={16} />
                     </button>
@@ -300,18 +300,18 @@ export function FacilityTable() {
                       onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
                       disabled={currentPage === 1}
                       title="이전 페이지"
-                      className="p-1 rounded border border-slate-800 text-slate-400 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                      className="p-1 rounded border border-hanok-line text-hanok-muted hover:bg-hanok-card disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                     >
                       <ChevronLeft size={16} />
                     </button>
-                    <span className="text-xs text-slate-300 font-semibold px-2">
+                    <span className="text-xs text-hanok-muted font-semibold px-2">
                       {currentPage} / {totalPages}
                     </span>
                     <button
                       onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
                       disabled={currentPage === totalPages}
                       title="다음 페이지"
-                      className="p-1 rounded border border-slate-800 text-slate-400 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                      className="p-1 rounded border border-hanok-line text-hanok-muted hover:bg-hanok-card disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                     >
                       <ChevronRight size={16} />
                     </button>
@@ -319,7 +319,7 @@ export function FacilityTable() {
                       onClick={() => setCurrentPage(prev => Math.min(prev + 10, totalPages))}
                       disabled={currentPage === totalPages}
                       title="10페이지 다음"
-                      className="p-1 rounded border border-slate-800 text-slate-400 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                      className="p-1 rounded border border-hanok-line text-hanok-muted hover:bg-hanok-card disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                     >
                       <ChevronsRight size={16} />
                     </button>
@@ -338,17 +338,17 @@ export function FacilityTable() {
           onClick={() => { if (!submitting) setModalOpen(false); }} // 백드롭 클릭으로 닫기(저장 중 제외)
         >
           <div
-            className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl shadow-xl"
+            className="w-full max-w-md bg-hanok-panel border border-hanok-line rounded-2xl shadow-xl"
             onClick={(e) => e.stopPropagation()} // 카드 내부 클릭은 닫기로 전파되지 않게
           >
-            <div className="flex items-center justify-between p-5 border-b border-slate-800">
-              <h4 className="text-base font-bold text-slate-100">
+            <div className="flex items-center justify-between p-5 border-b border-hanok-line">
+              <h4 className="text-base font-bold text-hanok-ink">
                 {modalMode === 'create' ? '신규 장소 등록' : '장소 정보 수정'}
               </h4>
               <button
                 onClick={() => setModalOpen(false)}
                 disabled={submitting}
-                className="p-1 text-slate-500 hover:text-slate-200 transition-colors disabled:opacity-50"
+                className="p-1 text-hanok-muted hover:text-hanok-ink transition-colors disabled:opacity-50"
                 aria-label="닫기"
               >
                 <X size={18} />
@@ -361,38 +361,38 @@ export function FacilityTable() {
             >
               {/* 장소명 */}
               <div>
-                <label className="block text-xs font-semibold text-slate-400 mb-1.5">장소명</label>
+                <label className="block text-xs font-semibold text-hanok-muted mb-1.5">장소명</label>
                 <input
                   type="text"
                   value={formName}
                   onChange={(e) => setFormName(e.target.value)}
                   placeholder="예: 황리단길 카페"
                   autoFocus
-                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-blue-500/60"
+                  className="w-full px-3 py-2 bg-hanok-card border border-hanok-line rounded-lg text-sm text-hanok-ink placeholder-hanok-muted focus:outline-none focus:border-gold/60"
                 />
               </div>
 
               {/* 유형 — 수정 모드에서는 백엔드가 type 변경을 지원하지 않아 읽기 전용으로 노출 */}
               <div>
-                <label className="block text-xs font-semibold text-slate-400 mb-1.5">유형</label>
+                <label className="block text-xs font-semibold text-hanok-muted mb-1.5">유형</label>
                 <select
                   value={formType}
                   onChange={(e) => setFormType(e.target.value)}
                   disabled={modalMode === 'edit'}
-                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm text-slate-100 focus:outline-none focus:border-blue-500/60 disabled:opacity-60 disabled:cursor-not-allowed"
+                  className="w-full px-3 py-2 bg-hanok-card border border-hanok-line rounded-lg text-sm text-hanok-ink focus:outline-none focus:border-gold/60 disabled:opacity-60 disabled:cursor-not-allowed"
                 >
                   {categories.map((cat) => (
                     <option key={cat.id} value={cat.id}>{cat.name}</option>
                   ))}
                 </select>
                 {modalMode === 'edit' && (
-                  <p className="mt-1 text-[11px] text-slate-500">유형은 등록 후 이 화면에서 변경할 수 없습니다.</p>
+                  <p className="mt-1 text-[11px] text-hanok-muted">유형은 등록 후 이 화면에서 변경할 수 없습니다.</p>
                 )}
               </div>
 
               {/* 수용 인원 */}
               <div>
-                <label className="block text-xs font-semibold text-slate-400 mb-1.5">수용 인원(명/대)</label>
+                <label className="block text-xs font-semibold text-hanok-muted mb-1.5">수용 인원(명/대)</label>
                 <input
                   type="number"
                   min={1}
@@ -400,7 +400,7 @@ export function FacilityTable() {
                   value={formCapacity}
                   onChange={(e) => setFormCapacity(e.target.value)}
                   placeholder="예: 50"
-                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-blue-500/60"
+                  className="w-full px-3 py-2 bg-hanok-card border border-hanok-line rounded-lg text-sm text-hanok-ink placeholder-hanok-muted focus:outline-none focus:border-gold/60"
                 />
               </div>
 
@@ -413,14 +413,14 @@ export function FacilityTable() {
                   type="button"
                   onClick={() => setModalOpen(false)}
                   disabled={submitting}
-                  className="px-4 py-2 rounded-lg text-sm font-semibold text-slate-300 bg-slate-800 border border-slate-700 hover:bg-slate-700 transition-colors disabled:opacity-50"
+                  className="px-4 py-2 rounded-lg text-sm font-semibold text-hanok-muted bg-hanok-card border border-hanok-line hover:bg-hanok-line transition-colors disabled:opacity-50"
                 >
                   취소
                 </button>
                 <button
                   type="submit"
                   disabled={submitting}
-                  className="px-4 py-2 rounded-lg text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                  className="px-4 py-2 rounded-lg text-sm font-bold text-white bg-gold hover:bg-gold-deep transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
                 >
                   {submitting ? '저장 중...' : modalMode === 'create' ? '등록' : '저장'}
                 </button>

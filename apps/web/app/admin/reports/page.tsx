@@ -217,23 +217,23 @@ export default function ReportsPage() {
   };
 
   return (
-    <div className="flex h-screen bg-[#070b19] text-slate-100 font-sans overflow-hidden">
+    <div className="flex h-screen bg-hanok text-hanok-ink font-sans overflow-hidden">
       <AdminSidebar />
 
       <main className="flex-1 flex flex-col h-full min-h-0 overflow-hidden">
         {/* Top Header */}
-        <header className="h-20 bg-slate-900 border-b border-slate-800 flex items-center justify-between px-8 flex-shrink-0">
-          <h2 className="text-xl font-bold text-slate-100">통계 리포트</h2>
+        <header className="h-20 bg-hanok-panel border-b border-hanok-line flex items-center justify-between px-8 flex-shrink-0">
+          <h2 className="text-xl font-bold text-hanok-ink">통계 리포트</h2>
           <div className="flex items-center gap-6">
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-hanok-muted" size={18} />
               <input
                 type="text"
                 placeholder="Search..."
-                className="pl-10 pr-4 py-2 bg-slate-800 text-slate-100 placeholder-slate-500 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 w-64"
+                className="pl-10 pr-4 py-2 bg-hanok-card text-hanok-ink placeholder-hanok-muted rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gold w-64"
               />
             </div>
-            <button className="relative text-slate-400 hover:text-slate-200">
+            <button className="relative text-hanok-muted hover:text-hanok-ink">
               <Bell size={24} />
             </button>
           </div>
@@ -243,18 +243,18 @@ export default function ReportsPage() {
         <div className="flex-1 min-h-0 p-8 overflow-y-auto pb-20 space-y-8">
 
           {/* Controllers & Actions */}
-          <div className="flex justify-between items-center bg-slate-900 p-4 rounded-2xl border border-slate-800 shadow-sm flex-shrink-0">
+          <div className="flex justify-between items-center bg-hanok-panel p-4 rounded-2xl border border-hanok-line shadow-sm flex-shrink-0">
             <div className="flex items-center gap-3">
-              <div className="flex items-center gap-2 px-4 py-2 bg-slate-800 rounded-lg border border-slate-700">
-                <CalendarIcon size={18} className="text-slate-400" />
-                <span className="text-sm font-semibold text-slate-200">{rangeLabel}</span>
+              <div className="flex items-center gap-2 px-4 py-2 bg-hanok-card rounded-lg border border-hanok-line">
+                <CalendarIcon size={18} className="text-hanok-muted" />
+                <span className="text-sm font-semibold text-hanok-ink">{rangeLabel}</span>
               </div>
               {/* 데이터 출처 배지: 실DB 반영 여부 표시 */}
               <span
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold border ${
                   isLive
                     ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30'
-                    : 'bg-slate-800 text-slate-400 border-slate-700'
+                    : 'bg-hanok-card text-hanok-muted border-hanok-line'
                 }`}
               >
                 <Database size={13} />
@@ -280,24 +280,24 @@ export default function ReportsPage() {
           {/* Charts Row */}
           <div className="grid grid-cols-2 gap-6 min-h-[350px] flex-shrink-0">
             {/* Bar Chart */}
-            <div className="bg-slate-900 p-6 rounded-2xl border border-slate-800 shadow-sm flex flex-col">
+            <div className="bg-hanok-panel p-6 rounded-2xl border border-hanok-line shadow-sm flex flex-col">
               <div className="flex items-center gap-2 mb-6">
-                <BarChart2 className="text-blue-400" size={20} />
-                <h3 className="text-lg font-bold text-slate-100">요일별 관광 장소 누적 방문량</h3>
+                <BarChart2 className="text-gold" size={20} />
+                <h3 className="text-lg font-bold text-hanok-ink">요일별 관광 장소 누적 방문량</h3>
               </div>
               <div className="flex-1 w-full h-[250px]">
                 {weekly.length === 0 ? (
                   // 빈 상태 안내: 실측 방문량 데이터 없음
-                  <div className="flex items-center justify-center h-full text-slate-500 text-sm">
+                  <div className="flex items-center justify-center h-full text-hanok-muted text-sm">
                     {loading ? '데이터를 불러오는 중...' : '표시할 방문량 데이터가 아직 없습니다.'}
                   </div>
                 ) : (
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={weekly} margin={{ top: 5, right: 0, bottom: 5, left: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#1e293b" />
-                    <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 12}} />
-                    <YAxis axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 12}} />
-                    <Tooltip cursor={{fill: '#1e293b'}} contentStyle={{ borderRadius: '8px', backgroundColor: '#0f172a', border: '1px solid #1e293b', color: '#e2e8f0', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#3a2f24" />
+                    <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{fill: '#b8a894', fontSize: 12}} />
+                    <YAxis axisLine={false} tickLine={false} tick={{fill: '#b8a894', fontSize: 12}} />
+                    <Tooltip cursor={{fill: '#3a2f24'}} contentStyle={{ borderRadius: '8px', backgroundColor: '#2c241c', border: '1px solid #3a2f24', color: '#e2e8f0', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
                     <Legend iconType="circle" wrapperStyle={{ fontSize: '12px' }} />
                     <Bar dataKey="음식점" stackId="a" fill="#3b82f6" radius={[0, 0, 4, 4]} />
                     <Bar dataKey="카페" stackId="a" fill="#10b981" />
@@ -310,15 +310,15 @@ export default function ReportsPage() {
             </div>
 
             {/* Area Chart */}
-            <div className="bg-slate-900 p-6 rounded-2xl border border-slate-800 shadow-sm flex flex-col">
+            <div className="bg-hanok-panel p-6 rounded-2xl border border-hanok-line shadow-sm flex flex-col">
               <div className="flex items-center gap-2 mb-6">
-                <TrendingUp className="text-purple-400" size={20} />
-                <h3 className="text-lg font-bold text-slate-100">AI 추천 알고리즘 수락 트렌드</h3>
+                <TrendingUp className="text-jade" size={20} />
+                <h3 className="text-lg font-bold text-hanok-ink">AI 추천 알고리즘 수락 트렌드</h3>
               </div>
               <div className="flex-1 w-full h-[250px]">
                 {aiTrend.length === 0 ? (
                   // 빈 상태 안내: AI 추천 수락 트렌드 데이터 없음(추천 이력 부족 또는 관리자 API 미응답)
-                  <div className="flex items-center justify-center h-full text-slate-500 text-sm">
+                  <div className="flex items-center justify-center h-full text-hanok-muted text-sm">
                     {loading ? '데이터를 불러오는 중...' : 'AI 추천 수락 데이터가 아직 없습니다.'}
                   </div>
                 ) : (
@@ -334,13 +334,13 @@ export default function ReportsPage() {
                         <stop offset="95%" stopColor="#cbd5e1" stopOpacity={0}/>
                       </linearGradient>
                     </defs>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#1e293b" />
-                    <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 12}} />
-                    <YAxis axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 12}} />
-                    <Tooltip contentStyle={{ borderRadius: '8px', backgroundColor: '#0f172a', border: '1px solid #1e293b', color: '#e2e8f0', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#3a2f24" />
+                    <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{fill: '#b8a894', fontSize: 12}} />
+                    <YAxis axisLine={false} tickLine={false} tick={{fill: '#b8a894', fontSize: 12}} />
+                    <Tooltip contentStyle={{ borderRadius: '8px', backgroundColor: '#2c241c', border: '1px solid #3a2f24', color: '#e2e8f0', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
                     <Legend iconType="circle" wrapperStyle={{ fontSize: '12px' }} />
                     <Area type="monotone" dataKey="수락" stroke="#8b5cf6" fillOpacity={1} fill="url(#colorAccept)" />
-                    <Area type="monotone" dataKey="거절" stroke="#94a3b8" fillOpacity={1} fill="url(#colorReject)" />
+                    <Area type="monotone" dataKey="거절" stroke="#b8a894" fillOpacity={1} fill="url(#colorReject)" />
                   </AreaChart>
                 </ResponsiveContainer>
                 )}
@@ -349,15 +349,15 @@ export default function ReportsPage() {
           </div>
 
           {/* Data Table */}
-          <div className="bg-slate-900 rounded-2xl border border-slate-800 shadow-sm overflow-hidden flex-shrink-0">
-            <div className="p-6 border-b border-slate-800 flex items-center gap-2">
-              <PieChartIcon className="text-slate-400" size={20} />
-              <h3 className="text-lg font-bold text-slate-100">카테고리별 누적 요약 데이터</h3>
+          <div className="bg-hanok-panel rounded-2xl border border-hanok-line shadow-sm overflow-hidden flex-shrink-0">
+            <div className="p-6 border-b border-hanok-line flex items-center gap-2">
+              <PieChartIcon className="text-hanok-muted" size={20} />
+              <h3 className="text-lg font-bold text-hanok-ink">카테고리별 누적 요약 데이터</h3>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse">
                 <thead>
-                  <tr className="bg-slate-950 text-slate-400 text-sm border-b border-slate-800">
+                  <tr className="bg-hanok text-hanok-muted text-sm border-b border-hanok-line">
                     <th className="p-4 font-semibold">카테고리</th>
                     <th className="p-4 font-semibold">총 이용량 (최근 7일)</th>
                     <th className="p-4 font-semibold">전주 대비 증감률</th>
@@ -368,15 +368,15 @@ export default function ReportsPage() {
                   {table.length === 0 ? (
                     // 빈 상태 행: 요약 데이터 없음
                     <tr>
-                      <td colSpan={4} className="p-8 text-center text-slate-500">
+                      <td colSpan={4} className="p-8 text-center text-hanok-muted">
                         {loading ? '데이터를 불러오는 중...' : '표시할 요약 데이터가 아직 없습니다.'}
                       </td>
                     </tr>
                   ) : (
                     table.map((row) => (
-                    <tr key={row.id} className="border-b border-slate-800 hover:bg-slate-800 transition-colors">
-                      <td className="p-4 font-bold text-slate-200">{row.category}</td>
-                      <td className="p-4 text-slate-300">{row.totalUsers}</td>
+                    <tr key={row.id} className="border-b border-hanok-line hover:bg-hanok-card transition-colors">
+                      <td className="p-4 font-bold text-hanok-ink">{row.category}</td>
+                      <td className="p-4 text-hanok-muted">{row.totalUsers}</td>
                       <td className="p-4">
                         <span className={`font-bold ${row.growth.startsWith('-') ? 'text-rose-400' : 'text-emerald-400'}`}>
                           {row.growth}
@@ -385,9 +385,9 @@ export default function ReportsPage() {
                       <td className="p-4">
                         <span className={`px-2 py-1 rounded-md text-xs font-bold ${
                           row.status === '급증' ? 'bg-rose-500/15 text-rose-300' :
-                          row.status === '활발' ? 'bg-blue-500/15 text-blue-300' :
+                          row.status === '활발' ? 'bg-gold/15 text-gold' :
                           row.status === '보통' ? 'bg-amber-500/15 text-amber-300' :
-                          'bg-slate-800 text-slate-200'
+                          'bg-hanok-card text-hanok-ink'
                         }`}>
                           {row.status}
                         </span>

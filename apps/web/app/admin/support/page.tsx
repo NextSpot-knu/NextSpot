@@ -118,7 +118,7 @@ export default function SupportPage() {
       case 'new': return <span className="px-2 py-1 bg-red-500/15 text-red-300 text-xs font-bold rounded-md">NEW</span>;
       case 'in_progress': return <span className="px-2 py-1 bg-amber-500/15 text-amber-300 text-xs font-bold rounded-md">IN PROGRESS</span>;
       case 'resolved': return <span className="px-2 py-1 bg-emerald-500/15 text-emerald-300 text-xs font-bold rounded-md">RESOLVED</span>;
-      default: return <span className="px-2 py-1 bg-slate-800 text-slate-200 text-xs font-bold rounded-md">NEW</span>;
+      default: return <span className="px-2 py-1 bg-hanok-card text-hanok-ink text-xs font-bold rounded-md">NEW</span>;
     }
   };
 
@@ -130,25 +130,25 @@ export default function SupportPage() {
   );
 
   return (
-    <div className="flex h-screen bg-[#070b19] text-slate-100 font-sans overflow-hidden">
+    <div className="flex h-screen bg-hanok text-hanok-ink font-sans overflow-hidden">
       <AdminSidebar />
 
       <main className="flex-1 flex flex-col h-full overflow-hidden">
         {/* Top Header */}
-        <header className="h-20 bg-slate-900 border-b border-slate-800 flex items-center justify-between px-8 flex-shrink-0">
-          <h2 className="text-xl font-bold text-slate-100">문의 관리 (Help & Support)</h2>
+        <header className="h-20 bg-hanok-panel border-b border-hanok-line flex items-center justify-between px-8 flex-shrink-0">
+          <h2 className="text-xl font-bold text-hanok-ink">문의 관리 (Help & Support)</h2>
           <div className="flex items-center gap-6">
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-hanok-muted" size={18} />
               <input
                 type="text"
                 placeholder="Search tickets..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10 pr-4 py-2 bg-slate-800 text-slate-100 placeholder-slate-500 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 w-64"
+                className="pl-10 pr-4 py-2 bg-hanok-card text-hanok-ink placeholder-hanok-muted rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gold w-64"
               />
             </div>
-            <button className="relative text-slate-400 hover:text-slate-200">
+            <button className="relative text-hanok-muted hover:text-hanok-ink">
               <Bell size={24} />
             </button>
           </div>
@@ -158,9 +158,9 @@ export default function SupportPage() {
         <div className="flex-1 flex overflow-hidden">
           
           {/* Ticket List (Inbox) */}
-          <div className="w-1/3 bg-slate-900 border-r border-slate-800 flex flex-col h-full">
-            <div className="p-4 border-b border-slate-800 flex gap-4">
-              <div className="flex items-center gap-2 text-slate-300 font-semibold text-sm">
+          <div className="w-1/3 bg-hanok-panel border-r border-hanok-line flex flex-col h-full">
+            <div className="p-4 border-b border-hanok-line flex gap-4">
+              <div className="flex items-center gap-2 text-hanok-muted font-semibold text-sm">
                 <FileText size={16} /> Total: {filteredTickets.length}
               </div>
               <div className="flex items-center gap-2 text-red-400 font-semibold text-sm">
@@ -170,10 +170,10 @@ export default function SupportPage() {
             <div className="flex-1 overflow-y-auto">
               {isLoading ? (
                 <div className="flex items-center justify-center p-8">
-                  <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+                  <div className="w-6 h-6 border-2 border-gold border-t-transparent rounded-full animate-spin"></div>
                 </div>
               ) : filteredTickets.length === 0 ? (
-                <div className="text-center p-8 text-slate-500 text-sm">
+                <div className="text-center p-8 text-hanok-muted text-sm">
                   검색된 문의가 없습니다.
                 </div>
               ) : (
@@ -181,19 +181,19 @@ export default function SupportPage() {
                   <div
                     key={ticket.id}
                     onClick={() => setSelectedTicket(ticket)}
-                    className={`p-4 border-b border-slate-800 cursor-pointer transition-colors ${
+                    className={`p-4 border-b border-hanok-line cursor-pointer transition-colors ${
                       selectedTicket?.id === ticket.id
-                        ? 'bg-blue-500/10 border-l-4 border-l-blue-600'
-                        : 'hover:bg-slate-800 border-l-4 border-l-transparent'
+                        ? 'bg-gold/10 border-l-4 border-l-gold'
+                        : 'hover:bg-hanok-card border-l-4 border-l-transparent'
                     }`}
                   >
                     <div className="flex justify-between items-start mb-1">
-                      <span className="text-sm font-semibold text-slate-100">{ticket.user}</span>
-                      <span className="text-xs text-slate-500">{ticket.time}</span>
+                      <span className="text-sm font-semibold text-hanok-ink">{ticket.user}</span>
+                      <span className="text-xs text-hanok-muted">{ticket.time}</span>
                     </div>
-                    <h4 className="font-bold text-slate-100 text-sm mb-2 truncate">{ticket.title}</h4>
+                    <h4 className="font-bold text-hanok-ink text-sm mb-2 truncate">{ticket.title}</h4>
                     <div className="flex justify-between items-center">
-                      <span className="text-xs text-slate-400">{ticket.type}</span>
+                      <span className="text-xs text-hanok-muted">{ticket.type}</span>
                       {getStatusBadge(ticket.status)}
                     </div>
                   </div>
@@ -203,58 +203,58 @@ export default function SupportPage() {
           </div>
 
           {/* Ticket Detail & Reply */}
-          <div className="flex-1 bg-[#070b19] flex flex-col overflow-hidden">
+          <div className="flex-1 bg-hanok flex flex-col overflow-hidden">
             {selectedTicket ? (
               <div className="flex flex-col h-full max-w-4xl mx-auto w-full p-8">
 
                 {/* Detail Header */}
-                <div className="bg-slate-900 p-6 rounded-t-2xl border border-slate-800 shadow-sm mb-4">
+                <div className="bg-hanok-panel p-6 rounded-t-2xl border border-hanok-line shadow-sm mb-4">
                   <div className="flex justify-between items-start mb-4">
                     <div>
                       <div className="flex items-center gap-2 mb-2">
                         {getStatusBadge(selectedTicket.status)}
-                        <span className="text-xs font-semibold px-2 py-0.5 bg-slate-800 text-slate-300 rounded">
+                        <span className="text-xs font-semibold px-2 py-0.5 bg-hanok-card text-hanok-muted rounded">
                           {selectedTicket.type}
                         </span>
-                        <span className="text-[10px] text-slate-500">Ticket ID: {selectedTicket.id}</span>
+                        <span className="text-[10px] text-hanok-muted">Ticket ID: {selectedTicket.id}</span>
                       </div>
-                      <h2 className="text-2xl font-bold text-slate-100">{selectedTicket.title}</h2>
+                      <h2 className="text-2xl font-bold text-hanok-ink">{selectedTicket.title}</h2>
                     </div>
                     <div className="text-right">
-                      <div className="font-semibold text-slate-200">{selectedTicket.user}</div>
-                      <div className="text-sm text-slate-500">{selectedTicket.time}</div>
+                      <div className="font-semibold text-hanok-ink">{selectedTicket.user}</div>
+                      <div className="text-sm text-hanok-muted">{selectedTicket.time}</div>
                     </div>
                   </div>
-                  <div className="p-4 bg-slate-950 rounded-xl text-slate-200 leading-relaxed break-all whitespace-pre-wrap">
+                  <div className="p-4 bg-hanok rounded-xl text-hanok-ink leading-relaxed break-all whitespace-pre-wrap">
                     {selectedTicket.content}
                   </div>
                 </div>
 
                 {/* Reply Section */}
-                <div className="bg-slate-900 p-6 rounded-b-2xl border border-slate-800 shadow-sm flex-1 flex flex-col">
-                  <h3 className="font-bold text-slate-100 mb-4">답변 작성</h3>
+                <div className="bg-hanok-panel p-6 rounded-b-2xl border border-hanok-line shadow-sm flex-1 flex flex-col">
+                  <h3 className="font-bold text-hanok-ink mb-4">답변 작성</h3>
 
                   {selectedTicket.status === 'resolved' ? (
-                    <div className="flex-1 flex flex-col items-center justify-center text-slate-500 bg-slate-950 rounded-xl border border-dashed border-slate-700">
+                    <div className="flex-1 flex flex-col items-center justify-center text-hanok-muted bg-hanok rounded-xl border border-dashed border-hanok-line">
                       <CheckCircle size={48} className="text-emerald-400 mb-4" />
                       <p className="font-medium">이미 처리가 완료된 문의입니다.</p>
                     </div>
                   ) : (
                     <>
                       <textarea
-                        className="flex-1 w-full bg-slate-950 border border-slate-800 text-slate-100 rounded-xl p-4 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 mb-4"
+                        className="flex-1 w-full bg-hanok border border-hanok-line text-hanok-ink rounded-xl p-4 resize-none focus:outline-none focus:ring-2 focus:ring-gold mb-4"
                         placeholder="여기에 답변을 작성하세요..."
                         value={replyText}
                         onChange={(e) => setReplyText(e.target.value)}
                       ></textarea>
                       <div className="flex justify-between items-center">
-                        <div className="text-sm text-slate-400">
+                        <div className="text-sm text-hanok-muted">
                           답변을 전송하면 자동으로 상태가 <span className="font-bold text-emerald-400">RESOLVED</span>로 변경됩니다.
                         </div>
                         <button
                           onClick={handleReply}
                           disabled={!replyText.trim()}
-                          className="flex items-center gap-2 px-6 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-700 disabled:cursor-not-allowed text-white font-bold rounded-xl transition-colors shadow-sm"
+                          className="flex items-center gap-2 px-6 py-2.5 bg-gold hover:bg-gold-deep disabled:bg-hanok-line disabled:cursor-not-allowed text-white font-bold rounded-xl transition-colors shadow-sm"
                         >
                           <Send size={18} /> Send Reply
                         </button>
@@ -265,7 +265,7 @@ export default function SupportPage() {
 
               </div>
             ) : (
-              <div className="flex flex-col items-center justify-center h-full text-slate-500">
+              <div className="flex flex-col items-center justify-center h-full text-hanok-muted">
                 <MessageSquare size={48} className="mb-4 opacity-50" />
                 <p>좌측 목록에서 문의를 선택하여 확인하세요.</p>
               </div>

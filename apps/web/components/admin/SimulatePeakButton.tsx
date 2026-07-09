@@ -58,7 +58,7 @@ export function SimulatePeakButton({ onSimulated }: { onSimulated?: () => void |
       <button
         onClick={handleSimulate}
         disabled={isSimulating}
-        className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-semibold rounded-lg shadow-sm transition-colors text-sm cursor-pointer"
+        className="flex items-center gap-2 px-4 py-2 bg-gold hover:bg-gold-deep disabled:bg-gold text-white font-semibold rounded-lg shadow-sm transition-colors text-sm cursor-pointer"
       >
         <Play size={16} fill="currentColor" />
         {isSimulating ? '모의 데이터 생성 중...' : '24시간 데이터 모의 발생'}

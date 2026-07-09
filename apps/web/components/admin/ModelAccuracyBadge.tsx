@@ -47,7 +47,7 @@ export function ModelAccuracyBadge() {
             ? '예측모델 상태를 가져오지 못했습니다 — 백엔드(8000) 기동 여부를 확인하세요.'
             : '예측모델 상태 확인 중 — 백엔드 응답 대기'
         }
-        className="flex items-center gap-1.5 px-2.5 py-1 bg-slate-800 border border-slate-700 text-slate-400 rounded-full text-xs font-bold"
+        className="flex items-center gap-1.5 px-2.5 py-1 bg-hanok-card border border-hanok-line text-hanok-muted rounded-full text-xs font-bold"
       >
         <BrainCircuit size={14} />
         {failed ? '예측모델 오프라인' : '예측모델 상태 확인 중'}
@@ -79,7 +79,7 @@ export function ModelAccuracyBadge() {
           ? '모델은 학습됐지만 백테스트 전 — python scripts/train.py --evaluate 로 평가하세요.'
           : '모델 미학습 — 예측은 0.5 폴백. python scripts/train.py 로 학습하세요.'
       }
-      className="flex items-center gap-1.5 px-2.5 py-1 bg-slate-800 border border-slate-700 text-slate-400 rounded-full text-xs font-bold"
+      className="flex items-center gap-1.5 px-2.5 py-1 bg-hanok-card border border-hanok-line text-hanok-muted rounded-full text-xs font-bold"
     >
       <BrainCircuit size={14} />
       {info.trained ? '예측모델 평가 전' : '예측모델 미학습'}

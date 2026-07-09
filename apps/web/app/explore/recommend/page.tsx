@@ -72,29 +72,18 @@ const MiniMap = React.memo(({ latitude, longitude, mapLoaded }: MiniMapProps) =>
   }, [mapLoaded, latitude, longitude]);
 
   if (isSimulation) {
+    // 지도 키 미설정(목업) 시: 관제 디지털트윈(격자 배경·레이더 동심원·회전 스캔라인·좌표 HUD·
+    // "Twin Node Active" 영문 라벨)을 걷어내고, 한지 톤의 차분한 위치 미리보기로 대체한다.
+    // 위치 핀 + 간단한 지역 표기만 담백하게 — 사이버/회로 모티프 제거.
     return (
-      <div className="w-full h-24 md:h-28 rounded-xl overflow-hidden border border-white/10 bg-[#070b19] flex flex-col items-center justify-center p-3 relative select-none">
-        <div className="absolute inset-0 bg-[linear-gradient(to_right,#ffffff02_1px,transparent_1px),linear-gradient(to_bottom,#ffffff02_1px,transparent_1px)] bg-[size:16px_16px]" />
-        
-        {/* Radar concentric circles */}
-        <div className="absolute w-24 h-24 rounded-full border border-sky-500/10 flex items-center justify-center">
-          <div className="w-16 h-16 rounded-full border border-sky-500/10 flex items-center justify-center">
-            <div className="w-8 h-8 rounded-full border border-sky-500/10" />
-          </div>
-        </div>
-
-        {/* Scan line effect */}
-        <div className="absolute w-12 h-0.5 bg-gradient-to-r from-sky-500/30 to-transparent origin-left rotate-45 top-1/2 left-1/2 animate-[spin_4s_linear_infinite]" />
-
-        {/* Marker Dot */}
-        <div className="absolute top-[40%] left-[60%] flex items-center justify-center">
-          <span className="absolute inline-flex h-4 w-4 rounded-full bg-emerald-500/30 animate-ping" />
-          <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-400 border border-white" />
-        </div>
-
-        <div className="relative z-10 text-[9px] text-slate-500 font-mono text-center">
-          <div>LOC: {latitude.toFixed(4)}N / {longitude.toFixed(4)}E</div>
-          <div className="text-[8px] text-emerald-400 font-bold uppercase tracking-wide mt-1">Twin Node Active</div>
+      <div className="w-full h-24 md:h-28 rounded-xl overflow-hidden border border-line bg-hanji-deep flex flex-col items-center justify-center gap-1.5 p-3 relative select-none">
+        {/* 은은한 노을빛 광원(콜드 blue 글로우 대체) */}
+        <div className="absolute -top-6 -right-6 w-20 h-20 rounded-full bg-sunset-1/15 blur-2xl pointer-events-none" />
+        {/* 위치 핀 */}
+        <span className="relative z-10 text-lg" aria-hidden="true">📍</span>
+        <div className="relative z-10 text-center leading-tight">
+          <div className="text-[11px] font-semibold text-muk">경주 관광지</div>
+          <div className="text-[9px] text-muk-soft mt-0.5">위치 미리보기</div>
         </div>
       </div>
     );
@@ -103,7 +92,7 @@ const MiniMap = React.memo(({ latitude, longitude, mapLoaded }: MiniMapProps) =>
   return (
     <div
       ref={containerRef}
-      className="w-full h-24 md:h-28 rounded-xl overflow-hidden border border-white/10"
+      className="w-full h-24 md:h-28 rounded-xl overflow-hidden border border-line"
     />
   );
 });
@@ -1140,17 +1129,17 @@ function RecommendContent() {
   ];
 
   return (
-    <main className="min-h-screen bg-[#0a0f1e] text-white p-4 md:p-8 flex flex-col justify-between items-center relative overflow-hidden">
-      {/* Background radial glow */}
-      <div className="absolute top-[-20%] left-[-10%] w-[600px] h-[600px] rounded-full bg-blue-500/10 blur-[120px] pointer-events-none" />
-      <div className="absolute bottom-[-10%] right-[-10%] w-[600px] h-[600px] rounded-full bg-purple-500/10 blur-[120px] pointer-events-none" />
+    <main className="min-h-screen bg-hanji text-muk p-4 md:p-8 flex flex-col justify-between items-center relative overflow-hidden">
+      {/* 배경 은은한 노을·금빛 광원 (콜드 blue/purple 글로우 대체) */}
+      <div className="absolute top-[-20%] left-[-10%] w-[600px] h-[600px] rounded-full bg-sunset-1/10 blur-[120px] pointer-events-none" />
+      <div className="absolute bottom-[-10%] right-[-10%] w-[600px] h-[600px] rounded-full bg-gold/10 blur-[120px] pointer-events-none" />
 
       <div className="w-full max-w-md md:max-w-2xl space-y-6 relative z-10 flex-1 py-4">
         {/* Header */}
-        <header className="flex items-center justify-between border-b border-white/10 pb-4">
+        <header className="flex items-center justify-between border-b border-line pb-4">
           <button
             onClick={() => { quietAssistant(); router.push("/main"); }}
-            className="text-xs text-slate-400 hover:text-white flex items-center gap-1.5 transition-all duration-200"
+            className="text-xs text-muk-soft hover:text-muk flex items-center gap-1.5 transition-all duration-200"
           >
             ← 지도 보기
           </button>
@@ -1161,28 +1150,28 @@ function RecommendContent() {
         {/* 1. Original Facility Card */}
         <section>
           {loadingOriginal ? (
-            <div className="glass-panel p-5 rounded-2xl border border-white/5 animate-pulse flex flex-col gap-3">
-              <div className="h-4 bg-white/10 w-2/3 rounded-md" />
-              <div className="h-3 bg-white/10 w-1/2 rounded-md" />
+            <div className="bg-white p-5 rounded-2xl border border-line shadow-[0_2px_14px_rgba(43,35,32,0.06)] animate-pulse flex flex-col gap-3">
+              <div className="h-4 bg-hanji-deep w-2/3 rounded-md" />
+              <div className="h-3 bg-hanji-deep w-1/2 rounded-md" />
             </div>
           ) : originalFacility ? (
-            <div className="glass-panel p-5 rounded-2xl border border-rose-500/20 bg-rose-500/5 shadow-[0_4px_24px_rgba(239,68,68,0.05)] relative overflow-hidden">
-              <div className="absolute top-0 right-0 w-24 h-24 bg-rose-500/10 rounded-full blur-2xl pointer-events-none" />
+            <div className="bg-white p-5 rounded-2xl border border-terracotta/25 shadow-[0_2px_14px_rgba(43,35,32,0.06)] relative overflow-hidden">
+              <div className="absolute top-0 right-0 w-24 h-24 bg-terracotta/10 rounded-full blur-2xl pointer-events-none" />
               <div className="flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
-                <span className="text-[10px] text-rose-400 font-bold uppercase tracking-wider">우회 필요</span>
+                <span className="w-2 h-2 rounded-full bg-terracotta animate-pulse" />
+                <span className="text-[10px] text-terracotta font-bold tracking-wider">우회 필요</span>
               </div>
-              <h2 className="text-base md:text-lg font-bold text-slate-100 mt-2">
-                지금 <span className="text-rose-400">{originalFacility.name}</span>은{" "}
-                <span className="text-rose-400">혼잡</span>합니다.
+              <h2 className="text-base md:text-lg font-serif font-bold text-muk mt-2">
+                지금 <span className="text-terracotta">{originalFacility.name}</span>은{" "}
+                <span className="text-terracotta">혼잡</span>합니다.
               </h2>
-              <p className="text-xs text-slate-400 mt-1 leading-relaxed">
-                현재 대기 시간은 약 <span className="font-semibold text-rose-400">{originalWaitTime}분</span>으로
+              <p className="text-xs text-muk-soft mt-1 leading-relaxed">
+                현재 대기 시간은 약 <span className="font-semibold text-terracotta">{originalWaitTime}분</span>으로
                 예상됩니다. 아래의 최적화된 SPOT 대안 시설을 권장합니다.
               </p>
             </div>
           ) : (
-            <div className="glass-panel p-5 rounded-2xl border border-white/5 text-center text-xs text-slate-400">
+            <div className="bg-white p-5 rounded-2xl border border-line shadow-[0_2px_14px_rgba(43,35,32,0.06)] text-center text-xs text-muk-soft">
               시설 정보를 불러오지 못했습니다.
             </div>
           )}
@@ -1190,19 +1179,19 @@ function RecommendContent() {
 
         {/* 2. Alternative Recommendation Cards List */}
         <section className="space-y-4">
-          <h3 className="text-sm font-bold text-slate-300">FastAPI 실시간 최적화 경로 (최대 3개)</h3>
+          <h3 className="text-sm font-bold text-muk">실시간 추천 대안 (최대 3개)</h3>
 
           {loadingRecommendations ? (
             // Skeleton Loader
             [1, 2, 3].map((idx) => (
-              <div key={idx} className="glass-panel p-5 rounded-2xl border border-white/5 animate-pulse flex flex-col gap-3">
+              <div key={idx} className="bg-white p-5 rounded-2xl border border-line shadow-[0_2px_14px_rgba(43,35,32,0.06)] animate-pulse flex flex-col gap-3">
                 <div className="flex justify-between items-center">
-                  <div className="h-4 bg-white/10 w-1/3 rounded-md" />
-                  <div className="h-4 bg-white/10 w-16 rounded-full" />
+                  <div className="h-4 bg-hanji-deep w-1/3 rounded-md" />
+                  <div className="h-4 bg-hanji-deep w-16 rounded-full" />
                 </div>
-                <div className="h-24 bg-white/5 rounded-xl w-full" />
-                <div className="h-3 bg-white/10 w-2/3 rounded-md" />
-                <div className="h-10 bg-white/10 w-full rounded-xl mt-1" />
+                <div className="h-24 bg-hanji-deep/60 rounded-xl w-full" />
+                <div className="h-3 bg-hanji-deep w-2/3 rounded-md" />
+                <div className="h-10 bg-hanji-deep w-full rounded-xl mt-1" />
               </div>
             ))
           ) : recommendations.length > 0 ? (
@@ -1215,35 +1204,35 @@ function RecommendContent() {
               return (
                 <div
                   key={rec.recommendationId}
-                  className={`glass-panel p-5 rounded-2xl border transition-all duration-300 hover:shadow-lg hover:shadow-sky-500/5 ${
+                  className={`bg-white p-5 rounded-2xl border transition-all duration-300 shadow-[0_2px_14px_rgba(43,35,32,0.06)] ${
                     isVoiceActive
-                      ? "border-sky-400/60 ring-2 ring-sky-400/50 scale-[1.02] shadow-lg shadow-sky-500/10"
-                      : "border-white/10 hover:border-sky-500/30 hover:scale-[1.01]"
+                      ? "border-gold ring-2 ring-gold/40 scale-[1.02]"
+                      : "border-line hover:border-gold/40 hover:scale-[1.01]"
                   }`}
                 >
                   {/* Top info row */}
                   <div className="flex justify-between items-start">
                     <div>
-                      <span className="text-[10px] font-bold text-sky-400 bg-sky-500/10 px-2 py-0.5 rounded-md">
+                      <span className="text-[10px] font-bold text-jade bg-jade/10 px-2 py-0.5 rounded-md">
                         {getTypeName(rec.facility.type)}
                       </span>
                       {rec.rank && rec.totalCandidates && (
-                        <span className="text-[10px] font-bold text-purple-300 bg-purple-500/10 px-2 py-0.5 rounded-md ml-2">
+                        <span className="text-[10px] font-bold text-gold-deep bg-gold/10 px-2 py-0.5 rounded-md ml-2">
                           대안 {rec.totalCandidates}개 중 {rec.rank}등
                         </span>
                       )}
                       {isVoiceActive && voiceState !== "idle" && (
-                        <span className="text-[10px] font-bold text-emerald-300 bg-emerald-500/10 px-2 py-0.5 rounded-md ml-2 inline-flex items-center gap-1 align-middle">
+                        <span className="text-[10px] font-bold text-jade bg-jade/10 px-2 py-0.5 rounded-md ml-2 inline-flex items-center gap-1 align-middle">
                           {voiceState === "speaking" ? "🔊 안내 중" : voiceState === "listening" ? "🎙️ 듣는 중" : "✨ 해석 중"}
                         </span>
                       )}
-                      <h4 className="text-base font-extrabold text-slate-100 mt-1.5">
+                      <h4 className="text-base font-extrabold text-muk mt-1.5">
                         {rec.facility.name}
                       </h4>
                     </div>
                     <div className="text-right">
-                      <span className="text-[10px] text-slate-400 block">SPOT 지수</span>
-                      <span className="text-sm font-extrabold text-purple-400">
+                      <span className="text-[10px] text-muk-soft block">SPOT 지수</span>
+                      <span className="text-sm font-extrabold text-gold-deep">
                         {Math.round(rec.spotScore <= 1.0 ? rec.spotScore * 100 : rec.spotScore)}점
                       </span>
                     </div>
@@ -1251,7 +1240,7 @@ function RecommendContent() {
 
                   {/* WP3: Gemini 생성 추천 사유 (있을 때만 노출) */}
                   {rec.reason && (
-                    <p className="mt-2 text-[11px] leading-snug text-sky-200/90 bg-sky-500/10 border border-sky-500/20 rounded-xl px-3 py-2">
+                    <p className="mt-2 text-[11px] leading-snug text-muk bg-gold/10 border border-gold/20 rounded-xl px-3 py-2">
                       💡 {rec.reason}
                     </p>
                   )}
@@ -1266,26 +1255,26 @@ function RecommendContent() {
                   </div>
 
                   {/* SPOT Breakdown Indicators */}
-                  <div className="grid grid-cols-3 gap-2 py-2 border-t border-b border-white/5 my-3 text-[11px] text-slate-300">
+                  <div className="grid grid-cols-3 gap-2 py-2 border-t border-b border-line my-3 text-[11px] text-muk-soft">
                     <div className="text-center">
-                      <span className="text-slate-500 block text-[9px] uppercase">선호 일치율</span>
-                      <span className="font-bold text-sky-300">{preferencePct}%</span>
+                      <span className="text-muk-soft block text-[9px]">선호 일치율</span>
+                      <span className="font-bold text-jade">{preferencePct}%</span>
                     </div>
-                    <div className="text-center border-l border-r border-white/5">
-                      <span className="text-slate-500 block text-[9px] uppercase">예상 대기</span>
-                      <span className="font-bold text-amber-400">{waitTime}분</span>
+                    <div className="text-center border-l border-r border-line">
+                      <span className="text-muk-soft block text-[9px]">예상 대기</span>
+                      <span className="font-bold text-gold-deep">{waitTime}분</span>
                     </div>
                     <div className="text-center">
-                      <span className="text-slate-500 block text-[9px] uppercase">예상 도보</span>
-                      <span className="font-bold text-emerald-400">{travelTime}분 ({Math.round(rec.distanceM)}m)</span>
+                      <span className="text-muk-soft block text-[9px]">예상 도보</span>
+                      <span className="font-bold text-jade">{travelTime}분 ({Math.round(rec.distanceM)}m)</span>
                     </div>
                   </div>
 
                   {/* 만족도 피드백 (👍/👎) — 선호 벡터를 보정해 다음 추천에 반영 */}
                   <div className="flex items-center justify-between gap-2 mb-2.5">
-                    <span className="text-[10px] text-slate-500">이 추천이 도움이 됐나요?</span>
+                    <span className="text-[10px] text-muk-soft">이 추천이 도움이 됐나요?</span>
                     {feedbackVotes[rec.recommendationId] ? (
-                      <span className="text-[10px] font-semibold text-sky-300">
+                      <span className="text-[10px] font-semibold text-jade">
                         {feedbackVotes[rec.recommendationId] === "up" ? "👍 반영했어요" : "👎 반영했어요"}
                       </span>
                     ) : (
@@ -1293,14 +1282,14 @@ function RecommendContent() {
                         <button
                           onClick={() => handleSatisfactionFeedback(rec, "up")}
                           aria-label="이 추천이 도움이 됐어요"
-                          className="px-2.5 py-1 rounded-lg text-[11px] font-semibold border bg-white/5 border-white/10 text-slate-300 hover:border-emerald-400/40 hover:text-emerald-300 transition-all active:scale-95"
+                          className="px-2.5 py-1 rounded-lg text-[11px] font-semibold border bg-hanji-deep border-line text-muk-soft hover:border-jade/50 hover:text-jade transition-all active:scale-95"
                         >
                           👍 좋아요
                         </button>
                         <button
                           onClick={() => handleSatisfactionFeedback(rec, "down")}
                           aria-label="이 추천은 별로예요"
-                          className="px-2.5 py-1 rounded-lg text-[11px] font-semibold border bg-white/5 border-white/10 text-slate-300 hover:border-rose-400/40 hover:text-rose-300 transition-all active:scale-95"
+                          className="px-2.5 py-1 rounded-lg text-[11px] font-semibold border bg-hanji-deep border-line text-muk-soft hover:border-terracotta/50 hover:text-terracotta transition-all active:scale-95"
                         >
                           👎 별로예요
                         </button>
@@ -1311,7 +1300,7 @@ function RecommendContent() {
                   {/* CTA button */}
                   <button
                     onClick={() => handleAccept(rec)}
-                    className="w-full py-2.5 bg-gradient-to-r from-sky-500 to-purple-600 rounded-xl font-bold text-xs transition-all duration-300 hover:opacity-90 active:scale-[0.98] shadow-md shadow-blue-500/10"
+                    className="w-full py-2.5 bg-gradient-to-r from-gold to-terracotta text-white rounded-xl font-bold text-xs transition-all duration-300 hover:opacity-90 active:scale-[0.98] shadow-sm"
                   >
                     여기로 갈래요
                   </button>
@@ -1319,7 +1308,7 @@ function RecommendContent() {
               );
             })
           ) : (
-            <div className="glass-panel p-8 rounded-2xl border border-white/5 text-center text-sm text-slate-400">
+            <div className="bg-white p-8 rounded-2xl border border-line shadow-[0_2px_14px_rgba(43,35,32,0.06)] text-center text-sm text-muk-soft">
               주변 {MAX_RECO_DISTANCE_M / 1000}km 이내에 추천 가능한 대안 시설이 없습니다.
             </div>
           )}
@@ -1331,11 +1320,11 @@ function RecommendContent() {
             <button
               onClick={handleRejectAllAndRefresh}
               disabled={isRefreshing}
-              className="w-full py-3 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-slate-300 hover:text-white font-semibold text-xs transition-all duration-300 flex items-center justify-center gap-2 disabled:opacity-50"
+              className="w-full py-3 bg-white hover:bg-hanji-deep border border-line rounded-xl text-muk-soft hover:text-muk font-semibold text-xs transition-all duration-300 flex items-center justify-center gap-2 disabled:opacity-50 shadow-[0_2px_14px_rgba(43,35,32,0.06)]"
             >
               {isRefreshing ? (
                 <>
-                  <span className="w-3.5 h-3.5 border-2 border-slate-300 border-t-transparent rounded-full animate-spin" />
+                  <span className="w-3.5 h-3.5 border-2 border-muk-soft border-t-transparent rounded-full animate-spin" />
                   새로운 대안 로드 중...
                 </>
               ) : (
@@ -1360,18 +1349,19 @@ function RecommendContent() {
               role="status"
               aria-live="polite"
               aria-atomic="true"
-              className="max-w-[15rem] md:max-w-[17rem] glass-panel border border-white/10 rounded-2xl px-3.5 py-2.5 shadow-xl bg-[#0b1022]/90 backdrop-blur"
+              className="max-w-[15rem] md:max-w-[17rem] border border-line rounded-2xl px-3.5 py-2.5 shadow-[0_2px_14px_rgba(43,35,32,0.10)] bg-white/90 backdrop-blur"
             >
               <div className="flex items-center gap-1.5 mb-1">
+                {/* 단청 오방색 점 */}
                 <span className="flex gap-0.5">
-                  <span className="w-1.5 h-1.5 rounded-full bg-sky-400" />
-                  <span className="w-1.5 h-1.5 rounded-full bg-rose-400" />
-                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                  <span className="w-1.5 h-1.5 rounded-full bg-gold" />
+                  <span className="w-1.5 h-1.5 rounded-full bg-terracotta" />
+                  <span className="w-1.5 h-1.5 rounded-full bg-jade" />
+                  <span className="w-1.5 h-1.5 rounded-full bg-dan-red" />
                 </span>
                 <span className="text-[10px] font-bold tracking-wide gradient-text">NextSpot 음성 비서</span>
               </div>
-              <p className="text-[11px] leading-snug text-slate-200 min-h-[1.1rem]">
+              <p className="text-[11px] leading-snug text-muk min-h-[1.1rem]">
                 {voiceState === "listening"
                   ? liveTranscript
                     ? `“${liveTranscript}”`
@@ -1382,9 +1372,9 @@ function RecommendContent() {
                   ? spokenCaption || "추천을 안내하고 있어요. 끝나면 말씀해 주세요."
                   : "음성으로 응답할 수 있어요."}
               </p>
-              <p className="text-[9px] text-slate-500 mt-1">응=수락 · 다음=넘기기 · 자세히 · 그만</p>
+              <p className="text-[9px] text-muk-soft mt-1">응=수락 · 다음=넘기기 · 자세히 · 그만</p>
               {!sttSupported && (
-                <p className="text-[9px] text-amber-300/90 mt-1">음성 응답 미지원 — 아래 카드 버튼으로 응답해 주세요</p>
+                <p className="text-[9px] text-gold-deep mt-1">음성 응답 미지원 — 아래 카드 버튼으로 응답해 주세요</p>
               )}
             </div>
           )}
@@ -1394,7 +1384,7 @@ function RecommendContent() {
               <button
                 onClick={toggleAssistantMute}
                 aria-label={assistantMuted ? "음성 안내 켜기" : "음성 안내 끄기"}
-                className="w-9 h-9 rounded-full flex items-center justify-center border border-white/10 bg-white/5 text-slate-300 hover:text-white text-sm transition-all"
+                className="w-9 h-9 rounded-full flex items-center justify-center border border-line bg-white text-muk-soft hover:text-muk text-sm transition-all shadow-sm"
               >
                 {assistantMuted ? "🔇" : "🔈"}
               </button>
@@ -1402,18 +1392,18 @@ function RecommendContent() {
             <button
               onClick={onOrbClick}
               aria-label={assistantActive ? "음성 안내 정지" : "AI 음성 추천 듣기"}
-              className={`relative w-14 h-14 rounded-full flex items-center justify-center text-xl shadow-lg transition-all active:scale-95 border ${
+              className={`relative w-14 h-14 rounded-full flex items-center justify-center text-xl shadow-sm transition-all active:scale-95 border ${
                 voiceState === "listening"
-                  ? "bg-emerald-500/15 border-emerald-400/60 shadow-emerald-500/20"
+                  ? "bg-jade/15 border-jade/60"
                   : voiceState === "speaking"
-                  ? "bg-purple-500/15 border-purple-400/60 shadow-purple-500/20"
+                  ? "bg-gold/15 border-gold/60"
                   : voiceState === "thinking"
-                  ? "bg-sky-500/15 border-sky-400/60"
-                  : "bg-gradient-to-br from-sky-500/20 to-purple-600/20 border-white/15"
+                  ? "bg-terracotta/15 border-terracotta/60"
+                  : "bg-gradient-to-br from-gold/25 to-terracotta/25 border-line"
               }`}
             >
               {!assistantActive && (
-                <span className="absolute inset-0 rounded-full border border-sky-400/30 animate-ping" />
+                <span className="absolute inset-0 rounded-full border border-gold/40 animate-ping" />
               )}
               {!assistantActive ? (
                 <span>🔊</span>
@@ -1422,26 +1412,26 @@ function RecommendContent() {
                   {[0, 1, 2, 3].map((i) => (
                     <span
                       key={i}
-                      className="w-1 bg-purple-300 rounded-full animate-pulse"
+                      className="w-1 bg-gold-deep rounded-full animate-pulse"
                       style={{ height: `${8 + (i % 2) * 8}px`, animationDelay: `${i * 120}ms` }}
                     />
                   ))}
                 </span>
               ) : voiceState === "listening" ? (
                 <span className="relative flex items-center justify-center">
-                  <span className="absolute w-9 h-9 rounded-full bg-emerald-400/20 animate-ping" />
+                  <span className="absolute w-9 h-9 rounded-full bg-jade/25 animate-ping" />
                   <span className="flex gap-1">
                     {[0, 1, 2].map((i) => (
                       <span
                         key={i}
-                        className="w-1.5 h-1.5 rounded-full bg-emerald-300 animate-bounce"
+                        className="w-1.5 h-1.5 rounded-full bg-jade animate-bounce"
                         style={{ animationDelay: `${i * 150}ms` }}
                       />
                     ))}
                   </span>
                 </span>
               ) : voiceState === "thinking" ? (
-                <span className="w-5 h-5 border-2 border-sky-300 border-t-transparent rounded-full animate-spin" />
+                <span className="w-5 h-5 border-2 border-terracotta border-t-transparent rounded-full animate-spin" />
               ) : (
                 <span>🔊</span>
               )}
@@ -1449,7 +1439,7 @@ function RecommendContent() {
           </div>
 
           {!assistantActive && (
-            <span className="text-[10px] text-slate-300 bg-black/50 border border-white/10 rounded-full px-2.5 py-1 animate-pulse">
+            <span className="text-[10px] text-muk bg-white/90 border border-line rounded-full px-2.5 py-1 animate-pulse shadow-sm">
               🔊 AI 음성 추천 듣기
             </span>
           )}
@@ -1458,20 +1448,20 @@ function RecommendContent() {
 
       {/* Onboarding Overlay Modal (Cold Start) */}
       {showOnboarding && (
-        <div className="fixed inset-0 z-50 bg-[#060814]/90 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="glass-panel max-w-sm w-full p-6 md:p-8 rounded-3xl border border-white/10 space-y-6 shadow-2xl relative">
-            <div className="absolute top-0 right-0 w-32 h-32 bg-sky-500/10 rounded-full blur-3xl pointer-events-none" />
+        <div className="fixed inset-0 z-50 bg-muk/40 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-white max-w-sm w-full p-6 md:p-8 rounded-3xl border border-line space-y-6 shadow-2xl relative">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-gold/10 rounded-full blur-3xl pointer-events-none" />
             <div className="space-y-2 text-center">
               <span className="text-xl">🎯</span>
-              <h3 className="text-lg font-extrabold text-slate-100">맞춤형 추천 온보딩</h3>
-              <p className="text-xs text-slate-400 leading-relaxed">
+              <h3 className="text-lg font-serif font-extrabold text-muk">맞춤형 추천 온보딩</h3>
+              <p className="text-xs text-muk-soft leading-relaxed">
                 NextSpot AI의 최적화된 SPOT 대안 경로 매칭을 위해, 관심 있는 장소 종류를 **3개 이상** 선택해 주세요.
               </p>
             </div>
 
             {/* 자연어 선호 입력 (텍스트 + 음성) */}
             <div className="space-y-2">
-              <label className="text-[11px] font-bold text-sky-300 flex items-center gap-1.5">
+              <label className="text-[11px] font-bold text-gold-deep flex items-center gap-1.5">
                 🎙️ 선호를 자연어로 말하거나 적어주세요 (AI가 분석)
               </label>
               <div className="relative">
@@ -1480,7 +1470,7 @@ function RecommendContent() {
                   onChange={(e) => setNlText(e.target.value)}
                   rows={2}
                   placeholder="예: 조용한 한옥카페랑 무장애 되는 가까운 관광지가 좋아요"
-                  className="w-full bg-black/40 border border-white/10 rounded-2xl p-3 pr-11 text-xs text-slate-100 placeholder:text-slate-500 outline-none focus:border-sky-400/50 resize-none"
+                  className="w-full bg-hanji-deep border border-line rounded-2xl p-3 pr-11 text-xs text-muk placeholder:text-muk-soft outline-none focus:border-gold/60 resize-none"
                 />
                 <button
                   type="button"
@@ -1488,8 +1478,8 @@ function RecommendContent() {
                   title="음성으로 말하기"
                   className={`absolute right-2 top-2 w-8 h-8 rounded-full flex items-center justify-center border transition-all ${
                     isListening
-                      ? "bg-rose-500/20 border-rose-400 text-rose-300 animate-pulse"
-                      : "bg-white/5 border-white/10 text-slate-300 hover:text-white hover:border-white/20"
+                      ? "bg-terracotta/20 border-terracotta text-terracotta animate-pulse"
+                      : "bg-white border-line text-muk-soft hover:text-muk hover:border-gold/40"
                   }`}
                 >
                   {isListening ? "■" : "🎤"}
@@ -1499,12 +1489,12 @@ function RecommendContent() {
                 type="button"
                 onClick={handleNlAnalyze}
                 disabled={isParsingNl || !nlText.trim()}
-                className="w-full py-2.5 bg-sky-500/15 border border-sky-400/30 text-sky-200 rounded-xl font-bold text-xs transition-all hover:bg-sky-500/25 disabled:opacity-40"
+                className="w-full py-2.5 bg-gold/15 border border-gold/30 text-gold-deep rounded-xl font-bold text-xs transition-all hover:bg-gold/25 disabled:opacity-40"
               >
                 {isParsingNl ? "AI 분석 중..." : "AI로 선호 분석하기 ✨"}
               </button>
               {nlSummary && (
-                <p className="text-[11px] leading-snug text-emerald-200/90 bg-emerald-500/10 border border-emerald-500/20 rounded-xl px-3 py-2">
+                <p className="text-[11px] leading-snug text-muk bg-jade/10 border border-jade/20 rounded-xl px-3 py-2">
                   💡 {nlSummary}
                 </p>
               )}
@@ -1512,7 +1502,7 @@ function RecommendContent() {
                 <button
                   type="button"
                   onClick={handleApplyNlAndFetch}
-                  className="w-full py-2.5 bg-gradient-to-r from-emerald-500 to-sky-600 rounded-xl font-bold text-xs transition-all hover:opacity-90 active:scale-[0.98] shadow-lg shadow-emerald-500/20"
+                  className="w-full py-2.5 bg-gradient-to-r from-jade to-gold text-white rounded-xl font-bold text-xs transition-all hover:opacity-90 active:scale-[0.98] shadow-sm"
                 >
                   이 선호로 추천 받기 →
                 </button>
@@ -1520,10 +1510,10 @@ function RecommendContent() {
             </div>
 
             {/* 구분선 */}
-            <div className="flex items-center gap-3 text-[10px] text-slate-500">
-              <div className="flex-1 h-px bg-white/10" />
+            <div className="flex items-center gap-3 text-[10px] text-muk-soft">
+              <div className="flex-1 h-px bg-line" />
               또는 직접 선택
-              <div className="flex-1 h-px bg-white/10" />
+              <div className="flex-1 h-px bg-line" />
             </div>
 
             {/* Checkbox Grid */}
@@ -1542,8 +1532,8 @@ function RecommendContent() {
                     }}
                     className={`p-3 rounded-2xl border text-xs font-semibold text-center transition-all duration-200 ${
                       isSelected
-                        ? "bg-sky-500/10 border-sky-400 text-sky-300 shadow-md shadow-sky-500/5"
-                        : "bg-white/5 border-white/10 text-slate-300 hover:border-white/20 hover:text-white"
+                        ? "bg-gold/15 border-gold text-muk shadow-sm"
+                        : "bg-hanji-deep border-line text-muk-soft hover:border-gold/40 hover:text-muk"
                     }`}
                   >
                     {cat.label}
@@ -1556,7 +1546,7 @@ function RecommendContent() {
             <button
               onClick={handleOnboardingSubmit}
               disabled={selectedOnboardingCats.length < 3 || isOnboardingSubmitting}
-              className="w-full py-3 bg-gradient-to-r from-sky-500 to-purple-600 rounded-xl font-bold text-xs transition-all duration-300 hover:opacity-90 active:scale-[0.98] shadow-lg shadow-blue-500/25 disabled:opacity-50"
+              className="w-full py-3 bg-gradient-to-r from-gold to-terracotta text-white rounded-xl font-bold text-xs transition-all duration-300 hover:opacity-90 active:scale-[0.98] shadow-sm disabled:opacity-50"
             >
               {isOnboardingSubmitting ? "설정 저장 중..." : `선택 완료 (${selectedOnboardingCats.length}/3+)`}
             </button>
@@ -1575,8 +1565,8 @@ export default function RecommendPage() {
   return (
     <Suspense
       fallback={
-        <div className="min-h-screen bg-[#0a0f1e] text-white flex items-center justify-center">
-          <div className="text-slate-400 text-sm animate-pulse">추천 연산 준비 중...</div>
+        <div className="min-h-screen bg-hanji text-muk flex items-center justify-center">
+          <div className="text-muk-soft text-sm animate-pulse">추천 준비 중...</div>
         </div>
       }
     >

@@ -37,7 +37,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   // 마운트 전(프리렌더) 또는 미인증(로그인으로 리다이렉트 진행 중)에는 로더.
   if (!authed) {
     return (
-      <div className="min-h-screen w-full flex items-center justify-center bg-[#070b19] text-slate-300">
+      <div className="min-h-screen w-full flex items-center justify-center bg-hanok text-hanok-muted">
         <Loader2 className="animate-spin" size={20} />
         <span className="ml-2 text-sm">권한 확인 중…</span>
       </div>

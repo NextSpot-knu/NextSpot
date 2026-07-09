@@ -117,22 +117,22 @@ export default function SPOTSimulator() {
     }, [weights, mockFacilities]);
 
     return (
-        <div className="w-full bg-slate-900 p-6 rounded-xl shadow-sm border border-slate-800">
-            <div className="mb-6 border-b border-slate-800 pb-4">
-                <h2 className="text-xl font-bold text-slate-100">SPOT 추천 알고리즘 튜닝 센터</h2>
-                <p className="text-sm text-slate-400 mt-1">
+        <div className="w-full bg-hanok-panel p-6 rounded-xl shadow-sm border border-hanok-line">
+            <div className="mb-6 border-b border-hanok-line pb-4">
+                <h2 className="text-xl font-bold text-hanok-ink">SPOT 추천 알고리즘 튜닝 센터</h2>
+                <p className="text-sm text-hanok-muted mt-1">
                     가중치(총합 100)를 입력하거나 슬라이더를 조작하여 1,000개 모의 시설의 점수 군집화를 분석하십시오.
                 </p>
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                 {/* 왼쪽 패널: 슬라이더 및 입력 필드 컨트롤 */}
-                <div className="flex flex-col gap-6 lg:col-span-1 border-r border-slate-800 pr-6">
+                <div className="flex flex-col gap-6 lg:col-span-1 border-r border-hanok-line pr-6">
                     <SyncControl
                         label="선호도 일치율 (W_pref)"
                         value={weights.pref}
-                        colorClass="text-blue-400 bg-blue-500/10 border-blue-500/30"
-                        accentClass="accent-blue-600"
+                        colorClass="text-gold bg-gold/10 border-gold/30"
+                        accentClass="accent-gold"
                         onChange={(v) => handleWeightChange('pref', v)}
                     />
                     <SyncControl
@@ -150,28 +150,28 @@ export default function SPOTSimulator() {
                         onChange={(v) => handleWeightChange('inc', v)}
                     />
 
-                    <div className="mt-4 p-4 bg-slate-950 rounded-lg border border-slate-800">
-                        <h4 className="text-xs font-bold text-slate-400 mb-2 uppercase tracking-wide">실시간 분석 리포트</h4>
-                        <p className="text-sm text-slate-200 font-medium leading-relaxed">{analysisText}</p>
+                    <div className="mt-4 p-4 bg-hanok rounded-lg border border-hanok-line">
+                        <h4 className="text-xs font-bold text-hanok-muted mb-2 uppercase tracking-wide">실시간 분석 리포트</h4>
+                        <p className="text-sm text-hanok-ink font-medium leading-relaxed">{analysisText}</p>
                     </div>
 
-                    <div className="mt-4 p-4 bg-slate-900 text-slate-100 rounded-lg border border-slate-800 font-mono">
-                        <h4 className="text-xs font-bold text-sky-400 mb-2 uppercase tracking-wide">사용자 선호도 벡터 (실시간)</h4>
+                    <div className="mt-4 p-4 bg-hanok-panel text-hanok-ink rounded-lg border border-hanok-line font-mono">
+                        <h4 className="text-xs font-bold text-jade mb-2 uppercase tracking-wide">사용자 선호도 벡터 (실시간)</h4>
                         {userVector ? (
                             <div className="space-y-2">
-                                <div className="text-[10px] text-slate-300 break-all leading-normal select-all bg-slate-950 p-2 rounded border border-slate-800">
+                                <div className="text-[10px] text-hanok-muted break-all leading-normal select-all bg-hanok p-2 rounded border border-hanok-line">
                                     [{userVector.map(v => v.toFixed(3)).join(', ')}]
                                 </div>
                                 <div className="grid grid-cols-8 gap-1 h-3 mt-2">
                                     {userVector.map((v, i) => (
-                                        <div key={i} className="bg-slate-800 rounded overflow-hidden h-full relative" title={`Dim ${i+1}: ${v.toFixed(4)}`}>
-                                            <div className="bg-sky-500 absolute bottom-0 left-0 right-0" style={{ height: `${Math.max(0, Math.min(100, (v + 1) * 50))}%` }} />
+                                        <div key={i} className="bg-hanok-card rounded overflow-hidden h-full relative" title={`Dim ${i+1}: ${v.toFixed(4)}`}>
+                                            <div className="bg-jade absolute bottom-0 left-0 right-0" style={{ height: `${Math.max(0, Math.min(100, (v + 1) * 50))}%` }} />
                                         </div>
                                     ))}
                                 </div>
                             </div>
                         ) : (
-                            <div className="text-[11px] text-slate-400">벡터 조회 중...</div>
+                            <div className="text-[11px] text-hanok-muted">벡터 조회 중...</div>
                         )}
                     </div>
                 </div>
@@ -186,11 +186,11 @@ export default function SPOTSimulator() {
                                     <stop offset="95%" stopColor="#4f46e5" stopOpacity={0} />
                                 </linearGradient>
                             </defs>
-                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#1e293b" />
-                            <XAxis dataKey="name" tick={{ fontSize: 12, fill: '#94a3b8' }} tickLine={false} axisLine={false} />
-                            <YAxis tick={{ fontSize: 12, fill: '#94a3b8' }} tickLine={false} axisLine={false} />
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#3a2f24" />
+                            <XAxis dataKey="name" tick={{ fontSize: 12, fill: '#b8a894' }} tickLine={false} axisLine={false} />
+                            <YAxis tick={{ fontSize: 12, fill: '#b8a894' }} tickLine={false} axisLine={false} />
                             <Tooltip
-                                contentStyle={{ borderRadius: '8px', backgroundColor: '#0f172a', border: '1px solid #1e293b', color: '#e2e8f0', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                                contentStyle={{ borderRadius: '8px', backgroundColor: '#2c241c', border: '1px solid #3a2f24', color: '#e2e8f0', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
                                 labelStyle={{ fontWeight: 'bold', color: '#e2e8f0', marginBottom: '4px' }}
                                 itemStyle={{ color: '#4f46e5', fontWeight: 'bold' }}
                             />
@@ -201,44 +201,44 @@ export default function SPOTSimulator() {
             </div>
 
             {/* SPOT Explanation Guide */}
-            <div className="mt-8 bg-slate-900 p-6 rounded-2xl shadow-sm border border-slate-800">
-                <h3 className="text-lg font-bold text-slate-100 mb-4 flex items-center gap-2">
-                    <span className="bg-blue-500/15 text-blue-400 p-1.5 rounded-lg"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg></span>
+            <div className="mt-8 bg-hanok-panel p-6 rounded-2xl shadow-sm border border-hanok-line">
+                <h3 className="text-lg font-bold text-hanok-ink mb-4 flex items-center gap-2">
+                    <span className="bg-gold/15 text-gold p-1.5 rounded-lg"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg></span>
                     SPOT (Smart Place Optimization for Tourism) 알고리즘 가이드
                 </h3>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-sm text-slate-300">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-sm text-hanok-muted">
                     <div>
                         <p className="mb-4 leading-relaxed">
-                            <strong className="text-slate-100">SPOT란?</strong><br/>
-                            사용자가 서비스를 이용하기 위해 소비하는 <span className="font-semibold text-blue-400">대기 시간과 이동 시간의 기회비용을 가치(Value)로 환산</span>하여 최적의 스팟을 추천하는 NextSpot만의 핵심 알고리즘입니다. 점수(0~100점)가 높을수록 현재 상황에서 가장 합리적인 선택지임을 의미합니다.
+                            <strong className="text-hanok-ink">SPOT란?</strong><br/>
+                            사용자가 서비스를 이용하기 위해 소비하는 <span className="font-semibold text-gold">대기 시간과 이동 시간의 기회비용을 가치(Value)로 환산</span>하여 최적의 스팟을 추천하는 NextSpot만의 핵심 알고리즘입니다. 점수(0~100점)가 높을수록 현재 상황에서 가장 합리적인 선택지임을 의미합니다.
                         </p>
                         <p className="leading-relaxed">
-                            <strong className="text-slate-100">시뮬레이터 활용법:</strong><br/>
+                            <strong className="text-hanok-ink">시뮬레이터 활용법:</strong><br/>
                             1,000개의 가상 스팟을 대상으로 가중치를 조절해보세요. 우측 히스토그램을 통해 점수 분포가 어떻게 변하는지 실시간으로 확인하며 알고리즘의 황금비를 튜닝할 수 있습니다.
                         </p>
                     </div>
 
-                    <div className="space-y-3 bg-slate-950 p-4 rounded-xl border border-slate-800">
+                    <div className="space-y-3 bg-hanok p-4 rounded-xl border border-hanok-line">
                         <div className="flex gap-3">
-                            <div className="w-2 h-2 rounded-full bg-blue-500 mt-1.5 flex-shrink-0"></div>
+                            <div className="w-2 h-2 rounded-full bg-gold mt-1.5 flex-shrink-0"></div>
                             <div>
-                                <strong className="text-slate-100">선호도 일치 (Preference)</strong>
-                                <p className="text-xs mt-0.5 text-slate-400">가중치를 높이면 거리가 멀더라도 사용자의 벡터(취향)에 완벽히 부합하는 핫플레이스를 우선 추천합니다.</p>
+                                <strong className="text-hanok-ink">선호도 일치 (Preference)</strong>
+                                <p className="text-xs mt-0.5 text-hanok-muted">가중치를 높이면 거리가 멀더라도 사용자의 벡터(취향)에 완벽히 부합하는 핫플레이스를 우선 추천합니다.</p>
                             </div>
                         </div>
                         <div className="flex gap-3">
                             <div className="w-2 h-2 rounded-full bg-red-500 mt-1.5 flex-shrink-0"></div>
                             <div>
-                                <strong className="text-slate-100">시간비용 절감 (Time Cost)</strong>
-                                <p className="text-xs mt-0.5 text-slate-400">가중치를 높이면 선호도가 낮더라도 대기줄이 없고 당장 도달 가능한 가장 가까운 스팟을 우선 추천합니다.</p>
+                                <strong className="text-hanok-ink">시간비용 절감 (Time Cost)</strong>
+                                <p className="text-xs mt-0.5 text-hanok-muted">가중치를 높이면 선호도가 낮더라도 대기줄이 없고 당장 도달 가능한 가장 가까운 스팟을 우선 추천합니다.</p>
                             </div>
                         </div>
                         <div className="flex gap-3">
                             <div className="w-2 h-2 rounded-full bg-emerald-500 mt-1.5 flex-shrink-0"></div>
                             <div>
-                                <strong className="text-slate-100">혼잡도 인센티브 (Congestion Incentive)</strong>
-                                <p className="text-xs mt-0.5 text-slate-400">가중치를 높이면 한적한 틈새 스팟에 강력한 보너스 점수를 부여하여 골목·도심의 관광 수요를 적극적으로 분산시킵니다.</p>
+                                <strong className="text-hanok-ink">혼잡도 인센티브 (Congestion Incentive)</strong>
+                                <p className="text-xs mt-0.5 text-hanok-muted">가중치를 높이면 한적한 틈새 스팟에 강력한 보너스 점수를 부여하여 골목·도심의 관광 수요를 적극적으로 분산시킵니다.</p>
                             </div>
                         </div>
                     </div>
@@ -282,7 +282,7 @@ function SyncControl({ label, value, colorClass, accentClass, onChange }: SyncCo
     return (
         <div className="flex flex-col gap-3">
             <div className="flex justify-between items-center">
-                <label className="text-sm font-bold text-slate-200">{label}</label>
+                <label className="text-sm font-bold text-hanok-ink">{label}</label>
                 <input
                     type="number"
                     value={inputValue}
@@ -296,7 +296,7 @@ function SyncControl({ label, value, colorClass, accentClass, onChange }: SyncCo
                 type="range" min="0" max="100" step="0.1"
                 value={value}
                 onChange={(e) => onChange(e.target.value)}
-                className={`w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer ${accentClass}`}
+                className={`w-full h-2 bg-hanok-line rounded-lg appearance-none cursor-pointer ${accentClass}`}
             />
         </div>
     );

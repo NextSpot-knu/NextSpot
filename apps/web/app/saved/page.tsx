@@ -107,27 +107,26 @@ export default function SavedPage() {
   };
 
   const renderTrafficIndicator = (status: 'orange' | 'yellow' | 'green' | 'blue') => {
+    // 혼잡 신호등: 색만 웜 팔레트로 교체(임계·매핑 로직 불변). 네온 글로우 제거.
     const colors = {
-      orange: 'bg-orange-500 shadow-[0_0_8px_rgba(249,115,22,0.8)]',
-      yellow: 'bg-yellow-500 shadow-[0_0_8px_rgba(234,179,8,0.8)]',
-      green: 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.8)]',
-      blue: 'bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.8)]'
+      orange: 'bg-terracotta',   // 혼잡
+      yellow: 'bg-gold',         // 보통
+      green: 'bg-emerald-500',   // 여유
+      blue: 'bg-jade'            // 한산
     };
     return <div className={`w-3 h-3 rounded-full ${colors[status]}`} />;
   };
 
   return (
-    <div className="relative w-full h-[100dvh] bg-gradient-to-b from-[#0b101e] via-[#0d1526] to-[#070b16] flex flex-col overflow-hidden">
-      {/* Dark overlay for readability */}
-      <div className="absolute inset-0 bg-[#0b101e]/70 z-0"></div>
+    <div className="relative w-full h-[100dvh] bg-hanji flex flex-col overflow-hidden">
 
-      {/* Header */}
-      <header className="flex justify-between items-center p-5 border-b border-white/10 z-10 relative">
-        <button className="text-gray-400 hover:text-white transition-colors">
+      {/* 헤더 */}
+      <header className="flex justify-between items-center p-5 border-b border-line z-10 relative">
+        <button className="text-muk-soft hover:text-muk transition-colors">
           <Menu size={24} />
         </button>
-        <h1 className="text-xl font-bold text-white tracking-wide">NextSpot</h1>
-        <button className="text-gray-400 hover:text-white transition-colors">
+        <h1 className="text-xl font-bold font-serif text-muk tracking-wide">NextSpot</h1>
+        <button className="text-muk-soft hover:text-muk transition-colors">
           <Bell size={24} />
         </button>
       </header>
@@ -136,24 +135,24 @@ export default function SavedPage() {
       <main className="flex-1 flex flex-col relative z-10 p-6 overflow-y-auto pb-[120px]">
         {isLoading ? (
           <div className="flex-1 flex items-center justify-center">
-            <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+            <div className="w-8 h-8 border-4 border-gold border-t-transparent rounded-full animate-spin"></div>
           </div>
         ) : bookmarks.length === 0 ? (
           // Empty State
           <div className="flex-1 flex items-center justify-center">
-            <div className="bg-[#1a2333]/60 backdrop-blur-2xl border border-white/5 rounded-3xl p-8 flex flex-col items-center text-center w-full max-w-[320px] shadow-2xl">
-              <div className="w-16 h-16 rounded-full bg-gradient-to-b from-[#3b4766] to-[#25304a] border border-white/10 flex items-center justify-center mb-6 shadow-inner">
-                <Star className="text-blue-200 fill-blue-200/50" size={32} />
+            <div className="bg-white border border-line rounded-3xl p-8 flex flex-col items-center text-center w-full max-w-[320px] shadow-[0_2px_14px_rgba(43,35,32,0.06)]">
+              <div className="w-16 h-16 rounded-full bg-gradient-to-b from-gold/20 to-gold/10 border border-line flex items-center justify-center mb-6">
+                <Star className="text-gold fill-gold/40" size={32} />
               </div>
-              <h2 className="text-xl font-bold text-white mb-3">아직 저장한 장소가 없어요</h2>
-              <p className="text-gray-400 text-sm leading-relaxed mb-8 px-2">
+              <h2 className="text-xl font-bold font-serif text-muk mb-3">아직 저장한 장소가 없어요</h2>
+              <p className="text-muk-soft text-sm leading-relaxed mb-8 px-2">
                 경주 황리단길에서 마음에 든 장소를 저장하면 여기에 모여요.
               </p>
-              <button 
+              <button
                 onClick={() => router.push('/main')}
-                className="flex items-center gap-2 px-5 py-2.5 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-white text-sm font-semibold transition-all"
+                className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gold hover:bg-gold-deep text-white text-sm font-semibold transition-all"
               >
-                <Compass size={18} className="text-gray-300" />
+                <Compass size={18} className="text-white" />
                 <span>지도 둘러보기</span>
               </button>
             </div>
@@ -162,10 +161,10 @@ export default function SavedPage() {
           // List State
           <div className="flex flex-col gap-4">
             <div className="flex justify-between items-center px-1 mb-2">
-              <h2 className="text-lg font-bold text-white">저장한 장소</h2>
-              <button 
+              <h2 className="text-lg font-bold font-serif text-muk">저장한 장소</h2>
+              <button
                 onClick={handleClearAll}
-                className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-red-500/20 text-red-400 border border-red-500/30 hover:bg-red-500/30 transition-colors"
+                className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-terracotta/15 text-terracotta border border-terracotta/30 hover:bg-terracotta/25 transition-colors"
               >
                 전체 초기화
               </button>
@@ -188,14 +187,14 @@ export default function SavedPage() {
                     setSelectedBookmark(bookmark);
                   }
                 }}
-                className={`group flex flex-col p-4 rounded-2xl border backdrop-blur-md transition-all text-left relative overflow-hidden cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/70 ${
+                className={`group flex flex-col p-4 rounded-2xl border transition-all text-left relative overflow-hidden cursor-pointer shadow-[0_2px_14px_rgba(43,35,32,0.06)] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 ${
                   selectedBookmark?.id === bookmark.id
-                    ? 'bg-blue-600/20 border-blue-500'
-                    : 'bg-white/5 border-white/10 hover:bg-white/10'
+                    ? 'bg-gold/15 border-gold'
+                    : 'bg-white border-line hover:bg-hanji-deep'
                 }`}
               >
                 {/* 랭크 표시 뱃지 */}
-                <div className="absolute top-0 left-0 bg-blue-600/80 backdrop-blur-sm text-white text-[10px] font-bold px-2 py-1 rounded-br-lg z-10">
+                <div className="absolute top-0 left-0 bg-gold text-white text-[10px] font-bold px-2 py-1 rounded-br-lg z-10">
                   {index + 1}위
                 </div>
                 
@@ -203,12 +202,12 @@ export default function SavedPage() {
                 <div className="flex justify-between items-start w-full">
                   <div className="pl-4">
                     <div className="flex items-center gap-2 mb-1 mt-1">
-                      <span className="text-xs font-semibold px-2 py-0.5 rounded-md bg-white/10 text-gray-300">
+                      <span className="text-xs font-semibold px-2 py-0.5 rounded-md bg-hanji-deep text-muk-soft">
                         {bookmark.category}
                       </span>
                       {renderTrafficIndicator(bookmark.trafficStatus)}
                     </div>
-                    <h3 className="text-lg font-bold text-white">{bookmark.name}</h3>
+                    <h3 className="text-lg font-bold text-muk">{bookmark.name}</h3>
                   </div>
                   
                   {/* Delete Button — 실제 <button> 으로 시맨틱 교정(키보드 포커스/스크린리더 지원) */}
@@ -217,7 +216,7 @@ export default function SavedPage() {
                       type="button"
                       aria-label={`${bookmark.name} 저장 삭제`}
                       onClick={(e) => handleDelete(bookmark.id, e)}
-                      className="p-2 rounded-xl bg-red-500/10 text-red-400 hover:bg-red-500/20 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-400/70 transition-opacity md:flex hidden"
+                      className="p-2 rounded-xl bg-terracotta/10 text-terracotta hover:bg-terracotta/20 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-terracotta/60 transition-opacity md:flex hidden"
                     >
                       <Trash2 size={18} />
                     </button>
@@ -225,7 +224,7 @@ export default function SavedPage() {
                       type="button"
                       aria-label={`${bookmark.name} 저장 삭제`}
                       onClick={(e) => handleDelete(bookmark.id, e)}
-                      className="p-1.5 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-400/70 md:hidden flex"
+                      className="p-1.5 rounded-lg bg-terracotta/10 text-terracotta hover:bg-terracotta/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-terracotta/60 md:hidden flex"
                     >
                       <Trash2 size={16} />
                     </button>
@@ -244,43 +243,43 @@ export default function SavedPage() {
                   if (!currentTime || !arrivalTime || !serviceTime) return null;
                   
                   return (
-                    <div className="w-full mt-4 bg-white/5 border border-white/10 rounded-2xl px-4 py-3 flex flex-col gap-3">
+                    <div className="w-full mt-4 bg-hanji border border-line rounded-2xl px-4 py-3 flex flex-col gap-3">
                       <div className="flex justify-between items-center px-1 mb-1">
-                        <span className="text-blue-300 text-[10px] font-semibold">총 소요 시간</span>
-                        <span className="text-blue-400 font-bold text-sm">{timeToService}분</span>
+                        <span className="text-muk-soft text-[10px] font-semibold">총 소요 시간</span>
+                        <span className="text-gold font-bold text-sm">{timeToService}분</span>
                       </div>
                       <div className="flex items-start justify-between relative">
-                        {/* Connecting Line */}
-                        <div className="absolute top-[3px] left-4 right-4 h-[2px] bg-white/10 z-0" />
-                        
-                        {/* Travel Duration Label */}
+                        {/* 연결선 */}
+                        <div className="absolute top-[3px] left-4 right-4 h-[2px] bg-line z-0" />
+
+                        {/* 이동 시간 라벨 */}
                         <div className="absolute top-[-10px] left-[25%] -translate-x-1/2 z-10">
-                          <span className="text-[9px] font-medium text-emerald-400 bg-[#1a2133] px-1.5 py-0.5 rounded border border-emerald-500/20">이동 {travelMins}분</span>
+                          <span className="text-[9px] font-medium text-jade bg-hanji px-1.5 py-0.5 rounded border border-jade/25">이동 {travelMins}분</span>
                         </div>
-                        {/* Wait Duration Label */}
+                        {/* 대기 시간 라벨 */}
                         <div className="absolute top-[-10px] left-[75%] -translate-x-1/2 z-10">
-                          <span className="text-[9px] font-medium text-amber-400 bg-[#1a2133] px-1.5 py-0.5 rounded border border-amber-500/20">대기 {waitMins}분</span>
-                        </div>
-                        
-                        {/* Current Time Step */}
-                        <div className="flex flex-col items-center z-10 w-12">
-                          <div className="w-2 h-2 rounded-full bg-blue-500 ring-4 ring-[#1a2133] mb-1.5" />
-                          <span className="text-[10px] text-white font-bold">{formatTime(currentTime)}</span>
-                          <span className="text-[9px] text-slate-400 mt-0.5">출발</span>
-                        </div>
-                        
-                        {/* Arrival Time Step */}
-                        <div className="flex flex-col items-center z-10 w-12">
-                          <div className="w-2 h-2 rounded-full bg-emerald-400 ring-4 ring-[#1a2133] mb-1.5" />
-                          <span className="text-[10px] text-white font-bold">{formatTime(arrivalTime)}</span>
-                          <span className="text-[9px] text-slate-400 mt-0.5">도착</span>
+                          <span className="text-[9px] font-medium text-gold bg-hanji px-1.5 py-0.5 rounded border border-gold/25">대기 {waitMins}분</span>
                         </div>
 
-                        {/* Service Start Step */}
+                        {/* 출발 시점 */}
                         <div className="flex flex-col items-center z-10 w-12">
-                          <div className="w-2 h-2 rounded-full bg-amber-400 ring-4 ring-[#1a2133] mb-1.5" />
-                          <span className="text-[10px] text-white font-bold">{formatTime(serviceTime)}</span>
-                          <span className="text-[9px] text-slate-400 mt-0.5">{bookmark.category === '음식점' || bookmark.category === '카페' ? '식사' : '관람'}</span>
+                          <div className="w-2 h-2 rounded-full bg-muk ring-4 ring-hanji mb-1.5" />
+                          <span className="text-[10px] text-muk font-bold">{formatTime(currentTime)}</span>
+                          <span className="text-[9px] text-muk-soft mt-0.5">출발</span>
+                        </div>
+
+                        {/* 도착 시점 */}
+                        <div className="flex flex-col items-center z-10 w-12">
+                          <div className="w-2 h-2 rounded-full bg-jade ring-4 ring-hanji mb-1.5" />
+                          <span className="text-[10px] text-muk font-bold">{formatTime(arrivalTime)}</span>
+                          <span className="text-[9px] text-muk-soft mt-0.5">도착</span>
+                        </div>
+
+                        {/* 이용 시작 시점 */}
+                        <div className="flex flex-col items-center z-10 w-12">
+                          <div className="w-2 h-2 rounded-full bg-gold ring-4 ring-hanji mb-1.5" />
+                          <span className="text-[10px] text-muk font-bold">{formatTime(serviceTime)}</span>
+                          <span className="text-[9px] text-muk-soft mt-0.5">{bookmark.category === '음식점' || bookmark.category === '카페' ? '식사' : '관람'}</span>
                         </div>
                       </div>
                     </div>
@@ -328,8 +327,8 @@ export default function SavedPage() {
         </div>
       )}
 
-      {/* Background Glow */}
-      <div className="absolute top-1/4 left-1/4 w-[300px] h-[300px] bg-blue-500/10 rounded-full blur-[100px] pointer-events-none z-0"></div>
+      {/* 은은한 노을 광원 (콜드 블루 글로우 → 웜) */}
+      <div className="absolute top-1/4 left-1/4 w-[300px] h-[300px] bg-sunset-1/10 rounded-full blur-[100px] pointer-events-none z-0"></div>
     </div>
   );
 }

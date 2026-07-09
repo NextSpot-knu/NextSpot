@@ -271,12 +271,12 @@ export default function MainPage() {
         }
       </style>
       <div class="user-loc-marker" style="position: relative; width: 100px; height: 100px; pointer-events: none; filter: none; -webkit-filter: none;">
-        <!-- Glow (푸른빛 펄스) -->
-        <div style="position: absolute; top: 0; left: 0; right: 0; bottom: 0; border-radius: 50%; background: radial-gradient(circle, rgba(59,130,246,0.6) 0%, rgba(59,130,246,0.2) 50%, rgba(59,130,246,0) 80%); animation: pulse-user-marker 1.2s infinite cubic-bezier(0.2, 0, 0.2, 1);"></div>
+        <!-- Glow (신라 금빛 펄스) -->
+        <div style="position: absolute; top: 0; left: 0; right: 0; bottom: 0; border-radius: 50%; background: radial-gradient(circle, rgba(193,154,62,0.6) 0%, rgba(193,154,62,0.2) 50%, rgba(193,154,62,0) 80%); animation: pulse-user-marker 1.2s infinite cubic-bezier(0.2, 0, 0.2, 1);"></div>
         <!-- White Border (Thick) -->
-        <div style="position: absolute; top: 50%; left: 50%; width: 28px; height: 28px; margin-top: -14px; margin-left: -14px; background: #ffffff; border-radius: 50%; box-shadow: 0 0 10px rgba(0,0,0,0.3);"></div>
-        <!-- Core (Blue dot) -->
-        <div style="position: absolute; top: 50%; left: 50%; width: 14px; height: 14px; margin-top: -7px; margin-left: -7px; background: #3b82f6; border-radius: 50%;"></div>
+        <div style="position: absolute; top: 50%; left: 50%; width: 28px; height: 28px; margin-top: -14px; margin-left: -14px; background: #ffffff; border-radius: 50%; box-shadow: 0 0 10px rgba(43,35,32,0.25);"></div>
+        <!-- Core (금빛 점) -->
+        <div style="position: absolute; top: 50%; left: 50%; width: 14px; height: 14px; margin-top: -7px; margin-left: -7px; background: #c19a3e; border-radius: 50%;"></div>
       </div>
     `;
 
@@ -957,16 +957,16 @@ export default function MainPage() {
           setActiveGroupId(f.id);
           setSelectedFacility(null);
           const content = document.createElement('div');
-          content.className = 'bg-[#111622]/95 backdrop-blur-xl border border-white/20 rounded-2xl p-2 shadow-2xl flex flex-col gap-1 min-w-[180px] max-w-[280px] max-h-[260px] overflow-y-auto no-scrollbar pointer-events-auto';
+          content.className = 'bg-white/90 backdrop-blur border border-line rounded-2xl p-2 shadow-[0_2px_14px_rgba(43,35,32,0.1)] flex flex-col gap-1 min-w-[180px] max-w-[280px] max-h-[260px] overflow-y-auto no-scrollbar pointer-events-auto';
 
           const titleEl = document.createElement('div');
-          titleEl.className = 'text-[10px] text-blue-400 font-bold px-2 py-1 mb-1 border-b border-white/10 uppercase tracking-wider';
+          titleEl.className = 'text-[10px] text-gold font-bold px-2 py-1 mb-1 border-b border-line tracking-wider';
           titleEl.innerText = f.name;
           content.appendChild(titleEl);
 
           f.subFacilities.forEach((sub: any) => {
             const btn = document.createElement('button');
-            btn.className = 'text-left text-white text-xs px-3 py-2.5 hover:bg-white/10 rounded-xl transition-colors font-semibold whitespace-normal break-keep leading-snug cursor-pointer';
+            btn.className = 'text-left text-muk text-xs px-3 py-2.5 hover:bg-hanji-deep rounded-xl transition-colors font-semibold whitespace-normal break-keep leading-snug cursor-pointer';
             btn.innerText = sub.name;
             btn.onclick = () => {
               setActiveGroupId(null);
@@ -1082,25 +1082,25 @@ export default function MainPage() {
   return (
     <div className="relative w-full h-screen overflow-hidden flex flex-col">
 
-      {/* Map Container — 다크 필터는 globals.css 의 .map-dark-tiles 로 '타일 이미지(http)'에만 적용.
-          마커/오버레이는 data: URI 이미지라 필터 제외 → 본래의 선명한 색으로 표시(필터 우회). */}
+      {/* Map Container — 자연스러운 라이트 카카오맵(한지 톤). 타일 다크 반전(map-dark-tiles) 제거 →
+          경주 관광 밝은 지도. 마커/오버레이는 data: URI 이미지라 본래의 선명한 색으로 표시된다. */}
       <div
         ref={mapContainerRef}
-        className="w-full h-full absolute inset-0 z-0 map-dark-tiles"
+        className="w-full h-full absolute inset-0 z-0"
       />
 
-      {/* Top Layer: Search & Filters */}
-      <div className="absolute top-0 w-full z-20 pt-12 pb-4 px-4 bg-gradient-to-b from-black/80 to-transparent flex flex-col gap-4 pointer-events-none">
+      {/* Top Layer: Search & Filters — 다크 오버레이 그라디언트 제거(플로팅 패널 자체 배경으로 가독성 확보) */}
+      <div className="absolute top-0 w-full z-20 pt-12 pb-4 px-4 flex flex-col gap-4 pointer-events-none">
         
         {/* Search Bar — (c) 로컬 시설명 검색(마커 필터). 음성 검색(Mic)은 미구현이라 '준비 중' 비활성 표기. */}
-        <div className="flex items-center bg-[#131a28]/90 backdrop-blur-xl rounded-full px-4 py-3 border border-white/10 shadow-lg pointer-events-auto">
-          <Search size={20} className="text-gray-400 mr-3" />
+        <div className="flex items-center bg-white/90 backdrop-blur rounded-full px-4 py-3 border border-line shadow-[0_2px_14px_rgba(43,35,32,0.06)] pointer-events-auto">
+          <Search size={20} className="text-muk-soft mr-3" />
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="장소·시설 이름 검색"
-            className="flex-1 bg-transparent text-white outline-none placeholder:text-gray-500 text-sm"
+            className="flex-1 bg-transparent text-muk outline-none placeholder:text-muk-soft text-sm"
           />
           {searchQuery ? (
             <button
@@ -1108,25 +1108,25 @@ export default function MainPage() {
               onClick={() => setSearchQuery('')}
               title="검색 지우기"
               aria-label="검색 지우기"
-              className="ml-3 text-gray-300 hover:text-white transition-colors"
+              className="ml-3 text-muk-soft hover:text-muk transition-colors"
             >
               <X size={18} />
             </button>
           ) : (
             // 실제 음성 안내는 추천 카드의 오브(VoiceAssistantOrb)를 사용 — 여기 마이크는 아직 미구현이므로 죽은 컨트롤 오해를 막기 위해 비활성 표기.
             <span title="음성 검색 준비 중" aria-disabled="true" className="ml-3 flex items-center cursor-not-allowed">
-              <Mic size={20} className="text-gray-600" />
+              <Mic size={20} className="text-muk-soft/50" />
             </span>
           )}
-          <div className="w-8 h-8 rounded-full bg-blue-500/20 ml-4 flex items-center justify-center border border-blue-400/50">
-            <User size={16} className="text-cyan-300" />
+          <div className="w-8 h-8 rounded-full bg-gold/15 ml-4 flex items-center justify-center border border-gold/40">
+            <User size={16} className="text-gold" />
           </div>
         </div>
 
         {/* (c) 검색 결과 없음 안내 — 입력값은 있으나 현재 카테고리에 일치 장소가 없을 때 */}
         {searchActive && searchMatchCount === 0 && (
           <div className="pointer-events-auto px-2 -mt-1">
-            <span className="inline-block text-gray-200 text-xs bg-black/60 rounded-full px-3 py-1">
+            <span className="inline-block text-muk text-xs bg-white/90 border border-line rounded-full px-3 py-1 shadow-[0_2px_14px_rgba(43,35,32,0.06)]">
               &apos;{searchQuery.trim()}&apos; 검색 결과가 없어요
             </span>
           </div>
@@ -1153,14 +1153,14 @@ export default function MainPage() {
                     sessionStorage.setItem('nextspot_active_filter', filter.id);
                   }
                 }}
-                className={`flex shrink-0 items-center whitespace-nowrap rounded-full border px-3 py-1.5 transition-all fractal-glass sm:px-4 sm:py-2 ${
+                className={`flex shrink-0 items-center whitespace-nowrap rounded-full border px-3 py-1.5 transition-all fractal-glass shadow-[0_2px_14px_rgba(43,35,32,0.06)] sm:px-4 sm:py-2 ${
                   isActive
-                    ? 'bg-blue-600/30 border-blue-400 text-white shadow-[0_0_15px_rgba(59,130,246,0.3)] text-shadow-sm'
-                    : 'border-white/10 text-gray-400 hover:bg-white/10 hover:text-white'
+                    ? 'bg-gold/15 border-gold text-muk'
+                    : 'bg-white/80 border-line text-muk-soft hover:bg-white hover:text-muk'
                 }`}
               >
-                <Icon size={15} className={`mr-1.5 drop-shadow-md sm:mr-2 ${isActive ? 'text-blue-300' : 'text-gray-400'}`} />
-                <span className={`text-[13px] font-medium sm:text-sm ${isActive ? 'text-shadow-sm' : ''}`}>{filter.id}</span>
+                <Icon size={15} className={`mr-1.5 sm:mr-2 ${isActive ? 'text-gold' : 'text-muk-soft'}`} />
+                <span className="text-[13px] font-medium sm:text-sm">{filter.id}</span>
               </button>
             );
           })}
@@ -1175,27 +1175,27 @@ export default function MainPage() {
             type="button"
             onClick={() => setShowHeatmap((prev) => !prev)}
             aria-pressed={showHeatmap}
-            className={`flex shrink-0 items-center gap-2 rounded-full border px-3 py-1.5 text-[13px] font-medium transition-all fractal-glass sm:px-4 sm:py-2 sm:text-sm ${
+            className={`flex shrink-0 items-center gap-2 rounded-full border px-3 py-1.5 text-[13px] font-medium transition-all fractal-glass shadow-[0_2px_14px_rgba(43,35,32,0.06)] sm:px-4 sm:py-2 sm:text-sm ${
               showHeatmap
-                ? 'bg-orange-600/30 border-orange-400 text-white shadow-[0_0_15px_rgba(249,115,22,0.3)]'
-                : 'border-white/10 text-gray-400 hover:bg-white/10 hover:text-white'
+                ? 'bg-terracotta/15 border-terracotta text-muk'
+                : 'bg-white/80 border-line text-muk-soft hover:bg-white hover:text-muk'
             }`}
           >
-            <span className={`w-2 h-2 rounded-full ${showHeatmap ? 'bg-orange-400 animate-pulse' : 'bg-gray-500'}`} />
+            <span className={`w-2 h-2 rounded-full ${showHeatmap ? 'bg-terracotta animate-pulse' : 'bg-muk-soft/40'}`} />
             🔥 히트맵
           </button>
 
           {/* 예측 정직성 배지 — 실측(Live)과 혼동 방지 */}
           {isForecast && (
-            <span className="shrink-0 px-3 py-1 rounded-full text-[11px] font-bold bg-purple-600/90 border border-purple-400/40 text-white shadow-lg shadow-purple-500/30 whitespace-nowrap">
+            <span className="shrink-0 px-3 py-1 rounded-full text-[11px] font-bold bg-jade border border-jade/50 text-white shadow-[0_2px_10px_rgba(43,35,32,0.12)] whitespace-nowrap">
               🔮 AI 예측 · +{hoursAhead}시간 후
             </span>
           )}
 
           {/* 예측 타임슬라이더 — 미래 도착시점 혼잡 예측 */}
           <div
-            className={`flex shrink-0 gap-1 rounded-full border p-1 fractal-glass transition-colors ${
-              isForecast ? 'border-purple-400/50' : 'border-white/10'
+            className={`flex shrink-0 gap-1 rounded-full border p-1 fractal-glass bg-white/80 shadow-[0_2px_14px_rgba(43,35,32,0.06)] transition-colors ${
+              isForecast ? 'border-jade/50' : 'border-line'
             } ${predictionLoading ? 'opacity-60' : ''}`}
           >
             {[0, 1, 2, 3].map((n) => (
@@ -1207,9 +1207,9 @@ export default function MainPage() {
                 className={`shrink-0 whitespace-nowrap rounded-full px-3 py-1 text-xs font-semibold transition-all disabled:cursor-wait ${
                   hoursAhead === n
                     ? n === 0
-                      ? 'bg-gradient-to-r from-sky-500 to-emerald-500 text-white shadow-md shadow-emerald-500/25'
-                      : 'bg-gradient-to-r from-purple-500 to-fuchsia-600 text-white shadow-md shadow-purple-500/25'
-                    : 'text-gray-300 hover:text-white hover:bg-white/10'
+                      ? 'bg-gold text-white shadow-sm' // 지금(실측) = 신라금 주강조
+                      : 'bg-jade text-white shadow-sm' // +N시간 예측 = 청록(예측 배지와 통일)
+                    : 'text-muk-soft hover:text-muk hover:bg-hanji-deep'
                 }`}
               >
                 {n === 0 ? '지금' : `+${n}h`}
@@ -1222,21 +1222,21 @@ export default function MainPage() {
       {/* (a) 시설 로드 상태 안내 — 로딩 스피너 / 로드 실패 재시도 / 전체 빈 상태 (데모 사고 방지선) */}
       {isLoadingFacilities && (
         <div className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-3 pointer-events-none">
-          <div className="w-10 h-10 rounded-full border-2 border-white/20 border-t-blue-400 animate-spin" />
-          <span className="text-gray-200 text-sm font-medium">추천 장소를 불러오는 중...</span>
+          <div className="w-10 h-10 rounded-full border-2 border-line border-t-gold animate-spin" />
+          <span className="text-muk text-sm font-medium">추천 장소를 불러오는 중...</span>
         </div>
       )}
 
       {!isLoadingFacilities && facilitiesLoadError && (
         <div className="absolute inset-0 z-30 flex items-center justify-center px-6 pointer-events-none">
-          <div className="bg-[#111622]/95 backdrop-blur-xl border border-white/10 rounded-2xl px-6 py-5 shadow-2xl flex flex-col items-center gap-3 max-w-xs text-center pointer-events-auto">
+          <div className="bg-white border border-line rounded-2xl px-6 py-5 shadow-[0_2px_14px_rgba(43,35,32,0.06)] flex flex-col items-center gap-3 max-w-xs text-center pointer-events-auto">
             <span className="text-2xl">⚠️</span>
-            <p className="text-white text-sm font-semibold">장소 정보를 불러오지 못했어요</p>
-            <p className="text-gray-400 text-xs leading-relaxed">네트워크 또는 서버 연결을 확인한 뒤 다시 시도해 주세요.</p>
+            <p className="text-muk text-sm font-semibold">장소 정보를 불러오지 못했어요</p>
+            <p className="text-muk-soft text-xs leading-relaxed">네트워크 또는 서버 연결을 확인한 뒤 다시 시도해 주세요.</p>
             <button
               type="button"
               onClick={() => setFacilitiesReloadNonce(n => n + 1)}
-              className="mt-1 px-4 py-2 rounded-full bg-blue-600 hover:bg-blue-500 text-white text-sm font-bold transition-colors"
+              className="mt-1 px-4 py-2 rounded-full bg-gold hover:bg-gold-deep text-white text-sm font-bold transition-colors"
             >
               다시 시도
             </button>
@@ -1246,10 +1246,10 @@ export default function MainPage() {
 
       {!isLoadingFacilities && !facilitiesLoadError && facilities.length === 0 && (
         <div className="absolute inset-0 z-30 flex items-center justify-center px-6 pointer-events-none">
-          <div className="bg-[#111622]/95 backdrop-blur-xl border border-white/10 rounded-2xl px-6 py-5 shadow-2xl flex flex-col items-center gap-2 max-w-xs text-center">
+          <div className="bg-white border border-line rounded-2xl px-6 py-5 shadow-[0_2px_14px_rgba(43,35,32,0.06)] flex flex-col items-center gap-2 max-w-xs text-center">
             <span className="text-2xl">🗺️</span>
-            <p className="text-white text-sm font-semibold">표시할 장소가 없어요</p>
-            <p className="text-gray-400 text-xs leading-relaxed">현재 지역에 등록된 장소 데이터가 없습니다.</p>
+            <p className="text-muk text-sm font-semibold">표시할 장소가 없어요</p>
+            <p className="text-muk-soft text-xs leading-relaxed">현재 지역에 등록된 장소 데이터가 없습니다.</p>
           </div>
         </div>
       )}
@@ -1325,10 +1325,10 @@ export default function MainPage() {
       {/* (b) 현재 카테고리 추천 후보 0건 — 카드가 조용히 사라지는 대신 안내 표시 */}
       {!isLoadingFacilities && !facilitiesLoadError && facilities.length > 0 && !selectedFacility && noRecommendation && (
         <div className="absolute bottom-[90px] w-full z-20 px-4">
-          <div className="bg-[#111622]/95 backdrop-blur-xl border border-white/10 rounded-2xl px-5 py-4 shadow-2xl flex flex-col items-center gap-1.5 text-center">
+          <div className="bg-white border border-line rounded-2xl px-5 py-4 shadow-[0_2px_14px_rgba(43,35,32,0.06)] flex flex-col items-center gap-1.5 text-center">
             <span className="text-xl">🧭</span>
-            <p className="text-white text-sm font-semibold">이 카테고리엔 지금 추천할 곳이 없어요</p>
-            <p className="text-gray-400 text-xs leading-relaxed">다른 카테고리를 선택하거나 잠시 후 다시 확인해 주세요.</p>
+            <p className="text-muk text-sm font-semibold">이 카테고리엔 지금 추천할 곳이 없어요</p>
+            <p className="text-muk-soft text-xs leading-relaxed">다른 카테고리를 선택하거나 잠시 후 다시 확인해 주세요.</p>
           </div>
         </div>
       )}
@@ -1336,28 +1336,28 @@ export default function MainPage() {
       {/* Test Mock Sidebar (Right Side) */}
       <div className="absolute right-4 top-[170px] z-20 flex flex-col gap-3 pointer-events-auto">
         {/* Location Mock */}
-        <div className="bg-[#111622]/90 backdrop-blur-xl border border-white/10 rounded-2xl shadow-lg flex flex-col overflow-hidden transition-all duration-300">
-          <div 
-            className="px-3 py-2 flex items-center justify-between cursor-pointer hover:bg-white/5 active:bg-white/10 transition-colors"
+        <div className="bg-white/90 backdrop-blur border border-line rounded-2xl shadow-[0_2px_14px_rgba(43,35,32,0.06)] flex flex-col overflow-hidden transition-all duration-300">
+          <div
+            className="px-3 py-2 flex items-center justify-between cursor-pointer hover:bg-hanji-deep active:bg-hanji-deep transition-colors"
             onClick={() => setIsMockLocationMinimized(!isMockLocationMinimized)}
           >
             <div className="flex items-center gap-1.5">
-              <span className="text-cyan-400">📍</span>
+              <span className="text-terracotta">📍</span>
               {!isMockLocationMinimized && (
-                <span className="text-[10px] text-cyan-400 font-bold uppercase tracking-wider">
+                <span className="text-[10px] text-muk-soft font-bold tracking-wider">
                   위치 모킹
                 </span>
               )}
             </div>
             {isMockLocationMinimized ? (
-              <ChevronDown size={14} className="text-gray-400" />
+              <ChevronDown size={14} className="text-muk-soft" />
             ) : (
-              <ChevronUp size={14} className="text-gray-400 ml-2" />
+              <ChevronUp size={14} className="text-muk-soft ml-2" />
             )}
           </div>
-          
+
           {!isMockLocationMinimized && (
-            <div className="px-3 pb-3 border-t border-white/5">
+            <div className="px-3 pb-3 border-t border-line">
               <div className="grid grid-cols-1 gap-1.5 w-36 mt-2">
                 {REGION.presets.map((loc) => {
                   const isCurrent = Math.abs(userLocation.lat - loc.lat) < 0.0001 && Math.abs(userLocation.lng - loc.lng) < 0.0001;
@@ -1376,8 +1376,8 @@ export default function MainPage() {
                       }}
                       className={`py-1.5 px-2 rounded-lg text-xs font-bold transition-all ${
                         isCurrent
-                          ? 'bg-blue-600 text-white border border-blue-400 shadow-md shadow-blue-500/25'
-                          : 'bg-white/5 border border-white/10 text-gray-300 hover:bg-white/10'
+                          ? 'bg-gold text-white border border-gold-deep shadow-sm'
+                          : 'bg-hanji border border-line text-muk-soft hover:bg-hanji-deep'
                       }`}
                     >
                       {loc.name}
@@ -1390,28 +1390,28 @@ export default function MainPage() {
         </div>
 
         {/* Time Mock */}
-        <div className="bg-[#111622]/90 backdrop-blur-xl border border-white/10 rounded-2xl shadow-lg flex flex-col overflow-hidden transition-all duration-300">
-          <div 
-            className="px-3 py-2 flex items-center justify-between cursor-pointer hover:bg-white/5 active:bg-white/10 transition-colors"
+        <div className="bg-white/90 backdrop-blur border border-line rounded-2xl shadow-[0_2px_14px_rgba(43,35,32,0.06)] flex flex-col overflow-hidden transition-all duration-300">
+          <div
+            className="px-3 py-2 flex items-center justify-between cursor-pointer hover:bg-hanji-deep active:bg-hanji-deep transition-colors"
             onClick={() => setIsMockTimeMinimized(!isMockTimeMinimized)}
           >
             <div className="flex items-center gap-1.5">
-              <span className="text-purple-400">🕒</span>
+              <span className="text-jade">🕒</span>
               {!isMockTimeMinimized && (
-                <span className="text-[10px] text-purple-400 font-bold uppercase tracking-wider">
+                <span className="text-[10px] text-muk-soft font-bold tracking-wider">
                   시간 모킹
                 </span>
               )}
             </div>
             {isMockTimeMinimized ? (
-              <ChevronDown size={14} className="text-gray-400" />
+              <ChevronDown size={14} className="text-muk-soft" />
             ) : (
-              <ChevronUp size={14} className="text-gray-400 ml-2" />
+              <ChevronUp size={14} className="text-muk-soft ml-2" />
             )}
           </div>
-          
+
           {!isMockTimeMinimized && (
-            <div className="px-3 pb-3 border-t border-white/5">
+            <div className="px-3 pb-3 border-t border-line">
               <div className="grid grid-cols-1 gap-1.5 w-32 mt-2">
                 {[
                   { name: "현재 시간", value: null },
@@ -1428,8 +1428,8 @@ export default function MainPage() {
                       }}
                       className={`py-1.5 px-2 rounded-lg text-xs font-bold transition-all ${
                         isCurrent
-                          ? 'bg-purple-600 text-white border border-purple-400 shadow-md shadow-purple-500/25'
-                          : 'bg-white/5 border border-white/10 text-gray-300 hover:bg-white/10'
+                          ? 'bg-gold text-white border border-gold-deep shadow-sm'
+                          : 'bg-hanji border border-line text-muk-soft hover:bg-hanji-deep'
                       }`}
                     >
                       {timeOption.name}
@@ -1449,7 +1449,7 @@ export default function MainPage() {
       {/* Toast Notification */}
       {toastMessage && (
         <div className="fixed bottom-[350px] left-1/2 z-50 pointer-events-none flex justify-center w-full max-w-sm px-4 animate-toast">
-          <div className="bg-black/85 backdrop-blur-md text-white text-xs sm:text-sm px-5 py-3 rounded-full shadow-lg text-center font-medium break-keep w-max max-w-full">
+          <div className="bg-muk/90 backdrop-blur-md text-hanji text-xs sm:text-sm px-5 py-3 rounded-full shadow-[0_2px_14px_rgba(43,35,32,0.14)] text-center font-medium break-keep w-max max-w-full">
             {toastMessage}
           </div>
         </div>

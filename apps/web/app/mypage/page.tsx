@@ -129,26 +129,24 @@ export default function MyPage() {
 
 
   return (
-    <div className="relative w-full h-[100dvh] bg-gradient-to-b from-[#0b101e] via-[#0d1526] to-[#070b16] flex flex-col overflow-hidden">
-      {/* Dark overlay for readability */}
-      <div className="absolute inset-0 bg-[#0b101e]/80 z-0"></div>
+    <div className="relative w-full h-[100dvh] bg-hanji flex flex-col overflow-hidden">
 
-      {/* Header */}
+      {/* 헤더 */}
       <header className="flex justify-between items-center p-5 z-10 relative">
         <button
           type="button"
           aria-label="메뉴"
           onClick={handleComingSoon}
-          className="text-gray-400 hover:text-white transition-colors"
+          className="text-muk-soft hover:text-muk transition-colors"
         >
           <Menu size={24} />
         </button>
-        <h1 className="text-xl font-bold text-white tracking-wide">NextSpot</h1>
+        <h1 className="text-xl font-bold font-serif text-muk tracking-wide">NextSpot</h1>
         <button
           type="button"
           aria-label="알림"
           onClick={handleComingSoon}
-          className="text-gray-400 hover:text-white transition-colors"
+          className="text-muk-soft hover:text-muk transition-colors"
         >
           <Bell size={24} />
         </button>
@@ -158,67 +156,67 @@ export default function MyPage() {
       <main className="flex-1 flex flex-col relative z-10 px-6 overflow-y-auto pb-[120px] no-scrollbar">
         {isLoading || !profile ? (
           <div className="flex-1 flex items-center justify-center">
-            <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+            <div className="w-8 h-8 border-4 border-gold border-t-transparent rounded-full animate-spin"></div>
           </div>
         ) : (
           <div className="flex flex-col animate-fade-in mt-4">
             
             {/* Profile Section */}
-            <div className="bg-[#131a28]/60 backdrop-blur-xl border border-white/5 rounded-3xl p-6 flex flex-col items-center shadow-lg mb-4">
-              <div className="w-20 h-20 rounded-full bg-gradient-to-tr from-blue-600 to-cyan-400 p-0.5 mb-4 shadow-[0_0_15px_rgba(30,92,220,0.5)]">
-                <div className="w-full h-full rounded-full overflow-hidden bg-[#0b101e]">
-                  {/* Placeholder Avatar */}
-                  <div className="w-full h-full flex items-center justify-center text-blue-300">
+            <div className="bg-white border border-line rounded-3xl p-6 flex flex-col items-center shadow-[0_2px_14px_rgba(43,35,32,0.06)] mb-4">
+              <div className="w-20 h-20 rounded-full bg-gradient-to-tr from-gold to-terracotta p-0.5 mb-4">
+                <div className="w-full h-full rounded-full overflow-hidden bg-hanji">
+                  {/* 기본 아바타 */}
+                  <div className="w-full h-full flex items-center justify-center text-gold">
                     <User size={40} />
                   </div>
                 </div>
               </div>
-              <h2 className="text-2xl font-bold text-white mb-1">{profile.name}</h2>
-              <p className="text-sm text-gray-400 mb-4">{profile.email}</p>
-              
-              <div className="px-4 py-1 rounded-full bg-blue-900/40 border border-blue-500/30 text-blue-300 text-xs font-semibold mb-6">
+              <h2 className="text-2xl font-bold font-serif text-muk mb-1">{profile.name}</h2>
+              <p className="text-sm text-muk-soft mb-4">{profile.email}</p>
+
+              <div className="px-4 py-1 rounded-full bg-gold/15 border border-gold/30 text-gold-deep text-xs font-semibold mb-6">
                 {profile.role}
               </div>
 
               <button
                 type="button"
                 onClick={handleComingSoon}
-                className="flex items-center gap-2 px-5 py-2.5 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 text-white text-sm font-medium transition-colors"
+                className="flex items-center gap-2 px-5 py-2.5 rounded-xl border border-line bg-hanji hover:bg-hanji-deep text-muk text-sm font-medium transition-colors"
               >
                 <Edit2 size={14} />
-                <span>Edit Profile</span>
+                <span>프로필 수정</span>
               </button>
             </div>
 
             {/* 8-Dimensional User Vector Embedding Card */}
-            <div className="bg-[#131a28]/60 backdrop-blur-xl border border-white/5 rounded-3xl p-6 shadow-lg mb-4">
-              <h3 className="text-sm font-bold text-sky-400 mb-3 uppercase tracking-wider flex items-center gap-2">
+            <div className="bg-white border border-line rounded-3xl p-6 shadow-[0_2px_14px_rgba(43,35,32,0.06)] mb-4">
+              <h3 className="text-sm font-bold text-gold-deep mb-3 tracking-wider flex items-center gap-2">
                 <Sparkles size={16} />
                 <span>8차원 선호도 벡터 임베딩 (실시간 강화학습 수치)</span>
               </h3>
               {userVector ? (
                 <div className="space-y-3">
-                  <div className="text-[11px] text-slate-300 bg-slate-950/60 p-3 rounded-xl border border-white/5 font-mono select-all break-all leading-relaxed">
+                  <div className="text-[11px] text-muk-soft bg-hanji p-3 rounded-xl border border-line font-mono select-all break-all leading-relaxed">
                     [{userVector.map(v => v.toFixed(4)).join(', ')}]
                   </div>
                   <div className="grid grid-cols-8 gap-1">
                     {userVector.map((val, idx) => (
                       <div key={idx} className="flex flex-col items-center gap-1">
-                        <div className="w-full bg-slate-950/40 rounded h-16 border border-white/5 relative overflow-hidden">
-                          <div 
-                            className="bg-gradient-to-t from-blue-600 to-sky-400 absolute bottom-0 left-0 right-0 rounded-t-sm transition-all duration-500" 
-                            style={{ height: `${Math.max(0, Math.min(100, (val + 1) * 50))}%` }} 
+                        <div className="w-full bg-hanji-deep rounded h-16 border border-line relative overflow-hidden">
+                          <div
+                            className="bg-gradient-to-t from-gold to-sunset-1 absolute bottom-0 left-0 right-0 rounded-t-sm transition-all duration-500"
+                            style={{ height: `${Math.max(0, Math.min(100, (val + 1) * 50))}%` }}
                           />
                         </div>
-                        <span className="text-[9px] text-gray-500 font-mono">D{idx+1}</span>
-                        <span className="text-[8px] font-bold text-sky-300 font-mono">{val.toFixed(2)}</span>
+                        <span className="text-[9px] text-muk-soft font-mono">D{idx+1}</span>
+                        <span className="text-[8px] font-bold text-gold-deep font-mono">{val.toFixed(2)}</span>
                       </div>
                     ))}
                   </div>
                 </div>
               ) : (
                 <div className="flex justify-center py-4">
-                  <div className="w-5 h-5 border-2 border-sky-400 border-t-transparent rounded-full animate-spin"></div>
+                  <div className="w-5 h-5 border-2 border-gold border-t-transparent rounded-full animate-spin"></div>
                 </div>
               )}
             </div>
@@ -228,47 +226,47 @@ export default function MyPage() {
 
             {/* Stats Section */}
             <div className="grid grid-cols-3 gap-3 mb-6">
-              <div className="bg-[#131a28]/60 backdrop-blur-xl border border-white/5 rounded-2xl p-4 flex flex-col items-center justify-center shadow-md">
-                <div className="text-xl font-bold text-white mb-1">{profile.routes}</div>
-                <div className="text-xs text-gray-400 font-medium">Routes</div>
+              <div className="bg-white border border-line rounded-2xl p-4 flex flex-col items-center justify-center shadow-[0_2px_14px_rgba(43,35,32,0.06)]">
+                <div className="text-xl font-bold text-muk mb-1">{profile.routes}</div>
+                <div className="text-xs text-muk-soft font-medium">경로</div>
               </div>
-              <div className="bg-[#131a28]/60 backdrop-blur-xl border border-white/5 rounded-2xl p-4 flex flex-col items-center justify-center shadow-md">
-                <Bookmark size={20} className="text-[#fca5a5] mb-2" fill="currentColor" />
-                <div className="text-xl font-bold text-white mb-1">{profile.saved}</div>
-                <div className="text-xs text-gray-400 font-medium">Saved</div>
+              <div className="bg-white border border-line rounded-2xl p-4 flex flex-col items-center justify-center shadow-[0_2px_14px_rgba(43,35,32,0.06)]">
+                <Bookmark size={20} className="text-terracotta mb-2" fill="currentColor" />
+                <div className="text-xl font-bold text-muk mb-1">{profile.saved}</div>
+                <div className="text-xs text-muk-soft font-medium">저장</div>
               </div>
-              <div className="bg-[#131a28]/60 backdrop-blur-xl border border-white/5 rounded-2xl p-4 flex flex-col items-center justify-center shadow-md">
-                <Star size={20} className="text-white mb-2" fill="currentColor" />
-                <div className="text-xl font-bold text-white mb-1">{profile.rating}</div>
-                <div className="text-xs text-gray-400 font-medium">Rating</div>
+              <div className="bg-white border border-line rounded-2xl p-4 flex flex-col items-center justify-center shadow-[0_2px_14px_rgba(43,35,32,0.06)]">
+                <Star size={20} className="text-gold mb-2" fill="currentColor" />
+                <div className="text-xl font-bold text-muk mb-1">{profile.rating}</div>
+                <div className="text-xs text-muk-soft font-medium">평점</div>
               </div>
             </div>
 
             {/* Menu List */}
-            <div className="bg-[#131a28]/60 backdrop-blur-xl border border-white/5 rounded-3xl overflow-hidden shadow-lg mb-6">
-              
-              {/* 이상 혼잡 알림 (Anomaly Alert) Toggle */}
-              <div className="flex items-center justify-between p-5 border-b border-white/5">
+            <div className="bg-white border border-line rounded-3xl overflow-hidden shadow-[0_2px_14px_rgba(43,35,32,0.06)] mb-6">
+
+              {/* 이상 혼잡 알림 토글 */}
+              <div className="flex items-center justify-between p-5 border-b border-line">
                 <div className="flex items-center gap-4">
-                  <div className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center">
-                    <BellRing size={20} className="text-gray-300" />
+                  <div className="w-10 h-10 rounded-full bg-hanji-deep flex items-center justify-center">
+                    <BellRing size={20} className="text-muk-soft" />
                   </div>
-                  <span className="text-white font-medium">이상 혼잡 알림</span>
+                  <span className="text-muk font-medium">이상 혼잡 알림</span>
                 </div>
-                {/* Toggle Switch */}
-                <button 
+                {/* 토글 스위치 */}
+                <button
                   onClick={() => handleUpdateProfile({ alertEnabled: !profile.alertEnabled })}
-                  className={`w-12 h-6 rounded-full p-1 transition-colors ${profile.alertEnabled ? 'bg-blue-600' : 'bg-gray-600'}`}
+                  className={`w-12 h-6 rounded-full p-1 transition-colors ${profile.alertEnabled ? 'bg-gold' : 'bg-muk-soft/40'}`}
                 >
                   <div className={`w-4 h-4 bg-white rounded-full shadow-md transform transition-transform ${profile.alertEnabled ? 'translate-x-6' : 'translate-x-0'}`} />
                 </button>
               </div>
 
-              {/* Other Menus */}
+              {/* 기타 메뉴 */}
               {[
-                { id: 'privacy', icon: Shield, label: 'Privacy', path: '#' },
-                { id: 'help', icon: HelpCircle, label: 'Help & Support', path: '/mypage/support' },
-                { id: 'settings', icon: SettingsIcon, label: 'Settings', path: '#' },
+                { id: 'privacy', icon: Shield, label: '개인정보', path: '#' },
+                { id: 'help', icon: HelpCircle, label: '고객지원', path: '/mypage/support' },
+                { id: 'settings', icon: SettingsIcon, label: '설정', path: '#' },
               ].map((menu, index) => {
                 const Icon = menu.icon;
                 return (
@@ -280,15 +278,15 @@ export default function MyPage() {
                       if (menu.path === '#') { handleComingSoon(); return; }
                       router.push(menu.path);
                     }}
-                    className={`w-full flex items-center justify-between p-5 hover:bg-white/5 transition-colors ${index !== 2 ? 'border-b border-white/5' : ''}`}
+                    className={`w-full flex items-center justify-between p-5 hover:bg-hanji transition-colors ${index !== 2 ? 'border-b border-line' : ''}`}
                   >
                     <div className="flex items-center gap-4">
-                      <div className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center">
-                        <Icon size={20} className="text-gray-300" />
+                      <div className="w-10 h-10 rounded-full bg-hanji-deep flex items-center justify-center">
+                        <Icon size={20} className="text-muk-soft" />
                       </div>
-                      <span className="text-white font-medium">{menu.label}</span>
+                      <span className="text-muk font-medium">{menu.label}</span>
                     </div>
-                    <ChevronRight size={20} className="text-gray-500" />
+                    <ChevronRight size={20} className="text-muk-soft" />
                   </button>
                 );
               })}
@@ -298,10 +296,10 @@ export default function MyPage() {
             <button
               type="button"
               onClick={handleSignOut}
-              className="w-full flex items-center justify-center gap-2 py-4 rounded-2xl border border-white/5 bg-transparent hover:bg-white/5 text-gray-500 font-semibold transition-colors mb-4"
+              className="w-full flex items-center justify-center gap-2 py-4 rounded-2xl border border-line bg-transparent hover:bg-hanji-deep text-muk-soft font-semibold transition-colors mb-4"
             >
-              <LogOut size={18} className="text-[#fca5a5]" />
-              <span className="text-[#fca5a5]/80">SIGN OUT</span>
+              <LogOut size={18} className="text-terracotta" />
+              <span className="text-terracotta">로그아웃</span>
             </button>
 
           </div>

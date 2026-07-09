@@ -104,28 +104,28 @@ export default function TasteRadar() {
   }, []);
 
   return (
-    <div className="bg-[#131a28]/60 backdrop-blur-xl border border-white/5 rounded-3xl p-6 shadow-lg mb-4">
+    <div className="bg-white border border-line rounded-3xl p-6 shadow-[0_2px_14px_rgba(43,35,32,0.06)] mb-4">
       {/* 섹션 헤더 + 벡터 출처 배지 */}
       <div className="flex items-center justify-between mb-1">
-        <h3 className="text-sm font-bold text-sky-400 uppercase tracking-wider flex items-center gap-2">
+        <h3 className="text-sm font-bold text-gold-deep tracking-wider flex items-center gap-2">
           <Fingerprint size={16} />
           <span>AI 취향 프로필</span>
         </h3>
         {taste && taste.source !== 'default' && (
           <span className={`text-[10px] font-semibold px-2.5 py-1 rounded-full border ${
             taste.source === 'learned'
-              ? 'bg-blue-900/40 border-blue-500/30 text-blue-300'
-              : 'bg-white/5 border-white/10 text-gray-400'
+              ? 'bg-gold/15 border-gold/30 text-gold-deep'
+              : 'bg-hanji-deep border-line text-muk-soft'
           }`}>
             {taste.source === 'learned' ? '실시간 학습 반영' : '온보딩 선호 기반 (아직 학습 전)'}
           </span>
         )}
       </div>
-      <p className="text-xs text-gray-500 mb-2">추천 엔진이 이해한 나의 여행 성향 8차원</p>
+      <p className="text-xs text-muk-soft mb-2">추천 엔진이 이해한 나의 여행 성향 8차원</p>
 
       {!taste ? (
         <div className="flex justify-center py-10">
-          <div className="w-5 h-5 border-2 border-sky-400 border-t-transparent rounded-full animate-spin"></div>
+          <div className="w-5 h-5 border-2 border-gold border-t-transparent rounded-full animate-spin"></div>
         </div>
       ) : (
         <>
@@ -139,25 +139,25 @@ export default function TasteRadar() {
                 }))}
                 outerRadius="72%"
               >
-                <PolarGrid stroke="rgba(255,255,255,0.08)" />
-                <PolarAngleAxis dataKey="label" tick={{ fill: '#94a3b8', fontSize: 11 }} />
+                <PolarGrid stroke="rgba(43,35,32,0.12)" />
+                <PolarAngleAxis dataKey="label" tick={{ fill: '#6b5d4f', fontSize: 11 }} />
                 <Tooltip
                   formatter={(value) => [`${value} / 100`, '선호 강도']}
                   contentStyle={{
                     borderRadius: '8px',
-                    backgroundColor: '#0f172a',
-                    border: '1px solid #1e293b',
-                    color: '#e2e8f0',
+                    backgroundColor: '#ffffff',
+                    border: '1px solid #e6dcc6',
+                    color: '#2b2320',
                     fontSize: '12px',
                   }}
                 />
                 <Radar
                   name="취향 프로필"
                   dataKey="value"
-                  stroke="#38bdf8"
+                  stroke="#c19a3e"
                   strokeWidth={2}
-                  fill="#38bdf8"
-                  fillOpacity={0.25}
+                  fill="#c19a3e"
+                  fillOpacity={0.22}
                 />
               </RadarChart>
             </ResponsiveContainer>
@@ -167,12 +167,12 @@ export default function TasteRadar() {
             /* 선호 미설정: 균등 벡터 + 온보딩 유도 CTA */
             <Link
               href="/setup"
-              className="mt-3 flex items-center justify-between px-4 py-3 rounded-xl bg-blue-600/15 border border-blue-500/30 hover:bg-blue-600/25 transition-colors"
+              className="mt-3 flex items-center justify-between px-4 py-3 rounded-xl bg-gold/15 border border-gold/30 hover:bg-gold/25 transition-colors"
             >
-              <span className="text-sm text-blue-200 font-medium break-keep">
+              <span className="text-sm text-muk font-medium break-keep">
                 선호를 설정하면 나만의 프로필이 만들어져요
               </span>
-              <ArrowRight size={16} className="text-blue-300 shrink-0 ml-2" />
+              <ArrowRight size={16} className="text-gold-deep shrink-0 ml-2" />
             </Link>
           ) : (
             /* 상위 2개 성향 태그 (가장 높은 두 차원) */
@@ -184,7 +184,7 @@ export default function TasteRadar() {
                 .map(({ idx }) => (
                   <span
                     key={idx}
-                    className="px-3 py-1.5 rounded-full bg-sky-900/40 border border-sky-500/30 text-sky-300 text-xs font-semibold"
+                    className="px-3 py-1.5 rounded-full bg-jade/15 border border-jade/30 text-jade text-xs font-semibold"
                   >
                     {DIMENSION_TAGS[idx]}
                   </span>
@@ -193,19 +193,19 @@ export default function TasteRadar() {
           )}
 
           {/* 피드백 학습 루프 설명 (수락 +10% / 거절 −5% 벡터 보정) */}
-          <div className="mt-4 px-4 py-3 rounded-xl bg-white/[0.03] border border-white/5">
+          <div className="mt-4 px-4 py-3 rounded-xl bg-hanji border border-line">
             <div className="flex items-center justify-center gap-4 text-xs mb-1.5">
-              <span className="flex items-center gap-1.5 text-emerald-300">
+              <span className="flex items-center gap-1.5 text-jade">
                 <ThumbsUp size={13} />
                 <span className="font-semibold">수락 +10%</span>
               </span>
-              <span className="text-gray-600">·</span>
-              <span className="flex items-center gap-1.5 text-rose-300">
+              <span className="text-muk-soft">·</span>
+              <span className="flex items-center gap-1.5 text-terracotta">
                 <ThumbsDown size={13} />
                 <span className="font-semibold">거절 −5%</span>
               </span>
             </div>
-            <p className="text-[11px] text-gray-500 text-center leading-relaxed break-keep">
+            <p className="text-[11px] text-muk-soft text-center leading-relaxed break-keep">
               추천에 남긴 피드백이 벡터를 보정해, 쓰면 쓸수록 추천이 나에게 맞춰져요.
             </p>
           </div>

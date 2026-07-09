@@ -75,7 +75,7 @@ function StepBanner({
   color: 'blue' | 'amber' | 'emerald';
 }) {
   const palette: Record<string, string> = {
-    blue: 'bg-blue-500/15 text-blue-300 border-blue-500/30',
+    blue: 'bg-gold/15 text-gold border-gold/30',
     amber: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
     emerald: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
   };
@@ -87,8 +87,8 @@ function StepBanner({
         {badge}
       </span>
       <div className="min-w-0">
-        <h3 className="text-base font-bold text-slate-100 leading-tight">{title}</h3>
-        <p className="text-xs text-slate-500 truncate">{subtitle}</p>
+        <h3 className="text-base font-bold text-hanok-ink leading-tight">{title}</h3>
+        <p className="text-xs text-hanok-muted truncate">{subtitle}</p>
       </div>
     </div>
   );
@@ -98,10 +98,10 @@ function StepBanner({
 function InfoTip({ text }: { text: string }) {
   return (
     <span className="relative inline-flex align-middle group/tip">
-      <Info size={14} className="text-slate-500 hover:text-slate-300 cursor-help" />
+      <Info size={14} className="text-hanok-muted hover:text-hanok-muted cursor-help" />
       <span
         role="tooltip"
-        className="pointer-events-none absolute right-0 top-6 z-30 w-48 rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-left text-[11px] font-normal leading-snug text-slate-300 opacity-0 shadow-xl transition-opacity duration-150 group-hover/tip:opacity-100"
+        className="pointer-events-none absolute right-0 top-6 z-30 w-48 rounded-lg border border-hanok-line bg-hanok-card px-3 py-2 text-left text-[11px] font-normal leading-snug text-hanok-muted opacity-0 shadow-xl transition-opacity duration-150 group-hover/tip:opacity-100"
       >
         {text}
       </span>
@@ -355,9 +355,9 @@ export default function DashboardPage() {
 
   if (loading || !data) {
     return (
-      <div className="flex h-screen w-screen bg-[#070b19] items-center justify-center font-sans text-slate-400">
+      <div className="flex h-screen w-screen bg-hanok items-center justify-center font-sans text-hanok-muted">
         <div className="flex flex-col items-center gap-4">
-          <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+          <div className="w-10 h-10 border-4 border-gold border-t-transparent rounded-full animate-spin"></div>
           <p className="font-semibold text-sm">대시보드 데이터를 조회 중입니다...</p>
         </div>
       </div>
@@ -400,7 +400,7 @@ export default function DashboardPage() {
   };
 
   return (
-    <div className="flex h-screen bg-[#070b19] text-slate-100 font-sans overflow-hidden">
+    <div className="flex h-screen bg-hanok text-hanok-ink font-sans overflow-hidden">
 
       {/* Sidebar */}
       <AdminSidebar />
@@ -408,28 +408,28 @@ export default function DashboardPage() {
       {/* Main Content */}
       <main className="flex-1 flex flex-col h-full overflow-hidden">
         {/* Top Header */}
-        <header className="h-20 bg-slate-900 border-b border-slate-800 flex items-center justify-between px-8 flex-shrink-0">
+        <header className="h-20 bg-hanok-panel border-b border-hanok-line flex items-center justify-between px-8 flex-shrink-0">
           <div className="flex items-center gap-4">
-            <h2 className="text-xl font-bold text-slate-100">경주 관광 혼잡 종합 대시보드</h2>
+            <h2 className="text-xl font-bold text-hanok-ink">경주 관광 혼잡 종합 대시보드</h2>
             <ModelAccuracyBadge />
             <DataFreshnessBadge />
           </div>
           <div className="flex items-center gap-6">
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-hanok-muted" size={18} />
               <input
                 type="text"
                 placeholder="Search..."
-                className="pl-10 pr-4 py-2 bg-slate-800 text-slate-100 placeholder-slate-500 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 w-64"
+                className="pl-10 pr-4 py-2 bg-hanok-card text-hanok-ink placeholder-hanok-muted rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gold w-64"
               />
             </div>
-            <button className="relative text-slate-400 hover:text-slate-200">
+            <button className="relative text-hanok-muted hover:text-hanok-ink">
               <Bell size={24} />
               {kpi.anomalyCount > 0 && (
-                <span className="absolute top-1 right-1 w-2.5 h-2.5 bg-rose-500 rounded-full border-2 border-slate-900"></span>
+                <span className="absolute top-1 right-1 w-2.5 h-2.5 bg-rose-500 rounded-full border-2 border-hanok-line"></span>
               )}
             </button>
-            <div className="w-10 h-10 rounded-full bg-blue-500/15 border border-blue-500/30 flex items-center justify-center font-bold text-blue-300">
+            <div className="w-10 h-10 rounded-full bg-gold/15 border border-gold/30 flex items-center justify-center font-bold text-gold">
               AD
             </div>
           </div>
@@ -445,7 +445,7 @@ export default function DashboardPage() {
             <button
               type="button"
               onClick={handleExportCsv}
-              className="flex items-center gap-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white font-semibold rounded-lg shadow-sm transition-colors text-sm cursor-pointer"
+              className="flex items-center gap-2 px-4 py-2 bg-hanok-line hover:bg-hanok-line text-white font-semibold rounded-lg shadow-sm transition-colors text-sm cursor-pointer"
             >
               <Download size={16} /> 데이터 내보내기 (CSV)
             </button>
@@ -462,9 +462,9 @@ export default function DashboardPage() {
           {/* KPI Cards (Server Rendered) */}
           <div className="grid grid-cols-4 gap-6">
             {/* 오늘 평균 혼잡도 */}
-            <div className="bg-slate-900 p-6 rounded-2xl border border-slate-800 shadow-sm flex flex-col justify-between">
+            <div className="bg-hanok-panel p-6 rounded-2xl border border-hanok-line shadow-sm flex flex-col justify-between">
               <div className="flex justify-between items-start mb-4">
-                <div className="p-3 bg-blue-500/10 rounded-xl text-blue-400">
+                <div className="p-3 bg-gold/10 rounded-xl text-gold">
                   <Activity size={24} />
                 </div>
                 <div className="flex items-center gap-2">
@@ -478,35 +478,35 @@ export default function DashboardPage() {
                 </div>
               </div>
               <div>
-                <h3 className="text-slate-400 text-sm font-semibold mb-1">오늘 평균 혼잡도</h3>
-                <div className="text-3xl font-black text-slate-100">
+                <h3 className="text-hanok-muted text-sm font-semibold mb-1">오늘 평균 혼잡도</h3>
+                <div className="text-3xl font-black text-hanok-ink">
                   {(kpi.avgCongestion.value * 100).toFixed(1)}%
                 </div>
               </div>
             </div>
 
             {/* 추천 수락률 */}
-            <div className="bg-slate-900 p-6 rounded-2xl border border-slate-800 shadow-sm flex flex-col justify-between">
+            <div className="bg-hanok-panel p-6 rounded-2xl border border-hanok-line shadow-sm flex flex-col justify-between">
               <div className="flex justify-between items-start mb-4">
-                <div className="p-3 bg-purple-500/10 rounded-xl text-purple-400">
+                <div className="p-3 bg-jade/10 rounded-xl text-jade">
                   <TrendingUp size={24} />
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="text-xs font-bold text-slate-500">지난 7일</span>
+                  <span className="text-xs font-bold text-hanok-muted">지난 7일</span>
                   <InfoTip text="지난 7일간 생성된 AI 대안 추천 중 사용자가 실제 수락한 비율입니다. (수락 건수 ÷ 전체 추천 건수)" />
                 </div>
               </div>
               <div>
-                <h3 className="text-slate-400 text-sm font-semibold mb-1">AI 추천 수락률</h3>
-                <div className="text-3xl font-black text-slate-100">
+                <h3 className="text-hanok-muted text-sm font-semibold mb-1">AI 추천 수락률</h3>
+                <div className="text-3xl font-black text-hanok-ink">
                   {(kpi.acceptRate.value * 100).toFixed(1)}%
                 </div>
-                <div className="text-xs text-slate-500 mt-1">총 {kpi.acceptRate.total}건 중 {kpi.acceptRate.accepted}건 수락</div>
+                <div className="text-xs text-hanok-muted mt-1">총 {kpi.acceptRate.total}건 중 {kpi.acceptRate.accepted}건 수락</div>
               </div>
             </div>
 
             {/* DAU */}
-            <div className="bg-slate-900 p-6 rounded-2xl border border-slate-800 shadow-sm flex flex-col justify-between">
+            <div className="bg-hanok-panel p-6 rounded-2xl border border-hanok-line shadow-sm flex flex-col justify-between">
               <div className="flex justify-between items-start mb-4">
                 <div className="p-3 bg-emerald-500/10 rounded-xl text-emerald-400">
                   <Users size={24} />
@@ -514,15 +514,15 @@ export default function DashboardPage() {
                 <InfoTip text="오늘(KST) 피드백을 남긴 순 사용자 수(DAU, Daily Active Users)입니다." />
               </div>
               <div>
-                <h3 className="text-slate-400 text-sm font-semibold mb-1">활성 사용자 수 (DAU)</h3>
-                <div className="text-3xl font-black text-slate-100">
+                <h3 className="text-hanok-muted text-sm font-semibold mb-1">활성 사용자 수 (DAU)</h3>
+                <div className="text-3xl font-black text-hanok-ink">
                   {kpi.activeUsers.toLocaleString()}명
                 </div>
               </div>
             </div>
 
             {/* 이상 혼잡 알림 건수 */}
-            <div className="bg-slate-900 p-6 rounded-2xl border border-slate-800 shadow-sm flex flex-col justify-between">
+            <div className="bg-hanok-panel p-6 rounded-2xl border border-hanok-line shadow-sm flex flex-col justify-between">
               <div className="flex justify-between items-start mb-4">
                 <div className="p-3 bg-rose-500/10 rounded-xl text-rose-400">
                   <AlertTriangle size={24} />
@@ -530,7 +530,7 @@ export default function DashboardPage() {
                 <InfoTip text="오늘(KST) 혼잡도 90% 이상 피크가 발생한 로그 건수입니다. 관제 임계치를 초과한 상황을 의미합니다." />
               </div>
               <div>
-                <h3 className="text-slate-400 text-sm font-semibold mb-1">이상 혼잡 발생 (오늘)</h3>
+                <h3 className="text-hanok-muted text-sm font-semibold mb-1">이상 혼잡 발생 (오늘)</h3>
                 <div className="text-3xl font-black text-rose-600">
                   {kpi.anomalyCount}건
                 </div>
@@ -581,10 +581,10 @@ export default function DashboardPage() {
             <FacilityTable />
 
             {/* Anomaly Alerts List (Server Rendered) */}
-            <div className="bg-slate-900 rounded-2xl border border-slate-800 shadow-sm overflow-hidden flex flex-col">
-              <div className="p-6 border-b border-slate-800 flex items-center gap-2 bg-slate-800/30">
+            <div className="bg-hanok-panel rounded-2xl border border-hanok-line shadow-sm overflow-hidden flex flex-col">
+              <div className="p-6 border-b border-hanok-line flex items-center gap-2 bg-hanok-card/30">
                 <AlertTriangle className="text-rose-400" size={20} />
-                <h3 className="text-lg font-bold text-slate-100">이상 혼잡 알림 내역</h3>
+                <h3 className="text-lg font-bold text-hanok-ink">이상 혼잡 알림 내역</h3>
               </div>
               <div className="flex-1 p-4 overflow-y-auto">
                 <div className="flex flex-col gap-3">
@@ -604,7 +604,7 @@ export default function DashboardPage() {
                     </div>
                   ))}
                   {anomalies.length === 0 && (
-                    <div className="text-center text-slate-500 py-10 text-sm">
+                    <div className="text-center text-hanok-muted py-10 text-sm">
                       현재 발생한 이상 알림이 없습니다.
                     </div>
                   )}

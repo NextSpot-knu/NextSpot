@@ -218,7 +218,7 @@ export default function InfrastructurePage() {
       case 'orange': return 'bg-orange-500';
       case 'yellow': return 'bg-amber-500';
       case 'green': return 'bg-emerald-500';
-      case 'blue': return 'bg-blue-500';
+      case 'blue': return 'bg-gold';
       default: return 'bg-gray-500';
     }
   };
@@ -240,29 +240,29 @@ export default function InfrastructurePage() {
   };
 
   return (
-    <div className="flex h-screen bg-[#070b19] text-slate-100 font-sans overflow-hidden">
+    <div className="flex h-screen bg-hanok text-hanok-ink font-sans overflow-hidden">
       <AdminSidebar />
 
       <main className="flex-1 flex flex-col h-full overflow-hidden">
         {/* Top Header */}
-        <header className="h-20 bg-slate-900 border-b border-slate-800 flex items-center justify-between px-8 flex-shrink-0">
-          <h2 className="text-xl font-bold text-slate-100">관광지 모니터링</h2>
+        <header className="h-20 bg-hanok-panel border-b border-hanok-line flex items-center justify-between px-8 flex-shrink-0">
+          <h2 className="text-xl font-bold text-hanok-ink">관광지 모니터링</h2>
           <div className="flex items-center gap-6">
             {/* 검색/알림은 아직 미구현 → 무반응(dead) 오해 방지를 위해 비활성 처리 */}
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-600" size={18} />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-hanok-muted" size={18} />
               <input
                 type="text"
                 placeholder="검색 준비 중"
                 disabled
                 title="검색 기능 준비 중"
-                className="pl-10 pr-4 py-2 bg-slate-800 text-slate-100 placeholder-slate-500 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 w-64 opacity-50 cursor-not-allowed"
+                className="pl-10 pr-4 py-2 bg-hanok-card text-hanok-ink placeholder-hanok-muted rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gold w-64 opacity-50 cursor-not-allowed"
               />
             </div>
             <button
               disabled
               title="알림 기능 준비 중"
-              className="relative text-slate-500 opacity-50 cursor-not-allowed"
+              className="relative text-hanok-muted opacity-50 cursor-not-allowed"
             >
               <Bell size={24} />
             </button>
@@ -273,8 +273,8 @@ export default function InfrastructurePage() {
         <div className="flex-1 flex overflow-hidden">
           
           {/* Master List */}
-          <div className="w-1/3 bg-slate-900 border-r border-slate-800 flex flex-col h-full">
-            <div className="p-4 border-b border-slate-800">
+          <div className="w-1/3 bg-hanok-panel border-r border-hanok-line flex flex-col h-full">
+            <div className="p-4 border-b border-hanok-line">
               <div className="flex gap-2 overflow-x-auto no-scrollbar pb-2">
                 {['음식점', '카페', '관광지', '문화시설'].map(filter => (
                   <button
@@ -285,8 +285,8 @@ export default function InfrastructurePage() {
                     }}
                     className={`px-4 py-1.5 rounded-full text-sm font-medium whitespace-nowrap transition-colors ${
                       activeFilter === filter
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                        ? 'bg-gold text-white'
+                        : 'bg-hanok-card text-hanok-muted hover:bg-hanok-line'
                     }`}
                   >
                     {filter}
@@ -296,8 +296,8 @@ export default function InfrastructurePage() {
             </div>
             <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-3">
               {loading ? (
-                <div className="flex flex-col items-center justify-center h-48 text-slate-400">
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mb-4" />
+                <div className="flex flex-col items-center justify-center h-48 text-hanok-muted">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gold mb-4" />
                   <p>데이터를 불러오는 중...</p>
                 </div>
               ) : error ? (
@@ -306,7 +306,7 @@ export default function InfrastructurePage() {
                   <p className="text-sm font-semibold">{error}</p>
                 </div>
               ) : filteredInfras.length === 0 ? (
-                <div className="text-center p-8 text-slate-400">
+                <div className="text-center p-8 text-hanok-muted">
                   등록된 장소가 없습니다.
                 </div>
               ) : (
@@ -316,20 +316,20 @@ export default function InfrastructurePage() {
                     onClick={() => setSelectedInfra(infra)}
                     className={`p-4 rounded-xl border cursor-pointer transition-all ${
                       selectedInfra?.id === infra.id
-                        ? 'border-blue-500 bg-blue-500/10 shadow-sm'
-                        : 'border-slate-800 bg-slate-900 hover:border-slate-700'
+                        ? 'border-gold bg-gold/10 shadow-sm'
+                        : 'border-hanok-line bg-hanok-panel hover:border-hanok-line'
                     }`}
                   >
                     <div className="flex justify-between items-start mb-2">
                       <div className="flex items-center gap-2">
-                        <span className="p-1.5 rounded-lg bg-slate-800 text-slate-300">
+                        <span className="p-1.5 rounded-lg bg-hanok-card text-hanok-muted">
                           {getTypeIcon(infra.type)}
                         </span>
-                        <h3 className="font-bold text-slate-100">{infra.name}</h3>
+                        <h3 className="font-bold text-hanok-ink">{infra.name}</h3>
                       </div>
                       <div className={`w-3 h-3 rounded-full ${getStatusColor(infra.status)} mt-1`} />
                     </div>
-                    <div className="text-sm text-slate-400 flex justify-between mt-3">
+                    <div className="text-sm text-hanok-muted flex justify-between mt-3">
                       <span>수용 현황: {infra.capacity}</span>
                     </div>
                   </div>
@@ -338,8 +338,8 @@ export default function InfrastructurePage() {
             </div>
             {/* Pagination Controls */}
             {totalPages > 1 && (
-              <div className="flex flex-col gap-2 p-4 border-t border-slate-800 bg-slate-900 flex-shrink-0">
-                <div className="text-xs text-slate-400 font-medium text-center">
+              <div className="flex flex-col gap-2 p-4 border-t border-hanok-line bg-hanok-panel flex-shrink-0">
+                <div className="text-xs text-hanok-muted font-medium text-center">
                   총 {totalItems}개 중 {startIndex + 1}-{Math.min(startIndex + itemsPerPage, totalItems)}개 표시
                 </div>
                 <div className="flex items-center justify-center gap-2">
@@ -347,7 +347,7 @@ export default function InfrastructurePage() {
                     onClick={() => setCurrentPage(prev => Math.max(prev - 10, 1))}
                     disabled={currentPage === 1}
                     title="10페이지 이전"
-                    className="p-1 rounded border border-slate-800 text-slate-300 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="p-1 rounded border border-hanok-line text-hanok-muted hover:bg-hanok-card disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <ChevronsLeft size={16} />
                   </button>
@@ -355,18 +355,18 @@ export default function InfrastructurePage() {
                     onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
                     disabled={currentPage === 1}
                     title="이전 페이지"
-                    className="p-1 rounded border border-slate-800 text-slate-300 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="p-1 rounded border border-hanok-line text-hanok-muted hover:bg-hanok-card disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <ChevronLeft size={16} />
                   </button>
-                  <span className="text-xs text-slate-300 font-semibold px-2">
+                  <span className="text-xs text-hanok-muted font-semibold px-2">
                     {currentPage} / {totalPages}
                   </span>
                   <button
                     onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
                     disabled={currentPage === totalPages}
                     title="다음 페이지"
-                    className="p-1 rounded border border-slate-800 text-slate-300 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="p-1 rounded border border-hanok-line text-hanok-muted hover:bg-hanok-card disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <ChevronRight size={16} />
                   </button>
@@ -374,7 +374,7 @@ export default function InfrastructurePage() {
                     onClick={() => setCurrentPage(prev => Math.min(prev + 10, totalPages))}
                     disabled={currentPage === totalPages}
                     title="10페이지 다음"
-                    className="p-1 rounded border border-slate-800 text-slate-300 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="p-1 rounded border border-hanok-line text-hanok-muted hover:bg-hanok-card disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <ChevronsRight size={16} />
                   </button>
@@ -384,31 +384,31 @@ export default function InfrastructurePage() {
           </div>
 
           {/* Detail Panel */}
-          <div className="flex-1 bg-slate-950 p-8 overflow-y-auto">
+          <div className="flex-1 bg-hanok p-8 overflow-y-auto">
             {loading && !selectedInfra ? (
-              <div className="flex flex-col items-center justify-center h-full text-slate-400">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mb-4" />
+              <div className="flex flex-col items-center justify-center h-full text-hanok-muted">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gold mb-4" />
                 <p>상세 정보를 불러오는 중...</p>
               </div>
             ) : selectedInfra ? (
               <div className="max-w-3xl mx-auto flex flex-col gap-6 animate-fade-in">
 
                 {/* Detail Header */}
-                <div className="bg-slate-900 p-6 rounded-2xl border border-slate-800 shadow-sm flex justify-between items-start">
+                <div className="bg-hanok-panel p-6 rounded-2xl border border-hanok-line shadow-sm flex justify-between items-start">
                   <div>
                     <div className="flex items-center gap-2 mb-2">
-                      <span className="px-2 py-0.5 rounded text-xs font-semibold bg-blue-500/15 text-blue-300">
+                      <span className="px-2 py-0.5 rounded text-xs font-semibold bg-gold/15 text-gold">
                         {selectedInfra.type}
                       </span>
-                      <span className="text-sm font-medium text-slate-400">ID: INF-{selectedInfra.id.substring(0, 8)}</span>
+                      <span className="text-sm font-medium text-hanok-muted">ID: INF-{selectedInfra.id.substring(0, 8)}</span>
                     </div>
-                    <h2 className="text-3xl font-black text-slate-100">{selectedInfra.name}</h2>
+                    <h2 className="text-3xl font-black text-hanok-ink">{selectedInfra.name}</h2>
                   </div>
                   <div className="flex flex-col items-end">
-                    <div className="text-sm font-semibold text-slate-400 mb-1">현재 상태</div>
-                    <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-slate-800 border border-slate-800">
+                    <div className="text-sm font-semibold text-hanok-muted mb-1">현재 상태</div>
+                    <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-hanok-card border border-hanok-line">
                       <div className={`w-3 h-3 rounded-full ${getStatusColor(selectedInfra.status)}`} />
-                      <span className="text-sm font-bold text-slate-200">
+                      <span className="text-sm font-bold text-hanok-ink">
                         {selectedInfra.status === 'orange' ? '혼잡' : selectedInfra.status === 'yellow' ? '보통' : selectedInfra.status === 'green' ? '여유' : '한산'}
                       </span>
                     </div>
@@ -417,41 +417,41 @@ export default function InfrastructurePage() {
 
                 {/* KPI Overview */}
                 <div className="grid grid-cols-2 gap-6">
-                  <div className="bg-slate-900 p-6 rounded-2xl border border-slate-800 shadow-sm">
-                    <div className="flex items-center gap-2 text-slate-400 mb-2">
+                  <div className="bg-hanok-panel p-6 rounded-2xl border border-hanok-line shadow-sm">
+                    <div className="flex items-center gap-2 text-hanok-muted mb-2">
                       <Users size={18} />
                       <span className="font-semibold text-sm">실시간 수용량</span>
                     </div>
-                    <div className="text-2xl font-bold text-slate-100">{selectedInfra.capacity}</div>
+                    <div className="text-2xl font-bold text-hanok-ink">{selectedInfra.capacity}</div>
                   </div>
-                  <div className="bg-slate-900 p-6 rounded-2xl border border-slate-800 shadow-sm border-l-4 border-l-blue-500">
-                    <div className="flex items-center gap-2 text-slate-400 mb-2">
+                  <div className="bg-hanok-panel p-6 rounded-2xl border border-hanok-line shadow-sm border-l-4 border-l-gold">
+                    <div className="flex items-center gap-2 text-hanok-muted mb-2">
                       <Activity size={18} />
                       <span className="font-semibold text-sm">예상 수요 (온보딩 데이터 기반)</span>
                     </div>
-                    <div className="text-lg font-bold text-blue-300">{selectedInfra.expectedDemand}</div>
-                    <p className="text-xs text-slate-500 mt-1">유저의 선호 메뉴 및 동선 데이터 분석 결과</p>
+                    <div className="text-lg font-bold text-gold">{selectedInfra.expectedDemand}</div>
+                    <p className="text-xs text-hanok-muted mt-1">유저의 선호 메뉴 및 동선 데이터 분석 결과</p>
                   </div>
                 </div>
 
                 {/* Time Series Chart */}
-                <div className="bg-slate-900 p-6 rounded-2xl border border-slate-800 shadow-sm flex flex-col h-[300px]">
-                  <h3 className="text-lg font-bold text-slate-100 mb-4 flex items-center gap-2">
-                    <Clock size={20} className="text-slate-400" />
+                <div className="bg-hanok-panel p-6 rounded-2xl border border-hanok-line shadow-sm flex flex-col h-[300px]">
+                  <h3 className="text-lg font-bold text-hanok-ink mb-4 flex items-center gap-2">
+                    <Clock size={20} className="text-hanok-muted" />
                     시간대별 혼잡도 추이 (금일)
                   </h3>
                   <div className="flex-1 w-full">
                     {chartData.length === 0 ? (
-                      <div className="flex items-center justify-center h-full text-slate-400">
+                      <div className="flex items-center justify-center h-full text-hanok-muted">
                         오늘 기록된 혼잡도 데이터가 없습니다.
                       </div>
                     ) : (
                       <ResponsiveContainer width="100%" height="100%">
                         <LineChart data={chartData} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
-                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#1e293b" />
-                          <XAxis dataKey="time" axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 12}} />
-                          <YAxis axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 12}} />
-                          <Tooltip contentStyle={{ borderRadius: '8px', backgroundColor: '#0f172a', border: '1px solid #1e293b', color: '#e2e8f0', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
+                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#3a2f24" />
+                          <XAxis dataKey="time" axisLine={false} tickLine={false} tick={{fill: '#b8a894', fontSize: 12}} />
+                          <YAxis axisLine={false} tickLine={false} tick={{fill: '#b8a894', fontSize: 12}} />
+                          <Tooltip contentStyle={{ borderRadius: '8px', backgroundColor: '#2c241c', border: '1px solid #3a2f24', color: '#e2e8f0', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
                           <Line type="monotone" dataKey="demand" stroke="#0ea5e9" strokeWidth={3} dot={{r: 4, strokeWidth: 2}} activeDot={{r: 6}} fill="url(#colorDemand)" />
                         </LineChart>
                       </ResponsiveContainer>
@@ -460,21 +460,21 @@ export default function InfrastructurePage() {
                 </div>
 
                 {/* Admin Actions */}
-                <div className="bg-slate-900 p-6 rounded-2xl border border-slate-800 shadow-sm flex flex-col gap-4">
-                  <h3 className="text-lg font-bold text-slate-100 flex items-center gap-2">
+                <div className="bg-hanok-panel p-6 rounded-2xl border border-hanok-line shadow-sm flex flex-col gap-4">
+                  <h3 className="text-lg font-bold text-hanok-ink flex items-center gap-2">
                     <AlertTriangle size={20} className="text-amber-500" />
                     관리자 액션
                   </h3>
                   <div className="flex gap-4">
                     <button
                       onClick={handleOverride}
-                      className="flex-1 bg-slate-800 border border-slate-700 hover:bg-slate-700 text-slate-200 font-semibold py-3 rounded-xl transition-colors"
+                      className="flex-1 bg-hanok-card border border-hanok-line hover:bg-hanok-line text-hanok-ink font-semibold py-3 rounded-xl transition-colors"
                     >
                       수동 상태 변경 (Override)
                     </button>
                     <button
                       onClick={handleDispatch}
-                      className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-xl transition-colors shadow-sm shadow-blue-500/30"
+                      className="flex-1 bg-gold hover:bg-gold-deep text-white font-semibold py-3 rounded-xl transition-colors shadow-sm shadow-gold/30"
                     >
                       근처 유저에게 분산 안내 발송
                     </button>
@@ -483,7 +483,7 @@ export default function InfrastructurePage() {
 
               </div>
             ) : (
-              <div className="flex flex-col items-center justify-center h-full text-slate-400">
+              <div className="flex flex-col items-center justify-center h-full text-hanok-muted">
                 <Building2 size={48} className="mb-4 opacity-50" />
                 <p>좌측 목록에서 인프라를 선택하여 상세 정보를 확인하세요.</p>
               </div>

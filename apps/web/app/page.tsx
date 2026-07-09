@@ -49,23 +49,23 @@ export default function LoadingPage() {
   return (
     <div
       onClick={go}
-      className="flex flex-col items-center justify-center min-h-screen bg-gradient-to-b from-[#0b101e] via-[#0d1526] to-[#070b16] relative overflow-hidden cursor-pointer"
+      className="flex flex-col items-center justify-center min-h-screen bg-gradient-to-b from-hanji via-hanji-deep to-sunset-1/25 relative overflow-hidden cursor-pointer"
     >
-      {/* Dark overlay for readability */}
-      <div className="absolute inset-0 bg-[#0b101e]/70 z-0"></div>
+      {/* 은은한 금빛 광원 (기존 콜드 blue 글로우 대체) */}
+      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[300px] h-[300px] bg-gold/15 rounded-full blur-[100px] pointer-events-none z-0"></div>
 
-      {/* Background decoration for glassmorphism feel later */}
-      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[300px] h-[300px] bg-blue-600/20 rounded-full blur-[100px] pointer-events-none z-0"></div>
+      {/* 하단 경주 노을 광원 */}
+      <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-[420px] h-[280px] bg-sunset-1/20 rounded-full blur-[120px] pointer-events-none z-0"></div>
 
       <div
         className={`z-10 flex flex-col items-center text-center transition-opacity duration-1000 ${
           isVisible ? 'opacity-100 animate-fade-in' : 'opacity-0'
         }`}
       >
-        <h1 className="text-5xl font-bold tracking-tight text-white mb-4">
+        <h1 className="text-5xl font-serif font-bold tracking-tight text-muk mb-4">
           NextSpot
         </h1>
-        <p className="text-lg text-gray-300 font-medium">
+        <p className="text-lg text-muk-soft font-medium">
           기다림 없는 스마트한 경주 여행
         </p>
       </div>

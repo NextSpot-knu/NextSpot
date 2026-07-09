@@ -89,30 +89,27 @@ export default function SetupPage() {
   };
 
   return (
-    <div className="flex flex-col min-h-screen bg-gradient-to-b from-[#0b101e] via-[#0d1526] to-[#070b16] text-white relative overflow-hidden">
-      {/* Dark overlay for readability */}
-      <div className="absolute inset-0 bg-[#0b101e]/70 z-0"></div>
-
-      {/* Background Glow */}
-      <div className="absolute top-0 right-0 w-[400px] h-[400px] bg-blue-500/10 rounded-full blur-[120px] pointer-events-none z-0"></div>
+    <div className="flex flex-col min-h-screen bg-hanji text-muk relative overflow-hidden">
+      {/* 은은한 금빛 광원 (기존 콜드 blue 글로우 대체) */}
+      <div className="absolute top-0 right-0 w-[400px] h-[400px] bg-gold/10 rounded-full blur-[120px] pointer-events-none z-0"></div>
 
       {/* Header & Progress */}
       <div className="z-10 w-full max-w-md mx-auto pt-8 px-6">
         <button
           onClick={handleBack}
-          className="w-10 h-10 flex items-center justify-center rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 transition-colors mb-6"
+          className="w-10 h-10 flex items-center justify-center rounded-xl bg-white border border-line text-muk hover:bg-hanji-deep transition-colors mb-6 shadow-[0_2px_14px_rgba(43,35,32,0.06)]"
         >
           <ArrowLeft size={20} />
         </button>
 
-        <div className="w-full h-1.5 bg-gray-800 rounded-full mb-6 overflow-hidden">
+        <div className="w-full h-1.5 bg-line rounded-full mb-6 overflow-hidden">
           <div
-            className="h-full bg-blue-600 transition-all duration-500 ease-out"
+            className="h-full bg-gradient-to-r from-gold to-terracotta transition-all duration-500 ease-out"
             style={{ width: `${(step / totalSteps) * 100}%` }}
           />
         </div>
 
-        <p className="text-sm text-gray-400 mb-12">
+        <p className="text-sm text-muk-soft mb-12">
           환영합니다! 맞춤형 경주 여행 추천을 위해 취향을 알려주세요.
         </p>
       </div>
@@ -121,7 +118,7 @@ export default function SetupPage() {
       <div className="flex-1 w-full max-w-md mx-auto relative z-10 flex flex-col">
         {step === 1 && (
           <div className="animate-slide-up flex-1">
-            <h2 className="text-2xl font-bold mb-8 text-center break-keep">
+            <h2 className="text-2xl font-serif font-bold mb-8 text-center break-keep text-muk">
               어떤 장소에<br/>가장 관심이 있으세요?
             </h2>
             <div className="grid grid-cols-2 gap-4">
@@ -137,10 +134,10 @@ export default function SetupPage() {
                   <button
                     key={option.id}
                     onClick={() => setPreference('category', option.label)}
-                    className={`flex flex-col items-center justify-center p-6 rounded-2xl border backdrop-blur-md transition-all ${
+                    className={`flex flex-col items-center justify-center p-6 rounded-2xl border transition-all shadow-[0_2px_14px_rgba(43,35,32,0.06)] ${
                       isSelected
-                        ? 'bg-blue-600/20 border-blue-500 text-white'
-                        : 'bg-white/5 border-white/5 text-gray-400 hover:bg-white/10 hover:text-gray-200'
+                        ? 'bg-gold/15 border-gold text-muk'
+                        : 'bg-white border-line text-muk-soft hover:bg-hanji-deep hover:text-muk'
                     }`}
                   >
                     <Icon size={32} className="mb-3" />
@@ -154,7 +151,7 @@ export default function SetupPage() {
 
         {step === 2 && (
           <div className="animate-slide-up flex-1">
-            <h2 className="text-2xl font-bold mb-8 text-center break-keep">
+            <h2 className="text-2xl font-serif font-bold mb-8 text-center break-keep text-muk">
               어떤 음식을<br/>좋아하세요?
             </h2>
             <div className="grid grid-cols-2 gap-4">
@@ -170,10 +167,10 @@ export default function SetupPage() {
                   <button
                     key={option.id}
                     onClick={() => setPreference('food', option.label)}
-                    className={`flex flex-col items-center justify-center p-6 rounded-2xl border backdrop-blur-md transition-all ${
+                    className={`flex flex-col items-center justify-center p-6 rounded-2xl border transition-all shadow-[0_2px_14px_rgba(43,35,32,0.06)] ${
                       isSelected
-                        ? 'bg-blue-600/20 border-blue-500 text-white'
-                        : 'bg-white/5 border-white/5 text-gray-400 hover:bg-white/10 hover:text-gray-200'
+                        ? 'bg-gold/15 border-gold text-muk'
+                        : 'bg-white border-line text-muk-soft hover:bg-hanji-deep hover:text-muk'
                     }`}
                   >
                     <Icon size={32} className="mb-3" />
@@ -187,7 +184,7 @@ export default function SetupPage() {
 
         {step === 3 && (
           <div className="animate-slide-up flex-1">
-            <h2 className="text-2xl font-bold mb-8 text-center break-keep">
+            <h2 className="text-2xl font-serif font-bold mb-8 text-center break-keep text-muk">
               주로 언제<br/>여행을 즐기세요?
             </h2>
             <div className="flex flex-col gap-4">
@@ -202,14 +199,14 @@ export default function SetupPage() {
                   <button
                     key={option.id}
                     onClick={() => setPreference('visitTime', option.label)}
-                    className={`flex items-center p-6 rounded-2xl border backdrop-blur-md transition-all ${
+                    className={`flex items-center p-6 rounded-2xl border transition-all shadow-[0_2px_14px_rgba(43,35,32,0.06)] ${
                       isSelected
-                        ? 'bg-blue-600/20 border-blue-500 text-white'
-                        : 'bg-white/5 border-white/5 text-gray-400 hover:bg-white/10 hover:text-gray-200'
+                        ? 'bg-gold/15 border-gold text-muk'
+                        : 'bg-white border-line text-muk-soft hover:bg-hanji-deep hover:text-muk'
                     }`}
                   >
-                    <div className="w-12 h-12 flex items-center justify-center rounded-full bg-white/5 mr-4">
-                      <Icon size={24} className={isSelected ? 'text-yellow-400' : ''} />
+                    <div className="w-12 h-12 flex items-center justify-center rounded-full bg-hanji-deep mr-4">
+                      <Icon size={24} className={isSelected ? 'text-gold' : ''} />
                     </div>
                     <div className="text-left flex-1">
                       <div className="font-semibold text-lg">{option.label}</div>
@@ -227,7 +224,7 @@ export default function SetupPage() {
           <button
             onClick={handleNext}
             disabled={!canProceed || isSubmitting}
-            className="w-full flex items-center justify-center py-4 rounded-xl bg-[#0a3d91] hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold text-lg transition-colors"
+            className="w-full flex items-center justify-center py-4 rounded-xl bg-gold hover:bg-gold-deep disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold text-lg transition-colors"
           >
             {step === totalSteps ? (isSubmitting ? '저장 중...' : '시작하기') : '다음'}
             {step !== totalSteps && <ArrowRight size={20} className="ml-2" />}

@@ -59,7 +59,7 @@ export function DataFreshnessBadge() {
     return (
       <span
         title="최신 혼잡 로그를 가져오지 못했습니다 — congestion_logs 가 비어있거나 조회에 실패했습니다."
-        className="flex items-center gap-1.5 px-2.5 py-1 bg-slate-800 border border-slate-700 text-slate-400 rounded-full text-xs font-bold"
+        className="flex items-center gap-1.5 px-2.5 py-1 bg-hanok-card border border-hanok-line text-hanok-muted rounded-full text-xs font-bold"
       >
         <Clock size={14} />
         데이터 없음
@@ -72,7 +72,7 @@ export function DataFreshnessBadge() {
     return (
       <span
         title="데이터 신선도 확인 중 — 최신 혼잡 로그 조회 대기"
-        className="flex items-center gap-1.5 px-2.5 py-1 bg-slate-800 border border-slate-700 text-slate-400 rounded-full text-xs font-bold"
+        className="flex items-center gap-1.5 px-2.5 py-1 bg-hanok-card border border-hanok-line text-hanok-muted rounded-full text-xs font-bold"
       >
         <Clock size={14} />
         신선도 확인 중
@@ -84,7 +84,7 @@ export function DataFreshnessBadge() {
   return (
     <span
       title={`최신 혼잡 로그 시각 기준: ${latest.toLocaleString()}`}
-      className="flex items-center gap-1.5 px-2.5 py-1 bg-slate-800 border border-slate-700 text-slate-300 rounded-full text-xs font-bold"
+      className="flex items-center gap-1.5 px-2.5 py-1 bg-hanok-card border border-hanok-line text-hanok-muted rounded-full text-xs font-bold"
     >
       <Clock size={14} />
       데이터 갱신 {formatRelative(latest)}
