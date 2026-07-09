@@ -51,6 +51,8 @@ export function RecommendationCard({
   const t = useT();
   const [isExpanded, setIsExpanded] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
+  // SPOT 점수 설명 툴팁 — 터치/키보드에서도 열 수 있게 탭/포커스로 토글(데스크톱 hover 는 유지)
+  const [showTooltip, setShowTooltip] = useState(false);
 
   // '최적 방문 시각' — 펼쳤을 때 백엔드(/predict/day)에서 받아오는 오늘 24시간 예측 혼잡 곡선.
   // 백엔드 미기동/실패 시 null 로 남아 조용히 숨긴다(카드 나머지는 그대로).
@@ -94,14 +96,15 @@ export function RecommendationCard({
   useEffect(() => {
     if (!title || typeof window === 'undefined' || !window.kakao || !window.kakao.maps) return;
     
+    // 실제 시설 데이터에 있는 값만 노출한다. 별점/리뷰/전화/주소/영업시간을 절대 지어내지 않는다.
+    // 카카오 keywordSearch 는 별점·리뷰수를 제공하지 않으므로 rating/reviewCount 는 설정하지 않는다.
+
     // Check if services library is loaded
     if (!window.kakao.maps.services) {
       console.warn("Kakao Places services library not loaded");
       setPlaceInfo({
-        address: facility?.features?.address || '경상북도 경주시 황남동',
-        phone: facility?.features?.phone || '054-123-4567',
-        rating: 4.5,
-        reviewCount: 28,
+        address: facility?.features?.address || undefined,
+        phone: facility?.features?.phone || undefined,
         url: `https://map.kakao.com/?q=${encodeURIComponent(title)}`
       });
       return;
@@ -116,25 +119,16 @@ export function RecommendationCard({
           ? data.find((p: any) => ((p.road_address_name || p.address_name || '').includes('경주')))
           : null;
         if (place) {
-          // Stable mock rating and reviews based on place ID
-          const seed = place.id ? parseInt(place.id) : 10;
-          const mockRating = 4.0 + (seed % 10) / 10;
-          const mockReviews = 10 + (seed % 90);
-
           setPlaceInfo({
-            address: place.road_address_name || place.address_name,
-            phone: place.phone || facility?.features?.phone || '전화번호 정보 없음',
-            rating: parseFloat(mockRating.toFixed(1)),
-            reviewCount: mockReviews,
+            address: place.road_address_name || place.address_name || facility?.features?.address || undefined,
+            phone: place.phone || facility?.features?.phone || undefined,
             url: place.place_url
           });
         } else {
-          // 경주 매칭 결과가 없으면(타지 체인만 잡히거나 검색 실패) 우리 데이터의 경주 주소로 폴백.
+          // 경주 매칭 결과가 없으면(타지 체인만 잡히거나 검색 실패) 우리 데이터의 경주 주소만 사용.
           setPlaceInfo({
-            address: facility?.features?.address || '경상북도 경주시 황남동',
-            phone: facility?.features?.phone || '054-123-4567',
-            rating: 4.3,
-            reviewCount: 15,
+            address: facility?.features?.address || undefined,
+            phone: facility?.features?.phone || undefined,
             url: `https://map.kakao.com/?q=${encodeURIComponent(title)}`
           });
         }
@@ -315,13 +309,20 @@ export function RecommendationCard({
               <span className="text-muk font-black text-xl leading-none">{Math.round(spotScore || 0)}<span className="text-[10px] font-normal text-muk-soft ml-0.5">{t('card.pointSuffix')}</span></span>
             </div>
             
-            {/* Info Icon */}
-            <div className="absolute -top-1.5 -right-1.5 bg-white rounded-full p-0.5 border border-gold/40 shadow-sm">
+            {/* Info Icon — 탭/포커스로 툴팁 토글(터치·키보드 접근) */}
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); setShowTooltip((v) => !v); }}
+              onBlur={() => setShowTooltip(false)}
+              aria-label="SPOT 점수 설명 보기"
+              aria-expanded={showTooltip}
+              className="absolute -top-1.5 -right-1.5 bg-white rounded-full p-0.5 border border-gold/40 shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+            >
               <Info size={12} className="text-gold" />
-            </div>
+            </button>
 
-            {/* Tooltip */}
-            <div className="absolute top-full right-0 mt-3 w-[260px] p-3.5 bg-white/95 backdrop-blur-xl border border-line rounded-xl shadow-[0_10px_30px_rgba(43,35,32,0.15)] opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50 pointer-events-none">
+            {/* Tooltip — 상태(showTooltip) 또는 데스크톱 hover 시 표시 */}
+            <div className={`absolute top-full right-0 mt-3 w-[260px] p-3.5 bg-white/95 backdrop-blur-xl border border-line rounded-xl shadow-[0_10px_30px_rgba(43,35,32,0.15)] transition-all duration-200 z-50 pointer-events-none group-hover:opacity-100 group-hover:visible ${showTooltip ? 'opacity-100 visible' : 'opacity-0 invisible'}`}>
               <p className="text-[11px] text-muk-soft leading-relaxed text-right break-keep space-y-1">
                 <span className="block mb-1.5"><strong className="text-gold-deep font-bold text-[12px]">SPOT Score란?</strong></span>
                 <span className="block">NextSpot의 핵심 기술로, 도착 시점의 혼잡도를 미리 예측하는 <strong className="text-gold-deep">머신러닝 AI 모델</strong>과 사용자의 선호도를 분석하는 <strong className="text-gold-deep">벡터 알고리즘</strong>의 결합.</span>
@@ -435,56 +436,70 @@ export function RecommendationCard({
             </p>
           )}
           
-          {/* Rating */}
-          <div className="flex items-center gap-2">
-            <div className="flex items-center text-gold">
-              <Star size={14} className="fill-gold mr-0.5" />
-              <span className="font-extrabold text-muk">{placeInfo?.rating ?? 4.5}</span>
-            </div>
-            <span className="text-muk-soft/40">|</span>
-            <span className="text-muk-soft">{t('card.reviewCount', { n: placeInfo?.reviewCount ?? 20 })}</span>
-            
-            {placeInfo?.url && (
-              <a 
-                href={placeInfo.url} 
-                target="_blank" 
-                rel="noreferrer"
-                className="ml-auto text-gold-deep hover:text-gold underline font-bold tracking-tight"
-              >
-                {t('card.viewReviews')}
-              </a>
-            )}
-          </div>
+          {/* Rating/Reviews — 실제 데이터가 있을 때만. 별점/리뷰수는 지어내지 않는다. */}
+          {(placeInfo?.rating != null || placeInfo?.reviewCount != null || placeInfo?.url) && (
+            <div className="flex items-center gap-2">
+              {placeInfo?.rating != null && (
+                <div className="flex items-center text-gold">
+                  <Star size={14} className="fill-gold mr-0.5" />
+                  <span className="font-extrabold text-muk">{placeInfo.rating}</span>
+                </div>
+              )}
+              {placeInfo?.rating != null && placeInfo?.reviewCount != null && (
+                <span className="text-muk-soft/40">|</span>
+              )}
+              {placeInfo?.reviewCount != null && (
+                <span className="text-muk-soft">{t('card.reviewCount', { n: placeInfo.reviewCount })}</span>
+              )}
 
-          {/* Address */}
-          <div className="flex items-start gap-2">
-            <MapPin size={14} className="text-muk-soft mt-0.5 flex-shrink-0" />
-            <div>
-              <span className="text-muk-soft block text-[9px] font-bold">{t('card.address')}</span>
-              <span className="text-muk leading-relaxed">{placeInfo?.address}</span>
+              {placeInfo?.url && (
+                <a
+                  href={placeInfo.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="ml-auto text-gold-deep hover:text-gold underline font-bold tracking-tight"
+                >
+                  {t('card.viewReviews')}
+                </a>
+              )}
             </div>
-          </div>
+          )}
 
-          {/* Phone */}
-          <div className="flex items-start gap-2">
-            <Phone size={14} className="text-muk-soft mt-0.5 flex-shrink-0" />
-            <div>
-              <span className="text-muk-soft block text-[9px] font-bold">{t('card.phone')}</span>
-              <span className="text-muk">{placeInfo?.phone}</span>
+          {/* Address — 실제 주소가 있을 때만 */}
+          {placeInfo?.address && (
+            <div className="flex items-start gap-2">
+              <MapPin size={14} className="text-muk-soft mt-0.5 flex-shrink-0" />
+              <div>
+                <span className="text-muk-soft block text-[9px] font-bold">{t('card.address')}</span>
+                <span className="text-muk leading-relaxed">{placeInfo.address}</span>
+              </div>
             </div>
-          </div>
+          )}
 
-          {/* Operating Hours */}
-          <div className="flex items-start gap-2">
-            <Clock size={14} className="text-muk-soft mt-0.5 flex-shrink-0" />
-            <div>
-              <span className="text-muk-soft block text-[9px] font-bold">{t('card.hours')}</span>
-              <span className="text-muk">
-                {facility?.operatingHours?.open || '09:00'} ~ {facility?.operatingHours?.close || '22:00'}
-                {facility?.operatingHours?.weekday && ` (${facility.operatingHours.weekday})`}
-              </span>
+          {/* Phone — 실제 전화번호가 있을 때만 */}
+          {placeInfo?.phone && (
+            <div className="flex items-start gap-2">
+              <Phone size={14} className="text-muk-soft mt-0.5 flex-shrink-0" />
+              <div>
+                <span className="text-muk-soft block text-[9px] font-bold">{t('card.phone')}</span>
+                <span className="text-muk">{placeInfo.phone}</span>
+              </div>
             </div>
-          </div>
+          )}
+
+          {/* Operating Hours — 실제 영업시간이 있을 때만 */}
+          {facility?.operatingHours?.open && facility?.operatingHours?.close && (
+            <div className="flex items-start gap-2">
+              <Clock size={14} className="text-muk-soft mt-0.5 flex-shrink-0" />
+              <div>
+                <span className="text-muk-soft block text-[9px] font-bold">{t('card.hours')}</span>
+                <span className="text-muk">
+                  {facility.operatingHours.open} ~ {facility.operatingHours.close}
+                  {facility.operatingHours.weekday && ` (${facility.operatingHours.weekday})`}
+                </span>
+              </div>
+            </div>
+          )}
 
           {/* 최적 방문 시각 — 오늘 24시간 예측 혼잡 미니 막대(백엔드 성공 시에만). 가장 한산한 시각을 옥(jade)으로 강조. */}
           {dayPred && (
@@ -539,7 +554,7 @@ export function RecommendationCard({
           <button
             onClick={onReject}
             aria-label={t('card.rejectAria')}
-            className="flex-1 bg-hanji-deep hover:bg-terracotta/10 hover:text-terracotta hover:border-terracotta/30 text-muk-soft font-bold py-3 rounded-2xl border border-line transition-all active:scale-95 text-xs focus:outline-none"
+            className="flex-1 bg-hanji-deep hover:bg-terracotta/10 hover:text-terracotta hover:border-terracotta/30 text-muk-soft font-bold py-3 rounded-2xl border border-line transition-all active:scale-95 text-xs focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
           >
             {t('card.reject')}
           </button>
@@ -547,7 +562,7 @@ export function RecommendationCard({
             <button
               onClick={onPutOff}
               aria-label={t('card.putOffAria')}
-              className="group flex-1 flex items-center justify-center gap-1.5 bg-hanji-deep hover:bg-gold/10 hover:text-gold-deep hover:border-gold/30 text-muk-soft font-bold py-3 rounded-2xl border border-line transition-all active:scale-95 text-xs focus:outline-none"
+              className="group flex-1 flex items-center justify-center gap-1.5 bg-hanji-deep hover:bg-gold/10 hover:text-gold-deep hover:border-gold/30 text-muk-soft font-bold py-3 rounded-2xl border border-line transition-all active:scale-95 text-xs focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
             >
               {/* 저장 인지 강화용 북마크 — hover/press 시 채워지며 살짝 팝(순수 Tailwind, 과하지 않게) */}
               <Bookmark
@@ -560,7 +575,7 @@ export function RecommendationCard({
           <button
             onClick={onAccept}
             aria-label={t('card.acceptAria')}
-            className="flex-1 bg-gradient-to-r from-gold to-terracotta hover:from-gold-deep hover:to-terracotta text-white font-bold py-3 rounded-2xl transition-all active:scale-95 text-xs shadow-[0_4px_14px_rgba(193,85,59,0.25)] focus:outline-none"
+            className="flex-1 bg-gradient-to-r from-gold to-terracotta hover:from-gold-deep hover:to-terracotta text-white font-bold py-3 rounded-2xl transition-all active:scale-95 text-xs shadow-[0_4px_14px_rgba(193,85,59,0.25)] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
           >
             {t('card.accept')}
           </button>
