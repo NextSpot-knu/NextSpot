@@ -11,6 +11,7 @@ import { createPublicClient } from "@/lib/supabase";
 import { apiClient } from "@/lib/api-client";
 import { REGION, isWithinRegion } from "@/lib/region";
 import { useT } from "@/lib/i18n/I18nProvider";
+import { ShareButton } from "@/components/ShareButton";
 
 type TFunc = (key: string, vars?: Record<string, string | number>) => string;
 
@@ -162,7 +163,7 @@ export default function CoursePage() {
             ← {t('course.backToMap')}
           </Link>
           <span className="text-sm font-extrabold tracking-tight gradient-text">{t('course.brand')}</span>
-          <div className="w-14" />
+          <ShareButton title={t('course.title')} text={t('common.shareCourse')} />
         </header>
 
         {/* 소개 */}
