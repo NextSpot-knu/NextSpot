@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { ChevronLeft, Ticket, Compass, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
+import { useT } from '@/lib/i18n/I18nProvider';
 
 // 백엔드 /api/v1/coupons/mine 응답(snake_case)을 api-client 가 camelCase 로 변환해 준다.
 interface Coupon {
@@ -17,13 +18,8 @@ interface Coupon {
   usedAt: string | null;
 }
 
-// 시설 유형 → 한국어 라벨(관제 대시보드와 동일 매핑).
-const TYPE_LABEL: Record<string, string> = {
-  restaurant: '음식점',
-  cafe: '카페',
-  attraction: '관광지',
-  culture: '문화시설',
-};
+// 시설 유형(캐노니컬 키) — i18n category 네임스페이스로 표시명을 번역한다.
+const TYPE_IDS = ['restaurant', 'cafe', 'attraction', 'culture'];
 
 function formatDate(iso: string | null): string {
   if (!iso) return '';
@@ -36,6 +32,7 @@ function formatDate(iso: string | null): string {
 
 export default function CouponsPage() {
   const router = useRouter();
+  const t = useT();
   const [coupons, setCoupons] = useState<Coupon[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [hasError, setHasError] = useState(false);
@@ -67,13 +64,13 @@ export default function CouponsPage() {
       <header className="flex items-center gap-3 p-5 z-10 relative">
         <button
           type="button"
-          aria-label="뒤로"
+          aria-label={t('coupons.backAria')}
           onClick={() => router.back()}
           className="text-muk-soft hover:text-muk transition-colors"
         >
           <ChevronLeft size={24} />
         </button>
-        <h1 className="text-xl font-bold font-serif text-muk tracking-wide">내 쿠폰함</h1>
+        <h1 className="text-xl font-bold font-serif text-muk tracking-wide">{t('coupons.title')}</h1>
       </header>
 
       {/* Main Content */}
@@ -89,15 +86,15 @@ export default function CouponsPage() {
               <div className="w-16 h-16 rounded-full bg-terracotta/10 border border-terracotta/20 flex items-center justify-center mb-6">
                 <AlertCircle className="text-terracotta" size={32} />
               </div>
-              <h2 className="text-xl font-bold font-serif text-muk mb-3">쿠폰을 불러오지 못했어요</h2>
+              <h2 className="text-xl font-bold font-serif text-muk mb-3">{t('coupons.errorTitle')}</h2>
               <p className="text-muk-soft text-sm leading-relaxed mb-8 px-2">
-                잠시 후 다시 시도해 주세요.
+                {t('coupons.errorBody')}
               </p>
               <button
                 onClick={() => router.refresh()}
                 className="px-5 py-2.5 rounded-xl bg-gold hover:bg-gold-deep text-white text-sm font-semibold transition-all"
               >
-                다시 시도
+                {t('common.retry')}
               </button>
             </div>
           </div>
@@ -108,16 +105,16 @@ export default function CouponsPage() {
               <div className="w-16 h-16 rounded-full bg-gradient-to-b from-gold/20 to-gold/10 border border-line flex items-center justify-center mb-6">
                 <Ticket className="text-gold" size={32} />
               </div>
-              <h2 className="text-xl font-bold font-serif text-muk mb-3">아직 받은 쿠폰이 없어요</h2>
+              <h2 className="text-xl font-bold font-serif text-muk mb-3">{t('coupons.emptyTitle')}</h2>
               <p className="text-muk-soft text-sm leading-relaxed mb-8 px-2">
-                분산 추천을 받아 제휴 가맹점을 방문하면 할인 쿠폰이 여기에 쌓여요.
+                {t('coupons.emptyBody')}
               </p>
               <button
                 onClick={() => router.push('/main')}
                 className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gold hover:bg-gold-deep text-white text-sm font-semibold transition-all"
               >
                 <Compass size={18} className="text-white" />
-                <span>추천 둘러보기</span>
+                <span>{t('coupons.browse')}</span>
               </button>
             </div>
           </div>
@@ -125,13 +122,15 @@ export default function CouponsPage() {
           // List State
           <div className="flex flex-col gap-4 mt-2">
             <p className="text-sm text-muk-soft px-1">
-              제휴 가맹점에서 아래 할인율을 받을 수 있어요.
+              {t('coupons.listHint')}
             </p>
 
             {coupons.map((coupon) => {
               const used = coupon.status === 'used';
               const pct = Math.round((coupon.couponRate ?? 0) * 100);
-              const typeLabel = coupon.facilityType ? TYPE_LABEL[coupon.facilityType] ?? coupon.facilityType : null;
+              const typeLabel = coupon.facilityType
+                ? (TYPE_IDS.includes(coupon.facilityType) ? t(`category.${coupon.facilityType}`) : coupon.facilityType)
+                : null;
               return (
                 <div
                   key={coupon.id}
@@ -144,7 +143,7 @@ export default function CouponsPage() {
                     used ? 'bg-muk-soft/15 text-muk-soft' : 'bg-gradient-to-br from-gold to-terracotta text-white'
                   }`}>
                     <span className="text-2xl font-bold font-serif leading-none">{pct}%</span>
-                    <span className="text-[10px] font-semibold mt-1 tracking-wide">할인</span>
+                    <span className="text-[10px] font-semibold mt-1 tracking-wide">{t('coupons.discount')}</span>
                   </div>
 
                   {/* 우측 정보 */}
@@ -157,18 +156,18 @@ export default function CouponsPage() {
                       )}
                       {used ? (
                         <span className="flex items-center gap-1 text-[11px] font-semibold text-muk-soft">
-                          <CheckCircle2 size={12} /> 사용 완료
+                          <CheckCircle2 size={12} /> {t('coupons.used')}
                         </span>
                       ) : (
-                        <span className="text-[11px] font-semibold text-gold-deep">사용 가능</span>
+                        <span className="text-[11px] font-semibold text-gold-deep">{t('coupons.available')}</span>
                       )}
                     </div>
                     <h3 className={`text-base font-bold truncate ${used ? 'text-muk-soft' : 'text-muk'}`}>
-                      {coupon.facilityName ?? '제휴 가맹점'}
+                      {coupon.facilityName ?? t('coupons.partner')}
                     </h3>
                     {coupon.issuedAt && (
                       <p className="text-[11px] text-muk-soft mt-0.5">
-                        {formatDate(coupon.issuedAt)} 발급
+                        {t('coupons.issued', { date: formatDate(coupon.issuedAt) })}
                       </p>
                     )}
                   </div>

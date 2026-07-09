@@ -14,6 +14,7 @@ import { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Users, X, Check } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
+import { useT } from '@/lib/i18n/I18nProvider';
 
 // 최소 시설 형태만 요구(id/name). lib/types.ts 의 Facility 나 추천 응답 facility 모두 호환.
 interface ReportableFacility {
@@ -30,21 +31,23 @@ interface CongestionReportButtonProps {
 
 type Level = '한산' | '보통' | '혼잡';
 
-// 3지선다 옵션 — 라벨/설명/한지 웜톤 색 토큰.
+// 3지선다 옵션 — value(백엔드 전송·로직용, 한국어 고정)/i18n 키/한지 웜톤 색 토큰.
 const LEVEL_OPTIONS: {
   value: Level;
   emoji: string;
-  desc: string;
+  labelKey: string; // congestion 네임스페이스
+  descKey: string;  // report 네임스페이스
   // 선택 강조용 Tailwind 클래스(정적 문자열 — JIT purge 안전).
   ring: string;
   activeBg: string;
 }[] = [
-  { value: '한산', emoji: '🍃', desc: '여유로워요', ring: 'hover:border-jade/50', activeBg: 'border-jade bg-jade/10 text-jade' },
-  { value: '보통', emoji: '🙂', desc: '적당해요', ring: 'hover:border-gold/50', activeBg: 'border-gold bg-gold/10 text-gold-deep' },
-  { value: '혼잡', emoji: '🔥', desc: '붐벼요', ring: 'hover:border-terracotta/50', activeBg: 'border-terracotta bg-terracotta/10 text-terracotta' },
+  { value: '한산', emoji: '🍃', labelKey: 'congestion.quiet', descKey: 'report.quietDesc', ring: 'hover:border-jade/50', activeBg: 'border-jade bg-jade/10 text-jade' },
+  { value: '보통', emoji: '🙂', labelKey: 'congestion.moderate', descKey: 'report.moderateDesc', ring: 'hover:border-gold/50', activeBg: 'border-gold bg-gold/10 text-gold-deep' },
+  { value: '혼잡', emoji: '🔥', labelKey: 'congestion.busy', descKey: 'report.busyDesc', ring: 'hover:border-terracotta/50', activeBg: 'border-terracotta bg-terracotta/10 text-terracotta' },
 ];
 
 export function CongestionReportButton({ facility, onReported, className = '' }: CongestionReportButtonProps) {
+  const t = useT();
   const [isOpen, setIsOpen] = useState(false);
   const [selected, setSelected] = useState<Level | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -82,14 +85,14 @@ export function CongestionReportButton({ facility, onReported, className = '' }:
         level: selected,
       });
       onReported?.(selected);
-      showToast(`'${facility.name}' 혼잡 제보 완료! 다른 여행자에게 도움이 돼요 🙏`, 'success');
+      showToast(t('report.success', { name: facility.name }), 'success');
       setIsOpen(false);
     } catch (err) {
       // 백엔드 다운/인증 만료 등 — graceful degradation(앱은 계속 동작).
       const message = err instanceof Error ? err.message : '';
       const friendly = message.includes('401') || message.toLowerCase().includes('auth')
-        ? '로그인 후 제보할 수 있어요.'
-        : '지금은 제보를 보낼 수 없어요. 잠시 후 다시 시도해 주세요.';
+        ? t('report.authError')
+        : t('report.failError');
       showToast(friendly, 'error');
     } finally {
       setSubmitting(false);
@@ -103,11 +106,11 @@ export function CongestionReportButton({ facility, onReported, className = '' }:
         type="button"
         onClick={() => setIsOpen(true)}
         aria-haspopup="dialog"
-        aria-label={`${facility.name} 혼잡도 제보하기`}
+        aria-label={t('report.triggerAria', { name: facility.name })}
         className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-full bg-hanji-deep hover:bg-gold/10 border border-line hover:border-gold/40 text-muk-soft hover:text-gold-deep text-xs font-bold transition-all active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/50 ${className}`}
       >
         <Users size={14} />
-        혼잡 제보
+        {t('report.trigger')}
       </button>
 
       {/* 토스트 — 성공(청록)/에러(주칠). 부모 토스트를 안 쓸 때의 내장 폴백. */}
@@ -144,7 +147,7 @@ export function CongestionReportButton({ facility, onReported, className = '' }:
             {/* Backdrop */}
             <button
               type="button"
-              aria-label="닫기"
+              aria-label={t('common.close')}
               tabIndex={-1}
               onClick={() => !submitting && setIsOpen(false)}
               className="absolute inset-0 bg-muk/40 backdrop-blur-sm"
@@ -167,14 +170,14 @@ export function CongestionReportButton({ facility, onReported, className = '' }:
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <h2 id="congestion-report-title" className="text-lg font-serif font-bold text-muk leading-tight">
-                    지금 이곳 얼마나 붐비나요?
+                    {t('report.title')}
                   </h2>
                   <p className="text-xs text-muk-soft mt-1 font-medium truncate max-w-[220px]">{facility.name}</p>
                 </div>
                 <button
                   type="button"
                   onClick={() => !submitting && setIsOpen(false)}
-                  aria-label="닫기"
+                  aria-label={t('common.close')}
                   className="p-1.5 rounded-full text-muk-soft hover:text-muk hover:bg-hanji-deep transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/50"
                 >
                   <X size={18} />
@@ -182,7 +185,7 @@ export function CongestionReportButton({ facility, onReported, className = '' }:
               </div>
 
               {/* 3지선다 */}
-              <div className="grid grid-cols-3 gap-2.5" role="radiogroup" aria-label="혼잡도 선택">
+              <div className="grid grid-cols-3 gap-2.5" role="radiogroup" aria-label={t('report.selectAria')}>
                 {LEVEL_OPTIONS.map((opt) => {
                   const active = selected === opt.value;
                   return (
@@ -198,8 +201,8 @@ export function CongestionReportButton({ facility, onReported, className = '' }:
                       }`}
                     >
                       <span className="text-2xl leading-none" aria-hidden>{opt.emoji}</span>
-                      <span className="text-sm font-bold">{opt.value}</span>
-                      <span className="text-[10px] text-muk-soft font-medium">{opt.desc}</span>
+                      <span className="text-sm font-bold">{t(opt.labelKey)}</span>
+                      <span className="text-[10px] text-muk-soft font-medium">{t(opt.descKey)}</span>
                     </button>
                   );
                 })}
@@ -215,18 +218,18 @@ export function CongestionReportButton({ facility, onReported, className = '' }:
                 {submitting ? (
                   <>
                     <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" aria-hidden />
-                    제보 중…
+                    {t('report.submitting')}
                   </>
                 ) : (
                   <>
                     <Check size={16} />
-                    제보하기
+                    {t('report.submit')}
                   </>
                 )}
               </button>
 
               <p className="text-[10px] text-muk-soft/80 text-center leading-relaxed">
-                여러분의 제보가 다른 여행자의 발걸음을 분산시켜요.
+                {t('report.footer')}
               </p>
             </motion.div>
           </motion.div>

@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowLeft, MapPin, Building, Utensils, Coffee, Pizza, Soup, Sun, Sunset, Moon, ArrowRight } from 'lucide-react';
 import { createPublicClient } from '@/lib/supabase';
+import { useT } from '@/lib/i18n/I18nProvider';
 
 // setup 은 카테고리를 한국어 라벨로 저장하지만, explore/recommend 온보딩과 main 추천은 캐노니컬 키를
 // 쓴다. 두 온보딩 경로를 하나의 소스(Supabase users.preferred_categories)로 수렴시키기 위한 라벨→키 매핑.
@@ -16,6 +17,7 @@ const CATEGORY_LABEL_TO_KEY: Record<string, string> = {
 
 export default function SetupPage() {
   const router = useRouter();
+  const t = useT();
 
   const [step, setStep] = useState(1);
   const [isSubmitting, setIsSubmitting] = useState(false); // 최종 제출(Supabase 쓰기) 중 이중 제출 방지
@@ -110,7 +112,7 @@ export default function SetupPage() {
         </div>
 
         <p className="text-sm text-muk-soft mb-12">
-          환영합니다! 맞춤형 경주 여행 추천을 위해 취향을 알려주세요.
+          {t('setup.intro')}
         </p>
       </div>
 
@@ -118,8 +120,8 @@ export default function SetupPage() {
       <div className="flex-1 w-full max-w-md mx-auto relative z-10 flex flex-col">
         {step === 1 && (
           <div className="animate-slide-up flex-1">
-            <h2 className="text-2xl font-serif font-bold mb-8 text-center break-keep text-muk">
-              어떤 장소에<br/>가장 관심이 있으세요?
+            <h2 className="text-2xl font-serif font-bold mb-8 text-center break-keep text-muk whitespace-pre-line">
+              {t('setup.step1')}
             </h2>
             <div className="grid grid-cols-2 gap-4">
               {[
@@ -141,7 +143,7 @@ export default function SetupPage() {
                     }`}
                   >
                     <Icon size={32} className="mb-3" />
-                    <span className="font-semibold">{option.label}</span>
+                    <span className="font-semibold">{t(`category.${option.id}`)}</span>
                   </button>
                 );
               })}
@@ -151,15 +153,15 @@ export default function SetupPage() {
 
         {step === 2 && (
           <div className="animate-slide-up flex-1">
-            <h2 className="text-2xl font-serif font-bold mb-8 text-center break-keep text-muk">
-              어떤 음식을<br/>좋아하세요?
+            <h2 className="text-2xl font-serif font-bold mb-8 text-center break-keep text-muk whitespace-pre-line">
+              {t('setup.step2')}
             </h2>
             <div className="grid grid-cols-2 gap-4">
               {[
-                { id: 'korean', label: '한식', icon: Soup },
-                { id: 'snack', label: '분식·국밥', icon: Utensils },
-                { id: 'western', label: '양식', icon: Pizza },
-                { id: 'dessert', label: '카페·디저트', icon: Coffee }
+                { id: 'korean', key: 'foodKorean', label: '한식', icon: Soup },
+                { id: 'snack', key: 'foodSnack', label: '분식·국밥', icon: Utensils },
+                { id: 'western', key: 'foodWestern', label: '양식', icon: Pizza },
+                { id: 'dessert', key: 'foodDessert', label: '카페·디저트', icon: Coffee }
               ].map(option => {
                 const Icon = option.icon;
                 const isSelected = preferences.food === option.label;
@@ -174,7 +176,7 @@ export default function SetupPage() {
                     }`}
                   >
                     <Icon size={32} className="mb-3" />
-                    <span className="font-semibold">{option.label}</span>
+                    <span className="font-semibold">{t(`setup.${option.key}`)}</span>
                   </button>
                 );
               })}
@@ -184,14 +186,14 @@ export default function SetupPage() {
 
         {step === 3 && (
           <div className="animate-slide-up flex-1">
-            <h2 className="text-2xl font-serif font-bold mb-8 text-center break-keep text-muk">
-              주로 언제<br/>여행을 즐기세요?
+            <h2 className="text-2xl font-serif font-bold mb-8 text-center break-keep text-muk whitespace-pre-line">
+              {t('setup.step3')}
             </h2>
             <div className="flex flex-col gap-4">
               {[
-                { id: 'morning', label: '오전', sub: '한적한 아침', icon: Sun },
-                { id: 'afternoon', label: '오후', sub: '활기찬 한낮', icon: Sunset },
-                { id: 'evening', label: '저녁', sub: '노을·야경', icon: Moon },
+                { id: 'morning', label: '오전', labelKey: 'timeMorning', subKey: 'timeMorningSub', sub: '한적한 아침', icon: Sun },
+                { id: 'afternoon', label: '오후', labelKey: 'timeAfternoon', subKey: 'timeAfternoonSub', sub: '활기찬 한낮', icon: Sunset },
+                { id: 'evening', label: '저녁', labelKey: 'timeEvening', subKey: 'timeEveningSub', sub: '노을·야경', icon: Moon },
               ].map(option => {
                 const Icon = option.icon;
                 const isSelected = preferences.visitTime === option.label;
@@ -209,8 +211,8 @@ export default function SetupPage() {
                       <Icon size={24} className={isSelected ? 'text-gold' : ''} />
                     </div>
                     <div className="text-left flex-1">
-                      <div className="font-semibold text-lg">{option.label}</div>
-                      <div className="text-sm opacity-60 mt-1">{option.sub}</div>
+                      <div className="font-semibold text-lg">{t(`setup.${option.labelKey}`)}</div>
+                      <div className="text-sm opacity-60 mt-1">{t(`setup.${option.subKey}`)}</div>
                     </div>
                   </button>
                 );
@@ -226,7 +228,7 @@ export default function SetupPage() {
             disabled={!canProceed || isSubmitting}
             className="w-full flex items-center justify-center py-4 rounded-xl bg-gold hover:bg-gold-deep disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold text-lg transition-colors"
           >
-            {step === totalSteps ? (isSubmitting ? '저장 중...' : '시작하기') : '다음'}
+            {step === totalSteps ? (isSubmitting ? t('setup.saving') : t('setup.start')) : t('setup.next')}
             {step !== totalSteps && <ArrowRight size={20} className="ml-2" />}
           </button>
         </div>

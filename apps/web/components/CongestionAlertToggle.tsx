@@ -2,6 +2,7 @@
 
 import { Bell, BellOff, BellRing } from 'lucide-react';
 import { useCongestionAlerts } from '@/lib/useCongestionAlerts';
+import { useT } from '@/lib/i18n/I18nProvider';
 
 /**
  * 혼잡 알림 옵트인 토글 — "🔔 한산해지면 알림 받기".
@@ -12,6 +13,7 @@ import { useCongestionAlerts } from '@/lib/useCongestionAlerts';
  */
 export function CongestionAlertToggle({ className = '' }: { className?: string }) {
   const { enabled, permission, supported, toggle } = useCongestionAlerts();
+  const t = useT();
 
   // 미지원: 조용히 비활성 안내(정직성 — 되지 않는 버튼을 켜진 것처럼 보이지 않게)
   if (!supported) {
@@ -20,7 +22,7 @@ export function CongestionAlertToggle({ className = '' }: { className?: string }
         className={`flex items-center gap-2.5 rounded-2xl border border-line bg-hanji-deep/60 px-4 py-3 text-muk-soft ${className}`}
       >
         <BellOff size={18} className="shrink-0 text-muk-soft" aria-hidden="true" />
-        <span className="text-sm">이 브라우저에서는 알림을 지원하지 않아요</span>
+        <span className="text-sm">{t('alert.unsupported')}</span>
       </div>
     );
   }
@@ -29,10 +31,10 @@ export function CongestionAlertToggle({ className = '' }: { className?: string }
   const on = enabled && permission === 'granted';
 
   const label = denied
-    ? '브라우저 설정에서 알림 차단됨'
+    ? t('alert.denied')
     : on
-      ? '한산해지면 알림 받는 중'
-      : '한산해지면 알림 받기';
+      ? t('alert.on')
+      : t('alert.off');
 
   const Icon = denied ? BellOff : on ? BellRing : Bell;
 
@@ -73,10 +75,10 @@ export function CongestionAlertToggle({ className = '' }: { className?: string }
           <span className="text-sm font-semibold leading-tight">{label}</span>
           <span className="text-xs leading-tight text-muk-soft">
             {denied
-              ? '알림을 켜려면 브라우저 권한을 허용해 주세요'
+              ? t('alert.deniedSub')
               : on
-                ? '저장한 장소가 여유로워지면 알려드려요'
-                : '저장한 장소가 한산해지면 알려드려요'}
+                ? t('alert.onSub')
+                : t('alert.offSub')}
           </span>
         </span>
 

@@ -15,6 +15,7 @@ import { recommendByType, voiceTurn, apiClient } from '@/lib/api-client';
 import { getHeatGradient, getHeatRadius } from '@/lib/heatmap';
 import { useVoiceAssistant } from '@/lib/useVoiceAssistant';
 import VoiceAssistantOrb from '@/components/VoiceAssistantOrb';
+import { useT } from '@/lib/i18n/I18nProvider';
 
 const supabase = createPublicClient();
 
@@ -98,6 +99,7 @@ export default function MainPage() {
   }, [toastMessage]);
 
   const router = useRouter();
+  const t = useT();
 
   const appKey = process.env.NEXT_PUBLIC_KAKAO_MAPS_APP_KEY || process.env.NEXT_PUBLIC_KAKAO_API_KEY || process.env.NEXT_PUBLIC_KAKAO_MAP_KEY || "";
 
@@ -459,7 +461,7 @@ export default function MainPage() {
       setHoursAhead(n);
     } catch (err) {
       console.warn('혼잡 예측 조회 실패 — 실측(지금) 모드를 유지합니다.', err);
-      showToast('AI 혼잡 예측을 불러오지 못했어요. 지금(실측) 모드를 유지합니다.');
+      showToast(t('map.predictFail'));
     } finally {
       setPredictionLoading(false);
     }
@@ -585,12 +587,12 @@ export default function MainPage() {
   const handleAccept = (fac: any) => {
     if (!fac) return;
 
-    let greeting = "즐거운 시간 되세요!";
-    if (fac.type === "restaurant") greeting = "맛있게 드세요!";
-    else if (fac.type === "cafe") greeting = "여유로운 시간 되세요!";
-    else if (fac.type === "attraction" || fac.type === "culture") greeting = "즐거운 관람 되세요!";
-    
-    showToast(`${greeting} 다음 추천이 더 정확해집니다 🎯`);
+    let greeting = t('map.greetingDefault');
+    if (fac.type === "restaurant") greeting = t('map.greetingRestaurant');
+    else if (fac.type === "cafe") greeting = t('map.greetingCafe');
+    else if (fac.type === "attraction" || fac.type === "culture") greeting = t('map.greetingView');
+
+    showToast(`${greeting}${t('map.greetingSuffix')}`);
 
     const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
     
@@ -702,7 +704,7 @@ export default function MainPage() {
       console.warn("Failed to save bookmark:", e);
     }
 
-    showToast(`'${fac.name}'이(가) Saved 탭에 저장되었습니다! 다음 추천을 불러옵니다.`);
+    showToast(t('map.savedToast', { name: fac.name }));
   };
 
   const handleReject = (fac: any) => {
@@ -762,7 +764,7 @@ export default function MainPage() {
       return next;
     });
     
-    showToast(`'${fac.name}' 추천을 폐기했습니다. 다음 추천을 불러옵니다.`);
+    showToast(t('map.rejectToast', { name: fac.name }));
   };
 
   // 음성 '다음/별로': 폐기(rejectedIds)하지 않고 '안정 랭킹'에서 다음 순위로만 이동(우선순위만 낮춤).
@@ -774,7 +776,7 @@ export default function MainPage() {
       .filter((f: any) => voicePass(f) && !rejectedIds.has(f.id) && !savedIds.has(f.id))
       .map((f: any) => ({ ...f, spot: calculateSPOT(f) }))
       .sort(compareFacilities);
-    if (pool.length <= 1) { showToast('다른 추천이 없어요.'); return; }
+    if (pool.length <= 1) { showToast(t('map.noMoreRec')); return; }
     const curIdx = pool.findIndex(f => f.id === fac.id);
     const next = pool[curIdx < 0 ? 0 : (curIdx + 1) % pool.length]; // 폐기 안 함 — 순위 순서대로 다음, 끝이면 처음
     setSelectedFacility(next);
@@ -816,7 +818,7 @@ export default function MainPage() {
       const pool = expandGroups(facilities)
         .filter((f: any) => set.has(f.id) && !rejectedIds.has(f.id) && !savedIds.has(f.id));
       if (pool.length === 0) {
-        showToast('음성 선호에 맞는 추천을 찾지 못했어요.'); // 빈 결과 → 필터 미적용(현재 카드 유지)
+        showToast(t('map.voiceNoMatch')); // 빈 결과 → 필터 미적용(현재 카드 유지)
         return;
       }
       applyVoiceFilter(set); // ref+state 동시 갱신(effect는 이후 재실행 시 ref로 읽음)
@@ -1099,10 +1101,10 @@ export default function MainPage() {
   }, [markerFacilities, activeFilter, mapLoaded, mapLevel, searchQuery, showHeatmap]);
 
   const filters = [
-    { id: '음식점', icon: Utensils },
-    { id: '카페', icon: Coffee },
-    { id: '관광지', icon: MapPin },
-    { id: '문화시설', icon: Building2 },
+    { id: '음식점', key: 'restaurant', icon: Utensils },
+    { id: '카페', key: 'cafe', icon: Coffee },
+    { id: '관광지', key: 'attraction', icon: MapPin },
+    { id: '문화시설', key: 'culture', icon: Building2 },
   ];
 
   const handleTabClick = (tabId: string) => {
@@ -1143,22 +1145,22 @@ export default function MainPage() {
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="장소·시설 이름 검색"
+            placeholder={t('map.searchPlaceholder')}
             className="flex-1 bg-transparent text-muk outline-none placeholder:text-muk-soft text-sm"
           />
           {searchQuery ? (
             <button
               type="button"
               onClick={() => setSearchQuery('')}
-              title="검색 지우기"
-              aria-label="검색 지우기"
+              title={t('map.searchClear')}
+              aria-label={t('map.searchClear')}
               className="ml-3 text-muk-soft hover:text-muk transition-colors"
             >
               <X size={18} />
             </button>
           ) : (
             // 실제 음성 안내는 추천 카드의 오브(VoiceAssistantOrb)를 사용 — 여기 마이크는 아직 미구현이므로 죽은 컨트롤 오해를 막기 위해 비활성 표기.
-            <span title="음성 검색 준비 중" aria-disabled="true" className="ml-3 flex items-center cursor-not-allowed">
+            <span title={t('map.voiceSearchSoon')} aria-disabled="true" className="ml-3 flex items-center cursor-not-allowed">
               <Mic size={20} className="text-muk-soft/50" />
             </span>
           )}
@@ -1171,7 +1173,7 @@ export default function MainPage() {
         {searchActive && searchMatchCount === 0 && (
           <div className="pointer-events-auto px-2 -mt-1">
             <span className="inline-block text-muk text-xs bg-white/90 border border-line rounded-full px-3 py-1 shadow-[0_2px_14px_rgba(43,35,32,0.06)]">
-              &apos;{searchQuery.trim()}&apos; 검색 결과가 없어요
+              {t('map.searchNoResult', { q: searchQuery.trim() })}
             </span>
           </div>
         )}
@@ -1180,7 +1182,7 @@ export default function MainPage() {
         {showBarrierFree && barrierFreeMatchCount === 0 && !(searchActive && searchMatchCount === 0) && (
           <div className="pointer-events-auto px-2 -mt-1">
             <span className="inline-block text-muk text-xs bg-white/90 border border-line rounded-full px-3 py-1 shadow-[0_2px_14px_rgba(43,35,32,0.06)]">
-              ♿ 이 카테고리엔 배리어프리 장소가 없어요
+              ♿ {t('map.barrierFreeNone')}
             </span>
           </div>
         )}
@@ -1213,7 +1215,7 @@ export default function MainPage() {
                 }`}
               >
                 <Icon size={15} className={`mr-1.5 sm:mr-2 ${isActive ? 'text-gold' : 'text-muk-soft'}`} />
-                <span className="text-[13px] font-medium sm:text-sm">{filter.id}</span>
+                <span className="text-[13px] font-medium sm:text-sm">{t(`category.${filter.key}`)}</span>
               </button>
             );
           })}
@@ -1235,7 +1237,7 @@ export default function MainPage() {
             }`}
           >
             <span className={`w-2 h-2 rounded-full ${showHeatmap ? 'bg-terracotta animate-pulse' : 'bg-muk-soft/40'}`} />
-            🔥 히트맵
+            🔥 {t('map.heatmap')}
           </button>
 
           {/* ♿ 배리어프리 토글 — 켜지면 features.barrier_free 시설만 지도에 표시(무장애 여행 동선용) */}
@@ -1250,13 +1252,13 @@ export default function MainPage() {
             }`}
           >
             <span className={`w-2 h-2 rounded-full ${showBarrierFree ? 'bg-jade animate-pulse' : 'bg-muk-soft/40'}`} />
-            ♿ 배리어프리
+            ♿ {t('map.barrierFree')}
           </button>
 
           {/* 예측 정직성 배지 — 실측(Live)과 혼동 방지 */}
           {isForecast && (
             <span className="shrink-0 px-3 py-1 rounded-full text-[11px] font-bold bg-jade border border-jade/50 text-white shadow-[0_2px_10px_rgba(43,35,32,0.12)] whitespace-nowrap">
-              🔮 AI 예측 · +{hoursAhead}시간 후
+              🔮 {t('map.forecastBadge', { h: hoursAhead })}
             </span>
           )}
 
@@ -1272,7 +1274,7 @@ export default function MainPage() {
                 sliderPos === 0 ? 'text-gold-deep' : 'text-jade'
               }`}
             >
-              {sliderPos === 0 ? '지금' : `+${sliderPos}h`}
+              {sliderPos === 0 ? t('map.now') : `+${sliderPos}h`}
             </span>
             <input
               type="range"
@@ -1281,8 +1283,8 @@ export default function MainPage() {
               step={1}
               value={sliderPos}
               disabled={predictionLoading}
-              aria-label="예측 시점 선택 — 지금부터 최대 3시간 후"
-              aria-valuetext={sliderPos === 0 ? '지금(실측)' : `${sliderPos}시간 후 예측`}
+              aria-label={t('map.sliderAria')}
+              aria-valuetext={sliderPos === 0 ? t('map.sliderValueNow') : t('map.sliderValueAhead', { h: sliderPos })}
               onChange={(e) => setSliderPos(Number(e.target.value))}
               onPointerUp={() => handleTimeShift(sliderPos)}
               onKeyUp={() => handleTimeShift(sliderPos)}
@@ -1297,7 +1299,7 @@ export default function MainPage() {
       {isLoadingFacilities && (
         <div className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-3 pointer-events-none">
           <div className="w-10 h-10 rounded-full border-2 border-line border-t-gold animate-spin" />
-          <span className="text-muk text-sm font-medium">추천 장소를 불러오는 중...</span>
+          <span className="text-muk text-sm font-medium">{t('map.loadingRec')}</span>
         </div>
       )}
 
@@ -1305,14 +1307,14 @@ export default function MainPage() {
         <div className="absolute inset-0 z-30 flex items-center justify-center px-6 pointer-events-none">
           <div className="bg-white border border-line rounded-2xl px-6 py-5 shadow-[0_2px_14px_rgba(43,35,32,0.06)] flex flex-col items-center gap-3 max-w-xs text-center pointer-events-auto">
             <span className="text-2xl">⚠️</span>
-            <p className="text-muk text-sm font-semibold">장소 정보를 불러오지 못했어요</p>
-            <p className="text-muk-soft text-xs leading-relaxed">네트워크 또는 서버 연결을 확인한 뒤 다시 시도해 주세요.</p>
+            <p className="text-muk text-sm font-semibold">{t('map.loadErrorTitle')}</p>
+            <p className="text-muk-soft text-xs leading-relaxed">{t('map.loadErrorBody')}</p>
             <button
               type="button"
               onClick={() => setFacilitiesReloadNonce(n => n + 1)}
               className="mt-1 px-4 py-2 rounded-full bg-gold hover:bg-gold-deep text-white text-sm font-bold transition-colors"
             >
-              다시 시도
+              {t('common.retry')}
             </button>
           </div>
         </div>
@@ -1322,8 +1324,8 @@ export default function MainPage() {
         <div className="absolute inset-0 z-30 flex items-center justify-center px-6 pointer-events-none">
           <div className="bg-white border border-line rounded-2xl px-6 py-5 shadow-[0_2px_14px_rgba(43,35,32,0.06)] flex flex-col items-center gap-2 max-w-xs text-center">
             <span className="text-2xl">🗺️</span>
-            <p className="text-muk text-sm font-semibold">표시할 장소가 없어요</p>
-            <p className="text-muk-soft text-xs leading-relaxed">현재 지역에 등록된 장소 데이터가 없습니다.</p>
+            <p className="text-muk text-sm font-semibold">{t('map.emptyTitle')}</p>
+            <p className="text-muk-soft text-xs leading-relaxed">{t('map.emptyBody')}</p>
           </div>
         </div>
       )}
@@ -1401,8 +1403,8 @@ export default function MainPage() {
         <div className="absolute bottom-[90px] w-full z-20 px-4">
           <div className="bg-white border border-line rounded-2xl px-5 py-4 shadow-[0_2px_14px_rgba(43,35,32,0.06)] flex flex-col items-center gap-1.5 text-center">
             <span className="text-xl">🧭</span>
-            <p className="text-muk text-sm font-semibold">이 카테고리엔 지금 추천할 곳이 없어요</p>
-            <p className="text-muk-soft text-xs leading-relaxed">다른 카테고리를 선택하거나 잠시 후 다시 확인해 주세요.</p>
+            <p className="text-muk text-sm font-semibold">{t('map.noRecTitle')}</p>
+            <p className="text-muk-soft text-xs leading-relaxed">{t('map.noRecBody')}</p>
           </div>
         </div>
       )}

@@ -5,6 +5,7 @@ import { motion, PanInfo, AnimatePresence } from 'framer-motion';
 import { Bookmark, Sparkles, Star, Phone, MapPin, Clock, ChevronUp, ChevronDown, Info } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { CongestionReportButton } from '@/components/CongestionReportButton';
+import { useT } from '@/lib/i18n/I18nProvider';
 
 interface RecommendationCardProps {
   title: string;
@@ -47,6 +48,7 @@ export function RecommendationCard({
   totalCandidates,
   mockHour,
 }: RecommendationCardProps) {
+  const t = useT();
   const [isExpanded, setIsExpanded] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
 
@@ -205,16 +207,16 @@ export function RecommendationCard({
     return date.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false });
   };
 
-  // 0-23시 → '오전/오후 N시' (0시=오전 12시, 12시=오후 12시). 예: 16 → '오후 4시'
+  // 0-23시 → 로케일별 '오전/오후 N시'(0시=오전 12시, 12시=오후 12시). 예: 16 → '오후 4시'
   const formatKoreanHour = (h: number) => {
-    const period = h < 12 ? '오전' : '오후';
     const h12 = h % 12 === 0 ? 12 : h % 12;
-    return `${period} ${h12}시`;
+    return h < 12 ? t('card.hourAm', { h: h12 }) : t('card.hourPm', { h: h12 });
   };
 
   // 카드 상단 혼잡 pill 과 동일한 4단계 임계값(혼잡/보통/여유/한산)
-  const congestionLabel = (c: number) =>
-    c >= 0.75 ? '혼잡' : c >= 0.5 ? '보통' : c >= 0.25 ? '여유' : '한산';
+  const congestionKey = (c: number) =>
+    c >= 0.75 ? 'busy' : c >= 0.5 ? 'moderate' : c >= 0.25 ? 'relaxed' : 'quiet';
+  const congestionLabel = (c: number) => t(`congestion.${congestionKey(c)}`);
 
   return (
     <motion.div 
@@ -247,7 +249,7 @@ export function RecommendationCard({
         >
            <span className="text-sm font-bold text-muk truncate max-w-[200px]">{title}</span>
            <span className="text-[10px] text-terracotta font-bold bg-gold/10 px-2 py-0.5 rounded-full border border-gold/25 whitespace-nowrap">
-             열기 <ChevronUp size={12} className="inline mb-0.5" />
+             {t('card.open')} <ChevronUp size={12} className="inline mb-0.5" />
            </span>
         </div>
       ) : (
@@ -259,16 +261,16 @@ export function RecommendationCard({
             {rank ? (
               <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-gradient-to-r from-gold to-terracotta text-white text-[10px] font-black rounded-lg shadow-sm">
                 <Sparkles size={12} />
-                추천 {rank}순위
+                {t('card.rankBadge', { rank })}
               </span>
             ) : (
               <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-gold/15 text-gold-deep text-[10px] font-bold rounded-lg">
                 <Sparkles size={12} />
-                AI 추천
+                {t('card.aiRec')}
               </span>
             )}
             {totalCandidates && rank && (
-              <span className="text-[10px] text-muk-soft font-medium">대안 {totalCandidates}개 중</span>
+              <span className="text-[10px] text-muk-soft font-medium">{t('card.ofCandidates', { n: totalCandidates })}</span>
             )}
           </div>
           <h3 className="text-xl font-serif font-bold text-muk tracking-tight leading-tight">{title}</h3>
@@ -287,16 +289,16 @@ export function RecommendationCard({
                     ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-600'
                     : 'bg-jade/10 border-jade/30 text-jade'
                 }`}>
-                  혼잡도: {facility.congestionLevel >= 0.75 ? '혼잡' : facility.congestionLevel >= 0.5 ? '보통' : facility.congestionLevel >= 0.25 ? '여유' : '한산'}
+                  {t('card.congestion')}: {congestionLabel(facility.congestionLevel)}
                 </span>
               ) : (
                 <span className="px-2 py-0.5 rounded-md text-[10px] font-bold border bg-muk/5 border-line text-muk-soft">
-                  혼잡도: 데이터 없음
+                  {t('card.congestion')}: {t('card.noData')}
                 </span>
               )}
               <span className="px-2 py-0.5 rounded-md text-[10px] font-medium bg-hanji-deep border border-line text-muk-soft">
-                잔여: {facility.currentCount != null && facility.capacity != null
-                  ? `${Math.max(0, facility.capacity - facility.currentCount)}자리 (총 ${facility.capacity})`
+                {t('card.remainingLabel')}: {facility.currentCount != null && facility.capacity != null
+                  ? t('card.remainingValue', { seats: Math.max(0, facility.capacity - facility.currentCount), total: facility.capacity })
                   : '—'}
               </span>
             </div>
@@ -309,8 +311,8 @@ export function RecommendationCard({
             <div
               className="flex flex-col items-center justify-center min-w-[60px] h-[60px] rounded-2xl border border-gold/40 bg-gradient-to-b from-gold/20 to-gold/5 cursor-pointer shadow-sm"
             >
-              <span className="text-[9px] text-gold-deep font-bold mb-0.5">SPOT 점수</span>
-              <span className="text-muk font-black text-xl leading-none">{Math.round(spotScore || 0)}<span className="text-[10px] font-normal text-muk-soft ml-0.5">점</span></span>
+              <span className="text-[9px] text-gold-deep font-bold mb-0.5">{t('card.spotScoreLabel')}</span>
+              <span className="text-muk font-black text-xl leading-none">{Math.round(spotScore || 0)}<span className="text-[10px] font-normal text-muk-soft ml-0.5">{t('card.pointSuffix')}</span></span>
             </div>
             
             {/* Info Icon */}
@@ -331,7 +333,7 @@ export function RecommendationCard({
           matchPercentage !== undefined && (
             <div className="flex flex-col items-center justify-center min-w-[60px] h-[60px] rounded-2xl border border-gold/30 bg-gold/10 shadow-sm">
               <span className="text-muk font-black text-lg">{matchPercentage}%</span>
-              <span className="text-[9px] text-gold-deep font-semibold mt-0.5">일치</span>
+              <span className="text-[9px] text-gold-deep font-semibold mt-0.5">{t('card.match')}</span>
             </div>
           )
         )}
@@ -349,26 +351,26 @@ export function RecommendationCard({
                   <div className="absolute top-0 right-0 p-2 opacity-20">
                     <Clock size={24} className="text-gold" />
                   </div>
-                  <span className="text-muk-soft text-[10px] font-semibold mb-1">총 소요 시간</span>
+                  <span className="text-muk-soft text-[10px] font-semibold mb-1">{t('card.totalTime')}</span>
                   <div className="flex items-baseline gap-1 mb-1.5">
                     <span className="text-2xl font-black text-muk">{timeToService}</span>
-                    <span className="text-xs text-muk-soft font-medium">분</span>
+                    <span className="text-xs text-muk-soft font-medium">{t('card.minute')}</span>
                   </div>
                   <div className="flex items-center gap-2 text-[9px] text-muk-soft font-medium">
-                    <span className="bg-gold/15 px-1.5 py-0.5 rounded text-gold-deep">대기 {expectedWait}분</span>
+                    <span className="bg-gold/15 px-1.5 py-0.5 rounded text-gold-deep">{t('card.wait', { n: expectedWait ?? 0 })}</span>
                     <span className="text-muk-soft/60">+</span>
-                    <span className="bg-jade/15 px-1.5 py-0.5 rounded text-jade">이동 {expectedTravel}분</span>
+                    <span className="bg-jade/15 px-1.5 py-0.5 rounded text-jade">{t('card.travel', { n: expectedTravel ?? 0 })}</span>
                   </div>
                 </div>
 
                 {/* Preference Column */}
                 <div className="w-[110px] bg-hanji-deep border border-line rounded-2xl p-3 flex flex-col justify-center items-center text-center">
-                  <span className="text-muk-soft text-[10px] font-semibold mb-1">취향 일치율</span>
+                  <span className="text-muk-soft text-[10px] font-semibold mb-1">{t('card.prefMatch')}</span>
                   <div className="flex items-baseline gap-0.5 mb-1">
                     <span className="text-xl font-black text-jade">{preferencePercent}</span>
                     <span className="text-xs text-jade/80 font-bold">%</span>
                   </div>
-                  <span className="text-[9px] text-muk-soft mt-0.5 line-clamp-2">사용자 패턴 기반</span>
+                  <span className="text-[9px] text-muk-soft mt-0.5 line-clamp-2">{t('card.prefBasis')}</span>
                 </div>
               </div>
 
@@ -381,32 +383,32 @@ export function RecommendationCard({
 
                     {/* Travel Duration Label */}
                     <div className="absolute top-[-10px] left-[25%] -translate-x-1/2 z-10">
-                      <span className="text-[9px] font-medium text-jade bg-hanji-deep px-1.5 py-0.5 rounded border border-jade/25">이동 {travelMins}분</span>
+                      <span className="text-[9px] font-medium text-jade bg-hanji-deep px-1.5 py-0.5 rounded border border-jade/25">{t('card.travel', { n: travelMins })}</span>
                     </div>
                     {/* Wait Duration Label */}
                     <div className="absolute top-[-10px] left-[75%] -translate-x-1/2 z-10">
-                      <span className="text-[9px] font-medium text-gold-deep bg-hanji-deep px-1.5 py-0.5 rounded border border-gold/25">대기 {waitMins}분</span>
+                      <span className="text-[9px] font-medium text-gold-deep bg-hanji-deep px-1.5 py-0.5 rounded border border-gold/25">{t('card.wait', { n: waitMins })}</span>
                     </div>
 
                     {/* Current Time Step */}
                     <div className="flex flex-col items-center z-10 w-12">
                       <div className="w-2 h-2 rounded-full bg-gold ring-4 ring-hanji-deep mb-1.5" />
                       <span className="text-[10px] text-muk font-bold">{formatTime(currentTime)}</span>
-                      <span className="text-[9px] text-muk-soft mt-0.5">출발</span>
+                      <span className="text-[9px] text-muk-soft mt-0.5">{t('card.depart')}</span>
                     </div>
 
                     {/* Arrival Time Step */}
                     <div className="flex flex-col items-center z-10 w-12">
                       <div className="w-2 h-2 rounded-full bg-jade ring-4 ring-hanji-deep mb-1.5" />
                       <span className="text-[10px] text-muk font-bold">{formatTime(arrivalTime)}</span>
-                      <span className="text-[9px] text-muk-soft mt-0.5">도착</span>
+                      <span className="text-[9px] text-muk-soft mt-0.5">{t('card.arrive')}</span>
                     </div>
 
                     {/* Service Start Step */}
                     <div className="flex flex-col items-center z-10 w-12">
                       <div className="w-2 h-2 rounded-full bg-gold ring-4 ring-hanji-deep mb-1.5" />
                       <span className="text-[10px] text-muk font-bold">{formatTime(serviceTime)}</span>
-                      <span className="text-[9px] text-muk-soft mt-0.5">{facilityType === 'restaurant' || facilityType === 'cafe' ? '식사' : '관람'}</span>
+                      <span className="text-[9px] text-muk-soft mt-0.5">{facilityType === 'restaurant' || facilityType === 'cafe' ? t('card.dine') : t('card.view')}</span>
                     </div>
                   </div>
                 </div>
@@ -440,7 +442,7 @@ export function RecommendationCard({
               <span className="font-extrabold text-muk">{placeInfo?.rating ?? 4.5}</span>
             </div>
             <span className="text-muk-soft/40">|</span>
-            <span className="text-muk-soft">리뷰 {placeInfo?.reviewCount ?? 20}개</span>
+            <span className="text-muk-soft">{t('card.reviewCount', { n: placeInfo?.reviewCount ?? 20 })}</span>
             
             {placeInfo?.url && (
               <a 
@@ -449,7 +451,7 @@ export function RecommendationCard({
                 rel="noreferrer"
                 className="ml-auto text-gold-deep hover:text-gold underline font-bold tracking-tight"
               >
-                상세 리뷰 보기 ↗
+                {t('card.viewReviews')}
               </a>
             )}
           </div>
@@ -458,7 +460,7 @@ export function RecommendationCard({
           <div className="flex items-start gap-2">
             <MapPin size={14} className="text-muk-soft mt-0.5 flex-shrink-0" />
             <div>
-              <span className="text-muk-soft block text-[9px] font-bold">주소</span>
+              <span className="text-muk-soft block text-[9px] font-bold">{t('card.address')}</span>
               <span className="text-muk leading-relaxed">{placeInfo?.address}</span>
             </div>
           </div>
@@ -467,7 +469,7 @@ export function RecommendationCard({
           <div className="flex items-start gap-2">
             <Phone size={14} className="text-muk-soft mt-0.5 flex-shrink-0" />
             <div>
-              <span className="text-muk-soft block text-[9px] font-bold">전화번호</span>
+              <span className="text-muk-soft block text-[9px] font-bold">{t('card.phone')}</span>
               <span className="text-muk">{placeInfo?.phone}</span>
             </div>
           </div>
@@ -476,7 +478,7 @@ export function RecommendationCard({
           <div className="flex items-start gap-2">
             <Clock size={14} className="text-muk-soft mt-0.5 flex-shrink-0" />
             <div>
-              <span className="text-muk-soft block text-[9px] font-bold">운영 시간</span>
+              <span className="text-muk-soft block text-[9px] font-bold">{t('card.hours')}</span>
               <span className="text-muk">
                 {facility?.operatingHours?.open || '09:00'} ~ {facility?.operatingHours?.close || '22:00'}
                 {facility?.operatingHours?.weekday && ` (${facility.operatingHours.weekday})`}
@@ -489,12 +491,12 @@ export function RecommendationCard({
             <div className="border-t border-line/70 pt-3">
               <div className="flex items-center gap-1.5 mb-2">
                 <Clock size={13} className="text-gold-deep flex-shrink-0" />
-                <span className="text-[11px] font-bold text-muk">오늘 시간대별 혼잡 예측</span>
+                <span className="text-[11px] font-bold text-muk">{t('card.todayForecast')}</span>
               </div>
               <div
                 className="flex items-end gap-[2px] h-10"
                 role="img"
-                aria-label={`오늘 시간대별 예측 혼잡도. 가장 한산한 시간은 ${formatKoreanHour(dayPred.bestHour)}입니다.`}
+                aria-label={t('card.forecastAria', { time: formatKoreanHour(dayPred.bestHour) })}
               >
                 {dayPred.hours.map((h) => {
                   const isBest = h.hour === dayPred.bestHour;
@@ -515,15 +517,15 @@ export function RecommendationCard({
               </div>
               {/* 시각 축(0·6·12·18·23시) — 대략 위치만 안내하는 경량 눈금 */}
               <div className="flex justify-between mt-1 text-[8px] text-muk-soft/70 font-medium" aria-hidden="true">
-                <span>0시</span>
-                <span>6시</span>
-                <span>12시</span>
-                <span>18시</span>
-                <span>23시</span>
+                <span>{t('card.oClock', { h: 0 })}</span>
+                <span>{t('card.oClock', { h: 6 })}</span>
+                <span>{t('card.oClock', { h: 12 })}</span>
+                <span>{t('card.oClock', { h: 18 })}</span>
+                <span>{t('card.oClock', { h: 23 })}</span>
               </div>
               <p className="text-[11px] text-jade font-bold mt-2 flex items-center gap-1">
                 <Sparkles size={11} className="text-jade flex-shrink-0" />
-                가장 한산한 시간 · {formatKoreanHour(dayPred.bestHour)}
+                {t('card.bestTime', { time: formatKoreanHour(dayPred.bestHour) })}
               </p>
             </div>
           )}
@@ -536,15 +538,15 @@ export function RecommendationCard({
       <div className="flex gap-2 mt-1">
           <button
             onClick={onReject}
-            aria-label="이 추천에 관심 없음, 다른 장소 추천받기"
+            aria-label={t('card.rejectAria')}
             className="flex-1 bg-hanji-deep hover:bg-terracotta/10 hover:text-terracotta hover:border-terracotta/30 text-muk-soft font-bold py-3 rounded-2xl border border-line transition-all active:scale-95 text-xs focus:outline-none"
           >
-            관심 없어요
+            {t('card.reject')}
           </button>
           {onPutOff && (
             <button
               onClick={onPutOff}
-              aria-label="이 장소를 나중에 볼 목록에 저장"
+              aria-label={t('card.putOffAria')}
               className="group flex-1 flex items-center justify-center gap-1.5 bg-hanji-deep hover:bg-gold/10 hover:text-gold-deep hover:border-gold/30 text-muk-soft font-bold py-3 rounded-2xl border border-line transition-all active:scale-95 text-xs focus:outline-none"
             >
               {/* 저장 인지 강화용 북마크 — hover/press 시 채워지며 살짝 팝(순수 Tailwind, 과하지 않게) */}
@@ -552,15 +554,15 @@ export function RecommendationCard({
                 size={14}
                 className="fill-transparent transition-all duration-300 group-hover:fill-gold group-hover:scale-110 group-active:scale-125"
               />
-              나중에 볼게요
+              {t('card.putOff')}
             </button>
           )}
           <button
             onClick={onAccept}
-            aria-label="여기로 길안내 시작"
+            aria-label={t('card.acceptAria')}
             className="flex-1 bg-gradient-to-r from-gold to-terracotta hover:from-gold-deep hover:to-terracotta text-white font-bold py-3 rounded-2xl transition-all active:scale-95 text-xs shadow-[0_4px_14px_rgba(193,85,59,0.25)] focus:outline-none"
           >
-            여기로 갈래요
+            {t('card.accept')}
           </button>
         </div>
         {facility?.id && (

@@ -10,6 +10,9 @@ import Link from "next/link";
 import { createPublicClient } from "@/lib/supabase";
 import { apiClient } from "@/lib/api-client";
 import { REGION, isWithinRegion } from "@/lib/region";
+import { useT } from "@/lib/i18n/I18nProvider";
+
+type TFunc = (key: string, vars?: Record<string, string | number>) => string;
 
 const supabase = createPublicClient();
 
@@ -34,38 +37,41 @@ interface CourseStop {
 }
 
 const TYPE_OPTIONS = [
-  { id: "restaurant", label: "음식점", emoji: "🍴" },
-  { id: "cafe", label: "카페", emoji: "☕" },
-  { id: "attraction", label: "관광지", emoji: "📸" },
-  { id: "culture", label: "문화시설", emoji: "🏛️" },
+  { id: "restaurant", emoji: "🍴" },
+  { id: "cafe", emoji: "☕" },
+  { id: "attraction", emoji: "📸" },
+  { id: "culture", emoji: "🏛️" },
 ];
+const TYPE_IDS = TYPE_OPTIONS.map((o) => o.id);
 
-function typeName(type: string): string {
-  return TYPE_OPTIONS.find((t) => t.id === type)?.label ?? "장소";
+// 시설 유형(캐노니컬 키) → 표시명(i18n category, 미지정은 폴백).
+function typeName(type: string, t: TFunc): string {
+  return TYPE_IDS.includes(type) ? t(`category.${type}`) : t("course.typeFallback");
 }
 
 function typeEmoji(type: string): string {
-  return TYPE_OPTIONS.find((t) => t.id === type)?.emoji ?? "📍";
+  return TYPE_OPTIONS.find((o) => o.id === type)?.emoji ?? "📍";
 }
 
-// 혼잡 라벨/색 — 백엔드 _congestion_label 임계값과 통일.
-function congestion(level: number): { label: string; cls: string } {
-  if (level >= 0.75) return { label: "혼잡", cls: "text-terracotta bg-terracotta/10 border-terracotta/25" };
-  if (level >= 0.5) return { label: "보통", cls: "text-gold-deep bg-gold/10 border-gold/25" };
-  if (level >= 0.25) return { label: "여유", cls: "text-jade bg-jade/10 border-jade/25" };
-  return { label: "한산", cls: "text-jade bg-jade/15 border-jade/30" };
+// 혼잡 키/색 — 백엔드 _congestion_label 임계값과 통일(라벨은 congestion 네임스페이스로 번역).
+function congestion(level: number): { key: string; cls: string } {
+  if (level >= 0.75) return { key: "busy", cls: "text-terracotta bg-terracotta/10 border-terracotta/25" };
+  if (level >= 0.5) return { key: "moderate", cls: "text-gold-deep bg-gold/10 border-gold/25" };
+  if (level >= 0.25) return { key: "relaxed", cls: "text-jade bg-jade/10 border-jade/25" };
+  return { key: "quiet", cls: "text-jade bg-jade/15 border-jade/30" };
 }
 
 // 도착 오프셋(분) → 사람 친화 표기 + 예상 시각(HH:MM).
-function arrivalText(offsetMin: number): string {
+function arrivalText(offsetMin: number, t: TFunc): string {
   const clock = new Date(Date.now() + offsetMin * 60_000);
   const hh = clock.getHours().toString().padStart(2, "0");
   const mm = clock.getMinutes().toString().padStart(2, "0");
-  if (offsetMin < 8) return `지금 바로 · ${hh}:${mm}`;
-  return `약 ${Math.round(offsetMin)}분 뒤 · ${hh}:${mm}`;
+  if (offsetMin < 8) return `${t("course.arrivalNow")} · ${hh}:${mm}`;
+  return `${t("course.arrivalAfter", { min: Math.round(offsetMin) })} · ${hh}:${mm}`;
 }
 
 export default function CoursePage() {
+  const t = useT();
   const [userId, setUserId] = useState<string | null>(null);
   const [coords, setCoords] = useState<{ lat: number; lng: number }>({
     lat: REGION.center.lat,
@@ -117,12 +123,12 @@ export default function CoursePage() {
       setStops(Array.isArray(data) ? data : []);
     } catch (err) {
       console.warn("코스 추천 호출 실패:", err);
-      setError("추천 서버에 연결하지 못했어요. 잠시 후 다시 시도해 주세요.");
+      setError(t("course.fetchError"));
       setStops([]);
     } finally {
       setLoading(false);
     }
-  }, [userId, coords.lat, coords.lng, selectedTypes]);
+  }, [userId, coords.lat, coords.lng, selectedTypes, t]);
 
   useEffect(() => {
     fetchCourse();
@@ -147,38 +153,37 @@ export default function CoursePage() {
             href="/main"
             className="text-xs text-muk-soft hover:text-muk transition-colors flex items-center gap-1.5"
           >
-            ← 지도 보기
+            ← {t('course.backToMap')}
           </Link>
-          <span className="text-sm font-extrabold tracking-tight gradient-text">NextSpot 분산 코스</span>
+          <span className="text-sm font-extrabold tracking-tight gradient-text">{t('course.brand')}</span>
           <div className="w-14" />
         </header>
 
         {/* 소개 */}
         <section className="space-y-1.5">
           <h1 className="text-lg md:text-xl font-serif font-bold text-muk">
-            혼잡을 피해 도는 <span className="text-gold-deep">맞춤 동선</span>
+            {t('course.title')}
           </h1>
           <p className="text-xs md:text-sm text-muk-soft leading-relaxed">
-            각 정류지에 <span className="font-semibold text-jade">도착하는 시각</span>의 예측 혼잡을 피하도록
-            2~3곳을 이어 드려요. 이동·체류 시간을 반영한 정직한 추천입니다.
+            {t('course.desc')}
           </p>
         </section>
 
         {/* 종류 필터 */}
         <section className="flex flex-wrap gap-2">
-          {TYPE_OPTIONS.map((t) => {
-            const on = selectedTypes.includes(t.id);
+          {TYPE_OPTIONS.map((opt) => {
+            const on = selectedTypes.includes(opt.id);
             return (
               <button
-                key={t.id}
-                onClick={() => toggleType(t.id)}
+                key={opt.id}
+                onClick={() => toggleType(opt.id)}
                 className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors ${
                   on
                     ? "bg-gold/15 border-gold/40 text-gold-deep"
                     : "bg-white border-line text-muk-soft hover:border-gold/30"
                 }`}
               >
-                {t.emoji} {t.label}
+                {opt.emoji} {t(`category.${opt.id}`)}
               </button>
             );
           })}
@@ -200,6 +205,7 @@ export default function CoursePage() {
 }
 
 function Timeline({ stops }: { stops: CourseStop[] }) {
+  const t = useT();
   return (
     <ol className="relative space-y-4">
       {stops.map((stop, idx) => {
@@ -220,7 +226,7 @@ function Timeline({ stops }: { stops: CourseStop[] }) {
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className="text-[10px] font-bold tracking-wider text-muk-soft">
-                    {typeEmoji(stop.facility.type)} {typeName(stop.facility.type)}
+                    {typeEmoji(stop.facility.type)} {typeName(stop.facility.type, t)}
                   </div>
                   <h3 className="text-base font-serif font-bold text-muk truncate">
                     {stop.facility.name}
@@ -229,17 +235,17 @@ function Timeline({ stops }: { stops: CourseStop[] }) {
                 <span
                   className={`shrink-0 px-2 py-1 rounded-lg text-[11px] font-bold border ${cong.cls}`}
                 >
-                  {cong.label} {Math.round(stop.predictedCongestion * 100)}%
+                  {t(`congestion.${cong.key}`)} {Math.round(stop.predictedCongestion * 100)}%
                 </span>
               </div>
 
               <div className="flex items-center gap-2 text-[11px] text-muk-soft">
                 <span className="inline-flex items-center gap-1">
-                  🕒 {arrivalText(stop.arrivalOffsetMin)}
+                  🕒 {arrivalText(stop.arrivalOffsetMin, t)}
                 </span>
                 <span className="text-line">·</span>
                 <span className="inline-flex items-center gap-1">
-                  SPOT {Math.round(stop.spotScore * 100)}점
+                  {t('course.spotScore', { score: Math.round(stop.spotScore * 100) })}
                 </span>
               </div>
 
@@ -272,18 +278,20 @@ function TimelineSkeleton() {
 }
 
 function EmptyState() {
+  const t = useT();
   return (
     <div className="bg-white rounded-2xl border border-line shadow-[0_2px_14px_rgba(43,35,32,0.06)] p-8 text-center space-y-2">
       <div className="text-3xl">🗺️</div>
-      <p className="text-sm font-semibold text-muk">추천할 코스를 찾지 못했어요</p>
+      <p className="text-sm font-semibold text-muk">{t('course.emptyTitle')}</p>
       <p className="text-xs text-muk-soft leading-relaxed">
-        근처에 조건에 맞는 장소가 부족해요. 종류 필터를 넓히거나 잠시 후 다시 시도해 주세요.
+        {t('course.emptyBody')}
       </p>
     </div>
   );
 }
 
 function ErrorState({ message, onRetry }: { message: string; onRetry: () => void }) {
+  const t = useT();
   return (
     <div className="bg-white rounded-2xl border border-terracotta/25 shadow-[0_2px_14px_rgba(43,35,32,0.06)] p-8 text-center space-y-3">
       <div className="text-3xl">⚠️</div>
@@ -292,7 +300,7 @@ function ErrorState({ message, onRetry }: { message: string; onRetry: () => void
         onClick={onRetry}
         className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full bg-gold text-white text-xs font-bold hover:bg-gold-deep transition-colors"
       >
-        다시 시도
+        {t('common.retry')}
       </button>
     </div>
   );

@@ -6,6 +6,15 @@ import { Menu, Bell, Home, Bookmark, User, Compass, Star, Trash2 } from 'lucide-
 import { toast } from 'sonner';
 import { RecommendationCard } from '@/components/RecommendationCard';
 import { CongestionAlertToggle } from '@/components/CongestionAlertToggle';
+import { useT } from '@/lib/i18n/I18nProvider';
+
+// 저장된 카테고리(한국어 라벨) → i18n category 키 매핑(표시용 번역).
+const CATEGORY_LABEL_TO_KEY: Record<string, string> = {
+  '음식점': 'restaurant',
+  '카페': 'cafe',
+  '관광지': 'attraction',
+  '문화시설': 'culture',
+};
 
 interface BookmarkData {
   id: string;
@@ -21,6 +30,7 @@ interface BookmarkData {
 
 export default function SavedPage() {
   const router = useRouter();
+  const t = useT();
   const [bookmarks, setBookmarks] = useState<BookmarkData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedBookmark, setSelectedBookmark] = useState<BookmarkData | null>(null);
@@ -82,26 +92,26 @@ export default function SavedPage() {
     if (selectedBookmark?.id === id) {
       setSelectedBookmark(null);
     }
-    toast.success('저장된 스팟이 삭제되었습니다.');
+    toast.success(t('saved.deleteSuccess'));
   };
 
   // 전체 초기화: 되돌릴 수 없는 파괴적 동작이므로 네이티브 confirm() 대신
   // 전역 sonner 토스트의 action/cancel 버튼으로 인페이지 확인을 받는다(다크 글래스 UI 유지).
   const handleClearAll = () => {
-    toast('모든 저장된 스팟을 초기화할까요?', {
-      description: '삭제된 목록은 되돌릴 수 없습니다.',
+    toast(t('saved.clearConfirm'), {
+      description: t('saved.clearConfirmDesc'),
       duration: 8000,
       action: {
-        label: '초기화',
+        label: t('saved.clearAction'),
         onClick: () => {
           setBookmarks([]);
           localStorage.removeItem('nextspot_saved_facilities');
           setSelectedBookmark(null);
-          toast.success('모든 저장된 스팟이 초기화되었습니다.');
+          toast.success(t('saved.clearedSuccess'));
         },
       },
       cancel: {
-        label: '취소',
+        label: t('common.cancel'),
         onClick: () => {},
       },
     });
@@ -145,16 +155,16 @@ export default function SavedPage() {
               <div className="w-16 h-16 rounded-full bg-gradient-to-b from-gold/20 to-gold/10 border border-line flex items-center justify-center mb-6">
                 <Star className="text-gold fill-gold/40" size={32} />
               </div>
-              <h2 className="text-xl font-bold font-serif text-muk mb-3">아직 저장한 장소가 없어요</h2>
+              <h2 className="text-xl font-bold font-serif text-muk mb-3">{t('saved.emptyTitle')}</h2>
               <p className="text-muk-soft text-sm leading-relaxed mb-8 px-2">
-                경주 황리단길에서 마음에 든 장소를 저장하면 여기에 모여요.
+                {t('saved.emptyBody')}
               </p>
               <button
                 onClick={() => router.push('/main')}
                 className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gold hover:bg-gold-deep text-white text-sm font-semibold transition-all"
               >
                 <Compass size={18} className="text-white" />
-                <span>지도 둘러보기</span>
+                <span>{t('saved.browseMap')}</span>
               </button>
             </div>
           </div>
@@ -162,12 +172,12 @@ export default function SavedPage() {
           // List State
           <div className="flex flex-col gap-4">
             <div className="flex justify-between items-center px-1 mb-2">
-              <h2 className="text-lg font-bold font-serif text-muk">저장한 장소</h2>
+              <h2 className="text-lg font-bold font-serif text-muk">{t('saved.title')}</h2>
               <button
                 onClick={handleClearAll}
                 className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-terracotta/15 text-terracotta border border-terracotta/30 hover:bg-terracotta/25 transition-colors"
               >
-                전체 초기화
+                {t('saved.clearAll')}
               </button>
             </div>
             {/* 저장한 곳이 한산해지면 인앱 알림(옵트인) */}
@@ -200,7 +210,7 @@ export default function SavedPage() {
               >
                 {/* 랭크 표시 뱃지 */}
                 <div className="absolute top-0 left-0 bg-gold text-white text-[10px] font-bold px-2 py-1 rounded-br-lg z-10">
-                  {index + 1}위
+                  {t('saved.rankSuffix', { rank: index + 1 })}
                 </div>
                 
                 {/* 상단: 기본 정보 */}
@@ -208,7 +218,7 @@ export default function SavedPage() {
                   <div className="pl-4">
                     <div className="flex items-center gap-2 mb-1 mt-1">
                       <span className="text-xs font-semibold px-2 py-0.5 rounded-md bg-hanji-deep text-muk-soft">
-                        {bookmark.category}
+                        {CATEGORY_LABEL_TO_KEY[bookmark.category] ? t(`category.${CATEGORY_LABEL_TO_KEY[bookmark.category]}`) : bookmark.category}
                       </span>
                       {renderTrafficIndicator(bookmark.trafficStatus)}
                     </div>
@@ -219,7 +229,7 @@ export default function SavedPage() {
                   <div className="flex flex-col items-end pr-1 z-20">
                     <button
                       type="button"
-                      aria-label={`${bookmark.name} 저장 삭제`}
+                      aria-label={t('saved.deleteAria', { name: bookmark.name })}
                       onClick={(e) => handleDelete(bookmark.id, e)}
                       className="p-2 rounded-xl bg-terracotta/10 text-terracotta hover:bg-terracotta/20 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-terracotta/60 transition-opacity md:flex hidden"
                     >
@@ -227,7 +237,7 @@ export default function SavedPage() {
                     </button>
                     <button
                       type="button"
-                      aria-label={`${bookmark.name} 저장 삭제`}
+                      aria-label={t('saved.deleteAria', { name: bookmark.name })}
                       onClick={(e) => handleDelete(bookmark.id, e)}
                       className="p-1.5 rounded-lg bg-terracotta/10 text-terracotta hover:bg-terracotta/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-terracotta/60 md:hidden flex"
                     >
@@ -250,8 +260,8 @@ export default function SavedPage() {
                   return (
                     <div className="w-full mt-4 bg-hanji border border-line rounded-2xl px-4 py-3 flex flex-col gap-3">
                       <div className="flex justify-between items-center px-1 mb-1">
-                        <span className="text-muk-soft text-[10px] font-semibold">총 소요 시간</span>
-                        <span className="text-gold font-bold text-sm">{timeToService}분</span>
+                        <span className="text-muk-soft text-[10px] font-semibold">{t('saved.totalTime')}</span>
+                        <span className="text-gold font-bold text-sm">{t('saved.minutes', { n: timeToService })}</span>
                       </div>
                       <div className="flex items-start justify-between relative">
                         {/* 연결선 */}
@@ -259,32 +269,32 @@ export default function SavedPage() {
 
                         {/* 이동 시간 라벨 */}
                         <div className="absolute top-[-10px] left-[25%] -translate-x-1/2 z-10">
-                          <span className="text-[9px] font-medium text-jade bg-hanji px-1.5 py-0.5 rounded border border-jade/25">이동 {travelMins}분</span>
+                          <span className="text-[9px] font-medium text-jade bg-hanji px-1.5 py-0.5 rounded border border-jade/25">{t('saved.travelLabel', { n: travelMins })}</span>
                         </div>
                         {/* 대기 시간 라벨 */}
                         <div className="absolute top-[-10px] left-[75%] -translate-x-1/2 z-10">
-                          <span className="text-[9px] font-medium text-gold bg-hanji px-1.5 py-0.5 rounded border border-gold/25">대기 {waitMins}분</span>
+                          <span className="text-[9px] font-medium text-gold bg-hanji px-1.5 py-0.5 rounded border border-gold/25">{t('saved.waitLabel', { n: waitMins })}</span>
                         </div>
 
                         {/* 출발 시점 */}
                         <div className="flex flex-col items-center z-10 w-12">
                           <div className="w-2 h-2 rounded-full bg-muk ring-4 ring-hanji mb-1.5" />
                           <span className="text-[10px] text-muk font-bold">{formatTime(currentTime)}</span>
-                          <span className="text-[9px] text-muk-soft mt-0.5">출발</span>
+                          <span className="text-[9px] text-muk-soft mt-0.5">{t('saved.depart')}</span>
                         </div>
 
                         {/* 도착 시점 */}
                         <div className="flex flex-col items-center z-10 w-12">
                           <div className="w-2 h-2 rounded-full bg-jade ring-4 ring-hanji mb-1.5" />
                           <span className="text-[10px] text-muk font-bold">{formatTime(arrivalTime)}</span>
-                          <span className="text-[9px] text-muk-soft mt-0.5">도착</span>
+                          <span className="text-[9px] text-muk-soft mt-0.5">{t('saved.arrive')}</span>
                         </div>
 
                         {/* 이용 시작 시점 */}
                         <div className="flex flex-col items-center z-10 w-12">
                           <div className="w-2 h-2 rounded-full bg-gold ring-4 ring-hanji mb-1.5" />
                           <span className="text-[10px] text-muk font-bold">{formatTime(serviceTime)}</span>
-                          <span className="text-[9px] text-muk-soft mt-0.5">{bookmark.category === '음식점' || bookmark.category === '카페' ? '식사' : '관람'}</span>
+                          <span className="text-[9px] text-muk-soft mt-0.5">{bookmark.category === '음식점' || bookmark.category === '카페' ? t('saved.dine') : t('saved.view')}</span>
                         </div>
                       </div>
                     </div>
@@ -326,7 +336,7 @@ export default function SavedPage() {
               setBookmarks(updated);
               localStorage.setItem('nextspot_saved_facilities', JSON.stringify(updated));
               setSelectedBookmark(null);
-              toast.success(`'${selectedBookmark.name}'이(가) 저장된 목록에서 삭제되었습니다.`);
+              toast.success(t('saved.removedFromSaved', { name: selectedBookmark.name }));
             }}
           />
         </div>

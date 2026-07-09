@@ -11,6 +11,8 @@ import { toast } from 'sonner';
 import { apiClient } from '@/lib/api-client';
 import { createPublicClient } from '@/lib/supabase';
 import TasteRadar from '@/components/TasteRadar';
+import { LanguageSwitcher } from '@/components/LanguageSwitcher';
+import { useT } from '@/lib/i18n/I18nProvider';
 
 interface UserProfile {
   name: string;
@@ -24,6 +26,7 @@ interface UserProfile {
 
 export default function MyPage() {
   const router = useRouter();
+  const t = useT();
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [userVector, setUserVector] = useState<number[] | null>(null);
@@ -41,7 +44,7 @@ export default function MyPage() {
         
         // 프로필명/이메일은 하드코딩 실명 대신 로그인 세션에서 파생한다.
         // 비로그인·목 세션이면 user 가 null 이므로 명확한 플레이스홀더로 폴백(회귀 없이 데모 무중단).
-        let displayName = '게스트 탐험가';
+        let displayName = t('mypage.guestName');
         let displayEmail = 'guest@nextspot.app';
         try {
           const supabase = createPublicClient();
@@ -110,7 +113,7 @@ export default function MyPage() {
 
   // 미구현 항목 공통 안내: 죽은 버튼이 무반응으로 보이지 않도록 '준비 중' 토스트를 띄운다.
   const handleComingSoon = () => {
-    toast.info('준비 중인 기능이에요');
+    toast.info(t('mypage.comingSoon'));
   };
 
   // 로그아웃: 세션을 종료한 뒤 루트로 이동한다(목/비로그인 세션이어도 안전하게 폴백).
@@ -121,7 +124,7 @@ export default function MyPage() {
     } catch (err) {
       console.warn('Sign out failed', err);
     } finally {
-      toast.success('로그아웃되었습니다');
+      toast.success(t('mypage.signedOut'));
       router.push('/');
     }
   };
@@ -135,21 +138,24 @@ export default function MyPage() {
       <header className="flex justify-between items-center p-5 z-10 relative">
         <button
           type="button"
-          aria-label="메뉴"
+          aria-label={t('mypage.menuAria')}
           onClick={handleComingSoon}
           className="text-muk-soft hover:text-muk transition-colors"
         >
           <Menu size={24} />
         </button>
         <h1 className="text-xl font-bold font-serif text-muk tracking-wide">NextSpot</h1>
-        <button
-          type="button"
-          aria-label="알림"
-          onClick={handleComingSoon}
-          className="text-muk-soft hover:text-muk transition-colors"
-        >
-          <Bell size={24} />
-        </button>
+        <div className="flex items-center gap-2">
+          <LanguageSwitcher />
+          <button
+            type="button"
+            aria-label={t('mypage.bellAria')}
+            onClick={handleComingSoon}
+            className="text-muk-soft hover:text-muk transition-colors"
+          >
+            <Bell size={24} />
+          </button>
+        </div>
       </header>
 
       {/* Main Content Area */}
@@ -184,7 +190,7 @@ export default function MyPage() {
                 className="flex items-center gap-2 px-5 py-2.5 rounded-xl border border-line bg-hanji hover:bg-hanji-deep text-muk text-sm font-medium transition-colors"
               >
                 <Edit2 size={14} />
-                <span>프로필 수정</span>
+                <span>{t('mypage.editProfile')}</span>
               </button>
             </div>
 
@@ -192,7 +198,7 @@ export default function MyPage() {
             <div className="bg-white border border-line rounded-3xl p-6 shadow-[0_2px_14px_rgba(43,35,32,0.06)] mb-4">
               <h3 className="text-sm font-bold text-gold-deep mb-3 tracking-wider flex items-center gap-2">
                 <Sparkles size={16} />
-                <span>8차원 선호도 벡터 임베딩 (실시간 강화학습 수치)</span>
+                <span>{t('mypage.vectorTitle')}</span>
               </h3>
               {userVector ? (
                 <div className="space-y-3">
@@ -228,17 +234,17 @@ export default function MyPage() {
             <div className="grid grid-cols-3 gap-3 mb-6">
               <div className="bg-white border border-line rounded-2xl p-4 flex flex-col items-center justify-center shadow-[0_2px_14px_rgba(43,35,32,0.06)]">
                 <div className="text-xl font-bold text-muk mb-1">{profile.routes}</div>
-                <div className="text-xs text-muk-soft font-medium">경로</div>
+                <div className="text-xs text-muk-soft font-medium">{t('mypage.statRoutes')}</div>
               </div>
               <div className="bg-white border border-line rounded-2xl p-4 flex flex-col items-center justify-center shadow-[0_2px_14px_rgba(43,35,32,0.06)]">
                 <Bookmark size={20} className="text-terracotta mb-2" fill="currentColor" />
                 <div className="text-xl font-bold text-muk mb-1">{profile.saved}</div>
-                <div className="text-xs text-muk-soft font-medium">저장</div>
+                <div className="text-xs text-muk-soft font-medium">{t('mypage.statSaved')}</div>
               </div>
               <div className="bg-white border border-line rounded-2xl p-4 flex flex-col items-center justify-center shadow-[0_2px_14px_rgba(43,35,32,0.06)]">
                 <Star size={20} className="text-gold mb-2" fill="currentColor" />
                 <div className="text-xl font-bold text-muk mb-1">{profile.rating}</div>
-                <div className="text-xs text-muk-soft font-medium">평점</div>
+                <div className="text-xs text-muk-soft font-medium">{t('mypage.statRating')}</div>
               </div>
             </div>
 
@@ -251,7 +257,7 @@ export default function MyPage() {
                   <div className="w-10 h-10 rounded-full bg-hanji-deep flex items-center justify-center">
                     <BellRing size={20} className="text-muk-soft" />
                   </div>
-                  <span className="text-muk font-medium">이상 혼잡 알림</span>
+                  <span className="text-muk font-medium">{t('mypage.alertMenu')}</span>
                 </div>
                 {/* 토글 스위치 */}
                 <button
@@ -265,11 +271,11 @@ export default function MyPage() {
               {/* 기타 메뉴 */}
               {(() => {
                 const menus = [
-                  { id: 'course', icon: Route, label: '분산 코스 추천', path: '/course' },
-                  { id: 'coupons', icon: Ticket, label: '내 쿠폰함', path: '/mypage/coupons' },
-                  { id: 'privacy', icon: Shield, label: '개인정보', path: '#' },
-                  { id: 'help', icon: HelpCircle, label: '고객지원', path: '/mypage/support' },
-                  { id: 'settings', icon: SettingsIcon, label: '설정', path: '#' },
+                  { id: 'course', icon: Route, labelKey: 'mypage.menuCourse', path: '/course' },
+                  { id: 'coupons', icon: Ticket, labelKey: 'mypage.menuCoupons', path: '/mypage/coupons' },
+                  { id: 'privacy', icon: Shield, labelKey: 'mypage.menuPrivacy', path: '#' },
+                  { id: 'help', icon: HelpCircle, labelKey: 'mypage.menuHelp', path: '/mypage/support' },
+                  { id: 'settings', icon: SettingsIcon, labelKey: 'mypage.menuSettings', path: '#' },
                 ];
                 return menus.map((menu, index) => {
                 const Icon = menu.icon;
@@ -288,7 +294,7 @@ export default function MyPage() {
                       <div className="w-10 h-10 rounded-full bg-hanji-deep flex items-center justify-center">
                         <Icon size={20} className="text-muk-soft" />
                       </div>
-                      <span className="text-muk font-medium">{menu.label}</span>
+                      <span className="text-muk font-medium">{t(menu.labelKey)}</span>
                     </div>
                     <ChevronRight size={20} className="text-muk-soft" />
                   </button>
@@ -304,7 +310,7 @@ export default function MyPage() {
               className="w-full flex items-center justify-center gap-2 py-4 rounded-2xl border border-line bg-transparent hover:bg-hanji-deep text-muk-soft font-semibold transition-colors mb-4"
             >
               <LogOut size={18} className="text-terracotta" />
-              <span className="text-terracotta">로그아웃</span>
+              <span className="text-terracotta">{t('mypage.signOut')}</span>
             </button>
 
           </div>
