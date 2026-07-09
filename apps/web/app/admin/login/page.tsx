@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Lock, ShieldCheck, Loader2, Eye, EyeOff } from 'lucide-react';
 import { signInWithPassword } from '@/lib/admin-auth';
@@ -13,11 +13,6 @@ export default function AdminLoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
-  const [isMounted, setIsMounted] = useState(false);
-
-  useEffect(() => {
-    setIsMounted(true);
-  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -36,10 +31,6 @@ export default function AdminLoginPage() {
       setIsLoading(false);
     }
   };
-
-  if (!isMounted) {
-    return null;
-  }
 
   return (
     <div className="min-h-screen w-full flex items-center justify-center bg-hanok font-sans relative overflow-hidden">
