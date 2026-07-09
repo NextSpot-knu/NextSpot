@@ -77,6 +77,10 @@ export default function MainPage() {
   const [hoursAhead, setHoursAhead] = useState(0);
   const [predictionMap, setPredictionMap] = useState<Record<string, { level: number; anchored: boolean }> | null>(null);
   const [predictionLoading, setPredictionLoading] = useState(false);
+  // 슬라이더 썸 위치(0~3) — 드래그 중엔 이 값만 즉시 갱신하고, 놓을 때(onPointerUp/onKeyUp) handleTimeShift 로
+  // 커밋한다(드래그 스텝마다 예측 호출이 폭주하지 않도록). 예측 성공/실패로 hoursAhead 가 바뀌면 썸을 재동기화.
+  const [sliderPos, setSliderPos] = useState(0);
+  useEffect(() => { setSliderPos(hoursAhead); }, [hoursAhead]);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -1192,29 +1196,35 @@ export default function MainPage() {
             </span>
           )}
 
-          {/* 예측 타임슬라이더 — 미래 도착시점 혼잡 예측 */}
+          {/* 예측 타임슬라이더(바) — 지금(0)~+3h 를 하나의 슬라이더로. 드래그 중엔 썸만 이동하고
+              놓을 때(onPointerUp/onKeyUp) 예측을 커밋한다(스텝마다 /predict/batch 호출 폭주 방지). */}
           <div
-            className={`flex shrink-0 gap-1 rounded-full border p-1 fractal-glass bg-white/80 shadow-[0_2px_14px_rgba(43,35,32,0.06)] transition-colors ${
+            className={`flex shrink-0 items-center gap-3 rounded-full border py-1.5 pl-3.5 pr-4 fractal-glass bg-white/80 shadow-[0_2px_14px_rgba(43,35,32,0.06)] transition-colors ${
               isForecast ? 'border-jade/50' : 'border-line'
             } ${predictionLoading ? 'opacity-60' : ''}`}
           >
-            {[0, 1, 2, 3].map((n) => (
-              <button
-                key={n}
-                type="button"
-                onClick={() => handleTimeShift(n)}
-                disabled={predictionLoading}
-                className={`shrink-0 whitespace-nowrap rounded-full px-3 py-1 text-xs font-semibold transition-all disabled:cursor-wait ${
-                  hoursAhead === n
-                    ? n === 0
-                      ? 'bg-gold text-white shadow-sm' // 지금(실측) = 신라금 주강조
-                      : 'bg-jade text-white shadow-sm' // +N시간 예측 = 청록(예측 배지와 통일)
-                    : 'text-muk-soft hover:text-muk hover:bg-hanji-deep'
-                }`}
-              >
-                {n === 0 ? '지금' : `+${n}h`}
-              </button>
-            ))}
+            <span
+              className={`shrink-0 w-9 text-center text-xs font-bold tabular-nums ${
+                sliderPos === 0 ? 'text-gold-deep' : 'text-jade'
+              }`}
+            >
+              {sliderPos === 0 ? '지금' : `+${sliderPos}h`}
+            </span>
+            <input
+              type="range"
+              min={0}
+              max={3}
+              step={1}
+              value={sliderPos}
+              disabled={predictionLoading}
+              aria-label="예측 시점 선택 — 지금부터 최대 3시간 후"
+              aria-valuetext={sliderPos === 0 ? '지금(실측)' : `${sliderPos}시간 후 예측`}
+              onChange={(e) => setSliderPos(Number(e.target.value))}
+              onPointerUp={() => handleTimeShift(sliderPos)}
+              onKeyUp={() => handleTimeShift(sliderPos)}
+              className={`w-24 cursor-pointer disabled:cursor-wait sm:w-32 ${isForecast ? 'accent-jade' : 'accent-gold'}`}
+            />
+            <span className="shrink-0 text-[10px] font-medium text-muk-soft">+3h</span>
           </div>
         </div>
       </div>
