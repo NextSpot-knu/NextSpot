@@ -147,7 +147,7 @@ export default function MainPage() {
         setFacilities(mapped);
         setIsLoadingFacilities(false);
       } catch (err) {
-        console.error("Error loading facilities:", err);
+        console.warn("Error loading facilities:", err);
         setFacilitiesLoadError(true);
         setIsLoadingFacilities(false);
       }
@@ -293,7 +293,7 @@ export default function MainPage() {
           setSavedIds(ids);
         }
       } catch (e) {
-        console.error("Failed to load saved IDs from localStorage:", e);
+        console.warn("Failed to load saved IDs from localStorage:", e);
       }
 
 
@@ -303,7 +303,7 @@ export default function MainPage() {
           setRejectedIds(new Set(JSON.parse(rejected)));
         }
       } catch (e) {
-        console.error("Failed to load rejected IDs from sessionStorage:", e);
+        console.warn("Failed to load rejected IDs from sessionStorage:", e);
       }
 
       try {
@@ -312,7 +312,7 @@ export default function MainPage() {
           setActiveFilter(savedFilter);
         }
       } catch (e) {
-        console.error("Failed to load active filter from sessionStorage:", e);
+        console.warn("Failed to load active filter from sessionStorage:", e);
       }
     }
   }, []);
@@ -464,7 +464,7 @@ export default function MainPage() {
           panToVisible(top.latitude, top.longitude);
         }
       } catch (err) {
-        console.error("Error in recommendation synchronization effect:", err);
+        console.warn("Error in recommendation synchronization effect:", err);
       }
     })();
 
@@ -524,7 +524,7 @@ export default function MainPage() {
           throw new Error("좌표 변환 실패");
         }
       }).catch(err => {
-        console.error("PC 길안내 자동 시작 실패(좌표변환 에러):", err);
+        console.warn("PC 길안내 자동 시작 실패(좌표변환 에러):", err);
         // 실패 시 기존 텍스트 채우기 방식으로 폴백
         const destUrl = `https://map.kakao.com/?sName=${encodeURIComponent("현재 위치")}&eName=${encodeURIComponent(fac.name)}&sY=${userLocation.lat}&sX=${userLocation.lng}&eY=${fac.latitude}&eX=${fac.longitude}`;
         if (newWindow) newWindow.location.href = destUrl; else window.location.href = destUrl;
@@ -592,7 +592,7 @@ export default function MainPage() {
         localStorage.setItem('nextspot_saved_facilities', JSON.stringify(bookmarks));
       }
     } catch (e) {
-      console.error("Failed to save bookmark:", e);
+      console.warn("Failed to save bookmark:", e);
     }
 
     showToast(`'${fac.name}'이(가) Saved 탭에 저장되었습니다! 다음 추천을 불러옵니다.`);
@@ -649,7 +649,7 @@ export default function MainPage() {
         try {
           sessionStorage.setItem('nextspot_rejected_ids', JSON.stringify(Array.from(next)));
         } catch (e) {
-          console.error("Failed to save rejected IDs to sessionStorage:", e);
+          console.warn("Failed to save rejected IDs to sessionStorage:", e);
         }
       }
       return next;
@@ -1163,7 +1163,7 @@ export default function MainPage() {
             </div>
           );
         } catch (err) {
-          console.error("Error rendering RecommendationCard IIFE:", err);
+          console.warn("Error rendering RecommendationCard IIFE:", err);
           return null;
         }
       })()}

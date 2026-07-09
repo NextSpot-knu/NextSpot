@@ -27,7 +27,7 @@ export default function UserSupportForm() {
           setUserName("임시 사용자");
         }
       } catch (err) {
-        console.error('Failed to load user session:', err);
+        console.warn('Failed to load user session:', err);
       }
     }
     loadUser();
@@ -57,7 +57,7 @@ export default function UserSupportForm() {
 
       setIsSubmitted(true);
     } catch (err) {
-      console.error('Failed to submit inquiry:', err);
+      console.warn('Failed to submit inquiry:', err);
       alert('문의 제출에 실패했습니다. 다시 시도해주세요.');
     } finally {
       setIsSubmitting(false);

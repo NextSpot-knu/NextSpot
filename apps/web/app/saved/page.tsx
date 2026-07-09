@@ -62,7 +62,7 @@ export default function SavedPage() {
           setBookmarks([]);
         }
       } catch (error) {
-        console.error('Failed to fetch bookmarks', error);
+        console.warn('Failed to fetch bookmarks', error);
       } finally {
         setIsLoading(false);
       }

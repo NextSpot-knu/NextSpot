@@ -52,7 +52,7 @@ export default function MyPage() {
             displayName = user.email.split('@')[0];
           }
         } catch (authErr) {
-          console.error('Failed to fetch session user in mypage', authErr);
+          console.warn('Failed to fetch session user in mypage', authErr);
         }
 
         // UI 확인을 위한 임시 목업 상태 (통계 수치는 API 연동 전 목업, 이름/이메일은 세션 파생)
@@ -73,12 +73,12 @@ export default function MyPage() {
             setUserVector(data.vector);
           }
         } catch (vectorErr) {
-          console.error("Failed to fetch vector in mypage", vectorErr);
+          console.warn("Failed to fetch vector in mypage", vectorErr);
           // Fallback mockup vector
           setUserVector([0.45, 0.12, 0.35, 0.05, 0.61, 0.22, 0.10, 0.45]);
         }
       } catch (error) {
-        console.error('Failed to fetch profile', error);
+        console.warn('Failed to fetch profile', error);
       } finally {
         setIsLoading(false);
       }
@@ -98,7 +98,7 @@ export default function MyPage() {
       });
       // 업데이트 성공 처리
     } catch (error) {
-      console.error(error);
+      console.warn(error);
     }
     */
     
@@ -119,7 +119,7 @@ export default function MyPage() {
       const supabase = createPublicClient();
       await supabase.auth.signOut();
     } catch (err) {
-      console.error('Sign out failed', err);
+      console.warn('Sign out failed', err);
     } finally {
       toast.success('로그아웃되었습니다');
       router.push('/');

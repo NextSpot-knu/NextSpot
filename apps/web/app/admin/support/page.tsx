@@ -108,7 +108,7 @@ export default function SupportPage() {
       setReplyText('');
       alert('답변이 전송되었으며, 티켓 상태가 완료로 변경되었습니다.');
     } catch (err) {
-      console.error('Failed to reply and resolve ticket:', err);
+      console.warn('Failed to reply and resolve ticket:', err);
       alert('답변 처리에 실패했습니다. 다시 시도해주세요.');
     }
   };

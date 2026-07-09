@@ -754,14 +754,14 @@ function RecommendContent() {
             throw new Error("좌표 변환 실패");
           }
         }).catch(err => {
-          console.error("PC 길안내 자동 시작 실패:", err);
+          console.warn("PC 길안내 자동 시작 실패:", err);
           const destUrl = `https://map.kakao.com/?sName=${encodeURIComponent("현재 위치")}&eName=${encodeURIComponent(rec.facility.name)}&sY=${lat}&sX=${lng}&eY=${rec.facility.latitude}&eX=${rec.facility.longitude}`;
           if (newWindow) newWindow.location.href = destUrl;
           else window.location.href = destUrl;
         });
       }
     } catch (err) {
-      console.error("Error submitting accepted feedback:", err);
+      console.warn("Error submitting accepted feedback:", err);
       // 에러 발생 시에도 빈 창이 덩그러니 남지 않도록 목적지로 보냄
       const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
       const destUrl = isMobile 
@@ -821,7 +821,7 @@ function RecommendContent() {
       }
       toast.success("선호도를 조정하여 새로운 대안을 추천했습니다 🔍");
     } catch (err) {
-      console.error("Error during rejecting and refreshing:", err);
+      console.warn("Error during rejecting and refreshing:", err);
       toast.error("새 추천 대안을 불러오는 도중 오류가 발생했습니다.");
     } finally {
       setIsRefreshing(false);

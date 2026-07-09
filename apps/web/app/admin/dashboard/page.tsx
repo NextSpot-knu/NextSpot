@@ -394,7 +394,7 @@ export default function DashboardPage() {
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
     } catch (e) {
-      console.error('CSV 내보내기 실패:', e);
+      console.warn('CSV 내보내기 실패:', e);
       alert('CSV 내보내기에 실패했습니다.');
     }
   };
