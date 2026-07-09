@@ -286,6 +286,9 @@ export default function MainPage() {
         },
         (error) => {
           console.warn("Geolocation failed, using default:", error);
+          // 위치 권한 거부/실패 시 조용히 경주 중심으로 폴백하면 거리·도보시간이 이유 없이 어긋나 보인다.
+          // 흐름을 막지 않는 가벼운 토스트로 '경주 중심 기준'임을 알린다(하드코딩 — i18n 후속 반영).
+          showToast('위치를 확인할 수 없어 경주 중심을 기준으로 안내해요.');
         }
       );
     }
@@ -1126,7 +1129,7 @@ export default function MainPage() {
     : 0;
 
   return (
-    <div className="relative w-full h-screen overflow-hidden flex flex-col">
+    <div className="relative w-full h-[100dvh] overflow-hidden flex flex-col">
 
       {/* Map Container — 자연스러운 라이트 카카오맵(한지 톤). 타일 다크 반전(map-dark-tiles) 제거 →
           경주 관광 밝은 지도. 마커/오버레이는 data: URI 이미지라 본래의 선명한 색으로 표시된다. */}
@@ -1160,8 +1163,10 @@ export default function MainPage() {
             </button>
           ) : (
             // 실제 음성 안내는 추천 카드의 오브(VoiceAssistantOrb)를 사용 — 여기 마이크는 아직 미구현이므로 죽은 컨트롤 오해를 막기 위해 비활성 표기.
-            <span title={t('map.voiceSearchSoon')} aria-disabled="true" className="ml-3 flex items-center cursor-not-allowed">
-              <Mic size={20} className="text-muk-soft/50" />
+            // 모바일엔 title 툴팁이 뜨지 않아 보이지 않으므로, '준비 중' 텍스트 배지 + 흐린 처리(opacity)로 비활성 상태를 명확히 노출한다.
+            <span title={t('map.voiceSearchSoon')} aria-disabled="true" className="ml-3 flex items-center gap-1 cursor-not-allowed opacity-40 select-none">
+              <Mic size={18} className="text-muk-soft" />
+              <span className="text-[10px] font-medium text-muk-soft whitespace-nowrap">준비 중</span>
             </span>
           )}
           <div className="w-8 h-8 rounded-full bg-gold/15 ml-4 flex items-center justify-center border border-gold/40">
@@ -1409,7 +1414,12 @@ export default function MainPage() {
         </div>
       )}
 
-      {/* Test Mock Sidebar (Right Side) */}
+      {/* Test Mock Sidebar (Right Side) — 개발/QA 전용 데모 컨트롤(위치·시간 모킹).
+          실제 관광객에게 내부 도구가 노출되지 않도록 NEXT_PUBLIC_DEMO_CONTROLS==='1' 일 때만 렌더.
+          (정적 export: NEXT_PUBLIC_* 는 빌드 시 인라인 → 트리셰이킹 가능.)
+          시간 모킹이 유일한 mockHour 트리거이므로, 이 패널을 감추면 일반 사용자에겐 mockHour 가
+          항상 null → 지도는 실측/'데이터 없음' 혼잡도만 표시된다(합성 id-해시 혼잡 주입 불가). */}
+      {process.env.NEXT_PUBLIC_DEMO_CONTROLS === '1' && (
       <div className="absolute right-4 top-[170px] z-20 flex flex-col gap-3 pointer-events-auto">
         {/* Location Mock */}
         <div className="bg-white/90 backdrop-blur border border-line rounded-2xl shadow-[0_2px_14px_rgba(43,35,32,0.06)] flex flex-col overflow-hidden transition-all duration-300">
@@ -1517,6 +1527,7 @@ export default function MainPage() {
           )}
         </div>
       </div>
+      )}
 
 
 
