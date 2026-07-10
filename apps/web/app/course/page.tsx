@@ -84,6 +84,8 @@ export default function CoursePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [needsAuth, setNeedsAuth] = useState(false);
+  // 결과 뷰: 'cards'(세로 카드 타임라인, 기본) | 'gantt'(시간축 간트차트)
+  const [viewMode, setViewMode] = useState<"cards" | "gantt">("cards");
 
   // 1) 세션(사용자 ID) — SessionBootstrap 익명 세션이 잡히면 실제 per-device id, 없으면 데모 방문자로 폴백.
   useEffect(() => {
@@ -222,10 +224,132 @@ export default function CoursePage() {
         ) : stops.length === 0 ? (
           <EmptyState />
         ) : (
-          <Timeline stops={stops} />
+          <div className="space-y-4">
+            <ViewToggle mode={viewMode} onChange={setViewMode} />
+            {viewMode === "gantt" ? <CourseGantt stops={stops} /> : <Timeline stops={stops} />}
+          </div>
         )}
       </div>
     </main>
+  );
+}
+
+// 카드 ↔ 간트 뷰 전환 세그먼트 컨트롤.
+function ViewToggle({ mode, onChange }: { mode: "cards" | "gantt"; onChange: (m: "cards" | "gantt") => void }) {
+  const t = useT();
+  const opts: { id: "cards" | "gantt"; label: string }[] = [
+    { id: "cards", label: t("course.viewCards") },
+    { id: "gantt", label: t("course.viewGantt") },
+  ];
+  return (
+    <div className="inline-flex items-center gap-1 p-1 rounded-full border border-line bg-white" role="tablist" aria-label={t("course.title")}>
+      {opts.map((o) => {
+        const on = mode === o.id;
+        return (
+          <button
+            key={o.id}
+            role="tab"
+            aria-selected={on}
+            onClick={() => onChange(o.id)}
+            className={`px-3.5 py-1.5 rounded-full text-xs font-bold transition-colors ${
+              on ? "bg-gold text-white shadow-[0_2px_8px_rgba(193,154,62,0.3)]" : "text-muk-soft hover:text-muk"
+            }`}
+          >
+            {o.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// 간트차트 — 시간축(지금~마지막 체류)에 각 정류지를 도착~다음 도착 구간의 가로 막대로 배치.
+// 막대 색은 도착 시점 예측 혼잡도. 마지막 정류지는 기본 체류시간(DWELL_LAST)을 폭으로 준다.
+// 데이터 한계: 정류지별 정확한 체류/출발 시각은 백엔드가 주지 않으므로 '도착 간격'을 구간으로 근사한다(정직 표기).
+const DWELL_LAST_MIN = 45;
+function CourseGantt({ stops }: { stops: CourseStop[] }) {
+  const t = useT();
+  const segments = stops.map((s, i) => {
+    const start = Math.max(0, s.arrivalOffsetMin);
+    const rawEnd = i < stops.length - 1 ? stops[i + 1].arrivalOffsetMin : s.arrivalOffsetMin + DWELL_LAST_MIN;
+    return { s, start, end: Math.max(rawEnd, start + 10) }; // 최소 10분 폭 보장
+  });
+  const total = Math.max(...segments.map((x) => x.end), 30);
+
+  // 시간 눈금 5개(균등) — 지금 기준 실제 시각(HH:MM)으로 표기.
+  const ticks = Array.from({ length: 5 }, (_, i) => {
+    const min = (total * i) / 4;
+    const clock = new Date(Date.now() + min * 60_000);
+    const hh = clock.getHours().toString().padStart(2, "0");
+    const mm = clock.getMinutes().toString().padStart(2, "0");
+    return { pct: (min / total) * 100, label: i === 0 ? t("course.ganttNow") : `${hh}:${mm}` };
+  });
+
+  return (
+    <div className="bg-white rounded-2xl border border-line shadow-[0_2px_14px_rgba(43,35,32,0.06)] p-4 md:p-5 space-y-3">
+      <p className="text-[11px] text-muk-soft font-medium">{t("course.ganttHint")}</p>
+
+      {/* 시간 눈금 */}
+      <div className="relative h-4 ml-[92px] md:ml-[112px]">
+        {ticks.map((tk, i) => (
+          <span
+            key={i}
+            className="absolute top-0 -translate-x-1/2 text-[10px] text-muk-soft/80 font-medium tabular-nums whitespace-nowrap"
+            style={{ left: `${tk.pct}%` }}
+          >
+            {tk.label}
+          </span>
+        ))}
+      </div>
+
+      {/* 정류지 행 */}
+      <div className="space-y-2.5">
+        {segments.map(({ s, start, end }) => {
+          const cong = congestion(s.predictedCongestion);
+          const leftPct = (start / total) * 100;
+          const widthPct = ((end - start) / total) * 100;
+          return (
+            <div key={s.facility.id} className="flex items-center gap-2">
+              {/* 라벨(고정폭) */}
+              <div className="w-[84px] md:w-[104px] shrink-0 text-right pr-1">
+                <div className="text-[11px] font-bold text-muk truncate leading-tight">
+                  {typeEmoji(s.facility.type)} {s.facility.name}
+                </div>
+              </div>
+              {/* 트랙 + 막대 */}
+              <div className="relative flex-1 h-8 rounded-lg bg-hanji-deep/50 overflow-hidden">
+                {/* 눈금 세로선(연하게) */}
+                {ticks.map((tk, i) => (
+                  <span key={i} className="absolute top-0 bottom-0 w-px bg-line/60" style={{ left: `${tk.pct}%` }} aria-hidden />
+                ))}
+                <div
+                  className={`absolute top-1 bottom-1 rounded-md border flex items-center px-2 min-w-[2.5rem] ${cong.cls}`}
+                  style={{ left: `${leftPct}%`, width: `calc(${widthPct}% - 2px)` }}
+                  title={`${s.facility.name} · ${arrivalText(s.arrivalOffsetMin, t)}`}
+                >
+                  <span className="text-[10px] font-bold tabular-nums truncate">
+                    {Math.round(s.predictedCongestion * 100)}%
+                  </span>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* 범례 */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 pt-1 text-[10px] text-muk-soft">
+        {(["quiet", "relaxed", "moderate", "busy"] as const).map((k) => {
+          const cls = { quiet: "bg-jade/15 border-jade/30", relaxed: "bg-jade/10 border-jade/25", moderate: "bg-gold/10 border-gold/25", busy: "bg-terracotta/10 border-terracotta/25" }[k];
+          return (
+            <span key={k} className="inline-flex items-center gap-1">
+              <span className={`w-2.5 h-2.5 rounded-sm border ${cls}`} aria-hidden />
+              {t(`congestion.${k}`)}
+            </span>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
