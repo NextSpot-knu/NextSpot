@@ -289,12 +289,14 @@ function CourseGantt({ stops }: { stops: CourseStop[] }) {
     <div className="bg-white rounded-2xl border border-line shadow-[0_2px_14px_rgba(43,35,32,0.06)] p-4 md:p-5 space-y-3">
       <p className="text-[11px] text-muk-soft font-medium">{t("course.ganttHint")}</p>
 
-      {/* 시간 눈금 */}
-      <div className="relative h-4 ml-[92px] md:ml-[112px]">
+      {/* 시간 눈금(트랙 전체폭 기준) — 양끝 라벨은 넘치지 않게 정렬 보정. */}
+      <div className="relative h-4">
         {ticks.map((tk, i) => (
           <span
             key={i}
-            className="absolute top-0 -translate-x-1/2 text-[10px] text-muk-soft/80 font-medium tabular-nums whitespace-nowrap"
+            className={`absolute top-0 text-[10px] text-muk-soft/80 font-medium tabular-nums whitespace-nowrap ${
+              i === 0 ? "" : i === ticks.length - 1 ? "-translate-x-full" : "-translate-x-1/2"
+            }`}
             style={{ left: `${tk.pct}%` }}
           >
             {tk.label}
@@ -302,22 +304,26 @@ function CourseGantt({ stops }: { stops: CourseStop[] }) {
         ))}
       </div>
 
-      {/* 정류지 행 */}
-      <div className="space-y-2.5">
+      {/* 정류지 행 — 이름을 막대 위 '전체폭' 라벨로 올려 긴 이름 잘림을 해소(고정폭 칸 제거).
+          그래도 넘치는 초장문은 truncate + title 툴팁으로 폴백. 막대는 아래 시간축에 정렬. */}
+      <div className="space-y-3">
         {segments.map(({ s, start, end }) => {
           const cong = congestion(s.predictedCongestion);
           const leftPct = (start / total) * 100;
           const widthPct = ((end - start) / total) * 100;
           return (
-            <div key={s.facility.id} className="flex items-center gap-2">
-              {/* 라벨(고정폭) */}
-              <div className="w-[84px] md:w-[104px] shrink-0 text-right pr-1">
-                <div className="text-[11px] font-bold text-muk truncate leading-tight">
-                  {typeEmoji(s.facility.type)} {s.facility.name}
-                </div>
+            <div key={s.facility.id} className="space-y-1">
+              {/* 이름 라벨(전체폭) + 도착 시각 */}
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="min-w-0 truncate text-[11px] font-bold text-muk" title={s.facility.name}>
+                  {s.order}. {typeEmoji(s.facility.type)} {s.facility.name}
+                </span>
+                <span className="shrink-0 text-[10px] text-muk-soft tabular-nums">
+                  🕒 {arrivalText(s.arrivalOffsetMin, t)}
+                </span>
               </div>
-              {/* 트랙 + 막대 */}
-              <div className="relative flex-1 h-8 rounded-lg bg-hanji-deep/50 overflow-hidden">
+              {/* 시간축 트랙 + 막대 */}
+              <div className="relative h-7 rounded-lg bg-hanji-deep/50 overflow-hidden">
                 {/* 눈금 세로선(연하게) */}
                 {ticks.map((tk, i) => (
                   <span key={i} className="absolute top-0 bottom-0 w-px bg-line/60" style={{ left: `${tk.pct}%` }} aria-hidden />
@@ -327,7 +333,7 @@ function CourseGantt({ stops }: { stops: CourseStop[] }) {
                   style={{ left: `${leftPct}%`, width: `calc(${widthPct}% - 2px)` }}
                   title={`${s.facility.name} · ${arrivalText(s.arrivalOffsetMin, t)}`}
                 >
-                  <span className="text-[10px] font-bold tabular-nums truncate">
+                  <span className="text-[10px] font-bold tabular-nums">
                     {Math.round(s.predictedCongestion * 100)}%
                   </span>
                 </div>
