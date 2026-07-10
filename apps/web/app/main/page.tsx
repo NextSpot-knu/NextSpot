@@ -45,6 +45,8 @@ export default function MainPage() {
   const activeOverlayRef = useRef<any>(null);
   // 히트맵 CustomOverlay blob 배열 — 토글 off / 데이터·필터·예측 변경 / 언마운트 시 정리(cleanup)용.
   const heatmapOverlaysRef = useRef<any[]>([]);
+  // 축제 포커스 오버레이(핀/영역 원 + 라벨) 배열 — 새 축제 선택·지도 클릭·언마운트 시 정리.
+  const festivalOverlayRef = useRef<any[]>([]);
 
   const [activeTab, setActiveTab] = useState('Home');
   const [activeFilter, setActiveFilter] = useState('음식점'); // 첫 접속 시 음식점 세션을 먼저 표시(탭 순서와 일치)
@@ -413,6 +415,86 @@ export default function MainPage() {
     } catch (e) {
       map.panTo(latlng);
     }
+  };
+
+  // 축제 포커스 오버레이 정리 — 새 축제 선택·지도 클릭·언마운트 시 호출.
+  const clearFestivalOverlay = () => {
+    festivalOverlayRef.current.forEach((o) => { try { o.setMap(null); } catch { /* noop */ } });
+    festivalOverlayRef.current = [];
+  };
+
+  // 주소가 '구체적 지번/도로명'인지, '동·일원 등 넓은 지역 단위'인지 판별.
+  // 넓은 지역이면 정확한 핀 대신 색상 영역(원)으로 대략 범위를 보여준다(행정경계 폴리곤은 오프라인 부재).
+  const isAreaLevelAddress = (addr?: string | null): boolean => {
+    if (!addr) return false; // 주소 없으면 좌표 그대로 핀
+    // '일원/일대/전역/주변/인근/곳곳' 은 넓은 범위 신호. 또한 시·군·구·동까지만 있고 번지(숫자)가 없으면 지역 단위.
+    if (/(일원|일대|전역|일부|주변|인근|곳곳)/.test(addr)) return true;
+    const tail = addr.replace(/(경상북도|경북|경주시)/g, '');
+    return !/\d/.test(tail); // 남은 주소에 숫자(도로·건물번호)가 없으면 지역 단위로 간주
+  };
+
+  // 축제 카드에서 '지도에 표시'를 누르면 해당 위치를 지도에 핀(구체 주소) 또는 색상 영역(넓은 지역)으로 강조.
+  const focusFestivalOnMap = (ev: { title: string; latitude?: number | null; longitude?: number | null; address?: string | null; isOngoing?: boolean }) => {
+    const map = mapInstanceRef.current;
+    if (!map || typeof window === 'undefined' || !window.kakao) return;
+    if (typeof ev.latitude !== 'number' || typeof ev.longitude !== 'number') {
+      showToast(`'${ev.title}'의 좌표 정보가 없어 지도에 표시할 수 없어요.`);
+      return;
+    }
+    clearFestivalOverlay();
+    if (activeOverlayRef.current) { activeOverlayRef.current.setMap(null); activeOverlayRef.current = null; }
+
+    const pos = new window.kakao.maps.LatLng(ev.latitude, ev.longitude);
+    // 진행 중=주칠(terracotta), 예정=신라금(gold). 지역/핀 공통 색.
+    const color = ev.isOngoing ? '#c1553b' : '#c19a3e';
+    const area = isAreaLevelAddress(ev.address);
+
+    if (area) {
+      // 넓은 지역: 반투명 색상 원으로 대략 범위 표시(반경 600m — 동 단위 근사, 실경계 아님).
+      const circle = new window.kakao.maps.Circle({
+        center: pos,
+        radius: 600,
+        strokeWeight: 2,
+        strokeColor: color,
+        strokeOpacity: 0.9,
+        strokeStyle: 'dashed',
+        fillColor: color,
+        fillOpacity: 0.18,
+      });
+      circle.setMap(map);
+      festivalOverlayRef.current.push(circle);
+    }
+
+    // 라벨 겸 핀 — 🏮 + 축제명. 지역이면 '일원' 꼬리표를 붙여 근사 범위임을 알린다.
+    const el = document.createElement('div');
+    el.className = 'pointer-events-none flex items-center gap-1 whitespace-nowrap rounded-full px-3 py-1.5 text-[11px] font-bold text-white shadow-[0_4px_14px_rgba(43,35,32,0.28)]';
+    el.style.background = color;
+    el.style.border = '2px solid #fff';
+    el.innerText = area ? `🏮 ${ev.title} 일원` : `🏮 ${ev.title}`;
+    const label = new window.kakao.maps.CustomOverlay({
+      position: pos,
+      content: el,
+      yAnchor: area ? 0.5 : 1.35, // 지역이면 원 중심, 핀이면 좌표 위에 말풍선
+      zIndex: 60,
+    });
+    label.setMap(map);
+    festivalOverlayRef.current.push(label);
+
+    // 구체 주소(핀)면 정확 지점에 작은 점 마커도 찍어 위치를 분명히 한다.
+    if (!area) {
+      const dot = document.createElement('div');
+      dot.className = 'rounded-full';
+      dot.style.width = '12px'; dot.style.height = '12px';
+      dot.style.background = color; dot.style.border = '2px solid #fff';
+      dot.style.boxShadow = '0 2px 8px rgba(43,35,32,0.3)';
+      const dotOverlay = new window.kakao.maps.CustomOverlay({ position: pos, content: dot, yAnchor: 0.5, zIndex: 59 });
+      dotOverlay.setMap(map);
+      festivalOverlayRef.current.push(dotOverlay);
+    }
+
+    // 지역이면 원이 다 보이게 살짝 축소, 핀이면 확대해 위치를 명확히.
+    map.setLevel(area ? 5 : 4);
+    panToVisible(ev.latitude, ev.longitude);
   };
 
   // 표시 시설 선택(카테고리 필터 + 이름 검색 + 줌 레벨별 밀집도 상한)을 한 곳에 모은 헬퍼.
@@ -937,6 +1019,7 @@ export default function MainPage() {
             activeOverlayRef.current.setMap(null);
             activeOverlayRef.current = null;
           }
+          clearFestivalOverlay(); // 축제 핀/영역도 함께 정리
           setActiveGroupId(null);
           setSelectedFacility(null);
         });
@@ -1294,8 +1377,9 @@ export default function MainPage() {
             ♿ {t('map.barrierFree')}
           </button>
 
-          {/* 🏮 경주 축제 칩 — TourAPI 실시간 축제/행사(GET /api/v1/events). 0건·백엔드 다운이면 스스로 숨는다. */}
-          <FestivalBanner />
+          {/* 🏮 경주 축제 칩 — TourAPI 실시간 축제/행사(GET /api/v1/events). 0건·백엔드 다운이면 스스로 숨는다.
+              축제 선택 시 지도에 핀(구체 주소) 또는 색상 영역(동·일원 등 넓은 지역)으로 표시. */}
+          <FestivalBanner onFocus={focusFestivalOnMap} />
 
           {/* 예측 정직성 배지 — 실측(Live)과 혼동 방지 */}
           {isForecast && (
@@ -1398,10 +1482,13 @@ export default function MainPage() {
           const spot = selectedFacility.spot || calculateSPOT(selectedFacility);
           // 사유: 자동 추천된 실 시설은 백엔드 Gemini 사유, 마커 직접 클릭/데모는 미러 사유로 폴백
           const reason = selectedFacility.reason || ""; // 백엔드 Gemini 사유만(하드코딩 제거)
+          // 추천 카드 배치 — 모바일: 하단 전폭 시트. PC(md+): 우측 세로 도킹 패널(구글맵스 상세 패널 관례).
+          // 전폭 하단 카드가 데스크톱에서 과하게 커 보이는 문제를 해결한다. 상단 톱바(검색·칩) 아래
+          // (top-24)부터 하단(bottom-6)까지 세로로 앉히고, 펼침으로 길어지면 패널 내부에서 스크롤한다.
           return (
-            <div className="absolute bottom-[calc(80px+env(safe-area-inset-bottom))] w-full z-20 px-4 transition-all duration-300">
+            <div className="absolute z-20 px-4 transition-all duration-300 bottom-[calc(80px+env(safe-area-inset-bottom))] w-full md:bottom-6 md:top-24 md:left-auto md:right-4 md:w-[370px] md:px-0 md:overflow-y-auto md:overscroll-contain no-scrollbar">
               {voice.ttsSupported && (
-                <div className="flex justify-end mb-2 pr-1">
+                <div className="flex justify-end mb-2 pr-1 md:pr-0">
                   <VoiceAssistantOrb
                     active={voice.active}
                     voiceState={voice.voiceState}
@@ -1445,7 +1532,7 @@ export default function MainPage() {
 
       {/* (b) 현재 카테고리 추천 후보 0건 — 카드가 조용히 사라지는 대신 안내 표시 */}
       {!isLoadingFacilities && !facilitiesLoadError && facilities.length > 0 && !selectedFacility && noRecommendation && (
-        <div className="absolute bottom-[calc(80px+env(safe-area-inset-bottom))] w-full z-20 px-4">
+        <div className="absolute z-20 px-4 bottom-[calc(80px+env(safe-area-inset-bottom))] w-full md:bottom-auto md:top-24 md:left-auto md:right-4 md:w-[370px] md:px-0">
           <div className="bg-white border border-line rounded-2xl px-5 py-4 shadow-[0_2px_14px_rgba(43,35,32,0.06)] flex flex-col items-center gap-1.5 text-center">
             <span className="text-xl">🧭</span>
             <p className="text-muk text-sm font-semibold">{t('map.noRecTitle')}</p>

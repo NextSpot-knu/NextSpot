@@ -50,7 +50,11 @@ function shortDate(iso: string): string {
   return m && d ? `${m}.${d}` : iso;
 }
 
-export function FestivalBanner({ className = '' }: { className?: string }) {
+export function FestivalBanner({ className = '', onFocus }: {
+  className?: string;
+  // 축제 1건을 지도에 표시(핀/영역)하도록 부모에 위임. 제공되면 카드에 '지도에 표시' 버튼이 뜬다.
+  onFocus?: (ev: FestivalEvent) => void;
+}) {
   const t = useT();
   const [events, setEvents] = useState<FestivalEvent[]>([]);
   const [isOpen, setIsOpen] = useState(false);
@@ -155,8 +159,10 @@ export function FestivalBanner({ className = '' }: { className?: string }) {
                 </button>
               </div>
 
-              {/* 목록 */}
-              <div className="flex-1 overflow-y-auto px-4 pb-6 flex flex-col gap-3">
+              {/* 목록 — min-h-0 필수: flex 자식의 기본 min-height:auto 때문에 축소되지 못하면
+                  부모 overflow-hidden 이 하단을 잘라내고 스크롤도 안 된다(콘텐츠 잘림 버그의 원인).
+                  하단 패딩은 safe-area 를 더해 홈 인디케이터/노치 영역에서 마지막 카드가 가리지 않게 한다. */}
+              <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 pb-[calc(1.5rem+env(safe-area-inset-bottom))] flex flex-col gap-3">
                 {events.map((ev) => (
                   <div key={ev.contentId} className="rounded-2xl border border-line bg-white/70 overflow-hidden">
                     {ev.imageUrl && (
@@ -183,7 +189,18 @@ export function FestivalBanner({ className = '' }: { className?: string }) {
                           {ev.address}
                         </p>
                       )}
-                      <div className="flex items-center gap-2 pt-1">
+                      <div className="flex flex-wrap items-center gap-2 pt-1">
+                        {/* 지도에 표시 — 앱 내 지도에 핀(구체 주소)/색상 영역(넓은 지역)으로 강조. 시트는 닫는다. */}
+                        {onFocus && ev.latitude != null && ev.longitude != null && (
+                          <button
+                            type="button"
+                            onClick={() => { onFocus(ev); setIsOpen(false); }}
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-full bg-terracotta/10 hover:bg-terracotta/20 border border-terracotta/30 text-terracotta text-[11px] font-bold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-terracotta/50"
+                          >
+                            <MapPin size={11} aria-hidden />
+                            {t('festival.showOnMap')}
+                          </button>
+                        )}
                         {ev.latitude != null && ev.longitude != null && (
                           <a
                             href={`https://map.kakao.com/link/map/${encodeURIComponent(ev.title)},${ev.latitude},${ev.longitude}`}

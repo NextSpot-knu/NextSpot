@@ -195,6 +195,10 @@ export default function SavedPage() {
               <CongestionAlertToggle />
             </div>
 
+            {/* 저장 카드 그리드 — 모바일 1열, PC(md) 2열, 초광폭(xl) 3열.
+                전폭 1열 카드가 데스크톱에서 가로로 과하게 늘어나던 문제 해결. 2열을 기본으로 둔 건
+                카드 내부 타임라인(출발·도착·이용 3노드+라벨)이 좁아지면 뭉개지기 때문 — 열당 폭 확보. */}
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 items-start">
             {bookmarks.map((bookmark, index) => (
               // 카드 안에 실제 삭제 <button> 을 두어야 하므로 카드 자체는 button 대신
               // role="button" 컨테이너로 둔다(button-in-button 무효 HTML 방지 + 키보드 접근).
@@ -312,6 +316,7 @@ export default function SavedPage() {
                 })()}
               </div>
             ))}
+            </div>
           </div>
         )}
       </main>
