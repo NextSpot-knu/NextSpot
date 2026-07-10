@@ -2,10 +2,10 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { 
-  Menu, Bell, Home, Bookmark, User, 
-  Edit2, ChevronRight, LogOut, Shield, 
-  HelpCircle, Settings as SettingsIcon, BellRing, Route, Ticket
+import {
+  Menu, Bell, Home, Bookmark, User,
+  Edit2, ChevronRight, LogOut, Shield,
+  HelpCircle, Settings as SettingsIcon, BellRing, Route, Ticket, X
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { createPublicClient } from '@/lib/supabase';
@@ -28,6 +28,9 @@ export default function MyPage() {
   const t = useT();
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  // 프로필 수정 인라인 모달 — 표시 이름을 이 기기(localStorage)에만 저장한다(백엔드 없음).
+  const [isEditOpen, setIsEditOpen] = useState(false);
+  const [nameInput, setNameInput] = useState('');
 
   useEffect(() => {
     // API Fetch Mockup
@@ -54,6 +57,16 @@ export default function MyPage() {
           }
         } catch (authErr) {
           console.warn('Failed to fetch session user in mypage', authErr);
+        }
+
+        // 사용자가 프로필 수정에서 지정한 표시 이름이 있으면 세션·게스트 파생값보다 우선한다(이 기기 한정).
+        try {
+          const storedName = localStorage.getItem('nextspot_display_name');
+          if (storedName && storedName.trim()) {
+            displayName = storedName.trim();
+          }
+        } catch {
+          /* localStorage 차단 환경 — 파생 이름 유지 */
         }
 
         // 저장한 장소 수는 localStorage 북마크에서 실제 값을 파생한다(가짜 통계 제거).
@@ -109,9 +122,24 @@ export default function MyPage() {
     }
   };
 
-  // 미구현 항목 공통 안내: 죽은 버튼이 무반응으로 보이지 않도록 '준비 중' 토스트를 띄운다.
-  const handleComingSoon = () => {
-    toast.info(t('mypage.comingSoon'));
+  // 프로필 수정 모달 열기 — 현재 표시 이름을 입력값 초기값으로 채운다.
+  const handleOpenEdit = () => {
+    setNameInput(profile?.name ?? '');
+    setIsEditOpen(true);
+  };
+
+  // 표시 이름 저장 — 공백만 입력하면 무시하고, localStorage 에 저장 후 낙관적 업데이트한다.
+  const handleSaveProfile = () => {
+    const trimmed = nameInput.trim();
+    if (!trimmed) return;
+    try {
+      localStorage.setItem('nextspot_display_name', trimmed);
+    } catch {
+      /* localStorage 차단 환경 — 화면 상태만 갱신 */
+    }
+    setProfile((prev) => (prev ? { ...prev, name: trimmed } : prev));
+    setIsEditOpen(false);
+    toast.success(t('mypage.editNameSaved'));
   };
 
   // 로그아웃: 세션을 종료한 뒤 루트로 이동한다(목/비로그인 세션이어도 안전하게 폴백).
@@ -137,7 +165,7 @@ export default function MyPage() {
         <button
           type="button"
           aria-label={t('mypage.menuAria')}
-          onClick={handleComingSoon}
+          onClick={() => router.push('/mypage/settings')}
           className="text-muk-soft hover:text-muk transition-colors"
         >
           <Menu size={24} />
@@ -148,7 +176,7 @@ export default function MyPage() {
           <button
             type="button"
             aria-label={t('mypage.bellAria')}
-            onClick={handleComingSoon}
+            onClick={() => router.push('/mypage/settings')}
             className="text-muk-soft hover:text-muk transition-colors"
           >
             <Bell size={24} />
@@ -200,7 +228,7 @@ export default function MyPage() {
 
               <button
                 type="button"
-                onClick={handleComingSoon}
+                onClick={handleOpenEdit}
                 className="flex items-center gap-2 px-5 py-2.5 rounded-xl border border-line bg-hanji hover:bg-hanji-deep text-muk text-sm font-medium transition-colors"
               >
                 <Edit2 size={14} />
@@ -246,9 +274,9 @@ export default function MyPage() {
                 const menus = [
                   { id: 'course', icon: Route, labelKey: 'mypage.menuCourse', path: '/course' },
                   { id: 'coupons', icon: Ticket, labelKey: 'mypage.menuCoupons', path: '/mypage/coupons' },
-                  { id: 'privacy', icon: Shield, labelKey: 'mypage.menuPrivacy', path: '#' },
+                  { id: 'privacy', icon: Shield, labelKey: 'mypage.menuPrivacy', path: '/mypage/privacy' },
                   { id: 'help', icon: HelpCircle, labelKey: 'mypage.menuHelp', path: '/mypage/support' },
-                  { id: 'settings', icon: SettingsIcon, labelKey: 'mypage.menuSettings', path: '#' },
+                  { id: 'settings', icon: SettingsIcon, labelKey: 'mypage.menuSettings', path: '/mypage/settings' },
                 ];
                 return menus.map((menu, index) => {
                 const Icon = menu.icon;
@@ -256,11 +284,7 @@ export default function MyPage() {
                   <button
                     key={menu.id}
                     type="button"
-                    onClick={() => {
-                      // 라우트가 없는(path:'#') 미구현 메뉴는 '준비 중' 안내, 나머지는 실제 이동.
-                      if (menu.path === '#') { handleComingSoon(); return; }
-                      router.push(menu.path);
-                    }}
+                    onClick={() => router.push(menu.path)}
                     className={`w-full flex items-center justify-between p-5 hover:bg-hanji transition-colors ${index !== menus.length - 1 ? 'border-b border-line' : ''}`}
                   >
                     <div className="flex items-center gap-4">
@@ -290,6 +314,70 @@ export default function MyPage() {
         )}
       </main>
 
+      {/* 프로필 수정 인라인 모달 — 표시 이름만 이 기기에 저장(백엔드 없음). */}
+      {isEditOpen && (
+        <div
+          className="absolute inset-0 z-50 flex items-center justify-center bg-muk/40 backdrop-blur-sm px-6 animate-fade-in"
+          role="dialog"
+          aria-modal="true"
+          aria-label={t('mypage.editNameTitle')}
+          onClick={() => setIsEditOpen(false)}
+        >
+          <div
+            className="w-full max-w-[360px] bg-white border border-line rounded-3xl p-6 shadow-[0_8px_32px_rgba(43,35,32,0.18)]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-5">
+              <div className="flex items-center gap-2">
+                <Edit2 size={18} className="text-gold" />
+                <h2 className="text-lg font-bold font-serif text-muk">{t('mypage.editNameTitle')}</h2>
+              </div>
+              <button
+                type="button"
+                aria-label={t('common.close')}
+                onClick={() => setIsEditOpen(false)}
+                className="text-muk-soft hover:text-muk transition-colors"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <label htmlFor="displayName" className="block text-sm font-semibold text-muk-soft mb-2">
+              {t('mypage.editNameLabel')}
+            </label>
+            <input
+              id="displayName"
+              type="text"
+              value={nameInput}
+              onChange={(e) => setNameInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') handleSaveProfile(); }}
+              placeholder={t('mypage.editNamePlaceholder')}
+              maxLength={20}
+              autoFocus
+              className="w-full bg-hanji border border-line text-muk placeholder:text-muk-soft/70 rounded-xl p-3.5 outline-none focus:border-gold transition-colors"
+            />
+            <p className="text-xs text-muk-soft mt-2">{t('mypage.editNameHint')}</p>
+
+            <div className="flex gap-3 mt-6">
+              <button
+                type="button"
+                onClick={() => setIsEditOpen(false)}
+                className="flex-1 py-3 rounded-xl border border-line bg-hanji hover:bg-hanji-deep text-muk-soft font-semibold transition-colors"
+              >
+                {t('common.cancel')}
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveProfile}
+                disabled={!nameInput.trim()}
+                className="flex-1 py-3 rounded-xl bg-gold hover:bg-gold-deep disabled:opacity-50 disabled:hover:bg-gold text-white font-bold transition-colors"
+              >
+                {t('common.save')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );
