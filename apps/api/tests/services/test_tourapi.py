@@ -105,7 +105,7 @@ def test_transform_poi_full_row():
     assert row["contentid"] == "2764978" and isinstance(row["contentid"], str)
     assert row["contenttypeid"] == 39 and isinstance(row["contenttypeid"], int)
     assert row["address"] == "경상북도 경주시 포석로 일대"
-    assert row["image_url"] == "http://tong.visitkorea.or.kr/cms/sample.jpg"
+    assert row["image_url"] == "https://tong.visitkorea.or.kr/cms/sample.jpg"  # http → https 승격(혼합 콘텐츠 차단 방지)
     assert row["capacity"] == CAPACITY_DEFAULTS["cafe"] == 30
     assert row["features"]["source"] == "tourapi"
     assert row["features"]["cat3"] == CAT3_CAFE

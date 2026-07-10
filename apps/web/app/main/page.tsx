@@ -16,6 +16,7 @@ import { getHeatGradient, getHeatRadius } from '@/lib/heatmap';
 import { useVoiceAssistant } from '@/lib/useVoiceAssistant';
 import { useSpeechSearch } from '@/lib/useSpeechSearch';
 import VoiceAssistantOrb from '@/components/VoiceAssistantOrb';
+import FestivalBanner from '@/components/FestivalBanner';
 import { useT } from '@/lib/i18n/I18nProvider';
 
 const supabase = createPublicClient();
@@ -1144,11 +1145,18 @@ export default function MainPage() {
       />
 
       {/* Top Layer: Search & Filters — 다크 오버레이 그라디언트 제거(플로팅 패널 자체 배경으로 가독성 확보) */}
-      <div className="absolute top-0 w-full z-20 pt-12 pb-4 px-4 flex flex-col gap-4 pointer-events-none">
-        
+      <div className="absolute top-0 w-full z-20 pt-12 md:pt-5 pb-4 px-4 flex flex-col gap-4 pointer-events-none">
+
+        {/* PC(md+)는 구글맵스식 톱바 — 컴팩트 검색바(≈1/4폭)를 왼쪽에, 카테고리 칩·지도 레이어
+            컨트롤을 그 오른쪽에 나란히 배치한다. 모바일은 기존 세로 스택 그대로. */}
+        <div className="flex flex-col gap-4 md:flex-row md:items-start md:gap-4">
+
+        {/* 왼쪽 열: 검색바 + 검색 상태 안내 */}
+        <div className="flex flex-col gap-2 md:w-1/4 md:min-w-[300px] md:max-w-[400px] md:shrink-0">
+
         {/* Search Bar — (c) 로컬 시설명 검색(마커 필터). 음성 검색(Mic)은 브라우저 STT 로 받아쓰기 → 검색어 주입.
             (Web Speech 미지원 브라우저에선 '준비 중' 비활성으로 graceful 폴백.) */}
-        <div className="flex items-center bg-white/90 backdrop-blur rounded-full px-4 py-3 border border-line shadow-[0_2px_14px_rgba(43,35,32,0.06)] pointer-events-auto">
+        <div className="flex items-center bg-white/90 backdrop-blur rounded-full px-4 py-3 md:py-2.5 border border-line shadow-[0_2px_14px_rgba(43,35,32,0.06)] pointer-events-auto">
           <Search size={20} className="text-muk-soft mr-3" />
           <input
             type="text"
@@ -1213,8 +1221,13 @@ export default function MainPage() {
           </div>
         )}
 
-        {/* Filter Chips */}
-        <div className="flex gap-3 overflow-x-auto no-scrollbar pointer-events-auto">
+        </div>{/* /왼쪽 열(검색) */}
+
+        {/* 오른쪽 열(모바일은 아래): 카테고리 칩 + 지도 레이어 컨트롤 */}
+        <div className="flex flex-col gap-4 md:flex-1 md:min-w-0 md:gap-2.5">
+
+        {/* Filter Chips — PC 에선 스크롤 대신 줄바꿈(구글맵스 칩 행 관례) */}
+        <div className="flex gap-3 overflow-x-auto no-scrollbar pointer-events-auto md:flex-wrap md:overflow-visible md:gap-2">
           {filters.map((filter) => {
             const Icon = filter.icon;
             const isActive = activeFilter === filter.id;
@@ -1281,6 +1294,9 @@ export default function MainPage() {
             ♿ {t('map.barrierFree')}
           </button>
 
+          {/* 🏮 경주 축제 칩 — TourAPI 실시간 축제/행사(GET /api/v1/events). 0건·백엔드 다운이면 스스로 숨는다. */}
+          <FestivalBanner />
+
           {/* 예측 정직성 배지 — 실측(Live)과 혼동 방지 */}
           {isForecast && (
             <span className="shrink-0 px-3 py-1 rounded-full text-[11px] font-bold bg-jade border border-jade/50 text-white shadow-[0_2px_10px_rgba(43,35,32,0.12)] whitespace-nowrap">
@@ -1319,6 +1335,9 @@ export default function MainPage() {
             <span className="shrink-0 text-[10px] font-medium text-muk-soft">+3h</span>
           </div>
         </div>
+
+        </div>{/* /오른쪽 열(칩·컨트롤) */}
+        </div>{/* /구글맵스식 톱바 행 */}
       </div>
 
       {/* (a) 시설 로드 상태 안내 — 로딩 스피너 / 로드 실패 재시도 / 전체 빈 상태 (데모 사고 방지선) */}

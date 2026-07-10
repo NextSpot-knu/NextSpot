@@ -31,6 +31,17 @@ _INTRO_HOURS_FIELDS = {
 _BARRIER_FREE_KEYWORDS = ("무장애", "휠체어", "장애인", "배리어프리", "베리어프리", "엘리베이터")
 
 
+def upgrade_image_scheme(url: Optional[str]) -> Optional[str]:
+    """TourAPI 이미지 URL 의 http:// 를 https:// 로 승격.
+
+    tong.visitkorea.or.kr CDN 은 https 를 지원하는데 API 는 http 를 주는 경우가 있어,
+    HTTPS 로 배포된 프런트에서 혼합 콘텐츠(mixed content)로 차단되는 것을 막는다.
+    """
+    if url and url.startswith("http://"):
+        return "https://" + url[len("http://"):]
+    return url
+
+
 def map_facility_type(content_type_id: int, cat3: Optional[str] = None) -> str:
     """contentTypeId → NextSpot canonical 타입(restaurant/cafe/attraction/culture).
 
@@ -78,7 +89,7 @@ def transform_poi(item: Any) -> Optional[dict]:
         "address": str(item.get("addr1") or "").strip() or None,
         "contentid": str(contentid),
         "contenttypeid": contenttypeid,
-        "image_url": str(item.get("firstimage") or "").strip() or None,
+        "image_url": upgrade_image_scheme(str(item.get("firstimage") or "").strip() or None),
         # 합성 기본값 — TourAPI 무제공 필드(위 CAPACITY_DEFAULTS 주석 참고)
         "capacity": CAPACITY_DEFAULTS[facility_type],
         "features": {

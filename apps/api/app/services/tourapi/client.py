@@ -207,7 +207,8 @@ async def detail_info(content_id: str, content_type_id: int) -> dict:
 
 async def search_festival(
     event_start_date: str,
-    area_code: Optional[int] = None,
+    ldong_regn_cd: Optional[int] = None,
+    ldong_signgu_cd: Optional[int] = None,
     page: int = 1,
     rows: int = 100,
 ) -> dict:
@@ -216,10 +217,15 @@ async def search_festival(
     NOTE: 피벗 문서(docs/NEXTSPOT_PIVOT.md §3-1)는 "eventBasedList" 로 표기하지만,
     TourAPI 4.0(KorService2)의 실제 엔드포인트명은 searchFestival2 다.
     event_start_date 형식: YYYYMMDD.
+
+    ⚠️ 지역 필터는 법정동 코드만 동작한다(2026-07 실측): 구 areaCode=35(경북)는
+    조용히 0건을 반환하고, lDongRegnCd=47(경상북도)+lDongSignguCd=130(경주시)이 정답.
+    (areaBasedList2 는 legacy areaCode 도 여전히 동작 — 이 엔드포인트만 다르다.)
     """
     return await _get_cached("searchFestival2", {
         "eventStartDate": event_start_date,
-        "areaCode": area_code,
+        "lDongRegnCd": ldong_regn_cd,
+        "lDongSignguCd": ldong_signgu_cd,
         "pageNo": page,
         "numOfRows": rows,
     })
