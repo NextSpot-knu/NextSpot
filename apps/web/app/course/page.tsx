@@ -85,7 +85,7 @@ export default function CoursePage() {
   const [error, setError] = useState<string | null>(null);
   const [needsAuth, setNeedsAuth] = useState(false);
 
-  // 1) 세션(사용자 ID) — 없으면 데모 방문자로 폴백.
+  // 1) 세션(사용자 ID) — SessionBootstrap 익명 세션이 잡히면 실제 per-device id, 없으면 데모 방문자로 폴백.
   useEffect(() => {
     supabase.auth
       .getSession()
@@ -96,6 +96,13 @@ export default function CoursePage() {
         // 인증 서버 미도달 등 → 데모 방문자로 폴백(성공 경로의 세션 없음과 동일).
         setUserId(MOCK_VISITOR_ID);
       });
+
+    // 익명 세션이 뒤늦게 부트스트랩되면 실제 id 로 승격 → fetchCourse 재실행. body user_id 와 첨부 토큰이
+    // 같은 세션에서 나오므로 백엔드 IDOR 가드(req.user_id == JWT sub)와 정합하게 유지된다.
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) setUserId(session.user.id);
+    });
+    return () => { subscription?.unsubscribe?.(); };
   }, []);
 
   // 2) 위치 — 브라우저 Geolocation, 서비스 지역 밖이면 지역 중심으로 모킹(explore/recommend 와 동일).

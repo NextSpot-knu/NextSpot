@@ -273,13 +273,21 @@ function RecommendContent() {
   // Load User ID and Kakao Maps SDK
   useEffect(() => {
     // 1. Fetch User Session
+    //    SessionBootstrap(익명 로그인)이 잡히면 실제 per-device id 를 쓴다. 아직 세션이 없거나
+    //    프로젝트에서 익명 로그인이 비활성이면 목업 방문자로 폴백(기존 동작 유지, 무회귀).
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session?.user) {
         setUserId(session.user.id);
       } else {
-        console.warn("No active session found, falling back to mock visitor GYEONGJU-VISITOR-01.");
+        console.warn("No active session yet, using mock visitor until anonymous session bootstraps.");
         setUserId("a2222222-2222-2222-2222-222222222222"); // Fallback mock visitor ID
       }
+    });
+
+    // 1-1. 익명 세션이 (부트스트랩 지연으로) 뒤늦게 잡히면 실제 id 로 승격 → 추천이 실제 세션으로 재조회된다.
+    //      body user_id 와 첨부 토큰(api-client)이 같은 세션에서 나오므로 백엔드 IDOR 가드와 정합.
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) setUserId(session.user.id);
     });
 
     // 2. Load Kakao Maps Script
@@ -303,6 +311,8 @@ function RecommendContent() {
         window.kakao.maps.load(() => setMapLoaded(true));
       }
     }
+
+    return () => { subscription?.unsubscribe?.(); };
   }, []);
 
   // Fetch coordinates from params or fall back to browser Geolocation

@@ -6,6 +6,7 @@ import { Toaster } from "sonner";
 import PageTransition from "@/components/PageTransition";
 import BottomNav from "@/components/BottomNav";
 import ServiceWorkerRegister from "@/components/ServiceWorkerRegister";
+import SessionBootstrap from "@/components/SessionBootstrap";
 import { I18nProvider } from "@/lib/i18n/I18nProvider";
 
 const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
@@ -42,6 +43,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className="min-h-full flex font-sans bg-hanji">
         {/* PWA 오프라인 복원력 — /sw.js 등록(프로덕션 유사 환경 전용, 자체 가드). */}
         <ServiceWorkerRegister />
+        {/* 무마찰 익명 세션 부트스트랩 — 로그인 UI 없이 방문자마다 실제 per-device 세션 생성.
+            익명 로그인 비활성 프로젝트에선 조용히 목업 방문자 동작으로 폴백(무회귀). 자체 가드. */}
+        <SessionBootstrap />
         {/* 왼쪽 세로 내비게이션 레일(인플로우) — 숨김 경로에서 null 이면 콘텐츠가 전체폭을 차지. */}
         <I18nProvider>
           <BottomNav />
