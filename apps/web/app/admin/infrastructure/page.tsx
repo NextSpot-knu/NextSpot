@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import {
-  Building2, Search, Bell, Utensils, MapPin, Filter,
+  Building2, Search, Bell, Utensils, MapPin,
   ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, AlertTriangle, Users, Clock, Activity, Coffee
 } from 'lucide-react';
 import { AdminSidebar } from '@/components/AdminSidebar';
@@ -24,10 +24,7 @@ interface ChartDataPoint {
   demand: number;
 }
 
-// 데모 폴백: 백엔드가 비어있거나 응답이 없을 때 보여줄 샘플 시설(데모 페이지 무중단).
-const DEMO_FACILITIES: Infrastructure[] = [];
-
-// 데모 시설 선택 시 보여줄 합성 시간대 추이. 백엔드 의존 없이 가벼운 곡선 생성.
+// 차트 실데이터 로드 실패 시 보여줄 합성 시간대 추이. 백엔드 의존 없이 가벼운 곡선 생성.
 function genDemoChart(seedStr: string): ChartDataPoint[] {
   let seed = 0;
   for (let i = 0; i < seedStr.length; i++) seed += seedStr.charCodeAt(i);
@@ -51,7 +48,6 @@ export default function InfrastructurePage() {
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
   const supabase = createPublicClient();
 
@@ -123,31 +119,23 @@ export default function InfrastructurePage() {
         })
       );
 
-      // 실데이터가 비면 데모 시설로 대체(데모 페이지 무중단).
-      const finalInfras = mappedInfras.length > 0 ? mappedInfras : DEMO_FACILITIES;
-      setFacilities(finalInfras);
+      setFacilities(mappedInfras);
       setSelectedInfra(prev => {
-        if (!prev) return finalInfras[0];
-        const updated = finalInfras.find(item => item.id === prev.id);
-        return updated || finalInfras[0];
+        if (!prev) return mappedInfras[0];
+        const updated = mappedInfras.find(item => item.id === prev.id);
+        return updated || mappedInfras[0];
       });
-    } catch (err: any) {
-      // 백엔드 실패/타임아웃 — 에러 대신 데모 데이터로 폴백(데모 무중단).
-      console.warn('인프라 실데이터 로드 실패 — 데모 데이터로 대체:', err);
-      setError(null);
-      setFacilities(DEMO_FACILITIES);
-      setSelectedInfra(prev => prev || DEMO_FACILITIES[0]);
+    } catch (err) {
+      // 백엔드 실패/타임아웃 — 에러 화면 대신 빈 목록으로 표시(데모 무중단).
+      console.warn('인프라 실데이터 로드 실패 — 빈 목록으로 표시:', err);
+      setFacilities([]);
+      setSelectedInfra(prev => prev || null);
     } finally {
       if (!isSilent) setLoading(false);
     }
   }, [supabase]);
 
   const fetchChartData = useCallback(async (facilityId: string) => {
-    // 데모 시설은 백엔드를 거치지 않고 합성 추이를 보여준다.
-    if (facilityId.startsWith('demo-')) {
-      setChartData(genDemoChart(facilityId));
-      return;
-    }
     try {
       // KST '오늘' 00:00 의 UTC 경계(브라우저 로컬 TZ 무관). 로컬 자정으로 자르면 비-KST 브라우저에서 어긋난다.
       const nowKst = new Date(Date.now() + 9 * 60 * 60 * 1000);
@@ -275,11 +263,6 @@ export default function InfrastructurePage() {
                 <div className="flex flex-col items-center justify-center h-48 text-slate-400">
                   <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mb-4" />
                   <p>데이터를 불러오는 중...</p>
-                </div>
-              ) : error ? (
-                <div className="p-4 text-center text-red-400 bg-red-500/10 rounded-xl border border-red-500/30">
-                  <AlertTriangle className="mx-auto mb-2" size={24} />
-                  <p className="text-sm font-semibold">{error}</p>
                 </div>
               ) : filteredInfras.length === 0 ? (
                 <div className="text-center p-8 text-slate-400">

@@ -14,10 +14,11 @@ from typing import Optional
 
 import structlog
 
+from app.services.spot.travel import WALKING_SPEED_M_PER_MIN
+
 logger = structlog.get_logger()
 
 VALID_ACTIONS = ["accept", "next", "reject", "details", "select", "filter", "stop", "unknown"]
-_WALK_M_PER_MIN = 66.67
 
 # 라우터 분류 enum 과 일치하는 정밀분류 라벨(intent_category).
 _INTENT_CATEGORIES = [
@@ -94,7 +95,7 @@ def _details_spoken(current_name: Optional[str], candidates: list[dict]) -> Opti
     if isinstance(cong, (int, float)):
         bits.append(f"혼잡도 {round(cong * 100)}%")
     if isinstance(dist, (int, float)):
-        bits.append(f"도보 {max(1, round(dist / _WALK_M_PER_MIN))}분")
+        bits.append(f"도보 {max(1, round(dist / WALKING_SPEED_M_PER_MIN))}분")
     cui = _cuisine_str(target.get("cuisine"))
     detail = ", ".join(bits) if bits else "상세 정보가 제한적이에요"
     if cui:

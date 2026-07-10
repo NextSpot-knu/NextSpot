@@ -11,32 +11,34 @@ function camelToSnake(s: string): string {
   return s.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`);
 }
 
-// 재귀적으로 객체 키를 camelCase로 변환
-export function keysToCamel(o: any): any {
+// 재귀적으로 객체 키를 camelCase로 변환 (모듈 내부 전용)
+// 입력은 임의 JSON(unknown). 반환은 any 유지 — request() 의 추론 반환형(Promise<any>)이
+// 레포 전역의 apiClient.get/post 소비처(res.predictions, data.vector 등) 계약이기 때문.
+function keysToCamel(o: unknown): any {
   if (o === null || o === undefined) return o;
   if (Array.isArray(o)) {
     return o.map(keysToCamel);
   }
   if (typeof o === "object") {
-    const n: { [key: string]: any } = {};
+    const n: Record<string, unknown> = {};
     Object.keys(o).forEach((k) => {
-      n[snakeToCamel(k)] = keysToCamel(o[k]);
+      n[snakeToCamel(k)] = keysToCamel((o as Record<string, unknown>)[k]);
     });
     return n;
   }
   return o;
 }
 
-// 재귀적으로 객체 키를 snake_case로 변환
-export function keysToSnake(o: any): any {
+// 재귀적으로 객체 키를 snake_case로 변환 (모듈 내부 전용)
+function keysToSnake(o: unknown): unknown {
   if (o === null || o === undefined) return o;
   if (Array.isArray(o)) {
     return o.map(keysToSnake);
   }
   if (typeof o === "object") {
-    const n: { [key: string]: any } = {};
+    const n: Record<string, unknown> = {};
     Object.keys(o).forEach((k) => {
-      n[camelToSnake(k)] = keysToSnake(o[k]);
+      n[camelToSnake(k)] = keysToSnake((o as Record<string, unknown>)[k]);
     });
     return n;
   }
@@ -46,8 +48,10 @@ export function keysToSnake(o: any): any {
 // 로컬 전용: FastAPI 백엔드 직접 호출(기본 http://localhost:8000). 대회용 API Gateway 경유는 제거됨.
 const BASE_URL = process.env.NEXT_PUBLIC_FASTAPI_URL || "http://localhost:8000";
 
-interface RequestOptions extends RequestInit {
+interface RequestOptions extends Omit<RequestInit, "body"> {
   params?: Record<string, string>;
+  /** 평문 객체를 주면 request() 가 snake_case 변환 후 JSON 직렬화한다(FormData 등 BodyInit 은 그대로 전송) */
+  body?: unknown;
 }
 
 async function request(path: string, options: RequestOptions = {}) {
@@ -68,12 +72,13 @@ async function request(path: string, options: RequestOptions = {}) {
   // query parameter 처리
   let url = `${BASE_URL}${path}`;
   if (options.params) {
-    const queryParams = new URLSearchParams(keysToSnake(options.params));
+    const queryParams = new URLSearchParams(keysToSnake(options.params) as Record<string, string>);
     url += `?${queryParams.toString()}`;
   }
 
   // body가 존재하는 경우 camelCase -> snake_case 변환 후 전송
-  let body = options.body;
+  // (평문 객체는 아래에서 JSON 문자열로 직렬화되므로 fetch 에 넘어갈 때는 항상 BodyInit 계열 — 타입 단언만, 런타임 동일)
+  let body = options.body as BodyInit | null | undefined;
   if (body && typeof body === "object" && !(body instanceof FormData)) {
     body = JSON.stringify(keysToSnake(body));
   }
@@ -98,14 +103,8 @@ export const apiClient = {
   get: (path: string, options?: Omit<RequestOptions, "method" | "body">) => 
     request(path, { ...options, method: "GET" }),
   
-  post: (path: string, body?: any, options?: Omit<RequestOptions, "method" | "body">) => 
+  post: (path: string, body?: unknown, options?: Omit<RequestOptions, "method" | "body">) =>
     request(path, { ...options, method: "POST", body }),
-  
-  put: (path: string, body?: any, options?: Omit<RequestOptions, "method" | "body">) => 
-    request(path, { ...options, method: "PUT", body }),
-  
-  delete: (path: string, options?: Omit<RequestOptions, "method" | "body">) => 
-    request(path, { ...options, method: "DELETE" }),
 };
 
 // --- SPOT 추천 엔진 연동 API 함수 ---
@@ -119,8 +118,8 @@ export interface RecommendationResponse {
     latitude: number;
     longitude: number;
     capacity: number;
-    operatingHours?: any;
-    features?: any;
+    operatingHours?: Record<string, string>; // JSONB {open, close, weekday...}
+    features?: Record<string, unknown>; // JSONB(주소·전화·cuisine_tags·barrier_free 등 혼합)
     currentCount?: number;
     congestionLevel?: number;
   };
@@ -132,7 +131,7 @@ export interface RecommendationResponse {
     incentive: number;
   };
   distanceM: number;
-  reason?: string; // WP3: Gemini 생성 추천 사유 (백엔드 snake_case reason → camel reason)
+  reason?: string; // 백엔드 템플릿 생성 추천 사유 (snake_case reason → camel reason)
   rank: number;
   totalCandidates: number;
 }
@@ -170,7 +169,7 @@ export async function submitFeedback(
 
 /**
  * 타입별(음식점/카페/관광지/문화시설) 추천 랭킹 — 메인 지도 브라우즈용.
- * 백엔드가 사용자 선호 벡터·실시간 혼잡·거리로 SPOT 점수를 매기고 상위 N개에 Gemini 사유를 붙여 반환.
+ * 백엔드가 사용자 선호 벡터·실시간 혼잡·거리로 SPOT 점수를 매기고 상위 N개에 템플릿 사유를 붙여 반환.
  * (/recommendations 가 '혼잡한 원본의 대안'을 주는 것과 달리, 원본 없이 타입 전체를 랭킹한다.)
  */
 export async function recommendByType(
@@ -195,13 +194,13 @@ export async function recommendByType(
   });
 }
 
-// --- 자연어 선호 입력 (Gemini 파싱 → 추천 반영) ---
+// --- 자연어 선호 입력 (키워드 파싱 → 추천 반영) ---
 
 export interface ParsePreferenceResult {
   preferredCategories: string[];
   attributes: string[];
   summary: string;       // 'AI가 이렇게 이해했어요' 한국어 문장
-  isFallback: boolean;   // Gemini 미사용/실패로 키워드 규칙을 썼는지
+  isFallback: boolean;   // 정규 파서 대신 키워드 규칙 폴백을 썼는지
   vectorUpdated: boolean;
   categoriesSaved: boolean;
 }
@@ -214,7 +213,7 @@ export async function parsePreference(text: string): Promise<ParsePreferenceResu
   return apiClient.post("/api/v1/preferences/parse", { text });
 }
 
-// --- 음성 비서 1턴 해석 (Vertex Gemini) ---
+// --- 음성 비서 1턴 해석 (백엔드 키워드 분류기) ---
 
 export interface VoiceTurnCandidate {
   id: string;
@@ -228,11 +227,11 @@ export interface VoiceTurnResult {
   action: string; // accept|next|reject|details|select|filter|stop|unknown
   targetFacilityId: string | null;
   matchIds: string[]; // filter 일 때 선호에 맞는 후보 id들('양식'→양식 식당들)
-  spoken: string | null; // Gemini 생성 한국어 응답(없으면 프런트 자체 멘트)
+  spoken: string | null; // 백엔드 생성 한국어 응답(없으면 프런트 자체 멘트)
 }
 
 /**
- * 음성 비서가 추천을 안내한 뒤 사용자의 자유발화 응답을 백엔드(Vertex Gemini)로 보내
+ * 음성 비서가 추천을 안내한 뒤 사용자의 자유발화 응답을 백엔드(로컬 키워드 분류기)로 보내
  * 의도(accept/next/reject/details/select/stop)를 분류하고, 선호 표현이면 후보 중 가장 맞는
  * 시설(targetFacilityId)을 고르며, 한국어 응답(spoken)을 생성한다. 무인증 엔드포인트.
  */

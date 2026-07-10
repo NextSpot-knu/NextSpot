@@ -15,8 +15,7 @@ app = FastAPI(
 )
 
 
-# CORS 설정 //  app = FastAPI() 선언문 하단에 정확히 삽입하십시오.
-# 안전 정책:
+# CORS 안전 정책:
 #  - ALLOWED_ORIGINS 가 명시적 오리진 목록이면 그 오리진만 허용하고 credentials 를 켠다(엄격 모드).
 #  - "*" 가 포함되거나 미설정이면 모든 오리진을 허용하되 credentials 를 끈다.
 #    (와일드카드 + allow_credentials=True 는 CORS 표준 위반. 이 API 인증은 Authorization Bearer

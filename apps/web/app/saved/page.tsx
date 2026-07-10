@@ -2,8 +2,9 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { Menu, Bell, Home, Bookmark, User, Compass, Star, Trash2 } from 'lucide-react';
+import { Menu, Bell, Compass, Star, Trash2 } from 'lucide-react';
 import { RecommendationCard } from '@/components/RecommendationCard';
+import type { Spot } from '@/lib/recommender';
 
 interface BookmarkData {
   id: string;
@@ -13,8 +14,8 @@ interface BookmarkData {
   waitTime: string;
   latitude?: number;
   longitude?: number;
-  spot?: any;
-  reason?: string; // 저장 시점의 추천 사유(백엔드 Gemini 또는 미러)
+  spot?: Spot; // main(handlePutOff)이 저장하는 SavedBookmark.spot — lib/recommender 의 Spot 그대로
+  reason?: string; // 저장 시점의 추천 사유(백엔드 템플릿 또는 미러)
 }
 
 export default function SavedPage() {
@@ -61,7 +62,7 @@ export default function SavedPage() {
         const saved = localStorage.getItem('nextspot_saved_facilities');
         if (saved) {
           const parsed = JSON.parse(saved);
-          const compareBookmarks = (a: any, b: any) => {
+          const compareBookmarks = (a: BookmarkData, b: BookmarkData) => {
             if (!a.spot || !b.spot) return (a.name || '').localeCompare(b.name || '', 'ko-KR');
             if (b.spot.score !== a.spot.score) return b.spot.score - a.spot.score;
             if (a.spot.timeToService !== b.spot.timeToService) return a.spot.timeToService - b.spot.timeToService;
@@ -282,7 +283,6 @@ export default function SavedPage() {
             title={selectedBookmark.name}
             matchPercentage={100}
             reason={selectedBookmark.reason}
-            description={`현재 혼잡도: ${selectedBookmark.trafficStatus === 'orange' ? '혼잡' : selectedBookmark.trafficStatus === 'yellow' ? '보통' : selectedBookmark.trafficStatus === 'green' ? '여유' : '한산'}. 예상 대기 시간: ${selectedBookmark.waitTime}.`}
             spotScore={selectedBookmark.spot?.score}
             preferencePercent={selectedBookmark.spot?.preferencePercent}
             expectedWait={selectedBookmark.spot?.expectedWait ?? parseInt(selectedBookmark.waitTime) ?? 0}

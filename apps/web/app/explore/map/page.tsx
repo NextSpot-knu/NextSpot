@@ -11,22 +11,41 @@ export interface FacilityWithCongestion {
   latitude: number;
   longitude: number;
   capacity: number;
-  operatingHours: Record<string, any>;
-  features: Record<string, any>;
+  operatingHours: Record<string, string>;
+  features: Record<string, unknown>;
   congestionLevel: number;
   currentCount: number;
   lastUpdated: string;
 }
 
+// Supabase 행 형태(snake_case) — 아래 select() 컬럼과 1:1 대응하는 로컬 타입.
+interface FacilityRow {
+  id: string;
+  name: string;
+  type: FacilityWithCongestion["type"];
+  latitude: number;
+  longitude: number;
+  capacity: number;
+  operating_hours: Record<string, string> | null;
+  features: Record<string, unknown> | null;
+}
+
+interface CongestionLogRow {
+  facility_id: string;
+  congestion_level: number;
+  current_count: number;
+  timestamp: string;
+}
+
 // 실데이터 전용: Supabase facilities + 최신 congestion_logs 만 사용한다(목업 폴백 없음).
 export default async function GyeongjuMapPage() {
   const supabase = createPublicClient();
-  let facilitiesData: any[] = [];
-  const latestLogsMap: Record<string, any> = {};
+  let facilitiesData: FacilityRow[] = [];
+  const latestLogsMap: Record<string, CongestionLogRow | undefined> = {};
 
   try {
     // 1) 모든 POI 조회 (페이지네이션)
-    let facilities: any[] = [];
+    let facilities: FacilityRow[] = [];
     let fromFac = 0;
     const limit = 1000;
     while (true) {
@@ -49,7 +68,7 @@ export default async function GyeongjuMapPage() {
 
     // 2) 각 POI의 최신 congestion_log 조회 (페이지네이션)
     if (facilitiesData.length > 0) {
-      let logs: any[] = [];
+      let logs: CongestionLogRow[] = [];
       let fromLogs = 0;
       while (true) {
         const { data, error } = await supabase
@@ -80,7 +99,7 @@ export default async function GyeongjuMapPage() {
     facilitiesData = [];
   }
 
-  const initialFacilities: FacilityWithCongestion[] = facilitiesData.map((f: any) => {
+  const initialFacilities: FacilityWithCongestion[] = facilitiesData.map((f) => {
     const latestLog = latestLogsMap[f.id];
     return {
       id: f.id,

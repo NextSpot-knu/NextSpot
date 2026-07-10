@@ -6,7 +6,7 @@ import structlog
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from app.core.supabase import supabase_client
+from app.core.supabase import supabase_client, fetch_all_rows
 from app.routers.infrastructures import fetch_latest_congestion_for_all
 from app.services.predict_service import predict_congestion
 
@@ -66,20 +66,8 @@ def _clamp01(value: float) -> float:
 
 
 async def _fetch_facilities_id_type() -> list[dict]:
-    """모든 시설의 (id, type)만 페이지네이션 조회 (infrastructures 라우터와 동일 패턴)."""
-    facilities: list[dict] = []
-    limit = 1000
-    start = 0
-    while True:
-        query = supabase_client.table("facilities").select("id, type").range(start, start + limit - 1)
-        res = await asyncio.to_thread(query.execute)
-        if not res.data:
-            break
-        facilities.extend(res.data)
-        if len(res.data) < limit:
-            break
-        start += limit
-    return facilities
+    """모든 시설의 (id, type)만 페이지네이션 조회 (공용 fetch_all_rows 헬퍼를 워커 스레드로 오프로드)."""
+    return await asyncio.to_thread(fetch_all_rows, supabase_client, "facilities", "id, type")
 
 
 @router.post("/batch", response_model=BatchPredictResponse)

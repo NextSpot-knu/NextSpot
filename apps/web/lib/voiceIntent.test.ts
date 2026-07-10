@@ -57,8 +57,8 @@ for (const [phrase, expected] of cases) {
 
 // buildCardSpeech
 {
-  const s = buildCardSpeech("Indu 뷔페 식당", "지금 가장 여유로워요.", 0);
-  const ok = s.startsWith("1번째 추천이에요. Indu 뷔페 식당.") && s.endsWith("여기로 안내할까요?");
+  const s = buildCardSpeech("황남쌈밥 식당", "지금 가장 여유로워요.", 0);
+  const ok = s.startsWith("1번째 추천이에요. 황남쌈밥 식당.") && s.endsWith("여기로 안내할까요?");
   if (!ok) fail++;
   console.log(`${ok ? "PASS" : "FAIL"}  buildCardSpeech -> ${s}`);
   // reason 없을 때도 자연스러운 문장

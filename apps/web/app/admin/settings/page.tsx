@@ -15,6 +15,15 @@ const supabase = createPublicClient();
 
 const DEFAULT_NOTICE = '현재 일부 식당·카페 정보 갱신 중으로 관련 데이터가 일시적으로 부정확할 수 있습니다.';
 
+/** GET /api/v1/admin/settings 응답 — system_settings 단일 행(snake_case, admin-api 는 케이스 변환 없음).
+ *  행이 없으면 백엔드가 null 을 반환하고 프런트 기본값을 유지한다. 필드별 typeof 가드가 있으므로 넓게 잡는다. */
+interface SystemSettingsRow {
+  maintenance_mode?: boolean | null;
+  notice_text?: string | null;
+  congestion_threshold?: number | null;
+  coldstart_weight?: number | null;
+}
+
 export default function SettingsPage() {
   // 즉시 렌더용 기본값 → 마운트 후 system_settings 실값으로 교체(스피너 없음).
   const [isMaintenance, setIsMaintenance] = useState(false);
@@ -54,7 +63,7 @@ export default function SettingsPage() {
     let active = true;
     (async () => {
       try {
-        const data = await adminApi.get('/api/v1/admin/settings');
+        const data: SystemSettingsRow | null = await adminApi.get('/api/v1/admin/settings');
         if (active && data) {
           setIsMaintenance(!!data.maintenance_mode);
           if (typeof data.notice_text === 'string') setNotice(data.notice_text);
@@ -80,8 +89,8 @@ export default function SettingsPage() {
         coldstart_weight: weight,
       });
       setSaveMsg({ type: 'ok', text: '시스템 설정이 저장되었습니다.' });
-    } catch (e: any) {
-      setSaveMsg({ type: 'err', text: `저장 실패: ${e?.message || '권한 또는 연결 오류'}` });
+    } catch (e) {
+      setSaveMsg({ type: 'err', text: `저장 실패: ${(e as { message?: string } | null)?.message || '권한 또는 연결 오류'}` });
     } finally {
       setSaving(false);
       setTimeout(() => setSaveMsg(null), 4000);

@@ -1,25 +1,35 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, PanInfo, AnimatePresence } from 'framer-motion';
-import { Bookmark, Sparkles, Star, Phone, MapPin, Clock, ChevronUp, ChevronDown, Info } from 'lucide-react';
+import { Sparkles, Star, Phone, MapPin, Clock, ChevronUp, Info } from 'lucide-react';
+
+// facility prop 이 이 컴포넌트에서 실제로 읽는 필드만 구조적으로 명시한 타입.
+// 콜러 둘의 합집합: main(page)은 Facility(congestionLevel/currentCount: number|null,
+// features: 인덱스시그니처 unknown)를, saved(page)는 {congestionLevel, capacity, currentCount}
+// 요약 리터럴만 전달한다. features 값은 unknown 인덱스라 읽는 곳에서 string 으로 좁힌다.
+interface RecommendationCardFacility {
+  congestionLevel?: number | null;
+  currentCount?: number | null;
+  capacity?: number | null;
+  features?: Record<string, unknown> | null;
+  operatingHours?: Record<string, string> | null;
+}
 
 interface RecommendationCardProps {
   title: string;
   matchPercentage?: number;
-  description: string;
-  reason?: string; // WP3: Gemini 생성 추천 사유
+  reason?: string; // 백엔드 템플릿 생성 추천 사유
   onAccept: () => void;
   onReject: () => void;
   onPutOff?: () => void;
-  onClose?: () => void; // Added close/hide callback
   spotScore?: number;
   preferencePercent?: number;
   expectedWait?: number;
   expectedTravel?: number;
   timeToService?: number;
   facilityType?: string;
-  facility?: any;
+  facility?: RecommendationCardFacility;
   rank?: number;
   totalCandidates?: number;
   mockHour?: number | null;
@@ -28,12 +38,10 @@ interface RecommendationCardProps {
 export function RecommendationCard({
   title,
   matchPercentage,
-  description,
   reason,
   onAccept,
   onReject,
   onPutOff,
-  onClose,
   spotScore,
   preferencePercent,
   expectedWait,
@@ -84,8 +92,8 @@ export function RecommendationCard({
     if (!window.kakao.maps.services) {
       console.warn("Kakao Places services library not loaded");
       setPlaceInfo({
-        address: facility?.features?.address || '경상북도 경주시 황남동',
-        phone: facility?.features?.phone || '054-123-4567',
+        address: (facility?.features?.address as string | undefined) || '경상북도 경주시 황남동',
+        phone: (facility?.features?.phone as string | undefined) || '054-123-4567',
         rating: 4.5,
         reviewCount: 28,
         url: `https://map.kakao.com/?q=${encodeURIComponent(title)}`
@@ -117,8 +125,8 @@ export function RecommendationCard({
         } else {
           // 경주 매칭 결과가 없으면(타지 체인만 잡히거나 검색 실패) 우리 데이터의 경주 주소로 폴백.
           setPlaceInfo({
-            address: facility?.features?.address || '경상북도 경주시 황남동',
-            phone: facility?.features?.phone || '054-123-4567',
+            address: (facility?.features?.address as string | undefined) || '경상북도 경주시 황남동',
+            phone: (facility?.features?.phone as string | undefined) || '054-123-4567',
             rating: 4.3,
             reviewCount: 15,
             url: `https://map.kakao.com/?q=${encodeURIComponent(title)}`
@@ -145,11 +153,7 @@ export function RecommendationCard({
       }
     } else {
       if (offset > 50 || velocity > 200) {
-        if (onClose) {
-          onClose();
-        } else {
-          setIsMinimized(true);
-        }
+        setIsMinimized(true);
       } else if (offset < -50 || velocity < -200) {
         setIsExpanded(true);
       }
@@ -383,7 +387,7 @@ export function RecommendationCard({
           >
             <div className="border-t border-white/10 pt-3.5 space-y-3 text-xs text-slate-300">
           
-          {/* AI 추천 사유 (WP3 Gemini, 있을 때만) */}
+          {/* AI 추천 사유 (백엔드 템플릿, 있을 때만) */}
           {reason && (
             <p className="text-[13px] leading-relaxed text-sky-200/95 bg-sky-500/10 border border-sky-500/20 rounded-2xl px-3.5 py-2.5">
               💡 {reason}

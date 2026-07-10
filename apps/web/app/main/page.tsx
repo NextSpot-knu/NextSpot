@@ -1,14 +1,11 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
-import Script from 'next/script';
-import { Home, Bookmark, User, Search, Mic, Utensils, MapPin, Building2, Coffee, Sparkles, ChevronDown, ChevronUp } from 'lucide-react';
+import { User, Search, Mic, Utensils, MapPin, Building2, Coffee, ChevronDown, ChevronUp } from 'lucide-react';
 import { RecommendationCard } from '@/components/RecommendationCard';
 import { createPublicClient } from '@/lib/supabase';
 import { getMarkerSvg } from '@/lib/utils';
-import { scoreFacility, compareSpot, rankFacilities, recToSpot, haversineMeters, cuisineMatch, rescoreWithPreference, filterReachable } from '@/lib/recommender';
-import { findLandmark } from '@/lib/landmarks';
+import { scoreFacility, compareSpot, rankFacilities, recToSpot, haversineMeters, cuisineMatch, rescoreWithPreference, filterReachable, type Spot } from '@/lib/recommender';
 import { REGION, isWithinRegion } from '@/lib/region';
 import { recommendByType, voiceTurn } from '@/lib/api-client';
 import { useVoiceAssistant } from '@/lib/useVoiceAssistant';
@@ -16,12 +13,72 @@ import VoiceAssistantOrb from '@/components/VoiceAssistantOrb';
 
 const supabase = createPublicClient();
 
+// ── 이 페이지가 다루는 앱 도메인 데이터의 로컬 타입 ──
+// (Kakao Maps SDK 객체(map/marker/overlay/LatLng 등)는 의도적으로 any 유지 — SDK 타이핑 미도입.)
+
+// features JSONB 중 이 페이지가 읽는 키만 명시(그 외 키는 unknown 인덱스로 통과).
+interface FacilityFeatures {
+  cuisine_tags?: string[] | string;
+  cuisine?: string[] | string;
+  [key: string]: unknown;
+}
+
+// Supabase congestion_logs 행(이 페이지가 select 하는 컬럼만).
+interface CongestionLog {
+  facility_id: string;
+  congestion_level: number;
+  current_count: number;
+  timestamp: string;
+}
+
+// loadFacilities 의 mapped 형태가 원본. spot/reason/apiRank/totalCandidates 는
+// 추천 파이프라인(백엔드 by-type·rankFacilities·랭킹 effect)이 이후에 덧붙이는 선택 필드.
+interface FacilityRecord {
+  id: string;
+  name: string;
+  type: string;
+  latitude: number;
+  longitude: number;
+  capacity: number;
+  features: FacilityFeatures | null;
+  baseCongestion: number | null; // 혼잡 로그 없으면 null('데이터 없음' 표시)
+  congestionLevel: number | null;
+  currentCount: number | null;
+  lastUpdated: string | null;
+  spot?: Spot;
+  reason?: string;
+  apiRank?: number;
+  totalCandidates?: number;
+}
+
+// 개별 시설 vs 그룹(모음) 마커 — isGroup 판별식 union(expandGroups/마커 클릭 분기용).
+interface SingleFacility extends FacilityRecord {
+  isGroup?: false;
+  subFacilities?: undefined;
+}
+interface FacilityGroup extends FacilityRecord {
+  isGroup: true;
+  subFacilities: Facility[];
+}
+type Facility = SingleFacility | FacilityGroup;
+
+// localStorage 'nextspot_saved_facilities' 항목 — handlePutOff 가 저장하는 형태(읽기는 id만 사용).
+interface SavedBookmark {
+  id: string;
+  name: string;
+  category: string;
+  trafficStatus: string;
+  waitTime: string;
+  spot: Spot;
+  reason: string;
+}
+
 // 술집(bar)이 음식점(restaurant)으로 적재되면 '음식점' 추천을 오염시킨다(데이터 한계).
 // cuisine_tags 로 술집을 식별해 음식점 추천 후보에서만 제외(지도 마커로는 계속 표시 — 삭제 아님).
 const _BAR_TAGS_MAIN = ['술집', '호프', '오뎅바', '실내포장마차', '일본식주점', '호프,요리주점', '포차', '선술집'];
-function isBarFacility(f: any): boolean {
+function isBarFacility(f: Facility): boolean {
   const raw = f?.features?.cuisine_tags ?? f?.features?.cuisine;
-  const tags = Array.isArray(raw) ? raw.map((x: any) => String(x)) : (typeof raw === 'string' ? [raw] : []);
+  const tags = Array.isArray(raw) ? raw.map((x) => String(x)) : (typeof raw === 'string' ? [raw] : []);
   return tags.some((t: string) => _BAR_TAGS_MAIN.includes(t));
 }
 
@@ -39,12 +96,11 @@ export default function MainPage() {
   const userMarkerRef = useRef<any>(null);
   const activeOverlayRef = useRef<any>(null);
 
-  const [activeTab, setActiveTab] = useState('Home');
   const [activeFilter, setActiveFilter] = useState('음식점'); // 첫 접속 시 음식점 세션을 먼저 표시(탭 순서와 일치)
-  const [facilities, setFacilities] = useState<any[]>([]);
-  const [selectedFacility, setSelectedFacility] = useState<any>(null);
+  const [facilities, setFacilities] = useState<Facility[]>([]);
+  const [selectedFacility, setSelectedFacility] = useState<Facility | null>(null);
   // 음성 선호 필터(예: '양식 먹고 싶어'→양식 식당 id들). null이면 필터 없음.
-  // Gemini가 실시간으로 추천 풀을 좁혀 그 안에서 SPOT로 재랭킹한다.
+  // 백엔드 분류기가 실시간으로 추천 풀을 좁혀 그 안에서 SPOT로 재랭킹한다.
   // state = 카드/핸들러 렌더용, ref = 추천 effect가 dep 없이 최신값을 읽기 위함(필터 변경 시 더블셋 방지).
   const [voiceFilterIds, setVoiceFilterIds] = useState<Set<string> | null>(null);
   const voiceFilterIdsRef = useRef<Set<string> | null>(null);
@@ -75,10 +131,6 @@ export default function MainPage() {
     }
   }, [toastMessage]);
 
-  const router = useRouter();
-
-  const appKey = process.env.NEXT_PUBLIC_KAKAO_MAPS_APP_KEY || process.env.NEXT_PUBLIC_KAKAO_API_KEY || process.env.NEXT_PUBLIC_KAKAO_MAP_KEY || "";
-
   // Load facilities from Supabase
   useEffect(() => {
     async function loadFacilities() {
@@ -105,7 +157,7 @@ export default function MainPage() {
           console.warn("Failed to load congestion logs:", logsError);
         }
 
-        const latestLogsMap: Record<string, any> = {};
+        const latestLogsMap: Record<string, CongestionLog | undefined> = {};
         if (logs && logs.length > 0) {
           for (const log of logs) {
             if (!latestLogsMap[log.facility_id]) {
@@ -114,7 +166,7 @@ export default function MainPage() {
           }
         }
 
-        const mapped = facilitiesData.map((f: any) => {
+        const mapped: Facility[] = facilitiesData.map((f) => {
           const latestLog = latestLogsMap[f.id];
           // 혼잡 로그가 없는 시설은 값을 합성(id 해시)하지 않고 null 로 둔다 —
           // 마커/카드가 '데이터 없음'(회색·—) 상태로 표시하도록 소비측에서 null 을 처리한다.
@@ -181,19 +233,17 @@ export default function MainPage() {
     }));
   }, [mockHour]);
 
-  const [rankedFacilities, setRankedFacilities] = useState<any[]>([]);
+  const [rankedFacilities, setRankedFacilities] = useState<Facility[]>([]);
   const [rejectedIds, setRejectedIds] = useState<Set<string>>(new Set());
   const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number }>({ ...REGION.center });
   const [preferredCategories, setPreferredCategories] = useState<string[]>([]);
-  const [userId, setUserId] = useState<string | null>(null);
 
   // Load user profile & current location
   useEffect(() => {
     async function loadUser() {
       const { data: { session } } = await supabase.auth.getSession();
       if (session?.user) {
-        setUserId(session.user.id);
         const { data: profile } = await supabase
           .from("users")
           .select("preferred_categories")
@@ -202,8 +252,6 @@ export default function MainPage() {
         if (profile?.preferred_categories) {
           setPreferredCategories(profile.preferred_categories);
         }
-      } else {
-        setUserId("a2222222-2222-2222-2222-222222222222"); // Fallback mock user ID
       }
     }
     loadUser();
@@ -275,8 +323,8 @@ export default function MainPage() {
       try {
         const saved = localStorage.getItem('nextspot_saved_facilities');
         if (saved) {
-          const parsed = JSON.parse(saved);
-          const ids = new Set<string>(parsed.map((item: any) => item.id));
+          const parsed: SavedBookmark[] = JSON.parse(saved);
+          const ids = new Set<string>(parsed.map((item) => item.id));
           setSavedIds(ids);
         }
       } catch (e) {
@@ -317,15 +365,15 @@ export default function MainPage() {
 
   // 추천 점수·정렬·사유 로직은 lib/recommender(백엔드 SPOT 미러)로 분리.
   // CATEGORY_VECTORS·점수 계산·거리(haversine)는 모듈에 있고, 아래는 호출부 유지를 위한 얇은 위임 래퍼다.
-  const calculateSPOT = (facility: any) =>
+  const calculateSPOT = (facility: Facility) =>
     scoreFacility(facility, { userLocation: rankingOriginRef.current ?? userLocation, preferredCategories, mockHour, cuisineIntent: cuisineIntentRef.current });
 
   const compareFacilities = compareSpot;
 
   // 모음(그룹)은 추천/카드 랭킹에서 내부 sub로 펼친다 — 그룹 자체는 카드로 띄우지 않고
   // 모음 안에서 '가장 최적의 개별 장소'를 추천한다(지도 마커는 그대로 모음으로 유지).
-  const expandGroups = (list: any[]) =>
-    list.flatMap((f: any) => (f.isGroup && Array.isArray(f.subFacilities)) ? f.subFacilities : [f]);
+  const expandGroups = (list: Facility[]) =>
+    list.flatMap((f) => (f.isGroup && Array.isArray(f.subFacilities)) ? f.subFacilities : [f]);
 
   // 선택 마커가 하단 카드에 가리지 않도록 지도 위쪽 가시영역으로 패닝(지도 중심을 마커보다 아래로 둔다).
   const panToVisible = (lat: number, lng: number) => {
@@ -340,12 +388,12 @@ export default function MainPage() {
         new window.kakao.maps.Point(pt.x, pt.y + Math.round(h * 0.22))
       );
       map.panTo(target);
-    } catch (e) {
+    } catch {
       map.panTo(latlng);
     }
   };
 
-  // AI 추천 동기화: 실 DB 시설은 백엔드(/recommendations/by-type) 랭킹 + Gemini 사유,
+  // AI 추천 동기화: 실 DB 시설은 백엔드(/recommendations/by-type) 랭킹 + 템플릿 사유,
   // 합성 그룹·시간대 시뮬(mockHour) 등 데모는 lib/recommender 미러(사유 포함)로 처리해 합친 뒤 #1을 표시.
   // (백엔드는 합성 시설/mockHour 를 모르므로 데모는 분리해 클라 미러로 점수를 매긴다.)
   useEffect(() => {
@@ -359,7 +407,7 @@ export default function MainPage() {
     };
     const targetType = filterMap[activeFilter];
 
-    const typeOk = (f: any) => f.type === targetType && !(targetType === 'restaurant' && isBarFacility(f)); // 식당 추천에서 술집 제외
+    const typeOk = (f: Facility) => f.type === targetType && !(targetType === 'restaurant' && isBarFacility(f)); // 식당 추천에서 술집 제외
     let candidates = facilities.filter(
       f => typeOk(f) && !rejectedIds.has(f.id) && !savedIds.has(f.id)
     );
@@ -371,11 +419,11 @@ export default function MainPage() {
       return;
     }
 
-    const isDemo = (f: any) => f.isGroup || String(f.id).startsWith('dummy-');
+    const isDemo = (f: Facility) => f.isGroup || String(f.id).startsWith('dummy-');
     const realCands = candidates.filter(f => !isDemo(f));
     // 모음은 sub로 펼쳐 개별 장소를 랭킹(모음 자체는 카드로 안 띄움). 펼친 sub도 거절/저장 제외.
     const demoCands = expandGroups(candidates.filter(isDemo))
-      .filter((f: any) => !rejectedIds.has(f.id) && !savedIds.has(f.id));
+      .filter((f) => !rejectedIds.has(f.id) && !savedIds.has(f.id));
     const liveMode = mockHour === null; // 시간대 시뮬이 켜지면 데모(목업) 모드로 일관 처리
     rankingOriginRef.current = null; // 랜드마크 기준점 리셋(카테고리 전환 시)
     const scoreOpts = { userLocation: rankingOriginRef.current ?? userLocation, preferredCategories, mockHour, cuisineIntent: cuisineIntentRef.current };
@@ -383,13 +431,13 @@ export default function MainPage() {
     let cancelled = false;
     (async () => {
       try {
-        let all: any[];
+        let all: Facility[];
         const vfilter = voiceFilterIdsRef.current; // ref로 최신 필터를 읽음(이 effect는 voiceFilterIds를 dep로 안 둠)
         if (vfilter) {
-          // 음성 선호 필터(예: '양식'): 후보를 Gemini가 고른 id들로 좁혀 클라 미러로 SPOT 재랭킹(실시간).
+          // 음성 선호 필터(예: '양식'): 후보를 백엔드가 고른 id들로 좁혀 클라 미러로 SPOT 재랭킹(실시간).
           // (필터 변경 직후 첫 카드는 onFilter가 동기로 직접 set하므로 여기선 이후 재실행 케이스만 처리.)
           const filtered = expandGroups(candidates)
-            .filter((f: any) => vfilter.has(f.id) && !rejectedIds.has(f.id) && !savedIds.has(f.id));
+            .filter((f) => vfilter.has(f.id) && !rejectedIds.has(f.id) && !savedIds.has(f.id));
           all = rankFacilities(filtered, scoreOpts);
         } else {
           let realRanked: any[] = [];
@@ -403,7 +451,7 @@ export default function MainPage() {
                 .map(r => {
                   const base = byId.get(r.facility.id);
                   const spot = recToSpot(r);
-                  return { ...base, spot, reason: r.reason || "" }; // 백엔드 Gemini 사유만
+                  return { ...base, spot, reason: r.reason || "" }; // 백엔드 템플릿 사유만
                 });
               // 음식 의도(음성/온보딩)가 있으면 선호%·점수를 음식종류 매칭으로 재산출해 표시·랭킹을 의도와 일치시킨다.
               // (백엔드 선호는 시설타입 4종 벡터라 식당별로 고정 → 의도가 있을 땐 미러로 음식종류 반영. 사유는 백엔드 유지.)
@@ -458,7 +506,7 @@ export default function MainPage() {
   }, [facilities, activeFilter, userLocation, preferredCategories, mockHour]);
 
   // Action Button Handlers
-  const handleAccept = (fac: any) => {
+  const handleAccept = (fac: Facility) => {
     if (!fac) return;
 
     let greeting = "즐거운 시간 되세요!";
@@ -522,20 +570,15 @@ export default function MainPage() {
     if (typeof window !== 'undefined') {
       try {
         sessionStorage.removeItem('nextspot_selected_facility_id');
-      } catch (e) {}
+      } catch { /* noop */ }
     }
-
-    const filterMap: Record<string, string> = {
-      '음식점': 'restaurant', '카페': 'cafe', '관광지': 'attraction', '문화시설': 'culture'
-    };
-    const targetType = filterMap[activeFilter];
 
     const nextSavedIds = new Set(savedIds);
     nextSavedIds.add(fac.id);
-    const voicePass = (f: any) => !voiceFilterIds || voiceFilterIds.has(f.id); // 음성 선호 필터 유지
+    const voicePass = (f: Facility) => !voiceFilterIds || voiceFilterIds.has(f.id); // 음성 선호 필터 유지
 
     // rankedFacilities (백엔드 순위) 기준 탐색: 방금 저장한 항목 제외
-    let nextCandidates = rankedFacilities.filter(voicePass).filter((f: any) => !nextSavedIds.has(f.id));
+    let nextCandidates = rankedFacilities.filter(voicePass).filter((f) => !nextSavedIds.has(f.id));
     // 모두 소진되면 음성 필터만 유지해 루프백
     if (nextCandidates.length === 0) {
       nextCandidates = rankedFacilities.filter(voicePass);
@@ -558,10 +601,10 @@ export default function MainPage() {
 
     try {
       const existing = localStorage.getItem('nextspot_saved_facilities');
-      const bookmarks = existing ? JSON.parse(existing) : [];
+      const bookmarks: SavedBookmark[] = existing ? JSON.parse(existing) : [];
       
       const spot = fac.spot || calculateSPOT(fac);
-      if (!bookmarks.some((b: any) => b.id === fac.id)) {
+      if (!bookmarks.some((b) => b.id === fac.id)) {
         bookmarks.push({
           id: fac.id,
           name: fac.name,
@@ -580,14 +623,14 @@ export default function MainPage() {
     showToast(`'${fac.name}'이(가) Saved 탭에 저장되었습니다! 다음 추천을 불러옵니다.`);
   };
 
-  const handleReject = (fac: any) => {
+  const handleReject = (fac: Facility) => {
     if (!fac) return;
     
     // Clear selection from sessionStorage immediately to prevent restoration logic from sticking to this item
     if (typeof window !== 'undefined') {
       try {
         sessionStorage.removeItem('nextspot_selected_facility_id');
-      } catch (e) {}
+      } catch { /* noop */ }
     }
 
     const filterMap: Record<string, string> = {
@@ -598,18 +641,18 @@ export default function MainPage() {
     // Next candidates: exclude already-rejected (prev rejectedIds + current fac) and saved
     const nextRejectedIds = new Set(rejectedIds);
     nextRejectedIds.add(fac.id);
-    const voicePass = (f: any) => !voiceFilterIds || voiceFilterIds.has(f.id); // 음성 선호 필터 유지
+    const voicePass = (f: Facility) => !voiceFilterIds || voiceFilterIds.has(f.id); // 음성 선호 필터 유지
 
     // 다음 추천은 첫 추천과 동일한 점수 체계 유지를 위해 백엔드 랭킹(rankedFacilities)에서 소비한다
     // (기존: 클라 calculateSPOT 재계산 → 거절 시 점수 체계가 몰래 바뀌던 문제).
     let nextCandidates = rankedFacilities
-      .filter((f: any) => voicePass(f) && !nextRejectedIds.has(f.id) && !savedIds.has(f.id));
+      .filter((f) => voicePass(f) && !nextRejectedIds.has(f.id) && !savedIds.has(f.id));
 
     // 랭킹 리스트가 소진된 경우에만 클라 미러(calculateSPOT)로 폴백 — 전체 후보 루프백(음성 필터는 유지)
     if (nextCandidates.length === 0) {
       nextCandidates = expandGroups(facilities.filter(f => f.type === targetType))
         .filter(voicePass)
-        .map((f: any) => ({ ...f, spot: calculateSPOT(f) }))
+        .map((f) => ({ ...f, spot: calculateSPOT(f) }))
         .sort(compareFacilities);
     }
 
@@ -641,12 +684,12 @@ export default function MainPage() {
 
   // 음성 '다음/별로': 폐기(rejectedIds)하지 않고 '안정 랭킹'에서 다음 순위로만 이동(우선순위만 낮춤).
   // 거절한 시설은 풀에 그대로 남아 순위 유지·재방문 가능. 끝이면 처음으로 순환.
-  const handleAdvanceRank = (fac: any) => {
+  const handleAdvanceRank = (fac: Facility) => {
     if (!fac) return;
-    const voicePass = (f: any) => !voiceFilterIds || voiceFilterIds.has(f.id);
+    const voicePass = (f: Facility) => !voiceFilterIds || voiceFilterIds.has(f.id);
     const pool = expandGroups(facilities.filter(f => f.type === fac.type))
-      .filter((f: any) => voicePass(f) && !rejectedIds.has(f.id) && !savedIds.has(f.id))
-      .map((f: any) => ({ ...f, spot: calculateSPOT(f) }))
+      .filter((f) => voicePass(f) && !rejectedIds.has(f.id) && !savedIds.has(f.id))
+      .map((f) => ({ ...f, spot: calculateSPOT(f) }))
       .sort(compareFacilities);
     if (pool.length <= 1) { showToast('다른 추천이 없어요.'); return; }
     const curIdx = pool.findIndex(f => f.id === fac.id);
@@ -655,12 +698,12 @@ export default function MainPage() {
     if (mapInstanceRef.current && typeof next.latitude === 'number') panToVisible(next.latitude, next.longitude);
   };
 
-  // ── 음성 비서: 현재 추천 카드를 Gemini 사유로 TTS 안내 + STT 응답 위임 ──
+  // ── 음성 비서: 현재 추천 카드를 백엔드 사유로 TTS 안내 + STT 응답 위임 ──
   // 수락(응/가자)→handleAccept(길안내), 다음/별로→handleReject(폐기+다음), 자세히→상세 재안내, 그만→종료.
-  const voice = useVoiceAssistant<any>({
+  const voice = useVoiceAssistant<Facility>({
     getName: (f) => f?.name ?? '이 장소',
-    getReason: (f) => f?.reason || '', // 백엔드 Gemini 사유만(없으면 이름만 안내) — 하드코딩 제거
-    // Gemini가 spoken으로 실데이터 상세를 주는 게 우선. 이건 Gemini 불가 시 폴백 — 종류/혼잡/도보로 구성.
+    getReason: (f) => f?.reason || '', // 백엔드 템플릿 사유만(없으면 이름만 안내) — 하드코딩 제거
+    // 백엔드가 spoken으로 실데이터 상세를 주는 게 우선. 이건 백엔드 불가 시 폴백 — 종류/혼잡/도보로 구성.
     getDetail: (f) => {
       const t = f?.spot || calculateSPOT(f);
       const parts: string[] = [];
@@ -676,40 +719,40 @@ export default function MainPage() {
     },
     onAccept: (f) => handleAccept(f),
     onNext: (f) => handleAdvanceRank(f), // 음성 '다음/별로' → 폐기 안 하고 다음 순위로(우선순위만 낮춤)
-    // Gemini가 선호('양식 먹고 싶어' 등)에 맞춰 고른 시설로 전환. spoken을 사유로 부여 → notifyItem이 읽어줌.
+    // 백엔드가 선호('양식 먹고 싶어' 등)에 맞춰 고른 시설로 전환. spoken을 사유로 부여 → notifyItem이 읽어줌.
     onSelect: (id, spoken) => {
-      const target = expandGroups(facilities).find((f: any) => f.id === id);
+      const target = expandGroups(facilities).find((f) => f.id === id);
       if (!target) return;
       setSelectedFacility(spoken ? { ...target, reason: spoken } : target);
       if (mapInstanceRef.current && typeof target.latitude === 'number') panToVisible(target.latitude, target.longitude);
     },
-    // Gemini가 선호로 후보를 좁힘(예: '양식 먹고 싶어'→양식 식당 id들). 추천 풀을 실시간 필터링해 재랭킹.
-    // 동기로 필터 내 #1을 직접 set(첫 카드는 Gemini spoken을 사유로) → effect 더블셋/spoken 경합 없음.
+    // 백엔드가 선호로 후보를 좁힘(예: '양식 먹고 싶어'→양식 식당 id들). 추천 풀을 실시간 필터링해 재랭킹.
+    // 동기로 필터 내 #1을 직접 set(첫 카드는 백엔드 spoken을 사유로) → effect 더블셋/spoken 경합 없음.
     onFilter: (matchIds, spoken) => {
       const set = new Set(matchIds);
       const pool = expandGroups(facilities)
-        .filter((f: any) => set.has(f.id) && !rejectedIds.has(f.id) && !savedIds.has(f.id));
+        .filter((f) => set.has(f.id) && !rejectedIds.has(f.id) && !savedIds.has(f.id));
       if (pool.length === 0) {
         showToast('음성 선호에 맞는 추천을 찾지 못했어요.'); // 빈 결과 → 필터 미적용(현재 카드 유지)
         return;
       }
       applyVoiceFilter(set); // ref+state 동시 갱신(effect는 이후 재실행 시 ref로 읽음)
-      const ranked = pool.map((f: any) => ({ ...f, spot: calculateSPOT(f) })).sort(compareFacilities);
+      const ranked = pool.map((f) => ({ ...f, spot: calculateSPOT(f) })).sort(compareFacilities);
       setSelectedFacility(spoken ? { ...ranked[0], reason: spoken } : ranked[0]);
       if (mapInstanceRef.current && typeof ranked[0].latitude === 'number') panToVisible(ranked[0].latitude, ranked[0].longitude);
     },
-    // 사용자 발화를 백엔드 Vertex Gemini(/api/v1/voice/turn)로 해석. 현재 타입 후보 목록(이름/혼잡/거리)을 동봉.
+    // 사용자 발화를 백엔드 키워드 분류기(/api/v1/voice/turn)로 해석. 현재 타입 후보 목록(이름/혼잡/거리)을 동봉.
     interpret: async (utterance, f) => {
       const filterMap: Record<string, string> = { '음식점': 'restaurant', '카페': 'cafe', '관광지': 'attraction', '문화시설': 'culture' };
       const type = f?.type || filterMap[activeFilter] || 'restaurant';
 
       rankingOriginRef.current = null; // 식당/일반 경로는 사용자 위치 기준 정렬
       const cands = expandGroups(facilities)
-        .filter((x: any) => x.type === type && !(type === 'restaurant' && isBarFacility(x)) && !rejectedIds.has(x.id) && !savedIds.has(x.id)) // 식당이면 술집 제외
-        .map((x: any) => ({
+        .filter((x) => x.type === type && !(type === 'restaurant' && isBarFacility(x)) && !rejectedIds.has(x.id) && !savedIds.has(x.id)) // 식당이면 술집 제외
+        .map((x) => ({
           id: x.id,
           name: x.name,
-          cuisine: x.features?.cuisine_tags ?? x.features?.cuisine ?? null, // Gemini가 양식/짜장면 등 매칭에 사용
+          cuisine: x.features?.cuisine_tags ?? x.features?.cuisine ?? null, // 백엔드가 양식/짜장면 등 매칭에 사용
           congestion: x.congestionLevel ?? 0,
           distanceM: haversineMeters(userLocation.lat, userLocation.lng, x.latitude, x.longitude),
         }))
@@ -726,7 +769,7 @@ export default function MainPage() {
   const voiceRef = useRef(voice);
   voiceRef.current = voice;
 
-  // 카드가 새로 뜨면(세션 활성 상태) Gemini 사유를 자동 발화, 카드가 사라지면 정지.
+  // 카드가 새로 뜨면(세션 활성 상태) 백엔드 사유를 자동 발화, 카드가 사라지면 정지.
   // deps에 reason 포함 — 같은 시설이라도 mockHour/혼잡 변화로 사유가 바뀌면 새로 안내(id만 보면 놓침).
   useEffect(() => {
     // Notify the voice assistant about the current recommendation context (for interruption/correction)
@@ -804,7 +847,7 @@ export default function MainPage() {
           setSelectedFacility(null);
         });
 
-        // 음성 비서(Gemini) 활성 중 지도 영역을 터치(탭/드래그/줌)하면 즉시 정지 —
+        // 음성 비서 활성 중 지도 영역을 터치(탭/드래그/줌)하면 즉시 정지 —
         // 사용자가 지도를 보려는 의도이므로 안내가 끼어들지 않게 한다. (panTo 등 프로그램 이동은
         // dragstart/zoom_start/click 을 발생시키지 않아 음성 선택·필터 시 오작동하지 않음.)
         const stopVoiceOnMapTouch = () => {
@@ -873,8 +916,6 @@ export default function MainPage() {
       marker.setZIndex(isSel ? 100 : 1); // 선택된 마커를 위로
 
       kakao.maps.event.addListener(marker, "click", () => {
-        console.log("Marker clicked:", f.name);
-        
         if (activeOverlayRef.current) {
           activeOverlayRef.current.setMap(null);
           activeOverlayRef.current = null;
@@ -892,7 +933,7 @@ export default function MainPage() {
           titleEl.innerText = f.name;
           content.appendChild(titleEl);
 
-          f.subFacilities.forEach((sub: any) => {
+          f.subFacilities.forEach((sub) => {
             const btn = document.createElement('button');
             btn.className = 'text-left text-white text-xs px-3 py-2.5 hover:bg-white/10 rounded-xl transition-colors font-semibold whitespace-normal break-keep leading-snug cursor-pointer';
             btn.innerText = sub.name;
@@ -941,13 +982,6 @@ export default function MainPage() {
     { id: '관광지', icon: MapPin },
     { id: '문화시설', icon: Building2 },
   ];
-
-  const handleTabClick = (tabId: string) => {
-    setActiveTab(tabId);
-    if (tabId === 'Home') router.push('/main');
-    if (tabId === 'Saved') router.push('/saved');
-    if (tabId === 'MyPage') router.push('/mypage');
-  };
 
   return (
     <div className="relative w-full h-screen overflow-hidden flex flex-col">
@@ -1020,7 +1054,7 @@ export default function MainPage() {
           
           if (!rank) {
             const activeCandidates = expandGroups(facilities.filter(f => f.type === targetType))
-              .filter((f: any) => (!voiceFilterIds || voiceFilterIds.has(f.id)) && !rejectedIds.has(f.id) && !savedIds.has(f.id));
+              .filter((f) => (!voiceFilterIds || voiceFilterIds.has(f.id)) && !rejectedIds.has(f.id) && !savedIds.has(f.id));
             const activeScored = activeCandidates.map(f => ({
               ...f,
               spot: calculateSPOT(f)
@@ -1032,8 +1066,8 @@ export default function MainPage() {
           }
 
           const spot = selectedFacility.spot || calculateSPOT(selectedFacility);
-          // 사유: 자동 추천된 실 시설은 백엔드 Gemini 사유, 마커 직접 클릭/데모는 미러 사유로 폴백
-          const reason = selectedFacility.reason || ""; // 백엔드 Gemini 사유만(하드코딩 제거)
+          // 사유: 자동 추천된 실 시설은 백엔드 템플릿 사유, 마커 직접 클릭/데모는 미러 사유로 폴백
+          const reason = selectedFacility.reason || ""; // 백엔드 템플릿 사유만(하드코딩 제거)
           return (
             <div className="absolute bottom-[90px] w-full z-20 px-4 transition-all duration-300">
               {voice.ttsSupported && (
@@ -1051,12 +1085,6 @@ export default function MainPage() {
               <RecommendationCard
                 title={selectedFacility.name}
                 reason={reason}
-                description={
-                  // 혼잡 로그 없는 시설 — 합성값 대신 '데이터 없음' 표기
-                  typeof selectedFacility.congestionLevel === 'number'
-                    ? `실시간 혼잡도: ${selectedFacility.congestionLevel >= 0.75 ? '혼잡' : selectedFacility.congestionLevel >= 0.5 ? '보통' : selectedFacility.congestionLevel >= 0.25 ? '여유' : '한산'} · 수용현황: ${selectedFacility.currentCount ?? '—'}/${selectedFacility.capacity}명`
-                    : '실시간 혼잡도: 데이터 없음'
-                }
                 onAccept={() => handleAccept(selectedFacility)}
                 onReject={() => handleReject(selectedFacility)}
                 onPutOff={() => handlePutOff(selectedFacility)}

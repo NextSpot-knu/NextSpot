@@ -6,7 +6,7 @@
 #   .\run_local.ps1 -FrontendOnly  Start only the Next.js frontend.
 #
 # Prerequisites:
-#   - Python 3.11+ and Node 18+ on PATH.
+#   - Python 3.11+ and Node 20+ on PATH.
 #   - apps/api/.env       (copy apps/api/.env.example and fill Supabase creds + JWT_SECRET).
 #   - apps/web/.env.local (Supabase + Kakao keys + NEXT_PUBLIC_FASTAPI_URL).
 # Messages are intentionally English (PowerShell 5.1 console is cp949 and garbles Hangul).

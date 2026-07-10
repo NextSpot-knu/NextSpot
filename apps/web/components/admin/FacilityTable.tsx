@@ -57,9 +57,9 @@ export function FacilityTable() {
       try {
         await adminApi.delete(`/api/v1/admin/facilities/${id}`);
         setFacilities(prev => prev.filter(f => f.id !== id));
-      } catch (err: any) {
+      } catch (err) {
         console.error('Failed to delete facility:', err);
-        alert(`시설 삭제 중 오류가 발생했습니다: ${err?.message || '알 수 없는 오류'}`);
+        alert(`시설 삭제 중 오류가 발생했습니다: ${(err as Error | undefined)?.message || '알 수 없는 오류'}`);
       }
     }
   };
@@ -106,8 +106,8 @@ export function FacilityTable() {
                 alert('시설이 성공적으로 등록되었습니다.');
                 fetchFacilities();
               })
-              .catch((err: any) => {
-                alert('시설 등록에 실패했습니다: ' + (err?.message || '알 수 없는 오류'));
+              .catch((err) => {
+                alert('시설 등록에 실패했습니다: ' + ((err as Error | undefined)?.message || '알 수 없는 오류'));
               });
           }}
           className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-bold transition-colors"
@@ -180,8 +180,8 @@ export function FacilityTable() {
                               alert('시설 정보가 수정되었습니다.');
                               fetchFacilities();
                             })
-                            .catch((err: any) => {
-                              alert('시설 정보 수정 실패: ' + (err?.message || '알 수 없는 오류'));
+                            .catch((err) => {
+                              alert('시설 정보 수정 실패: ' + ((err as Error | undefined)?.message || '알 수 없는 오류'));
                             });
                         }}
                         className="p-1.5 text-slate-500 hover:text-blue-400 transition-colors bg-slate-900 border border-slate-800 rounded-md"

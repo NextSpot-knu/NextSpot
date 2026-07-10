@@ -2,9 +2,9 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { 
-  Menu, Bell, Home, Bookmark, User, 
-  Edit2, ChevronRight, LogOut, Shield, 
+import {
+  Menu, Bell, Bookmark, User,
+  Edit2, ChevronRight, LogOut, Shield,
   HelpCircle, Settings as SettingsIcon, BellRing, Star, Sparkles
 } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
@@ -27,16 +27,10 @@ export default function MyPage() {
   const [userVector, setUserVector] = useState<number[] | null>(null);
 
   useEffect(() => {
-    // API Fetch Mockup
-    // ⚠️ 백엔드 데이터 하드코딩 금지 원칙 준수 (실제로는 API에서 가져옴)
     const fetchProfile = async () => {
       setIsLoading(true);
       try {
         // TODO: 실제 API 호출 로직으로 교체 예정
-        // const response = await fetch('/api/user/profile');
-        // const data = await response.json();
-        // setProfile(data);
-        
         // UI 확인을 위한 임시 목업 상태 (API 연동 전)
         setProfile({
           name: 'Yun Seong',
@@ -71,19 +65,6 @@ export default function MyPage() {
 
   const handleUpdateProfile = async (updatedData: Partial<UserProfile>) => {
     // TODO: 프로필 수정 / 설정 변경 API 연동 로직
-    /*
-    try {
-      await fetch('/api/user/profile', {
-        method: 'PATCH', // or PUT
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updatedData)
-      });
-      // 업데이트 성공 처리
-    } catch (error) {
-      console.error(error);
-    }
-    */
-    
     // 로컬 상태 즉시 업데이트 (Optimistic UI)
     if (profile) {
       setProfile({ ...profile, ...updatedData });

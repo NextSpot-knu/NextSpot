@@ -11,7 +11,7 @@ DEFAULT_PROCESSING_TIMES = {
 async def calculate_predicted_wait_time(
     facility_type: str,
     congestion_level: float,
-    facility_features: dict = None,
+    facility_features: dict | None = None,
     hour: int | None = None,
 ) -> float:
     """

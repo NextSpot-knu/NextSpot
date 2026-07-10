@@ -9,7 +9,8 @@ from pydantic import BaseModel, Field
 # anon 클라이언트는 요청별 JWT 를 PostgREST 로 싣지 않아 auth.uid()=null → RLS 거부가 된다.
 # (ingest/preferences 라우터가 동일 사유로 supabase_admin 을 쓴다.) 따라서 service_role 클라이언트로
 # 통일하고, 신뢰 경계는 아래 get_recommendations/submit_feedback 의 소유권 가드로 강제한다.
-from app.core.supabase import supabase_admin as supabase_client, get_current_user
+from app.core.supabase import supabase_admin as supabase_client, get_current_user, fetch_all_rows
+from app.services.preference_nlp_service import CATEGORY_KO
 from app.services.preference_vector_service import preference_vector_service
 from app.services.reason_service import generate_reason
 from app.services.voice_intent_service import interpret_turn
@@ -63,21 +64,8 @@ async def fetch_facility(facility_id: str):
     return res.data[0]
 
 async def fetch_all_facilities():
-    all_data = []
-    limit = 1000
-    start = 0
-    while True:
-        # Avoid lambda scope capture issues by specifying start/limit explicitly
-        res = await asyncio.to_thread(
-            lambda s=start, n=limit: supabase_client.table("facilities").select("*").range(s, s + n - 1).execute()
-        )
-        if not res.data:
-            break
-        all_data.extend(res.data)
-        if len(res.data) < limit:
-            break
-        start += limit
-    return all_data
+    # PostgREST 행수 캡을 넘는 전체 시설 조회 — 공용 페이지네이션 헬퍼(블로킹)를 워커 스레드로 오프로드.
+    return await asyncio.to_thread(fetch_all_rows, supabase_client, "facilities", "*")
 
 async def fetch_latest_congestion(facility_id: str) -> float:
     """
@@ -106,6 +94,18 @@ async def fetch_congestion_map(facility_ids: list[str]) -> dict[str, float]:
     """
     congestion_map = await fetch_latest_congestion_for_all(facility_ids)
     return {fid: data["level"] for fid, data in congestion_map.items()}
+
+
+async def _resolve_user_vector(user_id: str, preferred_categories: list[str]) -> list[float]:
+    """사용자 선호 벡터 1회 조회 — 없으면 Cold Start 벡터 생성 후 1회 업서트.
+
+    (두 추천 엔드포인트가 공유하는 동일 패턴 — 후보마다 선호 벡터 저장소를 재조회하지 않는다.)
+    """
+    user_vector = await preference_vector_service.get_user_vector(user_id)
+    if not user_vector:
+        user_vector = get_category_average_vector(preferred_categories)
+        await preference_vector_service.upsert_user_vector(user_id, user_vector)
+    return user_vector
 
 
 # --- Endpoints ---
@@ -151,12 +151,8 @@ async def get_recommendations(
 
     logger.info("candidates_filtered", count=len(candidates), max_radius_m=150)
 
-    # 사용자 선호 벡터는 요청당 1개뿐이므로 후보마다 선호 벡터 저장소 를 재조회하지 않도록 여기서 1회만 조회한다.
-    # (없으면 Cold Start 벡터 생성 후 1회 업서트)
-    user_vector = await preference_vector_service.get_user_vector(req.user_id)
-    if not user_vector:
-        user_vector = get_category_average_vector(user_info.get("preferred_categories", []))
-        await preference_vector_service.upsert_user_vector(req.user_id, user_vector)
+    # 사용자 선호 벡터는 요청당 1개뿐이므로 여기서 1회만 조회한다. (없으면 Cold Start 벡터 생성 후 1회 업서트)
+    user_vector = await _resolve_user_vector(req.user_id, user_info.get("preferred_categories", []))
 
     # 3. 각 후보군에 대해 SPOT 스코어를 병렬 연산
     #    후보별 최신 혼잡도는 일괄 조회(fetch_congestion_map) 후 맵 참조 — 후보 수만큼의
@@ -190,22 +186,19 @@ async def get_recommendations(
         await asyncio.gather(*[_score_candidate(f, dist) for f, dist in candidates])
     )
 
-    # 4. 스코어 기준 내림차순 정렬 및 상위 3개 선별
+    # 4. 스코어 기준 내림차순 정렬 및 상위 5개 선별
     recommendation_results.sort(key=lambda x: x["spot_score"], reverse=True)
     top_n = recommendation_results[:5]  # 추천 제안 개수(요청: 3 → 5)
 
     # 4-1. WP3: 상위 N개(=top_n)에만 백엔드 사유 생성 (동시 호출, 실패 시 템플릿 폴백)
+    #      컨텍스트는 reason_service._build_template 가 실제 소비하는 키만 전달한다.
     async def _reason_for(item: dict) -> str:
         bd = item["breakdown"]
         return await generate_reason({
-            "original_facility_name": original_infra.get("name"),
             "recommended_facility_name": item["facility"].get("name"),
-            "original_congestion": original_congestion,
             "candidate_congestion": item["candidate_congestion"],
             "travel_time": bd.get("travel_time"),
             "predicted_wait": bd.get("wait_time"),
-            "preference": bd.get("preference"),
-            "incentive": bd.get("incentive"),
         })
 
     reasons = await asyncio.gather(*[_reason_for(item) for item in top_n])
@@ -260,7 +253,7 @@ async def get_recommendations(
 # --- 타입별 추천(메인 지도 브라우즈): 원본 없이 특정 종류를 선호/혼잡/거리로 랭킹 + 사유 ---
 # /recommendations 가 '혼잡한 원본의 대안'(반경 150m)을 주는 것과 달리, 여기선 원본이 없으므로
 # 혼잡 기준선(_BROWSE_BASELINE_CONGESTION)을 원본 혼잡도로 삼아 인센티브의 재배치기여
-# 성분과 추천 사유 문맥을 산출한다. (인센티브 = 쿠폰강도 + 재배치기여 결합 — score.py 참조)
+# 성분을 산출한다. (인센티브 = 쿠폰강도 + 재배치기여 결합 — score.py 참조)
 _BROWSE_BASELINE_CONGESTION = 0.7
 # 현실성 필터: 도보로 닿기 힘든 거리의 시설은 추천에서 제외(사용자 위치 기준 직선거리, m).
 # 약 1.5km ≈ 도보 22분. time_cost 가 60분에서 캡되어 원거리
@@ -314,10 +307,7 @@ async def recommend_by_type(
     candidates = _reachable if len(_reachable) >= max(req.limit, 3) else [f for f, _ in _with_dist[: max(req.limit, 3)]]
 
     # 선호 벡터 1회 조회(없으면 Cold Start 생성 후 업서트) — get_recommendations 와 동일 패턴
-    user_vector = await preference_vector_service.get_user_vector(req.user_id)
-    if not user_vector:
-        user_vector = get_category_average_vector(user_info.get("preferred_categories", []))
-        await preference_vector_service.upsert_user_vector(req.user_id, user_vector)
+    user_vector = await _resolve_user_vector(req.user_id, user_info.get("preferred_categories", []))
 
     # 후보별 최신 혼잡도 일괄 조회(N+1 제거) — get_recommendations 와 동일 패턴
     congestion_by_id = await fetch_congestion_map([f["id"] for f in candidates])
@@ -347,17 +337,14 @@ async def recommend_by_type(
     scored.sort(key=lambda x: x["spot_score"], reverse=True)
     top = scored[: max(1, req.limit)]
 
+    # 컨텍스트는 reason_service._build_template 가 실제 소비하는 키만 전달한다.
     async def _reason_for(item: dict) -> str:
         bd = item["breakdown"]
         return await generate_reason({
-            "original_facility_name": None,
             "recommended_facility_name": item["facility"].get("name"),
-            "original_congestion": _BROWSE_BASELINE_CONGESTION,
             "candidate_congestion": item["candidate_congestion"],
             "travel_time": bd.get("travel_time"),
             "predicted_wait": bd.get("wait_time"),
-            "preference": bd.get("preference"),
-            "incentive": bd.get("incentive"),
         })
 
     reasons = await asyncio.gather(*[_reason_for(item) for item in top])
@@ -396,12 +383,10 @@ class VoiceTurnResponse(BaseModel):
     spoken: str | None = None  # 백엔드 생성 한국어 응답(없으면 프런트가 자체 멘트)
 
 
-_VOICE_TYPE_KO = {"restaurant": "음식점", "cafe": "카페", "attraction": "관광지", "culture": "문화시설"}
-
-
 @router.post("/voice/turn", response_model=VoiceTurnResponse)
 async def voice_turn(req: VoiceTurnRequest):
-    type_ko = _VOICE_TYPE_KO.get(req.facility_type, "시설")
+    # 카테고리→한국어 라벨은 preference_nlp_service.CATEGORY_KO 를 단일 정본으로 재사용.
+    type_ko = CATEGORY_KO.get(req.facility_type, "시설")
     candidates = req.candidates or []
     # 0) 후보에 시드된 분류·대표메뉴를 채워 백엔드 가 '자세히/메뉴/혼잡' 질문에 실제 데이터로 답하게 한다.
     try:

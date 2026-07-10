@@ -9,6 +9,7 @@ import { FacilityWithCongestion } from "@/app/explore/map/page";
 // 마커 SVG는 lib/utils 의 공용 getMarkerSvg 로 통일(예쁜 핀 + 올바른 흰색 렌더). 중복 인라인 제거.
 import { getMarkerSvg } from "@/lib/utils";
 import { apiClient } from "@/lib/api-client";
+import { REGION, isWithinRegion } from "@/lib/region";
 
 interface CongestionMapProps {
   initialFacilities: FacilityWithCongestion[];
@@ -20,14 +21,14 @@ declare global {
   }
 }
 
-const calculateWaitTime = (type: string, level: number, features: any = {}) => {
+const calculateWaitTime = (type: string, level: number, features: FacilityWithCongestion["features"] = {}) => {
   const defaultTimes: Record<string, number> = {
     restaurant: 25,
     cafe: 12,
     attraction: 15,
     culture: 15,
   };
-  const avgProcessTime = features?.average_processing_time ?? defaultTimes[type] ?? 15;
+  const avgProcessTime = (features?.average_processing_time as number | undefined) ?? defaultTimes[type] ?? 15;
 
   const hour = new Date().getHours();
   let timeMultiplier = 1.0;
@@ -142,7 +143,7 @@ export default function CongestionMap({ initialFacilities }: CongestionMapProps)
     if (isMock) {
       setIsSimulation(true);
       setMapLoaded(true);
-      setUserLocation({ lat: 35.8362, lng: 129.2095 });
+      setUserLocation({ lat: REGION.center.lat, lng: REGION.center.lng });
       return;
     }
 
@@ -194,7 +195,7 @@ export default function CongestionMap({ initialFacilities }: CongestionMapProps)
     if (!mapLoaded || !mapContainerRef.current || isSimulation) return;
 
     const kakao = window.kakao;
-    const defaultCenter = new kakao.maps.LatLng(35.8362, 129.2095);
+    const defaultCenter = new kakao.maps.LatLng(REGION.center.lat, REGION.center.lng);
 
     const mapOptions = {
       center: defaultCenter,
@@ -235,12 +236,11 @@ export default function CongestionMap({ initialFacilities }: CongestionMapProps)
           let lat = position.coords.latitude;
           let lng = position.coords.longitude;
 
-          // Check if coordinates are outside Gyeongju Hwangnidan-gil boundaries
-          const isWithinGyeongju = lat >= 35.82 && lat <= 35.85 && lng >= 129.19 && lng <= 129.24;
-          if (!isWithinGyeongju) {
-            lat = 35.8362;
-            lng = 129.2095;
-            console.log("User is outside Gyeongju. Mocking location to Hwangnidan-gil:", lat, lng);
+          // Check if coordinates are outside the service region boundaries
+          if (!isWithinRegion(lat, lng)) {
+            lat = REGION.center.lat;
+            lng = REGION.center.lng;
+            console.log(`User is outside ${REGION.name}. Mocking location to region center:`, lat, lng);
           }
 
           setUserLocation({ lat, lng });

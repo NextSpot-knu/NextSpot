@@ -25,8 +25,8 @@ export function SimulatePeakButton() {
       // 정적 export(output:'export')에선 router.refresh()가 대시보드의 useEffect([]) loadData 를 재실행하지
       // 않아 화면이 갱신되지 않는다(거짓 성공). 전체 리로드로 페이지를 리마운트해 실데이터를 재조회한다.
       setTimeout(() => window.location.reload(), 1200);
-    } catch (err: any) {
-      setMessage(`시뮬레이션 실패: ${err?.message || '알 수 없는 오류'}`);
+    } catch (err) {
+      setMessage(`시뮬레이션 실패: ${(err as Error | undefined)?.message || '알 수 없는 오류'}`);
       setTimeout(() => setMessage(null), 5000);
     } finally {
       setIsSimulating(false);

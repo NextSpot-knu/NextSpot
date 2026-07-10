@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { 
-  Search, Bell, MessageSquare, CheckCircle, Clock, FileText, Send 
+  Search, Bell, MessageSquare, CheckCircle, FileText, Send
 } from 'lucide-react';
 import { AdminSidebar } from '@/components/AdminSidebar';
 import { adminApi } from '@/lib/admin-api';
@@ -17,8 +17,17 @@ interface Ticket {
   time: string;
 }
 
-// 데모 폴백: 백엔드가 비어있거나 응답이 없을 때 보여줄 샘플 문의(데모 페이지 무중단).
-const DEMO_TICKETS: Ticket[] = [];
+/** GET /api/v1/admin/inquiries 응답 행 — inquiries 테이블 원형(snake_case, admin-api 는 케이스 변환 없음).
+ *  status 는 DB CHECK(new/in_progress/resolved)와 동일 집합. */
+interface InquiryRow {
+  id: string;
+  user_name: string | null;
+  type: string | null;
+  title: string | null;
+  content: string | null;
+  status: Ticket['status'] | null;
+  created_at: string;
+}
 
 function formatRelativeTime(dateString: string) {
   try {
@@ -37,7 +46,7 @@ function formatRelativeTime(dateString: string) {
     if (yesterday.toDateString() === date.toDateString()) return '어제';
 
     return date.toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' });
-  } catch (e) {
+  } catch {
     return '최근';
   }
 }
@@ -54,9 +63,9 @@ export default function SupportPage() {
     async function fetchTickets() {
       try {
         // 문의는 PII(user_name/content) — RLS 강화로 anon 열람이 막혀 관리자 API 경유로만 읽는다(WS-A-6).
-        const data = await adminApi.get('/api/v1/admin/inquiries');
+        const data: InquiryRow[] = await adminApi.get('/api/v1/admin/inquiries');
 
-        const mappedTickets: Ticket[] = (data || []).map((item: any) => ({
+        const mappedTickets: Ticket[] = (data || []).map((item: InquiryRow) => ({
           id: item.id,
           user: item.user_name || '익명 사용자',
           type: item.type || '기타 문의',
@@ -65,15 +74,13 @@ export default function SupportPage() {
           status: item.status || 'new',
           time: formatRelativeTime(item.created_at)
         }));
-        // 실데이터가 비면 데모 문의로 대체(데모 페이지 무중단).
-        const finalTickets = mappedTickets.length > 0 ? mappedTickets : DEMO_TICKETS;
-        setTickets(finalTickets);
-        setSelectedTicket(finalTickets[0]);
+        setTickets(mappedTickets);
+        setSelectedTicket(mappedTickets[0]);
       } catch (err) {
-        // 백엔드 실패/타임아웃 — 데모 문의로 폴백.
-        console.warn('문의 실데이터 로드 실패 — 데모 데이터로 대체:', err);
-        setTickets(DEMO_TICKETS);
-        setSelectedTicket(DEMO_TICKETS[0]);
+        // 백엔드 실패/타임아웃 — 빈 목록으로 표시.
+        console.warn('문의 실데이터 로드 실패 — 빈 목록으로 표시:', err);
+        setTickets([]);
+        setSelectedTicket(null);
       } finally {
         setIsLoading(false);
       }
@@ -84,16 +91,6 @@ export default function SupportPage() {
 
   const handleReply = async () => {
     if (!selectedTicket || !replyText.trim()) return;
-
-    // 데모 폴백 티켓(id 'demo-*')은 inquiries 테이블에 실제 행이 없어 0행 UPDATE 가 error 없이 통과 →
-    // 거짓 성공이 된다. DB 호출을 건너뛰고 화면 상태만 갱신하되, 실제 저장이 없음을 정직하게 안내(데모 무중단).
-    if (String(selectedTicket.id).startsWith('demo-')) {
-      setTickets(tickets.map(t => t.id === selectedTicket.id ? { ...t, status: 'resolved' as const } : t));
-      setSelectedTicket({ ...selectedTicket, status: 'resolved' });
-      setReplyText('');
-      alert('데모 모드: 답변이 화면에만 반영되었습니다(실제 저장 없음).');
-      return;
-    }
 
     try {
       // 관리자 API 경유(0행 갱신은 백엔드가 404 로 반환 — 무음 실패가 성공으로 표시되지 않는다).

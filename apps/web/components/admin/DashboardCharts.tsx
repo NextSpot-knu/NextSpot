@@ -6,10 +6,30 @@ import {
 } from 'recharts';
 import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
 
-export function DashboardCharts({ distribution }: { distribution: any[] }) {
+// ── 로컬 타입 정의 ──────────────────────────────────────────────────────────
+// 대시보드 페이지(app/admin/dashboard/page.tsx)가 구성해 내려주는 표시용 형태(camelCase)와 동일.
+
+// 30일 수요 분산 추이 포인트
+interface DistributionPoint {
+  date: string;
+  beforeCongestion: number;
+  afterCongestion: number;
+  alternativeUsage: number;
+}
+
+// 히트맵 셀 (value: null = 데이터 없음 센티넬 — 실측 0.00 과 구분)
+interface HeatmapCell {
+  facility: string;
+  facilityType: string;
+  hour: number;
+  value: number | null;
+}
+
+export function DashboardCharts({ distribution }: { distribution: DistributionPoint[] }) {
   // distribution = [ { date: string, beforeCongestion: number, afterCongestion: number, alternativeUsage: number } ]
   // recharts tooltip formatter to show percentage
-  const formatPercent = (value: any) => `${(Number(value) * 100).toFixed(1)}%`;
+  // (recharts Formatter 의 value 는 number|string|Array 유니언 — 반공변 파라미터라 unknown 이 안전하게 대입된다)
+  const formatPercent = (value: unknown) => `${(Number(value) * 100).toFixed(1)}%`;
 
   return (
     <div className="bg-slate-900 p-6 rounded-2xl border border-slate-800 shadow-sm col-span-4 flex flex-col gap-4">
@@ -36,7 +56,7 @@ export function DashboardCharts({ distribution }: { distribution: any[] }) {
 }
 
 // 히트맵 차트는 CSS Grid를 이용한 커스텀 구현 (Recharts에 기본 Heatmap이 없으므로 직관적이고 커스텀 쉬운 Grid 사용)
-export function DashboardHeatmap({ heatmapData }: { heatmapData: any[] }) {
+export function DashboardHeatmap({ heatmapData }: { heatmapData: HeatmapCell[] }) {
   // heatmapData: [ { facility: string, facilityType: string, hour: number, value: number } ]
   
   const [selectedCategory, setSelectedCategory] = useState('restaurant');

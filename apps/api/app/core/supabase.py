@@ -1,4 +1,5 @@
 import hmac
+from collections.abc import Callable
 # pyrefly: ignore [missing-import]
 import jwt
 import structlog
@@ -34,6 +35,39 @@ if not settings.SUPABASE_SERVICE_ROLE_KEY:
                "추천 이력 저장·관리자 쓰기(simulate-peak, admin CRUD)가 RLS 로 거부됩니다.",
     )
 supabase_admin: Client = _create_client(settings.SUPABASE_URL, settings.SUPABASE_KEY, role="service_role")
+
+
+def fetch_all_rows(
+    client: Client,
+    table: str,
+    select: str = "*",
+    page_size: int = 1000,
+    apply_filters: Callable | None = None,
+) -> list[dict]:
+    """테이블 행 전량을 page_size 단위 .range() 페이지네이션으로 누적 조회한다.
+
+    PostgREST 는 단일 응답 행수를 캡(기본 1000)하므로, 전량 조회가 필요한 곳
+    (추천 후보·시설 목록·학습 데이터 적재)은 이 헬퍼로 페이지를 순회한다.
+    마지막 페이지(행수 < page_size)에서 종료. apply_filters 가 주어지면 각 페이지의
+    select 쿼리에 동일 필터(eq/gte/lte 등)를 적용한 뒤 range 를 건다.
+    예외는 흡수하지 않고 그대로 전파한다(호출측의 기존 오류 처리 관례 유지).
+
+    동기(블로킹) 함수 — async 경로에서는 asyncio.to_thread 로 오프로드해 호출한다.
+    """
+    rows: list[dict] = []
+    start = 0
+    while True:
+        query = client.table(table).select(select)
+        if apply_filters is not None:
+            query = apply_filters(query)
+        res = query.range(start, start + page_size - 1).execute()
+        if not res.data:
+            break
+        rows.extend(res.data)
+        if len(res.data) < page_size:
+            break
+        start += page_size
+    return rows
 
 # 2. HTTP Bearer 인증 체계 정의 (프록시 상황에서 누락 에러 방지를 위해 auto_error=False 설정)
 security = HTTPBearer(auto_error=False)

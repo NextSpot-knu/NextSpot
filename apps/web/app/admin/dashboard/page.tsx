@@ -12,11 +12,85 @@ import { SimulatePeakButton } from '@/components/admin/SimulatePeakButton';
 import { createPublicClient } from '@/lib/supabase';
 import { adminApi } from '@/lib/admin-api';
 
+import type { SupabaseClient } from '@supabase/supabase-js';
+
 const supabase = createPublicClient();
 
+// ── 로컬 타입 정의 ──────────────────────────────────────────────────────────
+// admin-api.ts 는 snake_case→camelCase 변환을 하지 않으므로(해당 파일 상단 주석 참조),
+// API/Supabase 유래 행은 백엔드가 보내는 snake_case 키를 그대로 갖는다.
+
+// facilities 행 (select: id, name, type, capacity — 스키마상 모두 NOT NULL)
+interface FacilityRow {
+  id: string;
+  name: string;
+  type: string;
+  capacity: number;
+}
+
+// congestion_logs 조인의 facilities 서브셋 — PostgREST 조인은 객체/배열 어느 형태로도 올 수 있다
+interface JoinedFacility {
+  name: string;
+  type: string;
+}
+
+// congestion_logs 행 (select: congestion_level, current_count, timestamp, facility:facilities(name,type))
+interface CongestionLogRow {
+  congestion_level: number;
+  current_count: number;
+  timestamp: string;
+  facility: JoinedFacility | JoinedFacility[] | null;
+}
+
+// GET /api/v1/admin/metrics 응답 (apps/api/app/routers/admin.py get_metrics)
+interface MetricsRecommendation {
+  accepted: boolean;
+  created_at: string;
+}
+interface MetricsFeedback {
+  user_id: string;
+  timestamp: string;
+}
+interface AdminMetricsResponse {
+  since: string;
+  recommendations: MetricsRecommendation[];
+  feedback: MetricsFeedback[];
+}
+
+// ── 대시보드 표시용 형태(이 페이지에서 직접 구성 — camelCase) ────────────────
+interface HeatmapCell {
+  facility: string;
+  facilityType: string;
+  hour: number;
+  value: number | null; // null = 데이터 없음 센티넬(실측 0.00 과 구분)
+}
+interface AnomalyAlert {
+  id: string;
+  facilityName: string;
+  timestamp: string;
+  congestionLevel: number;
+  durationMinutes: number;
+}
+interface DistributionPoint {
+  date: string;
+  beforeCongestion: number;
+  afterCongestion: number;
+  alternativeUsage: number;
+}
+interface DashboardData {
+  kpi: {
+    avgCongestion: { value: number; changePercent: number };
+    acceptRate: { value: number; total: number; accepted: number };
+    activeUsers: number;
+    anomalyCount: number;
+  };
+  heatmap: HeatmapCell[];
+  distribution: DistributionPoint[];
+  anomalies: AnomalyAlert[];
+}
 
 // 실데이터 전용: 합성 폴백 제거(목업 미사용). 실데이터가 없으면 0/빈 값으로 표시.
-function generateClientFallbackData(_realFacilities?: any[]) {
+function generateClientFallbackData(_realFacilities?: FacilityRow[]): DashboardData {
   return {
     kpi: {
       avgCongestion: { value: 0, changePercent: 0 },
@@ -24,9 +98,9 @@ function generateClientFallbackData(_realFacilities?: any[]) {
       activeUsers: 0,
       anomalyCount: 0,
     },
-    heatmap: [] as any[],
-    distribution: [] as any[],
-    anomalies: [] as any[],
+    heatmap: [] as HeatmapCell[],
+    distribution: [] as DistributionPoint[],
+    anomalies: [] as AnomalyAlert[],
   };
 }
 
@@ -44,7 +118,7 @@ function getKstTodayRangeUtc() {
 }
 
 // 조인된 facility 가 배열/객체 어느 형태로 와도 안전하게 name/type 추출
-function joinedFacility(log: any): { name: string | null; type: string | null } {
+function joinedFacility(log: CongestionLogRow): { name: string | null; type: string | null } {
   const f = log?.facility;
   if (!f) return { name: null, type: null };
   const o = Array.isArray(f) ? f[0] : f;
@@ -54,12 +128,12 @@ function joinedFacility(log: any): { name: string | null; type: string | null } 
 // 정적 export 환경에서는 서버 라우트가 없으므로, 관리자 대시보드의 실데이터는
 //  - congestion_logs/facilities: anon 공개 읽기(RLS anon_select_*) → publicClient 직접 조회.
 //  - recommendations/user_feedback: RLS 강화로 anon 열람 불가 → 관리자 API(/admin/metrics) 경유.
-// 반환값의 null 지표는 호출부에서 합성 폴백으로 채운다(프로토타입 데모 무중단).
-async function fetchRealDashboard(supabaseClient: any) {
+// 반환값의 null 지표는 호출부에서 0/빈 값 폴백으로 채운다(프로토타입 데모 무중단).
+async function fetchRealDashboard(supabaseClient: SupabaseClient) {
   const { start, end } = getKstTodayRangeUtc();
 
   // 1) 오늘자 혼잡 로그 (페이지네이션, 시설명/유형 조인). maxPages 로 과다 조회 방지.
-  let logs: any[] = [];
+  let logs: CongestionLogRow[] = [];
   const limit = 1000;
   const maxPages = 12;
   let from = 0;
@@ -99,7 +173,7 @@ async function fetchRealDashboard(supabaseClient: any) {
         .lte('timestamp', yEnd)
         .limit(5000);
       if (yLogs && yLogs.length > 0) {
-        const yAvg = yLogs.reduce((a: number, l: any) => a + (l.congestion_level || 0), 0) / yLogs.length;
+        const yAvg = yLogs.reduce((a: number, l: Pick<CongestionLogRow, 'congestion_level'>) => a + (l.congestion_level || 0), 0) / yLogs.length;
         if (yAvg > 0) {
           avgCongestion.changePercent = Math.round(((avgCongestion.value - yAvg) / yAvg) * 1000) / 10;
         }
@@ -108,7 +182,7 @@ async function fetchRealDashboard(supabaseClient: any) {
   }
 
   // 3) 히트맵: 시설명 × KST시간 평균 (로그가 있는 시설만)
-  let heatmap: any[] | null = null;
+  let heatmap: HeatmapCell[] | null = null;
   if (hasLogs) {
     const cell: Record<string, { sum: number; n: number }> = {};
     const typeOf: Record<string, string> = {};
@@ -123,7 +197,7 @@ async function fetchRealDashboard(supabaseClient: any) {
       cell[key].sum += l.congestion_level || 0;
       cell[key].n += 1;
     }
-    const cells: any[] = [];
+    const cells: HeatmapCell[] = [];
     for (const name of names) {
       for (let h = 0; h < 24; h++) {
         const c = cell[`${name}__${h}`];
@@ -140,9 +214,9 @@ async function fetchRealDashboard(supabaseClient: any) {
   }
 
   // 4) 이상 알림: 오늘 >=0.9 피크 (시설별 최고 1건, 상위 6)
-  let anomalies: any[] | null = null;
+  let anomalies: AnomalyAlert[] | null = null;
   if (hasLogs) {
-    const peak: Record<string, any> = {};
+    const peak: Record<string, AnomalyAlert> = {};
     for (const l of logs) {
       if ((l.congestion_level || 0) < 0.9) continue;
       const { name } = joinedFacility(l);
@@ -158,7 +232,7 @@ async function fetchRealDashboard(supabaseClient: any) {
       }
     }
     anomalies = Object.values(peak)
-      .sort((a: any, b: any) => b.congestionLevel - a.congestionLevel)
+      .sort((a: AnomalyAlert, b: AnomalyAlert) => b.congestionLevel - a.congestionLevel)
       .slice(0, 6);
   }
 
@@ -169,33 +243,33 @@ async function fetchRealDashboard(supabaseClient: any) {
   let activeUsers: number | null = null;
   try {
     const weekAgo = new Date(new Date(start).getTime() - 6 * 24 * 60 * 60 * 1000).toISOString();
-    const metrics = await adminApi.get('/api/v1/admin/metrics?days=8');
+    const metrics: AdminMetricsResponse = await adminApi.get('/api/v1/admin/metrics?days=8');
     const recs = (metrics?.recommendations || []).filter(
-      (r: any) => r.created_at >= weekAgo && r.created_at <= end
+      (r: MetricsRecommendation) => r.created_at >= weekAgo && r.created_at <= end
     );
     if (recs.length > 0) {
       const total = recs.length;
-      const accepted = recs.filter((r: any) => r.accepted).length;
+      const accepted = recs.filter((r: MetricsRecommendation) => r.accepted).length;
       acceptRate = { value: Math.round((accepted / total) * 1000) / 1000, total, accepted };
     }
     const fb = (metrics?.feedback || []).filter(
-      (f: any) => f.timestamp >= start && f.timestamp <= end
+      (f: MetricsFeedback) => f.timestamp >= start && f.timestamp <= end
     );
-    if (fb.length > 0) activeUsers = new Set(fb.map((f: any) => f.user_id)).size;
+    if (fb.length > 0) activeUsers = new Set(fb.map((f: MetricsFeedback) => f.user_id)).size;
   } catch { /* 백엔드 미기동/권한 차이 시 폴백 */ }
 
   return { hasLogs, avgCongestion, anomalyCount, heatmap, anomalies, acceptRate, activeUsers };
 }
 
 export default function DashboardPage() {
-  const [data, setData] = useState<any>(null);
+  const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let active = true;
     async function loadData() {
       // 1) 실시간 시설 목록 로드 (publicClient + 로그인된 admin 세션 → RLS 통과).
-      let databaseFacilities: any[] = [];
+      let databaseFacilities: FacilityRow[] = [];
       try {
         let from = 0;
         const limit = 1000;
@@ -212,10 +286,10 @@ export default function DashboardPage() {
           from += limit;
         }
       } catch (dbErr) {
-        console.warn("시설 목록 로드 실패, 합성 폴백 사용:", dbErr);
+        console.warn("시설 목록 로드 실패:", dbErr);
       }
 
-      // 2) 실시설 기반 합성 폴백 준비 (실데이터가 비는 지표를 채울 안전망).
+      // 2) 폴백 준비: 실데이터가 비는 지표를 0/빈 값으로 채울 안전망.
       const fallback = generateClientFallbackData(databaseFacilities);
 
       // 3) 실데이터를 직접 조회한 뒤, 지표별로 실데이터 우선·폴백 보완으로 병합.
@@ -229,28 +303,16 @@ export default function DashboardPage() {
             anomalyCount:
               real.hasLogs && real.anomalyCount != null ? real.anomalyCount : fallback.kpi.anomalyCount,
           },
-          // 오늘자 로그가 있으면 실측 히트맵을 사용하되, 실측 데이터가 없는 시간대(예: 14시 이후 미래 시간대)는 fallback 생성기의 가상 데이터로 채웁니다.
-          heatmap: (() => {
-            if (!real.heatmap || !real.heatmap.length) return fallback.heatmap;
-            return real.heatmap.map((rCell: any) => {
-              if (rCell.value !== null) return rCell;
-              const fCell = fallback.heatmap.find(
-                (f: any) => f.facility === rCell.facility && f.hour === rCell.hour
-              );
-              return {
-                ...rCell,
-                value: fCell ? fCell.value : null
-              };
-            });
-          })(),
-          // 30일 수요 분산 효과는 장기 A/B 추이라 일관된 합성 추이를 유지(데모 가독성).
+          // 오늘자 로그가 있으면 실측 히트맵을, 없으면 빈 히트맵을 사용(로그 없는 시간대는 null = 데이터 없음 유지).
+          heatmap: real.heatmap && real.heatmap.length ? real.heatmap : fallback.heatmap,
+          // 30일 수요 분산 추이는 실측 데이터 미수집 — 빈 배열 전달(차트가 빈 상태로 렌더).
           distribution: fallback.distribution,
           // 실측 이상 알림이 있으면 그것을, 없으면 합성 알림으로 패널이 비지 않게.
           anomalies: real.anomalies && real.anomalies.length ? real.anomalies : fallback.anomalies,
         };
         if (active) setData(merged);
       } catch (err) {
-        console.warn("실데이터 조회 실패, 합성 폴백으로 대체:", err);
+        console.warn("실데이터 조회 실패, 0/빈 값 폴백으로 대체:", err);
         if (active) setData(fallback);
       } finally {
         if (active) setLoading(false);
@@ -287,7 +349,7 @@ export default function DashboardPage() {
       lines.push(`KPI,이상 혼잡 발생(건),${kpi.anomalyCount}`);
       lines.push('');
       lines.push('시설명,유형,시간(시),혼잡도(%)');
-      for (const c of heatmap as any[]) {
+      for (const c of heatmap) {
         const name = String(c.facility).replace(/[",\n]/g, ' ');
         lines.push(`${name},${c.facilityType},${c.hour},${Math.round((c.value ?? 0) * 100)}`);
       }
@@ -442,7 +504,7 @@ export default function DashboardPage() {
               </div>
               <div className="flex-1 p-4 overflow-y-auto">
                 <div className="flex flex-col gap-3">
-                  {anomalies.map((alert: any) => (
+                  {anomalies.map((alert: AnomalyAlert) => (
                     <div key={alert.id} className="p-4 rounded-xl border border-rose-500/15 bg-rose-500/10 flex flex-col gap-2 relative overflow-hidden">
                       <div className="absolute left-0 top-0 bottom-0 w-1 bg-rose-500"></div>
                       <div className="flex justify-between items-start">

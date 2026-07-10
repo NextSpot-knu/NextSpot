@@ -8,10 +8,9 @@
 vector/is_fallback)는 불변. 키워드 규칙만 쓰므로 is_fallback 은 항상 True.
 """
 
-import math
-
 import structlog
 
+from app.core.vector import l2_normalize
 from app.services.spot.preference import get_category_average_vector
 
 logger = structlog.get_logger()
@@ -52,14 +51,6 @@ _ATTR_KEYWORDS = {
 }
 
 
-def _normalize(vec: list[float]) -> list[float]:
-    sq = sum(x * x for x in vec)
-    if sq <= 0:
-        return [1.0 / math.sqrt(8)] * 8
-    norm = math.sqrt(sq)
-    return [x / norm for x in vec]
-
-
 def build_preference_vector(preferred_categories: list[str], attributes: list[str]) -> list[float]:
     """파싱된 카테고리/속성으로 8차원 선호 벡터를 구성(추천이 그대로 사용하는 포맷)."""
     base = get_category_average_vector(preferred_categories)  # 이미 L2 정규화됨
@@ -68,7 +59,7 @@ def build_preference_vector(preferred_categories: list[str], attributes: list[st
         dim = ATTR_DIM.get(attr)
         if dim is not None:
             vec[dim] += 0.3  # 해당 의미축 부스트
-    return _normalize(vec)
+    return l2_normalize(vec)
 
 
 def _build_summary(preferred_categories: list[str], attributes: list[str]) -> str:

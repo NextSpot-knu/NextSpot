@@ -21,10 +21,6 @@ apps/web/.next/
 apps/web/api_backup/
 api_backup/
 
-# firebase
-.firebase/
-.firebase/*
-
 # production
 /build
 build/
@@ -52,29 +48,19 @@ __pycache__/
 *.pyc
 *.pyo
 *.pkl
-# setuptools sdist 부산물(Dataflow --setup_file 빌드가 dataflow/ 에 생성)
 *.egg-info/
 
 # Python 가상환경
 .venv/
-.venv_beam/
 poetry.toml
-
-# WP1 Vertex 배포 임시 산출물 (재생성 가능)
-*.joblib
-.venv_deploy/
-apps/api/scripts/_model_coef.json
-apps/api/redeploy.log
-apps/api/deploy_vertex.log
 
 # supabase cli temp
 supabase/.temp/
 scratch/
 
-# GCP service-account key files (never commit plaintext SA keys).
+# Service-account/credential key files (never commit plaintext keys).
 # Scoped to repo root so the broad dotted-JSON glob can't swallow nested config JSON that must stay tracked.
 /*-*.json
-/knudc-*.json
 # ↑ 글롭이 package-lock.json 까지 삼켜 루트 락파일이 커밋되지 않던 footgun 수정 —
 #   CI(npm ci) 재현성을 위해 락파일은 반드시 추적한다.
 !/package-lock.json
