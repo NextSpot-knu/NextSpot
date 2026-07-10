@@ -310,6 +310,59 @@ def test_admin_facility_update_coupon_rate_ok(client):
 
 
 # =========================================================================
+# 6-1. 관리자 수동 혼잡도 설정(POST /api/v1/admin/facilities/{id}/congestion)
+# =========================================================================
+
+def test_admin_congestion_override_no_header_401(client):
+    # 관리자 가드(require_admin) — 헤더 없으면 401
+    res = client.post("/api/v1/admin/facilities/f-1/congestion", json={"level": 0.8})
+    assert res.status_code == 401
+
+
+def test_admin_congestion_override_invalid_level_422(client):
+    # level 은 DB CHECK 와 동일한 0~1 범위 — 초과 값은 라우터 진입 전 422
+    res = client.post(
+        "/api/v1/admin/facilities/f-1/congestion", headers=_admin_headers(), json={"level": 1.5}
+    )
+    assert res.status_code == 422
+
+
+def test_admin_congestion_override_facility_404(client):
+    # 존재하지 않는 시설 → 404 (유령 로그/FK 위반 방지)
+    with patch("app.routers.admin.supabase_admin", new=FakeSupabase({"facilities": []})):
+        res = client.post(
+            "/api/v1/admin/facilities/ghost/congestion", headers=_admin_headers(), json={"level": 0.8}
+        )
+    assert res.status_code == 404
+
+
+def test_admin_congestion_override_happy_path(client):
+    # capacity(50)×level(0.8)=40, source='event' 로 congestion_logs 1행 기록 후 그 행 반환.
+    # FakeSupabase 는 facilities 조회와 congestion_logs INSERT 둘 다 canned 로 응답.
+    facility = _facility("f-1", "cafe", 0.0002)  # capacity=50
+    inserted = {
+        "id": "log-1",
+        "facility_id": "f-1",
+        "congestion_level": 0.8,
+        "current_count": 40,
+        "source": "event",
+        "timestamp": "2026-07-10T05:00:00+00:00",
+    }
+    with patch(
+        "app.routers.admin.supabase_admin",
+        new=FakeSupabase({"facilities": [facility], "congestion_logs": [inserted]}),
+    ):
+        res = client.post(
+            "/api/v1/admin/facilities/f-1/congestion", headers=_admin_headers(), json={"level": 0.8}
+        )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["congestion_level"] == 0.8
+    assert body["current_count"] == 40
+    assert body["source"] == "event"  # congestion_logs.source CHECK 허용값
+
+
+# =========================================================================
 # 7. 관리자 시스템 설정(PUT /api/v1/admin/settings)
 # =========================================================================
 

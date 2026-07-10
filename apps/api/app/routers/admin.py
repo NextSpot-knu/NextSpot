@@ -24,6 +24,10 @@ router = APIRouter(prefix="/api/v1/admin", tags=["admin"], dependencies=[Depends
 FACILITY_TYPES = {"restaurant", "cafe", "attraction", "culture"}
 INQUIRY_STATUSES = {"new", "in_progress", "resolved"}  # inquiries.status CHECK 와 동일
 
+# congestion_logs.source CHECK 는 ('traffic_cctv','tour_api','event','user_report') 만 허용한다.
+# 관리자 수동 혼잡 개입(Override)은 운영자 이벤트성 설정이므로 'event' 로 기록한다(스키마 제약을 만족하는 정식 값).
+_ADMIN_OVERRIDE_SOURCE = "event"
+
 
 # =========================================================================
 # 시설(POI) CRUD — components/admin/FacilityTable.tsx
@@ -100,6 +104,61 @@ async def delete_facility(facility_id: str):
         # recommendations FK(ON DELETE SET NULL)·congestion_logs CASCADE 는 스키마가 처리한다.
         logger.error("admin_facility_delete_failed", facility_id=facility_id, error=str(e))
         raise HTTPException(status_code=500, detail="시설 삭제에 실패했습니다.")
+
+
+# =========================================================================
+# 수동 혼잡도 설정(Override) — app/admin/infrastructure/page.tsx 관리자 액션
+# 관리자가 현장 상황을 반영해 특정 시설의 최신 혼잡도를 직접 덮어쓴다(대시보드/추천이 소비하는
+# congestion_logs 최신값 갱신). anon/authenticated 직접 INSERT 는 RLS 로 막혀 있어 service_role 경유.
+# =========================================================================
+
+class CongestionOverride(BaseModel):
+    # DB CHECK(congestion_level 0~1)와 동일 범위. 초과 값은 라우터 진입 전 422.
+    level: float = Field(ge=0.0, le=1.0)
+
+
+@router.post("/facilities/{facility_id}/congestion")
+async def override_congestion(facility_id: str, req: CongestionOverride):
+    """관리자 수동 혼잡도 설정 — congestion_logs 에 source='event' 로 1행 기록하고 그 행을 반환한다.
+
+    흐름: 시설 존재/수용량 조회 → current_count = round(capacity×level) 추정 → service_role INSERT.
+    (제보 라우터와 달리 쿨다운 없음 — 관리자 신뢰 경로의 의도적 개입이다.)
+    """
+    # 1. 시설 존재 검증 + capacity 조회 (없는 facility_id 로의 FK 위반/유령 로그 방지)
+    try:
+        fac_res = await asyncio.to_thread(
+            supabase_admin.table("facilities").select("id, capacity").eq("id", facility_id).limit(1).execute
+        )
+    except Exception as e:
+        logger.error("admin_congestion_lookup_failed", facility_id=facility_id, error=str(e))
+        raise HTTPException(status_code=500, detail="혼잡도 설정에 실패했습니다.")
+    if not fac_res.data:
+        raise HTTPException(status_code=404, detail="해당 시설을 찾을 수 없습니다.")
+
+    capacity = fac_res.data[0].get("capacity") or 0
+    row = {
+        "facility_id": facility_id,
+        "congestion_level": req.level,
+        "current_count": round(capacity * req.level),
+        "source": _ADMIN_OVERRIDE_SOURCE,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+    # 2. service_role 로 INSERT (anon/authenticated 직접 쓰기는 RLS 로 거부됨)
+    try:
+        ins = await asyncio.to_thread(
+            supabase_admin.table("congestion_logs").insert(row).execute
+        )
+        if not ins.data:
+            raise HTTPException(status_code=500, detail="혼잡도 설정에 실패했습니다.")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("admin_congestion_override_failed", facility_id=facility_id, error=str(e))
+        raise HTTPException(status_code=500, detail="혼잡도 설정에 실패했습니다.")
+
+    logger.info("admin_congestion_override", facility_id=facility_id, level=req.level)
+    return ins.data[0]
 
 
 # =========================================================================

@@ -3,11 +3,13 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   Building2, Search, Bell, Utensils, MapPin, Filter,
-  ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, AlertTriangle, Users, Clock, Activity, Coffee
+  ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, AlertTriangle, Users, Clock, Activity, Coffee,
+  SlidersHorizontal, X
 } from 'lucide-react';
 import { AdminSidebar } from '@/components/AdminSidebar';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { createPublicClient } from '@/lib/supabase';
+import { adminApi } from '@/lib/admin-api';
 import { toast } from 'sonner';
 
 // --- Types ---
@@ -16,9 +18,13 @@ interface Infrastructure {
   name: string;
   type: '음식점' | '카페' | '관광지' | '문화시설';
   status: 'blue' | 'green' | 'yellow' | 'orange';
+  level: number; // 최신 혼잡도(0~1) — 이상 알림 판정·Override 초기값에 사용
   capacity: string;
   expectedDemand: string;
 }
+
+// 이상(anomaly) 알림 임계치 — 최신 혼잡도가 이 값 이상이면 관리자 알림 대상(포화 위험).
+const ANOMALY_THRESHOLD = 0.9;
 
 interface ChartDataPoint {
   time: string;
@@ -53,6 +59,12 @@ export default function InfrastructurePage() {
   const itemsPerPage = 10;
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // 검색(클라이언트 필터)·알림 드롭다운·Override 모달 UI 상태
+  const [searchQuery, setSearchQuery] = useState('');
+  const [notifOpen, setNotifOpen] = useState(false);
+  const [overrideOpen, setOverrideOpen] = useState(false);
+  const [overrideLevel, setOverrideLevel] = useState(50); // 0~100(%) 슬라이더 값
+  const [overrideSubmitting, setOverrideSubmitting] = useState(false);
 
   const supabase = createPublicClient();
 
@@ -118,6 +130,7 @@ export default function InfrastructurePage() {
             name: f.name,
             type: mappedType,
             status,
+            level,
             capacity: `${currentCount}/${f.capacity}`,
             expectedDemand
           } as Infrastructure;
@@ -196,7 +209,18 @@ export default function InfrastructurePage() {
     }
   }, [selectedInfra, fetchChartData]);
 
-  const filteredInfras = facilities.filter(infra => infra.type === activeFilter);
+  // 활성 유형 탭 + 검색어(이름/유형, 대소문자 무시) 클라이언트 필터.
+  const searchLower = searchQuery.trim().toLowerCase();
+  const filteredInfras = facilities.filter(infra => {
+    if (infra.type !== activeFilter) return false;
+    if (!searchLower) return true;
+    return infra.name.toLowerCase().includes(searchLower) || infra.type.toLowerCase().includes(searchLower);
+  });
+
+  // 이상 알림: 이미 로드된 시설 데이터에서 임계치 이상 시설만(혼잡도 내림차순). 추가 백엔드 호출 없음.
+  const anomalies = facilities
+    .filter(infra => infra.level >= ANOMALY_THRESHOLD)
+    .sort((a, b) => b.level - a.level);
 
   const totalItems = filteredInfras.length;
   const totalPages = Math.ceil(totalItems / itemsPerPage) || 1;
@@ -223,12 +247,41 @@ export default function InfrastructurePage() {
     }
   };
 
-  // 관리자 액션: 수동 상태 변경(Override) — 실제 쓰기 연동 전이라 준비중 안내로 무반응(dead) 제거.
+  // 관리자 액션: 수동 혼잡도 설정(Override) — 모달을 열어 레벨 선택. 현재 혼잡도를 슬라이더 초기값으로.
   const handleOverride = () => {
     if (!selectedInfra) return;
-    toast.info('수동 상태 변경 (Override)', {
-      description: `'${selectedInfra.name}'의 혼잡 상태 수동 변경 기능은 준비 중입니다.`,
-    });
+    setOverrideLevel(Math.round(Math.min(1, Math.max(0, selectedInfra.level || 0)) * 100));
+    setOverrideOpen(true);
+  };
+
+  // Override 확정 — FastAPI(service_role)로 congestion_logs 에 수동 혼잡도 1행 기록 후 목록 무음 갱신.
+  const submitOverride = async () => {
+    if (!selectedInfra) return;
+    const level = Math.min(1, Math.max(0, overrideLevel / 100));
+    setOverrideSubmitting(true);
+    try {
+      await adminApi.post(`/api/v1/admin/facilities/${selectedInfra.id}/congestion`, { level });
+      toast.success('혼잡 상태 변경 완료', {
+        description: `'${selectedInfra.name}'의 혼잡도를 ${overrideLevel}%로 설정했습니다.`,
+      });
+      setOverrideOpen(false);
+      await fetchFacilities(true); // 최신 혼잡도 반영(무음 갱신 — 목록/차트 재조회)
+    } catch (err: any) {
+      toast.error('혼잡 상태 변경 실패', {
+        description: err?.message || '잠시 후 다시 시도해 주세요.',
+      });
+    } finally {
+      setOverrideSubmitting(false);
+    }
+  };
+
+  // 알림에서 이상 시설 선택 — 해당 유형 탭으로 전환하고 상세를 연다(검색어/페이지 초기화).
+  const openAnomaly = (infra: Infrastructure) => {
+    setActiveFilter(infra.type);
+    setSearchQuery('');
+    setCurrentPage(1);
+    setSelectedInfra(infra);
+    setNotifOpen(false);
   };
 
   // 관리자 액션: 근처 유저에게 분산 안내 발송 — 개입 스토리 데모 확인 토스트(실발송 연동 전, 데모 시뮬레이션).
@@ -248,24 +301,94 @@ export default function InfrastructurePage() {
         <header className="h-20 bg-hanok-panel border-b border-hanok-line flex items-center justify-between px-8 flex-shrink-0">
           <h2 className="text-xl font-bold text-hanok-ink">관광지 모니터링</h2>
           <div className="flex items-center gap-6">
-            {/* 검색/알림은 아직 미구현 → 무반응(dead) 오해 방지를 위해 비활성 처리 */}
+            {/* 검색: 로드된 시설을 이름/유형으로 클라이언트 필터 */}
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-hanok-muted" size={18} />
               <input
                 type="text"
-                placeholder="검색 준비 중"
-                disabled
-                title="검색 기능 준비 중"
-                className="pl-10 pr-4 py-2 bg-hanok-card text-hanok-ink placeholder-hanok-muted rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gold w-64 opacity-50 cursor-not-allowed"
+                value={searchQuery}
+                onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }}
+                placeholder="장소 검색 (이름·유형)"
+                title="이름 또는 유형으로 검색"
+                className="pl-10 pr-8 py-2 bg-hanok-card text-hanok-ink placeholder-hanok-muted rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gold w-64"
               />
+              {searchQuery && (
+                <button
+                  onClick={() => { setSearchQuery(''); setCurrentPage(1); }}
+                  title="검색어 지우기"
+                  aria-label="검색어 지우기"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-hanok-muted hover:text-hanok-ink"
+                >
+                  <X size={16} />
+                </button>
+              )}
             </div>
-            <button
-              disabled
-              title="알림 기능 준비 중"
-              className="relative text-hanok-muted opacity-50 cursor-not-allowed"
-            >
-              <Bell size={24} />
-            </button>
+
+            {/* 알림: 이상(포화 위험) 시설 수 배지 + 드롭다운(로드된 데이터 기반, 추가 조회 없음) */}
+            <div className="relative">
+              <button
+                onClick={() => setNotifOpen(o => !o)}
+                title="혼잡 이상 알림"
+                aria-label="혼잡 이상 알림"
+                className="relative text-hanok-muted hover:text-hanok-ink transition-colors"
+              >
+                <Bell size={24} />
+                {anomalies.length > 0 && (
+                  <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 rounded-full bg-terracotta text-white text-[11px] font-bold flex items-center justify-center">
+                    {anomalies.length}
+                  </span>
+                )}
+              </button>
+              {notifOpen && (
+                <>
+                  {/* 바깥 클릭 시 닫기 */}
+                  <button
+                    className="fixed inset-0 z-30 cursor-default"
+                    aria-hidden="true"
+                    tabIndex={-1}
+                    onClick={() => setNotifOpen(false)}
+                  />
+                  <div className="absolute right-0 mt-3 w-80 max-h-96 overflow-y-auto z-40 bg-hanok-panel border border-hanok-line rounded-xl shadow-xl">
+                    <div className="px-4 py-3 border-b border-hanok-line flex items-center justify-between sticky top-0 bg-hanok-panel">
+                      <span className="font-bold text-hanok-ink text-sm flex items-center gap-2">
+                        <AlertTriangle size={16} className="text-terracotta" />
+                        혼잡 이상 알림
+                      </span>
+                      <span className="text-xs text-hanok-muted">{anomalies.length}건</span>
+                    </div>
+                    {anomalies.length === 0 ? (
+                      <div className="px-4 py-8 text-center text-sm text-hanok-muted">
+                        현재 이상 혼잡 시설이 없습니다.
+                      </div>
+                    ) : (
+                      <ul className="py-1">
+                        {anomalies.map(infra => (
+                          <li key={infra.id}>
+                            <button
+                              onClick={() => openAnomaly(infra)}
+                              className="w-full text-left px-4 py-3 hover:bg-hanok-card transition-colors flex items-center justify-between gap-3"
+                            >
+                              <span className="flex items-center gap-2 min-w-0">
+                                <span className="p-1.5 rounded-lg bg-hanok-card text-hanok-muted flex-shrink-0">
+                                  {getTypeIcon(infra.type)}
+                                </span>
+                                <span className="min-w-0">
+                                  <span className="block font-semibold text-hanok-ink text-sm truncate">{infra.name}</span>
+                                  <span className="block text-xs text-hanok-muted">{infra.type} · 수용 {infra.capacity}</span>
+                                </span>
+                              </span>
+                              <span className="text-sm font-bold text-terracotta flex-shrink-0">
+                                {Math.round(infra.level * 100)}%
+                              </span>
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
           </div>
         </header>
 
@@ -490,6 +613,95 @@ export default function InfrastructurePage() {
             )}
           </div>
         </div>
+
+        {/* 수동 혼잡도 설정(Override) 모달 */}
+        {overrideOpen && selectedInfra && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <button
+              className="absolute inset-0 bg-black/60"
+              aria-label="닫기"
+              onClick={() => { if (!overrideSubmitting) setOverrideOpen(false); }}
+            />
+            <div className="relative z-10 w-full max-w-md bg-hanok-panel border border-hanok-line rounded-2xl shadow-2xl p-6 flex flex-col gap-5 animate-fade-in">
+              <div className="flex items-start justify-between">
+                <div>
+                  <h3 className="text-lg font-bold text-hanok-ink flex items-center gap-2">
+                    <SlidersHorizontal size={18} className="text-gold" />
+                    수동 혼잡 상태 변경
+                  </h3>
+                  <p className="text-sm text-hanok-muted mt-1">
+                    &lsquo;{selectedInfra.name}&rsquo;의 현재 혼잡도를 직접 설정합니다.
+                  </p>
+                </div>
+                <button
+                  onClick={() => { if (!overrideSubmitting) setOverrideOpen(false); }}
+                  className="text-hanok-muted hover:text-hanok-ink"
+                  aria-label="닫기"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              <div className="flex flex-col gap-3">
+                <div className="flex items-end justify-between">
+                  <span className="text-sm font-semibold text-hanok-muted">설정 혼잡도</span>
+                  <span className="text-3xl font-black text-gold tabular-nums">{overrideLevel}%</span>
+                </div>
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  step={5}
+                  value={overrideLevel}
+                  onChange={(e) => setOverrideLevel(Number(e.target.value))}
+                  className="w-full accent-gold"
+                />
+                <div className="flex gap-2">
+                  {[
+                    { label: '한산', v: 20 },
+                    { label: '보통', v: 55 },
+                    { label: '혼잡', v: 80 },
+                    { label: '포화', v: 95 },
+                  ].map(preset => (
+                    <button
+                      key={preset.label}
+                      onClick={() => setOverrideLevel(preset.v)}
+                      className={`flex-1 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
+                        overrideLevel === preset.v
+                          ? 'bg-gold text-white border-gold'
+                          : 'bg-hanok-card text-hanok-muted border-hanok-line hover:border-gold'
+                      }`}
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex gap-3 pt-1">
+                <button
+                  onClick={() => setOverrideOpen(false)}
+                  disabled={overrideSubmitting}
+                  className="flex-1 bg-hanok-card border border-hanok-line hover:bg-hanok-line text-hanok-ink font-semibold py-2.5 rounded-xl transition-colors disabled:opacity-50"
+                >
+                  취소
+                </button>
+                <button
+                  onClick={submitOverride}
+                  disabled={overrideSubmitting}
+                  className="flex-1 bg-gold hover:bg-gold-deep text-white font-semibold py-2.5 rounded-xl transition-colors shadow-sm shadow-gold/30 disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {overrideSubmitting ? (
+                    <>
+                      <span className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" />
+                      적용 중...
+                    </>
+                  ) : '적용'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </main>
     </div>
   );
