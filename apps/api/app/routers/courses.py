@@ -147,6 +147,8 @@ async def _evaluate_candidate(
         user_lat=cur_lat,
         user_lng=cur_lng,
         user_vector=user_vector,
+        # 누적 출발 시각(직전 정류지까지의 누적 오프셋 반영) → score 내부 도착예측이 predicted_congestion 과 정합.
+        depart_time=now + timedelta(minutes=cum_offset_min),
     )
 
     course_value = (

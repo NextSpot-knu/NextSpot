@@ -34,6 +34,8 @@ async def calculate_spot_score(
     user_lat: float,
     user_lng: float,
     user_vector: list[float] | None = None,  # 호출측에서 1회 조회해 넘기면 후보마다 선호 벡터 저장소 재조회 안 함
+    depart_time: datetime | None = None,  # 후보를 향해 '출발하는' 기준 시각(UTC). 멀티스톱 코스(courses)가
+                                          # 누적 도착을 반영하도록 전달. None 이면 지금 출발(datetime.now) — 단일 대안 추천의 기존 동작.
 ) -> SPOTScoreResult:
     """
     사용자 정보, 원본 시설 혼잡도, 후보 대안 시설 정보 및 사용자 현재 위치를 입력받아
@@ -69,7 +71,10 @@ async def calculate_spot_score(
     # 3. 도착 예상 시점 혼잡도 예측
     # 모델은 UTC 시각 기준으로 학습됨(train.py: fromisoformat(+00:00).hour). Cloud Run 런타임도 UTC라
     # 정합하나, 로컬/다른 타임존 호스트에서 datetime.now()가 흔들리지 않도록 명시적으로 UTC를 사용한다.
-    arrival_dt = datetime.now(timezone.utc) + timedelta(minutes=travel_time_min)
+    # depart_time 이 오면 '그 출발 시각 + 이 구간 이동시간' = 코스의 누적 도착 시각(2~3번째 정류지 정합).
+    # 없으면 지금 출발 기준(단일 대안 추천). 이 arrival 은 아래 wait_time·재배치기여에 함께 쓰인다.
+    base_time = depart_time or datetime.now(timezone.utc)
+    arrival_dt = base_time + timedelta(minutes=travel_time_min)
     arrival_hour = arrival_dt.hour
     arrival_dow = arrival_dt.weekday()
     # predict_congestion 은 동기 함수(로컬 sklearn 추론)이므로, async 컨텍스트의 이벤트 루프를
