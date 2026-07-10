@@ -14,6 +14,7 @@ import { recommendByType, voiceTurn, apiClient } from '@/lib/api-client';
 // 히트맵 blob 의 색·크기 규칙(마커/배지 임계와 일관) 공용 헬퍼 — 중복 정의 금지, 그대로 재사용.
 import { getHeatGradient, getHeatRadius } from '@/lib/heatmap';
 import { useVoiceAssistant } from '@/lib/useVoiceAssistant';
+import { useSpeechSearch } from '@/lib/useSpeechSearch';
 import VoiceAssistantOrb from '@/components/VoiceAssistantOrb';
 import { useT } from '@/lib/i18n/I18nProvider';
 
@@ -100,6 +101,10 @@ export default function MainPage() {
 
   const router = useRouter();
   const t = useT();
+
+  // 지도 검색바 음성 받아쓰기(STT) — 마이크 탭 → 한 발화를 검색어로 넣어 기존 마커 필터(searchQuery)를 그대로 재사용.
+  // 미지원 브라우저면 supported=false → 마이크는 아래에서 '준비 중' 비활성으로 유지(정적 export/SSR 안전).
+  const speechSearch = useSpeechSearch((text) => setSearchQuery(text));
 
   const appKey = process.env.NEXT_PUBLIC_KAKAO_MAPS_APP_KEY || process.env.NEXT_PUBLIC_KAKAO_API_KEY || process.env.NEXT_PUBLIC_KAKAO_MAP_KEY || "";
 
@@ -1141,7 +1146,8 @@ export default function MainPage() {
       {/* Top Layer: Search & Filters — 다크 오버레이 그라디언트 제거(플로팅 패널 자체 배경으로 가독성 확보) */}
       <div className="absolute top-0 w-full z-20 pt-12 pb-4 px-4 flex flex-col gap-4 pointer-events-none">
         
-        {/* Search Bar — (c) 로컬 시설명 검색(마커 필터). 음성 검색(Mic)은 미구현이라 '준비 중' 비활성 표기. */}
+        {/* Search Bar — (c) 로컬 시설명 검색(마커 필터). 음성 검색(Mic)은 브라우저 STT 로 받아쓰기 → 검색어 주입.
+            (Web Speech 미지원 브라우저에선 '준비 중' 비활성으로 graceful 폴백.) */}
         <div className="flex items-center bg-white/90 backdrop-blur rounded-full px-4 py-3 border border-line shadow-[0_2px_14px_rgba(43,35,32,0.06)] pointer-events-auto">
           <Search size={20} className="text-muk-soft mr-3" />
           <input
@@ -1161,9 +1167,24 @@ export default function MainPage() {
             >
               <X size={18} />
             </button>
+          ) : speechSearch.supported ? (
+            // 음성 검색 마이크 — 탭하면 STT 로 한 발화를 받아 검색어에 넣는다(듣는 중 다시 탭하면 취소).
+            // 듣는 중엔 신라 금빛 펄스 + '듣고 있어요…' 배지로 상태를 노출한다.
+            <button
+              type="button"
+              onClick={() => speechSearch.start()}
+              title={speechSearch.listening ? t('map.voiceSearchListening') : t('map.voiceSearchStart')}
+              aria-label={speechSearch.listening ? t('map.voiceSearchListening') : t('map.voiceSearchStart')}
+              aria-pressed={speechSearch.listening}
+              className={`ml-3 flex items-center gap-1 rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 ${speechSearch.listening ? 'text-gold animate-pulse' : 'text-muk-soft hover:text-muk'}`}
+            >
+              <Mic size={18} />
+              {speechSearch.listening && (
+                <span className="text-[10px] font-medium whitespace-nowrap">{t('map.voiceSearchListening')}</span>
+              )}
+            </button>
           ) : (
-            // 실제 음성 안내는 추천 카드의 오브(VoiceAssistantOrb)를 사용 — 여기 마이크는 아직 미구현이므로 죽은 컨트롤 오해를 막기 위해 비활성 표기.
-            // 모바일엔 title 툴팁이 뜨지 않아 보이지 않으므로, '준비 중' 텍스트 배지 + 흐린 처리(opacity)로 비활성 상태를 명확히 노출한다.
+            // STT 미지원 브라우저: 죽은 컨트롤 오해를 막기 위해 '준비 중' 비활성 표기(모바일엔 title 툴팁이 안 뜨므로 텍스트 배지 + opacity 로 명확히).
             <span title={t('map.voiceSearchSoon')} aria-disabled="true" className="ml-3 flex items-center gap-1 cursor-not-allowed opacity-40 select-none">
               <Mic size={18} className="text-muk-soft" />
               <span className="text-[10px] font-medium text-muk-soft whitespace-nowrap">{t('map.soon')}</span>
