@@ -4,8 +4,8 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Menu, Bell, Home, Bookmark, User,
-  Edit2, ChevronRight, LogOut, Shield,
-  HelpCircle, Settings as SettingsIcon, BellRing, Route, Ticket, X
+  Edit2, ChevronRight, LogOut,
+  Settings as SettingsIcon, BellRing, Route, Ticket, X
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { createPublicClient } from '@/lib/supabase';
@@ -274,8 +274,6 @@ export default function MyPage() {
                 const menus = [
                   { id: 'course', icon: Route, labelKey: 'mypage.menuCourse', path: '/course' },
                   { id: 'coupons', icon: Ticket, labelKey: 'mypage.menuCoupons', path: '/mypage/coupons' },
-                  { id: 'privacy', icon: Shield, labelKey: 'mypage.menuPrivacy', path: '/mypage/privacy' },
-                  { id: 'help', icon: HelpCircle, labelKey: 'mypage.menuHelp', path: '/mypage/support' },
                   { id: 'settings', icon: SettingsIcon, labelKey: 'mypage.menuSettings', path: '/mypage/settings' },
                 ];
                 return menus.map((menu, index) => {
@@ -309,6 +307,17 @@ export default function MyPage() {
               <LogOut size={18} className="text-terracotta" />
               <span className="text-terracotta">{t('mypage.signOut')}</span>
             </button>
+
+            {/* 보조 링크 — 개인정보·고객지원은 메인 메뉴에서 분리해 작게 배치 */}
+            <div className="flex items-center justify-center gap-3 text-xs text-muk-soft pb-2">
+              <button type="button" onClick={() => router.push('/mypage/privacy')} className="hover:text-muk transition-colors">
+                {t('mypage.menuPrivacy')}
+              </button>
+              <span className="text-line">·</span>
+              <button type="button" onClick={() => router.push('/mypage/support')} className="hover:text-muk transition-colors">
+                {t('mypage.menuHelp')}
+              </button>
+            </div>
 
           </div>
         )}
