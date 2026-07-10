@@ -35,6 +35,8 @@ export default function SavedPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [selectedBookmark, setSelectedBookmark] = useState<BookmarkData | null>(null);
   const [currentTime, setCurrentTime] = useState<Date | null>(null);
+  // 저장 목록 카테고리 필터('all' | 음식점 | 카페 | 관광지 | 문화시설)
+  const [activeCategory, setActiveCategory] = useState<string>('all');
 
   useEffect(() => {
     setCurrentTime(new Date());
@@ -128,6 +130,16 @@ export default function SavedPage() {
     return <div className={`w-3 h-3 rounded-full ${colors[status]}`} />;
   };
 
+  // 카테고리별 개수 + 필터 적용 목록. 저장이 없는 카테고리는 칩을 감춘다.
+  const categoryCounts = bookmarks.reduce<Record<string, number>>((acc, b) => {
+    acc[b.category] = (acc[b.category] || 0) + 1;
+    return acc;
+  }, {});
+  const availableCategories = Object.keys(CATEGORY_LABEL_TO_KEY).filter((c) => categoryCounts[c]);
+  // 선택했던 카테고리가 삭제로 0이 되면 '전체'로 자동 복귀(빈 목록 혼란 방지).
+  const effectiveCategory = activeCategory !== 'all' && !categoryCounts[activeCategory] ? 'all' : activeCategory;
+  const visibleBookmarks = effectiveCategory === 'all' ? bookmarks : bookmarks.filter((b) => b.category === effectiveCategory);
+
   return (
     <div className="relative w-full h-[100dvh] bg-hanji flex flex-col overflow-hidden">
 
@@ -182,7 +194,13 @@ export default function SavedPage() {
           // List State
           <div className="flex flex-col gap-4">
             <div className="flex justify-between items-center px-1 mb-2">
-              <h2 className="text-lg font-bold font-serif text-muk">{t('saved.title')}</h2>
+              <div className="flex items-baseline gap-2">
+                <h2 className="text-lg font-bold font-serif text-muk">{t('saved.title')}</h2>
+                {/* 저장한 장소 총 개수 */}
+                <span className="text-sm font-bold text-gold-deep bg-gold/15 border border-gold/30 rounded-full px-2.5 py-0.5">
+                  {bookmarks.length}
+                </span>
+              </div>
               <button
                 onClick={handleClearAll}
                 className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-terracotta/15 text-terracotta border border-terracotta/30 hover:bg-terracotta/25 transition-colors"
@@ -190,6 +208,36 @@ export default function SavedPage() {
                 {t('saved.clearAll')}
               </button>
             </div>
+
+            {/* 카테고리 필터 칩 — 저장이 있는 분류만 노출(2개 이상일 때). 각 칩에 개수 표시. */}
+            {availableCategories.length > 1 && (
+              <div className="flex gap-2 overflow-x-auto no-scrollbar px-1 pb-1">
+                {(['all', ...availableCategories]).map((cat) => {
+                  const isActive = effectiveCategory === cat;
+                  const label = cat === 'all' ? t('saved.filterAll') : t(`category.${CATEGORY_LABEL_TO_KEY[cat]}`);
+                  const count = cat === 'all' ? bookmarks.length : categoryCounts[cat];
+                  return (
+                    <button
+                      key={cat}
+                      type="button"
+                      onClick={() => setActiveCategory(cat)}
+                      aria-pressed={isActive}
+                      className={`flex shrink-0 items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-[13px] font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 ${
+                        isActive
+                          ? 'bg-gold/15 border-gold text-muk'
+                          : 'bg-white border-line text-muk-soft hover:bg-hanji-deep hover:text-muk'
+                      }`}
+                    >
+                      {label}
+                      <span className={`text-[11px] font-bold rounded-full px-1.5 ${isActive ? 'bg-gold/25 text-gold-deep' : 'bg-hanji-deep text-muk-soft'}`}>
+                        {count}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
             {/* 저장한 곳이 한산해지면 인앱 알림(옵트인) */}
             <div className="px-1 -mt-1 mb-1">
               <CongestionAlertToggle />
@@ -199,7 +247,7 @@ export default function SavedPage() {
                 전폭 1열 카드가 데스크톱에서 가로로 과하게 늘어나던 문제 해결. 2열을 기본으로 둔 건
                 카드 내부 타임라인(출발·도착·이용 3노드+라벨)이 좁아지면 뭉개지기 때문 — 열당 폭 확보. */}
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 items-start">
-            {bookmarks.map((bookmark, index) => (
+            {visibleBookmarks.map((bookmark, index) => (
               // 카드 안에 실제 삭제 <button> 을 두어야 하므로 카드 자체는 button 대신
               // role="button" 컨테이너로 둔다(button-in-button 무효 HTML 방지 + 키보드 접근).
               <div

@@ -1,5 +1,6 @@
 # pyrefly: ignore [missing-import]
 import asyncio
+import uuid
 from typing import Literal
 import structlog
 from fastapi import APIRouter, Depends, HTTPException
@@ -470,6 +471,14 @@ async def submit_feedback(
     current_user: dict = Depends(get_current_user)
 ):
     logger.info("feedback_received", recommendation_id=req.recommendation_id, action=req.action)
+
+    # 0. recommendation_id 형식 방어 — by-type 브라우즈는 합성 id("bytype-…", DB 미저장)를 반환하므로
+    #    그런 값이 오면 uuid 컬럼 캐스팅 오류로 500 이 나기 전에 깔끔한 404 로 응답한다.
+    #    (브라우즈 랭킹 수락은 쿠폰 발급 경로가 아니라 카카오맵 길안내로 처리된다.)
+    try:
+        uuid.UUID(str(req.recommendation_id))
+    except (ValueError, TypeError, AttributeError):
+        raise HTTPException(status_code=404, detail="해당 추천 기록을 찾을 수 없습니다.")
 
     # 1. 기존 추천 이력 조회
     rec_res = await asyncio.to_thread(

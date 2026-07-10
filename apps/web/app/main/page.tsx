@@ -403,6 +403,8 @@ export default function MainPage() {
   const panToVisible = (lat: number, lng: number) => {
     const map = mapInstanceRef.current;
     if (!map || typeof window === 'undefined' || !window.kakao) return;
+    // 위도만 가드하고 호출하는 곳이 많아, 여기서 경도까지 유한수 검증한다(LatLng(lat, undefined)=NaN 이동 방지).
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
     const latlng = new window.kakao.maps.LatLng(lat, lng);
     try {
       const proj = map.getProjection();
@@ -1039,12 +1041,15 @@ export default function MainPage() {
 
   // Synchronize Markers (Filters & Facilities updates)
   useEffect(() => {
-    if (!mapLoaded || !mapInstanceRef.current || markerFacilities.length === 0) return;
+    if (!mapLoaded || !mapInstanceRef.current) return;
     const kakao = window.kakao;
 
-    // Clear old markers
+    // Clear old markers — 표시 집합이 0이 되어도(예: 배리어프리 0건) 반드시 먼저 정리해 잔상이 남지 않게 한다.
     markersRef.current.forEach((m) => m.setMap(null));
     markersRef.current = [];
+
+    // 그릴 시설이 없으면 정리만 하고 종료(마커 잔상 방지 — 이전엔 length===0 조기 return 이 정리보다 앞서 있었음).
+    if (markerFacilities.length === 0) return;
 
     // 표시 시설 선택(카테고리 필터 + 이름 검색 + 줌 밀집도 상한)을 computeDisplayFacilities 로 통일.
     // markerFacilities 는 '지금'=실측, 예측 모드=예측 혼잡도가 반영된 파생 목록 → 마커가 자동 재채색된다.
@@ -1080,11 +1085,14 @@ export default function MainPage() {
 
       kakao.maps.event.addListener(marker, "click", () => {
         console.log("Marker clicked:", f.name);
-        
+
         if (activeOverlayRef.current) {
           activeOverlayRef.current.setMap(null);
           activeOverlayRef.current = null;
         }
+        // 축제 핀/영역이 떠 있으면 함께 정리한다(마커 클릭은 지도 click 이벤트를 발생시키지 않아
+        // 지도 click 핸들러의 정리 로직이 실행되지 않으므로, 여기서도 명시적으로 지운다).
+        clearFestivalOverlay();
 
         if (f.isGroup) {
           // 그룹 마커 자체를 하이라이트(확대+색) — 카드는 띄우지 않음(개별 선택 해제)

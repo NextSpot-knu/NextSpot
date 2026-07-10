@@ -52,7 +52,7 @@ function shortDate(iso: string): string {
 
 export function FestivalBanner({ className = '', onFocus }: {
   className?: string;
-  // 축제 1건을 지도에 표시(핀/영역)하도록 부모에 위임. 제공되면 카드에 '지도에 표시' 버튼이 뜬다.
+  // 축제 1건을 지도에 표시(핀/영역)하도록 부모에 위임. 제공되면 카드 전체가 클릭 대상이 된다(카드 아무 곳이나 누르면 표시).
   onFocus?: (ev: FestivalEvent) => void;
 }) {
   const t = useT();
@@ -137,7 +137,7 @@ export function FestivalBanner({ className = '', onFocus }: {
               role="dialog"
               aria-modal="true"
               aria-labelledby="festival-sheet-title"
-              className="relative w-full max-w-sm max-h-[80dvh] bg-hanji border border-line rounded-t-3xl sm:rounded-3xl shadow-[0_-8px_40px_rgba(43,35,32,0.2)] sm:shadow-[0_20px_60px_rgba(43,35,32,0.25)] flex flex-col overflow-hidden"
+              className="relative w-full max-w-sm max-h-[88dvh] sm:max-h-[82dvh] bg-hanji border border-line rounded-t-3xl sm:rounded-3xl shadow-[0_-8px_40px_rgba(43,35,32,0.2)] sm:shadow-[0_20px_60px_rgba(43,35,32,0.25)] flex flex-col overflow-hidden"
             >
               <div className="absolute top-0 left-0 right-0 h-[3px] bg-gradient-to-r from-transparent via-gold/60 to-transparent" />
 
@@ -163,12 +163,30 @@ export function FestivalBanner({ className = '', onFocus }: {
                   부모 overflow-hidden 이 하단을 잘라내고 스크롤도 안 된다(콘텐츠 잘림 버그의 원인).
                   하단 패딩은 safe-area 를 더해 홈 인디케이터/노치 영역에서 마지막 카드가 가리지 않게 한다. */}
               <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 pb-[calc(1.5rem+env(safe-area-inset-bottom))] flex flex-col gap-3">
-                {events.map((ev) => (
-                  <div key={ev.contentId} className="rounded-2xl border border-line bg-white/70 overflow-hidden">
+                {events.map((ev) => {
+                  // 카드 아무 곳이나 누르면 지도에 표시(canFocus). 접근성: 카드 <div> 를 role=button 으로
+                  // 만들면 내부 링크(카카오맵/전화)가 '버튼 안의 링크'(nested-interactive) 무효 구조가 된다.
+                  // 대신 카드를 덮는 실제 <button>(스트레치드, inset-0)을 형제로 두고 링크는 그 위(z-10)에
+                  // 올려, 카드 클릭=지도 표시 / 링크=각자 동작 을 접근성 트리 위반 없이 분리한다.
+                  const canFocus = !!onFocus && ev.latitude != null && ev.longitude != null;
+                  const focusCard = () => { if (canFocus) { onFocus!(ev); setIsOpen(false); } };
+                  return (
+                  <div
+                    key={ev.contentId}
+                    className={`group relative rounded-2xl border border-line bg-white/70 overflow-hidden transition-colors ${canFocus ? 'hover:bg-gold/5 hover:border-gold/40' : ''}`}
+                  >
+                    {canFocus && (
+                      <button
+                        type="button"
+                        onClick={focusCard}
+                        aria-label={t('festival.showOnMapAria', { title: ev.title })}
+                        className="absolute inset-0 z-0 cursor-pointer rounded-2xl focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/50"
+                      />
+                    )}
                     {ev.imageUrl && (
                       /* TourAPI 포스터 원본은 도메인이 다양해 next/image 최적화 대상이 아님(정적 export) — img 사용 */
                       // eslint-disable-next-line @next/next/no-img-element
-                      <img src={ev.imageUrl} alt={ev.title} loading="lazy" className="w-full h-32 object-cover" />
+                      <img src={ev.imageUrl} alt={ev.title} loading="lazy" className="w-full h-24 object-cover" />
                     )}
                     <div className="p-4 flex flex-col gap-2">
                       <div className="flex items-center gap-2">
@@ -189,18 +207,8 @@ export function FestivalBanner({ className = '', onFocus }: {
                           {ev.address}
                         </p>
                       )}
-                      <div className="flex flex-wrap items-center gap-2 pt-1">
-                        {/* 지도에 표시 — 앱 내 지도에 핀(구체 주소)/색상 영역(넓은 지역)으로 강조. 시트는 닫는다. */}
-                        {onFocus && ev.latitude != null && ev.longitude != null && (
-                          <button
-                            type="button"
-                            onClick={() => { onFocus(ev); setIsOpen(false); }}
-                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-full bg-terracotta/10 hover:bg-terracotta/20 border border-terracotta/30 text-terracotta text-[11px] font-bold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-terracotta/50"
-                          >
-                            <MapPin size={11} aria-hidden />
-                            {t('festival.showOnMap')}
-                          </button>
-                        )}
+                      {/* 스트레치드 버튼 위에 뜨는 링크 — relative z-10 으로 카드 클릭보다 위. 각자 독립 동작. */}
+                      <div className="relative z-10 flex flex-wrap items-center gap-2 pt-1">
                         {ev.latitude != null && ev.longitude != null && (
                           <a
                             href={`https://map.kakao.com/link/map/${encodeURIComponent(ev.title)},${ev.latitude},${ev.longitude}`}
@@ -224,7 +232,8 @@ export function FestivalBanner({ className = '', onFocus }: {
                       </div>
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </motion.div>
           </motion.div>

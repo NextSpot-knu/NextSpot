@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import {
   Menu, Bell, Home, Bookmark, User,
   Edit2, ChevronRight, LogOut,
-  Settings as SettingsIcon, BellRing, Route, Ticket, X
+  Settings as SettingsIcon, BellRing, Ticket, X
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { createPublicClient } from '@/lib/supabase';
@@ -187,8 +187,8 @@ export default function MyPage() {
       {/* Main Content Area */}
       <main className="flex-1 flex flex-col relative z-10 px-6 overflow-y-auto pb-[calc(80px+env(safe-area-inset-bottom))] md:pb-6 no-scrollbar">
         {isLoading || !profile ? (
-          // 프로필 블록 + 취향 레이더 + 통계 형태의 스켈레톤(스피너 대체) — 실제 레이아웃을 암시한다.
-          <div className="flex flex-col mt-4" aria-hidden>
+          // 프로필 블록 + 취향 레이더 + 통계 형태의 스켈레톤(스피너 대체) — 실제 콘텐츠와 동일한 중앙정렬 폭으로 폭 점프 최소화.
+          <div className="flex flex-col mt-4 md:max-w-4xl md:mx-auto md:w-full" aria-hidden>
             {/* Profile 스켈레톤 */}
             <div className="bg-white border border-line rounded-3xl p-6 flex flex-col items-center shadow-[0_2px_14px_rgba(43,35,32,0.06)] mb-4 animate-pulse">
               <div className="w-20 h-20 rounded-full bg-hanji-deep mb-4" />
@@ -207,45 +207,50 @@ export default function MyPage() {
             </div>
           </div>
         ) : (
-          <div className="flex flex-col animate-fade-in mt-4">
-            
-            {/* Profile Section */}
-            <div className="bg-white border border-line rounded-3xl p-6 flex flex-col items-center shadow-[0_2px_14px_rgba(43,35,32,0.06)] mb-4">
-              <div className="w-20 h-20 rounded-full bg-gradient-to-tr from-gold to-terracotta p-0.5 mb-4">
-                <div className="w-full h-full rounded-full overflow-hidden bg-hanji">
-                  {/* 기본 아바타 */}
-                  <div className="w-full h-full flex items-center justify-center text-gold">
-                    <User size={40} />
+          <div className="flex flex-col animate-fade-in mt-4 md:max-w-4xl md:mx-auto md:w-full">
+
+            {/* PC(md+) 2단: 왼쪽=프로필+통계 / 오른쪽=AI 취향 프로필. 모바일은 세로 스택(순서 유지). */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:items-start mb-4 md:mb-6">
+              {/* 왼쪽 열 — 프로필 + 통계. min-w-0: 긴 이메일 파생 이름이 grid 트랙을 밀어내지 않게. */}
+              <div className="flex flex-col gap-4 min-w-0">
+                {/* Profile Section */}
+                <div className="bg-white border border-line rounded-3xl p-6 flex flex-col items-center shadow-[0_2px_14px_rgba(43,35,32,0.06)]">
+                  <div className="w-20 h-20 rounded-full bg-gradient-to-tr from-gold to-terracotta p-0.5 mb-4">
+                    <div className="w-full h-full rounded-full overflow-hidden bg-hanji">
+                      {/* 기본 아바타 */}
+                      <div className="w-full h-full flex items-center justify-center text-gold">
+                        <User size={40} />
+                      </div>
+                    </div>
                   </div>
+                  <h2 className="text-2xl font-bold font-serif text-muk mb-1 break-words max-w-full text-center">{profile.name}</h2>
+                  <p className="text-sm text-muk-soft mb-4 break-all max-w-full text-center">{profile.email}</p>
+
+                  <div className="px-4 py-1 rounded-full bg-gold/15 border border-gold/30 text-gold-deep text-xs font-semibold mb-6">
+                    {profile.role}
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleOpenEdit}
+                    className="flex items-center gap-2 px-5 py-2.5 rounded-xl border border-line bg-hanji hover:bg-hanji-deep text-muk text-sm font-medium transition-colors"
+                  >
+                    <Edit2 size={14} />
+                    <span>{t('mypage.editProfile')}</span>
+                  </button>
+                </div>
+
+                {/* 통계 — 실제 소스가 있는 '저장한 장소'만 표시(가짜 경로수·평점 제거). */}
+                <div className="bg-white border border-line rounded-2xl p-4 flex items-center justify-center gap-3 shadow-[0_2px_14px_rgba(43,35,32,0.06)]">
+                  <Bookmark size={20} className="text-terracotta" fill="currentColor" />
+                  <span className="text-xl font-bold text-muk">{profile.saved}</span>
+                  <span className="text-xs text-muk-soft font-medium">{t('mypage.statSaved')}</span>
                 </div>
               </div>
-              <h2 className="text-2xl font-bold font-serif text-muk mb-1">{profile.name}</h2>
-              <p className="text-sm text-muk-soft mb-4">{profile.email}</p>
 
-              <div className="px-4 py-1 rounded-full bg-gold/15 border border-gold/30 text-gold-deep text-xs font-semibold mb-6">
-                {profile.role}
-              </div>
-
-              <button
-                type="button"
-                onClick={handleOpenEdit}
-                className="flex items-center gap-2 px-5 py-2.5 rounded-xl border border-line bg-hanji hover:bg-hanji-deep text-muk text-sm font-medium transition-colors"
-              >
-                <Edit2 size={14} />
-                <span>{t('mypage.editProfile')}</span>
-              </button>
-            </div>
-
-            {/* AI 취향 프로필 — 8차원 선호 벡터 레이더 시각화 (관광객용 친화 시각화).
-                과거 개발자용 원시 float 배열 카드는 제거하고 TasteRadar 만 남긴다. */}
-            <TasteRadar />
-
-            {/* 통계 — 실제 소스가 있는 '저장한 장소'만 표시(가짜 경로수·평점 제거). */}
-            <div className="mb-6 mt-4">
-              <div className="bg-white border border-line rounded-2xl p-4 flex items-center justify-center gap-3 shadow-[0_2px_14px_rgba(43,35,32,0.06)]">
-                <Bookmark size={20} className="text-terracotta" fill="currentColor" />
-                <span className="text-xl font-bold text-muk">{profile.saved}</span>
-                <span className="text-xs text-muk-soft font-medium">{t('mypage.statSaved')}</span>
+              {/* 오른쪽 열 — AI 취향 프로필(8차원 선호 벡터 레이더). 과거 개발자용 float 배열 카드는 제거. */}
+              <div className="min-w-0">
+                <TasteRadar />
               </div>
             </div>
 
@@ -272,7 +277,7 @@ export default function MyPage() {
               {/* 기타 메뉴 */}
               {(() => {
                 const menus = [
-                  { id: 'course', icon: Route, labelKey: 'mypage.menuCourse', path: '/course' },
+                  // 분산 코스 추천은 주 내비게이션 바로 승격됨(홈-저장-분산코스-마이).
                   { id: 'coupons', icon: Ticket, labelKey: 'mypage.menuCoupons', path: '/mypage/coupons' },
                   { id: 'settings', icon: SettingsIcon, labelKey: 'mypage.menuSettings', path: '/mypage/settings' },
                 ];

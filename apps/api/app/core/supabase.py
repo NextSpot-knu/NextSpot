@@ -1,6 +1,10 @@
 import hmac
+from typing import Optional
+
 # pyrefly: ignore [missing-import]
 import jwt
+# pyrefly: ignore [missing-import]
+from jwt import PyJWKClient
 import structlog
 from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -9,6 +13,19 @@ from supabase import create_client, Client
 from app.core.config import settings
 
 _logger = structlog.get_logger()
+
+# Supabase 는 신규 프로젝트에서 GoTrue JWT 를 비대칭키(ES256/RS256, JWKS)로 서명한다.
+# (익명 로그인 토큰도 동일.) HS256 legacy 시크릿으로는 검증 불가하므로 JWKS 공개키로 검증한다.
+# JWKS 엔드포인트: {SUPABASE_URL}/auth/v1/.well-known/jwks.json — 공개키라 캐시 재사용(lazy 싱글턴).
+_jwks_client: Optional[PyJWKClient] = None
+
+
+def _get_jwks_client() -> PyJWKClient:
+    global _jwks_client
+    if _jwks_client is None:
+        base = (settings.SUPABASE_URL or "").rstrip("/")
+        _jwks_client = PyJWKClient(f"{base}/auth/v1/.well-known/jwks.json")
+    return _jwks_client
 
 
 def _create_client(url: str, key: str, *, role: str) -> Client:
@@ -64,15 +81,16 @@ def get_current_user(
         )
 
     try:
-        # Supabase JWT 디코딩 검증 (Gotrue JWT secret 사용)
-        # Supabase는 기본적으로 HS256 알고리즘 사용
-        payload = jwt.decode(
-            token,
-            settings.JWT_SECRET,
-            algorithms=["HS256"],
-            audience="authenticated"
-        )
-        
+        # 서명 알고리즘에 따라 검증 키를 고른다:
+        #  · ES/RS/PS/EdDSA(비대칭) → Supabase JWKS 공개키(신규 프로젝트·익명 로그인 기본)
+        #  · HS256(대칭, legacy) → JWT_SECRET (구 프로젝트/셀프호스트 호환)
+        alg = str(jwt.get_unverified_header(token).get("alg", "")).upper()
+        if alg.startswith(("ES", "RS", "PS", "ED")):
+            signing_key = _get_jwks_client().get_signing_key_from_jwt(token).key
+            payload = jwt.decode(token, signing_key, algorithms=[alg], audience="authenticated")
+        else:
+            payload = jwt.decode(token, settings.JWT_SECRET, algorithms=["HS256"], audience="authenticated")
+
         # payload에서 유저 UUID 추출 (Supabase JWT는 sub 필드가 user_id)
         user_id = payload.get("sub")
         if not user_id:
@@ -80,23 +98,24 @@ def get_current_user(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="JWT 토큰에 sub(user_id) 필드가 존재하지 않습니다.",
             )
-            
+
         return {
             "id": user_id,
             "email": payload.get("email"),
             "role": payload.get("role"),
             "payload": payload
         }
-        
+
+    except HTTPException:
+        raise
     except jwt.ExpiredSignatureError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="만료된 JWT 토큰입니다.",
         )
-    except jwt.PyJWTError as e:
-        # InvalidTokenError 뿐 아니라 InvalidKeyError(빈 JWT_SECRET 시 'HMAC key must not be empty')도 포섭.
-        # (좁게 InvalidTokenError 만 잡으면 빈 시크릿이 미처리 예외→500 으로 새어나간다.)
-        # 검증 실패 원문은 서버 로그로만 — 클라이언트에 라이브러리 내부 메시지를 노출하지 않는다.
+    except Exception as e:
+        # PyJWTError(서명·클레임 불일치)뿐 아니라 JWKS 조회 네트워크 오류(URLError 등)도 포섭해
+        # 인증 실패로 닫는다(fail-closed). 원문은 서버 로그로만 — 라이브러리 내부 메시지 비노출.
         _logger.warning("jwt_verification_failed", error=str(e))
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

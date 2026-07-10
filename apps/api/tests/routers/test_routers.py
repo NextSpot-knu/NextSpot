@@ -224,10 +224,21 @@ def test_recommend_by_type_happy_path(auth_client):
 
 def test_feedback_ownership_guard(auth_client):
     # 타인 user_id 의 추천 기록에 피드백 → 403 (선호벡터 오염 차단)
-    other_rec = [{"id": "rec-9", "user_id": "other-user", "recommended_facility_id": "f-1"}]
+    # recommendation_id 는 실제로 uuid 컬럼이므로 유효 UUID 를 쓴다(비-UUID 는 형식 가드로 404 처리).
+    rec_id = "99999999-9999-4999-8999-999999999999"
+    other_rec = [{"id": rec_id, "user_id": "other-user", "recommended_facility_id": "f-1"}]
     with patch("app.routers.recommendations.supabase_client", new=FakeSupabase({"recommendations": other_rec})):
-        res = auth_client.post("/api/v1/feedback", json={"recommendation_id": "rec-9", "action": "accepted"})
+        res = auth_client.post("/api/v1/feedback", json={"recommendation_id": rec_id, "action": "accepted"})
     assert res.status_code == 403
+
+
+def test_feedback_synthetic_bytype_id_404(auth_client):
+    # by-type 브라우즈 랭킹의 합성 id("bytype-…", DB 미저장·비-UUID)는 uuid 캐스팅 500 대신 깔끔한 404.
+    res = auth_client.post(
+        "/api/v1/feedback",
+        json={"recommendation_id": "bytype-f1000000-0000-0000-0000-000000000001", "action": "accepted"},
+    )
+    assert res.status_code == 404
 
 
 def test_feedback_invalid_action_422(auth_client):

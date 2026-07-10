@@ -1,7 +1,7 @@
 'use client';
 
 import { usePathname, useRouter } from 'next/navigation';
-import { Home, Bookmark, User } from 'lucide-react';
+import { Home, Bookmark, Route, User } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { useT } from '@/lib/i18n/I18nProvider';
 
@@ -28,12 +28,14 @@ export default function BottomNav() {
   const tabs = [
     { id: 'Home', icon: Home, label: t('nav.home'), path: '/main' },
     { id: 'Saved', icon: Bookmark, label: t('nav.saved'), path: '/saved' },
+    { id: 'Course', icon: Route, label: t('nav.course'), path: '/course' },
     { id: 'MyPage', icon: User, label: t('nav.mypage'), path: '/mypage' }
   ];
 
   const getActiveTab = () => {
     if (optimisticTab) return optimisticTab;
     if (pathname.includes('/saved')) return 'Saved';
+    if (pathname.includes('/course')) return 'Course';
     if (pathname.includes('/mypage')) return 'MyPage';
     return 'Home'; // default
   };
@@ -99,10 +101,10 @@ export default function BottomNav() {
         className="md:hidden fixed bottom-0 left-0 w-full z-40 bg-white/90 backdrop-blur-xl border-t border-line shadow-[0_-2px_14px_rgba(43,35,32,0.06)] px-6 py-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))]"
       >
         <div className="relative flex justify-around items-center w-full">
-          {/* 활성 탭 가로 슬라이딩 인디케이터 */}
+          {/* 활성 탭 가로 슬라이딩 인디케이터 — 탭 수 기반 일반화(중심 = (idx+0.5)/N). */}
           <div
             className="absolute top-0 h-12 w-14 bg-gold/15 rounded-2xl transition-all duration-300 ease-[cubic-bezier(0.2,0,0,1)] pointer-events-none"
-            style={{ left: `calc(${(activeIndex * 33.333) + 16.666}% - 1.75rem)` }}
+            style={{ left: `calc(${(activeIndex + 0.5) * (100 / tabs.length)}% - 1.75rem)` }}
           />
           {tabs.map((tab) => {
             const Icon = tab.icon;
