@@ -279,32 +279,32 @@ export default function SavedPage() {
 
                         {/* 이동 시간 라벨 */}
                         <div className="absolute top-[-10px] left-[25%] -translate-x-1/2 z-10">
-                          <span className="text-[9px] font-medium text-jade bg-hanji px-1.5 py-0.5 rounded border border-jade/25">{t('saved.travelLabel', { n: travelMins })}</span>
+                          <span className="text-[10px] font-medium text-jade bg-hanji px-1.5 py-0.5 rounded border border-jade/25">{t('saved.travelLabel', { n: travelMins })}</span>
                         </div>
                         {/* 대기 시간 라벨 */}
                         <div className="absolute top-[-10px] left-[75%] -translate-x-1/2 z-10">
-                          <span className="text-[9px] font-medium text-gold bg-hanji px-1.5 py-0.5 rounded border border-gold/25">{t('saved.waitLabel', { n: waitMins })}</span>
+                          <span className="text-[10px] font-medium text-gold bg-hanji px-1.5 py-0.5 rounded border border-gold/25">{t('saved.waitLabel', { n: waitMins })}</span>
                         </div>
 
                         {/* 출발 시점 */}
                         <div className="flex flex-col items-center z-10 w-12">
                           <div className="w-2 h-2 rounded-full bg-muk ring-4 ring-hanji mb-1.5" />
                           <span className="text-[10px] text-muk font-bold">{formatTime(currentTime)}</span>
-                          <span className="text-[9px] text-muk-soft mt-0.5">{t('saved.depart')}</span>
+                          <span className="text-[10px] text-muk-soft mt-0.5">{t('saved.depart')}</span>
                         </div>
 
                         {/* 도착 시점 */}
                         <div className="flex flex-col items-center z-10 w-12">
                           <div className="w-2 h-2 rounded-full bg-jade ring-4 ring-hanji mb-1.5" />
                           <span className="text-[10px] text-muk font-bold">{formatTime(arrivalTime)}</span>
-                          <span className="text-[9px] text-muk-soft mt-0.5">{t('saved.arrive')}</span>
+                          <span className="text-[10px] text-muk-soft mt-0.5">{t('saved.arrive')}</span>
                         </div>
 
                         {/* 이용 시작 시점 */}
                         <div className="flex flex-col items-center z-10 w-12">
                           <div className="w-2 h-2 rounded-full bg-gold ring-4 ring-hanji mb-1.5" />
                           <span className="text-[10px] text-muk font-bold">{formatTime(serviceTime)}</span>
-                          <span className="text-[9px] text-muk-soft mt-0.5">{bookmark.category === '음식점' || bookmark.category === '카페' ? t('saved.dine') : t('saved.view')}</span>
+                          <span className="text-[10px] text-muk-soft mt-0.5">{bookmark.category === '음식점' || bookmark.category === '카페' ? t('saved.dine') : t('saved.view')}</span>
                         </div>
                       </div>
                     </div>

@@ -72,7 +72,7 @@ export default function VoiceAssistantOrb({
               : "음성으로 응답할 수 있어요."}
           </p>
           {!sttSupported && (
-            <p className="text-[9px] text-amber-300/90 mt-1">음성 응답 미지원 — 카드 버튼으로 응답해 주세요</p>
+            <p className="text-[10px] text-amber-300/90 mt-1">음성 응답 미지원 — 카드 버튼으로 응답해 주세요</p>
           )}
         </div>
       )}

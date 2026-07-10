@@ -305,7 +305,7 @@ export function RecommendationCard({
             <div
               className="flex flex-col items-center justify-center min-w-[60px] h-[60px] rounded-2xl border border-gold/40 bg-gradient-to-b from-gold/20 to-gold/5 cursor-pointer shadow-sm"
             >
-              <span className="text-[9px] text-gold-deep font-bold mb-0.5">{t('card.spotScoreLabel')}</span>
+              <span className="text-[10px] text-gold-deep font-bold mb-0.5">{t('card.spotScoreLabel')}</span>
               <span className="text-muk font-black text-xl leading-none">{Math.round(spotScore || 0)}<span className="text-[10px] font-normal text-muk-soft ml-0.5">{t('card.pointSuffix')}</span></span>
             </div>
             
@@ -334,7 +334,7 @@ export function RecommendationCard({
           matchPercentage !== undefined && (
             <div className="flex flex-col items-center justify-center min-w-[60px] h-[60px] rounded-2xl border border-gold/30 bg-gold/10 shadow-sm">
               <span className="text-muk font-black text-lg">{matchPercentage}%</span>
-              <span className="text-[9px] text-gold-deep font-semibold mt-0.5">{t('card.match')}</span>
+              <span className="text-[10px] text-gold-deep font-semibold mt-0.5">{t('card.match')}</span>
             </div>
           )
         )}
@@ -357,7 +357,7 @@ export function RecommendationCard({
                     <span className="text-2xl font-black text-muk">{timeToService}</span>
                     <span className="text-xs text-muk-soft font-medium">{t('card.minute')}</span>
                   </div>
-                  <div className="flex items-center gap-2 text-[9px] text-muk-soft font-medium">
+                  <div className="flex items-center gap-2 text-[10px] text-muk-soft font-medium">
                     <span className="bg-gold/15 px-1.5 py-0.5 rounded text-gold-deep">{t('card.wait', { n: expectedWait ?? 0 })}</span>
                     <span className="text-muk-soft/60">+</span>
                     <span className="bg-jade/15 px-1.5 py-0.5 rounded text-jade">{t('card.travel', { n: expectedTravel ?? 0 })}</span>
@@ -371,7 +371,7 @@ export function RecommendationCard({
                     <span className="text-xl font-black text-jade">{preferencePercent}</span>
                     <span className="text-xs text-jade/80 font-bold">%</span>
                   </div>
-                  <span className="text-[9px] text-muk-soft mt-0.5 line-clamp-2">{t('card.prefBasis')}</span>
+                  <span className="text-[10px] text-muk-soft mt-0.5 line-clamp-2">{t('card.prefBasis')}</span>
                 </div>
               </div>
 
@@ -384,32 +384,32 @@ export function RecommendationCard({
 
                     {/* Travel Duration Label */}
                     <div className="absolute top-[-10px] left-[25%] -translate-x-1/2 z-10">
-                      <span className="text-[9px] font-medium text-jade bg-hanji-deep px-1.5 py-0.5 rounded border border-jade/25">{t('card.travel', { n: travelMins })}</span>
+                      <span className="text-[10px] font-medium text-jade bg-hanji-deep px-1.5 py-0.5 rounded border border-jade/25">{t('card.travel', { n: travelMins })}</span>
                     </div>
                     {/* Wait Duration Label */}
                     <div className="absolute top-[-10px] left-[75%] -translate-x-1/2 z-10">
-                      <span className="text-[9px] font-medium text-gold-deep bg-hanji-deep px-1.5 py-0.5 rounded border border-gold/25">{t('card.wait', { n: waitMins })}</span>
+                      <span className="text-[10px] font-medium text-gold-deep bg-hanji-deep px-1.5 py-0.5 rounded border border-gold/25">{t('card.wait', { n: waitMins })}</span>
                     </div>
 
                     {/* Current Time Step */}
                     <div className="flex flex-col items-center z-10 w-12">
                       <div className="w-2 h-2 rounded-full bg-gold ring-4 ring-hanji-deep mb-1.5" />
                       <span className="text-[10px] text-muk font-bold">{formatTime(currentTime)}</span>
-                      <span className="text-[9px] text-muk-soft mt-0.5">{t('card.depart')}</span>
+                      <span className="text-[10px] text-muk-soft mt-0.5">{t('card.depart')}</span>
                     </div>
 
                     {/* Arrival Time Step */}
                     <div className="flex flex-col items-center z-10 w-12">
                       <div className="w-2 h-2 rounded-full bg-jade ring-4 ring-hanji-deep mb-1.5" />
                       <span className="text-[10px] text-muk font-bold">{formatTime(arrivalTime)}</span>
-                      <span className="text-[9px] text-muk-soft mt-0.5">{t('card.arrive')}</span>
+                      <span className="text-[10px] text-muk-soft mt-0.5">{t('card.arrive')}</span>
                     </div>
 
                     {/* Service Start Step */}
                     <div className="flex flex-col items-center z-10 w-12">
                       <div className="w-2 h-2 rounded-full bg-gold ring-4 ring-hanji-deep mb-1.5" />
                       <span className="text-[10px] text-muk font-bold">{formatTime(serviceTime)}</span>
-                      <span className="text-[9px] text-muk-soft mt-0.5">{facilityType === 'restaurant' || facilityType === 'cafe' ? t('card.dine') : t('card.view')}</span>
+                      <span className="text-[10px] text-muk-soft mt-0.5">{facilityType === 'restaurant' || facilityType === 'cafe' ? t('card.dine') : t('card.view')}</span>
                     </div>
                   </div>
                 </div>
@@ -470,7 +470,7 @@ export function RecommendationCard({
             <div className="flex items-start gap-2">
               <MapPin size={14} className="text-muk-soft mt-0.5 flex-shrink-0" />
               <div>
-                <span className="text-muk-soft block text-[9px] font-bold">{t('card.address')}</span>
+                <span className="text-muk-soft block text-[10px] font-bold">{t('card.address')}</span>
                 <span className="text-muk leading-relaxed">{placeInfo.address}</span>
               </div>
             </div>
@@ -481,7 +481,7 @@ export function RecommendationCard({
             <div className="flex items-start gap-2">
               <Phone size={14} className="text-muk-soft mt-0.5 flex-shrink-0" />
               <div>
-                <span className="text-muk-soft block text-[9px] font-bold">{t('card.phone')}</span>
+                <span className="text-muk-soft block text-[10px] font-bold">{t('card.phone')}</span>
                 <span className="text-muk">{placeInfo.phone}</span>
               </div>
             </div>
@@ -492,7 +492,7 @@ export function RecommendationCard({
             <div className="flex items-start gap-2">
               <Clock size={14} className="text-muk-soft mt-0.5 flex-shrink-0" />
               <div>
-                <span className="text-muk-soft block text-[9px] font-bold">{t('card.hours')}</span>
+                <span className="text-muk-soft block text-[10px] font-bold">{t('card.hours')}</span>
                 <span className="text-muk">
                   {facility.operatingHours.open} ~ {facility.operatingHours.close}
                   {facility.operatingHours.weekday && ` (${facility.operatingHours.weekday})`}
@@ -531,7 +531,7 @@ export function RecommendationCard({
                 })}
               </div>
               {/* 시각 축(0·6·12·18·23시) — 대략 위치만 안내하는 경량 눈금 */}
-              <div className="flex justify-between mt-1 text-[8px] text-muk-soft/70 font-medium" aria-hidden="true">
+              <div className="flex justify-between mt-1 text-[10px] text-muk-soft/70 font-medium" aria-hidden="true">
                 <span>{t('card.oClock', { h: 0 })}</span>
                 <span>{t('card.oClock', { h: 6 })}</span>
                 <span>{t('card.oClock', { h: 12 })}</span>

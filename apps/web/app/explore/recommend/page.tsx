@@ -85,7 +85,7 @@ const MiniMap = React.memo(({ latitude, longitude, mapLoaded }: MiniMapProps) =>
         <span className="relative z-10 text-lg" aria-hidden="true">📍</span>
         <div className="relative z-10 text-center leading-tight">
           <div className="text-[11px] font-semibold text-muk">{t("recommend.mapPreviewRegion")}</div>
-          <div className="text-[9px] text-muk-soft mt-0.5">{t("recommend.mapPreviewLabel")}</div>
+          <div className="text-[10px] text-muk-soft mt-0.5">{t("recommend.mapPreviewLabel")}</div>
         </div>
       </div>
     );
@@ -1263,15 +1263,15 @@ function RecommendContent() {
                   {/* SPOT Breakdown Indicators */}
                   <div className="grid grid-cols-3 gap-2 py-2 border-t border-b border-line my-3 text-[11px] text-muk-soft">
                     <div className="text-center">
-                      <span className="text-muk-soft block text-[9px]">{t("recommend.prefMatch")}</span>
+                      <span className="text-muk-soft block text-[10px]">{t("recommend.prefMatch")}</span>
                       <span className="font-bold text-jade">{preferencePct}%</span>
                     </div>
                     <div className="text-center border-l border-r border-line">
-                      <span className="text-muk-soft block text-[9px]">{t("recommend.expectedWait")}</span>
+                      <span className="text-muk-soft block text-[10px]">{t("recommend.expectedWait")}</span>
                       <span className="font-bold text-gold-deep">{t("recommend.minutesValue", { n: waitTime })}</span>
                     </div>
                     <div className="text-center">
-                      <span className="text-muk-soft block text-[9px]">{t("recommend.expectedWalk")}</span>
+                      <span className="text-muk-soft block text-[10px]">{t("recommend.expectedWalk")}</span>
                       <span className="font-bold text-jade">{t("recommend.walkValue", { n: travelTime, dist: Math.round(rec.distanceM) })}</span>
                     </div>
                   </div>
@@ -1378,9 +1378,9 @@ function RecommendContent() {
                   ? spokenCaption || t("recommend.speakingDefault")
                   : t("recommend.canRespondByVoice")}
               </p>
-              <p className="text-[9px] text-muk-soft mt-1">{t("recommend.voiceHint")}</p>
+              <p className="text-[10px] text-muk-soft mt-1">{t("recommend.voiceHint")}</p>
               {!sttSupported && (
-                <p className="text-[9px] text-gold-deep mt-1">{t("recommend.sttUnsupportedHint")}</p>
+                <p className="text-[10px] text-gold-deep mt-1">{t("recommend.sttUnsupportedHint")}</p>
               )}
             </div>
           )}
