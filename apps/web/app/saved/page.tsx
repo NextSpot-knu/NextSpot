@@ -143,7 +143,7 @@ export default function SavedPage() {
       </header>
 
       {/* Main Content Area */}
-      <main className="flex-1 flex flex-col relative z-10 p-6 overflow-y-auto pb-[120px] md:pb-6">
+      <main className="flex-1 flex flex-col relative z-10 p-6 overflow-y-auto pb-[calc(80px+env(safe-area-inset-bottom))] md:pb-6">
         {isLoading ? (
           // 저장 카드 형태의 스켈레톤(스피너 대체) — 실제 목록 레이아웃을 미리 암시한다.
           <div className="flex flex-col gap-4" aria-hidden>
@@ -249,7 +249,7 @@ export default function SavedPage() {
                       type="button"
                       aria-label={t('saved.deleteAria', { name: bookmark.name })}
                       onClick={(e) => handleDelete(bookmark.id, e)}
-                      className="p-1.5 rounded-lg bg-terracotta/10 text-terracotta hover:bg-terracotta/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-terracotta/60 md:hidden flex"
+                      className="p-2.5 rounded-lg bg-terracotta/10 text-terracotta hover:bg-terracotta/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-terracotta/60 md:hidden flex"
                     >
                       <Trash2 size={16} />
                     </button>
@@ -318,7 +318,7 @@ export default function SavedPage() {
 
       {/* Selected Item Detail Bottom Sheet (RecommendationCard) */}
       {selectedBookmark && (
-        <div className="absolute bottom-[90px] w-full z-20 px-4 animate-slide-up">
+        <div className="absolute bottom-[calc(80px+env(safe-area-inset-bottom))] w-full z-20 px-4 animate-slide-up">
           <RecommendationCard
             title={selectedBookmark.name}
             matchPercentage={100}

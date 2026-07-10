@@ -99,7 +99,7 @@ export default function CouponsPage() {
       </header>
 
       {/* Main Content */}
-      <main className="flex-1 flex flex-col relative z-10 px-6 overflow-y-auto pb-[120px] md:pb-6 no-scrollbar">
+      <main className="flex-1 flex flex-col relative z-10 px-6 overflow-y-auto pb-[calc(80px+env(safe-area-inset-bottom))] md:pb-6 no-scrollbar">
         {isLoading ? (
           // 티켓 카드 형태의 스켈레톤(스피너 대체) — 좌측 할인 스텁 + 우측 정보 레이아웃을 암시한다.
           <div className="flex flex-col gap-4 mt-2" aria-hidden>

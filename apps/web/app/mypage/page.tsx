@@ -157,7 +157,7 @@ export default function MyPage() {
       </header>
 
       {/* Main Content Area */}
-      <main className="flex-1 flex flex-col relative z-10 px-6 overflow-y-auto pb-[120px] md:pb-6 no-scrollbar">
+      <main className="flex-1 flex flex-col relative z-10 px-6 overflow-y-auto pb-[calc(80px+env(safe-area-inset-bottom))] md:pb-6 no-scrollbar">
         {isLoading || !profile ? (
           // 프로필 블록 + 취향 레이더 + 통계 형태의 스켈레톤(스피너 대체) — 실제 레이아웃을 암시한다.
           <div className="flex flex-col mt-4" aria-hidden>

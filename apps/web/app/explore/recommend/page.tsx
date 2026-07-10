@@ -1135,7 +1135,7 @@ function RecommendContent() {
   ];
 
   return (
-    <main className="min-h-screen bg-hanji text-muk p-4 md:p-8 flex flex-col justify-between items-center relative overflow-hidden">
+    <main className="min-h-screen bg-hanji text-muk p-4 md:p-8 max-md:pb-[calc(80px+env(safe-area-inset-bottom))] flex flex-col justify-between items-center relative overflow-hidden">
       {/* 배경 은은한 노을·금빛 광원 (콜드 blue/purple 글로우 대체) */}
       <div className="absolute top-[-20%] left-[-10%] w-[600px] h-[600px] rounded-full bg-sunset-1/10 blur-[120px] pointer-events-none" />
       <div className="absolute bottom-[-10%] right-[-10%] w-[600px] h-[600px] rounded-full bg-gold/10 blur-[120px] pointer-events-none" />

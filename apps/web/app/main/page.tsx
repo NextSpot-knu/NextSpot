@@ -1213,7 +1213,7 @@ export default function MainPage() {
                     sessionStorage.setItem('nextspot_active_filter', filter.id);
                   }
                 }}
-                className={`flex shrink-0 items-center whitespace-nowrap rounded-full border px-3 py-1.5 transition-all fractal-glass shadow-[0_2px_14px_rgba(43,35,32,0.06)] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 sm:px-4 sm:py-2 ${
+                className={`flex shrink-0 items-center whitespace-nowrap rounded-full border px-3.5 py-2 transition-all fractal-glass shadow-[0_2px_14px_rgba(43,35,32,0.06)] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 sm:px-4 sm:py-2 ${
                   isActive
                     ? 'bg-gold/15 border-gold text-muk'
                     : 'bg-white/80 border-line text-muk-soft hover:bg-white hover:text-muk'
@@ -1235,7 +1235,7 @@ export default function MainPage() {
             type="button"
             onClick={() => setShowHeatmap((prev) => !prev)}
             aria-pressed={showHeatmap}
-            className={`flex shrink-0 items-center gap-2 rounded-full border px-3 py-1.5 text-[13px] font-medium transition-all fractal-glass shadow-[0_2px_14px_rgba(43,35,32,0.06)] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 sm:px-4 sm:py-2 sm:text-sm ${
+            className={`flex shrink-0 items-center gap-2 rounded-full border px-3.5 py-2 text-[13px] font-medium transition-all fractal-glass shadow-[0_2px_14px_rgba(43,35,32,0.06)] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 sm:px-4 sm:py-2 sm:text-sm ${
               showHeatmap
                 ? 'bg-terracotta/15 border-terracotta text-muk'
                 : 'bg-white/80 border-line text-muk-soft hover:bg-white hover:text-muk'
@@ -1250,7 +1250,7 @@ export default function MainPage() {
             type="button"
             onClick={() => setShowBarrierFree((prev) => !prev)}
             aria-pressed={showBarrierFree}
-            className={`flex shrink-0 items-center gap-2 rounded-full border px-3 py-1.5 text-[13px] font-medium transition-all fractal-glass shadow-[0_2px_14px_rgba(43,35,32,0.06)] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 sm:px-4 sm:py-2 sm:text-sm ${
+            className={`flex shrink-0 items-center gap-2 rounded-full border px-3.5 py-2 text-[13px] font-medium transition-all fractal-glass shadow-[0_2px_14px_rgba(43,35,32,0.06)] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 sm:px-4 sm:py-2 sm:text-sm ${
               showBarrierFree
                 ? 'bg-jade/15 border-jade text-muk'
                 : 'bg-white/80 border-line text-muk-soft hover:bg-white hover:text-muk'
@@ -1359,7 +1359,7 @@ export default function MainPage() {
           // 사유: 자동 추천된 실 시설은 백엔드 Gemini 사유, 마커 직접 클릭/데모는 미러 사유로 폴백
           const reason = selectedFacility.reason || ""; // 백엔드 Gemini 사유만(하드코딩 제거)
           return (
-            <div className="absolute bottom-[90px] w-full z-20 px-4 transition-all duration-300">
+            <div className="absolute bottom-[calc(80px+env(safe-area-inset-bottom))] w-full z-20 px-4 transition-all duration-300">
               {voice.ttsSupported && (
                 <div className="flex justify-end mb-2 pr-1">
                   <VoiceAssistantOrb
@@ -1405,7 +1405,7 @@ export default function MainPage() {
 
       {/* (b) 현재 카테고리 추천 후보 0건 — 카드가 조용히 사라지는 대신 안내 표시 */}
       {!isLoadingFacilities && !facilitiesLoadError && facilities.length > 0 && !selectedFacility && noRecommendation && (
-        <div className="absolute bottom-[90px] w-full z-20 px-4">
+        <div className="absolute bottom-[calc(80px+env(safe-area-inset-bottom))] w-full z-20 px-4">
           <div className="bg-white border border-line rounded-2xl px-5 py-4 shadow-[0_2px_14px_rgba(43,35,32,0.06)] flex flex-col items-center gap-1.5 text-center">
             <span className="text-xl">🧭</span>
             <p className="text-muk text-sm font-semibold">{t('map.noRecTitle')}</p>

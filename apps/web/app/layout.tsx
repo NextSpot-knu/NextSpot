@@ -25,6 +25,8 @@ export const metadata: Metadata = {
 export const viewport = {
   // 경주 관광 톤 — 한지 아이보리(관광객 라이트 방향). 브라우저/PWA 상태바 색.
   themeColor: "#faf5ec",
+  // 노치/홈 인디케이터 안전영역 활성화 — 하단 내비·플로팅 카드의 env(safe-area-inset-*) 가 실제로 동작한다.
+  viewportFit: "cover" as const,
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
