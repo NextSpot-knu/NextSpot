@@ -96,13 +96,13 @@ export default function BottomNav() {
       {/* ── 모바일: 하단 가로 바 (fixed 오버레이) ── */}
       <nav
         aria-label="주요 내비게이션"
-        className="md:hidden fixed bottom-0 left-0 w-full z-40 bg-white/90 backdrop-blur-xl border-t border-line shadow-[0_-2px_14px_rgba(43,35,32,0.06)] px-6 py-4 pb-[calc(1rem+env(safe-area-inset-bottom))]"
+        className="md:hidden fixed bottom-0 left-0 w-full z-40 bg-white/90 backdrop-blur-xl border-t border-line shadow-[0_-2px_14px_rgba(43,35,32,0.06)] px-6 py-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))]"
       >
         <div className="relative flex justify-around items-center w-full">
           {/* 활성 탭 가로 슬라이딩 인디케이터 */}
           <div
-            className="absolute top-0 h-16 w-16 bg-gold/15 rounded-2xl transition-all duration-300 ease-[cubic-bezier(0.2,0,0,1)] pointer-events-none"
-            style={{ left: `calc(${(activeIndex * 33.333) + 16.666}% - 2rem)` }}
+            className="absolute top-0 h-12 w-14 bg-gold/15 rounded-2xl transition-all duration-300 ease-[cubic-bezier(0.2,0,0,1)] pointer-events-none"
+            style={{ left: `calc(${(activeIndex * 33.333) + 16.666}% - 1.75rem)` }}
           />
           {tabs.map((tab) => {
             const Icon = tab.icon;
@@ -112,14 +112,14 @@ export default function BottomNav() {
                 key={tab.id}
                 onClick={() => handleTabClick(tab)}
                 aria-current={isActive ? 'page' : undefined}
-                className={`relative z-10 flex flex-col items-center justify-center transition-colors w-16 h-16 ${
+                className={`relative z-10 flex flex-col items-center justify-center transition-colors w-14 h-12 ${
                   isActive ? 'text-gold-deep' : 'text-muk-soft hover:text-muk'
                 }`}
               >
-                <div className="mb-1 transition-transform duration-300 ease-out hover:scale-110">
-                  <Icon size={24} className={isActive ? 'text-gold-deep' : 'text-muk-soft'} />
+                <div className="mb-0.5 transition-transform duration-300 ease-out hover:scale-110">
+                  <Icon size={22} className={isActive ? 'text-gold-deep' : 'text-muk-soft'} />
                 </div>
-                <span className={`text-xs font-medium ${isActive ? 'text-gold-deep' : ''}`}>
+                <span className={`text-[11px] font-medium ${isActive ? 'text-gold-deep' : ''}`}>
                   {tab.label}
                 </span>
               </button>
