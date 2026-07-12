@@ -185,6 +185,8 @@ export default function CourseMap({ stops, userLocation }: CourseMapProps) {
     // 중심 이동 + 고정 레벨로 대체한다.
     if (path.length > 0) {
       map.setBounds(bounds, 80, 40, 40, 40);
+      // 정류지 1곳이 사용자 위치와 수십 m 거리면 bounds 가 손톱만해져 지나치게 확대된다 → 레벨 하한.
+      if (map.getLevel() < 3) map.setLevel(3);
     } else {
       map.setCenter(userPos);
       map.setLevel(6);
@@ -204,7 +206,33 @@ export default function CourseMap({ stops, userLocation }: CourseMapProps) {
     };
   }, []);
 
-  if (unavailable) return null;
+  // 4) 늦은 SDK 자동 복구 — 느린 네트워크에서 3초 타임아웃 직후 SDK 가 로드되는 경계 케이스를 구제한다.
+  //    unavailable 이 풀리면 폴링 effect([unavailable] 의존)가 다시 돌며 지도를 초기화한다.
+  //    복구는 컴포넌트 수명당 3회 상한 — 초기화가 '항상 throw' 하는 병리적 환경에서
+  //    복구→재실패 플립플롭이 무한 반복되지 않게(카운터는 ref: effect 재장전 시 리셋 방지).
+  const recoverAttemptsRef = useRef(0);
+  useEffect(() => {
+    if (!unavailable || recoverAttemptsRef.current >= 3) return;
+    const retry = setInterval(() => {
+      if (typeof window !== 'undefined' && window.kakao && window.kakao.maps) {
+        recoverAttemptsRef.current += 1;
+        clearInterval(retry);
+        setUnavailable(false);
+      }
+    }, 5000);
+    return () => clearInterval(retry);
+  }, [unavailable]);
+
+  // SDK 부재(키 미설정 등) 폴백 — null 로 접으면 위에 절대배치된 뒤로가기/공유 플로팅 버튼이
+  // 바텀시트 헤더 위로 겹쳐 올라오므로, 낮은 장식 영역을 유지해 버튼의 자리를 보존한다.
+  if (unavailable) {
+    return (
+      <div
+        className="h-[22dvh] w-full bg-gradient-to-b from-hanji-deep/70 via-hanji-deep/40 to-hanji"
+        aria-hidden
+      />
+    );
+  }
 
   return (
     <div

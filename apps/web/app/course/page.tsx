@@ -6,7 +6,7 @@
 // 이 페이지는 세션/위치를 얻어 호출하고, 결과를 지도 위 번호 마커 + 시트 목록으로 그린다.
 // 정적 export(SSR) 안전: 모든 브라우저 API 접근은 useEffect/핸들러 내부에 둔다.
 
-import { useState, useEffect, useCallback, useMemo, Suspense } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef, Suspense } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Reorder } from "framer-motion";
@@ -99,7 +99,14 @@ function CourseContent() {
   // 공유 딥링크(?s=) 감지 — 있으면 '공유 모드'(읽기 전용, 순서 피커/종류 필터 숨김, 새 추천 호출 없음).
   // parseShareParam 은 깨진 조각을 걸러내므로, s 가 있어도 유효한 정류지가 하나도 없으면 일반 모드로 처리.
   const shareParam = searchParams.get("s");
-  const parsedShare = useMemo(() => parseShareParam(shareParam), [shareParam]);
+  const parsed = useMemo(() => parseShareParam(shareParam), [shareParam]);
+  const parsedShare = parsed.stops;
+  // 공유 후 경과 분 — 링크에 실린 공유 시각으로 계산(옛 포맷/미상은 0 취급). 도착 오프셋 보정과
+  // 배너의 '{n}분 전 공유됨' 표기에 쓴다(오래된 링크가 방금 계산된 것처럼 보이는 왜곡 방지).
+  const sharedElapsedMin = useMemo(() => {
+    if (parsed.sharedAtMin == null) return 0;
+    return Math.max(0, Math.floor(Date.now() / 60_000) - parsed.sharedAtMin);
+  }, [parsed.sharedAtMin]);
   const isShareMode = parsedShare.length > 0;
 
   const [userId, setUserId] = useState<string | null>(null);
@@ -116,6 +123,10 @@ function CourseContent() {
   const [needsAuth, setNeedsAuth] = useState(false);
   // 결과 뷰: 'cards'(정보 행 목록, 기본) | 'gantt'(시간축 간트차트)
   const [viewMode, setViewMode] = useState<"cards" | "gantt">("cards");
+  // 최초 로드 완료 여부 — 전면 스켈레톤은 '첫 로드'에만 쓴다. 이후 재조회(칩 탭·드래그·위치 갱신)는
+  // 페이지를 유지한 채 결과 영역만 흐리게(인라인 갱신) 표시한다. 전면 교체하면 순서 피커가
+  // 언마운트되어 드래그가 끊기고(폼-리셋 감각), 지도도 매번 재초기화되어 깜빡인다.
+  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
 
   // 공유 모드 전용 상태 — facilities 조회로 복원한 정류지(이름/좌표는 조회 시점 최신, 오프셋/혼잡은
   // 공유 시점 스냅샷). sharedLoading 초기값은 공유 모드일 때만 true 로 시작해 첫 프레임 빈 상태 깜빡임을 막는다.
@@ -123,16 +134,28 @@ function CourseContent() {
   const [sharedLoading, setSharedLoading] = useState<boolean>(() => isShareMode);
   const [sharedError, setSharedError] = useState<string | null>(null);
 
-  // 1) 세션(사용자 ID) — SessionBootstrap 익명 세션이 잡히면 실제 per-device id, 없으면 데모 방문자로 폴백.
+  // 1) 세션(사용자 ID) — SessionBootstrap 익명 세션이 잡히면 실제 per-device id.
+  //    주의: 첫 진입 시 로컬 세션이 아직 없어도 익명 로그인(레이아웃 SessionBootstrap)이 '진행 중'일 수
+  //    있다. 이때 곧바로 MOCK_VISITOR_ID 로 fetch 를 쏘면 토큰 없는 요청이 401 → '로그인 필요' 화면이
+  //    잠깐 떴다가 사라지는 플래시가 생긴다. 그래서 데모 폴백은 유예(2.5초) 후 '그때도 세션이 없을 때만'
+  //    적용한다(setUserId 함수형 갱신으로 실제 id 가 이미 잡혔으면 덮어쓰지 않음).
   useEffect(() => {
+    let fallbackTimer: ReturnType<typeof setTimeout> | null = null;
+    const armFallback = () => {
+      fallbackTimer = setTimeout(() => {
+        setUserId((prev) => prev ?? MOCK_VISITOR_ID);
+      }, 2500);
+    };
+
     supabase.auth
       .getSession()
       .then(({ data: { session } }) => {
-        setUserId(session?.user?.id ?? MOCK_VISITOR_ID);
+        if (session?.user) setUserId(session.user.id);
+        else armFallback();
       })
       .catch(() => {
-        // 인증 서버 미도달 등 → 데모 방문자로 폴백(성공 경로의 세션 없음과 동일).
-        setUserId(MOCK_VISITOR_ID);
+        // 인증 서버 미도달 등 — 동일하게 유예 후 데모 방문자 폴백.
+        armFallback();
       });
 
     // 익명 세션이 뒤늦게 부트스트랩되면 실제 id 로 승격 → fetchCourse 재실행. body user_id 와 첨부 토큰이
@@ -140,7 +163,10 @@ function CourseContent() {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session?.user) setUserId(session.user.id);
     });
-    return () => { subscription?.unsubscribe?.(); };
+    return () => {
+      if (fallbackTimer) clearTimeout(fallbackTimer);
+      subscription?.unsubscribe?.();
+    };
   }, []);
 
   // 2) 위치 — 브라우저 Geolocation, 서비스 지역 밖이면 지역 중심으로 모킹(explore/recommend 와 동일).
@@ -165,8 +191,13 @@ function CourseContent() {
   // 3) 코스 조회 — sequence(순서 모드)가 있으면 body.sequence, 없으면 selectedTypes(자동 모드,
   //    종류 필터만 지정)를 보낸다. 두 모드는 서로 배타적(간섭 방지, OrderPicker 주석 참조).
   //    공유 모드에서는 새 추천을 호출하지 않는다(읽기 전용) — isShareMode 가드.
+  // 요청 세대 카운터 — 겹쳐 나간 요청의 '구세대 응답'이 늦게 도착해 최신 화면을 덮어쓰지 않게 한다
+  // (디바운스가 대부분 막지만, 초기 로드 직후나 500ms 를 넘는 네트워크 지연에서는 여전히 겹칠 수 있다).
+  const fetchGenRef = useRef(0);
+
   const fetchCourse = useCallback(async () => {
     if (!userId || isShareMode) return;
+    const gen = ++fetchGenRef.current;
     setLoading(true);
     setError(null);
     setNeedsAuth(false);
@@ -182,8 +213,10 @@ function CourseContent() {
         body.types = selectedTypes;
       }
       const data: CourseStop[] = await apiClient.post("/api/v1/courses/recommend", body);
+      if (gen !== fetchGenRef.current) return; // 이후 요청이 이미 나감 — 구세대 응답 폐기
       setStops(Array.isArray(data) ? data : []);
     } catch (err) {
+      if (gen !== fetchGenRef.current) return;
       console.warn("코스 추천 호출 실패:", err);
       setStops([]);
       // 401(인증 필요)은 서버 장애가 아니다 → 성공할 수 없는 '다시 시도' 대신 정직한 안내.
@@ -193,12 +226,23 @@ function CourseContent() {
         setError(t("course.fetchError"));
       }
     } finally {
-      setLoading(false);
+      if (gen === fetchGenRef.current) {
+        setLoading(false);
+        setHasLoadedOnce(true);
+      }
     }
   }, [userId, coords.lat, coords.lng, selectedTypes, sequence, isShareMode, t]);
 
+  // 재조회 디바운스 — framer-motion onReorder 는 '드래그 도중' 순서가 바뀔 때마다 연속 발화하고,
+  // 종류 칩도 연타로 담는다. 변경마다 즉시 fetch 하면 그때마다 리렌더/로딩이 끼어들어 드래그가 끊기므로
+  // 마지막 변경 후 500ms 에 한 번만 호출한다(최초 로드는 지연 없이 즉시).
   useEffect(() => {
-    fetchCourse();
+    const delay = hasLoadedOnce ? 500 : 0;
+    const timer = setTimeout(() => { fetchCourse(); }, delay);
+    return () => clearTimeout(timer);
+    // hasLoadedOnce 는 지연 시간 선택용일 뿐 — 값 변화가 재조회를 트리거하면 첫 로드 직후
+    // 불필요한 2차 호출이 생기므로 의도적으로 deps 에서 제외한다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fetchCourse]);
 
   // 3b) 공유 모드 정류지 복원 — anon RLS(createPublicClient)로 facilities 를 id in (...) 조회해
@@ -221,11 +265,11 @@ function CourseContent() {
       if (qError) throw qError;
       const byId = new Map<string, any>((data || []).map((f: any): [string, any] => [f.id, f]));
       const rebuilt: CourseStop[] = parsedShare
-        .map((p, idx): CourseStop | null => {
+        .map((p): CourseStop | null => {
           const f = byId.get(p.id);
           if (!f) return null;
           return {
-            order: idx + 1,
+            order: 0, // 필터링 뒤 일괄 재부여(중간 시설이 삭제돼도 1,2,3… 연속 순번 유지)
             facility: {
               id: f.id,
               name: f.name,
@@ -233,13 +277,17 @@ function CourseContent() {
               latitude: f.latitude,
               longitude: f.longitude,
             },
-            arrivalOffsetMin: p.offsetMin,
+            // 도착 오프셋은 공유 후 경과 시간만큼 보정한다 — 2시간 지난 링크의 '12분 뒤'가
+            // 현재 시각 기준 절대시각으로 재계산되어 방금 계산된 것처럼 보이는 왜곡 방지.
+            // 이미 지난 정류지는 0 으로 클램프(배너의 '{n}분 전 공유됨' 표기가 맥락을 준다).
+            arrivalOffsetMin: Math.max(0, p.offsetMin - sharedElapsedMin),
             predictedCongestion: p.congestion,
             spotScore: 0,
             reason: "",
           };
         })
-        .filter((x): x is CourseStop => x !== null);
+        .filter((x): x is CourseStop => x !== null)
+        .map((s, i) => ({ ...s, order: i + 1 }));
       setSharedStops(rebuilt);
     } catch (err) {
       console.warn("공유 코스 복원 실패:", err);
@@ -247,8 +295,13 @@ function CourseContent() {
       setSharedError(t("course.sharedError"));
     } finally {
       setSharedLoading(false);
+      // 주의: 여기서 hasLoadedOnce 를 올리면 안 된다. 공유 모드에서는 일반 모드 loading 이
+      // 초기값 true 로 잔존하므로(fetchCourse 가 isShareMode 가드로 early-return), 배너 CTA 로
+      // /course 전환 시 스켈레톤 게이트(activeLoading && !hasLoadedOnce)가 뚫려 흐린
+      // EmptyState('결과 없음')가 첫 조회 동안 오표시된다. hasLoadedOnce 는 일반 모드
+      // fetchCourse 완료에서만 올린다(공유 모드 재조회는 어차피 전면 스켈레톤이 종전 동작).
     }
-  }, [parsedShare, t]);
+  }, [parsedShare, sharedElapsedMin, t]);
 
   useEffect(() => {
     if (!isShareMode) return;
@@ -310,7 +363,7 @@ function CourseContent() {
       <div className="absolute top-[-20%] left-[-10%] w-[520px] h-[520px] rounded-full bg-sunset-1/10 blur-[120px] pointer-events-none" />
       <div className="absolute bottom-[-10%] right-[-10%] w-[520px] h-[520px] rounded-full bg-gold/10 blur-[120px] pointer-events-none" />
 
-      {activeLoading ? (
+      {activeLoading && !hasLoadedOnce ? (
         <CourseSkeleton />
       ) : (
         <div className="relative z-10">
@@ -341,7 +394,7 @@ function CourseContent() {
 
             <div className="mx-auto w-full max-w-md md:max-w-2xl px-4 md:px-6 pt-4 pb-10 space-y-6">
               {/* 공유 모드 배너 — '공유받은 코스' 명시 + 내 위치로 새 코스 받기(param 제거 라우팅). */}
-              {isShareMode && <SharedBanner />}
+              {isShareMode && <SharedBanner elapsedMin={sharedElapsedMin} />}
 
               {/* 헤더 블록: 브랜드 칩 → 헤드라인(+도착 보조텍스트) → 한 줄 설명.
                   정류지가 아직 없으면(로딩 직후 빈 결과/에러/인증 등) 기존 제목/설명으로 폴백. */}
@@ -391,23 +444,30 @@ function CourseContent() {
                 />
               )}
 
-              {/* 결과 — 공유 모드는 needsAuth 대상이 아니므로(새 추천 호출 자체가 없음) 그 앞단에서 갈린다. */}
-              {!isShareMode && needsAuth ? (
-                <AuthState />
-              ) : activeError ? (
-                <ErrorState message={activeError} onRetry={isShareMode ? fetchSharedStops : fetchCourse} />
-              ) : activeStops.length === 0 ? (
-                <EmptyState />
-              ) : (
-                <div className="space-y-4">
-                  <ViewToggle mode={viewMode} onChange={setViewMode} />
-                  {viewMode === "gantt" ? (
-                    <CourseGantt stops={activeStops} />
-                  ) : (
-                    <StopRows stops={activeStops} readOnly={isShareMode} />
-                  )}
-                </div>
-              )}
+              {/* 결과 — 공유 모드는 needsAuth 대상이 아니므로(새 추천 호출 자체가 없음) 그 앞단에서 갈린다.
+                  인라인 갱신: 재조회 중에는 이전 결과를 유지한 채 흐리게만 표시(전면 스켈레톤 금지 —
+                  순서 피커/지도가 언마운트되지 않아 드래그·조작이 끊기지 않는다). */}
+              <div
+                className={`transition-opacity duration-200 ${activeLoading ? "opacity-50 pointer-events-none" : ""}`}
+                aria-busy={activeLoading}
+              >
+                {!isShareMode && needsAuth ? (
+                  <AuthState />
+                ) : activeError ? (
+                  <ErrorState message={activeError} onRetry={isShareMode ? fetchSharedStops : fetchCourse} />
+                ) : activeStops.length === 0 ? (
+                  <EmptyState />
+                ) : (
+                  <div className="space-y-4">
+                    <ViewToggle mode={viewMode} onChange={setViewMode} />
+                    {viewMode === "gantt" ? (
+                      <CourseGantt stops={activeStops} />
+                    ) : (
+                      <StopRows stops={activeStops} readOnly={isShareMode} />
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -429,12 +489,14 @@ export default function CoursePage() {
 
 // 공유 모드 상단 배너 — '공유받은 코스'임과 표기 시각 기준을 명시하고, 자기 위치 기준 새 코스로
 // 전환하는 CTA 를 준다. href="/course" 는 쿼리(?s=...) 없는 일반 모드 경로로 이동(Link, 클라이언트 라우팅).
-function SharedBanner() {
+function SharedBanner({ elapsedMin = 0 }: { elapsedMin?: number }) {
   const t = useT();
   return (
     <div className="flex items-center justify-between gap-3 rounded-xl border border-gold/25 bg-gold/10 px-3 py-2.5">
       <p className="text-[11px] font-semibold text-gold-deep leading-snug">
         {t('course.sharedBanner')}
+        {/* 5분 이상 지난 링크는 경과 시간을 명시해 '방금 계산된 코스'로 오인하지 않게 한다. */}
+        {elapsedMin >= 5 && <> · {t('course.sharedAgo', { min: elapsedMin })}</>}
       </p>
       <Link
         href="/course"
@@ -455,7 +517,8 @@ function CourseStepper({ stops }: { stops: CourseStop[] }) {
       {stops.map((stop, idx) => {
         const isFirst = idx === 0;
         return (
-          <li key={stop.facility.id} className="flex items-start flex-1 min-w-0">
+          // 정류지 1개면 li 가 flex-1 로 전체 폭을 차지해 좌측에 쏠린다 → 가운데 정렬로 보정.
+          <li key={stop.facility.id} className={`flex items-start flex-1 min-w-0 ${stops.length === 1 ? "justify-center" : ""}`}>
             {idx > 0 && <span className="h-0.5 bg-line flex-1 mt-4 mx-1" aria-hidden />}
             <div className="flex flex-col items-center gap-1 w-16 shrink-0 min-w-0">
               <span
@@ -531,25 +594,30 @@ function OrderPicker({
 
       {sequence.length > 0 && (
         <div className="space-y-2">
+          {/* axis="x" 드래그는 줄바꿈(wrap)되면 순서 계산이 깨진다 → 한 줄 고정(nowrap).
+              넘칠 때는 칩이 min-w-0 로 줄어들고 라벨만 truncate — 조상 main 이 overflow-hidden 이라
+              가로 스크롤 복구 경로가 없으므로, 좁은 폰·긴 로케일(en 'Restaurant' 등)에서도
+              ✕(제거) 버튼이 항상 화면 안에 남아야 한다.
+              touch-none: 모바일에서 핀 터치가 페이지 세로 스크롤로 새지 않아야 드래그가 시작된다. */}
           <Reorder.Group
             axis="x"
             values={sequence}
             onReorder={onReorder}
-            className="flex flex-wrap gap-2"
+            className="flex flex-nowrap gap-2"
           >
             {sequence.map((item, idx) => (
               <Reorder.Item
                 key={item.uid}
                 value={item}
-                className="flex items-center gap-1.5 pl-2.5 pr-1.5 py-1.5 rounded-full bg-gold/15 border border-gold/40 text-gold-deep text-xs font-bold cursor-grab active:cursor-grabbing select-none"
+                className="flex items-center gap-1.5 pl-2.5 pr-1.5 py-1.5 min-w-0 rounded-full bg-gold/15 border border-gold/40 text-gold-deep text-xs font-bold cursor-grab active:cursor-grabbing select-none touch-none"
               >
-                <span className="tabular-nums">{idx + 1}.</span>
-                <span>{typeEmoji(item.type)} {t(`category.${item.type}`)}</span>
+                <span className="tabular-nums shrink-0">{idx + 1}.</span>
+                <span className="truncate min-w-0">{typeEmoji(item.type)} {t(`category.${item.type}`)}</span>
                 <button
                   type="button"
                   onClick={() => onRemove(item.uid)}
                   aria-label={t('course.orderRemoveAria', { type: t(`category.${item.type}`) })}
-                  className="ml-0.5 p-0.5 rounded-full hover:bg-gold/25 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/50"
+                  className="ml-0.5 p-0.5 shrink-0 rounded-full hover:bg-gold/25 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/50"
                 >
                   <X size={12} />
                 </button>
