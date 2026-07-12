@@ -6,6 +6,9 @@ import { Menu, Bell, Home, Bookmark, User, Compass, Star, Trash2 } from 'lucide-
 import { toast } from 'sonner';
 import { RecommendationCard } from '@/components/RecommendationCard';
 import { CongestionAlertToggle } from '@/components/CongestionAlertToggle';
+import { apiClient } from '@/lib/api-client';
+import { scoreFacility } from '@/lib/recommender';
+import { REGION } from '@/lib/region';
 import { useT } from '@/lib/i18n/I18nProvider';
 
 // 저장된 카테고리(한국어 라벨) → i18n category 키 매핑(표시용 번역).
@@ -37,6 +40,11 @@ export default function SavedPage() {
   const [currentTime, setCurrentTime] = useState<Date | null>(null);
   // 저장 목록 카테고리 필터('all' | 음식점 | 카페 | 관광지 | 문화시설)
   const [activeCategory, setActiveCategory] = useState<string>('all');
+  // ③ 라이브 혼잡 재조회 — 마운트 시 /infrastructures 로 현재 혼잡을 받아 매칭(id)되는 저장 항목의
+  //   trafficStatus/waitTime 을 표시용으로 갱신한다. localStorage 스냅샷은 그대로 두고(뷰만 덮어씀),
+  //   실패·미매칭 항목은 스냅샷 유지 + '저장 당시 기준' 라벨로 정직하게 표기한다.
+  const [infraById, setInfraById] = useState<Record<string, { level: number | null; type?: string; features?: any }> | null>(null);
+  const [refreshTried, setRefreshTried] = useState(false);
 
   useEffect(() => {
     setCurrentTime(new Date());
@@ -84,7 +92,68 @@ export default function SavedPage() {
     fetchBookmarks();
   }, []);
 
+  // ③ 마운트 시 현재 혼잡 재조회(백엔드 /infrastructures). 성공하면 id→{level,type,features} 맵을 저장해
+  //    렌더에서 매칭 항목의 trafficStatus/waitTime 을 라이브로 덮어쓴다. 실패해도 스냅샷을 유지한다(무중단).
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const items = await apiClient.get('/api/v1/infrastructures');
+        if (!active || !Array.isArray(items)) return;
+        const map: Record<string, { level: number | null; type?: string; features?: any }> = {};
+        for (const f of items) {
+          map[f.id] = {
+            level: f.congestion && typeof f.congestion.level === 'number' ? f.congestion.level : null,
+            type: f.type,
+            features: f.features,
+          };
+        }
+        setInfraById(map);
+      } catch {
+        // 백엔드 다운/네트워크 실패 — 스냅샷 유지('저장 당시 기준' 라벨은 refreshTried 로 노출).
+      } finally {
+        if (active) setRefreshTried(true);
+      }
+    })();
+    return () => { active = false; };
+  }, []);
 
+  // 저장 카테고리(한국어) → 캐노니컬 시설 타입 키(대기 재산정용).
+  const CATEGORY_TYPE: Record<string, string> = {
+    '음식점': 'restaurant', '카페': 'cafe', '관광지': 'attraction', '문화시설': 'culture',
+  };
+
+  // 저장 스냅샷 b 에 라이브 혼잡을 입힌 '표시용 뷰'. 매칭·라이브 혼잡이 있을 때만 isLive=true.
+  // 대기(분)는 라이브 혼잡 + 시설 타입/처리시간으로 저장 시점과 동일한 recommender 공식으로 재산정한다
+  // (이동 시간은 거리 스냅샷을 유지). localStorage 원본은 건드리지 않는다.
+  const applyLive = (b: BookmarkData): { view: BookmarkData; isLive: boolean } => {
+    const live = infraById?.[b.id];
+    if (!live || typeof live.level !== 'number') return { view: b, isLive: false };
+    const level = live.level;
+    const trafficStatus: BookmarkData['trafficStatus'] =
+      level >= 0.75 ? 'orange' : level >= 0.5 ? 'yellow' : level >= 0.25 ? 'green' : 'blue';
+    const type = live.type || CATEGORY_TYPE[b.category] || 'restaurant';
+    const origin =
+      typeof b.latitude === 'number' && typeof b.longitude === 'number'
+        ? { lat: b.latitude, lng: b.longitude }
+        : { ...REGION.center };
+    const spot = scoreFacility(
+      { type, congestionLevel: level, features: live.features, latitude: b.latitude, longitude: b.longitude },
+      { userLocation: origin, preferredCategories: [], mockHour: null },
+    );
+    const waitMins = spot.expectedWait;
+    const travelMins = b.spot?.expectedTravel ?? 0;
+    const timeToService = Math.round((waitMins + travelMins) * 10) / 10;
+    const view: BookmarkData = {
+      ...b,
+      trafficStatus,
+      waitTime: `${waitMins}분`,
+      spot: b.spot
+        ? { ...b.spot, expectedWait: waitMins, timeToService }
+        : { expectedWait: waitMins, expectedTravel: travelMins, timeToService },
+    };
+    return { view, isLive: true };
+  };
 
   const handleDelete = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();

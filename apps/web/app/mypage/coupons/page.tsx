@@ -8,15 +8,17 @@ import { apiClient, isAuthError } from '@/lib/api-client';
 import { useT } from '@/lib/i18n/I18nProvider';
 
 // 백엔드 /api/v1/coupons/mine 응답(snake_case)을 api-client 가 camelCase 로 변환해 준다.
+// status 'expired' 는 백엔드가 expires_at 을 기준으로 파생한 값(DB CHECK 제약은 issued/used 로 불변).
 interface Coupon {
   id: string;
   facilityId: string;
   facilityName: string | null;
   facilityType: string | null;
   couponRate: number;   // 0.20 = 20%
-  status: 'issued' | 'used';
+  status: 'issued' | 'used' | 'expired';
   issuedAt: string | null;
   usedAt: string | null;
+  expiresAt: string | null; // null 이면 만료 없음 — D-day 뱃지 생략(하위호환)
 }
 
 // 시설 유형(캐노니컬 키) — i18n category 네임스페이스로 표시명을 번역한다.
@@ -29,6 +31,14 @@ function formatDate(iso: string | null): string {
   } catch {
     return '';
   }
+}
+
+// 만료까지 남은 일수(올림). 이미 지났으면 음수/0 이 나올 수 있어 뱃지 렌더 쪽에서 0 하한을 적용한다.
+function daysUntil(iso: string | null): number | null {
+  if (!iso) return null;
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return null;
+  return Math.ceil((t - Date.now()) / (24 * 60 * 60 * 1000));
 }
 
 export default function CouponsPage() {
@@ -183,20 +193,26 @@ export default function CouponsPage() {
 
             {coupons.map((coupon) => {
               const used = coupon.status === 'used';
+              const expired = coupon.status === 'expired';
+              const dimmed = used || expired; // 흐림 처리 대상(사용 완료·만료 공통)
               const pct = Math.round((coupon.couponRate ?? 0) * 100);
               const typeLabel = coupon.facilityType
                 ? (TYPE_IDS.includes(coupon.facilityType) ? t(`category.${coupon.facilityType}`) : coupon.facilityType)
                 : null;
+              // D-day 뱃지 — expires_at 이 없으면(하위호환) 생략, issued 상태에서만 표시(used/expired 는 뱃지 대신 상태 라벨).
+              const daysLeft = !dimmed ? daysUntil(coupon.expiresAt) : null;
+              const showDday = daysLeft !== null;
+              const urgent = showDday && daysLeft! <= 3;
               return (
                 <div
                   key={coupon.id}
                   className={`relative flex items-stretch rounded-2xl border overflow-hidden shadow-[0_2px_14px_rgba(43,35,32,0.06)] transition-colors ${
-                    used ? 'bg-hanji-deep border-line opacity-70' : 'bg-white border-gold/40'
+                    dimmed ? 'bg-hanji-deep border-line opacity-70' : 'bg-white border-gold/40'
                   }`}
                 >
                   {/* 좌측 할인율 스텁 (티켓 느낌의 노치 색면) */}
                   <div className={`flex flex-col items-center justify-center px-5 py-4 shrink-0 ${
-                    used ? 'bg-muk-soft/15 text-muk-soft' : 'bg-gradient-to-br from-gold to-terracotta text-white'
+                    dimmed ? 'bg-muk-soft/15 text-muk-soft' : 'bg-gradient-to-br from-gold to-terracotta text-white'
                   }`}>
                     <span className="text-2xl font-bold font-serif leading-none">{pct}%</span>
                     <span className="text-[10px] font-semibold mt-1 tracking-wide">{t('coupons.discount')}</span>
@@ -204,7 +220,7 @@ export default function CouponsPage() {
 
                   {/* 우측 정보 */}
                   <div className="flex-1 flex flex-col justify-center px-4 py-3 min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
+                    <div className="flex items-center gap-2 mb-1 flex-wrap">
                       {typeLabel && (
                         <span className="text-[11px] font-semibold px-2 py-0.5 rounded-md bg-jade/12 text-jade border border-jade/25">
                           {typeLabel}
@@ -214,11 +230,26 @@ export default function CouponsPage() {
                         <span className="flex items-center gap-1 text-[11px] font-semibold text-muk-soft">
                           <CheckCircle2 size={12} /> {t('coupons.used')}
                         </span>
+                      ) : expired ? (
+                        <span className="flex items-center gap-1 text-[11px] font-semibold text-muk-soft">
+                          <AlertCircle size={12} /> {t('coupons.expired')}
+                        </span>
                       ) : (
                         <span className="text-[11px] font-semibold text-gold-deep">{t('coupons.available')}</span>
                       )}
+                      {showDday && (
+                        <span
+                          className={`text-[11px] font-bold px-2 py-0.5 rounded-md border ${
+                            urgent
+                              ? 'bg-terracotta/12 text-terracotta border-terracotta/30'
+                              : 'bg-muk-soft/10 text-muk-soft border-muk-soft/20'
+                          }`}
+                        >
+                          {daysLeft! <= 0 ? t('coupons.dDayToday') : t('coupons.dDay', { n: daysLeft! })}
+                        </span>
+                      )}
                     </div>
-                    <h3 className={`text-base font-bold truncate ${used ? 'text-muk-soft' : 'text-muk'}`}>
+                    <h3 className={`text-base font-bold truncate ${dimmed ? 'text-muk-soft' : 'text-muk'}`}>
                       {coupon.facilityName ?? t('coupons.partner')}
                     </h3>
                     {coupon.issuedAt && (
@@ -226,7 +257,7 @@ export default function CouponsPage() {
                         {t('coupons.issued', { date: formatDate(coupon.issuedAt) })}
                       </p>
                     )}
-                    {!used && (
+                    {!dimmed && (
                       <button
                         type="button"
                         onClick={() => handleUse(coupon.id)}

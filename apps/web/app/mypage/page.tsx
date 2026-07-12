@@ -5,10 +5,11 @@ import { useRouter } from 'next/navigation';
 import {
   Menu, Bell, Home, Bookmark, User,
   Edit2, ChevronRight, LogOut,
-  Settings as SettingsIcon, BellRing, Ticket, X
+  Settings as SettingsIcon, BellRing, Ticket, X, Footprints
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { createPublicClient } from '@/lib/supabase';
+import { getVisitCount } from '@/lib/visits';
 import TasteRadar from '@/components/TasteRadar';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { useT } from '@/lib/i18n/I18nProvider';
@@ -31,6 +32,11 @@ export default function MyPage() {
   // 프로필 수정 인라인 모달 — 표시 이름을 이 기기(localStorage)에만 저장한다(백엔드 없음).
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [nameInput, setNameInput] = useState('');
+  // 방문한 곳 수 — 방문 확인 루프(nextspot_visit_history)의 실데이터. 하드코딩 0 통계와 분리한 새 실통계.
+  const [visitCount, setVisitCount] = useState(0);
+  useEffect(() => {
+    try { setVisitCount(getVisitCount()); } catch { /* localStorage 차단 무시 */ }
+  }, []);
 
   useEffect(() => {
     // API Fetch Mockup
@@ -240,11 +246,18 @@ export default function MyPage() {
                   </button>
                 </div>
 
-                {/* 통계 — 실제 소스가 있는 '저장한 장소'만 표시(가짜 경로수·평점 제거). */}
-                <div className="bg-white border border-line rounded-2xl p-4 flex items-center justify-center gap-3 shadow-[0_2px_14px_rgba(43,35,32,0.06)]">
-                  <Bookmark size={20} className="text-terracotta" fill="currentColor" />
-                  <span className="text-xl font-bold text-muk">{profile.saved}</span>
-                  <span className="text-xs text-muk-soft font-medium">{t('mypage.statSaved')}</span>
+                {/* 통계 — 실제 소스가 있는 항목만 표시(가짜 경로수·평점 제거). 저장한 장소 + 방문한 곳(방문 확인 루프 실데이터). */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="bg-white border border-line rounded-2xl p-4 flex items-center justify-center gap-3 shadow-[0_2px_14px_rgba(43,35,32,0.06)]">
+                    <Bookmark size={20} className="text-terracotta" fill="currentColor" />
+                    <span className="text-xl font-bold text-muk">{profile.saved}</span>
+                    <span className="text-xs text-muk-soft font-medium">{t('mypage.statSaved')}</span>
+                  </div>
+                  <div className="bg-white border border-line rounded-2xl p-4 flex items-center justify-center gap-3 shadow-[0_2px_14px_rgba(43,35,32,0.06)]">
+                    <Footprints size={20} className="text-jade" />
+                    <span className="text-xl font-bold text-muk">{visitCount}</span>
+                    <span className="text-xs text-muk-soft font-medium">{t('mypage.statVisited')}</span>
+                  </div>
                 </div>
               </div>
 

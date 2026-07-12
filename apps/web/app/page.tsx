@@ -76,6 +76,24 @@ export default function LoadingPage() {
         <p className="text-lg text-muk-soft font-medium">
           {t('landing.tagline')}
         </p>
+
+        {/* 가치 선전달: 도착 전 핵심 가치 3가지를 먼저 보여줘 이탈을 줄인다 */}
+        <ul className="mt-6 flex flex-col items-center gap-1.5 text-sm text-muk-soft">
+          <li>{t('landing.value1')}</li>
+          <li>{t('landing.value2')}</li>
+          <li>{t('landing.value3')}</li>
+        </ul>
+
+        {/* '바로 시작' CTA — 3초 자동 이동/탭 스킵과 동일한 go() 재사용 */}
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            go();
+          }}
+          className="mt-8 px-8 py-3.5 rounded-full bg-gold hover:bg-gold-deep text-white font-bold text-base shadow-[0_8px_24px_rgba(197,148,74,0.35)] transition-colors"
+        >
+          {t('landing.ctaStart')}
+        </button>
       </div>
     </div>
   );

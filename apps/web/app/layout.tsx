@@ -21,6 +21,21 @@ export const metadata: Metadata = {
   // PWA: 관광객은 이동 중 모바일 사용이 기본 — 홈 화면 설치를 지원한다(정적 export 호환).
   manifest: "/manifest.webmanifest",
   appleWebApp: { capable: true, statusBarStyle: "black-translucent", title: "NextSpot" },
+  // 공유 개통 1단계: 카카오톡/인스타 등에서 링크 미리보기가 뜨도록 OG/Twitter 카드를 채운다.
+  // 정적 export 호환 — 문자열 리터럴만 사용(동적 함수/서버 로직 없음).
+  openGraph: {
+    title: "NextSpot",
+    description: "오버투어리즘 없는 스마트한 경주 여행",
+    siteName: "NextSpot",
+    locale: "ko_KR",
+    images: [{ url: "/og.png", width: 1200, height: 630 }],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "NextSpot",
+    description: "오버투어리즘 없는 스마트한 경주 여행",
+    images: ["/og.png"],
+  },
 };
 
 export const viewport = {

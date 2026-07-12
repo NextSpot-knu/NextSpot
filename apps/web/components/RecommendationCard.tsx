@@ -5,6 +5,7 @@ import { motion, PanInfo, AnimatePresence } from 'framer-motion';
 import { Bookmark, Sparkles, Star, Phone, MapPin, Clock, ChevronUp, ChevronDown, Info } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { CongestionReportButton } from '@/components/CongestionReportButton';
+import { relativeParts } from '@/lib/freshness';
 import { useT } from '@/lib/i18n/I18nProvider';
 
 interface RecommendationCardProps {
@@ -26,6 +27,9 @@ interface RecommendationCardProps {
   rank?: number;
   totalCandidates?: number;
   mockHour?: number | null;
+  // 신선도 정직화(계약 5): 혼잡 데이터 출처·나이. user_report→'방문객 제보 · n분 전',
+  // 기타 최신→'n분 전 기준', isStale(로그 나이>24h)→'과거 패턴 기반'(회색). 미제공(저장 목록 등)이면 미표시.
+  dataSource?: { source: string | null; lastUpdated?: string | null; isStale?: boolean };
 }
 
 export function RecommendationCard({
@@ -47,6 +51,7 @@ export function RecommendationCard({
   rank,
   totalCandidates,
   mockHour,
+  dataSource,
 }: RecommendationCardProps) {
   const t = useT();
   const [isExpanded, setIsExpanded] = useState(false);
@@ -297,6 +302,27 @@ export function RecommendationCard({
               </span>
             </div>
           )}
+
+          {/* 신선도 정직화(계약 5) — 혼잡 데이터의 출처/나이를 작은 라인으로. isStale 이면 시간 대신 '과거 패턴 기반'(회색). */}
+          {dataSource && (() => {
+            if (dataSource.isStale) {
+              return <p className="text-[10px] text-muk-soft/60 mt-2">{t('card.freshStale')}</p>;
+            }
+            const parts = relativeParts(dataSource.lastUpdated);
+            if (!parts) return null;
+            const rel =
+              parts.unit === 'now' ? t('freshness.justNow')
+              : parts.unit === 'min' ? t('freshness.minAgo', { n: parts.value })
+              : parts.unit === 'hour' ? t('freshness.hourAgo', { n: parts.value })
+              : t('freshness.dayAgo', { n: parts.value });
+            const isReport = dataSource.source === 'user_report';
+            return (
+              <p className="text-[10px] text-muk-soft mt-2 flex items-center gap-1">
+                <span aria-hidden>{isReport ? '📣' : '🕒'}</span>
+                {isReport ? t('card.freshReport', { rel }) : t('card.freshLive', { rel })}
+              </p>
+            );
+          })()}
         </div>
 
         {/* Dynamic Badge (SPOT Score or match percentage) */}

@@ -1,4 +1,6 @@
 import asyncio
+from datetime import datetime, timedelta, timezone
+
 import structlog
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
@@ -9,10 +11,34 @@ from app.core.supabase import supabase_client, supabase_admin, require_admin
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1", tags=["infrastructures"])
 
+# 혼잡 로그 신선도 임계(시간) — 최신 로그 나이가 이보다 크면 is_stale=True(신뢰도 낮음 표기).
+_STALE_AFTER_HOURS = 24
+
+
+def _is_stale(timestamp: str | None, *, now: datetime | None = None) -> bool:
+    """최신 혼잡 로그의 나이가 _STALE_AFTER_HOURS 를 초과하는지 판정한다.
+
+    timestamp 미설정/비정형이면 판정 불가로 False(오탐 방지). now 는 테스트 주입용.
+    """
+    if not timestamp:
+        return False
+    try:
+        ts = datetime.fromisoformat(str(timestamp).replace("Z", "+00:00"))
+    except (ValueError, TypeError):
+        return False
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=timezone.utc)
+    current = now or datetime.now(timezone.utc)
+    return (current - ts) > timedelta(hours=_STALE_AFTER_HOURS)
+
+
 class CongestionInfo(BaseModel):
     level: float
     current_count: int
     timestamp: str | None
+    # 프런트 하위호환: 필드 추가만(기본값 제공). source=출처 라벨, is_stale=로그 나이>24h.
+    source: str | None = None
+    is_stale: bool = False
 
 class InfrastructureItem(BaseModel):
     id: str
@@ -30,7 +56,7 @@ async def _fetch_latest_one(fid: str) -> tuple[str, dict | None]:
     try:
         res = await asyncio.to_thread(
             supabase_client.table("congestion_logs")
-            .select("congestion_level, current_count, timestamp")
+            .select("congestion_level, current_count, timestamp, source")
             .eq("facility_id", fid)
             .order("timestamp", desc=True)
             .order("id", desc=True)  # 동일 timestamp 동률 시 결정적 정렬(시설별 최신 1건 선택 안정화)
@@ -39,10 +65,13 @@ async def _fetch_latest_one(fid: str) -> tuple[str, dict | None]:
         )
         if res.data:
             row = res.data[0]
+            ts = row["timestamp"]
             return fid, {
                 "level": row["congestion_level"],
                 "current_count": row["current_count"],
-                "timestamp": row["timestamp"],
+                "timestamp": ts,
+                "source": row.get("source"),
+                "is_stale": _is_stale(ts),
             }
     except Exception as e:
         logger.warning("congestion_fetch_one_failed", facility_id=fid, error=str(e))
@@ -161,8 +190,9 @@ async def simulate_peak(admin_claims: dict = Depends(require_admin)):
                 level = round(random.uniform(0.72, 0.95), 2)
                 
             current_count = int(capacity * level)
-            source = "traffic_cctv" if f["type"] in ["attraction", "culture"] else "user_report"
-            
+            # 데모 시뮬 로그는 'simulated' 로 정직하게 기록한다(실 CCTV/제보가 아님 — source 정직화).
+            source = "simulated"
+
             logs.append({
                 "facility_id": fid,
                 "congestion_level": level,

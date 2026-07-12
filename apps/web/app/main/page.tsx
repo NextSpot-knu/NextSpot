@@ -17,6 +17,9 @@ import { useVoiceAssistant } from '@/lib/useVoiceAssistant';
 import { useSpeechSearch } from '@/lib/useSpeechSearch';
 import VoiceAssistantOrb from '@/components/VoiceAssistantOrb';
 import FestivalBanner from '@/components/FestivalBanner';
+import TodayCalmSpots from '@/components/TodayCalmSpots';
+import VisitCheckCard from '@/components/VisitCheckCard';
+import { recordPendingVisit } from '@/lib/visits';
 import { useT } from '@/lib/i18n/I18nProvider';
 
 const supabase = createPublicClient();
@@ -137,6 +140,9 @@ export default function MainPage() {
             congestionLevel: level,
             currentCount: f.congestion ? f.congestion.currentCount : null,
             lastUpdated: f.congestion ? f.congestion.timestamp : null,
+            // 신선도 정직화(계약 5): 혼잡 출처(user_report 등)와 24h 초과 여부를 카드로 전달.
+            source: f.congestion ? (f.congestion.source ?? null) : null,
+            isStale: f.congestion ? !!f.congestion.isStale : false,
           };
         });
         setFacilities(mapped);
@@ -197,6 +203,11 @@ export default function MainPage() {
             congestionLevel: baseCongestion,
             currentCount: latestLog ? latestLog.current_count : null,
             lastUpdated: latestLog ? latestLog.timestamp : null,
+            // 폴백 경로엔 source 컬럼이 없어 null. isStale 은 로그 나이>24h 로 직접 산출(계약 5와 동일 정의).
+            source: null,
+            isStale: latestLog
+              ? Date.now() - new Date(latestLog.timestamp).getTime() > 24 * 60 * 60 * 1000
+              : false,
           };
         });
 
@@ -516,6 +527,11 @@ export default function MainPage() {
   // 예측 모드 여부 — 예측 데이터 수신 성공 시에만 true(실패 시 '지금' 모드 유지 → 지도가 깨지지 않음).
   const isForecast = hoursAhead > 0 && predictionMap !== null;
 
+  // 예측 정직화(⑤): 배지에 anchored 소비. 하나라도 실측 앵커가 없으면(anchored false) 배지에 '추정' 꼬리표.
+  const forecastAnchored = !isForecast || !predictionMap
+    ? true
+    : Object.values(predictionMap).every((p) => p.anchored);
+
   // 마커/히트맵 소스: '지금'은 실측 facilities 그대로, 예측 모드에선 congestionLevel 만 예측값으로 치환한
   // 파생 목록. 원본 facilities 는 불변 → '지금'으로 복귀 시 즉시 실측 표시, 추천/카드 로직에 영향 없음.
   // (예측 대상은 실 시설. 그룹/데모 합성 시설은 predictionMap 에 없어 그대로 유지된다.)
@@ -680,6 +696,20 @@ export default function MainPage() {
   const handleAccept = (fac: any) => {
     if (!fac) return;
 
+    // 수락 기록(계약 1) — 여정 차단 금지: fire-and-forget. 성공 응답에 coupon_issued 면 쿠폰함 토스트.
+    // 실패(백엔드 다운/미인증)는 조용히 무시하고 길안내는 그대로 진행한다.
+    apiClient
+      .post('/api/v1/recommendations/accept', { facilityId: fac.id })
+      .then((res: any) => {
+        if (res?.couponIssued) {
+          const rate = Math.round((res.couponRate ?? 0) * 100);
+          showToast(t('map.couponIssued', { rate }));
+        }
+      })
+      .catch(() => { /* 조용히 무시(여정 차단 금지) */ });
+    // 방문 확인 루프용 대기 기록(수락 후 30분 뒤 '다녀오셨나요?' 배너). 카카오맵 오픈 로직은 아래 그대로 유지.
+    try { recordPendingVisit(fac); } catch { /* localStorage 차단 환경 무시 */ }
+
     let greeting = t('map.greetingDefault');
     if (fac.type === "restaurant") greeting = t('map.greetingRestaurant');
     else if (fac.type === "cafe") greeting = t('map.greetingCafe');
@@ -786,6 +816,9 @@ export default function MainPage() {
           id: fac.id,
           name: fac.name,
           category: fac.type === 'restaurant' ? '음식점' : fac.type === 'cafe' ? '카페' : fac.type === 'attraction' ? '관광지' : '문화시설',
+          // 저장 페이지의 라이브 혼잡 재조회(매칭)·카카오맵 길찾기 링크에 좌표가 필요하므로 함께 저장한다.
+          latitude: fac.latitude,
+          longitude: fac.longitude,
           trafficStatus: fac.congestionLevel >= 0.75 ? 'orange' : fac.congestionLevel >= 0.50 ? 'yellow' : fac.congestionLevel >= 0.25 ? 'green' : 'blue',
           waitTime: `${spot?.expectedWait || 0}분`,
           spot: spot,
@@ -1389,10 +1422,23 @@ export default function MainPage() {
               축제 선택 시 지도에 핀(구체 주소) 또는 색상 영역(동·일원 등 넓은 지역)으로 표시. */}
           <FestivalBanner onFocus={focusFestivalOnMap} />
 
-          {/* 예측 정직성 배지 — 실측(Live)과 혼동 방지 */}
+          {/* 🍃 지금 한산 — 현재 여유로운 곳 TOP3(level<0.3, 취향 우선). 탭 시 시트 닫고 해당 시설 선택+패닝.
+              0곳이면 칩 자체를 숨긴다. onFocus 에서 전체 facility 를 id 로 되찾아 카드가 온전한 정보를 갖게 한다. */}
+          <TodayCalmSpots
+            facilities={facilities}
+            userLocation={userLocation}
+            onFocus={(f) => {
+              const full = facilities.find((x) => x.id === f.id) || f;
+              setActiveGroupId(null);
+              setSelectedFacility(full);
+              if (mapInstanceRef.current && typeof full.latitude === 'number') panToVisible(full.latitude, full.longitude);
+            }}
+          />
+
+          {/* 예측 정직성 배지 — 실측(Live)과 혼동 방지. anchored false 면 '추정' 꼬리표로 실측 앵커 부재를 알린다. */}
           {isForecast && (
             <span className="shrink-0 px-3 py-1 rounded-full text-[11px] font-bold bg-jade border border-jade/50 text-white shadow-[0_2px_10px_rgba(43,35,32,0.12)] whitespace-nowrap">
-              🔮 {t('map.forecastBadge', { h: hoursAhead })}
+              🔮 {t('map.forecastBadge', { h: hoursAhead })}{!forecastAnchored ? ` · ${t('map.forecastEstimateTag')}` : ''}
             </span>
           )}
 
@@ -1529,6 +1575,11 @@ export default function MainPage() {
                 rank={rank}
                 totalCandidates={totalCandidates}
                 mockHour={mockHour}
+                dataSource={{
+                  source: selectedFacility.source ?? null,
+                  lastUpdated: selectedFacility.lastUpdated ?? null,
+                  isStale: !!selectedFacility.isStale,
+                }}
               />
             </div>
           );
@@ -1667,6 +1718,9 @@ export default function MainPage() {
 
 
 
+
+      {/* 방문 확인 루프 배너 — 수락 후 30분 경과한 대기 방문이 있으면 스스로 노출(없으면 null). body 포털이라 위치 무관. */}
+      <VisitCheckCard showToast={showToast} />
 
       {/* Toast Notification */}
       {toastMessage && (

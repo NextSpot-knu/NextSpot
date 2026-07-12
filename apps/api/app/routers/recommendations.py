@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 # (ingest/preferences 라우터가 동일 사유로 supabase_admin 을 쓴다.) 따라서 service_role 클라이언트로
 # 통일하고, 신뢰 경계는 아래 get_recommendations/submit_feedback 의 소유권 가드로 강제한다.
 from app.core.supabase import supabase_admin as supabase_client, get_current_user
+from app.services.coupon_service import issue_coupon_if_partner
 from app.services.preference_vector_service import preference_vector_service
 from app.services.reason_service import generate_reason
 from app.services.voice_intent_service import interpret_turn
@@ -465,6 +466,53 @@ async def voice_turn(req: VoiceTurnRequest):
     )
 
 
+# --- 추천 수락(원클릭) — 원본 없이 특정 시설을 '가겠다'고 확정하는 경로 ---
+# 지도/카드에서 대안 장소로 바로 이동을 확정할 때 쓴다(추천 이력이 없어도 동작).
+# submit_feedback('accepted')는 사전에 생성된 recommendation_id 를 요구하지만, 이 경로는
+# facility_id 만으로 수락을 기록하고 제휴 시설이면 쿠폰을 발급한다(발급 규칙은 피드백 경로와 동일).
+class AcceptRequest(BaseModel):
+    facility_id: str = Field(..., description="수락(방문 확정)할 시설 id")
+
+
+@router.post("/recommendations/accept")
+async def accept_recommendation(
+    req: AcceptRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """특정 시설 방문을 수락 확정하고 제휴 시설이면 쿠폰을 발급한다.
+
+    흐름: 인증 → 시설 존재 검증(404) → recommendations 수락 이력 기록(best-effort) →
+    issue_coupon_if_partner(제휴면 발급, coupon_rate 0 이면 발급 없이 issued=False).
+    응답: {"success": True, "coupon_issued": bool, "coupon_rate": float, "expires_at": str|None}
+    """
+    user_id = current_user["id"]
+
+    # 1. 시설 존재 검증(없으면 404 — fetch_facility 가 던진다). coupon_rate 포함 시설 dict 확보.
+    facility = await fetch_facility(req.facility_id)
+
+    # 2. 수락 이력 기록 — /admin/impact 의 분산 relocations 집계에 반영된다.
+    #    원본이 없는 직접 수락이라 original=recommended=facility_id, spot_score 는 스키마 NOT NULL 기본값 0.0.
+    #    이력 저장 실패가 쿠폰 발급(사용자 가치)을 막지 않도록 best-effort(예외 로깅 후 진행).
+    try:
+        await asyncio.to_thread(
+            supabase_client.table("recommendations").insert({
+                "user_id": user_id,
+                "original_facility_id": req.facility_id,
+                "recommended_facility_id": req.facility_id,
+                "spot_score": 0.0,
+                "score_breakdown": {},
+                "accepted": True,
+            }).execute
+        )
+    except Exception as e:
+        logger.warning("accept_persist_failed", user_id=user_id, facility_id=req.facility_id, error=str(e))
+
+    # 3. 제휴 시설이면 쿠폰 발급(피드백 경로와 동일 규칙 — 멱등 upsert·만료 7일).
+    result = await issue_coupon_if_partner(supabase_client, user_id, facility)
+    logger.info("recommendation_accepted", user_id=user_id, facility_id=req.facility_id, coupon_issued=result["coupon_issued"])
+    return {"success": True, **result}
+
+
 @router.post("/feedback")
 async def submit_feedback(
     req: FeedbackRequest,
@@ -518,26 +566,9 @@ async def submit_feedback(
         )
         # 3-1. 제휴 시설이면 '내 쿠폰함'에 쿠폰 발급 — 실제 '수락'을 게이트로 w3 인센티브(coupon_rate)를
         #      현물화한다(리뷰 P1#1: 발급 경로 미연결 → 지갑이 늘 비던 문제 해소, P2#8: 발급 게이팅).
-        #      중복(이미 보유) 시 무시(ignore_duplicates)해 이미 사용/발급된 쿠폰을 되돌리지 않는다.
-        #      쿠폰 발급 실패가 피드백 처리를 깨지 않도록 best-effort(예외 로깅 후 무시)로 둔다.
-        coupon_rate = facility.get("coupon_rate") or 0
-        if coupon_rate > 0:
-            try:
-                await asyncio.to_thread(
-                    supabase_client.table("user_coupons").upsert(
-                        {
-                            "user_id": user_id,
-                            "facility_id": facility["id"],
-                            "coupon_rate": coupon_rate,
-                            "status": "issued",
-                        },
-                        on_conflict="user_id,facility_id",
-                        ignore_duplicates=True,
-                    ).execute
-                )
-                logger.info("coupon_issued_on_accept", user_id=user_id, facility_id=facility["id"])
-            except Exception as e:
-                logger.warning("coupon_issue_on_accept_failed", user_id=user_id, facility_id=facility.get("id"), error=str(e))
+        #      발급 규칙(제휴 판정·멱등 upsert·만료 7일·best-effort)은 issue_coupon_if_partner 로 통일해
+        #      수락 파이프라인(/recommendations/accept)과 동일하게 재사용한다.
+        await issue_coupon_if_partner(supabase_client, user_id, facility)
 
     # 4. 선호 벡터 저장소 사용자 선호도 벡터 학습 보정
     # 시설 특성 및 카테고리에 맞는 기본 벡터 획득

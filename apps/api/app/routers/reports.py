@@ -24,9 +24,13 @@ from pydantic import BaseModel, Field
 # congestion_logs 쓰기는 RLS 우회가 필요해 service_role(supabase_admin) 을 쓴다
 # (infrastructures.simulate_peak / recommendations 와 동일 사유 — anon INSERT 는 RLS 로 거부됨).
 from app.core.supabase import supabase_admin, get_current_user
+from app.services.coupon_service import issue_coupon_if_partner
 
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1", tags=["reports"])
+
+# 제보 보상 주기 — 이 배수의 제보마다 해당 시설이 제휴면 쿠폰을 발급한다.
+_REWARD_EVERY = 3
 
 # 3단계 체감 혼잡도(한산/보통/혼잡) → 0~1 추정치 매핑.
 # 프런트 3지선다 버튼과 정합. 소수 라벨은 UX 부담이 커 이산 3구간으로 단순화한다.
@@ -51,6 +55,12 @@ class CongestionReportRequest(BaseModel):
     )
 
 
+class ReportReward(BaseModel):
+    report_count: int      # 누적 제보 횟수(이번 제보 반영 후)
+    coupon_issued: bool    # 이번 제보로 쿠폰이 발급됐는지(제휴 시설 & 보상 주기 도달 시)
+    next_reward_in: int    # 다음 보상까지 남은 제보 수
+
+
 class CongestionReportResponse(BaseModel):
     success: bool
     facility_id: str
@@ -58,6 +68,32 @@ class CongestionReportResponse(BaseModel):
     current_count: int
     timestamp: str
     source: str
+    reward: ReportReward
+
+
+async def _bump_report_count(user_id: str) -> int:
+    """users.report_count 를 +1 하고 갱신 후 값을 반환한다(제보 보상 게이팅용).
+
+    단일 인스턴스 데모 기준의 read-modify-write(원자적 증가 아님) — 동시 제보 경합은 데모 범위에서 무시한다.
+    select 실패 시 0(보상 없음)으로 강등하고, update 실패는 흡수한다(제보 성공 자체는 유지).
+    """
+    try:
+        res = await asyncio.to_thread(
+            supabase_admin.table("users").select("report_count").eq("id", user_id).limit(1).execute
+        )
+    except Exception as e:
+        logger.warning("report_count_fetch_failed", user_id=user_id, error=str(e))
+        return 0
+    current = (res.data[0].get("report_count") or 0) if res.data else 0
+    new_count = int(current) + 1
+    try:
+        await asyncio.to_thread(
+            supabase_admin.table("users").update({"report_count": new_count}).eq("id", user_id).execute
+        )
+    except Exception as e:
+        # 카운트 영속화 실패라도 이번 제보의 의도된 누적값은 그대로 보고한다(제보 자체는 저장됨).
+        logger.warning("report_count_update_failed", user_id=user_id, error=str(e))
+    return new_count
 
 
 def _coerce_level(level: float | str) -> float:
@@ -96,10 +132,10 @@ async def report_congestion(
         level=level,
     )
 
-    # 1. 시설 존재 검증 (없는 facility_id 로의 FK 위반/유령 로그 방지)
+    # 1. 시설 존재 검증 (없는 facility_id 로의 FK 위반/유령 로그 방지). coupon_rate 는 제보 보상 발급 판정용.
     fac_res = await asyncio.to_thread(
         supabase_admin.table("facilities")
-        .select("id, capacity")
+        .select("id, capacity, coupon_rate")
         .eq("id", req.facility_id)
         .limit(1)
         .execute
@@ -144,6 +180,20 @@ async def report_congestion(
     inserted = (ins.data or [{}])[0]
     logger.info("congestion_report_saved", facility_id=req.facility_id, level=level)
 
+    # 3. 제보 보상: 누적 제보 +1, _REWARD_EVERY 배수마다 제휴 시설이면 쿠폰 발급(coupon_rate 0 이면 카운트만).
+    report_count = await _bump_report_count(current_user["id"])
+    coupon_issued = False
+    if report_count > 0 and report_count % _REWARD_EVERY == 0:
+        facility_row = fac_res.data[0]
+        issue = await issue_coupon_if_partner(
+            supabase_admin,
+            current_user["id"],
+            {"id": req.facility_id, "coupon_rate": facility_row.get("coupon_rate")},
+        )
+        coupon_issued = issue["coupon_issued"]
+    # 다음 보상까지 남은 제보 수 = 다음 배수 - 현재 누적. (report_count=0 강등 시에도 _REWARD_EVERY.)
+    next_reward_in = ((report_count // _REWARD_EVERY) + 1) * _REWARD_EVERY - report_count
+
     return CongestionReportResponse(
         success=True,
         facility_id=req.facility_id,
@@ -151,4 +201,9 @@ async def report_congestion(
         current_count=inserted.get("current_count", current_count),
         timestamp=inserted.get("timestamp", now_str),
         source=inserted.get("source", _USER_REPORT_SOURCE),
+        reward=ReportReward(
+            report_count=report_count,
+            coupon_issued=coupon_issued,
+            next_reward_in=next_reward_in,
+        ),
     )

@@ -4,12 +4,13 @@ import React, { useState, useEffect, useRef, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { createPublicClient } from "@/lib/supabase";
 const supabase = createPublicClient();
-import { getRecommendations, submitFeedback, parsePreference, RecommendationResponse } from "@/lib/api-client";
+import { apiClient, getRecommendations, submitFeedback, parsePreference, RecommendationResponse } from "@/lib/api-client";
 import { MAX_RECO_DISTANCE_M } from "@/lib/recommender"; // 빈 상태 문구의 반경(1.5km) — 하드코딩 대신 실제 컷오프 상수 사용
 import { classifyIntent, buildCardSpeech } from "@/lib/voiceIntent";
 import { REGION, isWithinRegion } from "@/lib/region";
 import { toast } from "sonner";
 import { useT } from "@/lib/i18n/I18nProvider";
+import { ShareButton } from "@/components/ShareButton";
 
 // Extend global Window
 declare global {
@@ -344,6 +345,17 @@ function RecommendContent() {
       );
     }
   }, [paramLat, paramLng]);
+
+  // 공유 유입 계측 — 공유 링크(ref=share)로 들어온 방문을 무인증 이벤트로 1회 기록한다(계약 6).
+  // fire-and-forget: 실패해도 페이지 동작에 영향 없음(사용자에게 에러 노출 안 함).
+  useEffect(() => {
+    if (searchParams.get("ref") === "share") {
+      apiClient
+        .post("/api/v1/events/track", { event: "share_visit", props: { ref: "share" } })
+        .catch(() => { /* 계측 실패는 조용히 무시 */ });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Fallback Mock Seed Data for Resilient Local Demos (경주 황리단길)
   // 실데이터 전용: 목업 시드 제거. FastAPI 추천 미가용 시 빈 추천(에러/빈 상태)으로 처리한다.
@@ -1320,6 +1332,22 @@ function RecommendContent() {
                   >
                     {t("card.accept")}
                   </button>
+
+                  {/* 공유 — 지금 한산한 이 장소를 퍼뜨려 자연 유입을 만든다. 링크는 같은 페이지(원 시설/좌표)로
+                      돌아오되 ref=share 를 붙여 위 계측 useEffect 가 방문을 집계한다. */}
+                  <div className="mt-2 flex justify-center">
+                    <ShareButton
+                      title={t("common.appName")}
+                      text={rec.facility.name}
+                      shareText={t("recommend.shareText", { name: rec.facility.name })}
+                      url={
+                        typeof window !== "undefined"
+                          ? `${window.location.origin}/explore/recommend?facilityId=${encodeURIComponent(facilityId)}&lat=${lat}&lng=${lng}&ref=share`
+                          : undefined
+                      }
+                      className="w-full justify-center"
+                    />
+                  </div>
                 </div>
               );
             })

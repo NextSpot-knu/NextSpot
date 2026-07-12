@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, MapPin, Building, Utensils, Coffee, Pizza, Soup, Sun, Sunset, Moon, ArrowRight } from 'lucide-react';
+import { ArrowLeft, MapPin, Building, Utensils, Coffee, Pizza, Soup, Sun, Sunset, Moon, ArrowRight, Plane, Clock, Compass } from 'lucide-react';
 import { createPublicClient } from '@/lib/supabase';
 import { useT } from '@/lib/i18n/I18nProvider';
 
@@ -19,40 +19,43 @@ export default function SetupPage() {
   const router = useRouter();
   const t = useT();
 
-  const [step, setStep] = useState(1);
+  // step 0: 여행 시점(tripStatus) — 기존 1~3(카테고리/음식/시간대) 앞에 추가.
+  const [step, setStep] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false); // 최종 제출(Supabase 쓰기) 중 이중 제출 방지
   const [preferences, setPreferences] = useState({
+    tripStatus: '',
     category: '',
     food: '',
     visitTime: ''
   });
 
-  const totalSteps = 3;
+  const totalSteps = 4;
 
-  const stepKey = (step === 1 ? 'category' : step === 2 ? 'food' : 'visitTime') as keyof typeof preferences;
+  // 건너뛰기 클릭 시 미선택 필드를 채울 기본값(하위호환: 기존 category/food/visitTime 형식 그대로 유지).
+  const DEFAULT_PREFERENCES: typeof preferences = {
+    tripStatus: 'browsing',
+    category: '음식점',
+    food: '한식',
+    visitTime: '오전',
+  };
+
+  const stepKey = (step === 0 ? 'tripStatus' : step === 1 ? 'category' : step === 2 ? 'food' : 'visitTime') as keyof typeof preferences;
   const canProceed = !!preferences[stepKey];
 
-  const handleNext = async () => {
-    // 현재 단계 선택값이 비어 있으면 진행 차단(빈 온보딩으로 그대로 넘어가는 UX 결함 방지).
-    if (!canProceed) return;
-    if (step < totalSteps) {
-      setStep(step + 1);
-      return;
-    }
-
-    // 마지막 단계 제출: Supabase 쓰기 대기 동안 버튼 재클릭으로 중복 저장되는 것을 막는다.
+  // 최종 저장(localStorage + Supabase 병합) 공통 로직 — '다음' 마지막 단계와 '건너뛰기' 양쪽에서 재사용.
+  const finalize = async (finalPreferences: typeof preferences) => {
     if (isSubmitting) return;
     setIsSubmitting(true);
 
-    // 온보딩 선호(관심 카테고리·음식 취향·방문 시간대)를 저장 → main 추천의 선호 일치율·음식 의도에 반영(localStorage).
-    try { localStorage.setItem('nextspot_setup_prefs', JSON.stringify(preferences)); } catch { /* noop */ }
+    // 온보딩 선호(여행 시점·관심 카테고리·음식 취향·방문 시간대)를 저장 → main 추천의 선호 일치율·음식 의도에 반영(localStorage).
+    try { localStorage.setItem('nextspot_setup_prefs', JSON.stringify(finalPreferences)); } catch { /* noop */ }
 
     // B3 온보딩 단일화: setup 의 관심 카테고리도 explore/recommend 온보딩과 동일하게 Supabase
-    // users.preferred_categories(캐노니컬 키)로 수렴시킨다. localStorage 는 음식/시간 의도 전용으로 유지.
+    // users.preferred_categories(캐노니컬 키)로 수렴시킨다. localStorage 는 음식/시간/여행시점 의도 전용으로 유지.
     try {
       const supabase = createPublicClient();
       const { data: { user } } = await supabase.auth.getUser();
-      const categoryKey = CATEGORY_LABEL_TO_KEY[preferences.category];
+      const categoryKey = CATEGORY_LABEL_TO_KEY[finalPreferences.category];
       // 로그인 세션 + 매핑 가능한 카테고리일 때만 DB 반영(비로그인/목 세션은 조용히 건너뜀 → localStorage 만 저장, 회귀 없음).
       if (user && categoryKey) {
         const { data: profile } = await supabase
@@ -78,8 +81,32 @@ export default function SetupPage() {
     router.push('/main');
   };
 
+  const handleNext = async () => {
+    // 현재 단계 선택값이 비어 있으면 진행 차단(빈 온보딩으로 그대로 넘어가는 UX 결함 방지).
+    if (!canProceed) return;
+    if (step < totalSteps - 1) {
+      setStep(step + 1);
+      return;
+    }
+
+    // 마지막 단계 제출: Supabase 쓰기 대기 동안 버튼 재클릭으로 중복 저장되는 것을 막는다.
+    await finalize(preferences);
+  };
+
+  // canProceed 게이트를 우회해 지금까지 선택값 + 미선택 필드는 기본값으로 즉시 저장하고 이동.
+  const handleSkip = () => {
+    if (isSubmitting) return;
+    const finalPreferences = {
+      tripStatus: preferences.tripStatus || DEFAULT_PREFERENCES.tripStatus,
+      category: preferences.category || DEFAULT_PREFERENCES.category,
+      food: preferences.food || DEFAULT_PREFERENCES.food,
+      visitTime: preferences.visitTime || DEFAULT_PREFERENCES.visitTime,
+    };
+    finalize(finalPreferences);
+  };
+
   const handleBack = () => {
-    if (step > 1) {
+    if (step > 0) {
       setStep(step - 1);
     } else {
       router.push('/');
@@ -97,17 +124,28 @@ export default function SetupPage() {
 
       {/* Header & Progress */}
       <div className="z-10 w-full max-w-md mx-auto pt-8 px-6">
-        <button
-          onClick={handleBack}
-          className="w-10 h-10 flex items-center justify-center rounded-xl bg-white border border-line text-muk hover:bg-hanji-deep transition-colors mb-6 shadow-[0_2px_14px_rgba(43,35,32,0.06)]"
-        >
-          <ArrowLeft size={20} />
-        </button>
+        <div className="flex items-center justify-between mb-6">
+          <button
+            onClick={handleBack}
+            className="w-10 h-10 flex items-center justify-center rounded-xl bg-white border border-line text-muk hover:bg-hanji-deep transition-colors shadow-[0_2px_14px_rgba(43,35,32,0.06)]"
+          >
+            <ArrowLeft size={20} />
+          </button>
+
+          {/* 상단 건너뛰기 — canProceed 게이트 우회, 미선택 필드는 기본값으로 저장 후 /main 이동 */}
+          <button
+            onClick={handleSkip}
+            disabled={isSubmitting}
+            className="text-sm text-muk-soft hover:text-muk underline-offset-4 hover:underline transition-colors disabled:opacity-40"
+          >
+            {t('setup.skip')}
+          </button>
+        </div>
 
         <div className="w-full h-1.5 bg-line rounded-full mb-6 overflow-hidden">
           <div
             className="h-full bg-gradient-to-r from-gold to-terracotta transition-all duration-500 ease-out"
-            style={{ width: `${(step / totalSteps) * 100}%` }}
+            style={{ width: `${((step + 1) / totalSteps) * 100}%` }}
           />
         </div>
 
@@ -118,6 +156,42 @@ export default function SetupPage() {
 
       {/* Content Area */}
       <div className="flex-1 w-full max-w-md mx-auto relative z-10 flex flex-col">
+        {step === 0 && (
+          <div className="animate-slide-up flex-1">
+            <h2 className="text-2xl font-serif font-bold mb-8 text-center break-keep text-muk whitespace-pre-line">
+              {t('setup.step0')}
+            </h2>
+            <div className="flex flex-col gap-4">
+              {[
+                { id: 'ongoing', key: 'tripOngoing', icon: Plane },
+                { id: 'upcoming', key: 'tripUpcoming', icon: Clock },
+                { id: 'browsing', key: 'tripBrowsing', icon: Compass },
+              ].map(option => {
+                const Icon = option.icon;
+                const isSelected = preferences.tripStatus === option.id;
+                return (
+                  <button
+                    key={option.id}
+                    onClick={() => setPreference('tripStatus', option.id)}
+                    className={`flex items-center p-6 rounded-2xl border transition-all shadow-[0_2px_14px_rgba(43,35,32,0.06)] ${
+                      isSelected
+                        ? 'bg-gold/15 border-gold text-muk'
+                        : 'bg-white border-line text-muk-soft hover:bg-hanji-deep hover:text-muk'
+                    }`}
+                  >
+                    <div className="w-12 h-12 flex items-center justify-center rounded-full bg-hanji-deep mr-4">
+                      <Icon size={24} className={isSelected ? 'text-gold' : ''} />
+                    </div>
+                    <div className="text-left flex-1">
+                      <div className="font-semibold text-lg">{t(`setup.${option.key}`)}</div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         {step === 1 && (
           <div className="animate-slide-up flex-1">
             <h2 className="text-2xl font-serif font-bold mb-8 text-center break-keep text-muk whitespace-pre-line">
@@ -228,8 +302,17 @@ export default function SetupPage() {
             disabled={!canProceed || isSubmitting}
             className="w-full flex items-center justify-center py-4 rounded-xl bg-gold hover:bg-gold-deep disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold text-lg transition-colors"
           >
-            {step === totalSteps ? (isSubmitting ? t('setup.saving') : t('setup.start')) : t('setup.next')}
-            {step !== totalSteps && <ArrowRight size={20} className="ml-2" />}
+            {step === totalSteps - 1 ? (isSubmitting ? t('setup.saving') : t('setup.start')) : t('setup.next')}
+            {step !== totalSteps - 1 && <ArrowRight size={20} className="ml-2" />}
+          </button>
+
+          {/* 하단 건너뛰기 — 상단과 동일한 handleSkip, canProceed 게이트 우회 */}
+          <button
+            onClick={handleSkip}
+            disabled={isSubmitting}
+            className="w-full text-center text-sm text-muk-soft hover:text-muk mt-3 py-1 transition-colors disabled:opacity-40"
+          >
+            {t('setup.skip')}
           </button>
         </div>
       </div>

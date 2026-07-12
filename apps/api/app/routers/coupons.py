@@ -17,9 +17,30 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from app.core.supabase import supabase_admin, get_current_user
+from app.services.coupon_service import coupon_expiry_from_now
 
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1/coupons", tags=["coupons"])
+
+
+def _coupon_is_expired(row: dict, *, now: datetime | None = None) -> bool:
+    """발급됐지만(사용 전) 만료시각이 지난 쿠폰인지 판정한다.
+
+    - status=='used' 는 만료 대상이 아니다(이미 소진). expires_at 미설정/비정형이면 만료 아님(보수적).
+    - 만료 판정은 애플리케이션 파생이며 DB status CHECK(issued/used)는 불변으로 둔다.
+    """
+    if row.get("status") == "used":
+        return False
+    exp = row.get("expires_at")
+    if not exp:
+        return False
+    try:
+        ts = datetime.fromisoformat(str(exp).replace("Z", "+00:00"))
+    except (ValueError, TypeError):
+        return False
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=timezone.utc)
+    return ts < (now or datetime.now(timezone.utc))
 
 
 class IssueCouponRequest(BaseModel):
@@ -49,14 +70,17 @@ async def list_my_coupons(current_user: dict = Depends(get_current_user)):
         if isinstance(f, list):
             f = f[0] if f else None
         f = f if isinstance(f, dict) else {}
+        # 만료는 애플리케이션 파생 — 발급됐지만 만료시각이 지난(미사용) 쿠폰은 'expired' 로 노출한다.
+        status = "expired" if _coupon_is_expired(row) else row.get("status")
         coupons.append({
             "id": row.get("id"),
             "facility_id": row.get("facility_id"),
             "facility_name": f.get("name"),
             "facility_type": f.get("type"),
             "coupon_rate": row.get("coupon_rate"),
-            "status": row.get("status"),
+            "status": status,
             "issued_at": row.get("issued_at"),
+            "expires_at": row.get("expires_at"),
             "used_at": row.get("used_at"),
         })
     return coupons
@@ -93,13 +117,15 @@ async def issue_coupon(
         raise HTTPException(status_code=422, detail="제휴 할인이 없는 시설이라 쿠폰을 발급할 수 없습니다.")
 
     # 2) 발급 — 이미 보유 시 무시(ignore_duplicates)해 사용/발급 상태를 되돌리지 않는다(리뷰 P2#8).
-    #    issued_at/used_at 은 신규 INSERT 에만 적용(DB 기본값 대비 명시). 기존 행은 손대지 않는다.
+    #    issued_at/used_at/expires_at 은 신규 INSERT 에만 적용(DB 기본값 대비 명시). 기존 행은 손대지 않는다.
+    expires_at = coupon_expiry_from_now()
     payload = {
         "user_id": user_id,
         "facility_id": req.facility_id,
         "coupon_rate": coupon_rate,
         "status": "issued",
         "issued_at": datetime.now(timezone.utc).isoformat(),
+        "expires_at": expires_at,
         "used_at": None,
     }
     try:
@@ -137,6 +163,7 @@ async def issue_coupon(
         "coupon_rate": row.get("coupon_rate"),
         "status": row.get("status"),
         "issued_at": row.get("issued_at"),
+        "expires_at": row.get("expires_at") or expires_at,
     }
 
 
@@ -166,6 +193,10 @@ async def use_coupon(coupon_id: str, current_user: dict = Depends(get_current_us
     if coupon.get("status") == "used":
         # 이미 사용됨 — 멱등 반환(에러 아님).
         return {"id": coupon.get("id"), "status": "used", "used_at": coupon.get("used_at")}
+
+    # 1-1) 만료 쿠폰(발급됐지만 유효기간 경과)은 사용 거부(409). 상태는 DB 상 'issued' 그대로 둔다.
+    if _coupon_is_expired(coupon):
+        raise HTTPException(status_code=409, detail="만료된 쿠폰입니다.")
 
     # 2) 'issued' → 'used' 전환(user_id 조건으로 이중 방어)
     try:

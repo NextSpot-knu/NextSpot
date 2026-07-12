@@ -605,7 +605,9 @@ def test_infrastructures_happy_path(client):
         {**_facility("f-2", "restaurant", 0.0004), "operating_hours": None},
     ]
     congestion = {
-        "f-1": {"level": 0.4, "current_count": 20, "timestamp": "2026-07-07T09:00:00+00:00"},
+        # source/is_stale 는 _fetch_latest_one 이 채우는 신선도 메타(프런트 하위호환 필드 추가).
+        "f-1": {"level": 0.4, "current_count": 20, "timestamp": "2026-07-07T09:00:00+00:00",
+                "source": "seed", "is_stale": True},
         # f-2 는 혼잡 로그 없음 → congestion=None 이어야 함
     }
     with patch("app.routers.infrastructures.supabase_client", new=FakeSupabase({"facilities": facilities})), \
@@ -615,7 +617,10 @@ def test_infrastructures_happy_path(client):
     assert res.status_code == 200
     items = res.json()
     assert [item["id"] for item in items] == ["f-1", "f-2"]
-    assert items[0]["congestion"] == {"level": 0.4, "current_count": 20, "timestamp": "2026-07-07T09:00:00+00:00"}
+    assert items[0]["congestion"] == {
+        "level": 0.4, "current_count": 20, "timestamp": "2026-07-07T09:00:00+00:00",
+        "source": "seed", "is_stale": True,
+    }
     assert items[1]["congestion"] is None
 
 
@@ -693,3 +698,133 @@ def test_report_congestion_rate_limited_429(auth_client):
     assert first.status_code == 200
     assert second.status_code == 429
     assert "Retry-After" in second.headers
+
+
+# =========================================================================
+# 9-1. 제보 보상(reward 필드) — 누적 카운트·3배수 쿠폰 발급·다음 보상까지
+# =========================================================================
+
+def test_report_congestion_reward_counts_only(auth_client):
+    # 누적 1건(3의 배수 아님) → 카운트만, 쿠폰 미발급, 다음 보상까지 2건.
+    from app.routers.reports import _last_report_at
+    _last_report_at.clear()
+    facility = {**_facility("f-1", "restaurant", 0.0002, coupon_rate=0.2)}  # 제휴지만 배수 아님
+    users_row = {"id": AUTH_USER_ID, "report_count": 0}  # 제보 후 → 1
+    inserted = {
+        "id": "log-1", "facility_id": "f-1", "congestion_level": 0.9,
+        "current_count": 45, "source": "user_report", "timestamp": "2026-07-10T05:00:00+00:00",
+    }
+    with patch("app.routers.reports.supabase_admin", new=FakeSupabase(
+        {"facilities": [facility], "users": [users_row], "congestion_logs": [inserted]}
+    )):
+        res = auth_client.post("/api/v1/reports/congestion", json={"facility_id": "f-1", "level": "혼잡"})
+    assert res.status_code == 200
+    reward = res.json()["reward"]
+    assert reward["report_count"] == 1
+    assert reward["coupon_issued"] is False
+    assert reward["next_reward_in"] == 2
+
+
+def test_report_congestion_reward_issues_coupon_on_third(auth_client):
+    # 누적 3건(3의 배수) + 제휴 시설(coupon_rate>0) → 쿠폰 발급, 다음 보상까지 3건.
+    from app.routers.reports import _last_report_at
+    _last_report_at.clear()
+    facility = {**_facility("f-1", "restaurant", 0.0002, coupon_rate=0.2)}
+    users_row = {"id": AUTH_USER_ID, "report_count": 2}  # 제보 후 → 3
+    inserted = {
+        "id": "log-1", "facility_id": "f-1", "congestion_level": 0.9,
+        "current_count": 45, "source": "user_report", "timestamp": "2026-07-10T05:00:00+00:00",
+    }
+    with patch("app.routers.reports.supabase_admin", new=FakeSupabase(
+        {"facilities": [facility], "users": [users_row], "congestion_logs": [inserted],
+         "user_coupons": [{"id": "c-1"}]}
+    )):
+        res = auth_client.post("/api/v1/reports/congestion", json={"facility_id": "f-1", "level": "혼잡"})
+    assert res.status_code == 200
+    reward = res.json()["reward"]
+    assert reward["report_count"] == 3
+    assert reward["coupon_issued"] is True
+    assert reward["next_reward_in"] == 3
+
+
+def test_report_congestion_reward_third_no_partner(auth_client):
+    # 누적 3건이지만 비제휴(coupon_rate 0) → 카운트만, 쿠폰 미발급.
+    from app.routers.reports import _last_report_at
+    _last_report_at.clear()
+    facility = {**_facility("f-1", "restaurant", 0.0002, coupon_rate=0.0)}
+    users_row = {"id": AUTH_USER_ID, "report_count": 2}  # 제보 후 → 3
+    inserted = {
+        "id": "log-1", "facility_id": "f-1", "congestion_level": 0.9,
+        "current_count": 45, "source": "user_report", "timestamp": "2026-07-10T05:00:00+00:00",
+    }
+    with patch("app.routers.reports.supabase_admin", new=FakeSupabase(
+        {"facilities": [facility], "users": [users_row], "congestion_logs": [inserted]}
+    )):
+        res = auth_client.post("/api/v1/reports/congestion", json={"facility_id": "f-1", "level": "혼잡"})
+    assert res.status_code == 200
+    reward = res.json()["reward"]
+    assert reward["report_count"] == 3
+    assert reward["coupon_issued"] is False
+
+
+# =========================================================================
+# 10. 추천 수락(POST /api/v1/recommendations/accept) — 인증·404·쿠폰 발급
+# =========================================================================
+
+def test_accept_recommendation_requires_auth(client):
+    res = client.post("/api/v1/recommendations/accept", json={"facility_id": "f-1"})
+    assert res.status_code == 401
+
+
+def test_accept_recommendation_facility_404(auth_client):
+    with patch("app.routers.recommendations.supabase_client", new=FakeSupabase({"facilities": []})):
+        res = auth_client.post("/api/v1/recommendations/accept", json={"facility_id": "nope"})
+    assert res.status_code == 404
+
+
+def test_accept_recommendation_issues_coupon(auth_client):
+    # 제휴 시설(coupon_rate>0) 수락 → 쿠폰 발급(coupon_issued True, expires_at 세팅).
+    facility = _facility("f-1", "restaurant", 0.0002, coupon_rate=0.2)
+    with patch("app.routers.recommendations.supabase_client", new=FakeSupabase(
+        {"facilities": [facility], "recommendations": [{"id": "rec-1"}], "user_coupons": [{"id": "c-1"}]}
+    )):
+        res = auth_client.post("/api/v1/recommendations/accept", json={"facility_id": "f-1"})
+    assert res.status_code == 200
+    body = res.json()
+    assert body["success"] is True
+    assert body["coupon_issued"] is True
+    assert body["coupon_rate"] == 0.2
+    assert body["expires_at"] is not None
+
+
+def test_accept_recommendation_no_partner(auth_client):
+    # 비제휴(coupon_rate 0) 수락 → 발급 없음(coupon_issued False, expires_at None).
+    facility = _facility("f-1", "restaurant", 0.0002, coupon_rate=0.0)
+    with patch("app.routers.recommendations.supabase_client", new=FakeSupabase(
+        {"facilities": [facility], "recommendations": [{"id": "rec-1"}]}
+    )):
+        res = auth_client.post("/api/v1/recommendations/accept", json={"facility_id": "f-1"})
+    assert res.status_code == 200
+    body = res.json()
+    assert body["success"] is True
+    assert body["coupon_issued"] is False
+    assert body["coupon_rate"] == 0.0
+    assert body["expires_at"] is None
+
+
+# =========================================================================
+# 11. 혼잡 신선도 헬퍼(_is_stale) — 나이>24h 판정
+# =========================================================================
+
+def test_congestion_is_stale_helper():
+    from datetime import datetime, timedelta, timezone
+
+    from app.routers.infrastructures import _is_stale
+
+    now = datetime(2026, 7, 10, 12, 0, 0, tzinfo=timezone.utc)
+    fresh = (now - timedelta(hours=1)).isoformat()
+    old = (now - timedelta(hours=30)).isoformat()
+    assert _is_stale(fresh, now=now) is False
+    assert _is_stale(old, now=now) is True
+    assert _is_stale(None, now=now) is False        # 미상은 오탐 방지로 False
+    assert _is_stale("not-a-date", now=now) is False

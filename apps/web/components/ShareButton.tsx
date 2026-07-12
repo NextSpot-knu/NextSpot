@@ -10,24 +10,30 @@ import { useT } from '@/lib/i18n/I18nProvider';
 
 interface ShareButtonProps {
   title: string;
-  text: string;
+  text?: string;
+  // 선택적 오버라이드 — 미지정 시 현행 동작(text 그대로, 현재 페이지 URL) 유지(하위호환).
+  // url: 공유 대상 URL을 현재 페이지가 아닌 다른 경로(예: ref=share 계측 파라미터 포함)로 지정.
+  // shareText: text 대신 사용할 공유 문구(더 구체적인 카드별 문구가 필요한 호출부용).
+  url?: string;
+  shareText?: string;
   className?: string;
 }
 
-export function ShareButton({ title, text, className = '' }: ShareButtonProps) {
+export function ShareButton({ title, text = '', url, shareText, className = '' }: ShareButtonProps) {
   const t = useT();
   const [copied, setCopied] = useState(false);
+  const message = shareText ?? text;
 
   const onShare = useCallback(async () => {
-    const url = typeof window !== 'undefined' ? window.location.href : '';
+    const shareUrl = url ?? (typeof window !== 'undefined' ? window.location.href : '');
     try {
       const nav = typeof navigator !== 'undefined' ? navigator : undefined;
       if (nav?.share) {
-        await nav.share({ title, text, url });
+        await nav.share({ title, text: message, url: shareUrl });
         return;
       }
       if (nav?.clipboard) {
-        await nav.clipboard.writeText(`${text} ${url}`.trim());
+        await nav.clipboard.writeText(`${message} ${shareUrl}`.trim());
         setCopied(true);
         toast.success(t('common.linkCopied'));
         setTimeout(() => setCopied(false), 2000);
@@ -38,7 +44,7 @@ export function ShareButton({ title, text, className = '' }: ShareButtonProps) {
         console.warn('share failed', err);
       }
     }
-  }, [title, text, t]);
+  }, [title, message, url, t]);
 
   return (
     <button
