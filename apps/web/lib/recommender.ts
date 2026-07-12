@@ -62,11 +62,22 @@ const CUISINE_INTENT_MAP: { keys: string[]; tags: string[] }[] = [
 const _BAR_TAGS_FE = ["술집", "호프", "오뎅바", "실내포장마차", "일본식주점", "호프,요리주점"];
 const _HANSIK_SPECIFIC = ["육류,고기", "국밥", "순대", "찌개,전골", "갈비", "곱창,막창", "족발,보쌈", "국수", "칼국수", "닭요리", "해물,생선", "한식", "한정식"];
 
+// TourAPI 소분류(cat3) → cuisine 토큰. 실 TourAPI POI(69곳)는 cuisine_tags 가 없고 cat3 만 있으므로
+// 이 매핑으로 세부분류 필터/선호 매칭에 참여시킨다(음식점 39 하위 소분류 코드 기준).
+const _CAT3_CUISINE: Record<string, string> = {
+  A05020100: "한식",
+  A05020200: "양식",
+  A05020300: "일식",
+  A05020400: "중식",
+  A05020700: "이색음식점",
+};
+
 function _facilityCuisineTokens(facility: any): string[] {
   const raw = facility?.features?.cuisine_tags ?? facility?.features?.cuisine ?? facility?.cuisine;
-  if (Array.isArray(raw)) return raw.map((x) => String(x));
-  if (typeof raw === "string") return [raw];
-  return [];
+  const tags = Array.isArray(raw) ? raw.map((x) => String(x)) : typeof raw === "string" ? [raw] : [];
+  const cat3 = facility?.features?.cat3;
+  if (typeof cat3 === "string" && _CAT3_CUISINE[cat3]) tags.push(_CAT3_CUISINE[cat3]);
+  return tags;
 }
 
 // 음식 의도와 시설의 매칭도(0~1). 의도가 없거나 인식 불가면 null → 호출측에서 카테고리 선호로 폴백.

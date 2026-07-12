@@ -828,3 +828,92 @@ def test_congestion_is_stale_helper():
     assert _is_stale(old, now=now) is True
     assert _is_stale(None, now=now) is False        # 미상은 오탐 방지로 False
     assert _is_stale("not-a-date", now=now) is False
+
+
+# =========================================================================
+# 12. 분산 코스 — 순서 지정(sequence): 정류지 종류가 요청 순서를 따른다
+# =========================================================================
+
+def _course_mocks(facilities):
+    """courses 라우터의 외부 의존을 전부 결정적 목으로 대체하는 patch 컨텍스트 목록."""
+    from types import SimpleNamespace
+
+    return [
+        patch("app.routers.courses.fetch_user", new=AsyncMock(return_value=USER_ROW)),
+        patch("app.routers.courses.fetch_all_facilities", new=AsyncMock(return_value=facilities)),
+        patch("app.routers.courses.fetch_congestion_map", new=AsyncMock(return_value={f["id"]: 0.3 for f in facilities})),
+        patch("app.routers.courses.get_travel_time_and_distance", new=AsyncMock(return_value=(5.0, 400.0))),
+        # asyncio.to_thread(predict_congestion, ...) — 동기 함수라 plain 값 반환이면 충분.
+        patch("app.routers.courses.predict_congestion", new=lambda *_a, **_k: 0.2),
+        patch("app.routers.courses.calculate_spot_score", new=AsyncMock(return_value=SimpleNamespace(score=0.8))),
+        patch.object(preference_vector_service, "get_user_vector", new=AsyncMock(return_value=UNIT_VECTOR)),
+    ]
+
+
+def _course_body(sequence=None):
+    body = {"user_id": AUTH_USER_ID, "user_lat": BASE_LAT, "user_lng": BASE_LNG}
+    if sequence is not None:
+        body["sequence"] = sequence
+    return body
+
+
+def test_course_sequence_orders_stop_types(auth_client):
+    # 종류별 후보가 섞여 있어도 정류지 종류가 sequence 순서(카페→관광지→식당)를 따른다.
+    facs = [
+        _facility("c-1", "cafe", 0.0002),
+        _facility("c-2", "cafe", 0.0004),
+        _facility("a-1", "attraction", 0.0003),
+        _facility("a-2", "attraction", 0.0005),
+        _facility("r-1", "restaurant", 0.0006),
+        _facility("r-2", "restaurant", 0.0007),
+    ]
+    import contextlib
+
+    with contextlib.ExitStack() as stack:
+        for p in _course_mocks(facs):
+            stack.enter_context(p)
+        res = auth_client.post("/api/v1/courses/recommend", json=_course_body(["cafe", "attraction", "restaurant"]))
+
+    assert res.status_code == 200
+    stops = res.json()
+    assert [s["facility"]["type"] for s in stops] == ["cafe", "attraction", "restaurant"]
+    assert [s["order"] for s in stops] == [1, 2, 3]
+
+
+def test_course_sequence_filters_invalid_types(auth_client):
+    # 무효 종류는 걸러지고 유효 항목만 순서대로 사용된다(['cafe','xxx','restaurant'] → 2정류지).
+    facs = [
+        _facility("c-1", "cafe", 0.0002),
+        _facility("r-1", "restaurant", 0.0006),
+        _facility("a-1", "attraction", 0.0003),
+    ]
+    import contextlib
+
+    with contextlib.ExitStack() as stack:
+        for p in _course_mocks(facs):
+            stack.enter_context(p)
+        res = auth_client.post("/api/v1/courses/recommend", json=_course_body(["cafe", "xxx", "restaurant"]))
+
+    assert res.status_code == 200
+    stops = res.json()
+    assert [s["facility"]["type"] for s in stops] == ["cafe", "restaurant"]
+
+
+def test_course_sequence_skips_exhausted_type(auth_client):
+    # 요청 종류(카페) 후보가 1곳뿐인데 같은 종류를 두 슬롯 요청 → 두 번째 슬롯은 건너뛴다
+    # (명시한 종류를 몰래 다른 종류로 대체하지 않는 정직한 저하 — 코스가 짧아질 뿐).
+    facs = [
+        _facility("c-1", "cafe", 0.0002),
+        _facility("r-1", "restaurant", 0.0006),
+    ]
+    import contextlib
+
+    with contextlib.ExitStack() as stack:
+        for p in _course_mocks(facs):
+            stack.enter_context(p)
+        res = auth_client.post("/api/v1/courses/recommend", json=_course_body(["cafe", "cafe"]))
+
+    assert res.status_code == 200
+    stops = res.json()
+    assert len(stops) == 1
+    assert stops[0]["facility"]["type"] == "cafe"

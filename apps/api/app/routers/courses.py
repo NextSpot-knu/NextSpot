@@ -64,6 +64,16 @@ class CourseRequest(BaseModel):
     user_lat: float
     user_lng: float
     types: list[str] | None = None  # 코스에 포함할 시설 종류 화이트리스트(없으면 전체 종류 대상)
+    # 정류지별 '순서 지정' 종류(예: ["cafe","attraction","restaurant"] → 1번째 카페, 2번째 관광지, 3번째 식당).
+    # 주어지면 types 화이트리스트와 종류 다양성 로직을 대체한다(무효 종류는 걸러지고 MAX_STOPS 까지만 사용).
+    sequence: list[str] | None = None
+
+
+# sequence 검증용 캐노니컬 시설 종류(DB CHECK 와 동일 집합).
+_VALID_COURSE_TYPES = {"restaurant", "cafe", "attraction", "culture"}
+# sequence 모드에서 종류별로 뽑을 인근 후보 상한 — 가까운 순 전체 상한(MAX_COURSE_CANDIDATES)과 달리
+# 종류별 보장이 목적(가까운 12곳에 카페가 0개여도 카페 슬롯이 성립하게).
+_SEQ_CANDIDATES_PER_TYPE = 6
 
 
 class CourseStop(BaseModel):
@@ -171,7 +181,7 @@ async def recommend_course(
     req: CourseRequest,
     current_user: dict = Depends(get_current_user),
 ):
-    logger.info("course_request", user_id=req.user_id, types=req.types)
+    logger.info("course_request", user_id=req.user_id, types=req.types, sequence=req.sequence)
 
     # 소유권 가드(IDOR 방지): 본문 user_id 는 토큰 주체와 일치해야 한다(타인 선호벡터 조회 차단).
     if req.user_id != current_user["id"]:
@@ -181,7 +191,10 @@ async def recommend_course(
         fetch_user(req.user_id), fetch_all_facilities()
     )
 
-    allowed_types = set(req.types or [])
+    # 순서 지정(sequence) 정규화 — 무효 종류 제거, 코스 길이 상한까지만. 주어지면 types 를 대체한다.
+    seq = [t for t in (req.sequence or []) if t in _VALID_COURSE_TYPES][:MAX_STOPS] or None
+
+    allowed_types = set() if seq else set(req.types or [])
     candidates = [
         f for f in all_facilities
         if (not allowed_types or f.get("type") in allowed_types)
@@ -199,11 +212,25 @@ async def recommend_course(
         key=lambda x: x[1],
     )
     reachable = [f for f, d in with_dist if d <= _MAX_RECO_DISTANCE_M]
-    pool = (
-        reachable[:MAX_COURSE_CANDIDATES]
-        if len(reachable) >= MIN_STOPS
-        else [f for f, _ in with_dist[:MAX_COURSE_CANDIDATES]]
-    )
+    if seq:
+        # 순서 지정 모드: 요청된 각 종류가 후보 풀에 반드시 대표되도록 종류별 가까운 순 상한으로 구성.
+        # (가까운 순 전체 상위 12곳에 특정 종류가 없으면 해당 슬롯이 성립 불가 — 종류별 보장이 필요.)
+        pool = []
+        seen_ids: set[str] = set()
+        for t in dict.fromkeys(seq):  # 순서 보존 중복 제거
+            typed = [f for f, d in with_dist if f.get("type") == t and d <= _MAX_RECO_DISTANCE_M]
+            if not typed:  # 반경 내 없음 → 거리순 전체에서 폴백(외곽에서도 슬롯 유지)
+                typed = [f for f, _ in with_dist if f.get("type") == t]
+            for f in typed[:_SEQ_CANDIDATES_PER_TYPE]:
+                if f["id"] not in seen_ids:
+                    seen_ids.add(f["id"])
+                    pool.append(f)
+    else:
+        pool = (
+            reachable[:MAX_COURSE_CANDIDATES]
+            if len(reachable) >= MIN_STOPS
+            else [f for f, _ in with_dist[:MAX_COURSE_CANDIDATES]]
+        )
     if not pool:
         return []
 
@@ -217,24 +244,33 @@ async def recommend_course(
     preferred_categories = user_info.get("preferred_categories", [])
     now = datetime.now(timezone.utc)
 
-    target_stops = min(MAX_STOPS, len(pool))
+    target_stops = len(seq) if seq else min(MAX_STOPS, len(pool))
     remaining = list(pool)
     used_types: set[str] = set()
     cur_lat, cur_lng = req.user_lat, req.user_lng
     cum_offset = 0.0
     chosen: list[dict] = []
 
-    for _ in range(target_stops):
+    for step_idx in range(target_stops):
         if not remaining:
             break
-        # 종류 다양성: 후보 풀에 여러 종류가 남아 있으면, 아직 방문 안 한 종류를 우선 고른다
-        # (카페→식당→관광지 같은 다채로운 동선). 한 종류만 남았거나 모두 방문했으면 전체에서 고른다.
-        distinct_types = {f.get("type") for f in remaining}
-        pick_from = remaining
-        if len(distinct_types) > 1:
-            unused = [f for f in remaining if f.get("type") not in used_types]
-            if unused:
-                pick_from = unused
+        if seq:
+            # 순서 지정 모드: 이번 슬롯은 요청된 종류에서만 고른다. 해당 종류 후보가 소진됐으면
+            # 슬롯을 건너뛴다(사용자가 명시한 종류를 조용히 다른 종류로 대체하지 않는다 — 정직성.
+            # 결과적으로 코스가 짧아질 뿐 지어내지 않는다).
+            typed = [f for f in remaining if f.get("type") == seq[step_idx]]
+            if not typed:
+                continue
+            pick_from = typed
+        else:
+            # 종류 다양성: 후보 풀에 여러 종류가 남아 있으면, 아직 방문 안 한 종류를 우선 고른다
+            # (카페→식당→관광지 같은 다채로운 동선). 한 종류만 남았거나 모두 방문했으면 전체에서 고른다.
+            distinct_types = {f.get("type") for f in remaining}
+            pick_from = remaining
+            if len(distinct_types) > 1:
+                unused = [f for f in remaining if f.get("type") not in used_types]
+                if unused:
+                    pick_from = unused
 
         evaluations = await asyncio.gather(*[
             _evaluate_candidate(

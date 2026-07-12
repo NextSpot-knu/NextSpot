@@ -66,6 +66,8 @@ export default function MainPage() {
   const [voiceFilterIds, setVoiceFilterIds] = useState<Set<string> | null>(null);
   const voiceFilterIdsRef = useRef<Set<string> | null>(null);
   const applyVoiceFilter = (s: Set<string> | null) => { voiceFilterIdsRef.current = s; setVoiceFilterIds(s); };
+  // 세부 음식분류 칩(치킨/피자·양식/국밥 등) — 음성 필터와 동일 경로(applyVoiceFilter+cuisineIntent)를 탄다.
+  const [cuisineChip, setCuisineChip] = useState<string | null>(null);
   // 음식 의도(음성 발화 '고기/국밥/피자' 또는 온보딩 food 선호). 선호 일치율을 음식종류 매칭으로 산출하는 데 쓴다.
   const cuisineIntentRef = useRef<string | null>(null);
   // 랜드마크 상대거리 정렬 기준점(예: '첨성대 가까운 카페' → 첨성대 좌표). null이면 사용자 위치 기준.
@@ -1240,6 +1242,47 @@ export default function MainPage() {
     { id: '문화시설', key: 'culture', icon: Building2 },
   ];
 
+  // 세부 음식분류 칩 — kw 는 lib/recommender.cuisineMatch 의 의도 키워드(라벨은 i18n cuisine.*).
+  // 음식점 카테고리에서만 노출. TourAPI POI 는 cat3 매핑, 시드는 cuisine_tags/상호명으로 매칭된다.
+  const cuisineChips = [
+    { id: 'korean', kw: '한식', emoji: '🍚' },
+    { id: 'meat', kw: '고기', emoji: '🥩' },
+    { id: 'gukbap', kw: '국밥', emoji: '🍲' },
+    { id: 'chicken', kw: '치킨', emoji: '🍗' },
+    { id: 'western', kw: '피자', emoji: '🍕' },
+    { id: 'chinese', kw: '중식', emoji: '🥟' },
+    { id: 'japanese', kw: '일식', emoji: '🍣' },
+    { id: 'bunsik', kw: '분식', emoji: '🍢' },
+  ];
+
+  // 칩 선택 — 음성 필터(onFilter)와 동일 경로: 매칭 id 집합 → applyVoiceFilter(마커·추천 풀 공통 필터)
+  // + cuisineIntent(선호%를 음식 매칭도로 재산정) + 필터 내 SPOT #1 즉시 선택. null = 해제.
+  const selectCuisineChip = (chip: { id: string; kw: string } | null) => {
+    if (!chip || cuisineChip === chip.id) {
+      setCuisineChip(null);
+      cuisineIntentRef.current = null;
+      applyVoiceFilter(null);
+      return;
+    }
+    const pool = expandGroups(facilities).filter(
+      (f: any) =>
+        f.type === 'restaurant' &&
+        (cuisineMatch(f, chip.kw) ?? 0) >= 0.45 &&
+        !rejectedIds.has(f.id) &&
+        !savedIds.has(f.id),
+    );
+    if (pool.length === 0) {
+      showToast(t('cuisine.noMatch'));
+      return;
+    }
+    setCuisineChip(chip.id);
+    cuisineIntentRef.current = chip.kw;
+    applyVoiceFilter(new Set(pool.map((f: any) => f.id)));
+    const ranked = pool.map((f: any) => ({ ...f, spot: calculateSPOT(f) })).sort(compareFacilities);
+    setSelectedFacility(ranked[0]);
+    if (mapInstanceRef.current && typeof ranked[0].latitude === 'number') panToVisible(ranked[0].latitude, ranked[0].longitude);
+  };
+
   const handleTabClick = (tabId: string) => {
     setActiveTab(tabId);
     if (tabId === 'Home') router.push('/main');
@@ -1362,6 +1405,8 @@ export default function MainPage() {
                   setActiveFilter(filter.id);
                   setActiveGroupId(null);
                   applyVoiceFilter(null); // 카테고리 전환 시 음성 선호 필터(예: 양식) 해제(ref+state)
+                  setCuisineChip(null);   // 세부분류 칩도 함께 해제(음식점 외 카테고리로 새지 않게)
+                  cuisineIntentRef.current = null;
                   // 필터(섹션) 전환 시 열려있던 모둠 팝업도 닫기
                   if (activeOverlayRef.current) {
                     activeOverlayRef.current.setMap(null);
@@ -1383,6 +1428,31 @@ export default function MainPage() {
             );
           })}
         </div>
+
+        {/* 세부 음식분류 칩(치킨/피자·양식/국밥 등) — 음식점 카테고리에서만. 재탭 시 해제. */}
+        {activeFilter === '음식점' && (
+          <div className="flex gap-2 overflow-x-auto no-scrollbar pointer-events-auto md:flex-wrap md:overflow-visible">
+            {cuisineChips.map((chip) => {
+              const on = cuisineChip === chip.id;
+              return (
+                <button
+                  key={chip.id}
+                  type="button"
+                  onClick={() => selectCuisineChip(chip)}
+                  aria-pressed={on}
+                  className={`flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-all shadow-[0_1px_8px_rgba(43,35,32,0.05)] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 sm:px-3 sm:py-1.5 sm:text-xs ${
+                    on
+                      ? 'bg-terracotta/15 border-terracotta text-terracotta'
+                      : 'bg-white/75 border-line text-muk-soft hover:bg-white hover:text-muk'
+                  }`}
+                >
+                  <span aria-hidden>{chip.emoji}</span>
+                  {t(`cuisine.${chip.id}`)}
+                </button>
+              );
+            })}
+          </div>
+        )}
 
         {/* 지도 레이어 컨트롤 — 🔥 히트맵 토글 + 예측 타임슬라이더(지금·+1h·+2h·+3h).
             CongestionMap 의 두 기능을 정본 지도에 통합. 예측 모드는 정직성 배지로 실측과 구분한다.

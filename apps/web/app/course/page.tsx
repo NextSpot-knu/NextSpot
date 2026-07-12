@@ -1,18 +1,22 @@
 "use client";
 
-// 분산 코스(멀티스톱 동선) 추천 페이지.
+// 분산 코스(멀티스톱 동선) 추천 페이지 — '배달 추적 화면' 스타일 지도+바텀시트 UI.
 // 백엔드 POST /api/v1/courses/recommend 가 '도착 시각의 예측 혼잡'을 피해 2~3개 정류지로
-// 이어지는 동선을 짜준다. 이 페이지는 세션/위치를 얻어 호출하고, 결과를 세로 타임라인으로 그린다.
+// 이어지는 동선을 짜준다. sequence(종류 순서)를 보내면 그 순서대로, 안 보내면 자동으로 짠다.
+// 이 페이지는 세션/위치를 얻어 호출하고, 결과를 지도 위 번호 마커 + 시트 목록으로 그린다.
 // 정적 export(SSR) 안전: 모든 브라우저 API 접근은 useEffect/핸들러 내부에 둔다.
 
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
+import { Reorder } from "framer-motion";
+import { ArrowLeft, ChevronDown, X } from "lucide-react";
 import { createPublicClient } from "@/lib/supabase";
 import { apiClient, isAuthError } from "@/lib/api-client";
 import { REGION, isWithinRegion } from "@/lib/region";
 import { toast } from "sonner";
 import { useT } from "@/lib/i18n/I18nProvider";
 import { ShareButton } from "@/components/ShareButton";
+import CourseMap from "@/components/CourseMap";
 
 type TFunc = (key: string, vars?: Record<string, string | number>) => string;
 
@@ -38,21 +42,30 @@ interface CourseStop {
   reason: string;
 }
 
+// 순서 지정 피커에 담긴 한 칸. type 은 백엔드 sequence 슬롯 값, uid 는 프런트 전용 드래그 식별자
+// (같은 종류를 두 번 담아도 framer-motion Reorder 가 값 충돌 없이 각 칸을 구분하도록 부여).
+interface SequenceItem {
+  uid: string;
+  type: string;
+}
+
 const TYPE_OPTIONS = [
   { id: "restaurant", emoji: "🍴" },
   { id: "cafe", emoji: "☕" },
   { id: "attraction", emoji: "📸" },
   { id: "culture", emoji: "🏛️" },
 ];
-const TYPE_IDS = TYPE_OPTIONS.map((o) => o.id);
 
-// 시설 유형(캐노니컬 키) → 표시명(i18n category, 미지정은 폴백).
-function typeName(type: string, t: TFunc): string {
-  return TYPE_IDS.includes(type) ? t(`category.${type}`) : t("course.typeFallback");
-}
+// 순서 지정 피커 최대 슬롯 — 백엔드 sequence 상한(최대 3)과 동일.
+const MAX_SEQUENCE = 3;
 
 function typeEmoji(type: string): string {
   return TYPE_OPTIONS.find((o) => o.id === type)?.emoji ?? "📍";
+}
+
+// 스텝퍼 라벨용 — 긴 시설명을 고정폭 칸에 맞게 자른다.
+function truncate(s: string, n: number): string {
+  return s.length > n ? `${s.slice(0, n)}…` : s;
 }
 
 // 혼잡 키/색 — 백엔드 _congestion_label 임계값과 통일(라벨은 congestion 네임스페이스로 번역).
@@ -63,13 +76,18 @@ function congestion(level: number): { key: string; cls: string } {
   return { key: "quiet", cls: "text-jade bg-jade/15 border-jade/30" };
 }
 
-// 도착 오프셋(분) → 사람 친화 표기 + 예상 시각(HH:MM).
-function arrivalText(offsetMin: number, t: TFunc): string {
+// 도착 오프셋(분) → 예상 시각(HH:MM, 24h) — 헤드라인 보조텍스트/시간행에서 공용으로 재사용.
+function hhmm(offsetMin: number): string {
   const clock = new Date(Date.now() + offsetMin * 60_000);
   const hh = clock.getHours().toString().padStart(2, "0");
   const mm = clock.getMinutes().toString().padStart(2, "0");
-  if (offsetMin < 8) return `${t("course.arrivalNow")} · ${hh}:${mm}`;
-  return `${t("course.arrivalAfter", { min: Math.round(offsetMin) })} · ${hh}:${mm}`;
+  return `${hh}:${mm}`;
+}
+
+// 도착 오프셋(분) → 사람 친화 표기 + 예상 시각(HH:MM).
+function arrivalText(offsetMin: number, t: TFunc): string {
+  if (offsetMin < 8) return `${t("course.arrivalNow")} · ${hhmm(offsetMin)}`;
+  return `${t("course.arrivalAfter", { min: Math.round(offsetMin) })} · ${hhmm(offsetMin)}`;
 }
 
 export default function CoursePage() {
@@ -80,11 +98,13 @@ export default function CoursePage() {
     lng: REGION.center.lng,
   });
   const [selectedTypes, setSelectedTypes] = useState<string[]>([]);
+  // 순서 지정 피커 상태 — 1개 이상이면 '순서 모드'(fetchCourse 가 body.sequence 를 보낸다).
+  const [sequence, setSequence] = useState<SequenceItem[]>([]);
   const [stops, setStops] = useState<CourseStop[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [needsAuth, setNeedsAuth] = useState(false);
-  // 결과 뷰: 'cards'(세로 카드 타임라인, 기본) | 'gantt'(시간축 간트차트)
+  // 결과 뷰: 'cards'(정보 행 목록, 기본) | 'gantt'(시간축 간트차트)
   const [viewMode, setViewMode] = useState<"cards" | "gantt">("cards");
 
   // 1) 세션(사용자 ID) — SessionBootstrap 익명 세션이 잡히면 실제 per-device id, 없으면 데모 방문자로 폴백.
@@ -126,7 +146,8 @@ export default function CoursePage() {
     );
   }, [t]);
 
-  // 3) 코스 조회.
+  // 3) 코스 조회 — sequence(순서 모드)가 있으면 body.sequence, 없으면 selectedTypes(자동 모드,
+  //    종류 필터만 지정)를 보낸다. 두 모드는 서로 배타적(간섭 방지, OrderPicker 주석 참조).
   const fetchCourse = useCallback(async () => {
     if (!userId) return;
     setLoading(true);
@@ -138,7 +159,11 @@ export default function CoursePage() {
         userLat: coords.lat,
         userLng: coords.lng,
       };
-      if (selectedTypes.length > 0) body.types = selectedTypes;
+      if (sequence.length > 0) {
+        body.sequence = sequence.map((s) => s.type);
+      } else if (selectedTypes.length > 0) {
+        body.types = selectedTypes;
+      }
       const data: CourseStop[] = await apiClient.post("/api/v1/courses/recommend", body);
       setStops(Array.isArray(data) ? data : []);
     } catch (err) {
@@ -153,7 +178,7 @@ export default function CoursePage() {
     } finally {
       setLoading(false);
     }
-  }, [userId, coords.lat, coords.lng, selectedTypes, t]);
+  }, [userId, coords.lat, coords.lng, selectedTypes, sequence, t]);
 
   useEffect(() => {
     fetchCourse();
@@ -161,47 +186,257 @@ export default function CoursePage() {
 
   const toggleType = (id: string) => {
     setSelectedTypes((prev) =>
-      prev.includes(id) ? prev.filter((t) => t !== id) : [...prev, id]
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
     );
   };
 
+  const addToSequence = (type: string) => {
+    setSequence((prev) => {
+      if (prev.length >= MAX_SEQUENCE) return prev;
+      const uid = `${type}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+      return [...prev, { uid, type }];
+    });
+  };
+  const removeFromSequence = (uid: string) => {
+    setSequence((prev) => prev.filter((s) => s.uid !== uid));
+  };
+
+  const lastStop = stops.length > 0 ? stops[stops.length - 1] : null;
+
   return (
     <main className="min-h-screen bg-hanji text-muk relative overflow-hidden">
-      {/* 배경 노을·금빛 광원 */}
+      {/* 배경 노을·금빛 광원 — 지도가 자리를 채우므로 평소엔 가려지고, 지도 폴백(unavailable) 시에만 은은히 비친다. */}
       <div className="absolute top-[-20%] left-[-10%] w-[520px] h-[520px] rounded-full bg-sunset-1/10 blur-[120px] pointer-events-none" />
       <div className="absolute bottom-[-10%] right-[-10%] w-[520px] h-[520px] rounded-full bg-gold/10 blur-[120px] pointer-events-none" />
 
-      <div className="relative z-10 mx-auto w-full max-w-md md:max-w-2xl px-4 md:px-6 py-6 space-y-6">
-        {/* 헤더 */}
-        <header className="flex items-center justify-between border-b border-line pb-4">
-          <Link
-            href="/main"
-            className="text-xs text-muk-soft hover:text-muk transition-colors flex items-center gap-1.5"
+      {loading ? (
+        <CourseSkeleton />
+      ) : (
+        <div className="relative z-10">
+          {/* 지도 + 플로팅 버튼(뒤로/공유) — CourseMap 이 null 을 반환하면(키 부재 등) 이 블록은
+              0 높이로 접혀 시트가 자연히 위로 붙는다(무해 폴백). */}
+          <div className="relative">
+            <CourseMap stops={stops} userLocation={coords} />
+            <Link
+              href="/main"
+              aria-label={t('course.backToMap')}
+              className="absolute top-4 left-4 z-20 flex items-center justify-center w-10 h-10 rounded-full bg-white/90 backdrop-blur border border-line shadow-[0_2px_10px_rgba(43,35,32,0.15)] text-muk hover:bg-white transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+            >
+              <ArrowLeft size={18} />
+            </Link>
+            <div className="absolute top-4 right-4 z-20">
+              <ShareButton
+                title={t('course.title')}
+                text={t('common.shareCourse')}
+                className="shadow-[0_2px_10px_rgba(43,35,32,0.15)]"
+              />
+            </div>
+          </div>
+
+          {/* 바텀시트 — 배민 배달 추적 화면 문법(그랩바 + rounded-t-3xl + -mt-6 겹침). */}
+          <div className="relative -mt-6 rounded-t-3xl bg-white shadow-[0_-8px_30px_rgba(43,35,32,0.12)]">
+            <div className="w-12 h-1.5 rounded-full bg-line mx-auto mt-3" aria-hidden />
+
+            <div className="mx-auto w-full max-w-md md:max-w-2xl px-4 md:px-6 pt-4 pb-10 space-y-6">
+              {/* 헤더 블록: 브랜드 칩 → 헤드라인(+도착 보조텍스트) → 한 줄 설명.
+                  정류지가 아직 없으면(로딩 직후 빈 결과/에러/인증 등) 기존 제목/설명으로 폴백. */}
+              <section className="space-y-2">
+                <span className="inline-flex items-center w-fit px-2.5 py-1 rounded-full bg-gold/10 border border-gold/25 text-[11px] font-bold text-gold-deep">
+                  {t('course.brand')}
+                </span>
+                {stops.length > 0 && lastStop ? (
+                  <>
+                    <div className="flex items-end justify-between gap-3">
+                      <h1 className="text-xl md:text-2xl font-serif font-bold text-muk leading-tight">
+                        {t('course.headline', { n: stops.length })}
+                      </h1>
+                      <span className="shrink-0 text-xs font-semibold text-muk-soft tabular-nums pb-0.5">
+                        {t('course.headlineEta', { time: hhmm(lastStop.arrivalOffsetMin) })}
+                      </span>
+                    </div>
+                    <p className="text-xs md:text-sm text-muk-soft leading-relaxed">
+                      {t('course.subline')}
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <h1 className="text-lg md:text-xl font-serif font-bold text-muk">
+                      {t('course.title')}
+                    </h1>
+                    <p className="text-xs md:text-sm text-muk-soft leading-relaxed">
+                      {t('course.desc')}
+                    </p>
+                  </>
+                )}
+              </section>
+
+              {/* 가로 스텝퍼 — 정류지가 있을 때만 */}
+              {stops.length > 0 && <CourseStepper stops={stops} />}
+
+              {/* 순서 지정 피커 */}
+              <OrderPicker
+                sequence={sequence}
+                onAdd={addToSequence}
+                onRemove={removeFromSequence}
+                onReorder={setSequence}
+                onReset={() => setSequence([])}
+                selectedTypes={selectedTypes}
+                onToggleType={toggleType}
+              />
+
+              {/* 결과 */}
+              {needsAuth ? (
+                <AuthState />
+              ) : error ? (
+                <ErrorState message={error} onRetry={fetchCourse} />
+              ) : stops.length === 0 ? (
+                <EmptyState />
+              ) : (
+                <div className="space-y-4">
+                  <ViewToggle mode={viewMode} onChange={setViewMode} />
+                  {viewMode === "gantt" ? <CourseGantt stops={stops} /> : <StopRows stops={stops} />}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </main>
+  );
+}
+
+// 가로 스텝퍼 — 정류지 순서를 한눈에 미리보기. '지금부터 갈 순서'이므로 완료 표시는 없고,
+// 첫 정류지만 강조(gold 채움 + 굵은 라벨)하고 이후는 회색으로 낮춘다.
+function CourseStepper({ stops }: { stops: CourseStop[] }) {
+  const t = useT();
+  return (
+    <ol className="flex items-start w-full" aria-label={t('course.stepperAria')}>
+      {stops.map((stop, idx) => {
+        const isFirst = idx === 0;
+        return (
+          <li key={stop.facility.id} className="flex items-start flex-1 min-w-0">
+            {idx > 0 && <span className="h-0.5 bg-line flex-1 mt-4 mx-1" aria-hidden />}
+            <div className="flex flex-col items-center gap-1 w-16 shrink-0 min-w-0">
+              <span
+                className={`flex items-center justify-center w-8 h-8 rounded-full text-sm border-2 shrink-0 ${
+                  isFirst ? "bg-gold border-gold text-white" : "bg-white border-line text-muk-soft"
+                }`}
+                aria-hidden
+              >
+                {typeEmoji(stop.facility.type)}
+              </span>
+              <span
+                className={`text-[10px] max-w-full truncate text-center ${
+                  isFirst ? "font-bold text-muk" : "text-muk-soft"
+                }`}
+                title={stop.facility.name}
+              >
+                {truncate(stop.facility.name, 6)}
+              </span>
+              <span className="text-[9px] text-muk-soft/80 tabular-nums">
+                {t('course.stepperOffset', { min: Math.round(stop.arrivalOffsetMin) })}
+              </span>
+            </div>
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
+// 순서 지정 피커 — 종류를 순서대로 눌러 담으면(sequence) 그 순서대로 코스를 배정한다(백엔드 body.sequence,
+// 1번째 정류지=sequence[0] 종류 …). framer-motion Reorder 로 담긴 순서를 드래그 재정렬할 수 있다.
+// sequence 가 1개 이상이면 '순서 모드'가 되어, 아래 기존 selectedTypes 멀티 필터(자동 모드용)는
+// 렌더하지 않는다 — 두 입력이 동시에 보이면 어느 쪽이 적용되는지 헷갈리므로 간섭을 원천 차단.
+function OrderPicker({
+  sequence,
+  onAdd,
+  onRemove,
+  onReorder,
+  onReset,
+  selectedTypes,
+  onToggleType,
+}: {
+  sequence: SequenceItem[];
+  onAdd: (type: string) => void;
+  onRemove: (uid: string) => void;
+  onReorder: (next: SequenceItem[]) => void;
+  onReset: () => void;
+  selectedTypes: string[];
+  onToggleType: (id: string) => void;
+}) {
+  const t = useT();
+  return (
+    <section className="space-y-2.5">
+      <div>
+        <h2 className="text-sm font-bold text-muk">{t('course.orderTitle')}</h2>
+        <p className="text-[11px] text-muk-soft mt-0.5">{t('course.orderHint')}</p>
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        {TYPE_OPTIONS.map((opt) => (
+          <button
+            key={opt.id}
+            type="button"
+            onClick={() => onAdd(opt.id)}
+            disabled={sequence.length >= MAX_SEQUENCE}
+            aria-label={t('course.orderAddAria', { type: t(`category.${opt.id}`) })}
+            className="px-3 py-1.5 rounded-full text-xs font-semibold border bg-white border-line text-muk-soft hover:border-gold/40 hover:text-gold-deep transition-colors disabled:opacity-40 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/50"
           >
-            ← {t('course.backToMap')}
-          </Link>
-          <span className="text-sm font-extrabold tracking-tight gradient-text">{t('course.brand')}</span>
-          <ShareButton title={t('course.title')} text={t('common.shareCourse')} />
-        </header>
+            {opt.emoji} {t(`category.${opt.id}`)}
+          </button>
+        ))}
+      </div>
 
-        {/* 소개 */}
-        <section className="space-y-1.5">
-          <h1 className="text-lg md:text-xl font-serif font-bold text-muk">
-            {t('course.title')}
-          </h1>
-          <p className="text-xs md:text-sm text-muk-soft leading-relaxed">
-            {t('course.desc')}
-          </p>
-        </section>
+      {sequence.length > 0 && (
+        <div className="space-y-2">
+          <Reorder.Group
+            axis="x"
+            values={sequence}
+            onReorder={onReorder}
+            className="flex flex-wrap gap-2"
+          >
+            {sequence.map((item, idx) => (
+              <Reorder.Item
+                key={item.uid}
+                value={item}
+                className="flex items-center gap-1.5 pl-2.5 pr-1.5 py-1.5 rounded-full bg-gold/15 border border-gold/40 text-gold-deep text-xs font-bold cursor-grab active:cursor-grabbing select-none"
+              >
+                <span className="tabular-nums">{idx + 1}.</span>
+                <span>{typeEmoji(item.type)} {t(`category.${item.type}`)}</span>
+                <button
+                  type="button"
+                  onClick={() => onRemove(item.uid)}
+                  aria-label={t('course.orderRemoveAria', { type: t(`category.${item.type}`) })}
+                  className="ml-0.5 p-0.5 rounded-full hover:bg-gold/25 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/50"
+                >
+                  <X size={12} />
+                </button>
+              </Reorder.Item>
+            ))}
+          </Reorder.Group>
+          <button
+            type="button"
+            onClick={onReset}
+            className="text-[11px] font-semibold text-muk-soft hover:text-terracotta transition-colors underline underline-offset-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/50 rounded"
+          >
+            {t('course.orderReset')}
+          </button>
+        </div>
+      )}
 
-        {/* 종류 필터 */}
-        <section className="flex flex-wrap gap-2">
+      {/* 기존 종류 멀티 필터(자동 모드용) — 순서 모드(sequence 1개 이상)와 간섭하지 않도록
+          sequence 가 비어있을 때만 렌더한다. */}
+      {sequence.length === 0 && (
+        <div className="flex flex-wrap gap-2 pt-1">
           {TYPE_OPTIONS.map((opt) => {
             const on = selectedTypes.includes(opt.id);
             return (
               <button
                 key={opt.id}
-                onClick={() => toggleType(opt.id)}
+                type="button"
+                onClick={() => onToggleType(opt.id)}
+                aria-pressed={on}
                 className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors ${
                   on
                     ? "bg-gold/15 border-gold/40 text-gold-deep"
@@ -212,33 +447,17 @@ export default function CoursePage() {
               </button>
             );
           })}
-        </section>
-
-        {/* 본문 상태 */}
-        {loading ? (
-          <TimelineSkeleton />
-        ) : needsAuth ? (
-          <AuthState />
-        ) : error ? (
-          <ErrorState message={error} onRetry={fetchCourse} />
-        ) : stops.length === 0 ? (
-          <EmptyState />
-        ) : (
-          <div className="space-y-4">
-            <ViewToggle mode={viewMode} onChange={setViewMode} />
-            {viewMode === "gantt" ? <CourseGantt stops={stops} /> : <Timeline stops={stops} />}
-          </div>
-        )}
-      </div>
-    </main>
+        </div>
+      )}
+    </section>
   );
 }
 
-// 카드 ↔ 간트 뷰 전환 세그먼트 컨트롤.
+// 카드(목록) ↔ 간트 뷰 전환 세그먼트 컨트롤.
 function ViewToggle({ mode, onChange }: { mode: "cards" | "gantt"; onChange: (m: "cards" | "gantt") => void }) {
   const t = useT();
   const opts: { id: "cards" | "gantt"; label: string }[] = [
-    { id: "cards", label: t("course.viewCards") },
+    { id: "cards", label: t("course.viewList") },
     { id: "gantt", label: t("course.viewGantt") },
   ];
   return (
@@ -279,10 +498,7 @@ function CourseGantt({ stops }: { stops: CourseStop[] }) {
   // 시간 눈금 5개(균등) — 지금 기준 실제 시각(HH:MM)으로 표기.
   const ticks = Array.from({ length: 5 }, (_, i) => {
     const min = (total * i) / 4;
-    const clock = new Date(Date.now() + min * 60_000);
-    const hh = clock.getHours().toString().padStart(2, "0");
-    const mm = clock.getMinutes().toString().padStart(2, "0");
-    return { pct: (min / total) * 100, label: i === 0 ? t("course.ganttNow") : `${hh}:${mm}` };
+    return { pct: (min / total) * 100, label: i === 0 ? t("course.ganttNow") : hhmm(min) };
   });
 
   return (
@@ -359,75 +575,113 @@ function CourseGantt({ stops }: { stops: CourseStop[] }) {
   );
 }
 
-function Timeline({ stops }: { stops: CourseStop[] }) {
-  const t = useT();
+// 정보 행 목록 — 배민 배달 추적 화면의 '배달주소/요청사항' 행 문법(카드 박스가 아니라 플랫한
+// 시트 위 행 + divide-y 구분선). 시트 좌우 패딩을 상쇄(-mx)해 구분선이 시트 폭 끝까지 이어지게 한다.
+function StopRows({ stops }: { stops: CourseStop[] }) {
   return (
-    <ol className="relative space-y-4">
-      {stops.map((stop, idx) => {
-        const cong = congestion(stop.predictedCongestion);
-        const isLast = idx === stops.length - 1;
-        return (
-          <li key={stop.facility.id} className="relative pl-11">
-            {/* 세로 연결선 */}
-            {!isLast && (
-              <span className="absolute left-[19px] top-9 bottom-[-1rem] w-px bg-gradient-to-b from-gold/50 to-line" aria-hidden />
-            )}
-            {/* 순서 노드 */}
-            <span className="absolute left-0 top-1 flex items-center justify-center w-10 h-10 rounded-full bg-gold text-white font-bold text-sm shadow-[0_2px_10px_rgba(193,154,62,0.35)]">
-              {stop.order}
-            </span>
-
-            <div className="bg-white rounded-2xl border border-line shadow-[0_2px_14px_rgba(43,35,32,0.06)] p-4 space-y-2.5">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="text-[10px] font-bold tracking-wider text-muk-soft">
-                    {typeEmoji(stop.facility.type)} {typeName(stop.facility.type, t)}
-                  </div>
-                  <h3 className="text-base font-serif font-bold text-muk truncate">
-                    {stop.facility.name}
-                  </h3>
-                </div>
-                <span
-                  className={`shrink-0 px-2 py-1 rounded-lg text-[11px] font-bold border ${cong.cls}`}
-                >
-                  {t(`congestion.${cong.key}`)} {Math.round(stop.predictedCongestion * 100)}%
-                </span>
-              </div>
-
-              <div className="flex items-center gap-2 text-[11px] text-muk-soft">
-                <span className="inline-flex items-center gap-1">
-                  🕒 {arrivalText(stop.arrivalOffsetMin, t)}
-                </span>
-                <span className="text-line">·</span>
-                <span className="inline-flex items-center gap-1">
-                  {t('course.spotScore', { score: Math.round(stop.spotScore * 100) })}
-                </span>
-              </div>
-
-              <p className="text-xs text-muk leading-relaxed bg-hanji-deep/60 rounded-lg px-3 py-2">
-                {stop.reason}
-              </p>
-            </div>
-          </li>
-        );
-      })}
-    </ol>
+    <div className="-mx-4 md:-mx-6 divide-y divide-line">
+      {stops.map((stop) => (
+        <StopRow key={stop.facility.id} stop={stop} />
+      ))}
+    </div>
   );
 }
 
-function TimelineSkeleton() {
+function StopRow({ stop }: { stop: CourseStop }) {
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  const cong = congestion(stop.predictedCongestion);
+  const reasonId = `course-reason-${stop.facility.id}`;
   return (
-    <div className="space-y-4" aria-hidden>
-      {[0, 1, 2].map((i) => (
-        <div key={i} className="relative pl-11">
-          <span className="absolute left-0 top-1 w-10 h-10 rounded-full bg-hanji-deep animate-pulse" />
-          <div className="bg-white rounded-2xl border border-line p-4 space-y-3 animate-pulse">
-            <div className="h-4 bg-hanji-deep w-2/3 rounded-md" />
-            <div className="h-3 bg-hanji-deep w-1/2 rounded-md" />
-            <div className="h-8 bg-hanji-deep w-full rounded-lg" />
+    <div className="px-4 md:px-6 py-4">
+      <div className="flex items-start gap-3">
+        <span
+          className="shrink-0 flex items-center justify-center w-9 h-9 rounded-full bg-hanji-deep text-base"
+          aria-hidden
+        >
+          {typeEmoji(stop.facility.type)}
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-start justify-between gap-2">
+            <h3 className="text-sm font-bold text-muk truncate">
+              {stop.order}. {stop.facility.name}
+            </h3>
+            <span className={`shrink-0 px-2 py-0.5 rounded-lg text-[10px] font-bold border ${cong.cls}`}>
+              {t(`congestion.${cong.key}`)} {Math.round(stop.predictedCongestion * 100)}%
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2 text-[11px] text-muk-soft mt-0.5">
+            <span>🕒 {arrivalText(stop.arrivalOffsetMin, t)}</span>
+            <span className="text-line">·</span>
+            <span>{t('course.spotScore', { score: Math.round(stop.spotScore * 100) })}</span>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setOpen((v) => !v)}
+            aria-expanded={open}
+            aria-controls={reasonId}
+            className="mt-1.5 flex items-center gap-1 text-[11px] font-semibold text-gold-deep hover:text-gold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/50 rounded"
+          >
+            {t('course.reasonToggle')}
+            <ChevronDown size={13} className={`transition-transform ${open ? "rotate-180" : ""}`} aria-hidden />
+          </button>
+
+          {open && (
+            <p id={reasonId} className="mt-1.5 text-xs text-muk leading-relaxed bg-hanji-deep/60 rounded-lg px-3 py-2">
+              {stop.reason}
+            </p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// 로딩 스켈레톤 — 실제 레이아웃(지도 자리 + 시트 헤더/스텝퍼/행)을 그대로 흉내내 레이아웃 시프트를 줄인다.
+function CourseSkeleton() {
+  return (
+    <div className="relative z-10" aria-hidden>
+      {/* 지도 자리 */}
+      <div className="h-[38dvh] md:h-[42dvh] w-full bg-hanji-deep animate-pulse" />
+
+      {/* 시트 자리 */}
+      <div className="relative -mt-6 rounded-t-3xl bg-white shadow-[0_-8px_30px_rgba(43,35,32,0.12)]">
+        <div className="w-12 h-1.5 rounded-full bg-line mx-auto mt-3" />
+
+        <div className="mx-auto w-full max-w-md md:max-w-2xl px-4 md:px-6 pt-4 pb-10 space-y-6">
+          {/* 헤더 */}
+          <div className="space-y-2">
+            <div className="h-5 w-28 rounded-full bg-hanji-deep animate-pulse" />
+            <div className="h-6 w-2/3 rounded-md bg-hanji-deep animate-pulse" />
+            <div className="h-3 w-1/2 rounded-md bg-hanji-deep animate-pulse" />
+          </div>
+
+          {/* 스텝퍼 */}
+          <div className="flex items-start gap-3">
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="flex-1 flex flex-col items-center gap-1.5">
+                <div className="w-8 h-8 rounded-full bg-hanji-deep animate-pulse" />
+                <div className="h-2 w-10 rounded bg-hanji-deep animate-pulse" />
+              </div>
+            ))}
+          </div>
+
+          {/* 정보 행 */}
+          <div className="space-y-3">
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="flex items-start gap-3">
+                <div className="w-9 h-9 rounded-full bg-hanji-deep animate-pulse shrink-0" />
+                <div className="flex-1 space-y-2">
+                  <div className="h-4 w-2/3 rounded bg-hanji-deep animate-pulse" />
+                  <div className="h-3 w-1/2 rounded bg-hanji-deep animate-pulse" />
+                </div>
+              </div>
+            ))}
           </div>
         </div>
-      ))}
+      </div>
     </div>
   );
 }
