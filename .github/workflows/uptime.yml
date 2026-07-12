@@ -1,0 +1,23 @@
+# NextSpot API — 헬스체크 업타임 핑
+# 10분마다 vars.BACKEND_HEALTH_URL(리포지토리 Actions Variable) 을 curl 로 확인한다.
+# 미설정이면 스텝을 skip(무해). 값 등록: GitHub repo → Settings → Secrets and variables → Actions → Variables
+# → BACKEND_HEALTH_URL = https://<render-서비스>.onrender.com/health (docs/HANDOVER.md "6. 배포" 참고)
+name: Backend Uptime Check
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+jobs:
+  health-check:
+    name: health check (/health)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping backend health endpoint
+        if: ${{ vars.BACKEND_HEALTH_URL != '' }}
+        run: curl -fsS "${{ vars.BACKEND_HEALTH_URL }}"
+
+      - name: Skip (BACKEND_HEALTH_URL 미설정)
+        if: ${{ vars.BACKEND_HEALTH_URL == '' }}
+        run: echo "BACKEND_HEALTH_URL repository variable 이 설정되지 않아 헬스체크를 건너뜁니다."

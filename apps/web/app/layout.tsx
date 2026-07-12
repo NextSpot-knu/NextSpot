@@ -7,6 +7,7 @@ import PageTransition from "@/components/PageTransition";
 import BottomNav from "@/components/BottomNav";
 import ServiceWorkerRegister from "@/components/ServiceWorkerRegister";
 import SessionBootstrap from "@/components/SessionBootstrap";
+import InstallPrompt from "@/components/InstallPrompt";
 import { I18nProvider } from "@/lib/i18n/I18nProvider";
 
 const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
@@ -64,6 +65,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         {/* 왼쪽 세로 내비게이션 레일(인플로우) — 숨김 경로에서 null 이면 콘텐츠가 전체폭을 차지. */}
         <I18nProvider>
           <BottomNav />
+          {/* PWA 설치 유도 배너 — beforeinstallprompt 캡처는 useT() 로 i18n 문구를 쓰므로 I18nProvider 내부에 마운트. */}
+          <InstallPrompt />
           <PageTransition>{children}</PageTransition>
         </I18nProvider>
         {/* 한지 라이트 토스트 — 앱의 웜 팔레트와 통일(과거 InduSpot 콜드 슬레이트 제거). richColors 는 성공/에러 의미색 유지. */}

@@ -1,0 +1,31 @@
+# NextSpot API — Render Blueprint
+# apps/api(FastAPI) 를 Docker 런타임으로 배포한다. apps/api/Dockerfile 참고(단일 스테이지, uvicorn, 기본 PORT=8080).
+# 적용 절차: Render 대시보드 → New → Blueprint → 이 리포 연결 (docs/HANDOVER.md "6. 배포" 섹션 참고).
+# sync: false 인 env 는 이 파일에 값이 들어가지 않는다 — Render 대시보드에서 서비스별로 직접 입력해야 한다.
+services:
+  - type: web
+    name: nextspot-api
+    runtime: docker
+    dockerfilePath: ./apps/api/Dockerfile
+    dockerContext: ./apps/api
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      # --- Supabase (apps/api/app/core/config.py 필수값) ---
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      # --- 관리자 가드 토큰(필수 — 미설정 시 부팅 실패) ---
+      - key: ADMIN_API_TOKEN
+        sync: false
+      # --- CORS: 실제 도메인을 콤마로 지정하면 main.py 가 엄격 모드(해당 오리진만 + credentials)로 전환 ---
+      - key: ALLOWED_ORIGINS
+        sync: false
+      # --- 한국관광공사 TourAPI 인증키(선택 — 비어 있으면 TourAPI 호출 시점에만 실패) ---
+      - key: TOURAPI_KEY
+        sync: false

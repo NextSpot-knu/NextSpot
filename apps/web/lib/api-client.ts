@@ -64,6 +64,8 @@ export function keysToSnake(o: any): any {
 
 // 로컬 전용: FastAPI 백엔드 직접 호출(기본 http://localhost:8000). 대회용 API Gateway 경유는 제거됨.
 const BASE_URL = process.env.NEXT_PUBLIC_FASTAPI_URL || "http://localhost:8000";
+// 무응답 백엔드에 무한 대기하지 않도록 타임아웃(lib/admin-api.ts adminRequest 의 기존 패턴 미러).
+const REQUEST_TIMEOUT_MS = 10000;
 
 interface RequestOptions extends RequestInit {
   params?: Record<string, string>;
@@ -97,11 +99,26 @@ async function request(path: string, options: RequestOptions = {}) {
     body = JSON.stringify(keysToSnake(body));
   }
 
-  const response = await fetch(url, {
-    ...options,
-    headers,
-    body,
-  });
+  // 10초 타임아웃 — 미응답 시 명확한 에러로 실패시켜 화면이 무한 로딩에 갇히지 않게 한다.
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      ...options,
+      headers,
+      body,
+      signal: controller.signal,
+    });
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError") {
+      throw new Error("요청 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요.");
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
 
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));

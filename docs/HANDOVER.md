@@ -72,3 +72,49 @@ node scripts/build_reset.mjs && git diff --exit-code supabase/RESET_AND_SETUP.sq
 - 로그아웃 방문자는 인증 필요 엔드포인트(추천/코스/제보/쿠폰) 401 → 폴백 상태로 강등(기존과 동일). 게스트 온보딩 개선 여지.
 - 날씨·행사(TourAPI festival) 연동은 TOURAPI_KEY + 외부 날씨 API 필요로 보류.
 - 프로덕션 품질 2차 감사 진행 중(전체 앱 a11y/모바일/엣지 상태) — 발견 사항 순차 수정 예정.
+
+## 6. 배포 (FastAPI → Render, 웹 → Vercel)
+
+코드/설정은 준비되어 있으나 아래는 **외부 계정 접근이 필요해 사람이 직접 해야 하는 작업**이다.
+
+### 6-1. FastAPI 백엔드 — Render Blueprint 적용
+1. https://dashboard.render.com 로그인 → **New → Blueprint** → GitHub 리포(`NextSpot-knu/NextSpot`) 연결
+2. Render 가 루트 `render.yaml` 을 자동 인식(type web · runtime docker · `apps/api/Dockerfile`, 컨텍스트 `apps/api`) → 서비스 `nextspot-api` 생성 제안
+3. `render.yaml` 은 아래 env 값을 전부 `sync: false` 로 선언해뒀다 — Render 가 값을 자동으로 채우지 않으므로 **Blueprint 적용 화면(또는 서비스 생성 후 Environment 탭)에서 직접 입력**해야 배포가 정상 기동한다. 값 자체는 아래 "출처" 열의 로컬 파일에서 그대로 복사(여기 문서에는 키 이름만 남기고 값은 적지 않는다):
+
+| Render env var | 값 출처 |
+|---|---|
+| `SUPABASE_URL` | `apps/api/.env` 의 동일 키 |
+| `SUPABASE_SERVICE_ROLE_KEY` | `apps/api/.env` 의 동일 키 |
+| `SUPABASE_ANON_KEY` | `apps/api/.env` 의 동일 키 |
+| `JWT_SECRET` | `apps/api/.env` 의 동일 키(Supabase Dashboard → Project Settings → API → JWT Secret) |
+| `ADMIN_API_TOKEN` | 로컬 데모값(`nextspot-admin-local`) 재사용 금지 — `openssl rand -hex 32` 로 새 값 발급 후 `apps/web`(Vercel) `NEXT_PUBLIC_ADMIN_API_TOKEN` 과 동일하게 맞출 것 |
+| `ALLOWED_ORIGINS` | Vercel 배포 도메인(6-3 참고) |
+| `TOURAPI_KEY` | `apps/api/.env` 의 동일 키 |
+
+4. Deploy 완료 후 `https://<서비스>.onrender.com/health` 가 200 을 반환하는지 확인(`render.yaml` 의 `healthCheckPath`, `apps/api/app/main.py` 의 `/health` 라우트 기준).
+5. (선택) `.github/workflows/uptime.yml` 이 10분마다 `/health` 를 핑한다. GitHub repo → **Settings → Secrets and variables → Actions → Variables** 에 `BACKEND_HEALTH_URL`(예: `https://<서비스>.onrender.com/health`)을 등록하면 활성화되고, 미등록이면 워크플로가 무해하게 skip 된다.
+
+### 6-2. 웹(Next.js) — Vercel 환경변수 추가
+Vercel 프로젝트(Root Directory `apps/web`) → Settings → Environment Variables 에 아래 4개가 있어야 백엔드/지도가 붙는다:
+
+| Vercel env var | 값 출처 |
+|---|---|
+| `NEXT_PUBLIC_FASTAPI_URL` | Render 서비스 URL(예: `https://nextspot-api.onrender.com`) |
+| `NEXT_PUBLIC_SUPABASE_URL` | `apps/web/.env.local` 의 동일 키 |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | `apps/web/.env.local` 의 동일 키 |
+| `NEXT_PUBLIC_KAKAO_MAPS_APP_KEY` | `apps/web/.env.local` 의 동일 키 |
+
+Kakao Maps JS SDK 는 도메인 화이트리스트 방식이므로, **Kakao 개발자콘솔 → 내 애플리케이션 → 플랫폼 → Web 플랫폼 도메인**에 Vercel 배포 도메인(예: `https://nextspot-xxx.vercel.app`, 커스텀 도메인이 있으면 그것도 함께)을 등록해야 지도가 렌더링된다.
+
+### 6-3. CORS — ALLOWED_ORIGINS 지정 시 엄격 모드 자동 전환
+`apps/api/app/main.py` 는 `ALLOWED_ORIGINS` 에 `*` 가 포함되거나 미설정이면 모든 오리진을 허용하되 `allow_credentials=False`(느슨 모드)로 동작하고, 실제 도메인 목록이 들어오면 해당 오리진만 허용 + `allow_credentials=True`(엄격 모드)로 자동 전환한다. Render 의 `ALLOWED_ORIGINS` 를 Vercel 배포 도메인으로 지정(콤마 구분, 예: `https://nextspot-xxx.vercel.app,https://your-custom-domain.com`)하면 배포와 동시에 엄격 모드가 켜진다 — 운영 전 반드시 지정할 것(방치 시 와일드카드로 열려 있음).
+
+### 6-4. 미적용 DB 마이그레이션 4개
+아래 4개는 아직 Supabase 에 적용되지 않은 상태다(기존 DB 유지 경로 — `DEPLOY_AND_ENV.md` 1-1 절 "기존 DB를 유지" 참고):
+- `supabase/migrations/20260710170000_add_coupon_expiry.sql`
+- `supabase/migrations/20260710171000_add_user_report_count.sql`
+- `supabase/migrations/20260710172000_congestion_source_honesty.sql`
+- `supabase/migrations/20260710173000_add_app_events.sql`
+
+적용 방법: Supabase 대시보드 → **SQL Editor** → 위 4개 파일을 **파일명 오름차순(타임스탬프 순)** 으로 하나씩 전체 복사 → 붙여넣기 → Run(전부 멱등이라 재실행해도 안전). 또는 `supabase link` 후 `supabase db push` 로 일괄 적용해도 된다.

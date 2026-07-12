@@ -6,10 +6,11 @@
 // 이 페이지는 세션/위치를 얻어 호출하고, 결과를 지도 위 번호 마커 + 시트 목록으로 그린다.
 // 정적 export(SSR) 안전: 모든 브라우저 API 접근은 useEffect/핸들러 내부에 둔다.
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo, Suspense } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { Reorder } from "framer-motion";
-import { ArrowLeft, ChevronDown, X } from "lucide-react";
+import { ArrowLeft, ChevronDown, X, Navigation } from "lucide-react";
 import { createPublicClient } from "@/lib/supabase";
 import { apiClient, isAuthError } from "@/lib/api-client";
 import { REGION, isWithinRegion } from "@/lib/region";
@@ -17,6 +18,7 @@ import { toast } from "sonner";
 import { useT } from "@/lib/i18n/I18nProvider";
 import { ShareButton } from "@/components/ShareButton";
 import CourseMap from "@/components/CourseMap";
+import { encodeStops, parseShareParam } from "@/lib/course-share";
 
 type TFunc = (key: string, vars?: Record<string, string | number>) => string;
 
@@ -90,8 +92,16 @@ function arrivalText(offsetMin: number, t: TFunc): string {
   return `${t("course.arrivalAfter", { min: Math.round(offsetMin) })} · ${hhmm(offsetMin)}`;
 }
 
-export default function CoursePage() {
+function CourseContent() {
   const t = useT();
+  const searchParams = useSearchParams();
+
+  // 공유 딥링크(?s=) 감지 — 있으면 '공유 모드'(읽기 전용, 순서 피커/종류 필터 숨김, 새 추천 호출 없음).
+  // parseShareParam 은 깨진 조각을 걸러내므로, s 가 있어도 유효한 정류지가 하나도 없으면 일반 모드로 처리.
+  const shareParam = searchParams.get("s");
+  const parsedShare = useMemo(() => parseShareParam(shareParam), [shareParam]);
+  const isShareMode = parsedShare.length > 0;
+
   const [userId, setUserId] = useState<string | null>(null);
   const [coords, setCoords] = useState<{ lat: number; lng: number }>({
     lat: REGION.center.lat,
@@ -106,6 +116,12 @@ export default function CoursePage() {
   const [needsAuth, setNeedsAuth] = useState(false);
   // 결과 뷰: 'cards'(정보 행 목록, 기본) | 'gantt'(시간축 간트차트)
   const [viewMode, setViewMode] = useState<"cards" | "gantt">("cards");
+
+  // 공유 모드 전용 상태 — facilities 조회로 복원한 정류지(이름/좌표는 조회 시점 최신, 오프셋/혼잡은
+  // 공유 시점 스냅샷). sharedLoading 초기값은 공유 모드일 때만 true 로 시작해 첫 프레임 빈 상태 깜빡임을 막는다.
+  const [sharedStops, setSharedStops] = useState<CourseStop[]>([]);
+  const [sharedLoading, setSharedLoading] = useState<boolean>(() => isShareMode);
+  const [sharedError, setSharedError] = useState<string | null>(null);
 
   // 1) 세션(사용자 ID) — SessionBootstrap 익명 세션이 잡히면 실제 per-device id, 없으면 데모 방문자로 폴백.
   useEffect(() => {
@@ -148,8 +164,9 @@ export default function CoursePage() {
 
   // 3) 코스 조회 — sequence(순서 모드)가 있으면 body.sequence, 없으면 selectedTypes(자동 모드,
   //    종류 필터만 지정)를 보낸다. 두 모드는 서로 배타적(간섭 방지, OrderPicker 주석 참조).
+  //    공유 모드에서는 새 추천을 호출하지 않는다(읽기 전용) — isShareMode 가드.
   const fetchCourse = useCallback(async () => {
-    if (!userId) return;
+    if (!userId || isShareMode) return;
     setLoading(true);
     setError(null);
     setNeedsAuth(false);
@@ -178,11 +195,76 @@ export default function CoursePage() {
     } finally {
       setLoading(false);
     }
-  }, [userId, coords.lat, coords.lng, selectedTypes, sequence, t]);
+  }, [userId, coords.lat, coords.lng, selectedTypes, sequence, isShareMode, t]);
 
   useEffect(() => {
     fetchCourse();
   }, [fetchCourse]);
+
+  // 3b) 공유 모드 정류지 복원 — anon RLS(createPublicClient)로 facilities 를 id in (...) 조회해
+  //     이름/좌표는 조회 시점 최신값으로, 도착 오프셋/혼잡은 공유 시점 스냅샷(parsedShare) 그대로 채운다.
+  //     spotScore/reason 은 URL 에 싣지 않는 값이라 정직하게 비워두고, StopRow 가 readOnly 일 때 숨긴다.
+  const fetchSharedStops = useCallback(async () => {
+    if (parsedShare.length === 0) {
+      setSharedStops([]);
+      setSharedLoading(false);
+      return;
+    }
+    setSharedLoading(true);
+    setSharedError(null);
+    try {
+      const ids = parsedShare.map((p) => p.id);
+      const { data, error: qError } = await supabase
+        .from("facilities")
+        .select("id, name, type, latitude, longitude")
+        .in("id", ids);
+      if (qError) throw qError;
+      const byId = new Map<string, any>((data || []).map((f: any): [string, any] => [f.id, f]));
+      const rebuilt: CourseStop[] = parsedShare
+        .map((p, idx): CourseStop | null => {
+          const f = byId.get(p.id);
+          if (!f) return null;
+          return {
+            order: idx + 1,
+            facility: {
+              id: f.id,
+              name: f.name,
+              type: f.type,
+              latitude: f.latitude,
+              longitude: f.longitude,
+            },
+            arrivalOffsetMin: p.offsetMin,
+            predictedCongestion: p.congestion,
+            spotScore: 0,
+            reason: "",
+          };
+        })
+        .filter((x): x is CourseStop => x !== null);
+      setSharedStops(rebuilt);
+    } catch (err) {
+      console.warn("공유 코스 복원 실패:", err);
+      setSharedStops([]);
+      setSharedError(t("course.sharedError"));
+    } finally {
+      setSharedLoading(false);
+    }
+  }, [parsedShare, t]);
+
+  useEffect(() => {
+    if (!isShareMode) return;
+    fetchSharedStops();
+  }, [isShareMode, fetchSharedStops]);
+
+  // 3c) 공유 유입 계측 — 공유 링크(?s=)로 들어온 방문을 무인증 이벤트로 1회 기록한다.
+  //     fire-and-forget: 실패해도 페이지 동작에 영향 없음(사용자에게 에러 노출 안 함).
+  useEffect(() => {
+    if (searchParams.get("s")) {
+      apiClient
+        .post("/api/v1/events/track", { event: "course_share_visit", props: { ref: "share" } })
+        .catch(() => { /* 계측 실패는 조용히 무시 */ });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const toggleType = (id: string) => {
     setSelectedTypes((prev) =>
@@ -201,7 +283,26 @@ export default function CoursePage() {
     setSequence((prev) => prev.filter((s) => s.uid !== uid));
   };
 
-  const lastStop = stops.length > 0 ? stops[stops.length - 1] : null;
+  // 공유 모드 여부에 따라 렌더에 쓸 정류지/로딩/에러를 단일화 — 이하 JSX 는 이 값만 참조한다.
+  const activeStops = isShareMode ? sharedStops : stops;
+  const activeLoading = isShareMode ? sharedLoading : loading;
+  const activeError = isShareMode ? sharedError : error;
+  const lastStop = activeStops.length > 0 ? activeStops[activeStops.length - 1] : null;
+
+  // 공유 링크 URL — 현재 코스(activeStops)가 있으면 정류지를 압축 인코딩해 ?s= 로 싣는다.
+  // 없으면 undefined 를 넘겨 ShareButton 이 기존 동작(현재 페이지 URL)으로 폴백하게 둔다.
+  // window 접근은 정적 export 프리렌더(SSR, window 없음) 안전을 위해 typeof 가드 필수.
+  const shareUrl = useMemo(() => {
+    if (activeStops.length === 0 || typeof window === "undefined") return undefined;
+    const encoded = encodeStops(
+      activeStops.map((s) => ({
+        id: s.facility.id,
+        offsetMin: s.arrivalOffsetMin,
+        congestion: s.predictedCongestion,
+      }))
+    );
+    return `${window.location.origin}/course?s=${encodeURIComponent(encoded)}&ref=share`;
+  }, [activeStops]);
 
   return (
     <main className="min-h-screen bg-hanji text-muk relative overflow-hidden">
@@ -209,14 +310,14 @@ export default function CoursePage() {
       <div className="absolute top-[-20%] left-[-10%] w-[520px] h-[520px] rounded-full bg-sunset-1/10 blur-[120px] pointer-events-none" />
       <div className="absolute bottom-[-10%] right-[-10%] w-[520px] h-[520px] rounded-full bg-gold/10 blur-[120px] pointer-events-none" />
 
-      {loading ? (
+      {activeLoading ? (
         <CourseSkeleton />
       ) : (
         <div className="relative z-10">
           {/* 지도 + 플로팅 버튼(뒤로/공유) — CourseMap 이 null 을 반환하면(키 부재 등) 이 블록은
               0 높이로 접혀 시트가 자연히 위로 붙는다(무해 폴백). */}
           <div className="relative">
-            <CourseMap stops={stops} userLocation={coords} />
+            <CourseMap stops={activeStops} userLocation={coords} />
             <Link
               href="/main"
               aria-label={t('course.backToMap')}
@@ -228,6 +329,7 @@ export default function CoursePage() {
               <ShareButton
                 title={t('course.title')}
                 text={t('common.shareCourse')}
+                url={shareUrl}
                 className="shadow-[0_2px_10px_rgba(43,35,32,0.15)]"
               />
             </div>
@@ -238,17 +340,20 @@ export default function CoursePage() {
             <div className="w-12 h-1.5 rounded-full bg-line mx-auto mt-3" aria-hidden />
 
             <div className="mx-auto w-full max-w-md md:max-w-2xl px-4 md:px-6 pt-4 pb-10 space-y-6">
+              {/* 공유 모드 배너 — '공유받은 코스' 명시 + 내 위치로 새 코스 받기(param 제거 라우팅). */}
+              {isShareMode && <SharedBanner />}
+
               {/* 헤더 블록: 브랜드 칩 → 헤드라인(+도착 보조텍스트) → 한 줄 설명.
                   정류지가 아직 없으면(로딩 직후 빈 결과/에러/인증 등) 기존 제목/설명으로 폴백. */}
               <section className="space-y-2">
                 <span className="inline-flex items-center w-fit px-2.5 py-1 rounded-full bg-gold/10 border border-gold/25 text-[11px] font-bold text-gold-deep">
                   {t('course.brand')}
                 </span>
-                {stops.length > 0 && lastStop ? (
+                {activeStops.length > 0 && lastStop ? (
                   <>
                     <div className="flex items-end justify-between gap-3">
                       <h1 className="text-xl md:text-2xl font-serif font-bold text-muk leading-tight">
-                        {t('course.headline', { n: stops.length })}
+                        {t('course.headline', { n: activeStops.length })}
                       </h1>
                       <span className="shrink-0 text-xs font-semibold text-muk-soft tabular-nums pb-0.5">
                         {t('course.headlineEta', { time: hhmm(lastStop.arrivalOffsetMin) })}
@@ -271,30 +376,36 @@ export default function CoursePage() {
               </section>
 
               {/* 가로 스텝퍼 — 정류지가 있을 때만 */}
-              {stops.length > 0 && <CourseStepper stops={stops} />}
+              {activeStops.length > 0 && <CourseStepper stops={activeStops} />}
 
-              {/* 순서 지정 피커 */}
-              <OrderPicker
-                sequence={sequence}
-                onAdd={addToSequence}
-                onRemove={removeFromSequence}
-                onReorder={setSequence}
-                onReset={() => setSequence([])}
-                selectedTypes={selectedTypes}
-                onToggleType={toggleType}
-              />
+              {/* 순서 지정 피커 — 공유 모드(읽기 전용)에서는 숨김(간섭 방지). */}
+              {!isShareMode && (
+                <OrderPicker
+                  sequence={sequence}
+                  onAdd={addToSequence}
+                  onRemove={removeFromSequence}
+                  onReorder={setSequence}
+                  onReset={() => setSequence([])}
+                  selectedTypes={selectedTypes}
+                  onToggleType={toggleType}
+                />
+              )}
 
-              {/* 결과 */}
-              {needsAuth ? (
+              {/* 결과 — 공유 모드는 needsAuth 대상이 아니므로(새 추천 호출 자체가 없음) 그 앞단에서 갈린다. */}
+              {!isShareMode && needsAuth ? (
                 <AuthState />
-              ) : error ? (
-                <ErrorState message={error} onRetry={fetchCourse} />
-              ) : stops.length === 0 ? (
+              ) : activeError ? (
+                <ErrorState message={activeError} onRetry={isShareMode ? fetchSharedStops : fetchCourse} />
+              ) : activeStops.length === 0 ? (
                 <EmptyState />
               ) : (
                 <div className="space-y-4">
                   <ViewToggle mode={viewMode} onChange={setViewMode} />
-                  {viewMode === "gantt" ? <CourseGantt stops={stops} /> : <StopRows stops={stops} />}
+                  {viewMode === "gantt" ? (
+                    <CourseGantt stops={activeStops} />
+                  ) : (
+                    <StopRows stops={activeStops} readOnly={isShareMode} />
+                  )}
                 </div>
               )}
             </div>
@@ -302,6 +413,36 @@ export default function CoursePage() {
         </div>
       )}
     </main>
+  );
+}
+
+// Suspense 래핑 — useSearchParams(?s= 감지)는 클라이언트 전용 훅이라 정적 export(output:'export')
+// 빌드에서 CSR bailout 을 피하려면 반드시 Suspense 경계 안에서 써야 한다(explore/recommend 페이지와 동일 관례).
+// 폴백은 실제 레이아웃과 동일한 CourseSkeleton 을 재사용해 레이아웃 시프트를 없앤다.
+export default function CoursePage() {
+  return (
+    <Suspense fallback={<CourseSkeleton />}>
+      <CourseContent />
+    </Suspense>
+  );
+}
+
+// 공유 모드 상단 배너 — '공유받은 코스'임과 표기 시각 기준을 명시하고, 자기 위치 기준 새 코스로
+// 전환하는 CTA 를 준다. href="/course" 는 쿼리(?s=...) 없는 일반 모드 경로로 이동(Link, 클라이언트 라우팅).
+function SharedBanner() {
+  const t = useT();
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-xl border border-gold/25 bg-gold/10 px-3 py-2.5">
+      <p className="text-[11px] font-semibold text-gold-deep leading-snug">
+        {t('course.sharedBanner')}
+      </p>
+      <Link
+        href="/course"
+        className="shrink-0 inline-flex items-center px-3 py-1.5 rounded-full bg-white border border-gold/30 text-[11px] font-bold text-gold-deep hover:bg-gold/5 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/50"
+      >
+        {t('course.sharedCta')}
+      </Link>
+    </div>
   );
 }
 
@@ -577,17 +718,24 @@ function CourseGantt({ stops }: { stops: CourseStop[] }) {
 
 // 정보 행 목록 — 배민 배달 추적 화면의 '배달주소/요청사항' 행 문법(카드 박스가 아니라 플랫한
 // 시트 위 행 + divide-y 구분선). 시트 좌우 패딩을 상쇄(-mx)해 구분선이 시트 폭 끝까지 이어지게 한다.
-function StopRows({ stops }: { stops: CourseStop[] }) {
+// readOnly(공유 모드): spotScore/reason 은 공유 URL 에 싣지 않아 정직하게 알 수 없는 값이므로 숨긴다.
+function StopRows({ stops, readOnly = false }: { stops: CourseStop[]; readOnly?: boolean }) {
   return (
     <div className="-mx-4 md:-mx-6 divide-y divide-line">
       {stops.map((stop) => (
-        <StopRow key={stop.facility.id} stop={stop} />
+        <StopRow key={stop.facility.id} stop={stop} readOnly={readOnly} />
       ))}
     </div>
   );
 }
 
-function StopRow({ stop }: { stop: CourseStop }) {
+// 카카오맵 길찾기 딥링크 — '현재 위치 → 이 정류지' 도보/대중교통 경로를 카카오맵 앱/웹이 그려준다.
+// 좌표는 서버 왕복 없이 정류지 자체 데이터로 즉시 구성(공유 모드에서도 동일하게 동작).
+function directionsUrl(facility: CourseStop["facility"]): string {
+  return `https://map.kakao.com/link/to/${encodeURIComponent(facility.name)},${facility.latitude},${facility.longitude}`;
+}
+
+function StopRow({ stop, readOnly = false }: { stop: CourseStop; readOnly?: boolean }) {
   const t = useT();
   const [open, setOpen] = useState(false);
   const cong = congestion(stop.predictedCongestion);
@@ -613,22 +761,43 @@ function StopRow({ stop }: { stop: CourseStop }) {
 
           <div className="flex items-center gap-2 text-[11px] text-muk-soft mt-0.5">
             <span>🕒 {arrivalText(stop.arrivalOffsetMin, t)}</span>
-            <span className="text-line">·</span>
-            <span>{t('course.spotScore', { score: Math.round(stop.spotScore * 100) })}</span>
+            {!readOnly && (
+              <>
+                <span className="text-line">·</span>
+                <span>{t('course.spotScore', { score: Math.round(stop.spotScore * 100) })}</span>
+              </>
+            )}
           </div>
 
-          <button
-            type="button"
-            onClick={() => setOpen((v) => !v)}
-            aria-expanded={open}
-            aria-controls={reasonId}
-            className="mt-1.5 flex items-center gap-1 text-[11px] font-semibold text-gold-deep hover:text-gold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/50 rounded"
-          >
-            {t('course.reasonToggle')}
-            <ChevronDown size={13} className={`transition-transform ${open ? "rotate-180" : ""}`} aria-hidden />
-          </button>
+          {/* 이유 토글(왼쪽) + 길안내 버튼(오른쪽, ml-auto 로 항상 우측 정렬). 길안내는 새 탭으로 열리는
+              순수 링크라 이유 토글과 클릭이 겹칠 일이 없지만, 혹시 모를 이벤트 버블링까지 stopPropagation 으로 차단. */}
+          <div className="flex items-center gap-2 mt-1.5">
+            {!readOnly && (
+              <button
+                type="button"
+                onClick={() => setOpen((v) => !v)}
+                aria-expanded={open}
+                aria-controls={reasonId}
+                className="flex items-center gap-1 text-[11px] font-semibold text-gold-deep hover:text-gold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/50 rounded"
+              >
+                {t('course.reasonToggle')}
+                <ChevronDown size={13} className={`transition-transform ${open ? "rotate-180" : ""}`} aria-hidden />
+              </button>
+            )}
+            <a
+              href={directionsUrl(stop.facility)}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              aria-label={t('course.directionsAria', { name: stop.facility.name })}
+              className="ml-auto shrink-0 inline-flex items-center gap-1 px-2.5 py-1 rounded-full border border-gold/30 bg-gold/10 text-[11px] font-bold text-gold-deep hover:bg-gold/20 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/50"
+            >
+              <Navigation size={11} aria-hidden />
+              {t('course.directions')}
+            </a>
+          </div>
 
-          {open && (
+          {!readOnly && open && (
             <p id={reasonId} className="mt-1.5 text-xs text-muk leading-relaxed bg-hanji-deep/60 rounded-lg px-3 py-2">
               {stop.reason}
             </p>
