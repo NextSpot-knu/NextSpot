@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.core.logging import setup_logging
-from app.routers import recommendations, infrastructures, predict, preferences, admin, reports, coupons, courses, events, tracking
+from app.routers import recommendations, infrastructures, predict, preferences, admin, reports, coupons, courses, events, tracking, freshness
 
 
 # 로깅 설정 초기화
@@ -46,6 +46,7 @@ app.include_router(coupons.router)  # 내 쿠폰함(인센티브 지갑) — SPO
 app.include_router(courses.router)  # 분산 코스(멀티스톱 동선) 추천 — 도착시점 예측 혼잡 회피
 app.include_router(events.router)  # 경주 축제/행사(TourAPI searchFestival2) — 키 없으면 무해 폴백
 app.include_router(tracking.router)  # 경량 제품 분석 이벤트 트래킹(무인증, IP 쿨다운) — app_events 적재
+app.include_router(freshness.router)  # 데이터 신선도(D5) — 마지막 TourAPI 동기화 시각(마커→updated_at 추정 폴백)
 
 # 1. Health Check Endpoint
 @app.get("/")

@@ -177,6 +177,8 @@ export function FacilityTable() {
 
   const getHoursText = (hours?: Record<string, string>) => {
     if (!hours) return '24시간';
+    // TourAPI 인제스트 형태 {open: 영업시간, closed: 휴무일} — '24시간' 으로 뭉개지 않고 실데이터 표시.
+    if (hours.open) return hours.closed ? `${hours.open} (휴무: ${hours.closed})` : hours.open;
     if (hours.weekday) return hours.weekday;
     if (hours.start && hours.end) return `${hours.start}-${hours.end}`;
     return '24시간';

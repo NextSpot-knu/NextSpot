@@ -50,6 +50,14 @@ class InfrastructureItem(BaseModel):
     operating_hours: dict | None
     features: dict | None
     congestion: CongestionInfo | None
+    # 프런트 하위호환: 필드 추가만(전부 Optional·기본 None). TourAPI 적재분(locationBasedList2·
+    # detailCommon2·detailInfo2)만 값이 있고, 수동 시드 행은 None — 프런트는 값 있을 때만 렌더.
+    image_url: str | None = None
+    address: str | None = None
+    phone: str | None = None
+    homepage: str | None = None
+    overview: str | None = None
+    barrier_free: bool | None = None
 
 async def _fetch_latest_one(fid: str) -> tuple[str, dict | None]:
     """시설 1건의 최신 혼잡 로그를 .limit(1) 로 조회(시설별 1쿼리)."""
@@ -142,6 +150,12 @@ async def get_infrastructures(
                 operating_hours=f.get("operating_hours"),
                 features=f.get("features"),
                 congestion=congestion,
+                image_url=f.get("image_url"),
+                address=f.get("address"),
+                phone=f.get("phone"),
+                homepage=f.get("homepage"),
+                overview=f.get("overview"),
+                barrier_free=f.get("barrier_free"),
             ))
 
         logger.info("infrastructures_returned", count=len(result))

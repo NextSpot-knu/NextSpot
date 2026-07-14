@@ -13,6 +13,8 @@ import { REGION, isWithinRegion } from '@/lib/region';
 import { recommendByType, voiceTurn, apiClient } from '@/lib/api-client';
 // 히트맵 blob 의 색·크기 규칙(마커/배지 임계와 일관) 공용 헬퍼 — 중복 정의 금지, 그대로 재사용.
 import { getHeatGradient, getHeatRadius } from '@/lib/heatmap';
+// D5: TourAPI 동기화 신선도 상대시간 — lib/freshness 단일 소스 재사용(중복 정의 금지).
+import { relativeParts } from '@/lib/freshness';
 import { useVoiceAssistant } from '@/lib/useVoiceAssistant';
 import { useSpeechSearch } from '@/lib/useSpeechSearch';
 import VoiceAssistantOrb from '@/components/VoiceAssistantOrb';
@@ -138,6 +140,14 @@ export default function MainPage() {
             longitude: f.longitude,
             capacity: f.capacity,
             features: f.features,
+            // TourAPI 상세(A2) — 전부 nullable, 카드가 '있을 때만' 조건부 렌더('지어내지 않기').
+            operatingHours: f.operatingHours ?? null,
+            imageUrl: f.imageUrl ?? null,
+            address: f.address ?? null,
+            phone: f.phone ?? null,
+            homepage: f.homepage ?? null,
+            overview: f.overview ?? null,
+            barrierFree: f.barrierFree ?? null,
             baseCongestion: level,
             congestionLevel: level,
             currentCount: f.congestion ? f.congestion.currentCount : null,
@@ -160,7 +170,7 @@ export default function MainPage() {
         const [facRes, logRes] = await Promise.all([
           supabase
             .from("facilities")
-            .select("id, name, type, latitude, longitude, capacity, operating_hours, features")
+            .select("id, name, type, latitude, longitude, capacity, operating_hours, features, address, image_url, phone, homepage, overview, barrier_free")
             .limit(2000),
           supabase
             .from("congestion_logs")
@@ -201,6 +211,14 @@ export default function MainPage() {
             longitude: f.longitude,
             capacity: f.capacity,
             features: f.features,
+            // TourAPI 상세(A2) — snake→camel 매핑. 1순위 API 경로와 동일한 필드 집합 유지.
+            operatingHours: f.operating_hours ?? null,
+            imageUrl: f.image_url ?? null,
+            address: f.address ?? null,
+            phone: f.phone ?? null,
+            homepage: f.homepage ?? null,
+            overview: f.overview ?? null,
+            barrierFree: f.barrier_free ?? null,
             baseCongestion: baseCongestion,
             congestionLevel: baseCongestion,
             currentCount: latestLog ? latestLog.current_count : null,
@@ -224,6 +242,38 @@ export default function MainPage() {
 
     loadFacilities();
   }, [facilitiesReloadNonce]);
+
+  // D5: TourAPI 마지막 동기화 시각 — 페이지 레벨 소형 표시용. 값이 전혀 없으면 렌더하지 않는다
+  // (관광객 화면에 '이력 없음'을 노출하는 대신 숨김 — 없는 걸 있는 척만 안 하면 되는 정직성 원칙).
+  const [tourapiSyncAt, setTourapiSyncAt] = useState<string | null>(null);
+  useEffect(() => {
+    let active = true; // 언마운트 이후 setState 방지 가드
+    (async () => {
+      try {
+        const res = await apiClient.getFreshness();
+        if (!active) return;
+        if (res?.lastTourapiSync) setTourapiSyncAt(res.lastTourapiSync);
+        return; // 백엔드가 응답했으면(이력 없음 포함) 그 판정을 신뢰 — 폴백 안 함
+      } catch {
+        // 백엔드 미기동/네트워크 실패 → anon supabase 로 TourAPI 적재분(contentid 존재)의
+        // updated_at 최대 1건을 추정(estimate) 폴백으로 사용한다.
+      }
+      try {
+        const { data, error } = await supabase
+          .from('facilities')
+          .select('updated_at')
+          .not('contentid', 'is', null)
+          .order('updated_at', { ascending: false })
+          .limit(1);
+        if (!active) return;
+        const ts = !error && data && data.length > 0 ? (data[0] as any).updated_at : null;
+        if (ts) setTourapiSyncAt(ts);
+      } catch {
+        /* 폴백도 실패 — 표시하지 않음(숨김) */
+      }
+    })();
+    return () => { active = false; };
+  }, []);
 
   // Apply mock hour congestion scaling
   useEffect(() => {
@@ -544,10 +594,11 @@ export default function MainPage() {
           const pred = predictionMap[f.id];
           return pred ? { ...f, congestionLevel: pred.level } : f;
         });
-    // ♿ 배리어프리 필터: 켜지면 features.barrier_free 가 truthy 인 시설만 남긴다.
-    // 마커·히트맵 공용 소스에서 한 번만 걸러 두 레이어가 항상 동일 집합을 그린다.
+    // ♿ 배리어프리 필터: 켜지면 barrier_free 가 truthy 인 시설만 남긴다(TourAPI 적재분은 정규 컬럼
+    // barrierFree, 수동 시드는 features.barrier_free — 둘 다 확인). 마커·히트맵 공용 소스에서
+    // 한 번만 걸러 두 레이어가 항상 동일 집합을 그린다.
     // (추천/카드 로직은 원본 facilities 를 쓰므로 필터의 영향을 받지 않는다 — 지도 표시만 좁힘.)
-    return showBarrierFree ? src.filter((f) => !!(f?.barrier_free ?? f?.features?.barrier_free)) : src;
+    return showBarrierFree ? src.filter((f) => !!(f?.barrierFree ?? f?.barrier_free ?? f?.features?.barrier_free)) : src;
   }, [facilities, predictionMap, isForecast, showBarrierFree]);
 
   // 타임슬라이더 전환: 지금(0)=실측 복귀, +N시간=백엔드 배치 예측으로 마커·히트맵 재채색.
@@ -636,9 +687,23 @@ export default function MainPage() {
               realRanked = recs
                 .filter(r => byId.has(r.facility.id))
                 .map(r => {
-                  const base = byId.get(r.facility.id);
+                  const base: any = byId.get(r.facility.id);
                   const spot = recToSpot(r);
-                  return { ...base, spot, reason: r.reason || "" }; // 백엔드 Gemini 사유만
+                  // r.facility(camel)의 TourAPI 상세 필드를 병합 — 응답에 없으면 목록 로드 값(base) 폴백.
+                  // (기존 {...base, spot, reason} 은 r.facility 페이로드를 통째로 버려 상세가 유실됐다.)
+                  const rf = r.facility;
+                  return {
+                    ...base,
+                    operatingHours: rf.operatingHours ?? base?.operatingHours ?? null,
+                    imageUrl: rf.imageUrl ?? base?.imageUrl ?? null,
+                    address: rf.address ?? base?.address ?? null,
+                    phone: rf.phone ?? base?.phone ?? null,
+                    homepage: rf.homepage ?? base?.homepage ?? null,
+                    overview: rf.overview ?? base?.overview ?? null,
+                    barrierFree: rf.barrierFree ?? base?.barrierFree ?? null,
+                    spot,
+                    reason: r.reason || "", // 백엔드 Gemini 사유만
+                  };
                 });
               // 음식 의도(음성/온보딩)가 있으면 선호%·점수를 음식종류 매칭으로 재산출해 표시·랭킹을 의도와 일치시킨다.
               // (백엔드 선호는 시설타입 4종 벡터라 식당별로 고정 → 의도가 있을 땐 미러로 음식종류 반영. 사유는 백엔드 유지.)
@@ -1298,7 +1363,7 @@ export default function MainPage() {
     : 0;
   // ♿ 배리어프리 필터가 켜졌는데 현재 카테고리에 무장애 시설이 0건이면 '빈 지도' 혼란을 막기 위해 안내(검색 빈 상태와 동일 패턴).
   const barrierFreeMatchCount = showBarrierFree
-    ? facilities.filter(f => f.type === _filterTypeMap[activeFilter] && !!(f?.barrier_free ?? f?.features?.barrier_free)).length
+    ? facilities.filter(f => f.type === _filterTypeMap[activeFilter] && !!(f?.barrierFree ?? f?.barrier_free ?? f?.features?.barrier_free)).length
     : 0;
 
   return (
@@ -1542,6 +1607,23 @@ export default function MainPage() {
             />
             <span className="shrink-0 text-[10px] font-medium text-muk-soft">+3h</span>
           </div>
+
+          {/* D5: TourAPI 동기화 신선도 — 소형 정보 표시(비대화형). 동기화 이력이 전혀 없으면
+              렌더하지 않는다(관광객 화면 정직성 — 없는 걸 있는 척하지 않음). */}
+          {tourapiSyncAt && (() => {
+            const parts = relativeParts(tourapiSyncAt);
+            if (!parts) return null; // 파싱 불가 — 신선한 것으로 위장하지 않고 숨김
+            const rel =
+              parts.unit === 'now' ? t('freshness.justNow')
+              : parts.unit === 'min' ? t('freshness.minAgo', { n: parts.value })
+              : parts.unit === 'hour' ? t('freshness.hourAgo', { n: parts.value })
+              : t('freshness.dayAgo', { n: parts.value });
+            return (
+              <span className="shrink-0 px-2.5 py-1 rounded-full text-[10px] font-medium bg-white/70 border border-line text-muk-soft whitespace-nowrap pointer-events-none">
+                🛰️ {t('freshness.tourapiSync', { rel })}
+              </span>
+            );
+          })()}
         </div>
 
         </div>{/* /오른쪽 열(칩·컨트롤) */}

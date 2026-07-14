@@ -7,7 +7,7 @@
 사용 예:
   python scripts/ingest_tourapi.py --dry-run              # DB 미기록, 변환 결과만 출력
   python scripts/ingest_tourapi.py                        # 황리단길 반경 2km 적재
-  python scripts/ingest_tourapi.py --details --limit 20   # 상세(운영시간/무장애)까지 — 쿼터 주의
+  python scripts/ingest_tourapi.py --details --limit 20   # 상세(개요/전화/홈페이지/운영시간/무장애)까지 — 쿼터 주의
 """
 
 import argparse
@@ -29,9 +29,11 @@ load_dotenv(os.path.join(parent_dir, ".env"))
 from app.services.tourapi import (
     CONTENT_TYPE_IDS,
     TourAPIError,
+    detail_common,
     detail_info,
     detail_intro,
     extract_barrier_free,
+    extract_detail_common,
     extract_operating_hours,
     location_based_list,
     parse_items,
@@ -80,13 +82,25 @@ async def fetch_pois(lat: float, lng: float, radius_m: int, limit: int) -> dict[
 
 
 async def enrich_row(row: dict) -> None:
-    """--details 옵션: detailIntro2 → operating_hours, detailInfo2 → barrier_free 를 채운다(제자리 수정).
+    """--details 옵션: detailCommon2 → overview/phone/homepage(+이미지 폴백),
+    detailIntro2 → operating_hours, detailInfo2 → barrier_free 를 채운다(제자리 수정).
 
-    POI 1건당 2회 추가 호출이 발생하므로 기본은 꺼져 있다(쿼터 절약).
+    POI 1건당 3회 추가 호출이 발생하므로 기본은 꺼져 있다(쿼터 절약).
     개별 실패는 경고만 남기고 계속 진행(부분 실패 허용).
     """
     contentid = row["contentid"]
     ctid = row["contenttypeid"]
+    try:
+        common_payload = await detail_common(contentid)
+        common_items = parse_items(common_payload)
+        if common_items:
+            common = extract_detail_common(common_items[0])
+            # image_url 은 locationBasedList2 의 firstimage 를 우선 — 없을 때만 폴백으로 채운다.
+            if row.get("image_url"):
+                common.pop("image_url", None)
+            row.update(common)
+    except (TourAPIError, RuntimeError) as e:
+        print(f"[details] detailCommon2 실패 (contentid={contentid}): {e}")
     try:
         intro_payload = await detail_intro(contentid, ctid)
         intro_items = parse_items(intro_payload)
@@ -181,7 +195,7 @@ async def run(args: argparse.Namespace) -> int:
     all_rows = [row for rows in rows_by_type.values() for row in rows]
 
     if args.details:
-        print(f"[details] {len(all_rows)}건 상세 조회 시작 (POI 당 2회 호출 — 쿼터 주의)")
+        print(f"[details] {len(all_rows)}건 상세 조회 시작 (POI 당 3회 호출 — 쿼터 주의)")
         for row in all_rows:
             await enrich_row(row)
 
@@ -208,6 +222,18 @@ async def run(args: argparse.Namespace) -> int:
 
     written = upsert_facilities(all_rows)
     print(f"\n적재 완료: {written}/{len(all_rows)}행 upsert (facilities, contentid 기준)")
+
+    # 동기화 마커 — GET /api/v1/freshness 가 마지막 TourAPI 적재 시각으로 읽는다(D5).
+    # best-effort: app_events 마이그레이션 미적용 등으로 실패해도 적재 결과(종료코드)에는 영향 없음.
+    try:
+        from app.core.supabase import supabase_admin
+        supabase_admin.table("app_events").insert({
+            "event": "tourapi_sync",
+            "props": {"written": written, "total": len(all_rows)},
+        }).execute()
+    except Exception as e:
+        print(f"[sync-marker] app_events 동기화 마커 기록 실패(적재 결과에는 영향 없음): {e}")
+
     return 0 if written > 0 else 1
 
 
@@ -219,7 +245,7 @@ def main() -> None:
     parser.add_argument("--limit", type=int, default=0, help="contentTypeId 별 최대 수집 건수 (0=전체)")
     parser.add_argument("--dry-run", action="store_true", help="DB 에 쓰지 않고 변환 결과만 출력")
     parser.add_argument("--details", action="store_true",
-                        help="detailIntro2(운영시간)·detailInfo2(무장애)까지 조회 — 쿼터 소모 큼, 기본 꺼짐")
+                        help="detailCommon2(개요/전화/홈페이지)·detailIntro2(운영시간)·detailInfo2(무장애)까지 조회 — 쿼터 소모 큼, 기본 꺼짐")
     args = parser.parse_args()
 
     try:

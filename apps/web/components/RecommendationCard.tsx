@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { motion, PanInfo, AnimatePresence } from 'framer-motion';
-import { Bookmark, Sparkles, Star, Phone, MapPin, Clock, ChevronUp, ChevronDown, Info } from 'lucide-react';
+import { Bookmark, Sparkles, Star, Phone, MapPin, Clock, ChevronUp, ChevronDown, Info, Globe } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { CongestionReportButton } from '@/components/CongestionReportButton';
 import { relativeParts } from '@/lib/freshness';
@@ -216,6 +216,20 @@ export function RecommendationCard({
   const congestionKey = (c: number) =>
     c >= 0.75 ? 'busy' : c >= 0.5 ? 'moderate' : c >= 0.25 ? 'relaxed' : 'quiet';
   const congestionLabel = (c: number) => t(`congestion.${congestionKey(c)}`);
+
+  // TourAPI 상세(A2) — 시설 정규 컬럼(facility.address/phone) 우선, 카카오 Places 검색값은 폴백으로 강등.
+  // 둘 다 없으면 렌더하지 않는다('지어내지 않기').
+  const displayAddress = facility?.address || placeInfo?.address;
+  const displayPhone = facility?.phone || placeInfo?.phone;
+  // TourAPI homepage 원문은 순수 URL 또는 <a href="..."> HTML 조각일 수 있어 첫 http(s) URL 만 방어적으로 추출.
+  // 추출 실패 시 링크를 만들지 않는다(깨진 링크 미노출).
+  const homepageUrl = facility?.homepage
+    ? String(facility.homepage).match(/https?:\/\/[^\s"'<>]+/)?.[0] ?? null
+    : null;
+  const homepageHost = (() => {
+    if (!homepageUrl) return null;
+    try { return new URL(homepageUrl).hostname; } catch { return homepageUrl; }
+  })();
 
   return (
     <motion.div 
@@ -454,14 +468,35 @@ export function RecommendationCard({
             className="overflow-hidden"
           >
             <div className="border-t border-line pt-3.5 space-y-3 text-xs text-muk-soft">
-          
+
+          {/* 대표 사진(TourAPI firstimage) — 실제 이미지가 있을 때만. 로드 실패 시 숨겨 깨진 이미지를 노출하지 않는다. */}
+          {facility?.imageUrl && (
+            /* TourAPI 이미지 원본은 도메인이 다양해 next/image 최적화 대상이 아님(정적 export) — img 사용 */
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={facility.imageUrl}
+              alt={title}
+              loading="lazy"
+              onError={(e) => { e.currentTarget.style.display = 'none'; }}
+              className="w-full h-32 object-cover rounded-2xl border border-line"
+            />
+          )}
+
           {/* AI 추천 사유 (WP3 Gemini, 있을 때만) */}
           {reason && (
             <p className="text-[13px] leading-relaxed text-muk bg-gold/10 border border-gold/25 rounded-2xl px-3.5 py-2.5">
               💡 {reason}
             </p>
           )}
-          
+
+          {/* 소개(TourAPI overview) — 있을 때만 3줄 클램프('지어내지 않기') */}
+          {facility?.overview && (
+            <div>
+              <span className="text-muk-soft block text-[10px] font-bold mb-0.5">{t('card.about')}</span>
+              <p className="text-muk leading-relaxed line-clamp-3">{facility.overview}</p>
+            </div>
+          )}
+
           {/* Rating/Reviews — 실제 데이터가 있을 때만. 별점/리뷰수는 지어내지 않는다. */}
           {(placeInfo?.rating != null || placeInfo?.reviewCount != null || placeInfo?.url) && (
             <div className="flex items-center gap-2">
@@ -491,38 +526,69 @@ export function RecommendationCard({
             </div>
           )}
 
-          {/* Address — 실제 주소가 있을 때만 */}
-          {placeInfo?.address && (
+          {/* Address — 실제 주소가 있을 때만(TourAPI 컬럼 우선, 카카오 Places 검색값 폴백) */}
+          {displayAddress && (
             <div className="flex items-start gap-2">
               <MapPin size={14} className="text-muk-soft mt-0.5 flex-shrink-0" />
               <div>
                 <span className="text-muk-soft block text-[10px] font-bold">{t('card.address')}</span>
-                <span className="text-muk leading-relaxed">{placeInfo.address}</span>
+                <span className="text-muk leading-relaxed">{displayAddress}</span>
               </div>
             </div>
           )}
 
-          {/* Phone — 실제 전화번호가 있을 때만 */}
-          {placeInfo?.phone && (
+          {/* Phone — 실제 전화번호가 있을 때만(TourAPI 컬럼 우선, 카카오 Places 검색값 폴백) */}
+          {displayPhone && (
             <div className="flex items-start gap-2">
               <Phone size={14} className="text-muk-soft mt-0.5 flex-shrink-0" />
               <div>
                 <span className="text-muk-soft block text-[10px] font-bold">{t('card.phone')}</span>
-                <span className="text-muk">{placeInfo.phone}</span>
+                <span className="text-muk">{displayPhone}</span>
               </div>
             </div>
           )}
 
-          {/* Operating Hours — 실제 영업시간이 있을 때만 */}
-          {facility?.operatingHours?.open && facility?.operatingHours?.close && (
+          {/* Homepage — 실제 홈페이지가 있을 때만. 표시 텍스트는 hostname, 새 탭 외부 링크. */}
+          {homepageUrl && (
+            <div className="flex items-start gap-2">
+              <Globe size={14} className="text-muk-soft mt-0.5 flex-shrink-0" />
+              <div>
+                <span className="text-muk-soft block text-[10px] font-bold">{t('card.homepage')}</span>
+                <a
+                  href={homepageUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-gold-deep hover:text-gold underline font-bold tracking-tight"
+                >
+                  {homepageHost}
+                </a>
+              </div>
+            </div>
+          )}
+
+          {/* Operating Hours — 실제 영업시간이 있을 때만. 인제스트는 {open: 영업시간, closed: 휴무일} 저장 —
+              open 만으로 표시한다(레거시 close/weekday 키는 있으면 덧붙임). */}
+          {facility?.operatingHours?.open && (
             <div className="flex items-start gap-2">
               <Clock size={14} className="text-muk-soft mt-0.5 flex-shrink-0" />
               <div>
                 <span className="text-muk-soft block text-[10px] font-bold">{t('card.hours')}</span>
                 <span className="text-muk">
-                  {facility.operatingHours.open} ~ {facility.operatingHours.close}
+                  {facility.operatingHours.open}
+                  {facility.operatingHours.close && ` ~ ${facility.operatingHours.close}`}
                   {facility.operatingHours.weekday && ` (${facility.operatingHours.weekday})`}
                 </span>
+              </div>
+            </div>
+          )}
+
+          {/* 휴무일 — closed 가 있을 때만 별도 라인(운영시간과 키 의미가 다름: closed=휴무일 텍스트) */}
+          {facility?.operatingHours?.closed && (
+            <div className="flex items-start gap-2">
+              <Clock size={14} className="text-muk-soft mt-0.5 flex-shrink-0" />
+              <div>
+                <span className="text-muk-soft block text-[10px] font-bold">{t('card.closedDays')}</span>
+                <span className="text-muk">{facility.operatingHours.closed}</span>
               </div>
             </div>
           )}

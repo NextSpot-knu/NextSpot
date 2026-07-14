@@ -624,6 +624,87 @@ def test_infrastructures_happy_path(client):
     assert items[1]["congestion"] is None
 
 
+def test_infrastructures_detail_fields_passthrough(client):
+    # TourAPI 상세 신규 필드(image_url/address/phone/homepage/overview/barrier_free)는
+    # DB 에 값이 있으면 그대로 통과, 없으면 None(지어내지 않음 — 프런트 조건부 렌더).
+    enriched = {
+        **_facility("f-1", "cafe", 0.0002),
+        "image_url": "https://tong.visitkorea.or.kr/cms/detail.jpg",
+        "address": "경상북도 경주시 포석로 일대",
+        "phone": "054-000-0000",
+        "homepage": "https://hwangridan.example",
+        "overview": "황리단길 대표 한옥카페입니다.",
+        "barrier_free": True,
+    }
+    bare = _facility("f-2", "restaurant", 0.0004)  # 수동 시드 행 — 상세 필드 없음
+    with patch("app.routers.infrastructures.supabase_client", new=FakeSupabase({"facilities": [enriched, bare]})), \
+         patch("app.routers.infrastructures.fetch_latest_congestion_for_all", new=AsyncMock(return_value={})):
+        res = client.get("/api/v1/infrastructures")
+
+    assert res.status_code == 200
+    first, second = res.json()
+    assert first["image_url"] == "https://tong.visitkorea.or.kr/cms/detail.jpg"
+    assert first["address"] == "경상북도 경주시 포석로 일대"
+    assert first["phone"] == "054-000-0000"
+    assert first["homepage"] == "https://hwangridan.example"
+    assert first["overview"] == "황리단길 대표 한옥카페입니다."
+    assert first["barrier_free"] is True
+    for key in ("image_url", "address", "phone", "homepage", "overview", "barrier_free"):
+        assert second[key] is None
+
+
+# =========================================================================
+# 8-1. 데이터 신선도(GET /api/v1/freshness) — 마커 → 추정 폴백 → 전부 null
+# =========================================================================
+
+# --- 이 테스트 전용 '.not_ 체이닝' 가짜 ---
+# 공유 FakeTable 의 __getattr__ 는 메서드 호출만 흡수해, freshness 폴백 쿼리의
+# `.not_.is_(...)` 프로퍼티 접근에서 깨진다 — 여기서만 not_ 을 프로퍼티로 열어준다.
+# (공유 FakeSupabase/FakeTable 은 손대지 않아 나머지 테스트가 그대로 통과한다.)
+class NotChainFakeTable(FakeTable):
+    @property
+    def not_(self):
+        return self
+
+
+class NotChainFakeSupabase(FakeSupabase):
+    def table(self, name: str) -> NotChainFakeTable:
+        return NotChainFakeTable(self._tables.get(name, []))
+
+
+def test_freshness_event_marker(client):
+    # ① app_events 동기화 마커(ingest_tourapi.py 가 적재 후 기록) → source='event' + written.
+    marker = {"created_at": "2026-07-13T09:00:00+00:00", "props": {"written": 42, "total": 50}}
+    with patch("app.routers.freshness.supabase_admin",
+               new=NotChainFakeSupabase({"app_events": [marker]})):
+        res = client.get("/api/v1/freshness")
+    assert res.status_code == 200
+    assert res.json() == {
+        "last_tourapi_sync": "2026-07-13T09:00:00+00:00", "source": "event", "written": 42,
+    }
+
+
+def test_freshness_estimate_fallback(client):
+    # ② 마커 0건 → TourAPI 적재분 facilities.updated_at 최대값으로 추정(source='estimate', written 없음).
+    with patch("app.routers.freshness.supabase_admin", new=NotChainFakeSupabase({
+        "app_events": [],
+        "facilities": [{"updated_at": "2026-07-12T03:00:00+00:00"}],
+    })):
+        res = client.get("/api/v1/freshness")
+    assert res.status_code == 200
+    assert res.json() == {
+        "last_tourapi_sync": "2026-07-12T03:00:00+00:00", "source": "estimate", "written": None,
+    }
+
+
+def test_freshness_no_data_all_null(client):
+    # ③ 판단 근거 전무 → 전부 null(지어내지 않음) — 200 유지(프런트는 표기 자체를 숨김).
+    with patch("app.routers.freshness.supabase_admin", new=NotChainFakeSupabase({})):
+        res = client.get("/api/v1/freshness")
+    assert res.status_code == 200
+    assert res.json() == {"last_tourapi_sync": None, "source": None, "written": None}
+
+
 # =========================================================================
 # 9. 혼잡 제보(POST /api/v1/reports/congestion) — 인증 가드·라벨 매핑·행복 경로
 # =========================================================================

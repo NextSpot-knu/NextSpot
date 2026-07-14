@@ -1,0 +1,63 @@
+# NextSpot — TourAPI 일배치 인제스트
+# 매일 UTC 19:00(KST 04:00, 관광객 트래픽 최저 시간)에 황리단길 POI 를 Supabase facilities 에 upsert 한다.
+# 주의: schedule 트리거는 기본 브랜치(main)에서만 발화한다 — feature 브랜치 머지 전에는
+#       workflow_dispatch 로 수동 실행할 것 (Actions 탭 → TourAPI Ingest → Run workflow).
+# 필요한 GitHub Secrets (repo → Settings → Secrets and variables → Actions → Secrets):
+#   TOURAPI_KEY, SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY
+# TOURAPI_KEY 미설정이면 전 스텝을 skip(무해 — 매일 실패 이메일 방지).
+name: TourAPI Ingest
+
+on:
+  schedule:
+    - cron: '0 19 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# 동시 실행 방지 — 수동 실행과 스케줄이 겹쳐도 upsert 가 경합하지 않도록 직렬화.
+concurrency:
+  group: tourapi-ingest
+  cancel-in-progress: false
+
+jobs:
+  ingest:
+    name: ingest (TourAPI → facilities)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: apps/api
+    steps:
+      # secrets 컨텍스트는 job-level if 에서 사용 불가 — uptime.yml 의 2-스텝 step-level if 패턴 재사용.
+      # checkout/setup-python 까지 가드 뒤에 두어 키 미설정 시 낭비를 없앤다.
+      - name: Skip (TOURAPI_KEY 미설정)
+        if: ${{ secrets.TOURAPI_KEY == '' }}
+        # checkout 전에는 apps/api 가 없으므로 기본 working-directory 를 덮어쓴다.
+        working-directory: .
+        run: echo "TOURAPI_KEY secret 이 설정되지 않아 인제스트를 건너뜁니다."
+
+      - uses: actions/checkout@v5
+        if: ${{ secrets.TOURAPI_KEY != '' }}
+
+      - uses: actions/setup-python@v6
+        if: ${{ secrets.TOURAPI_KEY != '' }}
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: apps/api/requirements*.txt
+
+      - run: pip install -r requirements.txt
+        if: ${{ secrets.TOURAPI_KEY != '' }}
+
+      # --details: POI 당 상세(운영시간·배리어프리·개요) 호출 추가 — 일 1회 ~200콜 수준으로 쿼터 무해.
+      - run: python scripts/ingest_tourapi.py --details
+        if: ${{ secrets.TOURAPI_KEY != '' }}
+        env:
+          TOURAPI_KEY: ${{ secrets.TOURAPI_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          # 인제스트는 인증·관리자 토큰 미사용 — Settings(부팅) 검증 통과용 플레이스홀더 (ci.yml 과 동일).
+          JWT_SECRET: ci-placeholder-jwt-secret
+          ADMIN_API_TOKEN: ci-placeholder-admin-token

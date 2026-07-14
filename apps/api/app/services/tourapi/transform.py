@@ -3,6 +3,7 @@
 scripts/ingest_tourapi.py 가 사용한다. tests/services/test_tourapi.py 에서 검증.
 """
 
+import re
 from typing import Any, Optional
 
 # 적재 대상 contentTypeId — 관광지(12)·문화시설(14)·음식점(39). (docs/NEXTSPOT_PIVOT.md §1)
@@ -25,6 +26,9 @@ _INTRO_HOURS_FIELDS = {
     14: ("usetimeculture", "restdateculture"),  # 문화시설
     39: ("opentimefood", "restdatefood"),   # 음식점
 }
+
+# detailCommon2 의 homepage 는 '<a href="...">...</a>' HTML 로 오는 경우가 흔하다 — href 만 추출.
+_HOMEPAGE_HREF_RE = re.compile(r"""href=["']([^"']+)["']""", re.IGNORECASE)
 
 # detailInfo2 텍스트에서 무장애(barrier-free) 신호로 간주할 키워드(데모용 휴리스틱).
 # 정밀한 무장애 정보는 별도 서비스(KorWithService)라서, 여기서는 언급 여부만 판별한다.
@@ -117,6 +121,33 @@ def extract_operating_hours(intro_item: Any, content_type_id: int) -> dict:
     if rest_text:
         hours["closed"] = rest_text
     return hours
+
+
+def extract_detail_common(item: Any) -> dict:
+    """detailCommon2 item → 상세 공통 필드 {overview, phone(←tel), homepage, image_url(←firstimage)}.
+
+    값이 비어 있으면 키 자체를 넣지 않는다(기존 값 보존 원칙 — extract_operating_hours 와
+    동일 패턴). image_url 은 locationBasedList2 의 firstimage 가 이미 있으므로 폴백 용도이며,
+    역시 값이 있을 때만 키를 포함한다(우선순위 판단은 호출부 몫).
+    """
+    if not isinstance(item, dict):
+        return {}
+    common: dict = {}
+    overview = str(item.get("overview") or "").strip()
+    if overview:
+        common["overview"] = overview
+    phone = str(item.get("tel") or "").strip()
+    if phone:
+        common["phone"] = phone
+    homepage_raw = str(item.get("homepage") or "").strip()
+    if homepage_raw:
+        # anchor HTML 이면 href 만, 아니면 원문 strip 그대로.
+        match = _HOMEPAGE_HREF_RE.search(homepage_raw)
+        common["homepage"] = match.group(1) if match else homepage_raw
+    image_url = upgrade_image_scheme(str(item.get("firstimage") or "").strip() or None)
+    if image_url:
+        common["image_url"] = image_url
+    return common
 
 
 def extract_barrier_free(info_items: Any) -> Optional[bool]:

@@ -135,18 +135,30 @@ async function request(path: string, options: RequestOptions = {}) {
   return keysToCamel(data);
 }
 
+// D5: TourAPI 마지막 동기화 신선도 — GET /api/v1/freshness 응답(keysToCamel 적용 후).
+// source: 'event'=app_events 동기화 마커 실측, 'estimate'=facilities.updated_at 추정. 이력 전무면 전부 null.
+export interface FreshnessResponse {
+  lastTourapiSync: string | null; // ISO 시각
+  source: "event" | "estimate" | null;
+  written: number | null; // 마지막 동기화에서 기록된 시설 수(추정 폴백이면 null)
+}
+
 export const apiClient = {
-  get: (path: string, options?: Omit<RequestOptions, "method" | "body">) => 
+  get: (path: string, options?: Omit<RequestOptions, "method" | "body">) =>
     request(path, { ...options, method: "GET" }),
-  
-  post: (path: string, body?: any, options?: Omit<RequestOptions, "method" | "body">) => 
+
+  post: (path: string, body?: any, options?: Omit<RequestOptions, "method" | "body">) =>
     request(path, { ...options, method: "POST", body }),
-  
-  put: (path: string, body?: any, options?: Omit<RequestOptions, "method" | "body">) => 
+
+  put: (path: string, body?: any, options?: Omit<RequestOptions, "method" | "body">) =>
     request(path, { ...options, method: "PUT", body }),
-  
-  delete: (path: string, options?: Omit<RequestOptions, "method" | "body">) => 
+
+  delete: (path: string, options?: Omit<RequestOptions, "method" | "body">) =>
     request(path, { ...options, method: "DELETE" }),
+
+  // D5: TourAPI 마지막 동기화 시각 조회 — 홈 소형 표시·관리자 신선도 배지 공용.
+  getFreshness: (): Promise<FreshnessResponse> =>
+    request("/api/v1/freshness", { method: "GET" }),
 };
 
 // --- SPOT 추천 엔진 연동 API 함수 ---
@@ -160,8 +172,16 @@ export interface RecommendationResponse {
     latitude: number;
     longitude: number;
     capacity: number;
-    operatingHours?: any;
+    // 인제스트는 {open: 영업시간, closed: 휴무일} 저장(수동 시드는 weekday/weekend 등 다른 키도 존재).
+    operatingHours?: { open?: string; closed?: string; [key: string]: any } | null;
     features?: any;
+    // TourAPI 상세 필드(전부 Optional) — '지어내지 않기': 실데이터가 있을 때만 내려온다.
+    imageUrl?: string | null;
+    address?: string | null;
+    phone?: string | null;
+    homepage?: string | null;
+    overview?: string | null;
+    barrierFree?: boolean | null;
     currentCount?: number;
     congestionLevel?: number;
   };

@@ -5,6 +5,7 @@ from app.services.tourapi import (
     CAPACITY_DEFAULTS,
     CAT3_CAFE,
     extract_barrier_free,
+    extract_detail_common,
     extract_operating_hours,
     map_facility_type,
     parse_items,
@@ -162,3 +163,32 @@ def test_extract_barrier_free_heuristic():
     assert extract_barrier_free([{"infoname": "주차", "infotext": "주차 가능"}]) is None
     assert extract_barrier_free([]) is None
     assert extract_barrier_free(None) is None
+
+
+def test_extract_detail_common_full():
+    # 15. detailCommon2 → overview/phone(tel 매핑)/homepage/image_url 추출.
+    #     homepage 는 anchor HTML 에서 href 만, image_url 은 http→https 승격.
+    common = extract_detail_common({
+        "overview": "황리단길 대표 한옥카페입니다.",
+        "tel": "054-000-0000",
+        "homepage": '<a href="http://www.example.com" target="_blank" title="새창">www.example.com</a>',
+        "firstimage": "http://tong.visitkorea.or.kr/cms/detail.jpg",
+    })
+    assert common["overview"] == "황리단길 대표 한옥카페입니다."
+    assert common["phone"] == "054-000-0000"  # tel → phone 컬럼명 매핑
+    assert common["homepage"] == "http://www.example.com"
+    assert common["image_url"] == "https://tong.visitkorea.or.kr/cms/detail.jpg"
+
+
+def test_extract_detail_common_homepage_plain_text():
+    # 16. homepage 가 anchor HTML 이 아니면 원문 strip 그대로
+    assert extract_detail_common({"homepage": " https://hwangridan.example "})["homepage"] == \
+        "https://hwangridan.example"
+
+
+def test_extract_detail_common_empty_values_omit_keys():
+    # 17. 빈 값은 키 자체를 넣지 않는다(기존 값 보존 — extract_operating_hours 와 동일 패턴)
+    assert extract_detail_common({"overview": "", "tel": "", "homepage": "", "firstimage": ""}) == {}
+    assert extract_detail_common({"tel": "054-000-0000"}) == {"phone": "054-000-0000"}
+    assert extract_detail_common({}) == {}
+    assert extract_detail_common(None) == {}

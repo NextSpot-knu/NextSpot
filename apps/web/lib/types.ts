@@ -9,8 +9,17 @@ export interface Facility {
   latitude: number;
   longitude: number;
   capacity: number;
+  // TourAPI 적재분은 {open?: 영업시간, closed?: 휴무일} 형태, 수동 시드는 {weekday, weekend, closed} 형태.
   operating_hours: Record<string, string>;
   features: Record<string, unknown>;
+  // TourAPI 상세 컬럼(전부 nullable) — '지어내지 않기': 실데이터가 있을 때만 채워진다.
+  // api-client keysToCamel 경유 시 imageUrl/barrierFree 등 camelCase 로 내려온다.
+  image_url?: string | null;
+  address?: string | null;
+  phone?: string | null;
+  homepage?: string | null;
+  overview?: string | null;
+  barrier_free?: boolean | null;
   created_at: string;
   updated_at: string;
 }
