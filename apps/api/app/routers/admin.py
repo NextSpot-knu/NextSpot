@@ -285,6 +285,94 @@ async def get_metrics(days: int = 28):
 
 
 # =========================================================================
+# 30일 분산 추이 — 대시보드 '③ 분산 효과' 차트의 실측 소스 (E3 지표 리얼리티)
+# congestion_logs 일평균 혼잡도 + recommendations 일별 수락률을 KST 일 단위로 집계한다.
+# 반사실('도입 전') 기준선은 실측이 불가능하므로 제공하지 않는다 — 실측 두 계열만 반환하고,
+# 표본이 빈약한 날은 null 로 두어 프런트가 데모 예시로 폴백/구분 표기하게 한다(정직성 원칙).
+# =========================================================================
+
+_TREND_LOG_CAP = 20000  # 30일 창 로그 상한 — 초과 시 최신순으로 절단하고 truncated=True 로 알린다
+
+
+def _kst_date(ts: str) -> str | None:
+    """UTC 타임스탬프 → KST 날짜('YYYY-MM-DD'). 파싱 실패 시 None(해당 행 스킵)."""
+    try:
+        dt = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+    except (ValueError, TypeError):
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return (dt.astimezone(timezone.utc) + _KST_OFFSET).strftime("%Y-%m-%d")
+
+
+@router.get("/metrics/trend")
+async def get_metrics_trend(days: int = 30):
+    """최근 days일(KST 일 단위, 오늘 포함) 혼잡·추천수락 실측 추이 — 과거→오늘 순 daily 배열."""
+    days = max(1, min(days, 90))
+    today_start, _ = _kst_today_range_utc()
+    since = (datetime.fromisoformat(today_start) - timedelta(days=days - 1)).isoformat()
+    try:
+        logs_res, recs_res = await asyncio.gather(
+            asyncio.to_thread(
+                supabase_admin.table("congestion_logs")
+                .select("congestion_level, timestamp")
+                .gte("timestamp", since)
+                .order("timestamp", desc=True)  # 상한 절단 시 최근 일자부터 보존
+                .limit(_TREND_LOG_CAP)
+                .execute
+            ),
+            asyncio.to_thread(
+                supabase_admin.table("recommendations")
+                .select("accepted, created_at")
+                .gte("created_at", since)
+                .order("created_at", desc=True)
+                .limit(5000)
+                .execute
+            ),
+        )
+    except Exception as e:
+        logger.error("admin_metrics_trend_failed", error=str(e))
+        raise HTTPException(status_code=500, detail="분산 추이 집계에 실패했습니다.")
+
+    logs = logs_res.data or []
+    cong: dict[str, dict[str, float]] = {}
+    for row in logs:
+        day = _kst_date(row.get("timestamp"))
+        if not day:
+            continue
+        acc = cong.setdefault(day, {"sum": 0.0, "n": 0})
+        acc["sum"] += float(row.get("congestion_level") or 0)
+        acc["n"] += 1
+
+    rec_agg: dict[str, dict[str, int]] = {}
+    for row in recs_res.data or []:
+        day = _kst_date(row.get("created_at"))
+        if not day:
+            continue
+        acc = rec_agg.setdefault(day, {"total": 0, "accepted": 0})
+        acc["total"] += 1
+        if row.get("accepted"):
+            acc["accepted"] += 1
+
+    first_kst = datetime.fromisoformat(since) + _KST_OFFSET
+    daily = []
+    for i in range(days):
+        day = (first_kst + timedelta(days=i)).strftime("%Y-%m-%d")
+        c = cong.get(day)
+        r = rec_agg.get(day)
+        daily.append({
+            "date": day,
+            # 로그 없는 날은 null 센티넬 — 실측 0.0 과 구분(대시보드 히트맵과 동일 규약)
+            "avg_congestion": _js_round(c["sum"] / c["n"], 3) if c and c["n"] else None,
+            "samples": int(c["n"]) if c else 0,
+            "rec_total": r["total"] if r else 0,
+            "rec_accepted": r["accepted"] if r else 0,
+        })
+
+    return {"days": days, "daily": daily, "truncated": len(logs) >= _TREND_LOG_CAP}
+
+
+# =========================================================================
 # 분산 효과 정량화 — 수락된 추천의 '절감 대기시간' 합산 (admin/dashboard 위젯)
 # 산식: Σ max(0, 원본 예상대기 − 대안 도착시점 예상대기)  [수락 건만]
 #  · original_wait_time/wait_time 은 추천 생성 시점에 score_breakdown 으로 저장된다

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Users, Activity, TrendingUp, AlertTriangle, Search, Bell, Download, Info
 } from 'lucide-react';
@@ -21,8 +21,8 @@ function Skeleton({ className = '' }: { className?: string }) {
   return <div className={`animate-pulse rounded-md bg-hanok-line/60 ${className}`} />;
 }
 
-// 30일 수요 분산 '예시' 추이(데모) — 실측 집계 파이프라인이 아직 없어, 도입 전/후 혼잡도와
-// 대안 장소 활용률의 기대 패턴을 합성해 폐루프의 '③ 분산 효과'를 시각적으로 설명한다.
+// 30일 수요 분산 '예시' 추이(데모) — 실측(metrics/trend) 표본이 3일 미만일 때의 폴백 전용.
+// 도입 전/후 혼잡도와 대안 장소 활용률의 기대 패턴을 합성해 '③ 분산 효과'를 시각적으로 설명한다.
 // 반드시 차트에 '예시 추이(데모)' 라벨과 함께 노출해 실측으로 오인되지 않게 한다(정직성 원칙).
 function buildDemoDistribution() {
   const days = 30;
@@ -147,13 +147,39 @@ async function fetchMetrics() {
   }
 }
 
+// ③ 분산 효과 30일 추이 슬라이스 — /admin/metrics/trend(KST 일별 실측: 일평균 혼잡도·추천 수락률).
+// 혼잡 표본이 있는 날이 3일 미만이면 추이로서 무의미하므로 기존 데모 예시로 폴백하고,
+// 어느 쪽인지는 차트 헤더 라벨(실측 집계/예시 추이)로 구분 표기한다(정직성 원칙).
+async function fetchTrend(): Promise<{ mode: 'live' | 'demo'; rows: any[] }> {
+  try {
+    const t = await adminApi.get('/api/v1/admin/metrics/trend?days=30');
+    const daily: any[] = t?.daily || [];
+    const liveDays = daily.filter((d) => d.samples > 0).length;
+    if (liveDays >= 3) {
+      const rows = daily.map((d) => {
+        const [, m, dd] = String(d.date).split('-');
+        return {
+          date: `${Number(m)}/${Number(dd)}`,
+          // 로그/추천 없는 날은 null — recharts connectNulls 로 선만 잇고 점은 찍지 않는다.
+          avgCongestion: d.avg_congestion,
+          acceptShare: d.rec_total > 0 ? Math.round((d.rec_accepted / d.rec_total) * 1000) / 1000 : null,
+        };
+      });
+      return { mode: 'live', rows };
+    }
+  } catch {
+    // 백엔드 미기동/권한 차이 시 데모 폴백
+  }
+  return { mode: 'demo', rows: buildDemoDistribution() };
+}
+
 export default function DashboardPage() {
   // 슬라이스별 상태 — 혼잡 집계(오늘/어제 로그)와 추천/DAU 지표를 각각 독립 보관해 준비되는 대로 렌더한다
   // (전면 스피너 게이트 제거 → 섹션별 스켈레톤). null = 아직 로딩 중.
   const [congestion, setCongestion] = useState<any>(null); // { hasLogs, avgCongestion, anomalyCount, heatmap, anomalies }
   const [metrics, setMetrics] = useState<any>(null);        // { acceptRate, activeUsers }
-  // 30일 분산 효과는 실측 집계 파이프라인이 없어 데모 추이(한 번만 계산).
-  const distribution = useMemo(() => buildDemoDistribution(), []);
+  // 30일 분산 효과 — 실측(metrics/trend)이 충분하면 live, 빈약하면 데모 폴백(fetchTrend 참조). null = 로딩 중.
+  const [distribution, setDistribution] = useState<{ mode: 'live' | 'demo'; rows: any[] } | null>(null);
 
   // 언마운트 이후 setState 방지 가드(마운트 동안 true).
   const mountedRef = useRef(true);
@@ -177,7 +203,10 @@ export default function DashboardPage() {
     const metricsTask = fetchMetrics()
       .then((m) => { if (mountedRef.current) setMetrics(m); })
       .catch(() => { if (mountedRef.current) setMetrics({ acceptRate: null, activeUsers: null }); });
-    await Promise.all([congestionTask, metricsTask]);
+    const trendTask = fetchTrend()
+      .then((t) => { if (mountedRef.current) setDistribution(t); })
+      .catch(() => { if (mountedRef.current) setDistribution({ mode: 'demo', rows: buildDemoDistribution() }); });
+    await Promise.all([congestionTask, metricsTask, trendTask]);
   }, []);
 
   useEffect(() => {
@@ -427,9 +456,12 @@ export default function DashboardPage() {
             <ImpactWidget />
           </div>
 
-          {/* 30일 분산 효과 추이(③) — 장기 A/B 추이. 차트 헤더의 '예시 추이(데모)' 라벨로 실측 오인 방지. */}
+          {/* 30일 분산 효과 추이(③) — 실측 집계(metrics/trend) 우선, 표본 부족 시 데모 폴백.
+              어느 쪽인지는 차트 헤더 라벨(실측 집계/예시 추이)이 구분 표기한다. */}
           <div className="grid grid-cols-4 gap-6">
-            <DashboardCharts distribution={distribution} />
+            {distribution !== null
+              ? <DashboardCharts distribution={distribution.rows} mode={distribution.mode} />
+              : <Skeleton className="col-span-4 min-h-[380px] rounded-2xl" />}
           </div>
 
           {/* Bottom Section */}

@@ -6,13 +6,15 @@ import {
 } from 'recharts';
 import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
 
-export function DashboardCharts({ distribution }: { distribution: any[] }) {
-  // distribution = [ { date: string, beforeCongestion: number, afterCongestion: number, alternativeUsage: number } ]
+export function DashboardCharts({ distribution, mode = 'demo' }: { distribution: any[]; mode?: 'live' | 'demo' }) {
+  // mode='demo': distribution = [ { date, beforeCongestion, afterCongestion, alternativeUsage } ] (합성 예시)
+  // mode='live': distribution = [ { date, avgCongestion, acceptShare } ] (metrics/trend KST 일별 실측, 결측일 null)
   // recharts tooltip formatter to show percentage
   const formatPercent = (value: any) => `${(Number(value) * 100).toFixed(1)}%`;
 
   // 데이터가 비면 recharts 는 축만 그리고 선이 없어 '빈 화면'처럼 보인다 → 빈 상태 가드로 안내 문구 표시.
   const hasData = Array.isArray(distribution) && distribution.length > 0;
+  const live = mode === 'live';
 
   return (
     <div className="bg-hanok-panel p-6 rounded-2xl border border-hanok-line shadow-sm col-span-4 flex flex-col gap-4">
@@ -24,13 +26,22 @@ export function DashboardCharts({ distribution }: { distribution: any[] }) {
           </span>
           <h3 className="text-lg font-bold text-hanok-ink">최근 30일 관광 수요 분산 효과 분석</h3>
         </div>
-        {/* 실측 오인 방지(정직성 원칙) — 도입 전/후 추이는 합성한 데모용 예시임을 명시한다. */}
-        <span
-          title="실측 집계가 아닌 데모용 예시 추이입니다. 도입 전/후 혼잡도와 대안 장소 활용률의 기대 패턴을 보여줍니다."
-          className="flex-shrink-0 px-2 py-0.5 rounded-md text-[11px] font-semibold border bg-amber-500/10 text-amber-300 border-amber-500/25 cursor-help"
-        >
-          예시 추이(데모)
-        </span>
+        {/* 실측/데모 구분 라벨(정직성 원칙) — 실측이면 집계 출처를, 데모면 합성 예시임을 명시한다. */}
+        {live ? (
+          <span
+            title="혼잡 로그의 일평균 혼잡도와 추천 기록의 일별 수락률을 KST 일 단위로 집계한 실측 추이입니다. 데이터가 없는 날은 선을 잇지 않고 비워 둡니다."
+            className="flex-shrink-0 px-2 py-0.5 rounded-md text-[11px] font-semibold border bg-emerald-500/10 text-emerald-300 border-emerald-500/25 cursor-help"
+          >
+            실측 집계(30일)
+          </span>
+        ) : (
+          <span
+            title="실측 집계가 아닌 데모용 예시 추이입니다. 도입 전/후 혼잡도와 대안 장소 활용률의 기대 패턴을 보여줍니다."
+            className="flex-shrink-0 px-2 py-0.5 rounded-md text-[11px] font-semibold border bg-amber-500/10 text-amber-300 border-amber-500/25 cursor-help"
+          >
+            예시 추이(데모)
+          </span>
+        )}
       </div>
 
       <div className="h-[300px] w-full">
@@ -42,9 +53,19 @@ export function DashboardCharts({ distribution }: { distribution: any[] }) {
               <YAxis axisLine={false} tickLine={false} tick={{fill: '#b8a894', fontSize: 12}} domain={[0, 1]} tickFormatter={(val) => `${Math.round(val * 100)}%`} />
               <Tooltip formatter={formatPercent} contentStyle={{ borderRadius: '8px', backgroundColor: '#2c241c', border: '1px solid #3a2f24', color: '#e2e8f0', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
               <Legend iconType="circle" wrapperStyle={{ fontSize: '12px' }} />
-              <Line name="원본 장소(도입 전)" type="monotone" dataKey="beforeCongestion" stroke="#b8a894" strokeDasharray="5 5" strokeWidth={2} dot={false} />
-              <Line name="원본 장소(도입 후)" type="monotone" dataKey="afterCongestion" stroke="#3b82f6" strokeWidth={3} dot={{r: 4}} activeDot={{r: 6}} />
-              <Line name="대안 장소 활용률" type="monotone" dataKey="alternativeUsage" stroke="#10b981" strokeWidth={3} dot={{r: 4}} activeDot={{r: 6}} />
+              {live ? (
+                <>
+                  {/* 실측 계열 — 반사실('도입 전') 기준선은 실측 불가라 표시하지 않는다. 결측일은 connectNulls 로 건너뛴다. */}
+                  <Line name="일평균 혼잡도(실측)" type="monotone" dataKey="avgCongestion" stroke="#3b82f6" strokeWidth={3} dot={{r: 3}} activeDot={{r: 6}} connectNulls />
+                  <Line name="추천 수락률(실측)" type="monotone" dataKey="acceptShare" stroke="#10b981" strokeWidth={3} dot={{r: 3}} activeDot={{r: 6}} connectNulls />
+                </>
+              ) : (
+                <>
+                  <Line name="원본 장소(도입 전)" type="monotone" dataKey="beforeCongestion" stroke="#b8a894" strokeDasharray="5 5" strokeWidth={2} dot={false} />
+                  <Line name="원본 장소(도입 후)" type="monotone" dataKey="afterCongestion" stroke="#3b82f6" strokeWidth={3} dot={{r: 4}} activeDot={{r: 6}} />
+                  <Line name="대안 장소 활용률" type="monotone" dataKey="alternativeUsage" stroke="#10b981" strokeWidth={3} dot={{r: 4}} activeDot={{r: 6}} />
+                </>
+              )}
             </LineChart>
           </ResponsiveContainer>
         ) : (

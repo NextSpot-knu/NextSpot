@@ -3,7 +3,7 @@
 #         관리자 가드(require_admin)는 실제 헤더 경로(X-Admin-Authorization)를 그대로 태운다.
 #  · DB: 라우터 헬퍼(fetch_user 등)는 AsyncMock 으로, supabase 클라이언트는 체이닝을 흡수하는
 #        FakeSupabase(canned 데이터) 로 대체 — PostgREST 호출이 전혀 발생하지 않는다.
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -571,6 +571,62 @@ def test_admin_dashboard_today_aggregation(client):
     assert anomaly["congestionLevel"] == 0.95
     assert anomaly["durationMinutes"] == 30
     assert anomaly["id"] == "황리단길-2026-07-09T01:00:00+00:00"
+
+
+# =========================================================================
+# 7-4. 30일 분산 추이(GET /api/v1/admin/metrics/trend) — E3 지표 리얼리티
+# =========================================================================
+
+def test_admin_metrics_trend_no_header_401(client):
+    res = client.get("/api/v1/admin/metrics/trend")
+    assert res.status_code == 401
+
+
+def test_admin_metrics_trend_aggregation(client):
+    # KST 일 단위 버킷팅 검증 — 날짜 창이 '오늘' 기준 롤링이라 상대 타임스탬프로 생성한다.
+    # 공유 FakeSupabase 는 gte 를 흡수하지만, daily 는 날짜 키 매칭이라 창 밖 행은 어차피 떨어진다.
+    now = datetime.now(timezone.utc)
+    t_today = now.isoformat()
+    t_yesterday = (now - timedelta(days=1)).isoformat()
+    logs = [
+        {"congestion_level": 0.8, "timestamp": t_today},
+        {"congestion_level": 0.6, "timestamp": t_today},
+        {"congestion_level": 0.4, "timestamp": t_yesterday},
+    ]
+    recs = [
+        {"accepted": True, "created_at": t_today},
+        {"accepted": False, "created_at": t_today},
+        {"accepted": True, "created_at": t_yesterday},
+    ]
+    with patch("app.routers.admin.supabase_admin",
+               new=FakeSupabase({"congestion_logs": logs, "recommendations": recs})):
+        res = client.get("/api/v1/admin/metrics/trend?days=7", headers=_admin_headers())
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["days"] == 7
+    assert len(body["daily"]) == 7
+    assert body["truncated"] is False
+
+    # 마지막 원소 = KST 오늘: 평균 (0.8+0.6)/2 = 0.7, 추천 2건 중 1건 수락
+    today_kst = (now + timedelta(hours=9)).strftime("%Y-%m-%d")
+    last = body["daily"][-1]
+    assert last["date"] == today_kst
+    assert last["avg_congestion"] == 0.7
+    assert last["samples"] == 2
+    assert last["rec_total"] == 2
+    assert last["rec_accepted"] == 1
+
+    # 직전 원소 = KST 어제: 단일 로그 0.4, 추천 1건 수락
+    prev = body["daily"][-2]
+    assert prev["avg_congestion"] == 0.4
+    assert prev["rec_total"] == 1
+    assert prev["rec_accepted"] == 1
+
+    # 로그 없는 날은 null 센티넬(실측 0.0 과 구분) + 표본 0
+    empty_day = body["daily"][0]
+    assert empty_day["avg_congestion"] is None
+    assert empty_day["samples"] == 0
 
 
 # =========================================================================

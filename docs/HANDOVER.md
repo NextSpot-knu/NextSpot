@@ -16,10 +16,14 @@
   (MAX_BOOST 0.15 × (1−거리/1.5km), 성공 1h·실패 10분 캐시). score.py 도착시점 예측 + `/predict/batch`
   양쪽 반영, breakdown `event_boost`/`event_title`, 추천 카드 🎪 배지(4로케일).
   테스트 격리: tests/conftest.py autouse 픽스처가 TourAPI 조회 차단(로컬 실키 오염 방지).
-- **발표 산출물** — [`DEMO_SCENARIO.md`](./DEMO_SCENARIO.md)(E1, 관광객/관리자 각 3분 대본+체크리스트+폴백),
-  [`JUDGE_QA.md`](./JUDGE_QA.md)(E4, 예상 질문 10문+답변), `TIMELINESS.md`(C2, 보도 인용 — 작성 중).
-- **검증 스냅샷**: pytest 116 passed · ruff clean · tsc/next build(정적 export) · RESET 패리티 일치.
-- **다음 큐**: E1/E4 리허설 반영 → E3 지표 리얼리티 → E2 백업 영상(사람 작업) → 코드 freeze.
+- **발표 산출물** (`cb9cf07`) — [`DEMO_SCENARIO.md`](./DEMO_SCENARIO.md)(E1, 관광객/관리자 각 3분 대본+체크리스트+폴백),
+  [`JUDGE_QA.md`](./JUDGE_QA.md)(E4, 예상 질문 10문+답변), [`TIMELINESS.md`](./TIMELINESS.md)(C2, 검증 보도 8건).
+- **E3 지표 리얼리티** — 대시보드 '③ 분산 효과' 30일 차트를 실측 전환: 신규 `GET /api/v1/admin/metrics/trend`
+  (congestion_logs 일평균 혼잡도 + recommendations 일별 수락률, KST 일 단위·결측일 null 센티넬·20k 캡 truncated 플래그).
+  프런트는 혼잡 표본일 ≥3이면 '실측 집계(30일)' 모드(반사실 '도입 전' 계열 제거), 미만이면 기존 데모 폴백
+  — 어느 쪽인지 차트 라벨로 구분(정직성 원칙). 로컬 실데이터 기준 표본 4일 → 실측 모드 동작 확인.
+- **검증 스냅샷**: pytest 118 passed · ruff clean · tsc/next build(정적 export) · RESET 패리티 일치.
+- **다음 큐**: E1/E4 리허설 반영 → E2 백업 영상(사람 작업) → 코드 freeze(버그픽스만).
 
 ## -1. TourAPI 실연동 (2026-07-10 · 키 검증 완료)
 - **TOURAPI_KEY 발급·검증 완료** — `apps/api/.env`(gitignore)에 Decoding 키 저장. dry-run(목록+`--details` 상세)으로
@@ -80,7 +84,7 @@
 ## 4. 검증 (CI 게이트)
 ```
 cd apps/web && npx tsc --noEmit && npm run build            # 21 static routes
-PYTHONUTF8=1 py -3.11 -m pytest apps/api -q                 # 116 passed
+PYTHONUTF8=1 py -3.11 -m pytest apps/api -q                 # 118 passed
 (cd apps/api && py -3.11 -m ruff check .)                   # clean
 node scripts/build_reset.mjs && git diff --exit-code supabase/RESET_AND_SETUP.sql  # parity
 ```
