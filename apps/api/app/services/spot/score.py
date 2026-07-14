@@ -4,6 +4,7 @@ from pydantic import BaseModel
 from app.services.spot.preference import calculate_preference_similarity
 from app.services.spot.wait_time import calculate_predicted_wait_time
 from app.services.spot.travel import get_travel_time_and_distance
+from app.services.event_boost import get_event_congestion_boost
 from app.services.predict_service import predict_congestion
 
 # 가중치 정의 — 2026 관광데이터 활용 공모전 제안서 기준 (0.40 / 0.40 / 0.20).
@@ -86,6 +87,15 @@ async def calculate_spot_score(
         arrival_dow,
     )
 
+    # 3-1. 행사 혼잡 보정(A4) — 도착시점에 인근에서 진행 중인 축제가 있으면 예측 혼잡을
+    # 거리 감쇠 가중으로 상향한다(모델이 모르는 외부 변수). 축제 조회 실패는 (0, None)
+    # 무해 폴백이라 채점 플로우를 막지 않는다. 보정된 값이 아래 대기시간·재배치기여에
+    # 일관되게 쓰인다(한 산식 안에서 같은 '도착시점 혼잡' 기준 유지).
+    event_boost, event_title = await get_event_congestion_boost(
+        candidate_facility["latitude"], candidate_facility["longitude"], arrival_dt
+    )
+    predicted_congestion = min(1.0, predicted_congestion + event_boost)
+
     # 4. 예측 혼잡도를 적용한 대기 시간 계산
     #    피크 시간대 보정도 predict_congestion 과 동일하게 '도착 예상 시점(UTC) hour' 기준을 공유한다
     #    (한 산식 안에서 대기시간만 '현재 시각'으로 보정되던 시점 불일치 제거).
@@ -128,5 +138,8 @@ async def calculate_spot_score(
             # 인센티브 구성 성분(추천 사유·시뮬레이터 설명용): 쿠폰강도 / 수요 재배치 기여
             "incentive_coupon": round(coupon_term, 3),
             "incentive_relief": round(relief_term, 3),
+            # 행사 혼잡 보정(A4) — 프런트 배지·투명성 표기용. 보정 없으면 0 / None.
+            "event_boost": round(event_boost, 3),
+            "event_title": event_title,
         }
     )

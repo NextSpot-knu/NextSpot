@@ -1273,6 +1273,16 @@ function RecommendContent() {
                     </p>
                   )}
 
+                  {/* A4: 행사 혼잡 보정 배지 — 도착시점 인근 진행 중 축제로 예측이 가중됐을 때만 노출(투명성) */}
+                  {(rec.breakdown?.eventBoost ?? 0) > 0 && (
+                    <p className="mt-2 text-[11px] leading-snug text-terracotta bg-terracotta/10 border border-terracotta/20 rounded-xl px-3 py-2">
+                      🎪 {t("recommend.festivalAdjusted", {
+                        title: rec.breakdown?.eventTitle ?? "",
+                        pct: Math.round((rec.breakdown?.eventBoost ?? 0) * 100),
+                      })}
+                    </p>
+                  )}
+
                   {/* Minimap container */}
                   <div className="my-3">
                     <MiniMap

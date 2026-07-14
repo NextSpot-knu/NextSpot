@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 from app.core.supabase import supabase_client
 from app.routers.infrastructures import fetch_latest_congestion_for_all
+from app.services.event_boost import get_event_congestion_boost
 from app.services.predict_service import get_model_info, predict_congestion
 
 logger = structlog.get_logger()
@@ -55,6 +56,8 @@ class BatchPredictionItem(BaseModel):
     predicted_congestion: float
     # 현재 실측 로그에 앵커링된 예측인지 여부. 로그가 없는 시설은 False(타입 수준 예측 원값).
     anchored: bool = True
+    # 행사 혼잡 보정(A4) — 목표 시점에 진행 중인 인근 축제로 인한 가중치. 없으면 0(투명성 표기).
+    event_boost: float = 0.0
 
 
 class BatchPredictResponse(BaseModel):
@@ -80,12 +83,15 @@ def _clamp01(value: float) -> float:
 
 
 async def _fetch_facilities_id_type() -> list[dict]:
-    """모든 시설의 (id, type)만 페이지네이션 조회 (infrastructures 라우터와 동일 패턴)."""
+    """모든 시설의 (id, type, 좌표)만 페이지네이션 조회 (infrastructures 라우터와 동일 패턴).
+
+    좌표는 행사 혼잡 보정(A4)의 축제 거리 계산용 — 좌표 없는 행은 보정 없이 동작한다.
+    """
     facilities: list[dict] = []
     limit = 1000
     start = 0
     while True:
-        query = supabase_client.table("facilities").select("id, type").range(start, start + limit - 1)
+        query = supabase_client.table("facilities").select("id, type, latitude, longitude").range(start, start + limit - 1)
         res = await asyncio.to_thread(query.execute)
         if not res.data:
             break
@@ -138,19 +144,28 @@ async def predict_batch(req: BatchPredictRequest):
     # 현재 로그가 없는 시설은 타입 수준 예측 원값을 그대로 쓰고 anchored=False 로 구분 표기한다.
     predictions: list[BatchPredictionItem] = []
     for f in facilities:
+        # 행사 혼잡 보정(A4): 목표 시점에 진행 중인 인근 축제의 거리 감쇠 가중.
+        # 최초 1회만 TourAPI 를 조회(서비스 내부 캐시)하고 이후는 순수 거리 계산이라
+        # 시설 수만큼 순차 await 해도 비용이 없다. 좌표 없는 행(구 시드 등)은 보정 생략.
+        boost = 0.0
+        if f.get("latitude") is not None and f.get("longitude") is not None:
+            boost, _ = await get_event_congestion_boost(f["latitude"], f["longitude"], target_dt)
+
         current = congestion_map.get(f["id"])
         if current is not None:
             offset = float(current["level"]) - base_now[f["type"]]
             predictions.append(BatchPredictionItem(
                 facility_id=f["id"],
-                predicted_congestion=round(_clamp01(base_target[f["type"]] + offset), 4),
+                predicted_congestion=round(_clamp01(base_target[f["type"]] + offset + boost), 4),
                 anchored=True,
+                event_boost=boost,
             ))
         else:
             predictions.append(BatchPredictionItem(
                 facility_id=f["id"],
-                predicted_congestion=round(_clamp01(base_target[f["type"]]), 4),
+                predicted_congestion=round(_clamp01(base_target[f["type"]] + boost), 4),
                 anchored=False,
+                event_boost=boost,
             ))
 
     response = BatchPredictResponse(

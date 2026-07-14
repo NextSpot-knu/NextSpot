@@ -191,6 +191,9 @@ export interface RecommendationResponse {
     waitTime: number;
     travelTime: number;
     incentive: number;
+    // 행사 혼잡 보정(A4): 도착시점 인근 진행 중 축제로 인한 예측 혼잡 가중(0=보정 없음)과 근거 축제명
+    eventBoost?: number;
+    eventTitle?: string | null;
   };
   distanceM: number;
   reason?: string; // WP3: Gemini 생성 추천 사유 (백엔드 snake_case reason → camel reason)
