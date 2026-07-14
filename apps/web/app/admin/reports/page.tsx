@@ -15,14 +15,50 @@ import { adminApi } from '@/lib/admin-api';
 
 const supabase = createPublicClient();
 
-// --- Fallback(목업): 실데이터 로드 전 즉시 렌더 + 데이터 없을 때 대체 ---
-const MOCK_WEEKLY: any[] = [];
+// --- Types ---
+type CategoryKo = '음식점' | '카페' | '관광지' | '문화시설';
 
-const MOCK_AI: any[] = [];
+/** 막대 차트 1행: 요일 + 카테고리별 누적 방문량 */
+type WeeklyRow = { day: string } & Record<CategoryKo, number>;
 
-const MOCK_TABLE: any[] = [];
+/** AI 수락 트렌드 1행(주차 버킷) */
+interface AiTrendRow {
+  date: string;
+  수락: number;
+  거절: number;
+}
 
-const TYPE_KO: Record<string, string> = {
+/** 카테고리 요약 표 1행 */
+interface CategoryTableRow {
+  id: number;
+  category: string;
+  totalUsers: string;
+  growth: string;
+  status: string;
+}
+
+/** congestion_logs select('current_count, timestamp, facility:facilities(type)') 행(snake_case).
+ *  조인 결과는 Supabase 관계 카디널리티 추정에 따라 객체 또는 배열로 올 수 있다. */
+interface CongestionLogRow {
+  current_count: number | null;
+  timestamp: string;
+  facility: { type: string | null } | { type: string | null }[] | null;
+}
+
+/** /api/v1/admin/metrics 의 recommendations 행(snake_case, admin-api 는 케이스 변환 없음) */
+interface RecommendationRow {
+  accepted: boolean | null;
+  created_at: string;
+}
+
+// --- 빈 초기 상태: 실데이터 로드 전 초기값(목업 아님 — 항상 빈 배열) ---
+const EMPTY_WEEKLY: WeeklyRow[] = [];
+
+const EMPTY_AI: AiTrendRow[] = [];
+
+const EMPTY_TABLE: CategoryTableRow[] = [];
+
+const TYPE_KO: Record<string, CategoryKo> = {
   restaurant: '음식점', cafe: '카페', attraction: '관광지', culture: '문화시설',
 };
 const TYPE_UNIT: Record<string, string> = { 음식점: '명', 카페: '명', 관광지: '명', 문화시설: '명' };
@@ -33,7 +69,7 @@ function kstWeekdayKo(ts: string) {
   const d = new Date(new Date(ts).getTime() + 9 * 60 * 60 * 1000);
   return WD_KO[d.getUTCDay()];
 }
-function joinedType(log: any): string | null {
+function joinedType(log: CongestionLogRow): string | null {
   const f = log?.facility;
   const o = Array.isArray(f) ? f[0] : f;
   return o?.type ?? null;
@@ -49,9 +85,9 @@ function fmtMD(d: Date) {
 }
 
 // 최근 14일 혼잡 로그(시설 유형 조인). 최소 컬럼 + 페이지 캡으로 로딩 비용 최소화.
-async function fetchLogs14d() {
+async function fetchLogs14d(): Promise<CongestionLogRow[]> {
   const since = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString();
-  let out: any[] = [];
+  let out: CongestionLogRow[] = [];
   let from = 0;
   const limit = 1000;
   const maxPages = 8;
@@ -70,7 +106,7 @@ async function fetchLogs14d() {
   }
   return out;
 }
-async function fetchRecs28d() {
+async function fetchRecs28d(): Promise<RecommendationRow[]> {
   // 추천 이력은 RLS 강화(20260707 security_hardening)로 anon 열람 불가 →
   // 관리자 API(/admin/metrics, service_role) 경유(WS-A-6).
   // 실패해도 로그 기반(막대/표) 실데이터는 살리도록 여기서 격리(빈 배열 반환).
@@ -83,9 +119,9 @@ async function fetchRecs28d() {
 }
 
 export default function ReportsPage() {
-  const [weekly, setWeekly] = useState(MOCK_WEEKLY);
-  const [aiTrend, setAiTrend] = useState(MOCK_AI);
-  const [table, setTable] = useState<any[]>(MOCK_TABLE);
+  const [weekly, setWeekly] = useState(EMPTY_WEEKLY);
+  const [aiTrend, setAiTrend] = useState(EMPTY_AI);
+  const [table, setTable] = useState<CategoryTableRow[]>(EMPTY_TABLE);
   const [isLive, setIsLive] = useState(false);
   const [loading, setLoading] = useState(true); // 최초 로드 중 여부(빈 상태 안내를 '불러오는 중' vs '데이터 없음'으로 구분)
   const [rangeLabel, setRangeLabel] = useState('최근 7일');
@@ -106,7 +142,7 @@ export default function ReportsPage() {
 
         // (1) 주간 사용량 + (2) 카테고리 요약 (current_count 합 = 누적 footfall)
         if (logs.length > 0) {
-          const wk: Record<string, any> = {};
+          const wk: Record<string, WeeklyRow> = {};
           for (const d of WEEK_ORDER) wk[d] = { day: d, 음식점: 0, 카페: 0, 관광지: 0, 문화시설: 0 };
           const thisWeek: Record<string, number> = { 음식점: 0, 카페: 0, 관광지: 0, 문화시설: 0 };
           const lastWeek: Record<string, number> = { 음식점: 0, 카페: 0, 관광지: 0, 문화시설: 0 };

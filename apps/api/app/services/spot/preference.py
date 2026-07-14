@@ -42,7 +42,7 @@ async def calculate_preference_similarity(
     user_id: str,
     facility_type: str,
     preferred_categories: list[str],
-    facility_features: dict = None,
+    facility_features: dict | None = None,
     user_vector: list[float] | None = None,
 ) -> float:
     """

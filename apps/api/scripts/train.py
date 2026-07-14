@@ -31,6 +31,7 @@ load_dotenv(os.path.join(parent_dir, ".env"))
 
 # Import settings from app.core.config
 from app.core.config import settings
+from app.core.supabase import fetch_all_rows
 
 HOLDOUT_RATIO = 0.2      # 시간순 뒤쪽 20% 를 평가용으로 사용
 MIN_EVAL_ROWS = 50       # 이보다 적으면 홀드아웃 통계가 무의미 — 평가 생략
@@ -123,27 +124,13 @@ def main():
     facility_map = {f["id"]: f["type"] for f in facilities}
     print(f"Retrieved {len(facilities)} facilities.")
 
-    # 2. Retrieve all congestion logs
+    # 2. Retrieve all congestion logs (공용 페이지네이션 헬퍼 — PostgREST 행수 캡 우회)
     print("Retrieving congestion logs...")
-    logs = []
-    limit = 1000
-    start = 0
-    while True:
-        try:
-            res = supabase.table("congestion_logs")\
-                          .select("facility_id, timestamp, congestion_level")\
-                          .range(start, start + limit - 1)\
-                          .execute()
-        except Exception as e:
-            print(f"Error querying congestion logs: {e}")
-            sys.exit(1)
-
-        if not res.data:
-            break
-        logs.extend(res.data)
-        if len(res.data) < limit:
-            break
-        start += limit
+    try:
+        logs = fetch_all_rows(supabase, "congestion_logs", "facility_id, timestamp, congestion_level")
+    except Exception as e:
+        print(f"Error querying congestion logs: {e}")
+        sys.exit(1)
 
     print(f"Retrieved {len(logs)} congestion logs.")
 

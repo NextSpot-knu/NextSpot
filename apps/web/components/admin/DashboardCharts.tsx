@@ -6,11 +6,21 @@ import {
 } from 'recharts';
 import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
 
+// ── 로컬 타입 정의 ──────────────────────────────────────────────────────────
+// 히트맵 셀 (value: null = 데이터 없음 센티넬 — 실측 0.00 과 구분)
+interface HeatmapCell {
+  facility: string;
+  facilityType: string;
+  hour: number;
+  value: number | null;
+}
+
 export function DashboardCharts({ distribution, mode = 'demo' }: { distribution: any[]; mode?: 'live' | 'demo' }) {
   // mode='demo': distribution = [ { date, beforeCongestion, afterCongestion, alternativeUsage } ] (합성 예시)
   // mode='live': distribution = [ { date, avgCongestion, acceptShare } ] (metrics/trend KST 일별 실측, 결측일 null)
   // recharts tooltip formatter to show percentage
-  const formatPercent = (value: any) => `${(Number(value) * 100).toFixed(1)}%`;
+  // (recharts Formatter 의 value 는 number|string|Array 유니언 — 반공변 파라미터라 unknown 이 안전하게 대입된다)
+  const formatPercent = (value: unknown) => `${(Number(value) * 100).toFixed(1)}%`;
 
   // 데이터가 비면 recharts 는 축만 그리고 선이 없어 '빈 화면'처럼 보인다 → 빈 상태 가드로 안내 문구 표시.
   const hasData = Array.isArray(distribution) && distribution.length > 0;
@@ -80,7 +90,7 @@ export function DashboardCharts({ distribution, mode = 'demo' }: { distribution:
 }
 
 // 히트맵 차트는 CSS Grid를 이용한 커스텀 구현 (Recharts에 기본 Heatmap이 없으므로 직관적이고 커스텀 쉬운 Grid 사용)
-export function DashboardHeatmap({ heatmapData }: { heatmapData: any[] }) {
+export function DashboardHeatmap({ heatmapData }: { heatmapData: HeatmapCell[] }) {
   // heatmapData: [ { facility: string, facilityType: string, hour: number, value: number } ]
   
   const [selectedCategory, setSelectedCategory] = useState('restaurant');

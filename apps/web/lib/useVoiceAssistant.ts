@@ -1,7 +1,7 @@
 // 음성 비서 훅 — 단일 카드(추천) 1개를 TTS로 안내하고 STT로 응답을 받아 콜백에 위임한다.
 //
 // 부모(페이지)가 "현재 카드(item)"와 콜백(onAccept/onNext)을 제공하면, 이 훅이 TTS 발화 →
-// STT 듣기 → 의도 분류(lib/voiceIntent) → 콜백 위임의 상태머신을 관리한다. "다음" 의도는
+// STT 듣기 → 의도 분류(옵션 interpret → 백엔드 키워드 분류기) → 콜백 위임의 상태머신을 관리한다. "다음" 의도는
 // onNext가 부모 상태를 바꾸면 notifyItem으로 새 카드가 자동 발화되므로 훅이 직접 다음을 말하지 않는다.
 //
 // 정적 export(SSR) 안전: 모든 Web Speech 접근은 이벤트/이펙트 내부 + typeof window 가드.
@@ -30,11 +30,11 @@ export interface VoiceAssistantOptions<T> {
   onAccept: (item: T) => void;
   /** "다음/별로" 의도 → 다음 카드(부모가 현재 카드를 교체) */
   onNext: (item: T) => void;
-  /** Gemini가 고른 시설로 전환(선호 매칭). spoken을 새 카드의 사유로 쓰면 자연스럽다. */
+  /** 백엔드가 고른 시설로 전환(선호 매칭). spoken을 새 카드의 사유로 쓰면 자연스럽다. */
   onSelect?: (id: string, spoken?: string) => void;
-  /** Gemini가 선호로 후보를 좁힘(예: '양식'→양식 식당들). 추천 풀을 실시간 필터링해 재추천. */
+  /** 백엔드가 선호로 후보를 좁힘(예: '양식'→양식 식당들). 추천 풀을 실시간 필터링해 재추천. */
   onFilter?: (matchIds: string[], spoken?: string) => void;
-  /** 사용자 발화를 Gemini로 해석(없으면 최소 키워드 폴백). 카드 정보로 후보를 만들어 백엔드 호출. */
+  /** 사용자 발화를 백엔드로 해석(미제공 시 unknown 처리). 카드 정보로 후보를 만들어 백엔드 호출. */
   interpret?: (utterance: string, item: T) => Promise<VoiceTurn>;
 }
 
@@ -64,11 +64,12 @@ export function useVoiceAssistant<T>(opts: VoiceAssistantOptions<T>): VoiceAssis
   const [ttsSupported, setTtsSupported] = useState(true);
   const [sttSupported, setSttSupported] = useState(true);
 
+  // SpeechRecognition 인스턴스 — lib.dom 에 타입이 없어 any 유지(런타임 전용 Web Speech 객체)
   const recRef = useRef<any>(null);
   const activeRef = useRef(false); // active 상태 동기 미러(비동기 콜백에서 stale 방지)
-  const listenTimerRef = useRef<any>(null);
-  const followupRef = useRef<any>(null);
-  const voicesRef = useRef<any[]>([]);
+  const listenTimerRef = useRef<number | null>(null); // window.setTimeout 핸들
+  const followupRef = useRef<number | null>(null); // window.setTimeout 핸들
+  const voicesRef = useRef<SpeechSynthesisVoice[]>([]);
   const stateRef = useRef<VoiceState>("idle");
   const startingRef = useRef(false);
   const repromptRef = useRef(0);
@@ -114,9 +115,9 @@ export function useVoiceAssistant<T>(opts: VoiceAssistantOptions<T>): VoiceAssis
   // Edge의 "Microsoft …(Natural)" / Chrome의 "Google …" / WaveNet 등 neural 보이스가
   // OS 기본 보이스보다 훨씬 자연스럽다. (localService=false = 클라우드 보이스, 대개 고품질)
   const pickKoVoice = () => {
-    const ko = (voicesRef.current || []).filter((v: any) => /^ko(-|_|$)/i.test(v.lang || ""));
+    const ko = (voicesRef.current || []).filter((v) => /^ko(-|_|$)/i.test(v.lang || ""));
     if (!ko.length) return null;
-    const score = (v: any) => {
+    const score = (v: SpeechSynthesisVoice) => {
       const n = (v.name || "").toLowerCase();
       let s = 0;
       if (/natural|neural|online/.test(n)) s += 5; // Edge Azure neural(최고 품질)
@@ -126,7 +127,7 @@ export function useVoiceAssistant<T>(opts: VoiceAssistantOptions<T>): VoiceAssis
       if (v.lang === "ko-KR") s += 1;
       return s;
     };
-    return ko.slice().sort((a: any, b: any) => score(b) - score(a))[0];
+    return ko.slice().sort((a, b) => score(b) - score(a))[0];
   };
 
   // 진행 중 발화 정리(Cloud 오디오 + 브라우저 합성). seq 증가로 in-flight fetch/콜백 무효화.
@@ -216,8 +217,8 @@ export function useVoiceAssistant<T>(opts: VoiceAssistantOptions<T>): VoiceAssis
     }
   };
 
-  // 사용자 발화 1턴을 처리. 의도/필터는 전적으로 백엔드 Vertex Gemini(interpret)가 판단한다.
-  // 하드코딩 키워드 분류는 두지 않는다 — Gemini 미제공/실패 시 'unknown'으로 재질문(엉뚱한 동작 방지).
+  // 사용자 발화 1턴을 처리. 의도/필터는 전적으로 백엔드 분류기(interpret 콜백)가 판단한다.
+  // 훅 안에 하드코딩 키워드 분류는 두지 않는다 — interpret 미제공/실패 시 'unknown'으로 재질문(엉뚱한 동작 방지).
   const handleIntent = async (alts: string[]) => {
     if (stateRef.current === "idle") return;
     const item = itemRef.current;
@@ -231,7 +232,7 @@ export function useVoiceAssistant<T>(opts: VoiceAssistantOptions<T>): VoiceAssis
     try {
       turn = o.interpret ? await o.interpret(utterance, item) : { action: "unknown" };
     } catch {
-      turn = { action: "unknown" }; // Gemini/네트워크 실패 → 키워드 추측 없이 재질문
+      turn = { action: "unknown" }; // 해석/네트워크 실패 → 키워드 추측 없이 재질문
     }
     if ((stateRef.current as VoiceState) === "idle") return; // 해석 대기(await) 중 취소/정지됐으면 중단
     if (itemRef.current !== item) return; // 해석 중 카드가 바뀌었으면(새 카드 narrate 중) 이 턴 폐기(stale)
@@ -249,14 +250,14 @@ export function useVoiceAssistant<T>(opts: VoiceAssistantOptions<T>): VoiceAssis
         break;
       }
       case "select":
-        // Gemini가 선호에 맞는 시설을 골랐다. onSelect가 카드를 바꾸면(또는 spoken을 사유로 갱신)
+        // 백엔드가 선호에 맞는 시설을 골랐다. onSelect가 카드를 바꾸면(또는 spoken을 사유로 갱신)
         // notifyItem이 새 카드를 narrate. 별도 발화 안 함(이중 방지).
         try { recRef.current?.abort?.(); } catch { /* noop */ }
         if (turn.targetId && o.onSelect) o.onSelect(turn.targetId, turn.spoken || undefined);
         else o.onNext(item);
         break;
       case "filter":
-        // Gemini가 선호로 후보를 좁혔다(예: 양식→양식 식당들). onFilter가 추천 풀을 실시간 필터링→재추천하면
+        // 백엔드가 선호로 후보를 좁혔다(예: 양식→양식 식당들). onFilter가 추천 풀을 실시간 필터링→재추천하면
         // notifyItem이 새 #1을 narrate. 별도 발화 안 함(이중 방지).
         try { recRef.current?.abort?.(); } catch { /* noop */ }
         if (turn.matchIds && turn.matchIds.length && o.onFilter) o.onFilter(turn.matchIds, turn.spoken || undefined);

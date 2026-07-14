@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 # 읽기는 anon, congestion_logs 쓰기(simulate_peak)는 RLS 우회가 필요해 service_role 을 쓴다
 # (ingest 라우터와 동일 사유 — anon INSERT 는 RLS 로 거부됨).
-from app.core.supabase import supabase_client, supabase_admin, require_admin
+from app.core.supabase import supabase_client, supabase_admin, require_admin, fetch_all_rows
 
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1", tags=["infrastructures"])
@@ -105,11 +105,7 @@ async def get_infrastructures(
 ):
     logger.info("infrastructures_request", type=type)
     try:
-        facilities = []
-        limit = 1000
-        start = 0
-        while True:
-            query = supabase_client.table("facilities").select("*")
+        def _apply_filters(query):
             if type:
                 query = query.eq("type", type)
             if min_lat is not None:
@@ -120,15 +116,12 @@ async def get_infrastructures(
                 query = query.gte("longitude", min_lng)
             if max_lng is not None:
                 query = query.lte("longitude", max_lng)
-            
-            query = query.range(start, start + limit - 1)
-            res = await asyncio.to_thread(query.execute)
-            if not res.data:
-                break
-            facilities.extend(res.data)
-            if len(res.data) < limit:
-                break
-            start += limit
+            return query
+
+        # 공용 페이지네이션 헬퍼(블로킹)를 워커 스레드로 오프로드 — 각 페이지에 동일 필터 적용.
+        facilities = await asyncio.to_thread(
+            fetch_all_rows, supabase_client, "facilities", "*", apply_filters=_apply_filters
+        )
 
         if not facilities:
             return []

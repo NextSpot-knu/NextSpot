@@ -61,8 +61,8 @@ async def calculate_spot_score(
         user_vector=user_vector,
     )
 
-    # 2. 이동 시간 우선 획득
-    travel_time_min, distance_m = await get_travel_time_and_distance(
+    # 2. 이동 시간 우선 획득 (거리는 산식 미사용 — 라우터가 Haversine 으로 별도 계산)
+    travel_time_min, _ = await get_travel_time_and_distance(
         start_lat=user_lat,
         start_lng=user_lng,
         end_lat=candidate_facility["latitude"],
@@ -70,8 +70,8 @@ async def calculate_spot_score(
     )
 
     # 3. 도착 예상 시점 혼잡도 예측
-    # 모델은 UTC 시각 기준으로 학습됨(train.py: fromisoformat(+00:00).hour). Cloud Run 런타임도 UTC라
-    # 정합하나, 로컬/다른 타임존 호스트에서 datetime.now()가 흔들리지 않도록 명시적으로 UTC를 사용한다.
+    # 모델은 UTC 시각 기준으로 학습됨(train.py: fromisoformat(+00:00).hour).
+    # 로컬/다른 타임존 호스트에서 datetime.now()가 흔들리지 않도록 명시적으로 UTC를 사용한다.
     # depart_time 이 오면 '그 출발 시각 + 이 구간 이동시간' = 코스의 누적 도착 시각(2~3번째 정류지 정합).
     # 없으면 지금 출발 기준(단일 대안 추천). 이 arrival 은 아래 wait_time·재배치기여에 함께 쓰인다.
     base_time = depart_time or datetime.now(timezone.utc)
@@ -123,7 +123,7 @@ async def calculate_spot_score(
     spot_score = (W1 * preference_sim) - (W2 * time_cost) + (W3 * incentive)
 
     # 시간비용 감산 패널티로 인한 점수 하향 왜곡 방지를 위해 Min-Max 정규화 적용
-    # (preference∈[0,1], time_cost∈[0,1], incentive∈{0,1} 이므로
+    # (preference∈[0,1], time_cost∈[0,1], incentive∈[0,1] 이므로
     #  min_possible = -W2, max_possible = W1 + W3, range_width = W1 + W2 + W3 — 가중치 무관하게 성립)
     normalized_score = (spot_score + W2) / (W1 + W2 + W3)
     final_score = round(max(0.0, min(1.0, normalized_score)), 3)

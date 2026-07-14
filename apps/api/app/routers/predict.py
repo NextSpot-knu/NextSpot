@@ -6,7 +6,7 @@ import structlog
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from app.core.supabase import supabase_client
+from app.core.supabase import supabase_client, fetch_all_rows
 from app.routers.infrastructures import fetch_latest_congestion_for_all
 from app.services.event_boost import get_event_congestion_boost
 from app.services.predict_service import get_model_info, predict_congestion
@@ -83,23 +83,11 @@ def _clamp01(value: float) -> float:
 
 
 async def _fetch_facilities_id_type() -> list[dict]:
-    """모든 시설의 (id, type, 좌표)만 페이지네이션 조회 (infrastructures 라우터와 동일 패턴).
+    """모든 시설의 (id, type, 좌표)만 페이지네이션 조회 (공용 fetch_all_rows 헬퍼를 워커 스레드로 오프로드).
 
     좌표는 행사 혼잡 보정(A4)의 축제 거리 계산용 — 좌표 없는 행은 보정 없이 동작한다.
     """
-    facilities: list[dict] = []
-    limit = 1000
-    start = 0
-    while True:
-        query = supabase_client.table("facilities").select("id, type, latitude, longitude").range(start, start + limit - 1)
-        res = await asyncio.to_thread(query.execute)
-        if not res.data:
-            break
-        facilities.extend(res.data)
-        if len(res.data) < limit:
-            break
-        start += limit
-    return facilities
+    return await asyncio.to_thread(fetch_all_rows, supabase_client, "facilities", "id, type, latitude, longitude")
 
 
 @router.post("/batch", response_model=BatchPredictResponse)

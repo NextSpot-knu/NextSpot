@@ -1,6 +1,9 @@
 import math
 import httpx
+import structlog
 from app.core.config import settings
+
+logger = structlog.get_logger()
 
 # 도보 속도: 4 km/h = 4000 m / 60 분 = 66.67 m/min
 WALKING_SPEED_M_PER_MIN = 66.67
@@ -79,13 +82,13 @@ async def get_travel_time_and_distance(
                         if dist and dist > 0:
                             distance_m = dist
                     else:
-                        print(
-                            f"[travel] Kakao route invalid "
-                            f"(result_code={route0.get('result_code')}, duration={duration_sec}). "
-                            f"Keeping Haversine."
+                        logger.warning(
+                            "kakao_route_invalid_keeping_haversine",
+                            result_code=route0.get("result_code"),
+                            duration=duration_sec,
                         )
         except Exception as e:
             # 실패 시 로그를 남기고 Haversine 값 유지
-            print(f"[travel] Kakao Maps Directions API failed: {str(e)}. Fallback to Haversine.")
+            logger.warning("kakao_directions_failed_fallback_haversine", error=str(e))
 
     return round(travel_time_min, 1), round(distance_m, 1)

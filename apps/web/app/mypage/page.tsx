@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import {
-  Menu, Bell, Home, Bookmark, User,
+  Menu, Bell, Bookmark, User,
   Edit2, ChevronRight, LogOut,
   Settings as SettingsIcon, BellRing, Ticket, X, Footprints
 } from 'lucide-react';
@@ -39,8 +39,6 @@ export default function MyPage() {
   }, []);
 
   useEffect(() => {
-    // API Fetch Mockup
-    // ⚠️ 백엔드 데이터 하드코딩 금지 원칙 준수 (실제로는 API에서 가져옴)
     const fetchProfile = async () => {
       setIsLoading(true);
       try {
@@ -48,7 +46,7 @@ export default function MyPage() {
         // const response = await fetch('/api/user/profile');
         // const data = await response.json();
         // setProfile(data);
-        
+
         // 프로필명/이메일은 하드코딩 실명 대신 로그인 세션에서 파생한다.
         // 비로그인·목 세션이면 user 가 null 이므로 명확한 플레이스홀더로 폴백(회귀 없이 데모 무중단).
         let displayName = t('mypage.guestName');
@@ -109,19 +107,6 @@ export default function MyPage() {
 
   const handleUpdateProfile = async (updatedData: Partial<UserProfile>) => {
     // TODO: 프로필 수정 / 설정 변경 API 연동 로직
-    /*
-    try {
-      await fetch('/api/user/profile', {
-        method: 'PATCH', // or PUT
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updatedData)
-      });
-      // 업데이트 성공 처리
-    } catch (error) {
-      console.warn(error);
-    }
-    */
-    
     // 로컬 상태 즉시 업데이트 (Optimistic UI)
     if (profile) {
       setProfile({ ...profile, ...updatedData });

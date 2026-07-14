@@ -15,6 +15,30 @@ import { DataFreshnessBadge } from '@/components/admin/DataFreshnessBadge';
 
 import { adminApi } from '@/lib/admin-api';
 
+// ── 로컬 타입 정의 ──────────────────────────────────────────────────────────
+// admin-api.ts 는 snake_case→camelCase 변환을 하지 않으므로(해당 파일 상단 주석 참조),
+// API 유래 응답은 백엔드가 보내는 snake_case 키를 그대로 갖는다.
+interface AnomalyAlert {
+  id: string;
+  facilityName: string;
+  timestamp: string;
+  congestionLevel: number;
+  durationMinutes: number;
+}
+// GET /api/v1/admin/metrics 응답 (apps/api/app/routers/admin.py get_metrics)
+interface MetricsRecommendation {
+  accepted: boolean;
+  created_at: string;
+}
+interface MetricsFeedback {
+  user_id: string;
+  timestamp: string;
+}
+interface AdminMetricsResponse {
+  since: string;
+  recommendations: MetricsRecommendation[];
+  feedback: MetricsFeedback[];
+}
 
 // 섹션별 로딩 스켈레톤 — 전면 스피너 게이트 제거 후, 각 지표가 준비될 때까지 자리에 표시한다.
 function Skeleton({ className = '' }: { className?: string }) {
@@ -126,21 +150,21 @@ async function fetchMetrics() {
   const { start, end } = getKstTodayRangeUtc();
   try {
     const weekAgo = new Date(new Date(start).getTime() - 6 * 24 * 60 * 60 * 1000).toISOString();
-    const metrics = await adminApi.get('/api/v1/admin/metrics?days=8');
+    const metrics: AdminMetricsResponse = await adminApi.get('/api/v1/admin/metrics?days=8');
     let acceptRate: { value: number; total: number; accepted: number } | null = null;
     let activeUsers: number | null = null;
     const recs = (metrics?.recommendations || []).filter(
-      (r: any) => r.created_at >= weekAgo && r.created_at <= end
+      (r: MetricsRecommendation) => r.created_at >= weekAgo && r.created_at <= end
     );
     if (recs.length > 0) {
       const total = recs.length;
-      const accepted = recs.filter((r: any) => r.accepted).length;
+      const accepted = recs.filter((r: MetricsRecommendation) => r.accepted).length;
       acceptRate = { value: Math.round((accepted / total) * 1000) / 1000, total, accepted };
     }
     const fb = (metrics?.feedback || []).filter(
-      (f: any) => f.timestamp >= start && f.timestamp <= end
+      (f: MetricsFeedback) => f.timestamp >= start && f.timestamp <= end
     );
-    if (fb.length > 0) activeUsers = new Set(fb.map((f: any) => f.user_id)).size;
+    if (fb.length > 0) activeUsers = new Set(fb.map((f: MetricsFeedback) => f.user_id)).size;
     return { acceptRate, activeUsers };
   } catch {
     return { acceptRate: null, activeUsers: null }; // 백엔드 미기동/권한 차이 시 폴백
@@ -237,7 +261,7 @@ export default function DashboardPage() {
       lines.push(`KPI,이상 혼잡 발생(건),${kpi.anomalyCount}`);
       lines.push('');
       lines.push('시설명,유형,시간(시),혼잡도(%)');
-      for (const c of heatmap as any[]) {
+      for (const c of heatmap) {
         const name = String(c.facility).replace(/[",\n]/g, ' ');
         lines.push(`${name},${c.facilityType},${c.hour},${Math.round((c.value ?? 0) * 100)}`);
       }
@@ -477,7 +501,7 @@ export default function DashboardPage() {
               </div>
               <div className="flex-1 p-4 overflow-y-auto">
                 <div className="flex flex-col gap-3">
-                  {anomalies.map((alert: any) => (
+                  {anomalies.map((alert: AnomalyAlert) => (
                     <div key={alert.id} className="p-4 rounded-xl border border-rose-500/15 bg-rose-500/10 flex flex-col gap-2 relative overflow-hidden">
                       <div className="absolute left-0 top-0 bottom-0 w-1 bg-rose-500"></div>
                       <div className="flex justify-between items-start">

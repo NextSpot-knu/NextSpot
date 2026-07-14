@@ -15,8 +15,8 @@ uvicorn app.main:app --reload --port 8000
 ```
 
 필수 환경변수(`apps/api/.env`, `.env.example` 복사):
-`SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `JWT_SECRET`
-(선택: `ADMIN_API_TOKEN`, `KAKAO_REST_API_KEY`, `ALLOWED_ORIGINS`).
+`SUPABASE_URL`, `SUPABASE_ANON_KEY`, `JWT_SECRET`, `ADMIN_API_TOKEN`(미설정 시 부팅 실패)
+(권장: `SUPABASE_SERVICE_ROLE_KEY` — 관리자 쓰기 경로에 필요 / 선택: `KAKAO_REST_API_KEY`, `ALLOWED_ORIGINS`).
 
 ## 계층 구성
 

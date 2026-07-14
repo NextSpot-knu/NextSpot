@@ -40,8 +40,8 @@ export function SimulatePeakButton({ onSimulated }: { onSimulated?: () => void |
         setMessage('24시간 모의 데이터 생성 완료! 대시보드를 새로고침합니다.');
         setTimeout(() => window.location.reload(), 1200);
       }
-    } catch (err: any) {
-      setMessage(`시뮬레이션 실패: ${err?.message || '알 수 없는 오류'}`);
+    } catch (err) {
+      setMessage(`시뮬레이션 실패: ${(err as Error | undefined)?.message || '알 수 없는 오류'}`);
       setTimeout(() => setMessage(null), 5000);
     } finally {
       setIsSimulating(false);

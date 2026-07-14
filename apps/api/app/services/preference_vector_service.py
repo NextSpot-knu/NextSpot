@@ -11,11 +11,11 @@ adjust_user_vector_on_feedback / available)는 시그니처 호환을 위해 그
 """
 
 import asyncio
-import math
 
 import structlog
 
 from app.core.supabase import supabase_admin
+from app.core.vector import l2_normalize
 
 logger = structlog.get_logger()
 
@@ -35,13 +35,8 @@ class PreferenceVectorStore:
         return self.client is not None
 
     def _normalize_vector(self, vector: list[float]) -> list[float]:
-        """L2 정규화를 통해 벡터 크기를 1로 조절합니다."""
-        sq_sum = sum(x ** 2 for x in vector)
-        if sq_sum == 0:
-            # 8차원 기본 제로 벡터 방지
-            return [1.0 / math.sqrt(8)] * 8
-        norm = math.sqrt(sq_sum)
-        return [x / norm for x in vector]
+        """L2 정규화를 통해 벡터 크기를 1로 조절합니다. (공용 l2_normalize 위임 — 시그니처 호환 유지)"""
+        return l2_normalize(vector)
 
     async def get_user_vector(self, user_id: str) -> list[float] | None:
         """Supabase 에서 사용자 선호도 벡터를 비동기적으로 조회합니다."""

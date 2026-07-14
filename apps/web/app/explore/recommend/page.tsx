@@ -19,9 +19,9 @@ declare global {
   }
 }
 
-// 데모 회복탄력성: 백엔드/Gemini 사유가 없을 때(목업·폴백)도 추천 사유가 비지 않도록
+// 데모 회복탄력성: 백엔드 사유(reason)가 없을 때도 추천 사유가 비지 않도록
 // 보여줄 결정적 한국어 사유를 생성한다. 백엔드 reason_service._build_template 와 어투를 맞춰 일관성 유지.
-function buildMockReason(name: string, waitMin: number, distanceM: number, congestionLevel: number = 0): string {
+function buildFallbackReason(name: string, waitMin: number, distanceM: number, congestionLevel: number = 0): string {
   const walk = Math.max(1, Math.round(distanceM / 66.67)); // 66.67m/min = 4km/h (백엔드 WALKING_SPEED_M_PER_MIN 와 일치)
   // 혼잡(>=0.75)이면 추천하지 않고 혼잡·대기를 솔직히 알린다.
   if (congestionLevel >= 0.75) {
@@ -107,7 +107,7 @@ interface OriginalFacility {
   name: string;
   type: string;
   congestionLevel: number;
-  features: Record<string, any>;
+  features: Record<string, unknown>;
 }
 
 
@@ -157,8 +157,8 @@ function RecommendContent() {
   const [lat, setLat] = useState<number>(REGION.center.lat);
   const [lng, setLng] = useState<number>(REGION.center.lng);
 
-  // ── 음성 비서(Hey Gemini 컨시어지) 상태 ──
-  // Gemini가 만든 추천 사유를 한국어 TTS로 읽어주고(speechSynthesis), 사용자의 음성 응답을
+  // ── 음성 비서(음성 컨시어지) 상태 ──
+  // 백엔드가 만든 추천 사유를 한국어 TTS로 읽어주고(speechSynthesis), 사용자의 음성 응답을
   // STT(SpeechRecognition)로 받아 기존 핸들러(handleAccept/만족도/새로고침)에 위임한다.
   // 정적 export(SSR) 안전: 모든 Web Speech 접근은 핸들러/이펙트 내부 + typeof window 가드.
   const [assistantActive, setAssistantActive] = useState(false);
@@ -172,16 +172,13 @@ function RecommendContent() {
 
   const assistantRecRef = useRef<any>(null);
   const voiceUnlockedRef = useRef(false);
-  const listenTimeoutRef = useRef<any>(null);
-  const speakFollowupRef = useRef<any>(null); // 발화 후 STT 시작 예약 타이머(정리 추적)
-  const voicesRef = useRef<any[]>([]);
+  const listenTimeoutRef = useRef<number | null>(null);
+  const speakFollowupRef = useRef<number | null>(null); // 발화 후 STT 시작 예약 타이머(정리 추적)
+  const voicesRef = useRef<SpeechSynthesisVoice[]>([]);
   const voiceStateRef = useRef<"idle" | "speaking" | "listening" | "thinking">("idle");
   const activeRecIndexRef = useRef(0);
   const mutedRef = useRef(false);
   const recommendationsRef = useRef<RecommendationResponse[]>([]);
-  // 원시설 type 을 ref 로도 보관 — Effect2 deps 에서 originalFacility 객체를 빼도(이중 fetch 경합 제거)
-  // 폴백 카테고리를 stale 클로저 없이 최신값으로 읽기 위함.
-  const originalFacilityTypeRef = useRef<string | null>(null);
   const repromptCountRef = useRef(0);
   const startingRef = useRef(false);
 
@@ -234,11 +231,10 @@ function RecommendContent() {
   useEffect(() => {
     setActiveRec(0);
     quietAssistant();
-    // 새 추천 세트엔 이전 세트의 만족도 상태가 무의미하다. 목업은 고정 id(mock-rec-id-N)를 재사용하므로
-    // 초기화하지 않으면 '다른 대안 보기'·NL 재요청으로 같은 id 가 다시 와 새 카드의 👍/👎 가 잠긴다.
+    // 새 추천 세트엔 이전 세트의 만족도 상태가 무의미하다. 같은 recommendationId 가 다시 와도
+    // 새 카드의 👍/👎 가 잠기지 않도록 초기화한다.
     votedRef.current = new Set();
     setFeedbackVotes({});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recommendations]);
 
   // 온보딩 모달이 열리면 음성 비서 정지, 닫히면 온보딩 음성입력(recognitionRef)도 정지(이중 인식 충돌 방지).
@@ -249,7 +245,6 @@ function RecommendContent() {
       try { recognitionRef.current?.stop?.(); } catch { /* noop */ }
       setIsListening(false);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showOnboarding]);
 
   // 탭이 숨겨지면(백그라운드) 발화/인식 정지 — 일부 브라우저의 발화 큐잉/정지 이슈 회피.
@@ -258,7 +253,6 @@ function RecommendContent() {
     const onVisibility = () => { if (document.hidden) quietAssistant(); };
     document.addEventListener("visibilitychange", onVisibility);
     return () => document.removeEventListener("visibilitychange", onVisibility);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // 언마운트 시 정리(발화/인식/타이머).
@@ -357,10 +351,6 @@ function RecommendContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Fallback Mock Seed Data for Resilient Local Demos (경주 황리단길)
-  // 실데이터 전용: 목업 시드 제거. FastAPI 추천 미가용 시 빈 추천(에러/빈 상태)으로 처리한다.
-  const MOCK_SEED_FACILITIES: any[] = [];
-
   // Load Original Facility Details
   useEffect(() => {
     if (!facilityId) return;
@@ -387,8 +377,9 @@ function RecommendContent() {
 
         let originalData = data;
         if (error || !data) {
-          console.warn("Using fallback local details for original facility.");
-          originalData = MOCK_SEED_FACILITIES.find((f) => f.id === facilityId) || null;
+          // 실데이터 전용: 목업 폴백 없음 — 조회 실패 시 원시설 카드는 빈 상태로 둔다.
+          console.warn("Failed to load original facility details.");
+          originalData = null;
         }
 
         if (originalData) {
@@ -402,8 +393,6 @@ function RecommendContent() {
             congestionLevel: level,
             features: originalData.features || {},
           });
-          originalFacilityTypeRef.current = originalData.type;
-
           const defaultTimes: Record<string, number> = {
             restaurant: 25,
             cafe: 12,
@@ -420,19 +409,8 @@ function RecommendContent() {
           setOriginalWaitTime(predicted.toFixed(1));
         }
       } catch (err) {
-        console.warn("Failed to fetch original facility, falling back:", err);
-        const fallbackObj = MOCK_SEED_FACILITIES.find((f) => f.id === facilityId);
-        if (fallbackObj) {
-          setOriginalFacility({
-            id: fallbackObj.id,
-            name: fallbackObj.name,
-            type: fallbackObj.type,
-            congestionLevel: fallbackObj.congestion_logs[0].congestion_level,
-            features: fallbackObj.features,
-          });
-          originalFacilityTypeRef.current = fallbackObj.type;
-          setOriginalWaitTime("17.5");
-        }
+        // 실데이터 전용: 목업 폴백 없음 — 원시설 카드는 빈 상태로 둔다.
+        console.warn("Failed to fetch original facility:", err);
       } finally {
         setLoadingOriginal(false);
       }
@@ -473,40 +451,9 @@ function RecommendContent() {
         setRecommendations(recommendationsList);
       } catch (err) {
         if (cancelled) return;
-        console.warn("Error calling FastAPI, using demo fallback recommendations:", err);
-
-        // Demo Fallback Recommendations — 원시설 type 은 deps 에서 originalFacility 객체를 뺀 대신 ref 로 읽는다.
-        const filteredMock = MOCK_SEED_FACILITIES
-          .filter(f => f.id !== facilityId && f.type === (originalFacilityTypeRef.current || "restaurant"));
-
-        const fallbacks: RecommendationResponse[] = filteredMock
-          .slice(0, 5)
-          .map((f, i) => ({
-            recommendationId: `mock-rec-id-${i}`,
-            facility: {
-              id: f.id,
-              name: f.name,
-              type: f.type,
-              latitude: f.latitude,
-              longitude: f.longitude,
-              capacity: f.capacity,
-              operatingHours: f.operating_hours,
-              features: f.features
-            },
-            spotScore: 85 - (i * 10),
-            breakdown: {
-              preference: 0.9 - (i * 0.15),
-              waitTime: 5 + (i * 3),
-              travelTime: 2.5 + i,
-              incentive: 0.2
-            },
-            distanceM: 120 + (i * 35),
-            reason: buildMockReason(f.name, 5 + (i * 3), 120 + (i * 35), f.congestion_logs?.[0]?.congestion_level ?? 0),
-            rank: i + 1,
-            totalCandidates: filteredMock.length
-          }));
-
-        setRecommendations(fallbacks);
+        // 실데이터 전용: FastAPI 미가용 시 목업 폴백 없이 빈 추천(빈 상태 UI)으로 처리한다.
+        console.warn("Error calling FastAPI, showing empty recommendations:", err);
+        setRecommendations([]);
       } finally {
         if (!cancelled) setLoadingRecommendations(false);
       }
@@ -514,35 +461,8 @@ function RecommendContent() {
 
     checkHistoryAndFetch();
     return () => { cancelled = true; };
-    // originalFacility 를 deps 에서 제거: 매번 새 객체로 세팅돼 추천을 이중 fetch 시키던 경합의 원인이었다.
-    // 폴백 카테고리는 originalFacilityTypeRef 로 최신값을 읽는다.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // originalFacility 를 deps 에 넣지 않음: 매번 새 객체로 세팅돼 추천을 이중 fetch 시키던 경합의 원인이었다.
   }, [userId, facilityId, lat, lng]);
-
-  // 추천 API 실패 시 데모용 목업 추천 생성 (회복탄력성)
-  const buildMockRecommendations = (): RecommendationResponse[] => {
-    const filteredMock = MOCK_SEED_FACILITIES
-      .filter((f) => f.id !== facilityId && f.type === (originalFacility?.type || "restaurant"));
-    return filteredMock.slice(0, 5).map((f, i) => ({
-      recommendationId: `mock-rec-id-${i}`,
-      facility: {
-        id: f.id,
-        name: f.name,
-        type: f.type,
-        latitude: f.latitude,
-        longitude: f.longitude,
-        capacity: f.capacity,
-        operatingHours: f.operating_hours,
-        features: f.features,
-      },
-      spotScore: 85 - i * 10,
-      breakdown: { preference: 0.9 - i * 0.15, waitTime: 5 + i * 3, travelTime: 2.5 + i, incentive: 0.2 },
-      distanceM: 120 + i * 35,
-      reason: buildMockReason(f.name, 5 + i * 3, 120 + i * 35, f.congestion_logs?.[0]?.congestion_level ?? 0),
-      rank: i + 1,
-      totalCandidates: filteredMock.length,
-    }));
-  };
 
   // 음성 입력 시작 (Web Speech API). 미지원 브라우저는 텍스트 입력으로 폴백.
   const startVoice = () => {
@@ -583,7 +503,7 @@ function RecommendContent() {
     setIsListening(false);
   };
 
-  // 자연어 → Gemini 파싱 → 선호 벡터/카테고리 반영 (서버가 저장까지 수행)
+  // 자연어 → 백엔드 키워드 파싱 → 선호 벡터/카테고리 반영 (서버가 저장까지 수행)
   const handleNlAnalyze = async () => {
     if (!nlText.trim()) {
       toast.info(t("recommend.nlEmpty"));
@@ -599,7 +519,7 @@ function RecommendContent() {
       setNlApplied(true);
       toast.success(result.isFallback ? t("recommend.nlAppliedKeyword") : t("recommend.nlAppliedAi"));
     } catch (err) {
-      // 서버(Gemini) 연결 실패 시 클라이언트 키워드 폴백 — 데모가 끊기지 않게.
+      // 서버 연결 실패 시 클라이언트 키워드 폴백 — 데모가 끊기지 않게.
       console.warn("NL preference parse failed, client-side keyword fallback:", err);
       const low = nlText.toLowerCase();
       const kw: Record<string, string[]> = {
@@ -634,8 +554,9 @@ function RecommendContent() {
       const list = await getRecommendations(facilityId, { lat, lng });
       setRecommendations(list);
     } catch (err) {
-      console.warn("Fetch after NL preference failed, using mock fallback:", err);
-      setRecommendations(buildMockRecommendations());
+      // 실데이터 전용: 목업 폴백 없음 — 빈 추천(빈 상태 UI)으로 처리한다.
+      console.warn("Fetch after NL preference failed, showing empty recommendations:", err);
+      setRecommendations([]);
     } finally {
       setLoadingRecommendations(false);
     }
@@ -667,44 +588,15 @@ function RecommendContent() {
       } catch { /* localStorage 차단 환경 — 무시 */ }
       toast.success(t("recommend.prefSaved"));
 
-      // 2. Fetch recommendations (FastAPI will detect missing Pinecone vector,
-      // load the updated DB categories, generate the average vector, upsert, and query).
+      // 2. Fetch recommendations — 선호 벡터가 없으면 FastAPI가 방금 갱신한 users.preferred_categories 로
+      // 카테고리 평균 벡터를 생성해 Supabase에 저장한 뒤 추천을 계산한다(로컬 연산, 외부 벡터 DB 없음).
       setLoadingRecommendations(true);
       const recommendationsList = await getRecommendations(facilityId, { lat, lng });
       setRecommendations(recommendationsList);
     } catch (err) {
-      console.warn("Error during onboarding fetch fallback:", err);
-      // Fallback: If FastAPI recommend API fails, load mock recommendations
-      const filteredMock = MOCK_SEED_FACILITIES
-        .filter(f => f.id !== facilityId && f.type === (originalFacility?.type || "restaurant"));
-      
-      const fallbacks: RecommendationResponse[] = filteredMock
-        .slice(0, 5)
-        .map((f, i) => ({
-          recommendationId: `mock-rec-id-${i}`,
-          facility: {
-            id: f.id,
-            name: f.name,
-            type: f.type,
-            latitude: f.latitude,
-            longitude: f.longitude,
-            capacity: f.capacity,
-            operatingHours: f.operating_hours,
-            features: f.features
-          },
-          spotScore: 85 - (i * 10),
-          breakdown: {
-            preference: 0.9 - (i * 0.15),
-            waitTime: 5 + (i * 3),
-            travelTime: 2.5 + i,
-            incentive: 0.2
-          },
-          distanceM: 120 + (i * 35),
-          reason: buildMockReason(f.name, 5 + (i * 3), 120 + (i * 35), f.congestion_logs?.[0]?.congestion_level ?? 0),
-          rank: i + 1,
-          totalCandidates: filteredMock.length
-        }));
-      setRecommendations(fallbacks);
+      // 실데이터 전용: FastAPI 추천 실패 시 목업 폴백 없이 빈 추천(빈 상태 UI)으로 처리한다.
+      console.warn("Error during onboarding recommend fetch:", err);
+      setRecommendations([]);
       setShowOnboarding(false);
     } finally {
       setIsOnboardingSubmitting(false);
@@ -827,13 +719,13 @@ function RecommendContent() {
           .map((rec) => submitFeedback(rec.recommendationId, "rejected"))
       );
 
-      // 2. 새 추천 시도, 실패 시 목업 폴백(데모 무중단). 기존엔 폴백이 없어 데모 경로에서 항상 에러 토스트만 떴다.
+      // 2. 새 추천 시도. 실패해도 전체 흐름을 깨지 않고 빈 추천(빈 상태 UI)으로 처리한다(실데이터 전용).
       try {
         const fresh = await getRecommendations(facilityId, { lat, lng });
         setRecommendations(fresh);
       } catch (e) {
-        console.warn("refresh fetch failed, mock fallback:", e);
-        setRecommendations(buildMockRecommendations());
+        console.warn("refresh fetch failed, showing empty recommendations:", e);
+        setRecommendations([]);
       }
       toast.success(t("recommend.refreshed"));
     } catch (err) {
@@ -849,8 +741,8 @@ function RecommendContent() {
   const pickKoVoice = () => {
     const vs = voicesRef.current || [];
     return (
-      vs.find((v: any) => v.lang === "ko-KR") ||
-      vs.find((v: any) => (v.lang || "").toLowerCase().startsWith("ko")) ||
+      vs.find((v) => v.lang === "ko-KR") ||
+      vs.find((v) => (v.lang || "").toLowerCase().startsWith("ko")) ||
       null
     );
   };
@@ -1070,10 +962,10 @@ function RecommendContent() {
     const rec = recs[index];
     const reasonText =
       rec.reason ||
-      buildMockReason(rec.facility.name, rec.breakdown?.waitTime ?? 0, rec.distanceM);
+      buildFallbackReason(rec.facility.name, rec.breakdown?.waitTime ?? 0, rec.distanceM);
     const sentence = buildCardSpeech(rec.facility.name, reasonText, index);
     setVoice("speaking");
-    setSpokenCaption(sentence); // 발화 텍스트를 자막으로(청각 정보 시각 동시 제공 + Gemini 사유 가시화)
+    setSpokenCaption(sentence); // 발화 텍스트를 자막으로(청각 정보 시각 동시 제공 + 추천 사유 가시화)
     speak(sentence, () => scheduleListen());
   };
 
@@ -1139,13 +1031,6 @@ function RecommendContent() {
       default:
         return t("course.typeFallback");
     }
-  };
-
-  const getCongestionLabel = (level: number) => {
-    if (level >= 0.75) return t("congestion.busy");
-    if (level >= 0.5) return t("congestion.moderate");
-    if (level >= 0.25) return t("congestion.relaxed");
-    return t("congestion.quiet");
   };
 
   // 카테고리 칩: id 는 로직 키(선택·저장·백엔드), 표시명은 category.* 사전에서, 이모지는 디자인 유지.
@@ -1266,7 +1151,7 @@ function RecommendContent() {
                     </div>
                   </div>
 
-                  {/* WP3: Gemini 생성 추천 사유 (있을 때만 노출) */}
+                  {/* 백엔드 템플릿 추천 사유 (있을 때만 노출) */}
                   {rec.reason && (
                     <p className="mt-2 text-[11px] leading-snug text-muk bg-gold/10 border border-gold/20 rounded-xl px-3 py-2">
                       💡 {rec.reason}
@@ -1391,7 +1276,7 @@ function RecommendContent() {
         )}
       </div>
 
-      {/* ── 음성 비서 오버레이 (Hey Gemini 컨시어지) ── */}
+      {/* ── 음성 비서 오버레이 (음성 컨시어지) ── */}
       {!loadingRecommendations && recommendations.length > 0 && ttsSupported && !showOnboarding && (
         <div
           className="fixed right-4 z-40 flex flex-col items-end gap-2 select-none"

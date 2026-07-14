@@ -18,8 +18,6 @@ from typing import Optional, Tuple, Any
 
 import structlog
 
-from app.core.config import settings  # noqa: F401  (향후 설정 사용 대비 — 현재는 직접 참조 없음)
-
 logger = structlog.get_logger()
 
 # 시설 카테고리 (학습 스펙과 동일하게 인코더가 fit된 3개 피처: [norm_type, hour_str, dow_str])
