@@ -3,6 +3,38 @@
 > 현재 상태 스냅샷 + 다음 단계. 브랜치 `feature/jinseok` (origin 동기화).
 > 자율 개선 세션 로그·재개 규칙: [`AUTONOMOUS_SESSION.md`](./AUTONOMOUS_SESSION.md) · 전략: [`CONTEST_STRATEGY.md`](./CONTEST_STRATEGY.md)
 
+## -4. 2026-07-15 새벽 — 야간 CX 감사 사이클 (freeze 내 버그픽스 5커밋)
+
+- **감사 방법**: 고객 관점 8차원 멀티에이전트 감사(37건) → 적대 재검증 → 2·3차 표적 감사(로케일
+  실화면·관리자 실백엔드·데모 대본 실기기 대조·공유 딥링크 왕복). **주의: 초기 감사의 상위 3건
+  ('하이드레이션 정지'·'전 페이지 무한로딩')은 재검증에서 반증** — 에이전트가 127.0.0.1 로 접속해
+  로컬 CORS(localhost 만 허용)에 막힌 환경 아티팩트였음(apps/api/.env 에 127.0.0.1 오리진 추가로 해소).
+- **freeze 내 수정 5커밋(전부 feature/jinseok 푸시, main 미반영)**:
+  `bc9b6f0` 코스 순서 피커 중복 칩 구분선+라벨 · `f331124` mypage 가짜 '이상 혼잡 알림' 스위치 →
+  실제 CongestionAlertToggle · `62420f6` STT 에러 토스트(권한/실패 구분)+메인 지도 8초 타임아웃 폴백
+  (CourseMap 패턴 미러)+/explore/recommend 무파라미터 가드(공유 전용 경로라 가드가 유일한 탈출구)
+  +i18n 5키 4로케일 · `797edc2` 음성 오브 하드코딩 한국어 8곳 → 기존 recommend 키 배선(신설 0)
+  +en 'Wait n min' 배지 nowrap+관제 대시보드 콜드 500 재시도 1회 · `5eddd79` DEMO_SCENARIO 교정.
+- **정적 export 실검증**: out/ 서빙(3005)에서 지도 폴백·recommend 가드·순서 피커·공유 딥링크
+  왕복(5항목 PASS) 확인. 특히 **카카오 도메인 미등록 상황을 실제로 재현** — 예전엔 검은 화면
+  무한 대기였을 것이 폴백 칩+추천 카드 정상 동작으로 강등됨(프로덕션 리스크 완화 실증).
+- **미재현/반려 기록**: 쿠폰 정책 정렬 버그(REST·DOM 이중 검증 미재현) · 'SPOT 점수' 용어 교체
+  (데모 대본이 SPOT 을 정의·설명 — 발표와 충돌) · Kakao SDK beforeInteractive→afterInteractive
+  (재현 안 됨 + 회귀면 넓음 → freeze 후 검토).
+- **freeze 후 백로그(코드)**: Kakao SDK 페이지별 로드 · 음성(STT/TTS) 언어 로케일 연동(현재 ko-KR
+  고정) · 축제명 비-ko 로케일 원문 삽입 · admin infrastructure/reports 모바일 오버플로(관제 데모는
+  데스크톱이라 비긴급) · SessionBootstrap 이 /admin 경로에서도 익명가입 POST · 추천 API 실패 vs
+  0건 빈 상태 구분(explore/recommend) · /mypage/support i18n 미적용 · freshness 배지 2종 산정 불일치.
+- **데이터/운영 관찰(사람 판단 필요)**: facilities.overview 전 시설 미적재(0건) — 대본 '소개' 멘트
+  성립 불가, ingest 1회 실행으로 채워질지 확인 필요(TourAPI 쿼터 소모 주의) · 실측 congestion_logs
+  표본이 07-06~09 나흘뿐, 추천 표본 11건이 07-14 하루 집중(리포트 '수락 트렌드' 패널 빈 상태 유발) ·
+  백엔드 유휴 후 첫 요청 간헐 500(supabase 싱글턴 stale 커넥션 추정 — Render 배포판에서 재발 시
+  근본 수정 필요, 프런트 재시도 1회는 적용됨).
+- **검증 스냅샷(03:40)**: pytest 118 · ruff clean · tsc · next build(정적 23페이지) · i18n 패리티
+  420키×4로케일 0 missing · voiceIntent 29/29.
+- **프로덕션 상태(03:40 기준)**: main 프로덕션 배포 READY이나 **Deployment Protection SSO 302 지속
+  (외부 접근 불가) — 사람 작업 미완**. main 은 feature/jinseok 대비 5커밋 뒤(위 5커밋 반영 대기).
+
 ## -3. 2026-07-15 — main 의미 병합 + Vercel 프로덕션 개통
 
 - **델타 SQL 적용 완료(사람)** — supabase/APPLY_DELTA_20260714.sql 실행됨. E2 백업 영상은 pass 결정.
