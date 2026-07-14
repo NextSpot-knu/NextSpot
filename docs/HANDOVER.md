@@ -22,8 +22,14 @@
   (congestion_logs 일평균 혼잡도 + recommendations 일별 수락률, KST 일 단위·결측일 null 센티넬·20k 캡 truncated 플래그).
   프런트는 혼잡 표본일 ≥3이면 '실측 집계(30일)' 모드(반사실 '도입 전' 계열 제거), 미만이면 기존 데모 폴백
   — 어느 쪽인지 차트 라벨로 구분(정직성 원칙). 로컬 실데이터 기준 표본 4일 → 실측 모드 동작 확인.
+- **E1/E4 기술 리허설 반영** — 로컬 실서버·실DB로 데모 대본 전 구간 자동 검증(DEMO_SCENARIO §4 로그).
+  ✅ 페이지 8종·익명 인증 ON·추천 5건·A4 축제 배지 실발동(진행 중 실축제, ~08-17)·모델 재학습
+  (MAE 0.0802 vs 기준선 0.2159, R²=0.73 — model-info 배지 라이브)·분산 추이 실측 모드.
+  ❌ **데모 블로커 2건 실증**: simulate-peak 500 + 쿠폰 무음 미발급 — 원인은 미적용 마이그레이션 5종.
+  **사람 작업(최우선·1회 붙여넣기)**: [`supabase/APPLY_DELTA_20260714.sql`](../supabase/APPLY_DELTA_20260714.sql)
+  을 SQL Editor에서 Run → simulate-peak·쿠폰 발급 재검증. JUDGE_QA Q2(실측 MAE)·Q9(E3 완료) 갱신됨.
 - **검증 스냅샷**: pytest 118 passed · ruff clean · tsc/next build(정적 export) · RESET 패리티 일치.
-- **다음 큐**: E1/E4 리허설 반영 → E2 백업 영상(사람 작업) → 코드 freeze(버그픽스만).
+- **다음 큐**: 델타 SQL 적용 후 블로커 2건 재검증(사람) → E2 백업 영상(사람 작업) → 코드 freeze(버그픽스만).
 
 ## -1. TourAPI 실연동 (2026-07-10 · 키 검증 완료)
 - **TOURAPI_KEY 발급·검증 완료** — `apps/api/.env`(gitignore)에 Decoding 키 저장. dry-run(목록+`--details` 상세)으로
