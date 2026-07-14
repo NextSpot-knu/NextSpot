@@ -133,6 +133,20 @@ function getKstTodayRangeUtc() {
   return { start: new Date(startUtcMs).toISOString(), end: new Date(endUtcMs).toISOString() };
 }
 
+// 콜드 500 재시도 헬퍼 — 백엔드가 유휴 후 첫 요청에서 간헐 500(supabase 전역 싱글턴의 stale 커넥션 추정)을
+// 내는 현상이 실측됨. 즉시 재시도하면 200이 돌아오므로, 실패 시 ~1초 후 딱 1회만 재시도한다.
+// 재시도도 실패하면 그대로 던져 각 호출부의 기존 폴백(0/null 채움 + console.warn)으로 넘긴다
+// (에러 경로·타입 불변). admin-api.ts 는 요청당 타임아웃만 갖고 재시도는 없으므로 그 위에 최소로 얹는다.
+async function withColdStartRetry<T>(fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (err) {
+    console.warn('초기 요청 실패, 1초 후 1회만 재시도합니다:', err);
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    return fn();
+  }
+}
+
 // 혼잡 집계 슬라이스 — 12k행 클라이언트 집계를 서버(/admin/dashboard/today, service_role)로 이관(최적화 #4).
 // 서버가 오늘/어제 congestion_logs 를 집계해 compact JSON 만 내려주므로, 브라우저는 페이지네이션·JS 집계 없이
 // 슬라이스({ hasLogs, avgCongestion, anomalyCount, heatmap, anomalies })를 그대로 소비한다.
@@ -140,7 +154,7 @@ function getKstTodayRangeUtc() {
 // 실패 시 예외를 그대로 전파 → 호출부 .catch 가 0/빈 값 슬라이스로 강등(기존 동작 유지). 추천 수락률/DAU 는
 // fetchMetrics 로 분리해 이 슬라이스와 병렬 로드한다.
 async function fetchCongestion() {
-  return adminApi.get('/api/v1/admin/dashboard/today');
+  return withColdStartRetry(() => adminApi.get('/api/v1/admin/dashboard/today'));
 }
 
 // 추천 수락률(최근 7일)/DAU(오늘) 슬라이스 — recommendations/user_feedback 은 RLS 강화로 anon 열람이
@@ -150,7 +164,7 @@ async function fetchMetrics() {
   const { start, end } = getKstTodayRangeUtc();
   try {
     const weekAgo = new Date(new Date(start).getTime() - 6 * 24 * 60 * 60 * 1000).toISOString();
-    const metrics: AdminMetricsResponse = await adminApi.get('/api/v1/admin/metrics?days=8');
+    const metrics: AdminMetricsResponse = await withColdStartRetry(() => adminApi.get('/api/v1/admin/metrics?days=8'));
     let acceptRate: { value: number; total: number; accepted: number } | null = null;
     let activeUsers: number | null = null;
     const recs = (metrics?.recommendations || []).filter(
@@ -176,7 +190,7 @@ async function fetchMetrics() {
 // 어느 쪽인지는 차트 헤더 라벨(실측 집계/예시 추이)로 구분 표기한다(정직성 원칙).
 async function fetchTrend(): Promise<{ mode: 'live' | 'demo'; rows: any[] }> {
   try {
-    const t = await adminApi.get('/api/v1/admin/metrics/trend?days=30');
+    const t = await withColdStartRetry(() => adminApi.get('/api/v1/admin/metrics/trend?days=30'));
     const daily: any[] = t?.daily || [];
     const liveDays = daily.filter((d) => d.samples > 0).length;
     if (liveDays >= 3) {

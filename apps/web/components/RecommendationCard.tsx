@@ -417,9 +417,9 @@ export function RecommendationCard({
                     <span className="text-xs text-muk-soft font-medium">{t('card.minute')}</span>
                   </div>
                   <div className="flex items-center gap-2 text-[10px] text-muk-soft font-medium">
-                    <span className="bg-gold/15 px-1.5 py-0.5 rounded text-gold-deep">{t('card.wait', { n: expectedWait ?? 0 })}</span>
+                    <span className="bg-gold/15 px-1.5 py-0.5 rounded text-gold-deep whitespace-nowrap">{t('card.wait', { n: expectedWait ?? 0 })}</span>
                     <span className="text-muk-soft/60">+</span>
-                    <span className="bg-jade/15 px-1.5 py-0.5 rounded text-jade">{t('card.travel', { n: expectedTravel ?? 0 })}</span>
+                    <span className="bg-jade/15 px-1.5 py-0.5 rounded text-jade whitespace-nowrap">{t('card.travel', { n: expectedTravel ?? 0 })}</span>
                   </div>
                 </div>
 
@@ -443,11 +443,11 @@ export function RecommendationCard({
 
                     {/* Travel Duration Label */}
                     <div className="absolute top-[-10px] left-[25%] -translate-x-1/2 z-10">
-                      <span className="text-[10px] font-medium text-jade bg-hanji-deep px-1.5 py-0.5 rounded border border-jade/25">{t('card.travel', { n: travelMins })}</span>
+                      <span className="text-[10px] font-medium text-jade bg-hanji-deep px-1.5 py-0.5 rounded border border-jade/25 whitespace-nowrap">{t('card.travel', { n: travelMins })}</span>
                     </div>
                     {/* Wait Duration Label */}
                     <div className="absolute top-[-10px] left-[75%] -translate-x-1/2 z-10">
-                      <span className="text-[10px] font-medium text-gold-deep bg-hanji-deep px-1.5 py-0.5 rounded border border-gold/25">{t('card.wait', { n: waitMins })}</span>
+                      <span className="text-[10px] font-medium text-gold-deep bg-hanji-deep px-1.5 py-0.5 rounded border border-gold/25 whitespace-nowrap">{t('card.wait', { n: waitMins })}</span>
                     </div>
 
                     {/* Current Time Step */}
