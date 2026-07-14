@@ -27,6 +27,9 @@ interface RecommendationCardProps {
   rank?: number;
   totalCandidates?: number;
   mockHour?: number | null;
+  // A4: 행사 혼잡 보정 배지(explore/recommend 와 동일) — 백엔드 breakdown.eventBoost/eventTitle 그대로 전달.
+  eventBoost?: number;
+  eventTitle?: string;
   // 신선도 정직화(계약 5): 혼잡 데이터 출처·나이. user_report→'방문객 제보 · n분 전',
   // 기타 최신→'n분 전 기준', isStale(로그 나이>24h)→'과거 패턴 기반'(회색). 미제공(저장 목록 등)이면 미표시.
   dataSource?: { source: string | null; lastUpdated?: string | null; isStale?: boolean };
@@ -51,6 +54,8 @@ export function RecommendationCard({
   rank,
   totalCandidates,
   mockHour,
+  eventBoost,
+  eventTitle,
   dataSource,
 }: RecommendationCardProps) {
   const t = useT();
@@ -456,6 +461,17 @@ export function RecommendationCard({
               )}
             </div>
         </div>
+      )}
+
+      {/* A4: 행사 혼잡 보정 배지 — 도착시점 인근 진행 중 축제로 예측이 가중됐을 때만 노출(투명성).
+          explore/recommend 카드와 동일 시각·문구. */}
+      {(eventBoost ?? 0) > 0 && (
+        <p className="text-[11px] leading-snug text-terracotta bg-terracotta/10 border border-terracotta/20 rounded-xl px-3 py-2">
+          🎪 {t('recommend.festivalAdjusted', {
+            title: eventTitle ?? '',
+            pct: Math.round((eventBoost ?? 0) * 100),
+          })}
+        </p>
       )}
 
       {/* Expandable Details Section (Rating, Address, Phone, Hours) */}

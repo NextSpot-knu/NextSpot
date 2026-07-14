@@ -1722,6 +1722,8 @@ export default function MainPage() {
                 expectedWait={spot.expectedWait}
                 expectedTravel={spot.expectedTravel}
                 timeToService={spot.timeToService}
+                eventBoost={spot.eventBoost}
+                eventTitle={spot.eventTitle}
                 facilityType={selectedFacility.type}
                 facility={selectedFacility}
                 rank={rank}

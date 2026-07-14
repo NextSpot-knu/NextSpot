@@ -27,6 +27,9 @@ export interface Spot {
   expectedWait: number; // 분
   expectedTravel: number; // 분
   timeToService: number; // 분
+  // A4: 행사 혼잡 보정 배지용 — 백엔드 breakdown 원본 그대로 실어 나른다(recToSpot 전용, 클라 미러 계산엔 없음).
+  eventBoost?: number;
+  eventTitle?: string;
 }
 
 export interface ScoreOpts {
@@ -266,5 +269,7 @@ export function recToSpot(rec: RecommendationResponse): Spot {
     expectedWait: Math.round(wait * 10) / 10,
     expectedTravel: Math.round(travel * 10) / 10,
     timeToService: Math.round((wait + travel) * 10) / 10,
+    eventBoost: typeof b.eventBoost === "number" ? b.eventBoost : undefined,
+    eventTitle: typeof b.eventTitle === "string" ? b.eventTitle : undefined,
   };
 }
