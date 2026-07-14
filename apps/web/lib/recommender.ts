@@ -129,8 +129,11 @@ export function cuisineMatch(facility: ScorableFacility | null | undefined, inte
   const name = String(facility?.name || "");
   if (tags.some((t) => _BAR_TAGS_FE.includes(t))) return 0.12; // 술집은 음식 의도에 거의 안 맞음
   if (tags.some((t) => targetTags.has(t))) return 0.95; // cuisine_tag 정확 일치
-  // 상호 이름에 타깃 메뉴가 박힌 경우(예: '윤쉐프의고기집')
-  if (CUISINE_INTENT_MAP.some((g) => g.tags.some((t) => targetTags.has(t)) && g.keys.some((k) => name.includes(k)))) return 0.85;
+  // 상호 이름에 타깃 메뉴가 박힌 경우(예: '윤쉐프의고기집'). 이름이 여러 분류 키워드에 걸치면
+  // (예: '한우국밥' — 한우=고기, 국밥=국밥) 맵 순서상 첫 번째(더 구체적인) 분류를 상호의 정체로 보고
+  // 그 분류가 의도와 겹칠 때만 인정한다 — '한우국밥'이 고기·구이 필터에 잡히던 오분류 방지.
+  const nameGroup = CUISINE_INTENT_MAP.find((g) => g.keys.some((k) => name.includes(k)));
+  if (nameGroup && nameGroup.tags.some((t) => targetTags.has(t))) return 0.85;
   if (tags.includes("한식") && [...targetTags].some((t) => _HANSIK_SPECIFIC.includes(t))) return 0.45; // 같은 대분류(한식) 약한 점수
   return 0.18; // 무관
 }

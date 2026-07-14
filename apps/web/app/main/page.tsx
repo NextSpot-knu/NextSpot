@@ -1409,10 +1409,12 @@ export default function MainPage() {
       applyVoiceFilter(null);
       return;
     }
+    // 0.8 = 태그 정확 일치(0.95)·상호명 일치(0.85)만 칩 소속으로 인정. 같은 한식 대분류 약한 매칭(0.45)은
+    // 선호% 산정용 등급이지 분류 소속이 아니다 — 밀면집 등 한식 전반이 고기·구이/국밥 칩에 뜨던 오염 방지.
     const pool = expandGroups(facilities).filter(
       (f: any) =>
         f.type === 'restaurant' &&
-        (cuisineMatch(f, chip.kw) ?? 0) >= 0.45 &&
+        (cuisineMatch(f, chip.kw) ?? 0) >= 0.8 &&
         !rejectedIds.has(f.id) &&
         !savedIds.has(f.id),
     );
@@ -1775,9 +1777,13 @@ export default function MainPage() {
           // 전폭 하단 카드가 데스크톱에서 과하게 커 보이는 문제를 해결한다. 상단 톱바(검색·칩) 아래
           // (top-24)부터 하단(bottom-6)까지 세로로 앉히고, 펼침으로 길어지면 패널 내부에서 스크롤한다.
           return (
-            <div className="absolute z-20 px-4 transition-all duration-300 bottom-[calc(80px+env(safe-area-inset-bottom))] w-full md:bottom-6 md:top-24 md:left-auto md:right-4 md:w-[370px] md:px-0 md:overflow-y-auto md:overscroll-contain no-scrollbar">
+            // pointer-events-none(컨테이너): bottom 고정 absolute 라 카드가 높으면 박스 상단이 세부 음식 칩
+            // 행까지 자라 칩 탭을 통째로 가로챘다(elementFromPoint 실측). 상호작용 자식(카드·오브)만 auto.
+            <div className="absolute z-20 px-4 transition-all duration-300 bottom-[calc(80px+env(safe-area-inset-bottom))] w-full md:bottom-6 md:top-24 md:left-auto md:right-4 md:w-[370px] md:px-0 md:overflow-y-auto md:overscroll-contain no-scrollbar pointer-events-none">
               {voice.ttsSupported && (
-                <div className="flex justify-end mb-2 pr-1 md:pr-0">
+                // pointer-events-none: 이 행은 전폭 스트립이라 카드가 높을 때 세부 음식 칩 위를 덮어
+                // 칩 탭을 가로챘다(실측). 오브 자체는 루트에 pointer-events-auto 라 계속 탭 가능.
+                <div className="flex justify-end mb-2 pr-1 md:pr-0 pointer-events-none">
                   <VoiceAssistantOrb
                     active={voice.active}
                     voiceState={voice.voiceState}
@@ -1788,6 +1794,8 @@ export default function MainPage() {
                   />
                 </div>
               )}
+              {/* 카드만 pointer-events 복원 — 컨테이너는 none(위 주석 참조) */}
+              <div className="pointer-events-auto">
               <RecommendationCard
                 title={selectedFacility.name}
                 reason={reason}
@@ -1812,6 +1820,7 @@ export default function MainPage() {
                   isStale: !!selectedFacility.isStale,
                 }}
               />
+              </div>
             </div>
           );
         } catch (err) {
