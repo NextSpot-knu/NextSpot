@@ -65,6 +65,20 @@ export default function LoadingPage() {
       {/* 하단 경주 노을 광원 */}
       <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-[420px] h-[280px] bg-sunset-1/20 rounded-full blur-[120px] pointer-events-none z-0"></div>
 
+      {/* 대릉원 고분 능선 실루엣 — 첫 3초 안에 '경주'를 알리는 시각 시그니처(장식 전용, 레이아웃·포인터 영향 없음).
+          원경(옅은 jade) 위에 근경(짙은 jade)을 겹쳐 노을 광원이 능선을 역광으로 비추는 구도. */}
+      <svg
+        viewBox="0 0 1440 240"
+        preserveAspectRatio="xMidYMax slice"
+        className="absolute bottom-0 inset-x-0 w-full h-[26vh] min-h-[140px] pointer-events-none z-0"
+        aria-hidden="true"
+      >
+        <path d="M-80 240 Q 260 40 620 240 Z" fill="var(--color-jade)" fillOpacity="0.08" />
+        <path d="M520 240 Q 900 10 1300 240 Z" fill="var(--color-jade)" fillOpacity="0.08" />
+        <path d="M-200 240 Q 120 90 460 240 Z" fill="var(--color-jade)" fillOpacity="0.13" />
+        <path d="M880 240 Q 1240 70 1620 240 Z" fill="var(--color-jade)" fillOpacity="0.13" />
+      </svg>
+
       <div
         className={`z-10 flex flex-col items-center text-center transition-opacity duration-1000 ${
           isVisible ? 'opacity-100 animate-fade-in' : 'opacity-0'
