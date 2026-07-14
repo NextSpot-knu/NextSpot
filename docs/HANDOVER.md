@@ -1,7 +1,19 @@
-# 세션 인계 문서 (2026-07-14 갱신)
+# 세션 인계 문서 (2026-07-15 갱신)
 
 > 현재 상태 스냅샷 + 다음 단계. 브랜치 `feature/jinseok` (origin 동기화).
 > 자율 개선 세션 로그·재개 규칙: [`AUTONOMOUS_SESSION.md`](./AUTONOMOUS_SESSION.md) · 전략: [`CONTEST_STRATEGY.md`](./CONTEST_STRATEGY.md)
+
+## -3. 2026-07-15 — main 의미 병합 + Vercel 프로덕션 개통
+
+- **델타 SQL 적용 완료(사람)** — supabase/APPLY_DELTA_20260714.sql 실행됨. E2 백업 영상은 pass 결정.
+- **main 병합** (`b6598a0`) — 승용님 리팩터(69b620c, 죽은 코드·타이핑·헬퍼 통합)를 feature/jinseok 에
+  의미 병합(충돌 20파일: 기능=ours, 리팩터 의도 중 유효분만 재적용). main 은 fast-forward 로 동기화
+  (`git push origin feature/jinseok:main`) — **이후 main 이 프로덕션 정본, D1 cron 발화 조건 충족**.
+- **Vercel 배포 원인 2건 해소**: ① 프로덕션 브랜치(main)가 70+커밋 뒤라 프로덕션 배포 0건 → main 동기화로 해소.
+  ② env 부재 → `NEXT_PUBLIC_SUPABASE_URL`·`SUPABASE_ANON_KEY`·`KAKAO_MAPS_APP_KEY` 3종을 production+preview 에 등록(CLI).
+  `NEXT_PUBLIC_FASTAPI_URL` 은 Render 미배포로 보류 — Render Blueprint 적용(§6-1) 후 추가할 것.
+- **남은 사람 작업**: Kakao 개발자콘솔 Web 도메인에 Vercel 프로덕션 도메인 등록(미등록 시 지도 미렌더),
+  Render Blueprint + FASTAPI_URL env, GitHub Actions Secrets(D1 cron 용).
 
 ## -2. 2026-07-14 사이클 — A2·D1·D5·A4 + 발표 산출물
 
