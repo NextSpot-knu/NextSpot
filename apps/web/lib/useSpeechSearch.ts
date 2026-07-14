@@ -20,8 +20,14 @@ export interface SpeechSearch {
 
 /**
  * onTranscript 는 최종 인식 문장을 받는다(단발). 보통 setSearchQuery 를 넘겨 마커 필터를 트리거한다.
+ * onError 는 인식 실패를 사용자에게 알릴 수 있도록 종류를 구분해 전달한다('denied'=마이크 권한 거부,
+ * 'failed'=그 외 인식 실패). 사용자가 마이크를 다시 탭해 취소한 경우('aborted')는 호출하지 않는다
+ * (본인이 취소한 것까지 실패로 알리면 소음이 된다).
  */
-export function useSpeechSearch(onTranscript: (text: string) => void): SpeechSearch {
+export function useSpeechSearch(
+  onTranscript: (text: string) => void,
+  onError?: (kind: 'denied' | 'failed') => void
+): SpeechSearch {
   const [supported, setSupported] = useState(false);
   const [listening, setListening] = useState(false);
 
@@ -29,6 +35,8 @@ export function useSpeechSearch(onTranscript: (text: string) => void): SpeechSea
   const listeningRef = useRef(false); // listening 동기 미러(비동기 콜백 stale 방지)
   const onTranscriptRef = useRef(onTranscript); // 매 렌더 최신 클로저 유지
   onTranscriptRef.current = onTranscript;
+  const onErrorRef = useRef(onError); // onTranscriptRef 와 동일 패턴 — 콜백이 매 렌더 최신 클로저를 유지
+  onErrorRef.current = onError;
 
   const setListeningBoth = (v: boolean) => { listeningRef.current = v; setListening(v); };
 
@@ -71,7 +79,14 @@ export function useSpeechSearch(onTranscript: (text: string) => void): SpeechSea
         if (transcript) onTranscriptRef.current(transcript);
       };
       // 에러(마이크 거부·no-speech 등)/종료 시 듣기 상태 해제 — 마이크가 '듣는 중'으로 고착되지 않게.
-      rec.onerror = () => { setListeningBoth(false); };
+      // e.error 로 종류를 구분해 사용자에게 알린다. 'aborted'(사용자가 다시 탭해 취소)는 정상 흐름이므로 조용히 넘어간다.
+      rec.onerror = (e: any) => {
+        setListeningBoth(false);
+        const code = e?.error;
+        if (code === "aborted") return;
+        if (code === "not-allowed" || code === "service-not-allowed") onErrorRef.current?.("denied");
+        else onErrorRef.current?.("failed"); // no-speech/audio-capture/network 등 그 외 실패
+      };
       rec.onend = () => { setListeningBoth(false); };
       recRef.current = rec;
       setListeningBoth(true);

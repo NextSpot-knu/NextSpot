@@ -134,6 +134,12 @@ function RecommendContent() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [mapLoaded, setMapLoaded] = useState(false);
 
+  // facilityId 없이 진입(깨진 공유 링크·URL 직접 입력) 가드 — 정적 export(SSR)에서는 서버 렌더 시점에
+  // searchParams 가 비어 보일 수 있으므로, 마운트 확정 전에는 항상 스켈레톤을 유지하고 마운트 후에만
+  // facilityId 부재를 판정한다(I18nProvider 마운트-후-스왑 패턴과 동일 — CongestionAlertToggle 참고).
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+
   // Onboarding Modal State (Cold Start)
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [selectedOnboardingCats, setSelectedOnboardingCats] = useState<string[]>([]);
@@ -1040,6 +1046,31 @@ function RecommendContent() {
     { id: "attraction", labelKey: "category.attraction", emoji: "📸" },
     { id: "culture", labelKey: "category.culture", emoji: "🏛️" },
   ];
+
+  // facilityId 없이 마운트가 끝났다면(깨진 공유 링크·URL 직접 입력) 데이터 로드 이펙트가 전부
+  // `if (!facilityId) return;` 로 빠져 영구 스켈레톤에 갇힌다 — 대신 안내 빈 상태 + 지도로 돌아가는 CTA 를 보여준다.
+  // /explore/map 은 /main 으로 리다이렉트되는 구 경로일 뿐이라, 헤더의 "지도 보기"(위 backToMap)와 동일하게 /main 으로 보낸다.
+  if (mounted && !facilityId) {
+    return (
+      <main className="min-h-screen bg-hanji text-muk p-4 md:p-8 flex flex-col items-center justify-center relative overflow-hidden">
+        <div className="absolute top-[-20%] left-[-10%] w-[600px] h-[600px] rounded-full bg-sunset-1/10 blur-[120px] pointer-events-none" />
+        <div className="absolute bottom-[-10%] right-[-10%] w-[600px] h-[600px] rounded-full bg-gold/10 blur-[120px] pointer-events-none" />
+        <div className="bg-white p-8 rounded-2xl border border-line shadow-[0_2px_14px_rgba(43,35,32,0.06)] flex flex-col items-center text-center w-full max-w-[320px] relative z-10">
+          <div className="w-16 h-16 rounded-full bg-gradient-to-b from-gold/20 to-gold/10 border border-line flex items-center justify-center mb-6 text-2xl">
+            🧭
+          </div>
+          <h2 className="text-lg font-serif font-bold text-muk mb-2">{t("recommend.noFacilityTitle")}</h2>
+          <p className="text-muk-soft text-sm leading-relaxed mb-6 px-1">{t("recommend.noFacilityDesc")}</p>
+          <button
+            onClick={() => router.push("/main")}
+            className="w-full py-2.5 bg-gradient-to-r from-gold to-terracotta text-white rounded-xl font-bold text-xs transition-all hover:opacity-90 active:scale-[0.98] shadow-sm"
+          >
+            {t("recommend.backToMap")}
+          </button>
+        </div>
+      </main>
+    );
+  }
 
   return (
     <main className="min-h-screen bg-hanji text-muk p-4 md:p-8 max-md:pb-[calc(80px+env(safe-area-inset-bottom))] flex flex-col justify-between items-center relative overflow-hidden">

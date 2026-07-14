@@ -137,6 +137,8 @@ export default function MainPage() {
   // 그룹(모음) 마커 하이라이트 id — 카드 선택(selectedFacility)과 분리해 마커 확대/색상변경만 적용
   const [activeGroupId, setActiveGroupId] = useState<string | null>(null);
   const [mapLoaded, setMapLoaded] = useState(false);
+  // 카카오 SDK 가 끝내 뜨지 않을 때(키 미설정·네트워크 차단 등) 무한 검은 화면 대신 폴백 UI를 보여주기 위한 상태.
+  const [mapUnavailable, setMapUnavailable] = useState(false);
   const [mapLevel, setMapLevel] = useState(4); // 지도 줌 레벨(작을수록 확대) — 줌별 마커 밀집도 제어
   const [isMockLocationMinimized, setIsMockLocationMinimized] = useState(true);
   const [isMockTimeMinimized, setIsMockTimeMinimized] = useState(true);
@@ -174,7 +176,11 @@ export default function MainPage() {
 
   // 지도 검색바 음성 받아쓰기(STT) — 마이크 탭 → 한 발화를 검색어로 넣어 기존 마커 필터(searchQuery)를 그대로 재사용.
   // 미지원 브라우저면 supported=false → 마이크는 아래에서 '준비 중' 비활성으로 유지(정적 export/SSR 안전).
-  const speechSearch = useSpeechSearch((text) => setSearchQuery(text));
+  // 인식 실패 시 무음으로 꺼지지 않도록 토스트로 안내(권한 거부/그 외 실패를 구분).
+  const speechSearch = useSpeechSearch(
+    (text) => setSearchQuery(text),
+    (kind) => showToast(kind === 'denied' ? t('map.sttMicDenied') : t('map.sttFailed'))
+  );
 
   const appKey = process.env.NEXT_PUBLIC_KAKAO_MAPS_APP_KEY || process.env.NEXT_PUBLIC_KAKAO_API_KEY || process.env.NEXT_PUBLIC_KAKAO_MAP_KEY || "";
 
@@ -1106,16 +1112,41 @@ export default function MainPage() {
   }, [selectedFacility?.id, selectedFacility?.reason]);
 
   // Initialize map if Kakao Maps script is already loaded
+  // 8초 내 SDK 가 안 뜨면(키 미설정·네트워크 차단 등) 폴링을 멈추고 mapUnavailable 로 폴백 —
+  // 무한 검은 화면 대신 아래 폴백 UI(한지 톤 배경 + 안내 칩)를 보여준다(CourseMap.tsx 패턴 미러).
   useEffect(() => {
+    if (mapUnavailable || mapInstanceRef.current) return;
+    const startedAt = Date.now();
     const initInterval = setInterval(() => {
       if (typeof window !== "undefined" && window.kakao && window.kakao.maps && mapContainerRef.current) {
         clearInterval(initInterval);
         initMap();
+        return;
+      }
+      if (Date.now() - startedAt > 8000) {
+        clearInterval(initInterval);
+        setMapUnavailable(true);
       }
     }, 200);
 
     return () => clearInterval(initInterval);
-  }, []);
+  }, [mapUnavailable]);
+
+  // 늦은 SDK 자동 복구 — 타임아웃 직후 SDK 가 뒤늦게 로드되는 경계 케이스를 구제한다(5초 간격, 최대 3회 상한).
+  // mapUnavailable 이 풀리면 위 폴링 effect([mapUnavailable] 의존)가 다시 돌며 지도를 초기화한다.
+  // 복구 카운터는 ref: effect 재장전 시 리셋되지 않게 해 '항상 실패'하는 환경에서 무한 플립플롭을 막는다.
+  const mapRecoverAttemptsRef = useRef(0);
+  useEffect(() => {
+    if (!mapUnavailable || mapRecoverAttemptsRef.current >= 3) return;
+    const retry = setInterval(() => {
+      if (typeof window !== 'undefined' && window.kakao && window.kakao.maps) {
+        mapRecoverAttemptsRef.current += 1;
+        clearInterval(retry);
+        setMapUnavailable(false);
+      }
+    }, 5000);
+    return () => clearInterval(retry);
+  }, [mapUnavailable]);
 
   // Initialize Kakao Map
   const initMap = () => {
@@ -1415,11 +1446,21 @@ export default function MainPage() {
           경주 관광 밝은 지도. 마커/오버레이는 data: URI 이미지라 본래의 선명한 색으로 표시된다. */}
       <div
         ref={mapContainerRef}
-        className="w-full h-full absolute inset-0 z-0"
+        className={`w-full h-full absolute inset-0 z-0${mapUnavailable ? ' bg-gradient-to-b from-hanji-deep/70 via-hanji-deep/40 to-hanji' : ''}`}
       />
 
       {/* Top Layer: Search & Filters — 다크 오버레이 그라디언트 제거(플로팅 패널 자체 배경으로 가독성 확보) */}
       <div className="absolute top-0 w-full z-20 pt-12 md:pt-5 pb-4 px-4 flex flex-col gap-4 pointer-events-none">
+
+        {/* 지도 SDK 로드 실패(8초 타임아웃) 안내 칩 — 검색/배리어프리 빈 상태 칩과 동일 스타일 재사용.
+            추천 카드 등 나머지 UI 는 지도 유무와 무관하게 계속 동작한다. */}
+        {mapUnavailable && (
+          <div className="flex justify-center pointer-events-auto">
+            <span className="inline-block text-muk text-xs bg-white/90 border border-line rounded-full px-3 py-1 shadow-[0_2px_14px_rgba(43,35,32,0.06)]">
+              {t('map.loadFailed')}
+            </span>
+          </div>
+        )}
 
         {/* PC(md+)는 구글맵스식 톱바 — 컴팩트 검색바(≈1/4폭)를 왼쪽에, 카테고리 칩·지도 레이어
             컨트롤을 그 오른쪽에 나란히 배치한다. 모바일은 기존 세로 스택 그대로. */}
