@@ -28,8 +28,9 @@
   ❌ **데모 블로커 2건 실증**: simulate-peak 500 + 쿠폰 무음 미발급 — 원인은 미적용 마이그레이션 5종.
   **사람 작업(최우선·1회 붙여넣기)**: [`supabase/APPLY_DELTA_20260714.sql`](../supabase/APPLY_DELTA_20260714.sql)
   을 SQL Editor에서 Run → simulate-peak·쿠폰 발급 재검증. JUDGE_QA Q2(실측 MAE)·Q9(E3 완료) 갱신됨.
-- **검증 스냅샷**: pytest 118 passed · ruff clean · tsc/next build(정적 export) · RESET 패리티 일치.
-- **다음 큐**: 델타 SQL 적용 후 블로커 2건 재검증(사람) → E2 백업 영상(사람 작업) → 코드 freeze(버그픽스만).
+- **freeze 전 최종 버그 스윕(2026-07-14 오후)** — 6차원 병렬 감사(백엔드/프런트 최근 커밋·에러 상태 B8·데모 대본 추적·PWA sw 스테일·관리자 전수) + 발견별 회의적 검증. 5차원 발견 0건, **확정 demo-blocker 1건 수정**(`42e47e0`): 축제 🎪 배지가 explore/recommend 에만 렌더되고 관광객 데모 화면(/main RecommendationCard)엔 부재 → recToSpot 이 breakdown.eventBoost/eventTitle 보존, 카드에 동일 배지 블록(기존 4로케일 키 재사용). i18n 패리티 스크립트 점검 4로케일 414키 일치. 랜딩 능선 실루엣 SVG 커밋(`747fdcd`).
+- **검증 스냅샷**: pytest 118 passed · ruff clean · tsc/next build(정적 export) · RESET 패리티 일치 (스윕 후 재확인).
+- **다음 큐**: **코드 freeze 발효(버그픽스만)**. 잔여는 전부 사람 작업 — ① supabase/APPLY_DELTA_20260714.sql 적용 후 블로커 2건(simulate-peak·쿠폰) 재검증 ② E2 백업 영상 녹화.
 
 ## -1. TourAPI 실연동 (2026-07-10 · 키 검증 완료)
 - **TOURAPI_KEY 발급·검증 완료** — `apps/api/.env`(gitignore)에 Decoding 키 저장. dry-run(목록+`--details` 상세)으로
