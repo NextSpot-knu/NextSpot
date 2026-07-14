@@ -5,13 +5,14 @@ import { useRouter } from 'next/navigation';
 import {
   Menu, Bell, Bookmark, User,
   Edit2, ChevronRight, LogOut,
-  Settings as SettingsIcon, BellRing, Ticket, X, Footprints
+  Settings as SettingsIcon, Ticket, X, Footprints
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { createPublicClient } from '@/lib/supabase';
 import { getVisitCount } from '@/lib/visits';
 import TasteRadar from '@/components/TasteRadar';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
+import { CongestionAlertToggle } from '@/components/CongestionAlertToggle';
 import { useT } from '@/lib/i18n/I18nProvider';
 
 interface UserProfile {
@@ -21,7 +22,6 @@ interface UserProfile {
   routes: number;
   saved: number;
   rating: number;
-  alertEnabled: boolean;
 }
 
 export default function MyPage() {
@@ -93,7 +93,6 @@ export default function MyPage() {
           routes: 0,
           saved: savedCount,
           rating: 0,
-          alertEnabled: true,
         });
       } catch (error) {
         console.warn('Failed to fetch profile', error);
@@ -104,14 +103,6 @@ export default function MyPage() {
 
     fetchProfile();
   }, []);
-
-  const handleUpdateProfile = async (updatedData: Partial<UserProfile>) => {
-    // TODO: 프로필 수정 / 설정 변경 API 연동 로직
-    // 로컬 상태 즉시 업데이트 (Optimistic UI)
-    if (profile) {
-      setProfile({ ...profile, ...updatedData });
-    }
-  };
 
   // 프로필 수정 모달 열기 — 현재 표시 이름을 입력값 초기값으로 채운다.
   const handleOpenEdit = () => {
@@ -252,25 +243,14 @@ export default function MyPage() {
               </div>
             </div>
 
+            {/* 혼잡 알림 — 실제 동작하는 옵트인 토글(권한 상태 반영, useCongestionAlerts 기반).
+                로컬 state 만 바꾸던 가짜 스위치 제거. */}
+            <div className="mb-4">
+              <CongestionAlertToggle />
+            </div>
+
             {/* Menu List */}
             <div className="bg-white border border-line rounded-3xl overflow-hidden shadow-[0_2px_14px_rgba(43,35,32,0.06)] mb-6">
-
-              {/* 이상 혼잡 알림 토글 */}
-              <div className="flex items-center justify-between p-5 border-b border-line">
-                <div className="flex items-center gap-4">
-                  <div className="w-10 h-10 rounded-full bg-hanji-deep flex items-center justify-center">
-                    <BellRing size={20} className="text-muk-soft" />
-                  </div>
-                  <span className="text-muk font-medium">{t('mypage.alertMenu')}</span>
-                </div>
-                {/* 토글 스위치 */}
-                <button
-                  onClick={() => handleUpdateProfile({ alertEnabled: !profile.alertEnabled })}
-                  className={`w-12 h-6 rounded-full p-1 transition-colors ${profile.alertEnabled ? 'bg-gold' : 'bg-muk-soft/40'}`}
-                >
-                  <div className={`w-4 h-4 bg-white rounded-full shadow-md transform transition-transform ${profile.alertEnabled ? 'translate-x-6' : 'translate-x-0'}`} />
-                </button>
-              </div>
 
               {/* 기타 메뉴 */}
               {(() => {
