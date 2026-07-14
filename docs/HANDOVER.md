@@ -1,7 +1,25 @@
-# 세션 인계 문서 (2026-07-10 갱신)
+# 세션 인계 문서 (2026-07-14 갱신)
 
 > 현재 상태 스냅샷 + 다음 단계. 브랜치 `feature/jinseok` (origin 동기화).
 > 자율 개선 세션 로그·재개 규칙: [`AUTONOMOUS_SESSION.md`](./AUTONOMOUS_SESSION.md) · 전략: [`CONTEST_STRATEGY.md`](./CONTEST_STRATEGY.md)
+
+## -2. 2026-07-14 사이클 — A2·D1·D5·A4 + 발표 산출물
+
+- **A2 상세카드 확장** (`5d0e51f`) — detailCommon 상세 필드(개요·홈페이지·주소·전화) 마이그레이션
+  (`20260713090000_add_detail_common_fields.sql`, **Supabase 미적용 — 사람 작업**) + 추천 카드 상세 표시 + i18n.
+- **D1 TourAPI 일배치 인제스트** (`5d0e51f`) — `.github/workflows/ingest.yml`, 매일 KST 04:00 upsert.
+  ⚠️ schedule 은 main 브랜치에서만 발화 — 머지 전엔 workflow_dispatch 수동 실행.
+  **사람 작업**: GitHub Actions Secrets 4종(TOURAPI_KEY·SUPABASE_URL·SUPABASE_ANON_KEY·SERVICE_ROLE_KEY) 등록.
+- **D5 데이터 신선도** (`5d0e51f`) — `GET /api/v1/freshness`(app_events `tourapi_sync` 마커 정본 →
+  updated_at 추정 폴백) + 관리자 DataFreshnessBadge.
+- **A4 행사 혼잡 보정** (`06fd55a`) — `services/event_boost.py`: 당일 진행 축제 거리감쇠 가중
+  (MAX_BOOST 0.15 × (1−거리/1.5km), 성공 1h·실패 10분 캐시). score.py 도착시점 예측 + `/predict/batch`
+  양쪽 반영, breakdown `event_boost`/`event_title`, 추천 카드 🎪 배지(4로케일).
+  테스트 격리: tests/conftest.py autouse 픽스처가 TourAPI 조회 차단(로컬 실키 오염 방지).
+- **발표 산출물** — [`DEMO_SCENARIO.md`](./DEMO_SCENARIO.md)(E1, 관광객/관리자 각 3분 대본+체크리스트+폴백),
+  [`JUDGE_QA.md`](./JUDGE_QA.md)(E4, 예상 질문 10문+답변), `TIMELINESS.md`(C2, 보도 인용 — 작성 중).
+- **검증 스냅샷**: pytest 116 passed · ruff clean · tsc/next build(정적 export) · RESET 패리티 일치.
+- **다음 큐**: E1/E4 리허설 반영 → E3 지표 리얼리티 → E2 백업 영상(사람 작업) → 코드 freeze.
 
 ## -1. TourAPI 실연동 (2026-07-10 · 키 검증 완료)
 - **TOURAPI_KEY 발급·검증 완료** — `apps/api/.env`(gitignore)에 Decoding 키 저장. dry-run(목록+`--details` 상세)으로
@@ -62,7 +80,7 @@
 ## 4. 검증 (CI 게이트)
 ```
 cd apps/web && npx tsc --noEmit && npm run build            # 21 static routes
-PYTHONUTF8=1 py -3.11 -m pytest apps/api -q                 # 80 passed
+PYTHONUTF8=1 py -3.11 -m pytest apps/api -q                 # 116 passed
 (cd apps/api && py -3.11 -m ruff check .)                   # clean
 node scripts/build_reset.mjs && git diff --exit-code supabase/RESET_AND_SETUP.sql  # parity
 ```
