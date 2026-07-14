@@ -635,9 +635,12 @@ function OrderPicker({
       )}
 
       {/* 기존 종류 멀티 필터(자동 모드용) — 순서 모드(sequence 1개 이상)와 간섭하지 않도록
-          sequence 가 비어있을 때만 렌더한다. */}
+          sequence 가 비어있을 때만 렌더한다. 위 '순서대로 담기' 칩과 모양이 같아 중복으로 보이던
+          문제(UX): 라벨로 두 그룹의 의도를 구분한다(위=순서 담기, 아래=종류만 선택·순서 자동). */}
       {sequence.length === 0 && (
-        <div className="flex flex-wrap gap-2 pt-1">
+        <div className="pt-1.5 mt-1 border-t border-line/70 space-y-1.5">
+          <p className="text-[11px] text-muk-soft">{t('course.typeFilterLabel')}</p>
+          <div className="flex flex-wrap gap-2">
           {TYPE_OPTIONS.map((opt) => {
             const on = selectedTypes.includes(opt.id);
             return (
@@ -656,6 +659,7 @@ function OrderPicker({
               </button>
             );
           })}
+          </div>
         </div>
       )}
     </section>
