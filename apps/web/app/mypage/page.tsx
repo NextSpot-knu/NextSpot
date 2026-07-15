@@ -16,6 +16,10 @@ import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { CongestionAlertToggle } from '@/components/CongestionAlertToggle';
 import { useT } from '@/lib/i18n/I18nProvider';
 
+// 2026년 최저시급(고용노동부 고시, 원/시간) — '아낀 시간'을 기회비용으로 환산하는 기준.
+// 화면에도 '최저시급 기준'을 명시한다(정직성 — 임의 환산이 아님을 알림).
+const MIN_WAGE_KRW_PER_HOUR = 10320;
+
 interface UserProfile {
   name: string;
   email: string;
@@ -244,7 +248,7 @@ export default function MyPage() {
 
                 {/* 통계 — 실제 소스가 있는 항목만 표시(가짜 경로수·평점 제거). 저장 + 방문(방문 확인 루프)
                     + 아낀 시간(임팩트 API 누적, 로드 성공 시에만 3열로 확장 — 실패 시 가짜 0 미노출). */}
-                <div className={`grid ${waitSaved !== null ? 'grid-cols-3' : 'grid-cols-2'} gap-3`}>
+                <div className="grid grid-cols-2 gap-3">
                   <div className="bg-white border border-line rounded-2xl p-4 flex items-center justify-center gap-3 max-[420px]:gap-1.5 shadow-[0_2px_14px_rgba(43,35,32,0.06)]">
                     <Bookmark size={20} className="text-terracotta shrink-0" fill="currentColor" />
                     <span className="text-xl font-bold text-muk">{profile.saved}</span>
@@ -255,19 +259,28 @@ export default function MyPage() {
                     <span className="text-xl font-bold text-muk">{visitCount}</span>
                     <span className="text-xs text-muk-soft font-medium whitespace-nowrap">{t('mypage.statVisited')}</span>
                   </div>
-                  {waitSaved !== null && (
-                    <button
-                      type="button"
-                      onClick={() => router.push('/mypage/impact')}
-                      aria-label={t('mypage.statTimeSaved')}
-                      className="bg-white border border-line rounded-2xl p-4 flex items-center justify-center gap-3 max-[420px]:gap-1.5 shadow-[0_2px_14px_rgba(43,35,32,0.06)] hover:bg-hanji-deep/40 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
-                    >
-                      <Hourglass size={20} className="text-gold-deep shrink-0" />
-                      <span className="text-xl font-bold text-muk whitespace-nowrap">{t('impact.tileWaitSavedValue', { n: waitSaved })}</span>
-                      <span className="text-xs text-muk-soft font-medium whitespace-nowrap">{t('mypage.statTimeSaved')}</span>
-                    </button>
-                  )}
                 </div>
+
+                {/* 아낀 시간 가치 배너 — 절약 시간을 기회비용(최저시급 환산)으로 번역해 체감시킨다.
+                    환산 기준은 화면에 명시(정직성). 탭하면 임팩트 카드 상세로. */}
+                {waitSaved !== null && (
+                  <button
+                    type="button"
+                    onClick={() => router.push('/mypage/impact')}
+                    aria-label={t('mypage.savedBanner', { n: waitSaved })}
+                    className="w-full mt-3 bg-gradient-to-r from-gold/15 via-hanji-deep/60 to-jade/10 border border-gold/30 rounded-2xl px-4 py-3.5 flex items-center gap-3 text-left shadow-[0_2px_14px_rgba(43,35,32,0.06)] hover:from-gold/25 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+                  >
+                    <Hourglass size={22} className="text-gold-deep shrink-0" />
+                    <span className="min-w-0">
+                      <span className="block text-sm font-bold text-muk leading-snug">
+                        {t('mypage.savedBanner', { n: waitSaved })}
+                      </span>
+                      <span className="block text-[11px] text-muk-soft mt-0.5">
+                        {t('mypage.savedValue', { won: (Math.round((waitSaved * MIN_WAGE_KRW_PER_HOUR) / 60 / 10) * 10).toLocaleString() })}
+                      </span>
+                    </span>
+                  </button>
+                )}
               </div>
 
               {/* 오른쪽 열 — AI 취향 프로필(8차원 선호 벡터 레이더). 과거 개발자용 float 배열 카드는 제거. */}
