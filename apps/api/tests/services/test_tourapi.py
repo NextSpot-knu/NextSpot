@@ -12,6 +12,11 @@ from app.services.tourapi import (
     parse_total_count,
     transform_poi,
 )
+# 구현 1 신규 함수(패키지 __init__ 재노출 범위 밖) — 서브모듈에서 직접 임포트.
+from app.services.tourapi.transform import (
+    extract_intro_extra_features,
+    extract_intro_phone_fallback,
+)
 
 
 def _payload(items, total=None):
@@ -192,3 +197,114 @@ def test_extract_detail_common_empty_values_omit_keys():
     assert extract_detail_common({"tel": "054-000-0000"}) == {"phone": "054-000-0000"}
     assert extract_detail_common({}) == {}
     assert extract_detail_common(None) == {}
+
+
+# --- 구현 1: detailIntro2 확장 필드(Tier1 1-1·1-3·1-5) + phone 폴백 ---------------------
+# 실측 응답(2026-07, TourAPI 실 호출): 음식점 contentid=2903556(카페능), 관광지 contentid=126214
+# (천마총), 문화시설 contentid=3453492(경주중앙도서관). 아래 fixture 는 그 실측 원문을 그대로 옮김.
+
+_REAL_INTRO_RESTAURANT = {
+    "contentid": "2903556", "contenttypeid": "39",
+    "kidsfacility": "0", "firstmenu": "바닐라라떼",
+    "treatmenu": "아메리카노 / 카페라떼 / 플랫화이트 / 아인슈페너 / 아포가토 / 돼지바 크림치즈 크럼블 등",
+    "smoking": "", "packing": "",
+    "infocenterfood": "0507-1320-3898", "scalefood": "",
+    "parkingfood": "불가능", "opendatefood": "", "opentimefood": "10:00~22:00",
+    "restdatefood": "매월 첫 번째 수요일", "discountinfofood": "", "chkcreditcardfood": "",
+    "reservationfood": "", "lcnsno": "20190542075",
+}
+
+_REAL_INTRO_ATTRACTION = {
+    "contentid": "126214", "contenttypeid": "12",
+    "heritage1": "0", "heritage2": "0", "heritage3": "0",
+    "infocenter": "054-771-8650", "opendate": "", "restdate": "연중무휴",
+    "expguide": "", "expagerange": "", "accomcount": "",
+    "useseason": "", "usetime": "- 정문 09:00~22:00 (입장 마감 21:30)<br>\n- 후문·천마총 09:00~21:30",
+    "parking": "가능", "chkbabycarriage": "", "chkpet": "", "chkcreditcard": "",
+}
+
+_REAL_INTRO_CULTURE = {
+    "contentid": "3453492", "contenttypeid": "14",
+    "scale": "", "usefee": "", "discountinfo": "", "spendtime": "", "parkingfee": "",
+    "infocenterculture": "054-779-8918", "accomcountculture": "",
+    "usetimeculture": "자료실 : 화~금 09:00~18:00, 주말 : 09:00~17:00 / 열람실 : 09:00~21:00",
+    "restdateculture": "매주 월요일 / 법정공휴일",
+    "parkingculture": "", "chkbabycarriageculture": "", "chkpetculture": "", "chkcreditcardculture": "",
+}
+
+
+def test_extract_intro_extra_features_restaurant():
+    # 18. 음식점(39): firstmenu/treatmenu/parkingfood→parking/packing(빈 값은 생략)
+    features = extract_intro_extra_features(_REAL_INTRO_RESTAURANT, 39)
+    assert features["first_menu"] == "바닐라라떼"
+    assert features["treat_menu"].startswith("아메리카노")
+    assert features["parking"] == "불가능"
+    assert "packing" not in features  # 실측 원문이 빈 값 — 키 생략
+    assert features["rest_date_raw"] == "매월 첫 번째 수요일"
+    assert "accom_count" not in features  # accomcount 는 관광지(12) 전용
+
+
+def test_extract_intro_extra_features_attraction_with_accom_count():
+    # 19. 관광지(12): parking/chk*, accomcount 숫자 파싱(성공/실패) + rest_date_raw
+    features = extract_intro_extra_features(_REAL_INTRO_ATTRACTION, 12)
+    assert features["parking"] == "가능"
+    assert "chk_babycarriage" not in features  # 실측 원문 빈 값
+    assert "chk_pet" not in features
+    assert "chk_creditcard" not in features
+    assert features["rest_date_raw"] == "연중무휴"
+    assert "accom_count" not in features  # 실측 원문(accomcount) 빈 값 — 키 생략
+
+    numeric = extract_intro_extra_features({**_REAL_INTRO_ATTRACTION, "accomcount": "1,000"}, 12)
+    assert numeric["accom_count"] == 1000 and isinstance(numeric["accom_count"], int)
+
+    non_numeric = extract_intro_extra_features(
+        {**_REAL_INTRO_ATTRACTION, "accomcount": "약 5000명(성수기 기준)"}, 12
+    )
+    assert non_numeric["accom_count"] == "약 5000명(성수기 기준)"  # 파싱 실패 → 원문 문자열 보존
+
+
+def test_extract_intro_extra_features_culture_field_names():
+    # 20. 문화시설(14): parkingculture/chk*culture 실측 필드명 확인(빈 값이면 생략)
+    features = extract_intro_extra_features(_REAL_INTRO_CULTURE, 14)
+    assert features["rest_date_raw"] == "매주 월요일 / 법정공휴일"
+    assert "parking" not in features  # 실측 원문(parkingculture) 빈 값
+    assert "chk_babycarriage" not in features
+
+    filled = extract_intro_extra_features({
+        **_REAL_INTRO_CULTURE,
+        "parkingculture": "가능", "chkbabycarriageculture": "Y",
+        "chkpetculture": "N", "chkcreditcardculture": "Y",
+    }, 14)
+    assert filled["parking"] == "가능"
+    assert filled["chk_babycarriage"] == "Y"
+    assert filled["chk_pet"] == "N"
+    assert filled["chk_creditcard"] == "Y"
+
+
+def test_extract_intro_extra_features_empty_values_omit_keys():
+    # 21. 빈 값은 키 자체를 넣지 않는다(기존 patterns 과 동일 원칙)
+    assert extract_intro_extra_features({}, 39) == {}
+    assert extract_intro_extra_features(None, 12) == {}
+    assert extract_intro_extra_features({"contentid": "1"}, 14) == {}
+
+
+def test_extract_intro_phone_fallback_uses_type_specific_infocenter():
+    # 22. 타입별 infocenter*(관광지=infocenter, 음식점=infocenterfood, 문화시설=infocenterculture)
+    assert extract_intro_phone_fallback(_REAL_INTRO_RESTAURANT, 39) == "0507-1320-3898"
+    assert extract_intro_phone_fallback(_REAL_INTRO_ATTRACTION, 12) == "054-771-8650"
+    assert extract_intro_phone_fallback(_REAL_INTRO_CULTURE, 14) == "054-779-8918"
+
+
+def test_extract_intro_phone_fallback_strips_prefix_text():
+    # 23. "문의처 : ..." 같은 접두 텍스트는 정리하고 전화번호 패턴만 반환
+    assert extract_intro_phone_fallback(
+        {"infocenter": "문의처 : 054-000-0000 (관리사무소)"}, 12
+    ) == "054-000-0000"
+
+
+def test_extract_intro_phone_fallback_no_pattern_returns_none():
+    # 24. 전화번호 패턴이 없으면 None(억지 추출 금지)
+    assert extract_intro_phone_fallback({"infocenterfood": "정보없음"}, 39) is None
+    assert extract_intro_phone_fallback({"infocenter": ""}, 12) is None
+    assert extract_intro_phone_fallback(None, 12) is None
+    assert extract_intro_phone_fallback({"infocenter": "054-000-0000"}, 15) is None  # 미지원 타입

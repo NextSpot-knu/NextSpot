@@ -40,6 +40,11 @@ from app.services.tourapi import (
     parse_total_count,
     transform_poi,
 )
+# transform.py 신규 함수(Tier1 확장 필드/phone 폴백) — 패키지 __init__ 재노출 범위 밖이라 직접 임포트.
+from app.services.tourapi.transform import (
+    extract_intro_extra_features,
+    extract_intro_phone_fallback,
+)
 
 # 경주 황리단길 기준좌표 (docs/NEXTSPOT_PIVOT.md — 초기 서비스 지역)
 DEFAULT_LAT = 35.8361
@@ -83,7 +88,8 @@ async def fetch_pois(lat: float, lng: float, radius_m: int, limit: int) -> dict[
 
 async def enrich_row(row: dict) -> None:
     """--details 옵션: detailCommon2 → overview/phone/homepage(+이미지 폴백),
-    detailIntro2 → operating_hours, detailInfo2 → barrier_free 를 채운다(제자리 수정).
+    detailIntro2 → operating_hours + 확장 features(대표메뉴/주차/유모차/반려동물/카드결제/
+    수용인원) + phone 폴백, detailInfo2 → barrier_free 를 채운다(제자리 수정).
 
     POI 1건당 3회 추가 호출이 발생하므로 기본은 꺼져 있다(쿼터 절약).
     개별 실패는 경고만 남기고 계속 진행(부분 실패 허용).
@@ -105,9 +111,18 @@ async def enrich_row(row: dict) -> None:
         intro_payload = await detail_intro(contentid, ctid)
         intro_items = parse_items(intro_payload)
         if intro_items:
-            hours = extract_operating_hours(intro_items[0], ctid)
+            intro_item = intro_items[0]
+            hours = extract_operating_hours(intro_item, ctid)
             if hours:
                 row["operating_hours"] = hours
+            extra_features = extract_intro_extra_features(intro_item, ctid)
+            if extra_features:
+                row["features"] = {**row.get("features", {}), **extra_features}
+            # phone 폴백: detailCommon2.tel 이 비었을 때만(실측 — 현재 전 시설 tel 빈 값이라 실효).
+            if not row.get("phone"):
+                phone_fallback = extract_intro_phone_fallback(intro_item, ctid)
+                if phone_fallback:
+                    row["phone"] = phone_fallback
     except (TourAPIError, RuntimeError) as e:
         print(f"[details] detailIntro2 실패 (contentid={contentid}): {e}")
     try:
