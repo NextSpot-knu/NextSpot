@@ -3,6 +3,29 @@
 > 현재 상태 스냅샷 + 다음 단계. 브랜치 `feature/jinseok` (origin 동기화).
 > 자율 개선 세션 로그·재개 규칙: [`AUTONOMOUS_SESSION.md`](./AUTONOMOUS_SESSION.md) · 전략: [`CONTEST_STRATEGY.md`](./CONTEST_STRATEGY.md)
 
+## -5. 2026-07-15 오전 — 상용화 신규 서비스 5종 (PM 지시로 freeze 해제, 6커밋)
+
+- **PM(진석) 지시로 feature 브랜치 freeze 해제** — 상용화 아이디에이션(4페르소나 발산 24건 →
+  투자심사 킬테스트) 후 선정 5종을 병렬 구현(파일 소유권 분할, 에이전트 5 + 통합).
+- **C(관광객)**: `226df81` 골든타임 알리미(GET /predict/golden-hour, 카드 배지+알림 예약) +
+  /waiting 대기 보드('지금 출발하면?' 도착시점 대기 순 리스트) · `46da84b` /mypage/impact
+  여행 임팩트 카드(score_breakdown 실저장값 기반 — visit 지표는 서버 근거 없어 정직 제외).
+- **B(소상공인)**: `44035df` /merchant 콘솔(데모 게이트) — 예측 유입 곡선·7일 성적표·셀프
+  타임세일(신규 merchant_timesales 테이블)·좌석 상태 방송(features.seat_status).
+  ⚠️ **랭킹 연동(타임세일→인센티브항, 좌석→혼잡 보정)은 미구현 2단계** — score.py 무변경.
+- **B2G**: `05f707b` /admin/safety 인파 안전 경보(임계값 0.85/0.7, 150m 격자 존 롤업, +1h 예측) ·
+  `6b659d9` /admin/report 성과 리포트 원클릭(A4 인쇄, 데모 폴백 없는 제출용 정직 표기).
+- **통합**: `94f77f4` 라우터 3종 배선·i18n 461키×4로케일(패리티 0 missing)·관제 메뉴·RESET 재생성.
+- **검증**: pytest 152(신규 34) · ruff · tsc · next build(신규 정적 라우트 6종) · voiceIntent 29/29 ·
+  실서버 E2E 5기능 스크린샷(골든 배지 12~13시 실발동, 대기 보드 실데이터, 안전 경보 14존).
+  익명 세션 부트스트랩 레이스(직행 401)는 waiting/impact 에 2.5초 유예 1회 재시도로 보강.
+- **사람 작업(신규)**: ① 원격 Supabase SQL Editor 에서
+  [`supabase/migrations/20260715100000_merchant_timesales.sql`](../supabase/migrations/20260715100000_merchant_timesales.sql)
+  1회 실행(미적용 시 머천트 타임세일 섹션만 '조회 실패' 폴백) ② Render/배포 env 에
+  `MERCHANT_API_TOKEN`(기본 nextspot-merchant-local — 운영 시 반드시 교체) 추가.
+- 같은 날 오전 사용자 신고 버그 수정: `2aa416b` 세부 음식 칩 오분류(상호명 구체성·임계값 0.8)
+  + 카드 컨테이너 pointer-events 칩 탭 가로채기 해소. 코스 핀 1·2·3 = 실좌표·실순서 3단계 검증.
+
 ## -4. 2026-07-15 새벽 — 야간 CX 감사 사이클 (freeze 내 버그픽스 5커밋)
 
 - **감사 방법**: 고객 관점 8차원 멀티에이전트 감사(37건) → 적대 재검증 → 2·3차 표적 감사(로케일
