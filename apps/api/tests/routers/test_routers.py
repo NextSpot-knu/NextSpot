@@ -219,16 +219,55 @@ def test_recommend_by_type_happy_path(auth_client):
 
 
 # =========================================================================
-# 4. 피드백(POST /api/v1/feedback) — 소유권 가드·입력 검증
+# 4. 피드백(POST /api/v1/feedback) — 소유권 가드·입력 검증·액션별 학습 계약
 # =========================================================================
+
+REC_ID = "99999999-9999-4999-8999-999999999999"
+FEEDBACK_FACILITY = _facility("f-1", "cafe", 0.0002)
+
+
+def _rec_row(user_id: str = AUTH_USER_ID) -> dict:
+    return {
+        "id": REC_ID,
+        "user_id": user_id,
+        "recommended_facility_id": FEEDBACK_FACILITY["id"],
+        "recommended_facility": FEEDBACK_FACILITY,
+    }
+
+
+def _feedback_db(user_feedback: list[dict] | None = None, user_id: str = AUTH_USER_ID) -> FakeSupabase:
+    return FakeSupabase({
+        "recommendations": [_rec_row(user_id)],
+        "user_feedback": user_feedback or [],
+    })
+
+
+def _decision_row(action: str, **overrides) -> dict:
+    """이미 존재하는 결정 행(부분 UNIQUE 인덱스상 추천당 1개) — 멱등 경로 검증용."""
+    row = {
+        "id": "fb-existing",
+        "user_id": AUTH_USER_ID,
+        "recommendation_id": REC_ID,
+        "action": action,
+        "reason_status": "none",
+        "learning_scope": "none",
+        "learning_applied_at": None,
+    }
+    row.update(overrides)
+    return row
+
+
+def _post_feedback(client, action: str, db: FakeSupabase):
+    with patch("app.routers.recommendations.supabase_client", new=db), \
+         patch("app.routers.recommendations.issue_coupon_if_partner", new=AsyncMock(return_value={"coupon_issued": False})):
+        return client.post("/api/v1/feedback", json={"recommendation_id": REC_ID, "action": action})
+
 
 def test_feedback_ownership_guard(auth_client):
     # 타인 user_id 의 추천 기록에 피드백 → 403 (선호벡터 오염 차단)
     # recommendation_id 는 실제로 uuid 컬럼이므로 유효 UUID 를 쓴다(비-UUID 는 형식 가드로 404 처리).
-    rec_id = "99999999-9999-4999-8999-999999999999"
-    other_rec = [{"id": rec_id, "user_id": "other-user", "recommended_facility_id": "f-1"}]
-    with patch("app.routers.recommendations.supabase_client", new=FakeSupabase({"recommendations": other_rec})):
-        res = auth_client.post("/api/v1/feedback", json={"recommendation_id": rec_id, "action": "accepted"})
+    db = _feedback_db(user_id="other-user")
+    res = _post_feedback(auth_client, "accepted_visit_intent", db)
     assert res.status_code == 403
 
 
@@ -236,15 +275,111 @@ def test_feedback_synthetic_bytype_id_404(auth_client):
     # by-type 브라우즈 랭킹의 합성 id("bytype-…", DB 미저장·비-UUID)는 uuid 캐스팅 500 대신 깔끔한 404.
     res = auth_client.post(
         "/api/v1/feedback",
-        json={"recommendation_id": "bytype-f1000000-0000-0000-0000-000000000001", "action": "accepted"},
+        json={
+            "recommendation_id": "bytype-f1000000-0000-0000-0000-000000000001",
+            "action": "accepted_visit_intent",
+        },
     )
     assert res.status_code == 404
 
 
 def test_feedback_invalid_action_422(auth_client):
-    # action 은 Literal[accepted/rejected/ignored] — 잘못된 값은 라우터 진입 전 422
-    res = auth_client.post("/api/v1/feedback", json={"recommendation_id": "rec-1", "action": "loved"})
+    # action 은 신규 어휘 Literal — 목록 밖 값은 라우터 진입 전 422
+    res = auth_client.post("/api/v1/feedback", json={"recommendation_id": REC_ID, "action": "loved"})
     assert res.status_code == 422
+
+
+@pytest.mark.parametrize("legacy_action", ["accepted", "ignored"])
+def test_feedback_rejects_legacy_actions_422(auth_client, legacy_action):
+    # legacy 어휘는 기존 행 보존용으로 DB CHECK 에만 남는다 — API 입력에서는 제외.
+    res = auth_client.post("/api/v1/feedback", json={"recommendation_id": REC_ID, "action": legacy_action})
+    assert res.status_code == 422
+
+
+def test_feedback_action_literal_matches_service_vocabulary():
+    # 라우터 Literal ↔ feedback_service.API_ACTIONS 패리티 — 한쪽만 바뀌면 즉시 실패한다.
+    from typing import get_args
+
+    from app.routers.recommendations import FeedbackRequest
+    from app.services import feedback_service as fs
+
+    literal = set(get_args(FeedbackRequest.model_fields["action"].annotation))
+    assert literal == set(fs.API_ACTIONS)
+
+
+def test_feedback_accepted_visit_intent_learns_and_issues_coupon(auth_client):
+    db = _feedback_db()
+    adjust = AsyncMock()
+    coupon = AsyncMock(return_value={"coupon_issued": True})
+    with patch("app.routers.recommendations.supabase_client", new=db), \
+         patch("app.routers.recommendations.issue_coupon_if_partner", new=coupon), \
+         patch.object(preference_vector_service, "adjust_user_vector_on_feedback", new=adjust):
+        res = auth_client.post(
+            "/api/v1/feedback", json={"recommendation_id": REC_ID, "action": "accepted_visit_intent"}
+        )
+
+    assert res.status_code == 200
+    assert res.json()["updated_vector"] is True
+    # 실제 방문 수락만 쿠폰을 현물화하고, 벡터는 강화(+10%) 방향으로 움직인다.
+    coupon.assert_awaited_once()
+    assert adjust.await_count == 1
+    assert adjust.await_args.kwargs["action"] == "accepted"
+
+
+def test_feedback_decision_is_idempotent(auth_client):
+    # 같은 추천·같은 액션 재요청: 결정 행이 이미 있으면 재학습하지 않는다(중복 학습 금지).
+    db = _feedback_db([_decision_row("accepted_visit_intent", learning_applied_at="2026-07-15T00:00:00+00:00")])
+    adjust = AsyncMock()
+    with patch.object(preference_vector_service, "adjust_user_vector_on_feedback", new=adjust):
+        res = _post_feedback(auth_client, "accepted_visit_intent", db)
+
+    assert res.status_code == 200
+    assert res.json()["updated_vector"] is False
+    adjust.assert_not_awaited()
+
+
+def test_feedback_rejected_defers_learning_to_lab(auth_client):
+    # 명시 거절은 pending 으로만 적재된다 — 왜 싫었는지 모르는 채로 취향을 깎지 않는다.
+    db = _feedback_db()
+    adjust = AsyncMock()
+    with patch.object(preference_vector_service, "adjust_user_vector_on_feedback", new=adjust):
+        res = _post_feedback(auth_client, "rejected", db)
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["reason_status"] == "pending"
+    assert body["updated_vector"] is False
+    adjust.assert_not_awaited()
+
+
+@pytest.mark.parametrize("action", ["skipped", "dismissed_batch", "unsaved"])
+def test_feedback_non_learning_actions_never_touch_vector(auth_client, action):
+    # '다음'/'다른 대안 보기'/저장 해제는 취향 표명이 아니다 — 기존 일괄 -5% 오학습의 진원지.
+    db = _feedback_db()
+    adjust = AsyncMock()
+    with patch.object(preference_vector_service, "adjust_user_vector_on_feedback", new=adjust):
+        res = _post_feedback(auth_client, action, db)
+
+    assert res.status_code == 200
+    assert res.json()["updated_vector"] is False
+    adjust.assert_not_awaited()
+
+
+@pytest.mark.parametrize("action", ["helpful", "not_helpful"])
+def test_feedback_quality_signal_touches_nothing(auth_client, action):
+    # 만족도는 품질 신호 전용 — 쿠폰·수락 지표·벡터 어느 것도 건드리지 않는다.
+    db = _feedback_db()
+    adjust = AsyncMock()
+    coupon = AsyncMock(return_value={"coupon_issued": True})
+    with patch("app.routers.recommendations.supabase_client", new=db), \
+         patch("app.routers.recommendations.issue_coupon_if_partner", new=coupon), \
+         patch.object(preference_vector_service, "adjust_user_vector_on_feedback", new=adjust):
+        res = auth_client.post("/api/v1/feedback", json={"recommendation_id": REC_ID, "action": action})
+
+    assert res.status_code == 200
+    assert res.json()["updated_vector"] is False
+    adjust.assert_not_awaited()
+    coupon.assert_not_awaited()
 
 
 # =========================================================================

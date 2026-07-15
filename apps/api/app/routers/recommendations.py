@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 # (ingest/preferences 라우터가 동일 사유로 supabase_admin 을 쓴다.) 따라서 service_role 클라이언트로
 # 통일하고, 신뢰 경계는 아래 get_recommendations/submit_feedback 의 소유권 가드로 강제한다.
 from app.core.supabase import supabase_admin as supabase_client, get_current_user
+from app.services import feedback_service
 from app.services.coupon_service import issue_coupon_if_partner
 from app.services.merchant_boost import apply_merchant_boosts, CONGESTION_OVERRIDE_KEY
 from app.services.preference_nlp_service import CATEGORY_KO
@@ -49,8 +50,18 @@ class RecommendItem(BaseModel):
 
 class FeedbackRequest(BaseModel):
     recommendation_id: str
-    # DB CHECK(action IN accepted/rejected/ignored)와 정합. 잘못된 값은 라우터 진입 전 422로 거부된다.
-    action: Literal["accepted", "rejected", "ignored"]
+    # 거절 실험실 액션 어휘(feedback_service.API_ACTIONS 와 동일 집합 — 패리티 테스트로 강제).
+    # legacy(accepted/ignored)는 기존 행 보존용으로 DB CHECK 에만 남고 **API 입력에서는 제외**한다.
+    # 잘못된 값은 라우터 진입 전 422 로 거부된다.
+    action: Literal[
+        "accepted_visit_intent",  # 실제 방문 수락 — 수락 표시·쿠폰·벡터 +10%
+        "rejected",               # 명시 거절 — reason_status='pending', 장기 학습은 사유 응답 후
+        "skipped",                # '다음'/나중에 — 학습 없음
+        "dismissed_batch",        # '다른 대안 보기' — 학습 없음
+        "unsaved",                # 저장 해제 — 학습 없음
+        "helpful",                # 만족도 👍 — 품질 신호만
+        "not_helpful",            # 만족도 👎 — 품질 신호만
+    ]
 
 # --- Helpers for async DB Calls ---
 async def fetch_user(user_id: str):
@@ -548,6 +559,80 @@ async def accept_recommendation(
     return {"success": True, **result}
 
 
+#: preference_vector_service.adjust_user_vector_on_feedback 가 이해하는 **legacy** 액션 문자열.
+#: 그 서비스는 'accepted' 일 때만 +10% 이고 나머지 전부 -5% 다(신중 구역이라 시그니처 무변경).
+#: 신규 어휘는 라우터에서 여기로 번역한다 — 어느 방향으로 벡터를 움직일지는 호출자가 결정한다.
+VECTOR_ACTION_REINFORCE = "accepted"  # +10%
+VECTOR_ACTION_PENALIZE = "rejected"   # -5%
+
+
+async def apply_feedback_vector_learning(*, user_id: str, facility: dict, vector_action: str) -> bool:
+    """선호 벡터를 1회 보정한다. 실제 '몇 회 부를지'는 호출자(feedback_service 의 학습 슬롯)가 정한다.
+
+    이 함수는 **멱등하지 않다** — feedback_service 가 `should_learn_vector=True` 를 준 경우에만 부른다
+    (그 플래그는 행당 생애 최대 1회만 True 다. feedback_service 모듈 docstring 참조).
+
+    Args:
+        vector_action: VECTOR_ACTION_REINFORCE(+10%) 또는 VECTOR_ACTION_PENALIZE(-5%).
+
+    Returns:
+        실제로 벡터를 움직였으면 True. 미지 카테고리라 스킵했으면 False.
+    """
+    facility_type = facility.get("type")
+    facility_vector = CATEGORY_VECTORS.get(facility_type)
+    if facility_vector is None:
+        # 미지 카테고리는 제로 벡터 학습(정규화 시 균등벡터로 대체 → 무의미한 보정)이 되므로
+        # 조용히 반영하지 않고 경고 후 스킵한다. 피드백 이력 저장 자체는 이미 완료된 뒤다.
+        logger.warning("feedback_vector_skip_unknown_type", facility_type=facility_type, user_id=user_id)
+        return False
+    await preference_vector_service.adjust_user_vector_on_feedback(
+        user_id=user_id,
+        facility_vector=facility_vector,
+        action=vector_action,
+    )
+    return True
+
+
+async def resolve_feedback_target(recommendation_id: str, current_user: dict) -> tuple[dict, dict]:
+    """피드백/실험실 경로의 공통 진입 가드 — 추천 이력 조회 + 소유권 검사.
+
+    Returns:
+        (recommendation, facility)
+
+    Raises:
+        HTTPException: 404(합성 id·미존재 추천) / 403(타인 소유).
+    """
+    # recommendation_id 형식 방어 — by-type 브라우즈는 합성 id("bytype-…", DB 미저장)를 반환하므로
+    # 그런 값이 오면 uuid 컬럼 캐스팅 오류로 500 이 나기 전에 깔끔한 404 로 응답한다.
+    # (브라우즈 랭킹 수락은 쿠폰 발급 경로가 아니라 카카오맵 길안내로 처리된다.)
+    try:
+        uuid.UUID(str(recommendation_id))
+    except (ValueError, TypeError, AttributeError):
+        raise HTTPException(status_code=404, detail="해당 추천 기록을 찾을 수 없습니다.")
+
+    rec_res = await asyncio.to_thread(
+        supabase_client.table("recommendations")
+        .select("*, recommended_facility:facilities!recommended_facility_id(*)")
+        .eq("id", recommendation_id)
+        .execute
+    )
+    if not rec_res.data:
+        raise HTTPException(status_code=404, detail="해당 추천 기록을 찾을 수 없습니다.")
+
+    recommendation = rec_res.data[0]
+    # 소유권 가드: 타인의 추천 기록에 피드백을 넣어 그 사람의 선호 벡터를 오염시키는 것을 차단.
+    if recommendation["user_id"] != current_user["id"]:
+        raise HTTPException(status_code=403, detail="해당 추천 기록에 대한 권한이 없습니다.")
+
+    facility = recommendation.get("recommended_facility")
+    if isinstance(facility, list):
+        facility = facility[0] if facility else None
+    if not facility:
+        # facilities 를 조인하지 못했을 시 단독으로 시설 추가 조회
+        facility = await fetch_facility(recommendation["recommended_facility_id"])
+    return recommendation, facility
+
+
 @router.post("/feedback")
 async def submit_feedback(
     req: FeedbackRequest,
@@ -555,75 +640,68 @@ async def submit_feedback(
 ):
     logger.info("feedback_received", recommendation_id=req.recommendation_id, action=req.action)
 
-    # 0. recommendation_id 형식 방어 — by-type 브라우즈는 합성 id("bytype-…", DB 미저장)를 반환하므로
-    #    그런 값이 오면 uuid 컬럼 캐스팅 오류로 500 이 나기 전에 깔끔한 404 로 응답한다.
-    #    (브라우즈 랭킹 수락은 쿠폰 발급 경로가 아니라 카카오맵 길안내로 처리된다.)
-    try:
-        uuid.UUID(str(req.recommendation_id))
-    except (ValueError, TypeError, AttributeError):
-        raise HTTPException(status_code=404, detail="해당 추천 기록을 찾을 수 없습니다.")
+    # 1. 추천 이력 조회 + 소유권 가드(합성 bytype-* 는 404).
+    _recommendation, facility = await resolve_feedback_target(req.recommendation_id, current_user)
+    user_id = current_user["id"]  # body 의 user_id 를 신뢰하지 않는다 — 토큰 주체만 쓴다.
 
-    # 1. 기존 추천 이력 조회
-    rec_res = await asyncio.to_thread(
-        supabase_client.table("recommendations").select("*, recommended_facility:facilities!recommended_facility_id(*)").eq("id", req.recommendation_id).execute
-    )
-    if not rec_res.data:
-        raise HTTPException(status_code=404, detail="해당 추천 기록을 찾을 수 없습니다.")
-    
-    recommendation = rec_res.data[0]
-    user_id = recommendation["user_id"]
+    # 2. 만족도 신호(helpful/not_helpful): 품질 신호 전용 행만 남긴다.
+    #    결정 액션이 아니므로 수락 표시·쿠폰·벡터 어느 것도 건드리지 않는다.
+    if req.action in feedback_service.QUALITY_ACTIONS:
+        signal = await feedback_service.record_quality_signal(
+            supabase_client, user_id=user_id, recommendation_id=req.recommendation_id, action=req.action
+        )
+        logger.info("feedback_quality_signal_recorded", user_id=user_id, action=req.action)
+        return {
+            "success": True,
+            "feedback_id": signal["id"],
+            "action": req.action,
+            "reason_status": signal["reason_status"],
+            "updated_vector": False,
+        }
 
-    # 소유권 가드: 타인의 추천 기록에 피드백을 넣어 그 사람의 선호 벡터 저장소 선호벡터를 오염시키는 것을 차단.
-    if user_id != current_user["id"]:
-        raise HTTPException(status_code=403, detail="해당 추천 기록에 대한 권한이 없습니다.")
-
-    facility = recommendation.get("recommended_facility")
-    if not facility:
-        # facilities를 조인하지 못했을 시 단독으로 시설 추가 조회
-        facility = await fetch_facility(recommendation["recommended_facility_id"])
-
-    # 2. user_feedback 이력 저장
-    await asyncio.to_thread(
-        supabase_client.table("user_feedback").insert({
-            "user_id": user_id,
-            "recommendation_id": req.recommendation_id,
-            "action": req.action
-        }).execute
+    # 3. 결정 액션: 추천 1건당 결정 행 1개로 멱등 기록한다(중복 학습 금지).
+    #    rejected 는 여기서 reason_status='pending' 으로만 적재되고 장기 벡터는 움직이지 않는다 —
+    #    실제 -5% 는 실험실에서 사유가 확정될 때(POST /api/v1/lab/{id}/reason) 정확히 1회 적용된다.
+    decision = await feedback_service.record_decision(
+        supabase_client, user_id=user_id, recommendation_id=req.recommendation_id, action=req.action
     )
 
-    # 3. 수락 행동인 경우 recommendations 테이블의 accepted 여부 업데이트
-    if req.action == "accepted":
+    # 4. 실제 방문 수락만 수락 표시 + 쿠폰 발급을 유발한다.
+    #    (쿠폰 발급·accepted 플래그 자체가 멱등이라 재요청에도 안전하게 그대로 통과시킨다 —
+    #     1차 시도가 중간에 실패한 경우를 재요청으로 복구할 수 있게 한다.)
+    if req.action == feedback_service.ACTION_ACCEPTED_VISIT_INTENT:
         await asyncio.to_thread(
             supabase_client.table("recommendations")
             .update({"accepted": True})
             .eq("id", req.recommendation_id)
             .execute
         )
-        # 3-1. 제휴 시설이면 '내 쿠폰함'에 쿠폰 발급 — 실제 '수락'을 게이트로 w3 인센티브(coupon_rate)를
-        #      현물화한다(리뷰 P1#1: 발급 경로 미연결 → 지갑이 늘 비던 문제 해소, P2#8: 발급 게이팅).
-        #      발급 규칙(제휴 판정·멱등 upsert·만료 7일·best-effort)은 issue_coupon_if_partner 로 통일해
-        #      수락 파이프라인(/recommendations/accept)과 동일하게 재사용한다.
+        # 제휴 시설이면 '내 쿠폰함'에 쿠폰 발급 — 실제 '수락'을 게이트로 w3 인센티브(coupon_rate)를
+        # 현물화한다. 발급 규칙(제휴 판정·멱등 upsert·만료 7일·best-effort)은 issue_coupon_if_partner 로
+        # 통일해 수락 파이프라인(/recommendations/accept)과 동일하게 재사용한다.
         await issue_coupon_if_partner(supabase_client, user_id, facility)
 
-    # 4. 선호 벡터 저장소 사용자 선호도 벡터 학습 보정
-    # 시설 특성 및 카테고리에 맞는 기본 벡터 획득
-    facility_type = facility["type"]
-    facility_vector = CATEGORY_VECTORS.get(facility_type)
-    if facility_vector is None:
-        # 미지 카테고리는 제로 벡터 학습(정규화 시 균등벡터로 대체 → 무의미한 보정)이 되므로
-        # 조용히 반영하지 않고 경고 후 스킵한다. 피드백 이력 저장 자체는 위에서 완료됨.
-        logger.warning("feedback_vector_skip_unknown_type", facility_type=facility_type, user_id=user_id)
-        return {"success": True, "updated_vector": False}
+    # 5. 선호 벡터 학습 — 서비스가 학습 슬롯을 선점해준 경우에만(행당 생애 1회).
+    updated_vector = False
+    if decision["should_learn_vector"]:
+        updated_vector = await apply_feedback_vector_learning(
+            user_id=user_id, facility=facility, vector_action=VECTOR_ACTION_REINFORCE
+        )
 
-    # 피드백 학습 반영
-    await preference_vector_service.adjust_user_vector_on_feedback(
+    logger.info(
+        "feedback_processed",
         user_id=user_id,
-        facility_vector=facility_vector,
-        action=req.action
+        action=req.action,
+        created=decision["created"],
+        updated_vector=updated_vector,
     )
-
-    logger.info("feedback_processed_and_vector_updated", user_id=user_id)
-    return {"success": True, "updated_vector": True}
+    return {
+        "success": True,
+        "feedback_id": decision["id"],
+        "action": decision["action"],
+        "reason_status": decision["reason_status"],
+        "updated_vector": updated_vector,
+    }
 
 
 class UserVectorResponse(BaseModel):
