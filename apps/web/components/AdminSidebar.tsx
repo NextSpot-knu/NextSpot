@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { LayoutDashboard, Building2, BarChart3, Settings, HelpCircle, Sparkles, LogOut } from 'lucide-react';
+import { LayoutDashboard, Building2, BarChart3, Settings, HelpCircle, Sparkles, LogOut, ShieldAlert, Printer } from 'lucide-react';
 import { signOutAdmin } from '@/lib/admin-auth';
 
 export function AdminSidebar() {
@@ -19,6 +19,8 @@ export function AdminSidebar() {
     { name: '장소 관리', path: '/admin/infrastructure', icon: Building2 },
     { name: 'Simulator', path: '/admin/simulator', icon: Sparkles },
     { name: '통계 리포트', path: '/admin/reports', icon: BarChart3 },
+    { name: '안전 경보', path: '/admin/safety', icon: ShieldAlert },
+    { name: '성과 리포트', path: '/admin/report', icon: Printer },
     { name: '문의 관리 (Support)', path: '/admin/support', icon: HelpCircle },
     { name: '시스템 설정', path: '/admin/settings', icon: Settings },
   ];
