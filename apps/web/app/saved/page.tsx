@@ -6,7 +6,7 @@ import { Menu, Bell, Compass, Star, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { RecommendationCard } from '@/components/RecommendationCard';
 import { CongestionAlertToggle } from '@/components/CongestionAlertToggle';
-import { apiClient } from '@/lib/api-client';
+import { apiClient, submitFeedback } from '@/lib/api-client';
 import { scoreFacility, type Spot } from '@/lib/recommender';
 import { REGION } from '@/lib/region';
 import { useT } from '@/lib/i18n/I18nProvider';
@@ -29,6 +29,16 @@ interface BookmarkData {
   longitude?: number;
   spot?: Spot; // main(handlePutOff)이 저장하는 SavedBookmark.spot — lib/recommender 의 Spot 그대로
   reason?: string; // 저장 시점의 추천 사유(백엔드 템플릿 또는 미러)
+  // 저장 당시의 실제 recommendations 행 id(있을 때만). 현재 유일한 저장 경로인 main(handlePutOff)은
+  // /recommendations/by-type 의 합성 id(bytype-*)만 갖고 있어 이 필드를 기록하지 않는다 — 즉 오늘은
+  // 항상 undefined 이고 아래 unsaved 전송은 no-op 이다. 없는 id 를 지어내지 않기 위한 의도적 설계이며,
+  // 저장 경로가 실 추천 행을 갖게 되면 이 필드만 채우면 서버 전송이 자동으로 살아난다.
+  recommendationId?: string;
+}
+
+// 서버에 기록된 실제 추천만 피드백 대상 — mock-(데모 폴백)·bytype-(브라우즈 합성 id)는 DB 행이 없어 404 다.
+function isRealRecommendationId(id: string | undefined): id is string {
+  return !!id && !id.startsWith('mock-') && !id.startsWith('bytype-');
 }
 
 export default function SavedPage() {
@@ -156,8 +166,18 @@ export default function SavedPage() {
     return { view, isLive: true };
   };
 
+  // 저장 해제 → unsaved. '취향에 안 맞는다'는 거절이 아니라 '목록에서 뺀다'는 정리 동작이므로 학습이 없다
+  // (백엔드가 벡터를 건드리지 않는다). fire-and-forget — 삭제는 로컬이 정본이라 전송 실패와 무관하게 끝난다.
+  const notifyUnsaved = (bookmark: BookmarkData | undefined) => {
+    if (!bookmark || !isRealRecommendationId(bookmark.recommendationId)) return;
+    submitFeedback(bookmark.recommendationId, 'unsaved').catch((err) => {
+      console.warn('저장 해제 피드백 전송 실패(로컬 삭제에는 영향 없음):', err);
+    });
+  };
+
   const handleDelete = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
+    notifyUnsaved(bookmarks.find(b => b.id === id));
     const updated = bookmarks.filter(b => b.id !== id);
     setBookmarks(updated);
     localStorage.setItem('nextspot_saved_facilities', JSON.stringify(updated));
@@ -464,6 +484,8 @@ export default function SavedPage() {
               window.open(destUrl, '_blank');
             }}
             onReject={() => {
+              // 상세 시트의 '관심 없음'도 저장 목록에서 빼는 동작 — rejected(취향 거절)가 아니라 unsaved 다.
+              notifyUnsaved(selectedBookmark);
               const updated = bookmarks.filter(b => b.id !== selectedBookmark.id);
               setBookmarks(updated);
               localStorage.setItem('nextspot_saved_facilities', JSON.stringify(updated));

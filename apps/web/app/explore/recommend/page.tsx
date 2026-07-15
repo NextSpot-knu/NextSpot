@@ -31,6 +31,12 @@ function buildFallbackReason(name: string, waitMin: number, distanceM: number, c
   return `${name} 추천: 도보 ${walk}분, 예상 대기 ${Math.round(waitMin)}분 수준으로 ${mood}.`;
 }
 
+// 합성 추천 id 판별 — mock-(데모 폴백)·bytype-(/recommendations/by-type 브라우즈)는 recommendations
+// 테이블에 행이 없어 /feedback 이 404 다. 서버 전송 전 반드시 걸러 404 소음을 만들지 않는다.
+function isSyntheticRecommendationId(id: string): boolean {
+  return id.startsWith("mock-") || id.startsWith("bytype-");
+}
+
 // MiniMap Component for Kakao Maps inside alternative cards
 interface MiniMapProps {
   latitude: number;
@@ -154,6 +160,8 @@ function RecommendContent() {
   const recognitionRef = useRef<any>(null);
   // 빠른 더블클릭으로 인한 중복 피드백 전송 방지 — 리렌더 전에도 동기적으로 차단되는 가드
   const votedRef = useRef<Set<string>>(new Set());
+  // 음성 '다음'(skipped) 중복 전송 방지 — 만족도(votedRef)와 별개 어휘라 집합을 분리한다.
+  const skippedRef = useRef<Set<string>>(new Set());
 
 
   // 추천별 만족도 피드백(👍/👎) 기록 — 중복 전송 방지 + 버튼 선택 상태 표시
@@ -240,6 +248,7 @@ function RecommendContent() {
     // 새 추천 세트엔 이전 세트의 만족도 상태가 무의미하다. 같은 recommendationId 가 다시 와도
     // 새 카드의 👍/👎 가 잠기지 않도록 초기화한다.
     votedRef.current = new Set();
+    skippedRef.current = new Set();
     setFeedbackVotes({});
   }, [recommendations]);
 
@@ -619,8 +628,9 @@ function RecommendContent() {
     try {
       toast.success(t("recommend.acceptStart"));
 
-      // 1. Submit feedback accepted to FastAPI
-      await submitFeedback(rec.recommendationId, "accepted");
+      // 1. 실제 방문 의사(길안내 시작)만 accepted_visit_intent — 쿠폰·성과지표·선호벡터 +10% 는 이 액션에만 붙는다.
+      //    카드의 만족도 👍(helpful)와 의도적으로 구분한다(같은 어휘로 묶으면 벡터가 오염된다).
+      await submitFeedback(rec.recommendationId, "accepted_visit_intent");
 
       // 2. Prepare toast category-specific greeting
       let greeting = t("map.greetingDefault");
@@ -690,9 +700,10 @@ function RecommendContent() {
     }
   };
 
-  // 추천 카드별 만족도 피드백(👍/👎). 백엔드 액션에 매핑: 👍=accepted(선호벡터 +10%), 👎=rejected(-5%).
-  // 만족도 신호일 뿐 실제 경로 이동('여기로 갈래요')과는 별개다. 목업 추천(mock- 접두)은 DB 기록이 없어
-  // 서버 호출을 건너뛰고 UI 상태/토스트만 갱신해 데모가 끊기지 않게 한다.
+  // 추천 카드별 만족도 피드백(👍/👎) → helpful / not_helpful. 추천 품질 신호일 뿐이므로 선호 벡터는
+  // 건드리지 않는다 — 예전엔 accepted/rejected 로 보내 '보기엔 좋았다'는 신호가 방문 수락과 같은 +10%,
+  // '별로'가 명시 거절과 같은 -5% 로 학습돼 벡터를 오염시켰다(감사 P1-1).
+  // 목업/합성 추천은 DB 행이 없어 서버 호출을 건너뛰고 UI 상태/토스트만 갱신한다(데모 무중단).
   const handleSatisfactionFeedback = async (rec: RecommendationResponse, vote: "up" | "down") => {
     // 동기 가드(ref): 상태 반영(리렌더) 전 빠른 연타도 차단. feedbackVotes 가드/버튼 숨김은 보조.
     if (votedRef.current.has(rec.recommendationId) || feedbackVotes[rec.recommendationId]) return;
@@ -703,12 +714,23 @@ function RecommendContent() {
         ? t("recommend.feedbackUp")
         : t("recommend.feedbackDown")
     );
-    if (rec.recommendationId.startsWith("mock-")) return; // 데모 폴백 추천은 서버에 기록 없음
+    if (isSyntheticRecommendationId(rec.recommendationId)) return; // 데모/합성 추천은 서버에 기록 없음
     try {
-      await submitFeedback(rec.recommendationId, vote === "up" ? "accepted" : "rejected");
+      await submitFeedback(rec.recommendationId, vote === "up" ? "helpful" : "not_helpful");
     } catch (err) {
       console.warn("만족도 피드백 전송 실패(데모 동작에는 영향 없음):", err);
     }
+  };
+
+  // 음성 '다음' → skipped. '지금은 넘김'일 뿐 취향 거절이 아니라 학습이 없다(백엔드가 벡터를 건드리지 않음).
+  // 음성 흐름을 막지 않도록 fire-and-forget — 전송 결과와 무관하게 다음 카드로 진행한다.
+  const sendSkipped = (rec: RecommendationResponse) => {
+    if (isSyntheticRecommendationId(rec.recommendationId)) return;
+    if (skippedRef.current.has(rec.recommendationId)) return;
+    skippedRef.current.add(rec.recommendationId);
+    submitFeedback(rec.recommendationId, "skipped").catch((err) => {
+      console.warn("건너뛰기 피드백 전송 실패(데모 동작에는 영향 없음):", err);
+    });
   };
 
   // "다른 대안 보기" Click: Reject current top 3, fetch next 3
@@ -717,12 +739,14 @@ function RecommendContent() {
     quietAssistant(); // 음성 비서 진행 중이면 정리(수동/음성 새로고침 공통)
     setIsRefreshing(true);
     try {
-      // 1. 실제 추천만 rejected 전송 — 목업(mock-rec-id)은 DB 기록이 없어 404 이므로 스킵하고,
-      //    개별 실패도 allSettled 로 삼켜 한 건 실패가 전체를 깨뜨리지 않게 한다(handleSatisfactionFeedback 과 대칭).
+      // 1. 보이던 묶음 전체를 dismissed_batch 로 전송 — '이 목록 말고 다른 걸 보여줘'는 개별 장소에 대한
+      //    명시 거절이 아니다. 예전엔 rejected 로 보내 화면에 뜬 것만으로 3곳 전부 -5% 감점되던 문제(감사 P1-1).
+      //    목업/합성 id 는 DB 기록이 없어 404 이므로 스킵하고, 개별 실패도 allSettled 로 삼켜
+      //    한 건 실패가 전체를 깨뜨리지 않게 한다(handleSatisfactionFeedback 과 대칭).
       await Promise.allSettled(
         recommendations
-          .filter((rec) => !rec.recommendationId.startsWith("mock-"))
-          .map((rec) => submitFeedback(rec.recommendationId, "rejected"))
+          .filter((rec) => !isSyntheticRecommendationId(rec.recommendationId))
+          .map((rec) => submitFeedback(rec.recommendationId, "dismissed_batch"))
       );
 
       // 2. 새 추천 시도. 실패해도 전체 흐름을 깨지 않고 빈 추천(빈 상태 UI)으로 처리한다(실데이터 전용).
@@ -877,6 +901,8 @@ function RecommendContent() {
         sayThen(t("recommend.voiceThanksNext"), () => advanceOrFinish(cardIndex));
         break;
       case "next":
+        // 음성 '다음' = skipped(학습 없음). 'negative'(별로)와 달리 품질 신호조차 아니다.
+        sendSkipped(rec);
         sayThen(t("recommend.voiceNext"), () => advanceOrFinish(cardIndex));
         break;
       default: // unknown

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
+import { toast } from 'sonner';
 import dynamic from 'next/dynamic';
 import { User, Search, Mic, X, Utensils, MapPin, Building2, Coffee, ChevronDown, ChevronUp } from 'lucide-react';
 import { createPublicClient } from '@/lib/supabase';
@@ -79,6 +80,11 @@ interface FacilityGroup extends FacilityRecord {
   subFacilities: Facility[];
 }
 type Facility = SingleFacility | FacilityGroup;
+
+// '관심 없음' 직후 거절 이유를 나중에 알려줄 수 있다는 안내(lab.hint)를 처음 몇 번만 노출하기 위한 카운터.
+// 매번 띄우면 거절 흐름을 방해하므로 상한을 둔다.
+const LAB_HINT_KEY = 'nextspot_lab_hint_shown';
+const LAB_HINT_MAX_SHOWS = 2;
 
 // localStorage 'nextspot_saved_facilities' 항목 — handlePutOff 가 저장하는 형태(읽기는 id만 사용).
 interface SavedBookmark {
@@ -1066,8 +1072,28 @@ export default function MainPage() {
       }
       return next;
     });
-    
+
     showToast(t('map.rejectToast', { name: fac.name }));
+    maybeShowLabHint();
+  };
+
+  // 거절 안내 힌트(lab.hint) — 처음 LAB_HINT_MAX_SHOWS 회만, 비차단으로 노출.
+  // 이 페이지의 거절은 서버로 보내지 않는다: 후보가 /recommendations/by-type 의 합성 id(bytype-*)라
+  // recommendations 행이 없어 /feedback 이 404 다. 브라우즈 임프레션을 recommendations 에 적재하면
+  // B2G 수락률 지표의 소스가 오염되므로 저장으로 바꾸지도 않는다. 따라서 거절은 기존대로 현재 세션
+  // 후보 제외(rejectedIds)에만 쓰이고 — 감사 계약 3과 정합 — 이유는 나의 실험실에서 받는다고 안내만 한다.
+  // 페이지 로컬 showToast 대신 전역 sonner 를 쓰는 이유: showToast 는 단일 슬롯이라 방금 띄운
+  // map.rejectToast('~를 제외했어요')를 덮어써 거절 확인 자체가 사라진다.
+  const maybeShowLabHint = () => {
+    if (typeof window === 'undefined') return;
+    try {
+      const shown = Number(localStorage.getItem(LAB_HINT_KEY)) || 0;
+      if (shown >= LAB_HINT_MAX_SHOWS) return;
+      localStorage.setItem(LAB_HINT_KEY, String(shown + 1));
+    } catch {
+      return; // localStorage 차단 → 노출 횟수를 셀 수 없으므로 아예 띄우지 않는다(무한 반복 방지).
+    }
+    toast.info(t('lab.hint'));
   };
 
   // 음성 '다음/별로': 폐기(rejectedIds)하지 않고 '안정 랭킹'에서 다음 순위로만 이동(우선순위만 낮춤).
