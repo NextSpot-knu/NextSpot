@@ -19,6 +19,7 @@ const ko: Messages = {
   common: {
     appName: 'NextSpot',
     retry: '다시 시도',
+    nowTime: '현재 {time} 기준',
     close: '닫기',
     save: '저장',
     cancel: '취소',
@@ -190,6 +191,7 @@ const ko: Messages = {
     statRoutes: '경로',
     statSaved: '저장',
     statVisited: '방문',
+    statTimeSaved: '아낀 시간',
     statRating: '평점',
     alertMenu: '이상 혼잡 알림',
     menuCourse: '분산 코스 추천',
@@ -517,6 +519,7 @@ const en: Messages = {
   common: {
     appName: 'NextSpot',
     retry: 'Retry',
+    nowTime: 'As of {time}',
     close: 'Close',
     save: 'Save',
     cancel: 'Cancel',
@@ -688,6 +691,7 @@ const en: Messages = {
     statRoutes: 'Routes',
     statSaved: 'Saved',
     statVisited: 'Visited',
+    statTimeSaved: 'Time saved',
     statRating: 'Rating',
     alertMenu: 'Congestion alerts',
     menuCourse: 'Dispersal course',
@@ -1015,6 +1019,7 @@ const ja: Messages = {
   common: {
     appName: 'NextSpot',
     retry: '再試行',
+    nowTime: '現在 {time} 基準',
     close: '閉じる',
     save: '保存',
     cancel: 'キャンセル',
@@ -1186,6 +1191,7 @@ const ja: Messages = {
     statRoutes: 'ルート',
     statSaved: '保存',
     statVisited: '訪問',
+    statTimeSaved: '短縮時間',
     statRating: '評価',
     alertMenu: '異常混雑アラート',
     menuCourse: '分散コース推薦',
@@ -1513,6 +1519,7 @@ const zh: Messages = {
   common: {
     appName: 'NextSpot',
     retry: '重试',
+    nowTime: '以当前 {time} 为准',
     close: '关闭',
     save: '保存',
     cancel: '取消',
@@ -1684,6 +1691,7 @@ const zh: Messages = {
     statRoutes: '路线',
     statSaved: '收藏',
     statVisited: '已访问',
+    statTimeSaved: '节省时间',
     statRating: '评分',
     alertMenu: '异常拥挤提醒',
     menuCourse: '分流路线推荐',

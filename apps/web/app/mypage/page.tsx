@@ -5,10 +5,11 @@ import { useRouter } from 'next/navigation';
 import {
   Menu, Bell, Bookmark, User,
   Edit2, ChevronRight, LogOut,
-  Settings as SettingsIcon, Ticket, X, Footprints, Sparkles
+  Settings as SettingsIcon, Ticket, X, Footprints, Sparkles, Hourglass
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { createPublicClient } from '@/lib/supabase';
+import { apiClient } from '@/lib/api-client';
 import { getVisitCount } from '@/lib/visits';
 import TasteRadar from '@/components/TasteRadar';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
@@ -36,6 +37,25 @@ export default function MyPage() {
   const [visitCount, setVisitCount] = useState(0);
   useEffect(() => {
     try { setVisitCount(getVisitCount()); } catch { /* localStorage 차단 무시 */ }
+  }, []);
+
+  // 아낀 대기 시간(분) — 임팩트 API의 누적 집계(수락 추천들의 대기 절약 합, score_breakdown 실저장값).
+  // 백엔드 미가용/무세션이면 타일을 숨긴다(null 유지 — 가짜 0 적립을 보여주지 않는 정직성).
+  // 첫 실패는 익명 세션 부트스트랩 레이스일 수 있어 2.5초 유예 1회 재시도(waiting/impact 와 동일 패턴).
+  const [waitSaved, setWaitSaved] = useState<number | null>(null);
+  useEffect(() => {
+    let retried = false;
+    let alive = true;
+    const load = async () => {
+      try {
+        const d = await apiClient.get('/api/v1/impact/summary');
+        if (alive) setWaitSaved(Math.max(0, Math.round(Number(d?.waitSavedMinutes) || 0)));
+      } catch {
+        if (!retried) { retried = true; setTimeout(() => { void load(); }, 2500); }
+      }
+    };
+    void load();
+    return () => { alive = false; };
   }, []);
 
   useEffect(() => {
@@ -222,18 +242,31 @@ export default function MyPage() {
                   </button>
                 </div>
 
-                {/* 통계 — 실제 소스가 있는 항목만 표시(가짜 경로수·평점 제거). 저장한 장소 + 방문한 곳(방문 확인 루프 실데이터). */}
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="bg-white border border-line rounded-2xl p-4 flex items-center justify-center gap-3 shadow-[0_2px_14px_rgba(43,35,32,0.06)]">
-                    <Bookmark size={20} className="text-terracotta" fill="currentColor" />
+                {/* 통계 — 실제 소스가 있는 항목만 표시(가짜 경로수·평점 제거). 저장 + 방문(방문 확인 루프)
+                    + 아낀 시간(임팩트 API 누적, 로드 성공 시에만 3열로 확장 — 실패 시 가짜 0 미노출). */}
+                <div className={`grid ${waitSaved !== null ? 'grid-cols-3' : 'grid-cols-2'} gap-3`}>
+                  <div className="bg-white border border-line rounded-2xl p-4 flex items-center justify-center gap-3 max-[420px]:gap-1.5 shadow-[0_2px_14px_rgba(43,35,32,0.06)]">
+                    <Bookmark size={20} className="text-terracotta shrink-0" fill="currentColor" />
                     <span className="text-xl font-bold text-muk">{profile.saved}</span>
-                    <span className="text-xs text-muk-soft font-medium">{t('mypage.statSaved')}</span>
+                    <span className="text-xs text-muk-soft font-medium whitespace-nowrap">{t('mypage.statSaved')}</span>
                   </div>
-                  <div className="bg-white border border-line rounded-2xl p-4 flex items-center justify-center gap-3 shadow-[0_2px_14px_rgba(43,35,32,0.06)]">
-                    <Footprints size={20} className="text-jade" />
+                  <div className="bg-white border border-line rounded-2xl p-4 flex items-center justify-center gap-3 max-[420px]:gap-1.5 shadow-[0_2px_14px_rgba(43,35,32,0.06)]">
+                    <Footprints size={20} className="text-jade shrink-0" />
                     <span className="text-xl font-bold text-muk">{visitCount}</span>
-                    <span className="text-xs text-muk-soft font-medium">{t('mypage.statVisited')}</span>
+                    <span className="text-xs text-muk-soft font-medium whitespace-nowrap">{t('mypage.statVisited')}</span>
                   </div>
+                  {waitSaved !== null && (
+                    <button
+                      type="button"
+                      onClick={() => router.push('/mypage/impact')}
+                      aria-label={t('mypage.statTimeSaved')}
+                      className="bg-white border border-line rounded-2xl p-4 flex items-center justify-center gap-3 max-[420px]:gap-1.5 shadow-[0_2px_14px_rgba(43,35,32,0.06)] hover:bg-hanji-deep/40 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+                    >
+                      <Hourglass size={20} className="text-gold-deep shrink-0" />
+                      <span className="text-xl font-bold text-muk whitespace-nowrap">{t('impact.tileWaitSavedValue', { n: waitSaved })}</span>
+                      <span className="text-xs text-muk-soft font-medium whitespace-nowrap">{t('mypage.statTimeSaved')}</span>
+                    </button>
+                  )}
                 </div>
               </div>
 

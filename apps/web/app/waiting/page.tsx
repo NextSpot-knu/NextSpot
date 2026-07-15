@@ -22,6 +22,7 @@ import { recToSpot } from "@/lib/recommender";
 import { REGION } from "@/lib/region";
 import { useT } from "@/lib/i18n/I18nProvider";
 import { GoldenHourBadge } from "@/components/GoldenHourBadge";
+import NowChip from "@/components/NowChip";
 
 // 시설 종류 이모지 — course/page.tsx TYPE_OPTIONS 와 동일 매핑(레포 전역 관례 통일).
 const TYPE_EMOJI: Record<string, string> = {
@@ -168,9 +169,13 @@ export default function WaitingBoardPage() {
             <ArrowLeft size={18} />
           </button>
           <div className="min-w-0">
-            <span className="inline-flex items-center w-fit px-2.5 py-1 rounded-full bg-gold/10 border border-gold/25 text-[11px] font-bold text-gold-deep">
-              {t("waiting.brand")}
-            </span>
+            {/* 브랜드 칩 + 현재 시각 — '도착 시 대기 N분'의 기준 시점을 명시(예측 수치 혼동 방지). */}
+            <div className="flex items-center gap-2">
+              <span className="inline-flex items-center w-fit px-2.5 py-1 rounded-full bg-gold/10 border border-gold/25 text-[11px] font-bold text-gold-deep">
+                {t("waiting.brand")}
+              </span>
+              <NowChip />
+            </div>
             <h1 className="text-xl md:text-2xl font-serif font-bold text-muk leading-tight mt-1">
               {t("waiting.title")}
             </h1>

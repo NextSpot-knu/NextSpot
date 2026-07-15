@@ -18,6 +18,7 @@ import { toast } from "sonner";
 import { useT } from "@/lib/i18n/I18nProvider";
 import { ShareButton } from "@/components/ShareButton";
 import CourseMap from "@/components/CourseMap";
+import NowChip from "@/components/NowChip";
 import { encodeStops, parseShareParam } from "@/lib/course-share";
 
 type TFunc = (key: string, vars?: Record<string, string | number>) => string;
@@ -399,9 +400,13 @@ function CourseContent() {
               {/* 헤더 블록: 브랜드 칩 → 헤드라인(+도착 보조텍스트) → 한 줄 설명.
                   정류지가 아직 없으면(로딩 직후 빈 결과/에러/인증 등) 기존 제목/설명으로 폴백. */}
               <section className="space-y-2">
-                <span className="inline-flex items-center w-fit px-2.5 py-1 rounded-full bg-gold/10 border border-gold/25 text-[11px] font-bold text-gold-deep">
-                  {t('course.brand')}
-                </span>
+                {/* 브랜드 칩 + 현재 시각 — 도착 예정시각(headlineEta)이 어느 시점 기준인지 명시(혼동 방지). */}
+                <div className="flex items-center gap-2">
+                  <span className="inline-flex items-center w-fit px-2.5 py-1 rounded-full bg-gold/10 border border-gold/25 text-[11px] font-bold text-gold-deep">
+                    {t('course.brand')}
+                  </span>
+                  <NowChip />
+                </div>
                 {activeStops.length > 0 && lastStop ? (
                   <>
                     <div className="flex items-end justify-between gap-3">
