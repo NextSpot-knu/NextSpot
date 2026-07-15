@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import {
   Menu, Bell, Bookmark, User,
   Edit2, ChevronRight, LogOut,
-  Settings as SettingsIcon, Ticket, X, Footprints
+  Settings as SettingsIcon, Ticket, X, Footprints, Sparkles
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { createPublicClient } from '@/lib/supabase';
@@ -256,6 +256,7 @@ export default function MyPage() {
               {(() => {
                 const menus = [
                   // 분산 코스 추천은 주 내비게이션 바로 승격됨(홈-저장-분산코스-마이).
+                  { id: 'impact', icon: Sparkles, labelKey: 'mypage.menuImpact', path: '/mypage/impact' },
                   { id: 'coupons', icon: Ticket, labelKey: 'mypage.menuCoupons', path: '/mypage/coupons' },
                   { id: 'settings', icon: SettingsIcon, labelKey: 'mypage.menuSettings', path: '/mypage/settings' },
                 ];
