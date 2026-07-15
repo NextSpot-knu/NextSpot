@@ -17,7 +17,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Crown } from "lucide-react";
-import { recommendByType } from "@/lib/api-client";
+import { isServiceUnavailable, recommendByType } from "@/lib/api-client";
 import { recToSpot } from "@/lib/recommender";
 import { REGION } from "@/lib/region";
 import { useT } from "@/lib/i18n/I18nProvider";
@@ -86,6 +86,8 @@ export default function WaitingBoardPage() {
 
   // 세션 부트스트랩 유예 자동 재시도 1회 플래그(아래 fetchBoard 참조)
   const retriedRef = useRef(false);
+  // JWKS 등 서버 일시 장애(503)는 짧은 backoff 뒤 1회만 별도 재시도한다.
+  const serviceUnavailableRetriedRef = useRef(false);
 
   const goToDetail = useCallback(
     (facilityId: string) => {
@@ -146,6 +148,22 @@ export default function WaitingBoardPage() {
     });
 
     if (!anySucceeded) {
+      const allServiceUnavailable = results.every(
+        (result) => result.status === "rejected" && isServiceUnavailable(result.reason)
+      );
+
+      if (allServiceUnavailable) {
+        if (!serviceUnavailableRetriedRef.current) {
+          serviceUnavailableRetriedRef.current = true;
+          setTimeout(() => { void fetchBoard(); }, 500);
+          return; // loading 유지 — 503 자동 재시도는 1회로 제한
+        }
+        setFailed(true);
+        setSectors(null);
+        setLoading(false);
+        return;
+      }
+
       // 첫 진입 직행 시 익명 세션 부트스트랩(SessionBootstrap)이 끝나기 전 401 로 전멸할 수 있다
       // (실측 재현). 유예 2.5초 후 자동 1회만 재시도 — 그래도 실패하면 정직한 에러+수동 재시도.
       if (!retriedRef.current) {

@@ -1,4 +1,6 @@
 import hmac
+import threading
+import time
 from typing import Optional
 
 from collections.abc import Callable
@@ -6,6 +8,7 @@ from collections.abc import Callable
 import jwt
 # pyrefly: ignore [missing-import]
 from jwt import PyJWKClient
+from jwt.exceptions import PyJWKClientConnectionError
 import structlog
 from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -19,14 +22,41 @@ _logger = structlog.get_logger()
 # (익명 로그인 토큰도 동일.) HS256 legacy 시크릿으로는 검증 불가하므로 JWKS 공개키로 검증한다.
 # JWKS 엔드포인트: {SUPABASE_URL}/auth/v1/.well-known/jwks.json — 공개키라 캐시 재사용(lazy 싱글턴).
 _jwks_client: Optional[PyJWKClient] = None
+_jwks_lock = threading.RLock()
+# 실측(2026-07-15): 콜드 최초 fetch 772ms, 이후 웜 80~100ms. DNS+TLS 를 새로 맺는 최초 1회가
+# 압도적으로 느리므로 timeout 은 그 위로 잡는다 — 여기를 조이면 정작 목표인 콜드 스타트에서
+# 첫 시도가 타임아웃난다. 상한은 프런트 요청 타임아웃 10초(api-client REQUEST_TIMEOUT_MS)를
+# 넘지 않게: 최악 2.0 + 0.2 + 2.0 ≈ 4.2초.
+_JWKS_TIMEOUT_SECONDS = 2.0
+_JWKS_RETRY_BACKOFF_SECONDS = 0.2
 
 
 def _get_jwks_client() -> PyJWKClient:
     global _jwks_client
-    if _jwks_client is None:
-        base = (settings.SUPABASE_URL or "").rstrip("/")
-        _jwks_client = PyJWKClient(f"{base}/auth/v1/.well-known/jwks.json")
+    with _jwks_lock:
+        if _jwks_client is None:
+            base = (settings.SUPABASE_URL or "").rstrip("/")
+            _jwks_client = PyJWKClient(
+                f"{base}/auth/v1/.well-known/jwks.json",
+                timeout=_JWKS_TIMEOUT_SECONDS,
+            )
     return _jwks_client
+
+
+def _get_signing_key(token: str):
+    """JWKS fetch를 single-flight로 합치고 일시적 연결 실패만 한 번 재시도한다.
+
+    콜드 캐시일 때 /waiting 의 4개 병렬 요청이 각자 JWKS 를 조회하던 stampede 를 락으로 합친다.
+    대기 요청은 락 획득 후 PyJWKClient 캐시를 다시 확인하므로 성공한 조회를 중복 실행하지 않는다.
+    최초 조회의 명목상 최대 대기는 약 4.2초(위 상수 참조) — 프런트 10초 타임아웃 안에 든다.
+    """
+    with _jwks_lock:
+        client = _get_jwks_client()
+        try:
+            return client.get_signing_key_from_jwt(token).key
+        except PyJWKClientConnectionError:
+            time.sleep(_JWKS_RETRY_BACKOFF_SECONDS)
+            return client.get_signing_key_from_jwt(token).key
 
 
 def _create_client(url: str, key: str, *, role: str) -> Client:
@@ -120,7 +150,7 @@ def get_current_user(
         #  · HS256(대칭, legacy) → JWT_SECRET (구 프로젝트/셀프호스트 호환)
         alg = str(jwt.get_unverified_header(token).get("alg", "")).upper()
         if alg.startswith(("ES", "RS", "PS", "ED")):
-            signing_key = _get_jwks_client().get_signing_key_from_jwt(token).key
+            signing_key = _get_signing_key(token)
             payload = jwt.decode(token, signing_key, algorithms=[alg], audience="authenticated")
         else:
             payload = jwt.decode(token, settings.JWT_SECRET, algorithms=["HS256"], audience="authenticated")
@@ -147,9 +177,17 @@ def get_current_user(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="만료된 JWT 토큰입니다.",
         )
+    except PyJWKClientConnectionError as e:
+        # 토큰 자체의 문제가 아니라 JWKS 의존성을 조회할 수 없는 일시적 서버 장애다.
+        # 인증은 계속 fail-closed로 거부하되, 클라이언트가 401과 구분해 제한 재시도할 수 있게 한다.
+        _logger.warning("jwks_connection_failed", error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="인증 서버에 일시적으로 연결할 수 없습니다. 잠시 후 다시 시도해 주세요.",
+        )
     except Exception as e:
-        # PyJWTError(서명·클레임 불일치)뿐 아니라 JWKS 조회 네트워크 오류(URLError 등)도 포섭해
-        # 인증 실패로 닫는다(fail-closed). 원문은 서버 로그로만 — 라이브러리 내부 메시지 비노출.
+        # PyJWTError(서명·클레임 불일치) 등은 기존처럼 인증 실패로 닫는다(fail-closed).
+        # 원문은 서버 로그로만 남기고 라이브러리 내부 메시지는 노출하지 않는다.
         _logger.warning("jwt_verification_failed", error=str(e))
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

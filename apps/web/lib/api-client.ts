@@ -20,6 +20,23 @@ export function isAuthError(err: unknown): err is AuthError {
   );
 }
 
+// 일시적 서버 의존성 장애(HTTP 503)를 인증 실패·기타 오류와 구분하기 위한 전용 타입.
+export class ServiceUnavailableError extends Error {
+  readonly status = 503;
+  constructor(message = "Service temporarily unavailable") {
+    super(message);
+    this.name = "ServiceUnavailableError";
+  }
+}
+
+// ServiceUnavailableError(또는 status === 503 이 붙은 임의 에러) 여부 판별 가드.
+export function isServiceUnavailable(err: unknown): err is ServiceUnavailableError {
+  return (
+    err instanceof ServiceUnavailableError ||
+    (typeof err === "object" && err !== null && (err as { status?: number }).status === 503)
+  );
+}
+
 // 헬퍼: snake_case -> camelCase
 function snakeToCamel(s: string): string {
   return s.replace(/(_\w)/g, (k) => k[1].toUpperCase());
@@ -131,6 +148,9 @@ async function request(path: string, options: RequestOptions = {}) {
     // 401 은 서버 장애가 아니라 '인증 필요' 신호 → 호출부가 구분할 수 있게 전용 타입으로 던진다.
     if (response.status === 401) {
       throw new AuthError(message);
+    }
+    if (response.status === 503) {
+      throw new ServiceUnavailableError(message);
     }
     throw new Error(message);
   }
