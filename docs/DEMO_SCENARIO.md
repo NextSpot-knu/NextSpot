@@ -9,7 +9,8 @@
 ## 0. 데모 전 체크리스트
 
 1. **백엔드 기동** — `apps/api`에서 `py -3.11 -m uvicorn app.main:app --reload`(로컬) 또는 Render 배포
-   `/health` 200 확인. 반드시 `py -3.11` 사용(시스템 python3.14는 httpx 비호환).
+   `/health` 200 확인. 반드시 `py -3.11` 사용(시스템 Python 3.14의 `websockets` 12.0에는
+   `websockets.asyncio`가 없어 앱 import 실패).
 2. **프런트 기동** — `apps/web`에서 `npm run dev`(로컬) 또는 Vercel 배포 URL 접속 확인. Kakao Maps
    도메인 화이트리스트에 현재 접속 도메인(localhost 포함) 등록 여부 확인.
 3. **Supabase 익명 로그인 ON** — Dashboard → Authentication → "Allow anonymous sign-ins" 켜짐 확인.
