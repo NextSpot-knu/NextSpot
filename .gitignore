@@ -58,6 +58,12 @@ poetry.toml
 supabase/.temp/
 scratch/
 
+# AI 도구 로컬 상태 (지침 파일 AGENTS.md/CLAUDE.md/GEMINI.md 는 추적 대상)
+.claude/
+.codex/
+.gemini/
+.antigravity/
+
 # Service-account/credential key files (never commit plaintext keys).
 # Scoped to repo root so the broad dotted-JSON glob can't swallow nested config JSON that must stay tracked.
 /*-*.json
