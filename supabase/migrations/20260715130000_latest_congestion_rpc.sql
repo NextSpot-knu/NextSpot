@@ -5,7 +5,7 @@ RETURNS TABLE (
     facility_id UUID,
     congestion_level DOUBLE PRECISION,
     current_count INT,
-    timestamp TIMESTAMPTZ,
+    "timestamp" TIMESTAMPTZ,
     source VARCHAR
 )
 LANGUAGE sql

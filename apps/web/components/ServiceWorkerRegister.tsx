@@ -19,7 +19,24 @@ export default function ServiceWorkerRegister() {
     const isLocalhost =
       window.location.hostname === "localhost" ||
       window.location.hostname === "127.0.0.1";
-    if (process.env.NODE_ENV !== "production" || isLocalhost) return;
+    if (process.env.NODE_ENV !== "production" || isLocalhost) {
+      // 등록을 건너뛰는 것만으로는 부족하다 — 이전에 프로덕션 빌드 테스트 등으로 '이미 설치된' SW가
+      // 남아 dev 를 장악하면 stale 번들(예: 수정 전 랜딩 페이지)을 계속 내준다. dev 에서는 능동적으로
+      // 기존 SW 등록 해제 + 캐시 삭제로 정리한다(다음 로드부터 항상 최신 dev 코드).
+      void (async () => {
+        try {
+          const regs = await navigator.serviceWorker.getRegistrations();
+          await Promise.all(regs.map((r) => r.unregister()));
+          if ("caches" in window) {
+            const keys = await caches.keys();
+            await Promise.all(keys.map((k) => caches.delete(k)));
+          }
+        } catch {
+          /* 정리 실패는 무시 — dev 편의 기능일 뿐 */
+        }
+      })();
+      return;
+    }
 
     const register = () => {
       navigator.serviceWorker.register("/sw.js").catch(() => {

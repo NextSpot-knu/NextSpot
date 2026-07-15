@@ -13,9 +13,11 @@ import { toast } from 'sonner';
 import { createPublicClient } from '@/lib/supabase';
 import { apiClient } from '@/lib/api-client';
 import { getVisitCount } from '@/lib/visits';
+import { clearUserScopedData } from '@/lib/userData';
 const TasteRadar = dynamic(() => import('@/components/TasteRadar'), { ssr: false });
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { CongestionAlertToggle } from '@/components/CongestionAlertToggle';
+import { AccountSection } from '@/components/AccountSection';
 import { useT } from '@/lib/i18n/I18nProvider';
 
 // 2026년 최저시급(고용노동부 고시, 원/시간) — '아낀 시간'을 기회비용으로 환산하는 기준.
@@ -29,6 +31,7 @@ interface UserProfile {
   routes: number;
   saved: number;
   rating: number;
+  avatar: string | null;
 }
 
 export default function MyPage() {
@@ -77,6 +80,7 @@ export default function MyPage() {
         // 비로그인·목 세션이면 user 가 null 이므로 명확한 플레이스홀더로 폴백(회귀 없이 데모 무중단).
         let displayName = t('mypage.guestName');
         let displayEmail = 'guest@nextspot.app';
+        let avatar: string | null = null;
         try {
           const supabase = createPublicClient();
           const { data: { user } } = await supabase.auth.getUser();
@@ -84,6 +88,16 @@ export default function MyPage() {
             displayEmail = user.email;
             // 이메일 앞부분(@ 이전)을 표시 이름으로 사용
             displayName = user.email.split('@')[0];
+          }
+          // OAuth 연동 사용자면 public.users 의 nickname/avatar_url(트리거·백필로 채워짐)을 우선 사용한다.
+          if (user) {
+            const { data: profileRow } = await supabase
+              .from('users')
+              .select('nickname, avatar_url')
+              .eq('id', user.id)
+              .single();
+            if (profileRow?.nickname) displayName = profileRow.nickname;
+            if (profileRow?.avatar_url) avatar = profileRow.avatar_url;
           }
         } catch (authErr) {
           console.warn('Failed to fetch session user in mypage', authErr);
@@ -119,6 +133,7 @@ export default function MyPage() {
           routes: 0,
           saved: savedCount,
           rating: 0,
+          avatar,
         });
       } catch (error) {
         console.warn('Failed to fetch profile', error);
@@ -150,7 +165,8 @@ export default function MyPage() {
     toast.success(t('mypage.editNameSaved'));
   };
 
-  // 로그아웃: 세션을 종료한 뒤 루트로 이동한다(목/비로그인 세션이어도 안전하게 폴백).
+  // 로그아웃: 세션을 종료하고 이 기기에 남은 개인 데이터(저장 장소·취향·방문 등)를 지운 뒤 루트로 이동.
+  // (localStorage 는 기기 단위라 지우지 않으면 다음 사용자에게 데이터가 샌다 — lib/userData.)
   const handleSignOut = async () => {
     try {
       const supabase = createPublicClient();
@@ -158,6 +174,7 @@ export default function MyPage() {
     } catch (err) {
       console.warn('Sign out failed', err);
     } finally {
+      clearUserScopedData();
       toast.success(t('mypage.signedOut'));
       router.push('/');
     }
@@ -225,10 +242,15 @@ export default function MyPage() {
                 <div className="bg-white border border-line rounded-3xl p-6 flex flex-col items-center shadow-[0_2px_14px_rgba(43,35,32,0.06)]">
                   <div className="w-20 h-20 rounded-full bg-gradient-to-tr from-gold to-terracotta p-0.5 mb-4">
                     <div className="w-full h-full rounded-full overflow-hidden bg-hanji">
-                      {/* 기본 아바타 */}
-                      <div className="w-full h-full flex items-center justify-center text-gold">
-                        <User size={40} />
-                      </div>
+                      {/* OAuth 연동 시 프로바이더 아바타, 아니면 기본 아이콘 */}
+                      {profile.avatar ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={profile.avatar} alt={profile.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-gold">
+                          <User size={40} />
+                        </div>
+                      )}
                     </div>
                   </div>
                   <h2 className="text-2xl font-bold font-serif text-muk mb-1 break-words max-w-full text-center">{profile.name}</h2>
@@ -290,6 +312,9 @@ export default function MyPage() {
                 <TasteRadar />
               </div>
             </div>
+
+            {/* 계정 — 게스트면 소셜 연동 유도, 연동됐으면 프로바이더 뱃지(OAUTH_PLAN F5). */}
+            <AccountSection />
 
             {/* 혼잡 알림 — 실제 동작하는 옵트인 토글(권한 상태 반영, useCongestionAlerts 기반).
                 로컬 state 만 바꾸던 가짜 스위치 제거. */}

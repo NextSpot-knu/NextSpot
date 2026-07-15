@@ -9,6 +9,7 @@ import { CongestionAlertToggle } from '@/components/CongestionAlertToggle';
 import { apiClient } from '@/lib/api-client';
 import { scoreFacility, type Spot } from '@/lib/recommender';
 import { REGION } from '@/lib/region';
+import { loadSavedLocal, syncSaved, removeBookmark, clearSavedAll } from '@/lib/savedFacilities';
 import { useT } from '@/lib/i18n/I18nProvider';
 
 // 저장된 카테고리(한국어 라벨) → i18n category 키 매핑(표시용 번역).
@@ -63,25 +64,26 @@ export default function SavedPage() {
     // API Fetch Mockup
     // ⚠️ 백엔드 데이터 하드코딩 금지 원칙 준수
     // 실제로는 fetch('/api/bookmarks') 등을 통해 데이터를 가져옴
+    const compareBookmarks = (a: BookmarkData, b: BookmarkData) => {
+      if (!a.spot || !b.spot) return (a.name || '').localeCompare(b.name || '', 'ko-KR');
+      if (b.spot.score !== a.spot.score) return b.spot.score - a.spot.score;
+      if (a.spot.timeToService !== b.spot.timeToService) return a.spot.timeToService - b.spot.timeToService;
+      if (b.spot.preferencePercent !== a.spot.preferencePercent) return b.spot.preferencePercent - a.spot.preferencePercent;
+      if (a.spot.expectedTravel !== b.spot.expectedTravel) return a.spot.expectedTravel - b.spot.expectedTravel;
+      return (a.name || '').localeCompare(b.name || '', 'ko-KR');
+    };
+
     const fetchBookmarks = async () => {
       setIsLoading(true);
       try {
-        const saved = localStorage.getItem('nextspot_saved_facilities');
-        if (saved) {
-          const parsed = JSON.parse(saved);
-          const compareBookmarks = (a: BookmarkData, b: BookmarkData) => {
-            if (!a.spot || !b.spot) return (a.name || '').localeCompare(b.name || '', 'ko-KR');
-            if (b.spot.score !== a.spot.score) return b.spot.score - a.spot.score;
-            if (a.spot.timeToService !== b.spot.timeToService) return a.spot.timeToService - b.spot.timeToService;
-            if (b.spot.preferencePercent !== a.spot.preferencePercent) return b.spot.preferencePercent - a.spot.preferencePercent;
-            if (a.spot.expectedTravel !== b.spot.expectedTravel) return a.spot.expectedTravel - b.spot.expectedTravel;
-            return (a.name || '').localeCompare(b.name || '', 'ko-KR');
-          };
-          parsed.sort(compareBookmarks);
-          setBookmarks(parsed);
-        } else {
-          setBookmarks([]);
-        }
+        // 즉시: 로컬 캐시로 먼저 렌더(오프라인/빠른 표시).
+        const localList = loadSavedLocal() as unknown as BookmarkData[];
+        localList.sort(compareBookmarks);
+        setBookmarks(localList);
+        // 이후: Supabase 와 동기화해 최신 목록으로 갱신(기기 변경 시 복원 포함).
+        const merged = (await syncSaved()) as unknown as BookmarkData[];
+        merged.sort(compareBookmarks);
+        setBookmarks(merged);
       } catch (error) {
         console.warn('Failed to fetch bookmarks', error);
       } finally {
@@ -160,7 +162,7 @@ export default function SavedPage() {
     e.stopPropagation();
     const updated = bookmarks.filter(b => b.id !== id);
     setBookmarks(updated);
-    localStorage.setItem('nextspot_saved_facilities', JSON.stringify(updated));
+    void removeBookmark(id); // 로컬 + Supabase 삭제
     if (selectedBookmark?.id === id) {
       setSelectedBookmark(null);
     }
@@ -177,7 +179,7 @@ export default function SavedPage() {
         label: t('saved.clearAction'),
         onClick: () => {
           setBookmarks([]);
-          localStorage.removeItem('nextspot_saved_facilities');
+          void clearSavedAll(); // 로컬 + Supabase 전체 삭제
           setSelectedBookmark(null);
           toast.success(t('saved.clearedSuccess'));
         },
@@ -466,7 +468,7 @@ export default function SavedPage() {
             onReject={() => {
               const updated = bookmarks.filter(b => b.id !== selectedBookmark.id);
               setBookmarks(updated);
-              localStorage.setItem('nextspot_saved_facilities', JSON.stringify(updated));
+              void removeBookmark(selectedBookmark.id); // 로컬 + Supabase 삭제
               setSelectedBookmark(null);
               toast.success(t('saved.removedFromSaved', { name: selectedBookmark.name }));
             }}

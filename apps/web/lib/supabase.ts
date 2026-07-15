@@ -37,9 +37,10 @@ export function createPublicClient() {
       // 세션을 localStorage 에 지속(persistSession)해야 방문자마다 '단말 고정' 익명 세션이 유지되어
       // (새로고침/재방문에도 동일 사용자) 개인화·쿠폰·저장·리포트가 이어진다. 토큰 자동갱신도 켠다.
       // 익명 로그인이 비활성인 프로젝트에선 세션이 생기지 않아 예전(목업 방문자) 동작으로 자연 폴백한다.
-      // detectSessionInUrl 은 이 앱이 OAuth/매직링크 리다이렉트를 쓰지 않으므로 끈다.
-      // (관리자 앱은 Supabase 인증 세션을 쓰지 않으므로 이 설정의 영향을 받지 않는다.)
-      auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false },
+      // detectSessionInUrl: 카카오·구글 OAuth 연동(lib/auth.ts, PKCE) 도입으로 콜백 URL 의 code 를
+      //   자동 교환해야 하므로 켠다. PKCE 는 쿼리(?code=)만 쓰고 해시는 안 써서 다른 페이지 딥링크에
+      //   영향이 없다(콜백 처리는 app/auth/callback/page.tsx). (관리자 앱은 Supabase 세션 미사용 → 무영향.)
+      auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, flowType: "pkce" },
       // 모든 REST 호출에 타임아웃 적용(무한 로딩 방지).
       global: { fetch: timeoutFetch },
     });

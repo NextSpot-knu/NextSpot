@@ -2,6 +2,8 @@
 
 import { useEffect } from "react";
 import { createPublicClient } from "@/lib/supabase";
+import { reconcileUserData } from "@/lib/userData";
+import { syncSaved } from "@/lib/savedFacilities";
 
 /**
  * SessionBootstrap — 관광객 무마찰(frictionless) 익명 세션 부트스트랩.
@@ -33,22 +35,34 @@ export default function SessionBootstrap() {
     (async () => {
       try {
         const supabase = createPublicClient();
-        const {
+        let {
           data: { session },
         } = await supabase.auth.getSession();
 
-        // 이미 세션(익명 포함)이 있으면 재사용 — per-device 지속성 유지(새 익명 사용자 남발 방지).
-        if (cancelled || session) return;
-
-        const { error } = await supabase.auth.signInAnonymously();
-        if (error && !cancelled) {
-          // 익명 로그인 비활성/거부 등 → 목업 방문자 경로로 폴백(무회귀).
-          console.warn(
-            "[SessionBootstrap] 익명 로그인 실패 — 목업 방문자 동작으로 폴백합니다. " +
-              "Supabase Auth 설정에서 'Allow anonymous sign-ins' 를 확인하세요.",
-            error.message,
-          );
+        // 세션(익명 포함)이 없으면 익명 로그인 1회(있으면 재사용 — 새 익명 사용자 남발 방지).
+        if (!session && !cancelled) {
+          const { error } = await supabase.auth.signInAnonymously();
+          if (error) {
+            // 익명 로그인 비활성/거부 등 → 목업 방문자 경로로 폴백(무회귀).
+            console.warn(
+              "[SessionBootstrap] 익명 로그인 실패 — 목업 방문자 동작으로 폴백합니다. " +
+                "Supabase Auth 설정에서 'Allow anonymous sign-ins' 를 확인하세요.",
+              error.message,
+            );
+          }
+          ({
+            data: { session },
+          } = await supabase.auth.getSession());
         }
+
+        if (cancelled) return;
+
+        // 세션 user_id 가 직전과 바뀌었으면(로그아웃→새 익명, 계정 전환) 이전 사용자의 개인
+        // 로컬 데이터를 청소해 사용자 간 데이터 유출을 막는다. linkIdentity(승격)는 uid 가 유지돼 보존.
+        reconcileUserData(session?.user?.id ?? null);
+
+        // 청소 직후 이 사용자의 저장 장소를 Supabase 에서 로컬로 동기화(기기 변경 시 복원).
+        if (session?.user?.id) void syncSaved();
       } catch (err) {
         // 네트워크 오류/설정 부재 등 예외 — 앱을 막지 않고 조용히 폴백.
         console.warn(
