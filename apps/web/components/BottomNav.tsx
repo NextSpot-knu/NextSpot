@@ -23,7 +23,7 @@ export default function BottomNav() {
   }, [pathname]);
 
   // 루트 경로나 지원하지 않는 경로에서는 네비게이션 숨김 처리
-  if (!pathname || pathname === '/' || pathname.includes('/admin') || pathname.includes('/setup')) return null;
+  if (!pathname || pathname === '/' || pathname.includes('/admin') || pathname.includes('/merchant') || pathname.includes('/setup')) return null;
 
   const tabs = [
     { id: 'Home', icon: Home, label: t('nav.home'), path: '/main' },
