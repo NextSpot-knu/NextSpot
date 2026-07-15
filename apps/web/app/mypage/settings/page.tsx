@@ -1,7 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { ChevronLeft, Globe, BellRing, Database, Trash2, Info } from 'lucide-react';
+import { ChevronLeft, Globe, BellRing, Database, Trash2, Info, Store, ChevronRight } from 'lucide-react';
 import { toast } from 'sonner';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { CongestionAlertToggle } from '@/components/CongestionAlertToggle';
@@ -87,6 +87,26 @@ export default function SettingsPage() {
           </div>
           <CongestionAlertToggle />
         </section>
+
+        {/* 비즈니스 계정 — 사장님 전용 게이트(/merchant)로 이동. */}
+        <button
+          type="button"
+          onClick={() => router.push('/merchant')}
+          className="group w-full rounded-3xl border border-gold/35 bg-gradient-to-r from-gold/15 via-white to-terracotta/10 p-5 text-left shadow-[0_2px_14px_rgba(43,35,32,0.06)] transition-colors hover:border-gold/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+        >
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gold/15">
+                <Store size={20} className="text-gold-deep" />
+              </div>
+              <div className="min-w-0">
+                <h2 className="font-bold text-muk">비즈니스 계정으로 전환</h2>
+                <p className="text-xs text-muk-soft">NextSpot 사장님 콘솔로 이동합니다</p>
+              </div>
+            </div>
+            <ChevronRight size={20} className="shrink-0 text-gold-deep transition-transform group-hover:translate-x-0.5" />
+          </div>
+        </button>
 
         {/* 데이터 관리 */}
         <section className="bg-white border border-line rounded-3xl p-5 shadow-[0_2px_14px_rgba(43,35,32,0.06)]">

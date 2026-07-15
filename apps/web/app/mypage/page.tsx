@@ -7,7 +7,7 @@ import { useRouter } from 'next/navigation';
 import {
   Menu, Bell, Bookmark, User,
   Edit2, ChevronRight, LogOut,
-  Settings as SettingsIcon, Ticket, X, Footprints, Sparkles, Hourglass
+  Settings as SettingsIcon, Ticket, X, Footprints, Sparkles, Hourglass, Store
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { createPublicClient } from '@/lib/supabase';
@@ -296,6 +296,27 @@ export default function MyPage() {
             <div className="mb-4">
               <CongestionAlertToggle />
             </div>
+
+            {/* 관광객 계정과 분리된 사장님 콘솔 진입점. 실제 전환이 아니라 별도 비즈니스
+                게이트로 이동하므로 문구에도 '사장님 콘솔'을 명시한다. */}
+            <button
+              type="button"
+              onClick={() => router.push('/merchant')}
+              className="group w-full mb-4 rounded-3xl border border-gold/35 bg-gradient-to-r from-gold/15 via-white to-terracotta/10 p-5 text-left shadow-[0_2px_14px_rgba(43,35,32,0.06)] transition-colors hover:border-gold/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+            >
+              <div className="flex items-center justify-between gap-4">
+                <div className="flex min-w-0 items-center gap-4">
+                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gold/15 text-gold-deep">
+                    <Store size={22} />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="font-bold text-muk">비즈니스 계정으로 전환</p>
+                    <p className="mt-0.5 text-xs text-muk-soft">가게 성과·타임세일·좌석 상태를 관리하는 사장님 콘솔</p>
+                  </div>
+                </div>
+                <ChevronRight size={20} className="shrink-0 text-gold-deep transition-transform group-hover:translate-x-0.5" />
+              </div>
+            </button>
 
             {/* Menu List */}
             <div className="bg-white border border-line rounded-3xl overflow-hidden shadow-[0_2px_14px_rgba(43,35,32,0.06)] mb-6">
