@@ -3,6 +3,50 @@
 > 현재 상태 스냅샷 + 다음 단계. 브랜치 `feature/jinseok` (origin 동기화).
 > 자율 개선 세션 로그·재개 규칙: [`AUTONOMOUS_SESSION.md`](./AUTONOMOUS_SESSION.md) · 전략: [`CONTEST_STRATEGY.md`](./CONTEST_STRATEGY.md)
 
+## -9. 2026-07-16 — `나의 실험실` MVP 구현 완료 (Claude, 6커밋 · Codex 교차 리뷰 대기)
+
+감사([`REJECTION_LAB_AUDIT.md`](./REJECTION_LAB_AUDIT.md))의 구현 계약 12개를 기준으로 구현.
+착수 전 감사 주장을 file:line 으로 전수 재확인 — **전부 현행 코드와 일치**했다(멱등성 부재,
+accepted 외 -5% 오학습, main 서버 미저장, UNIQUE 부재).
+
+**커밋**: `9a4a394` DB → `aba9bd8` 서비스 → `c58a3b7` API → `9ee5d10` 클라이언트/i18n →
+`2f2e1df` 실험실 UI → `dd4e410` 기존 화면 행동 타입 분리.
+
+**게이트**: ruff clean · pytest **294 passed**(227→+67) · web lint 0 errors(신규 any 없음) ·
+typecheck · 29/29 · 스키마 파리티(재생성 동일) · i18n lab 26키 × ko/en/ja/zh 패리티 0 missing.
+
+### ⚠️ 구현 판단과 타협 (Codex 리뷰 시 이 항목들을 우선 검토할 것)
+
+1. **main 지도 `관심 없음`은 서버 저장하지 않기로 했다** — 감사 P0-2 의 미해결 잔여.
+   by-type 은 `bytype-{facilityId}` 합성 ID 라 DB 행이 없어 `/feedback` 은 404 다. 서버 저장하려면
+   `recommendations` 행을 만들어야 하는데 **그 테이블이 B2G 수락률·분산 성과 지표의 소스**라
+   브라우즈 임프레션을 섞으면 심사에서 제시할 지표가 오염된다. 감사도 이 건은 "별도 해결 필요"로
+   유보했다. 기존 로컬 세션 제외 유지 = 감사 계약 3("이유 미입력 거절은 세션 후보 제외에만 사용")과 정합.
+   **결과: 실험실 목록은 `/recommendations`(추천 상세) 경로의 거절만 담는다.** 가장 흔한 거절 경로가
+   빠지므로 목록이 얇을 수 있다 — 대안 설계는 후속 과제.
+2. **`action VARCHAR(20)` → `TEXT` 확장이 필수 전제.** `accepted_visit_intent` 가 21자다.
+   **마이그레이션이 백엔드 배포보다 먼저 원격 DB 에 적용되어야 한다** — 순서가 뒤바뀌면 INSERT 가
+   `value too long for type character varying(20)` 로 500 이 난다.
+3. **벡터 학습 위치 분리**: '정확히 1회' 보장은 서비스가 `learning_applied_at` 선점(claim)으로 담당하고,
+   실제 벡터 이동은 라우터가 수행한다(CATEGORY_VECTORS 가 라우터 쪽이라 facility 조회 결합을 피함).
+   서비스가 claim 후 라우터가 죽으면 **학습이 유실될 수 있다**(중복보다 유실을 택한 설계).
+4. **부분 UNIQUE 인덱스를 `(recommendation_id)` 단독**으로 걸었다(user_id 미포함). 한 추천은 한 사용자
+   소유라 논리적으로 안전하나, 추천 공유 설계가 생기면 과도한 제약이 된다.
+5. **RLS 는 백엔드를 막아주지 않는다** — `/lab/*` 은 service_role 로 접근하므로 소유권 검사는
+   라우터의 `current_user['id']` 대조가 유일한 방어선이다.
+6. **legacy `accepted`/`ignored` 를 결정 액션 UNIQUE 목록에 포함**했다. 과거에 같은 추천에 여러 결정을
+   의도적으로 쌓은 이력이 있었다면 dedupe 로 하나만 남는다(현재 1행뿐이라 실질 영향 없음).
+
+### 사람 작업
+
+- **[필수·선행]** 원격 Supabase SQL Editor 에 `supabase/migrations/20260716140000_rejection_lab.sql`
+  을 붙여넣어 실행(멱등, 기존 행 보존). **백엔드 배포보다 먼저.** RESET_AND_SETUP.sql 은 전체 리셋이라
+  프로덕션에 쓰면 안 된다.
+- 적용 전 안전 확인(선택): `SELECT recommendation_id, count(*) FROM user_feedback GROUP BY 1 HAVING count(*)>1;`
+  → 0행이어야 dedupe DELETE 가 아무것도 지우지 않는다(2026-07-16 기준 user_feedback 1행, 중복 0).
+- 브라우저 검증 미실시(감사 권장 분할 5): 연속 거절 → 즉시 다음 → 실험실 답변 → 목록 제거 흐름을
+  실제로 클릭해 확인 필요. 게이트는 전부 통과했으나 실화면 확인은 안 했다.
+
 ## -8. 2026-07-16 — `나의 실험실` 구현 전 Codex 감사
 
 - 구현 전 거절 UI→API→DB→선호 벡터→RLS 경로를 읽기 전용 감사하고 결과를
