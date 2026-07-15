@@ -177,9 +177,17 @@ def get_current_user(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="만료된 JWT 토큰입니다.",
         )
+    except PyJWKClientConnectionError as e:
+        # 토큰 자체의 문제가 아니라 JWKS 의존성을 조회할 수 없는 일시적 서버 장애다.
+        # 인증은 계속 fail-closed로 거부하되, 클라이언트가 401과 구분해 제한 재시도할 수 있게 한다.
+        _logger.warning("jwks_connection_failed", error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="인증 서버에 일시적으로 연결할 수 없습니다. 잠시 후 다시 시도해 주세요.",
+        )
     except Exception as e:
-        # PyJWTError(서명·클레임 불일치)뿐 아니라 JWKS 조회 네트워크 오류(URLError 등)도 포섭해
-        # 인증 실패로 닫는다(fail-closed). 원문은 서버 로그로만 — 라이브러리 내부 메시지 비노출.
+        # PyJWTError(서명·클레임 불일치) 등은 기존처럼 인증 실패로 닫는다(fail-closed).
+        # 원문은 서버 로그로만 남기고 라이브러리 내부 메시지는 노출하지 않는다.
         _logger.warning("jwt_verification_failed", error=str(e))
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 from fastapi import HTTPException
-from jwt.exceptions import PyJWKClientConnectionError
+from jwt.exceptions import InvalidSignatureError, PyJWKClientConnectionError
 from starlette.requests import Request
 
 from app.core import supabase
@@ -54,7 +54,7 @@ def test_jwks_connection_failure_retries_then_returns_user(monkeypatch, asymmetr
     assert calls == 2
 
 
-def test_jwks_connection_failure_remains_unauthorized(monkeypatch, asymmetric_jwt):
+def test_jwks_connection_failure_returns_service_unavailable(monkeypatch, asymmetric_jwt):
     calls = 0
 
     class Client:
@@ -68,8 +68,26 @@ def test_jwks_connection_failure_remains_unauthorized(monkeypatch, asymmetric_jw
     with pytest.raises(HTTPException) as exc_info:
         supabase.get_current_user(_request(), _credentials())
 
-    assert exc_info.value.status_code == 401
+    assert exc_info.value.status_code == 503
     assert calls == 2
+
+
+def test_jwt_signature_failure_remains_unauthorized(monkeypatch, asymmetric_jwt):
+    class Client:
+        def get_signing_key_from_jwt(self, _token):
+            return SimpleNamespace(key="public-key")
+
+    monkeypatch.setattr(supabase, "_jwks_client", Client())
+    monkeypatch.setattr(
+        supabase.jwt,
+        "decode",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(InvalidSignatureError("bad signature")),
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        supabase.get_current_user(_request(), _credentials())
+
+    assert exc_info.value.status_code == 401
 
 
 def test_concurrent_jwks_calls_share_one_fetch(monkeypatch, asymmetric_jwt):
