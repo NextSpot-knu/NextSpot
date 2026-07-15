@@ -245,14 +245,95 @@ export async function getRecommendations(
   });
 }
 
+/**
+ * 피드백 액션 어휘(거절 실험실 도입 후 신규). 레거시(accepted/rejected/ignored) 중
+ * 'rejected' 만 의미가 유지되고, 나머지 레거시 값은 API 입력에서 제외됐다.
+ * - accepted_visit_intent : 실제 방문 수락(길안내/수락) — 쿠폰·성과지표·벡터 +10%
+ * - rejected              : 명시 거절 — 이유 질문 대기(pending), 장기 학습은 보류
+ * - skipped               : 음성 '다음'/나중에 — 학습 없음
+ * - dismissed_batch       : '다른 대안 보기' — 학습 없음
+ * - unsaved               : 저장 해제 — 학습 없음
+ * - helpful / not_helpful : 만족도 👍/👎 — 품질 신호만, 벡터 학습 없음
+ */
+export type FeedbackAction =
+  | "accepted_visit_intent"
+  | "rejected"
+  | "skipped"
+  | "dismissed_batch"
+  | "unsaved"
+  | "helpful"
+  | "not_helpful";
+
+/**
+ * 결정 액션(accepted_visit_intent/rejected/skipped/dismissed_batch/unsaved)은 백엔드에서
+ * recommendation_id 기준 멱등 upsert — 같은 추천에 중복 전송해도 학습이 두 번 적용되지 않는다.
+ */
 export async function submitFeedback(
   recommendationId: string,
-  action: "accepted" | "rejected" | "ignored"
+  action: FeedbackAction
 ): Promise<{ success: boolean; updatedVector: boolean }> {
   return apiClient.post("/api/v1/feedback", {
     recommendationId,
     action
   });
+}
+
+// --- 거절 실험실 (Rejection Lab) ---
+
+/** 거절 이유 코드. 백엔드가 learning_scope(long_term|data_quality|session|none)로 매핑한다. */
+export type LabReasonCode =
+  | "too_far"
+  | "too_crowded"
+  | "not_my_taste"
+  | "too_expensive"
+  | "closed"
+  | "already_visited"
+  | "bad_timing"
+  | "inaccurate"
+  | "other";
+
+/** GET /api/v1/lab/pending 항목 (keysToCamel 적용 후). */
+export interface LabPendingItem {
+  feedbackId: string;
+  recommendationId: string;
+  facilityId: string;
+  facilityName: string;
+  facilityType: string;
+  recommendedAt: string; // ISO 시각
+  spotScore?: number;
+}
+
+/** 본인의 이유 미응답 거절 목록 — 숨김 제외, 30일 이내, 최신순 최대 10건. */
+export async function fetchLabPending(): Promise<LabPendingItem[]> {
+  return apiClient.get("/api/v1/lab/pending");
+}
+
+/** 이유 질문 대기 건수 — 배지 표시용. */
+export async function fetchLabPendingCount(): Promise<number> {
+  const data: { count: number } = await apiClient.get("/api/v1/lab/pending/count");
+  return data.count;
+}
+
+/** 거절 이유 응답 → reason_status='answered' + 학습 정확히 1회 적용. */
+export async function answerLabReason(
+  feedbackId: string,
+  reasonCode: string,
+  reasonNote?: string
+): Promise<void> {
+  await apiClient.post(`/api/v1/lab/${feedbackId}/reason`, {
+    reasonCode,
+    reasonNote
+  });
+}
+
+/** 이유 응답 건너뛰기 → reason_status='skipped'. */
+export async function skipLabItem(feedbackId: string): Promise<void> {
+  await apiClient.post(`/api/v1/lab/${feedbackId}/skip`);
+}
+
+/** 목록에서 숨기기 → hidden_at=now(). */
+export async function hideLabItem(feedbackId: string): Promise<void> {
+  await apiClient.post(`/api/v1/lab/${feedbackId}/hide`);
 }
 
 /**
