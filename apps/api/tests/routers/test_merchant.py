@@ -115,6 +115,28 @@ def test_merchant_stats_empty(client):
     assert body["recommendations_accepted"] == 0
 
 
+def test_merchant_stats_excludes_browse_rejections(client):
+    class SourceFilteringTable(FakeTable):
+        def neq(self, column, value):
+            self._data = [row for row in self._data if row.get(column, "spot") != value]
+            return self
+
+    class SourceFilteringSupabase(FakeSupabase):
+        def table(self, name):
+            return SourceFilteringTable(self._tables.get(name, []))
+
+    recs = [
+        {"source": "spot", "accepted": True, "created_at": "2026-07-14T03:00:00+00:00"},
+        {"source": "browse", "accepted": False, "created_at": "2026-07-14T04:00:00+00:00"},
+        # 마이그레이션 전 행은 DB 기본/백필 의미상 spot 으로 취급된다.
+        {"accepted": False, "created_at": "2026-07-14T05:00:00+00:00"},
+    ]
+    with patch("app.routers.merchant.supabase_admin", new=SourceFilteringSupabase({"recommendations": recs})):
+        res = client.get("/api/v1/merchant/stats", params={"facility_id": "f-1"}, headers=_merchant_headers())
+    assert res.status_code == 200
+    assert res.json()["recommendations_exposed"] == 2
+
+
 # =========================================================================
 # 3. 셀프 타임세일 — 발행(POST)/목록(GET)/취소(POST)
 # =========================================================================

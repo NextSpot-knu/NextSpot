@@ -101,6 +101,7 @@ async def get_stats(facility_id: str):
                 supabase_admin.table("recommendations")
                 .select("accepted, created_at")
                 .eq("recommended_facility_id", facility_id)
+                .neq("source", "browse")
                 .gte("created_at", since)
                 .limit(5000)
                 .execute

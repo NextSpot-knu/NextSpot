@@ -590,6 +590,7 @@ class FilteringFakeTable:
     def __init__(self, data):
         self._data = data
         self._eq = []   # [(column, value), ...]
+        self._neq = []  # [(column, value), ...]
         self._gte = []  # [(column, value), ...]
 
     def eq(self, column, value):
@@ -598,6 +599,10 @@ class FilteringFakeTable:
 
     def gte(self, column, value):
         self._gte.append((column, value))
+        return self
+
+    def neq(self, column, value):
+        self._neq.append((column, value))
         return self
 
     def __getattr__(self, _name):
@@ -610,6 +615,8 @@ class FilteringFakeTable:
         rows = list(self._data)
         for column, value in self._eq:
             rows = [r for r in rows if r.get(column) == value]
+        for column, value in self._neq:
+            rows = [r for r in rows if r.get(column, "spot") != value]
         for column, value in self._gte:
             rows = [r for r in rows if _as_dt(r.get(column)) >= _as_dt(value)]
         return _FakeResult(rows)
@@ -623,6 +630,18 @@ class FilteringFakeSupabase:
 
     def table(self, name: str) -> FilteringFakeTable:
         return FilteringFakeTable(self._tables.get(name, []))
+
+
+def test_admin_metrics_excludes_browse_from_acceptance_denominator(client):
+    now = datetime.now(timezone.utc).isoformat()
+    rows = [
+        {"source": "spot", "accepted": True, "created_at": now},
+        {"source": "browse", "accepted": False, "created_at": now},
+    ]
+    with patch("app.routers.admin.supabase_admin", new=FilteringFakeSupabase({"recommendations": rows})):
+        res = client.get("/api/v1/admin/metrics", headers=_admin_headers())
+    assert res.status_code == 200
+    assert res.json()["recommendations"] == [{"source": "spot", "accepted": True, "created_at": now}]
 
 
 def test_admin_impact_filters_accepted_and_since(client):
@@ -1082,6 +1101,89 @@ def test_accept_recommendation_no_partner(auth_client):
     assert body["coupon_issued"] is False
     assert body["coupon_rate"] == 0.0
     assert body["expires_at"] is None
+
+
+class RejectRecordingTable(FakeTable):
+    def __init__(self, db, name):
+        super().__init__([])
+        self.db = db
+        self.name = name
+
+    def insert(self, payload):
+        self.db.inserted.append(payload)
+        self._data = [{"id": "browse-rec-1", **payload}]
+        return self
+
+    def execute(self):
+        if self.name == "recommendations" and not self._data:
+            return _FakeResult(self.db.existing)
+        return super().execute()
+
+
+class RejectRecordingSupabase:
+    def __init__(self, existing=None):
+        self.existing = existing or []
+        self.inserted = []
+
+    def table(self, name):
+        return RejectRecordingTable(self, name)
+
+
+def _decision(feedback_id="fb-1"):
+    return {
+        "row": {"id": feedback_id, "reason_status": "pending"},
+        "created": True,
+        "should_learn_vector": False,
+    }
+
+
+def test_reject_recommendation_creates_owned_browse_pending(auth_client):
+    db = RejectRecordingSupabase()
+    record = AsyncMock(return_value=_decision())
+    with patch("app.routers.recommendations.fetch_facility", new=AsyncMock(return_value=_facility("f-1", "cafe", 0))), \
+         patch("app.routers.recommendations.feedback_service.record_decision", new=record), \
+         patch("app.routers.recommendations.supabase_client", new=db):
+        res = auth_client.post(
+            "/api/v1/recommendations/reject",
+            json={"facility_id": "f-1", "user_id": "attacker", "spot_score": 99, "congestion": 1},
+        )
+
+    assert res.status_code == 200
+    assert res.json()["feedback_id"] == "fb-1"
+    assert db.inserted == [{
+        "user_id": AUTH_USER_ID,
+        "original_facility_id": "f-1",
+        "recommended_facility_id": "f-1",
+        "spot_score": 0.0,
+        "score_breakdown": {},
+        "accepted": False,
+        "source": "browse",
+    }]
+    assert record.await_args.kwargs == {
+        "user_id": AUTH_USER_ID,
+        "recommendation_id": "browse-rec-1",
+        "action": "rejected",
+    }
+
+
+def test_reject_recommendation_facility_404(auth_client):
+    with patch("app.routers.recommendations.fetch_facility", new=AsyncMock(side_effect=__import__("fastapi").HTTPException(404))), \
+         patch("app.routers.recommendations.supabase_client", new=RejectRecordingSupabase()):
+        res = auth_client.post("/api/v1/recommendations/reject", json={"facility_id": "missing"})
+    assert res.status_code == 404
+
+
+def test_reject_recommendation_reuses_pending_row(auth_client):
+    existing = [{"id": "existing-rec", "user_feedback": [{"id": "fb-old", "reason_status": "pending"}]}]
+    db = RejectRecordingSupabase(existing)
+    record = AsyncMock(return_value=_decision("fb-old"))
+    with patch("app.routers.recommendations.fetch_facility", new=AsyncMock(return_value=_facility("f-1", "cafe", 0))), \
+         patch("app.routers.recommendations.feedback_service.record_decision", new=record), \
+         patch("app.routers.recommendations.supabase_client", new=db):
+        res = auth_client.post("/api/v1/recommendations/reject", json={"facility_id": "f-1"})
+    assert res.status_code == 200
+    assert res.json()["recommendation_id"] == "existing-rec"
+    assert db.inserted == []
 
 
 # =========================================================================

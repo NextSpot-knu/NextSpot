@@ -9,7 +9,7 @@ import { createPublicClient } from '@/lib/supabase';
 import { getMarkerSvg } from '@/lib/utils';
 import { scoreFacility, compareSpot, rankFacilities, recToSpot, haversineMeters, cuisineMatch, rescoreWithPreference, filterReachable, type Spot } from '@/lib/recommender';
 import { REGION, isWithinRegion } from '@/lib/region';
-import { recommendByType, voiceTurn, apiClient } from '@/lib/api-client';
+import { recommendByType, rejectRecommendation, voiceTurn, apiClient } from '@/lib/api-client';
 // 히트맵 blob 의 색·크기 규칙(마커/배지 임계와 일관) 공용 헬퍼 — 중복 정의 금지, 그대로 재사용.
 import { getHeatGradient, getHeatRadius } from '@/lib/heatmap';
 // D5: TourAPI 동기화 신선도 상대시간 — lib/freshness 단일 소스 재사용(중복 정의 금지).
@@ -1018,6 +1018,9 @@ export default function MainPage() {
 
   const handleReject = (fac: Facility) => {
     if (!fac) return;
+
+    // 서버 적재는 fire-and-forget: 다음 추천 즉시 표시 계약을 네트워크 상태와 분리한다.
+    void rejectRecommendation(fac.id).catch(() => { /* 거절 UX는 저장 실패로 끊지 않는다. */ });
     
     // Clear selection from sessionStorage immediately to prevent restoration logic from sticking to this item
     if (typeof window !== 'undefined') {
@@ -1078,10 +1081,8 @@ export default function MainPage() {
   };
 
   // 거절 안내 힌트(lab.hint) — 처음 LAB_HINT_MAX_SHOWS 회만, 비차단으로 노출.
-  // 이 페이지의 거절은 서버로 보내지 않는다: 후보가 /recommendations/by-type 의 합성 id(bytype-*)라
-  // recommendations 행이 없어 /feedback 이 404 다. 브라우즈 임프레션을 recommendations 에 적재하면
-  // B2G 수락률 지표의 소스가 오염되므로 저장으로 바꾸지도 않는다. 따라서 거절은 기존대로 현재 세션
-  // 후보 제외(rejectedIds)에만 쓰이고 — 감사 계약 3과 정합 — 이유는 나의 실험실에서 받는다고 안내만 한다.
+  // 브라우즈 거절은 source='browse' 추천 이력으로 서버 실험실에 보내며 성과 집계에서는 제외된다.
+  // 저장 요청과 무관하게 현재 세션 후보 제외(rejectedIds)는 즉시 유지한다.
   // 페이지 로컬 showToast 대신 전역 sonner 를 쓰는 이유: showToast 는 단일 슬롯이라 방금 띄운
   // map.rejectToast('~를 제외했어요')를 덮어써 거절 확인 자체가 사라진다.
   const maybeShowLabHint = () => {

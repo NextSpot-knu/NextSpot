@@ -262,6 +262,7 @@ async def get_metrics(days: int = 28):
             asyncio.to_thread(
                 supabase_admin.table("recommendations")
                 .select("accepted, created_at")
+                .neq("source", "browse")
                 .gte("created_at", since)
                 .limit(5000)
                 .execute
@@ -324,6 +325,7 @@ async def get_metrics_trend(days: int = 30):
             asyncio.to_thread(
                 supabase_admin.table("recommendations")
                 .select("accepted, created_at")
+                .neq("source", "browse")
                 .gte("created_at", since)
                 .order("created_at", desc=True)
                 .limit(5000)

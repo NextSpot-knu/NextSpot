@@ -520,6 +520,65 @@ class AcceptRequest(BaseModel):
     facility_id: str = Field(..., description="수락(방문 확정)할 시설 id")
 
 
+class RejectRequest(BaseModel):
+    facility_id: str = Field(..., description="메인 탐색에서 거절한 시설 id")
+
+
+@router.post("/recommendations/reject")
+async def reject_recommendation(
+    req: RejectRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """메인 브라우즈 거절을 실험실 pending 결정으로 비차단 적재할 수 있게 한다."""
+    user_id = current_user["id"]
+    await fetch_facility(req.facility_id)  # 클라이언트 점수·혼잡값 없이 서버의 시설 존재만 검증한다.
+
+    # 동일 시설의 미처리 browse 거절은 재사용한다. 네트워크 재시도로 실험실 항목이 중복되지 않되,
+    # reason_status 가 완료/제거된 과거 거절 뒤의 새 거절은 별도 이력으로 남는다.
+    existing_res = await asyncio.to_thread(
+        supabase_client.table("recommendations")
+        .select("id, user_feedback(id, reason_status)")
+        .eq("user_id", user_id)
+        .eq("recommended_facility_id", req.facility_id)
+        .eq("source", "browse")
+        .order("created_at", desc=True)
+        .limit(1)
+        .execute
+    )
+    recommendation_id = None
+    if existing_res.data:
+        feedback_rows = existing_res.data[0].get("user_feedback") or []
+        if any(row.get("reason_status") == "pending" for row in feedback_rows):
+            recommendation_id = existing_res.data[0]["id"]
+
+    if recommendation_id is None:
+        inserted = await asyncio.to_thread(
+            supabase_client.table("recommendations").insert({
+                "user_id": user_id,
+                "original_facility_id": req.facility_id,
+                "recommended_facility_id": req.facility_id,
+                "spot_score": 0.0,
+                "score_breakdown": {},
+                "accepted": False,
+                "source": "browse",
+            }).execute
+        )
+        recommendation_id = inserted.data[0]["id"]
+
+    decision = await feedback_service.record_decision(
+        supabase_client,
+        user_id=user_id,
+        recommendation_id=recommendation_id,
+        action="rejected",
+    )
+    return {
+        "success": True,
+        "recommendation_id": recommendation_id,
+        "feedback_id": decision["row"]["id"],
+        "reason_status": decision["row"]["reason_status"],
+    }
+
+
 @router.post("/recommendations/accept")
 async def accept_recommendation(
     req: AcceptRequest,

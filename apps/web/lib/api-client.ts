@@ -278,6 +278,13 @@ export async function submitFeedback(
   });
 }
 
+/** 메인 탐색 거절을 실험실 pending 항목으로 저장한다. 호출부는 UX를 막지 않고 fire-and-forget 한다. */
+export async function rejectRecommendation(
+  facilityId: string
+): Promise<{ success: boolean; recommendationId: string; feedbackId: string; reasonStatus: string }> {
+  return apiClient.post("/api/v1/recommendations/reject", { facilityId });
+}
+
 // --- 거절 실험실 (Rejection Lab) ---
 
 /** 거절 이유 코드. 백엔드가 learning_scope(long_term|data_quality|session|none)로 매핑한다. */
