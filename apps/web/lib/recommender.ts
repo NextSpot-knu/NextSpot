@@ -114,6 +114,36 @@ function _facilityCuisineTokens(facility: ScorableFacility | null | undefined): 
   return tags;
 }
 
+// TourAPI 공식 메뉴(first_menu=대표메뉴/treat_menu=취급메뉴) 텍스트를 콤마·슬래시·공백으로 분리한 토큰들.
+// 2자 미만 토큰(조사·'등' 같은 잔여어)은 잡음이라 버린다. apiClient 응답은 features 내부 키까지
+// camelCase 로 재귀 변환되므로(firstMenu) 원본 snake_case(first_menu, supabase 직접 조회 경로)와 함께 지원한다.
+function _menuTokens(raw: unknown): string[] {
+  if (typeof raw !== "string" || !raw) return [];
+  return raw.split(/[,/\s]+/).map((s) => s.trim()).filter((s) => s.length >= 2);
+}
+
+// 토큰이 속하는 CUISINE_INTENT_MAP 상 '첫 매칭 그룹' — 상호명 구체성 원칙(nameGroup)과 동일하게,
+// 맵 순서상 가장 앞선(가장 구체적인) 그룹을 그 토큰의 정체로 본다.
+// exact=true(treat_menu 전용): 완전일치만 인정 — 취급메뉴는 부수 항목이 길게 나열돼 '불고기'처럼
+// 무관 그룹 키워드('고기')를 우연히 포함하는 복합어가 섞이기 쉬워(밀면집 사이드 '석쇠불고기'가
+// '고기' 의도에 잡히던 사례를 실측으로 확인) 부분일치를 허용하지 않는다.
+function _firstMatchingGroup(token: string, exact: boolean): { keys: string[]; tags: string[] } | undefined {
+  return CUISINE_INTENT_MAP.find((g) => g.keys.some((k) => (exact ? token === k : token.includes(k))));
+}
+
+// 공식 메뉴(first_menu/treat_menu)가 의도 태그와 겹치는지. first_menu 는 단일 대표 메뉴라 신뢰도가 높아
+// 부분일치를 허용하고, treat_menu 는 완전일치만 인정한다(위 _firstMatchingGroup 주석 참조).
+function _menuMatchesIntent(facility: ScorableFacility | null | undefined, targetTags: Set<string>): boolean {
+  const first = _menuTokens(facility?.features?.first_menu ?? facility?.features?.firstMenu);
+  const treat = _menuTokens(facility?.features?.treat_menu ?? facility?.features?.treatMenu);
+  const hits = (tokens: string[], exact: boolean) =>
+    tokens.some((tok) => {
+      const grp = _firstMatchingGroup(tok, exact);
+      return !!grp && grp.tags.some((t) => targetTags.has(t));
+    });
+  return hits(first, false) || hits(treat, true);
+}
+
 // 음식 의도와 시설의 매칭도(0~1). 의도가 없거나 인식 불가면 null → 호출측에서 카테고리 선호로 폴백.
 export function cuisineMatch(facility: ScorableFacility | null | undefined, intent: string | null | undefined): number | null {
   if (!intent) return null;
@@ -129,6 +159,11 @@ export function cuisineMatch(facility: ScorableFacility | null | undefined, inte
   const name = String(facility?.name || "");
   if (tags.some((t) => _BAR_TAGS_FE.includes(t))) return 0.12; // 술집은 음식 의도에 거의 안 맞음
   if (tags.some((t) => targetTags.has(t))) return 0.95; // cuisine_tag 정확 일치
+  // 공식 메뉴(TourAPI first_menu/treat_menu) 매칭 — 왜 0.95 다음·0.85(상호명 추측) 앞인가: 실제 취급
+  // 메뉴 데이터가 상호명에서 종류를 유추하는 것보다 신뢰도가 높다(공식 메뉴 > 상호명 추측).
+  // 상호명과 동일한 '첫 매칭 그룹=구체성' 원칙: 토큰별 맵 순서상 첫 매칭 그룹의 태그만 인정한다
+  // (예: first_menu '한우물회' → 첫 그룹은 '물회'(해물) — 고기 의도엔 안 잡히고 물회/해물 의도에만 잡힘).
+  if (_menuMatchesIntent(facility, targetTags)) return 0.9;
   // 상호 이름에 타깃 메뉴가 박힌 경우(예: '윤쉐프의고기집'). 이름이 여러 분류 키워드에 걸치면
   // (예: '한우국밥' — 한우=고기, 국밥=국밥) 맵 순서상 첫 번째(더 구체적인) 분류를 상호의 정체로 보고
   // 그 분류가 의도와 겹칠 때만 인정한다 — '한우국밥'이 고기·구이 필터에 잡히던 오분류 방지.

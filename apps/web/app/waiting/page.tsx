@@ -23,6 +23,8 @@ import { REGION } from "@/lib/region";
 import { useT } from "@/lib/i18n/I18nProvider";
 import { GoldenHourBadge } from "@/components/GoldenHourBadge";
 import NowChip from "@/components/NowChip";
+// T2: 휴무 원문(rest_date_raw) 파서 — 오늘 휴무 '확정'만 판정(모르면 null, 과판정 금지). 공용 단일 소스.
+import { isClosedToday } from "@/lib/restDate";
 
 // 시설 종류 이모지 — course/page.tsx TYPE_OPTIONS 와 동일 매핑(레포 전역 관례 통일).
 const TYPE_EMOJI: Record<string, string> = {
@@ -47,6 +49,8 @@ interface BoardRow {
   congestionLevel: number | null;
   expectedWait: number;
   expectedTravel: number;
+  // 오늘 휴무 '확정'(isClosedToday === true) 여부 — 대표 카드 선정에서 제외 + 리스트 맨 뒤 + 배지 표시용.
+  closedToday: boolean;
 }
 
 // 섹터 = 한 시설 유형의 대기 짧은 순 정렬 목록. rows 가 비면 섹터 자체를 렌더하지 않는다.
@@ -112,6 +116,12 @@ export default function WaitingBoardPage() {
 
       const rows: BoardRow[] = r.value.map((rec) => {
         const spot = recToSpot(rec);
+        // apiClient 응답 변환(keysToCamel)이 features 내부 키까지 재귀적으로 camelCase 로 바꾸므로
+        // (rest_date_raw → restDateRaw) 두 표기를 모두 확인한다(main/page.tsx의 barrierFree 방어 패턴과 동일).
+        const restDateRaw = (rec.facility.features?.rest_date_raw ?? rec.facility.features?.restDateRaw) as
+          | string
+          | null
+          | undefined;
         return {
           facilityId: rec.facility.id,
           name: rec.facility.name,
@@ -120,9 +130,16 @@ export default function WaitingBoardPage() {
             typeof rec.facility.congestionLevel === "number" ? rec.facility.congestionLevel : null,
           expectedWait: spot.expectedWait,
           expectedTravel: spot.expectedTravel,
+          // 휴무 '확정'(true)만 표시 — 모름(null)/영업 확정(false)은 평소처럼 취급(정직성: 과판정 금지).
+          closedToday: isClosedToday(restDateRaw) === true,
         };
       });
-      rows.sort((a, b) => a.expectedWait - b.expectedWait);
+      // 대기 짧은 순 정렬은 그대로 유지하되, 오늘 휴무 확정 시설은 항상 맨 뒤로 보낸다
+      // (대표 카드가 rows 앞쪽 3개를 그대로 슬라이스하지 않도록 아래에서 open/closed 를 명시적으로 분리한다).
+      rows.sort((a, b) => {
+        if (a.closedToday !== b.closedToday) return a.closedToday ? 1 : -1;
+        return a.expectedWait - b.expectedWait;
+      });
 
       // 응답이 빈 유형은 섹터 자체를 숨긴다(PM 지시).
       if (rows.length > 0) nextSectors.push({ type: BOARD_TYPES[i], rows });
@@ -193,8 +210,12 @@ export default function WaitingBoardPage() {
         ) : (
           <div className="flex flex-col gap-6">
             {sectors.map((sector) => {
-              const topRows = sector.rows.slice(0, TOP_CARD_COUNT);
-              const restRows = sector.rows.slice(TOP_CARD_COUNT);
+              // 오늘 휴무 확정 시설은 대표 카드(topRows) 선정에서 아예 배제 — open 이 3곳 미만이어도
+              // closed 로 자리를 채우지 않는다(rows 는 이미 closedToday 를 맨 뒤로 정렬해 뒀다).
+              const openRows = sector.rows.filter((r) => !r.closedToday);
+              const closedRows = sector.rows.filter((r) => r.closedToday);
+              const topRows = openRows.slice(0, TOP_CARD_COUNT);
+              const restRows = [...openRows.slice(TOP_CARD_COUNT), ...closedRows];
               return (
                 <section key={sector.type}>
                   {/* 섹터 헤더 — 기존 category.* i18n 키 재사용(신규 키 없음). */}
@@ -285,6 +306,12 @@ export default function WaitingBoardPage() {
                               <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-gold/10 border border-gold/25 text-gold-deep whitespace-nowrap">
                                 {t("waiting.arrivalWait", { n: Math.round(row.expectedWait) })}
                               </span>
+                              {/* 오늘 휴무 확정 — 숨기지 않고 정직하게 배지로 알린다(리스트 맨 뒤 배치와 함께). */}
+                              {row.closedToday && (
+                                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md border whitespace-nowrap bg-terracotta/10 border-terracotta/30 text-terracotta">
+                                  {t("card.closedToday")}
+                                </span>
+                              )}
                               {row.congestionLevel != null ? (
                                 <span
                                   className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md border whitespace-nowrap ${congestionBadgeClass(

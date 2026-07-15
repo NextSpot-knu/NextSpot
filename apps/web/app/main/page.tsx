@@ -21,6 +21,8 @@ import TodayCalmSpots from '@/components/TodayCalmSpots';
 import VisitCheckCard from '@/components/VisitCheckCard';
 import { recordPendingVisit } from '@/lib/visits';
 import { useT } from '@/lib/i18n/I18nProvider';
+// T2: 휴무 원문 파서(오늘 휴무 확정만 배제) + 가능/불가능 텍스트 파서(주차·반려동물 필터) — 공용 단일 소스.
+import { isClosedToday, parseAvailability } from '@/lib/restDate';
 
 const supabase = createPublicClient();
 
@@ -149,6 +151,10 @@ export default function MainPage() {
   const [showHeatmap, setShowHeatmap] = useState(false);
   // ♿ 배리어프리 필터 on/off — 켜지면 features.barrier_free 가 truthy 인(휠체어 등 무장애) 시설만 마커·히트맵에 표시. 기본 꺼짐.
   const [showBarrierFree, setShowBarrierFree] = useState(false);
+  // 🅿 주차 가능 필터 on/off — 켜지면 features.parking 이 '가능'으로 파싱되는 시설만 마커·히트맵에 표시.
+  // 🐾 반려동물 동반 필터 on/off — 켜지면 features.chk_pet 이 '가능'으로 파싱되는 시설만. 둘 다 배리어프리와 동일 패턴(AND 조합 가능).
+  const [showParkingFilter, setShowParkingFilter] = useState(false);
+  const [showPetFilter, setShowPetFilter] = useState(false);
   // 예측 타임슬라이더 상태 — 0=지금(실측), 1~3=+N시간 후 AI 예측. predictionMap 은 시설별 예측 혼잡도.
   const [hoursAhead, setHoursAhead] = useState(0);
   const [predictionMap, setPredictionMap] = useState<Record<string, { level: number; anchored: boolean }> | null>(null);
@@ -660,8 +666,15 @@ export default function MainPage() {
     // barrierFree, 수동 시드는 features.barrier_free — 둘 다 확인). 마커·히트맵 공용 소스에서
     // 한 번만 걸러 두 레이어가 항상 동일 집합을 그린다.
     // (추천/카드 로직은 원본 facilities 를 쓰므로 필터의 영향을 받지 않는다 — 지도 표시만 좁힘.)
-    return showBarrierFree ? src.filter((f) => !!(f?.barrierFree ?? f?.barrier_free ?? f?.features?.barrier_free)) : src;
-  }, [facilities, predictionMap, isForecast, showBarrierFree]);
+    let out = src;
+    if (showBarrierFree) out = out.filter((f) => !!(f?.barrierFree ?? f?.barrier_free ?? f?.features?.barrier_free));
+    // 🅿🐾 주차·반려동물 필터: 순차 .filter() 체이닝이라 배리어프리와도 자연히 AND 조합된다.
+    // 관광지 위주로 적재된 필드라 커버리지가 낮다 — 후보가 확 줄거나 0이어도 숨기지 않고 그대로 보여준다(정직성).
+    // (parking 은 밑줄이 없어 camelCase 변환 영향이 없지만, chk_pet 은 apiClient 경유 시 chkPet 으로 바뀌므로 둘 다 확인.)
+    if (showParkingFilter) out = out.filter((f) => parseAvailability(f?.features?.parking as string | null | undefined) === true);
+    if (showPetFilter) out = out.filter((f) => parseAvailability((f?.features?.chk_pet ?? f?.features?.chkPet) as string | null | undefined) === true);
+    return out;
+  }, [facilities, predictionMap, isForecast, showBarrierFree, showParkingFilter, showPetFilter]);
 
   // 타임슬라이더 전환: 지금(0)=실측 복귀, +N시간=백엔드 배치 예측으로 마커·히트맵 재채색.
   // 실패 시 예측을 적용하지 않고 '지금' 모드를 유지(토스트 안내) — 회귀 없이 안전.
@@ -1416,7 +1429,10 @@ export default function MainPage() {
         f.type === 'restaurant' &&
         (cuisineMatch(f, chip.kw) ?? 0) >= 0.8 &&
         !rejectedIds.has(f.id) &&
-        !savedIds.has(f.id),
+        !savedIds.has(f.id) &&
+        // 오늘 휴무가 '확정'된 곳만 제외(정직한 추천) — 판정 불가(null)는 배제하지 않고 그대로 포함.
+        // apiClient 응답은 features 내부 키까지 camelCase 로 변환하므로(keysToCamel 재귀 적용) 두 표기 모두 확인.
+        isClosedToday((f.features?.rest_date_raw ?? f.features?.restDateRaw) as string | null | undefined) !== true,
     );
     if (pool.length === 0) {
       showToast(t('cuisine.noMatch'));
@@ -1439,6 +1455,13 @@ export default function MainPage() {
   // ♿ 배리어프리 필터가 켜졌는데 현재 카테고리에 무장애 시설이 0건이면 '빈 지도' 혼란을 막기 위해 안내(검색 빈 상태와 동일 패턴).
   const barrierFreeMatchCount = showBarrierFree
     ? facilities.filter(f => f.type === _filterTypeMap[activeFilter] && !!(f?.barrierFree ?? f?.barrier_free ?? f?.features?.barrier_free)).length
+    : 0;
+  // 🅿🐾 주차·반려동물 필터도 동일 패턴 — 0건이면 숨기지 않고 정직하게 빈 결과 안내(신규 i18n 키 추가 없이 map.searchNoResult 재사용).
+  const parkingMatchCount = showParkingFilter
+    ? facilities.filter(f => f.type === _filterTypeMap[activeFilter] && parseAvailability(f?.features?.parking as string | null | undefined) === true).length
+    : 0;
+  const petMatchCount = showPetFilter
+    ? facilities.filter(f => f.type === _filterTypeMap[activeFilter] && parseAvailability((f?.features?.chk_pet ?? f?.features?.chkPet) as string | null | undefined) === true).length
     : 0;
 
   return (
@@ -1534,6 +1557,24 @@ export default function MainPage() {
           <div className="pointer-events-auto px-2 -mt-1">
             <span className="inline-block text-muk text-xs bg-white/90 border border-line rounded-full px-3 py-1 shadow-[0_2px_14px_rgba(43,35,32,0.06)]">
               ♿ {t('map.barrierFreeNone')}
+            </span>
+          </div>
+        )}
+
+        {/* 🅿 주차 필터 결과 없음 안내 — 배리어프리·검색과 동일 톤(신규 i18n 키 없이 searchNoResult 재사용). */}
+        {showParkingFilter && parkingMatchCount === 0 && !(searchActive && searchMatchCount === 0) && !(showBarrierFree && barrierFreeMatchCount === 0) && (
+          <div className="pointer-events-auto px-2 -mt-1">
+            <span className="inline-block text-muk text-xs bg-white/90 border border-line rounded-full px-3 py-1 shadow-[0_2px_14px_rgba(43,35,32,0.06)]">
+              🅿 {t('map.searchNoResult', { q: t('map.filterParking') })}
+            </span>
+          </div>
+        )}
+
+        {/* 🐾 반려동물 필터 결과 없음 안내 — 위와 동일 패턴. */}
+        {showPetFilter && petMatchCount === 0 && !(searchActive && searchMatchCount === 0) && !(showBarrierFree && barrierFreeMatchCount === 0) && !(showParkingFilter && parkingMatchCount === 0) && (
+          <div className="pointer-events-auto px-2 -mt-1">
+            <span className="inline-block text-muk text-xs bg-white/90 border border-line rounded-full px-3 py-1 shadow-[0_2px_14px_rgba(43,35,32,0.06)]">
+              🐾 {t('map.searchNoResult', { q: t('map.filterPet') })}
             </span>
           </div>
         )}
@@ -1637,6 +1678,40 @@ export default function MainPage() {
             <span className={`w-2 h-2 rounded-full ${showBarrierFree ? 'bg-jade animate-pulse' : 'bg-muk-soft/40'}`} />
             ♿ {t('map.barrierFree')}
           </button>
+
+          {/* 🅿 주차 가능 필터 — 켜지면 features.parking 이 '가능'으로 파싱되는 시설만 지도에 표시. 배리어프리와 동일 패턴(AND 조합). */}
+          <button
+            type="button"
+            onClick={() => setShowParkingFilter((prev) => !prev)}
+            aria-pressed={showParkingFilter}
+            className={`flex shrink-0 items-center gap-2 rounded-full border px-3.5 py-2 text-[13px] font-medium transition-all fractal-glass shadow-[0_2px_14px_rgba(43,35,32,0.06)] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 sm:px-4 sm:py-2 sm:text-sm ${
+              showParkingFilter
+                ? 'bg-jade/15 border-jade text-muk'
+                : 'bg-white/80 border-line text-muk-soft hover:bg-white hover:text-muk'
+            }`}
+          >
+            <span className={`w-2 h-2 rounded-full ${showParkingFilter ? 'bg-jade animate-pulse' : 'bg-muk-soft/40'}`} />
+            🅿 {t('map.filterParking')}
+          </button>
+
+          {/* 🐾 반려동물 동반 필터 — 켜지면 features.chk_pet 이 '가능'으로 파싱되는 시설만 지도에 표시. 배리어프리와 동일 패턴(AND 조합).
+              커버리지 게이트: 현재 적재 데이터에 chk_pet 값이 하나도 없으면(실측 0/85) 항상 빈 지도가 되는
+              칩이라 숨긴다 — TourAPI 재적재로 값이 생기는 즉시 자동 노출. */}
+          {facilities.some((f: any) => parseAvailability((f?.features?.chk_pet ?? f?.features?.chkPet) as string | null | undefined) !== null) && (
+          <button
+            type="button"
+            onClick={() => setShowPetFilter((prev) => !prev)}
+            aria-pressed={showPetFilter}
+            className={`flex shrink-0 items-center gap-2 rounded-full border px-3.5 py-2 text-[13px] font-medium transition-all fractal-glass shadow-[0_2px_14px_rgba(43,35,32,0.06)] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 sm:px-4 sm:py-2 sm:text-sm ${
+              showPetFilter
+                ? 'bg-jade/15 border-jade text-muk'
+                : 'bg-white/80 border-line text-muk-soft hover:bg-white hover:text-muk'
+            }`}
+          >
+            <span className={`w-2 h-2 rounded-full ${showPetFilter ? 'bg-jade animate-pulse' : 'bg-muk-soft/40'}`} />
+            🐾 {t('map.filterPet')}
+          </button>
+          )}
 
           {/* ⏱ 대기 보드 진입 칩 — /waiting(스마트 줄서기 보드, 정보형)로 이동. 이 칩은 토글이 아니라
               단순 내비게이션이라 aria-pressed 없이 다른 칩과 동일 문법(pill + fractal-glass)만 맞춘다. */}

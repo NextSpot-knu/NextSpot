@@ -2,12 +2,13 @@
 
 import { useState, useEffect } from 'react';
 import { motion, PanInfo, AnimatePresence } from 'framer-motion';
-import { Bookmark, Sparkles, Star, Phone, MapPin, Clock, ChevronUp, ChevronDown, Info, Globe } from 'lucide-react';
+import { Bookmark, Sparkles, Star, Phone, MapPin, Clock, ChevronUp, ChevronDown, Info, Globe, Utensils } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { CongestionReportButton } from '@/components/CongestionReportButton';
 import { GoldenHourBadge } from '@/components/GoldenHourBadge';
 import { relativeParts } from '@/lib/freshness';
 import { useT } from '@/lib/i18n/I18nProvider';
+import { isClosedToday } from '@/lib/restDate';
 
 // facility prop 이 이 컴포넌트에서 실제로 읽는 필드만 구조적으로 명시한 타입.
 // 콜러 둘의 합집합: main(page)은 Facility(congestionLevel/currentCount: number|null,
@@ -251,6 +252,19 @@ export function RecommendationCard({
     try { return new URL(homepageUrl).hostname; } catch { return homepageUrl; }
   })();
 
+  // 대표 메뉴(TourAPI detailIntro2 first_menu) — apiClient(/infrastructures, by-type)는 features
+  // 내부 키까지 재귀적으로 camelCase 변환하므로 firstMenu 로 오지만, supabase 직접 폴백 경로는
+  // 원본 컬럼(snake_case)을 그대로 들고 오므로 둘 다 지원한다(main/page.tsx barrierFree 폴백과 동일 관례).
+  // 콤마 구분 시 앞 2개만('지어내지 않기' — 있는 값만 노출).
+  const firstMenuRaw = (facility?.features?.firstMenu ?? facility?.features?.first_menu) as string | undefined;
+  const firstMenuTokens = firstMenuRaw
+    ? firstMenuRaw.split(',').map((s) => s.trim()).filter(Boolean).slice(0, 2)
+    : [];
+
+  // 오늘 휴무 — rest_date_raw 보수 파서(restDate.ts). true 확정일 때만 배지 노출(과판정 금지 원칙).
+  const restDateRaw = (facility?.features?.restDateRaw ?? facility?.features?.rest_date_raw) as string | undefined;
+  const closedToday = isClosedToday(restDateRaw) === true;
+
   return (
     <motion.div 
       className={`w-full bg-white/95 backdrop-blur-2xl border border-line rounded-3xl ${isMinimized ? 'p-3' : 'p-5'} shadow-[0_8px_30px_rgba(43,35,32,0.12)] flex flex-col ${isMinimized ? 'gap-1' : 'gap-3'} select-none relative overflow-hidden`}
@@ -327,6 +341,12 @@ export function RecommendationCard({
               ) : (
                 <span className="px-2 py-0.5 rounded-md text-[10px] font-bold border bg-muk/5 border-line text-muk-soft">
                   {t('card.congestion')}: {t('card.noData')}
+                </span>
+              )}
+              {/* 오늘 휴무 배지 — 혼잡 배지 바로 옆. isClosedToday 가 true 확정일 때만(null/false 는 무표시). */}
+              {closedToday && (
+                <span className="px-2 py-0.5 rounded-md text-[10px] font-bold border bg-terracotta/10 border-terracotta/30 text-terracotta">
+                  {t('card.closedToday')}
                 </span>
               )}
               <span className="px-2 py-0.5 rounded-md text-[10px] font-medium bg-hanji-deep border border-line text-muk-soft">
@@ -596,6 +616,17 @@ export function RecommendationCard({
                 >
                   {homepageHost}
                 </a>
+              </div>
+            </div>
+          )}
+
+          {/* 대표 메뉴(TourAPI first_menu) — 있을 때만, 콤마 구분 시 앞 2개만 '·' 로 이어붙임('지어내지 않기') */}
+          {firstMenuTokens.length > 0 && (
+            <div className="flex items-start gap-2">
+              <Utensils size={14} className="text-muk-soft mt-0.5 flex-shrink-0" />
+              <div>
+                <span className="text-muk-soft block text-[10px] font-bold">{t('card.signatureMenu')}</span>
+                <span className="text-muk">{firstMenuTokens.join(' · ')}</span>
               </div>
             </div>
           )}
