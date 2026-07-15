@@ -3,6 +3,56 @@
 > 현재 상태 스냅샷 + 다음 단계. 브랜치 `feature/jinseok` (origin 동기화).
 > 자율 개선 세션 로그·재개 규칙: [`AUTONOMOUS_SESSION.md`](./AUTONOMOUS_SESSION.md) · 전략: [`CONTEST_STRATEGY.md`](./CONTEST_STRATEGY.md)
 
+## -10. 2026-07-16 야간 — Codex 교차 리뷰 P0 2건 수정 + 사장님 콘솔 운영 마감
+
+### 실험실 P0 2건 (리뷰가 잡아낸 것 — 게이트로는 못 잡혔다)
+
+1. **`29ca305` 실험실이 죽어 있었다.** 프런트 어디에도 `rejected` 를 서버로 보내는 경로가 없어
+   pending 이 0건이었고 `/mypage/lab` 은 영원히 빈 화면이었다. 그런데 메인은 "이유는 나의 실험실에서
+   알려줄 수 있어요" 힌트를 띄워 **기록 없이 거짓 약속**을 했다. **pytest 294 통과 상태에서 제품은 성립하지 않았다.**
+   → **§-9 의 판단 1(by-type 서버 미저장)을 철회한다.** 그 결정이 실험실의 유일한 유입 경로를 없앴다.
+   지표 코드를 실제로 읽어보니 우려는 부분적으로만 맞았다: `impact.py:69` 는 accepted=true 행만 세므로
+   거절 행을 넣어도 **분산 성과 지표는 불변**이고, 수락률 '분모'를 세는 곳만 영향받는다.
+   → 채택: `recommendations.source`('spot'|'browse') + `POST /recommendations/reject`(fire-and-forget) +
+   분모 집계에서만 browse 제외(merchant '추천 제안', admin `/metrics`·`/metrics/trend`.
+   `/impact` 는 accepted=true 만 세므로 필터 미적용).
+2. **`b88cee1` 학습 '정확히 1회' 가 실제로는 깨져 있었다.** `learning_applied_at` 을 로컬 값으로 검사하고
+   id 로만 UPDATE 해 동시 요청 둘이 모두 학습했다(계약 10 위반). → 조건부 원자적 UPDATE
+   (`WHERE learning_applied_at IS NULL`) + 갱신 행이 있을 때만 학습. 경합 테스트 추가.
+
+**남은 리뷰 지적(미해결)**:
+- **P1 claim 후 장애 시 학습 유실** — claim 을 먼저 찍고 벡터 이동은 별도 호출이라, 그 사이 실패하면
+  재시도가 '이미 학습됨'으로 판단한다. 현재는 at-most-once 이지 '정확히 1회'가 아니다.
+  제대로 하려면 `claimed_at`/`applied_at` 분리 + 오래된 claim 재처리 또는 outbox 가 필요하다(후속 과제).
+- **P1 수락 CTA 연타 가드 부재**(explore/recommend:623, :1295) — 결정 행·벡터는 멱등이나 쿠폰 발급
+  경로가 반복 호출된다(쿠폰 서비스 자체 멱등성에 의존).
+- **P2 마이그레이션의 dedupe DELETE** — 분석 이력이라면 삭제보다 사전 검증 실패/archive 가 안전하다는 지적.
+  현재 중복 0건이라 실질 영향 없음.
+- **계약 9 부분**: `already_visited` → 재추천 억제의 **실제 억제 로직은 아직 없다**(매핑만 존재).
+
+### 사장님 콘솔 `92d43de`
+
+Codex 감사(읽기 전용) P0/P1 반영. 기능은 이미 실동작했고 '운영 마감'이 admin 수준에 못 미쳤다.
+- 정직성: '예측 유입'→'예상 혼잡'(우리가 가진 건 혼잡도 예측이지 유입/매출이 아니다),
+  '추천 노출'→'추천 제안'(레코드 수이지 화면 노출 보장이 아님)
+- 좌석 상태: 추천은 30분 이내만 반영하는데 콘솔은 만료값을 '현재 상태'로 계속 보여줬다 →
+  적용 중/만료됨 배지 + 남은 시간 + '방송 끄기'(백엔드 level=null 해제)
+- 실수 방지: 타임세일 발행/취소 인라인 확인, 저장류 전부 성공·실패 토스트
+- P1: 성적표 0건 설명, 분모 명시(사용 3/발급 12), 가게 검색 + 음식점·카페 기본 필터, a11y, 12px 이상
+- 문서-코드 불일치 정정: `merchant.py` 주석·`COMMERCIAL_PRODUCT_IDEAS.md:43` 의 '추천 랭킹 미연동'
+  서술이 코드 실제(merchant_boost → recommendations 반영)와 어긋났다 — 심사 질의 신뢰 직결
+
+**알려진 위험**: 프런트 `SEAT_FRESH_MINUTES=30` 은 백엔드 `merchant_boost.SEAT_STATUS_FRESH_MINUTES`
+하드코딩 미러다(서버가 값을 안 내려줌). 한쪽만 바꾸면 표시가 어긋난다.
+
+### 사람 작업 (추가)
+
+- **[필수·선행]** 원격 Supabase SQL Editor 에 마이그레이션 **2개**를 순서대로 실행:
+  `20260716140000_rejection_lab.sql` → `20260716150000_recommendation_source.sql`.
+  둘 다 멱등·기존 행 무손실. **백엔드 배포보다 먼저** (action VARCHAR(20)→TEXT 가 선행 전제).
+- 브라우저 실화면 검증 미실시: 메인 연속 거절 → 즉시 다음 → 마이탭 카드 건수 → 실험실 답변 → 목록 제거,
+  그리고 사장님 콘솔 타임세일 발행 확인 → 만료 배지 → 방송 끄기.
+
 ## -9. 2026-07-16 — `나의 실험실` MVP 구현 완료 (Claude, 6커밋 · Codex 교차 리뷰 대기)
 
 감사([`REJECTION_LAB_AUDIT.md`](./REJECTION_LAB_AUDIT.md))의 구현 계약 12개를 기준으로 구현.
