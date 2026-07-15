@@ -216,6 +216,15 @@ async def _fetch_decision_row(client, recommendation_id: str) -> dict | None:
     return data[0] if data else None
 
 
+async def _fetch_feedback_row(client, feedback_id: str) -> dict | None:
+    """피드백 id로 최신 행을 조회한다(조건부 UPDATE 경합 패자 응답용)."""
+    res = await asyncio.to_thread(
+        client.table(_TABLE).select("*").eq("id", feedback_id).limit(1).execute
+    )
+    data = getattr(res, "data", None) or []
+    return data[0] if data else None
+
+
 def _initial_state_for(action: str) -> tuple[str, str]:
     """새 결정 행의 (reason_status, learning_scope) 초기값.
 
@@ -336,18 +345,26 @@ async def record_decision(client, *, user_id: str, recommendation_id: str, actio
         patch["learning_applied_at"] = now.isoformat()
         patch["learning_version"] = LEARNING_VERSION
 
-    res = await asyncio.to_thread(
-        client.table(_TABLE).update(patch).eq("id", existing["id"]).execute
-    )
+    query = client.table(_TABLE).update(patch).eq("id", existing["id"])
+    if should_learn:
+        # PostgREST `is.null` 조건으로 학습 슬롯을 원자적으로 선점한다.
+        query = query.is_("learning_applied_at", "null")
+    res = await asyncio.to_thread(query.execute)
     data = getattr(res, "data", None) or []
-    row = data[0] if data else {**existing, **patch}
+    claimed_learning = should_learn and bool(data)
+    if data:
+        row = data[0]
+    elif should_learn:
+        row = await _fetch_feedback_row(client, existing["id"]) or existing
+    else:
+        row = {**existing, **patch}
     logger.info(
         "feedback_decision_updated",
         recommendation_id=recommendation_id,
         action=action,
-        learned=should_learn,
+        learned=claimed_learning,
     )
-    return _result(row, created=False, action_changed=True, should_learn=should_learn)
+    return _result(row, created=False, action_changed=True, should_learn=claimed_learning)
 
 
 async def record_quality_signal(client, *, user_id: str, recommendation_id: str, action: str) -> dict:
@@ -431,23 +448,31 @@ async def apply_reason(client, *, feedback_row: dict, reason_code: str, reason_n
         patch["learning_applied_at"] = now.isoformat()
         patch["learning_version"] = LEARNING_VERSION
 
-    res = await asyncio.to_thread(
-        client.table(_TABLE).update(patch).eq("id", feedback_row["id"]).execute
-    )
+    query = client.table(_TABLE).update(patch).eq("id", feedback_row["id"])
+    if should_learn:
+        # 같은 NULL 슬롯을 본 요청 중 실제로 이 조건을 만족해 갱신한 한 요청만 승자다.
+        query = query.is_("learning_applied_at", "null")
+    res = await asyncio.to_thread(query.execute)
     data = getattr(res, "data", None) or []
-    row = data[0] if data else {**feedback_row, **patch}
+    claimed_learning = should_learn and bool(data)
+    if data:
+        row = data[0]
+    elif should_learn:
+        row = await _fetch_feedback_row(client, feedback_row["id"]) or feedback_row
+    else:
+        row = {**feedback_row, **patch}
     logger.info(
         "feedback_reason_answered",
         feedback_id=feedback_row.get("id"),
         reason_code=reason_code,
         learning_scope=scope,
-        learned=should_learn,
+        learned=claimed_learning,
     )
     return {
         "id": row.get("id"),
         "reason_status": row.get("reason_status"),
         "reason_code": row.get("reason_code"),
         "learning_scope": row.get("learning_scope"),
-        "should_learn_vector": should_learn,
+        "should_learn_vector": claimed_learning,
         "row": row,
     }

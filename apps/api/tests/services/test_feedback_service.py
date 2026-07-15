@@ -3,6 +3,7 @@
 실DB·실네트워크는 쓰지 않는다 — user_feedback 테이블의 관련 제약(부분 UNIQUE 인덱스 포함)만
 흉내 내는 인메모리 가짜 Supabase 클라이언트를 주입한다(서비스가 client 를 인자로 받는 이유).
 """
+import asyncio
 import itertools
 from datetime import datetime, timedelta, timezone
 
@@ -64,6 +65,10 @@ class _Query:
         self._filters.append(("in", col, list(vals)))
         return self
 
+    def is_(self, col, val):
+        self._filters.append(("is", col, val))
+        return self
+
     def limit(self, n):
         self._limit = n
         return self
@@ -74,6 +79,8 @@ class _Query:
             if kind == "eq" and row.get(col) != val:
                 return False
             if kind == "in" and row.get(col) not in val:
+                return False
+            if kind == "is" and val in (None, "null") and row.get(col) is not None:
                 return False
         return True
 
@@ -322,6 +329,25 @@ async def test_concurrent_insert_race_resolves_to_single_row(client, monkeypatch
     assert len(_decision_rows(client)) == 1
 
 
+@pytest.mark.asyncio
+async def test_concurrent_action_change_claim_learns_exactly_once(client):
+    skipped = await fs.record_decision(
+        client, user_id=USER, recommendation_id=REC, action="skipped"
+    )
+
+    first, second = await asyncio.gather(
+        fs.record_decision(
+            client, user_id=USER, recommendation_id=REC, action="accepted_visit_intent"
+        ),
+        fs.record_decision(
+            client, user_id=USER, recommendation_id=REC, action="accepted_visit_intent"
+        ),
+    )
+
+    assert sum(result["should_learn_vector"] for result in (first, second)) == 1
+    assert client.rows("user_feedback")[0]["id"] == skipped["id"]
+
+
 # --- record_quality_signal --------------------------------------------------------
 
 
@@ -369,6 +395,26 @@ async def test_long_term_reason_learns_exactly_once(client):
     )
     assert second["should_learn_vector"] is False
     assert second["reason_status"] == "answered"
+
+
+@pytest.mark.asyncio
+async def test_concurrent_reason_claim_learns_exactly_once(client):
+    rejected = await fs.record_decision(
+        client, user_id=USER, recommendation_id=REC, action="rejected"
+    )
+    stale_row = dict(rejected["row"])
+
+    first, second = await asyncio.gather(
+        fs.apply_reason(
+            client, feedback_row=dict(stale_row), reason_code="too_far", reason_note=None
+        ),
+        fs.apply_reason(
+            client, feedback_row=dict(stale_row), reason_code="too_far", reason_note=None
+        ),
+    )
+
+    assert sum(result["should_learn_vector"] for result in (first, second)) == 1
+    assert client.rows("user_feedback")[0]["learning_applied_at"] == NOW.isoformat()
 
 
 @pytest.mark.parametrize(
