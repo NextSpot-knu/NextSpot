@@ -190,6 +190,53 @@ async def area_based_list(
     })
 
 
+async def area_based_sync_list(
+    area_code: int,
+    sigungu_code: Optional[int] = None,
+    content_type_id: Optional[int] = None,
+    modified_time: Optional[str] = None,
+    page: int = 1,
+    rows: int = 100,
+) -> dict:
+    """areaBasedSyncList2 — 변경분 동기화 목록(표출여부 showflag 포함).
+
+    폐업/비표출(showflag) 감지용 일배치 전용이라 캐시하지 않는다(항상 최신 변경분).
+    modified_time 은 YYYYMMDD — 해당 일자 이후 변경분만. 실제 수용 파라미터는
+    응답 실측으로 확정할 것(문서·실서버 간 차이 전례 있음).
+    """
+    return await _get("areaBasedSyncList2", {
+        "areaCode": area_code,
+        "sigunguCode": sigungu_code,
+        "contentTypeId": content_type_id,
+        "modifiedtime": modified_time,
+        "pageNo": page,
+        "numOfRows": rows,
+    })
+
+
+async def search_keyword(
+    keyword: str,
+    area_code: Optional[int] = None,
+    sigungu_code: Optional[int] = None,
+    content_type_id: Optional[int] = None,
+    page: int = 1,
+    rows: int = 10,
+) -> dict:
+    """searchKeyword2 — 전체 TourAPI POI 키워드 검색(적재 85곳 밖 커버리지).
+
+    런타임 검색 폴백용 — 키워드별 24h 캐시(_get_cached)로 쿼터를 보호하고,
+    호출 빈도 제한(레이트리밋)은 라우터 계층에서 별도로 건다.
+    """
+    return await _get_cached("searchKeyword2", {
+        "keyword": keyword,
+        "areaCode": area_code,
+        "sigunguCode": sigungu_code,
+        "contentTypeId": content_type_id,
+        "pageNo": page,
+        "numOfRows": rows,
+    })
+
+
 async def detail_common(content_id: str) -> dict:
     """detailCommon2 — 공통 상세(개요·주소·좌표·대표이미지 등)."""
     return await _get("detailCommon2", {"contentId": content_id})
