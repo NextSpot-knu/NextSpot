@@ -47,8 +47,7 @@
    Codex가 구현했으면 Claude `/code-review`. 발견은 적대적 재검증 후에만 수정(반증 전례: 127.0.0.1 CORS).
 5. **게이트 ③ 브라우저 검증** (UI 변경 시, **IDE에서 수동**) — Antigravity IDE를 열어
    `docs/DEMO_SCENARIO.md`의 데모 전 체크리스트 플로우를 실클릭. 대상: `localhost:3000`
-   (기동 방법은 `AGENTS.md` 로컬 환경 — 백엔드는 `run_local.ps1`이 아니라 `py -3.11` 직접 실행)
-   또는 Vercel 프리뷰. 모바일 뷰포트(하단 safe-area·바텀내비) 포함.
+   (`.\run_local.ps1`) 또는 Vercel 프리뷰. 모바일 뷰포트(하단 safe-area·바텀내비) 포함.
    스크린샷을 증거로 남긴다. 공모전 데모 리허설이 이 게이트의 최종 형태다.
 6. **머지** — `git push origin feature/jinseok:main` (fast-forward). main push가 곧 Vercel prod 배포다.
 
