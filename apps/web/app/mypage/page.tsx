@@ -7,11 +7,11 @@ import { useRouter } from 'next/navigation';
 import {
   Menu, Bell, Bookmark, User,
   Edit2, ChevronRight, LogOut,
-  Settings as SettingsIcon, Ticket, X, Footprints, Sparkles, Hourglass, Store
+  Settings as SettingsIcon, Ticket, X, Footprints, Sparkles, Hourglass, Store, FlaskConical
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { createPublicClient } from '@/lib/supabase';
-import { apiClient } from '@/lib/api-client';
+import { apiClient, isAuthError, fetchLabPendingCount } from '@/lib/api-client';
 import { getVisitCount } from '@/lib/visits';
 const TasteRadar = dynamic(() => import('@/components/TasteRadar'), { ssr: false });
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
@@ -57,6 +57,28 @@ export default function MyPage() {
         const d = await apiClient.get('/api/v1/impact/summary');
         if (alive) setWaitSaved(Math.max(0, Math.round(Number(d?.waitSavedMinutes) || 0)));
       } catch {
+        if (!retried) { retried = true; setTimeout(() => { void load(); }, 2500); }
+      }
+    };
+    void load();
+    return () => { alive = false; };
+  }, []);
+
+  // 나의 실험실 미응답 건수 — 실데이터(GET /api/v1/lab/pending/count)만 표시한다.
+  // 조회 실패(서버 장애·401)면 null 을 유지해 카드를 아예 숨긴다 — 가짜 숫자·가짜 배지 금지(감사 계약 11).
+  // 0건이면 다듬을 기록이 없다는 뜻이므로 역시 노출하지 않는다.
+  // 첫 실패는 익명 세션 부트스트랩 레이스일 수 있어 2.5초 유예 1회 재시도(위 impact 타일과 동일 패턴).
+  const [labPendingCount, setLabPendingCount] = useState<number | null>(null);
+  useEffect(() => {
+    let retried = false;
+    let alive = true;
+    const load = async () => {
+      try {
+        const count = await fetchLabPendingCount();
+        if (alive) setLabPendingCount(Math.max(0, Math.round(Number(count) || 0)));
+      } catch (err) {
+        // 401 은 서버 장애가 아니다 — 재시도해도 성공할 수 없으므로 카드를 숨긴 채 종료(무한 재시도 금지).
+        if (isAuthError(err)) return;
         if (!retried) { retried = true; setTimeout(() => { void load(); }, 2500); }
       }
     };
@@ -296,6 +318,34 @@ export default function MyPage() {
             <div className="mb-4">
               <CongestionAlertToggle />
             </div>
+
+            {/* 나의 실험실 진입 카드 — 거절한 추천의 이유를 되짚어 다음 추천을 조율한다.
+                건수가 실제로 조회된 경우(> 0)에만 노출한다: 조회 실패(null)면 카드 자체를 숨겨
+                '0건'이나 임의 숫자를 지어내지 않는다. */}
+            {labPendingCount !== null && labPendingCount > 0 && (
+              <button
+                type="button"
+                onClick={() => router.push('/mypage/lab')}
+                aria-label={t('lab.cardCta', { count: labPendingCount })}
+                className="group w-full mb-4 rounded-3xl border border-jade/35 bg-gradient-to-r from-jade/12 via-white to-gold/10 p-5 text-left shadow-[0_2px_14px_rgba(43,35,32,0.06)] transition-colors hover:border-jade/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+              >
+                <div className="flex items-center justify-between gap-4">
+                  <div className="flex min-w-0 items-center gap-4">
+                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-jade/15 text-jade">
+                      <FlaskConical size={22} />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="font-bold text-muk">{t('lab.cardTitle')}</p>
+                      <p className="mt-0.5 text-xs text-muk-soft leading-relaxed">{t('lab.cardDesc')}</p>
+                      <p className="mt-1.5 text-xs font-semibold text-jade">
+                        {t('lab.cardCta', { count: labPendingCount })}
+                      </p>
+                    </div>
+                  </div>
+                  <ChevronRight size={20} className="shrink-0 text-jade transition-transform group-hover:translate-x-0.5" />
+                </div>
+              </button>
+            )}
 
             {/* 관광객 계정과 분리된 사장님 콘솔 진입점. 실제 전환이 아니라 별도 비즈니스
                 게이트로 이동하므로 문구에도 '사장님 콘솔'을 명시한다. */}
