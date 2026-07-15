@@ -1,8 +1,11 @@
 "use client";
 
-// 스마트 줄서기 보드(정보형) — "지금 출발하면?" : 식당·관광지를 도착 시점 예상 대기가 짧은 순으로
-// 보여주는 정보 전용 보드다. 새 예약/줄서기 백엔드를 만들지 않고, 기존 SPOT 추천
-// (recommendByType → breakdown.waitTime/travelTime)을 재사용해 "얼마나 기다릴지"만 보여준다.
+// 스마트 줄서기 보드(정보형) — "지금 출발하면?" : 식당·카페·관광지·문화시설을 유형별 섹터로 나눠
+// 도착 시점 예상 대기가 짧은 순으로 보여주는 정보 전용 보드다. 새 예약/줄서기 백엔드를 만들지 않고,
+// 기존 SPOT 추천(recommendByType → breakdown.waitTime/travelTime)을 재사용해 "얼마나 기다릴지"만 보여준다.
+//
+// 레이아웃(PM 지시): 섹터(유형)별로 도착 대기 짧은 순 상위 3곳을 세로로 긴 대표 카드 3장으로 올리고,
+// 나머지는 그 아래 컴팩트 행 리스트로 줄줄이 보여준다. 응답이 빈 유형은 섹터 자체를 숨긴다.
 //
 // 위치는 main/page.tsx 와 동일한 기본 좌표 폴백(REGION.center)을 쓴다 — 이 보드는 별도로 GPS 를
 // 새로 얻지 않는다(관광객이 지도에서 이미 위치를 확인한 뒤 들어오는 보조 정보 화면이라는 전제).
@@ -13,7 +16,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Crown } from "lucide-react";
 import { recommendByType } from "@/lib/api-client";
 import { recToSpot } from "@/lib/recommender";
 import { REGION } from "@/lib/region";
@@ -28,13 +31,13 @@ const TYPE_EMOJI: Record<string, string> = {
   culture: "🏛️",
 };
 
-// 보드에 태울 시설 종류 — 스펙: restaurant/attraction("지금 출발하면?" 대상은 식당·관광지 위주).
-const BOARD_TYPES = ["restaurant", "attraction"] as const;
+// 보드 섹터 — recommendByType 이 지원하는 4유형을 그대로 병렬 섹터로 노출한다.
+const BOARD_TYPES = ["restaurant", "cafe", "attraction", "culture"] as const;
 
-// 종류당 조회 개수(합쳐서 대기 짧은 순 정렬) — 과호출 방지를 위한 상한.
+// 섹터당 대표 카드 개수(상위 N).
+const TOP_CARD_COUNT = 3;
+// 유형당 조회 개수(대표 3 + 리스트 여유분) — 과호출 방지를 위한 상한.
 const PER_TYPE_LIMIT = 8;
-// 골든타임 배지는 상위 N개 행만 지연 조회(연쇄 API 호출 최소화 — GoldenHourBadge 자체도 lazy).
-const GOLDEN_HOUR_TOP_N = 5;
 
 interface BoardRow {
   facilityId: string;
@@ -45,15 +48,31 @@ interface BoardRow {
   expectedTravel: number;
 }
 
+// 섹터 = 한 시설 유형의 대기 짧은 순 정렬 목록. rows 가 비면 섹터 자체를 렌더하지 않는다.
+interface Sector {
+  type: string;
+  rows: BoardRow[];
+}
+
 // 카드 상단 혼잡 pill 과 동일한 4단계 임계값(혼잡/보통/여유/한산) — RecommendationCard 미러.
 const congestionKey = (c: number) =>
   c >= 0.75 ? "busy" : c >= 0.5 ? "moderate" : c >= 0.25 ? "relaxed" : "quiet";
+
+// 혼잡 배지 색상 클래스 — 대표 카드·리스트 행에서 공유.
+const congestionBadgeClass = (c: number) =>
+  c >= 0.75
+    ? "bg-terracotta/10 border-terracotta/30 text-terracotta"
+    : c >= 0.5
+    ? "bg-gold/10 border-gold/30 text-gold-deep"
+    : c >= 0.25
+    ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-600"
+    : "bg-jade/10 border-jade/30 text-jade";
 
 export default function WaitingBoardPage() {
   const router = useRouter();
   const t = useT();
 
-  const [rows, setRows] = useState<BoardRow[] | null>(null);
+  const [sectors, setSectors] = useState<Sector[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
 
@@ -63,24 +82,36 @@ export default function WaitingBoardPage() {
   // 세션 부트스트랩 유예 자동 재시도 1회 플래그(아래 fetchBoard 참조)
   const retriedRef = useRef(false);
 
+  const goToDetail = useCallback(
+    (facilityId: string) => {
+      router.push(
+        `/explore/recommend?facilityId=${encodeURIComponent(facilityId)}&lat=${userLocation.lat}&lng=${userLocation.lng}`
+      );
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [router]
+  );
+
   const fetchBoard = useCallback(async () => {
     setLoading(true);
     setFailed(false);
 
-    // 두 종류를 병렬 조회하되 allSettled 로 부분 실패를 흡수한다 — 한쪽만 살아 있어도 보드를 채운다.
-    // 둘 다 실패했을 때만 '백엔드 미가용'으로 판정(정직한 에러 상태 + 재시도).
+    // 4유형을 병렬 조회하되 allSettled 로 부분 실패를 흡수한다 — 일부만 살아 있어도 나머지 섹터는 채운다.
+    // 전부 실패했을 때만 '백엔드 미가용'으로 판정(정직한 에러 상태 + 재시도).
     const results = await Promise.allSettled(
       BOARD_TYPES.map((type) => recommendByType(type, userLocation, [], PER_TYPE_LIMIT))
     );
 
-    const merged: BoardRow[] = [];
+    const nextSectors: Sector[] = [];
     let anySucceeded = false;
-    for (const r of results) {
-      if (r.status !== "fulfilled") continue;
+
+    results.forEach((r, i) => {
+      if (r.status !== "fulfilled") return;
       anySucceeded = true;
-      for (const rec of r.value) {
+
+      const rows: BoardRow[] = r.value.map((rec) => {
         const spot = recToSpot(rec);
-        merged.push({
+        return {
           facilityId: rec.facility.id,
           name: rec.facility.name,
           type: rec.facility.type,
@@ -88,9 +119,13 @@ export default function WaitingBoardPage() {
             typeof rec.facility.congestionLevel === "number" ? rec.facility.congestionLevel : null,
           expectedWait: spot.expectedWait,
           expectedTravel: spot.expectedTravel,
-        });
-      }
-    }
+        };
+      });
+      rows.sort((a, b) => a.expectedWait - b.expectedWait);
+
+      // 응답이 빈 유형은 섹터 자체를 숨긴다(PM 지시).
+      if (rows.length > 0) nextSectors.push({ type: BOARD_TYPES[i], rows });
+    });
 
     if (!anySucceeded) {
       // 첫 진입 직행 시 익명 세션 부트스트랩(SessionBootstrap)이 끝나기 전 401 로 전멸할 수 있다
@@ -101,13 +136,12 @@ export default function WaitingBoardPage() {
         return; // loading 유지(스켈레톤) — 유예는 유한(1회)이라 무한 스켈레톤 아님
       }
       setFailed(true);
-      setRows(null);
+      setSectors(null);
       setLoading(false);
       return;
     }
 
-    merged.sort((a, b) => a.expectedWait - b.expectedWait);
-    setRows(merged);
+    setSectors(nextSectors);
     setLoading(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -149,58 +183,125 @@ export default function WaitingBoardPage() {
           <BoardSkeleton />
         ) : failed ? (
           <ErrorState onRetry={fetchBoard} />
-        ) : !rows || rows.length === 0 ? (
+        ) : !sectors || sectors.length === 0 ? (
           <EmptyState />
         ) : (
-          <div className="flex flex-col gap-2.5">
-            {rows.map((row, idx) => (
-              <button
-                key={row.facilityId}
-                type="button"
-                onClick={() =>
-                  router.push(
-                    `/explore/recommend?facilityId=${encodeURIComponent(row.facilityId)}&lat=${userLocation.lat}&lng=${userLocation.lng}`
-                  )
-                }
-                className="group text-left w-full bg-white/90 border border-line rounded-2xl px-4 py-3.5 flex items-center gap-3 shadow-[0_2px_14px_rgba(43,35,32,0.06)] hover:border-gold/40 hover:bg-white transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
-              >
-                <span
-                  className="w-9 h-9 shrink-0 rounded-full bg-gold/10 border border-gold/25 flex items-center justify-center text-base"
-                  aria-hidden
-                >
-                  {TYPE_EMOJI[row.type] ?? "📍"}
-                </span>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-bold text-muk leading-snug truncate">{row.name}</p>
-                  <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
-                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-gold/10 border border-gold/25 text-gold-deep whitespace-nowrap">
-                      {t("waiting.arrivalWait", { n: Math.round(row.expectedWait) })}
-                    </span>
-                    {row.congestionLevel != null ? (
-                      <span
-                        className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md border whitespace-nowrap ${
-                          row.congestionLevel >= 0.75
-                            ? "bg-terracotta/10 border-terracotta/30 text-terracotta"
-                            : row.congestionLevel >= 0.5
-                            ? "bg-gold/10 border-gold/30 text-gold-deep"
-                            : row.congestionLevel >= 0.25
-                            ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-600"
-                            : "bg-jade/10 border-jade/30 text-jade"
+          <div className="flex flex-col gap-6">
+            {sectors.map((sector) => {
+              const topRows = sector.rows.slice(0, TOP_CARD_COUNT);
+              const restRows = sector.rows.slice(TOP_CARD_COUNT);
+              return (
+                <section key={sector.type}>
+                  {/* 섹터 헤더 — 기존 category.* i18n 키 재사용(신규 키 없음). */}
+                  <h2 className="flex items-center gap-1.5 text-sm font-bold text-muk mb-2">
+                    <span aria-hidden>{TYPE_EMOJI[sector.type] ?? "📍"}</span>
+                    {t(`category.${sector.type}`)}
+                  </h2>
+
+                  {/* 대표 카드 3장 — 도착 대기 짧은 순 상위 3곳, 세로로 긴 포트레이트 카드 */}
+                  <div className="grid grid-cols-3 gap-2">
+                    {topRows.map((row, idx) => (
+                      <button
+                        key={row.facilityId}
+                        type="button"
+                        onClick={() => goToDetail(row.facilityId)}
+                        className={`group relative flex flex-col justify-between text-left aspect-[3/4] rounded-2xl border p-2 shadow-[0_2px_14px_rgba(43,35,32,0.06)] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 ${
+                          idx === 0
+                            ? "bg-gold/10 border-gold/40 hover:border-gold/60"
+                            : "bg-white/90 border-line hover:border-gold/40 hover:bg-white"
                         }`}
                       >
-                        {t(`congestion.${congestionKey(row.congestionLevel)}`)}
-                      </span>
-                    ) : (
-                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md border bg-muk/5 border-line text-muk-soft whitespace-nowrap">
-                        {t("card.noData")}
-                      </span>
-                    )}
-                    {/* 골든타임 — 상위 5개 행만(연쇄 호출 최소화). 배지 자체도 available:false/실패면 스스로 숨는다. */}
-                    {idx < GOLDEN_HOUR_TOP_N && <GoldenHourBadge facilityId={row.facilityId} />}
+                        {/* 1위 표식(왕관) — 골든타임 배지는 카드 폭이 좁아 안 들어가므로 카드 밖 한 줄로 뺀다. */}
+                        {idx === 0 && (
+                          <span
+                            className="absolute -top-1.5 -left-1.5 w-5 h-5 rounded-full bg-gold text-white flex items-center justify-center shadow-[0_1px_4px_rgba(43,35,32,0.35)]"
+                            aria-hidden
+                          >
+                            <Crown size={11} strokeWidth={2.5} />
+                          </span>
+                        )}
+                        <div>
+                          <span className="text-base" aria-hidden>
+                            {TYPE_EMOJI[row.type] ?? "📍"}
+                          </span>
+                          <p className="text-[11px] font-bold text-muk leading-snug line-clamp-2 mt-1">
+                            {row.name}
+                          </p>
+                        </div>
+                        <div className="space-y-1 mt-1">
+                          <p className="text-xs font-extrabold text-gold-deep leading-tight">
+                            {t("waiting.arrivalWait", { n: Math.round(row.expectedWait) })}
+                          </p>
+                          {row.congestionLevel != null ? (
+                            <span
+                              className={`inline-block text-[9px] font-bold px-1.5 py-0.5 rounded-md border whitespace-nowrap ${congestionBadgeClass(
+                                row.congestionLevel
+                              )}`}
+                            >
+                              {t(`congestion.${congestionKey(row.congestionLevel)}`)}
+                            </span>
+                          ) : (
+                            <span className="inline-block text-[9px] font-bold px-1.5 py-0.5 rounded-md border bg-muk/5 border-line text-muk-soft whitespace-nowrap">
+                              {t("card.noData")}
+                            </span>
+                          )}
+                        </div>
+                      </button>
+                    ))}
                   </div>
-                </div>
-              </button>
-            ))}
+
+                  {/* 섹터 1위 골든타임 — 카드 밖 한 줄(컴팩트 카드 폭 안에 배지+알림 버튼이 안 들어감).
+                      available:false/실패면 GoldenHourBadge 자체가 조용히 숨는다. */}
+                  {topRows[0] && (
+                    <div className="mt-1.5">
+                      <GoldenHourBadge facilityId={topRows[0].facilityId} />
+                    </div>
+                  )}
+
+                  {/* 나머지 리스트 — 이름·대기·혼잡 컴팩트 행 줄줄이 */}
+                  {restRows.length > 0 && (
+                    <div className="flex flex-col gap-2 mt-2">
+                      {restRows.map((row) => (
+                        <button
+                          key={row.facilityId}
+                          type="button"
+                          onClick={() => goToDetail(row.facilityId)}
+                          className="group text-left w-full bg-white/90 border border-line rounded-2xl px-3.5 py-2.5 flex items-center gap-2.5 shadow-[0_2px_14px_rgba(43,35,32,0.06)] hover:border-gold/40 hover:bg-white transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+                        >
+                          <span
+                            className="w-7 h-7 shrink-0 rounded-full bg-gold/10 border border-gold/25 flex items-center justify-center text-sm"
+                            aria-hidden
+                          >
+                            {TYPE_EMOJI[row.type] ?? "📍"}
+                          </span>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-bold text-muk leading-snug truncate">{row.name}</p>
+                            <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-gold/10 border border-gold/25 text-gold-deep whitespace-nowrap">
+                                {t("waiting.arrivalWait", { n: Math.round(row.expectedWait) })}
+                              </span>
+                              {row.congestionLevel != null ? (
+                                <span
+                                  className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md border whitespace-nowrap ${congestionBadgeClass(
+                                    row.congestionLevel
+                                  )}`}
+                                >
+                                  {t(`congestion.${congestionKey(row.congestionLevel)}`)}
+                                </span>
+                              ) : (
+                                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md border bg-muk/5 border-line text-muk-soft whitespace-nowrap">
+                                  {t("card.noData")}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </section>
+              );
+            })}
           </div>
         )}
       </div>
@@ -210,16 +311,34 @@ export default function WaitingBoardPage() {
 
 function BoardSkeleton() {
   return (
-    <div className="flex flex-col gap-2.5" aria-hidden>
-      {[0, 1, 2, 3, 4].map((i) => (
-        <div
-          key={i}
-          className="bg-white/70 border border-line rounded-2xl px-4 py-3.5 flex items-center gap-3 animate-pulse"
-        >
-          <div className="w-9 h-9 rounded-full bg-hanji-deep shrink-0" />
-          <div className="flex-1 space-y-2">
-            <div className="h-3.5 bg-hanji-deep rounded w-1/2" />
-            <div className="h-3 bg-hanji-deep rounded w-1/3" />
+    <div className="flex flex-col gap-6" aria-hidden>
+      {[0, 1].map((s) => (
+        <div key={s} className="space-y-2">
+          <div className="h-4 w-20 bg-hanji-deep rounded animate-pulse" />
+          <div className="grid grid-cols-3 gap-2">
+            {[0, 1, 2].map((i) => (
+              <div
+                key={i}
+                className="aspect-[3/4] bg-white/70 border border-line rounded-2xl p-2 animate-pulse"
+              >
+                <div className="w-6 h-6 rounded-full bg-hanji-deep" />
+                <div className="h-3 bg-hanji-deep rounded w-full mt-2" />
+              </div>
+            ))}
+          </div>
+          <div className="flex flex-col gap-2 mt-2">
+            {[0, 1].map((i) => (
+              <div
+                key={i}
+                className="bg-white/70 border border-line rounded-2xl px-3.5 py-2.5 flex items-center gap-2.5 animate-pulse"
+              >
+                <div className="w-7 h-7 rounded-full bg-hanji-deep shrink-0" />
+                <div className="flex-1 space-y-2">
+                  <div className="h-3.5 bg-hanji-deep rounded w-1/2" />
+                  <div className="h-3 bg-hanji-deep rounded w-1/3" />
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       ))}
