@@ -3,6 +3,20 @@
 > 현재 상태 스냅샷 + 다음 단계. 브랜치 `feature/jinseok` (origin 동기화).
 > 자율 개선 세션 로그·재개 규칙: [`AUTONOMOUS_SESSION.md`](./AUTONOMOUS_SESSION.md) · 전략: [`CONTEST_STRATEGY.md`](./CONTEST_STRATEGY.md)
 
+## -8. 2026-07-16 — `나의 실험실` 구현 전 Codex 감사
+
+- 구현 전 거절 UI→API→DB→선호 벡터→RLS 경로를 읽기 전용 감사하고 결과를
+  [`REJECTION_LAB_AUDIT.md`](./REJECTION_LAB_AUDIT.md)에 기록했다.
+- **P0**: `/feedback`은 recommendation 기준 멱등성이 없어 재호출마다 `user_feedback` INSERT와
+  선호 벡터 -5%가 반복된다. 메인 지도의 `관심 없음`은 sessionStorage만 갱신해 서버 실험실 목록에
+  나타나지 않는다.
+- **P1**: 만족도 👎, 일괄 새로고침, 음성 다음, 북마크 제거가 서로 다른 의미인데 거절/ignored로
+  혼용된다. 👍 accepted도 실제 방문 수락·쿠폰 발급과 섞여 지표가 오염될 수 있다.
+- 구현 계약: 거절 순간에는 pending만 저장, 상세 이유 확정 후 의미에 맞는 장기 학습을 정확히 한 번
+  적용한다. skip/batch/unsave/helpfulness/visit intent를 분리하고 최근 10건·30일 만료를 적용한다.
+- 다음 구현 주체(권장 Claude)는 `COMMERCIAL_PRODUCT_IDEAS.md` §2와 위 감사 문서를 모두 읽고,
+  DB/서비스 → API → 기존 행동 정리 → UI/i18n 순으로 작은 커밋을 만든다.
+
 ## -7. 2026-07-16 — TourAPI 4차 상용화 기획
 
 - 기존 1~3차 확장안과 코드 현황을 대조한 뒤, 고객 행동 폐루프 중심의 4차 기획을
