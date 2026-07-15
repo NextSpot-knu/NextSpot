@@ -1,5 +1,6 @@
 # pyrefly: ignore [missing-import]
 import asyncio
+import math
 import uuid
 from datetime import datetime, timezone
 from typing import Literal
@@ -68,10 +69,24 @@ async def fetch_facility(facility_id: str):
         raise HTTPException(status_code=404, detail="시설 정보를 찾을 수 없습니다.")
     return res.data[0]
 
-async def fetch_all_facilities():
+async def fetch_all_facilities(
+    *, center_lat: float | None = None, center_lng: float | None = None, radius_m: float | None = None
+):
     # PostgREST 행수 캡을 넘는 전체 시설 조회. is_active=false(폐업·표출중단 감지, 2차 기획 1위)는
     # 후보에서 제외 — infrastructures.fetch_active_facilities 재사용(컬럼 미배포 시 필터 없이 폴백).
-    facilities = await fetch_active_facilities(supabase_client, "*")
+    extra_filters = None
+    if center_lat is not None and center_lng is not None and radius_m is not None:
+        # PostGIS 없이도 btree 좌표 범위로 먼저 줄인다. 이후 Haversine 원형 필터가 정확도를 보장한다.
+        lat_delta = radius_m / 111_320.0
+        lng_delta = radius_m / max(1.0, 111_320.0 * math.cos(math.radians(center_lat)))
+
+        def extra_filters(query):
+            return (
+                query.gte("latitude", center_lat - lat_delta).lte("latitude", center_lat + lat_delta)
+                .gte("longitude", center_lng - lng_delta).lte("longitude", center_lng + lng_delta)
+            )
+
+    facilities = await fetch_active_facilities(supabase_client, "*", extra_filters=extra_filters)
     # 관광공사 30일 집중률은 POI 실시간 혼잡이 아닌 '오늘의 일별 prior'다. 별도 테이블에서
     # 이름이 정확히 일치하는 행만 붙이며, 마이그레이션/별도 API 승인이 아직 없으면 무해 폴백한다.
     try:
@@ -152,24 +167,12 @@ async def get_recommendations(
     # 1. 사용자 정보 및 원본 시설 정보 병렬 조회
     user_task = fetch_user(req.user_id)
     original_infra_task = fetch_facility(req.original_facility_id)
-    all_infra_task = fetch_all_facilities()
+    all_infra_task = fetch_all_facilities(
+        center_lat=req.user_lat, center_lng=req.user_lng, radius_m=150.0
+    )
     
     user_info, original_infra, all_facilities = await asyncio.gather(
         user_task, original_infra_task, all_infra_task
-    )
-
-    # 원본 시설의 실시간 혼잡도 조회
-    original_congestion = await fetch_latest_congestion(req.original_facility_id)
-
-    # 원본 시설의 '지금 그대로 머물 경우' 예상 대기(분) — 요청당 1회 계산해 각 추천의
-    # score_breakdown 에 original_wait_time 으로 저장한다. 수락 추천의 절감 대기시간
-    # (원본 예상대기 − 대안 도착시점 예상대기)을 사후 재계산 없이 집계하기 위한 스냅샷
-    # (관리자 분산 효과 위젯: GET /api/v1/admin/impact). 사용자는 원본에 '지금' 있으므로
-    # 도착시점 보정 없이 현재 시각 기준(hour=None → 현재 UTC)으로 계산한다.
-    original_wait_time = await calculate_predicted_wait_time(
-        facility_type=original_infra["type"],
-        congestion_level=original_congestion,
-        facility_features=original_infra.get("features"),
     )
 
     # 2. 반경 150m 이내 후보 시설 필터링 (본인 시설 제외)
@@ -195,7 +198,16 @@ async def get_recommendations(
     # 3. 각 후보군에 대해 SPOT 스코어를 병렬 연산
     #    후보별 최신 혼잡도는 일괄 조회(fetch_congestion_map) 후 맵 참조 — 후보 수만큼의
     #    개별 쿼리 팬아웃(N+1, 스레드풀 고갈 위험)을 제거한다.
-    congestion_by_id = await fetch_congestion_map([f["id"] for f, _ in candidates])
+    congestion_by_id = await fetch_congestion_map(
+        [req.original_facility_id, *[f["id"] for f, _ in candidates]]
+    )
+    original_congestion = congestion_by_id.get(req.original_facility_id, 0.0)
+    # 원본 대기시간도 위 일괄 혼잡 조회 결과를 재사용한다.
+    original_wait_time = await calculate_predicted_wait_time(
+        facility_type=original_infra["type"],
+        congestion_level=original_congestion,
+        facility_features=original_infra.get("features"),
+    )
 
     async def _score_candidate(f: dict, dist: float) -> dict:
         candidate_congestion = congestion_by_id.get(f["id"], 0.0)
@@ -323,7 +335,8 @@ async def recommend_by_type(
         raise HTTPException(status_code=403, detail="요청한 user_id가 인증된 사용자와 일치하지 않습니다.")
 
     user_info, all_facilities = await asyncio.gather(
-        fetch_user(req.user_id), fetch_all_facilities()
+        fetch_user(req.user_id),
+        fetch_all_facilities(center_lat=req.user_lat, center_lng=req.user_lng, radius_m=_MAX_RECO_DISTANCE_M),
     )
 
     exclude = set(req.exclude_ids or [])
@@ -331,6 +344,13 @@ async def recommend_by_type(
         f for f in all_facilities
         if f.get("type") == req.facility_type and f["id"] not in exclude
     ]
+    # 외곽 위치에서 반경 내 후보가 부족하면 기존 기능대로 전체 시설 가까운 순 폴백을 보존한다.
+    if len(candidates) < max(req.limit, 3):
+        all_facilities = await fetch_all_facilities()
+        candidates = [
+            f for f in all_facilities
+            if f.get("type") == req.facility_type and f["id"] not in exclude
+        ]
     if not candidates:
         return []
 

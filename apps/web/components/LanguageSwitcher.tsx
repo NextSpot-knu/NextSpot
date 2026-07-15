@@ -3,7 +3,7 @@
 // 언어 스위처 — 관광객 앱 어디서든 마운트 가능(예: 마이페이지/설정). locale 변경은 즉시 반영된다.
 import { Globe } from 'lucide-react';
 import { useI18n } from '@/lib/i18n/I18nProvider';
-import { LOCALES, type Locale } from '@/lib/i18n/dictionaries';
+import { LOCALES, type Locale } from '@/lib/i18n/config';
 
 export function LanguageSwitcher({ className = '' }: { className?: string }) {
   const { locale, setLocale } = useI18n();

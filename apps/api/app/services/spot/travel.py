@@ -1,3 +1,4 @@
+import asyncio
 import math
 import httpx
 import structlog
@@ -11,6 +12,7 @@ WALKING_SPEED_M_PER_MIN = 66.67
 # Kakao Directions 호출용 단일 httpx 클라이언트(후보마다 새 클라이언트 생성·TCP/TLS 핸드셰이크 반복 방지).
 # import 시점이 아니라 이벤트 루프 안에서 최초 호출 시 lazy 생성(루프 미바인딩·미종료 누수 방지).
 _client = None
+_route_semaphore = asyncio.Semaphore(8)
 
 
 def _get_client() -> httpx.AsyncClient:
@@ -64,7 +66,9 @@ async def get_travel_time_and_distance(
                 "priority": "TIME"
             }
             client = _get_client()
-            response = await client.get(url, headers=headers, params=params)
+            # 추천 후보가 많아도 외부 API/TCP 풀을 한꺼번에 포화시키지 않는다.
+            async with _route_semaphore:
+                response = await client.get(url, headers=headers, params=params)
             if response.status_code == 200:
                 data = response.json()
                 # 카카오 API 응답 규격 파싱

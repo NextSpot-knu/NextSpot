@@ -59,6 +59,7 @@ DROP TABLE IF EXISTS public.inquiries CASCADE;
 DROP TABLE IF EXISTS public.user_preference_vectors CASCADE;
 DROP FUNCTION IF EXISTS public.get_auth_user_info() CASCADE;
 DROP FUNCTION IF EXISTS public.get_auth_user_role() CASCADE;
+DROP FUNCTION IF EXISTS public.latest_congestion_for_facilities(UUID[]) CASCADE;
 DROP FUNCTION IF EXISTS public.handle_updated_at() CASCADE;`;
 
 /** CRLF→LF 정규화 + 꼬리 공백 개행 제거(마지막 개행은 조립 시 일괄 부여). */

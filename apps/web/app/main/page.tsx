@@ -2,8 +2,8 @@
 
 import { useEffect, useRef, useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
+import dynamic from 'next/dynamic';
 import { User, Search, Mic, X, Utensils, MapPin, Building2, Coffee, ChevronDown, ChevronUp } from 'lucide-react';
-import { RecommendationCard } from '@/components/RecommendationCard';
 import { createPublicClient } from '@/lib/supabase';
 import { getMarkerSvg } from '@/lib/utils';
 import { scoreFacility, compareSpot, rankFacilities, recToSpot, haversineMeters, cuisineMatch, rescoreWithPreference, filterReachable, type Spot } from '@/lib/recommender';
@@ -16,13 +16,18 @@ import { relativeParts } from '@/lib/freshness';
 import { useVoiceAssistant } from '@/lib/useVoiceAssistant';
 import { useSpeechSearch } from '@/lib/useSpeechSearch';
 import VoiceAssistantOrb from '@/components/VoiceAssistantOrb';
-import FestivalBanner from '@/components/FestivalBanner';
-import TodayCalmSpots from '@/components/TodayCalmSpots';
-import VisitCheckCard from '@/components/VisitCheckCard';
 import { recordPendingVisit } from '@/lib/visits';
 import { useT } from '@/lib/i18n/I18nProvider';
 // T2: 휴무 원문 파서(오늘 휴무 확정만 배제) + 가능/불가능 텍스트 파서(주차·반려동물 필터) — 공용 단일 소스.
 import { isClosedToday, parseAvailability } from '@/lib/restDate';
+
+const RecommendationCard = dynamic(
+  () => import('@/components/RecommendationCard').then((m) => m.RecommendationCard),
+  { ssr: false },
+);
+const FestivalBanner = dynamic(() => import('@/components/FestivalBanner'), { ssr: false });
+const TodayCalmSpots = dynamic(() => import('@/components/TodayCalmSpots'), { ssr: false });
+const VisitCheckCard = dynamic(() => import('@/components/VisitCheckCard'), { ssr: false });
 
 const supabase = createPublicClient();
 
@@ -537,8 +542,23 @@ export default function MainPage() {
 
   // 추천 점수·정렬·사유 로직은 lib/recommender(백엔드 SPOT 미러)로 분리.
   // CATEGORY_VECTORS·점수 계산·거리(haversine)는 모듈에 있고, 아래는 호출부 유지를 위한 얇은 위임 래퍼다.
-  const calculateSPOT = (facility: Facility) =>
-    scoreFacility(facility, { userLocation: rankingOriginRef.current ?? userLocation, preferredCategories, mockHour, cuisineIntent: cuisineIntentRef.current });
+  const spotMemoRef = useRef(new Map<string, { signature: string; spot: Spot }>());
+  const calculateSPOT = (facility: Facility) => {
+    const origin = rankingOriginRef.current ?? userLocation;
+    const signature = [
+      facility.id, facility.latitude, facility.longitude, facility.congestionLevel,
+      origin?.lat, origin?.lng, preferredCategories.join(','), mockHour, cuisineIntentRef.current,
+    ].join('|');
+    const cached = spotMemoRef.current.get(facility.id);
+    if (cached?.signature === signature) return cached.spot;
+    const spot = scoreFacility(facility, {
+      userLocation: origin, preferredCategories, mockHour, cuisineIntent: cuisineIntentRef.current,
+    });
+    spotMemoRef.current.set(facility.id, { signature, spot });
+    // 데이터 재적재가 반복돼도 세션 동안 캐시가 무한히 자라지 않게 현재 시설 규모 수준으로 제한한다.
+    if (spotMemoRef.current.size > Math.max(200, facilities.length * 2)) spotMemoRef.current.clear();
+    return spot;
+  };
 
   const compareFacilities = compareSpot;
 
@@ -1469,20 +1489,25 @@ export default function MainPage() {
   // (c) 검색 결과 유무 — 현재 카테고리에서 이름 일치 마커가 0건이면 '빈 지도' 혼란을 막기 위해 안내를 띄운다.
   const _filterTypeMap: Record<string, string> = { '음식점': 'restaurant', '카페': 'cafe', '관광지': 'attraction', '문화시설': 'culture' };
   const searchActive = searchQuery.trim() !== '';
-  const searchMatchCount = searchActive
-    ? facilities.filter(f => f.type === _filterTypeMap[activeFilter] && String(f.name ?? '').toLowerCase().includes(searchQuery.trim().toLowerCase())).length
-    : 0;
-  // ♿ 배리어프리 필터가 켜졌는데 현재 카테고리에 무장애 시설이 0건이면 '빈 지도' 혼란을 막기 위해 안내(검색 빈 상태와 동일 패턴).
-  const barrierFreeMatchCount = showBarrierFree
-    ? facilities.filter(f => f.type === _filterTypeMap[activeFilter] && !!(f?.barrierFree ?? f?.barrier_free ?? f?.features?.barrier_free)).length
-    : 0;
-  // 🅿🐾 주차·반려동물 필터도 동일 패턴 — 0건이면 숨기지 않고 정직하게 빈 결과 안내(신규 i18n 키 추가 없이 map.searchNoResult 재사용).
-  const parkingMatchCount = showParkingFilter
-    ? facilities.filter(f => f.type === _filterTypeMap[activeFilter] && parseAvailability(f?.features?.parking as string | null | undefined) === true).length
-    : 0;
-  const petMatchCount = showPetFilter
-    ? facilities.filter(f => f.type === _filterTypeMap[activeFilter] && parseAvailability((f?.features?.chk_pet ?? f?.features?.chkPet) as string | null | undefined) === true).length
-    : 0;
+  // 빈 상태 배지 4종을 각각 facilities.filter로 재순회하지 않고, 관련 상태가 바뀔 때 한 번만 집계한다.
+  const { searchMatchCount, barrierFreeMatchCount, parkingMatchCount, petMatchCount } = useMemo(() => {
+    const targetType = _filterTypeMap[activeFilter];
+    const query = searchQuery.trim().toLowerCase();
+    let search = 0, barrier = 0, parking = 0, pet = 0;
+    for (const f of facilities) {
+      if (f.type !== targetType) continue;
+      if (query && String(f.name ?? '').toLowerCase().includes(query)) search += 1;
+      if (f?.barrierFree ?? f?.barrier_free ?? f?.features?.barrier_free) barrier += 1;
+      if (parseAvailability(f?.features?.parking as string | null | undefined) === true) parking += 1;
+      if (parseAvailability((f?.features?.chk_pet ?? f?.features?.chkPet) as string | null | undefined) === true) pet += 1;
+    }
+    return {
+      searchMatchCount: searchActive ? search : 0,
+      barrierFreeMatchCount: showBarrierFree ? barrier : 0,
+      parkingMatchCount: showParkingFilter ? parking : 0,
+      petMatchCount: showPetFilter ? pet : 0,
+    };
+  }, [facilities, activeFilter, searchQuery, searchActive, showBarrierFree, showParkingFilter, showPetFilter]);
 
   // TourAPI 실시간 키워드 폴백 — 검색 활성 + 로컬 매칭 0건일 때만, 500ms 디바운스 후 조회.
   // 백엔드 미배선/키 미설정 등 어떤 실패든 빈 목록으로 흡수(무해 폴백 — 기존 배너만 유지되고 이 섹션은 그냥 안 뜬다).

@@ -131,11 +131,30 @@ async def fetch_active_facilities(client, select: str = "*", *, extra_filters=No
 
 
 async def fetch_latest_congestion_for_all(facility_ids: list[str]) -> dict:
-    # 시설별 .limit(1) 을 병렬 조회. 단일 IN 쿼리 + timestamp desc 는 PostgREST 기본 행수 캡(예: 1000)에
-    # 걸려, 다른 시설 로그가 캡을 채우면 특정 시설 최신 로그가 윈도우 밖으로 밀려 congestion=None 으로
-    # 조용히 누락될 수 있다. 시설별 limit(1) 은 캡과 무관하게 항상 각 시설의 최신 1건을 보장한다.
+    # DB RPC(DISTINCT ON)로 N개 시설의 최신 로그를 한 번에 받는다. 미배포 환경이나 일시 오류는
+    # 기존 시설별 limit(1) 병렬 경로로 폴백해 기능·배포 순서 의존성을 없앤다.
     if not facility_ids:
         return {}
+    try:
+        response = await asyncio.to_thread(
+            supabase_client.rpc(
+                "latest_congestion_for_facilities", {"facility_ids": facility_ids}
+            ).execute
+        )
+        result = {}
+        for row in response.data or []:
+            fid = str(row["facility_id"])
+            ts = row["timestamp"]
+            result[fid] = {
+                "level": row["congestion_level"],
+                "current_count": row["current_count"],
+                "timestamp": ts,
+                "source": row.get("source"),
+                "is_stale": _is_stale(ts),
+            }
+        return result
+    except Exception as e:
+        logger.warning("latest_congestion_rpc_fallback", error=str(e), facility_count=len(facility_ids))
     results = await asyncio.gather(*[_fetch_latest_one(fid) for fid in facility_ids])
     return {fid: data for fid, data in results if data is not None}
 

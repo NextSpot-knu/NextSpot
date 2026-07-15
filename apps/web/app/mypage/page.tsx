@@ -1,5 +1,7 @@
 'use client';
 
+import dynamic from 'next/dynamic';
+
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import {
@@ -11,7 +13,7 @@ import { toast } from 'sonner';
 import { createPublicClient } from '@/lib/supabase';
 import { apiClient } from '@/lib/api-client';
 import { getVisitCount } from '@/lib/visits';
-import TasteRadar from '@/components/TasteRadar';
+const TasteRadar = dynamic(() => import('@/components/TasteRadar'), { ssr: false });
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { CongestionAlertToggle } from '@/components/CongestionAlertToggle';
 import { useT } from '@/lib/i18n/I18nProvider';
