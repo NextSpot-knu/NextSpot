@@ -5,6 +5,7 @@ import { motion, PanInfo, AnimatePresence } from 'framer-motion';
 import { Bookmark, Sparkles, Star, Phone, MapPin, Clock, ChevronUp, ChevronDown, Info, Globe } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { CongestionReportButton } from '@/components/CongestionReportButton';
+import { GoldenHourBadge } from '@/components/GoldenHourBadge';
 import { relativeParts } from '@/lib/freshness';
 import { useT } from '@/lib/i18n/I18nProvider';
 
@@ -333,6 +334,9 @@ export function RecommendationCard({
                   ? t('card.remainingValue', { seats: Math.max(0, facility.capacity - facility.currentCount), total: facility.capacity })
                   : '—'}
               </span>
+              {/* 골든타임 알리미 — 혼잡도 pill 바로 옆(같은 줄)에 지연 조회로 끼워 넣는다. 백엔드
+                  미기동/available:false 면 조용히 렌더되지 않는다(무해 폴백). */}
+              <GoldenHourBadge facilityId={facility.id} />
             </div>
           )}
 

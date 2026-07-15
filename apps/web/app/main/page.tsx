@@ -1638,6 +1638,16 @@ export default function MainPage() {
             ♿ {t('map.barrierFree')}
           </button>
 
+          {/* ⏱ 대기 보드 진입 칩 — /waiting(스마트 줄서기 보드, 정보형)로 이동. 이 칩은 토글이 아니라
+              단순 내비게이션이라 aria-pressed 없이 다른 칩과 동일 문법(pill + fractal-glass)만 맞춘다. */}
+          <button
+            type="button"
+            onClick={() => router.push('/waiting')}
+            className="flex shrink-0 items-center gap-2 rounded-full border px-3.5 py-2 text-[13px] font-medium transition-all fractal-glass shadow-[0_2px_14px_rgba(43,35,32,0.06)] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 sm:px-4 sm:py-2 sm:text-sm bg-white/80 border-line text-muk-soft hover:bg-white hover:text-muk"
+          >
+            ⏱ {t('waiting.entryChip')}
+          </button>
+
           {/* 🏮 경주 축제 칩 — TourAPI 실시간 축제/행사(GET /api/v1/events). 0건·백엔드 다운이면 스스로 숨는다.
               축제 선택 시 지도에 핀(구체 주소) 또는 색상 영역(동·일원 등 넓은 지역)으로 표시. */}
           <FestivalBanner onFocus={focusFestivalOnMap} />

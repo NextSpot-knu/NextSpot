@@ -222,3 +222,88 @@ async def predict_day(
         best_hour=best.hour,
         best_congestion=best.congestion,
     )
+
+
+# --- 골든타임 알리미 (오늘 남은 시간대 최저 혼잡 60분 창) ---
+
+class GoldenHourPoint(BaseModel):
+    hour: int  # KST 기준 시(0-23)
+    congestion: float
+
+
+class GoldenHourResponse(BaseModel):
+    # 프런트는 available=False 면 배지를 렌더하지 않는다(정직한 폴백 — 지어낸 골든타임 금지).
+    available: bool
+    facility_id: str | None = None
+    start: int | None = None       # 최저 혼잡 60분 창의 시작 시(KST, 0-23)
+    end: int | None = None         # start+1 (1시간 격자라 60분 창 = 다음 시)
+    congestion: float | None = None
+    curve: list[GoldenHourPoint] = []
+
+
+@router.get("/golden-hour", response_model=GoldenHourResponse)
+async def predict_golden_hour(
+    facility_id: str = Query(..., alias="facilityId", description="시설 UUID"),
+):
+    """오늘 남은 시간대(현재시각 KST ~ 22시, 1시간 격자)의 예측 혼잡 곡선에서 최저 혼잡 60분 창을 찾는다.
+
+    /predict/day 와 동일하게 KST↔UTC 변환 후 predict_congestion 을 재사용하고, /predict/batch 와
+    동일한 앵커링(현재 실측 혼잡 - 지금 시점 타입수준예측 = offset)으로 시설 개성을 반영한다.
+    모델이 미학습이면(get_model_info().trained=False) 모든 시각이 0.5 로 평탄해 '골든타임'이
+    의미가 없으므로, 그 평탄 곡선을 그럴듯하게 보여주는 대신 available=False 로 정직하게 폴백한다.
+    """
+    # 1) 시설 존재 확인 + 타입 조회(단건 .limit(1) — admin.py 의 단건 조회 패턴과 동일).
+    try:
+        res = await asyncio.to_thread(
+            supabase_client.table("facilities").select("id, type").eq("id", facility_id).limit(1).execute
+        )
+    except Exception as e:
+        # 예외 원문은 서버 로그로만 — DB 오류 문자열을 클라이언트에 노출하지 않는다.
+        logger.error("golden_hour_facility_fetch_error", facility_id=facility_id, error=str(e))
+        raise HTTPException(status_code=500, detail="시설 데이터 조회에 실패했습니다.")
+
+    if not res.data:
+        raise HTTPException(status_code=404, detail="해당 시설을 찾을 수 없습니다.")
+
+    facility_type = res.data[0]["type"]
+
+    # 2) 모델 미학습 — 정직한 폴백(200 + available:false).
+    if not get_model_info()["trained"]:
+        logger.info("golden_hour_unavailable_untrained", facility_id=facility_id)
+        return GoldenHourResponse(available=False, facility_id=facility_id)
+
+    now_kst = _utcnow().astimezone(_KST)
+    current_hour = now_kst.hour
+    hours_grid = list(range(current_hour, 23))  # 현재시각 ~ 22시(포함), 1시간 격자
+
+    if not hours_grid:
+        # 22시 이후(23시)엔 오늘 남은 시간대가 없다 — 지어내지 않고 정직한 폴백.
+        logger.info("golden_hour_unavailable_no_hours_left", facility_id=facility_id, current_hour=current_hour)
+        return GoldenHourResponse(available=False, facility_id=facility_id)
+
+    # 3) 앵커링: 이 시설의 현재 실측 혼잡이 있으면 타입 수준 곡선에 오프셋으로 고정(batch 와 동일 공식).
+    #    로그가 없으면 오프셋 0(타입 수준 예측 원값 그대로) — anchored 플래그는 골든타임 응답 계약에
+    #    없으므로(간결한 스펙) 별도 노출하지 않는다.
+    congestion_map = await fetch_latest_congestion_for_all([facility_id])
+    current_log = congestion_map.get(facility_id)
+    now_utc_hour, now_utc_dow = _kst_hour_to_utc(current_hour, now_kst.weekday())
+    base_now = await asyncio.to_thread(predict_congestion, facility_type, now_utc_hour, now_utc_dow)
+    offset = (float(current_log["level"]) - base_now) if current_log is not None else 0.0
+
+    curve: list[GoldenHourPoint] = []
+    for kst_hour in hours_grid:
+        utc_hour, utc_dow = _kst_hour_to_utc(kst_hour, now_kst.weekday())
+        value = await asyncio.to_thread(predict_congestion, facility_type, utc_hour, utc_dow)
+        curve.append(GoldenHourPoint(hour=kst_hour, congestion=round(_clamp01(value + offset), 4)))
+
+    # 최저 혼잡 시각(동률이면 이른 시각 — min 은 안정 정렬).
+    best = min(curve, key=lambda p: p.congestion)
+    logger.info("golden_hour_returned", facility_id=facility_id, best_hour=best.hour)
+    return GoldenHourResponse(
+        available=True,
+        facility_id=facility_id,
+        start=best.hour,
+        end=best.hour + 1,
+        congestion=best.congestion,
+        curve=curve,
+    )
