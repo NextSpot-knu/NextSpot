@@ -183,6 +183,10 @@ export interface RecommendationResponse {
     barrierFree?: boolean | null;
     currentCount?: number;
     congestionLevel?: number;
+    // 머천트 랭킹 연동 2단계: 활성 타임세일 할인율(0~0.5) — 타임세일이 기본 쿠폰율보다 클 때만 존재.
+    timesaleRate?: number | null;
+    // 30분 내 사장 좌석 확인(신선도). 과거 패턴 추정보다 우선하는 실측 신호.
+    seatStatusFresh?: { level: "low" | "mid" | "full"; minutesAgo: number } | null;
   };
   spotScore: number;
   breakdown: {

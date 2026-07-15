@@ -24,12 +24,13 @@ import structlog
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from app.core.supabase import get_current_user
+from app.core.supabase import get_current_user, supabase_admin
 from app.services.preference_vector_service import preference_vector_service
 from app.services.spot.score import calculate_spot_score
 from app.services.spot.travel import calculate_haversine_distance, get_travel_time_and_distance
 from app.services.spot.preference import get_category_average_vector
 from app.services.predict_service import predict_congestion
+from app.services.merchant_boost import apply_merchant_boosts, CONGESTION_OVERRIDE_KEY
 # 코스 후보 조회/현재 혼잡 일괄조회/반경 상수는 recommendations 라우터의 헬퍼를 재사용한다(단일 소스).
 from app.routers.recommendations import (
     fetch_user,
@@ -145,10 +146,15 @@ async def _evaluate_candidate(
     predicted_congestion = await asyncio.to_thread(
         predict_congestion, facility["type"], arrival_dt.hour, arrival_dt.weekday()
     )
-    current_congestion = congestion_now.get(facility["id"], 0.0)
+    # 신선한 좌석 상태 방송(30분 이내)이 있으면 congestion_logs 조회값 대신 사장 확인 실측을 '현재
+    # 혼잡'(재배치기여의 기준선)으로 쓴다. facility 자체는 여러 라운드에 걸쳐 재평가될 수 있어(선택
+    # 안 된 후보는 remaining 에 남는다) 이 오버레이 키를 여기서 지우지 않는다 — 아래 scored_facility
+    # 복사본에서만 벗겨 응답 payload 에 내부 키가 노출되지 않게 한다.
+    current_congestion = facility.get(CONGESTION_OVERRIDE_KEY, congestion_now.get(facility["id"], 0.0))
 
     # 도착 시점 예상 인원 추정치를 응답 facility 에 주입(원본 리스트 불변 — 얕은 복사).
     scored_facility = {**facility, "current_count": round(facility.get("capacity", 0) * predicted_congestion)}
+    scored_facility.pop(CONGESTION_OVERRIDE_KEY, None)
     score_res = await calculate_spot_score(
         user_id=user_id,
         preferred_categories=preferred_categories,
@@ -233,6 +239,10 @@ async def recommend_course(
         )
     if not pool:
         return []
+
+    # 머천트 랭킹 연동(2단계): 활성 타임세일(coupon_rate 유효값 교체)·신선 좌석 상태(혼잡 실측 대체)를
+    # 스코어링 전에 오버레이한다(score.py 는 무변경 — calculate_spot_score 입력값만 바꿔친다).
+    pool = await apply_merchant_boosts(supabase_admin, pool)
 
     # 선호 벡터 1회 조회(없으면 Cold Start 생성 후 업서트) — recommendations 라우터와 동일 패턴.
     user_vector = await preference_vector_service.get_user_vector(req.user_id)

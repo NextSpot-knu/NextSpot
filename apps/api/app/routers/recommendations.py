@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 # 통일하고, 신뢰 경계는 아래 get_recommendations/submit_feedback 의 소유권 가드로 강제한다.
 from app.core.supabase import supabase_admin as supabase_client, get_current_user, fetch_all_rows
 from app.services.coupon_service import issue_coupon_if_partner
+from app.services.merchant_boost import apply_merchant_boosts, CONGESTION_OVERRIDE_KEY
 from app.services.preference_nlp_service import CATEGORY_KO
 from app.services.preference_vector_service import preference_vector_service
 from app.services.reason_service import generate_reason
@@ -310,6 +311,10 @@ async def recommend_by_type(
     if not candidates:
         return []
 
+    # 머천트 랭킹 연동(2단계): 활성 타임세일(coupon_rate 유효값 교체)·신선 좌석 상태(혼잡 실측 대체)를
+    # 스코어링 전에 오버레이한다(score.py 는 무변경 — 이 함수가 candidate_facility 입력값만 바꿔친다).
+    candidates = await apply_merchant_boosts(supabase_client, candidates)
+
     # 현실성 컷오프: 도보 비현실 거리 시설을 후보에서 제외(직선거리). 가까운 순 정렬 후 반경 내만 남기되,
     # 반경 내가 limit 미만이면 가까운 순으로 폴백(빈손/외곽 위치 방지). 점수 산정 후보가 줄어 호출량도 감소.
     _with_dist = sorted(
@@ -329,9 +334,11 @@ async def recommend_by_type(
     congestion_by_id = await fetch_congestion_map([f["id"] for f in candidates])
 
     async def _score(f: dict) -> dict:
-        cong = congestion_by_id.get(f["id"], 0.0)
+        # 신선한 좌석 상태 방송(30분 이내)이 있으면 congestion_logs 조회값 대신 사장 확인 실측을 쓴다.
+        cong = f.get(CONGESTION_OVERRIDE_KEY, congestion_by_id.get(f["id"], 0.0))
         dist = calculate_haversine_distance(req.user_lat, req.user_lng, f["latitude"], f["longitude"])
         f2 = {**f, "current_count": round(f.get("capacity", 0) * cong)}
+        f2.pop(CONGESTION_OVERRIDE_KEY, None)  # 내부 전용 오버레이 키 — 응답 payload 에는 노출하지 않는다.
         res = await calculate_spot_score(
             user_id=req.user_id,
             preferred_categories=user_info.get("preferred_categories", []),

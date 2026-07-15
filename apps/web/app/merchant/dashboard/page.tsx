@@ -425,7 +425,7 @@ function TimesaleSection({ facilityId }: { facilityId: string }) {
     <SectionCard
       badge="③ 셀프 타임세일"
       title="지금 할인, 지금 발행"
-      honestNote="발행 즉시 추천 랭킹 인센티브 반영은 2단계 연동 예정입니다. 지금은 손님께 보여드릴 할인 안내로 활용해주세요."
+      honestNote="발행 즉시 추천 랭킹 인센티브에 반영됩니다(할인율이 기본 쿠폰율보다 높을 때). 손님께 보여드릴 할인 안내로도 함께 활용해주세요."
     >
       {state === 'loading' && <SkeletonBlock heightClass="h-20" />}
       {state === 'error' && <ErrorFallback message={errorMessage} onRetry={load} />}
@@ -576,7 +576,7 @@ function SeatStatusSection({ facilityId }: { facilityId: string }) {
     <SectionCard
       badge="④ 좌석 상태 방송"
       title="지금 우리 가게 상태"
-      honestNote="추천 반영은 2단계 연동 예정입니다. 지금은 손님께 보여드릴 현재 상태 안내로 활용해주세요."
+      honestNote="30분 동안 추천 혼잡도에 사장님 확인값으로 반영됩니다. 손님께 보여드릴 현재 상태 안내로도 함께 활용해주세요."
     >
       {state === 'loading' && <SkeletonBlock heightClass="h-20" />}
       {state === 'error' && <ErrorFallback message={errorMessage} onRetry={load} />}

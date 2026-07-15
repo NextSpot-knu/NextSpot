@@ -30,6 +30,11 @@ interface RecommendationCardFacility {
   phone?: string | null;
   homepage?: string | null;
   overview?: string | null;
+  // 머천트 랭킹 연동 2단계(facility 최상위 필드, features 아님) — keysToCamel 적용 후 형태.
+  // 활성 타임세일 할인율(0~0.5), 타임세일이 기본 쿠폰율보다 클 때만 존재.
+  timesaleRate?: number | null;
+  // 30분 내 사장 좌석 확인(신선도) — 과거 패턴 추정보다 우선하는 실측 신호.
+  seatStatusFresh?: { level?: 'low' | 'mid' | 'full'; minutesAgo?: number } | null;
 }
 
 interface RecommendationCardProps {
@@ -265,6 +270,24 @@ export function RecommendationCard({
   const restDateRaw = (facility?.features?.restDateRaw ?? facility?.features?.rest_date_raw) as string | undefined;
   const closedToday = isClosedToday(restDateRaw) === true;
 
+  // 머천트 랭킹 연동 2단계 — features 내부가 아니라 facility 최상위 필드지만, 백엔드 응답이 어떤
+  // 경로(apiClient keysToCamel 미적용 폴백 등)로 오든 방어적으로 camel/snake 이중 표기를 읽는다.
+  const facilityRaw = facility as unknown as Record<string, unknown> | undefined;
+  const timesaleRateRaw = (facilityRaw?.timesaleRate ?? facilityRaw?.timesale_rate) as number | undefined;
+  // 타임세일이 기본 쿠폰율보다 클 때만 존재한다는 계약이지만, 방어적으로 0보다 큰 수치만 표시.
+  const timesaleRatePct =
+    typeof timesaleRateRaw === 'number' && timesaleRateRaw > 0 ? Math.round(timesaleRateRaw * 100) : null;
+
+  const seatStatusFreshRaw = (facilityRaw?.seatStatusFresh ?? facilityRaw?.seat_status_fresh) as
+    | { level?: string; minutesAgo?: number; minutes_ago?: number }
+    | null
+    | undefined;
+  const seatStatusFreshMinutesRaw = seatStatusFreshRaw
+    ? seatStatusFreshRaw.minutesAgo ?? seatStatusFreshRaw.minutes_ago
+    : undefined;
+  // number 로 좁혀 아래 렌더에서 t() 의 vars(Record<string, string|number>) 타입과 안전하게 맞춘다.
+  const seatStatusFreshMinutes = typeof seatStatusFreshMinutesRaw === 'number' ? seatStatusFreshMinutesRaw : null;
+
   return (
     <motion.div 
       className={`w-full bg-white/95 backdrop-blur-2xl border border-line rounded-3xl ${isMinimized ? 'p-3' : 'p-5'} shadow-[0_8px_30px_rgba(43,35,32,0.12)] flex flex-col ${isMinimized ? 'gap-1' : 'gap-3'} select-none relative overflow-hidden`}
@@ -349,6 +372,12 @@ export function RecommendationCard({
                   {t('card.closedToday')}
                 </span>
               )}
+              {/* 타임세일 배지(머천트 랭킹 연동 2단계) — 축제 배지(terracotta)와 톤을 구분한 진한 gold pill. */}
+              {timesaleRatePct !== null && (
+                <span className="px-2 py-0.5 rounded-md text-[10px] font-black border bg-gold/25 border-gold/60 text-gold-deep">
+                  {t('card.timesale', { rate: timesaleRatePct })}
+                </span>
+              )}
               <span className="px-2 py-0.5 rounded-md text-[10px] font-medium bg-hanji-deep border border-line text-muk-soft">
                 {t('card.remainingLabel')}: {facility.currentCount != null && facility.capacity != null
                   ? t('card.remainingValue', { seats: Math.max(0, facility.capacity - facility.currentCount), total: facility.capacity })
@@ -360,8 +389,18 @@ export function RecommendationCard({
             </div>
           )}
 
-          {/* 신선도 정직화(계약 5) — 혼잡 데이터의 출처/나이를 작은 라인으로. isStale 이면 시간 대신 '과거 패턴 기반'(회색). */}
-          {dataSource && (() => {
+          {/* 신선도 정직화(계약 5, 확장) — 혼잡 데이터의 출처/나이를 작은 라인으로. 정직성 위계:
+              사장 실측(seatStatusFresh, 30분 내) > 방문객 제보/실시간(dataSource) > 과거 패턴 기반(isStale). */}
+          {(() => {
+            if (seatStatusFreshMinutes !== null) {
+              return (
+                <p className="text-[10px] text-muk-soft mt-2 flex items-center gap-1">
+                  <span aria-hidden>✅</span>
+                  {t('card.seatConfirmed', { n: seatStatusFreshMinutes })}
+                </p>
+              );
+            }
+            if (!dataSource) return null;
             if (dataSource.isStale) {
               return <p className="text-[10px] text-muk-soft/60 mt-2">{t('card.freshStale')}</p>;
             }

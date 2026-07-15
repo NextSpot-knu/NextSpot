@@ -776,6 +776,9 @@ export default function MainPage() {
                     homepage: rf.homepage ?? base?.homepage ?? null,
                     overview: rf.overview ?? base?.overview ?? null,
                     barrierFree: rf.barrierFree ?? base?.barrierFree ?? null,
+                    // 머천트 연동(2단계): 타임세일·좌석 확인 배지용 — allowlist 병합이라 명시적으로 전달해야 카드에 도달한다.
+                    timesaleRate: (rf as any).timesaleRate ?? (rf as any).timesale_rate ?? null,
+                    seatStatusFresh: (rf as any).seatStatusFresh ?? (rf as any).seat_status_fresh ?? null,
                     spot,
                     reason: r.reason || "", // 백엔드 템플릿 사유만
                   };
