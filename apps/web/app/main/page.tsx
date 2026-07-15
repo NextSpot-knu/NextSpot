@@ -89,6 +89,18 @@ interface SavedBookmark {
   reason: string;
 }
 
+// TourAPI 실시간 키워드 폴백(2위 실시간 키워드 게이트웨이) — GET /api/v1/search/keyword 응답 1건.
+// 적재 전 POI 라 지도 마커는 없다(행 목록 전용). 필드명은 백엔드 간이 페이로드와 1:1(camelCase 변환 없음).
+interface LiveSearchItem {
+  contentid: string;
+  title: string;
+  addr1?: string | null;
+  mapx?: number | null;
+  mapy?: number | null;
+  contenttypeid?: number | null;
+  firstimage?: string | null;
+}
+
 // 술집(bar)이 음식점(restaurant)으로 적재되면 '음식점' 추천을 오염시킨다(데이터 한계).
 // cuisine_tags 로 술집을 식별해 음식점 추천 후보에서만 제외(지도 마커로는 계속 표시 — 삭제 아님).
 const _BAR_TAGS_MAIN = ['술집', '호프', '오뎅바', '실내포장마차', '일본식주점', '호프,요리주점', '포차', '선술집'];
@@ -118,6 +130,11 @@ export default function MainPage() {
 
   const [activeFilter, setActiveFilter] = useState('음식점'); // 첫 접속 시 음식점 세션을 먼저 표시(탭 순서와 일치)
   const [searchQuery, setSearchQuery] = useState(''); // 로컬 시설명 검색(마커 필터). TourAPI 의미검색 연동은 범위 밖.
+  // TourAPI 실시간 키워드 폴백(2위 실시간 키워드 게이트웨이) — 로컬 검색 0건일 때만 GET /search/keyword 조회.
+  // 지도 이동/마커 추가는 하지 않는다(적재 전 POI — 행 목록으로만 노출, [다음 배치 추가 요청]으로 큐잉).
+  const [liveSearchItems, setLiveSearchItems] = useState<LiveSearchItem[]>([]);
+  const [liveSearchLoading, setLiveSearchLoading] = useState(false);
+  const [requestedIngestIds, setRequestedIngestIds] = useState<Set<string>>(new Set());
   const [facilities, setFacilities] = useState<any[]>([]);
   // 시설 로드 상태(데모 사고 방지선): 로딩 스피너·재시도·전체 빈 상태 안내 렌더용.
   const [isLoadingFacilities, setIsLoadingFacilities] = useState(true);
@@ -1467,6 +1484,46 @@ export default function MainPage() {
     ? facilities.filter(f => f.type === _filterTypeMap[activeFilter] && parseAvailability((f?.features?.chk_pet ?? f?.features?.chkPet) as string | null | undefined) === true).length
     : 0;
 
+  // TourAPI 실시간 키워드 폴백 — 검색 활성 + 로컬 매칭 0건일 때만, 500ms 디바운스 후 조회.
+  // 백엔드 미배선/키 미설정 등 어떤 실패든 빈 목록으로 흡수(무해 폴백 — 기존 배너만 유지되고 이 섹션은 그냥 안 뜬다).
+  useEffect(() => {
+    if (!(searchActive && searchMatchCount === 0)) {
+      setLiveSearchItems([]);
+      setLiveSearchLoading(false);
+      return;
+    }
+    const q = searchQuery.trim();
+    setLiveSearchLoading(true);
+    const timer = setTimeout(async () => {
+      try {
+        const res = await apiClient.get('/api/v1/search/keyword', { params: { q } });
+        setLiveSearchItems(Array.isArray(res?.items) ? res.items : []);
+      } catch (err) {
+        console.warn('TourAPI 실시간 검색 실패 — 무해 폴백(빈 목록):', err);
+        setLiveSearchItems([]);
+      } finally {
+        setLiveSearchLoading(false);
+      }
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [searchActive, searchMatchCount, searchQuery]);
+
+  // '다음 배치 추가 요청' 버튼 — POST /search/ingest-request 로 큐잉만 한다(즉시 적재 아님, 관리자 승인 후 반영).
+  const requestLiveIngest = async (item: LiveSearchItem) => {
+    try {
+      await apiClient.post('/api/v1/search/ingest-request', {
+        contentid: item.contentid,
+        name: item.title,
+        contentTypeId: item.contenttypeid ?? null,
+      });
+      setRequestedIngestIds(prev => new Set(prev).add(item.contentid));
+      showToast(t('map.liveSearchRequested'));
+    } catch (err: any) {
+      console.warn('적재 요청 실패:', err);
+      showToast(err?.message || '요청에 실패했어요. 잠시 후 다시 시도해 주세요.');
+    }
+  };
+
   return (
     <div className="relative w-full h-[100dvh] overflow-hidden flex flex-col">
 
@@ -1552,6 +1609,53 @@ export default function MainPage() {
             <span className="inline-block text-muk text-xs bg-white/90 border border-line rounded-full px-3 py-1 shadow-[0_2px_14px_rgba(43,35,32,0.06)]">
               {t('map.searchNoResult', { q: searchQuery.trim() })}
             </span>
+          </div>
+        )}
+
+        {/* TourAPI 실시간 검색 폴백 — 적재 85곳 밖 POI 를 큐잉 요청까지 이어준다(지도 마커/이동 없음, 행만).
+            로딩 중이거나 결과가 있을 때만 렌더(무응답/미가용은 조용히 숨김 — 위 검색 결과 없음 배너로 충분). */}
+        {searchActive && searchMatchCount === 0 && (liveSearchLoading || liveSearchItems.length > 0) && (
+          <div className="pointer-events-auto rounded-2xl bg-white/95 backdrop-blur border border-line shadow-[0_2px_14px_rgba(43,35,32,0.06)] overflow-hidden">
+            <div className="px-3 py-2 text-xs font-semibold text-muk border-b border-line/70 flex items-center gap-1.5">
+              <Search size={12} className="text-gold" />
+              {t('map.liveSearchTitle')}
+            </div>
+            {liveSearchLoading ? (
+              <div className="px-3 py-3 flex items-center gap-2 text-xs text-muk-soft">
+                <span className="inline-block w-3 h-3 rounded-full border-2 border-gold/40 border-t-gold animate-spin" />
+                {t('map.liveSearchTitle')}…
+              </div>
+            ) : (
+              <ul className="max-h-64 overflow-y-auto divide-y divide-line/60">
+                {liveSearchItems.map((item) => {
+                  const requested = requestedIngestIds.has(item.contentid);
+                  return (
+                    <li key={item.contentid} className="px-3 py-2.5 flex items-center gap-2">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium text-muk truncate">{item.title}</p>
+                        {item.addr1 && <p className="text-[11px] text-muk-soft truncate">{item.addr1}</p>}
+                        <span className="inline-block mt-1 text-[10px] font-medium text-muk-soft bg-line/60 rounded-full px-2 py-0.5">
+                          {t('map.liveSearchPending')}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => requestLiveIngest(item)}
+                        disabled={requested}
+                        title={requested ? t('map.liveSearchRequestedBadge') : t('map.liveSearchRequest')}
+                        className={`shrink-0 text-[11px] font-semibold rounded-full px-2.5 py-1.5 border transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 ${
+                          requested
+                            ? 'text-muk-soft border-line bg-line/40 cursor-default'
+                            : 'text-gold border-gold/50 hover:bg-gold/10'
+                        }`}
+                      >
+                        {requested ? t('map.liveSearchRequestedBadge') : t('map.liveSearchRequest')}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
           </div>
         )}
 

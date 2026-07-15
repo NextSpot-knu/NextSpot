@@ -4,6 +4,7 @@
 #       workflow_dispatch 로 수동 실행할 것 (Actions 탭 → TourAPI Ingest → Run workflow).
 # 필요한 GitHub Secrets (repo → Settings → Secrets and variables → Actions → Secrets):
 #   TOURAPI_KEY, SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY
+# 선택 Repository Variable: TOURAPI_INSIGHTS_ENABLED=true (집중률·연관관광지 별도 활용승인 후)
 # TOURAPI_KEY 미설정이면 전 스텝을 skip(무해 — 매일 실패 이메일 방지).
 name: TourAPI Ingest
 
@@ -59,5 +60,17 @@ jobs:
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           # 인제스트는 인증·관리자 토큰 미사용 — Settings(부팅) 검증 통과용 플레이스홀더 (ci.yml 과 동일).
+          JWT_SECRET: ci-placeholder-jwt-secret
+          ADMIN_API_TOKEN: ci-placeholder-admin-token
+
+      # KorService2와 별도 상품이다. 승인 전 403으로 정기 배치를 깨지 않도록 명시적 변수로 게이트한다.
+      - name: Ingest tourism forecasts and related attractions
+        if: ${{ secrets.TOURAPI_KEY != '' && vars.TOURAPI_INSIGHTS_ENABLED == 'true' }}
+        run: python scripts/ingest_tourism_insights.py
+        env:
+          TOURAPI_KEY: ${{ secrets.TOURAPI_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           JWT_SECRET: ci-placeholder-jwt-secret
           ADMIN_API_TOKEN: ci-placeholder-admin-token

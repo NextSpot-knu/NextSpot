@@ -26,7 +26,38 @@ interface FestivalEvent {
   longitude?: number | null;
   tel?: string | null;
   isOngoing: boolean;
+  // 상세 조합(퀵윈 C3) — 전부 Optional, 진행 중 축제만 채워진다(백엔드 무해 폴백).
+  // 백엔드는 snake_case(event_place/usetime_festival)라 apiClient 의 keysToCamel 이
+  // eventPlace/usetimeFestival 로 정상 변환하지만, 레포 함정(다른 화면에서 camel/snake 이중
+  // 표기가 실제로 갈렸던 전례) 방어로 원시 표기(eventplace/usetimefestival)도 타입에 남겨
+  // 아래 getter 들이 둘 다 인식하게 한다.
+  overview?: string | null;
+  homepage?: string | null; // href 원문(HTML anchor 조각일 수 있음) — extractHomepageUrl 로 추출
+  playtime?: string | null;
+  eventPlace?: string | null;
+  eventplace?: string | null;
+  usetimeFestival?: string | null;
+  usetimefestival?: string | null;
 }
+
+// camel/snake 이중 표기 방어 — 필드명이 어느 쪽으로 오든 값을 잃지 않는다.
+function eventPlaceOf(ev: FestivalEvent): string | null {
+  return ev.eventPlace ?? ev.eventplace ?? null;
+}
+function usetimeFestivalOf(ev: FestivalEvent): string | null {
+  return ev.usetimeFestival ?? ev.usetimefestival ?? null;
+}
+
+// TourAPI homepage 원문은 순수 URL 또는 '<a href="...">...</a>' HTML 조각일 수 있어 첫
+// http(s) URL 만 방어적으로 추출(RecommendationCard 의 기존 homepage 정규식 패턴 재사용).
+function extractHomepageUrl(raw?: string | null): string | null {
+  if (!raw) return null;
+  return String(raw).match(/https?:\/\/[^\s"'<>]+/)?.[0] ?? null;
+}
+
+// 개요 '더보기' 토글 노출 기준(문자 수 휴리스틱) — 레이아웃 측정 없이 3줄 클램프 초과 가능성을
+// 근사한다(카드 폭 기준 1줄 ≈ 28~30자 × 3줄). 과소추정이면 토글이 불필요하게 뜰 뿐 무해.
+const OVERVIEW_CLAMP_THRESHOLD = 90;
 
 // 세션 캐시 — 지도 재방문마다 백엔드/TourAPI 를 다시 두드리지 않는다(백엔드 24h 캐시와 별개의 프런트 절약).
 const CACHE_KEY = 'nextspot_events_v1';
@@ -60,6 +91,16 @@ export function FestivalBanner({ className = '', onFocus }: {
   const [isOpen, setIsOpen] = useState(false);
   const [mounted, setMounted] = useState(false); // 포털은 클라이언트 마운트 후에만(정적 export 안전)
   useEffect(() => setMounted(true), []);
+  // 개요 3줄 클램프 '더보기' 펼침 상태 — 카드(contentId)별 독립 토글.
+  const [expandedOverviewIds, setExpandedOverviewIds] = useState<Set<string>>(new Set());
+  const toggleOverview = (contentId: string) => {
+    setExpandedOverviewIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(contentId)) next.delete(contentId);
+      else next.add(contentId);
+      return next;
+    });
+  };
 
   useEffect(() => {
     const cached = readCache();
@@ -201,12 +242,53 @@ export function FestivalBanner({ className = '', onFocus }: {
                         </span>
                       </div>
                       <p className="text-sm font-bold text-muk leading-snug">{ev.title}</p>
+
+                      {/* 상세 조합(퀵윈 C3) — 값 없는 필드는 행 자체 생략('지어내지 않기'). */}
+                      {ev.overview && (() => {
+                        const isExpanded = expandedOverviewIds.has(ev.contentId);
+                        return (
+                          <div className="text-[11px] leading-snug">
+                            <span className="text-muk-soft block text-[10px] font-bold mb-0.5">{t('festival.about')}</span>
+                            <p className={`text-muk-soft leading-relaxed ${isExpanded ? '' : 'line-clamp-3'}`}>
+                              {ev.overview}
+                            </p>
+                            {ev.overview.length > OVERVIEW_CLAMP_THRESHOLD && (
+                              <button
+                                type="button"
+                                onClick={() => toggleOverview(ev.contentId)}
+                                className="relative z-10 mt-0.5 text-[11px] font-bold text-gold-deep hover:text-gold focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/50 rounded"
+                              >
+                                {isExpanded ? t('festival.showLess') : t('festival.showMore')}
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })()}
                       {ev.address && (
                         <p className="flex items-start gap-1 text-[11px] text-muk-soft leading-snug">
                           <MapPin size={12} className="mt-0.5 shrink-0" aria-hidden />
                           {ev.address}
                         </p>
                       )}
+                      {eventPlaceOf(ev) && (
+                        <p className="flex items-start gap-1 text-[11px] text-muk-soft leading-snug">
+                          <span aria-hidden>📍</span>
+                          {eventPlaceOf(ev)}
+                        </p>
+                      )}
+                      {ev.playtime && (
+                        <p className="flex items-start gap-1 text-[11px] text-muk-soft leading-snug">
+                          <span aria-hidden>🕐</span>
+                          {ev.playtime}
+                        </p>
+                      )}
+                      {usetimeFestivalOf(ev) && (
+                        <p className="flex items-start gap-1 text-[11px] text-muk-soft leading-snug">
+                          <span aria-hidden>💰</span>
+                          {usetimeFestivalOf(ev)}
+                        </p>
+                      )}
+
                       {/* 스트레치드 버튼 위에 뜨는 링크 — relative z-10 으로 카드 클릭보다 위. 각자 독립 동작. */}
                       <div className="relative z-10 flex flex-wrap items-center gap-2 pt-1">
                         {ev.latitude != null && ev.longitude != null && (
@@ -218,6 +300,17 @@ export function FestivalBanner({ className = '', onFocus }: {
                           >
                             <ExternalLink size={11} aria-hidden />
                             {t('festival.openMap')}
+                          </a>
+                        )}
+                        {extractHomepageUrl(ev.homepage) && (
+                          <a
+                            href={extractHomepageUrl(ev.homepage)!}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-full bg-hanji-deep hover:bg-gold/10 border border-line hover:border-gold/40 text-muk-soft hover:text-gold-deep text-[11px] font-bold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/50"
+                          >
+                            <ExternalLink size={11} aria-hidden />
+                            {t('festival.homepage')}
                           </a>
                         )}
                         {ev.tel && (

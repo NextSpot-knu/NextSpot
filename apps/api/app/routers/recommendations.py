@@ -1,6 +1,7 @@
 # pyrefly: ignore [missing-import]
 import asyncio
 import uuid
+from datetime import datetime, timezone
 from typing import Literal
 import structlog
 from fastapi import APIRouter, Depends, HTTPException
@@ -10,7 +11,7 @@ from pydantic import BaseModel, Field
 # anon 클라이언트는 요청별 JWT 를 PostgREST 로 싣지 않아 auth.uid()=null → RLS 거부가 된다.
 # (ingest/preferences 라우터가 동일 사유로 supabase_admin 을 쓴다.) 따라서 service_role 클라이언트로
 # 통일하고, 신뢰 경계는 아래 get_recommendations/submit_feedback 의 소유권 가드로 강제한다.
-from app.core.supabase import supabase_admin as supabase_client, get_current_user, fetch_all_rows
+from app.core.supabase import supabase_admin as supabase_client, get_current_user
 from app.services.coupon_service import issue_coupon_if_partner
 from app.services.merchant_boost import apply_merchant_boosts, CONGESTION_OVERRIDE_KEY
 from app.services.preference_nlp_service import CATEGORY_KO
@@ -19,7 +20,7 @@ from app.services.reason_service import generate_reason
 from app.services.voice_intent_service import interpret_turn
 from app.services.embedding_service import filter_candidates as vector_filter_candidates
 from app.services.embedding_service import enrich_candidates as enrich_voice_candidates
-from app.routers.infrastructures import fetch_latest_congestion_for_all
+from app.routers.infrastructures import fetch_active_facilities, fetch_latest_congestion_for_all
 from app.services.spot.score import calculate_spot_score
 from app.services.spot.travel import calculate_haversine_distance
 from app.services.spot.wait_time import calculate_predicted_wait_time
@@ -68,8 +69,30 @@ async def fetch_facility(facility_id: str):
     return res.data[0]
 
 async def fetch_all_facilities():
-    # PostgREST 행수 캡을 넘는 전체 시설 조회 — 공용 페이지네이션 헬퍼(블로킹)를 워커 스레드로 오프로드.
-    return await asyncio.to_thread(fetch_all_rows, supabase_client, "facilities", "*")
+    # PostgREST 행수 캡을 넘는 전체 시설 조회. is_active=false(폐업·표출중단 감지, 2차 기획 1위)는
+    # 후보에서 제외 — infrastructures.fetch_active_facilities 재사용(컬럼 미배포 시 필터 없이 폴백).
+    facilities = await fetch_active_facilities(supabase_client, "*")
+    # 관광공사 30일 집중률은 POI 실시간 혼잡이 아닌 '오늘의 일별 prior'다. 별도 테이블에서
+    # 이름이 정확히 일치하는 행만 붙이며, 마이그레이션/별도 API 승인이 아직 없으면 무해 폴백한다.
+    try:
+        today = datetime.now(timezone.utc).date().isoformat()
+        forecast_res = await asyncio.to_thread(
+            lambda: supabase_client.table("tourism_concentration_forecasts")
+            .select("tourist_attraction_name,concentration_rate,forecast_date")
+            .eq("forecast_date", today).execute()
+        )
+        by_name = {
+            str(row["tourist_attraction_name"]).strip(): float(row["concentration_rate"])
+            for row in (forecast_res.data or [])
+            if row.get("tourist_attraction_name") and row.get("concentration_rate") is not None
+        }
+        for facility in facilities:
+            rate = by_name.get(str(facility.get("name") or "").strip())
+            if rate is not None:
+                facility["tourapi_concentration_rate"] = rate
+    except Exception as e:
+        logger.warning("tourapi_concentration_prior_unavailable", error=str(e))
+    return facilities
 
 async def fetch_latest_congestion(facility_id: str) -> float:
     """

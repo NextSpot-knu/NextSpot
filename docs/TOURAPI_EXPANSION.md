@@ -47,6 +47,18 @@
 심사 전: Tier 0 → 1-2·1-3·1-4(S 묶음) → 여유 시 1-1(수용인원 피처).
 심사 후: 2-1 다국어 → 2-2 무장애 → 나머지.
 
+## 2026-07-15 구현 반영
+
+- `TatsCnctrRateService/tatsCnctrRatedList`와 `TarRlteTarService1/areaBasedList1` 클라이언트 및
+  `scripts/ingest_tourism_insights.py` 배치를 추가했다. 두 상품은 현재 KorService2 키로 표본 호출 시
+  403이 확인되어 공공데이터포털의 **별도 활용신청이 선행 조건**이다.
+- 집중률은 `congestion_logs`에 섞지 않고 `tourism_concentration_forecasts`에 별도 저장한다.
+  시설명이 정확히 매칭된 경우에만 자체 도착시점 예측 75% + 관광공사 일별 prior 25%로 결합하며,
+  점수 breakdown에 `tourapi_concentration_prior`를 노출한다.
+- `detailImage2` 갤러리(최대 5장)와 응답에 존재하는 신분류 3단계 코드를 적재한다.
+- GitHub Actions는 `TOURAPI_INSIGHTS_ENABLED=true` 저장소 변수가 있을 때만 별도 상품 배치를 실행한다.
+  승인 전 403이 기존 POI 일배치를 깨뜨리지 않기 위한 운영 게이트다.
+
 ---
 
 # 2차 기획 (2026-07-15 오후 — 3렌즈 발산 15건 → 크리틱 병합 후 top 6)

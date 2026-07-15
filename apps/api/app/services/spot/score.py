@@ -87,6 +87,18 @@ async def calculate_spot_score(
         arrival_dow,
     )
 
+    # 관광공사 관광지 집중률은 향후 30일 '일별 상대지수'(0~100)이지 실시간 혼잡이 아니다.
+    # 이름이 정확히 매칭돼 적재된 후보에만 보수적으로 25% prior로 결합하고, 자체 도착시점
+    # 시간대 모델을 75% 유지한다. 미매칭/미승인 환경은 기존 결과가 완전히 동일하다.
+    tourapi_rate = candidate_facility.get("tourapi_concentration_rate")
+    tourapi_prior = None
+    if tourapi_rate is not None:
+        try:
+            tourapi_prior = max(0.0, min(1.0, float(tourapi_rate) / 100.0))
+            predicted_congestion = 0.75 * predicted_congestion + 0.25 * tourapi_prior
+        except (TypeError, ValueError):
+            tourapi_prior = None
+
     # 3-1. 행사 혼잡 보정(A4) — 도착시점에 인근에서 진행 중인 축제가 있으면 예측 혼잡을
     # 거리 감쇠 가중으로 상향한다(모델이 모르는 외부 변수). 축제 조회 실패는 (0, None)
     # 무해 폴백이라 채점 플로우를 막지 않는다. 보정된 값이 아래 대기시간·재배치기여에
@@ -141,5 +153,7 @@ async def calculate_spot_score(
             # 행사 혼잡 보정(A4) — 프런트 배지·투명성 표기용. 보정 없으면 0 / None.
             "event_boost": round(event_boost, 3),
             "event_title": event_title,
+            # 관광공사 30일 일별 상대 전망. None이면 미승인/미매칭이며 실시간 실측으로 표시하면 안 된다.
+            "tourapi_concentration_prior": round(tourapi_prior, 3) if tourapi_prior is not None else None,
         }
     )

@@ -11,6 +11,8 @@
 --    DB 비밀번호 공유 없이, 대시보드 SQL Editor 접근만으로 1회 실행하면 됩니다.
 -- =====================================================================
 DROP TABLE IF EXISTS public.user_feedback CASCADE;
+DROP TABLE IF EXISTS public.tourism_insight_snapshots CASCADE;
+DROP TABLE IF EXISTS public.tourism_concentration_forecasts CASCADE;
 DROP TABLE IF EXISTS public.recommendations CASCADE;
 DROP TABLE IF EXISTS public.congestion_logs CASCADE;
 DROP TABLE IF EXISTS public.facilities CASCADE;
@@ -856,3 +858,108 @@ CREATE POLICY merchant_timesales_select_authenticated ON public.merchant_timesal
 DROP POLICY IF EXISTS merchant_timesales_service_all ON public.merchant_timesales;
 CREATE POLICY merchant_timesales_service_all ON public.merchant_timesales
     FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+-- ============================= migrations/20260715110000_facility_is_active.sql =============================
+-- 폐업·표출중단 자동 감지(2차 기획 1위) — facilities.is_active.
+-- scripts/ingest_tourapi.py 의 --sync 스텝이 TourAPI areaBasedSyncList2 의 showflag 를 실측
+-- 대조해 이 컬럼을 갱신한다(showflag='0' → false, showflag='1' → true 복구).
+--
+-- 실측(2026-07-15, areaCode=35+sigunguCode=2=경주, 587건 전수 스캔): showflag 는 문자열
+-- '1'(표출)/'0'(비표출) 두 값만 관측됨(제3값 없음) — 판정 로직은 이 두 값 기준으로 확정 구현한다.
+--
+-- 설계 결정: NOT NULL DEFAULT true. 컬럼 추가 시 기존 행 전부가 DEFAULT 로 자동 backfill 되므로
+--   (Postgres ADD COLUMN ... NOT NULL DEFAULT 관례 — coupon_rate 컬럼과 동일 패턴) 별도 UPDATE 문이
+--   필요 없고, 백엔드 필터도 null 분기 없이 단순 `.eq('is_active', true)` 로 충분하다.
+--
+-- 적용: Supabase SQL Editor 또는 `supabase db push` 로 1회 실행(재실행해도 안전 — IF NOT EXISTS).
+-- ⚠️ 사람 작업 — 원격 DB 적용 전까지 백엔드 필터/ingest 동기화 스텝은 컬럼 부재(42703)를 감지해
+--   필터 없이(또는 갱신 생략) 폴백하도록 구현되어 있다(오탐/500 방지, 정직한 저하).
+ALTER TABLE public.facilities ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT true;
+
+-- 비표출(폐업 추정) 시설 조회/집계용 부분 인덱스 — 활성 다수 대비 비활성은 소수라
+-- uq_facilities_contentid 와 동일한 부분 인덱스 관례를 따른다.
+CREATE INDEX IF NOT EXISTS idx_facilities_is_active_false
+ON public.facilities (is_active) WHERE is_active = false;
+
+-- ============================= migrations/20260715110001_ingest_requests.sql =============================
+-- admin_ingest_requests: TourAPI 실시간 키워드 검색 결과의 적재 요청(대기 큐).
+-- 배경(2위 실시간 키워드 게이트웨이): 관광객이 지도 검색에서 0건(적재 85곳 밖 POI)을 만나면
+--   TourAPI 키워드 검색(searchKeyword2)으로 폴백해 결과를 보여주되, 그 자리에서 즉시
+--   facilities 에 적재하지 않고 "다음 배치 추가 요청"만 큐잉한다(운영자 검수 게이트 — 무단 대량
+--   적재/오탐 방지). 관리자(admin/infrastructure)가 승인하면 백엔드가 detailCommon2/Intro2 로
+--   단건 인제스트한 뒤 이 행을 status='approved' 로 갱신한다.
+--   (apps/api/app/routers/search.py 가 유일한 쓰기/갱신 경로.)
+--
+-- 쓰기는 전부 FastAPI(service_role) 경유:
+--   - POST /api/v1/search/ingest-request 는 무인증이지만 service_role 로 INSERT/upsert 한다
+--     (라우터 자체의 IP 레이트리밋이 1차 방어선).
+--   - GET /api/v1/search/ingest-requests, POST /api/v1/search/ingest-requests/approve 는
+--     require_admin(X-Admin-Authorization) 가드 뒤에서 service_role 로 조회/갱신한다.
+-- anon/authenticated 직접 접근 정책은 두지 않는다(security_hardening.sql 의 보수적 기본 거부 관례).
+
+CREATE TABLE IF NOT EXISTS public.admin_ingest_requests (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    -- TourAPI contentid. UNIQUE 제약은 라우터의 upsert(on_conflict='contentid', ignore_duplicates=True)가
+    -- "이미 요청된 곳 재요청은 무시"를 DB 레벨에서 보장하는 데 필요하다(중복 요청 방지).
+    contentid TEXT NOT NULL UNIQUE,
+    name TEXT,
+    content_type_id INT,
+    -- 익명 요청 허용(무인증 엔드포인트) — FK 미설정(app_events.user_id 와 동일한 경량 로그 관례).
+    requested_by UUID,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
+    approved_at TIMESTAMP WITH TIME ZONE
+);
+
+-- 관리자 대기 목록 조회(status='pending' 최신순) 인덱스.
+CREATE INDEX IF NOT EXISTS idx_admin_ingest_requests_status_created
+    ON public.admin_ingest_requests (status, created_at DESC);
+
+ALTER TABLE public.admin_ingest_requests ENABLE ROW LEVEL SECURITY;
+
+-- service_role 전용(app_events/merchant_timesales 쓰기 정책과 동일 관례).
+-- anon/authenticated 정책 부재 → 직접 접근은 기본 거부된다(백엔드 신뢰 경로만 허용).
+DROP POLICY IF EXISTS admin_ingest_requests_service_all ON public.admin_ingest_requests;
+CREATE POLICY admin_ingest_requests_service_all ON public.admin_ingest_requests
+    FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+-- ============================= migrations/20260715120000_tourism_insights.sql =============================
+-- 관광공사 관광지 집중률 30일 전망. POI 실시간 혼잡과 의미가 다르므로 congestion_logs에 섞지 않는다.
+CREATE TABLE IF NOT EXISTS public.tourism_concentration_forecasts (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tourist_attraction_code TEXT,
+    tourist_attraction_name TEXT NOT NULL,
+    forecast_date DATE NOT NULL,
+    concentration_rate NUMERIC NOT NULL CHECK (concentration_rate BETWEEN 0 AND 100),
+    raw JSONB NOT NULL DEFAULT '{}'::jsonb,
+    fetched_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (tourist_attraction_name, forecast_date)
+);
+
+CREATE INDEX IF NOT EXISTS idx_tourism_concentration_date
+    ON public.tourism_concentration_forecasts (forecast_date, tourist_attraction_name);
+
+ALTER TABLE public.tourism_concentration_forecasts ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tourism_concentration_service_all ON public.tourism_concentration_forecasts;
+CREATE POLICY tourism_concentration_service_all ON public.tourism_concentration_forecasts
+    FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+-- Tmap 이동 기반 연관 관광지와 지역 수요 API는 제공 스키마 변경에 대비해 원문도 보존한다.
+CREATE TABLE IF NOT EXISTS public.tourism_insight_snapshots (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    insight_type TEXT NOT NULL CHECK (insight_type IN ('related_attraction', 'regional_stay', 'regional_spend')),
+    reference_period TEXT NOT NULL,
+    region_code TEXT NOT NULL DEFAULT '47130',
+    payload JSONB NOT NULL,
+    fetched_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (insight_type, reference_period, region_code)
+);
+
+ALTER TABLE public.tourism_insight_snapshots ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tourism_insights_service_all ON public.tourism_insight_snapshots;
+CREATE POLICY tourism_insights_service_all ON public.tourism_insight_snapshots
+    FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+-- detailImage2 서브 이미지. firstimage 대표 URL과 구분해 순서를 보존한다.
+ALTER TABLE public.facilities
+    ADD COLUMN IF NOT EXISTS gallery_images JSONB NOT NULL DEFAULT '[]'::jsonb;

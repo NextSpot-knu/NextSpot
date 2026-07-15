@@ -58,6 +58,9 @@ class InfrastructureItem(BaseModel):
     homepage: str | None = None
     overview: str | None = None
     barrier_free: bool | None = None
+    # 폐업·표출중단 자동 감지(2차 기획 1위). is_active 컬럼 미배포(마이그레이션 미적용) 환경에서는
+    # 항상 None — 프런트는 값이 False 일 때만 '운영정보 확인 필요' 배지를 표시한다(None/True 는 무배지).
+    is_active: bool | None = None
 
 async def _fetch_latest_one(fid: str) -> tuple[str, dict | None]:
     """시설 1건의 최신 혼잡 로그를 .limit(1) 로 조회(시설별 1쿼리)."""
@@ -84,6 +87,47 @@ async def _fetch_latest_one(fid: str) -> tuple[str, dict | None]:
     except Exception as e:
         logger.warning("congestion_fetch_one_failed", facility_id=fid, error=str(e))
     return fid, None
+
+
+def _is_missing_is_active_column(exc: Exception) -> bool:
+    """PostgREST undefined_column(42703) 판정 — facilities.is_active 마이그레이션 미적용 상태에서도
+    500 대신 필터 없이 폴백하기 위한 판별.
+
+    실측(2026-07-15, 실 Supabase 프로젝트에 컬럼 미적용 상태로 조회): supabase-py 2.x 는
+    postgrest.exceptions.APIError(code='42703', message='column facilities.is_active does not exist')
+    를 던진다. supabase-py 버전 차이로 .code 속성이 없을 수 있어 메시지 문자열도 보조로 확인한다.
+    """
+    code = getattr(exc, "code", None)
+    if code == "42703":
+        return True
+    message = str(getattr(exc, "message", None) or exc)
+    return "is_active" in message and "does not exist" in message
+
+
+async def fetch_active_facilities(client, select: str = "*", *, extra_filters=None) -> list[dict]:
+    """facilities 를 is_active=false(폐업·표출중단 감지, 2차 기획 1위) 제외하고 전량 조회한다.
+
+    추천/코스/예측/시설목록 로드가 공용으로 쓰는 지점 — fetch_all_rows(apply_filters=...) 위에
+    is_active 필터를 얹은 얇은 래퍼다. is_active 컬럼이 아직 배포되지 않았으면(마이그레이션
+    미적용, 42703) 필터 없이 재조회해 500 대신 전체 목록을 반환한다 — 폐업 감지가 아직 준비되지
+    않았을 뿐 서비스 자체는 무중단이어야 한다(오탐보다 무필터 저하가 낫다는 원칙).
+    """
+    def _filters(query):
+        if extra_filters is not None:
+            query = extra_filters(query)
+        return query.eq("is_active", True)
+
+    try:
+        return await asyncio.to_thread(
+            fetch_all_rows, client, "facilities", select, apply_filters=_filters
+        )
+    except Exception as e:
+        if not _is_missing_is_active_column(e):
+            raise
+        logger.warning("facilities_is_active_column_missing_fallback", select=select)
+        return await asyncio.to_thread(
+            fetch_all_rows, client, "facilities", select, apply_filters=extra_filters
+        )
 
 
 async def fetch_latest_congestion_for_all(facility_ids: list[str]) -> dict:
@@ -118,10 +162,8 @@ async def get_infrastructures(
                 query = query.lte("longitude", max_lng)
             return query
 
-        # 공용 페이지네이션 헬퍼(블로킹)를 워커 스레드로 오프로드 — 각 페이지에 동일 필터 적용.
-        facilities = await asyncio.to_thread(
-            fetch_all_rows, supabase_client, "facilities", "*", apply_filters=_apply_filters
-        )
+        # is_active=false(폐업·표출중단 감지) 제외 + 기존 위치/타입 필터 병행 적용.
+        facilities = await fetch_active_facilities(supabase_client, "*", extra_filters=_apply_filters)
 
         if not facilities:
             return []
@@ -149,6 +191,7 @@ async def get_infrastructures(
                 homepage=f.get("homepage"),
                 overview=f.get("overview"),
                 barrier_free=f.get("barrier_free"),
+                is_active=f.get("is_active"),
             ))
 
         logger.info("infrastructures_returned", count=len(result))

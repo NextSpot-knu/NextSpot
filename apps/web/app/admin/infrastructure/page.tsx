@@ -3,8 +3,9 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   Building2, Search, Bell, Utensils, MapPin, Filter,
-  ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, AlertTriangle, Users, Clock, Activity, Coffee,
-  SlidersHorizontal, X
+  ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ChevronDown, ChevronUp,
+  AlertTriangle, Users, Clock, Activity, Coffee,
+  SlidersHorizontal, X, Inbox
 } from 'lucide-react';
 import { AdminSidebar } from '@/components/AdminSidebar';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
@@ -29,6 +30,17 @@ const ANOMALY_THRESHOLD = 0.9;
 interface ChartDataPoint {
   time: string;
   demand: number;
+}
+
+// 실시간 키워드 게이트웨이(2위 기획) 승인 큐 — GET /api/v1/search/ingest-requests(status=pending) 행.
+// snake_case 그대로 사용(adminApi 는 admin-api.ts 도크대로 camelCase 변환을 하지 않는다).
+interface IngestRequest {
+  id: string;
+  contentid: string;
+  name: string | null;
+  content_type_id: number | null;
+  status: string;
+  created_at: string;
 }
 
 // 데모 폴백: 백엔드가 비어있거나 응답이 없을 때 보여줄 샘플 시설(데모 페이지 무중단).
@@ -66,7 +78,46 @@ export default function InfrastructurePage() {
   const [overrideLevel, setOverrideLevel] = useState(50); // 0~100(%) 슬라이더 값
   const [overrideSubmitting, setOverrideSubmitting] = useState(false);
 
+  // 적재 요청 대기(실시간 키워드 게이트웨이 승인 큐) — 접이식 섹션 상태.
+  const [ingestRequests, setIngestRequests] = useState<IngestRequest[]>([]);
+  const [ingestRequestsOpen, setIngestRequestsOpen] = useState(true);
+  const [ingestRequestsLoading, setIngestRequestsLoading] = useState(true);
+  const [approvingIngestId, setApprovingIngestId] = useState<string | null>(null);
+
   const supabase = createPublicClient();
+
+  const fetchIngestRequests = useCallback(async () => {
+    setIngestRequestsLoading(true);
+    try {
+      const data = await adminApi.get('/api/v1/search/ingest-requests?status=pending');
+      setIngestRequests(Array.isArray(data) ? data : []);
+    } catch (err) {
+      // 라우터 미배선/마이그레이션 미적용 환경 — 대기 0건과 동일하게 조용히 숨김(데모 무중단).
+      console.warn('적재 요청 목록 로드 실패:', err);
+      setIngestRequests([]);
+    } finally {
+      setIngestRequestsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchIngestRequests();
+  }, [fetchIngestRequests]);
+
+  const approveIngestRequest = async (req: IngestRequest) => {
+    setApprovingIngestId(req.id);
+    try {
+      await adminApi.post('/api/v1/search/ingest-requests/approve', { id: req.id });
+      toast.success('적재 요청 승인 완료', {
+        description: `'${req.name || req.contentid}'을(를) 적재했습니다.`,
+      });
+      setIngestRequests(prev => prev.filter(r => r.id !== req.id));
+    } catch (err: any) {
+      toast.error('승인 실패', { description: err?.message || '잠시 후 다시 시도해 주세요.' });
+    } finally {
+      setApprovingIngestId(null);
+    }
+  };
 
   const fetchFacilities = useCallback(async (isSilent = false) => {
     if (!isSilent) setLoading(true);
@@ -391,6 +442,56 @@ export default function InfrastructurePage() {
             </div>
           </div>
         </header>
+
+        {/* 적재 요청 대기(실시간 키워드 게이트웨이 승인 큐) — 접이식 섹션 */}
+        <div className="flex-shrink-0 border-b border-hanok-line bg-hanok-panel">
+          <button
+            onClick={() => setIngestRequestsOpen(o => !o)}
+            className="w-full px-8 py-3 flex items-center justify-between text-left hover:bg-hanok-card transition-colors"
+          >
+            <span className="flex items-center gap-2 text-sm font-semibold text-hanok-ink">
+              <Inbox size={16} className="text-gold" />
+              적재 요청 대기 {ingestRequests.length}
+            </span>
+            {ingestRequestsOpen ? (
+              <ChevronUp size={16} className="text-hanok-muted" />
+            ) : (
+              <ChevronDown size={16} className="text-hanok-muted" />
+            )}
+          </button>
+          {ingestRequestsOpen && (
+            <div className="px-8 pb-4">
+              {ingestRequestsLoading ? (
+                <p className="text-xs text-hanok-muted py-2">불러오는 중...</p>
+              ) : ingestRequests.length === 0 ? (
+                <p className="text-xs text-hanok-muted py-2">대기 중인 적재 요청이 없습니다.</p>
+              ) : (
+                <ul className="flex flex-col gap-2 max-h-64 overflow-y-auto">
+                  {ingestRequests.map(req => (
+                    <li
+                      key={req.id}
+                      className="flex items-center justify-between gap-3 bg-hanok-card border border-hanok-line rounded-xl px-4 py-2.5"
+                    >
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-hanok-ink truncate">{req.name || '(이름 없음)'}</p>
+                        <p className="text-xs text-hanok-muted">
+                          contentid {req.contentid} · {new Date(req.created_at).toLocaleString('ko-KR')}
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => approveIngestRequest(req)}
+                        disabled={approvingIngestId === req.id}
+                        className="shrink-0 text-xs font-semibold bg-gold hover:bg-gold-deep text-white rounded-full px-3 py-1.5 transition-colors disabled:opacity-50"
+                      >
+                        {approvingIngestId === req.id ? '승인 중...' : '승인'}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+        </div>
 
         {/* Layout: Master-Detail */}
         <div className="flex-1 flex overflow-hidden">

@@ -252,6 +252,17 @@ async def detail_info(content_id: str, content_type_id: int) -> dict:
     return await _get("detailInfo2", {"contentId": content_id, "contentTypeId": content_type_id})
 
 
+async def detail_image(content_id: str, image_yn: str = "Y", sub_image_yn: str = "Y") -> dict:
+    """detailImage2 — 저작권이 허용된 대표/서브 이미지 목록."""
+    return await _get("detailImage2", {
+        "contentId": content_id,
+        "imageYN": image_yn,
+        "subImageYN": sub_image_yn,
+        "pageNo": 1,
+        "numOfRows": 20,
+    })
+
+
 async def search_festival(
     event_start_date: str,
     ldong_regn_cd: Optional[int] = None,

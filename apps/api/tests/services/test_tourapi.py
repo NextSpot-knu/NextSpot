@@ -6,6 +6,7 @@ from app.services.tourapi import (
     CAT3_CAFE,
     extract_barrier_free,
     extract_detail_common,
+    extract_gallery_images,
     extract_operating_hours,
     map_facility_type,
     parse_items,
@@ -197,6 +198,18 @@ def test_extract_detail_common_empty_values_omit_keys():
     assert extract_detail_common({"tel": "054-000-0000"}) == {"phone": "054-000-0000"}
     assert extract_detail_common({}) == {}
     assert extract_detail_common(None) == {}
+
+
+def test_extract_gallery_images_https_dedupe_and_limit():
+    items = [
+        {"originimgurl": "http://tong.visitkorea.or.kr/a.jpg"},
+        {"originimgurl": "http://tong.visitkorea.or.kr/a.jpg"},
+        {"smallimageurl": "https://tong.visitkorea.or.kr/b.jpg"},
+    ]
+    assert extract_gallery_images(items) == [
+        "https://tong.visitkorea.or.kr/a.jpg",
+        "https://tong.visitkorea.or.kr/b.jpg",
+    ]
 
 
 # --- 구현 1: detailIntro2 확장 필드(Tier1 1-1·1-3·1-5) + phone 폴백 ---------------------

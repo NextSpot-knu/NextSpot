@@ -138,8 +138,29 @@ def transform_poi(item: Any) -> Optional[dict]:
             "cat1": item.get("cat1"),
             "cat2": item.get("cat2"),
             "cat3": item.get("cat3"),
+            # TourAPI 신분류체계. 응답에 존재할 때만 이후 세부 취향 재랭킹에 사용한다.
+            "lcls_systm1": item.get("lclsSystm1") or item.get("lclssystm1"),
+            "lcls_systm2": item.get("lclsSystm2") or item.get("lclssystm2"),
+            "lcls_systm3": item.get("lclsSystm3") or item.get("lclssystm3"),
         },
     }
+
+
+def extract_gallery_images(items: Any, limit: int = 5) -> list[str]:
+    """detailImage2 목록에서 HTTPS URL을 중복 없이 최대 5개 추출한다."""
+    if not isinstance(items, list):
+        return []
+    result: list[str] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        url = item.get("originimgurl") or item.get("smallimageurl")
+        normalized = upgrade_image_scheme(str(url).strip()) if url else None
+        if normalized and normalized not in result:
+            result.append(normalized)
+        if len(result) >= limit:
+            break
+    return result
 
 
 def extract_operating_hours(intro_item: Any, content_type_id: int) -> dict:
