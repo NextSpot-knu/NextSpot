@@ -156,3 +156,64 @@ export async function backfillProfileAfterLink(): Promise<void> {
     console.warn("[auth] 프로필 백필 건너뜀:", err);
   }
 }
+
+// ── 앱 자체 회원(이메일/비밀번호) — docs/AUTH_MEMBERSHIP_PLAN.md ──────────
+
+/** 이메일/비밀번호 로그인. 성공 시 세션이 해당 회원으로 교체된다(호출부가 데이터 격리·이동 처리). */
+export async function signInWithEmail(
+  email: string,
+  password: string,
+): Promise<{ error: string | null }> {
+  try {
+    const supabase = createPublicClient();
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    return { error: error?.message ?? null };
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/**
+ * 이메일/비밀번호 회원가입.
+ * - 현재 익명(게스트) 세션이면 updateUser 로 '정회원 전환'한다 → uid 유지 → 저장·취향 데이터 승계.
+ * - 세션이 없으면 signUp 으로 신규 생성한다.
+ * @returns needsConfirmation: 이메일 인증(Confirm email) ON 이라 세션이 아직 없을 때 true.
+ */
+export async function signUpWithEmail(
+  email: string,
+  password: string,
+  nickname?: string,
+): Promise<{ error: string | null; needsConfirmation: boolean }> {
+  try {
+    const supabase = createPublicClient();
+    const meta = nickname?.trim() ? { full_name: nickname.trim() } : undefined;
+
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (user?.is_anonymous) {
+      // 게스트 → 정회원 전환(uid 유지). data 로 닉네임 메타도 함께 심는다.
+      const { error } = await supabase.auth.updateUser({ email, password, ...(meta ? { data: meta } : {}) });
+      if (error) return { error: error.message, needsConfirmation: false };
+      // 전환은 UPDATE 라 handle_new_user 트리거를 안 타므로 public.users.nickname 을 직접 백필한다.
+      await backfillProfileAfterLink();
+      // Confirm email ON 이면 이메일 확정 전까지 아직 익명 상태일 수 있다 → 확인 안내.
+      const {
+        data: { user: after },
+      } = await supabase.auth.getUser();
+      return { error: null, needsConfirmation: !!after?.is_anonymous };
+    }
+
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: meta ? { data: meta } : undefined,
+    });
+    if (error) return { error: error.message, needsConfirmation: false };
+    // 세션이 없으면 Confirm email ON — 확인 메일 후 로그인 필요.
+    return { error: null, needsConfirmation: !data.session };
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : String(err), needsConfirmation: false };
+  }
+}

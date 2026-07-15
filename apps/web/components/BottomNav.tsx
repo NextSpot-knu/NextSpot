@@ -22,8 +22,10 @@ export default function BottomNav() {
     setOptimisticTab(null);
   }, [pathname]);
 
-  // 루트 경로나 지원하지 않는 경로에서는 네비게이션 숨김 처리
-  if (!pathname || pathname === '/' || pathname.includes('/admin') || pathname.includes('/merchant') || pathname.includes('/setup')) return null;
+  // 네비게이션은 '앱 페이지'에서만 표시한다(allowlist). 랜딩·로그인·auth·setup·admin·merchant 등
+  // chrome 없는 페이지는 기본적으로 숨김 → 새 chrome-less 페이지가 실수로 네비에 노출되는 것을 원천 차단.
+  const NAV_ROUTES = ['/main', '/saved', '/waiting', '/course', '/mypage', '/explore'];
+  if (!pathname || !NAV_ROUTES.some((r) => pathname === r || pathname.startsWith(r + '/'))) return null;
 
   const tabs = [
     { id: 'Home', icon: Home, label: t('nav.home'), path: '/main' },
