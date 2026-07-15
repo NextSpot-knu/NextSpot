@@ -1099,21 +1099,35 @@ function RecommendContent() {
               <div className="h-3 bg-hanji-deep w-1/2 rounded-md" />
             </div>
           ) : originalFacility ? (
-            <div className="bg-white p-5 rounded-2xl border border-terracotta/25 shadow-[0_2px_14px_rgba(43,35,32,0.06)] relative overflow-hidden">
-              <div className="absolute top-0 right-0 w-24 h-24 bg-terracotta/10 rounded-full blur-2xl pointer-events-none" />
-              <div className="flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-terracotta animate-pulse" />
-                <span className="text-[10px] text-terracotta font-bold tracking-wider">{t("recommend.detourNeeded")}</span>
-              </div>
-              <h2 className="text-base md:text-lg font-serif font-bold text-muk mt-2">
-                {t("recommend.congestedPrefix")}<span className="text-terracotta">{originalFacility.name}</span>{t("recommend.congestedSuffix")}
-              </h2>
-              <p className="text-xs text-muk-soft mt-1 leading-relaxed">
-                {t("recommend.waitPrefix")}
-                <span className="font-semibold text-terracotta">{t("recommend.waitValue", { wait: originalWaitTime })}</span>
-                {t("recommend.waitSuffix")}
-              </p>
-            </div>
+            (() => {
+              // 정직성: 헤드라인은 실측 혼잡도를 따른다 — 이전엔 진입 경로와 무관하게 '혼잡합니다'
+              // 템플릿을 고정 출력해 대기 보드('한산·대기 1분')와 모순된 안내가 나갔다(사용자 신고 버그).
+              const crowded = (originalFacility.congestionLevel ?? 0) >= 0.6;
+              return (
+                <div className={`bg-white p-5 rounded-2xl border ${crowded ? "border-terracotta/25" : "border-jade/25"} shadow-[0_2px_14px_rgba(43,35,32,0.06)] relative overflow-hidden`}>
+                  <div className={`absolute top-0 right-0 w-24 h-24 ${crowded ? "bg-terracotta/10" : "bg-jade/10"} rounded-full blur-2xl pointer-events-none`} />
+                  <div className="flex items-center gap-2">
+                    <span className={`w-2 h-2 rounded-full ${crowded ? "bg-terracotta animate-pulse" : "bg-jade"}`} />
+                    <span className={`text-[10px] ${crowded ? "text-terracotta" : "text-jade"} font-bold tracking-wider`}>
+                      {crowded ? t("recommend.detourNeeded") : t("recommend.calmBadge")}
+                    </span>
+                  </div>
+                  <h2 className="text-base md:text-lg font-serif font-bold text-muk mt-2">
+                    {t("recommend.congestedPrefix")}
+                    <span className={crowded ? "text-terracotta" : "text-jade"}>{originalFacility.name}</span>
+                    {crowded ? t("recommend.congestedSuffix") : t("recommend.calmSuffix")}
+                  </h2>
+                  <p className="text-xs text-muk-soft mt-1 leading-relaxed">
+                    {t("recommend.waitPrefix")}
+                    <span className={`font-semibold ${crowded ? "text-terracotta" : "text-jade"}`}>{t("recommend.waitValue", { wait: originalWaitTime })}</span>
+                    {t("recommend.waitSuffix")}
+                  </p>
+                  {!crowded && (
+                    <p className="text-xs text-muk-soft mt-1 leading-relaxed">{t("recommend.calmHint")}</p>
+                  )}
+                </div>
+              );
+            })()
           ) : (
             <div className="bg-white p-5 rounded-2xl border border-line shadow-[0_2px_14px_rgba(43,35,32,0.06)] text-center text-xs text-muk-soft">
               {t("recommend.facilityLoadError")}
