@@ -1,7 +1,7 @@
 'use client';
 
 import { usePathname, useRouter } from 'next/navigation';
-import { Home, Bookmark, Route, User } from 'lucide-react';
+import { Home, Bookmark, Timer, Route, User } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { useT } from '@/lib/i18n/I18nProvider';
 
@@ -28,6 +28,8 @@ export default function BottomNav() {
   const tabs = [
     { id: 'Home', icon: Home, label: t('nav.home'), path: '/main' },
     { id: 'Saved', icon: Bookmark, label: t('nav.saved'), path: '/saved' },
+    // 라벨이 유일하게 긴 탭('지금 출발하면?') — 모바일 바에서만 폰트를 한 단계 줄여 5탭 폭에 수용.
+    { id: 'Waiting', icon: Timer, label: t('nav.waiting'), path: '/waiting', mobileLabelClass: 'text-[10px] tracking-tight' },
     { id: 'Course', icon: Route, label: t('nav.course'), path: '/course' },
     { id: 'MyPage', icon: User, label: t('nav.mypage'), path: '/mypage' }
   ];
@@ -35,6 +37,7 @@ export default function BottomNav() {
   const getActiveTab = () => {
     if (optimisticTab) return optimisticTab;
     if (pathname.includes('/saved')) return 'Saved';
+    if (pathname.includes('/waiting')) return 'Waiting';
     if (pathname.includes('/course')) return 'Course';
     if (pathname.includes('/mypage')) return 'MyPage';
     return 'Home'; // default
@@ -86,7 +89,8 @@ export default function BottomNav() {
                 <div className="transition-transform duration-300 ease-out hover:scale-110">
                   <Icon size={24} className={isActive ? 'text-gold-deep' : 'text-muk-soft'} />
                 </div>
-                <span className={`text-[11px] font-medium ${isActive ? 'text-gold-deep' : ''}`}>
+                {/* 긴 라벨('지금 출발하면?')은 공백 기준 2줄로 자연 래핑 — h-16 안에 수용된다. */}
+                <span className={`text-[11px] font-medium leading-tight text-center break-keep ${isActive ? 'text-gold-deep' : ''}`}>
                   {tab.label}
                 </span>
               </button>
@@ -114,14 +118,14 @@ export default function BottomNav() {
                 key={tab.id}
                 onClick={() => handleTabClick(tab)}
                 aria-current={isActive ? 'page' : undefined}
-                className={`relative z-10 flex flex-col items-center justify-center transition-colors w-14 h-12 ${
+                className={`relative z-10 flex flex-col items-center justify-center transition-colors flex-1 min-w-0 h-12 ${
                   isActive ? 'text-gold-deep' : 'text-muk-soft hover:text-muk'
                 }`}
               >
                 <div className="mb-0.5 transition-transform duration-300 ease-out hover:scale-110">
                   <Icon size={22} className={isActive ? 'text-gold-deep' : 'text-muk-soft'} />
                 </div>
-                <span className={`text-[11px] font-medium ${isActive ? 'text-gold-deep' : ''}`}>
+                <span className={`${(tab as { mobileLabelClass?: string }).mobileLabelClass ?? 'text-[11px]'} font-medium whitespace-nowrap ${isActive ? 'text-gold-deep' : ''}`}>
                   {tab.label}
                 </span>
               </button>
