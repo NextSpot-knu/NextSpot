@@ -123,6 +123,22 @@ export function updateSeatStatus(facilityId: string, level: SeatLevel): Promise<
   });
 }
 
+/** 좌석 상태 방송 해제 결과 — 해제 시 level 은 null 로 내려온다(응답 형태는 저장과 동일). */
+export interface SeatStatusClearResult {
+  facility_id: string;
+  level: SeatLevel | null;
+  updated_at: string | null;
+}
+
+// 방송 끄기 — 같은 엔드포인트에 level:null 을 보내면 features.seat_status 가 제거된다.
+// (제거 후에는 merchant_boost 의 좌석 오버레이가 더 이상 적용되지 않는다.)
+export function clearSeatStatus(facilityId: string): Promise<SeatStatusClearResult> {
+  return merchantFetch(`/api/v1/merchant/seat-status`, {
+    method: "POST",
+    body: JSON.stringify({ facility_id: facilityId, level: null }),
+  });
+}
+
 // --- 예측 유입 (기존 공개 엔드포인트 POST /predict/batch 재사용, 무인증) ---
 interface PredictBatchItem {
   facility_id: string;

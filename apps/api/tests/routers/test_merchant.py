@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 from app.routers import merchant
 
 # test_routers.py 의 공용 Fake(체이닝 흡수 + table별 canned)를 재사용한다.
-from tests.routers.test_routers import FakeSupabase
+from tests.routers.test_routers import FakeSupabase, FakeTable, _FakeResult
 
 # merchant.py 의 기본 토큰(MERCHANT_API_TOKEN 미설정 시 폴백값)과 동일 — .env 는 이 값을 채우지 않는다
 # (apps/api 앱 모듈은 dotenv 를 로드하지 않으므로 테스트 환경에서 os.environ 은 비어 있다).
@@ -238,3 +238,248 @@ def test_merchant_seat_status_happy_path(client):
     assert body["facility_id"] == "f-1"
     assert body["level"] == "full"
     assert "updated_at" in body
+
+
+# =========================================================================
+# 5. 좌석 상태 해제(level=null) — features 에서 seat_status 키 제거
+# 공용 FakeTable 은 update() 인자를 흘려버려 '무엇을 썼는지' 를 볼 수 없다 —
+# 실제 기록 페이로드가 검증 대상이므로 update payload 를 붙잡는 전용 Fake 를 쓴다.
+# =========================================================================
+
+
+class _CapturingFacilitiesTable(FakeTable):
+    """facilities 전용 — update(payload) 의 payload 를 captured 에 남긴다."""
+
+    def __init__(self, data, captured: dict):
+        super().__init__(data)
+        self._captured = captured
+
+    def update(self, payload):
+        self._captured["payload"] = payload
+        return self
+
+
+class _CapturingFacilitiesSupabase:
+    def __init__(self, facility: dict, captured: dict):
+        self._facility = facility
+        self._captured = captured
+
+    def table(self, name: str):
+        if name == "facilities":
+            return _CapturingFacilitiesTable([self._facility], self._captured)
+        return FakeTable([])
+
+
+def test_merchant_seat_status_clear_removes_key(client):
+    facility = {
+        "id": "f-1",
+        "features": {
+            "average_processing_time": 10,
+            "seat_status": {"level": "full", "updated_at": "2026-07-15T01:00:00+00:00"},
+        },
+    }
+    captured: dict = {}
+    with patch(
+        "app.routers.merchant.supabase_admin",
+        new=_CapturingFacilitiesSupabase(facility, captured),
+    ):
+        res = client.post(
+            "/api/v1/merchant/seat-status",
+            headers=_merchant_headers(),
+            json={"facility_id": "f-1", "level": None},
+        )
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["facility_id"] == "f-1"
+    assert body["level"] is None
+    assert "updated_at" in body  # 응답 형태는 기존 3키 그대로
+
+    # DB 에 기록된 features 에서 seat_status(중첩 updated_at 포함)가 사라지고 나머지는 보존.
+    written = captured["payload"]["features"]
+    assert "seat_status" not in written
+    assert written["average_processing_time"] == 10
+
+
+def test_merchant_seat_status_clear_when_absent_is_noop(client):
+    """이미 좌석 상태가 없어도 해제는 200 — 프런트가 상태를 모른 채 눌러도 안전해야 한다."""
+    facility = {"id": "f-1", "features": {"average_processing_time": 10}}
+    captured: dict = {}
+    with patch(
+        "app.routers.merchant.supabase_admin",
+        new=_CapturingFacilitiesSupabase(facility, captured),
+    ):
+        res = client.post(
+            "/api/v1/merchant/seat-status",
+            headers=_merchant_headers(),
+            json={"facility_id": "f-1", "level": None},
+        )
+    assert res.status_code == 200
+    assert "seat_status" not in captured["payload"]["features"]
+
+
+def test_merchant_seat_status_save_still_writes_key(client):
+    """저장 경로 회귀 가드 — level 지정 시 seat_status 가 기존대로 병합 기록된다."""
+    facility = {"id": "f-1", "features": {"average_processing_time": 10}}
+    captured: dict = {}
+    with patch(
+        "app.routers.merchant.supabase_admin",
+        new=_CapturingFacilitiesSupabase(facility, captured),
+    ):
+        res = client.post(
+            "/api/v1/merchant/seat-status",
+            headers=_merchant_headers(),
+            json={"facility_id": "f-1", "level": "mid"},
+        )
+    assert res.status_code == 200
+    written = captured["payload"]["features"]
+    assert written["seat_status"]["level"] == "mid"
+    assert written["seat_status"]["updated_at"]
+    assert written["average_processing_time"] == 10  # 기존 features 보존
+
+
+def test_merchant_seat_status_clear_facility_404(client):
+    """해제도 존재하지 않는 시설이면 기존과 동일하게 404."""
+    with patch("app.routers.merchant.supabase_admin", new=FakeSupabase({"facilities": []})):
+        res = client.post(
+            "/api/v1/merchant/seat-status",
+            headers=_merchant_headers(),
+            json={"facility_id": "ghost", "level": None},
+        )
+    assert res.status_code == 404
+
+
+def test_merchant_seat_status_missing_level_422(client):
+    """level 필드 자체가 없으면 422 — 바디 누락으로 실수 해제되지 않는다(해제는 null 명시)."""
+    res = client.post(
+        "/api/v1/merchant/seat-status",
+        headers=_merchant_headers(),
+        json={"facility_id": "f-1"},
+    )
+    assert res.status_code == 422
+
+
+# =========================================================================
+# 6. 활성 타임세일 중복 정책(감사 P1-7) — 발행은 막지 않되 '실제 적용 할인율'을 응답에 싣는다.
+# merchant_timesales 는 한 요청에서 select(활성 조회) → insert(발행) 로 두 번 쓰이는데 공용
+# FakeSupabase 는 둘을 구분하지 못한다 — 모드를 구분하는 전용 Fake 를 쓴다.
+# =========================================================================
+
+
+class _TimesaleFakeTable(FakeTable):
+    """merchant_timesales 전용 — insert() 를 거친 체인만 발행 결과를 돌려준다."""
+
+    def __init__(self, active_rows: list, inserted_row: dict):
+        super().__init__(active_rows)
+        self._inserted = inserted_row
+        self._is_insert = False
+
+    def insert(self, _row):
+        self._is_insert = True
+        return self
+
+    def execute(self):
+        return _FakeResult([self._inserted] if self._is_insert else self._data)
+
+
+class _TimesaleFakeSupabase:
+    def __init__(self, facilities: list, active_rows: list, inserted_row: dict):
+        self._facilities = facilities
+        self._active_rows = active_rows
+        self._inserted_row = inserted_row
+
+    def table(self, name: str):
+        if name == "merchant_timesales":
+            # 호출마다 새 인스턴스 — select 체인과 insert 체인이 모드를 공유하지 않게 한다.
+            return _TimesaleFakeTable(self._active_rows, self._inserted_row)
+        if name == "facilities":
+            return FakeTable(self._facilities)
+        return FakeTable([])
+
+
+_FACILITY = {"id": "f-1", "name": "시설-f-1"}
+
+
+def _issue(client, rate: float):
+    return client.post(
+        "/api/v1/merchant/timesale",
+        headers=_merchant_headers(),
+        json={"facility_id": "f-1", "rate": rate, "duration_minutes": 60},
+    )
+
+
+def test_merchant_timesale_create_reports_higher_active_sale(client):
+    """기존 활성 30% 가 있는데 15% 를 발행하면 — 발행은 성공하되 적용은 30% 임을 알린다."""
+    active = [{"rate": 0.3, "starts_at": "2026-07-15T00:00:00+00:00", "ends_at": "2099-01-01T00:00:00+00:00",
+               "canceled_at": None}]
+    inserted = {"id": "ts-2", "facility_id": "f-1", "rate": 0.15}
+    with patch(
+        "app.routers.merchant.supabase_admin",
+        new=_TimesaleFakeSupabase([_FACILITY], active, inserted),
+    ):
+        res = _issue(client, 0.15)
+
+    assert res.status_code == 200  # 하드 제약 없음 — 발행 자체는 막지 않는다
+    body = res.json()
+    assert body["id"] == "ts-2"
+    assert body["other_active_timesale_count"] == 1
+    assert body["effective_timesale_rate"] == 0.3  # 오버레이는 최댓값만 쓴다
+    assert "30%" in body["effective_timesale_note"]
+
+
+def test_merchant_timesale_create_new_sale_wins(client):
+    """기존 15% 위에 30% 를 발행하면 적용 할인율은 방금 발행한 30%."""
+    active = [{"rate": 0.15, "starts_at": "2026-07-15T00:00:00+00:00", "ends_at": "2099-01-01T00:00:00+00:00",
+               "canceled_at": None}]
+    inserted = {"id": "ts-2", "facility_id": "f-1", "rate": 0.3}
+    with patch(
+        "app.routers.merchant.supabase_admin",
+        new=_TimesaleFakeSupabase([_FACILITY], active, inserted),
+    ):
+        res = _issue(client, 0.3)
+
+    body = res.json()
+    assert body["other_active_timesale_count"] == 1
+    assert body["effective_timesale_rate"] == 0.3
+    assert body["effective_timesale_note"]  # 중복 사실은 여전히 안내한다
+
+
+def test_merchant_timesale_create_no_active_has_no_note(client):
+    """활성 세일이 없으면 안내 문구 없음 — 적용 할인율은 방금 발행한 값."""
+    inserted = {"id": "ts-1", "facility_id": "f-1", "rate": 0.2}
+    with patch(
+        "app.routers.merchant.supabase_admin",
+        new=_TimesaleFakeSupabase([_FACILITY], [], inserted),
+    ):
+        res = _issue(client, 0.2)
+
+    body = res.json()
+    assert body["other_active_timesale_count"] == 0
+    assert body["effective_timesale_rate"] == 0.2
+    assert body["effective_timesale_note"] is None
+
+
+def test_merchant_timesale_create_lookup_failure_reports_unknown(client):
+    """활성 조회가 깨져도 발행은 성공해야 하고, 모르는 값을 지어내지 않는다(None)."""
+
+    class _RaisingSelectTable(_TimesaleFakeTable):
+        def execute(self):
+            if not self._is_insert:
+                raise RuntimeError("relation \"merchant_timesales\" does not exist")
+            return _FakeResult([self._inserted])
+
+    class _Supa(_TimesaleFakeSupabase):
+        def table(self, name: str):
+            if name == "merchant_timesales":
+                return _RaisingSelectTable([], {"id": "ts-1", "facility_id": "f-1", "rate": 0.15})
+            return FakeTable(self._facilities if name == "facilities" else [])
+
+    with patch("app.routers.merchant.supabase_admin", new=_Supa([_FACILITY], [], {})):
+        res = _issue(client, 0.15)
+
+    assert res.status_code == 200  # 안내는 부가 정보 — 발행을 실패시키지 않는다
+    body = res.json()
+    assert body["id"] == "ts-1"
+    assert body["other_active_timesale_count"] is None
+    assert body["effective_timesale_rate"] is None
+    assert body["effective_timesale_note"] is None
