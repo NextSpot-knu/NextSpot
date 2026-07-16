@@ -295,11 +295,16 @@ export default function MyPage() {
                 {/* 통계 — 실제 소스가 있는 항목만 표시(가짜 경로수·평점 제거). 저장 + 방문(방문 확인 루프)
                     + 아낀 시간(임팩트 API 누적, 로드 성공 시에만 3열로 확장 — 실패 시 가짜 0 미노출). */}
                 <div className="grid grid-cols-2 gap-3">
-                  <div className="bg-white border border-line rounded-2xl p-4 flex items-center justify-center gap-3 max-[420px]:gap-1.5 shadow-[0_2px_14px_rgba(43,35,32,0.06)]">
+                  <button
+                    type="button"
+                    onClick={() => router.push('/saved')}
+                    aria-label={`${t('mypage.statSaved')} ${profile.saved}`}
+                    className="bg-white border border-line rounded-2xl p-4 flex items-center justify-center gap-3 max-[420px]:gap-1.5 shadow-[0_2px_14px_rgba(43,35,32,0.06)] transition-colors hover:bg-hanji-deep focus:outline-none focus-visible:ring-2 focus-visible:ring-terracotta/60"
+                  >
                     <Bookmark size={20} className="text-terracotta shrink-0" fill="currentColor" />
                     <span className="text-xl font-bold text-muk">{profile.saved}</span>
                     <span className="text-xs text-muk-soft font-medium whitespace-nowrap">{t('mypage.statSaved')}</span>
-                  </div>
+                  </button>
                   <div className="bg-white border border-line rounded-2xl p-4 flex items-center justify-center gap-3 max-[420px]:gap-1.5 shadow-[0_2px_14px_rgba(43,35,32,0.06)]">
                     <Footprints size={20} className="text-jade shrink-0" />
                     <span className="text-xl font-bold text-muk">{visitCount}</span>
