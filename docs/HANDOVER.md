@@ -3,6 +3,47 @@
 > 현재 상태 스냅샷 + 다음 단계. 브랜치 `feature/jinseok` (origin 동기화).
 > 자율 개선 세션 로그·재개 규칙: [`AUTONOMOUS_SESSION.md`](./AUTONOMOUS_SESSION.md) · 전략: [`CONTEST_STRATEGY.md`](./CONTEST_STRATEGY.md)
 
+## -11. 2026-07-16 — 팀 브랜치 3종 통합 + 게스트 기록 승계
+
+### 통합 결과 (`8b4b5c9` 병합, `ff4cc5a` 승계 수정)
+
+`feature/jinseok` 이 `origin/main` 대비 **14 앞 / 0 뒤** — fast-forward 가능 상태.
+
+- **윤성 `yunseong`**: 구글 OAuth(`5e1e655`) + 이메일/비밀번호 회원(`864139f`) → main 에 이미 머지됨(`1aefe37`).
+- **승용 `feature/seungyong`(`69b620c`)**: **이미 main 조상**이다(2026-07-10 머지, 이후 121커밋).
+  낡은 브랜치이므로 **병합 대상이 아니다** — 이후 이 브랜치를 다시 머지하려 하지 말 것.
+- **진석(Claude)**: 나의 실험실 + 사장님 콘솔 + JWKS 503.
+
+**충돌 5건 해결 방식(재발 시 참고)**:
+- `i18n messages ko/en/ja/zh` — 같은 키를 양쪽이 바꾼 건 **0건**. 텍스트 충돌뿐이라 합집합 병합
+  (공통 475 + 인증 39 + lab 26 = 540키). ⚠️ **원본이 한 줄 압축 JSON** 이다 — indent 를 넣어 재포맷하면
+  전체가 diff 로 뜬다. 형식 유지 필수.
+- `supabase/RESET_AND_SETUP.sql` — 생성물이다. **충돌 마커를 편집하지 말고 `node scripts/build_reset.mjs`
+  재생성**으로 해결한다(마이그레이션 29개 타임스탬프 순 정렬됨).
+
+**의미 충돌 검토(자동 병합된 파일 — 양쪽 로직 공존 확인)**: `saved/page.tsx`(notifyUnsaved + removeBookmark),
+`mypage/page.tsx`(AccountSection + 실험실 카드), `main/page.tsx`(rejectRecommendation + lab.hint).
+`SessionBootstrap` 은 익명 세션(signInAnonymously)을 유지 → 실험실 전제 보존.
+
+### 게스트 기록 승계 `ff4cc5a` — 보안 설계 주의
+
+문제: 기존 계정 로그인 시 UID 교체로 게스트 실험실 기록이 조회되지 않았다(DB 에는 남아 있음).
+신규 가입·OAuth 연동은 UID 유지라 원래 문제없었고 **기존 계정 로그인만** 해당.
+
+- **증명 = 로그인 직전 익명 access_token 소지.** 클라이언트가 보낸 uid 를 신뢰하면 **남의 게스트 기록을
+  훔칠 수 있다** — body 의 uid 는 절대 쓰지 않는다.
+- `POST /api/v1/account/merge-guest`: target=current_user(JWT), guest=검증된 guest_token 의 sub.
+  **`is_anonymous is not True` → 403** 이 계정 탈취 차단선이다. 실코드 E2E 로 탈취 벡터 4종
+  (false / 필드없음 / 문자열 "true" / 숫자 1) 전부 403 확인. 위조 401.
+- `lib/userData.ts` 의 `reconcileUserData` 는 **버그가 아니라 프라이버시 기능**이다(기기 공유 시 다음
+  사용자에게 로컬 데이터 누수 차단). **무력화하지 말 것.** 서버 데이터만 승계한다.
+- `saved_facilities` 는 `(user_id, facility_id)` 복합 PK — 대상이 이미 가진 시설의 게스트 행을 먼저
+  제거 후 나머지만 이동(대상 스냅샷 보존).
+- 익명 `users` 행은 **삭제하지 않는다** — ON DELETE CASCADE 로 방금 옮긴 기록이 날아간다.
+
+**남은 위험**: 병합은 로그인 시점 1회뿐이다. 익명 토큰 만료(약 1시간) 후 로그인하면 승계되지 않는다.
+기기 B 의 게스트 데이터도 병합 대상이 아니다(팀원 설계 그대로).
+
 ## -10. 2026-07-16 야간 — Codex 교차 리뷰 P0 2건 수정 + 사장님 콘솔 운영 마감
 
 ### 실험실 P0 2건 (리뷰가 잡아낸 것 — 게이트로는 못 잡혔다)
