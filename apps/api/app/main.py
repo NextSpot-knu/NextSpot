@@ -1,3 +1,8 @@
+import asyncio
+import time
+from contextlib import asynccontextmanager
+
+import structlog
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
@@ -8,10 +13,51 @@ from app.routers import recommendations, infrastructures, predict, preferences, 
 # 로깅 설정 초기화
 setup_logging()
 
+_logger = structlog.get_logger()
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    """부팅 시 무거운 lazy 초기화를 미리 끝낸다(첫 사용자 요청이 그 비용을 물지 않게).
+
+    배경(2026-07-16 실측): 첫 `/recommendations/by-type` 이 프로덕션에서 **18.8초** 걸려
+    프런트 10초 타임아웃(api-client REQUEST_TIMEOUT_MS)을 넘겨 "추천 서버에 연결하지 못했어요" 가
+    떴다. 콜드 스타트가 아니라(직전 /health 0.4s, /impact 0.8s 로 컨테이너는 웜) **첫 by-type 이
+    model.pkl 을 처음 언피클**하는 비용이었다. 웜 상태에서는 같은 호출이 ~2초다.
+    로컬 실측으로 model.pkl 최초 로드 866ms / 이후 예측 1ms — Render 무료 티어(0.1 CPU)에서
+    이 언피클이 10배 이상으로 늘어난다.
+
+    Render 는 `healthCheckPath: /health`(render.yaml)로 준비 완료를 판정하므로, 여기서 워밍업을
+    마치면 트래픽이 오기 전에 캐시가 채워진다. 워밍업 실패가 서비스 부팅을 막으면 본말전도이므로
+    전부 best-effort(예외를 삼키고 경고만) — 실패해도 기존 lazy 경로가 그대로 동작한다.
+    """
+    t0 = time.perf_counter()
+    try:
+        # 1) model.pkl 언피클 — 가장 큰 비용. 예측 1회로 lazy 로더를 강제 기동한다.
+        from app.services.predict_service import predict_congestion
+        await asyncio.to_thread(predict_congestion, "restaurant", 12, 2)
+        _logger.info("warmup_model_ready", elapsed_ms=round((time.perf_counter() - t0) * 1000))
+    except Exception as e:
+        _logger.warning("warmup_model_failed", error=str(e))
+
+    try:
+        # 2) JWKS 공개키 프리페치 — 첫 인증 요청이 DNS+TLS 신규 왕복(실측 772ms)을 물지 않게 한다.
+        #    is_anonymous 검증 등 모든 인증 경로가 이 캐시를 공유한다(core/supabase.py).
+        from app.core.supabase import _get_jwks_client
+        await asyncio.to_thread(_get_jwks_client().get_jwk_set)
+        _logger.info("warmup_jwks_ready")
+    except Exception as e:
+        _logger.warning("warmup_jwks_failed", error=str(e))
+
+    _logger.info("warmup_done", total_ms=round((time.perf_counter() - t0) * 1000))
+    yield
+
+
 app = FastAPI(
     title=settings.PROJECT_NAME,
     description="NextSpot 관광 수요 분산·대안 장소 추천 AI 엔진 API",
-    version="0.1.0"
+    version="0.1.0",
+    lifespan=lifespan,
 )
 
 

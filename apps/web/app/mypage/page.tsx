@@ -308,21 +308,26 @@ export default function MyPage() {
                 </div>
 
                 {/* 아낀 시간 가치 배너 — 절약 시간을 기회비용(최저시급 환산)으로 번역해 체감시킨다.
-                    환산 기준은 화면에 명시(정직성). 탭하면 임팩트 카드 상세로. */}
+                    환산 기준은 화면에 명시(정직성). 탭하면 임팩트 카드 상세로.
+                    0분이어도 숨기지 않는다(PM 지시): 신규 사용자에게 배너 자체가 '쓸수록 시간이 줄어든다'는
+                    가치 제안이다. 다만 0분에 기회비용(0원)을 환산해 보여주면 무의미하므로 격려 문구로 대체한다.
+                    ⚠️ null(임팩트 API 실패)일 때만 숨긴다 — 근거 없는 0 적립을 지어내지 않는 정직성. */}
                 {waitSaved !== null && (
                   <button
                     type="button"
                     onClick={() => router.push('/mypage/impact')}
-                    aria-label={t('mypage.savedBanner', { n: waitSaved })}
+                    aria-label={waitSaved > 0 ? t('mypage.savedBanner', { n: waitSaved }) : t('mypage.savedBannerZero')}
                     className="w-full mt-3 bg-gradient-to-r from-gold/15 via-hanji-deep/60 to-jade/10 border border-gold/30 rounded-2xl px-4 py-3.5 flex items-center gap-3 text-left shadow-[0_2px_14px_rgba(43,35,32,0.06)] hover:from-gold/25 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
                   >
                     <Hourglass size={22} className="text-gold-deep shrink-0" />
                     <span className="min-w-0">
                       <span className="block text-sm font-bold text-muk leading-snug">
-                        {t('mypage.savedBanner', { n: waitSaved })}
+                        {waitSaved > 0 ? t('mypage.savedBanner', { n: waitSaved }) : t('mypage.savedBannerZero')}
                       </span>
                       <span className="block text-[11px] text-muk-soft mt-0.5">
-                        {t('mypage.savedValue', { won: (Math.round((waitSaved * MIN_WAGE_KRW_PER_HOUR) / 60 / 10) * 10).toLocaleString() })}
+                        {waitSaved > 0
+                          ? t('mypage.savedValue', { won: (Math.round((waitSaved * MIN_WAGE_KRW_PER_HOUR) / 60 / 10) * 10).toLocaleString() })
+                          : t('mypage.savedValueZero')}
                       </span>
                     </span>
                   </button>
