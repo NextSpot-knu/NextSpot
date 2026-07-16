@@ -3,6 +3,39 @@
 > 현재 상태 스냅샷 + 다음 단계. 브랜치 `feature/jinseok` (origin 동기화).
 > 자율 개선 세션 로그·재개 규칙: [`AUTONOMOUS_SESSION.md`](./AUTONOMOUS_SESSION.md) · 전략: [`CONTEST_STRATEGY.md`](./CONTEST_STRATEGY.md)
 
+---
+
+## 🔴 지금 프로덕션이 깨져 있다 — 마이그레이션 2건 미적용 (2026-07-16, 최우선)
+
+`c4b60dd` 가 main·prod 에 배포됐으나 **원격 Supabase 에 아래 2건이 미적용**이라 코드와 스키마가 어긋났다.
+(원격 실측: `user_feedback.reason_status` ❌ / `user_feedback.learning_applied_at` ❌ /
+`recommendations.source` ❌ — 반면 팀원의 `saved_facilities.facility_id` ✅ `users.avatar_url` ✅ 는 적용됨)
+
+**사람 작업 — Supabase Dashboard → SQL Editor 에 순서대로 붙여넣고 Run (약 2분):**
+1. `supabase/migrations/20260716140000_rejection_lab.sql`
+2. `supabase/migrations/20260716150000_recommendation_source.sql`
+
+둘 다 멱등(`IF NOT EXISTS`)·기존 데이터 무손실. ⚠️ `RESET_AND_SETUP.sql` 은 **절대 쓰지 말 것**(전체 리셋).
+
+**적용 전까지 프로덕션에서 깨지는 것**:
+- **쿠폰 발급** — `여기로 갈래요` → `accepted_visit_intent` INSERT 가 구 CHECK(accepted/rejected/ignored)
+  위반 → 500 → 쿠폰 미발급. **데모 크리티컬**
+- 실험실 목록·마이탭 카드 — 조회 실패(가짜 숫자는 안 만든다 — 정직하게 미노출)
+- 👍/👎(helpful/not_helpful) — 500 이나 UI 가 삼켜서 사용자에겐 안 보임
+
+**멀쩡한 것**: 사이트 접속·지도·추천·로그인·거절 UX(fire-and-forget)·사장님 콘솔.
+
+**롤백은 해법이 아니다**(실측 확인): Render 백엔드도 이미 신규 코드로 배포됐고 신규 Literal 이
+legacy `accepted` 를 받지 않는다 → 프런트만 되돌리면 422 로 더 깨진다. **마이그레이션이 유일한 해법.**
+
+### 함께 남은 사람 작업
+- 🟡 `BACKEND_HEALTH_URL` 미설정 — **Secrets 가 아니라 Variables 탭**이다(워크플로가 `vars.` 로 읽음).
+  현재 uptime 워크플로는 초록불이지만 실제로는 `⏭ Ping` 을 건너뛰고 `Skip(미설정)` 만 실행 중이다.
+  없으면 Render 스핀다운 → 콜드 스타트 9.9초(프런트 타임아웃 10초와 아슬아슬).
+  값: `https://nextspot-api.onrender.com/health`
+- 🟢 브라우저 실화면 검증(마이그레이션 적용 후): 메인 연속 거절 → 즉시 다음 → 마이탭 카드 건수 →
+  실험실 답변 → 목록 제거 / 사장님 콘솔 타임세일 발행 확인 → 만료 배지 → 방송 끄기
+
 ## -11. 2026-07-16 — 팀 브랜치 3종 통합 + 게스트 기록 승계
 
 ### 통합 결과 (`8b4b5c9` 병합, `ff4cc5a` 승계 수정)
