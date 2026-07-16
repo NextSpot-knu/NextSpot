@@ -200,14 +200,20 @@ export default function LoginPage() {
           </>
         )}
 
-        {/* 게스트 둘러보기 — 익명 세션 유지, 무마찰 흐름(/setup) */}
-        <button
-          type="button"
-          onClick={() => router.push('/setup')}
-          className="w-full text-center text-sm text-muk-soft hover:text-muk mt-5 py-1 transition-colors"
-        >
-          {t('login.guest')}
-        </button>
+        {/* 게스트 둘러보기 — 익명 세션 유지, 무마찰 흐름(/setup).
+            ⚠️ 이 앱의 핵심 원칙은 '관광객 무마찰'이고 발표 대본(DEMO_SCENARIO "로그인 절차 없이")과
+            JUDGE_QA Q10 이 이 경로를 전제한다. 회색 각주로 묻으면 로그인이 사실상 강제된다 —
+            테두리 있는 실제 버튼으로 유지할 것. */}
+        <div className="mt-5 pt-5 border-t border-line">
+          <button
+            type="button"
+            onClick={() => router.push('/setup')}
+            className="w-full py-3 rounded-xl border border-line bg-white text-muk font-bold text-sm hover:bg-hanji-deep transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold"
+          >
+            {t('login.guest')}
+          </button>
+          <p className="mt-2 text-xs text-muk-soft text-center">{t('login.guestHint')}</p>
+        </div>
       </div>
     </div>
   );
