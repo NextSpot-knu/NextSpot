@@ -5,6 +5,8 @@ from typing import Optional
 
 from collections.abc import Callable
 # pyrefly: ignore [missing-import]
+import httpcore
+import httpx
 import jwt
 # pyrefly: ignore [missing-import]
 from jwt import PyJWKClient
@@ -13,7 +15,7 @@ import structlog
 from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 # pyrefly: ignore [missing-import]
-from supabase import create_client, Client
+from supabase import Client, ClientOptions, create_client
 from app.core.config import settings
 
 _logger = structlog.get_logger()
@@ -29,6 +31,45 @@ _jwks_lock = threading.RLock()
 # 넘지 않게: 최악 2.0 + 0.2 + 2.0 ≈ 4.2초.
 _JWKS_TIMEOUT_SECONDS = 2.0
 _JWKS_RETRY_BACKOFF_SECONDS = 0.2
+
+# Supabase/PostgREST 의 기본 동기 클라이언트는 HTTP/2 풀을 오래 재사용한다. 저트래픽 운영 환경에서
+# upstream 이 먼저 끊은 idle 연결을 집으면 첫 요청만 RemoteProtocolError 로 실패한다.
+_SUPABASE_KEEPALIVE_EXPIRY_SECONDS = 15.0
+
+
+def _is_stale_connection_error(exc: BaseException) -> bool:
+    """죽은 풀 연결에서 발생하는 프로토콜 오류인지 예외 체인을 따라 판별한다."""
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    retryable_types = (
+        httpx.RemoteProtocolError,
+        httpcore.RemoteProtocolError,
+        httpcore.ConnectionNotAvailable,
+    )
+    while current is not None and id(current) not in seen:
+        if isinstance(current, retryable_types):
+            return True
+        seen.add(id(current))
+        current = current.__cause__ or current.__context__
+    return False
+
+
+class _StaleConnectionRetryTransport(httpx.BaseTransport):
+    """stale HTTP/2 연결 오류만 새 풀 연결로 정확히 한 번 즉시 재시도한다."""
+
+    def __init__(self, transport: httpx.BaseTransport) -> None:
+        self._transport = transport
+
+    def handle_request(self, request: httpx.Request) -> httpx.Response:
+        try:
+            return self._transport.handle_request(request)
+        except Exception as exc:
+            if not _is_stale_connection_error(exc):
+                raise
+            return self._transport.handle_request(request)
+
+    def close(self) -> None:
+        self._transport.close()
 
 
 def _get_jwks_client() -> PyJWKClient:
@@ -63,7 +104,18 @@ def _create_client(url: str, key: str, *, role: str) -> Client:
     """Supabase 클라이언트 생성. 시크릿 부재/URL 형식오류 등으로 실패하면 원인을 구조화 로깅 후 재발생.
     (정상 시크릿 환경에선 동작 동일 — 진단 가능한 부팅 실패를 위한 래퍼.)"""
     try:
-        return create_client(url, key)
+        transport = _StaleConnectionRetryTransport(
+            httpx.HTTPTransport(
+                http2=True,
+                limits=httpx.Limits(keepalive_expiry=_SUPABASE_KEEPALIVE_EXPIRY_SECONDS),
+            )
+        )
+        http_client = httpx.Client(
+            transport=transport,
+            timeout=120,
+            follow_redirects=True,
+        )
+        return create_client(url, key, ClientOptions(httpx_client=http_client))
     except Exception as e:
         _logger.error("supabase_client_init_failed", role=role, error=str(e))
         raise
