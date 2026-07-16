@@ -82,16 +82,18 @@ export function AccountSection() {
       </div>
       <p className="text-xs text-muk-soft mb-4">{t('auth.guestDesc')}</p>
 
-      <div className="flex flex-col gap-2">
+      {/* 2열 1행(PM 지시) — 세로 나열보다 카드가 낮아져 마이탭 스크롤이 짧아진다.
+          좁은 화면에서 문구가 길면 줄바꿈 대신 축약되도록 truncate 처리. */}
+      <div className="grid grid-cols-2 gap-2">
         {PROVIDERS.map((p) => (
           <button
             key={p}
             type="button"
             disabled={busy}
             onClick={() => handleContinue(p)}
-            className={`flex items-center justify-center gap-2 py-3 rounded-xl font-bold text-sm transition-all disabled:opacity-50 ${providerButtonClass(p)}`}
+            className={`flex items-center justify-center gap-2 py-3 px-2 rounded-xl font-bold text-sm transition-all disabled:opacity-50 ${providerButtonClass(p)}`}
           >
-            {t(p === 'kakao' ? 'auth.continueKakao' : 'auth.continueGoogle')}
+            <span className="truncate">{t(p === 'kakao' ? 'auth.continueKakao' : 'auth.continueGoogle')}</span>
           </button>
         ))}
       </div>
