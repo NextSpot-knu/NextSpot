@@ -8,6 +8,37 @@
 
 import type { Provider, User } from "@supabase/supabase-js";
 import { createPublicClient } from "@/lib/supabase";
+import { mergeGuestData } from "@/lib/api-client";
+
+const GUEST_MERGE_KEY = "nextspot_guest_merge";
+
+export function discardCapturedGuestData(): void {
+  if (typeof window !== "undefined") sessionStorage.removeItem(GUEST_MERGE_KEY);
+}
+
+async function captureGuestSession(): Promise<void> {
+  if (typeof window === "undefined") return;
+  const { data: { session } } = await createPublicClient().auth.getSession();
+  if (session?.user?.is_anonymous && session.access_token) {
+    sessionStorage.setItem(GUEST_MERGE_KEY, JSON.stringify({ token: session.access_token, uid: session.user.id }));
+  }
+}
+
+export async function mergeCapturedGuestData(): Promise<void> {
+  if (typeof window === "undefined") return;
+  const raw = sessionStorage.getItem(GUEST_MERGE_KEY);
+  discardCapturedGuestData();
+  if (!raw) return;
+  try {
+    const captured = JSON.parse(raw) as { token?: string; uid?: string };
+    const { data: { session } } = await createPublicClient().auth.getSession();
+    if (captured.token && captured.uid && session?.user.id && captured.uid !== session.user.id) {
+      await mergeGuestData(captured.token);
+    }
+  } catch (err) {
+    console.warn("[auth] 게스트 데이터 병합 건너뜀:", err);
+  }
+}
 
 // 이번 스코프 프로바이더(카카오 주 · 구글 부). 메타/애플/네이버는 비목표(OAUTH_PLAN §7).
 export type OAuthProvider = Extract<Provider, "kakao" | "google">;
@@ -86,13 +117,16 @@ export async function signInOAuth(
 ): Promise<{ error: string | null }> {
   try {
     const supabase = createPublicClient();
+    await captureGuestSession();
     const { error } = await supabase.auth.signInWithOAuth({
       provider,
       // retry=1: 이건 이미 '폴백 로그인'이므로 콜백이 또 폴백을 걸지 않게 표식한다.
       options: { redirectTo: buildRedirectTo(next, provider, true), scopes: PROVIDER_SCOPES[provider] },
     });
+    if (error) discardCapturedGuestData();
     return { error: error?.message ?? null };
   } catch (err) {
+    discardCapturedGuestData();
     return { error: err instanceof Error ? err.message : String(err) };
   }
 }
@@ -166,9 +200,13 @@ export async function signInWithEmail(
 ): Promise<{ error: string | null }> {
   try {
     const supabase = createPublicClient();
+    await captureGuestSession();
     const { error } = await supabase.auth.signInWithPassword({ email, password });
+    if (!error) await mergeCapturedGuestData();
+    else discardCapturedGuestData();
     return { error: error?.message ?? null };
   } catch (err) {
+    discardCapturedGuestData();
     return { error: err instanceof Error ? err.message : String(err) };
   }
 }

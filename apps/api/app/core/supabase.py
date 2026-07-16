@@ -119,6 +119,28 @@ def fetch_all_rows(
 # 2. HTTP Bearer 인증 체계 정의 (프록시 상황에서 누락 에러 방지를 위해 auto_error=False 설정)
 security = HTTPBearer(auto_error=False)
 
+def verify_supabase_token(token: str) -> dict:
+    """get_current_user와 같은 키 선택/오류 계약으로 access token을 독립 검증한다."""
+    try:
+        alg = str(jwt.get_unverified_header(token).get("alg", "")).upper()
+        if alg.startswith(("ES", "RS", "PS", "ED")):
+            payload = jwt.decode(token, _get_signing_key(token), algorithms=[alg], audience="authenticated")
+        else:
+            payload = jwt.decode(token, settings.JWT_SECRET, algorithms=["HS256"], audience="authenticated")
+        if not payload.get("sub"):
+            raise HTTPException(status_code=401, detail="JWT 토큰에 sub(user_id) 필드가 존재하지 않습니다.")
+        return payload
+    except HTTPException:
+        raise
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="만료된 JWT 토큰입니다.")
+    except PyJWKClientConnectionError as e:
+        _logger.warning("jwks_connection_failed", error=str(e))
+        raise HTTPException(status_code=503, detail="인증 서버에 일시적으로 연결할 수 없습니다. 잠시 후 다시 시도해 주세요.")
+    except Exception as e:
+        _logger.warning("jwt_verification_failed", error=str(e))
+        raise HTTPException(status_code=401, detail="유효하지 않은 JWT 토큰입니다.")
+
 def get_current_user(
     request: Request,
     credentials: HTTPAuthorizationCredentials = Depends(security)
@@ -148,12 +170,7 @@ def get_current_user(
         # 서명 알고리즘에 따라 검증 키를 고른다:
         #  · ES/RS/PS/EdDSA(비대칭) → Supabase JWKS 공개키(신규 프로젝트·익명 로그인 기본)
         #  · HS256(대칭, legacy) → JWT_SECRET (구 프로젝트/셀프호스트 호환)
-        alg = str(jwt.get_unverified_header(token).get("alg", "")).upper()
-        if alg.startswith(("ES", "RS", "PS", "ED")):
-            signing_key = _get_signing_key(token)
-            payload = jwt.decode(token, signing_key, algorithms=[alg], audience="authenticated")
-        else:
-            payload = jwt.decode(token, settings.JWT_SECRET, algorithms=["HS256"], audience="authenticated")
+        payload = verify_supabase_token(token)
 
         # payload에서 유저 UUID 추출 (Supabase JWT는 sub 필드가 user_id)
         user_id = payload.get("sub")

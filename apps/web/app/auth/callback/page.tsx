@@ -10,7 +10,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createPublicClient } from '@/lib/supabase';
-import { getAuthState, backfillProfileAfterLink, signInOAuth, type OAuthProvider } from '@/lib/auth';
+import { discardCapturedGuestData, getAuthState, backfillProfileAfterLink, mergeCapturedGuestData, signInOAuth, type OAuthProvider } from '@/lib/auth';
 import { useT } from '@/lib/i18n/I18nProvider';
 
 // 오픈 리다이렉트 방지 — 앱 내부 절대경로만 허용(lib/auth.ts 와 동일 규칙).
@@ -51,6 +51,7 @@ export default function AuthCallbackPage() {
         return; // 리다이렉트 진행 중 — 스피너 유지.
       }
 
+      discardCapturedGuestData();
       setFailed(errorCode === 'identity_already_exists' ? 'already_linked' : 'generic');
       return;
     }
@@ -62,6 +63,7 @@ export default function AuthCallbackPage() {
     const finish = async () => {
       if (done) return;
       done = true;
+      await mergeCapturedGuestData();
       await backfillProfileAfterLink();
       router.replace(next);
     };

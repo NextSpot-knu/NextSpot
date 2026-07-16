@@ -180,6 +180,10 @@ export const apiClient = {
     request("/api/v1/freshness", { method: "GET" }),
 };
 
+export async function mergeGuestData(guestToken: string): Promise<void> {
+  await apiClient.post("/api/v1/account/merge-guest", { guestToken });
+}
+
 // --- SPOT 추천 엔진 연동 API 함수 ---
 
 export interface RecommendationResponse {

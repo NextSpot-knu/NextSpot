@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.core.logging import setup_logging
-from app.routers import recommendations, infrastructures, predict, preferences, admin, reports, coupons, courses, events, tracking, freshness, impact, merchant, safety, search, lab
+from app.routers import recommendations, infrastructures, predict, preferences, admin, reports, coupons, courses, events, tracking, freshness, impact, merchant, safety, search, lab, account
 
 
 # 로깅 설정 초기화
@@ -51,6 +51,7 @@ app.include_router(merchant.router)  # 머천트 콘솔 — 내 가게 성적표
 app.include_router(safety.router)  # 인파 안전 경보(B2G) — 임계값 초과 존/시설 조기경보(require_admin)
 app.include_router(search.router)  # TourAPI 키워드 폴백 → 관리자 승인형 다음 배치 적재 요청
 app.include_router(lab.router)  # 거절 실험실 — 보류된 거절 사유를 되묻고 답한 만큼만 취향 학습(1회)
+app.include_router(account.router)  # 기존 계정 로그인 시 소유 증명된 게스트 데이터 승계
 
 # 1. Health Check Endpoint
 @app.get("/")
