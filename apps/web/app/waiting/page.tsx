@@ -46,6 +46,8 @@ interface BoardRow {
   facilityId: string;
   name: string;
   type: string;
+  imageUrl: string | null;
+  summary: string | null;
   congestionLevel: number | null;
   expectedWait: number;
   expectedTravel: number;
@@ -128,6 +130,10 @@ export default function WaitingBoardPage() {
           facilityId: rec.facility.id,
           name: rec.facility.name,
           type: rec.facility.type,
+          imageUrl: rec.facility.imageUrl ?? null,
+          // TourAPI 소개를 우선하고, 없으면 실제 주소를 짧은 보조 설명으로 사용한다.
+          // 둘 다 없을 때는 내용을 지어내지 않고 설명 영역을 숨긴다.
+          summary: rec.facility.overview?.trim() || rec.facility.address?.trim() || null,
           congestionLevel:
             typeof rec.facility.congestionLevel === "number" ? rec.facility.congestionLevel : null,
           expectedWait: spot.expectedWait,
@@ -249,7 +255,7 @@ export default function WaitingBoardPage() {
                         key={row.facilityId}
                         type="button"
                         onClick={() => goToDetail(row.facilityId)}
-                        className={`group relative flex flex-col justify-between text-left aspect-[3/4] rounded-2xl border p-2 shadow-[0_2px_14px_rgba(43,35,32,0.06)] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 ${
+                        className={`group relative flex flex-col overflow-hidden text-left aspect-[3/4] rounded-2xl border shadow-[0_2px_14px_rgba(43,35,32,0.06)] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 ${
                           idx === 0
                             ? "bg-gold/10 border-gold/40 hover:border-gold/60"
                             : "bg-white/90 border-line hover:border-gold/40 hover:bg-white"
@@ -264,31 +270,50 @@ export default function WaitingBoardPage() {
                             <Crown size={11} strokeWidth={2.5} />
                           </span>
                         )}
-                        <div>
-                          <span className="text-base" aria-hidden>
+                        {row.imageUrl ? (
+                          // TourAPI 원본 이미지 도메인이 다양하고 정적 export이므로 img를 직접 사용한다.
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={row.imageUrl}
+                            alt={row.name}
+                            loading="lazy"
+                            onError={(e) => { e.currentTarget.style.display = "none"; }}
+                            className="w-full h-[38%] shrink-0 object-cover border-b border-line"
+                          />
+                        ) : (
+                          <div className="h-[26%] shrink-0 flex items-center justify-center bg-hanji-deep/70 border-b border-line text-2xl" aria-hidden>
                             {TYPE_EMOJI[row.type] ?? "📍"}
-                          </span>
-                          <p className="text-[11px] font-bold text-muk leading-snug line-clamp-2 mt-1">
-                            {row.name}
-                          </p>
-                        </div>
-                        <div className="space-y-1 mt-1">
-                          <p className="text-xs font-extrabold text-gold-deep leading-tight">
-                            {t("waiting.arrivalWait", { n: Math.round(row.expectedWait) })}
-                          </p>
-                          {row.congestionLevel != null ? (
-                            <span
-                              className={`inline-block text-[9px] font-bold px-1.5 py-0.5 rounded-md border whitespace-nowrap ${congestionBadgeClass(
-                                row.congestionLevel
-                              )}`}
-                            >
-                              {t(`congestion.${congestionKey(row.congestionLevel)}`)}
-                            </span>
-                          ) : (
-                            <span className="inline-block text-[9px] font-bold px-1.5 py-0.5 rounded-md border bg-muk/5 border-line text-muk-soft whitespace-nowrap">
-                              {t("card.noData")}
-                            </span>
-                          )}
+                          </div>
+                        )}
+                        <div className="flex flex-1 min-h-0 flex-col justify-between p-2">
+                          <div>
+                            <p className="text-[11px] font-bold text-muk leading-snug line-clamp-2">
+                              {row.name}
+                            </p>
+                            {row.summary && (
+                              <p className="mt-1 text-[9px] leading-snug text-muk-soft line-clamp-2">
+                                {row.summary}
+                              </p>
+                            )}
+                          </div>
+                          <div className="space-y-1 mt-1">
+                            <p className="text-xs font-extrabold text-gold-deep leading-tight">
+                              {t("waiting.arrivalWait", { n: Math.round(row.expectedWait) })}
+                            </p>
+                            {row.congestionLevel != null ? (
+                              <span
+                                className={`inline-block text-[9px] font-bold px-1.5 py-0.5 rounded-md border whitespace-nowrap ${congestionBadgeClass(
+                                  row.congestionLevel
+                                )}`}
+                              >
+                                {t(`congestion.${congestionKey(row.congestionLevel)}`)}
+                              </span>
+                            ) : (
+                              <span className="inline-block text-[9px] font-bold px-1.5 py-0.5 rounded-md border bg-muk/5 border-line text-muk-soft whitespace-nowrap">
+                                {t("card.noData")}
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </button>
                     ))}
