@@ -16,6 +16,7 @@ from app.core.supabase import supabase_admin as supabase_client, get_current_use
 from app.services import feedback_service
 from app.services.coupon_service import issue_coupon_if_partner
 from app.services.merchant_boost import apply_merchant_boosts, CONGESTION_OVERRIDE_KEY
+from app.services.facility_cache import get_facilities_cached
 from app.services.preference_nlp_service import CATEGORY_KO
 from app.services.preference_vector_service import preference_vector_service
 from app.services.reason_service import generate_reason
@@ -80,7 +81,7 @@ async def fetch_facility(facility_id: str):
         raise HTTPException(status_code=404, detail="시설 정보를 찾을 수 없습니다.")
     return res.data[0]
 
-async def fetch_all_facilities(
+async def _fetch_all_facilities_uncached(
     *, center_lat: float | None = None, center_lng: float | None = None, radius_m: float | None = None
 ):
     # PostgREST 행수 캡을 넘는 전체 시설 조회. is_active=false(폐업·표출중단 감지, 2차 기획 1위)는
@@ -119,6 +120,19 @@ async def fetch_all_facilities(
     except Exception as e:
         logger.warning("tourapi_concentration_prior_unavailable", error=str(e))
     return facilities
+
+
+async def fetch_all_facilities(
+    *, center_lat: float | None = None, center_lng: float | None = None, radius_m: float | None = None
+):
+    key = (center_lat, center_lng, radius_m)
+
+    async def _load():
+        return await _fetch_all_facilities_uncached(
+            center_lat=center_lat, center_lng=center_lng, radius_m=radius_m
+        )
+
+    return await get_facilities_cached(key, _load)
 
 async def fetch_latest_congestion(facility_id: str) -> float:
     """
