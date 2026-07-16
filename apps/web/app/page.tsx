@@ -12,20 +12,13 @@ export default function LoadingPage() {
   // 자동 리다이렉트와 탭 스킵이 겹쳐 중복 이동하는 것을 방지
   const navigatedRef = useRef(false);
 
-  // 온보딩 흔적(localStorage 'nextspot_setup_prefs')이 있으면 /main 으로 바이패스, 없으면 /setup
-  const resolveDestination = useCallback(() => {
-    if (typeof window !== 'undefined' && window.localStorage.getItem('nextspot_setup_prefs')) {
-      return '/main';
-    }
-    return '/setup';
-  }, []);
-
-  // 실제 이동 (한 번만 실행)
+  // '바로 시작'은 로그인/회원가입 페이지로 보낸다(앱 자체 회원 체계 — docs/AUTH_MEMBERSHIP_PLAN.md).
+  // 로그인 페이지에서 '게스트로 둘러보기'로 기존 무마찰 흐름(→ /setup)도 이어갈 수 있다.
   const go = useCallback(() => {
     if (navigatedRef.current) return;
     navigatedRef.current = true;
-    router.push(resolveDestination());
-  }, [router, resolveDestination]);
+    router.push('/login');
+  }, [router]);
 
   useEffect(() => {
     // Trigger fade-in animation shortly after mount
@@ -33,18 +26,13 @@ export default function LoadingPage() {
       setIsVisible(true);
     }, 100);
 
-    // 3초 후 자동 이동 (흔적 있으면 /main, 없으면 /setup)
-    const redirectTimer = setTimeout(() => {
-      go();
-    }, 3000);
-
-    // 아무 키나 누르면 즉시 스킵 (포커스와 무관하게 동작하도록 window 에 부착)
+    // 자동 이동(3초 타이머)은 제거했다 — 사용자가 '바로 시작'(또는 화면 탭/키 입력)으로 직접 시작한다.
+    // 아무 키나 누르면 시작 (포커스와 무관하게 동작하도록 window 에 부착)
     const handleKey = () => go();
     window.addEventListener('keydown', handleKey);
 
     return () => {
       clearTimeout(timer);
-      clearTimeout(redirectTimer);
       window.removeEventListener('keydown', handleKey);
     };
   }, [go]);

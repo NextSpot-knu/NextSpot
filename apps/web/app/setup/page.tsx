@@ -2,8 +2,10 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, MapPin, Building, Utensils, Coffee, Pizza, Soup, Sun, Sunset, Moon, ArrowRight, Plane, Clock, Compass } from 'lucide-react';
+import { toast } from 'sonner';
+import { ArrowLeft, MapPin, Building, Utensils, Coffee, Pizza, Soup, Sun, Sunset, Moon, ArrowRight, Plane, Clock, Compass, Link2 } from 'lucide-react';
 import { createPublicClient } from '@/lib/supabase';
+import { getAuthState, linkOAuth, type OAuthProvider } from '@/lib/auth';
 import { useT } from '@/lib/i18n/I18nProvider';
 
 // setup 은 카테고리를 한국어 라벨로 저장하지만, explore/recommend 온보딩과 main 추천은 캐노니컬 키를
@@ -22,6 +24,9 @@ export default function SetupPage() {
   // step 0: 여행 시점(tripStatus) — 기존 1~3(카테고리/음식/시간대) 앞에 추가.
   const [step, setStep] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false); // 최종 제출(Supabase 쓰기) 중 이중 제출 방지
+  // 온보딩 완료 후 게스트에게 1회 소셜 계정 연동을 제안하는 오버레이(OAUTH_PLAN F4).
+  const [showAccountOffer, setShowAccountOffer] = useState(false);
+  const [offerBusy, setOfferBusy] = useState(false);
   const [preferences, setPreferences] = useState({
     tripStatus: '',
     category: '',
@@ -77,8 +82,28 @@ export default function SetupPage() {
       console.warn('setup 카테고리 Supabase 반영 건너뜀:', err);
     }
 
-    // 저장 성공/실패와 무관하게 최종적으로 main 으로 이동.
+    // 게스트(익명)면 계정 연동을 1회 제안한다. 이미 연동됐거나 세션 판별 실패면 바로 main 으로.
+    try {
+      const state = await getAuthState();
+      if (state.status === 'guest') {
+        setShowAccountOffer(true);
+        return; // 오버레이의 '연동' 또는 '나중에'가 이후 이동을 담당.
+      }
+    } catch {
+      /* 상태 판별 실패 시 제안 없이 진행 */
+    }
     router.push('/main');
+  };
+
+  // 연동 제안 — 성공 시 브라우저가 리다이렉트되고 콜백이 /main 으로 복귀시킨다. 실패만 토스트로 안내.
+  const handleOfferLink = async (provider: OAuthProvider) => {
+    if (offerBusy) return;
+    setOfferBusy(true);
+    const { error } = await linkOAuth(provider, '/main');
+    if (error) {
+      setOfferBusy(false);
+      toast.error(t('auth.linkError'));
+    }
   };
 
   const handleNext = async () => {
@@ -316,6 +341,47 @@ export default function SetupPage() {
           </button>
         </div>
       </div>
+
+      {/* 계정 연동 제안 오버레이 — 온보딩 완료 게스트에게 1회. '나중에'는 그대로 /main 진입(무마찰 유지). */}
+      {showAccountOffer && (
+        <div className="absolute inset-0 z-50 flex items-end sm:items-center justify-center bg-muk/40 backdrop-blur-sm px-6 animate-fade-in">
+          <div className="w-full max-w-[380px] bg-white border border-line rounded-3xl p-6 shadow-[0_8px_32px_rgba(43,35,32,0.18)] mb-6 sm:mb-0">
+            <div className="flex items-center gap-2 mb-1">
+              <Link2 size={20} className="text-gold-deep" />
+              <h2 className="text-lg font-bold font-serif text-muk">{t('auth.offerTitle')}</h2>
+            </div>
+            <p className="text-sm text-muk-soft mb-5">{t('auth.offerDesc')}</p>
+
+            <div className="flex flex-col gap-2">
+              <button
+                type="button"
+                disabled={offerBusy}
+                onClick={() => handleOfferLink('kakao')}
+                className="flex items-center justify-center gap-2 py-3 rounded-xl font-bold text-sm bg-[#FEE500] text-[#191600] hover:brightness-95 transition-all disabled:opacity-50"
+              >
+                {t('auth.continueKakao')}
+              </button>
+              <button
+                type="button"
+                disabled={offerBusy}
+                onClick={() => handleOfferLink('google')}
+                className="flex items-center justify-center gap-2 py-3 rounded-xl font-bold text-sm bg-white text-muk border border-line hover:bg-hanji-deep transition-all disabled:opacity-50"
+              >
+                {t('auth.continueGoogle')}
+              </button>
+            </div>
+
+            <button
+              type="button"
+              disabled={offerBusy}
+              onClick={() => router.push('/main')}
+              className="w-full text-center text-sm text-muk-soft hover:text-muk mt-4 py-1 transition-colors disabled:opacity-40"
+            >
+              {t('auth.offerLater')}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

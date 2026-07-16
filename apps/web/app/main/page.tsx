@@ -18,6 +18,7 @@ import { useVoiceAssistant } from '@/lib/useVoiceAssistant';
 import { useSpeechSearch } from '@/lib/useSpeechSearch';
 import VoiceAssistantOrb from '@/components/VoiceAssistantOrb';
 import { recordPendingVisit } from '@/lib/visits';
+import { loadSavedLocal, syncSaved, saveBookmark, type SavedRecord } from '@/lib/savedFacilities';
 import { useT } from '@/lib/i18n/I18nProvider';
 // T2: 휴무 원문 파서(오늘 휴무 확정만 배제) + 가능/불가능 텍스트 파서(주차·반려동물 필터) — 공용 단일 소스.
 import { isClosedToday, parseAvailability } from '@/lib/restDate';
@@ -504,15 +505,15 @@ export default function MainPage() {
   useEffect(() => {
     if (typeof window !== 'undefined') {
       try {
-        const saved = localStorage.getItem('nextspot_saved_facilities');
-        if (saved) {
-          const parsed: SavedBookmark[] = JSON.parse(saved);
-          const ids = new Set<string>(parsed.map((item) => item.id));
-          setSavedIds(ids);
-        }
+        const localList = loadSavedLocal();
+        setSavedIds(new Set<string>(localList.map((item) => item.id)));
       } catch (e) {
         console.warn("Failed to load saved IDs from localStorage:", e);
       }
+      // 로그인 사용자면 Supabase 저장 목록과 동기화해 savedIds 갱신(기기 변경 시 복원).
+      void syncSaved()
+        .then((list) => setSavedIds(new Set<string>(list.map((item) => item.id))))
+        .catch(() => {});
 
 
       try {
@@ -990,25 +991,21 @@ export default function MainPage() {
     });
 
     try {
-      const existing = localStorage.getItem('nextspot_saved_facilities');
-      const bookmarks: SavedBookmark[] = existing ? JSON.parse(existing) : [];
-      
       const spot = fac.spot || calculateSPOT(fac);
-      if (!bookmarks.some((b) => b.id === fac.id)) {
-        bookmarks.push({
-          id: fac.id,
-          name: fac.name,
-          category: fac.type === 'restaurant' ? '음식점' : fac.type === 'cafe' ? '카페' : fac.type === 'attraction' ? '관광지' : '문화시설',
-          // 저장 페이지의 라이브 혼잡 재조회(매칭)·카카오맵 길찾기 링크에 좌표가 필요하므로 함께 저장한다.
-          latitude: fac.latitude,
-          longitude: fac.longitude,
-          trafficStatus: fac.congestionLevel >= 0.75 ? 'orange' : fac.congestionLevel >= 0.50 ? 'yellow' : fac.congestionLevel >= 0.25 ? 'green' : 'blue',
-          waitTime: `${spot?.expectedWait || 0}분`,
-          spot: spot,
-          reason: fac.reason || ""
-        });
-        localStorage.setItem('nextspot_saved_facilities', JSON.stringify(bookmarks));
-      }
+      const bookmark: SavedBookmark = {
+        id: fac.id,
+        name: fac.name,
+        category: fac.type === 'restaurant' ? '음식점' : fac.type === 'cafe' ? '카페' : fac.type === 'attraction' ? '관광지' : '문화시설',
+        // 저장 페이지의 라이브 혼잡 재조회(매칭)·카카오맵 길찾기 링크에 좌표가 필요하므로 함께 저장한다.
+        latitude: fac.latitude,
+        longitude: fac.longitude,
+        trafficStatus: fac.congestionLevel >= 0.75 ? 'orange' : fac.congestionLevel >= 0.50 ? 'yellow' : fac.congestionLevel >= 0.25 ? 'green' : 'blue',
+        waitTime: `${spot?.expectedWait || 0}분`,
+        spot: spot,
+        reason: fac.reason || ""
+      };
+      // 로컬 캐시 즉시 반영 + Supabase 영속화(중복 id 는 내부에서 무시).
+      void saveBookmark(bookmark as unknown as SavedRecord);
     } catch (e) {
       console.warn("Failed to save bookmark:", e);
     }
