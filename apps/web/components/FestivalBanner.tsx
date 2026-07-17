@@ -249,7 +249,7 @@ export function FestivalBanner({ className = '', onFocus }: {
                         return (
                           <div className="text-[11px] leading-snug">
                             <span className="text-muk-soft block text-[10px] font-bold mb-0.5">{t('festival.about')}</span>
-                            <p className={`text-muk-soft leading-relaxed ${isExpanded ? '' : 'line-clamp-3'}`}>
+                            <p className={`whitespace-pre-line break-words text-muk-soft leading-relaxed ${isExpanded ? '' : 'line-clamp-3'}`}>
                               {ev.overview}
                             </p>
                             {ev.overview.length > OVERVIEW_CLAMP_THRESHOLD && (
@@ -265,25 +265,25 @@ export function FestivalBanner({ className = '', onFocus }: {
                         );
                       })()}
                       {ev.address && (
-                        <p className="flex items-start gap-1 text-[11px] text-muk-soft leading-snug">
+                        <p className="flex items-start gap-1 whitespace-pre-line break-words text-[11px] text-muk-soft leading-snug">
                           <MapPin size={12} className="mt-0.5 shrink-0" aria-hidden />
                           {ev.address}
                         </p>
                       )}
                       {eventPlaceOf(ev) && (
-                        <p className="flex items-start gap-1 text-[11px] text-muk-soft leading-snug">
+                        <p className="flex items-start gap-1 whitespace-pre-line break-words text-[11px] text-muk-soft leading-snug">
                           <span aria-hidden>📍</span>
                           {eventPlaceOf(ev)}
                         </p>
                       )}
                       {ev.playtime && (
-                        <p className="flex items-start gap-1 text-[11px] text-muk-soft leading-snug">
+                        <p className="flex items-start gap-1 whitespace-pre-line break-words text-[11px] text-muk-soft leading-snug">
                           <span aria-hidden>🕐</span>
                           {ev.playtime}
                         </p>
                       )}
                       {usetimeFestivalOf(ev) && (
-                        <p className="flex items-start gap-1 text-[11px] text-muk-soft leading-snug">
+                        <p className="flex items-start gap-1 whitespace-pre-line break-words text-[11px] text-muk-soft leading-snug">
                           <span aria-hidden>💰</span>
                           {usetimeFestivalOf(ev)}
                         </p>
