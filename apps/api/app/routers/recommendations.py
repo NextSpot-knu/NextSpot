@@ -125,14 +125,30 @@ async def _fetch_all_facilities_uncached(
 async def fetch_all_facilities(
     *, center_lat: float | None = None, center_lng: float | None = None, radius_m: float | None = None
 ):
-    key = (center_lat, center_lng, radius_m)
+    # 캐시 키를 사용자 좌표로 쪼개면 위치가 다를 때마다 미스가 난다(실측: 프로덕션 by-type 가
+    # 재배포·신규 위치마다 2초/최악 13초). 시설은 85곳뿐이라 전체를 단일 키로 캐시하고,
+    # 좌표 사각형 필터는 파이썬에서 동일 수식으로 건다 — DB bbox 는 순수 최적화였고 정확도는
+    # 어차피 하류의 Haversine 원형 필터가 보장하므로 최종 결과는 동일하다.
+    key = ("all",)
 
     async def _load():
-        return await _fetch_all_facilities_uncached(
-            center_lat=center_lat, center_lng=center_lng, radius_m=radius_m
-        )
+        return await _fetch_all_facilities_uncached()
 
-    return await get_facilities_cached(key, _load)
+    facilities = await get_facilities_cached(key, _load)
+
+    if center_lat is not None and center_lng is not None and radius_m is not None:
+        # _fetch_all_facilities_uncached 의 DB bbox 와 동일한 사각형(NULL 좌표는 DB 필터와
+        # 동일하게 제외). 여기서 좁힌 뒤의 정밀 판정은 기존처럼 호출부 Haversine 이 담당.
+        lat_delta = radius_m / 111_320.0
+        lng_delta = radius_m / max(1.0, 111_320.0 * math.cos(math.radians(center_lat)))
+        facilities = [
+            f for f in facilities
+            if f.get("latitude") is not None and f.get("longitude") is not None
+            and center_lat - lat_delta <= float(f["latitude"]) <= center_lat + lat_delta
+            and center_lng - lng_delta <= float(f["longitude"]) <= center_lng + lng_delta
+        ]
+
+    return facilities
 
 async def fetch_latest_congestion(facility_id: str) -> float:
     """

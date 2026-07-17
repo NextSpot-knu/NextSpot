@@ -49,6 +49,16 @@ async def lifespan(_app: FastAPI):
     except Exception as e:
         _logger.warning("warmup_jwks_failed", error=str(e))
 
+    try:
+        # 3) 시설 캐시 프리필 — 재배포 직후 첫 by-type 이 캐시 미스 비용(facilities+집중률 왕복,
+        #    0.1 CPU 실측 최악 13초)을 물지 않게 부팅 때 채워둔다. 단일 키('all') 캐시라
+        #    이후 모든 사용자·모든 위치가 이 한 번의 프리필을 공유한다(TTL 후엔 요청이 갱신).
+        from app.routers.recommendations import fetch_all_facilities
+        prefilled = await fetch_all_facilities()
+        _logger.info("warmup_facilities_ready", count=len(prefilled))
+    except Exception as e:
+        _logger.warning("warmup_facilities_failed", error=str(e))
+
     _logger.info("warmup_done", total_ms=round((time.perf_counter() - t0) * 1000))
     yield
 
