@@ -59,6 +59,7 @@ from app.services.tourapi.transform import (
 # 건드리지 않고 위 transform.py 함수들과 동일하게 서브모듈에서 직접 임포트).
 from app.services.tourapi.client import area_based_sync_list
 from app.services.wikimedia import find_reusable_place_image
+from app.services.kakao_coordinate_service import reconcile_row_coordinate
 
 # 경주 황리단길 기준좌표 (docs/NEXTSPOT_PIVOT.md — 초기 서비스 지역)
 DEFAULT_LAT = 35.8361
@@ -402,6 +403,14 @@ async def run(args: argparse.Namespace) -> int:
         print(f"[details] {len(all_rows)}건 상세 조회 시작 (POI 당 3회 호출 — 쿼터 주의)")
         for row in all_rows:
             await enrich_row(row)
+
+    # 지도 좌표의 최종 정본은 Kakao. 키 미설정 또는 이름+주소/근접성 엄격 매칭 실패 시
+    # TourAPI 좌표를 그대로 유지한다. 원 좌표는 features.tourapi_coordinates에 보존된다.
+    if os.getenv("KAKAO_REST_API_KEY"):
+        matched = 0
+        for row in all_rows:
+            matched += int(await reconcile_row_coordinate(row))
+        print(f"[coordinates] Kakao 엄격 매칭 좌표 교정: {matched}/{len(all_rows)}건")
 
     # 타입별 집계 로그
     for ctid in CONTENT_TYPE_IDS:

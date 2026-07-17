@@ -99,6 +99,18 @@ P1: 정규식 범위·성공 위장 종료코드, P2: 저장 후 카운터).
 - **사람 작업**: 공공데이터포털에서 `기상청_단기예보 조회서비스(15084084)` 자동승인 활용신청 후
   Render `KMA_API_KEY` 등록. Render `KAKAO_REST_API_KEY`에도 Kakao 개발자 앱 REST API 키 등록.
 
+### 장소 좌표 Kakao 정합화 (2026-07-17 밤)
+
+- 사용자 신고(석하한정식·금산재 칼국수 등): TourAPI `mapx/mapy` 순서 오류는 아니나, 원본 좌표가
+  Kakao의 실제 장소 핀과 어긋날 수 있음. 지도 UX의 좌표 정본을 Kakao로 확정했다.
+- 이름 일치 + 도로명주소 일치 또는 150m 이내 근접 조건을 통과한 경우에만 Kakao 좌표로 교체한다.
+  동점 후보가 모호하면 변경하지 않는 fail-closed 방식이다. 원래 좌표는
+  `features.tourapi_coordinates`, 근거는 `coordinate_source=kakao`, `kakao_place_id/url`로 보존한다.
+- `scripts/reconcile_kakao_coordinates.py`로 기존 contentid 시설을 일괄 교정하며, 이후 일배치도
+  `KAKAO_REST_API_KEY`가 있으면 동일 교정을 upsert 전에 적용해 TourAPI 좌표로 되돌아가지 않는다.
+- **사람 작업**: GitHub Actions Secrets에 `KAKAO_REST_API_KEY` 등록 후 TourAPI Ingest를 수동 실행.
+  Render에만 등록된 시크릿은 GitHub Actions가 읽을 수 없다.
+
 ### 진행 중 — 장소 DB 확장 기획(PM 질문 "장소 부족, DB 끌어모을까?")
 
 Codex vs Claude 블라인드 A/B 기획 진행(약속했던 방식 첫 적용). Codex A안 도착:

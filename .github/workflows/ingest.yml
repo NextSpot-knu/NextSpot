@@ -3,7 +3,7 @@
 # 주의: schedule 트리거는 기본 브랜치(main)에서만 발화한다 — feature 브랜치 머지 전에는
 #       workflow_dispatch 로 수동 실행할 것 (Actions 탭 → TourAPI Ingest → Run workflow).
 # 필요한 GitHub Secrets (repo → Settings → Secrets and variables → Actions → Secrets):
-#   TOURAPI_KEY, SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY
+#   TOURAPI_KEY, SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY, KAKAO_REST_API_KEY
 # 선택 Repository Variable: TOURAPI_INSIGHTS_ENABLED=true (집중률·연관관광지 별도 활용승인 후)
 # TOURAPI_KEY 미설정이면 전 스텝을 skip(무해 — 매일 실패 이메일 방지).
 name: TourAPI Ingest
@@ -57,6 +57,7 @@ jobs:
         if: ${{ secrets.TOURAPI_KEY != '' }}
         env:
           TOURAPI_KEY: ${{ secrets.TOURAPI_KEY }}
+          KAKAO_REST_API_KEY: ${{ secrets.KAKAO_REST_API_KEY }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
