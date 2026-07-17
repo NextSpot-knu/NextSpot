@@ -55,8 +55,6 @@ function extractHomepageUrl(raw?: string | null): string | null {
   return String(raw).match(/https?:\/\/[^\s"'<>]+/)?.[0] ?? null;
 }
 
-// 개요 '더보기' 토글 노출 기준(문자 수 휴리스틱) — 레이아웃 측정 없이 3줄 클램프 초과 가능성을
-// 근사한다(카드 폭 기준 1줄 ≈ 28~30자 × 3줄). 과소추정이면 토글이 불필요하게 뜰 뿐 무해.
 const OVERVIEW_CLAMP_THRESHOLD = 90;
 
 // 세션 캐시 — 지도 재방문마다 백엔드/TourAPI 를 다시 두드리지 않는다(백엔드 24h 캐시와 별개의 프런트 절약).
@@ -91,7 +89,6 @@ export function FestivalBanner({ className = '', onFocus }: {
   const [isOpen, setIsOpen] = useState(false);
   const [mounted, setMounted] = useState(false); // 포털은 클라이언트 마운트 후에만(정적 export 안전)
   useEffect(() => setMounted(true), []);
-  // 개요 3줄 클램프 '더보기' 펼침 상태 — 카드(contentId)별 독립 토글.
   const [expandedOverviewIds, setExpandedOverviewIds] = useState<Set<string>>(new Set());
   const toggleOverview = (contentId: string) => {
     setExpandedOverviewIds((prev) => {
@@ -101,7 +98,6 @@ export function FestivalBanner({ className = '', onFocus }: {
       return next;
     });
   };
-
   useEffect(() => {
     const cached = readCache();
     if (cached) {
@@ -178,12 +174,12 @@ export function FestivalBanner({ className = '', onFocus }: {
               role="dialog"
               aria-modal="true"
               aria-labelledby="festival-sheet-title"
-              className="relative w-full max-w-sm max-h-[88dvh] sm:max-h-[82dvh] bg-hanji border border-line rounded-t-3xl sm:rounded-3xl shadow-[0_-8px_40px_rgba(43,35,32,0.2)] sm:shadow-[0_20px_60px_rgba(43,35,32,0.25)] flex flex-col overflow-hidden"
+              className="relative flex h-[88vh] h-[88dvh] w-full max-w-sm flex-col overflow-hidden rounded-t-3xl border border-line bg-hanji shadow-[0_-8px_40px_rgba(43,35,32,0.2)] sm:h-[82vh] sm:h-[82dvh] sm:rounded-3xl sm:shadow-[0_20px_60px_rgba(43,35,32,0.25)]"
             >
               <div className="absolute top-0 left-0 right-0 h-[3px] bg-gradient-to-r from-transparent via-gold/60 to-transparent" />
 
               {/* 헤더 */}
-              <div className="flex items-start justify-between gap-3 p-6 pb-4">
+              <div className="flex shrink-0 items-start justify-between gap-3 p-6 pb-4">
                 <div>
                   <h2 id="festival-sheet-title" className="text-lg font-serif font-bold text-muk leading-tight">
                     🏮 {t('festival.title')}
@@ -214,7 +210,7 @@ export function FestivalBanner({ className = '', onFocus }: {
                   return (
                   <div
                     key={ev.contentId}
-                    className={`group relative rounded-2xl border border-line bg-white/70 overflow-hidden transition-colors ${canFocus ? 'hover:bg-gold/5 hover:border-gold/40' : ''}`}
+                    className={`group relative shrink-0 rounded-2xl border border-line bg-white/70 overflow-hidden transition-colors ${canFocus ? 'hover:bg-gold/5 hover:border-gold/40' : ''}`}
                   >
                     {canFocus && (
                       <button
@@ -248,7 +244,7 @@ export function FestivalBanner({ className = '', onFocus }: {
                         const isExpanded = expandedOverviewIds.has(ev.contentId);
                         return (
                           <div className="text-[11px] leading-snug">
-                            <span className="text-muk-soft block text-[10px] font-bold mb-0.5">{t('festival.about')}</span>
+                            <span className="mb-0.5 block text-[10px] font-bold text-muk-soft">{t('festival.about')}</span>
                             <p className={`whitespace-pre-line break-words text-muk-soft leading-relaxed ${isExpanded ? '' : 'line-clamp-3'}`}>
                               {ev.overview}
                             </p>
@@ -256,7 +252,7 @@ export function FestivalBanner({ className = '', onFocus }: {
                               <button
                                 type="button"
                                 onClick={() => toggleOverview(ev.contentId)}
-                                className="relative z-10 mt-0.5 text-[11px] font-bold text-gold-deep hover:text-gold focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/50 rounded"
+                                className="relative z-10 mt-1 rounded text-[11px] font-bold text-gold-deep hover:text-gold focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/50"
                               >
                                 {isExpanded ? t('festival.showLess') : t('festival.showMore')}
                               </button>
