@@ -37,6 +37,16 @@ P1: 정규식 범위·성공 위장 종료코드, P2: 저장 후 카운터).
 - 🟢 브라우저 검증 추가: 기능 사용 시 좌하단 디버그 배지("🤖 Solar 응답"/"⚙️ 폴백" 등) 표시 확인,
   en/ja/zh 로케일 소개문에 한글 미노출 확인.
 
+### TourAPI 일배치 features 보존 P0 수정 (2026-07-17 밤)
+
+- `upsert_facilities`가 기존 행의 `features`를 통째로 교체해, 번역 배치가 쌓은
+  `overview_i18n`과 Wikimedia `image_source` 등이 다음 cron에 사라질 수 있던 문제를 수정했다.
+  쓰기 전 기존 `contentid, features`를 읽어 `{**기존, **신규}`로 병합하며, 기존 features 조회가
+  실패하면 데이터 소실 방지를 위해 **fail-closed(0건 기록)** 한다. 신규 TourAPI 값은 기존 키보다 우선한다.
+- 회귀 테스트 2건: 외부 축적 키 보존+신규 키 우선, 기존 features 조회 실패 시 쓰기 0건.
+- 일배치도 확장 후보를 다시 상세화하도록 `--radius 3000`으로 맞췄다(원격 대량 적재 자체는 미실행).
+- 검증: API pytest **431 passed**, Ruff 전체 clean.
+
 ### 진행 중 — 장소 DB 확장 기획(PM 질문 "장소 부족, DB 끌어모을까?")
 
 Codex vs Claude 블라인드 A/B 기획 진행(약속했던 방식 첫 적용). Codex A안 도착:

@@ -179,9 +179,35 @@ def upsert_facilities(rows: list[dict]) -> int:
          WHERE contentid IS NOT NULL) 를 충돌 대상으로 사용한다.
     2차(폴백): supabase-py/PostgREST 버전에 따라 부분 인덱스 충돌 대상을 거부할 수 있어(오프라인
          검증 불가), 실패 시 기존 contentid 를 SELECT 로 조회해 신규는 INSERT, 기존은 UPDATE 로 나눈다.
+
+    features 병합(2026-07-17, P0 수정): 두 경로 모두 쓰기 전에 기존 features 와 {**기존, **신규}
+    병합한다. 통째 교체하면 이 배치 밖에서 축적된 키 — overview_i18n(번역 배치), image_source
+    (Wikimedia 라이선스) 등 — 가 일배치마다 소실된다(실측: 번역 67곳이 다음 cron 에 전멸할 뻔).
+    transform/enrich 가 만드는 키는 신규 값이 이기고, 배치가 모르는 키는 보존된다.
     """
     # DB 클라이언트는 여기서 지연 임포트 — --dry-run 경로에서 Supabase 연결을 만들지 않는다.
     from app.core.supabase import supabase_admin
+
+    try:
+        existing_res = (
+            supabase_admin.table("facilities")
+            .select("contentid, features")
+            .not_.is_("contentid", "null")
+            .execute()
+        )
+    except Exception as e:  # noqa: BLE001
+        # 기존 features 를 모르면 병합 불가 → 진행하면 번역 등 축적 키가 소실된다. fail-closed 중단.
+        print(f"[upsert] 기존 features 조회 실패({e}) — features 소실 방지를 위해 upsert 를 중단합니다")
+        return 0
+    existing_features: dict[str, dict] = {
+        r["contentid"]: (r.get("features") or {})
+        for r in (existing_res.data or [])
+        if r.get("contentid")
+    }
+    for row in rows:
+        prev = existing_features.get(row.get("contentid"))
+        if prev:
+            row["features"] = {**prev, **(row.get("features") or {})}
 
     written = 0
     try:
@@ -194,14 +220,9 @@ def upsert_facilities(rows: list[dict]) -> int:
         print(f"[upsert] on_conflict=contentid upsert 실패({e}) — SELECT 후 INSERT/UPDATE 폴백으로 전환")
 
     # --- 폴백 경로: 기존 contentid 조회 → 신규 INSERT / 기존 UPDATE ---
+    # (contentid 집합은 위 features 병합용 SELECT 결과를 재사용 — 추가 왕복 없음)
     written = 0
-    existing_res = (
-        supabase_admin.table("facilities")
-        .select("contentid")
-        .not_.is_("contentid", "null")
-        .execute()
-    )
-    existing_ids = {r["contentid"] for r in (existing_res.data or [])}
+    existing_ids = set(existing_features)
 
     new_rows = [r for r in rows if r["contentid"] not in existing_ids]
     update_rows = [r for r in rows if r["contentid"] in existing_ids]

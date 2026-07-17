@@ -51,8 +51,9 @@ jobs:
       - run: pip install -r requirements.txt
         if: ${{ secrets.TOURAPI_KEY != '' }}
 
-      # --details: POI 당 상세(운영시간·배리어프리·개요) 호출 추가 — 일 1회 ~200콜 수준으로 쿼터 무해.
-      - run: python scripts/ingest_tourapi.py --details
+      # --details: POI 당 상세(운영시간·배리어프리·개요) 호출 추가 — 상세 4콜/장소 × ~90곳 ≈ 360콜(일 쿼터 내).
+      # --radius 3000: 2026-07-17 확장(황리단길 도보 회랑) — 기본 2000 으로 두면 일배치가 확장분 상세를 안 돈다.
+      - run: python scripts/ingest_tourapi.py --details --radius 3000
         if: ${{ secrets.TOURAPI_KEY != '' }}
         env:
           TOURAPI_KEY: ${{ secrets.TOURAPI_KEY }}

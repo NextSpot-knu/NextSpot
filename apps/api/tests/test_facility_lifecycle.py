@@ -393,3 +393,71 @@ class _FakeAdmin:
 
     def table(self, name: str):
         return self._tables[name]
+
+
+# ---------------------------------------------------------------------------
+# C. upsert_facilities features 병합 (P0, 2026-07-17)
+#    통째 교체하면 배치 밖에서 축적된 키(overview_i18n 번역·image_source 라이선스)가
+#    일배치 cron 마다 소실된다 — {**기존, **신규} 병합과 fail-closed 를 검증한다.
+# ---------------------------------------------------------------------------
+class _MergeCaptureTable:
+    """SELECT 는 기존 행을 돌려주고 upsert 페이로드를 캡처한다(체이닝은 자신 반환으로 흡수)."""
+
+    def __init__(self, existing_rows, select_error: Exception | None = None):
+        self.existing_rows = existing_rows
+        self.select_error = select_error
+        self.upserted: list[dict] = []
+        self._mode = None
+
+    def select(self, *_a, **_k):
+        self._mode = "select"
+        return self
+
+    @property
+    def not_(self):
+        return self
+
+    def is_(self, *_a, **_k):
+        return self
+
+    def upsert(self, chunk, **_k):
+        self._mode = "upsert"
+        self.upserted.extend(chunk)
+        return self
+
+    def execute(self):
+        if self._mode == "select":
+            if self.select_error is not None:
+                raise self.select_error
+            return _FakeResult(self.existing_rows)
+        return _FakeResult([])
+
+
+def test_upsert_facilities_merges_features_preserving_external_keys():
+    table = _MergeCaptureTable([
+        {"contentid": "100",
+         "features": {"overview_i18n": {"en": "kept-en"}, "cat1": "OLD", "source": "tourapi"}},
+    ])
+    with patch("app.core.supabase.supabase_admin", _FakeAdmin(table)):
+        written = ingest_tourapi.upsert_facilities([
+            {"contentid": "100", "name": "기존시설", "features": {"cat1": "NEW", "source": "tourapi"}},
+            {"contentid": "200", "name": "신규시설", "features": {"cat1": "X"}},
+        ])
+
+    assert written == 2
+    merged = next(r for r in table.upserted if r["contentid"] == "100")
+    # 배치 밖 축적 키(overview_i18n)는 보존, transform 키(cat1)는 신규 값이 이긴다.
+    assert merged["features"] == {"overview_i18n": {"en": "kept-en"}, "cat1": "NEW", "source": "tourapi"}
+    fresh = next(r for r in table.upserted if r["contentid"] == "200")
+    assert fresh["features"] == {"cat1": "X"}  # 기존 없음 — 그대로
+
+
+def test_upsert_facilities_fail_closed_when_existing_features_unreadable():
+    # 기존 features 를 못 읽으면 병합 불가 — 진행 시 번역이 소실되므로 0건 기록으로 중단해야 한다.
+    table = _MergeCaptureTable([], select_error=RuntimeError("network down"))
+    with patch("app.core.supabase.supabase_admin", _FakeAdmin(table)):
+        written = ingest_tourapi.upsert_facilities([
+            {"contentid": "100", "name": "A", "features": {"cat1": "NEW"}},
+        ])
+    assert written == 0
+    assert table.upserted == []  # 어떤 쓰기도 발생하지 않는다
