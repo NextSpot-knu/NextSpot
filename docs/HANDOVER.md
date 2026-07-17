@@ -1,5 +1,54 @@
 # 세션 인계 문서 (2026-07-17 갱신)
 
+## -14. 2026-07-17 저녁 — LLM 도입(국산 Upstage Solar Pro 3) 4개 적용 지점 + 보안 하드닝
+
+### 결정 근거 (PM 확정)
+
+국산 LLM 우선(공모전 가점) + 비용 최소화 → **Upstage solar-pro3** (가입 $10 크레딧,
+$0.15/$0.60 per MTok, 실측 지연 0.8~1.1초). solar-mini 는 JSON 신뢰성 미달로 기각.
+2026 관광데이터 공모전 규정 직접 확인: 외부 AI API 제한 없음(TourAPI 필수 활용 조건은 별도 충족 중).
+1차·최종 심사 10월, 시상 11월.
+
+### 구현 (`1769f64` 어댑터+음성, `af01b4a` 적용 3종+하드닝)
+
+**설계 원칙 = 무해 폴백**: `UPSTAGE_API_KEY` 미설정 → 전 기능 자동 비활성(네트워크 0),
+어떤 실패(타임아웃/HTTP/파싱)도 None → 기존 결정적 경로 그대로. LLM 장애가 기능 장애로 승격되지 않는다.
+
+| 적용 지점 | 파일 | 동작 |
+|---|---|---|
+| ① 음성 자유발화 | `voice_intent_service.py` | 키워드 분류기 **주 경로** 유지, `unknown`+후보 존재+레이트리밋 통과 시에만 LLM. 출력은 `_coerce` 재검증(action enum·후보 id 화이트리스트) |
+| ② 실험실 자유텍스트 | `routers/lab.py` | `POST /lab/{id}/reason/classify` — 자유 거절 사유 → REASON_CODES 화이트리스트 분류 → 기존 `apply_reason` 재사용(학습 exactly-once). 실패 시 `{"resolved": false}` |
+| ③ overview 번역 | `scripts/translate_overviews.py` | 배치로 `features.overview_i18n{en,ja,zh}` 적재. 웹 카드/waiting 이 로케일별 표시 |
+| ④ 추천 사유 다듬기 | `reason_service.py` | 템플릿=사실 원천, LLM 은 문체만. `_is_honest_polish`(숫자 부분집합+시설명 보존) 실패 시 템플릿 폴백. (facility_id, 템플릿) 키 10분 캐시 |
+
+**Codex 적대 감사 2회(음성 경로 P1×4·P2×5 / 최종 통합 P1×4·P2×1) 전건 반영 또는 근거 반박**:
+LLM `spoken` 전면 폐기→서버 템플릿(TTS 인젝션 방어), 프롬프트 json.dumps 데이터 경계,
+제어·bidi 문자 새니타이즈, `VoiceCandidate` 타입 강제(id 필수·길이 절단), IP 슬라이딩 윈도우
+레이트리밋 5/min(XFF **마지막** 값 — 첫 값은 위조 가능), `extract_json` 단일 객체 엄격 파싱,
+lifespan `aclose`, 실험실 원문·LLM 응답 본문 **로그 금지**(길이만). 게이트: pytest 401 · ruff ·
+lint 0 · tsc · 29/29 · build 32p · 스키마 파리티 · i18n 550키×4.
+
+### 번역 배치 실행 결과 (원격 실측 검증 완료)
+
+65/65 시설 × en·ja·zh 전 성공 + ja 프롬프트 보강판(제목 줄 아티팩트 수정)으로 기존 프로브 2곳
+재번역 2/2. 원격 카운트: **overview_i18n 보유 67/85**(en=ja=zh=67, overview 있는 시설 전부).
+ja 샘플 검증 — 개행 없는 단일 문단, 제목 반복 없음. 소소한 잔여: 일부 고유명사가 한글로
+남는 사례(예: '경상북도교육청 발명체험교육館') — 무해, 필요시 `--force --limit` 재번역.
+
+### 사람 작업 (신규)
+
+- 🔴 **Render 에 `UPSTAGE_API_KEY` 등록** — dashboard.render.com → nextspot-api → Environment.
+  미등록이어도 무해(LLM 만 조용히 꺼짐)이나 프로덕션에서 ①②④ 가 비활성 상태.
+- 🟢 브라우저 검증 추가: 음성 복합 발화("조용한 분위기면 좋겠어" → 카테고리 추천),
+  실험실 자유 텍스트 입력 → 분류 확인, en/ja/zh 로케일에서 카드·waiting overview 번역 표시.
+
+### 남은 리스크 (백로그)
+
+- `search.py` `_client_ip` 는 여전히 XFF **첫 값**(위조 가능) — 음성 경로만 수정됨. 후속 통일 필요.
+- 레이트리밋·사유 캐시는 인메모리(단일 프로세스 데모 서버 전제) — 다중 워커 전환 시 재설계.
+- tourapi client 도 lifespan aclose 미적용(기존 부채, llm_client 만 정리됨).
+- 실험실 학습은 at-most-once(클레임 후 적용 실패 시 유실) — 기존 리스크, 이번에 변경 없음.
+
 ## -13. 2026-07-17 오후 — 갤러리 부활(detailImage2 원인 확정) + Tier 1 소비 갭 5종
 
 ### 갤러리 전건 실패 원인 확정·수정 (`c95f312`) — §-12 의 미해결 1번 해소
