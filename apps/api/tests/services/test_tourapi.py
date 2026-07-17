@@ -321,3 +321,49 @@ def test_extract_intro_phone_fallback_no_pattern_returns_none():
     assert extract_intro_phone_fallback({"infocenter": ""}, 12) is None
     assert extract_intro_phone_fallback(None, 12) is None
     assert extract_intro_phone_fallback({"infocenter": "054-000-0000"}, 15) is None  # 미지원 타입
+
+
+# --- detailImage2 함정 회귀 방지 (2026-07-17 실측) --------------------------------------
+# KorService2 는 구(KorService1) 파라미터 subImageYN 을 받으면 봉투 없는 평면 에러 JSON 을
+# 반환한다: {"responseTime": ..., "resultCode": "10", "resultMsg": "INVALID_REQUEST_PARAMETER_ERROR(subImageYN)"}
+# → 갤러리 적재가 전건 실패했었다(HANDOVER §-12). 아래 두 테스트가 그 함정의 회귀 방지선이다.
+
+from app.services.tourapi.client import TourAPIError, _check_result  # noqa: E402
+
+
+def test_check_result_flat_error_format_raises_with_code():
+    # 25. 봉투(response.header) 없는 평면 에러 형식도 resultCode 를 읽어 TourAPIError
+    flat_error = {
+        "responseTime": "2026-07-17T15:20:29.784",
+        "resultCode": "10",
+        "resultMsg": "INVALID_REQUEST_PARAMETER_ERROR(subImageYN)",
+    }
+    with pytest.raises(TourAPIError, match="resultCode=10"):
+        _check_result(flat_error, "detailImage2")
+
+
+def test_check_result_envelope_ok_passes():
+    # 26. 정상 봉투 0000 은 통과, 비-0000 봉투는 실패(기존 동작 불변 확인)
+    _check_result(_payload("", total=0), "detailImage2")  # 예외 없어야 함
+    bad = {"response": {"header": {"resultCode": "99", "resultMsg": "SERVICE ERROR"}, "body": {}}}
+    with pytest.raises(TourAPIError, match="resultCode=99"):
+        _check_result(bad, "detailImage2")
+
+
+@pytest.mark.asyncio
+async def test_detail_image_does_not_send_sub_image_yn(monkeypatch):
+    # 27. detail_image 가 subImageYN 을 다시 보내면 KorService2 가 전건 거부한다 — 재도입 금지
+    from app.services.tourapi import client as tourapi_client
+
+    captured: dict = {}
+
+    async def fake_get(endpoint, params):
+        captured["endpoint"] = endpoint
+        captured["params"] = params
+        return _payload({"item": []})
+
+    monkeypatch.setattr(tourapi_client, "_get", fake_get)
+    await tourapi_client.detail_image("2756611")
+    assert captured["endpoint"] == "detailImage2"
+    assert "subImageYN" not in captured["params"]
+    assert captured["params"]["imageYN"] == "Y"

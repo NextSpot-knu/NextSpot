@@ -104,12 +104,18 @@ def parse_total_count(payload: Any) -> int:
 
 
 def _check_result(payload: Any, endpoint: str) -> None:
-    """resultCode '0000' 이 아니면 로그 후 TourAPIError. 원문 메시지는 서버 로그에만 남긴다."""
+    """resultCode '0000' 이 아니면 로그 후 TourAPIError. 원문 메시지는 서버 로그에만 남긴다.
+
+    게이트웨이 오류(잘못된 파라미터 등)는 봉투 없이 평면 JSON({"resultCode": "10", ...})으로
+    오기도 한다 — 그 경우도 resultCode/resultMsg 를 로그에 남겨 원인 추적이 가능하게 한다.
+    """
     header = {}
     if isinstance(payload, dict):
         response = payload.get("response")
         if isinstance(response, dict) and isinstance(response.get("header"), dict):
             header = response["header"]
+        elif "resultCode" in payload:  # 봉투 없는 평면 에러 형식
+            header = payload
     code = str(header.get("resultCode", ""))
     if code != "0000":
         _logger.warning(
@@ -252,12 +258,16 @@ async def detail_info(content_id: str, content_type_id: int) -> dict:
     return await _get("detailInfo2", {"contentId": content_id, "contentTypeId": content_type_id})
 
 
-async def detail_image(content_id: str, image_yn: str = "Y", sub_image_yn: str = "Y") -> dict:
-    """detailImage2 — 저작권이 허용된 대표/서브 이미지 목록."""
+async def detail_image(content_id: str, image_yn: str = "Y") -> dict:
+    """detailImage2 — 저작권이 허용된 대표/서브 이미지 목록.
+
+    ⚠️ KorService2 는 구(KorService1) 파라미터 `subImageYN` 을 받으면 봉투(response.header) 없는
+    평면 에러 JSON(resultCode "10", INVALID_REQUEST_PARAMETER_ERROR)을 반환한다 — 2026-07-17 실측.
+    searchFestival2 의 areaCode 함정과 같은 계열이므로 구 파라미터를 다시 넣지 말 것.
+    """
     return await _get("detailImage2", {
         "contentId": content_id,
         "imageYN": image_yn,
-        "subImageYN": sub_image_yn,
         "pageNo": 1,
         "numOfRows": 20,
     })
