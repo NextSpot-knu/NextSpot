@@ -46,7 +46,7 @@ interface BoardRow {
   facilityId: string;
   name: string;
   type: string;
-  imageUrl: string | null;
+  imageUrls: string[];
   summary: string | null;
   congestionLevel: number | null;
   expectedWait: number;
@@ -63,10 +63,11 @@ interface Sector {
 
 // TourAPI firstimage가 비어 있거나 원본 서버에서 만료·차단되어 로드에 실패하면
 // 같은 높이의 유형 아이콘 폴백으로 즉시 전환해 카드 상단이 빈 공간으로 남지 않게 한다.
-function WaitingCardImage({ imageUrl, name, type }: Pick<BoardRow, "imageUrl" | "name" | "type">) {
-  const [failed, setFailed] = useState(false);
+function WaitingCardImage({ imageUrls, name, type }: Pick<BoardRow, "imageUrls" | "name" | "type">) {
+  const [imageIndex, setImageIndex] = useState(0);
+  const imageUrl = imageUrls[imageIndex];
 
-  if (!imageUrl || failed) {
+  if (!imageUrl) {
     return (
       <div
         className="h-[26%] shrink-0 flex items-center justify-center bg-hanji-deep/70 border-b border-line text-2xl"
@@ -84,7 +85,7 @@ function WaitingCardImage({ imageUrl, name, type }: Pick<BoardRow, "imageUrl" | 
       src={imageUrl}
       alt={name}
       loading="lazy"
-      onError={() => setFailed(true)}
+      onError={() => setImageIndex((current) => current + 1)}
       className="w-full h-[38%] shrink-0 object-cover border-b border-line"
     />
   );
@@ -159,7 +160,14 @@ export default function WaitingBoardPage() {
           facilityId: rec.facility.id,
           name: rec.facility.name,
           type: rec.facility.type,
-          imageUrl: rec.facility.imageUrl ?? null,
+          // 대표 사진(firstimage)부터 detailImage2 갤러리 순으로 시도한다. 동일 URL은 한 번만 로드한다.
+          imageUrls: Array.from(
+            new Set(
+              [rec.facility.imageUrl, ...(rec.facility.galleryImages ?? [])].filter(
+                (url): url is string => typeof url === "string" && url.trim().length > 0
+              )
+            )
+          ),
           // TourAPI 소개를 우선하고, 없으면 실제 주소를 짧은 보조 설명으로 사용한다.
           // 둘 다 없을 때는 내용을 지어내지 않고 설명 영역을 숨긴다.
           summary: rec.facility.overview?.trim() || rec.facility.address?.trim() || null,
@@ -299,7 +307,7 @@ export default function WaitingBoardPage() {
                             <Crown size={11} strokeWidth={2.5} />
                           </span>
                         )}
-                        <WaitingCardImage imageUrl={row.imageUrl} name={row.name} type={row.type} />
+                        <WaitingCardImage imageUrls={row.imageUrls} name={row.name} type={row.type} />
                         <div className="flex flex-1 min-h-0 flex-col justify-between p-2">
                           <div>
                             <p className="text-[11px] font-bold text-muk leading-snug line-clamp-2">

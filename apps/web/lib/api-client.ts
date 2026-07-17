@@ -200,6 +200,7 @@ export interface RecommendationResponse {
     features?: Record<string, unknown> | null; // JSONB(주소·전화·cuisine_tags·barrier_free 등 혼합)
     // TourAPI 상세 필드(전부 Optional) — '지어내지 않기': 실데이터가 있을 때만 내려온다.
     imageUrl?: string | null;
+    galleryImages?: string[] | null;
     address?: string | null;
     phone?: string | null;
     homepage?: string | null;
