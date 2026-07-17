@@ -31,6 +31,12 @@ _FOOD_QUERY_ALIASES = {
     "한우": ("소고기", "고기", "육류"),
 }
 
+# 우산(포괄) 토큰은 '불고기(피자)'·'닭고기' 같은 다른 음식명의 부분문자열로 오탐을 내므로
+# (2026-07-18 실측: '삼겹살' 발화 → 별칭 '고기' ⊂ 대표메뉴 '반월성 불고기' → 화덕피자 오탐),
+# 자유 텍스트(name/menu)가 아니라 분류 태그(cuisine/category)에만 매칭한다.
+# 발화 원문·LLM search_query·별칭 어느 경로로 들어온 토큰이든 동일 적용.
+_TAG_ONLY_TOKENS = {"고기", "육류"}
+
 
 def cuisine_to_str(cuisine) -> str:
     """cuisine_tags(['한식','육류,고기'] 또는 '양식')를 공백 구분 문자열로."""
@@ -96,13 +102,19 @@ async def filter_candidates(
         cat = (c.get("category") or "").strip()
         if cat:
             cat_present = True
-        hay = " ".join([
+        # 우산 토큰(_TAG_ONLY_TOKENS)은 분류 태그에만, 나머지는 전체 텍스트에 매칭.
+        tag_hay = " ".join([cuisine_to_str(c.get("cuisine")), cat]).lower()
+        full_hay = " ".join([
             str(c.get("name") or ""),
             cuisine_to_str(c.get("cuisine")),
             cat,
             str(c.get("menu") or ""),
         ]).lower()
-        score = sum(1 for t in qtokens if len(t) >= 2 and t in hay)
+        score = sum(
+            1
+            for t in qtokens
+            if len(t) >= 2 and t in (tag_hay if t in _TAG_ONLY_TOKENS else full_hay)
+        )
         if ic and cat and cat == ic:
             score += 2  # 시드 분류 일치 가산
         if score > 0:
