@@ -33,7 +33,7 @@ def cuisine_to_str(cuisine) -> str:
 async def enrich_candidates(candidates: list) -> list:
     """로컬 모드에서는 시드 메타(Firestore 분류·대표메뉴) 보강이 없으므로 no-op passthrough.
 
-    음성 'details' 응답은 프런트가 후보별로 보내는 name·congestion·distance_m·cuisine 로 구성된다.
+    음성 'details' 응답은 프런트가 후보별로 보내는 name·congestion·distance_m·cuisine·menu 로 구성된다.
     """
     return candidates or []
 

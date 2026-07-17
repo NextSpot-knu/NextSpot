@@ -495,7 +495,8 @@ async def voice_turn(req: VoiceTurnRequest):
     # 카테고리→한국어 라벨은 preference_nlp_service.CATEGORY_KO 를 단일 정본으로 재사용.
     type_ko = CATEGORY_KO.get(req.facility_type, "시설")
     candidates = req.candidates or []
-    # 0) 후보에 시드된 분류·대표메뉴를 채워 백엔드 가 '자세히/메뉴/혼잡' 질문에 실제 데이터로 답하게 한다.
+    # 0) 후보 메타 보강 훅 — 로컬 모드의 enrich_candidates 는 no-op passthrough 다(embedding_service 참조).
+    #    '자세히/메뉴' 질문의 실데이터(cuisine·menu)는 프런트가 후보에 동봉한다(main/page.tsx interpret).
     try:
         candidates = await enrich_voice_candidates(candidates)
     except Exception:

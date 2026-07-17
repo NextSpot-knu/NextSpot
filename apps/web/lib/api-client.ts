@@ -400,6 +400,9 @@ export interface VoiceTurnCandidate {
   id: string;
   name: string;
   cuisine?: string[] | string | null; // 음식 종류(한식/분식/카페·디저트 등) — 메뉴/종류 매칭용
+  // 공식 메뉴(TourAPI first_menu/treat_menu 결합) — 백엔드 embedding_service 의 후보 haystack
+  // (name+cuisine+category+menu)가 이미 읽는 필드인데 프런트가 보낸 적이 없었다(2026-07-17 감사).
+  menu?: string | null;
   congestion?: number; // 0~1
   distanceM?: number;
 }

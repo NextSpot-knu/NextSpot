@@ -26,6 +26,8 @@ interface RecommendationCardFacility {
   operatingHours?: { open?: string; closed?: string; [key: string]: any } | null;
   // TourAPI 상세 필드(A2, 전부 Optional) — 실데이터가 있을 때만 내려온다.
   imageUrl?: string | null;
+  // detailImage2 갤러리(최대 5장) — 대표 사진 로드 실패 시 순차 폴백(waiting WaitingCardImage 패턴).
+  galleryImages?: string[] | null;
   address?: string | null;
   phone?: string | null;
   homepage?: string | null;
@@ -269,6 +271,22 @@ export function RecommendationCard({
   // 오늘 휴무 — rest_date_raw 보수 파서(restDate.ts). true 확정일 때만 배지 노출(과판정 금지 원칙).
   const restDateRaw = (facility?.features?.restDateRaw ?? facility?.features?.rest_date_raw) as string | undefined;
   const closedToday = isClosedToday(restDateRaw) === true;
+
+  // 카드 사진 — 대표(firstimage) → detailImage2 갤러리 순 폴백(waiting WaitingCardImage 패턴 미러).
+  // 원본 서버에서 만료·차단된 URL 이 섞여 있어 onError 시 다음 후보로 넘어가고, 전부 실패하면 숨긴다.
+  const cardImageUrls = Array.from(
+    new Set(
+      [facility?.imageUrl, ...(facility?.galleryImages ?? [])].filter(
+        (url): url is string => typeof url === 'string' && url.trim().length > 0
+      )
+    )
+  );
+  const [cardImageIndex, setCardImageIndex] = useState(0);
+  // 시설 전환뿐 아니라 같은 시설의 URL 목록이 갱신(비동기 보강)돼도 소진된 인덱스가 새 이미지를
+  // 가리지 않도록, id+URL 집합을 함께 리셋 기준으로 삼는다(Codex 리뷰 P2, 2026-07-17).
+  const cardImageKey = `${facility?.id ?? ''}|${cardImageUrls.join('|')}`;
+  useEffect(() => { setCardImageIndex(0); }, [cardImageKey]);
+  const cardImageUrl = cardImageUrls[cardImageIndex];
 
   // 머천트 랭킹 연동 2단계 — features 내부가 아니라 facility 최상위 필드지만, 백엔드 응답이 어떤
   // 경로(apiClient keysToCamel 미적용 폴백 등)로 오든 방어적으로 camel/snake 이중 표기를 읽는다.
@@ -562,15 +580,16 @@ export function RecommendationCard({
           >
             <div className="border-t border-line pt-3.5 space-y-3 text-xs text-muk-soft">
 
-          {/* 대표 사진(TourAPI firstimage) — 실제 이미지가 있을 때만. 로드 실패 시 숨겨 깨진 이미지를 노출하지 않는다. */}
-          {facility?.imageUrl && (
+          {/* 대표 사진(TourAPI firstimage→갤러리 폴백) — 실제 이미지가 있을 때만. 전부 로드 실패 시 숨겨 깨진 이미지를 노출하지 않는다. */}
+          {cardImageUrl && (
             /* TourAPI 이미지 원본은 도메인이 다양해 next/image 최적화 대상이 아님(정적 export) — img 사용 */
             // eslint-disable-next-line @next/next/no-img-element
             <img
-              src={facility.imageUrl}
+              key={cardImageUrl} /* URL 마다 새 엘리먼트 — 직전 시설 이미지의 늦은 onError 가 새 카드의 인덱스를 밀어올리지 않게 */
+              src={cardImageUrl}
               alt={title}
               loading="lazy"
-              onError={(e) => { e.currentTarget.style.display = 'none'; }}
+              onError={() => setCardImageIndex((current) => current + 1)}
               className="w-full h-32 object-cover rounded-2xl border border-line"
             />
           )}

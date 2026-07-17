@@ -53,6 +53,9 @@ class InfrastructureItem(BaseModel):
     # 프런트 하위호환: 필드 추가만(전부 Optional·기본 None). TourAPI 적재분(locationBasedList2·
     # detailCommon2·detailInfo2)만 값이 있고, 수동 시드 행은 None — 프런트는 값 있을 때만 렌더.
     image_url: str | None = None
+    # detailImage2 갤러리(최대 5장) — 추천(by-type) 응답은 원본 dict 라 이미 내려가는데
+    # 이 모델만 누락돼 /main 경로가 갤러리를 영영 못 받던 결손(2026-07-17 소비 경로 감사).
+    gallery_images: list[str] | None = None
     address: str | None = None
     phone: str | None = None
     homepage: str | None = None
@@ -61,6 +64,15 @@ class InfrastructureItem(BaseModel):
     # 폐업·표출중단 자동 감지(2차 기획 1위). is_active 컬럼 미배포(마이그레이션 미적용) 환경에서는
     # 항상 None — 프런트는 값이 False 일 때만 '운영정보 확인 필요' 배지를 표시한다(None/True 는 무배지).
     is_active: bool | None = None
+
+def _clean_gallery_images(value) -> list[str] | None:
+    """gallery_images JSONB 방어적 정제 — 오염된 한 행(비배열/비문자열 원소)이 pydantic 검증 실패로
+    /infrastructures 응답 전체를 500 으로 만드는 failure amplification 차단(Codex 리뷰 P1, 2026-07-17)."""
+    if not isinstance(value, list):
+        return None
+    urls = [u for u in value if isinstance(u, str) and u.strip()]
+    return urls or None
+
 
 async def _fetch_latest_one(fid: str) -> tuple[str, dict | None]:
     """시설 1건의 최신 혼잡 로그를 .limit(1) 로 조회(시설별 1쿼리)."""
@@ -205,6 +217,7 @@ async def get_infrastructures(
                 features=f.get("features"),
                 congestion=congestion,
                 image_url=f.get("image_url"),
+                gallery_images=_clean_gallery_images(f.get("gallery_images")),
                 address=f.get("address"),
                 phone=f.get("phone"),
                 homepage=f.get("homepage"),

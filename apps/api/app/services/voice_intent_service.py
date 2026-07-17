@@ -76,6 +76,15 @@ def _cuisine_str(cuisine) -> str:
     return str(cuisine)
 
 
+def _menu_str(menu) -> str:
+    """후보의 공식 메뉴 문자열(프런트가 first_menu/treat_menu 를 ' / ' 로 결합해 보냄)에서
+    발화용으로 앞 2개만 추출. '메뉴 뭐 있어?' 가 실제 데이터로 답하게 한다('지어내지 않기')."""
+    if not menu:
+        return ""
+    items = [m.strip() for m in str(menu).split("/") if m.strip()]
+    return ", ".join(items[:2])
+
+
 def _details_spoken(current_name: Optional[str], candidates: list[dict]) -> Optional[str]:
     """현재 추천(또는 첫 후보)의 실제 데이터로 한국어 상세 안내문을 구성."""
     target = None
@@ -99,8 +108,14 @@ def _details_spoken(current_name: Optional[str], candidates: list[dict]) -> Opti
     cui = _cuisine_str(target.get("cuisine"))
     detail = ", ".join(bits) if bits else "상세 정보가 제한적이에요"
     if cui:
-        return f"{name}은(는) {detail}이고, 종류는 {cui}입니다."
-    return f"{name}은(는) {detail}입니다."
+        spoken = f"{name}은(는) {detail}이고, 종류는 {cui}입니다."
+    else:
+        spoken = f"{name}은(는) {detail}입니다."
+    # 공식 메뉴(TourAPI first_menu/treat_menu)가 후보에 있으면 덧붙인다 — 없으면 기존 문장 그대로(회귀 0).
+    menu = _menu_str(target.get("menu"))
+    if menu:
+        spoken += f" 대표 메뉴는 {menu}입니다."
+    return spoken
 
 
 def _match_food_category(low: str) -> Optional[str]:

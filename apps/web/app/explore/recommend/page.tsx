@@ -7,6 +7,7 @@ const supabase = createPublicClient();
 import { apiClient, getRecommendations, submitFeedback, parsePreference, RecommendationResponse } from "@/lib/api-client";
 import { MAX_RECO_DISTANCE_M } from "@/lib/recommender"; // 빈 상태 문구의 반경(1.5km) — 하드코딩 대신 실제 컷오프 상수 사용
 import { classifyIntent, buildCardSpeech } from "@/lib/voiceIntent";
+import { isClosedToday } from "@/lib/restDate";
 import { REGION, isWithinRegion } from "@/lib/region";
 import { toast } from "sonner";
 import { useT } from "@/lib/i18n/I18nProvider";
@@ -1184,6 +1185,16 @@ function RecommendContent() {
               const travelTime = (rec.breakdown?.travelTime ?? rec.distanceM / 66.67).toFixed(1); // 백엔드 SPOT travelTime 우선(66.67m/min=4km/h, 백엔드 일치), 없으면 거리환산
               const preferencePct = Math.round((rec.breakdown?.preference || 0) * 100);
               const isVoiceActive = assistantActive && idx === activeRecIndex; // 음성 비서가 지금 안내 중인 카드
+              // TourAPI 상세 소비(RecommendationCard 와 동일 관례) — features 내부 키는 keysToCamel 재귀
+              // 변환(firstMenu)과 supabase 폴백 원본(first_menu) 두 표기를 모두 방어한다.
+              const recFeatures = rec.facility.features as Record<string, unknown> | null | undefined;
+              const firstMenuRaw = (recFeatures?.firstMenu ?? recFeatures?.first_menu) as string | undefined;
+              const firstMenuTokens = firstMenuRaw
+                ? firstMenuRaw.split(",").map((s) => s.trim()).filter(Boolean).slice(0, 2)
+                : [];
+              // 오늘 휴무 — 보수 파서 확정(true)일 때만 배지(과판정 금지 원칙).
+              const closedToday =
+                isClosedToday((recFeatures?.restDateRaw ?? recFeatures?.rest_date_raw) as string | undefined) === true;
 
               return (
                 <div
@@ -1200,6 +1211,12 @@ function RecommendContent() {
                       <span className="text-[10px] font-bold text-jade bg-jade/10 px-2 py-0.5 rounded-md">
                         {getTypeName(rec.facility.type)}
                       </span>
+                      {/* 오늘 휴무 배지 — RecommendationCard(/main)와 동일 톤(terracotta), 확정 시에만. */}
+                      {closedToday && (
+                        <span className="text-[10px] font-bold text-terracotta bg-terracotta/10 px-2 py-0.5 rounded-md ml-2">
+                          {t("card.closedToday")}
+                        </span>
+                      )}
                       {rec.rank && rec.totalCandidates && (
                         <span className="text-[10px] font-bold text-gold-deep bg-gold/10 px-2 py-0.5 rounded-md ml-2">
                           {t("recommend.rankOfTotal", { total: rec.totalCandidates, rank: rec.rank })}
@@ -1213,6 +1230,14 @@ function RecommendContent() {
                       <h4 className="text-base font-extrabold text-muk mt-1.5">
                         {rec.facility.name}
                       </h4>
+                      {/* 공식 대표 메뉴(TourAPI first_menu) — 있을 때만, 앞 2개('지어내지 않기'). */}
+                      {firstMenuTokens.length > 0 && (
+                        <p className="mt-0.5 text-[11px] text-muk-soft">
+                          <span className="font-bold text-gold-deep">{t("card.signatureMenu")}</span>
+                          {" · "}
+                          {firstMenuTokens.join(" · ")}
+                        </p>
+                      )}
                     </div>
                     <div className="text-right">
                       <span className="text-[10px] text-muk-soft block">{t("recommend.spotIndex")}</span>

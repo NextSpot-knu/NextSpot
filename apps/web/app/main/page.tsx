@@ -244,6 +244,7 @@ export default function MainPage() {
             // TourAPI 상세(A2) — 전부 nullable, 카드가 '있을 때만' 조건부 렌더('지어내지 않기').
             operatingHours: f.operatingHours ?? null,
             imageUrl: f.imageUrl ?? null,
+            galleryImages: Array.isArray(f.galleryImages) ? f.galleryImages : null, // detailImage2 — 카드 사진 폴백용
             address: f.address ?? null,
             phone: f.phone ?? null,
             homepage: f.homepage ?? null,
@@ -415,6 +416,8 @@ export default function MainPage() {
 
   const [rankedFacilities, setRankedFacilities] = useState<any[]>([]);
   const [noRecommendation, setNoRecommendation] = useState(false); // 현재 카테고리 추천 후보 0건 여부(빈 상태 안내용)
+  // 후보 소진의 원인이 '남은 곳 전부 오늘 휴무'일 때 true — 빈 상태 문구를 구분(데이터 부족/엔진 실패로 오해 방지).
+  const [noOpenTodayOnly, setNoOpenTodayOnly] = useState(false);
   const [rejectedIds, setRejectedIds] = useState<Set<string>>(new Set());
   const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number }>({ ...REGION.center });
@@ -771,6 +774,7 @@ export default function MainPage() {
     }
     if (candidates.length === 0) {
       setSelectedFacility(null);
+      setNoOpenTodayOnly(false); // 이 경로는 유형 자체가 0건 — 휴무 소진과 구분
       setNoRecommendation(true); // (b) 후보 0건 → 카드 자리에 빈 상태 안내
       return;
     }
@@ -861,6 +865,7 @@ export default function MainPage() {
         setRankedFacilities(all);
         if (all.length === 0) {
           setSelectedFacility(null);
+          setNoOpenTodayOnly(false); // 랭킹 0건 — 휴무 소진과 구분
           setNoRecommendation(true); // (b) 랭킹 결과 0건 → 빈 상태 안내
           return;
         }
@@ -981,6 +986,7 @@ export default function MainPage() {
       }
     } else {
       setSelectedFacility(null);
+      setNoOpenTodayOnly(false); // 저장 경로 소진 — 휴무 소진과 구분
       setNoRecommendation(true); // (b) 후보 소진 → 빈 상태 안내
     }
 
@@ -1035,16 +1041,20 @@ export default function MainPage() {
     const nextRejectedIds = new Set(rejectedIds);
     nextRejectedIds.add(fac.id);
     const voicePass = (f: Facility) => !voiceFilterIds || voiceFilterIds.has(f.id); // 음성 선호 필터 유지
+    // 오늘 휴무 '확정' 시설은 다음 추천 후보에서 제외(문 닫은 집 추천 사고 방지 — 음식 칩 풀과 동일 조건).
+    // 판정 불가(null)는 배제하지 않는다(정직성: 과판정 금지). camel/snake 이중 표기 방어(keysToCamel 재귀).
+    const openToday = (f: Facility) =>
+      isClosedToday((f.features?.rest_date_raw ?? f.features?.restDateRaw) as string | null | undefined) !== true;
 
     // 다음 추천은 첫 추천과 동일한 점수 체계 유지를 위해 백엔드 랭킹(rankedFacilities)에서 소비한다
     // (기존: 클라 calculateSPOT 재계산 → 거절 시 점수 체계가 몰래 바뀌던 문제).
     let nextCandidates = rankedFacilities
-      .filter((f) => voicePass(f) && !nextRejectedIds.has(f.id) && !savedIds.has(f.id));
+      .filter((f) => voicePass(f) && openToday(f) && !nextRejectedIds.has(f.id) && !savedIds.has(f.id));
 
     // 랭킹 리스트가 소진된 경우에만 클라 미러(calculateSPOT)로 폴백 — 전체 후보 루프백(음성 필터는 유지)
     if (nextCandidates.length === 0) {
       nextCandidates = expandGroups(facilities.filter(f => f.type === targetType))
-        .filter(voicePass)
+        .filter((f) => voicePass(f) && openToday(f))
         .map((f) => ({ ...f, spot: calculateSPOT(f) }))
         .sort(compareFacilities);
     }
@@ -1056,6 +1066,13 @@ export default function MainPage() {
       }
     } else {
       setSelectedFacility(null);
+      // 소진 원인 구분 — 휴무 필터를 빼면 후보가 남아 있고 그 전부가 오늘 휴무 확정이면
+      // '장소가 없어서'가 아니라 '오늘 다 쉬어서'다. 빈 상태 문구로 정직하게 설명(Codex 리뷰 P2).
+      const remainderIgnoringClosed = expandGroups(facilities.filter(f => f.type === targetType))
+        .filter((f) => voicePass(f) && !nextRejectedIds.has(f.id) && !savedIds.has(f.id));
+      setNoOpenTodayOnly(
+        remainderIgnoringClosed.length > 0 && remainderIgnoringClosed.every((f) => !openToday(f))
+      );
       setNoRecommendation(true); // (b) 후보 소진 → 빈 상태 안내
     }
     // ★ Force card open so the next recommendation is visible
@@ -1165,6 +1182,12 @@ export default function MainPage() {
           id: x.id,
           name: x.name,
           cuisine: x.features?.cuisine_tags ?? x.features?.cuisine ?? null, // 백엔드가 양식/짜장면 등 매칭에 사용
+          // 공식 메뉴(TourAPI) — 백엔드 의미검색 haystack(name+cuisine+category+menu)이 이미 읽는 필드.
+          // '파스타 먹고 싶어' 같은 발화가 상호명 추측이 아니라 실제 메뉴로 매칭되게 한다.
+          menu:
+            [x.features?.first_menu ?? x.features?.firstMenu, x.features?.treat_menu ?? x.features?.treatMenu]
+              .filter((v): v is string => typeof v === 'string' && v.trim().length > 0)
+              .join(' / ') || null,
           congestion: x.congestionLevel ?? 0,
           distanceM: haversineMeters(userLocation.lat, userLocation.lng, x.latitude, x.longitude),
         }))
@@ -2076,7 +2099,10 @@ export default function MainPage() {
           <div className="bg-white border border-line rounded-2xl px-5 py-4 shadow-[0_2px_14px_rgba(43,35,32,0.06)] flex flex-col items-center gap-1.5 text-center">
             <span className="text-xl">🧭</span>
             <p className="text-muk text-sm font-semibold">{t('map.noRecTitle')}</p>
-            <p className="text-muk-soft text-xs leading-relaxed">{t('map.noRecBody')}</p>
+            {/* 소진 원인이 '전부 오늘 휴무'면 문구를 구분 — 데이터 부족/엔진 실패로 오해하지 않게(정직성). */}
+            <p className="text-muk-soft text-xs leading-relaxed">
+              {t(noOpenTodayOnly ? 'map.noRecClosedBody' : 'map.noRecBody')}
+            </p>
           </div>
         </div>
       )}

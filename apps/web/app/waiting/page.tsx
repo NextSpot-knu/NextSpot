@@ -54,6 +54,8 @@ interface BoardRow {
   expectedTravel: number;
   // 오늘 휴무 '확정'(isClosedToday === true) 여부 — 대표 카드 선정에서 제외 + 리스트 맨 뒤 + 배지 표시용.
   closedToday: boolean;
+  // 공식 대표 메뉴(TourAPI first_menu) 첫 항목 — 있을 때만 카드에 한 줄 표시('지어내지 않기').
+  firstMenu: string | null;
 }
 
 // 섹터 = 한 시설 유형의 대기 짧은 순 정렬 목록. rows 가 비면 섹터 자체를 렌더하지 않는다.
@@ -157,6 +159,11 @@ export default function WaitingBoardPage() {
           | string
           | null
           | undefined;
+        // 공식 대표 메뉴 — 콤마 구분 시 첫 항목만(컴팩트 카드 폭). RecommendationCard 의 slice(0,2) 축소판.
+        const firstMenuRaw = (rec.facility.features?.first_menu ?? rec.facility.features?.firstMenu) as
+          | string
+          | null
+          | undefined;
         return {
           facilityId: rec.facility.id,
           name: rec.facility.name,
@@ -184,6 +191,7 @@ export default function WaitingBoardPage() {
           expectedTravel: spot.expectedTravel,
           // 휴무 '확정'(true)만 표시 — 모름(null)/영업 확정(false)은 평소처럼 취급(정직성: 과판정 금지).
           closedToday: isClosedToday(restDateRaw) === true,
+          firstMenu: firstMenuRaw?.split(",")[0]?.trim() || null,
         };
       });
       // 대기 짧은 순 정렬은 그대로 유지하되, 오늘 휴무 확정 시설은 항상 맨 뒤로 보낸다
@@ -320,6 +328,12 @@ export default function WaitingBoardPage() {
                             <p className="text-[11px] font-bold text-muk leading-snug line-clamp-2">
                               {row.name}
                             </p>
+                            {/* 공식 대표 메뉴(TourAPI) — 있을 때만 한 줄. 🍽 이모지는 TYPE_EMOJI 관례와 동일 톤. */}
+                            {row.firstMenu && (
+                              <p className="mt-0.5 text-[9px] font-bold text-gold-deep leading-snug truncate">
+                                🍽 {row.firstMenu}
+                              </p>
+                            )}
                             {row.summary && (
                               <p className="mt-1 text-[9px] leading-snug text-muk-soft line-clamp-2">
                                 {row.summary}
