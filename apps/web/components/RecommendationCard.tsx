@@ -7,7 +7,7 @@ import { apiClient } from '@/lib/api-client';
 import { CongestionReportButton } from '@/components/CongestionReportButton';
 import { GoldenHourBadge } from '@/components/GoldenHourBadge';
 import { relativeParts } from '@/lib/freshness';
-import { useT } from '@/lib/i18n/I18nProvider';
+import { useI18n } from '@/lib/i18n/I18nProvider';
 import { isClosedToday } from '@/lib/restDate';
 
 // facility prop 이 이 컴포넌트에서 실제로 읽는 필드만 구조적으로 명시한 타입.
@@ -85,7 +85,7 @@ export function RecommendationCard({
   eventTitle,
   dataSource,
 }: RecommendationCardProps) {
-  const t = useT();
+  const { t, locale } = useI18n();
   const [isExpanded, setIsExpanded] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
   // SPOT 점수 설명 툴팁 — 터치/키보드에서도 열 수 있게 탭/포커스로 토글(데스크톱 hover 는 유지)
@@ -244,6 +244,18 @@ export function RecommendationCard({
   const congestionKey = (c: number) =>
     c >= 0.75 ? 'busy' : c >= 0.5 ? 'moderate' : c >= 0.25 ? 'relaxed' : 'quiet';
   const congestionLabel = (c: number) => t(`congestion.${congestionKey(c)}`);
+
+  // 소개(overview) 다국어 — 배치 번역(apps/api/scripts/translate_overviews.py)이
+  // features.overview_i18n = {en, ja, zh} 에 저장(스키마 변경 없음). apiClient(keysToCamel)는 features
+  // 내부 키까지 재귀적으로 camelCase 변환하므로 보통 overviewI18n 이지만, supabase 직접 폴백 경로는
+  // 원본 snake_case 를 그대로 들고 올 수 있어 둘 다 지원한다(firstMenu/restDateRaw 와 동일 관례).
+  // 현재 로케일이 ko 면 항상 원문(overview)만 쓴다 — 번역이 없어도 지금처럼 한국어 원문(기존 동작 불변).
+  const overviewI18n = (facility?.features?.overviewI18n ?? facility?.features?.overview_i18n) as
+    | Record<string, string>
+    | null
+    | undefined;
+  const translatedOverview = locale !== 'ko' ? overviewI18n?.[locale] : undefined;
+  const displayOverview = translatedOverview || facility?.overview;
 
   // TourAPI 상세(A2) — 시설 정규 컬럼(facility.address/phone) 우선, 카카오 Places 검색값은 폴백으로 강등.
   // 둘 다 없으면 렌더하지 않는다('지어내지 않기').
@@ -601,11 +613,11 @@ export function RecommendationCard({
             </p>
           )}
 
-          {/* 소개(TourAPI overview) — 있을 때만 3줄 클램프('지어내지 않기') */}
-          {facility?.overview && (
+          {/* 소개(TourAPI overview, 비-ko 로케일이면 배치 번역 우선) — 있을 때만 3줄 클램프('지어내지 않기') */}
+          {displayOverview && (
             <div>
               <span className="text-muk-soft block text-[10px] font-bold mb-0.5">{t('card.about')}</span>
-              <p className="text-muk leading-relaxed line-clamp-3">{facility.overview}</p>
+              <p className="text-muk leading-relaxed line-clamp-3">{displayOverview}</p>
             </div>
           )}
 

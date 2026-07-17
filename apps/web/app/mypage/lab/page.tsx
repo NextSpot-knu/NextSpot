@@ -8,6 +8,7 @@ import {
   isAuthError,
   fetchLabPending,
   answerLabReason,
+  classifyLabReason,
   skipLabItem,
   hideLabItem,
   type LabPendingItem,
@@ -69,6 +70,9 @@ export default function LabPage() {
   // '기타'를 고른 카드만 메모 입력을 연다(feedbackId).
   const [noteFor, setNoteFor] = useState<string | null>(null);
   const [noteText, setNoteText] = useState('');
+  // '직접 설명하기'를 연 카드(feedbackId) + 자유 텍스트. 제출 시 백엔드가 LLM 으로 카테고리에 매핑한다.
+  const [freeTextFor, setFreeTextFor] = useState<string | null>(null);
+  const [freeText, setFreeText] = useState('');
   // 처리 중인 카드 — 중복 제출(멱등 upsert 는 백엔드가 보장하지만 UI 이중 클릭)을 막는다.
   const [busyId, setBusyId] = useState<string | null>(null);
 
@@ -134,6 +138,7 @@ export default function LabPage() {
       if (code === 'other') {
         setNoteFor(item.feedbackId);
         setNoteText('');
+        setFreeTextFor(null); // 에디터는 한 번에 하나만 — 자유 입력을 닫는다.
         return;
       }
       void mutate(item.feedbackId, () => answerLabReason(item.feedbackId, code), 'lab.answered');
@@ -151,6 +156,40 @@ export default function LabPage() {
       );
     },
     [mutate, noteText],
+  );
+
+  // '직접 설명하기' 토글 — 자유 입력을 열면 '기타' 메모는 닫는다(에디터 하나만 열리게).
+  const toggleFreeText = useCallback((feedbackId: string) => {
+    setFreeText('');
+    setNoteFor(null);
+    setFreeTextFor((prev) => (prev === feedbackId ? null : feedbackId));
+  }, []);
+
+  // 자유 텍스트 제출 — 백엔드가 LLM 으로 기존 카테고리에 매핑한다.
+  // resolved=true 면 선택지 제출과 동일한 후처리(목록 제거). resolved=false/오류면 카드·선택지를
+  // 그대로 두고 "골라주세요" 안내만 띄운다(무해 폴백 — 낙관적 제거를 하지 않는다).
+  const handleClassify = useCallback(
+    async (item: LabPendingItem) => {
+      const text = freeText.trim();
+      if (!text || busyId) return;
+      setBusyId(item.feedbackId);
+      try {
+        const { resolved } = await classifyLabReason(item.feedbackId, text);
+        if (resolved) {
+          setItems((prev) => prev.filter((it) => it.feedbackId !== item.feedbackId));
+          setFreeTextFor((prev) => (prev === item.feedbackId ? null : prev));
+          toast.success(t('lab.answered'));
+        } else {
+          toast.error(t('lab.classifyFallback'));
+        }
+      } catch (err) {
+        console.warn('lab classify failed', err);
+        toast.error(t('lab.classifyFallback'));
+      } finally {
+        setBusyId(null);
+      }
+    },
+    [freeText, busyId, t],
   );
 
   return (
@@ -240,6 +279,7 @@ export default function LabPage() {
                 : item.facilityType;
               const when = formatRecommendedAt(item.recommendedAt, locale);
               const noteOpen = noteFor === item.feedbackId;
+              const freeOpen = freeTextFor === item.feedbackId;
               const busy = busyId === item.feedbackId;
               return (
                 <div
@@ -328,8 +368,49 @@ export default function LabPage() {
                     </div>
                   )}
 
-                  {/* 건너뛰기 — 학습 없이 이 항목만 목록에서 빼낸다(reason_status='skipped'). */}
-                  <div className="flex justify-end mt-4 pt-3 border-t border-line">
+                  {/* '직접 설명하기' 자유 텍스트 — 백엔드가 LLM 으로 기존 카테고리에 매핑한다. */}
+                  {freeOpen && (
+                    <div className="mt-4 animate-fade-in">
+                      <label
+                        htmlFor={`lab-free-${item.feedbackId}`}
+                        className="block text-sm font-semibold text-muk-soft mb-2"
+                      >
+                        {t('lab.freeTextLabel')}
+                      </label>
+                      <textarea
+                        id={`lab-free-${item.feedbackId}`}
+                        value={freeText}
+                        onChange={(e) => setFreeText(e.target.value)}
+                        placeholder={t('lab.freeTextPlaceholder')}
+                        maxLength={NOTE_MAX}
+                        rows={2}
+                        className="w-full bg-hanji border border-line text-muk placeholder:text-muk-soft/70 rounded-xl p-3 text-sm outline-none focus:border-gold transition-colors resize-none"
+                      />
+                      <div className="flex items-center justify-between gap-3 mt-2">
+                        <span className="text-[11px] text-muk-soft tabular-nums">{freeText.length}/{NOTE_MAX}</span>
+                        <button
+                          type="button"
+                          disabled={busy || !freeText.trim()}
+                          onClick={() => void handleClassify(item)}
+                          className="px-4 py-2 rounded-xl bg-gold hover:bg-gold-deep disabled:opacity-50 text-white text-sm font-bold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+                        >
+                          {t('lab.freeTextSubmit')}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 직접 설명하기(자유 텍스트 토글) + 건너뛰기(학습 없이 목록에서만 빼낸다). */}
+                  <div className="flex justify-between items-center mt-4 pt-3 border-t border-line">
+                    <button
+                      type="button"
+                      disabled={busy}
+                      aria-pressed={freeOpen}
+                      onClick={() => toggleFreeText(item.feedbackId)}
+                      className="text-xs font-semibold text-gold hover:text-gold-deep disabled:opacity-50 transition-colors px-2 py-1 rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+                    >
+                      {t('lab.freeText')}
+                    </button>
                     <button
                       type="button"
                       disabled={busy}

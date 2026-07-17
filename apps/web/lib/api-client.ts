@@ -338,6 +338,22 @@ export async function answerLabReason(
   });
 }
 
+/**
+ * 자유 텍스트 거절 이유를 백엔드가 LLM 으로 기존 카테고리에 매핑한다.
+ * resolved=true 면 선택지 제출과 동일하게 처리(학습 정확히 1회) → 목록에서 제거.
+ * resolved=false 면(LLM 비활성/실패/확신 없음) 프런트가 "선택지에서 골라주세요"로 폴백한다(무해).
+ */
+export async function classifyLabReason(
+  feedbackId: string,
+  text: string
+): Promise<{ resolved: boolean }> {
+  const data: { resolved?: boolean } = await apiClient.post(
+    `/api/v1/lab/${feedbackId}/reason/classify`,
+    { text }
+  );
+  return { resolved: data.resolved === true };
+}
+
 /** 이유 응답 건너뛰기 → reason_status='skipped'. */
 export async function skipLabItem(feedbackId: string): Promise<void> {
   await apiClient.post(`/api/v1/lab/${feedbackId}/skip`);

@@ -31,6 +31,7 @@ from app.routers.recommendations import (
     resolve_feedback_target,
 )
 from app.services import feedback_service as fs
+from app.services import llm_client
 
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1/lab", tags=["lab"])
@@ -64,6 +65,38 @@ class ReasonRequest(BaseModel):
     ]
     # DB CHECK(char_length <= 200)와 동일. pydantic 이 먼저 422 로 거르고, feedback_service 가 2차 방어한다.
     reason_note: str | None = Field(None, max_length=fs.REASON_NOTE_MAX_LEN)
+
+
+class ClassifyReasonRequest(BaseModel):
+    # 자유 서술 원문 — 최대 200자(reason_note DB CHECK 와 동일 상한). 서버 로그에 원문을 남기지 않는다.
+    text: str = Field(..., min_length=1, max_length=fs.REASON_NOTE_MAX_LEN)
+
+
+# 자유 텍스트 → 기존 reason_code 분류용 프롬프트. 설명(description)은 사람 읽기용이고,
+# **분류 결과의 정본 화이트리스트는 fs.REASON_CODES 다** — keys 는 그 집합과 1:1이어야 한다
+# (test_classify_descriptions_match_whitelist 가 패리티를 강제). 목록 밖 category 는 환각으로 폴백.
+_REASON_DESCRIPTIONS: dict[str, str] = {
+    "too_far": "거리가 멀어서 가기 부담된다",
+    "too_crowded": "사람이 많고 붐빌 것 같다",
+    "not_my_taste": "분위기·취향이 내 스타일이 아니다",
+    "too_expensive": "가격이 비싸서 부담된다",
+    "closed": "영업을 하지 않거나 문을 닫았다",
+    "already_visited": "이미 가본 곳이다",
+    "bad_timing": "지금 시간대·상황에 맞지 않는다",
+    "inaccurate": "추천 정보가 부정확하거나 사실과 다르다",
+    "other": "위 어느 것에도 해당하지 않는 기타 사유",
+}
+
+_CLASSIFY_SYSTEM = (
+    "너는 여행지 추천을 거절한 사용자의 짧은 이유 문장을 정해진 카테고리 하나로 분류하는 분류기다.\n"
+    "아래 카테고리 중 사용자의 문장에 가장 잘 맞는 코드 하나를 고른다. "
+    "어디에도 확실히 맞지 않으면 category 를 null 로 둔다(억지로 고르지 말 것).\n\n"
+    "카테고리:\n"
+    + "\n".join(f"- {code}: {desc}" for code, desc in _REASON_DESCRIPTIONS.items())
+    + "\n\n"
+    "반드시 JSON 객체 하나만 출력한다: "
+    '{"category": <위 코드 중 하나 또는 null>, "note": <사용자 이유를 20자 이내로 요약한 한국어 문자열>}'
+)
 
 
 def _embedded(value):
@@ -177,6 +210,29 @@ async def _patch_own_feedback(feedback_id: str, user_id: str, patch: dict) -> di
     return data[0] if data else {}
 
 
+async def _classify_free_text(text: str) -> tuple[str | None, str | None]:
+    """자유 텍스트를 기존 reason_code 하나로 분류한다(LLM). (reason_code, note) 반환.
+
+    분류 실패는 전부 (None, None) — 호출자는 무해 폴백한다:
+      - LLM None(비활성/타임아웃/오류) 또는 비-dict 출력
+      - category 가 문자열이 아니거나 **화이트리스트(fs.REASON_CODES) 밖**(환각 방어)
+      - category 가 null(모델이 확신하지 못함)
+    note 는 20자 요약(있으면) — 200자 상한으로 방어적 절단, 없거나 공백이면 None.
+    """
+    parsed = await llm_client.chat_json(_CLASSIFY_SYSTEM, text, max_tokens=120)
+    if not isinstance(parsed, dict):
+        return None, None
+    category = parsed.get("category")
+    if not isinstance(category, str) or category not in fs.REASON_CODES:
+        return None, None
+    note = parsed.get("note")
+    if isinstance(note, str) and note.strip():
+        note = note.strip()[: fs.REASON_NOTE_MAX_LEN]
+    else:
+        note = None
+    return category, note
+
+
 @router.get("/pending")
 async def list_pending(current_user: dict = Depends(get_current_user)):
     """사유 미응답(pending) 거절 목록 — 본인·미숨김·30일 이내, 최신순 최대 10건."""
@@ -245,6 +301,87 @@ async def answer_reason(
     )
     return {
         "success": True,
+        "id": result["id"],
+        "reason_status": result["reason_status"],
+        "reason_code": result["reason_code"],
+        "learning_scope": result["learning_scope"],
+        "updated_vector": updated_vector,
+    }
+
+
+@router.post("/{feedback_id}/reason/classify")
+async def classify_reason(
+    feedback_id: str,
+    req: ClassifyReasonRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """자유 텍스트 거절 사유를 LLM 으로 기존 카테고리에 매핑하고, 성공하면 **기존 사유 적용 경로를 그대로** 탄다.
+
+    설계(학습 경로 재사용): 분류가 화이트리스트를 통과하면 answer_reason 과 **동일하게** fs.apply_reason
+    (학습 슬롯 = learning_applied_at) → should_learn_vector 일 때만 라우터가 벡터 -5%. 즉 자유 텍스트도
+    선택지 버튼과 **완전히 같은 '정확히 1회' 계약**을 공유한다. 새 학습 경로를 만들지 않는다.
+
+    무해 폴백(422 아님, 200 + {"resolved": false}):
+      - LLM 비활성/실패, 또는 분류 결과가 null·화이트리스트 밖(환각) → resolved=false.
+        프런트가 "선택지에서 골라주세요"로 유도하고 기존 이유 칩을 그대로 유지한다.
+    개인정보: 자유 텍스트 원문·LLM 요약 원문은 서버 로그에 남기지 않는다(길이·코드만).
+    """
+    user_id = current_user["id"]
+    row = await _fetch_own_feedback(feedback_id, user_id)
+
+    # answer_reason 과 동일 — 30일 지난 pending 은 학습 대상에서 제외.
+    if fs.is_expired(row, fs._utcnow()):
+        raise HTTPException(status_code=409, detail="응답 기간(30일)이 지난 피드백입니다.")
+
+    text = req.text.strip()
+    # LLM 이 없으면 네트워크 없이 즉시 폴백 — 데모에서 죽은 UI 대신 프런트 안내로 이어진다.
+    if not text or not llm_client.is_enabled():
+        logger.info(
+            "lab_reason_classify_skipped",
+            feedback_id=feedback_id,
+            user_id=user_id,
+            llm_enabled=llm_client.is_enabled(),
+        )
+        return {"resolved": False}
+
+    reason_code, note = await _classify_free_text(text)
+    if reason_code is None:
+        # 분류 실패(화이트리스트 밖/null/LLM 오류) — 무해 폴백. 원문은 로그에 없다(길이만).
+        logger.info(
+            "lab_reason_classify_unresolved",
+            feedback_id=feedback_id,
+            user_id=user_id,
+            text_length=len(text),
+        )
+        return {"resolved": False}
+
+    # --- 여기부터 answer_reason 과 동일한 기존 적용 경로(재사용) ---
+    try:
+        result = await fs.apply_reason(
+            supabase_admin, feedback_row=row, reason_code=reason_code, reason_note=note
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+
+    updated_vector = False
+    if result["should_learn_vector"]:
+        _rec, facility = await resolve_feedback_target(row["recommendation_id"], current_user)
+        updated_vector = await apply_feedback_vector_learning(
+            user_id=user_id, facility=facility, vector_action=VECTOR_ACTION_PENALIZE
+        )
+
+    # 로그: reason_code/길이만 — 자유 텍스트·요약 원문은 절대 남기지 않는다(개인정보).
+    logger.info(
+        "lab_reason_classified",
+        feedback_id=feedback_id,
+        user_id=user_id,
+        reason_code=reason_code,
+        learning_scope=result["learning_scope"],
+        text_length=len(text),
+        updated_vector=updated_vector,
+    )
+    return {
+        "resolved": True,
         "id": result["id"],
         "reason_status": result["reason_status"],
         "reason_code": result["reason_code"],

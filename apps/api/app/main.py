@@ -62,6 +62,14 @@ async def lifespan(_app: FastAPI):
     _logger.info("warmup_done", total_ms=round((time.perf_counter() - t0) * 1000))
     yield
 
+    # 종료 시 외부 커넥션 정리 — lazy 싱글턴 AsyncClient 가 닫힌 이벤트 루프에 남지 않게
+    # (Codex 감사 P2-8). best-effort: 정리 실패가 종료를 막지 않는다.
+    try:
+        from app.services import llm_client
+        await llm_client.aclose()
+    except Exception as e:
+        _logger.warning("shutdown_llm_client_close_failed", error=str(e))
+
 
 app = FastAPI(
     title=settings.PROJECT_NAME,

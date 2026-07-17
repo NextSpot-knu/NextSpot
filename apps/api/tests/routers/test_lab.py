@@ -247,6 +247,13 @@ def _answer(client, db, reason_code: str, note: str | None = None):
         return client.post(f"/api/v1/lab/{FEEDBACK_ID}/reason", json=body)
 
 
+def _classify(client, db, text: str):
+    # supabase 패치는 _answer 와 동일 지점(reason 확정 경로 재사용을 그대로 태운다).
+    with patch("app.routers.lab.supabase_admin", new=db), \
+         patch("app.routers.recommendations.supabase_client", new=db):
+        return client.post(f"/api/v1/lab/{FEEDBACK_ID}/reason/classify", json={"text": text})
+
+
 def test_reason_long_term_learns_exactly_once(auth_client):
     db = _lab_db([_pending_row(1, id=FEEDBACK_ID)])
     adjust = AsyncMock()
@@ -433,3 +440,178 @@ def test_reason_code_literal_matches_service_whitelist():
 
     literal = set(get_args(ReasonRequest.model_fields["reason_code"].annotation))
     assert literal == set(fs.REASON_CODES)
+
+
+def test_classify_descriptions_match_whitelist():
+    # LLM 프롬프트가 나열하는 카테고리 = 서비스 화이트리스트(정본). 어긋나면 환각 방어가 흔들린다.
+    from app.routers.lab import _REASON_DESCRIPTIONS
+
+    assert set(_REASON_DESCRIPTIONS) == set(fs.REASON_CODES)
+
+
+# =========================================================================
+# 6. 자유 텍스트 LLM 분류 — 분류 성공은 기존 적용 경로 재사용, 실패는 무해 폴백
+# =========================================================================
+
+_LLM_ENABLED = "app.services.llm_client.is_enabled"
+_LLM_CHAT_JSON = "app.services.llm_client.chat_json"
+
+
+def test_classify_success_reuses_learning_path_exactly_once(auth_client):
+    # 핵심: 자유 텍스트도 선택지 버튼과 **완전히 같은** 학습 경로(apply_reason + 벡터 -5%)를 탄다.
+    db = _lab_db([_pending_row(1, id=FEEDBACK_ID)])
+    adjust = AsyncMock()
+    chat = AsyncMock(return_value={"category": "not_my_taste", "note": "분위기가 별로"})
+    with patch.object(preference_vector_service, "adjust_user_vector_on_feedback", new=adjust), \
+         patch(_LLM_ENABLED, return_value=True), \
+         patch(_LLM_CHAT_JSON, new=chat):
+        first = _classify(auth_client, db, "분위기가 너무 제 취향이 아니었어요")
+        # 같은 행을 다시 분류(중복 제출)해도 재학습은 없어야 한다.
+        second = _classify(auth_client, db, "역시 별로였어요")
+
+    assert first.status_code == 200
+    body = first.json()
+    assert body["resolved"] is True
+    assert body["reason_status"] == fs.STATUS_ANSWERED
+    assert body["reason_code"] == "not_my_taste"
+    assert body["learning_scope"] == fs.SCOPE_LONG_TERM
+    assert body["updated_vector"] is True
+
+    assert second.status_code == 200
+    assert second.json()["updated_vector"] is False
+
+    # 학습 정확히 1회 + 감점 방향(-5%) — record/apply 경로가 소유하는 계약을 그대로 물려받는다.
+    assert adjust.await_count == 1
+    assert adjust.await_args.kwargs["action"] == "rejected"
+    assert adjust.await_args.kwargs["user_id"] == USER
+
+    stored = db._tables["user_feedback"][0]
+    assert stored["reason_status"] == fs.STATUS_ANSWERED
+    assert stored["reason_code"] == "not_my_taste"
+    assert stored["reason_note"] == "분위기가 별로"  # LLM 요약 note 저장(원문 아님)
+    assert stored["learning_applied_at"] is not None
+    assert stored["learning_version"] == fs.LEARNING_VERSION
+
+
+def test_classify_data_quality_resolves_without_penalizing_taste(auth_client):
+    # '휴업'으로 분류되면 answered 로 내려가되 취향 벡터는 절대 감점하지 않는다(scope=data_quality).
+    db = _lab_db([_pending_row(1, id=FEEDBACK_ID)])
+    adjust = AsyncMock()
+    chat = AsyncMock(return_value={"category": "closed", "note": "문 닫음"})
+    with patch.object(preference_vector_service, "adjust_user_vector_on_feedback", new=adjust), \
+         patch(_LLM_ENABLED, return_value=True), \
+         patch(_LLM_CHAT_JSON, new=chat):
+        res = _classify(auth_client, db, "갔더니 문을 닫았더라고요")
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["resolved"] is True
+    assert body["reason_code"] == "closed"
+    assert body["learning_scope"] == fs.SCOPE_DATA_QUALITY
+    assert body["updated_vector"] is False
+    adjust.assert_not_awaited()
+    assert db._tables["user_feedback"][0]["learning_applied_at"] is None
+
+
+def test_classify_hallucinated_category_falls_back(auth_client):
+    # 화이트리스트 밖 category(환각) → 실패 취급. 학습 없음, 행은 pending 그대로.
+    db = _lab_db([_pending_row(1, id=FEEDBACK_ID)])
+    adjust = AsyncMock()
+    chat = AsyncMock(return_value={"category": "i_just_hate_it", "note": "x"})
+    with patch.object(preference_vector_service, "adjust_user_vector_on_feedback", new=adjust), \
+         patch(_LLM_ENABLED, return_value=True), \
+         patch(_LLM_CHAT_JSON, new=chat):
+        res = _classify(auth_client, db, "그냥 다 싫어요")
+
+    assert res.status_code == 200
+    assert res.json() == {"resolved": False}
+    adjust.assert_not_awaited()
+    row = db._tables["user_feedback"][0]
+    assert row["reason_status"] == fs.STATUS_PENDING
+    assert row["learning_applied_at"] is None
+
+
+def test_classify_null_category_falls_back(auth_client):
+    # 모델이 확신 못 해 category=null → 폴백(억지 분류 금지).
+    db = _lab_db([_pending_row(1, id=FEEDBACK_ID)])
+    adjust = AsyncMock()
+    chat = AsyncMock(return_value={"category": None, "note": "모호"})
+    with patch.object(preference_vector_service, "adjust_user_vector_on_feedback", new=adjust), \
+         patch(_LLM_ENABLED, return_value=True), \
+         patch(_LLM_CHAT_JSON, new=chat):
+        res = _classify(auth_client, db, "음 그냥요")
+
+    assert res.status_code == 200
+    assert res.json() == {"resolved": False}
+    adjust.assert_not_awaited()
+    assert db._tables["user_feedback"][0]["reason_status"] == fs.STATUS_PENDING
+
+
+def test_classify_llm_none_falls_back(auth_client):
+    # LLM 타임아웃/오류(None) → 폴백. 학습 없음.
+    db = _lab_db([_pending_row(1, id=FEEDBACK_ID)])
+    adjust = AsyncMock()
+    chat = AsyncMock(return_value=None)
+    with patch.object(preference_vector_service, "adjust_user_vector_on_feedback", new=adjust), \
+         patch(_LLM_ENABLED, return_value=True), \
+         patch(_LLM_CHAT_JSON, new=chat):
+        res = _classify(auth_client, db, "잘 모르겠어요")
+
+    assert res.status_code == 200
+    assert res.json() == {"resolved": False}
+    adjust.assert_not_awaited()
+    assert db._tables["user_feedback"][0]["reason_status"] == fs.STATUS_PENDING
+
+
+def test_classify_llm_disabled_falls_back_without_calling_model(auth_client):
+    # LLM 비활성 → 네트워크 없이 즉시 폴백. 모델은 호출조차 되지 않는다.
+    db = _lab_db([_pending_row(1, id=FEEDBACK_ID)])
+    chat = AsyncMock(side_effect=AssertionError("LLM 비활성 시 호출 금지"))
+    with patch(_LLM_ENABLED, return_value=False), \
+         patch(_LLM_CHAT_JSON, new=chat):
+        res = _classify(auth_client, db, "가격이 너무 비쌌어요")
+
+    assert res.status_code == 200
+    assert res.json() == {"resolved": False}
+    chat.assert_not_awaited()
+    assert db._tables["user_feedback"][0]["reason_status"] == fs.STATUS_PENDING
+
+
+def test_classify_on_other_users_feedback_403_without_touching_llm(auth_client):
+    # 소유권 검사가 LLM 호출보다 먼저 — 타인 행은 분류 시도조차 하지 않는다.
+    db = _lab_db([_pending_row(1, id=FEEDBACK_ID, user_id=OTHER_USER)])
+    adjust = AsyncMock()
+    chat = AsyncMock(return_value={"category": "not_my_taste", "note": "x"})
+    with patch.object(preference_vector_service, "adjust_user_vector_on_feedback", new=adjust), \
+         patch(_LLM_ENABLED, return_value=True), \
+         patch(_LLM_CHAT_JSON, new=chat):
+        res = _classify(auth_client, db, "취향 아님")
+
+    assert res.status_code == 403
+    adjust.assert_not_awaited()
+    chat.assert_not_awaited()
+    assert db._tables["user_feedback"][0]["reason_status"] == fs.STATUS_PENDING
+
+
+def test_classify_expired_409(auth_client):
+    # 30일 지난 pending 은 answer_reason 과 동일하게 학습 대상에서 제외(LLM 호출 전 차단).
+    db = _lab_db([_pending_row(1, id=FEEDBACK_ID, age_days=31)])
+    chat = AsyncMock(return_value={"category": "not_my_taste", "note": "x"})
+    with patch(_LLM_ENABLED, return_value=True), patch(_LLM_CHAT_JSON, new=chat):
+        res = _classify(auth_client, db, "취향 아님")
+
+    assert res.status_code == 409
+    chat.assert_not_awaited()
+
+
+def test_classify_text_too_long_422(auth_client):
+    # 200자 초과 자유 텍스트는 pydantic 이 라우터 진입 전에 422 로 거른다(DB CHECK 상한과 동일).
+    db = _lab_db([_pending_row(1, id=FEEDBACK_ID)])
+    res = _classify(auth_client, db, "가" * (fs.REASON_NOTE_MAX_LEN + 1))
+    assert res.status_code == 422
+
+
+def test_classify_requires_auth():
+    with TestClient(app) as c:
+        res = c.post(f"/api/v1/lab/{FEEDBACK_ID}/reason/classify", json={"text": "x"})
+        assert res.status_code == 401

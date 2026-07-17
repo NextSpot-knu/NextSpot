@@ -48,22 +48,35 @@ def is_enabled() -> bool:
     return bool((settings.UPSTAGE_API_KEY or "").strip())
 
 
-def extract_json(text: Any) -> Optional[dict]:
-    """모델 출력에서 JSON 객체를 관대하게 추출(코드펜스·전후 설명 텍스트 흡수).
+async def aclose() -> None:
+    """lifespan 종료 시 연결 정리(Codex 감사 P2-8) — 미기동/이미 닫힘이면 no-op."""
+    global _client
+    if _client is not None and not _client.is_closed:
+        await _client.aclose()
+    _client = None
 
-    첫 '{' 부터 마지막 '}' 까지를 파싱 시도. dict 가 아니거나 실패하면 None(예외 없음).
+
+def extract_json(text: Any) -> Optional[dict]:
+    """모델 출력에서 단일 JSON 객체를 엄격 추출(Codex 감사 P2-6).
+
+    선행 텍스트·코드펜스는 허용(첫 '{' 부터 raw_decode)하되, 객체 뒤에 펜스 잔여물 외의
+    후행 콘텐츠(이중 JSON·설명문)가 있으면 모호성으로 보고 거부한다 — '첫 번째/마지막을
+    임의 채택'하는 관대한 파서는 인젝션 모호성을 키운다. dict 아님/실패는 None(예외 없음).
     """
     if not isinstance(text, str):
         return None
     start = text.find("{")
-    end = text.rfind("}")
-    if start < 0 or end <= start:
+    if start < 0:
         return None
     try:
-        parsed = json.loads(text[start : end + 1])
+        parsed, end = json.JSONDecoder().raw_decode(text, start)
     except ValueError:
         return None
-    return parsed if isinstance(parsed, dict) else None
+    if not isinstance(parsed, dict):
+        return None
+    if text[end:].strip().strip("`").strip():  # 코드펜스 백틱만 후행 허용
+        return None
+    return parsed
 
 
 async def chat_text(
@@ -113,5 +126,7 @@ async def chat_json(
         return None
     parsed = extract_json(content)
     if parsed is None:
-        logger.warning("llm_bad_json", model=settings.LLM_MODEL, head=content[:120])
+        # 응답 본문은 로그에 남기지 않는다(Codex 리뷰 P1): 모델이 입력(실험실 자유 텍스트 등
+        # 민감 정보)을 되풀이한 출력이 로그로 재노출될 수 있다. 길이만 기록.
+        logger.warning("llm_bad_json", model=settings.LLM_MODEL, content_length=len(content))
     return parsed

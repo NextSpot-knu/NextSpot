@@ -1,0 +1,192 @@
+# 추천 사유 서비스 — 결정적 템플릿 + 선택적 LLM 문체 다듬기(Upstage Solar).
+# 핵심 계약: (1) 정직성 검증(숫자 부분집합·시설명 보존) 하나라도 어긋나면 템플릿 원문,
+#           (2) LLM 비활성/실패 시 출력이 기존 템플릿과 100% 동일(회귀 0),
+#           (3) 같은 카드(시설+혼잡도 버킷+시각) 반복 노출 시 캐시 히트로 chat_text 미호출.
+# conftest 가 UPSTAGE_API_KEY="" 로 고정해 기본은 LLM 완전 비활성 — LLM 경로가 필요한
+# 테스트는 reason_service.llm_client 를 개별 monkeypatch 한다(voice_intent_service 테스트와 동일 원칙).
+
+from unittest.mock import AsyncMock
+
+import pytest
+
+from app.services import reason_service
+from app.services.reason_service import (
+    _build_template,
+    _is_honest_polish,
+    generate_reason,
+)
+
+
+@pytest.fixture(autouse=True)
+def _clear_reason_cache():
+    # 모듈 전역 캐시가 테스트 간 오염되지 않도록 매 테스트 전후로 비운다.
+    reason_service._cache.clear()
+    yield
+    reason_service._cache.clear()
+
+
+_CTX = {
+    "facility_id": "f-cafe-1",
+    "recommended_facility_name": "카페능",
+    "candidate_congestion": 0.3,
+    "travel_time": 5,
+    "predicted_wait": 10,
+}
+
+_CONGESTED_CTX = {
+    "facility_id": "f-cafe-2",
+    "recommended_facility_name": "북적식당",
+    "candidate_congestion": 0.8,
+    "travel_time": 7,
+    "predicted_wait": 20,
+}
+
+
+# --- 템플릿(기존 결정적 경로) — 회귀 확인용 ------------------------------------------------
+
+def test_build_template_relaxed():
+    text = _build_template(_CTX)
+    assert text == "카페능 추천: 도보 5분, 예상 대기 10분, 혼잡도 30% 수준으로 여유가 있습니다."
+
+
+def test_build_template_congested():
+    text = _build_template(_CONGESTED_CTX)
+    assert text == "북적식당: 도보 7분, 예상 대기 20분, 혼잡도 80% 수준으로 지금은 붐벼 대기가 길 수 있어요."
+
+
+# --- 정직성 검증(_is_honest_polish) — 핵심 게이트 ------------------------------------------
+
+def test_is_honest_polish_accepts_paraphrase_with_same_facts():
+    original = _build_template(_CTX)
+    polished = "카페능은 도보로 5분 거리에 있고 대기도 10분 정도라 여유로워요. 혼잡도는 30%대로 낮은 편입니다."
+    assert _is_honest_polish(original, polished, "카페능") is True
+
+
+def test_is_honest_polish_rejects_added_number():
+    # 원문에 없는 숫자(예: 3km)를 새로 만들어내면 거부.
+    original = _build_template(_CTX)
+    polished = "카페능은 여기서 3km 거리에 있고 도보 5분, 대기 10분, 혼잡도 30% 수준입니다."
+    assert _is_honest_polish(original, polished, "카페능") is False
+
+
+def test_is_honest_polish_rejects_altered_number():
+    # 원문의 숫자를 다른 값으로 바꿔치기(5분 → 50분)하면 거부. 문자열 부분매치가 아니라
+    # 토큰 단위 비교라 '50' 은 원문 숫자 집합 {5, 10, 30} 의 원소가 아니다.
+    original = _build_template(_CTX)
+    polished = "카페능은 도보 50분, 대기 10분, 혼잡도 30% 수준입니다."
+    assert _is_honest_polish(original, polished, "카페능") is False
+
+
+def test_is_honest_polish_rejects_missing_facility_name():
+    original = _build_template(_CTX)
+    polished = "이 곳은 도보 5분, 대기 10분, 혼잡도 30% 수준으로 여유로워요."
+    assert _is_honest_polish(original, polished, "카페능") is False
+
+
+def test_is_honest_polish_rejects_empty_output():
+    original = _build_template(_CTX)
+    assert _is_honest_polish(original, "", "카페능") is False
+    assert _is_honest_polish(original, "   ", "카페능") is False
+    assert _is_honest_polish(original, None, "카페능") is False
+
+
+def test_is_honest_polish_allows_subset_of_original_numbers():
+    # 원문 숫자 중 일부만 언급해도(부분집합) 통과 — 새 숫자를 만들지만 않으면 된다.
+    original = _build_template(_CTX)
+    polished = "카페능은 도보 5분 거리로 여유롭습니다."
+    assert _is_honest_polish(original, polished, "카페능") is True
+
+
+# --- generate_reason — LLM 비활성/실패 시 회귀 0 --------------------------------------------
+
+@pytest.mark.asyncio
+async def test_generate_reason_llm_disabled_matches_template():
+    # conftest 가 UPSTAGE_API_KEY="" 로 고정 — 기본 상태에선 LLM 경로 자체를 타지 않는다.
+    assert reason_service.llm_client.is_enabled() is False
+    result = await generate_reason(_CTX)
+    assert result == _build_template(_CTX)
+
+
+@pytest.mark.asyncio
+async def test_generate_reason_llm_disabled_touches_no_network(monkeypatch):
+    # 비활성 상태에선 chat_text 자체가 호출되지 않아야 한다(무해 폴백 — 지연 0).
+    chat = AsyncMock()
+    monkeypatch.setattr(reason_service.llm_client, "chat_text", chat)
+    await generate_reason(_CTX)
+    chat.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_generate_reason_llm_failure_returns_template(monkeypatch):
+    # LLM 이 활성이어도 chat_text 실패(타임아웃/오류 → None)면 템플릿 원문 그대로.
+    monkeypatch.setattr(reason_service.llm_client, "is_enabled", lambda: True)
+    monkeypatch.setattr(reason_service.llm_client, "chat_text", AsyncMock(return_value=None))
+    result = await generate_reason(_CTX)
+    assert result == _build_template(_CTX)
+
+
+@pytest.mark.asyncio
+async def test_generate_reason_dishonest_llm_output_falls_back_to_template(monkeypatch):
+    # LLM 이 응답은 했지만 숫자를 지어냈다면(정직성 검증 실패) 템플릿 원문으로 폴백.
+    monkeypatch.setattr(reason_service.llm_client, "is_enabled", lambda: True)
+    monkeypatch.setattr(
+        reason_service.llm_client, "chat_text",
+        AsyncMock(return_value="카페능은 도보 500분 거리에 있어 아주 멀어요."),
+    )
+    result = await generate_reason(_CTX)
+    assert result == _build_template(_CTX)
+
+
+@pytest.mark.asyncio
+async def test_generate_reason_accepts_honest_llm_polish(monkeypatch):
+    # LLM 출력이 정직성 검증을 통과하면 다듬어진 문장을 채택한다(템플릿 그대로가 아님).
+    monkeypatch.setattr(reason_service.llm_client, "is_enabled", lambda: True)
+    polished_text = "카페능은 도보 5분, 대기 10분 정도로 여유로운 편이에요. 혼잡도도 30%대로 낮습니다."
+    monkeypatch.setattr(
+        reason_service.llm_client, "chat_text", AsyncMock(return_value=polished_text)
+    )
+    result = await generate_reason(_CTX)
+    assert result == polished_text
+    assert result != _build_template(_CTX)
+
+
+# --- 캐시 — 같은 카드 반복 노출 시 재호출 금지 ----------------------------------------------
+
+@pytest.mark.asyncio
+async def test_generate_reason_cache_hit_skips_second_llm_call(monkeypatch):
+    monkeypatch.setattr(reason_service.llm_client, "is_enabled", lambda: True)
+    polished_text = "카페능은 도보 5분, 대기 10분 정도로 여유로운 편이에요. 혼잡도도 30%대로 낮습니다."
+    chat = AsyncMock(return_value=polished_text)
+    monkeypatch.setattr(reason_service.llm_client, "chat_text", chat)
+
+    first = await generate_reason(_CTX)
+    second = await generate_reason(dict(_CTX))  # 새 dict 지만 동일 facility/혼잡도/시각 → 같은 캐시 키
+
+    assert first == second == polished_text
+    chat.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_generate_reason_cache_miss_for_different_facility(monkeypatch):
+    # 시설이 다르면(캐시 키의 facility_id 가 다름) 별개로 다시 호출한다.
+    monkeypatch.setattr(reason_service.llm_client, "is_enabled", lambda: True)
+    chat = AsyncMock(side_effect=[
+        "카페능은 도보 5분, 대기 10분 정도로 여유로운 편이에요. 혼잡도도 30%대로 낮습니다.",
+        "북적식당: 도보 7분, 대기 20분 정도로 지금은 혼잡도 80%대라 붐벼요.",
+    ])
+    monkeypatch.setattr(reason_service.llm_client, "chat_text", chat)
+
+    await generate_reason(_CTX)
+    await generate_reason(_CONGESTED_CTX)
+    assert chat.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_generate_reason_without_facility_id_still_falls_back_safely(monkeypatch):
+    # facility_id(또는 이름)가 전혀 없으면 캐시 키를 만들 수 없어 캐싱을 건너뛴다 — 매 호출
+    # LLM 을 다시 타더라도 정상 동작(안전한 저하)해야 하며 출력은 여전히 문자열이어야 한다.
+    monkeypatch.setattr(reason_service.llm_client, "is_enabled", lambda: True)
+    monkeypatch.setattr(reason_service.llm_client, "chat_text", AsyncMock(return_value=None))
+    ctx = {"candidate_congestion": 0.3, "travel_time": 5, "predicted_wait": 10}
+    result = await generate_reason(ctx)
+    assert result == _build_template(ctx)

@@ -20,7 +20,7 @@ import { ArrowLeft, Crown } from "lucide-react";
 import { isServiceUnavailable, recommendByType } from "@/lib/api-client";
 import { recToSpot } from "@/lib/recommender";
 import { REGION } from "@/lib/region";
-import { useT } from "@/lib/i18n/I18nProvider";
+import { useI18n, useT } from "@/lib/i18n/I18nProvider";
 import { GoldenHourBadge } from "@/components/GoldenHourBadge";
 import NowChip from "@/components/NowChip";
 // T2: 휴무 원문(rest_date_raw) 파서 — 오늘 휴무 '확정'만 판정(모르면 null, 과판정 금지). 공용 단일 소스.
@@ -110,11 +110,16 @@ const congestionBadgeClass = (c: number) =>
 
 export default function WaitingBoardPage() {
   const router = useRouter();
-  const t = useT();
+  const { t, locale } = useI18n();
 
   const [sectors, setSectors] = useState<Sector[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
+
+  // fetchBoard 는 useCallback([]) 로 마운트 시 1회만 만들어져 locale 을 클로저로 캡처하면 언어 전환
+  // 후 재조회(재시도 버튼 등)해도 옛 로케일로 요약을 구성하게 된다 — ref 로 항상 최신값을 읽는다.
+  const localeRef = useRef(locale);
+  useEffect(() => { localeRef.current = locale; }, [locale]);
 
   // main 과 동일한 기본 좌표 폴백(경주 황리단길 중심) — 지역 단일 소스(REGION)에서 가져온다.
   const userLocation = { lat: REGION.center.lat, lng: REGION.center.lng };
@@ -164,6 +169,17 @@ export default function WaitingBoardPage() {
           | string
           | null
           | undefined;
+        // 소개(overview) 다국어 — 배치 번역(apps/api/scripts/translate_overviews.py)이
+        // features.overview_i18n = {en, ja, zh} 에 저장(스키마 변경 없음). RecommendationCard 와 동일하게
+        // camelCase(overviewI18n)·원본 snake_case(overview_i18n) 두 표기를 모두 지원한다.
+        // 로케일이 ko 면 항상 원문만 쓴다(번역 유무와 무관 — 기존 동작 불변).
+        const overviewI18n = (rec.facility.features?.overviewI18n ?? rec.facility.features?.overview_i18n) as
+          | Record<string, string>
+          | null
+          | undefined;
+        const currentLocale = localeRef.current;
+        const translatedOverview = currentLocale !== "ko" ? overviewI18n?.[currentLocale] : undefined;
+        const overviewText = (translatedOverview || rec.facility.overview)?.trim();
         return {
           facilityId: rec.facility.id,
           name: rec.facility.name,
@@ -176,9 +192,9 @@ export default function WaitingBoardPage() {
               )
             )
           ),
-          // TourAPI 소개를 우선하고, 없으면 실제 주소를 짧은 보조 설명으로 사용한다.
-          // 둘 다 없을 때는 내용을 지어내지 않고 설명 영역을 숨긴다.
-          summary: rec.facility.overview?.trim() || rec.facility.address?.trim() || null,
+          // TourAPI 소개(비-ko 로케일이면 배치 번역 우선)를 우선하고, 없으면 실제 주소를 짧은 보조
+          // 설명으로 사용한다. 둘 다 없을 때는 내용을 지어내지 않고 설명 영역을 숨긴다.
+          summary: overviewText || rec.facility.address?.trim() || null,
           imageSource: (() => {
             const source = rec.facility.features?.imageSource;
             return source && typeof source === "object"

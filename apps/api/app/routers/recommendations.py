@@ -1,12 +1,13 @@
 # pyrefly: ignore [missing-import]
 import asyncio
 import math
+import time
 import uuid
 from datetime import datetime, timezone
 from typing import Literal
 import structlog
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import AliasChoices, BaseModel, Field, field_validator
 # 이 라우터는 인증된 사용자 컨텍스트에서 본인 소유 데이터만 다루는 서버→서버 신뢰 경로다.
 # recommendations/user_feedback 는 RLS 가 service_role/authenticated 만 INSERT 를 허용하는데,
 # anon 클라이언트는 요청별 JWT 를 PostgREST 로 싣지 않아 auth.uid()=null → RLS 거부가 된다.
@@ -284,10 +285,12 @@ async def get_recommendations(
     top_n = recommendation_results[:5]  # 추천 제안 개수(요청: 3 → 5)
 
     # 4-1. WP3: 상위 N개(=top_n)에만 백엔드 사유 생성 (동시 호출, 실패 시 템플릿 폴백)
-    #      컨텍스트는 reason_service._build_template 가 실제 소비하는 키만 전달한다.
+    #      컨텍스트는 reason_service 가 소비하는 키만 전달한다: _build_template 는 이름·수치를,
+    #      facility_id 는 LLM 문체 다듬기의 캐시 키(시설+혼잡도 버킷+시각)로 쓰인다.
     async def _reason_for(item: dict) -> str:
         bd = item["breakdown"]
         return await generate_reason({
+            "facility_id": item["facility"].get("id"),
             "recommended_facility_name": item["facility"].get("name"),
             "candidate_congestion": item["candidate_congestion"],
             "travel_time": bd.get("travel_time"),
@@ -444,10 +447,12 @@ async def recommend_by_type(
     scored.sort(key=lambda x: x["spot_score"], reverse=True)
     top = scored[: max(1, req.limit)]
 
-    # 컨텍스트는 reason_service._build_template 가 실제 소비하는 키만 전달한다.
+    # 컨텍스트는 reason_service 가 소비하는 키만 전달한다: _build_template 는 이름·수치를,
+    # facility_id 는 LLM 문체 다듬기의 캐시 키(시설+혼잡도 버킷+시각)로 쓰인다.
     async def _reason_for(item: dict) -> str:
         bd = item["breakdown"]
         return await generate_reason({
+            "facility_id": item["facility"].get("id"),
             "recommended_facility_name": item["facility"].get("name"),
             "candidate_congestion": item["candidate_congestion"],
             "travel_time": bd.get("travel_time"),
@@ -475,12 +480,97 @@ async def recommend_by_type(
 
 # --- 음성 비서 1턴 해석(키워드 분류): 발화→의도 + 후보 선호매칭 선택 + 한국어 응답 ---
 # 무인증(텍스트/후보만 처리, 사용자 데이터 미접근). 로컬 전용.
+class VoiceCandidate(BaseModel):
+    """무인증 입력 후보 — 필드별 타입·길이 상한(Codex 감사 P1-4).
+
+    기존 list[dict] 는 후보 '개수'만 제한하고 내부 문자열이 무제한이라 발화 300자 절단을
+    우회해 프롬프트 토큰·메모리를 폭증시킬 수 있었다. 정상 트래픽(프런트 실사용 값)은
+    전부 상한 안이므로 422 대신 조용한 절단으로 처리해 UX 회귀를 만들지 않는다.
+    """
+    id: str = Field(..., min_length=1, max_length=64)
+    name: str = Field(..., min_length=1)
+    cuisine: str | list[str] | None = None
+    menu: str | None = None
+    congestion: float | None = None
+    # apiClient(keysToSnake)는 distance_m 로 보내지만, 변환을 거치지 않는 직접 호출자 방어용으로
+    # camelCase 도 수용(Codex 리뷰 — 하위호환 벨트앤서스펜더).
+    distance_m: float | None = Field(
+        None, validation_alias=AliasChoices("distance_m", "distanceM")
+    )
+
+    @field_validator("name", mode="after")
+    @classmethod
+    def _cap_name(cls, v: str) -> str:
+        return v[:80]
+
+    @field_validator("menu", mode="before")
+    @classmethod
+    def _cap_menu(cls, v):
+        return str(v)[:300] if isinstance(v, str) and v.strip() else None
+
+    @field_validator("cuisine", mode="before")
+    @classmethod
+    def _cap_cuisine(cls, v):
+        if isinstance(v, str):
+            return v[:120]
+        if isinstance(v, list):
+            return [str(x)[:60] for x in v[:10]]
+        return None
+
+    @field_validator("congestion", "distance_m", mode="before")
+    @classmethod
+    def _numeric_or_none(cls, v):
+        try:
+            f = float(v)
+        except (TypeError, ValueError):
+            return None
+        # 혼잡 0~1, 거리 0~100km 범위 밖은 조작/오류 값 — 버린다(클램프보다 정직)
+        return f if 0 <= f <= 100_000 else None
+
+
 class VoiceTurnRequest(BaseModel):
     # 무인증 엔드포인트 — 입력 크기 제한(과대 페이로드/프롬프트 비대화 방지). 출력은 _coerce 가 enum·후보 id 로 강제.
     utterance: str = Field("", max_length=500)
     facility_type: str = "restaurant"
     current_name: str | None = Field(None, max_length=120)
-    candidates: list[dict] = Field(default_factory=list, max_length=30)  # [{id, name, congestion(0~1), distance_m}]
+    candidates: list[VoiceCandidate] = Field(default_factory=list, max_length=30)
+
+
+# 무인증 유료(LLM) 호출 비용 소진 공격 방어(Codex 감사 P1-3) — search.py 의 슬라이딩 윈도우
+# 패턴 미러(단일 인스턴스 데모 전제, 다중 인스턴스는 공유 저장소로 승격 필요).
+# 키워드로 해석되는 정상 명령은 산입하지 않는다 — interpret_turn 이 LLM 사용 직전에만 게이트를 호출.
+# 초과 시 429 대신 LLM 만 건너뛰고 unknown(재질문)으로 강등 — 데모에서 음성 UI 가 죽지 않게.
+_VOICE_LLM_WINDOW_SEC = 60.0
+_VOICE_LLM_RATE_LIMIT = 5  # IP당 분당 LLM 보조 해석 상한
+_voice_llm_hits: dict[str, list[float]] = {}
+
+
+def _voice_client_ip(request: Request) -> str:
+    """레이트리밋 키용 클라이언트 IP.
+
+    ⚠️ XFF 의 '첫 값'은 클라이언트가 위조 가능하다(프록시는 뒤에 append) — 요청마다 다른
+    가짜 첫 값으로 분당 제한을 무한 우회할 수 있다(Codex 리뷰 P1). 신뢰 프록시(Render 엣지)가
+    마지막에 덧붙인 값이 실제 피어이므로 **마지막 항목**을 쓴다. 프록시 없는 로컬은 소켓 피어.
+    """
+    xff = request.headers.get("x-forwarded-for")
+    if xff:
+        parts = [p.strip() for p in xff.split(",") if p.strip()]
+        if parts:
+            return parts[-1]
+    return request.client.host if request.client else "unknown"
+
+
+def _voice_llm_allowed(ip: str) -> bool:
+    """분당 상한 내면 True(호출 1회 소비), 초과면 False — 초과 시 타임스탬프 미기록(윈도우 밀림 방지)."""
+    now = time.monotonic()
+    hits = [t for t in _voice_llm_hits.get(ip, []) if now - t < _VOICE_LLM_WINDOW_SEC]
+    if len(hits) >= _VOICE_LLM_RATE_LIMIT:
+        _voice_llm_hits[ip] = hits
+        logger.info("voice_llm_rate_limited", ip_prefix=ip[:12])
+        return False
+    hits.append(now)
+    _voice_llm_hits[ip] = hits
+    return True
 
 
 class VoiceTurnResponse(BaseModel):
@@ -491,10 +581,11 @@ class VoiceTurnResponse(BaseModel):
 
 
 @router.post("/voice/turn", response_model=VoiceTurnResponse)
-async def voice_turn(req: VoiceTurnRequest):
+async def voice_turn(req: VoiceTurnRequest, request: Request):
     # 카테고리→한국어 라벨은 preference_nlp_service.CATEGORY_KO 를 단일 정본으로 재사용.
     type_ko = CATEGORY_KO.get(req.facility_type, "시설")
-    candidates = req.candidates or []
+    # typed VoiceCandidate → dict (하류 서비스들은 dict 계약 — 검증·절단은 pydantic 이 이미 완료)
+    candidates = [c.model_dump() for c in (req.candidates or [])]
     # 0) 후보 메타 보강 훅 — 로컬 모드의 enrich_candidates 는 no-op passthrough 다(embedding_service 참조).
     #    '자세히/메뉴' 질문의 실데이터(cuisine·menu)는 프런트가 후보에 동봉한다(main/page.tsx interpret).
     try:
@@ -502,7 +593,12 @@ async def voice_turn(req: VoiceTurnRequest):
     except Exception:
         pass
     # 1) 백엔드: 의도 분류 + 한국어 응답 + search_query(선호를 구체 메뉴로 확장)(역할 분리의 '대화' 쪽).
-    result = await interpret_turn(req.utterance, type_ko, req.current_name, candidates)
+    #    llm_gate: 무인증 유료 호출 레이트리밋 — LLM 이 실제로 필요할 때만 카운트를 소비한다.
+    ip = _voice_client_ip(request)
+    result = await interpret_turn(
+        req.utterance, type_ko, req.current_name, candidates,
+        llm_gate=lambda: _voice_llm_allowed(ip),
+    )
     # 2) 임베딩 의미검색: '선호 필터'로 분류되면 어떤 후보가 맞는지는 벡터가 결정(retrieval).
     #    백엔드 가 확장한 search_query("고깃집"→"삼겹살 갈비 숯불구이…")로 검색해 곱창집·순댓국과 섞이지 않게 한다.
     if result["action"] == "filter":

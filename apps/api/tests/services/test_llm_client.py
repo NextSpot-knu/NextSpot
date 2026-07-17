@@ -11,10 +11,13 @@ from app.services import llm_client
 
 
 def test_extract_json_variants():
-    # 1. 관대한 JSON 추출 — 코드펜스·전후 설명·공백 흡수, 비정형은 None
+    # 1. 단일 JSON 객체 엄격 추출 — 선행 텍스트·코드펜스는 허용, 후행 콘텐츠는 모호성으로 거부
+    #    (Codex 감사 P2-6: '첫/마지막 임의 채택' 관대 파서는 인젝션 모호성을 키운다)
     assert llm_client.extract_json('{"a": 1}') == {"a": 1}
     assert llm_client.extract_json('```json\n{"a": 1}\n```') == {"a": 1}
-    assert llm_client.extract_json('설명입니다: {"a": {"b": 2}} 끝.') == {"a": {"b": 2}}
+    assert llm_client.extract_json('설명입니다: {"a": {"b": 2}}') == {"a": {"b": 2}}  # 선행 텍스트 OK
+    assert llm_client.extract_json('{"a": 1} 끝.') is None  # 후행 설명문 → 거부
+    assert llm_client.extract_json('{"a": 1}\n{"b": 2}') is None  # 이중 JSON → 거부
     assert llm_client.extract_json("[1, 2]") is None  # dict 아님
     assert llm_client.extract_json("{깨진 json}") is None
     assert llm_client.extract_json("json 없음") is None
