@@ -61,6 +61,35 @@ interface Sector {
   rows: BoardRow[];
 }
 
+// TourAPI firstimage가 비어 있거나 원본 서버에서 만료·차단되어 로드에 실패하면
+// 같은 높이의 유형 아이콘 폴백으로 즉시 전환해 카드 상단이 빈 공간으로 남지 않게 한다.
+function WaitingCardImage({ imageUrl, name, type }: Pick<BoardRow, "imageUrl" | "name" | "type">) {
+  const [failed, setFailed] = useState(false);
+
+  if (!imageUrl || failed) {
+    return (
+      <div
+        className="h-[26%] shrink-0 flex items-center justify-center bg-hanji-deep/70 border-b border-line text-2xl"
+        aria-hidden
+      >
+        {TYPE_EMOJI[type] ?? "📍"}
+      </div>
+    );
+  }
+
+  return (
+    // TourAPI 원본 이미지 도메인이 다양하고 정적 export이므로 img를 직접 사용한다.
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={imageUrl}
+      alt={name}
+      loading="lazy"
+      onError={() => setFailed(true)}
+      className="w-full h-[38%] shrink-0 object-cover border-b border-line"
+    />
+  );
+}
+
 // 카드 상단 혼잡 pill 과 동일한 4단계 임계값(혼잡/보통/여유/한산) — RecommendationCard 미러.
 const congestionKey = (c: number) =>
   c >= 0.75 ? "busy" : c >= 0.5 ? "moderate" : c >= 0.25 ? "relaxed" : "quiet";
@@ -270,21 +299,7 @@ export default function WaitingBoardPage() {
                             <Crown size={11} strokeWidth={2.5} />
                           </span>
                         )}
-                        {row.imageUrl ? (
-                          // TourAPI 원본 이미지 도메인이 다양하고 정적 export이므로 img를 직접 사용한다.
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img
-                            src={row.imageUrl}
-                            alt={row.name}
-                            loading="lazy"
-                            onError={(e) => { e.currentTarget.style.display = "none"; }}
-                            className="w-full h-[38%] shrink-0 object-cover border-b border-line"
-                          />
-                        ) : (
-                          <div className="h-[26%] shrink-0 flex items-center justify-center bg-hanji-deep/70 border-b border-line text-2xl" aria-hidden>
-                            {TYPE_EMOJI[row.type] ?? "📍"}
-                          </div>
-                        )}
+                        <WaitingCardImage imageUrl={row.imageUrl} name={row.name} type={row.type} />
                         <div className="flex flex-1 min-h-0 flex-col justify-between p-2">
                           <div>
                             <p className="text-[11px] font-bold text-muk leading-snug line-clamp-2">
