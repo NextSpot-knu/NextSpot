@@ -84,6 +84,94 @@ def test_voice_turn_response_includes_llm_status_disabled_path():
     assert body["llm_status"] == "disabled"
 
 
+# --- filter 매칭 정본 결정 — Solar(llm_status="llm")가 고른 match_ids 우선(2026-07-18) --------
+# 배경: "삼겹살 먹고싶다"에 화덕피자집 추천 사고. 종전 `match = vids or match_ids`가 로컬
+# 부분문자열 매처(vids)를 무조건 우선해 Solar 판단이 무시됐다 — llm 턴은 Solar 가 정본이다.
+
+_FILTER_CANDIDATES = [
+    {"id": "f1", "name": "화덕피자집", "menu": "불고기 피자 / 마르게리타"},
+    {"id": "f2", "name": "황남숯불", "menu": "삼겹살 / 목살"},
+]
+
+
+def _fake_interpret(result: dict):
+    async def _interpret(*args, **kwargs):
+        return dict(result)
+    return _interpret
+
+
+def _fake_vector(vids: list[str]):
+    async def _filter(query, candidates, intent_category=None):
+        return list(vids)
+    return _filter
+
+
+def _post_filter_turn(client):
+    return client.post(
+        "/api/v1/voice/turn",
+        json={
+            "utterance": "삼겹살 먹고싶다",
+            "facility_type": "restaurant",
+            "candidates": _FILTER_CANDIDATES,
+        },
+    )
+
+
+def test_voice_turn_llm_match_overrides_local_matcher():
+    # Solar(llm)가 f2(고깃집)를 골랐으면 로컬 매처가 f1(피자집)을 내놔도 Solar 선택이 정본
+    # (교집합이 비므로 Solar 단독 채택 — 로컬 매처 단독 결과로 폴백하지 않는다).
+    result = {
+        "action": "filter", "target_facility_id": None, "match_ids": ["f2"],
+        "search_query": "삼겹살", "intent_category": None,
+        "spoken": "고깃집 쪽으로 찾아볼게요.", "llm_status": "llm",
+    }
+    with patch.object(rec, "interpret_turn", _fake_interpret(result)), \
+         patch.object(rec, "vector_filter_candidates", _fake_vector(["f1"])):
+        with TestClient(app) as client:
+            res = _post_filter_turn(client)
+    assert res.status_code == 200
+    body = res.json()
+    assert body["action"] == "filter"
+    assert body["match_ids"] == ["f2"]
+    assert body["llm_status"] == "llm"
+
+
+def test_voice_turn_llm_empty_match_stays_empty():
+    # Solar(llm)가 "맞는 곳 없음"(빈 배열)이라 판단 → 로컬 매처 결과로 되살리지 않고 0건 유지
+    # (action 은 filter 그대로 — 현재 카드 유지, next 강등 없음).
+    result = {
+        "action": "filter", "target_facility_id": None, "match_ids": [],
+        "search_query": "삼겹살", "intent_category": None,
+        "spoken": None, "llm_status": "llm",
+    }
+    with patch.object(rec, "interpret_turn", _fake_interpret(result)), \
+         patch.object(rec, "vector_filter_candidates", _fake_vector(["f1"])):
+        with TestClient(app) as client:
+            res = _post_filter_turn(client)
+    assert res.status_code == 200
+    body = res.json()
+    assert body["action"] == "filter"
+    assert body["match_ids"] == []
+
+
+def test_voice_turn_keyword_path_keeps_local_matcher():
+    # LLM 미개입(llm_status="keyword") — 기존처럼 로컬 매처(vids) 우선 동작 불변.
+    result = {
+        "action": "filter", "target_facility_id": None, "match_ids": [],
+        "search_query": "삼겹살", "intent_category": None,
+        "spoken": "고깃집 쪽으로 찾아볼게요.", "llm_status": "keyword",
+    }
+    with patch.object(rec, "interpret_turn", _fake_interpret(result)), \
+         patch.object(rec, "vector_filter_candidates", _fake_vector(["f2"])):
+        with TestClient(app) as client:
+            res = _post_filter_turn(client)
+    assert res.status_code == 200
+    body = res.json()
+    assert body["action"] == "filter"
+    assert body["match_ids"] == ["f2"]
+    assert body["llm_status"] == "keyword"
+
+
 def test_voice_turn_response_includes_llm_status_gated_path_when_rate_limited():
     # 레이트리밋 초과로 LLM 이 게이트에서 막히면 llm_status="gated"(429 아님, unknown 강등).
     with patch.object(voice_intent_service.llm_client, "is_enabled", lambda: True), \

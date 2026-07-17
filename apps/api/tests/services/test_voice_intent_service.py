@@ -196,6 +196,54 @@ async def test_interpret_turn_llm_select_by_name(monkeypatch):
     assert result["target_facility_id"] is None
 
 
+# --- match_names → match_ids 매핑 — Solar 가 후보 최종 선택권을 가진다(2026-07-18) -----------
+# 배경: "삼겹살 먹고싶다"에 화덕피자집이 추천된 사고. Solar 가 후보의 cuisine·menu 를 보면서도
+# 선택 질문을 받지 않아 match_ids 가 항상 [] 였다 — 이제 filter 턴에서 직접 고른 이름을 매핑한다.
+
+
+@pytest.mark.asyncio
+async def test_llm_match_names_mapped_to_ids(monkeypatch):
+    # 11. LLM 응답의 match_names(후보 이름 정확 일치) → match_ids 로 매핑(유효 후보만).
+    monkeypatch.setattr(voice_intent_service.llm_client, "is_enabled", lambda: True)
+    monkeypatch.setattr(voice_intent_service.llm_client, "chat_json", AsyncMock(return_value={
+        "action": "filter", "target_name": None, "intent_category": "카페",
+        "search_query": "커피 디저트", "match_names": ["카페능"],
+    }))
+    result = await interpret_turn(_COMPLEX_UTTERANCE, "식당", None, _CANDIDATES)
+    assert result["action"] == "filter"
+    assert result["match_ids"] == ["f1"]
+    assert result["llm_status"] == "llm"
+
+
+@pytest.mark.asyncio
+async def test_llm_match_names_hallucination_filtered(monkeypatch):
+    # 12. 후보에 없는 이름(환각)·중복은 걸러지고, 유효 이름만 순서 보존으로 남는다.
+    monkeypatch.setattr(voice_intent_service.llm_client, "is_enabled", lambda: True)
+    monkeypatch.setattr(voice_intent_service.llm_client, "chat_json", AsyncMock(return_value={
+        "action": "filter", "target_name": None, "intent_category": None,
+        "search_query": "피자",
+        "match_names": ["존재하지 않는 가게", "피자옥", "카페능", "피자옥"],
+    }))
+    result = await interpret_turn(_COMPLEX_UTTERANCE, "식당", None, _CANDIDATES)
+    assert result["action"] == "filter"
+    assert result["match_ids"] == ["f2", "f1"]
+
+
+@pytest.mark.asyncio
+async def test_llm_match_names_empty_stays_empty(monkeypatch):
+    # 13. Solar 가 "실제로 파는 곳 없음"(빈 배열)이라 판단 → match_ids 도 빈 배열
+    #     (라우터가 정직한 '후보 없음' 응답으로 흐르게 한다 — 억지 매칭 금지).
+    monkeypatch.setattr(voice_intent_service.llm_client, "is_enabled", lambda: True)
+    monkeypatch.setattr(voice_intent_service.llm_client, "chat_json", AsyncMock(return_value={
+        "action": "filter", "target_name": None, "intent_category": "고깃집",
+        "search_query": "삼겹살", "match_names": [],
+    }))
+    result = await interpret_turn("삼겹살 먹고싶다", "식당", None, _CANDIDATES)
+    assert result["action"] == "filter"
+    assert result["match_ids"] == []
+    assert result["llm_status"] == "llm"
+
+
 # --- llm_status(개발 디버그용 — 프런트 "AI 실제 동작 여부" 배지) -----------------------------
 # keyword|llm|llm_failed|gated|disabled 5개 값을 각 경로별로 검증한다.
 

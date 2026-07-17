@@ -666,7 +666,16 @@ async def voice_turn(req: VoiceTurnRequest, request: Request):
             vids = await vector_filter_candidates(query, candidates, intent_category=result.get("intent_category"))
         except Exception:
             vids = []
-        match = vids or result.get("match_ids") or []  # 벡터 우선, 백엔드 match_ids 가 폴백
+        llm_ids = result.get("match_ids") or []
+        if result.get("llm_status") == "llm":
+            # Solar가 후보 메뉴·업종을 보고 직접 고른 결과가 정본. 로컬 매처와의 교집합을 우선하고
+            # (양쪽 합의 = 최고 신뢰), 교집합이 비면 Solar 단독 선택을 쓴다. Solar가 "맞는 곳 없음"
+            # (빈 배열)이라 판단했으면 그대로 0건 → 아래 정직한 '후보 없음' 응답으로 흐른다.
+            # (Solar는 상위 15개 후보만 보므로(_LLM_MAX_CANDIDATES) 로컬 매처 단독 결과로 폴백하지 않는다
+            #  — 그 폴백이 바로 '삼겹살'→'불고기 피자' 피자집 오탐 사고 경로였다.)
+            match = [m for m in vids if m in set(llm_ids)] or llm_ids
+        else:
+            match = vids or llm_ids  # LLM 미개입/실패 — 기존처럼 벡터 우선, 백엔드 match_ids 폴백
         # 분류 게이트(누설 차단): 백엔드 가 정밀분류(intent_category)를 정했고 풀에 그 분류 후보가 있으면,
         # 최종 후보를 그 분류로 강제한다. 벡터가 비활성/실패해 백엔드 match_ids 로 폴백한 경우의 누설까지
         # 막는다('중식'→어탕칼국수 방지). category 는 enrich_voice_candidates 가 시드에서 채운 값.
