@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import dynamic from 'next/dynamic';
-import { User, Search, Mic, X, Utensils, MapPin, Building2, Coffee, ChevronDown, ChevronUp } from 'lucide-react';
+import { User, Search, Mic, X, Utensils, MapPin, Building2, Coffee, ChevronDown, ChevronUp, SlidersHorizontal } from 'lucide-react';
 import { createPublicClient } from '@/lib/supabase';
 import { getMarkerSvg } from '@/lib/utils';
 import { scoreFacility, compareSpot, rankFacilities, recToSpot, haversineMeters, cuisineMatch, rescoreWithPreference, filterReachable, type Spot } from '@/lib/recommender';
@@ -179,6 +179,7 @@ export default function MainPage() {
   const [mockHour, setMockHour] = useState<number | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [weatherPreference, setWeatherPreference] = useState({ enabled: false, activeRisk: false });
+  const [showMobileTools, setShowMobileTools] = useState(false);
 
   // 히트맵 레이어 on/off — 혼잡 핀과 별개의 열지도 오버레이(CongestionMap 에서 이식). 기본 꺼짐.
   const [showHeatmap, setShowHeatmap] = useState(false);
@@ -1625,7 +1626,7 @@ export default function MainPage() {
       />
 
       {/* Top Layer: Search & Filters — 다크 오버레이 그라디언트 제거(플로팅 패널 자체 배경으로 가독성 확보) */}
-      <div className="absolute top-0 w-full z-20 pt-12 md:pt-5 pb-4 px-4 flex flex-col gap-4 pointer-events-none">
+      <div className="absolute top-0 w-full z-20 pt-12 md:pt-5 pb-4 px-4 flex flex-col gap-2 md:gap-4 pointer-events-none">
 
         {/* 지도 SDK 로드 실패(8초 타임아웃) 안내 칩 — 검색/배리어프리 빈 상태 칩과 동일 스타일 재사용.
             추천 카드 등 나머지 UI 는 지도 유무와 무관하게 계속 동작한다. */}
@@ -1785,10 +1786,10 @@ export default function MainPage() {
         </div>{/* /왼쪽 열(검색) */}
 
         {/* 오른쪽 열(모바일은 아래): 카테고리 칩 + 지도 레이어 컨트롤 */}
-        <div className="flex flex-col gap-4 md:flex-1 md:min-w-0 md:gap-2.5">
+        <div className="flex flex-col gap-2 md:flex-1 md:min-w-0 md:gap-2.5">
 
         {/* Filter Chips — PC 에선 스크롤 대신 줄바꿈(구글맵스 칩 행 관례) */}
-        <div className="flex gap-3 overflow-x-auto no-scrollbar pointer-events-auto md:flex-wrap md:overflow-visible md:gap-2">
+        <div className="flex gap-2 overflow-x-auto no-scrollbar pointer-events-auto md:flex-wrap md:overflow-visible">
           {filters.map((filter) => {
             const Icon = filter.icon;
             const isActive = activeFilter === filter.id;
@@ -1823,9 +1824,17 @@ export default function MainPage() {
           })}
         </div>
 
+        <button
+          type="button"
+          onClick={() => setShowMobileTools(true)}
+          className="flex w-fit items-center gap-1.5 rounded-full border border-line bg-white/90 px-3 py-1.5 text-xs font-semibold text-muk shadow-[0_2px_12px_rgba(43,35,32,0.08)] pointer-events-auto md:hidden"
+        >
+          <SlidersHorizontal size={14} /> {t('map.mobileTools')}
+        </button>
+
         {/* 세부 음식분류 칩(치킨/피자·양식/국밥 등) — 음식점 카테고리에서만. 재탭 시 해제. */}
         {activeFilter === '음식점' && (
-          <div className="flex gap-2 overflow-x-auto no-scrollbar pointer-events-auto md:flex-wrap md:overflow-visible">
+          <div className="hidden gap-2 overflow-x-auto no-scrollbar pointer-events-auto md:flex md:flex-wrap md:overflow-visible">
             {cuisineChips.map((chip) => {
               const on = cuisineChip === chip.id;
               return (
@@ -1851,7 +1860,7 @@ export default function MainPage() {
         {/* 지도 레이어 컨트롤 — 🔥 히트맵 토글 + 예측 타임슬라이더(지금·+1h·+2h·+3h).
             CongestionMap 의 두 기능을 정본 지도에 통합. 예측 모드는 정직성 배지로 실측과 구분한다.
             (하단은 추천 카드/탭바가 차지하므로, 항상 보이고 충돌 없는 상단 컨트롤 영역에 배치.) */}
-        <div className="flex flex-wrap items-center gap-2 pointer-events-auto">
+        <div className="hidden flex-wrap items-center gap-2 pointer-events-auto md:flex">
           {/* 히트맵 토글 */}
           <button
             type="button"
@@ -2005,6 +2014,29 @@ export default function MainPage() {
         </div>{/* /오른쪽 열(칩·컨트롤) */}
         </div>{/* /구글맵스식 톱바 행 */}
       </div>
+
+      {showMobileTools && (
+        <div className="fixed inset-0 z-50 flex items-end bg-muk/35 md:hidden" onClick={() => setShowMobileTools(false)}>
+          <section className="w-full rounded-t-3xl bg-hanji px-4 pb-[calc(20px+env(safe-area-inset-bottom))] pt-3 shadow-2xl" onClick={(event) => event.stopPropagation()}>
+            <div className="mb-4 flex items-center justify-between">
+              <div><h2 className="font-bold text-muk">{t('map.mobileToolsTitle')}</h2><p className="text-xs text-muk-soft">{t('map.mobileToolsDesc')}</p></div>
+              <button type="button" onClick={() => setShowMobileTools(false)} aria-label={t('common.close')} className="rounded-full border border-line bg-white p-2 text-muk"><X size={18} /></button>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <button type="button" onClick={() => setShowHeatmap((value) => !value)} aria-pressed={showHeatmap} className={`rounded-xl border px-3 py-3 text-sm font-semibold ${showHeatmap ? 'border-gold bg-gold/15' : 'border-line bg-white'}`}>🔥 {t('map.heatmap')}</button>
+              <button type="button" onClick={() => setShowBarrierFree((value) => !value)} aria-pressed={showBarrierFree} className={`rounded-xl border px-3 py-3 text-sm font-semibold ${showBarrierFree ? 'border-jade bg-jade/15' : 'border-line bg-white'}`}>♿ {t('map.barrierFree')}</button>
+              <button type="button" onClick={() => setShowParkingFilter((value) => !value)} aria-pressed={showParkingFilter} className={`rounded-xl border px-3 py-3 text-sm font-semibold ${showParkingFilter ? 'border-jade bg-jade/15' : 'border-line bg-white'}`}>🅿 {t('map.filterParking')}</button>
+              <button type="button" onClick={() => { setShowMobileTools(false); router.push('/waiting'); }} className="rounded-xl border border-line bg-white px-3 py-3 text-sm font-semibold">⏱ {t('waiting.entryChip')}</button>
+            </div>
+            {activeFilter === '음식점' && (
+              <div className="mt-4"><p className="mb-2 text-xs font-bold text-muk-soft">{t('map.foodFilters')}</p><div className="flex gap-2 overflow-x-auto no-scrollbar">{cuisineChips.map((chip) => (
+                <button key={chip.id} type="button" onClick={() => selectCuisineChip(chip)} aria-pressed={cuisineChip === chip.id} className={`shrink-0 rounded-full border px-3 py-1.5 text-xs font-semibold ${cuisineChip === chip.id ? 'border-terracotta bg-terracotta/15 text-terracotta' : 'border-line bg-white text-muk-soft'}`}><span aria-hidden>{chip.emoji}</span> {t(`cuisine.${chip.id}`)}</button>
+              ))}</div></div>
+            )}
+            <div className="mt-4 flex flex-wrap gap-2"><FestivalBanner onFocus={focusFestivalOnMap} /><RestroomChip location={userLocation} /></div>
+          </section>
+        </div>
+      )}
 
       {/* (a) 시설 로드 상태 안내 — 로딩 스피너 / 로드 실패 재시도 / 전체 빈 상태 (데모 사고 방지선) */}
       {isLoadingFacilities && (
