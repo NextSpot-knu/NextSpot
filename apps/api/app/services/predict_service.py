@@ -112,11 +112,11 @@ def _predict_with_artifacts(artifacts: Tuple[Any, Any], norm_type: str, hour: in
         return None
 
 
-def predict_congestion(facility_type: str, hour: int, day_of_week: int) -> float:
-    """도착 예상 시점 기준 혼잡도를 [0,1]로 반환.
+def predict_congestion_detailed(facility_type: str, hour: int, day_of_week: int) -> Tuple[float, str]:
+    """(예측값, 출처)를 반환 — 출처 "local"=실제 모델 추론, "default"=미학습 0.5 폴백.
 
-    시그니처/반환 타입 불변 (score.py가 무수정 호출).
-    경로: 로컬 model.pkl → 0.5. 어느 경로를 탔는지 로깅한다.
+    혼잡 3단계 표시(CONGESTION_TRUST_SPEC)의 predicted/none 판정용: 0.5 평탄 폴백을
+    "AI 예측"으로 팔지 않기 위해 호출자가 출처를 구분할 수 있어야 한다.
     """
     norm_type = normalize_facility_type(facility_type)
 
@@ -125,8 +125,18 @@ def predict_congestion(facility_type: str, hour: int, day_of_week: int) -> float
         result = _predict_with_artifacts(local, norm_type, hour, day_of_week)
         if result is not None:
             logger.info("congestion_predicted", source="local", facility_type=norm_type, value=result)
-            return result
+            return result, "local"
 
     # 모델 부재(미학습) 또는 미학습 타입 → 기본값
     logger.info("congestion_predicted", source="default", facility_type=norm_type, value=DEFAULT_CONGESTION)
-    return DEFAULT_CONGESTION
+    return DEFAULT_CONGESTION, "default"
+
+
+def predict_congestion(facility_type: str, hour: int, day_of_week: int) -> float:
+    """도착 예상 시점 기준 혼잡도를 [0,1]로 반환.
+
+    시그니처/반환 타입 불변 (score.py가 무수정 호출).
+    경로: 로컬 model.pkl → 0.5. 어느 경로를 탔는지 로깅한다.
+    """
+    value, _source = predict_congestion_detailed(facility_type, hour, day_of_week)
+    return value

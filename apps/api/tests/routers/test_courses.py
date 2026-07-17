@@ -14,6 +14,7 @@ from test_routers import (
     BASE_LNG,
     USER_ROW,
     UNIT_VECTOR,
+    _cong,
     _facility,
     auth_client,  # noqa: F401 — pytest 픽스처 재사용(import 로 활성화)
     client,       # noqa: F401
@@ -47,7 +48,7 @@ def test_course_happy_path(auth_client):  # noqa: F811
         _facility("f-cult", "culture", 0.0008),
     ]
     far = [_facility("f-far", "cafe", 0.02)]  # 약 2.2km — 반경 컷오프에서 제외
-    congestion_now = {f["id"]: 0.3 for f in facilities}
+    congestion_now = {f["id"]: _cong(0.3) for f in facilities}
 
     with patch("app.routers.courses.fetch_user", new=AsyncMock(return_value=USER_ROW)), \
          patch("app.routers.courses.fetch_all_facilities", new=AsyncMock(return_value=facilities + far)), \
@@ -85,7 +86,7 @@ def test_course_type_filter(auth_client):  # noqa: F811
         _facility("r-1", "restaurant", 0.0003),
         _facility("a-1", "attraction", 0.0005),
     ]
-    congestion_now = {f["id"]: 0.2 for f in facilities}
+    congestion_now = {f["id"]: _cong(0.2) for f in facilities}
 
     with patch("app.routers.courses.fetch_user", new=AsyncMock(return_value=USER_ROW)), \
          patch("app.routers.courses.fetch_all_facilities", new=AsyncMock(return_value=facilities)), \

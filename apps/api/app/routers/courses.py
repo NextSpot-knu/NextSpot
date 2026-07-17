@@ -123,7 +123,7 @@ async def _evaluate_candidate(
     cur_lng: float,
     cum_offset_min: float,
     now: datetime,
-    congestion_now: dict[str, float],
+    congestion_now: dict[str, dict],
     user_vector: list[float] | None,
     preferred_categories: list[str],
     user_id: str,
@@ -150,7 +150,11 @@ async def _evaluate_candidate(
     # 혼잡'(재배치기여의 기준선)으로 쓴다. facility 자체는 여러 라운드에 걸쳐 재평가될 수 있어(선택
     # 안 된 후보는 remaining 에 남는다) 이 오버레이 키를 여기서 지우지 않는다 — 아래 scored_facility
     # 복사본에서만 벗겨 응답 payload 에 내부 키가 노출되지 않게 한다.
-    current_congestion = facility.get(CONGESTION_OVERRIDE_KEY, congestion_now.get(facility["id"], 0.0))
+    # fetch_congestion_map 은 이제 로그 info dict 를 반환한다(CONGESTION_TRUST_SPEC). 여기의
+    # 0.0 폴백은 W3 재배치기여의 **점수 입력** — Phase 1 은 점수 입력을 바꾸지 않는다(D-2, Phase 2 재검토).
+    current_congestion = facility.get(
+        CONGESTION_OVERRIDE_KEY, (congestion_now.get(facility["id"]) or {}).get("level", 0.0)
+    )
 
     # 도착 시점 예상 인원 추정치를 응답 facility 에 주입(원본 리스트 불변 — 얕은 복사).
     scored_facility = {**facility, "current_count": round(facility.get("capacity", 0) * predicted_congestion)}

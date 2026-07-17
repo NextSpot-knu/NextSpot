@@ -33,10 +33,31 @@
 - P0 원격 검증 한계: 프로덕션 정적 HTML에서는 Kakao SDK 키 확인 불가, `gh` CLI 미설치로
   Actions 상태 확인 불가. Vercel JavaScript 키 교체·Web 도메인 등록은 여전히 사람 확인 필요.
 
+### PM 결정 + Phase 1 구현 완료 (같은 날 후속)
+
+- PM 결정 4건 확정: D-1 신규 키 "혼잡 정보 준비 중" / D-2 Phase 1 점수 입력 불변 /
+  D-3 데모 라벨 표시 / D-4 Kakao 확충 병행 기획. 상세는 `CONGESTION_TRUST_SPEC.md` §9.
+- **Phase 1 구현 완료**: 서버 — `RecommendItem`에 `congestion_level/source/log_source/is_stale/
+  timestamp` 신설, `fetch_congestion_map` 이 로그 info dict 반환(0.0 합성 제거),
+  `resolve_congestion_evidence`(measured/predicted/none 판정 — 미학습 0.5 폴백은 none),
+  `predict_congestion_detailed` 신설(래퍼 `predict_congestion` 동작 불변), reason 3단계 문구
+  (predicted="예상 혼잡도 N% (AI 예측)", none=혼잡 문구 생략), current_count 는 실측일 때만 합성.
+  프런트 — explore/recommend 3단계 배지·원본 중립 헤드라인, RecommendationCard D-1/D-3 라벨,
+  bookmark `unknown` 상태(null→'한산' 저장 버그 수정), 음성 후보 congestion null 전송,
+  i18n 4로케일 4키 추가. **주의(구현 중 정정)**: `courses.py:153` 기준선은 표시가 아니라 점수
+  입력이라 Phase 1 에서 제외(D-2 와 함께 Phase 2) — 명세 §3-2 에 정정 기록.
+- 검증: api pytest 455 통과·ruff 클린 / web lint 0 err·typecheck·test 29/29·build 통과 / 파리티 클린.
+- **D-4 병행 기획 완료**: `docs/KAKAO_LOCAL_EXPANSION.md` — 조사 결과 Kakao Local 결과의 자체 DB
+  영속 저장은 약관상 금지(데브톡 공식 답변) → 기본안을 A-2(준수형: kakao_place_id+url 만 인덱싱,
+  표시 데이터는 실시간 프록시)로 재설계. 기존 좌표 정합의 features 저장도 같은 정책 확인 범위(R-2).
+  사람 확인: 2026 공모전 요강의 보조 데이터 허용 여부, 데브톡 캐시 TTL 문의.
+- `.env`는 사용자가 복원 완료(키 14종 확인). node_modules·pip 의존성도 재설치 완료(이동 여파).
+
 ### RESUME
 
-PM이 `docs/CONGESTION_TRUST_SPEC.md`의 D-1~D-4를 결정하면 Phase 1(표시 정직화) 구현 착수.
-`.env` 복원 전에는 로컬 스모크 불가 — pytest는 placeholder env로 동작하므로 게이트는 가능.
+다음 후보: ① Phase 2(원본·코스 혼잡 기준선 predicted 대체 — score 영향 검토 필수, 신중 구역),
+② KAKAO_LOCAL_EXPANSION 의 사람 확인 2건 후 구현 착수 판단, ③ P1 추천 품질 스냅샷 평가(§-20 3번).
+프로덕션 Kakao SDK 키 교체 여부는 여전히 사람 확인 필요.
 
 ## -20. 2026-07-18 — 개발환경 복구 + 다음 사이클 기획 체크포인트
 

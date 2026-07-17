@@ -24,7 +24,8 @@ interface BookmarkData {
   id: string;
   name: string;
   category: string;
-  trafficStatus: 'orange' | 'yellow' | 'green' | 'blue';
+  // unknown = 저장 시점에 혼잡 근거 없음(로그 0건) — '한산(blue)'으로 합성하지 않는다(CONGESTION_TRUST_SPEC).
+  trafficStatus: 'orange' | 'yellow' | 'green' | 'blue' | 'unknown';
   waitTime: string;
   latitude?: number;
   longitude?: number;
@@ -211,15 +212,16 @@ export default function SavedPage() {
     });
   };
 
-  const renderTrafficIndicator = (status: 'orange' | 'yellow' | 'green' | 'blue') => {
+  const renderTrafficIndicator = (status: BookmarkData['trafficStatus']) => {
     // 혼잡 신호등: 색만 웜 팔레트로 교체(임계·매핑 로직 불변). 네온 글로우 제거.
     const colors = {
       orange: 'bg-terracotta',   // 혼잡
       yellow: 'bg-gold',         // 보통
       green: 'bg-emerald-500',   // 여유
-      blue: 'bg-jade'            // 한산
+      blue: 'bg-jade',           // 한산
+      unknown: 'bg-muk/20'       // 근거 없음(회색) — 지도 '데이터 없음' 마커와 동일 관례
     };
-    return <div className={`w-3 h-3 rounded-full ${colors[status]}`} />;
+    return <div className={`w-3 h-3 rounded-full ${colors[status] ?? colors.unknown}`} />;
   };
 
   // 카테고리별 개수 + 필터 적용 목록. 저장이 없는 카테고리는 칩을 감춘다.
@@ -475,9 +477,10 @@ export default function SavedPage() {
             timeToService={selectedBookmark.spot?.timeToService ?? parseInt(selectedBookmark.waitTime) ?? 0}
             facilityType={selectedBookmark.category === '음식점' ? 'restaurant' : selectedBookmark.category === '카페' ? 'cafe' : selectedBookmark.category === '관광지' ? 'attraction' : selectedBookmark.category === '문화시설' ? 'culture' : 'restaurant'}
             facility={{
-              congestionLevel: selectedBookmark.trafficStatus === 'orange' ? 0.85 : selectedBookmark.trafficStatus === 'yellow' ? 0.6 : selectedBookmark.trafficStatus === 'green' ? 0.4 : 0.1,
+              // unknown(근거 없음)은 수치를 역합성하지 않는다 → 카드가 '데이터 없음'/'—' 처리.
+              congestionLevel: selectedBookmark.trafficStatus === 'orange' ? 0.85 : selectedBookmark.trafficStatus === 'yellow' ? 0.6 : selectedBookmark.trafficStatus === 'green' ? 0.4 : selectedBookmark.trafficStatus === 'blue' ? 0.1 : null,
               capacity: 100,
-              currentCount: selectedBookmark.trafficStatus === 'orange' ? 85 : selectedBookmark.trafficStatus === 'yellow' ? 60 : selectedBookmark.trafficStatus === 'green' ? 40 : 10,
+              currentCount: selectedBookmark.trafficStatus === 'orange' ? 85 : selectedBookmark.trafficStatus === 'yellow' ? 60 : selectedBookmark.trafficStatus === 'green' ? 40 : selectedBookmark.trafficStatus === 'blue' ? 10 : null,
             }}
             onAccept={() => {
               const destUrl = selectedBookmark.latitude && selectedBookmark.longitude

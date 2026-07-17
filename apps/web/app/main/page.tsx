@@ -1024,7 +1024,8 @@ export default function MainPage() {
         // 저장 페이지의 라이브 혼잡 재조회(매칭)·카카오맵 길찾기 링크에 좌표가 필요하므로 함께 저장한다.
         latitude: fac.latitude,
         longitude: fac.longitude,
-        trafficStatus: fac.congestionLevel >= 0.75 ? 'orange' : fac.congestionLevel >= 0.50 ? 'yellow' : fac.congestionLevel >= 0.25 ? 'green' : 'blue',
+        // 혼잡 근거 없음(null)은 '한산(blue)'으로 합성하지 않고 unknown 으로 저장(CONGESTION_TRUST_SPEC).
+        trafficStatus: typeof fac.congestionLevel !== 'number' ? 'unknown' : fac.congestionLevel >= 0.75 ? 'orange' : fac.congestionLevel >= 0.50 ? 'yellow' : fac.congestionLevel >= 0.25 ? 'green' : 'blue',
         waitTime: `${spot?.expectedWait || 0}분`,
         spot: spot,
         reason: fac.reason || ""
@@ -1207,7 +1208,8 @@ export default function MainPage() {
             [x.features?.first_menu ?? x.features?.firstMenu, x.features?.treat_menu ?? x.features?.treatMenu]
               .filter((v): v is string => typeof v === 'string' && v.trim().length > 0)
               .join(' / ') || null,
-          congestion: x.congestionLevel ?? 0,
+          // 근거 없으면 null 전송(백엔드 VoiceCandidate.congestion 은 Optional) — 0(실측 여유) 합성 금지.
+          congestion: x.congestionLevel ?? null,
           distanceM: haversineMeters(userLocation.lat, userLocation.lng, x.latitude, x.longitude),
         }))
         .sort((a, b) => a.distanceM - b.distanceM) // 가까운 순 — 전문점(고기/국밥/피자)이 상위 N 밖으로 밀려 누락되지 않게

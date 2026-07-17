@@ -95,6 +95,18 @@ def _facility(fid: str, ftype: str, lat_offset: float, coupon_rate: float = 0.0)
     }
 
 
+def _cong(level: float, *, source: str = "seed", is_stale: bool = False) -> dict:
+    """fetch_congestion_map / fetch_latest_congestion_for_all 의 로그 info 계약
+    (CONGESTION_TRUST_SPEC — 로그 없는 시설은 맵에서 누락, 0.0 합성 금지)."""
+    return {
+        "level": level,
+        "current_count": round(level * 50),
+        "timestamp": "2026-07-18T00:00:00+00:00",
+        "source": source,
+        "is_stale": is_stale,
+    }
+
+
 USER_ROW = {"id": AUTH_USER_ID, "preferred_categories": ["cafe", "restaurant"]}
 ORIGIN_ROW = _facility("orig-1", "restaurant", 0.0)
 UNIT_VECTOR = [1.0 / (8 ** 0.5)] * 8  # 정규화된 8차원 선호 벡터
@@ -148,12 +160,11 @@ def test_recommendations_happy_path(auth_client):
         _facility("f-6", "restaurant", 0.0012),
     ]
     far = [_facility("f-far", "cafe", 0.01)]  # 약 1.1km — 150m 컷오프에서 제외돼야 함
-    congestion_map = {f["id"]: 0.1 * (i + 1) for i, f in enumerate(near)}
+    congestion_map = {f["id"]: _cong(0.1 * (i + 1)) for i, f in enumerate(near)}
 
     with patch("app.routers.recommendations.fetch_user", new=AsyncMock(return_value=USER_ROW)), \
          patch("app.routers.recommendations.fetch_facility", new=AsyncMock(return_value=ORIGIN_ROW)), \
          patch("app.routers.recommendations.fetch_all_facilities", new=AsyncMock(return_value=[ORIGIN_ROW] + near + far)), \
-         patch("app.routers.recommendations.fetch_latest_congestion", new=AsyncMock(return_value=0.9)), \
          patch("app.routers.recommendations.fetch_congestion_map", new=AsyncMock(return_value=congestion_map)), \
          patch.object(preference_vector_service, "get_user_vector", new=AsyncMock(return_value=UNIT_VECTOR)), \
          patch("app.routers.recommendations.generate_reason_with_source", new=AsyncMock(return_value=("사유", "template"))), \
@@ -180,6 +191,66 @@ def test_recommendations_happy_path(auth_client):
         assert item["reason"] == "사유"
         assert item["reason_source"] == "template"
         assert item["recommendation_id"] == "rec-1"  # _persist 가 INSERT 결과 id 를 매핑
+        # 혼잡 3단계(CONGESTION_TRUST_SPEC): 로그가 있는 후보는 measured + 원 로그 메타 동봉,
+        # current_count 는 capacity × 실측 혼잡으로 합성(기존 동작 유지).
+        fid = item["facility"]["id"]
+        assert item["congestion_source"] == "measured"
+        assert item["congestion_level"] == pytest.approx(congestion_map[fid]["level"])
+        assert item["congestion_log_source"] == "seed"
+        assert item["congestion_is_stale"] is False
+        assert item["facility"]["current_count"] == round(50 * congestion_map[fid]["level"])
+
+
+def test_recommendations_no_log_untrained_model_reports_none(auth_client):
+    # 혼잡 로그 0건 + 모델 미학습(0.5 평탄 폴백): 0.0/0.5 를 실측·예측처럼 팔지 않는다 —
+    # congestion_source='none', current_count=None, 사유에 혼잡 수치(%) 없음(CONGESTION_TRUST_SPEC).
+    near = [_facility("f-1", "cafe", 0.0002), _facility("f-2", "restaurant", 0.0004)]
+
+    with patch("app.routers.recommendations.fetch_user", new=AsyncMock(return_value=USER_ROW)), \
+         patch("app.routers.recommendations.fetch_facility", new=AsyncMock(return_value=ORIGIN_ROW)), \
+         patch("app.routers.recommendations.fetch_all_facilities", new=AsyncMock(return_value=[ORIGIN_ROW] + near)), \
+         patch("app.routers.recommendations.fetch_congestion_map", new=AsyncMock(return_value={})), \
+         patch("app.routers.recommendations.predict_congestion_detailed", return_value=(0.5, "default")), \
+         patch.object(preference_vector_service, "get_user_vector", new=AsyncMock(return_value=UNIT_VECTOR)), \
+         patch("app.routers.recommendations.supabase_client", new=FakeSupabase({"recommendations": [{"id": "rec-1"}]})):
+        res = auth_client.post("/api/v1/recommendations", json=_reco_body())
+
+    assert res.status_code == 200
+    items = res.json()
+    assert len(items) == 2
+    for item in items:
+        assert item["congestion_source"] == "none"
+        assert item["congestion_level"] is None
+        assert item["congestion_log_source"] is None
+        assert item["facility"]["current_count"] is None  # '잔여석=정원 전체' 합성 금지
+        # 실제 템플릿 사유(LLM 은 conftest 로 비활성): 혼잡 수치를 말하지 않고 준비 중임을 밝힌다.
+        assert "%" not in item["reason"]
+        assert "준비 중" in item["reason"]
+
+
+def test_recommendations_no_log_trained_model_reports_predicted(auth_client):
+    # 혼잡 로그 0건 + 모델이 실제로 학습됨: AI 예측으로 정직 표시 —
+    # congestion_source='predicted', 예측값 동봉, current_count=None, 사유에 'AI 예측' 명시.
+    near = [_facility("f-1", "cafe", 0.0002)]
+
+    with patch("app.routers.recommendations.fetch_user", new=AsyncMock(return_value=USER_ROW)), \
+         patch("app.routers.recommendations.fetch_facility", new=AsyncMock(return_value=ORIGIN_ROW)), \
+         patch("app.routers.recommendations.fetch_all_facilities", new=AsyncMock(return_value=[ORIGIN_ROW] + near)), \
+         patch("app.routers.recommendations.fetch_congestion_map", new=AsyncMock(return_value={})), \
+         patch("app.routers.recommendations.predict_congestion_detailed", return_value=(0.42, "local")), \
+         patch.object(preference_vector_service, "get_user_vector", new=AsyncMock(return_value=UNIT_VECTOR)), \
+         patch("app.routers.recommendations.supabase_client", new=FakeSupabase({"recommendations": [{"id": "rec-1"}]})):
+        res = auth_client.post("/api/v1/recommendations", json=_reco_body())
+
+    assert res.status_code == 200
+    items = res.json()
+    assert len(items) == 1
+    item = items[0]
+    assert item["congestion_source"] == "predicted"
+    assert item["congestion_level"] == pytest.approx(0.42)
+    assert item["facility"]["current_count"] is None
+    assert "AI 예측" in item["reason"]
+    assert "예상 혼잡도 42%" in item["reason"]
 
 
 # =========================================================================
@@ -194,7 +265,7 @@ def test_recommend_by_type_happy_path(auth_client):
         _facility("c-4", "cafe", 0.0008),
     ]
     others = [_facility("r-1", "restaurant", 0.0003), _facility("a-1", "attraction", 0.0005)]
-    congestion_map = {f["id"]: 0.2 for f in cafes}
+    congestion_map = {f["id"]: _cong(0.2) for f in cafes}
 
     with patch("app.routers.recommendations.fetch_user", new=AsyncMock(return_value=USER_ROW)), \
          patch("app.routers.recommendations.fetch_all_facilities", new=AsyncMock(return_value=cafes + others)), \
@@ -1216,7 +1287,7 @@ def _course_mocks(facilities):
     return [
         patch("app.routers.courses.fetch_user", new=AsyncMock(return_value=USER_ROW)),
         patch("app.routers.courses.fetch_all_facilities", new=AsyncMock(return_value=facilities)),
-        patch("app.routers.courses.fetch_congestion_map", new=AsyncMock(return_value={f["id"]: 0.3 for f in facilities})),
+        patch("app.routers.courses.fetch_congestion_map", new=AsyncMock(return_value={f["id"]: _cong(0.3) for f in facilities})),
         patch("app.routers.courses.get_travel_time_and_distance", new=AsyncMock(return_value=(5.0, 400.0))),
         # asyncio.to_thread(predict_congestion, ...) — 동기 함수라 plain 값 반환이면 충분.
         patch("app.routers.courses.predict_congestion", new=lambda *_a, **_k: 0.2),

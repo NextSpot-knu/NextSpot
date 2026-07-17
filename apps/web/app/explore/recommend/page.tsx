@@ -22,11 +22,15 @@ declare global {
 
 // 데모 회복탄력성: 백엔드 사유(reason)가 없을 때도 추천 사유가 비지 않도록
 // 보여줄 결정적 한국어 사유를 생성한다. 백엔드 reason_service._build_template 와 어투를 맞춰 일관성 유지.
-function buildFallbackReason(name: string, waitMin: number, distanceM: number, congestionLevel: number = 0): string {
+function buildFallbackReason(name: string, waitMin: number, distanceM: number, congestionLevel: number | null = null): string {
   const walk = Math.max(1, Math.round(distanceM / 66.67)); // 66.67m/min = 4km/h (백엔드 WALKING_SPEED_M_PER_MIN 와 일치)
   // 혼잡(>=0.75)이면 추천하지 않고 혼잡·대기를 솔직히 알린다.
-  if (congestionLevel >= 0.75) {
+  if (congestionLevel !== null && congestionLevel >= 0.75) {
     return `${name}: 도보 ${walk}분 거리지만 지금은 혼잡도 ${Math.round(congestionLevel * 100)}%로 붐벼 대기가 길 수 있어요.`;
+  }
+  // 혼잡 근거가 없으면 '여유'라는 혼잡 주장을 지어내지 않는다(CONGESTION_TRUST_SPEC).
+  if (congestionLevel === null) {
+    return `${name} 추천: 도보 ${walk}분, 예상 대기 ${Math.round(waitMin)}분 수준입니다.`;
   }
   const mood = congestionLevel >= 0.5 ? "대기가 길지 않은 편이에요" : "지금 비교적 여유로워요";
   return `${name} 추천: 도보 ${walk}분, 예상 대기 ${Math.round(waitMin)}분 수준으로 ${mood}.`;
@@ -109,11 +113,12 @@ const MiniMap = React.memo(({ latitude, longitude, mapLoaded }: MiniMapProps) =>
 MiniMap.displayName = "MiniMap";
 
 // Original Facility Interface
+// congestionLevel=null → 혼잡 로그 0건(합성 금지 — 중립 헤드라인, CONGESTION_TRUST_SPEC)
 interface OriginalFacility {
   id: string;
   name: string;
   type: string;
-  congestionLevel: number;
+  congestionLevel: number | null;
   features: Record<string, unknown>;
 }
 
@@ -400,7 +405,8 @@ function RecommendContent() {
 
         if (originalData) {
           const latestLog = originalData.congestion_logs && originalData.congestion_logs[0];
-          const level = latestLog ? latestLog.congestion_level : 0.0;
+          // 로그 0건이면 null 유지 — 0.0(실측 여유)으로 합성하지 않는다(CONGESTION_TRUST_SPEC).
+          const level = latestLog ? latestLog.congestion_level : null;
 
           setOriginalFacility({
             id: originalData.id,
@@ -421,8 +427,11 @@ function RecommendContent() {
           if (hour >= 11 && hour < 14) timeMultiplier = 1.3;
           else if (hour >= 14 && hour < 18) timeMultiplier = 1.2;
 
-          const predicted = level * avgProcessTime * timeMultiplier;
-          setOriginalWaitTime(predicted.toFixed(1));
+          // 혼잡 근거가 없으면 대기시간도 합성하지 않는다("--" 유지 → 대기 문장 미노출).
+          if (level !== null) {
+            const predicted = level * avgProcessTime * timeMultiplier;
+            setOriginalWaitTime(predicted.toFixed(1));
+          }
         }
       } catch (err) {
         // 실데이터 전용: 목업 폴백 없음 — 원시설 카드는 빈 상태로 둔다.
@@ -1129,7 +1138,25 @@ function RecommendContent() {
             (() => {
               // 정직성: 헤드라인은 실측 혼잡도를 따른다 — 이전엔 진입 경로와 무관하게 '혼잡합니다'
               // 템플릿을 고정 출력해 대기 보드('한산·대기 1분')와 모순된 안내가 나갔다(사용자 신고 버그).
-              const crowded = (originalFacility.congestionLevel ?? 0) >= 0.6;
+              // 로그 0건(congestionLevel=null)은 '여유'로도 팔지 않는다 — 중립 카드(CONGESTION_TRUST_SPEC).
+              if (originalFacility.congestionLevel === null) {
+                return (
+                  <div className="bg-white p-5 rounded-2xl border border-line shadow-[0_2px_14px_rgba(43,35,32,0.06)] relative overflow-hidden">
+                    <div className="flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-muk-soft/40" />
+                      <span className="text-[10px] text-muk-soft font-bold tracking-wider">
+                        {t("card.congestionPreparing")}
+                      </span>
+                    </div>
+                    <h2 className="text-base md:text-lg font-serif font-bold text-muk mt-2">
+                      <span>{originalFacility.name}</span>
+                      {t("recommend.unknownSuffix")}
+                    </h2>
+                    <p className="text-xs text-muk-soft mt-1 leading-relaxed">{t("recommend.unknownHint")}</p>
+                  </div>
+                );
+              }
+              const crowded = originalFacility.congestionLevel >= 0.6;
               return (
                 <div className={`bg-white p-5 rounded-2xl border ${crowded ? "border-terracotta/25" : "border-jade/25"} shadow-[0_2px_14px_rgba(43,35,32,0.06)] relative overflow-hidden`}>
                   <div className={`absolute top-0 right-0 w-24 h-24 ${crowded ? "bg-terracotta/10" : "bg-jade/10"} rounded-full blur-2xl pointer-events-none`} />
@@ -1220,6 +1247,45 @@ function RecommendContent() {
                       {rec.rank && rec.totalCandidates && (
                         <span className="text-[10px] font-bold text-gold-deep bg-gold/10 px-2 py-0.5 rounded-md ml-2">
                           {t("recommend.rankOfTotal", { total: rec.totalCandidates, rank: rec.rank })}
+                        </span>
+                      )}
+                      {/* 혼잡 3단계 근거 배지(CONGESTION_TRUST_SPEC): 실측 4단계 pill / AI 예측 / 준비 중.
+                          색·임계는 RecommendationCard 혼잡 pill 과 동일 규약(0.75/0.5/0.25). */}
+                      {rec.congestionSource === "measured" && typeof rec.congestionLevel === "number" && (
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ml-2 border ${
+                          rec.congestionLevel >= 0.75
+                            ? "bg-terracotta/10 border-terracotta/30 text-terracotta"
+                            : rec.congestionLevel >= 0.5
+                            ? "bg-gold/10 border-gold/30 text-gold-deep"
+                            : rec.congestionLevel >= 0.25
+                            ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-600"
+                            : "bg-jade/10 border-jade/30 text-jade"
+                        }`}>
+                          {t("card.congestion")}: {t(`congestion.${
+                            rec.congestionLevel >= 0.75 ? "busy" : rec.congestionLevel >= 0.5 ? "moderate" : rec.congestionLevel >= 0.25 ? "relaxed" : "quiet"
+                          }`)}
+                        </span>
+                      )}
+                      {rec.congestionSource === "predicted" && typeof rec.congestionLevel === "number" && (
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-md ml-2 border bg-sky-500/10 border-sky-500/30 text-sky-700">
+                          {t("map.forecast")} · {Math.round(rec.congestionLevel * 100)}%
+                        </span>
+                      )}
+                      {rec.congestionSource === "none" && (
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-md ml-2 border bg-muk/5 border-line text-muk-soft">
+                          {t("card.congestionPreparing")}
+                        </span>
+                      )}
+                      {/* D-3: 합성(seed)/시뮬(simulated) 로그는 데모 데이터임을 UI 라벨로 구분(가드레일). */}
+                      {rec.congestionSource === "measured" &&
+                        (rec.congestionLogSource === "seed" || rec.congestionLogSource === "simulated") && (
+                        <span className="text-[10px] font-medium px-2 py-0.5 rounded-md ml-2 border bg-hanji-deep border-line text-muk-soft">
+                          {t("card.demoData")}
+                        </span>
+                      )}
+                      {rec.congestionSource === "measured" && rec.congestionIsStale && (
+                        <span className="text-[10px] font-medium px-2 py-0.5 rounded-md ml-2 border bg-hanji-deep border-line text-muk-soft/70">
+                          {t("card.freshStale")}
                         </span>
                       )}
                       {isVoiceActive && voiceState !== "idle" && (

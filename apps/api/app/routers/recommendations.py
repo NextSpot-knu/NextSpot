@@ -25,6 +25,7 @@ from app.services.voice_intent_service import interpret_turn
 from app.services.embedding_service import filter_candidates as vector_filter_candidates
 from app.services.embedding_service import enrich_candidates as enrich_voice_candidates
 from app.routers.infrastructures import fetch_active_facilities, fetch_latest_congestion_for_all
+from app.services.predict_service import predict_congestion_detailed
 from app.services.spot.score import calculate_spot_score
 from app.services.spot.travel import calculate_haversine_distance
 from app.services.spot.wait_time import calculate_predicted_wait_time
@@ -49,6 +50,14 @@ class RecommendItem(BaseModel):
     reason: str | None = None  # WP3: 백엔드 생성 사유(실패 시 템플릿 폴백)
     # 개발 디버그용 — 위 reason 이 LLM 다듬기로 나왔는지("llm") 템플릿 그대로인지("template").
     reason_source: str = "template"
+    # 혼잡 3단계 근거(CONGESTION_TRUST_SPEC) — 지도 경로 CongestionInfo 규약을 추천 응답에 이식.
+    # measured=congestion_logs 실측(또는 사장 확인), predicted=학습된 모델의 AI 예측,
+    # none=근거 없음(혼잡 정보 준비 중 — 0.0/0.5 를 실측처럼 팔지 않는다).
+    congestion_level: float | None = None
+    congestion_source: Literal["measured", "predicted", "none"] = "none"
+    congestion_log_source: str | None = None   # measured 일 때 원 로그 source(user_report/seed/…)
+    congestion_is_stale: bool | None = None    # measured 일 때 로그 나이>24h
+    congestion_timestamp: str | None = None    # measured 일 때 로그 시각
     rank: int
     total_candidates: int
 
@@ -153,33 +162,39 @@ async def fetch_all_facilities(
 
     return facilities
 
-async def fetch_latest_congestion(facility_id: str) -> float:
-    """
-    특정 시설의 가장 최신 congestion_level을 조회합니다. (없으면 기본값 0.0)
-    """
-    res = await asyncio.to_thread(
-        supabase_client.table("congestion_logs")
-        .select("congestion_level")
-        .eq("facility_id", facility_id)
-        .order("timestamp", desc=True)
-        .order("id", desc=True)  # 동일 timestamp 동률 시 결정적 정렬(infrastructures 라우터와 통일)
-        .limit(1)
-        .execute
-    )
-    if res.data:
-        return res.data[0]["congestion_level"]
-    return 0.0
-
-
-async def fetch_congestion_map(facility_ids: list[str]) -> dict[str, float]:
-    """후보 시설들의 최신 혼잡도를 일괄 조회해 {facility_id: level} 로 반환한다.
+async def fetch_congestion_map(facility_ids: list[str]) -> dict[str, dict]:
+    """후보 시설들의 최신 혼잡 로그를 일괄 조회해 {facility_id: info} 로 반환한다.
 
     후보마다 개별 쿼리를 무제한 gather 하던 N+1 팬아웃(스레드풀 고갈 위험)을
     infrastructures.fetch_latest_congestion_for_all(시설별 limit 1, 결정적 정렬) 재사용으로 대체.
-    로그가 없는 시설은 0.0.
+    info = {level, current_count, timestamp, source, is_stale} — 로그가 없는 시설은 맵에서
+    **누락**된다(0.0 합성 금지 — CONGESTION_TRUST_SPEC: 누락이 곧 '근거 없음' 신호다).
     """
-    congestion_map = await fetch_latest_congestion_for_all(facility_ids)
-    return {fid: data["level"] for fid, data in congestion_map.items()}
+    return await fetch_latest_congestion_for_all(facility_ids)
+
+
+async def resolve_congestion_evidence(facility: dict, log_info: dict | None) -> dict:
+    """후보 1건의 혼잡 근거 3단계를 판정한다(CONGESTION_TRUST_SPEC).
+
+    - measured: 최신 congestion_logs 실측(원 로그 source·신선도 동봉)
+    - predicted: 로그 없음 + 모델이 실제로 학습된 AI 예측(현재 시각 UTC 기준)
+    - none: 로그 없음 + 모델 미학습 — 0.5 평탄 폴백을 예측으로 팔지 않는다
+    """
+    if log_info is not None:
+        return {
+            "level": log_info["level"],
+            "source": "measured",
+            "log_source": log_info.get("source"),
+            "is_stale": bool(log_info.get("is_stale", False)),
+            "timestamp": log_info.get("timestamp"),
+        }
+    now = datetime.now(timezone.utc)  # 모델은 UTC 시각으로 학습됨(score.py 와 동일 관례)
+    predicted, pred_source = await asyncio.to_thread(
+        predict_congestion_detailed, facility.get("type") or "", now.hour, now.weekday()
+    )
+    if pred_source == "local":
+        return {"level": predicted, "source": "predicted", "log_source": None, "is_stale": None, "timestamp": None}
+    return {"level": None, "source": "none", "log_source": None, "is_stale": None, "timestamp": None}
 
 
 async def _resolve_user_vector(user_id: str, preferred_categories: list[str]) -> list[float]:
@@ -245,7 +260,9 @@ async def get_recommendations(
     congestion_by_id = await fetch_congestion_map(
         [req.original_facility_id, *[f["id"] for f, _ in candidates]]
     )
-    original_congestion = congestion_by_id.get(req.original_facility_id, 0.0)
+    # 원본 혼잡은 W3 인센티브(재배치기여)의 **점수 입력** — Phase 1 은 점수 입력을 바꾸지 않는다
+    # (CONGESTION_TRUST_SPEC D-2: 로그 없으면 기존과 동일하게 0.0 기준선 유지, Phase 2 에서 재검토).
+    original_congestion = (congestion_by_id.get(req.original_facility_id) or {}).get("level", 0.0)
     # 원본 대기시간도 위 일괄 혼잡 조회 결과를 재사용한다.
     original_wait_time = await calculate_predicted_wait_time(
         facility_type=original_infra["type"],
@@ -254,11 +271,16 @@ async def get_recommendations(
     )
 
     async def _score_candidate(f: dict, dist: float) -> dict:
-        candidate_congestion = congestion_by_id.get(f["id"], 0.0)
-        # 현재 인원 추정치를 응답 facility 에 주입한다(원본 리스트는 건드리지 않도록 얕은 복사).
-        # facilities 스키마에는 current_count 컬럼이 없고 실시간 인원은 congestion_logs 에만 있으므로,
-        # capacity × 혼잡도(0~1)로 추정해 프런트 카드의 혼잡/여유 인원 표시가 깨지지 않게 한다.
-        f = {**f, "current_count": round(f.get("capacity", 0) * candidate_congestion)}
+        # 혼잡 3단계 판정(CONGESTION_TRUST_SPEC) — 로그 없는 시설을 0.0(실측 여유)처럼 팔지 않는다.
+        evidence = await resolve_congestion_evidence(f, congestion_by_id.get(f["id"]))
+        candidate_congestion = evidence["level"]
+        # 현재 인원 추정치(capacity × 혼잡도)는 **실측일 때만** 응답 facility 에 주입한다(얕은 복사).
+        # 근거 없는 시설의 current_count=0 은 카드에서 '잔여석=정원 전체'로 읽혀 왔다 — None 이면
+        # 프런트가 '—' 처리한다(RecommendationCard 의 currentCount null 가드 기존 동작).
+        if evidence["source"] == "measured":
+            f = {**f, "current_count": round(f.get("capacity", 0) * candidate_congestion)}
+        else:
+            f = {**f, "current_count": None}
         score_res = await calculate_spot_score(
             user_id=req.user_id,
             preferred_categories=user_info.get("preferred_categories", []),
@@ -276,6 +298,7 @@ async def get_recommendations(
             "breakdown": {**score_res.breakdown, "original_wait_time": original_wait_time},
             "distance_m": dist,
             "candidate_congestion": candidate_congestion,
+            "congestion_evidence": evidence,
         }
 
     recommendation_results = list(
@@ -295,6 +318,7 @@ async def get_recommendations(
             "facility_id": item["facility"].get("id"),
             "recommended_facility_name": item["facility"].get("name"),
             "candidate_congestion": item["candidate_congestion"],
+            "congestion_source": item["congestion_evidence"]["source"],
             "travel_time": bd.get("travel_time"),
             "predicted_wait": bd.get("wait_time"),
         })
@@ -334,6 +358,7 @@ async def get_recommendations(
             rec_id = db_res.data[0]["id"] if db_res.data else "mock-rec-id"
 
         reason_text, reason_source = reasons[idx]
+        evidence = item["congestion_evidence"]
         response_items.append(RecommendItem(
             recommendation_id=rec_id,
             facility=item["facility"],
@@ -342,6 +367,11 @@ async def get_recommendations(
             distance_m=item["distance_m"],
             reason=reason_text,
             reason_source=reason_source,
+            congestion_level=evidence["level"],
+            congestion_source=evidence["source"],
+            congestion_log_source=evidence["log_source"],
+            congestion_is_stale=evidence["is_stale"],
+            congestion_timestamp=evidence["timestamp"],
             rank=idx + 1,
             total_candidates=total_count
         ))
@@ -426,9 +456,23 @@ async def recommend_by_type(
 
     async def _score(f: dict) -> dict:
         # 신선한 좌석 상태 방송(30분 이내)이 있으면 congestion_logs 조회값 대신 사장 확인 실측을 쓴다.
-        cong = f.get(CONGESTION_OVERRIDE_KEY, congestion_by_id.get(f["id"], 0.0))
+        override = f.get(CONGESTION_OVERRIDE_KEY)
+        if override is not None:
+            # 사장님이 방금 확인한 좌석 상태 — 실측으로 취급(프런트 배지는 seat_status_fresh 가 담당).
+            evidence = {
+                "level": override, "source": "measured", "log_source": "merchant_seat",
+                "is_stale": False, "timestamp": None,
+            }
+        else:
+            # 혼잡 3단계 판정(CONGESTION_TRUST_SPEC) — 로그 없는 시설을 0.0 실측처럼 팔지 않는다.
+            evidence = await resolve_congestion_evidence(f, congestion_by_id.get(f["id"]))
+        cong = evidence["level"]
         dist = calculate_haversine_distance(req.user_lat, req.user_lng, f["latitude"], f["longitude"])
-        f2 = {**f, "current_count": round(f.get("capacity", 0) * cong)}
+        # current_count 는 실측일 때만 합성 — 근거 없으면 None(프런트 '—' 처리, 잔여석 합성 금지).
+        if evidence["source"] == "measured":
+            f2 = {**f, "current_count": round(f.get("capacity", 0) * cong)}
+        else:
+            f2 = {**f, "current_count": None}
         f2.pop(CONGESTION_OVERRIDE_KEY, None)  # 내부 전용 오버레이 키 — 응답 payload 에는 노출하지 않는다.
         res = await calculate_spot_score(
             user_id=req.user_id,
@@ -445,6 +489,7 @@ async def recommend_by_type(
             "breakdown": res.breakdown,
             "distance_m": dist,
             "candidate_congestion": cong,
+            "congestion_evidence": evidence,
         }
 
     scored = list(await asyncio.gather(*[_score(f) for f in candidates]))
@@ -459,6 +504,7 @@ async def recommend_by_type(
             "facility_id": item["facility"].get("id"),
             "recommended_facility_name": item["facility"].get("name"),
             "candidate_congestion": item["candidate_congestion"],
+            "congestion_source": item["congestion_evidence"]["source"],
             "travel_time": bd.get("travel_time"),
             "predicted_wait": bd.get("wait_time"),
         })
@@ -476,6 +522,11 @@ async def recommend_by_type(
             distance_m=item["distance_m"],
             reason=reasons[idx][0],
             reason_source=reasons[idx][1],
+            congestion_level=item["congestion_evidence"]["level"],
+            congestion_source=item["congestion_evidence"]["source"],
+            congestion_log_source=item["congestion_evidence"]["log_source"],
+            congestion_is_stale=item["congestion_evidence"]["is_stale"],
+            congestion_timestamp=item["congestion_evidence"]["timestamp"],
             rank=idx + 1,
             total_candidates=total,
         )
