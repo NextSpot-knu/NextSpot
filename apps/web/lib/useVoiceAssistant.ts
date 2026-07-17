@@ -264,7 +264,8 @@ export function useVoiceAssistant<T>(opts: VoiceAssistantOptions<T>): VoiceAssis
           o.onFilter(turn.matchIds, turn.spoken || undefined);
         } else {
           // 의미상 맞는 후보가 없으면 무관한 다음 순위를 추천하지 않고 현재 카드를 유지한다.
-          const msg = turn.spoken || "조건에 맞는 확인된 후보가 없어요. 다른 메뉴를 말씀해 주세요.";
+          // "찾아볼게요"는 검색 전 진행 멘트이므로 0건 결과에서 재사용하면 검색이 계속되는 것처럼 보인다.
+          const msg = "조건에 맞는 확인된 후보가 없어요. 다른 메뉴를 말씀해 주세요.";
           setVoiceState("speaking"); setCaption(msg);
           speak(msg, () => scheduleListen());
         }

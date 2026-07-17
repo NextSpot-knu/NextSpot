@@ -20,6 +20,17 @@ logger = structlog.get_logger()
 # 분류 미상(자유발화) 시 반환 후보 상한.
 _MAX_FILTER_RESULTS = 10
 
+# TourAPI 음식점 메타는 대표메뉴가 비어 있거나 ``육류,고기``처럼 넓은 태그만 있는 경우가 많다.
+# 사용자의 구체 메뉴 표현을 데이터의 상위 태그에도 연결해, LLM이 올바른 검색어를 만들고도
+# 정확 문자열이 없어서 0건이 되는 일을 막는다. 점수용 검색 토큰만 확장하며 SPOT 산식은 건드리지 않는다.
+_FOOD_QUERY_ALIASES = {
+    "돼지고기": ("고기", "육류", "삼겹살", "목살"),
+    "삼겹살": ("돼지고기", "고기", "육류"),
+    "목살": ("돼지고기", "고기", "육류"),
+    "소고기": ("고기", "육류", "한우"),
+    "한우": ("소고기", "고기", "육류"),
+}
+
 
 def cuisine_to_str(cuisine) -> str:
     """cuisine_tags(['한식','육류,고기'] 또는 '양식')를 공백 구분 문자열로."""
@@ -71,6 +82,8 @@ async def filter_candidates(
     limit = top_k if isinstance(top_k, int) and top_k > 0 else _MAX_FILTER_RESULTS
 
     qtokens = set(_tokens(utterance))
+    for token in tuple(qtokens):
+        qtokens.update(_FOOD_QUERY_ALIASES.get(token, ()))
     if ic:
         qtokens.add(ic.lower())
 
