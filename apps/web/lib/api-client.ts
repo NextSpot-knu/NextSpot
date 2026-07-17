@@ -81,6 +81,24 @@ function keysToSnake(o: unknown): unknown {
   return o;
 }
 
+// --- LLM 동작 디버그 배지 이벤트 (개발 전용) ---
+// components/LlmDebugToast.tsx 가 구독하는 전역 CustomEvent. 백엔드가 llm_status/reason_source
+// 필드를 아직 안 주는 구버전 응답에도 무해하도록, 호출부는 필드가 있을 때만 발행한다(방어적).
+// 정적 export(SSR) 안전을 위해 window 존재 가드 필수.
+type LlmDebugDetail =
+  | { feature: "voice" | "lab"; status: string }
+  | { feature: "reason"; llmCount: number; templateCount: number };
+
+function dispatchLlmDebug(detail: LlmDebugDetail): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.dispatchEvent(new CustomEvent("nextspot:llm-debug", { detail }));
+  } catch {
+    // 디버그 배지는 절대 주 기능(추천/음성/실험실 응답)을 방해하지 않는다(Codex P2) —
+    // CustomEvent 미지원·패치된 dispatchEvent 등 어떤 예외도 조용히 무시.
+  }
+}
+
 // 로컬 전용: FastAPI 백엔드 직접 호출(기본 http://localhost:8000). 대회용 API Gateway 경유는 제거됨.
 const BASE_URL = process.env.NEXT_PUBLIC_FASTAPI_URL || "http://localhost:8000";
 // 무응답 백엔드에 무한 대기하지 않도록 타임아웃(lib/admin-api.ts adminRequest 의 기존 패턴 미러).
@@ -225,8 +243,28 @@ export interface RecommendationResponse {
   };
   distanceM: number;
   reason?: string; // 백엔드 템플릿 생성 추천 사유 (snake_case reason → camel reason)
+  // 추천 사유가 LLM(Solar)로 생성됐는지 템플릿인지 — LLM 동작 디버그 배지 집계용(구버전 응답엔 없음).
+  reasonSource?: "llm" | "template";
   rank: number;
   totalCandidates: number;
+}
+
+/** 추천 목록의 reasonSource 를 집계해 디버그 배지 이벤트를 1회 발행한다(항목에 하나도 없으면 무발행). */
+function dispatchReasonSourceDebug(items: RecommendationResponse[]): void {
+  let llmCount = 0;
+  let templateCount = 0;
+  let seen = false;
+  for (const item of items) {
+    if (item.reasonSource === "llm") {
+      llmCount++;
+      seen = true;
+    } else if (item.reasonSource === "template") {
+      templateCount++;
+      seen = true;
+    }
+  }
+  if (!seen) return;
+  dispatchLlmDebug({ feature: "reason", llmCount, templateCount });
 }
 
 export async function getRecommendations(
@@ -236,18 +274,20 @@ export async function getRecommendations(
   // Supabase 세션에서 현재 로그인한 유저 ID 획득
   const { data: { session } } = await supabase.auth.getSession();
   let userId = session?.user?.id;
-  
+
   if (!userId) {
     console.warn("인증 세션이 없습니다. 데모용 모의 사용자 ID(GYEONGJU-VISITOR-01)를 사용합니다.");
     userId = "a2222222-2222-2222-2222-222222222222";
   }
 
-  return apiClient.post("/api/v1/recommendations", {
+  const res: RecommendationResponse[] = await apiClient.post("/api/v1/recommendations", {
     userId,
     originalFacilityId,
     userLat: userLocation.lat,
     userLng: userLocation.lng
   });
+  dispatchReasonSourceDebug(res);
+  return res;
 }
 
 /**
@@ -347,10 +387,13 @@ export async function classifyLabReason(
   feedbackId: string,
   text: string
 ): Promise<{ resolved: boolean }> {
-  const data: { resolved?: boolean } = await apiClient.post(
+  const data: { resolved?: boolean; llmStatus?: "llm" | "llm_failed" | "disabled" } = await apiClient.post(
     `/api/v1/lab/${feedbackId}/reason/classify`,
     { text }
   );
+  if (data.llmStatus) {
+    dispatchLlmDebug({ feature: "lab", status: data.llmStatus });
+  }
   return { resolved: data.resolved === true };
 }
 
@@ -381,7 +424,7 @@ export async function recommendByType(
     console.warn("인증 세션이 없습니다. 데모용 모의 사용자 ID(GYEONGJU-VISITOR-01)를 사용합니다.");
     userId = "a2222222-2222-2222-2222-222222222222";
   }
-  return apiClient.post("/api/v1/recommendations/by-type", {
+  const res: RecommendationResponse[] = await apiClient.post("/api/v1/recommendations/by-type", {
     userId,
     facilityType,
     userLat: userLocation.lat,
@@ -389,6 +432,8 @@ export async function recommendByType(
     excludeIds,
     limit
   });
+  dispatchReasonSourceDebug(res);
+  return res;
 }
 
 // --- 자연어 선호 입력 (키워드 파싱 → 추천 반영) ---
@@ -428,6 +473,8 @@ export interface VoiceTurnResult {
   targetFacilityId: string | null;
   matchIds: string[]; // filter 일 때 선호에 맞는 후보 id들('양식'→양식 식당들)
   spoken: string | null; // 백엔드 생성 한국어 응답(없으면 프런트 자체 멘트)
+  // 이번 턴이 LLM(Solar)로 처리됐는지/키워드 폴백인지 — LLM 동작 디버그 배지용(구버전 응답엔 없음).
+  llmStatus?: "keyword" | "llm" | "llm_failed" | "gated" | "disabled";
 }
 
 /**
@@ -441,10 +488,14 @@ export async function voiceTurn(
   currentName: string | null,
   candidates: VoiceTurnCandidate[]
 ): Promise<VoiceTurnResult> {
-  return apiClient.post("/api/v1/voice/turn", {
+  const res: VoiceTurnResult = await apiClient.post("/api/v1/voice/turn", {
     utterance,
     facilityType,
     currentName,
     candidates,
   });
+  if (res.llmStatus) {
+    dispatchLlmDebug({ feature: "voice", status: res.llmStatus });
+  }
+  return res;
 }

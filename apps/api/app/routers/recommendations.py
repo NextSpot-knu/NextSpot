@@ -20,7 +20,7 @@ from app.services.merchant_boost import apply_merchant_boosts, CONGESTION_OVERRI
 from app.services.facility_cache import get_facilities_cached
 from app.services.preference_nlp_service import CATEGORY_KO
 from app.services.preference_vector_service import preference_vector_service
-from app.services.reason_service import generate_reason
+from app.services.reason_service import generate_reason_with_source
 from app.services.voice_intent_service import interpret_turn
 from app.services.embedding_service import filter_candidates as vector_filter_candidates
 from app.services.embedding_service import enrich_candidates as enrich_voice_candidates
@@ -47,6 +47,8 @@ class RecommendItem(BaseModel):
     breakdown: dict
     distance_m: float
     reason: str | None = None  # WP3: 백엔드 생성 사유(실패 시 템플릿 폴백)
+    # 개발 디버그용 — 위 reason 이 LLM 다듬기로 나왔는지("llm") 템플릿 그대로인지("template").
+    reason_source: str = "template"
     rank: int
     total_candidates: int
 
@@ -287,9 +289,9 @@ async def get_recommendations(
     # 4-1. WP3: 상위 N개(=top_n)에만 백엔드 사유 생성 (동시 호출, 실패 시 템플릿 폴백)
     #      컨텍스트는 reason_service 가 소비하는 키만 전달한다: _build_template 는 이름·수치를,
     #      facility_id 는 LLM 문체 다듬기의 캐시 키(시설+혼잡도 버킷+시각)로 쓰인다.
-    async def _reason_for(item: dict) -> str:
+    async def _reason_for(item: dict) -> tuple[str, str]:
         bd = item["breakdown"]
-        return await generate_reason({
+        return await generate_reason_with_source({
             "facility_id": item["facility"].get("id"),
             "recommended_facility_name": item["facility"].get("name"),
             "candidate_congestion": item["candidate_congestion"],
@@ -331,13 +333,15 @@ async def get_recommendations(
         else:
             rec_id = db_res.data[0]["id"] if db_res.data else "mock-rec-id"
 
+        reason_text, reason_source = reasons[idx]
         response_items.append(RecommendItem(
             recommendation_id=rec_id,
             facility=item["facility"],
             spot_score=item["spot_score"],
             breakdown=item["breakdown"],
             distance_m=item["distance_m"],
-            reason=reasons[idx],
+            reason=reason_text,
+            reason_source=reason_source,
             rank=idx + 1,
             total_candidates=total_count
         ))
@@ -449,9 +453,9 @@ async def recommend_by_type(
 
     # 컨텍스트는 reason_service 가 소비하는 키만 전달한다: _build_template 는 이름·수치를,
     # facility_id 는 LLM 문체 다듬기의 캐시 키(시설+혼잡도 버킷+시각)로 쓰인다.
-    async def _reason_for(item: dict) -> str:
+    async def _reason_for(item: dict) -> tuple[str, str]:
         bd = item["breakdown"]
-        return await generate_reason({
+        return await generate_reason_with_source({
             "facility_id": item["facility"].get("id"),
             "recommended_facility_name": item["facility"].get("name"),
             "candidate_congestion": item["candidate_congestion"],
@@ -470,7 +474,8 @@ async def recommend_by_type(
             spot_score=item["spot_score"],
             breakdown=item["breakdown"],
             distance_m=item["distance_m"],
-            reason=reasons[idx],
+            reason=reasons[idx][0],
+            reason_source=reasons[idx][1],
             rank=idx + 1,
             total_candidates=total,
         )
@@ -578,6 +583,8 @@ class VoiceTurnResponse(BaseModel):
     target_facility_id: str | None = None  # select 일 때 후보 id
     match_ids: list[str] = []  # filter 일 때 선호에 맞는 후보 id들(예: '양식' → 양식 식당들)
     spoken: str | None = None  # 백엔드 생성 한국어 응답(없으면 프런트가 자체 멘트)
+    # 개발 디버그용 — "AI 가 실제로 돌았는지" 프런트 배지 표시. interpret_turn 이 판정한 값을 그대로 싣는다.
+    llm_status: str  # keyword|llm|llm_failed|gated|disabled
 
 
 @router.post("/voice/turn", response_model=VoiceTurnResponse)
@@ -636,6 +643,7 @@ async def voice_turn(req: VoiceTurnRequest, request: Request):
         target_facility_id=result.get("target_facility_id"),
         match_ids=result.get("match_ids") or [],
         spoken=result.get("spoken"),
+        llm_status=result.get("llm_status", "disabled"),
     )
 
 

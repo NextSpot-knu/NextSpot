@@ -14,6 +14,7 @@ from app.services.reason_service import (
     _build_template,
     _is_honest_polish,
     generate_reason,
+    generate_reason_with_source,
 )
 
 
@@ -190,3 +191,82 @@ async def test_generate_reason_without_facility_id_still_falls_back_safely(monke
     ctx = {"candidate_congestion": 0.3, "travel_time": 5, "predicted_wait": 10}
     result = await generate_reason(ctx)
     assert result == _build_template(ctx)
+
+
+# --- generate_reason_with_source(개발 디버그용) — (텍스트, 출처) 계약 + 캐시에도 출처 보존 -------
+
+
+@pytest.mark.asyncio
+async def test_generate_reason_with_source_llm_disabled_reports_template():
+    # 키 미설정 — 기존 회귀 0 경로. source 는 "template".
+    text, source = await generate_reason_with_source(_CTX)
+    assert text == _build_template(_CTX)
+    assert source == "template"
+
+
+@pytest.mark.asyncio
+async def test_generate_reason_with_source_reports_llm_when_polish_adopted(monkeypatch):
+    # 정직성 검증을 통과한 다듬기가 채택되면 source="llm".
+    monkeypatch.setattr(reason_service.llm_client, "is_enabled", lambda: True)
+    polished_text = "카페능은 도보 5분, 대기 10분 정도로 여유로운 편이에요. 혼잡도도 30%대로 낮습니다."
+    monkeypatch.setattr(
+        reason_service.llm_client, "chat_text", AsyncMock(return_value=polished_text)
+    )
+    text, source = await generate_reason_with_source(_CTX)
+    assert text == polished_text
+    assert source == "llm"
+
+
+@pytest.mark.asyncio
+async def test_generate_reason_with_source_reports_template_on_dishonest_output(monkeypatch):
+    # 정직성 검증 거부(숫자 지어냄) → 템플릿 폴백이므로 source="template"(llm 아님).
+    monkeypatch.setattr(reason_service.llm_client, "is_enabled", lambda: True)
+    monkeypatch.setattr(
+        reason_service.llm_client, "chat_text",
+        AsyncMock(return_value="카페능은 도보 500분 거리에 있어 아주 멀어요."),
+    )
+    text, source = await generate_reason_with_source(_CTX)
+    assert text == _build_template(_CTX)
+    assert source == "template"
+
+
+@pytest.mark.asyncio
+async def test_generate_reason_with_source_reports_template_on_call_failure(monkeypatch):
+    # LLM 활성이지만 호출 실패(None) → 템플릿 폴백, source="template".
+    monkeypatch.setattr(reason_service.llm_client, "is_enabled", lambda: True)
+    monkeypatch.setattr(reason_service.llm_client, "chat_text", AsyncMock(return_value=None))
+    text, source = await generate_reason_with_source(_CTX)
+    assert text == _build_template(_CTX)
+    assert source == "template"
+
+
+@pytest.mark.asyncio
+async def test_generate_reason_cache_hit_preserves_original_source(monkeypatch):
+    # 핵심 계약: 캐시 히트 시에도 원래 출처를 정확히 보존한다 — 캐시된 llm 문장을
+    # "template"로 잘못 보고하면 안 된다(반대도 마찬가지).
+    monkeypatch.setattr(reason_service.llm_client, "is_enabled", lambda: True)
+    polished_text = "카페능은 도보 5분, 대기 10분 정도로 여유로운 편이에요. 혼잡도도 30%대로 낮습니다."
+    chat = AsyncMock(return_value=polished_text)
+    monkeypatch.setattr(reason_service.llm_client, "chat_text", chat)
+
+    first_text, first_source = await generate_reason_with_source(_CTX)
+    second_text, second_source = await generate_reason_with_source(dict(_CTX))  # 캐시 히트
+
+    assert first_text == second_text == polished_text
+    assert first_source == second_source == "llm"
+    chat.assert_awaited_once()  # 두 번째 호출은 캐시 히트라 LLM 재호출 없음
+
+
+@pytest.mark.asyncio
+async def test_generate_reason_cache_hit_preserves_template_source(monkeypatch):
+    # 첫 호출이 정직성 검증 거부로 템플릿 폴백됐다면, 캐시 히트도 계속 "template"이어야 한다.
+    monkeypatch.setattr(reason_service.llm_client, "is_enabled", lambda: True)
+    chat = AsyncMock(return_value="카페능은 도보 500분 거리에 있어 아주 멀어요.")  # 정직성 위반
+    monkeypatch.setattr(reason_service.llm_client, "chat_text", chat)
+
+    first_text, first_source = await generate_reason_with_source(_CTX)
+    second_text, second_source = await generate_reason_with_source(dict(_CTX))
+
+    assert first_text == second_text == _build_template(_CTX)
+    assert first_source == second_source == "template"
+    chat.assert_awaited_once()

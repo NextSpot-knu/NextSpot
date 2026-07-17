@@ -476,6 +476,7 @@ def test_classify_success_reuses_learning_path_exactly_once(auth_client):
     assert body["reason_code"] == "not_my_taste"
     assert body["learning_scope"] == fs.SCOPE_LONG_TERM
     assert body["updated_vector"] is True
+    assert body["llm_status"] == "llm"  # 분류가 채택된 경로 — "AI 가 실제로 돌았다" 배지
 
     assert second.status_code == 200
     assert second.json()["updated_vector"] is False
@@ -524,7 +525,8 @@ def test_classify_hallucinated_category_falls_back(auth_client):
         res = _classify(auth_client, db, "그냥 다 싫어요")
 
     assert res.status_code == 200
-    assert res.json() == {"resolved": False}
+    # llm_status=llm_failed: 호출은 됐지만 화이트리스트 불일치(환각) → resolved=false.
+    assert res.json() == {"resolved": False, "llm_status": "llm_failed"}
     adjust.assert_not_awaited()
     row = db._tables["user_feedback"][0]
     assert row["reason_status"] == fs.STATUS_PENDING
@@ -542,7 +544,8 @@ def test_classify_null_category_falls_back(auth_client):
         res = _classify(auth_client, db, "음 그냥요")
 
     assert res.status_code == 200
-    assert res.json() == {"resolved": False}
+    # llm_status=llm_failed: category=null 도 "채택 실패"로 취급한다.
+    assert res.json() == {"resolved": False, "llm_status": "llm_failed"}
     adjust.assert_not_awaited()
     assert db._tables["user_feedback"][0]["reason_status"] == fs.STATUS_PENDING
 
@@ -558,7 +561,8 @@ def test_classify_llm_none_falls_back(auth_client):
         res = _classify(auth_client, db, "잘 모르겠어요")
 
     assert res.status_code == 200
-    assert res.json() == {"resolved": False}
+    # llm_status=llm_failed: 호출 자체가 실패(None)한 경우.
+    assert res.json() == {"resolved": False, "llm_status": "llm_failed"}
     adjust.assert_not_awaited()
     assert db._tables["user_feedback"][0]["reason_status"] == fs.STATUS_PENDING
 
@@ -572,7 +576,8 @@ def test_classify_llm_disabled_falls_back_without_calling_model(auth_client):
         res = _classify(auth_client, db, "가격이 너무 비쌌어요")
 
     assert res.status_code == 200
-    assert res.json() == {"resolved": False}
+    # llm_status=disabled: 키 미설정 — 모델은 호출조차 되지 않았다.
+    assert res.json() == {"resolved": False, "llm_status": "disabled"}
     chat.assert_not_awaited()
     assert db._tables["user_feedback"][0]["reason_status"] == fs.STATUS_PENDING
 

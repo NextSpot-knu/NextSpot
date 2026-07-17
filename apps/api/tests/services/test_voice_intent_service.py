@@ -179,3 +179,72 @@ async def test_interpret_turn_llm_select_by_name(monkeypatch):
     result = await interpret_turn(_COMPLEX_UTTERANCE, "식당", None, _CANDIDATES)
     assert result["action"] == "next"  # _coerce: 유효 id 없는 select 는 next 강등
     assert result["target_facility_id"] is None
+
+
+# --- llm_status(개발 디버그용 — 프런트 "AI 실제 동작 여부" 배지) -----------------------------
+# keyword|llm|llm_failed|gated|disabled 5개 값을 각 경로별로 검증한다.
+
+
+@pytest.mark.asyncio
+async def test_llm_status_keyword_when_keyword_classifier_resolves():
+    # 키워드 분류기가 바로 판정(action != unknown)하면 LLM 시도 없이 llm_status="keyword".
+    result = await interpret_turn("다음", "식당", None, _CANDIDATES)
+    assert result["action"] == "next"
+    assert result["llm_status"] == "keyword"
+
+
+@pytest.mark.asyncio
+async def test_llm_status_disabled_when_key_not_set():
+    # conftest 가 UPSTAGE_API_KEY="" 로 고정 — 기본 상태는 is_enabled()=False → "disabled".
+    result = await interpret_turn(_COMPLEX_UTTERANCE, "식당", None, _CANDIDATES)
+    assert result["action"] == "unknown"
+    assert result["llm_status"] == "disabled"
+
+
+@pytest.mark.asyncio
+async def test_llm_status_llm_when_adopted(monkeypatch):
+    # LLM 이 활성 + 성공 응답 → 채택되어 llm_status="llm".
+    monkeypatch.setattr(voice_intent_service.llm_client, "is_enabled", lambda: True)
+    monkeypatch.setattr(voice_intent_service.llm_client, "chat_json", AsyncMock(return_value={
+        "action": "filter", "target_name": None, "intent_category": "양식",
+        "search_query": "조용한 분위기 파스타", "spoken": None,
+    }))
+    result = await interpret_turn(_COMPLEX_UTTERANCE, "식당", None, _CANDIDATES)
+    assert result["action"] == "filter"
+    assert result["llm_status"] == "llm"
+
+
+@pytest.mark.asyncio
+async def test_llm_status_llm_failed_when_call_fails(monkeypatch):
+    # LLM 활성이지만 호출 실패(None) → unknown 유지 + llm_status="llm_failed".
+    monkeypatch.setattr(voice_intent_service.llm_client, "is_enabled", lambda: True)
+    monkeypatch.setattr(voice_intent_service.llm_client, "chat_json", AsyncMock(return_value=None))
+    result = await interpret_turn(_COMPLEX_UTTERANCE, "식당", None, _CANDIDATES)
+    assert result["action"] == "unknown"
+    assert result["llm_status"] == "llm_failed"
+
+
+@pytest.mark.asyncio
+async def test_llm_status_gated_when_rate_limited(monkeypatch):
+    # LLM 활성이지만 llm_gate(레이트리밋)가 차단 → LLM 미호출 + llm_status="gated".
+    monkeypatch.setattr(voice_intent_service.llm_client, "is_enabled", lambda: True)
+    chat = AsyncMock()
+    monkeypatch.setattr(voice_intent_service.llm_client, "chat_json", chat)
+    result = await interpret_turn(
+        _COMPLEX_UTTERANCE, "식당", None, _CANDIDATES, llm_gate=lambda: False
+    )
+    assert result["action"] == "unknown"
+    assert result["llm_status"] == "gated"
+    chat.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_llm_status_gated_when_no_candidates(monkeypatch):
+    # LLM 활성이어도 후보가 0개면 select/filter 가 성립하지 않아 스킵 → llm_status="gated".
+    monkeypatch.setattr(voice_intent_service.llm_client, "is_enabled", lambda: True)
+    chat = AsyncMock()
+    monkeypatch.setattr(voice_intent_service.llm_client, "chat_json", chat)
+    result = await interpret_turn(_COMPLEX_UTTERANCE, "식당", None, [])
+    assert result["action"] == "unknown"
+    assert result["llm_status"] == "gated"
+    chat.assert_not_awaited()

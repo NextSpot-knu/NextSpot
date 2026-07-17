@@ -8,6 +8,7 @@ filter 의 경우 어떤 후보가 맞는지는 라우터의 키워드 의미매
 
 공개 시그니처 `interpret_turn(...) -> dict` 와 반환 키(action/target_facility_id/match_ids/
 search_query/intent_category/spoken)는 불변(라우터가 그대로 소비).
+llm_status 키(개발 디버그용 — 프런트 배지 "AI 동작 여부" 표시): keyword|llm|llm_failed|gated|disabled.
 """
 
 import json
@@ -324,7 +325,8 @@ async def interpret_turn(
     candidates: list[dict],
     llm_gate=None,
 ) -> dict:
-    """음성 응답 1턴을 해석. 항상 {action, target_facility_id, match_ids, search_query, intent_category, spoken} 반환.
+    """음성 응답 1턴을 해석. 항상 {action, target_facility_id, match_ids, search_query, intent_category, spoken,
+    llm_status} 반환(llm_status 는 개발 디버그용 — 프런트 "AI 실제 동작 여부" 배지).
 
     llm_gate: LLM 보조 사용 직전에 호출되는 0-인자 콜러블(예: 라우터의 IP 레이트리밋).
     False 를 반환하면 이 턴은 LLM 없이 키워드 결과(unknown)를 유지한다 — 무인증 엔드포인트의
@@ -332,21 +334,31 @@ async def interpret_turn(
     """
     valid_ids = {c.get("id") for c in (candidates or [])}
     if not (utterance or "").strip():
-        return _fallback()
+        result = _fallback()
+        result["llm_status"] = "keyword"  # 빈 발화 — 애초에 LLM 시도 대상이 아니다
+        return result
     parsed = _keyword_interpret(utterance, current_name, candidates or [])
-    mode = "keyword"
-    # 키워드로 못 알아들은 발화만 LLM 보조(설정 시) — 실패하면 unknown 그대로(기존 재질문 동작).
-    # 후보 0개면 select/filter 가 성립하지 않으므로 유료 호출을 건너뛴다(Codex 감사: 불필요 비용).
-    if (
-        parsed["action"] == "unknown"
-        and candidates
-        and llm_client.is_enabled()
-        and (llm_gate is None or llm_gate())
-    ):
+    # llm_status 판정 — 아래 elif 순서가 기존 게이트 단축평가(llm_gate 는 실제로 LLM 을 탈 때만
+    # 호출)를 그대로 보존한다(원래 조건식 `action==unknown and candidates and is_enabled() and gate()`).
+    if parsed["action"] != "unknown":
+        llm_status = "keyword"  # 키워드 분류기가 이미 판정 — LLM 시도 없음
+    elif not llm_client.is_enabled():
+        llm_status = "disabled"  # UPSTAGE_API_KEY 미설정
+    elif not candidates:
+        llm_status = "gated"  # 후보 0개 — select/filter 가 성립 안 해 유료 호출 스킵
+    elif llm_gate is not None and not llm_gate():
+        llm_status = "gated"  # 레이트리밋 차단
+    else:
         llm_parsed = await _llm_interpret(utterance, current_name, candidates or [])
         if llm_parsed is not None:
             parsed = llm_parsed
-            mode = "llm"
+            llm_status = "llm"
+        else:
+            llm_status = "llm_failed"  # 호출/파싱 실패 → unknown 유지(무해 폴백)
     result = _coerce(parsed, valid_ids)
-    logger.info("voice_intent_resolved", action=result["action"], has_target=bool(result["target_facility_id"]), mode=mode)
+    result["llm_status"] = llm_status
+    logger.info(
+        "voice_intent_resolved",
+        action=result["action"], has_target=bool(result["target_facility_id"]), mode=llm_status,
+    )
     return result

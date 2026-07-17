@@ -156,7 +156,7 @@ def test_recommendations_happy_path(auth_client):
          patch("app.routers.recommendations.fetch_latest_congestion", new=AsyncMock(return_value=0.9)), \
          patch("app.routers.recommendations.fetch_congestion_map", new=AsyncMock(return_value=congestion_map)), \
          patch.object(preference_vector_service, "get_user_vector", new=AsyncMock(return_value=UNIT_VECTOR)), \
-         patch("app.routers.recommendations.generate_reason", new=AsyncMock(return_value="사유")), \
+         patch("app.routers.recommendations.generate_reason_with_source", new=AsyncMock(return_value=("사유", "template"))), \
          patch("app.routers.recommendations.supabase_client", new=FakeSupabase({"recommendations": [{"id": "rec-1"}]})):
         res = auth_client.post("/api/v1/recommendations", json=_reco_body())
 
@@ -178,6 +178,7 @@ def test_recommendations_happy_path(auth_client):
             assert key in item["breakdown"]
         assert item["distance_m"] <= 150.0
         assert item["reason"] == "사유"
+        assert item["reason_source"] == "template"
         assert item["recommendation_id"] == "rec-1"  # _persist 가 INSERT 결과 id 를 매핑
 
 
@@ -199,7 +200,7 @@ def test_recommend_by_type_happy_path(auth_client):
          patch("app.routers.recommendations.fetch_all_facilities", new=AsyncMock(return_value=cafes + others)), \
          patch("app.routers.recommendations.fetch_congestion_map", new=AsyncMock(return_value=congestion_map)), \
          patch.object(preference_vector_service, "get_user_vector", new=AsyncMock(return_value=UNIT_VECTOR)), \
-         patch("app.routers.recommendations.generate_reason", new=AsyncMock(return_value="사유")):
+         patch("app.routers.recommendations.generate_reason_with_source", new=AsyncMock(return_value=("사유", "template"))):
         res = auth_client.post("/api/v1/recommendations/by-type", json={
             "user_id": AUTH_USER_ID,
             "facility_type": "cafe",

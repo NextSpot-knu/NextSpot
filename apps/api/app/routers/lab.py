@@ -325,6 +325,9 @@ async def classify_reason(
       - LLM 비활성/실패, 또는 분류 결과가 null·화이트리스트 밖(환각) → resolved=false.
         프런트가 "선택지에서 골라주세요"로 유도하고 기존 이유 칩을 그대로 유지한다.
     개인정보: 자유 텍스트 원문·LLM 요약 원문은 서버 로그에 남기지 않는다(길이·코드만).
+
+    응답의 llm_status(개발 디버그용 — "AI 가 실제로 돌았는지" 프런트 배지): llm(분류 채택) |
+    llm_failed(호출 실패 또는 화이트리스트 불일치 → resolved false) | disabled(키 미설정).
     """
     user_id = current_user["id"]
     row = await _fetch_own_feedback(feedback_id, user_id)
@@ -342,7 +345,8 @@ async def classify_reason(
             user_id=user_id,
             llm_enabled=llm_client.is_enabled(),
         )
-        return {"resolved": False}
+        # 키 자체가 없으면 disabled, 키는 있는데 빈 텍스트라 시도조차 안 했으면 llm_failed 취급.
+        return {"resolved": False, "llm_status": "disabled" if not llm_client.is_enabled() else "llm_failed"}
 
     reason_code, note = await _classify_free_text(text)
     if reason_code is None:
@@ -353,7 +357,7 @@ async def classify_reason(
             user_id=user_id,
             text_length=len(text),
         )
-        return {"resolved": False}
+        return {"resolved": False, "llm_status": "llm_failed"}
 
     # --- 여기부터 answer_reason 과 동일한 기존 적용 경로(재사용) ---
     try:
@@ -387,6 +391,7 @@ async def classify_reason(
         "reason_code": result["reason_code"],
         "learning_scope": result["learning_scope"],
         "updated_vector": updated_vector,
+        "llm_status": "llm",
     }
 
 

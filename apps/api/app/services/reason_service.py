@@ -4,6 +4,8 @@
  2026-07-17 국산 Upstage Solar 어댑터(llm_client) 재도입에 맞춰 문체 다듬기 후처리를 추가.)
 입력으로 주어진 수치(혼잡도·도보·예상 대기)만 사용해 환각 없는 사유 문장을 만든다.
 공개 시그니처 `generate_reason(context) -> str` 는 불변(라우터가 await 로 호출).
+개발 디버그용으로 출처("llm"|"template")까지 필요하면 `generate_reason_with_source(context) ->
+tuple[str, str]` 를 쓴다 — generate_reason 은 내부적으로 이를 호출해 텍스트만 반환한다.
 
 LLM 다듬기 설계 원칙(무해 폴백 — llm_client.py 계약과 동일):
   - 사실(숫자·시설명)은 항상 템플릿이 정한다. LLM 은 문체(어투·연결)만 다듬을 뿐, 새
@@ -36,10 +38,11 @@ _LLM_MAX_TOKENS = 200        # 한두 문장이면 충분 — 과금·지연 최
 
 _CACHE_TTL_SECONDS = 600.0   # 10분 — 같은 카드 반복 노출 시 재호출 금지
 
-# (시설 식별자, 템플릿 원문) → (monotonic 시각, 최종 사유 문자열).
+# (시설 식별자, 템플릿 원문) → (monotonic 시각, 최종 사유 문자열, 출처("llm"|"template")).
 # 성공(다듬어진 문장)·폴백(템플릿) 결과를 모두 캐싱해, 같은 카드가 다시 노출돼도
-# LLM 을 재호출하지 않는다.
-_cache: dict[tuple, tuple[float, str]] = {}
+# LLM 을 재호출하지 않는다. 출처도 함께 저장해야 캐시 히트 시에도 "이번에 LLM 이 실제로
+# 돌았는지"를 정확히 보고할 수 있다(캐시된 llm 문장을 template 로 오보하면 안 됨).
+_cache: dict[tuple, tuple[float, str, str]] = {}
 
 _NUMBER_RE = re.compile(r"\d+(?:\.\d+)?")
 
@@ -112,23 +115,24 @@ def _cache_key(ctx: dict, template: str) -> Optional[tuple]:
     return (facility_id, template)
 
 
-def _cache_get(key: Optional[tuple]) -> Optional[str]:
+def _cache_get(key: Optional[tuple]) -> Optional[tuple[str, str]]:
+    """(사유 문자열, 출처) 히트 — 만료·미스는 None."""
     if key is None:
         return None
     hit = _cache.get(key)
     if hit is None:
         return None
-    cached_at, value = hit
+    cached_at, value, source = hit
     if time.monotonic() - cached_at >= _CACHE_TTL_SECONDS:
         _cache.pop(key, None)
         return None
-    return value
+    return value, source
 
 
-def _cache_set(key: Optional[tuple], value: str) -> None:
+def _cache_set(key: Optional[tuple], value: str, source: str) -> None:
     if key is None:
         return
-    _cache[key] = (time.monotonic(), value)
+    _cache[key] = (time.monotonic(), value, source)
 
 
 def _polish_system_prompt() -> str:
@@ -162,11 +166,15 @@ async def _llm_polish(template: str, ctx: dict) -> Optional[str]:
     return polished
 
 
-async def generate_reason(context: dict) -> str:
-    """추천 1건의 점수 구성요소를 받아 한국어 사유를 반환. 항상 문자열(폴백 보장)."""
+async def generate_reason_with_source(context: dict) -> tuple[str, str]:
+    """추천 1건의 사유와 출처("llm"|"template")를 함께 반환(개발 디버그용 — 프런트 배지).
+
+    "llm" = LLM 문체 다듬기가 정직성 검증을 통과해 채택됨. "template" = 키 미설정·호출 실패·
+    정직성 검증 거부(그 밖의 모든 폴백) — 어느 경로든 텍스트 자체는 generate_reason 과 동일하다.
+    """
     template = _build_template(context)
     if not llm_client.is_enabled():
-        return template  # 키 미설정 — 기존 동작과 100% 동일(회귀 0)
+        return template, "template"  # 키 미설정 — 기존 동작과 100% 동일(회귀 0)
 
     key = _cache_key(context, template)
     cached = _cache_get(key)
@@ -174,6 +182,15 @@ async def generate_reason(context: dict) -> str:
         return cached
 
     polished = await _llm_polish(template, context)
-    result = polished if polished is not None else template
-    _cache_set(key, result)
-    return result
+    if polished is not None:
+        result, source = polished, "llm"
+    else:
+        result, source = template, "template"
+    _cache_set(key, result, source)
+    return result, source
+
+
+async def generate_reason(context: dict) -> str:
+    """추천 1건의 점수 구성요소를 받아 한국어 사유를 반환. 항상 문자열(폴백 보장)."""
+    text, _source = await generate_reason_with_source(context)
+    return text
