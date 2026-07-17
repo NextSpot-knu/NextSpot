@@ -1,4 +1,42 @@
-# 세션 인계 문서 (2026-07-17 갱신)
+# 세션 인계 문서 (2026-07-18 갱신)
+
+## -21. 2026-07-18 — 혼잡 근거 전수 감사 + 신뢰성 명세 초안 + 장소 밀도 이슈
+
+### §-20 RESUME 실행 — 「추천 근거 신뢰성 개선 명세」 초안 완료 (PM 검토 대기)
+
+- 혼잡 데이터 생산→전달→표시 전 경로 전수 감사 완료. 핵심: **지도 경로는 이미 정직**
+  (로그 없으면 null → 회색 마커·`card.noData`·`source`/`is_stale`/`anchored` 완비),
+  **추천 경로만 비정직** — `recommendations.py:257,429`의 `.get(id, 0.0)` 폴백이
+  `current_count=0`(잔여석 전체)과 `reason_service.py:67,74`의 "혼잡도 0%, 여유가 있습니다"로
+  흘러 실측처럼 노출. `RecommendItem`에 혼잡 출처 필드 자체가 없음. SPOT 랭킹은 0.0을 쓰지
+  않고 `predict_congestion`을 쓰므로(`score.py:83-88`) **점수는 오염되지 않음 — 표시만 문제**.
+- 명세 초안: **`docs/CONGESTION_TRUST_SPEC.md`** — 3단계(`measured`/`predicted`/`none`) 근거
+  모델, API 필드 신설, 사유 문구 규칙, UI 표(수정 대상 file:line 전부 포함), 테스트·완료 조건,
+  PM 결정 요청 4건(D-1~D-4). 미학습 모델의 0.5 폴백을 "AI 예측"으로 팔지 않는 규칙 포함.
+  대본 충돌 확인 완료: "혼잡도 0%"는 `DEMO_SCENARIO.md`·`JUDGE_QA.md`에 미등장 — 교정 안전.
+
+### PM 제기 — 황리단길 마커 밀도 문제 (2026-07-18)
+
+- PM 관찰: 카카오맵 대비 마커가 드문드문함. 원인은 버그가 아니라 **TourAPI 등록 밀도**
+  (§-16 실측: 반경 4km에도 108곳). 대응 A안(Kakao Local FD6/CE7 보강 적재, 표시 전용→추천
+  편입 2단계) 권장, 단 **신뢰성 명세가 선행 조건**(신규 장소 전부 로그 0건). 상세는 명세 §8.
+
+### 환경·P0 확인 결과
+
+- 재시작 후 재확인 완료: `py -3.11` = 3.11.9, ruff 0.15.22. §-20의 `search.py`/`test_search.py`
+  줄바꿈 의사변경은 내용 diff 없음 확인 — 사용자 변경 아님.
+- 🔴 **사람 작업(P0 신규): `apps/api/.env` 소실** — 이 저장소 사본(`Desktop/NEXTSPOT`)에는
+  `.env.example`만 존재하고 AGENTS.md의 옛 경로(`Desktop/nextspot/NextSpot`)는 더 이상 없음.
+  저장소 이동 시 `.env`가 따라오지 않은 것으로 추정. fail-fast 4종(`SUPABASE_URL`
+  `SUPABASE_ANON_KEY` `JWT_SECRET` `ADMIN_API_TOKEN`) + `KAKAO_REST_API_KEY` `GEMINI_API_KEY`
+  복원 전까지 로컬 백엔드 구동·원격 DB 조회 불가. (AGENTS.md 경로 문구도 갱신 필요)
+- P0 원격 검증 한계: 프로덕션 정적 HTML에서는 Kakao SDK 키 확인 불가, `gh` CLI 미설치로
+  Actions 상태 확인 불가. Vercel JavaScript 키 교체·Web 도메인 등록은 여전히 사람 확인 필요.
+
+### RESUME
+
+PM이 `docs/CONGESTION_TRUST_SPEC.md`의 D-1~D-4를 결정하면 Phase 1(표시 정직화) 구현 착수.
+`.env` 복원 전에는 로컬 스모크 불가 — pytest는 placeholder env로 동작하므로 게이트는 가능.
 
 ## -20. 2026-07-18 — 개발환경 복구 + 다음 사이클 기획 체크포인트
 
