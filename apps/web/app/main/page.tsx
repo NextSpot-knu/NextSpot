@@ -71,6 +71,7 @@ interface FacilityRecord {
   reason?: string;
   apiRank?: number;
   totalCandidates?: number;
+  weatherAdjusted?: boolean;
 }
 
 // 개별 시설 vs 그룹(모음) 마커 — isGroup 판별식 union(expandGroups/마커 클릭 분기용).
@@ -177,6 +178,7 @@ export default function MainPage() {
   const [isMockTimeMinimized, setIsMockTimeMinimized] = useState(true);
   const [mockHour, setMockHour] = useState<number | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [weatherPreference, setWeatherPreference] = useState({ enabled: false, activeRisk: false });
 
   // 히트맵 레이어 on/off — 혼잡 핀과 별개의 열지도 오버레이(CongestionMap 에서 이식). 기본 꺼짐.
   const [showHeatmap, setShowHeatmap] = useState(false);
@@ -863,6 +865,20 @@ export default function MainPage() {
           });
         }
 
+        // SPOT 원점수는 보존하고, 사용자가 날씨 맞춤을 켠 악천후에만 명확한 실내 유형을 우선 배치한다.
+        if (weatherPreference.enabled && weatherPreference.activeRisk) {
+          const indoorTypes = new Set(['restaurant', 'cafe', 'culture']);
+          all = [...all].sort((a, b) => {
+            const indoorDelta = Number(indoorTypes.has(b.type)) - Number(indoorTypes.has(a.type));
+            return indoorDelta || compareSpot(a, b);
+          }).map((facility, index) => ({
+            ...facility,
+            apiRank: index + 1,
+            totalCandidates: all.length,
+            weatherAdjusted: indoorTypes.has(facility.type),
+          }));
+        }
+
         if (cancelled) return;
         setRankedFacilities(all);
         if (all.length === 0) {
@@ -886,7 +902,7 @@ export default function MainPage() {
     // voiceFilterIds 는 dep로 두지 않는다(필터 변경은 onFilter가 직접 처리; effect는 ref로 최신값 읽음 → 더블셋/경합 방지).
     // rejectedIds, savedIds 도 dep에서 제외하여 거절/저장 시 불필요한 백엔드 API 재호출(점수/순위 리셋 현상)을 방지.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [facilities, activeFilter, userLocation, preferredCategories, mockHour]);
+  }, [facilities, activeFilter, userLocation, preferredCategories, mockHour, weatherPreference]);
 
   // Action Button Handlers
   const handleAccept = (fac: Facility) => {
@@ -1677,6 +1693,12 @@ export default function MainPage() {
           </div>
         </div>
 
+        <WeatherChip onPreferenceChange={(enabled, activeRisk) => {
+          setWeatherPreference((current) => current.enabled === enabled && current.activeRisk === activeRisk
+            ? current : { enabled, activeRisk });
+          if (enabled && !weatherPreference.enabled) setActiveFilter('문화시설');
+        }} />
+
         {/* (c) 검색 결과 없음 안내 — 입력값은 있으나 현재 카테고리에 일치 장소가 없을 때 */}
         {searchActive && searchMatchCount === 0 && (
           <div className="pointer-events-auto px-2 -mt-1">
@@ -1908,8 +1930,7 @@ export default function MainPage() {
               축제 선택 시 지도에 핀(구체 주소) 또는 색상 영역(동·일원 등 넓은 지역)으로 표시. */}
           <FestivalBanner onFocus={focusFestivalOnMap} />
 
-          {/* 기상청 단기예보 + 인근 공중화장실. 외부 키/호출 실패 시 각 칩이 스스로 숨는다. */}
-          <WeatherChip />
+          {/* 인근 공중화장실. 외부 키/호출 실패 시 칩이 스스로 숨는다. */}
           <RestroomChip location={userLocation} />
 
           {/* 🍃 지금 한산 — 현재 여유로운 곳 TOP3(level<0.3, 취향 우선). 탭 시 시트 닫고 해당 시설 선택+패닝.
@@ -2089,6 +2110,7 @@ export default function MainPage() {
                   lastUpdated: selectedFacility.lastUpdated ?? null,
                   isStale: !!selectedFacility.isStale,
                 }}
+                weatherAdjusted={Boolean(selectedFacility.weatherAdjusted)}
               />
               </div>
             </div>

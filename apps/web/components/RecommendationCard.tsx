@@ -62,6 +62,7 @@ interface RecommendationCardProps {
   // 신선도 정직화(계약 5): 혼잡 데이터 출처·나이. user_report→'방문객 제보 · n분 전',
   // 기타 최신→'n분 전 기준', isStale(로그 나이>24h)→'과거 패턴 기반'(회색). 미제공(저장 목록 등)이면 미표시.
   dataSource?: { source: string | null; lastUpdated?: string | null; isStale?: boolean };
+  weatherAdjusted?: boolean;
 }
 
 export function RecommendationCard({
@@ -84,6 +85,7 @@ export function RecommendationCard({
   eventBoost,
   eventTitle,
   dataSource,
+  weatherAdjusted,
 }: RecommendationCardProps) {
   const { t, locale } = useI18n();
   const [isExpanded, setIsExpanded] = useState(false);
@@ -607,6 +609,11 @@ export function RecommendationCard({
           )}
 
           {/* AI 추천 사유 (백엔드 템플릿, 있을 때만) */}
+          {weatherAdjusted && (
+            <div className="mb-2 rounded-xl border border-gold/40 bg-gold/10 px-3 py-2 text-xs font-semibold text-muk">
+              🌧️ {t('weather.cardReason')}
+            </div>
+          )}
           {reason && (
             <p className="text-[13px] leading-relaxed text-muk bg-gold/10 border border-gold/25 rounded-2xl px-3.5 py-2.5">
               💡 {reason}
