@@ -1217,7 +1217,8 @@ export default function MainPage() {
       const res = await voiceTurn(utterance, type, f?.name ?? null, cands);
       // 음식 선호 발화(filter)는 '식당'일 때만 음식 의도로 저장(주차/회의/휴게 선호% 오염 방지).
       if (res.action === 'filter' && type === 'restaurant') cuisineIntentRef.current = utterance;
-      return { action: res.action, targetId: res.targetFacilityId, matchIds: res.matchIds, spoken: res.spoken };
+      // suggestionId: filter 매치 0건일 때의 '유사 대안 제안' — 훅이 2턴(accept→select) 흐름으로 소비.
+      return { action: res.action, targetId: res.targetFacilityId, matchIds: res.matchIds, spoken: res.spoken, suggestionId: res.suggestionId };
     },
   });
 

@@ -244,6 +244,60 @@ async def test_llm_match_names_empty_stays_empty(monkeypatch):
     assert result["llm_status"] == "llm"
 
 
+# --- similar_names → similar_ids 매핑 — 유사 대안 제안 2턴 흐름(2026-07-18) -------------------
+# "삼겹살 먹고싶다"에 정확히 파는 곳이 없을 때, 같은 계열(고기류) 후보를 "대신 …로 안내해드릴까요?"
+# 로 제안하기 위한 원료. match_names 와 동일한 매핑·화이트리스트 규칙을 탄다.
+
+
+@pytest.mark.asyncio
+async def test_llm_similar_names_mapped_and_whitelisted(monkeypatch):
+    # 14. similar_names(후보 이름 정확 일치) → similar_ids 매핑. 환각 이름·중복은 걸러지고
+    #     유효 이름만 순서 보존으로 남는다(match_names 와 동일 패턴).
+    monkeypatch.setattr(voice_intent_service.llm_client, "is_enabled", lambda: True)
+    monkeypatch.setattr(voice_intent_service.llm_client, "chat_json", AsyncMock(return_value={
+        "action": "filter", "target_name": None, "intent_category": "고깃집",
+        "search_query": "삼겹살", "match_names": [],
+        "similar_names": ["존재하지 않는 가게", "피자옥", "카페능", "피자옥"],
+    }))
+    result = await interpret_turn("삼겹살 먹고싶다", "식당", None, _CANDIDATES)
+    assert result["action"] == "filter"
+    assert result["match_ids"] == []
+    assert result["similar_ids"] == ["f2", "f1"]
+    assert result["llm_status"] == "llm"
+
+
+@pytest.mark.asyncio
+async def test_llm_similar_names_ignored_when_match_exists(monkeypatch):
+    # 15. match_names(정확히 파는 곳)가 있으면 유사 제안은 성립하지 않는다 — similar_ids 강제 [].
+    monkeypatch.setattr(voice_intent_service.llm_client, "is_enabled", lambda: True)
+    monkeypatch.setattr(voice_intent_service.llm_client, "chat_json", AsyncMock(return_value={
+        "action": "filter", "target_name": None, "intent_category": "카페",
+        "search_query": "커피", "match_names": ["카페능"], "similar_names": ["피자옥"],
+    }))
+    result = await interpret_turn("커피 마시고 싶어", "식당", None, _CANDIDATES)
+    assert result["action"] == "filter"
+    assert result["match_ids"] == ["f1"]
+    assert result["similar_ids"] == []
+
+
+@pytest.mark.asyncio
+async def test_similar_ids_forced_empty_when_not_filter(monkeypatch):
+    # 16. action 이 filter 가 아니면 similar_ids 는 강제 [] (_coerce 이중 방어).
+    monkeypatch.setattr(voice_intent_service.llm_client, "is_enabled", lambda: True)
+    monkeypatch.setattr(voice_intent_service.llm_client, "chat_json", AsyncMock(return_value={
+        "action": "select", "target_name": "카페능", "similar_names": ["피자옥"],
+    }))
+    result = await interpret_turn(_COMPLEX_UTTERANCE, "식당", None, _CANDIDATES)
+    assert result["action"] == "select"
+    assert result["similar_ids"] == []
+
+
+def test_keyword_paths_include_similar_ids_key():
+    # 17. 키워드 경로·폴백도 similar_ids 키를 항상 포함한다(반환 키 일관성 — 라우터 계약).
+    assert _keyword_interpret("다음", None, _CANDIDATES)["similar_ids"] == []
+    assert voice_intent_service._fallback()["similar_ids"] == []
+
+
 # --- llm_status(개발 디버그용 — 프런트 "AI 실제 동작 여부" 배지) -----------------------------
 # keyword|llm|llm_failed|gated|disabled 5개 값을 각 경로별로 검증한다.
 

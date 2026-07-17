@@ -19,6 +19,9 @@ export interface VoiceTurn {
   targetId?: string | null; // select 일 때 고른 시설 id
   matchIds?: string[]; // filter 일 때 선호에 맞는 후보 id들
   spoken?: string | null; // 백엔드 생성 한국어 응답
+  // filter 매치 0건일 때 백엔드가 제안한 '유사 대안' 후보 id — spoken 이 "…안내해드릴까요?"로 물었고,
+  // 다음 턴 accept 는 현재 카드 수락이 아니라 이 후보 선택(select)으로 처리한다(2턴 흐름).
+  suggestionId?: string | null;
 }
 
 export interface VoiceAssistantOptions<T> {
@@ -74,6 +77,9 @@ export function useVoiceAssistant<T>(opts: VoiceAssistantOptions<T>): VoiceAssis
   const startingRef = useRef(false);
   const repromptRef = useRef(0);
   const itemRef = useRef<T | null>(null);
+  // 유사 대안 제안(2턴): 직전 턴의 suggestionId. 다음 턴 accept 를 이 후보 select 로 처리하고,
+  // 어떤 액션이든 1턴 소비 후 반드시 클리어한다(오래된 제안이 엉뚱한 턴에 발동하는 것 방지).
+  const pendingSuggestionRef = useRef<string | null>(null);
   const koVoiceWarnedRef = useRef(false);
   const speakSeqRef = useRef(0); // 발화 시퀀스 — 취소/대체 시 이전 발화의 onEnd 체인 무효화
 
@@ -174,6 +180,7 @@ export function useVoiceAssistant<T>(opts: VoiceAssistantOptions<T>): VoiceAssis
     clearTimers();
     startingRef.current = false;
     repromptRef.current = 0;
+    pendingSuggestionRef.current = null;
     stateRef.current = "idle";
     setVoiceStateRaw("idle");
     setActiveBoth(false);
@@ -187,6 +194,7 @@ export function useVoiceAssistant<T>(opts: VoiceAssistantOptions<T>): VoiceAssis
     clearTimers();
     startingRef.current = false;
     repromptRef.current = 0;
+    pendingSuggestionRef.current = null;
     stateRef.current = "idle";
     setVoiceStateRaw("idle");
     setActiveBoth(false);
@@ -237,6 +245,11 @@ export function useVoiceAssistant<T>(opts: VoiceAssistantOptions<T>): VoiceAssis
     if ((stateRef.current as VoiceState) === "idle") return; // 해석 대기(await) 중 취소/정지됐으면 중단
     if (itemRef.current !== item) return; // 해석 중 카드가 바뀌었으면(새 카드 narrate 중) 이 턴 폐기(stale)
 
+    // 유사 대안 제안은 정확히 1턴만 유효 — 어떤 액션이든 여기서 소비(클리어)하고,
+    // 이번 턴이 새 제안(filter 0건 + suggestionId)이면 아래 filter 분기가 다시 채운다.
+    const pendingSuggestion = pendingSuggestionRef.current;
+    pendingSuggestionRef.current = null;
+
     const action = (turn.action || "unknown").toLowerCase();
     switch (action) {
       case "stop":
@@ -244,6 +257,13 @@ export function useVoiceAssistant<T>(opts: VoiceAssistantOptions<T>): VoiceAssis
         finish(turn.spoken || "음성 안내를 마칠게요.");
         break;
       case "accept": {
+        // 직전 턴에 "대신 ○○로 안내해드릴까요?" 제안이 있었으면, 이 accept 는 현재 카드 수락이
+        // 아니라 그 제안 후보의 선택이다 — select 경로 재사용(onSelect가 카드를 바꾸면 notifyItem이 narrate).
+        if (pendingSuggestion && o.onSelect) {
+          try { recRef.current?.abort?.(); } catch { /* noop */ }
+          o.onSelect(pendingSuggestion, turn.spoken || undefined);
+          break;
+        }
         const msg = turn.spoken || "알겠어요, 여기로 안내할게요!";
         setVoiceState("speaking"); setCaption(msg);
         speak(msg, () => { o.onAccept(item); finish(); });
@@ -262,6 +282,13 @@ export function useVoiceAssistant<T>(opts: VoiceAssistantOptions<T>): VoiceAssis
         try { recRef.current?.abort?.(); } catch { /* noop */ }
         if (turn.matchIds && turn.matchIds.length && o.onFilter) {
           o.onFilter(turn.matchIds, turn.spoken || undefined);
+        } else if (turn.suggestionId) {
+          // 매치 0건 + 유사 대안 제안: 백엔드 spoken("대신 ○○…안내해드릴까요?")을 읽고 답을 기다린다.
+          // 다음 턴 accept 가 이 후보 select 로 이어진다(기존 0건 흐름과 동일한 상태 전이 — 카드 유지 + listen 재개).
+          pendingSuggestionRef.current = turn.suggestionId;
+          const msg = turn.spoken || "비슷한 곳이 있어요. 안내해드릴까요?";
+          setVoiceState("speaking"); setCaption(msg);
+          speak(msg, () => scheduleListen());
         } else {
           // 의미상 맞는 후보가 없으면 무관한 다음 순위를 추천하지 않고 현재 카드를 유지한다.
           // "찾아볼게요"는 검색 전 진행 멘트이므로 0건 결과에서 재사용하면 검색이 계속되는 것처럼 보인다.

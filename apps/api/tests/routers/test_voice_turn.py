@@ -172,6 +172,51 @@ def test_voice_turn_keyword_path_keeps_local_matcher():
     assert body["llm_status"] == "keyword"
 
 
+# --- 유사 대안 제안(2턴) — match 0건 + similar_ids 존재 시 suggestion_id + 서버 템플릿 spoken ---
+
+
+def test_voice_turn_zero_match_with_similar_builds_suggestion():
+    # llm 턴에서 정확 매치 0건 + Solar 유사 대안(similar_ids) 존재 → suggestion_id 와
+    # 서버 템플릿 spoken("대신 비슷한 곳으로 {이름}…안내해드릴까요?")이 응답에 실린다.
+    result = {
+        "action": "filter", "target_facility_id": None, "match_ids": [],
+        "similar_ids": ["f2"], "search_query": "삼겹살", "intent_category": "고깃집",
+        "spoken": None, "llm_status": "llm",
+    }
+    with patch.object(rec, "interpret_turn", _fake_interpret(result)), \
+         patch.object(rec, "vector_filter_candidates", _fake_vector([])):
+        with TestClient(app) as client:
+            res = _post_filter_turn(client)
+    assert res.status_code == 200
+    body = res.json()
+    assert body["action"] == "filter"
+    assert body["match_ids"] == []
+    assert body["suggestion_id"] == "f2"
+    # '숯불'은 받침이 있어 조사 '이' — 라우터가 마지막 글자 받침으로 조사를 확정한다(TTS 자연스러움).
+    assert body["spoken"] == (
+        "근처에 확인된 고깃집 후보가 없어요. 대신 비슷한 곳으로 황남숯불이 있어요. 안내해드릴까요?"
+    )
+
+
+def test_voice_turn_zero_match_without_similar_keeps_existing_message():
+    # similar_ids 도 없으면 기존 0건 문구 그대로 — suggestion_id 는 None(하위호환).
+    result = {
+        "action": "filter", "target_facility_id": None, "match_ids": [],
+        "similar_ids": [], "search_query": "삼겹살", "intent_category": "고깃집",
+        "spoken": None, "llm_status": "llm",
+    }
+    with patch.object(rec, "interpret_turn", _fake_interpret(result)), \
+         patch.object(rec, "vector_filter_candidates", _fake_vector([])):
+        with TestClient(app) as client:
+            res = _post_filter_turn(client)
+    assert res.status_code == 200
+    body = res.json()
+    assert body["action"] == "filter"
+    assert body["match_ids"] == []
+    assert body["suggestion_id"] is None
+    assert body["spoken"] == "근처에 확인된 고깃집 후보가 없어요. 다른 메뉴를 말씀해 주세요."
+
+
 def test_voice_turn_response_includes_llm_status_gated_path_when_rate_limited():
     # 레이트리밋 초과로 LLM 이 게이트에서 막히면 llm_status="gated"(429 아님, unknown 강등).
     with patch.object(voice_intent_service.llm_client, "is_enabled", lambda: True), \

@@ -481,6 +481,9 @@ export interface VoiceTurnResult {
   targetFacilityId: string | null;
   matchIds: string[]; // filter 일 때 선호에 맞는 후보 id들('양식'→양식 식당들)
   spoken: string | null; // 백엔드 생성 한국어 응답(없으면 프런트 자체 멘트)
+  // filter 매치 0건일 때 백엔드가 제안한 '유사 대안'(같은 계열) 후보 id — spoken 이
+  // "…안내해드릴까요?"로 물었고, 다음 턴 accept 를 이 후보 select 로 처리한다(구버전 응답엔 없음).
+  suggestionId?: string | null;
   // 이번 턴이 LLM(Solar)로 처리됐는지/키워드 폴백인지 — LLM 동작 디버그 배지용(구버전 응답엔 없음).
   llmStatus?: "keyword" | "llm" | "llm_failed" | "gated" | "disabled";
 }

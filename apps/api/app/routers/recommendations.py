@@ -634,6 +634,9 @@ class VoiceTurnResponse(BaseModel):
     target_facility_id: str | None = None  # select 일 때 후보 id
     match_ids: list[str] = []  # filter 일 때 선호에 맞는 후보 id들(예: '양식' → 양식 식당들)
     spoken: str | None = None  # 백엔드 생성 한국어 응답(없으면 프런트가 자체 멘트)
+    # filter 매치 0건일 때의 '유사 대안 제안'(같은 계열 음식) 후보 id — spoken 이 "…로 안내해드릴까요?"로
+    # 물었고, 다음 턴 accept 를 프런트 훅이 이 후보 select 로 처리한다(2턴 흐름). 하위호환: 기본 None.
+    suggestion_id: str | None = None
     # 개발 디버그용 — "AI 가 실제로 돌았는지" 프런트 배지 표시. interpret_turn 이 판정한 값을 그대로 싣는다.
     llm_status: str  # keyword|llm|llm_failed|gated|disabled
 
@@ -696,14 +699,32 @@ async def voice_turn(req: VoiceTurnRequest, request: Request):
             # 선호에 맞는 결과처럼 읽어주는 오해가 생긴다.
             result["action"] = "filter"
             result["match_ids"] = []
-            if ic:
-                result["spoken"] = f"근처에 확인된 {ic} 후보가 없어요. 다른 메뉴를 말씀해 주세요."
+            no_match_msg = f"근처에 확인된 {ic} 후보가 없어요" if ic else "조건에 맞는 후보가 없어요"
+            # 유사 대안 제안(2턴): Solar 가 같은 계열 후보(similar_ids)를 골랐으면 첫 후보의 이름으로
+            # "대신 …로 안내해드릴까요?" 를 묻는다. spoken 은 서버 템플릿 전용 — name 은 검증된
+            # 후보 dict(요청 스키마 절단 완료)의 값, ic 는 _INTENT_CATEGORIES 화이트리스트 통과값이라 안전.
+            suggestion_id = None
+            for sid in (result.get("similar_ids") or []):
+                s_name = next((c.get("name") for c in candidates if c.get("id") == sid), None)
+                if s_name:
+                    suggestion_id = sid
+                    # TTS 로 읽히는 문장 — '이(가)' 병기 대신 마지막 글자 받침으로 조사를 확정한다.
+                    last = s_name[-1]
+                    josa = "이" if 0 <= (ord(last) - 0xAC00) < 11172 and (ord(last) - 0xAC00) % 28 else "가"
+                    result["spoken"] = (
+                        f"{no_match_msg}. 대신 비슷한 곳으로 {s_name}{josa} 있어요. 안내해드릴까요?"
+                    )
+                    break
+            result["suggestion_id"] = suggestion_id
+            if suggestion_id is None and ic:
+                result["spoken"] = f"{no_match_msg}. 다른 메뉴를 말씀해 주세요."
     # search_query 는 내부용(응답 스키마에 없음) — 제거 후 응답 구성.
     return VoiceTurnResponse(
         action=result["action"],
         target_facility_id=result.get("target_facility_id"),
         match_ids=result.get("match_ids") or [],
         spoken=result.get("spoken"),
+        suggestion_id=result.get("suggestion_id"),
         llm_status=result.get("llm_status", "disabled"),
     )
 

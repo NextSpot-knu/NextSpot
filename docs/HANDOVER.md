@@ -82,6 +82,17 @@
   후보 → Solar match 0건(피자 거부, 갈비도 삼겹살 미판매라 거부) → "확인된 후보 없음" 정직 응답.
   pytest 468 통과(신규 6)·ruff 클린. 참고: DB에 삼겹살 전문점 0곳 — 진짜 해소는 밀도 확충 몫.
 
+### 음성 유사 대안 제안 2턴 흐름 (PM 요구 — "갈비집은 있는데 추천해드릴까요?")
+
+- Solar 스키마에 `similar_names` 추가(정확 매치 0건일 때만, 같은 계열·cuisine/menu 근거,
+  전혀 다른 음식 금지) → `similar_ids` 화이트리스트 검증(`_coerce`, 비-filter/match 존재 시 강제 []).
+- 라우터: match 0건 + similar 존재 → `VoiceTurnResponse.suggestion_id` + 서버 템플릿 spoken
+  ("…후보가 없어요. 대신 비슷한 곳으로 {이름}이/가 있어요. 안내해드릴까요?" — 받침 기반 조사 확정,
+  LLM spoken 미사용 원칙(P1-1) 유지). 프런트 `useVoiceAssistant`에 pendingSuggestion(1턴 한정):
+  다음 턴 accept("네/좋아") → 제안 후보 select, reject/기타 → 소멸.
+- 라이브 검증(실 Upstage): "삼겹살 먹고싶다" → match 0건 + suggestion=숯불갈비집,
+  "…대신 비슷한 곳으로 퇴근길숯불갈비가 있어요. 안내해드릴까요?" 정상. pytest 474·web 4종 게이트 통과.
+
 ### RESUME
 
 다음 후보: ① Phase 2(원본·코스 혼잡 기준선 predicted 대체 — score 영향 검토 필수, 신중 구역),
