@@ -48,6 +48,7 @@ interface BoardRow {
   type: string;
   imageUrls: string[];
   summary: string | null;
+  imageSource: { provider?: string; sourceUrl?: string; license?: string; artist?: string } | null;
   congestionLevel: number | null;
   expectedWait: number;
   expectedTravel: number;
@@ -171,6 +172,12 @@ export default function WaitingBoardPage() {
           // TourAPI 소개를 우선하고, 없으면 실제 주소를 짧은 보조 설명으로 사용한다.
           // 둘 다 없을 때는 내용을 지어내지 않고 설명 영역을 숨긴다.
           summary: rec.facility.overview?.trim() || rec.facility.address?.trim() || null,
+          imageSource: (() => {
+            const source = rec.facility.features?.imageSource;
+            return source && typeof source === "object"
+              ? source as BoardRow["imageSource"]
+              : null;
+          })(),
           congestionLevel:
             typeof rec.facility.congestionLevel === "number" ? rec.facility.congestionLevel : null,
           expectedWait: spot.expectedWait,
@@ -288,8 +295,8 @@ export default function WaitingBoardPage() {
                   {/* 대표 카드 3장 — 도착 대기 짧은 순 상위 3곳, 세로로 긴 포트레이트 카드 */}
                   <div className="grid grid-cols-3 gap-2">
                     {topRows.map((row, idx) => (
+                      <div key={row.facilityId} className="min-w-0">
                       <button
-                        key={row.facilityId}
                         type="button"
                         onClick={() => goToDetail(row.facilityId)}
                         className={`group relative flex flex-col overflow-hidden text-left aspect-[3/4] rounded-2xl border shadow-[0_2px_14px_rgba(43,35,32,0.06)] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 ${
@@ -339,6 +346,18 @@ export default function WaitingBoardPage() {
                           </div>
                         </div>
                       </button>
+                      {row.imageSource?.sourceUrl && (
+                        <a
+                          href={row.imageSource.sourceUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="mt-1 block truncate text-[8px] text-muk-soft underline underline-offset-2"
+                          title={`${row.imageSource.artist || row.imageSource.provider || "Wikimedia"} · ${row.imageSource.license || ""}`}
+                        >
+                          {row.imageSource.artist || row.imageSource.provider || "Wikimedia"} · {row.imageSource.license}
+                        </a>
+                      )}
+                      </div>
                     ))}
                   </div>
 

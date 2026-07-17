@@ -22,6 +22,8 @@ import json
 import os
 import sys
 
+import httpx
+
 # Add parent directory of this script's directory to sys.path (train.py 와 동일 컨벤션)
 current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(current_dir)
@@ -56,6 +58,7 @@ from app.services.tourapi.transform import (
 # area_based_sync_list 도 패키지 __init__ 재노출 범위 밖(client.py 는 수정 금지 대상이라 __init__.py 도
 # 건드리지 않고 위 transform.py 함수들과 동일하게 서브모듈에서 직접 임포트).
 from app.services.tourapi.client import area_based_sync_list
+from app.services.wikimedia import find_reusable_place_image
 
 # 경주 황리단길 기준좌표 (docs/NEXTSPOT_PIVOT.md — 초기 서비스 지역)
 DEFAULT_LAT = 35.8361
@@ -150,6 +153,23 @@ async def enrich_row(row: dict) -> None:
             row["gallery_images"] = gallery
     except (TourAPIError, RuntimeError) as e:
         print(f"[details] detailImage2 실패 (contentid={contentid}): {e}")
+
+    # TourAPI 사진이 전혀 없는 관광지·문화시설만 보수적으로 Wikimedia 퍼블릭 도메인 폴백.
+    if ctid in {12, 14} and not row.get("image_url") and not row.get("gallery_images"):
+        try:
+            wikimedia = await find_reusable_place_image(
+                str(row["name"]), float(row["latitude"]), float(row["longitude"])
+            )
+            if wikimedia:
+                row["gallery_images"] = [wikimedia["url"]]
+                row["features"] = {**row.get("features", {}), "image_source": {
+                    "provider": "Wikimedia Commons",
+                    "source_url": wikimedia["source_url"],
+                    "license": wikimedia["license"],
+                    "artist": wikimedia["artist"],
+                }}
+        except (httpx.HTTPError, KeyError, TypeError, ValueError) as e:
+            print(f"[details] Wikimedia 이미지 폴백 실패 (contentid={contentid}): {e}")
 
 
 def upsert_facilities(rows: list[dict]) -> int:
