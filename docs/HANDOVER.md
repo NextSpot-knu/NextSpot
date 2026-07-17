@@ -1,4 +1,26 @@
-# 세션 인계 문서 (2026-07-16 갱신)
+# 세션 인계 문서 (2026-07-17 갱신)
+
+## -12. 2026-07-17 — Tier 0 상세 적재 완료 (심사 전 필수 운영 항목)
+
+`ingest_tourapi.py --details` 실행(dry-run 선검증 후 실적재). **67/67 upsert**, showflag 동기화 정상(비표출 0).
+
+| 필드 | 적재 전 | 적재 후 |
+|---|---|---|
+| overview(소개) | 0/85 | **67/85** |
+| phone(전화) | 0/85 | **63/85** |
+| homepage | 0/85 | 37/85 (홈페이지 없는 가게 다수 — 정상) |
+| operating_hours | 0/85 | **83/85** |
+
+프로덕션 API 서빙 확인(`/api/v1/infrastructures` 실측 67곳 overview). **데모 대본 '소개' 멘트 사용 가능.**
+잔여 18곳 = 시드 16 + 이번 조회에 미반환 2(TourAPI 목록 변동).
+
+**⚠️ 알려진 실패 2건(적재 결과에는 무해)**:
+- `detailImage2`(갤러리) **전건 실패** — resultCode 없는 응답. images 는 여전히 0/85.
+  waiting 카드의 galleryImages 폴백(7059e69)은 빈 배열로 무해 동작하나 갤러리 기능 자체가 죽어 있다.
+  엔드포인트 파라미터/상품 포함 여부 확인 필요(활용신청과 별개일 수 있음).
+- `on_conflict=contentid` upsert 가 42P10 으로 실패해 SELECT→INSERT/UPDATE 폴백으로 성공.
+  원격 DB 에 contentid UNIQUE 인덱스가 없다 — 폴백이 있어 동작엔 문제없으나 배치 성능상
+  마이그레이션 추가 검토(후속).
 
 > 현재 상태 스냅샷 + 다음 단계. 브랜치 `feature/jinseok` (origin 동기화).
 > 자율 개선 세션 로그·재개 규칙: [`AUTONOMOUS_SESSION.md`](./AUTONOMOUS_SESSION.md) · 전략: [`CONTEST_STRATEGY.md`](./CONTEST_STRATEGY.md)
