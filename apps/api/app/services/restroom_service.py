@@ -25,22 +25,48 @@ def _distance_m(lat1: float, lng1: float, lat2: float, lng2: float) -> int:
     return round(radius * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a)))
 
 
+# Kakao 는 공중화장실을 '화장실' 명칭 + '가정,생활 > 화장실' 카테고리로 등록한다.
+# '공중화장실' 키워드는 황리단길 실측 1건(그마저 월정교 문화유적 오탐)뿐이라 '화장실'로 검색하고,
+# 키워드 노이즈(월정교류)는 카테고리 문자열로 걸러낸다(2026-07-18 실측: 3km 내 12건+).
+_QUERY = "화장실"
+_CATEGORY_TOKEN = "화장실"
+_MAX_PAGES = 3  # 페이지당 15건 — 관광지 코어에서 첫 페이지가 가득 차므로 최대 45건까지 수집
+
+
 async def find_nearby_restrooms(lat: float, lng: float, radius_m: int = 3000) -> list[dict]:
     if not settings.KAKAO_REST_API_KEY:
         return []
-    params = {"query": "공중화장실", "x": lng, "y": lat, "radius": radius_m, "size": 15, "sort": "distance"}
+    documents: list[dict] = []
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
-            response = await client.get(
-                _URL, params=params, headers={"Authorization": f"KakaoAK {settings.KAKAO_REST_API_KEY}"}
-            )
-            response.raise_for_status()
-            documents = response.json().get("documents", [])
+            for page in range(1, _MAX_PAGES + 1):
+                params = {
+                    "query": _QUERY, "x": lng, "y": lat, "radius": radius_m,
+                    "size": 15, "page": page, "sort": "distance",
+                }
+                response = await client.get(
+                    _URL, params=params, headers={"Authorization": f"KakaoAK {settings.KAKAO_REST_API_KEY}"}
+                )
+                response.raise_for_status()
+                data = response.json()
+                documents.extend(data.get("documents", []))
+                if data.get("meta", {}).get("is_end", True):
+                    break
     except (httpx.HTTPError, ValueError, TypeError) as exc:
-        logger.warning("restroom_search_failed", error=str(exc))
-        return []
+        logger.warning("restroom_search_failed", error=str(exc), collected=len(documents))
+        if not documents:
+            return []
     results = []
+    seen_ids: set[str] = set()
     for item in documents:
+        # 키워드 매칭 노이즈 차단: 카테고리에 '화장실'이 없는 장소(문화유적 등)는 제외.
+        if _CATEGORY_TOKEN not in str(item.get("category_name") or ""):
+            continue
+        item_id = str(item.get("id") or "")
+        if item_id and item_id in seen_ids:
+            continue
+        if item_id:
+            seen_ids.add(item_id)
         try:
             item_lat, item_lng = float(item["y"]), float(item["x"])
         except (KeyError, TypeError, ValueError):
