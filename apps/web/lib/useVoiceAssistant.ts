@@ -260,8 +260,14 @@ export function useVoiceAssistant<T>(opts: VoiceAssistantOptions<T>): VoiceAssis
         // 백엔드가 선호로 후보를 좁혔다(예: 양식→양식 식당들). onFilter가 추천 풀을 실시간 필터링→재추천하면
         // notifyItem이 새 #1을 narrate. 별도 발화 안 함(이중 방지).
         try { recRef.current?.abort?.(); } catch { /* noop */ }
-        if (turn.matchIds && turn.matchIds.length && o.onFilter) o.onFilter(turn.matchIds, turn.spoken || undefined);
-        else o.onNext(item);
+        if (turn.matchIds && turn.matchIds.length && o.onFilter) {
+          o.onFilter(turn.matchIds, turn.spoken || undefined);
+        } else {
+          // 의미상 맞는 후보가 없으면 무관한 다음 순위를 추천하지 않고 현재 카드를 유지한다.
+          const msg = turn.spoken || "조건에 맞는 확인된 후보가 없어요. 다른 메뉴를 말씀해 주세요.";
+          setVoiceState("speaking"); setCaption(msg);
+          speak(msg, () => scheduleListen());
+        }
         break;
       case "details": {
         const msg = turn.spoken || (o.getDetail && o.getDetail(item)) || `${o.getName(item)} 정보를 다시 안내할게요. 여기로 안내할까요?`;

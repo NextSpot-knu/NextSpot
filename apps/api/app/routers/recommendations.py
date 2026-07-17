@@ -632,11 +632,12 @@ async def voice_turn(req: VoiceTurnRequest, request: Request):
         if match:
             result["match_ids"] = match
         else:
-            # 그 분류가 근처에 없거나 매칭 실패 → next 로만 강등(선택지 폐기 아님). 엉뚱 추천보다 정직한 안내.
-            result["action"] = "next"
+            # 맞는 후보가 없으면 현재 카드를 유지한다. next 로 강등하면 단순 다음 순위(무관한 식당)를
+            # 선호에 맞는 결과처럼 읽어주는 오해가 생긴다.
+            result["action"] = "filter"
             result["match_ids"] = []
             if ic:
-                result["spoken"] = f"근처에 {ic} 후보가 없어 다른 곳을 보여드릴게요."
+                result["spoken"] = f"근처에 확인된 {ic} 후보가 없어요. 다른 메뉴를 말씀해 주세요."
     # search_query 는 내부용(응답 스키마에 없음) — 제거 후 응답 구성.
     return VoiceTurnResponse(
         action=result["action"],

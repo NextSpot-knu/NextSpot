@@ -125,8 +125,23 @@ def test_llm_user_prompt_is_json_data_boundary():
     prompt = voice_intent_service._llm_user_prompt("파스타 먹고 싶어", None, dirty)
     payload = _json.loads(prompt)  # 유효한 JSON 이어야 한다
     assert payload["utterance"] == "파스타 먹고 싶어"
-    assert "\n" not in payload["candidates"][0]  # 개행이 정제돼 프롬프트 경계 교란 불가
-    assert payload["candidates"][0].startswith("카페 A")
+    assert "\n" not in payload["candidates"][0]["name"]  # 개행이 정제돼 프롬프트 경계 교란 불가
+    assert payload["candidates"][0]["name"].startswith("카페 A")
+
+
+@pytest.mark.asyncio
+async def test_food_preference_uses_llm_before_keyword_filter(monkeypatch):
+    monkeypatch.setattr(voice_intent_service.llm_client, "is_enabled", lambda: True)
+    chat = AsyncMock(return_value={
+        "action": "filter", "target_name": None, "intent_category": "고깃집",
+        "search_query": "돼지고기 삼겹살 목살",
+    })
+    monkeypatch.setattr(voice_intent_service.llm_client, "chat_json", chat)
+    result = await interpret_turn("돼지고기 먹고 싶어", "식당", "황남비빔밥", _CANDIDATES)
+    assert result["action"] == "filter"
+    assert result["search_query"] == "돼지고기 삼겹살 목살"
+    assert result["llm_status"] == "llm"
+    chat.assert_awaited_once()
 
 
 @pytest.mark.asyncio
