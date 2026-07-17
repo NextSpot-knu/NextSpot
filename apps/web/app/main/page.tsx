@@ -28,6 +28,8 @@ const RecommendationCard = dynamic(
   { ssr: false },
 );
 const FestivalBanner = dynamic(() => import('@/components/FestivalBanner'), { ssr: false });
+const WeatherChip = dynamic(() => import('@/components/WeatherChip'), { ssr: false });
+const RestroomChip = dynamic(() => import('@/components/RestroomChip'), { ssr: false });
 const TodayCalmSpots = dynamic(() => import('@/components/TodayCalmSpots'), { ssr: false });
 const VisitCheckCard = dynamic(() => import('@/components/VisitCheckCard'), { ssr: false });
 
@@ -1905,6 +1907,10 @@ export default function MainPage() {
           {/* 🏮 경주 축제 칩 — TourAPI 실시간 축제/행사(GET /api/v1/events). 0건·백엔드 다운이면 스스로 숨는다.
               축제 선택 시 지도에 핀(구체 주소) 또는 색상 영역(동·일원 등 넓은 지역)으로 표시. */}
           <FestivalBanner onFocus={focusFestivalOnMap} />
+
+          {/* 기상청 단기예보 + 인근 공중화장실. 외부 키/호출 실패 시 각 칩이 스스로 숨는다. */}
+          <WeatherChip />
+          <RestroomChip location={userLocation} />
 
           {/* 🍃 지금 한산 — 현재 여유로운 곳 TOP3(level<0.3, 취향 우선). 탭 시 시트 닫고 해당 시설 선택+패닝.
               0곳이면 칩 자체를 숨긴다. onFocus 에서 전체 facility 를 id 로 되찾아 카드가 온전한 정보를 갖게 한다. */}
