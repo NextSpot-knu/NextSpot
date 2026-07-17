@@ -36,6 +36,14 @@ class Settings(BaseSettings):
     # 아래 관광 데이터랩 상품은 KorService2와 별도 활용신청이 필요하지만 승인 후에는 같은
     # 공공데이터포털 인증키를 사용한다. 별도 키를 만들지 않아 운영 시크릿 수를 늘리지 않는다.
 
+    # --- LLM 어댑터(app/services/llm_client.py) — 국산 Upstage Solar, OpenAI 호환 ---
+    # 선택값: 비어 있으면 LLM 기능이 전부 조용히 비활성(기존 결정적 경로 그대로 — 무해 폴백).
+    # 제공자 교체는 BASE_URL/MODEL 만 바꾸면 된다(OpenAI 호환 chat completions 라면 무엇이든).
+    UPSTAGE_API_KEY: str = ""
+    LLM_BASE_URL: str = "https://api.upstage.ai/v1"
+    LLM_MODEL: str = "solar-pro3"  # 2026-07-17 실측: 0.8~1.1초, JSON 신뢰성 solar-mini 대비 우위
+    LLM_TIMEOUT_SECONDS: float = 3.0  # 음성 UX 상한 — 초과 시 None 반환, 호출자는 키워드 경로 유지
+
     # CORS Settings
     # 기본값은 와일드카드(미설정 환경에서 프런트가 막히지 않도록). 운영에서는 실제 도메인을
     # 콤마로 지정하면 main.py 가 자동으로 엄격 모드(해당 오리진만 + credentials)로 전환한다.

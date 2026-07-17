@@ -29,3 +29,6 @@ services:
       # --- 한국관광공사 TourAPI 인증키(선택 — 비어 있으면 TourAPI 호출 시점에만 실패) ---
       - key: TOURAPI_KEY
         sync: false
+      # --- LLM(국산 Upstage Solar) 인증키(선택 — 비어 있으면 LLM 보조 기능만 조용히 비활성) ---
+      - key: UPSTAGE_API_KEY
+        sync: false

@@ -2,7 +2,17 @@
 # 배경(2026-07-17 Codex 리뷰 P1): 프런트가 후보에 menu(공식 first_menu/treat_menu 결합)를 동봉하기
 # 시작했는데 _details_spoken 이 menu 를 읽지 않아 "메뉴 뭐 있어?" 에 종류만 답하고 있었다.
 
-from app.services.voice_intent_service import _details_spoken, _keyword_interpret, _menu_str
+from unittest.mock import AsyncMock
+
+import pytest
+
+from app.services import voice_intent_service
+from app.services.voice_intent_service import (
+    _details_spoken,
+    _keyword_interpret,
+    _menu_str,
+    interpret_turn,
+)
 
 
 _CANDIDATES = [
@@ -47,3 +57,86 @@ def test_keyword_interpret_menu_question_routes_to_details_with_menu():
     assert result["action"] == "details"
     assert result["spoken"] is not None
     assert "바닐라라떼" in result["spoken"]
+
+
+# --- LLM 보조 해석(Upstage Solar) — 키워드 unknown 일 때만 개입, 실패는 전부 unknown 유지 ----
+# conftest 가 UPSTAGE_API_KEY="" 로 고정하므로 기본은 LLM 완전 비활성.
+# 아래 테스트들은 is_enabled/chat_json 을 개별 monkeypatch 해 경로별 계약을 검증한다.
+
+_COMPLEX_UTTERANCE = "조용한 분위기면 좋겠어"  # 키워드 분류기가 못 알아듣는 발화(unknown 확정)
+
+
+@pytest.mark.asyncio
+async def test_interpret_turn_llm_disabled_stays_unknown():
+    # 5. LLM 비활성(기본) — unknown 발화는 그대로 unknown(기존 재질문 동작 불변)
+    result = await interpret_turn(_COMPLEX_UTTERANCE, "식당", None, _CANDIDATES)
+    assert result["action"] == "unknown"
+
+
+@pytest.mark.asyncio
+async def test_interpret_turn_llm_fallback_on_unknown(monkeypatch):
+    # 6. 키워드 unknown + LLM 활성 → LLM 결과 채택(filter·intent_category·search_query 전달)
+    monkeypatch.setattr(voice_intent_service.llm_client, "is_enabled", lambda: True)
+    chat = AsyncMock(return_value={
+        "action": "filter", "target_name": None, "intent_category": "양식",
+        "search_query": "조용한 분위기 파스타", "spoken": "조용한 양식당을 찾아볼게요.",
+    })
+    monkeypatch.setattr(voice_intent_service.llm_client, "chat_json", chat)
+    result = await interpret_turn(_COMPLEX_UTTERANCE, "식당", None, _CANDIDATES)
+    assert result["action"] == "filter"
+    assert result["intent_category"] == "양식"
+    assert result["search_query"] == "조용한 분위기 파스타"
+    assert result["spoken"] == "조용한 양식당을 찾아볼게요."
+    chat.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_interpret_turn_keyword_hit_skips_llm(monkeypatch):
+    # 7. 키워드가 알아들은 발화("다음")는 LLM 활성이어도 호출하지 않는다(지연 0 유지)
+    monkeypatch.setattr(voice_intent_service.llm_client, "is_enabled", lambda: True)
+    chat = AsyncMock()
+    monkeypatch.setattr(voice_intent_service.llm_client, "chat_json", chat)
+    result = await interpret_turn("다음", "식당", None, _CANDIDATES)
+    assert result["action"] == "next"
+    chat.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_interpret_turn_llm_failure_stays_unknown(monkeypatch):
+    # 8. LLM 호출 실패(None) → unknown 유지(무해 폴백)
+    monkeypatch.setattr(voice_intent_service.llm_client, "is_enabled", lambda: True)
+    monkeypatch.setattr(voice_intent_service.llm_client, "chat_json", AsyncMock(return_value=None))
+    result = await interpret_turn(_COMPLEX_UTTERANCE, "식당", None, _CANDIDATES)
+    assert result["action"] == "unknown"
+
+
+@pytest.mark.asyncio
+async def test_interpret_turn_llm_hallucination_coerced(monkeypatch):
+    # 9. LLM 환각(허용 밖 action·분류) → _coerce 가 unknown/None 으로 강등(이중 방어)
+    monkeypatch.setattr(voice_intent_service.llm_client, "is_enabled", lambda: True)
+    monkeypatch.setattr(voice_intent_service.llm_client, "chat_json", AsyncMock(return_value={
+        "action": "teleport", "intent_category": "없는분류", "search_query": "x", "spoken": "이동!",
+    }))
+    result = await interpret_turn(_COMPLEX_UTTERANCE, "식당", None, _CANDIDATES)
+    assert result["action"] == "unknown"
+    assert result["intent_category"] is None
+    assert result["search_query"] is None
+
+
+@pytest.mark.asyncio
+async def test_interpret_turn_llm_select_by_name(monkeypatch):
+    # 10. LLM 이 후보 이름을 정확히 지목 → select + 해당 id. 목록에 없는 이름은 next 로 강등.
+    monkeypatch.setattr(voice_intent_service.llm_client, "is_enabled", lambda: True)
+    monkeypatch.setattr(voice_intent_service.llm_client, "chat_json", AsyncMock(return_value={
+        "action": "select", "target_name": "카페능", "spoken": "카페능으로 안내할게요.",
+    }))
+    result = await interpret_turn(_COMPLEX_UTTERANCE, "식당", None, _CANDIDATES)
+    assert result["action"] == "select"
+    assert result["target_facility_id"] == "f1"
+
+    monkeypatch.setattr(voice_intent_service.llm_client, "chat_json", AsyncMock(return_value={
+        "action": "select", "target_name": "존재하지 않는 가게", "spoken": "안내할게요.",
+    }))
+    result = await interpret_turn(_COMPLEX_UTTERANCE, "식당", None, _CANDIDATES)
+    assert result["action"] == "next"  # _coerce: 유효 id 없는 select 는 next 강등
+    assert result["target_facility_id"] is None

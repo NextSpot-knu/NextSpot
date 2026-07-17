@@ -14,6 +14,7 @@ from typing import Optional
 
 import structlog
 
+from app.services import llm_client
 from app.services.spot.travel import WALKING_SPEED_M_PER_MIN
 
 logger = structlog.get_logger()
@@ -198,6 +199,78 @@ def _coerce(parsed: dict, valid_ids: set) -> dict:
     return {"action": action, "target_facility_id": tid, "match_ids": match_ids, "search_query": sq, "intent_category": ic, "spoken": spoken}
 
 
+# --- LLM 보조 해석(Upstage Solar) — 키워드 분류기가 unknown 일 때만 개입 -------------------
+# 원칙: 키워드 분류기 = 주 경로(결정적·지연 0). accept/next 같은 흔한 명령은 LLM 을 타지 않는다.
+# LLM 은 복합 발화("애들 데리고 조용하게 밥 먹을 데")만 받으며, 실패(비활성/타임아웃/파싱)는
+# unknown 유지 → 프런트의 기존 재질문 동작 그대로(무해 폴백). 결과는 반드시 _coerce 를 통과해
+# action enum·후보 id·intent_category 화이트리스트 검증을 받는다(환각 이중 방어).
+
+_LLM_MAX_CANDIDATES = 15  # 프롬프트 토큰 상한 — 이름 매칭에 충분한 상위 후보만 동봉
+
+
+def _llm_system_prompt() -> str:
+    categories = ", ".join(_INTENT_CATEGORIES)
+    return (
+        "너는 경주 관광 앱의 음성 의도 분류기다. 사용자 발화를 분석해 JSON 객체 하나만 출력해라"
+        "(설명·마크다운 금지).\n"
+        '스키마: {"action": "...", "target_name": "후보 이름 또는 null", '
+        '"intent_category": "분류 또는 null", "search_query": "검색어 또는 null", '
+        '"spoken": "짧은 한국어 응답 한 문장"}\n'
+        "action 정의(이 중 하나만):\n"
+        "- accept: 현재 추천을 수락하고 안내를 원할 때만 (예: '거기로 가자')\n"
+        "- next: 다른 후보를 원함 (예: '딴 데 없어?')\n"
+        "- reject: 현재 추천이 싫음\n"
+        "- details: 현재 추천의 정보를 물음 (예: '메뉴 뭐 있어')\n"
+        "- select: 후보 목록의 특정 가게를 이름으로 지정 — target_name 에 그 이름을 그대로\n"
+        "- filter: 음식 종류·조건 선호를 말하며 맞는 곳으로 좁히려 함 "
+        "(예: '애들이랑 갈만한 조용한 데', '매운 거 말고') — intent_category 와 search_query 를 채워라\n"
+        "- stop: 안내 종료\n"
+        "- unknown: 위 어디에도 확신이 없을 때 (억지로 고르지 마라)\n"
+        f"intent_category 는 반드시 다음 중에서만: {categories}. 애매하면 null.\n"
+        "search_query 는 filter 일 때 후보 검색용 짧은 한국어 구절(발화의 음식·조건 위주).\n"
+        "target_name 은 후보 목록에 있는 이름만. 목록에 없으면 null."
+    )
+
+
+def _llm_user_prompt(utterance: str, current_name: Optional[str], candidates: list[dict]) -> str:
+    names = [str(c.get("name")) for c in candidates[:_LLM_MAX_CANDIDATES] if c.get("name")]
+    parts = []
+    if current_name:
+        parts.append(f"현재 추천: {current_name}")
+    if names:
+        parts.append("후보 목록: " + ", ".join(names))
+    parts.append(f"사용자 발화: {utterance.strip()[:300]}")
+    return "\n".join(parts)
+
+
+async def _llm_interpret(
+    utterance: str, current_name: Optional[str], candidates: list[dict]
+) -> Optional[dict]:
+    """LLM 보조 분류 — 성공 시 _coerce 입력 형태의 dict, 실패 시 None(호출자는 unknown 유지)."""
+    raw = await llm_client.chat_json(
+        _llm_system_prompt(), _llm_user_prompt(utterance, current_name, candidates)
+    )
+    if not raw:
+        return None
+    # target_name(이름) → 후보 id 매핑. 정확 일치만(부분 일치는 오선택 위험).
+    target_id = None
+    target_name = raw.get("target_name")
+    if isinstance(target_name, str) and target_name.strip():
+        wanted = target_name.strip()
+        for c in candidates:
+            if str(c.get("name", "")).strip() == wanted:
+                target_id = c.get("id")
+                break
+    return {
+        "action": raw.get("action"),
+        "target_facility_id": target_id,
+        "match_ids": [],  # filter 의 후보 매칭은 기존대로 라우터의 의미매칭이 결정
+        "search_query": raw.get("search_query"),
+        "intent_category": raw.get("intent_category"),
+        "spoken": raw.get("spoken"),
+    }
+
+
 async def interpret_turn(
     utterance: str,
     facility_type_ko: str,
@@ -209,6 +282,13 @@ async def interpret_turn(
     if not (utterance or "").strip():
         return _fallback()
     parsed = _keyword_interpret(utterance, current_name, candidates or [])
+    mode = "keyword"
+    # 키워드로 못 알아들은 발화만 LLM 보조(설정 시) — 실패하면 unknown 그대로(기존 재질문 동작).
+    if parsed["action"] == "unknown" and llm_client.is_enabled():
+        llm_parsed = await _llm_interpret(utterance, current_name, candidates or [])
+        if llm_parsed is not None:
+            parsed = llm_parsed
+            mode = "llm"
     result = _coerce(parsed, valid_ids)
-    logger.info("voice_intent_resolved", action=result["action"], has_target=bool(result["target_facility_id"]), mode="keyword")
+    logger.info("voice_intent_resolved", action=result["action"], has_target=bool(result["target_facility_id"]), mode=mode)
     return result
