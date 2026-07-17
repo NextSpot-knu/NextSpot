@@ -42,6 +42,7 @@ const supabase = createPublicClient();
 interface FacilityFeatures {
   cuisine_tags?: string[] | string;
   cuisine?: string[] | string;
+  category?: string; // 정밀분류(tag_cuisines.py 배치가 채움) — 음성 후보에 실어 백엔드 분류 게이트 입력
   [key: string]: unknown;
 }
 
@@ -1202,6 +1203,8 @@ export default function MainPage() {
           id: x.id,
           name: x.name,
           cuisine: x.features?.cuisine_tags ?? x.features?.cuisine ?? null, // 백엔드가 양식/짜장면 등 매칭에 사용
+          // 정밀분류(tag_cuisines.py 배치가 채움) — 백엔드 분류 게이트('중식'→어탕칼국수 누설 차단)의 입력.
+          category: x.features?.category ?? null,
           // 공식 메뉴(TourAPI) — 백엔드 의미검색 haystack(name+cuisine+category+menu)이 이미 읽는 필드.
           // '파스타 먹고 싶어' 같은 발화가 상호명 추측이 아니라 실제 메뉴로 매칭되게 한다.
           menu:

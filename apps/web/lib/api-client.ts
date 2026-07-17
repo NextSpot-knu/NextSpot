@@ -472,6 +472,8 @@ export interface VoiceTurnCandidate {
   // 공식 메뉴(TourAPI first_menu/treat_menu 결합) — 백엔드 embedding_service 의 후보 haystack
   // (name+cuisine+category+menu)가 이미 읽는 필드인데 프런트가 보낸 적이 없었다(2026-07-17 감사).
   menu?: string | null;
+  // 정밀분류(features.category, Solar 태깅 배치가 채움) — 백엔드 분류 게이트(cat_of)의 입력.
+  category?: string | null;
   congestion?: number | null; // 0~1, null=근거 없음(백엔드 VoiceCandidate 도 Optional — 0 합성 금지)
   distanceM?: number;
 }

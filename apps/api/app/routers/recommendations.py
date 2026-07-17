@@ -547,6 +547,9 @@ class VoiceCandidate(BaseModel):
     name: str = Field(..., min_length=1)
     cuisine: str | list[str] | None = None
     menu: str | None = None
+    # 정밀분류(features.category, tag_cuisines.py 배치가 채움) — 아래 분류 게이트(cat_of)의 입력.
+    # 이 필드가 스키마에 없으면 pydantic 이 프런트가 보낸 category 를 버려 게이트가 무력화된다(2026-07-18).
+    category: str | None = None
     congestion: float | None = None
     # apiClient(keysToSnake)는 distance_m 로 보내지만, 변환을 거치지 않는 직접 호출자 방어용으로
     # camelCase 도 수용(Codex 리뷰 — 하위호환 벨트앤서스펜더).
@@ -563,6 +566,12 @@ class VoiceCandidate(BaseModel):
     @classmethod
     def _cap_menu(cls, v):
         return str(v)[:300] if isinstance(v, str) and v.strip() else None
+
+    @field_validator("category", mode="before")
+    @classmethod
+    def _cap_category(cls, v):
+        # _INTENT_CATEGORIES 라벨은 전부 40자 미만 — 초과분은 조작/오류 값이라 절단(_cap_menu 패턴).
+        return str(v)[:40] if isinstance(v, str) and v.strip() else None
 
     @field_validator("cuisine", mode="before")
     @classmethod

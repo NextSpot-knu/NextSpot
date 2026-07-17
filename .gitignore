@@ -73,4 +73,4 @@ scratch/
 
 # Stray env files beyond the committed .example templates (belt-and-suspenders; .env* already ignored above)
 *.env
-!*.env.example
+!*.env.exampleapps/api/scripts/tag_cuisines_report.json

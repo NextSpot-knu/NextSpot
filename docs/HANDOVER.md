@@ -93,6 +93,22 @@
 - 라이브 검증(실 Upstage): "삼겹살 먹고싶다" → match 0건 + suggestion=숯불갈비집,
   "…대신 비슷한 곳으로 퇴근길숯불갈비가 있어요. 안내해드릴까요?" 정상. pytest 474·web 4종 게이트 통과.
 
+### Solar 자율권 기획 확정 + 1번(태깅 배치) 구현·적용 완료
+
+- 기획 정본 **`docs/SOLAR_AUTONOMY_PLAN.md`** 신설(PM 지시 — 세션 재시작에도 인수인계).
+  대원칙: "Solar는 심사위원이 아니라 통역사" — 적격 판정·설명은 Solar, **랭킹은 SPOT 독점**
+  (공모전 방어력·재배치 목적함수·재현성). 5안 우선순위: ①태깅 ②tool-calling ③사유 사실선택
+  ④다턴 슬롯필링 ⑤거절 이해. ①은 완료, 다음은 ②.
+- ①구현: `apps/api/scripts/tag_cuisines.py` — Solar가 상호+공식메뉴 근거로
+  `features.cuisine_tags`·`category` 결손 보충. `_INTENT_CATEGORIES` 화이트리스트 게이트 +
+  **상호 조각 태그 차단**(1차 dry-run 실측 '소소밀밀 서악점'→[소소밀밀,서악점] 오태깅 → 게이트
+  추가) + dry-run 기본 + `tagging_source` 출처 기록 + fill-missing only. 음성 후보에 `category`
+  전달(VoiceCandidate 필드 + main/page.tsx payload) — **분류 게이트 소생**.
+- 원격 적용 결과(3패스, 사전 백업 스크래치패드 features_backup_pre_tagging.json):
+  **restaurant/cafe 64곳 중 59곳 태깅**(5곳은 메뉴 근거 없어 정직 skip — 십원빵 등).
+  반월성화덕피자=양식(고깃집 게이트가 구조적으로 차단), 퇴근길숯불갈비=갈비집, 기존 키 무손실 검증.
+- 게이트: api pytest 499 통과·ruff 클린 / web 4종 통과.
+
 ### RESUME
 
 다음 후보: ① Phase 2(원본·코스 혼잡 기준선 predicted 대체 — score 영향 검토 필수, 신중 구역),
