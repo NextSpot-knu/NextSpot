@@ -1,5 +1,50 @@
 # 세션 인계 문서 (2026-07-17 갱신)
 
+## -13. 2026-07-17 오후 — 갤러리 부활(detailImage2 원인 확정) + Tier 1 소비 갭 5종
+
+### 갤러리 전건 실패 원인 확정·수정 (`c95f312`) — §-12 의 미해결 1번 해소
+
+실 API 프로브 3변형으로 원인 실측: **KorService2 는 구(KorService1) 파라미터 `subImageYN` 을 받으면
+봉투(response.header) 없는 평면 에러 JSON**(`resultCode "10", INVALID_REQUEST_PARAMETER_ERROR(subImageYN)`)을
+반환한다 — 그래서 'resultCode 없는 응답'으로 보였다. searchFestival2 의 areaCode 무시와 같은 함정 계열.
+제거 후 재적재(폴백 upsert 67/67): **gallery_images 61/85 채워짐**(잔여 = 시드 16 + 목록 미반환 2 +
+TourAPI 에 갤러리 없는 6). 회귀 방지 테스트 3건 추가. 활용신청 문제가 아니었다.
+
+**§-12 의 42P10 진단 정정**: "원격 DB 에 contentid UNIQUE 인덱스가 없다"는 추정은 근거 부족.
+로컬 스키마의 `uq_facilities_contentid` 는 **부분(partial) 인덱스**라 인덱스가 있어도 PostgREST
+`on_conflict` 추론에 잡히지 않는다(§-1 에 이미 '정상 설계(폴백)'로 기록된 사항). 일 85행 배치엔
+SELECT→INSERT/UPDATE 폴백으로 충분 — 마이그레이션 불요 판단(전면 인덱스 전환은 상용 단계 검토).
+
+### Tier 1 소비 갭 5종 (`48432a9`) — 소비 경로 감사 결과 반영
+
+Tier 1 데이터(5779d3a 적재 + 9bf1ca4 소비)가 /main 중심으로만 쓰이고 있었다:
+① `/infrastructures` 에 gallery_images 필드 누락(→ /main 갤러리 불가) + 오염 행 방어 정제
+② RecommendationCard 대표사진 → 갤러리 순차 폴백 ③ explore/recommend 오늘 휴무 배지+대표메뉴
+④ waiting 대표 카드 대표메뉴 ⑤ 음성 후보 menu 동봉 + '메뉴 뭐 있어?' 가 실메뉴로 답하게
+`_details_spoken` 확장(라우터의 과약속 주석도 정정). 추가: main 스와이프 다음 후보 오늘 휴무 제외 +
+소진 원인이 '전부 오늘 휴무'면 빈 상태 문구 구분(`map.noRecClosedBody`, 545키×4로케일 패리티 유지).
+
+Codex 교차 리뷰(읽기 전용) P0 0 · P1 2 · P2 2 — 전건 반영. 게이트 전부 통과(pytest 341 · ruff ·
+lint 0 · tsc · 29/29 · build 32p · 파리티 2종).
+
+**Tier 1-1(수용인원 accomcount) 보류 사유**: 원격 실측 `features.accom_count` 적재 **0건**
+(TourAPI 가 경주 대상 시설에 값을 안 준다) — 데이터 근거 없이 혼잡 정규화 피처를 만들지 않는다(정직성).
+TOURAPI_EXPANSION 의 "심사 전: Tier 0→1-2·1-3·1-4" 는 이로써 완료.
+
+### 프로덕션 실측·주의
+
+- **콜드 스타트 24.3초 실측**(유휴 후 `/api/v1/infrastructures`, 웜 0.34초) — 프런트 타임아웃 10초 초과.
+  🟡 `BACKEND_HEALTH_URL` 변수 등록(아래 사람 작업)이 그만큼 시급하다.
+- `/waiting`·`/explore` 갤러리는 추천 응답이 원본 dict 통과라 **재적재만으로 프로덕션 즉시 반영**.
+  `/main` 갤러리 폴백은 이번 `infrastructures.py` 가 main 배포된 뒤 활성화.
+
+### 사람 작업 (변동 없음 + 검증 항목 추가)
+
+- 🟡 `BACKEND_HEALTH_URL` — GitHub repo → Settings → Secrets and variables → Actions →
+  **Variables 탭**에 `https://nextspot-api.onrender.com/health` (콜드 스타트 24s 실측으로 시급 상향).
+- 🟢 브라우저 실화면 검증에 추가: /waiting 카드 사진·대표메뉴 → /explore/recommend 휴무 배지·대표메뉴 →
+  /main 카드 펼침 사진(갤러리 폴백) → 음성 "메뉴 뭐 있어?" 실메뉴 응답.
+
 ## -12. 2026-07-17 — Tier 0 상세 적재 완료 (심사 전 필수 운영 항목)
 
 `ingest_tourapi.py --details` 실행(dry-run 선검증 후 실적재). **67/67 upsert**, showflag 동기화 정상(비표출 0).
