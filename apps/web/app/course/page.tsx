@@ -19,6 +19,7 @@ import { useT } from "@/lib/i18n/I18nProvider";
 import { ShareButton } from "@/components/ShareButton";
 import CourseMap from "@/components/CourseMap";
 import NowChip from "@/components/NowChip";
+import OptimizationLoader from "@/components/OptimizationLoader";
 import { encodeStops, parseShareParam } from "@/lib/course-share";
 
 type TFunc = (key: string, vars?: Record<string, string | number>) => string;
@@ -365,7 +366,7 @@ function CourseContent() {
       <div className="absolute bottom-[-10%] right-[-10%] w-[520px] h-[520px] rounded-full bg-gold/10 blur-[120px] pointer-events-none" />
 
       {activeLoading && !hasLoadedOnce ? (
-        <CourseSkeleton />
+        <CourseSkeleton mode={isShareMode ? "shared" : "course"} />
       ) : (
         <div className="relative z-10">
           {/* 지도 + 플로팅 버튼(뒤로/공유) — CourseMap 이 null 을 반환하면(키 부재 등) 이 블록은
@@ -486,7 +487,7 @@ function CourseContent() {
 // 폴백은 실제 레이아웃과 동일한 CourseSkeleton 을 재사용해 레이아웃 시프트를 없앤다.
 export default function CoursePage() {
   return (
-    <Suspense fallback={<CourseSkeleton />}>
+    <Suspense fallback={<CourseSkeleton mode="course" />}>
       <CourseContent />
     </Suspense>
   );
@@ -886,7 +887,7 @@ function StopRow({ stop, readOnly = false }: { stop: CourseStop; readOnly?: bool
 }
 
 // 로딩 스켈레톤 — 실제 레이아웃(지도 자리 + 시트 헤더/스텝퍼/행)을 그대로 흉내내 레이아웃 시프트를 줄인다.
-function CourseSkeleton() {
+function CourseSkeleton({ mode }: { mode: "course" | "shared" }) {
   return (
     <div className="relative z-10" aria-hidden>
       {/* 지도 자리 */}
@@ -897,6 +898,7 @@ function CourseSkeleton() {
         <div className="w-12 h-1.5 rounded-full bg-line mx-auto mt-3" />
 
         <div className="mx-auto w-full max-w-md md:max-w-2xl px-4 md:px-6 pt-4 pb-10 space-y-6">
+          <OptimizationLoader mode={mode} />
           {/* 헤더 */}
           <div className="space-y-2">
             <div className="h-5 w-28 rounded-full bg-hanji-deep animate-pulse" />

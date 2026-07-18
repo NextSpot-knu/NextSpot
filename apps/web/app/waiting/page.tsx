@@ -23,6 +23,7 @@ import { REGION } from "@/lib/region";
 import { useI18n, useT } from "@/lib/i18n/I18nProvider";
 import { GoldenHourBadge } from "@/components/GoldenHourBadge";
 import NowChip from "@/components/NowChip";
+import OptimizationLoader from "@/components/OptimizationLoader";
 // T2: 휴무 원문(rest_date_raw) 파서 — 오늘 휴무 '확정'만 판정(모르면 null, 과판정 금지). 공용 단일 소스.
 import { isClosedToday } from "@/lib/restDate";
 
@@ -73,7 +74,7 @@ function WaitingCardImage({ imageUrls, name, type }: Pick<BoardRow, "imageUrls" 
   if (!imageUrl) {
     return (
       <div
-        className="h-[26%] shrink-0 flex items-center justify-center bg-hanji-deep/70 border-b border-line text-2xl"
+        className="h-[38%] w-full shrink-0 flex items-center justify-center bg-hanji-deep/70 border-b border-line text-2xl"
         aria-hidden
       >
         {TYPE_EMOJI[type] ?? "📍"}
@@ -323,7 +324,7 @@ export default function WaitingBoardPage() {
                       <button
                         type="button"
                         onClick={() => goToDetail(row.facilityId)}
-                        className={`group relative flex flex-col overflow-hidden text-left aspect-[3/4] rounded-2xl border shadow-[0_2px_14px_rgba(43,35,32,0.06)] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 ${
+                        className={`group relative flex flex-col overflow-hidden text-left aspect-[3/5] rounded-2xl border shadow-[0_2px_14px_rgba(43,35,32,0.06)] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 ${
                           idx === 0
                             ? "bg-gold/10 border-gold/40 hover:border-gold/60"
                             : "bg-white/90 border-line hover:border-gold/40 hover:bg-white"
@@ -351,7 +352,7 @@ export default function WaitingBoardPage() {
                               </p>
                             )}
                             {row.summary && (
-                              <p className="mt-1 text-[9px] leading-snug text-muk-soft line-clamp-2">
+                              <p className="mt-1 text-[9px] leading-snug text-muk-soft line-clamp-4">
                                 {row.summary}
                               </p>
                             )}
@@ -458,7 +459,9 @@ export default function WaitingBoardPage() {
 
 function BoardSkeleton() {
   return (
-    <div className="flex flex-col gap-6" aria-hidden>
+    <div className="flex flex-col gap-6">
+      <OptimizationLoader mode="waiting" />
+      <div className="flex flex-col gap-6" aria-hidden>
       {[0, 1].map((s) => (
         <div key={s} className="space-y-2">
           <div className="h-4 w-20 bg-hanji-deep rounded animate-pulse" />
@@ -466,7 +469,7 @@ function BoardSkeleton() {
             {[0, 1, 2].map((i) => (
               <div
                 key={i}
-                className="aspect-[3/4] bg-white/70 border border-line rounded-2xl p-2 animate-pulse"
+                className="aspect-[3/5] bg-white/70 border border-line rounded-2xl p-2 animate-pulse"
               >
                 <div className="w-6 h-6 rounded-full bg-hanji-deep" />
                 <div className="h-3 bg-hanji-deep rounded w-full mt-2" />
@@ -489,6 +492,7 @@ function BoardSkeleton() {
           </div>
         </div>
       ))}
+      </div>
     </div>
   );
 }

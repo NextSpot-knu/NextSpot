@@ -12,8 +12,9 @@
   `is_fallback=True` 고정으로 도달 불가한 죽은 코드(P0-1 이 부활시킴) ② 심사 임팩트 변별점은
   데모 대본 노출 여부(머천트·안전·문의·실험실은 대본 grep 0건) ③ 신규 지점은 JUDGE_QA "사전
   배치+캐시" 서사와 정합해야 함(요청 경로 LLM 블로킹 금지). 금지 구역 7종 양안 일치(문서 §4).
-- **미커밋 작업 중(PM)**: OptimizationLoader(course/waiting 로딩 UX) + `ingest_kakao_places.py` —
-  이 세션 산출물 아님, 커밋은 PM 몫.
+- **PM 작업분 커밋**: OptimizationLoader(course/waiting 로딩 최적화 안내 카드 + optimization.* 4로케일
+  키) — 게이트(lint 0·tsc·build 32p·음성 29/29) 확인 후 P0 구현 착수 전 선커밋(i18n 한 줄 JSON 이
+  P0-1 신규 키와 섞이는 것 방지). `ingest_kakao_places.py`+테스트는 미완 판단으로 미커밋 유지.
 
 ## -19. 2026-07-17 — Kakao 좌표 72곳 적용 + 모바일 지도 우선 UI + Upstage 선호 우선 해석
 
