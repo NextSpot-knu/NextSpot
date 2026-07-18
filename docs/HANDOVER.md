@@ -1,4 +1,19 @@
-# 세션 인계 문서 (2026-07-17 갱신)
+# 세션 인계 문서 (2026-07-18 갱신)
+
+## -20. 2026-07-18 — Upstage Solar 확장 기획 확정 (신규 5종) + Kakao 키 사람 작업 완료
+
+- §-19 의 **사람 작업(P0) 완료**: Vercel `NEXT_PUBLIC_KAKAO_MAPS_APP_KEY` JavaScript 키 교체 +
+  Kakao Web 도메인 등록 완료(PM 직접 수행). SDK 401 해소 전제 충족.
+- **Solar 신규 활용 기획 확정** — 정본: [`SOLAR_LLM_EXPANSION.md`](./SOLAR_LLM_EXPANSION.md).
+  방법론은 Codex A안(8후보) ∥ Fable 멀티에이전트 B안(5렌즈 29건→18후보→적대 검증→누락 비평,
+  에이전트 30) 병렬 발산+합성. PM 확정: **P0 2종(자연어 선호 백스톱·관제 오늘의 브리핑) +
+  P1 3종(검색 0건 재작성·축제 다국어 요약·머천트 실행 브리핑) 구현, 데모 대본은 현행 유지**.
+- 검증 핵심 발견: ① `/preferences/parse` 의 `nlAppliedAi` 프런트 분기는 백엔드
+  `is_fallback=True` 고정으로 도달 불가한 죽은 코드(P0-1 이 부활시킴) ② 심사 임팩트 변별점은
+  데모 대본 노출 여부(머천트·안전·문의·실험실은 대본 grep 0건) ③ 신규 지점은 JUDGE_QA "사전
+  배치+캐시" 서사와 정합해야 함(요청 경로 LLM 블로킹 금지). 금지 구역 7종 양안 일치(문서 §4).
+- **미커밋 작업 중(PM)**: OptimizationLoader(course/waiting 로딩 UX) + `ingest_kakao_places.py` —
+  이 세션 산출물 아님, 커밋은 PM 몫.
 
 ## -19. 2026-07-17 — Kakao 좌표 72곳 적용 + 모바일 지도 우선 UI + Upstage 선호 우선 해석
 
