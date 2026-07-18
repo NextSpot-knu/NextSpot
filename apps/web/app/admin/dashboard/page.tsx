@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import {
-  Users, Activity, TrendingUp, AlertTriangle, Search, Bell, Download, Info
+  Users, Activity, TrendingUp, AlertTriangle, Search, Bell, Download, Info, Sparkles
 } from 'lucide-react';
 import { AdminSidebar } from '@/components/AdminSidebar';
 import { DashboardCharts, DashboardHeatmap } from '@/components/admin/DashboardCharts';
@@ -13,7 +13,7 @@ import { ImpactWidget } from '@/components/admin/ImpactWidget';
 import { ModelAccuracyBadge } from '@/components/admin/ModelAccuracyBadge';
 import { DataFreshnessBadge } from '@/components/admin/DataFreshnessBadge';
 
-import { adminApi } from '@/lib/admin-api';
+import { adminApi, getDashboardBriefing } from '@/lib/admin-api';
 
 // ── 로컬 타입 정의 ──────────────────────────────────────────────────────────
 // admin-api.ts 는 snake_case→camelCase 변환을 하지 않으므로(해당 파일 상단 주석 참조),
@@ -211,6 +211,18 @@ async function fetchTrend(): Promise<{ mode: 'live' | 'demo'; rows: any[] }> {
   return { mode: 'demo', rows: buildDemoDistribution() };
 }
 
+// 오늘의 브리핑(P0-2) 슬라이스 — 서버(briefing_service)가 대시보드 집계를 Solar 로 프로즈화.
+// KPI 타일 렌더를 막지 않는 후행 fetch 이며, null(스킵/폐기/장애/미기동)이면 카드 자체를 렌더하지
+// 않는다(무해 폴백). 디버그 배지 이벤트는 getDashboardBriefing 이 중앙 발행한다(api-client 관례).
+async function fetchBriefing(): Promise<string | null> {
+  try {
+    const res = await getDashboardBriefing();
+    return res?.briefing ?? null;
+  } catch {
+    return null; // 백엔드 미기동/권한 차이 시 조용한 미렌더
+  }
+}
+
 export default function DashboardPage() {
   // 슬라이스별 상태 — 혼잡 집계(오늘/어제 로그)와 추천/DAU 지표를 각각 독립 보관해 준비되는 대로 렌더한다
   // (전면 스피너 게이트 제거 → 섹션별 스켈레톤). null = 아직 로딩 중.
@@ -218,6 +230,8 @@ export default function DashboardPage() {
   const [metrics, setMetrics] = useState<any>(null);        // { acceptRate, activeUsers }
   // 30일 분산 효과 — 실측(metrics/trend)이 충분하면 live, 빈약하면 데모 폴백(fetchTrend 참조). null = 로딩 중.
   const [distribution, setDistribution] = useState<{ mode: 'live' | 'demo'; rows: any[] } | null>(null);
+  // 오늘의 브리핑(AI) — null 이면 카드 미렌더(로딩 중/스킵/폐기/장애 모두 동일 취급, 스켈레톤 없음).
+  const [briefing, setBriefing] = useState<string | null>(null);
 
   // 언마운트 이후 setState 방지 가드(마운트 동안 true).
   const mountedRef = useRef(true);
@@ -244,7 +258,11 @@ export default function DashboardPage() {
     const trendTask = fetchTrend()
       .then((t) => { if (mountedRef.current) setDistribution(t); })
       .catch(() => { if (mountedRef.current) setDistribution({ mode: 'demo', rows: buildDemoDistribution() }); });
-    await Promise.all([congestionTask, metricsTask, trendTask]);
+    // 브리핑은 후행 fetch — KPI/히트맵 슬라이스와 병렬이라 타일 렌더를 절대 막지 않는다.
+    const briefingTask = fetchBriefing()
+      .then((b) => { if (mountedRef.current) setBriefing(b); })
+      .catch(() => { if (mountedRef.current) setBriefing(null); });
+    await Promise.all([congestionTask, metricsTask, trendTask, briefingTask]);
   }, []);
 
   useEffect(() => {
@@ -347,6 +365,25 @@ export default function DashboardPage() {
               <Download size={16} /> 데이터 내보내기 (CSV)
             </button>
           </div>
+
+          {/* 오늘의 브리핑(P0-2) — 서버 집계 사실만 프로즈화한 AI 문장(정직성 게이트 통과분).
+              briefing 이 null(로딩/스킵/폐기/장애)이면 카드 자체를 렌더하지 않는다. */}
+          {briefing && (
+            <div className="bg-hanok-panel p-5 rounded-2xl border border-gold/30 shadow-sm flex items-start gap-3">
+              <div className="p-2.5 bg-gold/10 rounded-xl text-gold flex-shrink-0">
+                <Sparkles size={20} />
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-sm font-bold text-hanok-ink">오늘의 브리핑</span>
+                  <span className="px-2 py-0.5 text-[10px] font-semibold text-gold border border-gold/30 rounded-full bg-gold/5">
+                    AI 브리핑 · Solar
+                  </span>
+                </div>
+                <p className="text-sm text-hanok-muted leading-relaxed">{briefing}</p>
+              </div>
+            </div>
+          )}
 
           {/* ───────── 폐루프 ① 실시간 관제 ───────── */}
           <StepBanner

@@ -17,6 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from app.core.supabase import supabase_admin, require_admin
+from app.services import briefing_service
 
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1/admin", tags=["admin"], dependencies=[Depends(require_admin)])
@@ -600,3 +601,30 @@ async def get_dashboard_today():
         "heatmap": heatmap,
         "anomalies": anomalies,
     }
+
+
+# =========================================================================
+# 오늘의 브리핑 — docs/SOLAR_LLM_EXPANSION.md P0-2 (admin/dashboard 상단 카드)
+# 서버가 dashboard/today + impact(KST 오늘) 수치를 사실 JSON 으로 집계하고, Solar 는
+# 한국어 1~2문장 프로즈만 생성한다. 게이트/캐시/폴백 규칙은 briefing_service 가 보유한다.
+# 어떤 실패든 briefing=None 으로 강등되며 프런트는 카드 자체를 렌더하지 않는다(무해 폴백).
+# =========================================================================
+
+@router.get("/dashboard/briefing")
+async def get_dashboard_briefing():
+    """오늘의 브리핑 — { briefing: str|null, llmStatus }.
+
+    캐시(12분 TTL, KST 날짜 키) 히트 시 집계 쿼리 없이 즉시 반환한다. 미스면
+    get_dashboard_today/get_impact 를 그대로 재사용해 집계 후 브리핑을 생성한다.
+    """
+    cached = briefing_service.cached_briefing()
+    if cached is not None:
+        return cached
+
+    today_start, _ = _kst_today_range_utc()
+    # 대시보드 프런트와 동일한 기준: impact 는 KST '오늘 00:00' 이후(오늘 지표).
+    today, impact = await asyncio.gather(
+        get_dashboard_today(),
+        get_impact(since=today_start),
+    )
+    return await briefing_service.generate_briefing(today, impact)

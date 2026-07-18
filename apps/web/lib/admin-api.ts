@@ -41,6 +41,39 @@ async function adminRequest(path: string, options: RequestInit = {}): Promise<an
   return response.json();
 }
 
+// --- 오늘의 브리핑(P0-2) — GET /api/v1/admin/dashboard/briefing ---
+// 백엔드(briefing_service)가 대시보드 집계를 Solar 로 1~2문장 프로즈화한 결과.
+// briefing=null(스킵/폐기/장애/키 미설정)이면 프런트는 카드 자체를 렌더하지 않는다(무해 폴백).
+export interface DashboardBriefing {
+  briefing: string | null;
+  llmStatus: string; // "llm" | "rejected" | "llm_failed" | "disabled" | "skipped" (관찰 필드)
+}
+
+// LLM 동작 디버그 배지 — lib/api-client.ts 가 발행하는 'nextspot:llm-debug' CustomEvent 와
+// 동일 메커니즘(components/LlmDebugToast.tsx 가 구독). 정적 export SSR 안전을 위해 window
+// 가드 + 어떤 예외도 조용히 무시(디버그 배지는 절대 주 기능을 방해하지 않는다).
+function dispatchBriefingLlmDebug(status: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.dispatchEvent(
+      new CustomEvent("nextspot:llm-debug", { detail: { feature: "briefing", status } })
+    );
+  } catch {
+    // CustomEvent 미지원 등 — 무시
+  }
+}
+
+/** 오늘의 브리핑 조회 — 응답 파싱 직후 디버그 이벤트를 중앙 발행(api-client 관례 미러). */
+export async function getDashboardBriefing(): Promise<DashboardBriefing> {
+  const data: DashboardBriefing = await adminRequest("/api/v1/admin/dashboard/briefing", {
+    method: "GET",
+  });
+  if (data && typeof data.llmStatus === "string") {
+    dispatchBriefingLlmDebug(data.llmStatus);
+  }
+  return data;
+}
+
 export const adminApi = {
   get: (path: string) => adminRequest(path, { method: "GET" }),
   post: (path: string, body?: unknown) =>
