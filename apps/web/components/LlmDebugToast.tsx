@@ -27,7 +27,7 @@ const MAX_BADGES = 3;
 const EVENT_NAME = 'nextspot:llm-debug';
 
 type LlmDebugDetail =
-  | { feature: 'voice' | 'lab'; status: string }
+  | { feature: 'voice' | 'lab' | 'pref' | 'briefing'; status: string }
   | { feature: 'reason'; llmCount: number; templateCount: number };
 
 interface Badge {
@@ -37,23 +37,30 @@ interface Badge {
 
 let badgeIdSeq = 0;
 
-// voice/lab 공통 status 문구. feature 는 'llm' 일 때만 구분('음성: Solar 응답' vs '실험실: Solar 분류').
-function voiceLabLabel(feature: 'voice' | 'lab', status: string): string {
+const FEATURE_LABELS = { voice: '음성', lab: '실험실', pref: '선호 분석', briefing: '브리핑' } as const;
+
+// status 공통 문구. feature 는 'llm'/'keyword' 일 때만 구분 표기.
+function voiceLabLabel(feature: keyof typeof FEATURE_LABELS, status: string): string {
+  const name = FEATURE_LABELS[feature];
   if (status === 'llm') {
-    return feature === 'voice' ? '🤖 음성: Solar 응답' : '🤖 실험실: Solar 분류';
+    return feature === 'lab' ? '🤖 실험실: Solar 분류' : `🤖 ${name}: Solar 응답`;
   }
   switch (status) {
     case 'keyword':
-      return '⚙️ 음성: 키워드 분류(LLM 불필요)';
+      return `⚙️ ${name}: 키워드 분류(LLM 불필요)`;
     case 'llm_failed':
       return '🛟 LLM 실패 → 규칙 폴백';
+    case 'rejected':
+      return '🛟 정직성 게이트 기각 → 폴백';
     case 'gated':
       return '⏳ 조건 미충족/레이트리밋 → 폴백';
+    case 'skipped':
+      return '⏭️ 데이터 부족 → LLM 미호출';
     case 'disabled':
       return '⛔ LLM 비활성(키 미설정)';
     default:
       // 백엔드 계약이 아직 유동적일 수 있어(병렬 구현 중) 알 수 없는 status 도 죽지 않고 그대로 보여준다.
-      return `${feature === 'voice' ? '음성' : '실험실'}: ${status}`;
+      return `${name}: ${status}`;
   }
 }
 

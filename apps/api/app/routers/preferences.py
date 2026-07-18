@@ -1,10 +1,11 @@
-"""자연어 선호 입력 → 추천 알고리즘 반영 엔드포인트 (로컬 키워드 파싱).
+"""자연어 선호 입력 → 추천 알고리즘 반영 엔드포인트 (키워드 파싱 + Solar LLM 백스톱).
 
 POST /api/v1/preferences/parse
   body: { "text": "조용한 한옥카페랑 무장애 되는 관광지가 좋아요" }
 
 흐름:
-  1) preference_nlp_service(키워드 규칙)로 자연어를 구조화(선호 카테고리/속성/요약/8차원 벡터)
+  1) preference_nlp_service(키워드 규칙 주 경로, 전량 미스 시 LLM 백스톱)로 자연어를
+     구조화(선호 카테고리/속성/요약/8차원 벡터)
   2) 그 8차원 벡터를 Supabase 사용자 선호 벡터로 upsert
      → 이후 /recommendations 의 calculate_preference_similarity 가 즉시 이 벡터를 사용
   3) users.preferred_categories 갱신(콜드스타트/재계산 경로와도 정합)
@@ -35,10 +36,11 @@ class ParsePreferenceRequest(BaseModel):
 class ParsePreferenceResponse(BaseModel):
     preferred_categories: list[str]
     attributes: list[str]
-    summary: str            # 사용자에게 보여줄 'AI가 이렇게 이해했어요' 문장
-    is_fallback: bool       # 키워드 규칙 사용 여부(로컬 파싱은 항상 True)
+    summary: str            # 'AI가 이렇게 이해했어요' 한국어 폴백 문장(로케일 표시는 프런트가 코드로 조립)
+    is_fallback: bool       # True=키워드/폴백 경로, False=LLM 백스톱이 실제 기여(프런트 토스트 분기)
     vector_updated: bool    # Supabase 선호 벡터 반영 성공 여부
     categories_saved: bool  # users.preferred_categories 저장 성공 여부
+    llm_status: str         # 개발 디버그용(음성 경로와 동일 명명): keyword|llm|llm_failed|disabled
 
 
 @router.post("/parse", response_model=ParsePreferenceResponse)
@@ -96,4 +98,5 @@ async def parse_and_apply_preference(
         is_fallback=parsed["is_fallback"],
         vector_updated=vector_updated,
         categories_saved=categories_saved,
+        llm_status=parsed["llm_status"],
     )

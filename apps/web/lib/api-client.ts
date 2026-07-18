@@ -441,10 +441,11 @@ export async function recommendByType(
 export interface ParsePreferenceResult {
   preferredCategories: string[];
   attributes: string[];
-  summary: string;       // 'AI가 이렇게 이해했어요' 한국어 문장
-  isFallback: boolean;   // 정규 파서 대신 키워드 규칙 폴백을 썼는지
+  summary: string;       // 백엔드 한국어 요약(하위 호환) — 신 프런트는 구조화 코드로 로케일 요약을 조립
+  isFallback: boolean;   // 키워드·LLM 모두 기여하지 못해 폴백했는지 (LLM 실기여 시 false)
   vectorUpdated: boolean;
   categoriesSaved: boolean;
+  llmStatus?: "keyword" | "llm" | "llm_failed" | "disabled";
 }
 
 /**

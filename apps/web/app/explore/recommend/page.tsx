@@ -38,6 +38,44 @@ function isSyntheticRecommendationId(id: string): boolean {
   return id.startsWith("mock-") || id.startsWith("bytype-");
 }
 
+// 선호 파싱 llm_status → LLM 동작 디버그 배지(개발 전용). api-client 가 voice/lab 응답에서
+// 발행하는 것과 동일한 'nextspot:llm-debug' CustomEvent 를 그대로 사용한다(LlmDebugToast 구독).
+function dispatchPrefLlmDebug(status: string | undefined): void {
+  if (!status || typeof window === "undefined") return;
+  try {
+    window.dispatchEvent(new CustomEvent("nextspot:llm-debug", { detail: { feature: "pref", status } }));
+  } catch {
+    // 디버그 배지는 주 기능(선호 반영)을 절대 방해하지 않는다 — 어떤 예외도 조용히 무시.
+  }
+}
+
+// 백엔드 /preferences/parse 의 구조화 코드 → 현재 로케일 요약문 조립.
+// 백엔드 summary 는 한국어 단일 폴백이라 표시는 프런트 t() 키로 만든다(4로케일 — 기획 P0-1 ②).
+const NL_CATEGORY_CODES = ["restaurant", "cafe", "attraction", "culture"];
+const NL_ATTR_KEYS: Record<string, string> = {
+  tasty: "recommend.nlAttrTasty",
+  instagrammable: "recommend.nlAttrInstagrammable",
+  barrier_free: "recommend.nlAttrBarrierFree",
+  quiet: "recommend.nlAttrQuiet",
+  near: "recommend.nlAttrNear",
+  indoor: "recommend.nlAttrIndoor",
+};
+
+function buildNlSummary(
+  t: (key: string, vars?: Record<string, string | number>) => string,
+  cats: string[],
+  attrs: string[]
+): string {
+  // 서버가 화이트리스트를 보장하지만, 알 수 없는 코드가 와도 원시 키가 노출되지 않게 재필터.
+  const catLabels = cats.filter((c) => NL_CATEGORY_CODES.includes(c)).map((c) => t(`category.${c}`));
+  const attrLabels = attrs.filter((a) => a in NL_ATTR_KEYS).map((a) => t(NL_ATTR_KEYS[a]));
+  if (!catLabels.length && !attrLabels.length) return t("recommend.nlSummaryEmpty");
+  const catStr = catLabels.length ? catLabels.join(" · ") : t("recommend.nlSummaryAnyPlace");
+  return attrLabels.length
+    ? t("recommend.nlSummaryUnderstood", { cats: catStr, attrs: attrLabels.join(", ") })
+    : t("recommend.nlSummaryCatsOnly", { cats: catStr });
+}
+
 // MiniMap Component for Kakao Maps inside alternative cards
 interface MiniMapProps {
   latitude: number;
@@ -528,7 +566,10 @@ function RecommendContent() {
     setIsParsingNl(true);
     try {
       const result = await parsePreference(nlText.trim());
-      setNlSummary(result.summary);
+      // llmStatus 는 신버전 백엔드만 준다 — 없으면 배지 미발행(구버전 응답 무해).
+      dispatchPrefLlmDebug(result.llmStatus);
+      // 백엔드 summary(한국어 단일) 대신 구조화 코드로 로케일별 요약을 조립한다.
+      setNlSummary(buildNlSummary(t, result.preferredCategories ?? [], result.attributes ?? []));
       if (result.preferredCategories?.length) {
         setSelectedOnboardingCats(result.preferredCategories);
       }
