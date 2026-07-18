@@ -74,7 +74,7 @@ function WaitingCardImage({ imageUrls, name, type }: Pick<BoardRow, "imageUrls" 
   if (!imageUrl) {
     return (
       <div
-        className="h-[38%] w-full shrink-0 flex items-center justify-center bg-hanji-deep/70 border-b border-line text-2xl"
+        className="h-24 w-full shrink-0 flex items-center justify-center bg-hanji-deep/70 border-b border-line text-2xl"
         aria-hidden
       >
         {TYPE_EMOJI[type] ?? "📍"}
@@ -90,7 +90,7 @@ function WaitingCardImage({ imageUrls, name, type }: Pick<BoardRow, "imageUrls" 
       alt={name}
       loading="lazy"
       onError={() => setImageIndex((current) => current + 1)}
-      className="w-full h-[38%] shrink-0 object-cover border-b border-line"
+      className="w-full h-24 shrink-0 object-cover border-b border-line"
     />
   );
 }
@@ -318,13 +318,13 @@ export default function WaitingBoardPage() {
                   </h2>
 
                   {/* 대표 카드 3장 — 도착 대기 짧은 순 상위 3곳, 세로로 긴 포트레이트 카드 */}
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className="grid grid-cols-3 items-stretch gap-2">
                     {topRows.map((row, idx) => (
-                      <div key={row.facilityId} className="min-w-0">
+                      <div key={row.facilityId} className="grid min-w-0 grid-rows-[1fr_auto]">
                       <button
                         type="button"
                         onClick={() => goToDetail(row.facilityId)}
-                        className={`group relative flex flex-col overflow-hidden text-left aspect-[3/5] rounded-2xl border shadow-[0_2px_14px_rgba(43,35,32,0.06)] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 ${
+                        className={`group relative flex h-64 flex-col overflow-hidden text-left rounded-2xl border shadow-[0_2px_14px_rgba(43,35,32,0.06)] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 ${
                           idx === 0
                             ? "bg-gold/10 border-gold/40 hover:border-gold/60"
                             : "bg-white/90 border-line hover:border-gold/40 hover:bg-white"
@@ -352,7 +352,7 @@ export default function WaitingBoardPage() {
                               </p>
                             )}
                             {row.summary && (
-                              <p className="mt-1 text-[9px] leading-snug text-muk-soft line-clamp-4">
+                              <p className="mt-1 text-[9px] leading-snug text-muk-soft break-words line-clamp-5">
                                 {row.summary}
                               </p>
                             )}
@@ -377,6 +377,7 @@ export default function WaitingBoardPage() {
                           </div>
                         </div>
                       </button>
+                      <div className="min-h-4">
                       {row.imageSource?.sourceUrl && (
                         <a
                           href={row.imageSource.sourceUrl}
@@ -388,6 +389,7 @@ export default function WaitingBoardPage() {
                           {row.imageSource.artist || row.imageSource.provider || "Wikimedia"} · {row.imageSource.license}
                         </a>
                       )}
+                      </div>
                       </div>
                     ))}
                   </div>
@@ -469,7 +471,7 @@ function BoardSkeleton() {
             {[0, 1, 2].map((i) => (
               <div
                 key={i}
-                className="aspect-[3/5] bg-white/70 border border-line rounded-2xl p-2 animate-pulse"
+                className="h-64 bg-white/70 border border-line rounded-2xl p-2 animate-pulse"
               >
                 <div className="w-6 h-6 rounded-full bg-hanji-deep" />
                 <div className="h-3 bg-hanji-deep rounded w-full mt-2" />
