@@ -8,6 +8,8 @@ detailCommon2/Intro2 를 조회해 단건 인제스트한다(scripts/ingest_tour
 
 엔드포인트:
   - GET  /api/v1/search/keyword            : 무인증, IP 당 분당 5회. TourAPI 실패/키 없음 → 무해 폴백.
+                                             정상 응답인데 0건이면 LLM 질의 재작성 폴백(P1-3,
+                                             SOLAR_LLM_EXPANSION — 재작성 전용 리밋·일일 예산 캡).
   - POST /api/v1/search/ingest-request     : 무인증, IP 당 분당 3회. contentid 중복은 조용히 무시.
   - GET  /api/v1/search/ingest-requests    : require_admin. 대기(기본 pending) 목록.
   - POST /api/v1/search/ingest-requests/approve : require_admin. 단건 인제스트 → facilities upsert → approved.
@@ -25,6 +27,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from app.core.supabase import require_admin, supabase_admin
+from app.services import llm_client, search_rewrite_service
 from app.services.tourapi import client as tourapi
 from app.services.tourapi.transform import (
     extract_detail_common,
@@ -52,15 +55,27 @@ _SEARCH_ROWS = 5  # 폴백 결과 상위 5개(기획 스펙)
 _RATE_LIMIT_WINDOW_SEC = 60.0
 _SEARCH_RATE_LIMIT = 5
 _INGEST_RATE_LIMIT = 3
+# P1-3: LLM 재작성 전용 리밋 — 기존 검색 5/min 과 **별도**로 더 촘촘하게(무인증 유료 호출 방어).
+# 초과 시 429 로 승격하지 않고 LLM 만 건너뛴다(검색 응답 자체는 현행 빈 결과 그대로 — 무해 불변).
+_REWRITE_RATE_LIMIT = 2
 _search_hits: dict[str, list[float]] = {}
 _ingest_hits: dict[str, list[float]] = {}
+_rewrite_hits: dict[str, list[float]] = {}
 
 
 def _client_ip(request: Request) -> str:
-    """클라이언트 IP — 프록시(X-Forwarded-For) 우선, 없으면 소켓 피어(tracking.py _client_ip 미러)."""
+    """레이트리밋 키용 클라이언트 IP.
+
+    ⚠️ XFF 의 '첫 값'은 클라이언트가 위조 가능하다(프록시는 뒤에 append) — 요청마다 다른
+    가짜 첫 값으로 분당 제한을 무한 우회할 수 있다. 신뢰 프록시(Render 엣지)가 마지막에
+    덧붙인 값이 실제 피어이므로 **마지막 항목**을 쓴다(recommendations._voice_client_ip 미러,
+    §-14 백로그 'XFF 첫 값' 정리). 프록시 없는 로컬은 소켓 피어.
+    """
     xff = request.headers.get("x-forwarded-for")
     if xff:
-        return xff.split(",")[0].strip()
+        parts = [p.strip() for p in xff.split(",") if p.strip()]
+        if parts:
+            return parts[-1]
     return request.client.host if request.client else "unknown"
 
 
@@ -133,6 +148,11 @@ class KeywordSearchItem(BaseModel):
 class KeywordSearchResponse(BaseModel):
     items: list[KeywordSearchItem]
     source: Literal["tourapi", "unavailable"]
+    # P1-3 관찰 필드(프런트 미소비 — LlmDebugToast 류 관찰 관례 §-15). 웹 UI 인디케이터는 미노출.
+    # rewritten: items 가 LLM 재작성어 재검색 결과인지. llm_status: 재작성 경로가 평가된
+    # 경우(정상 응답 0건)에만 llm|llm_failed|gated|disabled, 그 외(주 경로)엔 None.
+    rewritten: bool = False
+    llm_status: Optional[str] = None
 
 
 def _parse_coord(raw: object) -> Optional[float]:
@@ -170,6 +190,58 @@ def transform_keyword_item(item: dict) -> Optional[KeywordSearchItem]:
     )
 
 
+async def _rewrite_search_one(term: str) -> list[KeywordSearchItem]:
+    """재작성어 1개 재검색 — 실패는 빈 리스트(무해). 지역 고정·변환은 원 검색과 동일 규율.
+
+    tourapi.search_keyword 는 키워드별 24h 캐시(_get_cached)를 그대로 타므로 재작성 결과도
+    원 검색과 동일한 캐시 규율을 받는다(§6). 결과는 transform_keyword_item 재통과 —
+    LLM 은 검색어만 만들 뿐 좌표·contentid·레코드를 만들 수 없다.
+    """
+    try:
+        payload = await tourapi.search_keyword(
+            term,
+            area_code=_AREA_CODE_GYEONGBUK,
+            sigungu_code=_SIGUNGU_CODE_GYEONGJU,
+            rows=_SEARCH_ROWS,
+        )
+        raw_items = tourapi.parse_items(payload)
+    except Exception as e:
+        logger.warning("search_rewrite_research_failed", term_length=len(term), error=str(e))
+        return []
+    return [it for it in (transform_keyword_item(i) for i in raw_items) if it is not None]
+
+
+async def _rewrite_fallback(keyword: str, ip: str) -> tuple[list[KeywordSearchItem], str]:
+    """0건 **정상 응답** 위에서만 호출되는 LLM 질의 재작성 폴백(P1-3) — (병합 items, llm_status).
+
+    게이트 순서: is_enabled → IP 재작성 전용 분당 리밋(기존 5/min 검색 리밋과 별도)
+    → 전역 일일 예산 캡(consume_budget). 어느 게이트든 막히면 LLM 미호출·빈 결과
+    (429 승격 없음 — 신규 실패→에러 승격 경로 0). 재검색은 gather 병렬로 꼬리 지연을
+    단일 TourAPI 호출 수준으로 묶고(§6), 재작성어별 결과는 contentid 중복 제거 후 병합한다.
+    """
+    if not llm_client.is_enabled():
+        return [], "disabled"
+    if _check_rate_limit(_rewrite_hits, ip, _REWRITE_RATE_LIMIT) is not None:
+        logger.info("search_rewrite_rate_limited", ip_prefix=ip[:12])
+        return [], "gated"
+    if not search_rewrite_service.consume_budget():
+        return [], "gated"
+    terms = await search_rewrite_service.rewrite_query(keyword)
+    if not terms:
+        return [], "llm_failed"
+    results = await asyncio.gather(
+        *(_rewrite_search_one(t) for t in terms[: search_rewrite_service.MAX_TERMS])
+    )
+    merged: list[KeywordSearchItem] = []
+    seen: set[str] = set()
+    for batch in results:
+        for it in batch:
+            if it.contentid not in seen:
+                seen.add(it.contentid)
+                merged.append(it)
+    return merged[:_SEARCH_ROWS], "llm"
+
+
 @router.get("/keyword", response_model=KeywordSearchResponse)
 async def search_keyword_endpoint(
     request: Request,
@@ -179,6 +251,8 @@ async def search_keyword_endpoint(
 
     무인증 + IP 당 분당 5회 제한. TOURAPI_KEY 미설정/호출 실패는 500 이 아니라
     {items: [], source: 'unavailable'} 무해 폴백(events.py 축제 라우터와 동일 관례).
+    정상 응답(source='tourapi')인데 0건이면 LLM 질의 재작성 폴백(P1-3)을 한 번 시도한다 —
+    원 질의 우선 검색은 무개입, unavailable 위에는 LLM 을 쌓지 않는다.
     """
     ip = _client_ip(request)
     _rate_limit_or_429(
@@ -196,11 +270,22 @@ async def search_keyword_endpoint(
         )
         raw_items = tourapi.parse_items(payload)
     except Exception as e:  # RuntimeError(키 미설정)·TourAPIError 모두 무해 폴백
-        logger.warning("search_keyword_failed", q=keyword, error=str(e))
+        # 질의 원문은 로그 금지(길이만) — P1-3 하드닝에 맞춰 기존 로그도 통일.
+        logger.warning("search_keyword_failed", q_length=len(keyword), error=str(e))
         return KeywordSearchResponse(items=[], source="unavailable")
 
     items = [it for it in (transform_keyword_item(i) for i in raw_items) if it is not None]
-    return KeywordSearchResponse(items=items[:_SEARCH_ROWS], source="tourapi")
+    if items:
+        return KeywordSearchResponse(items=items[:_SEARCH_ROWS], source="tourapi")
+
+    # 정상 응답인데 0건 — 이때만 LLM 재작성(P1-3). 실패는 전부 현행 빈 결과 그대로(무해 불변).
+    rewritten_items, llm_status = await _rewrite_fallback(keyword, ip)
+    return KeywordSearchResponse(
+        items=rewritten_items,
+        source="tourapi",
+        rewritten=bool(rewritten_items),
+        llm_status=llm_status,
+    )
 
 
 # =============================================================================

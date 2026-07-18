@@ -32,6 +32,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from app.core.supabase import supabase_admin
+from app.services import merchant_briefing_service
 
 logger = structlog.get_logger()
 
@@ -131,6 +132,40 @@ async def get_stats(facility_id: str):
             "서버 적재 연동은 2단계 예정입니다."
         ),
     }
+
+
+# =========================================================================
+# 오늘의 실행 브리핑 — GET /api/v1/merchant/briefing?facility_id=  (P1-5)
+# 서버가 '앞으로 6시간' 예측 창의 최저 혼잡 시간대(golden-hour 앵커링 산식 재사용, argmin 은
+# 서버)와 활성 타임세일 현황을 사실로 수집하고, Solar 는 한국어 2~3문장 프로즈만 생성한다.
+# 게이트/캐시/폴백 규칙은 merchant_briefing_service 가 보유한다. 어떤 실패든 briefing=None
+# 으로 강등되며 프런트는 카드 자체를 렌더하지 않는다(무해 폴백). 이 엔드포인트는 읽기 전용 —
+# 타임세일 발행 등 어떤 실행 동작도 하지 않는다(실행 결정은 사람 몫, SOLAR_LLM_EXPANSION §4-④).
+# =========================================================================
+
+
+@router.get("/briefing")
+async def get_briefing(facility_id: str):
+    """오늘의 실행 브리핑 — { briefing: str|null, llmStatus }.
+
+    캐시(facility+KST 시간 버킷, 성공 30분/실패 1분) 히트 시 예측·DB 조회 없이 즉시 반환한다.
+    미스면 시설 존재·타입을 확인(golden-hour 의 단건 조회 패턴 미러)한 뒤 브리핑을 생성한다.
+    """
+    cached = merchant_briefing_service.cached_briefing(facility_id)
+    if cached is not None:
+        return cached
+
+    try:
+        res = await asyncio.to_thread(
+            supabase_admin.table("facilities").select("id, type").eq("id", facility_id).limit(1).execute
+        )
+    except Exception as e:
+        logger.error("merchant_briefing_facility_lookup_failed", facility_id=facility_id, error=str(e))
+        raise HTTPException(status_code=500, detail="브리핑 생성에 실패했습니다.")
+    if not res.data:
+        raise HTTPException(status_code=404, detail="해당 시설을 찾을 수 없습니다.")
+
+    return await merchant_briefing_service.generate_briefing(facility_id, res.data[0]["type"])
 
 
 # =========================================================================

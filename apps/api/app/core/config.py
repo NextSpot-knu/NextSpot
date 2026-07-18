@@ -48,6 +48,11 @@ class Settings(BaseSettings):
     LLM_MODEL: str = "solar-pro3"  # 2026-07-17 실측: 0.8~1.1초, JSON 신뢰성 solar-mini 대비 우위
     LLM_TIMEOUT_SECONDS: float = 3.0  # 음성 UX 상한 — 초과 시 None 반환, 호출자는 키워드 경로 유지
 
+    # P1-3 검색 0건 질의 재작성(search_rewrite_service) — 전역 일일 LLM 호출 예산 캡.
+    # 무인증 검색 경로의 유료 호출 비용 소진 공격에 대한 최종 안전판(IP 분당 리밋과 별도).
+    # KST 일 단위 리셋, 0 이하면 재작성 전면 비활성. 캡 도달 시 LLM 미호출 → 현행 빈 결과(무해 폴백).
+    SEARCH_REWRITE_DAILY_BUDGET: int = 200
+
     # CORS Settings
     # 기본값은 와일드카드(미설정 환경에서 프런트가 막히지 않도록). 운영에서는 실제 도메인을
     # 콤마로 지정하면 main.py 가 자동으로 엄격 모드(해당 오리진만 + credentials)로 전환한다.

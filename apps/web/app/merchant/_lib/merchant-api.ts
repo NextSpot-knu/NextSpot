@@ -139,6 +139,41 @@ export function clearSeatStatus(facilityId: string): Promise<SeatStatusClearResu
   });
 }
 
+// --- 오늘의 실행 브리핑 (P1-5) — GET /api/v1/merchant/briefing ---
+// 백엔드(merchant_briefing_service)가 '앞으로 6시간' 예측 창의 최저 혼잡 시간대 + 타임세일
+// 현황을 Solar 로 2~3문장 프로즈화한 결과. briefing=null(스킵/폐기/장애/키 미설정)이면
+// 프런트는 카드 자체를 렌더하지 않는다(무해 폴백).
+export interface MerchantBriefing {
+  briefing: string | null;
+  llmStatus: string; // "llm" | "rejected" | "llm_failed" | "disabled" | "skipped" (관찰 필드)
+}
+
+// LLM 동작 디버그 배지 — lib/api-client.ts 가 발행하는 'nextspot:llm-debug' CustomEvent 와
+// 동일 메커니즘(components/LlmDebugToast.tsx 가 구독, lib/admin-api.ts 패턴 미러).
+// 정적 export SSR 안전을 위해 window 가드 + 어떤 예외도 조용히 무시(디버그 배지는 절대
+// 주 기능을 방해하지 않는다).
+function dispatchMerchantLlmDebug(status: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.dispatchEvent(
+      new CustomEvent("nextspot:llm-debug", { detail: { feature: "merchant", status } })
+    );
+  } catch {
+    // CustomEvent 미지원 등 — 무시
+  }
+}
+
+/** 오늘의 실행 브리핑 조회 — 응답 파싱 직후 디버그 이벤트를 중앙 발행(admin-api 관례 미러). */
+export async function fetchMerchantBriefing(facilityId: string): Promise<MerchantBriefing> {
+  const data: MerchantBriefing = await merchantFetch(
+    `/api/v1/merchant/briefing?facility_id=${encodeURIComponent(facilityId)}`
+  );
+  if (data && typeof data.llmStatus === "string") {
+    dispatchMerchantLlmDebug(data.llmStatus);
+  }
+  return data;
+}
+
 // --- 예측 유입 (기존 공개 엔드포인트 POST /predict/batch 재사용, 무인증) ---
 interface PredictBatchItem {
   facility_id: string;

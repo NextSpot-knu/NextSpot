@@ -13,7 +13,7 @@ import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { CalendarDays, MapPin, Phone, X, ExternalLink } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
-import { useT } from '@/lib/i18n/I18nProvider';
+import { useI18n } from '@/lib/i18n/I18nProvider';
 
 interface FestivalEvent {
   contentId: string;
@@ -38,6 +38,11 @@ interface FestivalEvent {
   eventplace?: string | null;
   usetimeFestival?: string | null;
   usetimefestival?: string | null;
+  // P1-4 다국어 요약 — 진행 중 + overview 보유 축제만 백엔드가 채운다(무해 폴백: 부재 시 원문).
+  //   overviewI18n: {en,ja,zh} AI 요약·번역(백엔드 캐시 히트분만 — 부분 채택 가능).
+  //   summaryLlmStatus: LLM 관찰 필드 — 'nextspot:llm-debug' CustomEvent 발행용.
+  overviewI18n?: Record<string, string> | null;
+  summaryLlmStatus?: string | null;
 }
 
 // camel/snake 이중 표기 방어 — 필드명이 어느 쪽으로 오든 값을 잃지 않는다.
@@ -56,6 +61,21 @@ function extractHomepageUrl(raw?: string | null): string | null {
 }
 
 const OVERVIEW_CLAMP_THRESHOLD = 90;
+
+// LLM 동작 디버그 배지 — lib/api-client.ts / lib/admin-api.ts 가 발행하는 'nextspot:llm-debug'
+// CustomEvent 와 동일 메커니즘(components/LlmDebugToast.tsx 가 구독 — 라벨은 오케스트레이터가 추가).
+// 백엔드가 summary_llm_status 를 아직 안 주는 구버전 응답이면 발행하지 않는다(방어적).
+// 어떤 예외도 조용히 무시 — 디버그 배지는 절대 주 기능(축제 목록)을 방해하지 않는다.
+function dispatchFestivalLlmDebug(events: FestivalEvent[]): void {
+  if (typeof window === 'undefined') return;
+  const status = events.find((ev) => ev.summaryLlmStatus)?.summaryLlmStatus;
+  if (!status) return;
+  try {
+    window.dispatchEvent(new CustomEvent('nextspot:llm-debug', { detail: { feature: 'festival', status } }));
+  } catch {
+    // CustomEvent 미지원 등 — 무시
+  }
+}
 
 // 세션 캐시 — 지도 재방문마다 백엔드/TourAPI 를 다시 두드리지 않는다(백엔드 24h 캐시와 별개의 프런트 절약).
 const CACHE_KEY = 'nextspot_events_v1';
@@ -84,7 +104,7 @@ export function FestivalBanner({ className = '', onFocus }: {
   // 축제 1건을 지도에 표시(핀/영역)하도록 부모에 위임. 제공되면 카드 전체가 클릭 대상이 된다(카드 아무 곳이나 누르면 표시).
   onFocus?: (ev: FestivalEvent) => void;
 }) {
-  const t = useT();
+  const { t, locale } = useI18n();
   const [events, setEvents] = useState<FestivalEvent[]>([]);
   const [isOpen, setIsOpen] = useState(false);
   const [mounted, setMounted] = useState(false); // 포털은 클라이언트 마운트 후에만(정적 export 안전)
@@ -110,6 +130,7 @@ export function FestivalBanner({ className = '', onFocus }: {
         const res = await apiClient.get('/api/v1/events');
         if (cancelled || res?.source !== 'tourapi' || !Array.isArray(res.events)) return;
         setEvents(res.events);
+        dispatchFestivalLlmDebug(res.events); // 응답 파싱 직후 중앙 발행(api-client 관례 미러)
         try {
           sessionStorage.setItem(CACHE_KEY, JSON.stringify({ at: Date.now(), events: res.events }));
         } catch { /* 시크릿 모드 등 저장 실패는 무시 */ }
@@ -242,13 +263,27 @@ export function FestivalBanner({ className = '', onFocus }: {
                       {/* 상세 조합(퀵윈 C3) — 값 없는 필드는 행 자체 생략('지어내지 않기'). */}
                       {ev.overview && (() => {
                         const isExpanded = expandedOverviewIds.has(ev.contentId);
+                        // P1-4: 비-ko 로케일은 캐시된 AI 요약(overviewI18n)을 우선 표시하고, 필드 부재
+                        // (캐시 미적재·구버전 응답)면 기존 한국어 원문 폴백(무해). ko 는 항상 원문.
+                        // 표시 우선순위는 docs/TOURAPI_EXPANSION.md 4-4 — 공식 해당 언어 > 공식 한국어
+                        // 원문 > 명시된 AI 번역. 공식 다국어 자매 서비스(2-1) 적재가 후속 정본이며,
+                        // 그때까지 이 요약은 'AI 요약·번역' 라벨(festival.aiSummary)로 명시한다.
+                        const aiSummary = locale !== 'ko' ? (ev.overviewI18n?.[locale] ?? null) : null;
+                        const overviewText = aiSummary ?? ev.overview;
                         return (
                           <div className="text-[11px] leading-snug">
-                            <span className="mb-0.5 block text-[10px] font-bold text-muk-soft">{t('festival.about')}</span>
+                            <span className="mb-0.5 flex items-center gap-1.5 text-[10px] font-bold text-muk-soft">
+                              {t('festival.about')}
+                              {aiSummary && (
+                                <span className="rounded-full border border-gold/30 bg-gold/10 px-1.5 py-px text-[9px] font-bold text-gold-deep">
+                                  {t('festival.aiSummary')}
+                                </span>
+                              )}
+                            </span>
                             <p className={`whitespace-pre-line break-words text-muk-soft leading-relaxed ${isExpanded ? '' : 'line-clamp-3'}`}>
-                              {ev.overview}
+                              {overviewText}
                             </p>
-                            {ev.overview.length > OVERVIEW_CLAMP_THRESHOLD && (
+                            {overviewText.length > OVERVIEW_CLAMP_THRESHOLD && (
                               <button
                                 type="button"
                                 onClick={() => toggleOverview(ev.contentId)}

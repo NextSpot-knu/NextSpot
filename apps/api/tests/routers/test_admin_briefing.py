@@ -136,6 +136,9 @@ def test_briefing_disabled_without_key(client, monkeypatch):
 # =========================================================================
 
 def _assert_rejected(client, llm_calls, reply: str):
+    # 직전 거부 결과가 실패 캐시(60s)에 남아 다음 검증이 게이트를 안 타고 통과하는 것을
+    # 방지 — 이 캐시 마스킹으로 Ⅹ(로마 숫자) 우회가 테스트를 가짜 통과한 전례가 있다.
+    briefing_service._cache.clear()
     llm_calls["reply"] = reply
     with _patched_db({"congestion_logs": _LOGS_08, "recommendations": _ACCEPTED_RECS}):
         res = client.get(BRIEFING_PATH, headers=_admin_headers())
@@ -156,6 +159,8 @@ def test_briefing_rejects_comma_and_signed_numbers(client, llm_calls):
 def test_briefing_rejects_korean_numerals(client, llm_calls):
     # 감사 사례: 한글 수사("삼 건")는 숫자 정규식에 안 잡히던 우회 — 수사+단위 패턴으로 폐기.
     _assert_rejected(client, llm_calls, "오늘 이상 혼잡이 삼 건 감지되었습니다. 현황은 {avg}입니다.")
+    # 고유어 수사("두 건")도 동일 — P1-5 머천트 게이트에서 역이식된 패턴.
+    _assert_rejected(client, llm_calls, "오늘 이상 혼잡이 두 건 감지되었습니다. 현황은 {avg}입니다.")
 
 
 def test_briefing_rejects_unknown_placeholder(client, llm_calls):

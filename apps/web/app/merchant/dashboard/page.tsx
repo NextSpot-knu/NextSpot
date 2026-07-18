@@ -48,6 +48,7 @@ import {
   updateSeatStatus,
   clearSeatStatus,
   fetchFacilityCongestionForecast,
+  fetchMerchantBriefing,
   MerchantApiError,
   type MerchantStats,
   type MerchantTimesale,
@@ -119,6 +120,8 @@ export default function MerchantDashboardPage() {
       </header>
 
       <main className="max-w-2xl mx-auto px-4 py-5 flex flex-col gap-5">
+        {/* key=시설 id — 가게가 바뀌면 카드 상태(이전 가게 브리핑)를 통째로 리셋한다 */}
+        <BriefingCard key={facility.id} facilityId={facility.id} />
         <ForecastSection facilityId={facility.id} />
         <StatsSection facilityId={facility.id} />
         <TimesaleSection facilityId={facility.id} />
@@ -175,6 +178,50 @@ function ErrorFallback({ message, onRetry }: { message: string; onRetry: () => v
 
 function SkeletonBlock({ heightClass = 'h-24' }: { heightClass?: string }) {
   return <div className={`w-full ${heightClass} rounded-xl bg-hanji-deep animate-pulse`} />;
+}
+
+// =========================================================================
+// AI 브리핑 카드(P1-5) — GET /api/v1/merchant/briefing 후행(비차단) fetch.
+// 예측 섹션 렌더를 막지 않는 독립 카드다: 로딩 중·실패·briefing=null 이면 아무것도 렌더하지
+// 않는다(스켈레톤·에러 UI 없음 — LLM 은 항상 '보조'라 없어도 대시보드는 완전하다).
+// 문구의 모든 수치는 서버가 계산·치환한 값이다(LLM 은 프로즈만) — merchant_briefing_service 참조.
+// =========================================================================
+
+function BriefingCard({ facilityId }: { facilityId: string }) {
+  const [briefing, setBriefing] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    fetchMerchantBriefing(facilityId)
+      .then((data) => {
+        if (alive && data && typeof data.briefing === 'string' && data.briefing.trim()) {
+          setBriefing(data.briefing);
+        }
+      })
+      .catch(() => {
+        /* 실패 시 미렌더 — 브리핑은 부가 기능이라 에러 UI 도 띄우지 않는다 */
+      });
+    return () => {
+      alive = false;
+    };
+  }, [facilityId]);
+
+  if (!briefing) return null;
+
+  return (
+    <section className="bg-white border border-gold/30 rounded-3xl p-5 shadow-[0_2px_14px_rgba(43,35,32,0.06)]">
+      <div className="flex items-center gap-2 mb-2">
+        <span className="flex-shrink-0 px-2 py-0.5 rounded-full text-xs font-bold border bg-gold/15 text-gold-deep border-gold/30">
+          AI 브리핑 · Solar
+        </span>
+        <h2 className="text-base font-bold font-serif text-muk">오늘의 실행 브리핑</h2>
+      </div>
+      <p className="text-sm text-muk leading-relaxed">{briefing}</p>
+      <p className="text-xs text-muk-soft mt-2 leading-relaxed">
+        문구 속 시간대·수치는 서버가 계산한 예측값입니다. 타임세일 발행 여부는 사장님이 결정하세요.
+      </p>
+    </section>
+  );
 }
 
 // =========================================================================

@@ -27,7 +27,7 @@ const MAX_BADGES = 3;
 const EVENT_NAME = 'nextspot:llm-debug';
 
 type LlmDebugDetail =
-  | { feature: 'voice' | 'lab' | 'pref' | 'briefing'; status: string }
+  | { feature: 'voice' | 'lab' | 'pref' | 'briefing' | 'festival' | 'merchant'; status: string }
   | { feature: 'reason'; llmCount: number; templateCount: number };
 
 interface Badge {
@@ -37,7 +37,10 @@ interface Badge {
 
 let badgeIdSeq = 0;
 
-const FEATURE_LABELS = { voice: '음성', lab: '실험실', pref: '선호 분석', briefing: '브리핑' } as const;
+const FEATURE_LABELS = {
+  voice: '음성', lab: '실험실', pref: '선호 분석', briefing: '브리핑',
+  festival: '축제 요약', merchant: '사장님 브리핑',
+} as const;
 
 // status 공통 문구. feature 는 'llm'/'keyword' 일 때만 구분 표기.
 function voiceLabLabel(feature: keyof typeof FEATURE_LABELS, status: string): string {
@@ -56,6 +59,8 @@ function voiceLabLabel(feature: keyof typeof FEATURE_LABELS, status: string): st
       return '⏳ 조건 미충족/레이트리밋 → 폴백';
     case 'skipped':
       return '⏭️ 데이터 부족 → LLM 미호출';
+    case 'pending':
+      return `⏳ ${name}: 백그라운드 생성 중`;
     case 'disabled':
       return '⛔ LLM 비활성(키 미설정)';
     default:

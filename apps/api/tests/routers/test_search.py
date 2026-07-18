@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 from app.core.config import settings
 from app.routers import search
 from app.routers.search import transform_keyword_item
+from app.services import search_rewrite_service
 
 # test_routers.py 의 공용 Fake(체이닝 흡수 + table별 canned)를 재사용한다.
 from tests.routers.test_routers import FakeSupabase
@@ -32,12 +33,18 @@ def client():
 
 @pytest.fixture(autouse=True)
 def _reset_rate_limit_state():
-    """전역 인메모리 레이트리밋 상태를 테스트마다 격리(reports.py _last_report_at.clear() 관례 미러)."""
+    """전역 인메모리 레이트리밋·재작성 예산 상태를 테스트마다 격리(reports.py 관례 미러)."""
     search._search_hits.clear()
     search._ingest_hits.clear()
+    search._rewrite_hits.clear()
+    search_rewrite_service._budget_day = None
+    search_rewrite_service._budget_used = 0
     yield
     search._search_hits.clear()
     search._ingest_hits.clear()
+    search._rewrite_hits.clear()
+    search_rewrite_service._budget_day = None
+    search_rewrite_service._budget_used = 0
 
 
 def _payload(items: list[dict]) -> dict:
@@ -166,7 +173,8 @@ def test_search_keyword_unavailable_fallback(client):
     with patch.object(search.tourapi, "search_keyword", AsyncMock(side_effect=RuntimeError("TOURAPI_KEY 없음"))):
         res = client.get("/api/v1/search/keyword", params={"q": "불국사"})
     assert res.status_code == 200
-    assert res.json() == {"items": [], "source": "unavailable"}
+    # P1-3 관찰 필드 포함 — unavailable 위에서는 재작성 미평가(llm_status=None, rewritten=False).
+    assert res.json() == {"items": [], "source": "unavailable", "rewritten": False, "llm_status": None}
 
 
 def test_search_keyword_happy_path_caps_at_five():
@@ -202,6 +210,148 @@ def test_search_keyword_rate_limited_after_five_calls(client):
 def test_search_keyword_missing_query_422(client):
     res = client.get("/api/v1/search/keyword")
     assert res.status_code == 422
+
+
+# =========================================================================
+# 2b. P1-3 — 검색 0건 LLM 질의 재작성 폴백 (LLM·TourAPI 전부 mock)
+# =========================================================================
+
+def _kw_item(cid: str, title: str) -> dict:
+    return {"contentid": cid, "title": title, "addr1": "경주", "mapx": "129.2", "mapy": "35.8",
+            "contenttypeid": "12"}
+
+
+def _keyword_responses(mapping: dict[str, dict]):
+    """키워드별 canned 응답 fake — 미등록 키워드는 0건 정상 응답."""
+    calls: list[str] = []
+
+    async def _fake(keyword, **_kwargs):
+        calls.append(keyword)
+        return mapping.get(keyword, _payload([]))
+
+    return _fake, calls
+
+
+def test_rewrite_triggers_on_zero_hit_and_merges_dedup(client, monkeypatch):
+    """0건 + 정상 응답일 때만 재작성 발동 — 재작성어별 재검색 결과를 contentid dedup 병합."""
+    monkeypatch.setattr(search.llm_client, "is_enabled", lambda: True)
+    monkeypatch.setattr(
+        search.search_rewrite_service, "rewrite_query",
+        AsyncMock(return_value=["어린이 체험", "공원"]),
+    )
+    fake, calls = _keyword_responses({
+        "어린이 체험": _payload([_kw_item("100", "경주 어린이 체험장")]),
+        # "100" 은 중복(dedup 대상), "200" 만 신규 병합
+        "공원": _payload([_kw_item("100", "경주 어린이 체험장"), _kw_item("200", "황성공원")]),
+    })
+    with patch.object(search.tourapi, "search_keyword", fake):
+        res = client.get("/api/v1/search/keyword", params={"q": "애들이 뛰어놀 만한 데"})
+    assert res.status_code == 200
+    body = res.json()
+    assert body["source"] == "tourapi"
+    assert body["rewritten"] is True
+    assert body["llm_status"] == "llm"
+    assert [it["contentid"] for it in body["items"]] == ["100", "200"]  # 중복 contentid 제거 병합
+    # 원 질의 우선 검색 1회 + 재작성어 2회(지역 고정 재호출)
+    assert calls[0] == "애들이 뛰어놀 만한 데"
+    assert sorted(calls[1:]) == ["공원", "어린이 체험"]
+
+
+def test_rewrite_not_attempted_when_items_found(client, monkeypatch):
+    """원 질의가 1건이라도 있으면 재작성 미발동(주 경로 무개입) — 관찰 필드도 미설정."""
+    monkeypatch.setattr(search.llm_client, "is_enabled", lambda: True)
+    rewrite_mock = AsyncMock(side_effect=AssertionError("호출되면 안 됨"))
+    monkeypatch.setattr(search.search_rewrite_service, "rewrite_query", rewrite_mock)
+    with patch.object(search.tourapi, "search_keyword", AsyncMock(return_value=_payload([_kw_item("1", "불국사")]))):
+        res = client.get("/api/v1/search/keyword", params={"q": "불국사"})
+    body = res.json()
+    assert body["source"] == "tourapi" and len(body["items"]) == 1
+    assert body["rewritten"] is False and body["llm_status"] is None
+    assert rewrite_mock.await_count == 0
+
+
+def test_rewrite_not_attempted_on_unavailable(client, monkeypatch):
+    """TourAPI 장애(source=unavailable) 위에는 LLM 을 쌓지 않는다."""
+    monkeypatch.setattr(search.llm_client, "is_enabled", lambda: True)
+    rewrite_mock = AsyncMock(side_effect=AssertionError("호출되면 안 됨"))
+    monkeypatch.setattr(search.search_rewrite_service, "rewrite_query", rewrite_mock)
+    with patch.object(search.tourapi, "search_keyword", AsyncMock(side_effect=RuntimeError("장애"))):
+        res = client.get("/api/v1/search/keyword", params={"q": "불국사"})
+    assert res.json() == {"items": [], "source": "unavailable", "rewritten": False, "llm_status": None}
+    assert rewrite_mock.await_count == 0
+
+
+def test_rewrite_llm_failure_keeps_empty_result(client, monkeypatch):
+    """LLM None(실패/파싱실패/전량 탈락) → 현행 빈 결과 그대로(에러 승격 0)."""
+    monkeypatch.setattr(search.llm_client, "is_enabled", lambda: True)
+    monkeypatch.setattr(search.search_rewrite_service, "rewrite_query", AsyncMock(return_value=None))
+    with patch.object(search.tourapi, "search_keyword", AsyncMock(return_value=_payload([]))):
+        res = client.get("/api/v1/search/keyword", params={"q": "이상한질의"})
+    assert res.json() == {"items": [], "source": "tourapi", "rewritten": False, "llm_status": "llm_failed"}
+
+
+def test_rewrite_disabled_without_llm_key(client):
+    """conftest 가 UPSTAGE_API_KEY="" 고정 — 기본은 disabled 로 현행 빈 결과(기존 동작 불변)."""
+    with patch.object(search.tourapi, "search_keyword", AsyncMock(return_value=_payload([]))):
+        res = client.get("/api/v1/search/keyword", params={"q": "이상한질의"})
+    assert res.json() == {"items": [], "source": "tourapi", "rewritten": False, "llm_status": "disabled"}
+
+
+def test_rewrite_all_zero_hits_stays_empty(client, monkeypatch):
+    """재작성어 전부 0건 → 빈 결과(rewritten=False — 재작성 결과가 쓰이지 않았다)."""
+    monkeypatch.setattr(search.llm_client, "is_enabled", lambda: True)
+    monkeypatch.setattr(
+        search.search_rewrite_service, "rewrite_query", AsyncMock(return_value=["공원", "체험"])
+    )
+    with patch.object(search.tourapi, "search_keyword", AsyncMock(return_value=_payload([]))):
+        res = client.get("/api/v1/search/keyword", params={"q": "이상한질의"})
+    body = res.json()
+    assert body["items"] == [] and body["rewritten"] is False and body["llm_status"] == "llm"
+
+
+def test_rewrite_daily_budget_cap_blocks_llm(client, monkeypatch):
+    """전역 일일 예산 캡 도달 시 LLM 미호출(gated) — 응답은 현행 빈 결과(무해)."""
+    monkeypatch.setattr(search.llm_client, "is_enabled", lambda: True)
+    monkeypatch.setattr(settings, "SEARCH_REWRITE_DAILY_BUDGET", 1)
+    rewrite_mock = AsyncMock(return_value=None)
+    monkeypatch.setattr(search.search_rewrite_service, "rewrite_query", rewrite_mock)
+    with patch.object(search.tourapi, "search_keyword", AsyncMock(return_value=_payload([]))):
+        first = client.get("/api/v1/search/keyword", params={"q": "이상한질의"})
+        second = client.get("/api/v1/search/keyword", params={"q": "이상한질의"})
+    assert first.json()["llm_status"] == "llm_failed"  # 예산 1회 소비 후 LLM 호출됨
+    assert second.json() == {"items": [], "source": "tourapi", "rewritten": False, "llm_status": "gated"}
+    assert rewrite_mock.await_count == 1  # 캡 도달 이후 LLM 미호출
+
+
+def test_rewrite_rate_limit_is_tighter_and_separate(client, monkeypatch):
+    """재작성 전용 리밋(분당 2회)은 검색 5/min 과 별도 — 초과 시 429 없이 LLM 만 스킵(gated)."""
+    monkeypatch.setattr(search.llm_client, "is_enabled", lambda: True)
+    rewrite_mock = AsyncMock(return_value=None)
+    monkeypatch.setattr(search.search_rewrite_service, "rewrite_query", rewrite_mock)
+    with patch.object(search.tourapi, "search_keyword", AsyncMock(return_value=_payload([]))):
+        for _ in range(2):
+            ok = client.get("/api/v1/search/keyword", params={"q": "이상한질의"})
+            assert ok.status_code == 200 and ok.json()["llm_status"] == "llm_failed"
+        third = client.get("/api/v1/search/keyword", params={"q": "이상한질의"})
+    assert third.status_code == 200  # 429 승격 없음
+    assert third.json()["llm_status"] == "gated"
+    assert rewrite_mock.await_count == 2
+
+
+def test_client_ip_uses_last_xff_value(client):
+    """XFF 마지막 값 통일(§-14 백로그) — 첫 값 위조로 분당 제한을 우회할 수 없다."""
+    with patch.object(search.tourapi, "search_keyword", AsyncMock(return_value=_payload([]))):
+        for i in range(5):
+            ok = client.get(
+                "/api/v1/search/keyword", params={"q": "불국사"},
+                headers={"x-forwarded-for": f"10.0.0.{i}, 203.0.113.9"},  # 첫 값만 매번 위조
+            )
+            assert ok.status_code == 200
+        limited = client.get(
+            "/api/v1/search/keyword", params={"q": "불국사"},
+            headers={"x-forwarded-for": "10.9.9.9, 203.0.113.9"},
+        )
+    assert limited.status_code == 429  # 마지막 값(203.0.113.9) 기준으로 집계됐다는 증거
 
 
 # =========================================================================

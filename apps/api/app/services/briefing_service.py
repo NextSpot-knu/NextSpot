@@ -50,9 +50,14 @@ _cache: dict[str, tuple[float, float, dict]] = {}
 _HANGUL_RE = re.compile(r"[가-힣]")
 _SENTENCE_END_RE = re.compile(r"[.!?。]")
 _PLACEHOLDER_RE = re.compile(r"\{([a-z_]+)\}")
-# 한글 수사+단위 — 숫자 금지를 "삼 건"/"이천 명" 표기로 우회하는 경로 차단.
-# 수사 문자가 단위 명사 직전에 붙은 조합만 잡아 '이상'·'오늘' 같은 일반어 오탐을 피한다.
-_KOREAN_NUMERAL_RE = re.compile(r"[일이삼사오육칠팔구십백천만]+\s*(?:건|명|분|곳|회|배|퍼센트|프로)")
+# 한글 수사+단위 — 숫자 금지를 "삼 건"/"이천 명"(한자어) 또는 "두 건"/"여섯 시간"(고유어)
+# 표기로 우회하는 경로 차단(고유어는 P1-5 머천트 게이트에서 역이식). 수사가 단위 명사
+# 직전에 붙은 조합만 잡아 '이상'·'오늘' 같은 일반어 오탐을 피한다.
+_KOREAN_NUMERAL_RE = re.compile(
+    r"[일이삼사오육칠팔구십백천만]+\s*(?:건|명|분|곳|회|배|퍼센트|프로)"
+    # 고유어 수사는 앞이 한글이면 제외 — "한산한 시간"·"모두 건네" 같은 어미 오탐 방지.
+    r"|(?<![가-힣])(?:한|두|세|네|다섯|여섯|일곱|여덟|아홉|열|스무|서너|너댓|대여섯)\s*(?:건|명|분|곳|회|배|시간)"
+)
 # 비정량 수량어 — 숫자 없이도 규모를 창작하는 표현("여러 재배치", "수 건")을 폐기(2차 감사 P1).
 _VAGUE_QUANTITY_RE = re.compile(r"여러|다수|소수|한두|몇몇|몇\s|수\s*(?:건|명|분|곳|회|배)|상당수|대부분|절반|과반|일부")
 # 비교·추세·극값 어휘 전역 금지 — 방향 서술은 서버 {change} 치환문에서만 나온다.
@@ -81,18 +86,34 @@ _CONTEXT_WINDOW_CHARS = 25
 
 
 def _contains_numeric_char(text: str) -> bool:
-    """NFKC 정규화 후 유니코드 숫자 카테고리(Nd/Nl/No) 전부 검출 — 아라비아·전각·원문자(①)·
-    로마 숫자(Ⅹ)를 하나의 규칙으로 거부한다(2차 감사 P1)."""
+    """유니코드 숫자 카테고리(Nd/Nl/No) 전부 검출 — 아라비아·전각·원문자(①)·로마 숫자(Ⅹ) 거부.
+
+    원문과 NFKC 정규화본을 **둘 다** 검사한다: 정규화는 ①→'1'(Nd) 검출에 필요하지만
+    Ⅹ(Nl)는 라틴 'X'(Lu)로 바뀌어 정규화본만 검사하면 놓친다(P1-4 구현 중 실증된 갭).
+    """
     normalized = unicodedata.normalize("NFKC", text)
-    return any(unicodedata.category(ch).startswith("N") for ch in normalized)
+    return any(
+        unicodedata.category(ch).startswith("N") for ch in text
+    ) or any(unicodedata.category(ch).startswith("N") for ch in normalized)
 
 
-def _token_context_ok(template: str) -> bool:
-    """모든 플레이스홀더가 제 지표의 문맥(직전 25자 내 키워드)에 있는지 검증."""
+def _token_context_ok(
+    template: str,
+    context_keywords: dict[str, tuple[str, ...]] | None = None,
+) -> bool:
+    """모든 플레이스홀더가 제 지표의 문맥(직전 25자 내 키워드)에 있는지 검증.
+
+    context_keywords 를 주면 그 맵으로 검증한다(P1-5 머천트 브리핑 재사용 — 기본은 admin 맵).
+    빈 튜플은 '문맥 제약 없음'을 뜻한다 — 치환문 자체가 지표명을 포함하는 자기서술형 토큰
+    ("앞으로 6시간" 등)은 오배치가 사실 왜곡이 되지 않아 문두 배치를 허용한다.
+    """
+    keyword_map = _TOKEN_CONTEXT_KEYWORDS if context_keywords is None else context_keywords
     for match in _PLACEHOLDER_RE.finditer(template):
-        keywords = _TOKEN_CONTEXT_KEYWORDS.get(match.group(1))
+        keywords = keyword_map.get(match.group(1))
         if keywords is None:
             return False  # 미지 토큰 — 화이트리스트 게이트와 이중 방어
+        if not keywords:
+            continue  # 빈 튜플 = 자기서술형 토큰(문맥 제약 없음)
         prefix = template[max(0, match.start() - _CONTEXT_WINDOW_CHARS):match.start()]
         prefix = _PLACEHOLDER_RE.sub("", prefix)  # 이웃 토큰 이름이 키워드 판정을 오염하지 않게
         if not any(keyword in prefix for keyword in keywords):
@@ -152,11 +173,20 @@ def build_facts(today: dict, impact: dict) -> Optional[dict]:
     return {"facts": facts, "placeholders": placeholders}
 
 
-def is_honest_briefing(template: str, allowed_placeholders: set[str]) -> bool:
+def is_honest_briefing(
+    template: str,
+    allowed_placeholders: set[str],
+    *,
+    context_keywords: dict[str, tuple[str, ...]] | None = None,
+    max_sentences: int = 2,
+) -> bool:
     """치환 전 템플릿의 정직성 게이트 — 하나라도 어긋나면 전량 폐기(부분 채택 없음).
 
     수치는 플레이스홀더로만 존재해야 하므로 숫자(아라비아·한글 수사) 검출 = 즉시 폐기.
     비교·추세 어휘도 전역 폐기 — 방향 서술은 서버 {change} 치환문만 담을 수 있다.
+
+    context_keywords/max_sentences 는 P1-5(머천트 브리핑)의 공용 재사용 파라미터 —
+    기본값이 admin 계약(admin 토큰 문맥 맵 + 1~2문장)이라 기존 호출부 동작은 불변이다.
     """
     if not isinstance(template, str) or not template.strip():
         return False
@@ -178,10 +208,10 @@ def is_honest_briefing(template: str, allowed_placeholders: set[str]) -> bool:
     # 미지의 중괄호 토큰({Visitors}, {n+1} 등)은 _PLACEHOLDER_RE 에 안 잡힌다 — 잔존 검출로 폐기.
     if _PLACEHOLDER_RE.sub("", template).count("{") or _PLACEHOLDER_RE.sub("", template).count("}"):
         return False
-    if not _token_context_ok(template):
+    if not _token_context_ok(template, context_keywords):
         return False
     sentence_count = len(_SENTENCE_END_RE.findall(template.strip()))
-    if not 1 <= sentence_count <= 2:
+    if not 1 <= sentence_count <= max_sentences:
         return False
     return True
 
