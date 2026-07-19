@@ -3,7 +3,7 @@ import asyncio
 import math
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Literal
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -26,7 +26,8 @@ from app.services.embedding_service import filter_candidates as vector_filter_ca
 from app.services.embedding_service import enrich_candidates as enrich_voice_candidates
 from app.routers.infrastructures import fetch_active_facilities, fetch_latest_congestion_for_all
 from app.services.spot.score import calculate_spot_score
-from app.services.spot.travel import calculate_haversine_distance
+from app.services.spot.travel import WALKING_SPEED_M_PER_MIN, calculate_haversine_distance
+from app.services.travel_context import TravelContext, facility_matches_context, open_status_at_arrival
 from app.services.spot.wait_time import calculate_predicted_wait_time
 from app.services.spot.preference import CATEGORY_VECTORS, get_category_average_vector
 
@@ -39,6 +40,7 @@ class RecommendRequest(BaseModel):
     original_facility_id: str
     user_lat: float
     user_lng: float
+    context: TravelContext | None = None
 
 class RecommendItem(BaseModel):
     recommendation_id: str
@@ -51,6 +53,10 @@ class RecommendItem(BaseModel):
     reason_source: str = "template"
     rank: int
     total_candidates: int
+    open_status_at_arrival: str | None = None
+    information_confidence: str | None = None
+    congestion_source: str | None = None
+    data_updated_at: str | None = None
 
 class FeedbackRequest(BaseModel):
     recommendation_id: str
@@ -211,8 +217,9 @@ async def get_recommendations(
     # 1. 사용자 정보 및 원본 시설 정보 병렬 조회
     user_task = fetch_user(req.user_id)
     original_infra_task = fetch_facility(req.original_facility_id)
+    request_radius = req.context.max_distance_m if req.context and req.context.max_distance_m else 150.0
     all_infra_task = fetch_all_facilities(
-        center_lat=req.user_lat, center_lng=req.user_lng, radius_m=150.0
+        center_lat=req.user_lat, center_lng=req.user_lng, radius_m=request_radius
     )
     
     user_info, original_infra, all_facilities = await asyncio.gather(
@@ -222,7 +229,7 @@ async def get_recommendations(
     # 2. 반경 150m 이내 후보 시설 필터링 (본인 시설 제외)
     candidates = []
     for f in all_facilities:
-        if f["id"] == req.original_facility_id:
+        if f["id"] == req.original_facility_id or not facility_matches_context(f, req.context):
             continue
             
         distance = calculate_haversine_distance(
@@ -231,7 +238,9 @@ async def get_recommendations(
         )
         
         # 150미터 이내 시설만 후보군으로 포함
-        if distance <= 150.0:
+        max_distance = req.context.max_distance_m if req.context and req.context.max_distance_m else 150.0
+        arrival = datetime.now(timezone.utc) + timedelta(minutes=distance / WALKING_SPEED_M_PER_MIN)
+        if distance <= max_distance and open_status_at_arrival(f, arrival) != "closed_confirmed":
             candidates.append((f, distance))
 
     logger.info("candidates_filtered", count=len(candidates), max_radius_m=150)
@@ -276,6 +285,7 @@ async def get_recommendations(
             "breakdown": {**score_res.breakdown, "original_wait_time": original_wait_time},
             "distance_m": dist,
             "candidate_congestion": candidate_congestion,
+            "congestion_source": "measured" if f["id"] in congestion_by_id else "preparing",
         }
 
     recommendation_results = list(
@@ -283,7 +293,7 @@ async def get_recommendations(
     )
 
     # 4. 스코어 기준 내림차순 정렬 및 상위 5개 선별
-    recommendation_results.sort(key=lambda x: x["spot_score"], reverse=True)
+    recommendation_results.sort(key=lambda x: (-x["spot_score"], x["distance_m"], x["facility"]["id"]))
     top_n = recommendation_results[:5]  # 추천 제안 개수(요청: 3 → 5)
 
     # 4-1. WP3: 상위 N개(=top_n)에만 백엔드 사유 생성 (동시 호출, 실패 시 템플릿 폴백)
@@ -343,7 +353,13 @@ async def get_recommendations(
             reason=reason_text,
             reason_source=reason_source,
             rank=idx + 1,
-            total_candidates=total_count
+            total_candidates=total_count,
+            open_status_at_arrival=open_status_at_arrival(
+                item["facility"], datetime.now(timezone.utc) + timedelta(minutes=item["breakdown"].get("travel_time", 0))
+            ),
+            information_confidence="verified" if item["facility"].get("operating_hours") else "unknown",
+            congestion_source=item["congestion_source"],
+            data_updated_at=item["facility"].get("updated_at"),
         ))
 
     logger.info("recommendations_generated", count=len(response_items))
@@ -369,6 +385,7 @@ class RecommendByTypeRequest(BaseModel):
     user_lng: float
     exclude_ids: list[str] = []
     limit: int = Field(5, ge=1, le=20)  # 서버 상한: 후보 점수화(예측 + 사유 생성) 호출량 폭증 방지
+    context: TravelContext | None = None
 
 
 @router.post("/recommendations/by-type", response_model=list[RecommendItem])
@@ -390,14 +407,14 @@ async def recommend_by_type(
     exclude = set(req.exclude_ids or [])
     candidates = [
         f for f in all_facilities
-        if f.get("type") == req.facility_type and f["id"] not in exclude
+        if f.get("type") == req.facility_type and f["id"] not in exclude and facility_matches_context(f, req.context)
     ]
     # 외곽 위치에서 반경 내 후보가 부족하면 기존 기능대로 전체 시설 가까운 순 폴백을 보존한다.
     if len(candidates) < max(req.limit, 3):
         all_facilities = await fetch_all_facilities()
         candidates = [
             f for f in all_facilities
-            if f.get("type") == req.facility_type and f["id"] not in exclude
+            if f.get("type") == req.facility_type and f["id"] not in exclude and facility_matches_context(f, req.context)
         ]
     if not candidates:
         return []
@@ -415,8 +432,20 @@ async def recommend_by_type(
         ),
         key=lambda x: x[1],
     )
-    _reachable = [f for f, d in _with_dist if d <= _MAX_RECO_DISTANCE_M]
-    candidates = _reachable if len(_reachable) >= max(req.limit, 3) else [f for f, _ in _with_dist[: max(req.limit, 3)]]
+    now = datetime.now(timezone.utc)
+    _with_dist = [
+        (f, d) for f, d in _with_dist
+        if open_status_at_arrival(
+            f, now + timedelta(minutes=d / WALKING_SPEED_M_PER_MIN)
+        ) != "closed_confirmed"
+    ]
+    max_distance = req.context.max_distance_m if req.context and req.context.max_distance_m else _MAX_RECO_DISTANCE_M
+    _reachable = [f for f, d in _with_dist if d <= max_distance]
+    candidates = (
+        _reachable
+        if req.context and req.context.max_walk_minutes
+        else (_reachable if len(_reachable) >= max(req.limit, 3) else [f for f, _ in _with_dist[: max(req.limit, 3)]])
+    )
 
     # 선호 벡터 1회 조회(없으면 Cold Start 생성 후 업서트) — get_recommendations 와 동일 패턴
     user_vector = await _resolve_user_vector(req.user_id, user_info.get("preferred_categories", []))
@@ -445,10 +474,11 @@ async def recommend_by_type(
             "breakdown": res.breakdown,
             "distance_m": dist,
             "candidate_congestion": cong,
+            "congestion_source": "measured" if f["id"] in congestion_by_id else "preparing",
         }
 
     scored = list(await asyncio.gather(*[_score(f) for f in candidates]))
-    scored.sort(key=lambda x: x["spot_score"], reverse=True)
+    scored.sort(key=lambda x: (-x["spot_score"], x["distance_m"], x["facility"]["id"]))
     top = scored[: max(1, req.limit)]
 
     # 컨텍스트는 reason_service 가 소비하는 키만 전달한다: _build_template 는 이름·수치를,
@@ -478,6 +508,12 @@ async def recommend_by_type(
             reason_source=reasons[idx][1],
             rank=idx + 1,
             total_candidates=total,
+            open_status_at_arrival=open_status_at_arrival(
+                item["facility"], now + timedelta(minutes=item["distance_m"] / WALKING_SPEED_M_PER_MIN)
+            ),
+            information_confidence="verified" if item["facility"].get("operating_hours") else "unknown",
+            congestion_source=item["congestion_source"],
+            data_updated_at=item["facility"].get("updated_at"),
         )
         for idx, item in enumerate(top)
     ]

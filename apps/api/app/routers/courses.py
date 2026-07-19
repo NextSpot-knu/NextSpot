@@ -28,6 +28,7 @@ from app.core.supabase import get_current_user, supabase_admin
 from app.services.preference_vector_service import preference_vector_service
 from app.services.spot.score import calculate_spot_score
 from app.services.spot.travel import calculate_haversine_distance, get_travel_time_and_distance
+from app.services.travel_context import TravelContext, facility_matches_context, open_status_at_arrival
 from app.services.spot.preference import get_category_average_vector
 from app.services.predict_service import predict_congestion
 from app.services.merchant_boost import apply_merchant_boosts, CONGESTION_OVERRIDE_KEY
@@ -54,12 +55,6 @@ DEFAULT_DWELL_MIN = 45
 # 그리디 탐색 비용 상한: 정류지마다 후보별 이동/예측/점수 호출이 발생하므로 인근 후보 수를 제한한다.
 MAX_COURSE_CANDIDATES = 12
 
-# 코스 목적함수 가중치: '도착시점 예측 혼잡 회피'가 코스의 핵심 가치라 크게, SPOT 스코어(선호 등)는 보조.
-# 두 항 모두 [0,1] 이라 course_value ∈ [0,1].
-CONGESTION_AVOIDANCE_WEIGHT = 0.6
-SPOT_SCORE_WEIGHT = 0.4
-
-
 class CourseRequest(BaseModel):
     user_id: str
     user_lat: float
@@ -68,6 +63,7 @@ class CourseRequest(BaseModel):
     # 정류지별 '순서 지정' 종류(예: ["cafe","attraction","restaurant"] → 1번째 카페, 2번째 관광지, 3번째 식당).
     # 주어지면 types 화이트리스트와 종류 다양성 로직을 대체한다(무효 종류는 걸러지고 MAX_STOPS 까지만 사용).
     sequence: list[str] | None = None
+    context: TravelContext | None = None
 
 
 # sequence 검증용 캐노니컬 시설 종류(DB CHECK 와 동일 집합).
@@ -84,6 +80,7 @@ class CourseStop(BaseModel):
     predicted_congestion: float   # 누적 도착 시각 기준 예측 혼잡도(0~1)
     spot_score: float
     reason: str
+    open_status_at_arrival: str | None = None
 
 
 def _congestion_label(level: float) -> str:
@@ -167,10 +164,6 @@ async def _evaluate_candidate(
         depart_time=now + timedelta(minutes=cum_offset_min),
     )
 
-    course_value = (
-        SPOT_SCORE_WEIGHT * score_res.score
-        + CONGESTION_AVOIDANCE_WEIGHT * (1.0 - predicted_congestion)
-    )
     return {
         "facility": scored_facility,
         "spot_score": score_res.score,
@@ -178,7 +171,7 @@ async def _evaluate_candidate(
         "current_congestion": current_congestion,
         "arrival_offset_min": round(arrival_offset, 1),
         "distance_m": dist,
-        "course_value": course_value,
+        "open_status_at_arrival": open_status_at_arrival(scored_facility, arrival_dt),
     }
 
 
@@ -204,6 +197,7 @@ async def recommend_course(
     candidates = [
         f for f in all_facilities
         if (not allowed_types or f.get("type") in allowed_types)
+        and facility_matches_context(f, req.context)
     ]
     if not candidates:
         return []
@@ -217,26 +211,26 @@ async def recommend_course(
         ),
         key=lambda x: x[1],
     )
-    reachable = [f for f, d in with_dist if d <= _MAX_RECO_DISTANCE_M]
+    max_distance = req.context.max_distance_m if req.context and req.context.max_distance_m else _MAX_RECO_DISTANCE_M
+    reachable = [f for f, d in with_dist if d <= max_distance]
     if seq:
         # 순서 지정 모드: 요청된 각 종류가 후보 풀에 반드시 대표되도록 종류별 가까운 순 상한으로 구성.
         # (가까운 순 전체 상위 12곳에 특정 종류가 없으면 해당 슬롯이 성립 불가 — 종류별 보장이 필요.)
         pool = []
         seen_ids: set[str] = set()
         for t in dict.fromkeys(seq):  # 순서 보존 중복 제거
-            typed = [f for f, d in with_dist if f.get("type") == t and d <= _MAX_RECO_DISTANCE_M]
-            if not typed:  # 반경 내 없음 → 거리순 전체에서 폴백(외곽에서도 슬롯 유지)
+            typed = [f for f, d in with_dist if f.get("type") == t and d <= max_distance]
+            if not typed and not (req.context and req.context.max_walk_minutes):
+                # Explicit walking limits are strict eligibility rules; only legacy requests may fall back.
                 typed = [f for f, _ in with_dist if f.get("type") == t]
             for f in typed[:_SEQ_CANDIDATES_PER_TYPE]:
                 if f["id"] not in seen_ids:
                     seen_ids.add(f["id"])
                     pool.append(f)
     else:
-        pool = (
-            reachable[:MAX_COURSE_CANDIDATES]
-            if len(reachable) >= MIN_STOPS
-            else [f for f, _ in with_dist[:MAX_COURSE_CANDIDATES]]
-        )
+        pool = reachable[:MAX_COURSE_CANDIDATES]
+        if len(reachable) < MIN_STOPS and not (req.context and req.context.max_walk_minutes):
+            pool = [f for f, _ in with_dist[:MAX_COURSE_CANDIDATES]]
     if not pool:
         return []
 
@@ -289,8 +283,18 @@ async def recommend_course(
             )
             for f in pick_from
         ])
-        # 결정적 선택: course_value 내림차순, 동점은 (거리 오름차순, id).
-        evaluations.sort(key=lambda e: (-e["course_value"], e["distance_m"], e["facility"]["id"]))
+        evaluations = [e for e in evaluations if e["open_status_at_arrival"] != "closed_confirmed"]
+        if req.context and req.context.available_minutes:
+            evaluations = [
+                e for e in evaluations
+                if e["arrival_offset_min"] + COURSE_DWELL_MIN.get(
+                    e["facility"].get("type"), DEFAULT_DWELL_MIN
+                ) <= req.context.available_minutes
+            ]
+        if not evaluations:
+            break
+        # SPOT is the sole ranking objective. Arrival congestion is already an input to SPOT.
+        evaluations.sort(key=lambda e: (-e["spot_score"], e["distance_m"], e["facility"]["id"]))
         best = evaluations[0]
         chosen.append(best)
 
@@ -302,6 +306,9 @@ async def recommend_course(
         cum_offset = best["arrival_offset_min"] + COURSE_DWELL_MIN.get(
             best_facility.get("type"), DEFAULT_DWELL_MIN
         )
+
+    if req.context and req.context.available_minutes:
+        chosen = [item for item in chosen if item["arrival_offset_min"] <= req.context.available_minutes]
 
     stops = [
         CourseStop(
@@ -317,6 +324,7 @@ async def recommend_course(
                 item["predicted_congestion"],
                 item["current_congestion"],
             ),
+            open_status_at_arrival=item["open_status_at_arrival"],
         )
         for i, item in enumerate(chosen)
     ]

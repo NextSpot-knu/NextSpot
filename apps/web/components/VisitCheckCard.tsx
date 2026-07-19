@@ -13,7 +13,7 @@ import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, ThumbsUp, ThumbsDown, MapPin } from 'lucide-react';
 import { CongestionReportButton } from '@/components/CongestionReportButton';
-import { getDueVisit, completeVisit, clearPendingVisit, type PendingVisit } from '@/lib/visits';
+import { getDueVisit, completeVisit, markTripNavigating, type PendingVisit } from '@/lib/visits';
 import { useT } from '@/lib/i18n/I18nProvider';
 
 export function VisitCheckCard({ showToast }: { showToast?: (msg: string) => void }) {
@@ -35,14 +35,18 @@ export function VisitCheckCard({ showToast }: { showToast?: (msg: string) => voi
       if (document.visibilityState === 'visible') check();
     };
     document.addEventListener('visibilitychange', onVis);
-    return () => document.removeEventListener('visibilitychange', onVis);
+    window.addEventListener('nextspot:trip-arrived', check);
+    return () => {
+      document.removeEventListener('visibilitychange', onVis);
+      window.removeEventListener('nextspot:trip-arrived', check);
+    };
   }, []);
 
   if (!mounted || !due) return null;
 
   // [아직이요/닫기] — pending 을 지워 재노출하지 않는다(다시 수락하면 새 루프 시작).
   const dismiss = () => {
-    clearPendingVisit();
+    markTripNavigating();
     setDue(null);
     setStage('ask');
   };
@@ -50,6 +54,7 @@ export function VisitCheckCard({ showToast }: { showToast?: (msg: string) => voi
   // 👍/👎 로 방문 확정 — visit_history 적립 + pending 클리어.
   const finish = (rating: 'up' | 'down') => {
     completeVisit({ facilityId: due.facilityId, name: due.name, type: due.type, rating });
+    import('@/lib/analytics').then(({ track }) => track('visit_confirmed', { facility_type: due.type, rating }));
     showToast?.(t('visit.thanks'));
     setDue(null);
     setStage('ask');

@@ -5,6 +5,7 @@
 #   · SPOT 스코어(calculate_spot_score)와 predict_congestion 은 실제로 돈다
 #     (Kakao 키·model.pkl 부재 → Haversine·기본예측 0.5 → 결정적). test_routers 와 동일 전략.
 from unittest.mock import AsyncMock, patch
+from types import SimpleNamespace
 
 from app.services.preference_vector_service import preference_vector_service
 
@@ -109,3 +110,42 @@ def test_course_empty_when_no_candidates(auth_client):  # noqa: F811
 
     assert res.status_code == 200
     assert res.json() == []
+
+
+def test_course_uses_spot_as_only_ranking_objective(auth_client):  # noqa: F811
+    facilities = [
+        _facility("high-spot", "cafe", 0.0004),
+        _facility("low-spot", "cafe", 0.0002),
+    ]
+
+    async def score(**kwargs):
+        value = 0.9 if kwargs["candidate_facility"]["id"] == "high-spot" else 0.2
+        return SimpleNamespace(score=value, breakdown={})
+
+    with patch("app.routers.courses.fetch_user", new=AsyncMock(return_value=USER_ROW)), \
+         patch("app.routers.courses.fetch_all_facilities", new=AsyncMock(return_value=facilities)), \
+         patch("app.routers.courses.fetch_congestion_map", new=AsyncMock(return_value={})), \
+         patch("app.routers.courses.calculate_spot_score", new=AsyncMock(side_effect=score)), \
+         patch("app.routers.courses.predict_congestion", side_effect=lambda *args: 0.99 if args[0] == "cafe" else 0.0), \
+         patch.object(preference_vector_service, "get_user_vector", new=AsyncMock(return_value=UNIT_VECTOR)):
+        res = auth_client.post(_COURSE_PATH, json={**_course_body(), "types": ["cafe"]})
+
+    assert res.status_code == 200
+    assert res.json()[0]["facility"]["id"] == "high-spot"
+
+
+def test_course_context_filters_before_scoring(auth_client):  # noqa: F811
+    facilities = [
+        {**_facility("indoor", "culture", 0.0002), "features": {"indoor_verified": True}},
+        {**_facility("unknown", "culture", 0.0003), "features": {}},
+    ]
+    with patch("app.routers.courses.fetch_user", new=AsyncMock(return_value=USER_ROW)), \
+         patch("app.routers.courses.fetch_all_facilities", new=AsyncMock(return_value=facilities)), \
+         patch("app.routers.courses.fetch_congestion_map", new=AsyncMock(return_value={})), \
+         patch.object(preference_vector_service, "get_user_vector", new=AsyncMock(return_value=UNIT_VECTOR)):
+        res = auth_client.post(
+            _COURSE_PATH,
+            json={**_course_body(), "context": {"required_attributes": ["indoor"]}},
+        )
+    assert res.status_code == 200
+    assert [stop["facility"]["id"] for stop in res.json()] == ["indoor"]

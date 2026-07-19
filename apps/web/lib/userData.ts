@@ -16,6 +16,7 @@ const USER_SCOPED_KEYS = [
   'nextspot_visit_count',             // 방문 수
   'nextspot_visit_counted_session',   // 방문 카운트 세션 표식
   'nextspot_pending_visit',           // 방문 확인 대기
+  'nextspot_active_trip',             // 현재 이동 중 여정
   'nextspot_rejected_ids',            // 거절한 추천(개인화)
   'nextspot_onboarding_done',         // 온보딩 완료 표식
   'nextspot_congestion_alerts_notified', // 혼잡 알림 발송 로그(사용자별 dedup)

@@ -1,4 +1,5 @@
 import { createPublicClient } from "./supabase";
+import type { TravelContext } from "./travelContext";
 const supabase = createPublicClient();
 
 // 인증 필요(HTTP 401)를 서버 장애·기타 오류와 구분하기 위한 전용 에러 타입.
@@ -247,6 +248,10 @@ export interface RecommendationResponse {
   reasonSource?: "llm" | "template";
   rank: number;
   totalCandidates: number;
+  openStatusAtArrival?: "open_expected" | "closing_soon" | "closed_confirmed" | "needs_confirmation";
+  informationConfidence?: "verified" | "unknown";
+  congestionSource?: "measured" | "predicted" | "preparing";
+  dataUpdatedAt?: string | null;
 }
 
 /** 추천 목록의 reasonSource 를 집계해 디버그 배지 이벤트를 1회 발행한다(항목에 하나도 없으면 무발행). */
@@ -269,7 +274,8 @@ function dispatchReasonSourceDebug(items: RecommendationResponse[]): void {
 
 export async function getRecommendations(
   originalFacilityId: string,
-  userLocation: { lat: number; lng: number }
+  userLocation: { lat: number; lng: number },
+  context?: TravelContext,
 ): Promise<RecommendationResponse[]> {
   // Supabase 세션에서 현재 로그인한 유저 ID 획득
   const { data: { session } } = await supabase.auth.getSession();
@@ -284,7 +290,8 @@ export async function getRecommendations(
     userId,
     originalFacilityId,
     userLat: userLocation.lat,
-    userLng: userLocation.lng
+    userLng: userLocation.lng,
+    context,
   });
   dispatchReasonSourceDebug(res);
   return res;
@@ -416,7 +423,8 @@ export async function recommendByType(
   facilityType: string,
   userLocation: { lat: number; lng: number },
   excludeIds: string[] = [],
-  limit = 5
+  limit = 5,
+  context?: TravelContext,
 ): Promise<RecommendationResponse[]> {
   const { data: { session } } = await supabase.auth.getSession();
   let userId = session?.user?.id;
@@ -430,7 +438,8 @@ export async function recommendByType(
     userLat: userLocation.lat,
     userLng: userLocation.lng,
     excludeIds,
-    limit
+    limit,
+    context,
   });
   dispatchReasonSourceDebug(res);
   return res;

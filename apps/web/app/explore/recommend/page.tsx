@@ -12,6 +12,10 @@ import { REGION, isWithinRegion } from "@/lib/region";
 import { toast } from "sonner";
 import { useT } from "@/lib/i18n/I18nProvider";
 import { ShareButton } from "@/components/ShareButton";
+import { recordActiveTrip } from "@/lib/visits";
+import { openWalkingDirections } from "@/lib/navigation";
+import { track } from "@/lib/analytics";
+import { loadTravelContext } from "@/lib/travelContext";
 
 // Extend global Window
 declare global {
@@ -500,7 +504,7 @@ function RecommendContent() {
           return;
         }
 
-        const recommendationsList = await getRecommendations(facilityId, { lat, lng });
+        const recommendationsList = await getRecommendations(facilityId, { lat, lng }, loadTravelContext());
         if (cancelled) return;
         setRecommendations(recommendationsList);
       } catch (err) {
@@ -608,7 +612,7 @@ function RecommendContent() {
     setShowOnboarding(false);
     setLoadingRecommendations(true);
     try {
-      const list = await getRecommendations(facilityId, { lat, lng });
+      const list = await getRecommendations(facilityId, { lat, lng }, loadTravelContext());
       setRecommendations(list);
     } catch (err) {
       // 실데이터 전용: 목업 폴백 없음 — 빈 추천(빈 상태 UI)으로 처리한다.
@@ -648,7 +652,7 @@ function RecommendContent() {
       // 2. Fetch recommendations — 선호 벡터가 없으면 FastAPI가 방금 갱신한 users.preferred_categories 로
       // 카테고리 평균 벡터를 생성해 Supabase에 저장한 뒤 추천을 계산한다(로컬 연산, 외부 벡터 DB 없음).
       setLoadingRecommendations(true);
-      const recommendationsList = await getRecommendations(facilityId, { lat, lng });
+      const recommendationsList = await getRecommendations(facilityId, { lat, lng }, loadTravelContext());
       setRecommendations(recommendationsList);
     } catch (err) {
       // 실데이터 전용: FastAPI 추천 실패 시 목업 폴백 없이 빈 추천(빈 상태 UI)으로 처리한다.
@@ -664,81 +668,22 @@ function RecommendContent() {
   // CTA Click: Accept Alternative
   const handleAccept = async (rec: RecommendationResponse) => {
     quietAssistant(); // 음성 비서 진행 중이면 정리(수동/음성 수락 공통)
-    // 팝업 차단 방지: 동기적 흐름 내에서 빈 창을 즉시 오픈
-    const newWindow = window.open("about:blank", "_blank");
-    
+    toast.success(t("recommend.acceptStart"));
+    recordActiveTrip({
+      id: rec.facility.id, name: rec.facility.name, type: rec.facility.type,
+      latitude: rec.facility.latitude, longitude: rec.facility.longitude,
+    }, { recommendationId: rec.recommendationId, walkMinutes: rec.breakdown.travelTime, context: loadTravelContext() as unknown as Record<string, unknown> });
+    track('navigation_started', {
+      facility_type: rec.facility.type,
+      navigation_mode: 'walk',
+      walk_minutes: Math.round(rec.breakdown.travelTime),
+    });
+    toast.info(t('trip.selectWalking'));
+    openWalkingDirections(rec.facility);
     try {
-      toast.success(t("recommend.acceptStart"));
-
-      // 1. 실제 방문 의사(길안내 시작)만 accepted_visit_intent — 쿠폰·성과지표·선호벡터 +10% 는 이 액션에만 붙는다.
-      //    카드의 만족도 👍(helpful)와 의도적으로 구분한다(같은 어휘로 묶으면 벡터가 오염된다).
       await submitFeedback(rec.recommendationId, "accepted_visit_intent");
-
-      // 2. Prepare toast category-specific greeting
-      let greeting = t("map.greetingDefault");
-      if (rec.facility.type === "restaurant") greeting = t("map.greetingRestaurant");
-      else if (rec.facility.type === "cafe") greeting = t("map.greetingCafe");
-      else if (rec.facility.type === "attraction" || rec.facility.type === "culture") greeting = t("map.greetingView");
-
-      toast.success(`${greeting}${t("map.greetingSuffix")}`);
-
-      // 3. Open Kakao Maps Directions (Hybrid approach)
-      const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-      
-      if (isMobile) {
-        const destUrl = `kakaomap://route?sp=${lat},${lng}&ep=${rec.facility.latitude},${rec.facility.longitude}&by=CAR`;
-        if (newWindow) newWindow.location.href = destUrl;
-        else window.location.href = destUrl;
-      } else {
-        // 키는 env 전용 — 하드코딩 폴백 금지(커밋된 키는 유출로 간주, 로테이션 대상).
-        const restApiKey = process.env.NEXT_PUBLIC_KAKAO_REST_API_KEY;
-        if (!restApiKey) {
-          // 키 미설정: 좌표 변환(transcoord) 없이 텍스트 채우기 방식 길찾기로 폴백(아래 catch 와 동일 경로).
-          const destUrl = `https://map.kakao.com/?sName=${encodeURIComponent("현재 위치")}&eName=${encodeURIComponent(rec.facility.name)}&sY=${lat}&sX=${lng}&eY=${rec.facility.latitude}&eX=${rec.facility.longitude}`;
-          if (newWindow) newWindow.location.href = destUrl;
-          else window.location.href = destUrl;
-          return;
-        }
-        const headers = { 'Authorization': `KakaoAK ${restApiKey}` };
-
-        const urlStart = `https://dapi.kakao.com/v2/local/geo/transcoord.json?x=${lng}&y=${lat}&input_coord=WGS84&output_coord=WCONGNAMUL`;
-        const urlEnd = `https://dapi.kakao.com/v2/local/geo/transcoord.json?x=${rec.facility.longitude}&y=${rec.facility.latitude}&input_coord=WGS84&output_coord=WCONGNAMUL`;
-
-        Promise.all([
-          fetch(urlStart, { headers }).then(r => r.json()),
-          fetch(urlEnd, { headers }).then(r => r.json())
-        ]).then(([startData, endData]) => {
-          if (startData.documents?.length > 0 && endData.documents?.length > 0) {
-            const sX = startData.documents[0].x;
-            const sY = startData.documents[0].y;
-            const eX = endData.documents[0].x;
-            const eY = endData.documents[0].y;
-            const destUrl = `https://map.kakao.com/?map_type=TYPE_MAP&target=car&rt=${sX},${sY},${eX},${eY}&rt1=${encodeURIComponent("현재 위치")}&rt2=${encodeURIComponent(rec.facility.name)}`;
-            if (newWindow) newWindow.location.href = destUrl;
-            else window.location.href = destUrl;
-          } else {
-            throw new Error("좌표 변환 실패");
-          }
-        }).catch(err => {
-          console.warn("PC 길안내 자동 시작 실패:", err);
-          const destUrl = `https://map.kakao.com/?sName=${encodeURIComponent("현재 위치")}&eName=${encodeURIComponent(rec.facility.name)}&sY=${lat}&sX=${lng}&eY=${rec.facility.latitude}&eX=${rec.facility.longitude}`;
-          if (newWindow) newWindow.location.href = destUrl;
-          else window.location.href = destUrl;
-        });
-      }
     } catch (err) {
       console.warn("Error submitting accepted feedback:", err);
-      // 에러 발생 시에도 빈 창이 덩그러니 남지 않도록 목적지로 보냄
-      const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-      const destUrl = isMobile 
-        ? `kakaomap://route?sp=${lat},${lng}&ep=${rec.facility.latitude},${rec.facility.longitude}&by=CAR`
-        : `https://map.kakao.com/?sName=${encodeURIComponent("현재 위치")}&eName=${encodeURIComponent(rec.facility.name)}&sY=${lat}&sX=${lng}&eY=${rec.facility.latitude}&eX=${rec.facility.longitude}`;
-      
-      if (newWindow) {
-        newWindow.location.href = destUrl;
-      } else {
-        window.location.href = destUrl;
-      }
     }
   };
 
@@ -793,7 +738,7 @@ function RecommendContent() {
 
       // 2. 새 추천 시도. 실패해도 전체 흐름을 깨지 않고 빈 추천(빈 상태 UI)으로 처리한다(실데이터 전용).
       try {
-        const fresh = await getRecommendations(facilityId, { lat, lng });
+        const fresh = await getRecommendations(facilityId, { lat, lng }, loadTravelContext());
         setRecommendations(fresh);
       } catch (e) {
         console.warn("refresh fetch failed, showing empty recommendations:", e);
@@ -1256,6 +1201,17 @@ function RecommendContent() {
                       {closedToday && (
                         <span className="text-[10px] font-bold text-terracotta bg-terracotta/10 px-2 py-0.5 rounded-md ml-2">
                           {t("card.closedToday")}
+                        </span>
+                      )}
+                      {rec.openStatusAtArrival && (
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ml-2 ${
+                          rec.openStatusAtArrival === "open_expected"
+                            ? "text-jade bg-jade/10"
+                            : rec.openStatusAtArrival === "closing_soon"
+                              ? "text-terracotta bg-terracotta/10"
+                              : "text-muk-soft bg-hanji-deep"
+                        }`}>
+                          {t(`card.arrivalStatus.${rec.openStatusAtArrival}`)}
                         </span>
                       )}
                       {rec.rank && rec.totalCandidates && (

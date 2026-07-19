@@ -63,6 +63,7 @@ interface RecommendationCardProps {
   // 기타 최신→'n분 전 기준', isStale(로그 나이>24h)→'과거 패턴 기반'(회색). 미제공(저장 목록 등)이면 미표시.
   dataSource?: { source: string | null; lastUpdated?: string | null; isStale?: boolean };
   weatherAdjusted?: boolean;
+  openStatusAtArrival?: 'open_expected' | 'closing_soon' | 'closed_confirmed' | 'needs_confirmation';
 }
 
 export function RecommendationCard({
@@ -86,6 +87,7 @@ export function RecommendationCard({
   eventTitle,
   dataSource,
   weatherAdjusted,
+  openStatusAtArrival,
 }: RecommendationCardProps) {
   const { t, locale } = useI18n();
   const [isExpanded, setIsExpanded] = useState(false);
@@ -402,6 +404,17 @@ export function RecommendationCard({
               {closedToday && (
                 <span className="px-2 py-0.5 rounded-md text-[10px] font-bold border bg-terracotta/10 border-terracotta/30 text-terracotta">
                   {t('card.closedToday')}
+                </span>
+              )}
+              {openStatusAtArrival && (
+                <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold border ${
+                  openStatusAtArrival === 'open_expected'
+                    ? 'bg-jade/10 border-jade/30 text-jade'
+                    : openStatusAtArrival === 'closing_soon'
+                      ? 'bg-terracotta/10 border-terracotta/30 text-terracotta'
+                      : 'bg-muk/5 border-line text-muk-soft'
+                }`}>
+                  {t(`card.arrivalStatus.${openStatusAtArrival}`)}
                 </span>
               )}
               {/* 타임세일 배지(머천트 랭킹 연동 2단계) — 축제 배지(terracotta)와 톤을 구분한 진한 gold pill. */}

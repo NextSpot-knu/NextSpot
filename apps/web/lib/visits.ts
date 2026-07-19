@@ -4,6 +4,7 @@
 
 const PENDING_KEY = 'nextspot_pending_visit';
 const HISTORY_KEY = 'nextspot_visit_history';
+const ACTIVE_TRIP_KEY = 'nextspot_active_trip';
 
 // 수락 후 이 시간이 지나야 '다녀오셨나요?' 확인을 노출한다(도착·이용에 걸리는 최소 여유).
 const DUE_AFTER_MS = 30 * 60 * 1000;
@@ -15,6 +16,14 @@ export interface PendingVisit {
   lat: number | null;
   lng: number | null;
   acceptedAt: number; // epoch ms
+}
+
+export interface ActiveTrip extends PendingVisit {
+  version: 1;
+  recommendationId?: string;
+  walkMinutes?: number;
+  status: 'navigating' | 'arrived';
+  context?: Record<string, unknown>;
 }
 
 export interface VisitHistoryEntry {
@@ -91,6 +100,53 @@ export function getPendingVisit(): PendingVisit | null {
   return null;
 }
 
+export function recordActiveTrip(fac: {
+  id: string; name?: string; type?: string; latitude?: number | null; longitude?: number | null;
+}, options?: { recommendationId?: string; walkMinutes?: number; context?: Record<string, unknown> }): void {
+  recordPendingVisit(fac);
+  const pending = getPendingVisit();
+  if (!pending) return;
+  safeSet(ACTIVE_TRIP_KEY, JSON.stringify({
+    ...pending, version: 1, status: 'navigating',
+    recommendationId: options?.recommendationId,
+    walkMinutes: options?.walkMinutes,
+    context: options?.context,
+  } satisfies ActiveTrip));
+}
+
+export function getActiveTrip(): ActiveTrip | null {
+  const raw = safeGet(ACTIVE_TRIP_KEY);
+  if (raw) {
+    try {
+      const trip = JSON.parse(raw) as ActiveTrip;
+      if (trip?.version === 1 && typeof trip.facilityId === 'string') return trip;
+    } catch { /* fall through to legacy migration */ }
+  }
+  const legacy = getPendingVisit();
+  if (!legacy) return null;
+  const migrated: ActiveTrip = { ...legacy, version: 1, status: 'navigating' };
+  safeSet(ACTIVE_TRIP_KEY, JSON.stringify(migrated));
+  return migrated;
+}
+
+export function markTripArrived(): ActiveTrip | null {
+  const trip = getActiveTrip();
+  if (!trip) return null;
+  const arrived: ActiveTrip = { ...trip, status: 'arrived' };
+  safeSet(ACTIVE_TRIP_KEY, JSON.stringify(arrived));
+  return arrived;
+}
+
+export function markTripNavigating(): ActiveTrip | null {
+  const trip = getActiveTrip();
+  if (!trip) return null;
+  const navigating: ActiveTrip = { ...trip, status: 'navigating' };
+  safeSet(ACTIVE_TRIP_KEY, JSON.stringify(navigating));
+  return navigating;
+}
+
+export function clearActiveTrip(): void { safeRemove(ACTIVE_TRIP_KEY); }
+
 export function clearPendingVisit(): void {
   safeRemove(PENDING_KEY);
 }
@@ -100,6 +156,7 @@ export function clearPendingVisit(): void {
 export function getDueVisit(): PendingVisit | null {
   const pending = getPendingVisit();
   if (!pending) return null;
+  if (getActiveTrip()?.status === 'arrived') return pending;
   if (Date.now() - pending.acceptedAt < DUE_AFTER_MS) return null;
   return pending;
 }
@@ -132,6 +189,7 @@ export function completeVisit(entry: {
   });
   safeSet(HISTORY_KEY, JSON.stringify(history));
   clearPendingVisit();
+  clearActiveTrip();
 }
 
 // 마이페이지 통계용 — 방문 이력 길이(실데이터).

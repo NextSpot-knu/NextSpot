@@ -7,7 +7,7 @@ import dynamic from 'next/dynamic';
 import { User, Search, Mic, X, Utensils, MapPin, Building2, Coffee, ChevronDown, ChevronUp, SlidersHorizontal } from 'lucide-react';
 import { createPublicClient } from '@/lib/supabase';
 import { getMarkerSvg } from '@/lib/utils';
-import { scoreFacility, compareSpot, rankFacilities, recToSpot, haversineMeters, cuisineMatch, rescoreWithPreference, filterReachable, type Spot } from '@/lib/recommender';
+import { scoreFacility, compareSpot, rankFacilities, recToSpot, haversineMeters, cuisineMatch, filterReachable, type Spot } from '@/lib/recommender';
 import { REGION, isWithinRegion } from '@/lib/region';
 import { recommendByType, rejectRecommendation, voiceTurn, apiClient } from '@/lib/api-client';
 // 히트맵 blob 의 색·크기 규칙(마커/배지 임계와 일관) 공용 헬퍼 — 중복 정의 금지, 그대로 재사용.
@@ -17,11 +17,14 @@ import { relativeParts } from '@/lib/freshness';
 import { useVoiceAssistant } from '@/lib/useVoiceAssistant';
 import { useSpeechSearch } from '@/lib/useSpeechSearch';
 import VoiceAssistantOrb from '@/components/VoiceAssistantOrb';
-import { recordPendingVisit } from '@/lib/visits';
+import { recordActiveTrip } from '@/lib/visits';
+import { openWalkingDirections } from '@/lib/navigation';
+import { track } from '@/lib/analytics';
 import { loadSavedLocal, syncSaved, saveBookmark, type SavedRecord } from '@/lib/savedFacilities';
 import { useT } from '@/lib/i18n/I18nProvider';
 // T2: 휴무 원문 파서(오늘 휴무 확정만 배제) + 가능/불가능 텍스트 파서(주차·반려동물 필터) — 공용 단일 소스.
 import { isClosedToday, parseAvailability } from '@/lib/restDate';
+import { loadTravelContext } from '@/lib/travelContext';
 
 const RecommendationCard = dynamic(
   () => import('@/components/RecommendationCard').then((m) => m.RecommendationCard),
@@ -32,6 +35,7 @@ const WeatherChip = dynamic(() => import('@/components/WeatherChip'), { ssr: fal
 const RestroomChip = dynamic(() => import('@/components/RestroomChip'), { ssr: false });
 const TodayCalmSpots = dynamic(() => import('@/components/TodayCalmSpots'), { ssr: false });
 const VisitCheckCard = dynamic(() => import('@/components/VisitCheckCard'), { ssr: false });
+const ActiveJourneyCard = dynamic(() => import('@/components/ActiveJourneyCard'), { ssr: false });
 
 const supabase = createPublicClient();
 
@@ -143,7 +147,10 @@ export default function MainPage() {
   // 축제 포커스 오버레이(핀/영역 원 + 라벨) 배열 — 새 축제 선택·지도 클릭·언마운트 시 정리.
   const festivalOverlayRef = useRef<any[]>([]);
 
-  const [activeFilter, setActiveFilter] = useState('음식점'); // 첫 접속 시 음식점 세션을 먼저 표시(탭 순서와 일치)
+  const [activeFilter, setActiveFilter] = useState<string>(() => {
+    const first = loadTravelContext().categories[0];
+    return ({ restaurant: '음식점', cafe: '카페', attraction: '관광지', culture: '문화시설' } as const)[first ?? 'restaurant'];
+  });
   const [searchQuery, setSearchQuery] = useState(''); // 로컬 시설명 검색(마커 필터). TourAPI 의미검색 연동은 범위 밖.
   // TourAPI 실시간 키워드 폴백(2위 실시간 키워드 게이트웨이) — 로컬 검색 0건일 때만 GET /search/keyword 조회.
   // 지도 이동/마커 추가는 하지 않는다(적재 전 POI — 행 목록으로만 노출, [다음 배치 추가 요청]으로 큐잉).
@@ -179,6 +186,7 @@ export default function MainPage() {
   const [mockHour, setMockHour] = useState<number | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [weatherPreference, setWeatherPreference] = useState({ enabled: false, activeRisk: false });
+  const [travelContext] = useState(loadTravelContext);
   const [showMobileTools, setShowMobileTools] = useState(false);
 
   // 히트맵 레이어 on/off — 혼잡 핀과 별개의 열지도 오버레이(CongestionMap 에서 이식). 기본 꺼짐.
@@ -810,7 +818,10 @@ export default function MainPage() {
           if (liveMode && realCands.length > 0) {
             try {
               // 백엔드에는 rejectedIds와 savedIds를 제외하고 요청
-              const recs = await recommendByType(targetType, userLocation, [...rejectedIds, ...savedIds]);
+              const requestContext = weatherPreference.enabled && weatherPreference.activeRisk
+                ? { ...travelContext, requiredAttributes: [...new Set([...travelContext.requiredAttributes, 'indoor' as const])] }
+                : travelContext;
+              const recs = await recommendByType(targetType, userLocation, [...rejectedIds, ...savedIds], 5, requestContext);
               const byId = new Map(realCands.map(f => [f.id, f]));
               realRanked = recs
                 .filter(r => byId.has(r.facility.id))
@@ -832,22 +843,15 @@ export default function MainPage() {
                     // 머천트 연동(2단계): 타임세일·좌석 확인 배지용 — allowlist 병합이라 명시적으로 전달해야 카드에 도달한다.
                     timesaleRate: (rf as any).timesaleRate ?? (rf as any).timesale_rate ?? null,
                     seatStatusFresh: (rf as any).seatStatusFresh ?? (rf as any).seat_status_fresh ?? null,
+                    recommendationId: r.recommendationId,
+                    openStatusAtArrival: r.openStatusAtArrival,
+                    informationConfidence: r.informationConfidence,
+                    congestionSource: r.congestionSource,
+                    dataUpdatedAt: r.dataUpdatedAt,
                     spot,
                     reason: r.reason || "", // 백엔드 템플릿 사유만
                   };
                 });
-              // 음식 의도(음성/온보딩)가 있으면 선호%·점수를 음식종류 매칭으로 재산출해 표시·랭킹을 의도와 일치시킨다.
-              // (백엔드 선호는 시설타입 4종 벡터라 식당별로 고정 → 의도가 있을 땐 미러로 음식종류 반영. 사유는 백엔드 유지.)
-              if (cuisineIntentRef.current) {
-                // 백엔드 SPOT(예측 대기·이동·incentive) 보존 + 선호항만 cuisineMatch 로 교체해 재점수.
-                // 비식당/미인식(cm=null)은 백엔드 spot 그대로 유지 → 통째 재계산이 사유·수치를 어긋나게 하던 문제 해소.
-                realRanked = realRanked
-                  .map(f => {
-                    const cm = cuisineMatch(f, cuisineIntentRef.current);
-                    return cm !== null ? { ...f, spot: rescoreWithPreference(f.spot, cm, f) } : f;
-                  })
-                  .sort(compareSpot);
-              }
             } catch (e) {
               console.warn("by-type 추천 실패 → 목업 미러로 폴백:", e);
               realRanked = [];
@@ -866,18 +870,9 @@ export default function MainPage() {
           });
         }
 
-        // SPOT 원점수는 보존하고, 사용자가 날씨 맞춤을 켠 악천후에만 명확한 실내 유형을 우선 배치한다.
+        // Weather never reorders SPOT. The opt-in is expressed as an indoor eligibility condition.
         if (weatherPreference.enabled && weatherPreference.activeRisk) {
-          const indoorTypes = new Set(['restaurant', 'cafe', 'culture']);
-          all = [...all].sort((a, b) => {
-            const indoorDelta = Number(indoorTypes.has(b.type)) - Number(indoorTypes.has(a.type));
-            return indoorDelta || compareSpot(a, b);
-          }).map((facility, index) => ({
-            ...facility,
-            apiRank: index + 1,
-            totalCandidates: all.length,
-            weatherAdjusted: indoorTypes.has(facility.type),
-          }));
+          all = all.map((facility) => ({ ...facility, weatherAdjusted: true }));
         }
 
         if (cancelled) return;
@@ -903,7 +898,7 @@ export default function MainPage() {
     // voiceFilterIds 는 dep로 두지 않는다(필터 변경은 onFilter가 직접 처리; effect는 ref로 최신값 읽음 → 더블셋/경합 방지).
     // rejectedIds, savedIds 도 dep에서 제외하여 거절/저장 시 불필요한 백엔드 API 재호출(점수/순위 리셋 현상)을 방지.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [facilities, activeFilter, userLocation, preferredCategories, mockHour, weatherPreference]);
+  }, [facilities, activeFilter, userLocation, preferredCategories, mockHour, weatherPreference, travelContext]);
 
   // Action Button Handlers
   const handleAccept = (fac: Facility) => {
@@ -920,8 +915,11 @@ export default function MainPage() {
         }
       })
       .catch(() => { /* 조용히 무시(여정 차단 금지) */ });
-    // 방문 확인 루프용 대기 기록(수락 후 30분 뒤 '다녀오셨나요?' 배너). 카카오맵 오픈 로직은 아래 그대로 유지.
-    try { recordPendingVisit(fac); } catch { /* localStorage 차단 환경 무시 */ }
+    const spot = fac.spot || calculateSPOT(fac);
+    try {
+      recordActiveTrip(fac, { recommendationId: (fac as any).recommendationId, walkMinutes: spot.expectedTravel, context: travelContext as unknown as Record<string, unknown> });
+      track('navigation_started', { facility_type: fac.type, navigation_mode: 'walk', walk_minutes: Math.round(spot.expectedTravel) });
+    } catch { /* localStorage 차단 환경 무시 */ }
 
     let greeting = t('map.greetingDefault');
     if (fac.type === "restaurant") greeting = t('map.greetingRestaurant');
@@ -930,51 +928,8 @@ export default function MainPage() {
 
     showToast(`${greeting}${t('map.greetingSuffix')}`);
 
-    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-    
-    if (isMobile) {
-      // 모바일 기기: 카카오맵 앱 전용 스킴 (즉시 자동차 길안내 시작)
-      const destUrl = `kakaomap://route?sp=${userLocation.lat},${userLocation.lng}&ep=${fac.latitude},${fac.longitude}&by=CAR`;
-      window.location.href = destUrl;
-    } else {
-      // PC 환경: 카카오맵 웹 스킴에서 자동 길찾기(자동차 기준)를 위해 WGS84 -> WCONGNAMUL 변환 API 호출
-      const newWindow = window.open('', '_blank'); // 팝업 차단 방지를 위해 미리 띄움
-      
-      // 키는 env 전용 — 하드코딩 폴백 금지(커밋된 키는 유출로 간주, 로테이션 대상).
-      const restApiKey = process.env.NEXT_PUBLIC_KAKAO_REST_API_KEY;
-      if (!restApiKey) {
-        // 키 미설정: 좌표 변환(transcoord) 없이 텍스트 채우기 방식 길찾기로 폴백(아래 catch 와 동일 경로).
-        const destUrl = `https://map.kakao.com/?sName=${encodeURIComponent("현재 위치")}&eName=${encodeURIComponent(fac.name)}&sY=${userLocation.lat}&sX=${userLocation.lng}&eY=${fac.latitude}&eX=${fac.longitude}`;
-        if (newWindow) newWindow.location.href = destUrl; else window.location.href = destUrl;
-        return;
-      }
-      const headers = { 'Authorization': `KakaoAK ${restApiKey}` };
-      
-      const urlStart = `https://dapi.kakao.com/v2/local/geo/transcoord.json?x=${userLocation.lng}&y=${userLocation.lat}&input_coord=WGS84&output_coord=WCONGNAMUL`;
-      const urlEnd = `https://dapi.kakao.com/v2/local/geo/transcoord.json?x=${fac.longitude}&y=${fac.latitude}&input_coord=WGS84&output_coord=WCONGNAMUL`;
-
-      Promise.all([
-        fetch(urlStart, { headers }).then(r => r.json()),
-        fetch(urlEnd, { headers }).then(r => r.json())
-      ]).then(([startData, endData]) => {
-        if (startData.documents?.length > 0 && endData.documents?.length > 0) {
-          const sX = startData.documents[0].x;
-          const sY = startData.documents[0].y;
-          const eX = endData.documents[0].x;
-          const eY = endData.documents[0].y;
-          // target=car 와 rt 파라미터를 사용하여 즉시 길안내 화면 렌더링
-          const destUrl = `https://map.kakao.com/?map_type=TYPE_MAP&target=car&rt=${sX},${sY},${eX},${eY}&rt1=${encodeURIComponent("현재 위치")}&rt2=${encodeURIComponent(fac.name)}`;
-          if (newWindow) newWindow.location.href = destUrl; else window.location.href = destUrl;
-        } else {
-          throw new Error("좌표 변환 실패");
-        }
-      }).catch(err => {
-        console.warn("PC 길안내 자동 시작 실패(좌표변환 에러):", err);
-        // 실패 시 기존 텍스트 채우기 방식으로 폴백
-        const destUrl = `https://map.kakao.com/?sName=${encodeURIComponent("현재 위치")}&eName=${encodeURIComponent(fac.name)}&sY=${userLocation.lat}&sX=${userLocation.lng}&eY=${fac.latitude}&eX=${fac.longitude}`;
-        if (newWindow) newWindow.location.href = destUrl; else window.location.href = destUrl;
-      });
-    }
+    showToast(t('trip.selectWalking'));
+    openWalkingDirections(fac);
   };
 
   const handlePutOff = (fac: any) => {
@@ -2073,6 +2028,8 @@ export default function MainPage() {
         </div>
       )}
 
+      <ActiveJourneyCard location={userLocation} />
+
       {/* AI Recommendation Card (Floating Bottom Sheet) */}
       {selectedFacility && (() => {
         try {
@@ -2143,6 +2100,7 @@ export default function MainPage() {
                   isStale: !!selectedFacility.isStale,
                 }}
                 weatherAdjusted={Boolean(selectedFacility.weatherAdjusted)}
+                openStatusAtArrival={selectedFacility.openStatusAtArrival}
               />
               </div>
             </div>

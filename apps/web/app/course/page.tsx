@@ -21,6 +21,9 @@ import CourseMap from "@/components/CourseMap";
 import NowChip from "@/components/NowChip";
 import OptimizationLoader from "@/components/OptimizationLoader";
 import { encodeStops, parseShareParam } from "@/lib/course-share";
+import { loadTravelContext } from "@/lib/travelContext";
+import { recordActiveTrip } from "@/lib/visits";
+import { track } from "@/lib/analytics";
 
 type TFunc = (key: string, vars?: Record<string, string | number>) => string;
 
@@ -44,6 +47,7 @@ interface CourseStop {
   predictedCongestion: number;
   spotScore: number;
   reason: string;
+  openStatusAtArrival?: 'open_expected' | 'closing_soon' | 'closed_confirmed' | 'needs_confirmation';
 }
 
 // 순서 지정 피커에 담긴 한 칸. type 은 백엔드 sequence 슬롯 값, uid 는 프런트 전용 드래그 식별자
@@ -208,6 +212,7 @@ function CourseContent() {
         userId,
         userLat: coords.lat,
         userLng: coords.lng,
+        context: loadTravelContext(),
       };
       if (sequence.length > 0) {
         body.sequence = sequence.map((s) => s.type);
@@ -810,7 +815,7 @@ function StopRows({ stops, readOnly = false }: { stops: CourseStop[]; readOnly?:
 // 카카오맵 길찾기 딥링크 — '현재 위치 → 이 정류지' 도보/대중교통 경로를 카카오맵 앱/웹이 그려준다.
 // 좌표는 서버 왕복 없이 정류지 자체 데이터로 즉시 구성(공유 모드에서도 동일하게 동작).
 function directionsUrl(facility: CourseStop["facility"]): string {
-  return `https://map.kakao.com/link/to/${encodeURIComponent(facility.name)},${facility.latitude},${facility.longitude}`;
+  return `https://map.kakao.com/link/map/${encodeURIComponent(facility.name)},${facility.latitude},${facility.longitude}`;
 }
 
 function StopRow({ stop, readOnly = false }: { stop: CourseStop; readOnly?: boolean }) {
@@ -846,6 +851,9 @@ function StopRow({ stop, readOnly = false }: { stop: CourseStop; readOnly?: bool
               </>
             )}
           </div>
+          {stop.openStatusAtArrival && (
+            <p className="mt-1 text-[10px] font-semibold text-muk-soft">{t(`card.arrivalStatus.${stop.openStatusAtArrival}`)}</p>
+          )}
 
           {/* 이유 토글(왼쪽) + 길안내 버튼(오른쪽, ml-auto 로 항상 우측 정렬). 길안내는 새 탭으로 열리는
               순수 링크라 이유 토글과 클릭이 겹칠 일이 없지만, 혹시 모를 이벤트 버블링까지 stopPropagation 으로 차단. */}
@@ -866,7 +874,12 @@ function StopRow({ stop, readOnly = false }: { stop: CourseStop; readOnly?: bool
               href={directionsUrl(stop.facility)}
               target="_blank"
               rel="noopener noreferrer"
-              onClick={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                recordActiveTrip(stop.facility, { walkMinutes: stop.arrivalOffsetMin, context: loadTravelContext() as unknown as Record<string, unknown> });
+                track('navigation_started', { facility_type: stop.facility.type, navigation_mode: 'walk', walk_minutes: Math.round(stop.arrivalOffsetMin) });
+                toast.info(t('trip.selectWalking'));
+              }}
               aria-label={t('course.directionsAria', { name: stop.facility.name })}
               className="ml-auto shrink-0 inline-flex items-center gap-1 px-2.5 py-1 rounded-full border border-gold/30 bg-gold/10 text-[11px] font-bold text-gold-deep hover:bg-gold/20 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/50"
             >

@@ -53,10 +53,11 @@ async def track_event(req: TrackRequest, request: Request):
     # IP 쿨다운 — 초과 요청은 적재하지 않고 조용히 204(트래킹 손실 허용).
     ip = _client_ip(request)
     now_mono = time.monotonic()
-    last_at = _last_track_at.get(ip)
+    cooldown_key = f"{ip}:{req.event}"
+    last_at = _last_track_at.get(cooldown_key)
     if last_at is not None and (now_mono - last_at) < _TRACK_COOLDOWN_SEC:
         return None
-    _last_track_at[ip] = now_mono
+    _last_track_at[cooldown_key] = now_mono
 
     # best-effort 적재 — DB 오류가 비콘 UX 를 깨지 않도록 흡수.
     try:
