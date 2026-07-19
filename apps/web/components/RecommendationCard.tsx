@@ -480,6 +480,16 @@ export function RecommendationCard({
               </p>
             );
           })()}
+          {openStatusAtArrival && arrivalTime && expectedTravel !== undefined && (
+            <p className="mt-2 inline-flex flex-wrap items-center gap-x-1.5 rounded-lg border border-jade/20 bg-jade/5 px-2.5 py-1.5 text-[11px] font-semibold text-muk">
+              <Clock size={12} className="text-jade" aria-hidden />
+              {t('card.arrivalSummary', {
+                time: formatTime(arrivalTime),
+                walk: Math.round(expectedTravel),
+                wait: Math.round(expectedWait ?? 0),
+              })}
+            </p>
+          )}
         </div>
 
         {/* Dynamic Badge (SPOT Score or match percentage) */}
