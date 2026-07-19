@@ -24,7 +24,7 @@ import { loadSavedLocal, syncSaved, saveBookmark, type SavedRecord } from '@/lib
 import { useT } from '@/lib/i18n/I18nProvider';
 // T2: 휴무 원문 파서(오늘 휴무 확정만 배제) + 가능/불가능 텍스트 파서(주차·반려동물 필터) — 공용 단일 소스.
 import { isClosedToday, parseAvailability } from '@/lib/restDate';
-import { loadTravelContext, saveTravelContext } from '@/lib/travelContext';
+import { loadTravelContext, matchesTravelContext, saveTravelContext } from '@/lib/travelContext';
 
 const RecommendationCard = dynamic(
   () => import('@/components/RecommendationCard').then((m) => m.RecommendationCard),
@@ -199,8 +199,23 @@ export default function MainPage() {
 
   // 히트맵 레이어 on/off — 혼잡 핀과 별개의 열지도 오버레이(CongestionMap 에서 이식). 기본 꺼짐.
   const [showHeatmap, setShowHeatmap] = useState(false);
-  // ♿ 배리어프리 필터 on/off — 켜지면 features.barrier_free 가 truthy 인(휠체어 등 무장애) 시설만 마커·히트맵에 표시. 기본 꺼짐.
-  const [showBarrierFree, setShowBarrierFree] = useState(false);
+  // ♿ 무장애 필터는 공통 여행 조건과 단일화한다. 명시적으로 검증된 시설만 후보와 지도에 남긴다.
+  const showBarrierFree = travelContext.requiredAttributes.includes('accessible');
+  const toggleBarrierFree = () => {
+    const requiredAttributes = showBarrierFree
+      ? travelContext.requiredAttributes.filter((attribute) => attribute !== 'accessible')
+      : [...new Set([...travelContext.requiredAttributes, 'accessible' as const])];
+    const next = { ...travelContext, requiredAttributes };
+    setTravelContext(next);
+    saveTravelContext(next);
+    track('context_applied', {
+      categories: next.categories,
+      max_walk_minutes: next.maxWalkMinutes ?? null,
+      available_minutes: next.availableMinutes ?? null,
+      required_attributes: next.requiredAttributes,
+      exclude_visited: next.excludeVisited,
+    });
+  };
   // 🅿 주차 가능 필터 on/off — 켜지면 features.parking 이 '가능'으로 파싱되는 시설만 마커·히트맵에 표시.
   // 🐾 반려동물 동반 필터 on/off — 켜지면 features.chk_pet 이 '가능'으로 파싱되는 시설만. 둘 다 배리어프리와 동일 패턴(AND 조합 가능).
   const [showParkingFilter, setShowParkingFilter] = useState(false);
@@ -730,12 +745,12 @@ export default function MainPage() {
           const pred = predictionMap[f.id];
           return pred ? { ...f, congestionLevel: pred.level } : f;
         });
-    // ♿ 배리어프리 필터: 켜지면 barrier_free 가 truthy 인 시설만 남긴다(TourAPI 적재분은 정규 컬럼
+    // ♿ 배리어프리 필터: 켜지면 barrier_free 가 명시적 true 인 시설만 남긴다(TourAPI 적재분은 정규 컬럼
     // barrierFree, 수동 시드는 features.barrier_free — 둘 다 확인). 마커·히트맵 공용 소스에서
     // 한 번만 걸러 두 레이어가 항상 동일 집합을 그린다.
-    // (추천/카드 로직은 원본 facilities 를 쓰므로 필터의 영향을 받지 않는다 — 지도 표시만 좁힘.)
+    // 추천은 같은 travelContext.requiredAttributes 를 서버에 보내므로 지도와 후보 자격이 일치한다.
     let out = src;
-    if (showBarrierFree) out = out.filter((f) => !!(f?.barrierFree ?? f?.barrier_free ?? f?.features?.barrier_free));
+    if (showBarrierFree) out = out.filter((f) => (f?.barrierFree ?? f?.barrier_free ?? f?.features?.barrier_free) === true);
     // 🅿🐾 주차·반려동물 필터: 순차 .filter() 체이닝이라 배리어프리와도 자연히 AND 조합된다.
     // 관광지 위주로 적재된 필드라 커버리지가 낮다 — 후보가 확 줄거나 0이어도 숨기지 않고 그대로 보여준다(정직성).
     // (parking 은 밑줄이 없어 camelCase 변환 영향이 없지만, chk_pet 은 apiClient 경유 시 chkPet 으로 바뀌므로 둘 다 확인.)
@@ -787,11 +802,10 @@ export default function MainPage() {
     const targetType = filterMap[activeFilter];
 
     const typeOk = (f: Facility) => f.type === targetType && !(targetType === 'restaurant' && isBarFacility(f)); // 식당 추천에서 술집 제외
-    let candidates = facilities.filter(
-      f => typeOk(f) && !rejectedIds.has(f.id) && !savedIds.has(f.id)
-    );
+    const eligible = facilities.filter((f) => typeOk(f) && matchesTravelContext(f, travelContext, userLocation, haversineMeters));
+    let candidates = eligible.filter(f => !rejectedIds.has(f.id) && !savedIds.has(f.id));
     if (candidates.length === 0) {
-      candidates = facilities.filter(typeOk);
+      candidates = eligible;
     }
     if (candidates.length === 0) {
       setSelectedFacility(null);
@@ -1533,7 +1547,7 @@ export default function MainPage() {
     for (const f of facilities) {
       if (f.type !== targetType) continue;
       if (query && String(f.name ?? '').toLowerCase().includes(query)) search += 1;
-      if (f?.barrierFree ?? f?.barrier_free ?? f?.features?.barrier_free) barrier += 1;
+      if ((f?.barrierFree ?? f?.barrier_free ?? f?.features?.barrier_free) === true) barrier += 1;
       if (parseAvailability(f?.features?.parking as string | null | undefined) === true) parking += 1;
       if (parseAvailability((f?.features?.chk_pet ?? f?.features?.chkPet) as string | null | undefined) === true) pet += 1;
     }
@@ -1862,7 +1876,7 @@ export default function MainPage() {
           {/* ♿ 배리어프리 토글 — 켜지면 features.barrier_free 시설만 지도에 표시(무장애 여행 동선용) */}
           <button
             type="button"
-            onClick={() => setShowBarrierFree((prev) => !prev)}
+            onClick={toggleBarrierFree}
             aria-pressed={showBarrierFree}
             className={`flex shrink-0 items-center gap-2 rounded-full border px-3.5 py-2 text-[13px] font-medium transition-all fractal-glass shadow-[0_2px_14px_rgba(43,35,32,0.06)] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 sm:px-4 sm:py-2 sm:text-sm ${
               showBarrierFree
@@ -2007,7 +2021,7 @@ export default function MainPage() {
             </div>
             <div className="grid grid-cols-2 gap-2">
               <button type="button" onClick={() => setShowHeatmap((value) => !value)} aria-pressed={showHeatmap} className={`rounded-xl border px-3 py-3 text-sm font-semibold ${showHeatmap ? 'border-gold bg-gold/15' : 'border-line bg-white'}`}>🔥 {t('map.heatmap')}</button>
-              <button type="button" onClick={() => setShowBarrierFree((value) => !value)} aria-pressed={showBarrierFree} className={`rounded-xl border px-3 py-3 text-sm font-semibold ${showBarrierFree ? 'border-jade bg-jade/15' : 'border-line bg-white'}`}>♿ {t('map.barrierFree')}</button>
+              <button type="button" onClick={toggleBarrierFree} aria-pressed={showBarrierFree} className={`rounded-xl border px-3 py-3 text-sm font-semibold ${showBarrierFree ? 'border-jade bg-jade/15' : 'border-line bg-white'}`}>♿ {t('map.barrierFree')}</button>
               <button type="button" onClick={() => setShowParkingFilter((value) => !value)} aria-pressed={showParkingFilter} className={`rounded-xl border px-3 py-3 text-sm font-semibold ${showParkingFilter ? 'border-jade bg-jade/15' : 'border-line bg-white'}`}>🅿 {t('map.filterParking')}</button>
               <button type="button" onClick={() => { setShowMobileTools(false); router.push('/waiting'); }} className="rounded-xl border border-line bg-white px-3 py-3 text-sm font-semibold">⏱ {t('waiting.entryChip')}</button>
             </div>

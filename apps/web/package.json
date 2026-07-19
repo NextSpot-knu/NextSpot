@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
-    "test": "tsx lib/voiceIntent.test.ts && tsx lib/i18n/parity.test.ts"
+    "test": "tsx lib/voiceIntent.test.ts && tsx lib/i18n/parity.test.ts && tsx lib/travelContext.test.ts"
   },
   "engines": {
     "node": ">=20"

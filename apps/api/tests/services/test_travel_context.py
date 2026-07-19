@@ -16,8 +16,14 @@ def test_context_validates_server_enums_and_ranges():
 def test_required_attribute_is_fail_closed():
     context = TravelContext(required_attributes=["accessible"])
     assert not facility_matches_context({"id": "unknown", "features": {}}, context)
+    assert not facility_matches_context(
+        {"id": "unverified-claim", "features": {"accessible": True}}, context
+    )
     assert facility_matches_context(
         {"id": "verified", "features": {"accessible_verified": True}}, context
+    )
+    assert facility_matches_context(
+        {"id": "tourapi-verified", "barrier_free": True, "features": {}}, context
     )
 
 

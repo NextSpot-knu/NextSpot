@@ -19,6 +19,27 @@ export const EMPTY_TRAVEL_CONTEXT: TravelContext = {
   categories: [], requiredAttributes: [], excludeVisited: false, visitedFacilityIds: [],
 };
 
+const WALKING_SPEED_M_PER_MIN = 66.67;
+
+export function matchesTravelContext(facility: {
+  id: string; type: string; latitude: number; longitude: number;
+  barrierFree?: unknown; barrier_free?: unknown;
+  features?: Record<string, unknown> | null;
+}, context: TravelContext, origin: { lat: number; lng: number }, distanceMeters: (lat1: number, lng1: number, lat2: number, lng2: number) => number): boolean {
+  if (context.categories.length && !context.categories.includes(facility.type as PlaceCategory)) return false;
+  if (context.excludeVisited && context.visitedFacilityIds.includes(facility.id)) return false;
+  if (context.maxWalkMinutes && distanceMeters(origin.lat, origin.lng, facility.latitude, facility.longitude) > context.maxWalkMinutes * WALKING_SPEED_M_PER_MIN) return false;
+  const features = facility.features ?? {};
+  for (const attribute of context.requiredAttributes) {
+    if (attribute === 'accessible') {
+      if ((facility.barrierFree ?? facility.barrier_free) !== true && features.accessible_verified !== true) return false;
+    } else if (features.indoor !== true && features.indoor_verified !== true) {
+      return false;
+    }
+  }
+  return true;
+}
+
 export function loadTravelContext(): TravelContext {
   if (typeof window === 'undefined') return EMPTY_TRAVEL_CONTEXT;
   try {

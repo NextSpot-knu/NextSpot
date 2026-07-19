@@ -34,9 +34,12 @@ def facility_matches_context(facility: dict, context: TravelContext | None) -> b
         return False
     features = facility.get("features") or {}
     for attr in context.required_attributes:
-        # Required attributes are fail-closed: only an explicit verified true is eligible.
-        top_level_verified = attr == "accessible" and facility.get("barrier_free") is True
-        if not top_level_verified and features.get(attr) is not True and features.get(f"{attr}_verified") is not True:
+        # Accessibility is fail-closed: a generic `accessible` claim is not verification.
+        if attr == "accessible":
+            matches = facility.get("barrier_free") is True or features.get("accessible_verified") is True
+        else:
+            matches = features.get(attr) is True or features.get(f"{attr}_verified") is True
+        if not matches:
             return False
     return True
 
