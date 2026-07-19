@@ -225,7 +225,8 @@ export interface RecommendationResponse {
     homepage?: string | null;
     overview?: string | null;
     barrierFree?: boolean | null;
-    currentCount?: number;
+    // 실측 혼잡이 있을 때만 capacity×혼잡으로 합성 — 근거 없으면 null(잔여석 합성 금지).
+    currentCount?: number | null;
     congestionLevel?: number;
     // 머천트 랭킹 연동 2단계: 활성 타임세일 할인율(0~0.5) — 타임세일이 기본 쿠폰율보다 클 때만 존재.
     timesaleRate?: number | null;
@@ -246,11 +247,17 @@ export interface RecommendationResponse {
   reason?: string; // 백엔드 템플릿 생성 추천 사유 (snake_case reason → camel reason)
   // 추천 사유가 LLM(Solar)로 생성됐는지 템플릿인지 — LLM 동작 디버그 배지 집계용(구버전 응답엔 없음).
   reasonSource?: "llm" | "template";
+  // 혼잡 3단계 근거(CONGESTION_TRUST_SPEC): measured=congestion_logs 실측(사장 확인 포함),
+  // predicted=학습된 모델의 AI 예측, none=근거 없음(혼잡 정보 준비 중). 구버전 응답엔 없음.
+  congestionLevel?: number | null;
+  congestionSource?: "measured" | "predicted" | "none";
+  congestionLogSource?: string | null; // measured 일 때 원 로그 source(user_report/seed/simulated/…)
+  congestionIsStale?: boolean | null;  // measured 일 때 로그 나이>24h
+  congestionTimestamp?: string | null;
   rank: number;
   totalCandidates: number;
   openStatusAtArrival?: "open_expected" | "closing_soon" | "closed_confirmed" | "needs_confirmation";
   informationConfidence?: "verified" | "unknown";
-  congestionSource?: "measured" | "predicted" | "preparing";
   dataUpdatedAt?: string | null;
 }
 
@@ -474,7 +481,9 @@ export interface VoiceTurnCandidate {
   // 공식 메뉴(TourAPI first_menu/treat_menu 결합) — 백엔드 embedding_service 의 후보 haystack
   // (name+cuisine+category+menu)가 이미 읽는 필드인데 프런트가 보낸 적이 없었다(2026-07-17 감사).
   menu?: string | null;
-  congestion?: number; // 0~1
+  // 정밀분류(features.category, Solar 태깅 배치가 채움) — 백엔드 분류 게이트(cat_of)의 입력.
+  category?: string | null;
+  congestion?: number | null; // 0~1, null=근거 없음(백엔드 VoiceCandidate 도 Optional — 0 합성 금지)
   distanceM?: number;
 }
 
@@ -483,6 +492,9 @@ export interface VoiceTurnResult {
   targetFacilityId: string | null;
   matchIds: string[]; // filter 일 때 선호에 맞는 후보 id들('양식'→양식 식당들)
   spoken: string | null; // 백엔드 생성 한국어 응답(없으면 프런트 자체 멘트)
+  // filter 매치 0건일 때 백엔드가 제안한 '유사 대안'(같은 계열) 후보 id — spoken 이
+  // "…안내해드릴까요?"로 물었고, 다음 턴 accept 를 이 후보 select 로 처리한다(구버전 응답엔 없음).
+  suggestionId?: string | null;
   // 이번 턴이 LLM(Solar)로 처리됐는지/키워드 폴백인지 — LLM 동작 디버그 배지용(구버전 응답엔 없음).
   llmStatus?: "keyword" | "llm" | "llm_failed" | "gated" | "disabled";
 }

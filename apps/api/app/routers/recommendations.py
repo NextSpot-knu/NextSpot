@@ -25,6 +25,7 @@ from app.services.voice_intent_service import interpret_turn
 from app.services.embedding_service import filter_candidates as vector_filter_candidates
 from app.services.embedding_service import enrich_candidates as enrich_voice_candidates
 from app.routers.infrastructures import fetch_active_facilities, fetch_latest_congestion_for_all
+from app.services.predict_service import predict_congestion_detailed
 from app.services.spot.score import calculate_spot_score
 from app.services.spot.travel import WALKING_SPEED_M_PER_MIN, calculate_haversine_distance
 from app.services.travel_context import TravelContext, facility_matches_context, open_status_at_arrival
@@ -51,11 +52,18 @@ class RecommendItem(BaseModel):
     reason: str | None = None  # WP3: 백엔드 생성 사유(실패 시 템플릿 폴백)
     # 개발 디버그용 — 위 reason 이 LLM 다듬기로 나왔는지("llm") 템플릿 그대로인지("template").
     reason_source: str = "template"
+    # 혼잡 3단계 근거(CONGESTION_TRUST_SPEC) — 지도 경로 CongestionInfo 규약을 추천 응답에 이식.
+    # measured=congestion_logs 실측(또는 사장 확인), predicted=학습된 모델의 AI 예측,
+    # none=근거 없음(혼잡 정보 준비 중 — 0.0/0.5 를 실측처럼 팔지 않는다).
+    congestion_level: float | None = None
+    congestion_source: Literal["measured", "predicted", "none"] = "none"
+    congestion_log_source: str | None = None   # measured 일 때 원 로그 source(user_report/seed/…)
+    congestion_is_stale: bool | None = None    # measured 일 때 로그 나이>24h
+    congestion_timestamp: str | None = None    # measured 일 때 로그 시각
     rank: int
     total_candidates: int
     open_status_at_arrival: str | None = None
     information_confidence: str | None = None
-    congestion_source: str | None = None
     data_updated_at: str | None = None
 
 class FeedbackRequest(BaseModel):
@@ -159,33 +167,39 @@ async def fetch_all_facilities(
 
     return facilities
 
-async def fetch_latest_congestion(facility_id: str) -> float:
-    """
-    특정 시설의 가장 최신 congestion_level을 조회합니다. (없으면 기본값 0.0)
-    """
-    res = await asyncio.to_thread(
-        supabase_client.table("congestion_logs")
-        .select("congestion_level")
-        .eq("facility_id", facility_id)
-        .order("timestamp", desc=True)
-        .order("id", desc=True)  # 동일 timestamp 동률 시 결정적 정렬(infrastructures 라우터와 통일)
-        .limit(1)
-        .execute
-    )
-    if res.data:
-        return res.data[0]["congestion_level"]
-    return 0.0
-
-
-async def fetch_congestion_map(facility_ids: list[str]) -> dict[str, float]:
-    """후보 시설들의 최신 혼잡도를 일괄 조회해 {facility_id: level} 로 반환한다.
+async def fetch_congestion_map(facility_ids: list[str]) -> dict[str, dict]:
+    """후보 시설들의 최신 혼잡 로그를 일괄 조회해 {facility_id: info} 로 반환한다.
 
     후보마다 개별 쿼리를 무제한 gather 하던 N+1 팬아웃(스레드풀 고갈 위험)을
     infrastructures.fetch_latest_congestion_for_all(시설별 limit 1, 결정적 정렬) 재사용으로 대체.
-    로그가 없는 시설은 0.0.
+    info = {level, current_count, timestamp, source, is_stale} — 로그가 없는 시설은 맵에서
+    **누락**된다(0.0 합성 금지 — CONGESTION_TRUST_SPEC: 누락이 곧 '근거 없음' 신호다).
     """
-    congestion_map = await fetch_latest_congestion_for_all(facility_ids)
-    return {fid: data["level"] for fid, data in congestion_map.items()}
+    return await fetch_latest_congestion_for_all(facility_ids)
+
+
+async def resolve_congestion_evidence(facility: dict, log_info: dict | None) -> dict:
+    """후보 1건의 혼잡 근거 3단계를 판정한다(CONGESTION_TRUST_SPEC).
+
+    - measured: 최신 congestion_logs 실측(원 로그 source·신선도 동봉)
+    - predicted: 로그 없음 + 모델이 실제로 학습된 AI 예측(현재 시각 UTC 기준)
+    - none: 로그 없음 + 모델 미학습 — 0.5 평탄 폴백을 예측으로 팔지 않는다
+    """
+    if log_info is not None:
+        return {
+            "level": log_info["level"],
+            "source": "measured",
+            "log_source": log_info.get("source"),
+            "is_stale": bool(log_info.get("is_stale", False)),
+            "timestamp": log_info.get("timestamp"),
+        }
+    now = datetime.now(timezone.utc)  # 모델은 UTC 시각으로 학습됨(score.py 와 동일 관례)
+    predicted, pred_source = await asyncio.to_thread(
+        predict_congestion_detailed, facility.get("type") or "", now.hour, now.weekday()
+    )
+    if pred_source == "local":
+        return {"level": predicted, "source": "predicted", "log_source": None, "is_stale": None, "timestamp": None}
+    return {"level": None, "source": "none", "log_source": None, "is_stale": None, "timestamp": None}
 
 
 async def _resolve_user_vector(user_id: str, preferred_categories: list[str]) -> list[float]:
@@ -254,7 +268,9 @@ async def get_recommendations(
     congestion_by_id = await fetch_congestion_map(
         [req.original_facility_id, *[f["id"] for f, _ in candidates]]
     )
-    original_congestion = congestion_by_id.get(req.original_facility_id, 0.0)
+    # 원본 혼잡은 W3 인센티브(재배치기여)의 **점수 입력** — Phase 1 은 점수 입력을 바꾸지 않는다
+    # (CONGESTION_TRUST_SPEC D-2: 로그 없으면 기존과 동일하게 0.0 기준선 유지, Phase 2 에서 재검토).
+    original_congestion = (congestion_by_id.get(req.original_facility_id) or {}).get("level", 0.0)
     # 원본 대기시간도 위 일괄 혼잡 조회 결과를 재사용한다.
     original_wait_time = await calculate_predicted_wait_time(
         facility_type=original_infra["type"],
@@ -263,11 +279,16 @@ async def get_recommendations(
     )
 
     async def _score_candidate(f: dict, dist: float) -> dict:
-        candidate_congestion = congestion_by_id.get(f["id"], 0.0)
-        # 현재 인원 추정치를 응답 facility 에 주입한다(원본 리스트는 건드리지 않도록 얕은 복사).
-        # facilities 스키마에는 current_count 컬럼이 없고 실시간 인원은 congestion_logs 에만 있으므로,
-        # capacity × 혼잡도(0~1)로 추정해 프런트 카드의 혼잡/여유 인원 표시가 깨지지 않게 한다.
-        f = {**f, "current_count": round(f.get("capacity", 0) * candidate_congestion)}
+        # 혼잡 3단계 판정(CONGESTION_TRUST_SPEC) — 로그 없는 시설을 0.0(실측 여유)처럼 팔지 않는다.
+        evidence = await resolve_congestion_evidence(f, congestion_by_id.get(f["id"]))
+        candidate_congestion = evidence["level"]
+        # 현재 인원 추정치(capacity × 혼잡도)는 **실측일 때만** 응답 facility 에 주입한다(얕은 복사).
+        # 근거 없는 시설의 current_count=0 은 카드에서 '잔여석=정원 전체'로 읽혀 왔다 — None 이면
+        # 프런트가 '—' 처리한다(RecommendationCard 의 currentCount null 가드 기존 동작).
+        if evidence["source"] == "measured":
+            f = {**f, "current_count": round(f.get("capacity", 0) * candidate_congestion)}
+        else:
+            f = {**f, "current_count": None}
         score_res = await calculate_spot_score(
             user_id=req.user_id,
             preferred_categories=user_info.get("preferred_categories", []),
@@ -285,7 +306,7 @@ async def get_recommendations(
             "breakdown": {**score_res.breakdown, "original_wait_time": original_wait_time},
             "distance_m": dist,
             "candidate_congestion": candidate_congestion,
-            "congestion_source": "measured" if f["id"] in congestion_by_id else "preparing",
+            "congestion_evidence": evidence,
         }
 
     recommendation_results = list(
@@ -305,6 +326,7 @@ async def get_recommendations(
             "facility_id": item["facility"].get("id"),
             "recommended_facility_name": item["facility"].get("name"),
             "candidate_congestion": item["candidate_congestion"],
+            "congestion_source": item["congestion_evidence"]["source"],
             "travel_time": bd.get("travel_time"),
             "predicted_wait": bd.get("wait_time"),
         })
@@ -344,6 +366,7 @@ async def get_recommendations(
             rec_id = db_res.data[0]["id"] if db_res.data else "mock-rec-id"
 
         reason_text, reason_source = reasons[idx]
+        evidence = item["congestion_evidence"]
         response_items.append(RecommendItem(
             recommendation_id=rec_id,
             facility=item["facility"],
@@ -352,13 +375,17 @@ async def get_recommendations(
             distance_m=item["distance_m"],
             reason=reason_text,
             reason_source=reason_source,
+            congestion_level=evidence["level"],
+            congestion_source=evidence["source"],
+            congestion_log_source=evidence["log_source"],
+            congestion_is_stale=evidence["is_stale"],
+            congestion_timestamp=evidence["timestamp"],
             rank=idx + 1,
             total_candidates=total_count,
             open_status_at_arrival=open_status_at_arrival(
                 item["facility"], datetime.now(timezone.utc) + timedelta(minutes=item["breakdown"].get("travel_time", 0))
             ),
             information_confidence="verified" if item["facility"].get("operating_hours") else "unknown",
-            congestion_source=item["congestion_source"],
             data_updated_at=item["facility"].get("updated_at"),
         ))
 
@@ -455,9 +482,23 @@ async def recommend_by_type(
 
     async def _score(f: dict) -> dict:
         # 신선한 좌석 상태 방송(30분 이내)이 있으면 congestion_logs 조회값 대신 사장 확인 실측을 쓴다.
-        cong = f.get(CONGESTION_OVERRIDE_KEY, congestion_by_id.get(f["id"], 0.0))
+        override = f.get(CONGESTION_OVERRIDE_KEY)
+        if override is not None:
+            # 사장님이 방금 확인한 좌석 상태 — 실측으로 취급(프런트 배지는 seat_status_fresh 가 담당).
+            evidence = {
+                "level": override, "source": "measured", "log_source": "merchant_seat",
+                "is_stale": False, "timestamp": None,
+            }
+        else:
+            # 혼잡 3단계 판정(CONGESTION_TRUST_SPEC) — 로그 없는 시설을 0.0 실측처럼 팔지 않는다.
+            evidence = await resolve_congestion_evidence(f, congestion_by_id.get(f["id"]))
+        cong = evidence["level"]
         dist = calculate_haversine_distance(req.user_lat, req.user_lng, f["latitude"], f["longitude"])
-        f2 = {**f, "current_count": round(f.get("capacity", 0) * cong)}
+        # current_count 는 실측일 때만 합성 — 근거 없으면 None(프런트 '—' 처리, 잔여석 합성 금지).
+        if evidence["source"] == "measured":
+            f2 = {**f, "current_count": round(f.get("capacity", 0) * cong)}
+        else:
+            f2 = {**f, "current_count": None}
         f2.pop(CONGESTION_OVERRIDE_KEY, None)  # 내부 전용 오버레이 키 — 응답 payload 에는 노출하지 않는다.
         res = await calculate_spot_score(
             user_id=req.user_id,
@@ -474,7 +515,7 @@ async def recommend_by_type(
             "breakdown": res.breakdown,
             "distance_m": dist,
             "candidate_congestion": cong,
-            "congestion_source": "measured" if f["id"] in congestion_by_id else "preparing",
+            "congestion_evidence": evidence,
         }
 
     scored = list(await asyncio.gather(*[_score(f) for f in candidates]))
@@ -489,6 +530,7 @@ async def recommend_by_type(
             "facility_id": item["facility"].get("id"),
             "recommended_facility_name": item["facility"].get("name"),
             "candidate_congestion": item["candidate_congestion"],
+            "congestion_source": item["congestion_evidence"]["source"],
             "travel_time": bd.get("travel_time"),
             "predicted_wait": bd.get("wait_time"),
         })
@@ -506,13 +548,17 @@ async def recommend_by_type(
             distance_m=item["distance_m"],
             reason=reasons[idx][0],
             reason_source=reasons[idx][1],
+            congestion_level=item["congestion_evidence"]["level"],
+            congestion_source=item["congestion_evidence"]["source"],
+            congestion_log_source=item["congestion_evidence"]["log_source"],
+            congestion_is_stale=item["congestion_evidence"]["is_stale"],
+            congestion_timestamp=item["congestion_evidence"]["timestamp"],
             rank=idx + 1,
             total_candidates=total,
             open_status_at_arrival=open_status_at_arrival(
                 item["facility"], now + timedelta(minutes=item["distance_m"] / WALKING_SPEED_M_PER_MIN)
             ),
             information_confidence="verified" if item["facility"].get("operating_hours") else "unknown",
-            congestion_source=item["congestion_source"],
             data_updated_at=item["facility"].get("updated_at"),
         )
         for idx, item in enumerate(top)
@@ -532,6 +578,9 @@ class VoiceCandidate(BaseModel):
     name: str = Field(..., min_length=1)
     cuisine: str | list[str] | None = None
     menu: str | None = None
+    # 정밀분류(features.category, tag_cuisines.py 배치가 채움) — 아래 분류 게이트(cat_of)의 입력.
+    # 이 필드가 스키마에 없으면 pydantic 이 프런트가 보낸 category 를 버려 게이트가 무력화된다(2026-07-18).
+    category: str | None = None
     congestion: float | None = None
     # apiClient(keysToSnake)는 distance_m 로 보내지만, 변환을 거치지 않는 직접 호출자 방어용으로
     # camelCase 도 수용(Codex 리뷰 — 하위호환 벨트앤서스펜더).
@@ -548,6 +597,12 @@ class VoiceCandidate(BaseModel):
     @classmethod
     def _cap_menu(cls, v):
         return str(v)[:300] if isinstance(v, str) and v.strip() else None
+
+    @field_validator("category", mode="before")
+    @classmethod
+    def _cap_category(cls, v):
+        # _INTENT_CATEGORIES 라벨은 전부 40자 미만 — 초과분은 조작/오류 값이라 절단(_cap_menu 패턴).
+        return str(v)[:40] if isinstance(v, str) and v.strip() else None
 
     @field_validator("cuisine", mode="before")
     @classmethod
@@ -619,6 +674,9 @@ class VoiceTurnResponse(BaseModel):
     target_facility_id: str | None = None  # select 일 때 후보 id
     match_ids: list[str] = []  # filter 일 때 선호에 맞는 후보 id들(예: '양식' → 양식 식당들)
     spoken: str | None = None  # 백엔드 생성 한국어 응답(없으면 프런트가 자체 멘트)
+    # filter 매치 0건일 때의 '유사 대안 제안'(같은 계열 음식) 후보 id — spoken 이 "…로 안내해드릴까요?"로
+    # 물었고, 다음 턴 accept 를 프런트 훅이 이 후보 select 로 처리한다(2턴 흐름). 하위호환: 기본 None.
+    suggestion_id: str | None = None
     # 개발 디버그용 — "AI 가 실제로 돌았는지" 프런트 배지 표시. interpret_turn 이 판정한 값을 그대로 싣는다.
     llm_status: str  # keyword|llm|llm_failed|gated|disabled
 
@@ -651,7 +709,16 @@ async def voice_turn(req: VoiceTurnRequest, request: Request):
             vids = await vector_filter_candidates(query, candidates, intent_category=result.get("intent_category"))
         except Exception:
             vids = []
-        match = vids or result.get("match_ids") or []  # 벡터 우선, 백엔드 match_ids 가 폴백
+        llm_ids = result.get("match_ids") or []
+        if result.get("llm_status") == "llm":
+            # Solar가 후보 메뉴·업종을 보고 직접 고른 결과가 정본. 로컬 매처와의 교집합을 우선하고
+            # (양쪽 합의 = 최고 신뢰), 교집합이 비면 Solar 단독 선택을 쓴다. Solar가 "맞는 곳 없음"
+            # (빈 배열)이라 판단했으면 그대로 0건 → 아래 정직한 '후보 없음' 응답으로 흐른다.
+            # (Solar는 상위 15개 후보만 보므로(_LLM_MAX_CANDIDATES) 로컬 매처 단독 결과로 폴백하지 않는다
+            #  — 그 폴백이 바로 '삼겹살'→'불고기 피자' 피자집 오탐 사고 경로였다.)
+            match = [m for m in vids if m in set(llm_ids)] or llm_ids
+        else:
+            match = vids or llm_ids  # LLM 미개입/실패 — 기존처럼 벡터 우선, 백엔드 match_ids 폴백
         # 분류 게이트(누설 차단): 백엔드 가 정밀분류(intent_category)를 정했고 풀에 그 분류 후보가 있으면,
         # 최종 후보를 그 분류로 강제한다. 벡터가 비활성/실패해 백엔드 match_ids 로 폴백한 경우의 누설까지
         # 막는다('중식'→어탕칼국수 방지). category 는 enrich_voice_candidates 가 시드에서 채운 값.
@@ -672,14 +739,32 @@ async def voice_turn(req: VoiceTurnRequest, request: Request):
             # 선호에 맞는 결과처럼 읽어주는 오해가 생긴다.
             result["action"] = "filter"
             result["match_ids"] = []
-            if ic:
-                result["spoken"] = f"근처에 확인된 {ic} 후보가 없어요. 다른 메뉴를 말씀해 주세요."
+            no_match_msg = f"근처에 확인된 {ic} 후보가 없어요" if ic else "조건에 맞는 후보가 없어요"
+            # 유사 대안 제안(2턴): Solar 가 같은 계열 후보(similar_ids)를 골랐으면 첫 후보의 이름으로
+            # "대신 …로 안내해드릴까요?" 를 묻는다. spoken 은 서버 템플릿 전용 — name 은 검증된
+            # 후보 dict(요청 스키마 절단 완료)의 값, ic 는 _INTENT_CATEGORIES 화이트리스트 통과값이라 안전.
+            suggestion_id = None
+            for sid in (result.get("similar_ids") or []):
+                s_name = next((c.get("name") for c in candidates if c.get("id") == sid), None)
+                if s_name:
+                    suggestion_id = sid
+                    # TTS 로 읽히는 문장 — '이(가)' 병기 대신 마지막 글자 받침으로 조사를 확정한다.
+                    last = s_name[-1]
+                    josa = "이" if 0 <= (ord(last) - 0xAC00) < 11172 and (ord(last) - 0xAC00) % 28 else "가"
+                    result["spoken"] = (
+                        f"{no_match_msg}. 대신 비슷한 곳으로 {s_name}{josa} 있어요. 안내해드릴까요?"
+                    )
+                    break
+            result["suggestion_id"] = suggestion_id
+            if suggestion_id is None and ic:
+                result["spoken"] = f"{no_match_msg}. 다른 메뉴를 말씀해 주세요."
     # search_query 는 내부용(응답 스키마에 없음) — 제거 후 응답 구성.
     return VoiceTurnResponse(
         action=result["action"],
         target_facility_id=result.get("target_facility_id"),
         match_ids=result.get("match_ids") or [],
         spoken=result.get("spoken"),
+        suggestion_id=result.get("suggestion_id"),
         llm_status=result.get("llm_status", "disabled"),
     )
 

@@ -55,6 +55,45 @@ def test_build_template_congested():
     assert text == "북적식당: 도보 7분, 예상 대기 20분, 혼잡도 80% 수준으로 지금은 붐벼 대기가 길 수 있어요."
 
 
+# --- 혼잡 3단계(CONGESTION_TRUST_SPEC) — measured/predicted/none 문구 계약 -------------------
+
+def test_build_template_predicted_labels_ai_forecast():
+    # predicted: 수치는 말하되 'AI 예측'임을 문구에 명시한다(실측처럼 팔지 않는다).
+    ctx = {**_CTX, "congestion_source": "predicted"}
+    text = _build_template(ctx)
+    assert text == "카페능 추천: 도보 5분, 예상 대기 10분, 예상 혼잡도 30% (AI 예측) 수준으로 여유가 있습니다."
+
+
+def test_build_template_predicted_congested_still_honest():
+    # predicted + 혼잡(>=0.75): 붐빔 안내에도 'AI 예측' 꼬리표 유지.
+    ctx = {**_CONGESTED_CTX, "congestion_source": "predicted"}
+    text = _build_template(ctx)
+    assert "예상 혼잡도 80% (AI 예측)" in text
+    assert "붐벼" in text
+
+
+def test_build_template_none_omits_congestion_claims():
+    # none: 혼잡 수치도, '여유'라는 혼잡 주장도 하지 않는다 — 준비 중임을 밝힌다.
+    ctx = {**_CTX, "congestion_source": "none", "candidate_congestion": None}
+    text = _build_template(ctx)
+    assert text == "카페능 추천: 도보 5분, 예상 대기 10분 수준입니다. 혼잡 정보는 준비 중이에요."
+    assert "여유" not in text
+    assert "%" not in text
+
+
+def test_build_template_none_ignores_stray_numeric_congestion():
+    # 방어: congestion_source='none' 인데 수치가 딸려 와도(호출자 실수) 혼잡 문구를 만들지 않는다.
+    ctx = {**_CTX, "congestion_source": "none"}  # candidate_congestion=0.3 그대로
+    text = _build_template(ctx)
+    assert "혼잡도" not in text.replace("혼잡 정보는", "")
+    assert "30%" not in text
+
+
+def test_build_template_measured_unchanged_without_source_key():
+    # 하위호환: congestion_source 미지정 호출자는 기존(measured) 문구 그대로 — 회귀 0.
+    assert _build_template(_CTX) == "카페능 추천: 도보 5분, 예상 대기 10분, 혼잡도 30% 수준으로 여유가 있습니다."
+
+
 # --- 정직성 검증(_is_honest_polish) — 핵심 게이트 ------------------------------------------
 
 def test_is_honest_polish_accepts_paraphrase_with_same_facts():

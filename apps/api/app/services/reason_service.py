@@ -52,11 +52,20 @@ def _facility_name(ctx: dict) -> str:
 
 
 def _build_template(ctx: dict) -> str:
-    """주어진 수치만으로 만드는 결정적 사유 문장."""
+    """주어진 수치만으로 만드는 결정적 사유 문장.
+
+    혼잡 3단계(CONGESTION_TRUST_SPEC): congestion_source 가
+      - "measured"(또는 미지정 하위호환): 실측 → "혼잡도 N%"
+      - "predicted": AI 예측 → "예상 혼잡도 N% (AI 예측)" — 예측임을 문구에 명시
+      - "none": 혼잡 근거 없음 → 혼잡 문구 생략(0% 를 실측처럼 팔지 않는다)
+    """
     name = _facility_name(ctx)
     wait = ctx.get("predicted_wait")
     travel = ctx.get("travel_time")
     cand_cong = ctx.get("candidate_congestion")
+    cong_source = ctx.get("congestion_source") or "measured"
+    if cong_source == "none":
+        cand_cong = None
 
     parts = []
     if isinstance(travel, (int, float)):
@@ -64,13 +73,19 @@ def _build_template(ctx: dict) -> str:
     if isinstance(wait, (int, float)):
         parts.append(f"예상 대기 {round(wait)}분")
     if isinstance(cand_cong, (int, float)):
-        parts.append(f"혼잡도 {round(cand_cong * 100)}%")
+        if cong_source == "predicted":
+            parts.append(f"예상 혼잡도 {round(cand_cong * 100)}% (AI 예측)")
+        else:
+            parts.append(f"혼잡도 {round(cand_cong * 100)}%")
 
     # 혼잡(>=0.75)이면 추천하지 않고 혼잡·대기를 솔직히 안내한다.
     is_congested = isinstance(cand_cong, (int, float)) and cand_cong >= 0.75
     if parts:
         if is_congested:
             return f"{name}: " + ", ".join(parts) + " 수준으로 지금은 붐벼 대기가 길 수 있어요."
+        if not isinstance(cand_cong, (int, float)):
+            # 혼잡 근거 없음 — "여유"도 혼잡 주장이므로 쓰지 않는다(거리·대기 사실만 안내).
+            return f"{name} 추천: " + ", ".join(parts) + " 수준입니다. 혼잡 정보는 준비 중이에요."
         return f"{name} 추천: " + ", ".join(parts) + " 수준으로 여유가 있습니다."
     if is_congested:
         return f"{name}은(는) 현재 혼잡해 대기가 길 수 있어요."

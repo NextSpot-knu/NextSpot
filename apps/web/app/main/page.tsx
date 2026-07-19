@@ -46,6 +46,7 @@ const supabase = createPublicClient();
 interface FacilityFeatures {
   cuisine_tags?: string[] | string;
   cuisine?: string[] | string;
+  category?: string; // 정밀분류(tag_cuisines.py 배치가 채움) — 음성 후보에 실어 백엔드 분류 게이트 입력
   [key: string]: unknown;
 }
 
@@ -979,7 +980,8 @@ export default function MainPage() {
         // 저장 페이지의 라이브 혼잡 재조회(매칭)·카카오맵 길찾기 링크에 좌표가 필요하므로 함께 저장한다.
         latitude: fac.latitude,
         longitude: fac.longitude,
-        trafficStatus: fac.congestionLevel >= 0.75 ? 'orange' : fac.congestionLevel >= 0.50 ? 'yellow' : fac.congestionLevel >= 0.25 ? 'green' : 'blue',
+        // 혼잡 근거 없음(null)은 '한산(blue)'으로 합성하지 않고 unknown 으로 저장(CONGESTION_TRUST_SPEC).
+        trafficStatus: typeof fac.congestionLevel !== 'number' ? 'unknown' : fac.congestionLevel >= 0.75 ? 'orange' : fac.congestionLevel >= 0.50 ? 'yellow' : fac.congestionLevel >= 0.25 ? 'green' : 'blue',
         waitTime: `${spot?.expectedWait || 0}분`,
         spot: spot,
         reason: fac.reason || ""
@@ -1156,13 +1158,16 @@ export default function MainPage() {
           id: x.id,
           name: x.name,
           cuisine: x.features?.cuisine_tags ?? x.features?.cuisine ?? null, // 백엔드가 양식/짜장면 등 매칭에 사용
+          // 정밀분류(tag_cuisines.py 배치가 채움) — 백엔드 분류 게이트('중식'→어탕칼국수 누설 차단)의 입력.
+          category: x.features?.category ?? null,
           // 공식 메뉴(TourAPI) — 백엔드 의미검색 haystack(name+cuisine+category+menu)이 이미 읽는 필드.
           // '파스타 먹고 싶어' 같은 발화가 상호명 추측이 아니라 실제 메뉴로 매칭되게 한다.
           menu:
             [x.features?.first_menu ?? x.features?.firstMenu, x.features?.treat_menu ?? x.features?.treatMenu]
               .filter((v): v is string => typeof v === 'string' && v.trim().length > 0)
               .join(' / ') || null,
-          congestion: x.congestionLevel ?? 0,
+          // 근거 없으면 null 전송(백엔드 VoiceCandidate.congestion 은 Optional) — 0(실측 여유) 합성 금지.
+          congestion: x.congestionLevel ?? null,
           distanceM: haversineMeters(userLocation.lat, userLocation.lng, x.latitude, x.longitude),
         }))
         .sort((a, b) => a.distanceM - b.distanceM) // 가까운 순 — 전문점(고기/국밥/피자)이 상위 N 밖으로 밀려 누락되지 않게
@@ -1170,7 +1175,8 @@ export default function MainPage() {
       const res = await voiceTurn(utterance, type, f?.name ?? null, cands);
       // 음식 선호 발화(filter)는 '식당'일 때만 음식 의도로 저장(주차/회의/휴게 선호% 오염 방지).
       if (res.action === 'filter' && type === 'restaurant') cuisineIntentRef.current = utterance;
-      return { action: res.action, targetId: res.targetFacilityId, matchIds: res.matchIds, spoken: res.spoken };
+      // suggestionId: filter 매치 0건일 때의 '유사 대안 제안' — 훅이 2턴(accept→select) 흐름으로 소비.
+      return { action: res.action, targetId: res.targetFacilityId, matchIds: res.matchIds, spoken: res.spoken, suggestionId: res.suggestionId };
     },
   });
 

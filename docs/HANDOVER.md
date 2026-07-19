@@ -37,6 +37,159 @@
   '오늘의 브리핑' 카드(hasLogs 충족 시) — KPI 타일 수치와 브리핑 문장 수치 일치 확인.
 - ⚠️ 프로덕션 발현 전제: Render `UPSTAGE_API_KEY` 등록(§-14 사람 작업, 미등록 시 두 기능 모두
   조용히 비활성 — 무해).
+## -21. 2026-07-18 — 혼잡 근거 전수 감사 + 신뢰성 명세 초안 + 장소 밀도 이슈
+
+### §-20 RESUME 실행 — 「추천 근거 신뢰성 개선 명세」 초안 완료 (PM 검토 대기)
+
+- 혼잡 데이터 생산→전달→표시 전 경로 전수 감사 완료. 핵심: **지도 경로는 이미 정직**
+  (로그 없으면 null → 회색 마커·`card.noData`·`source`/`is_stale`/`anchored` 완비),
+  **추천 경로만 비정직** — `recommendations.py:257,429`의 `.get(id, 0.0)` 폴백이
+  `current_count=0`(잔여석 전체)과 `reason_service.py:67,74`의 "혼잡도 0%, 여유가 있습니다"로
+  흘러 실측처럼 노출. `RecommendItem`에 혼잡 출처 필드 자체가 없음. SPOT 랭킹은 0.0을 쓰지
+  않고 `predict_congestion`을 쓰므로(`score.py:83-88`) **점수는 오염되지 않음 — 표시만 문제**.
+- 명세 초안: **`docs/CONGESTION_TRUST_SPEC.md`** — 3단계(`measured`/`predicted`/`none`) 근거
+  모델, API 필드 신설, 사유 문구 규칙, UI 표(수정 대상 file:line 전부 포함), 테스트·완료 조건,
+  PM 결정 요청 4건(D-1~D-4). 미학습 모델의 0.5 폴백을 "AI 예측"으로 팔지 않는 규칙 포함.
+  대본 충돌 확인 완료: "혼잡도 0%"는 `DEMO_SCENARIO.md`·`JUDGE_QA.md`에 미등장 — 교정 안전.
+
+### PM 제기 — 황리단길 마커 밀도 문제 (2026-07-18)
+
+- PM 관찰: 카카오맵 대비 마커가 드문드문함. 원인은 버그가 아니라 **TourAPI 등록 밀도**
+  (§-16 실측: 반경 4km에도 108곳). 대응 A안(Kakao Local FD6/CE7 보강 적재, 표시 전용→추천
+  편입 2단계) 권장, 단 **신뢰성 명세가 선행 조건**(신규 장소 전부 로그 0건). 상세는 명세 §8.
+
+### 환경·P0 확인 결과
+
+- 재시작 후 재확인 완료: `py -3.11` = 3.11.9, ruff 0.15.22. §-20의 `search.py`/`test_search.py`
+  줄바꿈 의사변경은 내용 diff 없음 확인 — 사용자 변경 아님.
+- 🔴 **사람 작업(P0 신규): `apps/api/.env` 소실** — 이 저장소 사본(`Desktop/NEXTSPOT`)에는
+  `.env.example`만 존재하고 AGENTS.md의 옛 경로(`Desktop/nextspot/NextSpot`)는 더 이상 없음.
+  저장소 이동 시 `.env`가 따라오지 않은 것으로 추정. fail-fast 4종(`SUPABASE_URL`
+  `SUPABASE_ANON_KEY` `JWT_SECRET` `ADMIN_API_TOKEN`) + `KAKAO_REST_API_KEY` `GEMINI_API_KEY`
+  복원 전까지 로컬 백엔드 구동·원격 DB 조회 불가. (AGENTS.md 경로 문구도 갱신 필요)
+- P0 원격 검증 한계: 프로덕션 정적 HTML에서는 Kakao SDK 키 확인 불가, `gh` CLI 미설치로
+  Actions 상태 확인 불가. Vercel JavaScript 키 교체·Web 도메인 등록은 여전히 사람 확인 필요.
+
+### PM 결정 + Phase 1 구현 완료 (같은 날 후속)
+
+- PM 결정 4건 확정: D-1 신규 키 "혼잡 정보 준비 중" / D-2 Phase 1 점수 입력 불변 /
+  D-3 데모 라벨 표시 / D-4 Kakao 확충 병행 기획. 상세는 `CONGESTION_TRUST_SPEC.md` §9.
+- **Phase 1 구현 완료**: 서버 — `RecommendItem`에 `congestion_level/source/log_source/is_stale/
+  timestamp` 신설, `fetch_congestion_map` 이 로그 info dict 반환(0.0 합성 제거),
+  `resolve_congestion_evidence`(measured/predicted/none 판정 — 미학습 0.5 폴백은 none),
+  `predict_congestion_detailed` 신설(래퍼 `predict_congestion` 동작 불변), reason 3단계 문구
+  (predicted="예상 혼잡도 N% (AI 예측)", none=혼잡 문구 생략), current_count 는 실측일 때만 합성.
+  프런트 — explore/recommend 3단계 배지·원본 중립 헤드라인, RecommendationCard D-1/D-3 라벨,
+  bookmark `unknown` 상태(null→'한산' 저장 버그 수정), 음성 후보 congestion null 전송,
+  i18n 4로케일 4키 추가. **주의(구현 중 정정)**: `courses.py:153` 기준선은 표시가 아니라 점수
+  입력이라 Phase 1 에서 제외(D-2 와 함께 Phase 2) — 명세 §3-2 에 정정 기록.
+- 검증: api pytest 455 통과·ruff 클린 / web lint 0 err·typecheck·test 29/29·build 통과 / 파리티 클린.
+- **D-4 병행 기획 완료**: `docs/KAKAO_LOCAL_EXPANSION.md` — 조사 결과 Kakao Local 결과의 자체 DB
+  영속 저장은 약관상 금지(데브톡 공식 답변) → 기본안을 A-2(준수형: kakao_place_id+url 만 인덱싱,
+  표시 데이터는 실시간 프록시)로 재설계. 기존 좌표 정합의 features 저장도 같은 정책 확인 범위(R-2).
+  사람 확인: 2026 공모전 요강의 보조 데이터 허용 여부, 데브톡 캐시 TTL 문의.
+- `.env`는 사용자가 복원 완료(키 14종 확인). node_modules·pip 의존성도 재설치 완료(이동 여파).
+
+### 화장실 검색 1건 버그 수정 (PM 신고, 같은 날)
+
+- 원인 실측: Kakao 키워드 `공중화장실`은 황리단길 3km 에서 **1건, 그마저 월정교(문화유적) 오탐**.
+  카카오는 화장실을 `화장실` 명칭 + `가정,생활 > 화장실` 카테고리로 등록한다(실측 12건+).
+- 수정(`restroom_service.py`): 키워드 `화장실` + 카테고리 필터(문화유적류 오탐 차단) +
+  최대 3페이지 수집(is_end 조기 종료)·id 중복 제거. 라이브 재검증 1건→12건. 테스트 6건 추가.
+
+### 음성 '삼겹살→화덕피자' 오탐 수정 (PM 신고, 같은 날)
+
+- 원인 실측: `_FOOD_QUERY_ALIASES` 확장 토큰 `고기`가 반월성화덕피자의 TourAPI 대표메뉴
+  **"반월성 불고기"**(피자 이름)에 부분문자열 매칭(`고기`⊂`불고기`). cuisine_tags=None 이라
+  분류 게이트도 미작동. 수정: 우산 토큰(`고기`·`육류`)은 자유 텍스트(name/menu) 금지,
+  분류 태그(cuisine/category)에만 매칭(`_TAG_ONLY_TOKENS`, embedding_service.py). 테스트 3건 추가.
+- DB 실측 참고: 식당 43곳 중 삼겹살 전문점 0(갈비·숯불구이 계열 8곳) — '삼겹살' 발화는 이제
+  구이 계열 매칭 또는 정직한 0건 응답. 근본 해소는 장소 밀도 확충(KAKAO_LOCAL_EXPANSION) 몫.
+- 운영 방식: 이 수정부터 진단(Fable)→구현·검증(서브에이전트) 분업 적용(PM 지시 — AI_OPS 관례).
+
+### 음성 filter 에 Solar 최종 선택권 부여 (PM "Solar가 이거밖에 안돼?" 후속)
+
+- 구조 원인: Solar 는 후보 name/cuisine/menu 를 프롬프트로 받으면서도 `_llm_interpret` 가
+  `match_ids: []` 고정 — 선택 질문 자체를 받지 않았고, 최종 선택은 로컬 부분문자열 매처 몫이었다.
+- 개선: 기존 filter LLM 호출(추가 비용 0)에 `match_names` 스키마 추가 — Solar 가 cuisine·menu
+  근거로 "실제로 파는 곳"만 선택(글자 겹침 매칭 금지 지시, '불고기 피자' 사고 사례 명시).
+  라우터는 `llm_status=="llm"` 턴에서 Solar 선택을 정본으로(로컬 매처와 교집합 우선, 비면 Solar
+  단독, Solar 빈 배열=정직한 0건 — 로컬 매처 폴백 없음). LLM 미개입/실패 턴은 기존 동작.
+- 라이브 검증(실 Upstage): "삼겹살 먹고싶다" + 반월성화덕피자(메뉴 반월성 불고기)·숯불갈비·칼국수
+  후보 → Solar match 0건(피자 거부, 갈비도 삼겹살 미판매라 거부) → "확인된 후보 없음" 정직 응답.
+  pytest 468 통과(신규 6)·ruff 클린. 참고: DB에 삼겹살 전문점 0곳 — 진짜 해소는 밀도 확충 몫.
+
+### 음성 유사 대안 제안 2턴 흐름 (PM 요구 — "갈비집은 있는데 추천해드릴까요?")
+
+- Solar 스키마에 `similar_names` 추가(정확 매치 0건일 때만, 같은 계열·cuisine/menu 근거,
+  전혀 다른 음식 금지) → `similar_ids` 화이트리스트 검증(`_coerce`, 비-filter/match 존재 시 강제 []).
+- 라우터: match 0건 + similar 존재 → `VoiceTurnResponse.suggestion_id` + 서버 템플릿 spoken
+  ("…후보가 없어요. 대신 비슷한 곳으로 {이름}이/가 있어요. 안내해드릴까요?" — 받침 기반 조사 확정,
+  LLM spoken 미사용 원칙(P1-1) 유지). 프런트 `useVoiceAssistant`에 pendingSuggestion(1턴 한정):
+  다음 턴 accept("네/좋아") → 제안 후보 select, reject/기타 → 소멸.
+- 라이브 검증(실 Upstage): "삼겹살 먹고싶다" → match 0건 + suggestion=숯불갈비집,
+  "…대신 비슷한 곳으로 퇴근길숯불갈비가 있어요. 안내해드릴까요?" 정상. pytest 474·web 4종 게이트 통과.
+
+### Solar 자율권 기획 확정 + 1번(태깅 배치) 구현·적용 완료
+
+- 기획 정본 **`docs/SOLAR_AUTONOMY_PLAN.md`** 신설(PM 지시 — 세션 재시작에도 인수인계).
+  대원칙: "Solar는 심사위원이 아니라 통역사" — 적격 판정·설명은 Solar, **랭킹은 SPOT 독점**
+  (공모전 방어력·재배치 목적함수·재현성). 5안 우선순위: ①태깅 ②tool-calling ③사유 사실선택
+  ④다턴 슬롯필링 ⑤거절 이해. ①은 완료, 다음은 ②.
+- ①구현: `apps/api/scripts/tag_cuisines.py` — Solar가 상호+공식메뉴 근거로
+  `features.cuisine_tags`·`category` 결손 보충. `_INTENT_CATEGORIES` 화이트리스트 게이트 +
+  **상호 조각 태그 차단**(1차 dry-run 실측 '소소밀밀 서악점'→[소소밀밀,서악점] 오태깅 → 게이트
+  추가) + dry-run 기본 + `tagging_source` 출처 기록 + fill-missing only. 음성 후보에 `category`
+  전달(VoiceCandidate 필드 + main/page.tsx payload) — **분류 게이트 소생**.
+- 원격 적용 결과(3패스, 사전 백업 스크래치패드 features_backup_pre_tagging.json):
+  **restaurant/cafe 64곳 중 59곳 태깅**(5곳은 메뉴 근거 없어 정직 skip — 십원빵 등).
+  반월성화덕피자=양식(고깃집 게이트가 구조적으로 차단), 퇴근길숯불갈비=갈비집, 기존 키 무손실 검증.
+- 게이트: api pytest 499 통과·ruff 클린 / web 4종 통과.
+
+### RESUME
+
+다음 후보: ① Phase 2(원본·코스 혼잡 기준선 predicted 대체 — score 영향 검토 필수, 신중 구역),
+② KAKAO_LOCAL_EXPANSION 의 사람 확인 2건 후 구현 착수 판단, ③ P1 추천 품질 스냅샷 평가(§-20 3번).
+프로덕션 Kakao SDK 키 교체 여부는 여전히 사람 확인 필요.
+
+## -20. 2026-07-18 — 개발환경 복구 + 다음 사이클 기획 체크포인트
+
+### 재시작 전 상태
+
+- Python **3.11.9**를 winget(`Python.Python.3.11`)으로 시스템 설치했다.
+- Python 3.11 환경에 Ruff **0.15.22**를 설치했다. 설치 직후 열린 기존 셸에서는 `py -3.11`의
+  런처 캐시가 갱신되지 않았지만 직접 경로
+  `C:\Users\hennr\AppData\Local\Programs\Python\Python311\python.exe`로 두 버전을 확인했다.
+  **컴퓨터 재시작 후** `py -3.11 --version`과 `py -3.11 -m ruff --version`을 먼저 재확인한다.
+- 잠시 시도했던 `search.py` XFF 레이트리밋 수정과 테스트는 모두 되돌렸다. 실제 코드 diff는 없다.
+  apply_patch의 줄바꿈 변환 때문에 두 파일이 `git status`에서 수정으로 보일 수 있으나 `git diff`는 비어
+  있었다. 재시작 후 상태를 다시 확인하고 내용 차이가 없으면 사용자 변경으로 취급하지 않는다.
+
+### PM 결정 — 지금은 보안 부채 구현보다 기획 우선
+
+다음 개발 사이클은 아래 순서로 기획한다. 구식 `NEXTSPOT_PIVOT.md` 체크박스를 그대로 실행하지 말고,
+이 섹션과 최신 인계 섹션을 정본으로 삼는다.
+
+1. **P0 배포 기반 정상화**: Kakao JavaScript 키·Web 도메인·Vercel 재배포를 최우선으로 확인하고,
+   Render의 Upstage/KMA 환경변수와 GitHub Actions Kakao REST 키를 점검한다. 프로덕션 지도·음성·날씨·
+   TourAPI 일배치 스모크 테스트까지 완료 조건으로 둔다.
+2. **P1 추천 데이터 정직성 명세**: 혼잡 정보를 `실측 혼잡 / AI 예측 / 정보 준비 중`으로 구분하는
+   데이터 모델·API 근거 필드·카드·지도·음성·코스 표시 규칙을 하나의 명세로 만든다. 카드 일부에는 이미
+   `데이터 없음` 처리가 있으므로 중복 구현 전에 전체 소비 경로를 감사한다.
+3. **P1 105개 장소 추천 품질 평가**: 대표 출발 좌표와 의도(돼지고기·조용한 카페·비 오는 날 실내 등)의
+   상위 5 결과를 스냅샷으로 검증한다. 관련 없는 후보·휴무·도보권 밖·좌표 오류를 실패 사례로 모으고,
+   SPOT 산식 변경 전에 후보 생성과 데이터 품질을 먼저 개선한다.
+4. **P1 실증 자료 확보**: 추천 노출→수락→방문 의도→쿠폰 발급 폐루프를 검증하고 관리자 지표의 표본
+   부족을 정직하게 표시한다. 합성/데모와 실측 라벨을 재점검한 뒤 `DEMO_SCENARIO.md`·`JUDGE_QA.md`를
+   실제 결과에 맞춘다.
+5. **P2 후보**: 다국어 STT/TTS, 추천 API 실패와 정상 0건 분리, admin 익명 세션 방지, TourAPI client
+   lifespan 정리. 경주시 교통데이터와 Tmap 도보 경로는 API 가용성·쿼터·심사 가치 조사 후 결정한다.
+
+### RESUME
+
+재시작 후 첫 작업은 코드를 수정하는 것이 아니라 **「추천 근거 신뢰성 개선 명세」**를 작성하는 것이다.
+실측/AI 예측/정보 없음의 서버 근거, UI 표시, 음성 문구, 실패 폴백, 테스트·데모 완료 조건을 확정하고
+PM 검토를 받은 뒤 구현 범위를 정한다. 동시에 P0 사람 작업 중 실제 완료/미완료 상태를 짧게 확인한다.
 
 ## -19. 2026-07-17 — Kakao 좌표 72곳 적용 + 모바일 지도 우선 UI + Upstage 선호 우선 해석
 

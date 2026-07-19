@@ -396,8 +396,17 @@ export function RecommendationCard({
                   {t('card.congestion')}: {congestionLabel(facility.congestionLevel)}
                 </span>
               ) : (
+                // D-1(CONGESTION_TRUST_SPEC): '데이터 없음' 대신 '정보 준비 중' — 서비스가 죽은 게
+                // 아니라 데이터를 모으는 중이라는 뉘앙스(waiting 페이지의 noData 는 별건 유지).
                 <span className="px-2 py-0.5 rounded-md text-[10px] font-bold border bg-muk/5 border-line text-muk-soft">
-                  {t('card.congestion')}: {t('card.noData')}
+                  {t('card.congestionPreparing')}
+                </span>
+              )}
+              {/* D-3: 합성(seed)/시뮬(simulated) 혼잡 로그는 데모 데이터임을 라벨로 구분(가드레일). */}
+              {typeof facility.congestionLevel === 'number' &&
+                (dataSource?.source === 'seed' || dataSource?.source === 'simulated') && (
+                <span className="px-2 py-0.5 rounded-md text-[10px] font-medium border bg-hanji-deep border-line text-muk-soft">
+                  {t('card.demoData')}
                 </span>
               )}
               {/* 오늘 휴무 배지 — 혼잡 배지 바로 옆. isClosedToday 가 true 확정일 때만(null/false 는 무표시). */}

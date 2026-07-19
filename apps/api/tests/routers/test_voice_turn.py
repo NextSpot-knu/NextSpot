@@ -84,6 +84,179 @@ def test_voice_turn_response_includes_llm_status_disabled_path():
     assert body["llm_status"] == "disabled"
 
 
+# --- filter 매칭 정본 결정 — Solar(llm_status="llm")가 고른 match_ids 우선(2026-07-18) --------
+# 배경: "삼겹살 먹고싶다"에 화덕피자집 추천 사고. 종전 `match = vids or match_ids`가 로컬
+# 부분문자열 매처(vids)를 무조건 우선해 Solar 판단이 무시됐다 — llm 턴은 Solar 가 정본이다.
+
+_FILTER_CANDIDATES = [
+    {"id": "f1", "name": "화덕피자집", "menu": "불고기 피자 / 마르게리타"},
+    {"id": "f2", "name": "황남숯불", "menu": "삼겹살 / 목살"},
+]
+
+
+def _fake_interpret(result: dict):
+    async def _interpret(*args, **kwargs):
+        return dict(result)
+    return _interpret
+
+
+def _fake_vector(vids: list[str]):
+    async def _filter(query, candidates, intent_category=None):
+        return list(vids)
+    return _filter
+
+
+def _post_filter_turn(client):
+    return client.post(
+        "/api/v1/voice/turn",
+        json={
+            "utterance": "삼겹살 먹고싶다",
+            "facility_type": "restaurant",
+            "candidates": _FILTER_CANDIDATES,
+        },
+    )
+
+
+def test_voice_turn_llm_match_overrides_local_matcher():
+    # Solar(llm)가 f2(고깃집)를 골랐으면 로컬 매처가 f1(피자집)을 내놔도 Solar 선택이 정본
+    # (교집합이 비므로 Solar 단독 채택 — 로컬 매처 단독 결과로 폴백하지 않는다).
+    result = {
+        "action": "filter", "target_facility_id": None, "match_ids": ["f2"],
+        "search_query": "삼겹살", "intent_category": None,
+        "spoken": "고깃집 쪽으로 찾아볼게요.", "llm_status": "llm",
+    }
+    with patch.object(rec, "interpret_turn", _fake_interpret(result)), \
+         patch.object(rec, "vector_filter_candidates", _fake_vector(["f1"])):
+        with TestClient(app) as client:
+            res = _post_filter_turn(client)
+    assert res.status_code == 200
+    body = res.json()
+    assert body["action"] == "filter"
+    assert body["match_ids"] == ["f2"]
+    assert body["llm_status"] == "llm"
+
+
+def test_voice_turn_llm_empty_match_stays_empty():
+    # Solar(llm)가 "맞는 곳 없음"(빈 배열)이라 판단 → 로컬 매처 결과로 되살리지 않고 0건 유지
+    # (action 은 filter 그대로 — 현재 카드 유지, next 강등 없음).
+    result = {
+        "action": "filter", "target_facility_id": None, "match_ids": [],
+        "search_query": "삼겹살", "intent_category": None,
+        "spoken": None, "llm_status": "llm",
+    }
+    with patch.object(rec, "interpret_turn", _fake_interpret(result)), \
+         patch.object(rec, "vector_filter_candidates", _fake_vector(["f1"])):
+        with TestClient(app) as client:
+            res = _post_filter_turn(client)
+    assert res.status_code == 200
+    body = res.json()
+    assert body["action"] == "filter"
+    assert body["match_ids"] == []
+
+
+def test_voice_turn_keyword_path_keeps_local_matcher():
+    # LLM 미개입(llm_status="keyword") — 기존처럼 로컬 매처(vids) 우선 동작 불변.
+    result = {
+        "action": "filter", "target_facility_id": None, "match_ids": [],
+        "search_query": "삼겹살", "intent_category": None,
+        "spoken": "고깃집 쪽으로 찾아볼게요.", "llm_status": "keyword",
+    }
+    with patch.object(rec, "interpret_turn", _fake_interpret(result)), \
+         patch.object(rec, "vector_filter_candidates", _fake_vector(["f2"])):
+        with TestClient(app) as client:
+            res = _post_filter_turn(client)
+    assert res.status_code == 200
+    body = res.json()
+    assert body["action"] == "filter"
+    assert body["match_ids"] == ["f2"]
+    assert body["llm_status"] == "keyword"
+
+
+# --- 유사 대안 제안(2턴) — match 0건 + similar_ids 존재 시 suggestion_id + 서버 템플릿 spoken ---
+
+
+def test_voice_turn_zero_match_with_similar_builds_suggestion():
+    # llm 턴에서 정확 매치 0건 + Solar 유사 대안(similar_ids) 존재 → suggestion_id 와
+    # 서버 템플릿 spoken("대신 비슷한 곳으로 {이름}…안내해드릴까요?")이 응답에 실린다.
+    result = {
+        "action": "filter", "target_facility_id": None, "match_ids": [],
+        "similar_ids": ["f2"], "search_query": "삼겹살", "intent_category": "고깃집",
+        "spoken": None, "llm_status": "llm",
+    }
+    with patch.object(rec, "interpret_turn", _fake_interpret(result)), \
+         patch.object(rec, "vector_filter_candidates", _fake_vector([])):
+        with TestClient(app) as client:
+            res = _post_filter_turn(client)
+    assert res.status_code == 200
+    body = res.json()
+    assert body["action"] == "filter"
+    assert body["match_ids"] == []
+    assert body["suggestion_id"] == "f2"
+    # '숯불'은 받침이 있어 조사 '이' — 라우터가 마지막 글자 받침으로 조사를 확정한다(TTS 자연스러움).
+    assert body["spoken"] == (
+        "근처에 확인된 고깃집 후보가 없어요. 대신 비슷한 곳으로 황남숯불이 있어요. 안내해드릴까요?"
+    )
+
+
+def test_voice_turn_zero_match_without_similar_keeps_existing_message():
+    # similar_ids 도 없으면 기존 0건 문구 그대로 — suggestion_id 는 None(하위호환).
+    result = {
+        "action": "filter", "target_facility_id": None, "match_ids": [],
+        "similar_ids": [], "search_query": "삼겹살", "intent_category": "고깃집",
+        "spoken": None, "llm_status": "llm",
+    }
+    with patch.object(rec, "interpret_turn", _fake_interpret(result)), \
+         patch.object(rec, "vector_filter_candidates", _fake_vector([])):
+        with TestClient(app) as client:
+            res = _post_filter_turn(client)
+    assert res.status_code == 200
+    body = res.json()
+    assert body["action"] == "filter"
+    assert body["match_ids"] == []
+    assert body["suggestion_id"] is None
+    assert body["spoken"] == "근처에 확인된 고깃집 후보가 없어요. 다른 메뉴를 말씀해 주세요."
+
+
+# --- 분류 게이트 소생(2026-07-18): VoiceCandidate.category 필드 추가 ---------------------
+# 종전에는 프런트가 category 를 보내도 pydantic 스키마에 필드가 없어 model_dump() 에서 버려졌고,
+# cat_of 가 전부 None 이라 게이트가 항상 건너뛰어졌다(무력). tag_cuisines.py 배치가 채우는
+# features.category 가 후보에 실리면 intent_category 불일치 후보가 걸러져야 한다.
+
+
+def test_voice_candidate_caps_category_and_drops_blank():
+    # 기존 필드들과 같은 절단 관례 — 40자 초과는 절단, 공백/비문자열은 None.
+    c = rec.VoiceCandidate(id="f1", name="가게", category="가" * 100)
+    assert c.category == "가" * 40
+    assert rec.VoiceCandidate(id="f1", name="가게", category="   ").category is None
+    assert rec.VoiceCandidate(id="f1", name="가게", category=123).category is None
+    assert rec.VoiceCandidate(id="f1", name="가게").category is None
+
+
+def test_voice_turn_category_gate_filters_mismatched_candidates():
+    # 후보에 category(정밀분류)가 실리면 라우터 분류 게이트(cat_of)가 실제로 작동한다:
+    # intent_category="고깃집"인데 벡터가 피자집(f1, 양식)까지 돌려줘도 최종 match 는 f2 만.
+    result = {
+        "action": "filter", "target_facility_id": None, "match_ids": [],
+        "search_query": "삼겹살", "intent_category": "고깃집",
+        "spoken": "고깃집 쪽으로 찾아볼게요.", "llm_status": "keyword",
+    }
+    cands = [
+        {"id": "f1", "name": "화덕피자집", "menu": "불고기 피자", "category": "양식"},
+        {"id": "f2", "name": "황남숯불", "menu": "삼겹살 / 목살", "category": "고깃집"},
+    ]
+    with patch.object(rec, "interpret_turn", _fake_interpret(result)), \
+         patch.object(rec, "vector_filter_candidates", _fake_vector(["f1", "f2"])):
+        with TestClient(app) as client:
+            res = client.post(
+                "/api/v1/voice/turn",
+                json={"utterance": "삼겹살 먹고싶다", "facility_type": "restaurant", "candidates": cands},
+            )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["action"] == "filter"
+    assert body["match_ids"] == ["f2"]  # 양식(피자집) 누설 차단 — category 미전달 시절엔 f1 도 통과했다
+
+
 def test_voice_turn_response_includes_llm_status_gated_path_when_rate_limited():
     # 레이트리밋 초과로 LLM 이 게이트에서 막히면 llm_status="gated"(429 아님, unknown 강등).
     with patch.object(voice_intent_service.llm_client, "is_enabled", lambda: True), \

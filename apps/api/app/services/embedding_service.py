@@ -20,6 +20,23 @@ logger = structlog.get_logger()
 # 분류 미상(자유발화) 시 반환 후보 상한.
 _MAX_FILTER_RESULTS = 10
 
+# TourAPI 음식점 메타는 대표메뉴가 비어 있거나 ``육류,고기``처럼 넓은 태그만 있는 경우가 많다.
+# 사용자의 구체 메뉴 표현을 데이터의 상위 태그에도 연결해, LLM이 올바른 검색어를 만들고도
+# 정확 문자열이 없어서 0건이 되는 일을 막는다. 점수용 검색 토큰만 확장하며 SPOT 산식은 건드리지 않는다.
+_FOOD_QUERY_ALIASES = {
+    "돼지고기": ("고기", "육류", "삼겹살", "목살"),
+    "삼겹살": ("돼지고기", "고기", "육류"),
+    "목살": ("돼지고기", "고기", "육류"),
+    "소고기": ("고기", "육류", "한우"),
+    "한우": ("소고기", "고기", "육류"),
+}
+
+# 우산(포괄) 토큰은 '불고기(피자)'·'닭고기' 같은 다른 음식명의 부분문자열로 오탐을 내므로
+# (2026-07-18 실측: '삼겹살' 발화 → 별칭 '고기' ⊂ 대표메뉴 '반월성 불고기' → 화덕피자 오탐),
+# 자유 텍스트(name/menu)가 아니라 분류 태그(cuisine/category)에만 매칭한다.
+# 발화 원문·LLM search_query·별칭 어느 경로로 들어온 토큰이든 동일 적용.
+_TAG_ONLY_TOKENS = {"고기", "육류"}
+
 
 def cuisine_to_str(cuisine) -> str:
     """cuisine_tags(['한식','육류,고기'] 또는 '양식')를 공백 구분 문자열로."""
@@ -71,6 +88,8 @@ async def filter_candidates(
     limit = top_k if isinstance(top_k, int) and top_k > 0 else _MAX_FILTER_RESULTS
 
     qtokens = set(_tokens(utterance))
+    for token in tuple(qtokens):
+        qtokens.update(_FOOD_QUERY_ALIASES.get(token, ()))
     if ic:
         qtokens.add(ic.lower())
 
@@ -83,13 +102,19 @@ async def filter_candidates(
         cat = (c.get("category") or "").strip()
         if cat:
             cat_present = True
-        hay = " ".join([
+        # 우산 토큰(_TAG_ONLY_TOKENS)은 분류 태그에만, 나머지는 전체 텍스트에 매칭.
+        tag_hay = " ".join([cuisine_to_str(c.get("cuisine")), cat]).lower()
+        full_hay = " ".join([
             str(c.get("name") or ""),
             cuisine_to_str(c.get("cuisine")),
             cat,
             str(c.get("menu") or ""),
         ]).lower()
-        score = sum(1 for t in qtokens if len(t) >= 2 and t in hay)
+        score = sum(
+            1
+            for t in qtokens
+            if len(t) >= 2 and t in (tag_hay if t in _TAG_ONLY_TOKENS else full_hay)
+        )
         if ic and cat and cat == ic:
             score += 2  # 시드 분류 일치 가산
         if score > 0:
