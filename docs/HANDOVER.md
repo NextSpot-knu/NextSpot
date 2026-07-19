@@ -1,4 +1,23 @@
-# 세션 인계 문서 (2026-07-18 갱신)
+# 세션 인계 문서 (2026-07-19 갱신)
+
+## -22. 2026-07-19 — 추천 품질 골든 게이트 + 현장 폐루프 + Playwright
+
+- 추천 품질 CLI `apps/api/scripts/recommendation_quality.py` 추가(`fixture/live`, `--base-url`,
+  `--output`, 인증 라이브용 `--bearer/--user-id`). 공개 관광 거점과 고정 시각을 쓰는 12개 JSON
+  시나리오에서 실제 SPOT 함수·도보 상한·영업시간·유형·실내·검증 접근성·방문 제외를 검증한다.
+  평가일 2026-07-19, fixture 12개, 하드 실패 **0건**. 커밋 `b73efa4`.
+- 무인증 라이브 스모크는 배포 `/api/v1/infrastructures`에서 활성 장소 **104개**를 확인해
+  `scratch/recommendation_quality_live.json`에 저장(비커밋). 추천 상세은 JWT 소유권 계약 때문에
+  토큰 없이 비워 두었으며, 인증 라이브 실행은 `--bearer/--user-id`를 함께 전달해야 한다.
+- 방문 만족도 뒤 완료 화면과 `내 쿠폰함` CTA를 유지하고 완료 닫기가 여정을 복원하지 않게 분리.
+  재추천 0건이면 기존 여정을 유지하며 안내하고, 재추천·길안내 재개에 `navigation_started`, 설명
+  요청 예외에 `recommendation_explained(llm_failed)`를 기록한다. 원문 분석 필드는 추가하지 않았다.
+- Chromium Playwright/CI 도입: 390×844, ko/en/ja/zh 가로 오버플로, 고정 여정과 Kakao 외부 이동
+  스텁을 검증한다. 로컬 assertion 5/5 통과(Windows 개발 서버 종료 지연은 direct Next 실행으로 보정),
+  커밋 `80c0b6e`.
+- 검증: API pytest **620 passed**, ruff 통과; web lint 0 errors(기존 warning 178), typecheck,
+  단위 테스트(음성 29/29+i18n 636키+travel context), build 32 pages 통과; 스키마 패리티와
+  `git diff --check` 통과. SPOT 가중치·산식·정렬은 변경하지 않았다.
 
 ## -20. 2026-07-18 — Upstage Solar 확장 기획 확정 (신규 5종) + Kakao 키 사람 작업 완료
 
