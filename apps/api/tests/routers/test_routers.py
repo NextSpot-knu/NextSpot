@@ -328,6 +328,43 @@ def test_recommend_by_type_happy_path(auth_client):
     assert [item["rank"] for item in items] == [1, 2, 3, 4]
 
 
+def test_solar_state_never_changes_candidates_scores_or_rank(auth_client):
+    cafes = [
+        _facility("solar-a", "cafe", 0.0002),
+        _facility("solar-b", "cafe", 0.0004, coupon_rate=0.1),
+        _facility("solar-c", "cafe", 0.0006),
+    ]
+    congestion_map = {facility["id"]: _cong(0.2) for facility in cafes}
+    request = {
+        "user_id": AUTH_USER_ID,
+        "facility_type": "cafe",
+        "user_lat": BASE_LAT,
+        "user_lng": BASE_LNG,
+    }
+
+    def run(reason_result):
+        with patch("app.routers.recommendations.fetch_user", new=AsyncMock(return_value=USER_ROW)), \
+             patch("app.routers.recommendations.fetch_all_facilities", new=AsyncMock(return_value=cafes)), \
+             patch("app.routers.recommendations.fetch_congestion_map", new=AsyncMock(return_value=congestion_map)), \
+             patch.object(preference_vector_service, "get_user_vector", new=AsyncMock(return_value=UNIT_VECTOR)), \
+             patch("app.routers.recommendations.generate_reason_with_source", new=AsyncMock(return_value=reason_result)):
+            response = auth_client.post("/api/v1/recommendations/by-type", json=request)
+        assert response.status_code == 200
+        return response.json()
+
+    disabled = run(("결정적 템플릿", "template"))
+    enabled = run(("Solar가 다듬은 문장", "llm"))
+    timeout = run(("타임아웃 폴백", "template"))
+
+    def ranking(items):
+        return [(item["facility"]["id"], item["spot_score"], item["rank"]) for item in items]
+
+    assert ranking(disabled) == ranking(enabled) == ranking(timeout)
+    assert [item["reason_source"] for item in disabled] == ["template"] * 3
+    assert [item["reason_source"] for item in enabled] == ["llm"] * 3
+    assert [item["reason_source"] for item in timeout] == ["template"] * 3
+
+
 # =========================================================================
 # 4. 피드백(POST /api/v1/feedback) — 소유권 가드·입력 검증·액션별 학습 계약
 # =========================================================================
