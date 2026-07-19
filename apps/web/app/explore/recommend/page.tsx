@@ -14,7 +14,7 @@ import { useT } from "@/lib/i18n/I18nProvider";
 import { ShareButton } from "@/components/ShareButton";
 import RecommendationComparison from "@/components/RecommendationComparison";
 import { recordActiveTrip } from "@/lib/visits";
-import { openWalkingDirections } from "@/lib/navigation";
+import { openDrivingDirections, openWalkingDirections } from "@/lib/navigation";
 import { track } from "@/lib/analytics";
 import { loadTravelContext } from "@/lib/travelContext";
 
@@ -676,20 +676,25 @@ function RecommendContent() {
   };
 
   // CTA Click: Accept Alternative
-  const handleAccept = async (rec: RecommendationResponse) => {
+  const handleAccept = async (rec: RecommendationResponse, navigationMode: 'walk' | 'car' = 'walk') => {
     quietAssistant(); // 음성 비서 진행 중이면 정리(수동/음성 수락 공통)
     toast.success(t("recommend.acceptStart"));
     recordActiveTrip({
       id: rec.facility.id, name: rec.facility.name, type: rec.facility.type,
       latitude: rec.facility.latitude, longitude: rec.facility.longitude,
-    }, { recommendationId: rec.recommendationId, walkMinutes: rec.breakdown.travelTime, context: loadTravelContext() as unknown as Record<string, unknown> });
+    }, { recommendationId: rec.recommendationId, walkMinutes: rec.breakdown.travelTime, context: loadTravelContext() as unknown as Record<string, unknown>, navigationMode });
     track('navigation_started', {
       facility_type: rec.facility.type,
-      navigation_mode: 'walk',
+      navigation_mode: navigationMode,
       walk_minutes: Math.round(rec.breakdown.travelTime),
     });
-    toast.info(t('trip.selectWalking'));
-    openWalkingDirections(rec.facility);
+    if (navigationMode === 'walk') {
+      toast.info(t('trip.selectWalking'));
+      openWalkingDirections(rec.facility);
+    } else {
+      toast.info(t('trip.driveBasisHint'));
+      openDrivingDirections(rec.facility);
+    }
     try {
       await submitFeedback(rec.recommendationId, "accepted_visit_intent");
     } catch (err) {
@@ -1388,6 +1393,12 @@ function RecommendContent() {
                     className="w-full py-2.5 bg-gradient-to-r from-gold to-terracotta text-white rounded-xl font-bold text-xs transition-all duration-300 hover:opacity-90 active:scale-[0.98] shadow-sm"
                   >
                     {t("card.accept")}
+                  </button>
+                  <button
+                    onClick={() => handleAccept(rec, 'car')}
+                    className="mt-2 w-full rounded-xl border border-line bg-white py-2 text-[11px] font-bold text-muk-soft hover:border-gold/40 hover:text-gold-deep"
+                  >
+                    {t('card.drive')} · <span className="font-medium">{t('card.driveBasisHint')}</span>
                   </button>
 
                   {/* 공유 — 지금 한산한 이 장소를 퍼뜨려 자연 유입을 만든다. 링크는 같은 페이지(원 시설/좌표)로

@@ -24,6 +24,7 @@ export interface ActiveTrip extends PendingVisit {
   walkMinutes?: number;
   status: 'navigating' | 'arrived';
   context?: Record<string, unknown>;
+  navigationMode?: 'walk' | 'car';
 }
 
 export interface VisitHistoryEntry {
@@ -102,7 +103,7 @@ export function getPendingVisit(): PendingVisit | null {
 
 export function recordActiveTrip(fac: {
   id: string; name?: string; type?: string; latitude?: number | null; longitude?: number | null;
-}, options?: { recommendationId?: string; walkMinutes?: number; context?: Record<string, unknown> }): void {
+}, options?: { recommendationId?: string; walkMinutes?: number; context?: Record<string, unknown>; navigationMode?: 'walk' | 'car' }): void {
   recordPendingVisit(fac);
   const pending = getPendingVisit();
   if (!pending) return;
@@ -111,6 +112,7 @@ export function recordActiveTrip(fac: {
     recommendationId: options?.recommendationId,
     walkMinutes: options?.walkMinutes,
     context: options?.context,
+    navigationMode: options?.navigationMode ?? 'walk',
   } satisfies ActiveTrip));
 }
 

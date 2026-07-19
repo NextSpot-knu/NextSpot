@@ -44,6 +44,7 @@ interface RecommendationCardProps {
   matchPercentage?: number;
   reason?: string; // 백엔드 템플릿 생성 추천 사유
   onAccept: () => void;
+  onDrive?: () => void;
   onReject: () => void;
   onPutOff?: () => void;
   spotScore?: number;
@@ -72,6 +73,7 @@ export function RecommendationCard({
   matchPercentage,
   reason,
   onAccept,
+  onDrive,
   onReject,
   onPutOff,
   spotScore,
@@ -853,6 +855,11 @@ export function RecommendationCard({
             {t('card.accept')}
           </button>
         </div>
+        {onDrive && (
+          <button type="button" onClick={onDrive} className="mt-2 w-full rounded-xl border border-line bg-white py-2 text-[11px] font-bold text-muk-soft hover:border-gold/40 hover:text-gold-deep">
+            {t('card.drive')} <span className="font-medium">· {t('card.driveBasisHint')}</span>
+          </button>
+        )}
         {facility?.id && (
           <div className="mt-2 flex justify-center">
             <CongestionReportButton facility={{ id: facility.id!, name: facility.name ?? title }} />

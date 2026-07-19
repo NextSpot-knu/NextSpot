@@ -5,7 +5,7 @@ import { Navigation, RefreshCw } from 'lucide-react';
 import { getActiveTrip, getVisitHistory, markTripArrived, recordActiveTrip, type ActiveTrip } from '@/lib/visits';
 import { loadTravelContext, type TravelContext } from '@/lib/travelContext';
 import { parseTravelContext, recommendByType } from '@/lib/api-client';
-import { openWalkingDirections } from '@/lib/navigation';
+import { openDrivingDirections, openWalkingDirections } from '@/lib/navigation';
 import { track } from '@/lib/analytics';
 import { useT } from '@/lib/i18n/I18nProvider';
 
@@ -74,13 +74,14 @@ export default function ActiveJourneyCard({ location }: { location: { lat: numbe
       recordActiveTrip({
         id: next.facility.id, name: next.facility.name, type: next.facility.type,
         latitude: next.facility.latitude, longitude: next.facility.longitude,
-      }, { recommendationId: next.recommendationId, walkMinutes: next.breakdown.travelTime, context: context as unknown as Record<string, unknown> });
+      }, { recommendationId: next.recommendationId, walkMinutes: next.breakdown.travelTime, context: context as unknown as Record<string, unknown>, navigationMode: trip.navigationMode ?? 'walk' });
       const updated = getActiveTrip();
       setTrip(updated);
       setChangeOpen(false);
       setDraft(null);
       setChangeText('');
-      openWalkingDirections(next.facility);
+      if (trip.navigationMode === 'car') openDrivingDirections(next.facility);
+      else openWalkingDirections(next.facility);
     } finally { setBusy(false); }
   };
 
@@ -88,7 +89,8 @@ export default function ActiveJourneyCard({ location }: { location: { lat: numbe
     <aside className="absolute z-30 top-24 left-4 right-4 md:left-auto md:right-[400px] md:w-80 rounded-2xl border border-jade/30 bg-white/95 backdrop-blur p-4 shadow-lg">
       <p className="text-xs font-bold text-jade">{t('trip.active')}</p>
       <p className="mt-1 font-bold text-muk truncate">{t('trip.heading', { name: trip.name })}</p>
-      {trip.walkMinutes != null && <p className="text-xs text-muk-soft mt-0.5">{t('trip.walkEstimate', { n: Math.round(trip.walkMinutes) })}</p>}
+      {trip.navigationMode !== 'car' && trip.walkMinutes != null && <p className="text-xs text-muk-soft mt-0.5">{t('trip.walkEstimate', { n: Math.round(trip.walkMinutes) })}</p>}
+      {trip.navigationMode === 'car' && <p className="text-xs text-muk-soft mt-0.5">{t('trip.driveBasisHint')}</p>}
       <div className="grid grid-cols-3 gap-2 mt-3 text-xs font-bold">
         <button type="button" onClick={arrived} className="rounded-xl bg-jade text-white py-2">{t('trip.arrived')}</button>
         <button type="button" onClick={() => setTrip(null)} className="rounded-xl border border-line py-2">{t('trip.stillGoing')}</button>
@@ -117,7 +119,12 @@ export default function ActiveJourneyCard({ location }: { location: { lat: numbe
           )}
         </div>
       )}
-      <button type="button" onClick={() => trip.lat != null && trip.lng != null && openWalkingDirections({ name: trip.name, latitude: trip.lat, longitude: trip.lng })} className="mt-2 w-full text-xs text-gold-deep font-bold flex justify-center items-center gap-1"><Navigation size={12} />{t('trip.resumeDirections')}</button>
+      <button type="button" onClick={() => {
+        if (trip.lat == null || trip.lng == null) return;
+        const facility = { name: trip.name, latitude: trip.lat, longitude: trip.lng };
+        if (trip.navigationMode === 'car') openDrivingDirections(facility);
+        else openWalkingDirections(facility);
+      }} className="mt-2 w-full text-xs text-gold-deep font-bold flex justify-center items-center gap-1"><Navigation size={12} />{t(trip.navigationMode === 'car' ? 'trip.resumeDriving' : 'trip.resumeDirections')}</button>
     </aside>
   );
 }

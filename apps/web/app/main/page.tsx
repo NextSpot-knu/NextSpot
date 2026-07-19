@@ -18,7 +18,7 @@ import { useVoiceAssistant } from '@/lib/useVoiceAssistant';
 import { useSpeechSearch } from '@/lib/useSpeechSearch';
 import VoiceAssistantOrb from '@/components/VoiceAssistantOrb';
 import { recordActiveTrip } from '@/lib/visits';
-import { openWalkingDirections } from '@/lib/navigation';
+import { openDrivingDirections, openWalkingDirections } from '@/lib/navigation';
 import { track } from '@/lib/analytics';
 import { loadSavedLocal, syncSaved, saveBookmark, type SavedRecord } from '@/lib/savedFacilities';
 import { useT } from '@/lib/i18n/I18nProvider';
@@ -916,7 +916,7 @@ export default function MainPage() {
   }, [facilities, activeFilter, userLocation, preferredCategories, mockHour, weatherPreference, travelContext]);
 
   // Action Button Handlers
-  const handleAccept = (fac: Facility) => {
+  const handleAccept = (fac: Facility, navigationMode: 'walk' | 'car' = 'walk') => {
     if (!fac) return;
 
     // 수락 기록(계약 1) — 여정 차단 금지: fire-and-forget. 성공 응답에 coupon_issued 면 쿠폰함 토스트.
@@ -932,8 +932,8 @@ export default function MainPage() {
       .catch(() => { /* 조용히 무시(여정 차단 금지) */ });
     const spot = fac.spot || calculateSPOT(fac);
     try {
-      recordActiveTrip(fac, { recommendationId: (fac as any).recommendationId, walkMinutes: spot.expectedTravel, context: travelContext as unknown as Record<string, unknown> });
-      track('navigation_started', { facility_type: fac.type, navigation_mode: 'walk', walk_minutes: Math.round(spot.expectedTravel) });
+      recordActiveTrip(fac, { recommendationId: (fac as any).recommendationId, walkMinutes: spot.expectedTravel, context: travelContext as unknown as Record<string, unknown>, navigationMode });
+      track('navigation_started', { facility_type: fac.type, navigation_mode: navigationMode, walk_minutes: Math.round(spot.expectedTravel) });
     } catch { /* localStorage 차단 환경 무시 */ }
 
     let greeting = t('map.greetingDefault');
@@ -943,8 +943,13 @@ export default function MainPage() {
 
     showToast(`${greeting}${t('map.greetingSuffix')}`);
 
-    showToast(t('trip.selectWalking'));
-    openWalkingDirections(fac);
+    if (navigationMode === 'walk') {
+      showToast(t('trip.selectWalking'));
+      openWalkingDirections(fac);
+    } else {
+      showToast(t('trip.driveBasisHint'));
+      openDrivingDirections(fac);
+    }
   };
 
   const handlePutOff = (fac: any) => {
@@ -2100,6 +2105,7 @@ export default function MainPage() {
                 title={selectedFacility.name}
                 reason={reason}
                 onAccept={() => handleAccept(selectedFacility)}
+                onDrive={() => handleAccept(selectedFacility, 'car')}
                 onReject={() => handleReject(selectedFacility)}
                 onPutOff={() => handlePutOff(selectedFacility)}
                 spotScore={spot.score}
