@@ -1,13 +1,24 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Navigation, RefreshCw } from 'lucide-react';
 import { getActiveTrip, getVisitHistory, markTripArrived, recordActiveTrip, type ActiveTrip } from '@/lib/visits';
-import { loadTravelContext, type TravelContext } from '@/lib/travelContext';
+import { loadTravelContext, type PlaceCategory, type RequiredAttribute, type TravelContext } from '@/lib/travelContext';
 import { parseTravelContext, recommendByType } from '@/lib/api-client';
 import { openDrivingDirections, openWalkingDirections } from '@/lib/navigation';
 import { track } from '@/lib/analytics';
 import { useT } from '@/lib/i18n/I18nProvider';
+
+const CATEGORIES: PlaceCategory[] = ['restaurant', 'cafe', 'attraction', 'culture'];
+const WALKS = [5, 10, 20] as const;
+const AVAILABLE = [30, 60, 120] as const;
+
+function hasCondition(value: Partial<TravelContext> | null): boolean {
+  return Boolean(value && (
+    value.categories?.length || value.maxWalkMinutes || value.availableMinutes
+    || value.requiredAttributes?.length || value.excludeVisited
+  ));
+}
 
 export default function ActiveJourneyCard({ location }: { location: { lat: number; lng: number } }) {
   const t = useT();
@@ -67,9 +78,13 @@ export default function ActiveJourneyCard({ location }: { location: { lat: numbe
           ? [...new Set(getVisitHistory().map((entry) => entry.facilityId))].slice(0, 200)
           : base.visitedFacilityIds,
       };
-      const facilityType = confirmed?.categories?.[0] ?? trip.type;
-      const results = await recommendByType(facilityType, location, [trip.facilityId], 1, context);
-      const next = results[0];
+      const facilityTypes = context.categories.length ? context.categories : [trip.type];
+      const batches = await Promise.all(
+        facilityTypes.map((facilityType) => recommendByType(facilityType, location, [trip.facilityId], 1, context)),
+      );
+      const next = batches.flat().sort((a, b) =>
+        b.spotScore - a.spotScore || a.distanceM - b.distanceM || a.facility.id.localeCompare(b.facility.id),
+      )[0];
       if (!next) return;
       recordActiveTrip({
         id: next.facility.id, name: next.facility.name, type: next.facility.type,
@@ -84,9 +99,21 @@ export default function ActiveJourneyCard({ location }: { location: { lat: numbe
       else openWalkingDirections(next.facility);
     } finally { setBusy(false); }
   };
+  const updateDraft = (update: (current: Partial<TravelContext>) => Partial<TravelContext>) => {
+    setParseError(false);
+    setDraft((current) => update(current ?? {}));
+  };
+  const toggleCategory = (category: PlaceCategory) => updateDraft((current) => {
+    const values = current.categories ?? [];
+    return { ...current, categories: values.includes(category) ? values.filter((value) => value !== category) : [...values, category] };
+  });
+  const toggleAttribute = (attribute: RequiredAttribute) => updateDraft((current) => {
+    const values = current.requiredAttributes ?? [];
+    return { ...current, requiredAttributes: values.includes(attribute) ? values.filter((value) => value !== attribute) : [...values, attribute] };
+  });
 
   return (
-    <aside className="absolute z-30 top-24 left-4 right-4 md:left-auto md:right-[400px] md:w-80 rounded-2xl border border-jade/30 bg-white/95 backdrop-blur p-4 shadow-lg">
+    <aside className="absolute z-30 top-24 left-4 right-4 max-h-[calc(100dvh-7rem)] overflow-y-auto md:left-auto md:right-[400px] md:w-80 rounded-2xl border border-jade/30 bg-white/95 backdrop-blur p-4 shadow-lg">
       <p className="text-xs font-bold text-jade">{t('trip.active')}</p>
       <p className="mt-1 font-bold text-muk truncate">{t('trip.heading', { name: trip.name })}</p>
       {trip.navigationMode !== 'car' && trip.walkMinutes != null && <p className="text-xs text-muk-soft mt-0.5">{t('trip.walkEstimate', { n: Math.round(trip.walkMinutes) })}</p>}
@@ -94,7 +121,7 @@ export default function ActiveJourneyCard({ location }: { location: { lat: numbe
       <div className="grid grid-cols-3 gap-2 mt-3 text-xs font-bold">
         <button type="button" onClick={arrived} className="rounded-xl bg-jade text-white py-2">{t('trip.arrived')}</button>
         <button type="button" onClick={() => setTrip(null)} className="rounded-xl border border-line py-2">{t('trip.stillGoing')}</button>
-        <button type="button" disabled={busy} onClick={() => { setChangeOpen(true); setDraft(null); setParseError(false); }} className="rounded-xl border border-gold/40 bg-gold/10 py-2 flex items-center justify-center gap-1"><RefreshCw size={12} />{t('trip.changed')}</button>
+        <button type="button" disabled={busy} onClick={() => { setChangeOpen(true); setDraft({}); setParseError(false); }} className="rounded-xl border border-gold/40 bg-gold/10 py-2 flex items-center justify-center gap-1"><RefreshCw size={12} />{t('trip.changed')}</button>
       </div>
       {changeOpen && (
         <div className="mt-3 border-t border-line pt-3">
@@ -103,17 +130,23 @@ export default function ActiveJourneyCard({ location }: { location: { lat: numbe
           <button type="button" disabled={busy || !changeText.trim()} onClick={() => void parseChange()} className="mt-2 w-full rounded-xl border border-jade/30 bg-jade/5 py-2 text-xs font-bold text-jade disabled:opacity-50">{busy ? t('trip.parsing') : t('trip.parse')}</button>
           {draft && (
             <div className="mt-2">
-              <p className="text-[11px] text-muk-soft">{parseError ? t('trip.noContext') : t('trip.confirmHint')}</p>
+              <p className="text-[11px] text-muk-soft">{parseError ? t('trip.noContext') : t('trip.manualHint')}</p>
               <div className="mt-2 flex flex-wrap gap-1.5">
-                {draft.categories?.map((category) => <span key={category} className="rounded-full bg-jade/10 px-2 py-1 text-[11px] text-jade">{t(`category.${category}`)}</span>)}
-                {draft.maxWalkMinutes && <span className="rounded-full bg-jade/10 px-2 py-1 text-[11px] text-jade">{t('trip.walkChip', { n: draft.maxWalkMinutes })}</span>}
-                {draft.availableMinutes && <span className="rounded-full bg-jade/10 px-2 py-1 text-[11px] text-jade">{t('trip.availableChip', { n: draft.availableMinutes })}</span>}
-                {draft.requiredAttributes?.map((attribute) => <span key={attribute} className="rounded-full bg-jade/10 px-2 py-1 text-[11px] text-jade">{t(`trip.attribute.${attribute}`)}</span>)}
-                {draft.excludeVisited && <span className="rounded-full bg-jade/10 px-2 py-1 text-[11px] text-jade">{t('setup.excludeVisited')}</span>}
+                {CATEGORIES.map((category) => <ChoiceChip key={category} active={draft.categories?.includes(category) ?? false} onClick={() => toggleCategory(category)}>{t(`category.${category}`)}</ChoiceChip>)}
+              </div>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {WALKS.map((minutes) => <ChoiceChip key={minutes} active={draft.maxWalkMinutes === minutes} onClick={() => updateDraft((current) => ({ ...current, maxWalkMinutes: minutes }))}>{t('trip.walkChip', { n: minutes })}</ChoiceChip>)}
+              </div>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {AVAILABLE.map((minutes) => <ChoiceChip key={minutes} active={draft.availableMinutes === minutes} onClick={() => updateDraft((current) => ({ ...current, availableMinutes: minutes }))}>{minutes === 120 ? t('setup.twoHoursPlus') : t('trip.availableChip', { n: minutes })}</ChoiceChip>)}
+              </div>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {(['indoor', 'accessible'] as RequiredAttribute[]).map((attribute) => <ChoiceChip key={attribute} active={draft.requiredAttributes?.includes(attribute) ?? false} onClick={() => toggleAttribute(attribute)}>{t(`trip.attribute.${attribute}`)}</ChoiceChip>)}
+                <ChoiceChip active={draft.excludeVisited === true} onClick={() => updateDraft((current) => ({ ...current, excludeVisited: !current.excludeVisited }))}>{t('setup.excludeVisited')}</ChoiceChip>
               </div>
               <div className="mt-2 flex gap-2">
                 <button type="button" onClick={() => setChangeOpen(false)} className="flex-1 rounded-xl border border-line py-2 text-xs font-bold">{t('common.cancel')}</button>
-                <button type="button" disabled={busy || parseError} onClick={() => void replan(draft)} className="flex-1 rounded-xl bg-jade py-2 text-xs font-bold text-white disabled:opacity-50">{t('trip.confirmContext')}</button>
+                <button type="button" disabled={busy || !hasCondition(draft)} onClick={() => void replan(draft)} className="flex-1 rounded-xl bg-jade py-2 text-xs font-bold text-white disabled:opacity-50">{t('trip.confirmContext')}</button>
               </div>
             </div>
           )}
@@ -127,4 +160,8 @@ export default function ActiveJourneyCard({ location }: { location: { lat: numbe
       }} className="mt-2 w-full text-xs text-gold-deep font-bold flex justify-center items-center gap-1"><Navigation size={12} />{t(trip.navigationMode === 'car' ? 'trip.resumeDriving' : 'trip.resumeDirections')}</button>
     </aside>
   );
+}
+
+function ChoiceChip({ active, onClick, children }: { active: boolean; onClick: () => void; children: ReactNode }) {
+  return <button type="button" aria-pressed={active} onClick={onClick} className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${active ? 'border-jade bg-jade/10 text-jade' : 'border-line bg-white text-muk-soft'}`}>{children}</button>;
 }
