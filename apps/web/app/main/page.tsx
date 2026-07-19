@@ -72,6 +72,15 @@ interface FacilityRecord {
   congestionLevel: number | null;
   currentCount: number | null;
   lastUpdated: string | null;
+  source?: string | null;
+  congestionSource?: 'measured' | 'predicted' | 'none';
+  congestionLogSource?: string | null;
+  congestionIsStale?: boolean | null;
+  isStale?: boolean;
+  congestionTimestamp?: string | null;
+  dataUpdatedAt?: string | null;
+  informationConfidence?: 'verified' | 'unknown';
+  openStatusAtArrival?: 'open_expected' | 'closing_soon' | 'closed_confirmed' | 'needs_confirmation';
   spot?: Spot;
   reason?: string;
   apiRank?: number;
@@ -841,6 +850,8 @@ export default function MainPage() {
                     homepage: rf.homepage ?? base?.homepage ?? null,
                     overview: rf.overview ?? base?.overview ?? null,
                     barrierFree: rf.barrierFree ?? base?.barrierFree ?? null,
+                    congestionLevel: r.congestionLevel ?? base?.congestionLevel ?? null,
+                    currentCount: rf.currentCount ?? base?.currentCount ?? null,
                     // 머천트 연동(2단계): 타임세일·좌석 확인 배지용 — allowlist 병합이라 명시적으로 전달해야 카드에 도달한다.
                     timesaleRate: (rf as any).timesaleRate ?? (rf as any).timesale_rate ?? null,
                     seatStatusFresh: (rf as any).seatStatusFresh ?? (rf as any).seat_status_fresh ?? null,
@@ -848,6 +859,9 @@ export default function MainPage() {
                     openStatusAtArrival: r.openStatusAtArrival,
                     informationConfidence: r.informationConfidence,
                     congestionSource: r.congestionSource,
+                    congestionLogSource: r.congestionLogSource,
+                    congestionIsStale: r.congestionIsStale,
+                    congestionTimestamp: r.congestionTimestamp,
                     dataUpdatedAt: r.dataUpdatedAt,
                     spot,
                     reason: r.reason || "", // 백엔드 템플릿 사유만
@@ -2101,12 +2115,18 @@ export default function MainPage() {
                 totalCandidates={totalCandidates}
                 mockHour={mockHour}
                 dataSource={{
-                  source: selectedFacility.source ?? null,
-                  lastUpdated: selectedFacility.lastUpdated ?? null,
-                  isStale: !!selectedFacility.isStale,
+                  source: selectedFacility.congestionSource === 'measured'
+                    ? selectedFacility.congestionLogSource ?? 'measured'
+                    : selectedFacility.congestionSource ?? selectedFacility.source ?? null,
+                  lastUpdated: selectedFacility.congestionTimestamp
+                    ?? selectedFacility.dataUpdatedAt
+                    ?? selectedFacility.lastUpdated
+                    ?? null,
+                  isStale: selectedFacility.congestionIsStale ?? !!selectedFacility.isStale,
                 }}
                 weatherAdjusted={Boolean(selectedFacility.weatherAdjusted)}
                 openStatusAtArrival={selectedFacility.openStatusAtArrival}
+                congestionSource={selectedFacility.congestionSource}
               />
               </div>
             </div>

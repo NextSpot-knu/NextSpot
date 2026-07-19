@@ -64,6 +64,7 @@ interface RecommendationCardProps {
   dataSource?: { source: string | null; lastUpdated?: string | null; isStale?: boolean };
   weatherAdjusted?: boolean;
   openStatusAtArrival?: 'open_expected' | 'closing_soon' | 'closed_confirmed' | 'needs_confirmation';
+  congestionSource?: 'measured' | 'predicted' | 'none';
 }
 
 export function RecommendationCard({
@@ -88,6 +89,7 @@ export function RecommendationCard({
   dataSource,
   weatherAdjusted,
   openStatusAtArrival,
+  congestionSource,
 }: RecommendationCardProps) {
   const { t, locale } = useI18n();
   const [isExpanded, setIsExpanded] = useState(false);
@@ -400,6 +402,11 @@ export function RecommendationCard({
                 // 아니라 데이터를 모으는 중이라는 뉘앙스(waiting 페이지의 noData 는 별건 유지).
                 <span className="px-2 py-0.5 rounded-md text-[10px] font-bold border bg-muk/5 border-line text-muk-soft">
                   {t('card.congestionPreparing')}
+                </span>
+              )}
+              {typeof facility.congestionLevel === 'number' && congestionSource && (
+                <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold border bg-hanji-deep border-line text-muk-soft">
+                  {t(`card.congestionSource.${congestionSource}`)}
                 </span>
               )}
               {/* D-3: 합성(seed)/시뮬(simulated) 혼잡 로그는 데모 데이터임을 라벨로 구분(가드레일). */}
