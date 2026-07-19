@@ -29,6 +29,7 @@ from app.services.predict_service import predict_congestion_detailed
 from app.services.spot.score import calculate_spot_score
 from app.services.spot.travel import WALKING_SPEED_M_PER_MIN, calculate_haversine_distance
 from app.services.travel_context import TravelContext, facility_matches_context, open_status_at_arrival
+from app.services.recommendation_explanation_service import explain as explain_snapshot
 from app.services.spot.wait_time import calculate_predicted_wait_time
 from app.services.spot.preference import CATEGORY_VECTORS, get_category_average_vector
 
@@ -80,6 +81,17 @@ class FeedbackRequest(BaseModel):
         "helpful",                # 만족도 👍 — 품질 신호만
         "not_helpful",            # 만족도 👎 — 품질 신호만
     ]
+
+
+class ExplainRequest(BaseModel):
+    question: Literal["why_first", "difference", "family_check"]
+    comparison_recommendation_ids: list[str] = Field(default_factory=list, max_length=2)
+
+
+class ExplainResponse(BaseModel):
+    answer: str
+    source_labels: list[str]
+    llm_status: str
 
 # --- Helpers for async DB Calls ---
 async def fetch_user(user_id: str):
@@ -335,22 +347,59 @@ async def get_recommendations(
 
     # 5. DB(recommendations)에 추천 이력 저장 후 recommendation_id 획득 및 응답 매핑
     #    상위 N개 INSERT 도 병렬로 처리(직렬 await 제거).
-    async def _persist(item: dict):
-        return await asyncio.to_thread(
-            supabase_client.table("recommendations").insert({
+    async def _persist(item: dict, rank: int):
+        facility = item["facility"]
+        evidence = item["congestion_evidence"]
+        snapshot = {
+            "facility_id": facility["id"],
+            "facility_name": facility.get("name"),
+            "facility_type": facility.get("type"),
+            "spot_score": item["spot_score"],
+            "rank": rank,
+            "breakdown": item["breakdown"],
+            "distance_m": item["distance_m"],
+            "open_status_at_arrival": open_status_at_arrival(
+                facility,
+                datetime.now(timezone.utc) + timedelta(minutes=item["breakdown"].get("travel_time", 0)),
+            ),
+            "congestion": {
+                "level": evidence["level"], "source": evidence["source"],
+                "timestamp": evidence["timestamp"],
+            },
+            "tourapi_facts": {
+                "barrier_free": facility.get("barrier_free"),
+                "operating_hours": facility.get("operating_hours"),
+                "coupon_rate": facility.get("coupon_rate"),
+            },
+        }
+        payload = {
                 "user_id": req.user_id,
                 "original_facility_id": req.original_facility_id,
                 "recommended_facility_id": item["facility"]["id"],
                 "spot_score": item["spot_score"],
                 "score_breakdown": item["breakdown"],
+                "recommendation_snapshot": snapshot,
                 "accepted": False
-            }).execute
-        )
+            }
+        try:
+            return await asyncio.to_thread(
+                supabase_client.table("recommendations").insert(payload).execute
+            )
+        except Exception as exc:
+            # Migration rollout compatibility: preserve recommendation IDs until the new column is deployed.
+            if "recommendation_snapshot" not in str(exc):
+                raise
+            legacy_payload = {k: v for k, v in payload.items() if k != "recommendation_snapshot"}
+            return await asyncio.to_thread(
+                supabase_client.table("recommendations").insert(legacy_payload).execute
+            )
 
     # return_exceptions=True: INSERT 1건이 일시 DB 오류로 실패해도 정상 처리된 나머지 추천까지 버리지 않는다.
     # 실패 항목은 mock-rec-id 로 강등하되 '제거'하지 않는다 — top_n/reasons[idx] 인덱스 정렬을 유지해
     # 사유가 엉뚱한 시설에 붙는 것을 막는다.
-    db_results = await asyncio.gather(*[_persist(item) for item in top_n], return_exceptions=True)
+    db_results = await asyncio.gather(
+        *[_persist(item, idx + 1) for idx, item in enumerate(top_n)], return_exceptions=True
+    )
 
     response_items = []
     total_count = len(recommendation_results)
@@ -391,6 +440,55 @@ async def get_recommendations(
 
     logger.info("recommendations_generated", count=len(response_items))
     return response_items
+
+
+async def _fetch_owned_recommendation(recommendation_id: str, user_id: str) -> dict:
+    try:
+        uuid.UUID(recommendation_id)
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=404, detail="추천을 찾을 수 없습니다.") from None
+    result = await asyncio.to_thread(
+        supabase_client.table("recommendations").select("*").eq("id", recommendation_id).limit(1).execute
+    )
+    if not result.data:
+        raise HTTPException(status_code=404, detail="추천을 찾을 수 없습니다.")
+    row = result.data[0]
+    if row.get("user_id") != user_id:
+        raise HTTPException(status_code=403, detail="본인의 추천만 설명할 수 있습니다.")
+    return row
+
+
+@router.post("/recommendations/{recommendation_id}/explain", response_model=ExplainResponse)
+async def explain_recommendation(
+    recommendation_id: str,
+    req: ExplainRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    ids = [recommendation_id, *req.comparison_recommendation_ids]
+    if len(set(ids)) != len(ids):
+        raise HTTPException(status_code=422, detail="비교 추천 ID는 중복될 수 없습니다.")
+    rows = await asyncio.gather(*[
+        _fetch_owned_recommendation(rec_id, current_user["id"]) for rec_id in ids
+    ])
+    snapshots = []
+    for row in rows:
+        snapshot = row.get("recommendation_snapshot")
+        if not isinstance(snapshot, dict):
+            snapshot = {
+                "facility_id": row.get("recommended_facility_id"),
+                "facility_name": "추천 장소",
+                "spot_score": row.get("spot_score"),
+                "rank": 1,
+                "breakdown": row.get("score_breakdown") or {},
+                "tourapi_facts": {},
+            }
+        snapshots.append(snapshot)
+    answer, labels, status = await explain_snapshot(req.question, snapshots)
+    logger.info(
+        "recommendation_explained", recommendation_id=recommendation_id,
+        question=req.question, comparison_count=len(req.comparison_recommendation_ids), llm_status=status,
+    )
+    return ExplainResponse(answer=answer, source_labels=labels, llm_status=status)
 
 
 # --- 타입별 추천(메인 지도 브라우즈): 원본 없이 특정 종류를 선호/혼잡/거리로 랭킹 + 사유 ---

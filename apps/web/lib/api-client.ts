@@ -232,6 +232,7 @@ export interface RecommendationResponse {
     timesaleRate?: number | null;
     // 30분 내 사장 좌석 확인(신선도). 과거 패턴 추정보다 우선하는 실측 신호.
     seatStatusFresh?: { level: "low" | "mid" | "full"; minutesAgo: number } | null;
+    couponRate?: number | null;
   };
   spotScore: number;
   breakdown: {
@@ -334,6 +335,24 @@ export async function submitFeedback(
   return apiClient.post("/api/v1/feedback", {
     recommendationId,
     action
+  });
+}
+
+export type RecommendationQuestion = "why_first" | "difference" | "family_check";
+export interface RecommendationExplanation {
+  answer: string;
+  sourceLabels: string[];
+  llmStatus: string;
+}
+
+export async function explainRecommendation(
+  recommendationId: string,
+  question: RecommendationQuestion,
+  comparisonRecommendationIds: string[] = [],
+): Promise<RecommendationExplanation> {
+  return apiClient.post(`/api/v1/recommendations/${recommendationId}/explain`, {
+    question,
+    comparisonRecommendationIds: comparisonRecommendationIds.slice(0, 2),
   });
 }
 

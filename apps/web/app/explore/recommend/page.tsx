@@ -12,6 +12,7 @@ import { REGION, isWithinRegion } from "@/lib/region";
 import { toast } from "sonner";
 import { useT } from "@/lib/i18n/I18nProvider";
 import { ShareButton } from "@/components/ShareButton";
+import RecommendationComparison from "@/components/RecommendationComparison";
 import { recordActiveTrip } from "@/lib/visits";
 import { openWalkingDirections } from "@/lib/navigation";
 import { track } from "@/lib/analytics";
@@ -1193,7 +1194,9 @@ function RecommendContent() {
               </div>
             ))
           ) : recommendations.length > 0 ? (
-            recommendations.map((rec, idx) => {
+            <>
+            <RecommendationComparison recommendations={recommendations} />
+            {recommendations.map((rec, idx) => {
               const waitTime = rec.breakdown?.waitTime?.toFixed(1) || "--";
               const travelTime = (rec.breakdown?.travelTime ?? rec.distanceM / 66.67).toFixed(1); // 백엔드 SPOT travelTime 우선(66.67m/min=4km/h, 백엔드 일치), 없으면 거리환산
               const preferencePct = Math.round((rec.breakdown?.preference || 0) * 100);
@@ -1404,7 +1407,8 @@ function RecommendContent() {
                   </div>
                 </div>
               );
-            })
+            })}
+            </>
           ) : (
             <div className="bg-white p-8 rounded-2xl border border-line shadow-[0_2px_14px_rgba(43,35,32,0.06)] text-center text-sm text-muk-soft">
               {t("recommend.noAlternatives", { km: MAX_RECO_DISTANCE_M / 1000 })}

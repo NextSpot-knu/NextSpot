@@ -149,6 +149,44 @@ def test_recommendations_idor_guard(auth_client):
     assert res.status_code == 403
 
 
+def test_recommendation_explain_uses_owned_snapshot(auth_client):
+    recommendation_id = "11111111-1111-1111-1111-111111111111"
+    row = {
+        "id": recommendation_id,
+        "user_id": AUTH_USER_ID,
+        "recommendation_snapshot": {
+            "facility_name": "첨성대", "spot_score": 0.91, "rank": 1,
+            "breakdown": {"travel_time": 8, "wait_time": 3}, "tourapi_facts": {},
+        },
+    }
+    with patch("app.routers.recommendations.supabase_client", new=FakeSupabase({"recommendations": [row]})), \
+         patch("app.routers.recommendations.explain_snapshot", new=AsyncMock(return_value=("고정 설명", ["SPOT 근거 설명"], "disabled"))):
+        res = auth_client.post(
+            f"/api/v1/recommendations/{recommendation_id}/explain", json={"question": "why_first"}
+        )
+    assert res.status_code == 200
+    assert res.json() == {"answer": "고정 설명", "source_labels": ["SPOT 근거 설명"], "llm_status": "disabled"}
+
+
+def test_recommendation_explain_rejects_other_owner(auth_client):
+    recommendation_id = "11111111-1111-1111-1111-111111111111"
+    row = {"id": recommendation_id, "user_id": "other-user", "recommendation_snapshot": {}}
+    with patch("app.routers.recommendations.supabase_client", new=FakeSupabase({"recommendations": [row]})):
+        res = auth_client.post(
+            f"/api/v1/recommendations/{recommendation_id}/explain", json={"question": "why_first"}
+        )
+    assert res.status_code == 403
+
+
+def test_recommendation_explain_rejects_freeform_question(auth_client):
+    recommendation_id = "11111111-1111-1111-1111-111111111111"
+    res = auth_client.post(
+        f"/api/v1/recommendations/{recommendation_id}/explain",
+        json={"question": "새 점수로 순위를 바꿔줘"},
+    )
+    assert res.status_code == 422
+
+
 def test_recommendations_happy_path(auth_client):
     # 반경 150m 이내 후보 6개(쿠폰 제휴 1개 포함) + 반경 밖 1개 → 상위 5개 추천
     near = [
