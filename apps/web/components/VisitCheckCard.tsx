@@ -9,6 +9,7 @@
 // 팔레트·포털 관례는 FestivalBanner/CongestionReportButton 을 따른다(한지 웜톤 + body 포털 + framer-motion).
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, ThumbsUp, ThumbsDown, MapPin } from 'lucide-react';
@@ -19,7 +20,7 @@ import { useT } from '@/lib/i18n/I18nProvider';
 export function VisitCheckCard({ showToast }: { showToast?: (msg: string) => void }) {
   const t = useT();
   const [due, setDue] = useState<PendingVisit | null>(null);
-  const [stage, setStage] = useState<'ask' | 'feedback'>('ask');
+  const [stage, setStage] = useState<'ask' | 'feedback' | 'completed'>('ask');
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
 
@@ -57,8 +58,9 @@ export function VisitCheckCard({ showToast }: { showToast?: (msg: string) => voi
     completeVisit({ facilityId: due.facilityId, name: due.name, type: due.type, rating });
     import('@/lib/analytics').then(({ track }) => track('visit_confirmed', { facility_type: due.type, rating }));
     showToast?.(t('visit.thanks'));
-    setDue(null);
-    setStage('ask');
+    // Keep the completion state visible. completeVisit has already ended the active
+    // journey, so closing this state must never recreate a navigating trip.
+    setStage('completed');
   };
 
   return createPortal(
@@ -85,7 +87,20 @@ export function VisitCheckCard({ showToast }: { showToast?: (msg: string) => voi
             <X size={16} />
           </button>
 
-          {stage === 'ask' ? (
+          {stage === 'completed' ? (
+            <div className="flex flex-col gap-3 pr-6" data-testid="visit-completed">
+              <div>
+                <p className="text-sm font-bold text-muk">{t('visit.thanks')}</p>
+                <p className="mt-1 text-[11px] leading-snug text-muk-soft">{t('visit.askDesc')}</p>
+              </div>
+              <Link href="/mypage/coupons" className="rounded-2xl bg-jade py-2.5 text-center text-xs font-bold text-white">
+                {t('mypage.menuCoupons')}
+              </Link>
+              <button type="button" onClick={() => { setDue(null); setStage('ask'); }} className="text-xs font-bold text-muk-soft">
+                {t('common.close')}
+              </button>
+            </div>
+          ) : stage === 'ask' ? (
             <div className="flex flex-col gap-3 pr-6">
               <div className="flex items-start gap-2.5">
                 <span className="w-9 h-9 shrink-0 rounded-full bg-jade/10 border border-jade/25 flex items-center justify-center text-jade">

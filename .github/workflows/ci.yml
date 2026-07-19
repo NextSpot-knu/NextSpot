@@ -62,3 +62,16 @@ jobs:
       #          (RESET_AND_SETUP.sql 을 직접 수정했다면 되돌리고 migrations/ 에 반영할 것.)
       - run: node scripts/build_reset.mjs
       - run: git diff --exit-code supabase/RESET_AND_SETUP.sql
+
+  e2e:
+    name: e2e (Chromium · 390px · 4 locales)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e --workspace=apps/web

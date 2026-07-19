@@ -23,6 +23,7 @@ export default function RecommendationComparison({ recommendations }: { recommen
       track('recommendation_explained', { question, llm_status: result.llmStatus });
     } catch {
       setAnswer({ text: t('compare.explainFailed'), labels: [] });
+      track('recommendation_explained', { question, llm_status: 'llm_failed' });
     } finally { setBusy(false); }
   };
 
