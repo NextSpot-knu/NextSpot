@@ -47,6 +47,7 @@ export function VisitCheckCard({ showToast }: { showToast?: (msg: string) => voi
   // [아직이요/닫기] — pending 을 지워 재노출하지 않는다(다시 수락하면 새 루프 시작).
   const dismiss = () => {
     markTripNavigating();
+    window.dispatchEvent(new Event('nextspot:trip-navigating'));
     setDue(null);
     setStage('ask');
   };

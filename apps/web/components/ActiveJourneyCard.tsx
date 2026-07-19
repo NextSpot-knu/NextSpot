@@ -29,9 +29,21 @@ export default function ActiveJourneyCard({ location }: { location: { lat: numbe
   const [draft, setDraft] = useState<Partial<TravelContext> | null>(null);
   const [parseError, setParseError] = useState(false);
   useEffect(() => {
-    const active = getActiveTrip();
-    setTrip(active);
-    if (active) track('trip_resumed', { facility_type: active.type });
+    const sync = () => {
+      const active = getActiveTrip();
+      setTrip(active?.status === 'navigating' ? active : null);
+      if (active?.status === 'navigating') track('trip_resumed', { facility_type: active.type });
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') sync();
+    };
+    sync();
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    window.addEventListener('nextspot:trip-navigating', sync);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      window.removeEventListener('nextspot:trip-navigating', sync);
+    };
   }, []);
   if (!trip || trip.status === 'arrived') return null;
 
