@@ -86,6 +86,7 @@ class FeedbackRequest(BaseModel):
 class ExplainRequest(BaseModel):
     question: Literal["why_first", "difference", "family_check"]
     comparison_recommendation_ids: list[str] = Field(default_factory=list, max_length=2)
+    locale: Literal["ko", "en", "ja", "zh"] = "ko"
 
 
 class ExplainResponse(BaseModel):
@@ -483,7 +484,7 @@ async def explain_recommendation(
                 "tourapi_facts": {},
             }
         snapshots.append(snapshot)
-    answer, labels, status = await explain_snapshot(req.question, snapshots)
+    answer, labels, status = await explain_snapshot(req.question, snapshots, req.locale)
     logger.info(
         "recommendation_explained", recommendation_id=recommendation_id,
         question=req.question, comparison_count=len(req.comparison_recommendation_ids), llm_status=status,

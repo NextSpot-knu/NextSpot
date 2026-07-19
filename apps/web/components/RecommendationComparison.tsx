@@ -4,10 +4,10 @@ import { useState } from 'react';
 import { BarChart3, Sparkles, X } from 'lucide-react';
 import { explainRecommendation, type RecommendationQuestion, type RecommendationResponse } from '@/lib/api-client';
 import { track } from '@/lib/analytics';
-import { useT } from '@/lib/i18n/I18nProvider';
+import { useI18n } from '@/lib/i18n/I18nProvider';
 
 export default function RecommendationComparison({ recommendations }: { recommendations: RecommendationResponse[] }) {
-  const t = useT();
+  const { t, locale } = useI18n();
   const top = recommendations.slice(0, 3);
   const [open, setOpen] = useState(false);
   const [answer, setAnswer] = useState<{ text: string; labels: string[] } | null>(null);
@@ -18,7 +18,7 @@ export default function RecommendationComparison({ recommendations }: { recommen
     setBusy(true);
     try {
       const comparisonIds = question === 'difference' ? [top[1].recommendationId] : [];
-      const result = await explainRecommendation(top[0].recommendationId, question, comparisonIds);
+      const result = await explainRecommendation(top[0].recommendationId, question, comparisonIds, locale);
       setAnswer({ text: result.answer, labels: result.sourceLabels });
       track('recommendation_explained', { question, llm_status: result.llmStatus });
     } catch {

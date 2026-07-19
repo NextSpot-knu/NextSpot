@@ -28,6 +28,26 @@ def test_difference_uses_both_snapshot_scores():
     assert "91점" in answer and "82점" in answer
 
 
+@pytest.mark.parametrize(
+    ("locale", "expected", "labels"),
+    [
+        ("ko", "91점", ["SPOT 근거 설명", "TourAPI 정보"]),
+        ("en", "SPOT score of 91", ["SPOT rationale", "TourAPI facts"]),
+        ("ja", "SPOTスコア91点", ["SPOT根拠説明", "TourAPI情報"]),
+        ("zh", "SPOT 91分", ["SPOT依据说明", "TourAPI信息"]),
+    ],
+)
+@pytest.mark.asyncio
+async def test_disabled_fallback_has_locale_parity(monkeypatch, locale, expected, labels):
+    monkeypatch.setattr(service.llm_client, "is_enabled", lambda: False)
+    answer, source_labels, status = await service.explain("why_first", [SNAPSHOT], locale)
+    assert expected in answer
+    assert source_labels == labels
+    assert status == "disabled"
+    for number in ("91", "1", "8", "3"):
+        assert number in answer
+
+
 @pytest.mark.asyncio
 async def test_llm_fabricated_number_is_rejected(monkeypatch):
     monkeypatch.setattr(service.llm_client, "is_enabled", lambda: True)

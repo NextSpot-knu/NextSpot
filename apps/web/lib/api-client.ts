@@ -1,5 +1,6 @@
 import { createPublicClient } from "./supabase";
 import type { TravelContext } from "./travelContext";
+import type { Locale } from "./i18n/config";
 const supabase = createPublicClient();
 
 // 인증 필요(HTTP 401)를 서버 장애·기타 오류와 구분하기 위한 전용 에러 타입.
@@ -349,10 +350,12 @@ export async function explainRecommendation(
   recommendationId: string,
   question: RecommendationQuestion,
   comparisonRecommendationIds: string[] = [],
+  locale: Locale = "ko",
 ): Promise<RecommendationExplanation> {
   return apiClient.post(`/api/v1/recommendations/${recommendationId}/explain`, {
     question,
     comparisonRecommendationIds: comparisonRecommendationIds.slice(0, 2),
+    locale,
   });
 }
 
