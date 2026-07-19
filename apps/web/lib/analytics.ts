@@ -11,6 +11,17 @@
 const FASTAPI_BASE_URL = process.env.NEXT_PUBLIC_FASTAPI_URL || "http://localhost:8000";
 const TRACK_URL = `${FASTAPI_BASE_URL}/api/v1/events/track`;
 
+const EVENT_PROPS: Record<string, ReadonlySet<string>> = {
+  context_applied: new Set(["categories", "max_walk_minutes", "available_minutes", "required_attributes", "exclude_visited"]),
+  recommendation_compared: new Set(["count"]),
+  recommendation_explained: new Set(["question", "llm_status"]),
+  navigation_started: new Set(["facility_type", "navigation_mode", "walk_minutes"]),
+  trip_resumed: new Set(["facility_type"]),
+  replan_requested: new Set(["facility_type"]),
+  arrival_confirmed: new Set(["facility_type"]),
+  visit_confirmed: new Set(["facility_type", "rating"]),
+};
+
 /**
  * 익명 분석 이벤트 1건을 백엔드로 전송한다(fire-and-forget, 실패해도 UI 에 영향 없음).
  * @param event 이벤트명(백엔드 상한 64자 — 초과 시 백엔드가 422 로 거부, 여기서는 무시됨)
@@ -20,7 +31,12 @@ export function track(event: string, props?: Record<string, unknown>): void {
   if (typeof window === "undefined") return; // SSR/프리렌더 가드
 
   try {
-    const payload = JSON.stringify({ event, props: props ?? {} });
+    const allowed = EVENT_PROPS[event];
+    if (!allowed) return;
+    const safeProps = Object.fromEntries(
+      Object.entries(props ?? {}).filter(([key]) => allowed.has(key)),
+    );
+    const payload = JSON.stringify({ event, props: safeProps });
 
     if (typeof navigator !== "undefined" && typeof navigator.sendBeacon === "function") {
       const blob = new Blob([payload], { type: "application/json" });

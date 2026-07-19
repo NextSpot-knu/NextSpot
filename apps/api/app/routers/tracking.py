@@ -28,6 +28,58 @@ _PROPS_MAX_BYTES = 1024
 _TRACK_COOLDOWN_SEC = 2.0
 _last_track_at: dict[str, float] = {}
 
+_EVENT_PROPS: dict[str, set[str]] = {
+    "context_applied": {"categories", "max_walk_minutes", "available_minutes", "required_attributes", "exclude_visited"},
+    "recommendation_compared": {"count"},
+    "recommendation_explained": {"question", "llm_status"},
+    "navigation_started": {"facility_type", "navigation_mode", "walk_minutes"},
+    "trip_resumed": {"facility_type"},
+    "replan_requested": {"facility_type"},
+    "arrival_confirmed": {"facility_type"},
+    "visit_confirmed": {"facility_type", "rating"},
+}
+_FACILITY_TYPES = {"restaurant", "cafe", "attraction", "culture"}
+_ATTRIBUTES = {"indoor", "accessible"}
+
+
+def _validate_product_event(event: str, props: dict) -> None:
+    """공모전 퍼널 이벤트만 허용하고 자유 텍스트·좌표가 들어갈 표면 자체를 닫는다."""
+    allowed = _EVENT_PROPS.get(event)
+    if allowed is None or not set(props).issubset(allowed):
+        raise HTTPException(status_code=422, detail="허용되지 않은 분석 이벤트 또는 속성입니다.")
+
+    facility_type = props.get("facility_type")
+    if facility_type is not None and facility_type not in _FACILITY_TYPES:
+        raise HTTPException(status_code=422, detail="facility_type 값이 올바르지 않습니다.")
+    categories = props.get("categories")
+    if categories is not None and (
+        not isinstance(categories, list) or len(categories) > 4 or any(v not in _FACILITY_TYPES for v in categories)
+    ):
+        raise HTTPException(status_code=422, detail="categories 값이 올바르지 않습니다.")
+    attributes = props.get("required_attributes")
+    if attributes is not None and (
+        not isinstance(attributes, list) or len(attributes) > 2 or any(v not in _ATTRIBUTES for v in attributes)
+    ):
+        raise HTTPException(status_code=422, detail="required_attributes 값이 올바르지 않습니다.")
+    if "max_walk_minutes" in props and props["max_walk_minutes"] not in {None, 5, 10, 20}:
+        raise HTTPException(status_code=422, detail="max_walk_minutes 값이 올바르지 않습니다.")
+    if "available_minutes" in props and props["available_minutes"] not in {None, 30, 60, 120}:
+        raise HTTPException(status_code=422, detail="available_minutes 값이 올바르지 않습니다.")
+    if "exclude_visited" in props and not isinstance(props["exclude_visited"], bool):
+        raise HTTPException(status_code=422, detail="exclude_visited 값이 올바르지 않습니다.")
+    if "question" in props and props["question"] not in {"why_first", "difference", "family_check"}:
+        raise HTTPException(status_code=422, detail="question 값이 올바르지 않습니다.")
+    if "llm_status" in props and props["llm_status"] not in {"llm", "llm_failed", "disabled", "rejected"}:
+        raise HTTPException(status_code=422, detail="llm_status 값이 올바르지 않습니다.")
+    if "navigation_mode" in props and props["navigation_mode"] not in {"walk", "car"}:
+        raise HTTPException(status_code=422, detail="navigation_mode 값이 올바르지 않습니다.")
+    if "rating" in props and props["rating"] not in {None, "up", "down"}:
+        raise HTTPException(status_code=422, detail="rating 값이 올바르지 않습니다.")
+    for key, maximum in (("count", 3), ("walk_minutes", 300)):
+        value = props.get(key)
+        if value is not None and (isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0 or value > maximum):
+            raise HTTPException(status_code=422, detail=f"{key} 값이 올바르지 않습니다.")
+
 
 class TrackRequest(BaseModel):
     event: str = Field(..., max_length=64, description="이벤트명(<=64자)")
@@ -46,6 +98,7 @@ def _client_ip(request: Request) -> str:
 async def track_event(req: TrackRequest, request: Request):
     """익명 분석 이벤트 1건 적재 → 204. props 과대(422)·IP 쿨다운(조용히 드롭, 204)."""
     props = req.props or {}
+    _validate_product_event(req.event, props)
     # props 크기 상한(직렬화 바이트 기준). 한글 등 멀티바이트도 정확히 반영되도록 ensure_ascii=False.
     if len(json.dumps(props, ensure_ascii=False).encode("utf-8")) > _PROPS_MAX_BYTES:
         raise HTTPException(status_code=422, detail="props 는 1KB 를 초과할 수 없습니다.")

@@ -47,6 +47,15 @@ export default function ActiveJourneyCard({ location }: { location: { lat: numbe
     if (busy) return;
     setBusy(true);
     track('replan_requested', { facility_type: trip.type });
+    if (confirmed) {
+      track('context_applied', {
+        categories: confirmed.categories ?? [],
+        max_walk_minutes: confirmed.maxWalkMinutes ?? null,
+        available_minutes: confirmed.availableMinutes ?? null,
+        required_attributes: confirmed.requiredAttributes ?? [],
+        exclude_visited: confirmed.excludeVisited ?? false,
+      });
+    }
     try {
       const base = (trip.context as unknown as TravelContext | undefined) ?? loadTravelContext();
       const context: TravelContext = {
