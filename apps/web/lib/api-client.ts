@@ -491,6 +491,17 @@ export async function parsePreference(text: string): Promise<ParsePreferenceResu
   return apiClient.post("/api/v1/preferences/parse", { text });
 }
 
+export interface ParseTravelContextResult {
+  context: Partial<TravelContext>;
+  llmStatus: "keyword" | "llm" | "llm_failed" | "disabled";
+  requiresConfirmation: true;
+}
+
+/** 자연어 현장 조건은 구조화만 한다. 호출부에서 사용자가 확인하기 전에는 추천에 적용하지 않는다. */
+export async function parseTravelContext(text: string): Promise<ParseTravelContextResult> {
+  return apiClient.post("/api/v1/travel-context/parse", { text });
+}
+
 // --- 음성 비서 1턴 해석 (백엔드 키워드 분류기) ---
 
 export interface VoiceTurnCandidate {
