@@ -71,6 +71,8 @@ def test_course_happy_path(auth_client):  # noqa: F811
     # (백엔드는 snake_case 로 응답 — camelCase 변환은 프런트 api-client 담당.)
     offsets = [s["arrival_offset_min"] for s in stops]
     assert offsets == sorted(offsets)
+    # 활성 여정에는 누적 도착시간이 아니라 각 구간의 실제 도보시간을 저장해야 한다.
+    assert all(0 < s["travel_minutes"] <= s["arrival_offset_min"] for s in stops)
 
     for s in stops:
         assert 0.0 <= s["predicted_congestion"] <= 1.0

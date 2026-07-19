@@ -24,6 +24,7 @@ import { encodeStops, parseShareParam } from "@/lib/course-share";
 import { loadTravelContext } from "@/lib/travelContext";
 import { recordActiveTrip } from "@/lib/visits";
 import { track } from "@/lib/analytics";
+import { openDrivingDirections, openWalkingDirections } from "@/lib/navigation";
 
 type TFunc = (key: string, vars?: Record<string, string | number>) => string;
 
@@ -48,6 +49,7 @@ interface CourseStop {
   spotScore: number;
   reason: string;
   openStatusAtArrival?: 'open_expected' | 'closing_soon' | 'closed_confirmed' | 'needs_confirmation';
+  travelMinutes?: number | null;
 }
 
 // 순서 지정 피커에 담긴 한 칸. type 은 백엔드 sequence 슬롯 값, uid 는 프런트 전용 드래그 식별자
@@ -812,17 +814,31 @@ function StopRows({ stops, readOnly = false }: { stops: CourseStop[]; readOnly?:
   );
 }
 
-// 카카오맵 길찾기 딥링크 — '현재 위치 → 이 정류지' 도보/대중교통 경로를 카카오맵 앱/웹이 그려준다.
-// 좌표는 서버 왕복 없이 정류지 자체 데이터로 즉시 구성(공유 모드에서도 동일하게 동작).
-function directionsUrl(facility: CourseStop["facility"]): string {
-  return `https://map.kakao.com/link/map/${encodeURIComponent(facility.name)},${facility.latitude},${facility.longitude}`;
-}
-
 function StopRow({ stop, readOnly = false }: { stop: CourseStop; readOnly?: boolean }) {
   const t = useT();
   const [open, setOpen] = useState(false);
   const cong = congestion(stop.predictedCongestion);
   const reasonId = `course-reason-${stop.facility.id}`;
+  const startNavigation = (mode: 'walk' | 'car') => {
+    const walkMinutes = stop.travelMinutes ?? stop.arrivalOffsetMin;
+    recordActiveTrip(stop.facility, {
+      walkMinutes,
+      context: loadTravelContext() as unknown as Record<string, unknown>,
+      navigationMode: mode,
+    });
+    track('navigation_started', {
+      facility_type: stop.facility.type,
+      navigation_mode: mode,
+      walk_minutes: Math.round(walkMinutes),
+    });
+    if (mode === 'car') {
+      toast.info(t('trip.driveBasisHint'));
+      openDrivingDirections(stop.facility);
+    } else {
+      toast.info(t('trip.selectWalking'));
+      openWalkingDirections(stop.facility);
+    }
+  };
   return (
     <div className="px-4 md:px-6 py-4">
       <div className="flex items-start gap-3">
@@ -870,22 +886,23 @@ function StopRow({ stop, readOnly = false }: { stop: CourseStop; readOnly?: bool
                 <ChevronDown size={13} className={`transition-transform ${open ? "rotate-180" : ""}`} aria-hidden />
               </button>
             )}
-            <a
-              href={directionsUrl(stop.facility)}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={(e) => {
-                e.stopPropagation();
-                recordActiveTrip(stop.facility, { walkMinutes: stop.arrivalOffsetMin, context: loadTravelContext() as unknown as Record<string, unknown> });
-                track('navigation_started', { facility_type: stop.facility.type, navigation_mode: 'walk', walk_minutes: Math.round(stop.arrivalOffsetMin) });
-                toast.info(t('trip.selectWalking'));
-              }}
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); startNavigation('walk'); }}
               aria-label={t('course.directionsAria', { name: stop.facility.name })}
               className="ml-auto shrink-0 inline-flex items-center gap-1 px-2.5 py-1 rounded-full border border-gold/30 bg-gold/10 text-[11px] font-bold text-gold-deep hover:bg-gold/20 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/50"
             >
               <Navigation size={11} aria-hidden />
               {t('course.directions')}
-            </a>
+            </button>
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); startNavigation('car'); }}
+              aria-label={t('course.drivingAria', { name: stop.facility.name })}
+              className="shrink-0 px-2 py-1 rounded-full border border-line bg-white text-[10px] font-bold text-muk-soft hover:border-gold/30 hover:text-gold-deep"
+            >
+              {t('course.driving')}
+            </button>
           </div>
 
           {!readOnly && open && (

@@ -81,6 +81,7 @@ class CourseStop(BaseModel):
     spot_score: float
     reason: str
     open_status_at_arrival: str | None = None
+    travel_minutes: float | None = None  # 직전 위치→정류지 구간 도보시간(누적 arrival_offset 과 구분)
 
 
 def _congestion_label(level: float) -> str:
@@ -174,6 +175,7 @@ async def _evaluate_candidate(
         "predicted_congestion": predicted_congestion,
         "current_congestion": current_congestion,
         "arrival_offset_min": round(arrival_offset, 1),
+        "travel_minutes": round(travel_min, 1),
         "distance_m": dist,
         "open_status_at_arrival": open_status_at_arrival(scored_facility, arrival_dt),
     }
@@ -329,6 +331,7 @@ async def recommend_course(
                 item["current_congestion"],
             ),
             open_status_at_arrival=item["open_status_at_arrival"],
+            travel_minutes=item["travel_minutes"],
         )
         for i, item in enumerate(chosen)
     ]
