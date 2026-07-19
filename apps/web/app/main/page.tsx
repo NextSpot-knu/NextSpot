@@ -24,7 +24,7 @@ import { loadSavedLocal, syncSaved, saveBookmark, type SavedRecord } from '@/lib
 import { useT } from '@/lib/i18n/I18nProvider';
 // T2: 휴무 원문 파서(오늘 휴무 확정만 배제) + 가능/불가능 텍스트 파서(주차·반려동물 필터) — 공용 단일 소스.
 import { isClosedToday, parseAvailability } from '@/lib/restDate';
-import { loadTravelContext } from '@/lib/travelContext';
+import { loadTravelContext, saveTravelContext } from '@/lib/travelContext';
 
 const RecommendationCard = dynamic(
   () => import('@/components/RecommendationCard').then((m) => m.RecommendationCard),
@@ -85,7 +85,6 @@ interface FacilityRecord {
   reason?: string;
   apiRank?: number;
   totalCandidates?: number;
-  weatherAdjusted?: boolean;
 }
 
 // 개별 시설 vs 그룹(모음) 마커 — isGroup 판별식 union(expandGroups/마커 클릭 분기용).
@@ -195,8 +194,7 @@ export default function MainPage() {
   const [isMockTimeMinimized, setIsMockTimeMinimized] = useState(true);
   const [mockHour, setMockHour] = useState<number | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
-  const [weatherPreference, setWeatherPreference] = useState({ enabled: false, activeRisk: false });
-  const [travelContext] = useState(loadTravelContext);
+  const [travelContext, setTravelContext] = useState(loadTravelContext);
   const [showMobileTools, setShowMobileTools] = useState(false);
 
   // 히트맵 레이어 on/off — 혼잡 핀과 별개의 열지도 오버레이(CongestionMap 에서 이식). 기본 꺼짐.
@@ -828,10 +826,7 @@ export default function MainPage() {
           if (liveMode && realCands.length > 0) {
             try {
               // 백엔드에는 rejectedIds와 savedIds를 제외하고 요청
-              const requestContext = weatherPreference.enabled && weatherPreference.activeRisk
-                ? { ...travelContext, requiredAttributes: [...new Set([...travelContext.requiredAttributes, 'indoor' as const])] }
-                : travelContext;
-              const recs = await recommendByType(targetType, userLocation, [...rejectedIds, ...savedIds], 5, requestContext);
+              const recs = await recommendByType(targetType, userLocation, [...rejectedIds, ...savedIds], 5, travelContext);
               const byId = new Map(realCands.map(f => [f.id, f]));
               realRanked = recs
                 .filter(r => byId.has(r.facility.id))
@@ -885,11 +880,6 @@ export default function MainPage() {
           });
         }
 
-        // Weather never reorders SPOT. The opt-in is expressed as an indoor eligibility condition.
-        if (weatherPreference.enabled && weatherPreference.activeRisk) {
-          all = all.map((facility) => ({ ...facility, weatherAdjusted: true }));
-        }
-
         if (cancelled) return;
         setRankedFacilities(all);
         if (all.length === 0) {
@@ -913,7 +903,7 @@ export default function MainPage() {
     // voiceFilterIds 는 dep로 두지 않는다(필터 변경은 onFilter가 직접 처리; effect는 ref로 최신값 읽음 → 더블셋/경합 방지).
     // rejectedIds, savedIds 도 dep에서 제외하여 거절/저장 시 불필요한 백엔드 API 재호출(점수/순위 리셋 현상)을 방지.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [facilities, activeFilter, userLocation, preferredCategories, mockHour, weatherPreference, travelContext]);
+  }, [facilities, activeFilter, userLocation, preferredCategories, mockHour, travelContext]);
 
   // Action Button Handlers
   const handleAccept = (fac: Facility, navigationMode: 'walk' | 'car' = 'walk') => {
@@ -1674,11 +1664,24 @@ export default function MainPage() {
           </div>
         </div>
 
-        <WeatherChip onPreferenceChange={(enabled, activeRisk) => {
-          setWeatherPreference((current) => current.enabled === enabled && current.activeRisk === activeRisk
-            ? current : { enabled, activeRisk });
-          if (enabled && !weatherPreference.enabled) setActiveFilter('문화시설');
-        }} />
+        <WeatherChip
+          indoorRequired={travelContext.requiredAttributes.includes('indoor')}
+          onIndoorRequiredChange={(required) => {
+            const requiredAttributes = required
+              ? [...new Set([...travelContext.requiredAttributes, 'indoor' as const])]
+              : travelContext.requiredAttributes.filter((attribute) => attribute !== 'indoor');
+            const next = { ...travelContext, requiredAttributes };
+            setTravelContext(next);
+            saveTravelContext(next);
+            track('context_applied', {
+              categories: next.categories,
+              max_walk_minutes: next.maxWalkMinutes ?? null,
+              available_minutes: next.availableMinutes ?? null,
+              required_attributes: next.requiredAttributes,
+              exclude_visited: next.excludeVisited,
+            });
+          }}
+        />
 
         {/* (c) 검색 결과 없음 안내 — 입력값은 있으나 현재 카테고리에 일치 장소가 없을 때 */}
         {searchActive && searchMatchCount === 0 && (
@@ -2130,7 +2133,6 @@ export default function MainPage() {
                     ?? null,
                   isStale: selectedFacility.congestionIsStale ?? !!selectedFacility.isStale,
                 }}
-                weatherAdjusted={Boolean(selectedFacility.weatherAdjusted)}
                 openStatusAtArrival={selectedFacility.openStatusAtArrival}
                 congestionSource={selectedFacility.congestionSource}
               />

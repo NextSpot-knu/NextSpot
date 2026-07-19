@@ -7,7 +7,7 @@ import { useT } from '@/lib/i18n/I18nProvider';
 
 interface WeatherNow { at: string; temperatureC: number; sky: number; precipitationType: number; precipitationProbability: number; windSpeedMps: number; }
 interface WeatherResponse { source: 'kma' | 'unavailable'; current: WeatherNow | null; forecasts: WeatherNow[]; indoorRecommended: boolean; }
-interface WeatherChipProps { onPreferenceChange?: (enabled: boolean, activeRisk: boolean) => void; }
+interface WeatherChipProps { indoorRequired: boolean; onIndoorRequiredChange: (required: boolean) => void; }
 
 function iconOf(now: WeatherNow): string {
   if (now.precipitationType === 3 || now.precipitationType === 7) return '❄️';
@@ -21,21 +21,16 @@ function hourOf(value: string): string {
   return new Intl.DateTimeFormat(undefined, { hour: 'numeric' }).format(new Date(value));
 }
 
-export default function WeatherChip({ onPreferenceChange }: WeatherChipProps) {
+export default function WeatherChip({ indoorRequired, onIndoorRequiredChange }: WeatherChipProps) {
   const t = useT();
   const [data, setData] = useState<WeatherResponse | null>(null);
   const [expanded, setExpanded] = useState(false);
-  const [enabled, setEnabled] = useState(false);
 
   useEffect(() => {
     let active = true;
     apiClient.get('/api/v1/weather').then((value: WeatherResponse) => { if (active) setData(value); }).catch(() => undefined);
     return () => { active = false; };
   }, []);
-
-  useEffect(() => {
-    onPreferenceChange?.(enabled, Boolean(data?.indoorRecommended));
-  }, [data?.indoorRecommended, enabled, onPreferenceChange]);
 
   if (!data?.current || data.source !== 'kma') return null;
   const now = data.current;
@@ -59,9 +54,9 @@ export default function WeatherChip({ onPreferenceChange }: WeatherChipProps) {
             ))}
           </div>
           <div className="mt-2 text-[10px] text-muk-soft">{t('weather.observedAt', { time: hourOf(now.at) })}</div>
-          {data.indoorRecommended && (
-            <button type="button" onClick={() => setEnabled((value) => !value)} aria-pressed={enabled} className={`mt-2.5 flex w-full items-center justify-center gap-2 rounded-xl border px-3 py-2 text-xs font-bold transition-colors ${enabled ? 'border-jade bg-jade/15 text-jade' : 'border-gold/50 bg-gold/10 text-muk'}`}>
-              <Umbrella size={14} />{enabled ? t('weather.modeOn') : t('weather.modeCta')}
+          {(data.indoorRecommended || indoorRequired) && (
+            <button type="button" onClick={() => onIndoorRequiredChange(!indoorRequired)} aria-pressed={indoorRequired} className={`mt-2.5 flex w-full items-center justify-center gap-2 rounded-xl border px-3 py-2 text-xs font-bold transition-colors ${indoorRequired ? 'border-jade bg-jade/15 text-jade' : 'border-gold/50 bg-gold/10 text-muk'}`}>
+              <Umbrella size={14} />{t('setup.indoorOnly')}
             </button>
           )}
         </div>
