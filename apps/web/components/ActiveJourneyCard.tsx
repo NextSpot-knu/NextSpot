@@ -69,14 +69,15 @@ export default function ActiveJourneyCard({ location }: { location: { lat: numbe
     }
     try {
       const base = (trip.context as unknown as TravelContext | undefined) ?? loadTravelContext();
+      const excludeVisited = confirmed?.excludeVisited ?? base.excludeVisited;
       const context: TravelContext = {
         ...base,
         ...confirmed,
         categories: confirmed?.categories ?? base.categories,
         requiredAttributes: confirmed?.requiredAttributes ?? base.requiredAttributes,
-        visitedFacilityIds: confirmed?.excludeVisited
+        visitedFacilityIds: excludeVisited
           ? [...new Set(getVisitHistory().map((entry) => entry.facilityId))].slice(0, 200)
-          : base.visitedFacilityIds,
+          : [],
       };
       const facilityTypes = context.categories.length ? context.categories : [trip.type];
       const batches = await Promise.all(
@@ -126,6 +127,7 @@ export default function ActiveJourneyCard({ location }: { location: { lat: numbe
       {changeOpen && (
         <div className="mt-3 border-t border-line pt-3">
           <label className="text-xs font-bold text-muk" htmlFor="trip-change">{t('trip.changeTitle')}</label>
+          <button type="button" disabled={busy} onClick={() => void replan()} className="mt-2 w-full rounded-xl bg-jade py-2 text-xs font-bold text-white disabled:opacity-50">{t('trip.confirmContext')}</button>
           <textarea id="trip-change" maxLength={300} value={changeText} onChange={(event) => setChangeText(event.target.value)} placeholder={t('trip.changePlaceholder')} className="mt-2 w-full min-h-16 resize-none rounded-xl border border-line px-3 py-2 text-xs text-muk outline-none focus:border-jade" />
           <button type="button" disabled={busy || !changeText.trim()} onClick={() => void parseChange()} className="mt-2 w-full rounded-xl border border-jade/30 bg-jade/5 py-2 text-xs font-bold text-jade disabled:opacity-50">{busy ? t('trip.parsing') : t('trip.parse')}</button>
           {draft && (
