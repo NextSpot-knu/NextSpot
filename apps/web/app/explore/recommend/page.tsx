@@ -17,6 +17,7 @@ import { recordActiveTrip } from "@/lib/visits";
 import { openDrivingDirections, openWalkingDirections } from "@/lib/navigation";
 import { track } from "@/lib/analytics";
 import { loadTravelContext } from "@/lib/travelContext";
+import { relativeParts } from "@/lib/freshness";
 
 // Extend global Window
 declare global {
@@ -1216,6 +1217,13 @@ function RecommendContent() {
               // 오늘 휴무 — 보수 파서 확정(true)일 때만 배지(과판정 금지 원칙).
               const closedToday =
                 isClosedToday((recFeatures?.restDateRaw ?? recFeatures?.rest_date_raw) as string | undefined) === true;
+              const freshness = relativeParts(rec.congestionTimestamp ?? rec.dataUpdatedAt);
+              const freshnessText = freshness
+                ? freshness.unit === 'now' ? t('freshness.justNow')
+                  : freshness.unit === 'min' ? t('freshness.minAgo', { n: freshness.value })
+                  : freshness.unit === 'hour' ? t('freshness.hourAgo', { n: freshness.value })
+                  : t('freshness.dayAgo', { n: freshness.value })
+                : null;
 
               return (
                 <div
@@ -1301,6 +1309,13 @@ function RecommendContent() {
                       <h4 className="text-base font-extrabold text-muk mt-1.5">
                         {rec.facility.name}
                       </h4>
+                      {rec.congestionSource !== 'none' && freshnessText && (
+                        <p className="mt-0.5 text-[10px] text-muk-soft">
+                          {rec.congestionLogSource === 'user_report'
+                            ? t('card.freshReport', { rel: freshnessText })
+                            : t('card.freshLive', { rel: freshnessText })}
+                        </p>
+                      )}
                       {/* 공식 대표 메뉴(TourAPI first_menu) — 있을 때만, 앞 2개('지어내지 않기'). */}
                       {firstMenuTokens.length > 0 && (
                         <p className="mt-0.5 text-[11px] text-muk-soft">
