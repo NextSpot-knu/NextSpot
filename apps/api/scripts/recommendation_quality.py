@@ -97,6 +97,7 @@ def evaluate_live(base_url: str, bearer: str | None, user_id: str | None) -> dic
     ]
     scenarios = []
     hard_failures = []
+    warnings = []
     if not (bearer and user_id):
         hard_failures.append({"scenario": "live authentication", "failures": ["missing_bearer_or_user_id"]})
     for name, facility_type, lat, lng, context in scenarios_config:
@@ -147,6 +148,8 @@ def evaluate_live(base_url: str, bearer: str | None, user_id: str | None) -> dic
         scenario_failures = sorted(set(scenario_failures))
         if scenario_failures:
             hard_failures.append({"scenario": name, "failures": scenario_failures})
+        if bearer and user_id and not ranked:
+            warnings.append({"scenario": name, "warning": "no_eligible_recommendations"})
         scenarios.append({
             "name": name,
             "hard_failures": scenario_failures,
@@ -158,9 +161,19 @@ def evaluate_live(base_url: str, bearer: str | None, user_id: str | None) -> dic
                 "congestion_evidence": row.get("congestion_source") or "none",
             } for row in ranked],
         })
+    culture_without_indoor = [
+        row.get("id") for row in facilities
+        if row.get("type") == "culture" and not (
+            (row.get("features") or {}).get("indoor") is True
+            or (row.get("features") or {}).get("indoor_verified") is True
+        )
+    ]
     return {"mode": "live", "scenario_count": len(scenarios), "facility_count": len(facilities),
             "authenticated_recommendations": bool(bearer and user_id),
-            "hard_failure_count": len(hard_failures), "hard_failures": hard_failures, "scenarios": scenarios}
+            "hard_failure_count": len(hard_failures), "hard_failures": hard_failures,
+            "warning_count": len(warnings), "warnings": warnings,
+            "data_gaps": {"culture_without_indoor_evidence_ids": culture_without_indoor},
+            "scenarios": scenarios}
 
 
 def write_report(report: dict, output: Path | None) -> None:
