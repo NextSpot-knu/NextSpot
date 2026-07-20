@@ -1,9 +1,15 @@
-# 세션 인계 문서 (2026-07-19 갱신)
+# 세션 인계 문서 (2026-07-20 갱신)
 
 ## -22. 2026-07-19 — 추천 품질 골든 게이트 + 현장 폐루프 + Playwright
 
 ### 2026-07-20 후속 완료
 
+- 별도 승인 후 공식 시설 페이지 근거가 있는 국립경주박물관·경주예술의전당 2곳의 원격
+  `features.indoor_verified=true`를 기존 JSON 보존 병합으로 반영하고 즉시 재조회 검증했다. 적용 감사는
+  `scratch/indoor_evidence_apply.json`에만 저장했다. 인증 라이브 재평가는 활성 장소 **104개**,
+  12개 시나리오, 하드 실패 **0건**이며 실내 근거 미확인 culture는 7곳에서 5곳으로 감소했다.
+  실내 시나리오의 빈 결과 경고 2건은 평가일이 월요일이고 두 검증 시설 모두 확정 월요 휴무여서
+  휴무 필터가 정상 작동한 결과다. 나머지 5곳은 공식 근거 확보 전까지 검증 표식을 보류한다.
 - Supabase 익명 세션을 메모리에서만 발급해 배포 추천 API 인증 라이브 스모크를 완료했다. 활성 장소
   **104개**, 12개 시나리오, 하드 실패 **0건**. 토큰·사용자 ID는 보고서에 기록하지 않았고 결과는
   `scratch/recommendation_quality_live_authenticated.json`에만 저장했다. 라이브 CLI는 이제 유형,
@@ -25,10 +31,11 @@
   원형 버튼 내부로 클리핑하고 페이지 x축도 paint clip 처리해 수정; Chromium 13/13을 연속 2회 통과.
   최종 게이트: API pytest **624 passed**, ruff, web lint 0 errors/typecheck/unit/build 32 pages,
   스키마 파리티와 `git diff --check` 통과.
-- 라이브 데이터 후속 감사: culture 7곳 중 실내 근거가 채워진 곳이 0곳이라 `첨성대 실내 문화`와
+- 라이브 데이터 후속 감사(적용 전): culture 7곳 중 실내 근거가 채워진 곳이 0곳이라 `첨성대 실내 문화`와
   `비가 와서 실내`가 빈 결과였다. 라이브 보고서는 이를 하드 실패와 분리한 경고 2건 및 7개 시설 ID
   데이터 공백으로 기록한다. 공식 시설 페이지가 확인된 국립경주박물관·경주예술의전당 2곳만
-  `scratch/indoor_evidence_dry_run.json`에 `indoor_verified=true` 제안으로 작성했고 원격 반영은 하지 않았다.
+  `scratch/indoor_evidence_dry_run.json`에 `indoor_verified=true` 제안으로 작성했다. 이후 별도 승인을 받아
+  위 2026-07-20 후속 완료 항목대로 원격 반영했다.
 - 운영시간 파서는 시드 `weekday/weekend`와 영문 휴무 요일(`monday` 등)을 지원한다. TourAPI `open`
   폴백과 도착 시점 `closing_soon` 규칙은 유지한다.
 
