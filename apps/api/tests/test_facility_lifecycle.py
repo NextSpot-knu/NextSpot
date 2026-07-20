@@ -219,7 +219,8 @@ def test_fetch_showflag_map_empty_response_returns_empty_map():
 def test_sync_showflags_empty_map_is_noop_without_db_call():
     # showflag_by_id 가 비면 DB 조회조차 하지 않는다(app.core.supabase.supabase_admin 패치 불필요).
     summary = ingest_tourapi.sync_showflags({})
-    assert summary == {"checked": 0, "deactivated": [], "reactivated": 0, "degraded": False, "reason": None}
+    assert summary == {"checked": 0, "deactivated": [], "reactivated": 0,
+                       "reactivation_deferred": 0, "degraded": False, "reason": None}
 
 
 def test_sync_showflags_deactivates_reactivates_and_skips_noop_and_unknown():
@@ -243,6 +244,20 @@ def test_sync_showflags_deactivates_reactivates_and_skips_noop_and_unknown():
     assert summary["reactivated"] == 1
     assert summary["degraded"] is False
     assert facilities.update_calls == [("id-a", {"is_active": False}), ("id-b", {"is_active": True})]
+
+
+def test_sync_showflags_defers_reactivation_during_temporary_closure():
+    rows = [{"id": "library", "contentid": "1", "is_active": False,
+             "features": {"temporarily_inactive_until": "2999-12-28"}}]
+    facilities = _RecordingFacilitiesTable(rows)
+    admin = _FakeAdmin(facilities)
+
+    with patch("app.core.supabase.supabase_admin", admin):
+        summary = ingest_tourapi.sync_showflags({"1": "1"})
+
+    assert summary["reactivated"] == 0
+    assert summary["reactivation_deferred"] == 1
+    assert facilities.update_calls == []
 
 
 def test_sync_showflags_degrades_gracefully_when_column_missing():

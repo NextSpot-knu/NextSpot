@@ -21,6 +21,7 @@ import asyncio
 import json
 import os
 import sys
+from datetime import date
 
 import httpx
 
@@ -293,6 +294,16 @@ async def fetch_showflag_map(
     return showflag_by_id
 
 
+def _temporary_closure_active(features: dict | None, today: date | None = None) -> bool:
+    raw = (features or {}).get("temporarily_inactive_until")
+    if not isinstance(raw, str):
+        return False
+    try:
+        return date.fromisoformat(raw) >= (today or date.today())
+    except ValueError:
+        return False
+
+
 def sync_showflags(showflag_by_id: dict[str, str]) -> dict:
     """showflag 맵을 facilities.is_active 에 반영한다(동기 — DB I/O, 스크립트 컨텍스트라 to_thread 불필요).
 
@@ -306,14 +317,15 @@ def sync_showflags(showflag_by_id: dict[str, str]) -> dict:
     # DB 클라이언트는 여기서 지연 임포트 — upsert_facilities 와 동일 관례(테스트 용이성 포함).
     from app.core.supabase import supabase_admin
 
-    summary: dict = {"checked": 0, "deactivated": [], "reactivated": 0, "degraded": False, "reason": None}
+    summary: dict = {"checked": 0, "deactivated": [], "reactivated": 0,
+                     "reactivation_deferred": 0, "degraded": False, "reason": None}
     if not showflag_by_id:
         return summary
 
     try:
         existing = (
             supabase_admin.table("facilities")
-            .select("id, contentid, is_active")
+            .select("id, contentid, is_active, features")
             .not_.is_("contentid", "null")
             .execute()
         )
@@ -339,6 +351,9 @@ def sync_showflags(showflag_by_id: dict[str, str]) -> dict:
                     print(f"[sync] is_active=false 갱신 실패 (contentid={contentid}): {e}")
         elif showflag == "1":
             if prior_active is False:  # 신규 재표출 복구
+                if _temporary_closure_active(row.get("features")):
+                    summary["reactivation_deferred"] += 1
+                    continue
                 try:
                     supabase_admin.table("facilities").update({"is_active": True}).eq("id", row["id"]).execute()
                     summary["reactivated"] += 1
