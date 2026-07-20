@@ -57,6 +57,7 @@ async function mockRecommendationPage(
 }
 
 test('SOLAR on, timeout, and disabled keep identical visible SPOT order', async ({ browser }) => {
+  test.setTimeout(60_000); // 세 개의 독립 페이지를 순차 로드하므로 Windows dev server의 첫 컴파일 여유를 둔다.
   const rankings: string[][] = [];
   for (const state of [
     { name: 'on', reasonSource: 'llm' as const },
