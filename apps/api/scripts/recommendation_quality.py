@@ -76,6 +76,25 @@ async def evaluate_fixture(path: Path) -> dict:
             "hard_failures": hard_failures, "scenarios": results}
 
 
+def classify_culture_indoor_evidence(facilities: list[dict]) -> dict[str, list[str]]:
+    missing = []
+    verified_non_indoor = []
+    for row in facilities:
+        if row.get("type") != "culture":
+            continue
+        features = row.get("features") or {}
+        if features.get("indoor") is True or features.get("indoor_verified") is True:
+            continue
+        if features.get("indoor_verified") is False:
+            verified_non_indoor.append(row.get("id"))
+        else:
+            missing.append(row.get("id"))
+    return {
+        "culture_without_indoor_evidence_ids": missing,
+        "culture_verified_non_indoor_ids": verified_non_indoor,
+    }
+
+
 def evaluate_live(base_url: str, bearer: str | None, user_id: str | None) -> dict:
     url = f"{base_url.rstrip('/')}/api/v1/infrastructures"
     with urllib.request.urlopen(url, timeout=30) as response:  # noqa: S310 - explicit CLI URL
@@ -161,18 +180,11 @@ def evaluate_live(base_url: str, bearer: str | None, user_id: str | None) -> dic
                 "congestion_evidence": row.get("congestion_source") or "none",
             } for row in ranked],
         })
-    culture_without_indoor = [
-        row.get("id") for row in facilities
-        if row.get("type") == "culture" and not (
-            (row.get("features") or {}).get("indoor") is True
-            or (row.get("features") or {}).get("indoor_verified") is True
-        )
-    ]
     return {"mode": "live", "scenario_count": len(scenarios), "facility_count": len(facilities),
             "authenticated_recommendations": bool(bearer and user_id),
             "hard_failure_count": len(hard_failures), "hard_failures": hard_failures,
             "warning_count": len(warnings), "warnings": warnings,
-            "data_gaps": {"culture_without_indoor_evidence_ids": culture_without_indoor},
+            "data_gaps": classify_culture_indoor_evidence(facilities),
             "scenarios": scenarios}
 
 
