@@ -7,6 +7,7 @@
 // 정적 export(SSR) 안전: 모든 Web Speech 접근은 이벤트/이펙트 내부 + typeof window 가드.
 // 폴백 우선: TTS/STT 미지원·마이크 거부 시 graceful(데모 무중단).
 import { useEffect, useRef, useState } from "react";
+import type { VoiceAppCommand } from './voiceCommands';
 
 // TTS 는 브라우저 내장 speechSynthesis 만 사용한다.
 // (대회용 Google Cloud Text-to-Speech 연동은 제거됨 — 로컬 전용·외부 의존성 0.)
@@ -15,13 +16,14 @@ export type VoiceState = "idle" | "speaking" | "listening" | "thinking";
 
 /** 백엔드(키워드 분류기)가 해석한 음성 1턴 결과 */
 export interface VoiceTurn {
-  action: string; // accept|next|reject|details|select|filter|stop|unknown
+  action: string; // accept|next|reject|details|select|filter|command|stop|unknown
   targetId?: string | null; // select 일 때 고른 시설 id
   matchIds?: string[]; // filter 일 때 선호에 맞는 후보 id들
   spoken?: string | null; // 백엔드 생성 한국어 응답
   // filter 매치 0건일 때 백엔드가 제안한 '유사 대안' 후보 id — spoken 이 "…안내해드릴까요?"로 물었고,
   // 다음 턴 accept 는 현재 카드 수락이 아니라 이 후보 선택(select)으로 처리한다(2턴 흐름).
   suggestionId?: string | null;
+  command?: VoiceAppCommand | null;
 }
 
 export interface VoiceAssistantOptions<T> {
@@ -37,6 +39,8 @@ export interface VoiceAssistantOptions<T> {
   onSelect?: (id: string, spoken?: string) => void;
   /** 백엔드가 선호로 후보를 좁힘(예: '양식'→양식 식당들). 추천 풀을 실시간 필터링해 재추천. */
   onFilter?: (matchIds: string[], spoken?: string) => void;
+  /** 검증된 앱 명령을 실행. 후보 없음이면 false를 반환해 현재 상태와 카드를 유지한다. */
+  onCommand?: (command: VoiceAppCommand) => boolean;
   /** 사용자 발화를 백엔드로 해석(미제공 시 unknown 처리). 카드 정보로 후보를 만들어 백엔드 호출. */
   interpret?: (utterance: string, item: T) => Promise<VoiceTurn>;
 }
@@ -297,6 +301,17 @@ export function useVoiceAssistant<T>(opts: VoiceAssistantOptions<T>): VoiceAssis
           speak(msg, () => scheduleListen());
         }
         break;
+      case "command": {
+        try { recRef.current?.abort?.(); } catch { /* noop */ }
+        const applied = turn.command && o.onCommand ? o.onCommand(turn.command) : false;
+        if (applied) finish(turn.spoken || "요청한 조건을 적용했어요.");
+        else {
+          const msg = "조건에 맞는 확인된 후보가 없어 기존 추천을 유지할게요.";
+          setVoiceState("speaking"); setCaption(msg);
+          speak(msg, () => scheduleListen());
+        }
+        break;
+      }
       case "details": {
         const msg = turn.spoken || (o.getDetail && o.getDetail(item)) || `${o.getName(item)} 정보를 다시 안내할게요. 여기로 안내할까요?`;
         setVoiceState("speaking"); setCaption(msg);

@@ -20,6 +20,7 @@ const EVENT_PROPS: Record<string, ReadonlySet<string>> = {
   replan_requested: new Set(["facility_type"]),
   arrival_confirmed: new Set(["facility_type"]),
   visit_confirmed: new Set(["facility_type", "rating"]),
+  voice_tool_executed: new Set(["tool", "status", "facility_type", "max_walk_minutes"]),
 };
 
 /**

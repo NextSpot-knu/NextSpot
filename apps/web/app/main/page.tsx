@@ -24,7 +24,8 @@ import { loadSavedLocal, syncSaved, saveBookmark, type SavedRecord } from '@/lib
 import { useT } from '@/lib/i18n/I18nProvider';
 // T2: 휴무 원문 파서(오늘 휴무 확정만 배제) + 가능/불가능 텍스트 파서(주차·반려동물 필터) — 공용 단일 소스.
 import { isClosedToday, parseAvailability } from '@/lib/restDate';
-import { loadTravelContext, matchesTravelContext, saveTravelContext } from '@/lib/travelContext';
+import { loadTravelContext, matchesTravelContext, saveTravelContext, type PlaceCategory } from '@/lib/travelContext';
+import { buildVoiceCommandTransition, type VoiceAppCommand } from '@/lib/voiceCommands';
 
 const RecommendationCard = dynamic(
   () => import('@/components/RecommendationCard').then((m) => m.RecommendationCard),
@@ -1169,6 +1170,56 @@ export default function MainPage() {
       setSelectedFacility(spoken ? { ...ranked[0], reason: spoken } : ranked[0]);
       if (mapInstanceRef.current && typeof ranked[0].latitude === 'number') panToVisible(ranked[0].latitude, ranked[0].longitude);
     },
+    onCommand: (command: VoiceAppCommand) => {
+      const typeByFilter: Record<string, PlaceCategory> = {
+        '음식점': 'restaurant', '카페': 'cafe', '관광지': 'attraction', '문화시설': 'culture',
+      };
+      const filterByType: Record<PlaceCategory, string> = {
+        restaurant: '음식점', cafe: '카페', attraction: '관광지', culture: '문화시설',
+      };
+      const currentType = typeByFilter[activeFilter] ?? 'restaurant';
+      const transition = buildVoiceCommandTransition(command, currentType, travelContext);
+      if (transition.navigation) {
+        track('voice_tool_executed', { tool: command.name, status: 'applied', facility_type: currentType });
+        router.push(transition.navigation);
+        return true;
+      }
+
+      const eligible = expandGroups(facilities).some((facility) =>
+        facility.type === transition.facilityType
+        && !(transition.facilityType === 'restaurant' && isBarFacility(facility))
+        && !rejectedIds.has(facility.id)
+        && !savedIds.has(facility.id)
+        && isClosedToday((facility.features?.rest_date_raw ?? facility.features?.restDateRaw) as string | null | undefined) !== true
+        && matchesTravelContext(facility, transition.context, userLocation, haversineMeters)
+      );
+      const eventProps = {
+        tool: command.name,
+        status: eligible ? 'applied' : 'no_match',
+        facility_type: transition.facilityType,
+        max_walk_minutes: transition.context.maxWalkMinutes ?? null,
+      };
+      track('voice_tool_executed', eventProps);
+      if (!eligible) {
+        showToast(t('map.voiceNoMatch'));
+        return false;
+      }
+
+      applyVoiceFilter(null);
+      cuisineIntentRef.current = null;
+      setCuisineChip(null);
+      setActiveFilter(filterByType[transition.facilityType]);
+      setTravelContext(transition.context);
+      saveTravelContext(transition.context);
+      track('context_applied', {
+        categories: transition.context.categories,
+        max_walk_minutes: transition.context.maxWalkMinutes ?? null,
+        available_minutes: transition.context.availableMinutes ?? null,
+        required_attributes: transition.context.requiredAttributes,
+        exclude_visited: transition.context.excludeVisited,
+      });
+      return true;
+    },
     // 사용자 발화를 백엔드 키워드 분류기(/api/v1/voice/turn)로 해석. 현재 타입 후보 목록(이름/혼잡/거리)을 동봉.
     interpret: async (utterance, f) => {
       const filterMap: Record<string, string> = { '음식점': 'restaurant', '카페': 'cafe', '관광지': 'attraction', '문화시설': 'culture' };
@@ -1195,11 +1246,23 @@ export default function MainPage() {
         }))
         .sort((a, b) => a.distanceM - b.distanceM) // 가까운 순 — 전문점(고기/국밥/피자)이 상위 N 밖으로 밀려 누락되지 않게
         .slice(0, 30);                              // 의미검색 도달 후보 폭(백엔드 입력 상한 30). 분류별(중식 등) 후보 포함 확률↑
-      const res = await voiceTurn(utterance, type, f?.name ?? null, cands);
+      const res = await voiceTurn(utterance, type, f?.name ?? null, cands, {
+        route: 'main',
+        facilityType: type as PlaceCategory,
+        indoorRequired: travelContext.requiredAttributes.includes('indoor'),
+        maxWalkMinutes: travelContext.maxWalkMinutes ?? null,
+      });
       // 음식 선호 발화(filter)는 '식당'일 때만 음식 의도로 저장(주차/회의/휴게 선호% 오염 방지).
       if (res.action === 'filter' && type === 'restaurant') cuisineIntentRef.current = utterance;
       // suggestionId: filter 매치 0건일 때의 '유사 대안 제안' — 훅이 2턴(accept→select) 흐름으로 소비.
-      return { action: res.action, targetId: res.targetFacilityId, matchIds: res.matchIds, spoken: res.spoken, suggestionId: res.suggestionId };
+      return {
+        action: res.action,
+        targetId: res.targetFacilityId,
+        matchIds: res.matchIds,
+        spoken: res.spoken,
+        suggestionId: res.suggestionId,
+        command: res.command,
+      };
     },
   });
 

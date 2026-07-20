@@ -1,5 +1,7 @@
 import { createPublicClient } from "./supabase";
 import type { TravelContext } from "./travelContext";
+import type { PlaceCategory } from "./travelContext";
+import type { VoiceAppCommand } from "./voiceCommands";
 import type { Locale } from "./i18n/config";
 const supabase = createPublicClient();
 
@@ -521,7 +523,7 @@ export interface VoiceTurnCandidate {
 }
 
 export interface VoiceTurnResult {
-  action: string; // accept|next|reject|details|select|filter|stop|unknown
+  action: string; // accept|next|reject|details|select|filter|command|stop|unknown
   targetFacilityId: string | null;
   matchIds: string[]; // filter 일 때 선호에 맞는 후보 id들('양식'→양식 식당들)
   spoken: string | null; // 백엔드 생성 한국어 응답(없으면 프런트 자체 멘트)
@@ -530,6 +532,14 @@ export interface VoiceTurnResult {
   suggestionId?: string | null;
   // 이번 턴이 LLM(Solar)로 처리됐는지/키워드 폴백인지 — LLM 동작 디버그 배지용(구버전 응답엔 없음).
   llmStatus?: "keyword" | "llm" | "llm_failed" | "gated" | "disabled";
+  command?: VoiceAppCommand | null;
+}
+
+export interface VoiceAppContext {
+  route: 'main';
+  facilityType: PlaceCategory;
+  indoorRequired: boolean;
+  maxWalkMinutes?: 5 | 10 | 20 | null;
 }
 
 /**
@@ -541,13 +551,15 @@ export async function voiceTurn(
   utterance: string,
   facilityType: string,
   currentName: string | null,
-  candidates: VoiceTurnCandidate[]
+  candidates: VoiceTurnCandidate[],
+  appContext?: VoiceAppContext,
 ): Promise<VoiceTurnResult> {
   const res: VoiceTurnResult = await apiClient.post("/api/v1/voice/turn", {
     utterance,
     facilityType,
     currentName,
     candidates,
+    appContext,
   });
   if (res.llmStatus) {
     dispatchLlmDebug({ feature: "voice", status: res.llmStatus });
