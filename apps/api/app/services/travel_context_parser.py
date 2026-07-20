@@ -51,6 +51,7 @@ def _keyword(text: str) -> dict:
     mappings = {
         "restaurant": (
             "식당", "음식", "밥", "맛집", "restaurant", "food", "meal",
+            "돼지고기", "삼겹살", "목살", "고깃집",
             "レストラン", "食事", "餐厅", "餐館", "美食",
         ),
         "cafe": (
@@ -88,6 +89,13 @@ def _keyword(text: str) -> dict:
     )
     if minute_match:
         raw["max_walk_minutes"] = int(minute_match.group(1))
+    elif any(phrase in low for phrase in (
+        "가까운 곳", "가까이", "근처", "너무 멀", "nearby", "close by",
+        "近く", "近い", "附近", "就近",
+    )):
+        # Vague "near" is normalized to the middle supported walking bound.
+        # This is an eligibility cap, never a score boost or reranking signal.
+        raw["max_walk_minutes"] = 10
     available_match = re.search(
         r"(30|60|120)\s*(?:분\s*(?:남|동안|코스)|minutes?\s*(?:left|remaining|available)|分\s*(?:残り|使える|コース)|分钟\s*(?:剩余|可用)|分鐘\s*(?:剩餘|可用))",
         low,

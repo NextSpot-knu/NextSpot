@@ -24,6 +24,23 @@ async def test_keyword_context_is_allowlisted_and_skips_llm(monkeypatch):
     chat.assert_not_awaited()
 
 
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("돼지고기 먹고 싶어", {"categories": ["restaurant"]}),
+        ("조용한 카페", {"categories": ["cafe"]}),
+        ("비가 와서 실내", {"required_attributes": ["indoor"]}),
+        ("너무 멀어서 가까운 곳", {"max_walk_minutes": 10}),
+    ],
+)
+@pytest.mark.asyncio
+async def test_golden_field_phrases_are_deterministic(monkeypatch, text, expected):
+    monkeypatch.setattr(travel_context_parser.llm_client, "is_enabled", lambda: False)
+    context, status = await travel_context_parser.parse_travel_context(text)
+    assert context == expected
+    assert status == "keyword"
+
+
 @pytest.mark.asyncio
 async def test_llm_cannot_inject_ids_coordinates_or_unknown_values(monkeypatch):
     monkeypatch.setattr(travel_context_parser.llm_client, "is_enabled", lambda: True)
