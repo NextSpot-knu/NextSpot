@@ -17,15 +17,23 @@ const recommendations = [
   congestion_level: null, congestion_source: 'none', open_status_at_arrival: 'open_expected',
 }));
 
-async function mockRecommendationPage(page: Page) {
-  await page.addInitScript(() => {
+async function mockRecommendationPage(
+  page: Page,
+  options: { locale?: 'ko' | 'en' | 'ja' | 'zh'; reasonSource?: 'llm' | 'template' } = {},
+) {
+  const locale = options.locale ?? 'ko';
+  const responseItems = recommendations.map(item => ({
+    ...item,
+    reason_source: options.reasonSource ?? item.reason_source,
+  }));
+  await page.addInitScript((selectedLocale) => {
     localStorage.setItem('nextspot_onboarding_done', '1');
-    localStorage.setItem('nextspot_locale', 'ko');
+    localStorage.setItem('nextspot_locale', selectedLocale);
     window.open = ((url?: string | URL) => {
       (window as unknown as { __opened?: string }).__opened = String(url);
       return window;
     }) as typeof window.open;
-  });
+  }, locale);
   await page.route('**/rest/v1/**', async route => {
     const url = route.request().url();
     if (url.includes('/facilities')) {
@@ -39,12 +47,44 @@ async function mockRecommendationPage(page: Page) {
   await page.route('**/api/v1/**', async route => {
     const url = route.request().url();
     if (url.endsWith('/api/v1/recommendations')) {
-      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(recommendations) });
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(responseItems) });
     } else if (url.includes('/explain')) {
       await route.fulfill({ status: 503, contentType: 'application/json', body: '{"detail":"fixture failure"}' });
     } else {
       await route.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
     }
+  });
+}
+
+test('SOLAR on, timeout, and disabled keep identical visible SPOT order', async ({ browser }) => {
+  const rankings: string[][] = [];
+  for (const state of [
+    { name: 'on', reasonSource: 'llm' as const },
+    { name: 'timeout', reasonSource: 'template' as const },
+    { name: 'disabled', reasonSource: 'template' as const },
+  ]) {
+    const page = await browser.newPage();
+    await mockRecommendationPage(page, { reasonSource: state.reasonSource });
+    await page.goto(`/explore/recommend?facilityId=origin&lat=35.838&lng=129.209&solar=${state.name}`);
+    await expect(page.locator('section.space-y-4 h4')).toHaveCount(3);
+    const names = await page.locator('section.space-y-4 h4').allTextContents();
+    expect(names).toEqual(['고요한 찻집', '박물관 카페', '한옥 쉼터']);
+    rankings.push(names);
+    await page.close();
+  }
+  expect(rankings[0]).toEqual(rankings[1]);
+  expect(rankings[1]).toEqual(rankings[2]);
+});
+
+for (const locale of ['ko', 'en', 'ja', 'zh'] as const) {
+  test(`${locale} recommendation cards keep rank and fit 390px`, async ({ page }) => {
+    await mockRecommendationPage(page, { locale });
+    await page.goto('/explore/recommend?facilityId=origin&lat=35.838&lng=129.209');
+    await expect(page.locator('section.space-y-4 h4')).toHaveCount(3);
+    await expect(page.locator('html')).toHaveAttribute('lang', locale);
+    await expect.poll(
+      () => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth),
+    ).toBeLessThanOrEqual(1);
   });
 }
 
