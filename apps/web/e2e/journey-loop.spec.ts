@@ -106,16 +106,28 @@ test('SPOT order is stable, comparison falls back, and navigation persists', asy
 });
 
 test('arrival feedback keeps completion visible and links to coupons', async ({ page }) => {
+  let congestionPayload: Record<string, unknown> | null = null;
   await page.addInitScript(() => {
     const trip = { version: 1, facilityId: 'fixture-cafe', name: 'Fixture Cafe', type: 'cafe',
       lat: 35.838, lng: 129.209, acceptedAt: Date.now(), status: 'arrived' };
     localStorage.setItem('nextspot_active_trip', JSON.stringify(trip));
     localStorage.setItem('nextspot_pending_visit', JSON.stringify(trip));
   });
-  await page.route('**/api/v1/**', route => route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }));
+  await page.route('**/api/v1/**', route => {
+    if (route.request().url().endsWith('/api/v1/reports/congestion')) {
+      congestionPayload = route.request().postDataJSON() as Record<string, unknown>;
+      return route.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
+    }
+    return route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
+  });
   await page.goto('/main');
   await page.evaluate(() => window.dispatchEvent(new Event('nextspot:trip-arrived')));
   await page.getByRole('button', { name: '네, 다녀왔어요' }).click();
+  await page.getByRole('button', { name: /Fixture Cafe 혼잡도 제보하기/ }).click();
+  await page.getByRole('radio', { name: /한산/ }).click();
+  await page.getByRole('button', { name: '제보하기', exact: true }).click();
+  await expect(page.getByRole('dialog')).toBeHidden();
+  expect(congestionPayload).toEqual({ facility_id: 'fixture-cafe', level: '한산' });
   await page.getByRole('button', { name: /좋았어요/ }).click();
   const completed = page.getByTestId('visit-completed');
   await expect(completed).toBeVisible();

@@ -1520,7 +1520,7 @@ function RecommendContent() {
             <button
               onClick={onOrbClick}
               aria-label={assistantActive ? t("recommend.stopAria") : t("recommend.listenCta")}
-              className={`relative w-14 h-14 rounded-full flex items-center justify-center text-xl shadow-sm transition-all active:scale-95 border ${
+              className={`relative w-14 h-14 overflow-hidden rounded-full flex items-center justify-center text-xl shadow-sm transition-all active:scale-95 border ${
                 voiceState === "listening"
                   ? "bg-jade/15 border-jade/60"
                   : voiceState === "speaking"

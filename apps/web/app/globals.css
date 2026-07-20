@@ -47,6 +47,9 @@
 body {
   background: var(--background);
   color: var(--foreground);
+  /* Fixed assistant pulses and decorative glows may paint beyond the viewport
+     during animation; clip only the page axis while preserving inner x-scroll areas. */
+  overflow-x: clip;
 }
 
 /* 단청 그라디언트 텍스트 — 워드마크/타이틀용. 이전엔 미정의(no-op)라 효과가 없었다.
