@@ -74,4 +74,10 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npx playwright install --with-deps chromium
+      - name: Start deterministic web server
+        run: npm run dev --workspace=apps/web -- --hostname 127.0.0.1 --port 3100 > /tmp/nextspot-web.log 2>&1 &
+      - name: Wait for web server
+        run: for i in {1..60}; do curl -fsS http://127.0.0.1:3100 >/dev/null && exit 0; sleep 1; done; cat /tmp/nextspot-web.log; exit 1
       - run: npm run test:e2e --workspace=apps/web
+        env:
+          PLAYWRIGHT_EXTERNAL_SERVER: "1"

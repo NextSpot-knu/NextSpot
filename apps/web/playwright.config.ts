@@ -13,9 +13,9 @@ export default defineConfig({
     locale: 'ko-KR',
     trace: 'retain-on-failure',
   },
-  webServer: {
+  webServer: process.env.PLAYWRIGHT_EXTERNAL_SERVER ? undefined : {
     // Invoke Next directly so Playwright can terminate the Windows child process cleanly.
-    command: 'node node_modules/next/dist/bin/next dev --hostname 127.0.0.1 --port 3100',
+    command: 'node ../../node_modules/next/dist/bin/next dev --hostname 127.0.0.1 --port 3100',
     url: 'http://127.0.0.1:3100',
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
