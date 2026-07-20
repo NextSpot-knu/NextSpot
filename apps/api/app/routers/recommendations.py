@@ -723,12 +723,27 @@ class VoiceCandidate(BaseModel):
         return f if 0 <= f <= 100_000 else None
 
 
+class VoiceAppContext(BaseModel):
+    route: Literal["main"] = "main"
+    facility_type: Literal["restaurant", "cafe", "attraction", "culture"] = "restaurant"
+    indoor_required: bool = False
+    max_walk_minutes: Literal[5, 10, 20] | None = None
+
+
 class VoiceTurnRequest(BaseModel):
     # 무인증 엔드포인트 — 입력 크기 제한(과대 페이로드/프롬프트 비대화 방지). 출력은 _coerce 가 enum·후보 id 로 강제.
     utterance: str = Field("", max_length=500)
     facility_type: str = "restaurant"
     current_name: str | None = Field(None, max_length=120)
     candidates: list[VoiceCandidate] = Field(default_factory=list, max_length=30)
+    app_context: VoiceAppContext | None = None
+
+
+class VoiceAppCommand(BaseModel):
+    name: Literal[
+        "set_facility_type", "set_indoor_mode", "set_max_walk_minutes", "open_waiting_board"
+    ]
+    args: dict = Field(default_factory=dict)
 
 
 # 무인증 유료(LLM) 호출 비용 소진 공격 방어(Codex 감사 P1-3) — search.py 의 슬라이딩 윈도우
@@ -769,7 +784,7 @@ def _voice_llm_allowed(ip: str) -> bool:
 
 
 class VoiceTurnResponse(BaseModel):
-    action: str  # accept|next|reject|details|select|filter|stop|unknown
+    action: str  # accept|next|reject|details|select|filter|command|stop|unknown
     target_facility_id: str | None = None  # select 일 때 후보 id
     match_ids: list[str] = []  # filter 일 때 선호에 맞는 후보 id들(예: '양식' → 양식 식당들)
     spoken: str | None = None  # 백엔드 생성 한국어 응답(없으면 프런트가 자체 멘트)
@@ -778,6 +793,7 @@ class VoiceTurnResponse(BaseModel):
     suggestion_id: str | None = None
     # 개발 디버그용 — "AI 가 실제로 돌았는지" 프런트 배지 표시. interpret_turn 이 판정한 값을 그대로 싣는다.
     llm_status: str  # keyword|llm|llm_failed|gated|disabled
+    command: VoiceAppCommand | None = None
 
 
 @router.post("/voice/turn", response_model=VoiceTurnResponse)
@@ -798,6 +814,7 @@ async def voice_turn(req: VoiceTurnRequest, request: Request):
     result = await interpret_turn(
         req.utterance, type_ko, req.current_name, candidates,
         llm_gate=lambda: _voice_llm_allowed(ip),
+        app_context=req.app_context.model_dump() if req.app_context else None,
     )
     # 2) 임베딩 의미검색: '선호 필터'로 분류되면 어떤 후보가 맞는지는 벡터가 결정(retrieval).
     #    백엔드 가 확장한 search_query("고깃집"→"삼겹살 갈비 숯불구이…")로 검색해 곱창집·순댓국과 섞이지 않게 한다.
@@ -865,6 +882,7 @@ async def voice_turn(req: VoiceTurnRequest, request: Request):
         spoken=result.get("spoken"),
         suggestion_id=result.get("suggestion_id"),
         llm_status=result.get("llm_status", "disabled"),
+        command=result.get("command"),
     )
 
 

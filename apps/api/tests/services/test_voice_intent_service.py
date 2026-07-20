@@ -365,3 +365,91 @@ async def test_llm_status_gated_when_no_candidates(monkeypatch):
     assert result["action"] == "unknown"
     assert result["llm_status"] == "gated"
     chat.assert_not_awaited()
+
+
+# --- 앱 제어 명령 — 추천 순위가 아니라 main 화면 상태만 변경한다 -----------------------
+
+
+@pytest.mark.parametrize(
+    ("utterance", "expected"),
+    [
+        ("카페 보여줘", {"name": "set_facility_type", "args": {"facility_type": "cafe"}}),
+        ("비 오니까 실내로 바꿔줘", {"name": "set_indoor_mode", "args": {"enabled": True}}),
+        ("10분 이내 가까운 곳", {
+            "name": "set_max_walk_minutes", "args": {"max_walk_minutes": 10},
+        }),
+        ("대기 현황 보여줘", {"name": "open_waiting_board", "args": {}}),
+    ],
+)
+@pytest.mark.asyncio
+async def test_keyword_app_commands_are_structured(utterance, expected):
+    result = await interpret_turn(
+        utterance,
+        "식당",
+        None,
+        _CANDIDATES,
+        app_context={"route": "main", "facility_type": "restaurant"},
+    )
+    assert result["action"] == "command"
+    assert result["command"] == expected
+    assert result["target_facility_id"] is None
+    assert result["match_ids"] == []
+    assert result["llm_status"] == "keyword"
+
+
+@pytest.mark.asyncio
+async def test_keyword_app_command_requires_app_context_for_legacy_clients():
+    result = await interpret_turn("카페 보여줘", "식당", None, _CANDIDATES)
+    assert result["action"] != "command"
+    assert result.get("command") is None
+
+
+@pytest.mark.asyncio
+async def test_llm_app_command_is_validated(monkeypatch):
+    monkeypatch.setattr(voice_intent_service.llm_client, "is_enabled", lambda: True)
+    monkeypatch.setattr(voice_intent_service.llm_client, "chat_json", AsyncMock(return_value={
+        "action": "command",
+        "command": {"name": "set_facility_type", "args": {"facility_type": "culture"}},
+        "target_name": "카페능",
+        "match_names": ["카페능"],
+    }))
+    result = await interpret_turn(
+        _COMPLEX_UTTERANCE,
+        "식당",
+        None,
+        _CANDIDATES,
+        app_context={"route": "main", "facility_type": "restaurant"},
+    )
+    assert result["action"] == "command"
+    assert result["command"] == {
+        "name": "set_facility_type",
+        "args": {"facility_type": "culture"},
+    }
+    assert result["target_facility_id"] is None
+    assert result["match_ids"] == []
+    assert result["llm_status"] == "llm"
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        {"name": "delete_journey", "args": {}},
+        {"name": "set_facility_type", "args": {"facility_type": ["cafe"]}},
+        {"name": "set_max_walk_minutes", "args": {"max_walk_minutes": True}},
+    ],
+)
+@pytest.mark.asyncio
+async def test_invalid_llm_app_command_fails_closed(monkeypatch, command):
+    monkeypatch.setattr(voice_intent_service.llm_client, "is_enabled", lambda: True)
+    monkeypatch.setattr(voice_intent_service.llm_client, "chat_json", AsyncMock(return_value={
+        "action": "command", "command": command,
+    }))
+    result = await interpret_turn(
+        _COMPLEX_UTTERANCE,
+        "식당",
+        None,
+        _CANDIDATES,
+        app_context={"route": "main", "facility_type": "restaurant"},
+    )
+    assert result["action"] == "unknown"
+    assert result["command"] is None

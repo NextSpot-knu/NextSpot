@@ -274,3 +274,37 @@ def test_voice_turn_response_includes_llm_status_gated_path_when_rate_limited():
     body = res.json()
     assert body["action"] == "unknown"
     assert body["llm_status"] == "gated"
+
+
+def test_voice_turn_accepts_app_context_and_returns_typed_command():
+    with TestClient(app) as client:
+        res = client.post(
+            "/api/v1/voice/turn",
+            json={
+                "utterance": "비 오니까 실내로 바꿔줘",
+                "facility_type": "restaurant",
+                "app_context": {
+                    "route": "main",
+                    "facility_type": "restaurant",
+                    "indoor_required": False,
+                    "max_walk_minutes": None,
+                },
+            },
+        )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["action"] == "command"
+    assert body["command"] == {"name": "set_indoor_mode", "args": {"enabled": True}}
+    assert body["match_ids"] == []
+
+
+def test_voice_turn_rejects_invalid_app_context_value():
+    with TestClient(app) as client:
+        res = client.post(
+            "/api/v1/voice/turn",
+            json={
+                "utterance": "가까운 곳",
+                "app_context": {"route": "main", "max_walk_minutes": 7},
+            },
+        )
+    assert res.status_code == 422

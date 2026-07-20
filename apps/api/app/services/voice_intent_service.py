@@ -38,7 +38,19 @@ def _sanitize_text(value, limit: int) -> str:
     return " ".join(cleaned.split())[:limit]
 
 
-VALID_ACTIONS = ["accept", "next", "reject", "details", "select", "filter", "stop", "unknown"]
+VALID_ACTIONS = ["accept", "next", "reject", "details", "select", "filter", "command", "stop", "unknown"]
+FACILITY_TYPES = {"restaurant", "cafe", "attraction", "culture"}
+COMMAND_NAMES = {
+    "set_facility_type", "set_indoor_mode", "set_max_walk_minutes", "open_waiting_board",
+}
+_TYPE_COMMAND_KEYWORDS = {
+    "restaurant": ("음식점", "식당"),
+    "cafe": ("카페", "커피"),
+    "attraction": ("관광지", "명소"),
+    "culture": ("문화시설", "박물관", "전시"),
+}
+_WAITING_COMMAND_KEYWORDS = ("대기보드", "대기 보드", "대기 현황", "줄 얼마나", "웨이팅")
+_INDOOR_COMMAND_KEYWORDS = ("비 오", "비가", "우천", "실내")
 
 # 라우터 분류 enum 과 일치하는 정밀분류 라벨(intent_category).
 _INTENT_CATEGORIES = [
@@ -145,16 +157,43 @@ def _match_food_category(low: str) -> Optional[str]:
     return None
 
 
-def _keyword_interpret(utterance: str, current_name: Optional[str], candidates: list[dict]) -> dict:
+def _keyword_interpret(
+    utterance: str, current_name: Optional[str], candidates: list[dict], app_context: dict | None = None,
+) -> dict:
     """발화를 키워드 규칙으로 action 분류. 우선순위: stop→details→reject→next→select→filter→accept→unknown."""
     base = {
         "action": "unknown", "target_facility_id": None, "match_ids": [], "similar_ids": [],
-        "search_query": None, "intent_category": None, "spoken": None,
+        "search_query": None, "intent_category": None, "spoken": None, "command": None,
     }
     low = (utterance or "").strip().lower()
     if not low:
         return base
     stripped = low.rstrip(" .!~?,")
+
+    # app_context를 보내는 새 클라이언트에서만 앱 명령을 활성화해 구버전 응답 계약을 보존한다.
+    if app_context:
+        if any(k in low for k in _WAITING_COMMAND_KEYWORDS):
+            return {**base, "action": "command", "command": {"name": "open_waiting_board", "args": {}},
+                    "spoken": "대기 현황을 열어드릴게요."}
+        for facility_type, keywords in _TYPE_COMMAND_KEYWORDS.items():
+            if any(k in low for k in keywords) and any(k in low for k in ("보여", "바꿔", "추천", "찾아")):
+                return {**base, "action": "command",
+                        "command": {"name": "set_facility_type", "args": {"facility_type": facility_type}},
+                        "spoken": "추천 유형을 바꿔볼게요."}
+        if any(k in low for k in _INDOOR_COMMAND_KEYWORDS):
+            return {**base, "action": "command",
+                    "command": {"name": "set_indoor_mode", "args": {"enabled": True}},
+                    "spoken": "비 오는 날 이용하기 좋은 실내 장소로 바꿔볼게요."}
+        minute_match = re.search(r"\b(5|10|20)\s*분", low)
+        if minute_match and any(k in low for k in ("거리", "도보", "안쪽", "이내", "가까")):
+            minutes = int(minute_match.group(1))
+            return {**base, "action": "command",
+                    "command": {"name": "set_max_walk_minutes", "args": {"max_walk_minutes": minutes}},
+                    "spoken": f"도보 {minutes}분 안쪽으로 찾아볼게요."}
+        if any(k in low for k in ("가까운 곳", "더 가까", "너무 멀")):
+            return {**base, "action": "command",
+                    "command": {"name": "set_max_walk_minutes", "args": {"max_walk_minutes": 10}},
+                    "spoken": "도보 10분 안쪽으로 찾아볼게요."}
 
     if any(k in low for k in _STOP_KW):
         return {**base, "action": "stop", "spoken": "안내를 종료할게요."}
@@ -210,6 +249,9 @@ def _coerce(parsed: dict, valid_ids: set) -> dict:
     _demoted_select = action == "select" and not tid
     if _demoted_select:
         action = "next"
+    command = _coerce_command(parsed.get("command")) if action == "command" else None
+    if action == "command" and command is None:
+        action = "unknown"
     # filter 는 여기서 강등하지 않는다. 어떤 후보가 맞는지는 라우터의 키워드 의미매칭이 정하고,
     # 매칭이 빈값일 때만 라우터가 next 로 강등한다(선택지 폐기 아님, 우선순위만 조정).
     # spoken 은 TTS/화면으로 직행 — 제어문자·개행 폭탄 정제 후 200자 제한(Codex 감사 P2-5).
@@ -223,7 +265,30 @@ def _coerce(parsed: dict, valid_ids: set) -> dict:
     if action != "filter":
         sq = None
         ic = None
-    return {"action": action, "target_facility_id": tid, "match_ids": match_ids, "similar_ids": similar_ids, "search_query": sq, "intent_category": ic, "spoken": spoken}
+    if action == "command":
+        tid, match_ids, similar_ids = None, [], []
+    return {"action": action, "target_facility_id": tid, "match_ids": match_ids, "similar_ids": similar_ids,
+            "search_query": sq, "intent_category": ic, "spoken": spoken, "command": command}
+
+
+def _coerce_command(raw) -> dict | None:
+    if not isinstance(raw, dict) or not isinstance(raw.get("name"), str) or raw.get("name") not in COMMAND_NAMES:
+        return None
+    name = raw["name"]
+    args = raw.get("args") if isinstance(raw.get("args"), dict) else {}
+    if name == "set_facility_type":
+        value = args.get("facility_type")
+        return ({"name": name, "args": {"facility_type": value}}
+                if isinstance(value, str) and value in FACILITY_TYPES else None)
+    if name == "set_indoor_mode":
+        value = args.get("enabled")
+        return {"name": name, "args": {"enabled": value}} if isinstance(value, bool) else None
+    if name == "set_max_walk_minutes":
+        value = args.get("max_walk_minutes")
+        return ({"name": name, "args": {"max_walk_minutes": value}}
+                if value is None or isinstance(value, int) and not isinstance(value, bool) and value in {5, 10, 20}
+                else None)
+    return {"name": name, "args": {}}
 
 
 # --- LLM 보조 해석(Upstage Solar) — 키워드 분류기가 unknown 일 때만 개입 -------------------
@@ -245,7 +310,8 @@ def _llm_system_prompt() -> str:
         "JSON 객체 하나만 출력해라(설명·마크다운 금지). "
         '스키마: {"action": "...", "target_name": "candidates 의 이름 그대로 또는 null", '
         '"intent_category": "분류 또는 null", "search_query": "검색어 또는 null", '
-        '"match_names": ["candidates 의 이름들"], "similar_names": ["candidates 의 이름들"]}\n'
+        '"match_names": ["candidates 의 이름들"], "similar_names": ["candidates 의 이름들"], '
+        '"command": {"name": "허용 명령", "args": {}} 또는 null}\n'
         "action 정의(이 중 하나만):\n"
         "- accept: 현재 추천을 수락하고 안내를 원할 때만 (예: '거기로 가자')\n"
         "- next: 다른 후보를 원함 (예: '딴 데 없어?')\n"
@@ -254,6 +320,10 @@ def _llm_system_prompt() -> str:
         "- select: candidates 의 특정 가게를 이름으로 지정 — target_name 에 그 이름을 그대로\n"
         "- filter: 음식 종류·조건 선호를 말하며 맞는 곳으로 좁히려 함 "
         "(예: '애들이랑 갈만한 조용한 데', '매운 거 말고') — intent_category 와 search_query 를 채워라\n"
+        "- command: 앱 상태 변경이나 화면 이동 요청. 아래 명령만 선택\n"
+        "  set_facility_type(facility_type=restaurant|cafe|attraction|culture), "
+        "set_indoor_mode(enabled=true|false), set_max_walk_minutes(max_walk_minutes=5|10|20|null), "
+        "open_waiting_board()\n"
         "- stop: 안내 종료\n"
         "- unknown: 위 어디에도 확신이 없을 때 (억지로 고르지 마라)\n"
         f"intent_category 는 반드시 다음 중에서만: {categories}. 애매하면 null.\n"
@@ -270,11 +340,14 @@ def _llm_system_prompt() -> str:
         "파는 후보 이름을 가까운 순으로 담아라(예: 삼겹살 요청 → 갈비·숯불구이 같은 고기류 식당). "
         "각 후보의 cuisine·menu 만을 근거로 판단한다. 전혀 다른 음식(피자·칼국수 등)을 비슷하다고 "
         "담으면 절대 안 된다. 근거가 없으면 빈 배열로 두어라. "
-        "match_names 가 있으면 similar_names 는 빈 배열이다."
+        "match_names 가 있으면 similar_names 는 빈 배열이다. command가 아니면 command는 null이고, "
+        "command이면 target_name·match_names·similar_names는 비워라."
     )
 
 
-def _llm_user_prompt(utterance: str, current_name: Optional[str], candidates: list[dict]) -> str:
+def _llm_user_prompt(
+    utterance: str, current_name: Optional[str], candidates: list[dict], app_context: dict | None = None,
+) -> str:
     """프롬프트 입력을 자유 문장이 아닌 JSON 데이터 경계로 직렬화(Codex 감사 P1-2).
 
     시설명(DB/TourAPI 유래)·발화에 개행·제어문자로 프롬프트 구조를 흉내내는 간접 인젝션을
@@ -292,12 +365,13 @@ def _llm_user_prompt(utterance: str, current_name: Optional[str], candidates: li
             if (name := _sanitize_text(c.get("name"), 80))
         ],
         "utterance": _sanitize_text(utterance, 300),
+        "app_context": app_context or None,
     }
     return json.dumps(payload, ensure_ascii=False)
 
 
 def _llm_spoken(
-    action: str, intent_category, current_name: Optional[str], candidates: list[dict]
+    action: str, intent_category, current_name: Optional[str], candidates: list[dict], command=None,
 ) -> Optional[str]:
     """LLM 응답의 spoken 은 신뢰하지 않는다(Codex 감사 P1-1: TTS 주입 벡터) —
     action 별 서버 고정 템플릿으로만 생성한다. 키워드 경로의 기존 멘트와 동일 어휘."""
@@ -311,6 +385,20 @@ def _llm_spoken(
         return _details_spoken(current_name, candidates)
     if action == "stop":
         return "안내를 종료할게요."
+    if action == "command":
+        validated = _coerce_command(command)
+        if validated is None:
+            return None
+        name = validated["name"]
+        args = validated["args"]
+        if name == "set_facility_type":
+            return "추천 유형을 바꿔볼게요."
+        if name == "set_indoor_mode":
+            return "실내 조건을 바꿔볼게요."
+        if name == "set_max_walk_minutes":
+            minutes = args.get("max_walk_minutes")
+            return f"도보 {minutes}분 안쪽으로 찾아볼게요." if minutes else "도보 범위 제한을 해제할게요."
+        return "대기 현황을 열어드릴게요."
     return None  # accept/next/reject/unknown — 키워드 경로와 동일하게 프런트 기본 멘트 사용
 
 
@@ -328,11 +416,11 @@ def _find_candidate_id(name, candidates: list[dict]):
 
 
 async def _llm_interpret(
-    utterance: str, current_name: Optional[str], candidates: list[dict]
+    utterance: str, current_name: Optional[str], candidates: list[dict], app_context: dict | None = None,
 ) -> Optional[dict]:
     """LLM 보조 분류 — 성공 시 _coerce 입력 형태의 dict, 실패 시 None(호출자는 unknown 유지)."""
     raw = await llm_client.chat_json(
-        _llm_system_prompt(), _llm_user_prompt(utterance, current_name, candidates)
+        _llm_system_prompt(), _llm_user_prompt(utterance, current_name, candidates, app_context)
     )
     if not raw:
         return None
@@ -367,8 +455,11 @@ async def _llm_interpret(
         "similar_ids": similar_ids,
         "search_query": raw.get("search_query"),
         "intent_category": raw.get("intent_category"),
+        "command": raw.get("command"),
         # spoken 은 LLM 출력에서 폐기하고 서버 템플릿으로만 생성(P1-1 방어)
-        "spoken": _llm_spoken(action, raw.get("intent_category"), current_name, candidates),
+        "spoken": _llm_spoken(
+            action, raw.get("intent_category"), current_name, candidates, raw.get("command")
+        ),
     }
 
 
@@ -378,6 +469,7 @@ async def interpret_turn(
     current_name: Optional[str],
     candidates: list[dict],
     llm_gate=None,
+    app_context: dict | None = None,
 ) -> dict:
     """음성 응답 1턴을 해석. 항상 {action, target_facility_id, match_ids, similar_ids, search_query,
     intent_category, spoken, llm_status} 반환(llm_status 는 개발 디버그용 — 프런트 "AI 실제 동작 여부" 배지).
@@ -391,14 +483,16 @@ async def interpret_turn(
         result = _fallback()
         result["llm_status"] = "keyword"  # 빈 발화 — 애초에 LLM 시도 대상이 아니다
         return result
-    parsed = _keyword_interpret(utterance, current_name, candidates or [])
+    parsed = _keyword_interpret(utterance, current_name, candidates or [], app_context)
     # 단순 조작(다음/수락/중지)은 결정적 키워드로 즉시 처리하되, 음식·상황 선호(filter)는
     # Upstage가 우선 구조화한다. 키워드 목록에 없는 자유발화뿐 아니라 "돼지고기 먹고 싶어"처럼
     # 키워드가 잡힌 선호도 AI가 실제 후보의 종류·공식메뉴 문맥을 보고 search_query를 정제한다.
     if parsed["action"] == "filter" and llm_client.is_enabled() and candidates:
         if llm_gate is None or llm_gate():
-            llm_parsed = await _llm_interpret(utterance, current_name, candidates or [])
-            if llm_parsed is not None and llm_parsed.get("action") in {"filter", "select"}:
+            llm_parsed = await _llm_interpret(utterance, current_name, candidates or [], app_context)
+            if llm_parsed is not None and llm_parsed.get("action") == "command" and not app_context:
+                llm_parsed = None
+            if llm_parsed is not None and llm_parsed.get("action") in {"filter", "select", "command"}:
                 parsed = llm_parsed
                 result = _coerce(parsed, valid_ids)
                 result["llm_status"] = "llm"
@@ -418,7 +512,9 @@ async def interpret_turn(
     elif llm_gate is not None and not llm_gate():
         llm_status = "gated"  # 레이트리밋 차단
     else:
-        llm_parsed = await _llm_interpret(utterance, current_name, candidates or [])
+        llm_parsed = await _llm_interpret(utterance, current_name, candidates or [], app_context)
+        if llm_parsed is not None and llm_parsed.get("action") == "command" and not app_context:
+            llm_parsed = None
         if llm_parsed is not None:
             parsed = llm_parsed
             llm_status = "llm"
