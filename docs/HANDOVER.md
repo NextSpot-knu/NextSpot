@@ -13,6 +13,10 @@
   도착→만족도→완료 화면 유지→쿠폰함 CTA, 재추천 0건→기존 여정 유지. 기존 4로케일/외부
   길안내와 합쳐 Chromium 390×844 **8/8 통과**. CI는 서버를 별도 기동·준비 확인한 뒤 테스트해
   Windows의 Playwright 자식 서버 종료 지연과 무관하게 동작한다.
+- 원격 `main@a97c1e0` CI 확인: e2e/API/web/schema 네 잡 모두 성공(run `29720309139`).
+  후속으로 SOLAR on/timeout/disabled의 추천 카드 이름·순서 동일성과 ko/en/ja/zh 실제 추천 화면의
+  3개 순위 카드·390px 가로 오버플로를 추가해 로컬 Chromium **13/13 통과**. 화면 전환 중 폭을
+  즉시 샘플링하지 않고 안정 상태까지 poll해 애니메이션 타이밍 플레이크를 제거했다.
 
 - 추천 품질 CLI `apps/api/scripts/recommendation_quality.py` 추가(`fixture/live`, `--base-url`,
   `--output`, 인증 라이브용 `--bearer/--user-id`). 공개 관광 거점과 고정 시각을 쓰는 12개 JSON
