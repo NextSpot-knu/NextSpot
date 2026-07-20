@@ -260,6 +260,14 @@ def test_sync_showflags_defers_reactivation_during_temporary_closure():
     assert facilities.update_calls == []
 
 
+def test_temporary_closure_boundary_includes_end_date_and_expires_next_day():
+    from datetime import date
+
+    features = {"temporarily_inactive_until": "2026-12-28"}
+    assert ingest_tourapi._temporary_closure_active(features, date(2026, 12, 28)) is True
+    assert ingest_tourapi._temporary_closure_active(features, date(2026, 12, 29)) is False
+
+
 def test_sync_showflags_degrades_gracefully_when_column_missing():
     facilities = _RecordingFacilitiesTable(rows=[], select_error=_missing_column_error())
     admin = _FakeAdmin(facilities)

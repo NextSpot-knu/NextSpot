@@ -21,7 +21,7 @@ import asyncio
 import json
 import os
 import sys
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 
 import httpx
 
@@ -299,7 +299,8 @@ def _temporary_closure_active(features: dict | None, today: date | None = None) 
     if not isinstance(raw, str):
         return False
     try:
-        return date.fromisoformat(raw) >= (today or date.today())
+        kst_today = datetime.now(timezone(timedelta(hours=9))).date()
+        return date.fromisoformat(raw) >= (today or kst_today)
     except ValueError:
         return False
 
