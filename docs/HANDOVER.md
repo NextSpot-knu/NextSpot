@@ -17,6 +17,14 @@
   후속으로 SOLAR on/timeout/disabled의 추천 카드 이름·순서 동일성과 ko/en/ja/zh 실제 추천 화면의
   3개 순위 카드·390px 가로 오버플로를 추가해 로컬 Chromium **13/13 통과**. 화면 전환 중 폭을
   즉시 샘플링하지 않고 안정 상태까지 poll해 애니메이션 타이밍 플레이크를 제거했다.
+- 원격 `main@411f094` CI도 네 잡 모두 성공(run `29720645883`). 이후 골든 현장 문구 4종을
+  결정적 조건 정규화로 연결: 돼지고기→restaurant, 조용한 카페→cafe, 비가 와서 실내→indoor,
+  너무 멀어서 가까운 곳→도보 10분 상한. 모호한 `near`는 후보 자격에만 적용하고 SPOT 점수에는
+  개입하지 않는다. 방문 E2E는 혼잡도 `한산` 제보 payload까지 검증한다.
+- 4로케일 병렬 E2E가 음성 오브의 `animate-ping` 도중 7~10px 문서 폭 증가를 포착했다. 오브 펄스를
+  원형 버튼 내부로 클리핑하고 페이지 x축도 paint clip 처리해 수정; Chromium 13/13을 연속 2회 통과.
+  최종 게이트: API pytest **624 passed**, ruff, web lint 0 errors/typecheck/unit/build 32 pages,
+  스키마 파리티와 `git diff --check` 통과.
 
 - 추천 품질 CLI `apps/api/scripts/recommendation_quality.py` 추가(`fixture/live`, `--base-url`,
   `--output`, 인증 라이브용 `--bearer/--user-id`). 공개 관광 거점과 고정 시각을 쓰는 12개 JSON
