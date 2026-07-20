@@ -4,6 +4,13 @@
 
 ### 2026-07-20 후속 완료
 
+- 추가 공식 근거 감사 후 별도 승인으로 신라고분정보센터에 `features.indoor_verified=true`,
+  경주중앙도서관에 동일 표식과 `is_active=false`를 원격 반영하고 재조회 검증했다. 중앙도서관은 공식
+  그린리모델링 공지에 따라 **2026-07-14~12-28 전체 휴관**이므로 **2026-12-29 재개관 확인 후
+  `is_active=true` 복원 필요**. 적용 감사는 `scratch/indoor_evidence_followup_apply.json`에만 저장했다.
+  인증 라이브 재평가는 활성 장소 **103개**, 12개 시나리오, 하드 실패 **0건**, 경고 **0건**이며
+  실내 근거 미확인 culture는 3곳(교촌마을·황리단길 공예공방거리·최부자댁)만 남았다. 이 3곳은
+  야외/복합 장소라 집합 전체를 우천 대피 가능한 실내 후보로 표식하지 않았다.
 - `ingest.yml`이 `if:`에서 `secrets.*`를 직접 참조해 GitHub가 잡 생성 전 구성 실패시키던 기존 문제를
   job env 가드로 수정했다(`dc96f14`). GitHub 등록명이 `.github/workflows/ingest.yml`에서
   `TourAPI Ingest`로 복구됐고 active 상태이며, 후속 CI 네 잡(API/web/schema/390px E2E) 모두 성공했다
