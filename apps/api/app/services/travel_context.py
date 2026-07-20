@@ -10,6 +10,7 @@ from app.services.spot.travel import WALKING_SPEED_M_PER_MIN
 KST = timezone(timedelta(hours=9))
 VALID_CATEGORIES = {"restaurant", "cafe", "attraction", "culture"}
 VALID_ATTRIBUTES = {"indoor", "accessible"}
+DEFAULT_INDOOR_TYPES = {"restaurant", "cafe"}
 
 
 class TravelContext(BaseModel):
@@ -25,6 +26,16 @@ class TravelContext(BaseModel):
         return self.max_walk_minutes * WALKING_SPEED_M_PER_MIN if self.max_walk_minutes else None
 
 
+def facility_is_indoor_eligible(facility: dict) -> bool:
+    """Return rain-safe indoor eligibility without claiming inferred evidence is verified."""
+    features = facility.get("features") or {}
+    if features.get("indoor") is False or features.get("indoor_verified") is False:
+        return False
+    if features.get("indoor") is True or features.get("indoor_verified") is True:
+        return True
+    return facility.get("type") in DEFAULT_INDOOR_TYPES
+
+
 def facility_matches_context(facility: dict, context: TravelContext | None) -> bool:
     if context is None:
         return True
@@ -38,7 +49,7 @@ def facility_matches_context(facility: dict, context: TravelContext | None) -> b
         if attr == "accessible":
             matches = facility.get("barrier_free") is True or features.get("accessible_verified") is True
         else:
-            matches = features.get(attr) is True or features.get(f"{attr}_verified") is True
+            matches = facility_is_indoor_eligible(facility)
         if not matches:
             return False
     return True

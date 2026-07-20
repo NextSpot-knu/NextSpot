@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { matchesTravelContext, type TravelContext } from './travelContext';
+import { isIndoorEligible, matchesTravelContext, type TravelContext } from './travelContext';
 
 const origin = { lat: 35.84, lng: 129.21 };
 const distance = (_lat1: number, _lng1: number, lat2: number, _lng2: number) => lat2;
@@ -12,6 +12,11 @@ assert.equal(matchesTravelContext(base, context({ maxWalkMinutes: 10 }), origin,
 assert.equal(matchesTravelContext({ ...base, latitude: 700 }, context({ maxWalkMinutes: 10 }), origin, distance), false);
 assert.equal(matchesTravelContext(base, context({ excludeVisited: true, visitedFacilityIds: ['place'] }), origin, distance), false);
 assert.equal(matchesTravelContext({ ...base, features: { indoor: true } }, context({ requiredAttributes: ['indoor'] }), origin, distance), true);
+assert.equal(isIndoorEligible({ type: 'restaurant', features: {} }), true);
+assert.equal(isIndoorEligible({ type: 'cafe', features: {} }), true);
+assert.equal(isIndoorEligible({ type: 'restaurant', features: { indoor_verified: false } }), false);
+assert.equal(isIndoorEligible({ type: 'culture', features: {} }), false);
+assert.equal(isIndoorEligible({ type: 'culture', features: { indoor_verified: true } }), true);
 assert.equal(matchesTravelContext({ ...base, features: { accessible: true } }, context({ requiredAttributes: ['accessible'] }), origin, distance), false);
 assert.equal(matchesTravelContext({ ...base, features: { accessible_verified: true } }, context({ requiredAttributes: ['accessible'] }), origin, distance), true);
 assert.equal(matchesTravelContext({ ...base, barrierFree: true }, context({ requiredAttributes: ['accessible'] }), origin, distance), true);

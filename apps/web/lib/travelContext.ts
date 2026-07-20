@@ -21,6 +21,15 @@ export const EMPTY_TRAVEL_CONTEXT: TravelContext = {
 
 const WALKING_SPEED_M_PER_MIN = 66.67;
 
+export function isIndoorEligible(facility: {
+  type: string; features?: Record<string, unknown> | null;
+}): boolean {
+  const features = facility.features ?? {};
+  if (features.indoor === false || features.indoor_verified === false) return false;
+  if (features.indoor === true || features.indoor_verified === true) return true;
+  return facility.type === 'restaurant' || facility.type === 'cafe';
+}
+
 export function matchesTravelContext(facility: {
   id: string; type: string; latitude: number; longitude: number;
   barrierFree?: unknown; barrier_free?: unknown;
@@ -33,7 +42,7 @@ export function matchesTravelContext(facility: {
   for (const attribute of context.requiredAttributes) {
     if (attribute === 'accessible') {
       if ((facility.barrierFree ?? facility.barrier_free) !== true && features.accessible_verified !== true) return false;
-    } else if (features.indoor !== true && features.indoor_verified !== true) {
+    } else if (!isIndoorEligible(facility)) {
       return false;
     }
   }

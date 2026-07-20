@@ -16,7 +16,12 @@ sys.path.insert(0, str(ROOT))
 from app.services.spot.preference import get_category_average_vector
 from app.services.spot.score import calculate_spot_score
 from app.services.spot.travel import WALKING_SPEED_M_PER_MIN, calculate_haversine_distance
-from app.services.travel_context import TravelContext, facility_matches_context, open_status_at_arrival
+from app.services.travel_context import (
+    TravelContext,
+    facility_is_indoor_eligible,
+    facility_matches_context,
+    open_status_at_arrival,
+)
 
 FIXED_NOW = datetime.fromisoformat("2026-07-20T03:00:00+00:00")  # Monday noon KST
 DEFAULT_FIXTURE = ROOT / "tests" / "fixtures" / "recommendation_quality.json"
@@ -149,9 +154,7 @@ def evaluate_live(base_url: str, bearer: str | None, user_id: str | None) -> dic
                 facility.get("barrier_free") is True or features.get("accessible_verified") is True
             ):
                 scenario_failures.append("unverified_accessibility")
-            if "indoor" in required and not (
-                features.get("indoor") is True or features.get("indoor_verified") is True
-            ):
+            if "indoor" in required and not facility_is_indoor_eligible(facility):
                 scenario_failures.append("not_indoor")
             if row.get("congestion_source") == "none" and row.get("congestion_level") is not None:
                 scenario_failures.append("unsupported_congestion_measurement")

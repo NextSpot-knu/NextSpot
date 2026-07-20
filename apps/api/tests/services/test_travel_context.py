@@ -3,7 +3,12 @@ from datetime import datetime, timezone
 import pytest
 from pydantic import ValidationError
 
-from app.services.travel_context import TravelContext, facility_matches_context, open_status_at_arrival
+from app.services.travel_context import (
+    TravelContext,
+    facility_is_indoor_eligible,
+    facility_matches_context,
+    open_status_at_arrival,
+)
 
 
 def test_context_validates_server_enums_and_ranges():
@@ -25,6 +30,25 @@ def test_required_attribute_is_fail_closed():
     assert facility_matches_context(
         {"id": "tourapi-verified", "barrier_free": True, "features": {}}, context
     )
+
+
+def test_indoor_eligibility_infers_food_venues_but_honors_explicit_false():
+    context = TravelContext(required_attributes=["indoor"])
+    for facility_type in ("restaurant", "cafe"):
+        facility = {"id": facility_type, "type": facility_type, "features": {}}
+        assert facility_is_indoor_eligible(facility)
+        assert facility_matches_context(facility, context)
+        facility["features"] = {"indoor_verified": False}
+        assert not facility_is_indoor_eligible(facility)
+        assert not facility_matches_context(facility, context)
+
+
+def test_indoor_eligibility_keeps_culture_and_attraction_fail_closed():
+    for facility_type in ("culture", "attraction"):
+        facility = {"id": facility_type, "type": facility_type, "features": {}}
+        assert not facility_is_indoor_eligible(facility)
+        facility["features"] = {"indoor_verified": True}
+        assert facility_is_indoor_eligible(facility)
 
 
 def test_exclude_visited_and_category_are_eligibility_only():
