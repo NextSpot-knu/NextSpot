@@ -53,3 +53,17 @@ def test_multiple_ranges_and_overnight_hours():
     assert open_status_at_arrival(split, datetime(2026, 7, 20, 5, tzinfo=timezone.utc)) == "open_expected"
     overnight = {"operating_hours": {"open": "18:00~02:00"}}
     assert open_status_at_arrival(overnight, datetime(2026, 7, 20, 16, tzinfo=timezone.utc)) == "open_expected"
+
+
+def test_seed_weekday_weekend_and_english_closed_day():
+    facility = {
+        "operating_hours": {
+            "closed": "monday",
+            "weekday": "10:00-18:00",
+            "weekend": "10:00-19:00",
+        }
+    }
+    monday_noon = datetime(2026, 7, 20, 3, 0, tzinfo=timezone.utc)
+    saturday_evening = datetime(2026, 7, 18, 9, 30, tzinfo=timezone.utc)
+    assert open_status_at_arrival(facility, monday_noon) == "closed_confirmed"
+    assert open_status_at_arrival(facility, saturday_evening) == "closing_soon"

@@ -58,12 +58,18 @@ def open_status_at_arrival(facility: dict, arrival_at: datetime) -> str:
     hours = facility.get("operating_hours") or {}
     closed_text = str(hours.get("closed") or "")
     weekday_tokens = ("월", "화", "수", "목", "금", "토", "일")
+    weekday_names = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
     if "연중무휴" not in closed_text and closed_text:
         token = weekday_tokens[local.weekday()]
-        if re.search(rf"(?:매주|매월|요일|휴무)[^\n]{{0,12}}{token}|{token}요일", closed_text):
+        english = weekday_names[local.weekday()]
+        if (
+            re.search(rf"(?:매주|매월|요일|휴무)[^\n]{{0,12}}{token}|{token}요일", closed_text)
+            or re.search(rf"\b{english}\b", closed_text.lower())
+        ):
             return "closed_confirmed"
 
-    raw = str(hours.get("open") or "")
+    day_key = "weekday" if local.weekday() < 5 else "weekend"
+    raw = str(hours.get(day_key) or hours.get("open") or "")
     ranges = re.findall(
         r"((?:[01]?\d|2[0-3]):[0-5]\d)\s*(?:~|-|–|—)\s*((?:[01]?\d|2[0-3]):[0-5]\d)", raw
     )
