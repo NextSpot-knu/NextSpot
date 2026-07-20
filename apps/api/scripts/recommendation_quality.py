@@ -96,6 +96,9 @@ def evaluate_live(base_url: str, bearer: str | None, user_id: str | None) -> dic
         ("가까운 곳 5분", "cafe", 35.8380, 129.2090, {"max_walk_minutes": 5}),
     ]
     scenarios = []
+    hard_failures = []
+    if not (bearer and user_id):
+        hard_failures.append({"scenario": "live authentication", "failures": ["missing_bearer_or_user_id"]})
     for name, facility_type, lat, lng, context in scenarios_config:
         ranked = []
         if bearer and user_id:
@@ -109,8 +112,44 @@ def evaluate_live(base_url: str, bearer: str | None, user_id: str | None) -> dic
             )
             with urllib.request.urlopen(request, timeout=60) as response:  # noqa: S310 - explicit CLI URL
                 ranked = json.load(response)
+        scenario_failures = []
+        for row in ranked:
+            facility = row.get("facility") or {}
+            distance = float(row.get("distance_m") or 0)
+            if facility.get("type") != facility_type:
+                scenario_failures.append("facility_type")
+            max_minutes = context.get("max_walk_minutes")
+            if max_minutes and distance > max_minutes * WALKING_SPEED_M_PER_MIN + 0.1:
+                scenario_failures.append("max_walk_minutes")
+            if row.get("open_status_at_arrival") == "closed_confirmed":
+                scenario_failures.append("closed_confirmed")
+            features = facility.get("features") or {}
+            required = context.get("required_attributes") or []
+            if "accessible" in required and not (
+                facility.get("barrier_free") is True or features.get("accessible_verified") is True
+            ):
+                scenario_failures.append("unverified_accessibility")
+            if "indoor" in required and not (
+                features.get("indoor") is True or features.get("indoor_verified") is True
+            ):
+                scenario_failures.append("not_indoor")
+            if row.get("congestion_source") == "none" and row.get("congestion_level") is not None:
+                scenario_failures.append("unsupported_congestion_measurement")
+        expected_order = sorted(
+            ranked,
+            key=lambda row: (
+                -float(row.get("spot_score") or 0), float(row.get("distance_m") or 0),
+                str((row.get("facility") or {}).get("id") or ""),
+            ),
+        )
+        if ranked != expected_order:
+            scenario_failures.append("spot_tie_break")
+        scenario_failures = sorted(set(scenario_failures))
+        if scenario_failures:
+            hard_failures.append({"scenario": name, "failures": scenario_failures})
         scenarios.append({
             "name": name,
+            "hard_failures": scenario_failures,
             "items": [{
                 "facility_id": row.get("facility", {}).get("id"),
                 "facility_type": row.get("facility", {}).get("type"),
@@ -120,8 +159,8 @@ def evaluate_live(base_url: str, bearer: str | None, user_id: str | None) -> dic
             } for row in ranked],
         })
     return {"mode": "live", "scenario_count": len(scenarios), "facility_count": len(facilities),
-            "authenticated_recommendations": bool(bearer and user_id), "hard_failure_count": 0,
-            "scenarios": scenarios}
+            "authenticated_recommendations": bool(bearer and user_id),
+            "hard_failure_count": len(hard_failures), "hard_failures": hard_failures, "scenarios": scenarios}
 
 
 def write_report(report: dict, output: Path | None) -> None:
