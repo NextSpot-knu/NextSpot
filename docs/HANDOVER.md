@@ -4,6 +4,10 @@
 
 ### 2026-07-20 후속 완료
 
+- `ingest.yml`이 `if:`에서 `secrets.*`를 직접 참조해 GitHub가 잡 생성 전 구성 실패시키던 기존 문제를
+  job env 가드로 수정했다(`dc96f14`). GitHub 등록명이 `.github/workflows/ingest.yml`에서
+  `TourAPI Ingest`로 복구됐고 active 상태이며, 후속 CI 네 잡(API/web/schema/390px E2E) 모두 성공했다
+  (run `29724521775`).
 - 별도 승인 후 공식 시설 페이지 근거가 있는 국립경주박물관·경주예술의전당 2곳의 원격
   `features.indoor_verified=true`를 기존 JSON 보존 병합으로 반영하고 즉시 재조회 검증했다. 적용 감사는
   `scratch/indoor_evidence_apply.json`에만 저장했다. 인증 라이브 재평가는 활성 장소 **104개**,
