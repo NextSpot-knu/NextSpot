@@ -15,6 +15,14 @@
     후보마다 재시도로 채점 지연이 생기지 않게 한다.
   - 지역 필터는 법정동 코드(경북 47/경주 130) — events 라우터와 동일(구 areaCode 는
     searchFestival2 가 조용히 무시).
+  - 카테고리 게이팅: searchFestival2(contentTypeId=15)는 대형 축제뿐 아니라 소규모
+    전시회·공연(cat2=A0208: 전시회·공연·연극 등)도 반환한다. 유형 구분 없이 반경 보정하면
+    갤러리 전시 하나가 인근 예측 혼잡을 과장하는 왜곡이 생겨('정직한 데이터 표시' 위반),
+    보정 대상을 cat2=A0207(축제)로만 좁힌다. cat2 가 없거나 빈 값이면 기존 보정을 그대로
+    유지하고 warning 을 1회 남긴다 — 필드 부재로 팀이 의도적으로 만든 이 A4 보정이 통째로
+    조용히 죽는 회귀를 막고 실측 가능하게 한다('무해 폴백 = 기존 동작 유지' 철학과 일관).
+    이 게이팅은 혼잡 보정 경로 전용이다 — routers/events.py 의 행사 탭 표시는 자체 fetch 를
+    쓰므로 영향받지 않는다.
 
 공연시간 정밀 보정(구현 2, docs/TOURAPI_EXPANSION.md 1-4):
   - 반경 내(거리 감쇠 boost > 0)인 축제에 한해 detailIntro2(contentTypeId=15)의 playtime 을
@@ -51,6 +59,11 @@ _LDONG_GYEONGJU = 130
 # searchFestival2 의 eventStartDate 는 '시작일' 필터 — 장기 행사를 놓치지 않도록
 # 1년 룩백 후 종료일로 재필터(events 라우터와 동일 근거).
 _LOOKBACK_DAYS = 365
+
+# TourAPI 중분류(cat2) — A0207=축제, A0208=공연/행사(전시회·공연·연극 등). 혼잡 보정은
+# 대형 축제(A0207)에만 건다: searchFestival2 는 소규모 전시회·공연도 함께 반환하는데,
+# 그것까지 반경 보정하면 인근 예측 혼잡을 과장한다('정직한 데이터' 위반 — 아래 설계 참조).
+_CAT2_FESTIVAL = "A0207"
 
 _KST = timezone(timedelta(hours=9))
 
@@ -176,6 +189,7 @@ async def _fetch_ongoing_festivals(today: date) -> list[dict]:
         ldong_signgu_cd=_LDONG_GYEONGJU,
     )
     festivals: list[dict] = []
+    missing_cat2 = 0  # cat2 부재/빈값으로 폴백 유지한 축제 수 — 루프 뒤 1회 경고(실측용)
     for item in tourapi.parse_items(payload):
         start = _parse_yyyymmdd(item.get("eventstartdate"))
         end = _parse_yyyymmdd(item.get("eventenddate"))
@@ -186,10 +200,18 @@ async def _fetch_ongoing_festivals(today: date) -> list[dict]:
             continue
         if lat is None or lng is None or not title:
             continue
+        # 카테고리 게이팅(cat2) — 날짜·좌표를 통과한(즉 보정 후보인) 축제에만 적용한다.
+        cat2 = str(item.get("cat2") or "").strip()
+        if cat2 and cat2 != _CAT2_FESTIVAL:
+            continue  # A0208 등 비축제(전시회·공연) → 혼잡 보정 제외
+        if not cat2:
+            missing_cat2 += 1  # 무해 폴백: 기존 보정 유지, 아래서 실측 가능하게 1회 경고
         contentid = str(item.get("contentid") or "").strip() or None
         festivals.append({
             "title": title, "latitude": lat, "longitude": lng, "contentid": contentid,
         })
+    if missing_cat2:
+        logger.warning("event_boost_cat2_missing", count=missing_cat2)
     return festivals
 
 
