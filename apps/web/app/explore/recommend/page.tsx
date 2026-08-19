@@ -509,9 +509,7 @@ function RecommendContent() {
           .eq("user_id", userId);
 
         if (cancelled) return;
-        // 로컬 완료 흔적이 없는 첫 방문은 DB count 조회가 실패하거나 null이어도 온보딩을 보여준다.
-        // 네트워크 장애가 개인화 진입 자체를 건너뛰게 만들지 않도록 하는 보수적 폴백이다.
-        if (!onboardingDone && (error || !count)) {
+        if (!error && count === 0 && !onboardingDone) {
           setShowOnboarding(true);
           setLoadingRecommendations(false);
           return;
@@ -638,8 +636,8 @@ function RecommendContent() {
 
   // Handle Onboarding Preferences Submission
   const handleOnboardingSubmit = async () => {
-    if (selectedOnboardingCats.length < 1) {
-      toast.info(t("recommend.selectAtLeastOne"));
+    if (selectedOnboardingCats.length < 3) {
+      toast.info(t("recommend.selectAtLeast3"));
       return;
     }
     if (!userId || !facilityId) return;
@@ -1118,7 +1116,7 @@ function RecommendContent() {
           >
             ← {t("recommend.backToMap")}
           </button>
-          <span className="text-sm font-bold tracking-tight text-muk">{t("recommend.headerBrand")}</span>
+          <span className="text-sm font-extrabold tracking-tight gradient-text">{t("recommend.headerBrand")}</span>
           <div className="w-14"></div> {/* spacer */}
         </header>
 
@@ -1498,7 +1496,7 @@ function RecommendContent() {
                   <span className="w-1.5 h-1.5 rounded-full bg-jade" />
                   <span className="w-1.5 h-1.5 rounded-full bg-dan-red" />
                 </span>
-                <span className="text-[10px] font-bold tracking-wide text-muk">{t("recommend.assistantName")}</span>
+                <span className="text-[10px] font-bold tracking-wide gradient-text">{t("recommend.assistantName")}</span>
               </div>
               <p className="text-[11px] leading-snug text-muk min-h-[1.1rem]">
                 {voiceState === "listening"
@@ -1684,7 +1682,7 @@ function RecommendContent() {
             {/* Submit onboarding Button */}
             <button
               onClick={handleOnboardingSubmit}
-              disabled={selectedOnboardingCats.length < 1 || isOnboardingSubmitting}
+              disabled={selectedOnboardingCats.length < 3 || isOnboardingSubmitting}
               className="w-full py-3 bg-gradient-to-r from-gold to-terracotta text-white rounded-xl font-bold text-xs transition-all duration-300 hover:opacity-90 active:scale-[0.98] shadow-sm disabled:opacity-50"
             >
               {isOnboardingSubmitting ? t("recommend.savingSettings") : t("recommend.selectDone", { n: selectedOnboardingCats.length })}

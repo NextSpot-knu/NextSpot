@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, PanInfo, AnimatePresence } from 'framer-motion';
 import { Bookmark, Sparkles, Star, Phone, MapPin, Clock, ChevronUp, ChevronDown, Info, Globe, Utensils } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { CongestionReportButton } from '@/components/CongestionReportButton';
@@ -203,8 +203,30 @@ export function RecommendationCard({
     };
   }, [isExpanded, dayFacilityType]);
 
+  // Framer Motion Drag Handler
+  const handleDragEnd = (event: MouseEvent | TouchEvent | PointerEvent, info: PanInfo) => {
+    const offset = info.offset.y;
+    const velocity = info.velocity.y;
+
+    if (isExpanded) {
+      if (offset > 50 || velocity > 200) {
+        setIsExpanded(false);
+      }
+    } else if (isMinimized) {
+      if (offset < -50 || velocity < -200) {
+        setIsMinimized(false);
+      }
+    } else {
+      if (offset > 50 || velocity > 200) {
+        setIsMinimized(true);
+      } else if (offset < -50 || velocity < -200) {
+        setIsExpanded(true);
+      }
+    }
+  };
+
   const toggleExpand = () => {
-    setIsExpanded((current) => !current);
+    setIsExpanded(!isExpanded);
   };
 
   const hasSpotMetrics = spotScore !== undefined;
@@ -306,43 +328,52 @@ export function RecommendationCard({
 
   return (
     <motion.div 
-      className={`w-full rounded-t-2xl bg-white border border-line md:rounded-xl ${isMinimized ? 'p-3' : 'p-5'} shadow-[0_6px_20px_rgba(43,35,32,0.10)] flex flex-col ${isMinimized ? 'gap-1' : 'gap-3'} select-none relative overflow-hidden`}
+      className={`w-full bg-white/95 backdrop-blur-2xl border border-line rounded-3xl ${isMinimized ? 'p-3' : 'p-5'} shadow-[0_8px_30px_rgba(43,35,32,0.12)] flex flex-col ${isMinimized ? 'gap-1' : 'gap-3'} select-none relative overflow-hidden`}
+      drag="y"
+      dragConstraints={{ top: 0, bottom: 0 }}
+      dragElastic={0.2}
+      onDragEnd={handleDragEnd}
       layout
       transition={{ type: 'spring', bounce: 0.2, duration: 0.6 }}
     >
-      {/* 명시적인 접기/열기 손잡이 — 카드 전체 드래그를 제거해 내부 스크롤·버튼과 충돌하지 않는다. */}
-      <button
-        type="button"
-        aria-label={isMinimized ? t('card.open') : t('common.close')}
-        className="mx-auto mb-1 flex h-7 w-16 items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-jade"
-        onClick={() => setIsMinimized((current) => !current)}
+      {/* 상단 장식 라인 — 콜드 블루 글로우를 신라금 웜 그라디언트로 */}
+      <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-gold/50 to-transparent" />
+
+      {/* Swipe/Drag Handle Bar */}
+      <div 
+        className="w-16 h-1.5 bg-muk/15 hover:bg-muk/25 rounded-full mx-auto mb-1 cursor-pointer flex items-center justify-center transition-colors"
+        onClick={() => {
+          if (isMinimized) setIsMinimized(false);
+          else toggleExpand();
+        }}
       >
-        <span aria-hidden className="h-1.5 w-12 rounded-full bg-muk/15 transition-colors hover:bg-muk/25" />
-      </button>
+        <div className="sr-only">Drag handle</div>
+      </div>
 
       {isMinimized ? (
-        <button
-          type="button"
-          className="flex w-full items-center justify-between px-2 pb-1 text-left"
+        <div 
+          className="flex items-center justify-between px-2 pb-1 cursor-pointer"
           onClick={() => setIsMinimized(false)}
         >
            <span className="text-sm font-bold text-muk truncate max-w-[200px]">{title}</span>
            <span className="text-[10px] text-terracotta font-bold bg-gold/10 px-2 py-0.5 rounded-full border border-gold/25 whitespace-nowrap">
              {t('card.open')} <ChevronUp size={12} className="inline mb-0.5" />
            </span>
-        </button>
+        </div>
       ) : (
         <>
-          {/* Top Header Row */}
-      <div className="flex justify-between items-start gap-3">
+          {/* Top Header Row — 클릭 시 상세(구체적 장소) 펼침/접기 */}
+      <div className="flex justify-between items-start gap-3 cursor-pointer" onClick={toggleExpand}>
         <div className="flex-1">
           <div className="flex items-center gap-2 mb-1.5">
             {rank ? (
-              <span className="inline-flex items-center border-l-2 border-terracotta pl-2 text-[11px] font-bold text-terracotta">
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-gradient-to-r from-gold to-terracotta text-white text-[10px] font-black rounded-lg shadow-sm">
+                <Sparkles size={12} />
                 {t('card.rankBadge', { rank })}
               </span>
             ) : (
-              <span className="inline-flex items-center border-l-2 border-jade pl-2 text-[11px] font-bold text-jade">
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-gold/15 text-gold-deep text-[10px] font-bold rounded-lg">
+                <Sparkles size={12} />
                 {t('card.aiRec')}
               </span>
             )}
@@ -410,11 +441,11 @@ export function RecommendationCard({
                   {t('card.timesale', { rate: timesaleRatePct })}
                 </span>
               )}
-              {facility.currentCount != null && facility.capacity != null && (
-                <span className="px-2 py-0.5 rounded-md text-[10px] font-medium bg-hanji-deep border border-line text-muk-soft">
-                  {t('card.remainingLabel')}: {t('card.remainingValue', { seats: Math.max(0, facility.capacity - facility.currentCount), total: facility.capacity })}
-                </span>
-              )}
+              <span className="px-2 py-0.5 rounded-md text-[10px] font-medium bg-hanji-deep border border-line text-muk-soft">
+                {t('card.remainingLabel')}: {facility.currentCount != null && facility.capacity != null
+                  ? t('card.remainingValue', { seats: Math.max(0, facility.capacity - facility.currentCount), total: facility.capacity })
+                  : '—'}
+              </span>
               {/* 골든타임 알리미 — 혼잡도 pill 바로 옆(같은 줄)에 지연 조회로 끼워 넣는다. 백엔드
                   미기동/available:false 면 조용히 렌더되지 않는다(무해 폴백). */}
               <GoldenHourBadge facilityId={facility.id} />
@@ -476,7 +507,7 @@ export function RecommendationCard({
         {hasSpotMetrics ? (
           <div className="relative group">
             <div
-              className="flex min-w-[62px] flex-col items-end justify-center border-l border-line pl-3 cursor-pointer"
+              className="flex flex-col items-center justify-center min-w-[60px] h-[60px] rounded-2xl border border-gold/40 bg-gradient-to-b from-gold/20 to-gold/5 cursor-pointer shadow-sm"
             >
               <span className="text-[10px] text-gold-deep font-bold mb-0.5">{t('card.spotScoreLabel')}</span>
               <span className="text-muk font-black text-xl leading-none">{Math.round(spotScore || 0)}<span className="text-[10px] font-normal text-muk-soft ml-0.5">{t('card.pointSuffix')}</span></span>
@@ -497,8 +528,9 @@ export function RecommendationCard({
             {/* Tooltip — 상태(showTooltip) 또는 데스크톱 hover 시 표시 */}
             <div className={`absolute top-full right-0 mt-3 w-[260px] p-3.5 bg-white/95 backdrop-blur-xl border border-line rounded-xl shadow-[0_10px_30px_rgba(43,35,32,0.15)] transition-all duration-200 z-50 pointer-events-none group-hover:opacity-100 group-hover:visible ${showTooltip ? 'opacity-100 visible' : 'opacity-0 invisible'}`}>
               <p className="text-[11px] text-muk-soft leading-relaxed text-right break-keep space-y-1">
-                <span className="block mb-1.5"><strong className="text-muk font-bold text-[12px]">추천 점수</strong></span>
-                <span className="block">도착 예상 시간, 대기 시간, 이동 거리와 선택한 여행 조건을 함께 반영한 순위예요.</span>
+                <span className="block mb-1.5"><strong className="text-gold-deep font-bold text-[12px]">SPOT Score란?</strong></span>
+                <span className="block">NextSpot의 핵심 기술로, 도착 시점의 혼잡도를 미리 예측하는 <strong className="text-gold-deep">머신러닝 AI 모델</strong>과 사용자의 선호도를 분석하는 <strong className="text-gold-deep">벡터 알고리즘</strong>의 결합.</span>
+                <span className="block mt-1.5">지금 이 순간, 사용자의 시간 가치를 극대화하는 가장 완벽한 목적지를 제안합니다.</span>
               </p>
             </div>
           </div>
@@ -512,23 +544,18 @@ export function RecommendationCard({
         )}
       </div>
 
-      <button
-        type="button"
-        aria-expanded={isExpanded}
-        onClick={toggleExpand}
-        className="flex w-full items-center justify-between border-t border-line pt-3 text-xs font-bold text-muk-soft transition-colors hover:text-muk focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-jade"
-      >
-        <span>{isExpanded ? t('card.hideDetails') : t('card.details')}</span>
-        {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-      </button>
 
-      {/* 세부 수치는 사용자가 요청했을 때만 보여 기본 의사결정 정보를 간결하게 유지한다. */}
-      {hasSpotMetrics && isExpanded && (
-        <div className="flex flex-col gap-2 mt-1">
+
+      {/* SPOT Metric Grid (Only if metrics are provided) */}
+      {hasSpotMetrics && (
+        <div className="flex flex-col gap-2 mt-1 cursor-pointer" onClick={toggleExpand}>
             <div className="flex flex-col gap-2">
               <div className="flex gap-2">
                 {/* Time Cost Column */}
-                <div className="flex-1 border border-line p-3 flex flex-col justify-center relative overflow-hidden">
+                <div className="flex-1 bg-gradient-to-br from-gold/10 to-gold/5 border border-gold/20 rounded-2xl p-3 flex flex-col justify-center relative overflow-hidden">
+                  <div className="absolute top-0 right-0 p-2 opacity-20">
+                    <Clock size={24} className="text-gold" />
+                  </div>
                   <span className="text-muk-soft text-[10px] font-semibold mb-1">{t('card.totalTime')}</span>
                   <div className="flex items-baseline gap-1 mb-1.5">
                     <span className="text-2xl font-black text-muk">{timeToService}</span>
@@ -542,7 +569,7 @@ export function RecommendationCard({
                 </div>
 
                 {/* Preference Column */}
-                <div className="w-[110px] bg-hanji border border-line p-3 flex flex-col justify-center items-center text-center">
+                <div className="w-[110px] bg-hanji-deep border border-line rounded-2xl p-3 flex flex-col justify-center items-center text-center">
                   <span className="text-muk-soft text-[10px] font-semibold mb-1">{t('card.prefMatch')}</span>
                   <div className="flex items-baseline gap-0.5 mb-1">
                     <span className="text-xl font-black text-jade">{preferencePercent}</span>
@@ -806,7 +833,7 @@ export function RecommendationCard({
           <button
             onClick={onReject}
             aria-label={t('card.rejectAria')}
-            className="flex-1 bg-white hover:bg-hanji text-muk-soft font-bold py-3 rounded-lg border border-line transition-colors text-xs focus:outline-none focus-visible:ring-2 focus-visible:ring-jade/60"
+            className="flex-1 bg-hanji-deep hover:bg-terracotta/10 hover:text-terracotta hover:border-terracotta/30 text-muk-soft font-bold py-3 rounded-2xl border border-line transition-all active:scale-95 text-xs focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
           >
             {t('card.reject')}
           </button>
@@ -814,7 +841,7 @@ export function RecommendationCard({
             <button
               onClick={onPutOff}
               aria-label={t('card.putOffAria')}
-              className="group flex-1 flex items-center justify-center gap-1.5 bg-white hover:bg-hanji text-muk-soft font-bold py-3 rounded-lg border border-line transition-colors text-xs focus:outline-none focus-visible:ring-2 focus-visible:ring-jade/60"
+              className="group flex-1 flex items-center justify-center gap-1.5 bg-hanji-deep hover:bg-gold/10 hover:text-gold-deep hover:border-gold/30 text-muk-soft font-bold py-3 rounded-2xl border border-line transition-all active:scale-95 text-xs focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
             >
               {/* 저장 인지 강화용 북마크 — hover/press 시 채워지며 살짝 팝(순수 Tailwind, 과하지 않게) */}
               <Bookmark
@@ -827,7 +854,7 @@ export function RecommendationCard({
           <button
             onClick={onAccept}
             aria-label={t('card.acceptAria')}
-            className="flex-1 bg-muk hover:bg-jade text-white font-bold py-3 rounded-lg transition-colors text-xs focus:outline-none focus-visible:ring-2 focus-visible:ring-jade/60"
+            className="flex-1 bg-gradient-to-r from-gold to-terracotta hover:from-gold-deep hover:to-terracotta text-white font-bold py-3 rounded-2xl transition-all active:scale-95 text-xs shadow-[0_4px_14px_rgba(193,85,59,0.25)] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
           >
             {t('card.accept')}
           </button>
