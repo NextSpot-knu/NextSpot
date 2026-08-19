@@ -54,7 +54,7 @@ async function mockMainWithSpeech(page: Page) {
 
 async function issueVoiceCommand(page: Page, utterance: string, waitForIdle = true) {
   await page.evaluate(() => { (window as any).__previousRecognition = (window as any).__recognition ?? null; });
-  await page.getByRole('button', { name: 'AI 음성 추천 듣기' }).click();
+  await page.getByRole('button', { name: '음성 안내 듣기' }).click();
   await expect.poll(() => page.evaluate(() => {
     const current = (window as any).__recognition;
     return Boolean(current) && current !== (window as any).__previousRecognition;
@@ -66,7 +66,7 @@ async function issueVoiceCommand(page: Page, utterance: string, waitForIdle = tr
     recognition.onresult?.({ resultIndex: 0, results: [result] });
   }, utterance);
   if (waitForIdle) {
-    await expect(page.getByRole('button', { name: 'AI 음성 추천 듣기' })).toBeVisible();
+    await expect(page.getByRole('button', { name: '음성 안내 듣기' })).toBeVisible();
   }
 }
 
