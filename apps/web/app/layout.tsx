@@ -19,7 +19,7 @@ const notoSerifKr = Noto_Serif_KR({ variable: "--font-noto-serif-kr", weight: ["
 
 export const metadata: Metadata = {
   title: "NextSpot",
-  description: "붐비는 시간을 피해 경주를 둘러보세요",
+  description: "오버투어리즘 없는 스마트한 경주 여행",
   // PWA: 관광객은 이동 중 모바일 사용이 기본 — 홈 화면 설치를 지원한다(정적 export 호환).
   manifest: "/manifest.webmanifest",
   appleWebApp: { capable: true, statusBarStyle: "black-translucent", title: "NextSpot" },
@@ -27,7 +27,7 @@ export const metadata: Metadata = {
   // 정적 export 호환 — 문자열 리터럴만 사용(동적 함수/서버 로직 없음).
   openGraph: {
     title: "NextSpot",
-    description: "붐비는 시간을 피해 경주를 둘러보세요",
+    description: "오버투어리즘 없는 스마트한 경주 여행",
     siteName: "NextSpot",
     locale: "ko_KR",
     images: [{ url: "/og.png", width: 1200, height: 630 }],
@@ -35,7 +35,7 @@ export const metadata: Metadata = {
   twitter: {
     card: "summary_large_image",
     title: "NextSpot",
-    description: "붐비는 시간을 피해 경주를 둘러보세요",
+    description: "오버투어리즘 없는 스마트한 경주 여행",
     images: ["/og.png"],
   },
 };
