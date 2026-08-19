@@ -1116,7 +1116,7 @@ function RecommendContent() {
           >
             ← {t("recommend.backToMap")}
           </button>
-          <span className="text-sm font-extrabold tracking-tight gradient-text">{t("recommend.headerBrand")}</span>
+          <span className="text-sm font-bold tracking-tight text-muk">{t("recommend.headerBrand")}</span>
           <div className="w-14"></div> {/* spacer */}
         </header>
 
@@ -1496,7 +1496,7 @@ function RecommendContent() {
                   <span className="w-1.5 h-1.5 rounded-full bg-jade" />
                   <span className="w-1.5 h-1.5 rounded-full bg-dan-red" />
                 </span>
-                <span className="text-[10px] font-bold tracking-wide gradient-text">{t("recommend.assistantName")}</span>
+                <span className="text-[10px] font-bold tracking-wide text-muk">{t("recommend.assistantName")}</span>
               </div>
               <p className="text-[11px] leading-snug text-muk min-h-[1.1rem]">
                 {voiceState === "listening"

@@ -56,13 +56,13 @@ export default function SetupPage() {
     <main className="min-h-screen bg-hanji text-muk px-5 py-7">
       <div className="mx-auto max-w-md">
         <header className="flex items-center justify-between mb-7">
-          <button type="button" onClick={() => router.push('/')} aria-label={t('common.back')} className="p-2.5 rounded-xl bg-white border border-line"><ArrowLeft size={20} /></button>
-          <button type="button" disabled={saving} onClick={() => void finish(EMPTY_TRAVEL_CONTEXT)} className="text-sm text-muk-soft underline disabled:opacity-50">{t('setup.skip')}</button>
+          <button type="button" onClick={() => router.push('/')} aria-label={t('common.back')} className="-ml-2 p-2 text-muk-soft hover:text-muk"><ArrowLeft size={20} /></button>
+          <button type="button" disabled={saving} onClick={() => void finish(EMPTY_TRAVEL_CONTEXT)} className="text-sm text-muk-soft disabled:opacity-50">{t('setup.skip')}</button>
         </header>
         <div className="mb-7">
-          <span className="inline-flex items-center gap-1 text-xs font-bold text-jade"><MapPin size={14} /> {t('setup.fieldBadge')}</span>
-          <h1 className="mt-2 text-2xl font-serif font-bold break-keep">{t('setup.contextTitle')}</h1>
-          <p className="mt-2 text-sm text-muk-soft">{t('setup.contextDesc')}</p>
+          <span className="inline-flex items-center gap-1 text-xs font-bold tracking-wide text-jade"><MapPin size={14} /> {t('setup.fieldBadge')}</span>
+          <h1 className="mt-3 max-w-sm text-[28px] font-serif font-bold leading-tight break-keep">{t('setup.contextTitle')}</h1>
+          <p className="mt-3 text-sm leading-6 text-muk-soft">{t('setup.contextDesc')}</p>
         </div>
 
         <Section title={t('setup.categoriesTitle')}>
@@ -81,12 +81,12 @@ export default function SetupPage() {
             <Toggle active={context.excludeVisited} onClick={() => setContext((current) => ({ ...current, excludeVisited: !current.excludeVisited }))} label={t('setup.excludeVisited')} />
           </div>
         </Section>
-        <button type="button" disabled={saving} onClick={() => void finish(context)} className="w-full mt-3 py-4 rounded-xl bg-gold text-white font-bold disabled:opacity-50">{saving ? t('setup.saving') : t('setup.start')}</button>
+        <button type="button" disabled={saving} onClick={() => void finish(context)} className="w-full mt-3 border border-muk bg-muk py-4 text-white font-bold disabled:opacity-50">{saving ? t('setup.saving') : t('setup.start')}</button>
       </div>
     </main>
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) { return <section className="mb-6"><h2 className="mb-2 text-sm font-bold">{title}</h2>{children}</section>; }
-function Chip({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) { return <button type="button" aria-pressed={active} onClick={onClick} className={`rounded-xl border px-3 py-3 text-sm font-semibold ${active ? 'border-gold bg-gold/15' : 'border-line bg-white'}`}>{children}</button>; }
-function Toggle({ active, onClick, label }: { active: boolean; onClick: () => void; label: string }) { return <button type="button" aria-pressed={active} onClick={onClick} className={`w-full flex items-center justify-between rounded-xl border px-4 py-3 text-sm font-semibold ${active ? 'border-jade bg-jade/10' : 'border-line bg-white'}`}><span>{label}</span>{active && <Check size={17} />}</button>; }
+function Section({ title, children }: { title: string; children: React.ReactNode }) { return <section className="mb-7 border-t border-line pt-4"><h2 className="mb-3 text-sm font-bold">{title}</h2>{children}</section>; }
+function Chip({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) { return <button type="button" aria-pressed={active} onClick={onClick} className={`border px-3 py-3 text-sm font-semibold transition-colors ${active ? 'border-jade bg-jade text-white' : 'border-line bg-transparent hover:border-muk-soft'}`}>{children}</button>; }
+function Toggle({ active, onClick, label }: { active: boolean; onClick: () => void; label: string }) { return <button type="button" aria-pressed={active} onClick={onClick} className={`w-full flex items-center justify-between border px-4 py-3 text-left text-sm font-semibold transition-colors ${active ? 'border-jade bg-jade text-white' : 'border-line bg-transparent hover:border-muk-soft'}`}><span>{label}</span>{active && <Check size={17} />}</button>; }
