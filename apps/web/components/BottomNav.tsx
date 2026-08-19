@@ -4,6 +4,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { Home, Bookmark, Timer, Route, User } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { useT } from '@/lib/i18n/I18nProvider';
+import NextSpotMascot from '@/components/NextSpotMascot';
 
 // 관광객 앱 주 내비게이션 — 반응형:
 //  · 데스크톱(md+): 왼쪽 세로 레일(인플로우 flex 자식 → 콘텐츠 폭을 차지).
@@ -65,10 +66,8 @@ export default function BottomNav() {
         aria-label="주요 내비게이션"
         className="hidden md:flex shrink-0 w-[76px] sticky top-0 h-screen z-40 bg-white/90 backdrop-blur-xl border-r border-line shadow-[2px_0_14px_rgba(43,35,32,0.06)] flex-col items-center py-6"
       >
-        {/* 워드마크(신라금 명조 이니셜) */}
-        <div className="w-10 h-10 rounded-2xl bg-gold/10 border border-gold/25 flex items-center justify-center mb-8">
-          <span className="font-serif font-black text-gold-deep text-lg leading-none">N</span>
-        </div>
+        {/* 데스크톱 레일에서도 브랜드가 한눈에 기억되도록 여행 길잡이 얼굴을 사용한다. */}
+        <NextSpotMascot className="mb-8 w-11" />
 
         <div className="relative flex flex-col items-center gap-2">
           {/* 활성 탭 세로 슬라이딩 인디케이터 */}

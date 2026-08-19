@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import dynamic from 'next/dynamic';
-import { User, Search, Mic, X, Utensils, MapPin, Building2, Coffee, ChevronDown, ChevronUp, SlidersHorizontal } from 'lucide-react';
+import { Search, Mic, X, Utensils, MapPin, Building2, Coffee, ChevronDown, ChevronUp, SlidersHorizontal } from 'lucide-react';
 import { createPublicClient } from '@/lib/supabase';
 import { getMarkerSvg } from '@/lib/utils';
 import { scoreFacility, compareSpot, rankFacilities, recToSpot, haversineMeters, cuisineMatch, filterReachable, type Spot } from '@/lib/recommender';
@@ -26,6 +26,7 @@ import { useT } from '@/lib/i18n/I18nProvider';
 import { isClosedToday, parseAvailability } from '@/lib/restDate';
 import { loadTravelContext, matchesTravelContext, saveTravelContext, type PlaceCategory } from '@/lib/travelContext';
 import { buildVoiceCommandTransition, type VoiceAppCommand } from '@/lib/voiceCommands';
+import NextSpotMascot from '@/components/NextSpotMascot';
 
 const RecommendationCard = dynamic(
   () => import('@/components/RecommendationCard').then((m) => m.RecommendationCard),
@@ -1736,9 +1737,7 @@ export default function MainPage() {
               <span className="text-[10px] font-medium text-muk-soft whitespace-nowrap">{t('map.soon')}</span>
             </span>
           )}
-          <div className="w-8 h-8 rounded-full bg-gold/15 ml-4 flex items-center justify-center border border-gold/40">
-            <User size={16} className="text-gold" />
-          </div>
+          <NextSpotMascot className="ml-3 w-9" />
         </div>
 
         <WeatherChip
@@ -2101,6 +2100,7 @@ export default function MainPage() {
       {/* (a) 시설 로드 상태 안내 — 로딩 스피너 / 로드 실패 재시도 / 전체 빈 상태 (데모 사고 방지선) */}
       {isLoadingFacilities && (
         <div className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-3 pointer-events-none">
+          <NextSpotMascot variant="full" className="w-20 shadow-[0_8px_24px_rgba(43,35,32,0.10)]" />
           <div className="w-10 h-10 rounded-full border-2 border-line border-t-gold animate-spin" />
           <span className="text-muk text-sm font-medium">{t('map.loadingRec')}</span>
         </div>
@@ -2126,7 +2126,7 @@ export default function MainPage() {
       {!isLoadingFacilities && !facilitiesLoadError && facilities.length === 0 && (
         <div className="absolute inset-0 z-30 flex items-center justify-center px-6 pointer-events-none">
           <div className="bg-white border border-line rounded-2xl px-6 py-5 shadow-[0_2px_14px_rgba(43,35,32,0.06)] flex flex-col items-center gap-2 max-w-xs text-center">
-            <span className="text-2xl">🗺️</span>
+            <NextSpotMascot variant="full" className="w-16" />
             <p className="text-muk text-sm font-semibold">{t('map.emptyTitle')}</p>
             <p className="text-muk-soft text-xs leading-relaxed">{t('map.emptyBody')}</p>
           </div>
@@ -2226,7 +2226,7 @@ export default function MainPage() {
       {!isLoadingFacilities && !facilitiesLoadError && facilities.length > 0 && !selectedFacility && noRecommendation && (
         <div className="absolute z-20 px-4 bottom-[calc(80px+env(safe-area-inset-bottom))] w-full md:bottom-auto md:top-24 md:left-auto md:right-4 md:w-[370px] md:px-0">
           <div className="bg-white border border-line rounded-2xl px-5 py-4 shadow-[0_2px_14px_rgba(43,35,32,0.06)] flex flex-col items-center gap-1.5 text-center">
-            <span className="text-xl">🧭</span>
+            <NextSpotMascot className="w-12" />
             <p className="text-muk text-sm font-semibold">{t('map.noRecTitle')}</p>
             {/* 소진 원인이 '전부 오늘 휴무'면 문구를 구분 — 데이터 부족/엔진 실패로 오해하지 않게(정직성). */}
             <p className="text-muk-soft text-xs leading-relaxed">
