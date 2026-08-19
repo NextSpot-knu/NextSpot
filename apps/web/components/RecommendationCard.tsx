@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { motion, PanInfo, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { Bookmark, Sparkles, Star, Phone, MapPin, Clock, ChevronUp, ChevronDown, Info, Globe, Utensils } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { CongestionReportButton } from '@/components/CongestionReportButton';
@@ -203,30 +203,8 @@ export function RecommendationCard({
     };
   }, [isExpanded, dayFacilityType]);
 
-  // Framer Motion Drag Handler
-  const handleDragEnd = (event: MouseEvent | TouchEvent | PointerEvent, info: PanInfo) => {
-    const offset = info.offset.y;
-    const velocity = info.velocity.y;
-
-    if (isExpanded) {
-      if (offset > 50 || velocity > 200) {
-        setIsExpanded(false);
-      }
-    } else if (isMinimized) {
-      if (offset < -50 || velocity < -200) {
-        setIsMinimized(false);
-      }
-    } else {
-      if (offset > 50 || velocity > 200) {
-        setIsMinimized(true);
-      } else if (offset < -50 || velocity < -200) {
-        setIsExpanded(true);
-      }
-    }
-  };
-
   const toggleExpand = () => {
-    setIsExpanded(!isExpanded);
+    setIsExpanded((current) => !current);
   };
 
   const hasSpotMetrics = spotScore !== undefined;
@@ -329,38 +307,34 @@ export function RecommendationCard({
   return (
     <motion.div 
       className={`w-full rounded-t-2xl bg-white border border-line md:rounded-xl ${isMinimized ? 'p-3' : 'p-5'} shadow-[0_6px_20px_rgba(43,35,32,0.10)] flex flex-col ${isMinimized ? 'gap-1' : 'gap-3'} select-none relative overflow-hidden`}
-      drag="y"
-      dragConstraints={{ top: 0, bottom: 0 }}
-      dragElastic={0.2}
-      onDragEnd={handleDragEnd}
       layout
       transition={{ type: 'spring', bounce: 0.2, duration: 0.6 }}
     >
-      {/* Swipe/Drag Handle Bar */}
-      <div 
-        className="w-16 h-1.5 bg-muk/15 hover:bg-muk/25 rounded-full mx-auto mb-1 cursor-pointer flex items-center justify-center transition-colors"
-        onClick={() => {
-          if (isMinimized) setIsMinimized(false);
-          else toggleExpand();
-        }}
+      {/* 명시적인 접기/열기 손잡이 — 카드 전체 드래그를 제거해 내부 스크롤·버튼과 충돌하지 않는다. */}
+      <button
+        type="button"
+        aria-label={isMinimized ? t('card.open') : t('common.close')}
+        className="mx-auto mb-1 flex h-7 w-16 items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-jade"
+        onClick={() => setIsMinimized((current) => !current)}
       >
-        <div className="sr-only">Drag handle</div>
-      </div>
+        <span aria-hidden className="h-1.5 w-12 rounded-full bg-muk/15 transition-colors hover:bg-muk/25" />
+      </button>
 
       {isMinimized ? (
-        <div 
-          className="flex items-center justify-between px-2 pb-1 cursor-pointer"
+        <button
+          type="button"
+          className="flex w-full items-center justify-between px-2 pb-1 text-left"
           onClick={() => setIsMinimized(false)}
         >
            <span className="text-sm font-bold text-muk truncate max-w-[200px]">{title}</span>
            <span className="text-[10px] text-terracotta font-bold bg-gold/10 px-2 py-0.5 rounded-full border border-gold/25 whitespace-nowrap">
              {t('card.open')} <ChevronUp size={12} className="inline mb-0.5" />
            </span>
-        </div>
+        </button>
       ) : (
         <>
-          {/* Top Header Row — 클릭 시 상세(구체적 장소) 펼침/접기 */}
-      <div className="flex justify-between items-start gap-3 cursor-pointer" onClick={toggleExpand}>
+          {/* Top Header Row */}
+      <div className="flex justify-between items-start gap-3">
         <div className="flex-1">
           <div className="flex items-center gap-2 mb-1.5">
             {rank ? (
@@ -436,11 +410,11 @@ export function RecommendationCard({
                   {t('card.timesale', { rate: timesaleRatePct })}
                 </span>
               )}
-              <span className="px-2 py-0.5 rounded-md text-[10px] font-medium bg-hanji-deep border border-line text-muk-soft">
-                {t('card.remainingLabel')}: {facility.currentCount != null && facility.capacity != null
-                  ? t('card.remainingValue', { seats: Math.max(0, facility.capacity - facility.currentCount), total: facility.capacity })
-                  : '—'}
-              </span>
+              {facility.currentCount != null && facility.capacity != null && (
+                <span className="px-2 py-0.5 rounded-md text-[10px] font-medium bg-hanji-deep border border-line text-muk-soft">
+                  {t('card.remainingLabel')}: {t('card.remainingValue', { seats: Math.max(0, facility.capacity - facility.currentCount), total: facility.capacity })}
+                </span>
+              )}
               {/* 골든타임 알리미 — 혼잡도 pill 바로 옆(같은 줄)에 지연 조회로 끼워 넣는다. 백엔드
                   미기동/available:false 면 조용히 렌더되지 않는다(무해 폴백). */}
               <GoldenHourBadge facilityId={facility.id} />
@@ -538,11 +512,19 @@ export function RecommendationCard({
         )}
       </div>
 
+      <button
+        type="button"
+        aria-expanded={isExpanded}
+        onClick={toggleExpand}
+        className="flex w-full items-center justify-between border-t border-line pt-3 text-xs font-bold text-muk-soft transition-colors hover:text-muk focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-jade"
+      >
+        <span>{isExpanded ? t('card.hideDetails') : t('card.details')}</span>
+        {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+      </button>
 
-
-      {/* SPOT Metric Grid (Only if metrics are provided) */}
-      {hasSpotMetrics && (
-        <div className="flex flex-col gap-2 mt-1 cursor-pointer" onClick={toggleExpand}>
+      {/* 세부 수치는 사용자가 요청했을 때만 보여 기본 의사결정 정보를 간결하게 유지한다. */}
+      {hasSpotMetrics && isExpanded && (
+        <div className="flex flex-col gap-2 mt-1">
             <div className="flex flex-col gap-2">
               <div className="flex gap-2">
                 {/* Time Cost Column */}

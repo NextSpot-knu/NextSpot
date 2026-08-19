@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, Check, MapPin } from 'lucide-react';
+import { ArrowLeft, Check, ChevronDown, ChevronUp, MapPin } from 'lucide-react';
 import { createPublicClient } from '@/lib/supabase';
 import { track } from '@/lib/analytics';
 import { EMPTY_TRAVEL_CONTEXT, saveTravelContext, type PlaceCategory, type RequiredAttribute, type TravelContext } from '@/lib/travelContext';
@@ -17,6 +17,7 @@ export default function SetupPage() {
   const t = useT();
   const [context, setContext] = useState<TravelContext>(EMPTY_TRAVEL_CONTEXT);
   const [saving, setSaving] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   const toggleCategory = (category: PlaceCategory) => setContext((current) => ({
     ...current,
@@ -71,17 +72,38 @@ export default function SetupPage() {
         <Section title={t('setup.walkTitle')}>
           <div className="grid grid-cols-3 gap-2">{WALKS.map((minutes) => <Chip key={minutes} active={context.maxWalkMinutes === minutes} onClick={() => setContext((current) => ({ ...current, maxWalkMinutes: minutes }))}>{t('setup.minutes', { n: minutes })}</Chip>)}</div>
         </Section>
-        <Section title={t('setup.availableTitle')}>
-          <div className="grid grid-cols-3 gap-2">{AVAILABLE.map((minutes) => <Chip key={minutes} active={context.availableMinutes === minutes} onClick={() => setContext((current) => ({ ...current, availableMinutes: minutes }))}>{minutes === 120 ? t('setup.twoHoursPlus') : t('setup.minutes', { n: minutes })}</Chip>)}</div>
-        </Section>
-        <Section title={t('setup.requirementsTitle')}>
-          <div className="space-y-2">
-            <Toggle active={context.requiredAttributes.includes('indoor')} onClick={() => toggleAttribute('indoor')} label={t('setup.indoorOnly')} />
-            <Toggle active={context.requiredAttributes.includes('accessible')} onClick={() => toggleAttribute('accessible')} label={t('setup.accessibleOnly')} />
-            <Toggle active={context.excludeVisited} onClick={() => setContext((current) => ({ ...current, excludeVisited: !current.excludeVisited }))} label={t('setup.excludeVisited')} />
+
+        <button
+          type="button"
+          aria-expanded={showAdvanced}
+          onClick={() => setShowAdvanced((current) => !current)}
+          className="mb-5 flex w-full items-center justify-between border-y border-line py-4 text-left"
+        >
+          <span>
+            <span className="block text-sm font-bold text-muk">{showAdvanced ? t('setup.advancedHide') : t('setup.advancedShow')}</span>
+            <span className="mt-1 block text-xs text-muk-soft">{t('setup.advancedHint')}</span>
+          </span>
+          {showAdvanced ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+        </button>
+
+        {showAdvanced && (
+          <div>
+            <Section title={t('setup.availableTitle')}>
+              <div className="grid grid-cols-3 gap-2">{AVAILABLE.map((minutes) => <Chip key={minutes} active={context.availableMinutes === minutes} onClick={() => setContext((current) => ({ ...current, availableMinutes: minutes }))}>{minutes === 120 ? t('setup.twoHoursPlus') : t('setup.minutes', { n: minutes })}</Chip>)}</div>
+            </Section>
+            <Section title={t('setup.requirementsTitle')}>
+              <div className="space-y-2">
+                <Toggle active={context.requiredAttributes.includes('indoor')} onClick={() => toggleAttribute('indoor')} label={t('setup.indoorOnly')} />
+                <Toggle active={context.requiredAttributes.includes('accessible')} onClick={() => toggleAttribute('accessible')} label={t('setup.accessibleOnly')} />
+                <Toggle active={context.excludeVisited} onClick={() => setContext((current) => ({ ...current, excludeVisited: !current.excludeVisited }))} label={t('setup.excludeVisited')} />
+              </div>
+            </Section>
           </div>
-        </Section>
-        <button type="button" disabled={saving} onClick={() => void finish(context)} className="w-full mt-3 border border-muk bg-muk py-4 text-white font-bold disabled:opacity-50">{saving ? t('setup.saving') : t('setup.start')}</button>
+        )}
+
+        <div className="sticky bottom-0 -mx-5 bg-gradient-to-t from-hanji via-hanji to-transparent px-5 pb-[calc(12px+env(safe-area-inset-bottom))] pt-5">
+          <button type="button" disabled={saving} onClick={() => void finish(context)} className="w-full border border-muk bg-muk py-4 text-white font-bold transition-colors hover:bg-jade disabled:opacity-50">{saving ? t('setup.saving') : t('setup.start')}</button>
+        </div>
       </div>
     </main>
   );

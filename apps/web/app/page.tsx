@@ -1,13 +1,19 @@
 'use client';
 
-import { useEffect, useCallback, useRef } from 'react';
+import { useCallback, useRef, useSyncExternalStore } from 'react';
 import { useRouter } from 'next/navigation';
 import { useT } from '@/lib/i18n/I18nProvider';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 
+const subscribeHydration = () => () => {};
+const getClientReady = () => true;
+const getServerReady = () => false;
+
 export default function LoadingPage() {
   const router = useRouter();
   const t = useT();
+  // 정적 HTML이 먼저 보이는 짧은 구간의 탭이 유실되지 않도록 하이드레이션 뒤 CTA를 활성화한다.
+  const isReady = useSyncExternalStore(subscribeHydration, getClientReady, getServerReady);
   // 자동 리다이렉트와 탭 스킵이 겹쳐 중복 이동하는 것을 방지
   const navigatedRef = useRef(false);
 
@@ -30,24 +36,10 @@ export default function LoadingPage() {
     router.push('/login');
   }, [router]);
 
-  useEffect(() => {
-    // 자동 이동(3초 타이머)은 제거했다 — 사용자가 '바로 시작'(또는 화면 탭/키 입력)으로 직접 시작한다.
-    // 아무 키나 누르면 시작 (포커스와 무관하게 동작하도록 window 에 부착)
-    const handleKey = () => go();
-    window.addEventListener('keydown', handleKey);
-
-    return () => {
-      window.removeEventListener('keydown', handleKey);
-    };
-  }, [go]);
-
   return (
-    <div
-      onClick={go}
-      className="min-h-screen bg-hanji text-muk relative overflow-hidden cursor-pointer"
-    >
-      {/* 언어 선택 — 진입 즉시 외국인 관광객이 전환 가능(부모 onClick 이동 방지) */}
-      <div className="absolute top-4 right-4 z-20" onClick={(e) => e.stopPropagation()}>
+    <main className="min-h-screen bg-hanji text-muk relative overflow-hidden">
+      {/* 언어 선택 — 진입 즉시 외국인 관광객이 전환 가능 */}
+      <div className="absolute top-4 right-4 z-20">
         <LanguageSwitcher />
       </div>
 
@@ -79,11 +71,12 @@ export default function LoadingPage() {
 
         <div className="mt-auto">
         <button
+          disabled={!isReady}
           onClick={(e) => {
             e.stopPropagation();
             go();
           }}
-          className="w-full border border-muk bg-muk px-6 py-4 text-left text-[15px] font-bold text-hanji transition-colors hover:bg-jade focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-jade focus-visible:ring-offset-2 focus-visible:ring-offset-hanji"
+          className="w-full border border-muk bg-muk px-6 py-4 text-left text-[15px] font-bold text-hanji transition-colors hover:bg-jade focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-jade focus-visible:ring-offset-2 focus-visible:ring-offset-hanji disabled:cursor-wait disabled:opacity-70"
         >
           {t('landing.ctaStart')} <span aria-hidden className="float-right">→</span>
         </button>
@@ -91,16 +84,17 @@ export default function LoadingPage() {
         {/* 보조 CTA — 로그인은 선택이다. 기기 간 동기화를 원하는 사용자만 여기로 가고,
             게스트로 쌓은 저장·취향은 나중에 가입해도 그대로 승계된다(익명→정회원 전환, uid 유지). */}
         <button
+          disabled={!isReady}
           onClick={(e) => {
             e.stopPropagation();
             goLogin();
           }}
-          className="mt-3 w-full py-2 text-left text-sm font-medium text-muk-soft transition-colors hover:text-muk focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-jade"
+          className="mt-3 w-full py-2 text-left text-sm font-medium text-muk-soft transition-colors hover:text-muk focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-jade disabled:cursor-wait disabled:opacity-60"
         >
           {t('landing.ctaLogin')}
         </button>
         </div>
       </div>
-    </div>
+    </main>
   );
 }
