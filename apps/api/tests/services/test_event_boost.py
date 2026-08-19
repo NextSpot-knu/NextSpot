@@ -98,13 +98,13 @@ async def test_fetch_filters_ongoing_and_coords(monkeypatch):
 
     items = [
         {"title": "진행중", "eventstartdate": "20260701", "eventenddate": "20260731",
-         "mapy": "35.84", "mapx": "129.21"},
+         "mapy": "35.84", "mapx": "129.21", "cat2": "A0207"},
         {"title": "종료됨", "eventstartdate": "20260101", "eventenddate": "20260201",
-         "mapy": "35.84", "mapx": "129.21"},
+         "mapy": "35.84", "mapx": "129.21", "cat2": "A0207"},
         {"title": "미래", "eventstartdate": "20261001", "eventenddate": "20261010",
-         "mapy": "35.84", "mapx": "129.21"},
+         "mapy": "35.84", "mapx": "129.21", "cat2": "A0207"},
         {"title": "좌표없음", "eventstartdate": "20260701", "eventenddate": "20260731",
-         "mapy": "0", "mapx": "0"},
+         "mapy": "0", "mapx": "0", "cat2": "A0207"},
     ]
 
     async def _fake_search(*args, **kwargs):
@@ -115,6 +115,97 @@ async def test_fetch_filters_ongoing_and_coords(monkeypatch):
 
     festivals = await _REAL_FETCH(WHEN.astimezone(event_boost._KST).date())
     assert [f["title"] for f in festivals] == ["진행중"]
+
+
+# --- 카테고리 게이팅(cat2): 대형 축제(A0207)만 보정, 전시회·공연(A0208)은 제외 -----------
+
+
+def _patch_search_items(monkeypatch, items):
+    """_fetch_ongoing_festivals 가 소비할 raw TourAPI 아이템을 주입한다(fetch 자체 검증용)."""
+    from app.services.tourapi import client as tourapi
+
+    async def _fake_search(*args, **kwargs):
+        return {"payload": True}
+
+    monkeypatch.setattr(tourapi, "search_festival", _fake_search)
+    monkeypatch.setattr(tourapi, "parse_items", lambda _p: items)
+
+
+class _RecordingLogger:
+    """structlog 로거 대역 — warning 호출을 기록해 폴백 경고 발화를 검증한다."""
+
+    def __init__(self):
+        self.warnings: list[tuple[str, dict]] = []
+
+    def warning(self, event, **kwargs):
+        self.warnings.append((event, kwargs))
+
+    def info(self, *args, **kwargs):
+        pass
+
+
+@pytest.mark.asyncio
+async def test_fetch_excludes_exhibition_cat2(monkeypatch):
+    """① cat2=A0208(전시회·공연)만 반경 내 → 보정 대상 제외(빈 목록 → 보정 0.0)."""
+    _patch_search_items(monkeypatch, [
+        {"title": "쉼표: 비우고, 머무르고, 채우는", "eventstartdate": "20260701",
+         "eventenddate": "20260731", "mapy": "35.84", "mapx": "129.21", "cat2": "A0208"},
+    ])
+
+    festivals = await _REAL_FETCH(WHEN.astimezone(event_boost._KST).date())
+    assert festivals == []
+
+    # 보정 경로 end-to-end: A0208 만 있으면 (0.0, None)
+    _patch_festivals(monkeypatch, festivals)
+    boost, title = await event_boost.get_event_congestion_boost(BASE_LAT, BASE_LNG, WHEN)
+    assert (boost, title) == (0.0, None)
+
+
+@pytest.mark.asyncio
+async def test_fetch_keeps_only_festival_cat2_when_mixed(monkeypatch):
+    """② A0207(축제)·A0208(전시회) 둘 다 반경 내 → A0207 만 채택."""
+    _patch_search_items(monkeypatch, [
+        {"title": "신라문화제", "eventstartdate": "20260701", "eventenddate": "20260731",
+         "mapy": "35.84", "mapx": "129.21", "cat2": "A0207"},
+        {"title": "쉼표 전시회", "eventstartdate": "20260701", "eventenddate": "20260731",
+         "mapy": "35.84", "mapx": "129.21", "cat2": "A0208"},
+    ])
+
+    festivals = await _REAL_FETCH(WHEN.astimezone(event_boost._KST).date())
+    assert [f["title"] for f in festivals] == ["신라문화제"]
+
+
+@pytest.mark.asyncio
+async def test_fetch_keeps_and_warns_when_cat2_missing(monkeypatch):
+    """③ cat2 부재 → 기존처럼 보정 유지 + warning 1회(무해 폴백, 실측 로그)."""
+    recorder = _RecordingLogger()
+    monkeypatch.setattr(event_boost, "logger", recorder)
+    _patch_search_items(monkeypatch, [
+        {"title": "cat2 미상 축제", "eventstartdate": "20260701", "eventenddate": "20260731",
+         "mapy": "35.84", "mapx": "129.21"},  # cat2 키 없음
+    ])
+
+    festivals = await _REAL_FETCH(WHEN.astimezone(event_boost._KST).date())
+    assert [f["title"] for f in festivals] == ["cat2 미상 축제"]
+    # 필드 부재로 A4 보정이 조용히 죽는 회귀를 막기 위해 정확히 1회 경고
+    assert len(recorder.warnings) == 1
+    assert recorder.warnings[0][0] == "event_boost_cat2_missing"
+
+
+@pytest.mark.asyncio
+async def test_fetch_treats_empty_cat2_as_missing(monkeypatch):
+    """④ cat2 빈 문자열 → 부재와 동일 처리(보정 유지 + warning 1회)."""
+    recorder = _RecordingLogger()
+    monkeypatch.setattr(event_boost, "logger", recorder)
+    _patch_search_items(monkeypatch, [
+        {"title": "빈 cat2 축제", "eventstartdate": "20260701", "eventenddate": "20260731",
+         "mapy": "35.84", "mapx": "129.21", "cat2": "   "},  # 공백만 → 부재와 동일
+    ])
+
+    festivals = await _REAL_FETCH(WHEN.astimezone(event_boost._KST).date())
+    assert [f["title"] for f in festivals] == ["빈 cat2 축제"]
+    assert len(recorder.warnings) == 1
+    assert recorder.warnings[0][0] == "event_boost_cat2_missing"
 
 
 # --- 구현 2: 공연시간 정밀 보정(1-4) — playtime 파서 ------------------------------------
