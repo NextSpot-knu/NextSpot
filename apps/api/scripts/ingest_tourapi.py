@@ -335,6 +335,17 @@ def sync_showflags(showflag_by_id: dict[str, str]) -> dict:
         summary["reason"] = f"facilities.is_active 조회 실패(컬럼 미존재/마이그레이션 미적용 가능성): {e}"
         return summary
 
+    try:
+        inactive_localdata_ids = {
+            str(r["facility_id"])
+            for r in (supabase_admin.table("facility_source_refs")
+                      .select("facility_id,source_status").eq("source", "localdata").execute().data or [])
+            if str(r.get("source_status") or "") != "01"
+        }
+    except Exception:
+        # 마이그레이션 배포 전 하위호환. 배포 후에는 source ref가 공통 우선순위 정본이다.
+        inactive_localdata_ids = set()
+
     for row in existing.data or []:
         contentid = row.get("contentid")
         showflag = showflag_by_id.get(contentid)
@@ -352,6 +363,9 @@ def sync_showflags(showflag_by_id: dict[str, str]) -> dict:
                     print(f"[sync] is_active=false 갱신 실패 (contentid={contentid}): {e}")
         elif showflag == "1":
             if prior_active is False:  # 신규 재표출 복구
+                if str(row.get("id")) in inactive_localdata_ids:
+                    summary["reactivation_deferred"] += 1
+                    continue
                 if _temporary_closure_active(row.get("features")):
                     summary["reactivation_deferred"] += 1
                     continue

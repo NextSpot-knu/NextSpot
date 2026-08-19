@@ -37,6 +37,8 @@ interface RecommendationCardFacility {
   timesaleRate?: number | null;
   // 30분 내 사장 좌석 확인(신선도) — 과거 패턴 추정보다 우선하는 실측 신호.
   seatStatusFresh?: { level?: 'low' | 'mid' | 'full'; minutesAgo?: number } | null;
+  placeDataSource?: string | null;
+  dataUpdatedAt?: string | null;
 }
 
 interface RecommendationCardProps {
@@ -480,6 +482,15 @@ export function RecommendationCard({
               </p>
             );
           })()}
+          {facility?.placeDataSource === 'localdata' && (
+            <p className="mt-2 text-[10px] text-muk-soft">
+              {t('card.publicLicenseSource', {
+                date: facility.dataUpdatedAt
+                  ? new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(new Date(facility.dataUpdatedAt))
+                  : t('card.sourceDateUnknown'),
+              })}
+            </p>
+          )}
           {openStatusAtArrival && arrivalTime && expectedTravel !== undefined && (
             <p className="mt-2 inline-flex flex-wrap items-center gap-x-1.5 rounded-lg border border-jade/20 bg-jade/5 px-2.5 py-1.5 text-[11px] font-semibold text-muk">
               <Clock size={12} className="text-jade" aria-hidden />

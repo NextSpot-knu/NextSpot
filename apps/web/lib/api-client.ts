@@ -236,6 +236,8 @@ export interface RecommendationResponse {
     // 30분 내 사장 좌석 확인(신선도). 과거 패턴 추정보다 우선하는 실측 신호.
     seatStatusFresh?: { level: "low" | "mid" | "full"; minutesAgo: number } | null;
     couponRate?: number | null;
+    placeDataSource?: string | null;
+    dataUpdatedAt?: string | null;
   };
   spotScore: number;
   breakdown: {
@@ -262,6 +264,7 @@ export interface RecommendationResponse {
   totalCandidates: number;
   openStatusAtArrival?: "open_expected" | "closing_soon" | "closed_confirmed" | "needs_confirmation";
   informationConfidence?: "verified" | "unknown";
+  placeDataSource?: string | null;
   dataUpdatedAt?: string | null;
 }
 

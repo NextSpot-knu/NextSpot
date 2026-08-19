@@ -1,6 +1,6 @@
-"""Kakao Local 음식점·카페를 NextSpot 시설로 확장한다.
+"""Kakao Local 음식점·카페 좌표·중복 QA 보고서를 만든다.
 
-기본은 dry-run이며 ``--apply``를 명시해야 신규 행을 추가한다. Kakao 카테고리 검색의
+Kakao 응답은 시설 DB에 저장하지 않는다. Kakao 카테고리 검색의
 45건 노출 상한을 피하기 위해 결과가 포화된 사각형을 재귀 분할하고, 최종적으로 황리단길
 중심 3km 안의 장소만 남긴다. TourAPI 시설은 덮어쓰지 않는다.
 """
@@ -127,7 +127,6 @@ async def collect() -> dict[str, dict]:
 
 async def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--apply", action="store_true")
     parser.add_argument("--report", default="scratch/kakao_place_ingest.json")
     args = parser.parse_args()
     if not settings.KAKAO_REST_API_KEY:
@@ -137,11 +136,8 @@ async def main() -> int:
     new_docs = [doc for doc in docs.values() if not is_duplicate(doc, existing)]
     rows = [to_row(doc, doc["_facility_type"]) for doc in new_docs]
     rows.sort(key=lambda row: (row["type"], row["name"]))
-    if args.apply:
-        for start in range(0, len(rows), 100):
-            supabase_admin.table("facilities").insert(rows[start:start + 100]).execute()
     report = {
-        "mode": "apply" if args.apply else "dry-run", "collected": len(docs),
+        "mode": "qa-only", "collected": len(docs),
         "existing": len(existing), "duplicates": len(docs) - len(rows), "new": len(rows), "rows": rows,
     }
     path = Path(args.report)

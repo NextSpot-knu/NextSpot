@@ -64,6 +64,8 @@ class InfrastructureItem(BaseModel):
     # 폐업·표출중단 자동 감지(2차 기획 1위). is_active 컬럼 미배포(마이그레이션 미적용) 환경에서는
     # 항상 None — 프런트는 값이 False 일 때만 '운영정보 확인 필요' 배지를 표시한다(None/True 는 무배지).
     is_active: bool | None = None
+    place_data_source: str | None = None
+    data_updated_at: str | None = None
 
 def _clean_gallery_images(value) -> list[str] | None:
     """gallery_images JSONB 방어적 정제 — 오염된 한 행(비배열/비문자열 원소)이 pydantic 검증 실패로
@@ -130,16 +132,38 @@ async def fetch_active_facilities(client, select: str = "*", *, extra_filters=No
         return query.eq("is_active", True)
 
     try:
-        return await asyncio.to_thread(
+        rows = await asyncio.to_thread(
             fetch_all_rows, client, "facilities", select, apply_filters=_filters
         )
     except Exception as e:
         if not _is_missing_is_active_column(e):
             raise
         logger.warning("facilities_is_active_column_missing_fallback", select=select)
-        return await asyncio.to_thread(
+        rows = await asyncio.to_thread(
             fetch_all_rows, client, "facilities", select, apply_filters=extra_filters
         )
+    try:
+        ids = {str(row["id"]) for row in rows if row.get("id")}
+        refs = await asyncio.to_thread(
+            lambda: client.table("facility_source_refs")
+            .select("facility_id,source,source_updated_at").execute()
+        )
+        by_id: dict[str, dict] = {}
+        for ref in refs.data or []:
+            fid = str(ref.get("facility_id"))
+            if fid in ids and (fid not in by_id or ref.get("source") == "localdata"):
+                by_id[fid] = ref
+        for row in rows:
+            ref = by_id.get(str(row.get("id")))
+            if ref:
+                row["place_data_source"] = ref.get("source")
+                row["data_updated_at"] = ref.get("source_updated_at")
+            elif row.get("contentid"):
+                row["place_data_source"] = "tourapi"
+                row["data_updated_at"] = row.get("updated_at")
+    except Exception as e:
+        logger.warning("facility_source_refs_unavailable", error=str(e))
+    return rows
 
 
 async def fetch_latest_congestion_for_all(facility_ids: list[str]) -> dict:
@@ -224,6 +248,8 @@ async def get_infrastructures(
                 overview=f.get("overview"),
                 barrier_free=f.get("barrier_free"),
                 is_active=f.get("is_active"),
+                place_data_source=f.get("place_data_source"),
+                data_updated_at=f.get("data_updated_at"),
             ))
 
         logger.info("infrastructures_returned", count=len(result))
