@@ -65,6 +65,7 @@ class RecommendItem(BaseModel):
     total_candidates: int
     open_status_at_arrival: str | None = None
     information_confidence: str | None = None
+    place_data_source: str | None = None
     data_updated_at: str | None = None
 
 class FeedbackRequest(BaseModel):
@@ -436,7 +437,8 @@ async def get_recommendations(
                 item["facility"], datetime.now(timezone.utc) + timedelta(minutes=item["breakdown"].get("travel_time", 0))
             ),
             information_confidence="verified" if item["facility"].get("operating_hours") else "unknown",
-            data_updated_at=item["facility"].get("updated_at"),
+            place_data_source=item["facility"].get("place_data_source"),
+            data_updated_at=item["facility"].get("data_updated_at") or item["facility"].get("updated_at"),
         ))
 
     logger.info("recommendations_generated", count=len(response_items))
@@ -658,7 +660,8 @@ async def recommend_by_type(
                 item["facility"], now + timedelta(minutes=item["distance_m"] / WALKING_SPEED_M_PER_MIN)
             ),
             information_confidence="verified" if item["facility"].get("operating_hours") else "unknown",
-            data_updated_at=item["facility"].get("updated_at"),
+            place_data_source=item["facility"].get("place_data_source"),
+            data_updated_at=item["facility"].get("data_updated_at") or item["facility"].get("updated_at"),
         )
         for idx, item in enumerate(top)
     ]

@@ -1316,6 +1316,15 @@ function RecommendContent() {
                             : t('card.freshLive', { rel: freshnessText })}
                         </p>
                       )}
+                      {rec.placeDataSource === 'localdata' && (
+                        <p className="mt-0.5 text-[10px] text-muk-soft">
+                          {t('card.publicLicenseSource', {
+                            date: rec.dataUpdatedAt
+                              ? new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(new Date(rec.dataUpdatedAt))
+                              : t('card.sourceDateUnknown'),
+                          })}
+                        </p>
+                      )}
                       {/* 공식 대표 메뉴(TourAPI first_menu) — 있을 때만, 앞 2개('지어내지 않기'). */}
                       {firstMenuTokens.length > 0 && (
                         <p className="mt-0.5 text-[11px] text-muk-soft">

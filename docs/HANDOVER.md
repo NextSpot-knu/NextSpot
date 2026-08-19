@@ -1,4 +1,23 @@
-# 세션 인계 문서 (2026-07-20 갱신)
+# 세션 인계 문서 (2026-07-21 갱신)
+
+## -23. 2026-07-21 — LOCALDATA 공공 인허가 후보 확장 (코드 완료, 운영 반영 대기)
+
+- 경주시 일반·휴게음식점(`07_24_04_P`, `07_24_05_P`) baseline CSV/delta OpenAPI CLI를 추가했다.
+  기본 dry-run, 7일 중첩 조회, UTF-8/CP949/EUC-KR, 필드 변형, EPSG:5174 우선·역사
+  EPSG:2097 모호성 격리, 서비스 경계, 업태 제외, 3단계 중복 규칙을 구현했다.
+- `facility_source_refs`와 service-role 전용 원자적 RPC를 추가했다. LOCALDATA 폐업·휴업 근거가
+  TourAPI 재표출보다 우선하며, 기존 TourAPI 상세 필드는 덮지 않는다. 고정 음식점은 실내 근거,
+  capacity는 `synthetic_type_default`, 영업시간 없음은 `{}`로 보존한다. SPOT 산식·정렬은 미변경.
+- 추천/시설 API에 Optional `place_data_source`, `data_updated_at`을 연결하고 추천 카드·상세에
+  공공 인허가 기준일을 혼잡 근거와 분리해 4로케일로 표시한다. Kakao 적재 스크립트의 `--apply`와
+  DB INSERT를 제거했다. 일일 workflow에는 독립 LOCALDATA delta 단계를 추가했으며 최초 또는 7일
+  초과 공백이면 baseline을 요구한다.
+- 로컬 검증: API pytest **655 passed**, ruff, web lint 0 errors(기존 187 warnings), typecheck,
+  unit(i18n 638키), build 32 pages, Playwright 390×844/4로케일 **5/5**, 결정적 스키마 재생성과
+  `git diff --check` 통과.
+- **운영 반영 대기**: 원본 전체 CSV가 `scratch`에 없어 baseline dry-run 보고서를 만들지 못했다.
+  두 CSV 확보 → 공식 황리단길 검증점 좌표 오차 보고 → baseline dry-run 검토 → 별도 승인 후
+  마이그레이션/baseline apply → 인증 live 12시나리오 순으로 진행한다. 원격 DB·push는 수행하지 않았다.
 
 ## -22. 2026-07-19 — 추천 품질 골든 게이트 + 현장 폐루프 + Playwright
 
