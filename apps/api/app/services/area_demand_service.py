@@ -8,7 +8,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from app.services.event_boost import get_event_congestion_boost
@@ -20,6 +20,7 @@ _TOURISM_WEIGHT = 0.3
 _MAX_BASE_PENALTY_MIN = 8.0
 _MAX_EVENT_PENALTY_MIN = 3.0
 _WEATHER_DELTA = 0.06
+_LIVE_ARRIVAL_HORIZON = timedelta(minutes=30)
 
 
 def _clamp(value: float) -> float:
@@ -32,6 +33,28 @@ def _tourism_level(candidate: dict[str, Any]) -> float | None:
     except (TypeError, ValueError):
         return None
     return _clamp(value)
+
+
+def _live_parking_applies_to_arrival(
+    parking: dict[str, Any] | None, arrival: datetime
+) -> bool:
+    """현재 주차 실측을 가까운 도착에만 사용한다.
+
+    이력 기반 예측이 검증되기 전에는 현재 관측을 먼 미래의 값처럼 확장하지 않는다.
+    관측 시각을 해석할 수 없거나 도착이 관측보다 30분 넘게 뒤라면 통계 근거로 폴백한다.
+    """
+    if parking is None:
+        return False
+    try:
+        observed_at = datetime.fromisoformat(str(parking["observed_at"]))
+    except (KeyError, TypeError, ValueError):
+        return False
+    if observed_at.tzinfo is None:
+        observed_at = observed_at.replace(tzinfo=timezone.utc)
+    if arrival.tzinfo is None:
+        arrival = arrival.replace(tzinfo=timezone.utc)
+    horizon = arrival.astimezone(timezone.utc) - observed_at.astimezone(timezone.utc)
+    return timedelta(0) <= horizon <= _LIVE_ARRIVAL_HORIZON
 
 
 def _is_indoor(candidate: dict[str, Any]) -> bool | None:
@@ -87,6 +110,9 @@ async def get_area_demand_signal(
     )
     tourism = _tourism_level(candidate)
     event_boost, event_title = event
+
+    if not _live_parking_applies_to_arrival(parking, arrival):
+        parking = None
 
     sources: list[str] = []
     components: dict[str, float] = {}

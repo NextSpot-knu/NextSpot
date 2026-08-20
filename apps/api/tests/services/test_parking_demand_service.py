@@ -78,6 +78,32 @@ def test_normalize_gyeongju_its_uses_only_operating_live_details():
 
 
 @pytest.mark.asyncio
+async def test_current_snapshot_contains_only_factual_live_lots(monkeypatch):
+    async def fetch():
+        return (
+            [
+                {"id": "gyeongju-its:87", "name": "봉황대", "latitude": 35.84, "longitude": 129.21},
+                {"id": "gyeongju-its:92", "name": "미운영", "latitude": 35.83, "longitude": 129.20},
+            ],
+            {"gyeongju-its:87": {"total": 95, "available": 55}},
+        )
+
+    monkeypatch.setattr(parking, "_fetch_gyeongju_its", fetch)
+    snapshot = await parking.fetch_current_gyeongju_parking_snapshot()
+
+    assert snapshot["source"] == "gyeongju_its"
+    assert snapshot["observed_at"].tzinfo is not None
+    assert snapshot["lots"] == [{
+        "source_lot_id": "gyeongju-its:87",
+        "name": "봉황대",
+        "latitude": 35.84,
+        "longitude": 129.21,
+        "total_spaces": 95,
+        "available_spaces": 55,
+    }]
+
+
+@pytest.mark.asyncio
 async def test_nearby_signal_uses_only_live_parking_within_radius(monkeypatch):
     now = parking.time.monotonic()
     monkeypatch.setattr(parking, "_facility_cache", (now, 300.0, [
@@ -170,3 +196,35 @@ async def test_refresh_sources_prefers_gyeongju_its(monkeypatch):
     assert parking._realtime_cache is not None
     assert parking._realtime_cache[2] == realtime
     assert parking._realtime_status["source"] == "gyeongju_its"
+
+
+@pytest.mark.asyncio
+async def test_stale_cache_refresh_preserves_factual_metadata(monkeypatch):
+    hold = asyncio.Event()
+
+    async def slow_loader():
+        await hold.wait()
+
+    stale = parking.time.monotonic() - 600
+    monkeypatch.setattr(parking, "_facility_cache", (stale, 300.0, [{"id": "lot"}]))
+    monkeypatch.setattr(parking, "_realtime_cache", (stale, 300.0, {"lot": {"total": 10, "available": 4}}))
+    monkeypatch.setattr(parking, "_facility_status", {
+        "state": "available", "checked_at": "2026-08-20T12:00:00+00:00",
+        "error_code": None, "source": "gyeongju_its",
+    })
+    monkeypatch.setattr(parking, "_realtime_status", {
+        "state": "available", "checked_at": "2026-08-20T12:00:00+00:00",
+        "error_code": None, "source": "gyeongju_its",
+    })
+    monkeypatch.setattr(parking, "_refresh_tasks", {})
+
+    parking._start_refresh("sources", slow_loader)
+
+    assert parking._facility_status["source"] == "gyeongju_its"
+    assert parking._facility_status["checked_at"] == "2026-08-20T12:00:00+00:00"
+    assert parking._realtime_status["source"] == "gyeongju_its"
+    assert parking._realtime_status["checked_at"] == "2026-08-20T12:00:00+00:00"
+    tasks = list(parking._refresh_tasks.values())
+    for task in tasks:
+        task.cancel()
+    await asyncio.gather(*tasks, return_exceptions=True)

@@ -48,6 +48,8 @@ const HEADER = `-- =============================================================
 // migrations 가 생성하는 모든 테이블/함수를 삭제해 어떤 상태의 DB에서도 재실행 가능하게 한다.
 // (get_auth_user_info 는 InduSpot 레거시 함수 — 구 DB 정리를 위해 유지.)
 const PRELUDE = `DROP TABLE IF EXISTS public.user_feedback CASCADE;
+DROP TABLE IF EXISTS public.area_demand_snapshot_lots CASCADE;
+DROP TABLE IF EXISTS public.area_demand_snapshots CASCADE;
 DROP TABLE IF EXISTS public.recommendation_outcomes CASCADE;
 DROP TABLE IF EXISTS public.model_registry CASCADE;
 DROP TABLE IF EXISTS public.facility_source_refs CASCADE;
@@ -68,6 +70,7 @@ DROP FUNCTION IF EXISTS public.promote_recommendation_model(TEXT) CASCADE;
 DROP FUNCTION IF EXISTS public.record_recommendation_outcome(UUID, UUID, TEXT, TEXT, TEXT) CASCADE;
 DROP FUNCTION IF EXISTS public.correlate_congestion_report_evidence() CASCADE;
 DROP FUNCTION IF EXISTS public.project_outcome_congestion_log() CASCADE;
+DROP FUNCTION IF EXISTS public.record_area_demand_snapshot(TEXT, TIMESTAMPTZ, JSONB) CASCADE;
 DROP FUNCTION IF EXISTS public.handle_updated_at() CASCADE;`;
 
 /** CRLF→LF 정규화 + 꼬리 공백 개행 제거(마지막 개행은 조립 시 일괄 부여). */

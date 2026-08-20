@@ -294,6 +294,36 @@ async def _fetch_gyeongju_its() -> tuple[list[dict[str, Any]], dict[str, dict[st
     return facilities, realtime
 
 
+async def fetch_current_gyeongju_parking_snapshot() -> dict[str, Any]:
+    """경주시 ITS를 즉시 조회해 저장 가능한 원시 주차 관측치를 반환한다.
+
+    추천 요청용 stale-while-revalidate 캐시와 달리 정기 수집기는 호출 시점의 실제 응답을
+    기록해야 하므로 캐시를 읽지 않는다. ITS가 제공하지 않는 값이나 미래 혼잡도는 만들지 않는다.
+    ``observed_at``은 공급자 응답에 관측 시각이 없어 조회 완료 서버 시각으로 기록한다.
+    """
+    facilities, realtime = await _fetch_gyeongju_its()
+    lots: list[dict[str, Any]] = []
+    for facility in facilities:
+        live = realtime.get(facility["id"])
+        if live is None:
+            continue
+        lots.append({
+            "source_lot_id": facility["id"],
+            "name": facility["name"],
+            "latitude": facility["latitude"],
+            "longitude": facility["longitude"],
+            "total_spaces": live["total"],
+            "available_spaces": live["available"],
+        })
+    if not lots:
+        raise ParkingUpstreamError("city_its_no_realtime")
+    return {
+        "source": "gyeongju_its",
+        "observed_at": datetime.now(timezone.utc),
+        "lots": lots,
+    }
+
+
 async def _fetch_pages(endpoint: str) -> list[dict[str, Any]]:
     key = _service_key()
     if not key:
@@ -339,9 +369,12 @@ def _start_refresh(name: str, loader: Any) -> None:
     if existing is not None and not existing.done():
         return
     checking = {"state": "checking", "checked_at": None, "error_code": None, "source": None}
-    if name in {"sources", "facilities"}:
+    # stale cache가 있으면 그 값의 실제 출처/관측 시각도 함께 유효하다. 갱신을 시작한다는
+    # 이유로 메타데이터를 None으로 덮으면 응답 숫자와 근거가 잠시 분리되므로, 콜드 캐시일
+    # 때만 checking 상태로 초기화한다.
+    if name in {"sources", "facilities"} and _facility_cache is None:
         _facility_status = dict(checking)
-    if name in {"sources", "realtime"}:
+    if name in {"sources", "realtime"} and _realtime_cache is None:
         _realtime_status = dict(checking)
     task = asyncio.create_task(loader(), name=f"parking-{name}-refresh")
     _refresh_tasks[name] = task

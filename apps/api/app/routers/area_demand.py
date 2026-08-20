@@ -6,10 +6,15 @@
 
 from typing import Literal
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
-from app.services.parking_demand_service import get_parking_coverage_status
+from app.core.supabase import require_admin
+from app.services.area_demand_snapshot_service import (
+    SnapshotPersistenceError,
+    collect_area_demand_snapshot,
+)
+from app.services.parking_demand_service import ParkingUpstreamError, get_parking_coverage_status
 
 router = APIRouter(prefix="/api/v1/area-demand", tags=["area-demand"])
 
@@ -45,6 +50,18 @@ class AreaDemandStatusResponse(BaseModel):
     parking: ParkingCoverage
 
 
+class SnapshotCollectionResponse(BaseModel):
+    state: Literal["collected"] = "collected"
+    snapshot_id: str
+    source: Literal["gyeongju_its", "national_parking_api"]
+    observed_at: str
+    bucket_at: str
+    total_spaces: int
+    available_spaces: int
+    live_lot_count: int
+    stored: bool
+
+
 @router.get("/status", response_model=AreaDemandStatusResponse)
 async def area_demand_status(
     lat: float = Query(35.8361, ge=33.0, le=39.0),
@@ -53,3 +70,19 @@ async def area_demand_status(
     """지정 지점 2km 안의 경주 실시간 주차 데이터 커버리지를 반환한다."""
     parking = await get_parking_coverage_status(lat, lng)
     return AreaDemandStatusResponse(parking=ParkingCoverage(**parking))
+
+
+@router.post(
+    "/snapshots/collect",
+    response_model=SnapshotCollectionResponse,
+    dependencies=[Depends(require_admin)],
+)
+async def collect_snapshot() -> SnapshotCollectionResponse:
+    """경주시 ITS 현재값을 조회해 15분 시계열로 한 번 저장한다."""
+    try:
+        snapshot = await collect_area_demand_snapshot()
+    except ParkingUpstreamError as exc:
+        raise HTTPException(status_code=503, detail=exc.code) from exc
+    except SnapshotPersistenceError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return SnapshotCollectionResponse(**snapshot)

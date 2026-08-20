@@ -43,6 +43,8 @@ uvicorn app.main:app --reload --port 8000
   `[facility_type, hour_str, dow_str]`이다.
 - 모델이 없을 때는 경주시 ITS 실시간 주차 잔여면과 관광공사 통계가 있는 경우에만
   `area_stats_rules`로 주변 수요 비용을 계산한다. 이는 특정 매장 내부 혼잡도가 아니다.
+- ITS 실시간 값은 관측 시각 기준 30분 이내 도착에만 쓴다. 더 먼 도착에는
+  관광 통계만 남기거나 근거가 없으면 빈다. 이력 기반 예측은 백테스트 전에 사용하지 않는다.
 
 **모델 학습:**
 ```bash
@@ -74,6 +76,7 @@ filter 의 후보 매칭은 `embedding_service.filter_candidates` 가 후보 이
 - `GET /health` — 헬스 체크
 - `GET /api/v1/infrastructures` — 관광 POI 목록 + 최신 혼잡도
 - `GET /api/v1/area-demand/status` — 경주시 ITS 실시간 주차 데이터 커버리지
+- `POST /api/v1/area-demand/snapshots/collect` — 현재 실측을 15분 버킷으로 멱등 저장(관리자 헤더)
 - `POST /api/v1/recommendations` — 혼잡한 원본 장소의 대안 추천(반경 150m)
 - `POST /api/v1/recommendations/by-type` — 타입별 랭킹(메인 지도 브라우즈)
 - `POST /api/v1/feedback` — 수락/거절 피드백 → 선호 벡터 보정
@@ -81,3 +84,22 @@ filter 의 후보 매칭은 `embedding_service.filter_candidates` 가 후보 이
 - `POST /api/v1/voice/turn` — 음성 1턴 의도 해석(무인증)
 - `GET /api/v1/users/me/vector` — 본인 선호 벡터 조회
 - `POST /api/v1/admin/simulate-peak` — 데모 피크 혼잡 생성(관리자 토큰)
+
+## 지역 수요 스냅샷 수집 활성화
+
+`.github/workflows/collect-area-demand.yml`은 15분마다 관리자 수집 API를 호출한다.
+다만 다음 운영 작업이 끝나기 전에는 스케줄 수집이 비활성 상태다.
+
+1. Supabase SQL Editor에서
+   `supabase/migrations/20260820220000_add_area_demand_snapshots.sql`을 전체 실행한다.
+2. GitHub Actions secret `ADMIN_API_TOKEN`을 Render의 동일한 값으로 등록한다.
+3. GitHub Actions variable `BACKEND_HEALTH_URL`을
+   `https://nextspot-api.onrender.com/health`로 확인한다.
+4. migration과 Render 재배포 후 GitHub Actions variable
+   `AREA_DEMAND_COLLECTION_ENABLED=true`를 등록한다.
+5. **Collect Area Demand Snapshots** workflow를 수동 실행한 뒤
+   `area_demand_snapshots`·`area_demand_snapshot_lots`가 함께 생성됐는지 확인한다.
+
+저장 함수 `record_area_demand_snapshot`는 시점별 집계와 주차장별 원본을 한 트랜잭션에서
+교체한다. 저장된 점유율은 특정 장소 내부 혼잡도나 예상 대기시간이 아니며,
+SPOT 가중치 `0.4/0.4/0.2`를 변경하지 않는다.
