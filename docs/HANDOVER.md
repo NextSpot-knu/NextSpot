@@ -1,5 +1,75 @@
 # 세션 인계 문서 (2026-08-20 갱신)
 
+## -28. 2026-08-21 — 원격 마이그레이션 적용 현황 실측 (§6-4 기록 정정)
+
+Supabase 원격에 점검 쿼리를 돌려 8개 마이그레이션의 실제 적용 여부를 확인했다.
+**결과가 문서와 달랐다.**
+
+| 마이그레이션 | 실측 |
+|---|---|
+| 20260710170000_add_coupon_expiry | 적용됨 |
+| 20260710171000_add_user_report_count | 적용됨 |
+| 20260710172000_congestion_source_honesty | 적용됨 |
+| 20260710173000_add_app_events | 적용됨 |
+| **20260719120000_recommendation_snapshot** | **미적용** |
+| **20260721120000_localdata_sources** | **미적용** |
+| 20260819120000_recommendation_trust_loop | 적용됨 |
+| 20260820123000_connect_congestion_collection | 적용됨 |
+
+### 기록 정정
+
+- **§6-4 의 "미적용 4건"(20260710170000·171000·172000·173000)은 이미 전부 적용돼 있다.**
+  그 절은 낡았다 — 다음 사람이 그대로 믿고 붙여넣지 않도록 여기서 정정한다.
+- 실제로 빠진 것은 **20260719120000·20260721120000** 두 건이다. 둘 다 7·8번(신뢰 폐루프·
+  혼잡 수집)보다 **타임스탬프가 낮은데도 빠져 있다** — 원격에 순서가 어긋나게 적용돼 왔다는 뜻이다.
+  앞으로는 파일명 순서를 가정하지 말고 이 절의 점검 쿼리로 실측할 것.
+
+### 이 두 건이 빠져 있어서 지금 조용히 퇴화 중인 것
+
+둘 다 코드에 무해 폴백이 있어 앱은 죽지 않는다. 그래서 **아무도 눈치채지 못한 채** 기능만 죽어 있었다.
+
+- `recommendation_snapshot` 미적용 → `recommendations.py:433` 이 그 컬럼을 뺀 legacy_payload 로
+  재시도하고, `:522` 의 설명 API 는 실제 시설명 대신 `"추천 장소"` 자리표시자로 폴백한다.
+  관리자 모델 신뢰 패널(`admin.py:338`)도 빈 스냅샷을 읽는다.
+- `localdata_sources` 미적용 → `infrastructures.py:177` 이 `facility_source_refs_unavailable`
+  경고를 찍으며 출처를 무조건 `"tourapi"` 로 폴백한다. 공공 인허가 기준일이 표시되지 않는다.
+
+### 적용 시 주의 (사람 작업)
+
+- **`20260721120000_localdata_sources` 는 멱등이 아니다.** `CREATE TRIGGER`(18행)·
+  `CREATE POLICY`(23행)에 `IF NOT EXISTS`/`OR REPLACE` 가 없어, 성공 후 재실행하면
+  `already exists` 로 실패한다. 한 번만 실행할 것. (§6-4 의 "전부 멱등" 서술은 옛 4건 한정이다.)
+- 회귀 위험은 없다 — 6번은 `facility_source_refs` 만 다루고 7·8번이 만든 객체
+  (`congestion_logs`·`latest_congestion_for_facilities`·`recommendations`)를 전혀 건드리지 않는다.
+  5번은 `ADD COLUMN IF NOT EXISTS` 하나뿐이라 순서 무관하게 안전하다.
+- **적용 후 `NOTIFY pgrst, 'reload schema';` 를 반드시 실행할 것.** PostgREST 가 스키마를
+  캐시하므로, 이걸 빠뜨리면 새 컬럼·테이블을 한동안 못 보고 백엔드가 계속 폴백 경로로 돈다
+  ("적용했는데 왜 그대로지?" 의 원인).
+
+### 점검 쿼리 (읽기 전용 — 다음에도 이걸로 실측할 것)
+
+```sql
+with checks(seq, migration, applied) as (values
+  (1, '20260710170000_add_coupon_expiry', (select count(*)>0 from information_schema.columns
+      where table_schema='public' and table_name='user_coupons' and column_name='expires_at')),
+  (2, '20260710171000_add_user_report_count', (select count(*)>0 from information_schema.columns
+      where table_schema='public' and table_name='users' and column_name='report_count')),
+  (3, '20260710172000_congestion_source_honesty', (select count(*)>0 from pg_constraint
+      where conname='congestion_logs_source_check' and pg_get_constraintdef(oid) like '%seed%')),
+  (4, '20260710173000_add_app_events', to_regclass('public.app_events') is not null),
+  (5, '20260719120000_recommendation_snapshot', (select count(*)>0 from information_schema.columns
+      where table_schema='public' and table_name='recommendations' and column_name='recommendation_snapshot')),
+  (6, '20260721120000_localdata_sources', to_regclass('public.facility_source_refs') is not null),
+  (7, '20260819120000_recommendation_trust_loop', to_regclass('public.model_registry') is not null),
+  (8, '20260820123000_connect_congestion_collection', (select count(*)>0 from information_schema.columns
+      where table_schema='public' and table_name='congestion_logs' and column_name='origin_outcome_id'))
+)
+select seq, migration, case when applied then '적용됨' else '미적용' end as status
+from checks order by seq;
+```
+
+---
+
 ## -27. 2026-08-20 야간 — 전면 점검 + 안전 수정 6커밋 (Claude 자율 사이클)
 
 앱 전체를 훑어 문제/개선점을 정리하고, 판단이 필요 없는 것만 골라 고쳤다. 위험하거나
@@ -39,10 +109,10 @@ typecheck 클린 · unit 전체 통과 · build 32 pages · 스키마 재생성 
 3. **남은 lint warning 132건 중 70건이 `react-hooks/*`** (set-state-in-effect 50 ·
    exhaustive-deps 10 · purity 9 · refs 6 · immutability 5). 전부 렌더 타이밍이 바뀔 수 있어
    기계적으로 밀면 안 된다. 나머지 60건은 도메인 데이터 형태 `any` 라 타입 정의가 선행돼야 한다.
-4. **P0 — 운영 반영 갭(원격 접근 필요, 확인 못 함)**: 신규 마이그레이션 4건 적용 여부,
-   `model_registry` active 행 존재 여부(없으면 추천이 `degraded_rules` 로 동작 = 도착시점
-   예측 혼잡이 실제로 꺼져 있다), LOCALDATA baseline CSV. 이 세 가지가 이 프로젝트에서
-   가장 큰 리스크이자 가장 값싼 개선이다 — 새 기능보다 이미 만든 것을 켜는 게 먼저다.
+4. **P0 — 운영 반영 갭**: `model_registry` active 행 존재 여부(없으면 추천이
+   `degraded_rules` 로 동작 = 도착시점 예측 혼잡이 실제로 꺼져 있다), LOCALDATA baseline CSV.
+   새 기능보다 이미 만든 것을 켜는 게 먼저다.
+   → 마이그레이션 항목은 아래 §-28 에서 원격 실측으로 해소했다.
 
 ### 참고
 
@@ -1067,6 +1137,12 @@ Kakao Maps JS SDK 는 도메인 화이트리스트 방식이므로, **Kakao 개�
 `apps/api/app/main.py` 는 `ALLOWED_ORIGINS` 에 `*` 가 포함되거나 미설정이면 모든 오리진을 허용하되 `allow_credentials=False`(느슨 모드)로 동작하고, 실제 도메인 목록이 들어오면 해당 오리진만 허용 + `allow_credentials=True`(엄격 모드)로 자동 전환한다. Render 의 `ALLOWED_ORIGINS` 를 Vercel 배포 도메인으로 지정(콤마 구분, 예: `https://nextspot-xxx.vercel.app,https://your-custom-domain.com`)하면 배포와 동시에 엄격 모드가 켜진다 — 운영 전 반드시 지정할 것(방치 시 와일드카드로 열려 있음).
 
 ### 6-4. 미적용 DB 마이그레이션 4개
+
+> ⚠️ **이 절은 낡았다(2026-08-21 원격 실측).** 아래 4개는 **이미 전부 적용돼 있다.**
+> 그대로 믿고 붙여넣지 말 것 — 실제로 빠진 것은 `20260719120000_recommendation_snapshot` 과
+> `20260721120000_localdata_sources` 두 건이었다. 현재 상태는 항상 §-28 의 점검 쿼리로 실측하라.
+> (원격에 파일명 타임스탬프 순서와 다르게 적용돼 온 이력이 있어, 순서를 가정하면 틀린다.)
+
 아래 4개는 아직 Supabase 에 적용되지 않은 상태다(기존 DB 유지 경로 — `DEPLOY_AND_ENV.md` 1-1 절 "기존 DB를 유지" 참고):
 - `supabase/migrations/20260710170000_add_coupon_expiry.sql`
 - `supabase/migrations/20260710171000_add_user_report_count.sql`
