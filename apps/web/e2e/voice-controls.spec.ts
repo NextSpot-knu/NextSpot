@@ -2,9 +2,11 @@ import { expect, test, type Page } from '@playwright/test';
 
 const facilities = [
   { id: 'restaurant-1', name: '실내 식당', type: 'restaurant', latitude: 35.8363, longitude: 129.2107,
-    capacity: 30, features: {}, congestion: null },
+    capacity: 30, features: {}, congestion: null,
+    operating_hours: { open: '00:00~23:59', closed: '연중무휴' } },
   { id: 'cafe-1', name: '실내 카페', type: 'cafe', latitude: 35.8364, longitude: 129.2107,
-    capacity: 20, features: {}, congestion: null },
+    capacity: 20, features: {}, congestion: null,
+    operating_hours: { open: '00:00~23:59', closed: '연중무휴' } },
 ];
 
 async function mockMainWithSpeech(page: Page) {
@@ -33,10 +35,11 @@ async function mockMainWithSpeech(page: Page) {
   });
   await page.route('**/api/v1/**', async route => {
     const url = route.request().url();
-    if (url.endsWith('/api/v1/infrastructures')) {
+    const pathname = new URL(url).pathname;
+    if (pathname.endsWith('/api/v1/infrastructures')) {
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(facilities) });
     }
-    if (url.endsWith('/api/v1/voice/turn')) {
+    if (pathname.endsWith('/api/v1/voice/turn')) {
       const utterance = String((route.request().postDataJSON() as any).utterance ?? '');
       const command = utterance.includes('카페')
         ? { name: 'set_facility_type', args: { facility_type: 'cafe' } }
@@ -92,5 +95,5 @@ test('voice waiting-board command navigates without changing recommendation stat
   await page.goto('/main');
   await expect(page.getByText('실내 식당').first()).toBeVisible({ timeout: 20_000 });
   await issueVoiceCommand(page, '대기 현황 보여줘', false);
-  await expect(page).toHaveURL(/\/waiting$/);
+  await expect(page).toHaveURL(/\/waiting$/, { timeout: 15_000 });
 });

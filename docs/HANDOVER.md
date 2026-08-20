@@ -19,7 +19,10 @@
 - 동일 주소이면서 30m 이내인 복합건물 점포는 `이 건물의 장소 N곳`으로 묶고, 출처 없는 평균 좌표를
   만들지 않는다. Kakao 기본지도 라벨과 같은 필지의 검색 핀이 겹칠 때는 선택한 장소명을 핀 위에
   따로 표시한다.
-- 검증: API pytest **756 passed** 및 ruff, web lint 0 errors, typecheck/unit(4개 언어 691키
+- 영업시간 미확인 카페·식당은 이동을 바로 기록하지 않고 Kakao Local이 반환한 해당 장소의
+  `place_url`에서 최신 영업정보를 먼저 확인하게 한다. 심야 경고에는 도착 예상 시각과
+  `등록된 영업시간 없음`이라는 판정 이유를 함께 표시하며, 실제 폐점 확률을 만들지 않는다.
+- 검증: API pytest **756 passed** 및 ruff, web lint 0 errors, typecheck/unit(4개 언어 695키
   패리티), 프로덕션 build 32 pages, journey-loop Playwright **8/8**, `git diff --check` 통과.
 
 ## -30. 2026-08-21 — 대안 추천의 주변 수요 근거를 전면에 표시

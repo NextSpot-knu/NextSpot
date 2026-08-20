@@ -308,6 +308,18 @@ export function RecommendationCard({
     ? getArrivalOpenDisplayStatus(resolvedOpenStatus, facilityType, arrivalTime)
     : resolvedOpenStatus;
   const likelyClosedUnknown = displayedOpenStatus === 'likely_closed_unknown';
+  const needsHoursConfirmation = resolvedOpenStatus === 'needs_confirmation'
+    && (facilityType === 'cafe' || facilityType === 'restaurant');
+  const storedKakaoPlaceId = String(
+    facility?.features?.kakaoPlaceId || facility?.features?.kakao_place_id || '',
+  ).trim();
+  const rawKakaoPlaceUrl = placeInfo?.url
+    || (facility?.features?.kakaoPlaceUrl || facility?.features?.kakao_place_url) as string | undefined
+    || (storedKakaoPlaceId ? `https://place.map.kakao.com/${storedKakaoPlaceId}` : null);
+  const kakaoPlaceUrl = rawKakaoPlaceUrl?.replace(
+    /^http:\/\/place\.map\.kakao\.com/i,
+    'https://place.map.kakao.com',
+  ) ?? null;
   const serviceTime = arrivalTime && waitMins !== null
     ? new Date(arrivalTime.getTime() + waitMins * 60000)
     : null;
@@ -565,6 +577,11 @@ export function RecommendationCard({
                   미기동/available:false 면 조용히 렌더되지 않는다(무해 폴백). */}
               <GoldenHourBadge facilityId={facility.id} />
             </div>
+          )}
+          {likelyClosedUnknown && arrivalTime && (
+            <p className="mt-1.5 text-[11px] font-medium leading-relaxed text-terracotta">
+              {t('card.likelyClosedReason', { time: formatTime(arrivalTime) })}
+            </p>
           )}
 
           {/* 신선도 정직화(계약 5, 확장) — 혼잡 데이터의 출처/나이를 작은 라인으로. 정직성 위계:
@@ -1050,21 +1067,30 @@ export function RecommendationCard({
           <motion.button
             onClick={() => {
               haptic('success');
+              if (needsHoursConfirmation && kakaoPlaceUrl) {
+                window.open(kakaoPlaceUrl, '_blank', 'noopener,noreferrer');
+                return;
+              }
               setConfirmedAction('accepted');
               onAccept();
             }}
             whileTap={tapMotion}
             transition={interactionSpring}
-            aria-label={t('card.acceptAria')}
+            aria-label={t(needsHoursConfirmation && kakaoPlaceUrl ? 'card.checkHoursKakaoAria' : 'card.acceptAria')}
             className="flex-1 bg-gradient-to-r from-gold to-terracotta hover:from-gold-deep hover:to-terracotta text-white font-bold py-3 rounded-2xl transition-all active:scale-95 text-xs shadow-[0_4px_14px_rgba(193,85,59,0.25)] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
           >
             <span className="inline-flex items-center justify-center gap-1.5">
               {confirmedAction === 'accepted' && <Check size={14} aria-hidden />}
-              {t('card.accept')}
+              {t(needsHoursConfirmation && kakaoPlaceUrl ? 'card.checkHoursKakao' : 'card.accept')}
             </span>
           </motion.button>
         </div>
-        {onDrive && (
+        {needsHoursConfirmation && kakaoPlaceUrl && (
+          <p className={`mt-2 text-center text-[11px] font-medium ${likelyClosedUnknown ? 'text-terracotta' : 'text-muk-soft'}`}>
+            {t('card.checkHoursKakaoHint')}
+          </p>
+        )}
+        {onDrive && !(needsHoursConfirmation && kakaoPlaceUrl) && (
           <button type="button" onClick={onDrive} className="mt-2 w-full rounded-xl border border-line bg-white py-2 text-[11px] font-bold text-muk-soft hover:border-gold/40 hover:text-gold-deep">
             {t('card.drive')} <span className="font-medium">· {t('card.driveBasisHint')}</span>
           </button>
