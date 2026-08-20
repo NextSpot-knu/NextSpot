@@ -30,6 +30,10 @@ export interface Spot {
   // A4: 행사 혼잡 보정 배지용 — 백엔드 breakdown 원본 그대로 실어 나른다(recToSpot 전용, 클라 미러 계산엔 없음).
   eventBoost?: number;
   eventTitle?: string;
+  areaDemandLevel?: number;
+  areaDemandMode?: "live" | "statistical" | "contextual";
+  areaDemandSources?: ("parking" | "tourism" | "festival" | "weather")[];
+  areaDemandObservedAt?: string;
 }
 
 export interface ScoreOpts {
@@ -379,5 +383,9 @@ export function recToSpot(rec: RecommendationResponse): Spot {
     timeToService: Math.round((wait + travel) * 10) / 10,
     eventBoost: typeof b.eventBoost === "number" ? b.eventBoost : undefined,
     eventTitle: typeof b.eventTitle === "string" ? b.eventTitle : undefined,
+    areaDemandLevel: typeof b.areaDemandLevel === "number" ? b.areaDemandLevel : undefined,
+    areaDemandMode: b.areaDemandMode ?? undefined,
+    areaDemandSources: b.areaDemandSources,
+    areaDemandObservedAt: b.areaDemandObservedAt ?? undefined,
   };
 }

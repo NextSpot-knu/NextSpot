@@ -55,6 +55,44 @@ SPOT_Score = w₁ · 취향 일치율 − w₂ · (도착시점 예측 대기 + 
 
 ## 아키텍처
 
+### 서비스는 어디에서 실행되나요?
+
+NextSpot은 화면과 추천 서버를 분리해 배포합니다.
+
+```text
+사용자 브라우저
+    ↓
+Vercel — Next.js 프론트엔드(화면·지도·인터랙션·다국어)
+    ↓ API 요청
+Render — FastAPI 백엔드(추천 계산·공공데이터 조회·인증 처리)
+    ↓
+Supabase(인증·DB·Storage) / 주차·관광·날씨 공공 API
+```
+
+- **Vercel**은 사용자가 접속하는 웹 화면을 배포합니다.
+- **Render**는 Python으로 작성한 FastAPI 추천 서버를 계속 실행합니다.
+- **FastAPI**는 프론트엔드 요청을 받아 SPOT 점수와 대안 순위를 계산하고 JSON으로 응답하는 Python 웹 프레임워크입니다.
+- **Supabase**는 사용자 인증과 장소·추천 결과 등 서비스 데이터를 저장합니다.
+
+### 환경변수와 공공 API 인증키
+
+인증키는 프론트엔드 코드나 Git 저장소에 넣지 않습니다. 로컬 백엔드는
+[`apps/api/.env.example`](./apps/api/.env.example)을 복사한 `apps/api/.env`에서 읽고,
+운영 백엔드는 **Render → `nextspot-api` → Environment**에 등록한 환경변수에서 읽습니다.
+
+주차 수요는 별도 키가 필요 없는 **경주시 교통정보센터 ITS**를 1순위로 사용합니다. 경주시 ITS가
+일시적으로 실패할 때만 아래 전국 API를 2순위로 사용합니다.
+
+```env
+# 선택: 한국교통안전공단 전국 주차 API 보조 경로
+PARKING_API_KEY=your_parking_api_key
+```
+
+`PARKING_API_KEY`는 선택값이며 Render에만 등록하고 Vercel에는 넣지 않습니다. 서버의
+`GET /api/v1/area-demand/status`는 키를 노출하지 않고 데이터 출처와 `available`,
+`checking`, `upstream_unavailable`, `no_gyeongju_realtime` 등으로 실제 경주 커버리지를 구분합니다.
+이 API가 제공하는 값은 특정 카페 내부 혼잡도가 아니라 추천 장소 주변 2km의 주차 수요입니다.
+
 ```mermaid
 flowchart LR
     subgraph 외부데이터
@@ -62,7 +100,7 @@ flowchart LR
         K[Kakao/Tmap<br/>이동시간·지도]
     end
     subgraph "apps/api — FastAPI"
-        S[SPOT 엔진<br/>score·preference·travel·wait] --> P[sklearn 혼잡 예측<br/>시간×요일×행사]
+        S[SPOT 엔진<br/>score·preference·travel] --> P[검증 모델 또는 지역 수요<br/>ITS×관광통계×행사]
         A[관리자 API<br/>service_role 단일 관문]
     end
     subgraph "apps/web — Next.js 정적 export"

@@ -37,6 +37,15 @@ class Settings(BaseSettings):
     # TourAPI와 별도 활용신청 상품이다. 비어 있으면 날씨 API는 unavailable로 무해 폴백한다.
     KMA_API_KEY: str = ""
 
+    # 한국교통안전공단 주차정보 제공 API(B553881). 공공데이터포털의 같은 프로젝트 키를
+    # 재사용할 수 있으므로 비어 있으면 TOURAPI_KEY로 폴백한다. 별도 활용승인이 없거나
+    # 경주 실시간 행이 없으면 지역 수요는 관광 통계만 사용한다.
+    PARKING_API_KEY: str = ""
+    PARKING_API_BASE_URL: str = "https://apis.data.go.kr/B553881/Parking"
+    # 경주시 교통정보센터 공개 주차정보. 별도 키 없이 경주 공영주차장 잔여면을 제공하며
+    # 전국 주차 API보다 지역 커버리지가 정확해 1순위로 사용한다.
+    GYEONGJU_ITS_BASE_URL: str = "https://its.gyeongju.go.kr"
+
     # 아래 관광 데이터랩 상품은 KorService2와 별도 활용신청이 필요하지만 승인 후에는 같은
     # 공공데이터포털 인증키를 사용한다. 별도 키를 만들지 않아 운영 시크릿 수를 늘리지 않는다.
 

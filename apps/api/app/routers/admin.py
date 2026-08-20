@@ -352,7 +352,8 @@ async def get_model_trust(days: int = 30):
         if (
             congestion.get("source") == "none" and congestion.get("level") is not None
         ) or (
-            snapshot.get("scoring_mode") == "degraded_rules" and breakdown.get("wait_time") is not None
+            snapshot.get("scoring_mode") in {"degraded_rules", "area_stats_rules"}
+            and breakdown.get("wait_time") is not None
         ):
             ungrounded_numeric += 1
 

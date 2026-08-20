@@ -1360,6 +1360,31 @@ function RecommendContent() {
                     </p>
                   )}
 
+                  {typeof rec.breakdown?.areaDemandLevel === "number" && (
+                    <div className="mt-2 text-[11px] leading-snug text-sky-800 bg-sky-500/10 border border-sky-500/20 rounded-xl px-3 py-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-bold">
+                          {t("recommend.areaDemand")}: {t(`congestion.${
+                            rec.breakdown.areaDemandLevel >= 0.75 ? "busy"
+                              : rec.breakdown.areaDemandLevel >= 0.5 ? "moderate"
+                              : rec.breakdown.areaDemandLevel >= 0.25 ? "relaxed" : "quiet"
+                          }`)}
+                        </span>
+                        <span className="text-[10px] text-sky-700">
+                          {t(rec.breakdown.areaDemandMode === "live" ? "recommend.areaDemandLive" : "recommend.areaDemandStats")}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-sky-800/80">{t("recommend.areaDemandHint")}</p>
+                      {!!rec.breakdown.areaDemandSources?.length && (
+                        <p className="mt-1 text-[10px] text-sky-700">
+                          {rec.breakdown.areaDemandSources
+                            .map((source) => t(`recommend.areaSource.${source}`))
+                            .join(" · ")}
+                        </p>
+                      )}
+                    </div>
+                  )}
+
                   {/* Minimap container */}
                   <div className="my-3">
                     <MiniMap

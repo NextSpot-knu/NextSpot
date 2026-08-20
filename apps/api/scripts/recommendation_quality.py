@@ -8,7 +8,7 @@ import sys
 import urllib.request
 from datetime import datetime
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -35,7 +35,10 @@ async def evaluate_fixture(path: Path) -> dict:
     with (
         patch("app.services.spot.score.predict_congestion_detailed", return_value=(0.35, "registry")),
         patch("app.services.spot.score.get_model_info", return_value={"version": "fixture-v1"}),
-        patch("app.services.spot.score.get_event_congestion_boost", return_value=(0.0, None)),
+        patch(
+            "app.services.spot.score.get_area_demand_signal",
+            new=AsyncMock(return_value=None),
+        ),
     ):
         for scenario in payload["scenarios"]:
             context = TravelContext.model_validate(scenario.get("context") or {})

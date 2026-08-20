@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.core.logging import setup_logging
-from app.routers import recommendations, infrastructures, predict, preferences, admin, reports, coupons, courses, events, tracking, freshness, impact, merchant, safety, search, lab, account, weather, restrooms, travel_context
+from app.routers import recommendations, infrastructures, predict, preferences, admin, reports, coupons, courses, events, tracking, freshness, impact, merchant, safety, search, lab, account, weather, restrooms, travel_context, area_demand
 
 
 # 로깅 설정 초기화
@@ -121,6 +121,7 @@ app.include_router(courses.router)  # 분산 코스(멀티스톱 동선) 추천 
 app.include_router(events.router)  # 경주 축제/행사(TourAPI searchFestival2) — 키 없으면 무해 폴백
 app.include_router(weather.router)  # 경주 시간대별 날씨(기상청 단기예보) — 키/장애 시 무해 폴백
 app.include_router(restrooms.router)  # 인근 공중화장실(Kakao 좌표 검색) — 추천 POI와 분리된 편의 레이어
+app.include_router(area_demand.router)  # 경주 주변 수요 데이터 커버리지 — 가짜 수치 없이 주차 API 상태 공개
 app.include_router(tracking.router)  # 경량 제품 분석 이벤트 트래킹(무인증, IP 쿨다운) — app_events 적재
 app.include_router(freshness.router)  # 데이터 신선도(D5) — 마지막 TourAPI 동기화 시각(마커→updated_at 추정 폴백)
 app.include_router(impact.router)  # 여행 임팩트 카드 — 수락·혼잡회피·쿠폰 성과 요약(개인)

@@ -88,12 +88,13 @@ async def get_gyeongju_weather(now: datetime | None = None) -> Optional[dict]:
     mono = time.monotonic()
     if _cache and mono - _cache[0] < _cache[1]:
         return _cache[2]
-    if not settings.KMA_API_KEY:
+    service_key = (settings.KMA_API_KEY or settings.TOURAPI_KEY).strip()
+    if not service_key:
         _cache = (mono, _TTL_FAIL, None)
         return None
     base_date, base_time = _latest_base(current_time)
     params = {
-        "serviceKey": settings.KMA_API_KEY,
+        "serviceKey": service_key,
         "pageNo": 1,
         "numOfRows": 1000,
         "dataType": "JSON",

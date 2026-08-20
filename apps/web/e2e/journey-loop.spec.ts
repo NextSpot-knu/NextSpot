@@ -12,9 +12,15 @@ const recommendations = [
     features: { indoor: true }, operating_hours: { open: '09:00~22:00', closed: '연중무휴' },
   },
   spot_score: score, distance_m: distance, rank: index + 1, total_candidates: 3,
-  breakdown: { preference: 0.8, wait_time: 5, travel_time: 3 + index, incentive: 0.2 },
+  breakdown: {
+    preference: 0.8, wait_time: null, travel_time: 3 + index, incentive: 0.2,
+    area_demand_level: 0.68, area_demand_mode: 'live',
+    area_demand_sources: ['parking', 'tourism'],
+    area_demand_observed_at: '2026-08-20T01:00:00+00:00',
+  },
   reason: `${name} 고정 추천 사유`, reason_source: index === 0 ? 'llm' : 'template',
   congestion_level: null, congestion_source: 'none', open_status_at_arrival: 'open_expected',
+  scoring_mode: 'area_stats_rules', prediction_source: 'unavailable',
 }));
 
 const firstReportCta = {
@@ -22,6 +28,13 @@ const firstReportCta = {
   en: 'No data · Report crowding',
   ja: 'データなし · 混雑を報告',
   zh: '暂无数据 · 上报拥挤',
+} as const;
+
+const areaDemandLabel = {
+  ko: '주변 수요: 보통',
+  en: 'Area demand: Moderate',
+  ja: '周辺需要: 普通',
+  zh: '周边需求: 一般',
 } as const;
 
 async function mockRecommendationPage(
@@ -88,6 +101,7 @@ for (const locale of ['ko', 'en', 'ja', 'zh'] as const) {
     await expect(page.locator('section.space-y-4 h4')).toHaveCount(3);
     await expect(page.locator('html')).toHaveAttribute('lang', locale);
     await expect(page.locator('button').filter({ hasText: firstReportCta[locale] })).toHaveCount(3);
+    await expect(page.getByText(areaDemandLabel[locale], { exact: true })).toHaveCount(3);
     await expect.poll(
       () => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth),
     ).toBeLessThanOrEqual(1);

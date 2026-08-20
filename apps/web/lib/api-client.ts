@@ -251,6 +251,12 @@ export interface RecommendationResponse {
     // 행사 혼잡 보정(A4): 도착시점 인근 진행 중 축제로 인한 예측 혼잡 가중(0=보정 없음)과 근거 축제명
     eventBoost?: number;
     eventTitle?: string | null;
+    // 장소 내부 혼잡과 분리된 주변 지역 수요(공영주차·관광 통계·행사·날씨).
+    areaDemandLevel?: number | null;
+    areaDemandMode?: "live" | "statistical" | "contextual" | null;
+    areaDemandSources?: ("parking" | "tourism" | "festival" | "weather")[];
+    areaDemandObservedAt?: string | null;
+    areaDemandPenaltyMinutes?: number;
   };
   distanceM: number;
   reason?: string; // 백엔드 템플릿 생성 추천 사유 (snake_case reason → camel reason)
@@ -269,7 +275,7 @@ export interface RecommendationResponse {
   informationConfidence?: "verified" | "unknown";
   placeDataSource?: string | null;
   dataUpdatedAt?: string | null;
-  scoringMode: "model" | "measured_rules" | "degraded_rules";
+  scoringMode: "model" | "measured_rules" | "area_stats_rules" | "degraded_rules";
   modelVersion?: string | null;
   predictionSource: "registry" | "measured" | "unavailable";
 }

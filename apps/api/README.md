@@ -24,29 +24,32 @@ uvicorn app.main:app --reload --port 8000
 |------|------|
 | 서비스 | FastAPI + uvicorn (로컬/컨테이너) |
 | 저장 | Supabase(PostgreSQL) — 시설·혼잡로그·추천·피드백·선호벡터 |
-| 예측 | 로컬 scikit-learn 모델 `model.pkl` (없으면 0.5 폴백) |
+| 예측 | 검증된 Storage 모델 또는 공개 지역 수요 규칙(임의 0.5 없음) |
 | 추천 사유 | 결정적 한국어 템플릿 |
 | 음성 의도 | 키워드 분류기 |
 
 모든 보조 경로는 입력이 없거나 모델이 없어도 안전하게 폴백한다(데모 무중단).
 
-## 혼잡 예측 — 로컬 모델
+## 혼잡 예측 — 검증 모델과 공개 지역 수요
 
-`predict_service.predict_congestion(facility_type, hour, day_of_week) -> float` 폴백:
+`predict_service.predict_congestion(facility_type, hour, day_of_week) -> float | None`:
 
 ```
-(a) 로컬 model.pkl  →  (b) 0.5(default)
+(a) Registry의 검증된 active 모델  →  (b) None(degraded_rules)
 ```
 
-- 사용 경로는 로그에 `source=local|default` 로 남는다.
-- 모델은 sklearn `OneHotEncoder → Ridge` 이며 피처는 `[facility_type, hour_str, dow_str]`.
+- 합성 `model.pkl`과 임의의 0.5는 운영 추론에 사용하지 않는다.
+- 모델은 검증된 `verified/corroborated` 관측만 학습한 `OneHotEncoder → Ridge`이며 피처는
+  `[facility_type, hour_str, dow_str]`이다.
+- 모델이 없을 때는 경주시 ITS 실시간 주차 잔여면과 관광공사 통계가 있는 경우에만
+  `area_stats_rules`로 주변 수요 비용을 계산한다. 이는 특정 매장 내부 혼잡도가 아니다.
 
 **모델 학습:**
 ```bash
 cd apps/api
-python scripts/train.py    # Supabase facilities + congestion_logs → model.pkl
+python scripts/train.py    # 검증 관측 → 후보 모델 평가 → Registry/Storage 등록
 ```
-`model.pkl` 이 없으면 모든 예측이 0.5(중간)로 폴백한다. 추천 순위는 선호/거리/혼잡분산으로 변동.
+품질 기준을 통과한 active 모델이 없으면 혼잡도·예상 대기시간 숫자를 만들지 않는다.
 
 ## 추천 사유 — 템플릿
 
@@ -70,6 +73,7 @@ filter 의 후보 매칭은 `embedding_service.filter_candidates` 가 후보 이
 
 - `GET /health` — 헬스 체크
 - `GET /api/v1/infrastructures` — 관광 POI 목록 + 최신 혼잡도
+- `GET /api/v1/area-demand/status` — 경주시 ITS 실시간 주차 데이터 커버리지
 - `POST /api/v1/recommendations` — 혼잡한 원본 장소의 대안 추천(반경 150m)
 - `POST /api/v1/recommendations/by-type` — 타입별 랭킹(메인 지도 브라우즈)
 - `POST /api/v1/feedback` — 수락/거절 피드백 → 선호 벡터 보정

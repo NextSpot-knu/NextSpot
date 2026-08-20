@@ -63,6 +63,10 @@ interface RecommendationCardProps {
   // A4: 행사 혼잡 보정 배지(explore/recommend 와 동일) — 백엔드 breakdown.eventBoost/eventTitle 그대로 전달.
   eventBoost?: number;
   eventTitle?: string;
+  areaDemandLevel?: number;
+  areaDemandMode?: 'live' | 'statistical' | 'contextual';
+  areaDemandSources?: ('parking' | 'tourism' | 'festival' | 'weather')[];
+  areaDemandObservedAt?: string;
   // 신선도 정직화(계약 5): 혼잡 데이터 출처·나이. user_report→'방문객 제보 · n분 전',
   // 기타 최신→'n분 전 기준', isStale(로그 나이>24h)→'과거 패턴 기반'(회색). 미제공(저장 목록 등)이면 미표시.
   dataSource?: { source: string | null; lastUpdated?: string | null; isStale?: boolean };
@@ -90,6 +94,10 @@ export function RecommendationCard({
   mockHour,
   eventBoost,
   eventTitle,
+  areaDemandLevel,
+  areaDemandMode,
+  areaDemandSources,
+  areaDemandObservedAt,
   dataSource,
   openStatusAtArrival,
   congestionSource,
@@ -336,6 +344,12 @@ export function RecommendationCard({
     : undefined;
   // number 로 좁혀 아래 렌더에서 t() 의 vars(Record<string, string|number>) 타입과 안전하게 맞춘다.
   const seatStatusFreshMinutes = typeof seatStatusFreshMinutesRaw === 'number' ? seatStatusFreshMinutesRaw : null;
+  const areaFreshnessParts = relativeParts(areaDemandObservedAt);
+  const areaFreshness = !areaFreshnessParts ? null
+    : areaFreshnessParts.unit === 'now' ? t('freshness.justNow')
+    : areaFreshnessParts.unit === 'min' ? t('freshness.minAgo', { n: areaFreshnessParts.value })
+    : areaFreshnessParts.unit === 'hour' ? t('freshness.hourAgo', { n: areaFreshnessParts.value })
+    : t('freshness.dayAgo', { n: areaFreshnessParts.value });
 
   return (
     <motion.div 
@@ -647,6 +661,26 @@ export function RecommendationCard({
             pct: Math.round((eventBoost ?? 0) * 100),
           })}
         </p>
+      )}
+
+      {typeof areaDemandLevel === 'number' && (
+        <div className="text-[11px] leading-snug text-sky-800 bg-sky-500/10 border border-sky-500/20 rounded-xl px-3 py-2">
+          <div className="flex items-center justify-between gap-2">
+            <span className="font-bold">
+              {t('recommend.areaDemand')}: {congestionLabel(areaDemandLevel)}
+            </span>
+            <span className="text-[10px] text-sky-700">
+              {t(areaDemandMode === 'live' ? 'recommend.areaDemandLive' : 'recommend.areaDemandStats')}
+            </span>
+          </div>
+          <p className="mt-1 text-sky-800/80">{t('recommend.areaDemandHint')}</p>
+          {!!areaDemandSources?.length && (
+            <p className="mt-1 text-[10px] text-sky-700">
+              {areaDemandSources.map((source) => t(`recommend.areaSource.${source}`)).join(' · ')}
+              {areaFreshness ? ` · ${areaFreshness}` : ''}
+            </p>
+          )}
+        </div>
       )}
 
       {/* Expandable Details Section (Rating, Address, Phone, Hours) */}

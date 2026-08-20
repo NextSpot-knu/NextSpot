@@ -31,9 +31,9 @@ from app.routers.infrastructures import (
 )
 from app.services.predict_service import get_model_info, predict_congestion_detailed
 from app.services.spot.score import calculate_spot_score
-from app.services.spot.travel import get_walking_routes
+from app.services.spot.travel import calculate_haversine_distance, get_walking_routes
 from app.services.congestion_evidence import rankable_measured_level
-from app.services.travel_context import TravelContext, facility_matches_context, open_status_at_arrival
+from app.services.travel_context import KST, TravelContext, facility_matches_context, open_status_at_arrival
 from app.services.recommendation_explanation_service import explain as explain_snapshot
 from app.services.spot.wait_time import calculate_predicted_wait_time
 from app.services.spot.preference import CATEGORY_VECTORS, build_facility_preference_vector, get_category_average_vector
@@ -73,7 +73,7 @@ class RecommendItem(BaseModel):
     information_confidence: str | None = None
     place_data_source: str | None = None
     data_updated_at: str | None = None
-    scoring_mode: Literal["model", "measured_rules", "degraded_rules"] = "degraded_rules"
+    scoring_mode: Literal["model", "measured_rules", "area_stats_rules", "degraded_rules"] = "degraded_rules"
     model_version: str | None = None
     prediction_source: Literal["registry", "measured", "unavailable"] = "unavailable"
 
@@ -121,6 +121,58 @@ async def fetch_facility(facility_id: str):
         raise HTTPException(status_code=404, detail="시설 정보를 찾을 수 없습니다.")
     return res.data[0]
 
+
+def _attach_tourism_area_priors(facilities: list[dict], forecasts: list[dict]) -> None:
+    """관광지 일별 통계를 반경 2km의 지역 기준선으로 전파한다.
+
+    통계 원본과 이름이 정확히 일치한 시설을 좌표 앵커로 삼는다. 주변 시설은 2km에서
+    중립값 50으로 수렴하도록 감쇠해, 관광지 수치를 카페 내부 혼잡처럼 복사하지 않는다.
+    """
+    rates = {
+        str(row["tourist_attraction_name"]).strip(): float(row["concentration_rate"])
+        for row in forecasts
+        if row.get("tourist_attraction_name") and row.get("concentration_rate") is not None
+    }
+    anchors: list[tuple[float, float, float, str]] = []
+    for facility in facilities:
+        name = str(facility.get("name") or "").strip()
+        rate = rates.get(name)
+        if rate is None:
+            continue
+        try:
+            lat, lng = float(facility["latitude"]), float(facility["longitude"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        rate = max(0.0, min(100.0, rate))
+        facility["tourapi_concentration_rate"] = rate
+        facility["tourapi_concentration_basis"] = name
+        facility["tourapi_concentration_distance_m"] = 0.0
+        anchors.append((lat, lng, rate, name))
+
+    for facility in facilities:
+        if "tourapi_concentration_rate" in facility or not anchors:
+            continue
+        try:
+            lat, lng = float(facility["latitude"]), float(facility["longitude"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        nearest = min(
+            (
+                calculate_haversine_distance(lat, lng, anchor_lat, anchor_lng),
+                rate,
+                name,
+            )
+            for anchor_lat, anchor_lng, rate, name in anchors
+        )
+        distance_m, rate, name = nearest
+        if distance_m > 2_000.0:
+            continue
+        decay = 1.0 - distance_m / 2_000.0
+        regional_rate = 50.0 + (rate - 50.0) * decay
+        facility["tourapi_concentration_rate"] = round(regional_rate, 2)
+        facility["tourapi_concentration_basis"] = name
+        facility["tourapi_concentration_distance_m"] = round(distance_m, 1)
+
 async def _fetch_all_facilities_uncached(
     *, center_lat: float | None = None, center_lng: float | None = None, radius_m: float | None = None
 ):
@@ -139,24 +191,16 @@ async def _fetch_all_facilities_uncached(
             )
 
     facilities = await fetch_active_facilities(supabase_client, "*", extra_filters=extra_filters)
-    # 관광공사 30일 집중률은 POI 실시간 혼잡이 아닌 '오늘의 일별 prior'다. 별도 테이블에서
-    # 이름이 정확히 일치하는 행만 붙이며, 마이그레이션/별도 API 승인이 아직 없으면 무해 폴백한다.
+    # 관광공사 30일 집중률은 POI 실시간 혼잡이 아닌 '오늘의 일별 prior'다. 이름 일치 관광지를
+    # 좌표 앵커로 삼아 반경 2km에 거리 감쇠 지역 기준선을 붙인다. 미승인 환경은 무해 폴백한다.
     try:
-        today = datetime.now(timezone.utc).date().isoformat()
+        today = datetime.now(KST).date().isoformat()
         forecast_res = await asyncio.to_thread(
             lambda: supabase_client.table("tourism_concentration_forecasts")
             .select("tourist_attraction_name,concentration_rate,forecast_date")
             .eq("forecast_date", today).execute()
         )
-        by_name = {
-            str(row["tourist_attraction_name"]).strip(): float(row["concentration_rate"])
-            for row in (forecast_res.data or [])
-            if row.get("tourist_attraction_name") and row.get("concentration_rate") is not None
-        }
-        for facility in facilities:
-            rate = by_name.get(str(facility.get("name") or "").strip())
-            if rate is not None:
-                facility["tourapi_concentration_rate"] = rate
+        _attach_tourism_area_priors(facilities, forecast_res.data or [])
     except Exception as e:
         logger.warning("tourapi_concentration_prior_unavailable", error=str(e))
     return facilities

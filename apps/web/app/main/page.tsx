@@ -91,7 +91,7 @@ interface FacilityRecord {
   apiRank?: number;
   totalCandidates?: number;
   recommendationId?: string;
-  scoringMode?: 'model' | 'measured_rules' | 'degraded_rules';
+  scoringMode?: 'model' | 'measured_rules' | 'area_stats_rules' | 'degraded_rules';
 }
 
 // 개별 시설 vs 그룹(모음) 마커 — isGroup 판별식 union(expandGroups/마커 클릭 분기용).
@@ -876,8 +876,8 @@ export default function MainPage() {
                     barrierFree: rf.barrierFree ?? base?.barrierFree ?? null,
                     // 모델이 없어도 최신 현장 관측(measured)은 숨기지 않는다. degraded_rules는
                     // 점수에서 혼잡/대기를 제외한다는 뜻이지, 실제 제보를 폐기한다는 뜻이 아니다.
-                    congestionLevel: r.congestionSource === 'measured' ? (r.congestionLevel ?? null) : (r.scoringMode === 'degraded_rules' ? null : (r.congestionLevel ?? base?.congestionLevel ?? null)),
-                    currentCount: r.congestionSource === 'measured' ? (rf.currentCount ?? null) : (r.scoringMode === 'degraded_rules' ? null : (rf.currentCount ?? base?.currentCount ?? null)),
+                    congestionLevel: r.congestionSource !== 'none' ? (r.congestionLevel ?? null) : null,
+                    currentCount: r.congestionSource === 'measured' ? (rf.currentCount ?? null) : null,
                     // 머천트 연동(2단계): 타임세일·좌석 확인 배지용 — allowlist 병합이라 명시적으로 전달해야 카드에 도달한다.
                     timesaleRate: (rf as any).timesaleRate ?? (rf as any).timesale_rate ?? null,
                     seatStatusFresh: (rf as any).seatStatusFresh ?? (rf as any).seat_status_fresh ?? null,
@@ -2212,6 +2212,10 @@ export default function MainPage() {
                 timeToService={spot.timeToService}
                 eventBoost={spot.eventBoost}
                 eventTitle={spot.eventTitle}
+                areaDemandLevel={spot.areaDemandLevel}
+                areaDemandMode={spot.areaDemandMode}
+                areaDemandSources={spot.areaDemandSources}
+                areaDemandObservedAt={spot.areaDemandObservedAt}
                 facilityType={selectedFacility.type}
                 facility={selectedFacility}
                 rank={rank}

@@ -174,6 +174,41 @@ async def test_degraded_rules_excludes_congestion_wait_and_relief_but_keeps_weig
     assert result.breakdown["incentive"] == pytest.approx(0.25)
 
 
+@pytest.mark.asyncio
+async def test_area_stats_rules_ranks_public_demand_without_fake_wait_or_congestion():
+    candidate = {
+        "id": "area", "type": "cafe", "latitude": 35.8366, "longitude": 129.2099,
+        "capacity": 40, "features": {}, "coupon_rate": 0.1,
+    }
+    signal = {
+        "level": 0.7,
+        "mode": "live",
+        "sources": ["parking", "tourism"],
+        "observed_at": "2026-08-20T01:00:00+00:00",
+        "components": {"parking": 0.8, "tourism": 0.4},
+        "ranking_penalty_minutes": 5.6,
+        "event_boost": 0.0,
+        "event_title": None,
+    }
+    with patch("app.services.spot.score.calculate_preference_similarity", new=AsyncMock(return_value=0.8)), \
+         patch("app.services.spot.score.get_travel_time_and_distance", new=AsyncMock(return_value=(10.0, 800.0))), \
+         patch("app.services.spot.score.predict_congestion_detailed", return_value=(None, "unavailable")), \
+         patch("app.services.spot.score.get_model_info", return_value={"version": None}), \
+         patch("app.services.spot.score.get_area_demand_signal", new=AsyncMock(return_value=signal)):
+        result = await calculate_spot_score(
+            user_id="test", preferred_categories=["cafe"], original_congestion_level=0.9,
+            candidate_facility=candidate, user_lat=35.836, user_lng=129.21,
+            user_vector=[1.0 / (8 ** 0.5)] * 8,
+        )
+    assert result.breakdown["scoring_mode"] == "area_stats_rules"
+    assert result.breakdown["wait_time"] is None
+    assert result.breakdown["ranking_wait_time"] is None
+    assert result.breakdown["incentive_relief"] is None
+    assert result.breakdown["prediction_source"] == "unavailable"
+    assert result.breakdown["area_demand_level"] == 0.7
+    assert result.breakdown["area_demand_penalty_minutes"] == 5.6
+
+
 def test_only_recent_corroborated_or_verified_measurement_can_rank():
     now = datetime(2026, 8, 20, 1, 0, tzinfo=timezone.utc)
     base = {"source": "measured", "level": 0.2, "timestamp": (now - timedelta(minutes=10)).isoformat()}

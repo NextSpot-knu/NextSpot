@@ -1,5 +1,35 @@
 # 세션 인계 문서 (2026-08-20 갱신)
 
+## -27. 2026-08-20 — 초기 사용자용 공개 지역 수요 신호
+
+- 전국 API 장애를 서비스 내부에서 우회했다. 키가 필요 없는 경주시 교통정보센터 ITS의 공개
+  `selectPisListAjax.do`/`getPopupDetail.do`를 1순위로 연결하고 전국 API는 2순위로 내렸다.
+  경주시 서버가 누락한 Sectigo 중간 인증서를 공식 AIA 인증서로 보완하되 TLS 검증은 유지한다.
+  2026-08-20 실측: 시설 4곳, 실시간 3곳, 황리단길 반경 2km 2곳(총 316면·가용 196면),
+  가중 점유율 0.3757. 새 API 키는 필요 없다.
+- 주차 클라이언트는 공공데이터포털의 표준/구형 JSON, XML, `HTTP 200` 비표준 오류 응답을 구분하고
+  한 페이지 요청량을 1,000건으로 제한한다. 외부 API 전체 페이지 조회는 추천 요청과 분리된
+  stale-while-revalidate 캐시로 실행하므로, 첫 사용자와 상류 타임아웃이 추천 응답을 막지 않는다.
+- `GET /api/v1/area-demand/status`를 추가했다. 키 원문 없이 설정 여부, 경주 시설/실시간/반경 2km
+  건수, 가용 주차면, 마지막 확인 시각과 안전한 오류 코드를 반환한다. 로컬 키 실측은 API 서버가
+  `HTTP 200 + result_code=-999`를 반환해 현재 `upstream_rejected`이나 경주시 ITS가 정상 대체한다.
+- 사용자 제보·매장 제휴가 없어도 동작하도록 한국교통안전공단 `PrkSttusInfo`/`PrkRealtimeInfo`를
+  결합한 경주 공영주차 실시간 점유 신호를 추가했다. 시설 좌표는 24시간, 가용면은 5분 캐시하고
+  반경 2km를 거리·주차면수로 가중한다. 키·활용승인·경주 커버리지가 없으면 값을 만들지 않는다.
+- 관광공사 일별 집중률은 이름 일치 관광지를 좌표 앵커로 삼아 반경 2km에 중립값 50으로 감쇠해
+  인근 카페·식당의 통계 기준선으로 쓴다. 공영주차 70%·관광 통계 30%를 기본으로 하며 축제와
+  기상 위험은 제한 보정한다. 이 값은 `congestion_logs`나 장소 내부 혼잡도로 저장하지 않는다.
+- 모델이 없고 공개 근거가 있으면 `area_stats_rules`로 취향·실제 이동시간·혜택에 최대 약 12분의
+  지역 수요 비용만 더한다. 예상 대기시간·시설 혼잡도·혼잡 완화 인센티브는 계속 비운다. 활성 모델
+  환경에서는 관광/행사 중복 보정을 피하고 공영주차 비용만 최대 4분 추가한다. SPOT 0.4/0.4/0.2는 유지했다.
+- 추천 API breakdown과 `/main`·`/explore/recommend`에 주변 수요 단계, live/statistical 구분,
+  사용한 근거와 주차 신선도를 연결했다. 4개 언어 모두 장소 내부 혼잡이 아니라는 설명을 표시한다.
+- 주차 실시간 경로는 별도 키 없이 동작한다. 선택적인 전국 보조 경로는 기존 `TOURAPI_KEY`를
+  재사용하거나 `PARKING_API_KEY`를 지정할 수 있다. 관광 통계는 기존
+  `TOURAPI_INSIGHTS_ENABLED=true` 배치를 쓴다.
+- 검증: API pytest 685개 및 ruff, web lint/typecheck/unit/build 32 pages, journey-loop Playwright
+  8/8(390px·ko/en/ja/zh 주변 수요 문구 포함), 추천 품질 12개 시나리오 통과.
+
 ## -26. 2026-08-20 — 혼잡 실데이터 수집 경로 운영 연결
 
 - 모델 부재를 이유로 현장 관측까지 숨기던 로직을 수정했다. `degraded_rules`에서도 최신 방문객·사장·
@@ -995,6 +1025,7 @@ node scripts/build_reset.mjs && git diff --exit-code supabase/RESET_AND_SETUP.sq
 | `ADMIN_API_TOKEN` | 로컬 데모값(`nextspot-admin-local`) 재사용 금지 — `openssl rand -hex 32` 로 새 값 발급 후 `apps/web`(Vercel) `NEXT_PUBLIC_ADMIN_API_TOKEN` 과 동일하게 맞출 것 |
 | `ALLOWED_ORIGINS` | Vercel 배포 도메인(6-3 참고) |
 | `TOURAPI_KEY` | `apps/api/.env` 의 동일 키 |
+| `PARKING_API_KEY` | `apps/api/.env` 의 동일 키(한국교통안전공단 주차 API 활용승인 확인) |
 
 4. Deploy 완료 후 `https://<서비스>.onrender.com/health` 가 200 을 반환하는지 확인(`render.yaml` 의 `healthCheckPath`, `apps/api/app/main.py` 의 `/health` 라우트 기준).
 5. (선택) `.github/workflows/uptime.yml` 이 10분마다 `/health` 를 핑한다. GitHub repo → **Settings → Secrets and variables → Actions → Variables** 에 `BACKEND_HEALTH_URL`(예: `https://<서비스>.onrender.com/health`)을 등록하면 활성화되고, 미등록이면 워크플로가 무해하게 skip 된다.

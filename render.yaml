@@ -32,6 +32,9 @@ services:
       # --- 기상청 단기예보 인증키(선택 — 비어 있으면 날씨 칩만 숨김) ---
       - key: KMA_API_KEY
         sync: false
+      # --- 한국교통안전공단 주차정보 API(선택 — 경주 실시간 행이 없으면 관광 통계만 사용) ---
+      - key: PARKING_API_KEY
+        sync: false
       # --- Kakao Local 장소검색(공중화장실 좌표) + Mobility 경로(선택) ---
       - key: KAKAO_REST_API_KEY
         sync: false
