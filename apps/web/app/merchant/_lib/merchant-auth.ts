@@ -11,12 +11,10 @@ const FACILITY_KEY = "nextspot_merchant_facility";
 // 데모 기본값 유지 + 빌드 타임 env 로 오버라이드 가능.
 const MERCHANT_PASSWORD = process.env.NEXT_PUBLIC_MERCHANT_PASSWORD || "merchant";
 
-// 백엔드 apps/api MERCHANT_API_TOKEN 의 기본값과 동일한 문자열.
-// MVP 스코프: 이번 사이클은 신규 env 를 MERCHANT_API_TOKEN(백엔드)·NEXT_PUBLIC_MERCHANT_PASSWORD(프런트)
-// 2종으로 제한한다 — 별도의 NEXT_PUBLIC_MERCHANT_API_TOKEN env 오버라이드는 두지 않는다.
-// 따라서 배포 환경에서 백엔드 MERCHANT_API_TOKEN 을 기본값에서 바꾸면, 이 상수도 함께 갱신해야
-// 사장님 콘솔이 계속 인증된다(2단계에서 env 오버라이드 도입 검토 — docs/HANDOVER.md 참고).
-const SESSION_TOKEN = "nextspot-merchant-local";
+// 백엔드 apps/api 의 MERCHANT_API_TOKEN 과 동일한 값이어야 사장님 API 가 동작한다.
+// (lib/admin-auth.ts 의 NEXT_PUBLIC_ADMIN_API_TOKEN 패턴 미러 — 과거에는 이 값이 하드코딩이라
+//  배포에서 백엔드 토큰만 바꾸면 콘솔이 조용히 401 로 깨졌다.)
+const SESSION_TOKEN = process.env.NEXT_PUBLIC_MERCHANT_API_TOKEN || "nextspot-merchant-local";
 
 function hasWindow(): boolean {
   return typeof window !== "undefined";

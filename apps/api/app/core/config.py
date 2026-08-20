@@ -23,6 +23,14 @@ class Settings(BaseSettings):
     # 로컬은 .env(.env.example 참고), 배포는 강한 랜덤값으로 반드시 오버라이드할 것.
     ADMIN_API_TOKEN: str
 
+    # 사장님 콘솔(머천트) 공유 토큰 — 프런트 apps/web NEXT_PUBLIC_MERCHANT_API_TOKEN 과 같아야 한다.
+    # ADMIN_API_TOKEN 과 달리 기본값이 있다(데모 우선 — 미설정 배포에서도 부팅이 막히지 않는다).
+    # ⚠️ 반드시 여기(Settings)에 있어야 한다. 과거 merchant.py 가 os.environ.get 으로 직접 읽었는데,
+    #    pydantic-settings 는 .env 를 os.environ 에 주입하지 않고 자체적으로만 읽는다. 그래서
+    #    .env 에 MERCHANT_API_TOKEN 을 적어도 조용히 무시되고 기본값이 그대로 살아 있었다
+    #    (운영자는 토큰을 바꿨다고 믿지만 실제로는 데모 토큰이 유효한 상태).
+    MERCHANT_API_TOKEN: str = "nextspot-merchant-local"
+
     # Kakao Mobility Directions API (도보/차량 실거리·실시간 이동시간).
     # 비어 있으면 Haversine 직선거리 도보 환산으로 폴백(기본). 키가 있으면 실경로 호출.
     KAKAO_REST_API_KEY: str = ""

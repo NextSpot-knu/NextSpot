@@ -23,7 +23,6 @@
 """
 import asyncio
 import hmac
-import os
 from datetime import datetime, timedelta, timezone
 from typing import Literal
 
@@ -31,18 +30,22 @@ import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from app.core.config import settings
 from app.core.supabase import supabase_admin
 from app.services import merchant_briefing_service
 from app.services.merchant_boost import SEAT_LEVEL_CONGESTION
 
 logger = structlog.get_logger()
 
-# 백엔드 apps/api MERCHANT_API_TOKEN 과 프런트 apps/web NEXT_PUBLIC_MERCHANT_PASSWORD 세션 토큰이
-# 동일 기본값('nextspot-merchant-local')을 공유한다(로컬 데모 전제). app/core/config.py 의
-# Settings 는 이번 스코프의 소유 파일이 아니라 건드리지 않고, 여기서 직접 os.environ 을 읽는다
-# (require_admin 의 settings.ADMIN_API_TOKEN 필수-값 패턴과 달리, 이 토큰은 기본값이 있어
-# 미설정 배포에서도 부팅이 막히지 않는다 — 데모 우선 설계).
-_MERCHANT_API_TOKEN = os.environ.get("MERCHANT_API_TOKEN", "nextspot-merchant-local")
+# 백엔드 MERCHANT_API_TOKEN 과 프런트 apps/web NEXT_PUBLIC_MERCHANT_API_TOKEN 이 같은 값이어야
+# 사장님 콘솔이 인증된다. 둘 다 기본값 'nextspot-merchant-local' 을 공유한다(로컬 데모 전제).
+# require_admin 의 ADMIN_API_TOKEN 필수-값 패턴과 달리 기본값이 있어 미설정 배포에서도 부팅이
+# 막히지 않는다 — 데모 우선 설계.
+#
+# settings 경유로 읽는다(직접 os.environ 을 읽지 않는다): pydantic-settings 는 .env 를
+# os.environ 에 주입하지 않으므로, os.environ.get 은 .env 에 적은 값을 조용히 무시한다.
+# 모듈 로드 시점에 상수로 굳히지 않고 호출마다 settings 에서 읽는다 — import 순서에 값이
+# 좌우되지 않고, 테스트가 monkeypatch 로 토큰 경로를 실제로 검증할 수 있다.
 
 
 def require_merchant(request: Request) -> dict:
@@ -53,7 +56,7 @@ def require_merchant(request: Request) -> dict:
     토큰 비교는 hmac.compare_digest(상수시간)로 타이밍 공격을 방지한다.
     """
     token = (request.headers.get("x-merchant-token") or "").strip()
-    if not token or not hmac.compare_digest(token, _MERCHANT_API_TOKEN):
+    if not token or not hmac.compare_digest(token, settings.MERCHANT_API_TOKEN):
         raise HTTPException(status_code=401, detail="유효하지 않은 사장님 인증 토큰입니다.")
     return {"role": "merchant"}
 

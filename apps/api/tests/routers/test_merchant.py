@@ -13,8 +13,8 @@ from app.routers import merchant
 # test_routers.py 의 공용 Fake(체이닝 흡수 + table별 canned)를 재사용한다.
 from tests.routers.test_routers import FakeSupabase, FakeTable, _FakeResult
 
-# merchant.py 의 기본 토큰(MERCHANT_API_TOKEN 미설정 시 폴백값)과 동일 — .env 는 이 값을 채우지 않는다
-# (apps/api 앱 모듈은 dotenv 를 로드하지 않으므로 테스트 환경에서 os.environ 은 비어 있다).
+# settings.MERCHANT_API_TOKEN 의 데모 기본값. tests/conftest.py 가 같은 값으로 env 를 고정해
+# 로컬 .env 유무와 무관하게 결정적이다(pydantic-settings 는 env var 를 .env 보다 우선한다).
 MERCHANT_TOKEN = "nextspot-merchant-local"
 
 
@@ -523,3 +523,39 @@ def test_merchant_timesale_create_lookup_failure_reports_unknown(client):
     assert body["other_active_timesale_count"] is None
     assert body["effective_timesale_rate"] is None
     assert body["effective_timesale_note"] is None
+
+
+# --- 토큰 출처 회귀 (2026-08-20) ---
+# 과거 merchant.py 는 os.environ.get("MERCHANT_API_TOKEN", ...) 으로 토큰을 직접 읽었다.
+# pydantic-settings 는 .env 를 os.environ 에 주입하지 않으므로, 운영자가 apps/api/.env 에
+# MERCHANT_API_TOKEN 을 적어도 조용히 무시되고 데모 기본값이 계속 유효했다 — 토큰을 바꿨다고
+# 믿는 상태에서 실제로는 안 바뀌는, 침묵하는 인증 구멍이었다.
+#
+# 아래 두 테스트가 '토큰이 settings 에서 온다'를 잠근다. 가드 통과 여부만 보므로(401 인지
+# 아닌지) 하위 DB 경로를 모킹하지 않는다 — 인증 관심사만 검증한다.
+def test_merchant_token_is_read_from_settings(client, monkeypatch):
+    """settings 를 바꾸면 새 토큰이 가드를 통과해야 한다 — 즉 가드가 settings 를 실제로 읽는다."""
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "MERCHANT_API_TOKEN", "rotated-token-xyz")
+
+    res = client.get(
+        "/api/v1/merchant/stats",
+        params={"facility_id": "f-1"},
+        headers={"X-Merchant-Token": "rotated-token-xyz"},
+    )
+    assert res.status_code != 401
+
+
+def test_merchant_token_rotation_rejects_old_token(client, monkeypatch):
+    """토큰을 교체하면 이전 토큰은 즉시 거부된다 — 모듈 로드 시점 상수로 굳지 않았다."""
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "MERCHANT_API_TOKEN", "rotated-token-xyz")
+
+    res = client.get(
+        "/api/v1/merchant/stats",
+        params={"facility_id": "f-1"},
+        headers=_merchant_headers(),  # 교체 전 데모 토큰
+    )
+    assert res.status_code == 401

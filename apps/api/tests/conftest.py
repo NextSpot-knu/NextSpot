@@ -10,6 +10,9 @@ os.environ.setdefault("SUPABASE_URL", "https://placeholder.supabase.co")
 os.environ.setdefault("SUPABASE_ANON_KEY", "placeholder-anon")
 os.environ.setdefault("JWT_SECRET", "placeholder-jwt-secret")
 os.environ.setdefault("ADMIN_API_TOKEN", "placeholder-admin")
+# 머천트 토큰은 Settings 경유(.env 도 읽힘)라, 로컬 .env 에 값이 있으면 테스트가 환경에 좌우된다.
+# env var 가 .env 보다 우선하므로 데모 기본값으로 고정한다(테스트가 가정하는 값과 일치).
+os.environ.setdefault("MERCHANT_API_TOKEN", "nextspot-merchant-local")
 # LLM(Upstage Solar) 테스트 격리 — 로컬 .env 에 실키가 있어도 env var 가 .env 보다 우선하므로
 # 빈 값으로 고정해 is_enabled()=False(전 테스트 LLM 네트워크 차단). LLM 경로가 필요한 테스트는
 # llm_client 함수를 개별 monkeypatch 한다(TOURAPI 차단 픽스처와 동일 원칙).
