@@ -49,13 +49,27 @@ SPOT = 0.40 · 선호도 − 0.40 · 시간비용 + 0.20 · 인센티브
 ## 3. 혼잡 예측 (로컬 ML)
 
 `services/predict_service.py`: `predict_congestion(facility_type, hour, day_of_week) -> float`.
-폴백 체인 `로컬 model.pkl → 0.5`. 모델은 sklearn `OneHotEncoder → Ridge`,
-피처 `[facility_type, hour_str, dow_str]`. 학습: `scripts/train.py`(Supabase 혼잡 로그 → `model.pkl`).
-모델 부재 시 0.5(중간) 폴백 — 서버는 항상 기동된다.
+모델은 sklearn `OneHotEncoder → Ridge`, 피처 `[facility_type, hour_str, dow_str]`.
+학습: `scripts/train.py`(Supabase 혼잡 로그 → `model.pkl`).
 
-## 4. AI 기능 (외부 LLM 없이 내장 폴백)
+> ⚠️ **이 절에 있던 "폴백 체인 `로컬 model.pkl → 0.5`" 서술은 낡았다.** 현재는 저장소의
+> `model.pkl`(합성 데모 모델)을 운영 추론에 쓰지 않는다. 비공개 Supabase Storage 의
+> 아티팩트가 `model_registry.status='active'` 이고 SHA-256·피처 스키마·품질 게이트를
+> 모두 통과해야 적재된다. 검증된 모델이 없으면 0.5 상수가 아니라 **`degraded_rules`**
+> — 혼잡·대기 항 자체를 SPOT 산식에서 제외하고 취향·실제 이동시간·혜택만 쓴다.
+> 정본은 [`docs/SYSTEM_MAP.md`](./docs/SYSTEM_MAP.md) §7 을 보라.
 
-대회 때 Vertex AI Gemini/임베딩이 담당하던 기능을, 외부 의존성 0의 로컬 규칙으로 대체했다.
+## 4. AI 기능 (결정적 경로 + 선택적 LLM 보조)
+
+> ⚠️ **이 절의 제목은 원래 "외부 LLM 없이 내장 폴백"이었고, 그 부분은 더 이상 사실이 아니다.**
+> `services/llm_client.py`(OpenAI 호환 어댑터, 기본 Upstage Solar `solar-pro3`)가 재도입됐고
+> 9개 서비스가 소비한다. 다만 **설계 원칙은 그대로다** — LLM 은 항상 '보조'이고, 키가 없거나
+> 타임아웃(3초)·HTTP 오류·JSON 파싱 실패면 전부 `None` 을 반환해 아래의 결정적 경로로 되돌아간다.
+> 즉 LLM 장애가 기능 장애로 승격되지 않는다. 상세는 [`docs/SYSTEM_MAP.md`](./docs/SYSTEM_MAP.md) §8.
+
+아래는 LLM 이 비활성일 때(그리고 LLM 호출이 실패할 때마다) 실제로 동작하는 결정적 경로다.
+대회 때 Vertex AI Gemini/임베딩이 담당하던 기능을 외부 의존성 0의 로컬 규칙으로 대체한 결과물이며,
+지금도 모든 LLM 경로의 폴백으로 살아 있다.
 
 - **추천 사유** `reason_service.generate_reason` — 입력 수치만 쓰는 결정적 한국어 템플릿.
 - **음성 의도** `voice_intent_service.interpret_turn` — 키워드 분류기
