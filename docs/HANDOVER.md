@@ -1,5 +1,57 @@
 # 세션 인계 문서 (2026-08-20 갱신)
 
+## -27. 2026-08-20 야간 — 전면 점검 + 안전 수정 6커밋 (Claude 자율 사이클)
+
+앱 전체를 훑어 문제/개선점을 정리하고, 판단이 필요 없는 것만 골라 고쳤다. 위험하거나
+제품 판단이 필요한 항목은 **손대지 않고 아래에 남긴다**. 원격 DB·배포·push 는 수행하지 않았다.
+
+### 고친 것 (전부 게이트 통과 후 커밋)
+
+- `docs/SYSTEM_MAP.md` 신규 — 코드 조사 기반 구조/기능/연결관계 정본(화면↔API↔서비스↔테이블
+  전수 매핑). `README.md`·`architecture_overview.md` 의 낡은 서술 3종도 정정했다
+  (LLM 재도입 반영, 폴백 체인, Gemini→Upstage Solar).
+- `next` 16.2.6 → 16.3.1 — npm audit high 6건 → **0건**. semver major 아님.
+- **머천트 토큰 인증 구멍(실제 버그)** — `merchant.py` 가 `os.environ.get` 으로 토큰을 읽었는데
+  pydantic-settings 는 `.env` 를 os.environ 에 주입하지 않는다. 즉 `.env` 에
+  `MERCHANT_API_TOKEN` 을 적어도 **조용히 무시되고 데모 기본값이 계속 유효**했다. Settings 로
+  승격하고 회귀 테스트 2건으로 잠갔다. 프런트의 하드코딩 `SESSION_TOKEN` 도 admin 패턴을
+  미러해 `NEXT_PUBLIC_MERCHANT_API_TOKEN` 으로 풀었다.
+- **지도 초기화 언마운트 레이스(실제 버그)** — `initMap` 이 컨테이너를 확인한 뒤
+  `kakao.maps.load(콜백)` 안에서 지도를 만드는데 load 는 비동기다. SDK 로딩 중 이탈하면
+  `new Map(null)` 로 throw. Kakao 타입을 붙이자마자 tsc 가 잡아냈다.
+- lint warning **187 → 132**. Web Speech / Kakao Maps 앰비언트 타입 선언 2개(`types/`),
+  `catch (err: any)` → `unknown` + `lib/errors.ts` 헬퍼, 죽은 식별자 3건 제거.
+
+검증(매 커밋): pytest **678 passed**(+2) · ruff All checks passed · web lint 0 errors ·
+typecheck 클린 · unit 전체 통과 · build 32 pages · 스키마 재생성 diff 없음.
+
+### ⚠️ 사람 판단이 필요해 남긴 것
+
+1. **`/saved` 의 라이브 혼잡 재조회가 배선되지 않았다.** `applyLive`(35줄)가 완성돼 있고
+   `/infrastructures` 도 받아오는데 **렌더가 호출하지 않는다.** `refreshTried` 도 set 만 하고
+   아무도 읽지 않는다. 결과적으로 저장 페이지는 **저장 당시의 옛 혼잡도를 현재값처럼** 보여준다
+   — 이 저장소의 '정직한 데이터 표시' 원칙에 정면으로 어긋난다. 배선하려면 렌더 변경 +
+   '저장 당시 기준' 라벨의 4로케일 문구가 필요해(현재 i18n 키 없음) 제품 판단으로 남긴다.
+   (그래서 이 2건의 unused-vars warning 도 일부러 남겼다 — 지우면 기능 의도가 사라진다.)
+2. **PR #4(`feature/ui-editorial-pass`) revert 미복구** — 랜딩·온보딩·추천카드·4로케일
+   219줄과 `onboarding-usability.spec.ts` 가 main 에서 빠져 있다. 머지 10분 뒤 revert 라
+   사유 파악이 먼저다. 작업물은 `origin/feature/ui-editorial-pass` 에 남아 있다.
+3. **남은 lint warning 132건 중 70건이 `react-hooks/*`** (set-state-in-effect 50 ·
+   exhaustive-deps 10 · purity 9 · refs 6 · immutability 5). 전부 렌더 타이밍이 바뀔 수 있어
+   기계적으로 밀면 안 된다. 나머지 60건은 도메인 데이터 형태 `any` 라 타입 정의가 선행돼야 한다.
+4. **P0 — 운영 반영 갭(원격 접근 필요, 확인 못 함)**: 신규 마이그레이션 4건 적용 여부,
+   `model_registry` active 행 존재 여부(없으면 추천이 `degraded_rules` 로 동작 = 도착시점
+   예측 혼잡이 실제로 꺼져 있다), LOCALDATA baseline CSV. 이 세 가지가 이 프로젝트에서
+   가장 큰 리스크이자 가장 값싼 개선이다 — 새 기능보다 이미 만든 것을 켜는 게 먼저다.
+
+### 참고
+
+- 설치는 반드시 저장소 루트에서 `npm install` — `--prefix apps/web` 로 하면 워크스페이스를
+  우회해 `apps/web/package-lock.json` 이 따로 생기고 루트 lockfile 과 갈라진다.
+- `app/` 안에서 `os.environ` 을 직접 읽던 설정은 merchant 가 유일했고, 이제 없다.
+
+---
+
 ## -26. 2026-08-20 — 혼잡 실데이터 수집 경로 운영 연결
 
 - 모델 부재를 이유로 현장 관측까지 숨기던 로직을 수정했다. `degraded_rules`에서도 최신 방문객·사장·
