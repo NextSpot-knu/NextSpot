@@ -270,7 +270,7 @@ async def get_recommendations(
     user_task = fetch_user(req.user_id)
     original_infra_task = fetch_facility(req.original_facility_id)
     max_walk_minutes = req.context.max_walk_minutes if req.context and req.context.max_walk_minutes else 10
-    # 보행망 경로를 계산하기 전 DB bbox는 넉넉히 잡고, 최종 제한은 실제/추정 경로 시간으로 강제한다.
+    # 도보 추정을 계산하기 전 DB bbox는 넉넉히 잡고, 최종 제한은 보수적 경로 시간으로 강제한다.
     request_radius = max_walk_minutes * 100.0
     all_infra_task = fetch_all_facilities(
         center_lat=req.user_lat, center_lng=req.user_lng, radius_m=request_radius
@@ -586,7 +586,7 @@ async def recommend_by_type(
     # 활성 타임세일과 신선 좌석 상태를 점수 입력 전에 오버레이한다.
     candidates = await apply_merchant_boosts(supabase_client, candidates)
 
-    # 후보별 실제 보행망 행렬(키 미설정/장애 시 보수 추정)을 한 번만 계산한다.
+    # 후보별 키 없는 보수적 도보 추정을 한 번만 계산한다.
     routes = await get_walking_routes(
         req.user_lat, req.user_lng,
         [(float(f["latitude"]), float(f["longitude"])) for f in candidates],
