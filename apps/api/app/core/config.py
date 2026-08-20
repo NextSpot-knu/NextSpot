@@ -27,6 +27,9 @@ class Settings(BaseSettings):
     # 비어 있으면 Haversine 직선거리 도보 환산으로 폴백(기본). 키가 있으면 실경로 호출.
     KAKAO_REST_API_KEY: str = ""
 
+    # Optional pedestrian-network matrix. Failures fall back to a conservative estimate.
+    OPENROUTESERVICE_API_KEY: str = ""
+
     # 한국관광공사 TourAPI(공공데이터포털 B551011) 인증키 — 공모전 필수 데이터 소스.
     # POI 적재(scripts/ingest_tourapi.py)·행사 조회(searchFestival2)에 사용.
     # 선택값: 비어 있으면 부팅은 정상이며, TourAPI 호출 시점에 한국어 오류로 명확히 실패한다

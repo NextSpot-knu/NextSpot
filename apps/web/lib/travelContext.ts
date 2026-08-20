@@ -16,7 +16,7 @@ interface StoredTravelPreferences extends TravelContext { version: 2 }
 export const TRAVEL_CONTEXT_KEY = 'nextspot_setup_prefs';
 
 export const EMPTY_TRAVEL_CONTEXT: TravelContext = {
-  categories: [], requiredAttributes: [], excludeVisited: false, visitedFacilityIds: [],
+  categories: [], maxWalkMinutes: 20, requiredAttributes: [], excludeVisited: false, visitedFacilityIds: [],
 };
 
 const WALKING_SPEED_M_PER_MIN = 66.67;
@@ -37,7 +37,9 @@ export function matchesTravelContext(facility: {
 }, context: TravelContext, origin: { lat: number; lng: number }, distanceMeters: (lat1: number, lng1: number, lat2: number, lng2: number) => number): boolean {
   if (context.categories.length && !context.categories.includes(facility.type as PlaceCategory)) return false;
   if (context.excludeVisited && context.visitedFacilityIds.includes(facility.id)) return false;
-  if (context.maxWalkMinutes && distanceMeters(origin.lat, origin.lng, facility.latitude, facility.longitude) > context.maxWalkMinutes * WALKING_SPEED_M_PER_MIN) return false;
+  const maxWalkMinutes = context.maxWalkMinutes ?? 20;
+  // 서버의 네트워크 경로/보수 추정이 최종 하드 캡이다. 클라이언트는 직선거리로 불가능한 후보만 선제 제거한다.
+  if (distanceMeters(origin.lat, origin.lng, facility.latitude, facility.longitude) > maxWalkMinutes * WALKING_SPEED_M_PER_MIN) return false;
   const features = facility.features ?? {};
   for (const attribute of context.requiredAttributes) {
     if (attribute === 'accessible') {

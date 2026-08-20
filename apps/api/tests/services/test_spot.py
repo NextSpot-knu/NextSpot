@@ -1,4 +1,5 @@
 import re
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -9,8 +10,9 @@ from app.services.spot.score import (
     calculate_spot_score, W1, W2, W3, INCENTIVE_COUPON_SHARE, COUPON_RATE_CAP,
 )
 from app.services.spot.wait_time import calculate_predicted_wait_time
-from app.services.spot.travel import calculate_haversine_distance
-from app.services.spot.preference import get_category_average_vector
+from app.services.spot.travel import FALLBACK_ROUTE_FACTOR, calculate_haversine_distance, estimate_walking_route
+from app.services.spot.preference import calculate_preference_similarity, get_category_average_vector
+from app.services.congestion_evidence import rankable_measured_level
 
 @pytest.mark.asyncio
 async def test_category_average_vector():
@@ -40,6 +42,14 @@ async def test_calculate_predicted_wait_time():
 
 
 @pytest.mark.asyncio
+async def test_wait_time_peak_uses_supplied_kst_hour():
+    lunch = await calculate_predicted_wait_time("restaurant", 0.8, {"average_processing_time": 20}, hour=12)
+    evening = await calculate_predicted_wait_time("restaurant", 0.8, {"average_processing_time": 20}, hour=19)
+    assert lunch == 20.8
+    assert evening == 16.0
+
+
+@pytest.mark.asyncio
 async def test_haversine_distance():
     # 3. 직선 거리 연산 검증 (경주 황리단길 기준)
     # 동일 지점은 거리 0
@@ -49,6 +59,9 @@ async def test_haversine_distance():
     # 특정 인접 지점 간 거리 양수
     dist_diff = calculate_haversine_distance(35.8360, 129.2100, 35.8372, 129.2096)
     assert dist_diff > 0.0
+    route = estimate_walking_route(35.8360, 129.2100, 35.8372, 129.2096)
+    assert route.source == "estimated"
+    assert route.distance_m == pytest.approx(dist_diff * FALLBACK_ROUTE_FACTOR, abs=0.1)
 
 
 @pytest.mark.asyncio
@@ -158,6 +171,58 @@ async def test_degraded_rules_excludes_congestion_wait_and_relief_but_keeps_weig
     assert result.breakdown["wait_time"] is None
     assert result.breakdown["incentive_relief"] is None
     assert result.breakdown["prediction_source"] == "unavailable"
+    assert result.breakdown["incentive"] == pytest.approx(0.25)
+
+
+def test_only_recent_corroborated_or_verified_measurement_can_rank():
+    now = datetime(2026, 8, 20, 1, 0, tzinfo=timezone.utc)
+    base = {"source": "measured", "level": 0.2, "timestamp": (now - timedelta(minutes=10)).isoformat()}
+    assert rankable_measured_level({**base, "evidence_tier": "corroborated"}, now=now) == 0.2
+    assert rankable_measured_level({**base, "evidence_tier": "verified"}, now=now) == 0.2
+    assert rankable_measured_level({**base, "evidence_tier": "single_report"}, now=now) is None
+    assert rankable_measured_level(
+        {**base, "evidence_tier": "verified", "timestamp": (now - timedelta(minutes=31)).isoformat()}, now=now
+    ) is None
+
+
+@pytest.mark.asyncio
+async def test_fresh_measured_congestion_changes_ranking_without_exposing_fake_wait():
+    now = datetime(2026, 8, 20, 1, 0, tzinfo=timezone.utc)
+    candidate = {"id": "measured", "name": "현장 식당", "type": "restaurant", "latitude": 35.836, "longitude": 129.21, "features": {}}
+    common = dict(
+        user_id="u", preferred_categories=["restaurant"], original_congestion_level=None,
+        candidate_facility=candidate, user_lat=35.836, user_lng=129.21,
+        user_vector=[1.0 / (8 ** 0.5)] * 8, depart_time=now,
+        travel_time_override=5.0, travel_distance_override=330.0, travel_source="estimated",
+    )
+    with patch("app.services.spot.score.calculate_preference_similarity", new=AsyncMock(return_value=0.8)), \
+         patch("app.services.spot.score.predict_congestion_detailed", side_effect=AssertionError("model must not run")), \
+         patch("app.services.spot.score.get_model_info", return_value={"version": None}):
+        quiet = await calculate_spot_score(**common, congestion_evidence={
+            "source": "measured", "level": 0.2, "evidence_tier": "verified", "timestamp": (now - timedelta(minutes=5)).isoformat(),
+        })
+        busy = await calculate_spot_score(**common, congestion_evidence={
+            "source": "measured", "level": 0.8, "evidence_tier": "verified", "timestamp": (now - timedelta(minutes=5)).isoformat(),
+        })
+    assert quiet.score > busy.score
+    assert quiet.breakdown["scoring_mode"] == "measured_rules"
+    assert quiet.breakdown["wait_time"] is None
+    assert quiet.breakdown["ranking_wait_time"] is not None
+    assert quiet.breakdown["prediction_source"] == "measured"
+
+
+@pytest.mark.asyncio
+async def test_restaurant_preference_intent_uses_menu_and_cuisine_facts():
+    vector = [1.0 / (8 ** 0.5)] * 8
+    matched = await calculate_preference_similarity(
+        "u", "restaurant", ["restaurant"], {"cuisine_tags": ["한식", "육류,고기"], "first_menu": "숯불갈비"},
+        vector, facility_name="갈비집", preference_intent="고기",
+    )
+    unmatched = await calculate_preference_similarity(
+        "u", "restaurant", ["restaurant"], {"cuisine_tags": ["카페,디저트"], "first_menu": "케이크"},
+        vector, facility_name="디저트집", preference_intent="고기",
+    )
+    assert matched > unmatched
 
 
 def test_spot_weights_parity_with_shared_types():

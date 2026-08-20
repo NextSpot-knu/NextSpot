@@ -9,17 +9,17 @@
     {"id":"closed","name":"월요일 휴무 관광지","type":"attraction","latitude":35.8381,"longitude":129.2090,"capacity":80,"coupon_rate":0.0,"features":{},"operating_hours":{"open":"09:00~18:00","closed":"매주 월요일"}}
   ],
   "scenarios": [
-    {"name":"황리단길 중립","origin":{"lat":35.8380,"lng":129.2090},"context":{},"preferred_categories":["cafe"],"expected_ids":["cafe-near","cafe-far","pork","unverified","museum"],"expected_scores":[0.804,0.74,0.432,0.395,0.386]},
-    {"name":"황리단길 음식점","origin":{"lat":35.8380,"lng":129.2090},"context":{"categories":["restaurant"]},"preferred_categories":["restaurant"],"expected_ids":["pork"],"expected_scores":[0.821]},
-    {"name":"황리단길 카페","origin":{"lat":35.8380,"lng":129.2090},"context":{"categories":["cafe"]},"preferred_categories":["cafe"],"expected_ids":["cafe-near","cafe-far"],"expected_scores":[0.804,0.74]},
-    {"name":"10분 도보","origin":{"lat":35.8380,"lng":129.2090},"context":{"max_walk_minutes":10},"preferred_categories":["cafe"],"expected_ids":["cafe-near","pork","unverified","museum"],"expected_scores":[0.804,0.432,0.395,0.386]},
-    {"name":"비가 와서 실내","origin":{"lat":35.8380,"lng":129.2090},"context":{"required_attributes":["indoor"]},"preferred_categories":["culture"],"expected_ids":["unverified","museum","pork","cafe-near","cafe-far"],"expected_scores":[0.795,0.773,0.421,0.404,0.34]},
-    {"name":"실내 문화시설","origin":{"lat":35.8380,"lng":129.2090},"context":{"categories":["culture"],"required_attributes":["indoor"]},"preferred_categories":["culture"],"expected_ids":["unverified","museum"],"expected_scores":[0.795,0.773]},
-    {"name":"검증된 무장애","origin":{"lat":35.8380,"lng":129.2090},"context":{"required_attributes":["accessible"]},"preferred_categories":["culture"],"expected_ids":["museum"],"expected_scores":[0.773]},
-    {"name":"방문지 제외","origin":{"lat":35.8380,"lng":129.2090},"context":{"exclude_visited":true,"visited_facility_ids":["cafe-near"]},"preferred_categories":["cafe"],"expected_ids":["cafe-far","pork","unverified","museum"],"expected_scores":[0.74,0.432,0.395,0.386]},
-    {"name":"돼지고기 조건","origin":{"lat":35.8380,"lng":129.2090},"context":{"categories":["restaurant"]},"preferred_categories":["restaurant"],"expected_ids":["pork"],"expected_scores":[0.821]},
-    {"name":"조용한 카페 조건","origin":{"lat":35.8380,"lng":129.2090},"context":{"categories":["cafe"]},"preferred_categories":["cafe"],"expected_ids":["cafe-near","cafe-far"],"expected_scores":[0.804,0.74]},
-    {"name":"너무 멀어서 가까운 곳","origin":{"lat":35.8380,"lng":129.2090},"context":{"categories":["cafe"],"max_walk_minutes":5},"preferred_categories":["cafe"],"expected_ids":["cafe-near"],"expected_scores":[0.804]},
-    {"name":"박물관 권역 동점 규칙","origin":{"lat":35.8380,"lng":129.2090},"context":{"categories":["culture"]},"preferred_categories":["culture"],"expected_ids":["unverified","museum"],"expected_scores":[0.795,0.773]}
+    {"name":"황리단길 중립","origin":{"lat":35.8380,"lng":129.2090},"context":{},"preferred_categories":["cafe"],"expected_ids":["cafe-near","cafe-far","pork","unverified","museum"],"expected_scores":[0.794,0.72,0.418,0.383,0.373]},
+    {"name":"황리단길 음식점","origin":{"lat":35.8380,"lng":129.2090},"context":{"categories":["restaurant"]},"preferred_categories":["restaurant"],"expected_ids":["pork"],"expected_scores":[0.799]},
+    {"name":"황리단길 카페","origin":{"lat":35.8380,"lng":129.2090},"context":{"categories":["cafe"]},"preferred_categories":["cafe"],"expected_ids":["cafe-near","cafe-far"],"expected_scores":[0.794,0.72]},
+    {"name":"10분 도보","origin":{"lat":35.8380,"lng":129.2090},"context":{"max_walk_minutes":10},"preferred_categories":["cafe"],"expected_ids":["cafe-near","pork","unverified","museum"],"expected_scores":[0.794,0.418,0.383,0.373]},
+    {"name":"비가 와서 실내","origin":{"lat":35.8380,"lng":129.2090},"context":{"required_attributes":["indoor"]},"preferred_categories":["culture"],"expected_ids":["unverified","museum","pork","cafe-near","cafe-far"],"expected_scores":[0.783,0.759,0.402,0.394,0.32]},
+    {"name":"실내 문화시설","origin":{"lat":35.8380,"lng":129.2090},"context":{"categories":["culture"],"required_attributes":["indoor"]},"preferred_categories":["culture"],"expected_ids":["unverified","museum"],"expected_scores":[0.783,0.759]},
+    {"name":"검증된 무장애","origin":{"lat":35.8380,"lng":129.2090},"context":{"required_attributes":["accessible"]},"preferred_categories":["culture"],"expected_ids":["museum"],"expected_scores":[0.759]},
+    {"name":"방문지 제외","origin":{"lat":35.8380,"lng":129.2090},"context":{"exclude_visited":true,"visited_facility_ids":["cafe-near"]},"preferred_categories":["cafe"],"expected_ids":["cafe-far","pork","unverified","museum"],"expected_scores":[0.72,0.418,0.383,0.373]},
+    {"name":"돼지고기 조건","origin":{"lat":35.8380,"lng":129.2090},"context":{"categories":["restaurant"]},"preferred_categories":["restaurant"],"expected_ids":["pork"],"expected_scores":[0.799]},
+    {"name":"조용한 카페 조건","origin":{"lat":35.8380,"lng":129.2090},"context":{"categories":["cafe"]},"preferred_categories":["cafe"],"expected_ids":["cafe-near","cafe-far"],"expected_scores":[0.794,0.72]},
+    {"name":"너무 멀어서 가까운 곳","origin":{"lat":35.8380,"lng":129.2090},"context":{"categories":["cafe"],"max_walk_minutes":5},"preferred_categories":["cafe"],"expected_ids":["cafe-near"],"expected_scores":[0.794]},
+    {"name":"박물관 권역 동점 규칙","origin":{"lat":35.8380,"lng":129.2090},"context":{"categories":["culture"]},"preferred_categories":["culture"],"expected_ids":["unverified","museum"],"expected_scores":[0.783,0.759]}
   ]
 }

@@ -15,6 +15,7 @@ from app.core.supabase import get_current_user
 from app.services.preference_vector_service import preference_vector_service
 from app.routers.recommendations import resolve_congestion_evidence
 from app.routers.infrastructures import _exact_current_count
+from app.services.spot.travel import WalkingRoute
 
 # --- 공통 상수 (경주 황리단길 좌표 기준 — 기존 서비스 테스트와 통일) ---
 BASE_LAT, BASE_LNG = 35.8360, 129.2100
@@ -354,6 +355,27 @@ def test_recommend_by_type_happy_path(auth_client):
     scores = [item["spot_score"] for item in items]
     assert scores == sorted(scores, reverse=True)
     assert [item["rank"] for item in items] == [1, 2, 3, 4]
+
+
+def test_recommend_by_type_never_falls_back_outside_walk_limit(auth_client):
+    cafes = [_facility("inside", "cafe", 0.0002), _facility("outside", "cafe", 0.0004)]
+    fetch_all = AsyncMock(return_value=cafes)
+    with patch("app.routers.recommendations.fetch_user", new=AsyncMock(return_value=USER_ROW)), \
+         patch("app.routers.recommendations.fetch_all_facilities", new=fetch_all), \
+         patch("app.routers.recommendations.get_walking_routes", new=AsyncMock(return_value=[
+             WalkingRoute(4.0, 260.0, "estimated"), WalkingRoute(6.0, 400.0, "estimated"),
+         ])), \
+         patch("app.routers.recommendations.fetch_congestion_map", new=AsyncMock(return_value={})), \
+         patch.object(preference_vector_service, "get_user_vector", new=AsyncMock(return_value=UNIT_VECTOR)), \
+         patch("app.routers.recommendations.generate_reason_with_source", new=AsyncMock(return_value=("사유", "template"))):
+        res = auth_client.post("/api/v1/recommendations/by-type", json={
+            "user_id": AUTH_USER_ID, "facility_type": "cafe", "user_lat": BASE_LAT, "user_lng": BASE_LNG,
+            "context": {"max_walk_minutes": 5},
+        })
+
+    assert res.status_code == 200
+    assert [item["facility"]["id"] for item in res.json()] == ["inside"]
+    assert fetch_all.await_count == 1
 
 
 def test_solar_state_never_changes_candidates_scores_or_rank(auth_client):

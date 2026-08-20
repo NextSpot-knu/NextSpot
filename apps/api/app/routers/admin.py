@@ -291,6 +291,7 @@ async def get_metrics(days: int = 28):
 async def get_model_trust(days: int = 30):
     """활성 모델 품질·추천→방문 퍼널·근거 노출 가드레일의 비식별 운영 요약."""
     from app.services.predict_service import get_model_info
+    from app.services.congestion_evidence import rankable_measured_level
 
     days = max(1, min(days, 90))
     since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
@@ -331,13 +332,21 @@ async def get_model_trust(days: int = 30):
     top3 = []
     closed = 0
     ungrounded_numeric = 0
+    walk_limit_violations = 0
+    scoring_modes: dict[str, int] = {}
     for row in recommendations:
         snapshot = row.get("recommendation_snapshot") or {}
+        mode = str(snapshot.get("scoring_mode") or "unknown")
+        scoring_modes[mode] = scoring_modes.get(mode, 0) + 1
         rank = snapshot.get("rank")
         if isinstance(rank, int) and rank <= 3:
             top3.append(snapshot)
         if snapshot.get("open_status_at_arrival") == "closed_confirmed":
             closed += 1
+        max_walk = snapshot.get("max_walk_minutes")
+        travel_time = (snapshot.get("breakdown") or {}).get("travel_time")
+        if isinstance(max_walk, (int, float)) and isinstance(travel_time, (int, float)) and travel_time > max_walk:
+            walk_limit_violations += 1
         congestion = snapshot.get("congestion") or {}
         breakdown = snapshot.get("breakdown") or {}
         if (
@@ -351,6 +360,7 @@ async def get_model_trust(days: int = 30):
     evidence_count = sum(1 for item in top3 if (item.get("congestion") or {}).get("source") in {"measured", "predicted"})
     hours_count = sum(1 for item in top3 if (item.get("tourapi_facts") or {}).get("operating_hours"))
     fresh_count = 0
+    fresh_trusted_measured = 0
     now = datetime.now(timezone.utc)
     for item in top3:
         congestion = item.get("congestion") or {}
@@ -364,6 +374,8 @@ async def get_model_trust(days: int = 30):
                     fresh_count += 1
             except (TypeError, ValueError):
                 pass
+        if rankable_measured_level(congestion, now=now) is not None:
+            fresh_trusted_measured += 1
 
     exposures = len(recommendations)
     navigations = sum(1 for row in recommendations if row["id"] in outcome_by_id)
@@ -401,6 +413,8 @@ async def get_model_trust(days: int = 30):
         warnings.append("closed_place_recommended")
     if ungrounded_numeric:
         warnings.append("ungrounded_numeric_exposure")
+    if walk_limit_violations:
+        warnings.append("walk_limit_violation")
     if info.get("mae") is not None and float(info["mae"]) > 0.15:
         warnings.append("active_model_mae_out_of_bounds")
 
@@ -415,6 +429,7 @@ async def get_model_trust(days: int = 30):
             "count": len(top3),
             "coverage_rate": round(evidence_count / len(top3), 4) if top3 else 0.0,
             "fresh_rate": round(fresh_count / len(top3), 4) if top3 else 0.0,
+            "fresh_trusted_measured_rate": round(fresh_trusted_measured / len(top3), 4) if top3 else 0.0,
             "operating_hours_rate": round(hours_count / len(top3), 4) if top3 else 0.0,
         },
         "collection": {
@@ -432,6 +447,8 @@ async def get_model_trust(days: int = 30):
         "guardrails": {
             "closed_recommendations": closed,
             "ungrounded_numeric_exposures": ungrounded_numeric,
+            "walk_limit_violations": walk_limit_violations,
+            "scoring_modes": scoring_modes,
             "warnings": warnings,
         },
     }

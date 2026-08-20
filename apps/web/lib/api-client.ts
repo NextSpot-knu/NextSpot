@@ -269,9 +269,9 @@ export interface RecommendationResponse {
   informationConfidence?: "verified" | "unknown";
   placeDataSource?: string | null;
   dataUpdatedAt?: string | null;
-  scoringMode: "model" | "degraded_rules";
+  scoringMode: "model" | "measured_rules" | "degraded_rules";
   modelVersion?: string | null;
-  predictionSource: "registry" | "unavailable";
+  predictionSource: "registry" | "measured" | "unavailable";
 }
 
 /** 추천 목록의 reasonSource 를 집계해 디버그 배지 이벤트를 1회 발행한다(항목에 하나도 없으면 무발행). */
@@ -465,6 +465,7 @@ export async function recommendByType(
   excludeIds: string[] = [],
   limit = 5,
   context?: TravelContext,
+  preferenceIntent?: string | null,
 ): Promise<RecommendationResponse[]> {
   const { data: { session } } = await supabase.auth.getSession();
   let userId = session?.user?.id;
@@ -480,6 +481,7 @@ export async function recommendByType(
     excludeIds,
     limit,
     context,
+    preferenceIntent,
   });
   dispatchReasonSourceDebug(res);
   return res;

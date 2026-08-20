@@ -31,11 +31,12 @@ from app.routers.infrastructures import (
 )
 from app.services.predict_service import get_model_info, predict_congestion_detailed
 from app.services.spot.score import calculate_spot_score
-from app.services.spot.travel import WALKING_SPEED_M_PER_MIN, calculate_haversine_distance
+from app.services.spot.travel import get_walking_routes
+from app.services.congestion_evidence import rankable_measured_level
 from app.services.travel_context import TravelContext, facility_matches_context, open_status_at_arrival
 from app.services.recommendation_explanation_service import explain as explain_snapshot
 from app.services.spot.wait_time import calculate_predicted_wait_time
-from app.services.spot.preference import CATEGORY_VECTORS, get_category_average_vector
+from app.services.spot.preference import CATEGORY_VECTORS, build_facility_preference_vector, get_category_average_vector
 
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1", tags=["recommendations"])
@@ -47,6 +48,7 @@ class RecommendRequest(BaseModel):
     user_lat: float
     user_lng: float
     context: TravelContext | None = None
+    preference_intent: str | None = Field(None, max_length=120)
 
 class RecommendItem(BaseModel):
     recommendation_id: str
@@ -71,9 +73,9 @@ class RecommendItem(BaseModel):
     information_confidence: str | None = None
     place_data_source: str | None = None
     data_updated_at: str | None = None
-    scoring_mode: Literal["model", "degraded_rules"] = "degraded_rules"
+    scoring_mode: Literal["model", "measured_rules", "degraded_rules"] = "degraded_rules"
     model_version: str | None = None
-    prediction_source: Literal["registry", "unavailable"] = "unavailable"
+    prediction_source: Literal["registry", "measured", "unavailable"] = "unavailable"
 
 class FeedbackRequest(BaseModel):
     recommendation_id: str
@@ -267,7 +269,9 @@ async def get_recommendations(
     # 1. 사용자 정보 및 원본 시설 정보 병렬 조회
     user_task = fetch_user(req.user_id)
     original_infra_task = fetch_facility(req.original_facility_id)
-    request_radius = req.context.max_distance_m if req.context and req.context.max_distance_m else 150.0
+    max_walk_minutes = req.context.max_walk_minutes if req.context and req.context.max_walk_minutes else 10
+    # 보행망 경로를 계산하기 전 DB bbox는 넉넉히 잡고, 최종 제한은 실제/추정 경로 시간으로 강제한다.
+    request_radius = max_walk_minutes * 100.0
     all_infra_task = fetch_all_facilities(
         center_lat=req.user_lat, center_lng=req.user_lng, radius_m=request_radius
     )
@@ -276,24 +280,25 @@ async def get_recommendations(
         user_task, original_infra_task, all_infra_task
     )
 
-    # 2. 반경 150m 이내 후보 시설 필터링 (본인 시설 제외)
-    candidates = []
+    # 2. 시설 조건을 먼저 적용하고, 도보 경로 행렬로 영업 여부와 하드 캡을 판정한다.
+    eligible = []
     for f in all_facilities:
         if f["id"] == req.original_facility_id or not facility_matches_context(f, req.context):
             continue
-            
-        distance = calculate_haversine_distance(
-            req.user_lat, req.user_lng,
-            f["latitude"], f["longitude"]
-        )
-        
-        # 150미터 이내 시설만 후보군으로 포함
-        max_distance = req.context.max_distance_m if req.context and req.context.max_distance_m else 150.0
-        arrival = datetime.now(timezone.utc) + timedelta(minutes=distance / WALKING_SPEED_M_PER_MIN)
-        if distance <= max_distance and open_status_at_arrival(f, arrival) != "closed_confirmed":
-            candidates.append((f, distance))
+        eligible.append(f)
+    routes = await get_walking_routes(
+        req.user_lat, req.user_lng,
+        [(float(f["latitude"]), float(f["longitude"])) for f in eligible],
+    )
+    now = datetime.now(timezone.utc)
+    candidates = [
+        (facility, route)
+        for facility, route in zip(eligible, routes)
+        if route.duration_min <= max_walk_minutes
+        and open_status_at_arrival(facility, now + timedelta(minutes=route.duration_min)) != "closed_confirmed"
+    ]
 
-    logger.info("candidates_filtered", count=len(candidates), max_radius_m=150)
+    logger.info("candidates_filtered", count=len(candidates), max_walk_minutes=max_walk_minutes)
 
     # 사용자 선호 벡터는 요청당 1개뿐이므로 여기서 1회만 조회한다. (없으면 Cold Start 벡터 생성 후 1회 업서트)
     user_vector = await _resolve_user_vector(req.user_id, user_info.get("preferred_categories", []))
@@ -304,23 +309,24 @@ async def get_recommendations(
     congestion_by_id = await fetch_congestion_map(
         [req.original_facility_id, *[f["id"] for f, _ in candidates]]
     )
-    # 원본 혼잡은 W3 인센티브(재배치기여)의 **점수 입력** — Phase 1 은 점수 입력을 바꾸지 않는다
-    # (CONGESTION_TRUST_SPEC D-2: 로그 없으면 기존과 동일하게 0.0 기준선 유지, Phase 2 에서 재검토).
     model_ready = get_model_info()["trained"]
+    original_evidence = await resolve_congestion_evidence(
+        original_infra, congestion_by_id.get(req.original_facility_id)
+    )
     original_congestion = (
-        (congestion_by_id.get(req.original_facility_id) or {}).get("level", 0.0)
-        if model_ready else 0.0
+        rankable_measured_level(original_evidence)
+        if original_evidence["source"] == "measured" else original_evidence.get("level")
     )
     # 원본 대기시간도 위 일괄 혼잡 조회 결과를 재사용한다.
     original_wait_time = None
-    if model_ready:
+    if model_ready and original_evidence["source"] == "predicted" and original_congestion is not None:
         original_wait_time = await calculate_predicted_wait_time(
             facility_type=original_infra["type"],
             congestion_level=original_congestion,
             facility_features=original_infra.get("features"),
         )
 
-    async def _score_candidate(f: dict, dist: float) -> dict:
+    async def _score_candidate(f: dict, route) -> dict:
         # 혼잡 3단계 판정(CONGESTION_TRUST_SPEC) — 로그 없는 시설을 0.0(실측 여유)처럼 팔지 않는다.
         evidence = await resolve_congestion_evidence(f, congestion_by_id.get(f["id"]))
         candidate_congestion = evidence["level"]
@@ -335,6 +341,11 @@ async def get_recommendations(
             user_lat=req.user_lat,
             user_lng=req.user_lng,
             user_vector=user_vector,
+            congestion_evidence=evidence,
+            preference_intent=req.preference_intent,
+            travel_time_override=route.duration_min,
+            travel_distance_override=route.distance_m,
+            travel_source=route.source,
         )
         return {
             "facility": f,
@@ -342,13 +353,13 @@ async def get_recommendations(
             # original_wait_time 은 후보와 무관하게 요청당 1개지만, 추천 행 단독으로도
             # 절감분을 계산할 수 있도록 각 breakdown 에 함께 저장한다(비정규화 스냅샷).
             "breakdown": {**score_res.breakdown, "original_wait_time": original_wait_time},
-            "distance_m": dist,
+            "distance_m": route.distance_m,
             "candidate_congestion": candidate_congestion,
             "congestion_evidence": evidence,
         }
 
     recommendation_results = list(
-        await asyncio.gather(*[_score_candidate(f, dist) for f, dist in candidates])
+        await asyncio.gather(*[_score_candidate(f, route) for f, route in candidates])
     )
 
     # 4. 스코어 기준 내림차순 정렬 및 상위 5개 선별
@@ -390,8 +401,11 @@ async def get_recommendations(
             ),
             "congestion": {
                 "level": evidence["level"], "source": evidence["source"],
-                "timestamp": evidence["timestamp"],
+                "timestamp": evidence["timestamp"], "evidence_tier": evidence.get("evidence_tier"),
+                "log_source": evidence.get("log_source"),
             },
+            "max_walk_minutes": max_walk_minutes,
+            "travel_source": item["breakdown"].get("travel_source"),
             "tourapi_facts": {
                 "barrier_free": facility.get("barrier_free"),
                 "operating_hours": facility.get("operating_hours"),
@@ -525,15 +539,12 @@ async def explain_recommendation(
 
 
 # --- 타입별 추천(메인 지도 브라우즈): 원본 없이 특정 종류를 선호/혼잡/거리로 랭킹 + 사유 ---
-# /recommendations 가 '혼잡한 원본의 대안'(반경 150m)을 주는 것과 달리, 여기선 원본이 없으므로
-# 혼잡 기준선(_BROWSE_BASELINE_CONGESTION)을 원본 혼잡도로 삼아 인센티브의 재배치기여
-# 성분을 산출한다. (인센티브 = 쿠폰강도 + 재배치기여 결합 — score.py 참조)
-_BROWSE_BASELINE_CONGESTION = 0.7
-# 현실성 필터: 도보로 닿기 힘든 거리의 시설은 추천에서 제외(사용자 위치 기준 직선거리, m).
-# 약 1.5km ≈ 도보 22분. time_cost 가 60분에서 캡되어 원거리
-# 페널티가 약한 점을 후보 단계의 reachability 컷오프로 보완한다. 후보가 limit 미만이면 가까운
-# 순으로 폴백해 빈손/엣지(사용자가 외곽) 위치에서도 추천이 끊기지 않게 한다.
-_MAX_RECO_DISTANCE_M = 1500.0
+# 원본이 없는 브라우즈는 임의 원본 혼잡도를 만들지 않아 재배치 기여를 계산하지 않는다.
+_BROWSE_BASELINE_CONGESTION = None
+# 기본 20분 도보 밴드를 쓰며 후보가 부족해도 범위 밖 시설로 폴백하지 않는다.
+_DEFAULT_BROWSE_WALK_MINUTES = 20
+# Course planner compatibility; its own segment eligibility still consumes a distance cap.
+_MAX_RECO_DISTANCE_M = _DEFAULT_BROWSE_WALK_MINUTES * 66.67
 
 
 class RecommendByTypeRequest(BaseModel):
@@ -544,6 +555,7 @@ class RecommendByTypeRequest(BaseModel):
     exclude_ids: list[str] = []
     limit: int = Field(5, ge=1, le=20)  # 서버 상한: 후보 점수화(예측 + 사유 생성) 호출량 폭증 방지
     context: TravelContext | None = None
+    preference_intent: str | None = Field(None, max_length=120)
 
 
 @router.post("/recommendations/by-type", response_model=list[RecommendItem])
@@ -557,9 +569,10 @@ async def recommend_by_type(
     if req.user_id != current_user["id"]:
         raise HTTPException(status_code=403, detail="요청한 user_id가 인증된 사용자와 일치하지 않습니다.")
 
+    max_walk_minutes = req.context.max_walk_minutes if req.context and req.context.max_walk_minutes else _DEFAULT_BROWSE_WALK_MINUTES
     user_info, all_facilities = await asyncio.gather(
         fetch_user(req.user_id),
-        fetch_all_facilities(center_lat=req.user_lat, center_lng=req.user_lng, radius_m=_MAX_RECO_DISTANCE_M),
+        fetch_all_facilities(center_lat=req.user_lat, center_lng=req.user_lng, radius_m=max_walk_minutes * 100.0),
     )
 
     exclude = set(req.exclude_ids or [])
@@ -567,43 +580,29 @@ async def recommend_by_type(
         f for f in all_facilities
         if f.get("type") == req.facility_type and f["id"] not in exclude and facility_matches_context(f, req.context)
     ]
-    # 외곽 위치에서 반경 내 후보가 부족하면 기존 기능대로 전체 시설 가까운 순 폴백을 보존한다.
-    if len(candidates) < max(req.limit, 3):
-        all_facilities = await fetch_all_facilities()
-        candidates = [
-            f for f in all_facilities
-            if f.get("type") == req.facility_type and f["id"] not in exclude and facility_matches_context(f, req.context)
-        ]
     if not candidates:
         return []
 
-    # 머천트 랭킹 연동(2단계): 활성 타임세일(coupon_rate 유효값 교체)·신선 좌석 상태(혼잡 실측 대체)를
-    # 스코어링 전에 오버레이한다(score.py 는 무변경 — 이 함수가 candidate_facility 입력값만 바꿔친다).
+    # 활성 타임세일과 신선 좌석 상태를 점수 입력 전에 오버레이한다.
     candidates = await apply_merchant_boosts(supabase_client, candidates)
 
-    # 현실성 컷오프: 도보 비현실 거리 시설을 후보에서 제외(직선거리). 가까운 순 정렬 후 반경 내만 남기되,
-    # 반경 내가 limit 미만이면 가까운 순으로 폴백(빈손/외곽 위치 방지). 점수 산정 후보가 줄어 호출량도 감소.
-    _with_dist = sorted(
-        (
-            (f, calculate_haversine_distance(req.user_lat, req.user_lng, f["latitude"], f["longitude"]))
-            for f in candidates
-        ),
-        key=lambda x: x[1],
+    # 후보별 실제 보행망 행렬(키 미설정/장애 시 보수 추정)을 한 번만 계산한다.
+    routes = await get_walking_routes(
+        req.user_lat, req.user_lng,
+        [(float(f["latitude"]), float(f["longitude"])) for f in candidates],
     )
     now = datetime.now(timezone.utc)
-    _with_dist = [
-        (f, d) for f, d in _with_dist
+    candidate_routes = [
+        (f, route) for f, route in zip(candidates, routes)
+        if route.duration_min <= max_walk_minutes
         if open_status_at_arrival(
-            f, now + timedelta(minutes=d / WALKING_SPEED_M_PER_MIN)
+            f, now + timedelta(minutes=route.duration_min)
         ) != "closed_confirmed"
     ]
-    max_distance = req.context.max_distance_m if req.context and req.context.max_distance_m else _MAX_RECO_DISTANCE_M
-    _reachable = [f for f, d in _with_dist if d <= max_distance]
-    candidates = (
-        _reachable
-        if req.context and req.context.max_walk_minutes
-        else (_reachable if len(_reachable) >= max(req.limit, 3) else [f for f, _ in _with_dist[: max(req.limit, 3)]])
-    )
+    candidates = [f for f, _ in candidate_routes]
+    route_by_id = {f["id"]: route for f, route in candidate_routes}
+    if not candidates:
+        return []
 
     # 선호 벡터 1회 조회(없으면 Cold Start 생성 후 업서트) — get_recommendations 와 동일 패턴
     user_vector = await _resolve_user_vector(req.user_id, user_info.get("preferred_categories", []))
@@ -618,13 +617,14 @@ async def recommend_by_type(
             # 사장님이 방금 확인한 좌석 상태 — 실측으로 취급(프런트 배지는 seat_status_fresh 가 담당).
             evidence = {
                 "level": override, "source": "measured", "log_source": "merchant_seat",
-                "current_count": None, "is_stale": False, "timestamp": None,
+                "current_count": None, "evidence_tier": "verified", "is_stale": False,
+                "timestamp": (f.get("seat_status_fresh") or {}).get("updated_at"),
             }
         else:
             # 혼잡 3단계 판정(CONGESTION_TRUST_SPEC) — 로그 없는 시설을 0.0 실측처럼 팔지 않는다.
             evidence = await resolve_congestion_evidence(f, congestion_by_id.get(f["id"]))
         cong = evidence["level"]
-        dist = calculate_haversine_distance(req.user_lat, req.user_lng, f["latitude"], f["longitude"])
+        route = route_by_id[f["id"]]
         # 정성 혼잡 단계를 인원수로 합성하지 않는다. 실제 계수 소스의 값만 전달한다.
         f2 = {**f, "current_count": evidence.get("current_count")}
         f2.pop(CONGESTION_OVERRIDE_KEY, None)  # 내부 전용 오버레이 키 — 응답 payload 에는 노출하지 않는다.
@@ -636,12 +636,17 @@ async def recommend_by_type(
             user_lat=req.user_lat,
             user_lng=req.user_lng,
             user_vector=user_vector,
+            congestion_evidence=evidence,
+            preference_intent=req.preference_intent,
+            travel_time_override=route.duration_min,
+            travel_distance_override=route.distance_m,
+            travel_source=route.source,
         )
         return {
             "facility": f2,
             "spot_score": res.score,
             "breakdown": res.breakdown,
-            "distance_m": dist,
+            "distance_m": route.distance_m,
             "candidate_congestion": cong,
             "congestion_evidence": evidence,
         }
@@ -675,7 +680,12 @@ async def recommend_by_type(
             "facility_id": facility["id"], "facility_name": facility.get("name"),
             "facility_type": facility.get("type"), "spot_score": item["spot_score"],
             "rank": rank, "breakdown": item["breakdown"], "distance_m": item["distance_m"],
-            "congestion": {"level": evidence["level"], "source": evidence["source"], "timestamp": evidence["timestamp"]},
+            "congestion": {
+                "level": evidence["level"], "source": evidence["source"], "timestamp": evidence["timestamp"],
+                "evidence_tier": evidence.get("evidence_tier"), "log_source": evidence.get("log_source"),
+            },
+            "max_walk_minutes": max_walk_minutes,
+            "travel_source": item["breakdown"].get("travel_source"),
             "open_status_at_arrival": open_status_at_arrival(
                 facility, now + timedelta(minutes=item["breakdown"].get("travel_time", 0))
             ),
@@ -724,7 +734,7 @@ async def recommend_by_type(
             rank=idx + 1,
             total_candidates=total,
             open_status_at_arrival=open_status_at_arrival(
-                item["facility"], now + timedelta(minutes=item["distance_m"] / WALKING_SPEED_M_PER_MIN)
+                item["facility"], now + timedelta(minutes=item["breakdown"].get("travel_time", 0))
             ),
             information_confidence="verified" if item["facility"].get("operating_hours") else "unknown",
             place_data_source=item["facility"].get("place_data_source"),
@@ -1099,12 +1109,15 @@ async def apply_feedback_vector_learning(*, user_id: str, facility: dict, vector
         실제로 벡터를 움직였으면 True. 미지 카테고리라 스킵했으면 False.
     """
     facility_type = facility.get("type")
-    facility_vector = CATEGORY_VECTORS.get(facility_type)
-    if facility_vector is None:
+    if facility_type not in CATEGORY_VECTORS:
         # 미지 카테고리는 제로 벡터 학습(정규화 시 균등벡터로 대체 → 무의미한 보정)이 되므로
         # 조용히 반영하지 않고 경고 후 스킵한다. 피드백 이력 저장 자체는 이미 완료된 뒤다.
         logger.warning("feedback_vector_skip_unknown_type", facility_type=facility_type, user_id=user_id)
         return False
+    features = dict(facility.get("features") or {})
+    if facility.get("barrier_free") is not None:
+        features.setdefault("barrier_free", facility.get("barrier_free"))
+    facility_vector = build_facility_preference_vector(facility_type, features)
     await preference_vector_service.adjust_user_vector_on_feedback(
         user_id=user_id,
         facility_vector=facility_vector,

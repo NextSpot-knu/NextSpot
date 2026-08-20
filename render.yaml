@@ -35,6 +35,9 @@ services:
       # --- Kakao Local 장소검색(공중화장실 좌표) + Mobility 경로(선택) ---
       - key: KAKAO_REST_API_KEY
         sync: false
+      # --- OpenRouteService 보행 경로 행렬(선택 — 비어 있으면 보수적 도보 추정) ---
+      - key: OPENROUTESERVICE_API_KEY
+        sync: false
       # --- LLM(국산 Upstage Solar) 인증키(선택 — 비어 있으면 LLM 보조 기능만 조용히 비활성) ---
       - key: UPSTAGE_API_KEY
         sync: false

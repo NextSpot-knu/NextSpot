@@ -8,7 +8,7 @@ interface TrustResponse {
   model: { trained: boolean; version: string | null; real_data_count: number; mae: number | null };
   registry: { training_started_at: string; training_ended_at: string; source_composition: Record<string, number>; metrics: { baseline_improvement?: number; per_type_mae?: Record<string, number> } } | null;
   funnel: { exposures: number; navigations: number; arrivals: number; positive_ratings: number; verified_visit_success_rate: number };
-  top3_evidence: { coverage_rate: number; fresh_rate: number; operating_hours_rate: number };
+  top3_evidence: { coverage_rate: number; fresh_rate: number; fresh_trusted_measured_rate: number; operating_hours_rate: number };
   collection: {
     observations: number;
     trusted_observations: number;
@@ -19,7 +19,7 @@ interface TrustResponse {
     by_evidence_tier: Record<string, number>;
     facility_gaps: { id: string; name: string; type: string }[];
   };
-  guardrails: { warnings: string[] };
+  guardrails: { warnings: string[]; walk_limit_violations: number; scoring_modes: Record<string, number> };
 }
 
 export function ModelTrustPanel() {
@@ -40,7 +40,7 @@ export function ModelTrustPanel() {
     ['긍정 평가', funnel.positive_ratings],
     ['검증 방문 성공률', `${(funnel.verified_visit_success_rate * 100).toFixed(1)}%`],
     ['Top 3 혼잡 근거율', `${(data.top3_evidence.coverage_rate * 100).toFixed(1)}%`],
-    ['Top 3 최신 근거율', `${(data.top3_evidence.fresh_rate * 100).toFixed(1)}%`],
+    ['Top 3 최신 검증 실측률', `${(data.top3_evidence.fresh_trusted_measured_rate * 100).toFixed(1)}%`],
     ['Top 3 영업시간 근거율', `${(data.top3_evidence.operating_hours_rate * 100).toFixed(1)}%`],
   ] as const;
 
@@ -74,6 +74,10 @@ export function ModelTrustPanel() {
           <p className="text-xs text-hanok-muted">활성 시설 <strong className="block text-lg text-hanok-ink">{data.collection.active_facilities}</strong></p>
         </div>
         <p className="mt-3 text-[11px] text-hanok-muted">출처 · {Object.entries(data.collection.by_source).map(([key, value]) => `${key} ${value}`).join(' · ') || '수집 전'}</p>
+        <p className="mt-1 text-[11px] text-hanok-muted">
+          채점 모드 · {Object.entries(data.guardrails.scoring_modes).map(([key, value]) => `${key} ${value}`).join(' · ') || '노출 전'}
+          {' · '}도보 제한 위반 {data.guardrails.walk_limit_violations}건
+        </p>
         {data.collection.facility_gaps.length > 0 && <p className="mt-1 text-[11px] text-amber-200">수집 공백 우선순위 · {data.collection.facility_gaps.slice(0, 6).map((item) => item.name).join(' · ')}</p>}
       </div>
       {data.registry && <div className="mt-3 grid gap-2 text-[11px] text-hanok-muted md:grid-cols-2">

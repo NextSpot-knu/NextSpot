@@ -1,5 +1,6 @@
 # pyrefly: ignore [missing-import]
 import math
+import re
 from app.services.preference_vector_service import preference_vector_service
 
 # 8차원 카테고리 벡터 매핑 테이블 (관광 4타입: 음식점/카페/관광지/문화시설)
@@ -10,6 +11,49 @@ CATEGORY_VECTORS = {
     "attraction": [0.0, 0.0, 1.0, 0.0, 0.0, 0.1, 0.2, 0.0],
     "culture":    [0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.2, 0.2],
 }
+
+CUISINE_GROUPS = {
+    "한식": {"한식", "국밥", "찌개", "백반", "불고기", "갈비", "비빔밥"},
+    "고기": {"고기", "육류", "삼겹살", "갈비", "불고기", "구이"},
+    "분식": {"분식", "김밥", "떡볶이", "라면", "순대"},
+    "중식": {"중식", "중국", "짜장", "짬뽕", "마라", "탕수육"},
+    "일식": {"일식", "일본", "초밥", "스시", "라멘", "돈카츠", "우동"},
+    "양식": {"양식", "파스타", "피자", "스테이크", "브런치"},
+    "채식": {"채식", "비건", "사찰음식", "샐러드"},
+    "디저트": {"디저트", "베이커리", "빵", "케이크", "아이스크림"},
+}
+
+
+def build_facility_preference_vector(facility_type: str, features: dict | None = None) -> list[float]:
+    """Map facility-level facts into the existing stable eight-dimensional schema."""
+    vector = list(CATEGORY_VECTORS.get(facility_type, [0.0] * 8))
+    facts = features or {}
+    if facts.get("barrier_free") or facts.get("accessible_verified"):
+        vector[6] += 0.3
+    if facts.get("instagrammable") or facts.get("scenic") or facts.get("hanok"):
+        vector[5] += 0.2
+    if facts.get("quiet") or facts.get("relaxed"):
+        vector[7] += 0.2
+    if any(facts.get(key) for key in ("first_menu", "treat_menu", "menu", "cuisine_tags", "category")):
+        vector[4] += 0.15
+    return vector
+
+
+def _cuisine_match(intent: str | None, name: str | None, features: dict) -> float | None:
+    if not intent or not intent.strip():
+        return None
+    haystack = " ".join(str(value) for value in [
+        name or "", features.get("cuisine_tags") or "", features.get("category") or "",
+        features.get("first_menu") or "", features.get("treat_menu") or "", features.get("menu") or "",
+    ]).lower()
+    query = intent.strip().lower()
+    terms = {token for token in re.split(r"[\s,·/]+", query) if len(token) >= 2}
+    for label, aliases in CUISINE_GROUPS.items():
+        if label in query or any(alias in query for alias in aliases):
+            terms.update(alias.lower() for alias in aliases)
+    if not terms:
+        return None
+    return 1.0 if any(term in haystack for term in terms) else 0.15
 
 def get_category_average_vector(preferred_categories: list[str]) -> list[float]:
     """
@@ -44,6 +88,8 @@ async def calculate_preference_similarity(
     preferred_categories: list[str],
     facility_features: dict | None = None,
     user_vector: list[float] | None = None,
+    facility_name: str | None = None,
+    preference_intent: str | None = None,
 ) -> float:
     """
     선호 벡터 저장소에서 사용자 선호 벡터를 획득(없으면 Cold Start 벡터 생성 후 적재)하고,
@@ -61,16 +107,7 @@ async def calculate_preference_similarity(
 
     # 2. 시설 특징 벡터 구성
     # 기본적으로 시설 카테고리 전용 벡터를 기준값으로 획득
-    facility_vector = CATEGORY_VECTORS.get(facility_type, [0.0] * 8)
-    
-    # 시설 features 메타 정보에 맞춰 세부 차원 보정 (예: 친환경 설비가 있으면 주차 벡터 보정 등)
-    if facility_features:
-        # copy하여 수정
-        facility_vector = list(facility_vector)
-        if facility_features.get("barrier_free"):
-            facility_vector[6] += 0.3  # 접근성/무장애 차원 부스트
-        if facility_features.get("instagrammable") and facility_type == "cafe":
-            facility_vector[5] += 0.2  # 감성/인스타 차원 부스트
+    facility_vector = build_facility_preference_vector(facility_type, facility_features)
             
     # 시설 벡터 정규화
     sq_sum = sum(x ** 2 for x in facility_vector)
@@ -85,6 +122,9 @@ async def calculate_preference_similarity(
 
     # 3. 코사인 유사도(Cosine Similarity) 계산 (정규화된 두 벡터의 내적)
     similarity = sum(u * f for u, f in zip(user_vector, facility_vector))
+    cuisine_match = _cuisine_match(preference_intent, facility_name, facility_features or {})
+    if facility_type == "restaurant" and cuisine_match is not None:
+        similarity = 0.3 * similarity + 0.7 * cuisine_match
     
     # 유사도 범위 [0.0, 1.0] 제한
     return max(0.0, min(1.0, similarity))

@@ -133,7 +133,11 @@ def _apply_seat_status_boost(facilities: list[dict]) -> list[dict]:
                 continue
 
             f[CONGESTION_OVERRIDE_KEY] = SEAT_LEVEL_CONGESTION[level]
-            f["seat_status_fresh"] = {"level": level, "minutes_ago": round(minutes_ago)}
+            f["seat_status_fresh"] = {
+                "level": level,
+                "minutes_ago": round(minutes_ago),
+                "updated_at": updated_at.isoformat(),
+            }
         except Exception as e:
             logger.warning("merchant_boost_seat_status_failed", facility_id=f.get("id"), error=str(e))
             continue

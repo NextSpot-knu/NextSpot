@@ -161,7 +161,9 @@ async def test_seat_status_fresh_overrides_congestion_with_level_mapping():
         )
         out = await apply_merchant_boosts(_FakeTimesaleClient([]), [facility])
         assert out[0][CONGESTION_OVERRIDE_KEY] == expected_congestion
-        assert out[0]["seat_status_fresh"] == {"level": level, "minutes_ago": 5}
+        assert out[0]["seat_status_fresh"]["level"] == level
+        assert out[0]["seat_status_fresh"]["minutes_ago"] == 5
+        assert out[0]["seat_status_fresh"]["updated_at"] == _iso(now - timedelta(minutes=5))
 
 
 @pytest.mark.asyncio

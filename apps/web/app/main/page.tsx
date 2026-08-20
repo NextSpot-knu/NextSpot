@@ -91,7 +91,7 @@ interface FacilityRecord {
   apiRank?: number;
   totalCandidates?: number;
   recommendationId?: string;
-  scoringMode?: 'model' | 'degraded_rules';
+  scoringMode?: 'model' | 'measured_rules' | 'degraded_rules';
 }
 
 // 개별 시설 vs 그룹(모음) 마커 — isGroup 판별식 union(expandGroups/마커 클릭 분기용).
@@ -848,7 +848,14 @@ export default function MainPage() {
           if (liveMode && realCands.length > 0) {
             try {
               // 백엔드에는 rejectedIds와 savedIds를 제외하고 요청
-              const recs = await recommendByType(targetType, userLocation, [...rejectedIds, ...savedIds], 5, travelContext);
+              const recs = await recommendByType(
+                targetType,
+                userLocation,
+                [...rejectedIds, ...savedIds],
+                5,
+                travelContext,
+                cuisineIntentRef.current,
+              );
               const byId = new Map(realCands.map(f => [f.id, f]));
               realRanked = recs
                 .filter(r => byId.has(r.facility.id))

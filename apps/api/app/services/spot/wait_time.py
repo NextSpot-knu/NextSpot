@@ -1,4 +1,6 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+
+KST = timezone(timedelta(hours=9))
 
 # 시설 타입별 기본 평균 처리 시간 (단위: 분)
 DEFAULT_PROCESSING_TIMES = {
@@ -18,18 +20,16 @@ async def calculate_predicted_wait_time(
     혼잡도(congestion_level: 0.0 ~ 1.0)와 기본 처리 시간 및 시간대 보정을 적용해
     예측 대기 시간(분 단위)을 계산합니다.
 
-    hour: 보정 기준 시각(0~23). 호출측(score.py)이 '도착 예상 시점(UTC) hour'를 넘기면
-          혼잡도 예측(predict_congestion)과 동일한 시점 기준을 공유한다. None 이면 현재 UTC 시각을
-          사용한다(모델·런타임이 모두 UTC 기준이므로 datetime.now(timezone.utc)로 통일).
+    hour: 한국 현지 영업시간(0~23). None이면 현재 KST 시각을 사용한다.
     """
     # 1. 평균 처리 시간 획득
     avg_process_time = DEFAULT_PROCESSING_TIMES.get(facility_type, 15)
     if facility_features and "average_processing_time" in facility_features:
         avg_process_time = facility_features["average_processing_time"]
 
-    # 2. 시간대 보정 계수 산출 (도착 예상 시점 기준, 미지정 시 현재 UTC)
+    # 2. 시간대 보정 계수 산출 (도착 예상 KST 기준)
     if hour is None:
-        hour = datetime.now(timezone.utc).hour
+        hour = datetime.now(KST).hour
 
     time_multiplier = 1.0
     if 11 <= hour < 14:
