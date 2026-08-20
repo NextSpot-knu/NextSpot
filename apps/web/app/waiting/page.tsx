@@ -51,6 +51,9 @@ interface BoardRow {
   summary: string | null;
   imageSource: { provider?: string; sourceUrl?: string; license?: string; artist?: string } | null;
   congestionLevel: number | null;
+  // 매장 내부 혼잡이 없을 때도 공영주차·관광 근거로 대안성을 보여주는 주변 권역 수요.
+  areaDemandLevel: number | null;
+  areaDemandMode: "live" | "statistical" | "contextual" | null;
   // 검증 모델이 없는 degraded 응답은 waitTime=null이다. 0분으로 바꾸면 안 된다.
   expectedWait: number | null;
   expectedTravel: number;
@@ -203,8 +206,9 @@ export default function WaitingBoardPage() {
               ? source as BoardRow["imageSource"]
               : null;
           })(),
-          congestionLevel:
-            typeof rec.facility.congestionLevel === "number" ? rec.facility.congestionLevel : null,
+          congestionLevel: typeof rec.congestionLevel === "number" ? rec.congestionLevel : null,
+          areaDemandLevel: typeof spot.areaDemandLevel === "number" ? spot.areaDemandLevel : null,
+          areaDemandMode: spot.areaDemandMode ?? null,
           expectedWait:
             typeof rec.breakdown?.waitTime === "number" ? rec.breakdown.waitTime : null,
           expectedTravel: spot.expectedTravel,
@@ -296,7 +300,9 @@ export default function WaitingBoardPage() {
             </h1>
           </div>
         </div>
-        <p className="text-xs md:text-sm text-muk-soft leading-relaxed">{t("waiting.subtitle")}</p>
+        <p className="text-xs md:text-sm text-muk-soft leading-relaxed">
+          {t("landing.value2")} · {t("recommend.areaDemandHint")}
+        </p>
 
         {/* 본문 */}
         {loading ? (
@@ -357,7 +363,7 @@ export default function WaitingBoardPage() {
                               </p>
                             )}
                             {row.summary && (
-                              <p className="mt-1 text-[9px] leading-snug text-muk-soft break-words line-clamp-5">
+                              <p className="mt-1 text-[9px] leading-snug text-muk-soft break-words line-clamp-6">
                                 {row.summary}
                               </p>
                             )}
@@ -365,7 +371,9 @@ export default function WaitingBoardPage() {
                           <div className="space-y-1 mt-1">
                             <p className="text-xs font-extrabold text-gold-deep leading-tight">
                               {row.expectedWait === null
-                                ? t("waiting.waitUnavailable")
+                                ? row.areaDemandLevel !== null
+                                  ? `${t("recommend.areaDemand")}: ${t(`congestion.${congestionKey(row.areaDemandLevel)}`)}`
+                                  : t("waiting.waitUnavailable")
                                 : t("waiting.arrivalWait", { n: Math.round(row.expectedWait) })}
                             </p>
                             {row.congestionLevel != null ? (
@@ -375,6 +383,10 @@ export default function WaitingBoardPage() {
                                 )}`}
                               >
                                 {t(`congestion.${congestionKey(row.congestionLevel)}`)}
+                              </span>
+                            ) : row.areaDemandLevel !== null ? (
+                              <span className={`inline-block text-[9px] font-bold px-1.5 py-0.5 rounded-md border whitespace-nowrap ${congestionBadgeClass(row.areaDemandLevel)}`}>
+                                {t(row.areaDemandMode === "live" ? "recommend.areaDemandLive" : "recommend.areaDemandStats")}
                               </span>
                             ) : (
                               <span className="inline-block text-[9px] font-bold px-1.5 py-0.5 rounded-md border bg-muk/5 border-line text-muk-soft whitespace-nowrap">
@@ -430,7 +442,9 @@ export default function WaitingBoardPage() {
                             <div className="flex flex-wrap items-center gap-1.5 mt-1">
                               <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-gold/10 border border-gold/25 text-gold-deep whitespace-nowrap">
                                 {row.expectedWait === null
-                                  ? t("waiting.waitUnavailable")
+                                  ? row.areaDemandLevel !== null
+                                    ? `${t("recommend.areaDemand")}: ${t(`congestion.${congestionKey(row.areaDemandLevel)}`)}`
+                                    : t("waiting.waitUnavailable")
                                   : t("waiting.arrivalWait", { n: Math.round(row.expectedWait) })}
                               </span>
                               {/* 오늘 휴무 확정 — 숨기지 않고 정직하게 배지로 알린다(리스트 맨 뒤 배치와 함께). */}
@@ -446,6 +460,10 @@ export default function WaitingBoardPage() {
                                   )}`}
                                 >
                                   {t(`congestion.${congestionKey(row.congestionLevel)}`)}
+                                </span>
+                              ) : row.areaDemandLevel !== null ? (
+                                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md border whitespace-nowrap ${congestionBadgeClass(row.areaDemandLevel)}`}>
+                                  {t(row.areaDemandMode === "live" ? "recommend.areaDemandLive" : "recommend.areaDemandStats")}
                                 </span>
                               ) : (
                                 <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md border bg-muk/5 border-line text-muk-soft whitespace-nowrap">

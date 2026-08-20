@@ -416,7 +416,7 @@ export function RecommendationCard({
           
           {/* Status Pills — 펼쳐도(상세 표시 중에도) 혼잡도·잔여석은 항상 표시.
               혼잡 로그가 없는 시설(congestionLevel=null)은 합성값 대신 회색 '데이터 없음'으로 표기. */}
-          {facility && displayCongestionLevel !== undefined && (
+          {facility && (displayCongestionLevel !== undefined || typeof areaDemandLevel === 'number') && (
             <div className="flex flex-wrap items-center gap-1.5 mt-2">
               {typeof displayCongestionLevel === 'number' ? (
                 <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold border ${
@@ -430,11 +430,28 @@ export function RecommendationCard({
                 }`}>
                   {t('card.congestion')}: {congestionLabel(displayCongestionLevel)}
                 </span>
+              ) : typeof areaDemandLevel === 'number' ? (
+                // 장소 내부 혼잡이 없어도 실제 공영주차·관광 근거가 있으면 추천의 핵심인 주변 수요를
+                // 가장 먼저 보여준다. 매장 혼잡처럼 오인되지 않도록 라벨은 반드시 '주변 수요'로 고정한다.
+                <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold border ${
+                  areaDemandLevel >= 0.75
+                    ? 'bg-terracotta/10 border-terracotta/30 text-terracotta'
+                    : areaDemandLevel >= 0.5
+                    ? 'bg-gold/10 border-gold/30 text-gold-deep'
+                    : areaDemandLevel >= 0.25
+                    ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-600'
+                    : 'bg-jade/10 border-jade/30 text-jade'
+                }`}>
+                  {t('recommend.areaDemand')}: {congestionLabel(areaDemandLevel)}
+                </span>
               ) : (
-                // D-1(CONGESTION_TRUST_SPEC): '데이터 없음' 대신 '정보 준비 중' — 서비스가 죽은 게
-                // 아니라 데이터를 모으는 중이라는 뉘앙스(waiting 페이지의 noData 는 별건 유지).
                 <span className="px-2 py-0.5 rounded-md text-[10px] font-bold border bg-muk/5 border-line text-muk-soft">
                   {t('card.congestionPreparing')}
+                </span>
+              )}
+              {typeof displayCongestionLevel !== 'number' && typeof areaDemandLevel === 'number' && (
+                <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold border bg-sky-500/10 border-sky-500/20 text-sky-700">
+                  {t(areaDemandMode === 'live' ? 'recommend.areaDemandLive' : 'recommend.areaDemandStats')}
                 </span>
               )}
               {typeof displayCongestionLevel === 'number' && displayCongestionSource && (
@@ -721,11 +738,11 @@ export function RecommendationCard({
             </p>
           )}
 
-          {/* 소개(TourAPI overview, 비-ko 로케일이면 배치 번역 우선) — 있을 때만 3줄 클램프('지어내지 않기') */}
+          {/* 소개(TourAPI overview, 비-ko 로케일이면 배치 번역 우선) — 장소 판단에 충분하도록 6줄까지 표시. */}
           {displayOverview && (
             <div>
               <span className="text-muk-soft block text-[10px] font-bold mb-0.5">{t('card.about')}</span>
-              <p className="text-muk leading-relaxed line-clamp-3">{displayOverview}</p>
+              <p className="text-muk leading-relaxed line-clamp-6">{displayOverview}</p>
             </div>
           )}
 

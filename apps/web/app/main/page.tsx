@@ -2241,11 +2241,18 @@ export default function MainPage() {
           const verifiedWait = selectedFacility.scoringMode === 'model' && selectedFacility.congestionSource !== 'none'
             ? Math.round(spot.expectedWait)
             : null;
+          const areaDemandReason = typeof spot.areaDemandLevel === 'number'
+            ? `${t('recommend.areaDemand')}: ${t(`congestion.${
+                spot.areaDemandLevel >= 0.75 ? 'busy'
+                  : spot.areaDemandLevel >= 0.5 ? 'moderate'
+                    : spot.areaDemandLevel >= 0.25 ? 'relaxed' : 'quiet'
+              }`)} · ${t(spot.areaDemandMode === 'live' ? 'recommend.areaDemandLive' : 'recommend.areaDemandStats')}. ${selectedFacility.name} · ${t('card.travel', { n: walk })}`
+            : null;
           const reason = typeof selectedFacility.congestionLevel === 'number' && selectedFacility.congestionLevel >= 0.75
             ? t('recommend.fallbackBusy', { name: selectedFacility.name, walk, pct: Math.round(selectedFacility.congestionLevel * 100) })
             : verifiedWait !== null
               ? t('recommend.fallbackWithWait', { name: selectedFacility.name, walk, wait: verifiedWait })
-              : t('recommend.fallbackTravelOnly', { name: selectedFacility.name, walk });
+              : areaDemandReason ?? t('recommend.fallbackTravelOnly', { name: selectedFacility.name, walk });
           // 추천 카드 배치 — 모바일: 하단 전폭 시트. PC(md+): 우측 세로 도킹 패널(구글맵스 상세 패널 관례).
           // 전폭 하단 카드가 데스크톱에서 과하게 커 보이는 문제를 해결한다. 상단 톱바(검색·칩) 아래
           // (top-24)부터 하단(bottom-6)까지 세로로 앉히고, 펼침으로 길어지면 패널 내부에서 스크롤한다.
