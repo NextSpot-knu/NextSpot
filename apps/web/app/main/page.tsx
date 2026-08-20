@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import dynamic from 'next/dynamic';
-import { Search, Mic, X, Utensils, MapPin, Building2, Coffee, Car, ChevronDown, ChevronUp, SlidersHorizontal } from 'lucide-react';
+import { Search, Mic, X, Utensils, MapPin, Building2, Coffee, Car, ChevronDown, ChevronUp, SlidersHorizontal, Clock3 } from 'lucide-react';
 import { createPublicClient } from '@/lib/supabase';
 import { getMarkerSvg } from '@/lib/utils';
 import { scoreFacility, compareSpot, displayWalkingMinutes, rankFacilities, rankFacilitiesDegraded, recToSpot, haversineMeters, cuisineMatch, filterReachable, type Spot } from '@/lib/recommender';
@@ -22,7 +22,7 @@ import { queueRecommendationOutcome } from '@/lib/recommendationOutcomes';
 import { openDrivingDirections, openWalkingDirections } from '@/lib/navigation';
 import { track } from '@/lib/analytics';
 import { loadSavedLocal, syncSaved, saveBookmark, type SavedRecord } from '@/lib/savedFacilities';
-import { useT } from '@/lib/i18n/I18nProvider';
+import { useI18n } from '@/lib/i18n/I18nProvider';
 // T2: 휴무 원문 파서(오늘 휴무 확정만 배제) + 가능/불가능 텍스트 파서(주차·반려동물 필터) — 공용 단일 소스.
 import { isClosedToday, isRecommendationOpen, parseAvailability } from '@/lib/restDate';
 import { loadTravelContext, matchesTravelContext, saveTravelContext, type PlaceCategory } from '@/lib/travelContext';
@@ -314,7 +314,37 @@ export default function MainPage() {
   }, [toastMessage]);
 
   const router = useRouter();
-  const t = useT();
+  const { locale, t } = useI18n();
+  const [currentClock, setCurrentClock] = useState<Date | null>(null);
+
+  // 영업 여부와 도착 시각을 판단하는 기준과 맞춰 경주 현지 시각(KST)을 보여준다.
+  // 최초 SSR에는 렌더하지 않아 하이드레이션 차이를 막고, 이후 30초마다 분 경계를 갱신한다.
+  useEffect(() => {
+    const updateClock = () => setCurrentClock(new Date());
+    updateClock();
+    const timer = window.setInterval(updateClock, 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const clockLabels = useMemo(() => {
+    if (!currentClock) return null;
+    const localeCode = { ko: 'ko-KR', en: 'en-US', ja: 'ja-JP', zh: 'zh-CN' }[locale];
+    const options = { timeZone: 'Asia/Seoul' } as const;
+    return {
+      date: new Intl.DateTimeFormat(localeCode, {
+        ...options,
+        month: 'long',
+        day: 'numeric',
+        weekday: 'long',
+      }).format(currentClock),
+      time: new Intl.DateTimeFormat(localeCode, {
+        ...options,
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+      }).format(currentClock),
+    };
+  }, [currentClock, locale]);
 
   // 지도 검색바 음성 받아쓰기(STT) — 마이크 탭 → 한 발화를 검색어로 넣어 기존 마커 필터(searchQuery)를 그대로 재사용.
   // 미지원 브라우저면 supported=false → 마이크는 아래에서 '준비 중' 비활성으로 유지(정적 export/SSR 안전).
@@ -1998,8 +2028,25 @@ export default function MainPage() {
         className={`w-full h-full absolute inset-0 z-0${mapUnavailable ? ' bg-gradient-to-b from-hanji-deep/70 via-hanji-deep/40 to-hanji' : ''}`}
       />
 
+      {/* 장소 카드와 분리된 경주 현지 시계. 모바일 검색바 위 안전영역, 데스크톱 우측 상단에 고정한다. */}
+      {clockLabels && (
+        <div
+          aria-label={`${clockLabels.date} ${clockLabels.time} KST`}
+          className="pointer-events-none absolute right-3 top-[calc(env(safe-area-inset-top)+0.5rem)] z-30 flex items-center gap-2 rounded-2xl border border-white/70 bg-white/[0.88] px-3 py-2 text-right shadow-[0_3px_16px_rgba(43,35,32,0.12)] backdrop-blur-md md:right-5 md:top-5"
+        >
+          <Clock3 size={16} className="shrink-0 text-gold" aria-hidden />
+          <div className="leading-none">
+            <p className="whitespace-nowrap text-[10px] font-semibold text-muk-soft">{clockLabels.date}</p>
+            <p className="mt-1 whitespace-nowrap text-[13px] font-extrabold tracking-tight text-muk">
+              <span className="mr-1 text-[9px] font-bold tracking-wider text-gold-deep">KST</span>
+              {clockLabels.time}
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Top Layer: Search & Filters — 다크 오버레이 그라디언트 제거(플로팅 패널 자체 배경으로 가독성 확보) */}
-      <div className="absolute top-0 w-full z-20 pt-12 md:pt-5 pb-4 px-4 flex flex-col gap-2 md:gap-4 pointer-events-none">
+      <div className="absolute top-0 w-full z-20 pt-12 md:pt-5 pb-4 px-4 md:pr-[190px] flex flex-col gap-2 md:gap-4 pointer-events-none">
 
         {/* 지도 SDK 로드 실패(8초 타임아웃) 안내 칩 — 검색/배리어프리 빈 상태 칩과 동일 스타일 재사용.
             추천 카드 등 나머지 UI 는 지도 유무와 무관하게 계속 동작한다. */}
