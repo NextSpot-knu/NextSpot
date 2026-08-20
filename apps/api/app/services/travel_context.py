@@ -100,3 +100,17 @@ def open_status_at_arrival(facility: dict, arrival_at: datetime) -> str:
         if is_open:
             return "closing_soon" if remaining <= 30 else "open_expected"
     return "closed_confirmed"
+
+
+def is_recommendable_at_arrival(facility: dict, arrival_at: datetime) -> bool:
+    """추천으로 보내도 되는 영업 상태인지 보수적으로 판정한다.
+
+    카페·식당은 영업시간 미확인 상태를 추천하지 않는다. 지도 검색에는 남아도 되지만,
+    사용자를 실제로 이동시키는 추천은 확인된 영업시간이 있어야 한다.
+    """
+    status = open_status_at_arrival(facility, arrival_at)
+    if status == "closed_confirmed":
+        return False
+    if status == "needs_confirmation" and facility.get("type") in {"cafe", "restaurant"}:
+        return False
+    return True

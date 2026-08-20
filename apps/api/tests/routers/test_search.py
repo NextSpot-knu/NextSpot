@@ -35,12 +35,14 @@ def client():
 def _reset_rate_limit_state():
     """전역 인메모리 레이트리밋·재작성 예산 상태를 테스트마다 격리(reports.py 관례 미러)."""
     search._search_hits.clear()
+    search._place_search_hits.clear()
     search._ingest_hits.clear()
     search._rewrite_hits.clear()
     search_rewrite_service._budget_day = None
     search_rewrite_service._budget_used = 0
     yield
     search._search_hits.clear()
+    search._place_search_hits.clear()
     search._ingest_hits.clear()
     search._rewrite_hits.clear()
     search_rewrite_service._budget_day = None
@@ -210,6 +212,24 @@ def test_search_keyword_rate_limited_after_five_calls(client):
 def test_search_keyword_missing_query_422(client):
     res = client.get("/api/v1/search/keyword")
     assert res.status_code == 422
+
+
+def test_search_places_returns_exact_kakao_record(client):
+    item = {
+        "place_id": "1526605585", "name": "테라로사 경주점", "type": "cafe",
+        "latitude": 35.829669, "longitude": 129.209947,
+        "address": "경북 경주시 포석로 988", "phone": None,
+        "place_url": "https://place.map.kakao.com/1526605585",
+        "category_name": "음식점 > 카페",
+    }
+    with patch.object(
+        search.kakao_place_search_service,
+        "search_kakao_places",
+        AsyncMock(return_value=[item]),
+    ):
+        response = client.get("/api/v1/search/places", params={"q": "테라로사"})
+    assert response.status_code == 200
+    assert response.json() == {"items": [item], "source": "kakao"}
 
 
 # =========================================================================

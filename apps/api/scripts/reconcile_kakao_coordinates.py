@@ -11,6 +11,25 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.core.supabase import supabase_admin
 from app.services.kakao_coordinate_service import reconcile_row_coordinate
+from app.services.spot.travel import calculate_haversine_distance
+
+
+COORDINATE_CHANGE_THRESHOLD_M = 1.0
+
+
+def coordinate_change_distance(before: dict, after: dict) -> float:
+    """좌표 문자열 정밀도 차이를 실제 지표면 거리(m)로 환산한다."""
+    return calculate_haversine_distance(
+        float(before["latitude"]),
+        float(before["longitude"]),
+        float(after["latitude"]),
+        float(after["longitude"]),
+    )
+
+
+def is_coordinate_changed(before: dict, after: dict) -> bool:
+    """1m 미만 직렬화·부동소수점 차이는 좌표 교정으로 세지 않는다."""
+    return coordinate_change_distance(before, after) >= COORDINATE_CHANGE_THRESHOLD_M
 
 
 def parse_args() -> argparse.Namespace:
@@ -36,7 +55,9 @@ async def main() -> int:
         if await reconcile_row_coordinate(row):
             payload = {k: row[k] for k in ("latitude", "longitude", "features")}
             matched += 1
-            is_changed = before != {"latitude": row["latitude"], "longitude": row["longitude"]}
+            after = {"latitude": row["latitude"], "longitude": row["longitude"]}
+            distance_m = coordinate_change_distance(before, after)
+            is_changed = is_coordinate_changed(before, after)
             changed += int(is_changed)
             if args.apply and is_changed:
                 supabase_admin.table("facilities").update(payload).eq("id", row["id"]).execute()
@@ -45,7 +66,7 @@ async def main() -> int:
             report.append({
                 "id": row["id"], "name": row["name"], "address": row.get("address"),
                 "status": "changed" if is_changed else "unchanged", "before": before,
-                "after": {"latitude": row["latitude"], "longitude": row["longitude"]},
+                "after": after, "distance_m": round(distance_m, 3),
                 "kakao_place_id": row["features"].get("kakao_place_id"),
                 "kakao_place_url": row["features"].get("kakao_place_url"),
             })
@@ -55,7 +76,7 @@ async def main() -> int:
                 "id": row["id"], "name": row["name"], "address": row.get("address"),
                 "status": "unresolved", "before": before,
             })
-    repo_root = Path(__file__).resolve().parents[2]
+    repo_root = Path(__file__).resolve().parents[3]
     report_path = Path(args.report)
     if not report_path.is_absolute():
         report_path = repo_root / report_path

@@ -26,14 +26,24 @@ export interface Spot {
   preferencePercent: number; // 0~100
   expectedWait: number; // 분
   expectedTravel: number; // 분
+  travelSource?: "osm_pedestrian" | "estimated";
   timeToService: number; // 분
   // A4: 행사 혼잡 보정 배지용 — 백엔드 breakdown 원본 그대로 실어 나른다(recToSpot 전용, 클라 미러 계산엔 없음).
   eventBoost?: number;
   eventTitle?: string;
   areaDemandLevel?: number;
-  areaDemandMode?: "live" | "statistical" | "contextual";
-  areaDemandSources?: ("parking" | "tourism" | "festival" | "weather")[];
+  areaDemandMode?: "live" | "forecast" | "statistical" | "contextual";
+  areaDemandSources?: ("parking" | "parking_history" | "tourism" | "festival" | "weather")[];
   areaDemandObservedAt?: string;
+  areaDemandRadiusM?: number;
+  areaDemandConfidence?: "high" | "medium" | "low" | "none";
+  areaDemandRank?: number;
+  areaDemandComparableCount?: number;
+  areaDemandDeltaVsMedian?: number;
+  areaDemandDistinguishable?: boolean;
+  delayedAreaDemandLevel?: number;
+  arrivalAction?: "go_now" | "wait_then_go" | "choose_calmer" | "no_clear_advantage";
+  recommendedDepartureDelayMinutes?: number;
 }
 
 export interface ScoreOpts {
@@ -178,8 +188,28 @@ export function cuisineMatch(facility: ScorableFacility | null | undefined, inte
   return 0.18; // 무관
 }
 
-const WALK_M_PER_MIN = 66.67; // 백엔드 WALKING_SPEED_M_PER_MIN 와 동일
+export const WALK_M_PER_MIN = 66.67; // 백엔드 WALKING_SPEED_M_PER_MIN 와 동일
+export const ESTIMATED_ROUTE_FACTOR = 1.18; // 보행망 응답 전 직선거리 폴백의 우회 보정(백엔드 동일)
 const BROWSE_BASELINE_CONGESTION = 0.7; // 원본이 없는 브라우즈 랭킹의 완화항 기준(원점) 혼잡 — 백엔드와 동일
+
+/** 보행 경로가 아직 없을 때 직선거리에 우회 보정을 적용한 분 단위 추정치. */
+export function estimateWalkingMinutes(distanceM: number | null | undefined): number {
+  const distance = typeof distanceM === "number" && Number.isFinite(distanceM)
+    ? Math.max(0, distanceM)
+    : 0;
+  return distance * ESTIMATED_ROUTE_FACTOR / WALK_M_PER_MIN;
+}
+
+/** 사용자에게 보여주는 도보시간은 과소 안내하지 않도록 1분 이상 정수 올림한다. */
+export function displayWalkingMinutes(
+  routeMinutes: number | null | undefined,
+  fallbackDistanceM?: number | null,
+): number {
+  const resolved = typeof routeMinutes === "number" && Number.isFinite(routeMinutes) && routeMinutes >= 0
+    ? routeMinutes
+    : estimateWalkingMinutes(fallbackDistanceM);
+  return Math.max(1, Math.ceil(resolved));
+}
 
 // 인센티브(w3) = couponShare·쿠폰항 + (1−couponShare)·완화항 — 백엔드 score.py 산식 미러.
 //  - 쿠폰항: 할인율 coupon_rate(0.10=10%)를 상한 couponRateCap(20%)으로 정규화. 컬럼 없는 행은 0.
@@ -290,7 +320,7 @@ export function scoreFacility(facility: ScorableFacility | null | undefined, opt
   const fLat = typeof facility.latitude === "number" ? facility.latitude : opts.userLocation.lat;
   const fLng = typeof facility.longitude === "number" ? facility.longitude : opts.userLocation.lng;
   const distanceM = haversineMeters(opts.userLocation.lat, opts.userLocation.lng, fLat, fLng);
-  const expectedTravel = distanceM / WALK_M_PER_MIN;
+  const expectedTravel = estimateWalkingMinutes(distanceM);
 
   // 백엔드 동일 가중치(shared-types SPOT_WEIGHTS): w1·선호 − w2·시간비용 + w3·인센티브, Min-Max 정규화
   const { preference: w1, time: w2, incentive: w3 } = SPOT_WEIGHTS;
@@ -345,7 +375,7 @@ export function rankFacilitiesDegraded<T extends ScorableFacility>(
         ? haversineMeters(opts.userLocation.lat, opts.userLocation.lng, facility.latitude, facility.longitude)
         : 0
     );
-    const travel = distance / WALK_M_PER_MIN;
+    const travel = estimateWalkingMinutes(distance);
     const timeCost = Math.min(1, travel / 60);
     const couponRate = facility.couponRate ?? facility.coupon_rate ?? 0;
     const coupon = Math.min(1, Math.max(0, couponRate) / SPOT_INCENTIVE.couponRateCap);
@@ -373,13 +403,16 @@ export function rankFacilitiesDegraded<T extends ScorableFacility>(
 export function recToSpot(rec: RecommendationResponse): Spot {
   const b: Partial<RecommendationResponse["breakdown"]> = rec.breakdown || {};
   const wait = typeof b.waitTime === "number" ? b.waitTime : 0;
-  const travel = typeof b.travelTime === "number" ? b.travelTime : (rec.distanceM || 0) / WALK_M_PER_MIN;
+  const travel = typeof b.travelTime === "number"
+    ? b.travelTime
+    : estimateWalkingMinutes(rec.distanceM);
   const score01 = rec.spotScore <= 1 ? rec.spotScore : rec.spotScore / 100;
   return {
     score: Math.round(score01 * 100),
     preferencePercent: Math.round((typeof b.preference === "number" ? b.preference : 0) * 100),
     expectedWait: Math.round(wait * 10) / 10,
     expectedTravel: Math.round(travel * 10) / 10,
+    travelSource: b.travelSource,
     timeToService: Math.round((wait + travel) * 10) / 10,
     eventBoost: typeof b.eventBoost === "number" ? b.eventBoost : undefined,
     eventTitle: typeof b.eventTitle === "string" ? b.eventTitle : undefined,
@@ -387,5 +420,15 @@ export function recToSpot(rec: RecommendationResponse): Spot {
     areaDemandMode: b.areaDemandMode ?? undefined,
     areaDemandSources: b.areaDemandSources,
     areaDemandObservedAt: b.areaDemandObservedAt ?? undefined,
+    areaDemandRadiusM: typeof b.areaDemandRadiusM === "number" ? b.areaDemandRadiusM : undefined,
+    areaDemandConfidence: b.areaDemandConfidence,
+    areaDemandRank: typeof b.areaDemandRank === "number" ? b.areaDemandRank : undefined,
+    areaDemandComparableCount: b.areaDemandComparableCount,
+    areaDemandDeltaVsMedian: typeof b.areaDemandDeltaVsMedian === "number" ? b.areaDemandDeltaVsMedian : undefined,
+    areaDemandDistinguishable: b.areaDemandDistinguishable,
+    delayedAreaDemandLevel: typeof b.delayedAreaDemandLevel === "number" ? b.delayedAreaDemandLevel : undefined,
+    arrivalAction: b.arrivalAction,
+    recommendedDepartureDelayMinutes: typeof b.recommendedDepartureDelayMinutes === "number"
+      ? b.recommendedDepartureDelayMinutes : undefined,
   };
 }

@@ -11,6 +11,7 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from app.services.area_demand_forecast_service import get_historical_area_demand_forecast
 from app.services.event_boost import get_event_congestion_boost
 from app.services.parking_demand_service import get_nearby_parking_signal
 from app.services.weather_service import get_gyeongju_weather
@@ -111,8 +112,13 @@ async def get_area_demand_signal(
     tourism = _tourism_level(candidate)
     event_boost, event_title = event
 
-    if not _live_parking_applies_to_arrival(parking, arrival):
+    live_parking_applies = _live_parking_applies_to_arrival(parking, arrival)
+    history = None
+    if not live_parking_applies:
         parking = None
+        history = await get_historical_area_demand_forecast(
+            latitude, longitude, arrival
+        )
 
     sources: list[str] = []
     components: dict[str, float] = {}
@@ -122,21 +128,33 @@ async def get_area_demand_signal(
         sources.append("parking")
         components["parking"] = round(parking_level, 4)
         observed_at = parking.get("observed_at")
+        demand_mode = "live"
+        confidence = "high"
+    elif history is not None:
+        parking_level = _clamp(float(history["level"]))
+        sources.append("parking_history")
+        components["parking_history"] = round(parking_level, 4)
+        observed_at = history.get("observed_at")
+        demand_mode = "forecast"
+        confidence = history.get("confidence") or "medium"
     else:
         parking_level = None
+        demand_mode = None
+        confidence = None
     if tourism is not None:
         sources.append("tourism")
         components["tourism"] = round(tourism, 4)
 
     if parking_level is not None and tourism is not None:
         base_level = _PARKING_WEIGHT * parking_level + _TOURISM_WEIGHT * tourism
-        mode = "live"
+        mode = demand_mode
     elif parking_level is not None:
         base_level = parking_level
-        mode = "live"
+        mode = demand_mode
     elif tourism is not None:
         base_level = tourism
         mode = "statistical"
+        confidence = "medium"
     else:
         if event_boost <= 0:
             return None
@@ -146,6 +164,7 @@ async def get_area_demand_signal(
             "sources": ["festival"],
             "observed_at": None,
             "components": {"festival": round(event_boost, 4)},
+            "confidence": "low",
             "ranking_penalty_minutes": round(
                 min(_MAX_EVENT_PENALTY_MIN, event_boost * 20.0), 2
             ),
@@ -179,9 +198,12 @@ async def get_area_demand_signal(
         "sources": sources,
         "observed_at": observed_at,
         "components": components,
+        "confidence": confidence,
+        "history": history,
         "ranking_penalty_minutes": round(max(0.0, penalty), 2),
         # 활성 장소 모델이 있을 때 관광 prior·행사 보정과 중복되지 않게 주차 신호만 별도 사용한다.
         "parking_penalty_minutes": round(parking_penalty, 2),
         "event_boost": round(event_boost, 4),
         "event_title": event_title,
+        "radius_m": (parking or history or {}).get("radius_m"),
     }

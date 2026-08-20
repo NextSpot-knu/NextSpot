@@ -106,6 +106,41 @@ async def test_live_parking_is_not_claimed_for_arrival_more_than_30_minutes_away
 
 
 @pytest.mark.asyncio
+async def test_verified_history_fills_later_arrival_without_claiming_live(monkeypatch):
+    async def parking(_lat, _lng):
+        return {"level": 0.9, "observed_at": "2026-08-20T01:00:00+00:00"}
+
+    async def history(_lat, _lng, _arrival):
+        return {
+            "level": 0.6, "mode": "forecast", "confidence": "medium",
+            "observed_at": "2026-08-13T02:00:00+00:00", "sample_count": 8,
+        }
+
+    async def no_event(*_args):
+        return 0.0, None
+
+    async def no_weather(*_args):
+        return None
+
+    monkeypatch.setattr(area, "get_nearby_parking_signal", parking)
+    monkeypatch.setattr(area, "get_historical_area_demand_forecast", history)
+    monkeypatch.setattr(area, "get_event_congestion_boost", no_event)
+    monkeypatch.setattr(area, "get_gyeongju_weather", no_weather)
+    signal = await area.get_area_demand_signal(
+        {
+            "type": "cafe", "latitude": 35.838, "longitude": 129.21,
+            "tourapi_concentration_rate": 40,
+        },
+        datetime(2026, 8, 20, 2, tzinfo=timezone.utc),
+    )
+    assert signal is not None
+    assert signal["level"] == pytest.approx(0.54)
+    assert signal["mode"] == "forecast"
+    assert signal["sources"] == ["parking_history", "tourism"]
+    assert signal["confidence"] == "medium"
+
+
+@pytest.mark.asyncio
 async def test_no_public_basis_returns_none_even_with_weather(monkeypatch):
     async def nothing(*_args, **_kwargs):
         return None

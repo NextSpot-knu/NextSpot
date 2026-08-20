@@ -23,8 +23,8 @@ class Settings(BaseSettings):
     # 로컬은 .env(.env.example 참고), 배포는 강한 랜덤값으로 반드시 오버라이드할 것.
     ADMIN_API_TOKEN: str
 
-    # Kakao Mobility Directions API (도보/차량 실거리·실시간 이동시간).
-    # 비어 있으면 Haversine 직선거리 도보 환산으로 폴백(기본). 키가 있으면 실경로 호출.
+    # Kakao Local/지도 장소 검색 키. 경로 API 키가 아니다.
+    # 도보 거리는 번들된 OpenStreetMap 보행 그래프로 계산한다.
     KAKAO_REST_API_KEY: str = ""
 
     # 한국관광공사 TourAPI(공공데이터포털 B551011) 인증키 — 공모전 필수 데이터 소스.

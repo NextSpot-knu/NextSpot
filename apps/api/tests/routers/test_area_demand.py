@@ -77,3 +77,36 @@ def test_snapshot_collection_reports_persistence_failure(monkeypatch):
 
     assert response.status_code == 503
     assert response.json() == {"detail": "snapshot_persistence_failed"}
+
+
+def test_parking_lots_returns_official_positions_and_nullable_live_counts(monkeypatch):
+    async def lots(lat, lng, *, radius_m):
+        assert (lat, lng, radius_m) == (35.8361, 129.2105, 3000.0)
+        return {
+            "available": True,
+            "state": "available",
+            "source": "gyeongju_its",
+            "radius_m": 3000,
+            "observed_at": "2026-08-21T01:00:00+00:00",
+            "lots": [{
+                "id": "gyeongju-its:1",
+                "name": "공영주차장",
+                "latitude": 35.836,
+                "longitude": 129.21,
+                "distance_m": 52,
+                "total_spaces": 100,
+                "available_spaces": 23,
+                "occupancy": 0.77,
+                "live": True,
+                "observed_at": "2026-08-21T01:00:00+00:00",
+                "source": "gyeongju_its",
+            }],
+        }
+
+    monkeypatch.setattr(area_demand, "get_nearby_parking_lots", lots)
+    response = _client().get("/api/v1/area-demand/parking-lots")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["radius_m"] == 3000
+    assert body["lots"][0]["available_spaces"] == 23
+    assert body["lots"][0]["source"] == "gyeongju_its"

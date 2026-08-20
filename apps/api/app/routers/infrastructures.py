@@ -173,6 +173,12 @@ async def fetch_active_facilities(client, select: str = "*", *, extra_filters=No
             elif row.get("contentid"):
                 row["place_data_source"] = "tourapi"
                 row["data_updated_at"] = row.get("updated_at")
+            elif (row.get("features") or {}).get("source") == "kakao_discovery":
+                row["place_data_source"] = "kakao"
+                row["data_updated_at"] = (
+                    (row.get("features") or {}).get("discovery_updated_at")
+                    or row.get("updated_at")
+                )
     except Exception as e:
         logger.warning("facility_source_refs_unavailable", error=str(e))
     return rows

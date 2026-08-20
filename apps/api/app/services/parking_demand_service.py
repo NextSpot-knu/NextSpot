@@ -586,6 +586,53 @@ async def get_parking_coverage_status(latitude: float, longitude: float) -> dict
     }
 
 
+async def get_nearby_parking_lots(
+    latitude: float, longitude: float, *, radius_m: float = 3_000.0
+) -> dict[str, Any]:
+    """공식 공급자가 제공한 주차장 위치와 실제 잔여면을 가까운 순으로 반환한다.
+
+    콜드 캐시에서는 한 번만 공급자를 기다려 첫 주차장 탭이 빈 화면으로 보이지 않게 한다.
+    실시간 값이 없는 주차장은 위치만 반환하며 잔여면을 추정하지 않는다.
+    """
+    if _facility_cache is None:
+        await _refresh_sources()
+    facilities, realtime = _sources_stale_while_revalidate()
+    observed_at = _realtime_status.get("checked_at")
+    source = _realtime_status.get("source") or _facility_status.get("source")
+    lots: list[dict[str, Any]] = []
+    for facility in facilities:
+        distance_m = calculate_haversine_distance(
+            latitude, longitude, facility["latitude"], facility["longitude"]
+        )
+        if distance_m > radius_m:
+            continue
+        live = realtime.get(facility["id"])
+        total = live["total"] if live else None
+        available = live["available"] if live else None
+        lots.append({
+            "id": facility["id"],
+            "name": facility["name"],
+            "latitude": facility["latitude"],
+            "longitude": facility["longitude"],
+            "distance_m": round(distance_m),
+            "total_spaces": total,
+            "available_spaces": available,
+            "occupancy": round(1.0 - available / total, 4) if live and total else None,
+            "live": live is not None,
+            "observed_at": observed_at if live else None,
+            "source": source,
+        })
+    lots.sort(key=lambda lot: (not lot["live"], lot["distance_m"], lot["name"]))
+    return {
+        "available": bool(lots),
+        "state": _realtime_status.get("state") or _facility_status.get("state"),
+        "source": source,
+        "radius_m": round(radius_m),
+        "observed_at": observed_at,
+        "lots": lots,
+    }
+
+
 async def get_nearby_parking_signal(latitude: float, longitude: float) -> dict[str, Any] | None:
     facilities, realtime = _sources_stale_while_revalidate()
     count, total_spaces, available_spaces, nearest, weighted, weight_total = _nearby_totals(
@@ -602,4 +649,5 @@ async def get_nearby_parking_signal(latitude: float, longitude: float) -> dict[s
         "total_spaces": total_spaces,
         "available_spaces": available_spaces,
         "nearest_parking_name": nearest[1] if nearest else None,
+        "radius_m": round(_RADIUS_M),
     }

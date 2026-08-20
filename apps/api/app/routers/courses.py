@@ -28,7 +28,12 @@ from app.core.supabase import get_current_user, supabase_admin
 from app.services.preference_vector_service import preference_vector_service
 from app.services.spot.score import calculate_spot_score
 from app.services.spot.travel import calculate_haversine_distance, get_travel_time_and_distance
-from app.services.travel_context import TravelContext, facility_matches_context, open_status_at_arrival
+from app.services.travel_context import (
+    TravelContext,
+    facility_matches_context,
+    is_recommendable_at_arrival,
+    open_status_at_arrival,
+)
 from app.services.spot.preference import get_category_average_vector
 from app.services.predict_service import predict_congestion
 from app.services.merchant_boost import apply_merchant_boosts, CONGESTION_OVERRIDE_KEY
@@ -297,7 +302,12 @@ async def recommend_course(
             )
             for f in pick_from
         ])
-        evaluations = [e for e in evaluations if e["open_status_at_arrival"] != "closed_confirmed"]
+        evaluations = [
+            e for e in evaluations
+            if is_recommendable_at_arrival(
+                e["facility"], now + timedelta(minutes=e["arrival_offset_min"])
+            )
+        ]
         if req.context and req.context.available_minutes:
             evaluations = [
                 e for e in evaluations

@@ -15,7 +15,11 @@ sys.path.insert(0, str(ROOT))
 
 from app.services.spot.preference import get_category_average_vector
 from app.services.spot.score import calculate_spot_score
-from app.services.spot.travel import WALKING_SPEED_M_PER_MIN, calculate_haversine_distance
+from app.services.spot.travel import (
+    WALKING_SPEED_M_PER_MIN,
+    calculate_haversine_distance,
+    estimate_walking_route,
+)
 from app.services.travel_context import (
     TravelContext,
     facility_is_indoor_eligible,
@@ -58,11 +62,20 @@ async def evaluate_fixture(path: Path) -> dict:
                 if open_status_at_arrival(facility, arrival) == "closed_confirmed":
                     continue
                 preferred = scenario.get("preferred_categories") or list(context.categories) or [facility["type"]]
+                # Golden 점수는 외부 API가 없을 때의 보수적 도보 추정 계약을 검증한다.
+                # OSM 그래프 갱신과 분리하되 직선거리가 아니라 기존 1.18 우회계수까지
+                # 포함한 deterministic fallback을 고정해야 기대 SPOT 점수가 유지된다.
+                route = estimate_walking_route(
+                    origin["lat"], origin["lng"], facility["latitude"], facility["longitude"]
+                )
                 score = await calculate_spot_score(
                     user_id="quality-fixture", preferred_categories=preferred,
                     original_congestion_level=0.7, candidate_facility=facility,
                     user_lat=origin["lat"], user_lng=origin["lng"],
                     user_vector=get_category_average_vector(preferred), depart_time=FIXED_NOW,
+                    travel_time_override=route.duration_min,
+                    travel_distance_override=route.distance_m,
+                    travel_source=route.source,
                 )
                 scored.append({"id": facility["id"], "score": score.score, "distance_m": distance})
             scored.sort(key=lambda item: (-item["score"], item["distance_m"], item["id"]))

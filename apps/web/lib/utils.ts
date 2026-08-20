@@ -13,6 +13,9 @@ const ICON_PATHS: Record<string, string> = {
   // building-2 (문화시설/박물관)
   culture:
     '<path d="M10 12h4"/><path d="M10 8h4"/><path d="M14 21v-3a2 2 0 0 0-4 0v3"/><path d="M6 10H4a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-2"/><path d="M6 21V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v16"/>',
+  // parking (공식 주차장)
+  parking:
+    '<circle cx="12" cy="12" r="9"/><path d="M9 17V7h4a3 3 0 0 1 0 6H9"/>',
   // map-pin (기본)
   default:
     '<path d="M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0"/><path d="M12 10a2 2 0 1 0 0-4 2 2 0 0 0 0 4z"/>',
@@ -48,6 +51,8 @@ export const getMarkerSvg = (
       ? "attraction"
       : type === "culture"
       ? "culture"
+      : type === "parking"
+      ? "parking"
       : "default";
 
   // 24x24 아이콘을 (cx,cy) 중앙에 size 크기로, 흰색 stroke 로 배치

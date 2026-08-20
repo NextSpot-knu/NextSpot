@@ -1996,3 +1996,47 @@ REVOKE ALL ON FUNCTION public.record_area_demand_snapshot(TEXT, TIMESTAMPTZ, JSO
     FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.record_area_demand_snapshot(TEXT, TIMESTAMPTZ, JSONB)
     TO service_role;
+
+-- ============================= migrations/20260821130000_correct_verified_facility_coordinates.sql =============================
+-- Kakao Local의 유일한 엄격 동명 후보로 확인된 교촌마을 좌표를 교정한다.
+-- 월정교·발명체험교육관은 동명/명칭변경 가능성이 있어 자동 수정하지 않는다.
+UPDATE public.facilities
+SET latitude = 35.8300213535354,
+    longitude = 129.217092468907,
+    features = COALESCE(features, '{}'::jsonb) || jsonb_build_object(
+        'coordinate_source', 'kakao',
+        'kakao_place_id', '25182534',
+        'kakao_place_url', 'https://place.map.kakao.com/25182534',
+        'coordinate_verified_at', '2026-08-21T00:00:00+09:00'
+    ),
+    updated_at = now()
+WHERE id = 'f4000000-0000-0000-0000-000000000002';
+
+-- ============================= migrations/20260821140000_deactivate_unverified_demo_facilities.sql =============================
+-- 초기 화면 검증용으로 수기 배치했던 장소는 주소와 외부 장소 ID가 없어 운영 추천에 쓸 수 없다.
+-- 삭제하지 않고 비활성화해 기존 추천/로그 FK는 보존한다. Kakao/TourAPI로 검증된 장소는 별도 행을 쓴다.
+UPDATE public.facilities
+SET is_active = false,
+    features = COALESCE(features, '{}'::jsonb) || jsonb_build_object(
+        'production_eligible', false,
+        'deactivation_reason', 'unverified_demo_seed',
+        'deactivated_at', '2026-08-21T00:00:00+09:00'
+    ),
+    updated_at = now()
+WHERE id IN (
+    'f1000000-0000-0000-0000-000000000001',
+    'f1000000-0000-0000-0000-000000000002',
+    'f1000000-0000-0000-0000-000000000003',
+    'f1000000-0000-0000-0000-000000000004',
+    'f2000000-0000-0000-0000-000000000001',
+    'f2000000-0000-0000-0000-000000000002',
+    'f2000000-0000-0000-0000-000000000003',
+    'f2000000-0000-0000-0000-000000000004',
+    'f3000000-0000-0000-0000-000000000001',
+    'f3000000-0000-0000-0000-000000000002',
+    'f3000000-0000-0000-0000-000000000003',
+    'f3000000-0000-0000-0000-000000000004',
+    'f4000000-0000-0000-0000-000000000001',
+    'f4000000-0000-0000-0000-000000000003',
+    'f4000000-0000-0000-0000-000000000004'
+);

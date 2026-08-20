@@ -40,6 +40,10 @@ def _isolate_event_boost(monkeypatch):
     async def _no_weather(_now=None):
         return None
 
+    async def _no_history(*_args, **_kwargs):
+        return None
+
     monkeypatch.setattr(area_demand_service, "get_nearby_parking_signal", _no_parking)
     monkeypatch.setattr(area_demand_service, "get_gyeongju_weather", _no_weather)
+    monkeypatch.setattr(area_demand_service, "get_historical_area_demand_forecast", _no_history)
     yield

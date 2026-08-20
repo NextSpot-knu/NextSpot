@@ -250,16 +250,30 @@ export interface RecommendationResponse {
     preference: number;
     waitTime?: number | null;
     travelTime: number;
+    travelSource?: "osm_pedestrian" | "estimated";
     incentive: number;
     // 행사 혼잡 보정(A4): 도착시점 인근 진행 중 축제로 인한 예측 혼잡 가중(0=보정 없음)과 근거 축제명
     eventBoost?: number;
     eventTitle?: string | null;
     // 장소 내부 혼잡과 분리된 주변 지역 수요(공영주차·관광 통계·행사·날씨).
     areaDemandLevel?: number | null;
-    areaDemandMode?: "live" | "statistical" | "contextual" | null;
-    areaDemandSources?: ("parking" | "tourism" | "festival" | "weather")[];
+    areaDemandMode?: "live" | "forecast" | "statistical" | "contextual" | null;
+    areaDemandSources?: ("parking" | "parking_history" | "tourism" | "festival" | "weather")[];
     areaDemandObservedAt?: string | null;
+    areaDemandRadiusM?: number | null;
     areaDemandPenaltyMinutes?: number;
+    areaDemandConfidence?: "high" | "medium" | "low" | "none";
+    areaDemandRank?: number | null;
+    areaDemandComparableCount?: number;
+    areaDemandPercentile?: number | null;
+    areaDemandDeltaVsMedian?: number | null;
+    areaDemandDistinguishable?: boolean;
+    delayedAreaDemandLevel?: number | null;
+    delayedAreaDemandMode?: "forecast" | "statistical" | null;
+    arrivalAction?: "go_now" | "wait_then_go" | "choose_calmer" | "no_clear_advantage";
+    recommendedDepartureDelayMinutes?: number | null;
+    tourapiRelatedRank?: number | null;
+    tourapiRelatedPrior?: number | null;
   };
   distanceM: number;
   reason?: string; // 백엔드 템플릿 생성 추천 사유 (snake_case reason → camel reason)

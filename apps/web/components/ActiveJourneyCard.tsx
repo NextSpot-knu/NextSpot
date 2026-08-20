@@ -11,6 +11,7 @@ import { track } from '@/lib/analytics';
 import { useT } from '@/lib/i18n/I18nProvider';
 import { queueRecommendationOutcome } from '@/lib/recommendationOutcomes';
 import { haptic, interactionSpring, sheetSpring } from '@/lib/motion';
+import { displayWalkingMinutes } from '@/lib/recommender';
 
 const CATEGORIES: PlaceCategory[] = ['restaurant', 'cafe', 'attraction', 'culture'];
 const WALKS = [5, 10, 20] as const;
@@ -163,7 +164,7 @@ export default function ActiveJourneyCard({ location }: { location: { lat: numbe
     >
       <p className="text-xs font-bold text-jade">{t('trip.active')}</p>
       <p className="mt-1 font-bold text-muk truncate">{t('trip.heading', { name: trip.name })}</p>
-      {trip.navigationMode !== 'car' && trip.walkMinutes != null && <p className="text-xs text-muk-soft mt-0.5">{t('trip.walkEstimate', { n: Math.round(trip.walkMinutes) })}</p>}
+      {trip.navigationMode !== 'car' && trip.walkMinutes != null && <p className="text-xs text-muk-soft mt-0.5">{t('trip.walkEstimate', { n: displayWalkingMinutes(trip.walkMinutes) })}</p>}
       {trip.navigationMode === 'car' && <p className="text-xs text-muk-soft mt-0.5">{t('trip.driveBasisHint')}</p>}
       <div className="grid grid-cols-3 gap-2 mt-3 text-xs font-bold">
         <button type="button" onClick={arrived} className="toss-pressable rounded-xl bg-jade text-white py-2">{t('trip.arrived')}</button>

@@ -69,6 +69,15 @@ async def calculate_spot_score(
         facility_name=candidate_facility.get("name"),
         preference_intent=preference_intent,
     )
+    # Tmap 실제 이동에서 함께 방문한 연관 목적지이면 취향 항 안에서 최대 10%만 보강한다.
+    # W1 자체는 0.40으로 유지하며, 데이터 미승인·이름 미매칭 환경은 결과가 완전히 동일하다.
+    related_prior = candidate_facility.get("tourapi_related_prior")
+    try:
+        related_prior = max(0.0, min(1.0, float(related_prior)))
+    except (TypeError, ValueError):
+        related_prior = None
+    if related_prior is not None:
+        preference_sim = min(1.0, preference_sim + 0.10 * related_prior * (1.0 - preference_sim))
 
     # 2. 이동 시간 우선 획득. 추천 라우터는 후보 전체 보행 행렬을 미리 계산해 중복 호출을 피한다.
     if travel_time_override is None:
@@ -192,6 +201,8 @@ async def calculate_spot_score(
         score=final_score,
         breakdown={
             "preference": round(preference_sim, 3),
+            "tourapi_related_rank": candidate_facility.get("tourapi_related_rank"),
+            "tourapi_related_prior": round(related_prior, 4) if related_prior is not None else None,
             "wait_time": predicted_wait,
             "travel_time": travel_time_min,
             "travel_distance_m": travel_distance_m,
@@ -210,8 +221,10 @@ async def calculate_spot_score(
             # 공영주차·관광 통계 기반의 '주변 지역 수요'. 매장 내부 혼잡/대기시간과 분리한다.
             "area_demand_level": (area_demand or {}).get("level"),
             "area_demand_mode": (area_demand or {}).get("mode"),
+            "area_demand_confidence": (area_demand or {}).get("confidence"),
             "area_demand_sources": (area_demand or {}).get("sources", []),
             "area_demand_observed_at": (area_demand or {}).get("observed_at"),
+            "area_demand_radius_m": (area_demand or {}).get("radius_m"),
             "area_demand_components": (area_demand or {}).get("components", {}),
             "area_demand_penalty_minutes": round(area_penalty, 2),
             "scoring_mode": scoring_mode,

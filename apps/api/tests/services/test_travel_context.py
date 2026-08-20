@@ -7,6 +7,7 @@ from app.services.travel_context import (
     TravelContext,
     facility_is_indoor_eligible,
     facility_matches_context,
+    is_recommendable_at_arrival,
     open_status_at_arrival,
 )
 
@@ -63,6 +64,19 @@ def test_exclude_visited_and_category_are_eligibility_only():
 def test_unknown_hours_are_not_treated_as_closed():
     facility = {"operating_hours": {"open": "문의 필요"}}
     assert open_status_at_arrival(facility, datetime(2026, 7, 20, 4, tzinfo=timezone.utc)) == "needs_confirmation"
+
+
+def test_food_with_unknown_hours_is_not_recommended_but_known_open_is():
+    arrival = datetime(2026, 7, 20, 17, tzinfo=timezone.utc)  # 02:00 KST
+    assert not is_recommendable_at_arrival(
+        {"type": "cafe", "operating_hours": {}}, arrival
+    )
+    assert not is_recommendable_at_arrival(
+        {"type": "restaurant", "operating_hours": {"open": "09:00~22:00"}}, arrival
+    )
+    assert is_recommendable_at_arrival(
+        {"type": "cafe", "operating_hours": {"open": "18:00~03:00"}}, arrival
+    )
 
 
 def test_arrival_status_open_closing_and_closed():

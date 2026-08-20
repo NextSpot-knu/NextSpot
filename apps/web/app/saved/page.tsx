@@ -7,7 +7,7 @@ import { toast } from 'sonner';
 import { RecommendationCard } from '@/components/RecommendationCard';
 import { CongestionAlertToggle } from '@/components/CongestionAlertToggle';
 import { submitFeedback } from '@/lib/api-client';
-import { type Spot } from '@/lib/recommender';
+import { displayWalkingMinutes, type Spot } from '@/lib/recommender';
 import { loadSavedLocal, syncSaved, removeBookmark, clearSavedAll } from '@/lib/savedFacilities';
 import { useT } from '@/lib/i18n/I18nProvider';
 
@@ -30,6 +30,9 @@ interface BookmarkData {
   congestionLevel?: number | null;
   latitude?: number;
   longitude?: number;
+  address?: string | null;
+  phone?: string | null;
+  features?: Record<string, unknown> | null;
   spot?: Spot; // main(handlePutOff)이 저장하는 SavedBookmark.spot — lib/recommender 의 Spot 그대로
   reason?: string; // 저장 시점의 추천 사유(백엔드 템플릿 또는 미러)
   // 저장 당시의 실제 recommendations 행 id(있을 때만). 현재 유일한 저장 경로인 main(handlePutOff)은
@@ -361,7 +364,7 @@ export default function SavedPage() {
 
                         {/* 이동 시간 라벨 */}
                         <div className={`absolute top-[-10px] ${serviceTime ? 'left-[25%]' : 'left-1/2'} -translate-x-1/2 z-10`}>
-                          <span className="text-[10px] font-medium text-jade bg-hanji px-1.5 py-0.5 rounded border border-jade/25">{t('saved.travelLabel', { n: travelMins })}</span>
+                          <span className="text-[10px] font-medium text-jade bg-hanji px-1.5 py-0.5 rounded border border-jade/25">{t('saved.travelLabel', { n: Math.max(1, Math.ceil(travelMins)) })}</span>
                         </div>
                         {/* 대기 시간 라벨 */}
                         {serviceTime && waitMins !== null && <div className="absolute top-[-10px] left-[75%] -translate-x-1/2 z-10">
@@ -407,7 +410,7 @@ export default function SavedPage() {
             matchPercentage={100}
             reason={t('recommend.fallbackTravelOnly', {
               name: selectedBookmark.name,
-              walk: Math.max(1, Math.round(selectedBookmark.spot?.expectedTravel ?? 0)),
+              walk: displayWalkingMinutes(selectedBookmark.spot?.expectedTravel),
             })}
             spotScore={selectedBookmark.spot?.score}
             preferencePercent={selectedBookmark.spot?.preferencePercent}
@@ -422,6 +425,13 @@ export default function SavedPage() {
             )}
             facilityType={selectedBookmark.category === '음식점' ? 'restaurant' : selectedBookmark.category === '카페' ? 'cafe' : selectedBookmark.category === '관광지' ? 'attraction' : selectedBookmark.category === '문화시설' ? 'culture' : 'restaurant'}
             facility={{
+              id: selectedBookmark.id,
+              name: selectedBookmark.name,
+              latitude: selectedBookmark.latitude ?? null,
+              longitude: selectedBookmark.longitude ?? null,
+              address: selectedBookmark.address ?? null,
+              phone: selectedBookmark.phone ?? null,
+              features: selectedBookmark.features ?? null,
               congestionLevel: typeof selectedBookmark.congestionLevel === 'number'
                 ? selectedBookmark.congestionLevel
                 : null,

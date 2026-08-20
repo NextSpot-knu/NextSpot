@@ -53,14 +53,17 @@ interface BoardRow {
   congestionLevel: number | null;
   // 매장 내부 혼잡이 없을 때도 공영주차·관광 근거로 대안성을 보여주는 주변 권역 수요.
   areaDemandLevel: number | null;
-  areaDemandMode: "live" | "statistical" | "contextual" | null;
+  areaDemandMode: "live" | "forecast" | "statistical" | "contextual" | null;
+  areaDemandRadiusM: number | null;
+  arrivalAction: "go_now" | "wait_then_go" | "choose_calmer" | "no_clear_advantage" | null;
+  recommendedDepartureDelayMinutes: number | null;
   // 검증 모델이 없는 degraded 응답은 waitTime=null이다. 0분으로 바꾸면 안 된다.
   expectedWait: number | null;
   expectedTravel: number;
   // 오늘 휴무 '확정'(isClosedToday === true) 여부 — 대표 카드 선정에서 제외 + 리스트 맨 뒤 + 배지 표시용.
   closedToday: boolean;
-  // 공식 대표 메뉴(TourAPI first_menu) 첫 항목 — 있을 때만 카드에 한 줄 표시('지어내지 않기').
-  firstMenu: string | null;
+  // TourAPI 대표·취급 메뉴를 합친 실제 메뉴(최대 5개).
+  menus: string[];
 }
 
 // 섹터 = 한 시설 유형의 대기 짧은 순 정렬 목록. rows 가 비면 섹터 자체를 렌더하지 않는다.
@@ -169,11 +172,20 @@ export default function WaitingBoardPage() {
           | string
           | null
           | undefined;
-        // 공식 대표 메뉴 — 콤마 구분 시 첫 항목만(컴팩트 카드 폭). RecommendationCard 의 slice(0,2) 축소판.
+        // 공식 대표·취급 메뉴를 합쳐 최대 5개. 없는 메뉴는 지어내지 않는다.
         const firstMenuRaw = (rec.facility.features?.first_menu ?? rec.facility.features?.firstMenu) as
           | string
           | null
           | undefined;
+        const treatMenuRaw = (rec.facility.features?.treat_menu ?? rec.facility.features?.treatMenu) as
+          | string
+          | null
+          | undefined;
+        const menus = Array.from(new Set(
+          [firstMenuRaw, treatMenuRaw]
+            .filter((value): value is string => typeof value === "string")
+            .flatMap((value) => value.split(/[,/\n·]+/).map((item) => item.trim()).filter(Boolean))
+        )).slice(0, 5);
         // 소개(overview) 다국어 — 배치 번역(apps/api/scripts/translate_overviews.py)이
         // features.overview_i18n = {en, ja, zh} 에 저장(스키마 변경 없음). RecommendationCard 와 동일하게
         // camelCase(overviewI18n)·원본 snake_case(overview_i18n) 두 표기를 모두 지원한다.
@@ -209,12 +221,15 @@ export default function WaitingBoardPage() {
           congestionLevel: typeof rec.congestionLevel === "number" ? rec.congestionLevel : null,
           areaDemandLevel: typeof spot.areaDemandLevel === "number" ? spot.areaDemandLevel : null,
           areaDemandMode: spot.areaDemandMode ?? null,
+          areaDemandRadiusM: typeof spot.areaDemandRadiusM === "number" ? spot.areaDemandRadiusM : null,
+          arrivalAction: spot.arrivalAction ?? null,
+          recommendedDepartureDelayMinutes: spot.recommendedDepartureDelayMinutes ?? null,
           expectedWait:
             typeof rec.breakdown?.waitTime === "number" ? rec.breakdown.waitTime : null,
           expectedTravel: spot.expectedTravel,
           // 휴무 '확정'(true)만 표시 — 모름(null)/영업 확정(false)은 평소처럼 취급(정직성: 과판정 금지).
           closedToday: isClosedToday(restDateRaw) === true,
-          firstMenu: firstMenuRaw?.split(",")[0]?.trim() || null,
+          menus,
         };
       });
       // 대기 짧은 순 정렬은 그대로 유지하되, 오늘 휴무 확정 시설은 항상 맨 뒤로 보낸다
@@ -357,9 +372,9 @@ export default function WaitingBoardPage() {
                               {row.name}
                             </p>
                             {/* 공식 대표 메뉴(TourAPI) — 있을 때만 한 줄. 🍽 이모지는 TYPE_EMOJI 관례와 동일 톤. */}
-                            {row.firstMenu && (
-                              <p className="mt-0.5 text-[9px] font-bold text-gold-deep leading-snug truncate">
-                                🍽 {row.firstMenu}
+                            {row.menus.length > 0 && (
+                              <p className="mt-0.5 text-[9px] font-bold text-gold-deep leading-snug line-clamp-2">
+                                🍽 {row.menus.join(" · ")}
                               </p>
                             )}
                             {row.summary && (
@@ -376,6 +391,18 @@ export default function WaitingBoardPage() {
                                   : t("waiting.waitUnavailable")
                                 : t("waiting.arrivalWait", { n: Math.round(row.expectedWait) })}
                             </p>
+                            {row.arrivalAction && (
+                              <p className="text-[10px] font-bold text-sky-800">
+                                {t(`recommend.arrivalAction.${row.arrivalAction}`, {
+                                  n: row.recommendedDepartureDelayMinutes ?? 30,
+                                })}
+                              </p>
+                            )}
+                            {row.areaDemandLevel !== null && row.areaDemandRadiusM !== null && (
+                              <p className="text-[9px] font-semibold text-sky-700">
+                                {t("recommend.areaDemandRadiusShort", { n: row.areaDemandRadiusM.toLocaleString() })}
+                              </p>
+                            )}
                             {row.congestionLevel != null ? (
                               <span
                                 className={`inline-block text-[9px] font-bold px-1.5 py-0.5 rounded-md border whitespace-nowrap ${congestionBadgeClass(
@@ -386,7 +413,11 @@ export default function WaitingBoardPage() {
                               </span>
                             ) : row.areaDemandLevel !== null ? (
                               <span className={`inline-block text-[9px] font-bold px-1.5 py-0.5 rounded-md border whitespace-nowrap ${congestionBadgeClass(row.areaDemandLevel)}`}>
-                                {t(row.areaDemandMode === "live" ? "recommend.areaDemandLive" : "recommend.areaDemandStats")}
+                                {t(row.areaDemandMode === "live"
+                                  ? "recommend.areaDemandLive"
+                                  : row.areaDemandMode === "forecast"
+                                    ? "recommend.areaDemandForecast"
+                                    : "recommend.areaDemandStats")}
                               </span>
                             ) : (
                               <span className="inline-block text-[9px] font-bold px-1.5 py-0.5 rounded-md border bg-muk/5 border-line text-muk-soft whitespace-nowrap">
@@ -453,6 +484,11 @@ export default function WaitingBoardPage() {
                                   {t("card.closedToday")}
                                 </span>
                               )}
+                              {row.areaDemandLevel !== null && row.areaDemandRadiusM !== null && (
+                                <span className="text-[10px] font-semibold text-sky-700 whitespace-nowrap">
+                                  {t("recommend.areaDemandRadiusShort", { n: row.areaDemandRadiusM.toLocaleString() })}
+                                </span>
+                              )}
                               {row.congestionLevel != null ? (
                                 <span
                                   className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md border whitespace-nowrap ${congestionBadgeClass(
@@ -463,7 +499,11 @@ export default function WaitingBoardPage() {
                                 </span>
                               ) : row.areaDemandLevel !== null ? (
                                 <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md border whitespace-nowrap ${congestionBadgeClass(row.areaDemandLevel)}`}>
-                                  {t(row.areaDemandMode === "live" ? "recommend.areaDemandLive" : "recommend.areaDemandStats")}
+                                  {t(row.areaDemandMode === "live"
+                                    ? "recommend.areaDemandLive"
+                                    : row.areaDemandMode === "forecast"
+                                      ? "recommend.areaDemandForecast"
+                                      : "recommend.areaDemandStats")}
                                 </span>
                               ) : (
                                 <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md border bg-muk/5 border-line text-muk-soft whitespace-nowrap">
@@ -471,6 +511,13 @@ export default function WaitingBoardPage() {
                                 </span>
                               )}
                             </div>
+                            {row.arrivalAction && (
+                              <p className="mt-1 text-[10px] font-bold text-sky-800">
+                                {t(`recommend.arrivalAction.${row.arrivalAction}`, {
+                                  n: row.recommendedDepartureDelayMinutes ?? 30,
+                                })}
+                              </p>
+                            )}
                           </div>
                         </button>
                       ))}

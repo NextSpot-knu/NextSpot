@@ -30,10 +30,22 @@ from app.routers.infrastructures import (
     fetch_latest_congestion_for_all,
 )
 from app.services.predict_service import get_model_info, predict_congestion_detailed
+from app.services.area_demand_service import get_area_demand_signal
+from app.services.area_demand_decision_service import (
+    annotate_arrival_actions,
+    annotate_relative_demand,
+)
 from app.services.spot.score import calculate_spot_score
 from app.services.spot.travel import calculate_haversine_distance, get_walking_routes
 from app.services.congestion_evidence import rankable_measured_level
-from app.services.travel_context import KST, TravelContext, facility_matches_context, open_status_at_arrival
+from app.services.travel_context import (
+    KST,
+    TravelContext,
+    facility_matches_context,
+    is_recommendable_at_arrival,
+    open_status_at_arrival,
+)
+from app.services.tourism_related_service import attach_related_destination_priors
 from app.services.recommendation_explanation_service import explain as explain_snapshot
 from app.services.spot.wait_time import calculate_predicted_wait_time
 from app.services.spot.preference import CATEGORY_VECTORS, build_facility_preference_vector, get_category_average_vector
@@ -245,6 +257,26 @@ async def fetch_congestion_map(facility_ids: list[str]) -> dict[str, dict]:
     return await fetch_latest_congestion_for_all(facility_ids)
 
 
+async def _attach_delayed_area_actions(
+    items: list[dict], *, now: datetime, delay_minutes: int = 30
+) -> None:
+    """상위 후보만 30분 지연 출발과 비교한다.
+
+    이력이나 관광 통계가 없으면 delayed signal은 None이며 행동 추천도
+    ``no_clear_advantage``로 닫힌다. 현재 실측을 미래로 복사하지 않는다.
+    """
+    delayed_signals = await asyncio.gather(*[
+        get_area_demand_signal(
+            item["facility"],
+            now + timedelta(
+                minutes=float(item["breakdown"].get("travel_time") or 0.0) + delay_minutes
+            ),
+        )
+        for item in items
+    ])
+    annotate_arrival_actions(items, delayed_signals, delay_minutes=delay_minutes)
+
+
 async def resolve_congestion_evidence(facility: dict, log_info: dict | None) -> dict:
     """후보 1건의 혼잡 근거 3단계를 판정한다(CONGESTION_TRUST_SPEC).
 
@@ -323,6 +355,7 @@ async def get_recommendations(
     user_info, original_infra, all_facilities = await asyncio.gather(
         user_task, original_infra_task, all_infra_task
     )
+    await attach_related_destination_priors(original_infra, all_facilities)
 
     # 2. 시설 조건을 먼저 적용하고, 도보 경로 행렬로 영업 여부와 하드 캡을 판정한다.
     eligible = []
@@ -339,7 +372,9 @@ async def get_recommendations(
         (facility, route)
         for facility, route in zip(eligible, routes)
         if route.duration_min <= max_walk_minutes
-        and open_status_at_arrival(facility, now + timedelta(minutes=route.duration_min)) != "closed_confirmed"
+        and is_recommendable_at_arrival(
+            facility, now + timedelta(minutes=route.duration_min)
+        )
     ]
 
     logger.info("candidates_filtered", count=len(candidates), max_walk_minutes=max_walk_minutes)
@@ -406,9 +441,14 @@ async def get_recommendations(
         await asyncio.gather(*[_score_candidate(f, route) for f, route in candidates])
     )
 
+    # 같은 요청에서 실제로 비교 가능한 후보만 상대 수요 순위·중앙값 차이를 계산한다.
+    # 모든 후보가 같은 권역 신호를 받으면 distinguishable=false가 되어 혼잡 대안이라고 주장하지 않는다.
+    annotate_relative_demand(recommendation_results)
+
     # 4. 스코어 기준 내림차순 정렬 및 상위 5개 선별
     recommendation_results.sort(key=lambda x: (-x["spot_score"], x["distance_m"], x["facility"]["id"]))
     top_n = recommendation_results[:5]  # 추천 제안 개수(요청: 3 → 5)
+    await _attach_delayed_area_actions(top_n, now=now)
 
     # 4-1. WP3: 상위 N개(=top_n)에만 백엔드 사유 생성 (동시 호출, 실패 시 템플릿 폴백)
     #      컨텍스트는 reason_service 가 소비하는 키만 전달한다: _build_template 는 이름·수치를,
@@ -591,6 +631,14 @@ _DEFAULT_BROWSE_WALK_MINUTES = 20
 _MAX_RECO_DISTANCE_M = _DEFAULT_BROWSE_WALK_MINUTES * 66.67
 
 
+def _is_bar_facility(facility: dict) -> bool:
+    features = facility.get("features") or {}
+    raw = features.get("cuisine_tags") or features.get("cuisine") or []
+    tags = raw if isinstance(raw, list) else [raw]
+    bar_terms = ("술집", "호프", "포차", "오뎅바", "일본식주점", "칵테일바", "와인바")
+    return any(any(term in str(tag) for term in bar_terms) for tag in tags)
+
+
 class RecommendByTypeRequest(BaseModel):
     user_id: str
     facility_type: str
@@ -622,7 +670,10 @@ async def recommend_by_type(
     exclude = set(req.exclude_ids or [])
     candidates = [
         f for f in all_facilities
-        if f.get("type") == req.facility_type and f["id"] not in exclude and facility_matches_context(f, req.context)
+        if f.get("type") == req.facility_type
+        and not (req.facility_type == "restaurant" and _is_bar_facility(f))
+        and f["id"] not in exclude
+        and facility_matches_context(f, req.context)
     ]
     if not candidates:
         return []
@@ -639,9 +690,9 @@ async def recommend_by_type(
     candidate_routes = [
         (f, route) for f, route in zip(candidates, routes)
         if route.duration_min <= max_walk_minutes
-        if open_status_at_arrival(
+        if is_recommendable_at_arrival(
             f, now + timedelta(minutes=route.duration_min)
-        ) != "closed_confirmed"
+        )
     ]
     candidates = [f for f, _ in candidate_routes]
     route_by_id = {f["id"]: route for f, route in candidate_routes}
@@ -696,8 +747,10 @@ async def recommend_by_type(
         }
 
     scored = list(await asyncio.gather(*[_score(f) for f in candidates]))
+    annotate_relative_demand(scored)
     scored.sort(key=lambda x: (-x["spot_score"], x["distance_m"], x["facility"]["id"]))
     top = scored[: max(1, req.limit)]
+    await _attach_delayed_area_actions(top, now=now)
 
     # 컨텍스트는 reason_service 가 소비하는 키만 전달한다: _build_template 는 이름·수치를,
     # facility_id 는 LLM 문체 다듬기의 캐시 키(시설+혼잡도 버킷+시각)로 쓰인다.

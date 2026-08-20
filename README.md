@@ -5,7 +5,7 @@
 > **2026 관광데이터 활용 공모전 · ① 웹·앱 개발 부문 출품작.**
 > 경주 황리단길의 **오버투어리즘을 실시간으로 분산·재배치**하는 AI 기반 대안 장소 추천 웹 서비스.
 
-포화한 인기 관광지 대신, 사용자의 취향·실제 이동시간·혜택과 검증 가능한 주변 지역 수요를 종합한
+포화한 인기 관광지 대신, 사용자의 취향·OSM 보행경로 기반 예상 이동시간·혜택과 검증 가능한 주변 지역 수요를 종합한
 **SPOT(Smart Place Optimization for Tourism)** 점수로 대안 장소를 추천하여
 관광객의 기회비용을 줄이고 골목 상권으로 수요를 재배치합니다.
 
@@ -17,7 +17,7 @@
 |---|---|---|
 | 1 | **도착시점의 근거를 구분** | 경주 ITS 실시간 주차 수요는 관측 후 30분 이내 도착에만 쓴다. 그 이후는 관광 통계로 표시하거나 근거가 없으면 빈다. 15분 실측 스냅샷을 먼저 축적한 뒤 백테스트를 통과한 예측만 활성화한다. |
 | 2 | **개인 효용 + 공익 기여를 한 산식에** | 취향·이동시간·제휴 쿠폰을 고정 가중치로 반영한다. 장소 내부 혼잡과 수요 완화 혜택은 검증된 근거가 있을 때만 산식에 넣는다. |
-| 3 | **음성 AI 비서** | 지도를 볼 수 없는 이동 중 상황에서 "다음", "양식 먹고 싶어" 같은 자유발화로 추천 탐색 (Gemini 의도분류 + 키워드 폴백). |
+| 3 | **음성 AI 비서** | 지도를 볼 수 없는 이동 중 상황에서 "다음", "양식 먹고 싶어" 같은 자유발화로 추천 탐색 (Solar 의도분류 + 키워드 폴백). |
 | 4 | **피드백 학습 취향 벡터** | 수락(+10%)/거절(−5%)이 8차원 선호 벡터를 실시간 보정 — 쓸수록 나에게 맞는 추천. |
 | 5 | **B2G 관제 대시보드** | 경북문화관광공사 관점의 혼잡 히트맵·수요 분산 지표·제휴(쿠폰) 관리 — 소비자 앱과 데이터가 순환하는 양면 구조. |
 
@@ -54,7 +54,7 @@ SPOT_Score = w₁ · 취향 일치율 − w₂ · (도착시점 예측 대기 + 
 
 - 클라이언트: [`apps/api/app/services/tourapi/`](./apps/api/app/services/tourapi/) (비동기 + 일 1회 캐시)
 - 적재 배치: `python apps/api/scripts/ingest_tourapi.py` (contentid 기준 upsert, `--dry-run` 지원)
-- 보조 데이터: 경주시 교통정보센터 ITS(실시간 주차 잔여면) · Kakao/Tmap(이동시간) ·
+- 보조 데이터: 경주시 교통정보센터 ITS(실시간 주차 잔여면) · OpenStreetMap(보행경로) · Kakao(지도·장소 ID) ·
   Supabase(실측 스냅샷 15분 시계열)
 
 → 엔드포인트별 활용 근거·데이터 흐름 상세: [`docs/DATA_UTILIZATION.md`](./docs/DATA_UTILIZATION.md)
@@ -103,7 +103,7 @@ PARKING_API_KEY=your_parking_api_key
 flowchart LR
     subgraph 외부데이터
         T[TourAPI<br/>한국관광공사] -->|일배치 적재| DB[(Supabase<br/>PostgreSQL + RLS)]
-        K[Kakao/Tmap<br/>이동시간·지도]
+        K[OpenStreetMap 보행 그래프<br/>Kakao 지도·장소 검색]
     end
     subgraph "apps/api — FastAPI"
         S[SPOT 엔진<br/>score·preference·travel] --> P[검증 모델 또는 지역 수요<br/>ITS×관광통계×행사]
@@ -138,7 +138,7 @@ NextSpot/
 
 1. **주변 지역 수요** — 경주 ITS 주차 실측을 출처·관측 시각과 함께 표시. 30분을 넘는 도착은
    현재값을 예측처럼 쓰지 않는다.
-2. **대안 장소 추천** — 혼잡 임계 초과 시 SPOT 랭킹 + Gemini 생성 추천 사유 카드 + 카카오맵 길안내 연결
+2. **대안 장소 추천** — 검증된 영업 여부·보행경로·취향·주변 수요를 반영한 SPOT 랭킹 + 카카오맵 길안내 연결
 3. **음성 AI 비서** — 자유발화 탐색·수락·필터 ("첨성대 근처 한적한 카페")
 4. **AI 취향 프로필** — 온보딩 Cold Start(카테고리 3개+) → 피드백 학습 → 마이페이지 취향 레이더
 5. **B2G 관제 대시보드** — 혼잡 히트맵·추천 수락률·DAU·피크 시뮬레이션·POI/제휴 관리
@@ -179,8 +179,8 @@ pytest apps/api -q && npm run test --workspace=apps/web
 | 프론트 | Next.js 16 (정적 export), React 19, TypeScript, Tailwind CSS, Recharts |
 | 백엔드 | FastAPI (Python 3.11), SPOT 규칙 폴백 + 검증 모델 Registry |
 | 데이터 | Supabase (PostgreSQL + RLS + Realtime), **TourAPI(한국관광공사, 필수)**, 경주 ITS 주차 실측 |
-| AI | SPOT 추천 엔진(자체) · Gemini(추천 사유·음성 의도) · 선호 벡터 피드백 학습 |
-| 지도 | Kakao Maps SDK · Kakao/Tmap 경로 |
+| AI | SPOT 추천 엔진(자체) · Solar(선택적 음성 의도) · 선호 벡터 피드백 학습 |
+| 지도 | Kakao Maps SDK · 번들된 OpenStreetMap 보행 그래프 |
 
 ## 지역 특화와 확장성
 

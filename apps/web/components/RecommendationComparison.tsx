@@ -5,6 +5,7 @@ import { BarChart3, Sparkles, X } from 'lucide-react';
 import { explainRecommendation, type RecommendationQuestion, type RecommendationResponse } from '@/lib/api-client';
 import { track } from '@/lib/analytics';
 import { useI18n } from '@/lib/i18n/I18nProvider';
+import { displayWalkingMinutes } from '@/lib/recommender';
 
 export default function RecommendationComparison({ recommendations }: { recommendations: RecommendationResponse[] }) {
   const { t, locale } = useI18n();
@@ -38,8 +39,8 @@ export default function RecommendationComparison({ recommendations }: { recommen
         <Row label={t('compare.preference')} values={top.map((r) => `${Math.round((r.breakdown.preference ?? 0) * 100)}%`)} />
         <Row label={t('compare.walkWait')} values={top.map((r) =>
           r.breakdown.waitTime == null
-            ? `${Math.round(r.breakdown.travelTime)}m · ${t('card.noData')}`
-            : `${Math.round(r.breakdown.travelTime)}m · ${Math.round(r.breakdown.waitTime)}m`
+            ? `${displayWalkingMinutes(r.breakdown.travelTime, r.distanceM)}m · ${t('card.noData')}`
+            : `${displayWalkingMinutes(r.breakdown.travelTime, r.distanceM)}m · ${Math.round(r.breakdown.waitTime)}m`
         )} />
         <Row label={t('compare.congestion')} values={top.map((r) => r.congestionLevel == null ? t('card.noData') : `${Math.round(r.congestionLevel * 100)}%`)} />
         <Row label={t('compare.openStatus')} values={top.map((r) => r.openStatusAtArrival ? t(`card.arrivalStatus.${r.openStatusAtArrival}`) : t('card.noData'))} />

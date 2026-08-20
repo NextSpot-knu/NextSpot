@@ -5,9 +5,9 @@ import { useSearchParams, useRouter } from "next/navigation";
 import { createPublicClient } from "@/lib/supabase";
 const supabase = createPublicClient();
 import { apiClient, getRecommendations, submitFeedback, parsePreference, RecommendationResponse } from "@/lib/api-client";
-import { MAX_RECO_DISTANCE_M } from "@/lib/recommender"; // 빈 상태 문구의 반경(1.5km) — 하드코딩 대신 실제 컷오프 상수 사용
+import { displayWalkingMinutes, MAX_RECO_DISTANCE_M } from "@/lib/recommender"; // 빈 상태 문구의 반경(1.5km) — 하드코딩 대신 실제 컷오프 상수 사용
 import { classifyIntent, buildCardSpeech } from "@/lib/voiceIntent";
-import { isClosedToday } from "@/lib/restDate";
+import { getArrivalOpenDisplayStatus, isClosedToday } from "@/lib/restDate";
 import { REGION, isWithinRegion } from "@/lib/region";
 import { toast } from "sonner";
 import { useI18n, useT } from "@/lib/i18n/I18nProvider";
@@ -36,7 +36,7 @@ function buildFallbackReason(
   distanceM: number,
   congestionLevel: number | null = null,
 ): string {
-  const walk = Math.max(1, Math.round(distanceM / 66.67)); // 66.67m/min = 4km/h (백엔드 WALKING_SPEED_M_PER_MIN 와 일치)
+  const walk = displayWalkingMinutes(undefined, distanceM);
   // 혼잡(>=0.75)이면 추천하지 않고 혼잡·대기를 솔직히 알린다.
   if (congestionLevel !== null && congestionLevel >= 0.75) {
     return t('recommend.fallbackBusy', { name, walk, pct: Math.round(congestionLevel * 100) });
@@ -888,7 +888,7 @@ function RecommendContent() {
         break;
       case "detail": {
         const waitTime = rec.breakdown?.waitTime;
-        const travelTime = (rec.distanceM / 80).toFixed(1);
+        const travelTime = String(displayWalkingMinutes(rec.breakdown?.travelTime, rec.distanceM));
         const preferencePct = Math.round((rec.breakdown?.preference || 0) * 100);
         sayThen(
           t(waitTime == null ? "recommend.voiceDetailNoWait" : "recommend.voiceDetail", {
@@ -1208,7 +1208,14 @@ function RecommendContent() {
             <RecommendationComparison recommendations={recommendations} />
             {recommendations.map((rec, idx) => {
               const waitTime = rec.breakdown?.waitTime?.toFixed(1) || "--";
-              const travelTime = (rec.breakdown?.travelTime ?? rec.distanceM / 66.67).toFixed(1); // 백엔드 SPOT travelTime 우선(66.67m/min=4km/h, 백엔드 일치), 없으면 거리환산
+              const travelTime = displayWalkingMinutes(rec.breakdown?.travelTime, rec.distanceM);
+              const arrivalDisplayStatus = rec.openStatusAtArrival
+                ? getArrivalOpenDisplayStatus(
+                    rec.openStatusAtArrival,
+                    rec.facility.type,
+                    new Date(Date.now() + travelTime * 60_000),
+                  )
+                : null;
               const preferencePct = Math.round((rec.breakdown?.preference || 0) * 100);
               const isVoiceActive = assistantActive && idx === activeRecIndex; // 음성 비서가 지금 안내 중인 카드
               // TourAPI 상세 소비(RecommendationCard 와 동일 관례) — features 내부 키는 keysToCamel 재귀
@@ -1258,15 +1265,15 @@ function RecommendContent() {
                           {t("card.closedToday")}
                         </span>
                       )}
-                      {rec.openStatusAtArrival && (
+                      {arrivalDisplayStatus && (
                         <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ml-2 ${
-                          rec.openStatusAtArrival === "open_expected"
+                          arrivalDisplayStatus === "open_expected"
                             ? "text-jade bg-jade/10"
-                            : rec.openStatusAtArrival === "closing_soon"
+                            : arrivalDisplayStatus === "closing_soon" || arrivalDisplayStatus === "likely_closed_unknown"
                               ? "text-terracotta bg-terracotta/10"
                               : "text-muk-soft bg-hanji-deep"
                         }`}>
-                          {t(`card.arrivalStatus.${rec.openStatusAtArrival}`)}
+                          {t(`card.arrivalStatus.${arrivalDisplayStatus}`)}
                         </span>
                       )}
                       {rec.rank && rec.totalCandidates && (
@@ -1382,10 +1389,18 @@ function RecommendContent() {
                           }`)}
                         </span>
                         <span className="text-[10px] text-sky-700">
-                          {t(rec.breakdown.areaDemandMode === "live" ? "recommend.areaDemandLive" : "recommend.areaDemandStats")}
+                          {t(rec.breakdown.areaDemandMode === "live"
+                            ? "recommend.areaDemandLive"
+                            : rec.breakdown.areaDemandMode === "forecast"
+                              ? "recommend.areaDemandForecast"
+                              : "recommend.areaDemandStats")}
                         </span>
                       </div>
-                      <p className="mt-1 text-sky-800/80">{t("recommend.areaDemandHint")}</p>
+                      <p className="mt-1 text-sky-800/80">
+                        {typeof rec.breakdown.areaDemandRadiusM === "number"
+                          ? t("recommend.areaDemandRadius", { n: rec.breakdown.areaDemandRadiusM.toLocaleString() })
+                          : t("recommend.areaDemandHint")}
+                      </p>
                       {!!rec.breakdown.areaDemandSources?.length && (
                         <p className="mt-1 text-[10px] text-sky-700">
                           {rec.breakdown.areaDemandSources

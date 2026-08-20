@@ -76,6 +76,8 @@ filter 의 후보 매칭은 `embedding_service.filter_candidates` 가 후보 이
 - `GET /health` — 헬스 체크
 - `GET /api/v1/infrastructures` — 관광 POI 목록 + 최신 혼잡도
 - `GET /api/v1/area-demand/status` — 경주시 ITS 실시간 주차 데이터 커버리지
+- `GET /api/v1/area-demand/parking-lots` — 반경 내 공영주차장과 실제 잔여면(없으면 null)
+- `GET /api/v1/search/places` — 상호·메뉴·음식 종류의 Kakao 장소 검색(경주 8km)
 - `POST /api/v1/area-demand/snapshots/collect` — 현재 실측을 15분 버킷으로 멱등 저장(관리자 헤더)
 - `POST /api/v1/recommendations` — 혼잡한 원본 장소의 대안 추천(반경 150m)
 - `POST /api/v1/recommendations/by-type` — 타입별 랭킹(메인 지도 브라우즈)
@@ -103,3 +105,13 @@ filter 의 후보 매칭은 `embedding_service.filter_candidates` 가 후보 이
 저장 함수 `record_area_demand_snapshot`는 시점별 집계와 주차장별 원본을 한 트랜잭션에서
 교체한다. 저장된 점유율은 특정 장소 내부 혼잡도나 예상 대기시간이 아니며,
 SPOT 가중치 `0.4/0.4/0.2`를 변경하지 않는다.
+
+## 장소·영업시간·도보 거리 신뢰 규칙
+
+- 음식점·카페의 영업시간이 도착시점에 닫힘으로 확인되면 추천 후보에서 제외한다.
+- 영업시간이 없는 장소는 현재 상태를 추측해 `영업 중`이라고 표시하지 않는다. 검색 지도에서는
+  찾을 수 있지만 카드에 확인 필요 경고를 표시한다.
+- 도보 시간은 `app/data/gyeongju_walking_graph.json.gz`의 OpenStreetMap 보행 가능 도로를
+  최단경로로 계산한다. 그래프 범위 밖에서만 보수적인 직선거리 환산으로 폴백한다.
+- 장소 검색은 상호·주소뿐 아니라 실제 저장된 대표메뉴/취급메뉴·Kakao 업종·음식 태그를 찾고,
+  제한된 메뉴 동의어를 Kakao에 재조회한다. 없는 메뉴를 생성하거나 저장하지 않는다.
