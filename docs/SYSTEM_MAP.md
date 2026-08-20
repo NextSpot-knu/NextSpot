@@ -50,8 +50,9 @@ NextSpot/
 │   │   │   ├── admin/*         # B2G 관제 8화면
 │   │   │   └── merchant/*      # 사장님 콘솔 2화면 (+ _lib 로컬 인증·API)
 │   │   ├── components/         # 28개 공용 + admin/ 9개
-│   │   ├── lib/                # API 클라이언트 · 인증 · 지역팩 · 음성 · 로컬 상태
+│   │   ├── lib/                # API 클라이언트 · 인증 · 지역팩 · 음성 · 로컬 상태 · errors
 │   │   │   └── i18n/           # ko · en · ja · zh 4개 로케일
+│   │   ├── types/              # 앰비언트 타입 선언 (Web Speech · Kakao Maps — 런타임 코드 없음)
 │   │   ├── e2e/                # Playwright — 여정루프 · 음성 · 다국어
 │   │   └── public/             # PWA 매니페스트 · 서비스워커 · 마스코트
 │   │
@@ -479,6 +480,13 @@ npm run test:e2e --workspace=apps/web       # Playwright (npx playwright install
 
 **선택 env** — `KAKAO_REST_API_KEY` `TOURAPI_KEY` `KMA_API_KEY` `UPSTAGE_API_KEY` `MERCHANT_API_TOKEN`
 
+두 콘솔의 토큰은 **프런트·백엔드 짝을 맞춰야** 한다. 한쪽만 바꾸면 콘솔이 401 로 조용히 깨진다.
+
+| 콘솔 | 백엔드 | 프런트 | 기본값 |
+|---|---|---|---|
+| 관리자 | `ADMIN_API_TOKEN` (필수) | `NEXT_PUBLIC_ADMIN_API_TOKEN` | `nextspot-admin-local` |
+| 사장님 | `MERCHANT_API_TOKEN` | `NEXT_PUBLIC_MERCHANT_API_TOKEN` | `nextspot-merchant-local` |
+
 ---
 
 ## 13. 확장 포인트
@@ -490,6 +498,7 @@ npm run test:e2e --workspace=apps/web       # Playwright (npx playwright install
 | **SPOT 가중치 조정** | `score.py` **와** `shared-types/spot.ts` 동시 (한쪽만 바꾸면 CI 실패) |
 | **새 데이터 소스** | `services/`에 무해 폴백 갖춘 모듈 + `facility_source_refs`로 출처 추적 |
 | **새 언어** | `lib/i18n/messages/*.json` (parity 테스트가 키 누락 차단) |
+| **지도·음성 SDK 새 API** | `apps/web/types/*.d.ts` 에 쓰는 표면만 추가 (전체 미러 금지 — 안 쓰던 멤버를 부르면 tsc 가 잡는다) |
 
 ---
 
