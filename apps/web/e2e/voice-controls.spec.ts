@@ -1,9 +1,9 @@
 import { expect, test, type Page } from '@playwright/test';
 
 const facilities = [
-  { id: 'restaurant-1', name: '실내 식당', type: 'restaurant', latitude: 35.8563, longitude: 129.2247,
+  { id: 'restaurant-1', name: '실내 식당', type: 'restaurant', latitude: 35.8363, longitude: 129.2107,
     capacity: 30, features: {}, congestion: null },
-  { id: 'cafe-1', name: '실내 카페', type: 'cafe', latitude: 35.8564, longitude: 129.2247,
+  { id: 'cafe-1', name: '실내 카페', type: 'cafe', latitude: 35.8364, longitude: 129.2107,
     capacity: 20, features: {}, congestion: null },
 ];
 
