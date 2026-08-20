@@ -10,6 +10,7 @@
     "web:dev": "npm run dev --workspace=apps/web",
     "web:build": "npm run build --workspace=apps/web",
     "web:install": "npm install --workspace=apps/web",
+    "check:i18n": "node scripts/check-i18n-keys.mjs",
     "api:dev": "docker compose up -d",
     "api:dev:local": "cd apps/api && uvicorn app.main:app --reload",
     "api:install": "cd apps/api && pip install -r requirements.txt -r requirements-dev.txt",
