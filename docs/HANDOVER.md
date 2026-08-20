@@ -1,5 +1,79 @@
 # 세션 인계 문서 (2026-08-20 갱신)
 
+## -29. 2026-08-21 새벽 — 브라우저 전수조사 (Claude 자율 사이클)
+
+origin/main(`433f29b`)을 별도 워크트리로 받아 실제로 띄우고(API 8000 + web 3000) 크롬으로
+화면을 돌았다. **내 브랜치가 아니라 main 코드를 봤다** — 팀원이 이미 고친 것을 중복 보고하지
+않기 위해서다.
+
+### 🔴 F1. `/course`·`/waiting` 로딩 화면이 번역 키를 그대로 노출한다
+
+`OptimizationLoader` 가 `optimization.{mode}.title` / `.step1~3` / `optimization.hint` 를
+부르는데 **`optimization` 네임스페이스가 ko.json 에 통째로 없다.** 화면에는
+`optimization.course.title`, `optimization.hint` 같은 원시 키가 그대로 찍힌다.
+하단 내비 5개 중 2개(`/course`, `/waiting`)가 로딩할 때마다 이 상태다.
+
+`lib/i18n/parity.test.ts` 가 이걸 못 잡는 이유가 중요하다 — 그 테스트는 **로케일끼리**
+비교한다. ko 에도 없으면 네 로케일이 사이좋게 비어 있어 패리티는 통과한다. 즉 '번역 누락'은
+잡지만 '키 자체 부재'는 못 잡는다.
+
+→ 반대 방향 검사기 `scripts/check-i18n-keys.mjs` 를 추가했다(`npm run check:i18n`).
+   **`npm test` 에는 아직 안 붙였다** — 지금 붙이면 즉시 red 라 CI 가 멈춘다. 키를 채운 뒤 편입할 것.
+
+### 🔴 F2. 누락 키 전수 목록
+
+| 키 | 영향 |
+|---|---|
+| `optimization.*` (13종) | `/course`·`/waiting` 로딩 — 원시 키 노출 |
+| `recommend.nlSummary{Empty,AnyPlace,Understood,CatsOnly}` | 추천 화면 자연어 검색 요약 — 원시 키 노출 |
+| `festival.aiSummary` | 축제 배너 AI 배지 — 원시 키 노출 |
+| `common.back` | 온보딩 뒤로가기 **aria-label** — 스크린리더가 "common.back" 이라고 읽는다(화면엔 안 보임) |
+| `map.liveSearch*` (5종) | **yunseong 에만** 해당 — main 은 해당 기능이 교체돼 없다 |
+
+main 기준 8종 · yunseong 기준 13종. 목록은 `npm run check:i18n` 으로 항상 최신 확인 가능.
+
+아이러니: `explore/recommend/page.tsx:89` 주석은 "알 수 없는 코드가 와도 **원시 키가 노출되지
+않게** 재필터"라고 적혀 있다. 서버가 준 코드는 막았는데 정작 자기 요약 키가 없었다.
+
+### 🟡 F3. LLM 디버그 배지가 프로덕션에서도 켜져 있다
+
+`components/LlmDebugToast.tsx` 의 `LLM_DEBUG_DEFAULT = true` 이고 `app/layout.tsx:74` 가
+환경 게이팅 없이 렌더한다. 좌하단에 `추천 사유: AI 0 · 템플릿 6` 같은 개발자 배지가 뜬다.
+코드 주석에 "심사/고객 공개 시 false 로 전환"이라고 적힌 **기지의 사람 작업**이지만 지금 켜져 있다.
+게다가 의도적으로 i18n 제외라 한국어 하드코딩이다 — 외국 심사위원에게 한국어 디버그 문구가 보인다.
+런타임으로 끄려면 localStorage `nextspot_llm_debug` = `'0'`.
+
+### 🟡 F4. 심야에 "잠시 후 다시 확인해 주세요"가 부정확하다
+
+새벽 4시에 음식점/카페 카테고리가 빈 것은 **정상**이다(`isRecommendationOpen` 이 영업시간으로
+거른다 — `restDate.test.ts` 에 그 단언이 있다). 문제는 문구다. 빈 상태 문구는 두 가지뿐이다.
+- `map.noRecBody` : "다른 카테고리를 선택하거나 **잠시 후** 다시 확인해 주세요"
+- `map.noRecClosedBody` : "…모두 **오늘 휴무**예요"
+
+`noOpenTodayOnly` 를 true 로 만드는 곳은 거절/다음 소진 경로 한 곳뿐이고, 그것도 `openToday`
+**일 단위** 판정이다. 초기 로드가 `isRecommendationOpen` **시 단위**로 전부 걸러낸 심야에는
+false 로 남아 "잠시 후"가 뜬다 — 실제로는 5~6시간 뒤다. '지금 영업시간 아님' 상태가 없다.
+
+### 🟡 F5. `/waiting` 카드 레이아웃 잘림 · 이미지 폴백 부재
+
+상단 3열 카드에서 하단 `데이터 없음` 배지가 카드 경계에 잘린다(카드 높이 고정 + 내용 초과).
+이미지가 없는 항목("경주 쌈밥거리")은 플레이스홀더 없이 흰 여백만 남는다.
+
+### ℹ️ 정상 확인된 것
+
+- 혼잡 라벨은 정직하게 동작한다 — 전 카드가 `대기 정보 수집 중` / `데이터 없음` /
+  `혼잡 차이는 아직 확인되지 않았어요`. degraded_rules 상태를 실측처럼 팔지 않는다.
+- `/main` 지도·마커·필터·검색바, `/setup` 온보딩, API 8개 엔드포인트 전부 200.
+- 부팅 워밍업 2.2초, 시설 1,600건 프리필 정상.
+
+### 조치
+
+**F1~F5 전부 코드 수정 없이 보고만 한다.** 누락 키를 채우는 것은 4로케일 문구를 새로 쓰는
+일이고, F3~F5 도 사용자에게 보이는 문구·동작이라 자율 범위에서 제외한 항목이다.
+재발 방지 도구(`check:i18n`)만 추가했다.
+
+---
+
 ## -28. 2026-08-21 — 마이그레이션 2건 적용 완료 + 신뢰 폐루프 실데이터 실측
 
 ### ✅ 적용 완료 (사람이 SQL Editor 로 실행, service_role 로 검증)
