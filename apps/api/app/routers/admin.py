@@ -142,6 +142,7 @@ async def override_congestion(facility_id: str, req: CongestionOverride):
         "congestion_level": req.level,
         "current_count": round(capacity * req.level),
         "source": _ADMIN_OVERRIDE_SOURCE,
+        "evidence_tier": "verified",
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
@@ -284,6 +285,156 @@ async def get_metrics(days: int = 28):
     except Exception as e:
         logger.error("admin_metrics_fetch_failed", error=str(e))
         raise HTTPException(status_code=500, detail="지표 조회에 실패했습니다.")
+
+
+@router.get("/model-trust")
+async def get_model_trust(days: int = 30):
+    """활성 모델 품질·추천→방문 퍼널·근거 노출 가드레일의 비식별 운영 요약."""
+    from app.services.predict_service import get_model_info
+
+    days = max(1, min(days, 90))
+    since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    try:
+        registry_res, recs_res, outcomes_res, logs_res, facilities_res = await asyncio.gather(
+            asyncio.to_thread(
+                supabase_admin.table("model_registry")
+                .select("version,status,real_data_count,training_started_at,training_ended_at,source_composition,metrics")
+                .eq("status", "active").limit(1).execute
+            ),
+            asyncio.to_thread(
+                supabase_admin.table("recommendations")
+                .select("id,recommendation_snapshot,created_at")
+                .eq("source", "spot").gte("created_at", since).limit(10000).execute
+            ),
+            asyncio.to_thread(
+                supabase_admin.table("recommendation_outcomes")
+                .select("recommendation_id,navigation_started_at,arrival_confirmed_at,rated_at,rating")
+                .gte("created_at", since).limit(10000).execute
+            ),
+            asyncio.to_thread(
+                supabase_admin.table("congestion_logs")
+                .select("facility_id,source,evidence_tier,timestamp")
+                .gte("timestamp", since).limit(20000).execute
+            ),
+            asyncio.to_thread(
+                supabase_admin.table("facilities")
+                .select("id,name,type,is_active").limit(5000).execute
+            ),
+        )
+    except Exception as exc:
+        logger.error("admin_model_trust_failed", error=str(exc))
+        raise HTTPException(status_code=500, detail="모델 신뢰도 지표 조회에 실패했습니다.")
+
+    recommendations = recs_res.data or []
+    outcomes = outcomes_res.data or []
+    outcome_by_id = {row["recommendation_id"]: row for row in outcomes}
+    top3 = []
+    closed = 0
+    ungrounded_numeric = 0
+    for row in recommendations:
+        snapshot = row.get("recommendation_snapshot") or {}
+        rank = snapshot.get("rank")
+        if isinstance(rank, int) and rank <= 3:
+            top3.append(snapshot)
+        if snapshot.get("open_status_at_arrival") == "closed_confirmed":
+            closed += 1
+        congestion = snapshot.get("congestion") or {}
+        breakdown = snapshot.get("breakdown") or {}
+        if (
+            congestion.get("source") == "none" and congestion.get("level") is not None
+        ) or (
+            snapshot.get("scoring_mode") == "degraded_rules" and breakdown.get("wait_time") is not None
+        ):
+            ungrounded_numeric += 1
+
+    registry = (registry_res.data or [None])[0]
+    evidence_count = sum(1 for item in top3 if (item.get("congestion") or {}).get("source") in {"measured", "predicted"})
+    hours_count = sum(1 for item in top3 if (item.get("tourapi_facts") or {}).get("operating_hours"))
+    fresh_count = 0
+    now = datetime.now(timezone.utc)
+    for item in top3:
+        congestion = item.get("congestion") or {}
+        timestamp = congestion.get("timestamp")
+        if timestamp is None and congestion.get("source") == "predicted":
+            timestamp = (registry or {}).get("training_ended_at")
+        if timestamp:
+            try:
+                parsed = datetime.fromisoformat(str(timestamp).replace("Z", "+00:00"))
+                if now - parsed.astimezone(timezone.utc) <= timedelta(hours=24):
+                    fresh_count += 1
+            except (TypeError, ValueError):
+                pass
+
+    exposures = len(recommendations)
+    navigations = sum(1 for row in recommendations if row["id"] in outcome_by_id)
+    arrivals = sum(1 for row in outcomes if row.get("arrival_confirmed_at"))
+    positive = sum(1 for row in outcomes if row.get("rating") == "up")
+    verified_success = sum(1 for row in outcomes if row.get("arrival_confirmed_at") and row.get("rating") == "up")
+    logs = logs_res.data or []
+    facilities = [row for row in (facilities_res.data or []) if row.get("is_active", True)]
+    trusted_logs = [row for row in logs if row.get("evidence_tier") in {"verified", "corroborated"}]
+    trusted_facility_ids = {str(row.get("facility_id")) for row in trusted_logs if row.get("facility_id")}
+    active_facility_ids = {str(row.get("id")) for row in facilities if row.get("id")}
+    covered_active_ids = trusted_facility_ids & active_facility_ids
+    source_counts: dict[str, int] = {}
+    tier_counts: dict[str, int] = {}
+    for row in logs:
+        source = str(row.get("source") or "unknown")
+        tier = str(row.get("evidence_tier") or "unknown")
+        source_counts[source] = source_counts.get(source, 0) + 1
+        tier_counts[tier] = tier_counts.get(tier, 0) + 1
+    collection_gaps = [
+        {"id": row.get("id"), "name": row.get("name"), "type": row.get("type")}
+        for row in sorted(facilities, key=lambda item: (str(item.get("type")), str(item.get("name"))))
+        if str(row.get("id")) not in trusted_facility_ids
+    ][:20]
+    info = get_model_info()
+    source_composition = (registry or {}).get("source_composition") or {}
+    warnings = []
+    if not info["trained"]:
+        warnings.append("trained_false")
+    if info.get("refresh_error"):
+        warnings.append("model_refresh_failure")
+    if any(int(source_composition.get(key) or 0) for key in ("seed", "simulated", "synthetic", "single_report")):
+        warnings.append("untrusted_training_source")
+    if closed:
+        warnings.append("closed_place_recommended")
+    if ungrounded_numeric:
+        warnings.append("ungrounded_numeric_exposure")
+    if info.get("mae") is not None and float(info["mae"]) > 0.15:
+        warnings.append("active_model_mae_out_of_bounds")
+
+    return {
+        "since": since, "model": info, "registry": registry,
+        "funnel": {
+            "exposures": exposures, "navigations": navigations, "arrivals": arrivals,
+            "positive_ratings": positive,
+            "verified_visit_success_rate": round(verified_success / exposures, 4) if exposures else 0.0,
+        },
+        "top3_evidence": {
+            "count": len(top3),
+            "coverage_rate": round(evidence_count / len(top3), 4) if top3 else 0.0,
+            "fresh_rate": round(fresh_count / len(top3), 4) if top3 else 0.0,
+            "operating_hours_rate": round(hours_count / len(top3), 4) if top3 else 0.0,
+        },
+        "collection": {
+            "observations": len(logs),
+            "trusted_observations": len(trusted_logs),
+            "remaining_to_candidate": max(0, 300 - len(trusted_logs)),
+            "active_facilities": len(facilities),
+            "trusted_facility_coverage_rate": (
+                round(len(covered_active_ids) / len(facilities), 4) if facilities else 0.0
+            ),
+            "by_source": source_counts,
+            "by_evidence_tier": tier_counts,
+            "facility_gaps": collection_gaps,
+        },
+        "guardrails": {
+            "closed_recommendations": closed,
+            "ungrounded_numeric_exposures": ungrounded_numeric,
+            "warnings": warnings,
+        },
+    }
 
 
 # =========================================================================

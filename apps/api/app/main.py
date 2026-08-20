@@ -33,10 +33,15 @@ async def lifespan(_app: FastAPI):
     """
     t0 = time.perf_counter()
     try:
-        # 1) model.pkl 언피클 — 가장 큰 비용. 예측 1회로 lazy 로더를 강제 기동한다.
-        from app.services.predict_service import predict_congestion
-        await asyncio.to_thread(predict_congestion, "restaurant", 12, 2)
-        _logger.info("warmup_model_ready", elapsed_ms=round((time.perf_counter() - t0) * 1000))
+        # 비공개 Storage의 active 모델을 해시·스키마·품질 검증 후 적재하고 5분 폴링을 시작한다.
+        # 검증된 모델이 없거나 다운로드가 실패해도 서버는 degraded_rules로 정상 기동한다.
+        from app.services.predict_service import get_model_info, start_model_manager
+        await start_model_manager()
+        _logger.info(
+            "warmup_model_ready",
+            trained=get_model_info()["trained"],
+            elapsed_ms=round((time.perf_counter() - t0) * 1000),
+        )
     except Exception as e:
         _logger.warning("warmup_model_failed", error=str(e))
 
@@ -69,6 +74,11 @@ async def lifespan(_app: FastAPI):
         await llm_client.aclose()
     except Exception as e:
         _logger.warning("shutdown_llm_client_close_failed", error=str(e))
+    try:
+        from app.services.predict_service import stop_model_manager
+        await stop_model_manager()
+    except Exception as e:
+        _logger.warning("shutdown_model_manager_failed", error=str(e))
 
 
 app = FastAPI(

@@ -1,4 +1,50 @@
-# 세션 인계 문서 (2026-07-21 갱신)
+# 세션 인계 문서 (2026-08-20 갱신)
+
+## -26. 2026-08-20 — 혼잡 실데이터 수집 경로 운영 연결
+
+- 모델 부재를 이유로 현장 관측까지 숨기던 로직을 수정했다. `degraded_rules`에서도 최신 방문객·사장·
+  운영자 관측은 출처/시각과 함께 표시하되, 예측 대기시간과 혼잡 점수 반영은 검증 모델 전까지 하지 않는다.
+- 방문 완료의 체감 혼잡도를 추천 시설과 조인해 `congestion_logs`로 중복 없이 자동 투영한다. 기존 결과도
+  마이그레이션 시 backfill하며, 기존 30분·서로 다른 사용자 2명 일치 트리거가 corroborated로 승격한다.
+- 사장 좌석 방송을 `merchant_report/verified` 시계열로 영속하고 관리자 확인은 `event/verified`로
+  기록한다. 방문객 혼잡 제보는 3단계 중 하나를 한 번 탭하면 바로 저장되고, 성공 직후 3회 보상
+  진행도 또는 쿠폰 발급을 표시하며 카드 혼잡 상태도 즉시 갱신한다.
+- 체감 제보의 `capacity×level` 환산값은 DB 호환용으로만 보존한다. API와 카드에서는 실제 계수형
+  CCTV 값이 아닌 이상 현재 인원·잔여 좌석으로 노출하지 않고, 혼잡 단계 자체는 계속 표시한다.
+  관리자 시설 화면도 seed/simulated와 장애 시 합성 차트를 제외하고 실제 관측만 보여준다.
+- 관리자 추천 신뢰도 패널에 전체/검증 관측 수, 후보 생성까지 남은 수, 시설 커버리지, 출처 구성과
+  수집 공백 시설 우선순위를 추가했다. 새 migration 원격 적용과 배포 전에는 운영 수집이 시작되지 않는다.
+- 검증: API pytest 671개 및 ruff, web lint 0 errors(기존 warning 187), typecheck/unit,
+  webpack 정적 build 32 pages, journey-loop Playwright 8/8, 스키마 33개 재생성·diff check 통과.
+
+## -25. 2026-08-20 — 관광객 핵심 여정 인터랙션 개선
+
+- Toss 계열의 짧고 단단한 입력 피드백을 공통 모션 토큰으로 정리했다. 모바일 햅틱은 지원 환경에서만
+  동작하고, CSS와 Framer Motion 모두 OS의 `prefers-reduced-motion` 설정을 따른다.
+- 모바일·데스크톱 하단 내비게이션은 낙관적 탭 상태를 스프링 인디케이터로 즉시 표시한다. 추천 카드의
+  저장·길찾기에는 눌림/확정 상태를, 이동 중 카드에는 진입·조건 변경 전환을 추가했다.
+- 방문 확인은 도착→평가→선택형 혼잡 제보를 3단계 진행 표시와 방향성 전환으로 연결하고 완료 체크
+  피드백을 추가했다. 혼잡 데이터 신뢰 규칙, SPOT 산식·가중치·정렬은 변경하지 않았다.
+- 검증: web lint 0 errors(기존 warning 187), typecheck/unit, webpack 정적 build 32 pages,
+  journey-loop Playwright 8/8 통과. 원격 배포·push는 수행하지 않았다.
+
+## -24. 2026-08-20 — 추천 신뢰도 폐루프·검증 모델 배포 구현 (코드 완료, 운영 반영 대기)
+
+- 비공개 `recommendation-models` Storage, `model_registry`, 원자적 승격/롤백, SHA-256·피처
+  스키마·품질 게이트와 5분 활성 버전 폴링을 구현했다. 저장소의 합성 `model.pkl`은 운영에서
+  읽지 않으며 검증 모델이 없으면 `degraded_rules`로 취향·실제 이동시간·혜택만 사용한다.
+- `recommendation_outcomes`와 소유권/단계 순서/멱등 DB RPC, 인증 PATCH API, 브라우저 오프라인
+  재시도 큐를 추가했다. 길찾기→도착→평가→선택형 체감 혼잡을 추천 UUID에 연결하며 GPS·경로·
+  자유 텍스트와 일반 익명 분석 이벤트에는 추천 UUID를 저장하지 않는다.
+- 혼잡 `evidence_tier`와 30분 내 서로 다른 사용자 일치 제보의 corroborated 승격을 추가했다.
+  학습은 verified/corroborated와 상호확인 방문 결과 중앙값만 사용하고 최근 7일 홀드아웃,
+  300/유형별50/홀드아웃60, MAE≤0.15, 기준선 20% 개선, 유형별 회귀≤0.03을 강제한다.
+- 매주 월요일 03:00 KST 후보 생성 및 수동 승격/롤백 workflow와 관리자 추천 신뢰도 패널을 추가했다.
+  SPOT 가중치 0.4/0.4/0.2는 변경하지 않았다.
+- 검증: API pytest 668개 및 ruff, 웹 lint 0 errors(기존 warning 187), typecheck/unit,
+  webpack 정적 build 32 pages, journey-loop Playwright 8/8, 스키마 재생성·diff check 통과.
+- 운영 반영 대기: 새 Supabase migration 적용과 GitHub/Render의 기존 Supabase service-role secrets 확인.
+  첫 두 후보는 workflow 수동 승인 전까지 candidate로 유지한다. 원격 DB·배포·push는 수행하지 않았다.
 
 ## -23. 2026-07-21 — LOCALDATA 공공 인허가 후보 확장 (코드 완료, 운영 반영 대기)
 
@@ -188,7 +234,8 @@
   timestamp` 신설, `fetch_congestion_map` 이 로그 info dict 반환(0.0 합성 제거),
   `resolve_congestion_evidence`(measured/predicted/none 판정 — 미학습 0.5 폴백은 none),
   `predict_congestion_detailed` 신설(래퍼 `predict_congestion` 동작 불변), reason 3단계 문구
-  (predicted="예상 혼잡도 N% (AI 예측)", none=혼잡 문구 생략), current_count 는 실측일 때만 합성.
+  (predicted="예상 혼잡도 N% (AI 예측)", none=혼잡 문구 생략). 이후 -26에서 정성 제보의
+  `current_count` 합성을 외부 노출에서 제거하고 실제 계수형 소스만 인원·잔여석을 표시하도록 강화했다.
   프런트 — explore/recommend 3단계 배지·원본 중립 헤드라인, RecommendationCard D-1/D-3 라벨,
   bookmark `unknown` 상태(null→'한산' 저장 버그 수정), 음성 후보 congestion null 전송,
   i18n 4로케일 4키 추가. **주의(구현 중 정정)**: `courses.py:153` 기준선은 표시가 아니라 점수

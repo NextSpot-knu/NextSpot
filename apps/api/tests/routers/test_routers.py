@@ -13,6 +13,8 @@ from app.main import app
 from app.core.config import settings
 from app.core.supabase import get_current_user
 from app.services.preference_vector_service import preference_vector_service
+from app.routers.recommendations import resolve_congestion_evidence
+from app.routers.infrastructures import _exact_current_count
 
 # --- 공통 상수 (경주 황리단길 좌표 기준 — 기존 서비스 테스트와 통일) ---
 BASE_LAT, BASE_LNG = 35.8360, 129.2100
@@ -21,6 +23,31 @@ BREAKDOWN_KEYS = (
     "preference", "wait_time", "travel_time", "incentive", "incentive_coupon", "incentive_relief",
     "original_wait_time",  # 분산 효과 집계용 스냅샷(원본 예상대기) — /admin/impact 가 소비
 )
+
+
+@pytest.mark.asyncio
+async def test_measured_congestion_remains_visible_without_trained_model():
+    log = {
+        "level": 0.2,
+        "source": "user_report",
+        "evidence_tier": "corroborated",
+        "is_stale": False,
+        "timestamp": "2026-08-20T03:00:00+00:00",
+    }
+    with patch("app.routers.recommendations.get_model_info", return_value={"trained": False}):
+        evidence = await resolve_congestion_evidence({"type": "cafe"}, log)
+    assert evidence["source"] == "measured"
+    assert evidence["level"] == pytest.approx(0.2)
+    assert evidence["log_source"] == "user_report"
+    assert evidence["evidence_tier"] == "corroborated"
+
+
+def test_qualitative_reports_never_expose_estimated_headcount():
+    """체감 단계는 보여주되 capacity 환산값을 실제 인원으로 내보내지 않는다."""
+    assert _exact_current_count({"source": "user_report", "current_count": 40}) is None
+    assert _exact_current_count({"source": "merchant_report", "current_count": 20}) is None
+    assert _exact_current_count({"source": "event", "current_count": 30}) is None
+    assert _exact_current_count({"source": "traffic_cctv", "current_count": 17}) == 17
 
 
 def _admin_headers(token: str | None = None) -> dict:
@@ -204,6 +231,7 @@ def test_recommendations_happy_path(auth_client):
          patch("app.routers.recommendations.fetch_facility", new=AsyncMock(return_value=ORIGIN_ROW)), \
          patch("app.routers.recommendations.fetch_all_facilities", new=AsyncMock(return_value=[ORIGIN_ROW] + near + far)), \
          patch("app.routers.recommendations.fetch_congestion_map", new=AsyncMock(return_value=congestion_map)), \
+         patch("app.routers.recommendations.get_model_info", return_value={"trained": True}), \
          patch.object(preference_vector_service, "get_user_vector", new=AsyncMock(return_value=UNIT_VECTOR)), \
          patch("app.routers.recommendations.generate_reason_with_source", new=AsyncMock(return_value=("사유", "template"))), \
          patch("app.routers.recommendations.supabase_client", new=FakeSupabase({"recommendations": [{"id": "rec-1"}]})):
@@ -229,14 +257,13 @@ def test_recommendations_happy_path(auth_client):
         assert item["reason"] == "사유"
         assert item["reason_source"] == "template"
         assert item["recommendation_id"] == "rec-1"  # _persist 가 INSERT 결과 id 를 매핑
-        # 혼잡 3단계(CONGESTION_TRUST_SPEC): 로그가 있는 후보는 measured + 원 로그 메타 동봉,
-        # current_count 는 capacity × 실측 혼잡으로 합성(기존 동작 유지).
+        # 혼잡 단계는 표시하지만 정성/seed 로그의 환산 인원은 실제 잔여석으로 노출하지 않는다.
         fid = item["facility"]["id"]
         assert item["congestion_source"] == "measured"
         assert item["congestion_level"] == pytest.approx(congestion_map[fid]["level"])
         assert item["congestion_log_source"] == "seed"
         assert item["congestion_is_stale"] is False
-        assert item["facility"]["current_count"] == round(50 * congestion_map[fid]["level"])
+        assert item["facility"]["current_count"] is None
 
 
 def test_recommendations_no_log_untrained_model_reports_none(auth_client):
@@ -275,7 +302,8 @@ def test_recommendations_no_log_trained_model_reports_predicted(auth_client):
          patch("app.routers.recommendations.fetch_facility", new=AsyncMock(return_value=ORIGIN_ROW)), \
          patch("app.routers.recommendations.fetch_all_facilities", new=AsyncMock(return_value=[ORIGIN_ROW] + near)), \
          patch("app.routers.recommendations.fetch_congestion_map", new=AsyncMock(return_value={})), \
-         patch("app.routers.recommendations.predict_congestion_detailed", return_value=(0.42, "local")), \
+         patch("app.routers.recommendations.predict_congestion_detailed", return_value=(0.42, "registry")), \
+         patch("app.routers.recommendations.get_model_info", return_value={"trained": True}), \
          patch.object(preference_vector_service, "get_user_vector", new=AsyncMock(return_value=UNIT_VECTOR)), \
          patch("app.routers.recommendations.supabase_client", new=FakeSupabase({"recommendations": [{"id": "rec-1"}]})):
         res = auth_client.post("/api/v1/recommendations", json=_reco_body())
@@ -320,9 +348,9 @@ def test_recommend_by_type_happy_path(auth_client):
     assert res.status_code == 200
     items = res.json()
     assert len(items) == 4  # cafe 후보 전부(기본 limit 5 이내)
-    # 요청한 타입만 + 합성 recommendation_id(브라우즈 랭킹은 DB 미기록)
+    # 요청한 타입만 + DB 저장 실패 시 명시적 추적 불가 ID
     assert all(item["facility"]["type"] == "cafe" for item in items)
-    assert all(item["recommendation_id"].startswith("bytype-") for item in items)
+    assert all(item["recommendation_id"] == "mock-rec-id" for item in items)
     scores = [item["spot_score"] for item in items]
     assert scores == sorted(scores, reverse=True)
     assert [item["rank"] for item in items] == [1, 2, 3, 4]
@@ -935,21 +963,31 @@ def test_admin_metrics_trend_aggregation(client):
 # =========================================================================
 
 def test_predict_model_info(client):
-    canned = {"trained": True, "metrics": {"mae": 0.08, "baseline_mae": 0.15, "holdout_n": 200}}
+    canned = {
+        "trained": True, "version": "v1", "loaded_at": "2026-08-19T00:00:00+00:00",
+        "real_data_count": 500, "training_started_at": "2026-01-01T00:00:00+00:00",
+        "training_ended_at": "2026-08-10T00:00:00+00:00", "mae": 0.08,
+        "baseline_improvement": 0.3, "fallback_state": None, "refresh_error": None,
+    }
     with patch("app.routers.predict.get_model_info", return_value=canned):
         res = client.get("/predict/model-info")
     assert res.status_code == 200
     body = res.json()
     assert body["trained"] is True
-    assert body["metrics"]["mae"] == 0.08
+    assert body["mae"] == 0.08
+    assert body["version"] == "v1"
 
 
 def test_predict_model_info_untrained(client):
-    # model.pkl 부재(미학습) — trained=False, metrics=None (배지는 '평가 전' 표기)
-    with patch("app.routers.predict.get_model_info", return_value={"trained": False, "metrics": None}):
+    canned = {
+        "trained": False, "version": None, "loaded_at": None, "real_data_count": 0,
+        "training_started_at": None, "training_ended_at": None, "mae": None,
+        "baseline_improvement": None, "fallback_state": "degraded_rules", "refresh_error": "no_active_model",
+    }
+    with patch("app.routers.predict.get_model_info", return_value=canned):
         res = client.get("/predict/model-info")
     assert res.status_code == 200
-    assert res.json() == {"trained": False, "metrics": None}
+    assert res.json()["fallback_state"] == "degraded_rules"
 
 
 # =========================================================================
@@ -1114,7 +1152,7 @@ def test_report_congestion_happy_path(auth_client):
     assert body["success"] is True
     assert body["facility_id"] == "f-1"
     assert body["congestion_level"] == 0.9
-    assert body["current_count"] == 45
+    assert body["current_count"] is None
     assert body["source"] == "user_report"
 
 

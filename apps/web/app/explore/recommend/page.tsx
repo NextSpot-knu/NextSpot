@@ -1369,15 +1369,15 @@ function RecommendContent() {
                   </div>
 
                   {/* SPOT Breakdown Indicators */}
-                  <div className="grid grid-cols-3 gap-2 py-2 border-t border-b border-line my-3 text-[11px] text-muk-soft">
+                  <div className={`grid ${rec.congestionSource === 'none' ? 'grid-cols-2' : 'grid-cols-3'} gap-2 py-2 border-t border-b border-line my-3 text-[11px] text-muk-soft`}>
                     <div className="text-center">
                       <span className="text-muk-soft block text-[10px]">{t("recommend.prefMatch")}</span>
                       <span className="font-bold text-jade">{preferencePct}%</span>
                     </div>
-                    <div className="text-center border-l border-r border-line">
+                    {rec.congestionSource !== 'none' && <div className="text-center border-l border-r border-line">
                       <span className="text-muk-soft block text-[10px]">{t("recommend.expectedWait")}</span>
                       <span className="font-bold text-gold-deep">{t("recommend.minutesValue", { n: waitTime })}</span>
-                    </div>
+                    </div>}
                     <div className="text-center">
                       <span className="text-muk-soft block text-[10px]">{t("recommend.expectedWalk")}</span>
                       <span className="font-bold text-jade">{t("recommend.walkValue", { n: travelTime, dist: Math.round(rec.distanceM) })}</span>

@@ -281,6 +281,17 @@ class _CapturingFacilitiesTable(FakeTable):
         return self
 
 
+class _CapturingCongestionTable(FakeTable):
+    def __init__(self, captured: dict):
+        super().__init__([])
+        self._captured = captured
+
+    def insert(self, payload):
+        self._captured["congestion_log"] = payload
+        self._data = [payload]
+        return self
+
+
 class _CapturingFacilitiesSupabase:
     def __init__(self, facility: dict, captured: dict):
         self._facility = facility
@@ -289,6 +300,8 @@ class _CapturingFacilitiesSupabase:
     def table(self, name: str):
         if name == "facilities":
             return _CapturingFacilitiesTable([self._facility], self._captured)
+        if name == "congestion_logs":
+            return _CapturingCongestionTable(self._captured)
         return FakeTable([])
 
 
@@ -341,8 +354,8 @@ def test_merchant_seat_status_clear_when_absent_is_noop(client):
 
 
 def test_merchant_seat_status_save_still_writes_key(client):
-    """저장 경로 회귀 가드 — level 지정 시 seat_status 가 기존대로 병합 기록된다."""
-    facility = {"id": "f-1", "features": {"average_processing_time": 10}}
+    """좌석 방송은 최신 JSON과 출처가 명시된 시계열 관측을 함께 기록한다."""
+    facility = {"id": "f-1", "capacity": 40, "features": {"average_processing_time": 10}}
     captured: dict = {}
     with patch(
         "app.routers.merchant.supabase_admin",
@@ -358,6 +371,11 @@ def test_merchant_seat_status_save_still_writes_key(client):
     assert written["seat_status"]["level"] == "mid"
     assert written["seat_status"]["updated_at"]
     assert written["average_processing_time"] == 10  # 기존 features 보존
+    log = captured["congestion_log"]
+    assert log["source"] == "merchant_report"
+    assert log["evidence_tier"] == "verified"
+    assert log["congestion_level"] == pytest.approx(0.5)
+    assert log["current_count"] == 20
 
 
 def test_merchant_seat_status_clear_facility_404(client):

@@ -67,13 +67,14 @@ def _patched(facilities=None, congestion_map=None):
         ),
         patch.object(predict, "predict_congestion", side_effect=_fake_predict),
         patch.object(predict, "_utcnow", return_value=FIXED_NOW),
+        patch.object(predict, "get_model_info", return_value={"trained": True}),
     )
 
 
 def test_batch_happy_path_anchoring_math():
     # 앵커링 공식 검증: offset_f = 현재실측 − predict(타입, 지금) / pred_f = clamp01(predict(타입, 목표) + offset_f)
-    p1, p2, p3, p4 = _patched()
-    with p1, p2, p3, p4:
+    p1, p2, p3, p4, p5 = _patched()
+    with p1, p2, p3, p4, p5:
         client = _make_client()
         res = client.post("/predict/batch", json={"hours_ahead": 2})
 
@@ -100,8 +101,8 @@ def test_batch_happy_path_anchoring_math():
 
 def test_batch_hours_ahead_zero_returns_current_level_for_anchored():
     # hours_ahead=0 이면 앵커링 항등식: pred = base_now + (현재실측 − base_now) = 현재실측
-    p1, p2, p3, p4 = _patched()
-    with p1, p2, p3, p4:
+    p1, p2, p3, p4, p5 = _patched()
+    with p1, p2, p3, p4, p5:
         client = _make_client()
         res = client.post("/predict/batch", json={"hours_ahead": 0})
 
@@ -129,8 +130,8 @@ def test_batch_hours_ahead_missing_422():
 
 def test_batch_response_cached_60s_per_hours_ahead():
     # 같은 hours_ahead 재호출은 60초 캐시로 응답 — DB/모델 재조회 없음(버스트 보호)
-    p1, p2, p3, p4 = _patched()
-    with p1 as fetch_fac_mock, p2, p3, p4:
+    p1, p2, p3, p4, p5 = _patched()
+    with p1 as fetch_fac_mock, p2, p3, p4, p5:
         client = _make_client()
         first = client.post("/predict/batch", json={"hours_ahead": 2})
         second = client.post("/predict/batch", json={"hours_ahead": 2})

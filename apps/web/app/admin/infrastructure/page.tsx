@@ -20,6 +20,7 @@ interface Infrastructure {
   type: '음식점' | '카페' | '관광지' | '문화시설';
   status: 'blue' | 'green' | 'yellow' | 'orange';
   level: number; // 최신 혼잡도(0~1) — 이상 알림 판정·Override 초기값에 사용
+  hasObservation: boolean;
   capacity: string;
   expectedDemand: string;
 }
@@ -45,22 +46,6 @@ interface IngestRequest {
 
 // 데모 폴백: 백엔드가 비어있거나 응답이 없을 때 보여줄 샘플 시설(데모 페이지 무중단).
 const DEMO_FACILITIES: Infrastructure[] = [];
-
-// 데모 시설 선택 시 보여줄 합성 시간대 추이. 백엔드 의존 없이 가벼운 곡선 생성.
-function genDemoChart(seedStr: string): ChartDataPoint[] {
-  let seed = 0;
-  for (let i = 0; i < seedStr.length; i++) seed += seedStr.charCodeAt(i);
-  const out: ChartDataPoint[] = [];
-  const nowH = new Date(Date.now() + 9 * 60 * 60 * 1000).getUTCHours(); // KST(브라우저 로컬 TZ 무관)
-  for (let h = 8; h <= Math.max(9, nowH); h++) {
-    const noise = ((seed * (h + 1)) % 100) / 100;
-    let base = 30 + noise * 25;
-    if (h >= 11 && h <= 13) base = 60 + noise * 35; // 점심 피크
-    else if (h >= 17 && h <= 19) base = 55 + noise * 30; // 퇴근 피크
-    out.push({ time: `${String(h).padStart(2, '0')}:00`, demand: Math.round(Math.min(99, base)) });
-  }
-  return out;
-}
 
 export default function InfrastructurePage() {
   const [facilities, setFacilities] = useState<Infrastructure[]>([]);
@@ -134,8 +119,9 @@ export default function InfrastructurePage() {
         (facilitiesData || []).map(async (f) => {
           const { data: logs, error: lError } = await supabase
             .from('congestion_logs')
-            .select('current_count, congestion_level, timestamp')
+            .select('current_count, congestion_level, timestamp, source, evidence_tier')
             .eq('facility_id', f.id)
+            .in('evidence_tier', ['single_report', 'corroborated', 'verified'])
             .order('timestamp', { ascending: false })
             .limit(1);
 
@@ -143,7 +129,7 @@ export default function InfrastructurePage() {
 
           const latestLog = logs && logs.length > 0 ? logs[0] : null;
           const level = latestLog ? latestLog.congestion_level : 0.0;
-          const currentCount = latestLog ? latestLog.current_count : 0;
+          const currentCount = latestLog?.source === 'traffic_cctv' ? latestLog.current_count : null;
 
           // 타입 매핑
           const typeMap: Record<string, '음식점' | '카페' | '관광지' | '문화시설'> = {
@@ -160,21 +146,11 @@ export default function InfrastructurePage() {
           else if (level >= 0.50) status = 'yellow';
           else if (level >= 0.25) status = 'green';
 
-          // expectedDemand 문구 매핑
-          let expectedDemand = '낮음';
-          if (level >= 0.75) {
-            expectedDemand = mappedType === '음식점' ? '매우 높음 (점심·저녁 피크 예측)'
-              : mappedType === '관광지' ? '매우 높음 (주말·낮 시간 포화 예측)'
-              : '매우 높음';
-          } else if (level >= 0.50) {
-            expectedDemand = mappedType === '음식점' ? '보통 (일반 식사 시간 패턴)'
-              : mappedType === '관광지' ? '보통 (관람객 유입 진행)'
-              : '보통';
-          } else if (level >= 0.25) {
-            expectedDemand = '낮음 (여유 상태)';
-          } else {
-            expectedDemand = '매우 낮음 (한산한 상태)';
-          }
+          const expectedDemand = !latestLog ? '관측 대기'
+            : level >= 0.75 ? '혼잡'
+            : level >= 0.5 ? '보통'
+            : level >= 0.25 ? '여유'
+            : '한산';
 
           return {
             id: f.id,
@@ -182,7 +158,8 @@ export default function InfrastructurePage() {
             type: mappedType,
             status,
             level,
-            capacity: `${currentCount}/${f.capacity}`,
+            hasObservation: !!latestLog,
+            capacity: currentCount == null ? `${f.capacity} 정원 · 인원 미계수` : `${currentCount}/${f.capacity}`,
             expectedDemand
           } as Infrastructure;
         })
@@ -208,11 +185,6 @@ export default function InfrastructurePage() {
   }, [supabase]);
 
   const fetchChartData = useCallback(async (facilityId: string) => {
-    // 데모 시설은 백엔드를 거치지 않고 합성 추이를 보여준다.
-    if (facilityId.startsWith('demo-')) {
-      setChartData(genDemoChart(facilityId));
-      return;
-    }
     try {
       // KST '오늘' 00:00 의 UTC 경계(브라우저 로컬 TZ 무관). 로컬 자정으로 자르면 비-KST 브라우저에서 어긋난다.
       const nowKst = new Date(Date.now() + 9 * 60 * 60 * 1000);
@@ -224,6 +196,7 @@ export default function InfrastructurePage() {
         .from('congestion_logs')
         .select('timestamp, congestion_level')
         .eq('facility_id', facilityId)
+        .in('evidence_tier', ['single_report', 'corroborated', 'verified'])
         .gte('timestamp', kstMidnightUtc.toISOString())
         .order('timestamp', { ascending: true });
 
@@ -242,9 +215,8 @@ export default function InfrastructurePage() {
 
       setChartData(formatted);
     } catch (err) {
-      // 타임아웃/오류 — 빈 차트 대신 합성 추이로 폴백.
-      console.warn('차트 실데이터 로드 실패 — 합성 추이로 대체:', err);
-      setChartData(genDemoChart(facilityId));
+      console.warn('차트 실데이터 로드 실패:', err);
+      setChartData([]);
     }
   }, [supabase]);
 

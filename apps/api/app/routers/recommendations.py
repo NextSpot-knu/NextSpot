@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Literal
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import AliasChoices, BaseModel, Field, field_validator
+from pydantic import AliasChoices, BaseModel, Field, field_validator, model_validator
 # 이 라우터는 인증된 사용자 컨텍스트에서 본인 소유 데이터만 다루는 서버→서버 신뢰 경로다.
 # recommendations/user_feedback 는 RLS 가 service_role/authenticated 만 INSERT 를 허용하는데,
 # anon 클라이언트는 요청별 JWT 를 PostgREST 로 싣지 않아 auth.uid()=null → RLS 거부가 된다.
@@ -24,8 +24,12 @@ from app.services.reason_service import generate_reason_with_source
 from app.services.voice_intent_service import interpret_turn
 from app.services.embedding_service import filter_candidates as vector_filter_candidates
 from app.services.embedding_service import enrich_candidates as enrich_voice_candidates
-from app.routers.infrastructures import fetch_active_facilities, fetch_latest_congestion_for_all
-from app.services.predict_service import predict_congestion_detailed
+from app.routers.infrastructures import (
+    _exact_current_count,
+    fetch_active_facilities,
+    fetch_latest_congestion_for_all,
+)
+from app.services.predict_service import get_model_info, predict_congestion_detailed
 from app.services.spot.score import calculate_spot_score
 from app.services.spot.travel import WALKING_SPEED_M_PER_MIN, calculate_haversine_distance
 from app.services.travel_context import TravelContext, facility_matches_context, open_status_at_arrival
@@ -67,6 +71,9 @@ class RecommendItem(BaseModel):
     information_confidence: str | None = None
     place_data_source: str | None = None
     data_updated_at: str | None = None
+    scoring_mode: Literal["model", "degraded_rules"] = "degraded_rules"
+    model_version: str | None = None
+    prediction_source: Literal["registry", "unavailable"] = "unavailable"
 
 class FeedbackRequest(BaseModel):
     recommendation_id: str
@@ -195,25 +202,40 @@ async def fetch_congestion_map(facility_ids: list[str]) -> dict[str, dict]:
 async def resolve_congestion_evidence(facility: dict, log_info: dict | None) -> dict:
     """후보 1건의 혼잡 근거 3단계를 판정한다(CONGESTION_TRUST_SPEC).
 
-    - measured: 최신 congestion_logs 실측(원 로그 source·신선도 동봉)
+    - measured: 최신 congestion_logs 현장 관측(원 로그 source·신선도·증거등급 동봉)
     - predicted: 로그 없음 + 모델이 실제로 학습된 AI 예측(현재 시각 UTC 기준)
     - none: 로그 없음 + 모델 미학습 — 0.5 평탄 폴백을 예측으로 팔지 않는다
     """
+    # 모델 유무와 현장 관측 유무는 별개다. 모델이 없어도 방문객·사장·운영자가 방금 남긴
+    # 실제 관측은 출처와 함께 표시한다. 단, degraded_rules 점수에는 혼잡/대기를 섞지 않는다.
     if log_info is not None:
         return {
             "level": log_info["level"],
             "source": "measured",
             "log_source": log_info.get("source"),
+            "current_count": _exact_current_count(log_info),
+            "evidence_tier": log_info.get("evidence_tier"),
             "is_stale": bool(log_info.get("is_stale", False)),
             "timestamp": log_info.get("timestamp"),
+        }
+    if not get_model_info()["trained"]:
+        return {
+            "level": None, "source": "none", "log_source": None,
+            "evidence_tier": None, "is_stale": None, "timestamp": None,
         }
     now = datetime.now(timezone.utc)  # 모델은 UTC 시각으로 학습됨(score.py 와 동일 관례)
     predicted, pred_source = await asyncio.to_thread(
         predict_congestion_detailed, facility.get("type") or "", now.hour, now.weekday()
     )
-    if pred_source == "local":
-        return {"level": predicted, "source": "predicted", "log_source": None, "is_stale": None, "timestamp": None}
-    return {"level": None, "source": "none", "log_source": None, "is_stale": None, "timestamp": None}
+    if pred_source == "registry" and predicted is not None:
+        return {
+            "level": predicted, "source": "predicted", "log_source": None,
+            "evidence_tier": None, "is_stale": None, "timestamp": None,
+        }
+    return {
+        "level": None, "source": "none", "log_source": None,
+        "evidence_tier": None, "is_stale": None, "timestamp": None,
+    }
 
 
 async def _resolve_user_vector(user_id: str, preferred_categories: list[str]) -> list[float]:
@@ -284,25 +306,27 @@ async def get_recommendations(
     )
     # 원본 혼잡은 W3 인센티브(재배치기여)의 **점수 입력** — Phase 1 은 점수 입력을 바꾸지 않는다
     # (CONGESTION_TRUST_SPEC D-2: 로그 없으면 기존과 동일하게 0.0 기준선 유지, Phase 2 에서 재검토).
-    original_congestion = (congestion_by_id.get(req.original_facility_id) or {}).get("level", 0.0)
-    # 원본 대기시간도 위 일괄 혼잡 조회 결과를 재사용한다.
-    original_wait_time = await calculate_predicted_wait_time(
-        facility_type=original_infra["type"],
-        congestion_level=original_congestion,
-        facility_features=original_infra.get("features"),
+    model_ready = get_model_info()["trained"]
+    original_congestion = (
+        (congestion_by_id.get(req.original_facility_id) or {}).get("level", 0.0)
+        if model_ready else 0.0
     )
+    # 원본 대기시간도 위 일괄 혼잡 조회 결과를 재사용한다.
+    original_wait_time = None
+    if model_ready:
+        original_wait_time = await calculate_predicted_wait_time(
+            facility_type=original_infra["type"],
+            congestion_level=original_congestion,
+            facility_features=original_infra.get("features"),
+        )
 
     async def _score_candidate(f: dict, dist: float) -> dict:
         # 혼잡 3단계 판정(CONGESTION_TRUST_SPEC) — 로그 없는 시설을 0.0(실측 여유)처럼 팔지 않는다.
         evidence = await resolve_congestion_evidence(f, congestion_by_id.get(f["id"]))
         candidate_congestion = evidence["level"]
-        # 현재 인원 추정치(capacity × 혼잡도)는 **실측일 때만** 응답 facility 에 주입한다(얕은 복사).
-        # 근거 없는 시설의 current_count=0 은 카드에서 '잔여석=정원 전체'로 읽혀 왔다 — None 이면
-        # 프런트가 '—' 처리한다(RecommendationCard 의 currentCount null 가드 기존 동작).
-        if evidence["source"] == "measured":
-            f = {**f, "current_count": round(f.get("capacity", 0) * candidate_congestion)}
-        else:
-            f = {**f, "current_count": None}
+        # 체감 혼잡도를 capacity×level 로 환산한 값은 실제 인원이 아니다. 계수형 소스가
+        # 명시적으로 제공한 인원만 노출하고, 방문객·사장 정성 제보는 혼잡 단계만 보여준다.
+        f = {**f, "current_count": evidence.get("current_count")}
         score_res = await calculate_spot_score(
             user_id=req.user_id,
             preferred_categories=user_info.get("preferred_categories", []),
@@ -373,6 +397,9 @@ async def get_recommendations(
                 "operating_hours": facility.get("operating_hours"),
                 "coupon_rate": facility.get("coupon_rate"),
             },
+            "scoring_mode": item["breakdown"].get("scoring_mode"),
+            "model_version": item["breakdown"].get("model_version"),
+            "prediction_source": item["breakdown"].get("prediction_source"),
         }
         payload = {
                 "user_id": req.user_id,
@@ -439,6 +466,9 @@ async def get_recommendations(
             information_confidence="verified" if item["facility"].get("operating_hours") else "unknown",
             place_data_source=item["facility"].get("place_data_source"),
             data_updated_at=item["facility"].get("data_updated_at") or item["facility"].get("updated_at"),
+            scoring_mode=item["breakdown"].get("scoring_mode", "degraded_rules"),
+            model_version=item["breakdown"].get("model_version"),
+            prediction_source=item["breakdown"].get("prediction_source", "unavailable"),
         ))
 
     logger.info("recommendations_generated", count=len(response_items))
@@ -588,18 +618,15 @@ async def recommend_by_type(
             # 사장님이 방금 확인한 좌석 상태 — 실측으로 취급(프런트 배지는 seat_status_fresh 가 담당).
             evidence = {
                 "level": override, "source": "measured", "log_source": "merchant_seat",
-                "is_stale": False, "timestamp": None,
+                "current_count": None, "is_stale": False, "timestamp": None,
             }
         else:
             # 혼잡 3단계 판정(CONGESTION_TRUST_SPEC) — 로그 없는 시설을 0.0 실측처럼 팔지 않는다.
             evidence = await resolve_congestion_evidence(f, congestion_by_id.get(f["id"]))
         cong = evidence["level"]
         dist = calculate_haversine_distance(req.user_lat, req.user_lng, f["latitude"], f["longitude"])
-        # current_count 는 실측일 때만 합성 — 근거 없으면 None(프런트 '—' 처리, 잔여석 합성 금지).
-        if evidence["source"] == "measured":
-            f2 = {**f, "current_count": round(f.get("capacity", 0) * cong)}
-        else:
-            f2 = {**f, "current_count": None}
+        # 정성 혼잡 단계를 인원수로 합성하지 않는다. 실제 계수 소스의 값만 전달한다.
+        f2 = {**f, "current_count": evidence.get("current_count")}
         f2.pop(CONGESTION_OVERRIDE_KEY, None)  # 내부 전용 오버레이 키 — 응답 payload 에는 노출하지 않는다.
         res = await calculate_spot_score(
             user_id=req.user_id,
@@ -639,10 +666,50 @@ async def recommend_by_type(
     reasons = await asyncio.gather(*[_reason_for(item) for item in top])
 
     total = len(scored)
-    # 브라우즈 랭킹은 DB(recommendations)에 남기지 않는다(합성 recommendation_id 사용).
+    # 실제 노출된 by-type 추천도 방문 결과와 조인 가능해야 한다. 각 노출을 recommendations에
+    # 저장하고 UUID를 반환한다. 저장 실패 항목만 추적 불가능한 명시적 mock id로 강등한다.
+    async def _persist_by_type(item: dict, rank: int):
+        facility = item["facility"]
+        evidence = item["congestion_evidence"]
+        snapshot = {
+            "facility_id": facility["id"], "facility_name": facility.get("name"),
+            "facility_type": facility.get("type"), "spot_score": item["spot_score"],
+            "rank": rank, "breakdown": item["breakdown"], "distance_m": item["distance_m"],
+            "congestion": {"level": evidence["level"], "source": evidence["source"], "timestamp": evidence["timestamp"]},
+            "open_status_at_arrival": open_status_at_arrival(
+                facility, now + timedelta(minutes=item["breakdown"].get("travel_time", 0))
+            ),
+            "tourapi_facts": {
+                "barrier_free": facility.get("barrier_free"),
+                "operating_hours": facility.get("operating_hours"),
+                "coupon_rate": facility.get("coupon_rate"),
+            },
+            "scoring_mode": item["breakdown"].get("scoring_mode"),
+            "model_version": item["breakdown"].get("model_version"),
+            "prediction_source": item["breakdown"].get("prediction_source"),
+        }
+        return await asyncio.to_thread(
+            supabase_client.table("recommendations").insert({
+                "user_id": req.user_id,
+                "original_facility_id": facility["id"],
+                "recommended_facility_id": facility["id"],
+                "spot_score": item["spot_score"],
+                "score_breakdown": item["breakdown"],
+                "recommendation_snapshot": snapshot,
+                "accepted": False,
+                "source": "spot",
+            }).execute
+        )
+
+    persisted = await asyncio.gather(
+        *[_persist_by_type(item, idx + 1) for idx, item in enumerate(top)], return_exceptions=True
+    )
     return [
         RecommendItem(
-            recommendation_id=f"bytype-{item['facility']['id']}",
+            recommendation_id=(
+                result.data[0]["id"]
+                if not isinstance(result, Exception) and result.data else "mock-rec-id"
+            ),
             facility=item["facility"],
             spot_score=item["spot_score"],
             breakdown=item["breakdown"],
@@ -662,9 +729,26 @@ async def recommend_by_type(
             information_confidence="verified" if item["facility"].get("operating_hours") else "unknown",
             place_data_source=item["facility"].get("place_data_source"),
             data_updated_at=item["facility"].get("data_updated_at") or item["facility"].get("updated_at"),
+            scoring_mode=item["breakdown"].get("scoring_mode", "degraded_rules"),
+            model_version=item["breakdown"].get("model_version"),
+            prediction_source=item["breakdown"].get("prediction_source", "unavailable"),
         )
-        for idx, item in enumerate(top)
+        for idx, (item, result) in enumerate(zip(top, persisted))
     ]
+
+
+class RecommendationOutcomeRequest(BaseModel):
+    stage: Literal["navigation_started", "arrival_confirmed", "rated"]
+    rating: Literal["up", "down"] | None = None
+    observed_congestion: Literal["quiet", "normal", "busy"] | None = None
+
+    @model_validator(mode="after")
+    def validate_stage_fields(self):
+        if self.stage == "rated" and self.rating is None:
+            raise ValueError("rated 단계에는 rating이 필요합니다.")
+        if self.stage != "rated" and (self.rating is not None or self.observed_congestion is not None):
+            raise ValueError("평가와 체감 혼잡도는 rated 단계에서만 보낼 수 있습니다.")
+        return self
 
 
 # --- 음성 비서 1턴 해석(키워드 분류): 발화→의도 + 후보 선호매칭 선택 + 한국어 응답 ---
@@ -1067,6 +1151,36 @@ async def resolve_feedback_target(recommendation_id: str, current_user: dict) ->
         # facilities 를 조인하지 못했을 시 단독으로 시설 추가 조회
         facility = await fetch_facility(recommendation["recommended_facility_id"])
     return recommendation, facility
+
+
+@router.patch("/recommendations/{recommendation_id}/outcome")
+async def record_recommendation_outcome(
+    recommendation_id: str,
+    req: RecommendationOutcomeRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """추천 소유자의 방문 단계를 서버 시각으로 전진시킨다(DB RPC가 멱등·원자성 보장)."""
+    await resolve_feedback_target(recommendation_id, current_user)
+    try:
+        result = await asyncio.to_thread(
+            supabase_client.rpc("record_recommendation_outcome", {
+                "p_recommendation_id": recommendation_id,
+                "p_user_id": current_user["id"],
+                "p_stage": req.stage,
+                "p_rating": req.rating,
+                "p_observed_congestion": req.observed_congestion,
+            }).execute
+        )
+    except Exception as exc:
+        message = str(exc)
+        if "must be recorded first" in message or "cannot be changed" in message:
+            raise HTTPException(status_code=409, detail="방문 결과 단계 순서가 올바르지 않습니다.")
+        logger.error("recommendation_outcome_failed", recommendation_id=recommendation_id, error=message)
+        raise HTTPException(status_code=500, detail="방문 결과 저장에 실패했습니다.")
+    row = result.data
+    if isinstance(row, list):
+        row = row[0] if row else None
+    return {"success": True, "outcome": row}
 
 
 @router.post("/feedback")

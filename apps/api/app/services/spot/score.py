@@ -5,7 +5,7 @@ from app.services.spot.preference import calculate_preference_similarity
 from app.services.spot.wait_time import calculate_predicted_wait_time
 from app.services.spot.travel import get_travel_time_and_distance
 from app.services.event_boost import get_event_congestion_boost
-from app.services.predict_service import predict_congestion
+from app.services.predict_service import get_model_info, predict_congestion_detailed
 
 # 가중치 정의 — 2026 관광데이터 활용 공모전 제안서 기준 (0.40 / 0.40 / 0.20).
 # ⚠️ 이 상수는 packages/shared-types/spot.ts 의 SPOT_WEIGHTS 와 정합해야 한다
@@ -80,19 +80,22 @@ async def calculate_spot_score(
     arrival_dow = arrival_dt.weekday()
     # predict_congestion 은 동기 함수(로컬 sklearn 추론)이므로, async 컨텍스트의 이벤트 루프를
     # 막지 않도록 워커 스레드로 오프로드한다.
-    predicted_congestion = await asyncio.to_thread(
-        predict_congestion,
+    predicted_congestion, prediction_source = await asyncio.to_thread(
+        predict_congestion_detailed,
         candidate_facility["type"],
         arrival_hour,
         arrival_dow,
     )
+
+    model_info = get_model_info()
+    scoring_mode = "model" if predicted_congestion is not None else "degraded_rules"
 
     # 관광공사 관광지 집중률은 향후 30일 '일별 상대지수'(0~100)이지 실시간 혼잡이 아니다.
     # 이름이 정확히 매칭돼 적재된 후보에만 보수적으로 25% prior로 결합하고, 자체 도착시점
     # 시간대 모델을 75% 유지한다. 미매칭/미승인 환경은 기존 결과가 완전히 동일하다.
     tourapi_rate = candidate_facility.get("tourapi_concentration_rate")
     tourapi_prior = None
-    if tourapi_rate is not None:
+    if predicted_congestion is not None and tourapi_rate is not None:
         try:
             tourapi_prior = max(0.0, min(1.0, float(tourapi_rate) / 100.0))
             predicted_congestion = 0.75 * predicted_congestion + 0.25 * tourapi_prior
@@ -103,22 +106,28 @@ async def calculate_spot_score(
     # 거리 감쇠 가중으로 상향한다(모델이 모르는 외부 변수). 축제 조회 실패는 (0, None)
     # 무해 폴백이라 채점 플로우를 막지 않는다. 보정된 값이 아래 대기시간·재배치기여에
     # 일관되게 쓰인다(한 산식 안에서 같은 '도착시점 혼잡' 기준 유지).
-    event_boost, event_title = await get_event_congestion_boost(
-        candidate_facility["latitude"], candidate_facility["longitude"], arrival_dt
-    )
-    predicted_congestion = min(1.0, predicted_congestion + event_boost)
+    event_boost = 0.0
+    event_title = None
+    if predicted_congestion is not None:
+        event_boost, event_title = await get_event_congestion_boost(
+            candidate_facility["latitude"], candidate_facility["longitude"], arrival_dt
+        )
+        predicted_congestion = min(1.0, predicted_congestion + event_boost)
 
     # 4. 예측 혼잡도를 적용한 대기 시간 계산
     #    피크 시간대 보정도 predict_congestion 과 동일하게 '도착 예상 시점(UTC) hour' 기준을 공유한다
     #    (한 산식 안에서 대기시간만 '현재 시각'으로 보정되던 시점 불일치 제거).
-    predicted_wait = await calculate_predicted_wait_time(
-        facility_type=candidate_facility["type"],
-        congestion_level=predicted_congestion,
-        facility_features=candidate_facility.get("features"),
-        hour=arrival_hour,
-    )
+    predicted_wait = None
+    if predicted_congestion is not None:
+        predicted_wait = await calculate_predicted_wait_time(
+            facility_type=candidate_facility["type"],
+            congestion_level=predicted_congestion,
+            facility_features=candidate_facility.get("features"),
+            hour=arrival_hour,
+        )
 
-    total_time = predicted_wait + travel_time_min
+    # degraded_rules에서는 혼잡·예상 대기 수치를 완전히 제외하고 실제 이동시간만 시간비용으로 쓴다.
+    total_time = travel_time_min + (predicted_wait or 0.0)
     time_cost = min(1.0, total_time / 60.0)
 
     # 5. 인센티브 (w3) — 쿠폰 강도 + 수요 재배치 기여 결합 (D1 재결정 2026-07-07).
@@ -127,8 +136,12 @@ async def calculate_spot_score(
     #  · 재배치기여: 혼잡한 원본에서 '도착시점에 여유로울' 후보로 옮길수록 커지는 수요 분산
     #    기여분 — w2(개인의 대기 비용)와 달리 시스템 관점의 혼잡 완화를 보상한다(B2G 지표).
     coupon_term = min(1.0, (candidate_facility.get("coupon_rate") or 0.0) / COUPON_RATE_CAP)
-    relief_term = max(0.0, min(1.0, original_congestion_level - predicted_congestion))
-    incentive = INCENTIVE_COUPON_SHARE * coupon_term + (1.0 - INCENTIVE_COUPON_SHARE) * relief_term
+    if predicted_congestion is None:
+        relief_term = None
+        incentive = coupon_term
+    else:
+        relief_term = max(0.0, min(1.0, original_congestion_level - predicted_congestion))
+        incentive = INCENTIVE_COUPON_SHARE * coupon_term + (1.0 - INCENTIVE_COUPON_SHARE) * relief_term
 
     # 6. SPOT 종합 스코어 계산 및 Min-Max 정규화 적용
     # 공식: w1 * preference - w2 * time_cost + w3 * incentive
@@ -149,11 +162,14 @@ async def calculate_spot_score(
             "incentive": round(incentive, 3),
             # 인센티브 구성 성분(추천 사유·시뮬레이터 설명용): 쿠폰강도 / 수요 재배치 기여
             "incentive_coupon": round(coupon_term, 3),
-            "incentive_relief": round(relief_term, 3),
+            "incentive_relief": round(relief_term, 3) if relief_term is not None else None,
             # 행사 혼잡 보정(A4) — 프런트 배지·투명성 표기용. 보정 없으면 0 / None.
             "event_boost": round(event_boost, 3),
             "event_title": event_title,
             # 관광공사 30일 일별 상대 전망. None이면 미승인/미매칭이며 실시간 실측으로 표시하면 안 된다.
             "tourapi_concentration_prior": round(tourapi_prior, 3) if tourapi_prior is not None else None,
+            "scoring_mode": scoring_mode,
+            "model_version": model_info.get("version"),
+            "prediction_source": prediction_source,
         }
     )

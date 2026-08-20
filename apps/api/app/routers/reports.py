@@ -34,7 +34,7 @@ _REWARD_EVERY = 3
 
 # 3단계 체감 혼잡도(한산/보통/혼잡) → 0~1 추정치 매핑.
 # 프런트 3지선다 버튼과 정합. 소수 라벨은 UX 부담이 커 이산 3구간으로 단순화한다.
-_LEVEL_ENUM = {"한산": 0.2, "보통": 0.55, "혼잡": 0.9}
+_LEVEL_ENUM = {"한산": 0.2, "보통": 0.5, "혼잡": 0.8}
 
 # congestion_logs.source CHECK 제약은 ('traffic_cctv','tour_api','event','user_report') 만 허용한다.
 # 사용자 제보는 'user_report' 로 기록한다(스키마 제약을 만족하는 정식 값).
@@ -65,7 +65,9 @@ class CongestionReportResponse(BaseModel):
     success: bool
     facility_id: str
     congestion_level: float
-    current_count: int
+    # 방문객은 인원수를 세는 것이 아니라 체감 단계를 제보한다. DB 호환용 환산값을
+    # 외부 응답에서 실제 인원처럼 노출하지 않는다.
+    current_count: int | None
     timestamp: str
     source: str
     reward: ReportReward
@@ -164,6 +166,8 @@ async def report_congestion(
         "congestion_level": level,
         "current_count": current_count,
         "source": _USER_REPORT_SOURCE,
+        "evidence_tier": "single_report",
+        "reporter_user_id": current_user["id"],
         "timestamp": now_str,
     }
 
@@ -198,7 +202,7 @@ async def report_congestion(
         success=True,
         facility_id=req.facility_id,
         congestion_level=inserted.get("congestion_level", level),
-        current_count=inserted.get("current_count", current_count),
+        current_count=None,
         timestamp=inserted.get("timestamp", now_str),
         source=inserted.get("source", _USER_REPORT_SOURCE),
         reward=ReportReward(

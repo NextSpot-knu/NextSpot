@@ -33,6 +33,7 @@ from pydantic import BaseModel, Field
 
 from app.core.supabase import supabase_admin
 from app.services import merchant_briefing_service
+from app.services.merchant_boost import SEAT_LEVEL_CONGESTION
 
 logger = structlog.get_logger()
 
@@ -360,7 +361,7 @@ class SeatStatusUpdate(BaseModel):
 async def update_seat_status(req: SeatStatusUpdate):
     try:
         fac_res = await asyncio.to_thread(
-            supabase_admin.table("facilities").select("id, features").eq("id", req.facility_id).limit(1).execute
+            supabase_admin.table("facilities").select("id, features, capacity").eq("id", req.facility_id).limit(1).execute
         )
     except Exception as e:
         logger.error("merchant_seat_status_lookup_failed", facility_id=req.facility_id, error=str(e))
@@ -384,6 +385,22 @@ async def update_seat_status(req: SeatStatusUpdate):
         )
         if not upd.data:
             raise HTTPException(status_code=500, detail="좌석 상태 갱신에 실패했습니다.")
+
+        # 화면용 최신 상태와 별개로 시계열 관측을 남긴다. 매장 운영자가 직접 확인한
+        # 좌석 방송은 MVP의 가장 빠른 현장 관측이므로 공식 학습 가능한 verified 로 기록한다.
+        if req.level is not None:
+            normalized_level = SEAT_LEVEL_CONGESTION[req.level]
+            capacity = int(fac_res.data[0].get("capacity") or 0)
+            await asyncio.to_thread(
+                supabase_admin.table("congestion_logs").insert({
+                    "facility_id": req.facility_id,
+                    "timestamp": updated_at,
+                    "current_count": round(capacity * normalized_level),
+                    "congestion_level": normalized_level,
+                    "source": "merchant_report",
+                    "evidence_tier": "verified",
+                }).execute
+            )
     except HTTPException:
         raise
     except Exception as e:

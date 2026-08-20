@@ -3,8 +3,10 @@
 import { usePathname, useRouter } from 'next/navigation';
 import { Home, Bookmark, Timer, Route, User } from 'lucide-react';
 import { useState, useEffect } from 'react';
+import { motion } from 'framer-motion';
 import { useT } from '@/lib/i18n/I18nProvider';
 import NextSpotMascot from '@/components/NextSpotMascot';
+import { haptic, interactionSpring, tapMotion } from '@/lib/motion';
 
 // 관광객 앱 주 내비게이션 — 반응형:
 //  · 데스크톱(md+): 왼쪽 세로 레일(인플로우 flex 자식 → 콘텐츠 폭을 차지).
@@ -53,6 +55,7 @@ export default function BottomNav() {
     if (tab.id === activeTab) return;
 
     // 즉각적인 시각 피드백 제공 (Next.js 렌더링 블락 회피)
+    haptic('selection');
     setOptimisticTab(tab.id);
 
     // 인위적 지연 없이 즉시 라우팅 (낙관적 인디케이터는 위에서 이미 갱신됨)
@@ -71,17 +74,21 @@ export default function BottomNav() {
 
         <div className="relative flex flex-col items-center gap-2">
           {/* 활성 탭 세로 슬라이딩 인디케이터 */}
-          <div
-            className="absolute left-0 w-16 h-16 bg-gold/15 rounded-2xl transition-all duration-300 ease-[cubic-bezier(0.2,0,0,1)] pointer-events-none"
-            style={{ top: `calc(${activeIndex} * 4.5rem)` }}
+          <motion.div
+            aria-hidden
+            className="absolute left-0 w-16 h-16 bg-gold/15 rounded-2xl pointer-events-none"
+            animate={{ top: `calc(${activeIndex} * 4.5rem)` }}
+            transition={interactionSpring}
           />
           {tabs.map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
             return (
-              <button
+              <motion.button
                 key={tab.id}
                 onClick={() => handleTabClick(tab)}
+                whileTap={tapMotion}
+                transition={interactionSpring}
                 aria-current={isActive ? 'page' : undefined}
                 className={`relative z-10 flex flex-col items-center justify-center gap-1 transition-colors w-16 h-16 rounded-2xl ${
                   isActive ? 'text-gold-deep' : 'text-muk-soft hover:text-muk'
@@ -94,7 +101,7 @@ export default function BottomNav() {
                 <span className={`text-[11px] font-medium leading-tight text-center break-keep ${isActive ? 'text-gold-deep' : ''}`}>
                   {tab.label}
                 </span>
-              </button>
+              </motion.button>
             );
           })}
         </div>
@@ -107,17 +114,21 @@ export default function BottomNav() {
       >
         <div className="relative flex justify-around items-center w-full">
           {/* 활성 탭 가로 슬라이딩 인디케이터 — 탭 수 기반 일반화(중심 = (idx+0.5)/N). */}
-          <div
-            className="absolute top-0 h-12 w-14 bg-gold/15 rounded-2xl transition-all duration-300 ease-[cubic-bezier(0.2,0,0,1)] pointer-events-none"
-            style={{ left: `calc(${(activeIndex + 0.5) * (100 / tabs.length)}% - 1.75rem)` }}
+          <motion.div
+            aria-hidden
+            className="absolute top-0 h-12 w-14 bg-gold/15 rounded-2xl pointer-events-none"
+            animate={{ left: `calc(${(activeIndex + 0.5) * (100 / tabs.length)}% - 1.75rem)` }}
+            transition={interactionSpring}
           />
           {tabs.map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
             return (
-              <button
+              <motion.button
                 key={tab.id}
                 onClick={() => handleTabClick(tab)}
+                whileTap={tapMotion}
+                transition={interactionSpring}
                 aria-current={isActive ? 'page' : undefined}
                 className={`relative z-10 flex flex-col items-center justify-center transition-colors flex-1 min-w-0 h-12 ${
                   isActive ? 'text-gold-deep' : 'text-muk-soft hover:text-muk'
@@ -129,7 +140,7 @@ export default function BottomNav() {
                 <span className={`${(tab as { mobileLabelClass?: string }).mobileLabelClass ?? 'text-[11px]'} font-medium whitespace-nowrap ${isActive ? 'text-gold-deep' : ''}`}>
                   {tab.label}
                 </span>
-              </button>
+              </motion.button>
             );
           })}
         </div>

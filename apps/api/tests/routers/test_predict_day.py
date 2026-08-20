@@ -31,7 +31,8 @@ def _min_at_kst16(facility_type: str, hour: int, dow: int) -> float:
 
 
 def test_day_shape_and_best_hour():
-    with patch.object(predict, "predict_congestion", side_effect=_min_at_kst16):
+    with patch.object(predict, "predict_congestion", side_effect=_min_at_kst16), \
+         patch.object(predict, "get_model_info", return_value={"trained": True}):
         client = _make_client()
         res = client.get("/predict/day", params={"facilityType": "cafe", "dow": 0})
 
@@ -55,7 +56,8 @@ def test_day_kst_to_utc_mapping():
         calls.append((hour, dow))
         return 0.5
 
-    with patch.object(predict, "predict_congestion", side_effect=_capture):
+    with patch.object(predict, "predict_congestion", side_effect=_capture), \
+         patch.object(predict, "get_model_info", return_value={"trained": True}):
         client = _make_client()
         res = client.get("/predict/day", params={"facilityType": "restaurant", "dow": 0})
 
@@ -69,7 +71,8 @@ def test_day_kst_to_utc_mapping():
 def test_day_defaults_dow_to_today_kst():
     # dow 생략 시 오늘(KST) 요일 사용 — FIXED_NOW(UTC) → KST 월요일(0).
     with patch.object(predict, "_utcnow", return_value=FIXED_NOW), \
-         patch.object(predict, "predict_congestion", side_effect=_min_at_kst16):
+         patch.object(predict, "predict_congestion", side_effect=_min_at_kst16), \
+         patch.object(predict, "get_model_info", return_value={"trained": True}):
         client = _make_client()
         res = client.get("/predict/day", params={"facilityType": "cafe"})
 

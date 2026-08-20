@@ -25,17 +25,23 @@ class PredictResponse(BaseModel):
 
 @router.post("", response_model=PredictResponse)
 def predict_endpoint(req: PredictRequest):
-    # 공개 조회용(무인증) 엔드포인트다. 로컬 model.pkl 미학습 시 0.5 폴백이라 비용 부담이 없다.
-    # 내부 전용으로 닫으려면 get_current_user 의존성을 추가하면 된다(응답 스키마 불변).
     pred = predict_congestion(req.facility_type, req.hour, req.day_of_week)
+    if pred is None:
+        raise HTTPException(status_code=503, detail="검증된 혼잡 예측 모델이 없습니다.")
     return PredictResponse(predicted_congestion=pred)
 
 
 class ModelInfoResponse(BaseModel):
     trained: bool
-    # train.py --evaluate 가 model.pkl 에 내장한 메트릭(mae·baseline_mae·train_n·holdout_n·
-    # holdout_start·evaluated_at·n_rows·r2_train·trained_at). 구버전 model.pkl 이면 None.
-    metrics: dict | None = None
+    version: str | None = None
+    loaded_at: str | None = None
+    real_data_count: int = 0
+    training_started_at: str | None = None
+    training_ended_at: str | None = None
+    mae: float | None = None
+    baseline_improvement: float | None = None
+    fallback_state: str | None = None
+    refresh_error: str | None = None
 
 
 @router.get("/model-info", response_model=ModelInfoResponse)
@@ -95,6 +101,8 @@ async def _fetch_facilities_id_type() -> list[dict]:
 @router.post("/batch", response_model=BatchPredictResponse)
 async def predict_batch(req: BatchPredictRequest):
     # 단건 /predict 와 동일하게 공개 조회용(무인증) 엔드포인트다(지도는 로그인 없이 열람 가능).
+    if not get_model_info()["trained"]:
+        raise HTTPException(status_code=503, detail="검증된 혼잡 예측 모델이 없습니다.")
     cached = _batch_cache.get(req.hours_ahead)
     if cached and time.monotonic() - cached[0] < _CACHE_TTL_SECONDS:
         return cached[1]
@@ -205,6 +213,8 @@ async def predict_day(
 ):
     # 단건 /predict 와 동일하게 공개 조회용(무인증) 엔드포인트다(추천 카드는 로그인 없이 열람 가능).
     # 로컬 model.pkl 미학습 시 predict_congestion 이 0.5 폴백이라 비용 부담이 없다.
+    if not get_model_info()["trained"]:
+        raise HTTPException(status_code=503, detail="검증된 혼잡 예측 모델이 없습니다.")
     resolved_dow = dow if dow is not None else _utcnow().astimezone(_KST).weekday()
 
     hours: list[DayHour] = []

@@ -16,6 +16,7 @@ export interface PendingVisit {
   lat: number | null;
   lng: number | null;
   acceptedAt: number; // epoch ms
+  recommendationId?: string;
 }
 
 export interface ActiveTrip extends PendingVisit {
@@ -158,9 +159,11 @@ export function clearPendingVisit(): void {
 export function getDueVisit(): PendingVisit | null {
   const pending = getPendingVisit();
   if (!pending) return null;
-  if (getActiveTrip()?.status === 'arrived') return pending;
+  const active = getActiveTrip();
+  const withRecommendation = { ...pending, recommendationId: active?.recommendationId };
+  if (active?.status === 'arrived') return withRecommendation;
   if (Date.now() - pending.acceptedAt < DUE_AFTER_MS) return null;
-  return pending;
+  return withRecommendation;
 }
 
 export function getVisitHistory(): VisitHistoryEntry[] {

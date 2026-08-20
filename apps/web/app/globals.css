@@ -52,6 +52,45 @@ body {
   overflow-x: clip;
 }
 
+/* 모바일 앱다운 입력 피드백. JS 모션을 쓰지 않는 작은 칩/아이콘에도 같은 눌림 문법을 적용한다. */
+.toss-pressable {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  transform: translateZ(0);
+  transition:
+    transform 120ms cubic-bezier(0.2, 0, 0, 1),
+    background-color 180ms ease,
+    border-color 180ms ease,
+    color 180ms ease,
+    box-shadow 180ms ease;
+}
+
+.toss-pressable:not(:disabled):active {
+  transform: translateZ(0) scale(0.965);
+}
+
+.toss-surface {
+  box-shadow:
+    0 1px 2px rgb(43 35 32 / 0.05),
+    0 10px 30px rgb(43 35 32 / 0.10);
+}
+
+/* OS의 '동작 줄이기' 설정을 존중한다. 상태 변화는 유지하고 이동·확대만 사실상 제거한다. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  .toss-pressable:not(:disabled):active {
+    transform: none;
+  }
+}
+
 /* 단청 그라디언트 텍스트 — 워드마크/타이틀용. 이전엔 미정의(no-op)라 효과가 없었다.
    금→주칠 웜 그라데이션으로 실제 정의(사용처가 자동으로 웜톤이 된다). */
 .gradient-text {

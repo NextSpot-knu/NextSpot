@@ -7,7 +7,7 @@ import dynamic from 'next/dynamic';
 import { Search, Mic, X, Utensils, MapPin, Building2, Coffee, ChevronDown, ChevronUp, SlidersHorizontal } from 'lucide-react';
 import { createPublicClient } from '@/lib/supabase';
 import { getMarkerSvg } from '@/lib/utils';
-import { scoreFacility, compareSpot, rankFacilities, recToSpot, haversineMeters, cuisineMatch, filterReachable, type Spot } from '@/lib/recommender';
+import { scoreFacility, compareSpot, rankFacilities, rankFacilitiesDegraded, recToSpot, haversineMeters, cuisineMatch, filterReachable, type Spot } from '@/lib/recommender';
 import { REGION, isWithinRegion } from '@/lib/region';
 import { recommendByType, rejectRecommendation, voiceTurn, apiClient } from '@/lib/api-client';
 // 히트맵 blob 의 색·크기 규칙(마커/배지 임계와 일관) 공용 헬퍼 — 중복 정의 금지, 그대로 재사용.
@@ -18,6 +18,7 @@ import { useVoiceAssistant } from '@/lib/useVoiceAssistant';
 import { useSpeechSearch } from '@/lib/useSpeechSearch';
 import VoiceAssistantOrb from '@/components/VoiceAssistantOrb';
 import { recordActiveTrip } from '@/lib/visits';
+import { queueRecommendationOutcome } from '@/lib/recommendationOutcomes';
 import { openDrivingDirections, openWalkingDirections } from '@/lib/navigation';
 import { track } from '@/lib/analytics';
 import { loadSavedLocal, syncSaved, saveBookmark, type SavedRecord } from '@/lib/savedFacilities';
@@ -58,6 +59,8 @@ interface CongestionLog {
   congestion_level: number;
   current_count: number;
   timestamp: string;
+  source: string;
+  evidence_tier: 'synthetic' | 'single_report' | 'corroborated' | 'verified';
 }
 
 // loadFacilities 의 mapped 형태가 원본. spot/reason/apiRank/totalCandidates 는
@@ -87,6 +90,8 @@ interface FacilityRecord {
   reason?: string;
   apiRank?: number;
   totalCandidates?: number;
+  recommendationId?: string;
+  scoringMode?: 'model' | 'degraded_rules';
 }
 
 // 개별 시설 vs 그룹(모음) 마커 — isGroup 판별식 union(expandGroups/마커 클릭 분기용).
@@ -314,7 +319,8 @@ export default function MainPage() {
             .limit(2000),
           supabase
             .from("congestion_logs")
-            .select("facility_id, congestion_level, current_count, timestamp")
+            .select("facility_id, congestion_level, current_count, timestamp, source, evidence_tier")
+            .in("evidence_tier", ["single_report", "corroborated", "verified"])
             .order("timestamp", { ascending: false })
             .limit(3000),
         ]);
@@ -361,10 +367,10 @@ export default function MainPage() {
             barrierFree: f.barrier_free ?? null,
             baseCongestion: baseCongestion,
             congestionLevel: baseCongestion,
-            currentCount: latestLog ? latestLog.current_count : null,
+            // 방문객·사장 정성 제보의 capacity 환산값을 실제 인원으로 노출하지 않는다.
+            currentCount: latestLog?.source === 'traffic_cctv' ? latestLog.current_count : null,
             lastUpdated: latestLog ? latestLog.timestamp : null,
-            // 폴백 경로엔 source 컬럼이 없어 null. isStale 은 로그 나이>24h 로 직접 산출(계약 5와 동일 정의).
-            source: null,
+            source: latestLog?.source ?? null,
             isStale: latestLog
               ? Date.now() - new Date(latestLog.timestamp).getTime() > 24 * 60 * 60 * 1000
               : false,
@@ -861,8 +867,10 @@ export default function MainPage() {
                     homepage: rf.homepage ?? base?.homepage ?? null,
                     overview: rf.overview ?? base?.overview ?? null,
                     barrierFree: rf.barrierFree ?? base?.barrierFree ?? null,
-                    congestionLevel: r.congestionLevel ?? base?.congestionLevel ?? null,
-                    currentCount: rf.currentCount ?? base?.currentCount ?? null,
+                    // 모델이 없어도 최신 현장 관측(measured)은 숨기지 않는다. degraded_rules는
+                    // 점수에서 혼잡/대기를 제외한다는 뜻이지, 실제 제보를 폐기한다는 뜻이 아니다.
+                    congestionLevel: r.congestionSource === 'measured' ? (r.congestionLevel ?? null) : (r.scoringMode === 'degraded_rules' ? null : (r.congestionLevel ?? base?.congestionLevel ?? null)),
+                    currentCount: r.congestionSource === 'measured' ? (rf.currentCount ?? null) : (r.scoringMode === 'degraded_rules' ? null : (rf.currentCount ?? base?.currentCount ?? null)),
                     // 머천트 연동(2단계): 타임세일·좌석 확인 배지용 — allowlist 병합이라 명시적으로 전달해야 카드에 도달한다.
                     timesaleRate: (rf as any).timesaleRate ?? (rf as any).timesale_rate ?? null,
                     seatStatusFresh: (rf as any).seatStatusFresh ?? (rf as any).seat_status_fresh ?? null,
@@ -874,6 +882,7 @@ export default function MainPage() {
                     congestionIsStale: r.congestionIsStale,
                     congestionTimestamp: r.congestionTimestamp,
                     dataUpdatedAt: r.dataUpdatedAt,
+                    scoringMode: r.scoringMode,
                     spot,
                     reason: r.reason || "", // 백엔드 템플릿 사유만
                   };
@@ -885,7 +894,7 @@ export default function MainPage() {
           }
           // 백엔드 미가용/데모 모드: 실 후보도 클라 미러로 랭킹(동일 가중치). 도보 비현실 거리는 제외(가까운 순 폴백).
           if (realRanked.length === 0 && realCands.length > 0) {
-            realRanked = rankFacilities(filterReachable(realCands, userLocation), scoreOpts);
+            realRanked = rankFacilitiesDegraded(filterReachable(realCands, userLocation), scoreOpts);
           }
           // 합성/데모 시설은 항상 클라 미러로 점수 부여
           const demoRanked = rankFacilities(demoCands, scoreOpts);
@@ -939,6 +948,7 @@ export default function MainPage() {
     const spot = fac.spot || calculateSPOT(fac);
     try {
       recordActiveTrip(fac, { recommendationId: (fac as any).recommendationId, walkMinutes: spot.expectedTravel, context: travelContext as unknown as Record<string, unknown>, navigationMode });
+      queueRecommendationOutcome(fac.recommendationId, 'navigation_started');
       track('navigation_started', { facility_type: fac.type, navigation_mode: navigationMode, walk_minutes: Math.round(spot.expectedTravel) });
     } catch { /* localStorage 차단 환경 무시 */ }
 
@@ -1870,7 +1880,7 @@ export default function MainPage() {
                     sessionStorage.setItem('nextspot_active_filter', filter.id);
                   }
                 }}
-                className={`flex shrink-0 items-center whitespace-nowrap rounded-full border px-3.5 py-2 transition-all fractal-glass shadow-[0_2px_14px_rgba(43,35,32,0.06)] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 sm:px-4 sm:py-2 ${
+                className={`toss-pressable flex shrink-0 items-center whitespace-nowrap rounded-full border px-3.5 py-2 fractal-glass shadow-[0_2px_14px_rgba(43,35,32,0.06)] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 sm:px-4 sm:py-2 ${
                   isActive
                     ? 'bg-gold/15 border-gold text-muk'
                     : 'bg-white/80 border-line text-muk-soft hover:bg-white hover:text-muk'
@@ -1886,7 +1896,7 @@ export default function MainPage() {
         <button
           type="button"
           onClick={() => setShowMobileTools(true)}
-          className="flex w-fit items-center gap-1.5 rounded-full border border-line bg-white/90 px-3 py-1.5 text-xs font-semibold text-muk shadow-[0_2px_12px_rgba(43,35,32,0.08)] pointer-events-auto md:hidden"
+          className="toss-pressable flex w-fit items-center gap-1.5 rounded-full border border-line bg-white/90 px-3 py-1.5 text-xs font-semibold text-muk shadow-[0_2px_12px_rgba(43,35,32,0.08)] pointer-events-auto md:hidden"
         >
           <SlidersHorizontal size={14} /> {t('map.mobileTools')}
         </button>
@@ -1902,7 +1912,7 @@ export default function MainPage() {
                   type="button"
                   onClick={() => selectCuisineChip(chip)}
                   aria-pressed={on}
-                  className={`flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-all shadow-[0_1px_8px_rgba(43,35,32,0.05)] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 sm:px-3 sm:py-1.5 sm:text-xs ${
+                  className={`toss-pressable flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border px-2.5 py-1 text-[11px] font-semibold shadow-[0_1px_8px_rgba(43,35,32,0.05)] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 sm:px-3 sm:py-1.5 sm:text-xs ${
                     on
                       ? 'bg-terracotta/15 border-terracotta text-terracotta'
                       : 'bg-white/75 border-line text-muk-soft hover:bg-white hover:text-muk'
@@ -2190,7 +2200,7 @@ export default function MainPage() {
                 onPutOff={() => handlePutOff(selectedFacility)}
                 spotScore={spot.score}
                 preferencePercent={spot.preferencePercent}
-                expectedWait={spot.expectedWait}
+                expectedWait={selectedFacility.scoringMode === 'model' && selectedFacility.congestionSource !== 'none' ? spot.expectedWait : undefined}
                 expectedTravel={spot.expectedTravel}
                 timeToService={spot.timeToService}
                 eventBoost={spot.eventBoost}

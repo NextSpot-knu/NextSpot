@@ -7,6 +7,8 @@
 from unittest.mock import AsyncMock, patch
 from types import SimpleNamespace
 
+import pytest
+
 from app.services.preference_vector_service import preference_vector_service
 
 from test_routers import (
@@ -22,6 +24,11 @@ from test_routers import (
 )
 
 _COURSE_PATH = "/api/v1/courses/recommend"
+
+
+@pytest.fixture(autouse=True)
+def _verified_model_prediction(monkeypatch):
+    monkeypatch.setattr("app.routers.courses.predict_congestion", lambda *_args, **_kwargs: 0.5)
 
 
 def _course_body(user_id: str = AUTH_USER_ID) -> dict:

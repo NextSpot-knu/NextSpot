@@ -12,15 +12,17 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, ThumbsUp, ThumbsDown, MapPin } from 'lucide-react';
-import { CongestionReportButton } from '@/components/CongestionReportButton';
+import { Check, X, ThumbsUp, ThumbsDown, MapPin } from 'lucide-react';
 import { getDueVisit, completeVisit, markTripNavigating, type PendingVisit } from '@/lib/visits';
 import { useT } from '@/lib/i18n/I18nProvider';
+import { queueRecommendationOutcome, type ObservedCongestion, type OutcomeRating } from '@/lib/recommendationOutcomes';
+import { haptic, interactionSpring, sheetSpring } from '@/lib/motion';
 
 export function VisitCheckCard({ showToast }: { showToast?: (msg: string) => void }) {
   const t = useT();
   const [due, setDue] = useState<PendingVisit | null>(null);
-  const [stage, setStage] = useState<'ask' | 'feedback' | 'completed'>('ask');
+  const [stage, setStage] = useState<'ask' | 'feedback' | 'congestion' | 'completed'>('ask');
+  const [rating, setRating] = useState<OutcomeRating | null>(null);
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
 
@@ -47,6 +49,7 @@ export function VisitCheckCard({ showToast }: { showToast?: (msg: string) => voi
 
   // [아직이요/닫기] — pending 을 지워 재노출하지 않는다(다시 수락하면 새 루프 시작).
   const dismiss = () => {
+    haptic('selection');
     markTripNavigating();
     window.dispatchEvent(new Event('nextspot:trip-navigating'));
     setDue(null);
@@ -54,12 +57,27 @@ export function VisitCheckCard({ showToast }: { showToast?: (msg: string) => voi
   };
 
   // 👍/👎 로 방문 확정 — visit_history 적립 + pending 클리어.
-  const finish = (rating: 'up' | 'down') => {
-    completeVisit({ facilityId: due.facilityId, name: due.name, type: due.type, rating });
-    import('@/lib/analytics').then(({ track }) => track('visit_confirmed', { facility_type: due.type, rating }));
+  const confirmArrival = () => {
+    haptic('confirm');
+    queueRecommendationOutcome(due.recommendationId, 'arrival_confirmed');
+    setStage('feedback');
+  };
+
+  const finishRating = (nextRating: OutcomeRating) => {
+    haptic('confirm');
+    completeVisit({ facilityId: due.facilityId, name: due.name, type: due.type, rating: nextRating });
+    queueRecommendationOutcome(due.recommendationId, 'rated', { rating: nextRating });
+    import('@/lib/analytics').then(({ track }) => track('visit_confirmed', { facility_type: due.type, rating: nextRating }));
+    setRating(nextRating);
+    setStage('congestion');
+  };
+
+  const finishCongestion = (observedCongestion?: ObservedCongestion) => {
+    haptic('success');
+    if (rating && observedCongestion) {
+      queueRecommendationOutcome(due.recommendationId, 'rated', { rating, observedCongestion });
+    }
     showToast?.(t('visit.thanks'));
-    // Keep the completion state visible. completeVisit has already ended the active
-    // journey, so closing this state must never recreate a navigating trip.
     setStage('completed');
   };
 
@@ -70,7 +88,7 @@ export function VisitCheckCard({ showToast }: { showToast?: (msg: string) => voi
         initial={{ opacity: 0, y: 24 }}
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: 24 }}
-        transition={{ type: 'spring', bounce: 0.25, duration: 0.5 }}
+        transition={sheetSpring}
         className="fixed z-[55] left-1/2 -translate-x-1/2 bottom-[calc(88px+env(safe-area-inset-bottom))] w-full max-w-sm px-4"
       >
         <div className="relative bg-white/95 backdrop-blur-2xl border border-line rounded-3xl p-4 shadow-[0_8px_30px_rgba(43,35,32,0.16)]">
@@ -82,21 +100,55 @@ export function VisitCheckCard({ showToast }: { showToast?: (msg: string) => voi
             type="button"
             onClick={dismiss}
             aria-label={t('common.close')}
-            className="absolute top-3 right-3 p-1 rounded-full text-muk-soft hover:text-muk hover:bg-hanji-deep transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/50"
+            className="toss-pressable absolute top-3 right-3 p-1 rounded-full text-muk-soft hover:text-muk hover:bg-hanji-deep transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/50"
           >
             <X size={16} />
           </button>
 
+          {stage !== 'completed' && (
+            <div className="mb-3 flex gap-1.5 pr-8" aria-hidden>
+              {(['ask', 'feedback', 'congestion'] as const).map((item, index) => {
+                const activeIndex = ['ask', 'feedback', 'congestion'].indexOf(stage);
+                return (
+                  <motion.span
+                    key={item}
+                    className={`h-1.5 rounded-full ${index <= activeIndex ? 'bg-jade' : 'bg-line'}`}
+                    animate={{ width: index === activeIndex ? 28 : 10 }}
+                    transition={interactionSpring}
+                  />
+                );
+              })}
+            </div>
+          )}
+
+          <AnimatePresence mode="wait" initial={false}>
+            <motion.div
+              key={stage}
+              initial={{ opacity: 0, x: 18, scale: 0.99 }}
+              animate={{ opacity: 1, x: 0, scale: 1 }}
+              exit={{ opacity: 0, x: -14, scale: 0.99 }}
+              transition={interactionSpring}
+            >
           {stage === 'completed' ? (
             <div className="flex flex-col gap-3 pr-6" data-testid="visit-completed">
-              <div>
+              <div className="flex items-start gap-2.5">
+                <motion.span
+                  initial={{ scale: 0, rotate: -18 }}
+                  animate={{ scale: 1, rotate: 0 }}
+                  transition={sheetSpring}
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-jade text-white"
+                >
+                  <Check size={18} aria-hidden />
+                </motion.span>
+                <div>
                 <p className="text-sm font-bold text-muk">{t('visit.thanks')}</p>
                 <p className="mt-1 text-[11px] leading-snug text-muk-soft">{t('visit.askDesc')}</p>
+                </div>
               </div>
-              <Link href="/mypage/coupons" className="rounded-2xl bg-jade py-2.5 text-center text-xs font-bold text-white">
+              <Link href="/mypage/coupons" className="toss-pressable rounded-2xl bg-jade py-2.5 text-center text-xs font-bold text-white">
                 {t('mypage.menuCoupons')}
               </Link>
-              <button type="button" onClick={() => { setDue(null); setStage('ask'); }} className="text-xs font-bold text-muk-soft">
+              <button type="button" onClick={() => { haptic('selection'); setDue(null); setStage('ask'); }} className="toss-pressable text-xs font-bold text-muk-soft">
                 {t('common.close')}
               </button>
             </div>
@@ -117,52 +169,69 @@ export function VisitCheckCard({ showToast }: { showToast?: (msg: string) => voi
                 <button
                   type="button"
                   onClick={dismiss}
-                  className="flex-1 bg-hanji-deep hover:bg-terracotta/10 hover:text-terracotta hover:border-terracotta/30 text-muk-soft font-bold py-2.5 rounded-2xl border border-line transition-all active:scale-95 text-xs focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+                  className="toss-pressable flex-1 bg-hanji-deep hover:bg-terracotta/10 hover:text-terracotta hover:border-terracotta/30 text-muk-soft font-bold py-2.5 rounded-2xl border border-line text-xs focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
                 >
                   {t('visit.notYet')}
                 </button>
                 <button
                   type="button"
-                  onClick={() => setStage('feedback')}
-                  className="flex-1 bg-gradient-to-r from-gold to-terracotta hover:from-gold-deep hover:to-terracotta text-white font-bold py-2.5 rounded-2xl transition-all active:scale-95 text-xs shadow-[0_4px_14px_rgba(193,85,59,0.25)] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+                  onClick={confirmArrival}
+                  className="toss-pressable flex-1 bg-gradient-to-r from-gold to-terracotta hover:from-gold-deep hover:to-terracotta text-white font-bold py-2.5 rounded-2xl text-xs shadow-[0_4px_14px_rgba(193,85,59,0.25)] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
                 >
                   {t('visit.yes')}
                 </button>
               </div>
             </div>
-          ) : (
+          ) : stage === 'feedback' ? (
             <div className="flex flex-col gap-3 pr-6">
               <div className="min-w-0">
                 <p className="text-sm font-bold text-muk leading-snug break-keep truncate">{due.name}</p>
                 <p className="text-[11px] text-muk-soft mt-0.5 leading-snug">{t('visit.feedbackTitle')}</p>
               </div>
 
-              {/* 원탭 혼잡 제보(선택) — 기존 컴포넌트 재사용(자기완결형 모달). */}
-              <div className="flex justify-center">
-                <CongestionReportButton facility={{ id: due.facilityId, name: due.name }} />
-              </div>
-
               {/* 👍/👎 — 어느 쪽이든 방문 확정(이력 적립 + pending 클리어). */}
               <div className="flex gap-2">
                 <button
                   type="button"
-                  onClick={() => finish('down')}
-                  className="flex-1 flex items-center justify-center gap-1.5 bg-hanji-deep hover:bg-terracotta/10 hover:text-terracotta hover:border-terracotta/30 text-muk-soft font-bold py-2.5 rounded-2xl border border-line transition-all active:scale-95 text-xs focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+                  onClick={() => finishRating('down')}
+                  className="toss-pressable flex-1 flex items-center justify-center gap-1.5 bg-hanji-deep hover:bg-terracotta/10 hover:text-terracotta hover:border-terracotta/30 text-muk-soft font-bold py-2.5 rounded-2xl border border-line text-xs focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
                 >
                   <ThumbsDown size={14} />
                   {t('visit.disliked')}
                 </button>
                 <button
                   type="button"
-                  onClick={() => finish('up')}
-                  className="flex-1 flex items-center justify-center gap-1.5 bg-jade/15 hover:bg-jade/25 text-jade font-bold py-2.5 rounded-2xl border border-jade/40 transition-all active:scale-95 text-xs focus:outline-none focus-visible:ring-2 focus-visible:ring-jade/50"
+                  onClick={() => finishRating('up')}
+                  className="toss-pressable flex-1 flex items-center justify-center gap-1.5 bg-jade/15 hover:bg-jade/25 text-jade font-bold py-2.5 rounded-2xl border border-jade/40 text-xs focus:outline-none focus-visible:ring-2 focus-visible:ring-jade/50"
                 >
                   <ThumbsUp size={14} />
                   {t('visit.liked')}
                 </button>
               </div>
             </div>
+          ) : (
+            <div className="flex flex-col gap-3 pr-6">
+              <div>
+                <p className="text-sm font-bold text-muk">{t('report.title')}</p>
+                <p className="mt-0.5 text-[11px] text-muk-soft">{t('report.footer')}</p>
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                {([
+                  ['quiet', 'congestion.quiet', 'report.quietDesc'],
+                  ['normal', 'congestion.moderate', 'report.moderateDesc'],
+                  ['busy', 'congestion.busy', 'report.busyDesc'],
+                ] as const).map(([value, labelKey, descKey]) => (
+                  <button key={value} type="button" onClick={() => finishCongestion(value)} className="toss-pressable rounded-2xl border border-line bg-hanji-deep px-2 py-2 text-xs font-bold text-muk">
+                    <span className="block">{t(labelKey)}</span>
+                    <span className="mt-0.5 block text-[10px] font-normal text-muk-soft">{t(descKey)}</span>
+                  </button>
+                ))}
+              </div>
+              <button type="button" onClick={() => finishCongestion()} className="toss-pressable text-xs font-bold text-muk-soft">{t('common.close')}</button>
+            </div>
           )}
+            </motion.div>
+          </AnimatePresence>
         </div>
       </motion.div>
     </AnimatePresence>,

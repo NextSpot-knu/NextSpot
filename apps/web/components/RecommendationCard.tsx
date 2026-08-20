@@ -2,13 +2,14 @@
 
 import { useState, useEffect } from 'react';
 import { motion, PanInfo, AnimatePresence } from 'framer-motion';
-import { Bookmark, Sparkles, Star, Phone, MapPin, Clock, ChevronUp, ChevronDown, Info, Globe, Utensils } from 'lucide-react';
+import { Bookmark, Check, Sparkles, Star, Phone, MapPin, Clock, ChevronUp, ChevronDown, Info, Globe, Utensils } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { CongestionReportButton } from '@/components/CongestionReportButton';
 import { GoldenHourBadge } from '@/components/GoldenHourBadge';
 import { relativeParts } from '@/lib/freshness';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 import { isClosedToday } from '@/lib/restDate';
+import { haptic, interactionSpring, sheetSpring, tapMotion } from '@/lib/motion';
 
 // facility prop 이 이 컴포넌트에서 실제로 읽는 필드만 구조적으로 명시한 타입.
 // 콜러 둘의 합집합: main(page)은 Facility(congestionLevel/currentCount: number|null,
@@ -96,8 +97,10 @@ export function RecommendationCard({
   const { t, locale } = useI18n();
   const [isExpanded, setIsExpanded] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
+  const [confirmedAction, setConfirmedAction] = useState<'saved' | 'accepted' | null>(null);
   // SPOT 점수 설명 툴팁 — 터치/키보드에서도 열 수 있게 탭/포커스로 토글(데스크톱 hover 는 유지)
   const [showTooltip, setShowTooltip] = useState(false);
+  const [localReport, setLocalReport] = useState<{ level: number; timestamp: string } | null>(null);
 
   // '최적 방문 시각' — 펼쳤을 때 백엔드(/predict/day)에서 받아오는 오늘 24시간 예측 혼잡 곡선.
   // 백엔드 미기동/실패 시 null 로 남아 조용히 숨긴다(카드 나머지는 그대로).
@@ -111,9 +114,17 @@ export function RecommendationCard({
   useEffect(() => {
     setIsExpanded(false);
     setIsMinimized(false);
+    setConfirmedAction(null);
+    setLocalReport(null);
     // 다른 장소로 바뀌면 이전 장소의 '최적 방문 시각' 데이터가 남아 깜빡이지 않게 초기화
     setDayPred(null);
   }, [title]);
+
+  const displayCongestionLevel = localReport?.level ?? facility?.congestionLevel;
+  const displayCongestionSource = localReport ? 'measured' : congestionSource;
+  const displayDataSource = localReport
+    ? { source: 'user_report', lastUpdated: localReport.timestamp, isStale: false }
+    : dataSource;
 
   useEffect(() => {
     if (mockHour !== undefined && mockHour !== null) {
@@ -328,13 +339,15 @@ export function RecommendationCard({
 
   return (
     <motion.div 
-      className={`w-full bg-white/95 backdrop-blur-2xl border border-line rounded-3xl ${isMinimized ? 'p-3' : 'p-5'} shadow-[0_8px_30px_rgba(43,35,32,0.12)] flex flex-col ${isMinimized ? 'gap-1' : 'gap-3'} select-none relative overflow-hidden`}
+      className={`w-full bg-white/95 backdrop-blur-2xl border border-line rounded-3xl ${isMinimized ? 'p-3' : 'p-5'} toss-surface flex flex-col ${isMinimized ? 'gap-1' : 'gap-3'} select-none relative overflow-hidden`}
+      initial={{ opacity: 0, y: 18, scale: 0.985 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
       drag="y"
       dragConstraints={{ top: 0, bottom: 0 }}
       dragElastic={0.2}
       onDragEnd={handleDragEnd}
       layout
-      transition={{ type: 'spring', bounce: 0.2, duration: 0.6 }}
+      transition={sheetSpring}
     >
       {/* 상단 장식 라인 — 콜드 블루 글로우를 신라금 웜 그라디언트로 */}
       <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-gold/50 to-transparent" />
@@ -385,19 +398,19 @@ export function RecommendationCard({
           
           {/* Status Pills — 펼쳐도(상세 표시 중에도) 혼잡도·잔여석은 항상 표시.
               혼잡 로그가 없는 시설(congestionLevel=null)은 합성값 대신 회색 '데이터 없음'으로 표기. */}
-          {facility && facility.congestionLevel !== undefined && (
+          {facility && displayCongestionLevel !== undefined && (
             <div className="flex flex-wrap items-center gap-1.5 mt-2">
-              {typeof facility.congestionLevel === 'number' ? (
+              {typeof displayCongestionLevel === 'number' ? (
                 <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold border ${
-                  facility.congestionLevel >= 0.75
+                  displayCongestionLevel >= 0.75
                     ? 'bg-terracotta/10 border-terracotta/30 text-terracotta'
-                    : facility.congestionLevel >= 0.5
+                    : displayCongestionLevel >= 0.5
                     ? 'bg-gold/10 border-gold/30 text-gold-deep'
-                    : facility.congestionLevel >= 0.25
+                    : displayCongestionLevel >= 0.25
                     ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-600'
                     : 'bg-jade/10 border-jade/30 text-jade'
                 }`}>
-                  {t('card.congestion')}: {congestionLabel(facility.congestionLevel)}
+                  {t('card.congestion')}: {congestionLabel(displayCongestionLevel)}
                 </span>
               ) : (
                 // D-1(CONGESTION_TRUST_SPEC): '데이터 없음' 대신 '정보 준비 중' — 서비스가 죽은 게
@@ -406,13 +419,13 @@ export function RecommendationCard({
                   {t('card.congestionPreparing')}
                 </span>
               )}
-              {typeof facility.congestionLevel === 'number' && congestionSource && (
+              {typeof displayCongestionLevel === 'number' && displayCongestionSource && (
                 <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold border bg-hanji-deep border-line text-muk-soft">
-                  {t(`card.congestionSource.${congestionSource}`)}
+                  {t(`card.congestionSource.${displayCongestionSource}`)}
                 </span>
               )}
               {/* D-3: 합성(seed)/시뮬(simulated) 혼잡 로그는 데모 데이터임을 라벨로 구분(가드레일). */}
-              {typeof facility.congestionLevel === 'number' &&
+              {typeof displayCongestionLevel === 'number' &&
                 (dataSource?.source === 'seed' || dataSource?.source === 'simulated') && (
                 <span className="px-2 py-0.5 rounded-md text-[10px] font-medium border bg-hanji-deep border-line text-muk-soft">
                   {t('card.demoData')}
@@ -441,11 +454,14 @@ export function RecommendationCard({
                   {t('card.timesale', { rate: timesaleRatePct })}
                 </span>
               )}
-              <span className="px-2 py-0.5 rounded-md text-[10px] font-medium bg-hanji-deep border border-line text-muk-soft">
-                {t('card.remainingLabel')}: {facility.currentCount != null && facility.capacity != null
-                  ? t('card.remainingValue', { seats: Math.max(0, facility.capacity - facility.currentCount), total: facility.capacity })
-                  : '—'}
-              </span>
+              {facility.currentCount != null && facility.capacity != null && (
+                <span className="px-2 py-0.5 rounded-md text-[10px] font-medium bg-hanji-deep border border-line text-muk-soft">
+                  {t('card.remainingLabel')}: {t('card.remainingValue', {
+                    seats: Math.max(0, facility.capacity - facility.currentCount),
+                    total: facility.capacity,
+                  })}
+                </span>
+              )}
               {/* 골든타임 알리미 — 혼잡도 pill 바로 옆(같은 줄)에 지연 조회로 끼워 넣는다. 백엔드
                   미기동/available:false 면 조용히 렌더되지 않는다(무해 폴백). */}
               <GoldenHourBadge facilityId={facility.id} />
@@ -463,18 +479,18 @@ export function RecommendationCard({
                 </p>
               );
             }
-            if (!dataSource) return null;
-            if (dataSource.isStale) {
+            if (!displayDataSource) return null;
+            if (displayDataSource.isStale) {
               return <p className="text-[10px] text-muk-soft/60 mt-2">{t('card.freshStale')}</p>;
             }
-            const parts = relativeParts(dataSource.lastUpdated);
+            const parts = relativeParts(displayDataSource.lastUpdated);
             if (!parts) return null;
             const rel =
               parts.unit === 'now' ? t('freshness.justNow')
               : parts.unit === 'min' ? t('freshness.minAgo', { n: parts.value })
               : parts.unit === 'hour' ? t('freshness.hourAgo', { n: parts.value })
               : t('freshness.dayAgo', { n: parts.value });
-            const isReport = dataSource.source === 'user_report';
+            const isReport = displayDataSource.source === 'user_report';
             return (
               <p className="text-[10px] text-muk-soft mt-2 flex items-center gap-1">
                 <span aria-hidden>{isReport ? '📣' : '🕒'}</span>
@@ -491,7 +507,7 @@ export function RecommendationCard({
               })}
             </p>
           )}
-          {openStatusAtArrival && arrivalTime && expectedTravel !== undefined && (
+          {openStatusAtArrival && arrivalTime && expectedTravel !== undefined && expectedWait !== undefined && (
             <p className="mt-2 inline-flex flex-wrap items-center gap-x-1.5 rounded-lg border border-jade/20 bg-jade/5 px-2.5 py-1.5 text-[11px] font-semibold text-muk">
               <Clock size={12} className="text-jade" aria-hidden />
               {t('card.arrivalSummary', {
@@ -562,8 +578,8 @@ export function RecommendationCard({
                     <span className="text-xs text-muk-soft font-medium">{t('card.minute')}</span>
                   </div>
                   <div className="flex items-center gap-2 text-[10px] text-muk-soft font-medium">
-                    <span className="bg-gold/15 px-1.5 py-0.5 rounded text-gold-deep whitespace-nowrap">{t('card.wait', { n: expectedWait ?? 0 })}</span>
-                    <span className="text-muk-soft/60">+</span>
+                    {expectedWait !== undefined && <span className="bg-gold/15 px-1.5 py-0.5 rounded text-gold-deep whitespace-nowrap">{t('card.wait', { n: expectedWait })}</span>}
+                    {expectedWait !== undefined && <span className="text-muk-soft/60">+</span>}
                     <span className="bg-jade/15 px-1.5 py-0.5 rounded text-jade whitespace-nowrap">{t('card.travel', { n: expectedTravel ?? 0 })}</span>
                   </div>
                 </div>
@@ -830,34 +846,50 @@ export function RecommendationCard({
 
       {/* Action Buttons: 관심 없어요 · 나중에 볼게요(저장) · 여기로 갈래요 */}
       <div className="flex gap-2 mt-1">
-          <button
-            onClick={onReject}
+          <motion.button
+            onClick={() => { haptic('selection'); onReject(); }}
+            whileTap={tapMotion}
+            transition={interactionSpring}
             aria-label={t('card.rejectAria')}
             className="flex-1 bg-hanji-deep hover:bg-terracotta/10 hover:text-terracotta hover:border-terracotta/30 text-muk-soft font-bold py-3 rounded-2xl border border-line transition-all active:scale-95 text-xs focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
           >
             {t('card.reject')}
-          </button>
+          </motion.button>
           {onPutOff && (
-            <button
-              onClick={onPutOff}
+            <motion.button
+              onClick={() => {
+                haptic('confirm');
+                setConfirmedAction('saved');
+                onPutOff();
+              }}
+              whileTap={tapMotion}
+              transition={interactionSpring}
               aria-label={t('card.putOffAria')}
               className="group flex-1 flex items-center justify-center gap-1.5 bg-hanji-deep hover:bg-gold/10 hover:text-gold-deep hover:border-gold/30 text-muk-soft font-bold py-3 rounded-2xl border border-line transition-all active:scale-95 text-xs focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
             >
               {/* 저장 인지 강화용 북마크 — hover/press 시 채워지며 살짝 팝(순수 Tailwind, 과하지 않게) */}
-              <Bookmark
-                size={14}
-                className="fill-transparent transition-all duration-300 group-hover:fill-gold group-hover:scale-110 group-active:scale-125"
-              />
+              {confirmedAction === 'saved'
+                ? <Check size={14} className="text-jade" aria-hidden />
+                : <Bookmark size={14} className="fill-transparent transition-all duration-300 group-hover:fill-gold group-hover:scale-110 group-active:scale-125" />}
               {t('card.putOff')}
-            </button>
+            </motion.button>
           )}
-          <button
-            onClick={onAccept}
+          <motion.button
+            onClick={() => {
+              haptic('success');
+              setConfirmedAction('accepted');
+              onAccept();
+            }}
+            whileTap={tapMotion}
+            transition={interactionSpring}
             aria-label={t('card.acceptAria')}
             className="flex-1 bg-gradient-to-r from-gold to-terracotta hover:from-gold-deep hover:to-terracotta text-white font-bold py-3 rounded-2xl transition-all active:scale-95 text-xs shadow-[0_4px_14px_rgba(193,85,59,0.25)] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
           >
-            {t('card.accept')}
-          </button>
+            <span className="inline-flex items-center justify-center gap-1.5">
+              {confirmedAction === 'accepted' && <Check size={14} aria-hidden />}
+              {t('card.accept')}
+            </span>
+          </motion.button>
         </div>
         {onDrive && (
           <button type="button" onClick={onDrive} className="mt-2 w-full rounded-xl border border-line bg-white py-2 text-[11px] font-bold text-muk-soft hover:border-gold/40 hover:text-gold-deep">
@@ -866,7 +898,13 @@ export function RecommendationCard({
         )}
         {facility?.id && (
           <div className="mt-2 flex justify-center">
-            <CongestionReportButton facility={{ id: facility.id!, name: facility.name ?? title }} />
+            <CongestionReportButton
+              facility={{ id: facility.id!, name: facility.name ?? title }}
+              onReported={(level) => setLocalReport({
+                level: level === '한산' ? 0.2 : level === '보통' ? 0.5 : 0.8,
+                timestamp: new Date().toISOString(),
+              })}
+            />
           </div>
         )}
       </>

@@ -33,7 +33,8 @@ async def evaluate_fixture(path: Path) -> dict:
     results = []
     hard_failures = []
     with (
-        patch("app.services.spot.score.predict_congestion", return_value=0.35),
+        patch("app.services.spot.score.predict_congestion_detailed", return_value=(0.35, "registry")),
+        patch("app.services.spot.score.get_model_info", return_value={"version": "fixture-v1"}),
         patch("app.services.spot.score.get_event_congestion_boost", return_value=(0.0, None)),
     ):
         for scenario in payload["scenarios"]:

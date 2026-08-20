@@ -13,9 +13,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Users, X, Check } from 'lucide-react';
+import { Users, X } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { useT } from '@/lib/i18n/I18nProvider';
+import { haptic, sheetSpring } from '@/lib/motion';
 
 // 최소 시설 형태만 요구(id/name). lib/types.ts 의 Facility 나 추천 응답 facility 모두 호환.
 interface ReportableFacility {
@@ -31,6 +32,14 @@ interface CongestionReportButtonProps {
 }
 
 type Level = '한산' | '보통' | '혼잡';
+
+interface CongestionReportResponse {
+  reward?: {
+    reportCount: number;
+    couponIssued: boolean;
+    nextRewardIn: number;
+  };
+}
 
 // 3지선다 옵션 — value(백엔드 전송·로직용, 한국어 고정)/i18n 키/한지 웜톤 색 토큰.
 const LEVEL_OPTIONS: {
@@ -82,17 +91,27 @@ export function CongestionReportButton({ facility, onReported, className = '' }:
     return () => window.removeEventListener('keydown', onKey);
   }, [isOpen, submitting]);
 
-  const submit = async () => {
-    if (!selected || submitting) return;
+  const submit = async (level: Level) => {
+    if (submitting) return;
+    setSelected(level);
+    haptic('confirm');
     setSubmitting(true);
     try {
       // 백엔드가 라벨(한산/보통/혼잡)을 0~1 로 매핑한다. facilityId → snake_case 변환은 api-client 담당.
-      await apiClient.post('/api/v1/reports/congestion', {
+      const response: CongestionReportResponse = await apiClient.post('/api/v1/reports/congestion', {
         facilityId: facility.id,
-        level: selected,
+        level,
       });
-      onReported?.(selected);
-      showToast(t('report.success', { name: facility.name }), 'success');
+      onReported?.(level);
+      haptic('success');
+      // 언어에 상관없이 즉시 읽히는 짧은 진행 배지. 3회째에는 쿠폰 +1을 명확히 보여준다.
+      const rewardMessage = response.reward?.couponIssued
+        ? '🎟️ +1'
+        : response.reward?.nextRewardIn
+          ? `🎯 ${3 - response.reward.nextRewardIn}/3`
+          : null;
+      const successMessage = t('report.success', { name: facility.name });
+      showToast(rewardMessage ? `${successMessage} · ${rewardMessage}` : successMessage, 'success');
       setIsOpen(false);
     } catch (err) {
       // 백엔드 다운/인증 만료 등 — graceful degradation(앱은 계속 동작).
@@ -111,7 +130,10 @@ export function CongestionReportButton({ facility, onReported, className = '' }:
       {/* 트리거 버튼 — 한지 웜톤, 작은 pill */}
       <button
         type="button"
-        onClick={() => setIsOpen(true)}
+        onClick={() => {
+          haptic('selection');
+          setIsOpen(true);
+        }}
         aria-haspopup="dialog"
         aria-label={t('report.triggerAria', { name: facility.name })}
         className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-full bg-hanji-deep hover:bg-gold/10 border border-line hover:border-gold/40 text-muk-soft hover:text-gold-deep text-xs font-bold transition-all active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/50 ${className}`}
@@ -168,7 +190,7 @@ export function CongestionReportButton({ facility, onReported, className = '' }:
               initial={{ y: 40, opacity: 0, scale: 0.98 }}
               animate={{ y: 0, opacity: 1, scale: 1 }}
               exit={{ y: 40, opacity: 0, scale: 0.98 }}
-              transition={{ type: 'spring', bounce: 0.25, duration: 0.5 }}
+              transition={sheetSpring}
               role="dialog"
               aria-modal="true"
               aria-labelledby="congestion-report-title"
@@ -206,7 +228,7 @@ export function CongestionReportButton({ facility, onReported, className = '' }:
                       role="radio"
                       aria-checked={active}
                       disabled={submitting}
-                      onClick={() => setSelected(opt.value)}
+                      onClick={() => void submit(opt.value)}
                       className={`flex flex-col items-center gap-1.5 py-4 rounded-2xl border-2 bg-white/60 transition-all active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/50 disabled:opacity-60 ${
                         active ? opt.activeBg : `border-line text-muk-soft ${opt.ring}`
                       }`}
@@ -219,25 +241,15 @@ export function CongestionReportButton({ facility, onReported, className = '' }:
                 })}
               </div>
 
-              {/* 제출 */}
-              <button
-                type="button"
-                onClick={submit}
-                disabled={!selected || submitting}
-                className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-gold to-terracotta hover:from-gold-deep hover:to-terracotta text-white font-bold py-3.5 rounded-2xl transition-all active:scale-95 shadow-[0_4px_14px_rgba(193,85,59,0.25)] disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/50"
-              >
-                {submitting ? (
-                  <>
-                    <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" aria-hidden />
+              {/* 옵션을 누르는 순간 제출된다. 두 번째 확인 버튼 없이 한 번의 탭으로 끝낸다. */}
+              <div className="h-5 flex items-center justify-center" role="status" aria-live="polite">
+                {submitting && (
+                  <span className="inline-flex items-center gap-2 text-xs font-bold text-gold-deep">
+                    <span className="w-3.5 h-3.5 border-2 border-gold/30 border-t-gold-deep rounded-full animate-spin" aria-hidden />
                     {t('report.submitting')}
-                  </>
-                ) : (
-                  <>
-                    <Check size={16} />
-                    {t('report.submit')}
-                  </>
+                  </span>
                 )}
-              </button>
+              </div>
 
               <p className="text-[10px] text-muk-soft/80 text-center leading-relaxed">
                 {t('report.footer')}

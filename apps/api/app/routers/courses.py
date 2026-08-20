@@ -77,7 +77,7 @@ class CourseStop(BaseModel):
     order: int                    # 방문 순서(1부터)
     facility: dict
     arrival_offset_min: float     # 지금(요청 시각) 기준 이 정류지 도착까지 걸리는 누적 분
-    predicted_congestion: float   # 누적 도착 시각 기준 예측 혼잡도(0~1)
+    predicted_congestion: float | None   # degraded_rules에서는 혼잡 수치 미제공
     spot_score: float
     reason: str
     open_status_at_arrival: str | None = None
@@ -99,11 +99,13 @@ def _build_stop_reason(
     order: int,
     facility: dict,
     arrival_offset_min: float,
-    predicted_congestion: float,
+    predicted_congestion: float | None,
     current_congestion: float,
 ) -> str:
     """정직·결정적 한국어 사유. LLM 미사용(코스는 재현 가능해야 함)."""
     name = facility.get("name", "이곳")
+    if predicted_congestion is None:
+        return f"{order}번째 {facility['name']}: 약 {round(arrival_offset_min)}분 후 도착합니다. 취향·실제 이동시간·혜택 기준 추천입니다."
     pct = round(predicted_congestion * 100)
     label = _congestion_label(predicted_congestion)
     when = "지금 바로" if order == 1 else f"약 {round(arrival_offset_min)}분 뒤"
@@ -155,7 +157,13 @@ async def _evaluate_candidate(
     )
 
     # 도착 시점 예상 인원 추정치를 응답 facility 에 주입(원본 리스트 불변 — 얕은 복사).
-    scored_facility = {**facility, "current_count": round(facility.get("capacity", 0) * predicted_congestion)}
+    scored_facility = {
+        **facility,
+        "current_count": (
+            round(facility.get("capacity", 0) * predicted_congestion)
+            if predicted_congestion is not None else None
+        ),
+    }
     scored_facility.pop(CONGESTION_OVERRIDE_KEY, None)
     score_res = await calculate_spot_score(
         user_id=user_id,
@@ -321,7 +329,10 @@ async def recommend_course(
             order=i + 1,
             facility=item["facility"],
             arrival_offset_min=item["arrival_offset_min"],
-            predicted_congestion=round(item["predicted_congestion"], 3),
+            predicted_congestion=(
+                round(item["predicted_congestion"], 3)
+                if item["predicted_congestion"] is not None else None
+            ),
             spot_score=item["spot_score"],
             reason=_build_stop_reason(
                 i + 1,

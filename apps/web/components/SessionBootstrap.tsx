@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { createPublicClient } from "@/lib/supabase";
 import { reconcileUserData } from "@/lib/userData";
 import { syncSaved } from "@/lib/savedFacilities";
+import { flushRecommendationOutcomes } from "@/lib/recommendationOutcomes";
 
 /**
  * SessionBootstrap — 관광객 무마찰(frictionless) 익명 세션 부트스트랩.
@@ -62,7 +63,10 @@ export default function SessionBootstrap() {
         reconcileUserData(session?.user?.id ?? null);
 
         // 청소 직후 이 사용자의 저장 장소를 Supabase 에서 로컬로 동기화(기기 변경 시 복원).
-        if (session?.user?.id) void syncSaved();
+        if (session?.user?.id) {
+          void syncSaved();
+          void flushRecommendationOutcomes();
+        }
       } catch (err) {
         // 네트워크 오류/설정 부재 등 예외 — 앱을 막지 않고 조용히 폴백.
         console.warn(

@@ -34,7 +34,9 @@ def _is_stale(timestamp: str | None, *, now: datetime | None = None) -> bool:
 
 class CongestionInfo(BaseModel):
     level: float
-    current_count: int
+    # 체감 혼잡 제보를 capacity×level 로 환산한 값은 실제 인원수가 아니다.
+    # CCTV처럼 명시적으로 인원을 계수하는 소스에서만 숫자를 내려준다.
+    current_count: int | None
     timestamp: str | None
     # 프런트 하위호환: 필드 추가만(기본값 제공). source=출처 라벨, is_stale=로그 나이>24h.
     source: str | None = None
@@ -81,8 +83,9 @@ async def _fetch_latest_one(fid: str) -> tuple[str, dict | None]:
     try:
         res = await asyncio.to_thread(
             supabase_client.table("congestion_logs")
-            .select("congestion_level, current_count, timestamp, source")
+            .select("congestion_level, current_count, timestamp, source, evidence_tier")
             .eq("facility_id", fid)
+            .in_("evidence_tier", ["single_report", "corroborated", "verified"])
             .order("timestamp", desc=True)
             .order("id", desc=True)  # 동일 timestamp 동률 시 결정적 정렬(시설별 최신 1건 선택 안정화)
             .limit(1)
@@ -93,14 +96,23 @@ async def _fetch_latest_one(fid: str) -> tuple[str, dict | None]:
             ts = row["timestamp"]
             return fid, {
                 "level": row["congestion_level"],
-                "current_count": row["current_count"],
+                "current_count": _exact_current_count(row),
                 "timestamp": ts,
                 "source": row.get("source"),
+                "evidence_tier": row.get("evidence_tier"),
                 "is_stale": _is_stale(ts),
             }
     except Exception as e:
         logger.warning("congestion_fetch_one_failed", facility_id=fid, error=str(e))
     return fid, None
+
+
+def _exact_current_count(row: dict) -> int | None:
+    """정성 제보의 환산 인원수를 실제 인원처럼 노출하지 않는다."""
+    if row.get("source") != "traffic_cctv":
+        return None
+    value = row.get("current_count")
+    return int(value) if value is not None else None
 
 
 def _is_missing_is_active_column(exc: Exception) -> bool:
@@ -183,9 +195,10 @@ async def fetch_latest_congestion_for_all(facility_ids: list[str]) -> dict:
             ts = row["timestamp"]
             result[fid] = {
                 "level": row["congestion_level"],
-                "current_count": row["current_count"],
+                "current_count": _exact_current_count(row),
                 "timestamp": ts,
                 "source": row.get("source"),
+                "evidence_tier": row.get("evidence_tier"),
                 "is_stale": _is_stale(ts),
             }
         return result

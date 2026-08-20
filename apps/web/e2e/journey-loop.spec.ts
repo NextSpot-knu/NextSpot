@@ -58,7 +58,7 @@ async function mockRecommendationPage(
 
 test('SOLAR on, timeout, and disabled keep identical visible SPOT order', async ({ browser }) => {
   test.setTimeout(60_000); // 세 개의 독립 페이지를 순차 로드하므로 Windows dev server의 첫 컴파일 여유를 둔다.
-  const rankings: string[][] = [];
+  const expectedNames = ['고요한 찻집', '박물관 카페', '한옥 쉼터'];
   for (const state of [
     { name: 'on', reasonSource: 'llm' as const },
     { name: 'timeout', reasonSource: 'template' as const },
@@ -67,14 +67,11 @@ test('SOLAR on, timeout, and disabled keep identical visible SPOT order', async 
     const page = await browser.newPage();
     await mockRecommendationPage(page, { reasonSource: state.reasonSource });
     await page.goto(`/explore/recommend?facilityId=origin&lat=35.838&lng=129.209&solar=${state.name}`);
-    await expect(page.locator('section.space-y-4 h4')).toHaveCount(3);
-    const names = await page.locator('section.space-y-4 h4').allTextContents();
-    expect(names).toEqual(['고요한 찻집', '박물관 카페', '한옥 쉼터']);
-    rankings.push(names);
+    const cards = page.locator('section.space-y-4 h4');
+    // 카드 수 확인 직후 React가 재렌더링될 수 있으므로 텍스트까지 한 번에 기다린다.
+    await expect(cards).toHaveText(expectedNames);
     await page.close();
   }
-  expect(rankings[0]).toEqual(rankings[1]);
-  expect(rankings[1]).toEqual(rankings[2]);
 });
 
 for (const locale of ['ko', 'en', 'ja', 'zh'] as const) {
@@ -107,32 +104,38 @@ test('SPOT order is stable, comparison falls back, and navigation persists', asy
 });
 
 test('arrival feedback keeps completion visible and links to coupons', async ({ page }) => {
-  let congestionPayload: Record<string, unknown> | null = null;
+  const recommendationId = '22222222-2222-4222-8222-222222222222';
+  const storedStages = new Set<string>();
+  let firstArrivalFailed = false;
   await page.addInitScript(() => {
     const trip = { version: 1, facilityId: 'fixture-cafe', name: 'Fixture Cafe', type: 'cafe',
-      lat: 35.838, lng: 129.209, acceptedAt: Date.now(), status: 'arrived' };
+      lat: 35.838, lng: 129.209, acceptedAt: Date.now(), status: 'arrived',
+      recommendationId: '22222222-2222-4222-8222-222222222222' };
     localStorage.setItem('nextspot_active_trip', JSON.stringify(trip));
     localStorage.setItem('nextspot_pending_visit', JSON.stringify(trip));
   });
   await page.route('**/api/v1/**', route => {
-    if (route.request().url().endsWith('/api/v1/reports/congestion')) {
-      congestionPayload = route.request().postDataJSON() as Record<string, unknown>;
-      return route.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
+    if (route.request().url().endsWith(`/recommendations/${recommendationId}/outcome`)) {
+      const payload = route.request().postDataJSON() as { stage: string };
+      if (payload.stage === 'arrival_confirmed' && !firstArrivalFailed) {
+        firstArrivalFailed = true;
+        return route.fulfill({ status: 500, contentType: 'application/json', body: '{"detail":"retry"}' });
+      }
+      storedStages.add(payload.stage);
+      return route.fulfill({ status: 200, contentType: 'application/json', body: '{"success":true}' });
     }
     return route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
   });
   await page.goto('/main');
   await page.evaluate(() => window.dispatchEvent(new Event('nextspot:trip-arrived')));
   await page.getByRole('button', { name: '네, 다녀왔어요' }).click();
-  await page.getByRole('button', { name: /Fixture Cafe 혼잡도 제보하기/ }).click();
-  await page.getByRole('radio', { name: /한산/ }).click();
-  await page.getByRole('button', { name: '제보하기', exact: true }).click();
-  await expect(page.getByRole('dialog')).toBeHidden();
-  expect(congestionPayload).toEqual({ facility_id: 'fixture-cafe', level: '한산' });
   await page.getByRole('button', { name: /좋았어요/ }).click();
+  await page.getByRole('button', { name: /한산/ }).click();
   const completed = page.getByTestId('visit-completed');
   await expect(completed).toBeVisible();
   await expect(completed.getByRole('link', { name: '내 쿠폰함' })).toHaveAttribute('href', '/mypage/coupons');
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('nextspot_recommendation_outcome_queue'))).toBe('[]');
+  expect([...storedStages]).toEqual(['arrival_confirmed', 'rated']);
   expect(await page.evaluate(() => localStorage.getItem('nextspot_active_trip'))).toBeNull();
 });
 

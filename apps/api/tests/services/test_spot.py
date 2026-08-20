@@ -118,7 +118,8 @@ async def test_spot_score_exact_value_weight_regression():
     with patch("app.services.spot.score.calculate_preference_similarity", new=AsyncMock(return_value=1.0)), \
          patch("app.services.spot.score.get_travel_time_and_distance", new=AsyncMock(return_value=(10.0, 800.0))), \
          patch("app.services.spot.score.calculate_predicted_wait_time", new=AsyncMock(return_value=20.0)), \
-         patch("app.services.spot.score.predict_congestion", new=lambda *a, **k: 0.5):
+         patch("app.services.spot.score.predict_congestion_detailed", new=lambda *a, **k: (0.5, "registry")), \
+         patch("app.services.spot.score.get_model_info", return_value={"version": "test-v1"}):
         result = await calculate_spot_score(
             user_id="test-user-id",
             preferred_categories=["cafe"],
@@ -136,6 +137,27 @@ async def test_spot_score_exact_value_weight_regression():
     # 산식 성분으로도 명시 검증(가중치/구성비 자체가 바뀌면 위 기대값과 함께 이중으로 실패)
     assert (W1, W2, W3) == (0.40, 0.40, 0.20)
     assert (INCENTIVE_COUPON_SHARE, COUPON_RATE_CAP) == (0.5, 0.20)
+
+
+@pytest.mark.asyncio
+async def test_degraded_rules_excludes_congestion_wait_and_relief_but_keeps_weights():
+    candidate = {
+        "id": "degraded", "type": "cafe", "latitude": 35.8366, "longitude": 129.2099,
+        "capacity": 40, "features": {}, "coupon_rate": 0.1,
+    }
+    with patch("app.services.spot.score.calculate_preference_similarity", new=AsyncMock(return_value=0.8)), \
+         patch("app.services.spot.score.get_travel_time_and_distance", new=AsyncMock(return_value=(10.0, 800.0))), \
+         patch("app.services.spot.score.predict_congestion_detailed", return_value=(None, "unavailable")), \
+         patch("app.services.spot.score.get_model_info", return_value={"version": None}):
+        result = await calculate_spot_score(
+            user_id="test", preferred_categories=["cafe"], original_congestion_level=0.9,
+            candidate_facility=candidate, user_lat=35.836, user_lng=129.21,
+            user_vector=[1.0 / (8 ** 0.5)] * 8,
+        )
+    assert result.breakdown["scoring_mode"] == "degraded_rules"
+    assert result.breakdown["wait_time"] is None
+    assert result.breakdown["incentive_relief"] is None
+    assert result.breakdown["prediction_source"] == "unavailable"
 
 
 def test_spot_weights_parity_with_shared_types():

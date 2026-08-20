@@ -1,0 +1,61 @@
+name: Train Recommendation Model
+
+on:
+  schedule:
+    - cron: '0 18 * * 0' # Monday 03:00 KST
+  workflow_dispatch:
+    inputs:
+      action:
+        description: candidate | promote | rollback | dry-run
+        required: true
+        default: candidate
+        type: choice
+        options: [candidate, promote, rollback, dry-run]
+      version:
+        description: promote/rollback target version
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  train:
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      JWT_SECRET: ${{ secrets.JWT_SECRET }}
+      ADMIN_API_TOKEN: ${{ secrets.ADMIN_API_TOKEN }}
+    defaults:
+      run:
+        working-directory: apps/api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Validate inputs
+        shell: bash
+        run: |
+          action="${{ github.event.inputs.action || 'candidate' }}"
+          version="${{ github.event.inputs.version }}"
+          if [[ "$action" =~ ^(promote|rollback)$ && -z "$version" ]]; then
+            echo "version is required for $action" >&2
+            exit 2
+          fi
+      - name: Create candidate
+        if: ${{ github.event_name == 'schedule' || github.event.inputs.action == 'candidate' }}
+        run: python scripts/train.py
+      - name: Dry run
+        if: ${{ github.event.inputs.action == 'dry-run' }}
+        run: python scripts/train.py --dry-run
+      - name: Promote candidate
+        if: ${{ github.event.inputs.action == 'promote' }}
+        run: python scripts/train.py --promote-version "${{ github.event.inputs.version }}"
+      - name: Roll back
+        if: ${{ github.event.inputs.action == 'rollback' }}
+        run: python scripts/train.py --rollback-version "${{ github.event.inputs.version }}"

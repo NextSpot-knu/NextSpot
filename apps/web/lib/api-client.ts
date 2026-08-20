@@ -197,6 +197,9 @@ export const apiClient = {
   post: (path: string, body?: unknown, options?: Omit<RequestOptions, "method" | "body">) =>
     request(path, { ...options, method: "POST", body }),
 
+  patch: (path: string, body?: unknown, options?: Omit<RequestOptions, "method" | "body">) =>
+    request(path, { ...options, method: "PATCH", body }),
+
   // D5: TourAPI 마지막 동기화 시각 조회 — 홈 소형 표시·관리자 신선도 배지 공용.
   getFreshness: (): Promise<FreshnessResponse> =>
     request("/api/v1/freshness", { method: "GET" }),
@@ -242,7 +245,7 @@ export interface RecommendationResponse {
   spotScore: number;
   breakdown: {
     preference: number;
-    waitTime: number;
+    waitTime?: number | null;
     travelTime: number;
     incentive: number;
     // 행사 혼잡 보정(A4): 도착시점 인근 진행 중 축제로 인한 예측 혼잡 가중(0=보정 없음)과 근거 축제명
@@ -266,6 +269,9 @@ export interface RecommendationResponse {
   informationConfidence?: "verified" | "unknown";
   placeDataSource?: string | null;
   dataUpdatedAt?: string | null;
+  scoringMode: "model" | "degraded_rules";
+  modelVersion?: string | null;
+  predictionSource: "registry" | "unavailable";
 }
 
 /** 추천 목록의 reasonSource 를 집계해 디버그 배지 이벤트를 1회 발행한다(항목에 하나도 없으면 무발행). */

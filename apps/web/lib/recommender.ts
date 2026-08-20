@@ -59,6 +59,7 @@ interface ScorableFacility {
   longitude?: number;
   congestionLevel?: number | null;
   coupon_rate?: number | null;
+  couponRate?: number | null;
   cuisine?: string[] | string | null; // features 밖(레거시 위치) 폴백
   features?: ScorableFeatures | null;
   spot?: Spot | null;
@@ -321,6 +322,44 @@ export function rankFacilities<T extends ScorableFacility>(facilities: T[], opts
   const scored = facilities.map((f) => {
     const spot = scoreFacility(f, opts);
     return { ...f, spot, reason: f.reason || "" }; // 사유는 백엔드 템플릿(f.reason)만. 클라 하드코딩 제거.
+  });
+  scored.sort(compareSpot);
+  return scored;
+}
+
+// 검증 모델을 사용할 수 없는 실데이터 경로: 취향·실제 이동시간·혜택만 같은 0.4/0.4/0.2
+// 가중치로 결합한다. 혼잡도, 예상 대기, 혼잡 완화 효과는 계산하지 않는다.
+export function rankFacilitiesDegraded<T extends ScorableFacility>(
+  facilities: T[], opts: ScoreOpts,
+): (T & { spot: Spot; reason: string; congestionLevel: null; congestionSource: 'none' })[] {
+  const { preference: w1, time: w2, incentive: w3 } = SPOT_WEIGHTS;
+  const scored = facilities.map((facility) => {
+    const cuisinePreference = cuisineMatch(facility, opts.cuisineIntent);
+    const preference = cuisinePreference ?? preferenceMatch(facility, opts.preferredCategories || []);
+    const distance = (
+      typeof facility.latitude === 'number' && typeof facility.longitude === 'number'
+        ? haversineMeters(opts.userLocation.lat, opts.userLocation.lng, facility.latitude, facility.longitude)
+        : 0
+    );
+    const travel = distance / WALK_M_PER_MIN;
+    const timeCost = Math.min(1, travel / 60);
+    const couponRate = facility.couponRate ?? facility.coupon_rate ?? 0;
+    const coupon = Math.min(1, Math.max(0, couponRate) / SPOT_INCENTIVE.couponRateCap);
+    const raw = w1 * preference - w2 * timeCost + w3 * coupon;
+    const normalized = Math.max(0, Math.min(1, (raw + w2) / (w1 + w2 + w3)));
+    return {
+      ...facility,
+      congestionLevel: null,
+      congestionSource: 'none' as const,
+      spot: {
+        score: Math.round(normalized * 100),
+        preferencePercent: Math.round(preference * 100),
+        expectedWait: 0,
+        expectedTravel: Math.round(travel * 10) / 10,
+        timeToService: Math.round(travel * 10) / 10,
+      },
+      reason: facility.reason || '',
+    };
   });
   scored.sort(compareSpot);
   return scored;

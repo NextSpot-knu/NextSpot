@@ -45,7 +45,7 @@ interface CourseStop {
     currentCount?: number;
   };
   arrivalOffsetMin: number;
-  predictedCongestion: number;
+  predictedCongestion: number | null;
   spotScore: number;
   reason: string;
   openStatusAtArrival?: 'open_expected' | 'closing_soon' | 'closed_confirmed' | 'needs_confirmation';
@@ -355,12 +355,12 @@ function CourseContent() {
   // 없으면 undefined 를 넘겨 ShareButton 이 기존 동작(현재 페이지 URL)으로 폴백하게 둔다.
   // window 접근은 정적 export 프리렌더(SSR, window 없음) 안전을 위해 typeof 가드 필수.
   const shareUrl = useMemo(() => {
-    if (activeStops.length === 0 || typeof window === "undefined") return undefined;
+    if (activeStops.length === 0 || activeStops.some((stop) => stop.predictedCongestion == null) || typeof window === "undefined") return undefined;
     const encoded = encodeStops(
       activeStops.map((s) => ({
         id: s.facility.id,
         offsetMin: s.arrivalOffsetMin,
-        congestion: s.predictedCongestion,
+        congestion: s.predictedCongestion as number,
       }))
     );
     return `${window.location.origin}/course?s=${encodeURIComponent(encoded)}&ref=share`;
@@ -750,7 +750,7 @@ function CourseGantt({ stops }: { stops: CourseStop[] }) {
           그래도 넘치는 초장문은 truncate + title 툴팁으로 폴백. 막대는 아래 시간축에 정렬. */}
       <div className="space-y-3">
         {segments.map(({ s, start, end }) => {
-          const cong = congestion(s.predictedCongestion);
+          const cong = s.predictedCongestion == null ? { key: 'moderate', cls: 'bg-hanji-deep border-line text-muk-soft' } : congestion(s.predictedCongestion);
           const leftPct = (start / total) * 100;
           const widthPct = ((end - start) / total) * 100;
           return (
@@ -776,7 +776,7 @@ function CourseGantt({ stops }: { stops: CourseStop[] }) {
                   title={`${s.facility.name} · ${arrivalText(s.arrivalOffsetMin, t)}`}
                 >
                   <span className="text-[10px] font-bold tabular-nums">
-                    {Math.round(s.predictedCongestion * 100)}%
+                    {s.predictedCongestion == null ? '—' : `${Math.round(s.predictedCongestion * 100)}%`}
                   </span>
                 </div>
               </div>
@@ -817,7 +817,7 @@ function StopRows({ stops, readOnly = false }: { stops: CourseStop[]; readOnly?:
 function StopRow({ stop, readOnly = false }: { stop: CourseStop; readOnly?: boolean }) {
   const t = useT();
   const [open, setOpen] = useState(false);
-  const cong = congestion(stop.predictedCongestion);
+  const cong = stop.predictedCongestion == null ? null : congestion(stop.predictedCongestion);
   const reasonId = `course-reason-${stop.facility.id}`;
   const startNavigation = (mode: 'walk' | 'car') => {
     const walkMinutes = stop.travelMinutes ?? stop.arrivalOffsetMin;
@@ -853,9 +853,9 @@ function StopRow({ stop, readOnly = false }: { stop: CourseStop; readOnly?: bool
             <h3 className="text-sm font-bold text-muk truncate">
               {stop.order}. {stop.facility.name}
             </h3>
-            <span className={`shrink-0 px-2 py-0.5 rounded-lg text-[10px] font-bold border ${cong.cls}`}>
+            {cong && stop.predictedCongestion != null && <span className={`shrink-0 px-2 py-0.5 rounded-lg text-[10px] font-bold border ${cong.cls}`}>
               {t(`congestion.${cong.key}`)} {Math.round(stop.predictedCongestion * 100)}%
-            </span>
+            </span>}
           </div>
 
           <div className="flex items-center gap-2 text-[11px] text-muk-soft mt-0.5">

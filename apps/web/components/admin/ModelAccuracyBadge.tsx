@@ -5,16 +5,14 @@ import { BrainCircuit } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 
 // 혼잡 예측 모델 정확도 배지 — GET /predict/model-info (무인증 공개 메타).
-// 수치는 scripts/train.py --evaluate 의 시간순 홀드아웃 백테스트 결과(model.pkl 내장).
-// 평가 프로토콜·한계: docs/MODEL_CARD.md
+// 비공개 Storage active 모델의 최근 7일 홀드아웃 결과만 표시한다.
 interface ModelInfo {
   trained: boolean;
-  // apiClient 가 snake→camel 변환한 metrics (mae, baselineMae, holdoutN, evaluatedAt ...)
-  metrics: {
-    mae?: number;
-    baselineMae?: number;
-    holdoutN?: number;
-  } | null;
+  version: string | null;
+  realDataCount: number;
+  mae: number | null;
+  baselineImprovement: number | null;
+  fallbackState: 'degraded_rules' | null;
 }
 
 export function ModelAccuracyBadge() {
@@ -55,19 +53,15 @@ export function ModelAccuracyBadge() {
     );
   }
 
-  const mae = info.metrics?.mae;
+  const mae = info.mae;
   if (info.trained && mae != null) {
-    const holdout = info.metrics?.holdoutN;
-    const baseline = info.metrics?.baselineMae;
     return (
       <span
-        title={`시간순 홀드아웃 백테스트 — 평균절대오차(혼잡도 %p)${
-          baseline != null ? ` · 기준선(평균예측) ±${(baseline * 100).toFixed(1)}%p` : ''
-        } · docs/MODEL_CARD.md`}
+        title={`활성 ${info.version} · 검증 실데이터 ${info.realDataCount}건 · 기준선 대비 ${((info.baselineImprovement ?? 0) * 100).toFixed(1)}% 개선`}
         className="flex items-center gap-1.5 px-2.5 py-1 bg-emerald-500/10 border border-emerald-500/25 text-emerald-300 rounded-full text-xs font-bold"
       >
         <BrainCircuit size={14} />
-        예측 오차 ±{(mae * 100).toFixed(1)}%p{holdout ? ` · 검증 ${holdout}건` : ''}
+        예측 오차 ±{(mae * 100).toFixed(1)}%p · 실데이터 {info.realDataCount}건
       </span>
     );
   }
@@ -76,13 +70,13 @@ export function ModelAccuracyBadge() {
     <span
       title={
         info.trained
-          ? '모델은 학습됐지만 백테스트 전 — python scripts/train.py --evaluate 로 평가하세요.'
-          : '모델 미학습 — 예측은 0.5 폴백. python scripts/train.py 로 학습하세요.'
+          ? '활성 모델 메타데이터를 확인할 수 없습니다.'
+          : '검증된 활성 모델이 없어 취향·실제 이동시간·혜택만으로 추천합니다. 혼잡도와 예상 대기시간은 표시하지 않습니다.'
       }
       className="flex items-center gap-1.5 px-2.5 py-1 bg-hanok-card border border-hanok-line text-hanok-muted rounded-full text-xs font-bold"
     >
       <BrainCircuit size={14} />
-      {info.trained ? '예측모델 평가 전' : '예측모델 미학습'}
+      {info.trained ? '예측모델 확인 필요' : '규칙 기반 안전 모드'}
     </span>
   );
 }

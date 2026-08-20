@@ -36,7 +36,11 @@ export default function RecommendationComparison({ recommendations }: { recommen
       <div className="overflow-x-auto"><table className="w-full min-w-[520px] text-xs text-center"><thead><tr><th className="text-left py-2">{t('compare.metric')}</th>{top.map((item) => <th key={item.recommendationId} className="px-2">{item.rank}. {item.facility.name}</th>)}</tr></thead><tbody className="divide-y divide-line">
         <Row label={t('compare.spot')} values={top.map((r) => `${Math.round(r.spotScore * 100)}`)} />
         <Row label={t('compare.preference')} values={top.map((r) => `${Math.round((r.breakdown.preference ?? 0) * 100)}%`)} />
-        <Row label={t('compare.walkWait')} values={top.map((r) => `${Math.round(r.breakdown.travelTime)}m · ${Math.round(r.breakdown.waitTime)}m`)} />
+        <Row label={t('compare.walkWait')} values={top.map((r) =>
+          r.breakdown.waitTime == null
+            ? `${Math.round(r.breakdown.travelTime)}m · ${t('card.noData')}`
+            : `${Math.round(r.breakdown.travelTime)}m · ${Math.round(r.breakdown.waitTime)}m`
+        )} />
         <Row label={t('compare.congestion')} values={top.map((r) => r.congestionLevel == null ? t('card.noData') : `${Math.round(r.congestionLevel * 100)}%`)} />
         <Row label={t('compare.openStatus')} values={top.map((r) => r.openStatusAtArrival ? t(`card.arrivalStatus.${r.openStatusAtArrival}`) : t('card.noData'))} />
         <Row label={t('compare.coupon')} values={top.map((r) => r.facility.couponRate ? `${Math.round(r.facility.couponRate * 100)}%` : '—')} />
