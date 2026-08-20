@@ -28,6 +28,8 @@ interface CongestionReportButtonProps {
   facility: ReportableFacility;
   // 선택: 부모의 토스트 시스템으로 위임하고 싶으면 주입(없으면 컴포넌트 내장 토스트 사용).
   onReported?: (level: '한산' | '보통' | '혼잡') => void;
+  // 아직 현장 정보가 없는 장소에서는 콜드스타트 해결 행동을 직접 안내한다.
+  isFirst?: boolean;
   className?: string;
 }
 
@@ -56,7 +58,7 @@ const LEVEL_OPTIONS: {
   { value: '혼잡', emoji: '🔥', labelKey: 'congestion.busy', descKey: 'report.busyDesc', ring: 'hover:border-terracotta/50', activeBg: 'border-terracotta bg-terracotta/10 text-terracotta' },
 ];
 
-export function CongestionReportButton({ facility, onReported, className = '' }: CongestionReportButtonProps) {
+export function CongestionReportButton({ facility, onReported, isFirst = false, className = '' }: CongestionReportButtonProps) {
   const t = useT();
   const [isOpen, setIsOpen] = useState(false);
   const [selected, setSelected] = useState<Level | null>(null);
@@ -136,10 +138,14 @@ export function CongestionReportButton({ facility, onReported, className = '' }:
         }}
         aria-haspopup="dialog"
         aria-label={t('report.triggerAria', { name: facility.name })}
-        className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-full bg-hanji-deep hover:bg-gold/10 border border-line hover:border-gold/40 text-muk-soft hover:text-gold-deep text-xs font-bold transition-all active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/50 ${className}`}
+        className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-full border text-xs font-bold transition-all active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/50 ${
+          isFirst
+            ? 'bg-jade/10 border-jade/35 text-jade hover:bg-jade/20 hover:border-jade/55'
+            : 'bg-hanji-deep border-line text-muk-soft hover:bg-gold/10 hover:border-gold/40 hover:text-gold-deep'
+        } ${className}`}
       >
         <Users size={14} />
-        {t('report.trigger')}
+        {isFirst ? `${t('card.noData')} · ${t('report.trigger')}` : t('report.trigger')}
       </button>
 
       {/* 토스트 — 성공(청록)/에러(주칠). 부모 토스트를 안 쓸 때의 내장 폴백. body 로 포털. */}

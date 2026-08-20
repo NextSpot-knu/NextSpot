@@ -17,6 +17,13 @@ const recommendations = [
   congestion_level: null, congestion_source: 'none', open_status_at_arrival: 'open_expected',
 }));
 
+const firstReportCta = {
+  ko: '데이터 없음 · 혼잡 제보',
+  en: 'No data · Report crowding',
+  ja: 'データなし · 混雑を報告',
+  zh: '暂无数据 · 上报拥挤',
+} as const;
+
 async function mockRecommendationPage(
   page: Page,
   options: { locale?: 'ko' | 'en' | 'ja' | 'zh'; reasonSource?: 'llm' | 'template' } = {},
@@ -80,6 +87,7 @@ for (const locale of ['ko', 'en', 'ja', 'zh'] as const) {
     await page.goto('/explore/recommend?facilityId=origin&lat=35.838&lng=129.209');
     await expect(page.locator('section.space-y-4 h4')).toHaveCount(3);
     await expect(page.locator('html')).toHaveAttribute('lang', locale);
+    await expect(page.locator('button').filter({ hasText: firstReportCta[locale] })).toHaveCount(3);
     await expect.poll(
       () => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth),
     ).toBeLessThanOrEqual(1);
@@ -106,6 +114,7 @@ test('SPOT order is stable, comparison falls back, and navigation persists', asy
 test('arrival feedback keeps completion visible and links to coupons', async ({ page }) => {
   const recommendationId = '22222222-2222-4222-8222-222222222222';
   const storedStages = new Set<string>();
+  let ratedPayload: { rating?: string; observed_congestion?: string } | null = null;
   let firstArrivalFailed = false;
   await page.addInitScript(() => {
     const trip = { version: 1, facilityId: 'fixture-cafe', name: 'Fixture Cafe', type: 'cafe',
@@ -116,11 +125,12 @@ test('arrival feedback keeps completion visible and links to coupons', async ({ 
   });
   await page.route('**/api/v1/**', route => {
     if (route.request().url().endsWith(`/recommendations/${recommendationId}/outcome`)) {
-      const payload = route.request().postDataJSON() as { stage: string };
+      const payload = route.request().postDataJSON() as { stage: string; rating?: string; observed_congestion?: string };
       if (payload.stage === 'arrival_confirmed' && !firstArrivalFailed) {
         firstArrivalFailed = true;
         return route.fulfill({ status: 500, contentType: 'application/json', body: '{"detail":"retry"}' });
       }
+      if (payload.stage === 'rated') ratedPayload = payload;
       storedStages.add(payload.stage);
       return route.fulfill({ status: 200, contentType: 'application/json', body: '{"success":true}' });
     }
@@ -129,13 +139,14 @@ test('arrival feedback keeps completion visible and links to coupons', async ({ 
   await page.goto('/main');
   await page.evaluate(() => window.dispatchEvent(new Event('nextspot:trip-arrived')));
   await page.getByRole('button', { name: '네, 다녀왔어요' }).click();
-  await page.getByRole('button', { name: /좋았어요/ }).click();
   await page.getByRole('button', { name: /한산/ }).click();
+  await page.getByRole('button', { name: /좋았어요/ }).click();
   const completed = page.getByTestId('visit-completed');
   await expect(completed).toBeVisible();
   await expect(completed.getByRole('link', { name: '내 쿠폰함' })).toHaveAttribute('href', '/mypage/coupons');
   await expect.poll(() => page.evaluate(() => localStorage.getItem('nextspot_recommendation_outcome_queue'))).toBe('[]');
   expect([...storedStages]).toEqual(['arrival_confirmed', 'rated']);
+  expect(ratedPayload).toMatchObject({ rating: 'up', observed_congestion: 'quiet' });
   expect(await page.evaluate(() => localStorage.getItem('nextspot_active_trip'))).toBeNull();
 });
 

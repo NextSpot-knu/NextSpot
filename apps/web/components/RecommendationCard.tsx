@@ -900,6 +900,7 @@ export function RecommendationCard({
           <div className="mt-2 flex justify-center">
             <CongestionReportButton
               facility={{ id: facility.id!, name: facility.name ?? title }}
+              isFirst={displayCongestionSource === 'none'}
               onReported={(level) => setLocalReport({
                 level: level === '한산' ? 0.2 : level === '보통' ? 0.5 : 0.8,
                 timestamp: new Date().toISOString(),

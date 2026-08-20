@@ -4,7 +4,7 @@
 //
 // 트리거: main 마운트 + 문서 visibilitychange(visible) 시 lib/visits.getDueVisit() 을 재확인한다
 //   (앱을 잠시 떠났다 돌아오면 방문 완료 시점과 맞물려 자연스럽게 노출된다).
-// 처리: [예 — 원탭 혼잡 제보(CongestionReportButton 재사용) + 👍 좋았어요/👎 별로] → visit_history 적립 + pending 클리어.
+// 처리: [예 → 원탭 혼잡 → 👍/👎] 순서로 가장 중요한 현장 신호를 먼저 받고 방문 이력을 확정한다.
 //   [아직이요/닫기] → pending 클리어(재노출 안 함, 다시 수락하면 새 루프).
 // 팔레트·포털 관례는 FestivalBanner/CongestionReportButton 을 따른다(한지 웜톤 + body 포털 + framer-motion).
 
@@ -21,8 +21,8 @@ import { haptic, interactionSpring, sheetSpring } from '@/lib/motion';
 export function VisitCheckCard({ showToast }: { showToast?: (msg: string) => void }) {
   const t = useT();
   const [due, setDue] = useState<PendingVisit | null>(null);
-  const [stage, setStage] = useState<'ask' | 'feedback' | 'congestion' | 'completed'>('ask');
-  const [rating, setRating] = useState<OutcomeRating | null>(null);
+  const [stage, setStage] = useState<'ask' | 'congestion' | 'feedback' | 'completed'>('ask');
+  const [observedCongestion, setObservedCongestion] = useState<ObservedCongestion | null>(null);
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
 
@@ -60,23 +60,25 @@ export function VisitCheckCard({ showToast }: { showToast?: (msg: string) => voi
   const confirmArrival = () => {
     haptic('confirm');
     queueRecommendationOutcome(due.recommendationId, 'arrival_confirmed');
+    setObservedCongestion(null);
+    setStage('congestion');
+  };
+
+  const selectCongestion = (value?: ObservedCongestion) => {
+    haptic(value ? 'confirm' : 'selection');
+    setObservedCongestion(value ?? null);
     setStage('feedback');
   };
 
   const finishRating = (nextRating: OutcomeRating) => {
     haptic('confirm');
     completeVisit({ facilityId: due.facilityId, name: due.name, type: due.type, rating: nextRating });
-    queueRecommendationOutcome(due.recommendationId, 'rated', { rating: nextRating });
+    queueRecommendationOutcome(due.recommendationId, 'rated', {
+      rating: nextRating,
+      observedCongestion: observedCongestion ?? undefined,
+    });
     import('@/lib/analytics').then(({ track }) => track('visit_confirmed', { facility_type: due.type, rating: nextRating }));
-    setRating(nextRating);
-    setStage('congestion');
-  };
-
-  const finishCongestion = (observedCongestion?: ObservedCongestion) => {
     haptic('success');
-    if (rating && observedCongestion) {
-      queueRecommendationOutcome(due.recommendationId, 'rated', { rating, observedCongestion });
-    }
     showToast?.(t('visit.thanks'));
     setStage('completed');
   };
@@ -107,8 +109,8 @@ export function VisitCheckCard({ showToast }: { showToast?: (msg: string) => voi
 
           {stage !== 'completed' && (
             <div className="mb-3 flex gap-1.5 pr-8" aria-hidden>
-              {(['ask', 'feedback', 'congestion'] as const).map((item, index) => {
-                const activeIndex = ['ask', 'feedback', 'congestion'].indexOf(stage);
+              {(['ask', 'congestion', 'feedback'] as const).map((item, index) => {
+                const activeIndex = ['ask', 'congestion', 'feedback'].indexOf(stage);
                 return (
                   <motion.span
                     key={item}
@@ -221,13 +223,13 @@ export function VisitCheckCard({ showToast }: { showToast?: (msg: string) => voi
                   ['normal', 'congestion.moderate', 'report.moderateDesc'],
                   ['busy', 'congestion.busy', 'report.busyDesc'],
                 ] as const).map(([value, labelKey, descKey]) => (
-                  <button key={value} type="button" onClick={() => finishCongestion(value)} className="toss-pressable rounded-2xl border border-line bg-hanji-deep px-2 py-2 text-xs font-bold text-muk">
+                  <button key={value} type="button" onClick={() => selectCongestion(value)} className="toss-pressable rounded-2xl border border-line bg-hanji-deep px-2 py-2 text-xs font-bold text-muk">
                     <span className="block">{t(labelKey)}</span>
                     <span className="mt-0.5 block text-[10px] font-normal text-muk-soft">{t(descKey)}</span>
                   </button>
                 ))}
               </div>
-              <button type="button" onClick={() => finishCongestion()} className="toss-pressable text-xs font-bold text-muk-soft">{t('common.close')}</button>
+              <button type="button" onClick={() => selectCongestion()} className="toss-pressable text-xs font-bold text-muk-soft">{t('common.close')}</button>
             </div>
           )}
             </motion.div>

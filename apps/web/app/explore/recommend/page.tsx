@@ -12,6 +12,7 @@ import { REGION, isWithinRegion } from "@/lib/region";
 import { toast } from "sonner";
 import { useT } from "@/lib/i18n/I18nProvider";
 import { ShareButton } from "@/components/ShareButton";
+import { CongestionReportButton } from "@/components/CongestionReportButton";
 import RecommendationComparison from "@/components/RecommendationComparison";
 import { recordActiveTrip } from "@/lib/visits";
 import { openDrivingDirections, openWalkingDirections } from "@/lib/navigation";
@@ -1424,6 +1425,32 @@ function RecommendContent() {
                   >
                     {t('card.drive')} · <span className="font-medium">{t('card.driveBasisHint')}</span>
                   </button>
+
+                  {/* 현장 혼잡 수집 — 정보가 없는 장소일수록 CTA를 강조한다. 제보 직후에는
+                      서버 재조회 없이 이 카드만 실측 상태로 갱신해 사용자의 행동 결과를 보여준다. */}
+                  <div className="mt-2 flex justify-center">
+                    <CongestionReportButton
+                      facility={{ id: rec.facility.id, name: rec.facility.name }}
+                      isFirst={rec.congestionSource === 'none'}
+                      className="w-full justify-center"
+                      onReported={(level) => {
+                        const congestionLevel = level === '한산' ? 0.2 : level === '보통' ? 0.5 : 0.8;
+                        const congestionTimestamp = new Date().toISOString();
+                        setRecommendations((current) => current.map((item) => (
+                          item.recommendationId === rec.recommendationId
+                            ? {
+                                ...item,
+                                congestionLevel,
+                                congestionSource: 'measured',
+                                congestionTimestamp,
+                                congestionLogSource: 'user_report',
+                                congestionIsStale: false,
+                              }
+                            : item
+                        )));
+                      }}
+                    />
+                  </div>
 
                   {/* 공유 — 지금 한산한 이 장소를 퍼뜨려 자연 유입을 만든다. 링크는 같은 페이지(원 시설/좌표)로
                       돌아오되 ref=share 를 붙여 위 계측 useEffect 가 방문을 집계한다. */}
