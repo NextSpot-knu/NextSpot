@@ -11,6 +11,7 @@ import { AdminSidebar } from '@/components/AdminSidebar';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { createPublicClient } from '@/lib/supabase';
 import { adminApi } from '@/lib/admin-api';
+import { errorMessage } from '@/lib/errors';
 import { toast } from 'sonner';
 
 // --- Types ---
@@ -97,8 +98,8 @@ export default function InfrastructurePage() {
         description: `'${req.name || req.contentid}'을(를) 적재했습니다.`,
       });
       setIngestRequests(prev => prev.filter(r => r.id !== req.id));
-    } catch (err: any) {
-      toast.error('승인 실패', { description: err?.message || '잠시 후 다시 시도해 주세요.' });
+    } catch (err) {
+      toast.error('승인 실패', { description: errorMessage(err) || '잠시 후 다시 시도해 주세요.' });
     } finally {
       setApprovingIngestId(null);
     }
@@ -173,7 +174,7 @@ export default function InfrastructurePage() {
         const updated = finalInfras.find(item => item.id === prev.id);
         return updated || finalInfras[0];
       });
-    } catch (err: any) {
+    } catch (err) {
       // 백엔드 실패/타임아웃 — 에러 대신 데모 데이터로 폴백(데모 무중단).
       console.warn('인프라 실데이터 로드 실패 — 데모 데이터로 대체:', err);
       setError(null);
@@ -289,9 +290,9 @@ export default function InfrastructurePage() {
       });
       setOverrideOpen(false);
       await fetchFacilities(true); // 최신 혼잡도 반영(무음 갱신 — 목록/차트 재조회)
-    } catch (err: any) {
+    } catch (err) {
       toast.error('혼잡 상태 변경 실패', {
-        description: err?.message || '잠시 후 다시 시도해 주세요.',
+        description: errorMessage(err) || '잠시 후 다시 시도해 주세요.',
       });
     } finally {
       setOverrideSubmitting(false);

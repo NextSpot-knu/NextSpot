@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import { createPublicClient } from '@/lib/supabase';
 import { adminApi } from '@/lib/admin-api';
 import { REGION } from '@/lib/region';
+import { errorMessage } from '@/lib/errors';
 
 // 읽기는 anon(RLS: anon_select_facilities 유지), 쓰기는 관리자 API(FastAPI service_role) 경유 —
 // anon 직접 쓰기는 RLS 로 거부되며, 과거엔 0행 갱신이 성공으로 표시되는 무음 실패였다(WS-A-6).
@@ -139,10 +140,10 @@ export function FacilityTable() {
       }
       await fetchFacilities();
       setModalOpen(false);
-    } catch (err: any) {
+    } catch (err) {
       // 실패 시 모달은 열어 둔 채 토스트로 안내(사용자가 값 수정 후 재시도 가능).
       const prefix = modalMode === 'create' ? '시설 등록에 실패했습니다: ' : '시설 정보 수정 실패: ';
-      toast.error(prefix + (err?.message || '알 수 없는 오류'));
+      toast.error(prefix + (errorMessage(err) || '알 수 없는 오류'));
     } finally {
       setSubmitting(false);
     }
@@ -162,9 +163,9 @@ export function FacilityTable() {
               setFacilities(prev => prev.filter(f => f.id !== id));
               toast.success('시설이 삭제되었습니다.');
             })
-            .catch((err: any) => {
+            .catch((err: unknown) => {
               console.error('Failed to delete facility:', err);
-              toast.error(`시설 삭제 중 오류가 발생했습니다: ${err?.message || '알 수 없는 오류'}`);
+              toast.error(`시설 삭제 중 오류가 발생했습니다: ${errorMessage(err) || '알 수 없는 오류'}`);
             });
         },
       },

@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { AdminSidebar } from '@/components/AdminSidebar';
 import { adminApi } from '@/lib/admin-api';
+import { errorMessage } from '@/lib/errors';
 
 // 인파 밀집 안전 경보(B2G 관제) — GET /api/v1/admin/safety/status (apps/api/app/routers/safety.py) 미러.
 //
@@ -213,10 +214,10 @@ export default function SafetyPage() {
         fireAlertNotification(res.summary.alertZones - prevAlertCountRef.current);
       }
       prevAlertCountRef.current = res.summary.alertZones;
-    } catch (err: any) {
+    } catch (err) {
       // 백엔드 미기동/네트워크 실패 — 우아한 빈 상태로 폴백(무한 스켈레톤 금지).
       console.warn('안전 경보 조회 실패:', err);
-      setError(err?.message || '백엔드에 연결할 수 없습니다.');
+      setError(errorMessage(err) || '백엔드에 연결할 수 없습니다.');
     } finally {
       if (!isSilent) setLoading(false);
     }

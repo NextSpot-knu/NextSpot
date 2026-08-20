@@ -28,6 +28,7 @@ import { isClosedToday, parseAvailability } from '@/lib/restDate';
 import { loadTravelContext, matchesTravelContext, saveTravelContext, type PlaceCategory } from '@/lib/travelContext';
 import { buildVoiceCommandTransition, type VoiceAppCommand } from '@/lib/voiceCommands';
 import NextSpotMascot from '@/components/NextSpotMascot';
+import { errorMessage } from '@/lib/errors';
 
 const RecommendationCard = dynamic(
   () => import('@/components/RecommendationCard').then((m) => m.RecommendationCard),
@@ -1678,9 +1679,9 @@ export default function MainPage() {
       });
       setRequestedIngestIds(prev => new Set(prev).add(item.contentid));
       showToast(t('map.liveSearchRequested'));
-    } catch (err: any) {
+    } catch (err) {
       console.warn('적재 요청 실패:', err);
-      showToast(err?.message || '요청에 실패했어요. 잠시 후 다시 시도해 주세요.');
+      showToast(errorMessage(err) || '요청에 실패했어요. 잠시 후 다시 시도해 주세요.');
     }
   };
 

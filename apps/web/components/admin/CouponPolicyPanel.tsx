@@ -5,6 +5,7 @@ import { Ticket, Search } from 'lucide-react';
 import { toast } from 'sonner';
 import { createPublicClient } from '@/lib/supabase';
 import { adminApi } from '@/lib/admin-api';
+import { errorMessage } from '@/lib/errors';
 import { SPOT_WEIGHTS, SPOT_INCENTIVE } from 'shared-types';
 
 // 개입 폐루프(B2G 관제→개입): POI 별 제휴 할인율(coupon_rate)을 슬라이더로 조정하면
@@ -67,10 +68,10 @@ export function CouponPolicyPanel() {
           .range(0, 1999);
         if (error) throw error;
         setFacilities(data || []);
-      } catch (err: any) {
+      } catch (err) {
         console.error('쿠폰 정책 패널 시설 로드 실패:', err);
         // coupon_rate 컬럼 부재(마이그레이션 20260707150000 미적용)도 이 경로로 떨어진다.
-        setLoadError(err?.message || '시설 목록을 불러오지 못했습니다.');
+        setLoadError(errorMessage(err) || '시설 목록을 불러오지 못했습니다.');
       } finally {
         setLoading(false);
       }
@@ -100,8 +101,8 @@ export function CouponPolicyPanel() {
         delete next[f.id];
         return next;
       }), 1500);
-    } catch (err: any) {
-      toast.error(`쿠폰 정책 저장 실패: ${err?.message || '알 수 없는 오류'}`);
+    } catch (err) {
+      toast.error(`쿠폰 정책 저장 실패: ${errorMessage(err) || '알 수 없는 오류'}`);
     } finally {
       inFlight.current.delete(f.id);
       // in-flight 사이 사용자가 값을 더 바꿨을 수 있다(두 번째 릴리즈가 inFlight 가드에 막힌 경우).
