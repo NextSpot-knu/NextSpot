@@ -9,11 +9,8 @@
 
 import { useEffect, useRef, useState } from 'react';
 
-declare global {
-  interface Window {
-    kakao: any;
-  }
-}
+// (window.kakao 타입은 types/kakao-maps.d.ts 가 전역으로 선언한다 — 파일마다 declare global 로
+//  중복 선언하던 `kakao: any` 를 걷어냈다.)
 
 // 지도가 필요로 하는 최소 필드만 정의 — app/course/page.tsx 의 CourseStop(더 많은 필드 보유)이
 // 구조적으로 이 타입을 만족하므로 별도 캐스팅 없이 그대로 전달할 수 있다.
@@ -38,10 +35,10 @@ const KAKAO_TIMEOUT_MS = 3000;
 
 export default function CourseMap({ stops, userLocation }: CourseMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const mapRef = useRef<any>(null);
-  const markerOverlaysRef = useRef<any[]>([]);
-  const userDotRef = useRef<any>(null);
-  const polylineRef = useRef<any>(null);
+  const mapRef = useRef<kakao.maps.Map | null>(null);
+  const markerOverlaysRef = useRef<kakao.maps.Overlay[]>([]);
+  const userDotRef = useRef<kakao.maps.CustomOverlay | null>(null);
+  const polylineRef = useRef<kakao.maps.Polyline | null>(null);
 
   const [ready, setReady] = useState(false);
   const [unavailable, setUnavailable] = useState(false);
@@ -130,7 +127,7 @@ export default function CourseMap({ stops, userLocation }: CourseMapProps) {
     bounds.extend(userPos);
 
     // 정류지 번호 마커(골드 원 + 흰 숫자) — 첫 정류지만 살짝 크게.
-    const path: any[] = [];
+    const path: kakao.maps.LatLng[] = [];
     stops.forEach((stop, idx) => {
       const { latitude, longitude, name } = stop.facility;
       if (typeof latitude !== 'number' || typeof longitude !== 'number') return;

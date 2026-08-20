@@ -145,23 +145,20 @@ function isBarFacility(f: Facility): boolean {
   return tags.some((t: string) => _BAR_TAGS_MAIN.includes(t));
 }
 
-declare global {
-  interface Window {
-    kakao: any;
-  }
-}
+// (window.kakao 타입은 types/kakao-maps.d.ts 가 전역으로 선언한다 — 파일마다 declare global 로
+//  중복 선언하던 `kakao: any` 를 걷어냈다.)
 
 
 export default function MainPage() {
   const mapContainerRef = useRef<HTMLDivElement>(null);
-  const mapInstanceRef = useRef<any>(null);
-  const markersRef = useRef<any[]>([]);
-  const userMarkerRef = useRef<any>(null);
-  const activeOverlayRef = useRef<any>(null);
+  const mapInstanceRef = useRef<kakao.maps.Map | null>(null);
+  const markersRef = useRef<kakao.maps.Marker[]>([]);
+  const userMarkerRef = useRef<kakao.maps.CustomOverlay | null>(null);
+  const activeOverlayRef = useRef<kakao.maps.CustomOverlay | null>(null);
   // 히트맵 CustomOverlay blob 배열 — 토글 off / 데이터·필터·예측 변경 / 언마운트 시 정리(cleanup)용.
-  const heatmapOverlaysRef = useRef<any[]>([]);
+  const heatmapOverlaysRef = useRef<kakao.maps.Overlay[]>([]);
   // 축제 포커스 오버레이(핀/영역 원 + 라벨) 배열 — 새 축제 선택·지도 클릭·언마운트 시 정리.
-  const festivalOverlayRef = useRef<any[]>([]);
+  const festivalOverlayRef = useRef<kakao.maps.Overlay[]>([]);
 
   const [activeFilter, setActiveFilter] = useState<string>(() => {
     const first = loadTravelContext().categories[0];
@@ -1337,7 +1334,13 @@ export default function MainPage() {
   const initMap = () => {
     if (mapInstanceRef.current) return;
     if (window.kakao && window.kakao.maps && mapContainerRef.current) {
+      // 컨테이너를 지역 상수로 붙잡는다: 아래 maps.load 는 비동기 콜백이라, SDK 가 로드되는 사이
+      // 사용자가 페이지를 떠나면 mapContainerRef.current 는 null 이 된다(언마운트). 그 상태로
+      // new Map(null) 을 부르면 SDK 가 throw 한다 — 콜백 진입 시 다시 확인하고 조용히 빠진다.
+      const container = mapContainerRef.current;
       window.kakao.maps.load(() => {
+        if (!mapContainerRef.current) return; // 로드 대기 중 언마운트됨
+
         let centerLat = REGION.center.lat as number;
         let centerLng = REGION.center.lng as number;
         let level = 4;
@@ -1367,7 +1370,7 @@ export default function MainPage() {
           center: new window.kakao.maps.LatLng(centerLat, centerLng),
           level: level,
         };
-        const map = new window.kakao.maps.Map(mapContainerRef.current, options);
+        const map = new window.kakao.maps.Map(container, options);
         mapInstanceRef.current = map;
         setMapLoaded(true);
 
@@ -1497,7 +1500,7 @@ export default function MainPage() {
           
           overlay.setMap(mapInstanceRef.current);
           activeOverlayRef.current = overlay;
-          mapInstanceRef.current.panTo(marker.getPosition());
+          mapInstanceRef.current?.panTo(marker.getPosition());
         } else {
           setActiveGroupId(null);
           setSelectedFacility(f);

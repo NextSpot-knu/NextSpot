@@ -168,16 +168,16 @@ export function RecommendationCard({
 
     try {
       const ps = new window.kakao.maps.services.Places();
-      ps.keywordSearch(title, (data: any, status: any) => {
+      ps.keywordSearch(title, (data: kakao.maps.services.PlacesSearchResultItem[], status: kakao.maps.services.Status) => {
         // 동명 체인이 타지로 잡히는 것을 차단: 카카오 1순위가 다른 도시일 수 있다.
         // '경주' 주소를 가진 첫 결과만 채택하고, 없으면 우리 DB(경주) 주소로 폴백.
         const place = (status === window.kakao.maps.services.Status.OK && Array.isArray(data))
-          ? data.find((p: any) => ((p.road_address_name || p.address_name || '').includes('경주')))
+          ? data.find((p: kakao.maps.services.PlacesSearchResultItem) => ((p.road_address_name || p.address_name || '').includes('경주')))
           : null;
         if (place) {
           setPlaceInfo({
-            address: place.road_address_name || place.address_name || facility?.features?.address || undefined,
-            phone: place.phone || facility?.features?.phone || undefined,
+            address: place.road_address_name || place.address_name || (facility?.features?.address as string | undefined) || undefined,
+            phone: place.phone || (facility?.features?.phone as string | undefined) || undefined,
             url: place.place_url
           });
         } else {

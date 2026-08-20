@@ -20,12 +20,8 @@ import { track } from "@/lib/analytics";
 import { loadTravelContext } from "@/lib/travelContext";
 import { relativeParts } from "@/lib/freshness";
 
-// Extend global Window
-declare global {
-  interface Window {
-    kakao: any;
-  }
-}
+// (window.kakao 타입은 types/kakao-maps.d.ts 가 전역으로 선언한다 — 파일마다 declare global 로
+//  중복 선언하던 `kakao: any` 를 걷어냈다.)
 
 // 데모 회복탄력성: 백엔드 사유(reason)가 없을 때도 추천 사유가 비지 않도록
 // 보여줄 결정적 한국어 사유를 생성한다. 백엔드 reason_service._build_template 와 어투를 맞춰 일관성 유지.
@@ -97,7 +93,7 @@ interface MiniMapProps {
 const MiniMap = React.memo(({ latitude, longitude, mapLoaded }: MiniMapProps) => {
   const t = useT();
   const containerRef = useRef<HTMLDivElement>(null);
-  const mapRef = useRef<any>(null);
+  const mapRef = useRef<kakao.maps.Map | null>(null);
   const [isSimulation, setIsSimulation] = useState(false);
 
   useEffect(() => {
