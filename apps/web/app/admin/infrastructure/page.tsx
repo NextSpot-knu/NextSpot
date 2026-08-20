@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import {
-  Building2, Search, Bell, Utensils, MapPin, Filter,
+  Building2, Search, Bell, Utensils, MapPin,
   ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ChevronDown, ChevronUp,
   AlertTriangle, Users, Clock, Activity, Coffee,
   SlidersHorizontal, X, Inbox

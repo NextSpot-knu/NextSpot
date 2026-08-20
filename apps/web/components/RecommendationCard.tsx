@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { motion, PanInfo, AnimatePresence } from 'framer-motion';
-import { Bookmark, Check, Sparkles, Star, Phone, MapPin, Clock, ChevronUp, ChevronDown, Info, Globe, Utensils } from 'lucide-react';
+import { Bookmark, Check, Sparkles, Star, Phone, MapPin, Clock, ChevronUp, Info, Globe, Utensils } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { CongestionReportButton } from '@/components/CongestionReportButton';
 import { GoldenHourBadge } from '@/components/GoldenHourBadge';

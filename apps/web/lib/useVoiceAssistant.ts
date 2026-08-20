@@ -72,7 +72,7 @@ export function useVoiceAssistant<T>(opts: VoiceAssistantOptions<T>): VoiceAssis
   const [sttSupported, setSttSupported] = useState(true);
 
   // SpeechRecognition 인스턴스 — lib.dom 에 타입이 없어 any 유지(런타임 전용 Web Speech 객체)
-  const recRef = useRef<any>(null);
+  const recRef = useRef<SpeechRecognition | null>(null);
   const activeRef = useRef(false); // active 상태 동기 미러(비동기 콜백에서 stale 방지)
   const listenTimerRef = useRef<number | null>(null); // window.setTimeout 핸들
   const followupRef = useRef<number | null>(null); // window.setTimeout 핸들
@@ -94,7 +94,7 @@ export function useVoiceAssistant<T>(opts: VoiceAssistantOptions<T>): VoiceAssis
   useEffect(() => {
     if (typeof window === "undefined") return;
     const synthOk = "speechSynthesis" in window;
-    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     setTtsSupported(synthOk);
     setSttSupported(!!SR);
     if (!synthOk) return; // 브라우저 보이스 캐싱은 speechSynthesis 있을 때만
@@ -334,7 +334,7 @@ export function useVoiceAssistant<T>(opts: VoiceAssistantOptions<T>): VoiceAssis
   const startListening = () => {
     if (typeof window === "undefined") return;
     if (stateRef.current === "idle") return;
-    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR) {
       // STT 미지원: 듣기 불가 → idle로 정리(listening 고착 방지). 발화는 이미 끝났고 버튼으로 응답.
       setSttSupported(false);
@@ -350,7 +350,7 @@ export function useVoiceAssistant<T>(opts: VoiceAssistantOptions<T>): VoiceAssis
       rec.interimResults = true;
       rec.continuous = false;
       rec.maxAlternatives = 3;
-      rec.onresult = (e: any) => {
+      rec.onresult = (e: SpeechRecognitionEvent) => {
         let interim = "";
         let finalAlts: string[] | null = null;
         for (let i = e.resultIndex; i < e.results.length; i++) {
@@ -370,7 +370,7 @@ export function useVoiceAssistant<T>(opts: VoiceAssistantOptions<T>): VoiceAssis
           handleIntent(finalAlts);
         }
       };
-      rec.onerror = (e: any) => {
+      rec.onerror = (e: SpeechRecognitionErrorEvent) => {
         startingRef.current = false;
         if (listenTimerRef.current) { clearTimeout(listenTimerRef.current); listenTimerRef.current = null; }
         const err = e?.error;

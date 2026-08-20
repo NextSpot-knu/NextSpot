@@ -31,7 +31,7 @@ export function useSpeechSearch(
   const [supported, setSupported] = useState(false);
   const [listening, setListening] = useState(false);
 
-  const recRef = useRef<any>(null);
+  const recRef = useRef<SpeechRecognition | null>(null);
   const listeningRef = useRef(false); // listening 동기 미러(비동기 콜백 stale 방지)
   const onTranscriptRef = useRef(onTranscript); // 매 렌더 최신 클로저 유지
   onTranscriptRef.current = onTranscript;
@@ -43,7 +43,7 @@ export function useSpeechSearch(
   // ── 지원 감지(마운트 1회) ── 정적 export 에서 window 없이 통과, 클라이언트에서만 확정.
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     setSupported(!!SR);
   }, []);
 
@@ -60,7 +60,7 @@ export function useSpeechSearch(
   const start = () => {
     if (typeof window === "undefined") return;
     if (listeningRef.current) { stop(); return; } // 듣는 중 다시 탭 → 취소(토글)
-    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR) { setSupported(false); return; } // 미지원 → 조용히 비활성 유지
     try { recRef.current?.abort?.(); } catch { /* noop */ }
     try {
@@ -69,7 +69,7 @@ export function useSpeechSearch(
       rec.interimResults = false; // 단발 받아쓰기 — 최종 문장만 검색어로 반영
       rec.continuous = false;
       rec.maxAlternatives = 1;
-      rec.onresult = (e: any) => {
+      rec.onresult = (e: SpeechRecognitionEvent) => {
         let transcript = "";
         for (let i = e.resultIndex; i < e.results.length; i++) {
           const r = e.results[i];
@@ -80,7 +80,7 @@ export function useSpeechSearch(
       };
       // 에러(마이크 거부·no-speech 등)/종료 시 듣기 상태 해제 — 마이크가 '듣는 중'으로 고착되지 않게.
       // e.error 로 종류를 구분해 사용자에게 알린다. 'aborted'(사용자가 다시 탭해 취소)는 정상 흐름이므로 조용히 넘어간다.
-      rec.onerror = (e: any) => {
+      rec.onerror = (e: SpeechRecognitionErrorEvent) => {
         setListeningBoth(false);
         const code = e?.error;
         if (code === "aborted") return;

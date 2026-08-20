@@ -208,7 +208,7 @@ function RecommendContent() {
   const [isListening, setIsListening] = useState(false);
   const [nlSummary, setNlSummary] = useState<string | null>(null);
   const [nlApplied, setNlApplied] = useState(false);
-  const recognitionRef = useRef<any>(null);
+  const recognitionRef = useRef<SpeechRecognition | null>(null);
   // 빠른 더블클릭으로 인한 중복 피드백 전송 방지 — 리렌더 전에도 동기적으로 차단되는 가드
   const votedRef = useRef<Set<string>>(new Set());
   // 음성 '다음'(skipped) 중복 전송 방지 — 만족도(votedRef)와 별개 어휘라 집합을 분리한다.
@@ -235,7 +235,7 @@ function RecommendContent() {
   const [sttSupported, setSttSupported] = useState(true);
   const [spokenCaption, setSpokenCaption] = useState(""); // 현재 발화 텍스트(자막=청각 정보 시각 동시 제공)
 
-  const assistantRecRef = useRef<any>(null);
+  const assistantRecRef = useRef<SpeechRecognition | null>(null);
   const voiceUnlockedRef = useRef(false);
   const listenTimeoutRef = useRef<number | null>(null);
   const speakFollowupRef = useRef<number | null>(null); // 발화 후 STT 시작 예약 타이머(정리 추적)
@@ -275,7 +275,7 @@ function RecommendContent() {
   useEffect(() => {
     if (typeof window === "undefined") return;
     const synthOk = "speechSynthesis" in window;
-    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     setTtsSupported(synthOk);
     setSttSupported(!!SR);
     if (!synthOk) return;
@@ -536,7 +536,7 @@ function RecommendContent() {
 
   // 음성 입력 시작 (Web Speech API). 미지원 브라우저는 텍스트 입력으로 폴백.
   const startVoice = () => {
-    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR) {
       toast.error(t("recommend.voiceUnsupported"));
       return;
@@ -546,7 +546,7 @@ function RecommendContent() {
       rec.lang = "ko-KR";
       rec.interimResults = false;
       rec.maxAlternatives = 1;
-      rec.onresult = (e: any) => {
+      rec.onresult = (e: SpeechRecognitionEvent) => {
         const transcript = e.results?.[0]?.[0]?.transcript ?? "";
         if (transcript) setNlText((prev) => (prev ? prev + " " : "") + transcript);
       };
@@ -917,7 +917,7 @@ function RecommendContent() {
   const startAssistantListening = () => {
     if (typeof window === "undefined") return;
     if (voiceStateRef.current === "idle") return;
-    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR) {
       // STT 미지원: 발화는 끝났고 카드 버튼으로 응답 유도(자막 안내). 권한 루프 없음.
       setSttSupported(false);
@@ -935,7 +935,7 @@ function RecommendContent() {
       rec.interimResults = true; // 부분 인식 자막
       rec.continuous = false;
       rec.maxAlternatives = 3; // 키워드 매칭 폭 확대(하나라도 매칭되면 채택)
-      rec.onresult = (e: any) => {
+      rec.onresult = (e: SpeechRecognitionEvent) => {
         let interim = "";
         let finalAlts: string[] | null = null;
         for (let i = e.resultIndex; i < e.results.length; i++) {
@@ -955,7 +955,7 @@ function RecommendContent() {
           handleVoiceIntent(finalAlts, idxForThisListen);
         }
       };
-      rec.onerror = (e: any) => {
+      rec.onerror = (e: SpeechRecognitionErrorEvent) => {
         startingRef.current = false;
         clearListenTimeout();
         const err = e?.error;

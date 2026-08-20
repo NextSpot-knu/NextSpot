@@ -260,7 +260,8 @@ export default function MainPage() {
     (kind) => showToast(kind === 'denied' ? t('map.sttMicDenied') : t('map.sttFailed'))
   );
 
-  const appKey = process.env.NEXT_PUBLIC_KAKAO_MAPS_APP_KEY || process.env.NEXT_PUBLIC_KAKAO_API_KEY || process.env.NEXT_PUBLIC_KAKAO_MAP_KEY || "";
+  // (Kakao SDK 스크립트는 app/layout.tsx 가 전역으로 로드한다 — 이 페이지가 직접 주입하던
+  //  시절의 appKey 지역변수는 그 배선이 layout 으로 옮겨간 뒤 쓰이지 않아 제거했다.)
 
   // Load facilities from Supabase
   useEffect(() => {
