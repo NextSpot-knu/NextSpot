@@ -1,6 +1,6 @@
 # 세션 인계 문서 (2026-08-20 갱신)
 
-## -28. 2026-08-20 — 경주 ITS 실측 스냅샷 수집(코드 완료, 운영 활성화 대기)
+## -28. 2026-08-20 — 경주 ITS 실측 스냅샷 수집 운영 활성화 완료
 
 - 2026-08-20 21:27 KST 운영 스모크는 정상이다. Vercel `https://nextspot-nu.vercel.app`
   `HTTP 200`(0.469s), Render `/health` `HTTP 200`(0.619s, `production/healthy`),
@@ -19,18 +19,16 @@
   넘기면 관광 통계 근거로 폴백하거나 근거가 없을 때 빈다. 이력 백테스트 전에는 현재값을
   먼 미래의 예측값으로 확장하지 않는다.
 - stale-while-revalidate 갱신 시 기존 실측 숫자는 남아 있는데 출처·관측 시각이
-  순간적으로 `None`이 되던 메타데이터 회귀를 현재 로컬 작업분에서 수정했다. 위 스모크
-  배포에는 아직 포함되지 않았으며, push·Render 재배포 후 운영에 반영된다.
+  순간적으로 `None`이 되던 메타데이터 회귀를 수정해 `52fa086`으로 main 배포했다.
 - GitHub `ADMIN_API_TOKEN`은 로컬 값을 출력하지 않고 운영 Render와 일치함을 `HTTP 200`으로
   확인한 뒤 Actions secret에 등록했다(2026-08-20 21:41 KST). `BACKEND_HEALTH_URL`도 현재
   `https://nextspot-api.onrender.com/health`로 등록되어 있다.
-- **사람이 남아서 할 일은 1개다:** Supabase SQL Editor에서
-  `supabase/migrations/20260820220000_add_area_demand_snapshots.sql`을 전체 실행한다.
-  적용 확인 뒤 Codex가 main push·Render 배포 확인,
-  `AREA_DEMAND_COLLECTION_ENABLED=true` 등록, 수동 workflow 실행과 부모/자식 저장 검증을 이어간다.
-- **현재 수집 workflow는 운영 DB migration·GitHub `ADMIN_API_TOKEN`·
-  `AREA_DEMAND_COLLECTION_ENABLED=true`가 모두 완료되기 전에는 실행되지 않는다.**
-  저장값은 특정 카페·관광지 내부 혼잡도나 예상 대기시간이 아니다. 검증 모델 없이
+- 사용자가 운영 Supabase에 migration을 적용했고, `AREA_DEMAND_COLLECTION_ENABLED=true`를
+  등록했다. 수동 workflow run `32371668353`의 실제 수집 단계가 6초 만에 성공했다.
+  첫 저장은 ITS 실시간 3곳, 총 880면·가용 233면으로 부모/자식 합계와 건수가 일치했다.
+  다음 15분 버킷에서 연속 재수집해도 같은 snapshot ID, 부모 1행, 자식 3행을 유지해 운영 DB
+  멱등성까지 확인했다. 이후 `*/15 * * * *` 스케줄 수집이 활성 상태다.
+- 저장값은 특정 카페·관광지 내부 혼잡도나 예상 대기시간이 아니다. 검증 모델 없이
   그 숫자를 만들지 않으며, SPOT 가중치 `0.4/0.4/0.2`도 변경하지 않았다.
 
 ## -27. 2026-08-20 — 초기 사용자용 공개 지역 수요 신호
