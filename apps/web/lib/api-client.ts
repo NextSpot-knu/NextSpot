@@ -3,6 +3,7 @@ import type { TravelContext } from "./travelContext";
 import type { PlaceCategory } from "./travelContext";
 import type { VoiceAppCommand } from "./voiceCommands";
 import type { Locale } from "./i18n/config";
+import { ensureAnonymousSession } from "./anonymousSession";
 const supabase = createPublicClient();
 
 // 인증 필요(HTTP 401)를 서버 장애·기타 오류와 구분하기 위한 전용 에러 타입.
@@ -110,6 +111,7 @@ const REQUEST_TIMEOUT_MS = 10000;
 
 interface RequestOptions extends Omit<RequestInit, "body"> {
   params?: Record<string, string>;
+  timeoutMs?: number;
   /** 평문 객체를 주면 request() 가 snake_case 변환 후 JSON 직렬화한다(FormData 등 BodyInit 은 그대로 전송) */
   body?: unknown;
 }
@@ -145,12 +147,13 @@ async function request(path: string, options: RequestOptions = {}) {
 
   // 10초 타임아웃 — 미응답 시 명확한 에러로 실패시켜 화면이 무한 로딩에 갇히지 않게 한다.
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), options.timeoutMs ?? REQUEST_TIMEOUT_MS);
 
   let response: Response;
   try {
+    const { params: _params, timeoutMs: _timeoutMs, ...fetchOptions } = options;
     response = await fetch(url, {
-      ...options,
+      ...fetchOptions,
       headers,
       body,
       signal: controller.signal,
@@ -473,12 +476,9 @@ export async function recommendByType(
   context?: TravelContext,
   preferenceIntent?: string | null,
 ): Promise<RecommendationResponse[]> {
-  const { data: { session } } = await supabase.auth.getSession();
-  let userId = session?.user?.id;
-  if (!userId) {
-    console.warn("인증 세션이 없습니다. 데모용 모의 사용자 ID(GYEONGJU-VISITOR-01)를 사용합니다.");
-    userId = "a2222222-2222-2222-2222-222222222222";
-  }
+  const session = await ensureAnonymousSession();
+  const userId = session?.user?.id;
+  if (!userId) throw new AuthError();
   const res: RecommendationResponse[] = await apiClient.post("/api/v1/recommendations/by-type", {
     userId,
     facilityType,

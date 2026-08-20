@@ -72,6 +72,7 @@ interface RecommendationCardProps {
   dataSource?: { source: string | null; lastUpdated?: string | null; isStale?: boolean };
   openStatusAtArrival?: 'open_expected' | 'closing_soon' | 'closed_confirmed' | 'needs_confirmation';
   congestionSource?: 'measured' | 'predicted' | 'none';
+  scoringMode?: 'model' | 'measured_rules' | 'area_stats_rules' | 'degraded_rules';
 }
 
 export function RecommendationCard({
@@ -101,6 +102,7 @@ export function RecommendationCard({
   dataSource,
   openStatusAtArrival,
   congestionSource,
+  scoringMode,
 }: RecommendationCardProps) {
   const { t, locale } = useI18n();
   const [isExpanded, setIsExpanded] = useState(false);
@@ -251,10 +253,12 @@ export function RecommendationCard({
   const hasSpotMetrics = spotScore !== undefined;
 
   const travelMins = expectedTravel || 0;
-  const waitMins = expectedWait || 0;
+  const waitMins = expectedWait ?? null;
   
   const arrivalTime = currentTime ? new Date(currentTime.getTime() + travelMins * 60000) : null;
-  const serviceTime = arrivalTime ? new Date(arrivalTime.getTime() + waitMins * 60000) : null;
+  const serviceTime = arrivalTime && waitMins !== null
+    ? new Date(arrivalTime.getTime() + waitMins * 60000)
+    : null;
 
   const formatTime = (date: Date | null) => {
     if (!date) return '';
@@ -548,7 +552,7 @@ export function RecommendationCard({
               type="button"
               onClick={(e) => { e.stopPropagation(); setShowTooltip((v) => !v); }}
               onBlur={() => setShowTooltip(false)}
-              aria-label="SPOT 점수 설명 보기"
+              aria-label={t('card.spotTooltipAria')}
               aria-expanded={showTooltip}
               className="absolute -top-1.5 -right-1.5 bg-white rounded-full p-0.5 border border-gold/40 shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
             >
@@ -558,9 +562,11 @@ export function RecommendationCard({
             {/* Tooltip — 상태(showTooltip) 또는 데스크톱 hover 시 표시 */}
             <div className={`absolute top-full right-0 mt-3 w-[260px] p-3.5 bg-white/95 backdrop-blur-xl border border-line rounded-xl shadow-[0_10px_30px_rgba(43,35,32,0.15)] transition-all duration-200 z-50 pointer-events-none group-hover:opacity-100 group-hover:visible ${showTooltip ? 'opacity-100 visible' : 'opacity-0 invisible'}`}>
               <p className="text-[11px] text-muk-soft leading-relaxed text-right break-keep space-y-1">
-                <span className="block mb-1.5"><strong className="text-gold-deep font-bold text-[12px]">SPOT Score란?</strong></span>
-                <span className="block">NextSpot의 핵심 기술로, 도착 시점의 혼잡도를 미리 예측하는 <strong className="text-gold-deep">머신러닝 AI 모델</strong>과 사용자의 선호도를 분석하는 <strong className="text-gold-deep">벡터 알고리즘</strong>의 결합.</span>
-                <span className="block mt-1.5">지금 이 순간, 사용자의 시간 가치를 극대화하는 가장 완벽한 목적지를 제안합니다.</span>
+                <span className="block mb-1.5"><strong className="text-gold-deep font-bold text-[12px]">{t('card.spotTooltipTitle')}</strong></span>
+                <span className="block">
+                  {t(scoringMode === 'model' ? 'card.spotTooltipModel' : 'card.spotTooltipRules')}
+                </span>
+                <span className="block mt-1.5">{t('card.spotTooltipFootnote')}</span>
               </p>
             </div>
           </div>
@@ -610,20 +616,20 @@ export function RecommendationCard({
               </div>
 
               {/* Timeline UI */}
-              {currentTime && arrivalTime && serviceTime && (
+              {currentTime && arrivalTime && (
                 <div className="bg-hanji-deep border border-line rounded-2xl px-4 py-3 flex flex-col gap-3">
                   <div className="flex items-start justify-between relative mt-1">
                     {/* Connecting Line */}
                     <div className="absolute top-[3px] left-4 right-4 h-[2px] bg-line z-0" />
 
                     {/* Travel Duration Label */}
-                    <div className="absolute top-[-10px] left-[25%] -translate-x-1/2 z-10">
+                    <div className={`absolute top-[-10px] ${serviceTime ? 'left-[25%]' : 'left-1/2'} -translate-x-1/2 z-10`}>
                       <span className="text-[10px] font-medium text-jade bg-hanji-deep px-1.5 py-0.5 rounded border border-jade/25 whitespace-nowrap">{t('card.travel', { n: travelMins })}</span>
                     </div>
                     {/* Wait Duration Label */}
-                    <div className="absolute top-[-10px] left-[75%] -translate-x-1/2 z-10">
+                    {serviceTime && waitMins !== null && <div className="absolute top-[-10px] left-[75%] -translate-x-1/2 z-10">
                       <span className="text-[10px] font-medium text-gold-deep bg-hanji-deep px-1.5 py-0.5 rounded border border-gold/25 whitespace-nowrap">{t('card.wait', { n: waitMins })}</span>
-                    </div>
+                    </div>}
 
                     {/* Current Time Step */}
                     <div className="flex flex-col items-center z-10 w-12">
@@ -639,12 +645,12 @@ export function RecommendationCard({
                       <span className="text-[10px] text-muk-soft mt-0.5">{t('card.arrive')}</span>
                     </div>
 
-                    {/* Service Start Step */}
-                    <div className="flex flex-col items-center z-10 w-12">
+                    {/* Service Start Step — 검증된 대기시간이 있을 때만 표시한다. */}
+                    {serviceTime && <div className="flex flex-col items-center z-10 w-12">
                       <div className="w-2 h-2 rounded-full bg-gold ring-4 ring-hanji-deep mb-1.5" />
                       <span className="text-[10px] text-muk font-bold">{formatTime(serviceTime)}</span>
                       <span className="text-[10px] text-muk-soft mt-0.5">{facilityType === 'restaurant' || facilityType === 'cafe' ? t('card.dine') : t('card.view')}</span>
-                    </div>
+                    </div>}
                   </div>
                 </div>
               )}

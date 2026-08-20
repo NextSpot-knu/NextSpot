@@ -32,6 +32,9 @@ SPOT_Score = w₁ · 취향 일치율 − w₂ · (도착시점 예측 대기 + 
 인센티브 = 0.5 · min(1, 쿠폰할인율/20%) + 0.5 · max(0, 원본혼잡 − 후보 도착시점 예측혼잡)
 ```
 
+위 전체 식은 검증 모델이 승격된 `model` 모드의 식이다. 현재 운영 `degraded_rules`/`area_stats_rules`는
+근거 없는 예측 대기와 혼잡 완화항을 제외하고 취향·이동시간·혜택만 같은 고정 가중치 안에서 사용한다.
+
 - 구현: [`apps/api/app/services/spot/score.py`](./apps/api/app/services/spot/score.py) (런타임 정본)
 - 상수 공유: [`packages/shared-types/spot.ts`](./packages/shared-types/spot.ts) — 프론트 시뮬레이터와 단일 정의점,
   **CI 패리티 테스트가 양쪽 정합을 강제** (한쪽만 바꾸면 빌드 실패)

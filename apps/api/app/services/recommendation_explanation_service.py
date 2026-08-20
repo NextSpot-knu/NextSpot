@@ -29,7 +29,8 @@ def build_template(question: str, snapshots: list[dict], locale: str = "ko") -> 
     score = round(float(primary.get("spot_score") or 0) * 100)
     breakdown = primary.get("breakdown") or {}
     walk = round(float(breakdown.get("travel_time") or 0))
-    wait = round(float(breakdown.get("wait_time") or 0))
+    wait_raw = breakdown.get("wait_time")
+    wait = round(float(wait_raw)) if isinstance(wait_raw, (int, float)) else None
     if question == "difference" and len(snapshots) > 1:
         other = snapshots[1]
         other_name = str(other.get("facility_name") or other_fallbacks[locale])
@@ -44,19 +45,25 @@ def build_template(question: str, snapshots: list[dict], locale: str = "ko") -> 
     if question == "family_check":
         facts = primary.get("tourapi_facts") or {}
         verified = facts.get("barrier_free") is True
+        wait_text = {
+            "ko": f", 예상 대기 {wait}분" if wait is not None else "",
+            "en": f", with an estimated {wait}-minute wait" if wait is not None else "",
+            "ja": f"、予想待ち時間は{wait}分" if wait is not None else "",
+            "zh": f"，预计等待{wait}分钟" if wait is not None else "",
+        }
         templates = {
-            "ko": f"{name}까지 도보 약 {walk}분, 예상 대기 {wait}분입니다. {'무장애 정보가 확인됐습니다' if verified else '무장애 정보는 확인이 필요합니다'}. 운영시간과 현장 상황은 출발 전에 다시 확인해 주세요.",
-            "en": f"It is about a {walk}-minute walk to {name}, with an estimated {wait}-minute wait. Accessibility information {'is verified' if verified else 'needs confirmation'}. Recheck opening hours and on-site conditions before leaving.",
-            "ja": f"{name}までは徒歩約{walk}分、予想待ち時間は{wait}分です。バリアフリー情報は{'確認済みです' if verified else '確認が必要です'}。出発前に営業時間と現地状況を再確認してください。",
-            "zh": f"步行到{name}约需{walk}分钟，预计等待{wait}分钟。无障碍信息{'已确认' if verified else '需要确认'}。出发前请再次确认营业时间和现场情况。",
+            "ko": f"{name}까지 도보 약 {walk}분{wait_text['ko']}입니다. {'무장애 정보가 확인됐습니다' if verified else '무장애 정보는 확인이 필요합니다'}. 운영시간과 현장 상황은 출발 전에 다시 확인해 주세요.",
+            "en": f"It is about a {walk}-minute walk to {name}{wait_text['en']}. Accessibility information {'is verified' if verified else 'needs confirmation'}. Recheck opening hours and on-site conditions before leaving.",
+            "ja": f"{name}までは徒歩約{walk}分{wait_text['ja']}です。バリアフリー情報は{'確認済みです' if verified else '確認が必要です'}。出発前に営業時間と現地状況を再確認してください。",
+            "zh": f"步行到{name}约需{walk}分钟{wait_text['zh']}。无障碍信息{'已确认' if verified else '需要确认'}。出发前请再次确认营业时间和现场情况。",
         }
         return templates[locale]
     rank = int(primary.get("rank") or 1)
     templates = {
-        "ko": f"{name}은 생성 당시 SPOT {score}점으로 {rank}위였습니다. 도보 약 {walk}분, 예상 대기 {wait}분을 포함한 서버 점수 결과입니다.",
-        "en": f"{name} ranked #{rank} with a SPOT score of {score} when generated. This server score includes an approximately {walk}-minute walk and {wait}-minute estimated wait.",
-        "ja": f"{name}は生成時のSPOTスコア{score}点で{rank}位でした。徒歩約{walk}分と予想待ち時間{wait}分を含むサーバー計算結果です。",
-        "zh": f"{name}生成推荐时以SPOT {score}分排名第{rank}。这是包含约{walk}分钟步行和{wait}分钟预计等待的服务器评分结果。",
+        "ko": f"{name}은 생성 당시 SPOT {score}점으로 {rank}위였습니다. 도보 약 {walk}분" + (f", 예상 대기 {wait}분을 포함한 서버 점수 결과입니다." if wait is not None else "과 취향·혜택을 반영한 서버 점수 결과입니다."),
+        "en": f"{name} ranked #{rank} with a SPOT score of {score} when generated. This server score includes an approximately {walk}-minute walk" + (f" and {wait}-minute estimated wait." if wait is not None else ", preferences, and benefits."),
+        "ja": f"{name}は生成時のSPOTスコア{score}点で{rank}位でした。徒歩約{walk}分" + (f"と予想待ち時間{wait}分を含むサーバー計算結果です。" if wait is not None else "、好み、特典を反映したサーバー計算結果です。"),
+        "zh": f"{name}生成推荐时以SPOT {score}分排名第{rank}。这是包含约{walk}分钟步行" + (f"和{wait}分钟预计等待的服务器评分结果。" if wait is not None else "、偏好和优惠的服务器评分结果。"),
     }
     return templates[locale]
 

@@ -244,6 +244,19 @@ async def test_generate_reason_with_source_llm_disabled_reports_template():
 
 
 @pytest.mark.asyncio
+async def test_generate_reason_without_polish_never_calls_llm(monkeypatch):
+    monkeypatch.setattr(reason_service.llm_client, "is_enabled", lambda: True)
+    chat = AsyncMock(side_effect=AssertionError("critical recommendation path must not call LLM"))
+    monkeypatch.setattr(reason_service.llm_client, "chat_text", chat)
+
+    text, source = await generate_reason_with_source(_CTX, polish=False)
+
+    assert text == _build_template(_CTX)
+    assert source == "template"
+    chat.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_generate_reason_with_source_reports_llm_when_polish_adopted(monkeypatch):
     # 정직성 검증을 통과한 다듬기가 채택되면 source="llm".
     monkeypatch.setattr(reason_service.llm_client, "is_enabled", lambda: True)

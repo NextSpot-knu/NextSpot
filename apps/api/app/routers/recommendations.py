@@ -422,7 +422,7 @@ async def get_recommendations(
             "congestion_source": item["congestion_evidence"]["source"],
             "travel_time": bd.get("travel_time"),
             "predicted_wait": bd.get("wait_time"),
-        })
+        }, polish=False)
 
     reasons = await asyncio.gather(*[_reason_for(item) for item in top_n])
 
@@ -710,7 +710,7 @@ async def recommend_by_type(
             "congestion_source": item["congestion_evidence"]["source"],
             "travel_time": bd.get("travel_time"),
             "predicted_wait": bd.get("wait_time"),
-        })
+        }, polish=False)
 
     reasons = await asyncio.gather(*[_reason_for(item) for item in top])
 

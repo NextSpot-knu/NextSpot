@@ -10,7 +10,7 @@ import { classifyIntent, buildCardSpeech } from "@/lib/voiceIntent";
 import { isClosedToday } from "@/lib/restDate";
 import { REGION, isWithinRegion } from "@/lib/region";
 import { toast } from "sonner";
-import { useT } from "@/lib/i18n/I18nProvider";
+import { useI18n, useT } from "@/lib/i18n/I18nProvider";
 import { ShareButton } from "@/components/ShareButton";
 import { CongestionReportButton } from "@/components/CongestionReportButton";
 import RecommendationComparison from "@/components/RecommendationComparison";
@@ -29,18 +29,27 @@ declare global {
 
 // 데모 회복탄력성: 백엔드 사유(reason)가 없을 때도 추천 사유가 비지 않도록
 // 보여줄 결정적 한국어 사유를 생성한다. 백엔드 reason_service._build_template 와 어투를 맞춰 일관성 유지.
-function buildFallbackReason(name: string, waitMin: number, distanceM: number, congestionLevel: number | null = null): string {
+function buildFallbackReason(
+  t: (key: string, vars?: Record<string, string | number>) => string,
+  name: string,
+  waitMin: number | null,
+  distanceM: number,
+  congestionLevel: number | null = null,
+): string {
   const walk = Math.max(1, Math.round(distanceM / 66.67)); // 66.67m/min = 4km/h (백엔드 WALKING_SPEED_M_PER_MIN 와 일치)
   // 혼잡(>=0.75)이면 추천하지 않고 혼잡·대기를 솔직히 알린다.
   if (congestionLevel !== null && congestionLevel >= 0.75) {
-    return `${name}: 도보 ${walk}분 거리지만 지금은 혼잡도 ${Math.round(congestionLevel * 100)}%로 붐벼 대기가 길 수 있어요.`;
+    return t('recommend.fallbackBusy', { name, walk, pct: Math.round(congestionLevel * 100) });
   }
   // 혼잡 근거가 없으면 '여유'라는 혼잡 주장을 지어내지 않는다(CONGESTION_TRUST_SPEC).
   if (congestionLevel === null) {
-    return `${name} 추천: 도보 ${walk}분, 예상 대기 ${Math.round(waitMin)}분 수준입니다.`;
+    return waitMin === null
+      ? t('recommend.fallbackTravelOnly', { name, walk })
+      : t('recommend.fallbackWithWait', { name, walk, wait: Math.round(waitMin) });
   }
-  const mood = congestionLevel >= 0.5 ? "대기가 길지 않은 편이에요" : "지금 비교적 여유로워요";
-  return `${name} 추천: 도보 ${walk}분, 예상 대기 ${Math.round(waitMin)}분 수준으로 ${mood}.`;
+  return waitMin === null
+    ? t('recommend.fallbackMeasured', { name, walk })
+    : t('recommend.fallbackWithWait', { name, walk, wait: Math.round(waitMin) });
 }
 
 // 합성 추천 id 판별 — mock-(데모 폴백)·bytype-(/recommendations/by-type 브라우즈)는 recommendations
@@ -171,7 +180,7 @@ interface OriginalFacility {
 
 // The core content wrapper component that handles Search Params
 function RecommendContent() {
-  const t = useT();
+  const { t, locale } = useI18n();
   const searchParams = useSearchParams();
   const router = useRouter();
 
@@ -183,7 +192,6 @@ function RecommendContent() {
   // State
   const [userId, setUserId] = useState<string | null>(null);
   const [originalFacility, setOriginalFacility] = useState<OriginalFacility | null>(null);
-  const [originalWaitTime, setOriginalWaitTime] = useState<string>("--");
   const [recommendations, setRecommendations] = useState<RecommendationResponse[]>([]);
   
   const [loadingOriginal, setLoadingOriginal] = useState(true);
@@ -433,12 +441,14 @@ function RecommendContent() {
             features,
             congestion_logs (
               congestion_level,
-              timestamp
+              timestamp,
+              source,
+              evidence_tier
             )
           `)
           .eq("id", facilityId)
           .order("timestamp", { foreignTable: "congestion_logs", ascending: false })
-          .limit(1, { foreignTable: "congestion_logs" })
+          .limit(10, { foreignTable: "congestion_logs" })
           .single();
 
         let originalData = data;
@@ -449,7 +459,9 @@ function RecommendContent() {
         }
 
         if (originalData) {
-          const latestLog = originalData.congestion_logs && originalData.congestion_logs[0];
+          const latestLog = originalData.congestion_logs?.find((log: { source?: string; evidence_tier?: string }) =>
+            log.source !== 'seed' && log.source !== 'simulated' && log.evidence_tier !== 'synthetic'
+          );
           // 로그 0건이면 null 유지 — 0.0(실측 여유)으로 합성하지 않는다(CONGESTION_TRUST_SPEC).
           const level = latestLog ? latestLog.congestion_level : null;
 
@@ -460,23 +472,7 @@ function RecommendContent() {
             congestionLevel: level,
             features: originalData.features || {},
           });
-          const defaultTimes: Record<string, number> = {
-            restaurant: 25,
-            cafe: 12,
-            attraction: 15,
-            culture: 15,
-          };
-          const avgProcessTime = originalData.features?.average_processing_time ?? defaultTimes[originalData.type] ?? 15;
-          const hour = new Date().getHours();
-          let timeMultiplier = 1.0;
-          if (hour >= 11 && hour < 14) timeMultiplier = 1.3;
-          else if (hour >= 14 && hour < 18) timeMultiplier = 1.2;
-
-          // 혼잡 근거가 없으면 대기시간도 합성하지 않는다("--" 유지 → 대기 문장 미노출).
-          if (level !== null) {
-            const predicted = level * avgProcessTime * timeMultiplier;
-            setOriginalWaitTime(predicted.toFixed(1));
-          }
+          // 정성 혼잡 관측만으로 대기시간을 역산하지 않는다. 검증 모델/실제 줄 데이터가 없으므로 "--" 유지.
         }
       } catch (err) {
         // 실데이터 전용: 목업 폴백 없음 — 원시설 카드는 빈 상태로 둔다.
@@ -891,11 +887,15 @@ function RecommendContent() {
         sayThen(t("recommend.voiceGuiding"), () => handleAccept(rec));
         break;
       case "detail": {
-        const waitTime = rec.breakdown?.waitTime?.toFixed(1) || "--";
+        const waitTime = rec.breakdown?.waitTime;
         const travelTime = (rec.distanceM / 80).toFixed(1);
         const preferencePct = Math.round((rec.breakdown?.preference || 0) * 100);
         sayThen(
-          t("recommend.voiceDetail", { wait: waitTime, travel: travelTime, pref: preferencePct }),
+          t(waitTime == null ? "recommend.voiceDetailNoWait" : "recommend.voiceDetail", {
+            wait: waitTime == null ? '' : waitTime.toFixed(1),
+            travel: travelTime,
+            pref: preferencePct,
+          }),
           () => scheduleListen()
         );
         break;
@@ -996,9 +996,14 @@ function RecommendContent() {
     }
     setActiveRec(index);
     const rec = recs[index];
-    const reasonText =
-      rec.reason ||
-      buildFallbackReason(rec.facility.name, rec.breakdown?.waitTime ?? 0, rec.distanceM);
+    const localizedFallback = buildFallbackReason(
+        t,
+        rec.facility.name,
+        typeof rec.breakdown?.waitTime === 'number' ? rec.breakdown.waitTime : null,
+        rec.distanceM,
+        typeof rec.congestionLevel === 'number' ? rec.congestionLevel : null,
+      );
+    const reasonText = locale === 'ko' && rec.reason ? rec.reason : localizedFallback;
     const sentence = buildCardSpeech(rec.facility.name, reasonText, index);
     setVoice("speaking");
     setSpokenCaption(sentence); // 발화 텍스트를 자막으로(청각 정보 시각 동시 제공 + 추천 사유 가시화)
@@ -1166,9 +1171,7 @@ function RecommendContent() {
                     {crowded ? t("recommend.congestedSuffix") : t("recommend.calmSuffix")}
                   </h2>
                   <p className="text-xs text-muk-soft mt-1 leading-relaxed">
-                    {t("recommend.waitPrefix")}
-                    <span className={`font-semibold ${crowded ? "text-terracotta" : "text-jade"}`}>{t("recommend.waitValue", { wait: originalWaitTime })}</span>
-                    {t("recommend.waitSuffix")}
+                    {t("recommend.waitUnavailable")}
                   </p>
                   {!crowded && (
                     <p className="text-xs text-muk-soft mt-1 leading-relaxed">{t("recommend.calmHint")}</p>
@@ -1225,6 +1228,14 @@ function RecommendContent() {
                   : freshness.unit === 'hour' ? t('freshness.hourAgo', { n: freshness.value })
                   : t('freshness.dayAgo', { n: freshness.value })
                 : null;
+              const localizedReason = buildFallbackReason(
+                t,
+                rec.facility.name,
+                typeof rec.breakdown?.waitTime === 'number' ? rec.breakdown.waitTime : null,
+                rec.distanceM,
+                typeof rec.congestionLevel === 'number' ? rec.congestionLevel : null,
+              );
+              const displayReason = locale === 'ko' && rec.reason ? rec.reason : localizedReason;
 
               return (
                 <div
@@ -1344,9 +1355,9 @@ function RecommendContent() {
                   </div>
 
                   {/* 백엔드 템플릿 추천 사유 (있을 때만 노출) */}
-                  {rec.reason && (
+                  {displayReason && (
                     <p className="mt-2 text-[11px] leading-snug text-muk bg-gold/10 border border-gold/20 rounded-xl px-3 py-2">
-                      💡 {rec.reason}
+                      💡 {displayReason}
                     </p>
                   )}
 

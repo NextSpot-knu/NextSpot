@@ -6,9 +6,8 @@ import { Menu, Bell, Compass, Star, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { RecommendationCard } from '@/components/RecommendationCard';
 import { CongestionAlertToggle } from '@/components/CongestionAlertToggle';
-import { apiClient, submitFeedback } from '@/lib/api-client';
-import { scoreFacility, type Spot } from '@/lib/recommender';
-import { REGION } from '@/lib/region';
+import { submitFeedback } from '@/lib/api-client';
+import { type Spot } from '@/lib/recommender';
 import { loadSavedLocal, syncSaved, removeBookmark, clearSavedAll } from '@/lib/savedFacilities';
 import { useT } from '@/lib/i18n/I18nProvider';
 
@@ -26,7 +25,9 @@ interface BookmarkData {
   category: string;
   // unknown = 저장 시점에 혼잡 근거 없음(로그 0건) — '한산(blue)'으로 합성하지 않는다(CONGESTION_TRUST_SPEC).
   trafficStatus: 'orange' | 'yellow' | 'green' | 'blue' | 'unknown';
-  waitTime: string;
+  waitTime: string | null;
+  waitEvidence?: 'verified_model';
+  congestionLevel?: number | null;
   latitude?: number;
   longitude?: number;
   spot?: Spot; // main(handlePutOff)이 저장하는 SavedBookmark.spot — lib/recommender 의 Spot 그대로
@@ -52,11 +53,6 @@ export default function SavedPage() {
   const [currentTime, setCurrentTime] = useState<Date | null>(null);
   // 저장 목록 카테고리 필터('all' | 음식점 | 카페 | 관광지 | 문화시설)
   const [activeCategory, setActiveCategory] = useState<string>('all');
-  // ③ 라이브 혼잡 재조회 — 마운트 시 /infrastructures 로 현재 혼잡을 받아 매칭(id)되는 저장 항목의
-  //   trafficStatus/waitTime 을 표시용으로 갱신한다. localStorage 스냅샷은 그대로 두고(뷰만 덮어씀),
-  //   실패·미매칭 항목은 스냅샷 유지 + '저장 당시 기준' 라벨로 정직하게 표기한다.
-  const [infraById, setInfraById] = useState<Record<string, { level: number | null; type?: string; features?: any }> | null>(null);
-  const [refreshTried, setRefreshTried] = useState(false);
 
   useEffect(() => {
     setCurrentTime(new Date());
@@ -104,70 +100,6 @@ export default function SavedPage() {
 
     fetchBookmarks();
   }, []);
-
-  // ③ 마운트 시 현재 혼잡 재조회(백엔드 /infrastructures). 성공하면 id→{level,type,features} 맵을 저장해
-  //    렌더에서 매칭 항목의 trafficStatus/waitTime 을 라이브로 덮어쓴다. 실패해도 스냅샷을 유지한다(무중단).
-  useEffect(() => {
-    let active = true;
-    (async () => {
-      try {
-        const items = await apiClient.get('/api/v1/infrastructures');
-        if (!active || !Array.isArray(items)) return;
-        const map: Record<string, { level: number | null; type?: string; features?: any }> = {};
-        for (const f of items) {
-          map[f.id] = {
-            level: f.congestion && typeof f.congestion.level === 'number' ? f.congestion.level : null,
-            type: f.type,
-            features: f.features,
-          };
-        }
-        setInfraById(map);
-      } catch {
-        // 백엔드 다운/네트워크 실패 — 스냅샷 유지('저장 당시 기준' 라벨은 refreshTried 로 노출).
-      } finally {
-        if (active) setRefreshTried(true);
-      }
-    })();
-    return () => { active = false; };
-  }, []);
-
-  // 저장 카테고리(한국어) → 캐노니컬 시설 타입 키(대기 재산정용).
-  const CATEGORY_TYPE: Record<string, string> = {
-    '음식점': 'restaurant', '카페': 'cafe', '관광지': 'attraction', '문화시설': 'culture',
-  };
-
-  // 저장 스냅샷 b 에 라이브 혼잡을 입힌 '표시용 뷰'. 매칭·라이브 혼잡이 있을 때만 isLive=true.
-  // 대기(분)는 라이브 혼잡 + 시설 타입/처리시간으로 저장 시점과 동일한 recommender 공식으로 재산정한다
-  // (이동 시간은 거리 스냅샷을 유지). localStorage 원본은 건드리지 않는다.
-  const applyLive = (b: BookmarkData): { view: BookmarkData; isLive: boolean } => {
-    const live = infraById?.[b.id];
-    if (!live || typeof live.level !== 'number') return { view: b, isLive: false };
-    const level = live.level;
-    const trafficStatus: BookmarkData['trafficStatus'] =
-      level >= 0.75 ? 'orange' : level >= 0.5 ? 'yellow' : level >= 0.25 ? 'green' : 'blue';
-    const type = live.type || CATEGORY_TYPE[b.category] || 'restaurant';
-    const origin =
-      typeof b.latitude === 'number' && typeof b.longitude === 'number'
-        ? { lat: b.latitude, lng: b.longitude }
-        : { ...REGION.center };
-    const spot = scoreFacility(
-      { type, congestionLevel: level, features: live.features, latitude: b.latitude, longitude: b.longitude },
-      { userLocation: origin, preferredCategories: [], mockHour: null },
-    );
-    const waitMins = spot.expectedWait;
-    const travelMins = b.spot?.expectedTravel ?? 0;
-    const timeToService = Math.round((waitMins + travelMins) * 10) / 10;
-    const view: BookmarkData = {
-      ...b,
-      trafficStatus,
-      waitTime: `${waitMins}분`,
-      spot: b.spot
-        ? { ...b.spot, expectedWait: waitMins, timeToService }
-        // 구버전 북마크(spot 부재)는 표시용 3필드만 채운다 — score/선호%는 미표시 경로(런타임 동작 불변 캐스트).
-        : ({ expectedWait: waitMins, expectedTravel: travelMins, timeToService } as Spot),
-    };
-    return { view, isLive: true };
-  };
 
   // 저장 해제 → unsaved. '취향에 안 맞는다'는 거절이 아니라 '목록에서 뺀다'는 정리 동작이므로 학습이 없다
   // (백엔드가 벡터를 건드리지 않는다). fire-and-forget — 삭제는 로컬이 정본이라 전송 실패와 무관하게 끝난다.
@@ -405,13 +337,17 @@ export default function SavedPage() {
                 {/* 하단: 타임라인 */}
                 {(() => {
                   const travelMins = bookmark.spot?.expectedTravel ?? 0;
-                  const waitMins = bookmark.spot?.expectedWait ?? parseInt(bookmark.waitTime) ?? 0;
-                  const timeToService = bookmark.spot?.timeToService ?? parseInt(bookmark.waitTime) ?? 0;
+                  const hasVerifiedWait = bookmark.waitEvidence === 'verified_model';
+                  const parsedWait = bookmark.waitTime ? Number.parseFloat(bookmark.waitTime) : Number.NaN;
+                  const waitMins = hasVerifiedWait && Number.isFinite(parsedWait) ? parsedWait : null;
+                  const timeToService = travelMins + (waitMins ?? 0);
                   
                   const arrivalTime = currentTime ? new Date(currentTime.getTime() + travelMins * 60000) : null;
-                  const serviceTime = arrivalTime ? new Date(arrivalTime.getTime() + waitMins * 60000) : null;
+                  const serviceTime = arrivalTime && waitMins !== null
+                    ? new Date(arrivalTime.getTime() + waitMins * 60000)
+                    : null;
                   
-                  if (!currentTime || !arrivalTime || !serviceTime) return null;
+                  if (!currentTime || !arrivalTime) return null;
                   
                   return (
                     <div className="w-full mt-4 bg-hanji border border-line rounded-2xl px-4 py-3 flex flex-col gap-3">
@@ -424,13 +360,13 @@ export default function SavedPage() {
                         <div className="absolute top-[3px] left-4 right-4 h-[2px] bg-line z-0" />
 
                         {/* 이동 시간 라벨 */}
-                        <div className="absolute top-[-10px] left-[25%] -translate-x-1/2 z-10">
+                        <div className={`absolute top-[-10px] ${serviceTime ? 'left-[25%]' : 'left-1/2'} -translate-x-1/2 z-10`}>
                           <span className="text-[10px] font-medium text-jade bg-hanji px-1.5 py-0.5 rounded border border-jade/25">{t('saved.travelLabel', { n: travelMins })}</span>
                         </div>
                         {/* 대기 시간 라벨 */}
-                        <div className="absolute top-[-10px] left-[75%] -translate-x-1/2 z-10">
+                        {serviceTime && waitMins !== null && <div className="absolute top-[-10px] left-[75%] -translate-x-1/2 z-10">
                           <span className="text-[10px] font-medium text-gold bg-hanji px-1.5 py-0.5 rounded border border-gold/25">{t('saved.waitLabel', { n: waitMins })}</span>
-                        </div>
+                        </div>}
 
                         {/* 출발 시점 */}
                         <div className="flex flex-col items-center z-10 w-12">
@@ -447,11 +383,11 @@ export default function SavedPage() {
                         </div>
 
                         {/* 이용 시작 시점 */}
-                        <div className="flex flex-col items-center z-10 w-12">
+                        {serviceTime && <div className="flex flex-col items-center z-10 w-12">
                           <div className="w-2 h-2 rounded-full bg-gold ring-4 ring-hanji mb-1.5" />
                           <span className="text-[10px] text-muk font-bold">{formatTime(serviceTime)}</span>
                           <span className="text-[10px] text-muk-soft mt-0.5">{bookmark.category === '음식점' || bookmark.category === '카페' ? t('saved.dine') : t('saved.view')}</span>
-                        </div>
+                        </div>}
                       </div>
                     </div>
                   );
@@ -469,18 +405,26 @@ export default function SavedPage() {
           <RecommendationCard
             title={selectedBookmark.name}
             matchPercentage={100}
-            reason={selectedBookmark.reason}
+            reason={t('recommend.fallbackTravelOnly', {
+              name: selectedBookmark.name,
+              walk: Math.max(1, Math.round(selectedBookmark.spot?.expectedTravel ?? 0)),
+            })}
             spotScore={selectedBookmark.spot?.score}
             preferencePercent={selectedBookmark.spot?.preferencePercent}
-            expectedWait={selectedBookmark.spot?.expectedWait ?? parseInt(selectedBookmark.waitTime) ?? 0}
+            expectedWait={selectedBookmark.waitEvidence === 'verified_model' && selectedBookmark.waitTime
+              ? Number.parseFloat(selectedBookmark.waitTime)
+              : undefined}
             expectedTravel={selectedBookmark.spot?.expectedTravel ?? 0}
-            timeToService={selectedBookmark.spot?.timeToService ?? parseInt(selectedBookmark.waitTime) ?? 0}
+            timeToService={(selectedBookmark.spot?.expectedTravel ?? 0) + (
+              selectedBookmark.waitEvidence === 'verified_model' && selectedBookmark.waitTime
+                ? Number.parseFloat(selectedBookmark.waitTime)
+                : 0
+            )}
             facilityType={selectedBookmark.category === '음식점' ? 'restaurant' : selectedBookmark.category === '카페' ? 'cafe' : selectedBookmark.category === '관광지' ? 'attraction' : selectedBookmark.category === '문화시설' ? 'culture' : 'restaurant'}
             facility={{
-              // unknown(근거 없음)은 수치를 역합성하지 않는다 → 카드가 '데이터 없음'/'—' 처리.
-              congestionLevel: selectedBookmark.trafficStatus === 'orange' ? 0.85 : selectedBookmark.trafficStatus === 'yellow' ? 0.6 : selectedBookmark.trafficStatus === 'green' ? 0.4 : selectedBookmark.trafficStatus === 'blue' ? 0.1 : null,
-              capacity: 100,
-              currentCount: selectedBookmark.trafficStatus === 'orange' ? 85 : selectedBookmark.trafficStatus === 'yellow' ? 60 : selectedBookmark.trafficStatus === 'green' ? 40 : selectedBookmark.trafficStatus === 'blue' ? 10 : null,
+              congestionLevel: typeof selectedBookmark.congestionLevel === 'number'
+                ? selectedBookmark.congestionLevel
+                : null,
             }}
             onAccept={() => {
               const destUrl = selectedBookmark.latitude && selectedBookmark.longitude

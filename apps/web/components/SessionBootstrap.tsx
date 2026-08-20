@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect } from "react";
-import { createPublicClient } from "@/lib/supabase";
 import { reconcileUserData } from "@/lib/userData";
 import { syncSaved } from "@/lib/savedFacilities";
 import { flushRecommendationOutcomes } from "@/lib/recommendationOutcomes";
+import { ensureAnonymousSession } from "@/lib/anonymousSession";
 
 /**
  * SessionBootstrap — 관광객 무마찰(frictionless) 익명 세션 부트스트랩.
@@ -15,10 +15,9 @@ import { flushRecommendationOutcomes } from "@/lib/recommendationOutcomes";
  * 실제 JWT 로 동작하고, 저장/쿠폰/리포트가 이어진다. 세션은 lib/supabase.ts 의 persistSession 으로
  * localStorage 에 지속돼 새로고침·재방문에도 같은 사용자로 유지된다.
  *
- * 그레이스풀 폴백(무회귀): typeof window 가드 + try/catch 로 완전히 감싼다. 프로젝트에서 익명 로그인이
- * 비활성이면 signInAnonymously 가 실패(422 등)하는데, 경고만 남기고 조용히 넘어간다 → 세션이 없으니
- * 각 페이지/ api-client 는 기존 목업 방문자(MOCK_VISITOR_ID) 경로로 그대로 폴백한다(오늘과 동일 동작,
- * UI 변화·크래시 없음).
+ * 그레이스풀 폴백: typeof window 가드 + try/catch 로 완전히 감싼다. 프로젝트에서 익명 로그인이
+ * 비활성이면 공개 화면은 유지하되 인증 필수 요청은 명시적으로 실패하고 로컬 규칙 추천으로 전환한다.
+ * 존재하지 않는 고정 mock 사용자 ID를 서버에 보내지는 않는다.
  *
  * ⚠️ 이 기능을 실제로 활성화하려면 Supabase 프로젝트 설정 두 가지가 필요하다:
  *   1) Authentication → Sign In / Providers → "Allow anonymous sign-ins" 를 켠다.
@@ -35,26 +34,7 @@ export default function SessionBootstrap() {
 
     (async () => {
       try {
-        const supabase = createPublicClient();
-        let {
-          data: { session },
-        } = await supabase.auth.getSession();
-
-        // 세션(익명 포함)이 없으면 익명 로그인 1회(있으면 재사용 — 새 익명 사용자 남발 방지).
-        if (!session && !cancelled) {
-          const { error } = await supabase.auth.signInAnonymously();
-          if (error) {
-            // 익명 로그인 비활성/거부 등 → 목업 방문자 경로로 폴백(무회귀).
-            console.warn(
-              "[SessionBootstrap] 익명 로그인 실패 — 목업 방문자 동작으로 폴백합니다. " +
-                "Supabase Auth 설정에서 'Allow anonymous sign-ins' 를 확인하세요.",
-              error.message,
-            );
-          }
-          ({
-            data: { session },
-          } = await supabase.auth.getSession());
-        }
+        const session = await ensureAnonymousSession();
 
         if (cancelled) return;
 

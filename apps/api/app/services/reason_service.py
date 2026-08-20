@@ -181,13 +181,17 @@ async def _llm_polish(template: str, ctx: dict) -> Optional[str]:
     return polished
 
 
-async def generate_reason_with_source(context: dict) -> tuple[str, str]:
+async def generate_reason_with_source(context: dict, *, polish: bool = True) -> tuple[str, str]:
     """추천 1건의 사유와 출처("llm"|"template")를 함께 반환(개발 디버그용 — 프런트 배지).
 
     "llm" = LLM 문체 다듬기가 정직성 검증을 통과해 채택됨. "template" = 키 미설정·호출 실패·
     정직성 검증 거부(그 밖의 모든 폴백) — 어느 경로든 텍스트 자체는 generate_reason 과 동일하다.
     """
     template = _build_template(context)
+    # 추천 응답의 핵심 경로에서는 사실이 같은 결정적 템플릿을 즉시 반환한다. LLM 문체 다듬기는
+    # 상세/비동기 경로에서만 opt-in 하며, 첫 카드 노출을 최대 1.5초 지연시키지 않는다.
+    if not polish:
+        return template, "template"
     if not llm_client.is_enabled():
         return template, "template"  # 키 미설정 — 기존 동작과 100% 동일(회귀 0)
 

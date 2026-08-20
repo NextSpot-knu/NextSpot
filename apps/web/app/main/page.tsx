@@ -119,9 +119,38 @@ interface SavedBookmark {
   latitude?: number;
   longitude?: number;
   trafficStatus: string;
-  waitTime: string;
+  congestionLevel?: number | null;
+  // 검증 모델의 대기시간만 저장한다. degraded/지역수요 규칙에서는 null.
+  waitTime: string | null;
+  waitEvidence?: 'verified_model';
   spot: Spot;
   reason: string;
+}
+
+const FACILITY_CACHE_KEY = 'nextspot_facilities_cache_v1';
+const FACILITY_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
+function loadFacilityCache(): Facility[] | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const parsed = JSON.parse(localStorage.getItem(FACILITY_CACHE_KEY) || 'null') as {
+      savedAt?: number;
+      facilities?: Facility[];
+    } | null;
+    if (!parsed?.savedAt || !Array.isArray(parsed.facilities)) return null;
+    if (Date.now() - parsed.savedAt > FACILITY_CACHE_MAX_AGE_MS) return null;
+    return parsed.facilities;
+  } catch {
+    return null;
+  }
+}
+
+function saveFacilityCache(facilities: Facility[]): void {
+  try {
+    localStorage.setItem(FACILITY_CACHE_KEY, JSON.stringify({ savedAt: Date.now(), facilities }));
+  } catch {
+    // 저장 공간 차단/부족은 최신 네트워크 경로에 영향을 주지 않는다.
+  }
 }
 
 // TourAPI 실시간 키워드 폴백(2위 실시간 키워드 게이트웨이) — GET /api/v1/search/keyword 응답 1건.
@@ -267,12 +296,18 @@ export default function MainPage() {
     async function loadFacilities() {
       setIsLoadingFacilities(true);
       setFacilitiesLoadError(false);
+      const cached = loadFacilityCache();
+      if (cached?.length) {
+        setFacilities(cached);
+        setIsLoadingFacilities(false);
+      }
 
       // 1순위: 백엔드 /infrastructures — 시설별 '최신' 혼잡을 서버가 결정적으로 조인(시설별 limit-1)해 내려준다.
       //   기존 supabase 경로(최근 3000행을 받아 클라이언트 dedup)는 로그가 잦은 시설이 캡을 채우면
       //   다른 시설이 congestion=null 로 조용히 누락되는 문제가 있었다 → 서버 조인이 이를 해소하고 전송량도 줄인다.
       try {
-        const items = await apiClient.get("/api/v1/infrastructures");
+        // 첫 방문에는 캐시가 없으므로 API가 2.5초 안에 응답하지 않으면 곧바로 Supabase 읽기 폴백으로 전환한다.
+        const items = await apiClient.get("/api/v1/infrastructures", { timeoutMs: 2500 });
         if (!Array.isArray(items)) throw new Error("unexpected infrastructures payload");
         const mapped = items.map((f: any) => {
           const level = f.congestion ? f.congestion.level : null; // 혼잡 로그 없는 시설은 null(데이터 없음)
@@ -303,6 +338,7 @@ export default function MainPage() {
           };
         });
         setFacilities(mapped);
+        saveFacilityCache(mapped);
         setIsLoadingFacilities(false);
         return;
       } catch (apiErr) {
@@ -327,7 +363,7 @@ export default function MainPage() {
 
         if (facRes.error) {
           console.warn("Failed to load facilities:", facRes.error);
-          setFacilitiesLoadError(true); // 백엔드/Supabase 모두 다운 → 빈 지도 대신 재시도 안내 표시
+          setFacilitiesLoadError(!cached?.length); // 캐시도 없을 때만 빈 지도 대신 재시도 안내
           setIsLoadingFacilities(false);
           return;
         }
@@ -378,10 +414,11 @@ export default function MainPage() {
         });
 
         setFacilities(mapped);
+        saveFacilityCache(mapped);
         setIsLoadingFacilities(false);
       } catch (err) {
         console.warn("Error loading facilities:", err);
-        setFacilitiesLoadError(true);
+        setFacilitiesLoadError(!cached?.length);
         setIsLoadingFacilities(false);
       }
     }
@@ -833,6 +870,24 @@ export default function MainPage() {
     const scoreOpts = { userLocation: rankingOriginRef.current ?? userLocation, preferredCategories, mockHour, cuisineIntent: cuisineIntentRef.current };
 
     let cancelled = false;
+    // 첫 카드는 네트워크 왕복 전에 즉시 보여준다. 이 순위는 취향·추정 도보·혜택만 쓰는 정직한
+    // degraded 결과이며, 서버의 실측 지역수요/정확한 근거가 도착하면 아래에서 원자적으로 교체한다.
+    if (!voiceFilterIdsRef.current && liveMode) {
+      const immediateReal = rankFacilitiesDegraded(
+        filterReachable(realCands, userLocation),
+        scoreOpts,
+      ).map((facility) => ({ ...facility, scoringMode: 'degraded_rules' as const }));
+      const immediateDemo = rankFacilities(demoCands, scoreOpts);
+      const immediate = [...immediateReal, ...immediateDemo].sort(compareSpot);
+      immediate.forEach((facility, index) => {
+        facility.apiRank = index + 1;
+        facility.totalCandidates = immediate.length;
+      });
+      if (immediate.length > 0) {
+        setRankedFacilities(immediate);
+        setSelectedFacility(immediate[0]);
+      }
+    }
     (async () => {
       try {
         let all: Facility[];
@@ -1024,7 +1079,15 @@ export default function MainPage() {
         longitude: fac.longitude,
         // 혼잡 근거 없음(null)은 '한산(blue)'으로 합성하지 않고 unknown 으로 저장(CONGESTION_TRUST_SPEC).
         trafficStatus: typeof fac.congestionLevel !== 'number' ? 'unknown' : fac.congestionLevel >= 0.75 ? 'orange' : fac.congestionLevel >= 0.50 ? 'yellow' : fac.congestionLevel >= 0.25 ? 'green' : 'blue',
-        waitTime: `${spot?.expectedWait || 0}분`,
+        congestionLevel: typeof fac.congestionLevel === 'number' ? fac.congestionLevel : null,
+        waitTime:
+          fac.scoringMode === 'model' && fac.congestionSource !== 'none'
+            ? `${spot.expectedWait}분`
+            : null,
+        waitEvidence:
+          fac.scoringMode === 'model' && fac.congestionSource !== 'none'
+            ? 'verified_model'
+            : undefined,
         spot: spot,
         reason: fac.reason || ""
       };
@@ -2040,7 +2103,7 @@ export default function MainPage() {
 
           {/* 예측 타임슬라이더(바) — 지금(0)~+3h 를 하나의 슬라이더로. 드래그 중엔 썸만 이동하고
               놓을 때(onPointerUp/onKeyUp) 예측을 커밋한다(스텝마다 /predict/batch 호출 폭주 방지). */}
-          <div
+          {selectedFacility?.scoringMode === 'model' && <div
             className={`flex shrink-0 items-center gap-3 rounded-full border py-1.5 pl-3.5 pr-4 fractal-glass bg-white/80 shadow-[0_2px_14px_rgba(43,35,32,0.06)] transition-colors ${
               isForecast ? 'border-jade/50' : 'border-line'
             } ${predictionLoading ? 'opacity-60' : ''}`}
@@ -2067,7 +2130,7 @@ export default function MainPage() {
               className={`w-24 cursor-pointer disabled:cursor-wait sm:w-32 ${isForecast ? 'accent-jade' : 'accent-gold'}`}
             />
             <span className="shrink-0 text-[10px] font-medium text-muk-soft">+3h</span>
-          </div>
+          </div>}
 
           {/* D5: TourAPI 동기화 신선도 — 소형 정보 표시(비대화형). 동기화 이력이 전혀 없으면
               렌더하지 않는다(관광객 화면 정직성 — 없는 걸 있는 척하지 않음). */}
@@ -2173,8 +2236,16 @@ export default function MainPage() {
           }
 
           const spot = selectedFacility.spot || calculateSPOT(selectedFacility);
-          // 사유: 자동 추천된 실 시설은 백엔드 템플릿 사유, 마커 직접 클릭/데모는 미러 사유로 폴백
-          const reason = selectedFacility.reason || ""; // 백엔드 템플릿 사유만(하드코딩 제거)
+          // 서버 사유는 한국어 템플릿이므로 화면에서는 구조화된 사실로 현재 로케일 문장을 조립한다.
+          const walk = Math.max(1, Math.round(spot.expectedTravel));
+          const verifiedWait = selectedFacility.scoringMode === 'model' && selectedFacility.congestionSource !== 'none'
+            ? Math.round(spot.expectedWait)
+            : null;
+          const reason = typeof selectedFacility.congestionLevel === 'number' && selectedFacility.congestionLevel >= 0.75
+            ? t('recommend.fallbackBusy', { name: selectedFacility.name, walk, pct: Math.round(selectedFacility.congestionLevel * 100) })
+            : verifiedWait !== null
+              ? t('recommend.fallbackWithWait', { name: selectedFacility.name, walk, wait: verifiedWait })
+              : t('recommend.fallbackTravelOnly', { name: selectedFacility.name, walk });
           // 추천 카드 배치 — 모바일: 하단 전폭 시트. PC(md+): 우측 세로 도킹 패널(구글맵스 상세 패널 관례).
           // 전폭 하단 카드가 데스크톱에서 과하게 커 보이는 문제를 해결한다. 상단 톱바(검색·칩) 아래
           // (top-24)부터 하단(bottom-6)까지 세로로 앉히고, 펼침으로 길어지면 패널 내부에서 스크롤한다.
@@ -2233,6 +2304,7 @@ export default function MainPage() {
                 }}
                 openStatusAtArrival={selectedFacility.openStatusAtArrival}
                 congestionSource={selectedFacility.congestionSource}
+                scoringMode={selectedFacility.scoringMode}
               />
               </div>
             </div>

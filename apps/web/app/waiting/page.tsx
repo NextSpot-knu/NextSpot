@@ -51,7 +51,8 @@ interface BoardRow {
   summary: string | null;
   imageSource: { provider?: string; sourceUrl?: string; license?: string; artist?: string } | null;
   congestionLevel: number | null;
-  expectedWait: number;
+  // 검증 모델이 없는 degraded 응답은 waitTime=null이다. 0분으로 바꾸면 안 된다.
+  expectedWait: number | null;
   expectedTravel: number;
   // 오늘 휴무 '확정'(isClosedToday === true) 여부 — 대표 카드 선정에서 제외 + 리스트 맨 뒤 + 배지 표시용.
   closedToday: boolean;
@@ -204,7 +205,8 @@ export default function WaitingBoardPage() {
           })(),
           congestionLevel:
             typeof rec.facility.congestionLevel === "number" ? rec.facility.congestionLevel : null,
-          expectedWait: spot.expectedWait,
+          expectedWait:
+            typeof rec.breakdown?.waitTime === "number" ? rec.breakdown.waitTime : null,
           expectedTravel: spot.expectedTravel,
           // 휴무 '확정'(true)만 표시 — 모름(null)/영업 확정(false)은 평소처럼 취급(정직성: 과판정 금지).
           closedToday: isClosedToday(restDateRaw) === true,
@@ -215,6 +217,9 @@ export default function WaitingBoardPage() {
       // (대표 카드가 rows 앞쪽 3개를 그대로 슬라이스하지 않도록 아래에서 open/closed 를 명시적으로 분리한다).
       rows.sort((a, b) => {
         if (a.closedToday !== b.closedToday) return a.closedToday ? 1 : -1;
+        if (a.expectedWait === null && b.expectedWait === null) return 0;
+        if (a.expectedWait === null) return 1;
+        if (b.expectedWait === null) return -1;
         return a.expectedWait - b.expectedWait;
       });
 
@@ -359,7 +364,9 @@ export default function WaitingBoardPage() {
                           </div>
                           <div className="space-y-1 mt-1">
                             <p className="text-xs font-extrabold text-gold-deep leading-tight">
-                              {t("waiting.arrivalWait", { n: Math.round(row.expectedWait) })}
+                              {row.expectedWait === null
+                                ? t("waiting.waitUnavailable")
+                                : t("waiting.arrivalWait", { n: Math.round(row.expectedWait) })}
                             </p>
                             {row.congestionLevel != null ? (
                               <span
@@ -422,7 +429,9 @@ export default function WaitingBoardPage() {
                             <p className="text-sm font-bold text-muk leading-snug truncate">{row.name}</p>
                             <div className="flex flex-wrap items-center gap-1.5 mt-1">
                               <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-gold/10 border border-gold/25 text-gold-deep whitespace-nowrap">
-                                {t("waiting.arrivalWait", { n: Math.round(row.expectedWait) })}
+                                {row.expectedWait === null
+                                  ? t("waiting.waitUnavailable")
+                                  : t("waiting.arrivalWait", { n: Math.round(row.expectedWait) })}
                               </span>
                               {/* 오늘 휴무 확정 — 숨기지 않고 정직하게 배지로 알린다(리스트 맨 뒤 배치와 함께). */}
                               {row.closedToday && (

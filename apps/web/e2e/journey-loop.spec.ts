@@ -37,6 +37,13 @@ const areaDemandLabel = {
   zh: '周边需求: 一般',
 } as const;
 
+const zeroWaitCopy = {
+  ko: '예상 대기 0분',
+  en: 'estimated 0-minute wait',
+  ja: '予想待ち時間は0分',
+  zh: '预计等待0分钟',
+} as const;
+
 async function mockRecommendationPage(
   page: Page,
   options: { locale?: 'ko' | 'en' | 'ja' | 'zh'; reasonSource?: 'llm' | 'template' } = {},
@@ -102,6 +109,10 @@ for (const locale of ['ko', 'en', 'ja', 'zh'] as const) {
     await expect(page.locator('html')).toHaveAttribute('lang', locale);
     await expect(page.locator('button').filter({ hasText: firstReportCta[locale] })).toHaveCount(3);
     await expect(page.getByText(areaDemandLabel[locale], { exact: true })).toHaveCount(3);
+    await expect(page.getByText(zeroWaitCopy[locale], { exact: false })).toHaveCount(0);
+    if (locale !== 'ko') {
+      await expect(page.getByText(/고정 추천 사유/)).toHaveCount(0);
+    }
     await expect.poll(
       () => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth),
     ).toBeLessThanOrEqual(1);
