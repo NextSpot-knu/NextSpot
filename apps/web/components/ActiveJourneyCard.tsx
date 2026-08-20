@@ -15,6 +15,7 @@ import { haptic, interactionSpring, sheetSpring } from '@/lib/motion';
 const CATEGORIES: PlaceCategory[] = ['restaurant', 'cafe', 'attraction', 'culture'];
 const WALKS = [5, 10, 20] as const;
 const AVAILABLE = [30, 60, 120] as const;
+const REPLAN_RESPONSE_BUDGET_MS = 3000;
 
 function hasCondition(value: Partial<TravelContext> | null): boolean {
   return Boolean(value && (
@@ -100,9 +101,16 @@ export default function ActiveJourneyCard({ location }: { location: { lat: numbe
           : [],
       };
       const facilityTypes = context.categories.length ? context.categories : [trip.type];
-      const batches = await Promise.all(
-        facilityTypes.map((facilityType) => recommendByType(facilityType, location, [trip.facilityId], 1, context)),
-      );
+      let deadlineId: ReturnType<typeof setTimeout> | undefined;
+      const batches = await Promise.race([
+        Promise.all(
+          facilityTypes.map((facilityType) => recommendByType(facilityType, location, [trip.facilityId], 1, context)),
+        ),
+        new Promise<never[]>((resolve) => {
+          deadlineId = setTimeout(() => resolve([]), REPLAN_RESPONSE_BUDGET_MS);
+        }),
+      ]);
+      if (deadlineId) clearTimeout(deadlineId);
       const next = batches.flat().sort((a, b) =>
         b.spotScore - a.spotScore || a.distanceM - b.distanceM || a.facility.id.localeCompare(b.facility.id),
       )[0];
@@ -128,6 +136,9 @@ export default function ActiveJourneyCard({ location }: { location: { lat: numbe
         walk_minutes: next.breakdown.travelTime,
       });
       queueRecommendationOutcome(next.recommendationId, 'navigation_started');
+    } catch {
+      // A failed or slow replacement must never erase the journey already in progress.
+      setReplanEmpty(true);
     } finally { setBusy(false); }
   };
   const updateDraft = (update: (current: Partial<TravelContext>) => Partial<TravelContext>) => {
@@ -169,7 +180,7 @@ export default function ActiveJourneyCard({ location }: { location: { lat: numbe
           className="mt-3 overflow-hidden border-t border-line pt-3"
         >
           <label className="text-xs font-bold text-muk" htmlFor="trip-change">{t('trip.changeTitle')}</label>
-          <button type="button" disabled={busy} onClick={() => void replan()} className="mt-2 w-full rounded-xl bg-jade py-2 text-xs font-bold text-white disabled:opacity-50">{t('trip.confirmContext')}</button>
+          <button type="button" disabled={busy} onClick={() => void replan()} className="mt-2 w-full rounded-xl bg-jade py-2 text-xs font-bold text-white disabled:opacity-50">{busy ? t('common.loading') : t('trip.confirmContext')}</button>
           {replanEmpty && <p role="status" className="mt-2 rounded-xl bg-terracotta/10 px-3 py-2 text-xs text-terracotta">{t('map.noRecBody')}</p>}
           <textarea id="trip-change" maxLength={300} value={changeText} onChange={(event) => setChangeText(event.target.value)} placeholder={t('trip.changePlaceholder')} className="mt-2 w-full min-h-16 resize-none rounded-xl border border-line px-3 py-2 text-xs text-muk outline-none focus:border-jade" />
           <button type="button" disabled={busy || !changeText.trim()} onClick={() => void parseChange()} className="mt-2 w-full rounded-xl border border-jade/30 bg-jade/5 py-2 text-xs font-bold text-jade disabled:opacity-50">{busy ? t('trip.parsing') : t('trip.parse')}</button>
@@ -191,7 +202,7 @@ export default function ActiveJourneyCard({ location }: { location: { lat: numbe
               </div>
               <div className="mt-2 flex gap-2">
                 <button type="button" onClick={() => setChangeOpen(false)} className="flex-1 rounded-xl border border-line py-2 text-xs font-bold">{t('common.cancel')}</button>
-                <button type="button" disabled={busy || !hasCondition(draft)} onClick={() => void replan(draft)} className="flex-1 rounded-xl bg-jade py-2 text-xs font-bold text-white disabled:opacity-50">{t('trip.confirmContext')}</button>
+                <button type="button" disabled={busy || !hasCondition(draft)} onClick={() => void replan(draft)} className="flex-1 rounded-xl bg-jade py-2 text-xs font-bold text-white disabled:opacity-50">{busy ? t('common.loading') : t('trip.confirmContext')}</button>
               </div>
             </div>
           )}
