@@ -1,0 +1,413 @@
+{
+  "surface": "report",
+  "manifest": {
+    "version": 1,
+    "surface": "report",
+    "title": "경북대에서 NextSpot을 어디까지 도울 수 있나",
+    "description": "경북대학교 컴퓨터학부 3학년 재학생이 NextSpot을 공익형 관광 서비스와 B2G 사업으로 발전시킬 때 활용할 수 있는 지원의 현실성 평가",
+    "generatedAt": "2026-08-21T03:35:49+09:00",
+    "blocks": [
+      {
+        "id": "title",
+        "type": "markdown",
+        "body": "# 경북대에서 NextSpot을 어디까지 도울 수 있나"
+      },
+      {
+        "id": "executive-summary",
+        "type": "markdown",
+        "body": "## Executive Summary\n\n- **경북대 지원의 가장 큰 가치는 돈보다 신뢰와 연결이다.** NextSpot은 이미 작동하는 서비스이므로 창업 기초교육보다 지도교수·산학협력 명의, 실증계획 검토, 관광·통신 데이터 기관 소개가 더 중요하다.\n- **지금 사업자등록부터 하는 것은 권하지 않는다.** 현재 KNU 캠퍼스 창업 그라운드는 학생 예비창업자도 신청할 수 있지만 입주 뒤 2개월 안에 사업장 주소를 이전해야 한다. 사무실을 얻기 위해 등록하면 향후 예비창업자 전용 지원 선택지를 잃을 수 있다.\n- **현재 최선의 경로는 학생 신분을 최대한 활용하는 것이다.** 2026년 창업마일리지, 9~11월 교내 프로그램, 11월 학생창업경진대회에 참여하고 다음 창업동아리 모집에서 시제품비와 활동공간을 확보하는 편이 효율적이다.\n- **B2G는 비영리가 아니라 공익 목적의 사업이다.** 정부·공공기관이 비용을 지불하면 상업 거래다. 지금은 비수익 실증으로 두되, 검증 후에는 사회적 미션을 가진 일반 창업기업 또는 대학 산학협력 과제로 전환하는 것이 현실적이다."
+      },
+      {
+        "id": "knu-finding",
+        "type": "markdown",
+        "body": "## 경북대는 현금보다 학생 자격·멘토·실증 명의를 제공할 때 가장 유용하다\n\n경북대에는 학생 창업동아리 지원, 공간, 창업마일리지 장학금, 교내 경진대회, 창업대체학점과 초기창업패키지가 있다. 하지만 NextSpot의 핵심 병목은 코딩 공간이 아니라 혼잡 데이터 계약과 경주 현장 검증이다. 따라서 학교에 요청할 첫 항목은 사무실이 아니라 **관광·데이터·공공정책을 이해하는 지도교수 또는 산학협력 담당자 연결과 1페이지 실증계획 검토**여야 한다.\n\n아래 차트는 합격 가능성을 점수화한 것이 아니라, 학교가 공식 예고한 2026년 하반기 비교과 프로그램의 월별 개수다. 기회가 여러 번 남아 있다는 뜻이지 모든 프로그램이 NextSpot의 데이터 문제를 해결한다는 뜻은 아니다."
+      },
+      {
+        "id": "program-chart-block",
+        "type": "chart",
+        "chartId": "upcoming-programs"
+      },
+      {
+        "id": "knu-table-block",
+        "type": "table",
+        "tableId": "knu-options"
+      },
+      {
+        "id": "registration-finding",
+        "type": "markdown",
+        "body": "## 사업자등록은 공모전 이후 유료 실증 가능성이 확인될 때가 더 안전하다\n\n현재 단계에서 사무실이나 명함을 위해 사업자를 내는 실익은 작다. 반대로 사업자등록은 예비창업자 프로그램 자격, 세무·신고 의무, 외부 데이터의 상업 라이선스 판단을 바꿀 수 있다. **공모전 결과, 공공기관의 실증 의향서, 유료 데이터 견적 중 최소 하나가 확보되기 전에는 등록을 보류**하는 것이 기본안이다.\n\n예외는 경북대 산학협력단 또는 교수 연구과제로 파일럿을 수행하는 경우다. 이 경로는 학생 개인이 바로 회사를 만들지 않고도 기관 간 협력의 신뢰도를 얻을 수 있지만, 교수 책임자와 대학의 과제 수용이 필요하다."
+      },
+      {
+        "id": "b2g-table-block",
+        "type": "table",
+        "tableId": "b2g-stages"
+      },
+      {
+        "id": "external-finding",
+        "type": "markdown",
+        "body": "## 관광 현장과 공공 고객은 학교 밖 기관이 더 잘 연결한다\n\n경북대 창업지원 조직은 사업계획과 창업 준비에 강하지만 황리단길 데이터나 경주시 실증 권한을 갖고 있지는 않다. NextSpot에는 한국관광공사 공모전 멘토, 경북관광기업지원센터, 경주스마트미디어센터 순으로 접근하는 것이 효율적이다. 콜드문의보다 **경북대 또는 공모전 운영진의 소개를 받은 8~12주 제한 실증 요청**이 승인 가능성을 크게 높인다."
+      },
+      {
+        "id": "partners-table-block",
+        "type": "table",
+        "tableId": "partner-options"
+      },
+      {
+        "id": "next-steps",
+        "type": "markdown",
+        "body": "## 다음 30일에는 다섯 가지만 한다\n\n1. 경북대 창업교육센터에 원스톱 상담을 신청하고 `공간보다 지도교수·산학협력·공공 실증 연결이 필요하다`고 명확히 말한다.\n2. 2026년 창업마일리지에 반영될 공모전·프로그램·개발 증빙을 지금부터 한 폴더에 모은다.\n3. 9월 전공기반 창업캠프와 11월 KNU 학생창업경진대회 공고 알림을 확인한다.\n4. 공모전 멘토에게 경북관광기업지원센터 또는 경주스마트미디어센터 담당자 소개를 요청한다.\n5. `황리단길 8주·상위 100곳·무광고·원시데이터 재배포 없음` 조건의 실증 제안서 한 장을 만든다.\n\nKNU 캠퍼스 창업 그라운드는 2026년 8월 21일 16시 마감이지만, NextSpot은 현재 전용 사무실보다 예비창업자 지위 보존이 더 중요하다. 입주와 2개월 내 사업자 주소 이전을 실제로 원할 때만 지원한다."
+      },
+      {
+        "id": "further-questions",
+        "type": "markdown",
+        "body": "## 다음 결정을 바꿀 질문\n\n- 공모전 팀원이 몇 명이며 다음 창업동아리 신청에 필요한 지도교수와 팀 구성이 가능한가?\n- 사용자는 졸업 전 실제 법인·개인사업 운영까지 원하는가, 아니면 공모전 이후 공공기관에 기술을 이전하고 싶은가?\n- 경주시 또는 관광공사 측에서 유료가 아니더라도 공식 파일럿 의향을 보이는가?\n- SKT·로플랫·FlowEye 중 상위 100곳을 의미 있게 덮는 공급자가 실제로 존재하는가?\n\n이 네 질문 중 앞의 세 개가 긍정이면 2027 예비/초기창업 지원을 준비하고, 아니면 학교·공모전 기반 비수익 실증을 유지한다."
+      },
+      {
+        "id": "caveats",
+        "type": "markdown",
+        "body": "## Caveats and Assumptions\n\n- 승인 가능성은 공식 합격률이 아니라 공개 자격, 모집 규모, 현재 제품 준비도에 따른 계획용 범위다.\n- 2026년 8월 21일 현재 확인된 공고를 기준으로 하며 모집 일정은 변경될 수 있다.\n- 비영리·사회적기업·공공조달 판단은 조직 형태와 계약 구조에 따라 달라진다. 실제 사업자등록·법인 설립 전에는 학교 창업상담과 세무·법률 전문가 확인이 필요하다.\n- 공익 목적은 데이터 공급자의 상업 이용 허가를 자동으로 대신하지 않는다."
+      }
+    ],
+    "charts": [
+      {
+        "id": "upcoming-programs",
+        "title": "경북대 창업교육센터 하반기 예정 프로그램",
+        "subtitle": "2026년 9~12월 공식 운영계획, 월별 프로그램 수",
+        "showDescription": true,
+        "intent": "comparison",
+        "question": "2026년 남은 기간에 경북대 학생이 참여할 창업 비교과 기회가 몇 번 있는가?",
+        "rationale": "월별 개수라는 단일 측정값을 네 개의 이산 월에서 비교하므로 단일 계열 막대차트를 사용한다.",
+        "type": "bar",
+        "dataset": "upcoming_programs",
+        "source": {
+          "id": "knu_program_calendar",
+          "label": "경북대학교 창업교육센터 2026 비교과프로그램 운영계획",
+          "href": "https://changup.knu.ac.kr/changup/Program?menuId=MENU_CHANGUP0041",
+          "query": {
+            "engine": "SQLite",
+            "sql": "WITH upcoming_programs(\n  month, program_count, program_names, scope_year, source_status\n) AS (\n  SELECT '9월', 2, '전공기반 창업캠프; K.I.T.I 1~2차', 2026, '운영계획'\n  UNION ALL SELECT '10월', 2, '대학연합 창업캠프; 글로벌창업자양성 1기 시작', 2026, '운영계획'\n  UNION ALL SELECT '11월', 2, 'K.I.T.I 3~4차; KNU 학생창업경진대회', 2026, '운영계획'\n  UNION ALL SELECT '12월', 1, 'KNU-O 방구석콘서트', 2026, '운영계획'\n)\nSELECT month, program_count, program_names, scope_year, source_status\nFROM upcoming_programs\nORDER BY CASE month WHEN '9월' THEN 9 WHEN '10월' THEN 10 WHEN '11월' THEN 11 ELSE 12 END",
+            "description": "경북대학교 창업교육센터가 공개한 2026년 비교과 운영계획에서 9~12월 프로그램을 월별로 집계",
+            "executed_at": "2026-08-21T03:35:49+09:00",
+            "language": "SQL",
+            "tables_used": ["경북대학교 창업교육센터 2026년 비교과프로그램 운영계획"],
+            "filters": ["2026년 9월~12월", "2027년 1~2월 프로그램 제외"],
+            "metric_definitions": ["program_count = 해당 월에 시작하거나 단일 개최되는 공식 운영계획 프로그램 수"]
+          }
+        },
+        "encodings": {
+          "x": { "field": "month", "type": "ordinal", "label": "월" },
+          "y": { "field": "program_count", "type": "quantitative", "label": "프로그램 수", "format": "number", "unit": "개" },
+          "tooltip": [
+            { "field": "month", "type": "ordinal", "label": "월" },
+            { "field": "program_count", "type": "quantitative", "label": "프로그램 수", "format": "number" },
+            { "field": "program_names", "type": "text", "label": "프로그램" }
+          ]
+        },
+        "valueFormat": "number",
+        "unit": "개",
+        "layout": "full",
+        "maxRows": 4,
+        "compatibleTypes": ["bar"]
+      }
+    ],
+    "tables": [
+      {
+        "id": "knu-options",
+        "title": "경북대 지원 옵션",
+        "subtitle": "2026년 8월 21일 기준, NextSpot에 대한 실효성과 조건",
+        "showDescription": true,
+        "dataset": "knu_options",
+        "defaultSort": { "field": "priority", "direction": "asc" },
+        "density": "spacious",
+        "sourceId": "knu_official",
+        "layout": "full",
+        "columns": [
+          { "field": "priority", "label": "순위", "format": "number" },
+          { "field": "option", "label": "지원" },
+          { "field": "benefit", "label": "실제 도움" },
+          { "field": "current_status", "label": "현재 상태" },
+          { "field": "selection_range", "label": "계획용 가능성" },
+          { "field": "judgment", "label": "냉정한 판단" }
+        ]
+      },
+      {
+        "id": "b2g-stages",
+        "title": "B2G 전환 단계",
+        "subtitle": "공익 실증에서 공공기관 유료 계약까지 필요한 증거와 조직 형태",
+        "showDescription": true,
+        "dataset": "b2g_stages",
+        "defaultSort": { "field": "stage", "direction": "asc" },
+        "density": "spacious",
+        "sourceId": "procurement_official",
+        "layout": "full",
+        "columns": [
+          { "field": "stage", "label": "단계", "format": "number" },
+          { "field": "goal", "label": "목표" },
+          { "field": "organization", "label": "권장 형태" },
+          { "field": "evidence", "label": "필수 증거" },
+          { "field": "paid_contract_range", "label": "유료계약 가능성" }
+        ]
+      },
+      {
+        "id": "partner-options",
+        "title": "학교 밖 협력 후보",
+        "subtitle": "NextSpot의 혼잡 데이터·경주 현장·B2G 연결에 대한 상대적 적합도",
+        "showDescription": true,
+        "dataset": "partner_options",
+        "defaultSort": { "field": "priority", "direction": "asc" },
+        "density": "spacious",
+        "sourceId": "regional_official",
+        "layout": "full",
+        "columns": [
+          { "field": "priority", "label": "순위", "format": "number" },
+          { "field": "partner", "label": "기관" },
+          { "field": "ask", "label": "요청할 것" },
+          { "field": "help_range", "label": "도움 가능성" },
+          { "field": "not_yet", "label": "아직 요구하지 말 것" }
+        ]
+      }
+    ],
+    "sources": [
+      {
+        "id": "knu_official",
+        "label": "경북대학교 창업교육팀·창업지원단 2026 공식 공고",
+        "href": "https://changup.knu.ac.kr/",
+        "query": {
+          "engine": "SQLite",
+          "sql": "WITH knu_options(priority, option, benefit, current_status, selection_range, judgment) AS (\n  SELECT 1, '원스톱 창업상담·산학 연결', '지도교수, 사업계획 검토, 지원사업·기관 연결', '상시 상담 경로 있음', '상담 85~100%; 실질 소개 40~70%', '가장 먼저 할 일'\n  UNION ALL SELECT 2, '창업마일리지', '2026 활동 증빙 후 최대 200만원 장학금', '2026년 활동 인정, 2027년 1월 신청 예정', '일부 수혜 40~70%; 최대액은 낮음', '비용 없이 반드시 증빙'\n  UNION ALL SELECT 3, '11월 KNU 학생창업경진대회', '멘토링, 교내 실적, 발표 검증', '2026년 11월 예정, 약 30명 계획', '참가 70~90%; 입상 20~40%', 'NextSpot 완성도를 활용하기 좋음'\n  UNION ALL SELECT 4, '다음 창업동아리 모집', '정규 최대 250만원, 추가모집 최대 125만원, 공간 가능', '2026 추가모집은 8월 18일 종료', '다음 모집 선정 45~70%', '지도교수·팀 구성을 미리 준비'\n  UNION ALL SELECT 5, '9~11월 비교과 프로그램', '전공 창업캠프, 특강, 대학연합 캠프', '9월·10월·11월 프로그램 예정', '참여 60~90%', '네트워크·증빙용, 핵심 데이터 해결은 못함'\n  UNION ALL SELECT 6, 'KNU 캠퍼스 창업 그라운드', '1인 지정석 또는 입주공간', '8월 21일 16시 마감, 5개사', '선정 25~50%', '2개월 내 사업장 주소 이전 조건 때문에 현재는 비추천'\n  UNION ALL SELECT 7, '2027 초기창업패키지', '2026 기준 최대 1억원, 평균 5천만원', '사업자등록 후 3년 이내 기업 대상, 2026 모집 종료', '준비 전 5~15%; 실증·팀 확보 후 15~30%', '지금 당장 신청 대상 아님'\n)\nSELECT * FROM knu_options ORDER BY priority",
+          "description": "창업동아리, 창업마일리지, 창업휴학·대체학점, 캠퍼스 창업 그라운드와 2026 비교과 프로그램 공고를 수기 대조",
+          "executed_at": "2026-08-21T03:35:49+09:00",
+          "language": "manual review",
+          "tables_used": [
+            "경북대학교 창업교육센터 2026 공고",
+            "KNU 캠퍼스 창업 그라운드 입주기업 모집 공고",
+            "경북대학교 2026 비교과프로그램 운영계획"
+          ],
+          "filters": ["2026년 공고", "경북대학교 재학생 또는 학생 예비창업자에게 적용 가능한 지원"]
+        }
+      },
+      {
+        "id": "procurement_official",
+        "label": "조달청·디지털서비스 이용지원시스템 공식 안내",
+        "href": "https://pps.go.kr/kor/content.do?key=00711",
+        "query": {
+          "engine": "SQLite",
+          "sql": "WITH b2g_stages(stage, goal, organization, evidence, paid_contract_range) AS (\n  SELECT 1, '공모전·비수익 현장 검증', '학생팀 또는 대학 과제', '작동 서비스, 데이터 출처, 15~30명 테스트, 기관 피드백', '현재 직접 계약 5~15%'\n  UNION ALL SELECT 2, '8~12주 무상·소액 실증', '학생팀+학교/공모전 소개 또는 예비창업팀', '실증계획, 개인정보·라이선스 범위, 측정 KPI', '기관 미팅 40~70%; 실증 승인 25~50%'\n  UNION ALL SELECT 3, '경주시·RTO 유료 PoC', '개인사업자/법인 또는 산학협력단 계약', '혼잡 분산 효과, 운영 SLA, 비용·유지보수, 데이터 계약', '검증 후 20~45%'\n  UNION ALL SELECT 4, '반복 가능한 B2G 제품', '미션형 일반기업 또는 소셜벤처', '2곳 이상 실적, 조달 가능한 서비스 규격, 보안·운영체계', '실적 확보 후 기관별 30~60%'\n)\nSELECT * FROM b2g_stages ORDER BY stage",
+          "description": "벤처나라 신청자격과 디지털서비스 심사·등록 절차를 기준으로 NextSpot의 B2G 준비 단계를 판단",
+          "executed_at": "2026-08-21T03:35:49+09:00",
+          "language": "manual review",
+          "tables_used": [
+            "조달청 벤처나라 공식 안내",
+            "디지털서비스 이용지원시스템 공식 안내"
+          ],
+          "metric_definitions": ["유료계약 가능성은 공식 통계가 아니라 제품·조직·실증 증거의 준비 단계에 따른 계획용 범위"]
+        }
+      },
+      {
+        "id": "regional_official",
+        "label": "관광공사·경북문화관광공사·경주시 공식 공고",
+        "href": "https://www.gtc.co.kr/page/10019/10072.tc",
+        "query": {
+          "engine": "SQLite",
+          "sql": "WITH partner_options(priority, partner, ask, help_range, not_yet) AS (\n  SELECT 1, '한국관광공사 공모전 멘토', '경북 RTO·데이터 담당자 소개, 실증 피드백', '소개·조언 60~85%', '정식 구매·MOU'\n  UNION ALL SELECT 2, '경북관광기업지원센터', '관광기업 상담, 경주 실증 파트너 연결, 상시 공유오피스', '상담 70~90%; 실질 연결 45~70%', '즉시 사업화 자금; 2026 주요 공모는 종료'\n  UNION ALL SELECT 3, '경주스마트미디어센터', '황리단길 현장 검증, 센서·기관 보유 데이터 확인', '소개 있음 40~65%; 콜드문의 20~40%', '무료 실시간 데이터 영구 제공'\n  UNION ALL SELECT 4, 'SKT·로플랫·ENCLE', '상위 100곳 커버리지 샘플, 8주 실증 견적', '유료 검토 50~80%; 무료 후원 10~35%', '전체 데이터 무상 재배포'\n  UNION ALL SELECT 5, '사회적기업 성장지원체계', '사회적가치 KPI·공공판로 교육', '교육·상담 50~80%; 인증은 현재 5~15%', '지금 사회적기업 인증부터 신청'\n  UNION ALL SELECT 6, '조달청 벤처나라·디지털서비스몰', '유료 실증 후 등록 요건 상담', '현재 등록 적합성 5~15%', '실적·사업자·서비스 규격 없이 즉시 등록'\n)\nSELECT * FROM partner_options ORDER BY priority",
+          "description": "공모전 컨설팅, 경북관광기업지원센터 상시 공유오피스와 지원 역할, 경주스마트미디어센터 현장 실증 역할을 대조",
+          "executed_at": "2026-08-21T03:35:49+09:00",
+          "language": "manual review",
+          "tables_used": [
+            "한국관광공사 2026 관광벤처 공모전 공식 공고",
+            "경북관광기업지원센터 사업 안내",
+            "경북관광기업지원센터 2026 상시 공유오피스 공고",
+            "경주시 경주스마트미디어센터 현장 실증 지원 안내"
+          ],
+          "metric_definitions": ["도움 가능성은 공식 합격률이 아니라 기관 역할, NextSpot 적합도와 소개 유무에 따른 계획용 범위"]
+        }
+      }
+    ]
+  },
+  "snapshot": {
+    "version": 1,
+    "generatedAt": "2026-08-21T03:35:49+09:00",
+    "status": "ready",
+    "datasets": {
+      "upcoming_programs": [
+        {
+          "month": "9월",
+          "program_count": 2,
+          "program_names": "전공기반 창업캠프; K.I.T.I 1~2차",
+          "scope_year": 2026,
+          "source_status": "운영계획"
+        },
+        {
+          "month": "10월",
+          "program_count": 2,
+          "program_names": "대학연합 창업캠프; 글로벌창업자양성 1기 시작",
+          "scope_year": 2026,
+          "source_status": "운영계획"
+        },
+        {
+          "month": "11월",
+          "program_count": 2,
+          "program_names": "K.I.T.I 3~4차; KNU 학생창업경진대회",
+          "scope_year": 2026,
+          "source_status": "운영계획"
+        },
+        {
+          "month": "12월",
+          "program_count": 1,
+          "program_names": "KNU-O 방구석콘서트",
+          "scope_year": 2026,
+          "source_status": "운영계획"
+        }
+      ],
+      "knu_options": [
+        {
+          "priority": 1,
+          "option": "원스톱 창업상담·산학 연결",
+          "benefit": "지도교수, 사업계획 검토, 지원사업·기관 연결",
+          "current_status": "상시 상담 경로 있음",
+          "selection_range": "상담 85~100%; 실질 소개 40~70%",
+          "judgment": "가장 먼저 할 일"
+        },
+        {
+          "priority": 2,
+          "option": "창업마일리지",
+          "benefit": "2026 활동 증빙 후 최대 200만원 장학금",
+          "current_status": "2026년 활동 인정, 2027년 1월 신청 예정",
+          "selection_range": "일부 수혜 40~70%; 최대액은 낮음",
+          "judgment": "비용 없이 반드시 증빙"
+        },
+        {
+          "priority": 3,
+          "option": "11월 KNU 학생창업경진대회",
+          "benefit": "멘토링, 교내 실적, 발표 검증",
+          "current_status": "2026년 11월 예정, 약 30명 계획",
+          "selection_range": "참가 70~90%; 입상 20~40%",
+          "judgment": "NextSpot 완성도를 활용하기 좋음"
+        },
+        {
+          "priority": 4,
+          "option": "다음 창업동아리 모집",
+          "benefit": "정규 최대 250만원, 추가모집 최대 125만원, 공간 가능",
+          "current_status": "2026 추가모집은 8월 18일 종료",
+          "selection_range": "다음 모집 선정 45~70%",
+          "judgment": "지도교수·팀 구성을 미리 준비"
+        },
+        {
+          "priority": 5,
+          "option": "9~11월 비교과 프로그램",
+          "benefit": "전공 창업캠프, 특강, 대학연합 캠프",
+          "current_status": "9월·10월·11월 프로그램 예정",
+          "selection_range": "참여 60~90%",
+          "judgment": "네트워크·증빙용, 핵심 데이터 해결은 못함"
+        },
+        {
+          "priority": 6,
+          "option": "KNU 캠퍼스 창업 그라운드",
+          "benefit": "1인 지정석 또는 입주공간",
+          "current_status": "8월 21일 16시 마감, 5개사",
+          "selection_range": "선정 25~50%",
+          "judgment": "2개월 내 사업장 주소 이전 조건 때문에 현재는 비추천"
+        },
+        {
+          "priority": 7,
+          "option": "2027 초기창업패키지",
+          "benefit": "2026 기준 최대 1억원, 평균 5천만원",
+          "current_status": "사업자등록 후 3년 이내 기업 대상, 2026 모집 종료",
+          "selection_range": "준비 전 5~15%; 실증·팀 확보 후 15~30%",
+          "judgment": "지금 당장 신청 대상 아님"
+        }
+      ],
+      "b2g_stages": [
+        {
+          "stage": 1,
+          "goal": "공모전·비수익 현장 검증",
+          "organization": "학생팀 또는 대학 과제",
+          "evidence": "작동 서비스, 데이터 출처, 15~30명 테스트, 기관 피드백",
+          "paid_contract_range": "현재 직접 계약 5~15%"
+        },
+        {
+          "stage": 2,
+          "goal": "8~12주 무상·소액 실증",
+          "organization": "학생팀+학교/공모전 소개 또는 예비창업팀",
+          "evidence": "실증계획, 개인정보·라이선스 범위, 측정 KPI",
+          "paid_contract_range": "기관 미팅 40~70%; 실증 승인 25~50%"
+        },
+        {
+          "stage": 3,
+          "goal": "경주시·RTO 유료 PoC",
+          "organization": "개인사업자/법인 또는 산학협력단 계약",
+          "evidence": "혼잡 분산 효과, 운영 SLA, 비용·유지보수, 데이터 계약",
+          "paid_contract_range": "검증 후 20~45%"
+        },
+        {
+          "stage": 4,
+          "goal": "반복 가능한 B2G 제품",
+          "organization": "미션형 일반기업 또는 소셜벤처",
+          "evidence": "2곳 이상 실적, 조달 가능한 서비스 규격, 보안·운영체계",
+          "paid_contract_range": "실적 확보 후 기관별 30~60%"
+        }
+      ],
+      "partner_options": [
+        {
+          "priority": 1,
+          "partner": "한국관광공사 공모전 멘토",
+          "ask": "경북 RTO·데이터 담당자 소개, 실증 피드백",
+          "help_range": "소개·조언 60~85%",
+          "not_yet": "정식 구매·MOU"
+        },
+        {
+          "priority": 2,
+          "partner": "경북관광기업지원센터",
+          "ask": "관광기업 상담, 경주 실증 파트너 연결, 상시 공유오피스",
+          "help_range": "상담 70~90%; 실질 연결 45~70%",
+          "not_yet": "즉시 사업화 자금; 2026 주요 공모는 종료"
+        },
+        {
+          "priority": 3,
+          "partner": "경주스마트미디어센터",
+          "ask": "황리단길 현장 검증, 센서·기관 보유 데이터 확인",
+          "help_range": "소개 있음 40~65%; 콜드문의 20~40%",
+          "not_yet": "무료 실시간 데이터 영구 제공"
+        },
+        {
+          "priority": 4,
+          "partner": "SKT·로플랫·ENCLE",
+          "ask": "상위 100곳 커버리지 샘플, 8주 실증 견적",
+          "help_range": "유료 검토 50~80%; 무료 후원 10~35%",
+          "not_yet": "전체 데이터 무상 재배포"
+        },
+        {
+          "priority": 5,
+          "partner": "사회적기업 성장지원체계",
+          "ask": "사회적가치 KPI·공공판로 교육",
+          "help_range": "교육·상담 50~80%; 인증은 현재 5~15%",
+          "not_yet": "지금 사회적기업 인증부터 신청"
+        },
+        {
+          "priority": 6,
+          "partner": "조달청 벤처나라·디지털서비스몰",
+          "ask": "유료 실증 후 등록 요건 상담",
+          "help_range": "현재 등록 적합성 5~15%",
+          "not_yet": "실적·사업자·서비스 규격 없이 즉시 등록"
+        }
+      ]
+    }
+  },
+  "sources": [
+    {
+      "id": "knu_official",
+      "label": "경북대학교 창업교육팀·창업지원단 2026 공식 공고",
+      "href": "https://changup.knu.ac.kr/"
+    },
+    {
+      "id": "procurement_official",
+      "label": "조달청·디지털서비스 이용지원시스템 공식 안내",
+      "href": "https://pps.go.kr/kor/content.do?key=00711"
+    },
+    {
+      "id": "regional_official",
+      "label": "관광공사·경북문화관광공사·경주시 공식 공고",
+      "href": "https://www.gtc.co.kr/page/10019/10072.tc"
+    }
+  ]
+}

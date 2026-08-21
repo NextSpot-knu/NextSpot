@@ -17,8 +17,11 @@ const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"]
 // 본문 한글 산세(Noto Sans KR) + 제목 한글 명조(Noto Serif KR) — 경주 관광 헤리티지 톤.
 const notoSansKr = Noto_Sans_KR({ variable: "--font-noto-sans-kr", weight: ["400", "500", "700"], subsets: ["latin"] });
 const notoSerifKr = Noto_Serif_KR({ variable: "--font-noto-serif-kr", weight: ["500", "700"], subsets: ["latin"] });
+const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://nextspot-nu.vercel.app";
 
 export const metadata: Metadata = {
+  // 정적 export에서도 OG/Twitter 이미지가 localhost가 아닌 실제 서비스 절대 URL로 생성되게 한다.
+  metadataBase: new URL(siteUrl),
   title: "NextSpot",
   description: "오버투어리즘 없는 스마트한 경주 여행",
   // PWA: 관광객은 이동 중 모바일 사용이 기본 — 홈 화면 설치를 지원한다(정적 export 호환).

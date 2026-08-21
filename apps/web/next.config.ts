@@ -1,7 +1,12 @@
 import type { NextConfig } from "next";
+import path from "node:path";
 
 const nextConfig: NextConfig = {
   output: 'export',
+  // 사용자 홈의 우연한 package-lock.json을 루트로 오인하지 않고, 공유 패키지가 있는 저장소를 고정한다.
+  turbopack: {
+    root: path.resolve(process.cwd(), "../.."),
+  },
   images: {
     unoptimized: true,
   },
