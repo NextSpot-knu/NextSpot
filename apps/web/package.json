@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
-    "test": "tsx lib/voiceIntent.test.ts && tsx lib/i18n/parity.test.ts && tsx lib/areaDemandPresentation.test.ts && tsx lib/travelContext.test.ts && tsx lib/restDate.test.ts && tsx lib/walkingTime.test.ts && tsx lib/placeSearch.test.ts && tsx lib/voiceCommands.test.ts",
+    "test": "tsx lib/voiceIntent.test.ts && tsx lib/i18n/parity.test.ts && tsx lib/areaDemandPresentation.test.ts && tsx lib/alternativeHighlights.test.ts && tsx lib/travelContext.test.ts && tsx lib/restDate.test.ts && tsx lib/walkingTime.test.ts && tsx lib/placeSearch.test.ts && tsx lib/voiceCommands.test.ts",
     "test:e2e": "playwright test"
   },
   "engines": {

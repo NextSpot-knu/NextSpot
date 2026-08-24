@@ -50,6 +50,7 @@ interface RecommendationCardProps {
   title: string;
   matchPercentage?: number;
   reason?: string; // 백엔드 템플릿 생성 추천 사유
+  comparisonHighlight?: string; // 현재 Top 3 안에서 이 카드가 맡는 서로 다른 대표 역할
   onAccept: () => void;
   onDrive?: () => void;
   onReject: () => void;
@@ -105,6 +106,7 @@ export function RecommendationCard({
   title,
   matchPercentage,
   reason,
+  comparisonHighlight,
   onAccept,
   onDrive,
   onReject,
@@ -513,6 +515,16 @@ export function RecommendationCard({
             </span>
           </div>
           <h3 className="text-xl font-serif font-bold text-muk tracking-tight leading-tight">{title}</h3>
+          {comparisonHighlight && (
+            <div className="mt-2 rounded-xl border border-jade/20 bg-jade/5 px-3 py-2">
+              <p className="text-[9px] font-extrabold uppercase tracking-wide text-jade">
+                {t('recommend.highlight.current')}
+              </p>
+              <p className="mt-0.5 text-[11px] font-semibold leading-snug text-muk">
+                {comparisonHighlight}
+              </p>
+            </div>
+          )}
           
           {/* Status Pills — 펼쳐도(상세 표시 중에도) 혼잡도·잔여석은 항상 표시.
               혼잡 로그가 없는 시설(congestionLevel=null)은 합성값 대신 회색 '데이터 없음'으로 표기. */}

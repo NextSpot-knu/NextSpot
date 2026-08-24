@@ -29,6 +29,11 @@ import { loadTravelContext, matchesTravelContext, saveTravelContext, type PlaceC
 import { buildVoiceCommandTransition, type VoiceAppCommand } from '@/lib/voiceCommands';
 import { facilityMatchesSearch } from '@/lib/placeSearch';
 import NextSpotMascot from '@/components/NextSpotMascot';
+import {
+  buildAlternativeHighlights,
+  extractAlternativeCuisineLabel,
+  formatAlternativeHighlight,
+} from '@/lib/alternativeHighlights';
 
 const RecommendationCard = dynamic(
   () => import('@/components/RecommendationCard').then((m) => m.RecommendationCard),
@@ -95,6 +100,8 @@ interface FacilityRecord {
   totalCandidates?: number;
   recommendationId?: string;
   scoringMode?: 'model' | 'measured_rules' | 'area_stats_rules' | 'degraded_rules';
+  couponRate?: number | null;
+  timesaleRate?: number | null;
 }
 
 // 개별 시설 vs 그룹(모음) 마커 — isGroup 판별식 union(expandGroups/마커 클릭 분기용).
@@ -583,6 +590,36 @@ export default function MainPage() {
   const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number }>({ ...REGION.center });
   const [preferredCategories, setPreferredCategories] = useState<string[]>([]);
+
+  // 현재 살아 있는 추천 중 Top 3가 서로 다른 대표 이유를 하나씩 갖도록 배정한다. 혼잡 우위는
+  // 백엔드의 distinguishable+confidence+arrivalAction 계약을 모두 통과한 경우에만 후보가 된다.
+  const alternativeHighlightById = useMemo(() => {
+    const top = rankedFacilities
+      .filter((facility) => !rejectedIds.has(facility.id) && !savedIds.has(facility.id))
+      .slice(0, 3);
+    const highlights = buildAlternativeHighlights(top.map((facility, index) => {
+      const spot = facility.spot as Spot | undefined;
+      return {
+        id: String(facility.id),
+        rank: index + 1,
+        spotScore: spot?.score ?? 0,
+        preferencePercent: spot?.preferencePercent ?? 0,
+        travelMinutes: spot?.expectedTravel ?? 1,
+        couponRate: Math.max(facility.couponRate ?? 0, facility.timesaleRate ?? 0),
+        cuisineLabel: extractAlternativeCuisineLabel(facility.features as Record<string, unknown> | null),
+        arrivalAction: spot?.arrivalAction,
+        areaDemandDistinguishable: spot?.areaDemandDistinguishable,
+        areaDemandConfidence: spot?.areaDemandConfidence,
+        areaDemandRank: spot?.areaDemandRank,
+        areaDemandComparableCount: spot?.areaDemandComparableCount,
+        recommendedDepartureDelayMinutes: spot?.recommendedDepartureDelayMinutes,
+      };
+    }));
+    return new Map(highlights.map((highlight) => [
+      highlight.id,
+      formatAlternativeHighlight(t, highlight),
+    ]));
+  }, [rankedFacilities, rejectedIds, savedIds, t]);
 
   // Load user profile & current location
   useEffect(() => {
@@ -2654,6 +2691,7 @@ export default function MainPage() {
               <RecommendationCard
                 title={selectedFacility.name}
                 reason={reason}
+                comparisonHighlight={alternativeHighlightById.get(String(selectedFacility.id))}
                 onAccept={() => handleAccept(selectedFacility)}
                 onDrive={() => handleAccept(selectedFacility, 'car')}
                 onReject={() => handleReject(selectedFacility)}
