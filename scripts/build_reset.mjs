@@ -70,6 +70,21 @@ DROP FUNCTION IF EXISTS public.promote_recommendation_model(TEXT) CASCADE;
 DROP FUNCTION IF EXISTS public.record_recommendation_outcome(UUID, UUID, TEXT, TEXT, TEXT) CASCADE;
 DROP FUNCTION IF EXISTS public.correlate_congestion_report_evidence() CASCADE;
 DROP FUNCTION IF EXISTS public.project_outcome_congestion_log() CASCADE;
+DO $$
+DECLARE
+  v_job_id BIGINT;
+BEGIN
+  IF to_regclass('cron.job') IS NOT NULL THEN
+    FOR v_job_id IN EXECUTE
+      'SELECT jobid FROM cron.job WHERE jobname IN (''nextspot-area-demand-primary'', ''nextspot-area-demand-retry'')'
+    LOOP
+      EXECUTE format('SELECT cron.unschedule(%s)', v_job_id);
+    END LOOP;
+  END IF;
+END;
+$$;
+DROP FUNCTION IF EXISTS public.request_area_demand_collection(BOOLEAN) CASCADE;
+DROP FUNCTION IF EXISTS public.configure_area_demand_collection(TEXT, TEXT) CASCADE;
 DROP FUNCTION IF EXISTS public.record_area_demand_snapshot(TEXT, TIMESTAMPTZ, JSONB) CASCADE;
 DROP FUNCTION IF EXISTS public.handle_updated_at() CASCADE;`;
 

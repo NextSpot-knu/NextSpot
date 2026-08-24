@@ -1,6 +1,5 @@
 # NextSpot — 경주시 ITS 실측 주차 스냅샷 수집
-# GitHub 스케줄은 지연될 수 있으므로 API가 실제 실행 시각을 10분 버킷으로 정규화해 멱등 저장한다.
-# 정각 혼잡을 피해 매시 3분부터 실행하며, 별도 uptime 스케줄 대신 이 작업이 먼저 /health를 확인한다.
+# 정기 수집은 Supabase Cron이 담당한다. 이 workflow는 장애 시 운영자가 누르는 수동 복구 경로다.
 # 필요한 설정:
 #   Repository Variable BACKEND_HEALTH_URL=https://<render-service>.onrender.com/health
 #   Repository Variable AREA_DEMAND_COLLECTION_ENABLED=true (원격 migration 적용 후 활성화)
@@ -8,8 +7,6 @@
 name: Collect Area Demand Snapshots
 
 on:
-  schedule:
-    - cron: '3,13,23,33,43,53 * * * *'
   workflow_dispatch:
 
 permissions:

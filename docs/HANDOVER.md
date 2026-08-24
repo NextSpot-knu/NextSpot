@@ -1,9 +1,27 @@
 # 세션 인계 문서 (2026-08-24 갱신)
 
+## -35. 2026-08-24 — 실측 수집 예약을 Supabase Cron으로 안정화
+
+- GitHub Actions 예약은 실제로 30~90분 공백이 생겨, 정기 수집의 주체를 데이터베이스와 가까운
+  Supabase Cron으로 바꿨다. 본 실행은 매시 `3,13,23,33,43,53분`, 누락 전용 재시도는
+  `6,16,26,36,46,56분`이다. 현재 10분 버킷이 있으면 재시도는 HTTP 요청조차 만들지 않는다.
+- `request_area_demand_collection`은 `pg_net` 비동기 HTTP로 기존 Render 수집 API를 호출한다.
+  API URL과 관리자 토큰은 Supabase Vault의 `nextspot_area_demand_api_url`,
+  `nextspot_area_demand_admin_token`에서 읽는다. 새 토큰을 만들지 않고 Render의 기존
+  `ADMIN_API_TOKEN`을 재사용하며, migration과 `cron.job.command`에는 원문이 남지 않는다.
+- `.github/workflows/collect-area-demand.yml`의 예약 트리거는 제거하고 `workflow_dispatch`만 남겨
+  운영 장애 시 수동 복구 경로로 유지했다. 수집 성공 판정은 Cron 실행 성공이 아니라 실제 10분
+  버킷 저장·`net._http_response`의 2xx·부모/자식 원본 일치를 함께 확인한다.
+- 운영 Supabase에 migration과 Vault 설정을 적용했다. 자동 실행으로 22:30 버킷
+  (`observed_at=22:33:34 KST`)과 22:40 버킷(`observed_at=22:43:01 KST`)이 연속 저장됐고,
+  둘 다 `bucket_minutes=10`, ITS 주차장 3곳·총 880면으로 확인했다. 22:46 재시도 뒤에도
+  22:40 행의 `observed_at`이 그대로여서, 이미 채운 버킷을 다시 호출·덮어쓰지 않는 것도 확인했다.
+  설정 전 Cron 실패 구간은 학습 원본으로 복원하거나 보간하지 않고 결측으로 유지한다.
+
 ## -34. 2026-08-24 — 관광 통계 근거 분리·10분 주차 수집 전환
 
-- 경주 ITS 주차 스냅샷을 매시 `3,13,23,33,43,53분` 수집하도록 바꿨다. 정각 GitHub Actions
-  혼잡을 피하고, 별도 uptime 예약 작업은 수집 작업의 선행 `/health` 확인으로 합쳤다. 기존 15분
+- 경주 ITS 주차 스냅샷을 매시 `3,13,23,33,43,53분` 수집하도록 바꿨다. 당시에는 정각 GitHub Actions
+  혼잡을 피하도록 구성했으며 이후 -35에서 Supabase Cron으로 교체했다. 기존 15분
   원본은 `bucket_minutes=15`로 보존하며 신규 RPC 기록만 10분 버킷을 쓴다.
 - 운영 Supabase의 실제 테이블·핵심 컬럼을 확인한 뒤 누락된 migration history 8건을 `applied`로
   복구했고, `20260824120000_area_demand_ten_minute_buckets.sql`만 별도로 적용했다. 운영 API 수동

@@ -89,19 +89,24 @@ filter 의 후보 매칭은 `embedding_service.filter_candidates` 가 후보 이
 
 ## 지역 수요 스냅샷 수집 활성화
 
-`.github/workflows/collect-area-demand.yml`은 매시 3분부터 10분 간격으로 헬스 체크 후 관리자 수집 API를 호출한다.
-다만 다음 운영 작업이 끝나기 전에는 스케줄 수집이 비활성 상태다.
+운영 정기 수집은 외부 예약 지연이 적은 Supabase Cron이 맡는다. 매시
+`3,13,23,33,43,53분`에 본 수집을 요청하고, `6,16,26,36,46,56분`에는 현재 10분 버킷이
+비었을 때만 한 번 더 요청한다. `.github/workflows/collect-area-demand.yml`은 수동 복구용이다.
 
 1. Supabase SQL Editor에서
    `supabase/migrations/20260820220000_add_area_demand_snapshots.sql`과
-   `supabase/migrations/20260824120000_area_demand_ten_minute_buckets.sql`을 순서대로 실행한다.
-2. GitHub Actions secret `ADMIN_API_TOKEN`을 Render의 동일한 값으로 등록한다.
-3. GitHub Actions variable `BACKEND_HEALTH_URL`을
-   `https://nextspot-api.onrender.com/health`로 확인한다.
-4. migration과 Render 재배포 후 GitHub Actions variable
-   `AREA_DEMAND_COLLECTION_ENABLED=true`를 등록한다.
-5. **Collect Area Demand Snapshots** workflow를 수동 실행한 뒤
+   `supabase/migrations/20260824120000_area_demand_ten_minute_buckets.sql`,
+   `supabase/migrations/20260824130000_schedule_area_demand_collection.sql`을 순서대로 실행한다.
+2. Supabase Vault에 `nextspot_area_demand_api_url`과
+   `nextspot_area_demand_admin_token`을 만든다. URL 값은 수집 API 전체 주소이고, 토큰 값은
+   Render의 기존 `ADMIN_API_TOKEN`과 동일한 값이다. service-role 전용
+   `configure_area_demand_collection` RPC로 최초 설정·회전하며, 키를 새로 만들거나 migration에 적지 않는다.
+3. `cron.job`에서 `nextspot-area-demand-primary`와 `nextspot-area-demand-retry`가
+   `active=true`인지 확인한다.
+4. 다음 본 실행·재시도 시각 뒤 `cron.job_run_details`, `net._http_response`와
    `area_demand_snapshots`·`area_demand_snapshot_lots`가 함께 생성됐는지 확인한다.
+5. 수동 복구를 유지하려면 GitHub Actions의 기존 `ADMIN_API_TOKEN`,
+   `BACKEND_HEALTH_URL`, `AREA_DEMAND_COLLECTION_ENABLED=true` 설정을 그대로 둔다.
 
 저장 함수 `record_area_demand_snapshot`는 시점별 집계와 주차장별 원본을 한 트랜잭션에서
 교체한다. 저장된 점유율은 특정 장소 내부 혼잡도나 예상 대기시간이 아니며,
