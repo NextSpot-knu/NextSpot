@@ -798,9 +798,11 @@ export function RecommendationCard({
             <span className="font-bold">
               {areaDemandTourismEvidence
                 ? t('recommend.areaEvidenceCount', { n: evidenceCount })
-                : `${t(areaDemandParkingEvidence?.mode === 'forecast'
-                  ? 'recommend.parkingEvidenceForecast'
-                  : 'recommend.parkingEvidenceLive')}: ${congestionLabel(areaDemandLevel)}`}
+                : areaDemandParkingEvidence
+                  ? `${t(areaDemandParkingEvidence.mode === 'forecast'
+                    ? 'recommend.parkingEvidenceForecast'
+                    : 'recommend.parkingEvidenceLive')}: ${congestionLabel(areaDemandParkingEvidence.level)}`
+                  : `${t('recommend.areaDemand')}: ${congestionLabel(areaDemandLevel)}`}
             </span>
             {demandDisclosure.showQualitativeLevel && <span className="text-[10px] text-sky-700">
               {t(areaDemandMode === 'live'

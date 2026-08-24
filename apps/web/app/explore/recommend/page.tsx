@@ -1386,9 +1386,15 @@ function RecommendContent() {
                             ? t("recommend.areaEvidenceCount", {
                                 n: Number(!!rec.breakdown.areaDemandParkingEvidence) + 1,
                               })
-                            : `${t(rec.breakdown.areaDemandParkingEvidence?.mode === "forecast"
+                            : rec.breakdown.areaDemandParkingEvidence
+                              ? `${t(rec.breakdown.areaDemandParkingEvidence.mode === "forecast"
                                 ? "recommend.parkingEvidenceForecast"
                                 : "recommend.parkingEvidenceLive")}: ${t(`congestion.${
+                                  rec.breakdown.areaDemandParkingEvidence.level >= 0.75 ? "busy"
+                                    : rec.breakdown.areaDemandParkingEvidence.level >= 0.5 ? "moderate"
+                                    : rec.breakdown.areaDemandParkingEvidence.level >= 0.25 ? "relaxed" : "quiet"
+                                }`)}`
+                              : `${t("recommend.areaDemand")}: ${t(`congestion.${
                                   rec.breakdown.areaDemandLevel >= 0.75 ? "busy"
                                     : rec.breakdown.areaDemandLevel >= 0.5 ? "moderate"
                                     : rec.breakdown.areaDemandLevel >= 0.25 ? "relaxed" : "quiet"
