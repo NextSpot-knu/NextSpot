@@ -73,6 +73,8 @@ DROP FUNCTION IF EXISTS public.correlate_congestion_report_evidence() CASCADE;
 DROP FUNCTION IF EXISTS public.project_outcome_congestion_log() CASCADE;
 DROP FUNCTION IF EXISTS public.merge_guest_account_data(UUID, UUID) CASCADE;
 DROP FUNCTION IF EXISTS public.record_facility_availability_report(UUID, UUID, TEXT) CASCADE;
+DROP FUNCTION IF EXISTS public.recompute_facility_availability_evidence(UUID) CASCADE;
+DROP FUNCTION IF EXISTS public.refresh_facility_availability_after_delete() CASCADE;
 DROP FUNCTION IF EXISTS public.merge_guest_account_data_without_availability(UUID, UUID) CASCADE;
 DO $$
 DECLARE

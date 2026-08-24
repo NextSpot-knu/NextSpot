@@ -1,5 +1,18 @@
 # 세션 인계 문서 (2026-08-25 갱신)
 
+## -38. 2026-08-25 — 영업 근거 삭제 재계산 운영 검증
+
+- 사용자 탈퇴·게스트 병합 등으로 `facility_availability_reports` 행이 삭제될 때 남은 행의
+  `corroborating_count`와 `evidence_tier`를 즉시 다시 계산하는 migration
+  `20260825210000_recompute_availability_after_delete.sql`을 추가했다. 삭제 전 2명이었던 근거가
+  남은 1명에게 `corroborated`로 계속 붙는 오류를 막는다.
+- 최근 30분 밖의 보존 행은 현재 일치 인원이 0명일 수 있으므로 DB 제약을 `>= 0`으로 정정했다.
+  이 행은 `single_report`이며 만료 필터 때문에 추천에는 사용되지 않는다.
+- 운영 Supabase에 migration을 적용한 뒤, 추천에 노출되지 않는 `is_active=false` 장소와 자동 삭제되는
+  임시 익명 계정 2개로 실제 API를 검증했다. 첫 제보 `single_report:1`, 두 번째 제보
+  `corroborated:2`, 한 계정 삭제 직후 `single_report:1`을 확인했다. 마지막 계정도 삭제해 테스트
+  계정과 제보를 모두 정리했다.
+
 ## -37. 2026-08-25 — 영업시간 미확인 장소의 방문객 확인 루프
 
 - 영업시간이 없는 카페·식당은 기존처럼 Kakao Local의 공식 장소 상세로 먼저 보낸 뒤, 돌아온 카드에서
