@@ -29,11 +29,7 @@ import { loadTravelContext, matchesTravelContext, saveTravelContext, type PlaceC
 import { buildVoiceCommandTransition, type VoiceAppCommand } from '@/lib/voiceCommands';
 import { facilityMatchesSearch } from '@/lib/placeSearch';
 import NextSpotMascot from '@/components/NextSpotMascot';
-import {
-  buildAlternativeHighlights,
-  extractAlternativeCuisineLabel,
-  formatAlternativeHighlight,
-} from '@/lib/alternativeHighlights';
+import { buildSpotComparisons, formatSpotComparison } from '@/lib/spotComparison';
 
 const RecommendationCard = dynamic(
   () => import('@/components/RecommendationCard').then((m) => m.RecommendationCard),
@@ -591,33 +587,28 @@ export default function MainPage() {
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number }>({ ...REGION.center });
   const [preferredCategories, setPreferredCategories] = useState<string[]>([]);
 
-  // 현재 살아 있는 추천 중 Top 3가 서로 다른 대표 이유를 하나씩 갖도록 배정한다. 혼잡 우위는
-  // 백엔드의 distinguishable+confidence+arrivalAction 계약을 모두 통과한 경우에만 후보가 된다.
-  const alternativeHighlightById = useMemo(() => {
+  // 현재 살아 있는 SPOT 원점수순 Top 3를 1위와 비교한다. UI용 역할을 강제 배정하지 않고
+  // 실제 산식 입력(취향·순위 시간비용·인센티브)과 점수 차이만 문장으로 만든다.
+  const spotComparisonById = useMemo(() => {
     const top = rankedFacilities
       .filter((facility) => !rejectedIds.has(facility.id) && !savedIds.has(facility.id))
       .slice(0, 3);
-    const highlights = buildAlternativeHighlights(top.map((facility, index) => {
+    const comparisons = buildSpotComparisons(top.map((facility, index) => {
       const spot = facility.spot as Spot | undefined;
       return {
         id: String(facility.id),
         rank: index + 1,
         spotScore: spot?.score ?? 0,
-        preferencePercent: spot?.preferencePercent ?? 0,
+        preference: (spot?.preferencePercent ?? 0) / 100,
         travelMinutes: spot?.expectedTravel ?? 1,
-        couponRate: Math.max(facility.couponRate ?? 0, facility.timesaleRate ?? 0),
-        cuisineLabel: extractAlternativeCuisineLabel(facility.features as Record<string, unknown> | null),
-        arrivalAction: spot?.arrivalAction,
-        areaDemandDistinguishable: spot?.areaDemandDistinguishable,
-        areaDemandConfidence: spot?.areaDemandConfidence,
-        areaDemandRank: spot?.areaDemandRank,
-        areaDemandComparableCount: spot?.areaDemandComparableCount,
-        recommendedDepartureDelayMinutes: spot?.recommendedDepartureDelayMinutes,
+        rankingWaitMinutes: spot?.rankingWaitTime,
+        areaDemandPenaltyMinutes: spot?.areaDemandPenaltyMinutes,
+        incentive: spot?.incentive,
       };
     }));
-    return new Map(highlights.map((highlight) => [
-      highlight.id,
-      formatAlternativeHighlight(t, highlight),
+    return new Map(comparisons.map((comparison) => [
+      comparison.id,
+      formatSpotComparison(t, comparison),
     ]));
   }, [rankedFacilities, rejectedIds, savedIds, t]);
 
@@ -2691,7 +2682,7 @@ export default function MainPage() {
               <RecommendationCard
                 title={selectedFacility.name}
                 reason={reason}
-                comparisonHighlight={alternativeHighlightById.get(String(selectedFacility.id))}
+                spotComparisonReason={spotComparisonById.get(String(selectedFacility.id))}
                 onAccept={() => handleAccept(selectedFacility)}
                 onDrive={() => handleAccept(selectedFacility, 'car')}
                 onReject={() => handleReject(selectedFacility)}

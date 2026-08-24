@@ -28,6 +28,10 @@ export interface Spot {
   expectedTravel: number; // 분
   travelSource?: "osm_pedestrian" | "estimated";
   timeToService: number; // 분
+  // SPOT 비교 설명용 실제 산식 입력(서버 응답 또는 클라이언트 미러 계산값).
+  rankingWaitTime?: number;
+  areaDemandPenaltyMinutes?: number;
+  incentive?: number;
   // A4: 행사 혼잡 보정 배지용 — 백엔드 breakdown 원본 그대로 실어 나른다(recToSpot 전용, 클라 미러 계산엔 없음).
   eventBoost?: number;
   eventTitle?: string;
@@ -349,6 +353,9 @@ export function scoreFacility(facility: ScorableFacility | null | undefined, opt
     expectedWait: isNaN(expectedWait) ? 0 : Math.round(expectedWait * 10) / 10,
     expectedTravel: isNaN(expectedTravel) ? 0 : Math.round(expectedTravel * 10) / 10,
     timeToService: isNaN(expectedWait + expectedTravel) ? 0 : Math.round((expectedWait + expectedTravel) * 10) / 10,
+    rankingWaitTime: isNaN(expectedWait) ? 0 : Math.round(expectedWait * 10) / 10,
+    areaDemandPenaltyMinutes: 0,
+    incentive: isNaN(incentive) ? 0 : incentive,
   };
 }
 
@@ -391,7 +398,10 @@ export function rankFacilitiesDegraded<T extends ScorableFacility>(
     const timeCost = Math.min(1, travel / 60);
     const couponRate = facility.couponRate ?? facility.coupon_rate ?? 0;
     const coupon = Math.min(1, Math.max(0, couponRate) / SPOT_INCENTIVE.couponRateCap);
-    const raw = w1 * preference - w2 * timeCost + w3 * coupon;
+    // 백엔드 degraded_rules와 동일하게 incentive 내부 쿠폰 몫(50%)만 사용한다.
+    // 나머지 50%는 검증된 혼잡 완화 근거가 없으므로 0이다.
+    const incentive = SPOT_INCENTIVE.couponShare * coupon;
+    const raw = w1 * preference - w2 * timeCost + w3 * incentive;
     const normalized = Math.max(0, Math.min(1, (raw + w2) / (w1 + w2 + w3)));
     return {
       ...facility,
@@ -403,6 +413,9 @@ export function rankFacilitiesDegraded<T extends ScorableFacility>(
         expectedWait: 0,
         expectedTravel: Math.round(travel * 10) / 10,
         timeToService: Math.round(travel * 10) / 10,
+        rankingWaitTime: 0,
+        areaDemandPenaltyMinutes: 0,
+        incentive,
       },
       reason: facility.reason || '',
     };
@@ -426,6 +439,9 @@ export function recToSpot(rec: RecommendationResponse): Spot {
     expectedTravel: Math.round(travel * 10) / 10,
     travelSource: b.travelSource,
     timeToService: Math.round((wait + travel) * 10) / 10,
+    rankingWaitTime: typeof b.rankingWaitTime === "number" ? b.rankingWaitTime : wait,
+    areaDemandPenaltyMinutes: typeof b.areaDemandPenaltyMinutes === "number" ? b.areaDemandPenaltyMinutes : 0,
+    incentive: typeof b.incentive === "number" ? b.incentive : 0,
     eventBoost: typeof b.eventBoost === "number" ? b.eventBoost : undefined,
     eventTitle: typeof b.eventTitle === "string" ? b.eventTitle : undefined,
     areaDemandLevel: typeof b.areaDemandLevel === "number" ? b.areaDemandLevel : undefined,

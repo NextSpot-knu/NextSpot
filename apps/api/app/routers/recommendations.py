@@ -35,7 +35,6 @@ from app.services.area_demand_decision_service import (
     annotate_arrival_actions,
     annotate_relative_demand,
 )
-from app.services.recommendation_selection import select_diverse_recommendations
 from app.services.spot.score import calculate_spot_score
 from app.services.spot.travel import get_walking_routes
 from app.services.congestion_evidence import rankable_measured_level
@@ -407,7 +406,8 @@ async def get_recommendations(
 
     # 4. 스코어 기준 내림차순 정렬 및 상위 5개 선별
     recommendation_results.sort(key=lambda x: (-x["spot_score"], x["distance_m"], x["facility"]["id"]))
-    top_n = select_diverse_recommendations(recommendation_results, 5)
+    # SPOT 점수순은 추천 계약 그 자체다. UI 다양성을 위해 후처리 재정렬하지 않는다.
+    top_n = recommendation_results[:5]
     await _attach_delayed_area_actions(top_n, now=now)
 
     # 4-1. WP3: 상위 N개(=top_n)에만 백엔드 사유 생성 (동시 호출, 실패 시 템플릿 폴백)
@@ -709,7 +709,7 @@ async def recommend_by_type(
     scored = list(await asyncio.gather(*[_score(f) for f in candidates]))
     annotate_relative_demand(scored)
     scored.sort(key=lambda x: (-x["spot_score"], x["distance_m"], x["facility"]["id"]))
-    top = select_diverse_recommendations(scored, max(1, req.limit))
+    top = scored[: max(1, req.limit)]
     await _attach_delayed_area_actions(top, now=now)
 
     # 컨텍스트는 reason_service 가 소비하는 키만 전달한다: _build_template 는 이름·수치를,

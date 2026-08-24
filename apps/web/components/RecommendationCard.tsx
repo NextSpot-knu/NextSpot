@@ -50,7 +50,7 @@ interface RecommendationCardProps {
   title: string;
   matchPercentage?: number;
   reason?: string; // 백엔드 템플릿 생성 추천 사유
-  comparisonHighlight?: string; // 현재 Top 3 안에서 이 카드가 맡는 서로 다른 대표 역할
+  spotComparisonReason?: string; // 실제 SPOT 산식 입력과 1위 대비 차이에서만 만든 설명
   onAccept: () => void;
   onDrive?: () => void;
   onReject: () => void;
@@ -106,7 +106,7 @@ export function RecommendationCard({
   title,
   matchPercentage,
   reason,
-  comparisonHighlight,
+  spotComparisonReason,
   onAccept,
   onDrive,
   onReject,
@@ -515,13 +515,13 @@ export function RecommendationCard({
             </span>
           </div>
           <h3 className="text-xl font-serif font-bold text-muk tracking-tight leading-tight">{title}</h3>
-          {comparisonHighlight && (
+          {spotComparisonReason && (
             <div className="mt-2 rounded-xl border border-jade/20 bg-jade/5 px-3 py-2">
               <p className="text-[9px] font-extrabold uppercase tracking-wide text-jade">
-                {t('recommend.highlight.current')}
+                {t('recommend.spotComparison.current')}
               </p>
               <p className="mt-0.5 text-[11px] font-semibold leading-snug text-muk">
-                {comparisonHighlight}
+                {spotComparisonReason}
               </p>
             </div>
           )}

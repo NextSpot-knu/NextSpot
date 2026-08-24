@@ -19,11 +19,7 @@ import { openDrivingDirections, openWalkingDirections } from "@/lib/navigation";
 import { track } from "@/lib/analytics";
 import { loadTravelContext } from "@/lib/travelContext";
 import { relativeParts } from "@/lib/freshness";
-import {
-  buildAlternativeHighlights,
-  extractAlternativeCuisineLabel,
-  formatAlternativeHighlight,
-} from "@/lib/alternativeHighlights";
+import { buildSpotComparisons, formatSpotComparison } from "@/lib/spotComparison";
 
 // Extend global Window
 declare global {
@@ -198,25 +194,21 @@ function RecommendContent() {
   const [userId, setUserId] = useState<string | null>(null);
   const [originalFacility, setOriginalFacility] = useState<OriginalFacility | null>(null);
   const [recommendations, setRecommendations] = useState<RecommendationResponse[]>([]);
-  const alternativeHighlightById = useMemo(() => {
-    const highlights = buildAlternativeHighlights(recommendations.slice(0, 3).map((item, index) => ({
+  const spotComparisonById = useMemo(() => {
+    const comparisons = buildSpotComparisons(recommendations.slice(0, 3).map((item, index) => ({
       id: item.recommendationId,
       rank: item.rank ?? index + 1,
       spotScore: item.spotScore <= 1 ? item.spotScore * 100 : item.spotScore,
-      preferencePercent: (item.breakdown.preference ?? 0) * 100,
-      travelMinutes: displayWalkingMinutes(item.breakdown.travelTime, item.distanceM),
-      couponRate: Math.max(item.facility.couponRate ?? 0, item.facility.timesaleRate ?? 0),
-      cuisineLabel: extractAlternativeCuisineLabel(item.facility.features),
-      arrivalAction: item.breakdown.arrivalAction,
-      areaDemandDistinguishable: item.breakdown.areaDemandDistinguishable,
-      areaDemandConfidence: item.breakdown.areaDemandConfidence,
-      areaDemandRank: item.breakdown.areaDemandRank ?? undefined,
-      areaDemandComparableCount: item.breakdown.areaDemandComparableCount,
-      recommendedDepartureDelayMinutes: item.breakdown.recommendedDepartureDelayMinutes ?? undefined,
+      preference: item.breakdown.preference ?? 0,
+      travelMinutes: typeof item.breakdown.travelTime === 'number'
+        ? item.breakdown.travelTime : displayWalkingMinutes(undefined, item.distanceM),
+      rankingWaitMinutes: item.breakdown.rankingWaitTime ?? item.breakdown.waitTime,
+      areaDemandPenaltyMinutes: item.breakdown.areaDemandPenaltyMinutes,
+      incentive: item.breakdown.incentive,
     })));
-    return new Map(highlights.map((highlight) => [
-      highlight.id,
-      formatAlternativeHighlight(t, highlight),
+    return new Map(comparisons.map((comparison) => [
+      comparison.id,
+      formatSpotComparison(t, comparison),
     ]));
   }, [recommendations, t]);
   
@@ -1269,7 +1261,7 @@ function RecommendContent() {
                 typeof rec.congestionLevel === 'number' ? rec.congestionLevel : null,
               );
               const displayReason = locale === 'ko' && rec.reason ? rec.reason : localizedReason;
-              const alternativeHighlight = alternativeHighlightById.get(rec.recommendationId);
+              const spotComparison = spotComparisonById.get(rec.recommendationId);
 
               return (
                 <div
@@ -1388,13 +1380,13 @@ function RecommendContent() {
                     </div>
                   </div>
 
-                  {alternativeHighlight && (
+                  {spotComparison && (
                     <div className="mt-3 rounded-xl border border-jade/20 bg-jade/5 px-3 py-2.5">
                       <p className="text-[9px] font-extrabold uppercase tracking-wide text-jade">
-                        {t('recommend.highlight.current')}
+                        {t('recommend.spotComparison.current')}
                       </p>
                       <p className="mt-0.5 text-[11px] font-semibold leading-snug text-muk">
-                        {alternativeHighlight}
+                        {spotComparison}
                       </p>
                     </div>
                   )}

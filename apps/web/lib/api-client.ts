@@ -262,6 +262,9 @@ export interface RecommendationResponse {
     travelTime: number;
     travelSource?: "osm_pedestrian" | "estimated";
     incentive: number;
+    // 내부 순위에 실제 반영된 시간 구성. measured_rules에서는 숫자 대기를 사용자에게 직접
+    // 노출하지 않지만 비교 설명은 이 합계가 순위에 쓰였다는 사실을 투명하게 보여준다.
+    rankingWaitTime?: number | null;
     // 행사 혼잡 보정(A4): 도착시점 인근 진행 중 축제로 인한 예측 혼잡 가중(0=보정 없음)과 근거 축제명
     eventBoost?: number;
     eventTitle?: string | null;
