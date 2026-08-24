@@ -145,7 +145,7 @@ async def area_demand_forecast(
     dependencies=[Depends(require_admin)],
 )
 async def collect_snapshot() -> SnapshotCollectionResponse:
-    """경주시 ITS 현재값을 조회해 15분 시계열로 한 번 저장한다."""
+    """경주시 ITS 현재값을 조회해 10분 시계열로 한 번 저장한다."""
     try:
         snapshot = await collect_area_demand_snapshot()
     except ParkingUpstreamError as exc:

@@ -36,6 +36,40 @@ def _tourism_level(candidate: dict[str, Any]) -> float | None:
     return _clamp(value)
 
 
+def _tourism_evidence(candidate: dict[str, Any]) -> dict[str, Any] | None:
+    """관광공사 상대지수의 기준을 UI가 오해 없이 설명할 수 있게 보존한다."""
+    level = _tourism_level(candidate)
+    if level is None:
+        return None
+    reference_name = str(candidate.get("tourapi_concentration_basis") or "").strip()
+    forecast_date = str(candidate.get("tourapi_concentration_forecast_date") or "").strip()
+    try:
+        distance_m = max(0.0, float(candidate.get("tourapi_concentration_distance_m")))
+    except (TypeError, ValueError):
+        distance_m = None
+    try:
+        source_rate = max(
+            0.0,
+            min(
+                100.0,
+                float(
+                    candidate.get("tourapi_concentration_source_rate")
+                    if candidate.get("tourapi_concentration_source_rate") is not None
+                    else candidate.get("tourapi_concentration_rate")
+                ),
+            ),
+        )
+    except (TypeError, ValueError):
+        source_rate = None
+    return {
+        "reference_name": reference_name or None,
+        "distance_m": round(distance_m, 1) if distance_m is not None else None,
+        "forecast_date": forecast_date or None,
+        # 이 값만 화면에 표시한다. 후보에 거리 감쇠해 적용한 내부 ranking level과 구분한다.
+        "relative_index": round(source_rate, 1) if source_rate is not None else None,
+    }
+
+
 def _live_parking_applies_to_arrival(
     parking: dict[str, Any] | None, arrival: datetime
 ) -> bool:
@@ -110,6 +144,7 @@ async def get_area_demand_signal(
         get_gyeongju_weather(arrival),
     )
     tourism = _tourism_level(candidate)
+    tourism_evidence = _tourism_evidence(candidate)
     event_boost, event_title = event
 
     live_parking_applies = _live_parking_applies_to_arrival(parking, arrival)
@@ -130,6 +165,12 @@ async def get_area_demand_signal(
         observed_at = parking.get("observed_at")
         demand_mode = "live"
         confidence = "high"
+        parking_evidence = {
+            "level": round(parking_level, 4),
+            "mode": "live",
+            "observed_at": observed_at,
+            "radius_m": parking.get("radius_m"),
+        }
     elif history is not None:
         parking_level = _clamp(float(history["level"]))
         sources.append("parking_history")
@@ -137,10 +178,17 @@ async def get_area_demand_signal(
         observed_at = history.get("observed_at")
         demand_mode = "forecast"
         confidence = history.get("confidence") or "medium"
+        parking_evidence = {
+            "level": round(parking_level, 4),
+            "mode": "forecast",
+            "observed_at": observed_at,
+            "radius_m": history.get("radius_m"),
+        }
     else:
         parking_level = None
         demand_mode = None
         confidence = None
+        parking_evidence = None
     if tourism is not None:
         sources.append("tourism")
         components["tourism"] = round(tourism, 4)
@@ -171,6 +219,8 @@ async def get_area_demand_signal(
             "parking_penalty_minutes": 0.0,
             "event_boost": round(event_boost, 4),
             "event_title": event_title,
+            "parking_evidence": None,
+            "tourism_evidence": None,
         }
 
     level = base_level
@@ -206,4 +256,8 @@ async def get_area_demand_signal(
         "event_boost": round(event_boost, 4),
         "event_title": event_title,
         "radius_m": (parking or history or {}).get("radius_m"),
+        # 주차 실측/이력과 관광 통계는 측정 대상과 시간 해상도가 다르다. 종합 level은
+        # 추천 순위용으로만 유지하고, 화면은 아래 두 근거를 독립적으로 설명한다.
+        "parking_evidence": parking_evidence,
+        "tourism_evidence": tourism_evidence,
     }

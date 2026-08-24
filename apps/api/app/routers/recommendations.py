@@ -36,7 +36,7 @@ from app.services.area_demand_decision_service import (
     annotate_relative_demand,
 )
 from app.services.spot.score import calculate_spot_score
-from app.services.spot.travel import calculate_haversine_distance, get_walking_routes
+from app.services.spot.travel import get_walking_routes
 from app.services.congestion_evidence import rankable_measured_level
 from app.services.travel_context import (
     KST,
@@ -45,6 +45,7 @@ from app.services.travel_context import (
     is_recommendable_at_arrival,
     open_status_at_arrival,
 )
+from app.services.tourism_area_prior_service import attach_tourism_area_priors
 from app.services.tourism_related_service import attach_related_destination_priors
 from app.services.recommendation_explanation_service import explain as explain_snapshot
 from app.services.spot.wait_time import calculate_predicted_wait_time
@@ -137,53 +138,11 @@ async def fetch_facility(facility_id: str):
 def _attach_tourism_area_priors(facilities: list[dict], forecasts: list[dict]) -> None:
     """관광지 일별 통계를 반경 2km의 지역 기준선으로 전파한다.
 
-    통계 원본과 이름이 정확히 일치한 시설을 좌표 앵커로 삼는다. 주변 시설은 2km에서
-    중립값 50으로 수렴하도록 감쇠해, 관광지 수치를 카페 내부 혼잡처럼 복사하지 않는다.
+    관광·문화 유형 중 표시 차이만 정규화해 유일하게 일치한 시설을 좌표 앵커로 삼는다.
+    주변 시설은 2km에서 중립값 50으로 수렴하도록 감쇠해 관광지 수치를 카페 내부
+    혼잡처럼 복사하지 않는다. 충돌하거나 애매한 이름은 앵커로 쓰지 않는다.
     """
-    rates = {
-        str(row["tourist_attraction_name"]).strip(): float(row["concentration_rate"])
-        for row in forecasts
-        if row.get("tourist_attraction_name") and row.get("concentration_rate") is not None
-    }
-    anchors: list[tuple[float, float, float, str]] = []
-    for facility in facilities:
-        name = str(facility.get("name") or "").strip()
-        rate = rates.get(name)
-        if rate is None:
-            continue
-        try:
-            lat, lng = float(facility["latitude"]), float(facility["longitude"])
-        except (KeyError, TypeError, ValueError):
-            continue
-        rate = max(0.0, min(100.0, rate))
-        facility["tourapi_concentration_rate"] = rate
-        facility["tourapi_concentration_basis"] = name
-        facility["tourapi_concentration_distance_m"] = 0.0
-        anchors.append((lat, lng, rate, name))
-
-    for facility in facilities:
-        if "tourapi_concentration_rate" in facility or not anchors:
-            continue
-        try:
-            lat, lng = float(facility["latitude"]), float(facility["longitude"])
-        except (KeyError, TypeError, ValueError):
-            continue
-        nearest = min(
-            (
-                calculate_haversine_distance(lat, lng, anchor_lat, anchor_lng),
-                rate,
-                name,
-            )
-            for anchor_lat, anchor_lng, rate, name in anchors
-        )
-        distance_m, rate, name = nearest
-        if distance_m > 2_000.0:
-            continue
-        decay = 1.0 - distance_m / 2_000.0
-        regional_rate = 50.0 + (rate - 50.0) * decay
-        facility["tourapi_concentration_rate"] = round(regional_rate, 2)
-        facility["tourapi_concentration_basis"] = name
-        facility["tourapi_concentration_distance_m"] = round(distance_m, 1)
+    attach_tourism_area_priors(facilities, forecasts)
 
 async def _fetch_all_facilities_uncached(
     *, center_lat: float | None = None, center_lng: float | None = None, radius_m: float | None = None

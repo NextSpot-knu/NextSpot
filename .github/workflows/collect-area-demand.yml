@@ -1,5 +1,6 @@
 # NextSpot — 경주시 ITS 실측 주차 스냅샷 수집
-# GitHub 스케줄은 지연될 수 있으므로 API가 실제 실행 시각을 15분 버킷으로 정규화해 멱등 저장한다.
+# GitHub 스케줄은 지연될 수 있으므로 API가 실제 실행 시각을 10분 버킷으로 정규화해 멱등 저장한다.
+# 정각 혼잡을 피해 매시 3분부터 실행하며, 별도 uptime 스케줄 대신 이 작업이 먼저 /health를 확인한다.
 # 필요한 설정:
 #   Repository Variable BACKEND_HEALTH_URL=https://<render-service>.onrender.com/health
 #   Repository Variable AREA_DEMAND_COLLECTION_ENABLED=true (원격 migration 적용 후 활성화)
@@ -8,7 +9,7 @@ name: Collect Area Demand Snapshots
 
 on:
   schedule:
-    - cron: '*/15 * * * *'
+    - cron: '3,13,23,33,43,53 * * * *'
   workflow_dispatch:
 
 permissions:
@@ -28,12 +29,16 @@ jobs:
       BACKEND_HEALTH_URL: ${{ vars.BACKEND_HEALTH_URL }}
       ADMIN_API_TOKEN: ${{ secrets.ADMIN_API_TOKEN }}
     steps:
+      - name: Ping backend health endpoint
+        if: ${{ env.BACKEND_HEALTH_URL != '' }}
+        shell: bash
+        run: curl --fail --silent --show-error --retry 2 --retry-all-errors --max-time 90 "${BACKEND_HEALTH_URL}"
+
       - name: Collect snapshot
         if: ${{ env.COLLECTION_ENABLED == 'true' && env.BACKEND_HEALTH_URL != '' && env.ADMIN_API_TOKEN != '' }}
         shell: bash
         run: |
           api_base="${BACKEND_HEALTH_URL%/health}"
-          curl --fail --silent --show-error --max-time 90 "${BACKEND_HEALTH_URL}"
           curl --fail-with-body --silent --show-error \
             --retry 2 --retry-all-errors --max-time 90 \
             -X POST "${api_base}/api/v1/area-demand/snapshots/collect" \

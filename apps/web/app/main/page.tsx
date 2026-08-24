@@ -2587,7 +2587,17 @@ export default function MainPage() {
           const verifiedWait = selectedFacility.scoringMode === 'model' && selectedFacility.congestionSource !== 'none'
             ? Math.round(spot.expectedWait)
             : null;
-          const areaDemandReason = typeof spot.areaDemandLevel === 'number'
+          const tourismEvidenceReason = spot.areaDemandTourismEvidence
+            ? `${typeof spot.areaDemandTourismEvidence.relativeIndex === 'number'
+                ? t('recommend.tourismEvidenceIndex', { n: Math.round(spot.areaDemandTourismEvidence.relativeIndex) })
+                : t('recommend.tourismEvidenceTitle')}. ${t('recommend.tourismEvidenceBasis', {
+                  name: spot.areaDemandTourismEvidence.referenceName ?? t('recommend.tourismReferenceUnknown'),
+                  distance: typeof spot.areaDemandTourismEvidence.distanceM === 'number'
+                    ? Math.round(spot.areaDemandTourismEvidence.distanceM).toLocaleString() : '-',
+                  date: spot.areaDemandTourismEvidence.forecastDate ?? '-',
+                })}. ${selectedFacility.name} · ${t('card.travel', { n: walk })}`
+            : null;
+          const areaDemandReason = tourismEvidenceReason ?? (typeof spot.areaDemandLevel === 'number'
             ? `${t('recommend.areaDemand')}: ${t(`congestion.${
                 spot.areaDemandLevel >= 0.75 ? 'busy'
                   : spot.areaDemandLevel >= 0.5 ? 'moderate'
@@ -2597,7 +2607,7 @@ export default function MainPage() {
                 : spot.areaDemandMode === 'forecast'
                   ? 'recommend.areaDemandForecast'
                   : 'recommend.areaDemandStats')}. ${selectedFacility.name} · ${t('card.travel', { n: walk })}`
-            : null;
+            : null);
           const reason = typeof selectedFacility.congestionLevel === 'number' && selectedFacility.congestionLevel >= 0.75
             ? t('recommend.fallbackBusy', { name: selectedFacility.name, walk, pct: Math.round(selectedFacility.congestionLevel * 100) })
             : verifiedWait !== null
@@ -2646,6 +2656,8 @@ export default function MainPage() {
                 areaDemandSources={spot.areaDemandSources}
                 areaDemandObservedAt={spot.areaDemandObservedAt}
                 areaDemandRadiusM={spot.areaDemandRadiusM}
+                areaDemandParkingEvidence={spot.areaDemandParkingEvidence}
+                areaDemandTourismEvidence={spot.areaDemandTourismEvidence}
                 areaDemandConfidence={spot.areaDemandConfidence}
                 areaDemandRank={spot.areaDemandRank}
                 areaDemandComparableCount={spot.areaDemandComparableCount}

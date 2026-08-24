@@ -8,6 +8,13 @@ def _migration_sql() -> str:
     ).read_text(encoding="utf-8")
 
 
+def _ten_minute_migration_sql() -> str:
+    root = Path(__file__).resolve().parents[3]
+    return (
+        root / "supabase/migrations/20260824120000_area_demand_ten_minute_buckets.sql"
+    ).read_text(encoding="utf-8")
+
+
 def test_area_demand_snapshot_migration_is_retry_safe_and_factual():
     sql = " ".join(_migration_sql().lower().split())
 
@@ -59,3 +66,32 @@ def test_record_snapshot_rpc_is_atomic_validated_and_ignores_older_retries():
     assert "jsonb_build_object('stored', false)" in sql
     assert "jsonb_build_object('stored', true)" in sql
     assert "grant execute on function public.record_area_demand_snapshot" in sql
+
+
+def test_ten_minute_migration_preserves_legacy_cadence_and_updates_rpc():
+    sql = " ".join(_ten_minute_migration_sql().lower().split())
+
+    assert "add column if not exists bucket_minutes smallint" in sql
+    assert "set bucket_minutes = 15 where bucket_minutes is null" in sql
+    assert "alter column bucket_minutes set default 10" in sql
+    assert "bucket_minutes = 15 and bucket_at = date_bin" in sql
+    assert "bucket_minutes = 10 and bucket_at = date_bin" in sql
+    assert "interval '10 minutes'" in sql
+    assert "bucket_minutes = 10" in sql
+    assert "delete from public.area_demand_snapshots" not in sql
+    assert "grant execute on function public.record_area_demand_snapshot" in sql
+
+
+def test_collection_workflow_uses_offset_ten_minute_cron_and_owns_health_ping():
+    root = Path(__file__).resolve().parents[3]
+    collector = (root / ".github/workflows/collect-area-demand.yml").read_text(
+        encoding="utf-8"
+    )
+    uptime = (root / ".github/workflows/uptime.yml").read_text(encoding="utf-8")
+
+    assert "cron: '3,13,23,33,43,53 * * * *'" in collector
+    assert collector.index("Ping backend health endpoint") < collector.index(
+        "Collect snapshot"
+    )
+    assert "schedule:" not in uptime
+    assert "workflow_dispatch:" in uptime

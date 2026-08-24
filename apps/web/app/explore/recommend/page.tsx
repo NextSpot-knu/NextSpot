@@ -1382,31 +1382,64 @@ function RecommendContent() {
                     <div className="mt-2 text-[11px] leading-snug text-sky-800 bg-sky-500/10 border border-sky-500/20 rounded-xl px-3 py-2">
                       <div className="flex items-center justify-between gap-2">
                         <span className="font-bold">
-                          {t("recommend.areaDemand")}: {t(`congestion.${
-                            rec.breakdown.areaDemandLevel >= 0.75 ? "busy"
-                              : rec.breakdown.areaDemandLevel >= 0.5 ? "moderate"
-                              : rec.breakdown.areaDemandLevel >= 0.25 ? "relaxed" : "quiet"
-                          }`)}
+                          {rec.breakdown.areaDemandTourismEvidence
+                            ? t("recommend.areaEvidenceCount", {
+                                n: Number(!!rec.breakdown.areaDemandParkingEvidence) + 1,
+                              })
+                            : `${t(rec.breakdown.areaDemandParkingEvidence?.mode === "forecast"
+                                ? "recommend.parkingEvidenceForecast"
+                                : "recommend.parkingEvidenceLive")}: ${t(`congestion.${
+                                  rec.breakdown.areaDemandLevel >= 0.75 ? "busy"
+                                    : rec.breakdown.areaDemandLevel >= 0.5 ? "moderate"
+                                    : rec.breakdown.areaDemandLevel >= 0.25 ? "relaxed" : "quiet"
+                                }`)}`}
                         </span>
-                        <span className="text-[10px] text-sky-700">
+                        {!rec.breakdown.areaDemandTourismEvidence && <span className="text-[10px] text-sky-700">
                           {t(rec.breakdown.areaDemandMode === "live"
                             ? "recommend.areaDemandLive"
                             : rec.breakdown.areaDemandMode === "forecast"
                               ? "recommend.areaDemandForecast"
                               : "recommend.areaDemandStats")}
-                        </span>
+                        </span>}
                       </div>
-                      <p className="mt-1 text-sky-800/80">
-                        {typeof rec.breakdown.areaDemandRadiusM === "number"
-                          ? t("recommend.areaDemandRadius", { n: rec.breakdown.areaDemandRadiusM.toLocaleString() })
-                          : t("recommend.areaDemandHint")}
-                      </p>
-                      {!!rec.breakdown.areaDemandSources?.length && (
-                        <p className="mt-1 text-[10px] text-sky-700">
-                          {rec.breakdown.areaDemandSources
-                            .map((source) => t(`recommend.areaSource.${source}`))
-                            .join(" · ")}
-                        </p>
+                      {rec.breakdown.areaDemandTourismEvidence && (
+                        <p className="mt-1 text-sky-800/80">{t("recommend.areaDemandCompositeHint")}</p>
+                      )}
+                      {rec.breakdown.areaDemandParkingEvidence && (
+                        <div className="mt-2 rounded-lg border border-sky-500/20 bg-white/55 px-2.5 py-2">
+                          <p className="font-bold text-sky-900">
+                            {t(rec.breakdown.areaDemandParkingEvidence.mode === "live"
+                              ? "recommend.parkingEvidenceLive"
+                              : "recommend.parkingEvidenceForecast")}: {t(`congestion.${
+                                rec.breakdown.areaDemandParkingEvidence.level >= 0.75 ? "busy"
+                                  : rec.breakdown.areaDemandParkingEvidence.level >= 0.5 ? "moderate"
+                                  : rec.breakdown.areaDemandParkingEvidence.level >= 0.25 ? "relaxed" : "quiet"
+                              }`)}
+                          </p>
+                          <p className="text-[10px] text-sky-700">
+                            {typeof rec.breakdown.areaDemandParkingEvidence.radiusM === "number"
+                              ? t("recommend.parkingEvidenceRadius", { n: rec.breakdown.areaDemandParkingEvidence.radiusM.toLocaleString() })
+                              : t("recommend.parkingEvidenceArea")}
+                          </p>
+                        </div>
+                      )}
+                      {rec.breakdown.areaDemandTourismEvidence && (
+                        <div className="mt-2 rounded-lg border border-indigo-500/20 bg-white/55 px-2.5 py-2 text-indigo-900">
+                          <p className="font-bold">
+                            {typeof rec.breakdown.areaDemandTourismEvidence.relativeIndex === "number"
+                              ? t("recommend.tourismEvidenceIndex", { n: Math.round(rec.breakdown.areaDemandTourismEvidence.relativeIndex) })
+                              : t("recommend.tourismEvidenceTitle")}
+                          </p>
+                          <p className="text-[10px] text-indigo-700">
+                            {t("recommend.tourismEvidenceBasis", {
+                              name: rec.breakdown.areaDemandTourismEvidence.referenceName ?? t("recommend.tourismReferenceUnknown"),
+                              distance: typeof rec.breakdown.areaDemandTourismEvidence.distanceM === "number"
+                                ? Math.round(rec.breakdown.areaDemandTourismEvidence.distanceM).toLocaleString() : "-",
+                              date: rec.breakdown.areaDemandTourismEvidence.forecastDate ?? "-",
+                            })}
+                          </p>
+                          <p className="mt-1 text-[10px] text-indigo-700/90">{t("recommend.tourismEvidenceDisclaimer")}</p>
+                        </div>
                       )}
                     </div>
                   )}

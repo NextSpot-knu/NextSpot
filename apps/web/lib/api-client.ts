@@ -261,6 +261,18 @@ export interface RecommendationResponse {
     areaDemandSources?: ("parking" | "parking_history" | "tourism" | "festival" | "weather")[];
     areaDemandObservedAt?: string | null;
     areaDemandRadiusM?: number | null;
+    areaDemandParkingEvidence?: {
+      level: number;
+      mode: "live" | "forecast";
+      observedAt?: string | null;
+      radiusM?: number | null;
+    } | null;
+    areaDemandTourismEvidence?: {
+      referenceName?: string | null;
+      distanceM?: number | null;
+      forecastDate?: string | null;
+      relativeIndex?: number | null;
+    } | null;
     areaDemandPenaltyMinutes?: number;
     areaDemandConfidence?: "high" | "medium" | "low" | "none";
     areaDemandRank?: number | null;

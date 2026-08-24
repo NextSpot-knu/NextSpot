@@ -36,6 +36,18 @@ export interface Spot {
   areaDemandSources?: ("parking" | "parking_history" | "tourism" | "festival" | "weather")[];
   areaDemandObservedAt?: string;
   areaDemandRadiusM?: number;
+  areaDemandParkingEvidence?: {
+    level: number;
+    mode: "live" | "forecast";
+    observedAt?: string | null;
+    radiusM?: number | null;
+  };
+  areaDemandTourismEvidence?: {
+    referenceName?: string | null;
+    distanceM?: number | null;
+    forecastDate?: string | null;
+    relativeIndex?: number | null;
+  };
   areaDemandConfidence?: "high" | "medium" | "low" | "none";
   areaDemandRank?: number;
   areaDemandComparableCount?: number;
@@ -421,6 +433,8 @@ export function recToSpot(rec: RecommendationResponse): Spot {
     areaDemandSources: b.areaDemandSources,
     areaDemandObservedAt: b.areaDemandObservedAt ?? undefined,
     areaDemandRadiusM: typeof b.areaDemandRadiusM === "number" ? b.areaDemandRadiusM : undefined,
+    areaDemandParkingEvidence: b.areaDemandParkingEvidence ?? undefined,
+    areaDemandTourismEvidence: b.areaDemandTourismEvidence ?? undefined,
     areaDemandConfidence: b.areaDemandConfidence,
     areaDemandRank: typeof b.areaDemandRank === "number" ? b.areaDemandRank : undefined,
     areaDemandComparableCount: b.areaDemandComparableCount,

@@ -78,7 +78,7 @@ filter 의 후보 매칭은 `embedding_service.filter_candidates` 가 후보 이
 - `GET /api/v1/area-demand/status` — 경주시 ITS 실시간 주차 데이터 커버리지
 - `GET /api/v1/area-demand/parking-lots` — 반경 내 공영주차장과 실제 잔여면(없으면 null)
 - `GET /api/v1/search/places` — 상호·메뉴·음식 종류의 Kakao 장소 검색(경주 8km)
-- `POST /api/v1/area-demand/snapshots/collect` — 현재 실측을 15분 버킷으로 멱등 저장(관리자 헤더)
+- `POST /api/v1/area-demand/snapshots/collect` — 현재 실측을 10분 버킷으로 멱등 저장(관리자 헤더)
 - `POST /api/v1/recommendations` — 혼잡한 원본 장소의 대안 추천(반경 150m)
 - `POST /api/v1/recommendations/by-type` — 타입별 랭킹(메인 지도 브라우즈)
 - `POST /api/v1/feedback` — 수락/거절 피드백 → 선호 벡터 보정
@@ -89,11 +89,12 @@ filter 의 후보 매칭은 `embedding_service.filter_candidates` 가 후보 이
 
 ## 지역 수요 스냅샷 수집 활성화
 
-`.github/workflows/collect-area-demand.yml`은 15분마다 관리자 수집 API를 호출한다.
+`.github/workflows/collect-area-demand.yml`은 매시 3분부터 10분 간격으로 헬스 체크 후 관리자 수집 API를 호출한다.
 다만 다음 운영 작업이 끝나기 전에는 스케줄 수집이 비활성 상태다.
 
 1. Supabase SQL Editor에서
-   `supabase/migrations/20260820220000_add_area_demand_snapshots.sql`을 전체 실행한다.
+   `supabase/migrations/20260820220000_add_area_demand_snapshots.sql`과
+   `supabase/migrations/20260824120000_area_demand_ten_minute_buckets.sql`을 순서대로 실행한다.
 2. GitHub Actions secret `ADMIN_API_TOKEN`을 Render의 동일한 값으로 등록한다.
 3. GitHub Actions variable `BACKEND_HEALTH_URL`을
    `https://nextspot-api.onrender.com/health`로 확인한다.

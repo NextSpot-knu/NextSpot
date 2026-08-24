@@ -8,7 +8,11 @@ from app.services import area_demand_service as area
 @pytest.mark.asyncio
 async def test_parking_live_leads_and_tourism_is_statistical_prior(monkeypatch):
     async def parking(_lat, _lng):
-        return {"level": 0.8, "observed_at": "2026-08-20T01:00:00+00:00"}
+        return {
+            "level": 0.8,
+            "observed_at": "2026-08-20T01:00:00+00:00",
+            "radius_m": 2_000,
+        }
 
     async def event(_lat, _lng, _arrival):
         return 0.0, None
@@ -25,6 +29,10 @@ async def test_parking_live_leads_and_tourism_is_statistical_prior(monkeypatch):
             "latitude": 35.838,
             "longitude": 129.21,
             "tourapi_concentration_rate": 40,
+            "tourapi_concentration_source_rate": 62,
+            "tourapi_concentration_basis": "대릉원",
+            "tourapi_concentration_distance_m": 450,
+            "tourapi_concentration_forecast_date": "2026-08-20",
         },
         datetime(2026, 8, 20, 1, tzinfo=timezone.utc),
     )
@@ -33,6 +41,18 @@ async def test_parking_live_leads_and_tourism_is_statistical_prior(monkeypatch):
     assert signal["mode"] == "live"
     assert signal["sources"] == ["parking", "tourism"]
     assert signal["observed_at"] == "2026-08-20T01:00:00+00:00"
+    assert signal["parking_evidence"] == {
+        "level": 0.8,
+        "mode": "live",
+        "observed_at": "2026-08-20T01:00:00+00:00",
+        "radius_m": 2_000,
+    }
+    assert signal["tourism_evidence"] == {
+        "reference_name": "대릉원",
+        "distance_m": 450.0,
+        "forecast_date": "2026-08-20",
+        "relative_index": 62.0,
+    }
 
 
 @pytest.mark.asyncio

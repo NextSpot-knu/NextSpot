@@ -226,6 +226,8 @@ async def calculate_spot_score(
             "area_demand_observed_at": (area_demand or {}).get("observed_at"),
             "area_demand_radius_m": (area_demand or {}).get("radius_m"),
             "area_demand_components": (area_demand or {}).get("components", {}),
+            "area_demand_parking_evidence": (area_demand or {}).get("parking_evidence"),
+            "area_demand_tourism_evidence": (area_demand or {}).get("tourism_evidence"),
             "area_demand_penalty_minutes": round(area_penalty, 2),
             "scoring_mode": scoring_mode,
             "model_version": model_info.get("version"),

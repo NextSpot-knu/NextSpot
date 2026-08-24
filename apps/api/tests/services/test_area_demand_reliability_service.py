@@ -48,14 +48,16 @@ def _patch_queries(monkeypatch, *, rows, earliest, latest, lots=None):
 async def test_reliability_uses_only_completed_buckets_and_reports_real_gap(monkeypatch):
     rows = [
         {"id": "1", "bucket_at": "2026-08-20T11:30:00+00:00"},
-        {"id": "2", "bucket_at": "2026-08-20T11:45:00+00:00"},
-        {"id": "3", "bucket_at": "2026-08-20T12:15:00+00:00"},
+        {"id": "2", "bucket_at": "2026-08-20T11:40:00+00:00"},
+        {"id": "3", "bucket_at": "2026-08-20T12:00:00+00:00"},
+        {"id": "4", "bucket_at": "2026-08-20T12:10:00+00:00"},
+        {"id": "5", "bucket_at": "2026-08-20T12:20:00+00:00"},
         # 현재 진행 중 12:30 버킷은 최신값에는 쓰지만 수집률 분모에는 아직 넣지 않는다.
     ]
     _patch_queries(
         monkeypatch,
         rows=rows,
-        earliest={"id": "0", "bucket_at": "2026-08-20T11:15:00+00:00"},
+        earliest={"id": "0", "bucket_at": "2026-08-20T11:20:00+00:00"},
         latest=_latest(),
         lots=[_lot()],
     )
@@ -65,17 +67,17 @@ async def test_reliability_uses_only_completed_buckets_and_reports_real_gap(monk
     assert result["history_state"] == "sufficient_history"
     assert result["window"] == {
         "hours": 1,
-        "bucket_minutes": 15,
+        "bucket_minutes": 10,
         "start_at": "2026-08-20T11:30:00+00:00",
         "end_at": "2026-08-20T12:30:00+00:00",
         "end_exclusive": True,
-        "expected_bucket_count": 4,
-        "received_bucket_count": 3,
+        "expected_bucket_count": 6,
+        "received_bucket_count": 5,
         "missing_bucket_count": 1,
-        "missing_rate": 0.25,
-        "missing_buckets": ["2026-08-20T12:00:00+00:00"],
+        "missing_rate": 0.1667,
+        "missing_buckets": ["2026-08-20T11:50:00+00:00"],
         "longest_gap_buckets": 1,
-        "longest_gap_minutes": 15,
+        "longest_gap_minutes": 10,
         "complete": False,
     }
     assert result["latest"] == {
@@ -100,7 +102,7 @@ async def test_reliability_truthfully_marks_short_history(monkeypatch):
         monkeypatch,
         rows=[
             {"id": "1", "bucket_at": "2026-08-20T12:00:00+00:00"},
-            {"id": "2", "bucket_at": "2026-08-20T12:15:00+00:00"},
+            {"id": "2", "bucket_at": "2026-08-20T12:10:00+00:00"},
         ],
         earliest={"id": "1", "bucket_at": "2026-08-20T12:00:00+00:00"},
         latest=_latest(),
@@ -111,7 +113,7 @@ async def test_reliability_truthfully_marks_short_history(monkeypatch):
 
     assert result["history_state"] == "insufficient_history"
     assert result["first_bucket_at"] == "2026-08-20T12:00:00+00:00"
-    assert result["window"]["missing_bucket_count"] == 2
+    assert result["window"]["missing_bucket_count"] == 4
     assert result["window"]["longest_gap_minutes"] == 30
     assert result["latest"]["lot_details_complete"] is False
 
@@ -127,7 +129,7 @@ async def test_reliability_empty_table_returns_no_data_without_values(monkeypatc
     assert result["latest"] is None
     assert result["lots"] == []
     assert result["window"]["received_bucket_count"] == 0
-    assert result["window"]["missing_bucket_count"] == 4
+    assert result["window"]["missing_bucket_count"] == 6
 
 
 @pytest.mark.asyncio

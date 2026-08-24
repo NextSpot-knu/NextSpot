@@ -55,6 +55,18 @@ interface BoardRow {
   areaDemandLevel: number | null;
   areaDemandMode: "live" | "forecast" | "statistical" | "contextual" | null;
   areaDemandRadiusM: number | null;
+  areaDemandParkingEvidence: {
+    level: number;
+    mode: "live" | "forecast";
+    observedAt?: string | null;
+    radiusM?: number | null;
+  } | null;
+  areaDemandTourismEvidence: {
+    referenceName?: string | null;
+    distanceM?: number | null;
+    forecastDate?: string | null;
+    relativeIndex?: number | null;
+  } | null;
   arrivalAction: "go_now" | "wait_then_go" | "choose_calmer" | "no_clear_advantage" | null;
   recommendedDepartureDelayMinutes: number | null;
   // 검증 모델이 없는 degraded 응답은 waitTime=null이다. 0분으로 바꾸면 안 된다.
@@ -222,6 +234,8 @@ export default function WaitingBoardPage() {
           areaDemandLevel: typeof spot.areaDemandLevel === "number" ? spot.areaDemandLevel : null,
           areaDemandMode: spot.areaDemandMode ?? null,
           areaDemandRadiusM: typeof spot.areaDemandRadiusM === "number" ? spot.areaDemandRadiusM : null,
+          areaDemandParkingEvidence: spot.areaDemandParkingEvidence ?? null,
+          areaDemandTourismEvidence: spot.areaDemandTourismEvidence ?? null,
           arrivalAction: spot.arrivalAction ?? null,
           recommendedDepartureDelayMinutes: spot.recommendedDepartureDelayMinutes ?? null,
           expectedWait:
@@ -386,7 +400,11 @@ export default function WaitingBoardPage() {
                           <div className="space-y-1 mt-1">
                             <p className="text-xs font-extrabold text-gold-deep leading-tight">
                               {row.expectedWait === null
-                                ? row.areaDemandLevel !== null
+                                ? row.areaDemandTourismEvidence
+                                  ? typeof row.areaDemandTourismEvidence.relativeIndex === "number"
+                                    ? t("recommend.tourismEvidenceIndex", { n: Math.round(row.areaDemandTourismEvidence.relativeIndex) })
+                                    : t("recommend.tourismEvidenceTitle")
+                                : row.areaDemandLevel !== null
                                   ? `${t("recommend.areaDemand")}: ${t(`congestion.${congestionKey(row.areaDemandLevel)}`)}`
                                   : t("waiting.waitUnavailable")
                                 : t("waiting.arrivalWait", { n: Math.round(row.expectedWait) })}
@@ -398,9 +416,23 @@ export default function WaitingBoardPage() {
                                 })}
                               </p>
                             )}
-                            {row.areaDemandLevel !== null && row.areaDemandRadiusM !== null && (
+                            {row.areaDemandParkingEvidence && typeof row.areaDemandParkingEvidence.radiusM === "number" && (
                               <p className="text-[9px] font-semibold text-sky-700">
-                                {t("recommend.areaDemandRadiusShort", { n: row.areaDemandRadiusM.toLocaleString() })}
+                                {t("recommend.parkingEvidenceRadius", { n: row.areaDemandParkingEvidence.radiusM.toLocaleString() })}
+                              </p>
+                            )}
+                            {row.areaDemandTourismEvidence && (
+                              <p className="text-[9px] leading-snug text-indigo-700">
+                                {typeof row.areaDemandTourismEvidence.relativeIndex === "number"
+                                  ? t("recommend.tourismEvidenceIndex", { n: Math.round(row.areaDemandTourismEvidence.relativeIndex) })
+                                  : t("recommend.tourismEvidenceTitle")}
+                                <br />
+                                {t("recommend.tourismEvidenceBasis", {
+                                  name: row.areaDemandTourismEvidence.referenceName ?? t("recommend.tourismReferenceUnknown"),
+                                  distance: typeof row.areaDemandTourismEvidence.distanceM === "number"
+                                    ? Math.round(row.areaDemandTourismEvidence.distanceM).toLocaleString() : "-",
+                                  date: row.areaDemandTourismEvidence.forecastDate ?? "-",
+                                })}
                               </p>
                             )}
                             {row.congestionLevel != null ? (
@@ -410,6 +442,12 @@ export default function WaitingBoardPage() {
                                 )}`}
                               >
                                 {t(`congestion.${congestionKey(row.congestionLevel)}`)}
+                              </span>
+                            ) : row.areaDemandTourismEvidence ? (
+                              <span className="inline-block text-[9px] font-bold px-1.5 py-0.5 rounded-md border whitespace-nowrap bg-indigo-500/10 border-indigo-500/20 text-indigo-700">
+                                {t("recommend.areaEvidenceCount", {
+                                  n: Number(!!row.areaDemandParkingEvidence) + 1,
+                                })}
                               </span>
                             ) : row.areaDemandLevel !== null ? (
                               <span className={`inline-block text-[9px] font-bold px-1.5 py-0.5 rounded-md border whitespace-nowrap ${congestionBadgeClass(row.areaDemandLevel)}`}>
@@ -473,7 +511,11 @@ export default function WaitingBoardPage() {
                             <div className="flex flex-wrap items-center gap-1.5 mt-1">
                               <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-gold/10 border border-gold/25 text-gold-deep whitespace-nowrap">
                                 {row.expectedWait === null
-                                  ? row.areaDemandLevel !== null
+                                  ? row.areaDemandTourismEvidence
+                                    ? typeof row.areaDemandTourismEvidence.relativeIndex === "number"
+                                      ? t("recommend.tourismEvidenceIndex", { n: Math.round(row.areaDemandTourismEvidence.relativeIndex) })
+                                      : t("recommend.tourismEvidenceTitle")
+                                  : row.areaDemandLevel !== null
                                     ? `${t("recommend.areaDemand")}: ${t(`congestion.${congestionKey(row.areaDemandLevel)}`)}`
                                     : t("waiting.waitUnavailable")
                                   : t("waiting.arrivalWait", { n: Math.round(row.expectedWait) })}
@@ -484,9 +526,18 @@ export default function WaitingBoardPage() {
                                   {t("card.closedToday")}
                                 </span>
                               )}
-                              {row.areaDemandLevel !== null && row.areaDemandRadiusM !== null && (
+                              {row.areaDemandParkingEvidence && typeof row.areaDemandParkingEvidence.radiusM === "number" && (
                                 <span className="text-[10px] font-semibold text-sky-700 whitespace-nowrap">
-                                  {t("recommend.areaDemandRadiusShort", { n: row.areaDemandRadiusM.toLocaleString() })}
+                                  {t("recommend.parkingEvidenceRadius", { n: row.areaDemandParkingEvidence.radiusM.toLocaleString() })}
+                                </span>
+                              )}
+                              {row.areaDemandTourismEvidence && (
+                                <span className="text-[10px] font-semibold text-indigo-700">
+                                  {typeof row.areaDemandTourismEvidence.relativeIndex === "number"
+                                    ? t("recommend.tourismEvidenceIndex", { n: Math.round(row.areaDemandTourismEvidence.relativeIndex) })
+                                    : t("recommend.tourismEvidenceTitle")}
+                                  {row.areaDemandTourismEvidence.referenceName
+                                    ? ` · ${row.areaDemandTourismEvidence.referenceName}` : ""}
                                 </span>
                               )}
                               {row.congestionLevel != null ? (
@@ -496,6 +547,12 @@ export default function WaitingBoardPage() {
                                   )}`}
                                 >
                                   {t(`congestion.${congestionKey(row.congestionLevel)}`)}
+                                </span>
+                              ) : row.areaDemandTourismEvidence ? (
+                                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md border whitespace-nowrap bg-indigo-500/10 border-indigo-500/20 text-indigo-700">
+                                  {t("recommend.areaEvidenceCount", {
+                                    n: Number(!!row.areaDemandParkingEvidence) + 1,
+                                  })}
                                 </span>
                               ) : row.areaDemandLevel !== null ? (
                                 <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md border whitespace-nowrap ${congestionBadgeClass(row.areaDemandLevel)}`}>

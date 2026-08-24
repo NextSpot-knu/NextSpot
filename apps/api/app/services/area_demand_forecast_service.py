@@ -1,4 +1,4 @@
-"""15분 주차 실측 이력으로 주변 권역 수요를 보수적으로 전망한다.
+"""10분 주차 실측 이력으로 주변 권역 수요를 보수적으로 전망한다.
 
 장소 내부 좌석이나 대기시간을 예측하지 않는다. 동일한 반경 2km 안의 주차장 원본을
 시점별로 다시 집계하고, 과거의 같은 요일군·시간대 표본이 충분할 때만 상대 수요 수준을
@@ -19,6 +19,7 @@ from app.services.spot.travel import calculate_haversine_distance
 from app.services.travel_context import KST
 
 _RADIUS_M = 2_000.0
+_BUCKET_MINUTES = 10
 _LOOKBACK_DAYS = 56
 _CACHE_TTL_SECONDS = 5 * 60.0
 _MIN_SAMPLES = 6
@@ -154,12 +155,14 @@ def forecast_from_points(
     recent_all = [point for point in points if point.observed_at.astimezone(timezone.utc) < cutoff]
     recent_all.sort(key=lambda point: point.observed_at)
     recent_adjustment = 0.0
-    if len(recent_all) >= 6:
+    # 10분 버킷 3개(최근 30분)와 직전 6개(60분)를 비교한다. 호출 지연이나
+    # 전환 전 15분 자료가 섞여도 observed_at 순서를 사용하므로 시간 누수는 없다.
+    if len(recent_all) >= 9:
         latest = recent_all[-1]
         freshness = cutoff - latest.observed_at.astimezone(timezone.utc)
         if timedelta(0) <= freshness <= timedelta(minutes=45):
-            recent = statistics.median(point.level for point in recent_all[-2:])
-            previous = statistics.median(point.level for point in recent_all[-6:-2])
+            recent = statistics.median(point.level for point in recent_all[-3:])
+            previous = statistics.median(point.level for point in recent_all[-9:-3])
             horizon_minutes = max(0.0, (arrival - now).total_seconds() / 60.0)
             decay = max(0.0, 1.0 - horizon_minutes / 180.0)
             recent_adjustment = max(
@@ -178,6 +181,7 @@ def forecast_from_points(
         "sample_count": len(eligible),
         "distinct_dates": len(distinct_dates),
         "coverage_days": round(coverage_days, 1),
+        "bucket_minutes": _BUCKET_MINUTES,
         "observed_at": max(point.observed_at for point in eligible).isoformat(),
         "forecast_for": arrival.isoformat(),
         "baseline_level": round(baseline, 4),
@@ -290,12 +294,21 @@ def backtest_forecast_points(points: list[AreaDemandPoint]) -> dict[str, Any]:
     """시간 순서 홀드아웃 MAE. 각 실제값은 그 시점 이전 관측만 사용한다."""
     predictions: list[tuple[float, float, float]] = []
     ordered = sorted(points, key=lambda point: point.observed_at)
-    # 15분 단위 56일 전체를 매번 O(n²)로 평가하면 추천 후보 수만큼 첫 응답이 느려진다.
-    # 최근 28일에서 2시간 간격의 시간순 홀드아웃만 뽑아도 요일·시간대를 모두 포함하며,
-    # 각 예측은 여전히 해당 시점 이전의 전체 관측만 사용한다.
-    first_eval_index = max(0, len(ordered) - 28 * 24 * 4)
-    for index in range(first_eval_index, len(ordered), 8):
+    # 10분 자료와 전환 전 15분 자료가 섞여도 최근 28일을 시간으로 자르고, 실제
+    # observed_at 기준 2시간 간격으로만 평가한다. 각 예측은 해당 시점 이전 자료만 사용한다.
+    if not ordered:
+        return {"sample_count": 0, "mae": None, "baseline_mae": None, "improvement_rate": None}
+    eval_cutoff = ordered[-1].observed_at - timedelta(days=28)
+    first_eval_index = next(
+        (index for index, point in enumerate(ordered) if point.observed_at >= eval_cutoff),
+        len(ordered),
+    )
+    last_eval_at: datetime | None = None
+    for index in range(first_eval_index, len(ordered)):
         actual = ordered[index]
+        if last_eval_at is not None and actual.observed_at - last_eval_at < timedelta(hours=2):
+            continue
+        last_eval_at = actual.observed_at
         prior = ordered[:index]
         forecast = forecast_from_points(prior, actual.observed_at, now=actual.observed_at)
         if forecast is None:

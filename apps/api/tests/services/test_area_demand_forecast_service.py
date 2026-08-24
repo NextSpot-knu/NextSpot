@@ -44,6 +44,7 @@ def test_forecast_requires_enough_dates_and_never_reads_future_points():
     forecast = forecast_from_points([*points, future_outlier], arrival, now=now)
     assert forecast is not None
     assert forecast["sample_count"] == 7
+    assert forecast["bucket_minutes"] == 10
     assert forecast["level"] < 0.5
     assert forecast["mode"] == "forecast"
 
@@ -59,4 +60,3 @@ def test_backtest_is_time_ordered_and_reports_real_mae_only_when_available():
     assert quality["sample_count"] > 0
     assert quality["mae"] is not None
     assert quality["baseline_mae"] is not None
-

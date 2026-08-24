@@ -1,4 +1,4 @@
-"""15분 지역 수요 스냅샷 수집의 운영 신뢰도를 실측 행으로만 계산한다."""
+"""10분 지역 수요 스냅샷 수집의 운영 신뢰도를 실측 행으로만 계산한다."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from typing import Any
 
 from app.core.supabase import supabase_admin
 
-BUCKET_MINUTES = 15
+BUCKET_MINUTES = 10
 _BUCKET_SECONDS = BUCKET_MINUTES * 60
 _FRESH_MINUTES = 30
 _DELAYED_MINUTES = 60
@@ -48,10 +48,11 @@ def _query_window(source: str, start_at: datetime, end_at: datetime) -> list[dic
         supabase_admin.table("area_demand_snapshots")
         .select("id,bucket_at")
         .eq("source", source)
+        .eq("bucket_minutes", BUCKET_MINUTES)
         .gte("bucket_at", _iso(start_at))
         .lt("bucket_at", _iso(end_at))
         .order("bucket_at")
-        .limit(672)
+        .limit(1008)
         .execute()
     )
     return result.data or []
@@ -68,6 +69,7 @@ def _query_boundary(source: str, *, latest: bool) -> dict[str, Any] | None:
         supabase_admin.table("area_demand_snapshots")
         .select(fields)
         .eq("source", source)
+        .eq("bucket_minutes", BUCKET_MINUTES)
         .order("bucket_at", desc=latest)
         .limit(1)
         .execute()
@@ -127,14 +129,14 @@ async def get_area_demand_reliability(
     hours: int = 24,
     now: datetime | None = None,
 ) -> dict[str, Any]:
-    """완료된 15분 버킷의 누락과 최신 실측 상태를 service role로 집계한다."""
+    """완료된 10분 버킷의 누락과 최신 실측 상태를 service role로 집계한다."""
     if source not in _ALLOWED_SOURCES or not 1 <= hours <= 168:
         raise ValueError("invalid_reliability_window")
     current = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     # 진행 중 버킷은 아직 스케줄 실행 전일 수 있으므로 누락 판정에서 제외한다.
     end_at = _floor_to_bucket(current)
     start_at = end_at - timedelta(hours=hours)
-    expected_count = hours * 4
+    expected_count = hours * (60 // BUCKET_MINUTES)
 
     try:
         window_rows, earliest, latest = await asyncio.gather(

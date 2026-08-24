@@ -122,7 +122,7 @@ app.include_router(events.router)  # 경주 축제/행사(TourAPI searchFestival
 app.include_router(weather.router)  # 경주 시간대별 날씨(기상청 단기예보) — 키/장애 시 무해 폴백
 app.include_router(restrooms.router)  # 인근 공중화장실(Kakao 좌표 검색) — 추천 POI와 분리된 편의 레이어
 app.include_router(area_demand.router)  # 경주 주변 수요 데이터 커버리지 — 가짜 수치 없이 주차 API 상태 공개
-app.include_router(area_demand_admin.router)  # 관리자 수집 신뢰도 — 15분 실측 버킷 누락·신선도
+app.include_router(area_demand_admin.router)  # 관리자 수집 신뢰도 — 10분 실측 버킷 누락·신선도
 app.include_router(tracking.router)  # 경량 제품 분석 이벤트 트래킹(무인증, IP 쿨다운) — app_events 적재
 app.include_router(freshness.router)  # 데이터 신선도(D5) — 마지막 TourAPI 동기화 시각(마커→updated_at 추정 폴백)
 app.include_router(impact.router)  # 여행 임팩트 카드 — 수락·혼잡회피·쿠폰 성과 요약(개인)

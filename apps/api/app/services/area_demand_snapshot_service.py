@@ -1,9 +1,9 @@
-"""경주시 ITS 실측 주차면을 15분 시계열로 영속한다.
+"""경주시 ITS 실측 주차면을 10분 시계열로 영속한다.
 
 이 서비스는 예측을 만들지 않는다. 공급자가 현재 제공한 총 주차면과 잔여면만 저장하고,
 점유율은 DB generated column이 계산한다. 부모 행은 현재 실시간 값을 제공하는 ITS 주차장
 전체의 네트워크 집계이며, 위치별 수요는 자식 주차장 좌표로 반경을 다시 계산해야 한다.
-동일 15분 버킷 재호출은 upsert로 멱등이다.
+동일 10분 버킷 재호출은 upsert로 멱등이다.
 """
 
 from __future__ import annotations
@@ -56,7 +56,7 @@ def _persist_snapshot(observation: dict[str, Any]) -> dict[str, Any]:
         ):
             raise SnapshotPersistenceError("invalid_snapshot_observation")
 
-    # 부모 집계, 15분 버킷, 자식 교체를 DB 함수 한 트랜잭션에서 처리한다. 분리된 REST
+    # 부모 집계, 10분 버킷, 자식 교체를 DB 함수 한 트랜잭션에서 처리한다. 분리된 REST
     # upsert는 두 번째 요청 실패 시 부모/자식이 어긋날 수 있으므로 사용하지 않는다.
     result = supabase_admin.rpc("record_area_demand_snapshot", {
         "p_source": source,

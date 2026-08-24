@@ -11,6 +11,7 @@ import { useI18n } from '@/lib/i18n/I18nProvider';
 import { getArrivalOpenDisplayStatus, getArrivalOpenStatus, isClosedToday } from '@/lib/restDate';
 import { displayWalkingMinutes } from '@/lib/recommender';
 import { haptic, interactionSpring, sheetSpring, tapMotion } from '@/lib/motion';
+import { areaDemandDisclosure } from '@/lib/areaDemandPresentation';
 
 // facility prop 이 이 컴포넌트에서 실제로 읽는 필드만 구조적으로 명시한 타입.
 // 콜러 둘의 합집합: main(page)은 Facility(congestionLevel/currentCount: number|null,
@@ -72,6 +73,18 @@ interface RecommendationCardProps {
   areaDemandSources?: ('parking' | 'parking_history' | 'tourism' | 'festival' | 'weather')[];
   areaDemandObservedAt?: string;
   areaDemandRadiusM?: number;
+  areaDemandParkingEvidence?: {
+    level: number;
+    mode: 'live' | 'forecast';
+    observedAt?: string | null;
+    radiusM?: number | null;
+  };
+  areaDemandTourismEvidence?: {
+    referenceName?: string | null;
+    distanceM?: number | null;
+    forecastDate?: string | null;
+    relativeIndex?: number | null;
+  };
   areaDemandConfidence?: 'high' | 'medium' | 'low' | 'none';
   areaDemandRank?: number;
   areaDemandComparableCount?: number;
@@ -114,6 +127,8 @@ export function RecommendationCard({
   areaDemandSources,
   areaDemandObservedAt,
   areaDemandRadiusM,
+  areaDemandParkingEvidence,
+  areaDemandTourismEvidence,
   areaDemandConfidence,
   areaDemandRank,
   areaDemandComparableCount,
@@ -424,6 +439,8 @@ export function RecommendationCard({
     : areaFreshnessParts.unit === 'min' ? t('freshness.minAgo', { n: areaFreshnessParts.value })
     : areaFreshnessParts.unit === 'hour' ? t('freshness.hourAgo', { n: areaFreshnessParts.value })
     : t('freshness.dayAgo', { n: areaFreshnessParts.value });
+  const demandDisclosure = areaDemandDisclosure(areaDemandParkingEvidence, areaDemandTourismEvidence);
+  const evidenceCount = demandDisclosure.evidenceCount;
 
   return (
     <motion.div 
@@ -501,10 +518,11 @@ export function RecommendationCard({
                   {t('card.congestion')}: {congestionLabel(displayCongestionLevel)}
                 </span>
               ) : typeof areaDemandLevel === 'number' ? (
-                // 장소 내부 혼잡이 없어도 실제 공영주차·관광 근거가 있으면 추천의 핵심인 주변 수요를
-                // 가장 먼저 보여준다. 매장 혼잡처럼 오인되지 않도록 라벨은 반드시 '주변 수요'로 고정한다.
+                // 측정 대상이 다른 주차·관광 통계를 하나의 절대 혼잡률처럼 보이지 않게 근거 수로 요약한다.
                 <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold border ${
-                  areaDemandLevel >= 0.75
+                  areaDemandTourismEvidence
+                    ? 'bg-indigo-500/10 border-indigo-500/20 text-indigo-700'
+                    : areaDemandLevel >= 0.75
                     ? 'bg-terracotta/10 border-terracotta/30 text-terracotta'
                     : areaDemandLevel >= 0.5
                     ? 'bg-gold/10 border-gold/30 text-gold-deep'
@@ -512,14 +530,16 @@ export function RecommendationCard({
                     ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-600'
                     : 'bg-jade/10 border-jade/30 text-jade'
                 }`}>
-                  {t('recommend.areaDemand')}: {congestionLabel(areaDemandLevel)}
+                  {evidenceCount > 0
+                    ? t('recommend.areaEvidenceCount', { n: evidenceCount })
+                    : `${t('recommend.areaDemand')}: ${congestionLabel(areaDemandLevel)}`}
                 </span>
               ) : (
                 <span className="px-2 py-0.5 rounded-md text-[10px] font-bold border bg-muk/5 border-line text-muk-soft">
                   {t('card.congestionPreparing')}
                 </span>
               )}
-              {typeof displayCongestionLevel !== 'number' && typeof areaDemandLevel === 'number' && (
+              {typeof displayCongestionLevel !== 'number' && typeof areaDemandLevel === 'number' && demandDisclosure.showQualitativeLevel && (
                 <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold border bg-sky-500/10 border-sky-500/20 text-sky-700">
                   {t(areaDemandMode === 'live'
                     ? 'recommend.areaDemandLive'
@@ -776,24 +796,28 @@ export function RecommendationCard({
         <div className="text-[11px] leading-snug text-sky-800 bg-sky-500/10 border border-sky-500/20 rounded-xl px-3 py-2">
           <div className="flex items-center justify-between gap-2">
             <span className="font-bold">
-              {t('recommend.areaDemand')}: {congestionLabel(areaDemandLevel)}
+              {areaDemandTourismEvidence
+                ? t('recommend.areaEvidenceCount', { n: evidenceCount })
+                : `${t(areaDemandParkingEvidence?.mode === 'forecast'
+                  ? 'recommend.parkingEvidenceForecast'
+                  : 'recommend.parkingEvidenceLive')}: ${congestionLabel(areaDemandLevel)}`}
             </span>
-            <span className="text-[10px] text-sky-700">
+            {demandDisclosure.showQualitativeLevel && <span className="text-[10px] text-sky-700">
               {t(areaDemandMode === 'live'
                 ? 'recommend.areaDemandLive'
                 : areaDemandMode === 'forecast'
                   ? 'recommend.areaDemandForecast'
                   : 'recommend.areaDemandStats')}
-            </span>
+            </span>}
           </div>
-          {arrivalAction && (
+          {demandDisclosure.showQualitativeLevel && arrivalAction && (
             <p className="mt-1.5 font-extrabold text-sky-900">
               {t(`recommend.arrivalAction.${arrivalAction}`, {
                 n: recommendedDepartureDelayMinutes ?? 30,
               })}
             </p>
           )}
-          {areaDemandDistinguishable && areaDemandRank && areaDemandComparableCount && (
+          {demandDisclosure.showQualitativeLevel && areaDemandDistinguishable && areaDemandRank && areaDemandComparableCount && (
             <p className="mt-1 text-sky-800">
               {t('recommend.areaDemandRank', {
                 rank: areaDemandRank,
@@ -804,7 +828,7 @@ export function RecommendationCard({
                 : ''}
             </p>
           )}
-          {arrivalAction === 'wait_then_go' && typeof delayedAreaDemandLevel === 'number' && (
+          {demandDisclosure.showQualitativeLevel && arrivalAction === 'wait_then_go' && typeof delayedAreaDemandLevel === 'number' && (
             <p className="mt-1 text-sky-800">
               {t('recommend.delayedDemand', {
                 n: recommendedDepartureDelayMinutes ?? 30,
@@ -812,15 +836,50 @@ export function RecommendationCard({
               })}
             </p>
           )}
-          <p className="mt-1 text-sky-800/80">
-            {typeof areaDemandRadiusM === 'number'
-              ? t('recommend.areaDemandRadius', { n: areaDemandRadiusM.toLocaleString() })
-              : t('recommend.areaDemandHint')}
-          </p>
-          {!!areaDemandSources?.length && (
+          {areaDemandTourismEvidence && (
+            <p className="mt-1 text-sky-800/80">{t('recommend.areaDemandCompositeHint')}</p>
+          )}
+          {areaDemandParkingEvidence && (
+            <div className="mt-2 rounded-lg border border-sky-500/20 bg-white/55 px-2.5 py-2">
+              <p className="font-bold text-sky-900">
+                {t(areaDemandParkingEvidence.mode === 'live'
+                  ? 'recommend.parkingEvidenceLive'
+                  : 'recommend.parkingEvidenceForecast')}: {congestionLabel(areaDemandParkingEvidence.level)}
+              </p>
+              <p className="mt-0.5 text-[10px] text-sky-700">
+                {typeof areaDemandParkingEvidence.radiusM === 'number'
+                  ? t('recommend.parkingEvidenceRadius', { n: areaDemandParkingEvidence.radiusM.toLocaleString() })
+                  : t('recommend.parkingEvidenceArea')}
+                {areaFreshness ? ` · ${areaFreshness}` : ''}
+              </p>
+            </div>
+          )}
+          {areaDemandTourismEvidence && (
+            <div className="mt-2 rounded-lg border border-indigo-500/20 bg-white/55 px-2.5 py-2 text-indigo-900">
+              <p className="font-bold">
+                {typeof areaDemandTourismEvidence.relativeIndex === 'number'
+                  ? t('recommend.tourismEvidenceIndex', { n: Math.round(areaDemandTourismEvidence.relativeIndex) })
+                  : t('recommend.tourismEvidenceTitle')}
+              </p>
+              <p className="mt-0.5 text-[10px] text-indigo-700">
+                {t('recommend.tourismEvidenceBasis', {
+                  name: areaDemandTourismEvidence.referenceName ?? t('recommend.tourismReferenceUnknown'),
+                  distance: typeof areaDemandTourismEvidence.distanceM === 'number'
+                    ? Math.round(areaDemandTourismEvidence.distanceM).toLocaleString()
+                    : '-',
+                  date: areaDemandTourismEvidence.forecastDate ?? '-',
+                })}
+              </p>
+              <p className="mt-1 text-[10px] text-indigo-700/90">
+                {t('recommend.tourismEvidenceDisclaimer')}
+              </p>
+            </div>
+          )}
+          {!!areaDemandSources?.some((source) => source === 'festival' || source === 'weather') && (
             <p className="mt-1 text-[10px] text-sky-700">
-              {areaDemandSources.map((source) => t(`recommend.areaSource.${source}`)).join(' · ')}
-              {areaFreshness ? ` · ${areaFreshness}` : ''}
+              {areaDemandSources
+                .filter((source) => source !== 'parking' && source !== 'parking_history' && source !== 'tourism')
+                .map((source) => t(`recommend.areaSource.${source}`)).join(' · ')}
             </p>
           )}
           {areaDemandConfidence && areaDemandConfidence !== 'none' && (

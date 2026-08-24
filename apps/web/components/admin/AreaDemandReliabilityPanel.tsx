@@ -66,7 +66,7 @@ export function AreaDemandReliabilityPanel() {
           <h3 className="flex items-center gap-2 font-bold text-hanok-ink">
             <CarFront size={18} className="text-gold" />공영주차 실측 수집
           </h3>
-          <p className="mt-1 text-xs text-hanok-muted">장소 내부 혼잡이 아닌 경주 ITS 주차 수요 · 15분 간격</p>
+          <p className="mt-1 text-xs text-hanok-muted">장소 내부 혼잡이 아닌 경주 ITS 주차 수요 · 10분 간격</p>
         </div>
         <button type="button" onClick={() => void refresh()} disabled={loading} aria-label="수집 현황 새로고침" className="rounded-lg border border-hanok-line p-2 text-hanok-muted hover:text-hanok-ink disabled:opacity-50">
           <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
