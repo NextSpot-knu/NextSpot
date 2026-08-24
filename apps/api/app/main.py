@@ -1,6 +1,7 @@
 import asyncio
 import time
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 
 import structlog
 from fastapi import FastAPI
@@ -63,6 +64,30 @@ async def lifespan(_app: FastAPI):
         _logger.info("warmup_facilities_ready", count=len(prefilled))
     except Exception as e:
         _logger.warning("warmup_facilities_failed", error=str(e))
+
+    try:
+        # 4) 첫 추천 전에 모든 후보가 공유하는 지역 근거를 병렬로 준비한다. 주차 캐시가
+        # 비어 있으면 첫 사용자만 지역 수요가 빠진 순위를 받을 수 있고, 날씨·축제 콜드 호출은
+        # 첫 추천을 늦춘다. 세 상류를 순차 대기하지 않고 전체 12초에서 끊는다.
+        from app.services.parking_demand_service import get_nearby_parking_lots
+        from app.services.event_boost import get_event_congestion_boost
+        from app.services.weather_service import get_gyeongju_weather
+        now = datetime.now(timezone.utc)
+        parking, _weather, _event = await asyncio.wait_for(
+            asyncio.gather(
+                get_nearby_parking_lots(35.8361, 129.2105, radius_m=3_000),
+                get_gyeongju_weather(now),
+                get_event_congestion_boost(35.8361, 129.2105, now),
+            ),
+            timeout=12.0,
+        )
+        _logger.info(
+            "warmup_area_context_ready",
+            lots=len(parking.get("lots") or []),
+            source=parking.get("source"),
+        )
+    except Exception as e:
+        _logger.warning("warmup_area_context_failed", error_type=type(e).__name__)
 
     _logger.info("warmup_done", total_ms=round((time.perf_counter() - t0) * 1000))
     yield

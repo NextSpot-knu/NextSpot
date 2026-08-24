@@ -217,6 +217,9 @@ export default function MainPage() {
   const searchResultMarkerRef = useRef<any>(null);
   const searchResultLabelRef = useRef<any>(null);
   const placeSearchSequenceRef = useRef(0);
+  // 카테고리·위치가 바뀌면 이전 추천 응답은 더 이상 화면에 쓸 수 없다. 최신 요청만 남겨
+  // 모바일의 제한된 연결과 브라우저 파싱 자원을 낭비하지 않는다.
+  const recommendationAbortRef = useRef<AbortController | null>(null);
   // 히트맵 CustomOverlay blob 배열 — 토글 off / 데이터·필터·예측 변경 / 언마운트 시 정리(cleanup)용.
   const heatmapOverlaysRef = useRef<any[]>([]);
   // 축제 포커스 오버레이(핀/영역 원 + 라벨) 배열 — 새 축제 선택·지도 클릭·언마운트 시 정리.
@@ -1070,6 +1073,9 @@ export default function MainPage() {
     const scoreOpts = { userLocation: rankingOriginRef.current ?? userLocation, preferredCategories, mockHour, cuisineIntent: cuisineIntentRef.current };
 
     let cancelled = false;
+    recommendationAbortRef.current?.abort();
+    const recommendationController = new AbortController();
+    recommendationAbortRef.current = recommendationController;
     // 첫 카드는 네트워크 왕복 전에 즉시 보여준다. 이 순위는 취향·추정 도보·혜택만 쓰는 정직한
     // degraded 결과이며, 서버의 실측 지역수요/정확한 근거가 도착하면 아래에서 원자적으로 교체한다.
     if (!voiceFilterIdsRef.current && liveMode) {
@@ -1110,6 +1116,7 @@ export default function MainPage() {
                 5,
                 travelContext,
                 cuisineIntentRef.current,
+                recommendationController.signal,
               );
               const byId = new Map(realCands.map(f => [f.id, f]));
               realRanked = recs
@@ -1150,7 +1157,9 @@ export default function MainPage() {
                   };
                 });
             } catch (e) {
-              console.warn("by-type 추천 실패 → 목업 미러로 폴백:", e);
+              if (!(e instanceof DOMException && e.name === 'AbortError')) {
+                console.warn("by-type 추천 실패 → 목업 미러로 폴백:", e);
+              }
               realRanked = [];
             }
           }
@@ -1186,7 +1195,13 @@ export default function MainPage() {
       }
     })();
 
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      recommendationController.abort();
+      if (recommendationAbortRef.current === recommendationController) {
+        recommendationAbortRef.current = null;
+      }
+    };
     // voiceFilterIds 는 dep로 두지 않는다(필터 변경은 onFilter가 직접 처리; effect는 ref로 최신값 읽음 → 더블셋/경합 방지).
     // rejectedIds, savedIds 도 dep에서 제외하여 거절/저장 시 불필요한 백엔드 API 재호출(점수/순위 리셋 현상)을 방지.
     // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -147,11 +147,19 @@ async function request(path: string, options: RequestOptions = {}) {
 
   // 10초 타임아웃 — 미응답 시 명확한 에러로 실패시켜 화면이 무한 로딩에 갇히지 않게 한다.
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), options.timeoutMs ?? REQUEST_TIMEOUT_MS);
+  const externalSignal = options.signal;
+  let timedOut = false;
+  const abortFromCaller = () => controller.abort();
+  if (externalSignal?.aborted) controller.abort();
+  else externalSignal?.addEventListener('abort', abortFromCaller, { once: true });
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, options.timeoutMs ?? REQUEST_TIMEOUT_MS);
 
   let response: Response;
   try {
-    const { params: _params, timeoutMs: _timeoutMs, ...fetchOptions } = options;
+    const { params: _params, timeoutMs: _timeoutMs, signal: _signal, ...fetchOptions } = options;
     response = await fetch(url, {
       ...fetchOptions,
       headers,
@@ -160,11 +168,13 @@ async function request(path: string, options: RequestOptions = {}) {
     });
   } catch (err) {
     if (err instanceof DOMException && err.name === "AbortError") {
+      if (!timedOut && externalSignal?.aborted) throw err;
       throw new Error("요청 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요.");
     }
     throw err;
   } finally {
     clearTimeout(timer);
+    externalSignal?.removeEventListener('abort', abortFromCaller);
   }
 
   if (!response.ok) {
@@ -501,6 +511,7 @@ export async function recommendByType(
   limit = 5,
   context?: TravelContext,
   preferenceIntent?: string | null,
+  signal?: AbortSignal,
 ): Promise<RecommendationResponse[]> {
   const session = await ensureAnonymousSession();
   const userId = session?.user?.id;
@@ -514,7 +525,7 @@ export async function recommendByType(
     limit,
     context,
     preferenceIntent,
-  });
+  }, { signal });
   dispatchReasonSourceDebug(res);
   return res;
 }

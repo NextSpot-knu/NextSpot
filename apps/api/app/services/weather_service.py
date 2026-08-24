@@ -5,6 +5,7 @@ TourAPI에는 일반 지역 기상예보가 없으므로 공공데이터포털�
 성공 30분/실패 5분 캐시로 관광객 요청마다 외부 API를 호출하지 않는다.
 """
 
+import asyncio
 import time
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -25,6 +26,7 @@ _BASE_HOURS = (2, 5, 8, 11, 14, 17, 20, 23)
 _TTL_OK = 1800.0
 _TTL_FAIL = 300.0
 _cache: Optional[tuple[float, float, Optional[dict]]] = None
+_cache_lock = asyncio.Lock()
 
 
 def _latest_base(now: datetime) -> tuple[str, str]:
@@ -88,31 +90,36 @@ async def get_gyeongju_weather(now: datetime | None = None) -> Optional[dict]:
     mono = time.monotonic()
     if _cache and mono - _cache[0] < _cache[1]:
         return _cache[2]
-    service_key = (settings.KMA_API_KEY or settings.TOURAPI_KEY).strip()
-    if not service_key:
-        _cache = (mono, _TTL_FAIL, None)
-        return None
-    base_date, base_time = _latest_base(current_time)
-    params = {
-        "serviceKey": service_key,
-        "pageNo": 1,
-        "numOfRows": 1000,
-        "dataType": "JSON",
-        "base_date": base_date,
-        "base_time": base_time,
-        "nx": _GYEONGJU_NX,
-        "ny": _GYEONGJU_NY,
-    }
-    try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            response = await client.get(_URL, params=params)
-            response.raise_for_status()
-            result = _parse(response.json(), current_time)
-    except (httpx.HTTPError, ValueError, TypeError) as exc:
-        logger.warning("kma_weather_fetch_failed", error=str(exc))
-        result = None
-    _cache = (mono, _TTL_OK if result else _TTL_FAIL, result)
-    return result
+    # 후보 N개가 같은 경주 날씨를 동시에 요청해도 외부 호출은 한 번만 수행한다.
+    async with _cache_lock:
+        mono = time.monotonic()
+        if _cache and mono - _cache[0] < _cache[1]:
+            return _cache[2]
+        service_key = (settings.KMA_API_KEY or settings.TOURAPI_KEY).strip()
+        if not service_key:
+            _cache = (mono, _TTL_FAIL, None)
+            return None
+        base_date, base_time = _latest_base(current_time)
+        params = {
+            "serviceKey": service_key,
+            "pageNo": 1,
+            "numOfRows": 1000,
+            "dataType": "JSON",
+            "base_date": base_date,
+            "base_time": base_time,
+            "nx": _GYEONGJU_NX,
+            "ny": _GYEONGJU_NY,
+        }
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                response = await client.get(_URL, params=params)
+                response.raise_for_status()
+                result = _parse(response.json(), current_time)
+        except (httpx.HTTPError, ValueError, TypeError) as exc:
+            logger.warning("kma_weather_fetch_failed", error=str(exc))
+            result = None
+        _cache = (mono, _TTL_OK if result else _TTL_FAIL, result)
+        return result
 
 
 def clear_weather_cache() -> None:

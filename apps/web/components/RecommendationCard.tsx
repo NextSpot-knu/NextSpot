@@ -498,6 +498,19 @@ export function RecommendationCard({
             {totalCandidates && rank && (
               <span className="text-[10px] text-muk-soft font-medium">{t('card.ofCandidates', { n: totalCandidates })}</span>
             )}
+            <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold border whitespace-nowrap ${
+              arrivalAction === 'choose_calmer'
+                ? 'bg-jade/10 border-jade/30 text-jade'
+                : arrivalAction === 'wait_then_go'
+                  ? 'bg-sky-500/10 border-sky-500/25 text-sky-700'
+                  : 'bg-hanji-deep border-line text-muk-soft'
+            }`}>
+              {t(arrivalAction === 'choose_calmer'
+                ? 'recommend.alternativeBasis.crowd'
+                : arrivalAction === 'wait_then_go'
+                  ? 'recommend.alternativeBasis.timing'
+                  : 'recommend.alternativeBasis.preference')}
+            </span>
           </div>
           <h3 className="text-xl font-serif font-bold text-muk tracking-tight leading-tight">{title}</h3>
           

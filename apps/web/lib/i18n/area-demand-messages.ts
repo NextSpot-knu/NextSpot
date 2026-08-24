@@ -16,6 +16,9 @@ export const AREA_DEMAND_MESSAGES: Record<Locale, Record<string, string>> = {
     'recommend.tourismEvidenceBasis': '{name} 기준 · 후보와 {distance}m · {date}',
     'recommend.tourismReferenceUnknown': '인근 관광지',
     'recommend.tourismEvidenceDisclaimer': '관광지 자체 최고 시기를 100으로 본 날짜별 상대지수예요. 이 장소 내부 혼잡도나 대기시간은 아니에요.',
+    'recommend.alternativeBasis.crowd': '혼잡 근거 대안',
+    'recommend.alternativeBasis.timing': '출발시간 대안',
+    'recommend.alternativeBasis.preference': '취향·이동 대안',
   },
   en: {
     'recommend.areaDemandForRanking': 'Area demand for ranking',
@@ -30,6 +33,9 @@ export const AREA_DEMAND_MESSAGES: Record<Locale, Record<string, string>> = {
     'recommend.tourismEvidenceBasis': 'Based on {name} · {distance}m from this option · {date}',
     'recommend.tourismReferenceUnknown': 'nearby attraction',
     'recommend.tourismEvidenceDisclaimer': "A daily relative index where that attraction's own peak period equals 100. It is not crowding or wait time inside this venue.",
+    'recommend.alternativeBasis.crowd': 'Crowd-evidence alternative',
+    'recommend.alternativeBasis.timing': 'Better-departure option',
+    'recommend.alternativeBasis.preference': 'Taste & travel option',
   },
   ja: {
     'recommend.areaDemandForRanking': '候補比較用の周辺需要',
@@ -44,6 +50,9 @@ export const AREA_DEMAND_MESSAGES: Record<Locale, Record<string, string>> = {
     'recommend.tourismEvidenceBasis': '{name}基準・候補から{distance}m・{date}',
     'recommend.tourismReferenceUnknown': '周辺観光地',
     'recommend.tourismEvidenceDisclaimer': 'その観光地自身のピーク時期を100とした日別相対指数です。この施設内の混雑度や待ち時間ではありません。',
+    'recommend.alternativeBasis.crowd': '混雑根拠のある代替候補',
+    'recommend.alternativeBasis.timing': '出発時間の代替案',
+    'recommend.alternativeBasis.preference': '好み・移動時間の候補',
   },
   zh: {
     'recommend.areaDemandForRanking': '用于备选比较的周边需求',
@@ -58,5 +67,8 @@ export const AREA_DEMAND_MESSAGES: Record<Locale, Record<string, string>> = {
     'recommend.tourismEvidenceBasis': '以{name}为基准・距候选{distance}米・{date}',
     'recommend.tourismReferenceUnknown': '附近景点',
     'recommend.tourismEvidenceDisclaimer': '该日度相对指数以此景点自身最繁忙时期为100，并非本场所内部拥挤度或等待时间。',
+    'recommend.alternativeBasis.crowd': '有拥挤依据的备选',
+    'recommend.alternativeBasis.timing': '调整出发时间',
+    'recommend.alternativeBasis.preference': '偏好与路程备选',
   },
 };

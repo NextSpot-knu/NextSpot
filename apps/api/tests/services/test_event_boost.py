@@ -3,6 +3,7 @@
 conftest 의 autouse 픽스처가 _fetch_ongoing_festivals 를 '키 미설정' 예외로 고정하므로,
 축제 데이터가 필요한 테스트는 여기서 다시 패치한다(캐시는 픽스처가 매 테스트 초기화).
 """
+import asyncio
 from datetime import datetime, timezone
 from datetime import time as dtime
 
@@ -88,6 +89,23 @@ async def test_success_result_cached_within_ttl(monkeypatch):
     monkeypatch.setattr(event_boost, "_fetch_ongoing_festivals", _once)
     await event_boost.get_event_congestion_boost(BASE_LAT, BASE_LNG, WHEN)
     await event_boost.get_event_congestion_boost(BASE_LAT, BASE_LNG, WHEN)
+    assert calls["n"] == 1
+
+
+@pytest.mark.asyncio
+async def test_concurrent_cold_cache_requests_share_one_fetch(monkeypatch):
+    calls = {"n": 0}
+
+    async def _slow(_today):
+        calls["n"] += 1
+        await asyncio.sleep(0.01)
+        return [{"title": "축제", "latitude": BASE_LAT, "longitude": BASE_LNG}]
+
+    monkeypatch.setattr(event_boost, "_fetch_ongoing_festivals", _slow)
+    await asyncio.gather(*[
+        event_boost.get_event_congestion_boost(BASE_LAT, BASE_LNG, WHEN)
+        for _ in range(8)
+    ])
     assert calls["n"] == 1
 
 
