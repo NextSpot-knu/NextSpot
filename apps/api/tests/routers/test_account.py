@@ -1,4 +1,4 @@
-"""게스트 데이터 승계: 전부 monkeypatch/fake이며 실DB·실네트워크를 사용하지 않는다."""
+"""계정 데이터 승계·탈퇴 라우터 테스트. 실DB·실네트워크를 사용하지 않는다."""
 from types import SimpleNamespace
 
 import pytest
@@ -9,58 +9,57 @@ from app.core.supabase import get_current_user
 from app.routers import account
 
 
-class FakeQuery:
-    def __init__(self, db, table):
-        self.db, self.table_name, self.filters = db, table, []
-        self.action, self.values, self.columns = "select", {}, "*"
+EMPTY_MERGE = {
+    "recommendations": 0,
+    "user_feedback": 0,
+    "recommendation_outcomes": 0,
+    "saved_facilities": 0,
+    "user_coupons": 0,
+    "congestion_reports": 0,
+    "inquiries": 0,
+    "preference_vector_moved": False,
+}
 
-    def select(self, columns):
-        self.columns = columns
-        return self
 
-    def update(self, values):
-        self.action, self.values = "update", values
-        return self
-
-    def delete(self):
-        self.action = "delete"
-        return self
-
-    def eq(self, column, value):
-        self.filters.append(("eq", column, value))
-        return self
-
-    def in_(self, column, values):
-        self.filters.append(("in", column, values))
-        return self
+class FakeRpc:
+    def __init__(self, payload):
+        self.payload = payload
 
     def execute(self):
-        rows = self.db.rows[self.table_name]
-        matched = [r for r in rows if all((r[c] == v if op == "eq" else r[c] in v) for op, c, v in self.filters)]
-        if self.action == "update":
-            for row in matched:
-                row.update(self.values)
-        elif self.action == "delete":
-            self.db.rows[self.table_name] = [r for r in rows if r not in matched]
-        if self.action == "select" and self.columns != "*":
-            matched = [{key: row[key] for key in self.columns.split(",")} for row in matched]
-        return SimpleNamespace(data=[dict(r) for r in matched])
+        return SimpleNamespace(data=self.payload)
+
+
+class FakeAdminAuth:
+    def __init__(self):
+        self.deleted = []
+        self.error = None
+
+    def delete_user(self, user_id):
+        if self.error:
+            raise self.error
+        self.deleted.append(user_id)
 
 
 class FakeDB:
     def __init__(self):
-        self.rows = {
-            "recommendations": [{"id": "r1", "user_id": "guest"}],
-            "user_feedback": [{"id": "f1", "recommendation_id": "r1", "user_id": "guest"}],
-            "saved_facilities": [
-                {"user_id": "guest", "facility_id": "shared"},
-                {"user_id": "guest", "facility_id": "guest-only"},
-                {"user_id": "target", "facility_id": "shared"},
-            ],
+        self.calls = []
+        self.merge_payload = {
+            **EMPTY_MERGE,
+            "recommendations": 1,
+            "user_feedback": 2,
+            "recommendation_outcomes": 1,
+            "saved_facilities": 3,
+            "user_coupons": 1,
+            "congestion_reports": 4,
+            "inquiries": 1,
+            "preference_vector_moved": True,
         }
+        self.auth_admin = FakeAdminAuth()
+        self.auth = SimpleNamespace(admin=self.auth_admin)
 
-    def table(self, name):
-        return FakeQuery(self, name)
+    def rpc(self, name, params):
+        self.calls.append((name, params))
+        return FakeRpc(dict(self.merge_payload))
 
 
 @pytest.fixture
@@ -75,49 +74,61 @@ def client(monkeypatch):
         yield test_client, db
 
 
-def test_anonymous_token_moves_all_guest_data(client):
+def test_anonymous_token_uses_atomic_merge_rpc(client):
     http, db = client
     response = http.post("/api/v1/account/merge-guest", json={"guest_token": "guest"})
     assert response.status_code == 200
-    assert response.json() == {"recommendations": 1, "user_feedback": 1, "saved_facilities": 1}
-    assert all(row["user_id"] == "target" for row in db.rows["recommendations"] + db.rows["user_feedback"])
-    assert sorted(r["facility_id"] for r in db.rows["saved_facilities"]) == ["guest-only", "shared"]
+    assert response.json() == db.merge_payload
+    assert db.calls == [(
+        "merge_guest_account_data",
+        {"p_guest_user_id": "guest", "p_target_user_id": "target"},
+    )]
 
 
 def test_non_anonymous_token_is_forbidden(client, monkeypatch):
-    http, _ = client
+    http, db = client
     monkeypatch.setattr(account, "verify_supabase_token", lambda _: {"sub": "victim", "is_anonymous": False})
     assert http.post("/api/v1/account/merge-guest", json={"guest_token": "real"}).status_code == 403
+    assert db.calls == []
 
 
 @pytest.mark.parametrize("detail", ["expired", "forged"])
 def test_invalid_guest_token_is_unauthorized(client, monkeypatch, detail):
-    http, _ = client
+    http, db = client
+
     def reject(_):
         raise HTTPException(status_code=401, detail=detail)
+
     monkeypatch.setattr(account, "verify_supabase_token", reject)
     assert http.post("/api/v1/account/merge-guest", json={"guest_token": detail}).status_code == 401
+    assert db.calls == []
 
 
-def test_same_uid_is_noop(client):
+def test_same_uid_is_noop_without_rpc(client):
     http, db = client
-    before = {name: [dict(row) for row in rows] for name, rows in db.rows.items()}
     response = http.post("/api/v1/account/merge-guest", json={"guest_token": "target"})
-    assert response.json() == {"recommendations": 0, "user_feedback": 0, "saved_facilities": 0}
-    assert db.rows == before
+    assert response.json() == EMPTY_MERGE
+    assert db.calls == []
 
 
-def test_retry_is_idempotent(client):
-    http, _ = client
-    assert http.post("/api/v1/account/merge-guest", json={"guest_token": "guest"}).json()["recommendations"] == 1
-    assert http.post("/api/v1/account/merge-guest", json={"guest_token": "guest"}).json() == {
-        "recommendations": 0, "user_feedback": 0, "saved_facilities": 0,
-    }
-
-
-def test_cannot_steal_real_accounts_data(client, monkeypatch):
+def test_invalid_rpc_payload_is_reported_as_merge_failure(client):
     http, db = client
-    monkeypatch.setattr(account, "verify_supabase_token", lambda _: {"sub": "victim", "is_anonymous": False})
-    before = {name: [dict(row) for row in rows] for name, rows in db.rows.items()}
-    assert http.post("/api/v1/account/merge-guest", json={"guest_token": "victim-token"}).status_code == 403
-    assert db.rows == before
+    db.merge_payload = []
+    response = http.post("/api/v1/account/merge-guest", json={"guest_token": "guest"})
+    assert response.status_code == 500
+
+
+def test_delete_account_uses_only_authenticated_user(client):
+    http, db = client
+    response = http.delete("/api/v1/account/me")
+    assert response.status_code == 200
+    assert response.json() == {"deleted": True}
+    assert db.auth_admin.deleted == ["target"]
+
+
+def test_delete_account_failure_is_not_reported_as_success(client):
+    http, db = client
+    db.auth_admin.error = RuntimeError("auth unavailable")
+    response = http.delete("/api/v1/account/me")
+    assert response.status_code == 500
+    assert db.auth_admin.deleted == []

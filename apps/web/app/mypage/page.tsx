@@ -39,7 +39,7 @@ export default function MyPage() {
   const t = useT();
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  // 프로필 수정 인라인 모달 — 표시 이름을 이 기기(localStorage)에만 저장한다(백엔드 없음).
+  // 프로필 수정 인라인 모달 — 로컬 즉시 반영 + public.users 저장으로 계정 기기 간 동기화한다.
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [nameInput, setNameInput] = useState('');
   // 방문한 곳 수 — 방문 확인 루프(nextspot_visit_history)의 실데이터. 하드코딩 0 통계와 분리한 새 실통계.
@@ -93,16 +93,12 @@ export default function MyPage() {
     const fetchProfile = async () => {
       setIsLoading(true);
       try {
-        // TODO: 실제 API 호출 로직으로 교체 예정
-        // const response = await fetch('/api/user/profile');
-        // const data = await response.json();
-        // setProfile(data);
-
         // 프로필명/이메일은 하드코딩 실명 대신 로그인 세션에서 파생한다.
         // 비로그인·목 세션이면 user 가 null 이므로 명확한 플레이스홀더로 폴백(회귀 없이 데모 무중단).
         let displayName = t('mypage.guestName');
         let displayEmail = 'guest@nextspot.app';
         let avatar: string | null = null;
+        let hasRemoteName = false;
         try {
           const supabase = createPublicClient();
           const { data: { user } } = await supabase.auth.getUser();
@@ -118,7 +114,10 @@ export default function MyPage() {
               .select('nickname, avatar_url')
               .eq('id', user.id)
               .single();
-            if (profileRow?.nickname) displayName = profileRow.nickname;
+            if (profileRow?.nickname) {
+              displayName = profileRow.nickname;
+              hasRemoteName = true;
+            }
             if (profileRow?.avatar_url) avatar = profileRow.avatar_url;
           }
         } catch (authErr) {
@@ -128,7 +127,7 @@ export default function MyPage() {
         // 사용자가 프로필 수정에서 지정한 표시 이름이 있으면 세션·게스트 파생값보다 우선한다(이 기기 한정).
         try {
           const storedName = localStorage.getItem('nextspot_display_name');
-          if (storedName && storedName.trim()) {
+          if (!hasRemoteName && storedName && storedName.trim()) {
             displayName = storedName.trim();
           }
         } catch {
@@ -173,8 +172,8 @@ export default function MyPage() {
     setIsEditOpen(true);
   };
 
-  // 표시 이름 저장 — 공백만 입력하면 무시하고, localStorage 에 저장 후 낙관적 업데이트한다.
-  const handleSaveProfile = () => {
+  // 표시 이름 저장 — 즉시 로컬에 반영하고 현재 계정의 public.users에도 저장해 다른 기기에서 복원한다.
+  const handleSaveProfile = async () => {
     const trimmed = nameInput.trim();
     if (!trimmed) return;
     try {
@@ -182,9 +181,19 @@ export default function MyPage() {
     } catch {
       /* localStorage 차단 환경 — 화면 상태만 갱신 */
     }
-    setProfile((prev) => (prev ? { ...prev, name: trimmed } : prev));
-    setIsEditOpen(false);
-    toast.success(t('mypage.editNameSaved'));
+    try {
+      const supabase = createPublicClient();
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { error } = await supabase.from('users').update({ nickname: trimmed }).eq('id', user.id);
+        if (error) throw error;
+      }
+      setProfile((prev) => (prev ? { ...prev, name: trimmed } : prev));
+      setIsEditOpen(false);
+      toast.success(t('mypage.editNameSaved'));
+    } catch {
+      toast.error(t('mypage.editNameFailed'));
+    }
   };
 
   // 로그아웃: 세션을 종료하고 이 기기에 남은 개인 데이터(저장 장소·취향·방문 등)를 지운 뒤 루트로 이동.
@@ -498,7 +507,7 @@ export default function MyPage() {
               type="text"
               value={nameInput}
               onChange={(e) => setNameInput(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') handleSaveProfile(); }}
+              onKeyDown={(e) => { if (e.key === 'Enter') void handleSaveProfile(); }}
               placeholder={t('mypage.editNamePlaceholder')}
               maxLength={20}
               autoFocus
@@ -516,7 +525,7 @@ export default function MyPage() {
               </button>
               <button
                 type="button"
-                onClick={handleSaveProfile}
+                onClick={() => { void handleSaveProfile(); }}
                 disabled={!nameInput.trim()}
                 className="flex-1 py-3 rounded-xl bg-gold hover:bg-gold-deep disabled:opacity-50 disabled:hover:bg-gold text-white font-bold transition-colors"
               >

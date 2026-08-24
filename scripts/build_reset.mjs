@@ -70,6 +70,7 @@ DROP FUNCTION IF EXISTS public.promote_recommendation_model(TEXT) CASCADE;
 DROP FUNCTION IF EXISTS public.record_recommendation_outcome(UUID, UUID, TEXT, TEXT, TEXT) CASCADE;
 DROP FUNCTION IF EXISTS public.correlate_congestion_report_evidence() CASCADE;
 DROP FUNCTION IF EXISTS public.project_outcome_congestion_log() CASCADE;
+DROP FUNCTION IF EXISTS public.merge_guest_account_data(UUID, UUID) CASCADE;
 DO $$
 DECLARE
   v_job_id BIGINT;

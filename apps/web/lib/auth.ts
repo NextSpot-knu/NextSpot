@@ -24,19 +24,27 @@ async function captureGuestSession(): Promise<void> {
   }
 }
 
-export async function mergeCapturedGuestData(): Promise<void> {
-  if (typeof window === "undefined") return;
+export async function mergeCapturedGuestData(): Promise<boolean> {
+  if (typeof window === "undefined") return true;
   const raw = sessionStorage.getItem(GUEST_MERGE_KEY);
-  discardCapturedGuestData();
-  if (!raw) return;
+  if (!raw) return true;
   try {
     const captured = JSON.parse(raw) as { token?: string; uid?: string };
     const { data: { session } } = await createPublicClient().auth.getSession();
     if (captured.token && captured.uid && session?.user.id && captured.uid !== session.user.id) {
       await mergeGuestData(captured.token);
+      discardCapturedGuestData();
+      return true;
     }
+    // linkIdentity 승격은 uid가 그대로라 DB 이동이 필요 없다. OAuth 교환 전 아직 익명 상태면
+    // 콜백 완료 이벤트에서 다시 판정할 수 있도록 캡처를 보존한다.
+    if (captured.uid === session?.user.id && session?.user.is_anonymous) return false;
+    discardCapturedGuestData();
+    return true;
   } catch (err) {
-    console.warn("[auth] 게스트 데이터 병합 건너뜀:", err);
+    // 원자 RPC가 실패하면 캡처를 지우지 않는다. 다음 인증 이벤트/재시도에서 전체를 다시 병합한다.
+    console.warn("[auth] 게스트 데이터 병합 재시도 예정:", err);
+    return false;
   }
 }
 
@@ -253,5 +261,31 @@ export async function signUpWithEmail(
     return { error: null, needsConfirmation: !data.session };
   } catch (err) {
     return { error: err instanceof Error ? err.message : String(err), needsConfirmation: false };
+  }
+}
+
+/** 비밀번호 재설정 메일을 보낸다. 링크는 정적 export 호환 클라이언트 페이지로 돌아온다. */
+export async function requestPasswordReset(email: string): Promise<{ error: string | null }> {
+  try {
+    const origin = typeof window !== "undefined" ? window.location.origin : "";
+    // 이미 운영 허용 목록에 등록된 OAuth 콜백을 재사용한다. 별도 reset-password URL 설정 없이
+    // PKCE 복구 세션을 확립한 뒤 callback의 안전한 next 처리로 입력 화면에 이동한다.
+    const params = new URLSearchParams({ next: "/auth/reset-password" });
+    const { error } = await createPublicClient().auth.resetPasswordForEmail(email, {
+      redirectTo: `${origin}/auth/callback?${params.toString()}`,
+    });
+    return { error: error?.message ?? null };
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/** 복구 링크로 만들어진 세션에서 새 비밀번호를 저장한다. */
+export async function updatePassword(password: string): Promise<{ error: string | null }> {
+  try {
+    const { error } = await createPublicClient().auth.updateUser({ password });
+    return { error: error?.message ?? null };
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : String(err) };
   }
 }

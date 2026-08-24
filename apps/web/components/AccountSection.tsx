@@ -60,6 +60,11 @@ export function AccountSection() {
           <h3 className="font-bold text-muk">{t('auth.linkedTitle')}</h3>
         </div>
         <div className="flex flex-wrap gap-2">
+          {state.providers.length === 0 && state.user?.email && (
+            <span className="px-3 py-1.5 rounded-full bg-jade/10 border border-jade/30 text-jade text-sm font-semibold">
+              {t('auth.linkedEmail', { email: state.user.email })}
+            </span>
+          )}
           {state.providers.map((p) => (
             <span
               key={p}

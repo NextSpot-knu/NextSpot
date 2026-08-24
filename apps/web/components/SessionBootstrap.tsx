@@ -5,6 +5,8 @@ import { reconcileUserData } from "@/lib/userData";
 import { syncSaved } from "@/lib/savedFacilities";
 import { flushRecommendationOutcomes } from "@/lib/recommendationOutcomes";
 import { ensureAnonymousSession } from "@/lib/anonymousSession";
+import { mergeCapturedGuestData } from "@/lib/auth";
+import { createPublicClient } from "@/lib/supabase";
 
 /**
  * SessionBootstrap — 관광객 무마찰(frictionless) 익명 세션 부트스트랩.
@@ -32,21 +34,21 @@ export default function SessionBootstrap() {
 
     let cancelled = false;
 
+    const syncForSession = async (session: Awaited<ReturnType<typeof ensureAnonymousSession>>) => {
+      if (cancelled) return;
+      reconcileUserData(session?.user?.id ?? null);
+      if (session?.user?.id) {
+        await mergeCapturedGuestData();
+        if (cancelled) return;
+        void syncSaved();
+        void flushRecommendationOutcomes();
+      }
+    };
+
     (async () => {
       try {
         const session = await ensureAnonymousSession();
-
-        if (cancelled) return;
-
-        // 세션 user_id 가 직전과 바뀌었으면(로그아웃→새 익명, 계정 전환) 이전 사용자의 개인
-        // 로컬 데이터를 청소해 사용자 간 데이터 유출을 막는다. linkIdentity(승격)는 uid 가 유지돼 보존.
-        reconcileUserData(session?.user?.id ?? null);
-
-        // 청소 직후 이 사용자의 저장 장소를 Supabase 에서 로컬로 동기화(기기 변경 시 복원).
-        if (session?.user?.id) {
-          void syncSaved();
-          void flushRecommendationOutcomes();
-        }
+        await syncForSession(session);
       } catch (err) {
         // 네트워크 오류/설정 부재 등 예외 — 앱을 막지 않고 조용히 폴백.
         console.warn(
@@ -56,8 +58,18 @@ export default function SessionBootstrap() {
       }
     })();
 
+    // 같은 SPA 실행 중 이메일 계정 전환·로그아웃이 일어나도 최신 uid로 즉시 재동기화한다.
+    const { data: authSubscription } = createPublicClient().auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_OUT') {
+        setTimeout(() => { void ensureAnonymousSession().then(syncForSession); }, 0);
+      } else if (event === 'SIGNED_IN' || event === 'USER_UPDATED') {
+        setTimeout(() => { void syncForSession(session); }, 0);
+      }
+    });
+
     return () => {
       cancelled = true;
+      authSubscription.subscription.unsubscribe();
     };
   }, []);
 

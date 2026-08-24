@@ -31,7 +31,20 @@ NextSpot의 모든 데이터(장소·혼잡도·추천)는 **Supabase**(클라�
 ```bash
 cd apps/api && python scripts/train.py    # Supabase 혼잡로그 → model.pkl
 ```
-미실행 시 예측은 0.5로 폴백(앱은 정상 동작).
+검증된 운영 모델이 없으면 임의 혼잡 숫자를 만들지 않고 `degraded_rules`로 동작하며, 취향·이동시간·
+혜택과 별도로 확보된 주변 수요 근거만 사용합니다.
+
+### 1-3. 계정·비밀번호 재설정 URL
+
+Supabase Dashboard → **Authentication → URL Configuration → Redirect URLs**에 OAuth와 복구 메일이
+공유하는 아래 콜백을 등록합니다.
+
+- `https://nextspot-nu.vercel.app/auth/callback`
+- 로컬 개발 시 `http://localhost:3000/auth/callback`
+
+복구 메일도 이 콜백에서 세션을 만든 뒤 안전한 내부 경로 `/auth/reset-password`로 이동하므로 별도
+Redirect URL은 필요 없습니다. 운영 DB에는 `20260825120000_atomic_account_merge.sql`까지 적용해야
+기존 계정 로그인 시 게스트의 저장 장소·추천·방문 결과·쿠폰·제보가 한 트랜잭션으로 승계됩니다.
 
 ---
 

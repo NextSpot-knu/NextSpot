@@ -213,6 +213,9 @@ export const apiClient = {
   patch: (path: string, body?: unknown, options?: Omit<RequestOptions, "method" | "body">) =>
     request(path, { ...options, method: "PATCH", body }),
 
+  delete: (path: string, options?: Omit<RequestOptions, "method" | "body">) =>
+    request(path, { ...options, method: "DELETE" }),
+
   // D5: TourAPI 마지막 동기화 시각 조회 — 홈 소형 표시·관리자 신선도 배지 공용.
   getFreshness: (): Promise<FreshnessResponse> =>
     request("/api/v1/freshness", { method: "GET" }),
@@ -220,6 +223,10 @@ export const apiClient = {
 
 export async function mergeGuestData(guestToken: string): Promise<void> {
   await apiClient.post("/api/v1/account/merge-guest", { guestToken });
+}
+
+export async function deleteMyAccount(): Promise<void> {
+  await apiClient.delete("/api/v1/account/me");
 }
 
 // --- SPOT 추천 엔진 연동 API 함수 ---
