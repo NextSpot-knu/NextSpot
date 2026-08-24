@@ -89,6 +89,13 @@ interface FacilityRecord {
   congestionTimestamp?: string | null;
   dataUpdatedAt?: string | null;
   informationConfidence?: 'verified' | 'unknown';
+  availabilityEvidence?: {
+    status: 'open' | 'closed';
+    evidenceTier: 'single_report' | 'corroborated';
+    corroboratingCount: number;
+    reportedAt: string;
+    expiresAt: string;
+  } | null;
   openStatusAtArrival?: 'open_expected' | 'closing_soon' | 'closed_confirmed' | 'needs_confirmation';
   spot?: Spot;
   reason?: string;
@@ -407,6 +414,7 @@ export default function MainPage() {
             homepage: f.homepage ?? null,
             overview: f.overview ?? null,
             barrierFree: f.barrierFree ?? null,
+            availabilityEvidence: f.availabilityEvidence ?? null,
             baseCongestion: level,
             congestionLevel: level,
             currentCount: f.congestion ? f.congestion.currentCount : null,
@@ -1181,6 +1189,7 @@ export default function MainPage() {
                     openStatusAtArrival: r.openStatusAtArrival,
                     informationConfidence: r.informationConfidence,
                     eligibilityTier: r.eligibilityTier,
+                    availabilityEvidence: rf.availabilityEvidence ?? base?.availabilityEvidence ?? null,
                     congestionSource: r.congestionSource,
                     congestionLogSource: r.congestionLogSource,
                     congestionIsStale: r.congestionIsStale,

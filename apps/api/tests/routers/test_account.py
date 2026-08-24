@@ -17,6 +17,7 @@ EMPTY_MERGE = {
     "user_coupons": 0,
     "congestion_reports": 0,
     "inquiries": 0,
+    "availability_reports": 0,
     "preference_vector_moved": False,
 }
 

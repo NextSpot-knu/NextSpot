@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef, useMemo, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { createPublicClient } from "@/lib/supabase";
 const supabase = createPublicClient();
-import { apiClient, getRecommendations, submitFeedback, parsePreference, RecommendationResponse } from "@/lib/api-client";
+import { apiClient, getRecommendations, reportFacilityAvailability, submitFeedback, parsePreference, RecommendationResponse } from "@/lib/api-client";
 import { displayWalkingMinutes, MAX_RECO_DISTANCE_M } from "@/lib/recommender"; // 빈 상태 문구의 반경(1.5km) — 하드코딩 대신 실제 컷오프 상수 사용
 import { classifyIntent, buildCardSpeech } from "@/lib/voiceIntent";
 import { getArrivalOpenDisplayStatus, isClosedToday } from "@/lib/restDate";
@@ -243,6 +243,12 @@ function RecommendContent() {
 
   // 추천별 만족도 피드백(👍/👎) 기록 — 중복 전송 방지 + 버튼 선택 상태 표시
   const [feedbackVotes, setFeedbackVotes] = useState<Record<string, "up" | "down">>({});
+  const [hoursPrompt, setHoursPrompt] = useState<{
+    recommendationId: string;
+    navigationMode: 'walk' | 'car';
+  } | null>(null);
+  const [hoursSubmitting, setHoursSubmitting] = useState(false);
+  const [hoursSubmitError, setHoursSubmitError] = useState(false);
 
   // Coordinates used for recommendations
   const [lat, setLat] = useState<number>(REGION.center.lat);
@@ -718,6 +724,60 @@ function RecommendContent() {
     }
   };
 
+  const needsHoursCheck = (rec: RecommendationResponse) =>
+    rec.openStatusAtArrival === 'needs_confirmation'
+    && (rec.facility.type === 'cafe' || rec.facility.type === 'restaurant');
+
+  const kakaoDetailsUrl = (rec: RecommendationResponse) => {
+    const features = rec.facility.features as Record<string, unknown> | null | undefined;
+    const placeId = String(features?.kakaoPlaceId ?? features?.kakao_place_id ?? '').trim();
+    const storedUrl = String(features?.kakaoPlaceUrl ?? features?.kakao_place_url ?? '').trim();
+    if (storedUrl) return storedUrl.replace(/^http:\/\/place\.map\.kakao\.com/i, 'https://place.map.kakao.com');
+    if (placeId) return `https://place.map.kakao.com/${placeId}`;
+    return `https://map.kakao.com/?q=${encodeURIComponent(`${rec.facility.name} ${rec.facility.address ?? '경주'}`)}`;
+  };
+
+  const requestAccept = (rec: RecommendationResponse, navigationMode: 'walk' | 'car' = 'walk') => {
+    if (!needsHoursCheck(rec)) {
+      void handleAccept(rec, navigationMode);
+      return;
+    }
+    quietAssistant();
+    setHoursPrompt({ recommendationId: rec.recommendationId, navigationMode });
+    setHoursSubmitError(false);
+    window.open(kakaoDetailsUrl(rec), '_blank', 'noopener,noreferrer');
+  };
+
+  const submitHoursStatus = async (rec: RecommendationResponse, status: 'open' | 'closed') => {
+    if (hoursSubmitting) return;
+    setHoursSubmitting(true);
+    setHoursSubmitError(false);
+    try {
+      const result = await reportFacilityAvailability(rec.facility.id, status);
+      setHoursPrompt(null);
+      if (status === 'closed') {
+        setRecommendations((current) => current.filter(
+          (item) => item.recommendationId !== rec.recommendationId,
+        ));
+        toast.info(t('card.hoursClosedRemoved'));
+        return;
+      }
+      const confirmed: RecommendationResponse = {
+        ...rec,
+        openStatusAtArrival: 'open_expected',
+        facility: { ...rec.facility, availabilityEvidence: result },
+      };
+      setRecommendations((current) => current.map((item) => (
+        item.recommendationId === rec.recommendationId ? confirmed : item
+      )));
+      await handleAccept(confirmed, hoursPrompt?.navigationMode ?? 'walk');
+    } catch {
+      setHoursSubmitError(true);
+    } finally {
+      setHoursSubmitting(false);
+    }
+  };
+
   // 추천 카드별 만족도 피드백(👍/👎) → helpful / not_helpful. 추천 품질 신호일 뿐이므로 선호 벡터는
   // 건드리지 않는다 — 예전엔 accepted/rejected 로 보내 '보기엔 좋았다'는 신호가 방문 수락과 같은 +10%,
   // '별로'가 명시 거절과 같은 -5% 로 학습돼 벡터를 오염시켰다(감사 P1-1).
@@ -902,7 +962,7 @@ function RecommendContent() {
         break;
       case "accept":
         // 확인 멘트를 끝까지 들려준 뒤 길안내(onEnd 시점엔 발화가 끝나 handleAccept의 cancel이 무해).
-        sayThen(t("recommend.voiceGuiding"), () => handleAccept(rec));
+        sayThen(t("recommend.voiceGuiding"), () => requestAccept(rec));
         break;
       case "detail": {
         const waitTime = rec.breakdown?.waitTime;
@@ -1533,14 +1593,32 @@ function RecommendContent() {
                   </div>
 
                   {/* CTA button */}
+                  {hoursPrompt?.recommendationId === rec.recommendationId && (
+                    <div className="mb-2 rounded-2xl border border-gold/30 bg-gold/10 p-3" role="group" aria-label={t('card.hoursCheckQuestion')}>
+                      <p className="text-xs font-extrabold text-muk">{t('card.hoursCheckQuestion')}</p>
+                      <p className="mt-1 text-[11px] leading-relaxed text-muk-soft">{t('card.hoursCheckPrivacy')}</p>
+                      <div className="mt-3 grid grid-cols-3 gap-2">
+                        <button type="button" disabled={hoursSubmitting} onClick={() => void submitHoursStatus(rec, 'open')} className="rounded-xl bg-jade px-2 py-2 text-[11px] font-bold text-white disabled:opacity-50">
+                          {t('card.hoursOpen')}
+                        </button>
+                        <button type="button" disabled={hoursSubmitting} onClick={() => void submitHoursStatus(rec, 'closed')} className="rounded-xl bg-terracotta px-2 py-2 text-[11px] font-bold text-white disabled:opacity-50">
+                          {t('card.hoursClosed')}
+                        </button>
+                        <button type="button" disabled={hoursSubmitting} onClick={() => { setHoursPrompt(null); setHoursSubmitError(false); }} className="rounded-xl border border-line bg-white px-2 py-2 text-[11px] font-bold text-muk-soft disabled:opacity-50">
+                          {t('card.hoursUnsure')}
+                        </button>
+                      </div>
+                      {hoursSubmitError && <p className="mt-2 text-[10px] font-semibold text-terracotta">{t('card.hoursReportFailed')}</p>}
+                    </div>
+                  )}
                   <button
-                    onClick={() => handleAccept(rec)}
+                    onClick={() => requestAccept(rec)}
                     className="w-full py-2.5 bg-gradient-to-r from-gold to-terracotta text-white rounded-xl font-bold text-xs transition-all duration-300 hover:opacity-90 active:scale-[0.98] shadow-sm"
                   >
                     {t("card.accept")}
                   </button>
                   <button
-                    onClick={() => handleAccept(rec, 'car')}
+                    onClick={() => requestAccept(rec, 'car')}
                     className="mt-2 w-full rounded-xl border border-line bg-white py-2 text-[11px] font-bold text-muk-soft hover:border-gold/40 hover:text-gold-deep"
                   >
                     {t('card.drive')} · <span className="font-medium">{t('card.driveBasisHint')}</span>

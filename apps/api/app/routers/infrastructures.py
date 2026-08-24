@@ -7,6 +7,7 @@ from pydantic import BaseModel
 # 읽기는 anon, congestion_logs 쓰기(simulate_peak)는 RLS 우회가 필요해 service_role 을 쓴다
 # (ingest 라우터와 동일 사유 — anon INSERT 는 RLS 로 거부됨).
 from app.core.supabase import supabase_client, supabase_admin, require_admin, fetch_all_rows
+from app.services.availability_service import fetch_effective_availability_map
 
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1", tags=["infrastructures"])
@@ -42,6 +43,14 @@ class CongestionInfo(BaseModel):
     source: str | None = None
     is_stale: bool = False
 
+
+class AvailabilityEvidence(BaseModel):
+    status: str
+    evidence_tier: str
+    corroborating_count: int
+    reported_at: str
+    expires_at: str
+
 class InfrastructureItem(BaseModel):
     id: str
     name: str
@@ -68,6 +77,7 @@ class InfrastructureItem(BaseModel):
     is_active: bool | None = None
     place_data_source: str | None = None
     data_updated_at: str | None = None
+    availability_evidence: AvailabilityEvidence | None = None
 
 def _clean_gallery_images(value) -> list[str] | None:
     """gallery_images JSONB 방어적 정제 — 오염된 한 행(비배열/비문자열 원소)이 pydantic 검증 실패로
@@ -243,7 +253,10 @@ async def get_infrastructures(
             return []
 
         facility_ids = [f["id"] for f in facilities]
-        congestion_map = await fetch_latest_congestion_for_all(facility_ids)
+        congestion_map, availability_map = await asyncio.gather(
+            fetch_latest_congestion_for_all(facility_ids),
+            fetch_effective_availability_map(facility_ids),
+        )
 
         result = []
         for f in facilities:
@@ -269,6 +282,7 @@ async def get_infrastructures(
                 is_active=f.get("is_active"),
                 place_data_source=f.get("place_data_source"),
                 data_updated_at=f.get("data_updated_at"),
+                availability_evidence=availability_map.get(str(f["id"])),
             ))
 
         logger.info("infrastructures_returned", count=len(result))

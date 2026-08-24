@@ -23,6 +23,7 @@ class MergeGuestResponse(BaseModel):
     user_coupons: int
     congestion_reports: int
     inquiries: int
+    availability_reports: int = 0
     preference_vector_moved: bool
 
 
@@ -56,6 +57,7 @@ async def merge_guest(body: MergeGuestRequest, current_user: dict = Depends(get_
             user_coupons=0,
             congestion_reports=0,
             inquiries=0,
+            availability_reports=0,
             preference_vector_moved=False,
         )
     try:

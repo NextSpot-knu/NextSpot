@@ -31,6 +31,10 @@ from app.routers.infrastructures import (
 )
 from app.services.predict_service import get_model_info, predict_congestion_detailed
 from app.services.area_demand_service import get_area_demand_signal
+from app.services.availability_service import (
+    attach_availability_evidence,
+    fetch_effective_availability_map,
+)
 from app.services.area_demand_decision_service import (
     annotate_arrival_actions,
     annotate_relative_demand,
@@ -206,7 +210,12 @@ async def fetch_all_facilities(
             and center_lng - lng_delta <= float(f["longitude"]) <= center_lng + lng_delta
         ]
 
-    return facilities
+    # 시설·관광 prior 캐시와 수명이 다른 단기 영업 근거(30/60분)는 캐시 밖에서 매 요청
+    # 한 번만 조회한다. 그래야 두 번째 사용자 확인과 만료가 다음 추천에 즉시 반영된다.
+    availability_by_id = await fetch_effective_availability_map(
+        [str(f["id"]) for f in facilities if f.get("id")]
+    )
+    return attach_availability_evidence(facilities, availability_by_id)
 
 async def fetch_congestion_map(facility_ids: list[str]) -> dict[str, dict]:
     """후보 시설들의 최신 혼잡 로그를 일괄 조회해 {facility_id: info} 로 반환한다.
@@ -471,6 +480,7 @@ async def get_recommendations(
             },
             "max_walk_minutes": max_walk_minutes,
             "travel_source": item["breakdown"].get("travel_source"),
+            "availability_evidence": facility.get("availability_evidence"),
             "tourapi_facts": {
                 "barrier_free": facility.get("barrier_free"),
                 "operating_hours": facility.get("operating_hours"),
@@ -774,6 +784,7 @@ async def recommend_by_type(
             },
             "max_walk_minutes": max_walk_minutes,
             "travel_source": item["breakdown"].get("travel_source"),
+            "availability_evidence": facility.get("availability_evidence"),
             "open_status_at_arrival": open_status_at_arrival(
                 facility, now + timedelta(minutes=item["breakdown"].get("travel_time", 0))
             ),

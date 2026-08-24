@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { motion, PanInfo, AnimatePresence } from 'framer-motion';
 import { Bookmark, Check, Sparkles, Star, Phone, MapPin, Clock, ChevronUp, ChevronDown, Info, Globe, Utensils } from 'lucide-react';
-import { apiClient } from '@/lib/api-client';
+import { apiClient, reportFacilityAvailability, type AvailabilityReportResult } from '@/lib/api-client';
 import { CongestionReportButton } from '@/components/CongestionReportButton';
 import { GoldenHourBadge } from '@/components/GoldenHourBadge';
 import { relativeParts } from '@/lib/freshness';
@@ -44,6 +44,13 @@ interface RecommendationCardFacility {
   seatStatusFresh?: { level?: 'low' | 'mid' | 'full'; minutesAgo?: number } | null;
   placeDataSource?: string | null;
   dataUpdatedAt?: string | null;
+  availabilityEvidence?: {
+    status: 'open' | 'closed';
+    evidenceTier: 'single_report' | 'corroborated';
+    corroboratingCount: number;
+    reportedAt: string;
+    expiresAt: string;
+  } | null;
 }
 
 interface RecommendationCardProps {
@@ -151,6 +158,10 @@ export function RecommendationCard({
   // SPOT 점수 설명 툴팁 — 터치/키보드에서도 열 수 있게 탭/포커스로 토글(데스크톱 hover 는 유지)
   const [showTooltip, setShowTooltip] = useState(false);
   const [localReport, setLocalReport] = useState<{ level: number; timestamp: string } | null>(null);
+  const [hoursPromptOpen, setHoursPromptOpen] = useState(false);
+  const [hoursSubmitting, setHoursSubmitting] = useState(false);
+  const [hoursSubmitError, setHoursSubmitError] = useState(false);
+  const [localAvailability, setLocalAvailability] = useState<AvailabilityReportResult | null>(null);
 
   // '최적 방문 시각' — 펼쳤을 때 백엔드(/predict/day)에서 받아오는 오늘 24시간 예측 혼잡 곡선.
   // 백엔드 미기동/실패 시 null 로 남아 조용히 숨긴다(카드 나머지는 그대로).
@@ -166,6 +177,9 @@ export function RecommendationCard({
     setIsMinimized(false);
     setConfirmedAction(null);
     setLocalReport(null);
+    setHoursPromptOpen(false);
+    setHoursSubmitError(false);
+    setLocalAvailability(null);
     // 다른 장소로 바뀌면 이전 장소의 '최적 방문 시각' 데이터가 남아 깜빡이지 않게 초기화
     setDayPred(null);
   }, [title]);
@@ -319,12 +333,30 @@ export function RecommendationCard({
   const waitMins = expectedWait ?? null;
   
   const arrivalTime = currentTime ? new Date(currentTime.getTime() + travelMins * 60000) : null;
-  const resolvedOpenStatus = openStatusAtArrival
+  const availabilityEvidence = localAvailability ?? facility?.availabilityEvidence;
+  const localObservedStatus = localAvailability
+    ? (localAvailability.status === 'open' ? 'open_expected' : 'closed_confirmed')
+    : undefined;
+  const corroboratedStatus = availabilityEvidence?.evidenceTier === 'corroborated'
+    && availabilityEvidence.corroboratingCount >= 2
+    && arrivalTime
+    && new Date(availabilityEvidence.expiresAt).getTime() > arrivalTime.getTime()
+    ? (availabilityEvidence.status === 'open' ? 'open_expected' : 'closed_confirmed')
+    : undefined;
+  const resolvedOpenStatus = localObservedStatus ?? corroboratedStatus ?? openStatusAtArrival
     ?? (arrivalTime ? getArrivalOpenStatus(facility?.operatingHours, arrivalTime) : undefined);
   const displayedOpenStatus = resolvedOpenStatus && arrivalTime
     ? getArrivalOpenDisplayStatus(resolvedOpenStatus, facilityType, arrivalTime)
     : resolvedOpenStatus;
   const likelyClosedUnknown = displayedOpenStatus === 'likely_closed_unknown';
+  const availabilityFreshnessParts = relativeParts(availabilityEvidence?.reportedAt);
+  const availabilityFreshness = !availabilityFreshnessParts
+    ? null
+    : availabilityFreshnessParts.unit === 'now'
+      ? t('freshness.justNow')
+      : t(`freshness.${availabilityFreshnessParts.unit}Ago`, {
+          n: availabilityFreshnessParts.value,
+        });
   const needsHoursConfirmation = resolvedOpenStatus === 'needs_confirmation'
     && (facilityType === 'cafe' || facilityType === 'restaurant');
   const storedKakaoPlaceId = String(
@@ -336,7 +368,31 @@ export function RecommendationCard({
   const kakaoPlaceUrl = rawKakaoPlaceUrl?.replace(
     /^http:\/\/place\.map\.kakao\.com/i,
     'https://place.map.kakao.com',
-  ) ?? null;
+  ) ?? (needsHoursConfirmation
+    ? `https://map.kakao.com/?q=${encodeURIComponent(`${title} ${facility?.address ?? '경주'}`)}`
+    : null);
+
+  const submitHoursStatus = async (status: 'open' | 'closed') => {
+    if (!facility?.id || hoursSubmitting) return;
+    setHoursSubmitting(true);
+    setHoursSubmitError(false);
+    try {
+      const result = await reportFacilityAvailability(facility.id, status);
+      setLocalAvailability(result);
+      setHoursPromptOpen(false);
+      haptic('success');
+      if (status === 'closed') onReject();
+      else {
+        setConfirmedAction('accepted');
+        onAccept();
+      }
+    } catch {
+      haptic('selection');
+      setHoursSubmitError(true);
+    } finally {
+      setHoursSubmitting(false);
+    }
+  };
   const serviceTime = arrivalTime && waitMins !== null
     ? new Date(arrivalTime.getTime() + waitMins * 60000)
     : null;
@@ -616,6 +672,26 @@ export function RecommendationCard({
                     seats: Math.max(0, facility.capacity - facility.currentCount),
                     total: facility.capacity,
                   })}
+                </span>
+              )}
+              {availabilityEvidence && availabilityFreshness && (
+                <span className={`px-2 py-0.5 rounded-md text-[10px] font-semibold border ${
+                  availabilityEvidence.status === 'open'
+                    ? 'bg-jade/10 border-jade/25 text-jade'
+                    : 'bg-terracotta/10 border-terracotta/25 text-terracotta'
+                }`}>
+                  {t(
+                    availabilityEvidence.evidenceTier === 'corroborated'
+                      ? 'card.availabilityCorroborated'
+                      : 'card.availabilitySingle',
+                    {
+                      count: availabilityEvidence.corroboratingCount,
+                      status: t(availabilityEvidence.status === 'open'
+                        ? 'card.availabilityStatusOpen'
+                        : 'card.availabilityStatusClosed'),
+                      time: availabilityFreshness,
+                    },
+                  )}
                 </span>
               )}
               {/* 골든타임 알리미 — 혼잡도 pill 바로 옆(같은 줄)에 지연 조회로 끼워 넣는다. 백엔드
@@ -1120,6 +1196,34 @@ export function RecommendationCard({
         )}
       </AnimatePresence>
 
+      <AnimatePresence>
+        {hoursPromptOpen && (
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 8 }}
+            className="mb-2 rounded-2xl border border-gold/30 bg-gold/10 p-3"
+            role="group"
+            aria-label={t('card.hoursCheckQuestion')}
+          >
+            <p className="text-xs font-extrabold text-muk">{t('card.hoursCheckQuestion')}</p>
+            <p className="mt-1 text-[11px] leading-relaxed text-muk-soft">{t('card.hoursCheckPrivacy')}</p>
+            <div className="mt-3 grid grid-cols-3 gap-2">
+              <button type="button" disabled={hoursSubmitting} onClick={() => void submitHoursStatus('open')} className="rounded-xl bg-jade px-2 py-2 text-[11px] font-bold text-white disabled:opacity-50">
+                {t('card.hoursOpen')}
+              </button>
+              <button type="button" disabled={hoursSubmitting} onClick={() => void submitHoursStatus('closed')} className="rounded-xl bg-terracotta px-2 py-2 text-[11px] font-bold text-white disabled:opacity-50">
+                {t('card.hoursClosed')}
+              </button>
+              <button type="button" disabled={hoursSubmitting} onClick={() => { setHoursPromptOpen(false); setHoursSubmitError(false); }} className="rounded-xl border border-line bg-white px-2 py-2 text-[11px] font-bold text-muk-soft disabled:opacity-50">
+                {t('card.hoursUnsure')}
+              </button>
+            </div>
+            {hoursSubmitError && <p className="mt-2 text-[10px] font-semibold text-terracotta">{t('card.hoursReportFailed')}</p>}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Action Buttons: 관심 없어요 · 나중에 볼게요(저장) · 여기로 갈래요 */}
       <div className="flex gap-2 mt-1">
           <motion.button
@@ -1154,6 +1258,8 @@ export function RecommendationCard({
             onClick={() => {
               haptic('success');
               if (needsHoursConfirmation && kakaoPlaceUrl) {
+                setHoursPromptOpen(true);
+                setHoursSubmitError(false);
                 window.open(kakaoPlaceUrl, '_blank', 'noopener,noreferrer');
                 return;
               }

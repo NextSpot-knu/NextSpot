@@ -46,12 +46,22 @@ const zeroWaitCopy = {
 
 async function mockRecommendationPage(
   page: Page,
-  options: { locale?: 'ko' | 'en' | 'ja' | 'zh'; reasonSource?: 'llm' | 'template' } = {},
+  options: {
+    locale?: 'ko' | 'en' | 'ja' | 'zh';
+    reasonSource?: 'llm' | 'template';
+    unknownHours?: boolean;
+  } = {},
 ) {
   const locale = options.locale ?? 'ko';
   const responseItems = recommendations.map(item => ({
     ...item,
     reason_source: options.reasonSource ?? item.reason_source,
+    open_status_at_arrival: options.unknownHours ? 'needs_confirmation' : item.open_status_at_arrival,
+    facility: options.unknownHours ? {
+      ...item.facility,
+      operating_hours: null,
+      features: { ...item.facility.features, kakao_place_id: '123456' },
+    } : item.facility,
   }));
   await page.addInitScript((selectedLocale) => {
     localStorage.setItem('nextspot_onboarding_done', '1');
@@ -75,6 +85,11 @@ async function mockRecommendationPage(
     const url = route.request().url();
     if (url.endsWith('/api/v1/recommendations')) {
       await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(responseItems) });
+    } else if (url.endsWith('/api/v1/reports/availability')) {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+        success: true, facility_id: 'facility-0', status: 'open', evidence_tier: 'single_report',
+        corroborating_count: 1, reported_at: '2026-08-25T12:00:00Z', expires_at: '2026-08-25T12:30:00Z',
+      }) });
     } else if (url.includes('/explain')) {
       await route.fulfill({ status: 503, contentType: 'application/json', body: '{"detail":"fixture failure"}' });
     } else {
@@ -174,6 +189,22 @@ test('arrival feedback keeps completion visible and links to coupons', async ({ 
   expect([...storedStages]).toEqual(['arrival_confirmed', 'rated']);
   expect(ratedPayload).toMatchObject({ rating: 'up', observed_congestion: 'quiet' });
   expect(await page.evaluate(() => localStorage.getItem('nextspot_active_trip'))).toBeNull();
+});
+
+test('unknown hours require Kakao confirmation before navigation', async ({ page }) => {
+  await mockRecommendationPage(page, { unknownHours: true });
+  await page.goto('/explore/recommend?facilityId=origin&lat=35.838&lng=129.209');
+
+  await page.getByRole('button', { name: '도보 길안내' }).first().click();
+  await expect(page.getByText('카카오맵에서 지금 영업 중인지 확인하셨나요?')).toBeVisible();
+  expect(await page.evaluate(() => (window as unknown as { __opened?: string }).__opened))
+    .toBe('https://place.map.kakao.com/123456');
+  expect(await page.evaluate(() => localStorage.getItem('nextspot_active_trip'))).toBeNull();
+
+  await page.getByRole('button', { name: '영업 중' }).click();
+  const active = await page.evaluate(() => JSON.parse(localStorage.getItem('nextspot_active_trip') ?? 'null'));
+  expect(active.facilityId).toBe('facility-0');
+  expect(active.status).toBe('navigating');
 });
 
 test('empty replan preserves the current journey and shows guidance', async ({ page }) => {

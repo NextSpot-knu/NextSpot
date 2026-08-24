@@ -261,6 +261,13 @@ export interface RecommendationResponse {
     couponRate?: number | null;
     placeDataSource?: string | null;
     dataUpdatedAt?: string | null;
+    availabilityEvidence?: {
+      status: "open" | "closed";
+      evidenceTier: "single_report" | "corroborated";
+      corroboratingCount: number;
+      reportedAt: string;
+      expiresAt: string;
+    } | null;
   };
   spotScore: number;
   breakdown: {
@@ -332,6 +339,23 @@ export interface RecommendationResponse {
   scoringMode: "model" | "measured_rules" | "area_stats_rules" | "degraded_rules";
   modelVersion?: string | null;
   predictionSource: "registry" | "measured" | "unavailable";
+}
+
+export interface AvailabilityReportResult {
+  success: boolean;
+  facilityId: string;
+  status: "open" | "closed";
+  evidenceTier: "single_report" | "corroborated";
+  corroboratingCount: number;
+  reportedAt: string;
+  expiresAt: string;
+}
+
+export async function reportFacilityAvailability(
+  facilityId: string,
+  status: "open" | "closed",
+): Promise<AvailabilityReportResult> {
+  return apiClient.post("/api/v1/reports/availability", { facilityId, status });
 }
 
 /** 추천 목록의 reasonSource 를 집계해 디버그 배지 이벤트를 1회 발행한다(항목에 하나도 없으면 무발행). */

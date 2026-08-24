@@ -44,6 +44,8 @@ _USER_REPORT_SOURCE = "user_report"
 # 프로세스 인메모리(단일 인스턴스 데모 기준). 다중 인스턴스는 Redis 등 공유 저장소로 승격 필요.
 _REPORT_COOLDOWN_SEC = 300.0
 _last_report_at: dict[tuple[str, str], float] = {}
+_AVAILABILITY_COOLDOWN_SEC = 60.0
+_last_availability_report_at: dict[tuple[str, str], float] = {}
 
 
 class CongestionReportRequest(BaseModel):
@@ -71,6 +73,21 @@ class CongestionReportResponse(BaseModel):
     timestamp: str
     source: str
     reward: ReportReward
+
+
+class AvailabilityReportRequest(BaseModel):
+    facility_id: str
+    status: Literal["open", "closed"]
+
+
+class AvailabilityReportResponse(BaseModel):
+    success: bool = True
+    facility_id: str
+    status: Literal["open", "closed"]
+    evidence_tier: Literal["single_report", "corroborated"]
+    corroborating_count: int
+    reported_at: str
+    expires_at: str
 
 
 async def _bump_report_count(user_id: str) -> int:
@@ -112,6 +129,67 @@ def _coerce_level(level: float | str) -> float:
     if not (0.0 <= level <= 1.0):
         raise HTTPException(status_code=422, detail="level 수치는 0.0~1.0 범위여야 합니다.")
     return float(level)
+
+
+@router.post("/reports/availability", response_model=AvailabilityReportResponse)
+async def report_availability(
+    req: AvailabilityReportRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """Record a short-lived opening-status check using server time.
+
+    The database RPC atomically keeps one current report per user/place and promotes
+    only two-user agreement to corroborated evidence. A single report never affects
+    recommendation eligibility.
+    """
+    facility = await asyncio.to_thread(
+        supabase_admin.table("facilities")
+        .select("id")
+        .eq("id", req.facility_id)
+        .limit(1)
+        .execute
+    )
+    if not facility.data:
+        raise HTTPException(status_code=404, detail="시설 정보를 찾을 수 없습니다.")
+
+    cooldown_key = (current_user["id"], req.facility_id)
+    now_mono = time.monotonic()
+    last_at = _last_availability_report_at.get(cooldown_key)
+    if last_at is not None and now_mono - last_at < _AVAILABILITY_COOLDOWN_SEC:
+        retry_after = max(1, int(_AVAILABILITY_COOLDOWN_SEC - (now_mono - last_at)))
+        raise HTTPException(
+            status_code=429,
+            detail="영업 상태는 1분에 한 번만 확인할 수 있습니다.",
+            headers={"Retry-After": str(retry_after)},
+        )
+
+    try:
+        result = await asyncio.to_thread(
+            supabase_admin.rpc(
+                "record_facility_availability_report",
+                {
+                    "p_facility_id": req.facility_id,
+                    "p_reporter_user_id": current_user["id"],
+                    "p_status": req.status,
+                },
+            ).execute
+        )
+    except Exception as exc:
+        logger.error(
+            "availability_report_failed",
+            facility_id=req.facility_id,
+            user_id=current_user["id"],
+            error=str(exc),
+        )
+        raise HTTPException(status_code=503, detail="영업 상태 저장에 실패했습니다.")
+
+    payload = result.data or {}
+    if isinstance(payload, list):
+        payload = payload[0] if payload else {}
+    if not payload:
+        raise HTTPException(status_code=503, detail="영업 상태 저장 결과를 확인하지 못했습니다.")
+    _last_availability_report_at[cooldown_key] = now_mono
+    return AvailabilityReportResponse(success=True, **payload)
 
 
 @router.post("/reports/congestion", response_model=CongestionReportResponse)

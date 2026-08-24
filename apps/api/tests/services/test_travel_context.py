@@ -109,6 +109,23 @@ def test_best_candidate_tier_never_fills_from_weaker_tiers():
     assert [candidate[0] for candidate in selected] == ["verified-a", "verified-b"]
 
 
+def test_corroborated_availability_overrides_static_hours_until_expiry():
+    arrival = datetime(2026, 8, 25, 3, tzinfo=timezone.utc)
+    facility = {
+        "type": "cafe",
+        "operating_hours": {"open": "09:00~22:00"},
+        "availability_evidence": {
+            "status": "closed",
+            "evidence_tier": "corroborated",
+            "corroborating_count": 2,
+            "expires_at": "2026-08-25T03:30:00+00:00",
+        },
+    }
+    assert open_status_at_arrival(facility, arrival) == "closed_confirmed"
+    facility["availability_evidence"]["expires_at"] = "2026-08-25T02:59:59+00:00"
+    assert open_status_at_arrival(facility, arrival) == "open_expected"
+
+
 def test_arrival_status_open_closing_and_closed():
     facility = {"operating_hours": {"open": "09:00~18:00", "closed": "연중무휴"}}
     assert open_status_at_arrival(facility, datetime(2026, 7, 20, 7, tzinfo=timezone.utc)) == "open_expected"

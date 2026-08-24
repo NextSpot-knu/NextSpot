@@ -1312,6 +1312,57 @@ def test_report_congestion_reward_third_no_partner(auth_client):
 
 
 # =========================================================================
+# 9-2. 영업 상태 확인 — 사용자별 최신 1건은 DB RPC가 원자 처리하고 2명 일치 전엔 단일 제보다.
+# =========================================================================
+
+def test_report_availability_requires_auth(client):
+    response = client.post(
+        "/api/v1/reports/availability",
+        json={"facility_id": "f-1", "status": "open"},
+    )
+    assert response.status_code == 401
+
+
+def test_report_availability_returns_evidence_state(auth_client):
+    from app.routers.reports import _last_availability_report_at
+
+    _last_availability_report_at.clear()
+
+    class AvailabilitySupabase(FakeSupabase):
+        def rpc(self, name, params):
+            assert name == "record_facility_availability_report"
+            assert params["p_reporter_user_id"] == AUTH_USER_ID
+            return FakeTable([{
+                "facility_id": "f-1",
+                "status": "open",
+                "evidence_tier": "single_report",
+                "corroborating_count": 1,
+                "reported_at": "2026-08-25T03:00:00+00:00",
+                "expires_at": "2026-08-25T03:30:00+00:00",
+            }])
+
+    with patch(
+        "app.routers.reports.supabase_admin",
+        new=AvailabilitySupabase({"facilities": [{"id": "f-1"}]}),
+    ):
+        response = auth_client.post(
+            "/api/v1/reports/availability",
+            json={"facility_id": "f-1", "status": "open"},
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "success": True,
+        "facility_id": "f-1",
+        "status": "open",
+        "evidence_tier": "single_report",
+        "corroborating_count": 1,
+        "reported_at": "2026-08-25T03:00:00+00:00",
+        "expires_at": "2026-08-25T03:30:00+00:00",
+    }
+
+
+# =========================================================================
 # 10. 추천 수락(POST /api/v1/recommendations/accept) — 인증·404·쿠폰 발급
 # =========================================================================
 

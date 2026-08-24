@@ -5,6 +5,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from app.services.availability_service import is_effective_availability_evidence
 from app.services.spot.travel import WALKING_SPEED_M_PER_MIN
 
 KST = timezone(timedelta(hours=9))
@@ -78,6 +79,9 @@ def _minutes(value: str) -> int | None:
 
 def open_status_at_arrival(facility: dict, arrival_at: datetime) -> str:
     """Return one of open_expected, closing_soon, closed_confirmed, needs_confirmation."""
+    availability = facility.get("availability_evidence")
+    if is_effective_availability_evidence(availability, at=arrival_at):
+        return "open_expected" if availability["status"] == "open" else "closed_confirmed"
     local = arrival_at.astimezone(KST)
     hours = facility.get("operating_hours") or {}
     closed_text = str(hours.get("closed") or "")
