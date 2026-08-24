@@ -120,13 +120,13 @@ export function getArrivalOpenStatus(hours: OperatingHours, arrival: Date = new 
   return "closed_confirmed";
 }
 
-/** 이동을 유도하는 추천은 카페·식당의 영업시간이 확인된 경우에만 허용한다. */
+/** 즉시/장애 폴백 추천은 도착 후 30분 넘게 영업할 근거가 있는 장소만 허용한다. */
 export function isRecommendationOpen(
   facilityType: string,
   hours: OperatingHours,
   arrival: Date = new Date(),
 ): boolean {
   const status = getArrivalOpenStatus(hours, arrival);
-  if (status === "closed_confirmed") return false;
-  return status !== "needs_confirmation" || !["cafe", "restaurant"].includes(facilityType);
+  if (status === "closed_confirmed" || status === "closing_soon") return false;
+  return status === "open_expected" || !["cafe", "restaurant"].includes(facilityType);
 }

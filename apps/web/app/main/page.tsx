@@ -24,7 +24,7 @@ import { track } from '@/lib/analytics';
 import { loadSavedLocal, syncSaved, saveBookmark, type SavedRecord } from '@/lib/savedFacilities';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 // T2: 휴무 원문 파서(오늘 휴무 확정만 배제) + 가능/불가능 텍스트 파서(주차·반려동물 필터) — 공용 단일 소스.
-import { isClosedToday, isRecommendationOpen, parseAvailability } from '@/lib/restDate';
+import { getArrivalOpenStatus, isClosedToday, isRecommendationOpen, parseAvailability } from '@/lib/restDate';
 import { loadTravelContext, matchesTravelContext, saveTravelContext, type PlaceCategory } from '@/lib/travelContext';
 import { buildVoiceCommandTransition, type VoiceAppCommand } from '@/lib/voiceCommands';
 import { facilityMatchesSearch } from '@/lib/placeSearch';
@@ -1074,14 +1074,13 @@ export default function MainPage() {
     const targetType = filterMap[activeFilter];
 
     const typeOk = (f: Facility) => f.type === targetType && !(targetType === 'restaurant' && isBarFacility(f)); // 식당 추천에서 술집 제외
-    const eligible = facilities.filter((f) =>
+    const contextEligible = facilities.filter((f) =>
       typeOk(f)
       && matchesTravelContext(f, travelContext, userLocation, haversineMeters)
-      && isRecommendationOpen(f.type, (f as any).operatingHours)
     );
-    let candidates = eligible.filter(f => !rejectedIds.has(f.id) && !savedIds.has(f.id));
+    let candidates = contextEligible.filter(f => !rejectedIds.has(f.id) && !savedIds.has(f.id));
     if (candidates.length === 0) {
-      candidates = eligible;
+      candidates = contextEligible;
     }
     if (candidates.length === 0) {
       setSelectedFacility(null);
@@ -1093,8 +1092,14 @@ export default function MainPage() {
 
     const isDemo = (f: Facility) => f.isGroup || String(f.id).startsWith('dummy-');
     const realCands = candidates.filter(f => !isDemo(f));
+    // 서버 응답 전 즉시 카드와 API 장애 폴백은 영업 확인 후보로만 제한한다. 서버는 별도로
+    // 가장 강한 영업·경로 tier를 선택하며, 약한 후보로 요청 개수를 억지로 채우지 않는다.
+    const verifiedCandidates = candidates.filter((f) =>
+      isRecommendationOpen(f.type, (f as any).operatingHours)
+    );
+    const verifiedRealCands = verifiedCandidates.filter(f => !isDemo(f));
     // 모음은 sub로 펼쳐 개별 장소를 랭킹(모음 자체는 카드로 안 띄움). 펼친 sub도 거절/저장 제외.
-    const demoCands = expandGroups(candidates.filter(isDemo))
+    const demoCands = expandGroups(verifiedCandidates.filter(isDemo))
       .filter((f) => !rejectedIds.has(f.id) && !savedIds.has(f.id));
     const liveMode = mockHour === null; // 시간대 시뮬이 켜지면 데모(목업) 모드로 일관 처리
     rankingOriginRef.current = null; // 랜드마크 기준점 리셋(카테고리 전환 시)
@@ -1108,7 +1113,7 @@ export default function MainPage() {
     // degraded 결과이며, 서버의 실측 지역수요/정확한 근거가 도착하면 아래에서 원자적으로 교체한다.
     if (!voiceFilterIdsRef.current && liveMode) {
       const immediateReal = rankFacilitiesDegraded(
-        filterReachable(realCands, userLocation),
+        filterReachable(verifiedRealCands, userLocation),
         scoreOpts,
       ).map((facility) => ({ ...facility, scoringMode: 'degraded_rules' as const }));
       const immediateDemo = rankFacilities(demoCands, scoreOpts);
@@ -1129,11 +1134,12 @@ export default function MainPage() {
         if (vfilter) {
           // 음성 선호 필터(예: '양식'): 후보를 백엔드가 고른 id들로 좁혀 클라 미러로 SPOT 재랭킹(실시간).
           // (필터 변경 직후 첫 카드는 onFilter가 동기로 직접 set하므로 여기선 이후 재실행 케이스만 처리.)
-          const filtered = expandGroups(candidates)
+          const filtered = expandGroups(verifiedCandidates)
             .filter((f) => vfilter.has(f.id) && !rejectedIds.has(f.id) && !savedIds.has(f.id));
           all = rankFacilities(filtered, scoreOpts);
         } else {
           let realRanked: any[] = [];
+          let recommendationApiFailed = false;
           if (liveMode && realCands.length > 0) {
             try {
               // 백엔드에는 rejectedIds와 savedIds를 제외하고 요청
@@ -1174,6 +1180,7 @@ export default function MainPage() {
                     recommendationId: r.recommendationId,
                     openStatusAtArrival: r.openStatusAtArrival,
                     informationConfidence: r.informationConfidence,
+                    eligibilityTier: r.eligibilityTier,
                     congestionSource: r.congestionSource,
                     congestionLogSource: r.congestionLogSource,
                     congestionIsStale: r.congestionIsStale,
@@ -1186,14 +1193,16 @@ export default function MainPage() {
                 });
             } catch (e) {
               if (!(e instanceof DOMException && e.name === 'AbortError')) {
-                console.warn("by-type 추천 실패 → 목업 미러로 폴백:", e);
+                console.warn("by-type 추천 실패 → 영업 확인 후보만 로컬 폴백:", e);
+                recommendationApiFailed = true;
               }
               realRanked = [];
             }
           }
-          // 백엔드 미가용/데모 모드: 실 후보도 클라 미러로 랭킹(동일 가중치). 도보 비현실 거리는 제외(가까운 순 폴백).
-          if (realRanked.length === 0 && realCands.length > 0) {
-            realRanked = rankFacilitiesDegraded(filterReachable(realCands, userLocation), scoreOpts);
+          // API가 정상적으로 빈 배열을 반환했다면 서버의 fail-closed 판정을 존중한다. 네트워크 장애일
+          // 때만 도착 후 30분 이상 영업이 확인된 로컬 후보로 제한해 폴백한다.
+          if (recommendationApiFailed && verifiedRealCands.length > 0) {
+            realRanked = rankFacilitiesDegraded(filterReachable(verifiedRealCands, userLocation), scoreOpts);
           }
           // 합성/데모 시설은 항상 클라 미러로 점수 부여
           const demoRanked = rankFacilities(demoCands, scoreOpts);
@@ -1798,7 +1807,7 @@ export default function MainPage() {
             btn.innerText = sub.name;
             btn.onclick = () => {
               setActiveGroupId(null);
-              setSelectedFacility(sub);
+              selectFacilityWithHoursGuard(sub);
               if (activeOverlayRef.current) {
                 activeOverlayRef.current.setMap(null);
                 activeOverlayRef.current = null;
@@ -1820,8 +1829,9 @@ export default function MainPage() {
           mapInstanceRef.current.panTo(marker.getPosition());
         } else {
           setActiveGroupId(null);
-          setSelectedFacility(f);
-          panToVisible(f.latitude, f.longitude);
+          if (selectFacilityWithHoursGuard(f)) {
+            panToVisible(f.latitude, f.longitude);
+          }
         }
       });
 
@@ -1952,8 +1962,10 @@ export default function MainPage() {
     cuisineIntentRef.current = chip.kw;
     applyVoiceFilter(new Set(pool.map((f: any) => f.id)));
     const ranked = pool.map((f: any) => ({ ...f, spot: calculateSPOT(f) })).sort(compareFacilities);
-    setSelectedFacility(ranked[0]);
-    if (mapInstanceRef.current && typeof ranked[0].latitude === 'number') panToVisible(ranked[0].latitude, ranked[0].longitude);
+    if (selectFacilityWithHoursGuard(ranked[0])
+      && mapInstanceRef.current && typeof ranked[0].latitude === 'number') {
+      panToVisible(ranked[0].latitude, ranked[0].longitude);
+    }
   };
 
   // (c) 검색 결과 유무 — 현재 카테고리에서 이름 일치 마커가 0건이면 '빈 지도' 혼란을 막기 위해 안내를 띄운다.
@@ -2059,6 +2071,46 @@ export default function MainPage() {
     searchResultLabelRef.current = labelOverlay;
     map.setLevel(3);
     panToVisible(item.latitude, item.longitude);
+  };
+
+  // 지도·검색에서 사용자가 직접 고른 장소가 도착 후 30분 안에 닫히면 조용히 바꾸지 않는다.
+  // 이유를 먼저 알린 뒤, 서버가 이미 검증한 SPOT 후보 중 다음 장소로 전환한다.
+  const selectFacilityWithHoursGuard = (facility: any): boolean => {
+    const arrivalStatusFor = (candidate: any) => {
+      if (candidate.openStatusAtArrival) return candidate.openStatusAtArrival;
+      const latitude = Number(candidate.latitude);
+      const longitude = Number(candidate.longitude);
+      const distanceM = Number.isFinite(latitude) && Number.isFinite(longitude)
+        ? haversineMeters(userLocation.lat, userLocation.lng, latitude, longitude)
+        : 0;
+      const travelMinutes = displayWalkingMinutes(undefined, distanceM);
+      return getArrivalOpenStatus(
+        candidate.operatingHours,
+        new Date(Date.now() + travelMinutes * 60_000),
+      );
+    };
+    const arrivalStatus = arrivalStatusFor(facility);
+    if (arrivalStatus !== 'closing_soon') {
+      setSelectedFacility(facility);
+      return true;
+    }
+
+    const alternative = rankedFacilities.find((candidate) =>
+      candidate.id !== facility.id
+      && arrivalStatusFor(candidate) === 'open_expected'
+    );
+    showToast(t(
+      alternative ? 'map.closingSoonRedirect' : 'map.closingSoonNoAlternative',
+      { name: facility.name },
+    ));
+    if (alternative) {
+      setSelectedFacility(alternative);
+      panToVisible(Number(alternative.latitude), Number(alternative.longitude));
+    } else {
+      setSelectedFacility(null);
+      setNoRecommendation(true);
+    }
+    return false;
   };
 
   return (
@@ -2419,8 +2471,10 @@ export default function MainPage() {
             onFocus={(f) => {
               const full = facilities.find((x) => x.id === f.id) || f;
               setActiveGroupId(null);
-              setSelectedFacility(full);
-              if (mapInstanceRef.current && typeof full.latitude === 'number') panToVisible(full.latitude, full.longitude);
+              if (selectFacilityWithHoursGuard(full)
+                && mapInstanceRef.current && typeof full.latitude === 'number') {
+                panToVisible(full.latitude, full.longitude);
+              }
             }}
           />
 

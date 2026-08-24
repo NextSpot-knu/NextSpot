@@ -8,7 +8,9 @@ from app.services.travel_context import (
     facility_is_indoor_eligible,
     facility_matches_context,
     is_recommendable_at_arrival,
+    keep_best_eligibility_tier,
     open_status_at_arrival,
+    recommendation_eligibility_tier,
 )
 
 
@@ -77,6 +79,34 @@ def test_food_with_unknown_hours_is_not_recommended_but_known_open_is():
     assert is_recommendable_at_arrival(
         {"type": "cafe", "operating_hours": {"open": "18:00~03:00"}}, arrival
     )
+
+
+def test_unknown_food_is_confirmation_only_by_day_and_excluded_late_at_night():
+    unknown = {"type": "cafe", "operating_hours": {}}
+    noon_kst = datetime(2026, 7, 20, 3, tzinfo=timezone.utc)
+    two_am_kst = datetime(2026, 7, 20, 17, tzinfo=timezone.utc)
+    assert is_recommendable_at_arrival(unknown, noon_kst)
+    assert recommendation_eligibility_tier(unknown, noon_kst, "osm_pedestrian") == 2
+    assert recommendation_eligibility_tier(unknown, two_am_kst, "osm_pedestrian") is None
+
+
+def test_closing_soon_is_not_a_destination_candidate():
+    facility = {"type": "restaurant", "operating_hours": {"open": "09:00~18:00"}}
+    arrival = datetime(2026, 7, 20, 8, 40, tzinfo=timezone.utc)
+    assert open_status_at_arrival(facility, arrival) == "closing_soon"
+    assert not is_recommendable_at_arrival(facility, arrival)
+    assert recommendation_eligibility_tier(facility, arrival, "osm_pedestrian") is None
+
+
+def test_best_candidate_tier_never_fills_from_weaker_tiers():
+    candidates = [
+        ("unknown-route", object(), 3),
+        ("verified-a", object(), 0),
+        ("verified-b", object(), 0),
+        ("known-estimate", object(), 1),
+    ]
+    selected = keep_best_eligibility_tier(candidates)
+    assert [candidate[0] for candidate in selected] == ["verified-a", "verified-b"]
 
 
 def test_arrival_status_open_closing_and_closed():

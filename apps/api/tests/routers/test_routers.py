@@ -388,6 +388,42 @@ def test_recommend_by_type_never_falls_back_outside_walk_limit(auth_client):
     assert fetch_all.await_count == 1
 
 
+def test_recommend_by_type_does_not_fill_from_weaker_eligibility_tier(auth_client):
+    cafes = [
+        _facility("verified-a", "cafe", 0.0002),
+        _facility("verified-b", "cafe", 0.0004),
+        _facility("weaker", "cafe", 0.0006),
+    ]
+    tier_by_id = {"verified-a": 0, "verified-b": 0, "weaker": 2}
+    with patch("app.routers.recommendations.fetch_user", new=AsyncMock(return_value=USER_ROW)), \
+         patch("app.routers.recommendations.fetch_all_facilities", new=AsyncMock(return_value=cafes)), \
+         patch("app.routers.recommendations.get_walking_routes", new=AsyncMock(return_value=[
+             WalkingRoute(2.0, 130.0, "osm_pedestrian"),
+             WalkingRoute(3.0, 195.0, "osm_pedestrian"),
+             WalkingRoute(1.0, 65.0, "osm_pedestrian"),
+         ])), \
+         patch(
+             "app.routers.recommendations.recommendation_eligibility_tier",
+             side_effect=lambda facility, _arrival, _source: tier_by_id[facility["id"]],
+         ), \
+         patch("app.routers.recommendations.fetch_congestion_map", new=AsyncMock(return_value={})), \
+         patch.object(preference_vector_service, "get_user_vector", new=AsyncMock(return_value=UNIT_VECTOR)), \
+         patch("app.routers.recommendations.generate_reason_with_source", new=AsyncMock(return_value=("사유", "template"))):
+        response = auth_client.post("/api/v1/recommendations/by-type", json={
+            "user_id": AUTH_USER_ID,
+            "facility_type": "cafe",
+            "user_lat": BASE_LAT,
+            "user_lng": BASE_LNG,
+            "limit": 3,
+        })
+
+    assert response.status_code == 200
+    items = response.json()
+    assert {item["facility"]["id"] for item in items} == {"verified-a", "verified-b"}
+    assert len(items) == 2
+    assert all(item["eligibility_tier"] == "verified_open_route" for item in items)
+
+
 def test_solar_state_never_changes_candidates_scores_or_rank(auth_client):
     cafes = [
         _facility("solar-a", "cafe", 0.0002),

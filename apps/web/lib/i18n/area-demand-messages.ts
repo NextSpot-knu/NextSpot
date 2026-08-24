@@ -4,6 +4,8 @@ import type { Locale } from './config';
 // 동일한 4개 로케일을 강제하고 I18nProvider가 일반 사전보다 먼저 조회한다.
 export const AREA_DEMAND_MESSAGES: Record<Locale, Record<string, string>> = {
   ko: {
+    'map.closingSoonRedirect': '주의! {name}은 도착 후 30분 안에 마감해요. 대신 영업 가능한 다른 장소를 보여드릴게요.',
+    'map.closingSoonNoAlternative': '주의! {name}은 도착 후 30분 안에 마감해요. 현재 영업을 확인할 수 있는 다른 장소가 없어요.',
     'recommend.areaDemandForRanking': '대안 비교용 주변 수요',
     'recommend.areaEvidenceCount': '주변 수요 근거 {n}개',
     'recommend.areaDemandCompositeHint': '서로 다른 근거를 추천 순위에만 함께 반영하며, 절대 혼잡률이나 장소 내부 혼잡으로 표시하지 않아요.',
@@ -33,6 +35,8 @@ export const AREA_DEMAND_MESSAGES: Record<Locale, Record<string, string>> = {
     'recommend.spotComparison.scoreTied': 'SPOT 점수 동률',
   },
   en: {
+    'map.closingSoonRedirect': 'Heads up: {name} closes within 30 minutes of arrival. Here is another confirmed-open option.',
+    'map.closingSoonNoAlternative': 'Heads up: {name} closes within 30 minutes of arrival. No other confirmed-open option is available right now.',
     'recommend.areaDemandForRanking': 'Area demand for ranking',
     'recommend.areaEvidenceCount': '{n} area-demand signals',
     'recommend.areaDemandCompositeHint': 'Different evidence is combined only for ranking and is never shown as an absolute crowd rate or venue crowding.',
@@ -62,6 +66,8 @@ export const AREA_DEMAND_MESSAGES: Record<Locale, Record<string, string>> = {
     'recommend.spotComparison.scoreTied': 'Tied on SPOT score',
   },
   ja: {
+    'map.closingSoonRedirect': 'ご注意ください。{name}は到着後30分以内に閉店します。営業を確認できる別の場所をご案内します。',
+    'map.closingSoonNoAlternative': 'ご注意ください。{name}は到着後30分以内に閉店します。現在、営業を確認できる別の場所がありません。',
     'recommend.areaDemandForRanking': '候補比較用の周辺需要',
     'recommend.areaEvidenceCount': '周辺需要の根拠{n}件',
     'recommend.areaDemandCompositeHint': '異なる根拠はおすすめ順位にのみ反映し、絶対的な混雑率や施設内の混雑としては表示しません。',
@@ -91,6 +97,8 @@ export const AREA_DEMAND_MESSAGES: Record<Locale, Record<string, string>> = {
     'recommend.spotComparison.scoreTied': 'SPOTスコア同率',
   },
   zh: {
+    'map.closingSoonRedirect': '请注意：{name}将在抵达后30分钟内关门。我们为你显示另一个已确认营业的地点。',
+    'map.closingSoonNoAlternative': '请注意：{name}将在抵达后30分钟内关门。目前没有其他可确认营业的地点。',
     'recommend.areaDemandForRanking': '用于备选比较的周边需求',
     'recommend.areaEvidenceCount': '{n}项周边需求依据',
     'recommend.areaDemandCompositeHint': '不同依据仅用于推荐排序，不会显示为绝对拥挤率或场所内部拥挤度。',

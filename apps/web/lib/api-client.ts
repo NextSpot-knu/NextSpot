@@ -322,6 +322,11 @@ export interface RecommendationResponse {
   totalCandidates: number;
   openStatusAtArrival?: "open_expected" | "closing_soon" | "closed_confirmed" | "needs_confirmation";
   informationConfidence?: "verified" | "unknown";
+  eligibilityTier?:
+    | "verified_open_route"
+    | "verified_open_estimated_route"
+    | "hours_confirmation_required_route"
+    | "hours_and_route_confirmation_required";
   placeDataSource?: string | null;
   dataUpdatedAt?: string | null;
   scoringMode: "model" | "measured_rules" | "area_stats_rules" | "degraded_rules";

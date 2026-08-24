@@ -40,10 +40,12 @@ from app.services.spot.travel import get_walking_routes
 from app.services.congestion_evidence import rankable_measured_level
 from app.services.travel_context import (
     KST,
+    RECOMMENDATION_ELIGIBILITY_LABELS,
     TravelContext,
     facility_matches_context,
-    is_recommendable_at_arrival,
+    keep_best_eligibility_tier,
     open_status_at_arrival,
+    recommendation_eligibility_tier,
 )
 from app.services.tourism_area_prior_service import attach_tourism_area_priors
 from app.services.tourism_related_service import attach_related_destination_priors
@@ -84,6 +86,7 @@ class RecommendItem(BaseModel):
     total_candidates: int
     open_status_at_arrival: str | None = None
     information_confidence: str | None = None
+    eligibility_tier: str | None = None
     place_data_source: str | None = None
     data_updated_at: str | None = None
     scoring_mode: Literal["model", "measured_rules", "area_stats_rules", "degraded_rules"] = "degraded_rules"
@@ -327,16 +330,30 @@ async def get_recommendations(
         [(float(f["latitude"]), float(f["longitude"])) for f in eligible],
     )
     now = datetime.now(timezone.utc)
-    candidates = [
-        (facility, route)
-        for facility, route in zip(eligible, routes)
-        if route.duration_min <= max_walk_minutes
-        and is_recommendable_at_arrival(
-            facility, now + timedelta(minutes=route.duration_min)
+    tiered_candidates = []
+    for facility, route in zip(eligible, routes):
+        if route.duration_min > max_walk_minutes:
+            continue
+        tier = recommendation_eligibility_tier(
+            facility,
+            now + timedelta(minutes=route.duration_min),
+            route.source,
         )
-    ]
+        if tier is not None:
+            tiered_candidates.append((facility, route, tier))
+    selected_tier = keep_best_eligibility_tier(tiered_candidates)
+    candidates = [(facility, route) for facility, route, _ in selected_tier]
+    eligibility_tier = selected_tier[0][2] if selected_tier else None
 
-    logger.info("candidates_filtered", count=len(candidates), max_walk_minutes=max_walk_minutes)
+    logger.info(
+        "candidates_filtered",
+        count=len(candidates),
+        max_walk_minutes=max_walk_minutes,
+        eligibility_tier=(
+            RECOMMENDATION_ELIGIBILITY_LABELS[eligibility_tier]
+            if eligibility_tier is not None else None
+        ),
+    )
 
     # 사용자 선호 벡터는 요청당 1개뿐이므로 여기서 1회만 조회한다. (없으면 Cold Start 벡터 생성 후 1회 업서트)
     user_vector = await _resolve_user_vector(req.user_id, user_info.get("preferred_categories", []))
@@ -443,6 +460,10 @@ async def get_recommendations(
                 facility,
                 datetime.now(timezone.utc) + timedelta(minutes=item["breakdown"].get("travel_time", 0)),
             ),
+            "eligibility_tier": (
+                RECOMMENDATION_ELIGIBILITY_LABELS[eligibility_tier]
+                if eligibility_tier is not None else None
+            ),
             "congestion": {
                 "level": evidence["level"], "source": evidence["source"],
                 "timestamp": evidence["timestamp"], "evidence_tier": evidence.get("evidence_tier"),
@@ -521,7 +542,11 @@ async def get_recommendations(
             open_status_at_arrival=open_status_at_arrival(
                 item["facility"], datetime.now(timezone.utc) + timedelta(minutes=item["breakdown"].get("travel_time", 0))
             ),
-            information_confidence="verified" if item["facility"].get("operating_hours") else "unknown",
+            information_confidence=("verified" if eligibility_tier in {0, 1} else "unknown"),
+            eligibility_tier=(
+                RECOMMENDATION_ELIGIBILITY_LABELS[eligibility_tier]
+                if eligibility_tier is not None else None
+            ),
             place_data_source=item["facility"].get("place_data_source"),
             data_updated_at=item["facility"].get("data_updated_at") or item["facility"].get("updated_at"),
             scoring_mode=item["breakdown"].get("scoring_mode", "degraded_rules"),
@@ -647,15 +672,21 @@ async def recommend_by_type(
         [(float(f["latitude"]), float(f["longitude"])) for f in candidates],
     )
     now = datetime.now(timezone.utc)
-    candidate_routes = [
-        (f, route) for f, route in zip(candidates, routes)
-        if route.duration_min <= max_walk_minutes
-        if is_recommendable_at_arrival(
-            f, now + timedelta(minutes=route.duration_min)
+    tiered_candidate_routes = []
+    for facility, route in zip(candidates, routes):
+        if route.duration_min > max_walk_minutes:
+            continue
+        tier = recommendation_eligibility_tier(
+            facility,
+            now + timedelta(minutes=route.duration_min),
+            route.source,
         )
-    ]
-    candidates = [f for f, _ in candidate_routes]
-    route_by_id = {f["id"]: route for f, route in candidate_routes}
+        if tier is not None:
+            tiered_candidate_routes.append((facility, route, tier))
+    candidate_routes = keep_best_eligibility_tier(tiered_candidate_routes)
+    candidates = [facility for facility, _, _ in candidate_routes]
+    route_by_id = {facility["id"]: route for facility, route, _ in candidate_routes}
+    eligibility_tier = candidate_routes[0][2] if candidate_routes else None
     if not candidates:
         return []
 
@@ -746,6 +777,10 @@ async def recommend_by_type(
             "open_status_at_arrival": open_status_at_arrival(
                 facility, now + timedelta(minutes=item["breakdown"].get("travel_time", 0))
             ),
+            "eligibility_tier": (
+                RECOMMENDATION_ELIGIBILITY_LABELS[eligibility_tier]
+                if eligibility_tier is not None else None
+            ),
             "tourapi_facts": {
                 "barrier_free": facility.get("barrier_free"),
                 "operating_hours": facility.get("operating_hours"),
@@ -793,7 +828,11 @@ async def recommend_by_type(
             open_status_at_arrival=open_status_at_arrival(
                 item["facility"], now + timedelta(minutes=item["breakdown"].get("travel_time", 0))
             ),
-            information_confidence="verified" if item["facility"].get("operating_hours") else "unknown",
+            information_confidence=("verified" if eligibility_tier in {0, 1} else "unknown"),
+            eligibility_tier=(
+                RECOMMENDATION_ELIGIBILITY_LABELS[eligibility_tier]
+                if eligibility_tier is not None else None
+            ),
             place_data_source=item["facility"].get("place_data_source"),
             data_updated_at=item["facility"].get("data_updated_at") or item["facility"].get("updated_at"),
             scoring_mode=item["breakdown"].get("scoring_mode", "degraded_rules"),
