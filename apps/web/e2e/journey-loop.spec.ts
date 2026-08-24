@@ -124,7 +124,8 @@ test('SPOT order is stable, comparison falls back, and navigation persists', asy
   await page.goto('/explore/recommend?facilityId=origin&lat=35.838&lng=129.209');
   const names = page.locator('section.space-y-4 h4');
   await expect(names).toHaveText(['고요한 찻집', '박물관 카페', '한옥 쉼터']);
-  await expect(page.getByText('91점')).toBeVisible();
+  // SPOT 산식 설명에도 "SPOT 91점"이 함께 나타나므로, 점수 배지 자체를 정확 일치로 확인한다.
+  await expect(page.getByText('91점', { exact: true })).toBeVisible();
 
   await page.getByRole('button', { name: '상위 추천 비교하기' }).click();
   await page.getByRole('button', { name: /왜 1위인가요/ }).click();
