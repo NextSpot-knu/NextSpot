@@ -9,7 +9,7 @@ import { createPublicClient } from '@/lib/supabase';
 import { getMarkerSvg } from '@/lib/utils';
 import { scoreFacility, compareSpot, displayWalkingMinutes, rankFacilities, rankFacilitiesDegraded, recToSpot, haversineMeters, cuisineMatch, filterReachable, type Spot } from '@/lib/recommender';
 import { REGION, isWithinRegion } from '@/lib/region';
-import { recommendByType, rejectRecommendation, voiceTurn, apiClient } from '@/lib/api-client';
+import { getRecommendations, recommendByType, rejectRecommendation, voiceTurn, apiClient } from '@/lib/api-client';
 // 히트맵 blob 의 색·크기 규칙(마커/배지 임계와 일관) 공용 헬퍼 — 중복 정의 금지, 그대로 재사용.
 import { getHeatGradient, getHeatRadius } from '@/lib/heatmap';
 // D5: TourAPI 동기화 신선도 상대시간 — lib/freshness 단일 소스 재사용(중복 정의 금지).
@@ -30,6 +30,13 @@ import { buildVoiceCommandTransition, type VoiceAppCommand } from '@/lib/voiceCo
 import { facilityMatchesSearch } from '@/lib/placeSearch';
 import NextSpotMascot from '@/components/NextSpotMascot';
 import { buildSpotComparisons, formatSpotComparison } from '@/lib/spotComparison';
+import {
+  DISCOVERY_THEMES,
+  findDiscoveryAnchor,
+  getDiscoveryTheme,
+  type DiscoveryTheme,
+  type DiscoveryThemeId,
+} from '@/lib/gyeongjuDiscovery';
 
 const RecommendationCard = dynamic(
   () => import('@/components/RecommendationCard').then((m) => m.RecommendationCard),
@@ -80,6 +87,12 @@ interface FacilityRecord {
   currentCount: number | null;
   address?: string | null;
   phone?: string | null;
+  operatingHours?: { open?: string; closed?: string; [key: string]: unknown } | null;
+  imageUrl?: string | null;
+  galleryImages?: string[] | null;
+  homepage?: string | null;
+  overview?: string | null;
+  barrierFree?: boolean | null;
   lastUpdated: string | null;
   source?: string | null;
   congestionSource?: 'measured' | 'predicted' | 'none';
@@ -89,6 +102,11 @@ interface FacilityRecord {
   congestionTimestamp?: string | null;
   dataUpdatedAt?: string | null;
   informationConfidence?: 'verified' | 'unknown';
+  eligibilityTier?:
+    | 'verified_open_route'
+    | 'verified_open_estimated_route'
+    | 'hours_confirmation_required_route'
+    | 'hours_and_route_confirmation_required';
   availabilityEvidence?: {
     status: 'open' | 'closed';
     evidenceTier: 'single_report' | 'corroborated';
@@ -105,6 +123,10 @@ interface FacilityRecord {
   scoringMode?: 'model' | 'measured_rules' | 'area_stats_rules' | 'degraded_rules';
   couponRate?: number | null;
   timesaleRate?: number | null;
+  discoveryThemeMatch?: {
+    source: 'tourapi_related' | 'facility_fact';
+    value: string;
+  } | null;
 }
 
 // 개별 시설 vs 그룹(모음) 마커 — isGroup 판별식 union(expandGroups/마커 클릭 분기용).
@@ -280,6 +302,13 @@ export default function MainPage() {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [travelContext, setTravelContext] = useState(loadTravelContext);
   const [showMobileTools, setShowMobileTools] = useState(false);
+  const [showDiscoveryThemes, setShowDiscoveryThemes] = useState(false);
+  const [activeDiscovery, setActiveDiscovery] = useState<{
+    themeId: DiscoveryThemeId;
+    anchorId: string;
+    anchorName: string;
+  } | null>(null);
+  const [discoveryLoading, setDiscoveryLoading] = useState(false);
 
   // 히트맵 레이어 on/off — 혼잡 핀과 별개의 열지도 오버레이(CongestionMap 에서 이식). 기본 꺼짐.
   const [showHeatmap, setShowHeatmap] = useState(false);
@@ -824,6 +853,45 @@ export default function MainPage() {
   const expandGroups = (list: Facility[]) =>
     list.flatMap((f) => (f.isGroup && Array.isArray(f.subFacilities)) ? f.subFacilities : [f]);
 
+  const activateDiscoveryTheme = (theme: DiscoveryTheme) => {
+    const anchor = findDiscoveryAnchor(expandGroups(facilities), theme);
+    if (!anchor) {
+      showToast(t('discovery.noAnchor'));
+      return;
+    }
+    recommendationAbortRef.current?.abort();
+    applyVoiceFilter(null);
+    setCuisineChip(null);
+    cuisineIntentRef.current = theme.preferenceIntent;
+    setActiveGroupId(null);
+    setSelectedParkingLot(null);
+    setActiveFilter(theme.filterId);
+    setActiveDiscovery({ themeId: theme.id, anchorId: anchor.id, anchorName: anchor.name });
+    setDiscoveryLoading(true);
+    setRankedFacilities([]);
+    setSelectedFacility(null);
+    setNoRecommendation(false);
+    setShowDiscoveryThemes(false);
+    try {
+      sessionStorage.setItem('nextspot_active_filter', theme.filterId);
+    } catch { /* storage unavailable */ }
+    track('gyeongju_theme_selected', {
+      theme_id: theme.id,
+      reference_facility_id: anchor.id,
+      candidate_type: theme.candidateType,
+    });
+  };
+
+  const clearDiscoveryTheme = () => {
+    recommendationAbortRef.current?.abort();
+    setActiveDiscovery(null);
+    setDiscoveryLoading(false);
+    cuisineIntentRef.current = null;
+    setRankedFacilities([]);
+    setSelectedFacility(null);
+    setNoRecommendation(false);
+  };
+
   // 선택 마커가 하단 카드에 가리지 않도록 지도 위쪽 가시영역으로 패닝(지도 중심을 마커보다 아래로 둔다).
   const panToVisible = (lat: number, lng: number) => {
     const map = mapInstanceRef.current;
@@ -1073,6 +1141,97 @@ export default function MainPage() {
     }
     if (facilities.length === 0) return;
 
+    // 경주 테마는 유명 장소 자체를 추천하는 모드가 아니다. 선택한 명소를 원본(reference)으로
+    // 보내 TourAPI 연관성·도착 영업 가능성·보행 경로를 통과한 같은 유형의 대안을 서버 SPOT으로
+    // 다시 매긴다. 일반 by-type 요청과 섞이면 늦게 온 응답이 카드를 덮으므로 이 분기를 독립시킨다.
+    if (activeDiscovery) {
+      const theme = getDiscoveryTheme(activeDiscovery.themeId);
+      let cancelled = false;
+      recommendationAbortRef.current?.abort();
+      const recommendationController = new AbortController();
+      recommendationAbortRef.current = recommendationController;
+      setDiscoveryLoading(true);
+
+      (async () => {
+        try {
+          const recs = await getRecommendations(
+            activeDiscovery.anchorId,
+            userLocation,
+            { ...travelContext, categories: [theme.candidateType] },
+            {
+              preferenceIntent: theme.preferenceIntent,
+              candidateTypes: [theme.candidateType],
+              discoveryTheme: theme.id,
+              signal: recommendationController.signal,
+            },
+          );
+          if (cancelled) return;
+          const byId = new Map(expandGroups(facilities).map((facility) => [facility.id, facility]));
+          const ranked = recs.map((rec) => {
+            const rf = rec.facility;
+            const base = byId.get(rf.id) as Facility | undefined;
+            return {
+              ...(base ?? rf),
+              features: (rf.features ?? base?.features ?? null) as FacilityFeatures | null,
+              operatingHours: rf.operatingHours ?? base?.operatingHours ?? null,
+              imageUrl: rf.imageUrl ?? base?.imageUrl ?? null,
+              galleryImages: rf.galleryImages ?? base?.galleryImages ?? null,
+              address: rf.address ?? base?.address ?? null,
+              phone: rf.phone ?? base?.phone ?? null,
+              homepage: rf.homepage ?? base?.homepage ?? null,
+              overview: rf.overview ?? base?.overview ?? null,
+              barrierFree: rf.barrierFree ?? base?.barrierFree ?? null,
+              congestionLevel: rec.congestionSource !== 'none' ? (rec.congestionLevel ?? null) : null,
+              currentCount: rec.congestionSource === 'measured' ? (rf.currentCount ?? null) : null,
+              recommendationId: rec.recommendationId,
+              openStatusAtArrival: rec.openStatusAtArrival,
+              informationConfidence: rec.informationConfidence,
+              eligibilityTier: rec.eligibilityTier,
+              availabilityEvidence: rf.availabilityEvidence ?? base?.availabilityEvidence ?? null,
+              congestionSource: rec.congestionSource,
+              congestionLogSource: rec.congestionLogSource,
+              congestionIsStale: rec.congestionIsStale,
+              congestionTimestamp: rec.congestionTimestamp,
+              dataUpdatedAt: rec.dataUpdatedAt,
+              scoringMode: rec.scoringMode,
+              apiRank: rec.rank,
+              totalCandidates: rec.totalCandidates,
+              discoveryThemeMatch: rec.breakdown.discoveryThemeMatch ?? null,
+              spot: recToSpot(rec),
+              reason: rec.reason || '',
+            } as Facility;
+          });
+          setRankedFacilities(ranked);
+          setDiscoveryLoading(false);
+          if (ranked.length === 0) {
+            setSelectedFacility(null);
+            setNoOpenTodayOnly(false);
+            setNoRecommendation(true);
+            showToast(t('discovery.noAlternatives', { anchor: activeDiscovery.anchorName }));
+            return;
+          }
+          setNoRecommendation(false);
+          setSelectedFacility(ranked[0]);
+          if (mapInstanceRef.current) panToVisible(ranked[0].latitude, ranked[0].longitude);
+        } catch (error) {
+          if (cancelled || (error instanceof DOMException && error.name === 'AbortError')) return;
+          console.warn('경주 테마 대안 추천 실패:', error);
+          setDiscoveryLoading(false);
+          setSelectedFacility(null);
+          setNoOpenTodayOnly(false);
+          setNoRecommendation(true);
+        }
+      })();
+
+      return () => {
+        cancelled = true;
+        recommendationController.abort();
+        if (recommendationAbortRef.current === recommendationController) {
+          recommendationAbortRef.current = null;
+        }
+      };
+    }
+
     const filterMap: Record<string, string> = {
       '음식점': 'restaurant',
       '카페': 'cafe',
@@ -1251,7 +1410,7 @@ export default function MainPage() {
     // voiceFilterIds 는 dep로 두지 않는다(필터 변경은 onFilter가 직접 처리; effect는 ref로 최신값 읽음 → 더블셋/경합 방지).
     // rejectedIds, savedIds 도 dep에서 제외하여 거절/저장 시 불필요한 백엔드 API 재호출(점수/순위 리셋 현상)을 방지.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [facilities, activeFilter, userLocation, preferredCategories, mockHour, travelContext]);
+  }, [facilities, activeFilter, userLocation, preferredCategories, mockHour, travelContext, activeDiscovery]);
 
   // Action Button Handlers
   const handleAccept = (fac: Facility, navigationMode: 'walk' | 'car' = 'walk') => {
@@ -1510,6 +1669,8 @@ export default function MainPage() {
         showToast(t('map.voiceNoMatch')); // 빈 결과 → 필터 미적용(현재 카드 유지)
         return;
       }
+      setActiveDiscovery(null);
+      setDiscoveryLoading(false);
       applyVoiceFilter(set); // ref+state 동시 갱신(effect는 이후 재실행 시 ref로 읽음)
       const ranked = pool.map((f) => ({ ...f, spot: calculateSPOT(f) })).sort(compareFacilities);
       setSelectedFacility(spoken ? { ...ranked[0], reason: spoken } : ranked[0]);
@@ -1551,6 +1712,8 @@ export default function MainPage() {
       }
 
       applyVoiceFilter(null);
+      setActiveDiscovery(null);
+      setDiscoveryLoading(false);
       cuisineIntentRef.current = null;
       setCuisineChip(null);
       setActiveFilter(filterByType[transition.facilityType]);
@@ -1945,6 +2108,8 @@ export default function MainPage() {
   // 칩 선택 — 음성 필터(onFilter)와 동일 경로: 매칭 id 집합 → applyVoiceFilter(마커·추천 풀 공통 필터)
   // + cuisineIntent(선호%를 음식 매칭도로 재산정) + 필터 내 SPOT #1 즉시 선택. null = 해제.
   const selectCuisineChip = (chip: { id: string; kw: string } | null) => {
+    setActiveDiscovery(null);
+    setDiscoveryLoading(false);
     if (!chip || cuisineChip === chip.id) {
       setCuisineChip(null);
       cuisineIntentRef.current = null;
@@ -2235,6 +2400,123 @@ export default function MainPage() {
           }}
         />
 
+        {!isLoadingFacilities && facilities.length > 0 && !activeDiscovery && !showDiscoveryThemes && (
+          <button
+            type="button"
+            onClick={() => setShowDiscoveryThemes(true)}
+            className="toss-pressable pointer-events-auto flex w-full items-center justify-between gap-3 rounded-2xl border border-gold/30 bg-white/95 px-4 py-3 text-left shadow-[0_4px_18px_rgba(43,35,32,0.09)] backdrop-blur"
+          >
+            <span className="flex min-w-0 items-center gap-3">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gold/15 text-lg" aria-hidden>✨</span>
+              <span className="min-w-0">
+                <span className="block text-sm font-extrabold text-muk">{t('discovery.entry')}</span>
+                <span className="mt-0.5 block truncate text-[11px] text-muk-soft">{t('discovery.entryHint')}</span>
+              </span>
+            </span>
+            <ChevronDown size={17} className="shrink-0 text-gold-deep" aria-hidden />
+          </button>
+        )}
+
+        {!isLoadingFacilities && facilities.length > 0 && showDiscoveryThemes && !activeDiscovery && (
+          <section className="pointer-events-auto rounded-3xl border border-gold/30 bg-white/95 p-4 shadow-[0_8px_28px_rgba(43,35,32,0.13)] backdrop-blur">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-extrabold text-muk">{t('discovery.title')}</p>
+                <p className="mt-1 text-[11px] leading-relaxed text-muk-soft">{t('discovery.subtitle')}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowDiscoveryThemes(false)}
+                aria-label={t('discovery.close')}
+                className="toss-pressable rounded-full p-2 text-muk-soft hover:bg-hanji-deep"
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <div className="mt-3 flex gap-2 overflow-x-auto pb-1 no-scrollbar md:flex-wrap">
+              {DISCOVERY_THEMES.map((theme) => (
+                <button
+                  key={theme.id}
+                  type="button"
+                  onClick={() => activateDiscoveryTheme(theme)}
+                  className="toss-pressable shrink-0 rounded-full border border-line bg-hanji px-3 py-2 text-xs font-bold text-muk hover:border-gold hover:bg-gold/10"
+                >
+                  <span aria-hidden>{theme.emoji}</span> {t(`discovery.theme.${theme.id}`)}
+                </button>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {activeDiscovery && (
+          <section className="pointer-events-auto rounded-3xl border border-jade/25 bg-white/95 p-4 shadow-[0_8px_28px_rgba(43,35,32,0.13)] backdrop-blur">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-[10px] font-extrabold text-jade">
+                  {getDiscoveryTheme(activeDiscovery.themeId).emoji}{' '}
+                  {t(`discovery.theme.${activeDiscovery.themeId}`)}
+                </p>
+                <p className="mt-1 truncate text-sm font-extrabold text-muk">
+                  {t('discovery.activeTitle', { anchor: activeDiscovery.anchorName })}
+                </p>
+                <p className="mt-1 text-[10px] leading-relaxed text-muk-soft">{t('discovery.activeBody')}</p>
+              </div>
+              <button
+                type="button"
+                onClick={clearDiscoveryTheme}
+                aria-label={t('discovery.clear')}
+                className="toss-pressable rounded-full p-2 text-muk-soft hover:bg-hanji-deep"
+              >
+                <X size={16} />
+              </button>
+            </div>
+            {discoveryLoading ? (
+              <div className="mt-3 flex items-center gap-2 rounded-2xl bg-hanji-deep px-3 py-2.5 text-[11px] font-semibold text-muk-soft">
+                <span className="inline-block h-3 w-3 rounded-full border-2 border-jade/30 border-t-jade animate-spin" />
+                {t('discovery.loading', { anchor: activeDiscovery.anchorName })}
+              </div>
+            ) : rankedFacilities.length > 0 ? (
+              <div className="mt-3 flex gap-2 overflow-x-auto pb-1 no-scrollbar">
+                {rankedFacilities.slice(0, 3).map((facility, index) => {
+                  const spot = facility.spot;
+                  if (!spot) return null;
+                  const selected = selectedFacility?.id === facility.id;
+                  return (
+                    <button
+                      key={facility.id}
+                      type="button"
+                      onClick={() => {
+                        setSelectedFacility(facility);
+                        panToVisible(facility.latitude, facility.longitude);
+                      }}
+                      aria-pressed={selected}
+                      className={`toss-pressable min-w-[148px] flex-1 rounded-2xl border px-3 py-2.5 text-left ${selected ? 'border-jade bg-jade/10' : 'border-line bg-hanji hover:border-jade/40'}`}
+                    >
+                      <span className="block text-[9px] font-extrabold text-jade">
+                        {t('discovery.alternativeRank', { rank: index + 1 })}
+                      </span>
+                      <span className="mt-0.5 block truncate text-xs font-extrabold text-muk">{facility.name}</span>
+                      {facility.discoveryThemeMatch && (
+                        <span className="mt-1 block text-[9px] font-semibold text-jade">
+                          {t(facility.discoveryThemeMatch.source === 'tourapi_related'
+                            ? 'discovery.match.related'
+                            : 'discovery.match.fact')}
+                        </span>
+                      )}
+                      <span className="mt-1 block text-[10px] font-semibold text-muk-soft">
+                        {t('discovery.walkMinutes', { n: displayWalkingMinutes(spot.expectedTravel) })}
+                      </span>
+                      <span className="mt-1 line-clamp-2 block text-[9px] leading-snug text-muk-soft">
+                        {spotComparisonById.get(String(facility.id))}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            ) : null}
+          </section>
+        )}
+
         {/* (c) 검색 결과 없음 안내 — 입력값은 있으나 현재 카테고리에 일치 장소가 없을 때 */}
         {searchActive && searchMatchCount === 0 && !liveSearchLoading && liveSearchItems.length === 0 && (
           <div className="pointer-events-auto px-2 -mt-1">
@@ -2325,6 +2607,8 @@ export default function MainPage() {
               <button
                 key={filter.id}
                 onClick={() => {
+                  setActiveDiscovery(null);
+                  setDiscoveryLoading(false);
                   setActiveFilter(filter.id);
                   setActiveGroupId(null);
                   setSelectedParkingLot(null);

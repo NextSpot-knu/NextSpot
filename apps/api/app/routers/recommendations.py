@@ -53,6 +53,7 @@ from app.services.travel_context import (
 )
 from app.services.tourism_area_prior_service import attach_tourism_area_priors
 from app.services.tourism_related_service import attach_related_destination_priors
+from app.services.discovery_theme_service import discovery_theme_match
 from app.services.recommendation_explanation_service import explain as explain_snapshot
 from app.services.spot.wait_time import calculate_predicted_wait_time
 from app.services.spot.preference import CATEGORY_VECTORS, build_facility_preference_vector, get_category_average_vector
@@ -68,6 +69,12 @@ class RecommendRequest(BaseModel):
     user_lng: float
     context: TravelContext | None = None
     preference_intent: str | None = Field(None, max_length=120)
+    candidate_types: list[Literal["restaurant", "cafe", "attraction", "culture"]] = Field(
+        default_factory=list, max_length=2
+    )
+    discovery_theme: Literal[
+        "silla_core", "night_heritage", "hanok_cafe", "indoor_history", "gyochon_walk"
+    ] | None = None
 
 class RecommendItem(BaseModel):
     recommendation_id: str
@@ -333,6 +340,14 @@ async def get_recommendations(
     for f in all_facilities:
         if f["id"] == req.original_facility_id or not facility_matches_context(f, req.context):
             continue
+        if req.candidate_types and f.get("type") not in req.candidate_types:
+            continue
+        if req.discovery_theme:
+            match = discovery_theme_match(f, req.discovery_theme)
+            if match is None:
+                continue
+            # 요청 전용 메타데이터다. 공유 시설 캐시의 원본 dict를 오염시키지 않는다.
+            f = {**f, "discovery_theme_match": match}
         eligible.append(f)
     routes = await get_walking_routes(
         req.user_lat, req.user_lng,
@@ -416,7 +431,11 @@ async def get_recommendations(
             "spot_score": score_res.score,
             # original_wait_time 은 후보와 무관하게 요청당 1개지만, 추천 행 단독으로도
             # 절감분을 계산할 수 있도록 각 breakdown 에 함께 저장한다(비정규화 스냅샷).
-            "breakdown": {**score_res.breakdown, "original_wait_time": original_wait_time},
+            "breakdown": {
+                **score_res.breakdown,
+                "original_wait_time": original_wait_time,
+                "discovery_theme_match": f.get("discovery_theme_match"),
+            },
             "distance_m": route.distance_m,
             "candidate_congestion": candidate_congestion,
             "congestion_evidence": evidence,
@@ -489,6 +508,11 @@ async def get_recommendations(
             "scoring_mode": item["breakdown"].get("scoring_mode"),
             "model_version": item["breakdown"].get("model_version"),
             "prediction_source": item["breakdown"].get("prediction_source"),
+            "discovery_theme": req.discovery_theme,
+            "reference_facility": (
+                {"id": original_infra.get("id"), "name": original_infra.get("name")}
+                if req.discovery_theme else None
+            ),
         }
         payload = {
                 "user_id": req.user_id,

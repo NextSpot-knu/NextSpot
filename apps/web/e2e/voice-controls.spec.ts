@@ -39,6 +39,25 @@ async function mockMainWithSpeech(page: Page) {
     if (pathname.endsWith('/api/v1/infrastructures')) {
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(facilities) });
     }
+    if (pathname.endsWith('/api/v1/recommendations/by-type')) {
+      const requestedType = String((route.request().postDataJSON() as any).facility_type ?? 'restaurant');
+      const facility = facilities.find((item) => item.type === requestedType);
+      const items = facility ? [{
+        recommendation_id: `rec-${facility.id}`,
+        facility,
+        spot_score: 0.72,
+        breakdown: { preference: 0.8, wait_time: null, travel_time: 1, incentive: 0 },
+        distance_m: 80,
+        reason: '테스트 추천', reason_source: 'template',
+        congestion_level: null, congestion_source: 'none', congestion_log_source: null,
+        congestion_is_stale: null, congestion_timestamp: null,
+        rank: 1, total_candidates: 1, open_status_at_arrival: 'open_expected',
+        information_confidence: 'verified', eligibility_tier: 'verified_open_route',
+        place_data_source: 'test', data_updated_at: null,
+        scoring_mode: 'degraded_rules', model_version: null, prediction_source: 'unavailable',
+      }] : [];
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(items) });
+    }
     if (pathname.endsWith('/api/v1/voice/turn')) {
       const utterance = String((route.request().postDataJSON() as any).utterance ?? '');
       const command = utterance.includes('카페')

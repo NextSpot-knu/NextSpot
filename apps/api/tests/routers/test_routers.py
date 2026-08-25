@@ -277,6 +277,40 @@ def test_recommendations_happy_path(auth_client):
         assert item["facility"]["current_count"] is None
 
 
+def test_discovery_recommendations_keep_reference_but_limit_alternative_type(auth_client):
+    candidates = [
+        _facility("cafe-1", "cafe", 0.0002),
+        _facility("attraction-1", "attraction", 0.0003),
+        _facility("culture-1", "culture", 0.0004),
+    ]
+    candidates[0]["features"]["category"] = "한옥 카페"
+    with patch("app.routers.recommendations.fetch_user", new=AsyncMock(return_value=USER_ROW)), \
+         patch("app.routers.recommendations.fetch_facility", new=AsyncMock(return_value=ORIGIN_ROW)), \
+         patch("app.routers.recommendations.fetch_all_facilities", new=AsyncMock(return_value=[ORIGIN_ROW] + candidates)), \
+         patch("app.routers.recommendations.fetch_congestion_map", new=AsyncMock(return_value={})), \
+         patch.object(preference_vector_service, "get_user_vector", new=AsyncMock(return_value=UNIT_VECTOR)), \
+         patch("app.routers.recommendations.generate_reason_with_source", new=AsyncMock(return_value=("사유", "template"))):
+        body = {
+            **_reco_body(),
+            "candidate_types": ["cafe"],
+            "discovery_theme": "hanok_cafe",
+            "preference_intent": "한옥 감성 카페 디저트",
+        }
+        response = auth_client.post("/api/v1/recommendations", json=body)
+
+    assert response.status_code == 200
+    items = response.json()
+    assert [item["facility"]["id"] for item in items] == ["cafe-1"]
+    assert items[0]["facility"]["type"] == "cafe"
+
+
+def test_discovery_recommendations_reject_unknown_theme(auth_client):
+    response = auth_client.post("/api/v1/recommendations", json={
+        **_reco_body(), "candidate_types": ["cafe"], "discovery_theme": "made_up"
+    })
+    assert response.status_code == 422
+
+
 def test_recommendations_no_log_untrained_model_reports_none(auth_client):
     # 혼잡 로그 0건 + 모델 미학습(0.5 평탄 폴백): 0.0/0.5 를 실측·예측처럼 팔지 않는다 —
     # congestion_source='none', current_count=None, 사유에 혼잡 수치(%) 없음(CONGESTION_TRUST_SPEC).

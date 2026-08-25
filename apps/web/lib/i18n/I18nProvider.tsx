@@ -9,6 +9,7 @@ import { createContext, useContext, useState, useEffect, useCallback, useRef, ty
 import koMessages from './messages/ko.json';
 import { DEFAULT_LOCALE, type Locale, type Messages } from './config';
 import { AREA_DEMAND_MESSAGES } from './area-demand-messages';
+import { DISCOVERY_MESSAGES } from './discovery-messages';
 
 const STORAGE_KEY = 'nextspot_locale';
 
@@ -73,8 +74,10 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     (key, vars) => {
       // 현재 로케일 → DEFAULT_LOCALE(ko) → 키 자체 순으로 폴백.
       const current = messagesRef.current[locale] ?? messagesRef.current[DEFAULT_LOCALE]!;
-      const raw = AREA_DEMAND_MESSAGES[locale][key]
+      const raw = DISCOVERY_MESSAGES[locale][key]
+        ?? AREA_DEMAND_MESSAGES[locale][key]
         ?? lookup(current, key)
+        ?? DISCOVERY_MESSAGES[DEFAULT_LOCALE][key]
         ?? AREA_DEMAND_MESSAGES[DEFAULT_LOCALE][key]
         ?? lookup(messagesRef.current[DEFAULT_LOCALE]!, key)
         ?? key;

@@ -313,6 +313,10 @@ export interface RecommendationResponse {
     recommendedDepartureDelayMinutes?: number | null;
     tourapiRelatedRank?: number | null;
     tourapiRelatedPrior?: number | null;
+    discoveryThemeMatch?: {
+      source: "tourapi_related" | "facility_fact";
+      value: string;
+    } | null;
   };
   distanceM: number;
   reason?: string; // 백엔드 템플릿 생성 추천 사유 (snake_case reason → camel reason)
@@ -380,15 +384,16 @@ export async function getRecommendations(
   originalFacilityId: string,
   userLocation: { lat: number; lng: number },
   context?: TravelContext,
+  options?: {
+    preferenceIntent?: string | null;
+    candidateTypes?: ("restaurant" | "cafe" | "attraction" | "culture")[];
+    discoveryTheme?: "silla_core" | "night_heritage" | "hanok_cafe" | "indoor_history" | "gyochon_walk";
+    signal?: AbortSignal;
+  },
 ): Promise<RecommendationResponse[]> {
-  // Supabase 세션에서 현재 로그인한 유저 ID 획득
-  const { data: { session } } = await supabase.auth.getSession();
-  let userId = session?.user?.id;
-
-  if (!userId) {
-    console.warn("인증 세션이 없습니다. 데모용 모의 사용자 ID(GYEONGJU-VISITOR-01)를 사용합니다.");
-    userId = "a2222222-2222-2222-2222-222222222222";
-  }
+  const session = await ensureAnonymousSession();
+  const userId = session?.user?.id;
+  if (!userId) throw new AuthError();
 
   const res: RecommendationResponse[] = await apiClient.post("/api/v1/recommendations", {
     userId,
@@ -396,7 +401,10 @@ export async function getRecommendations(
     userLat: userLocation.lat,
     userLng: userLocation.lng,
     context,
-  });
+    preferenceIntent: options?.preferenceIntent ?? null,
+    candidateTypes: options?.candidateTypes ?? [],
+    discoveryTheme: options?.discoveryTheme ?? null,
+  }, { signal: options?.signal });
   dispatchReasonSourceDebug(res);
   return res;
 }
