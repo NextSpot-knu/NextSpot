@@ -71,6 +71,32 @@ async function mockRecommendationPage(
       return window;
     }) as typeof window.open;
   }, locale);
+  await page.route('**/auth/v1/**', async route => {
+    const userId = '11111111-1111-4111-8111-111111111111';
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        access_token: 'ci-anonymous-access-token',
+        token_type: 'bearer',
+        expires_in: 3600,
+        expires_at: Math.floor(Date.now() / 1000) + 3600,
+        refresh_token: 'ci-anonymous-refresh-token',
+        user: {
+          id: userId,
+          aud: 'authenticated',
+          role: 'authenticated',
+          email: '',
+          is_anonymous: true,
+          app_metadata: { provider: 'anonymous', providers: ['anonymous'] },
+          user_metadata: {},
+          identities: [],
+          created_at: '2026-08-25T00:00:00.000Z',
+          updated_at: '2026-08-25T00:00:00.000Z',
+        },
+      }),
+    });
+  });
   await page.route('**/rest/v1/**', async route => {
     const url = route.request().url();
     if (url.includes('/facilities')) {
