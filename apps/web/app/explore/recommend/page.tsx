@@ -161,7 +161,7 @@ const MiniMap = React.memo(({ latitude, longitude, mapLoaded }: MiniMapProps) =>
   return (
     <div
       ref={containerRef}
-      className="w-full h-24 md:h-28 rounded-xl overflow-hidden border border-line"
+      className="nextspot-map w-full h-24 md:h-28 rounded-xl overflow-hidden border border-line"
     />
   );
 });

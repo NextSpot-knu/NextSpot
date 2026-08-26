@@ -1,5 +1,15 @@
 import { expect, test, type Page } from '@playwright/test';
 
+async function mockKakaoSdk(page: Page) {
+  await page.route('**://dapi.kakao.com/**', route => route.fulfill({
+    status: 200,
+    contentType: 'application/javascript',
+    body: '/* Kakao SDK is intentionally unavailable in deterministic E2E. */',
+  }));
+}
+
+test.beforeEach(async ({ page }) => mockKakaoSdk(page));
+
 const recommendations = [
   ['rec-a', '고요한 찻집', 0.91, 120],
   ['rec-b', '박물관 카페', 0.82, 180],
@@ -52,6 +62,7 @@ async function mockRecommendationPage(
     unknownHours?: boolean;
   } = {},
 ) {
+  await mockKakaoSdk(page);
   const locale = options.locale ?? 'ko';
   const responseItems = recommendations.map(item => ({
     ...item,

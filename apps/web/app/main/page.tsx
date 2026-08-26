@@ -2290,11 +2290,10 @@ export default function MainPage() {
   return (
     <div className="relative w-full h-[100dvh] overflow-hidden flex flex-col">
 
-      {/* Map Container — 자연스러운 라이트 카카오맵(한지 톤). 타일 다크 반전(map-dark-tiles) 제거 →
-          경주 관광 밝은 지도. 마커/오버레이는 data: URI 이미지라 본래의 선명한 색으로 표시된다. */}
+      {/* 지도는 주간에는 원본 Kakao 타일, 야간에는 전역 테마의 저휘도 필터를 사용한다. */}
       <div
         ref={mapContainerRef}
-        className={`w-full h-full absolute inset-0 z-0${mapUnavailable ? ' bg-gradient-to-b from-hanji-deep/70 via-hanji-deep/40 to-hanji' : ''}`}
+        className={`nextspot-map w-full h-full absolute inset-0 z-0${mapUnavailable ? ' bg-gradient-to-b from-hanji-deep/70 via-hanji-deep/40 to-hanji' : ''}`}
       />
 
       {/* 장소 카드와 분리된 경주 현지 시계. 모바일 검색바 위 안전영역, 데스크톱 우측 상단에 고정한다. */}

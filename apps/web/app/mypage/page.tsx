@@ -371,7 +371,7 @@ export default function MyPage() {
                 type="button"
                 onClick={() => router.push('/mypage/lab')}
                 aria-label={t('lab.cardCta', { count: labPendingCount })}
-                className="group w-full mb-4 rounded-3xl border border-jade/35 bg-gradient-to-r from-jade/12 via-white to-gold/10 p-5 text-left shadow-[0_2px_14px_rgba(43,35,32,0.06)] transition-colors hover:border-jade/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+                className="group w-full mb-4 rounded-3xl border border-jade/35 bg-gradient-to-r from-jade/12 via-hanji to-gold/10 p-5 text-left shadow-[0_2px_14px_rgba(43,35,32,0.06)] transition-colors hover:border-jade/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
               >
                 <div className="flex items-center justify-between gap-4">
                   <div className="flex min-w-0 items-center gap-4">
@@ -430,7 +430,7 @@ export default function MyPage() {
             <button
               type="button"
               onClick={() => router.push('/merchant')}
-              className="group w-full mb-4 rounded-3xl border border-gold/35 bg-gradient-to-r from-gold/15 via-white to-terracotta/10 p-5 text-left shadow-[0_2px_14px_rgba(43,35,32,0.06)] transition-colors hover:border-gold/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+              className="group w-full mb-4 rounded-3xl border border-gold/35 bg-gradient-to-r from-gold/15 via-hanji to-terracotta/10 p-5 text-left shadow-[0_2px_14px_rgba(43,35,32,0.06)] transition-colors hover:border-gold/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
             >
               <div className="flex items-center justify-between gap-4">
                 <div className="flex min-w-0 items-center gap-4">

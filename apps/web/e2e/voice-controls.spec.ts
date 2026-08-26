@@ -1,5 +1,13 @@
 import { expect, test, type Page } from '@playwright/test';
 
+test.beforeEach(async ({ page }) => {
+  await page.route('**://dapi.kakao.com/**', route => route.fulfill({
+    status: 200,
+    contentType: 'application/javascript',
+    body: '/* Kakao SDK is intentionally unavailable in deterministic E2E. */',
+  }));
+});
+
 const facilities = [
   { id: 'restaurant-1', name: '실내 식당', type: 'restaurant', latitude: 35.8363, longitude: 129.2107,
     capacity: 30, features: {}, congestion: null,
