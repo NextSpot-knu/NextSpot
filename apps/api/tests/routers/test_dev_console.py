@@ -369,3 +369,122 @@ def test_user_search_does_not_return_email(client):
     assert items, "닉네임 부분일치 검색이 아무것도 못 찾았다"
     for item in items:
         assert "email" not in item
+
+
+# =========================================================================
+# 5. 사업자 인증 심사 — 순서가 곧 복구 가능성이다
+# =========================================================================
+REQUEST_ID = "b0000000-0000-4000-8000-000000000001"
+
+
+@pytest.fixture
+def pending_request(db):
+    db.tables["business_verification_requests"].append(
+        {
+            "id": REQUEST_ID,
+            "user_id": TARGET_ID,
+            "facility_id": FACILITY_ID,
+            "status": "pending",
+            "document_path": "docs/proof.jpg",
+            "business_number_last4": "1234",
+            "contact": "owner@example.com",
+        }
+    )
+    return db.tables["business_verification_requests"][0]
+
+
+def test_approve_promotes_and_grants_ownership(client, db, pending_request):
+    with _as("developer"), patch.object(dev, "_clear_evidence", new=AsyncMock()):
+        res = client.post(
+            f"/api/v1/dev/verification-requests/{REQUEST_ID}/approve",
+            json={"reason": "서류 확인"},
+            headers=_headers(),
+        )
+    assert res.status_code == 200
+    assert db.tables["users"][1]["role"] == "merchant"
+    grants = [r for r in db.tables["facility_owners"] if r.get("verification_request_id") == REQUEST_ID]
+    assert len(grants) == 1
+    assert pending_request["status"] == "approved"
+
+
+def test_approve_clears_evidence_only_after_the_status_is_written(client, db, pending_request):
+    """증빙을 먼저 지우면, 상태 갱신이 실패했을 때 pending 인 채로 증빙만 사라진다 —
+    다시 심사할 수도, 신청자에게 돌려줄 수도 없는 상태가 된다."""
+    seen: list[str] = []
+
+    async def _spy(_request_id):
+        seen.append(pending_request["status"])
+
+    with _as("developer"), patch.object(dev, "_clear_evidence", new=_spy):
+        client.post(
+            f"/api/v1/dev/verification-requests/{REQUEST_ID}/approve",
+            json={"reason": "서류 확인"},
+            headers=_headers(),
+        )
+    assert seen == ["approved"], f"증빙 삭제 시점의 상태가 {seen} — 상태 갱신보다 먼저 지웠다"
+
+
+def test_reject_clears_evidence_only_after_the_status_is_written(client, db, pending_request):
+    seen: list[str] = []
+
+    async def _spy(_request_id):
+        seen.append(pending_request["status"])
+
+    with _as("developer"), patch.object(dev, "_clear_evidence", new=_spy):
+        client.post(
+            f"/api/v1/dev/verification-requests/{REQUEST_ID}/reject",
+            json={"reason": "서류 불충분"},
+            headers=_headers(),
+        )
+    assert seen == ["rejected"]
+
+
+def test_reject_does_not_promote_or_grant(client, db, pending_request):
+    with _as("developer"), patch.object(dev, "_clear_evidence", new=AsyncMock()):
+        res = client.post(
+            f"/api/v1/dev/verification-requests/{REQUEST_ID}/reject",
+            json={"reason": "서류 불충분"},
+            headers=_headers(),
+        )
+    assert res.status_code == 200
+    assert db.tables["users"][1]["role"] == "tourist"
+    assert not [r for r in db.tables["facility_owners"] if r.get("verification_request_id")]
+
+
+def test_reject_requires_a_reason(client, pending_request):
+    """반려 사유가 없으면 신청자가 무엇을 고쳐야 하는지 알 수 없다."""
+    with _as("developer"):
+        res = client.post(
+            f"/api/v1/dev/verification-requests/{REQUEST_ID}/reject", json={}, headers=_headers()
+        )
+    assert res.status_code == 422
+
+
+def test_second_review_is_rejected(client, db, pending_request):
+    pending_request["status"] = "approved"
+    with _as("developer"), patch.object(dev, "_clear_evidence", new=AsyncMock()):
+        res = client.post(
+            f"/api/v1/dev/verification-requests/{REQUEST_ID}/approve", json={}, headers=_headers()
+        )
+    assert res.status_code == 409
+
+
+def test_approve_without_a_mapped_facility_is_refused(client, db, pending_request):
+    """가게가 연결되지 않은 요청을 승인하면 소유권 없는 merchant 가 생긴다."""
+    pending_request["facility_id"] = None
+    with _as("developer"), patch.object(dev, "_clear_evidence", new=AsyncMock()):
+        res = client.post(
+            f"/api/v1/dev/verification-requests/{REQUEST_ID}/approve", json={}, headers=_headers()
+        )
+    assert res.status_code == 409
+    assert db.tables["users"][1]["role"] == "tourist"
+
+
+def test_approve_invalidates_profile_cache(client, pending_request):
+    with _as("developer"), patch.object(dev, "_clear_evidence", new=AsyncMock()), patch.object(
+        dev, "invalidate_profile_cache"
+    ) as spy:
+        client.post(
+            f"/api/v1/dev/verification-requests/{REQUEST_ID}/approve", json={}, headers=_headers()
+        )
+    spy.assert_called_once_with(TARGET_ID)

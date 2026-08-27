@@ -296,7 +296,8 @@ async def approve_verification(
         # 이미 소유자면 승인 자체는 계속 진행한다(재심사·중복 신청 흡수).
         logger.warning("verification_owner_insert_skipped", request_id=request_id, error=str(exc))
 
-    await _clear_evidence(request_id)
+    # 증빙 삭제는 **상태 갱신 뒤**에 한다. 먼저 지우면 갱신이 실패했을 때 요청이 pending 인
+    # 채로 증빙만 사라져 다시 심사할 수 없다(document_path 는 이미 없는 파일을 가리킨다).
     await asyncio.to_thread(
         supabase_admin.table("business_verification_requests").update({
             "status": "approved",
@@ -307,6 +308,7 @@ async def approve_verification(
             "business_number_last4": None,
         }).eq("id", request_id).execute
     )
+    await _clear_evidence(request_id)
     invalidate_profile_cache(user_id)
     log_role_audit(
         actor_id=actor["id"], target_id=user_id, action="verification_review",
@@ -328,7 +330,7 @@ async def reject_verification(
     if res.data[0].get("status") != "pending":
         raise HTTPException(status_code=409, detail="이미 심사가 끝난 요청입니다.")
 
-    await _clear_evidence(request_id)
+    # 승인과 같은 이유로 상태 갱신이 먼저다(증빙을 잃고 pending 에 갇히는 것을 막는다).
     await asyncio.to_thread(
         supabase_admin.table("business_verification_requests").update({
             "status": "rejected",
@@ -339,6 +341,7 @@ async def reject_verification(
             "business_number_last4": None,
         }).eq("id", request_id).execute
     )
+    await _clear_evidence(request_id)
     log_role_audit(
         actor_id=actor["id"], target_id=str(res.data[0]["user_id"]),
         action="verification_review", to_value="rejected", reason=body.reason,
