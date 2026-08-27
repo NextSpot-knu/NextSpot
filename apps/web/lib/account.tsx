@@ -25,7 +25,7 @@ import {
 } from 'react';
 import { apiClient, isAuthError } from '@/lib/api-client';
 import { createPublicClient } from '@/lib/supabase';
-import { normalizeRole, type Account, type AccountRole, type OwnedFacility } from './accountRoles';
+import { parseAccount, type Account } from './accountRoles';
 
 // 역할 판정 규칙은 lib/accountRoles.ts 에 있다(React 없이 테스트하기 위해 분리).
 // 기존 import 경로를 깨지 않도록 여기서 그대로 다시 내보낸다.
@@ -57,20 +57,7 @@ export function AccountProvider({ children }: { children: ReactNode }) {
     try {
       const data = await apiClient.get('/api/v1/account/me');
       if (gen !== genRef.current) return;
-      setAccount({
-        id: String(data?.id ?? ''),
-        role: normalizeRole(data?.role),
-        isAnonymous: Boolean(data?.isAnonymous),
-        nickname: data?.nickname ?? null,
-        ownedFacilities: Array.isArray(data?.ownedFacilities)
-          ? data.ownedFacilities.map((f: OwnedFacility) => ({
-              id: String(f.id),
-              name: String(f.name ?? ''),
-              type: String(f.type ?? ''),
-            }))
-          : [],
-        pendingVerification: Boolean(data?.pendingVerification),
-      });
+      setAccount(parseAccount(data));
       setStatus('ready');
     } catch (err) {
       if (gen !== genRef.current) return;

@@ -27,6 +27,33 @@ export interface Account {
   pendingVerification: boolean;
 }
 
+/**
+ * `GET /api/v1/account/me` 응답을 Account 로 옮긴다.
+ *
+ * ⚠️ **API 는 snake_case 로 내려준다** — `is_anonymous`, `owned_facilities`,
+ * `pending_verification`. 이 프로젝트의 다른 엔드포인트도 전부 그렇다(FastAPI 기본).
+ * 예전에 여기서 camelCase 키를 읽는 바람에 셋 다 조용히 기본값이 됐고, 그 결과
+ * **소유 가게가 항상 빈 배열이라 모든 사장님이 "인증 대기" 화면에 갇혔다.**
+ * 타입이 `unknown` 이라 컴파일러가 잡아 주지 않는다 — 그래서 테스트로 잠근다.
+ *
+ * 내부에서 쓰는 Account 는 camelCase 를 유지한다(화면 코드 관례). 변환은 여기 한 곳뿐이다.
+ */
+export function parseAccount(data: unknown): Account {
+  const d = (data ?? {}) as Record<string, unknown>;
+  const facilities = Array.isArray(d.owned_facilities) ? d.owned_facilities : [];
+  return {
+    id: String(d.id ?? ''),
+    role: normalizeRole(d.role),
+    isAnonymous: Boolean(d.is_anonymous),
+    nickname: (d.nickname as string | null) ?? null,
+    ownedFacilities: facilities.map((raw) => {
+      const f = (raw ?? {}) as Record<string, unknown>;
+      return { id: String(f.id ?? ''), name: String(f.name ?? ''), type: String(f.type ?? '') };
+    }),
+    pendingVerification: Boolean(d.pending_verification),
+  };
+}
+
 export const VALID_ROLES: AccountRole[] = ['tourist', 'merchant', 'admin', 'developer'];
 
 /** 모르는 값은 최소 권한으로 떨어뜨린다(서버와 같은 fail-closed 방향). */

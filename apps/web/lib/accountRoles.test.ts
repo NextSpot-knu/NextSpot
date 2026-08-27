@@ -5,6 +5,7 @@ import {
   canEnterMerchantConsole,
   canRequestBusinessVerification,
   normalizeRole,
+  parseAccount,
   type Account,
   type AccountRole,
 } from './accountRoles';
@@ -84,3 +85,51 @@ for (const role of ['tourist', 'merchant', 'admin'] as AccountRole[]) {
 }
 
 console.log('accountRoles tests passed');
+
+// ── parseAccount — API 응답과 프런트 사이의 계약 ───────────────────────────
+// 아래 payload 는 **실제 프로덕션 응답을 그대로 옮긴 것**이다(2026-08-28,
+// GET https://nextspot-api.onrender.com/api/v1/account/me). 키를 손으로 바꾸지 말 것 —
+// 손으로 맞추는 순간 이 테스트는 실제 계약이 아니라 내 기대를 검사하게 된다.
+const REAL_PAYLOAD = {
+  id: 'fab95350-95fe-423f-8b4b-b2fd138e7a00',
+  role: 'merchant',
+  is_anonymous: false,
+  nickname: null,
+  owned_facilities: [
+    { id: '2cff2c71-5101-4b68-aa8e-dd18f7539400', name: '이풍녀 구로쌈밥', type: 'restaurant' },
+  ],
+  pending_verification: false,
+};
+
+const parsed = parseAccount(REAL_PAYLOAD);
+assert.equal(parsed.id, REAL_PAYLOAD.id);
+assert.equal(parsed.role, 'merchant');
+// 이 세 줄이 이번 회귀의 핵심이다. camelCase 로 읽으면 전부 조용히 기본값이 되고,
+// 특히 ownedFacilities 가 빈 배열이 되어 **모든 사장님이 "인증 대기" 화면에 갇힌다**.
+assert.equal(parsed.ownedFacilities.length, 1, 'owned_facilities 를 못 읽었다 — 사장님 콘솔이 죽는다');
+assert.equal(parsed.ownedFacilities[0].name, '이풍녀 구로쌈밥');
+assert.equal(parsed.isAnonymous, false);
+
+// 익명 게스트 — is_anonymous 를 놓치면 게스트에게 사업자 인증 폼이 열린다.
+const guest = parseAccount({ id: 'g1', role: 'tourist', is_anonymous: true, owned_facilities: [] });
+assert.equal(guest.isAnonymous, true, 'is_anonymous 를 못 읽었다 — 게스트가 정회원으로 취급된다');
+assert.equal(canRequestBusinessVerification(guest), false);
+
+// 심사 대기 — pending_verification 을 놓치면 "심사 중" 상태가 화면에 안 뜬다.
+const pending = parseAccount({ id: 'p1', role: 'tourist', is_anonymous: false, pending_verification: true });
+assert.equal(pending.pendingVerification, true);
+
+// camelCase 로 온 응답은 **믿지 않는다**. 서버가 규약을 바꾼 것이므로 조용히 통과시키면
+// 어느 쪽이 맞는지 알 수 없게 된다 — 기본값으로 떨어뜨려 테스트가 깨지게 둔다.
+const wrongCase = parseAccount({ id: 'x', role: 'merchant', isAnonymous: true, ownedFacilities: [{ id: 'a' }] });
+assert.equal(wrongCase.ownedFacilities.length, 0);
+assert.equal(wrongCase.isAnonymous, false);
+
+// 방어 — 응답이 비었거나 깨져도 화면이 죽으면 안 된다.
+for (const bad of [null, undefined, {}, { owned_facilities: 'nope' }, { owned_facilities: [null] }]) {
+  const a = parseAccount(bad);
+  assert.equal(a.role, 'tourist');
+  assert.ok(Array.isArray(a.ownedFacilities));
+}
+
+console.log('parseAccount contract tests passed');

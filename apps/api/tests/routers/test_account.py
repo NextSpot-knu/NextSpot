@@ -133,3 +133,34 @@ def test_delete_account_failure_is_not_reported_as_success(client):
     response = http.delete("/api/v1/account/me")
     assert response.status_code == 500
     assert db.auth_admin.deleted == []
+
+
+# =========================================================================
+# /account/me 응답 키 — 프런트와의 계약
+# =========================================================================
+# 프런트(apps/web/lib/accountRoles.ts `parseAccount`)가 이 키 이름을 그대로 읽는다.
+# 한쪽만 바꾸면 **타입 검사도 통과하고 테스트도 통과하는데 화면만 조용히 망가진다** —
+# 실제로 그런 적이 있다: 프런트가 camelCase 로 읽는 바람에 owned_facilities 가 항상
+# 빈 배열이 되어 모든 사장님이 "인증 대기" 화면에 갇혔다.
+#
+# 이 프로젝트의 API 규약은 snake_case 다(FastAPI 기본). camelCase 로 바꾸려면
+# 프런트 parseAccount 와 그쪽 테스트를 같이 고쳐야 한다.
+def test_account_me_response_keys_are_snake_case():
+    fields = set(account.AccountMeResponse.model_fields)
+    assert fields == {
+        "id",
+        "role",
+        "is_anonymous",
+        "nickname",
+        "owned_facilities",
+        "pending_verification",
+    }, f"프런트 parseAccount 가 읽는 키와 어긋났다: {sorted(fields)}"
+
+    # 직렬화 결과에도 별칭(camelCase)이 끼지 않아야 한다.
+    dumped = account.AccountMeResponse(
+        id="u1", role="merchant", is_anonymous=False
+    ).model_dump()
+    assert "isAnonymous" not in dumped
+    assert "ownedFacilities" not in dumped
+    assert dumped["owned_facilities"] == []
+    assert dumped["pending_verification"] is False
