@@ -2597,8 +2597,10 @@ export default function MainPage() {
         {/* 오른쪽 열(모바일은 아래): 카테고리 칩 + 지도 레이어 컨트롤 */}
         <div className="flex flex-col gap-2 md:flex-1 md:min-w-0 md:gap-2.5">
 
-        {/* Filter Chips — PC 에선 스크롤 대신 줄바꿈(구글맵스 칩 행 관례) */}
-        <div className="flex gap-2 overflow-x-auto no-scrollbar pointer-events-auto md:flex-wrap md:overflow-visible">
+        {/* Filter Chips — PC 에선 스크롤 대신 줄바꿈(구글맵스 칩 행 관례).
+            왼쪽 금색 띠 = '무엇을 찾을지' 그룹(이 행 + 아래 음식분류 행). 아래 레이어/조건 행은
+            청록 띠로 구분한다 — 칩이 전부 비활성이어도 두 행의 의미가 다르다는 게 보이게. */}
+        <div className="flex gap-2 overflow-x-auto no-scrollbar pointer-events-auto md:flex-wrap md:overflow-visible md:border-l-2 md:border-gold/70 md:pl-2.5">
           {filters.map((filter) => {
             const Icon = filter.icon;
             const isActive = activeFilter === filter.id;
@@ -2627,10 +2629,10 @@ export default function MainPage() {
                 className={`toss-pressable flex shrink-0 items-center whitespace-nowrap rounded-full border px-3.5 py-2 fractal-glass shadow-[0_2px_14px_rgba(43,35,32,0.06)] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 sm:px-4 sm:py-2 ${
                   isActive
                     ? 'bg-gold/15 border-gold text-muk'
-                    : 'bg-white/80 border-line text-muk-soft hover:bg-white hover:text-muk'
+                    : 'bg-white/80 border-gold/30 text-muk-soft hover:bg-white hover:border-gold/60 hover:text-muk'
                 }`}
               >
-                <Icon size={15} className={`mr-1.5 sm:mr-2 ${isActive ? 'text-gold' : 'text-muk-soft'}`} />
+                <Icon size={15} className={`mr-1.5 sm:mr-2 ${isActive ? 'text-gold' : 'text-gold/55'}`} />
                 <span className="text-[13px] font-medium sm:text-sm">{t(`category.${filter.key}`)}</span>
               </button>
             );
@@ -2647,7 +2649,7 @@ export default function MainPage() {
 
         {/* 세부 음식분류 칩(치킨/피자·양식/국밥 등) — 음식점 카테고리에서만. 재탭 시 해제. */}
         {activeFilter === '음식점' && (
-          <div className="hidden gap-2 overflow-x-auto no-scrollbar pointer-events-auto md:flex md:flex-wrap md:overflow-visible">
+          <div className="hidden gap-2 overflow-x-auto no-scrollbar pointer-events-auto md:flex md:flex-wrap md:overflow-visible md:border-l-2 md:border-gold/70 md:pl-2.5">
             {cuisineChips.map((chip) => {
               const on = cuisineChip === chip.id;
               return (
@@ -2658,8 +2660,8 @@ export default function MainPage() {
                   aria-pressed={on}
                   className={`toss-pressable flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border px-2.5 py-1 text-[11px] font-semibold shadow-[0_1px_8px_rgba(43,35,32,0.05)] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 sm:px-3 sm:py-1.5 sm:text-xs ${
                     on
-                      ? 'bg-terracotta/15 border-terracotta text-terracotta'
-                      : 'bg-white/75 border-line text-muk-soft hover:bg-white hover:text-muk'
+                      ? 'bg-gold/15 border-gold text-gold-deep'
+                      : 'bg-white/75 border-gold/25 text-muk-soft hover:bg-white hover:border-gold/50 hover:text-muk'
                   }`}
                 >
                   <span aria-hidden>{chip.emoji}</span>
@@ -2673,7 +2675,7 @@ export default function MainPage() {
         {/* 지도 레이어 컨트롤 — 🔥 히트맵 토글 + 예측 타임슬라이더(지금·+1h·+2h·+3h).
             CongestionMap 의 두 기능을 정본 지도에 통합. 예측 모드는 정직성 배지로 실측과 구분한다.
             (하단은 추천 카드/탭바가 차지하므로, 항상 보이고 충돌 없는 상단 컨트롤 영역에 배치.) */}
-        {activeFilter !== '주차장' && <div className="hidden flex-wrap items-center gap-2 pointer-events-auto md:flex">
+        {activeFilter !== '주차장' && <div className="hidden flex-wrap items-center gap-2 pointer-events-auto md:flex md:border-l-2 md:border-jade/70 md:pl-2.5">
           {/* 히트맵 토글 */}
           <button
             type="button"
@@ -2681,11 +2683,11 @@ export default function MainPage() {
             aria-pressed={showHeatmap}
             className={`flex shrink-0 items-center gap-2 rounded-full border px-3.5 py-2 text-[13px] font-medium transition-all fractal-glass shadow-[0_2px_14px_rgba(43,35,32,0.06)] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 sm:px-4 sm:py-2 sm:text-sm ${
               showHeatmap
-                ? 'bg-terracotta/15 border-terracotta text-muk'
-                : 'bg-white/80 border-line text-muk-soft hover:bg-white hover:text-muk'
+                ? 'bg-jade/15 border-jade text-muk'
+                : 'bg-white/80 border-jade/30 text-muk-soft hover:bg-white hover:border-jade/60 hover:text-muk'
             }`}
           >
-            <span className={`w-2 h-2 rounded-full ${showHeatmap ? 'bg-terracotta animate-pulse' : 'bg-muk-soft/40'}`} />
+            <span className={`w-2 h-2 rounded-full ${showHeatmap ? 'bg-terracotta animate-pulse' : 'bg-jade/45'}`} />
             🔥 {t('map.heatmap')}
           </button>
 
@@ -2697,10 +2699,10 @@ export default function MainPage() {
             className={`flex shrink-0 items-center gap-2 rounded-full border px-3.5 py-2 text-[13px] font-medium transition-all fractal-glass shadow-[0_2px_14px_rgba(43,35,32,0.06)] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 sm:px-4 sm:py-2 sm:text-sm ${
               showBarrierFree
                 ? 'bg-jade/15 border-jade text-muk'
-                : 'bg-white/80 border-line text-muk-soft hover:bg-white hover:text-muk'
+                : 'bg-white/80 border-jade/30 text-muk-soft hover:bg-white hover:border-jade/60 hover:text-muk'
             }`}
           >
-            <span className={`w-2 h-2 rounded-full ${showBarrierFree ? 'bg-jade animate-pulse' : 'bg-muk-soft/40'}`} />
+            <span className={`w-2 h-2 rounded-full ${showBarrierFree ? 'bg-jade animate-pulse' : 'bg-jade/45'}`} />
             ♿ {t('map.barrierFree')}
           </button>
 
@@ -2712,10 +2714,10 @@ export default function MainPage() {
             className={`flex shrink-0 items-center gap-2 rounded-full border px-3.5 py-2 text-[13px] font-medium transition-all fractal-glass shadow-[0_2px_14px_rgba(43,35,32,0.06)] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 sm:px-4 sm:py-2 sm:text-sm ${
               showParkingFilter
                 ? 'bg-jade/15 border-jade text-muk'
-                : 'bg-white/80 border-line text-muk-soft hover:bg-white hover:text-muk'
+                : 'bg-white/80 border-jade/30 text-muk-soft hover:bg-white hover:border-jade/60 hover:text-muk'
             }`}
           >
-            <span className={`w-2 h-2 rounded-full ${showParkingFilter ? 'bg-jade animate-pulse' : 'bg-muk-soft/40'}`} />
+            <span className={`w-2 h-2 rounded-full ${showParkingFilter ? 'bg-jade animate-pulse' : 'bg-jade/45'}`} />
             🅿 {t('map.filterParking')}
           </button>
 
@@ -2730,23 +2732,13 @@ export default function MainPage() {
             className={`flex shrink-0 items-center gap-2 rounded-full border px-3.5 py-2 text-[13px] font-medium transition-all fractal-glass shadow-[0_2px_14px_rgba(43,35,32,0.06)] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 sm:px-4 sm:py-2 sm:text-sm ${
               showPetFilter
                 ? 'bg-jade/15 border-jade text-muk'
-                : 'bg-white/80 border-line text-muk-soft hover:bg-white hover:text-muk'
+                : 'bg-white/80 border-jade/30 text-muk-soft hover:bg-white hover:border-jade/60 hover:text-muk'
             }`}
           >
-            <span className={`w-2 h-2 rounded-full ${showPetFilter ? 'bg-jade animate-pulse' : 'bg-muk-soft/40'}`} />
+            <span className={`w-2 h-2 rounded-full ${showPetFilter ? 'bg-jade animate-pulse' : 'bg-jade/45'}`} />
             🐾 {t('map.filterPet')}
           </button>
           )}
-
-          {/* ⏱ 대기 보드 진입 칩 — /waiting(스마트 줄서기 보드, 정보형)로 이동. 이 칩은 토글이 아니라
-              단순 내비게이션이라 aria-pressed 없이 다른 칩과 동일 문법(pill + fractal-glass)만 맞춘다. */}
-          <button
-            type="button"
-            onClick={() => router.push('/waiting')}
-            className="flex shrink-0 items-center gap-2 rounded-full border px-3.5 py-2 text-[13px] font-medium transition-all fractal-glass shadow-[0_2px_14px_rgba(43,35,32,0.06)] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 sm:px-4 sm:py-2 sm:text-sm bg-white/80 border-line text-muk-soft hover:bg-white hover:text-muk"
-          >
-            ⏱ {t('waiting.entryChip')}
-          </button>
 
           {/* 🏮 경주 축제 칩 — TourAPI 실시간 축제/행사(GET /api/v1/events). 0건·백엔드 다운이면 스스로 숨는다.
               축제 선택 시 지도에 핀(구체 주소) 또는 색상 영역(동·일원 등 넓은 지역)으로 표시. */}
@@ -2838,14 +2830,13 @@ export default function MainPage() {
               <button type="button" onClick={() => setShowMobileTools(false)} aria-label={t('common.close')} className="rounded-full border border-line bg-white p-2 text-muk"><X size={18} /></button>
             </div>
             <div className="grid grid-cols-2 gap-2">
-              <button type="button" onClick={() => setShowHeatmap((value) => !value)} aria-pressed={showHeatmap} className={`rounded-xl border px-3 py-3 text-sm font-semibold ${showHeatmap ? 'border-gold bg-gold/15' : 'border-line bg-white'}`}>🔥 {t('map.heatmap')}</button>
-              <button type="button" onClick={toggleBarrierFree} aria-pressed={showBarrierFree} className={`rounded-xl border px-3 py-3 text-sm font-semibold ${showBarrierFree ? 'border-jade bg-jade/15' : 'border-line bg-white'}`}>♿ {t('map.barrierFree')}</button>
-              <button type="button" onClick={() => setShowParkingFilter((value) => !value)} aria-pressed={showParkingFilter} className={`rounded-xl border px-3 py-3 text-sm font-semibold ${showParkingFilter ? 'border-jade bg-jade/15' : 'border-line bg-white'}`}>🅿 {t('map.filterParking')}</button>
-              <button type="button" onClick={() => { setShowMobileTools(false); router.push('/waiting'); }} className="rounded-xl border border-line bg-white px-3 py-3 text-sm font-semibold">⏱ {t('waiting.entryChip')}</button>
+              <button type="button" onClick={() => setShowHeatmap((value) => !value)} aria-pressed={showHeatmap} className={`rounded-xl border px-3 py-3 text-sm font-semibold ${showHeatmap ? 'border-jade bg-jade/15' : 'border-jade/30 bg-white'}`}>🔥 {t('map.heatmap')}</button>
+              <button type="button" onClick={toggleBarrierFree} aria-pressed={showBarrierFree} className={`rounded-xl border px-3 py-3 text-sm font-semibold ${showBarrierFree ? 'border-jade bg-jade/15' : 'border-jade/30 bg-white'}`}>♿ {t('map.barrierFree')}</button>
+              <button type="button" onClick={() => setShowParkingFilter((value) => !value)} aria-pressed={showParkingFilter} className={`rounded-xl border px-3 py-3 text-sm font-semibold ${showParkingFilter ? 'border-jade bg-jade/15' : 'border-jade/30 bg-white'}`}>🅿 {t('map.filterParking')}</button>
             </div>
             {activeFilter === '음식점' && (
               <div className="mt-4"><p className="mb-2 text-xs font-bold text-muk-soft">{t('map.foodFilters')}</p><div className="flex gap-2 overflow-x-auto no-scrollbar">{cuisineChips.map((chip) => (
-                <button key={chip.id} type="button" onClick={() => selectCuisineChip(chip)} aria-pressed={cuisineChip === chip.id} className={`shrink-0 rounded-full border px-3 py-1.5 text-xs font-semibold ${cuisineChip === chip.id ? 'border-terracotta bg-terracotta/15 text-terracotta' : 'border-line bg-white text-muk-soft'}`}><span aria-hidden>{chip.emoji}</span> {t(`cuisine.${chip.id}`)}</button>
+                <button key={chip.id} type="button" onClick={() => selectCuisineChip(chip)} aria-pressed={cuisineChip === chip.id} className={`shrink-0 rounded-full border px-3 py-1.5 text-xs font-semibold ${cuisineChip === chip.id ? 'border-gold bg-gold/15 text-gold-deep' : 'border-gold/25 bg-white text-muk-soft'}`}><span aria-hidden>{chip.emoji}</span> {t(`cuisine.${chip.id}`)}</button>
               ))}</div></div>
             )}
             <div className="mt-4 flex flex-wrap gap-2"><FestivalBanner onFocus={focusFestivalOnMap} /><RestroomChip location={userLocation} /></div>

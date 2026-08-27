@@ -13,6 +13,7 @@ import {
   EyeOff,
   Loader2,
   ChevronRight,
+  ArrowLeft,
   RefreshCw,
   BadgePercent,
   Search,
@@ -126,6 +127,21 @@ export default function MerchantGatePage() {
     [visible, selectedId],
   );
 
+  // 콘솔에서 나가기 — 이 페이지는 전체화면 게이트라 그동안 어느 단계에서도 되돌아갈 수단이
+  // 없었다(비밀번호를 모르면 브라우저 뒤로가기 외에는 갇힌다). 세 상태(게이트·최근 가게·
+  // 가게 선택) 모두에서 같은 버튼을 노출한다.
+  //
+  // 들어오는 경로가 /mypage · /mypage/settings · /merchant/dashboard 세 곳이라 뒤로가기가
+  // 가장 자연스럽다. 다만 새 탭에서 /merchant 를 직접 연 경우엔 돌아갈 이력이 없으므로
+  // 그때만 마이페이지로 보낸다.
+  const handleLeaveConsole = () => {
+    if (typeof window !== 'undefined' && window.history.length > 1) {
+      router.back();
+      return;
+    }
+    router.push('/mypage');
+  };
+
   const handleGateSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!password) {
@@ -167,6 +183,16 @@ export default function MerchantGatePage() {
   return (
     <div className="min-h-screen w-full bg-hanji flex flex-col items-center justify-center px-5 py-10 font-sans">
       <div className="w-full max-w-md">
+        <div className="mb-4">
+          <button
+            type="button"
+            onClick={handleLeaveConsole}
+            className="inline-flex items-center gap-1.5 min-h-9 -ml-1 px-2 py-1.5 rounded-lg text-sm font-medium text-muk-soft hover:bg-white hover:text-muk transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/40"
+          >
+            <ArrowLeft size={16} /> 나가기
+          </button>
+        </div>
+
         <div className="flex flex-col items-center mb-8">
           <div className="w-14 h-14 rounded-2xl bg-gold/15 border border-gold/30 flex items-center justify-center text-gold-deep mb-4">
             <Store size={26} />
