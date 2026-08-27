@@ -178,11 +178,24 @@ SessionBootstrap: 익명 세션 자동 발급
         │
         ├─ linkOAuth   → 같은 auth.users 행에 소셜 identity 승격
         │                 (user_id 불변 = 데이터 그대로 승계)
-        └─ signInOAuth → 다른 기기의 기존 계정으로 로그인
+        │                 진입점: 마이페이지 AccountSection('내 계정 만들기' 의도)
+        └─ signInOAuth → 소셜 계정으로 로그인(계정 전환). 처음이면 새 계정 생성
+                          진입점: /login 의 'SNS 계속하기'('로그인' 의도)
                           → POST /api/v1/account/merge-guest 로 게스트 데이터 소유증명 승계
                           → lib/userData.ts 가 이전 사용자 개인 데이터만 allowlist 로 삭제
                              (언어·지도뷰·PWA 스누즈 같은 '기기 설정'은 보존)
 ```
+
+> **진입점마다 다른 함수를 쓰는 이유**(2026-08-27): `/login` 에서 `linkOAuth` 를 쓰면, 이미 그
+> 소셜 계정으로 가입한 사용자는 `identity_already_exists` → 콜백 자동 폴백 → **프로바이더 2회 왕복**이
+> 된다(계정 선택 화면이 두 번 뜬다). 재방문자는 전부 이 경로다. 로그인 의도인 `/login` 은 처음부터
+> `signInOAuth` 로 1회에 끝내고, 게스트 승격 의도인 마이페이지만 `linkOAuth`(uid 불변)를 쓴다.
+
+> **소셜 프로바이더 상태**: 구글 정상. **카카오는 KOE205 로 막혀 있다** — Supabase Auth 가
+> `account_email` scope 를 서버에 하드코딩해 항상 요청하는데(대시보드에 Kakao Scopes 칸이 없고,
+> 코드의 `options.scopes` 는 대체가 아니라 **덧붙기**다), 그 동의항목은 카카오 비즈 앱 전용이다.
+> 업스트림 이슈 supabase/supabase#36878 미해결. **카카오 '개인 개발자 비즈 앱 전환'** 이 선행되어야
+> 한다. 코드는 프로바이더 무관하게 준비돼 있어 승인 후 별도 수정이 필요 없다.
 
 **보안 원칙 (코드에 강제되어 있음)**
 

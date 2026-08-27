@@ -1,5 +1,44 @@
 # 세션 인계 문서 (2026-08-27 갱신)
 
+## -43. 2026-08-27 — OAuth 마무리: 구글 왕복 절반, 카카오 차단 원인 규명
+
+**구글 — 재방문자가 계정 선택을 두 번 하던 문제 해결**
+
+`/login` 의 'SNS 계속하기' 가 `linkOAuth`(=`linkIdentity`)를 썼다. 이미 그 소셜 계정으로 가입한
+사용자면 `identity_already_exists` 로 실패하고, 콜백이 `signInOAuth` 로 자동 폴백해 **프로바이더를
+두 번 왕복**한다. 로그인은 되지만 계정 선택 화면이 두 번 떠서 "처음엔 실패했다" 로 읽힌다.
+**기존 계정은 항상 이 경로**라 출시 후 재방문자 다수가 겪는다. `/login` 을 `signInOAuth` 로 바꿔
+1회로 줄였고, 게스트 승격 의도인 마이페이지 `AccountSection` 만 `linkOAuth` 를 유지했다.
+브라우저에서 계정 선택 1회 → `/main` 진입 확인.
+
+**카카오 — KOE205, 비즈 앱 전환 전까지 사용 불가**
+
+- 실측: `scope=account_email profile_image profile_nickname` → **KOE205**(잘못된 요청).
+  `account_email` 만 뺀 `profile_image profile_nickname` → 동의 화면 정상 렌더. **원인 확정.**
+- `account_email` 은 **Supabase Auth(GoTrue)가 서버에 하드코딩**해 항상 요청한다.
+  대시보드에 Kakao **Scopes 칸이 없고**, 코드의 `options.scopes` 는 대체가 아니라 **덧붙기**다
+  (실측: 코드로 넘기면 `account_email … + profile_nickname profile_image` 중복). 즉 **앱에서 뺄 방법이 없다.**
+- 업스트림 이슈 `supabase/supabase#36878` **Open**, PR #47195 **미병합**. 기다려서 풀릴 문제가 아니다.
+- 해법: **카카오 '개인 개발자 비즈 앱 전환'**(사업자등록번호 불요, 본인인증 필요).
+  2026-08-05 데브톡 운영자 답변 기준 *"개별 심사에서 디벨로퍼스 설정 방식으로 변경"* — 콘솔 셀프서비스다.
+- ⚠️ **카카오 앱 이름이 `Induspot`** — 동의 화면에 옛 프로젝트명이 그대로 노출된다. `NextSpot` 으로 변경 필요.
+
+**구글 콘솔**: OAuth 동의 화면이 '테스트' 면 허용목록 계정만 로그인되고 리프레시 토큰이 7일 만에
+만료된다. NextSpot 은 `email profile`(비민감)만 쓰므로 **게시에 구글 검토가 불필요**하다 — 팀원
+로그인을 열려면 '앱 게시' 한 번이면 된다.
+
+**부수 수정 — 이메일 없는 소셜 계정의 가짜 주소**: `displayEmail` 기본값이 `guest@nextspot.app`
+이라 로그인한 사용자에게도 게스트 주소가 보였다. 빈 값이면 줄을 숨기고, 이메일이 없으면
+`카카오 연동됨` 을 표시한다(기존 `auth.linkedVia` 재사용 — 신규 문구 0개).
+
+**회귀 테스트 신설** `lib/oauthFlow.test.ts` 32단언: `//evil.com` 오픈 리다이렉트 차단, `retry` 표식
+(폴백 무한루프 방지), `providers` 추림(이메일 회원의 email identity 가 소셜 뱃지에 뜨지 않을 것).
+원래 `lib/auth.ts` 비공개 함수라 테스트가 불가능했던 부분을 `lib/oauthFlow.ts` 로 분리했다.
+
+**실측 참고**: `auth.users` 544명 = 익명 539 + 실계정 5(구글 2·이메일 3). 카카오 연동 **0건**.
+
+**검증**: typecheck 0, 웹 단위 전체 통과(oauthFlow 포함), lint 0 errors, check:i18n 0 누락.
+
 ## -42. 2026-08-27 — 분산 코스 전면 실패 원인(영업근거 조회가 URL 한도를 넘김) 수정
 
 **증상**: `/course`(분산코스)가 로딩 스켈레톤에서 영영 벗어나지 못했다. 브라우저에서 재현하니
