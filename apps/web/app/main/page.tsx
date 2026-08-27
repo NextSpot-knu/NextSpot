@@ -2648,6 +2648,9 @@ export default function MainPage() {
         </button>}
 
         {/* 세부 음식분류 칩(치킨/피자·양식/국밥 등) — 음식점 카테고리에서만. 재탭 시 해제. */}
+        {/* 칩에 fractal-glass 가 반드시 있어야 한다 — 어두운 지도 위에 뜨는 요소라
+            blur 가 없으면 bg-white/85 사이로 지도가 그대로 비쳐 글자가 안 읽힌다.
+            1행 업종 칩은 처음부터 달고 있었고 이 줄만 빠져 있었다(2026-08-28 수정). */}
         {activeFilter === '음식점' && (
           <div className="hidden gap-2 overflow-x-auto no-scrollbar pointer-events-auto md:flex md:flex-wrap md:overflow-visible md:border-l-2 md:border-gold/70 md:pl-2.5">
             {cuisineChips.map((chip) => {
@@ -2658,10 +2661,10 @@ export default function MainPage() {
                   type="button"
                   onClick={() => selectCuisineChip(chip)}
                   aria-pressed={on}
-                  className={`toss-pressable flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border px-2.5 py-1 text-[11px] font-semibold shadow-[0_1px_8px_rgba(43,35,32,0.05)] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 sm:px-3 sm:py-1.5 sm:text-xs ${
+                  className={`toss-pressable flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border px-2.5 py-1 text-[11px] font-semibold fractal-glass shadow-[0_1px_8px_rgba(43,35,32,0.05)] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 sm:px-3 sm:py-1.5 sm:text-xs ${
                     on
                       ? 'bg-gold/15 border-gold text-gold-deep'
-                      : 'bg-white/75 border-gold/25 text-muk-soft hover:bg-white hover:border-gold/50 hover:text-muk'
+                      : 'bg-white/85 border-gold/30 text-muk-soft hover:bg-white hover:border-gold/60 hover:text-muk'
                   }`}
                 >
                   <span aria-hidden>{chip.emoji}</span>
