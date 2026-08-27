@@ -224,6 +224,38 @@ async def fetch_latest_congestion_for_all(facility_ids: list[str]) -> dict:
     results = await asyncio.gather(*[_fetch_latest_one(fid) for fid in facility_ids])
     return {fid: data for fid, data in results if data is not None}
 
+# ── 지도 응답에서 빼는 features 키 ──────────────────────────────────────────
+# facilities.features 에는 화면이 쓰는 값(cuisine_tags·seat_status·kakao_place_url…)과
+# **데이터 파이프라인 출처 기록**이 함께 들어 있다. 뒤쪽은 지도 화면이 한 줄도 읽지 않는데
+# 방문자마다 매번 내려가고 있었다 — 실측 542곳 기준 약 85KB(전체 응답 724KB, features 350KB).
+#
+# 이게 왜 중요한가: 프런트는 /infrastructures 를 **2.5초 안에** 못 받으면 곧바로 Supabase
+# 직접 읽기로 폴백한다(app/main/page.tsx). 그 폴백 경로에는 알려진 결함이 있다 —
+# 로그가 잦은 시설이 캡을 채우면 다른 시설이 congestion=null 로 조용히 누락된다.
+# 즉 응답이 무거워 2.5초를 넘길수록, 앱은 더 자주 **결함 있는 경로**로 돈다.
+#
+# DB 에서 지우는 게 아니라 이 엔드포인트 응답에서만 뺀다. 허용목록이 아니라 차단목록인 것은
+# 의도적이다 — 새 키가 생겼을 때 조용히 사라지는 쪽보다 그냥 내려가는 쪽이 안전하다.
+_FEATURES_OMITTED_ON_MAP = frozenset({
+    "discovery_updated_at",
+    "discovery_queries",
+    "discovery_source",
+    "indoor_evidence",
+    "capacity_evidence",
+    "coordinate_source",
+    "tagging_source",
+    "tourapi_coordinates",
+    "kakao_category_name",
+})
+
+
+def _slim_features(features):
+    """지도 응답용으로 출처 기록을 걷어낸다. dict 가 아니면 그대로 돌려준다."""
+    if not isinstance(features, dict):
+        return features
+    return {k: v for k, v in features.items() if k not in _FEATURES_OMITTED_ON_MAP}
+
+
 @router.get("/infrastructures", response_model=list[InfrastructureItem])
 async def get_infrastructures(
     type: str | None = None,
@@ -271,7 +303,7 @@ async def get_infrastructures(
                 longitude=f["longitude"],
                 capacity=f["capacity"],
                 operating_hours=f.get("operating_hours"),
-                features=f.get("features"),
+                features=_slim_features(f.get("features")),
                 congestion=congestion,
                 image_url=f.get("image_url"),
                 gallery_images=_clean_gallery_images(f.get("gallery_images")),

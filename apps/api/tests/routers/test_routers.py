@@ -1673,3 +1673,47 @@ def test_course_sequence_skips_exhausted_type(auth_client):
     stops = res.json()
     assert len(stops) == 1
     assert stops[0]["facility"]["type"] == "cafe"
+
+
+# =========================================================================
+# /infrastructures 응답 슬리밍
+# =========================================================================
+# 지도 화면이 한 줄도 읽지 않는 파이프라인 출처 기록이 방문자마다 내려가고 있었다.
+# 응답이 무거워 2.5초를 넘기면 프런트가 Supabase 직접 읽기로 폴백하는데, 그 경로에는
+# 시설이 조용히 누락되는 알려진 결함이 있다 — 그래서 응답 크기가 정확도 문제로 이어진다.
+def test_map_response_drops_pipeline_provenance():
+    from app.routers.infrastructures import _slim_features
+
+    slim = _slim_features({
+        "cuisine_tags": ["한식"],
+        "seat_status": {"level": "low"},
+        "kakao_place_url": "https://place.map.kakao.com/1",
+        "discovery_queries": ["황리단길 맛집"] * 5,
+        "capacity_evidence": {"source": "kakao", "raw": "…"},
+        "indoor_evidence": {"source": "tourapi"},
+        "tagging_source": "batch",
+    })
+    # 화면이 읽는 값은 남는다.
+    assert slim["cuisine_tags"] == ["한식"]
+    assert slim["seat_status"] == {"level": "low"}
+    assert slim["kakao_place_url"].startswith("https://")
+    # 출처 기록은 빠진다.
+    for gone in ("discovery_queries", "capacity_evidence", "indoor_evidence", "tagging_source"):
+        assert gone not in slim
+
+
+def test_map_response_slimming_is_a_denylist_not_an_allowlist():
+    """새 키가 생겼을 때 조용히 사라지면 안 된다 — 모르는 키는 그대로 통과시킨다."""
+    from app.routers.infrastructures import _slim_features
+
+    slim = _slim_features({"some_future_key": 1, "discovery_source": "kakao"})
+    assert slim["some_future_key"] == 1
+    assert "discovery_source" not in slim
+
+
+def test_map_response_slimming_tolerates_missing_or_odd_features():
+    from app.routers.infrastructures import _slim_features
+
+    assert _slim_features(None) is None
+    assert _slim_features({}) == {}
+    assert _slim_features("not-a-dict") == "not-a-dict"
