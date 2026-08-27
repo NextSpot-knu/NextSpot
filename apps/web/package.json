@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
-    "test": "node ../../scripts/check-i18n-keys.mjs && tsx lib/voiceIntent.test.ts && tsx lib/i18n/parity.test.ts && tsx lib/areaDemandPresentation.test.ts && tsx lib/spotComparison.test.ts && tsx lib/gyeongjuDiscovery.test.ts && tsx lib/travelContext.test.ts && tsx lib/restDate.test.ts && tsx lib/walkingTime.test.ts && tsx lib/placeSearch.test.ts && tsx lib/voiceCommands.test.ts && tsx lib/anonymousSession.test.ts && tsx lib/theme.test.ts && tsx lib/authErrors.test.ts",
+    "test": "node ../../scripts/check-i18n-keys.mjs && tsx lib/voiceIntent.test.ts && tsx lib/i18n/parity.test.ts && tsx lib/areaDemandPresentation.test.ts && tsx lib/spotComparison.test.ts && tsx lib/gyeongjuDiscovery.test.ts && tsx lib/travelContext.test.ts && tsx lib/restDate.test.ts && tsx lib/walkingTime.test.ts && tsx lib/placeSearch.test.ts && tsx lib/voiceCommands.test.ts && tsx lib/anonymousSession.test.ts && tsx lib/theme.test.ts && tsx lib/authErrors.test.ts && tsx lib/oauthFlow.test.ts",
     "test:e2e": "playwright test"
   },
   "engines": {
