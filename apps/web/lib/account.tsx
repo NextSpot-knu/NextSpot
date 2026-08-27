@@ -25,23 +25,17 @@ import {
 } from 'react';
 import { apiClient, isAuthError } from '@/lib/api-client';
 import { createPublicClient } from '@/lib/supabase';
+import { normalizeRole, type Account, type AccountRole, type OwnedFacility } from './accountRoles';
 
-export type AccountRole = 'tourist' | 'merchant' | 'admin' | 'developer';
-
-export interface OwnedFacility {
-  id: string;
-  name: string;
-  type: string;
-}
-
-export interface Account {
-  id: string;
-  role: AccountRole;
-  isAnonymous: boolean;
-  nickname: string | null;
-  ownedFacilities: OwnedFacility[];
-  pendingVerification: boolean;
-}
+// 역할 판정 규칙은 lib/accountRoles.ts 에 있다(React 없이 테스트하기 위해 분리).
+// 기존 import 경로를 깨지 않도록 여기서 그대로 다시 내보낸다.
+export type { AccountRole, OwnedFacility, Account } from './accountRoles';
+export {
+  canEnterMerchantConsole,
+  canEnterAdminConsole,
+  canEnterDevConsole,
+  canRequestBusinessVerification,
+} from './accountRoles';
 
 interface AccountContextValue {
   account: Account | null;
@@ -51,13 +45,6 @@ interface AccountContextValue {
 }
 
 const AccountContext = createContext<AccountContextValue | null>(null);
-
-const VALID_ROLES: AccountRole[] = ['tourist', 'merchant', 'admin', 'developer'];
-
-function normalizeRole(value: unknown): AccountRole {
-  // 모르는 값은 최소 권한으로 떨어뜨린다(서버와 같은 fail-closed 방향).
-  return VALID_ROLES.includes(value as AccountRole) ? (value as AccountRole) : 'tourist';
-}
 
 export function AccountProvider({ children }: { children: ReactNode }) {
   const [account, setAccount] = useState<Account | null>(null);
@@ -119,27 +106,4 @@ export function useAccount(): AccountContextValue {
   const ctx = useContext(AccountContext);
   // 프로바이더 밖에서 불려도 화면을 깨뜨리지 않는다(관광객 경로는 권한과 무관하게 동작해야 한다).
   return ctx ?? { account: null, status: 'error', refresh: async () => {} };
-}
-
-// ── 권한 판정 헬퍼 ─────────────────────────────────────────────────────────
-// 각 화면이 role 문자열을 직접 비교하지 않게 여기 모은다. 규칙이 바뀌면 한 곳만 고친다.
-
-/** 사장님 콘솔에 들어갈 수 있는가. **admin 은 포함하지 않는다** — 관제와 콘솔은 완전히 분리한다. */
-export function canEnterMerchantConsole(account: Account | null): boolean {
-  return account?.role === 'merchant' || account?.role === 'developer';
-}
-
-/** 관리자 대시보드에 들어갈 수 있는가(developer 는 admin 의 상위집합). */
-export function canEnterAdminConsole(account: Account | null): boolean {
-  return account?.role === 'admin' || account?.role === 'developer';
-}
-
-/** 개발자 콘솔(/dev) — 팀 전용. */
-export function canEnterDevConsole(account: Account | null): boolean {
-  return account?.role === 'developer';
-}
-
-/** 사업자 인증을 신청할 수 있는 상태인가(게스트는 먼저 계정을 만들어야 한다). */
-export function canRequestBusinessVerification(account: Account | null): boolean {
-  return !!account && !account.isAnonymous && account.role === 'tourist';
 }
