@@ -1,4 +1,51 @@
-# 세션 인계 문서 (2026-08-26 갱신)
+# 세션 인계 문서 (2026-08-27 갱신)
+
+## -41. 2026-08-27 — 분산 코스 전면 실패 원인(영업근거 조회가 URL 한도를 넘김) 수정
+
+**증상**: `/course`(분산코스)가 로딩 스켈레톤에서 영영 벗어나지 못했다. 브라우저에서 재현하니
+백엔드는 200 을 돌려주는데 화면은 그대로였다.
+
+**원인**: `availability_service.fetch_effective_availability_map` 이 시설 **전체 id 를 한 번에**
+PostgREST 의 `in.(...)` 필터에 실었다. 시설이 85곳이던 시절의 코드인데 지금은 1,628곳이다.
+UUID 하나가 구분자 포함 ~39바이트라 URL 이 60KB 를 넘고, Supabase 앞단 Cloudflare 가
+**520(Web server is returning an unknown error)** 을 낼 때까지 ~9초를 소모한다. 그러면
+`except` 가 조용히 `{}` 를 돌려주므로 두 가지 일이 동시에 벌어지고 있었다:
+
+1. **영업 근거가 항상 비어 있었다.** 실패가 무해 폴백으로 흡수되어 정상처럼 보였다.
+2. **그 9초가 `/courses/recommend` 를 프런트 10초 타임아웃 밖으로 밀어냈다.** 다른 화면은
+   `fetch_all_facilities(center_lat=…, radius_m=…)` 로 좁힌 뒤 이 조회를 타서 영향이 적었지만,
+   코스 라우터만 반경 없이 전체를 넘긴다 → 코스만 100% 실패.
+
+**실측** (브라우저에서 같은 엔드포인트 5회):
+
+| | 수정 전 | 수정 후 |
+|---|---|---|
+| `/courses/recommend` | 10,299 / 9,960 / 9,806 ms → 전부 타임아웃 | 785 / 976 / 1,133 / 1,621 / 1,650 ms |
+| `fetch_all_facilities()` | 10.67s (cold) · 9.19s (warm) | 1.54s (cold) · 0.38s (warm) |
+
+**수정**
+- `fetch_effective_availability_map` 을 id 150개 단위로 쪼개 `asyncio.gather` 로 동시 조회한다
+  (150개 ≈ 5.9KB — 흔한 URL 상한 8KB 에 여유). 조각 하나가 실패해도 나머지 근거는 살린다.
+- `/course` 페이지의 코스 호출에 `timeoutMs: 20000` 을 명시했다. 멀티스톱 계산은 단일 추천보다
+  본질적으로 무겁고 캐시가 식은 첫 요청은 더 느리다 — 기본 10초는 정상 범위와 너무 가까웠다.
+  **병목 자체는 위에서 고쳤고 이 값은 그 위의 여유분이다**(타임아웃을 늘려 증상을 덮은 게 아니다).
+- 회귀 테스트 2건(`tests/services/test_availability_service.py`): 조각 크기 상한·전체 커버리지
+  잠금, 조각 1건 실패 시 나머지 생존.
+
+**부수 발견 — `optimization.*` i18n 네임스페이스 통째 누락**: `/course` 와 `/waiting` 로딩 화면이
+번역문 대신 `optimization.course.title` 같은 **원시 키를 사용자에게 그대로** 보여주고 있었다
+(§-29 F1 로 보고만 해뒀던 건). ko/en/ja/zh 4개 로케일에 13키를 채웠다 — 로케일 패리티
+721 → 734 키. 문구는 도착시점 혼잡 예측을 주장하지 않는다(현재 `degraded_rules` 라 정직하지 않다):
+`분산 코스를 짜는 중 / 도보 이동시간과 취향을 함께 계산하고 있어요 / 취향 반영 · 도착 시각 계산 · 동선 정리`.
+
+**아직 남은 i18n 누락 41종** (`npm run check:i18n`). 전부 main 의 신규 기능 쪽이라 문구 주인이
+따로 있다 — 이번 작업 범위 밖으로 두고 보고만 한다:
+`discovery.*`(11) · `recommend.*`(16, spotComparison·tourismEvidence 포함) · `card.hours*`(7) ·
+`theme.title/description` · `festival.aiSummary` · `common.back`(온보딩 뒤로가기 aria-label —
+스크린리더가 "common.back" 을 그대로 읽는다).
+
+**검증**: API pytest **808 passed**(신규 2건 포함), ruff 통과, 웹 typecheck 0, 웹 단위 테스트 전체
+통과(로케일 패리티 734키 × 3), lint 0 errors / 142 warnings, 브라우저에서 코스 3정류지 렌더 확인.
 
 ## -40. 2026-08-26 — 경주 현지 시각 자동 야간 다크모드
 

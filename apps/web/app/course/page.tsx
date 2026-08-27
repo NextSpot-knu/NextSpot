@@ -221,7 +221,12 @@ function CourseContent() {
       } else if (selectedTypes.length > 0) {
         body.types = selectedTypes;
       }
-      const data: CourseStop[] = await apiClient.post("/api/v1/courses/recommend", body);
+      // 타임아웃을 명시한다(기본 10초 대신 20초). 코스 추천은 정류지마다 후보를 재평가하는
+      // 멀티스톱 계산이라 단일 추천보다 본질적으로 무겁고, 백엔드 시설 캐시가 식은 첫 요청은
+      // 여기에 더해 전체 시설을 다시 읽는다. 기본값 10초는 그 정상 범위와 너무 가까워,
+      // 조금만 느려도 '분산 코스 전체 실패'로 보였다(2026-08-27 실측: 서버 ~10초 → 100% 실패).
+      // 서버 쪽 병목은 availability_service 조회 분할로 별도 수정했고(~1초), 이 값은 그 위의 여유분이다.
+      const data: CourseStop[] = await apiClient.post("/api/v1/courses/recommend", body, { timeoutMs: 20000 });
       if (gen !== fetchGenRef.current) return; // 이후 요청이 이미 나감 — 구세대 응답 폐기
       setStops(Array.isArray(data) ? data : []);
     } catch (err) {
