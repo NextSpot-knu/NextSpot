@@ -3,9 +3,14 @@
 배경: 관광객 앱/관리자 관제와 별개로, 개별 가맹점 사장님이 자기 시설 하나만 보고 다루는
   전용 콘솔이 없었다. 이 라우터가 그 백엔드다 — apps/web/app/merchant/* 프런트가 소비한다.
 
-- 모든 엔드포인트는 require_merchant(X-Merchant-Token 공유 토큰) 가드로 보호된다.
-  (admin 라우터의 require_admin 패턴을 미러하되, 헤더/토큰 체계는 별도다 — 사장님 계정은
-  관리자 권한이 아니므로 서로 다른 신뢰 경로를 쓴다.)
+- 인증은 **Supabase JWT + users.role='merchant'** 이고, 그 위에 **가게 소유권**을 강제한다
+  (app/core/authz.py). 역할은 "콘솔에 들어갈 수 있다" 만 뜻하고, 어느 가게를 다루는지는
+  facility_owners 가 정한다 — 이 검사가 없으면 누구나 아무 가게의 좌석 상태를 방송할 수 있고
+  그 방송이 evidence_tier='verified' 로 학습 데이터에 들어간다(CONGESTION_TRUST_SPEC).
+- 구 X-Merchant-Token 공유 토큰은 settings.LEGACY_CONSOLE_TOKENS 가 켜져 있는 동안만
+  한시 수용된다(프런트 전환 전 무중단용). 그 경로는 사용자가 특정되지 않아 소유권을 확인할 수
+  없으므로 **예전과 동일하게 소유권 검사를 건너뛴다** — 보안 구멍이 열려 있는 상태이며,
+  프런트가 JWT 로 전환되는 즉시 이 플래그를 끈다.
 - DB 접근은 service_role(supabase_admin) — RLS 우회는 이 신뢰 경로 안에서만 일어난다.
 - 예외 원문은 서버 로그로만 남기고 클라이언트에는 일반 메시지를 준다(admin 라우터와 동일 관례).
 
@@ -30,6 +35,13 @@ import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from app.core.authz import (
+    ROLE_MERCHANT,
+    assert_role,
+    load_profile_from_request,
+    require_facility_owner,
+    require_merchant_console_enabled,
+)
 from app.core.config import settings
 from app.core.supabase import supabase_admin
 from app.services import merchant_briefing_service
@@ -37,31 +49,51 @@ from app.services.merchant_boost import SEAT_LEVEL_CONGESTION
 
 logger = structlog.get_logger()
 
-# 백엔드 MERCHANT_API_TOKEN 과 프런트 apps/web NEXT_PUBLIC_MERCHANT_API_TOKEN 이 같은 값이어야
-# 사장님 콘솔이 인증된다. 둘 다 기본값 'nextspot-merchant-local' 을 공유한다(로컬 데모 전제).
-# require_admin 의 ADMIN_API_TOKEN 필수-값 패턴과 달리 기본값이 있어 미설정 배포에서도 부팅이
-# 막히지 않는다 — 데모 우선 설계.
+# 구 공유 토큰(X-Merchant-Token) 한시 수용 경로.
 #
 # settings 경유로 읽는다(직접 os.environ 을 읽지 않는다): pydantic-settings 는 .env 를
 # os.environ 에 주입하지 않으므로, os.environ.get 은 .env 에 적은 값을 조용히 무시한다.
 # 모듈 로드 시점에 상수로 굳히지 않고 호출마다 settings 에서 읽는다 — import 순서에 값이
 # 좌우되지 않고, 테스트가 monkeypatch 로 토큰 경로를 실제로 검증할 수 있다.
-
-
-def require_merchant(request: Request) -> dict:
-    """사장님 콘솔 전용 가드 — 공유 토큰 검증(admin require_admin 미러, 헤더/체계는 별도).
-
-    프런트(apps/web/app/merchant/*)는 세션 토큰을 X-Merchant-Token 헤더에 원문 그대로 보낸다
-    (admin 의 `Bearer ` 접두 체계와 달리 접두어 없음 — 콘솔 간 신뢰 경로 혼선 방지 목적으로 헤더명 자체를 분리).
-    토큰 비교는 hmac.compare_digest(상수시간)로 타이밍 공격을 방지한다.
-    """
+def _legacy_token_ok(request: Request) -> bool:
+    """구 공유 토큰이 유효한가. LEGACY_CONSOLE_TOKENS 가 꺼져 있으면 항상 False."""
+    if not settings.LEGACY_CONSOLE_TOKENS:
+        return False
     token = (request.headers.get("x-merchant-token") or "").strip()
-    if not token or not hmac.compare_digest(token, settings.MERCHANT_API_TOKEN):
-        raise HTTPException(status_code=401, detail="유효하지 않은 사장님 인증 토큰입니다.")
-    return {"role": "merchant"}
+    return bool(token) and hmac.compare_digest(token, settings.MERCHANT_API_TOKEN)
 
 
-router = APIRouter(prefix="/api/v1/merchant", tags=["merchant"], dependencies=[Depends(require_merchant)])
+async def merchant_context(
+    request: Request,
+    _console: None = Depends(require_merchant_console_enabled),
+) -> dict:
+    """사장님 콘솔 요청 컨텍스트.
+
+    반환값의 ``profile`` 이 None 이면 **레거시 공유 토큰 경로**다 — 사용자를 특정할 수 없어
+    소유권을 확인할 수 없으므로, 호출부의 assert_owns() 가 검사를 건너뛴다(예전 동작 유지).
+    JWT 경로면 role 과 소유 가게가 채워진 profile 이 들어온다.
+    """
+    if _legacy_token_ok(request):
+        logger.warning("legacy_token_used", path=request.url.path)
+        return {"profile": None}
+
+    # JWT 경로 — 여기서부터는 role·소유권을 정식으로 강제한다.
+    profile = await load_profile_from_request(request)
+    if profile is None:
+        raise HTTPException(status_code=401, detail="로그인이 필요합니다.")
+    assert_role(profile, ROLE_MERCHANT)
+    return {"profile": profile}
+
+
+def assert_owns(ctx: dict, facility_id: str) -> None:
+    """이 요청이 해당 가게를 다룰 수 있는지 확인한다(레거시 경로는 통과)."""
+    profile = ctx.get("profile")
+    if profile is None:
+        return
+    require_facility_owner(profile, facility_id)
+
+
+router = APIRouter(prefix="/api/v1/merchant", tags=["merchant"])
 
 _STATS_WINDOW_DAYS = 7
 # 타임세일 UI 는 15/20/30% × 1/2/3시간의 고정 3×3 그리드다 — 서버도 동일 값만 허용해
@@ -81,7 +113,8 @@ _SEAT_LEVELS = ("low", "mid", "full")
 
 
 @router.get("/stats")
-async def get_stats(facility_id: str):
+async def get_stats(facility_id: str, ctx: dict = Depends(merchant_context)):
+    assert_owns(ctx, facility_id)
     since = (datetime.now(timezone.utc) - timedelta(days=_STATS_WINDOW_DAYS)).isoformat()
     try:
         coupons_res, reports_res, recs_res = await asyncio.gather(
@@ -149,7 +182,8 @@ async def get_stats(facility_id: str):
 
 
 @router.get("/briefing")
-async def get_briefing(facility_id: str):
+async def get_briefing(facility_id: str, ctx: dict = Depends(merchant_context)):
+    assert_owns(ctx, facility_id)
     """오늘의 실행 브리핑 — { briefing: str|null, llmStatus }.
 
     캐시(facility+KST 시간 버킷, 성공 30분/실패 1분) 히트 시 예측·DB 조회 없이 즉시 반환한다.
@@ -236,7 +270,8 @@ async def _active_timesale_rates(facility_id: str) -> list[float] | None:
 
 
 @router.post("/timesale")
-async def create_timesale(req: TimesaleCreate):
+async def create_timesale(req: TimesaleCreate, ctx: dict = Depends(merchant_context)):
+    assert_owns(ctx, req.facility_id)
     """타임세일 발행 — 유령 세일 방지를 위해 시설 존재를 먼저 검증한다(admin 혼잡 override 패턴 미러)."""
     try:
         exists = await _facility_exists(req.facility_id)
@@ -302,7 +337,8 @@ async def create_timesale(req: TimesaleCreate):
 
 
 @router.get("/timesale")
-async def list_active_timesales(facility_id: str):
+async def list_active_timesales(facility_id: str, ctx: dict = Depends(merchant_context)):
+    assert_owns(ctx, facility_id)
     """활성(미취소·미만료) 타임세일 목록 — created_at 최신순."""
     now_iso = datetime.now(timezone.utc).isoformat()
     try:
@@ -322,7 +358,8 @@ async def list_active_timesales(facility_id: str):
 
 
 @router.post("/timesale/cancel")
-async def cancel_timesale(req: TimesaleCancel):
+async def cancel_timesale(req: TimesaleCancel, ctx: dict = Depends(merchant_context)):
+    assert_owns(ctx, req.facility_id)
     """타임세일 취소 — id+facility_id 일치 행만 canceled_at 을 채운다(타 시설 세일 오취소 방지)."""
     try:
         res = await asyncio.to_thread(
@@ -361,7 +398,8 @@ class SeatStatusUpdate(BaseModel):
 
 
 @router.post("/seat-status")
-async def update_seat_status(req: SeatStatusUpdate):
+async def update_seat_status(req: SeatStatusUpdate, ctx: dict = Depends(merchant_context)):
+    assert_owns(ctx, req.facility_id)
     try:
         fac_res = await asyncio.to_thread(
             supabase_admin.table("facilities").select("id, features, capacity").eq("id", req.facility_id).limit(1).execute
@@ -402,6 +440,10 @@ async def update_seat_status(req: SeatStatusUpdate):
                     "congestion_level": normalized_level,
                     "source": "merchant_report",
                     "evidence_tier": "verified",
+                    # 누가 방송했는지 남긴다. 이 행은 evidence_tier='verified' 라 모델 학습에
+                    # 들어가므로, 오염이 발견되면 출처를 되짚을 수 있어야 한다.
+                    # 레거시 공유 토큰 경로는 사용자를 특정할 수 없어 NULL 이다.
+                    "reporter_user_id": (ctx.get("profile") or {}).get("id"),
                 }).execute
             )
     except HTTPException:

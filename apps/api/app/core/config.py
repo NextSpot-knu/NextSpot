@@ -31,6 +31,12 @@ class Settings(BaseSettings):
     #    (운영자는 토큰을 바꿨다고 믿지만 실제로는 데모 토큰이 유효한 상태).
     MERCHANT_API_TOKEN: str = "nextspot-merchant-local"
 
+    # 구 콘솔 공유 토큰(X-Merchant-Token · X-Admin-Authorization) 한시 수용 스위치.
+    # RBAC 이행기 동안만 True 다 — 프런트가 JWT 로 전환되면 False 로 내리고, 그 시점에
+    # 사장님 콘솔의 가게 소유권 검사가 **모든 경로에서** 강제된다.
+    # ⚠️ True 인 동안에는 공유 토큰만 알면 아무 가게의 좌석 상태를 방송할 수 있다(기존 동작).
+    LEGACY_CONSOLE_TOKENS: bool = True
+
     # Kakao Local/지도 장소 검색 키. 경로 API 키가 아니다.
     # 도보 거리는 번들된 OpenStreetMap 보행 그래프로 계산한다.
     KAKAO_REST_API_KEY: str = ""
