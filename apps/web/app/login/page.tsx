@@ -8,7 +8,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { Mail, Lock, User } from 'lucide-react';
-import { signInWithEmail, signUpWithEmail, linkOAuth, type OAuthProvider } from '@/lib/auth';
+import { signInWithEmail, signUpWithEmail, signInOAuth, type OAuthProvider } from '@/lib/auth';
 import { reconcileUserData } from '@/lib/userData';
 import { syncSaved } from '@/lib/savedFacilities';
 import { createPublicClient } from '@/lib/supabase';
@@ -40,11 +40,24 @@ export default function LoginPage() {
     router.push(dest);
   };
 
-  // SNS 계속하기 — linkOAuth(회원가입/로그인 통합, 콜백에서 자동 분기). 성공 시 프로바이더로 리다이렉트.
+  // SNS 계속하기 — 이 화면은 '로그인하러 온' 곳이므로 signInOAuth(계정 전환)를 **바로** 쓴다.
+  //
+  // 왜 linkOAuth 가 아닌가(2026-08-27 변경): linkOAuth 는 현재(익명) 세션에 소셜 identity 를
+  // 붙이려 시도하는데, 이미 그 소셜 계정으로 가입한 사용자면 identity_already_exists 로 실패한다.
+  // 그러면 콜백이 signInOAuth 로 자동 폴백하므로 결과적으로는 로그인되지만, **프로바이더를 두 번
+  // 왕복**하게 된다 — 사용자 눈에는 계정 선택 화면이 두 번 떠서 "처음엔 실패했다" 로 읽힌다.
+  // 재방문자는 전부 이 경로라 출시 후 다수 사용자가 매번 겪는다.
+  //
+  // 게스트 데이터는 잃지 않는다: signInOAuth 가 captureGuestSession() 으로 익명 토큰을 잡아두고,
+  // 콜백의 mergeCapturedGuestData() → POST /account/merge-guest 가 원자 병합한다(취향·닉네임·
+  // 저장·쿠폰·제보·추천 이력까지 — merge_guest_account_data RPC).
+  //
+  // 게스트 승격 진입점(마이페이지 AccountSection)은 그대로 linkOAuth 를 쓴다 — 거긴 '내 계정을
+  // 만든다' 는 의도라 uid 를 유지하는 편이 맞고, 병합조차 필요 없다.
   const handleOAuth = async (provider: OAuthProvider) => {
     if (busy) return;
     setBusy(true);
-    const { error } = await linkOAuth(provider, '/main');
+    const { error } = await signInOAuth(provider, '/main');
     if (error) {
       // 실제 원인(예: "Manual linking is disabled")을 콘솔에 남긴다 — 토스트는 사용자용 일반 문구.
       console.warn('[login] SNS 계속하기 실패:', error);
@@ -184,7 +197,7 @@ export default function LoginPage() {
           )}
         </form>
 
-        {/* 로그인 탭에만: SNS 계속하기(카카오/구글) — 회원가입/로그인 통합(linkOAuth). */}
+        {/* 로그인 탭에만: SNS 계속하기(카카오/구글) — signInOAuth(계정 전환) 단일 왕복. 위 handleOAuth 주석 참조. */}
         {mode === 'login' && (
           <>
             <div className="flex items-center gap-3 my-5">
