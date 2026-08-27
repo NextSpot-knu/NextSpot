@@ -14,6 +14,10 @@
   typecheck, 정적 build 통과. 빌드 산출물을 로컬 서빙해 Playwright로 기존 이메일 → 전용 토스트
   +로그인 탭 전환, 5자 비밀번호 → 전용 토스트를 실측했다. 진단·검증에 쓴 테스트 계정은 admin
   API로 전부 삭제해 운영 DB 잔여물 0을 확인했다.
+- 사장님(비즈니스) 콘솔 데모 게이트 비밀번호 기본값을 `merchant` → `business`로 변경
+  (`merchant-auth.ts`, 사용자 요청). `NEXT_PUBLIC_MERCHANT_PASSWORD` env는 로컬·배포 어디에도
+  미설정이라 기본값이 그대로 적용된다. 데모 대본(DEMO_SCENARIO/JUDGE_QA)에는 이 비밀번호 언급이
+  없음을 대조 확인. 백엔드 `MERCHANT_API_TOKEN`/`X-Merchant-Token` 검증은 무관하게 유지된다.
 
 ## -40. 2026-08-26 — 경주 현지 시각 자동 야간 다크모드
 

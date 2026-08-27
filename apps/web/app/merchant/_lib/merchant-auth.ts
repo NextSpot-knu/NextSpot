@@ -9,7 +9,7 @@ const SESSION_KEY = "nextspot_merchant_session";
 const FACILITY_KEY = "nextspot_merchant_facility";
 
 // 데모 기본값 유지 + 빌드 타임 env 로 오버라이드 가능.
-const MERCHANT_PASSWORD = process.env.NEXT_PUBLIC_MERCHANT_PASSWORD || "merchant";
+const MERCHANT_PASSWORD = process.env.NEXT_PUBLIC_MERCHANT_PASSWORD || "business";
 
 // 백엔드 apps/api MERCHANT_API_TOKEN 의 기본값과 동일한 문자열.
 // MVP 스코프: 이번 사이클은 신규 env 를 MERCHANT_API_TOKEN(백엔드)·NEXT_PUBLIC_MERCHANT_PASSWORD(프런트)
