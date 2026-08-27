@@ -136,16 +136,13 @@ def test_delete_account_failure_is_not_reported_as_success(client):
 
 
 # =========================================================================
-# /account/me 응답 키 — 프런트와의 계약
+# /account/me 응답 키 — API 규약(snake_case) 유지
 # =========================================================================
-# 프런트(apps/web/lib/accountRoles.ts `parseAccount`)가 이 키 이름을 그대로 읽는다.
-# 한쪽만 바꾸면 **타입 검사도 통과하고 테스트도 통과하는데 화면만 조용히 망가진다** —
-# 실제로 그런 적이 있다: 프런트가 camelCase 로 읽는 바람에 owned_facilities 가 항상
-# 빈 배열이 되어 모든 사장님이 "인증 대기" 화면에 갇혔다.
-#
-# 이 프로젝트의 API 규약은 snake_case 다(FastAPI 기본). camelCase 로 바꾸려면
-# 프런트 parseAccount 와 그쪽 테스트를 같이 고쳐야 한다.
-def test_account_me_response_keys_are_snake_case():
+# 이 레포의 API 는 전부 snake_case 로 내려준다(FastAPI 기본). 웹 프런트는
+# lib/api-client.ts 가 응답을 camelCase 로 정규화해서 쓰므로 **여기서 별칭을 붙여도
+# 웹은 안 깨진다** — 그래서 이 테스트는 프런트 보호 장치가 아니라 규약 고정 장치다.
+# 한 라우터만 camelCase 로 튀면 API 를 직접 읽는 쪽(스크립트·다른 클라이언트)이 헷갈린다.
+def test_account_me_response_keys_follow_the_snake_case_convention():
     fields = set(account.AccountMeResponse.model_fields)
     assert fields == {
         "id",
@@ -154,13 +151,11 @@ def test_account_me_response_keys_are_snake_case():
         "nickname",
         "owned_facilities",
         "pending_verification",
-    }, f"프런트 parseAccount 가 읽는 키와 어긋났다: {sorted(fields)}"
+    }, f"API 규약(snake_case)에서 벗어났다: {sorted(fields)}"
 
-    # 직렬화 결과에도 별칭(camelCase)이 끼지 않아야 한다.
     dumped = account.AccountMeResponse(
         id="u1", role="merchant", is_anonymous=False
     ).model_dump()
     assert "isAnonymous" not in dumped
-    assert "ownedFacilities" not in dumped
     assert dumped["owned_facilities"] == []
     assert dumped["pending_verification"] is False

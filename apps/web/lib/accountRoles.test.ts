@@ -9,6 +9,7 @@ import {
   type Account,
   type AccountRole,
 } from './accountRoles';
+import { keysToCamel, keysToSnake } from './caseTransform';
 
 // 프런트 권한 분기의 단일 출처. 여기가 백엔드(app/core/authz.py)와 어긋나면
 // "들어가지긴 하는데 모든 요청이 403" 인 막다른 화면이 생긴다.
@@ -86,11 +87,12 @@ for (const role of ['tourist', 'merchant', 'admin'] as AccountRole[]) {
 
 console.log('accountRoles tests passed');
 
-// ── parseAccount — API 응답과 프런트 사이의 계약 ───────────────────────────
-// 아래 payload 는 **실제 프로덕션 응답을 그대로 옮긴 것**이다(2026-08-28,
-// GET https://nextspot-api.onrender.com/api/v1/account/me). 키를 손으로 바꾸지 말 것 —
-// 손으로 맞추는 순간 이 테스트는 실제 계약이 아니라 내 기대를 검사하게 된다.
-const REAL_PAYLOAD = {
+// ── parseAccount — 서버 응답부터 화면까지 체인 전체 ────────────────────────
+// 이 테스트의 요점은 **raw 응답을 손으로 camelCase 로 고쳐 넣지 않는 것**이다.
+// 실제 서버가 보낸 그대로를 실제 변환기(keysToCamel)에 통과시킨 뒤 파싱한다.
+// 손으로 맞춘 payload 를 쓰면 계약이 아니라 내 기대를 검사하게 되고, 변환기가 빠지거나
+// 서버 키가 바뀌어도 초록불이 유지된다 — 그 틈에서 실제로 한 번 틀렸다(2026-08-28).
+const RAW_FROM_SERVER = {
   id: 'fab95350-95fe-423f-8b4b-b2fd138e7a00',
   role: 'merchant',
   is_anonymous: false,
@@ -101,35 +103,47 @@ const REAL_PAYLOAD = {
   pending_verification: false,
 };
 
-const parsed = parseAccount(REAL_PAYLOAD);
-assert.equal(parsed.id, REAL_PAYLOAD.id);
+const asClientSeesIt = keysToCamel(RAW_FROM_SERVER);
+assert.equal(asClientSeesIt.ownedFacilities.length, 1, 'apiClient 변환이 깨졌다');
+assert.equal(asClientSeesIt.isAnonymous, false);
+
+const parsed = parseAccount(asClientSeesIt);
+assert.equal(parsed.id, RAW_FROM_SERVER.id);
 assert.equal(parsed.role, 'merchant');
-// 이 세 줄이 이번 회귀의 핵심이다. camelCase 로 읽으면 전부 조용히 기본값이 되고,
-// 특히 ownedFacilities 가 빈 배열이 되어 **모든 사장님이 "인증 대기" 화면에 갇힌다**.
-assert.equal(parsed.ownedFacilities.length, 1, 'owned_facilities 를 못 읽었다 — 사장님 콘솔이 죽는다');
+// 이 줄이 핵심이다. 소유 가게를 못 읽으면 role 은 merchant 인데 다룰 가게가 없어
+// **모든 사장님이 "인증 대기" 화면에 갇힌다** — 콘솔이 통째로 쓸모없어진다.
+assert.equal(parsed.ownedFacilities.length, 1, '소유 가게를 못 읽었다 — 사장님 콘솔이 죽는다');
 assert.equal(parsed.ownedFacilities[0].name, '이풍녀 구로쌈밥');
 assert.equal(parsed.isAnonymous, false);
 
-// 익명 게스트 — is_anonymous 를 놓치면 게스트에게 사업자 인증 폼이 열린다.
-const guest = parseAccount({ id: 'g1', role: 'tourist', is_anonymous: true, owned_facilities: [] });
-assert.equal(guest.isAnonymous, true, 'is_anonymous 를 못 읽었다 — 게스트가 정회원으로 취급된다');
+// 익명 게스트 — 놓치면 게스트에게 사업자 인증 폼이 열린다(백엔드는 403 이라 실패하는 폼).
+const guest = parseAccount(keysToCamel({ id: 'g1', role: 'tourist', is_anonymous: true, owned_facilities: [] }));
+assert.equal(guest.isAnonymous, true);
 assert.equal(canRequestBusinessVerification(guest), false);
 
-// 심사 대기 — pending_verification 을 놓치면 "심사 중" 상태가 화면에 안 뜬다.
-const pending = parseAccount({ id: 'p1', role: 'tourist', is_anonymous: false, pending_verification: true });
+// 심사 대기 — 놓치면 "심사 중" 상태가 화면에 안 뜬다.
+const pending = parseAccount(keysToCamel({ id: 'p1', role: 'tourist', is_anonymous: false, pending_verification: true }));
 assert.equal(pending.pendingVerification, true);
 
-// camelCase 로 온 응답은 **믿지 않는다**. 서버가 규약을 바꾼 것이므로 조용히 통과시키면
-// 어느 쪽이 맞는지 알 수 없게 된다 — 기본값으로 떨어뜨려 테스트가 깨지게 둔다.
-const wrongCase = parseAccount({ id: 'x', role: 'merchant', isAnonymous: true, ownedFacilities: [{ id: 'a' }] });
-assert.equal(wrongCase.ownedFacilities.length, 0);
-assert.equal(wrongCase.isAnonymous, false);
+// 변환기를 건너뛴 raw 를 그대로 넣으면 읽히지 않아야 한다 — 그래야 배선이 빠졌을 때
+// 조용히 넘어가지 않고 여기서 드러난다.
+const unconverted = parseAccount(RAW_FROM_SERVER);
+assert.equal(unconverted.ownedFacilities.length, 0);
+assert.equal(unconverted.isAnonymous, false);
 
 // 방어 — 응답이 비었거나 깨져도 화면이 죽으면 안 된다.
-for (const bad of [null, undefined, {}, { owned_facilities: 'nope' }, { owned_facilities: [null] }]) {
+for (const bad of [null, undefined, {}, { ownedFacilities: 'nope' }, { ownedFacilities: [null] }]) {
   const a = parseAccount(bad);
   assert.equal(a.role, 'tourist');
   assert.ok(Array.isArray(a.ownedFacilities));
 }
+
+// ── 변환기 자체 ────────────────────────────────────────────────────────────
+assert.deepEqual(keysToCamel({ a_b: 1, c: { d_e: [{ f_g: 2 }] } }), { aB: 1, c: { dE: [{ fG: 2 }] } });
+assert.deepEqual(keysToSnake({ aB: 1, c: { dE: [{ fG: 2 }] } }), { a_b: 1, c: { d_e: [{ f_g: 2 }] } });
+assert.equal(keysToCamel(null), null);
+assert.deepEqual(keysToCamel([1, 'x']), [1, 'x']);
+// 이미 camelCase 인 키는 그대로 — 서버가 규약을 바꿔도 화면이 안 깨진다.
+assert.deepEqual(keysToCamel({ alreadyCamel: 1 }), { alreadyCamel: 1 });
 
 console.log('parseAccount contract tests passed');

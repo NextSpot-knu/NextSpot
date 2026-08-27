@@ -1,4 +1,5 @@
 import { createPublicClient } from "./supabase";
+import { keysToCamel, keysToSnake } from "./caseTransform";
 import type { TravelContext } from "./travelContext";
 import type { PlaceCategory } from "./travelContext";
 import type { VoiceAppCommand } from "./voiceCommands";
@@ -42,49 +43,8 @@ export function isServiceUnavailable(err: unknown): err is ServiceUnavailableErr
   );
 }
 
-// 헬퍼: snake_case -> camelCase
-function snakeToCamel(s: string): string {
-  return s.replace(/(_\w)/g, (k) => k[1].toUpperCase());
-}
-
-// 헬퍼: camelCase -> snake_case
-function camelToSnake(s: string): string {
-  return s.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`);
-}
-
-// 재귀적으로 객체 키를 camelCase로 변환 (모듈 내부 전용)
-// 입력은 임의 JSON(unknown). 반환은 any 유지 — request() 의 추론 반환형(Promise<any>)이
-// 레포 전역의 apiClient.get/post 소비처(res.predictions, data.vector 등) 계약이기 때문.
-function keysToCamel(o: unknown): any {
-  if (o === null || o === undefined) return o;
-  if (Array.isArray(o)) {
-    return o.map(keysToCamel);
-  }
-  if (typeof o === "object") {
-    const n: Record<string, unknown> = {};
-    Object.keys(o).forEach((k) => {
-      n[snakeToCamel(k)] = keysToCamel((o as Record<string, unknown>)[k]);
-    });
-    return n;
-  }
-  return o;
-}
-
-// 재귀적으로 객체 키를 snake_case로 변환 (모듈 내부 전용)
-function keysToSnake(o: unknown): unknown {
-  if (o === null || o === undefined) return o;
-  if (Array.isArray(o)) {
-    return o.map(keysToSnake);
-  }
-  if (typeof o === "object") {
-    const n: Record<string, unknown> = {};
-    Object.keys(o).forEach((k) => {
-      n[camelToSnake(k)] = keysToSnake((o as Record<string, unknown>)[k]);
-    });
-    return n;
-  }
-  return o;
-}
+// 키 변환은 lib/caseTransform.ts 로 분리했다(테스트 가능하게 — 그 파일 주석 참고).
+// 응답은 camelCase 로, 요청은 snake_case 로 나간다.
 
 // --- LLM 동작 디버그 배지 이벤트 (개발 전용) ---
 // components/LlmDebugToast.tsx 가 구독하는 전역 CustomEvent. 백엔드가 llm_status/reason_source

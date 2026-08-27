@@ -30,27 +30,29 @@ export interface Account {
 /**
  * `GET /api/v1/account/me` 응답을 Account 로 옮긴다.
  *
- * ⚠️ **API 는 snake_case 로 내려준다** — `is_anonymous`, `owned_facilities`,
- * `pending_verification`. 이 프로젝트의 다른 엔드포인트도 전부 그렇다(FastAPI 기본).
- * 예전에 여기서 camelCase 키를 읽는 바람에 셋 다 조용히 기본값이 됐고, 그 결과
- * **소유 가게가 항상 빈 배열이라 모든 사장님이 "인증 대기" 화면에 갇혔다.**
- * 타입이 `unknown` 이라 컴파일러가 잡아 주지 않는다 — 그래서 테스트로 잠근다.
+ * ⚠️ **입력은 raw HTTP 응답이 아니라 `apiClient` 의 출력이다.** 서버는 snake_case 로
+ * 내려주지만 `lib/api-client.ts` 의 request() 가 `keysToCamel()` 을 통과시키므로,
+ * 여기 도착할 때는 이미 camelCase 다(lib/caseTransform.ts 참고).
  *
- * 내부에서 쓰는 Account 는 camelCase 를 유지한다(화면 코드 관례). 변환은 여기 한 곳뿐이다.
+ * 서버 응답을 curl 로 찍어 보고 "snake_case 네" 하고 여기를 고치면 **오히려 망가진다** —
+ * 실제로 그렇게 고쳤다가 되돌렸다(2026-08-28). 아래 테스트가 raw 응답을 실제 변환기에
+ * 통과시킨 뒤 파싱하는 이유가 이것이다: 체인 전체를 잠가야 같은 실수를 다시 안 한다.
+ *
+ * `data` 가 any 라 컴파일러는 이 어긋남을 잡아 주지 못한다.
  */
 export function parseAccount(data: unknown): Account {
   const d = (data ?? {}) as Record<string, unknown>;
-  const facilities = Array.isArray(d.owned_facilities) ? d.owned_facilities : [];
+  const facilities = Array.isArray(d.ownedFacilities) ? d.ownedFacilities : [];
   return {
     id: String(d.id ?? ''),
     role: normalizeRole(d.role),
-    isAnonymous: Boolean(d.is_anonymous),
+    isAnonymous: Boolean(d.isAnonymous),
     nickname: (d.nickname as string | null) ?? null,
     ownedFacilities: facilities.map((raw) => {
       const f = (raw ?? {}) as Record<string, unknown>;
       return { id: String(f.id ?? ''), name: String(f.name ?? ''), type: String(f.type ?? '') };
     }),
-    pendingVerification: Boolean(d.pending_verification),
+    pendingVerification: Boolean(d.pendingVerification),
   };
 }
 
