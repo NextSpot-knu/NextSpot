@@ -1,4 +1,56 @@
-# 세션 인계 문서 (2026-08-27 갱신)
+# 세션 인계 문서 (2026-08-28 갱신)
+
+## -44. 2026-08-28 — 사장님 콘솔 RBAC: 스키마·백엔드·프런트 적용 + 보안 구멍 차단
+
+계획서는 `docs/MERCHANT_CONSOLE_RBAC_PLAN.md`(로컬 전용 — 심사 계정 자격증명이 있어 커밋하지 않음).
+
+**닫은 구멍**: `/merchant/seat-status`·`/timesale` 이 본문의 `facility_id` 를 그대로 신뢰했다.
+공유 토큰(프런트 번들 포함, 기본값 공개)만 알면 **누구나 아무 가게의** 좌석 상태를 방송할 수
+있었고, 그 방송은 `evidence_tier='verified'` 로 기록된다 — 모델 승격 게이트가 학습에 쓰는
+유일한 등급이다. 즉 외부인이 학습 데이터를 오염시킬 수 있었다.
+
+**적용 범위**
+- P0 스키마(원격 DB 적용 완료): `users.role` 4종 · `is_admin_or_dev()` · role 직접변경 차단 트리거 ·
+  `facility_owners` · `business_verification_requests` · `role_audit_log` ·
+  `system_settings.merchant_console_enabled` · 기존 admin RLS 8곳 교체.
+- P1 백엔드: `app/core/authz.py`(역할·소유권·콘솔 스위치·감사), 머천트 6개 엔드포인트에 강제,
+  `/account/me`, 사업자 인증 요청 API, `/dev/*` 12라우트.
+- P2 프런트: `lib/account.tsx` 컨텍스트, `/merchant` 진입 5분기, 대시보드 소유권 재확인,
+  `merchant-api.ts` JWT 전환, 진입점 게이팅, `/account/business` 폼.
+- P4 조기 실행: `LEGACY_CONSOLE_TOKENS=False` — 구 공유 토큰 완전 폐지.
+
+**프로덕션 실측**
+| 검증 | 결과 |
+|---|---|
+| 익명이 본인 role→developer | 차단 `role 은 직접 변경할 수 없습니다` |
+| 익명이 nickname 변경 | 통과(role 유지) |
+| 익명이 남의 role 강등 | 차단(RLS 가 행을 숨김) |
+| SQL Editor 부트스트랩 | 통과 |
+| 구 X-Merchant-Token | **401** |
+| 사업자 계정 — 내 가게 / 남의 가게 / `/dev` | 200 / 403 / 403 |
+| 관리자 계정 — 사장님 콘솔 / `/dev` | 403 / 403 |
+| 개발자 계정 — `/dev` / 전 가게 | 200 / 접근 |
+
+**트리거는 `SECURITY INVOKER` 여야 한다.** `DEFINER` 면 함수 안에서 `current_user` 가 소유자로
+바뀌어 호출자 롤을 알 수 없다 — service_role 백엔드와 SQL Editor 부트스트랩이 **둘 다** 막힌다.
+그러면서도 `authenticated`/`anon` 은 정확히 차단한다(위 실측).
+
+**소유권 검사가 존재 확인보다 먼저다.** 소유하지 않은 가게는 존재 여부와 무관하게 403 —
+존재를 흘리지 않는다. 테스트에서 '없는 시설 → 404' 를 보려면 소유가 전제여야 한다.
+
+**심사 계정**(§7): `scripts/seed_judge_accounts.py` 로 시드 완료.
+`openapi@naver.com`=merchant(이풍녀 구로쌈밥·맥심가옥 소유), `openapi@gmail.com`=admin.
+비밀번호는 저장소에 두지 않고 `JUDGE_ACCOUNT_PASSWORD` 환경변수로 넘긴다.
+자체 이메일 계정인 이유: OAuth 는 첫 로그인 시점에야 사용자 행이 생겨 역할을 미리 못 박는다.
+
+**개발자 부트스트랩**: `oys030408@gmail.com`(구글 OAuth) → developer. 감사 로그 actor=NULL 로 기록.
+`/dev` 는 **마지막 developer 강등을 거부**한다(아무도 권한을 못 주는 잠김 방지).
+
+**남은 것**: 관리자 대시보드 `/admin/login` 의 Supabase 로그인 전환 + admin 라우터 7곳 가드 교체
+(둘은 함께 배포해야 프런트가 안 깨진다) · `/dev` 콘솔 화면 · `DEMO_SCENARIO`/`JUDGE_QA` 갱신.
+
+**검증**: pytest 814 passed, ruff clean, 웹 typecheck 0, 웹 단위 전체 통과,
+lint 0 errors, check:i18n 0 누락(패리티 776키).
 
 ## -43. 2026-08-27 — OAuth 마무리: 구글 왕복 절반, 카카오 차단 원인 규명
 
