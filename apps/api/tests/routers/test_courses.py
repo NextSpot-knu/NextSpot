@@ -21,6 +21,9 @@ from test_routers import (
     _facility,
     auth_client,  # noqa: F401 — pytest 픽스처 재사용(import 로 활성화)
     client,       # noqa: F401
+    # 후보 자격 판정(closing_soon·심야 규칙)이 실행 시각에 좌우되지 않게 now() 를 고정한다.
+    # autouse 픽스처라 import 만으로 이 파일 전체에 적용된다(위 두 개와 같은 관용구).
+    _freeze_router_clock,  # noqa: F401
 )
 
 _COURSE_PATH = "/api/v1/courses/recommend"

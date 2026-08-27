@@ -110,6 +110,38 @@ def auth_client():
 
 
 # --- 테스트 데이터 헬퍼 ---
+# 추천·코스 라우터의 후보 자격 판정은 **도착 시각**에 의존한다:
+#   · 도착 후 30분 안에 닫히면 제외(closing_soon)
+#   · 심야(22:00~06:00 KST)에는 영업 미확인 식당·카페를 제외
+# 실행 시각에 따라 결과가 달라지면 CI 가 간헐 실패한다(실측 2026-08-27 23:26 KST:
+# 코스 3건이 빈 배열, 추천이 5개 대신 2~4개 — 실행마다 숫자가 달랐다).
+# 그래서 라우터가 읽는 datetime.now 를 낮 시각으로 고정한다.
+_FROZEN_UTC = datetime(2026, 8, 27, 3, 0, tzinfo=timezone.utc)  # = 12:00 KST
+
+
+def _frozen_datetime():
+    """now() 만 고정한 datetime 대체 클래스. timedelta·timezone 사용부는 그대로 동작한다."""
+
+    class _Frozen(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return _FROZEN_UTC.astimezone(tz) if tz else _FROZEN_UTC.replace(tzinfo=None)
+
+    return _Frozen
+
+
+@pytest.fixture(autouse=True)
+def _freeze_router_clock():
+    """추천·코스 라우터의 now() 를 낮 12:00 KST 로 고정한다.
+
+    이 파일의 테스트는 후보 자격 판정(closing_soon·심야 규칙)을 거치므로 실행 시각에 따라
+    결과가 달라진다. 고정하지 않으면 CI 가 밤에만 깨진다.
+    """
+    frozen = _frozen_datetime()
+    with patch("app.routers.courses.datetime", frozen),          patch("app.routers.recommendations.datetime", frozen):
+        yield
+
+
 def _facility(fid: str, ftype: str, lat_offset: float, coupon_rate: float = 0.0) -> dict:
     return {
         "id": fid,
@@ -121,7 +153,10 @@ def _facility(fid: str, ftype: str, lat_offset: float, coupon_rate: float = 0.0)
         "features": {"average_processing_time": 10},
         "coupon_rate": coupon_rate,
         # 추천 테스트의 카페·식당은 영업이 확인된 후보라는 계약을 명시한다.
-        # 두 구간을 겹쳐 자정 직전/직후에도 테스트 실행 시각에 영향받지 않게 한다.
+        # ⚠️ 이 표기만으로는 실행 시각 독립이 되지 않는다 — 어떤 24시간 표기를 써도
+        #    '도착 후 30분 내 마감'(closing_soon) 규칙에 걸리는 구간이 반드시 생긴다
+        #    (실측: 00:00~23:59 는 23:29~23:59 도착에서 closing_soon 이 되어 전부 탈락).
+        #    그래서 시각 자체를 _frozen_now 로 고정한다. 아래 _FROZEN_UTC 참조.
         "operating_hours": {"open": "00:00~23:59, 23:58~00:01", "closed": "연중무휴"},
     }
 
