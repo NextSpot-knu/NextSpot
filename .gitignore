@@ -80,3 +80,4 @@ apps/api/scripts/tag_cuisines_report.json
 
 # Obsidian 볼트 설정(로컬 편집 도구) — 저장소 공유 대상 아님
 docs/.obsidian/
+docs/MERCHANT_CONSOLE_RBAC_PLAN.md

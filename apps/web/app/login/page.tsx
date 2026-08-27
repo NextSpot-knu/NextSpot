@@ -4,7 +4,7 @@
 // 랜딩 '바로 시작' → 이 페이지. 게스트 둘러보기(익명 세션)도 유지한다.
 // 가입은 현재 익명 세션을 '정회원 전환'해 저장·취향 데이터를 승계한다(lib/auth signUpWithEmail).
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
 import { Mail, Lock, User } from 'lucide-react';
@@ -18,7 +18,7 @@ import { useT } from '@/lib/i18n/I18nProvider';
 
 type Mode = 'login' | 'signup';
 
-export default function LoginPage() {
+function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const t = useT();
@@ -251,5 +251,17 @@ export default function LoginPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+// Suspense 래핑 — useSearchParams(?next= 읽기)는 클라이언트 전용 훅이라 정적 export
+// (output:'export') 빌드에서 CSR bailout 을 피하려면 반드시 Suspense 경계 안에 있어야 한다.
+// 없으면 `next build` 가 /login 프리렌더 단계에서 통째로 실패한다 — 배포가 아예 안 나간다
+// (course·explore/recommend 페이지와 동일 관례).
+export default function LoginPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-hanji" />}>
+      <LoginForm />
+    </Suspense>
   );
 }
