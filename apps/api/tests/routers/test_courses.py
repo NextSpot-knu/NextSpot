@@ -162,3 +162,44 @@ def test_course_context_filters_before_scoring(auth_client):  # noqa: F811
         )
     assert res.status_code == 200
     assert [stop["facility"]["id"] for stop in res.json()] == ["indoor"]
+
+
+# =========================================================================
+# 업스트림 장애를 빈 결과로 삼키지 않는다
+# =========================================================================
+# 이 엔드포인트는 네트워크 의존 호출이 6곳이다. 예전에는 그 중 하나만 흔들려도 그대로
+# 500 "Internal Server Error" 가 나갔다 — 프로덕션에서 같은 요청이 한 번은 500, 재시도하면
+# 200 인 것을 확인했다(2026-08-28).
+#
+# 핵심은 **[] 로 삼키지 않는 것**이다. 빈 배열은 "조건에 맞는 코스가 없다"는 정상 결과이고
+# 화면도 그렇게 안내한다(새벽엔 여는 곳이 없어 실제로 자주 빈다). 장애를 같은 모양으로
+# 돌려주면 사용자도 우리도 "없는 것"과 "못 만든 것"을 구분할 수 없다.
+def test_upstream_failure_becomes_503_not_500(auth_client, monkeypatch):  # noqa: F811
+    from app.routers import courses
+
+    async def boom(*_a, **_kw):
+        raise RuntimeError("supabase timeout")
+
+    monkeypatch.setattr(courses, "_build_course", boom)
+    res = auth_client.post(_COURSE_PATH, json=_course_body())
+    assert res.status_code == 503
+    assert "잠시 후" in res.json()["detail"]
+
+
+def test_upstream_failure_is_not_silently_an_empty_course(auth_client, monkeypatch):  # noqa: F811
+    from app.routers import courses
+
+    async def boom(*_a, **_kw):
+        raise RuntimeError("supabase timeout")
+
+    monkeypatch.setattr(courses, "_build_course", boom)
+    res = auth_client.post(_COURSE_PATH, json=_course_body())
+    assert res.status_code != 200, "장애가 '코스 없음'(정상 결과)과 구분되지 않는다"
+
+
+def test_permission_errors_are_not_masked_as_503(auth_client):  # noqa: F811
+    """403 같은 의도된 실패까지 503 으로 뭉개면 안 된다."""
+    body = _course_body()
+    body["user_id"] = "00000000-0000-4000-8000-0000000000ff"  # 토큰 주체와 다른 사용자
+    res = auth_client.post(_COURSE_PATH, json=body)
+    assert res.status_code == 403

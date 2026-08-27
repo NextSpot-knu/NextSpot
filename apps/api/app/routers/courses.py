@@ -205,6 +205,36 @@ async def recommend_course(
     if req.user_id != current_user["id"]:
         raise HTTPException(status_code=403, detail="요청한 user_id가 인증된 사용자와 일치하지 않습니다.")
 
+    # 이 아래는 네트워크 의존 호출이 6곳이다(사용자·시설 조회, 사장님 부스트, 선호벡터
+    # 조회/갱신, 혼잡도, 후보 평가). 예전에는 그 중 하나만 흔들려도 그대로 500 "Internal
+    # Server Error" 가 나갔다 — 실제로 프로덕션에서 같은 요청이 한 번은 500, 재시도하면
+    # 200 인 것을 확인했다(2026-08-28).
+    #
+    # 빈 배열로 삼키지 않는다. []는 "조건에 맞는 코스가 없다"는 **정상 결과**이고 화면도
+    # 그렇게 안내한다 — 장애를 그 모양으로 돌려주면 사용자도 우리도 구분할 수 없다.
+    # 대신 503 으로 구분해 던진다. 프런트는 이미 503 을 ServiceUnavailableError 로 따로
+    # 잡는다(apps/web/lib/api-client.ts).
+    try:
+        return await _build_course(req)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error(
+            "course_recommend_failed",
+            user_id=req.user_id,
+            types=req.types,
+            sequence=req.sequence,
+            error=str(exc),
+            error_type=type(exc).__name__,
+        )
+        raise HTTPException(
+            status_code=503,
+            detail="코스를 짜는 중 일시적인 문제가 생겼어요. 잠시 후 다시 시도해 주세요.",
+        ) from exc
+
+
+async def _build_course(req: CourseRequest) -> list:
+    """코스 조립 본체. 예외 처리는 호출부(recommend_course)가 맡는다."""
     user_info, all_facilities = await asyncio.gather(
         fetch_user(req.user_id), fetch_all_facilities()
     )
