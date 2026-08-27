@@ -8,7 +8,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.core.logging import setup_logging
-from app.routers import recommendations, infrastructures, predict, preferences, admin, reports, coupons, courses, events, tracking, freshness, impact, merchant, safety, search, lab, account, weather, restrooms, travel_context, area_demand, area_demand_admin
+from app.routers import recommendations, infrastructures, predict, preferences, admin, reports, coupons, courses, events, tracking, freshness, impact, merchant, safety, search, lab, account, dev, weather, restrooms, travel_context, area_demand, area_demand_admin
 
 
 # 로깅 설정 초기화
@@ -156,6 +156,8 @@ app.include_router(safety.router)  # 인파 안전 경보(B2G) — 임계값 초
 app.include_router(search.router)  # TourAPI 키워드 폴백 → 관리자 승인형 다음 배치 적재 요청
 app.include_router(lab.router)  # 거절 실험실 — 보류된 거절 사유를 되묻고 답한 만큼만 취향 학습(1회)
 app.include_router(account.router)  # 기존 계정 로그인 시 소유 증명된 게스트 데이터 승계
+app.include_router(dev.router)  # 개발자 콘솔 — 역할 임명·가게 소유권·사업자 인증 심사·감사 로그.
+                                #   /admin(정부기관 관제)과 경로부터 분리한다 — 권한 운영은 팀 전용.
 
 # 1. Health Check Endpoint
 @app.get("/")
