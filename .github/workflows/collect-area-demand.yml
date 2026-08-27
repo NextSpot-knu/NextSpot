@@ -3,7 +3,8 @@
 # 필요한 설정:
 #   Repository Variable BACKEND_HEALTH_URL=https://<render-service>.onrender.com/health
 #   Repository Variable AREA_DEMAND_COLLECTION_ENABLED=true (원격 migration 적용 후 활성화)
-#   Actions Secret ADMIN_API_TOKEN=<Render의 동일 ADMIN_API_TOKEN>
+#   Actions Secret SERVICE_API_TOKEN=<Render의 동일 SERVICE_API_TOKEN>
+#     (아직 SERVICE_API_TOKEN 을 두지 않았다면 기존 ADMIN_API_TOKEN 시크릿이 그대로 쓰인다)
 name: Collect Area Demand Snapshots
 
 on:
@@ -24,7 +25,7 @@ jobs:
     env:
       COLLECTION_ENABLED: ${{ vars.AREA_DEMAND_COLLECTION_ENABLED }}
       BACKEND_HEALTH_URL: ${{ vars.BACKEND_HEALTH_URL }}
-      ADMIN_API_TOKEN: ${{ secrets.ADMIN_API_TOKEN }}
+      SERVICE_TOKEN: ${{ secrets.SERVICE_API_TOKEN || secrets.ADMIN_API_TOKEN }}
     steps:
       - name: Ping backend health endpoint
         if: ${{ env.BACKEND_HEALTH_URL != '' }}
@@ -32,19 +33,19 @@ jobs:
         run: curl --fail --silent --show-error --retry 2 --retry-all-errors --max-time 90 "${BACKEND_HEALTH_URL}"
 
       - name: Collect snapshot
-        if: ${{ env.COLLECTION_ENABLED == 'true' && env.BACKEND_HEALTH_URL != '' && env.ADMIN_API_TOKEN != '' }}
+        if: ${{ env.COLLECTION_ENABLED == 'true' && env.BACKEND_HEALTH_URL != '' && env.SERVICE_TOKEN != '' }}
         shell: bash
         run: |
           api_base="${BACKEND_HEALTH_URL%/health}"
           curl --fail-with-body --silent --show-error \
             --retry 2 --retry-all-errors --max-time 90 \
             -X POST "${api_base}/api/v1/area-demand/snapshots/collect" \
-            -H "X-Admin-Authorization: Bearer ${ADMIN_API_TOKEN}"
+            -H "X-Service-Token: ${SERVICE_TOKEN}"
 
       - name: Fail (required setting missing)
-        if: ${{ env.COLLECTION_ENABLED == 'true' && (env.BACKEND_HEALTH_URL == '' || env.ADMIN_API_TOKEN == '') }}
+        if: ${{ env.COLLECTION_ENABLED == 'true' && (env.BACKEND_HEALTH_URL == '' || env.SERVICE_TOKEN == '') }}
         run: |
-          echo "BACKEND_HEALTH_URL variable 또는 ADMIN_API_TOKEN secret이 없어 수집할 수 없습니다."
+          echo "BACKEND_HEALTH_URL variable 또는 SERVICE_API_TOKEN/ADMIN_API_TOKEN secret이 없어 수집할 수 없습니다."
           exit 1
 
       - name: Skip (collection not enabled)

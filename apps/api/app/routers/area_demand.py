@@ -10,7 +10,7 @@ from typing import Any, Literal
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
-from app.core.authz import ROLE_ADMIN, require_role
+from app.core.authz import ROLE_ADMIN, require_machine_or_role, require_role
 from app.services.area_demand_snapshot_service import (
     SnapshotPersistenceError,
     collect_area_demand_snapshot,
@@ -142,7 +142,10 @@ async def area_demand_forecast(
 @router.post(
     "/snapshots/collect",
     response_model=SnapshotCollectionResponse,
-    dependencies=[Depends(require_role(ROLE_ADMIN))],
+    # 이 경로의 주 호출자는 **사람이 아니다** — GitHub Actions 스케줄러와 Supabase pg_cron 이
+    # 10분마다 두드린다. 세션을 가질 수 없으므로 서비스 토큰을 함께 받는다.
+    # (RBAC 전환 때 require_role 만 남겨 수집이 401 로 조용히 죽었던 자리다.)
+    dependencies=[Depends(require_machine_or_role(ROLE_ADMIN))],
 )
 async def collect_snapshot() -> SnapshotCollectionResponse:
     """경주시 ITS 현재값을 조회해 10분 시계열로 한 번 저장한다."""

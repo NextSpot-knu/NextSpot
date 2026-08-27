@@ -18,10 +18,25 @@ class Settings(BaseSettings):
     def SUPABASE_KEY(self) -> str:
         return self.SUPABASE_SERVICE_ROLE_KEY or self.SUPABASE_ANON_KEY
 
-    # 관리자 데모 가드용 공유 토큰. 프런트(apps/web/lib/admin-auth.ts)의 SESSION_TOKEN 과 동일해야 한다.
-    # 기본값 없음(필수) — 공개 저장소에 박힌 상수가 곧 관리자 토큰이 되는 것을 막는다.
-    # 로컬은 .env(.env.example 참고), 배포는 강한 랜덤값으로 반드시 오버라이드할 것.
+    # ── 기계(machine-to-machine) 호출용 공유 토큰 ────────────────────────────────
+    # 사람이 쓰는 관리자 인증이 **아니다**. 사람은 Supabase 로그인 + users.role 로 판정한다
+    # (app/core/authz.py). 이 토큰은 세션을 가질 수 없는 호출자 — GitHub Actions 스케줄러와
+    # Supabase pg_cron — 가 수집 엔드포인트를 두드릴 때만 쓴다.
+    #
+    # ⚠️ 절대 프런트엔드에 노출하지 말 것. 예전 NEXT_PUBLIC_ADMIN_API_TOKEN 은 정적 번들에
+    #    그대로 박혀 누구나 읽을 수 있었다. 그 방식은 폐지됐고, 그때 쓰던 값은 이미 공개된
+    #    것으로 취급해 반드시 새 값으로 교체해야 한다.
+    #
+    # SERVICE_API_TOKEN 이 설정돼 있으면 그것을 쓰고, 없으면 기존 ADMIN_API_TOKEN 으로
+    # 폴백한다. 배포된 Render/Actions/Vault 를 한꺼번에 바꾸지 않고도 회전할 수 있게 하기
+    # 위해서다(새 값을 SERVICE_API_TOKEN 에 넣으면 그 순간부터 그것만 유효해진다).
     ADMIN_API_TOKEN: str
+    SERVICE_API_TOKEN: str = ""
+
+    @property
+    def MACHINE_API_TOKEN(self) -> str:
+        """기계 호출자가 제시해야 하는 유효 토큰(SERVICE_API_TOKEN 우선)."""
+        return self.SERVICE_API_TOKEN.strip() or self.ADMIN_API_TOKEN
 
     # 사장님 콘솔(머천트) 공유 토큰 — 프런트 apps/web NEXT_PUBLIC_MERCHANT_API_TOKEN 과 같아야 한다.
     # ADMIN_API_TOKEN 과 달리 기본값이 있다(데모 우선 — 미설정 배포에서도 부팅이 막히지 않는다).

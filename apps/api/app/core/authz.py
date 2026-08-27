@@ -19,6 +19,14 @@
 누구나 아무 가게의 좌석 상태를 방송할 수 있고, 그 방송은 `evidence_tier='verified'` 로
 학습 데이터에 들어간다(CONGESTION_TRUST_SPEC).
 
+## 세션이 없는 호출자 — 기계는 예외다
+
+스케줄러(GitHub Actions, Supabase pg_cron)는 Supabase 세션을 가질 수 없다. 이들에게는
+`require_machine_or_role` 로 공유 토큰 경로를 **딱 필요한 엔드포인트에만** 남긴다.
+폐지한 것과 다른 점이 중요하다: 폐지된 X-Admin-Authorization 은 브라우저 번들에 토큰이
+박혀 있어 누구나 관리자 API 전체를 쓸 수 있었다. 여기 토큰은 프런트에 절대 나가지 않고,
+서버 대 서버 한 경로(수집 트리거)에만 유효하다.
+
 ## 역할 판정은 DB 조회 + 짧은 캐시
 
 JWT 커스텀 클레임(Auth Hook)을 쓰지 않는다. 토큰 갱신(최대 1시간)까지 구 역할이 남으면
@@ -26,11 +34,13 @@ JWT 커스텀 클레임(Auth Hook)을 쓰지 않는다. 토큰 갱신(최대 1�
 대신 30초 TTL 캐시를 두고, 임명/회수 API 가 해당 사용자 캐시를 즉시 무효화한다.
 """
 import asyncio
+import hmac
 import time
 
 import structlog
 from fastapi import Depends, HTTPException, Request, status
 
+from app.core.config import settings
 from app.core.supabase import get_current_user, supabase_admin, verify_supabase_token
 
 logger = structlog.get_logger()
@@ -277,3 +287,59 @@ def log_role_audit(
             "role_audit_log_write_failed",
             actor_id=actor_id, target_id=target_id, action=action, error=str(exc),
         )
+
+
+# ── 기계(machine-to-machine) 인증 ─────────────────────────────────────────────
+# 스케줄러는 사람 계정이 없다. 세션 대신 공유 토큰을 제시하고, 그 토큰은 프런트로 절대
+# 나가지 않는다(config.MACHINE_API_TOKEN 주석 참고).
+
+def _machine_token_from_request(request: Request) -> str | None:
+    """기계 호출자가 제시한 공유 토큰을 꺼낸다.
+
+    X-Service-Token 이 이 용도의 정식 헤더다. X-Admin-Authorization 은 이미 배포된
+    호출자(Actions 워크플로, pg_cron 마이그레이션)가 쓰고 있어 함께 받는다 — 이 헤더가
+    사람용 인증으로 다시 쓰이는 일은 없다(라우터가 이 가드를 건 경로에서만 읽는다).
+    """
+    direct = (request.headers.get("x-service-token") or "").strip()
+    if direct:
+        return direct
+    value = request.headers.get("x-admin-authorization") or ""
+    if value.startswith("Bearer "):
+        return value.split(" ", 1)[1].strip() or None
+    return None
+
+
+def is_machine_caller(request: Request) -> bool:
+    """유효한 기계 토큰을 제시했는가. 비교는 타이밍 공격에 안전하게 한다."""
+    presented = _machine_token_from_request(request)
+    if not presented:
+        return False
+    expected = settings.MACHINE_API_TOKEN
+    if not expected:
+        return False
+    return hmac.compare_digest(presented, expected)
+
+
+def require_machine_or_role(*allowed: str):
+    """기계 토큰 **또는** 지정 역할을 통과시키는 의존성.
+
+    수집 트리거처럼 스케줄러와 사람이 함께 두드리는 엔드포인트에 쓴다. 사람 경로는
+    require_role 과 완전히 같은 규칙을 따른다(익명 거부, developer 통과 포함).
+    반환값은 사람이면 프로필, 기계면 None 이다.
+    """
+    allowed_set = frozenset(allowed)
+
+    async def _guard(request: Request) -> dict | None:
+        if is_machine_caller(request):
+            return None
+        profile = await load_profile_from_request(request)
+        if profile is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="인증이 필요합니다. 로그인하거나 서비스 토큰을 제시해 주세요.",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        assert_role(profile, *allowed_set)
+        return profile
+
+    return _guard
