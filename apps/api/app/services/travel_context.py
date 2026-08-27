@@ -5,12 +5,26 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from app.services.availability_service import is_effective_availability_evidence
 from app.services.spot.travel import WALKING_SPEED_M_PER_MIN
 
 KST = timezone(timedelta(hours=9))
 VALID_CATEGORIES = {"restaurant", "cafe", "attraction", "culture"}
 VALID_ATTRIBUTES = {"indoor", "accessible"}
 DEFAULT_INDOOR_TYPES = {"restaurant", "cafe"}
+FOOD_TYPES = {"restaurant", "cafe"}
+LATE_NIGHT_START_MINUTE = 22 * 60
+LATE_NIGHT_END_MINUTE = 6 * 60
+
+# 후보 자격은 SPOT 점수보다 먼저 적용한다. 숫자가 작을수록 근거가 강하며, 한 요청에서는
+# 가장 강한 비어 있지 않은 tier 하나만 사용한다. 따라서 낮은 신뢰도 후보로 Top N을 억지로
+# 채우지 않고, 선택된 tier 안에서는 기존 SPOT 원점수 순서를 그대로 유지할 수 있다.
+RECOMMENDATION_ELIGIBILITY_LABELS = {
+    0: "verified_open_route",
+    1: "verified_open_estimated_route",
+    2: "hours_confirmation_required_route",
+    3: "hours_and_route_confirmation_required",
+}
 
 
 class TravelContext(BaseModel):
@@ -65,6 +79,9 @@ def _minutes(value: str) -> int | None:
 
 def open_status_at_arrival(facility: dict, arrival_at: datetime) -> str:
     """Return one of open_expected, closing_soon, closed_confirmed, needs_confirmation."""
+    availability = facility.get("availability_evidence")
+    if is_effective_availability_evidence(availability, at=arrival_at):
+        return "open_expected" if availability["status"] == "open" else "closed_confirmed"
     local = arrival_at.astimezone(KST)
     hours = facility.get("operating_hours") or {}
     closed_text = str(hours.get("closed") or "")
@@ -100,3 +117,50 @@ def open_status_at_arrival(facility: dict, arrival_at: datetime) -> str:
         if is_open:
             return "closing_soon" if remaining <= 30 else "open_expected"
     return "closed_confirmed"
+
+
+def is_recommendable_at_arrival(facility: dict, arrival_at: datetime) -> bool:
+    """Return whether the place can enter any honest recommendation tier."""
+    status = open_status_at_arrival(facility, arrival_at)
+    # 도착 후 30분 안에 닫히는 곳도 이동 목적지로 권하지 않는다.
+    if status in {"closed_confirmed", "closing_soon"}:
+        return False
+    if status == "needs_confirmation" and facility.get("type") in FOOD_TYPES:
+        local = arrival_at.astimezone(KST)
+        minute = local.hour * 60 + local.minute
+        # 심야에는 미확인 식당·카페를 '확인 필요' 후보로도 보내지 않는다.
+        if minute >= LATE_NIGHT_START_MINUTE or minute < LATE_NIGHT_END_MINUTE:
+            return False
+    return True
+
+
+def recommendation_eligibility_tier(
+    facility: dict,
+    arrival_at: datetime,
+    travel_source: str,
+) -> int | None:
+    """Classify a candidate before SPOT scoring; ``None`` means never recommend.
+
+    Opening-hours evidence is more important than route precision. A verified-open
+    place with an honest distance estimate therefore remains preferable to a place
+    whose opening hours are unknown. Callers must use only the lowest non-empty tier.
+    """
+    if not is_recommendable_at_arrival(facility, arrival_at):
+        return None
+    hours_verified = open_status_at_arrival(facility, arrival_at) == "open_expected"
+    route_verified = travel_source == "osm_pedestrian"
+    if hours_verified:
+        return 0 if route_verified else 1
+    return 2 if route_verified else 3
+
+
+def keep_best_eligibility_tier(candidates: list[tuple]) -> list[tuple]:
+    """Keep the strongest non-empty tier without filling from weaker tiers.
+
+    Each tuple must carry its numeric tier as the last item. Its original order is
+    preserved so callers can perform the usual SPOT sort afterwards.
+    """
+    if not candidates:
+        return []
+    best = min(candidate[-1] for candidate in candidates)
+    return [candidate for candidate in candidates if candidate[-1] == best]

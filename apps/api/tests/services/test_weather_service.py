@@ -1,4 +1,7 @@
+import asyncio
 from datetime import datetime, timezone, timedelta
+
+import pytest
 
 from app.services import weather_service
 
@@ -27,3 +30,37 @@ def test_parse_forecast_marks_rain_as_indoor_recommended():
 
 def test_parse_rejects_kma_error_envelope():
     assert weather_service._parse({"response": {"header": {"resultCode": "03"}}}, datetime.now(KST)) is None
+
+
+@pytest.mark.asyncio
+async def test_concurrent_cold_requests_share_one_weather_fetch(monkeypatch):
+    calls = {"n": 0}
+
+    class _Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"response": {"header": {"resultCode": "03"}}}
+
+    class _Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def get(self, *_args, **_kwargs):
+            calls["n"] += 1
+            await asyncio.sleep(0.01)
+            return _Response()
+
+    monkeypatch.setattr(weather_service, "_cache", None)
+    monkeypatch.setattr(weather_service.settings, "KMA_API_KEY", "test-key")
+    monkeypatch.setattr(weather_service.httpx, "AsyncClient", lambda **_kwargs: _Client())
+
+    now = datetime(2026, 7, 17, 11, 40, tzinfo=KST)
+    results = await asyncio.gather(*(weather_service.get_gyeongju_weather(now) for _ in range(5)))
+
+    assert results == [None] * 5
+    assert calls["n"] == 1

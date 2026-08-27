@@ -31,8 +31,8 @@ class Settings(BaseSettings):
     #    (운영자는 토큰을 바꿨다고 믿지만 실제로는 데모 토큰이 유효한 상태).
     MERCHANT_API_TOKEN: str = "nextspot-merchant-local"
 
-    # Kakao Mobility Directions API (도보/차량 실거리·실시간 이동시간).
-    # 비어 있으면 Haversine 직선거리 도보 환산으로 폴백(기본). 키가 있으면 실경로 호출.
+    # Kakao Local/지도 장소 검색 키. 경로 API 키가 아니다.
+    # 도보 거리는 번들된 OpenStreetMap 보행 그래프로 계산한다.
     KAKAO_REST_API_KEY: str = ""
 
     # 한국관광공사 TourAPI(공공데이터포털 B551011) 인증키 — 공모전 필수 데이터 소스.
@@ -44,6 +44,15 @@ class Settings(BaseSettings):
     # 기상청 단기예보 조회서비스(공공데이터포털 1360000) 인증키.
     # TourAPI와 별도 활용신청 상품이다. 비어 있으면 날씨 API는 unavailable로 무해 폴백한다.
     KMA_API_KEY: str = ""
+
+    # 한국교통안전공단 주차정보 제공 API(B553881). 공공데이터포털의 같은 프로젝트 키를
+    # 재사용할 수 있으므로 비어 있으면 TOURAPI_KEY로 폴백한다. 별도 활용승인이 없거나
+    # 경주 실시간 행이 없으면 지역 수요는 관광 통계만 사용한다.
+    PARKING_API_KEY: str = ""
+    PARKING_API_BASE_URL: str = "https://apis.data.go.kr/B553881/Parking"
+    # 경주시 교통정보센터 공개 주차정보. 별도 키 없이 경주 공영주차장 잔여면을 제공하며
+    # 전국 주차 API보다 지역 커버리지가 정확해 1순위로 사용한다.
+    GYEONGJU_ITS_BASE_URL: str = "https://its.gyeongju.go.kr"
 
     # 아래 관광 데이터랩 상품은 KorService2와 별도 활용신청이 필요하지만 승인 후에는 같은
     # 공공데이터포털 인증키를 사용한다. 별도 키를 만들지 않아 운영 시크릿 수를 늘리지 않는다.

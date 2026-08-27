@@ -35,4 +35,18 @@ def _isolate_event_boost(monkeypatch):
 
     monkeypatch.setattr(event_boost, "_fetch_ongoing_festivals", _no_key)
     monkeypatch.setattr(event_boost, "_cache", None)
+    from app.services import area_demand_service
+
+    async def _no_parking(_latitude, _longitude):
+        return None
+
+    async def _no_weather(_now=None):
+        return None
+
+    async def _no_history(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(area_demand_service, "get_nearby_parking_signal", _no_parking)
+    monkeypatch.setattr(area_demand_service, "get_gyeongju_weather", _no_weather)
+    monkeypatch.setattr(area_demand_service, "get_historical_area_demand_forecast", _no_history)
     yield

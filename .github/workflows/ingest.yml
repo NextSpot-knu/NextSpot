@@ -4,7 +4,8 @@
 #       workflow_dispatch 로 수동 실행할 것 (Actions 탭 → TourAPI Ingest → Run workflow).
 # 필요한 GitHub Secrets (repo → Settings → Secrets and variables → Actions → Secrets):
 #   TOURAPI_KEY, SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY, KAKAO_REST_API_KEY
-# 선택 Repository Variable: TOURAPI_INSIGHTS_ENABLED=true (집중률·연관관광지 별도 활용승인 후)
+# 선택 Repository Variable: TOURAPI_INSIGHTS_ENABLED=true (집중률 15128555 승인 후)
+# 선택 Repository Variable: TOURAPI_RELATED_ENABLED=true (연관관광지 별도 상품 승인 후)
 # TOURAPI_KEY 미설정이면 전 스텝을 skip(무해 — 매일 실패 이메일 방지).
 name: TourAPI Ingest
 
@@ -29,6 +30,7 @@ jobs:
     env:
       TOURAPI_KEY_CONFIGURED: ${{ secrets.TOURAPI_KEY }}
       LOCALDATA_AUTH_KEY_CONFIGURED: ${{ secrets.LOCALDATA_AUTH_KEY }}
+      KAKAO_REST_API_KEY_CONFIGURED: ${{ secrets.KAKAO_REST_API_KEY }}
     defaults:
       run:
         working-directory: apps/api
@@ -42,17 +44,17 @@ jobs:
         run: echo "TOURAPI_KEY secret 이 설정되지 않아 인제스트를 건너뜁니다."
 
       - uses: actions/checkout@v5
-        if: ${{ env.TOURAPI_KEY_CONFIGURED != '' || env.LOCALDATA_AUTH_KEY_CONFIGURED != '' }}
+        if: ${{ env.TOURAPI_KEY_CONFIGURED != '' || env.LOCALDATA_AUTH_KEY_CONFIGURED != '' || env.KAKAO_REST_API_KEY_CONFIGURED != '' }}
 
       - uses: actions/setup-python@v6
-        if: ${{ env.TOURAPI_KEY_CONFIGURED != '' || env.LOCALDATA_AUTH_KEY_CONFIGURED != '' }}
+        if: ${{ env.TOURAPI_KEY_CONFIGURED != '' || env.LOCALDATA_AUTH_KEY_CONFIGURED != '' || env.KAKAO_REST_API_KEY_CONFIGURED != '' }}
         with:
           python-version: "3.11"
           cache: pip
           cache-dependency-path: apps/api/requirements*.txt
 
       - run: pip install -r requirements.txt
-        if: ${{ env.TOURAPI_KEY_CONFIGURED != '' || env.LOCALDATA_AUTH_KEY_CONFIGURED != '' }}
+        if: ${{ env.TOURAPI_KEY_CONFIGURED != '' || env.LOCALDATA_AUTH_KEY_CONFIGURED != '' || env.KAKAO_REST_API_KEY_CONFIGURED != '' }}
 
       # --details: POI 당 상세(운영시간·배리어프리·개요) 호출 추가 — 상세 4콜/장소 × ~90곳 ≈ 360콜(일 쿼터 내).
       # --radius 3000: 2026-07-17 확장(황리단길 도보 회랑) — 기본 2000 으로 두면 일배치가 확장분 상세를 안 돈다.
@@ -68,10 +70,35 @@ jobs:
           JWT_SECRET: ci-placeholder-jwt-secret
           ADMIN_API_TOKEN: ci-placeholder-admin-token
 
+      # TourAPI가 놓치는 실제 카페·식당을 Kakao 장소 ID·주소·좌표 묶음으로 보완한다.
+      # 별도 스키마 변경 없이 features.kakao_place_id로 재실행 중복을 막는다.
+      - name: Discover relevant Kakao cafes and restaurants
+        if: ${{ env.KAKAO_REST_API_KEY_CONFIGURED != '' && vars.KAKAO_PLACE_DISCOVERY_ENABLED == 'true' }}
+        run: python scripts/ingest_kakao_places.py --apply --report ../../scratch/kakao_places.json
+        env:
+          KAKAO_REST_API_KEY: ${{ secrets.KAKAO_REST_API_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          JWT_SECRET: ci-placeholder-jwt-secret
+          ADMIN_API_TOKEN: ci-placeholder-admin-token
+
       # KorService2와 별도 상품이다. 승인 전 403으로 정기 배치를 깨지 않도록 명시적 변수로 게이트한다.
-      - name: Ingest tourism forecasts and related attractions
+      # 연관관광지는 또 다른 승인 상품이므로 이 단계에 섞지 않는다.
+      - name: Ingest tourism concentration forecasts
         if: ${{ env.TOURAPI_KEY_CONFIGURED != '' && vars.TOURAPI_INSIGHTS_ENABLED == 'true' }}
-        run: python scripts/ingest_tourism_insights.py
+        run: python scripts/ingest_tourism_insights.py --dataset concentration
+        env:
+          TOURAPI_KEY: ${{ secrets.TOURAPI_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          JWT_SECRET: ci-placeholder-jwt-secret
+          ADMIN_API_TOKEN: ci-placeholder-admin-token
+
+      - name: Ingest related attractions
+        if: ${{ env.TOURAPI_KEY_CONFIGURED != '' && vars.TOURAPI_RELATED_ENABLED == 'true' }}
+        run: python scripts/ingest_tourism_insights.py --dataset related
         env:
           TOURAPI_KEY: ${{ secrets.TOURAPI_KEY }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}

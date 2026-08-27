@@ -1,16 +1,16 @@
 "use client";
 
-import React, { useState, useEffect, useRef, Suspense } from "react";
+import React, { useState, useEffect, useRef, useMemo, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { createPublicClient } from "@/lib/supabase";
 const supabase = createPublicClient();
-import { apiClient, getRecommendations, submitFeedback, parsePreference, RecommendationResponse } from "@/lib/api-client";
-import { MAX_RECO_DISTANCE_M } from "@/lib/recommender"; // 빈 상태 문구의 반경(1.5km) — 하드코딩 대신 실제 컷오프 상수 사용
+import { apiClient, getRecommendations, reportFacilityAvailability, submitFeedback, parsePreference, RecommendationResponse } from "@/lib/api-client";
+import { displayWalkingMinutes, MAX_RECO_DISTANCE_M } from "@/lib/recommender"; // 빈 상태 문구의 반경(1.5km) — 하드코딩 대신 실제 컷오프 상수 사용
 import { classifyIntent, buildCardSpeech } from "@/lib/voiceIntent";
-import { isClosedToday } from "@/lib/restDate";
+import { getArrivalOpenDisplayStatus, isClosedToday } from "@/lib/restDate";
 import { REGION, isWithinRegion } from "@/lib/region";
 import { toast } from "sonner";
-import { useT } from "@/lib/i18n/I18nProvider";
+import { useI18n, useT } from "@/lib/i18n/I18nProvider";
 import { ShareButton } from "@/components/ShareButton";
 import { CongestionReportButton } from "@/components/CongestionReportButton";
 import RecommendationComparison from "@/components/RecommendationComparison";
@@ -19,24 +19,34 @@ import { openDrivingDirections, openWalkingDirections } from "@/lib/navigation";
 import { track } from "@/lib/analytics";
 import { loadTravelContext } from "@/lib/travelContext";
 import { relativeParts } from "@/lib/freshness";
+import { buildSpotComparisons, formatSpotComparison } from "@/lib/spotComparison";
 
 // (window.kakao 타입은 types/kakao-maps.d.ts 가 전역으로 선언한다 — 파일마다 declare global 로
 //  중복 선언하던 `kakao: any` 를 걷어냈다.)
 
 // 데모 회복탄력성: 백엔드 사유(reason)가 없을 때도 추천 사유가 비지 않도록
 // 보여줄 결정적 한국어 사유를 생성한다. 백엔드 reason_service._build_template 와 어투를 맞춰 일관성 유지.
-function buildFallbackReason(name: string, waitMin: number, distanceM: number, congestionLevel: number | null = null): string {
-  const walk = Math.max(1, Math.round(distanceM / 66.67)); // 66.67m/min = 4km/h (백엔드 WALKING_SPEED_M_PER_MIN 와 일치)
+function buildFallbackReason(
+  t: (key: string, vars?: Record<string, string | number>) => string,
+  name: string,
+  waitMin: number | null,
+  distanceM: number,
+  congestionLevel: number | null = null,
+): string {
+  const walk = displayWalkingMinutes(undefined, distanceM);
   // 혼잡(>=0.75)이면 추천하지 않고 혼잡·대기를 솔직히 알린다.
   if (congestionLevel !== null && congestionLevel >= 0.75) {
-    return `${name}: 도보 ${walk}분 거리지만 지금은 혼잡도 ${Math.round(congestionLevel * 100)}%로 붐벼 대기가 길 수 있어요.`;
+    return t('recommend.fallbackBusy', { name, walk, pct: Math.round(congestionLevel * 100) });
   }
   // 혼잡 근거가 없으면 '여유'라는 혼잡 주장을 지어내지 않는다(CONGESTION_TRUST_SPEC).
   if (congestionLevel === null) {
-    return `${name} 추천: 도보 ${walk}분, 예상 대기 ${Math.round(waitMin)}분 수준입니다.`;
+    return waitMin === null
+      ? t('recommend.fallbackTravelOnly', { name, walk })
+      : t('recommend.fallbackWithWait', { name, walk, wait: Math.round(waitMin) });
   }
-  const mood = congestionLevel >= 0.5 ? "대기가 길지 않은 편이에요" : "지금 비교적 여유로워요";
-  return `${name} 추천: 도보 ${walk}분, 예상 대기 ${Math.round(waitMin)}분 수준으로 ${mood}.`;
+  return waitMin === null
+    ? t('recommend.fallbackMeasured', { name, walk })
+    : t('recommend.fallbackWithWait', { name, walk, wait: Math.round(waitMin) });
 }
 
 // 합성 추천 id 판별 — mock-(데모 폴백)·bytype-(/recommendations/by-type 브라우즈)는 recommendations
@@ -147,7 +157,7 @@ const MiniMap = React.memo(({ latitude, longitude, mapLoaded }: MiniMapProps) =>
   return (
     <div
       ref={containerRef}
-      className="w-full h-24 md:h-28 rounded-xl overflow-hidden border border-line"
+      className="nextspot-map w-full h-24 md:h-28 rounded-xl overflow-hidden border border-line"
     />
   );
 });
@@ -167,7 +177,7 @@ interface OriginalFacility {
 
 // The core content wrapper component that handles Search Params
 function RecommendContent() {
-  const t = useT();
+  const { t, locale } = useI18n();
   const searchParams = useSearchParams();
   const router = useRouter();
 
@@ -179,8 +189,24 @@ function RecommendContent() {
   // State
   const [userId, setUserId] = useState<string | null>(null);
   const [originalFacility, setOriginalFacility] = useState<OriginalFacility | null>(null);
-  const [originalWaitTime, setOriginalWaitTime] = useState<string>("--");
   const [recommendations, setRecommendations] = useState<RecommendationResponse[]>([]);
+  const spotComparisonById = useMemo(() => {
+    const comparisons = buildSpotComparisons(recommendations.slice(0, 3).map((item, index) => ({
+      id: item.recommendationId,
+      rank: item.rank ?? index + 1,
+      spotScore: item.spotScore <= 1 ? item.spotScore * 100 : item.spotScore,
+      preference: item.breakdown.preference ?? 0,
+      travelMinutes: typeof item.breakdown.travelTime === 'number'
+        ? item.breakdown.travelTime : displayWalkingMinutes(undefined, item.distanceM),
+      rankingWaitMinutes: item.breakdown.rankingWaitTime ?? item.breakdown.waitTime,
+      areaDemandPenaltyMinutes: item.breakdown.areaDemandPenaltyMinutes,
+      incentive: item.breakdown.incentive,
+    })));
+    return new Map(comparisons.map((comparison) => [
+      comparison.id,
+      formatSpotComparison(t, comparison),
+    ]));
+  }, [recommendations, t]);
   
   const [loadingOriginal, setLoadingOriginal] = useState(true);
   const [loadingRecommendations, setLoadingRecommendations] = useState(true);
@@ -213,6 +239,12 @@ function RecommendContent() {
 
   // 추천별 만족도 피드백(👍/👎) 기록 — 중복 전송 방지 + 버튼 선택 상태 표시
   const [feedbackVotes, setFeedbackVotes] = useState<Record<string, "up" | "down">>({});
+  const [hoursPrompt, setHoursPrompt] = useState<{
+    recommendationId: string;
+    navigationMode: 'walk' | 'car';
+  } | null>(null);
+  const [hoursSubmitting, setHoursSubmitting] = useState(false);
+  const [hoursSubmitError, setHoursSubmitError] = useState(false);
 
   // Coordinates used for recommendations
   const [lat, setLat] = useState<number>(REGION.center.lat);
@@ -429,12 +461,14 @@ function RecommendContent() {
             features,
             congestion_logs (
               congestion_level,
-              timestamp
+              timestamp,
+              source,
+              evidence_tier
             )
           `)
           .eq("id", facilityId)
           .order("timestamp", { foreignTable: "congestion_logs", ascending: false })
-          .limit(1, { foreignTable: "congestion_logs" })
+          .limit(10, { foreignTable: "congestion_logs" })
           .single();
 
         let originalData = data;
@@ -445,7 +479,9 @@ function RecommendContent() {
         }
 
         if (originalData) {
-          const latestLog = originalData.congestion_logs && originalData.congestion_logs[0];
+          const latestLog = originalData.congestion_logs?.find((log: { source?: string; evidence_tier?: string }) =>
+            log.source !== 'seed' && log.source !== 'simulated' && log.evidence_tier !== 'synthetic'
+          );
           // 로그 0건이면 null 유지 — 0.0(실측 여유)으로 합성하지 않는다(CONGESTION_TRUST_SPEC).
           const level = latestLog ? latestLog.congestion_level : null;
 
@@ -456,23 +492,7 @@ function RecommendContent() {
             congestionLevel: level,
             features: originalData.features || {},
           });
-          const defaultTimes: Record<string, number> = {
-            restaurant: 25,
-            cafe: 12,
-            attraction: 15,
-            culture: 15,
-          };
-          const avgProcessTime = originalData.features?.average_processing_time ?? defaultTimes[originalData.type] ?? 15;
-          const hour = new Date().getHours();
-          let timeMultiplier = 1.0;
-          if (hour >= 11 && hour < 14) timeMultiplier = 1.3;
-          else if (hour >= 14 && hour < 18) timeMultiplier = 1.2;
-
-          // 혼잡 근거가 없으면 대기시간도 합성하지 않는다("--" 유지 → 대기 문장 미노출).
-          if (level !== null) {
-            const predicted = level * avgProcessTime * timeMultiplier;
-            setOriginalWaitTime(predicted.toFixed(1));
-          }
+          // 정성 혼잡 관측만으로 대기시간을 역산하지 않는다. 검증 모델/실제 줄 데이터가 없으므로 "--" 유지.
         }
       } catch (err) {
         // 실데이터 전용: 목업 폴백 없음 — 원시설 카드는 빈 상태로 둔다.
@@ -700,6 +720,60 @@ function RecommendContent() {
     }
   };
 
+  const needsHoursCheck = (rec: RecommendationResponse) =>
+    rec.openStatusAtArrival === 'needs_confirmation'
+    && (rec.facility.type === 'cafe' || rec.facility.type === 'restaurant');
+
+  const kakaoDetailsUrl = (rec: RecommendationResponse) => {
+    const features = rec.facility.features as Record<string, unknown> | null | undefined;
+    const placeId = String(features?.kakaoPlaceId ?? features?.kakao_place_id ?? '').trim();
+    const storedUrl = String(features?.kakaoPlaceUrl ?? features?.kakao_place_url ?? '').trim();
+    if (storedUrl) return storedUrl.replace(/^http:\/\/place\.map\.kakao\.com/i, 'https://place.map.kakao.com');
+    if (placeId) return `https://place.map.kakao.com/${placeId}`;
+    return `https://map.kakao.com/?q=${encodeURIComponent(`${rec.facility.name} ${rec.facility.address ?? '경주'}`)}`;
+  };
+
+  const requestAccept = (rec: RecommendationResponse, navigationMode: 'walk' | 'car' = 'walk') => {
+    if (!needsHoursCheck(rec)) {
+      void handleAccept(rec, navigationMode);
+      return;
+    }
+    quietAssistant();
+    setHoursPrompt({ recommendationId: rec.recommendationId, navigationMode });
+    setHoursSubmitError(false);
+    window.open(kakaoDetailsUrl(rec), '_blank', 'noopener,noreferrer');
+  };
+
+  const submitHoursStatus = async (rec: RecommendationResponse, status: 'open' | 'closed') => {
+    if (hoursSubmitting) return;
+    setHoursSubmitting(true);
+    setHoursSubmitError(false);
+    try {
+      const result = await reportFacilityAvailability(rec.facility.id, status);
+      setHoursPrompt(null);
+      if (status === 'closed') {
+        setRecommendations((current) => current.filter(
+          (item) => item.recommendationId !== rec.recommendationId,
+        ));
+        toast.info(t('card.hoursClosedRemoved'));
+        return;
+      }
+      const confirmed: RecommendationResponse = {
+        ...rec,
+        openStatusAtArrival: 'open_expected',
+        facility: { ...rec.facility, availabilityEvidence: result },
+      };
+      setRecommendations((current) => current.map((item) => (
+        item.recommendationId === rec.recommendationId ? confirmed : item
+      )));
+      await handleAccept(confirmed, hoursPrompt?.navigationMode ?? 'walk');
+    } catch {
+      setHoursSubmitError(true);
+    } finally {
+      setHoursSubmitting(false);
+    }
+  };
+
   // 추천 카드별 만족도 피드백(👍/👎) → helpful / not_helpful. 추천 품질 신호일 뿐이므로 선호 벡터는
   // 건드리지 않는다 — 예전엔 accepted/rejected 로 보내 '보기엔 좋았다'는 신호가 방문 수락과 같은 +10%,
   // '별로'가 명시 거절과 같은 -5% 로 학습돼 벡터를 오염시켰다(감사 P1-1).
@@ -884,14 +958,18 @@ function RecommendContent() {
         break;
       case "accept":
         // 확인 멘트를 끝까지 들려준 뒤 길안내(onEnd 시점엔 발화가 끝나 handleAccept의 cancel이 무해).
-        sayThen(t("recommend.voiceGuiding"), () => handleAccept(rec));
+        sayThen(t("recommend.voiceGuiding"), () => requestAccept(rec));
         break;
       case "detail": {
-        const waitTime = rec.breakdown?.waitTime?.toFixed(1) || "--";
-        const travelTime = (rec.distanceM / 80).toFixed(1);
+        const waitTime = rec.breakdown?.waitTime;
+        const travelTime = String(displayWalkingMinutes(rec.breakdown?.travelTime, rec.distanceM));
         const preferencePct = Math.round((rec.breakdown?.preference || 0) * 100);
         sayThen(
-          t("recommend.voiceDetail", { wait: waitTime, travel: travelTime, pref: preferencePct }),
+          t(waitTime == null ? "recommend.voiceDetailNoWait" : "recommend.voiceDetail", {
+            wait: waitTime == null ? '' : waitTime.toFixed(1),
+            travel: travelTime,
+            pref: preferencePct,
+          }),
           () => scheduleListen()
         );
         break;
@@ -992,9 +1070,14 @@ function RecommendContent() {
     }
     setActiveRec(index);
     const rec = recs[index];
-    const reasonText =
-      rec.reason ||
-      buildFallbackReason(rec.facility.name, rec.breakdown?.waitTime ?? 0, rec.distanceM);
+    const localizedFallback = buildFallbackReason(
+        t,
+        rec.facility.name,
+        typeof rec.breakdown?.waitTime === 'number' ? rec.breakdown.waitTime : null,
+        rec.distanceM,
+        typeof rec.congestionLevel === 'number' ? rec.congestionLevel : null,
+      );
+    const reasonText = locale === 'ko' && rec.reason ? rec.reason : localizedFallback;
     const sentence = buildCardSpeech(rec.facility.name, reasonText, index);
     setVoice("speaking");
     setSpokenCaption(sentence); // 발화 텍스트를 자막으로(청각 정보 시각 동시 제공 + 추천 사유 가시화)
@@ -1162,9 +1245,7 @@ function RecommendContent() {
                     {crowded ? t("recommend.congestedSuffix") : t("recommend.calmSuffix")}
                   </h2>
                   <p className="text-xs text-muk-soft mt-1 leading-relaxed">
-                    {t("recommend.waitPrefix")}
-                    <span className={`font-semibold ${crowded ? "text-terracotta" : "text-jade"}`}>{t("recommend.waitValue", { wait: originalWaitTime })}</span>
-                    {t("recommend.waitSuffix")}
+                    {t("recommend.waitUnavailable")}
                   </p>
                   {!crowded && (
                     <p className="text-xs text-muk-soft mt-1 leading-relaxed">{t("recommend.calmHint")}</p>
@@ -1201,7 +1282,14 @@ function RecommendContent() {
             <RecommendationComparison recommendations={recommendations} />
             {recommendations.map((rec, idx) => {
               const waitTime = rec.breakdown?.waitTime?.toFixed(1) || "--";
-              const travelTime = (rec.breakdown?.travelTime ?? rec.distanceM / 66.67).toFixed(1); // 백엔드 SPOT travelTime 우선(66.67m/min=4km/h, 백엔드 일치), 없으면 거리환산
+              const travelTime = displayWalkingMinutes(rec.breakdown?.travelTime, rec.distanceM);
+              const arrivalDisplayStatus = rec.openStatusAtArrival
+                ? getArrivalOpenDisplayStatus(
+                    rec.openStatusAtArrival,
+                    rec.facility.type,
+                    new Date(Date.now() + travelTime * 60_000),
+                  )
+                : null;
               const preferencePct = Math.round((rec.breakdown?.preference || 0) * 100);
               const isVoiceActive = assistantActive && idx === activeRecIndex; // 음성 비서가 지금 안내 중인 카드
               // TourAPI 상세 소비(RecommendationCard 와 동일 관례) — features 내부 키는 keysToCamel 재귀
@@ -1221,6 +1309,15 @@ function RecommendContent() {
                   : freshness.unit === 'hour' ? t('freshness.hourAgo', { n: freshness.value })
                   : t('freshness.dayAgo', { n: freshness.value })
                 : null;
+              const localizedReason = buildFallbackReason(
+                t,
+                rec.facility.name,
+                typeof rec.breakdown?.waitTime === 'number' ? rec.breakdown.waitTime : null,
+                rec.distanceM,
+                typeof rec.congestionLevel === 'number' ? rec.congestionLevel : null,
+              );
+              const displayReason = locale === 'ko' && rec.reason ? rec.reason : localizedReason;
+              const spotComparison = spotComparisonById.get(rec.recommendationId);
 
               return (
                 <div
@@ -1243,15 +1340,15 @@ function RecommendContent() {
                           {t("card.closedToday")}
                         </span>
                       )}
-                      {rec.openStatusAtArrival && (
+                      {arrivalDisplayStatus && (
                         <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ml-2 ${
-                          rec.openStatusAtArrival === "open_expected"
+                          arrivalDisplayStatus === "open_expected"
                             ? "text-jade bg-jade/10"
-                            : rec.openStatusAtArrival === "closing_soon"
+                            : arrivalDisplayStatus === "closing_soon" || arrivalDisplayStatus === "likely_closed_unknown"
                               ? "text-terracotta bg-terracotta/10"
                               : "text-muk-soft bg-hanji-deep"
                         }`}>
-                          {t(`card.arrivalStatus.${rec.openStatusAtArrival}`)}
+                          {t(`card.arrivalStatus.${arrivalDisplayStatus}`)}
                         </span>
                       )}
                       {rec.rank && rec.totalCandidates && (
@@ -1339,10 +1436,21 @@ function RecommendContent() {
                     </div>
                   </div>
 
+                  {spotComparison && (
+                    <div className="mt-3 rounded-xl border border-jade/20 bg-jade/5 px-3 py-2.5">
+                      <p className="text-[9px] font-extrabold uppercase tracking-wide text-jade">
+                        {t('recommend.spotComparison.current')}
+                      </p>
+                      <p className="mt-0.5 text-[11px] font-semibold leading-snug text-muk">
+                        {spotComparison}
+                      </p>
+                    </div>
+                  )}
+
                   {/* 백엔드 템플릿 추천 사유 (있을 때만 노출) */}
-                  {rec.reason && (
+                  {displayReason && (
                     <p className="mt-2 text-[11px] leading-snug text-muk bg-gold/10 border border-gold/20 rounded-xl px-3 py-2">
-                      💡 {rec.reason}
+                      💡 {displayReason}
                     </p>
                   )}
 
@@ -1354,6 +1462,78 @@ function RecommendContent() {
                         pct: Math.round((rec.breakdown?.eventBoost ?? 0) * 100),
                       })}
                     </p>
+                  )}
+
+                  {typeof rec.breakdown?.areaDemandLevel === "number" && (
+                    <div className="mt-2 text-[11px] leading-snug text-sky-800 bg-sky-500/10 border border-sky-500/20 rounded-xl px-3 py-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-bold">
+                          {rec.breakdown.areaDemandTourismEvidence
+                            ? t("recommend.areaEvidenceCount", {
+                                n: Number(!!rec.breakdown.areaDemandParkingEvidence) + 1,
+                              })
+                            : rec.breakdown.areaDemandParkingEvidence
+                              ? `${t(rec.breakdown.areaDemandParkingEvidence.mode === "forecast"
+                                ? "recommend.parkingEvidenceForecast"
+                                : "recommend.parkingEvidenceLive")}: ${t(`congestion.${
+                                  rec.breakdown.areaDemandParkingEvidence.level >= 0.75 ? "busy"
+                                    : rec.breakdown.areaDemandParkingEvidence.level >= 0.5 ? "moderate"
+                                    : rec.breakdown.areaDemandParkingEvidence.level >= 0.25 ? "relaxed" : "quiet"
+                                }`)}`
+                              : `${t("recommend.areaDemand")}: ${t(`congestion.${
+                                  rec.breakdown.areaDemandLevel >= 0.75 ? "busy"
+                                    : rec.breakdown.areaDemandLevel >= 0.5 ? "moderate"
+                                    : rec.breakdown.areaDemandLevel >= 0.25 ? "relaxed" : "quiet"
+                                }`)}`}
+                        </span>
+                        {!rec.breakdown.areaDemandTourismEvidence && <span className="text-[10px] text-sky-700">
+                          {t(rec.breakdown.areaDemandMode === "live"
+                            ? "recommend.areaDemandLive"
+                            : rec.breakdown.areaDemandMode === "forecast"
+                              ? "recommend.areaDemandForecast"
+                              : "recommend.areaDemandStats")}
+                        </span>}
+                      </div>
+                      {rec.breakdown.areaDemandTourismEvidence && (
+                        <p className="mt-1 text-sky-800/80">{t("recommend.areaDemandCompositeHint")}</p>
+                      )}
+                      {rec.breakdown.areaDemandParkingEvidence && (
+                        <div className="mt-2 rounded-lg border border-sky-500/20 bg-white/55 px-2.5 py-2">
+                          <p className="font-bold text-sky-900">
+                            {t(rec.breakdown.areaDemandParkingEvidence.mode === "live"
+                              ? "recommend.parkingEvidenceLive"
+                              : "recommend.parkingEvidenceForecast")}: {t(`congestion.${
+                                rec.breakdown.areaDemandParkingEvidence.level >= 0.75 ? "busy"
+                                  : rec.breakdown.areaDemandParkingEvidence.level >= 0.5 ? "moderate"
+                                  : rec.breakdown.areaDemandParkingEvidence.level >= 0.25 ? "relaxed" : "quiet"
+                              }`)}
+                          </p>
+                          <p className="text-[10px] text-sky-700">
+                            {typeof rec.breakdown.areaDemandParkingEvidence.radiusM === "number"
+                              ? t("recommend.parkingEvidenceRadius", { n: rec.breakdown.areaDemandParkingEvidence.radiusM.toLocaleString() })
+                              : t("recommend.parkingEvidenceArea")}
+                          </p>
+                        </div>
+                      )}
+                      {rec.breakdown.areaDemandTourismEvidence && (
+                        <div className="mt-2 rounded-lg border border-indigo-500/20 bg-white/55 px-2.5 py-2 text-indigo-900">
+                          <p className="font-bold">
+                            {typeof rec.breakdown.areaDemandTourismEvidence.relativeIndex === "number"
+                              ? t("recommend.tourismEvidenceIndex", { n: Math.round(rec.breakdown.areaDemandTourismEvidence.relativeIndex) })
+                              : t("recommend.tourismEvidenceTitle")}
+                          </p>
+                          <p className="text-[10px] text-indigo-700">
+                            {t("recommend.tourismEvidenceBasis", {
+                              name: rec.breakdown.areaDemandTourismEvidence.referenceName ?? t("recommend.tourismReferenceUnknown"),
+                              distance: typeof rec.breakdown.areaDemandTourismEvidence.distanceM === "number"
+                                ? Math.round(rec.breakdown.areaDemandTourismEvidence.distanceM).toLocaleString() : "-",
+                              date: rec.breakdown.areaDemandTourismEvidence.forecastDate ?? "-",
+                            })}
+                          </p>
+                          <p className="mt-1 text-[10px] text-indigo-700/90">{t("recommend.tourismEvidenceDisclaimer")}</p>
+                        </div>
+                      )}
+                    </div>
                   )}
 
                   {/* Minimap container */}
@@ -1409,14 +1589,32 @@ function RecommendContent() {
                   </div>
 
                   {/* CTA button */}
+                  {hoursPrompt?.recommendationId === rec.recommendationId && (
+                    <div className="mb-2 rounded-2xl border border-gold/30 bg-gold/10 p-3" role="group" aria-label={t('card.hoursCheckQuestion')}>
+                      <p className="text-xs font-extrabold text-muk">{t('card.hoursCheckQuestion')}</p>
+                      <p className="mt-1 text-[11px] leading-relaxed text-muk-soft">{t('card.hoursCheckPrivacy')}</p>
+                      <div className="mt-3 grid grid-cols-3 gap-2">
+                        <button type="button" disabled={hoursSubmitting} onClick={() => void submitHoursStatus(rec, 'open')} className="rounded-xl bg-jade px-2 py-2 text-[11px] font-bold text-white disabled:opacity-50">
+                          {t('card.hoursOpen')}
+                        </button>
+                        <button type="button" disabled={hoursSubmitting} onClick={() => void submitHoursStatus(rec, 'closed')} className="rounded-xl bg-terracotta px-2 py-2 text-[11px] font-bold text-white disabled:opacity-50">
+                          {t('card.hoursClosed')}
+                        </button>
+                        <button type="button" disabled={hoursSubmitting} onClick={() => { setHoursPrompt(null); setHoursSubmitError(false); }} className="rounded-xl border border-line bg-white px-2 py-2 text-[11px] font-bold text-muk-soft disabled:opacity-50">
+                          {t('card.hoursUnsure')}
+                        </button>
+                      </div>
+                      {hoursSubmitError && <p className="mt-2 text-[10px] font-semibold text-terracotta">{t('card.hoursReportFailed')}</p>}
+                    </div>
+                  )}
                   <button
-                    onClick={() => handleAccept(rec)}
+                    onClick={() => requestAccept(rec)}
                     className="w-full py-2.5 bg-gradient-to-r from-gold to-terracotta text-white rounded-xl font-bold text-xs transition-all duration-300 hover:opacity-90 active:scale-[0.98] shadow-sm"
                   >
                     {t("card.accept")}
                   </button>
                   <button
-                    onClick={() => handleAccept(rec, 'car')}
+                    onClick={() => requestAccept(rec, 'car')}
                     className="mt-2 w-full rounded-xl border border-line bg-white py-2 text-[11px] font-bold text-muk-soft hover:border-gold/40 hover:text-gold-deep"
                   >
                     {t('card.drive')} · <span className="font-medium">{t('card.driveBasisHint')}</span>

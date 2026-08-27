@@ -1,5 +1,15 @@
 import { expect, test, type Page } from '@playwright/test';
 
+async function mockKakaoSdk(page: Page) {
+  await page.route('**://dapi.kakao.com/**', route => route.fulfill({
+    status: 200,
+    contentType: 'application/javascript',
+    body: '/* Kakao SDK is intentionally unavailable in deterministic E2E. */',
+  }));
+}
+
+test.beforeEach(async ({ page }) => mockKakaoSdk(page));
+
 const recommendations = [
   ['rec-a', '고요한 찻집', 0.91, 120],
   ['rec-b', '박물관 카페', 0.82, 180],
@@ -12,9 +22,15 @@ const recommendations = [
     features: { indoor: true }, operating_hours: { open: '09:00~22:00', closed: '연중무휴' },
   },
   spot_score: score, distance_m: distance, rank: index + 1, total_candidates: 3,
-  breakdown: { preference: 0.8, wait_time: 5, travel_time: 3 + index, incentive: 0.2 },
+  breakdown: {
+    preference: 0.8, wait_time: null, travel_time: 3 + index, incentive: 0.2,
+    area_demand_level: 0.68, area_demand_mode: 'live',
+    area_demand_sources: ['parking', 'tourism'],
+    area_demand_observed_at: '2026-08-20T01:00:00+00:00',
+  },
   reason: `${name} 고정 추천 사유`, reason_source: index === 0 ? 'llm' : 'template',
   congestion_level: null, congestion_source: 'none', open_status_at_arrival: 'open_expected',
+  scoring_mode: 'area_stats_rules', prediction_source: 'unavailable',
 }));
 
 const firstReportCta = {
@@ -24,14 +40,39 @@ const firstReportCta = {
   zh: '暂无数据 · 上报拥挤',
 } as const;
 
+const areaDemandLabel = {
+  ko: '주변 수요: 보통',
+  en: 'Area demand: Moderate',
+  ja: '周辺需要: 普通',
+  zh: '周边需求: 一般',
+} as const;
+
+const zeroWaitCopy = {
+  ko: '예상 대기 0분',
+  en: 'estimated 0-minute wait',
+  ja: '予想待ち時間は0分',
+  zh: '预计等待0分钟',
+} as const;
+
 async function mockRecommendationPage(
   page: Page,
-  options: { locale?: 'ko' | 'en' | 'ja' | 'zh'; reasonSource?: 'llm' | 'template' } = {},
+  options: {
+    locale?: 'ko' | 'en' | 'ja' | 'zh';
+    reasonSource?: 'llm' | 'template';
+    unknownHours?: boolean;
+  } = {},
 ) {
+  await mockKakaoSdk(page);
   const locale = options.locale ?? 'ko';
   const responseItems = recommendations.map(item => ({
     ...item,
     reason_source: options.reasonSource ?? item.reason_source,
+    open_status_at_arrival: options.unknownHours ? 'needs_confirmation' : item.open_status_at_arrival,
+    facility: options.unknownHours ? {
+      ...item.facility,
+      operating_hours: null,
+      features: { ...item.facility.features, kakao_place_id: '123456' },
+    } : item.facility,
   }));
   await page.addInitScript((selectedLocale) => {
     localStorage.setItem('nextspot_onboarding_done', '1');
@@ -41,6 +82,32 @@ async function mockRecommendationPage(
       return window;
     }) as typeof window.open;
   }, locale);
+  await page.route('**/auth/v1/**', async route => {
+    const userId = '11111111-1111-4111-8111-111111111111';
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        access_token: 'ci-anonymous-access-token',
+        token_type: 'bearer',
+        expires_in: 3600,
+        expires_at: Math.floor(Date.now() / 1000) + 3600,
+        refresh_token: 'ci-anonymous-refresh-token',
+        user: {
+          id: userId,
+          aud: 'authenticated',
+          role: 'authenticated',
+          email: '',
+          is_anonymous: true,
+          app_metadata: { provider: 'anonymous', providers: ['anonymous'] },
+          user_metadata: {},
+          identities: [],
+          created_at: '2026-08-25T00:00:00.000Z',
+          updated_at: '2026-08-25T00:00:00.000Z',
+        },
+      }),
+    });
+  });
   await page.route('**/rest/v1/**', async route => {
     const url = route.request().url();
     if (url.includes('/facilities')) {
@@ -55,6 +122,11 @@ async function mockRecommendationPage(
     const url = route.request().url();
     if (url.endsWith('/api/v1/recommendations')) {
       await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(responseItems) });
+    } else if (url.endsWith('/api/v1/reports/availability')) {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+        success: true, facility_id: 'facility-0', status: 'open', evidence_tier: 'single_report',
+        corroborating_count: 1, reported_at: '2026-08-25T12:00:00Z', expires_at: '2026-08-25T12:30:00Z',
+      }) });
     } else if (url.includes('/explain')) {
       await route.fulfill({ status: 503, contentType: 'application/json', body: '{"detail":"fixture failure"}' });
     } else {
@@ -88,6 +160,11 @@ for (const locale of ['ko', 'en', 'ja', 'zh'] as const) {
     await expect(page.locator('section.space-y-4 h4')).toHaveCount(3);
     await expect(page.locator('html')).toHaveAttribute('lang', locale);
     await expect(page.locator('button').filter({ hasText: firstReportCta[locale] })).toHaveCount(3);
+    await expect(page.getByText(areaDemandLabel[locale], { exact: true })).toHaveCount(3);
+    await expect(page.getByText(zeroWaitCopy[locale], { exact: false })).toHaveCount(0);
+    if (locale !== 'ko') {
+      await expect(page.getByText(/고정 추천 사유/)).toHaveCount(0);
+    }
     await expect.poll(
       () => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth),
     ).toBeLessThanOrEqual(1);
@@ -99,7 +176,8 @@ test('SPOT order is stable, comparison falls back, and navigation persists', asy
   await page.goto('/explore/recommend?facilityId=origin&lat=35.838&lng=129.209');
   const names = page.locator('section.space-y-4 h4');
   await expect(names).toHaveText(['고요한 찻집', '박물관 카페', '한옥 쉼터']);
-  await expect(page.getByText('91점')).toBeVisible();
+  // SPOT 산식 설명에도 "SPOT 91점"이 함께 나타나므로, 점수 배지 자체를 정확 일치로 확인한다.
+  await expect(page.getByText('91점', { exact: true })).toBeVisible();
 
   await page.getByRole('button', { name: '상위 추천 비교하기' }).click();
   await page.getByRole('button', { name: /왜 1위인가요/ }).click();
@@ -148,6 +226,22 @@ test('arrival feedback keeps completion visible and links to coupons', async ({ 
   expect([...storedStages]).toEqual(['arrival_confirmed', 'rated']);
   expect(ratedPayload).toMatchObject({ rating: 'up', observed_congestion: 'quiet' });
   expect(await page.evaluate(() => localStorage.getItem('nextspot_active_trip'))).toBeNull();
+});
+
+test('unknown hours require Kakao confirmation before navigation', async ({ page }) => {
+  await mockRecommendationPage(page, { unknownHours: true });
+  await page.goto('/explore/recommend?facilityId=origin&lat=35.838&lng=129.209');
+
+  await page.getByRole('button', { name: '도보 길안내' }).first().click();
+  await expect(page.getByText('카카오맵에서 지금 영업 중인지 확인하셨나요?')).toBeVisible();
+  expect(await page.evaluate(() => (window as unknown as { __opened?: string }).__opened))
+    .toBe('https://place.map.kakao.com/123456');
+  expect(await page.evaluate(() => localStorage.getItem('nextspot_active_trip'))).toBeNull();
+
+  await page.getByRole('button', { name: '영업 중' }).click();
+  const active = await page.evaluate(() => JSON.parse(localStorage.getItem('nextspot_active_trip') ?? 'null'));
+  expect(active.facilityId).toBe('facility-0');
+  expect(active.status).toBe('navigating');
 });
 
 test('empty replan preserves the current journey and shows guidance', async ({ page }) => {

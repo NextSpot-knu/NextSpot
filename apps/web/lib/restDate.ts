@@ -58,3 +58,75 @@ export function parseAvailability(value: string | null | undefined): boolean | n
   if (/가능|있음|허용/.test(v)) return true;
   return null;
 }
+
+export type ArrivalOpenStatus = "open_expected" | "closing_soon" | "closed_confirmed" | "needs_confirmation";
+export type ArrivalOpenDisplayStatus = ArrivalOpenStatus | "likely_closed_unknown";
+
+type OperatingHours = Record<string, unknown> | null | undefined;
+
+function kstParts(at: Date): { weekday: number; minutes: number } {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Seoul",
+    weekday: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(at);
+  const value = (kind: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === kind)?.value ?? "";
+  const weekday = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(value("weekday"));
+  return { weekday, minutes: Number(value("hour")) * 60 + Number(value("minute")) };
+}
+
+/** 영업시간이 없는 음식점·카페의 심야(22:00~05:59) 표시는 더 강한 확인 경고를 쓴다. */
+export function getArrivalOpenDisplayStatus(
+  status: ArrivalOpenStatus,
+  facilityType: string | null | undefined,
+  arrival: Date,
+): ArrivalOpenDisplayStatus {
+  const { minutes } = kstParts(arrival);
+  const isLateNight = minutes >= 22 * 60 || minutes < 6 * 60;
+  return status === "needs_confirmation"
+    && (facilityType === "cafe" || facilityType === "restaurant")
+    && isLateNight
+    ? "likely_closed_unknown"
+    : status;
+}
+
+/** 한국 현지 도착시각 기준 영업 상태. 파싱할 근거가 없으면 needs_confirmation. */
+export function getArrivalOpenStatus(hours: OperatingHours, arrival: Date = new Date()): ArrivalOpenStatus {
+  const source = hours && typeof hours === "object" ? hours : {};
+  const { weekday, minutes } = kstParts(arrival);
+  const closedText = String(source.closed ?? "");
+  const koDay = ["일", "월", "화", "수", "목", "금", "토"][weekday];
+  const enDay = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"][weekday];
+  if (closedText && !/연중\s*무휴/.test(closedText)) {
+    if (new RegExp(`(?:매주|매월|요일|휴무)[^\\n]{0,12}${koDay}|${koDay}요일`).test(closedText)
+      || new RegExp(`\\b${enDay}\\b`, "i").test(closedText)) return "closed_confirmed";
+  }
+  const dayKey = weekday >= 1 && weekday <= 5 ? "weekday" : "weekend";
+  const raw = String(source[dayKey] ?? source.open ?? "");
+  const ranges = [...raw.matchAll(/((?:[01]?\d|2[0-3]):[0-5]\d)\s*(?:~|-|–|—)\s*((?:[01]?\d|2[0-3]):[0-5]\d)/g)];
+  if (ranges.length === 0) return "needs_confirmation";
+  for (const match of ranges) {
+    const toMinutes = (text: string) => Number(text.slice(0, text.indexOf(":"))) * 60 + Number(text.slice(text.indexOf(":") + 1));
+    const opened = toMinutes(match[1]);
+    const closed = toMinutes(match[2]);
+    const open = closed < opened ? minutes >= opened || minutes < closed : minutes >= opened && minutes < closed;
+    if (open) {
+      const remaining = closed < opened ? (closed - minutes + 1440) % 1440 : closed - minutes;
+      return remaining <= 30 ? "closing_soon" : "open_expected";
+    }
+  }
+  return "closed_confirmed";
+}
+
+/** 즉시/장애 폴백 추천은 도착 후 30분 넘게 영업할 근거가 있는 장소만 허용한다. */
+export function isRecommendationOpen(
+  facilityType: string,
+  hours: OperatingHours,
+  arrival: Date = new Date(),
+): boolean {
+  const status = getArrivalOpenStatus(hours, arrival);
+  if (status === "closed_confirmed" || status === "closing_soon") return false;
+  return status === "open_expected" || !["cafe", "restaurant"].includes(facilityType);
+}

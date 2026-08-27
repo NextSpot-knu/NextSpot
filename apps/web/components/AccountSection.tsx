@@ -60,6 +60,11 @@ export function AccountSection() {
           <h3 className="font-bold text-muk">{t('auth.linkedTitle')}</h3>
         </div>
         <div className="flex flex-wrap gap-2">
+          {state.providers.length === 0 && state.user?.email && (
+            <span className="px-3 py-1.5 rounded-full bg-jade/10 border border-jade/30 text-jade text-sm font-semibold">
+              {t('auth.linkedEmail', { email: state.user.email })}
+            </span>
+          )}
           {state.providers.map((p) => (
             <span
               key={p}
@@ -75,7 +80,7 @@ export function AccountSection() {
 
   // guest / none — '계속하기' 유도(회원가입/로그인 통합).
   return (
-    <div className="bg-gradient-to-r from-gold/15 via-white to-terracotta/10 border border-gold/35 rounded-3xl p-5 shadow-[0_2px_14px_rgba(43,35,32,0.06)] mb-4">
+    <div className="bg-gradient-to-r from-gold/15 via-hanji to-terracotta/10 border border-gold/35 rounded-3xl p-5 shadow-[0_2px_14px_rgba(43,35,32,0.06)] mb-4">
       <div className="flex items-center gap-2 mb-1">
         <Link2 size={18} className="text-gold-deep" />
         <h3 className="font-bold text-muk">{t('auth.guestTitle')}</h3>

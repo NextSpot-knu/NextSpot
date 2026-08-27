@@ -3,6 +3,7 @@ import type { TravelContext } from "./travelContext";
 import type { PlaceCategory } from "./travelContext";
 import type { VoiceAppCommand } from "./voiceCommands";
 import type { Locale } from "./i18n/config";
+import { ensureAnonymousSession } from "./anonymousSession";
 const supabase = createPublicClient();
 
 // 인증 필요(HTTP 401)를 서버 장애·기타 오류와 구분하기 위한 전용 에러 타입.
@@ -110,6 +111,7 @@ const REQUEST_TIMEOUT_MS = 10000;
 
 interface RequestOptions extends Omit<RequestInit, "body"> {
   params?: Record<string, string>;
+  timeoutMs?: number;
   /** 평문 객체를 주면 request() 가 snake_case 변환 후 JSON 직렬화한다(FormData 등 BodyInit 은 그대로 전송) */
   body?: unknown;
 }
@@ -145,23 +147,34 @@ async function request(path: string, options: RequestOptions = {}) {
 
   // 10초 타임아웃 — 미응답 시 명확한 에러로 실패시켜 화면이 무한 로딩에 갇히지 않게 한다.
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const externalSignal = options.signal;
+  let timedOut = false;
+  const abortFromCaller = () => controller.abort();
+  if (externalSignal?.aborted) controller.abort();
+  else externalSignal?.addEventListener('abort', abortFromCaller, { once: true });
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, options.timeoutMs ?? REQUEST_TIMEOUT_MS);
 
   let response: Response;
   try {
+    const { params: _params, timeoutMs: _timeoutMs, signal: _signal, ...fetchOptions } = options;
     response = await fetch(url, {
-      ...options,
+      ...fetchOptions,
       headers,
       body,
       signal: controller.signal,
     });
   } catch (err) {
     if (err instanceof DOMException && err.name === "AbortError") {
+      if (!timedOut && externalSignal?.aborted) throw err;
       throw new Error("요청 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요.");
     }
     throw err;
   } finally {
     clearTimeout(timer);
+    externalSignal?.removeEventListener('abort', abortFromCaller);
   }
 
   if (!response.ok) {
@@ -200,6 +213,9 @@ export const apiClient = {
   patch: (path: string, body?: unknown, options?: Omit<RequestOptions, "method" | "body">) =>
     request(path, { ...options, method: "PATCH", body }),
 
+  delete: (path: string, options?: Omit<RequestOptions, "method" | "body">) =>
+    request(path, { ...options, method: "DELETE" }),
+
   // D5: TourAPI 마지막 동기화 시각 조회 — 홈 소형 표시·관리자 신선도 배지 공용.
   getFreshness: (): Promise<FreshnessResponse> =>
     request("/api/v1/freshness", { method: "GET" }),
@@ -207,6 +223,10 @@ export const apiClient = {
 
 export async function mergeGuestData(guestToken: string): Promise<void> {
   await apiClient.post("/api/v1/account/merge-guest", { guestToken });
+}
+
+export async function deleteMyAccount(): Promise<void> {
+  await apiClient.delete("/api/v1/account/me");
 }
 
 // --- SPOT 추천 엔진 연동 API 함수 ---
@@ -241,16 +261,62 @@ export interface RecommendationResponse {
     couponRate?: number | null;
     placeDataSource?: string | null;
     dataUpdatedAt?: string | null;
+    availabilityEvidence?: {
+      status: "open" | "closed";
+      evidenceTier: "single_report" | "corroborated";
+      corroboratingCount: number;
+      reportedAt: string;
+      expiresAt: string;
+    } | null;
   };
   spotScore: number;
   breakdown: {
     preference: number;
     waitTime?: number | null;
     travelTime: number;
+    travelSource?: "osm_pedestrian" | "estimated";
     incentive: number;
+    // 내부 순위에 실제 반영된 시간 구성. measured_rules에서는 숫자 대기를 사용자에게 직접
+    // 노출하지 않지만 비교 설명은 이 합계가 순위에 쓰였다는 사실을 투명하게 보여준다.
+    rankingWaitTime?: number | null;
     // 행사 혼잡 보정(A4): 도착시점 인근 진행 중 축제로 인한 예측 혼잡 가중(0=보정 없음)과 근거 축제명
     eventBoost?: number;
     eventTitle?: string | null;
+    // 장소 내부 혼잡과 분리된 주변 지역 수요(공영주차·관광 통계·행사·날씨).
+    areaDemandLevel?: number | null;
+    areaDemandMode?: "live" | "forecast" | "statistical" | "contextual" | null;
+    areaDemandSources?: ("parking" | "parking_history" | "tourism" | "festival" | "weather")[];
+    areaDemandObservedAt?: string | null;
+    areaDemandRadiusM?: number | null;
+    areaDemandParkingEvidence?: {
+      level: number;
+      mode: "live" | "forecast";
+      observedAt?: string | null;
+      radiusM?: number | null;
+    } | null;
+    areaDemandTourismEvidence?: {
+      referenceName?: string | null;
+      distanceM?: number | null;
+      forecastDate?: string | null;
+      relativeIndex?: number | null;
+    } | null;
+    areaDemandPenaltyMinutes?: number;
+    areaDemandConfidence?: "high" | "medium" | "low" | "none";
+    areaDemandRank?: number | null;
+    areaDemandComparableCount?: number;
+    areaDemandPercentile?: number | null;
+    areaDemandDeltaVsMedian?: number | null;
+    areaDemandDistinguishable?: boolean;
+    delayedAreaDemandLevel?: number | null;
+    delayedAreaDemandMode?: "forecast" | "statistical" | null;
+    arrivalAction?: "go_now" | "wait_then_go" | "choose_calmer" | "no_clear_advantage";
+    recommendedDepartureDelayMinutes?: number | null;
+    tourapiRelatedRank?: number | null;
+    tourapiRelatedPrior?: number | null;
+    discoveryThemeMatch?: {
+      source: "tourapi_related" | "facility_fact";
+      value: string;
+    } | null;
   };
   distanceM: number;
   reason?: string; // 백엔드 템플릿 생성 추천 사유 (snake_case reason → camel reason)
@@ -267,11 +333,33 @@ export interface RecommendationResponse {
   totalCandidates: number;
   openStatusAtArrival?: "open_expected" | "closing_soon" | "closed_confirmed" | "needs_confirmation";
   informationConfidence?: "verified" | "unknown";
+  eligibilityTier?:
+    | "verified_open_route"
+    | "verified_open_estimated_route"
+    | "hours_confirmation_required_route"
+    | "hours_and_route_confirmation_required";
   placeDataSource?: string | null;
   dataUpdatedAt?: string | null;
-  scoringMode: "model" | "measured_rules" | "degraded_rules";
+  scoringMode: "model" | "measured_rules" | "area_stats_rules" | "degraded_rules";
   modelVersion?: string | null;
   predictionSource: "registry" | "measured" | "unavailable";
+}
+
+export interface AvailabilityReportResult {
+  success: boolean;
+  facilityId: string;
+  status: "open" | "closed";
+  evidenceTier: "single_report" | "corroborated";
+  corroboratingCount: number;
+  reportedAt: string;
+  expiresAt: string;
+}
+
+export async function reportFacilityAvailability(
+  facilityId: string,
+  status: "open" | "closed",
+): Promise<AvailabilityReportResult> {
+  return apiClient.post("/api/v1/reports/availability", { facilityId, status });
 }
 
 /** 추천 목록의 reasonSource 를 집계해 디버그 배지 이벤트를 1회 발행한다(항목에 하나도 없으면 무발행). */
@@ -296,15 +384,16 @@ export async function getRecommendations(
   originalFacilityId: string,
   userLocation: { lat: number; lng: number },
   context?: TravelContext,
+  options?: {
+    preferenceIntent?: string | null;
+    candidateTypes?: ("restaurant" | "cafe" | "attraction" | "culture")[];
+    discoveryTheme?: "silla_core" | "night_heritage" | "hanok_cafe" | "indoor_history" | "gyochon_walk";
+    signal?: AbortSignal;
+  },
 ): Promise<RecommendationResponse[]> {
-  // Supabase 세션에서 현재 로그인한 유저 ID 획득
-  const { data: { session } } = await supabase.auth.getSession();
-  let userId = session?.user?.id;
-
-  if (!userId) {
-    console.warn("인증 세션이 없습니다. 데모용 모의 사용자 ID(GYEONGJU-VISITOR-01)를 사용합니다.");
-    userId = "a2222222-2222-2222-2222-222222222222";
-  }
+  const session = await ensureAnonymousSession();
+  const userId = session?.user?.id;
+  if (!userId) throw new AuthError();
 
   const res: RecommendationResponse[] = await apiClient.post("/api/v1/recommendations", {
     userId,
@@ -312,7 +401,10 @@ export async function getRecommendations(
     userLat: userLocation.lat,
     userLng: userLocation.lng,
     context,
-  });
+    preferenceIntent: options?.preferenceIntent ?? null,
+    candidateTypes: options?.candidateTypes ?? [],
+    discoveryTheme: options?.discoveryTheme ?? null,
+  }, { signal: options?.signal });
   dispatchReasonSourceDebug(res);
   return res;
 }
@@ -466,13 +558,11 @@ export async function recommendByType(
   limit = 5,
   context?: TravelContext,
   preferenceIntent?: string | null,
+  signal?: AbortSignal,
 ): Promise<RecommendationResponse[]> {
-  const { data: { session } } = await supabase.auth.getSession();
-  let userId = session?.user?.id;
-  if (!userId) {
-    console.warn("인증 세션이 없습니다. 데모용 모의 사용자 ID(GYEONGJU-VISITOR-01)를 사용합니다.");
-    userId = "a2222222-2222-2222-2222-222222222222";
-  }
+  const session = await ensureAnonymousSession();
+  const userId = session?.user?.id;
+  if (!userId) throw new AuthError();
   const res: RecommendationResponse[] = await apiClient.post("/api/v1/recommendations/by-type", {
     userId,
     facilityType,
@@ -482,7 +572,7 @@ export async function recommendByType(
     limit,
     context,
     preferenceIntent,
-  });
+  }, { signal });
   dispatchReasonSourceDebug(res);
   return res;
 }

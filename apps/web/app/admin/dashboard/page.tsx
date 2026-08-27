@@ -12,6 +12,7 @@ import { CouponPolicyPanel } from '@/components/admin/CouponPolicyPanel';
 import { ImpactWidget } from '@/components/admin/ImpactWidget';
 import { ModelAccuracyBadge } from '@/components/admin/ModelAccuracyBadge';
 import { ModelTrustPanel } from '@/components/admin/ModelTrustPanel';
+import { AreaDemandReliabilityPanel } from '@/components/admin/AreaDemandReliabilityPanel';
 import { DataFreshnessBadge } from '@/components/admin/DataFreshnessBadge';
 
 import { adminApi, getDashboardBriefing } from '@/lib/admin-api';
@@ -354,6 +355,7 @@ export default function DashboardPage() {
         {/* Dashboard Content (Scrollable) */}
         <div className="flex-1 p-8 overflow-y-auto flex flex-col gap-8">
           <ModelTrustPanel />
+          <AreaDemandReliabilityPanel />
           
           {/* Action Bar (Export & Simulation) */}
           <div className="flex justify-end items-center gap-4">

@@ -1,8 +1,21 @@
 @import "tailwindcss";
 
 :root {
-  --background: #0a0a0a;
-  --foreground: #ededed;
+  --background: #faf5ec;
+  --foreground: #2b2320;
+  --nextspot-hanji: #faf5ec;
+  --nextspot-hanji-deep: #f1e7d3;
+  --nextspot-muk: #2b2320;
+  --nextspot-muk-soft: #6b5d4f;
+  --nextspot-line: #e6dcc6;
+  --nextspot-gold: #c19a3e;
+  --nextspot-gold-deep: #a37f2a;
+  --nextspot-jade: #3e7c6a;
+  --nextspot-terracotta: #c1553b;
+  --nextspot-dan-red: #b5322e;
+  --nextspot-sunset-1: #e8895a;
+  --nextspot-sunset-2: #c15b7a;
+  color-scheme: light;
 }
 
 /* ─────────────────────────────────────────────────────────────
@@ -20,11 +33,11 @@
   --font-mono: var(--font-geist-mono);
 
   /* 한지(관광객 라이트) */
-  --color-hanji: #faf5ec;       /* 배경 — 한지 아이보리 */
-  --color-hanji-deep: #f1e7d3;  /* 한 단계 짙은 서페이스 */
-  --color-muk: #2b2320;         /* 먹빛 본문 텍스트 */
-  --color-muk-soft: #6b5d4f;    /* 보조 텍스트(흙빛 그레이) */
-  --color-line: #e6dcc6;        /* 경계선(따뜻한) */
+  --color-hanji: var(--nextspot-hanji);           /* 배경 — 한지 아이보리 */
+  --color-hanji-deep: var(--nextspot-hanji-deep); /* 한 단계 짙은 서페이스 */
+  --color-muk: var(--nextspot-muk);               /* 먹빛 본문 텍스트 */
+  --color-muk-soft: var(--nextspot-muk-soft);     /* 보조 텍스트(흙빛 그레이) */
+  --color-line: var(--nextspot-line);             /* 경계선(따뜻한) */
 
   /* 한옥(관리자 웜다크) */
   --color-hanok: #1b1712;       /* 배경 — 한옥 먹빛 */
@@ -35,13 +48,13 @@
   --color-hanok-muted: #b8a894; /* 다크 위 보조 텍스트 */
 
   /* 단청 오방색 강조(관광객·관리자 공용) */
-  --color-gold: #c19a3e;        /* 신라 금 — 주 강조 */
-  --color-gold-deep: #a37f2a;
-  --color-jade: #3e7c6a;        /* 단청 청록 — 보조 */
-  --color-terracotta: #c1553b;  /* 주칠 — 따뜻한 CTA/혼잡 */
-  --color-dan-red: #b5322e;     /* 단청 적 */
-  --color-sunset-1: #e8895a;    /* 노을 그라데이션 */
-  --color-sunset-2: #c15b7a;
+  --color-gold: var(--nextspot-gold);              /* 신라 금 — 주 강조 */
+  --color-gold-deep: var(--nextspot-gold-deep);
+  --color-jade: var(--nextspot-jade);              /* 단청 청록 — 보조 */
+  --color-terracotta: var(--nextspot-terracotta);  /* 주칠 — 따뜻한 CTA/혼잡 */
+  --color-dan-red: var(--nextspot-dan-red);        /* 단청 적 */
+  --color-sunset-1: var(--nextspot-sunset-1);      /* 노을 그라데이션 */
+  --color-sunset-2: var(--nextspot-sunset-2);
 }
 
 body {
@@ -50,6 +63,68 @@ body {
   /* Fixed assistant pulses and decorative glows may paint beyond the viewport
      during animation; clip only the page axis while preserving inner x-scroll areas. */
   overflow-x: clip;
+}
+
+/* 관광객 야간 팔레트. 관리자·사장님 경로는 ThemeProvider가 이 클래스를 붙이지 않아
+   각각의 기존 전용 색상 체계를 그대로 유지한다. 순수 검정 대신 한옥 먹빛을 사용해
+   금빛·주칠 강조색과 지도 위 카드의 대비를 보존한다. */
+html.nextspot-dark {
+  --background: #17130f;
+  --foreground: #f3eadb;
+  --nextspot-hanji: #17130f;
+  --nextspot-hanji-deep: #231c15;
+  --nextspot-muk: #f3eadb;
+  --nextspot-muk-soft: #c4b49f;
+  --nextspot-line: #493a2c;
+  --nextspot-gold: #d8b45b;
+  --nextspot-gold-deep: #efcd78;
+  --nextspot-jade: #70b39e;
+  --nextspot-terracotta: #e0775d;
+  --nextspot-dan-red: #df665f;
+  --nextspot-sunset-1: #c66f4e;
+  --nextspot-sunset-2: #a95070;
+  color-scheme: dark;
+}
+
+html.nextspot-dark body {
+  background-color: var(--nextspot-hanji);
+  color: var(--nextspot-muk);
+}
+
+/* 기존 관광객 카드의 white 유틸을 야간 서페이스로 치환한다. text-white는 건드리지
+   않으므로 의미색 CTA의 흰 글자는 그대로 유지된다. */
+html.nextspot-dark .bg-white { background-color: #292119 !important; }
+html.nextspot-dark .bg-white\/95 { background-color: rgb(41 33 25 / 0.95) !important; }
+html.nextspot-dark .bg-white\/90 { background-color: rgb(41 33 25 / 0.90) !important; }
+html.nextspot-dark .bg-white\/80 { background-color: rgb(41 33 25 / 0.80) !important; }
+html.nextspot-dark .bg-white\/70 { background-color: rgb(41 33 25 / 0.70) !important; }
+html.nextspot-dark .bg-white\/60 { background-color: rgb(41 33 25 / 0.60) !important; }
+html.nextspot-dark .bg-white\/55 { background-color: rgb(41 33 25 / 0.55) !important; }
+html.nextspot-dark .bg-white\/50 { background-color: rgb(41 33 25 / 0.50) !important; }
+html.nextspot-dark .bg-white\/\[0\.88\] { background-color: rgb(41 33 25 / 0.88) !important; }
+
+html.nextspot-dark .toss-surface {
+  box-shadow:
+    0 1px 2px rgb(0 0 0 / 0.25),
+    0 12px 34px rgb(0 0 0 / 0.36);
+}
+
+html.nextspot-dark input,
+html.nextspot-dark textarea,
+html.nextspot-dark select {
+  caret-color: var(--nextspot-gold);
+}
+
+/* Kakao는 별도 다크 지도 스킨을 제공하지 않으므로 관광객 지도 타일만 저휘도 색상으로
+   변환한다. NextSpot SVG 마커(data URI)와 사용자 위치 마커는 아래 필터 대상이 아니다. */
+html.nextspot-dark .nextspot-map img:not([src^="data:"]) {
+  filter: invert(88%) hue-rotate(180deg) brightness(72%) contrast(112%) saturate(72%);
+}
+
+body,
+.bg-hanji,
+.bg-hanji-deep {
+  transition: background-color 220ms ease, color 220ms ease, border-color 220ms ease;
 }
 
 /* 모바일 앱다운 입력 피드백. JS 모션을 쓰지 않는 작은 칩/아이콘에도 같은 눌림 문법을 적용한다. */
@@ -94,7 +169,7 @@ body {
 /* 단청 그라디언트 텍스트 — 워드마크/타이틀용. 이전엔 미정의(no-op)라 효과가 없었다.
    금→주칠 웜 그라데이션으로 실제 정의(사용처가 자동으로 웜톤이 된다). */
 .gradient-text {
-  background-image: linear-gradient(90deg, var(--color-gold), var(--color-terracotta));
+  background-image: linear-gradient(90deg, var(--nextspot-gold), var(--nextspot-terracotta));
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;

@@ -1,5 +1,13 @@
 import { expect, test } from '@playwright/test';
 
+test.beforeEach(async ({ page }) => {
+  await page.route('**://dapi.kakao.com/**', route => route.fulfill({
+    status: 200,
+    contentType: 'application/javascript',
+    body: '/* Kakao SDK is intentionally unavailable in deterministic E2E. */',
+  }));
+});
+
 const locales = ['ko', 'en', 'ja', 'zh'] as const;
 
 for (const locale of locales) {
@@ -33,4 +41,12 @@ test('external Kakao navigation is fixed and does not leave the test page', asyn
   await resume.click();
   const opened = await page.evaluate(() => (window as unknown as { __opened?: string }).__opened);
   expect(opened).toContain('map.kakao.com');
+});
+
+test('manual dark theme is restored before the tourist screen renders', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('nextspot_theme', 'dark'));
+  await page.goto('/mypage/settings');
+  await expect(page.locator('html')).toHaveClass(/nextspot-dark/);
+  await expect(page.getByRole('radio', { name: '다크' })).toHaveAttribute('aria-checked', 'true');
+  await expect(page.locator('body')).toHaveCSS('color-scheme', 'dark');
 });

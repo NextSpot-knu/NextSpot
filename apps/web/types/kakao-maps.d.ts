@@ -38,6 +38,8 @@ declare namespace kakao.maps {
     constructor();
     extend(latlng: LatLng): void;
     isEmpty(): boolean;
+    /** 이 경계가 좌표를 품는지 — 화면 안에 있는 시설만 추리는 데 쓴다. */
+    contain(latlng: LatLng): boolean;
   }
 
   /** 화면 좌표 ↔ 지도 좌표 투영. 카드가 가리는 만큼 중심을 띄우는 보정에 쓴다. */
@@ -68,6 +70,8 @@ declare namespace kakao.maps {
       paddingBottom?: number,
       paddingLeft?: number
     ): void;
+    /** 현재 화면에 보이는 영역의 경계. */
+    getBounds(): LatLngBounds;
     getProjection(): Projection;
     relayout(): void;
   }
@@ -171,6 +175,12 @@ declare namespace kakao.maps {
       ERROR = "ERROR",
     }
 
+    /** keywordSearch 정렬 기준 — 같은 이름의 다른 지점을 배제하려고 거리순을 쓴다. */
+    enum SortBy {
+      ACCURACY = "accuracy",
+      DISTANCE = "distance",
+    }
+
     /** keywordSearch 결과 1건 — 이 저장소가 읽는 필드만 선언한다. */
     interface PlacesSearchResultItem {
       id: string;
@@ -181,6 +191,8 @@ declare namespace kakao.maps {
       place_url: string;
       x: string;
       y: string;
+      /** 검색 기준 좌표(options.location)로부터의 거리(m). location 을 넘겼을 때만 채워진다. */
+      distance?: string;
     }
 
     class Places {
@@ -188,7 +200,7 @@ declare namespace kakao.maps {
       keywordSearch(
         keyword: string,
         callback: (result: PlacesSearchResultItem[], status: Status) => void,
-        options?: { location?: LatLng; radius?: number; size?: number }
+        options?: { location?: LatLng; radius?: number; size?: number; sort?: SortBy }
       ): void;
     }
   }

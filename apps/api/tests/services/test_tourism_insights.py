@@ -1,4 +1,4 @@
-from app.services.tourapi.insights import normalized_concentration_rows
+from app.services.tourapi.insights import normalized_concentration_rows, normalized_related_rows
 
 
 def test_normalized_concentration_rows_preserves_relative_meaning():
@@ -20,3 +20,18 @@ def test_normalized_concentration_rows_rejects_incomplete_values():
         {"tAtsNm": "비정형", "fcastYmd": "20260720", "cnctrRate": "unknown"},
     ]}}}}
     assert normalized_concentration_rows(payload) == []
+
+
+def test_normalized_related_rows_keeps_direction_and_rank():
+    item = {
+        "tAtsNm": "대릉원", "rlteTatsNm": "동궁과 월지",
+        "rlteRank": "2", "rlteTatsDivNm": "관광지",
+    }
+    payload = {"response": {"body": {"items": {"item": [item]}}}}
+    assert normalized_related_rows(payload) == [{
+        "origin_name": "대릉원",
+        "related_name": "동궁과 월지",
+        "related_rank": 2,
+        "related_category": "관광지",
+        "raw": item,
+    }]

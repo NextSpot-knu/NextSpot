@@ -1,11 +1,19 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ChevronLeft, Globe, BellRing, Database, Trash2, Info, Store, ChevronRight } from 'lucide-react';
+import { ChevronLeft, Globe, BellRing, Database, Trash2, Info, Store, ChevronRight, UserX, Monitor, Sun, Moon } from 'lucide-react';
 import { toast } from 'sonner';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { CongestionAlertToggle } from '@/components/CongestionAlertToggle';
 import { useT } from '@/lib/i18n/I18nProvider';
+import { deleteMyAccount } from '@/lib/api-client';
+import { getAuthState } from '@/lib/auth';
+import { createPublicClient } from '@/lib/supabase';
+import { clearUserScopedData } from '@/lib/userData';
+import { clearSavedAll } from '@/lib/savedFacilities';
+import { useTheme } from '@/components/ThemeProvider';
+import type { ThemeMode } from '@/lib/theme';
 
 // 앱 정보 표시용 버전 — package.json 과 동기(정적 export 라 런타임 import 대신 상수 단일 정의점).
 const APP_VERSION = '0.1.0';
@@ -13,6 +21,17 @@ const APP_VERSION = '0.1.0';
 export default function SettingsPage() {
   const router = useRouter();
   const t = useT();
+  const { mode: themeMode, resolvedTheme, setMode: setThemeMode } = useTheme();
+  const [hasAccount, setHasAccount] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    void getAuthState().then((state) => {
+      if (alive) setHasAccount(state.status === 'linked');
+    });
+    return () => { alive = false; };
+  }, []);
 
   // 저장 데이터 초기화 — 되돌릴 수 없는 파괴적 동작이라 네이티브 confirm() 대신
   // 전역 sonner 토스트의 action/cancel 로 인페이지 확인을 받는다(saved 페이지 clearAll 과 동일 패턴).
@@ -22,20 +41,45 @@ export default function SettingsPage() {
       duration: 8000,
       action: {
         label: t('settings.resetAction'),
-        onClick: () => {
+        onClick: () => { void (async () => {
+          await clearSavedAll();
           try {
-            localStorage.removeItem('nextspot_saved_facilities');
             localStorage.removeItem('nextspot_setup_prefs');
           } catch {
             /* localStorage 차단 환경 — 조용히 무시 */
           }
           toast.success(t('settings.resetSuccess'));
-        },
+        })(); },
       },
       cancel: {
         label: t('common.cancel'),
         onClick: () => {},
       },
+    });
+  };
+
+  const handleDeleteAccount = () => {
+    if (deleting) return;
+    toast(t('settings.deleteAccountConfirm'), {
+      description: t('settings.deleteAccountConfirmDesc'),
+      duration: 10000,
+      action: {
+        label: t('settings.deleteAccountAction'),
+        onClick: () => { void (async () => {
+          setDeleting(true);
+          try {
+            await deleteMyAccount();
+            await createPublicClient().auth.signOut({ scope: 'local' });
+            clearUserScopedData();
+            toast.success(t('settings.deleteAccountSuccess'));
+            router.replace('/');
+          } catch {
+            setDeleting(false);
+            toast.error(t('settings.deleteAccountFailed'));
+          }
+        })(); },
+      },
+      cancel: { label: t('common.cancel'), onClick: () => {} },
     });
   };
 
@@ -74,6 +118,41 @@ export default function SettingsPage() {
           </div>
         </section>
 
+        {/* 화면 테마 — 자동은 경주 현지 시각 18:00~06:00에 다크모드. */}
+        <section className="bg-white border border-line rounded-3xl p-5 shadow-[0_2px_14px_rgba(43,35,32,0.06)]">
+          <div className="mb-4 flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gold/10">
+              {resolvedTheme === 'dark' ? <Moon size={20} className="text-gold" /> : <Sun size={20} className="text-gold" />}
+            </div>
+            <div className="flex min-w-0 flex-col">
+              <h2 className="font-bold text-muk">{t('theme.title')}</h2>
+              <p className="text-xs leading-relaxed text-muk-soft">{t('theme.description')}</p>
+            </div>
+          </div>
+          <div className="grid grid-cols-3 gap-2" role="radiogroup" aria-label={t('theme.title')}>
+            {([
+              ['auto', Monitor, 'theme.auto'],
+              ['light', Sun, 'theme.light'],
+              ['dark', Moon, 'theme.dark'],
+            ] as const).map(([value, Icon, label]) => {
+              const selected = themeMode === value;
+              return (
+                <button
+                  key={value}
+                  type="button"
+                  role="radio"
+                  aria-checked={selected}
+                  onClick={() => setThemeMode(value as ThemeMode)}
+                  className={`toss-pressable flex min-w-0 flex-col items-center justify-center gap-1.5 rounded-2xl border px-2 py-3 text-xs font-bold transition-colors ${selected ? 'border-gold bg-gold/15 text-gold-deep' : 'border-line bg-hanji text-muk-soft hover:border-gold/45 hover:text-muk'}`}
+                >
+                  <Icon size={17} aria-hidden />
+                  <span>{t(label)}</span>
+                </button>
+              );
+            })}
+          </div>
+        </section>
+
         {/* 혼잡 알림 */}
         <section className="bg-white border border-line rounded-3xl p-5 shadow-[0_2px_14px_rgba(43,35,32,0.06)]">
           <div className="flex items-center gap-3 mb-3">
@@ -92,7 +171,7 @@ export default function SettingsPage() {
         <button
           type="button"
           onClick={() => router.push('/merchant')}
-          className="group w-full rounded-3xl border border-gold/35 bg-gradient-to-r from-gold/15 via-white to-terracotta/10 p-5 text-left shadow-[0_2px_14px_rgba(43,35,32,0.06)] transition-colors hover:border-gold/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+          className="group w-full rounded-3xl border border-gold/35 bg-gradient-to-r from-gold/15 via-hanji to-terracotta/10 p-5 text-left shadow-[0_2px_14px_rgba(43,35,32,0.06)] transition-colors hover:border-gold/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
         >
           <div className="flex items-center justify-between gap-4">
             <div className="flex min-w-0 items-center gap-3">
@@ -128,6 +207,24 @@ export default function SettingsPage() {
             <span>{t('settings.resetData')}</span>
           </button>
         </section>
+
+        {hasAccount && (
+          <section className="rounded-3xl border border-terracotta/35 bg-white p-5 shadow-[0_2px_14px_rgba(43,35,32,0.06)]">
+            <div className="mb-3 flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-terracotta/10">
+                <UserX size={20} className="text-terracotta" />
+              </div>
+              <div>
+                <h2 className="font-bold text-muk">{t('settings.deleteAccountTitle')}</h2>
+                <p className="text-xs text-muk-soft">{t('settings.deleteAccountDesc')}</p>
+              </div>
+            </div>
+            <button type="button" disabled={deleting} onClick={handleDeleteAccount} className="flex w-full items-center justify-center gap-2 rounded-2xl border border-terracotta/30 px-4 py-3 text-sm font-semibold text-terracotta disabled:opacity-50">
+              <Trash2 size={16} />
+              {deleting ? t('common.loading') : t('settings.deleteAccount')}
+            </button>
+          </section>
+        )}
 
         {/* 앱 정보 */}
         <section className="bg-white border border-line rounded-3xl p-5 shadow-[0_2px_14px_rgba(43,35,32,0.06)]">

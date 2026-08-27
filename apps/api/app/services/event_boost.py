@@ -34,6 +34,7 @@
   - 축제당 24h 캐시(_playtime_cache) — playtime 은 축제 기간 내 사실상 불변이라 스코어링마다
     재조회하지 않는다.
 """
+import asyncio
 import re
 import time
 from datetime import date, datetime, timedelta, timezone
@@ -72,6 +73,7 @@ _TTL_FAIL_SECONDS = 600.0   # 실패 네거티브 캐시 — 장애 시 채점�
 
 # (조회일 ISO, monotonic 시각, TTL, 축제 목록) — 단일 프로세스 데모 서버 전제의 모듈 전역 캐시.
 _cache: Optional[tuple[str, float, float, list[dict]]] = None
+_cache_lock = asyncio.Lock()
 
 # --- 공연시간 정밀 보정(구현 2) ---------------------------------------------------------
 
@@ -222,15 +224,21 @@ async def _get_festivals_cached(today: date) -> list[dict]:
         cached_key, ts, ttl, festivals = _cache
         if cached_key == key and time.monotonic() - ts < ttl:
             return festivals
-    try:
-        festivals = await _fetch_ongoing_festivals(today)
-        _cache = (key, time.monotonic(), _TTL_OK_SECONDS, festivals)
-        logger.info("event_boost_festivals_loaded", count=len(festivals))
-    except Exception as e:  # RuntimeError(키 미설정)·TourAPIError 모두 무해 폴백
-        festivals = []
-        _cache = (key, time.monotonic(), _TTL_FAIL_SECONDS, festivals)
-        logger.warning("event_boost_fetch_failed", error=str(e))
-    return festivals
+    # 추천 후보가 동시에 점수화될 때 콜드 캐시 하나를 후보 수만큼 TourAPI에 요청하지 않는다.
+    async with _cache_lock:
+        if _cache is not None:
+            cached_key, ts, ttl, festivals = _cache
+            if cached_key == key and time.monotonic() - ts < ttl:
+                return festivals
+        try:
+            festivals = await _fetch_ongoing_festivals(today)
+            _cache = (key, time.monotonic(), _TTL_OK_SECONDS, festivals)
+            logger.info("event_boost_festivals_loaded", count=len(festivals))
+        except Exception as e:  # RuntimeError(키 미설정)·TourAPIError 모두 무해 폴백
+            festivals = []
+            _cache = (key, time.monotonic(), _TTL_FAIL_SECONDS, festivals)
+            logger.warning("event_boost_fetch_failed", error=str(e))
+        return festivals
 
 
 async def get_event_congestion_boost(

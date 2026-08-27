@@ -94,3 +94,40 @@ def normalized_concentration_rows(payload: Any) -> list[dict]:
         })
     return rows
 
+
+def normalized_related_rows(payload: Any) -> list[dict]:
+    """Tmap 연관 목적지를 원본 관광지→연관 목적지·순위 계약으로 정규화한다."""
+    rows: list[dict] = []
+    for item in parse_items(payload):
+        origin_name = (
+            item.get("tAtsNm") or item.get("tatsNm") or item.get("touristAttractionName")
+            or item.get("originTatsNm") or item.get("baseTatsNm")
+        )
+        related_name = (
+            item.get("rlteTatsNm") or item.get("rltTatsNm") or item.get("relatedTatsNm")
+            or item.get("relatedTouristAttractionName") or item.get("dstTatsNm")
+        )
+        raw_rank = (
+            item.get("rlteRank") or item.get("rltTatsRank") or item.get("relatedRank")
+            or item.get("rank")
+        )
+        if not origin_name or not related_name:
+            continue
+        try:
+            rank = int(raw_rank)
+        except (TypeError, ValueError):
+            continue
+        if rank < 1 or rank > 100:
+            continue
+        category = (
+            item.get("rlteTatsDivNm") or item.get("rltTatsDivNm")
+            or item.get("relatedCategoryName") or item.get("categoryName")
+        )
+        rows.append({
+            "origin_name": str(origin_name).strip(),
+            "related_name": str(related_name).strip(),
+            "related_rank": rank,
+            "related_category": str(category).strip() if category not in (None, "") else None,
+            "raw": item,
+        })
+    return rows

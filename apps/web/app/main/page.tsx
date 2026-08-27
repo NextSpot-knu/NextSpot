@@ -4,12 +4,12 @@ import { useEffect, useRef, useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import dynamic from 'next/dynamic';
-import { Search, Mic, X, Utensils, MapPin, Building2, Coffee, ChevronDown, ChevronUp, SlidersHorizontal } from 'lucide-react';
+import { Search, Mic, X, Utensils, MapPin, Building2, Coffee, Car, ChevronDown, ChevronUp, SlidersHorizontal, Clock3 } from 'lucide-react';
 import { createPublicClient } from '@/lib/supabase';
 import { getMarkerSvg } from '@/lib/utils';
-import { scoreFacility, compareSpot, rankFacilities, rankFacilitiesDegraded, recToSpot, haversineMeters, cuisineMatch, filterReachable, type Spot } from '@/lib/recommender';
+import { scoreFacility, compareSpot, displayWalkingMinutes, rankFacilities, rankFacilitiesDegraded, recToSpot, haversineMeters, cuisineMatch, filterReachable, type Spot } from '@/lib/recommender';
 import { REGION, isWithinRegion } from '@/lib/region';
-import { recommendByType, rejectRecommendation, voiceTurn, apiClient } from '@/lib/api-client';
+import { getRecommendations, recommendByType, rejectRecommendation, voiceTurn, apiClient } from '@/lib/api-client';
 // 히트맵 blob 의 색·크기 규칙(마커/배지 임계와 일관) 공용 헬퍼 — 중복 정의 금지, 그대로 재사용.
 import { getHeatGradient, getHeatRadius } from '@/lib/heatmap';
 // D5: TourAPI 동기화 신선도 상대시간 — lib/freshness 단일 소스 재사용(중복 정의 금지).
@@ -22,13 +22,21 @@ import { queueRecommendationOutcome } from '@/lib/recommendationOutcomes';
 import { openDrivingDirections, openWalkingDirections } from '@/lib/navigation';
 import { track } from '@/lib/analytics';
 import { loadSavedLocal, syncSaved, saveBookmark, type SavedRecord } from '@/lib/savedFacilities';
-import { useT } from '@/lib/i18n/I18nProvider';
+import { useI18n } from '@/lib/i18n/I18nProvider';
 // T2: 휴무 원문 파서(오늘 휴무 확정만 배제) + 가능/불가능 텍스트 파서(주차·반려동물 필터) — 공용 단일 소스.
-import { isClosedToday, parseAvailability } from '@/lib/restDate';
+import { getArrivalOpenStatus, isClosedToday, isRecommendationOpen, parseAvailability } from '@/lib/restDate';
 import { loadTravelContext, matchesTravelContext, saveTravelContext, type PlaceCategory } from '@/lib/travelContext';
 import { buildVoiceCommandTransition, type VoiceAppCommand } from '@/lib/voiceCommands';
+import { facilityMatchesSearch } from '@/lib/placeSearch';
 import NextSpotMascot from '@/components/NextSpotMascot';
-import { errorMessage } from '@/lib/errors';
+import { buildSpotComparisons, formatSpotComparison } from '@/lib/spotComparison';
+import {
+  DISCOVERY_THEMES,
+  findDiscoveryAnchor,
+  getDiscoveryTheme,
+  type DiscoveryTheme,
+  type DiscoveryThemeId,
+} from '@/lib/gyeongjuDiscovery';
 
 const RecommendationCard = dynamic(
   () => import('@/components/RecommendationCard').then((m) => m.RecommendationCard),
@@ -77,6 +85,14 @@ interface FacilityRecord {
   baseCongestion: number | null; // 혼잡 로그 없으면 null('데이터 없음' 표시)
   congestionLevel: number | null;
   currentCount: number | null;
+  address?: string | null;
+  phone?: string | null;
+  operatingHours?: { open?: string; closed?: string; [key: string]: unknown } | null;
+  imageUrl?: string | null;
+  galleryImages?: string[] | null;
+  homepage?: string | null;
+  overview?: string | null;
+  barrierFree?: boolean | null;
   lastUpdated: string | null;
   source?: string | null;
   congestionSource?: 'measured' | 'predicted' | 'none';
@@ -86,13 +102,31 @@ interface FacilityRecord {
   congestionTimestamp?: string | null;
   dataUpdatedAt?: string | null;
   informationConfidence?: 'verified' | 'unknown';
+  eligibilityTier?:
+    | 'verified_open_route'
+    | 'verified_open_estimated_route'
+    | 'hours_confirmation_required_route'
+    | 'hours_and_route_confirmation_required';
+  availabilityEvidence?: {
+    status: 'open' | 'closed';
+    evidenceTier: 'single_report' | 'corroborated';
+    corroboratingCount: number;
+    reportedAt: string;
+    expiresAt: string;
+  } | null;
   openStatusAtArrival?: 'open_expected' | 'closing_soon' | 'closed_confirmed' | 'needs_confirmation';
   spot?: Spot;
   reason?: string;
   apiRank?: number;
   totalCandidates?: number;
   recommendationId?: string;
-  scoringMode?: 'model' | 'measured_rules' | 'degraded_rules';
+  scoringMode?: 'model' | 'measured_rules' | 'area_stats_rules' | 'degraded_rules';
+  couponRate?: number | null;
+  timesaleRate?: number | null;
+  discoveryThemeMatch?: {
+    source: 'tourapi_related' | 'facility_fact';
+    value: string;
+  } | null;
 }
 
 // 개별 시설 vs 그룹(모음) 마커 — isGroup 판별식 union(expandGroups/마커 클릭 분기용).
@@ -119,22 +153,74 @@ interface SavedBookmark {
   // 저장 페이지의 라이브 혼잡 재조회(매칭)·카카오맵 길찾기 링크용 좌표(구버전 북마크엔 없을 수 있음).
   latitude?: number;
   longitude?: number;
+  address?: string | null;
+  phone?: string | null;
+  features?: FacilityFeatures | null;
   trafficStatus: string;
-  waitTime: string;
+  congestionLevel?: number | null;
+  // 검증 모델의 대기시간만 저장한다. degraded/지역수요 규칙에서는 null.
+  waitTime: string | null;
+  waitEvidence?: 'verified_model';
   spot: Spot;
   reason: string;
 }
 
+const FACILITY_CACHE_KEY = 'nextspot_facilities_cache_v3';
+const FACILITY_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
+function loadFacilityCache(): Facility[] | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const parsed = JSON.parse(localStorage.getItem(FACILITY_CACHE_KEY) || 'null') as {
+      savedAt?: number;
+      facilities?: Facility[];
+    } | null;
+    if (!parsed?.savedAt || !Array.isArray(parsed.facilities)) return null;
+    if (Date.now() - parsed.savedAt > FACILITY_CACHE_MAX_AGE_MS) return null;
+    return parsed.facilities;
+  } catch {
+    return null;
+  }
+}
+
+function saveFacilityCache(facilities: Facility[]): void {
+  try {
+    localStorage.setItem(FACILITY_CACHE_KEY, JSON.stringify({ savedAt: Date.now(), facilities }));
+  } catch {
+    // 저장 공간 차단/부족은 최신 네트워크 경로에 영향을 주지 않는다.
+  }
+}
+
 // TourAPI 실시간 키워드 폴백(2위 실시간 키워드 게이트웨이) — GET /api/v1/search/keyword 응답 1건.
 // 적재 전 POI 라 지도 마커는 없다(행 목록 전용). 필드명은 백엔드 간이 페이로드와 1:1(camelCase 변환 없음).
-interface LiveSearchItem {
-  contentid: string;
-  title: string;
-  addr1?: string | null;
-  mapx?: number | null;
-  mapy?: number | null;
-  contenttypeid?: number | null;
-  firstimage?: string | null;
+interface PlaceSearchItem {
+  placeId: string;
+  name: string;
+  type?: 'cafe' | 'restaurant' | null;
+  latitude: number;
+  longitude: number;
+  address: string;
+  phone?: string | null;
+  placeUrl?: string | null;
+  categoryName?: string | null;
+}
+
+interface ParkingLot {
+  id: string;
+  name: string;
+  type: 'parking';
+  latitude: number;
+  longitude: number;
+  distanceM: number;
+  totalSpaces: number | null;
+  availableSpaces: number | null;
+  occupancy: number | null;
+  live: boolean;
+  observedAt: string | null;
+  source: string | null;
+  capacity: number;
+  congestionLevel: number | null;
+  features: FacilityFeatures;
 }
 
 // 술집(bar)이 음식점(restaurant)으로 적재되면 '음식점' 추천을 오염시킨다(데이터 한계).
@@ -154,8 +240,15 @@ export default function MainPage() {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<kakao.maps.Map | null>(null);
   const markersRef = useRef<kakao.maps.Marker[]>([]);
+  const searchMatchLabelsRef = useRef<kakao.maps.CustomOverlay[]>([]);
   const userMarkerRef = useRef<kakao.maps.CustomOverlay | null>(null);
   const activeOverlayRef = useRef<kakao.maps.CustomOverlay | null>(null);
+  const searchResultMarkerRef = useRef<kakao.maps.Marker | null>(null);
+  const searchResultLabelRef = useRef<kakao.maps.CustomOverlay | null>(null);
+  const placeSearchSequenceRef = useRef(0);
+  // 카테고리·위치가 바뀌면 이전 추천 응답은 더 이상 화면에 쓸 수 없다. 최신 요청만 남겨
+  // 모바일의 제한된 연결과 브라우저 파싱 자원을 낭비하지 않는다.
+  const recommendationAbortRef = useRef<AbortController | null>(null);
   // 히트맵 CustomOverlay blob 배열 — 토글 off / 데이터·필터·예측 변경 / 언마운트 시 정리(cleanup)용.
   const heatmapOverlaysRef = useRef<kakao.maps.Overlay[]>([]);
   // 축제 포커스 오버레이(핀/영역 원 + 라벨) 배열 — 새 축제 선택·지도 클릭·언마운트 시 정리.
@@ -165,13 +258,17 @@ export default function MainPage() {
     const first = loadTravelContext().categories[0];
     return ({ restaurant: '음식점', cafe: '카페', attraction: '관광지', culture: '문화시설' } as const)[first ?? 'restaurant'];
   });
-  const [searchQuery, setSearchQuery] = useState(''); // 로컬 시설명 검색(마커 필터). TourAPI 의미검색 연동은 범위 밖.
+  const [searchQuery, setSearchQuery] = useState(''); // 상호·주소·검증 메뉴/업종/소개 검색 + Kakao 0건 폴백.
   // TourAPI 실시간 키워드 폴백(2위 실시간 키워드 게이트웨이) — 로컬 검색 0건일 때만 GET /search/keyword 조회.
   // 지도 이동/마커 추가는 하지 않는다(적재 전 POI — 행 목록으로만 노출, [다음 배치 추가 요청]으로 큐잉).
-  const [liveSearchItems, setLiveSearchItems] = useState<LiveSearchItem[]>([]);
+  const [liveSearchItems, setLiveSearchItems] = useState<PlaceSearchItem[]>([]);
   const [liveSearchLoading, setLiveSearchLoading] = useState(false);
-  const [requestedIngestIds, setRequestedIngestIds] = useState<Set<string>>(new Set());
   const [facilities, setFacilities] = useState<any[]>([]);
+  const [parkingLots, setParkingLots] = useState<ParkingLot[]>([]);
+  const [parkingLoading, setParkingLoading] = useState(false);
+  const [parkingLoadError, setParkingLoadError] = useState(false);
+  const [parkingReloadNonce, setParkingReloadNonce] = useState(0);
+  const [selectedParkingLot, setSelectedParkingLot] = useState<ParkingLot | null>(null);
   // 시설 로드 상태(데모 사고 방지선): 로딩 스피너·재시도·전체 빈 상태 안내 렌더용.
   const [isLoadingFacilities, setIsLoadingFacilities] = useState(true);
   const [facilitiesLoadError, setFacilitiesLoadError] = useState(false);
@@ -195,12 +292,20 @@ export default function MainPage() {
   // 카카오 SDK 가 끝내 뜨지 않을 때(키 미설정·네트워크 차단 등) 무한 검은 화면 대신 폴백 UI를 보여주기 위한 상태.
   const [mapUnavailable, setMapUnavailable] = useState(false);
   const [mapLevel, setMapLevel] = useState(4); // 지도 줌 레벨(작을수록 확대) — 줌별 마커 밀집도 제어
+  const [mapViewportVersion, setMapViewportVersion] = useState(0);
   const [isMockLocationMinimized, setIsMockLocationMinimized] = useState(true);
   const [isMockTimeMinimized, setIsMockTimeMinimized] = useState(true);
   const [mockHour, setMockHour] = useState<number | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [travelContext, setTravelContext] = useState(loadTravelContext);
   const [showMobileTools, setShowMobileTools] = useState(false);
+  const [showDiscoveryThemes, setShowDiscoveryThemes] = useState(false);
+  const [activeDiscovery, setActiveDiscovery] = useState<{
+    themeId: DiscoveryThemeId;
+    anchorId: string;
+    anchorName: string;
+  } | null>(null);
+  const [discoveryLoading, setDiscoveryLoading] = useState(false);
 
   // 히트맵 레이어 on/off — 혼잡 핀과 별개의 열지도 오버레이(CongestionMap 에서 이식). 기본 꺼짐.
   const [showHeatmap, setShowHeatmap] = useState(false);
@@ -248,7 +353,37 @@ export default function MainPage() {
   }, [toastMessage]);
 
   const router = useRouter();
-  const t = useT();
+  const { locale, t } = useI18n();
+  const [currentClock, setCurrentClock] = useState<Date | null>(null);
+
+  // 영업 여부와 도착 시각을 판단하는 기준과 맞춰 경주 현지 시각(KST)을 보여준다.
+  // 최초 SSR에는 렌더하지 않아 하이드레이션 차이를 막고, 이후 30초마다 분 경계를 갱신한다.
+  useEffect(() => {
+    const updateClock = () => setCurrentClock(new Date());
+    updateClock();
+    const timer = window.setInterval(updateClock, 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const clockLabels = useMemo(() => {
+    if (!currentClock) return null;
+    const localeCode = { ko: 'ko-KR', en: 'en-US', ja: 'ja-JP', zh: 'zh-CN' }[locale];
+    const options = { timeZone: 'Asia/Seoul' } as const;
+    return {
+      date: new Intl.DateTimeFormat(localeCode, {
+        ...options,
+        month: 'long',
+        day: 'numeric',
+        weekday: 'long',
+      }).format(currentClock),
+      time: new Intl.DateTimeFormat(localeCode, {
+        ...options,
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+      }).format(currentClock),
+    };
+  }, [currentClock, locale]);
 
   // 지도 검색바 음성 받아쓰기(STT) — 마이크 탭 → 한 발화를 검색어로 넣어 기존 마커 필터(searchQuery)를 그대로 재사용.
   // 미지원 브라우저면 supported=false → 마이크는 아래에서 '준비 중' 비활성으로 유지(정적 export/SSR 안전).
@@ -266,12 +401,26 @@ export default function MainPage() {
     async function loadFacilities() {
       setIsLoadingFacilities(true);
       setFacilitiesLoadError(false);
+      const cached = loadFacilityCache();
+      if (cached?.length) {
+        setFacilities(cached);
+        setIsLoadingFacilities(false);
+      }
 
       // 1순위: 백엔드 /infrastructures — 시설별 '최신' 혼잡을 서버가 결정적으로 조인(시설별 limit-1)해 내려준다.
       //   기존 supabase 경로(최근 3000행을 받아 클라이언트 dedup)는 로그가 잦은 시설이 캡을 채우면
       //   다른 시설이 congestion=null 로 조용히 누락되는 문제가 있었다 → 서버 조인이 이를 해소하고 전송량도 줄인다.
       try {
-        const items = await apiClient.get("/api/v1/infrastructures");
+        // 첫 방문에는 캐시가 없으므로 API가 2.5초 안에 응답하지 않으면 곧바로 Supabase 읽기 폴백으로 전환한다.
+        const items = await apiClient.get("/api/v1/infrastructures", {
+          timeoutMs: 2500,
+          params: {
+            minLat: String(REGION.bounds.minLat),
+            maxLat: String(REGION.bounds.maxLat),
+            minLng: String(REGION.bounds.minLng),
+            maxLng: String(REGION.bounds.maxLng),
+          },
+        });
         if (!Array.isArray(items)) throw new Error("unexpected infrastructures payload");
         const mapped = items.map((f: any) => {
           const level = f.congestion ? f.congestion.level : null; // 혼잡 로그 없는 시설은 null(데이터 없음)
@@ -292,6 +441,7 @@ export default function MainPage() {
             homepage: f.homepage ?? null,
             overview: f.overview ?? null,
             barrierFree: f.barrierFree ?? null,
+            availabilityEvidence: f.availabilityEvidence ?? null,
             baseCongestion: level,
             congestionLevel: level,
             currentCount: f.congestion ? f.congestion.currentCount : null,
@@ -302,6 +452,7 @@ export default function MainPage() {
           };
         });
         setFacilities(mapped);
+        saveFacilityCache(mapped);
         setIsLoadingFacilities(false);
         return;
       } catch (apiErr) {
@@ -315,6 +466,10 @@ export default function MainPage() {
           supabase
             .from("facilities")
             .select("id, name, type, latitude, longitude, capacity, operating_hours, features, address, image_url, phone, homepage, overview, barrier_free")
+            .gte("latitude", REGION.bounds.minLat)
+            .lte("latitude", REGION.bounds.maxLat)
+            .gte("longitude", REGION.bounds.minLng)
+            .lte("longitude", REGION.bounds.maxLng)
             .limit(2000),
           supabase
             .from("congestion_logs")
@@ -326,7 +481,7 @@ export default function MainPage() {
 
         if (facRes.error) {
           console.warn("Failed to load facilities:", facRes.error);
-          setFacilitiesLoadError(true); // 백엔드/Supabase 모두 다운 → 빈 지도 대신 재시도 안내 표시
+          setFacilitiesLoadError(!cached?.length); // 캐시도 없을 때만 빈 지도 대신 재시도 안내
           setIsLoadingFacilities(false);
           return;
         }
@@ -377,10 +532,11 @@ export default function MainPage() {
         });
 
         setFacilities(mapped);
+        saveFacilityCache(mapped);
         setIsLoadingFacilities(false);
       } catch (err) {
         console.warn("Error loading facilities:", err);
-        setFacilitiesLoadError(true);
+        setFacilitiesLoadError(!cached?.length);
         setIsLoadingFacilities(false);
       }
     }
@@ -466,6 +622,31 @@ export default function MainPage() {
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number }>({ ...REGION.center });
   const [preferredCategories, setPreferredCategories] = useState<string[]>([]);
 
+  // 현재 살아 있는 SPOT 원점수순 Top 3를 1위와 비교한다. UI용 역할을 강제 배정하지 않고
+  // 실제 산식 입력(취향·순위 시간비용·인센티브)과 점수 차이만 문장으로 만든다.
+  const spotComparisonById = useMemo(() => {
+    const top = rankedFacilities
+      .filter((facility) => !rejectedIds.has(facility.id) && !savedIds.has(facility.id))
+      .slice(0, 3);
+    const comparisons = buildSpotComparisons(top.map((facility, index) => {
+      const spot = facility.spot as Spot | undefined;
+      return {
+        id: String(facility.id),
+        rank: index + 1,
+        spotScore: spot?.score ?? 0,
+        preference: (spot?.preferencePercent ?? 0) / 100,
+        travelMinutes: spot?.expectedTravel ?? 1,
+        rankingWaitMinutes: spot?.rankingWaitTime,
+        areaDemandPenaltyMinutes: spot?.areaDemandPenaltyMinutes,
+        incentive: spot?.incentive,
+      };
+    }));
+    return new Map(comparisons.map((comparison) => [
+      comparison.id,
+      formatSpotComparison(t, comparison),
+    ]));
+  }, [rankedFacilities, rejectedIds, savedIds, t]);
+
   // Load user profile & current location
   useEffect(() => {
     async function loadUser() {
@@ -507,6 +688,56 @@ export default function MainPage() {
       );
     }
   }, []);
+
+  // 주차장 탭은 장소 DB가 아니라 경주시 ITS의 공식 위치·실시간 잔여면을 직접 사용한다.
+  useEffect(() => {
+    if (activeFilter !== '주차장') return;
+    let active = true;
+    setParkingLoading(true);
+    setParkingLoadError(false);
+    apiClient.get('/api/v1/area-demand/parking-lots', {
+      params: {
+        lat: String(userLocation.lat),
+        lng: String(userLocation.lng),
+        radiusM: '5000',
+      },
+      timeoutMs: 6000,
+    }).then((response) => {
+      if (!active) return;
+      const lots = Array.isArray(response?.lots) ? response.lots : [];
+      const mapped = lots.map((lot: any) => ({
+        id: String(lot.id ?? ''),
+        name: String(lot.name ?? ''),
+        type: 'parking' as const,
+        latitude: Number(lot.latitude),
+        longitude: Number(lot.longitude),
+        distanceM: Number(lot.distanceM ?? 0),
+        totalSpaces: typeof lot.totalSpaces === 'number' ? lot.totalSpaces : null,
+        availableSpaces: typeof lot.availableSpaces === 'number' ? lot.availableSpaces : null,
+        occupancy: typeof lot.occupancy === 'number' ? lot.occupancy : null,
+        live: lot.live === true,
+        observedAt: lot.observedAt ?? null,
+        source: lot.source ?? null,
+        capacity: typeof lot.totalSpaces === 'number' ? lot.totalSpaces : 0,
+        congestionLevel: typeof lot.occupancy === 'number' ? lot.occupancy : null,
+        features: { officialParking: true },
+      })).filter((lot: ParkingLot) => lot.id && lot.name && Number.isFinite(lot.latitude) && Number.isFinite(lot.longitude));
+      setParkingLots(mapped);
+      setSelectedParkingLot((current) => current
+        ? mapped.find((lot: ParkingLot) => lot.id === current.id) ?? mapped[0] ?? null
+        : mapped[0] ?? null);
+    }).catch((error) => {
+      console.warn('공식 주차장 조회 실패:', error);
+      if (active) {
+        setParkingLots([]);
+        setSelectedParkingLot(null);
+        setParkingLoadError(true);
+      }
+    }).finally(() => {
+      if (active) setParkingLoading(false);
+    });
+    return () => { active = false; };
+  }, [activeFilter, userLocation.lat, userLocation.lng, parkingReloadNonce]);
 
   // Synchronize User Location Marker on Map
   useEffect(() => {
@@ -620,6 +851,45 @@ export default function MainPage() {
   const expandGroups = (list: Facility[]) =>
     list.flatMap((f) => (f.isGroup && Array.isArray(f.subFacilities)) ? f.subFacilities : [f]);
 
+  const activateDiscoveryTheme = (theme: DiscoveryTheme) => {
+    const anchor = findDiscoveryAnchor(expandGroups(facilities), theme);
+    if (!anchor) {
+      showToast(t('discovery.noAnchor'));
+      return;
+    }
+    recommendationAbortRef.current?.abort();
+    applyVoiceFilter(null);
+    setCuisineChip(null);
+    cuisineIntentRef.current = theme.preferenceIntent;
+    setActiveGroupId(null);
+    setSelectedParkingLot(null);
+    setActiveFilter(theme.filterId);
+    setActiveDiscovery({ themeId: theme.id, anchorId: anchor.id, anchorName: anchor.name });
+    setDiscoveryLoading(true);
+    setRankedFacilities([]);
+    setSelectedFacility(null);
+    setNoRecommendation(false);
+    setShowDiscoveryThemes(false);
+    try {
+      sessionStorage.setItem('nextspot_active_filter', theme.filterId);
+    } catch { /* storage unavailable */ }
+    track('gyeongju_theme_selected', {
+      theme_id: theme.id,
+      reference_facility_id: anchor.id,
+      candidate_type: theme.candidateType,
+    });
+  };
+
+  const clearDiscoveryTheme = () => {
+    recommendationAbortRef.current?.abort();
+    setActiveDiscovery(null);
+    setDiscoveryLoading(false);
+    cuisineIntentRef.current = null;
+    setRankedFacilities([]);
+    setSelectedFacility(null);
+    setNoRecommendation(false);
+  };
+
   // 선택 마커가 하단 카드에 가리지 않도록 지도 위쪽 가시영역으로 패닝(지도 중심을 마커보다 아래로 둔다).
   const panToVisible = (lat: number, lng: number) => {
     const map = mapInstanceRef.current;
@@ -724,14 +994,76 @@ export default function MainPage() {
   // 마커 동기화 effect 와 히트맵 effect 가 '동일한 시설 집합'을 그리도록(열지도=마커 정직성) 공용 사용한다.
   // (기존 마커 effect 의 인라인 계산을 그대로 옮긴 것 — 동작 불변, source 만 파라미터화.)
   const computeDisplayFacilities = (source: any[]) => {
-    const filterMap: Record<string, string> = { '음식점': 'restaurant', '카페': 'cafe', '관광지': 'attraction', '문화시설': 'culture' };
+    const filterMap: Record<string, string> = { '음식점': 'restaurant', '카페': 'cafe', '관광지': 'attraction', '문화시설': 'culture', '주차장': 'parking' };
     const targetType = filterMap[activeFilter];
-    const q = searchQuery.trim().toLowerCase();
-    const filtered = source.filter(f => f.type === targetType && (q === '' || String(f.name ?? '').toLowerCase().includes(q)));
-    const densityCap = mapLevel <= 3 ? 200 : mapLevel <= 4 ? 60 : mapLevel <= 5 ? 30 : mapLevel <= 6 ? 14 : 6;
+    const q = searchQuery.trim();
+    const filtered = source.filter((f) => {
+      if (!q) return f.type === targetType;
+      return facilityMatchesSearch(f, q);
+    });
     const scored = filtered.map(f => ({ ...f, spot: calculateSPOT(f) }));
     scored.sort(compareFacilities);
-    return scored.slice(0, densityCap);
+    const map = mapInstanceRef.current;
+    if (!map || !window.kakao?.maps) return scored.slice(0, q ? 12 : 7);
+    try {
+      const bounds = map.getBounds();
+      const projection = map.getProjection();
+      const visible = scored.filter((facility) => bounds.contain(
+        new window.kakao.maps.LatLng(facility.latitude, facility.longitude)
+      ));
+      // 같은 건물/필지의 점포를 서로 다른 정밀 위치인 것처럼 겹쳐 찍지 않는다. Kakao가 같은
+      // 주소·거의 같은 좌표를 주는 멀티테넌트 점포는 한 핀으로 묶고 클릭 목록에서 선택한다.
+      const buildingClusters: typeof visible[] = [];
+      const normalizedAddress = (value: unknown) => String(value ?? '').replace(/\s+/g, '').trim();
+      for (const facility of visible) {
+        const address = normalizedAddress(facility.address);
+        const cluster = buildingClusters.find((members) => {
+          const anchor = members[0];
+          const distanceM = haversineMeters(
+            anchor.latitude, anchor.longitude, facility.latitude, facility.longitude,
+          );
+          // 행정동처럼 뭉뚱그린 주소가 같은 먼 관광지나 8m 이내의 옆 건물을 오묶지 않는다.
+          return address.length >= 8
+            && normalizedAddress(anchor.address) === address
+            && distanceM <= 30;
+        });
+        if (cluster) cluster.push(facility);
+        else buildingClusters.push([facility]);
+      }
+      const pinCandidates = buildingClusters.map((members) => {
+        if (members.length === 1) return members[0];
+        const levels = members.map((item) => item.congestionLevel)
+          .filter((value): value is number => typeof value === 'number');
+        return {
+          ...members[0],
+          id: `building:${members.map((item) => item.id).sort().join(',')}`,
+          name: t('map.placesInBuilding', { count: members.length }),
+          // 평균점을 만들지 않고 출처가 있는 대표 레코드의 실제 좌표를 유지한다.
+          latitude: members[0].latitude,
+          longitude: members[0].longitude,
+          congestionLevel: levels.length > 0 ? Math.max(...levels) : null,
+          isGroup: true,
+          subFacilities: members,
+        } as FacilityGroup;
+      });
+      const spaced: typeof scored = [];
+      const points: { x: number; y: number }[] = [];
+      const minimumGapPx = q ? 40 : 52;
+      const markerLimit = q ? 12 : map.getLevel() <= 3 ? 12 : map.getLevel() >= 5 ? 5 : 7;
+      for (const facility of pinCandidates) {
+        const point = projection.containerPointFromCoords(
+          new window.kakao.maps.LatLng(facility.latitude, facility.longitude)
+        );
+        if (points.every((other) => Math.hypot(point.x - other.x, point.y - other.y) >= minimumGapPx)) {
+          spaced.push(facility);
+          points.push({ x: point.x, y: point.y });
+        }
+        if (spaced.length >= markerLimit) break;
+      }
+      return spaced;
+    } catch {
+      return scored.slice(0, q ? 12 : 7);
+    }
   };
 
   // 예측 모드 여부 — 예측 데이터 수신 성공 시에만 true(실패 시 '지금' 모드 유지 → 지도가 깨지지 않음).
@@ -746,6 +1078,7 @@ export default function MainPage() {
   // 파생 목록. 원본 facilities 는 불변 → '지금'으로 복귀 시 즉시 실측 표시, 추천/카드 로직에 영향 없음.
   // (예측 대상은 실 시설. 그룹/데모 합성 시설은 predictionMap 에 없어 그대로 유지된다.)
   const markerFacilities = useMemo(() => {
+    if (activeFilter === '주차장') return parkingLots;
     const src = (!isForecast || !predictionMap)
       ? facilities
       : facilities.map((f) => {
@@ -764,7 +1097,7 @@ export default function MainPage() {
     if (showParkingFilter) out = out.filter((f) => parseAvailability(f?.features?.parking as string | null | undefined) === true);
     if (showPetFilter) out = out.filter((f) => parseAvailability((f?.features?.chk_pet ?? f?.features?.chkPet) as string | null | undefined) === true);
     return out;
-  }, [facilities, predictionMap, isForecast, showBarrierFree, showParkingFilter, showPetFilter]);
+  }, [activeFilter, facilities, parkingLots, predictionMap, isForecast, showBarrierFree, showParkingFilter, showPetFilter]);
 
   // 타임슬라이더 전환: 지금(0)=실측 복귀, +N시간=백엔드 배치 예측으로 마커·히트맵 재채색.
   // 실패 시 예측을 적용하지 않고 '지금' 모드를 유지(토스트 안내) — 회귀 없이 안전.
@@ -798,7 +1131,104 @@ export default function MainPage() {
   // 합성 그룹·시간대 시뮬(mockHour) 등 데모는 lib/recommender 미러(사유 포함)로 처리해 합친 뒤 #1을 표시.
   // (백엔드는 합성 시설/mockHour 를 모르므로 데모는 분리해 클라 미러로 점수를 매긴다.)
   useEffect(() => {
+    if (activeFilter === '주차장') {
+      setSelectedFacility(null);
+      setRankedFacilities([]);
+      setNoRecommendation(false);
+      return;
+    }
     if (facilities.length === 0) return;
+
+    // 경주 테마는 유명 장소 자체를 추천하는 모드가 아니다. 선택한 명소를 원본(reference)으로
+    // 보내 TourAPI 연관성·도착 영업 가능성·보행 경로를 통과한 같은 유형의 대안을 서버 SPOT으로
+    // 다시 매긴다. 일반 by-type 요청과 섞이면 늦게 온 응답이 카드를 덮으므로 이 분기를 독립시킨다.
+    if (activeDiscovery) {
+      const theme = getDiscoveryTheme(activeDiscovery.themeId);
+      let cancelled = false;
+      recommendationAbortRef.current?.abort();
+      const recommendationController = new AbortController();
+      recommendationAbortRef.current = recommendationController;
+      setDiscoveryLoading(true);
+
+      (async () => {
+        try {
+          const recs = await getRecommendations(
+            activeDiscovery.anchorId,
+            userLocation,
+            { ...travelContext, categories: [theme.candidateType] },
+            {
+              preferenceIntent: theme.preferenceIntent,
+              candidateTypes: [theme.candidateType],
+              discoveryTheme: theme.id,
+              signal: recommendationController.signal,
+            },
+          );
+          if (cancelled) return;
+          const byId = new Map(expandGroups(facilities).map((facility) => [facility.id, facility]));
+          const ranked = recs.map((rec) => {
+            const rf = rec.facility;
+            const base = byId.get(rf.id) as Facility | undefined;
+            return {
+              ...(base ?? rf),
+              features: (rf.features ?? base?.features ?? null) as FacilityFeatures | null,
+              operatingHours: rf.operatingHours ?? base?.operatingHours ?? null,
+              imageUrl: rf.imageUrl ?? base?.imageUrl ?? null,
+              galleryImages: rf.galleryImages ?? base?.galleryImages ?? null,
+              address: rf.address ?? base?.address ?? null,
+              phone: rf.phone ?? base?.phone ?? null,
+              homepage: rf.homepage ?? base?.homepage ?? null,
+              overview: rf.overview ?? base?.overview ?? null,
+              barrierFree: rf.barrierFree ?? base?.barrierFree ?? null,
+              congestionLevel: rec.congestionSource !== 'none' ? (rec.congestionLevel ?? null) : null,
+              currentCount: rec.congestionSource === 'measured' ? (rf.currentCount ?? null) : null,
+              recommendationId: rec.recommendationId,
+              openStatusAtArrival: rec.openStatusAtArrival,
+              informationConfidence: rec.informationConfidence,
+              eligibilityTier: rec.eligibilityTier,
+              availabilityEvidence: rf.availabilityEvidence ?? base?.availabilityEvidence ?? null,
+              congestionSource: rec.congestionSource,
+              congestionLogSource: rec.congestionLogSource,
+              congestionIsStale: rec.congestionIsStale,
+              congestionTimestamp: rec.congestionTimestamp,
+              dataUpdatedAt: rec.dataUpdatedAt,
+              scoringMode: rec.scoringMode,
+              apiRank: rec.rank,
+              totalCandidates: rec.totalCandidates,
+              discoveryThemeMatch: rec.breakdown.discoveryThemeMatch ?? null,
+              spot: recToSpot(rec),
+              reason: rec.reason || '',
+            } as Facility;
+          });
+          setRankedFacilities(ranked);
+          setDiscoveryLoading(false);
+          if (ranked.length === 0) {
+            setSelectedFacility(null);
+            setNoOpenTodayOnly(false);
+            setNoRecommendation(true);
+            showToast(t('discovery.noAlternatives', { anchor: activeDiscovery.anchorName }));
+            return;
+          }
+          setNoRecommendation(false);
+          setSelectedFacility(ranked[0]);
+          if (mapInstanceRef.current) panToVisible(ranked[0].latitude, ranked[0].longitude);
+        } catch (error) {
+          if (cancelled || (error instanceof DOMException && error.name === 'AbortError')) return;
+          console.warn('경주 테마 대안 추천 실패:', error);
+          setDiscoveryLoading(false);
+          setSelectedFacility(null);
+          setNoOpenTodayOnly(false);
+          setNoRecommendation(true);
+        }
+      })();
+
+      return () => {
+        cancelled = true;
+        recommendationController.abort();
+        if (recommendationAbortRef.current === recommendationController) {
+          recommendationAbortRef.current = null;
+        }
+      };
+    }
 
     const filterMap: Record<string, string> = {
       '음식점': 'restaurant',
@@ -809,10 +1239,13 @@ export default function MainPage() {
     const targetType = filterMap[activeFilter];
 
     const typeOk = (f: Facility) => f.type === targetType && !(targetType === 'restaurant' && isBarFacility(f)); // 식당 추천에서 술집 제외
-    const eligible = facilities.filter((f) => typeOk(f) && matchesTravelContext(f, travelContext, userLocation, haversineMeters));
-    let candidates = eligible.filter(f => !rejectedIds.has(f.id) && !savedIds.has(f.id));
+    const contextEligible = facilities.filter((f) =>
+      typeOk(f)
+      && matchesTravelContext(f, travelContext, userLocation, haversineMeters)
+    );
+    let candidates = contextEligible.filter(f => !rejectedIds.has(f.id) && !savedIds.has(f.id));
     if (candidates.length === 0) {
-      candidates = eligible;
+      candidates = contextEligible;
     }
     if (candidates.length === 0) {
       setSelectedFacility(null);
@@ -824,14 +1257,41 @@ export default function MainPage() {
 
     const isDemo = (f: Facility) => f.isGroup || String(f.id).startsWith('dummy-');
     const realCands = candidates.filter(f => !isDemo(f));
+    // 서버 응답 전 즉시 카드와 API 장애 폴백은 영업 확인 후보로만 제한한다. 서버는 별도로
+    // 가장 강한 영업·경로 tier를 선택하며, 약한 후보로 요청 개수를 억지로 채우지 않는다.
+    const verifiedCandidates = candidates.filter((f) =>
+      isRecommendationOpen(f.type, (f as any).operatingHours)
+    );
+    const verifiedRealCands = verifiedCandidates.filter(f => !isDemo(f));
     // 모음은 sub로 펼쳐 개별 장소를 랭킹(모음 자체는 카드로 안 띄움). 펼친 sub도 거절/저장 제외.
-    const demoCands = expandGroups(candidates.filter(isDemo))
+    const demoCands = expandGroups(verifiedCandidates.filter(isDemo))
       .filter((f) => !rejectedIds.has(f.id) && !savedIds.has(f.id));
     const liveMode = mockHour === null; // 시간대 시뮬이 켜지면 데모(목업) 모드로 일관 처리
     rankingOriginRef.current = null; // 랜드마크 기준점 리셋(카테고리 전환 시)
     const scoreOpts = { userLocation: rankingOriginRef.current ?? userLocation, preferredCategories, mockHour, cuisineIntent: cuisineIntentRef.current };
 
     let cancelled = false;
+    recommendationAbortRef.current?.abort();
+    const recommendationController = new AbortController();
+    recommendationAbortRef.current = recommendationController;
+    // 첫 카드는 네트워크 왕복 전에 즉시 보여준다. 이 순위는 취향·추정 도보·혜택만 쓰는 정직한
+    // degraded 결과이며, 서버의 실측 지역수요/정확한 근거가 도착하면 아래에서 원자적으로 교체한다.
+    if (!voiceFilterIdsRef.current && liveMode) {
+      const immediateReal = rankFacilitiesDegraded(
+        filterReachable(verifiedRealCands, userLocation),
+        scoreOpts,
+      ).map((facility) => ({ ...facility, scoringMode: 'degraded_rules' as const }));
+      const immediateDemo = rankFacilities(demoCands, scoreOpts);
+      const immediate = [...immediateReal, ...immediateDemo].sort(compareSpot);
+      immediate.forEach((facility, index) => {
+        facility.apiRank = index + 1;
+        facility.totalCandidates = immediate.length;
+      });
+      if (immediate.length > 0) {
+        setRankedFacilities(immediate);
+        setSelectedFacility(immediate[0]);
+      }
+    }
     (async () => {
       try {
         let all: Facility[];
@@ -839,11 +1299,12 @@ export default function MainPage() {
         if (vfilter) {
           // 음성 선호 필터(예: '양식'): 후보를 백엔드가 고른 id들로 좁혀 클라 미러로 SPOT 재랭킹(실시간).
           // (필터 변경 직후 첫 카드는 onFilter가 동기로 직접 set하므로 여기선 이후 재실행 케이스만 처리.)
-          const filtered = expandGroups(candidates)
+          const filtered = expandGroups(verifiedCandidates)
             .filter((f) => vfilter.has(f.id) && !rejectedIds.has(f.id) && !savedIds.has(f.id));
           all = rankFacilities(filtered, scoreOpts);
         } else {
           let realRanked: any[] = [];
+          let recommendationApiFailed = false;
           if (liveMode && realCands.length > 0) {
             try {
               // 백엔드에는 rejectedIds와 savedIds를 제외하고 요청
@@ -854,6 +1315,7 @@ export default function MainPage() {
                 5,
                 travelContext,
                 cuisineIntentRef.current,
+                recommendationController.signal,
               );
               const byId = new Map(realCands.map(f => [f.id, f]));
               realRanked = recs
@@ -875,14 +1337,16 @@ export default function MainPage() {
                     barrierFree: rf.barrierFree ?? base?.barrierFree ?? null,
                     // 모델이 없어도 최신 현장 관측(measured)은 숨기지 않는다. degraded_rules는
                     // 점수에서 혼잡/대기를 제외한다는 뜻이지, 실제 제보를 폐기한다는 뜻이 아니다.
-                    congestionLevel: r.congestionSource === 'measured' ? (r.congestionLevel ?? null) : (r.scoringMode === 'degraded_rules' ? null : (r.congestionLevel ?? base?.congestionLevel ?? null)),
-                    currentCount: r.congestionSource === 'measured' ? (rf.currentCount ?? null) : (r.scoringMode === 'degraded_rules' ? null : (rf.currentCount ?? base?.currentCount ?? null)),
+                    congestionLevel: r.congestionSource !== 'none' ? (r.congestionLevel ?? null) : null,
+                    currentCount: r.congestionSource === 'measured' ? (rf.currentCount ?? null) : null,
                     // 머천트 연동(2단계): 타임세일·좌석 확인 배지용 — allowlist 병합이라 명시적으로 전달해야 카드에 도달한다.
                     timesaleRate: (rf as any).timesaleRate ?? (rf as any).timesale_rate ?? null,
                     seatStatusFresh: (rf as any).seatStatusFresh ?? (rf as any).seat_status_fresh ?? null,
                     recommendationId: r.recommendationId,
                     openStatusAtArrival: r.openStatusAtArrival,
                     informationConfidence: r.informationConfidence,
+                    eligibilityTier: r.eligibilityTier,
+                    availabilityEvidence: rf.availabilityEvidence ?? base?.availabilityEvidence ?? null,
                     congestionSource: r.congestionSource,
                     congestionLogSource: r.congestionLogSource,
                     congestionIsStale: r.congestionIsStale,
@@ -894,13 +1358,17 @@ export default function MainPage() {
                   };
                 });
             } catch (e) {
-              console.warn("by-type 추천 실패 → 목업 미러로 폴백:", e);
+              if (!(e instanceof DOMException && e.name === 'AbortError')) {
+                console.warn("by-type 추천 실패 → 영업 확인 후보만 로컬 폴백:", e);
+                recommendationApiFailed = true;
+              }
               realRanked = [];
             }
           }
-          // 백엔드 미가용/데모 모드: 실 후보도 클라 미러로 랭킹(동일 가중치). 도보 비현실 거리는 제외(가까운 순 폴백).
-          if (realRanked.length === 0 && realCands.length > 0) {
-            realRanked = rankFacilitiesDegraded(filterReachable(realCands, userLocation), scoreOpts);
+          // API가 정상적으로 빈 배열을 반환했다면 서버의 fail-closed 판정을 존중한다. 네트워크 장애일
+          // 때만 도착 후 30분 이상 영업이 확인된 로컬 후보로 제한해 폴백한다.
+          if (recommendationApiFailed && verifiedRealCands.length > 0) {
+            realRanked = rankFacilitiesDegraded(filterReachable(verifiedRealCands, userLocation), scoreOpts);
           }
           // 합성/데모 시설은 항상 클라 미러로 점수 부여
           const demoRanked = rankFacilities(demoCands, scoreOpts);
@@ -930,11 +1398,17 @@ export default function MainPage() {
       }
     })();
 
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      recommendationController.abort();
+      if (recommendationAbortRef.current === recommendationController) {
+        recommendationAbortRef.current = null;
+      }
+    };
     // voiceFilterIds 는 dep로 두지 않는다(필터 변경은 onFilter가 직접 처리; effect는 ref로 최신값 읽음 → 더블셋/경합 방지).
     // rejectedIds, savedIds 도 dep에서 제외하여 거절/저장 시 불필요한 백엔드 API 재호출(점수/순위 리셋 현상)을 방지.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [facilities, activeFilter, userLocation, preferredCategories, mockHour, travelContext]);
+  }, [facilities, activeFilter, userLocation, preferredCategories, mockHour, travelContext, activeDiscovery]);
 
   // Action Button Handlers
   const handleAccept = (fac: Facility, navigationMode: 'walk' | 'car' = 'walk') => {
@@ -1021,9 +1495,20 @@ export default function MainPage() {
         // 저장 페이지의 라이브 혼잡 재조회(매칭)·카카오맵 길찾기 링크에 좌표가 필요하므로 함께 저장한다.
         latitude: fac.latitude,
         longitude: fac.longitude,
+        address: fac.address ?? null,
+        phone: fac.phone ?? null,
+        features: fac.features ?? null,
         // 혼잡 근거 없음(null)은 '한산(blue)'으로 합성하지 않고 unknown 으로 저장(CONGESTION_TRUST_SPEC).
         trafficStatus: typeof fac.congestionLevel !== 'number' ? 'unknown' : fac.congestionLevel >= 0.75 ? 'orange' : fac.congestionLevel >= 0.50 ? 'yellow' : fac.congestionLevel >= 0.25 ? 'green' : 'blue',
-        waitTime: `${spot?.expectedWait || 0}분`,
+        congestionLevel: typeof fac.congestionLevel === 'number' ? fac.congestionLevel : null,
+        waitTime:
+          fac.scoringMode === 'model' && fac.congestionSource !== 'none'
+            ? `${spot.expectedWait}분`
+            : null,
+        waitEvidence:
+          fac.scoringMode === 'model' && fac.congestionSource !== 'none'
+            ? 'verified_model'
+            : undefined,
         spot: spot,
         reason: fac.reason || ""
       };
@@ -1157,7 +1642,7 @@ export default function MainPage() {
       const kind = Array.isArray(tags) ? tags.join(', ') : (typeof tags === 'string' ? tags : null);
       if (kind) parts.push(`${kind} 쪽`);
       if (typeof f?.congestionLevel === 'number') parts.push(`혼잡도 ${Math.round(f.congestionLevel * 100)}%`);
-      if (t?.expectedTravel != null) parts.push(`도보 ${t.expectedTravel}분`);
+      if (t?.expectedTravel != null) parts.push(`도보 ${Math.max(1, Math.ceil(t.expectedTravel))}분`);
       else if (t?.expectedWait != null) parts.push(`예상 대기 ${t.expectedWait}분`);
       return parts.length
         ? `${f?.name ?? '이 장소'}는 ${parts.join(', ')}이에요. 여기로 안내할까요?`
@@ -1182,6 +1667,8 @@ export default function MainPage() {
         showToast(t('map.voiceNoMatch')); // 빈 결과 → 필터 미적용(현재 카드 유지)
         return;
       }
+      setActiveDiscovery(null);
+      setDiscoveryLoading(false);
       applyVoiceFilter(set); // ref+state 동시 갱신(effect는 이후 재실행 시 ref로 읽음)
       const ranked = pool.map((f) => ({ ...f, spot: calculateSPOT(f) })).sort(compareFacilities);
       setSelectedFacility(spoken ? { ...ranked[0], reason: spoken } : ranked[0]);
@@ -1223,6 +1710,8 @@ export default function MainPage() {
       }
 
       applyVoiceFilter(null);
+      setActiveDiscovery(null);
+      setDiscoveryLoading(false);
       cuisineIntentRef.current = null;
       setCuisineChip(null);
       setActiveFilter(filterByType[transition.facilityType]);
@@ -1381,6 +1870,7 @@ export default function MainPage() {
           const center = map.getCenter();
           const lvl = map.getLevel();
           setMapLevel(lvl); // 줌 변경 시 마커 밀집도 재계산 트리거
+          setMapViewportVersion((version) => version + 1);
           sessionStorage.setItem('nextspot_map_center_lat', center.getLat().toString());
           sessionStorage.setItem('nextspot_map_center_lng', center.getLng().toString());
           sessionStorage.setItem('nextspot_map_level', lvl.toString());
@@ -1395,6 +1885,7 @@ export default function MainPage() {
           clearFestivalOverlay(); // 축제 핀/영역도 함께 정리
           setActiveGroupId(null);
           setSelectedFacility(null);
+          setSelectedParkingLot(null);
         });
 
         // 음성 비서 활성 중 지도 영역을 터치(탭/드래그/줌)하면 즉시 정지 —
@@ -1418,6 +1909,8 @@ export default function MainPage() {
     // Clear old markers — 표시 집합이 0이 되어도(예: 배리어프리 0건) 반드시 먼저 정리해 잔상이 남지 않게 한다.
     markersRef.current.forEach((m) => m.setMap(null));
     markersRef.current = [];
+    searchMatchLabelsRef.current.forEach((label) => label.setMap(null));
+    searchMatchLabelsRef.current = [];
 
     // 그릴 시설이 없으면 정리만 하고 종료(마커 잔상 방지 — 이전엔 length===0 조기 return 이 정리보다 앞서 있었음).
     if (markerFacilities.length === 0) return;
@@ -1438,7 +1931,8 @@ export default function MainPage() {
       // 그룹 마커는 activeGroupId 로, 개별 마커는 selectedFacility 로 선택 판정 → 둘 다 진한 색 + 확대
       const isSel = f.isGroup
         ? activeGroupId === f.id
-        : (!!selectedFacility && f.id === selectedFacility.id);
+        : ((f.type === 'parking' && selectedParkingLot?.id === f.id)
+          || (!!selectedFacility && f.id === selectedFacility.id));
       const w = isSel ? selW : baseW;
       const h = isSel ? selH : baseH;
       const markerImage = new kakao.maps.MarkerImage(
@@ -1463,6 +1957,14 @@ export default function MainPage() {
         // 지도 click 핸들러의 정리 로직이 실행되지 않으므로, 여기서도 명시적으로 지운다).
         clearFestivalOverlay();
 
+        if (f.type === 'parking') {
+          setActiveGroupId(null);
+          setSelectedFacility(null);
+          setSelectedParkingLot(f as ParkingLot);
+          panToVisible(f.latitude, f.longitude);
+          return;
+        }
+
         if (f.isGroup) {
           // 그룹 마커 자체를 하이라이트(확대+색) — 카드는 띄우지 않음(개별 선택 해제)
           setActiveGroupId(f.id);
@@ -1481,8 +1983,7 @@ export default function MainPage() {
             btn.innerText = sub.name;
             btn.onclick = () => {
               setActiveGroupId(null);
-              setSelectedFacility(sub);
-              setSelectedFacility(sub);
+              selectFacilityWithHoursGuard(sub);
               if (activeOverlayRef.current) {
                 activeOverlayRef.current.setMap(null);
                 activeOverlayRef.current = null;
@@ -1504,20 +2005,36 @@ export default function MainPage() {
           mapInstanceRef.current?.panTo(marker.getPosition());
         } else {
           setActiveGroupId(null);
-          setSelectedFacility(f);
-          setSelectedFacility(f);
-          panToVisible(f.latitude, f.longitude);
+          if (selectFacilityWithHoursGuard(f)) {
+            panToVisible(f.latitude, f.longitude);
+          }
         }
       });
 
       marker.setMap(mapInstanceRef.current);
+      // 등록된 로컬 검색 결과도 이름을 핀 위에 표시한다. 단시푸딩과 같은 필지의 Kakao
+      // 기본지도 GS25 라벨이 겹쳐도, 검색 직후 사용자가 선택한 점포를 명확히 구분한다.
+      if (searchQuery.trim()) {
+        const label = document.createElement('div');
+        label.className = 'rounded-full border border-gold/50 bg-white/95 px-2.5 py-1 text-[11px] font-bold text-muk shadow-[0_2px_10px_rgba(43,35,32,0.14)] whitespace-nowrap';
+        label.textContent = f.name;
+        const labelOverlay = new window.kakao.maps.CustomOverlay({
+          position: marker.getPosition(),
+          content: label,
+          yAnchor: 3.2,
+          zIndex: 80,
+          clickable: false,
+        });
+        labelOverlay.setMap(mapInstanceRef.current);
+        searchMatchLabelsRef.current.push(labelOverlay);
+      }
       return marker;
     });
 
     markersRef.current = newMarkers;
     // selectedFacility 변경 시에도 재렌더해 선택 마커만 진한 색으로 갱신(기존 마커는 effect 시작부에서 정리)
     // markerFacilities 를 dep 으로 둬 예측(hoursAhead) 전환 시에도 마커가 예측 혼잡도로 재채색된다.
-  }, [markerFacilities, activeFilter, mapLoaded, selectedFacility?.id, activeGroupId, mapLevel, searchQuery]);
+  }, [markerFacilities, activeFilter, mapLoaded, selectedFacility?.id, selectedParkingLot?.id, activeGroupId, mapLevel, mapViewportVersion, searchQuery]);
 
   // 히트맵 레이어 (실 카카오맵) — 혼잡 핀과 별개의 CustomOverlay blob(CongestionMap 에서 이식).
   // showHeatmap 이 켜졌을 때만, 마커와 '동일한 표시 시설 집합'(computeDisplayFacilities)에
@@ -1535,9 +2052,11 @@ export default function MainPage() {
     if (!showHeatmap) return;
 
     // 혼잡 로그 없는 시설(congestionLevel === null)은 열지도에서 제외 — '데이터 없음'을 색으로 합성하지 않음(정직성).
-    const displayFacilities = computeDisplayFacilities(markerFacilities).filter(
-      (f) => typeof f.congestionLevel === 'number' && typeof f.latitude === 'number' && typeof f.longitude === 'number'
-    );
+    const displayFacilities = computeDisplayFacilities(markerFacilities)
+      .flatMap((f) => (f.isGroup && Array.isArray(f.subFacilities)) ? f.subFacilities : [f])
+      .filter(
+        (f) => typeof f.congestionLevel === 'number' && typeof f.latitude === 'number' && typeof f.longitude === 'number'
+      );
 
     const overlays = displayFacilities.map((f) => {
       const size = getHeatRadius(f.congestionLevel);
@@ -1567,13 +2086,14 @@ export default function MainPage() {
       heatmapOverlaysRef.current.forEach((o) => o.setMap(null));
       heatmapOverlaysRef.current = [];
     };
-  }, [markerFacilities, activeFilter, mapLoaded, mapLevel, searchQuery, showHeatmap]);
+  }, [markerFacilities, activeFilter, mapLoaded, mapLevel, mapViewportVersion, searchQuery, showHeatmap]);
 
   const filters = [
     { id: '음식점', key: 'restaurant', icon: Utensils },
     { id: '카페', key: 'cafe', icon: Coffee },
     { id: '관광지', key: 'attraction', icon: MapPin },
     { id: '문화시설', key: 'culture', icon: Building2 },
+    { id: '주차장', key: 'parking', icon: Car },
   ];
 
   // 세부 음식분류 칩 — kw 는 lib/recommender.cuisineMatch 의 의도 키워드(라벨은 i18n cuisine.*).
@@ -1592,6 +2112,8 @@ export default function MainPage() {
   // 칩 선택 — 음성 필터(onFilter)와 동일 경로: 매칭 id 집합 → applyVoiceFilter(마커·추천 풀 공통 필터)
   // + cuisineIntent(선호%를 음식 매칭도로 재산정) + 필터 내 SPOT #1 즉시 선택. null = 해제.
   const selectCuisineChip = (chip: { id: string; kw: string } | null) => {
+    setActiveDiscovery(null);
+    setDiscoveryLoading(false);
     if (!chip || cuisineChip === chip.id) {
       setCuisineChip(null);
       cuisineIntentRef.current = null;
@@ -1618,21 +2140,26 @@ export default function MainPage() {
     cuisineIntentRef.current = chip.kw;
     applyVoiceFilter(new Set(pool.map((f: any) => f.id)));
     const ranked = pool.map((f: any) => ({ ...f, spot: calculateSPOT(f) })).sort(compareFacilities);
-    setSelectedFacility(ranked[0]);
-    if (mapInstanceRef.current && typeof ranked[0].latitude === 'number') panToVisible(ranked[0].latitude, ranked[0].longitude);
+    if (selectFacilityWithHoursGuard(ranked[0])
+      && mapInstanceRef.current && typeof ranked[0].latitude === 'number') {
+      panToVisible(ranked[0].latitude, ranked[0].longitude);
+    }
   };
 
   // (c) 검색 결과 유무 — 현재 카테고리에서 이름 일치 마커가 0건이면 '빈 지도' 혼란을 막기 위해 안내를 띄운다.
-  const _filterTypeMap: Record<string, string> = { '음식점': 'restaurant', '카페': 'cafe', '관광지': 'attraction', '문화시설': 'culture' };
+  const _filterTypeMap: Record<string, string> = { '음식점': 'restaurant', '카페': 'cafe', '관광지': 'attraction', '문화시설': 'culture', '주차장': 'parking' };
   const searchActive = searchQuery.trim() !== '';
   // 빈 상태 배지 4종을 각각 facilities.filter로 재순회하지 않고, 관련 상태가 바뀔 때 한 번만 집계한다.
   const { searchMatchCount, barrierFreeMatchCount, parkingMatchCount, petMatchCount } = useMemo(() => {
     const targetType = _filterTypeMap[activeFilter];
-    const query = searchQuery.trim().toLowerCase();
+    const query = searchQuery.trim();
     let search = 0, barrier = 0, parking = 0, pet = 0;
+    const searchPool = activeFilter === '주차장' ? parkingLots : facilities;
+    for (const f of searchPool) {
+      if (query && facilityMatchesSearch(f as Facility, query)) search += 1;
+    }
     for (const f of facilities) {
       if (f.type !== targetType) continue;
-      if (query && String(f.name ?? '').toLowerCase().includes(query)) search += 1;
       if ((f?.barrierFree ?? f?.barrier_free ?? f?.features?.barrier_free) === true) barrier += 1;
       if (parseAvailability(f?.features?.parking as string | null | undefined) === true) parking += 1;
       if (parseAvailability((f?.features?.chk_pet ?? f?.features?.chkPet) as string | null | undefined) === true) pet += 1;
@@ -1643,60 +2170,151 @@ export default function MainPage() {
       parkingMatchCount: showParkingFilter ? parking : 0,
       petMatchCount: showPetFilter ? pet : 0,
     };
-  }, [facilities, activeFilter, searchQuery, searchActive, showBarrierFree, showParkingFilter, showPetFilter]);
+  }, [facilities, parkingLots, activeFilter, searchQuery, searchActive, showBarrierFree, showParkingFilter, showPetFilter]);
 
-  // TourAPI 실시간 키워드 폴백 — 검색 활성 + 로컬 매칭 0건일 때만, 500ms 디바운스 후 조회.
-  // 백엔드 미배선/키 미설정 등 어떤 실패든 빈 목록으로 흡수(무해 폴백 — 기존 배너만 유지되고 이 섹션은 그냥 안 뜬다).
+  // Kakao 시설명 검색 — 등록 여부와 현재 카테고리에 관계없이 지점·작은 점포까지 찾는다.
   useEffect(() => {
-    if (!(searchActive && searchMatchCount === 0)) {
-      setLiveSearchItems([]);
-      setLiveSearchLoading(false);
-      return;
+    const sequence = ++placeSearchSequenceRef.current;
+    if (searchResultMarkerRef.current) {
+      searchResultMarkerRef.current.setMap(null);
+      searchResultMarkerRef.current = null;
+    }
+    if (searchResultLabelRef.current) {
+      searchResultLabelRef.current.setMap(null);
+      searchResultLabelRef.current = null;
     }
     const q = searchQuery.trim();
+    // 한 글자 입력과 로컬에서 이미 찾은 질의는 외부 검색을 호출하지 않는다. 타이핑할 때마다
+    // Kakao 쿼터를 소진하거나 429로 검색 전체가 잠기는 것을 막는다.
+    if (!searchActive || q.length < 2 || searchMatchCount > 0) {
+      setLiveSearchItems([]);
+      setLiveSearchLoading(false);
+      if (q.length >= 2 && searchMatchCount > 0 && mapInstanceRef.current) {
+        const pool = activeFilter === '주차장' ? parkingLots : facilities;
+        const matches = pool.filter((facility) => facilityMatchesSearch(facility as Facility, q));
+        const nearest = matches.sort((a, b) => (
+          haversineMeters(userLocation.lat, userLocation.lng, a.latitude, a.longitude)
+          - haversineMeters(userLocation.lat, userLocation.lng, b.latitude, b.longitude)
+        ))[0];
+        if (nearest && Number.isFinite(nearest.latitude) && Number.isFinite(nearest.longitude)) {
+          mapInstanceRef.current.setLevel(3);
+          panToVisible(nearest.latitude, nearest.longitude);
+        }
+      }
+      return;
+    }
     setLiveSearchLoading(true);
     const timer = setTimeout(async () => {
       try {
-        const res = await apiClient.get('/api/v1/search/keyword', { params: { q } });
-        setLiveSearchItems(Array.isArray(res?.items) ? res.items : []);
+        const res = await apiClient.get('/api/v1/search/places', { params: { q }, timeoutMs: 4500 });
+        if (sequence === placeSearchSequenceRef.current) {
+          setLiveSearchItems(Array.isArray(res?.items) ? res.items : []);
+        }
       } catch (err) {
-        console.warn('TourAPI 실시간 검색 실패 — 무해 폴백(빈 목록):', err);
-        setLiveSearchItems([]);
+        console.warn('Kakao 장소 검색 실패 — 무해 폴백(빈 목록):', err);
+        if (sequence === placeSearchSequenceRef.current) setLiveSearchItems([]);
       } finally {
-        setLiveSearchLoading(false);
+        if (sequence === placeSearchSequenceRef.current) setLiveSearchLoading(false);
       }
-    }, 500);
+    }, 350);
     return () => clearTimeout(timer);
-  }, [searchActive, searchMatchCount, searchQuery]);
+  }, [activeFilter, facilities, parkingLots, searchActive, searchMatchCount, searchQuery, userLocation.lat, userLocation.lng]);
 
-  // '다음 배치 추가 요청' 버튼 — POST /search/ingest-request 로 큐잉만 한다(즉시 적재 아님, 관리자 승인 후 반영).
-  const requestLiveIngest = async (item: LiveSearchItem) => {
-    try {
-      await apiClient.post('/api/v1/search/ingest-request', {
-        contentid: item.contentid,
-        name: item.title,
-        contentTypeId: item.contenttypeid ?? null,
-      });
-      setRequestedIngestIds(prev => new Set(prev).add(item.contentid));
-      showToast(t('map.liveSearchRequested'));
-    } catch (err) {
-      console.warn('적재 요청 실패:', err);
-      showToast(errorMessage(err) || '요청에 실패했어요. 잠시 후 다시 시도해 주세요.');
+  const focusPlaceSearchResult = (item: PlaceSearchItem) => {
+    const map = mapInstanceRef.current;
+    if (!map || !window.kakao?.maps) return;
+    const position = new window.kakao.maps.LatLng(item.latitude, item.longitude);
+    if (searchResultMarkerRef.current) searchResultMarkerRef.current.setMap(null);
+    if (searchResultLabelRef.current) searchResultLabelRef.current.setMap(null);
+    const marker = new window.kakao.maps.Marker({ position, title: item.name });
+    marker.setMap(map);
+    searchResultMarkerRef.current = marker;
+    // Kakao 기본지도에 같은 필지의 GS25 같은 다른 점포명이 보이더라도, 사용자가 선택한
+    // 검색 결과의 이름을 핀 위에 명시해 어느 장소를 가리키는지 혼동하지 않게 한다.
+    const label = document.createElement('div');
+    label.className = 'rounded-full border border-gold/50 bg-white/95 px-3 py-1.5 text-xs font-bold text-muk shadow-[0_2px_10px_rgba(43,35,32,0.16)] whitespace-nowrap';
+    label.textContent = item.name;
+    const labelOverlay = new window.kakao.maps.CustomOverlay({
+      position,
+      content: label,
+      yAnchor: 2.9,
+      zIndex: 90,
+      clickable: false,
+    });
+    labelOverlay.setMap(map);
+    searchResultLabelRef.current = labelOverlay;
+    map.setLevel(3);
+    panToVisible(item.latitude, item.longitude);
+  };
+
+  // 지도·검색에서 사용자가 직접 고른 장소가 도착 후 30분 안에 닫히면 조용히 바꾸지 않는다.
+  // 이유를 먼저 알린 뒤, 서버가 이미 검증한 SPOT 후보 중 다음 장소로 전환한다.
+  const selectFacilityWithHoursGuard = (facility: any): boolean => {
+    const arrivalStatusFor = (candidate: any) => {
+      if (candidate.openStatusAtArrival) return candidate.openStatusAtArrival;
+      const latitude = Number(candidate.latitude);
+      const longitude = Number(candidate.longitude);
+      const distanceM = Number.isFinite(latitude) && Number.isFinite(longitude)
+        ? haversineMeters(userLocation.lat, userLocation.lng, latitude, longitude)
+        : 0;
+      const travelMinutes = displayWalkingMinutes(undefined, distanceM);
+      return getArrivalOpenStatus(
+        candidate.operatingHours,
+        new Date(Date.now() + travelMinutes * 60_000),
+      );
+    };
+    const arrivalStatus = arrivalStatusFor(facility);
+    if (arrivalStatus !== 'closing_soon') {
+      setSelectedFacility(facility);
+      return true;
     }
+
+    const alternative = rankedFacilities.find((candidate) =>
+      candidate.id !== facility.id
+      && arrivalStatusFor(candidate) === 'open_expected'
+    );
+    showToast(t(
+      alternative ? 'map.closingSoonRedirect' : 'map.closingSoonNoAlternative',
+      { name: facility.name },
+    ));
+    if (alternative) {
+      setSelectedFacility(alternative);
+      panToVisible(Number(alternative.latitude), Number(alternative.longitude));
+    } else {
+      setSelectedFacility(null);
+      setNoRecommendation(true);
+    }
+    return false;
   };
 
   return (
     <div className="relative w-full h-[100dvh] overflow-hidden flex flex-col">
 
-      {/* Map Container — 자연스러운 라이트 카카오맵(한지 톤). 타일 다크 반전(map-dark-tiles) 제거 →
-          경주 관광 밝은 지도. 마커/오버레이는 data: URI 이미지라 본래의 선명한 색으로 표시된다. */}
+      {/* 지도는 주간에는 원본 Kakao 타일, 야간에는 전역 테마의 저휘도 필터를 사용한다. */}
       <div
         ref={mapContainerRef}
-        className={`w-full h-full absolute inset-0 z-0${mapUnavailable ? ' bg-gradient-to-b from-hanji-deep/70 via-hanji-deep/40 to-hanji' : ''}`}
+        className={`nextspot-map w-full h-full absolute inset-0 z-0${mapUnavailable ? ' bg-gradient-to-b from-hanji-deep/70 via-hanji-deep/40 to-hanji' : ''}`}
       />
 
+      {/* 장소 카드와 분리된 경주 현지 시계. 모바일 검색바 위 안전영역, 데스크톱 우측 상단에 고정한다. */}
+      {clockLabels && (
+        <div
+          aria-label={`${clockLabels.date} ${clockLabels.time} KST`}
+          className="pointer-events-none absolute right-3 top-[calc(env(safe-area-inset-top)+0.5rem)] z-30 flex items-center gap-2 rounded-2xl border border-white/70 bg-white/[0.88] px-3 py-2 text-right shadow-[0_3px_16px_rgba(43,35,32,0.12)] backdrop-blur-md md:right-5 md:top-5"
+        >
+          <Clock3 size={16} className="shrink-0 text-gold" aria-hidden />
+          <div className="leading-none">
+            <p className="whitespace-nowrap text-[10px] font-semibold text-muk-soft">{clockLabels.date}</p>
+            <p className="mt-1 whitespace-nowrap text-[13px] font-extrabold tracking-tight text-muk">
+              <span className="mr-1 text-[9px] font-bold tracking-wider text-gold-deep">KST</span>
+              {clockLabels.time}
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Top Layer: Search & Filters — 다크 오버레이 그라디언트 제거(플로팅 패널 자체 배경으로 가독성 확보) */}
-      <div className="absolute top-0 w-full z-20 pt-12 md:pt-5 pb-4 px-4 flex flex-col gap-2 md:gap-4 pointer-events-none">
+      <div className="absolute top-0 w-full z-20 pt-12 md:pt-5 pb-4 px-4 md:pr-[190px] flex flex-col gap-2 md:gap-4 pointer-events-none">
 
         {/* 지도 SDK 로드 실패(8초 타임아웃) 안내 칩 — 검색/배리어프리 빈 상태 칩과 동일 스타일 재사용.
             추천 카드 등 나머지 UI 는 지도 유무와 무관하게 계속 동작한다. */}
@@ -1781,8 +2399,125 @@ export default function MainPage() {
           }}
         />
 
+        {!isLoadingFacilities && facilities.length > 0 && !activeDiscovery && !showDiscoveryThemes && (
+          <button
+            type="button"
+            onClick={() => setShowDiscoveryThemes(true)}
+            className="toss-pressable pointer-events-auto flex w-full items-center justify-between gap-3 rounded-2xl border border-gold/30 bg-white/95 px-4 py-3 text-left shadow-[0_4px_18px_rgba(43,35,32,0.09)] backdrop-blur"
+          >
+            <span className="flex min-w-0 items-center gap-3">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gold/15 text-lg" aria-hidden>✨</span>
+              <span className="min-w-0">
+                <span className="block text-sm font-extrabold text-muk">{t('discovery.entry')}</span>
+                <span className="mt-0.5 block truncate text-[11px] text-muk-soft">{t('discovery.entryHint')}</span>
+              </span>
+            </span>
+            <ChevronDown size={17} className="shrink-0 text-gold-deep" aria-hidden />
+          </button>
+        )}
+
+        {!isLoadingFacilities && facilities.length > 0 && showDiscoveryThemes && !activeDiscovery && (
+          <section className="pointer-events-auto rounded-3xl border border-gold/30 bg-white/95 p-4 shadow-[0_8px_28px_rgba(43,35,32,0.13)] backdrop-blur">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-extrabold text-muk">{t('discovery.title')}</p>
+                <p className="mt-1 text-[11px] leading-relaxed text-muk-soft">{t('discovery.subtitle')}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowDiscoveryThemes(false)}
+                aria-label={t('discovery.close')}
+                className="toss-pressable rounded-full p-2 text-muk-soft hover:bg-hanji-deep"
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <div className="mt-3 flex gap-2 overflow-x-auto pb-1 no-scrollbar md:flex-wrap">
+              {DISCOVERY_THEMES.map((theme) => (
+                <button
+                  key={theme.id}
+                  type="button"
+                  onClick={() => activateDiscoveryTheme(theme)}
+                  className="toss-pressable shrink-0 rounded-full border border-line bg-hanji px-3 py-2 text-xs font-bold text-muk hover:border-gold hover:bg-gold/10"
+                >
+                  <span aria-hidden>{theme.emoji}</span> {t(`discovery.theme.${theme.id}`)}
+                </button>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {activeDiscovery && (
+          <section className="pointer-events-auto rounded-3xl border border-jade/25 bg-white/95 p-4 shadow-[0_8px_28px_rgba(43,35,32,0.13)] backdrop-blur">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-[10px] font-extrabold text-jade">
+                  {getDiscoveryTheme(activeDiscovery.themeId).emoji}{' '}
+                  {t(`discovery.theme.${activeDiscovery.themeId}`)}
+                </p>
+                <p className="mt-1 truncate text-sm font-extrabold text-muk">
+                  {t('discovery.activeTitle', { anchor: activeDiscovery.anchorName })}
+                </p>
+                <p className="mt-1 text-[10px] leading-relaxed text-muk-soft">{t('discovery.activeBody')}</p>
+              </div>
+              <button
+                type="button"
+                onClick={clearDiscoveryTheme}
+                aria-label={t('discovery.clear')}
+                className="toss-pressable rounded-full p-2 text-muk-soft hover:bg-hanji-deep"
+              >
+                <X size={16} />
+              </button>
+            </div>
+            {discoveryLoading ? (
+              <div className="mt-3 flex items-center gap-2 rounded-2xl bg-hanji-deep px-3 py-2.5 text-[11px] font-semibold text-muk-soft">
+                <span className="inline-block h-3 w-3 rounded-full border-2 border-jade/30 border-t-jade animate-spin" />
+                {t('discovery.loading', { anchor: activeDiscovery.anchorName })}
+              </div>
+            ) : rankedFacilities.length > 0 ? (
+              <div className="mt-3 flex gap-2 overflow-x-auto pb-1 no-scrollbar">
+                {rankedFacilities.slice(0, 3).map((facility, index) => {
+                  const spot = facility.spot;
+                  if (!spot) return null;
+                  const selected = selectedFacility?.id === facility.id;
+                  return (
+                    <button
+                      key={facility.id}
+                      type="button"
+                      onClick={() => {
+                        setSelectedFacility(facility);
+                        panToVisible(facility.latitude, facility.longitude);
+                      }}
+                      aria-pressed={selected}
+                      className={`toss-pressable min-w-[148px] flex-1 rounded-2xl border px-3 py-2.5 text-left ${selected ? 'border-jade bg-jade/10' : 'border-line bg-hanji hover:border-jade/40'}`}
+                    >
+                      <span className="block text-[9px] font-extrabold text-jade">
+                        {t('discovery.alternativeRank', { rank: index + 1 })}
+                      </span>
+                      <span className="mt-0.5 block truncate text-xs font-extrabold text-muk">{facility.name}</span>
+                      {facility.discoveryThemeMatch && (
+                        <span className="mt-1 block text-[9px] font-semibold text-jade">
+                          {t(facility.discoveryThemeMatch.source === 'tourapi_related'
+                            ? 'discovery.match.related'
+                            : 'discovery.match.fact')}
+                        </span>
+                      )}
+                      <span className="mt-1 block text-[10px] font-semibold text-muk-soft">
+                        {t('discovery.walkMinutes', { n: displayWalkingMinutes(spot.expectedTravel) })}
+                      </span>
+                      <span className="mt-1 line-clamp-2 block text-[9px] leading-snug text-muk-soft">
+                        {spotComparisonById.get(String(facility.id))}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            ) : null}
+          </section>
+        )}
+
         {/* (c) 검색 결과 없음 안내 — 입력값은 있으나 현재 카테고리에 일치 장소가 없을 때 */}
-        {searchActive && searchMatchCount === 0 && (
+        {searchActive && searchMatchCount === 0 && !liveSearchLoading && liveSearchItems.length === 0 && (
           <div className="pointer-events-auto px-2 -mt-1">
             <span className="inline-block text-muk text-xs bg-white/90 border border-line rounded-full px-3 py-1 shadow-[0_2px_14px_rgba(43,35,32,0.06)]">
               {t('map.searchNoResult', { q: searchQuery.trim() })}
@@ -1790,44 +2525,37 @@ export default function MainPage() {
           </div>
         )}
 
-        {/* TourAPI 실시간 검색 폴백 — 적재 85곳 밖 POI 를 큐잉 요청까지 이어준다(지도 마커/이동 없음, 행만).
-            로딩 중이거나 결과가 있을 때만 렌더(무응답/미가용은 조용히 숨김 — 위 검색 결과 없음 배너로 충분). */}
-        {searchActive && searchMatchCount === 0 && (liveSearchLoading || liveSearchItems.length > 0) && (
+        {/* 등록 여부와 무관한 Kakao 시설 검색. 결과의 좌표와 주소는 같은 장소 ID에서 온다. */}
+        {searchActive && (liveSearchLoading || liveSearchItems.length > 0) && (
           <div className="pointer-events-auto rounded-2xl bg-white/95 backdrop-blur border border-line shadow-[0_2px_14px_rgba(43,35,32,0.06)] overflow-hidden">
             <div className="px-3 py-2 text-xs font-semibold text-muk border-b border-line/70 flex items-center gap-1.5">
               <Search size={12} className="text-gold" />
-              {t('map.liveSearchTitle')}
+              {t('map.placeSearchTitle')}
             </div>
             {liveSearchLoading ? (
               <div className="px-3 py-3 flex items-center gap-2 text-xs text-muk-soft">
                 <span className="inline-block w-3 h-3 rounded-full border-2 border-gold/40 border-t-gold animate-spin" />
-                {t('map.liveSearchTitle')}…
+                {t('map.placeSearchTitle')}…
               </div>
             ) : (
               <ul className="max-h-64 overflow-y-auto divide-y divide-line/60">
                 {liveSearchItems.map((item) => {
-                  const requested = requestedIngestIds.has(item.contentid);
                   return (
-                    <li key={item.contentid} className="px-3 py-2.5 flex items-center gap-2">
+                    <li key={item.placeId} className="px-3 py-2.5 flex items-center gap-2">
                       <div className="min-w-0 flex-1">
-                        <p className="text-sm font-medium text-muk truncate">{item.title}</p>
-                        {item.addr1 && <p className="text-[11px] text-muk-soft truncate">{item.addr1}</p>}
+                        <p className="text-sm font-medium text-muk truncate">{item.name}</p>
+                        {item.address && <p className="text-[11px] text-muk-soft truncate">{item.address}</p>}
                         <span className="inline-block mt-1 text-[10px] font-medium text-muk-soft bg-line/60 rounded-full px-2 py-0.5">
-                          {t('map.liveSearchPending')}
+                          {item.categoryName || t('map.placeSearchResult')}
                         </span>
                       </div>
                       <button
                         type="button"
-                        onClick={() => requestLiveIngest(item)}
-                        disabled={requested}
-                        title={requested ? t('map.liveSearchRequestedBadge') : t('map.liveSearchRequest')}
-                        className={`shrink-0 text-[11px] font-semibold rounded-full px-2.5 py-1.5 border transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 ${
-                          requested
-                            ? 'text-muk-soft border-line bg-line/40 cursor-default'
-                            : 'text-gold border-gold/50 hover:bg-gold/10'
-                        }`}
+                        onClick={() => focusPlaceSearchResult(item)}
+                        title={t('map.placeSearchView')}
+                        className="shrink-0 text-[11px] font-semibold rounded-full px-2.5 py-1.5 border text-gold border-gold/50 hover:bg-gold/10 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
                       >
-                        {requested ? t('map.liveSearchRequestedBadge') : t('map.liveSearchRequest')}
+                        {t('map.placeSearchView')}
                       </button>
                     </li>
                   );
@@ -1878,8 +2606,12 @@ export default function MainPage() {
               <button
                 key={filter.id}
                 onClick={() => {
+                  setActiveDiscovery(null);
+                  setDiscoveryLoading(false);
                   setActiveFilter(filter.id);
                   setActiveGroupId(null);
+                  setSelectedParkingLot(null);
+                  if (filter.id === '주차장') setShowHeatmap(false);
                   applyVoiceFilter(null); // 카테고리 전환 시 음성 선호 필터(예: 양식) 해제(ref+state)
                   setCuisineChip(null);   // 세부분류 칩도 함께 해제(음식점 외 카테고리로 새지 않게)
                   cuisineIntentRef.current = null;
@@ -1905,13 +2637,13 @@ export default function MainPage() {
           })}
         </div>
 
-        <button
+        {activeFilter !== '주차장' && <button
           type="button"
           onClick={() => setShowMobileTools(true)}
           className="toss-pressable flex w-fit items-center gap-1.5 rounded-full border border-line bg-white/90 px-3 py-1.5 text-xs font-semibold text-muk shadow-[0_2px_12px_rgba(43,35,32,0.08)] pointer-events-auto md:hidden"
         >
           <SlidersHorizontal size={14} /> {t('map.mobileTools')}
-        </button>
+        </button>}
 
         {/* 세부 음식분류 칩(치킨/피자·양식/국밥 등) — 음식점 카테고리에서만. 재탭 시 해제. */}
         {activeFilter === '음식점' && (
@@ -1941,7 +2673,7 @@ export default function MainPage() {
         {/* 지도 레이어 컨트롤 — 🔥 히트맵 토글 + 예측 타임슬라이더(지금·+1h·+2h·+3h).
             CongestionMap 의 두 기능을 정본 지도에 통합. 예측 모드는 정직성 배지로 실측과 구분한다.
             (하단은 추천 카드/탭바가 차지하므로, 항상 보이고 충돌 없는 상단 컨트롤 영역에 배치.) */}
-        <div className="hidden flex-wrap items-center gap-2 pointer-events-auto md:flex">
+        {activeFilter !== '주차장' && <div className="hidden flex-wrap items-center gap-2 pointer-events-auto md:flex">
           {/* 히트맵 토글 */}
           <button
             type="button"
@@ -2031,8 +2763,10 @@ export default function MainPage() {
             onFocus={(f) => {
               const full = facilities.find((x) => x.id === f.id) || f;
               setActiveGroupId(null);
-              setSelectedFacility(full);
-              if (mapInstanceRef.current && typeof full.latitude === 'number') panToVisible(full.latitude, full.longitude);
+              if (selectFacilityWithHoursGuard(full)
+                && mapInstanceRef.current && typeof full.latitude === 'number') {
+                panToVisible(full.latitude, full.longitude);
+              }
             }}
           />
 
@@ -2045,7 +2779,7 @@ export default function MainPage() {
 
           {/* 예측 타임슬라이더(바) — 지금(0)~+3h 를 하나의 슬라이더로. 드래그 중엔 썸만 이동하고
               놓을 때(onPointerUp/onKeyUp) 예측을 커밋한다(스텝마다 /predict/batch 호출 폭주 방지). */}
-          <div
+          {selectedFacility?.scoringMode === 'model' && <div
             className={`flex shrink-0 items-center gap-3 rounded-full border py-1.5 pl-3.5 pr-4 fractal-glass bg-white/80 shadow-[0_2px_14px_rgba(43,35,32,0.06)] transition-colors ${
               isForecast ? 'border-jade/50' : 'border-line'
             } ${predictionLoading ? 'opacity-60' : ''}`}
@@ -2072,7 +2806,7 @@ export default function MainPage() {
               className={`w-24 cursor-pointer disabled:cursor-wait sm:w-32 ${isForecast ? 'accent-jade' : 'accent-gold'}`}
             />
             <span className="shrink-0 text-[10px] font-medium text-muk-soft">+3h</span>
-          </div>
+          </div>}
 
           {/* D5: TourAPI 동기화 신선도 — 소형 정보 표시(비대화형). 동기화 이력이 전혀 없으면
               렌더하지 않는다(관광객 화면 정직성 — 없는 걸 있는 척하지 않음). */}
@@ -2090,13 +2824,13 @@ export default function MainPage() {
               </span>
             );
           })()}
-        </div>
+        </div>}
 
         </div>{/* /오른쪽 열(칩·컨트롤) */}
         </div>{/* /구글맵스식 톱바 행 */}
       </div>
 
-      {showMobileTools && (
+      {showMobileTools && activeFilter !== '주차장' && (
         <div className="fixed inset-0 z-50 flex items-end bg-muk/35 md:hidden" onClick={() => setShowMobileTools(false)}>
           <section className="w-full rounded-t-3xl bg-hanji px-4 pb-[calc(20px+env(safe-area-inset-bottom))] pt-3 shadow-2xl" onClick={(event) => event.stopPropagation()}>
             <div className="mb-4 flex items-center justify-between">
@@ -2120,7 +2854,7 @@ export default function MainPage() {
       )}
 
       {/* (a) 시설 로드 상태 안내 — 로딩 스피너 / 로드 실패 재시도 / 전체 빈 상태 (데모 사고 방지선) */}
-      {isLoadingFacilities && (
+      {activeFilter !== '주차장' && isLoadingFacilities && (
         <div className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-3 pointer-events-none">
           <NextSpotMascot variant="full" className="w-20 shadow-[0_8px_24px_rgba(43,35,32,0.10)]" />
           <div className="w-10 h-10 rounded-full border-2 border-line border-t-gold animate-spin" />
@@ -2128,7 +2862,7 @@ export default function MainPage() {
         </div>
       )}
 
-      {!isLoadingFacilities && facilitiesLoadError && (
+      {activeFilter !== '주차장' && !isLoadingFacilities && facilitiesLoadError && (
         <div className="absolute inset-0 z-30 flex items-center justify-center px-6 pointer-events-none">
           <div className="bg-white border border-line rounded-2xl px-6 py-5 shadow-[0_2px_14px_rgba(43,35,32,0.06)] flex flex-col items-center gap-3 max-w-xs text-center pointer-events-auto">
             <span className="text-2xl">⚠️</span>
@@ -2145,7 +2879,7 @@ export default function MainPage() {
         </div>
       )}
 
-      {!isLoadingFacilities && !facilitiesLoadError && facilities.length === 0 && (
+      {activeFilter !== '주차장' && !isLoadingFacilities && !facilitiesLoadError && facilities.length === 0 && (
         <div className="absolute inset-0 z-30 flex items-center justify-center px-6 pointer-events-none">
           <div className="bg-white border border-line rounded-2xl px-6 py-5 shadow-[0_2px_14px_rgba(43,35,32,0.06)] flex flex-col items-center gap-2 max-w-xs text-center">
             <NextSpotMascot variant="full" className="w-16" />
@@ -2158,7 +2892,66 @@ export default function MainPage() {
       <ActiveJourneyCard location={userLocation} />
 
       {/* AI Recommendation Card (Floating Bottom Sheet) */}
-      {selectedFacility && (() => {
+      {activeFilter === '주차장' && parkingLoading && parkingLots.length === 0 && (
+        <div className="absolute z-20 px-4 bottom-[calc(80px+env(safe-area-inset-bottom))] w-full md:bottom-6 md:left-auto md:right-4 md:w-[370px] md:px-0 pointer-events-none">
+          <div className="rounded-2xl border border-line bg-white/95 px-5 py-4 text-sm font-semibold text-muk shadow-lg">
+            {t('map.parkingLoading')}
+          </div>
+        </div>
+      )}
+
+      {activeFilter === '주차장' && !parkingLoading && parkingLots.length === 0 && (
+        <div className="absolute z-20 px-4 bottom-[calc(80px+env(safe-area-inset-bottom))] w-full md:bottom-6 md:left-auto md:right-4 md:w-[370px] md:px-0 pointer-events-none">
+          <div className="pointer-events-auto rounded-2xl border border-line bg-white/95 px-5 py-4 text-sm font-semibold text-muk shadow-lg">
+            <p>{t(parkingLoadError ? 'map.parkingLoadFailed' : 'map.parkingEmpty')}</p>
+            {parkingLoadError && (
+              <button
+                type="button"
+                onClick={() => setParkingReloadNonce((value) => value + 1)}
+                className="toss-pressable mt-3 rounded-full bg-muk px-4 py-2 text-xs font-bold text-white"
+              >
+                {t('common.retry')}
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {selectedParkingLot && activeFilter === '주차장' && (
+        <div className="absolute z-20 px-4 bottom-[calc(80px+env(safe-area-inset-bottom))] w-full md:bottom-6 md:left-auto md:right-4 md:w-[370px] md:px-0 pointer-events-none">
+          <div className="pointer-events-auto rounded-3xl border border-line bg-white/95 p-5 shadow-[0_8px_30px_rgba(43,35,32,0.16)] backdrop-blur">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[10px] font-bold text-sky-700">{t('map.parkingOfficial')}</p>
+                <h3 className="mt-1 text-lg font-bold text-muk">{selectedParkingLot.name}</h3>
+                <p className="mt-1 text-xs text-muk-soft">
+                  {t('map.parkingDistance', { n: Math.ceil(selectedParkingLot.distanceM).toLocaleString() })}
+                </p>
+              </div>
+              <button type="button" onClick={() => setSelectedParkingLot(null)} aria-label={t('common.close')} className="rounded-full p-2 text-muk-soft hover:bg-hanji-deep">
+                <X size={18} />
+              </button>
+            </div>
+            {selectedParkingLot.live && selectedParkingLot.availableSpaces !== null && selectedParkingLot.totalSpaces !== null ? (
+              <div className="mt-4 rounded-2xl border border-jade/25 bg-jade/10 px-4 py-3">
+                <p className="text-sm font-extrabold text-jade">
+                  {t('map.parkingLiveSpaces', { available: selectedParkingLot.availableSpaces, total: selectedParkingLot.totalSpaces })}
+                </p>
+                <p className="mt-1 text-[10px] text-muk-soft">{t('map.parkingLiveNotice')}</p>
+              </div>
+            ) : (
+              <div className="mt-4 rounded-2xl border border-line bg-hanji-deep px-4 py-3 text-xs font-semibold text-muk-soft">
+                {t('map.parkingNoLive')}
+              </div>
+            )}
+            <button type="button" onClick={() => openDrivingDirections(selectedParkingLot)} className="toss-pressable mt-4 flex w-full items-center justify-center gap-2 rounded-2xl bg-muk px-4 py-3 text-sm font-bold text-white">
+              <Car size={16} /> {t('map.parkingDirections')}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {selectedFacility && activeFilter !== '주차장' && (() => {
         try {
           const targetType = selectedFacility.type;
           let rank = selectedFacility.apiRank;
@@ -2178,8 +2971,37 @@ export default function MainPage() {
           }
 
           const spot = selectedFacility.spot || calculateSPOT(selectedFacility);
-          // 사유: 자동 추천된 실 시설은 백엔드 템플릿 사유, 마커 직접 클릭/데모는 미러 사유로 폴백
-          const reason = selectedFacility.reason || ""; // 백엔드 템플릿 사유만(하드코딩 제거)
+          // 서버 사유는 한국어 템플릿이므로 화면에서는 구조화된 사실로 현재 로케일 문장을 조립한다.
+          const walk = displayWalkingMinutes(spot.expectedTravel);
+          const verifiedWait = selectedFacility.scoringMode === 'model' && selectedFacility.congestionSource !== 'none'
+            ? Math.round(spot.expectedWait)
+            : null;
+          const tourismEvidenceReason = spot.areaDemandTourismEvidence
+            ? `${typeof spot.areaDemandTourismEvidence.relativeIndex === 'number'
+                ? t('recommend.tourismEvidenceIndex', { n: Math.round(spot.areaDemandTourismEvidence.relativeIndex) })
+                : t('recommend.tourismEvidenceTitle')}. ${t('recommend.tourismEvidenceBasis', {
+                  name: spot.areaDemandTourismEvidence.referenceName ?? t('recommend.tourismReferenceUnknown'),
+                  distance: typeof spot.areaDemandTourismEvidence.distanceM === 'number'
+                    ? Math.round(spot.areaDemandTourismEvidence.distanceM).toLocaleString() : '-',
+                  date: spot.areaDemandTourismEvidence.forecastDate ?? '-',
+                })}. ${selectedFacility.name} · ${t('card.travel', { n: walk })}`
+            : null;
+          const areaDemandReason = tourismEvidenceReason ?? (typeof spot.areaDemandLevel === 'number'
+            ? `${t('recommend.areaDemand')}: ${t(`congestion.${
+                spot.areaDemandLevel >= 0.75 ? 'busy'
+                  : spot.areaDemandLevel >= 0.5 ? 'moderate'
+                    : spot.areaDemandLevel >= 0.25 ? 'relaxed' : 'quiet'
+              }`)} · ${t(spot.areaDemandMode === 'live'
+                ? 'recommend.areaDemandLive'
+                : spot.areaDemandMode === 'forecast'
+                  ? 'recommend.areaDemandForecast'
+                  : 'recommend.areaDemandStats')}. ${selectedFacility.name} · ${t('card.travel', { n: walk })}`
+            : null);
+          const reason = typeof selectedFacility.congestionLevel === 'number' && selectedFacility.congestionLevel >= 0.75
+            ? t('recommend.fallbackBusy', { name: selectedFacility.name, walk, pct: Math.round(selectedFacility.congestionLevel * 100) })
+            : verifiedWait !== null
+              ? t('recommend.fallbackWithWait', { name: selectedFacility.name, walk, wait: verifiedWait })
+              : areaDemandReason ?? t('recommend.fallbackTravelOnly', { name: selectedFacility.name, walk });
           // 추천 카드 배치 — 모바일: 하단 전폭 시트. PC(md+): 우측 세로 도킹 패널(구글맵스 상세 패널 관례).
           // 전폭 하단 카드가 데스크톱에서 과하게 커 보이는 문제를 해결한다. 상단 톱바(검색·칩) 아래
           // (top-24)부터 하단(bottom-6)까지 세로로 앉히고, 펼침으로 길어지면 패널 내부에서 스크롤한다.
@@ -2206,6 +3028,7 @@ export default function MainPage() {
               <RecommendationCard
                 title={selectedFacility.name}
                 reason={reason}
+                spotComparisonReason={spotComparisonById.get(String(selectedFacility.id))}
                 onAccept={() => handleAccept(selectedFacility)}
                 onDrive={() => handleAccept(selectedFacility, 'car')}
                 onReject={() => handleReject(selectedFacility)}
@@ -2214,9 +3037,25 @@ export default function MainPage() {
                 preferencePercent={spot.preferencePercent}
                 expectedWait={selectedFacility.scoringMode === 'model' && selectedFacility.congestionSource !== 'none' ? spot.expectedWait : undefined}
                 expectedTravel={spot.expectedTravel}
+                travelSource={spot.travelSource}
                 timeToService={spot.timeToService}
                 eventBoost={spot.eventBoost}
                 eventTitle={spot.eventTitle}
+                areaDemandLevel={spot.areaDemandLevel}
+                areaDemandMode={spot.areaDemandMode}
+                areaDemandSources={spot.areaDemandSources}
+                areaDemandObservedAt={spot.areaDemandObservedAt}
+                areaDemandRadiusM={spot.areaDemandRadiusM}
+                areaDemandParkingEvidence={spot.areaDemandParkingEvidence}
+                areaDemandTourismEvidence={spot.areaDemandTourismEvidence}
+                areaDemandConfidence={spot.areaDemandConfidence}
+                areaDemandRank={spot.areaDemandRank}
+                areaDemandComparableCount={spot.areaDemandComparableCount}
+                areaDemandDeltaVsMedian={spot.areaDemandDeltaVsMedian}
+                areaDemandDistinguishable={spot.areaDemandDistinguishable}
+                delayedAreaDemandLevel={spot.delayedAreaDemandLevel}
+                arrivalAction={spot.arrivalAction}
+                recommendedDepartureDelayMinutes={spot.recommendedDepartureDelayMinutes}
                 facilityType={selectedFacility.type}
                 facility={selectedFacility}
                 rank={rank}
@@ -2234,6 +3073,7 @@ export default function MainPage() {
                 }}
                 openStatusAtArrival={selectedFacility.openStatusAtArrival}
                 congestionSource={selectedFacility.congestionSource}
+                scoringMode={selectedFacility.scoringMode}
               />
               </div>
             </div>

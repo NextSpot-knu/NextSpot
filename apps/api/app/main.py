@@ -1,13 +1,14 @@
 import asyncio
 import time
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 
 import structlog
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.core.logging import setup_logging
-from app.routers import recommendations, infrastructures, predict, preferences, admin, reports, coupons, courses, events, tracking, freshness, impact, merchant, safety, search, lab, account, weather, restrooms, travel_context
+from app.routers import recommendations, infrastructures, predict, preferences, admin, reports, coupons, courses, events, tracking, freshness, impact, merchant, safety, search, lab, account, weather, restrooms, travel_context, area_demand, area_demand_admin
 
 
 # 로깅 설정 초기화
@@ -63,6 +64,30 @@ async def lifespan(_app: FastAPI):
         _logger.info("warmup_facilities_ready", count=len(prefilled))
     except Exception as e:
         _logger.warning("warmup_facilities_failed", error=str(e))
+
+    try:
+        # 4) 첫 추천 전에 모든 후보가 공유하는 지역 근거를 병렬로 준비한다. 주차 캐시가
+        # 비어 있으면 첫 사용자만 지역 수요가 빠진 순위를 받을 수 있고, 날씨·축제 콜드 호출은
+        # 첫 추천을 늦춘다. 세 상류를 순차 대기하지 않고 전체 12초에서 끊는다.
+        from app.services.parking_demand_service import get_nearby_parking_lots
+        from app.services.event_boost import get_event_congestion_boost
+        from app.services.weather_service import get_gyeongju_weather
+        now = datetime.now(timezone.utc)
+        parking, _weather, _event = await asyncio.wait_for(
+            asyncio.gather(
+                get_nearby_parking_lots(35.8361, 129.2105, radius_m=3_000),
+                get_gyeongju_weather(now),
+                get_event_congestion_boost(35.8361, 129.2105, now),
+            ),
+            timeout=12.0,
+        )
+        _logger.info(
+            "warmup_area_context_ready",
+            lots=len(parking.get("lots") or []),
+            source=parking.get("source"),
+        )
+    except Exception as e:
+        _logger.warning("warmup_area_context_failed", error_type=type(e).__name__)
 
     _logger.info("warmup_done", total_ms=round((time.perf_counter() - t0) * 1000))
     yield
@@ -121,6 +146,8 @@ app.include_router(courses.router)  # 분산 코스(멀티스톱 동선) 추천 
 app.include_router(events.router)  # 경주 축제/행사(TourAPI searchFestival2) — 키 없으면 무해 폴백
 app.include_router(weather.router)  # 경주 시간대별 날씨(기상청 단기예보) — 키/장애 시 무해 폴백
 app.include_router(restrooms.router)  # 인근 공중화장실(Kakao 좌표 검색) — 추천 POI와 분리된 편의 레이어
+app.include_router(area_demand.router)  # 경주 주변 수요 데이터 커버리지 — 가짜 수치 없이 주차 API 상태 공개
+app.include_router(area_demand_admin.router)  # 관리자 수집 신뢰도 — 10분 실측 버킷 누락·신선도
 app.include_router(tracking.router)  # 경량 제품 분석 이벤트 트래킹(무인증, IP 쿨다운) — app_events 적재
 app.include_router(freshness.router)  # 데이터 신선도(D5) — 마지막 TourAPI 동기화 시각(마커→updated_at 추정 폴백)
 app.include_router(impact.router)  # 여행 임팩트 카드 — 수락·혼잡회피·쿠폰 성과 요약(개인)

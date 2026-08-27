@@ -51,12 +51,31 @@ interface BoardRow {
   summary: string | null;
   imageSource: { provider?: string; sourceUrl?: string; license?: string; artist?: string } | null;
   congestionLevel: number | null;
-  expectedWait: number;
+  // 매장 내부 혼잡이 없을 때도 공영주차·관광 근거로 대안성을 보여주는 주변 권역 수요.
+  areaDemandLevel: number | null;
+  areaDemandMode: "live" | "forecast" | "statistical" | "contextual" | null;
+  areaDemandRadiusM: number | null;
+  areaDemandParkingEvidence: {
+    level: number;
+    mode: "live" | "forecast";
+    observedAt?: string | null;
+    radiusM?: number | null;
+  } | null;
+  areaDemandTourismEvidence: {
+    referenceName?: string | null;
+    distanceM?: number | null;
+    forecastDate?: string | null;
+    relativeIndex?: number | null;
+  } | null;
+  arrivalAction: "go_now" | "wait_then_go" | "choose_calmer" | "no_clear_advantage" | null;
+  recommendedDepartureDelayMinutes: number | null;
+  // 검증 모델이 없는 degraded 응답은 waitTime=null이다. 0분으로 바꾸면 안 된다.
+  expectedWait: number | null;
   expectedTravel: number;
   // 오늘 휴무 '확정'(isClosedToday === true) 여부 — 대표 카드 선정에서 제외 + 리스트 맨 뒤 + 배지 표시용.
   closedToday: boolean;
-  // 공식 대표 메뉴(TourAPI first_menu) 첫 항목 — 있을 때만 카드에 한 줄 표시('지어내지 않기').
-  firstMenu: string | null;
+  // TourAPI 대표·취급 메뉴를 합친 실제 메뉴(최대 5개).
+  menus: string[];
 }
 
 // 섹터 = 한 시설 유형의 대기 짧은 순 정렬 목록. rows 가 비면 섹터 자체를 렌더하지 않는다.
@@ -165,11 +184,20 @@ export default function WaitingBoardPage() {
           | string
           | null
           | undefined;
-        // 공식 대표 메뉴 — 콤마 구분 시 첫 항목만(컴팩트 카드 폭). RecommendationCard 의 slice(0,2) 축소판.
+        // 공식 대표·취급 메뉴를 합쳐 최대 5개. 없는 메뉴는 지어내지 않는다.
         const firstMenuRaw = (rec.facility.features?.first_menu ?? rec.facility.features?.firstMenu) as
           | string
           | null
           | undefined;
+        const treatMenuRaw = (rec.facility.features?.treat_menu ?? rec.facility.features?.treatMenu) as
+          | string
+          | null
+          | undefined;
+        const menus = Array.from(new Set(
+          [firstMenuRaw, treatMenuRaw]
+            .filter((value): value is string => typeof value === "string")
+            .flatMap((value) => value.split(/[,/\n·]+/).map((item) => item.trim()).filter(Boolean))
+        )).slice(0, 5);
         // 소개(overview) 다국어 — 배치 번역(apps/api/scripts/translate_overviews.py)이
         // features.overview_i18n = {en, ja, zh} 에 저장(스키마 변경 없음). RecommendationCard 와 동일하게
         // camelCase(overviewI18n)·원본 snake_case(overview_i18n) 두 표기를 모두 지원한다.
@@ -202,19 +230,29 @@ export default function WaitingBoardPage() {
               ? source as BoardRow["imageSource"]
               : null;
           })(),
-          congestionLevel:
-            typeof rec.facility.congestionLevel === "number" ? rec.facility.congestionLevel : null,
-          expectedWait: spot.expectedWait,
+          congestionLevel: typeof rec.congestionLevel === "number" ? rec.congestionLevel : null,
+          areaDemandLevel: typeof spot.areaDemandLevel === "number" ? spot.areaDemandLevel : null,
+          areaDemandMode: spot.areaDemandMode ?? null,
+          areaDemandRadiusM: typeof spot.areaDemandRadiusM === "number" ? spot.areaDemandRadiusM : null,
+          areaDemandParkingEvidence: spot.areaDemandParkingEvidence ?? null,
+          areaDemandTourismEvidence: spot.areaDemandTourismEvidence ?? null,
+          arrivalAction: spot.arrivalAction ?? null,
+          recommendedDepartureDelayMinutes: spot.recommendedDepartureDelayMinutes ?? null,
+          expectedWait:
+            typeof rec.breakdown?.waitTime === "number" ? rec.breakdown.waitTime : null,
           expectedTravel: spot.expectedTravel,
           // 휴무 '확정'(true)만 표시 — 모름(null)/영업 확정(false)은 평소처럼 취급(정직성: 과판정 금지).
           closedToday: isClosedToday(restDateRaw) === true,
-          firstMenu: firstMenuRaw?.split(",")[0]?.trim() || null,
+          menus,
         };
       });
       // 대기 짧은 순 정렬은 그대로 유지하되, 오늘 휴무 확정 시설은 항상 맨 뒤로 보낸다
       // (대표 카드가 rows 앞쪽 3개를 그대로 슬라이스하지 않도록 아래에서 open/closed 를 명시적으로 분리한다).
       rows.sort((a, b) => {
         if (a.closedToday !== b.closedToday) return a.closedToday ? 1 : -1;
+        if (a.expectedWait === null && b.expectedWait === null) return 0;
+        if (a.expectedWait === null) return 1;
+        if (b.expectedWait === null) return -1;
         return a.expectedWait - b.expectedWait;
       });
 
@@ -291,7 +329,9 @@ export default function WaitingBoardPage() {
             </h1>
           </div>
         </div>
-        <p className="text-xs md:text-sm text-muk-soft leading-relaxed">{t("waiting.subtitle")}</p>
+        <p className="text-xs md:text-sm text-muk-soft leading-relaxed">
+          {t("landing.value2")} · {t("recommend.areaDemandHint")}
+        </p>
 
         {/* 본문 */}
         {loading ? (
@@ -346,21 +386,55 @@ export default function WaitingBoardPage() {
                               {row.name}
                             </p>
                             {/* 공식 대표 메뉴(TourAPI) — 있을 때만 한 줄. 🍽 이모지는 TYPE_EMOJI 관례와 동일 톤. */}
-                            {row.firstMenu && (
-                              <p className="mt-0.5 text-[9px] font-bold text-gold-deep leading-snug truncate">
-                                🍽 {row.firstMenu}
+                            {row.menus.length > 0 && (
+                              <p className="mt-0.5 text-[9px] font-bold text-gold-deep leading-snug line-clamp-2">
+                                🍽 {row.menus.join(" · ")}
                               </p>
                             )}
                             {row.summary && (
-                              <p className="mt-1 text-[9px] leading-snug text-muk-soft break-words line-clamp-5">
+                              <p className="mt-1 text-[9px] leading-snug text-muk-soft break-words line-clamp-6">
                                 {row.summary}
                               </p>
                             )}
                           </div>
                           <div className="space-y-1 mt-1">
                             <p className="text-xs font-extrabold text-gold-deep leading-tight">
-                              {t("waiting.arrivalWait", { n: Math.round(row.expectedWait) })}
+                              {row.expectedWait === null
+                                ? row.areaDemandTourismEvidence
+                                  ? typeof row.areaDemandTourismEvidence.relativeIndex === "number"
+                                    ? t("recommend.tourismEvidenceIndex", { n: Math.round(row.areaDemandTourismEvidence.relativeIndex) })
+                                    : t("recommend.tourismEvidenceTitle")
+                                : row.areaDemandLevel !== null
+                                  ? `${t("recommend.areaDemand")}: ${t(`congestion.${congestionKey(row.areaDemandLevel)}`)}`
+                                  : t("waiting.waitUnavailable")
+                                : t("waiting.arrivalWait", { n: Math.round(row.expectedWait) })}
                             </p>
+                            {row.arrivalAction && (
+                              <p className="text-[10px] font-bold text-sky-800">
+                                {t(`recommend.arrivalAction.${row.arrivalAction}`, {
+                                  n: row.recommendedDepartureDelayMinutes ?? 30,
+                                })}
+                              </p>
+                            )}
+                            {row.areaDemandParkingEvidence && typeof row.areaDemandParkingEvidence.radiusM === "number" && (
+                              <p className="text-[9px] font-semibold text-sky-700">
+                                {t("recommend.parkingEvidenceRadius", { n: row.areaDemandParkingEvidence.radiusM.toLocaleString() })}
+                              </p>
+                            )}
+                            {row.areaDemandTourismEvidence && (
+                              <p className="text-[9px] leading-snug text-indigo-700">
+                                {typeof row.areaDemandTourismEvidence.relativeIndex === "number"
+                                  ? t("recommend.tourismEvidenceIndex", { n: Math.round(row.areaDemandTourismEvidence.relativeIndex) })
+                                  : t("recommend.tourismEvidenceTitle")}
+                                <br />
+                                {t("recommend.tourismEvidenceBasis", {
+                                  name: row.areaDemandTourismEvidence.referenceName ?? t("recommend.tourismReferenceUnknown"),
+                                  distance: typeof row.areaDemandTourismEvidence.distanceM === "number"
+                                    ? Math.round(row.areaDemandTourismEvidence.distanceM).toLocaleString() : "-",
+                                  date: row.areaDemandTourismEvidence.forecastDate ?? "-",
+                                })}
+                              </p>
+                            )}
                             {row.congestionLevel != null ? (
                               <span
                                 className={`inline-block text-[9px] font-bold px-1.5 py-0.5 rounded-md border whitespace-nowrap ${congestionBadgeClass(
@@ -368,6 +442,20 @@ export default function WaitingBoardPage() {
                                 )}`}
                               >
                                 {t(`congestion.${congestionKey(row.congestionLevel)}`)}
+                              </span>
+                            ) : row.areaDemandTourismEvidence ? (
+                              <span className="inline-block text-[9px] font-bold px-1.5 py-0.5 rounded-md border whitespace-nowrap bg-indigo-500/10 border-indigo-500/20 text-indigo-700">
+                                {t("recommend.areaEvidenceCount", {
+                                  n: Number(!!row.areaDemandParkingEvidence) + 1,
+                                })}
+                              </span>
+                            ) : row.areaDemandLevel !== null ? (
+                              <span className={`inline-block text-[9px] font-bold px-1.5 py-0.5 rounded-md border whitespace-nowrap ${congestionBadgeClass(row.areaDemandLevel)}`}>
+                                {t(row.areaDemandMode === "live"
+                                  ? "recommend.areaDemandLive"
+                                  : row.areaDemandMode === "forecast"
+                                    ? "recommend.areaDemandForecast"
+                                    : "recommend.areaDemandStats")}
                               </span>
                             ) : (
                               <span className="inline-block text-[9px] font-bold px-1.5 py-0.5 rounded-md border bg-muk/5 border-line text-muk-soft whitespace-nowrap">
@@ -422,12 +510,34 @@ export default function WaitingBoardPage() {
                             <p className="text-sm font-bold text-muk leading-snug truncate">{row.name}</p>
                             <div className="flex flex-wrap items-center gap-1.5 mt-1">
                               <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-gold/10 border border-gold/25 text-gold-deep whitespace-nowrap">
-                                {t("waiting.arrivalWait", { n: Math.round(row.expectedWait) })}
+                                {row.expectedWait === null
+                                  ? row.areaDemandTourismEvidence
+                                    ? typeof row.areaDemandTourismEvidence.relativeIndex === "number"
+                                      ? t("recommend.tourismEvidenceIndex", { n: Math.round(row.areaDemandTourismEvidence.relativeIndex) })
+                                      : t("recommend.tourismEvidenceTitle")
+                                  : row.areaDemandLevel !== null
+                                    ? `${t("recommend.areaDemand")}: ${t(`congestion.${congestionKey(row.areaDemandLevel)}`)}`
+                                    : t("waiting.waitUnavailable")
+                                  : t("waiting.arrivalWait", { n: Math.round(row.expectedWait) })}
                               </span>
                               {/* 오늘 휴무 확정 — 숨기지 않고 정직하게 배지로 알린다(리스트 맨 뒤 배치와 함께). */}
                               {row.closedToday && (
                                 <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md border whitespace-nowrap bg-terracotta/10 border-terracotta/30 text-terracotta">
                                   {t("card.closedToday")}
+                                </span>
+                              )}
+                              {row.areaDemandParkingEvidence && typeof row.areaDemandParkingEvidence.radiusM === "number" && (
+                                <span className="text-[10px] font-semibold text-sky-700 whitespace-nowrap">
+                                  {t("recommend.parkingEvidenceRadius", { n: row.areaDemandParkingEvidence.radiusM.toLocaleString() })}
+                                </span>
+                              )}
+                              {row.areaDemandTourismEvidence && (
+                                <span className="text-[10px] font-semibold text-indigo-700">
+                                  {typeof row.areaDemandTourismEvidence.relativeIndex === "number"
+                                    ? t("recommend.tourismEvidenceIndex", { n: Math.round(row.areaDemandTourismEvidence.relativeIndex) })
+                                    : t("recommend.tourismEvidenceTitle")}
+                                  {row.areaDemandTourismEvidence.referenceName
+                                    ? ` · ${row.areaDemandTourismEvidence.referenceName}` : ""}
                                 </span>
                               )}
                               {row.congestionLevel != null ? (
@@ -438,12 +548,33 @@ export default function WaitingBoardPage() {
                                 >
                                   {t(`congestion.${congestionKey(row.congestionLevel)}`)}
                                 </span>
+                              ) : row.areaDemandTourismEvidence ? (
+                                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md border whitespace-nowrap bg-indigo-500/10 border-indigo-500/20 text-indigo-700">
+                                  {t("recommend.areaEvidenceCount", {
+                                    n: Number(!!row.areaDemandParkingEvidence) + 1,
+                                  })}
+                                </span>
+                              ) : row.areaDemandLevel !== null ? (
+                                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md border whitespace-nowrap ${congestionBadgeClass(row.areaDemandLevel)}`}>
+                                  {t(row.areaDemandMode === "live"
+                                    ? "recommend.areaDemandLive"
+                                    : row.areaDemandMode === "forecast"
+                                      ? "recommend.areaDemandForecast"
+                                      : "recommend.areaDemandStats")}
+                                </span>
                               ) : (
                                 <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md border bg-muk/5 border-line text-muk-soft whitespace-nowrap">
                                   {t("card.noData")}
                                 </span>
                               )}
                             </div>
+                            {row.arrivalAction && (
+                              <p className="mt-1 text-[10px] font-bold text-sky-800">
+                                {t(`recommend.arrivalAction.${row.arrivalAction}`, {
+                                  n: row.recommendedDepartureDelayMinutes ?? 30,
+                                })}
+                              </p>
+                            )}
                           </div>
                         </button>
                       ))}

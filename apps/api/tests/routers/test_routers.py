@@ -15,7 +15,7 @@ from app.core.supabase import get_current_user
 from app.services.preference_vector_service import preference_vector_service
 from app.routers.recommendations import resolve_congestion_evidence
 from app.routers.infrastructures import _exact_current_count
-from app.services.spot.travel import WalkingRoute
+from app.services.spot.travel import WalkingRoute, calculate_haversine_distance
 
 # --- 공통 상수 (경주 황리단길 좌표 기준 — 기존 서비스 테스트와 통일) ---
 BASE_LAT, BASE_LNG = 35.8360, 129.2100
@@ -120,6 +120,9 @@ def _facility(fid: str, ftype: str, lat_offset: float, coupon_rate: float = 0.0)
         "capacity": 50,
         "features": {"average_processing_time": 10},
         "coupon_rate": coupon_rate,
+        # 추천 테스트의 카페·식당은 영업이 확인된 후보라는 계약을 명시한다.
+        # 두 구간을 겹쳐 자정 직전/직후에도 테스트 실행 시각에 영향받지 않게 한다.
+        "operating_hours": {"open": "00:00~23:59, 23:58~00:01", "closed": "연중무휴"},
     }
 
 
@@ -254,7 +257,14 @@ def test_recommendations_happy_path(auth_client):
         # 인센티브 성분(incentive_coupon/incentive_relief) 포함한 breakdown 구조 검증
         for key in BREAKDOWN_KEYS:
             assert key in item["breakdown"]
-        assert item["distance_m"] <= 150.0
+        # 후보 eligibility는 150m 직선 반경이고, 응답 distance_m은 OSM 실제 보행로라
+        # 도로 형태에 따라 200m도 넘을 수 있다. 선정 반경 자체를 좌표로 검증한다.
+        facility = item["facility"]
+        straight_distance = calculate_haversine_distance(
+            BASE_LAT, BASE_LNG, facility["latitude"], facility["longitude"]
+        )
+        assert straight_distance <= 150.0
+        assert item["distance_m"] >= straight_distance
         assert item["reason"] == "사유"
         assert item["reason_source"] == "template"
         assert item["recommendation_id"] == "rec-1"  # _persist 가 INSERT 결과 id 를 매핑
@@ -265,6 +275,40 @@ def test_recommendations_happy_path(auth_client):
         assert item["congestion_log_source"] == "seed"
         assert item["congestion_is_stale"] is False
         assert item["facility"]["current_count"] is None
+
+
+def test_discovery_recommendations_keep_reference_but_limit_alternative_type(auth_client):
+    candidates = [
+        _facility("cafe-1", "cafe", 0.0002),
+        _facility("attraction-1", "attraction", 0.0003),
+        _facility("culture-1", "culture", 0.0004),
+    ]
+    candidates[0]["features"]["category"] = "한옥 카페"
+    with patch("app.routers.recommendations.fetch_user", new=AsyncMock(return_value=USER_ROW)), \
+         patch("app.routers.recommendations.fetch_facility", new=AsyncMock(return_value=ORIGIN_ROW)), \
+         patch("app.routers.recommendations.fetch_all_facilities", new=AsyncMock(return_value=[ORIGIN_ROW] + candidates)), \
+         patch("app.routers.recommendations.fetch_congestion_map", new=AsyncMock(return_value={})), \
+         patch.object(preference_vector_service, "get_user_vector", new=AsyncMock(return_value=UNIT_VECTOR)), \
+         patch("app.routers.recommendations.generate_reason_with_source", new=AsyncMock(return_value=("사유", "template"))):
+        body = {
+            **_reco_body(),
+            "candidate_types": ["cafe"],
+            "discovery_theme": "hanok_cafe",
+            "preference_intent": "한옥 감성 카페 디저트",
+        }
+        response = auth_client.post("/api/v1/recommendations", json=body)
+
+    assert response.status_code == 200
+    items = response.json()
+    assert [item["facility"]["id"] for item in items] == ["cafe-1"]
+    assert items[0]["facility"]["type"] == "cafe"
+
+
+def test_discovery_recommendations_reject_unknown_theme(auth_client):
+    response = auth_client.post("/api/v1/recommendations", json={
+        **_reco_body(), "candidate_types": ["cafe"], "discovery_theme": "made_up"
+    })
+    assert response.status_code == 422
 
 
 def test_recommendations_no_log_untrained_model_reports_none(auth_client):
@@ -376,6 +420,42 @@ def test_recommend_by_type_never_falls_back_outside_walk_limit(auth_client):
     assert res.status_code == 200
     assert [item["facility"]["id"] for item in res.json()] == ["inside"]
     assert fetch_all.await_count == 1
+
+
+def test_recommend_by_type_does_not_fill_from_weaker_eligibility_tier(auth_client):
+    cafes = [
+        _facility("verified-a", "cafe", 0.0002),
+        _facility("verified-b", "cafe", 0.0004),
+        _facility("weaker", "cafe", 0.0006),
+    ]
+    tier_by_id = {"verified-a": 0, "verified-b": 0, "weaker": 2}
+    with patch("app.routers.recommendations.fetch_user", new=AsyncMock(return_value=USER_ROW)), \
+         patch("app.routers.recommendations.fetch_all_facilities", new=AsyncMock(return_value=cafes)), \
+         patch("app.routers.recommendations.get_walking_routes", new=AsyncMock(return_value=[
+             WalkingRoute(2.0, 130.0, "osm_pedestrian"),
+             WalkingRoute(3.0, 195.0, "osm_pedestrian"),
+             WalkingRoute(1.0, 65.0, "osm_pedestrian"),
+         ])), \
+         patch(
+             "app.routers.recommendations.recommendation_eligibility_tier",
+             side_effect=lambda facility, _arrival, _source: tier_by_id[facility["id"]],
+         ), \
+         patch("app.routers.recommendations.fetch_congestion_map", new=AsyncMock(return_value={})), \
+         patch.object(preference_vector_service, "get_user_vector", new=AsyncMock(return_value=UNIT_VECTOR)), \
+         patch("app.routers.recommendations.generate_reason_with_source", new=AsyncMock(return_value=("사유", "template"))):
+        response = auth_client.post("/api/v1/recommendations/by-type", json={
+            "user_id": AUTH_USER_ID,
+            "facility_type": "cafe",
+            "user_lat": BASE_LAT,
+            "user_lng": BASE_LNG,
+            "limit": 3,
+        })
+
+    assert response.status_code == 200
+    items = response.json()
+    assert {item["facility"]["id"] for item in items} == {"verified-a", "verified-b"}
+    assert len(items) == 2
+    assert all(item["eligibility_tier"] == "verified_open_route" for item in items)
 
 
 def test_solar_state_never_changes_candidates_scores_or_rank(auth_client):
@@ -1263,6 +1343,57 @@ def test_report_congestion_reward_third_no_partner(auth_client):
     reward = res.json()["reward"]
     assert reward["report_count"] == 3
     assert reward["coupon_issued"] is False
+
+
+# =========================================================================
+# 9-2. 영업 상태 확인 — 사용자별 최신 1건은 DB RPC가 원자 처리하고 2명 일치 전엔 단일 제보다.
+# =========================================================================
+
+def test_report_availability_requires_auth(client):
+    response = client.post(
+        "/api/v1/reports/availability",
+        json={"facility_id": "f-1", "status": "open"},
+    )
+    assert response.status_code == 401
+
+
+def test_report_availability_returns_evidence_state(auth_client):
+    from app.routers.reports import _last_availability_report_at
+
+    _last_availability_report_at.clear()
+
+    class AvailabilitySupabase(FakeSupabase):
+        def rpc(self, name, params):
+            assert name == "record_facility_availability_report"
+            assert params["p_reporter_user_id"] == AUTH_USER_ID
+            return FakeTable([{
+                "facility_id": "f-1",
+                "status": "open",
+                "evidence_tier": "single_report",
+                "corroborating_count": 1,
+                "reported_at": "2026-08-25T03:00:00+00:00",
+                "expires_at": "2026-08-25T03:30:00+00:00",
+            }])
+
+    with patch(
+        "app.routers.reports.supabase_admin",
+        new=AvailabilitySupabase({"facilities": [{"id": "f-1"}]}),
+    ):
+        response = auth_client.post(
+            "/api/v1/reports/availability",
+            json={"facility_id": "f-1", "status": "open"},
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "success": True,
+        "facility_id": "f-1",
+        "status": "open",
+        "evidence_tier": "single_report",
+        "corroborating_count": 1,
+        "reported_at": "2026-08-25T03:00:00+00:00",
+        "expires_at": "2026-08-25T03:30:00+00:00",
+    }
 
 
 # =========================================================================

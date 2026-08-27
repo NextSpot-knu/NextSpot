@@ -30,10 +30,30 @@ from app.routers.infrastructures import (
     fetch_latest_congestion_for_all,
 )
 from app.services.predict_service import get_model_info, predict_congestion_detailed
+from app.services.area_demand_service import get_area_demand_signal
+from app.services.availability_service import (
+    attach_availability_evidence,
+    fetch_effective_availability_map,
+)
+from app.services.area_demand_decision_service import (
+    annotate_arrival_actions,
+    annotate_relative_demand,
+)
 from app.services.spot.score import calculate_spot_score
 from app.services.spot.travel import get_walking_routes
 from app.services.congestion_evidence import rankable_measured_level
-from app.services.travel_context import TravelContext, facility_matches_context, open_status_at_arrival
+from app.services.travel_context import (
+    KST,
+    RECOMMENDATION_ELIGIBILITY_LABELS,
+    TravelContext,
+    facility_matches_context,
+    keep_best_eligibility_tier,
+    open_status_at_arrival,
+    recommendation_eligibility_tier,
+)
+from app.services.tourism_area_prior_service import attach_tourism_area_priors
+from app.services.tourism_related_service import attach_related_destination_priors
+from app.services.discovery_theme_service import discovery_theme_match
 from app.services.recommendation_explanation_service import explain as explain_snapshot
 from app.services.spot.wait_time import calculate_predicted_wait_time
 from app.services.spot.preference import CATEGORY_VECTORS, build_facility_preference_vector, get_category_average_vector
@@ -49,6 +69,12 @@ class RecommendRequest(BaseModel):
     user_lng: float
     context: TravelContext | None = None
     preference_intent: str | None = Field(None, max_length=120)
+    candidate_types: list[Literal["restaurant", "cafe", "attraction", "culture"]] = Field(
+        default_factory=list, max_length=2
+    )
+    discovery_theme: Literal[
+        "silla_core", "night_heritage", "hanok_cafe", "indoor_history", "gyochon_walk"
+    ] | None = None
 
 class RecommendItem(BaseModel):
     recommendation_id: str
@@ -71,9 +97,10 @@ class RecommendItem(BaseModel):
     total_candidates: int
     open_status_at_arrival: str | None = None
     information_confidence: str | None = None
+    eligibility_tier: str | None = None
     place_data_source: str | None = None
     data_updated_at: str | None = None
-    scoring_mode: Literal["model", "measured_rules", "degraded_rules"] = "degraded_rules"
+    scoring_mode: Literal["model", "measured_rules", "area_stats_rules", "degraded_rules"] = "degraded_rules"
     model_version: str | None = None
     prediction_source: Literal["registry", "measured", "unavailable"] = "unavailable"
 
@@ -121,6 +148,16 @@ async def fetch_facility(facility_id: str):
         raise HTTPException(status_code=404, detail="시설 정보를 찾을 수 없습니다.")
     return res.data[0]
 
+
+def _attach_tourism_area_priors(facilities: list[dict], forecasts: list[dict]) -> None:
+    """관광지 일별 통계를 반경 2km의 지역 기준선으로 전파한다.
+
+    관광·문화 유형 중 표시 차이만 정규화해 유일하게 일치한 시설을 좌표 앵커로 삼는다.
+    주변 시설은 2km에서 중립값 50으로 수렴하도록 감쇠해 관광지 수치를 카페 내부
+    혼잡처럼 복사하지 않는다. 충돌하거나 애매한 이름은 앵커로 쓰지 않는다.
+    """
+    attach_tourism_area_priors(facilities, forecasts)
+
 async def _fetch_all_facilities_uncached(
     *, center_lat: float | None = None, center_lng: float | None = None, radius_m: float | None = None
 ):
@@ -139,24 +176,16 @@ async def _fetch_all_facilities_uncached(
             )
 
     facilities = await fetch_active_facilities(supabase_client, "*", extra_filters=extra_filters)
-    # 관광공사 30일 집중률은 POI 실시간 혼잡이 아닌 '오늘의 일별 prior'다. 별도 테이블에서
-    # 이름이 정확히 일치하는 행만 붙이며, 마이그레이션/별도 API 승인이 아직 없으면 무해 폴백한다.
+    # 관광공사 30일 집중률은 POI 실시간 혼잡이 아닌 '오늘의 일별 prior'다. 이름 일치 관광지를
+    # 좌표 앵커로 삼아 반경 2km에 거리 감쇠 지역 기준선을 붙인다. 미승인 환경은 무해 폴백한다.
     try:
-        today = datetime.now(timezone.utc).date().isoformat()
+        today = datetime.now(KST).date().isoformat()
         forecast_res = await asyncio.to_thread(
             lambda: supabase_client.table("tourism_concentration_forecasts")
             .select("tourist_attraction_name,concentration_rate,forecast_date")
             .eq("forecast_date", today).execute()
         )
-        by_name = {
-            str(row["tourist_attraction_name"]).strip(): float(row["concentration_rate"])
-            for row in (forecast_res.data or [])
-            if row.get("tourist_attraction_name") and row.get("concentration_rate") is not None
-        }
-        for facility in facilities:
-            rate = by_name.get(str(facility.get("name") or "").strip())
-            if rate is not None:
-                facility["tourapi_concentration_rate"] = rate
+        _attach_tourism_area_priors(facilities, forecast_res.data or [])
     except Exception as e:
         logger.warning("tourapi_concentration_prior_unavailable", error=str(e))
     return facilities
@@ -188,7 +217,12 @@ async def fetch_all_facilities(
             and center_lng - lng_delta <= float(f["longitude"]) <= center_lng + lng_delta
         ]
 
-    return facilities
+    # 시설·관광 prior 캐시와 수명이 다른 단기 영업 근거(30/60분)는 캐시 밖에서 매 요청
+    # 한 번만 조회한다. 그래야 두 번째 사용자 확인과 만료가 다음 추천에 즉시 반영된다.
+    availability_by_id = await fetch_effective_availability_map(
+        [str(f["id"]) for f in facilities if f.get("id")]
+    )
+    return attach_availability_evidence(facilities, availability_by_id)
 
 async def fetch_congestion_map(facility_ids: list[str]) -> dict[str, dict]:
     """후보 시설들의 최신 혼잡 로그를 일괄 조회해 {facility_id: info} 로 반환한다.
@@ -199,6 +233,26 @@ async def fetch_congestion_map(facility_ids: list[str]) -> dict[str, dict]:
     **누락**된다(0.0 합성 금지 — CONGESTION_TRUST_SPEC: 누락이 곧 '근거 없음' 신호다).
     """
     return await fetch_latest_congestion_for_all(facility_ids)
+
+
+async def _attach_delayed_area_actions(
+    items: list[dict], *, now: datetime, delay_minutes: int = 30
+) -> None:
+    """상위 후보만 30분 지연 출발과 비교한다.
+
+    이력이나 관광 통계가 없으면 delayed signal은 None이며 행동 추천도
+    ``no_clear_advantage``로 닫힌다. 현재 실측을 미래로 복사하지 않는다.
+    """
+    delayed_signals = await asyncio.gather(*[
+        get_area_demand_signal(
+            item["facility"],
+            now + timedelta(
+                minutes=float(item["breakdown"].get("travel_time") or 0.0) + delay_minutes
+            ),
+        )
+        for item in items
+    ])
+    annotate_arrival_actions(items, delayed_signals, delay_minutes=delay_minutes)
 
 
 async def resolve_congestion_evidence(facility: dict, log_info: dict | None) -> dict:
@@ -279,26 +333,51 @@ async def get_recommendations(
     user_info, original_infra, all_facilities = await asyncio.gather(
         user_task, original_infra_task, all_infra_task
     )
+    await attach_related_destination_priors(original_infra, all_facilities)
 
     # 2. 시설 조건을 먼저 적용하고, 도보 경로 행렬로 영업 여부와 하드 캡을 판정한다.
     eligible = []
     for f in all_facilities:
         if f["id"] == req.original_facility_id or not facility_matches_context(f, req.context):
             continue
+        if req.candidate_types and f.get("type") not in req.candidate_types:
+            continue
+        if req.discovery_theme:
+            match = discovery_theme_match(f, req.discovery_theme)
+            if match is None:
+                continue
+            # 요청 전용 메타데이터다. 공유 시설 캐시의 원본 dict를 오염시키지 않는다.
+            f = {**f, "discovery_theme_match": match}
         eligible.append(f)
     routes = await get_walking_routes(
         req.user_lat, req.user_lng,
         [(float(f["latitude"]), float(f["longitude"])) for f in eligible],
     )
     now = datetime.now(timezone.utc)
-    candidates = [
-        (facility, route)
-        for facility, route in zip(eligible, routes)
-        if route.duration_min <= max_walk_minutes
-        and open_status_at_arrival(facility, now + timedelta(minutes=route.duration_min)) != "closed_confirmed"
-    ]
+    tiered_candidates = []
+    for facility, route in zip(eligible, routes):
+        if route.duration_min > max_walk_minutes:
+            continue
+        tier = recommendation_eligibility_tier(
+            facility,
+            now + timedelta(minutes=route.duration_min),
+            route.source,
+        )
+        if tier is not None:
+            tiered_candidates.append((facility, route, tier))
+    selected_tier = keep_best_eligibility_tier(tiered_candidates)
+    candidates = [(facility, route) for facility, route, _ in selected_tier]
+    eligibility_tier = selected_tier[0][2] if selected_tier else None
 
-    logger.info("candidates_filtered", count=len(candidates), max_walk_minutes=max_walk_minutes)
+    logger.info(
+        "candidates_filtered",
+        count=len(candidates),
+        max_walk_minutes=max_walk_minutes,
+        eligibility_tier=(
+            RECOMMENDATION_ELIGIBILITY_LABELS[eligibility_tier]
+            if eligibility_tier is not None else None
+        ),
+    )
 
     # 사용자 선호 벡터는 요청당 1개뿐이므로 여기서 1회만 조회한다. (없으면 Cold Start 벡터 생성 후 1회 업서트)
     user_vector = await _resolve_user_vector(req.user_id, user_info.get("preferred_categories", []))
@@ -352,7 +431,11 @@ async def get_recommendations(
             "spot_score": score_res.score,
             # original_wait_time 은 후보와 무관하게 요청당 1개지만, 추천 행 단독으로도
             # 절감분을 계산할 수 있도록 각 breakdown 에 함께 저장한다(비정규화 스냅샷).
-            "breakdown": {**score_res.breakdown, "original_wait_time": original_wait_time},
+            "breakdown": {
+                **score_res.breakdown,
+                "original_wait_time": original_wait_time,
+                "discovery_theme_match": f.get("discovery_theme_match"),
+            },
             "distance_m": route.distance_m,
             "candidate_congestion": candidate_congestion,
             "congestion_evidence": evidence,
@@ -362,9 +445,15 @@ async def get_recommendations(
         await asyncio.gather(*[_score_candidate(f, route) for f, route in candidates])
     )
 
+    # 같은 요청에서 실제로 비교 가능한 후보만 상대 수요 순위·중앙값 차이를 계산한다.
+    # 모든 후보가 같은 권역 신호를 받으면 distinguishable=false가 되어 혼잡 대안이라고 주장하지 않는다.
+    annotate_relative_demand(recommendation_results)
+
     # 4. 스코어 기준 내림차순 정렬 및 상위 5개 선별
     recommendation_results.sort(key=lambda x: (-x["spot_score"], x["distance_m"], x["facility"]["id"]))
-    top_n = recommendation_results[:5]  # 추천 제안 개수(요청: 3 → 5)
+    # SPOT 점수순은 추천 계약 그 자체다. UI 다양성을 위해 후처리 재정렬하지 않는다.
+    top_n = recommendation_results[:5]
+    await _attach_delayed_area_actions(top_n, now=now)
 
     # 4-1. WP3: 상위 N개(=top_n)에만 백엔드 사유 생성 (동시 호출, 실패 시 템플릿 폴백)
     #      컨텍스트는 reason_service 가 소비하는 키만 전달한다: _build_template 는 이름·수치를,
@@ -378,7 +467,7 @@ async def get_recommendations(
             "congestion_source": item["congestion_evidence"]["source"],
             "travel_time": bd.get("travel_time"),
             "predicted_wait": bd.get("wait_time"),
-        })
+        }, polish=False)
 
     reasons = await asyncio.gather(*[_reason_for(item) for item in top_n])
 
@@ -399,6 +488,10 @@ async def get_recommendations(
                 facility,
                 datetime.now(timezone.utc) + timedelta(minutes=item["breakdown"].get("travel_time", 0)),
             ),
+            "eligibility_tier": (
+                RECOMMENDATION_ELIGIBILITY_LABELS[eligibility_tier]
+                if eligibility_tier is not None else None
+            ),
             "congestion": {
                 "level": evidence["level"], "source": evidence["source"],
                 "timestamp": evidence["timestamp"], "evidence_tier": evidence.get("evidence_tier"),
@@ -406,6 +499,7 @@ async def get_recommendations(
             },
             "max_walk_minutes": max_walk_minutes,
             "travel_source": item["breakdown"].get("travel_source"),
+            "availability_evidence": facility.get("availability_evidence"),
             "tourapi_facts": {
                 "barrier_free": facility.get("barrier_free"),
                 "operating_hours": facility.get("operating_hours"),
@@ -414,6 +508,11 @@ async def get_recommendations(
             "scoring_mode": item["breakdown"].get("scoring_mode"),
             "model_version": item["breakdown"].get("model_version"),
             "prediction_source": item["breakdown"].get("prediction_source"),
+            "discovery_theme": req.discovery_theme,
+            "reference_facility": (
+                {"id": original_infra.get("id"), "name": original_infra.get("name")}
+                if req.discovery_theme else None
+            ),
         }
         payload = {
                 "user_id": req.user_id,
@@ -477,7 +576,11 @@ async def get_recommendations(
             open_status_at_arrival=open_status_at_arrival(
                 item["facility"], datetime.now(timezone.utc) + timedelta(minutes=item["breakdown"].get("travel_time", 0))
             ),
-            information_confidence="verified" if item["facility"].get("operating_hours") else "unknown",
+            information_confidence=("verified" if eligibility_tier in {0, 1} else "unknown"),
+            eligibility_tier=(
+                RECOMMENDATION_ELIGIBILITY_LABELS[eligibility_tier]
+                if eligibility_tier is not None else None
+            ),
             place_data_source=item["facility"].get("place_data_source"),
             data_updated_at=item["facility"].get("data_updated_at") or item["facility"].get("updated_at"),
             scoring_mode=item["breakdown"].get("scoring_mode", "degraded_rules"),
@@ -547,6 +650,14 @@ _DEFAULT_BROWSE_WALK_MINUTES = 20
 _MAX_RECO_DISTANCE_M = _DEFAULT_BROWSE_WALK_MINUTES * 66.67
 
 
+def _is_bar_facility(facility: dict) -> bool:
+    features = facility.get("features") or {}
+    raw = features.get("cuisine_tags") or features.get("cuisine") or []
+    tags = raw if isinstance(raw, list) else [raw]
+    bar_terms = ("술집", "호프", "포차", "오뎅바", "일본식주점", "칵테일바", "와인바")
+    return any(any(term in str(tag) for term in bar_terms) for tag in tags)
+
+
 class RecommendByTypeRequest(BaseModel):
     user_id: str
     facility_type: str
@@ -578,7 +689,10 @@ async def recommend_by_type(
     exclude = set(req.exclude_ids or [])
     candidates = [
         f for f in all_facilities
-        if f.get("type") == req.facility_type and f["id"] not in exclude and facility_matches_context(f, req.context)
+        if f.get("type") == req.facility_type
+        and not (req.facility_type == "restaurant" and _is_bar_facility(f))
+        and f["id"] not in exclude
+        and facility_matches_context(f, req.context)
     ]
     if not candidates:
         return []
@@ -592,15 +706,21 @@ async def recommend_by_type(
         [(float(f["latitude"]), float(f["longitude"])) for f in candidates],
     )
     now = datetime.now(timezone.utc)
-    candidate_routes = [
-        (f, route) for f, route in zip(candidates, routes)
-        if route.duration_min <= max_walk_minutes
-        if open_status_at_arrival(
-            f, now + timedelta(minutes=route.duration_min)
-        ) != "closed_confirmed"
-    ]
-    candidates = [f for f, _ in candidate_routes]
-    route_by_id = {f["id"]: route for f, route in candidate_routes}
+    tiered_candidate_routes = []
+    for facility, route in zip(candidates, routes):
+        if route.duration_min > max_walk_minutes:
+            continue
+        tier = recommendation_eligibility_tier(
+            facility,
+            now + timedelta(minutes=route.duration_min),
+            route.source,
+        )
+        if tier is not None:
+            tiered_candidate_routes.append((facility, route, tier))
+    candidate_routes = keep_best_eligibility_tier(tiered_candidate_routes)
+    candidates = [facility for facility, _, _ in candidate_routes]
+    route_by_id = {facility["id"]: route for facility, route, _ in candidate_routes}
+    eligibility_tier = candidate_routes[0][2] if candidate_routes else None
     if not candidates:
         return []
 
@@ -652,8 +772,10 @@ async def recommend_by_type(
         }
 
     scored = list(await asyncio.gather(*[_score(f) for f in candidates]))
+    annotate_relative_demand(scored)
     scored.sort(key=lambda x: (-x["spot_score"], x["distance_m"], x["facility"]["id"]))
     top = scored[: max(1, req.limit)]
+    await _attach_delayed_area_actions(top, now=now)
 
     # 컨텍스트는 reason_service 가 소비하는 키만 전달한다: _build_template 는 이름·수치를,
     # facility_id 는 LLM 문체 다듬기의 캐시 키(시설+혼잡도 버킷+시각)로 쓰인다.
@@ -666,7 +788,7 @@ async def recommend_by_type(
             "congestion_source": item["congestion_evidence"]["source"],
             "travel_time": bd.get("travel_time"),
             "predicted_wait": bd.get("wait_time"),
-        })
+        }, polish=False)
 
     reasons = await asyncio.gather(*[_reason_for(item) for item in top])
 
@@ -686,8 +808,13 @@ async def recommend_by_type(
             },
             "max_walk_minutes": max_walk_minutes,
             "travel_source": item["breakdown"].get("travel_source"),
+            "availability_evidence": facility.get("availability_evidence"),
             "open_status_at_arrival": open_status_at_arrival(
                 facility, now + timedelta(minutes=item["breakdown"].get("travel_time", 0))
+            ),
+            "eligibility_tier": (
+                RECOMMENDATION_ELIGIBILITY_LABELS[eligibility_tier]
+                if eligibility_tier is not None else None
             ),
             "tourapi_facts": {
                 "barrier_free": facility.get("barrier_free"),
@@ -736,7 +863,11 @@ async def recommend_by_type(
             open_status_at_arrival=open_status_at_arrival(
                 item["facility"], now + timedelta(minutes=item["breakdown"].get("travel_time", 0))
             ),
-            information_confidence="verified" if item["facility"].get("operating_hours") else "unknown",
+            information_confidence=("verified" if eligibility_tier in {0, 1} else "unknown"),
+            eligibility_tier=(
+                RECOMMENDATION_ELIGIBILITY_LABELS[eligibility_tier]
+                if eligibility_tier is not None else None
+            ),
             place_data_source=item["facility"].get("place_data_source"),
             data_updated_at=item["facility"].get("data_updated_at") or item["facility"].get("updated_at"),
             scoring_mode=item["breakdown"].get("scoring_mode", "degraded_rules"),

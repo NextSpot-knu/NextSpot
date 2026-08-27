@@ -6,7 +6,7 @@ from app.services.spot.wait_time import calculate_predicted_wait_time
 from app.services.spot.travel import get_travel_time_and_distance
 from app.services.congestion_evidence import rankable_measured_level
 from app.services.travel_context import KST
-from app.services.event_boost import get_event_congestion_boost
+from app.services.area_demand_service import get_area_demand_signal
 from app.services.predict_service import get_model_info, predict_congestion_detailed
 
 # 가중치 정의 — 2026 관광데이터 활용 공모전 제안서 기준 (0.40 / 0.40 / 0.20).
@@ -69,6 +69,15 @@ async def calculate_spot_score(
         facility_name=candidate_facility.get("name"),
         preference_intent=preference_intent,
     )
+    # Tmap 실제 이동에서 함께 방문한 연관 목적지이면 취향 항 안에서 최대 10%만 보강한다.
+    # W1 자체는 0.40으로 유지하며, 데이터 미승인·이름 미매칭 환경은 결과가 완전히 동일하다.
+    related_prior = candidate_facility.get("tourapi_related_prior")
+    try:
+        related_prior = max(0.0, min(1.0, float(related_prior)))
+    except (TypeError, ValueError):
+        related_prior = None
+    if related_prior is not None:
+        preference_sim = min(1.0, preference_sim + 0.10 * related_prior * (1.0 - preference_sim))
 
     # 2. 이동 시간 우선 획득. 추천 라우터는 후보 전체 보행 행렬을 미리 계산해 중복 호출을 피한다.
     if travel_time_override is None:
@@ -106,9 +115,13 @@ async def calculate_spot_score(
         )
 
     model_info = get_model_info()
+    area_demand = await get_area_demand_signal(candidate_facility, arrival_dt)
     scoring_mode = (
         "measured_rules" if measured_congestion is not None
-        else ("model" if predicted_congestion is not None else "degraded_rules")
+        else (
+            "model" if predicted_congestion is not None
+            else ("area_stats_rules" if area_demand is not None else "degraded_rules")
+        )
     )
 
     # 관광공사 관광지 집중률은 향후 30일 '일별 상대지수'(0~100)이지 실시간 혼잡이 아니다.
@@ -127,12 +140,9 @@ async def calculate_spot_score(
     # 거리 감쇠 가중으로 상향한다(모델이 모르는 외부 변수). 축제 조회 실패는 (0, None)
     # 무해 폴백이라 채점 플로우를 막지 않는다. 보정된 값이 아래 대기시간·재배치기여에
     # 일관되게 쓰인다(한 산식 안에서 같은 '도착시점 혼잡' 기준 유지).
-    event_boost = 0.0
-    event_title = None
+    event_boost = float((area_demand or {}).get("event_boost") or 0.0)
+    event_title = (area_demand or {}).get("event_title")
     if scoring_mode == "model":
-        event_boost, event_title = await get_event_congestion_boost(
-            candidate_facility["latitude"], candidate_facility["longitude"], arrival_dt
-        )
         predicted_congestion = min(1.0, predicted_congestion + event_boost)
 
     # 4. 예측 혼잡도를 적용한 대기 시간 계산
@@ -151,7 +161,13 @@ async def calculate_spot_score(
     predicted_wait = ranking_wait if scoring_mode == "model" else None
 
     # degraded_rules에서는 혼잡·예상 대기 수치를 완전히 제외하고 실제 이동시간만 시간비용으로 쓴다.
-    total_time = travel_time_min + (ranking_wait or 0.0)
+    area_penalty = 0.0
+    if area_demand is not None:
+        if scoring_mode == "area_stats_rules":
+            area_penalty = float(area_demand.get("ranking_penalty_minutes") or 0.0)
+        elif scoring_mode == "model":
+            area_penalty = float(area_demand.get("parking_penalty_minutes") or 0.0)
+    total_time = travel_time_min + (ranking_wait or 0.0) + area_penalty
     time_cost = min(1.0, total_time / 60.0)
 
     # 5. 인센티브 (w3) — 쿠폰 강도 + 수요 재배치 기여 결합 (D1 재결정 2026-07-07).
@@ -185,6 +201,8 @@ async def calculate_spot_score(
         score=final_score,
         breakdown={
             "preference": round(preference_sim, 3),
+            "tourapi_related_rank": candidate_facility.get("tourapi_related_rank"),
+            "tourapi_related_prior": round(related_prior, 4) if related_prior is not None else None,
             "wait_time": predicted_wait,
             "travel_time": travel_time_min,
             "travel_distance_m": travel_distance_m,
@@ -200,6 +218,17 @@ async def calculate_spot_score(
             "event_title": event_title,
             # 관광공사 30일 일별 상대 전망. None이면 미승인/미매칭이며 실시간 실측으로 표시하면 안 된다.
             "tourapi_concentration_prior": round(tourapi_prior, 3) if tourapi_prior is not None else None,
+            # 공영주차·관광 통계 기반의 '주변 지역 수요'. 매장 내부 혼잡/대기시간과 분리한다.
+            "area_demand_level": (area_demand or {}).get("level"),
+            "area_demand_mode": (area_demand or {}).get("mode"),
+            "area_demand_confidence": (area_demand or {}).get("confidence"),
+            "area_demand_sources": (area_demand or {}).get("sources", []),
+            "area_demand_observed_at": (area_demand or {}).get("observed_at"),
+            "area_demand_radius_m": (area_demand or {}).get("radius_m"),
+            "area_demand_components": (area_demand or {}).get("components", {}),
+            "area_demand_parking_evidence": (area_demand or {}).get("parking_evidence"),
+            "area_demand_tourism_evidence": (area_demand or {}).get("tourism_evidence"),
+            "area_demand_penalty_minutes": round(area_penalty, 2),
             "scoring_mode": scoring_mode,
             "model_version": model_info.get("version"),
             "prediction_source": prediction_source,

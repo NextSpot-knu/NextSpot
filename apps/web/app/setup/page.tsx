@@ -31,7 +31,7 @@ export default function SetupPage() {
       : [...current.requiredAttributes, attribute],
   }));
 
-  const finish = async (value: TravelContext) => {
+  const finish = (value: TravelContext) => {
     if (saving) return;
     setSaving(true);
     saveTravelContext(value);
@@ -42,14 +42,16 @@ export default function SetupPage() {
       required_attributes: value.requiredAttributes,
       exclude_visited: value.excludeVisited,
     });
-    if (value.categories.length) {
-      try {
-        const supabase = createPublicClient();
-        const { data: { user } } = await supabase.auth.getUser();
-        if (user) await supabase.from('users').update({ preferred_categories: value.categories }).eq('id', user.id);
-      } catch { /* local context remains the source for this trip */ }
-    }
     router.push('/main');
+    if (value.categories.length) {
+      void (async () => {
+        try {
+          const supabase = createPublicClient();
+          const { data: { user } } = await supabase.auth.getUser();
+          if (user) await supabase.from('users').update({ preferred_categories: value.categories }).eq('id', user.id);
+        } catch { /* local context remains the source for this trip */ }
+      })();
+    }
   };
 
   return (
@@ -57,7 +59,7 @@ export default function SetupPage() {
       <div className="mx-auto max-w-md">
         <header className="flex items-center justify-between mb-7">
           <button type="button" onClick={() => router.push('/')} aria-label={t('common.back')} className="p-2.5 rounded-xl bg-white border border-line"><ArrowLeft size={20} /></button>
-          <button type="button" disabled={saving} onClick={() => void finish(EMPTY_TRAVEL_CONTEXT)} className="text-sm text-muk-soft underline disabled:opacity-50">{t('setup.skip')}</button>
+          <button type="button" disabled={saving} onClick={() => finish(EMPTY_TRAVEL_CONTEXT)} className="text-sm text-muk-soft underline disabled:opacity-50">{t('setup.skip')}</button>
         </header>
         <div className="mb-7">
           <span className="inline-flex items-center gap-1 text-xs font-bold text-jade"><MapPin size={14} /> {t('setup.fieldBadge')}</span>
@@ -81,7 +83,7 @@ export default function SetupPage() {
             <Toggle active={context.excludeVisited} onClick={() => setContext((current) => ({ ...current, excludeVisited: !current.excludeVisited }))} label={t('setup.excludeVisited')} />
           </div>
         </Section>
-        <button type="button" disabled={saving} onClick={() => void finish(context)} className="w-full mt-3 py-4 rounded-xl bg-gold text-white font-bold disabled:opacity-50">{saving ? t('setup.saving') : t('setup.start')}</button>
+        <button type="button" disabled={saving} onClick={() => finish(context)} className="w-full mt-3 py-4 rounded-xl bg-gold text-white font-bold disabled:opacity-50">{saving ? t('setup.saving') : t('setup.start')}</button>
       </div>
     </main>
   );

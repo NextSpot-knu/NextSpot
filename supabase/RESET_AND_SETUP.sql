@@ -11,6 +11,9 @@
 --    DB 비밀번호 공유 없이, 대시보드 SQL Editor 접근만으로 1회 실행하면 됩니다.
 -- =====================================================================
 DROP TABLE IF EXISTS public.user_feedback CASCADE;
+DROP TABLE IF EXISTS public.facility_availability_reports CASCADE;
+DROP TABLE IF EXISTS public.area_demand_snapshot_lots CASCADE;
+DROP TABLE IF EXISTS public.area_demand_snapshots CASCADE;
 DROP TABLE IF EXISTS public.recommendation_outcomes CASCADE;
 DROP TABLE IF EXISTS public.model_registry CASCADE;
 DROP TABLE IF EXISTS public.facility_source_refs CASCADE;
@@ -31,6 +34,27 @@ DROP FUNCTION IF EXISTS public.promote_recommendation_model(TEXT) CASCADE;
 DROP FUNCTION IF EXISTS public.record_recommendation_outcome(UUID, UUID, TEXT, TEXT, TEXT) CASCADE;
 DROP FUNCTION IF EXISTS public.correlate_congestion_report_evidence() CASCADE;
 DROP FUNCTION IF EXISTS public.project_outcome_congestion_log() CASCADE;
+DROP FUNCTION IF EXISTS public.merge_guest_account_data(UUID, UUID) CASCADE;
+DROP FUNCTION IF EXISTS public.record_facility_availability_report(UUID, UUID, TEXT) CASCADE;
+DROP FUNCTION IF EXISTS public.recompute_facility_availability_evidence(UUID) CASCADE;
+DROP FUNCTION IF EXISTS public.refresh_facility_availability_after_delete() CASCADE;
+DROP FUNCTION IF EXISTS public.merge_guest_account_data_without_availability(UUID, UUID) CASCADE;
+DO $$
+DECLARE
+  v_job_id BIGINT;
+BEGIN
+  IF to_regclass('cron.job') IS NOT NULL THEN
+    FOR v_job_id IN EXECUTE
+      'SELECT jobid FROM cron.job WHERE jobname IN (''nextspot-area-demand-primary'', ''nextspot-area-demand-retry'')'
+    LOOP
+      EXECUTE format('SELECT cron.unschedule(%s)', v_job_id);
+    END LOOP;
+  END IF;
+END;
+$$;
+DROP FUNCTION IF EXISTS public.request_area_demand_collection(BOOLEAN) CASCADE;
+DROP FUNCTION IF EXISTS public.configure_area_demand_collection(TEXT, TEXT) CASCADE;
+DROP FUNCTION IF EXISTS public.record_area_demand_snapshot(TEXT, TIMESTAMPTZ, JSONB) CASCADE;
 DROP FUNCTION IF EXISTS public.handle_updated_at() CASCADE;
 
 -- ============================= migrations/20250523120000_init.sql =============================
@@ -1758,3 +1782,1177 @@ JOIN public.recommendations AS r ON r.id = o.recommendation_id
 JOIN public.facilities AS f ON f.id = r.recommended_facility_id
 WHERE o.observed_congestion IS NOT NULL
 ON CONFLICT (origin_outcome_id) WHERE origin_outcome_id IS NOT NULL DO NOTHING;
+
+-- ============================= migrations/20260820220000_add_area_demand_snapshots.sql =============================
+-- 경주시 ITS 실측 주차 현황을 15분 단위로 보존한다.
+-- 이 테이블은 장소 내부 혼잡이나 예상 대기시간이 아니라, 주변 공영주차 수요의 원본 관측만 저장한다.
+
+CREATE TABLE public.area_demand_snapshots (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    source TEXT NOT NULL
+        CHECK (source IN ('gyeongju_its', 'national_parking_api')),
+    observed_at TIMESTAMPTZ NOT NULL,
+    bucket_at TIMESTAMPTZ NOT NULL,
+    total_spaces INTEGER NOT NULL CHECK (total_spaces > 0),
+    available_spaces INTEGER NOT NULL
+        CHECK (available_spaces >= 0 AND available_spaces <= total_spaces),
+    occupancy DOUBLE PRECISION GENERATED ALWAYS AS (
+        1.0 - available_spaces::DOUBLE PRECISION / total_spaces::DOUBLE PRECISION
+    ) STORED,
+    live_lot_count INTEGER NOT NULL CHECK (live_lot_count > 0),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now()),
+    CONSTRAINT area_demand_snapshots_bucket_aligned CHECK (
+        bucket_at = date_bin(
+            INTERVAL '15 minutes',
+            observed_at,
+            TIMESTAMPTZ '1970-01-01 00:00:00+00'
+        )
+    ),
+    CONSTRAINT area_demand_snapshots_source_bucket_key UNIQUE (source, bucket_at)
+);
+
+CREATE TABLE public.area_demand_snapshot_lots (
+    snapshot_id UUID NOT NULL
+        REFERENCES public.area_demand_snapshots(id) ON DELETE CASCADE,
+    source_lot_id TEXT NOT NULL CHECK (btrim(source_lot_id) <> ''),
+    name TEXT NOT NULL CHECK (btrim(name) <> ''),
+    latitude DOUBLE PRECISION NOT NULL CHECK (latitude BETWEEN -90.0 AND 90.0),
+    longitude DOUBLE PRECISION NOT NULL CHECK (longitude BETWEEN -180.0 AND 180.0),
+    total_spaces INTEGER NOT NULL CHECK (total_spaces > 0),
+    available_spaces INTEGER NOT NULL
+        CHECK (available_spaces >= 0 AND available_spaces <= total_spaces),
+    occupancy DOUBLE PRECISION GENERATED ALWAYS AS (
+        1.0 - available_spaces::DOUBLE PRECISION / total_spaces::DOUBLE PRECISION
+    ) STORED,
+    PRIMARY KEY (snapshot_id, source_lot_id)
+);
+
+CREATE INDEX idx_area_demand_snapshots_source_observed
+    ON public.area_demand_snapshots(source, observed_at DESC);
+
+ALTER TABLE public.area_demand_snapshots ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.area_demand_snapshot_lots ENABLE ROW LEVEL SECURITY;
+
+-- 정책을 만들지 않아 브라우저 anon/authenticated 역할은 직접 읽거나 쓸 수 없다.
+-- 수집 및 향후 검증된 통계 조회는 서버 service_role 경로에서만 수행한다.
+
+COMMENT ON TABLE public.area_demand_snapshots IS
+    '15분 단위 주변 공영주차 실측 집계. 장소 내부 혼잡 또는 예측값이 아님.';
+COMMENT ON TABLE public.area_demand_snapshot_lots IS
+    'area_demand_snapshots 수집 시점의 주차장별 전체면·잔여면 원본 관측.';
+COMMENT ON COLUMN public.area_demand_snapshots.bucket_at IS
+    'observed_at을 UTC epoch 기준 15분으로 내린 멱등 수집 키.';
+COMMENT ON COLUMN public.area_demand_snapshots.occupancy IS
+    '1 - available_spaces / total_spaces로 DB가 계산한 주변 주차 점유율.';
+
+-- 부모 집계와 주차장별 원본을 한 트랜잭션에서 교체한다. 호출자는 집계값이나 버킷을 보내지 않는다.
+-- 같은 15분 버킷의 재시도는 한 행을 갱신하며, 늦게 도착한 오래된 관측은 최신 행을 되돌리지 않는다.
+CREATE OR REPLACE FUNCTION public.record_area_demand_snapshot(
+    p_source TEXT,
+    p_observed_at TIMESTAMPTZ,
+    p_lots JSONB
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = public
+AS $$
+DECLARE
+    v_bucket_at TIMESTAMPTZ;
+    v_lot JSONB;
+    v_source_lot_id TEXT;
+    v_name TEXT;
+    v_latitude DOUBLE PRECISION;
+    v_longitude DOUBLE PRECISION;
+    v_total INTEGER;
+    v_available INTEGER;
+    v_total_spaces BIGINT := 0;
+    v_available_spaces BIGINT := 0;
+    v_live_lot_count INTEGER;
+    v_existing public.area_demand_snapshots%ROWTYPE;
+    v_snapshot public.area_demand_snapshots%ROWTYPE;
+BEGIN
+    IF p_source IS NULL
+       OR p_source NOT IN ('gyeongju_its', 'national_parking_api') THEN
+        RAISE EXCEPTION 'unsupported area demand source'
+            USING ERRCODE = '22023';
+    END IF;
+    IF p_observed_at IS NULL OR NOT isfinite(p_observed_at) THEN
+        RAISE EXCEPTION 'observed_at must be a finite timestamp'
+            USING ERRCODE = '22023';
+    END IF;
+    IF p_lots IS NULL
+       OR jsonb_typeof(p_lots) IS DISTINCT FROM 'array'
+       OR jsonb_array_length(p_lots) = 0
+       OR jsonb_array_length(p_lots) > 500 THEN
+        RAISE EXCEPTION 'lots must be a non-empty array with at most 500 items'
+            USING ERRCODE = '22023';
+    END IF;
+
+    v_live_lot_count := jsonb_array_length(p_lots);
+    FOR v_lot IN
+        SELECT item FROM jsonb_array_elements(p_lots) AS entries(item)
+    LOOP
+        IF jsonb_typeof(v_lot) IS DISTINCT FROM 'object' THEN
+            RAISE EXCEPTION 'every lot must be an object'
+                USING ERRCODE = '22023';
+        END IF;
+
+        v_source_lot_id := btrim(COALESCE(v_lot->>'source_lot_id', ''));
+        v_name := btrim(COALESCE(v_lot->>'name', ''));
+        IF v_source_lot_id = '' OR v_name = '' THEN
+            RAISE EXCEPTION 'lot source_lot_id and name are required'
+                USING ERRCODE = '22023';
+        END IF;
+        IF jsonb_typeof(v_lot->'latitude') IS DISTINCT FROM 'number'
+           OR jsonb_typeof(v_lot->'longitude') IS DISTINCT FROM 'number'
+           OR jsonb_typeof(v_lot->'total_spaces') IS DISTINCT FROM 'number'
+           OR jsonb_typeof(v_lot->'available_spaces') IS DISTINCT FROM 'number'
+           OR (v_lot->>'total_spaces') !~ '^[0-9]+$'
+           OR (v_lot->>'available_spaces') !~ '^[0-9]+$' THEN
+            RAISE EXCEPTION 'lot coordinates and space counts must be numeric'
+                USING ERRCODE = '22023';
+        END IF;
+
+        BEGIN
+            v_latitude := (v_lot->>'latitude')::DOUBLE PRECISION;
+            v_longitude := (v_lot->>'longitude')::DOUBLE PRECISION;
+            v_total := (v_lot->>'total_spaces')::INTEGER;
+            v_available := (v_lot->>'available_spaces')::INTEGER;
+        EXCEPTION
+            WHEN numeric_value_out_of_range OR invalid_text_representation THEN
+                RAISE EXCEPTION 'lot numeric value is out of range'
+                    USING ERRCODE = '22023';
+        END;
+
+        IF v_latitude NOT BETWEEN -90.0 AND 90.0
+           OR v_longitude NOT BETWEEN -180.0 AND 180.0
+           OR v_total <= 0
+           OR v_available < 0
+           OR v_available > v_total THEN
+            RAISE EXCEPTION 'lot coordinates or space counts are invalid'
+                USING ERRCODE = '22023';
+        END IF;
+        v_total_spaces := v_total_spaces + v_total;
+        v_available_spaces := v_available_spaces + v_available;
+    END LOOP;
+
+    IF EXISTS (
+        SELECT 1
+        FROM jsonb_array_elements(p_lots) AS entries(item)
+        GROUP BY btrim(item->>'source_lot_id')
+        HAVING count(*) > 1
+    ) THEN
+        RAISE EXCEPTION 'duplicate source_lot_id in lots'
+            USING ERRCODE = '22023';
+    END IF;
+    IF v_total_spaces > 2147483647 OR v_available_spaces > 2147483647 THEN
+        RAISE EXCEPTION 'aggregate space count is out of range'
+            USING ERRCODE = '22023';
+    END IF;
+
+    v_bucket_at := date_bin(
+        INTERVAL '15 minutes',
+        p_observed_at,
+        TIMESTAMPTZ '1970-01-01 00:00:00+00'
+    );
+    PERFORM pg_advisory_xact_lock(
+        hashtextextended(p_source || ':' || extract(epoch FROM v_bucket_at)::BIGINT::TEXT, 0)
+    );
+
+    SELECT snapshot.*
+      INTO v_existing
+      FROM public.area_demand_snapshots AS snapshot
+     WHERE snapshot.source = p_source
+       AND snapshot.bucket_at = v_bucket_at
+     FOR UPDATE;
+
+    IF FOUND AND v_existing.observed_at > p_observed_at THEN
+        RETURN to_jsonb(v_existing) || jsonb_build_object('stored', false);
+    END IF;
+
+    IF v_existing.id IS NULL THEN
+        INSERT INTO public.area_demand_snapshots (
+            source, observed_at, bucket_at, total_spaces, available_spaces, live_lot_count
+        ) VALUES (
+            p_source, p_observed_at, v_bucket_at,
+            v_total_spaces::INTEGER, v_available_spaces::INTEGER, v_live_lot_count
+        )
+        RETURNING * INTO v_snapshot;
+    ELSE
+        UPDATE public.area_demand_snapshots
+           SET observed_at = p_observed_at,
+               total_spaces = v_total_spaces::INTEGER,
+               available_spaces = v_available_spaces::INTEGER,
+               live_lot_count = v_live_lot_count
+         WHERE id = v_existing.id
+        RETURNING * INTO v_snapshot;
+    END IF;
+
+    DELETE FROM public.area_demand_snapshot_lots
+     WHERE snapshot_id = v_snapshot.id;
+
+    FOR v_lot IN
+        SELECT item FROM jsonb_array_elements(p_lots) AS entries(item)
+    LOOP
+        INSERT INTO public.area_demand_snapshot_lots (
+            snapshot_id, source_lot_id, name, latitude, longitude,
+            total_spaces, available_spaces
+        ) VALUES (
+            v_snapshot.id,
+            btrim(v_lot->>'source_lot_id'),
+            btrim(v_lot->>'name'),
+            (v_lot->>'latitude')::DOUBLE PRECISION,
+            (v_lot->>'longitude')::DOUBLE PRECISION,
+            (v_lot->>'total_spaces')::INTEGER,
+            (v_lot->>'available_spaces')::INTEGER
+        );
+    END LOOP;
+
+    RETURN to_jsonb(v_snapshot) || jsonb_build_object('stored', true);
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.record_area_demand_snapshot(TEXT, TIMESTAMPTZ, JSONB)
+    FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.record_area_demand_snapshot(TEXT, TIMESTAMPTZ, JSONB)
+    TO service_role;
+
+-- ============================= migrations/20260821130000_correct_verified_facility_coordinates.sql =============================
+-- Kakao Local의 유일한 엄격 동명 후보로 확인된 교촌마을 좌표를 교정한다.
+-- 월정교·발명체험교육관은 동명/명칭변경 가능성이 있어 자동 수정하지 않는다.
+UPDATE public.facilities
+SET latitude = 35.8300213535354,
+    longitude = 129.217092468907,
+    features = COALESCE(features, '{}'::jsonb) || jsonb_build_object(
+        'coordinate_source', 'kakao',
+        'kakao_place_id', '25182534',
+        'kakao_place_url', 'https://place.map.kakao.com/25182534',
+        'coordinate_verified_at', '2026-08-21T00:00:00+09:00'
+    ),
+    updated_at = now()
+WHERE id = 'f4000000-0000-0000-0000-000000000002';
+
+-- ============================= migrations/20260821140000_deactivate_unverified_demo_facilities.sql =============================
+-- 초기 화면 검증용으로 수기 배치했던 장소는 주소와 외부 장소 ID가 없어 운영 추천에 쓸 수 없다.
+-- 삭제하지 않고 비활성화해 기존 추천/로그 FK는 보존한다. Kakao/TourAPI로 검증된 장소는 별도 행을 쓴다.
+UPDATE public.facilities
+SET is_active = false,
+    features = COALESCE(features, '{}'::jsonb) || jsonb_build_object(
+        'production_eligible', false,
+        'deactivation_reason', 'unverified_demo_seed',
+        'deactivated_at', '2026-08-21T00:00:00+09:00'
+    ),
+    updated_at = now()
+WHERE id IN (
+    'f1000000-0000-0000-0000-000000000001',
+    'f1000000-0000-0000-0000-000000000002',
+    'f1000000-0000-0000-0000-000000000003',
+    'f1000000-0000-0000-0000-000000000004',
+    'f2000000-0000-0000-0000-000000000001',
+    'f2000000-0000-0000-0000-000000000002',
+    'f2000000-0000-0000-0000-000000000003',
+    'f2000000-0000-0000-0000-000000000004',
+    'f3000000-0000-0000-0000-000000000001',
+    'f3000000-0000-0000-0000-000000000002',
+    'f3000000-0000-0000-0000-000000000003',
+    'f3000000-0000-0000-0000-000000000004',
+    'f4000000-0000-0000-0000-000000000001',
+    'f4000000-0000-0000-0000-000000000003',
+    'f4000000-0000-0000-0000-000000000004'
+);
+
+-- ============================= migrations/20260821150000_verify_woljeonggyo.sql =============================
+-- 월정교는 초기 데모 좌표가 실제 교량에서 약 286m 벗어나 있었다.
+-- 경주시·한국관광공사가 안내하는 주소(경주시 교동 274)와 일치하는
+-- Kakao Local의 유일한 경주 월정교 장소를 수동 검증해 운영 장소로 승격한다.
+UPDATE public.facilities
+SET latitude = 35.82929954620109,
+    longitude = 129.21812129691938,
+    address = '경북 경주시 교동 274',
+    operating_hours = '{"weekday":"09:00-22:00","weekend":"09:00-22:00"}'::jsonb,
+    is_active = true,
+    features = (
+        COALESCE(features, '{}'::jsonb)
+        - 'deactivation_reason'
+        - 'deactivated_at'
+    ) || jsonb_build_object(
+        'production_eligible', true,
+        'coordinate_source', 'kakao_manual_verified',
+        'kakao_place_id', '1839209698',
+        'kakao_place_url', 'https://place.map.kakao.com/1839209698',
+        'coordinate_verified_at', '2026-08-21T15:00:00+09:00',
+        'address_source', 'gyeongju_visitkorea',
+        'opening_hours_source', 'visitkorea'
+    ),
+    updated_at = now()
+WHERE id = 'f3000000-0000-0000-0000-000000000004'
+  AND name = '월정교';
+
+-- ============================= migrations/20260824120000_area_demand_ten_minute_buckets.sql =============================
+-- 주변 주차 수요 수집 주기를 15분에서 10분으로 높인다.
+-- 기존 행은 15분 cadence로 명시해 그대로 보존하고, 이후 RPC 기록만 10분 버킷을 사용한다.
+
+ALTER TABLE public.area_demand_snapshots
+    DROP CONSTRAINT IF EXISTS area_demand_snapshots_bucket_aligned;
+
+ALTER TABLE public.area_demand_snapshots
+    ADD COLUMN IF NOT EXISTS bucket_minutes SMALLINT;
+
+-- 이 migration 전에 존재한 행은 모두 기존 RPC가 만든 15분 정렬 행이다.
+UPDATE public.area_demand_snapshots
+   SET bucket_minutes = 15
+ WHERE bucket_minutes IS NULL;
+
+ALTER TABLE public.area_demand_snapshots
+    ALTER COLUMN bucket_minutes SET DEFAULT 10,
+    ALTER COLUMN bucket_minutes SET NOT NULL;
+
+ALTER TABLE public.area_demand_snapshots
+    DROP CONSTRAINT IF EXISTS area_demand_snapshots_bucket_cadence_valid;
+ALTER TABLE public.area_demand_snapshots
+    ADD CONSTRAINT area_demand_snapshots_bucket_cadence_valid CHECK (
+        (bucket_minutes = 15 AND bucket_at = date_bin(
+            INTERVAL '15 minutes', observed_at,
+            TIMESTAMPTZ '1970-01-01 00:00:00+00'
+        ))
+        OR
+        (bucket_minutes = 10 AND bucket_at = date_bin(
+            INTERVAL '10 minutes', observed_at,
+            TIMESTAMPTZ '1970-01-01 00:00:00+00'
+        ))
+    );
+
+COMMENT ON TABLE public.area_demand_snapshots IS
+    '10분 단위 주변 공영주차 실측 집계. 전환 전 15분 원본은 bucket_minutes=15로 보존. 장소 내부 혼잡 또는 예측값이 아님.';
+COMMENT ON COLUMN public.area_demand_snapshots.bucket_at IS
+    'observed_at을 UTC epoch 기준 bucket_minutes 간격으로 내린 멱등 수집 키.';
+COMMENT ON COLUMN public.area_demand_snapshots.bucket_minutes IS
+    '수집 버킷 간격. 전환 전 원본은 15, 현재 수집은 10.';
+
+-- 검증과 자식 원본 교체는 기존 RPC와 동일하고, 서버가 보내지 않는 버킷만 10분으로 계산한다.
+CREATE OR REPLACE FUNCTION public.record_area_demand_snapshot(
+    p_source TEXT,
+    p_observed_at TIMESTAMPTZ,
+    p_lots JSONB
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = public
+AS $$
+DECLARE
+    v_bucket_at TIMESTAMPTZ;
+    v_lot JSONB;
+    v_source_lot_id TEXT;
+    v_name TEXT;
+    v_latitude DOUBLE PRECISION;
+    v_longitude DOUBLE PRECISION;
+    v_total INTEGER;
+    v_available INTEGER;
+    v_total_spaces BIGINT := 0;
+    v_available_spaces BIGINT := 0;
+    v_live_lot_count INTEGER;
+    v_existing public.area_demand_snapshots%ROWTYPE;
+    v_snapshot public.area_demand_snapshots%ROWTYPE;
+BEGIN
+    IF p_source IS NULL
+       OR p_source NOT IN ('gyeongju_its', 'national_parking_api') THEN
+        RAISE EXCEPTION 'unsupported area demand source'
+            USING ERRCODE = '22023';
+    END IF;
+    IF p_observed_at IS NULL OR NOT isfinite(p_observed_at) THEN
+        RAISE EXCEPTION 'observed_at must be a finite timestamp'
+            USING ERRCODE = '22023';
+    END IF;
+    IF p_lots IS NULL
+       OR jsonb_typeof(p_lots) IS DISTINCT FROM 'array'
+       OR jsonb_array_length(p_lots) = 0
+       OR jsonb_array_length(p_lots) > 500 THEN
+        RAISE EXCEPTION 'lots must be a non-empty array with at most 500 items'
+            USING ERRCODE = '22023';
+    END IF;
+
+    v_live_lot_count := jsonb_array_length(p_lots);
+    FOR v_lot IN
+        SELECT item FROM jsonb_array_elements(p_lots) AS entries(item)
+    LOOP
+        IF jsonb_typeof(v_lot) IS DISTINCT FROM 'object' THEN
+            RAISE EXCEPTION 'every lot must be an object'
+                USING ERRCODE = '22023';
+        END IF;
+
+        v_source_lot_id := btrim(COALESCE(v_lot->>'source_lot_id', ''));
+        v_name := btrim(COALESCE(v_lot->>'name', ''));
+        IF v_source_lot_id = '' OR v_name = '' THEN
+            RAISE EXCEPTION 'lot source_lot_id and name are required'
+                USING ERRCODE = '22023';
+        END IF;
+        IF jsonb_typeof(v_lot->'latitude') IS DISTINCT FROM 'number'
+           OR jsonb_typeof(v_lot->'longitude') IS DISTINCT FROM 'number'
+           OR jsonb_typeof(v_lot->'total_spaces') IS DISTINCT FROM 'number'
+           OR jsonb_typeof(v_lot->'available_spaces') IS DISTINCT FROM 'number'
+           OR (v_lot->>'total_spaces') !~ '^[0-9]+$'
+           OR (v_lot->>'available_spaces') !~ '^[0-9]+$' THEN
+            RAISE EXCEPTION 'lot coordinates and space counts must be numeric'
+                USING ERRCODE = '22023';
+        END IF;
+
+        BEGIN
+            v_latitude := (v_lot->>'latitude')::DOUBLE PRECISION;
+            v_longitude := (v_lot->>'longitude')::DOUBLE PRECISION;
+            v_total := (v_lot->>'total_spaces')::INTEGER;
+            v_available := (v_lot->>'available_spaces')::INTEGER;
+        EXCEPTION
+            WHEN numeric_value_out_of_range OR invalid_text_representation THEN
+                RAISE EXCEPTION 'lot numeric value is out of range'
+                    USING ERRCODE = '22023';
+        END;
+
+        IF v_latitude NOT BETWEEN -90.0 AND 90.0
+           OR v_longitude NOT BETWEEN -180.0 AND 180.0
+           OR v_total <= 0
+           OR v_available < 0
+           OR v_available > v_total THEN
+            RAISE EXCEPTION 'lot coordinates or space counts are invalid'
+                USING ERRCODE = '22023';
+        END IF;
+        v_total_spaces := v_total_spaces + v_total;
+        v_available_spaces := v_available_spaces + v_available;
+    END LOOP;
+
+    IF EXISTS (
+        SELECT 1
+        FROM jsonb_array_elements(p_lots) AS entries(item)
+        GROUP BY btrim(item->>'source_lot_id')
+        HAVING count(*) > 1
+    ) THEN
+        RAISE EXCEPTION 'duplicate source_lot_id in lots'
+            USING ERRCODE = '22023';
+    END IF;
+    IF v_total_spaces > 2147483647 OR v_available_spaces > 2147483647 THEN
+        RAISE EXCEPTION 'aggregate space count is out of range'
+            USING ERRCODE = '22023';
+    END IF;
+
+    v_bucket_at := date_bin(
+        INTERVAL '10 minutes',
+        p_observed_at,
+        TIMESTAMPTZ '1970-01-01 00:00:00+00'
+    );
+    PERFORM pg_advisory_xact_lock(
+        hashtextextended(p_source || ':' || extract(epoch FROM v_bucket_at)::BIGINT::TEXT, 0)
+    );
+
+    SELECT snapshot.*
+      INTO v_existing
+      FROM public.area_demand_snapshots AS snapshot
+     WHERE snapshot.source = p_source
+       AND snapshot.bucket_at = v_bucket_at
+     FOR UPDATE;
+
+    IF FOUND AND v_existing.observed_at > p_observed_at THEN
+        RETURN to_jsonb(v_existing) || jsonb_build_object('stored', false);
+    END IF;
+
+    IF v_existing.id IS NULL THEN
+        INSERT INTO public.area_demand_snapshots (
+            source, observed_at, bucket_at, bucket_minutes,
+            total_spaces, available_spaces, live_lot_count
+        ) VALUES (
+            p_source, p_observed_at, v_bucket_at, 10,
+            v_total_spaces::INTEGER, v_available_spaces::INTEGER, v_live_lot_count
+        )
+        RETURNING * INTO v_snapshot;
+    ELSE
+        UPDATE public.area_demand_snapshots
+           SET observed_at = p_observed_at,
+               bucket_minutes = 10,
+               total_spaces = v_total_spaces::INTEGER,
+               available_spaces = v_available_spaces::INTEGER,
+               live_lot_count = v_live_lot_count
+         WHERE id = v_existing.id
+        RETURNING * INTO v_snapshot;
+    END IF;
+
+    DELETE FROM public.area_demand_snapshot_lots
+     WHERE snapshot_id = v_snapshot.id;
+
+    FOR v_lot IN
+        SELECT item FROM jsonb_array_elements(p_lots) AS entries(item)
+    LOOP
+        INSERT INTO public.area_demand_snapshot_lots (
+            snapshot_id, source_lot_id, name, latitude, longitude,
+            total_spaces, available_spaces
+        ) VALUES (
+            v_snapshot.id,
+            btrim(v_lot->>'source_lot_id'),
+            btrim(v_lot->>'name'),
+            (v_lot->>'latitude')::DOUBLE PRECISION,
+            (v_lot->>'longitude')::DOUBLE PRECISION,
+            (v_lot->>'total_spaces')::INTEGER,
+            (v_lot->>'available_spaces')::INTEGER
+        );
+    END LOOP;
+
+    RETURN to_jsonb(v_snapshot) || jsonb_build_object('stored', true);
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.record_area_demand_snapshot(TEXT, TIMESTAMPTZ, JSONB)
+    FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.record_area_demand_snapshot(TEXT, TIMESTAMPTZ, JSONB)
+    TO service_role;
+
+-- ============================= migrations/20260824130000_schedule_area_demand_collection.sql =============================
+-- GitHub Actions의 best-effort 예약 대신 Supabase 내부 Cron이 10분 수집을 책임진다.
+-- 비밀값은 migration/cron command에 넣지 않고 Vault에서 실행 시점에만 읽는다.
+
+CREATE EXTENSION IF NOT EXISTS pg_cron;
+CREATE EXTENSION IF NOT EXISTS pg_net;
+
+-- service_role로만 호출하는 설정 RPC. 운영 토큰을 SQL 파일이나 cron.job.command에 남기지 않고
+-- 최초 설정과 이후 회전에 같은 경로를 사용한다.
+CREATE OR REPLACE FUNCTION public.configure_area_demand_collection(
+    p_api_url TEXT,
+    p_admin_token TEXT
+)
+RETURNS VOID
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, vault, pg_temp
+AS $$
+DECLARE
+    v_secret_id UUID;
+BEGIN
+    IF NULLIF(btrim(p_api_url), '') IS NULL
+       OR p_api_url !~ '^https://[^[:space:]]+$' THEN
+        RAISE EXCEPTION 'area demand collector URL must use HTTPS';
+    END IF;
+    IF length(COALESCE(p_admin_token, '')) < 16 THEN
+        RAISE EXCEPTION 'area demand collector token is invalid';
+    END IF;
+
+    SELECT secret.id
+      INTO v_secret_id
+      FROM vault.secrets AS secret
+     WHERE secret.name = 'nextspot_area_demand_api_url'
+     ORDER BY secret.created_at DESC
+     LIMIT 1;
+
+    IF v_secret_id IS NULL THEN
+        PERFORM vault.create_secret(
+            btrim(p_api_url),
+            'nextspot_area_demand_api_url',
+            'NextSpot area-demand collector HTTPS endpoint'
+        );
+    ELSE
+        PERFORM vault.update_secret(
+            v_secret_id,
+            btrim(p_api_url),
+            'nextspot_area_demand_api_url',
+            'NextSpot area-demand collector HTTPS endpoint'
+        );
+    END IF;
+
+    v_secret_id := NULL;
+    SELECT secret.id
+      INTO v_secret_id
+      FROM vault.secrets AS secret
+     WHERE secret.name = 'nextspot_area_demand_admin_token'
+     ORDER BY secret.created_at DESC
+     LIMIT 1;
+
+    IF v_secret_id IS NULL THEN
+        PERFORM vault.create_secret(
+            p_admin_token,
+            'nextspot_area_demand_admin_token',
+            'Existing Render ADMIN_API_TOKEN used by the scheduled collector'
+        );
+    ELSE
+        PERFORM vault.update_secret(
+            v_secret_id,
+            p_admin_token,
+            'nextspot_area_demand_admin_token',
+            'Existing Render ADMIN_API_TOKEN used by the scheduled collector'
+        );
+    END IF;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.configure_area_demand_collection(TEXT, TEXT)
+    FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.configure_area_demand_collection(TEXT, TEXT)
+    TO service_role;
+
+CREATE OR REPLACE FUNCTION public.request_area_demand_collection(
+    p_only_if_missing BOOLEAN DEFAULT false
+)
+RETURNS BIGINT
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, vault, net, extensions, pg_temp
+AS $$
+DECLARE
+    v_bucket_at TIMESTAMPTZ;
+    v_api_url TEXT;
+    v_admin_token TEXT;
+    v_request_id BIGINT;
+BEGIN
+    v_bucket_at := date_bin(
+        INTERVAL '10 minutes',
+        clock_timestamp(),
+        TIMESTAMPTZ '1970-01-01 00:00:00+00'
+    );
+
+    -- :06/:16/... 재시도는 현재 10분 버킷이 이미 저장됐다면 외부 호출도 하지 않는다.
+    IF p_only_if_missing AND EXISTS (
+        SELECT 1
+          FROM public.area_demand_snapshots AS snapshot
+         WHERE snapshot.source = 'gyeongju_its'
+           AND snapshot.bucket_minutes = 10
+           AND snapshot.bucket_at = v_bucket_at
+    ) THEN
+        RETURN NULL;
+    END IF;
+
+    SELECT secret.decrypted_secret
+      INTO v_api_url
+      FROM vault.decrypted_secrets AS secret
+     WHERE secret.name = 'nextspot_area_demand_api_url'
+     ORDER BY secret.created_at DESC
+     LIMIT 1;
+
+    SELECT secret.decrypted_secret
+      INTO v_admin_token
+      FROM vault.decrypted_secrets AS secret
+     WHERE secret.name = 'nextspot_area_demand_admin_token'
+     ORDER BY secret.created_at DESC
+     LIMIT 1;
+
+    IF NULLIF(btrim(v_api_url), '') IS NULL THEN
+        RAISE EXCEPTION 'Vault secret nextspot_area_demand_api_url is missing';
+    END IF;
+    IF NULLIF(btrim(v_admin_token), '') IS NULL THEN
+        RAISE EXCEPTION 'Vault secret nextspot_area_demand_admin_token is missing';
+    END IF;
+    IF v_api_url !~ '^https://[^[:space:]]+$' THEN
+        RAISE EXCEPTION 'area demand collector URL must use HTTPS';
+    END IF;
+
+    SELECT net.http_post(
+        url := rtrim(v_api_url, '/'),
+        headers := jsonb_build_object(
+            'Content-Type', 'application/json',
+            'X-Admin-Authorization', 'Bearer ' || v_admin_token,
+            'User-Agent', 'NextSpot-Supabase-Cron/1.0'
+        ),
+        body := jsonb_build_object(
+            'scheduler', 'supabase_cron',
+            'requested_at', clock_timestamp()
+        ),
+        timeout_milliseconds := 90000
+    )
+      INTO v_request_id;
+
+    RETURN v_request_id;
+END;
+$$;
+
+COMMENT ON FUNCTION public.request_area_demand_collection(BOOLEAN) IS
+    'Vault 인증으로 실측 주차 스냅샷 수집 API를 비동기 호출한다. true이면 현재 10분 버킷 누락 시에만 호출.';
+
+REVOKE ALL ON FUNCTION public.request_area_demand_collection(BOOLEAN)
+    FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.request_area_demand_collection(BOOLEAN)
+    TO service_role;
+
+-- RESET/재적용과 migration 재시도 시 동일 이름의 예약을 중복 생성하지 않는다.
+DO $$
+DECLARE
+    v_job_id BIGINT;
+BEGIN
+    FOR v_job_id IN
+        SELECT jobid
+          FROM cron.job
+         WHERE jobname IN (
+             'nextspot-area-demand-primary',
+             'nextspot-area-demand-retry'
+         )
+    LOOP
+        PERFORM cron.unschedule(v_job_id);
+    END LOOP;
+END;
+$$;
+
+-- 정각의 공용 인프라 부하를 피해 각 10분 버킷의 3분 시점에 실행한다.
+SELECT cron.schedule(
+    'nextspot-area-demand-primary',
+    '3,13,23,33,43,53 * * * *',
+    $command$SELECT public.request_area_demand_collection(false);$command$
+);
+
+-- 3분 뒤에도 해당 버킷이 비어 있을 때만 보충 호출한다.
+SELECT cron.schedule(
+    'nextspot-area-demand-retry',
+    '6,16,26,36,46,56 * * * *',
+    $command$SELECT public.request_area_demand_collection(true);$command$
+);
+
+-- ============================= migrations/20260825120000_atomic_account_merge.sql =============================
+-- 기존 계정 로그인 시 소유 증명된 익명 계정 데이터를 한 트랜잭션으로 승계한다.
+-- target의 기존 취향/프로필/중복 북마크·쿠폰을 우선 보존하고, target에 없는 데이터만 이동한다.
+
+-- 계정 삭제 시 문의의 작성자 연결만 끊고 본문을 남기던 SET NULL을 제거한다. 사용자의 탈퇴 요청은
+-- 해당 계정이 작성한 문의까지 함께 삭제해야 하므로 auth.users → public.users 삭제에 연쇄한다.
+ALTER TABLE public.inquiries DROP CONSTRAINT IF EXISTS inquiries_user_id_fkey;
+ALTER TABLE public.inquiries
+    ADD CONSTRAINT inquiries_user_id_fkey
+    FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
+
+CREATE OR REPLACE FUNCTION public.merge_guest_account_data(
+    p_guest_user_id UUID,
+    p_target_user_id UUID
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    guest_profile public.users%ROWTYPE;
+    target_profile public.users%ROWTYPE;
+    recommendations_count INTEGER := 0;
+    feedback_count INTEGER := 0;
+    outcomes_count INTEGER := 0;
+    saved_count INTEGER := 0;
+    coupons_count INTEGER := 0;
+    reports_count INTEGER := 0;
+    inquiries_count INTEGER := 0;
+    vector_moved BOOLEAN := FALSE;
+BEGIN
+    IF auth.role() <> 'service_role' THEN
+        RAISE EXCEPTION 'service_role required' USING ERRCODE = '42501';
+    END IF;
+    IF p_guest_user_id IS NULL OR p_target_user_id IS NULL THEN
+        RAISE EXCEPTION 'user ids are required' USING ERRCODE = '22023';
+    END IF;
+    IF p_guest_user_id = p_target_user_id THEN
+        RETURN jsonb_build_object(
+            'recommendations', 0, 'user_feedback', 0, 'recommendation_outcomes', 0,
+            'saved_facilities', 0, 'user_coupons', 0, 'congestion_reports', 0,
+            'inquiries', 0, 'preference_vector_moved', FALSE
+        );
+    END IF;
+
+    -- 두 프로필을 결정적 순서로 잠가 동시 병합에서도 부분 상태가 보이지 않게 한다.
+    PERFORM 1
+      FROM public.users
+     WHERE id IN (p_guest_user_id, p_target_user_id)
+     ORDER BY id
+     FOR UPDATE;
+
+    SELECT * INTO guest_profile FROM public.users WHERE id = p_guest_user_id;
+    SELECT * INTO target_profile FROM public.users WHERE id = p_target_user_id;
+    IF guest_profile.id IS NULL OR target_profile.id IS NULL THEN
+        RAISE EXCEPTION 'guest or target profile not found' USING ERRCODE = 'P0002';
+    END IF;
+
+    UPDATE public.recommendations SET user_id = p_target_user_id WHERE user_id = p_guest_user_id;
+    GET DIAGNOSTICS recommendations_count = ROW_COUNT;
+
+    UPDATE public.user_feedback SET user_id = p_target_user_id WHERE user_id = p_guest_user_id;
+    GET DIAGNOSTICS feedback_count = ROW_COUNT;
+
+    UPDATE public.recommendation_outcomes SET user_id = p_target_user_id WHERE user_id = p_guest_user_id;
+    GET DIAGNOSTICS outcomes_count = ROW_COUNT;
+
+    -- 같은 장소를 양쪽 계정이 저장/발급받은 경우 기존 계정 행을 진실로 유지한다.
+    DELETE FROM public.saved_facilities AS guest_saved
+     USING public.saved_facilities AS target_saved
+     WHERE guest_saved.user_id = p_guest_user_id
+       AND target_saved.user_id = p_target_user_id
+       AND guest_saved.facility_id = target_saved.facility_id;
+    UPDATE public.saved_facilities SET user_id = p_target_user_id WHERE user_id = p_guest_user_id;
+    GET DIAGNOSTICS saved_count = ROW_COUNT;
+
+    DELETE FROM public.user_coupons AS guest_coupon
+     USING public.user_coupons AS target_coupon
+     WHERE guest_coupon.user_id = p_guest_user_id
+       AND target_coupon.user_id = p_target_user_id
+       AND guest_coupon.facility_id = target_coupon.facility_id;
+    UPDATE public.user_coupons SET user_id = p_target_user_id WHERE user_id = p_guest_user_id;
+    GET DIAGNOSTICS coupons_count = ROW_COUNT;
+
+    -- 기존 계정의 학습 벡터가 있으면 보존하고, 없을 때만 게스트 벡터를 승계한다.
+    IF EXISTS (SELECT 1 FROM public.user_preference_vectors WHERE user_id = p_target_user_id) THEN
+        DELETE FROM public.user_preference_vectors WHERE user_id = p_guest_user_id;
+    ELSE
+        UPDATE public.user_preference_vectors
+           SET user_id = p_target_user_id
+         WHERE user_id = p_guest_user_id;
+        vector_moved := FOUND;
+    END IF;
+
+    UPDATE public.congestion_logs
+       SET reporter_user_id = p_target_user_id
+     WHERE reporter_user_id = p_guest_user_id;
+    GET DIAGNOSTICS reports_count = ROW_COUNT;
+
+    UPDATE public.inquiries SET user_id = p_target_user_id WHERE user_id = p_guest_user_id;
+    GET DIAGNOSTICS inquiries_count = ROW_COUNT;
+
+    -- 기존 계정에 값이 없을 때만 게스트 프로필/초기 취향을 채우며 제보 횟수는 합산한다.
+    UPDATE public.users
+       SET nickname = COALESCE(NULLIF(target_profile.nickname, ''), guest_profile.nickname),
+           avatar_url = COALESCE(target_profile.avatar_url, guest_profile.avatar_url),
+           visit_time_pref = COALESCE(target_profile.visit_time_pref, guest_profile.visit_time_pref),
+           preferred_categories = CASE
+               WHEN target_profile.preferred_categories IS NULL
+                 OR target_profile.preferred_categories = '[]'::jsonb
+               THEN COALESCE(guest_profile.preferred_categories, '[]'::jsonb)
+               ELSE target_profile.preferred_categories
+           END,
+           preference_note = COALESCE(target_profile.preference_note, guest_profile.preference_note),
+           report_count = COALESCE(target_profile.report_count, 0) + COALESCE(guest_profile.report_count, 0)
+     WHERE id = p_target_user_id;
+
+    -- 재시도 시 제보 횟수가 다시 합산되지 않게 이미 승계한 게스트 프로필을 비운다.
+    UPDATE public.users
+       SET preferred_categories = '[]'::jsonb,
+           preference_note = NULL,
+           report_count = 0
+     WHERE id = p_guest_user_id;
+
+    RETURN jsonb_build_object(
+        'recommendations', recommendations_count,
+        'user_feedback', feedback_count,
+        'recommendation_outcomes', outcomes_count,
+        'saved_facilities', saved_count,
+        'user_coupons', coupons_count,
+        'congestion_reports', reports_count,
+        'inquiries', inquiries_count,
+        'preference_vector_moved', vector_moved
+    );
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.merge_guest_account_data(UUID, UUID) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.merge_guest_account_data(UUID, UUID) TO service_role;
+
+-- ============================= migrations/20260825190000_add_facility_availability_reports.sql =============================
+-- 카카오맵 등 공식 상세에서 사용자가 직접 확인한 단기 영업 상태를 수집한다.
+-- 단일 제보는 화면 참고용이며, 서로 다른 사용자 2명의 최근 일치 제보만 추천 자격에 사용한다.
+
+CREATE TABLE IF NOT EXISTS public.facility_availability_reports (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    facility_id UUID NOT NULL REFERENCES public.facilities(id) ON DELETE CASCADE,
+    reporter_user_id UUID NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+    status TEXT NOT NULL CHECK (status IN ('open', 'closed')),
+    evidence_tier TEXT NOT NULL DEFAULT 'single_report'
+        CHECK (evidence_tier IN ('single_report', 'corroborated')),
+    corroborating_count INTEGER NOT NULL DEFAULT 1 CHECK (corroborating_count >= 1),
+    reported_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    expires_at TIMESTAMPTZ NOT NULL,
+    UNIQUE (facility_id, reporter_user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_facility_availability_effective
+    ON public.facility_availability_reports (facility_id, status, reported_at DESC)
+    WHERE evidence_tier = 'corroborated';
+CREATE INDEX IF NOT EXISTS idx_facility_availability_expiry
+    ON public.facility_availability_reports (expires_at);
+
+ALTER TABLE public.facility_availability_reports ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS service_role_all_facility_availability_reports
+    ON public.facility_availability_reports;
+CREATE POLICY service_role_all_facility_availability_reports
+    ON public.facility_availability_reports FOR ALL TO service_role
+    USING (TRUE) WITH CHECK (TRUE);
+DROP POLICY IF EXISTS select_own_facility_availability_reports
+    ON public.facility_availability_reports;
+CREATE POLICY select_own_facility_availability_reports
+    ON public.facility_availability_reports FOR SELECT TO authenticated
+    USING (reporter_user_id = auth.uid());
+
+CREATE OR REPLACE FUNCTION public.record_facility_availability_report(
+    p_facility_id UUID,
+    p_reporter_user_id UUID,
+    p_status TEXT
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    server_now TIMESTAMPTZ := clock_timestamp();
+    matching_count INTEGER;
+    current_row public.facility_availability_reports%ROWTYPE;
+BEGIN
+    IF auth.role() <> 'service_role' THEN
+        RAISE EXCEPTION 'service_role required' USING ERRCODE = '42501';
+    END IF;
+    IF p_status NOT IN ('open', 'closed') THEN
+        RAISE EXCEPTION 'invalid availability status' USING ERRCODE = '22023';
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM public.facilities WHERE id = p_facility_id) THEN
+        RAISE EXCEPTION 'facility not found' USING ERRCODE = 'P0002';
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM public.users WHERE id = p_reporter_user_id) THEN
+        RAISE EXCEPTION 'reporter not found' USING ERRCODE = 'P0002';
+    END IF;
+
+    PERFORM pg_advisory_xact_lock(hashtextextended(p_facility_id::TEXT, 0));
+
+    INSERT INTO public.facility_availability_reports (
+        facility_id, reporter_user_id, status, evidence_tier,
+        corroborating_count, reported_at, expires_at
+    ) VALUES (
+        p_facility_id, p_reporter_user_id, p_status, 'single_report',
+        1, server_now,
+        server_now + CASE WHEN p_status = 'open' THEN INTERVAL '30 minutes' ELSE INTERVAL '60 minutes' END
+    )
+    ON CONFLICT (facility_id, reporter_user_id) DO UPDATE
+       SET status = EXCLUDED.status,
+           evidence_tier = 'single_report',
+           corroborating_count = 1,
+           reported_at = EXCLUDED.reported_at,
+           expires_at = EXCLUDED.expires_at;
+
+    -- 현재 시설의 두 상태를 모두 다시 계산한다. 사용자가 의견을 바꾼 경우 이전 상태가
+    -- corroborated 로 남는 것을 막는다. open/closed 표가 같으면 어느 쪽도 추천 판단에
+    -- 사용하지 않는다. 2명 이상이면서 반대 상태보다 많은 쪽만 corroborated 로 승격한다.
+    WITH counts AS (
+        SELECT status,
+               COUNT(DISTINCT reporter_user_id) FILTER (
+                   WHERE reported_at >= server_now - INTERVAL '30 minutes'
+               )::INTEGER AS user_count
+          FROM public.facility_availability_reports
+         WHERE facility_id = p_facility_id
+         GROUP BY status
+    )
+    UPDATE public.facility_availability_reports AS report
+       SET corroborating_count = counts.user_count,
+           evidence_tier = CASE
+               WHEN counts.user_count >= 2
+                AND counts.user_count > COALESCE((
+                    SELECT opposing.user_count
+                      FROM counts AS opposing
+                     WHERE opposing.status <> report.status
+                ), 0)
+               THEN 'corroborated'
+               ELSE 'single_report'
+           END,
+           expires_at = CASE
+               WHEN counts.user_count >= 2
+                AND counts.user_count > COALESCE((
+                    SELECT opposing.user_count
+                      FROM counts AS opposing
+                     WHERE opposing.status <> report.status
+                ), 0)
+               THEN server_now + CASE
+                   WHEN report.status = 'open' THEN INTERVAL '30 minutes'
+                   ELSE INTERVAL '60 minutes'
+               END
+               ELSE report.reported_at + CASE
+                   WHEN report.status = 'open' THEN INTERVAL '30 minutes'
+                   ELSE INTERVAL '60 minutes'
+               END
+           END
+      FROM counts
+     WHERE report.facility_id = p_facility_id
+       AND report.status = counts.status;
+
+    SELECT COUNT(DISTINCT reporter_user_id)::INTEGER
+      INTO matching_count
+      FROM public.facility_availability_reports
+     WHERE facility_id = p_facility_id
+       AND status = p_status
+       AND reported_at >= server_now - INTERVAL '30 minutes';
+
+    SELECT * INTO current_row
+      FROM public.facility_availability_reports
+     WHERE facility_id = p_facility_id
+       AND reporter_user_id = p_reporter_user_id;
+
+    RETURN jsonb_build_object(
+        'facility_id', current_row.facility_id,
+        'status', current_row.status,
+        'evidence_tier', current_row.evidence_tier,
+        'corroborating_count', matching_count,
+        'reported_at', current_row.reported_at,
+        'expires_at', current_row.expires_at
+    );
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.record_facility_availability_report(UUID, UUID, TEXT)
+    FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.record_facility_availability_report(UUID, UUID, TEXT)
+    TO service_role;
+
+-- 익명 사용자가 영업 상태를 제보한 뒤 기존 계정으로 로그인해도 같은 사람을 두 명으로 세지 않는다.
+-- 직전 migration의 계정 병합 본체를 보존하고, 영업 제보 병합까지 같은 트랜잭션에서 수행하는 래퍼로 확장한다.
+ALTER FUNCTION public.merge_guest_account_data(UUID, UUID)
+    RENAME TO merge_guest_account_data_without_availability;
+REVOKE ALL ON FUNCTION public.merge_guest_account_data_without_availability(UUID, UUID)
+    FROM PUBLIC, anon, authenticated;
+
+CREATE OR REPLACE FUNCTION public.merge_guest_account_data(
+    p_guest_user_id UUID,
+    p_target_user_id UUID
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    result JSONB;
+    affected_facility_ids UUID[];
+    moved_count INTEGER := 0;
+    server_now TIMESTAMPTZ := clock_timestamp();
+BEGIN
+    IF auth.role() <> 'service_role' THEN
+        RAISE EXCEPTION 'service_role required' USING ERRCODE = '42501';
+    END IF;
+
+    -- 기존 병합 함수가 사용자 행 잠금과 나머지 데이터 병합을 수행한다. 이 래퍼에서 오류가
+    -- 발생하면 같은 호출 트랜잭션 전체가 롤백되어 부분 병합이 남지 않는다.
+    result := public.merge_guest_account_data_without_availability(
+        p_guest_user_id, p_target_user_id
+    );
+    IF p_guest_user_id = p_target_user_id THEN
+        RETURN result || jsonb_build_object('availability_reports', 0);
+    END IF;
+
+    SELECT ARRAY_AGG(DISTINCT facility_id)
+      INTO affected_facility_ids
+      FROM public.facility_availability_reports
+     WHERE reporter_user_id IN (p_guest_user_id, p_target_user_id);
+
+    -- 양쪽 계정이 같은 장소를 이미 확인했다면 target 한 건만 보존한다. 그렇지 않은 게스트
+    -- 제보만 target으로 이동하므로 동일인이 corroborating_count를 두 번 올릴 수 없다.
+    DELETE FROM public.facility_availability_reports AS guest_report
+     USING public.facility_availability_reports AS target_report
+     WHERE guest_report.reporter_user_id = p_guest_user_id
+       AND target_report.reporter_user_id = p_target_user_id
+       AND guest_report.facility_id = target_report.facility_id;
+
+    UPDATE public.facility_availability_reports
+       SET reporter_user_id = p_target_user_id
+     WHERE reporter_user_id = p_guest_user_id;
+    GET DIAGNOSTICS moved_count = ROW_COUNT;
+
+    IF affected_facility_ids IS NOT NULL THEN
+        WITH counts AS (
+            SELECT facility_id, status,
+                   COUNT(DISTINCT reporter_user_id) FILTER (
+                       WHERE reported_at >= server_now - INTERVAL '30 minutes'
+                   )::INTEGER AS user_count
+              FROM public.facility_availability_reports
+             WHERE facility_id = ANY(affected_facility_ids)
+             GROUP BY facility_id, status
+        )
+        UPDATE public.facility_availability_reports AS report
+           SET corroborating_count = counts.user_count,
+               evidence_tier = CASE
+                   WHEN counts.user_count >= 2
+                    AND counts.user_count > COALESCE((
+                        SELECT opposing.user_count
+                          FROM counts AS opposing
+                         WHERE opposing.facility_id = report.facility_id
+                           AND opposing.status <> report.status
+                    ), 0)
+                   THEN 'corroborated'
+                   ELSE 'single_report'
+               END
+          FROM counts
+         WHERE report.facility_id = counts.facility_id
+           AND report.status = counts.status;
+    END IF;
+
+    RETURN result || jsonb_build_object('availability_reports', moved_count);
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.merge_guest_account_data(UUID, UUID)
+    FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.merge_guest_account_data(UUID, UUID)
+    TO service_role;
+
+-- ============================= migrations/20260825210000_recompute_availability_after_delete.sql =============================
+-- 한 사용자의 탈퇴/게스트 병합/관리 정리로 제보가 삭제되면 남은 근거의 인원수와
+-- corroborated 상태를 즉시 다시 계산한다. 삭제 전 2명이었던 근거를 1명으로 남겨 두지 않는다.
+
+-- 최근 30분에 속하지 않는 보존 행은 일치 인원이 0일 수 있다. 이 값은 추천에 쓰이지 않으며
+-- 다음 정리/덮어쓰기 전까지 사실 그대로 저장할 수 있게 한다.
+ALTER TABLE public.facility_availability_reports
+    DROP CONSTRAINT IF EXISTS facility_availability_reports_corroborating_count_check;
+ALTER TABLE public.facility_availability_reports
+    ADD CONSTRAINT facility_availability_reports_corroborating_count_check
+    CHECK (corroborating_count >= 0);
+
+CREATE OR REPLACE FUNCTION public.recompute_facility_availability_evidence(
+    p_facility_id UUID
+)
+RETURNS VOID
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    server_now TIMESTAMPTZ := clock_timestamp();
+BEGIN
+    WITH counts AS (
+        SELECT status,
+               COUNT(DISTINCT reporter_user_id) FILTER (
+                   WHERE reported_at >= server_now - INTERVAL '30 minutes'
+               )::INTEGER AS user_count
+          FROM public.facility_availability_reports
+         WHERE facility_id = p_facility_id
+         GROUP BY status
+    )
+    UPDATE public.facility_availability_reports AS report
+       SET corroborating_count = counts.user_count,
+           evidence_tier = CASE
+               WHEN counts.user_count >= 2
+                AND counts.user_count > COALESCE((
+                    SELECT opposing.user_count
+                      FROM counts AS opposing
+                     WHERE opposing.status <> report.status
+                ), 0)
+               THEN 'corroborated'
+               ELSE 'single_report'
+           END
+      FROM counts
+     WHERE report.facility_id = p_facility_id
+       AND report.status = counts.status;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.recompute_facility_availability_evidence(UUID)
+    FROM PUBLIC, anon, authenticated;
+
+CREATE OR REPLACE FUNCTION public.refresh_facility_availability_after_delete()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+    PERFORM public.recompute_facility_availability_evidence(OLD.facility_id);
+    RETURN OLD;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.refresh_facility_availability_after_delete()
+    FROM PUBLIC, anon, authenticated;
+
+DROP TRIGGER IF EXISTS trg_refresh_facility_availability_after_delete
+    ON public.facility_availability_reports;
+CREATE TRIGGER trg_refresh_facility_availability_after_delete
+AFTER DELETE ON public.facility_availability_reports
+FOR EACH ROW
+EXECUTE FUNCTION public.refresh_facility_availability_after_delete();

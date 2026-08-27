@@ -169,6 +169,11 @@ export default function LoginPage() {
           >
             {t(mode === 'login' ? 'login.submitLogin' : 'login.submitSignup')}
           </button>
+          {mode === 'login' && (
+            <button type="button" onClick={() => router.push('/forgot-password')} className="self-end text-xs text-muk-soft underline hover:text-muk">
+              {t('password.forgot')}
+            </button>
+          )}
         </form>
 
         {/* 로그인 탭에만: SNS 계속하기(카카오/구글) — 회원가입/로그인 통합(linkOAuth). */}

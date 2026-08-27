@@ -27,7 +27,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from app.core.supabase import require_admin, supabase_admin
-from app.services import llm_client, search_rewrite_service
+from app.services import kakao_place_search_service, llm_client, search_rewrite_service
 from app.services.tourapi import client as tourapi
 from app.services.tourapi.transform import (
     extract_detail_common,
@@ -54,11 +54,13 @@ _SEARCH_ROWS = 5  # 폴백 결과 상위 5개(기획 스펙)
 #     (reports.py/tracking.py 와 동일 전제 — 다중 인스턴스는 공유 저장소로 승격 필요).
 _RATE_LIMIT_WINDOW_SEC = 60.0
 _SEARCH_RATE_LIMIT = 5
+_PLACE_SEARCH_RATE_LIMIT = 20
 _INGEST_RATE_LIMIT = 3
 # P1-3: LLM 재작성 전용 리밋 — 기존 검색 5/min 과 **별도**로 더 촘촘하게(무인증 유료 호출 방어).
 # 초과 시 429 로 승격하지 않고 LLM 만 건너뛴다(검색 응답 자체는 현행 빈 결과 그대로 — 무해 불변).
 _REWRITE_RATE_LIMIT = 2
 _search_hits: dict[str, list[float]] = {}
+_place_search_hits: dict[str, list[float]] = {}
 _ingest_hits: dict[str, list[float]] = {}
 _rewrite_hits: dict[str, list[float]] = {}
 
@@ -153,6 +155,23 @@ class KeywordSearchResponse(BaseModel):
     # 경우(정상 응답 0건)에만 llm|llm_failed|gated|disabled, 그 외(주 경로)엔 None.
     rewritten: bool = False
     llm_status: Optional[str] = None
+
+
+class PlaceSearchItem(BaseModel):
+    place_id: str
+    name: str
+    type: Optional[Literal["cafe", "restaurant"]] = None
+    latitude: float
+    longitude: float
+    address: str
+    phone: Optional[str] = None
+    place_url: Optional[str] = None
+    category_name: Optional[str] = None
+
+
+class PlaceSearchResponse(BaseModel):
+    items: list[PlaceSearchItem]
+    source: Literal["kakao", "unavailable"]
 
 
 def _parse_coord(raw: object) -> Optional[float]:
@@ -286,6 +305,25 @@ async def search_keyword_endpoint(
         rewritten=bool(rewritten_items),
         llm_status=llm_status,
     )
+
+
+@router.get("/places", response_model=PlaceSearchResponse)
+async def search_places_endpoint(
+    request: Request,
+    q: str = Query(..., min_length=1, max_length=100, description="장소·메뉴·업종 검색어"),
+):
+    """장소·메뉴·업종으로 경주 카페/식당을 검색한다. 좌표는 같은 Kakao 레코드만 쓴다."""
+    ip = _client_ip(request)
+    _rate_limit_or_429(
+        _place_search_hits, ip, _PLACE_SEARCH_RATE_LIMIT,
+        "검색 요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.",
+    )
+    try:
+        items = await kakao_place_search_service.search_kakao_places(q.strip())
+    except Exception as error:
+        logger.warning("kakao_place_search_failed", q_length=len(q.strip()), error=str(error))
+        return PlaceSearchResponse(items=[], source="unavailable")
+    return PlaceSearchResponse(items=items, source="kakao")
 
 
 # =============================================================================

@@ -2,14 +2,16 @@
 
 import { useState, useEffect } from 'react';
 import { motion, PanInfo, AnimatePresence } from 'framer-motion';
-import { Bookmark, Check, Sparkles, Star, Phone, MapPin, Clock, ChevronUp, Info, Globe, Utensils } from 'lucide-react';
-import { apiClient } from '@/lib/api-client';
+import { Bookmark, Check, Sparkles, Star, Phone, MapPin, Clock, ChevronUp, ChevronDown, Info, Globe, Utensils } from 'lucide-react';
+import { apiClient, reportFacilityAvailability, type AvailabilityReportResult } from '@/lib/api-client';
 import { CongestionReportButton } from '@/components/CongestionReportButton';
 import { GoldenHourBadge } from '@/components/GoldenHourBadge';
 import { relativeParts } from '@/lib/freshness';
 import { useI18n } from '@/lib/i18n/I18nProvider';
-import { isClosedToday } from '@/lib/restDate';
+import { getArrivalOpenDisplayStatus, getArrivalOpenStatus, isClosedToday } from '@/lib/restDate';
+import { displayWalkingMinutes } from '@/lib/recommender';
 import { haptic, interactionSpring, sheetSpring, tapMotion } from '@/lib/motion';
+import { areaDemandDisclosure } from '@/lib/areaDemandPresentation';
 
 // facility prop 이 이 컴포넌트에서 실제로 읽는 필드만 구조적으로 명시한 타입.
 // 콜러 둘의 합집합: main(page)은 Facility(congestionLevel/currentCount: number|null,
@@ -33,6 +35,8 @@ interface RecommendationCardFacility {
   phone?: string | null;
   homepage?: string | null;
   overview?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
   // 머천트 랭킹 연동 2단계(facility 최상위 필드, features 아님) — keysToCamel 적용 후 형태.
   // 활성 타임세일 할인율(0~0.5), 타임세일이 기본 쿠폰율보다 클 때만 존재.
   timesaleRate?: number | null;
@@ -40,12 +44,20 @@ interface RecommendationCardFacility {
   seatStatusFresh?: { level?: 'low' | 'mid' | 'full'; minutesAgo?: number } | null;
   placeDataSource?: string | null;
   dataUpdatedAt?: string | null;
+  availabilityEvidence?: {
+    status: 'open' | 'closed';
+    evidenceTier: 'single_report' | 'corroborated';
+    corroboratingCount: number;
+    reportedAt: string;
+    expiresAt: string;
+  } | null;
 }
 
 interface RecommendationCardProps {
   title: string;
   matchPercentage?: number;
   reason?: string; // 백엔드 템플릿 생성 추천 사유
+  spotComparisonReason?: string; // 실제 SPOT 산식 입력과 1위 대비 차이에서만 만든 설명
   onAccept: () => void;
   onDrive?: () => void;
   onReject: () => void;
@@ -54,6 +66,7 @@ interface RecommendationCardProps {
   preferencePercent?: number;
   expectedWait?: number;
   expectedTravel?: number;
+  travelSource?: 'osm_pedestrian' | 'estimated';
   timeToService?: number;
   facilityType?: string;
   facility?: RecommendationCardFacility;
@@ -63,17 +76,44 @@ interface RecommendationCardProps {
   // A4: 행사 혼잡 보정 배지(explore/recommend 와 동일) — 백엔드 breakdown.eventBoost/eventTitle 그대로 전달.
   eventBoost?: number;
   eventTitle?: string;
+  areaDemandLevel?: number;
+  areaDemandMode?: 'live' | 'forecast' | 'statistical' | 'contextual';
+  areaDemandSources?: ('parking' | 'parking_history' | 'tourism' | 'festival' | 'weather')[];
+  areaDemandObservedAt?: string;
+  areaDemandRadiusM?: number;
+  areaDemandParkingEvidence?: {
+    level: number;
+    mode: 'live' | 'forecast';
+    observedAt?: string | null;
+    radiusM?: number | null;
+  };
+  areaDemandTourismEvidence?: {
+    referenceName?: string | null;
+    distanceM?: number | null;
+    forecastDate?: string | null;
+    relativeIndex?: number | null;
+  };
+  areaDemandConfidence?: 'high' | 'medium' | 'low' | 'none';
+  areaDemandRank?: number;
+  areaDemandComparableCount?: number;
+  areaDemandDeltaVsMedian?: number;
+  areaDemandDistinguishable?: boolean;
+  delayedAreaDemandLevel?: number;
+  arrivalAction?: 'go_now' | 'wait_then_go' | 'choose_calmer' | 'no_clear_advantage';
+  recommendedDepartureDelayMinutes?: number;
   // 신선도 정직화(계약 5): 혼잡 데이터 출처·나이. user_report→'방문객 제보 · n분 전',
   // 기타 최신→'n분 전 기준', isStale(로그 나이>24h)→'과거 패턴 기반'(회색). 미제공(저장 목록 등)이면 미표시.
   dataSource?: { source: string | null; lastUpdated?: string | null; isStale?: boolean };
   openStatusAtArrival?: 'open_expected' | 'closing_soon' | 'closed_confirmed' | 'needs_confirmation';
   congestionSource?: 'measured' | 'predicted' | 'none';
+  scoringMode?: 'model' | 'measured_rules' | 'area_stats_rules' | 'degraded_rules';
 }
 
 export function RecommendationCard({
   title,
   matchPercentage,
   reason,
+  spotComparisonReason,
   onAccept,
   onDrive,
   onReject,
@@ -82,6 +122,7 @@ export function RecommendationCard({
   preferencePercent,
   expectedWait,
   expectedTravel,
+  travelSource,
   timeToService,
   facilityType,
   facility,
@@ -90,9 +131,25 @@ export function RecommendationCard({
   mockHour,
   eventBoost,
   eventTitle,
+  areaDemandLevel,
+  areaDemandMode,
+  areaDemandSources,
+  areaDemandObservedAt,
+  areaDemandRadiusM,
+  areaDemandParkingEvidence,
+  areaDemandTourismEvidence,
+  areaDemandConfidence,
+  areaDemandRank,
+  areaDemandComparableCount,
+  areaDemandDeltaVsMedian,
+  areaDemandDistinguishable,
+  delayedAreaDemandLevel,
+  arrivalAction,
+  recommendedDepartureDelayMinutes,
   dataSource,
   openStatusAtArrival,
   congestionSource,
+  scoringMode,
 }: RecommendationCardProps) {
   const { t, locale } = useI18n();
   const [isExpanded, setIsExpanded] = useState(false);
@@ -101,6 +158,10 @@ export function RecommendationCard({
   // SPOT 점수 설명 툴팁 — 터치/키보드에서도 열 수 있게 탭/포커스로 토글(데스크톱 hover 는 유지)
   const [showTooltip, setShowTooltip] = useState(false);
   const [localReport, setLocalReport] = useState<{ level: number; timestamp: string } | null>(null);
+  const [hoursPromptOpen, setHoursPromptOpen] = useState(false);
+  const [hoursSubmitting, setHoursSubmitting] = useState(false);
+  const [hoursSubmitError, setHoursSubmitError] = useState(false);
+  const [localAvailability, setLocalAvailability] = useState<AvailabilityReportResult | null>(null);
 
   // '최적 방문 시각' — 펼쳤을 때 백엔드(/predict/day)에서 받아오는 오늘 24시간 예측 혼잡 곡선.
   // 백엔드 미기동/실패 시 null 로 남아 조용히 숨긴다(카드 나머지는 그대로).
@@ -116,6 +177,9 @@ export function RecommendationCard({
     setIsMinimized(false);
     setConfirmedAction(null);
     setLocalReport(null);
+    setHoursPromptOpen(false);
+    setHoursSubmitError(false);
+    setLocalAvailability(null);
     // 다른 장소로 바뀌면 이전 장소의 '최적 방문 시각' 데이터가 남아 깜빡이지 않게 초기화
     setDayPred(null);
   }, [title]);
@@ -151,6 +215,8 @@ export function RecommendationCard({
   // Load place details from Kakao Places API
   useEffect(() => {
     if (!title || typeof window === 'undefined' || !window.kakao || !window.kakao.maps) return;
+    let active = true;
+    setPlaceInfo(null);
     
     // 실제 시설 데이터에 있는 값만 노출한다. 별점/리뷰/전화/주소/영업시간을 절대 지어내지 않는다.
     // 카카오 keywordSearch 는 별점·리뷰수를 제공하지 않으므로 rating/reviewCount 는 설정하지 않는다.
@@ -159,39 +225,59 @@ export function RecommendationCard({
     if (!window.kakao.maps.services) {
       console.warn("Kakao Places services library not loaded");
       setPlaceInfo({
-        address: (facility?.features?.address as string | undefined) || undefined,
-        phone: (facility?.features?.phone as string | undefined) || undefined,
-        url: `https://map.kakao.com/?q=${encodeURIComponent(title)}`
+        address: facility?.address || undefined,
+        phone: facility?.phone || undefined,
+        url: (facility?.features?.kakaoPlaceUrl || facility?.features?.kakao_place_url) as string | undefined,
       });
       return;
     }
 
     try {
       const ps = new window.kakao.maps.services.Places();
-      ps.keywordSearch(title, (data: kakao.maps.services.PlacesSearchResultItem[], status: kakao.maps.services.Status) => {
-        // 동명 체인이 타지로 잡히는 것을 차단: 카카오 1순위가 다른 도시일 수 있다.
-        // '경주' 주소를 가진 첫 결과만 채택하고, 없으면 우리 DB(경주) 주소로 폴백.
-        const place = (status === window.kakao.maps.services.Status.OK && Array.isArray(data))
-          ? data.find((p: kakao.maps.services.PlacesSearchResultItem) => ((p.road_address_name || p.address_name || '').includes('경주')))
-          : null;
+      const expectedPlaceId = String(
+        facility?.features?.kakaoPlaceId || facility?.features?.kakao_place_id || ''
+      );
+      const options = typeof facility?.latitude === 'number' && typeof facility?.longitude === 'number'
+        ? {
+            location: new window.kakao.maps.LatLng(facility.latitude, facility.longitude),
+            radius: 1000,
+            sort: window.kakao.maps.services.SortBy.DISTANCE,
+          }
+        : undefined;
+      ps.keywordSearch(title, (data: any, status: any) => {
+        if (!active) return;
+        const normalizedTitle = title.replace(/\s+/g, '').toLowerCase();
+        const candidates = status === window.kakao.maps.services.Status.OK && Array.isArray(data)
+          ? data.filter((p: any) => {
+              const address = p.road_address_name || p.address_name || '';
+              const normalizedName = String(p.place_name || '').replace(/\s+/g, '').toLowerCase();
+              const sameIdentity = expectedPlaceId
+                ? String(p.id || '') === expectedPlaceId
+                : normalizedName === normalizedTitle;
+              const closeEnough = p.distance !== undefined && Number(p.distance) <= 150;
+              return address.includes('경주') && sameIdentity && closeEnough;
+            })
+          : [];
+        const place = candidates[0] || null;
         if (place) {
           setPlaceInfo({
-            address: place.road_address_name || place.address_name || (facility?.features?.address as string | undefined) || undefined,
-            phone: place.phone || (facility?.features?.phone as string | undefined) || undefined,
+            address: place.road_address_name || place.address_name || facility?.address || undefined,
+            phone: place.phone || facility?.phone || undefined,
             url: place.place_url
           });
         } else {
-          // 경주 매칭 결과가 없으면(타지 체인만 잡히거나 검색 실패) 우리 데이터의 경주 주소만 사용.
+          // 이름·ID·500m 조건 중 하나라도 어긋나면 다른 지점 정보를 붙이지 않는다.
           setPlaceInfo({
-            address: (facility?.features?.address as string | undefined) || undefined,
-            phone: (facility?.features?.phone as string | undefined) || undefined,
-            url: `https://map.kakao.com/?q=${encodeURIComponent(title)}`
+            address: facility?.address || undefined,
+            phone: facility?.phone || undefined,
+            url: (facility?.features?.kakaoPlaceUrl || facility?.features?.kakao_place_url) as string | undefined,
           });
         }
-      });
+      }, options);
     } catch (e) {
       console.error("Kakao Places API search error:", e);
     }
+    return () => { active = false; };
   }, [title, facility]);
 
   // 펼쳐졌을 때만 '최적 방문 시각'(오늘 24시간 예측)을 지연 로드한다 — 접힌 카드까지 백엔드를 때리지 않게.
@@ -243,10 +329,73 @@ export function RecommendationCard({
   const hasSpotMetrics = spotScore !== undefined;
 
   const travelMins = expectedTravel || 0;
-  const waitMins = expectedWait || 0;
+  const displayedTravelMins = displayWalkingMinutes(travelMins);
+  const waitMins = expectedWait ?? null;
   
   const arrivalTime = currentTime ? new Date(currentTime.getTime() + travelMins * 60000) : null;
-  const serviceTime = arrivalTime ? new Date(arrivalTime.getTime() + waitMins * 60000) : null;
+  const availabilityEvidence = localAvailability ?? facility?.availabilityEvidence;
+  const localObservedStatus = localAvailability
+    ? (localAvailability.status === 'open' ? 'open_expected' : 'closed_confirmed')
+    : undefined;
+  const corroboratedStatus = availabilityEvidence?.evidenceTier === 'corroborated'
+    && availabilityEvidence.corroboratingCount >= 2
+    && arrivalTime
+    && new Date(availabilityEvidence.expiresAt).getTime() > arrivalTime.getTime()
+    ? (availabilityEvidence.status === 'open' ? 'open_expected' : 'closed_confirmed')
+    : undefined;
+  const resolvedOpenStatus = localObservedStatus ?? corroboratedStatus ?? openStatusAtArrival
+    ?? (arrivalTime ? getArrivalOpenStatus(facility?.operatingHours, arrivalTime) : undefined);
+  const displayedOpenStatus = resolvedOpenStatus && arrivalTime
+    ? getArrivalOpenDisplayStatus(resolvedOpenStatus, facilityType, arrivalTime)
+    : resolvedOpenStatus;
+  const likelyClosedUnknown = displayedOpenStatus === 'likely_closed_unknown';
+  const availabilityFreshnessParts = relativeParts(availabilityEvidence?.reportedAt);
+  const availabilityFreshness = !availabilityFreshnessParts
+    ? null
+    : availabilityFreshnessParts.unit === 'now'
+      ? t('freshness.justNow')
+      : t(`freshness.${availabilityFreshnessParts.unit}Ago`, {
+          n: availabilityFreshnessParts.value,
+        });
+  const needsHoursConfirmation = resolvedOpenStatus === 'needs_confirmation'
+    && (facilityType === 'cafe' || facilityType === 'restaurant');
+  const storedKakaoPlaceId = String(
+    facility?.features?.kakaoPlaceId || facility?.features?.kakao_place_id || '',
+  ).trim();
+  const rawKakaoPlaceUrl = placeInfo?.url
+    || (facility?.features?.kakaoPlaceUrl || facility?.features?.kakao_place_url) as string | undefined
+    || (storedKakaoPlaceId ? `https://place.map.kakao.com/${storedKakaoPlaceId}` : null);
+  const kakaoPlaceUrl = rawKakaoPlaceUrl?.replace(
+    /^http:\/\/place\.map\.kakao\.com/i,
+    'https://place.map.kakao.com',
+  ) ?? (needsHoursConfirmation
+    ? `https://map.kakao.com/?q=${encodeURIComponent(`${title} ${facility?.address ?? '경주'}`)}`
+    : null);
+
+  const submitHoursStatus = async (status: 'open' | 'closed') => {
+    if (!facility?.id || hoursSubmitting) return;
+    setHoursSubmitting(true);
+    setHoursSubmitError(false);
+    try {
+      const result = await reportFacilityAvailability(facility.id, status);
+      setLocalAvailability(result);
+      setHoursPromptOpen(false);
+      haptic('success');
+      if (status === 'closed') onReject();
+      else {
+        setConfirmedAction('accepted');
+        onAccept();
+      }
+    } catch {
+      haptic('selection');
+      setHoursSubmitError(true);
+    } finally {
+      setHoursSubmitting(false);
+    }
+  };
+  const serviceTime = arrivalTime && waitMins !== null
+    ? new Date(arrivalTime.getTime() + waitMins * 60000)
+    : null;
 
   const formatTime = (date: Date | null) => {
     if (!date) return '';
@@ -289,15 +438,21 @@ export function RecommendationCard({
     if (!homepageUrl) return null;
     try { return new URL(homepageUrl).hostname; } catch { return homepageUrl; }
   })();
+  const homepageIsExternalChannel = homepageHost
+    ? /(^|\.)instagram\.com$|(^|\.)blog\.naver\.com$/.test(homepageHost.toLowerCase())
+    : false;
 
   // 대표 메뉴(TourAPI detailIntro2 first_menu) — apiClient(/infrastructures, by-type)는 features
   // 내부 키까지 재귀적으로 camelCase 변환하므로 firstMenu 로 오지만, supabase 직접 폴백 경로는
   // 원본 컬럼(snake_case)을 그대로 들고 오므로 둘 다 지원한다(main/page.tsx barrierFree 폴백과 동일 관례).
-  // 콤마 구분 시 앞 2개만('지어내지 않기' — 있는 값만 노출).
+  // 공식 대표메뉴와 취급메뉴를 합쳐 중복 없이 최대 5개만 노출한다.
   const firstMenuRaw = (facility?.features?.firstMenu ?? facility?.features?.first_menu) as string | undefined;
-  const firstMenuTokens = firstMenuRaw
-    ? firstMenuRaw.split(',').map((s) => s.trim()).filter(Boolean).slice(0, 2)
-    : [];
+  const treatMenuRaw = (facility?.features?.treatMenu ?? facility?.features?.treat_menu) as string | undefined;
+  const firstMenuTokens = Array.from(new Set(
+    [firstMenuRaw, treatMenuRaw]
+      .filter((value): value is string => typeof value === 'string')
+      .flatMap((value) => value.split(/[,/\n·]+/).map((item) => item.trim()).filter(Boolean))
+  )).slice(0, 5);
 
   // 오늘 휴무 — rest_date_raw 보수 파서(restDate.ts). true 확정일 때만 배지 노출(과판정 금지 원칙).
   const restDateRaw = (facility?.features?.restDateRaw ?? facility?.features?.rest_date_raw) as string | undefined;
@@ -336,6 +491,14 @@ export function RecommendationCard({
     : undefined;
   // number 로 좁혀 아래 렌더에서 t() 의 vars(Record<string, string|number>) 타입과 안전하게 맞춘다.
   const seatStatusFreshMinutes = typeof seatStatusFreshMinutesRaw === 'number' ? seatStatusFreshMinutesRaw : null;
+  const areaFreshnessParts = relativeParts(areaDemandObservedAt);
+  const areaFreshness = !areaFreshnessParts ? null
+    : areaFreshnessParts.unit === 'now' ? t('freshness.justNow')
+    : areaFreshnessParts.unit === 'min' ? t('freshness.minAgo', { n: areaFreshnessParts.value })
+    : areaFreshnessParts.unit === 'hour' ? t('freshness.hourAgo', { n: areaFreshnessParts.value })
+    : t('freshness.dayAgo', { n: areaFreshnessParts.value });
+  const demandDisclosure = areaDemandDisclosure(areaDemandParkingEvidence, areaDemandTourismEvidence);
+  const evidenceCount = demandDisclosure.evidenceCount;
 
   return (
     <motion.div 
@@ -393,12 +556,35 @@ export function RecommendationCard({
             {totalCandidates && rank && (
               <span className="text-[10px] text-muk-soft font-medium">{t('card.ofCandidates', { n: totalCandidates })}</span>
             )}
+            <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold border whitespace-nowrap ${
+              arrivalAction === 'choose_calmer'
+                ? 'bg-jade/10 border-jade/30 text-jade'
+                : arrivalAction === 'wait_then_go'
+                  ? 'bg-sky-500/10 border-sky-500/25 text-sky-700'
+                  : 'bg-hanji-deep border-line text-muk-soft'
+            }`}>
+              {t(arrivalAction === 'choose_calmer'
+                ? 'recommend.alternativeBasis.crowd'
+                : arrivalAction === 'wait_then_go'
+                  ? 'recommend.alternativeBasis.timing'
+                  : 'recommend.alternativeBasis.preference')}
+            </span>
           </div>
           <h3 className="text-xl font-serif font-bold text-muk tracking-tight leading-tight">{title}</h3>
+          {spotComparisonReason && (
+            <div className="mt-2 rounded-xl border border-jade/20 bg-jade/5 px-3 py-2">
+              <p className="text-[9px] font-extrabold uppercase tracking-wide text-jade">
+                {t('recommend.spotComparison.current')}
+              </p>
+              <p className="mt-0.5 text-[11px] font-semibold leading-snug text-muk">
+                {spotComparisonReason}
+              </p>
+            </div>
+          )}
           
           {/* Status Pills — 펼쳐도(상세 표시 중에도) 혼잡도·잔여석은 항상 표시.
               혼잡 로그가 없는 시설(congestionLevel=null)은 합성값 대신 회색 '데이터 없음'으로 표기. */}
-          {facility && displayCongestionLevel !== undefined && (
+          {facility && (displayCongestionLevel !== undefined || typeof areaDemandLevel === 'number') && (
             <div className="flex flex-wrap items-center gap-1.5 mt-2">
               {typeof displayCongestionLevel === 'number' ? (
                 <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold border ${
@@ -412,11 +598,35 @@ export function RecommendationCard({
                 }`}>
                   {t('card.congestion')}: {congestionLabel(displayCongestionLevel)}
                 </span>
+              ) : typeof areaDemandLevel === 'number' ? (
+                // 측정 대상이 다른 주차·관광 통계를 하나의 절대 혼잡률처럼 보이지 않게 근거 수로 요약한다.
+                <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold border ${
+                  areaDemandTourismEvidence
+                    ? 'bg-indigo-500/10 border-indigo-500/20 text-indigo-700'
+                    : areaDemandLevel >= 0.75
+                    ? 'bg-terracotta/10 border-terracotta/30 text-terracotta'
+                    : areaDemandLevel >= 0.5
+                    ? 'bg-gold/10 border-gold/30 text-gold-deep'
+                    : areaDemandLevel >= 0.25
+                    ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-600'
+                    : 'bg-jade/10 border-jade/30 text-jade'
+                }`}>
+                  {evidenceCount > 0
+                    ? t('recommend.areaEvidenceCount', { n: evidenceCount })
+                    : `${t('recommend.areaDemand')}: ${congestionLabel(areaDemandLevel)}`}
+                </span>
               ) : (
-                // D-1(CONGESTION_TRUST_SPEC): '데이터 없음' 대신 '정보 준비 중' — 서비스가 죽은 게
-                // 아니라 데이터를 모으는 중이라는 뉘앙스(waiting 페이지의 noData 는 별건 유지).
                 <span className="px-2 py-0.5 rounded-md text-[10px] font-bold border bg-muk/5 border-line text-muk-soft">
                   {t('card.congestionPreparing')}
+                </span>
+              )}
+              {typeof displayCongestionLevel !== 'number' && typeof areaDemandLevel === 'number' && demandDisclosure.showQualitativeLevel && (
+                <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold border bg-sky-500/10 border-sky-500/20 text-sky-700">
+                  {t(areaDemandMode === 'live'
+                    ? 'recommend.areaDemandLive'
+                    : areaDemandMode === 'forecast'
+                      ? 'recommend.areaDemandForecast'
+                      : 'recommend.areaDemandStats')}
                 </span>
               )}
               {typeof displayCongestionLevel === 'number' && displayCongestionSource && (
@@ -437,15 +647,17 @@ export function RecommendationCard({
                   {t('card.closedToday')}
                 </span>
               )}
-              {openStatusAtArrival && (
+              {displayedOpenStatus && (
                 <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold border ${
-                  openStatusAtArrival === 'open_expected'
+                  displayedOpenStatus === 'open_expected'
                     ? 'bg-jade/10 border-jade/30 text-jade'
-                    : openStatusAtArrival === 'closing_soon'
+                    : displayedOpenStatus === 'closing_soon'
                       ? 'bg-terracotta/10 border-terracotta/30 text-terracotta'
+                      : likelyClosedUnknown
+                        ? 'bg-terracotta/10 border-terracotta/30 text-terracotta'
                       : 'bg-muk/5 border-line text-muk-soft'
                 }`}>
-                  {t(`card.arrivalStatus.${openStatusAtArrival}`)}
+                  {t(`card.arrivalStatus.${displayedOpenStatus}`)}
                 </span>
               )}
               {/* 타임세일 배지(머천트 랭킹 연동 2단계) — 축제 배지(terracotta)와 톤을 구분한 진한 gold pill. */}
@@ -462,10 +674,35 @@ export function RecommendationCard({
                   })}
                 </span>
               )}
+              {availabilityEvidence && availabilityFreshness && (
+                <span className={`px-2 py-0.5 rounded-md text-[10px] font-semibold border ${
+                  availabilityEvidence.status === 'open'
+                    ? 'bg-jade/10 border-jade/25 text-jade'
+                    : 'bg-terracotta/10 border-terracotta/25 text-terracotta'
+                }`}>
+                  {t(
+                    availabilityEvidence.evidenceTier === 'corroborated'
+                      ? 'card.availabilityCorroborated'
+                      : 'card.availabilitySingle',
+                    {
+                      count: availabilityEvidence.corroboratingCount,
+                      status: t(availabilityEvidence.status === 'open'
+                        ? 'card.availabilityStatusOpen'
+                        : 'card.availabilityStatusClosed'),
+                      time: availabilityFreshness,
+                    },
+                  )}
+                </span>
+              )}
               {/* 골든타임 알리미 — 혼잡도 pill 바로 옆(같은 줄)에 지연 조회로 끼워 넣는다. 백엔드
                   미기동/available:false 면 조용히 렌더되지 않는다(무해 폴백). */}
               <GoldenHourBadge facilityId={facility.id} />
             </div>
+          )}
+          {likelyClosedUnknown && arrivalTime && (
+            <p className="mt-1.5 text-[11px] font-medium leading-relaxed text-terracotta">
+              {t('card.likelyClosedReason', { time: formatTime(arrivalTime) })}
+            </p>
           )}
 
           {/* 신선도 정직화(계약 5, 확장) — 혼잡 데이터의 출처/나이를 작은 라인으로. 정직성 위계:
@@ -507,12 +744,12 @@ export function RecommendationCard({
               })}
             </p>
           )}
-          {openStatusAtArrival && arrivalTime && expectedTravel !== undefined && expectedWait !== undefined && (
+          {displayedOpenStatus && arrivalTime && expectedTravel !== undefined && expectedWait !== undefined && (
             <p className="mt-2 inline-flex flex-wrap items-center gap-x-1.5 rounded-lg border border-jade/20 bg-jade/5 px-2.5 py-1.5 text-[11px] font-semibold text-muk">
               <Clock size={12} className="text-jade" aria-hidden />
               {t('card.arrivalSummary', {
                 time: formatTime(arrivalTime),
-                walk: Math.round(expectedTravel),
+                walk: displayWalkingMinutes(expectedTravel),
                 wait: Math.round(expectedWait ?? 0),
               })}
             </p>
@@ -534,7 +771,7 @@ export function RecommendationCard({
               type="button"
               onClick={(e) => { e.stopPropagation(); setShowTooltip((v) => !v); }}
               onBlur={() => setShowTooltip(false)}
-              aria-label="SPOT 점수 설명 보기"
+              aria-label={t('card.spotTooltipAria')}
               aria-expanded={showTooltip}
               className="absolute -top-1.5 -right-1.5 bg-white rounded-full p-0.5 border border-gold/40 shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
             >
@@ -544,9 +781,11 @@ export function RecommendationCard({
             {/* Tooltip — 상태(showTooltip) 또는 데스크톱 hover 시 표시 */}
             <div className={`absolute top-full right-0 mt-3 w-[260px] p-3.5 bg-white/95 backdrop-blur-xl border border-line rounded-xl shadow-[0_10px_30px_rgba(43,35,32,0.15)] transition-all duration-200 z-50 pointer-events-none group-hover:opacity-100 group-hover:visible ${showTooltip ? 'opacity-100 visible' : 'opacity-0 invisible'}`}>
               <p className="text-[11px] text-muk-soft leading-relaxed text-right break-keep space-y-1">
-                <span className="block mb-1.5"><strong className="text-gold-deep font-bold text-[12px]">SPOT Score란?</strong></span>
-                <span className="block">NextSpot의 핵심 기술로, 도착 시점의 혼잡도를 미리 예측하는 <strong className="text-gold-deep">머신러닝 AI 모델</strong>과 사용자의 선호도를 분석하는 <strong className="text-gold-deep">벡터 알고리즘</strong>의 결합.</span>
-                <span className="block mt-1.5">지금 이 순간, 사용자의 시간 가치를 극대화하는 가장 완벽한 목적지를 제안합니다.</span>
+                <span className="block mb-1.5"><strong className="text-gold-deep font-bold text-[12px]">{t('card.spotTooltipTitle')}</strong></span>
+                <span className="block">
+                  {t(scoringMode === 'model' ? 'card.spotTooltipModel' : 'card.spotTooltipRules')}
+                </span>
+                <span className="block mt-1.5">{t('card.spotTooltipFootnote')}</span>
               </p>
             </div>
           </div>
@@ -580,8 +819,13 @@ export function RecommendationCard({
                   <div className="flex items-center gap-2 text-[10px] text-muk-soft font-medium">
                     {expectedWait !== undefined && <span className="bg-gold/15 px-1.5 py-0.5 rounded text-gold-deep whitespace-nowrap">{t('card.wait', { n: expectedWait })}</span>}
                     {expectedWait !== undefined && <span className="text-muk-soft/60">+</span>}
-                    <span className="bg-jade/15 px-1.5 py-0.5 rounded text-jade whitespace-nowrap">{t('card.travel', { n: expectedTravel ?? 0 })}</span>
+                    <span className="bg-jade/15 px-1.5 py-0.5 rounded text-jade whitespace-nowrap">{t('card.travel', { n: displayedTravelMins })}</span>
                   </div>
+                  {travelSource && (
+                    <span className="mt-1 text-[9px] font-semibold text-muk-soft">
+                      {t(travelSource === 'osm_pedestrian' ? 'card.travelRoute' : 'card.travelEstimate')}
+                    </span>
+                  )}
                 </div>
 
                 {/* Preference Column */}
@@ -596,20 +840,20 @@ export function RecommendationCard({
               </div>
 
               {/* Timeline UI */}
-              {currentTime && arrivalTime && serviceTime && (
+              {currentTime && arrivalTime && (
                 <div className="bg-hanji-deep border border-line rounded-2xl px-4 py-3 flex flex-col gap-3">
                   <div className="flex items-start justify-between relative mt-1">
                     {/* Connecting Line */}
                     <div className="absolute top-[3px] left-4 right-4 h-[2px] bg-line z-0" />
 
                     {/* Travel Duration Label */}
-                    <div className="absolute top-[-10px] left-[25%] -translate-x-1/2 z-10">
-                      <span className="text-[10px] font-medium text-jade bg-hanji-deep px-1.5 py-0.5 rounded border border-jade/25 whitespace-nowrap">{t('card.travel', { n: travelMins })}</span>
+                    <div className={`absolute top-[-10px] ${serviceTime ? 'left-[25%]' : 'left-1/2'} -translate-x-1/2 z-10`}>
+                      <span className="text-[10px] font-medium text-jade bg-hanji-deep px-1.5 py-0.5 rounded border border-jade/25 whitespace-nowrap">{t('card.travel', { n: displayedTravelMins })}</span>
                     </div>
                     {/* Wait Duration Label */}
-                    <div className="absolute top-[-10px] left-[75%] -translate-x-1/2 z-10">
+                    {serviceTime && waitMins !== null && <div className="absolute top-[-10px] left-[75%] -translate-x-1/2 z-10">
                       <span className="text-[10px] font-medium text-gold-deep bg-hanji-deep px-1.5 py-0.5 rounded border border-gold/25 whitespace-nowrap">{t('card.wait', { n: waitMins })}</span>
-                    </div>
+                    </div>}
 
                     {/* Current Time Step */}
                     <div className="flex flex-col items-center z-10 w-12">
@@ -625,12 +869,12 @@ export function RecommendationCard({
                       <span className="text-[10px] text-muk-soft mt-0.5">{t('card.arrive')}</span>
                     </div>
 
-                    {/* Service Start Step */}
-                    <div className="flex flex-col items-center z-10 w-12">
+                    {/* Service Start Step — 검증된 대기시간이 있을 때만 표시한다. */}
+                    {serviceTime && <div className="flex flex-col items-center z-10 w-12">
                       <div className="w-2 h-2 rounded-full bg-gold ring-4 ring-hanji-deep mb-1.5" />
                       <span className="text-[10px] text-muk font-bold">{formatTime(serviceTime)}</span>
                       <span className="text-[10px] text-muk-soft mt-0.5">{facilityType === 'restaurant' || facilityType === 'cafe' ? t('card.dine') : t('card.view')}</span>
-                    </div>
+                    </div>}
                   </div>
                 </div>
               )}
@@ -647,6 +891,106 @@ export function RecommendationCard({
             pct: Math.round((eventBoost ?? 0) * 100),
           })}
         </p>
+      )}
+
+      {typeof areaDemandLevel === 'number' && (
+        <div className="text-[11px] leading-snug text-sky-800 bg-sky-500/10 border border-sky-500/20 rounded-xl px-3 py-2">
+          <div className="flex items-center justify-between gap-2">
+            <span className="font-bold">
+              {areaDemandTourismEvidence
+                ? t('recommend.areaEvidenceCount', { n: evidenceCount })
+                : areaDemandParkingEvidence
+                  ? `${t(areaDemandParkingEvidence.mode === 'forecast'
+                    ? 'recommend.parkingEvidenceForecast'
+                    : 'recommend.parkingEvidenceLive')}: ${congestionLabel(areaDemandParkingEvidence.level)}`
+                  : `${t('recommend.areaDemand')}: ${congestionLabel(areaDemandLevel)}`}
+            </span>
+            {demandDisclosure.showQualitativeLevel && <span className="text-[10px] text-sky-700">
+              {t(areaDemandMode === 'live'
+                ? 'recommend.areaDemandLive'
+                : areaDemandMode === 'forecast'
+                  ? 'recommend.areaDemandForecast'
+                  : 'recommend.areaDemandStats')}
+            </span>}
+          </div>
+          {demandDisclosure.showQualitativeLevel && arrivalAction && (
+            <p className="mt-1.5 font-extrabold text-sky-900">
+              {t(`recommend.arrivalAction.${arrivalAction}`, {
+                n: recommendedDepartureDelayMinutes ?? 30,
+              })}
+            </p>
+          )}
+          {demandDisclosure.showQualitativeLevel && areaDemandDistinguishable && areaDemandRank && areaDemandComparableCount && (
+            <p className="mt-1 text-sky-800">
+              {t('recommend.areaDemandRank', {
+                rank: areaDemandRank,
+                total: areaDemandComparableCount,
+              })}
+              {typeof areaDemandDeltaVsMedian === 'number' && areaDemandDeltaVsMedian <= -0.08
+                ? ` · ${t('recommend.areaDemandLower', { n: Math.round(Math.abs(areaDemandDeltaVsMedian) * 100) })}`
+                : ''}
+            </p>
+          )}
+          {demandDisclosure.showQualitativeLevel && arrivalAction === 'wait_then_go' && typeof delayedAreaDemandLevel === 'number' && (
+            <p className="mt-1 text-sky-800">
+              {t('recommend.delayedDemand', {
+                n: recommendedDepartureDelayMinutes ?? 30,
+                level: congestionLabel(delayedAreaDemandLevel),
+              })}
+            </p>
+          )}
+          {areaDemandTourismEvidence && (
+            <p className="mt-1 text-sky-800/80">{t('recommend.areaDemandCompositeHint')}</p>
+          )}
+          {areaDemandParkingEvidence && (
+            <div className="mt-2 rounded-lg border border-sky-500/20 bg-white/55 px-2.5 py-2">
+              <p className="font-bold text-sky-900">
+                {t(areaDemandParkingEvidence.mode === 'live'
+                  ? 'recommend.parkingEvidenceLive'
+                  : 'recommend.parkingEvidenceForecast')}: {congestionLabel(areaDemandParkingEvidence.level)}
+              </p>
+              <p className="mt-0.5 text-[10px] text-sky-700">
+                {typeof areaDemandParkingEvidence.radiusM === 'number'
+                  ? t('recommend.parkingEvidenceRadius', { n: areaDemandParkingEvidence.radiusM.toLocaleString() })
+                  : t('recommend.parkingEvidenceArea')}
+                {areaFreshness ? ` · ${areaFreshness}` : ''}
+              </p>
+            </div>
+          )}
+          {areaDemandTourismEvidence && (
+            <div className="mt-2 rounded-lg border border-indigo-500/20 bg-white/55 px-2.5 py-2 text-indigo-900">
+              <p className="font-bold">
+                {typeof areaDemandTourismEvidence.relativeIndex === 'number'
+                  ? t('recommend.tourismEvidenceIndex', { n: Math.round(areaDemandTourismEvidence.relativeIndex) })
+                  : t('recommend.tourismEvidenceTitle')}
+              </p>
+              <p className="mt-0.5 text-[10px] text-indigo-700">
+                {t('recommend.tourismEvidenceBasis', {
+                  name: areaDemandTourismEvidence.referenceName ?? t('recommend.tourismReferenceUnknown'),
+                  distance: typeof areaDemandTourismEvidence.distanceM === 'number'
+                    ? Math.round(areaDemandTourismEvidence.distanceM).toLocaleString()
+                    : '-',
+                  date: areaDemandTourismEvidence.forecastDate ?? '-',
+                })}
+              </p>
+              <p className="mt-1 text-[10px] text-indigo-700/90">
+                {t('recommend.tourismEvidenceDisclaimer')}
+              </p>
+            </div>
+          )}
+          {!!areaDemandSources?.some((source) => source === 'festival' || source === 'weather') && (
+            <p className="mt-1 text-[10px] text-sky-700">
+              {areaDemandSources
+                .filter((source) => source !== 'parking' && source !== 'parking_history' && source !== 'tourism')
+                .map((source) => t(`recommend.areaSource.${source}`)).join(' · ')}
+            </p>
+          )}
+          {areaDemandConfidence && areaDemandConfidence !== 'none' && (
+            <p className="mt-1 text-[10px] text-sky-700">
+              {t(`recommend.areaConfidence.${areaDemandConfidence}`)}
+            </p>
+          )}
+        </div>
       )}
 
       {/* Expandable Details Section (Rating, Address, Phone, Hours) */}
@@ -681,11 +1025,11 @@ export function RecommendationCard({
             </p>
           )}
 
-          {/* 소개(TourAPI overview, 비-ko 로케일이면 배치 번역 우선) — 있을 때만 3줄 클램프('지어내지 않기') */}
+          {/* 소개(TourAPI overview, 비-ko 로케일이면 배치 번역 우선) — 장소 판단에 충분하도록 6줄까지 표시. */}
           {displayOverview && (
             <div>
               <span className="text-muk-soft block text-[10px] font-bold mb-0.5">{t('card.about')}</span>
-              <p className="text-muk leading-relaxed line-clamp-3">{displayOverview}</p>
+              <p className="text-muk leading-relaxed line-clamp-6">{displayOverview}</p>
             </div>
           )}
 
@@ -745,7 +1089,9 @@ export function RecommendationCard({
             <div className="flex items-start gap-2">
               <Globe size={14} className="text-muk-soft mt-0.5 flex-shrink-0" />
               <div>
-                <span className="text-muk-soft block text-[10px] font-bold">{t('card.homepage')}</span>
+                <span className="text-muk-soft block text-[10px] font-bold">
+                  {t(homepageIsExternalChannel ? 'card.externalChannel' : 'card.website')}
+                </span>
                 <a
                   href={homepageUrl}
                   target="_blank"
@@ -758,13 +1104,19 @@ export function RecommendationCard({
             </div>
           )}
 
-          {/* 대표 메뉴(TourAPI first_menu) — 있을 때만, 콤마 구분 시 앞 2개만 '·' 로 이어붙임('지어내지 않기') */}
+          {/* TourAPI의 대표·취급 메뉴 — 근거가 있는 항목만 최대 5개. */}
           {firstMenuTokens.length > 0 && (
             <div className="flex items-start gap-2">
               <Utensils size={14} className="text-muk-soft mt-0.5 flex-shrink-0" />
               <div>
                 <span className="text-muk-soft block text-[10px] font-bold">{t('card.signatureMenu')}</span>
-                <span className="text-muk">{firstMenuTokens.join(' · ')}</span>
+                <div className="mt-1 flex flex-wrap gap-1">
+                  {firstMenuTokens.map((menu) => (
+                    <span key={menu} className="rounded-full bg-gold/10 px-2 py-0.5 text-[11px] font-semibold text-muk">
+                      {menu}
+                    </span>
+                  ))}
+                </div>
               </div>
             </div>
           )}
@@ -844,6 +1196,34 @@ export function RecommendationCard({
         )}
       </AnimatePresence>
 
+      <AnimatePresence>
+        {hoursPromptOpen && (
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 8 }}
+            className="mb-2 rounded-2xl border border-gold/30 bg-gold/10 p-3"
+            role="group"
+            aria-label={t('card.hoursCheckQuestion')}
+          >
+            <p className="text-xs font-extrabold text-muk">{t('card.hoursCheckQuestion')}</p>
+            <p className="mt-1 text-[11px] leading-relaxed text-muk-soft">{t('card.hoursCheckPrivacy')}</p>
+            <div className="mt-3 grid grid-cols-3 gap-2">
+              <button type="button" disabled={hoursSubmitting} onClick={() => void submitHoursStatus('open')} className="rounded-xl bg-jade px-2 py-2 text-[11px] font-bold text-white disabled:opacity-50">
+                {t('card.hoursOpen')}
+              </button>
+              <button type="button" disabled={hoursSubmitting} onClick={() => void submitHoursStatus('closed')} className="rounded-xl bg-terracotta px-2 py-2 text-[11px] font-bold text-white disabled:opacity-50">
+                {t('card.hoursClosed')}
+              </button>
+              <button type="button" disabled={hoursSubmitting} onClick={() => { setHoursPromptOpen(false); setHoursSubmitError(false); }} className="rounded-xl border border-line bg-white px-2 py-2 text-[11px] font-bold text-muk-soft disabled:opacity-50">
+                {t('card.hoursUnsure')}
+              </button>
+            </div>
+            {hoursSubmitError && <p className="mt-2 text-[10px] font-semibold text-terracotta">{t('card.hoursReportFailed')}</p>}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Action Buttons: 관심 없어요 · 나중에 볼게요(저장) · 여기로 갈래요 */}
       <div className="flex gap-2 mt-1">
           <motion.button
@@ -877,21 +1257,32 @@ export function RecommendationCard({
           <motion.button
             onClick={() => {
               haptic('success');
+              if (needsHoursConfirmation && kakaoPlaceUrl) {
+                setHoursPromptOpen(true);
+                setHoursSubmitError(false);
+                window.open(kakaoPlaceUrl, '_blank', 'noopener,noreferrer');
+                return;
+              }
               setConfirmedAction('accepted');
               onAccept();
             }}
             whileTap={tapMotion}
             transition={interactionSpring}
-            aria-label={t('card.acceptAria')}
+            aria-label={t(needsHoursConfirmation && kakaoPlaceUrl ? 'card.checkHoursKakaoAria' : 'card.acceptAria')}
             className="flex-1 bg-gradient-to-r from-gold to-terracotta hover:from-gold-deep hover:to-terracotta text-white font-bold py-3 rounded-2xl transition-all active:scale-95 text-xs shadow-[0_4px_14px_rgba(193,85,59,0.25)] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
           >
             <span className="inline-flex items-center justify-center gap-1.5">
               {confirmedAction === 'accepted' && <Check size={14} aria-hidden />}
-              {t('card.accept')}
+              {t(needsHoursConfirmation && kakaoPlaceUrl ? 'card.checkHoursKakao' : 'card.accept')}
             </span>
           </motion.button>
         </div>
-        {onDrive && (
+        {needsHoursConfirmation && kakaoPlaceUrl && (
+          <p className={`mt-2 text-center text-[11px] font-medium ${likelyClosedUnknown ? 'text-terracotta' : 'text-muk-soft'}`}>
+            {t('card.checkHoursKakaoHint')}
+          </p>
+        )}
+        {onDrive && !(needsHoursConfirmation && kakaoPlaceUrl) && (
           <button type="button" onClick={onDrive} className="mt-2 w-full rounded-xl border border-line bg-white py-2 text-[11px] font-bold text-muk-soft hover:border-gold/40 hover:text-gold-deep">
             {t('card.drive')} <span className="font-medium">· {t('card.driveBasisHint')}</span>
           </button>

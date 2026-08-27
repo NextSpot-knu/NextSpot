@@ -21,6 +21,14 @@ def test_template_uses_only_snapshot_values():
     assert "8분" in answer
 
 
+@pytest.mark.parametrize("locale", ["ko", "en", "ja", "zh"])
+def test_template_never_turns_missing_wait_into_zero(locale):
+    snapshot = {**SNAPSHOT, "breakdown": {"travel_time": 8, "wait_time": None}}
+    answer = service.build_template("why_first", [snapshot], locale)
+    assert "0" not in answer
+    assert "8" in answer
+
+
 def test_difference_uses_both_snapshot_scores():
     other = {**SNAPSHOT, "facility_name": "대릉원", "spot_score": 0.82, "rank": 2}
     answer = service.build_template("difference", [SNAPSHOT, other])
