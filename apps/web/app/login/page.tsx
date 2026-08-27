@@ -71,9 +71,17 @@ export default function LoginPage() {
         }
         await afterAuth('/main');
       } else {
-        const { error, needsConfirmation } = await signUpWithEmail(email.trim(), password, nickname);
+        const { error, reason, needsConfirmation } = await signUpWithEmail(email.trim(), password, nickname);
         if (error) {
-          toast.error(t('login.signupError'));
+          // 원인별 안내 — 이미 가입된 이메일은 재시도 대신 로그인 탭으로 유도한다.
+          if (reason === 'email_exists') {
+            toast.error(t('login.signupEmailExists'));
+            setMode('login');
+          } else if (reason === 'weak_password') {
+            toast.error(t('login.signupWeakPassword'));
+          } else {
+            toast.error(t('login.signupError'));
+          }
           setBusy(false);
           return;
         }

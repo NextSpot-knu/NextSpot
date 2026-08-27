@@ -9,6 +9,7 @@
 import type { Provider, User } from "@supabase/supabase-js";
 import { createPublicClient } from "@/lib/supabase";
 import { mergeGuestData } from "@/lib/api-client";
+import { classifySignUpError, type SignUpFailReason } from "@/lib/authErrors";
 
 const GUEST_MERGE_KEY = "nextspot_guest_merge";
 
@@ -224,12 +225,13 @@ export async function signInWithEmail(
  * - 현재 익명(게스트) 세션이면 updateUser 로 '정회원 전환'한다 → uid 유지 → 저장·취향 데이터 승계.
  * - 세션이 없으면 signUp 으로 신규 생성한다.
  * @returns needsConfirmation: 이메일 인증(Confirm email) ON 이라 세션이 아직 없을 때 true.
+ *   reason: 실패 원인 분류(email_exists/weak_password/unknown) — 화면이 안내 문구를 고르는 데 쓴다.
  */
 export async function signUpWithEmail(
   email: string,
   password: string,
   nickname?: string,
-): Promise<{ error: string | null; needsConfirmation: boolean }> {
+): Promise<{ error: string | null; reason: SignUpFailReason | null; needsConfirmation: boolean }> {
   try {
     const supabase = createPublicClient();
     const meta = nickname?.trim() ? { full_name: nickname.trim() } : undefined;
@@ -241,14 +243,14 @@ export async function signUpWithEmail(
     if (user?.is_anonymous) {
       // 게스트 → 정회원 전환(uid 유지). data 로 닉네임 메타도 함께 심는다.
       const { error } = await supabase.auth.updateUser({ email, password, ...(meta ? { data: meta } : {}) });
-      if (error) return { error: error.message, needsConfirmation: false };
+      if (error) return { error: error.message, reason: classifySignUpError(error), needsConfirmation: false };
       // 전환은 UPDATE 라 handle_new_user 트리거를 안 타므로 public.users.nickname 을 직접 백필한다.
       await backfillProfileAfterLink();
       // Confirm email ON 이면 이메일 확정 전까지 아직 익명 상태일 수 있다 → 확인 안내.
       const {
         data: { user: after },
       } = await supabase.auth.getUser();
-      return { error: null, needsConfirmation: !!after?.is_anonymous };
+      return { error: null, reason: null, needsConfirmation: !!after?.is_anonymous };
     }
 
     const { data, error } = await supabase.auth.signUp({
@@ -256,11 +258,12 @@ export async function signUpWithEmail(
       password,
       options: meta ? { data: meta } : undefined,
     });
-    if (error) return { error: error.message, needsConfirmation: false };
+    if (error) return { error: error.message, reason: classifySignUpError(error), needsConfirmation: false };
     // 세션이 없으면 Confirm email ON — 확인 메일 후 로그인 필요.
-    return { error: null, needsConfirmation: !data.session };
+    return { error: null, reason: null, needsConfirmation: !data.session };
   } catch (err) {
-    return { error: err instanceof Error ? err.message : String(err), needsConfirmation: false };
+    const message = err instanceof Error ? err.message : String(err);
+    return { error: message, reason: classifySignUpError({ message }), needsConfirmation: false };
   }
 }
 

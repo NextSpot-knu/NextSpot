@@ -9,7 +9,7 @@ const SESSION_KEY = "nextspot_merchant_session";
 const FACILITY_KEY = "nextspot_merchant_facility";
 
 // 데모 기본값 유지 + 빌드 타임 env 로 오버라이드 가능.
-const MERCHANT_PASSWORD = process.env.NEXT_PUBLIC_MERCHANT_PASSWORD || "merchant";
+const MERCHANT_PASSWORD = process.env.NEXT_PUBLIC_MERCHANT_PASSWORD || "business";
 
 // 백엔드 apps/api 의 MERCHANT_API_TOKEN 과 동일한 값이어야 사장님 API 가 동작한다.
 // (lib/admin-auth.ts 의 NEXT_PUBLIC_ADMIN_API_TOKEN 패턴 미러 — 과거에는 이 값이 하드코딩이라
