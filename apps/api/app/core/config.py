@@ -31,11 +31,15 @@ class Settings(BaseSettings):
     #    (운영자는 토큰을 바꿨다고 믿지만 실제로는 데모 토큰이 유효한 상태).
     MERCHANT_API_TOKEN: str = "nextspot-merchant-local"
 
-    # 구 콘솔 공유 토큰(X-Merchant-Token · X-Admin-Authorization) 한시 수용 스위치.
-    # RBAC 이행기 동안만 True 다 — 프런트가 JWT 로 전환되면 False 로 내리고, 그 시점에
-    # 사장님 콘솔의 가게 소유권 검사가 **모든 경로에서** 강제된다.
-    # ⚠️ True 인 동안에는 공유 토큰만 알면 아무 가게의 좌석 상태를 방송할 수 있다(기존 동작).
-    LEGACY_CONSOLE_TOKENS: bool = True
+    # 구 콘솔 공유 토큰(X-Merchant-Token) 한시 수용 스위치 — **2026-08-28 부로 기본 False**.
+    #
+    # 프런트(merchant-api.ts)가 Supabase JWT 로 전환 완료됐으므로 더 이상 필요 없다. 끔으로써
+    # 가게 소유권 검사가 **모든 경로에서** 강제된다 — 공유 토큰만 알면 아무 가게의 좌석 상태를
+    # 방송할 수 있던 구멍이 닫힌다(그 방송은 evidence_tier='verified' 로 학습에 들어간다).
+    #
+    # 다시 켜야 할 유일한 상황: 구 프런트가 배포된 채로 백엔드만 먼저 올라간 경우의 임시 완충.
+    # 그때도 소유권 검사를 우회하므로 최대한 짧게 쓰고 즉시 되돌릴 것.
+    LEGACY_CONSOLE_TOKENS: bool = False
 
     # Kakao Local/지도 장소 검색 키. 경로 API 키가 아니다.
     # 도보 거리는 번들된 OpenStreetMap 보행 그래프로 계산한다.

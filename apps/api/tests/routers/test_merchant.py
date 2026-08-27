@@ -1,8 +1,10 @@
 # 머천트 콘솔(소상공인 '내 가게 대시보드') 라우터 테스트 — 실제 DB/네트워크 없이
 # require_merchant 가드·성적표 집계·타임세일 발행/취소·좌석 상태 방송을 검증한다.
-#  · 인증: require_merchant 는 실제 헤더 경로(X-Merchant-Token)를 그대로 태운다(관리자 가드와 별도 체계).
+#  · 인증: Supabase JWT + users.role='merchant' + facility_owners 소유권(RBAC).
+#         이 파일은 **엔드포인트 로직**을 보므로 프로필 로더만 목으로 대체하고,
+#         역할·소유권 자체의 계약은 test_merchant_rbac.py 가 따로 잠근다.
 #  · DB: supabase_admin 은 test_routers.py 의 공용 FakeSupabase(canned 데이터)로 대체 — PostgREST 호출 없음.
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi import FastAPI
@@ -15,11 +17,16 @@ from tests.routers.test_routers import FakeSupabase, FakeTable, _FakeResult
 
 # settings.MERCHANT_API_TOKEN 의 데모 기본값. tests/conftest.py 가 같은 값으로 env 를 고정해
 # 로컬 .env 유무와 무관하게 결정적이다(pydantic-settings 는 env var 를 .env 보다 우선한다).
-MERCHANT_TOKEN = "nextspot-merchant-local"
+# 테스트가 다루는 가게. 아래 픽스처가 이 가게의 소유자로 요청을 태운다.
+OWNED_FACILITY_ID = "f-1"
+# 소유는 하지만 facilities 에 행이 없는 가게 — '없는 시설 → 404' 계약 검증용.
+# (소유하지 않은 id 를 쓰면 소유권 검사가 먼저 403 을 내서 404 를 볼 수 없다.)
+OWNED_BUT_MISSING_ID = "ghost"
 
 
 def _merchant_headers(token: str | None = None) -> dict:
-    return {"X-Merchant-Token": token or MERCHANT_TOKEN}
+    """JWT 경로용 헤더. 값은 아래 프로필 목이 대신하므로 형식만 갖춘다."""
+    return {"Authorization": f"Bearer {token or 'test-jwt'}"}
 
 
 # 이 라우터는 아직 app/main.py 에 등록되지 않았다(통합 단계에서 배선 예정 — docs 참고).
@@ -32,35 +39,27 @@ def client():
         yield c
 
 
-# =========================================================================
-# 1. require_merchant 가드 — 헤더 없음/오답 토큰 → 401
-# =========================================================================
+@pytest.fixture(autouse=True)
+def _merchant_profile():
+    """이 파일의 기본 요청자 — f-1 을 소유한 사업자.
 
-
-def test_merchant_stats_no_header_401(client):
-    res = client.get("/api/v1/merchant/stats", params={"facility_id": "f-1"})
-    assert res.status_code == 401
-
-
-def test_merchant_stats_wrong_token_401(client):
-    res = client.get(
-        "/api/v1/merchant/stats", params={"facility_id": "f-1"}, headers=_merchant_headers("wrong-token")
-    )
-    assert res.status_code == 401
-
-
-def test_merchant_seat_status_no_header_401(client):
-    res = client.post("/api/v1/merchant/seat-status", json={"facility_id": "f-1", "level": "low"})
-    assert res.status_code == 401
-
-
-def test_merchant_timesale_create_no_header_401(client):
-    res = client.post(
-        "/api/v1/merchant/timesale", json={"facility_id": "f-1", "rate": 0.15, "duration_minutes": 60}
-    )
-    assert res.status_code == 401
-
-
+    엔드포인트 로직 검증이 목적이라 인증은 여기서 고정한다. 인증·소유권 자체가 틀렸을 때의
+    거동은 test_merchant_rbac.py 가 별도로 검증한다(그쪽이 이 목을 쓰지 않는다).
+    콘솔 차단 스위치도 켜진 상태(정상)로 둔다.
+    """
+    profile = {
+        "id": "00000000-0000-0000-0000-0000000000f1",
+        "email": "owner@example.com",
+        "is_anonymous": False,
+        "role": "merchant",
+        "facility_ids": frozenset({OWNED_FACILITY_ID, OWNED_BUT_MISSING_ID}),
+    }
+    with patch.object(
+        merchant, "load_profile_from_request", new=AsyncMock(return_value=profile)
+    ), patch.object(
+        merchant, "require_merchant_console_enabled", new=AsyncMock(return_value=None)
+    ):
+        yield profile
 # =========================================================================
 # 2. 성적표(GET /api/v1/merchant/stats) — 집계 산식 + 정직한 미집계 항목
 # =========================================================================
@@ -523,39 +522,3 @@ def test_merchant_timesale_create_lookup_failure_reports_unknown(client):
     assert body["other_active_timesale_count"] is None
     assert body["effective_timesale_rate"] is None
     assert body["effective_timesale_note"] is None
-
-
-# --- 토큰 출처 회귀 (2026-08-20) ---
-# 과거 merchant.py 는 os.environ.get("MERCHANT_API_TOKEN", ...) 으로 토큰을 직접 읽었다.
-# pydantic-settings 는 .env 를 os.environ 에 주입하지 않으므로, 운영자가 apps/api/.env 에
-# MERCHANT_API_TOKEN 을 적어도 조용히 무시되고 데모 기본값이 계속 유효했다 — 토큰을 바꿨다고
-# 믿는 상태에서 실제로는 안 바뀌는, 침묵하는 인증 구멍이었다.
-#
-# 아래 두 테스트가 '토큰이 settings 에서 온다'를 잠근다. 가드 통과 여부만 보므로(401 인지
-# 아닌지) 하위 DB 경로를 모킹하지 않는다 — 인증 관심사만 검증한다.
-def test_merchant_token_is_read_from_settings(client, monkeypatch):
-    """settings 를 바꾸면 새 토큰이 가드를 통과해야 한다 — 즉 가드가 settings 를 실제로 읽는다."""
-    from app.core.config import settings
-
-    monkeypatch.setattr(settings, "MERCHANT_API_TOKEN", "rotated-token-xyz")
-
-    res = client.get(
-        "/api/v1/merchant/stats",
-        params={"facility_id": "f-1"},
-        headers={"X-Merchant-Token": "rotated-token-xyz"},
-    )
-    assert res.status_code != 401
-
-
-def test_merchant_token_rotation_rejects_old_token(client, monkeypatch):
-    """토큰을 교체하면 이전 토큰은 즉시 거부된다 — 모듈 로드 시점 상수로 굳지 않았다."""
-    from app.core.config import settings
-
-    monkeypatch.setattr(settings, "MERCHANT_API_TOKEN", "rotated-token-xyz")
-
-    res = client.get(
-        "/api/v1/merchant/stats",
-        params={"facility_id": "f-1"},
-        headers=_merchant_headers(),  # 교체 전 데모 토큰
-    )
-    assert res.status_code == 401

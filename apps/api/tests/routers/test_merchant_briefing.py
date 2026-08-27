@@ -1,5 +1,6 @@
 # 사장님 '오늘의 실행 브리핑'(P1-5) 라우터/서비스 테스트 — LLM·DB·예측 모델 전부 mock.
-#  · 인증: require_merchant 실경로(X-Merchant-Token) — test_merchant.py 관례.
+#  · 인증: Supabase JWT + role='merchant' + 소유권(RBAC). 프로필 로더만 목으로 고정한다
+#         — 인증·소유권 자체의 계약은 test_merchant_rbac.py 가 잠근다(test_merchant.py 관례).
 #  · DB: 라우터의 supabase_admin(시설 조회)과 서비스의 supabase_admin(타임세일 집계)을
 #        각각 FakeSupabase(canned)로 패치 — PostgREST 호출 없음.
 #  · 예측: merchant_briefing_service 네임스페이스의 get_model_info/predict_congestion/
@@ -26,7 +27,7 @@ from tests.routers.test_routers import FakeSupabase, FakeTable
 
 BRIEFING_PATH = "/api/v1/merchant/briefing"
 FACILITY_ID = "fac-brief-1"
-MERCHANT_TOKEN = "nextspot-merchant-local"  # merchant.py 기본 토큰(test_merchant.py 와 동일 전제)
+# 이 파일의 요청자는 아래 _merchant_profile 픽스처가 FACILITY_ID 의 소유자로 고정한다.
 
 # UTC 03:00 = KST 12:00, 2026-07-06 은 월요일. 예측 창(h=0..6)은 UTC 3..9시 = KST 12..18시.
 FIXED_NOW = datetime(2026, 7, 6, 3, 0, 0, tzinfo=timezone.utc)
@@ -35,7 +36,8 @@ _FACILITY_ROW = {"id": FACILITY_ID, "type": "cafe"}
 
 
 def _merchant_headers(token: str | None = None) -> dict:
-    return {"X-Merchant-Token": token or MERCHANT_TOKEN}
+    """JWT 경로용 헤더. 값 검증은 프로필 목이 대신하므로 형식만 갖춘다."""
+    return {"Authorization": f"Bearer {token or 'test-jwt'}"}
 
 
 def _fake_predict(_facility_type: str, hour: int, _dow: int) -> float:
@@ -66,6 +68,27 @@ def client():
     test_app.include_router(merchant.router)
     with TestClient(test_app) as c:
         yield c
+
+
+@pytest.fixture(autouse=True)
+def _merchant_profile():
+    """FACILITY_ID 를 소유한 사업자로 요청을 고정한다(브리핑 로직 검증이 목적)."""
+    profile = {
+        "id": "00000000-0000-0000-0000-00000000b21e",
+        "email": "owner@example.com",
+        "is_anonymous": False,
+        "role": "merchant",
+        # 'ghost'(DB 에 없는 가게)와 두 번째 가게도 소유로 둔다.
+        # 소유권 검사가 존재 확인보다 먼저라, 소유하지 않은 id 는 존재 여부와 무관하게 403 이다
+        # (존재를 흘리지 않는 설계). '없는 시설 → 404'·'가게별 캐시' 계약을 보려면 소유가 전제다.
+        "facility_ids": frozenset({FACILITY_ID, "ghost", "fac-brief-2"}),
+    }
+    with patch.object(
+        merchant, "load_profile_from_request", new=AsyncMock(return_value=profile)
+    ), patch.object(
+        merchant, "require_merchant_console_enabled", new=AsyncMock(return_value=None)
+    ):
+        yield profile
 
 
 @pytest.fixture(autouse=True)
@@ -128,18 +151,6 @@ def _get(client, facility_id: str = FACILITY_ID, headers: dict | None = None):
 # =========================================================================
 # 1. require_merchant 가드 — 헤더 없음/오답 토큰 → 401
 # =========================================================================
-
-
-def test_briefing_no_header_401(client):
-    res = client.get(BRIEFING_PATH, params={"facility_id": FACILITY_ID})
-    assert res.status_code == 401
-
-
-def test_briefing_wrong_token_401(client):
-    res = _get(client, headers=_merchant_headers("wrong-token"))
-    assert res.status_code == 401
-
-
 # =========================================================================
 # 2. 시설 없음 → 404, LLM 미호출
 # =========================================================================
