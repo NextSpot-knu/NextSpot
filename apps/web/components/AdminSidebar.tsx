@@ -2,12 +2,14 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { LayoutDashboard, Building2, BarChart3, Settings, HelpCircle, Sparkles, LogOut, ShieldAlert, Printer } from 'lucide-react';
+import { LayoutDashboard, Building2, BarChart3, Settings, HelpCircle, Sparkles, LogOut, ShieldAlert, Printer, UserCog } from 'lucide-react';
 import { signOutAdmin } from '@/lib/admin-auth';
+import { useAccount, canEnterDevConsole } from '@/lib/account';
 
 export function AdminSidebar() {
   const pathname = usePathname();
   const router = useRouter();
+  const { account } = useAccount();
 
   const handleLogout = () => {
     // 세션 폐기를 기다리지 않고 즉시 화면을 옮긴다(실패해도 로그인으로 보내는 게 맞다).
@@ -24,6 +26,11 @@ export function AdminSidebar() {
     { name: '성과 리포트', path: '/admin/report', icon: Printer },
     { name: '문의 관리 (Support)', path: '/admin/support', icon: HelpCircle },
     { name: '시스템 설정', path: '/admin/settings', icon: Settings },
+    // 개발자 콘솔은 팀 전용이라 developer 에게만 보인다 — 관제 화면(정부기관 관계자)에는
+    // 역할 임명 같은 운영 도구를 노출하지 않는다.
+    ...(canEnterDevConsole(account)
+      ? [{ name: '개발자 콘솔', path: '/dev', icon: UserCog }]
+      : []),
   ];
 
   return (
