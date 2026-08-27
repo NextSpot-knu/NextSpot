@@ -10,7 +10,7 @@ from typing import Any, Literal
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
-from app.core.authz import ROLE_ADMIN, require_machine_or_role, require_role
+from app.core.authz import ROLE_ADMIN, require_machine_or_role
 from app.services.area_demand_snapshot_service import (
     SnapshotPersistenceError,
     collect_area_demand_snapshot,
