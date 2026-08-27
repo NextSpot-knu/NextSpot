@@ -203,3 +203,62 @@ def test_permission_errors_are_not_masked_as_503(auth_client):  # noqa: F811
     body["user_id"] = "00000000-0000-4000-8000-0000000000ff"  # 토큰 주체와 다른 사용자
     res = auth_client.post(_COURSE_PATH, json=body)
     assert res.status_code == 403
+
+
+def _mocked_world():
+    """행복 경로와 같은 목킹 세트 — 후보 평가 이전 단계는 전부 대체한다."""
+    facilities = [
+        _facility("f-cafe", "cafe", 0.0002),
+        _facility("f-rest", "restaurant", 0.0004),
+        _facility("f-attr", "attraction", 0.0006),
+        _facility("f-cult", "culture", 0.0008),
+    ]
+    congestion_now = {f["id"]: _cong(0.3) for f in facilities}
+    return (
+        patch("app.routers.courses.fetch_user", new=AsyncMock(return_value=USER_ROW)),
+        patch("app.routers.courses.fetch_all_facilities", new=AsyncMock(return_value=facilities)),
+        patch("app.routers.courses.fetch_congestion_map", new=AsyncMock(return_value=congestion_now)),
+        patch.object(preference_vector_service, "get_user_vector", new=AsyncMock(return_value=UNIT_VECTOR)),
+    )
+
+
+def test_one_bad_candidate_does_not_kill_the_whole_course(auth_client, monkeypatch):  # noqa: F811
+    """후보 하나가 터져도 나머지로 코스를 만든다.
+
+    후보 평가는 외부 의존이 여럿이라(경로 탐색·혼잡 예측·SPOT 스코어) 하나쯤 흔들릴 수 있다.
+    asyncio.gather 기본 동작은 첫 예외를 올려 **멀쩡한 후보까지 버린다** — 그러면 대표 기능이
+    통째로 503 이 된다.
+    """
+    from app.routers import courses
+
+    real = courses._evaluate_candidate
+    calls = {"n": 0}
+
+    async def flaky(*args, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("routing upstream hiccup")
+        return await real(*args, **kwargs)
+
+    a, b, c, d = _mocked_world()
+    with a, b, c, d:
+        monkeypatch.setattr(courses, "_evaluate_candidate", flaky)
+        res = auth_client.post(_COURSE_PATH, json=_course_body())
+
+    assert res.status_code == 200, "후보 하나의 실패가 코스 전체를 죽였다"
+    assert calls["n"] > 1
+
+
+def test_all_candidates_failing_is_surfaced_not_returned_as_empty(auth_client, monkeypatch):  # noqa: F811
+    """전부 실패하면 빈 코스로 위장하지 않는다 — '갈 곳이 없다'와 구분돼야 한다."""
+    from app.routers import courses
+
+    async def always_boom(*_a, **_kw):
+        raise RuntimeError("routing upstream down")
+
+    a, b, c, d = _mocked_world()
+    with a, b, c, d:
+        monkeypatch.setattr(courses, "_evaluate_candidate", always_boom)
+        res = auth_client.post(_COURSE_PATH, json=_course_body())
+
+    assert res.status_code == 503

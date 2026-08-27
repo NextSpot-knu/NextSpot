@@ -226,6 +226,9 @@ async def recommend_course(
             sequence=req.sequence,
             error=str(exc),
             error_type=type(exc).__name__,
+            # 스택까지 남긴다 — 어느 외부 의존이 흔들렸는지 로그만 보고 좁힐 수 있어야 한다.
+            # (실제로 프로덕션에서 이 자리를 만났을 때 str(exc) 만으로는 원인을 못 좁혔다.)
+            exc_info=True,
         )
         raise HTTPException(
             status_code=503,
@@ -325,13 +328,33 @@ async def _build_course(req: CourseRequest) -> list:
                 if unused:
                     pick_from = unused
 
-        evaluations = await asyncio.gather(*[
+        # 후보 하나가 터지면 코스 전체가 날아가던 자리다. 후보 평가는 외부 의존이 여럿이라
+        # (경로 탐색·혼잡 예측·SPOT 스코어) 하나쯤 흔들릴 수 있는데, gather 기본 동작은
+        # 첫 예외를 그대로 올려 **나머지 멀쩡한 후보까지 버린다.**
+        #
+        # 부분 실패는 그 후보만 빼고 진행한다. 다만 **전부 실패하면 올린다** — 그때는 빈 코스가
+        # "갈 곳이 없다"는 정상 결과와 구분되지 않기 때문이다(호출부가 503 으로 바꾼다).
+        settled = await asyncio.gather(*[
             _evaluate_candidate(
                 f, cur_lat, cur_lng, cum_offset, now, congestion_now,
                 user_vector, preferred_categories, req.user_id,
             )
             for f in pick_from
-        ])
+        ], return_exceptions=True)
+
+        failures = [r for r in settled if isinstance(r, BaseException)]
+        evaluations = [r for r in settled if not isinstance(r, BaseException)]
+        if failures:
+            logger.warning(
+                "course_candidate_evaluation_failed",
+                failed=len(failures),
+                total=len(settled),
+                error=str(failures[0]),
+                error_type=type(failures[0]).__name__,
+            )
+        if settled and not evaluations:
+            raise failures[0]
+
         evaluations = [
             e for e in evaluations
             if is_recommendable_at_arrival(
