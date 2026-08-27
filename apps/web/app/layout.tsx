@@ -9,6 +9,8 @@ import SessionBootstrap from "@/components/SessionBootstrap";
 import InstallPrompt from "@/components/InstallPrompt";
 import LlmDebugToast from "@/components/LlmDebugToast";
 import { I18nProvider } from "@/lib/i18n/I18nProvider";
+// 계정 권한(역할·소유 가게) 단일 출처 — 콘솔 진입점 게이팅에 쓴다(lib/account.tsx).
+import { AccountProvider } from "@/lib/account";
 import MotionProvider from "@/components/MotionProvider";
 import ThemeProvider from "@/components/ThemeProvider";
 import ThemeToaster from "@/components/ThemeToaster";
@@ -76,6 +78,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         {/* 왼쪽 세로 내비게이션 레일(인플로우) — 숨김 경로에서 null 이면 콘텐츠가 전체폭을 차지. */}
         <ThemeProvider>
           <I18nProvider>
+            <AccountProvider>
             <MotionProvider>
             <BottomNav />
             {/* PWA 설치 유도 배너 — beforeinstallprompt 캡처는 useT() 로 i18n 문구를 쓰므로 I18nProvider 내부에 마운트. */}
@@ -83,6 +86,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <PageTransition>{children}</PageTransition>
             <LlmDebugToast />
             </MotionProvider>
+            </AccountProvider>
           </I18nProvider>
           <ThemeToaster />
         </ThemeProvider>

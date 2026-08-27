@@ -13,6 +13,8 @@ import { toast } from 'sonner';
 import { createPublicClient } from '@/lib/supabase';
 // 소셜 identity 추림 — 이메일 없는 계정의 표시 신원 판정에 쓴다(단일 소스).
 import { deriveAuthState } from '@/lib/oauthFlow';
+// 콘솔 진입점은 역할로 가른다 — 일반 유저에게는 노출하지 않는다(lib/account.tsx).
+import { useAccount, canEnterMerchantConsole, canRequestBusinessVerification } from '@/lib/account';
 import { apiClient, isAuthError, fetchLabPendingCount } from '@/lib/api-client';
 import { getVisitCount } from '@/lib/visits';
 import { clearUserScopedData } from '@/lib/userData';
@@ -39,6 +41,7 @@ interface UserProfile {
 export default function MyPage() {
   const router = useRouter();
   const t = useT();
+  const { account } = useAccount();
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   // 프로필 수정 인라인 모달 — 로컬 즉시 반영 + public.users 저장으로 계정 기기 간 동기화한다.
@@ -441,10 +444,11 @@ export default function MyPage() {
               })()}
             </div>
 
-            {/* 관광객 계정과 분리된 사장님 콘솔 진입점(PM 지시로 로그아웃 바로 위 배치 —
-                일반 관광객 동선에서 멀리, 계정 관련 액션끼리 묶는다). 실제 전환이 아니라
-                별도 비즈니스 게이트로 이동하므로 문구에도 '사장님 콘솔'을 명시한다. */}
-            <button
+            {/* 사장님 콘솔 진입점 — **사업자·개발자에게만** 보인다.
+                일반 유저에게는 대신 '가게 등록 요청' 링크를 보여, 남의 가게를 고를 수 있는
+                예전 동선(전체 시설 피커)을 원천 차단한다. 위치는 로그아웃 바로 위 유지
+                (관광객 동선에서 멀리, 계정 관련 액션끼리 묶는다). */}
+            {canEnterMerchantConsole(account) && <button
               type="button"
               onClick={() => router.push('/merchant')}
               className="group w-full mb-4 rounded-3xl border border-gold/35 bg-gradient-to-r from-gold/15 via-hanji to-terracotta/10 p-5 text-left shadow-[0_2px_14px_rgba(43,35,32,0.06)] transition-colors hover:border-gold/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
@@ -461,7 +465,19 @@ export default function MyPage() {
                 </div>
                 <ChevronRight size={20} className="shrink-0 text-gold-deep transition-transform group-hover:translate-x-0.5" />
               </div>
-            </button>
+            </button>}
+
+            {/* 일반 유저 — 사업자라면 등록을 요청할 수 있게 작은 링크만 둔다.
+                게스트에게는 보이지 않는다(신청하려면 먼저 계정이 필요하다). */}
+            {canRequestBusinessVerification(account) && (
+              <button
+                type="button"
+                onClick={() => router.push('/account/business')}
+                className="w-full mb-4 text-center text-xs text-muk-soft underline underline-offset-2 hover:text-muk"
+              >
+                {t('account.businessEntry')}
+              </button>
+            )}
 
             {/* Sign Out Button */}
             <button

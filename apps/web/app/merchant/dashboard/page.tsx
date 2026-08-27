@@ -35,11 +35,12 @@ import {
 } from 'recharts';
 import { createPublicClient } from '@/lib/supabase';
 import {
-  isMerchantAuthed,
   getMerchantFacility,
   clearMerchantFacility,
+  clearLegacyMerchantSession,
   type MerchantFacility,
 } from '../_lib/merchant-auth';
+import { useAccount, canEnterMerchantConsole } from '@/lib/account';
 import {
   fetchMerchantStats,
   fetchActiveTimesales,
@@ -67,22 +68,36 @@ type AsyncState = 'loading' | 'ready' | 'error';
 
 export default function MerchantDashboardPage() {
   const router = useRouter();
+  const { account, status } = useAccount();
   const [mounted, setMounted] = useState(false);
   const [facility, setFacility] = useState<MerchantFacility | null>(null);
 
   useEffect(() => {
     setMounted(true);
-    if (!isMerchantAuthed()) {
+    clearLegacyMerchantSession(); // 구 비밀번호 세션 흔적 제거(권한과 무관한 잔재).
+  }, []);
+
+  // 권한·소유권 판정은 /account/me 가 단일 출처다. 여기 분기는 UX 이고, 실제 차단은
+  // 백엔드가 매 요청 수행한다 — 이 화면을 우회해도 모든 머천트 API 가 403 을 돌려준다.
+  useEffect(() => {
+    if (status === 'loading') return;
+    if (!canEnterMerchantConsole(account)) {
       router.replace('/merchant');
       return;
     }
     const fac = getMerchantFacility();
-    if (!fac) {
+    // 저장된 가게가 없거나, **더 이상 내 소유가 아니면** 게이트로 되돌린다
+    // (소유권이 회수된 뒤 로컬에 남은 값으로 계속 들어오는 것을 막는다).
+    const owned = account?.ownedFacilities ?? [];
+    const stillMine =
+      account?.role === 'developer' || owned.some((f) => f.id === fac?.id);
+    if (!fac || !stillMine) {
+      clearMerchantFacility();
       router.replace('/merchant');
       return;
     }
     setFacility(fac);
-  }, [router]);
+  }, [status, account, router]);
 
   const handleChangeFacility = () => {
     clearMerchantFacility();

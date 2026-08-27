@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { CongestionAlertToggle } from '@/components/CongestionAlertToggle';
 import { useT } from '@/lib/i18n/I18nProvider';
+import { useAccount, canEnterMerchantConsole } from '@/lib/account';
 import { deleteMyAccount } from '@/lib/api-client';
 import { getAuthState } from '@/lib/auth';
 import { createPublicClient } from '@/lib/supabase';
@@ -21,6 +22,7 @@ const APP_VERSION = '0.1.0';
 export default function SettingsPage() {
   const router = useRouter();
   const t = useT();
+  const { account } = useAccount();
   const { mode: themeMode, resolvedTheme, setMode: setThemeMode } = useTheme();
   const [hasAccount, setHasAccount] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -167,8 +169,8 @@ export default function SettingsPage() {
           <CongestionAlertToggle />
         </section>
 
-        {/* 비즈니스 계정 — 사장님 전용 게이트(/merchant)로 이동. */}
-        <button
+        {/* 비즈니스 계정 — 사장님 전용 게이트(/merchant)로 이동. 역할이 있는 계정에만 노출. */}
+        {canEnterMerchantConsole(account) && <button
           type="button"
           onClick={() => router.push('/merchant')}
           className="group w-full rounded-3xl border border-gold/35 bg-gradient-to-r from-gold/15 via-hanji to-terracotta/10 p-5 text-left shadow-[0_2px_14px_rgba(43,35,32,0.06)] transition-colors hover:border-gold/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
@@ -185,7 +187,7 @@ export default function SettingsPage() {
             </div>
             <ChevronRight size={20} className="shrink-0 text-gold-deep transition-transform group-hover:translate-x-0.5" />
           </div>
-        </button>
+        </button>}
 
         {/* 데이터 관리 */}
         <section className="bg-white border border-line rounded-3xl p-5 shadow-[0_2px_14px_rgba(43,35,32,0.06)]">

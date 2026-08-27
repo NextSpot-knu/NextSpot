@@ -1,7 +1,7 @@
 // 사장님 콘솔(머천트) 전용 API 헬퍼 — apps/web/lib/api-client.ts·lib/supabase.ts 의 타임아웃 관례를 미러한다.
 // 정적 export 앱이라 모든 호출은 클라이언트에서 직접 FastAPI 를 부른다(서버 액션/route handler 없음).
 
-import { getMerchantToken } from "./merchant-auth";
+import { createPublicClient } from "@/lib/supabase";
 
 const BASE_URL = process.env.NEXT_PUBLIC_FASTAPI_URL || "http://localhost:8000";
 // 무응답 백엔드에 무한 대기하지 않도록 타임아웃 — 각 섹션이 스켈레톤에 영원히 갇히지 않게 한다.
@@ -29,10 +29,18 @@ async function timeoutFetch(input: string, init?: RequestInit): Promise<Response
 }
 
 async function merchantFetch(path: string, init: RequestInit = {}) {
-  const token = getMerchantToken();
+  // 인증은 Supabase JWT 하나로 통일한다(RBAC P2). 백엔드가 이 토큰에서 users.role 과
+  // facility_owners 소유권을 확인하므로, 프런트가 가게 id 를 바꿔 보내도 남의 가게는 열리지 않는다.
+  // (구 X-Merchant-Token 공유 토큰 경로는 백엔드에서 LEGACY_CONSOLE_TOKENS 로만 남아 있고,
+  //  프런트는 더 이상 보내지 않는다 — 그 플래그를 내리면 완전히 사라진다.)
+  const { data: { session } } = await createPublicClient().auth.getSession();
   const headers = new Headers(init.headers);
   headers.set("Content-Type", "application/json");
-  if (token) headers.set("X-Merchant-Token", token);
+  if (session?.access_token) {
+    headers.set("Authorization", `Bearer ${session.access_token}`);
+    // 프록시 경유 배포에서 Authorization 이 덮이는 경우 대비(api-client 와 동일 관례).
+    headers.set("X-Supabase-Authorization", `Bearer ${session.access_token}`);
+  }
 
   let res: Response;
   try {
