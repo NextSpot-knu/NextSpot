@@ -48,12 +48,18 @@ P2-2 에서 `/area-demand/snapshots/collect` 가드를 `require_admin` →
 뜨고**, 주변 수요 시계열이 멈춘 채 화면만 정상으로 보인다 — availability 청킹 때와 같은
 실패 모양이다.
 
-**실제 중단은 없었다.** `origin/main` 이 아직 구 가드라 프로덕션은 무사했다:
+**실제 중단은 없었다.** `origin/main` 이 아직 구 가드(`require_admin`)였고 Render 는 main 에서
+배포하므로, 프로덕션은 계속 구 코드로 돌고 있었다:
 
 ```
-최근 스냅샷   2026-08-27T16:03Z (10분 간격 정상 적재 중)
-/api/v1/dev/* → 404  (P2-2/P2-3 미배포 확인)
+git show cfa7cce:apps/api/app/routers/area_demand.py  →  Depends(require_admin)
+최근 스냅샷   2026-08-27T16:03Z, 16:13Z … 16:43Z  (10분 간격 정상 적재)
 ```
+
+> **정정(2026-08-28)**: 처음에는 `/api/v1/dev/users/search` 가 404 인 것을 "미배포 근거"로
+> 적었는데, 그 경로는 **애초에 존재하지 않는다**(실제 경로는 `/api/v1/dev/users`). 404 는
+> 미배포가 아니라 오타의 결과였다 — 근거로 쓸 수 없다. 결론(중단 없음)은 위의 git 증거로
+> 그대로 유효하다.
 
 `require_machine_or_role(*roles)` 을 추가했다. 폐지한 공유 토큰과 다른 점:
 
