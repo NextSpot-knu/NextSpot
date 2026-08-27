@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { REGION } from '@/lib/region';
 import { apiClient } from './api-client';
 
 /**
@@ -152,7 +153,18 @@ export function useCongestionAlerts(): UseCongestionAlerts {
     }
 
     try {
-      const items = await apiClient.get('/api/v1/infrastructures');
+      // 저장한 장소의 혼잡도만 보면 되는데 예전에는 **시설 전체**를 받아 왔다(황리단길
+      // bbox 만 해도 542곳). 3분마다 그걸 반복하면 화면에 쓰지도 않는 수백 KB 가 계속 오간다.
+      // 서비스 지역은 경주 황리단길 하나이고 저장 장소도 그 안에 있으므로, 메인 화면과
+      // 같은 REGION.bounds 를 그대로 걸어 받아 올 범위를 좁힌다(동작은 그대로).
+      const items = await apiClient.get('/api/v1/infrastructures', {
+        params: {
+          minLat: String(REGION.bounds.minLat),
+          maxLat: String(REGION.bounds.maxLat),
+          minLng: String(REGION.bounds.minLng),
+          maxLng: String(REGION.bounds.maxLng),
+        },
+      });
       setLastCheckFailed(false);
 
       const congestion = buildCongestionMap(items);
