@@ -158,18 +158,41 @@ Render 무료 티어(0.1 CPU)의 콜드 비용을 첫 사용자에게 전가하�
 
 ---
 
-## 4. 3중 인증 — 누가 무엇을 할 수 있나
+## 4. 역할 기반 접근 제어(RBAC) — 누가 무엇을 할 수 있나
 
-세 앱이 **서로 다른 헤더**를 쓴다. 의도적 분리로, 한쪽이 뚫려도 다른 쪽으로 번지지 않는다.
+세 앱이 **하나의 인증**을 쓴다. Supabase JWT 로 사용자를 특정하고, `public.users.role` 이
+무엇을 할 수 있는지 정한다. 가드는 `apps/api/app/core/authz.py` 하나다.
 
-| 대상 | 헤더 | 백엔드 가드 | 성격 |
-|---|---|---|---|
-| 관광객 | `Authorization: Bearer <Supabase JWT>` | `get_current_user` (JWKS 검증) | **실제 인증** |
-| 사장님 | `X-Merchant-Token` | `require_merchant` (`MERCHANT_API_TOKEN` 상수시간 비교) | 데모 게이트 |
-| 관리자 | `X-Admin-Authorization: Bearer <token>` | `require_admin` (`ADMIN_API_TOKEN` 상수시간 비교) | 데모 게이트 |
+| 역할 | 들어갈 수 있는 곳 | 판정 |
+|---|---|---|
+| `tourist` | 관광객 앱 | 기본값. 익명(게스트) 세션도 여기 속한다 |
+| `merchant` | `/merchant` 사장님 콘솔 | `require_role("merchant")` |
+| `admin` | `/admin` 관제 대시보드 | `require_role("admin")` — 사장님 콘솔에는 못 들어간다 |
+| `developer` | 전부 + `/dev` | 모든 `assert_role` 을 통과한다 |
 
-> 사장님·관리자 게이트는 코드 주석이 스스로 **"데모 게이트일 뿐 실제 인증이 아니다"**라고
-> 명시한다. 비밀번호가 프런트 번들에 포함되므로 실서비스 전에는 사업자 인증 연동이 필요하다.
+**역할과 소유권은 다른 축이다.** `merchant` 는 "콘솔에 들어갈 수 있다"만 뜻하고,
+**어느 가게를 다루는가**는 `facility_owners` 가 정한다(`require_facility_owner`).
+이게 없으면 아무나 남의 가게 좌석 상태를 방송할 수 있고, 그 방송은 `evidence_tier='verified'`
+로 학습 데이터에 들어간다(CONGESTION_TRUST_SPEC).
+
+**역할 판정은 DB 조회 + 30초 캐시**다. JWT 커스텀 클레임을 쓰지 않는 이유는 토큰 갱신(최대
+1시간)까지 구 역할이 남아 **권한 회수가 늦어지기** 때문이다. 임명·회수 API 가 해당 사용자
+캐시를 즉시 무효화한다.
+
+### 예외 하나 — 세션이 없는 기계 호출자
+
+스케줄러(Supabase pg_cron, GitHub Actions)는 Supabase 세션을 가질 수 없다. 이들만
+`X-Service-Token`(구 `X-Admin-Authorization` 도 수용) 공유 토큰을 쓰며,
+`require_machine_or_role` 을 건 **수집 트리거 한 경로**에서만 유효하다.
+
+| | 폐지된 구 방식 | 지금의 서비스 토큰 |
+|---|---|---|
+| 토큰 위치 | `NEXT_PUBLIC_*` — 정적 번들에 노출 | 서버 env / Vault / Actions Secret 전용 |
+| 통하는 범위 | 관리자 API 전체 | `/api/v1/area-demand/snapshots/collect` 하나 |
+| 사용자 특정 | 불가(소유권 검사 불가) | 불필요(사람이 아님) |
+
+> 폐지 이력: 사장님 `X-Merchant-Token` 은 `LEGACY_CONSOLE_TOKENS=false` 로 꺼져 있고,
+> 관리자 비밀번호(`NEXT_PUBLIC_ADMIN_PASSWORD`)와 프런트 미러 토큰은 제거됐다.
 
 **관광객 세션 생애주기** — 마찰 없는 진입이 설계 목표다.
 
@@ -200,7 +223,8 @@ SessionBootstrap: 익명 세션 자동 발급
 **보안 원칙 (코드에 강제되어 있음)**
 
 - `ADMIN_API_TOKEN`·`JWT_SECRET`은 기본값 없는 필수 env — 비어 있으면 **부팅 실패**
-  (빈 토큰이면 `Bearer ` 만으로 관리자 가드가 뚫린다)
+  (빈 토큰이면 `Bearer ` 만으로 서비스 토큰 가드가 뚫린다)
+- 서비스 토큰은 **절대 `NEXT_PUBLIC_` 으로 미러하지 않는다** — 그 순간 다시 공개된다
 - 브라우저 번들에 `service_role` 키를 절대 두지 않음 — 관리 작업은 반드시 백엔드 경유
 - CORS: `ALLOWED_ORIGINS`가 명시 목록이면 엄격 모드(credentials 켬),
   `*`면 credentials 끔 (와일드카드 + credentials는 CORS 표준 위반)
@@ -517,14 +541,17 @@ npm run test:e2e --workspace=apps/web       # Playwright (npx playwright install
 **필수 env** — `SUPABASE_URL` `SUPABASE_ANON_KEY` `SUPABASE_SERVICE_ROLE_KEY`
 `JWT_SECRET` `ADMIN_API_TOKEN` (뒤 둘은 없으면 부팅 실패)
 
-**선택 env** — `KAKAO_REST_API_KEY` `TOURAPI_KEY` `KMA_API_KEY` `UPSTAGE_API_KEY` `MERCHANT_API_TOKEN`
+**선택 env** — `KAKAO_REST_API_KEY` `TOURAPI_KEY` `KMA_API_KEY` `UPSTAGE_API_KEY`
+`SERVICE_API_TOKEN`(스케줄러 토큰 회전용 — 없으면 `ADMIN_API_TOKEN` 폴백)
 
-두 콘솔의 토큰은 **프런트·백엔드 짝을 맞춰야** 한다. 한쪽만 바꾸면 콘솔이 401 로 조용히 깨진다.
+**콘솔에는 맞출 토큰이 없다.** 사장님·관리자 콘솔은 앱 계정 로그인 + `users.role` 로 들어간다
+(§4). 프런트에 미러할 값이 없으므로 "한쪽만 바꿔서 401" 이라는 실패 모드 자체가 사라졌다.
+남은 짝맞춤은 스케줄러 하나뿐이다:
 
-| 콘솔 | 백엔드 | 프런트 | 기본값 |
-|---|---|---|---|
-| 관리자 | `ADMIN_API_TOKEN` (필수) | `NEXT_PUBLIC_ADMIN_API_TOKEN` | `nextspot-admin-local` |
-| 사장님 | `MERCHANT_API_TOKEN` | `NEXT_PUBLIC_MERCHANT_API_TOKEN` | `nextspot-merchant-local` |
+| 호출자 | 백엔드 env | 호출자 쪽 설정 |
+|---|---|---|
+| Supabase pg_cron | `SERVICE_API_TOKEN`(없으면 `ADMIN_API_TOKEN`) | Vault `nextspot_area_demand_admin_token` |
+| GitHub Actions | 〃 | Actions Secret `SERVICE_API_TOKEN`(없으면 `ADMIN_API_TOKEN`) |
 
 ---
 
