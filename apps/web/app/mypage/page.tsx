@@ -11,6 +11,8 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { createPublicClient } from '@/lib/supabase';
+// 소셜 identity 추림 — 이메일 없는 계정의 표시 신원 판정에 쓴다(단일 소스).
+import { deriveAuthState } from '@/lib/oauthFlow';
 import { apiClient, isAuthError, fetchLabPendingCount } from '@/lib/api-client';
 import { getVisitCount } from '@/lib/visits';
 import { clearUserScopedData } from '@/lib/userData';
@@ -96,7 +98,10 @@ export default function MyPage() {
         // 프로필명/이메일은 하드코딩 실명 대신 로그인 세션에서 파생한다.
         // 비로그인·목 세션이면 user 가 null 이므로 명확한 플레이스홀더로 폴백(회귀 없이 데모 무중단).
         let displayName = t('mypage.guestName');
-        let displayEmail = 'guest@nextspot.app';
+        // 빈 문자열 = 표시할 신원이 없음(아래 렌더에서 줄 자체를 숨긴다).
+        // 예전엔 'guest@nextspot.app' 을 기본값으로 뒀는데, 카카오처럼 이메일을 주지 않는
+        // 소셜 계정으로 **로그인한** 사용자에게도 그 가짜 주소가 그대로 보였다(게스트가 아닌데 게스트 주소).
+        let displayEmail = '';
         let avatar: string | null = null;
         let hasRemoteName = false;
         try {
@@ -106,6 +111,16 @@ export default function MyPage() {
             displayEmail = user.email;
             // 이메일 앞부분(@ 이전)을 표시 이름으로 사용
             displayName = user.email.split('@')[0];
+          } else if (user) {
+            // 이메일 없는 소셜 계정 — 가짜 주소 대신 '어디로 로그인했는지'를 정직하게 보여준다.
+            // (카카오는 account_email 이 비즈 앱 전용이라 이메일이 없을 수 있다 — OAUTH_PLAN.)
+            // 표시 이름은 handle_new_user 가 넣어 둔 public.users.nickname 이 아래에서 덮어쓴다.
+            const [provider] = deriveAuthState(user).providers;
+            if (provider) {
+              displayEmail = t('auth.linkedVia', {
+                provider: t(provider === 'kakao' ? 'auth.providerKakao' : 'auth.providerGoogle'),
+              });
+            }
           }
           // OAuth 연동 사용자면 public.users 의 nickname/avatar_url(트리거·백필로 채워짐)을 우선 사용한다.
           if (user) {
@@ -285,7 +300,9 @@ export default function MyPage() {
                     </div>
                   </div>
                   <h2 className="text-2xl font-bold font-serif text-muk mb-1 break-words max-w-full text-center">{profile.name}</h2>
-                  <p className="text-sm text-muk-soft mb-4 break-all max-w-full text-center">{profile.email}</p>
+                  {profile.email && (
+                    <p className="text-sm text-muk-soft mb-4 break-all max-w-full text-center">{profile.email}</p>
+                  )}
 
                   <div className="px-4 py-1 rounded-full bg-gold/15 border border-gold/30 text-gold-deep text-xs font-semibold mb-6">
                     {profile.role}
