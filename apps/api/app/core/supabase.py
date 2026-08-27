@@ -92,6 +92,14 @@ class _StaleConnectionRetryTransport(httpx.BaseTransport):
                     url=str(request.url).split("?")[0],
                     error=type(exc).__name__,
                 )
+                # 그냥 다시 보내면 **같은 풀에서 같은 죽은 연결을 다시 집는다.**
+                # 프로덕션에서 실측한 실패 패턴이 2~3회씩 뭉쳐 나온 이유가 이것이다 —
+                # 재시도를 3회로 늘려도 셋 다 같은 연결이면 셋 다 실패한다.
+                # 풀을 닫아 다음 시도가 반드시 새 연결을 맺게 한다.
+                try:
+                    self._transport.close()
+                except Exception:  # 풀 정리 실패가 원래 오류를 가리지 않게
+                    pass
         raise last  # type: ignore[misc]
 
     def close(self) -> None:

@@ -101,3 +101,35 @@ def test_wrapped_httpcore_remote_protocol_error_is_retried():
 
     assert transport.handle_request(_request()).status_code == 200
     assert inner.calls == 2
+
+
+class _PoolAwareTransport(httpx.BaseTransport):
+    """풀을 닫기 전까지는 계속 stale 오류를 내는 전송(죽은 연결을 계속 집는 상황 재현)."""
+
+    def __init__(self):
+        self.calls = 0
+        self.closed = 0
+        self._poisoned = True
+
+    def handle_request(self, request):
+        self.calls += 1
+        if self._poisoned:
+            raise httpx.RemoteProtocolError("ConnectionTerminated")
+        return _response()
+
+    def close(self):
+        self.closed += 1
+        self._poisoned = False   # 풀을 닫으면 다음 연결은 새로 맺힌다
+
+
+def test_pool_is_closed_so_the_retry_gets_a_fresh_connection():
+    """재시도만으로는 부족하다 — 같은 풀에서 같은 죽은 연결을 다시 집기 때문이다.
+
+    프로덕션에서 실패가 2~3회씩 뭉쳐 나온 이유가 이것이었다(2026-08-28 실측).
+    """
+    inner = _PoolAwareTransport()
+    transport = _StaleConnectionRetryTransport(inner)
+
+    assert transport.handle_request(_request()).status_code == 200
+    assert inner.closed >= 1, "풀을 닫지 않아 재시도가 같은 죽은 연결을 다시 집는다"
+    assert inner.calls == 2
