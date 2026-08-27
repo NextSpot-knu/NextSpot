@@ -53,19 +53,46 @@ def _is_stale_connection_error(exc: BaseException) -> bool:
     return False
 
 
+# 재시도 간격(초). 즉시 한 번, 그다음은 아주 짧게 쉬었다가.
+# 길게 잡지 않는다 — 이 경로는 요청 처리 중이고, 실패가 계속되면 빨리 드러나는 편이 낫다.
+_STALE_RETRY_BACKOFF = (0.0, 0.1, 0.25)
+
+
 class _StaleConnectionRetryTransport(httpx.BaseTransport):
-    """stale HTTP/2 연결 오류만 새 풀 연결로 정확히 한 번 즉시 재시도한다."""
+    """stale HTTP/2 연결 오류만 새 풀 연결로 재시도한다.
+
+    Supabase 는 HTTP/2 연결을 주기적으로 GOAWAY 로 닫는다. 풀에 남아 있던 그 연결을
+    다시 쓰면 RemoteProtocolError(ConnectionTerminated)가 난다.
+
+    예전에는 **정확히 한 번만** 재시도했는데, 풀에 죽은 연결이 여럿 남아 있으면 재시도도
+    같은 상태의 연결을 집어 그대로 실패했다. 그러면 예외가 호출부까지 올라가고 —
+    분산코스처럼 그 위에 예외 처리가 없던 엔드포인트는 통째로 500 이 됐다.
+    (2026-08-28 프로덕션에서 재현: 같은 요청이 한 번은 실패, 다시 하면 성공.)
+
+    재시도 대상은 여전히 stale 연결 오류로 한정한다 — 진짜 서버 오류나 타임아웃까지
+    되풀이하면 장애를 늘릴 뿐이다.
+    """
 
     def __init__(self, transport: httpx.BaseTransport) -> None:
         self._transport = transport
 
     def handle_request(self, request: httpx.Request) -> httpx.Response:
-        try:
-            return self._transport.handle_request(request)
-        except Exception as exc:
-            if not _is_stale_connection_error(exc):
-                raise
-            return self._transport.handle_request(request)
+        last: Exception | None = None
+        for delay in _STALE_RETRY_BACKOFF:
+            if delay:
+                time.sleep(delay)
+            try:
+                return self._transport.handle_request(request)
+            except Exception as exc:
+                if not _is_stale_connection_error(exc):
+                    raise
+                last = exc
+                _logger.warning(
+                    "supabase_stale_connection_retry",
+                    url=str(request.url).split("?")[0],
+                    error=type(exc).__name__,
+                )
+        raise last  # type: ignore[misc]
 
     def close(self) -> None:
         self._transport.close()
