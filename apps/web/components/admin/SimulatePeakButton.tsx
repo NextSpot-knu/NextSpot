@@ -3,7 +3,6 @@
 import React, { useState } from 'react';
 import { Play } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
-import { getAdminToken } from '@/lib/admin-auth';
 
 // onSimulated: 성공 후 부모 대시보드의 데이터 재조회 콜백(선택). 정적 export 에선 라우터 refresh 가
 // 통하지 않아 기존엔 window.location.reload() 로 갱신했는데, 이는 화면 깜빡임·스크롤 소실을 유발했다.
@@ -16,14 +15,9 @@ export function SimulatePeakButton({ onSimulated }: { onSimulated?: () => void |
     setIsSimulating(true);
     setMessage(null);
     try {
-      // 관리자 세션 토큰을 X-Admin-Authorization 으로 전달(게이트웨이가 Authorization 을 OIDC 로
-      // 덮어쓰므로 별도 헤더). 데모 토큰이며 실제 권한 검증은 백엔드 책임이다.
-      const idToken = getAdminToken();
-      await apiClient.post(
-        '/api/v1/admin/simulate-peak',
-        undefined,
-        idToken ? { headers: { 'X-Admin-Authorization': `Bearer ${idToken}` } } : undefined
-      );
+      // apiClient 가 현재 Supabase 세션의 JWT 를 자동으로 싣는다(RBAC P2-2 — 별도 관리자 토큰 없음).
+      // 백엔드가 그 토큰에서 users.role 을 읽어 admin/developer 인지 확인한다.
+      await apiClient.post('/api/v1/admin/simulate-peak');
 
       if (onSimulated) {
         // 리로드 없이 재조회 → 히트맵만 갱신되고 스크롤/포커스가 유지된다(깜빡임 없음).

@@ -7,6 +7,10 @@ from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from tests.conftest import (
+    ADMIN_USER_ID,  # noqa: F401 — 하위 테스트에서 참조
+    admin_headers as conftest_admin_headers,
+)
 from fastapi.testclient import TestClient
 
 from app.main import app
@@ -51,9 +55,10 @@ def test_qualitative_reports_never_expose_estimated_headcount():
     assert _exact_current_count({"source": "traffic_cctv", "current_count": 17}) == 17
 
 
-def _admin_headers(token: str | None = None) -> dict:
-    # require_admin 은 X-Admin-Authorization 헤더만 읽는다(일반 Authorization 폴백 제거됨).
-    return {"X-Admin-Authorization": f"Bearer {token or settings.ADMIN_API_TOKEN}"}
+def _admin_headers(sub: str | None = None) -> dict:
+    # 관리자 판정은 JWT + users.role 이다(공유 토큰 가드는 폐지).
+    # sub 를 넘기면 그 사용자의 역할로 평가된다 — 권한 없는 계정 테스트에 쓴다.
+    return conftest_admin_headers(sub)
 
 
 # --- 재사용 Fake: supabase 쿼리 빌더 체이닝(.select().eq().order().limit()...)을 전부 흡수 ---
@@ -712,9 +717,13 @@ def test_admin_inquiries_plain_authorization_header_401(client):
     assert res.status_code == 401
 
 
-def test_admin_inquiries_wrong_token_401(client):
-    res = client.get("/api/v1/admin/inquiries", headers=_admin_headers("wrong-token"))
-    assert res.status_code == 401
+def test_admin_inquiries_non_admin_account_403(client):
+    """로그인은 됐지만 role 이 admin 이 아니면 403(401 이 아니다 — 인증 자체는 성공했다)."""
+    res = client.get(
+        "/api/v1/admin/inquiries",
+        headers=_admin_headers("00000000-0000-4000-8000-000000000000"),  # tourist
+    )
+    assert res.status_code == 403
 
 
 def test_admin_inquiries_ok(client):

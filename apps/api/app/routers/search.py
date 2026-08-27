@@ -11,8 +11,8 @@ detailCommon2/Intro2 를 조회해 단건 인제스트한다(scripts/ingest_tour
                                              정상 응답인데 0건이면 LLM 질의 재작성 폴백(P1-3,
                                              SOLAR_LLM_EXPANSION — 재작성 전용 리밋·일일 예산 캡).
   - POST /api/v1/search/ingest-request     : 무인증, IP 당 분당 3회. contentid 중복은 조용히 무시.
-  - GET  /api/v1/search/ingest-requests    : require_admin. 대기(기본 pending) 목록.
-  - POST /api/v1/search/ingest-requests/approve : require_admin. 단건 인제스트 → facilities upsert → approved.
+  - GET  /api/v1/search/ingest-requests    : 관리자 전용. 대기(기본 pending) 목록.
+  - POST /api/v1/search/ingest-requests/approve : 관리자 전용. 단건 인제스트 → facilities upsert → approved.
 
 admin_ingest_requests 테이블이 아직 없는 환경(마이그레이션 미적용)에서는 500 대신
 503 + 안내 메시지로 흡수한다(_ingest_table_error).
@@ -26,7 +26,8 @@ import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
-from app.core.supabase import require_admin, supabase_admin
+from app.core.authz import ROLE_ADMIN, require_role
+from app.core.supabase import supabase_admin
 from app.services import kakao_place_search_service, llm_client, search_rewrite_service
 from app.services.tourapi import client as tourapi
 from app.services.tourapi.transform import (
@@ -376,7 +377,7 @@ async def create_ingest_request(req: IngestRequestCreate, request: Request):
 _INGEST_STATUSES = {"pending", "approved", "rejected"}
 
 
-@router.get("/ingest-requests", dependencies=[Depends(require_admin)])
+@router.get("/ingest-requests", dependencies=[Depends(require_role(ROLE_ADMIN))])
 async def list_ingest_requests(status: str = "pending", limit: int = 100):
     if status not in _INGEST_STATUSES:
         raise HTTPException(status_code=422, detail=f"status 는 {sorted(_INGEST_STATUSES)} 중 하나여야 합니다.")
@@ -474,7 +475,7 @@ def _upsert_facility(row: dict) -> None:
         supabase_admin.table("facilities").insert(row).execute()
 
 
-@router.post("/ingest-requests/approve", dependencies=[Depends(require_admin)])
+@router.post("/ingest-requests/approve", dependencies=[Depends(require_role(ROLE_ADMIN))])
 async def approve_ingest_request(req: IngestApproveRequest):
     """적재 요청 승인 — detailCommon2/Intro2 조회 → facilities upsert → status='approved'.
 

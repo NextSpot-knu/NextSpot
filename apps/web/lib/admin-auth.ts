@@ -1,55 +1,36 @@
-// 관리자 인증 — 데모/프로토타입용 단일 비밀번호 진입(동기, 로컬 세션).
-// (과거 Firebase Auth 경로는 미동작·타이밍 레이스 문제로 제거하고 동기 게이트로 단일화.)
+// 관리자 대시보드 인증 — **Supabase 계정 + users.role** 로 통일됐다.
 //
-// ⚠️ 보안 주의: 이 방식은 클라이언트 측 데모 게이트일 뿐 실제 보안 경계가 아니다.
-//    비밀번호가 번들에 포함되며, 누구나 우회할 수 있다. 진짜 권한이 필요한 백엔드
-//    작업은 서버에서 별도로 인증·인가를 검증해야 한다.
+// 예전에는 이 파일이 `NEXT_PUBLIC_ADMIN_PASSWORD` 와 문자열을 비교해 localStorage 플래그를
+// 세우고, 공유 토큰(`NEXT_PUBLIC_ADMIN_API_TOKEN`)을 X-Admin-Authorization 으로 보냈다.
+// 정적 export 라 둘 다 번들에 그대로 박혔고, 검사가 브라우저에서 일어나 콘솔에서
+// `localStorage.setItem(...)` 한 줄이면 통과했다 — 실제 보안 경계가 아니었다.
+// 게다가 토큰을 바꾸면 **모든 관리자가 동시에** 튕겼고 개인별 회수는 불가능했다.
+//
+// 이제 관리자는 앱 일반 로그인(/login — 이메일/비밀번호 또는 소셜)을 쓰고, 권한은
+// `users.role ∈ {admin, developer}` 로 판정한다. 프런트 판정은 lib/account.tsx 의
+// `canEnterAdminConsole` 하나이고, 실제 차단은 백엔드가 매 요청 수행한다
+// (app/core/authz.py `require_role("admin")`).
+//
+// 이 파일에 남은 것은 관리자 화면의 **로그아웃** 하나뿐이다 — 관광객 세션과 같은 세션이므로
+// Supabase signOut 을 그대로 부른다(예전처럼 localStorage 키만 지우면 서버 세션이 남는다).
 
-const STORAGE_KEY = "nextspot_admin_session";
-// 데모 기본값은 유지하되 빌드 타임 env 로 오버라이드 가능(정적 export 라 NEXT_PUBLIC_* 는 번들에 포함됨 —
-// 즉 이 게이트는 여전히 데모 수준이다. 진짜 권한 검증은 백엔드 require_admin(ADMIN_API_TOKEN)이 수행).
-const ADMIN_PASSWORD = process.env.NEXT_PUBLIC_ADMIN_PASSWORD || "admin";
-// 백엔드 apps/api ADMIN_API_TOKEN 과 동일한 값이어야 관리자 API(simulate-peak, admin CRUD)가 동작한다.
-const SESSION_TOKEN = process.env.NEXT_PUBLIC_ADMIN_API_TOKEN || "nextspot-admin-local";
+import { createPublicClient } from "@/lib/supabase";
 
-function hasWindow(): boolean {
-  return typeof window !== "undefined";
-}
+// 구 비밀번호 세션 키. 남아 있으면 지우기만 한다(권한으로 쓰지 않는다).
+const LEGACY_SESSION_KEY = "nextspot_admin_session";
 
-/** 비밀번호로 로그인. 일치하면 세션을 저장하고 true, 아니면 false. */
-export function signInWithPassword(password: string): boolean {
-  if (password !== ADMIN_PASSWORD) return false;
-  if (hasWindow()) {
+/** 관리자 화면 로그아웃 — 실제 Supabase 세션을 종료한다. */
+export async function signOutAdmin(): Promise<void> {
+  if (typeof window !== "undefined") {
     try {
-      localStorage.setItem(STORAGE_KEY, "1");
+      localStorage.removeItem(LEGACY_SESSION_KEY);
     } catch {
-      /* localStorage 차단(시크릿 등) 환경 — 무시 */
+      /* localStorage 차단 환경 — 무시 */
     }
   }
-  return true;
-}
-
-/** 로그아웃 — 관리자 세션 제거. */
-export function signOutAdmin(): void {
-  if (!hasWindow()) return;
   try {
-    localStorage.removeItem(STORAGE_KEY);
+    await createPublicClient().auth.signOut();
   } catch {
-    /* 무시 */
+    // 네트워크 실패로 서버 세션 폐기가 안 되더라도 화면은 로그인으로 보낸다(호출부 책임).
   }
-}
-
-/** 현재 관리자 세션 여부(동기). 레이아웃 가드가 이 값으로 라우트 접근을 판정한다. */
-export function isAdminAuthed(): boolean {
-  if (!hasWindow()) return false;
-  try {
-    return localStorage.getItem(STORAGE_KEY) === "1";
-  } catch {
-    return false;
-  }
-}
-
-/** 백엔드 호출용 토큰. 세션이 있으면 고정 데모 토큰, 없으면 null. */
-export function getAdminToken(): string | null {
-  return isAdminAuthed() ? SESSION_TOKEN : null;
 }

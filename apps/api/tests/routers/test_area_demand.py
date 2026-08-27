@@ -1,7 +1,9 @@
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.core.config import settings
+# 관리자 판정은 JWT + users.role 이다(공유 토큰 가드 폐지).
+from tests.conftest import admin_headers as conftest_admin_headers
+
 from app.routers import area_demand
 from app.services.area_demand_snapshot_service import SnapshotPersistenceError
 from app.services.parking_demand_service import ParkingUpstreamError
@@ -34,7 +36,7 @@ def test_snapshot_collection_returns_only_factual_counts(monkeypatch):
     monkeypatch.setattr(area_demand, "collect_area_demand_snapshot", collect)
     response = _client().post(
         "/api/v1/area-demand/snapshots/collect",
-        headers={"X-Admin-Authorization": f"Bearer {settings.ADMIN_API_TOKEN}"},
+        headers=conftest_admin_headers(),
     )
 
     assert response.status_code == 200
@@ -58,7 +60,7 @@ def test_snapshot_collection_reports_upstream_failure_without_fake_row(monkeypat
     monkeypatch.setattr(area_demand, "collect_area_demand_snapshot", fail)
     response = _client().post(
         "/api/v1/area-demand/snapshots/collect",
-        headers={"X-Admin-Authorization": f"Bearer {settings.ADMIN_API_TOKEN}"},
+        headers=conftest_admin_headers(),
     )
 
     assert response.status_code == 503
@@ -72,7 +74,7 @@ def test_snapshot_collection_reports_persistence_failure(monkeypatch):
     monkeypatch.setattr(area_demand, "collect_area_demand_snapshot", fail)
     response = _client().post(
         "/api/v1/area-demand/snapshots/collect",
-        headers={"X-Admin-Authorization": f"Bearer {settings.ADMIN_API_TOKEN}"},
+        headers=conftest_admin_headers(),
     )
 
     assert response.status_code == 503

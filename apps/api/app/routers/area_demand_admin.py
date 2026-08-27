@@ -5,7 +5,7 @@ from typing import Literal
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from app.core.supabase import require_admin
+from app.core.authz import ROLE_ADMIN, require_role
 from app.services.area_demand_reliability_service import (
     AreaDemandReliabilityError,
     get_area_demand_reliability,
@@ -16,7 +16,7 @@ logger = structlog.get_logger()
 router = APIRouter(
     prefix="/api/v1/admin",
     tags=["admin"],
-    dependencies=[Depends(require_admin)],
+    dependencies=[Depends(require_role(ROLE_ADMIN))],
 )
 
 

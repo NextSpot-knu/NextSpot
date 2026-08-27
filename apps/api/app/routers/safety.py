@@ -6,7 +6,7 @@
   ③ 시설별 다음 1시간 예측(가능하면, 실패 시 null)
 을 얹어 관제 화면(app/admin/safety) 이 소비할 압축 JSON 을 만든다.
 
-- 가드: require_admin(X-Admin-Authorization 공유 토큰) — apps/api/app/routers/admin.py 와 동일 재사용.
+- 가드: Supabase JWT + users.role='admin' — app/core/authz.py require_role 재사용.
 - DB 조회는 fetch_all_rows(전체 시설) + fetch_latest_congestion_for_all(시설별 최신 로그, 시설별
   .limit(1) 병렬 조회 — infrastructures.py 재사용)로 구성한다. 별도 congestion_logs 집계 쿼리를
   새로 짜지 않고 기존 검증된 경로를 그대로 탄다.
@@ -26,12 +26,13 @@ from datetime import datetime, timedelta, timezone
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from app.core.supabase import supabase_client, require_admin, fetch_all_rows
+from app.core.authz import ROLE_ADMIN, require_role
+from app.core.supabase import supabase_client, fetch_all_rows
 from app.routers.infrastructures import fetch_latest_congestion_for_all
 from app.services.predict_service import predict_congestion
 
 logger = structlog.get_logger()
-router = APIRouter(prefix="/api/v1/admin/safety", tags=["admin-safety"], dependencies=[Depends(require_admin)])
+router = APIRouter(prefix="/api/v1/admin/safety", tags=["admin-safety"], dependencies=[Depends(require_role(ROLE_ADMIN))])
 
 # 기본 임계값 — 프런트 슬라이더 초기값과 동일(app/admin/safety/page.tsx).
 DEFAULT_ALERT_THRESHOLD = 0.85

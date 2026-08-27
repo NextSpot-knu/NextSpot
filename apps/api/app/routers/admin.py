@@ -4,7 +4,7 @@
 직접 쓰던 경로는 RLS 강화(20260707120000_security_hardening.sql) 이후 전부 거부된다(이전에도
 0행 갱신이 성공으로 표시되는 무음 실패였다). 이 라우터가 그 쓰기/민감 읽기의 단일 관문이다.
 
-- 모든 엔드포인트는 require_admin(X-Admin-Authorization 공유 토큰) 가드로 보호된다.
+- 모든 엔드포인트는 Supabase JWT + users.role='admin' 가드로 보호된다.
 - DB 접근은 service_role(supabase_admin) — RLS 우회는 이 신뢰 경로 안에서만 일어난다.
 - 예외 원문은 서버 로그로만 남기고 클라이언트에는 일반 메시지를 준다.
 """
@@ -16,11 +16,12 @@ import structlog
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from app.core.supabase import supabase_admin, require_admin
+from app.core.authz import ROLE_ADMIN, require_role
+from app.core.supabase import supabase_admin
 from app.services import briefing_service
 
 logger = structlog.get_logger()
-router = APIRouter(prefix="/api/v1/admin", tags=["admin"], dependencies=[Depends(require_admin)])
+router = APIRouter(prefix="/api/v1/admin", tags=["admin"], dependencies=[Depends(require_role(ROLE_ADMIN))])
 
 FACILITY_TYPES = {"restaurant", "cafe", "attraction", "culture"}
 INQUIRY_STATUSES = {"new", "in_progress", "resolved"}  # inquiries.status CHECK 와 동일

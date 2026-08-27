@@ -10,7 +10,8 @@ export function AdminSidebar() {
   const router = useRouter();
 
   const handleLogout = () => {
-    signOutAdmin();
+    // 세션 폐기를 기다리지 않고 즉시 화면을 옮긴다(실패해도 로그인으로 보내는 게 맞다).
+    void signOutAdmin();
     router.replace('/admin/login');
   };
 

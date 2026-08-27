@@ -8,21 +8,24 @@
 // Supabase 직조회 시절부터 snake_case 필드(user_name, maintenance_mode 등)를 그대로 쓰고 있어,
 // 원형 JSON 을 반환해야 페이지 수정이 최소화된다.
 
-import { getAdminToken } from "./admin-auth";
+import { createPublicClient } from "./supabase";
 
 const BASE_URL = process.env.NEXT_PUBLIC_FASTAPI_URL || "http://localhost:8000";
 const REQUEST_TIMEOUT_MS = 8000;
 
 async function adminRequest(path: string, options: RequestInit = {}): Promise<any> {
-  const token = getAdminToken();
-  if (!token) {
+  // 인증은 Supabase JWT 하나로 통일했다(RBAC P2-2). 백엔드가 이 토큰에서 users.role 을 읽어
+  // admin/developer 인지 매 요청 확인한다 — 프런트 판정을 우회해도 API 는 403 을 돌려준다.
+  const { data: { session } } = await createPublicClient().auth.getSession();
+  if (!session?.access_token) {
     throw new Error("관리자 세션이 없습니다. 다시 로그인해 주세요.");
   }
 
   const headers = new Headers(options.headers);
   headers.set("Content-Type", "application/json");
-  // 백엔드 require_admin 은 X-Admin-Authorization 만 읽는다(일반 Authorization 폴백 제거됨).
-  headers.set("X-Admin-Authorization", `Bearer ${token}`);
+  headers.set("Authorization", `Bearer ${session.access_token}`);
+  // 프록시 경유 배포에서 Authorization 이 덮이는 경우 대비(api-client 와 동일 관례).
+  headers.set("X-Supabase-Authorization", `Bearer ${session.access_token}`);
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);

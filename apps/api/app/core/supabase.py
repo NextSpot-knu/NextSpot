@@ -1,4 +1,3 @@
-import hmac
 import threading
 import time
 from typing import Optional
@@ -264,24 +263,9 @@ def get_current_user(
         )
 
 
-def require_admin(request: Request) -> dict:
-    """관리자 전용 가드 — 공유 토큰 검증(비-GCP).
-
-    워커 경로(Supabase JWT, get_current_user)와 분리된다. 관리자 프런트(admin/*)는 세션 토큰을
-    X-Admin-Authorization 헤더(Bearer)로만 보낸다.
-    - 일반 Authorization 헤더 폴백은 제거 — 워커용 JWT 헤더가 관리자 가드에 흘러들지 않게 경로를 분리한다.
-    - 토큰 비교는 hmac.compare_digest(상수시간) — 타이밍 공격으로 토큰을 유추할 수 없게 한다.
-    """
-    auth = request.headers.get("x-admin-authorization") or ""
-    if not auth.startswith("Bearer "):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="관리자 인증 토큰이 없습니다.",
-        )
-    token = auth.split(" ", 1)[1].strip()
-    if not token or not hmac.compare_digest(token, settings.ADMIN_API_TOKEN):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="유효하지 않은 관리자 토큰입니다.",
-        )
-    return {"role": "admin"}
+# require_admin(X-Admin-Authorization 공유 토큰 가드)은 제거됐다.
+#
+# 그 방식은 프런트 번들에 박힌 토큰 하나로 모든 관리자를 통과시켰다 — 토큰을 바꾸면 전원이
+# 동시에 튕기고, 개인별 권한 회수도 불가능했다. 이제 관리자 판정은 Supabase JWT +
+# public.users.role 로 한다: app/core/authz.py 의 require_role("admin") 를 쓸 것.
+# (developer 는 admin 의 상위집합이라 자동 통과한다.)

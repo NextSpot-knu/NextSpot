@@ -5,10 +5,11 @@
 // 가입은 현재 익명 세션을 '정회원 전환'해 저장·취향 데이터를 승계한다(lib/auth signUpWithEmail).
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
 import { Mail, Lock, User } from 'lucide-react';
 import { signInWithEmail, signUpWithEmail, signInOAuth, type OAuthProvider } from '@/lib/auth';
+import { safeNext } from '@/lib/oauthFlow';
 import { reconcileUserData } from '@/lib/userData';
 import { syncSaved } from '@/lib/savedFacilities';
 import { createPublicClient } from '@/lib/supabase';
@@ -19,7 +20,15 @@ type Mode = 'login' | 'signup';
 
 export default function LoginPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const t = useT();
+  // 로그인 후 돌아갈 곳. /merchant·/admin/dashboard 처럼 권한이 필요한 화면이
+  // ?next= 로 보내온다. safeNext 로 앱 내부 절대경로만 허용한다(오픈 리다이렉트 방지).
+  const nextPath = safeNext(searchParams.get('next') ?? undefined);
+  // 기존 동작 유지: next 가 없으면 로그인은 /main, 신규 가입은 /setup.
+  const hasNext = searchParams.get('next') !== null;
+  const loginDest = hasNext ? nextPath : '/main';
+  const signUpDest = hasNext ? nextPath : '/setup';
   const [mode, setMode] = useState<Mode>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -57,7 +66,7 @@ export default function LoginPage() {
   const handleOAuth = async (provider: OAuthProvider) => {
     if (busy) return;
     setBusy(true);
-    const { error } = await signInOAuth(provider, '/main');
+    const { error } = await signInOAuth(provider, loginDest);
     if (error) {
       // 실제 원인(예: "Manual linking is disabled")을 콘솔에 남긴다 — 토스트는 사용자용 일반 문구.
       console.warn('[login] SNS 계속하기 실패:', error);
@@ -82,7 +91,7 @@ export default function LoginPage() {
           setBusy(false);
           return;
         }
-        await afterAuth('/main');
+        await afterAuth(loginDest);
       } else {
         const { error, reason, needsConfirmation } = await signUpWithEmail(email.trim(), password, nickname);
         if (error) {
@@ -104,7 +113,7 @@ export default function LoginPage() {
           setBusy(false);
           return;
         }
-        await afterAuth('/setup');
+        await afterAuth(signUpDest);
       }
     } catch {
       toast.error(t('login.signupError'));

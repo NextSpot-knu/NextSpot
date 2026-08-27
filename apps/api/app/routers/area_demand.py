@@ -10,7 +10,7 @@ from typing import Any, Literal
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
-from app.core.supabase import require_admin
+from app.core.authz import ROLE_ADMIN, require_role
 from app.services.area_demand_snapshot_service import (
     SnapshotPersistenceError,
     collect_area_demand_snapshot,
@@ -142,7 +142,7 @@ async def area_demand_forecast(
 @router.post(
     "/snapshots/collect",
     response_model=SnapshotCollectionResponse,
-    dependencies=[Depends(require_admin)],
+    dependencies=[Depends(require_role(ROLE_ADMIN))],
 )
 async def collect_snapshot() -> SnapshotCollectionResponse:
     """경주시 ITS 현재값을 조회해 10분 시계열로 한 번 저장한다."""

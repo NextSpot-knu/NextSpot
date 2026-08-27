@@ -6,7 +6,8 @@ from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 # 읽기는 anon, congestion_logs 쓰기(simulate_peak)는 RLS 우회가 필요해 service_role 을 쓴다
 # (ingest 라우터와 동일 사유 — anon INSERT 는 RLS 로 거부됨).
-from app.core.supabase import supabase_client, supabase_admin, require_admin, fetch_all_rows
+from app.core.authz import ROLE_ADMIN, require_role
+from app.core.supabase import supabase_client, supabase_admin, fetch_all_rows
 from app.services.availability_service import fetch_effective_availability_map
 
 logger = structlog.get_logger()
@@ -294,7 +295,7 @@ async def get_infrastructures(
 
 
 @router.post("/admin/simulate-peak")
-async def simulate_peak(admin_claims: dict = Depends(require_admin)):
+async def simulate_peak(admin_claims: dict = Depends(require_role(ROLE_ADMIN))):
     """
     데모 전용 피크타임 혼잡도 데이터 모의 발생 API. (관리자 전용 — require_admin 으로 보호)
     실행 시 모든 시설에 대해 실시간 랜덤 혼잡 로그(여유 15개, 보통 15개, 혼잡 10개)를 생성 및 DB에 삽입합니다.

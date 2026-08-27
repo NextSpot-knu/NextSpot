@@ -1,133 +1,94 @@
 'use client';
 
-import React, { useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { Lock, ShieldCheck, Loader2, Eye, EyeOff } from 'lucide-react';
-import { signInWithPassword } from '@/lib/admin-auth';
+// 관리자 진입 안내 — **여기에 비밀번호 칸은 없다.**
+//
+// 예전에는 관리자 전용 비밀번호(`admin`)를 브라우저에서 문자열 비교해 localStorage 플래그를
+// 세웠다. 정적 export 라 비밀번호가 번들에 박혔고, 콘솔에서 플래그를 직접 세우면 그냥 통과했다.
+//
+// 이제 관리자는 **앱 일반 계정**으로 로그인하고(/login — 이메일/비밀번호 또는 소셜),
+// 권한은 users.role ∈ {admin, developer} 로 판정한다. 이 화면은 세 가지만 한다:
+//   · 권한이 있으면 대시보드로 넘긴다(이미 로그인한 채 이 URL 로 온 경우)
+//   · 로그인 전이면 로그인 화면으로 보낸다
+//   · 로그인은 했는데 권한이 없으면 그 사실을 알린다(조용히 튕기지 않는다)
 
-// 관리자 진입 = 데모용 간편 인증. 비밀번호 한 개(`admin`)만 입력하면 진입.
-// 성공 시 로컬 세션 마커가 저장되고, admin/layout 가드가 통과시킨다.
+import { useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { ShieldCheck, ShieldAlert, Loader2 } from 'lucide-react';
+import { useAccount, canEnterAdminConsole } from '@/lib/account';
+
 export default function AdminLoginPage() {
   const router = useRouter();
-  const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState('');
+  const { account, status } = useAccount();
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!password) {
-      setError('비밀번호를 입력해주세요.');
-      return;
-    }
+  const allowed = canEnterAdminConsole(account);
 
-    setIsLoading(true);
-    setError('');
+  useEffect(() => {
+    if (status === 'loading') return;
+    if (allowed) router.replace('/admin/dashboard');
+  }, [status, allowed, router]);
 
-    if (signInWithPassword(password)) {
-      router.replace('/admin/dashboard');
-    } else {
-      setError('비밀번호가 올바르지 않습니다.');
-      setIsLoading(false);
-    }
-  };
+  // 권한이 확인되면 리다이렉트가 진행 중이므로 로더를 유지한다.
+  const loading = status === 'loading' || allowed;
+  // 세션이 없거나 익명이면 '로그인 필요', 로그인은 했는데 role 이 모자라면 '권한 없음'.
+  const signedIn = !!account && !account.isAnonymous;
 
   return (
-    <div className="min-h-screen w-full flex items-center justify-center bg-hanok font-sans relative overflow-hidden">
-      {/* Background ambient glow effect */}
-      <div className="absolute top-1/4 left-1/4 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-gold/10 blur-[120px] rounded-full pointer-events-none" />
-      <div className="absolute bottom-1/4 right-1/4 translate-x-1/2 translate-y-1/2 w-96 h-96 bg-gold/10 blur-[120px] rounded-full pointer-events-none" />
+    <div className="relative flex min-h-screen w-full items-center justify-center overflow-hidden bg-hanok font-sans">
+      <div className="pointer-events-none absolute left-1/4 top-1/4 h-96 w-96 -translate-x-1/2 -translate-y-1/2 rounded-full bg-gold/10 blur-[120px]" />
+      <div className="pointer-events-none absolute bottom-1/4 right-1/4 h-96 w-96 translate-x-1/2 translate-y-1/2 rounded-full bg-gold/10 blur-[120px]" />
 
-      {/* Grid Pattern Overlay */}
-      <div className="absolute inset-0 bg-[linear-gradient(to_right,#3a2f24_1px,transparent_1px),linear-gradient(to_bottom,#3a2f24_1px,transparent_1px)] bg-[size:4rem_4rem] [mask-image:radial-gradient(ellipse_60%_50%_at_50%_50%,#000_70%,transparent_100%)] opacity-[0.15] pointer-events-none" />
-
-      <div className="w-full max-w-md px-6 z-10 animate-slide-up">
-        {/* Card */}
-        <div className="bg-hanok-panel/60 backdrop-blur-xl border border-hanok-line rounded-2xl shadow-2xl p-8 md:p-10 relative overflow-hidden">
-          {/* Subtle top light bar */}
-          <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-gold to-transparent opacity-80" />
-
-          {/* Logo / Title Section */}
-          <div className="text-center mb-8">
-            <div className="inline-flex p-3 bg-gold/10 border border-gold/20 text-gold rounded-xl mb-4 shadow-[0_0_15px_rgba(193,154,62,0.1)]">
-              <ShieldCheck size={28} className="animate-pulse" />
-            </div>
-            <h1 className="text-2xl font-black text-white tracking-tight">
-              NextSpot <span className="text-gold text-base font-semibold">관광 관제</span>
-            </h1>
-            <p className="text-hanok-muted text-sm mt-2">
-              경주 관광 혼잡 관리를 위한 관리자 인증
-            </p>
+      <div className="relative z-10 w-full max-w-sm px-6">
+        <div className="mb-8 flex flex-col items-center text-center">
+          <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-gold/30 bg-gold/15 text-gold">
+            {signedIn && !loading ? <ShieldAlert size={26} /> : <ShieldCheck size={26} />}
           </div>
+          <h1 className="font-serif text-2xl font-bold tracking-tight text-white">NextSpot 관제</h1>
+          <p className="mt-1 text-sm text-hanok-muted">경북문화관광공사 운영 대시보드</p>
+        </div>
 
-          {/* Form */}
-          <form onSubmit={handleSubmit} className="space-y-5">
-            {/* Password */}
-            <div>
-              <label
-                htmlFor="password"
-                className="block text-xs font-semibold text-hanok-muted uppercase tracking-wider mb-2"
+        <div className="rounded-3xl border border-hanok-line bg-hanok-deep/60 p-6 text-center">
+          {loading ? (
+            <div className="flex items-center justify-center gap-2 py-6 text-hanok-muted">
+              <Loader2 className="animate-spin" size={18} />
+              <span className="text-sm">권한 확인 중…</span>
+            </div>
+          ) : signedIn ? (
+            <>
+              <p className="font-bold text-white">관리자 권한이 없는 계정입니다</p>
+              <p className="mt-1.5 text-xs leading-relaxed text-hanok-muted">
+                이 대시보드는 관리자 계정만 들어올 수 있어요. 다른 계정으로 로그인하거나
+                담당자에게 권한을 요청해 주세요.
+              </p>
+              <button
+                type="button"
+                onClick={() => router.push('/login?next=/admin/dashboard')}
+                className="mt-5 w-full rounded-xl bg-gradient-to-r from-gold to-terracotta py-3 text-sm font-semibold text-white transition-opacity hover:opacity-90"
               >
-                비밀번호
-              </label>
-              <div className="relative">
-                <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-hanok-muted">
-                  <Lock size={18} />
-                </span>
-                <input
-                  id="password"
-                  name="password"
-                  type={showPassword ? 'text' : 'password'}
-                  autoComplete="current-password"
-                  required
-                  disabled={isLoading}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="관리자 비밀번호 입력"
-                  className="w-full pl-10 pr-10 py-3 bg-hanok/80 border border-hanok-line rounded-xl text-white placeholder-hanok-muted focus:outline-none focus:ring-2 focus:ring-gold/50 focus:border-gold/80 transition-all text-sm disabled:opacity-50"
-                  autoFocus
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-hanok-muted hover:text-hanok-muted transition-colors"
-                >
-                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                </button>
-              </div>
-            </div>
-
-            {/* Error Message */}
-            {error && (
-              <div className="p-3.5 bg-red-950/40 border border-red-900/60 rounded-xl text-red-200 text-xs font-medium flex items-center gap-2 animate-fade-in">
-                <span className="w-1.5 h-1.5 bg-red-500 rounded-full flex-shrink-0" />
-                <span>{error}</span>
-              </div>
-            )}
-
-            {/* Submit Button */}
-            <button
-              type="submit"
-              disabled={isLoading}
-              className="w-full py-3.5 px-4 bg-gradient-to-r from-gold to-terracotta hover:from-gold hover:to-terracotta text-white rounded-xl font-semibold text-sm shadow-[0_4px_12px_rgba(193,154,62,0.25)] hover:shadow-[0_4px_20px_rgba(193,154,62,0.4)] hover:-translate-y-[1px] transition-all disabled:opacity-50 disabled:pointer-events-none flex items-center justify-center gap-2"
-            >
-              {isLoading ? (
-                <>
-                  <Loader2 size={16} className="animate-spin" />
-                  인증 처리 중...
-                </>
-              ) : (
-                '관리자 인증'
-              )}
-            </button>
-          </form>
-
-          {/* Footer note */}
-          <div className="mt-8 text-center">
-            <span className="text-hanok-muted text-xs">
-              관리자 전용 · 무단 접근이 엄격히 제한됩니다.
-            </span>
-          </div>
+                다른 계정으로 로그인
+              </button>
+              <button
+                type="button"
+                onClick={() => router.push('/main')}
+                className="mt-2 w-full rounded-xl border border-hanok-line py-2.5 text-sm text-hanok-muted transition-colors hover:text-white"
+              >
+                관광객 앱으로 돌아가기
+              </button>
+            </>
+          ) : (
+            <>
+              <p className="font-bold text-white">로그인이 필요합니다</p>
+              <p className="mt-1.5 text-xs leading-relaxed text-hanok-muted">
+                관제 대시보드는 NextSpot 계정으로 들어옵니다. 별도 관리자 비밀번호는 없습니다.
+              </p>
+              <button
+                type="button"
+                onClick={() => router.push('/login?next=/admin/dashboard')}
+                className="mt-5 w-full rounded-xl bg-gradient-to-r from-gold to-terracotta py-3 text-sm font-semibold text-white transition-opacity hover:opacity-90"
+              >
+                로그인하기
+              </button>
+            </>
+          )}
         </div>
       </div>
     </div>

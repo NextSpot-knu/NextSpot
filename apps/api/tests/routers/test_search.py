@@ -7,6 +7,7 @@ test_merchant.py 와 동일 관례로 search.router 만 얹은 독립 테스트 
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from tests.conftest import admin_headers as conftest_admin_headers
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -19,8 +20,9 @@ from app.services import search_rewrite_service
 from tests.routers.test_routers import FakeSupabase
 
 
-def _admin_headers(token: str | None = None) -> dict:
-    return {"X-Admin-Authorization": f"Bearer {token or settings.ADMIN_API_TOKEN}"}
+def _admin_headers(sub: str | None = None) -> dict:
+    # 관리자 판정은 JWT + users.role 이다(공유 토큰 가드 폐지).
+    return conftest_admin_headers(sub)
 
 
 @pytest.fixture

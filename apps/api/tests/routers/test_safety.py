@@ -8,10 +8,13 @@ from datetime import datetime, timezone
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from tests.conftest import (
+    ADMIN_USER_ID,  # noqa: F401 — 하위 테스트에서 참조
+    admin_headers as conftest_admin_headers,
+)
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.core.config import settings
 from app.routers import safety
 
 # 2026-07-14 는 화요일(dow=1). 03시 UTC 고정 — +1h 목표 시각은 04시(같은 요일).
@@ -24,9 +27,10 @@ def _make_client() -> TestClient:
     return TestClient(app)
 
 
-def _admin_headers(token: str | None = None) -> dict:
-    # require_admin 은 X-Admin-Authorization 헤더만 읽는다(admin.py 테스트 관례와 동일).
-    return {"X-Admin-Authorization": f"Bearer {token or settings.ADMIN_API_TOKEN}"}
+def _admin_headers(sub: str | None = None) -> dict:
+    # 관리자 판정은 JWT + users.role 이다(공유 토큰 가드는 폐지).
+    # sub 를 넘기면 그 사용자의 역할로 평가된다 — 권한 없는 계정 테스트에 쓴다.
+    return conftest_admin_headers(sub)
 
 
 def _patched(facilities, congestion_map, predict_side_effect=None):
@@ -48,10 +52,18 @@ def test_status_requires_admin_401():
     assert res.status_code == 401
 
 
-def test_status_rejects_invalid_admin_token_401():
+def test_status_rejects_non_admin_account_403():
+    """유효한 로그인이어도 role 이 admin 이 아니면 막힌다.
+
+    구 가드는 공유 토큰 하나만 봐서 '토큰이 틀리면 401' 이었다. 이제는 **누구인지**를 먼저
+    확인하므로, 로그인은 됐지만 권한이 없는 계정은 401(인증 실패)이 아니라 403(권한 없음)이다.
+    """
     client = _make_client()
-    res = client.get("/api/v1/admin/safety/status", headers=_admin_headers("wrong-token"))
-    assert res.status_code == 401
+    res = client.get(
+        "/api/v1/admin/safety/status",
+        headers=_admin_headers("00000000-0000-4000-8000-000000000000"),  # tourist
+    )
+    assert res.status_code == 403
 
 
 # ============================================================================

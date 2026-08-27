@@ -1,7 +1,9 @@
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.core.config import settings
+# 관리자 판정은 JWT + users.role 이다(공유 토큰 가드 폐지).
+from tests.conftest import admin_headers as conftest_admin_headers
+
 from app.routers import area_demand_admin
 from app.services.area_demand_reliability_service import AreaDemandReliabilityError
 
@@ -13,7 +15,7 @@ def _client():
 
 
 def _headers():
-    return {"X-Admin-Authorization": f"Bearer {settings.ADMIN_API_TOKEN}"}
+    return conftest_admin_headers()
 
 
 def test_area_demand_reliability_requires_admin_header():
