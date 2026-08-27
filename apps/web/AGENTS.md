@@ -28,3 +28,13 @@
   하드코딩 금지(단계적 제거 대상, docs/IMPROVEMENT_PLAN.md WS-D 참조).
 - **음성비서:** 공용 훅 `lib/useVoiceAssistant.ts` + `components/VoiceAssistantOrb.tsx`를 사용. 페이지 인라인 재구현 금지.
 - 루트 가이드는 [`../../AGENTS.md`](../../AGENTS.md), 피벗 백로그는 `docs/NEXTSPOT_PIVOT.md` 참조.
+
+<!-- BEGIN:nextjs-agent-rules -->
+
+# This is NOT the Next.js you know
+
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
+
+This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
+
+<!-- END:nextjs-agent-rules -->
