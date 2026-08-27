@@ -37,14 +37,29 @@ UUID 하나가 구분자 포함 ~39바이트라 URL 이 60KB 를 넘고, Supabas
 (§-29 F1 로 보고만 해뒀던 건). ko/en/ja/zh 4개 로케일에 13키를 채웠다(§-41 의 인증 문구 2키와 병합 후 패리티 736키). 문구는 도착시점 혼잡 예측을 주장하지 않는다(현재 `degraded_rules` 라 정직하지 않다):
 `분산 코스를 짜는 중 / 도보 이동시간과 취향을 함께 계산하고 있어요 / 취향 반영 · 도착 시각 계산 · 동선 정리`.
 
-**아직 남은 i18n 누락 41종** (`npm run check:i18n`). 전부 main 의 신규 기능 쪽이라 문구 주인이
-따로 있다 — 이번 작업 범위 밖으로 두고 보고만 한다:
-`discovery.*`(11) · `recommend.*`(16, spotComparison·tourismEvidence 포함) · `card.hours*`(7) ·
-`theme.title/description` · `festival.aiSummary` · `common.back`(온보딩 뒤로가기 aria-label —
-스크린리더가 "common.back" 을 그대로 읽는다).
+**⚠️ 이 절의 초판에 적었던 "남은 i18n 누락 41종"은 틀린 수치였다 — 검사기 버그.**
+`scripts/check-i18n-keys.mjs` 가 `messages/*.json` 만 읽었는데, `I18nProvider` 의 `t()` 는
+**JSON 보다 먼저** 사이드 모듈 3개를 조회한다:
+`discovery-messages.ts` · `area-demand-messages.ts` · `theme-messages.ts`(합계 65키).
+그래서 `discovery.*`(12) · `card.hours*`(7) · `recommend.*` 대부분 · `theme.*` 를 통째로
+오검출했다. 검사기가 세 모듈의 `ko` 블록을 함께 읽도록 고쳤고, **실제 누락은 6종**이었다.
+
+그 6종은 이번에 4로케일 모두 채웠다:
+- `common.back` — 온보딩·비밀번호 찾기 뒤로가기 `aria-label`. 스크린리더가 "common.back" 을
+  그대로 읽고 있었다(눈에 보이는 텍스트가 아니라 시각적으로는 멀쩡해 보였다).
+- `festival.aiSummary` — 축제 소개의 LLM 요약 배지 라벨.
+- `recommend.nlSummary{Empty,AnyPlace,Understood,CatsOnly}` — 자연어 선호 파싱 결과 요약
+  ("{cats} 중에서 {attrs} 조건으로 찾아볼게요"). 서버가 파싱한 내용을 되읽어주는 문구라
+  제품 주장(혼잡 예측 등)을 담지 않는다.
+
+**이제 `check:i18n` 이 0 을 반환하므로 `apps/web` 의 `npm test` 체인 맨 앞에 넣었다.**
+그동안은 이 스크립트가 항상 1 로 끝나 CI 에 붙일 수 없었다(§-29 에서 도구만 추가하고 배선은
+보류했던 이유). 로케일끼리 비교하는 `parity.test.ts` 와 방향이 반대라 둘 다 필요하다 —
+패리티는 "네 로케일이 사이좋게 전부 비어 있는" 경우를 구조적으로 잡을 수 없다.
 
 **검증**: API pytest **808 passed**(신규 2건 포함), ruff 통과, 웹 typecheck 0, 웹 단위 테스트 전체
-통과(로케일 패리티 736키 × 3), lint 0 errors / 142 warnings, 브라우저에서 코스 3정류지 렌더 확인.
+통과(로케일 패리티 742키 × 3, check:i18n 0 누락), lint 0 errors / 142 warnings,
+브라우저에서 코스 3정류지 렌더 확인.
 
 ## -41. 2026-08-27 — 회원가입 실패 원인별 안내
 
