@@ -175,64 +175,111 @@ export default function MerchantGatePage() {
   );
 }
 
-// 개발자 전용 가게 검색 — anon RLS 로 공개 시설 목록을 이름 부분일치 조회한다.
+// 개발자 전용 가게 선택 — anon RLS 로 공개 시설 목록을 조회한다.
 // 일반 사장님 경로에는 없다(예전에 남의 가게를 고를 수 있던 원인이 바로 이 전체 목록이었다).
+//
+// 개편 전 콘솔처럼 **전체 목록을 훑을 수 있어야** 한다는 요청(2026-08-28)으로 검색 전용에서
+// 브라우징으로 바꿨다. 다만 시설이 1,600곳이라 통째로 뿌리면 못 쓴다 — 종류 필터와
+// 페이지 단위 로드를 함께 둔다. 검색어는 이제 '좁히기'이고, 비워 두면 전체가 나온다.
+const PAGE_SIZE = 30;
+const DEV_TYPES = ['restaurant', 'cafe', 'attraction', 'culture'] as const;
+
 function DeveloperFacilityPicker({ onPick }: { onPick: (f: MerchantFacility) => void }) {
   const t = useT();
   const [q, setQ] = useState('');
+  const [type, setType] = useState<string | null>(null);
   const [rows, setRows] = useState<MerchantFacility[]>([]);
+  const [total, setTotal] = useState<number | null>(null);
+  const [page, setPage] = useState(0);
   const [busy, setBusy] = useState(false);
 
+  // 필터가 바뀌면 첫 페이지부터 다시 — 안 그러면 이전 조건의 페이지가 이어 붙는다.
   useEffect(() => {
-    const term = q.trim();
-    if (term.length < 2) {
-      setRows([]);
-      return;
-    }
+    setPage(0);
+  }, [q, type]);
+
+  useEffect(() => {
     let alive = true;
     setBusy(true);
+    const term = q.trim();
     const timer = setTimeout(async () => {
       try {
-        const { data } = await createPublicClient()
+        let query = createPublicClient()
           .from('facilities')
-          .select('id, name, type')
-          .ilike('name', `%${term}%`)
-          .limit(20);
+          .select('id, name, type', { count: 'exact' })
+          .order('name')
+          .range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1);
+        if (term) query = query.ilike('name', `%${term}%`);
+        if (type) query = query.eq('type', type);
+        const { data, count } = await query;
         if (!alive) return;
-        setRows(
-          (data ?? []).map((r) => ({
-            id: String(r.id),
-            name: String(r.name ?? ''),
-            type: String(r.type ?? ''),
-            couponRate: 0,
-          })),
-        );
+        const mapped = (data ?? []).map((r) => ({
+          id: String(r.id),
+          name: String(r.name ?? ''),
+          type: String(r.type ?? ''),
+          couponRate: 0,
+        }));
+        // 첫 페이지는 갈아끼우고, 이후 페이지는 이어 붙인다.
+        setRows((prev) => (page === 0 ? mapped : [...prev, ...mapped]));
+        setTotal(typeof count === 'number' ? count : null);
       } catch {
-        if (alive) setRows([]);
+        if (alive && page === 0) {
+          setRows([]);
+          setTotal(null);
+        }
       } finally {
         if (alive) setBusy(false);
       }
-    }, 300);
+    }, term ? 300 : 0);   // 타이핑 중에만 디바운스 — 필터·페이지는 즉시.
     return () => {
       alive = false;
       clearTimeout(timer);
     };
-  }, [q]);
+  }, [q, type, page]);
+
+  const hasMore = total !== null && rows.length < total;
 
   return (
     <div className="mt-4 border-t border-line pt-4">
-      <label htmlFor="dev-facility-q" className="mb-1.5 block text-xs font-semibold text-muk-soft">
-        {t('merchantGate.developerSearch')}
-      </label>
+      <div className="mb-2 flex items-baseline justify-between gap-2">
+        <label htmlFor="dev-facility-q" className="text-xs font-semibold text-muk-soft">
+          {t('merchantGate.developerSearch')}
+        </label>
+        {total !== null && (
+          <span className="text-[11px] tabular-nums text-muk-soft">
+            {t('merchantGate.developerCount').replace('{count}', String(total))}
+          </span>
+        )}
+      </div>
+
       <input
         id="dev-facility-q"
         value={q}
         onChange={(e) => setQ(e.target.value)}
         placeholder={t('merchantGate.developerSearchHint')}
-        className="w-full rounded-xl border border-line bg-hanji px-3.5 py-2.5 text-sm focus:border-gold/70 focus:outline-none focus:ring-2 focus:ring-gold/40"
+        className="w-full rounded-xl border border-line bg-hanji px-3.5 py-2.5 text-sm focus:border-gold/70 focus:outline-none"
       />
-      {busy && <Loader2 size={14} className="mt-2 animate-spin text-muk-soft" />}
-      <div className="mt-2 flex max-h-56 flex-col gap-1.5 overflow-y-auto">
+
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        {[null, ...DEV_TYPES].map((tp) => {
+          const on = type === tp;
+          return (
+            <button
+              key={tp ?? 'all'}
+              type="button"
+              onClick={() => setType(tp)}
+              aria-pressed={on}
+              className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-colors ${
+                on ? 'border-gold bg-gold/10 text-gold-deep' : 'border-line text-muk-soft hover:bg-hanji'
+              }`}
+            >
+              {tp === null ? t('merchantGate.developerAllTypes') : TYPE_LABEL[tp] || tp}
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="mt-2 flex max-h-72 flex-col gap-1.5 overflow-y-auto">
         {rows.map((f) => (
           <button
             key={f.id}
@@ -246,13 +293,28 @@ function DeveloperFacilityPicker({ onPick }: { onPick: (f: MerchantFacility) => 
             </span>
           </button>
         ))}
+
+        {hasMore && (
+          <button
+            type="button"
+            onClick={() => setPage((n) => n + 1)}
+            disabled={busy}
+            className="min-h-10 rounded-lg border border-dashed border-line px-3 py-2 text-xs font-semibold text-muk-soft hover:bg-hanji disabled:opacity-50"
+          >
+            {busy ? <Loader2 size={14} className="mx-auto animate-spin" /> : t('merchantGate.developerMore')}
+          </button>
+        )}
+
+        {!busy && rows.length === 0 && (
+          <p className="py-3 text-center text-xs text-muk-soft">{t('merchantGate.developerEmpty')}</p>
+        )}
       </div>
     </div>
   );
 }
 
 function toStored(f: OwnedFacility) {
-  // 대시보드는 기존 계약(couponRate 포함)을 그대로 쓴다. 쿠폰율은 대시보드가 서버에서 다시 읽으므로
+  // 대시보드는 기존 계약(couponRate 포함)을 그대로 쓴다. 쿠폰율은 대시보드가 서버에서 받으므로
   // 여기서는 0 으로 두고 이름·종류만 넘긴다(가게 전환 시 화면 라벨용).
   return { id: f.id, name: f.name, type: f.type, couponRate: 0 };
 }

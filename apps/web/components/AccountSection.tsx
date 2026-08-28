@@ -1,9 +1,9 @@
 'use client';
 
 // 마이페이지 계정 섹션 — docs/OAUTH_PLAN.md F5.
-// 익명(게스트) 세션 위에 카카오·구글 소셜 계정으로 '계속하기'. 회원가입/로그인은 버튼 하나로 통합된다:
-//   처음 연결하는 계정이면 현재 익명 사용자에 연결(회원가입), 이미 연결된 적 있는 계정이면
-//   콜백이 자동으로 로그인(계정 전환)으로 폴백한다(lib/auth.ts linkOAuth + app/auth/callback).
+// 익명(게스트) 세션 위에 카카오·구글 소셜 계정으로 '계속하기'. 회원가입/로그인은 버튼 하나로 자동 분기된다 —
+//   신규든 기존이든 signInOAuth 로 **한 번에** 끝나고, 게스트 데이터는 콜백의 병합이 옮긴다.
+//   (2026-08-28 이전에는 linkOAuth 라, 이미 가입한 계정이면 콜백이 로그인으로 폴백하며 프로바이더를 두 번 왕복했다.)
 // 상태 분기:
 //   · guest/none : '계속하기' 유도 배너 + 프로바이더 버튼(카카오/구글)
 //   · linked     : 연동된 프로바이더 뱃지(로그아웃은 마이페이지 기존 버튼이 담당)
@@ -11,7 +11,7 @@
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { Link2, Check } from 'lucide-react';
-import { getAuthState, linkOAuth, type AuthState, type OAuthProvider } from '@/lib/auth';
+import { getAuthState, signInOAuth, type AuthState, type OAuthProvider } from '@/lib/auth';
 import { useT } from '@/lib/i18n/I18nProvider';
 
 const PROVIDERS: OAuthProvider[] = ['kakao', 'google'];
@@ -38,10 +38,20 @@ export function AccountSection() {
   }, []);
 
   // 성공 시 브라우저가 프로바이더로 리다이렉트되므로, 실패(리다이렉트 전 오류)만 여기서 처리.
+  // 왜 linkOAuth 가 아닌가(2026-08-28 변경): linkOAuth 는 현재 익명 세션에 소셜 identity 를
+  // 붙이려 한다. 이미 그 소셜 계정으로 가입한 사용자면 identity_already_exists 로 실패하고,
+  // 콜백이 signInOAuth 로 자동 폴백한다 — 결과적으로 로그인은 되지만 **프로바이더를 두 번
+  // 왕복**한다. 사용자 눈에는 구글 계정 선택 화면이 두 번 떠서 '처음엔 실패했다' 로 읽힌다.
+  // 재방문자는 전부 이 경로라 흔한 경우다(/login 은 2026-08-27 에 같은 이유로 이미 바꿨다).
+  //
+  // signInOAuth 는 신규·기존 모두 한 번에 끝난다. 신규 사용자는 uid 가 바뀌지만 게스트
+  // 데이터는 잃지 않는다 — captureGuestSession() 이 익명 토큰을 잡아 두고 콜백의
+  // mergeCapturedGuestData() → POST /account/merge-guest 가 취향·닉네임·저장·쿠폰·제보·추천
+  // 이력을 원자적으로 옮긴다(merge_guest_account_data RPC).
   const handleContinue = async (provider: OAuthProvider) => {
     if (busy) return;
     setBusy(true);
-    const { error } = await linkOAuth(provider, '/mypage');
+    const { error } = await signInOAuth(provider, '/mypage');
     if (error) {
       setBusy(false);
       toast.error(t('auth.linkError'));
