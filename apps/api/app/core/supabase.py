@@ -82,7 +82,19 @@ class _StaleConnectionRetryTransport(httpx.BaseTransport):
             if delay:
                 time.sleep(delay)
             try:
-                return self._transport.handle_request(request)
+                response = self._transport.handle_request(request)
+                # ⚠️ 본문을 **여기서** 끝까지 읽는다.
+                #
+                # httpx 전송 계층은 헤더만 받은 응답을 돌려주고 본문은 나중에 스트리밍된다.
+                # Supabase 가 GOAWAY 로 연결을 닫으면 그 오류는 handle_request 가 이미 반환한
+                # 뒤, 호출부가 body 를 읽을 때 터진다 — 즉 **이 재시도 밖에서** 난다.
+                # 실제로 그래서 재시도를 3회로 늘리고 풀까지 닫아도 성공률이 40~69% 에
+                # 머물렀다(2026-08-28 프로덕션·로컬 실측).
+                #
+                # 미리 읽어 두면 스트리밍 오류가 이 try 안에서 발생해 재시도가 닿는다.
+                # PostgREST 응답은 전부 한 번에 쓰는 JSON 이라 버퍼링해도 잃는 게 없다.
+                response.read()
+                return response
             except Exception as exc:
                 if not _is_stale_connection_error(exc):
                     raise
