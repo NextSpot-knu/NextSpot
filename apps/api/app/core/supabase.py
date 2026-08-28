@@ -140,6 +140,12 @@ def _create_client(url: str, key: str, *, role: str) -> Client:
     try:
         transport = _StaleConnectionRetryTransport(
             httpx.HTTPTransport(
+                # ⚠️ http2=False 를 시도했다가 되돌렸다(2026-08-28).
+                # 동시 요청이 H2 연결 하나에 다중화되는 게 원인이라고 보고 HTTP/1.1 로 바꿨는데,
+                # 프로덕션에서 /courses/recommend 성공률이 40% → **0%** 로 떨어졌다.
+                # 가설이 틀렸거나, HTTP/1.1 에서는 연결 수립 비용이 커져 다른 한계에 먼저
+                # 부딪히는 것으로 보인다. 근거 없이 다시 바꾸지 말 것 — 바꾸려면 프로덕션에서
+                # 성공률을 재고 나서.
                 http2=True,
                 limits=httpx.Limits(keepalive_expiry=_SUPABASE_KEEPALIVE_EXPIRY_SECONDS),
             )
