@@ -26,6 +26,10 @@ from pydantic import BaseModel
 
 from app.core.failure_log import record_failure
 from app.core.supabase import get_current_user, supabase_admin
+from app.services.availability_service import (
+    attach_availability_evidence,
+    fetch_effective_availability_map,
+)
 from app.services.preference_vector_service import preference_vector_service
 from app.services.spot.score import calculate_spot_score
 from app.services.spot.travel import calculate_haversine_distance, get_travel_time_and_distance
@@ -241,8 +245,9 @@ async def recommend_course(
 
 async def _build_course(req: CourseRequest) -> list:
     """코스 조립 본체. 예외 처리는 호출부(recommend_course)가 맡는다."""
+    # 영업 근거는 여기서 받지 않는다 — 후보 풀이 정해진 뒤 그 몇 곳에만 붙인다(아래 참고).
     user_info, all_facilities = await asyncio.gather(
-        fetch_user(req.user_id), fetch_all_facilities()
+        fetch_user(req.user_id), fetch_all_facilities(with_availability=False)
     )
 
     # 순서 지정(sequence) 정규화 — 무효 종류 제거, 코스 길이 상한까지만. 주어지면 types 를 대체한다.
@@ -299,7 +304,22 @@ async def _build_course(req: CourseRequest) -> list:
         user_vector = get_category_average_vector(user_info.get("preferred_categories", []))
         await preference_vector_service.upsert_user_vector(req.user_id, user_vector)
 
-    congestion_now = await fetch_congestion_map([f["id"] for f in pool])
+    # 영업 근거(availability)는 **여기서** 후보 풀에만 붙인다.
+    #
+    # 예전에는 fetch_all_facilities() 가 시설 전체분을 통째로 받아 왔다. 시설이 85곳이던
+    # 시절 주석이 그대로 남아 있었는데 지금은 1,600곳이 넘고, PostgREST in.(...) URL 한계
+    # 때문에 150개씩 끊어 받으므로 **코스 한 번에 요청 11건**이 그것 때문에 나갔다
+    # (실측: 웜 캐시 기준 Supabase 요청 15건 중 11건). 정작 쓰는 곳은 후보 12~24곳을
+    # 평가하는 open_status_at_arrival 하나뿐이라 나머지는 전부 버려졌다.
+    #
+    # 후보 풀은 여기서 확정되므로 이 시점에 조회하면 요청이 1건으로 줄고, 신선도는
+    # 오히려 좋아진다(평가 직전 값이다). 혼잡도와 함께 한 번에 나간다.
+    pool_ids = [f["id"] for f in pool]
+    congestion_now, availability_by_id = await asyncio.gather(
+        fetch_congestion_map(pool_ids),
+        fetch_effective_availability_map(pool_ids),
+    )
+    pool = attach_availability_evidence(pool, availability_by_id)
     preferred_categories = user_info.get("preferred_categories", [])
     now = datetime.now(timezone.utc)
 

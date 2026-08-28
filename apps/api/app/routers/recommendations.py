@@ -192,8 +192,19 @@ async def _fetch_all_facilities_uncached(
 
 
 async def fetch_all_facilities(
-    *, center_lat: float | None = None, center_lng: float | None = None, radius_m: float | None = None
+    *,
+    center_lat: float | None = None,
+    center_lng: float | None = None,
+    radius_m: float | None = None,
+    with_availability: bool = True,
 ):
+    """시설 목록. ``with_availability=False`` 면 영업 근거를 붙이지 않는다.
+
+    영업 근거는 캐시 밖에서 매 요청 조회하는데, PostgREST 의 in.(...) URL 한계 때문에
+    150개씩 끊어 받는다 — 시설이 1,600곳이면 **그것만으로 요청 11건**이다.
+    후보 몇 곳에만 필요한 호출부(코스 추천)는 이걸 끄고 자기 후보 풀에 대해서만 따로
+    붙이는 편이 훨씬 싸고, 평가 직전 값이라 신선도도 낫다.
+    """
     # 캐시 키를 사용자 좌표로 쪼개면 위치가 다를 때마다 미스가 난다(실측: 프로덕션 by-type 가
     # 재배포·신규 위치마다 2초/최악 13초). 시설은 85곳뿐이라 전체를 단일 키로 캐시하고,
     # 좌표 사각형 필터는 파이썬에서 동일 수식으로 건다 — DB bbox 는 순수 최적화였고 정확도는
@@ -216,6 +227,9 @@ async def fetch_all_facilities(
             and center_lat - lat_delta <= float(f["latitude"]) <= center_lat + lat_delta
             and center_lng - lng_delta <= float(f["longitude"]) <= center_lng + lng_delta
         ]
+
+    if not with_availability:
+        return facilities
 
     # 시설·관광 prior 캐시와 수명이 다른 단기 영업 근거(30/60분)는 캐시 밖에서 매 요청
     # 한 번만 조회한다. 그래야 두 번째 사용자 확인과 만료가 다음 추천에 즉시 반영된다.

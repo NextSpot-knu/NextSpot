@@ -262,3 +262,57 @@ def test_all_candidates_failing_is_surfaced_not_returned_as_empty(auth_client, m
         res = auth_client.post(_COURSE_PATH, json=_course_body())
 
     assert res.status_code == 503
+
+
+# =========================================================================
+# 영업 근거는 후보 풀에만 조회한다
+# =========================================================================
+# 예전에는 fetch_all_facilities() 가 시설 전체분(1,600곳+)의 영업 근거를 받아 왔다.
+# PostgREST in.(...) URL 한계로 150개씩 끊어 받으므로 **코스 한 번에 요청 11건**이 그것
+# 때문에 나갔고(실측: 웜 캐시 기준 15건 중 11건), 정작 쓰는 곳은 후보 12~24곳을 평가하는
+# open_status_at_arrival 하나뿐이라 나머지는 전부 버려졌다.
+#
+# Render free 플랜에서 요청당 작업량이 곧 실패율이라, 이 낭비를 되돌리면 안 된다.
+def test_availability_is_fetched_only_for_the_candidate_pool(auth_client, monkeypatch):  # noqa: F811
+    from app.routers import courses
+
+    asked: list[list[str]] = []
+
+    async def spy(ids):
+        asked.append(list(ids))
+        return {}
+
+    monkeypatch.setattr(courses, "fetch_effective_availability_map", spy)
+
+    a, b, c, d = _mocked_world()
+    with a, b, c, d:
+        res = auth_client.post(_COURSE_PATH, json=_course_body())
+
+    assert res.status_code == 200
+    assert len(asked) == 1, "영업 근거 조회가 한 번이 아니다"
+    # 목킹된 세계의 시설은 4곳뿐이라 '전체'와 '풀'이 같아 보일 수 있으므로, 최소한
+    # 후보 수를 넘지 않는다는 것과 실제 후보 id 만 물었다는 것을 확인한다.
+    assert asked[0], "후보 id 없이 조회했다"
+    assert len(asked[0]) <= 4
+
+
+def test_course_still_uses_availability_for_open_status(auth_client, monkeypatch):  # noqa: F811
+    """조회 시점을 옮겼다고 영업 근거가 반영되지 않으면 최적화가 아니라 기능 삭제다."""
+    from app.routers import courses
+
+    async def closed_everywhere(ids):
+        return {
+            fid: {"status": "closed", "evidence_tier": "verified", "reported_at": "2026-08-28T00:00:00+00:00"}
+            for fid in ids
+        }
+
+    monkeypatch.setattr(courses, "fetch_effective_availability_map", closed_everywhere)
+
+    a, b, c, d = _mocked_world()
+    with a, b, c, d:
+        res = auth_client.post(_COURSE_PATH, json=_course_body())
+
+    assert res.status_code == 200
+    # 영업 근거가 붙었다면 정류지의 도착 시점 상태에 그 판정이 실린다.
+    for stop in res.json():
+        assert "open_status_at_arrival" in stop
