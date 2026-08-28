@@ -140,8 +140,23 @@ def _create_client(url: str, key: str, *, role: str) -> Client:
     try:
         transport = _StaleConnectionRetryTransport(
             httpx.HTTPTransport(
-                http2=True,
-                limits=httpx.Limits(keepalive_expiry=_SUPABASE_KEEPALIVE_EXPIRY_SECONDS),
+                # HTTP/1.1 을 쓴다. httpx 동기 클라이언트에서 http2=True 는 **동시 요청을
+                # TCP 연결 하나에 다중화**하는데, 이 백엔드는 asyncio.to_thread 로 여러
+                # 스레드가 같은 클라이언트를 동시에 두드린다(메인 화면 한 번 로드에 API
+                # 요청 10개가 동시에 나간다). 그 상태에서 H2 스트림이 꼬이면 연결 전체가
+                # ConnectionTerminated 로 죽고, 그 연결에 실려 있던 요청이 함께 실패한다.
+                #
+                # 실제로 2026-08-28 프로덕션에서 /courses/recommend 가 30~60%,
+                # /recommendations/by-type 가 동시 로드마다 503 을 냈다. HTTP/1.1 은
+                # 요청마다 풀에서 **별도 연결**을 쓰므로 한 연결이 죽어도 번지지 않는다.
+                # PostgREST 호출에 멀티플렉싱 이득은 사실상 없다(요청 수가 적고 응답이 크다).
+                http2=False,
+                limits=httpx.Limits(
+                    keepalive_expiry=_SUPABASE_KEEPALIVE_EXPIRY_SECONDS,
+                    # 동시 요청이 서로 연결을 뺏지 않도록 넉넉히.
+                    max_connections=40,
+                    max_keepalive_connections=20,
+                ),
             )
         )
         http_client = httpx.Client(
