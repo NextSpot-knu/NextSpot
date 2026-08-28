@@ -26,7 +26,7 @@ import { apiClient } from '@/lib/api-client';
 import { errorMessage } from '@/lib/errors';
 import { useAccount, canEnterDevConsole, type AccountRole } from '@/lib/account';
 
-type Tab = 'users' | 'requests' | 'audit';
+type Tab = 'users' | 'requests' | 'audit' | 'failures';
 
 interface DevUser {
   id: string;
@@ -54,6 +54,14 @@ interface AuditRow {
   toValue: string | null;
   reason: string | null;
   createdAt?: string;
+}
+
+interface FailureRow {
+  at: string;
+  kind: string;
+  errorType: string;
+  error: string;
+  context?: Record<string, string>;
 }
 
 const ROLES: AccountRole[] = ['tourist', 'merchant', 'admin', 'developer'];
@@ -99,6 +107,7 @@ export default function DevConsolePage() {
               ['users', '사용자·권한', UserCog],
               ['requests', '인증 심사', ClipboardCheck],
               ['audit', '감사 로그', ScrollText],
+              ['failures', '최근 실패', ShieldAlert],
             ] as const
           ).map(([id, label, Icon]) => (
             <button
@@ -119,6 +128,7 @@ export default function DevConsolePage() {
         {tab === 'users' && <UsersPanel onChanged={refresh} />}
         {tab === 'requests' && <RequestsPanel onChanged={refresh} />}
         {tab === 'audit' && <AuditPanel />}
+        {tab === 'failures' && <FailuresPanel />}
       </div>
     </main>
   );
@@ -357,6 +367,75 @@ function RequestsPanel({ onChanged }: { onChanged: () => void }) {
 // =========================================================================
 // 감사 로그 (읽기 전용 — 삭제 기능은 만들지 않는다)
 // =========================================================================
+// =========================================================================
+// 최근 실패 (진단)
+// =========================================================================
+// Render 로그를 열지 않고도 프로덕션 예외의 정체를 볼 수 있게 하는 화면.
+// 백엔드의 인메모리 링버퍼를 읽으므로 재시작하면 비고, 워커가 여럿이면 이 워커 것만 보인다.
+// 분산코스 간헐 실패(2026-08-28)를 좁히려고 붙였다 — 원인을 잡고 나면 지워도 된다.
+function FailuresPanel() {
+  const [rows, setRows] = useState<FailureRow[]>([]);
+  const [busy, setBusy] = useState(true);
+
+  const load = useCallback(async () => {
+    setBusy(true);
+    try {
+      const res = await apiClient.get('/api/v1/dev/failures', { params: { limit: '50' } });
+      setRows(Array.isArray(res?.items) ? res.items : []);
+    } catch (err) {
+      toast.error(errorMessage(err) || '실패 기록 조회에 실패했어요.');
+    } finally {
+      setBusy(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  return (
+    <section className="rounded-3xl border border-line bg-white p-5">
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <p className="text-xs text-muk-soft">
+          이 서버 프로세스에서 최근에 난 예외입니다. 재시작하면 비워집니다.
+        </p>
+        <button
+          type="button"
+          onClick={() => void load()}
+          disabled={busy}
+          className="shrink-0 rounded-full border border-line px-3 py-1.5 text-xs font-semibold text-muk-soft hover:bg-hanji disabled:opacity-50"
+        >
+          새로고침
+        </button>
+      </div>
+
+      {busy ? (
+        <Loader2 size={16} className="mx-auto my-6 animate-spin text-muk-soft" />
+      ) : rows.length === 0 ? (
+        <p className="py-6 text-center text-sm text-muk-soft">기록된 실패가 없어요.</p>
+      ) : (
+        <div className="flex flex-col gap-1.5">
+          {rows.map((r, i) => (
+            <div key={`${r.at}-${i}`} className="rounded-lg border border-line px-3 py-2 text-[11px]">
+              <div>
+                <span className="font-semibold text-terracotta">{r.errorType}</span>{' '}
+                <span className="text-muk-soft">{r.kind}</span>
+              </div>
+              <div className="mt-0.5 break-all font-mono text-muk-soft">{r.error}</div>
+              <div className="mt-0.5 font-mono text-[10px] text-muk-soft">
+                {r.at}
+                {r.context && Object.keys(r.context).length > 0
+                  ? ' · ' + Object.entries(r.context).map(([k, v]) => `${k}=${v}`).join(' ')
+                  : ''}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
 function AuditPanel() {
   const [rows, setRows] = useState<AuditRow[]>([]);
   const [busy, setBusy] = useState(true);
