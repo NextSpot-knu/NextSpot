@@ -7,14 +7,19 @@ import { useRouter } from 'next/navigation';
 import {
   Menu, Bell, Bookmark, User,
   Edit2, ChevronRight, LogOut,
-  Settings as SettingsIcon, Ticket, X, Footprints, Sparkles, Hourglass, Store, FlaskConical
+  Settings as SettingsIcon, Ticket, X, Footprints, Sparkles, Hourglass, Store, FlaskConical, Wrench
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { createPublicClient } from '@/lib/supabase';
 // 소셜 identity 추림 — 이메일 없는 계정의 표시 신원 판정에 쓴다(단일 소스).
 import { deriveAuthState } from '@/lib/oauthFlow';
 // 콘솔 진입점은 역할로 가른다 — 일반 유저에게는 노출하지 않는다(lib/account.tsx).
-import { useAccount, canEnterMerchantConsole, canRequestBusinessVerification } from '@/lib/account';
+import {
+  useAccount,
+  canEnterMerchantConsole,
+  canEnterDevConsole,
+  canRequestBusinessVerification,
+} from '@/lib/account';
 import { apiClient, isAuthError, fetchLabPendingCount } from '@/lib/api-client';
 import { getVisitCount } from '@/lib/visits';
 import { clearUserScopedData } from '@/lib/userData';
@@ -27,6 +32,30 @@ import { useT } from '@/lib/i18n/I18nProvider';
 // 2026년 최저시급(고용노동부 고시, 원/시간) — '아낀 시간'을 기회비용으로 환산하는 기준.
 // 화면에도 '최저시급 기준'을 명시한다(정직성 — 임의 환산이 아님을 알림).
 const MIN_WAGE_KRW_PER_HOUR = 10320;
+
+/** 개발자 콘솔 진입 카드 — developer 에게만 렌더된다(그 외에는 아무것도 그리지 않는다). */
+function DevConsoleEntry() {
+  const router = useRouter();
+  const { account } = useAccount();
+  if (!canEnterDevConsole(account)) return null;
+  return (
+    <button
+      type="button"
+      onClick={() => router.push('/dev')}
+      className="mb-4 flex w-full items-center justify-between gap-3 rounded-3xl border border-jade/30 bg-jade/5 p-5 text-left transition-colors hover:bg-jade/10"
+    >
+      <span className="min-w-0">
+        <span className="flex items-center gap-2 font-bold text-muk">
+          <Wrench size={17} className="text-jade" /> 개발자 콘솔
+        </span>
+        <span className="mt-0.5 block text-xs text-muk-soft">
+          역할 임명 · 가게 소유권 · 사업자 인증 심사 · 감사 로그
+        </span>
+      </span>
+      <ChevronRight size={18} className="shrink-0 text-muk-soft" />
+    </button>
+  );
+}
 
 interface UserProfile {
   name: string;
@@ -376,6 +405,13 @@ export default function MyPage() {
 
             {/* 계정 — 게스트면 소셜 연동 유도, 연동됐으면 프로바이더 뱃지(OAUTH_PLAN F5). */}
             <AccountSection />
+
+            {/* 개발자 콘솔 진입 — developer 에게만 보인다.
+                로그인 후 개발자는 /main 으로 오는데(관광객 화면을 가장 많이 보는 계정이라
+                강제 이동하지 않기로 했다), 그러면 /dev 로 가는 길이 주소창밖에 없었다.
+                BottomNav 는 5탭 폭에 맞춰 튜닝돼 있어 탭을 늘리는 대신 여기 둔다 —
+                계정·권한을 다루는 화면이라 자리도 맞다. */}
+            <DevConsoleEntry />
 
             {/* 혼잡 알림 — 실제 동작하는 옵트인 토글(권한 상태 반영, useCongestionAlerts 기반).
                 로컬 state 만 바꾸던 가짜 스위치 제거. */}
