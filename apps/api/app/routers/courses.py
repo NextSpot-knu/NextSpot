@@ -24,6 +24,7 @@ import structlog
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from app.core.failure_log import record_failure
 from app.core.supabase import get_current_user, supabase_admin
 from app.services.preference_vector_service import preference_vector_service
 from app.services.spot.score import calculate_spot_score
@@ -230,6 +231,8 @@ async def recommend_course(
             # (실제로 프로덕션에서 이 자리를 만났을 때 str(exc) 만으로는 원인을 못 좁혔다.)
             exc_info=True,
         )
+        # Render 로그를 못 볼 때를 대비한 진단 통로(개발자 콘솔에서 조회).
+        record_failure("course_recommend", exc, types=req.types, sequence=req.sequence)
         raise HTTPException(
             status_code=503,
             detail="코스를 짜는 중 일시적인 문제가 생겼어요. 잠시 후 다시 시도해 주세요.",

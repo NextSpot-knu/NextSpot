@@ -24,6 +24,7 @@ import structlog
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from app.core.failure_log import recent_failures
 from app.core.authz import (
     ROLE_DEVELOPER,
     VALID_ROLES,
@@ -361,3 +362,16 @@ async def list_audit_log(limit: int = 100, target_id: str | None = None):
         query.order("created_at", desc=True).limit(min(limit, 500)).execute
     )
     return {"items": res.data or []}
+
+
+# =========================================================================
+# 최근 실패 (진단)
+# =========================================================================
+@router.get("/failures")
+async def list_recent_failures(limit: int = 50):
+    """이 프로세스에서 최근에 난 실패를 돌려준다.
+
+    Render 로그에 접근하기 어려울 때 프로덕션 예외의 정체를 확인하는 통로다.
+    인메모리라 재시작하면 사라지고, 워커가 여럿이면 이 워커 것만 보인다.
+    """
+    return {"items": recent_failures(min(limit, 50))}
