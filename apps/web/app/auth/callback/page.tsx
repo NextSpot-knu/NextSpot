@@ -9,6 +9,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { resolvePostLoginDest } from '@/lib/postLoginDest';
 import { createPublicClient } from '@/lib/supabase';
 import { discardCapturedGuestData, getAuthState, backfillProfileAfterLink, mergeCapturedGuestData, signInOAuth, type OAuthProvider } from '@/lib/auth';
 import { useT } from '@/lib/i18n/I18nProvider';
@@ -65,7 +66,9 @@ export default function AuthCallbackPage() {
       done = true;
       await mergeCapturedGuestData();
       await backfillProfileAfterLink();
-      router.replace(next);
+      // `?next=` 가 없어 기본값(/mypage)으로 온 경우에만 역할을 본다 — admin 은 관제로.
+      const explicit = params.get('next');
+      router.replace(await resolvePostLoginDest(explicit ? next : null, next));
     };
 
     // 완료 판정: code 교환이 '연동 계정' 상태로 반영되면(getAuthState → linked) 복귀한다.

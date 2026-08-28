@@ -411,9 +411,16 @@ export default function MainPage() {
       //   기존 supabase 경로(최근 3000행을 받아 클라이언트 dedup)는 로그가 잦은 시설이 캡을 채우면
       //   다른 시설이 congestion=null 로 조용히 누락되는 문제가 있었다 → 서버 조인이 이를 해소하고 전송량도 줄인다.
       try {
-        // 첫 방문에는 캐시가 없으므로 API가 2.5초 안에 응답하지 않으면 곧바로 Supabase 읽기 폴백으로 전환한다.
+        // 백엔드 응답을 기다리는 상한. 넘기면 아래 Supabase 직접 읽기로 폴백한다.
+        //
+        // 2.5초였는데 실측 응답이 2.4~3.5초라 **평소에도 폴백이 이겼다.** 그 폴백에는 바로 위
+        // 주석이 적어 둔 결함이 있다 — 로그가 잦은 시설이 캡을 채우면 다른 시설이
+        // congestion=null 로 조용히 누락된다. 즉 정확도가 낮은 경로로 상시 돌고 있었다.
+        //
+        // 4초로 올린다. 재방문에는 위 캐시가 이미 그려져 있어 체감 지연은 첫 방문에만 생기고,
+        // 대신 시설별 최신 혼잡을 서버가 결정적으로 조인한 정확한 값을 받는다.
         const items = await apiClient.get("/api/v1/infrastructures", {
-          timeoutMs: 2500,
+          timeoutMs: 4000,
           params: {
             minLat: String(REGION.bounds.minLat),
             maxLat: String(REGION.bounds.maxLat),

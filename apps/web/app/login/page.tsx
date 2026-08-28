@@ -10,6 +10,7 @@ import { toast } from 'sonner';
 import { Mail, Lock, User } from 'lucide-react';
 import { signInWithEmail, signUpWithEmail, signInOAuth, type OAuthProvider } from '@/lib/auth';
 import { safeNext } from '@/lib/oauthFlow';
+import { resolvePostLoginDest } from '@/lib/postLoginDest';
 import { reconcileUserData } from '@/lib/userData';
 import { syncSaved } from '@/lib/savedFacilities';
 import { createPublicClient } from '@/lib/supabase';
@@ -28,6 +29,8 @@ function LoginForm() {
   // 기존 동작 유지: next 가 없으면 로그인은 /main, 신규 가입은 /setup.
   const hasNext = searchParams.get('next') !== null;
   const loginDest = hasNext ? nextPath : '/main';
+  // 소셜 로그인은 프로바이더 왕복 뒤 /auth/callback 이 이동을 맡으므로 역할 판정도 거기서 한다.
+  // 여기(이메일 로그인)는 afterAuth 가 처리한다.
   const signUpDest = hasNext ? nextPath : '/setup';
   const [mode, setMode] = useState<Mode>('login');
   const [email, setEmail] = useState('');
@@ -46,7 +49,8 @@ function LoginForm() {
     } catch {
       /* 무시 — 이동은 계속 */
     }
-    router.push(dest);
+    // 목적지가 명시되지 않았으면 역할을 보고 정한다(admin → 관제 대시보드).
+    router.push(await resolvePostLoginDest(hasNext ? dest : null, dest));
   };
 
   // SNS 계속하기 — 이 화면은 '로그인하러 온' 곳이므로 signInOAuth(계정 전환)를 **바로** 쓴다.
