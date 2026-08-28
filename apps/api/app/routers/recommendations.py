@@ -13,6 +13,7 @@ from pydantic import AliasChoices, BaseModel, Field, field_validator, model_vali
 # anon 클라이언트는 요청별 JWT 를 PostgREST 로 싣지 않아 auth.uid()=null → RLS 거부가 된다.
 # (ingest/preferences 라우터가 동일 사유로 supabase_admin 을 쓴다.) 따라서 service_role 클라이언트로
 # 통일하고, 신뢰 경계는 아래 get_recommendations/submit_feedback 의 소유권 가드로 강제한다.
+from app.core.failure_log import record_failure
 from app.core.supabase import supabase_admin as supabase_client, get_current_user
 from app.services import feedback_service
 from app.services.coupon_service import issue_coupon_if_partner
@@ -694,6 +695,31 @@ async def recommend_by_type(
     if req.user_id != current_user["id"]:
         raise HTTPException(status_code=403, detail="요청한 user_id가 인증된 사용자와 일치하지 않습니다.")
 
+    # /courses/recommend 와 같은 이유로 감싼다(2026-08-28). 여기도 예외 처리가 없어
+    # 업스트림이 흔들리면 그대로 500 이 나갔다 — 동시 호출 시 실측으로 확인했다.
+    # 프런트는 이미 503 을 ServiceUnavailableError 로 따로 잡아 로컬 폴백으로 내려간다.
+    try:
+        return await _recommend_by_type(req)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error(
+            "recommend_by_type_failed",
+            user_id=req.user_id,
+            facility_type=req.facility_type,
+            error=str(exc),
+            error_type=type(exc).__name__,
+            exc_info=True,
+        )
+        record_failure("recommend_by_type", exc, facility_type=req.facility_type)
+        raise HTTPException(
+            status_code=503,
+            detail="추천을 준비하는 중 일시적인 문제가 생겼어요. 잠시 후 다시 시도해 주세요.",
+        ) from exc
+
+
+async def _recommend_by_type(req: "RecommendByTypeRequest") -> list:
+    """by-type 추천 본체. 예외 처리는 호출부(recommend_by_type)가 맡는다."""
     max_walk_minutes = req.context.max_walk_minutes if req.context and req.context.max_walk_minutes else _DEFAULT_BROWSE_WALK_MINUTES
     user_info, all_facilities = await asyncio.gather(
         fetch_user(req.user_id),
