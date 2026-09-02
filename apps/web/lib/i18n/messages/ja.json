@@ -605,6 +605,7 @@
     "feedbackUpAria": "このおすすめは役に立ちました",
     "feedbackDownAria": "このおすすめはいまいちです",
     "noAlternatives": "周辺{km}km以内におすすめできる代替施設がありません。",
+    "loadFailed": "おすすめを読み込めませんでした。しばらくしてからもう一度お試しください。",
     "loadingMore": "新しい代替を読み込み中...",
     "seeOther": "他の代替を見る",
     "preparing": "おすすめを準備中...",

@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef, useMemo, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
+import { ErrorState } from "@/components/ErrorState";
 import { createPublicClient } from "@/lib/supabase";
 const supabase = createPublicClient();
 import { apiClient, getRecommendations, reportFacilityAvailability, submitFeedback, parsePreference, RecommendationResponse } from "@/lib/api-client";
@@ -210,6 +211,10 @@ function RecommendContent() {
   
   const [loadingOriginal, setLoadingOriginal] = useState(true);
   const [loadingRecommendations, setLoadingRecommendations] = useState(true);
+  // 조회 실패를 빈 결과와 **구분**한다. 예전에는 네 경로가 전부 setRecommendations([])
+  // 로 수렴해서, 백엔드가 죽어도 화면에는 "1.5km 내에 갈 곳이 없어요" 가 떴다 —
+  // 사실이 아닌 문장이고, 사용자는 앱이 아니라 자기 위치를 의심하게 된다.
+  const [loadFailed, setLoadFailed] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [mapLoaded, setMapLoaded] = useState(false);
 
@@ -535,11 +540,13 @@ function RecommendContent() {
         const recommendationsList = await getRecommendations(facilityId, { lat, lng }, loadTravelContext());
         if (cancelled) return;
         setRecommendations(recommendationsList);
+        setLoadFailed(false);
       } catch (err) {
         if (cancelled) return;
         // 실데이터 전용: FastAPI 미가용 시 목업 폴백 없이 빈 추천(빈 상태 UI)으로 처리한다.
         console.warn("Error calling FastAPI, showing empty recommendations:", err);
         setRecommendations([]);
+        setLoadFailed(true);
       } finally {
         if (!cancelled) setLoadingRecommendations(false);
       }
@@ -642,10 +649,12 @@ function RecommendContent() {
     try {
       const list = await getRecommendations(facilityId, { lat, lng }, loadTravelContext());
       setRecommendations(list);
+      setLoadFailed(false);
     } catch (err) {
       // 실데이터 전용: 목업 폴백 없음 — 빈 추천(빈 상태 UI)으로 처리한다.
       console.warn("Fetch after NL preference failed, showing empty recommendations:", err);
       setRecommendations([]);
+      setLoadFailed(true);
     } finally {
       setLoadingRecommendations(false);
     }
@@ -682,10 +691,12 @@ function RecommendContent() {
       setLoadingRecommendations(true);
       const recommendationsList = await getRecommendations(facilityId, { lat, lng }, loadTravelContext());
       setRecommendations(recommendationsList);
+      setLoadFailed(false);
     } catch (err) {
       // 실데이터 전용: FastAPI 추천 실패 시 목업 폴백 없이 빈 추천(빈 상태 UI)으로 처리한다.
       console.warn("Error during onboarding recommend fetch:", err);
       setRecommendations([]);
+      setLoadFailed(true);
       setShowOnboarding(false);
     } finally {
       setIsOnboardingSubmitting(false);
@@ -827,9 +838,11 @@ function RecommendContent() {
       try {
         const fresh = await getRecommendations(facilityId, { lat, lng }, loadTravelContext());
         setRecommendations(fresh);
+        setLoadFailed(false);
       } catch (e) {
         console.warn("refresh fetch failed, showing empty recommendations:", e);
         setRecommendations([]);
+        setLoadFailed(true);
       }
       toast.success(t("recommend.refreshed"));
     } catch (err) {
@@ -1665,6 +1678,9 @@ function RecommendContent() {
               );
             })}
             </>
+          ) : loadFailed ? (
+            // 실패는 '없음' 이 아니다 — 다시 시도할 길을 준다.
+            <ErrorState message={t("recommend.loadFailed")} onRetry={() => window.location.reload()} />
           ) : (
             <div className="bg-white p-8 rounded-2xl border border-line shadow-[0_2px_14px_rgba(43,35,32,0.06)] text-center text-sm text-muk-soft">
               {t("recommend.noAlternatives", { km: MAX_RECO_DISTANCE_M / 1000 })}

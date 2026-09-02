@@ -605,6 +605,7 @@
     "feedbackUpAria": "这个推荐有帮助",
     "feedbackDownAria": "这个推荐一般",
     "noAlternatives": "周边{km}km以内没有可推荐的替代设施。",
+    "loadFailed": "无法加载推荐，请稍后再试。",
     "loadingMore": "正在加载新的替代...",
     "seeOther": "查看其他替代",
     "preparing": "正在准备推荐...",

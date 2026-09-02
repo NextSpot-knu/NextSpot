@@ -605,6 +605,7 @@
     "feedbackUpAria": "이 추천이 도움이 됐어요",
     "feedbackDownAria": "이 추천은 별로예요",
     "noAlternatives": "주변 {km}km 이내에 추천 가능한 대안 시설이 없습니다.",
+    "loadFailed": "추천을 불러오지 못했어요. 잠시 후 다시 시도해 주세요.",
     "loadingMore": "새로운 대안 로드 중...",
     "seeOther": "다른 대안 보기",
     "preparing": "추천 준비 중...",

@@ -605,6 +605,7 @@
     "feedbackUpAria": "This recommendation was helpful",
     "feedbackDownAria": "This recommendation wasn’t great",
     "noAlternatives": "No alternative places to recommend within {km}km.",
+    "loadFailed": "We couldn't load recommendations. Please try again in a moment.",
     "loadingMore": "Loading new alternatives...",
     "seeOther": "See other alternatives",
     "preparing": "Preparing recommendations...",

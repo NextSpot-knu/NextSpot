@@ -16,6 +16,7 @@ import { apiClient, isAuthError } from "@/lib/api-client";
 import { REGION, isWithinRegion } from "@/lib/region";
 import { toast } from "sonner";
 import { useT } from "@/lib/i18n/I18nProvider";
+import { ErrorState } from "@/components/ErrorState";
 import { ShareButton } from "@/components/ShareButton";
 import CourseMap from "@/components/CourseMap";
 import NowChip from "@/components/NowChip";
@@ -982,21 +983,6 @@ function EmptyState() {
   );
 }
 
-function ErrorState({ message, onRetry }: { message: string; onRetry: () => void }) {
-  const t = useT();
-  return (
-    <div className="bg-white rounded-2xl border border-terracotta/25 shadow-[0_2px_14px_rgba(43,35,32,0.06)] p-8 text-center space-y-3">
-      <div className="text-3xl">⚠️</div>
-      <p className="text-sm font-semibold text-muk">{message}</p>
-      <button
-        onClick={onRetry}
-        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full bg-gold text-white text-xs font-bold hover:bg-gold-deep transition-colors"
-      >
-        {t('common.retry')}
-      </button>
-    </div>
-  );
-}
 
 // 인증 필요(401) 상태 — 관광객 로그인이 없어 코스 추천 API 가 401 을 준다.
 // '다시 시도'는 결코 성공하지 못하므로, 지도에서 추천을 받도록 정직하게 유도한다.
