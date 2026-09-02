@@ -191,7 +191,9 @@ function saveFacilityCache(facilities: Facility[]): void {
   }
 }
 
-// TourAPI 실시간 키워드 폴백(2위 실시간 키워드 게이트웨이) — GET /api/v1/search/keyword 응답 1건.
+// 장소 검색 결과 1건 — GET /api/v1/search/places(Kakao 장소 검색) 응답.
+// 백엔드는 place_id/place_url/category_name 으로 주고, api-client 의 keysToCamel 이 camelCase 로 바꿔 준다
+// (예전 주석은 엔드포인트 이름도 틀렸고 '변환 없음' 이라고 적혀 있었다 — 둘 다 사실이 아니다).
 // 적재 전 POI 라 지도 마커는 없다(행 목록 전용). 필드명은 백엔드 간이 페이로드와 1:1(camelCase 변환 없음).
 interface PlaceSearchItem {
   placeId: string;
@@ -259,7 +261,7 @@ export default function MainPage() {
     return ({ restaurant: '음식점', cafe: '카페', attraction: '관광지', culture: '문화시설' } as const)[first ?? 'restaurant'];
   });
   const [searchQuery, setSearchQuery] = useState(''); // 상호·주소·검증 메뉴/업종/소개 검색 + Kakao 0건 폴백.
-  // TourAPI 실시간 키워드 폴백(2위 실시간 키워드 게이트웨이) — 로컬 검색 0건일 때만 GET /search/keyword 조회.
+  // 로컬 검색이 0건일 때만 GET /api/v1/search/places 로 장소를 찾는다.
   // 지도 이동/마커 추가는 하지 않는다(적재 전 POI — 행 목록으로만 노출, [다음 배치 추가 요청]으로 큐잉).
   const [liveSearchItems, setLiveSearchItems] = useState<PlaceSearchItem[]>([]);
   const [liveSearchLoading, setLiveSearchLoading] = useState(false);

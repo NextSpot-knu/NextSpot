@@ -168,7 +168,7 @@ app.include_router(infrastructures.router)
 app.include_router(predict.router, prefix="/predict")
 app.include_router(preferences.router)  # 자연어 선호 → 키워드 파싱 → 추천 반영
 app.include_router(travel_context.router)  # 자연어 현장 조건 → 확인 전 allowlist context
-app.include_router(admin.router)  # 관리자 전용(require_admin) — 시설 CRUD·설정·문의·지표 (WS-A-6)
+app.include_router(admin.router)  # 관리자 전용(require_role(ROLE_ADMIN)) — 시설 CRUD·설정·문의·지표 (WS-A-6)
 app.include_router(reports.router)  # 혼잡 제보(크라우드소싱) — 인증 사용자가 실시간 혼잡을 service_role 로 기록
 app.include_router(coupons.router)  # 내 쿠폰함(인센티브 지갑) — SPOT w3(coupon_rate)를 고객에게 노출
 app.include_router(courses.router)  # 분산 코스(멀티스톱 동선) 추천 — 도착시점 예측 혼잡 회피
@@ -181,7 +181,7 @@ app.include_router(tracking.router)  # 경량 제품 분석 이벤트 트래킹(
 app.include_router(freshness.router)  # 데이터 신선도(D5) — 마지막 TourAPI 동기화 시각(마커→updated_at 추정 폴백)
 app.include_router(impact.router)  # 여행 임팩트 카드 — 수락·혼잡회피·쿠폰 성과 요약(개인)
 app.include_router(merchant.router)  # 머천트 콘솔 — 내 가게 성적표·셀프 타임세일·좌석 방송(데모 게이트)
-app.include_router(safety.router)  # 인파 안전 경보(B2G) — 임계값 초과 존/시설 조기경보(require_admin)
+app.include_router(safety.router)  # 인파 안전 경보(B2G) — 임계값 초과 존/시설 조기경보(라우터 dependencies 로 require_role(ROLE_ADMIN))
 app.include_router(search.router)  # TourAPI 키워드 폴백 → 관리자 승인형 다음 배치 적재 요청
 app.include_router(lab.router)  # 거절 실험실 — 보류된 거절 사유를 되묻고 답한 만큼만 취향 학습(1회)
 app.include_router(account.router)  # 기존 계정 로그인 시 소유 증명된 게스트 데이터 승계

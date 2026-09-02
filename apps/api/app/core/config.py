@@ -38,7 +38,11 @@ class Settings(BaseSettings):
         """기계 호출자가 제시해야 하는 유효 토큰(SERVICE_API_TOKEN 우선)."""
         return self.SERVICE_API_TOKEN.strip() or self.ADMIN_API_TOKEN
 
-    # 사장님 콘솔(머천트) 공유 토큰 — 프런트 apps/web NEXT_PUBLIC_MERCHANT_API_TOKEN 과 같아야 한다.
+    # 구 사장님 콘솔 공유 토큰. **프런트는 더 이상 이 값을 쓰지 않는다** — merchant-api.ts 는
+    # Supabase JWT 만 보내고, NEXT_PUBLIC_MERCHANT_API_TOKEN 은 소스 어디에도 없다.
+    # (예전 주석은 그 env 와 값을 맞추라고 지시했는데, 12줄 아래 경고와 정면으로 어긋났다.)
+    # 아래 LEGACY_CONSOLE_TOKENS 가 켜진 임시 완충 구간에만 서버가 X-Merchant-Token 으로 대조한다.
+    # 프런트 env 에 넣지 말 것 — 정적 번들에 박혀 누구나 읽을 수 있다.
     # ADMIN_API_TOKEN 과 달리 기본값이 있다(데모 우선 — 미설정 배포에서도 부팅이 막히지 않는다).
     # ⚠️ 반드시 여기(Settings)에 있어야 한다. 과거 merchant.py 가 os.environ.get 으로 직접 읽었는데,
     #    pydantic-settings 는 .env 를 os.environ 에 주입하지 않고 자체적으로만 읽는다. 그래서

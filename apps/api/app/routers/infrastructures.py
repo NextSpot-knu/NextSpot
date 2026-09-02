@@ -329,7 +329,7 @@ async def get_infrastructures(
 @router.post("/admin/simulate-peak")
 async def simulate_peak(admin_claims: dict = Depends(require_role(ROLE_ADMIN))):
     """
-    데모 전용 피크타임 혼잡도 데이터 모의 발생 API. (관리자 전용 — require_admin 으로 보호)
+    데모 전용 피크타임 혼잡도 데이터 모의 발생 API. (관리자 전용 — require_role(ROLE_ADMIN) 으로 보호)
     실행 시 모든 시설에 대해 실시간 랜덤 혼잡 로그(여유 15개, 보통 15개, 혼잡 10개)를 생성 및 DB에 삽입합니다.
     """
     try:

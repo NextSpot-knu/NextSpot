@@ -118,9 +118,13 @@ async function request(path: string, options: RequestOptions = {}) {
   const headers = new Headers(options.headers);
   headers.set("Content-Type", "application/json");
   if (token) {
-    // 로컬/직접 호출에서는 Authorization 을 읽는다. API Gateway 경유(프로덕션)에서는 게이트웨이가
-    // Authorization 을 백엔드 인증용 OIDC 로 덮어쓰므로, Supabase JWT 를 X-Supabase-Authorization
-    // 로도 실어 보낸다(백엔드 get_current_user 가 X-(Forwarded|Supabase)-Authorization 을 우선 확인).
+    // Authorization 을 덮어쓰는 프록시 뒤에 놓일 경우를 대비해 Supabase JWT 를
+    // X-Supabase-Authorization 으로도 함께 실어 보낸다(백엔드 get_current_user 가
+    // X-(Forwarded|Supabase)-Authorization 을 우선 확인한다).
+    //
+    // 지금 배포에는 그런 프록시가 없다 — Vercel 정적 export → Render 직접 호출이다.
+    // 20줄 위 주석이 "대회용 API Gateway 경유는 제거됨" 이라고 적어 둔 그것이고, 예전 이 자리
+    // 주석은 반대로 "프로덕션은 게이트웨이 경유" 라고 단언해 서로 어긋나 있었다.
     headers.set("Authorization", `Bearer ${token}`);
     headers.set("X-Supabase-Authorization", `Bearer ${token}`);
   }
