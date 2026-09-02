@@ -228,7 +228,7 @@ async def search_keyword(
     page: int = 1,
     rows: int = 10,
 ) -> dict:
-    """searchKeyword2 — 전체 TourAPI POI 키워드 검색(적재 85곳 밖 커버리지).
+    """searchKeyword2 — 전체 TourAPI POI 키워드 검색(로컬 적재분 밖 커버리지).
 
     런타임 검색 폴백용 — 키워드별 24h 캐시(_get_cached)로 쿼터를 보호하고,
     호출 빈도 제한(레이트리밋)은 라우터 계층에서 별도로 건다.
