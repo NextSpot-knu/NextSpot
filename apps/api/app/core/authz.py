@@ -188,6 +188,15 @@ async def load_profile_from_request(request: Request) -> dict | None:
 def assert_role(profile: dict, *allowed: str) -> None:
     """프로필이 허용 역할인지 검사한다(의존성이 아닌 함수 형태 — require_role 과 같은 규칙)."""
     role = profile["role"]
+    # 익명 세션은 tourist 외 어떤 역할도 가질 수 없다 — 단말에 묶여 있고 신원 확인이 불가능하다.
+    # 이 검사가 developer 조기 통과보다 **앞에** 있어야 한다. 뒤에 두면 가장 강한 역할만
+    # 이 규칙을 비껴간다. 게스트 uid 에 실수로 developer 를 찍는 일은 실제로 가능하다 —
+    # /dev 콘솔이 uid 정확일치로는 게스트도 찾아 주기 때문이다.
+    if profile["is_anonymous"] and role != ROLE_TOURIST:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="게스트 세션으로는 사용할 수 없습니다. 계정으로 로그인해 주세요.",
+        )
     if role == ROLE_DEVELOPER:
         return
     if role not in frozenset(allowed):

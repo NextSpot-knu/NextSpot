@@ -66,3 +66,27 @@ async def test_the_degraded_marker_never_reaches_the_caller():
         profile = await authz._build_profile(UID, None, PAYLOAD)
     assert "degraded" not in profile
     assert set(profile) == {"id", "email", "is_anonymous", "role", "facility_ids"}
+
+
+# ── assert_role — 익명 세션은 어떤 상위 역할도 가질 수 없다 ────────────────
+
+def _profile(role: str, anonymous: bool) -> dict:
+    return {
+        "id": UID, "email": None, "is_anonymous": anonymous,
+        "role": role, "facility_ids": frozenset(),
+    }
+
+
+@pytest.mark.parametrize("role", ["merchant", "admin", "developer"])
+def test_an_anonymous_session_holds_no_elevated_role(role):
+    """developer 가 특히 중요하다 — 조기 통과가 익명 검사보다 앞에 있으면 **가장 강한
+    역할만** 이 규칙을 비껴간다. /dev 콘솔은 uid 정확일치로 게스트도 찾아 주므로
+    게스트 uid 에 실수로 developer 를 찍는 일이 실제로 가능하다."""
+    with pytest.raises(Exception) as err:
+        authz.assert_role(_profile(role, anonymous=True), "merchant", "admin")
+    assert getattr(err.value, "status_code", None) == 403
+
+
+@pytest.mark.parametrize("role", ["merchant", "admin", "developer"])
+def test_a_real_account_still_passes(role):
+    authz.assert_role(_profile(role, anonymous=False), "merchant", "admin")
