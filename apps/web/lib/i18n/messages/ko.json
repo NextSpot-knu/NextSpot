@@ -891,5 +891,24 @@
     "developerMore": "더 보기",
     "developerCount": "{count}곳",
     "developerEmpty": "조건에 맞는 가게가 없어요"
+  },
+  "support": {
+    "title": "고객지원",
+    "intro": "서비스 이용 중 불편한 점이나 건의사항을 남겨주시면 관리자 대시보드로 실시간 전달됩니다.",
+    "typeLabel": "문의 유형",
+    "typeBug": "앱 버그 및 오류",
+    "typeInfra": "시설/인프라 불만",
+    "typeData": "내 정보/데이터 수정",
+    "typeEtc": "기타 문의",
+    "titleLabel": "제목",
+    "titlePlaceholder": "어떤 문제가 발생했나요?",
+    "contentLabel": "상세 내용",
+    "contentPlaceholder": "관리자가 상황을 이해할 수 있도록 자세히 적어주세요.",
+    "submit": "문의 보내기",
+    "submitting": "제출 중…",
+    "submitFailed": "문의를 보내지 못했어요. 잠시 후 다시 시도해 주세요.",
+    "doneTitle": "문의가 접수되었습니다.",
+    "doneDesc": "관리자가 내용을 확인한 후 신속하게 처리할 예정입니다.",
+    "backToMypage": "마이페이지로 돌아가기"
   }
 }

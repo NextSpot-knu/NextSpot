@@ -891,5 +891,24 @@
     "developerMore": "もっと見る",
     "developerCount": "{count}件",
     "developerEmpty": "該当する店舗がありません"
+  },
+  "support": {
+    "title": "お問い合わせ",
+    "intro": "ご利用中の不便な点やご提案をお寄せください。管理ダッシュボードにリアルタイムで届きます。",
+    "typeLabel": "お問い合わせ種別",
+    "typeBug": "アプリの不具合・エラー",
+    "typeInfra": "施設・インフラに関する問題",
+    "typeData": "個人情報・データの修正",
+    "typeEtc": "その他",
+    "titleLabel": "件名",
+    "titlePlaceholder": "どのような問題が起きましたか？",
+    "contentLabel": "詳細",
+    "contentPlaceholder": "担当者が状況を把握できるよう詳しくご記入ください。",
+    "submit": "送信する",
+    "submitting": "送信中…",
+    "submitFailed": "お問い合わせを送信できませんでした。しばらくしてからもう一度お試しください。",
+    "doneTitle": "お問い合わせを受け付けました。",
+    "doneDesc": "担当者が内容を確認し、速やかに対応いたします。",
+    "backToMypage": "マイページに戻る"
   }
 }

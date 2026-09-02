@@ -891,5 +891,24 @@
     "developerMore": "Load more",
     "developerCount": "{count} places",
     "developerEmpty": "No stores match"
+  },
+  "support": {
+    "title": "Support",
+    "intro": "Tell us about any problems or suggestions — it reaches the operations dashboard in real time.",
+    "typeLabel": "Type",
+    "typeBug": "App bug or error",
+    "typeInfra": "Facility or infrastructure issue",
+    "typeData": "My data correction",
+    "typeEtc": "Other",
+    "titleLabel": "Subject",
+    "titlePlaceholder": "What happened?",
+    "contentLabel": "Details",
+    "contentPlaceholder": "Please describe it in enough detail for the team to understand.",
+    "submit": "Send",
+    "submitting": "Sending…",
+    "submitFailed": "We couldn't send your inquiry. Please try again in a moment.",
+    "doneTitle": "Your inquiry was received.",
+    "doneDesc": "The team will review it and follow up shortly.",
+    "backToMypage": "Back to My Page"
   }
 }

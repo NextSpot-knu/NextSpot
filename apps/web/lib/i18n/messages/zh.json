@@ -891,5 +891,24 @@
     "developerMore": "加载更多",
     "developerCount": "{count} 家",
     "developerEmpty": "没有符合条件的店铺"
+  },
+  "support": {
+    "title": "客户支持",
+    "intro": "请告诉我们使用中的问题或建议，将实时发送至管理后台。",
+    "typeLabel": "问题类型",
+    "typeBug": "应用故障或错误",
+    "typeInfra": "设施或基础设施问题",
+    "typeData": "我的信息或数据更正",
+    "typeEtc": "其他",
+    "titleLabel": "标题",
+    "titlePlaceholder": "发生了什么问题？",
+    "contentLabel": "详细内容",
+    "contentPlaceholder": "请详细描述，以便工作人员了解情况。",
+    "submit": "发送",
+    "submitting": "发送中…",
+    "submitFailed": "未能发送您的问题，请稍后再试。",
+    "doneTitle": "您的问题已收到。",
+    "doneDesc": "工作人员将查看内容并尽快处理。",
+    "backToMypage": "返回我的页面"
   }
 }
