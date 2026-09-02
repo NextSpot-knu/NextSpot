@@ -116,14 +116,14 @@ CI 패리티 테스트로 정합 강제).
 | locationBasedList2 | 위 `type`(동일) | 동일 | `predict_service.py predict_congestion(type, hour, dow)` 3피처 중 1(로컬 sklearn `model.pkl`) → `predicted_congestion` | **w2**(대기시간 산정 입력) 및 **w3**(재배치기여 성분) | 연결됨(모델 미학습 시 0.5 기본값 폴백) |
 | locationBasedList2 | `title` | `facilities.name` | 추천 카드·목록 표시명 | 표시 | 연결됨 |
 | locationBasedList2 | `contentid` | `facilities.contentid`(부분 유니크 인덱스) | `upsert_facilities()` 갱신 기준키(중복 적재 방지) | 식별자(산식 미기여) | 연결됨 |
-| locationBasedList2 | `addr1` | `facilities.address` | 저장만 됨 | **미사용** | 적재 배선만 있음 — UI·산식 미참조(A2 백로그) |
-| locationBasedList2 | `firstimage` | `facilities.image_url` | 저장만 됨 | **미사용** | 적재 배선만 있음 — UI 미참조(A2 백로그) |
+| locationBasedList2 | `addr1` | `facilities.address` | 추천 카드 주소 표시(`RecommendationCard.tsx:228`, 카카오 장소 주소가 없을 때의 근거값) | 표시 | 연결됨 |
+| locationBasedList2 | `firstimage` | `facilities.image_url` | 추천 카드 갤러리 첫 장(`RecommendationCard.tsx:465`, `galleryImages` 앞에 배치) | 표시 | 연결됨 |
 | locationBasedList2 | `cat1`/`cat2`/`cat3` 원본 | `facilities.features.{cat1,cat2,cat3}`(JSONB) | 저장만 됨 | **미사용** | `preference.py`는 `features.barrier_free`/`features.instagrammable`만 읽음 — cat1-3은 아직 산식 미참조 |
 | **areaBasedList2** | 지역코드(경북=35, 경주=2) 기반 POI 목록 | — | 클라이언트 함수(`area_based_list()`) 구현·export 완료 | — | **파이프라인 미연결** — `ingest_tourapi.py`는 현재 좌표 반경(`locationBasedList2`)만 호출 |
-| **detailCommon2** | 개요·전화·홈페이지·대표이미지 등 공통 상세 | — | 클라이언트 함수(`detail_common()`) 구현·export 완료 | — | **호출부 없음** — 상세 카드 확장(A2 백로그) 시 사용 예정 |
+| **detailCommon2** | 개요·전화·홈페이지·대표이미지 등 공통 상세 | — | `events.py:153`이 진행 중 축제에 한해 호출 → 개요·홈페이지 보강 | 표시(행사 상세) | 연결됨(진행 중 행사에 한정, 쿼터 절약) |
 | **detailIntro2** | `usetime`/`usetimeculture`/`opentimefood`(운영시간), `restdate`/`restdateculture`/`restdatefood`(휴무일) — contentTypeId별 필드명 상이 | `extract_operating_hours()` → `facilities.operating_hours`(JSONB) | 관리자 `FacilityTable.tsx`(`getHoursText`)에 표시 확인됨. SPOT 산식(w1/w2/w3)에는 미사용 | 표시(운영정보) | 연결됨, 단 `ingest_tourapi.py --details` 옵션 시에만 호출(쿼터 절약, 기본 꺼짐) |
 | **detailInfo2** | `infoname`/`infotext` 반복 상세 텍스트 — "무장애","휠체어","장애인","배리어프리","베리어프리","엘리베이터" 키워드 판별 | `extract_barrier_free()` → `facilities.barrier_free`(BOOLEAN, NULL=미상) | `score.py`가 `barrier_free` 컬럼을 `features.barrier_free`로 브리지 → `preference.py`에서 시설 벡터 접근성 차원(`dim6 += 0.3`) 부스트 → 코사인 유사도 재계산 | **w1(선호)** | 연결됨(detail 필드 중 유일하게 산식까지 도달), `--details` 옵션 시에만 호출 |
-| **searchFestival2** | 행사명·기간·장소 등 축제/행사 목록 | — | 클라이언트 함수(`search_festival()`) 구현·export 완료. 어떤 서비스·라우터도 호출하지 않음 | — | **파이프라인 완전 미연결** — "혼잡 예측 외부 변수"로 결합 예정(`CONTEST_STRATEGY.md` A4 백로그, 미착수) |
+| **searchFestival2** | 행사명·기간·장소 등 축제/행사 목록 | — | ① `events.py:213` 행사 목록 라우터(`main.py:175` 배선). ② `event_boost.py:188`이 같은 API로 진행 중 행사를 받아 거리 감쇠 가중을 만들고, `predict.py:165`가 그것을 예측 혼잡도에 더한다(`event_boost` 필드로 응답에 명시) | **w2·w3**(혼잡 외부 변수) 및 표시 | 연결됨 |
 
 ### w3(인센티브) 성분별 출처 — 중요 정정
 
@@ -145,7 +145,7 @@ CI 패리티 테스트로 정합 강제).
 | w2 time_cost(시간 비용) | 0.40 | ✅ 기여 | `latitude/longitude` → 이동시간, `type` → 기본 처리시간·예측혼잡 입력 |
 | w3 incentive(인센티브) | 0.20 | ⚠️ 절반만 기여 | `relief_term`(혼잡 재배치)은 `type` 경유로 간접 기여, `coupon_term`(쿠폰강도)은 TourAPI 무관 내부 데이터 |
 | 후보 필터(반경 150m) | — | ✅ 기여 | `latitude/longitude` |
-| 표시(이름·운영시간) | — | ✅ 기여(부분) | `title`→이름, `operating_hours`→관리자 테이블 표시. `address`/`image_url`은 적재만 되고 미표시 |
+| 표시(이름·운영시간·주소·사진) | — | ✅ 기여 | `title`→이름, `operating_hours`→관리자 테이블, `address`→추천 카드 주소, `image_url`→추천 카드 갤러리 첫 장 |
 
 ---
 
@@ -153,17 +153,16 @@ CI 패리티 테스트로 정합 강제).
 
 코드에 존재하지만 SPOT 산식·UI까지 도달하지 않은 항목. 과장 방지를 위해 명시한다.
 
-1. **`areaBasedList2` / `detailCommon2`** — 클라이언트 함수는 구현·테스트 대상이지만, 어떤
+1. **`areaBasedList2`** — 클라이언트 함수(`area_based_list()`)는 구현·export 되어 있으나 어떤
    라우터·스크립트도 호출하지 않는다. 현재 적재는 좌표 반경 방식(`locationBasedList2`)만으로
    충분하다고 판단해 보류했다.
-2. **`searchFestival2`** — "혼잡 예측 외부 변수(행사 보정)"로 결합할 계획(`CONTEST_STRATEGY.md`
-   §2-A A4)이나 아직 미착수. 현재 `predict_congestion()`은 `[type, hour, dow]` 3피처만 사용하며
-   행사 유무는 입력되지 않는다.
-3. **`address`(addr1) / `image_url`(firstimage)** — `facilities` 테이블에는 적재되나, 프런트
-   추천 카드(`RecommendationCard.tsx`)는 현재 `features.address`(TourAPI 미기재 필드) 폴백값을
-   쓰고 있어 실제 TourAPI 주소·이미지는 화면에 아직 노출되지 않는다(A2 백로그).
-4. **`cat1`/`cat2`/`cat3`** — `features` JSONB에 원본값이 보존되나, `preference.py`는
+2. **`cat1`/`cat2`/`cat3`** — `features` JSONB에 원본값이 보존되나, `preference.py`는
    `features.barrier_free`/`features.instagrammable`만 읽어 아직 산식 세분화에 쓰이지 않는다.
+
+> **2026-09-03 정정.** 이 절은 원래 `detailCommon2`·`searchFestival2`·`address`·`image_url`
+> 네 가지도 미연결로 적고 있었다. 넷 다 그 사이에 배선이 끝났는데 문서만 남아 있었다 —
+> 즉 이 문서가 **실제보다 적게** 주장하고 있었다. 근거는 §3 표의 해당 행에 file:line 으로
+> 달아 두었다. 과장 방지와 마찬가지로 과소 기술도 사실과 어긋나는 것이라 함께 바로잡는다.
 
 ---
 

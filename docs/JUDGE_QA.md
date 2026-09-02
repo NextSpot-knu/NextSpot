@@ -43,8 +43,10 @@
 
 ## Q5. [기술] 데이터가 실시간이 아닌데 신선도는 어떻게 보장하나?
 
-TourAPI는 실시간 스트리밍이 아니라 배치 적재이며, 현재 `facilities` 85행(TourAPI 실적재 69 + 시드 16)은
-`ingest_tourapi.py` 실행으로 채워졌다. 이 적재는 GitHub Actions cron(`.github/workflows/ingest.yml`, 매일
+TourAPI는 실시간 스트리밍이 아니라 배치 적재다. 현재 `facilities`는 **1,660행**(2026-09-03 실측,
+`is_active` 1,641)이고 구성은 두 갈래다 — TourAPI `contentid`를 가진 89행은 `ingest_tourapi.py`가,
+나머지 1,571행은 공공데이터포털 LocalData(`ingest_localdata.py`)와 카카오 장소(`ingest_kakao_places.py`)가
+채웠다. 타입별로는 음식점 1,070 · 카페 549 · 관광지 34 · 문화시설 7이다. 이 적재는 GitHub Actions cron(`.github/workflows/ingest.yml`, 매일
 KST 04:00)으로 이미 자동화되어 있고(D1), `GET /api/v1/freshness`가 마지막 동기화 시각을 공개해 관리자
 화면 신선도 배지로 "언제 데이터인지"를 사용자에게 그대로 증빙한다(D5 — 마커 부재 시 updated_at 추정으로
 폴백하는 정직한 표기). 지역 수요는 경주 ITS를 10분마다 수집하고 관측 후 30분 이내 도착에만 사용한다.
