@@ -186,6 +186,8 @@ class FakeInsert:
             raise RuntimeError(MISSING_COLUMN_ERROR)
         if self.table.duplicate:
             raise RuntimeError("duplicate key value violates unique constraint")
+        if self.table.transient:
+            raise RuntimeError("server disconnected without sending a response")
         return SimpleNamespace(data=[{"id": "req-1", "status": "pending", **self.payload}])
 
 
@@ -196,6 +198,7 @@ class FakeTable:
         self.inserts = []
         self.missing_column = False
         self.duplicate = False
+        self.transient = False
 
     def insert(self, payload):
         return FakeInsert(self, payload)
@@ -265,11 +268,37 @@ def test_admin_request_fails_loudly_when_the_column_is_missing(request_client):
     assert table.inserts[0]["requested_role"] == "admin"
 
 
-def test_duplicate_request_is_still_a_conflict(request_client):
-    """컬럼 오류가 아닌 실패는 예전처럼 409 다(중복 신청)."""
+def test_duplicate_request_is_a_conflict(request_client):
+    """진짜 중복만 409 다."""
     http, table = request_client
     table.duplicate = True
     assert _submit(http, "merchant").status_code == 409
+
+
+def test_a_transient_failure_is_not_reported_as_a_duplicate(request_client):
+    """커넥션 장애를 409 로 답하면 "이미 신청이 있습니다" 가 되어, 사용자는 접수된 줄 알고
+    기다리는데 심사 큐에는 아무것도 없다. 양쪽 다 이상을 못 느끼는 게 최악이라 잠근다."""
+    http, table = request_client
+    table.transient = True
+    res = _submit(http, "merchant")
+    assert res.status_code == 503, "일시적 장애가 중복 신청으로 둔갑했다"
+    assert "이미" not in res.json()["detail"]
+
+
+@pytest.mark.parametrize(
+    "message,expected",
+    [
+        ("duplicate key value violates unique constraint bvr_pending_freeform_uq", True),
+        ("duplicate key value violates unique constraint bvr_pending_facility_uq", True),
+        ('violates unique constraint "x" (SQLSTATE 23505)', True),
+        # 아래를 True 로 잡으면 장애가 다시 "이미 신청이 있습니다" 로 돌아간다.
+        ("server disconnected without sending a response", False),
+        ("new row violates row-level security policy", False),
+        (MISSING_COLUMN_ERROR, False),
+    ],
+)
+def test_duplicate_detector_is_narrow(message, expected):
+    assert account._is_duplicate_pending(RuntimeError(message)) is expected
 
 
 @pytest.mark.parametrize(

@@ -133,6 +133,26 @@ async def get_me(profile: dict = Depends(get_current_profile)):
 REQUESTABLE_ROLES = ("merchant", "admin")
 
 
+def _is_duplicate_pending(exc: Exception) -> bool:
+    """이미 대기 중인 신청이 있어 부분 유니크 인덱스가 막은 경우인가.
+
+    bvr_pending_facility_uq / bvr_pending_freeform_uq (20260827140000) 가 같은 사람의
+    중복 신청을 막는다. 그 경우만 409 다.
+
+    가려내지 않으면 **모든** 삽입 실패가 "이미 심사를 기다리는 신청이 있습니다" 가 된다 —
+    커넥션이 끊겨도, RLS 가 막아도, 컬럼이 없어도 같은 문구다. 그러면 사용자는 신청이
+    접수돼 있다고 믿고 기다리는데 심사 큐에는 아무것도 없다. 양쪽 다 이상하다고 느끼지
+    못하는 게 이 오분류의 가장 나쁜 점이다.
+    """
+    text = str(exc).lower()
+    return (
+        "23505" in text
+        or "duplicate key" in text
+        or "bvr_pending_facility_uq" in text
+        or "bvr_pending_freeform_uq" in text
+    )
+
+
 def _is_missing_requested_role(exc: Exception) -> bool:
     """requested_role 컬럼이 아직 없는 DB인가.
 
@@ -165,6 +185,23 @@ class VerificationRequestView(BaseModel):
     review_note: str | None = None
     created_at: str | None = None
     requested_role: str = "merchant"
+
+
+def _insert_failure(user_id: str, exc: Exception) -> HTTPException:
+    """신청 저장 실패를 정직한 상태 코드로 옮긴다.
+
+    중복만 409 다. 나머지는 사용자 잘못이 아니라 우리 쪽 장애이므로 503 으로 알리고
+    다시 시도하게 한다 — 409 로 뭉뚱그리면 '접수됐다' 는 오해를 남기고, 그 오해는
+    심사 큐가 비어 있는 것으로도 드러나지 않는다.
+    """
+    if _is_duplicate_pending(exc):
+        logger.info("verification_request_duplicate", user_id=user_id)
+        return HTTPException(status_code=409, detail="이미 심사를 기다리는 신청이 있습니다.")
+    logger.error("verification_request_insert_failed", user_id=user_id, error=str(exc))
+    return HTTPException(
+        status_code=503,
+        detail="신청을 저장하지 못했어요. 잠시 후 다시 시도해 주세요.",
+    )
 
 
 @router.post("/verification-requests", response_model=VerificationRequestView)
@@ -208,22 +245,9 @@ async def create_verification_request(
             try:
                 res = await asyncio.to_thread(_insert, payload)
             except Exception as retry_exc:
-                logger.warning(
-                    "verification_request_insert_failed",
-                    user_id=profile["id"],
-                    error=str(retry_exc),
-                )
-                raise HTTPException(
-                    status_code=409, detail="이미 심사를 기다리는 신청이 있습니다."
-                ) from None
+                raise _insert_failure(profile["id"], retry_exc) from None
         else:
-            # 같은 가게에 대기 중인 신청이 이미 있으면 부분 유니크 인덱스가 막는다.
-            logger.warning(
-                "verification_request_insert_failed", user_id=profile["id"], error=str(exc)
-            )
-            raise HTTPException(
-                status_code=409, detail="이미 심사를 기다리는 신청이 있습니다."
-            ) from None
+            raise _insert_failure(profile["id"], exc) from None
     row = (res.data or [{}])[0]
     return VerificationRequestView(
         id=str(row.get("id")),
