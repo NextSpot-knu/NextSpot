@@ -87,7 +87,7 @@ async def _load_profile(user_id: str) -> dict:
         # 프로필 조회 실패를 '권한 있음' 으로 오인하지 않는다. tourist 로 두면
         # 콘솔 접근은 막히고 관광객 기능은 그대로 동작한다(무해 폴백).
         logger.warning("authz_profile_lookup_failed", user_id=user_id, error=str(exc))
-        return {"role": ROLE_TOURIST, "facility_ids": frozenset()}
+        return {"role": ROLE_TOURIST, "facility_ids": frozenset(), "degraded": True}
 
     facility_ids: frozenset[str] = frozenset()
     # 소유권 조회는 콘솔을 쓸 수 있는 역할에만 필요하다 — 관광객 요청마다 표를 두드리지 않는다.
@@ -104,7 +104,11 @@ async def _load_profile(user_id: str) -> dict:
                 str(row["facility_id"]) for row in (owned.data or []) if row.get("facility_id")
             )
         except Exception as exc:
+            # 빈 집합은 '가진 가게가 없다' 와 **똑같은 값**이다. 그래서 조회가 실패했을 뿐인데
+            # 사장님이 자기 가게에 403 "내 가게가 아닙니다" 를 받는다. 이번 요청을 막는 것
+            # 자체는 맞다(fail-closed) — 문제는 이 값이 캐시에 들어가 30초를 가는 것이다.
             logger.warning("authz_ownership_lookup_failed", user_id=user_id, error=str(exc))
+            return {"role": role, "facility_ids": facility_ids, "degraded": True}
     return {"role": role, "facility_ids": facility_ids}
 
 
@@ -121,7 +125,12 @@ async def _build_profile(user_id: str, email: str | None, payload: dict) -> dict
                 loaded = cached[1]
             else:
                 loaded = await _load_profile(user_id)
-                _profile_cache[user_id] = (time.monotonic() + _PROFILE_TTL_SECONDS, loaded)
+                # 조회에 실패해서 만든 프로필은 캐시하지 않는다. 실패값은 '권한 없음' 과
+                # 구분되지 않으므로, 캐시에 넣으면 커넥션 한 번 끊긴 대가로 30초 동안
+                # 사장님이 자기 콘솔에서 잠긴다 — 다음 요청이 다시 물어보게 둔다.
+                # (프런트에서 같은 모양의 버그를 이미 겪었다: lib/account.tsx 의 sticky null)
+                if not loaded.get("degraded"):
+                    _profile_cache[user_id] = (time.monotonic() + _PROFILE_TTL_SECONDS, loaded)
     return {
         "id": user_id,
         "email": email,
