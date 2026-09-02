@@ -482,6 +482,7 @@
     "footer": "你的上报能帮助分散其他游客。",
     "success": "已上报“{name}”的拥挤！这会帮到其他游客 🙏",
     "authError": "登录后才能上报。",
+    "cooldownError": "请稍后再提交。",
     "failError": "暂时无法发送上报。请稍后再试。"
   },
   "alert": {

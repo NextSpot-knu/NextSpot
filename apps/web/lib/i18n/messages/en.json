@@ -482,6 +482,7 @@
     "footer": "Your report helps disperse other travelers.",
     "success": "Reported crowding at '{name}'! It helps other travelers 🙏",
     "authError": "Sign in to report.",
+    "cooldownError": "You can report again in a moment.",
     "failError": "Can’t send the report right now. Please try again shortly."
   },
   "alert": {

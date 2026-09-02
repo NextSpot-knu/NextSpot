@@ -14,7 +14,7 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Users, X } from 'lucide-react';
-import { apiClient } from '@/lib/api-client';
+import { apiClient, httpStatus, isAuthError } from '@/lib/api-client';
 import { useT } from '@/lib/i18n/I18nProvider';
 import { haptic, sheetSpring } from '@/lib/motion';
 
@@ -116,11 +116,18 @@ export function CongestionReportButton({ facility, onReported, isFirst = false, 
       showToast(rewardMessage ? `${successMessage} · ${rewardMessage}` : successMessage, 'success');
       setIsOpen(false);
     } catch (err) {
-      // 백엔드 다운/인증 만료 등 — graceful degradation(앱은 계속 동작).
-      const message = err instanceof Error ? err.message : '';
-      const friendly = message.includes('401') || message.toLowerCase().includes('auth')
+      // 백엔드 다운/인증 만료/쿨다운 — graceful degradation(앱은 계속 동작).
+      //
+      // 예전에는 err.message 에 '401' 이나 'auth' 가 들어 있는지로 갈랐다. api-client 는
+      // 서버가 준 한국어 detail 을 그대로 message 에 싣기 때문에, 토큰이 만료돼도 문구에
+      // 그 글자가 없으면 인증 안내 대신 "잠시 후 다시" 가 떴다. 타입 가드로 가른다.
+      //
+      // 서버 detail 은 토스트에 그대로 쓰지 않는다 — 전부 한국어인데 이 화면은 4개 국어다.
+      const friendly = isAuthError(err)
         ? t('report.authError')
-        : t('report.failError');
+        : httpStatus(err) === 429
+          ? t('report.cooldownError')
+          : t('report.failError');
       showToast(friendly, 'error');
     } finally {
       setSubmitting(false);
