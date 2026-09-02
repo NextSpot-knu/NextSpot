@@ -176,6 +176,37 @@ def test_briefing_untrained_model_skips_llm(client, llm_calls):
     assert llm_calls["prompts"] == []
 
 
+def test_briefing_skips_when_a_window_hour_has_no_prediction(client, llm_calls):
+    """predict_congestion 은 학습에 없던 조합이면 None 을 준다 — 예전에는 그대로 산술해
+    TypeError 가 났다("예외를 던지지 않는다"는 이 서비스의 계약이 깨졌다).
+
+    **빈 시각만 빼는 방식으로는 고칠 수 없다.** 이 모듈은 {window}("앞으로 6시간") 토큰을
+    게이트로 강제하는데, 곡선이 6시간을 다 덮지 못하면 그 문구가 거짓이 된다. 일부만 아는
+    채로 최저 시각을 고르느니 통째로 건너뛴다 — 미학습 모델과 같은 처리다."""
+    def _one_hour_missing(_type, hour, _dow):
+        return None if hour == (FIXED_NOW.hour + 3) % 24 else 0.5
+
+    with _briefing_env(), patch.object(
+        merchant_briefing_service, "predict_congestion", side_effect=_one_hour_missing
+    ):
+        res = _get(client)
+
+    assert res.status_code == 200, f"None 예측에 {res.status_code} 가 났다"
+    assert res.json() == {"briefing": None, "llmStatus": "skipped"}
+    assert llm_calls["prompts"] == [], "사실을 못 모았는데 LLM 을 불렀다"
+
+
+def test_briefing_skips_when_the_anchor_base_is_missing(client, llm_calls):
+    """지금 시점 예측이 없으면 앵커 오프셋을 만들 수 없다."""
+    with _briefing_env(), patch.object(
+        merchant_briefing_service, "predict_congestion", side_effect=lambda *_a: None
+    ):
+        res = _get(client)
+    assert res.status_code == 200
+    assert res.json() == {"briefing": None, "llmStatus": "skipped"}
+    assert llm_calls["prompts"] == []
+
+
 # =========================================================================
 # 4. 키 미설정 — 조용한 null (conftest 가 UPSTAGE_API_KEY="" 고정 → is_enabled=False)
 # =========================================================================

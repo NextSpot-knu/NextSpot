@@ -132,12 +132,27 @@ async def collect_facts(facility_id: str, facility_type: str) -> Optional[dict]:
     congestion_map = await fetch_latest_congestion_for_all([facility_id])
     current_log = congestion_map.get(facility_id)
     base_now = await asyncio.to_thread(predict_congestion, facility_type, now.hour, now.weekday())
+    # predict_congestion 은 학습에 없던 (타입, 시, 요일) 조합이면 None 을 준다. 예전에는
+    # 그대로 산술해 TypeError 가 났고, "예외를 던지지 않는다"는 이 함수의 계약이 깨졌다.
+    if base_now is None:
+        logger.info("briefing_facts_unavailable_no_base", facility_type=facility_type)
+        return None
     offset = (float(current_log["level"]) - base_now) if current_log is not None else 0.0
 
     curve: list[dict] = []
     for hours_ahead in range(_WINDOW_HOURS + 1):
         target = now + timedelta(hours=hours_ahead)
         base = await asyncio.to_thread(predict_congestion, facility_type, target.hour, target.weekday())
+        # 빈 시각만 골라 빼면 안 된다 — 이 모듈은 {window}("앞으로 6시간") 토큰을 게이트로
+        # 강제하는데(위 계약 ①), 곡선이 6시간을 다 덮지 않으면 그 문구가 거짓이 된다.
+        # 일부만 아는 채로 최저 시각을 고르느니 통째로 건너뛴다(llmStatus="skipped").
+        if base is None:
+            logger.info(
+                "briefing_facts_unavailable_partial_window",
+                facility_type=facility_type,
+                hours_ahead=hours_ahead,
+            )
+            return None
         curve.append({
             "hours_ahead": hours_ahead,
             "kst_hour": target.astimezone(_KST).hour,
