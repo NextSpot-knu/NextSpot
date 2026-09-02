@@ -1,10 +1,10 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
-  <defs>
-    <linearGradient id="gemini" x1="3" y1="4" x2="29" y2="28" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#4285F4"/>
-      <stop offset="0.5" stop-color="#9B72CB"/>
-      <stop offset="1" stop-color="#D96570"/>
-    </linearGradient>
-  </defs>
-  <path d="M16 2 Q16 16 30 16 Q16 16 16 30 Q16 16 2 16 Q16 16 16 2 Z" fill="url(#gemini)"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32" role="img" aria-label="NextSpot">
+  <!-- NextSpot 임시 마크 — 분산(흩어짐)을 뜻하는 세 점과 그 중심.
+       이전 파일은 Google Gemini 로고(브랜드 그라디언트 + gradient id="gemini")가 그대로
+       남아 있던 시드 잔재였다. 타사 상표라 즉시 걷어내되, 정식 마크는 디자인 결정이므로
+       팔레트(globals.css)만 따른 중립 도형으로 둔다. -->
+  <rect width="32" height="32" rx="7" fill="#faf5ec"/>
+  <circle cx="16" cy="13" r="4.4" fill="#c19a3e"/>
+  <circle cx="8.2" cy="23.4" r="2.5" fill="#3e7c6a"/>
+  <circle cx="23.8" cy="23.4" r="2.5" fill="#c1553b"/>
 </svg>
