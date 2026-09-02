@@ -30,6 +30,21 @@ export function isAuthError(err: unknown): err is AuthError {
 // 그 밖의 HTTP 오류. 상태 코드를 **버리지 않는다** — 맨 Error 로 던지면 호출부가
 // "다시 시도하면 되는 실패" 와 "몇 번을 보내도 같은 실패" 를 구분할 수 없다. 실제로
 // 추천 결과 전송 큐가 그것 때문에 영구 실패 하나에 영영 막혔다(lib/recommendationOutcomes.ts).
+/** FastAPI 오류 본문에서 사람이 읽을 메시지를 꺼낸다(422 의 배열 detail 포함). */
+export function errorMessageFrom(body: unknown, status: number): string {
+  const fallback = `HTTP error! status: ${status}`;
+  if (typeof body !== "object" || body === null) return fallback;
+  const detail = (body as { detail?: unknown }).detail;
+  if (typeof detail === "string" && detail) return detail;
+  if (Array.isArray(detail)) {
+    const first = detail.find(
+      (d) => typeof d === "object" && d !== null && typeof (d as { msg?: unknown }).msg === "string",
+    ) as { msg?: string } | undefined;
+    if (first?.msg) return first.msg;
+  }
+  return fallback;
+}
+
 export class HttpError extends Error {
   constructor(message: string, readonly status: number) {
     super(message);
@@ -158,7 +173,11 @@ async function request(path: string, options: RequestOptions = {}) {
 
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
-    const message = errorData.detail || `HTTP error! status: ${response.status}`;
+    // detail 이 문자열일 때만 그대로 쓴다. FastAPI 의 요청 검증 실패(422)는 detail 을
+    // **객체 배열**로 준다({loc, msg, type}...). 그걸 Error 메시지에 넣으면 화면에
+    // "[object Object]" 가 뜬다 — 사용자에게는 아무 의미도 없고, 우리도 무엇이 틀렸는지
+    // 알 수 없다. 배열이면 첫 항목의 msg 만 꺼내고, 그것도 없으면 상태 코드로 떨어진다.
+    const message = errorMessageFrom(errorData, response.status);
     // 401 은 서버 장애가 아니라 '인증 필요' 신호 → 호출부가 구분할 수 있게 전용 타입으로 던진다.
     if (response.status === 401) {
       throw new AuthError(message);
