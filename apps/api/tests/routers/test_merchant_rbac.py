@@ -18,6 +18,9 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.core import authz
+# conftest 의 autouse 픽스처가 authz._load_profile 을 목으로 갈아 끼운다. 임포트 시점에
+# 원본 함수 객체를 붙잡아 두면 그 패치가 닿지 않아 진짜 구현을 검사할 수 있다.
+from app.core.authz import _load_profile as _real_load_profile
 from app.routers import merchant
 from tests.routers.test_routers import FakeSupabase
 
@@ -96,7 +99,8 @@ def test_merchant_can_broadcast_for_owned_facility(client):
         res = client.post(
             "/api/v1/merchant/seat-status", json=_seat_body(OWNED_FACILITY), headers=AUTH_HEADERS
         )
-    assert res.status_code != 403
+    # != 403 은 401·500 도 통과시킨다 — 허용 경로를 검사하는 테스트는 성공을 단언해야 한다.
+    assert res.status_code == 200, f"소유 가게 방송이 {res.status_code} 로 막혔다"
 
 
 def test_merchant_cannot_read_unowned_stats(client):
@@ -136,7 +140,7 @@ def test_developer_bypasses_ownership(client):
         res = client.get(
             f"/api/v1/merchant/stats?facility_id={OTHER_FACILITY}", headers=AUTH_HEADERS
         )
-    assert res.status_code != 403
+    assert res.status_code == 200, f"developer 우회가 {res.status_code} 로 막혔다"
 
 
 def test_anonymous_session_cannot_hold_merchant_role(client):
@@ -158,12 +162,17 @@ def test_no_credentials_is_401(client):
 # 3. 레거시 공유 토큰 — 플래그로만 열린다
 # =========================================================================
 def test_legacy_token_accepted_while_flag_on(client):
-    """이행기 무중단용. 사용자를 특정할 수 없어 소유권은 검사하지 않는다(기존 동작)."""
-    res = client.get(
-        f"/api/v1/merchant/stats?facility_id={OTHER_FACILITY}",
-        headers={"X-Merchant-Token": MERCHANT_TOKEN},
-    )
-    assert res.status_code != 403
+    """이행기 무중단용. 사용자를 특정할 수 없어 소유권은 검사하지 않는다(기존 동작).
+
+    **플래그를 실제로 켜야 한다.** 예전에는 켜지 않은 채 `!= 403` 만 단언해서, 토큰이
+    거부돼 401 이 나도 그대로 통과했다 — 이름과 달리 '수용' 을 한 번도 검사하지 않았다.
+    """
+    with patch.object(merchant.settings, "LEGACY_CONSOLE_TOKENS", True):
+        res = client.get(
+            f"/api/v1/merchant/stats?facility_id={OTHER_FACILITY}",
+            headers={"X-Merchant-Token": MERCHANT_TOKEN},
+        )
+    assert res.status_code == 200, f"플래그가 켜졌는데 {res.status_code} 로 거부됐다"
 
 
 def test_legacy_token_rejected_when_flag_off(client):
@@ -219,14 +228,25 @@ async def test_profile_cache_is_invalidated_on_demand():
 
 @pytest.mark.asyncio
 async def test_unknown_role_falls_back_to_tourist():
-    """DB 에 알 수 없는 role 값이 있어도 권한을 주지 않는다(fail-closed)."""
-    authz.invalidate_profile_cache()
+    """DB 에 알 수 없는 role 값이 있어도 권한을 주지 않는다(fail-closed).
 
-    class _Res:
-        data = [{"role": "superuser"}]
+    **conftest 의 autouse 픽스처를 우회해야 한다.** _authz_role_source 가 모든 테스트에서
+    authz._load_profile 을 목으로 갈아 끼우므로, 모듈 속성으로 부르면 FakeSupabase 는 한 번도
+    조회되지 않고 목이 돌려주는 'tourist' 를 검사하게 된다 — 항상 통과하는 테스트였다.
+    임포트 시점에 붙잡아 둔 원본 함수 객체를 부르면 패치가 닿지 않는다.
+    """
+    authz.invalidate_profile_cache()
 
     fake = FakeSupabase({"users": [{"id": USER_ID, "role": "superuser"}]})
     with patch.object(authz, "supabase_admin", fake):
-        loaded = await authz._load_profile(USER_ID)
+        loaded = await _real_load_profile(USER_ID)
     assert loaded["role"] == "tourist"
+
+    # 대조군: 정상 역할은 그대로 통과해야 한다. 이게 없으면 위 단언은 "무조건 tourist 를
+    # 돌려주는 구현" 으로도 통과한다.
+    fake_ok = FakeSupabase({"users": [{"id": USER_ID, "role": "merchant"}]})
+    with patch.object(authz, "supabase_admin", fake_ok):
+        loaded_ok = await _real_load_profile(USER_ID)
+    assert loaded_ok["role"] == "merchant", "FakeSupabase 를 실제로 읽지 않았다"
+
     authz.invalidate_profile_cache()
