@@ -140,8 +140,16 @@ async def predict_batch(req: BatchPredictRequest):
     #   pred_f(t) = clamp01( predict(타입, 목표 hour, 목표 dow) + offset_f )
     # 즉 모델이 시간대별 변화 곡선을, 현재 실측이 시설별 개성(수준)을 제공한다.
     # 현재 로그가 없는 시설은 타입 수준 예측 원값을 그대로 쓰고 anchored=False 로 구분 표기한다.
+    # 타입 수준 예측이 없는 타입은 통째로 뺀다. 곡선(base_target)이든 앵커(base_now)든 하나만
+    # 비어도 그 타입의 시설은 계산이 성립하지 않는다 — 예전에는 None 으로 산술해 500 이었다.
+    unpredictable = {t for t in base_now if base_now[t] is None or base_target[t] is None}
+    if unpredictable:
+        logger.info("predict_batch_types_skipped", types=sorted(unpredictable))
+
     predictions: list[BatchPredictionItem] = []
     for f in facilities:
+        if f["type"] in unpredictable:
+            continue
         # 행사 혼잡 보정(A4): 목표 시점에 진행 중인 인근 축제의 거리 감쇠 가중.
         # 최초 1회만 TourAPI 를 조회(서비스 내부 캐시)하고 이후는 순수 거리 계산이라
         # 시설 수만큼 순차 await 해도 비용이 없다. 좌표 없는 행(구 시드 등)은 보정 생략.
@@ -165,6 +173,12 @@ async def predict_batch(req: BatchPredictRequest):
                 anchored=False,
                 event_boost=boost,
             ))
+
+    if facilities and not predictions:
+        # 한 건도 못 냈으면 빈 목록을 성공처럼 돌려주지 않는다(0건과 '예측 불가' 는 다르다).
+        raise HTTPException(
+            status_code=503, detail="이 시점의 혼잡 예측을 낼 수 없습니다. 잠시 후 다시 시도해 주세요."
+        )
 
     response = BatchPredictResponse(
         generated_at=now_dt.isoformat(),
@@ -196,6 +210,11 @@ class DayPredictResponse(BaseModel):
     best_congestion: float
 
 
+# 모델이 아는 시설 타입. admin.FACILITY_TYPES / courses._VALID_COURSE_TYPES 와 같은 집합이다
+# (라우터끼리 임포트하지 않으려고 각자 들고 있다 — 늘어나면 core 로 올릴 것).
+FACILITY_TYPES = ("restaurant", "cafe", "attraction", "culture")
+
+
 def _kst_hour_to_utc(kst_hour: int, kst_dow: int) -> tuple[int, int]:
     """KST(=UTC+9) 시/요일을 모델이 쓰는 UTC hour/dow 로 변환.
 
@@ -212,7 +231,10 @@ async def predict_day(
     dow: int | None = Query(None, ge=0, le=6, description="요일(KST, 0=월 … 6=일). 생략 시 오늘(KST)."),
 ):
     # 단건 /predict 와 동일하게 공개 조회용(무인증) 엔드포인트다(추천 카드는 로그인 없이 열람 가능).
-    # 로컬 model.pkl 미학습 시 predict_congestion 이 0.5 폴백이라 비용 부담이 없다.
+    if facility_type not in FACILITY_TYPES:
+        raise HTTPException(
+            status_code=422, detail=f"facilityType 은 {list(FACILITY_TYPES)} 중 하나여야 합니다."
+        )
     if not get_model_info()["trained"]:
         raise HTTPException(status_code=503, detail="검증된 혼잡 예측 모델이 없습니다.")
     resolved_dow = dow if dow is not None else _utcnow().astimezone(_KST).weekday()
@@ -222,6 +244,18 @@ async def predict_day(
         utc_hour, utc_dow = _kst_hour_to_utc(kst_hour, resolved_dow)
         # predict_congestion 은 동기 sklearn 추론 — 이벤트 루프를 막지 않게 워커 스레드로 오프로드(batch 와 동일).
         value = await asyncio.to_thread(predict_congestion, facility_type, utc_hour, utc_dow)
+        # predict_congestion 은 학습 데이터에 없던 (타입, 시, 요일) 조합이면 None 을 준다.
+        # 예전 주석은 "미학습 시 0.5 폴백" 이라고 적혀 있었지만 그 동작은 없어진 지 오래고
+        # (tests/services/test_predict_service.py 가 None 을 단언한다), round(None) 은 500 이었다.
+        # 24시간을 전부 주는 응답 계약은 유지해야 하므로 — 프런트 미니 차트가 그걸 전제한다 —
+        # 한 시각이라도 비면 지어내지 않고 이 조건은 예측할 수 없다고 정직하게 답한다.
+        if value is None:
+            logger.info(
+                "predict_day_unavailable", facility_type=facility_type, kst_hour=kst_hour, dow=resolved_dow
+            )
+            raise HTTPException(
+                status_code=503, detail="이 조건의 혼잡 예측을 낼 수 없습니다. 잠시 후 다시 시도해 주세요."
+            )
         hours.append(DayHour(hour=kst_hour, congestion=round(value, 4)))
 
     # 가장 한산한 시각(동률이면 이른 시각). min 은 안정 정렬이라 앞선(이른) hour 가 선택된다.
@@ -300,13 +334,26 @@ async def predict_golden_hour(
     current_log = congestion_map.get(facility_id)
     now_utc_hour, now_utc_dow = _kst_hour_to_utc(current_hour, now_kst.weekday())
     base_now = await asyncio.to_thread(predict_congestion, facility_type, now_utc_hour, now_utc_dow)
+    if base_now is None:
+        # 지금 시각의 타입 수준 예측이 없으면 앵커 오프셋을 만들 수 없다 — 위 '남은 시간대 없음'
+        # 과 같은 정직한 폴백으로 돌린다(0 으로 두면 앵커링한 척하는 곡선이 나간다).
+        logger.info("golden_hour_unavailable_no_base", facility_id=facility_id, hour=current_hour)
+        return GoldenHourResponse(available=False, facility_id=facility_id)
     offset = (float(current_log["level"]) - base_now) if current_log is not None else 0.0
 
     curve: list[GoldenHourPoint] = []
     for kst_hour in hours_grid:
         utc_hour, utc_dow = _kst_hour_to_utc(kst_hour, now_kst.weekday())
         value = await asyncio.to_thread(predict_congestion, facility_type, utc_hour, utc_dow)
+        # 학습에 없던 시각은 곡선에서 뺀다. 이 응답은 애초에 '남은 시간대' 만 담으므로
+        # (hours_grid 가 현재시각~22시) 빠진 시각이 계약 위반이 아니다.
+        if value is None:
+            continue
         curve.append(GoldenHourPoint(hour=kst_hour, congestion=round(_clamp01(value + offset), 4)))
+
+    if not curve:
+        logger.info("golden_hour_unavailable_empty_curve", facility_id=facility_id)
+        return GoldenHourResponse(available=False, facility_id=facility_id)
 
     # 최저 혼잡 시각(동률이면 이른 시각 — min 은 안정 정렬).
     best = min(curve, key=lambda p: p.congestion)

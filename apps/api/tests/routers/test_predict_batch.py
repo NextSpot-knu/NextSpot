@@ -144,3 +144,35 @@ def test_batch_response_cached_60s_per_hours_ahead():
         third = client.post("/predict/batch", json={"hours_ahead": 0})
         assert third.status_code == 200
         assert fetch_fac_mock.await_count == 2
+
+
+# ── 학습에 없던 조합 — predict_congestion 이 None 을 준다 ───────────────────
+# _fake_predict 가 언제나 float 를 돌려주기 때문에 위 테스트들은 None 경로를 타지 않았고,
+# `base_target[type] + offset + boost` 의 TypeError → 500 이 오래 살아남았다.
+
+
+def _predict_missing_cafe(facility_type: str, hour: int, dow: int):
+    if facility_type == "cafe":
+        return None
+    return _fake_predict(facility_type, hour, dow)
+
+
+def test_a_type_without_a_prediction_is_skipped_not_a_500():
+    """cafe 예측이 없다고 restaurant 결과까지 잃을 이유는 없다 — 낼 수 있는 것만 낸다."""
+    p1, p2, _p3, p4, p5 = _patched()
+    with p1, p2, p4, p5, patch.object(predict, "predict_congestion", side_effect=_predict_missing_cafe):
+        res = _make_client().post("/predict/batch", json={"hours_ahead": 2})
+
+    assert res.status_code == 200, f"예측 없는 타입에 {res.status_code} 가 났다"
+    ids = {p["facility_id"] for p in res.json()["predictions"]}
+    # cafe 두 곳은 빠지고 restaurant 한 곳만 남아야 한다.
+    assert ids == {"fac-anchored-low"}, f"예상과 다른 결과 집합: {ids}"
+
+
+def test_no_predictions_at_all_is_a_503_not_an_empty_success():
+    """0건과 '예측 불가' 는 다르다. 빈 목록을 성공으로 돌려주면 호출부는 '한산하다' 로 읽는다."""
+    p1, p2, _p3, p4, p5 = _patched()
+    with p1, p2, p4, p5, patch.object(predict, "predict_congestion", side_effect=lambda *_a: None):
+        res = _make_client().post("/predict/batch", json={"hours_ahead": 2})
+
+    assert res.status_code == 503

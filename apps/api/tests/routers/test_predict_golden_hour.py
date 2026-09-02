@@ -139,3 +139,48 @@ def test_golden_hour_missing_facility_id_422():
     client = _make_client()
     res = client.get("/predict/golden-hour")
     assert res.status_code == 422
+
+
+# ── 학습에 없던 조합 — predict_congestion 이 None 을 준다 ───────────────────
+# 이 파일의 다른 테스트는 전부 float 를 돌려주는 가짜를 끼워서 None 경로를 타지 않았고,
+# 그래서 `_clamp01(value + offset)` 의 TypeError → 500 이 오래 살아남았다.
+
+
+def test_a_missing_base_falls_back_to_unavailable_not_a_500():
+    """지금 시각의 타입 수준 예측이 없으면 앵커 오프셋을 만들 수 없다.
+    0 으로 두면 앵커링한 척하는 곡선이 나가므로, 있는 폴백(available=False)으로 돌린다."""
+    facilities = [{"id": FACILITY_ID, "type": "cafe"}]
+    congestion_map = {FACILITY_ID: {"level": 0.9, "current_count": 90, "timestamp": "2026-07-06T03:00:00+00:00"}}
+
+    with patch.object(predict, "supabase_client", new=FakeSupabase({"facilities": facilities})), \
+         patch.object(predict, "get_model_info", return_value={"trained": True, "metrics": {"mae": 0.1}}), \
+         patch.object(predict, "_utcnow", return_value=FIXED_NOW_NOON_KST), \
+         patch.object(predict, "fetch_latest_congestion_for_all", new=AsyncMock(return_value=congestion_map)), \
+         patch.object(predict, "predict_congestion", side_effect=lambda *_a: None):
+        res = _make_client().get("/predict/golden-hour", params={"facilityId": FACILITY_ID})
+
+    assert res.status_code == 200, f"None 예측에 {res.status_code} 가 났다"
+    assert res.json()["available"] is False
+
+
+def test_unseen_hours_are_dropped_from_the_curve():
+    """곡선은 애초에 '남은 시간대' 만 담으므로(현재시각~22시) 빠진 시각이 계약 위반이 아니다.
+    지어내는 것보다 빼는 편이 정직하다."""
+    facilities = [{"id": FACILITY_ID, "type": "cafe"}]
+
+    def _some_hours_missing(_type, hour, dow):
+        # KST 12시(UTC 3시)는 base_now 로 필요하다. UTC 8~13시(KST 17~22시)만 비운다.
+        return None if 8 <= hour <= 13 else 0.5
+
+    with patch.object(predict, "supabase_client", new=FakeSupabase({"facilities": facilities})), \
+         patch.object(predict, "get_model_info", return_value={"trained": True, "metrics": {"mae": 0.1}}), \
+         patch.object(predict, "_utcnow", return_value=FIXED_NOW_NOON_KST), \
+         patch.object(predict, "fetch_latest_congestion_for_all", new=AsyncMock(return_value={})), \
+         patch.object(predict, "predict_congestion", side_effect=_some_hours_missing):
+        res = _make_client().get("/predict/golden-hour", params={"facilityId": FACILITY_ID})
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["available"] is True
+    hours = [p["hour"] for p in body["curve"]]
+    assert hours == list(range(12, 17)), f"빈 시각이 곡선에 남았다: {hours}"

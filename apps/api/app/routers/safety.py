@@ -16,7 +16,7 @@
 - 다음 1시간 예측은 predict.py 의 배치 앵커링 공식과 동일하다:
     offset  = 현재실측 − predict(타입, 지금 hour, 지금 dow)
     pred(t) = clamp01( predict(타입, +1h hour, +1h dow) + offset )
-  predict_congestion 은 로컬 모델 미학습 시에도 0.5 로 폴백해 예외를 던지지 않지만, 방어적으로
+  predict_congestion 은 학습에 없던 조합이면 None 을 돌려주지만(예외는 던지지 않는다), 방어적으로
   try/except 를 둬 어떤 이유로든 계산이 실패하면 null 을 반환한다(무해 폴백 — 프런트가 '예측 없음'
   으로 표시).
 """

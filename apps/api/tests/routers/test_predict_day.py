@@ -90,3 +90,37 @@ def test_day_dow_out_of_bounds_422():
     client = _make_client()
     res = client.get("/predict/day", params={"facilityType": "cafe", "dow": 7})
     assert res.status_code == 422
+
+
+# ── 학습에 없던 조합 — predict_congestion 이 None 을 준다 ───────────────────
+# 이 계약이 테스트에 없어서 500 이 오래 살아 있었다. 위 테스트들이 전부 float 를 돌려주는
+# 가짜를 끼우기 때문에 None 경로를 한 번도 타지 않았다.
+
+
+def test_an_unseen_hour_is_reported_honestly_not_as_a_500():
+    """round(None) 은 TypeError → 500 이었다. 지어내지도, 터지지도 않아야 한다."""
+    def _one_hour_missing(_type: str, hour: int, dow: int):
+        return None if hour == 7 else 0.5
+
+    with patch.object(predict, "predict_congestion", side_effect=_one_hour_missing), \
+         patch.object(predict, "get_model_info", return_value={"trained": True}):
+        res = _make_client().get("/predict/day", params={"facilityType": "cafe", "dow": 0})
+
+    assert res.status_code == 503, f"학습에 없던 시각에 {res.status_code} 가 났다"
+    assert "예측" in res.json()["detail"]
+
+
+def test_an_unknown_facility_type_is_a_422_not_a_500():
+    """facilityType 은 자유 문자열이라 아무 값이나 들어온다. 알 수 없는 값은 사용자 입력
+    문제이지 서버 장애가 아니다 — 503(모델 없음)으로 뭉뚱그리면 원인을 못 찾는다."""
+    with patch.object(predict, "get_model_info", return_value={"trained": True}):
+        res = _make_client().get("/predict/day", params={"facilityType": "bogus", "dow": 0})
+    assert res.status_code == 422
+
+
+def test_the_24_hour_contract_survives():
+    """프런트 미니 막대가 24칸을 전제한다 — 빈 시각을 빼는 방식으로는 고칠 수 없었다."""
+    with patch.object(predict, "predict_congestion", side_effect=_min_at_kst16), \
+         patch.object(predict, "get_model_info", return_value={"trained": True}):
+        res = _make_client().get("/predict/day", params={"facilityType": "cafe", "dow": 0})
+    assert [h["hour"] for h in res.json()["hours"]] == list(range(24))
