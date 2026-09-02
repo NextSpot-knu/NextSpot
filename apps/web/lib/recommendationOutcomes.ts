@@ -110,7 +110,16 @@ export function flushRecommendationOutcomes(): Promise<void> {
         break;
       }
     }
-    writeQueue(remaining);
+
+    // 스냅샷으로 계산한 값을 그대로 되쓰면 안 된다. 이 루프는 항목마다 네트워크를 기다리는데,
+    // 그 사이 사용자가 도착 확인이나 평가를 하면 queueRecommendationOutcome 이 localStorage 에
+    // 새 항목을 넣는다. 여기서 remaining 만 쓰면 그 항목이 조용히 사라진다 —
+    // 하필 가장 늦게 쌓이는 'rated' 가 가장 잘 지워진다.
+    //
+    // 그래서 되쓰기 직전에 다시 읽어, 이번 회차가 다루지 않은 항목을 합쳐 넣는다.
+    const handled = new Set(queue.map(operationKey));
+    const arrivedDuringFlush = readQueue().filter((item) => !handled.has(operationKey(item)));
+    writeQueue([...remaining, ...arrivedDuringFlush]);
   })().finally(() => { flushing = null; });
   return flushing;
 }

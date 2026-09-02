@@ -106,9 +106,13 @@ export async function syncSaved(): Promise<SavedRecord[]> {
     return local;
   }
 
+  // 로컬을 **여기서 다시 읽는다.** 위의 local 은 세션 조회와 원격 select 두 번의 왕복 이전에
+  // 찍은 스냅샷이라, 그 사이 사용자가 저장하거나 지운 항목이 빠져 있다. 그 낡은 값으로
+  // writeLocal 하면 방금 한 저장이 조용히 사라진다(사용자에겐 저장이 씹힌 것으로 보인다).
+  const fresh = loadSavedLocal();
   // 지우려다 실패했던 항목은 원격에 남아 있어도 목록에서 뺀다(되살아남 방지).
   const pending = loadPendingDeletes();
-  const merged = mergeSaved(local, remote, pending);
+  const merged = mergeSaved(fresh, remote, pending);
   writeLocal(merged);
 
   // 그리고 원격 삭제를 다시 시도한다. 성공한 것만 보류 목록에서 지운다.
@@ -120,9 +124,11 @@ export async function syncSaved(): Promise<SavedRecord[]> {
     writePendingDeletes(stillPending);
   }
 
-  // 로컬에만 있던 항목(오프라인 저장분)을 원격으로 업로드.
+  // 로컬에만 있던 항목(오프라인 저장분)을 원격으로 업로드. 판단 근거는 위와 같은 fresh 다 —
+  // 낡은 스냅샷을 쓰면 동기화 중에 저장한 항목이 업로드 대상에서 빠진다.
   const remoteIds = new Set(remote.map((b) => b.id));
-  const localOnly = local.filter((b) => !remoteIds.has(b.id));
+  const deleting = new Set(pending);
+  const localOnly = fresh.filter((b) => !remoteIds.has(b.id) && !deleting.has(b.id));
   if (localOnly.length) {
     try {
       await createPublicClient()
