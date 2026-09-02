@@ -27,6 +27,25 @@ export function isAuthError(err: unknown): err is AuthError {
 }
 
 // 일시적 서버 의존성 장애(HTTP 503)를 인증 실패·기타 오류와 구분하기 위한 전용 타입.
+// 그 밖의 HTTP 오류. 상태 코드를 **버리지 않는다** — 맨 Error 로 던지면 호출부가
+// "다시 시도하면 되는 실패" 와 "몇 번을 보내도 같은 실패" 를 구분할 수 없다. 실제로
+// 추천 결과 전송 큐가 그것 때문에 영구 실패 하나에 영영 막혔다(lib/recommendationOutcomes.ts).
+export class HttpError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+    this.name = "HttpError";
+  }
+}
+
+/** 에러에 실린 HTTP 상태 코드(없으면 undefined). AuthError·ServiceUnavailableError 도 함께 잡는다. */
+export function httpStatus(err: unknown): number | undefined {
+  if (typeof err === "object" && err !== null) {
+    const status = (err as { status?: unknown }).status;
+    if (typeof status === "number") return status;
+  }
+  return undefined;
+}
+
 export class ServiceUnavailableError extends Error {
   readonly status = 503;
   constructor(message = "Service temporarily unavailable") {
@@ -147,7 +166,7 @@ async function request(path: string, options: RequestOptions = {}) {
     if (response.status === 503) {
       throw new ServiceUnavailableError(message);
     }
-    throw new Error(message);
+    throw new HttpError(message, response.status);
   }
 
   // 응답 데이터 json 파싱 및 snake_case -> camelCase 변환
