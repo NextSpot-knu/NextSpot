@@ -46,6 +46,20 @@ logger = structlog.get_logger()
 # 신청은 되는데 승인이 막히는(또는 그 반대) 상태가 생기지 않도록 여기서 한 번 더 검사한다.
 REVIEWABLE_ROLES = ("merchant", "admin")
 
+
+def _is_duplicate_owner(exc: Exception) -> bool:
+    """이미 활성 소유권이 있어 facility_owners_active_uq 가 막은 경우인가.
+
+    이 경우만 넘어가도 된다 — 원하던 상태가 이미 성립해 있다는 뜻이므로.
+    (20260827140000 의 부분 유니크 인덱스, revoked_at IS NULL 행 한정)
+    """
+    text = str(exc).lower()
+    return (
+        "23505" in text
+        or "duplicate key" in text
+        or "facility_owners_active_uq" in text
+    )
+
 router = APIRouter(
     prefix="/api/v1/dev",
     tags=["dev"],
@@ -524,6 +538,22 @@ async def approve_verification(
             )
         except Exception as exc:
             # 이미 소유자면 승인 자체는 계속 진행한다(재심사·중복 신청 흡수).
+            if not _is_duplicate_owner(exc):
+                # 그 밖의 실패로 계속 진행하면 **소유권 없는 사업자**가 만들어진다:
+                # role 은 merchant 라 콘솔에는 들어가지는데 모든 요청이 403 "내 가게가
+                # 아닙니다" 이고, 요청은 approved 라 다시 심사할 수도 없다. 증빙까지 아래에서
+                # 지워지므로 되돌릴 근거도 사라진다.
+                #
+                # 그래서 상태 갱신 **전에** 멈춘다. 요청이 pending 으로 남으면 심사자가 다시
+                # 승인하면 되고, 역할 갱신은 멱등이라(위에서 before_role 비교) 재시도가 안전하다.
+                # 아래 '증빙 삭제는 상태 갱신 뒤에' 와 같은 이유의 순서 판단이다.
+                logger.error(
+                    "verification_owner_grant_failed", request_id=request_id, error=str(exc)
+                )
+                raise HTTPException(
+                    status_code=503,
+                    detail="가게 소유권 부여에 실패했습니다. 신청은 그대로 두었으니 다시 승인해 주세요.",
+                ) from None
             logger.warning("verification_owner_insert_skipped", request_id=request_id, error=str(exc))
 
     # 증빙 삭제는 **상태 갱신 뒤**에 한다. 먼저 지우면 갱신이 실패했을 때 요청이 pending 인

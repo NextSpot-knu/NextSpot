@@ -42,8 +42,9 @@ class _Result:
 
 
 class _Query:
-    def __init__(self, rows: list):
+    def __init__(self, rows: list, insert_error: Exception | None = None):
         self._rows = rows
+        self._insert_error = insert_error
         self._filters: list[tuple] = []
         self._limit: int | None = None
         self._want_count = False
@@ -158,6 +159,8 @@ class _Query:
     def execute(self):
         hits = [r for r in self._rows if self._matches(r)]
         if self._op == "insert":
+            if self._insert_error is not None:
+                raise self._insert_error
             payload = self._payload if isinstance(self._payload, list) else [self._payload]
             for p in payload:
                 self._rows.append(dict(p))
@@ -203,11 +206,13 @@ class _Auth:
 class _MiniSupabase:
     def __init__(self, tables: dict, auth_users: list | None = None):
         self.tables = tables
+        # {테이블명: 예외} — insert 를 실패시켜 부분 실패 경로를 검사한다.
+        self.insert_errors: dict[str, Exception] = {}
         # public.users 에는 이메일이 없다 — auth.users 쪽을 따로 들고 있는다.
         self.auth = _Auth(auth_users or [])
 
     def table(self, name: str) -> _Query:
-        return _Query(self.tables.setdefault(name, []))
+        return _Query(self.tables.setdefault(name, []), self.insert_errors.get(name))
 
 
 # =========================================================================
@@ -610,6 +615,43 @@ def test_review_queue_filters_by_requested_role(client, db):
             "/api/v1/dev/verification-requests?requested_role=admin", headers=_headers()
         )
     assert [r["id"] for r in res.json()["items"]] == ["b2"]
+
+
+# ── 승인 중간 실패 — 소유권 부여가 깨지면 어디서 멈추는가 ────────────────────
+
+
+def test_a_duplicate_owner_still_approves(client, db, pending_request):
+    """이미 소유자인 재심사·중복 신청은 그대로 승인된다(원하던 상태가 이미 성립해 있다)."""
+    db.insert_errors["facility_owners"] = RuntimeError(
+        "duplicate key value violates unique constraint facility_owners_active_uq"
+    )
+    with _as("developer"), patch.object(dev, "_clear_evidence", new=AsyncMock()):
+        res = client.post(
+            f"/api/v1/dev/verification-requests/{REQUEST_ID}/approve",
+            json={"reason": "재심사"}, headers=_headers(),
+        )
+    assert res.status_code == 200
+    assert db.tables["business_verification_requests"][0]["status"] == "approved"
+
+
+def test_a_failed_owner_grant_leaves_the_request_reviewable(client, db, pending_request):
+    """소유권 부여가 진짜로 실패했는데 승인을 계속하면 **소유권 없는 사업자**가 생긴다 —
+    콘솔에는 들어가지는데 모든 요청이 403 이고, approved 라 다시 심사할 수도 없다.
+    증빙까지 지워지면 되돌릴 근거도 없다. 그래서 상태를 바꾸기 전에 멈춘다."""
+    db.insert_errors["facility_owners"] = RuntimeError(
+        "server disconnected without sending a response"
+    )
+    clear = AsyncMock()
+    with _as("developer"), patch.object(dev, "_clear_evidence", new=clear):
+        res = client.post(
+            f"/api/v1/dev/verification-requests/{REQUEST_ID}/approve",
+            json={"reason": "서류 확인"}, headers=_headers(),
+        )
+    assert res.status_code == 503
+    row = db.tables["business_verification_requests"][0]
+    assert row["status"] == "pending", "승인이 되돌릴 수 없는 상태로 굳었다"
+    assert row["document_path"], "증빙이 지워져 다시 심사할 근거가 사라졌다"
+    clear.assert_not_awaited()
 
 
 def test_review_queue_refuses_a_developer_filter(client):
