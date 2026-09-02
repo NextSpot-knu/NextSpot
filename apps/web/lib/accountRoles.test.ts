@@ -7,6 +7,7 @@ import {
   canRequestRoleChange,
   normalizeRole,
   parseAccount,
+  resolveRefreshFailure,
   type Account,
   type AccountRole,
 } from './accountRoles';
@@ -162,6 +163,39 @@ assert.deepEqual(keysToCamel({ alreadyCamel: 1 }), { alreadyCamel: 1 });
   // 게스트는 서버가 403 으로 막는다. 폼을 열어 주면 반드시 실패하는 폼이 된다.
   assert.equal(canRequestRoleChange(make('tourist', true)), false);
   assert.equal(canRequestRoleChange(null), false);
+}
+
+// ── 조회 실패 후 상태 — 실패는 '계정 없음' 이 아니다 ──────────────────────
+// 실제로 났던 버그: 마이페이지의 역할 변경 신청 버튼이 "한 번 들어갔다 나오면 사라진다".
+// 원인은 여기였다 — 모든 실패를 account=null 로 처리했고, null 은 게스트와 같은 값이라
+// 타임아웃 한 번이 곧 로그아웃처럼 보였다. 루트 레이아웃 프로바이더의 메모리 상태라
+// 화면을 옮겨도 다시 조회하지 않아, 한 번 사라지면 새로고침 전까지 돌아오지 않았다.
+{
+  const known = account('merchant');
+
+  // 401 만이 '계정이 없다' 다.
+  assert.deepEqual(resolveRefreshFailure(known, true), { account: null, status: 'error' });
+
+  // 타임아웃·503·오프라인 — 알던 계정을 지우지 않는다. 이게 버그의 수정점이다.
+  const kept = resolveRefreshFailure(known, false);
+  assert.equal(kept.account, known, '일시적 실패가 알던 계정을 지웠다');
+  assert.equal(kept.status, 'ready', '유지한 계정을 error 로 두면 화면이 로딩에 갇힌다');
+
+  // 첫 조회부터 실패하면 보여 줄 것이 없다 — 게스트로 떨어뜨린다(기존 동작).
+  assert.deepEqual(resolveRefreshFailure(null, false), { account: null, status: 'error' });
+  assert.deepEqual(resolveRefreshFailure(null, true), { account: null, status: 'error' });
+
+  // 증상 자체를 잠근다: 일시적 실패 뒤에도 버튼 판정이 그대로여야 한다.
+  assert.equal(
+    canRequestRoleChange(resolveRefreshFailure(account('tourist'), false).account),
+    true,
+    '일시적 실패 뒤에 역할 변경 신청 버튼이 사라졌다',
+  );
+  // 반대 방향도 잠근다 — 세션이 진짜 없으면 버튼은 사라져야 한다.
+  assert.equal(
+    canRequestRoleChange(resolveRefreshFailure(account('tourist'), true).account),
+    false,
+  );
 }
 
 console.log('parseAccount contract tests passed');

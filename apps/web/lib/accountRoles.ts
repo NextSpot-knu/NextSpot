@@ -97,3 +97,34 @@ export function canRequestBusinessVerification(account: Account | null): boolean
 export function canRequestRoleChange(account: Account | null): boolean {
   return !!account && !account.isAnonymous && account.role !== 'developer';
 }
+
+/** 계정 컨텍스트의 상태. 'loading' 은 첫 조회 전이다. */
+export type AccountStatus = 'loading' | 'ready' | 'error';
+
+export interface AccountState {
+  account: Account | null;
+  status: AccountStatus;
+}
+
+/**
+ * 프로필 조회가 실패했을 때 컨텍스트가 취할 상태.
+ *
+ * 예전에는 **모든** 실패를 `account = null` 로 처리했다. 그런데 null 은 '게스트' 와 같은
+ * 값이라, 타임아웃 한 번이 곧 "로그인 안 한 사람" 이 됐다. 그리고 이 값은 루트 레이아웃
+ * 프로바이더의 메모리 상태이고 화면 이동으로는 다시 조회하지 않으므로, 한 번 null 이 되면
+ * 새로고침 전까지 그대로다 — 마이페이지의 역할 변경 신청 버튼이 "한 번 들어갔다 나오면
+ * 사라진다" 던 증상이 이것이다(2026-09-02). 백엔드가 Render 무료 플랜이라 콜드 스타트로
+ * 10초 타임아웃이 나는 일이 드물지 않다.
+ *
+ * 그래서 401 만 '계정이 없다' 로 읽는다. 나머지(타임아웃·503·오프라인)는 '지금 못 물어봤다'
+ * 이므로 직전에 알던 계정을 유지한다. 이 값은 어차피 UX 용이고, 진짜 차단은 매 요청마다
+ * 백엔드가 한다 — 잠깐 낡은 값으로 버튼을 보여 주는 쪽의 손해가 더 작다.
+ */
+export function resolveRefreshFailure(
+  previous: Account | null,
+  isAuthFailure: boolean,
+): AccountState {
+  if (isAuthFailure) return { account: null, status: 'error' };
+  if (previous) return { account: previous, status: 'ready' };
+  return { account: null, status: 'error' };
+}
