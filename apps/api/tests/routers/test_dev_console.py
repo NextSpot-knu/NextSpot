@@ -683,10 +683,10 @@ def test_approve_promotes_and_grants_ownership(client, db, pending_request):
 def test_approve_clears_evidence_only_after_the_status_is_written(client, db, pending_request):
     """증빙을 먼저 지우면, 상태 갱신이 실패했을 때 pending 인 채로 증빙만 사라진다 —
     다시 심사할 수도, 신청자에게 돌려줄 수도 없는 상태가 된다."""
-    seen: list[str] = []
+    seen: list[tuple[str, str | None]] = []
 
-    async def _spy(_request_id):
-        seen.append(pending_request["status"])
+    async def _spy(_request_id, path):
+        seen.append((pending_request["status"], path))
 
     with _as("developer"), patch.object(dev, "_clear_evidence", new=_spy):
         client.post(
@@ -694,14 +694,17 @@ def test_approve_clears_evidence_only_after_the_status_is_written(client, db, pe
             json={"reason": "서류 확인"},
             headers=_headers(),
         )
-    assert seen == ["approved"], f"증빙 삭제 시점의 상태가 {seen} — 상태 갱신보다 먼저 지웠다"
+    assert [s for s, _ in seen] == ["approved"], f"증빙 삭제 시점의 상태가 {seen} — 상태 갱신보다 먼저 지웠다"
+    # 순서만 보고 경로를 안 보면 이 버그를 놓친다: 갱신이 document_path 를 NULL 로 만든 뒤에
+    # 다시 읽고 있어서 삭제 대상이 언제나 None 이었고, 파일은 한 번도 지워지지 않았다.
+    assert seen[0][1] == "docs/proof.jpg", "지울 파일 경로가 전달되지 않았다 — 증빙이 남는다"
 
 
 def test_reject_clears_evidence_only_after_the_status_is_written(client, db, pending_request):
-    seen: list[str] = []
+    seen: list[tuple[str, str | None]] = []
 
-    async def _spy(_request_id):
-        seen.append(pending_request["status"])
+    async def _spy(_request_id, path):
+        seen.append((pending_request["status"], path))
 
     with _as("developer"), patch.object(dev, "_clear_evidence", new=_spy):
         client.post(
@@ -709,7 +712,8 @@ def test_reject_clears_evidence_only_after_the_status_is_written(client, db, pen
             json={"reason": "서류 불충분"},
             headers=_headers(),
         )
-    assert seen == ["rejected"]
+    assert [s for s, _ in seen] == ["rejected"]
+    assert seen[0][1] == "docs/proof.jpg", "지울 파일 경로가 전달되지 않았다 — 증빙이 남는다"
 
 
 def test_reject_does_not_promote_or_grant(client, db, pending_request):

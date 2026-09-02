@@ -458,17 +458,17 @@ async def list_verification_requests(
     return {"items": items}
 
 
-async def _clear_evidence(request_id: str) -> None:
+async def _clear_evidence(request_id: str, path: str | None) -> None:
     """심사가 끝나면 증빙을 지운다 — 인증 완료 후에는 보관하지 않는다는 결정.
+
+    경로를 **인자로 받는다.** 예전에는 request_id 로 document_path 를 다시 읽었는데, 바로
+    앞의 상태 갱신이 그 칼럼을 이미 NULL 로 만든 뒤였다. 그래서 path 가 언제나 None 이었고
+    **Storage 파일은 한 번도 지워지지 않았다** — 보관하지 않는다는 약속이 조용히 깨져 있었다.
+    (칼럼을 먼저 비우는 순서 자체는 옳다. 아래 호출부 주석 참조.)
 
     Storage 파일 삭제는 경로가 있을 때만 시도하고, 실패해도 심사 결과를 되돌리지 않는다
     (다만 경고를 남겨 수동 정리가 가능하게 한다).
     """
-    res = await asyncio.to_thread(
-        supabase_admin.table("business_verification_requests")
-        .select("document_path").eq("id", request_id).limit(1).execute
-    )
-    path = (res.data or [{}])[0].get("document_path")
     if path:
         try:
             await asyncio.to_thread(
@@ -504,6 +504,8 @@ async def approve_verification(
         )
 
     user_id = str(req["user_id"])
+    # 아래 상태 갱신이 document_path 를 NULL 로 만들기 때문에 지금 붙잡아 둔다.
+    document_path = req.get("document_path")
     reason = f"{'사업자 인증' if requested_role == 'merchant' else '관리자 권한'} 승인"
 
     role_res = await asyncio.to_thread(
@@ -568,7 +570,8 @@ async def approve_verification(
             "business_number_last4": None,
         }).eq("id", request_id).execute
     )
-    await _clear_evidence(request_id)
+    # 경로는 갱신 **전에** 읽어 둔 값을 넘긴다(갱신이 document_path 를 NULL 로 만든다).
+    await _clear_evidence(request_id, document_path)
     invalidate_profile_cache(user_id)
     log_role_audit(
         actor_id=actor["id"], target_id=user_id, action="verification_review",
@@ -588,12 +591,14 @@ async def reject_verification(
 ):
     res = await asyncio.to_thread(
         supabase_admin.table("business_verification_requests")
-        .select("user_id, status").eq("id", request_id).limit(1).execute
+        .select("user_id, status, document_path").eq("id", request_id).limit(1).execute
     )
     if not res.data:
         raise HTTPException(status_code=404, detail="해당 요청을 찾을 수 없습니다.")
     if res.data[0].get("status") != "pending":
         raise HTTPException(status_code=409, detail="이미 심사가 끝난 요청입니다.")
+    # 승인과 같은 이유로 갱신 전에 붙잡아 둔다.
+    document_path = res.data[0].get("document_path")
 
     # 승인과 같은 이유로 상태 갱신이 먼저다(증빙을 잃고 pending 에 갇히는 것을 막는다).
     await asyncio.to_thread(
@@ -606,7 +611,7 @@ async def reject_verification(
             "business_number_last4": None,
         }).eq("id", request_id).execute
     )
-    await _clear_evidence(request_id)
+    await _clear_evidence(request_id, document_path)
     log_role_audit(
         actor_id=actor["id"], target_id=str(res.data[0]["user_id"]),
         action="verification_review", to_value="rejected", reason=body.reason,
