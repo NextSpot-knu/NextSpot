@@ -11,9 +11,11 @@ import type { User } from "@supabase/supabase-js";
 import {
   buildRedirectTo as buildRedirectToWithOrigin,
   deriveAuthState,
+  resolveProfileSync,
   type AuthState,
   type AuthStatus,
   type OAuthProvider,
+  type StoredProfile,
 } from "@/lib/oauthFlow";
 
 export type { AuthState, AuthStatus, OAuthProvider };
@@ -152,12 +154,20 @@ export async function getAuthState(): Promise<AuthState> {
 }
 
 /**
- * 승격(linkIdentity) 직후 public.users 프로필 백필.
- * linkIdentity 는 auth.users 를 UPDATE 하므로 handle_new_user(AFTER INSERT) 트리거를 타지 않는다.
- * 따라서 프로바이더 메타(name/avatar)를 public.users 로 옮기는 것은 프런트가 1회 수행한다.
- * 기존 값(사용자가 직접 지정한 nickname 등)을 덮어쓰지 않도록 NULL 인 컬럼만 채운다.
+ * 소셜 로그인 직후 public.users 프로필을 프로바이더 값과 맞춘다.
+ *
+ * 두 가지 일을 한다:
+ *   1) 백필 — linkIdentity 는 auth.users 를 UPDATE 하므로 handle_new_user(AFTER INSERT)
+ *      트리거를 타지 않는다. 그 경로의 프로필은 여기서 채운다.
+ *   2) 갱신 — 프로바이더에서 이름·사진을 바꾸면 다음 로그인에 반영한다.
+ *
+ * 예전 이름은 backfillProfileAfterLink 였고 실제로 '비어 있으면 채우기'만 했다. 그래서
+ * 카카오 닉네임을 바꿔도 앱에는 첫 가입 때 값이 영영 남았다(2026-09-02). 무엇을 덮어써도
+ * 되는지는 nickname_source 가 정하고, 그 판정은 lib/oauthFlow.ts 에 순수 함수로 있다.
+ *
+ * /auth/callback 의 finish() 가 **모든 소셜 로그인마다** 부른다(연동·재로그인 공통).
  */
-export async function backfillProfileAfterLink(): Promise<void> {
+export async function syncProfileFromProvider(): Promise<void> {
   try {
     const supabase = createPublicClient();
     const {
@@ -172,19 +182,20 @@ export async function backfillProfileAfterLink(): Promise<void> {
 
     const { data: profile } = await supabase
       .from("users")
-      .select("nickname, avatar_url")
+      .select("nickname, avatar_url, nickname_source")
       .eq("id", user.id)
       .single();
 
-    const patch: { nickname?: string; avatar_url?: string } = {};
-    if (metaName && !profile?.nickname) patch.nickname = metaName;
-    if (metaAvatar && !profile?.avatar_url) patch.avatar_url = metaAvatar;
+    const patch = resolveProfileSync(
+      { name: metaName, avatar: metaAvatar },
+      (profile as StoredProfile | null) ?? null,
+    );
     if (Object.keys(patch).length === 0) return;
 
     await supabase.from("users").update(patch).eq("id", user.id);
   } catch (err) {
-    // 백필 실패는 치명적이지 않다(마이페이지가 세션 메타로도 이름/아바타를 표시할 수 있음).
-    console.warn("[auth] 프로필 백필 건너뜀:", err);
+    // 동기화 실패는 치명적이지 않다(마이페이지가 세션 메타로도 이름/아바타를 표시할 수 있음).
+    console.warn("[auth] 프로필 동기화 건너뜀:", err);
   }
 }
 
@@ -233,7 +244,7 @@ export async function signUpWithEmail(
       const { error } = await supabase.auth.updateUser({ email, password, ...(meta ? { data: meta } : {}) });
       if (error) return { error: error.message, reason: classifySignUpError(error), needsConfirmation: false };
       // 전환은 UPDATE 라 handle_new_user 트리거를 안 타므로 public.users.nickname 을 직접 백필한다.
-      await backfillProfileAfterLink();
+      await syncProfileFromProvider();
       // Confirm email ON 이면 이메일 확정 전까지 아직 익명 상태일 수 있다 → 확인 안내.
       const {
         data: { user: after },

@@ -74,3 +74,57 @@ export function deriveAuthState(user: User | null | undefined): AuthState {
   const isLinked = user.is_anonymous === false || providers.length > 0;
   return { status: isLinked ? "linked" : "guest", user, providers };
 }
+
+
+// ── 프로필 동기화 판정 ──────────────────────────────────────────────────────
+
+/** public.users 에서 읽어 온 현재 프로필(동기화 판단에 필요한 세 칼럼). */
+export interface StoredProfile {
+  nickname: string | null;
+  avatar_url: string | null;
+  /** 'user' 면 사용자가 직접 지정한 이름이다 — 덮어쓰면 안 된다. */
+  nickname_source: 'provider' | 'user' | null;
+}
+
+/** public.users 에 적용할 변경. 빈 객체면 쓸 것이 없다는 뜻이다. */
+export interface ProfilePatch {
+  nickname?: string;
+  nickname_source?: 'provider';
+  avatar_url?: string;
+}
+
+/**
+ * 소셜 로그인 후 public.users 에 무엇을 쓸지 정한다.
+ *
+ * 원래 규칙은 "NULL 인 칼럼만 채운다" 였다. 사용자가 마이페이지에서 정한 이름을 로그인마다
+ * 덮어쓰지 않으려는 의도였는데, 그 대가로 **프로바이더에서 이름을 바꿔도 앱에는 첫 가입
+ * 때 값이 영영 남았다**(카카오가 '오윤성' 을 주는데 화면엔 '윤성1', 2026-09-02).
+ *
+ * 이제 두 경우를 nickname_source 로 가른다:
+ *   · 'user'  — 사용자가 직접 지정. 프로바이더 이름이 뭐든 건드리지 않는다.
+ *   · 그 외   — 비어 있거나 프로바이더 유래. 최신 값으로 맞춘다.
+ *
+ * 아바타는 사용자가 지정할 경로가 없어(업로드 기능 없음) 항상 프로바이더 유래다 —
+ * 달라지면 그냥 맞춘다.
+ *
+ * 닉네임 중복은 신경 쓰지 않는다. 유일성 제약이 없고, 닉네임으로 사용자를 찾는 코드도 없다.
+ */
+export function resolveProfileSync(
+  meta: { name: string | null; avatar: string | null },
+  profile: StoredProfile | null,
+): ProfilePatch {
+  const patch: ProfilePatch = {};
+
+  const userChoseTheName = profile?.nickname_source === 'user';
+  if (meta.name && !userChoseTheName && profile?.nickname !== meta.name) {
+    patch.nickname = meta.name;
+    // 갱신할 때마다 출처를 다시 찍는다 — 컬럼이 없던 시절의 행(NULL)도 이걸로 정리된다.
+    patch.nickname_source = 'provider';
+  }
+
+  if (meta.avatar && profile?.avatar_url !== meta.avatar) {
+    patch.avatar_url = meta.avatar;
+  }
+
+  return patch;
+}

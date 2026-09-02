@@ -3245,3 +3245,141 @@ CREATE POLICY admin_update_settings ON public.system_settings
     FOR UPDATE TO authenticated
     USING (public.is_admin_or_dev())
     WITH CHECK (public.is_admin_or_dev());
+
+-- ============================= migrations/20260902130000_role_change_requests.sql =============================
+-- 계정 역할 변경 신청 — business_verification_requests 를 '사업자 전용'에서 '역할 신청' 큐로 넓힌다.
+--
+-- 왜 새 표를 만들지 않는가:
+--   신청 → 개발자 심사 → 역할 임명 + 감사 로그의 파이프라인이 이미 여기 다 있다. 표를 하나 더
+--   만들면 심사 화면·승인 로직·RLS·증빙 삭제 정책을 통째로 두 벌 유지해야 하고, 두 큐 중
+--   어느 쪽을 봐야 하는지 개발자가 매번 판단해야 한다. 컬럼 하나가 정직하고 싸다.
+--
+-- 어떤 역할까지 신청 대상인가:
+--   merchant — 가게 사장님. 기존 사업자 인증 그대로다(가게 매핑 + 소유권 부여가 따라온다).
+--   admin    — 정부기관 관제 담당자. 소속 확인은 오프라인이고, 시스템은 요청·결정만 기록한다.
+--   developer 는 **넣지 않는다.** 팀 내부 권한이라 신청 대상이 아니며, 신청으로 얻을 수 있게
+--   두면 심사 실수 한 번이 곧 전체 권한 위임이 된다. 개발자 임명은 /dev 콘솔에서 직접 한다.
+--
+-- 기존 행은 전부 사업자 신청이므로 DEFAULT 'merchant' 가 곧 정확한 백필이다.
+--
+-- 멱등: 재실행 가능(ADD COLUMN IF NOT EXISTS + 제약은 이름으로 확인 후 추가).
+
+ALTER TABLE public.business_verification_requests
+    ADD COLUMN IF NOT EXISTS requested_role TEXT NOT NULL DEFAULT 'merchant';
+
+-- CHECK 은 따로 붙인다. ADD COLUMN IF NOT EXISTS 의 인라인 CHECK 은 컬럼이 이미 있으면
+-- 통째로 건너뛰어, 컬럼만 먼저 만들어진 환경에 제약이 영영 안 붙는다.
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+         WHERE conrelid = 'public.business_verification_requests'::regclass
+           AND conname = 'bvr_requested_role_check'
+    ) THEN
+        ALTER TABLE public.business_verification_requests
+            ADD CONSTRAINT bvr_requested_role_check
+            CHECK (requested_role IN ('merchant', 'admin'));
+    END IF;
+END $$;
+
+-- 심사 큐는 대기 → 오래된 순으로 본다. 역할별로 나눠 보는 화면이 생겼으므로 인덱스도 맞춘다.
+CREATE INDEX IF NOT EXISTS bvr_role_status_idx
+    ON public.business_verification_requests (requested_role, status, created_at);
+
+-- 한 사용자가 pending 을 여러 개 쌓지 못하게 막는 기존 부분 유니크 인덱스 2개는
+-- (user_id, facility_id) / (user_id, lower(store_name)) 기준이라 그대로 둔다.
+-- 관리자 신청은 facility_id 가 NULL 이고 store_name 에 소속 기관명이 들어가므로
+-- freeform 인덱스에 걸린다 — 같은 소속으로 두 번 신청하는 것만 막히고, 사업자 신청과는
+-- store_name 이 달라 충돌하지 않는다. 의도한 동작이다.
+
+-- INSERT RLS 정책(bvr_insert_own)은 status/reviewed_* 만 검사하므로 새 컬럼의 영향이 없다.
+-- 실제 쓰기는 어차피 service_role(백엔드 /api/v1/account)이 한다.
+
+-- ============================= migrations/20260903120000_nickname_source.sql =============================
+-- 닉네임 출처 추적 — 프로바이더에서 이름을 바꿔도 앱에는 옛 이름이 굳어 있던 문제.
+--
+-- 증상(2026-09-02 실측): 카카오 계정으로 로그인했는데 닉네임이 '윤성1' 로 떴다.
+--   auth.users.raw_user_meta_data 는 이미 '오윤성' 을 주고 있었는데
+--   public.users.nickname 은 첫 가입(2026-07-15) 때 값 그대로였다.
+--
+-- 원인: 프로필 백필이 **NULL 인 칼럼만** 채운다. 사용자가 마이페이지에서 직접 정한 이름을
+--   로그인할 때마다 덮어쓰지 않으려는 의도였는데, 그 대가로 프로바이더 유래 이름도 영영
+--   갱신되지 않았다. 둘을 구분할 정보가 없어서 생긴 문제다 — 그 정보를 여기서 만든다.
+--
+--   'provider' : 소셜 프로바이더가 준 이름. 로그인할 때 최신 값으로 맞춘다.
+--   'user'     : 사용자가 직접 지정. **어떤 경우에도 덮어쓰지 않는다.**
+--   NULL       : 닉네임이 없거나 출처를 알 수 없다.
+--
+-- 닉네임에 유일성 제약은 없다(있던 적도 없다). 두 계정이 같은 이름을 써도 무방하며,
+-- 닉네임으로 사용자를 찾는 코드도 없다 — 표시용 값이다.
+--
+-- 멱등: 재실행 가능(ADD COLUMN IF NOT EXISTS · 제약은 이름 확인 후 · 백필은 NULL 만).
+
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS nickname_source TEXT;
+
+-- CHECK 을 따로 붙이는 이유: ADD COLUMN IF NOT EXISTS 의 인라인 CHECK 은 컬럼이 이미 있으면
+-- 통째로 건너뛰어, 컬럼만 먼저 생긴 환경에 제약이 영영 안 붙는다.
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+         WHERE conrelid = 'public.users'::regclass
+           AND conname = 'users_nickname_source_check'
+    ) THEN
+        ALTER TABLE public.users
+            ADD CONSTRAINT users_nickname_source_check
+            CHECK (nickname_source IS NULL OR nickname_source IN ('provider', 'user'));
+    END IF;
+END $$;
+
+-- 기존 행 백필 — 지금 프로바이더가 주는 이름과 **같으면** 프로바이더 유래로 본다.
+--
+-- 다르면 사용자가 바꾼 건지 프로바이더 쪽이 바뀐 건지 알 수 없다. 그때는 'user' 로 둔다:
+-- 사용자가 고른 이름이 로그인 한 번에 사라지는 쪽이, 옛 이름이 남아 있는 쪽보다 나쁘다
+-- (옛 이름은 마이페이지에서 직접 고칠 수 있지만, 지워진 이름은 되돌릴 방법이 없다).
+UPDATE public.users u
+   SET nickname_source = CASE
+        WHEN u.nickname = COALESCE(
+                 a.raw_user_meta_data->>'full_name',
+                 a.raw_user_meta_data->>'name'
+             ) THEN 'provider'
+        ELSE 'user'
+       END
+  FROM auth.users a
+ WHERE a.id = u.id
+   AND u.nickname IS NOT NULL
+   AND u.nickname_source IS NULL;
+
+-- handle_new_user 확장 — 가입 시점에 출처를 같이 남긴다.
+-- 이 트리거로 들어온 닉네임은 정의상 프로바이더 유래다(익명 가입은 메타가 비어 NULL).
+-- 나머지 동작은 20260715140000 판과 동일하다.
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS TRIGGER
+SECURITY DEFINER
+SET search_path = public
+LANGUAGE plpgsql AS $$
+DECLARE
+    v_nickname TEXT;
+BEGIN
+    v_nickname := COALESCE(
+        NEW.raw_user_meta_data->>'full_name',
+        NEW.raw_user_meta_data->>'name'
+    );
+    INSERT INTO public.users (id, preferred_categories, nickname, avatar_url, nickname_source)
+    VALUES (
+        NEW.id,
+        '[]'::jsonb,
+        v_nickname,
+        NEW.raw_user_meta_data->>'avatar_url',
+        CASE WHEN v_nickname IS NOT NULL THEN 'provider' END
+    )
+    ON CONFLICT (id) DO NOTHING;
+    RETURN NEW;
+END;
+$$;
+
+-- 트리거(on_auth_user_created)는 20260710160000 에서 이미 만들었다 — 함수만 교체하면 된다.
+--
+-- ⚠️ 익명 세션의 linkIdentity 승격은 auth.users 를 UPDATE 하므로 이 트리거(AFTER INSERT)를
+--    타지 않는다. 그 경로와 '로그인할 때마다 갱신'은 프런트가 담당한다
+--    (apps/web/lib/auth.ts syncProfileFromProvider → lib/oauthFlow.ts resolveProfileSync).

@@ -11,7 +11,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { resolvePostLoginDest } from '@/lib/postLoginDest';
 import { createPublicClient } from '@/lib/supabase';
-import { discardCapturedGuestData, getAuthState, backfillProfileAfterLink, mergeCapturedGuestData, signInOAuth, type OAuthProvider } from '@/lib/auth';
+import { discardCapturedGuestData, getAuthState, syncProfileFromProvider, mergeCapturedGuestData, signInOAuth, type OAuthProvider } from '@/lib/auth';
 import { useT } from '@/lib/i18n/I18nProvider';
 
 // 오픈 리다이렉트 방지 — 앱 내부 절대경로만 허용(lib/auth.ts 와 동일 규칙).
@@ -65,7 +65,7 @@ export default function AuthCallbackPage() {
       if (done) return;
       done = true;
       await mergeCapturedGuestData();
-      await backfillProfileAfterLink();
+      await syncProfileFromProvider();
       // `?next=` 가 없어 기본값(/mypage)으로 온 경우에만 역할을 본다 — admin 은 관제로.
       const explicit = params.get('next');
       router.replace(await resolvePostLoginDest(explicit ? next : null, next));

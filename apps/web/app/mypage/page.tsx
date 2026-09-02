@@ -232,7 +232,12 @@ export default function MyPage() {
       const supabase = createPublicClient();
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
-        const { error } = await supabase.from('users').update({ nickname: trimmed }).eq('id', user.id);
+        // nickname_source='user' 가 핵심이다 — 이 표식이 없으면 다음 소셜 로그인에서
+        // 프로바이더 이름으로 덮여 사용자가 정한 이름이 사라진다(lib/oauthFlow.ts).
+        const { error } = await supabase
+          .from('users')
+          .update({ nickname: trimmed, nickname_source: 'user' })
+          .eq('id', user.id);
         if (error) throw error;
       }
       setProfile((prev) => (prev ? { ...prev, name: trimmed } : prev));

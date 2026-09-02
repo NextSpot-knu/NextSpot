@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import type { User } from '@supabase/supabase-js';
-import { buildRedirectTo, deriveAuthState, safeNext } from './oauthFlow';
+import { buildRedirectTo, deriveAuthState, resolveProfileSync, safeNext } from './oauthFlow';
 
 // ── safeNext — 오픈 리다이렉트 방어 ────────────────────────────────────────
 // `next` 는 콜백 URL 쿼리에서 오므로 공격자가 통제할 수 있다. 앱 내부 절대경로만 통과해야 한다.
@@ -106,5 +106,76 @@ assert.equal(deriveAuthState(asUser({})).status, 'guest');
 
 // identities 가 아예 undefined 여도 터지지 않는다(Supabase 응답 편차 방어).
 assert.equal(deriveAuthState(asUser({ identities: undefined })).status, 'guest');
+
+// ── resolveProfileSync — 프로바이더 이름 동기화 ─────────────────────────────
+// 두 실패가 정반대 방향이라 둘 다 잠근다:
+//   · 갱신을 안 하면 → 카카오에서 이름을 바꿔도 앱엔 첫 가입 때 값이 영영 남는다(2026-09-02 실제 증상).
+//   · 무조건 갱신하면 → 사용자가 마이페이지에서 정한 이름이 로그인 한 번에 사라진다.
+
+const KAKAO = { name: '오윤성', avatar: 'http://k.kakaocdn.net/new.jpg' };
+
+// 프로바이더 유래 이름이 낡았으면 갱신한다 — 이게 원래 안 되던 부분이다.
+{
+  const patch = resolveProfileSync(KAKAO, {
+    nickname: '윤성1',
+    avatar_url: 'http://k.kakaocdn.net/new.jpg',
+    nickname_source: 'provider',
+  });
+  assert.equal(patch.nickname, '오윤성');
+  assert.equal(patch.nickname_source, 'provider');
+}
+
+// 컬럼이 없던 시절의 행(source=null)도 갱신 대상이다. 안 그러면 기존 사용자는 영영 안 고쳐진다.
+assert.equal(
+  resolveProfileSync(KAKAO, { nickname: '윤성1', avatar_url: null, nickname_source: null }).nickname,
+  '오윤성',
+);
+
+// 사용자가 직접 정한 이름은 **절대** 건드리지 않는다.
+{
+  const patch = resolveProfileSync(KAKAO, {
+    nickname: '내가고른이름',
+    avatar_url: null,
+    nickname_source: 'user',
+  });
+  assert.equal(patch.nickname, undefined, '사용자가 정한 이름이 덮였다');
+  assert.equal(patch.nickname_source, undefined);
+  // 아바타는 사용자가 지정할 경로가 없으므로 이 경우에도 맞춘다.
+  assert.equal(patch.avatar_url, KAKAO.avatar);
+}
+
+// 이미 같으면 쓸 것이 없다 — 로그인마다 무의미한 UPDATE 를 날리지 않는다.
+assert.deepEqual(
+  resolveProfileSync(KAKAO, {
+    nickname: '오윤성',
+    avatar_url: KAKAO.avatar,
+    nickname_source: 'provider',
+  }),
+  {},
+);
+
+// 프로필 행이 아직 없는 경우(승격 직후 백필) — 원래 동작대로 채운다.
+{
+  const patch = resolveProfileSync(KAKAO, null);
+  assert.equal(patch.nickname, '오윤성');
+  assert.equal(patch.avatar_url, KAKAO.avatar);
+}
+
+// 프로바이더가 이름을 안 주면(카카오 비즈앱 미전환 등) 이름은 손대지 않는다.
+assert.equal(
+  resolveProfileSync({ name: null, avatar: KAKAO.avatar }, {
+    nickname: '윤성1',
+    avatar_url: null,
+    nickname_source: 'provider',
+  }).nickname,
+  undefined,
+);
+
+// 중복은 판단 근거가 아니다 — 다른 계정이 같은 이름을 써도 그대로 쓴다(유일성 제약 없음).
+assert.equal(
+  resolveProfileSync(KAKAO, { nickname: '옛이름', avatar_url: null, nickname_source: 'provider' })
+    .nickname,
+  '오윤성',
+);
 
 console.log('oauthFlow tests passed');
