@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
+import { MYPAGE_BACK } from '@/lib/navigation';
 import { ChevronLeft, Ticket, Compass, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { apiClient, isAuthError } from '@/lib/api-client';
@@ -100,7 +101,8 @@ export default function CouponsPage() {
         <button
           type="button"
           aria-label={t('coupons.backAria')}
-          onClick={() => router.back()}
+          // 목적지를 못박는다 — 딥링크·새로고침이면 back() 은 죽는다(MYPAGE_BACK 주석).
+          onClick={() => router.push(MYPAGE_BACK)}
           className="text-muk-soft hover:text-muk transition-colors"
         >
           <ChevronLeft size={24} />

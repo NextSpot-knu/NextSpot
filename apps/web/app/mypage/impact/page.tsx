@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
+import { MYPAGE_BACK } from '@/lib/navigation';
 import { ChevronLeft, Share2, Compass, Wind, Ticket, Clock, AlertCircle, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 import { apiClient } from '@/lib/api-client';
@@ -105,7 +106,8 @@ export default function ImpactPage() {
         <button
           type="button"
           aria-label={t('impact.backAria')}
-          onClick={() => router.back()}
+          // 목적지를 못박는다 — 딥링크·새로고침이면 back() 은 죽는다(MYPAGE_BACK 주석).
+          onClick={() => router.push(MYPAGE_BACK)}
           className="text-muk-soft hover:text-muk transition-colors"
         >
           <ChevronLeft size={24} />

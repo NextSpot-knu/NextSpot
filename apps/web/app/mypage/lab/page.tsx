@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
+import { MYPAGE_BACK } from '@/lib/navigation';
 import { ChevronLeft, FlaskConical, AlertCircle, Compass, X } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -201,7 +202,8 @@ export default function LabPage() {
           type="button"
           // 마이페이지에서만 진입하는 화면이라 settings/privacy 와 동일한 '마이페이지로 돌아가기' 라벨을 쓴다.
           aria-label={t('settings.backAria')}
-          onClick={() => router.back()}
+          // 목적지를 못박는다 — 딥링크·새로고침이면 back() 은 죽는다(MYPAGE_BACK 주석).
+          onClick={() => router.push(MYPAGE_BACK)}
           className="text-muk-soft hover:text-muk transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 rounded-lg"
         >
           <ChevronLeft size={24} />

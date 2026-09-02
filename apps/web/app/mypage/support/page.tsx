@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { MYPAGE_BACK } from '@/lib/navigation';
 import { ArrowLeft, Send, CheckCircle } from 'lucide-react';
 import { createPublicClient } from '@/lib/supabase';
 
@@ -70,7 +71,8 @@ export default function UserSupportForm() {
       {/* 헤더 */}
       <header className="flex items-center p-5 border-b border-line z-10 relative">
         <button
-          onClick={() => router.back()}
+          // 목적지를 못박는다 — 딥링크·새로고침이면 back() 은 죽는다(MYPAGE_BACK 주석).
+          onClick={() => router.push(MYPAGE_BACK)}
           className="text-muk-soft hover:text-muk transition-colors mr-4"
         >
           <ArrowLeft size={24} />
