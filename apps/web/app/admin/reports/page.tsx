@@ -188,9 +188,14 @@ export default function ReportsPage() {
         if (recs.length >= 8) {
           const buckets = [0, 1, 2, 3].map(() => ({ acc: 0, tot: 0 }));
           for (const r of recs) {
+            // age 를 0 아래로 두면 인덱스가 **위로** 튄다: 미래 시각이면 Math.min(3, -1) = -1 →
+            // wIdx = 4 → buckets[4] 가 undefined 라 그 자리에서 TypeError 가 나고, 바깥
+            // catch 가 페이지를 통째로 목업 데이터로 떨어뜨린다(관리자는 그게 실측인 줄 안다).
+            // 기존 `if (wIdx < 0)` 가드는 죽은 코드였다 — Math.min(3, x) ≤ 3 이라 wIdx 는
+            // 절대 음수가 되지 않는다. 막아야 했던 쪽은 반대편이었다.
             const age = now - new Date(r.created_at).getTime();
-            const wIdx = 3 - Math.min(3, Math.floor(age / (7 * 24 * 60 * 60 * 1000)));
-            if (wIdx < 0) continue;
+            if (!Number.isFinite(age)) continue; // created_at 파싱 실패 → NaN 인덱스
+            const wIdx = 3 - Math.min(3, Math.floor(Math.max(0, age) / (7 * 24 * 60 * 60 * 1000)));
             buckets[wIdx].tot += 1;
             if (r.accepted) buckets[wIdx].acc += 1;
           }
