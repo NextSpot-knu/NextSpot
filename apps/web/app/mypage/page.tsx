@@ -551,7 +551,9 @@ export default function MyPage() {
         )}
       </main>
 
-      {/* 프로필 수정 인라인 모달 — 표시 이름만 이 기기에 저장(백엔드 없음). */}
+      {/* 프로필 수정 인라인 모달 — localStorage 와 public.users.nickname 에 **둘 다** 쓴다
+          (handleSaveProfile 참조). 예전엔 이 기기 전용이었는데 지금은 아니다.
+          닉네임에 유일성 제약은 없다 — 두 계정이 같은 이름을 써도 무방하다. */}
       {isEditOpen && (
         <div
           className="absolute inset-0 z-50 flex items-center justify-center bg-muk/40 backdrop-blur-sm px-6 animate-fade-in"
