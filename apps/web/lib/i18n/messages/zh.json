@@ -41,7 +41,8 @@
     "busy": "拥挤",
     "moderate": "一般",
     "relaxed": "宽松",
-    "quiet": "空闲"
+    "quiet": "空闲",
+    "unknown": "暂无数据"
   },
   "setup": {
     "step1": "你最感兴趣的\n是哪类地方？",

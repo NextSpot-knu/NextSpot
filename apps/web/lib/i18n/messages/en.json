@@ -41,7 +41,8 @@
     "busy": "Busy",
     "moderate": "Moderate",
     "relaxed": "Relaxed",
-    "quiet": "Quiet"
+    "quiet": "Quiet",
+    "unknown": "No data"
   },
   "setup": {
     "step1": "Which places\ninterest you most?",

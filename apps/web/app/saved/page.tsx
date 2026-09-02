@@ -156,7 +156,22 @@ export default function SavedPage() {
       blue: 'bg-jade',           // 한산
       unknown: 'bg-muk/20'       // 근거 없음(회색) — 지도 '데이터 없음' 마커와 동일 관례
     };
-    return <div className={`w-3 h-3 rounded-full ${colors[status] ?? colors.unknown}`} />;
+    // 색만으로는 다섯 상태를 구분할 수 없다 — 색각 이상 사용자에게도, 스크린 리더에게도,
+    // 햇빛 아래 화면에서도. 12px 점 하나에 의미를 전부 싣지 말고 글자를 함께 둔다.
+    const labels = {
+      orange: 'congestion.busy',
+      yellow: 'congestion.moderate',
+      green: 'congestion.relaxed',
+      blue: 'congestion.quiet',
+      unknown: 'congestion.unknown',
+    } as const;
+    const key = (status in colors ? status : 'unknown') as keyof typeof colors;
+    return (
+      <span className="inline-flex items-center gap-1">
+        <span className={`w-3 h-3 rounded-full ${colors[key]}`} aria-hidden="true" />
+        <span className="text-[10px] text-muk-soft">{t(labels[key])}</span>
+      </span>
+    );
   };
 
   // 카테고리별 개수 + 필터 적용 목록. 저장이 없는 카테고리는 칩을 감춘다.

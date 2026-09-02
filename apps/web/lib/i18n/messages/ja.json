@@ -41,7 +41,8 @@
     "busy": "混雑",
     "moderate": "普通",
     "relaxed": "ゆとり",
-    "quiet": "閑散"
+    "quiet": "閑散",
+    "unknown": "データなし"
   },
   "setup": {
     "step1": "どんな場所に\n一番興味がありますか？",

@@ -41,7 +41,8 @@
     "busy": "혼잡",
     "moderate": "보통",
     "relaxed": "여유",
-    "quiet": "한산"
+    "quiet": "한산",
+    "unknown": "근거 없음"
   },
   "setup": {
     "step1": "어떤 장소에\n가장 관심이 있으세요?",
