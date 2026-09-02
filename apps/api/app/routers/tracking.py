@@ -37,9 +37,15 @@ _EVENT_PROPS: dict[str, set[str]] = {
     "replan_requested": {"facility_type"},
     "arrival_confirmed": {"facility_type"},
     "visit_confirmed": {"facility_type", "rating"},
+    # 음성 지도 명령 실행. 프런트(analytics.ts:23)는 이미 이 이름으로 쏘고 있었는데 서버
+    # 허용목록에 없어 전부 422 로 버려졌다 — 음성 퍼널 계측이 통째로 비어 있었다.
+    "voice_tool_executed": {"tool", "status", "facility_type", "max_walk_minutes"},
 }
 _FACILITY_TYPES = {"restaurant", "cafe", "attraction", "culture"}
 _ATTRIBUTES = {"indoor", "accessible"}
+# 음성 명령 이름·결과. lib/voiceCommands.ts 의 VoiceAppCommand 와 같은 집합이어야 한다.
+_VOICE_TOOLS = {"set_facility_type", "set_indoor_mode", "set_max_walk_minutes", "open_waiting_board"}
+_VOICE_STATUSES = {"applied", "no_match"}
 
 
 def _validate_product_event(event: str, props: dict) -> None:
@@ -75,6 +81,13 @@ def _validate_product_event(event: str, props: dict) -> None:
         raise HTTPException(status_code=422, detail="navigation_mode 값이 올바르지 않습니다.")
     if "rating" in props and props["rating"] not in {None, "up", "down"}:
         raise HTTPException(status_code=422, detail="rating 값이 올바르지 않습니다.")
+    # 아래 두 검사는 이 함수의 다른 검사들과 마찬가지로 **이벤트가 아니라 속성 이름**에 걸린다.
+    # 같은 이름을 쓰는 이벤트가 나중에 생기면 이 열거를 물려받는다 — question·llm_status·
+    # navigation_mode 도 같은 구조다. 자유 텍스트 표면을 닫는 게 우선이라 관례를 따른다.
+    if "tool" in props and props["tool"] not in _VOICE_TOOLS:
+        raise HTTPException(status_code=422, detail="tool 값이 올바르지 않습니다.")
+    if "status" in props and props["status"] not in _VOICE_STATUSES:
+        raise HTTPException(status_code=422, detail="status 값이 올바르지 않습니다.")
     for key, maximum in (("count", 3), ("walk_minutes", 300)):
         value = props.get(key)
         if value is not None and (isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0 or value > maximum):
@@ -87,10 +100,18 @@ class TrackRequest(BaseModel):
 
 
 def _client_ip(request: Request) -> str:
-    """클라이언트 IP — 프록시(X-Forwarded-For) 우선, 없으면 소켓 피어. 쿨다운 키로만 쓴다."""
+    """클라이언트 IP — 프록시(X-Forwarded-For) 우선, 없으면 소켓 피어. 쿨다운 키로만 쓴다.
+
+    **마지막** 항목을 쓴다. 프록시는 XFF 에 덧붙이므로 첫 항목은 클라이언트가 임의로 써 보낼
+    수 있고, 그걸 키로 쓰면 매 요청 다른 값을 넣어 쿨다운을 통째로 우회하면서 _last_track_at
+    을 무한히 키운다. search.py:_client_ip · recommendations.py:_voice_client_ip 가 이미 같은
+    이유로 마지막 항목을 쓴다 — 여기만 빠져 있었다.
+    """
     xff = request.headers.get("x-forwarded-for")
     if xff:
-        return xff.split(",")[0].strip()
+        parts = [p.strip() for p in xff.split(",") if p.strip()]
+        if parts:
+            return parts[-1]
     return request.client.host if request.client else "unknown"
 
 
