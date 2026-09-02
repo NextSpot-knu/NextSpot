@@ -39,6 +39,9 @@ class AreaDemandPoint:
 _raw_cache: tuple[float, list[dict[str, Any]], list[dict[str, Any]]] | None = None
 _raw_cache_lock = asyncio.Lock()
 _quality_cache: dict[tuple[float, float, int, str], tuple[float, dict[str, Any]]] = {}
+# 캐시 상한. 한 번의 추천이 훑는 후보 수(수십)보다 넉넉해야 의미가 있고, 항목이 작아
+# 메모리 부담은 없다. 넘으면 만료분 → 오래된 순으로 버린다.
+_QUALITY_CACHE_MAX_ENTRIES = 64
 _QUALITY_CACHE_TTL_SECONDS = 30 * 60.0
 
 
@@ -350,6 +353,21 @@ def _cached_backtest(
     if cached and now - cached[0] < _QUALITY_CACHE_TTL_SECONDS:
         return cached[1]
     quality = backtest_forecast_points(points)
-    _quality_cache.clear()
+
+    # 예전에는 여기서 _quality_cache.clear() 를 했다. 그런데 키에 좌표가 들어가므로
+    # (round(lat,3), round(lng,3), ...) 한 번의 추천 안에서도 후보마다 키가 다르고,
+    # 항목을 하나만 남기면 **모든 후보가 반드시 빗나간다** — TTL 30분짜리 캐시가 사실상
+    # 없는 것과 같았고 비싼 백테스트가 후보 수만큼 돌았다.
+    #
+    # 키는 그대로 둔다(좌표를 빼면 다른 지점의 결과를 서로 주고받게 된다). 대신 크기만
+    # 묶는다: 만료된 항목을 먼저 걷어내고, 그래도 넘치면 오래된 것부터 버린다.
+    if len(_quality_cache) >= _QUALITY_CACHE_MAX_ENTRIES:
+        for stale_key in [k for k, (at, _) in _quality_cache.items()
+                          if now - at >= _QUALITY_CACHE_TTL_SECONDS]:
+            _quality_cache.pop(stale_key, None)
+        while len(_quality_cache) >= _QUALITY_CACHE_MAX_ENTRIES:
+            oldest = min(_quality_cache, key=lambda k: _quality_cache[k][0])
+            _quality_cache.pop(oldest, None)
+
     _quality_cache[key] = (now, quality)
     return quality

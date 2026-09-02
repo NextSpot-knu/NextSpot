@@ -2,6 +2,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
+from app.services import area_demand_forecast_service as forecast_svc
 from app.services.area_demand_forecast_service import (
     AreaDemandPoint,
     aggregate_nearby_points,
@@ -60,3 +61,46 @@ def test_backtest_is_time_ordered_and_reports_real_mae_only_when_available():
     assert quality["sample_count"] > 0
     assert quality["mae"] is not None
     assert quality["baseline_mae"] is not None
+
+
+# ── 백테스트 캐시 — 후보마다 빗나가면 캐시가 아니다 ────────────────────────
+# 예전에는 삽입 직전에 _quality_cache.clear() 를 해서 항목이 항상 하나뿐이었다.
+# 키에 좌표가 들어가므로 한 번의 추천 안에서도 후보마다 키가 달라, TTL 30분짜리 캐시가
+# 사실상 없는 것과 같았고 비싼 백테스트가 후보 수만큼 돌았다.
+
+
+def _points(n: int = 8) -> list:
+    base = datetime(2026, 8, 1, tzinfo=timezone.utc)
+    return [
+        AreaDemandPoint(observed_at=base + timedelta(hours=i), level=0.4 + 0.01 * i, lot_count=3)
+        for i in range(n)
+    ]
+
+
+def test_the_backtest_cache_keeps_more_than_one_candidate():
+    forecast_svc._quality_cache.clear()
+    pts = _points()
+    # 한 번의 추천이 훑는 서로 다른 후보 좌표들.
+    for lat, lng in [(35.836, 129.210), (35.840, 129.215), (35.845, 129.220)]:
+        forecast_svc._cached_backtest(pts, lat, lng)
+    assert len(forecast_svc._quality_cache) == 3, (
+        f"후보마다 캐시가 비워진다 — 항목 {len(forecast_svc._quality_cache)}개"
+    )
+
+
+def test_the_same_candidate_hits_the_cache():
+    forecast_svc._quality_cache.clear()
+    pts = _points()
+    first = forecast_svc._cached_backtest(pts, 35.836, 129.210)
+    second = forecast_svc._cached_backtest(pts, 35.836, 129.210)
+    assert first is second, "같은 후보를 두 번 물었는데 백테스트가 다시 돌았다"
+
+
+def test_the_cache_stays_bounded():
+    """상한이 없으면 좌표마다 항목이 쌓여 무한히 자란다(Render 무료 인스턴스)."""
+    forecast_svc._quality_cache.clear()
+    pts = _points()
+    cap = forecast_svc._QUALITY_CACHE_MAX_ENTRIES
+    for i in range(cap + 20):
+        forecast_svc._cached_backtest(pts, 35.0 + i * 0.01, 129.0 + i * 0.01)
+    assert len(forecast_svc._quality_cache) <= cap
