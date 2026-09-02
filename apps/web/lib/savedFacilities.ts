@@ -7,6 +7,9 @@
 import { createPublicClient } from "@/lib/supabase";
 
 const KEY = "nextspot_saved_facilities";
+// 원격 삭제가 실패한 항목의 id. 이게 없으면 삭제가 **되살아난다** — 병합이 union 이라
+// 원격에 남은 행이 다음 syncSaved 에서 그대로 돌아오기 때문이다(사용자는 지웠는데 다시 생긴다).
+const PENDING_DELETE_KEY = "nextspot_saved_pending_deletes";
 
 // 북마크 스냅샷. 프런트 페이지의 BookmarkData/SavedBookmark 와 호환(id 필수 + 임의 필드).
 export type SavedRecord = { id: string } & Record<string, unknown>;
@@ -42,6 +45,45 @@ async function currentUserId(): Promise<string | null> {
   }
 }
 
+function loadPendingDeletes(): string[] {
+  try {
+    const raw = localStorage.getItem(PENDING_DELETE_KEY);
+    const arr = raw ? JSON.parse(raw) : [];
+    return Array.isArray(arr) ? arr.filter((v): v is string => typeof v === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+function writePendingDeletes(ids: string[]): void {
+  try {
+    if (ids.length) localStorage.setItem(PENDING_DELETE_KEY, JSON.stringify(ids));
+    else localStorage.removeItem(PENDING_DELETE_KEY);
+  } catch {
+    /* localStorage 차단 — 무시 */
+  }
+}
+
+/**
+ * 로컬·원격·보류삭제를 합쳐 최종 목록을 만든다(순수 함수 — 테스트 가능하게 분리).
+ *
+ * 규칙은 셋이다:
+ *   · id 기준 union, 공유 id 는 원격 스냅샷 우선(서버가 진실).
+ *   · **보류 삭제 id 는 원격에 남아 있어도 뺀다.** 이게 되살아남을 막는 유일한 지점이다.
+ *   · 순서는 로컬 먼저 — 화면이 갑자기 재정렬되지 않게.
+ */
+export function mergeSaved(
+  local: SavedRecord[],
+  remote: SavedRecord[],
+  pendingDeletes: readonly string[] = [],
+): SavedRecord[] {
+  const deleted = new Set(pendingDeletes);
+  const byId = new Map<string, SavedRecord>();
+  for (const b of local) if (!deleted.has(b.id)) byId.set(b.id, b);
+  for (const b of remote) if (!deleted.has(b.id)) byId.set(b.id, b);
+  return [...byId.values()];
+}
+
 // ── 동기화: 로컬 ↔ 원격 병합 ────────────────────────────────────────
 // 앱 로드/저장 페이지 진입 시 호출. 원격을 로컬로 합쳐(원격 우선) 기기 변경 복원을 처리하고,
 // 로컬에만 있던 항목(오프라인 저장분)은 원격으로 올린다. 세션 없으면 로컬 그대로 반환.
@@ -64,12 +106,19 @@ export async function syncSaved(): Promise<SavedRecord[]> {
     return local;
   }
 
-  // 병합(id 기준 union, 공유 id 는 원격 스냅샷 우선 = 서버가 진실).
-  const byId = new Map<string, SavedRecord>();
-  for (const b of local) byId.set(b.id, b);
-  for (const b of remote) byId.set(b.id, b);
-  const merged = [...byId.values()];
+  // 지우려다 실패했던 항목은 원격에 남아 있어도 목록에서 뺀다(되살아남 방지).
+  const pending = loadPendingDeletes();
+  const merged = mergeSaved(local, remote, pending);
   writeLocal(merged);
+
+  // 그리고 원격 삭제를 다시 시도한다. 성공한 것만 보류 목록에서 지운다.
+  if (pending.length) {
+    const stillPending: string[] = [];
+    for (const id of pending) {
+      if (!(await deleteRemote(uid, id))) stillPending.push(id);
+    }
+    writePendingDeletes(stillPending);
+  }
 
   // 로컬에만 있던 항목(오프라인 저장분)을 원격으로 업로드.
   const remoteIds = new Set(remote.map((b) => b.id));
@@ -96,6 +145,10 @@ export async function saveBookmark(bookmark: SavedRecord): Promise<void> {
     list.push(bookmark);
     writeLocal(list); // UI 는 로컬 캐시로 즉시 일관
   }
+  // 지웠다가 다시 저장하는 경우 — 보류 삭제에서 빼지 않으면 이번 저장이 동기화 때 지워진다.
+  const pending = loadPendingDeletes();
+  if (pending.includes(bookmark.id)) writePendingDeletes(pending.filter((v) => v !== bookmark.id));
+
   const uid = await currentUserId();
   if (!uid) return;
   try {
@@ -107,24 +160,47 @@ export async function saveBookmark(bookmark: SavedRecord): Promise<void> {
   }
 }
 
+/** 원격 삭제 1건. 성공이면 true.
+ *
+ * supabase-js 는 HTTP·RLS 오류에 **예외를 던지지 않고** `{ error }` 로 돌려준다. 그래서
+ * try/catch 만 두면 거부당한 삭제가 성공으로 보인다 — 반환값도 같이 봐야 한다. */
+async function deleteRemote(uid: string, id: string): Promise<boolean> {
+  try {
+    const { error } = await createPublicClient()
+      .from("saved_facilities")
+      .delete()
+      .eq("user_id", uid)
+      .eq("facility_id", id);
+    return !error;
+  } catch {
+    return false;
+  }
+}
+
 export async function removeBookmark(id: string): Promise<void> {
   writeLocal(loadSavedLocal().filter((b) => b.id !== id));
   const uid = await currentUserId();
   if (!uid) return;
-  try {
-    await createPublicClient().from("saved_facilities").delete().eq("user_id", uid).eq("facility_id", id);
-  } catch {
-    /* noop */
-  }
+  if (await deleteRemote(uid, id)) return;
+  // 실패를 삼키면 원격 행이 남아 다음 syncSaved 가 북마크를 되살린다. 기록해 두고 다시 시도한다.
+  const pending = loadPendingDeletes();
+  if (!pending.includes(id)) writePendingDeletes([...pending, id]);
 }
 
 export async function clearSavedAll(): Promise<void> {
+  const ids = loadSavedLocal().map((b) => b.id);
   writeLocal([]);
   const uid = await currentUserId();
   if (!uid) return;
   try {
-    await createPublicClient().from("saved_facilities").delete().eq("user_id", uid);
+    const { error } = await createPublicClient()
+      .from("saved_facilities")
+      .delete()
+      .eq("user_id", uid);
+    if (!error) return;
   } catch {
-    /* noop */
+    /* 아래에서 보류 삭제로 넘긴다 */
   }
+  // 전체 삭제가 실패해도 되살아나면 안 된다 — 개별 항목과 같은 경로로 재시도한다.
+  writePendingDeletes([...new Set([...loadPendingDeletes(), ...ids])]);
 }
