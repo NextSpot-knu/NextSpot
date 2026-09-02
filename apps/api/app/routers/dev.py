@@ -19,6 +19,7 @@
   않으며, 뒤 4자리·서류 경로도 결정 즉시 비운다.
 """
 import asyncio
+import time
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException
@@ -26,7 +27,10 @@ from pydantic import BaseModel, Field
 
 from app.core.failure_log import recent_failures
 from app.core.authz import (
+    ROLE_ADMIN,
     ROLE_DEVELOPER,
+    ROLE_MERCHANT,
+    ROLE_TOURIST,
     VALID_ROLES,
     get_current_profile,
     invalidate_profile_cache,
@@ -36,6 +40,10 @@ from app.core.authz import (
 from app.core.supabase import supabase_admin
 
 logger = structlog.get_logger()
+
+# 심사로 부여할 수 있는 역할. account 라우터의 REQUESTABLE_ROLES 와 같은 집합이어야 한다 —
+# 신청은 되는데 승인이 막히는(또는 그 반대) 상태가 생기지 않도록 여기서 한 번 더 검사한다.
+REVIEWABLE_ROLES = ("merchant", "admin")
 
 router = APIRouter(
     prefix="/api/v1/dev",
@@ -61,25 +69,142 @@ async def _developer_count() -> int:
 
 
 # =========================================================================
+# 이메일 인덱스 — auth.users 를 PostgREST 로 못 읽는 문제의 우회
+# =========================================================================
+# public.users 에는 이메일이 없다(auth.users 에만 있고, 그 스키마는 PostgREST 로 노출되지
+# 않는다). 그래서 원래 이 화면은 닉네임·uid 로만 찾을 수 있었는데, **OAuth 가 아닌 자체
+# 이메일 계정은 닉네임이 NULL 이라 어느 쪽으로도 찾히지 않았다** — 심사용 사업자 계정
+# openapi@naver.com 이 정확히 그 경우였다(2026-09-02). 개발자가 아는 유일한 식별자가
+# 이메일인데 그걸로는 검색이 안 되니 계정을 영영 못 찾는다.
+#
+# GoTrue Admin 목록에는 단건 조회나 서버측 필터가 없다. 전체를 페이지로 훑어
+# {소문자 이메일: uid} 를 만들고 짧게 캐시한다. 비싸 보이지만 실제로는 615명 중 이메일
+# 보유자가 8명뿐이다(나머지는 익명 세션) — 200개씩 4페이지, 인덱스는 몇 KB다.
+# scripts/seed_judge_accounts.py 의 _find_user_by_email 과 같은 접근이다.
+_EMAIL_INDEX_TTL_SECONDS = 120.0
+# 한 페이지 크기. 615명을 200씩 넷으로 나눠 받으면 1.0초, 1000으로 한 번에 받으면 0.34초였다
+# (2026-09-02 실측). 왕복 횟수가 그대로 체감 지연이라 크게 잡는다.
+_EMAIL_INDEX_PAGE_SIZE = 1000
+_EMAIL_INDEX_MAX_PAGES = 10  # 안전장치 — 10,000명까지. 넘으면 그 이후는 못 찾는다.
+_email_index_cache: tuple[float, dict[str, str]] | None = None
+
+
+def _build_email_index() -> dict[str, str]:
+    index: dict[str, str] = {}
+    page = 1
+    while page <= _EMAIL_INDEX_MAX_PAGES:
+        users = supabase_admin.auth.admin.list_users(
+            page=page, per_page=_EMAIL_INDEX_PAGE_SIZE
+        )
+        if not users:
+            break
+        for user in users:
+            email = (getattr(user, "email", "") or "").strip().lower()
+            if email:
+                index[email] = str(user.id)
+        if len(users) < _EMAIL_INDEX_PAGE_SIZE:
+            break
+        page += 1
+    return index
+
+
+async def _email_index() -> dict[str, str]:
+    """{소문자 이메일: uid}. 실패해도 예외를 올리지 않는다 — 이메일은 부가 정보다."""
+    global _email_index_cache
+    now = time.monotonic()
+    cached = _email_index_cache
+    if cached and cached[0] > now:
+        return cached[1]
+    try:
+        index = await asyncio.to_thread(_build_email_index)
+    except Exception as exc:
+        # 인덱스를 못 만들어도 닉네임·uid 검색은 그대로 동작해야 한다.
+        logger.warning("dev_email_index_failed", error=str(exc))
+        return cached[1] if cached else {}
+    _email_index_cache = (now + _EMAIL_INDEX_TTL_SECONDS, index)
+    return index
+
+
+# 운영 대상 역할 — 화면의 하위 메뉴와 같은 집합이다. tourist 는 600명이 넘어 목록으로서
+# 의미가 없고 건수도 쓰지 않으므로 세지 않는다(그 덕에 아래 조회가 세 줄짜리로 끝난다).
+MANAGED_ROLES = (ROLE_MERCHANT, ROLE_ADMIN, ROLE_DEVELOPER)
+_MANAGED_ROLE_SCAN_LIMIT = 1000
+
+
+def _count_managed_roles_blocking() -> dict[str, int]:
+    """사업자·관리자·개발자 인원.
+
+    역할마다 count 쿼리를 날리면 왕복이 네 번이고(실측 2~3초), 동시 요청으로 바꾸면
+    Supabase 커넥션이 끊겨 503 이 난다(courses 간헐 실패, 2026-08-28). 그래서 tourist 를
+    뺀 행의 role 만 한 번에 받아 파이썬에서 센다 — 지금 세 명이라 응답이 수십 바이트다.
+    상한을 넘길 만큼 늘어나면 그때는 역할별 count 쿼리로 되돌리는 게 맞다.
+    """
+    res = (
+        supabase_admin.table("users")
+        .select("role")
+        .neq("role", ROLE_TOURIST)
+        .limit(_MANAGED_ROLE_SCAN_LIMIT)
+        .execute()
+    )
+    counts = {role: 0 for role in MANAGED_ROLES}
+    for row in res.data or []:
+        role = str(row.get("role") or "")
+        if role in counts:
+            counts[role] += 1
+    return counts
+
+
+# =========================================================================
 # 사용자 검색 · 역할 임명
 # =========================================================================
 @router.get("/users")
-async def search_users(q: str = "", limit: int = 20):
-    """닉네임 부분일치 또는 uid 정확일치로 찾는다.
+async def search_users(q: str = "", role: str | None = None, limit: int = 20):
+    """이메일·닉네임 부분일치 또는 uid 정확일치로 찾는다.
 
-    이메일로는 찾지 않는다 — auth.users 는 PostgREST 로 조회할 수 없고, 개인정보를
-    검색 키로 쓰지 않는 편이 낫다. 개발자는 사용자에게 uid 를 받아 조회한다.
+    `role` 을 주면 그 역할만 추린다(개발자 콘솔의 사업자/관리자/개발자 하위 메뉴).
+    응답의 `counts` 는 역할별 인원이라 화면이 따로 세지 않아도 된다.
+
+    이메일은 **마스킹해서** 돌려준다(_mask_email). 개발자 화면이라도 원문을 그대로
+    뿌리지 않는다는 기존 결정을 따른다 — 도메인이 남아 계정 구분에는 충분하다.
     """
+    if role is not None and role not in VALID_ROLES:
+        raise HTTPException(status_code=422, detail="알 수 없는 역할입니다.")
+
+    emails = await _email_index()
+    email_by_uid = {uid: email for email, uid in emails.items()}
+
     query = supabase_admin.table("users").select("id, nickname, role, created_at")
+    if role:
+        query = query.eq("role", role)
+
     term = (q or "").strip()
     if term:
-        # uuid 형태면 정확일치, 아니면 닉네임 부분일치.
         if len(term) == 36 and term.count("-") == 4:
             query = query.eq("id", term)
         else:
-            query = query.ilike("nickname", f"%{term}%")
+            matched = [uid for email, uid in emails.items() if term.lower() in email]
+            if matched:
+                # PostgREST or() 는 쉼표·괄호가 구분자다. 좌변은 uuid 뿐이라 안전하고,
+                # 닉네임 항은 구분자를 공백으로 바꿔 넣는다(*는 ilike 의 % 자리).
+                safe = "".join(" " if c in ',()"' else c for c in term)
+                query = query.or_(f"nickname.ilike.*{safe}*,id.in.({','.join(matched)})")
+            else:
+                query = query.ilike("nickname", f"%{term}%")
+
     res = await asyncio.to_thread(query.order("created_at", desc=True).limit(min(limit, 100)).execute)
-    return {"items": res.data or []}
+    items = []
+    for row in res.data or []:
+        row = dict(row)
+        row["email"] = _mask_email(email_by_uid.get(str(row.get("id"))))
+        items.append(row)
+
+    counts: dict[str, int] = {}
+    try:
+        counts = await asyncio.to_thread(_count_managed_roles_blocking)
+    except Exception as exc:
+        # 카운트는 화면 장식이다 — 실패해도 목록은 돌려준다.
+        logger.warning("dev_role_counts_failed", error=str(exc))
+    return {"items": items, "counts": counts}
 
 
 class RoleChange(BaseModel):
@@ -131,14 +256,37 @@ class OwnerGrant(BaseModel):
 
 
 @router.get("/facility-owners")
-async def list_facility_owners(facility_id: str | None = None, user_id: str | None = None):
-    query = supabase_admin.table("facility_owners").select("*").is_("revoked_at", "null")
+async def list_facility_owners(
+    facility_id: str | None = None, user_id: str | None = None, user_ids: str | None = None
+):
+    """활성 소유권 목록. `user_ids` 는 쉼표 구분 — 사용자 목록 한 화면분을 한 번에 받는다.
+
+    가게 이름을 임베드해서 내려준다. uuid 만 보여 주면 개발자가 어느 가게인지 알 수 없어
+    회수 버튼을 누르기 무섭다(FK 가 있으므로 PostgREST 가 조인해 준다).
+    """
+    query = (
+        supabase_admin.table("facility_owners")
+        .select("*, facilities(name, type)")
+        .is_("revoked_at", "null")
+    )
     if facility_id:
         query = query.eq("facility_id", facility_id)
     if user_id:
         query = query.eq("user_id", user_id)
+    if user_ids:
+        ids = [x.strip() for x in user_ids.split(",") if x.strip()]
+        if not ids:
+            return {"items": []}
+        query = query.in_("user_id", ids[:100])
     res = await asyncio.to_thread(query.order("granted_at", desc=True).limit(200).execute)
-    return {"items": res.data or []}
+    items = []
+    for row in res.data or []:
+        row = dict(row)
+        facility = row.pop("facilities", None) or {}
+        row["facility_name"] = facility.get("name")
+        row["facility_type"] = facility.get("type")
+        items.append(row)
+    return {"items": items}
 
 
 @router.post("/facility-owners")
@@ -259,43 +407,54 @@ async def approve_verification(
     req = res.data[0]
     if req.get("status") != "pending":
         raise HTTPException(status_code=409, detail="이미 심사가 끝난 요청입니다.")
-    if not req.get("facility_id"):
+
+    # 컬럼이 없는 DB(마이그레이션 미적용)에서는 전부 사업자 신청이다 — 기존 동작 그대로.
+    requested_role = str(req.get("requested_role") or "merchant")
+    if requested_role not in REVIEWABLE_ROLES:
+        raise HTTPException(status_code=409, detail="신청 역할을 알 수 없어 승인할 수 없습니다.")
+    # 가게 매핑은 **사업자 신청에만** 필요하다. 관리자 신청은 다루는 가게가 없다.
+    if requested_role == "merchant" and not req.get("facility_id"):
         raise HTTPException(
             status_code=409,
             detail="가게(POI)가 연결되지 않은 요청입니다. 먼저 시설을 매핑하세요.",
         )
 
     user_id = str(req["user_id"])
-    # 역할 승격(이미 merchant 이상이면 유지) + 소유권 부여 + 상태 갱신을 순서대로.
+    reason = f"{'사업자 인증' if requested_role == 'merchant' else '관리자 권한'} 승인"
+
     role_res = await asyncio.to_thread(
         supabase_admin.table("users").select("role").eq("id", user_id).limit(1).execute
     )
     before_role = str((role_res.data or [{}])[0].get("role") or "tourist")
-    if before_role == "tourist":
+    # developer 는 절대 내리지 않는다. merchant↔admin 은 상하 관계가 아니라 **다른 축**이므로
+    # (admin 은 사장님 콘솔에 못 들어간다) 심사자가 승인한 쪽으로 그대로 바꾼다 — 감사 로그에
+    # 남고 /dev 콘솔에서 언제든 되돌릴 수 있다.
+    if before_role != ROLE_DEVELOPER and before_role != requested_role:
         await asyncio.to_thread(
-            supabase_admin.table("users").update({"role": "merchant"}).eq("id", user_id).execute
+            supabase_admin.table("users").update({"role": requested_role}).eq("id", user_id).execute
         )
         log_role_audit(
             actor_id=actor["id"], target_id=user_id, action="role_change",
-            from_value=before_role, to_value="merchant", reason="사업자 인증 승인",
+            from_value=before_role, to_value=requested_role, reason=reason,
         )
 
-    try:
-        await asyncio.to_thread(
-            supabase_admin.table("facility_owners").insert({
-                "facility_id": req["facility_id"],
-                "user_id": user_id,
-                "granted_by": actor["id"],
-                "verification_request_id": request_id,
-            }).execute
-        )
-        log_role_audit(
-            actor_id=actor["id"], target_id=user_id, action="owner_grant",
-            to_value=str(req["facility_id"]), reason="사업자 인증 승인",
-        )
-    except Exception as exc:
-        # 이미 소유자면 승인 자체는 계속 진행한다(재심사·중복 신청 흡수).
-        logger.warning("verification_owner_insert_skipped", request_id=request_id, error=str(exc))
+    if requested_role == "merchant":
+        try:
+            await asyncio.to_thread(
+                supabase_admin.table("facility_owners").insert({
+                    "facility_id": req["facility_id"],
+                    "user_id": user_id,
+                    "granted_by": actor["id"],
+                    "verification_request_id": request_id,
+                }).execute
+            )
+            log_role_audit(
+                actor_id=actor["id"], target_id=user_id, action="owner_grant",
+                to_value=str(req["facility_id"]), reason=reason,
+            )
+        except Exception as exc:
+            # 이미 소유자면 승인 자체는 계속 진행한다(재심사·중복 신청 흡수).
+            logger.warning("verification_owner_insert_skipped", request_id=request_id, error=str(exc))
 
     # 증빙 삭제는 **상태 갱신 뒤**에 한다. 먼저 지우면 갱신이 실패했을 때 요청이 pending 인
     # 채로 증빙만 사라져 다시 심사할 수 없다(document_path 는 이미 없는 파일을 가리킨다).
@@ -315,7 +474,12 @@ async def approve_verification(
         actor_id=actor["id"], target_id=user_id, action="verification_review",
         to_value="approved", reason=body.reason,
     )
-    return {"approved": True, "user_id": user_id, "facility_id": req["facility_id"]}
+    return {
+        "approved": True,
+        "user_id": user_id,
+        "facility_id": req.get("facility_id"),
+        "requested_role": requested_role,
+    }
 
 
 @router.post("/verification-requests/{request_id}/reject")

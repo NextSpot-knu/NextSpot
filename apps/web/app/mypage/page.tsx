@@ -7,7 +7,7 @@ import { useRouter } from 'next/navigation';
 import {
   Menu, Bell, Bookmark, User,
   Edit2, ChevronRight, LogOut,
-  Settings as SettingsIcon, Ticket, X, Footprints, Sparkles, Hourglass, Store, FlaskConical, Wrench
+  Settings as SettingsIcon, Ticket, X, Footprints, Sparkles, Hourglass, Store, FlaskConical, Wrench, UserCog
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { createPublicClient } from '@/lib/supabase';
@@ -18,7 +18,7 @@ import {
   useAccount,
   canEnterMerchantConsole,
   canEnterDevConsole,
-  canRequestBusinessVerification,
+  canRequestRoleChange,
 } from '@/lib/account';
 import { apiClient, isAuthError, fetchLabPendingCount } from '@/lib/api-client';
 import { getVisitCount } from '@/lib/visits';
@@ -503,15 +503,26 @@ export default function MyPage() {
               </div>
             </button>}
 
-            {/* 일반 유저 — 사업자라면 등록을 요청할 수 있게 작은 링크만 둔다.
+            {/* 계정 역할 변경 신청 — 사업자·관리자 권한을 요청하는 유일한 자기 신청 경로다.
+                예전에는 tourist 에게만 작은 밑줄 링크 하나였다. 사장님이 관리자 권한을
+                신청하려 해도 문이 없었고, 링크가 로그아웃 위 잔글씨라 아무도 못 찾았다.
                 게스트에게는 보이지 않는다(신청하려면 먼저 계정이 필요하다). */}
-            {canRequestBusinessVerification(account) && (
+            {canRequestRoleChange(account) && (
               <button
                 type="button"
                 onClick={() => router.push('/account/business')}
-                className="w-full mb-4 text-center text-xs text-muk-soft underline underline-offset-2 hover:text-muk"
+                className="mb-4 flex w-full items-center justify-between gap-3 rounded-3xl border border-line bg-white p-5 text-left transition-colors hover:bg-hanji-deep"
               >
-                {t('account.businessEntry')}
+                <span className="min-w-0">
+                  <span className="flex items-center gap-2 font-bold text-muk">
+                    <UserCog size={17} className="text-gold-deep" />
+                    {t('account.roleRequestEntry')}
+                  </span>
+                  <span className="mt-0.5 block text-xs text-muk-soft">
+                    {t('account.roleRequestEntryDesc')}
+                  </span>
+                </span>
+                <ChevronRight size={18} className="shrink-0 text-muk-soft" />
               </button>
             )}
 

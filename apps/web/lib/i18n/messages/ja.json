@@ -853,7 +853,22 @@
     "goConsole": "オーナーコンソールを開く",
     "needAccount": "先にアカウントを作成してください",
     "submitFailed": "申請に失敗しました。しばらくしてからお試しください。",
-    "duplicate": "すでに確認待ちの申請があります。"
+    "duplicate": "すでに確認待ちの申請があります。",
+    "roleRequestEntry": "アカウント権限の変更申請",
+    "roleRequestEntryDesc": "事業者（店舗オーナー）・管理者（管制画面）の権限を申請できます",
+    "roleRequestTitle": "アカウント権限の変更申請",
+    "roleLabel": "どの権限が必要ですか？",
+    "roleMerchant": "事業者",
+    "roleMerchantDesc": "自分の店舗の座席・タイムセールを管理します",
+    "roleAdmin": "管理者",
+    "roleAdminDesc": "地域の混雑管制ダッシュボードを見ます",
+    "adminDesc": "所属を確認したうえで権限を付与します。担当者からご連絡します。",
+    "orgName": "所属機関・部署",
+    "orgNameHint": "例：慶州市庁 観光コンベンション課",
+    "adminApprovedTitle": "管理者権限が付与されました",
+    "adminApprovedDesc": "管制ダッシュボードを開けます。",
+    "goAdminConsole": "管制ダッシュボードを開く",
+    "roleSubmit": "申請する"
   },
   "merchantGate": {
     "title": "マイ店舗ダッシュボード",

@@ -83,6 +83,40 @@ class _Query:
         self._filters.append((col, "ilike", pattern))
         return self
 
+    def in_(self, col, values):
+        self._filters.append((col, "in", [str(v) for v in values]))
+        return self
+
+    def or_(self, expr: str):
+        """PostgREST or() 의 최소 해석 — `nickname.ilike.*x*,id.in.(a,b)` 형태만 다룬다.
+
+        괄호 깊이를 세어 나눈다. in.(...) 안의 쉼표는 구분자가 아니다."""
+        parts, depth, cur = [], 0, ""
+        for ch in expr:
+            if ch == "(":
+                depth += 1
+            elif ch == ")":
+                depth -= 1
+            if ch == "," and depth == 0:
+                parts.append(cur)
+                cur = ""
+            else:
+                cur += ch
+        if cur:
+            parts.append(cur)
+
+        clauses = []
+        for part in parts:
+            col, op, val = part.split(".", 2)
+            if op == "ilike":
+                clauses.append((col, "ilike", val.strip("*")))
+            elif op == "in":
+                clauses.append((col, "in", [v for v in val.strip("()").split(",") if v]))
+            else:  # pragma: no cover - 테스트가 쓰지 않는 연산자
+                raise AssertionError(f"or_ 에 처음 보는 연산자: {op}")
+        self._filters.append((None, "or", clauses))
+        return self
+
     def order(self, *_a, **_kw):
         return self
 
@@ -95,16 +129,28 @@ class _Query:
         return self
 
     # --- 실행 ---
+    @staticmethod
+    def _match_one(row, col, op, val) -> bool:
+        cur = row.get(col)
+        if op == "eq":
+            return str(cur) == str(val)
+        if op == "neq":
+            return str(cur) != str(val)
+        if op == "is":
+            return (cur is None) if val == "null" else cur == val
+        if op == "ilike":
+            return val.strip("%").strip("*").lower() in str(cur or "").lower()
+        if op == "in":
+            return str(cur) in [str(v) for v in val]
+        raise AssertionError(f"처음 보는 연산자: {op}")
+
     def _matches(self, row) -> bool:
         for col, op, val in self._filters:
-            cur = row.get(col)
-            if op == "eq" and str(cur) != str(val):
-                return False
-            if op == "neq" and str(cur) == str(val):
-                return False
-            if op == "is" and not (cur is None if val == "null" else cur == val):
-                return False
-            if op == "ilike" and val.strip("%").lower() not in str(cur or "").lower():
+            if op == "or":
+                if not any(self._match_one(row, c, o, v) for c, o, v in val):
+                    return False
+                continue
+            if not self._match_one(row, col, op, val):
                 return False
         return True
 
@@ -127,9 +173,33 @@ class _Query:
         return _Result(out, count=len(hits) if self._want_count else None)
 
 
+class _AuthUser:
+    """GoTrue Admin 이 돌려주는 사용자(필요한 두 필드만)."""
+
+    def __init__(self, id: str, email: str | None):
+        self.id = id
+        self.email = email
+
+
+class _AdminAuth:
+    def __init__(self, users: list):
+        self._users = users
+
+    def list_users(self, page=None, per_page=None):
+        # 한 페이지에 다 담기는 크기만 쓴다 — 페이지네이션 자체는 여기서 검증하지 않는다.
+        return list(self._users) if (page or 1) == 1 else []
+
+
+class _Auth:
+    def __init__(self, users: list):
+        self.admin = _AdminAuth(users)
+
+
 class _MiniSupabase:
-    def __init__(self, tables: dict):
+    def __init__(self, tables: dict, auth_users: list | None = None):
         self.tables = tables
+        # public.users 에는 이메일이 없다 — auth.users 쪽을 따로 들고 있는다.
+        self.auth = _Auth(auth_users or [])
 
     def table(self, name: str) -> _Query:
         return _Query(self.tables.setdefault(name, []))
@@ -157,8 +227,23 @@ def db():
             ],
             "business_verification_requests": [],
             "role_audit_log": [],
-        }
+        },
+        auth_users=[
+            _AuthUser(DEVELOPER_ID, "dev@example.com"),
+            # 심사용 사업자 계정을 본뜬 행 — **닉네임이 없다.** 이 조합(이메일만 있고
+            # 닉네임 NULL)이 실제로 검색 불가를 만든 형태다(openapi@naver.com, 2026-09-02).
+            _AuthUser(TARGET_ID, "openapi@naver.com"),
+            _AuthUser(OTHER_DEV_ID, None),
+        ],
     )
+
+
+@pytest.fixture(autouse=True)
+def _reset_email_index():
+    """이메일 인덱스는 모듈 전역 캐시다 — 테스트끼리 새면 앞 테스트의 db 를 본다."""
+    dev._email_index_cache = None
+    yield
+    dev._email_index_cache = None
 
 
 @pytest.fixture
@@ -360,15 +445,68 @@ def test_email_is_masked(raw, masked):
     assert dev._mask_email(raw) == masked
 
 
-def test_user_search_does_not_return_email(client):
-    """검색 결과에 이메일 칼럼 자체가 없어야 한다 — 마스킹 이전에 조회하지 않는다."""
+def test_user_search_never_returns_raw_email(client):
+    """검색 결과의 이메일은 **항상 마스킹**돼 있어야 한다.
+
+    원래 이 화면은 이메일을 아예 조회하지 않았다(마스킹 이전에 안 읽는 게 안전하다는 판단).
+    그런데 자체 이메일 계정은 닉네임이 NULL 이라 **닉네임으로도 uid 로도 찾을 수 없어**
+    개발자가 아는 유일한 식별자로는 계정에 영영 닿지 못했다. 그래서 조회는 하되 마스킹해서
+    내려주는 쪽으로 바꿨다 — 이 테스트가 그 경계를 지킨다."""
+    with _as("developer"):
+        res = client.get("/api/v1/dev/users", headers=_headers())
+    assert res.status_code == 200
+    items = res.json()["items"]
+    assert items
+    for item in items:
+        assert "email" in item, "이메일 칼럼이 사라졌다 — 계정 구분이 다시 불가능해진다"
+        if item["email"]:
+            assert "***" in item["email"], f"원문 이메일이 그대로 나갔다: {item['email']}"
+
+
+def test_user_search_finds_account_by_email(client):
+    """닉네임이 없는 이메일 계정을 이메일로 찾을 수 있어야 한다.
+
+    회귀 대상: 심사용 사업자 계정 openapi@naver.com 이 개발자 콘솔에서 검색되지 않았다
+    (닉네임 NULL + 최근 가입자 20건 밖 → 어떤 경로로도 안 나옴)."""
+    with _as("developer"):
+        res = client.get("/api/v1/dev/users?q=openapi@naver.com", headers=_headers())
+    assert res.status_code == 200
+    ids = [i["id"] for i in res.json()["items"]]
+    assert ids == [TARGET_ID], "이메일로 계정을 못 찾았다"
+
+    # 부분일치도 된다 — 도메인만 기억나는 경우가 실제로 많다.
+    with _as("developer"):
+        res = client.get("/api/v1/dev/users?q=naver", headers=_headers())
+    assert TARGET_ID in [i["id"] for i in res.json()["items"]]
+
+
+def test_user_search_filters_by_role(client, db):
+    """역할 하위 메뉴 — 관광객 600명에 묻히지 않고 사업자/관리자/개발자만 본다."""
+    with _as("developer"):
+        res = client.get("/api/v1/dev/users?role=developer", headers=_headers())
+    body = res.json()
+    assert [i["id"] for i in body["items"]] == [DEVELOPER_ID]
+    # 칩에 붙는 건수 — 화면이 따로 세지 않는다. 관광객은 세지 않는다(하위 메뉴가 없다).
+    assert body["counts"] == {"merchant": 0, "admin": 0, "developer": 1}
+
+    with _as("developer"):
+        res = client.get("/api/v1/dev/users?role=bogus", headers=_headers())
+    assert res.status_code == 422, "알 수 없는 역할이 그대로 통과했다"
+
+
+def test_user_search_survives_auth_admin_failure(client, db):
+    """이메일 인덱스가 죽어도 닉네임 검색은 살아 있어야 한다(부가 정보일 뿐이다)."""
+
+    def _boom(*_a, **_kw):
+        raise RuntimeError("gotrue down")
+
+    db.auth.admin.list_users = _boom
     with _as("developer"):
         res = client.get("/api/v1/dev/users?q=가게", headers=_headers())
     assert res.status_code == 200
     items = res.json()["items"]
-    assert items, "닉네임 부분일치 검색이 아무것도 못 찾았다"
-    for item in items:
-        assert "email" not in item
+    assert [i["id"] for i in items] == [TARGET_ID]
+    assert items[0]["email"] is None
 
 
 # =========================================================================
@@ -478,6 +616,51 @@ def test_approve_without_a_mapped_facility_is_refused(client, db, pending_reques
         )
     assert res.status_code == 409
     assert db.tables["users"][1]["role"] == "tourist"
+
+
+def test_admin_request_needs_no_facility_and_grants_admin(client, db, pending_request):
+    """관리자 신청은 다루는 가게가 없다 — 가게 매핑을 요구하면 영원히 승인할 수 없다."""
+    pending_request["requested_role"] = "admin"
+    pending_request["facility_id"] = None
+    with _as("developer"), patch.object(dev, "_clear_evidence", new=AsyncMock()):
+        res = client.post(
+            f"/api/v1/dev/verification-requests/{REQUEST_ID}/approve", json={}, headers=_headers()
+        )
+    assert res.status_code == 200
+    assert db.tables["users"][1]["role"] == "admin"
+    # 소유권은 붙지 않는다 — 소유권이 곧 verified 학습 데이터를 만들 권리다.
+    assert not [r for r in db.tables["facility_owners"] if r.get("verification_request_id") == REQUEST_ID]
+
+
+def test_approving_an_admin_request_never_grants_merchant(client, db, pending_request):
+    """신청 역할을 무시하고 merchant 를 주면, 관리자에게 남의 가게 방송 권한이 생긴다."""
+    pending_request["requested_role"] = "admin"
+    with _as("developer"), patch.object(dev, "_clear_evidence", new=AsyncMock()):
+        client.post(
+            f"/api/v1/dev/verification-requests/{REQUEST_ID}/approve", json={}, headers=_headers()
+        )
+    assert db.tables["users"][1]["role"] == "admin"
+
+
+def test_legacy_request_without_a_role_is_still_a_merchant_request(client, db, pending_request):
+    """컬럼이 없는 DB의 기존 행(필드 없음)은 예전과 똑같이 사업자 승인으로 동작해야 한다."""
+    pending_request.pop("requested_role", None)
+    with _as("developer"), patch.object(dev, "_clear_evidence", new=AsyncMock()):
+        res = client.post(
+            f"/api/v1/dev/verification-requests/{REQUEST_ID}/approve", json={}, headers=_headers()
+        )
+    assert res.status_code == 200
+    assert db.tables["users"][1]["role"] == "merchant"
+
+
+def test_developer_is_never_demoted_by_an_approval(client, db, pending_request):
+    """개발자가 사업자 인증을 내면 승인 시 developer 를 잃는다 — 그러면 안 된다."""
+    db.tables["users"][1]["role"] = "developer"
+    with _as("developer"), patch.object(dev, "_clear_evidence", new=AsyncMock()):
+        client.post(
+            f"/api/v1/dev/verification-requests/{REQUEST_ID}/approve", json={}, headers=_headers()
+        )
+    assert db.tables["users"][1]["role"] == "developer"
 
 
 def test_approve_invalidates_profile_cache(client, pending_request):

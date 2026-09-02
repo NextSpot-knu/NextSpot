@@ -853,7 +853,22 @@
     "goConsole": "打开商家控制台",
     "needAccount": "请先创建账号",
     "submitFailed": "提交失败，请稍后再试。",
-    "duplicate": "您已有一份待核实的申请。"
+    "duplicate": "您已有一份待核实的申请。",
+    "roleRequestEntry": "申请变更账号角色",
+    "roleRequestEntryDesc": "可申请商家（店主）或管理员（监控台）权限",
+    "roleRequestTitle": "申请变更账号角色",
+    "roleLabel": "您需要哪种权限？",
+    "roleMerchant": "商家",
+    "roleMerchantDesc": "管理本店的座位与限时优惠",
+    "roleAdmin": "管理员",
+    "roleAdminDesc": "查看区域拥挤度监控台",
+    "adminDesc": "核实所属单位后由团队授予权限，工作人员会与您联系。",
+    "orgName": "所属单位 / 部门",
+    "orgNameHint": "例：庆州市厅 旅游会展科",
+    "adminApprovedTitle": "已授予管理员权限",
+    "adminApprovedDesc": "现在可以打开监控台了。",
+    "goAdminConsole": "打开监控台",
+    "roleSubmit": "提交申请"
   },
   "merchantGate": {
     "title": "我的店铺看板",

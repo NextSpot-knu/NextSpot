@@ -4,6 +4,7 @@ import {
   canEnterDevConsole,
   canEnterMerchantConsole,
   canRequestBusinessVerification,
+  canRequestRoleChange,
   normalizeRole,
   parseAccount,
   type Account,
@@ -145,5 +146,22 @@ assert.equal(keysToCamel(null), null);
 assert.deepEqual(keysToCamel([1, 'x']), [1, 'x']);
 // 이미 camelCase 인 키는 그대로 — 서버가 규약을 바꿔도 화면이 안 깨진다.
 assert.deepEqual(keysToCamel({ alreadyCamel: 1 }), { alreadyCamel: 1 });
+
+// ── 역할 변경 신청 자격 ────────────────────────────────────────────────────
+// canRequestBusinessVerification 보다 넓다. 좁게 두면 사장님·관리자에게 신청 경로가
+// 아예 없어진다(마이페이지 버튼이 통째로 안 보인다).
+{
+  const make = (role: string, isAnonymous = false) =>
+    parseAccount(keysToCamel({ id: 'x', role, is_anonymous: isAnonymous }));
+
+  assert.equal(canRequestRoleChange(make('tourist')), true);
+  assert.equal(canRequestRoleChange(make('merchant')), true, '사장님도 관리자 권한을 신청할 수 있어야 한다');
+  assert.equal(canRequestRoleChange(make('admin')), true);
+  // 개발자는 /dev 콘솔에서 직접 바꾼다 — 자기 자신에게 신청서를 낼 이유가 없다.
+  assert.equal(canRequestRoleChange(make('developer')), false);
+  // 게스트는 서버가 403 으로 막는다. 폼을 열어 주면 반드시 실패하는 폼이 된다.
+  assert.equal(canRequestRoleChange(make('tourist', true)), false);
+  assert.equal(canRequestRoleChange(null), false);
+}
 
 console.log('parseAccount contract tests passed');

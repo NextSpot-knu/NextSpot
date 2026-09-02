@@ -853,7 +853,22 @@
     "goConsole": "사장님 콘솔 열기",
     "needAccount": "먼저 계정을 만들어 주세요",
     "submitFailed": "요청에 실패했어요. 잠시 후 다시 시도해 주세요.",
-    "duplicate": "이미 확인을 기다리는 신청이 있어요."
+    "duplicate": "이미 확인을 기다리는 신청이 있어요.",
+    "roleRequestEntry": "계정 역할 변경 신청",
+    "roleRequestEntryDesc": "사업자(가게 사장님) · 관리자(기관 관제) 권한을 요청할 수 있어요",
+    "roleRequestTitle": "계정 역할 변경 신청",
+    "roleLabel": "어떤 권한이 필요하세요?",
+    "roleMerchant": "사업자",
+    "roleMerchantDesc": "내 가게의 좌석·타임세일을 관리해요",
+    "roleAdmin": "관리자",
+    "roleAdminDesc": "지역 혼잡도 관제 화면을 봐요",
+    "adminDesc": "소속을 확인한 뒤 팀이 권한을 부여해요. 담당자가 연락드립니다.",
+    "orgName": "소속 기관·부서",
+    "orgNameHint": "예: 경주시청 관광컨벤션과",
+    "adminApprovedTitle": "관리자 권한이 부여됐어요",
+    "adminApprovedDesc": "이제 관제 대시보드를 볼 수 있어요.",
+    "goAdminConsole": "관제 대시보드 열기",
+    "roleSubmit": "신청하기"
   },
   "merchantGate": {
     "title": "내 가게 대시보드",

@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { LayoutDashboard, Building2, BarChart3, Settings, HelpCircle, Sparkles, LogOut, ShieldAlert, Printer, UserCog } from 'lucide-react';
+import { LayoutDashboard, Building2, BarChart3, Settings, HelpCircle, Sparkles, LogOut, ShieldAlert, Printer, UserCog, Compass } from 'lucide-react';
 import { signOutAdmin } from '@/lib/admin-auth';
 import { useAccount, canEnterDevConsole } from '@/lib/account';
 
@@ -61,8 +61,18 @@ export function AdminSidebar() {
         })}
       </nav>
 
-      {/* 로그아웃 */}
-      <div className="p-4 border-t border-hanok-line sticky bottom-0 bg-hanok-panel">
+      {/* 나가기 · 로그아웃 — 둘은 다르다.
+          '관광객 앱으로'는 **세션을 유지한 채** 화면만 옮긴다(관제 담당자가 실제 앱을
+          확인하러 가는 동선). 로그아웃은 세션을 버린다. 나가기가 없어서 관제에 들어오면
+          주소를 직접 쳐야 앱으로 돌아갈 수 있었다. */}
+      <div className="p-4 border-t border-hanok-line sticky bottom-0 bg-hanok-panel flex flex-col gap-1">
+        <Link
+          href="/main"
+          className="w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-hanok-muted hover:bg-hanok-card hover:text-hanok-ink transition-colors"
+        >
+          <Compass size={20} />
+          관광객 앱으로
+        </Link>
         <button
           onClick={handleLogout}
           className="w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-hanok-muted hover:bg-hanok-card hover:text-hanok-ink transition-colors"

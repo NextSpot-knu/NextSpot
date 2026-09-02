@@ -35,6 +35,7 @@ export {
   canEnterAdminConsole,
   canEnterDevConsole,
   canRequestBusinessVerification,
+  canRequestRoleChange,
 } from './accountRoles';
 
 interface AccountContextValue {

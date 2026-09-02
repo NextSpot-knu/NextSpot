@@ -82,3 +82,18 @@ export function canEnterDevConsole(account: Account | null): boolean {
 export function canRequestBusinessVerification(account: Account | null): boolean {
   return !!account && !account.isAnonymous && account.role === 'tourist';
 }
+
+/**
+ * 계정 역할 변경을 신청할 수 있는가.
+ *
+ * `canRequestBusinessVerification` 보다 넓다 — 사장님이 관리자 권한을, 관리자가 사업자
+ * 권한을 신청하는 경우가 있어 tourist 로 좁히면 그 사람들에게는 신청 경로가 아예 없다.
+ * (기존에는 tourist 에게만 작은 링크 하나가 보였고, 나머지 역할은 문 자체가 없었다.)
+ *
+ * 제외 대상 둘:
+ *   · 게스트 — 승인 대상을 특정할 수 없고 단말을 지우면 권한이 사라진다(서버도 403).
+ *   · developer — 신청 대상이 아니다. /dev 콘솔에서 자기 역할을 직접 바꾼다.
+ */
+export function canRequestRoleChange(account: Account | null): boolean {
+  return !!account && !account.isAnonymous && account.role !== 'developer';
+}

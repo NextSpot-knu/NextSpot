@@ -853,7 +853,22 @@
     "goConsole": "Open merchant console",
     "needAccount": "Please create an account first",
     "submitFailed": "Request failed. Please try again shortly.",
-    "duplicate": "You already have a request awaiting review."
+    "duplicate": "You already have a request awaiting review.",
+    "roleRequestEntry": "Request an account role change",
+    "roleRequestEntryDesc": "Ask for merchant (store owner) or admin (city dashboard) access",
+    "roleRequestTitle": "Request an account role change",
+    "roleLabel": "Which access do you need?",
+    "roleMerchant": "Merchant",
+    "roleMerchantDesc": "Manage seats and time sales for my store",
+    "roleAdmin": "Admin",
+    "roleAdminDesc": "View the regional congestion dashboard",
+    "adminDesc": "We verify your organization first, then grant access. Someone will contact you.",
+    "orgName": "Organization / department",
+    "orgNameHint": "e.g. Gyeongju City Hall, Tourism Division",
+    "adminApprovedTitle": "Admin access granted",
+    "adminApprovedDesc": "You can now open the control dashboard.",
+    "goAdminConsole": "Open control dashboard",
+    "roleSubmit": "Submit request"
   },
   "merchantGate": {
     "title": "My store dashboard",
