@@ -77,7 +77,12 @@ interface FailureRow {
   context?: Record<string, string>;
 }
 
-const ROLES: AccountRole[] = ['tourist', 'merchant', 'admin', 'developer'];
+// 사용자 행에서 바로 누를 수 있는 역할. **developer 가 없는 것은 의도다.**
+// 이 버튼들은 목록의 모든 행에 붙어 있어 오클릭 한 번이 곧 개발자 계정 증가였다.
+// 승격은 '인증 심사 > 개발자' 에서 대상을 검색해 지목하고 확인창을 거치는 경로 하나뿐이다.
+// 강등은 여기서 그대로 된다(개발자 행에서 tourist/merchant/admin 을 누르면 된다) —
+// 권한을 거두는 쪽은 막을 이유가 없고, 마지막 개발자만 서버가 409 로 지킨다.
+const ASSIGNABLE_ROLES: AccountRole[] = ['tourist', 'merchant', 'admin'];
 
 // 사용자·권한 탭의 하위 메뉴. 관광객은 600명이 넘어 목록으로서 의미가 없고(검색으로 찾는다),
 // 운영이 필요한 건 상위 3역할이다 — '전체'에서는 최근 가입순으로 섞여 보인다.
@@ -122,7 +127,7 @@ export default function DevConsolePage() {
           <div className="min-w-0">
             <h1 className="font-serif text-2xl font-bold tracking-tight">개발자 콘솔</h1>
             <p className="mt-1 text-sm text-muk-soft">
-              역할 임명·가게 소유권·사업자 인증 심사. 모든 변경은 감사 로그에 남습니다.
+              역할 임명·가게 소유권·인증 심사. 모든 변경은 감사 로그에 남습니다.
             </p>
           </div>
           <button
@@ -175,6 +180,7 @@ function UsersPanel({ onChanged }: { onChanged: () => void }) {
   const [roleFilter, setRoleFilter] = useState<AccountRole | null>(null);
   const [rows, setRows] = useState<DevUser[]>([]);
   const [counts, setCounts] = useState<Record<string, number>>({});
+  const [hiddenGuests, setHiddenGuests] = useState(0);
   const [owners, setOwners] = useState<OwnerRow[]>([]);
   const [busy, setBusy] = useState(false);
 
@@ -187,6 +193,7 @@ function UsersPanel({ onChanged }: { onChanged: () => void }) {
       const items: DevUser[] = Array.isArray(res?.items) ? res.items : [];
       setRows(items);
       setCounts((res?.counts as Record<string, number>) ?? {});
+      setHiddenGuests(Number(res?.hiddenGuests) || 0);
 
       // 소유 가게는 별도 호출로 한 화면분을 한 번에 받는다. 실패해도 목록은 살려 둔다 —
       // 역할 임명이 주 기능이고 소유권 표시는 부가 정보다.
@@ -275,6 +282,15 @@ function UsersPanel({ onChanged }: { onChanged: () => void }) {
         </button>
       </div>
 
+      {/* 목록이 줄어든 이유를 화면에 적는다 — 조용히 걸러 낸 목록을 '전부'로 읽으면
+          "가입자가 이것뿐인가?" 하고 엉뚱한 데를 의심하게 된다. */}
+      {hiddenGuests > 0 && (
+        <p className="-mt-2 mb-3 text-[11px] text-muk-soft">
+          익명 게스트 세션 {hiddenGuests.toLocaleString()}개는 숨겼어요. uid 를 그대로 넣으면
+          게스트도 조회됩니다.
+        </p>
+      )}
+
       {busy && <Loader2 size={16} className="mx-auto my-4 animate-spin text-muk-soft" />}
 
       <div className="flex flex-col gap-2">
@@ -293,7 +309,7 @@ function UsersPanel({ onChanged }: { onChanged: () => void }) {
               <p className="font-mono text-[11px] text-muk-soft">{u.id}</p>
             </div>
             <div className="flex items-center gap-1.5">
-              {ROLES.map((r) => (
+              {ASSIGNABLE_ROLES.map((r) => (
                 <button
                   key={r}
                   type="button"
@@ -416,9 +432,65 @@ function OwnerGrant({ userId, onGranted }: { userId: string; onGranted: () => vo
 }
 
 // =========================================================================
-// 사업자 인증 심사
+// 인증 심사 — 사업자 / 관리자 / 개발자
 // =========================================================================
+
+/** 심사 하위 메뉴. 사용자·권한 탭과 같은 모양으로 가른다(같은 종류의 일이라 같은 손놀림이어야 한다). */
+const REQUEST_TABS = [
+  { key: 'merchant', label: '사업자' },
+  { key: 'admin', label: '관리자' },
+  { key: 'developer', label: '개발자' },
+] as const;
+
+type RequestTab = (typeof REQUEST_TABS)[number]['key'];
+
+/**
+ * 개발자만 다른 화면인 이유.
+ *
+ * 사업자·관리자는 본인이 신청하고 심사자가 승인/반려한다 — 큐가 있다.
+ * 개발자는 신청 경로가 아예 없다(앱 어디에도 없고, API 는 422, DB CHECK 도 merchant/admin 만
+ * 허용한다). 그래서 여기에 큐를 두면 영원히 비어 있고, 빈 큐는 '아직 신청이 안 왔다'로 읽혀
+ * 없는 동선을 있는 것처럼 보이게 한다. 대신 대상을 직접 찾아 지목하는 화면을 둔다.
+ */
 function RequestsPanel({ onChanged }: { onChanged: () => void }) {
+  const [sub, setSub] = useState<RequestTab>('merchant');
+
+  return (
+    <section className="rounded-3xl border border-line bg-white p-5">
+      <nav className="mb-4 flex flex-wrap gap-1.5">
+        {REQUEST_TABS.map((item) => (
+          <button
+            key={item.key}
+            type="button"
+            onClick={() => setSub(item.key)}
+            className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors ${
+              sub === item.key
+                ? 'border-gold bg-gold/15 text-gold-deep'
+                : 'border-line text-muk-soft hover:bg-hanji hover:text-muk'
+            }`}
+          >
+            {item.label}
+          </button>
+        ))}
+      </nav>
+
+      {sub === 'developer' ? (
+        <DeveloperPromotion onChanged={onChanged} />
+      ) : (
+        <ReviewQueue requestedRole={sub} onChanged={onChanged} />
+      )}
+    </section>
+  );
+}
+
+/** 사업자·관리자 심사 큐 — 신청을 받아 승인/반려한다. */
+function ReviewQueue({
+  requestedRole,
+  onChanged,
+}: {
+  requestedRole: 'merchant' | 'admin';
+  onChanged: () => void;
+}) {
   const [rows, setRows] = useState<VerificationRow[]>([]);
   const [busy, setBusy] = useState(true);
 
@@ -426,7 +498,7 @@ function RequestsPanel({ onChanged }: { onChanged: () => void }) {
     setBusy(true);
     try {
       const res = await apiClient.get('/api/v1/dev/verification-requests', {
-        params: { status_filter: 'pending' },
+        params: { status_filter: 'pending', requested_role: requestedRole },
       });
       setRows(Array.isArray(res?.items) ? res.items : []);
     } catch (err) {
@@ -434,7 +506,7 @@ function RequestsPanel({ onChanged }: { onChanged: () => void }) {
     } finally {
       setBusy(false);
     }
-  }, []);
+  }, [requestedRole]);
 
   useEffect(() => {
     void load();
@@ -459,7 +531,7 @@ function RequestsPanel({ onChanged }: { onChanged: () => void }) {
   };
 
   return (
-    <section className="rounded-3xl border border-line bg-white p-5">
+    <>
       {busy ? (
         <Loader2 size={16} className="mx-auto my-6 animate-spin text-muk-soft" />
       ) : rows.length === 0 ? (
@@ -516,7 +588,163 @@ function RequestsPanel({ onChanged }: { onChanged: () => void }) {
           })}
         </div>
       )}
-    </section>
+    </>
+  );
+}
+
+/**
+ * 개발자 승격 — 신청이 아니라 지목이다.
+ *
+ * 개발자는 모든 사용자의 역할을 바꾸고 가게 소유권을 줄 수 있다. 그래서 '신청을 받는' 구조를
+ * 두지 않는다: 신청 큐가 있으면 누구나 문을 두드릴 수 있고, 심사자가 목록을 훑다 잘못 누르는
+ * 순간이 생긴다. 대신 이미 개발자인 사람이 대상을 검색해 지목하고, 확인창을 한 번 더 거친다.
+ *
+ * 강등은 여기 없다 — '사용자·권한' 탭의 역할 버튼으로 한다. 권한을 거두는 쪽은 어렵게 만들
+ * 이유가 없고, 마지막 개발자만 서버가 409 로 지킨다(잠김 방지).
+ */
+function DeveloperPromotion({ onChanged }: { onChanged: () => void }) {
+  const [devs, setDevs] = useState<DevUser[]>([]);
+  const [q, setQ] = useState('');
+  const [found, setFound] = useState<DevUser[] | null>(null);
+  const [busy, setBusy] = useState(true);
+  const [pendingId, setPendingId] = useState<string | null>(null);
+
+  const loadDevs = useCallback(async () => {
+    setBusy(true);
+    try {
+      const res = await apiClient.get('/api/v1/dev/users', { params: { role: 'developer' } });
+      setDevs(Array.isArray(res?.items) ? res.items : []);
+    } catch (err) {
+      toast.error(errorMessage(err) || '개발자 목록 조회에 실패했어요.');
+    } finally {
+      setBusy(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadDevs();
+  }, [loadDevs]);
+
+  const search = async () => {
+    const term = q.trim();
+    if (!term) {
+      setFound(null);
+      return;
+    }
+    try {
+      const res = await apiClient.get('/api/v1/dev/users', { params: { q: term } });
+      setFound(Array.isArray(res?.items) ? res.items : []);
+    } catch (err) {
+      toast.error(errorMessage(err) || '사용자 조회에 실패했어요.');
+    }
+  };
+
+  const nameOf = (u: DevUser) => u.nickname || u.email || u.id.slice(0, 8);
+
+  const promote = async (u: DevUser) => {
+    // 되돌릴 수는 있지만(강등) 그 사이에 무엇이든 할 수 있는 권한이라 한 번 더 묻는다.
+    const ok = window.confirm(
+      `${nameOf(u)} 님을 개발자로 승격합니다.\n\n` +
+        '개발자는 모든 사용자의 역할을 바꾸고 가게 소유권을 부여할 수 있어요. 계속할까요?',
+    );
+    if (!ok) return;
+
+    setPendingId(u.id);
+    try {
+      await apiClient.patch(`/api/v1/dev/users/${u.id}/role`, {
+        role: 'developer',
+        reason: '개발자 콘솔에서 직접 승격',
+      });
+      toast.success(`${nameOf(u)} → developer`);
+      setFound(null);
+      setQ('');
+      await loadDevs();
+      onChanged();
+    } catch (err) {
+      toast.error(errorMessage(err) || '승격에 실패했어요.');
+    } finally {
+      setPendingId(null);
+    }
+  };
+
+  return (
+    <>
+      <p className="mb-4 rounded-xl border border-line bg-hanji px-3.5 py-3 text-[11px] leading-relaxed text-muk-soft">
+        개발자 권한은 신청을 받지 않아요. 앱 어디에도 신청 경로가 없고, 아래에서 대상을 직접
+        찾아 승격하는 길 하나뿐입니다.
+      </p>
+
+      <p className="mb-2 text-xs font-semibold text-muk-soft">
+        현재 개발자
+        {devs.length > 0 && <span className="ml-1 font-mono opacity-70">{devs.length}</span>}
+      </p>
+      {busy ? (
+        <Loader2 size={16} className="mx-auto my-4 animate-spin text-muk-soft" />
+      ) : (
+        <div className="mb-5 flex flex-col gap-2">
+          {devs.map((u) => (
+            <div key={u.id} className="rounded-xl border border-line px-3.5 py-3">
+              <p className="truncate text-sm font-semibold">{nameOf(u)}</p>
+              <p className="font-mono text-[11px] text-muk-soft">{u.id}</p>
+            </div>
+          ))}
+          {devs.length === 0 && (
+            <p className="py-2 text-center text-sm text-muk-soft">개발자가 없어요.</p>
+          )}
+        </div>
+      )}
+
+      <p className="mb-2 text-xs font-semibold text-muk-soft">승격할 사용자 찾기</p>
+      <div className="mb-3 flex gap-2">
+        <div className="relative flex-1">
+          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muk-soft" />
+          <input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && void search()}
+            placeholder="이메일·닉네임 부분일치 또는 uid 정확일치"
+            className="w-full rounded-xl border border-line bg-hanji py-2.5 pl-9 pr-3 text-sm focus:border-gold/70 focus:outline-none focus:ring-2 focus:ring-gold/40"
+          />
+        </div>
+        <button
+          type="button"
+          onClick={() => void search()}
+          className="rounded-xl border border-line px-4 text-sm font-semibold hover:bg-hanji"
+        >
+          검색
+        </button>
+      </div>
+
+      {found !== null && (
+        <div className="flex flex-col gap-2">
+          {found.map((u) => (
+            <div
+              key={u.id}
+              className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-line px-3.5 py-3"
+            >
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold">{nameOf(u)}</p>
+                <p className="font-mono text-[11px] text-muk-soft">
+                  {u.id} · {u.role}
+                </p>
+              </div>
+              <button
+                type="button"
+                disabled={u.role === 'developer' || pendingId === u.id}
+                onClick={() => void promote(u)}
+                className="flex items-center gap-1 rounded-lg border border-gold/40 bg-gold/10 px-3 py-1.5 text-[11px] font-semibold text-gold-deep disabled:opacity-40"
+              >
+                <Check size={13} />
+                {u.role === 'developer' ? '이미 개발자' : '개발자로 승격'}
+              </button>
+            </div>
+          ))}
+          {found.length === 0 && (
+            <p className="py-4 text-center text-sm text-muk-soft">결과가 없어요.</p>
+          )}
+        </div>
+      )}
+    </>
   );
 }
 

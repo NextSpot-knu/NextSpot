@@ -20,6 +20,7 @@
 """
 import asyncio
 import time
+from typing import NamedTuple
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException
@@ -77,20 +78,42 @@ async def _developer_count() -> int:
 # openapi@naver.com 이 정확히 그 경우였다(2026-09-02). 개발자가 아는 유일한 식별자가
 # 이메일인데 그걸로는 검색이 안 되니 계정을 영영 못 찾는다.
 #
-# GoTrue Admin 목록에는 단건 조회나 서버측 필터가 없다. 전체를 페이지로 훑어
-# {소문자 이메일: uid} 를 만들고 짧게 캐시한다. 비싸 보이지만 실제로는 615명 중 이메일
-# 보유자가 8명뿐이다(나머지는 익명 세션) — 200개씩 4페이지, 인덱스는 몇 KB다.
+# GoTrue Admin 목록에는 단건 조회나 서버측 필터가 없다. 전체를 한 번 훑어 인덱스를 만들고
+# 짧게 캐시한다. 비싸 보이지만 실제로는 622명 중 실계정이 8명뿐이라(나머지 614명이 익명
+# 세션) 인덱스는 몇 KB다 — 2026-09-02 실측.
+# 같은 순회에서 익명 여부도 같이 담는다(_AuthIndex.real_uids). 목록에서 게스트를 걷어내려면
+# 그 정보가 필요한데, public.users 에는 없고 auth.users 에만 있다. 이미 도는 순회에 얹으면
+# 왕복이 늘지 않는다.
 # scripts/seed_judge_accounts.py 의 _find_user_by_email 과 같은 접근이다.
+class _AuthIndex(NamedTuple):
+    """auth.users 를 한 번 훑어 만든 부가 정보. PostgREST 로는 볼 수 없는 것들이다.
+
+    emails      — {소문자 이메일: uid}. public.users 에 이메일 칼럼이 없어 검색·표시에 쓴다.
+    real_uids   — 익명(게스트) 세션이 **아닌** 계정의 uid. 목록에서 게스트를 걷어내는 데 쓴다.
+    guest_count — 걸러낸 게스트 수. 화면에 그대로 보여 준다 — 조용히 줄인 목록을
+                  '전부'로 오해하지 않게.
+    """
+
+    emails: dict[str, str]
+    real_uids: frozenset[str]
+    guest_count: int
+
+
 _EMAIL_INDEX_TTL_SECONDS = 120.0
 # 한 페이지 크기. 615명을 200씩 넷으로 나눠 받으면 1.0초, 1000으로 한 번에 받으면 0.34초였다
 # (2026-09-02 실측). 왕복 횟수가 그대로 체감 지연이라 크게 잡는다.
 _EMAIL_INDEX_PAGE_SIZE = 1000
 _EMAIL_INDEX_MAX_PAGES = 10  # 안전장치 — 10,000명까지. 넘으면 그 이후는 못 찾는다.
-_email_index_cache: tuple[float, dict[str, str]] | None = None
+# 게스트 필터를 포함 목록(id.in.(...))으로 거는 상한. uuid 하나가 37바이트라 500개면 18KB 로,
+# 흔한 URL 길이 한도 안이다. 지금은 실계정이 8명이라 300바이트다.
+_GUEST_FILTER_MAX_IDS = 500
+_auth_index_cache: tuple[float, _AuthIndex] | None = None
 
 
-def _build_email_index() -> dict[str, str]:
-    index: dict[str, str] = {}
+def _build_auth_index() -> _AuthIndex:
+    emails: dict[str, str] = {}
+    real: set[str] = set()
+    seen = 0
     page = 1
     while page <= _EMAIL_INDEX_MAX_PAGES:
         users = supabase_admin.auth.admin.list_users(
@@ -98,30 +121,38 @@ def _build_email_index() -> dict[str, str]:
         )
         if not users:
             break
+        seen += len(users)
         for user in users:
+            uid = str(user.id)
             email = (getattr(user, "email", "") or "").strip().lower()
             if email:
-                index[email] = str(user.id)
+                emails[email] = uid
+            # is_anonymous 가 정답이다. 다만 이 필드가 없는 구버전 라이브러리에서 전원을
+            # 게스트로 판정해 목록을 통째로 비우는 일은 없어야 하므로, 필드가 없으면
+            # '이메일이 있으면 실계정' 으로 떨어뜨린다(실측상 두 기준은 일치한다).
+            flag = getattr(user, "is_anonymous", None)
+            if (flag is False) or (flag is None and email):
+                real.add(uid)
         if len(users) < _EMAIL_INDEX_PAGE_SIZE:
             break
         page += 1
-    return index
+    return _AuthIndex(emails, frozenset(real), max(seen - len(real), 0))
 
 
-async def _email_index() -> dict[str, str]:
-    """{소문자 이메일: uid}. 실패해도 예외를 올리지 않는다 — 이메일은 부가 정보다."""
-    global _email_index_cache
+async def _auth_index() -> _AuthIndex:
+    """인증 인덱스(캐시). 실패해도 예외를 올리지 않는다 — 부가 정보다."""
+    global _auth_index_cache
     now = time.monotonic()
-    cached = _email_index_cache
+    cached = _auth_index_cache
     if cached and cached[0] > now:
         return cached[1]
     try:
-        index = await asyncio.to_thread(_build_email_index)
+        index = await asyncio.to_thread(_build_auth_index)
     except Exception as exc:
         # 인덱스를 못 만들어도 닉네임·uid 검색은 그대로 동작해야 한다.
         logger.warning("dev_email_index_failed", error=str(exc))
-        return cached[1] if cached else {}
-    _email_index_cache = (now + _EMAIL_INDEX_TTL_SECONDS, index)
+        return cached[1] if cached else _AuthIndex({}, frozenset(), 0)
+    _auth_index_cache = (now + _EMAIL_INDEX_TTL_SECONDS, index)
     return index
 
 
@@ -166,11 +197,15 @@ async def search_users(q: str = "", role: str | None = None, limit: int = 20):
 
     이메일은 **마스킹해서** 돌려준다(_mask_email). 개발자 화면이라도 원문을 그대로
     뿌리지 않는다는 기존 결정을 따른다 — 도메인이 남아 계정 구분에는 충분하다.
+
+    익명(게스트) 세션은 목록에서 제외한다. 몇 명을 뺐는지는 `hidden_guests` 로 같이 준다.
+    uid 를 정확히 넣으면 게스트도 그대로 조회된다.
     """
     if role is not None and role not in VALID_ROLES:
         raise HTTPException(status_code=422, detail="알 수 없는 역할입니다.")
 
-    emails = await _email_index()
+    index = await _auth_index()
+    emails = index.emails
     email_by_uid = {uid: email for email, uid in emails.items()}
 
     query = supabase_admin.table("users").select("id, nickname, role, created_at")
@@ -178,8 +213,29 @@ async def search_users(q: str = "", role: str | None = None, limit: int = 20):
         query = query.eq("role", role)
 
     term = (q or "").strip()
+    is_uid_lookup = len(term) == 36 and term.count("-") == 4
+
+    # 게스트(익명 세션)를 목록에서 뺀다. 622명 중 614명이 게스트라(2026-09-02 실측) 최근순 20건이
+    # 사실상 전부 "(이름·이메일 없음)" 으로 채워져 목록이 쓸모없다.
+    #
+    # 제외 목록이 아니라 **포함 목록**으로 거른다: 게스트는 수백 명이지만 실계정은 여덟 명이라
+    # id.in.(...) 이 300바이트다. 반대로 하면 URL 이 수만 바이트가 된다.
+    #
+    # 두 가지 예외:
+    #   · uid 정확일치 — 게스트라도 찾아야 한다(신고·리포트 추적). 목록이 아니라 지목이다.
+    #   · 인덱스가 비었을 때 — GoTrue 장애로 real_uids 가 비면 필터가 목록을 통째로 비운다.
+    #     표시용 필터 때문에 화면이 죽는 편보다 게스트가 섞여 보이는 편이 낫다(페일 오픈).
+    if index.real_uids and not is_uid_lookup:
+        if len(index.real_uids) <= _GUEST_FILTER_MAX_IDS:
+            query = query.in_("id", sorted(index.real_uids))
+        else:
+            # 실계정이 이만큼 늘면 id.in.(...) 이 URL 길이를 넘겨 조회가 통째로 깨진다.
+            # 그리고 그때는 게스트가 다수도 아니라 애초에 이 필터의 전제가 사라진다 —
+            # public.users 에 익명 여부 칼럼을 두고 서버측에서 거르도록 바꿀 때다.
+            logger.warning("dev_guest_filter_skipped", real_accounts=len(index.real_uids))
+
     if term:
-        if len(term) == 36 and term.count("-") == 4:
+        if is_uid_lookup:
             query = query.eq("id", term)
         else:
             matched = [uid for email, uid in emails.items() if term.lower() in email]
@@ -204,7 +260,7 @@ async def search_users(q: str = "", role: str | None = None, limit: int = 20):
     except Exception as exc:
         # 카운트는 화면 장식이다 — 실패해도 목록은 돌려준다.
         logger.warning("dev_role_counts_failed", error=str(exc))
-    return {"items": items, "counts": counts}
+    return {"items": items, "counts": counts, "hidden_guests": index.guest_count}
 
 
 class RoleChange(BaseModel):
@@ -357,14 +413,28 @@ class RejectDecision(BaseModel):
 
 
 @router.get("/verification-requests")
-async def list_verification_requests(status_filter: str = "pending", limit: int = 100):
-    res = await asyncio.to_thread(
+async def list_verification_requests(
+    status_filter: str = "pending", requested_role: str | None = None, limit: int = 100
+):
+    """심사 큐. `requested_role` 로 사업자/관리자 하위 메뉴를 가른다.
+
+    developer 는 여기 올 수 없다 — 신청 자체가 만들어지지 않는다(REQUESTABLE_ROLES,
+    그리고 DB CHECK). 그래서 값으로도 받지 않는다: 받아 주면 '개발자 심사 큐가 있다'는
+    잘못된 인상을 주고, 영원히 빈 목록을 돌려준다.
+    """
+    if requested_role is not None and requested_role not in REVIEWABLE_ROLES:
+        raise HTTPException(status_code=422, detail="심사 대상이 아닌 역할입니다.")
+
+    query = (
         supabase_admin.table("business_verification_requests")
         .select("*")
         .eq("status", status_filter)
-        .order("created_at")
-        .limit(min(limit, 200))
-        .execute
+    )
+    if requested_role:
+        query = query.eq("requested_role", requested_role)
+
+    res = await asyncio.to_thread(
+        query.order("created_at").limit(min(limit, 200)).execute
     )
     items = []
     for row in res.data or []:

@@ -27,6 +27,7 @@ from tests.conftest import make_test_jwt
 DEVELOPER_ID = "d0000000-0000-4000-8000-000000000001"
 TARGET_ID = "d0000000-0000-4000-8000-000000000002"
 OTHER_DEV_ID = "d0000000-0000-4000-8000-000000000003"
+GUEST_ID = "d0000000-0000-4000-8000-000000000004"
 FACILITY_ID = "f0000000-0000-4000-8000-000000000001"
 OWNER_ROW_ID = "a0000000-0000-4000-8000-000000000001"
 
@@ -174,11 +175,15 @@ class _Query:
 
 
 class _AuthUser:
-    """GoTrue Admin 이 돌려주는 사용자(필요한 두 필드만)."""
+    """GoTrue Admin 이 돌려주는 사용자(필요한 세 필드만).
 
-    def __init__(self, id: str, email: str | None):
+    is_anonymous 는 실제 gotrue User 모델에 항상 있는 필드다 — 게스트(익명 세션)와
+    실계정을 가르는 유일하게 믿을 만한 신호이고, public.users 에는 없다."""
+
+    def __init__(self, id: str, email: str | None, is_anonymous: bool = False):
         self.id = id
         self.email = email
+        self.is_anonymous = is_anonymous
 
 
 class _AdminAuth:
@@ -215,6 +220,9 @@ def db():
             "users": [
                 {"id": DEVELOPER_ID, "nickname": "dev", "role": "developer", "created_at": "2026-01-01"},
                 {"id": TARGET_ID, "nickname": "가게주인", "role": "tourist", "created_at": "2026-02-01"},
+                # 익명 세션. 실제 운영 DB 는 619명 중 611명이 이것이라, 목록의 기본값이
+                # 사실상 전부 게스트였다(2026-09-02). 최근 가입순 정렬에서 맨 앞에 온다.
+                {"id": GUEST_ID, "nickname": None, "role": "tourist", "created_at": "2026-09-01"},
             ],
             "facility_owners": [
                 {
@@ -234,16 +242,17 @@ def db():
             # 닉네임 NULL)이 실제로 검색 불가를 만든 형태다(openapi@naver.com, 2026-09-02).
             _AuthUser(TARGET_ID, "openapi@naver.com"),
             _AuthUser(OTHER_DEV_ID, None),
+            _AuthUser(GUEST_ID, None, is_anonymous=True),
         ],
     )
 
 
 @pytest.fixture(autouse=True)
-def _reset_email_index():
-    """이메일 인덱스는 모듈 전역 캐시다 — 테스트끼리 새면 앞 테스트의 db 를 본다."""
-    dev._email_index_cache = None
+def _reset_auth_index():
+    """인증 인덱스는 모듈 전역 캐시다 — 테스트끼리 새면 앞 테스트의 db 를 본다."""
+    dev._auth_index_cache = None
     yield
-    dev._email_index_cache = None
+    dev._auth_index_cache = None
 
 
 @pytest.fixture
@@ -509,6 +518,63 @@ def test_user_search_survives_auth_admin_failure(client, db):
     assert items[0]["email"] is None
 
 
+# ── 게스트(익명 세션) 숨기기 ────────────────────────────────────────────────
+# 운영 DB 는 619명 중 611명이 익명 세션이라, 최근순 20건이 통째로 "(이름·이메일 없음)" 이었다.
+# 걸러 내되 **실계정을 같이 지우면 안 된다** — 여기서 잠그는 건 그 경계다.
+
+
+def test_guest_sessions_are_hidden_from_the_default_listing(client):
+    with _as("developer"):
+        res = client.get("/api/v1/dev/users", headers=_headers())
+    assert res.status_code == 200
+    ids = [i["id"] for i in res.json()["items"]]
+    assert GUEST_ID not in ids, "익명 세션이 목록에 남았다"
+    assert TARGET_ID in ids and DEVELOPER_ID in ids
+
+
+def test_hidden_guest_count_is_reported(client):
+    """조용히 줄인 목록을 '전부'로 오해하지 않게, 몇 명을 뺐는지 같이 준다."""
+    with _as("developer"):
+        res = client.get("/api/v1/dev/users", headers=_headers())
+    assert res.json()["hidden_guests"] == 1
+
+
+def test_a_real_account_without_a_nickname_is_still_listed(client, db):
+    """openapi@naver.com 형태 — 이메일만 있고 닉네임이 NULL 인 실계정.
+
+    '이름도 이메일도 없으면 게스트' 같은 휴리스틱으로 거르면 이 계정이 같이 사라진다.
+    실제로 이 계정을 못 찾아 한 번 헤맸다(2026-09-02). 판정 근거는 is_anonymous 뿐이다."""
+    db.tables["users"] = [
+        {"id": TARGET_ID, "nickname": None, "role": "merchant", "created_at": "2026-02-01"},
+        {"id": GUEST_ID, "nickname": None, "role": "tourist", "created_at": "2026-09-01"},
+    ]
+    with _as("developer"):
+        res = client.get("/api/v1/dev/users", headers=_headers())
+    ids = [i["id"] for i in res.json()["items"]]
+    assert ids == [TARGET_ID]
+
+
+def test_a_guest_is_still_reachable_by_exact_uid(client):
+    """목록에서 감추는 것과 못 찾게 하는 것은 다르다 — 신고 추적에는 uid 지목이 필요하다."""
+    with _as("developer"):
+        res = client.get(f"/api/v1/dev/users?q={GUEST_ID}", headers=_headers())
+    assert [i["id"] for i in res.json()["items"]] == [GUEST_ID]
+
+
+def test_listing_is_not_emptied_when_the_auth_index_dies(client, db):
+    """페일 오픈. 인덱스가 죽었을 때 필터를 그대로 적용하면 화면이 통째로 빈다 —
+    표시용 필터 때문에 콘솔을 못 쓰는 것보다 게스트가 섞여 보이는 편이 낫다."""
+
+    def _boom(*_a, **_kw):
+        raise RuntimeError("gotrue down")
+
+    db.auth.admin.list_users = _boom
+    with _as("developer"):
+        res = client.get("/api/v1/dev/users", headers=_headers())
+    assert res.status_code == 200
+    assert len(res.json()["items"]) == 3
+
+
 # =========================================================================
 # 5. 사업자 인증 심사 — 순서가 곧 복구 가능성이다
 # =========================================================================
@@ -529,6 +595,33 @@ def pending_request(db):
         }
     )
     return db.tables["business_verification_requests"][0]
+
+
+# ── 심사 큐 하위 메뉴(사업자 / 관리자) ──────────────────────────────────────
+
+
+def test_review_queue_filters_by_requested_role(client, db):
+    db.tables["business_verification_requests"] = [
+        {"id": REQUEST_ID, "user_id": TARGET_ID, "status": "pending", "requested_role": "merchant"},
+        {"id": "b2", "user_id": OTHER_DEV_ID, "status": "pending", "requested_role": "admin"},
+    ]
+    with _as("developer"):
+        res = client.get(
+            "/api/v1/dev/verification-requests?requested_role=admin", headers=_headers()
+        )
+    assert [r["id"] for r in res.json()["items"]] == ["b2"]
+
+
+def test_review_queue_refuses_a_developer_filter(client):
+    """개발자 심사 큐는 존재하지 않는다 — 신청이 만들어질 수 없기 때문이다.
+
+    빈 목록을 돌려주면 '아직 신청이 없구나' 로 읽혀, 없는 동선이 있는 것처럼 보인다.
+    승격은 /dev 콘솔에서 사용자를 직접 지목하는 경로 하나뿐이다."""
+    with _as("developer"):
+        res = client.get(
+            "/api/v1/dev/verification-requests?requested_role=developer", headers=_headers()
+        )
+    assert res.status_code == 422
 
 
 def test_approve_promotes_and_grants_ownership(client, db, pending_request):
