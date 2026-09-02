@@ -7,7 +7,7 @@ import { useRouter } from 'next/navigation';
 import {
   Menu, Bell, Bookmark, User,
   Edit2, ChevronRight, LogOut,
-  Settings as SettingsIcon, Ticket, X, Footprints, Sparkles, Hourglass, Store, FlaskConical, Wrench, UserCog
+  Settings as SettingsIcon, Ticket, X, Footprints, Sparkles, Hourglass, Store, FlaskConical, Wrench, UserCog, ShieldCheck
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { createPublicClient } from '@/lib/supabase';
@@ -17,6 +17,7 @@ import { deriveAuthState } from '@/lib/oauthFlow';
 import {
   useAccount,
   canEnterMerchantConsole,
+  canEnterAdminConsole,
   canEnterDevConsole,
   canRequestRoleChange,
 } from '@/lib/account';
@@ -50,6 +51,32 @@ function DevConsoleEntry() {
         </span>
         <span className="mt-0.5 block text-xs text-muk-soft">
           역할 임명 · 가게 소유권 · 사업자 인증 심사 · 감사 로그
+        </span>
+      </span>
+      <ChevronRight size={18} className="shrink-0 text-muk-soft" />
+    </button>
+  );
+}
+
+/** 관제 대시보드 진입 카드 — admin·developer 에게만 렌더된다(그 외에는 아무것도 그리지 않는다). */
+function AdminConsoleEntry() {
+  const router = useRouter();
+  const { account } = useAccount();
+  if (!canEnterAdminConsole(account)) return null;
+  return (
+    <button
+      type="button"
+      // `/admin` 이 아니라 `/admin/dashboard` 다 — `/admin` 은 정적 export 때문에 남겨 둔
+      // 클라이언트 리다이렉트 껍데기라, 거쳐 가면 뒤로 가기에 빈 칸이 하나 낀다.
+      onClick={() => router.push('/admin/dashboard')}
+      className="mb-4 flex w-full items-center justify-between gap-3 rounded-3xl border border-gold/30 bg-gold/5 p-5 text-left transition-colors hover:bg-gold/10"
+    >
+      <span className="min-w-0">
+        <span className="flex items-center gap-2 font-bold text-muk">
+          <ShieldCheck size={17} className="text-gold-deep" /> 관제 대시보드
+        </span>
+        <span className="mt-0.5 block text-xs text-muk-soft">
+          실시간 혼잡도 · 안전 경보 · 통계 리포트 · 문의 관리
         </span>
       </span>
       <ChevronRight size={18} className="shrink-0 text-muk-soft" />
@@ -507,6 +534,16 @@ export default function MyPage() {
                 <ChevronRight size={20} className="shrink-0 text-gold-deep transition-transform group-hover:translate-x-0.5" />
               </div>
             </button>}
+
+            {/* 관제 대시보드 진입 — 사장님 콘솔 바로 아래에 둔다.
+                관리자는 로그인 직후 /admin/dashboard 로 떨어지지만(lib/postLoginDest), 한 번
+                마이페이지로 나오면 되돌아갈 길이 주소창밖에 없었다.
+                자리를 여기로 잡은 이유: /account/business 가 사업자·관리자를 한 쌍으로 다루는
+                (승인되면 각각 /merchant · /admin/dashboard 로 보낸다) 두 '승인으로 열리는 콘솔'이라,
+                역할 변경 신청 카드 바로 위에 붙여 계정·권한 블록으로 묶는다.
+                developer 는 위쪽 개발자 콘솔 카드까지 셋을 함께 보는데, 팀 전용 도구(위)와
+                승인형 콘솔(여기) 구분이 그대로 보여 순서가 어색하지 않다. */}
+            <AdminConsoleEntry />
 
             {/* 계정 역할 변경 신청 — 사업자·관리자 권한을 요청하는 유일한 자기 신청 경로다.
                 예전에는 tourist 에게만 작은 밑줄 링크 하나였다. 사장님이 관리자 권한을
