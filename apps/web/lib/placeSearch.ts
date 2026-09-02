@@ -21,8 +21,14 @@ function facilitySearchText(place: SearchablePlace): string {
     place.name,
     place.address,
     features.category,
+    // snake 와 camel 을 **둘 다** 본다. 이 목록의 출처는 두 갈래다: Supabase 직조회는
+    // 원형(snake)을, apiClient 경유는 keysToCamel 을 통과한 camel 을 준다. first_menu/
+    // firstMenu 처럼 이미 짝이 있는 항목이 있는 반면 아래 둘은 snake 만 있어서, 실제
+    // 프로덕션 경로(apiClient)에서는 업종·요리 태그가 검색에 걸리지 않았다.
     features.category_name,
+    features.categoryName,
     features.cuisine_tags,
+    features.cuisineTags,
     features.cuisine,
     features.first_menu,
     features.firstMenu,
