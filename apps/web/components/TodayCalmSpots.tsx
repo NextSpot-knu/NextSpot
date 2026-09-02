@@ -10,29 +10,21 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { loadTravelContext } from '@/lib/travelContext';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Leaf, MapPin, X } from 'lucide-react';
 import { haversineMeters, formatDistance } from '@/lib/geo';
 import { useT } from '@/lib/i18n/I18nProvider';
 
 // setup 온보딩(한국어 라벨)에서 캐노니컬 시설 타입 키로 매핑(TasteRadar/설정과 동일).
-const CATEGORY_LABEL_TO_KEY: Record<string, string> = {
-  '음식점': 'restaurant',
-  '카페': 'cafe',
-  '관광지': 'attraction',
-  '문화시설': 'culture',
-};
 
-// 온보딩 취향 카테고리(우선 정렬용 시설 타입). 없으면 null.
-function readPreferredType(): string | null {
-  try {
-    const raw = localStorage.getItem('nextspot_setup_prefs');
-    if (!raw) return null;
-    const category = String(JSON.parse(raw)?.category || '').trim();
-    return CATEGORY_LABEL_TO_KEY[category] ?? null;
-  } catch {
-    return null;
-  }
+// 온보딩 취향 카테고리(우선 정렬용 시설 타입들). 없으면 빈 배열.
+//
+// 예전에는 저장 형태를 직접 파싱해 `category`(v1 단수형 한국어 라벨) 하나를 읽었는데,
+// 지금 그 키에 저장되는 것은 v2 의 `categories`(영문 키 **배열**)다. 그래서 아래 ① 순위
+// 티어는 아무에게도 적용되지 않는 죽은 코드였다 — 모두가 혼잡도·거리 순만 봤다.
+function readPreferredTypes(): string[] {
+  return loadTravelContext().categories;
 }
 
 interface CalmSpot {
@@ -59,11 +51,11 @@ export function TodayCalmSpots({
   const t = useT();
   const [isOpen, setIsOpen] = useState(false);
   const [mounted, setMounted] = useState(false); // 포털은 클라이언트 마운트 후에만(정적 export/SSR 안전)
-  const [prefType, setPrefType] = useState<string | null>(null);
+  const [prefTypes, setPrefTypes] = useState<string[]>([]);
 
   useEffect(() => {
     setMounted(true);
-    setPrefType(readPreferredType());
+    setPrefTypes(readPreferredTypes());
   }, []);
 
   // 한산(level<0.3) 후보 → 취향 우선 → 더 한산 → 가까운 순 → 상위 3곳.
@@ -87,15 +79,16 @@ export function TodayCalmSpots({
       }));
 
     candidates.sort((a, b) => {
-      const ap = prefType && a.type === prefType ? 0 : 1;
-      const bp = prefType && b.type === prefType ? 0 : 1;
+      // v2 는 카테고리를 여러 개 고를 수 있다 — 하나만 비교하면 나머지 선택이 무시된다.
+      const ap = prefTypes.includes(a.type) ? 0 : 1;
+      const bp = prefTypes.includes(b.type) ? 0 : 1;
       if (ap !== bp) return ap - bp; // ① 취향 카테고리 우선
       if (a.congestionLevel !== b.congestionLevel) return a.congestionLevel - b.congestionLevel; // ② 더 한산
       return a._distM - b._distM; // ③ 가까운 순
     });
 
     return candidates.slice(0, 3);
-  }, [facilities, userLocation.lat, userLocation.lng, prefType]);
+  }, [facilities, userLocation.lat, userLocation.lng, prefTypes]);
 
   useEffect(() => {
     if (!isOpen) return;

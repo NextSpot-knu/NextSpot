@@ -7,6 +7,7 @@ import {
   RadarChart, Radar, PolarGrid, PolarAngleAxis, Tooltip, ResponsiveContainer,
 } from 'recharts';
 import { apiClient } from '@/lib/api-client';
+import { loadTravelContext } from '@/lib/travelContext';
 
 // 8차원 선호 벡터의 차원 정의 — apps/api/app/services/spot/preference.py 와 1:1 대응
 // dim0-3: 카테고리(음식점/카페/관광지/문화시설) / dim4: 맛·평점 / dim5: 감성·인스타 / dim6: 접근성·무장애 / dim7: 한적함
@@ -25,13 +26,6 @@ const CATEGORY_BASE_VECTORS: Record<string, number[]> = {
   culture:    [0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.2, 0.2],
 };
 
-// setup 온보딩(localStorage 'nextspot_setup_prefs')은 한국어 라벨로 저장됨 → 백엔드 카테고리 키 매핑
-const CATEGORY_LABEL_TO_KEY: Record<string, string> = {
-  '음식점': 'restaurant',
-  '카페': 'cafe',
-  '관광지': 'attraction',
-  '문화시설': 'culture',
-};
 
 // L2 정규화 (preference.py get_category_average_vector 와 동일한 후처리)
 function l2Normalize(vec: number[]): number[] {
@@ -39,28 +33,22 @@ function l2Normalize(vec: number[]): number[] {
   return vec.map((v) => v / norm);
 }
 
-// 온보딩 선택(localStorage)에서 표시용 벡터 유도: 선택 카테고리들의 기저 벡터 평균 → L2 정규화
+// 온보딩 선택에서 표시용 벡터 유도: 선택 카테고리들의 기저 벡터 평균 → L2 정규화.
+//
+// 저장 형태를 직접 파싱하지 않고 loadTravelContext() 를 쓴다. 예전에는 이 함수가
+// `{ category: '음식점', food: '카페·디저트' }` 라는 **v1 단수형 한국어 라벨**을 읽었는데,
+// 지금 그 키에 저장되는 것은 v2 의 `{ categories: PlaceCategory[] }`(영문 키 배열)다.
+// 그래서 이 Cold Start 시각화는 아무에게도 뜨지 않는 죽은 코드였다. loadTravelContext 는
+// v1·v2 를 모두 흡수하므로 형태 판단을 한 곳에만 둔다.
 function deriveOnboardingVector(): number[] | null {
-  try {
-    const raw = localStorage.getItem('nextspot_setup_prefs');
-    if (!raw) return null;
-    const prefs = JSON.parse(raw) as { category?: string; food?: string };
+  const keys = loadTravelContext().categories;
+  if (keys.length === 0) return null;
 
-    const keys: string[] = [];
-    const catKey = prefs.category ? CATEGORY_LABEL_TO_KEY[prefs.category] : undefined;
-    if (catKey) keys.push(catKey);
-    // setup 2단계 음식 취향이 '카페·디저트'면 카페 성향도 함께 반영
-    if (prefs.food === '카페·디저트' && !keys.includes('cafe')) keys.push('cafe');
-    if (keys.length === 0) return null;
-
-    const sum = new Array(8).fill(0);
-    keys.forEach((key) => {
-      CATEGORY_BASE_VECTORS[key].forEach((v, i) => { sum[i] += v; });
-    });
-    return l2Normalize(sum.map((v) => v / keys.length));
-  } catch {
-    return null;
-  }
+  const sum = new Array(8).fill(0);
+  keys.forEach((key) => {
+    CATEGORY_BASE_VECTORS[key].forEach((v, i) => { sum[i] += v; });
+  });
+  return l2Normalize(sum.map((v) => v / keys.length));
 }
 
 // 선호 미설정 시의 균등 벡터 (preference.py 의 디폴트 1/√8 과 동일)
