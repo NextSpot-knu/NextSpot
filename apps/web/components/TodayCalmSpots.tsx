@@ -16,8 +16,6 @@ import { Leaf, MapPin, X } from 'lucide-react';
 import { haversineMeters, formatDistance } from '@/lib/geo';
 import { useT } from '@/lib/i18n/I18nProvider';
 
-// setup 온보딩(한국어 라벨)에서 캐노니컬 시설 타입 키로 매핑(TasteRadar/설정과 동일).
-
 // 온보딩 취향 카테고리(우선 정렬용 시설 타입들). 없으면 빈 배열.
 //
 // 예전에는 저장 형태를 직접 파싱해 `category`(v1 단수형 한국어 라벨) 하나를 읽었는데,

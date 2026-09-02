@@ -194,7 +194,7 @@ function saveFacilityCache(facilities: Facility[]): void {
 // 장소 검색 결과 1건 — GET /api/v1/search/places(Kakao 장소 검색) 응답.
 // 백엔드는 place_id/place_url/category_name 으로 주고, api-client 의 keysToCamel 이 camelCase 로 바꿔 준다
 // (예전 주석은 엔드포인트 이름도 틀렸고 '변환 없음' 이라고 적혀 있었다 — 둘 다 사실이 아니다).
-// 적재 전 POI 라 지도 마커는 없다(행 목록 전용). 필드명은 백엔드 간이 페이로드와 1:1(camelCase 변환 없음).
+// 적재 전 POI 라 지도 마커는 없다(행 목록 전용).
 interface PlaceSearchItem {
   placeId: string;
   name: string;
