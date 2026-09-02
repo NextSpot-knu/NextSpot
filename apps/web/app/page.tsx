@@ -20,8 +20,16 @@ export default function LoadingPage() {
   // (익명→정회원 전환은 uid 유지 — docs/AUTH_MEMBERSHIP_PLAN.md).
   const go = useCallback(() => {
     if (navigatedRef.current) return;
+    // 저장소를 **래치보다 먼저** 읽는다. localStorage 접근은 차단 환경(사파리 사생활 보호,
+    // 사이트 데이터 차단)에서 예외를 던지는데, 래치를 먼저 켜면 그 예외 뒤로는 탭도 키 입력도
+    // 전부 이른 return 에 걸려 첫 화면이 통째로 먹통이 된다 — 앱에 들어갈 방법이 없어진다.
+    let seen: string | null = null;
+    try {
+      seen = typeof window !== 'undefined' ? window.localStorage.getItem('nextspot_setup_prefs') : null;
+    } catch {
+      /* 저장소 차단 — 온보딩부터 시작한다(재방문 판별을 못 할 뿐 진행은 막지 않는다) */
+    }
     navigatedRef.current = true;
-    const seen = typeof window !== 'undefined' && window.localStorage.getItem('nextspot_setup_prefs');
     router.push(seen ? '/main' : '/setup');
   }, [router]);
 
