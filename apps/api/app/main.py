@@ -17,6 +17,33 @@ setup_logging()
 _logger = structlog.get_logger()
 
 
+def _check_legacy_console_token() -> None:
+    """구 공유 토큰 경로를 켠 채 기본 토큰을 그대로 두면 소리내어 알린다.
+
+    MERCHANT_API_TOKEN 은 데모 배포가 부팅되도록 코드에 기본값이 있는 유일한 비밀이다.
+    평소에는 무해하다 — LEGACY_CONSOLE_TOKENS 가 False 라 그 토큰으로는 아무것도 못 한다.
+    하지만 구 프런트를 위해 스위치를 임시로 켜는 순간, 값을 바꾸지 않았다면 **공개된 기본
+    토큰만 알면 아무 가게의 좌석 상태를 방송할 수 있다**(그 방송은 evidence_tier='verified'
+    로 학습 데이터에 들어간다).
+
+    게다가 이 조합은 조용하다: 스위치는 잘 켜지고 요청도 잘 통과한다. 그래서 부팅 로그에
+    남긴다. 부팅을 막지는 않는다 — 스위치를 켜는 건 대개 장애 완충 중이라, 그때 서버가
+    안 뜨면 본말전도다(워밍업 실패를 삼키는 것과 같은 이유).
+    """
+    if not settings.LEGACY_CONSOLE_TOKENS:
+        return
+    default = type(settings).model_fields["MERCHANT_API_TOKEN"].default
+    if settings.MERCHANT_API_TOKEN == default:
+        _logger.error(
+            "legacy_console_token_is_default",
+            detail=(
+                "LEGACY_CONSOLE_TOKENS 가 켜져 있는데 MERCHANT_API_TOKEN 이 코드 기본값 그대로입니다. "
+                "가게 소유권 검사를 우회하는 경로가 공개된 토큰으로 열려 있습니다. "
+                "환경변수로 새 토큰을 설정하거나 스위치를 끄세요."
+            ),
+        )
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     """부팅 시 무거운 lazy 초기화를 미리 끝낸다(첫 사용자 요청이 그 비용을 물지 않게).
@@ -88,6 +115,8 @@ async def lifespan(_app: FastAPI):
         )
     except Exception as e:
         _logger.warning("warmup_area_context_failed", error_type=type(e).__name__)
+
+    _check_legacy_console_token()
 
     _logger.info("warmup_done", total_ms=round((time.perf_counter() - t0) * 1000))
     yield
