@@ -22,6 +22,7 @@ import {
   CircleDot,
   CircleX,
   PowerOff,
+  LogOut,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -126,12 +127,25 @@ export default function MerchantDashboardPage() {
           <p className="text-sm font-bold font-serif text-muk">{facility.name}</p>
           <p className="text-xs text-muk-soft">{TYPE_LABEL[facility.type] || facility.type}</p>
         </div>
-        <button
-          onClick={handleChangeFacility}
-          className="text-xs text-muk-soft hover:text-muk transition-colors underline underline-offset-2 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
-        >
-          가게 변경
-        </button>
+        {/* 오른쪽은 '가게 변경'(콘솔 안에서 대상 바꾸기)과 '나가기'(콘솔 밖으로) 둘이다.
+            여기 나가기가 없던 동안 대시보드에서 앱으로 돌아갈 길은 게이트를 한 번 거치는
+            것뿐이었다 — 하단 내비도 /merchant 경로에서는 숨겨진다(BottomNav 의 allowlist).
+            목적지를 못박는 이유는 게이트의 leave 주석 참조(히스토리 back 은 못 나간다). */}
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleChangeFacility}
+            className="text-xs text-muk-soft hover:text-muk transition-colors underline underline-offset-2 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+          >
+            가게 변경
+          </button>
+          <button
+            onClick={() => router.push('/main')}
+            aria-label="관광객 앱으로 나가기"
+            className="flex items-center gap-1 text-xs text-muk-soft hover:text-muk transition-colors rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+          >
+            <LogOut size={15} aria-hidden="true" /> 나가기
+          </button>
+        </div>
       </header>
 
       <main className="max-w-2xl mx-auto px-4 py-5 flex flex-col gap-5">

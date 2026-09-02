@@ -12,7 +12,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Store, ChevronRight, Loader2, ArrowLeft, Clock, ShieldAlert } from 'lucide-react';
+import { Store, ChevronRight, Loader2, LogOut, Clock, ShieldAlert } from 'lucide-react';
 import { createPublicClient } from '@/lib/supabase';
 import { useT } from '@/lib/i18n/I18nProvider';
 import { useAccount, canEnterMerchantConsole, type OwnedFacility } from '@/lib/account';
@@ -46,13 +46,11 @@ export default function MerchantGatePage() {
     router.replace('/merchant/dashboard');
   }, [status, account, router]);
 
-  const leave = () => {
-    if (typeof window !== 'undefined' && window.history.length > 1) {
-      router.back();
-      return;
-    }
-    router.push('/mypage');
-  };
+  // 나가기는 관광객 앱으로 — **히스토리 기반 back 은 콘솔을 나가지 못한다**.
+  // 가게를 여러 곳 둘러봤으면 게이트↔대시보드가 히스토리에 쌓여 있어 직전에 보던 가게로
+  // 되짚어 갈 뿐이다. 개발자 콘솔(/dev)·관제 사이드바처럼 목적지를 못박는다.
+  // replace 가 아니라 push 인 이유: 나가기도 정상 이동이라, 뒤로가기로 콘솔에 되돌아오는 편이 자연스럽다.
+  const leave = () => router.push('/main');
 
   if (!mounted || status === 'loading') {
     return (
@@ -331,7 +329,7 @@ function Shell({ children, onLeave }: { children: React.ReactNode; onLeave?: () 
               onClick={onLeave}
               className="-ml-1 inline-flex min-h-9 items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm font-medium text-muk-soft transition-colors hover:bg-white hover:text-muk focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/40"
             >
-              <ArrowLeft size={16} /> {t('merchantGate.leave')}
+              <LogOut size={16} /> {t('merchantGate.leave')}
             </button>
           </div>
         )}
