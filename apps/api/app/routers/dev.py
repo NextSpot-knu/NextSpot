@@ -439,9 +439,13 @@ async def list_verification_requests(
     if requested_role is not None and requested_role not in REVIEWABLE_ROLES:
         raise HTTPException(status_code=422, detail="심사 대상이 아닌 역할입니다.")
 
+    # 가게 이름을 함께 끌어온다. 심사자가 보던 건 uuid 뿐이었는데, 그 uuid 는 **신청자가
+    # 본문에 적어 보낸 값**이라 아무도 대조하지 않으면 승인 한 번이 곧 남의 가게 소유권이
+    # 된다. 이름이 보이면 최소한 신청서의 store_name 과 눈으로 맞춰 볼 수 있다.
+    # (소유권 회수 화면은 이미 같은 임베드를 쓴다 — list_facility_owners 참고.)
     query = (
         supabase_admin.table("business_verification_requests")
-        .select("*")
+        .select("*, facilities(name, type)")
         .eq("status", status_filter)
     )
     if requested_role:
@@ -453,6 +457,10 @@ async def list_verification_requests(
     items = []
     for row in res.data or []:
         row = dict(row)
+        # 관리자 신청은 facility_id 가 NULL 이라 임베드가 없다 — or {} 로 흡수한다.
+        facility = row.pop("facilities", None) or {}
+        row["facility_name"] = facility.get("name")
+        row["facility_type"] = facility.get("type")
         row["contact"] = _mask_email(row.get("contact")) if "@" in str(row.get("contact") or "") else row.get("contact")
         items.append(row)
     return {"items": items}

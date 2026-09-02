@@ -654,6 +654,36 @@ def test_a_failed_owner_grant_leaves_the_request_reviewable(client, db, pending_
     clear.assert_not_awaited()
 
 
+def test_the_queue_shows_the_facility_name_not_just_a_uuid(client, db):
+    """facility_id 는 신청자가 본문에 적어 보낸 값이다. uuid 만 보고 승인하면 남의 가게
+    소유권을 줄 수 있어서, 심사자가 신청서의 가게 이름과 눈으로 맞출 수 있어야 한다."""
+    db.tables["business_verification_requests"] = [
+        {
+            "id": REQUEST_ID, "user_id": TARGET_ID, "status": "pending",
+            "requested_role": "merchant", "facility_id": FACILITY_ID,
+            "facilities": {"name": "이풍녀 구로쌈밥", "type": "restaurant"},
+        },
+    ]
+    with _as("developer"):
+        res = client.get("/api/v1/dev/verification-requests", headers=_headers())
+    row = res.json()["items"][0]
+    assert row["facility_name"] == "이풍녀 구로쌈밥"
+    assert row["facility_type"] == "restaurant"
+    assert "facilities" not in row, "임베드 원형이 그대로 새어 나갔다"
+
+
+def test_an_admin_request_survives_the_missing_embed(client, db):
+    """관리자 신청은 facility_id 가 NULL 이라 임베드 자체가 없다 — 그 때문에 관리자 하위
+    메뉴가 통째로 깨지면 안 된다."""
+    db.tables["business_verification_requests"] = [
+        {"id": "b2", "user_id": OTHER_DEV_ID, "status": "pending", "requested_role": "admin"},
+    ]
+    with _as("developer"):
+        res = client.get("/api/v1/dev/verification-requests", headers=_headers())
+    assert res.status_code == 200
+    assert res.json()["items"][0]["facility_name"] is None
+
+
 def test_review_queue_refuses_a_developer_filter(client):
     """개발자 심사 큐는 존재하지 않는다 — 신청이 만들어질 수 없기 때문이다.
 

@@ -51,6 +51,8 @@ interface VerificationRow {
   userId: string;
   storeName: string;
   facilityId: string | null;
+  /** facilities 임베드에서 평탄화한 이름. 관리자 신청이거나 미연결이면 null. */
+  facilityName: string | null;
   contact: string | null;
   status: string;
   /** 신청한 역할. 컬럼이 없는 DB(마이그레이션 미적용)에서는 undefined → merchant 로 읽는다. */
@@ -557,6 +559,17 @@ function ReviewQueue({
                 <p className="text-sm font-semibold">{r.storeName}</p>
               </div>
               <p className="mt-0.5 text-[11px] text-muk-soft">연락처 {r.contact || '—'}</p>
+              {/* 가게는 **이름**으로 보여준다. facility_id 는 신청자가 본문에 적어 보낸 값이라
+                  uuid 만 보고 승인하면 남의 가게 소유권을 줄 수 있다. 이름이 신청서의
+                  가게 이름과 다르면 그 자리에서 눈에 띈다. */}
+              {!isAdminRequest && (
+                <p className="text-[11px] text-muk-soft">
+                  연결된 가게 <span className="font-semibold text-muk">{r.facilityName || '(미연결)'}</span>
+                  {r.facilityName && r.facilityName !== r.storeName && (
+                    <span className="ml-1 text-terracotta">· 신청서와 이름이 다릅니다</span>
+                  )}
+                </p>
+              )}
               <p className="font-mono text-[11px] text-muk-soft">
                 user {r.userId}
                 {!isAdminRequest && ` · facility ${r.facilityId || '(미연결)'}`}
