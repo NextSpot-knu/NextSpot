@@ -15,7 +15,7 @@
 
 | 구성 요소 | 상태 | 근거 |
 |---|---|---|
-| TourAPI 비동기 클라이언트 (`client.py`, KorService2, 6개 엔드포인트 함수) | ✅ 구현 완료 | `apps/api/app/services/tourapi/client.py` |
+| TourAPI 비동기 클라이언트 (`client.py`, KorService2, 9개 엔드포인트 함수) | ✅ 구현 완료 | `apps/api/app/services/tourapi/client.py` |
 | 응답→적재 행 변환 (`transform.py`, 순수 함수) | ✅ 구현 완료 + 단위테스트 | `apps/api/tests/services/test_tourapi.py` |
 | 적재 배치 스크립트 (`scripts/ingest_tourapi.py`) | ✅ 구현 완료, **운영 중** | GitHub Actions `ingest.yml`이 매일 KST 04:00 `--details --radius 3000`으로 실행(2026-07-10 첫 실적재, 07-17 상세 적재) |
 | Supabase 스키마 확장 | ✅ 적용 완료 | `supabase/migrations/20260707130000_add_tourapi_fields.sql` (contentid·contenttypeid·address·barrier_free·image_url + 부분 유니크 인덱스) |
@@ -68,9 +68,9 @@ flowchart TD
     E1 --> F1
     E2 -.->|"클라이언트 구현됨, 파이프라인 미연결"| F1
     F1 --> F2 --> DB
-    E4 -.->|"--details 옵션 시에만"| F3
-    E5 -.->|"--details 옵션 시에만"| F3
-    F3 -.-> DB
+    E4 -->|"--details (일배치는 켬)"| F3
+    E5 -->|"--details (일배치는 켬)"| F3
+    F3 --> DB
     E3 -->|"routers/events.py — 진행 중 행사의 개요·홈페이지 보강"| OUT
     E6 -->|"events.py 행사 목록 · event_boost.py 거리 감쇠 → predict 혼잡 보정"| W2
     F2 --> F4 --> DB
@@ -107,20 +107,20 @@ CI 패리티 테스트로 정합 강제).
 
 | 엔드포인트 | TourAPI 제공 필드 | 적재 컬럼 / features | SPOT 산식 기여 경로 | 기여 변수 | 연결 상태 |
 |---|---|---|---|---|---|
-| **locationBasedList2** | `mapx`,`mapy`(경도/위도) | `facilities.latitude/longitude` | `spot/travel.py get_travel_time_and_distance()` → `travel_time_min` → `total_time = wait+travel` → `time_cost=min(1,total_time/60)` | **w2(시간)** | 연결됨(실행 대기) |
-| locationBasedList2 | 위 좌표(동일 필드) | 동일 컬럼 | `routers/recommendations.py` — 사용자 위치 기준 반경 150m 이내만 후보군 채택(1차 필터) | 필터(후보 생성) | 연결됨 |
+| **locationBasedList2** | `mapx`,`mapy`(경도/위도) | `facilities.latitude/longitude` | `spot/travel.py get_travel_time_and_distance()` → `travel_time_min` → `total_time = wait+travel` → `time_cost=min(1,total_time/60)` | **w2(시간)** | 연결됨(운영 중) |
+| locationBasedList2 | 위 좌표(동일 필드) | 동일 컬럼 | `routers/recommendations.py` — 사용자 위치 기준 bbox(도보 상한×100m, 기본 1,000m)로 1차 후보 채택 후 경로 시간으로 최종 제한 | 필터(후보 생성) | 연결됨 |
 | locationBasedList2 | `contenttypeid`(12/14/39) + `cat3` | `map_facility_type()` → `facilities.type`(restaurant/cafe/attraction/culture) | `spot/preference.py CATEGORY_VECTORS[type]` → 사용자 벡터와 코사인 유사도 | **w1(선호)** | 연결됨 |
 | locationBasedList2 | 위 `type`(동일) | 동일 | `spot/wait_time.py DEFAULT_PROCESSING_TIMES[type]` → 기본 처리시간 × 혼잡도 × 시간대 보정 = `predicted_wait` | **w2(시간)** | 연결됨 |
 | locationBasedList2 | 위 `type`(동일) | 동일 | `predict_service.py predict_congestion(type, hour, dow)` 3피처 중 1(Supabase Storage의 검증된 active sklearn 모델) → `predicted_congestion` | **w2**(대기시간 산정 입력) 및 **w3**(재배치기여 성분) | 연결됨(활성 모델이 없으면 `degraded_rules` — 혼잡 항을 산식에서 제외, 임의 0.5 없음) |
 | locationBasedList2 | `title` | `facilities.name` | 추천 카드·목록 표시명 | 표시 | 연결됨 |
 | locationBasedList2 | `contentid` | `facilities.contentid`(부분 유니크 인덱스) | `upsert_facilities()` 갱신 기준키(중복 적재 방지) | 식별자(산식 미기여) | 연결됨 |
-| locationBasedList2 | `addr1` | `facilities.address` | 추천 카드 주소 표시(`RecommendationCard.tsx:228`, 카카오 장소 주소가 없을 때의 근거값) | 표시 | 연결됨 |
-| locationBasedList2 | `firstimage` | `facilities.image_url` | 추천 카드 갤러리 첫 장(`RecommendationCard.tsx:465`, `galleryImages` 앞에 배치) | 표시 | 연결됨 |
-| locationBasedList2 | `cat1`/`cat2`/`cat3` 원본 | `facilities.features.{cat1,cat2,cat3}`(JSONB) | 저장만 됨 | **미사용** | `preference.py`는 `features.barrier_free`/`features.instagrammable`만 읽음 — cat1-3은 아직 산식 미참조 |
-| **areaBasedList2** | 지역코드(경북=35, 경주=2) 기반 POI 목록 | — | 클라이언트 함수(`area_based_list()`) 구현·export 완료 | — | **파이프라인 미연결** — `ingest_tourapi.py`는 현재 좌표 반경(`locationBasedList2`)만 호출 |
+| locationBasedList2 | `addr1` | `facilities.address` | 추천 카드 주소 표시(`RecommendationCard.tsx` `displayAddress` — `facility.address`가 우선, 없을 때 카카오 장소 주소로 폴백) | 표시 | 연결됨 |
+| locationBasedList2 | `firstimage` | `facilities.image_url` | 추천 카드 갤러리 첫 장(`RecommendationCard.tsx` `galleryImages` 앞에 배치) | 표시 | 연결됨 |
+| locationBasedList2 | `cat1`/`cat2`/`cat3` 원본 | `facilities.features.{cat1,cat2,cat3}`(JSONB) | 저장만 됨 | **미사용** | `preference.py`는 `features`의 barrier_free·accessible_verified·scenic·hanok·cuisine_tags·category·menu 계열을 읽음 — cat1-3(lcls 계열 포함)은 아직 산식 미참조 |
+| **areaBasedList2** | 지역코드(경북=35, 경주=2) 기반 POI 목록 | — | 클라이언트 함수(`area_based_list()`) 구현·export 완료 | — | **파이프라인 미연결** — `ingest_tourapi.py`는 `locationBasedList2` + `areaBasedSyncList2`(변경분) + `detailImage2`를 호출하고 `area_based_list()`만 호출부가 없다 |
 | **detailCommon2** | 개요·전화·홈페이지·대표이미지 등 공통 상세 | — | `events.py:153`이 진행 중 축제에 한해 호출 → 개요·홈페이지 보강 | 표시(행사 상세) | 연결됨(진행 중 행사에 한정, 쿼터 절약) |
-| **detailIntro2** | `usetime`/`usetimeculture`/`opentimefood`(운영시간), `restdate`/`restdateculture`/`restdatefood`(휴무일) — contentTypeId별 필드명 상이 | `extract_operating_hours()` → `facilities.operating_hours`(JSONB) | 관리자 `FacilityTable.tsx`(`getHoursText`)에 표시 확인됨. SPOT 산식(w1/w2/w3)에는 미사용 | 표시(운영정보) | 연결됨, 단 `ingest_tourapi.py --details` 옵션 시에만 호출(쿼터 절약, 기본 꺼짐) |
-| **detailInfo2** | `infoname`/`infotext` 반복 상세 텍스트 — "무장애","휠체어","장애인","배리어프리","베리어프리","엘리베이터" 키워드 판별 | `extract_barrier_free()` → `facilities.barrier_free`(BOOLEAN, NULL=미상) | `score.py`가 `barrier_free` 컬럼을 `features.barrier_free`로 브리지 → `preference.py`에서 시설 벡터 접근성 차원(`dim6 += 0.3`) 부스트 → 코사인 유사도 재계산 | **w1(선호)** | 연결됨(detail 필드 중 유일하게 산식까지 도달), `--details` 옵션 시에만 호출 |
+| **detailIntro2** | `usetime`/`usetimeculture`/`opentimefood`(운영시간), `restdate`/`restdateculture`/`restdatefood`(휴무일) — contentTypeId별 필드명 상이 | `extract_operating_hours()` → `facilities.operating_hours`(JSONB) | 관리자 `FacilityTable.tsx`(`getHoursText`)에 표시 확인됨. SPOT 산식(w1/w2/w3)에는 미사용 | 표시(운영정보) | 연결됨, 단 `ingest_tourapi.py --details` 옵션 시에만 호출(CLI 기본은 꺼짐, 일배치 `ingest.yml`은 켬) |
+| **detailInfo2** | `infoname`/`infotext` 반복 상세 텍스트 — "무장애","휠체어","장애인","배리어프리","베리어프리","엘리베이터" 키워드 판별 | `extract_barrier_free()` → `facilities.barrier_free`(BOOLEAN, NULL=미상) | `score.py`가 `barrier_free` 컬럼을 `features.barrier_free`로 브리지 → `preference.py`에서 시설 벡터 접근성 차원(`dim6 += 0.3`) 부스트 → 코사인 유사도 재계산 | **w1(선호)** | 연결됨(detail 필드 중 유일하게 산식까지 도달), `--details` 옵션 시 호출(일배치는 켬) |
 | **searchFestival2** | 행사명·기간·장소 등 축제/행사 목록 | — | ① `events.py:213` 행사 목록 라우터(`main.py:175` 배선). ② `event_boost.py:188`이 같은 API로 진행 중 행사를 받아 거리 감쇠 가중을 만들고, `predict.py:165`가 그것을 예측 혼잡도에 더한다(`event_boost` 필드로 응답에 명시) | **w2·w3**(혼잡 외부 변수) 및 표시 | 연결됨 |
 
 ### w3(인센티브) 성분별 출처 — 중요 정정
@@ -142,7 +142,7 @@ CI 패리티 테스트로 정합 강제).
 | w1 preference(선호 일치) | 0.40 | ✅ 기여 | `type`(contentTypeId+cat3) → 카테고리 벡터, `barrier_free`(detailInfo2) → 접근성 차원 보정 |
 | w2 time_cost(시간 비용) | 0.40 | ✅ 기여 | `latitude/longitude` → 이동시간, `type` → 기본 처리시간·예측혼잡 입력 |
 | w3 incentive(인센티브) | 0.20 | ⚠️ 절반만 기여 | `relief_term`(혼잡 재배치)은 `type` 경유로 간접 기여, `coupon_term`(쿠폰강도)은 TourAPI 무관 내부 데이터 |
-| 후보 필터(반경 150m) | — | ✅ 기여 | `latitude/longitude` |
+| 후보 필터(도보 상한 bbox, 기본 1,000m) | — | ✅ 기여 | `latitude/longitude` |
 | 표시(이름·운영시간·주소·사진) | — | ✅ 기여 | `title`→이름, `operating_hours`→관리자 테이블, `address`→추천 카드 주소, `image_url`→추천 카드 갤러리 첫 장 |
 
 ---
@@ -152,10 +152,10 @@ CI 패리티 테스트로 정합 강제).
 코드에 존재하지만 SPOT 산식·UI까지 도달하지 않은 항목. 과장 방지를 위해 명시한다.
 
 1. **`areaBasedList2`** — 클라이언트 함수(`area_based_list()`)는 구현·export 되어 있으나 어떤
-   라우터·스크립트도 호출하지 않는다. 현재 적재는 좌표 반경 방식(`locationBasedList2`)만으로
+   라우터·스크립트도 호출하지 않는다. 현재 적재는 좌표 반경(`locationBasedList2`) + 변경분 동기화(`areaBasedSyncList2`)로
    충분하다고 판단해 보류했다.
-2. **`cat1`/`cat2`/`cat3`** — `features` JSONB에 원본값이 보존되나, `preference.py`는
-   `features.barrier_free`/`features.instagrammable`만 읽어 아직 산식 세분화에 쓰이지 않는다.
+2. **`cat1`/`cat2`/`cat3`** — `features` JSONB에 원본값이 보존되나, `preference.py`가
+   읽는 `features` 키(barrier_free·accessible_verified·scenic·hanok·cuisine_tags·category·menu 계열)에 없어 아직 산식 세분화에 쓰이지 않는다.
 
 > **2026-09-03 정정.** 이 절은 원래 `detailCommon2`·`searchFestival2`·`address`·`image_url`
 > 네 가지도 미연결로 적고 있었다. 넷 다 그 사이에 배선이 끝났는데 문서만 남아 있었다 —
@@ -173,7 +173,7 @@ python apps/api/scripts/ingest_tourapi.py --dry-run
 # 실제 적재 (TOURAPI_KEY 설정 후) — 황리단길 반경 2km, 관광지/문화시설/음식점
 python apps/api/scripts/ingest_tourapi.py
 
-# 상세(운영시간·무장애)까지 포함 — POI당 2회 추가 호출(쿼터 소모 큼, 기본 꺼짐)
+# 상세(운영시간·무장애·개요)까지 포함 — POI당 3회 추가 호출(관광지·문화시설은 대표이미지 1회 더). CLI 기본은 꺼짐, 일배치는 켬
 python apps/api/scripts/ingest_tourapi.py --details --limit 20
 ```
 

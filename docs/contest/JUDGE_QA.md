@@ -39,7 +39,7 @@
 보여주고, 서버의 영업 상태·공개 주변 수요 근거가 도착하면 같은 카드 자리에서 갱신한다. 신규 시설도 TourAPI
 유형·좌표·운영정보만 있으면 후보가 되며, 혼잡 이력이 없을 때는 대기 숫자를 만들지 않는다. 장기 개인화는
 길찾기→도착 확인→평가 결과를 추천 ID와 연결해 보강한다.
-[뒷받침 근거: score.py calculate_preference_similarity, docs/contest/CONTEST_STRATEGY.md B4]
+[뒷받침 근거: spot/preference.py calculate_preference_similarity(score.py가 호출), docs/contest/CONTEST_STRATEGY.md B4]
 
 ## Q5. [기술] 데이터가 실시간이 아닌데 신선도는 어떻게 보장하나?
 
@@ -69,7 +69,7 @@ API 장애 시에는 `source="unavailable"`과 함께 빈 목록을 반환해 �
 FacilityTable이 이미 이 설정을 소비하도록 마이그레이션을 마쳐 "설정값 교체만으로 확장 가능"한 구조를 코드로
 증빙한다. TourAPI·SPOT 산식 자체는 지역 비의존적으로 설계돼 있어, 타 지역 확장의 핵심 작업은 신규 지역 POI
 재적재(`ingest_tourapi.py` 파라미터 변경)와 혼잡 모델 재학습(`train.py`) 두 단계로 축소된다. 다만
-보행 그래프(`app/data/gyeongju_walking_graph.json.gz`, `scripts/build_walking_graph.py`로 재생성)와 유명 명소 기준 대안 탐색
+보행 그래프(`app/data/gyeongju_walking_graph.json.gz`, `apps/api/scripts/build_walking_graph.py`로 재생성)와 유명 명소 기준 대안 탐색
 (`lib/gyeongjuDiscovery.ts`)처럼 지역 데이터가 코드에 번들된 곳이 남아 있어, 완전한 이식에는 잔여 작업이 있다는 점도 밝힌다.
 [뒷받침 근거: docs/contest/CONTEST_STRATEGY.md D2, apps/web/lib/region.ts]
 

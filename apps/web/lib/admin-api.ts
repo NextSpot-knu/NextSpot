@@ -1,4 +1,4 @@
-// 관리자 API 클라이언트 — FastAPI /api/v1/admin/* (require_admin 가드) 호출 전용.
+// 관리자 API 클라이언트 — FastAPI /api/v1/admin/* (require_role(ROLE_ADMIN) 가드 — Supabase JWT + users.role) 호출 전용.
 //
 // 배경(WS-A-6): 관리자 화면이 anon 키로 facilities/system_settings/inquiries 를 직접 쓰던 경로는
 // RLS 강화 이후 전부 거부된다(이전에도 0행 갱신 무음 실패). 쓰기/민감 읽기는 이 헬퍼를 통해

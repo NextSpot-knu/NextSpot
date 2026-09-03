@@ -6,7 +6,7 @@
 
 ## 배포 상태
 
-- **main = 프로덕션.** main push가 Vercel(web)·Render(api)를 자동 배포한다. 2026-09-04 기준 `origin/main` = `a02be96`(09-03).
+- **main = 프로덕션.** main push가 Vercel(web)·Render(api)를 자동 배포한다. 2026-09-04 `chore/repo-cleanup` 10건을 fast-forward 반영(`a02be96..` — tip은 `git log -1 origin/main`).
   사람이 마지막으로 배포 결과를 눈으로 확인한 시점은 `e1a058f`(08-28, 로그 §-45).
   규칙: main에 푸시한 쪽(에이전트 포함)이 위 줄의 날짜·커밋 범위를 갱신하고, Vercel·Render 배포를 눈으로 본 사람이 확인 날짜를 적는다.
 - Web: https://nextspot-nu.vercel.app — 루트 `vercel.json`이 `npm run build --workspace=apps/web` → `apps/web/out`.
@@ -37,7 +37,8 @@
 외부 콘솔 접근이 필요해 코드로 못 하는 일. 끝나면 줄을 지우고 "최근 세션"에 한 줄 남긴다.
 
 - [ ] **`ADMIN_API_TOKEN` 회전** — 구 값은 한때 `NEXT_PUBLIC_`으로 번들에 실렸던 값이라 공개된 것으로 취급.
-      순서(수집 중단 없이): 새 값 생성 → Render에 `SERVICE_API_TOKEN` 추가(기존 `ADMIN_API_TOKEN`은 둔다) →
+      순서(서버는 단일 값만 비교하므로 Render 변경과 Vault 갱신 사이엔 수집이 실패한다 — 둘을 같은 10분 슬롯 안에 처리):
+      새 값 생성 → Render에 `SERVICE_API_TOKEN` 추가(그 순간부터 이것만 유효, 기존 `ADMIN_API_TOKEN`은 둔다) →
       Supabase Vault `nextspot_area_demand_admin_token` 갱신 → GitHub Actions Secret `SERVICE_API_TOKEN` 추가 →
       다음 10분 수집 정상 확인 → `ADMIN_API_TOKEN`을 새 값으로 교체.
 - [ ] **Kakao 개발자 콘솔** — 개인 개발자 → 비즈 앱 전환(`account_email` 스코프가 GoTrue에 고정돼 있어 이것 없이는
@@ -90,7 +91,7 @@
 - **중 — 게스트가 혼잡 근거를 오염시킬 수 있다.** `/reports/congestion`·`/reports/availability`가 `is_anonymous`를 검사하지
   않고 쿨다운 키가 (user, facility)라 새 익명 세션마다 우회된다. 두 게스트가 맞장구치면 `corroborated`가 된다.
   조치: `routers/account.py`처럼 비익명 요구 + IP 키 쿨다운.
-- **중 — X-Forwarded-For 해석 방향 미검증.** 세 리미터(`search.py` `recommendations.py` `tracking.py`의 `_client_ip`)가
+- **중 — X-Forwarded-For 해석 방향 미검증.** 세 리미터(`search.py`·`tracking.py`의 `_client_ip`, `recommendations.py`의 `_voice_client_ip`)가
   마지막 항목을 쓴다. Render가 hop을 덧붙이면 전원이 한 키(자기 DoS), 아니면 첫 항목이 위조 가능. 조치: Render에서 원 헤더를
   1회 로깅해 모양을 확인한 뒤 `CF-Connecting-IP`/`True-Client-IP` 우선으로 통일.
 - **중 — 토큰 회전·CORS**: 위 "사람 작업 대기"의 `ADMIN_API_TOKEN` 회전과 `ALLOWED_ORIGINS`(현재 와일드카드 — 제3자 페이지가
@@ -128,7 +129,13 @@ with checks(seq, migration, applied) as (values
   (10, '20260904200000_business_documents_bucket', exists (select 1 from storage.buckets where id='business-documents')),
   (11, '20260905090000_congestion_logs_column_grants',
       not has_table_privilege('anon','public.congestion_logs','SELECT')
-      and has_column_privilege('anon','public.congestion_logs','facility_id','SELECT'))
+      and has_column_privilege('anon','public.congestion_logs','facility_id','SELECT')),
+  (12, '20260903120000_nickname_source', (select count(*)>0 from information_schema.columns
+      where table_schema='public' and table_name='users' and column_name='nickname_source')),
+  (13, '20260904090000_account_deletion_fk_fix', exists (select 1 from pg_constraint
+      where conname='business_verification_requests_user_id_fkey' and pg_get_constraintdef(oid) like '%ON DELETE CASCADE%')),
+  (14, '20260904091000_inquiries_insert_ownership', exists (select 1 from pg_policies
+      where schemaname='public' and tablename='inquiries' and policyname='inquiries_insert_own_or_anonymous'))
 )
 select seq, migration, case when applied then '적용됨' else '미적용' end as status
 from checks order by seq;
@@ -141,7 +148,7 @@ from checks order by seq;
 ## 2026-09-04 — 저장소 정리: 죽은 파일 제거 · 문서 트리 재편 · 규칙 정본 재작성
 
 - 도구·브랜치: Claude Code(레드팀 하위 에이전트 6렌즈 → 실행 → 재검토 루프) / `chore/repo-cleanup` → main
-- 커밋: `a02be96` 이후 이 브랜치 9건(`git log --oneline a02be96..origin/main`) — 죽은 파일 제거 → 문서 트리 → 규칙·상태 문서 →
+- 커밋: `a02be96` 이후 이 브랜치 10건(`git log --oneline a02be96..origin/main`) — 죽은 파일 제거 → 문서 트리 → 규칙·상태 문서 →
   문서 사실 정정 → 설정·워크플로 → web 구조 → api 구조 → 레드팀 2라운드 반영(보안 진단·i18n 삭제) → 3라운드 반영(심사 문서 정정)
 - 한 것: InduSpot 잔재(seed.js·bg.png·landmarks.ts 등)와 Gemini 파일 제거 · `docs/`를 운영/contest/archive로 나누고
   색인(`docs/README.md`)과 CI 문서 검사(`scripts/check-docs.mjs`) 추가 · `AGENTS.md`를 현재 사실(RBAC 권한, 브랜치, 게이트,
@@ -168,7 +175,7 @@ from checks order by seq;
 - 마이그레이션 추가 7건: `20260902130000` role_change_requests · `20260903120000` nickname_source ·
   `20260904090000` account_deletion_fk_fix · `20260904091000` inquiries_insert_ownership · `20260904120000`
   area_demand_points_rpc · `20260904200000` business_documents_bucket · `20260905090000` congestion_logs_column_grants.
-  **원격 적용 여부는 문서에 기록되지 않았다** — 위 점검 쿼리 7~11번으로 실측할 것.
+  **원격 적용 여부는 문서에 기록되지 않았다** — 위 점검 쿼리 8~14번으로 실측할 것.
 - 검증: 각 커밋 메시지에 게이트 결과 기록(pytest·ruff·web 4종). 세션 인계 항목은 남기지 않았다(이 항목은 09-04에 git log로 복원).
 
 ## 기록 규칙
@@ -177,7 +184,7 @@ from checks order by seq;
 `YYYY-MM-DDb`, 세 번째는 `c`). 번호를 매기지 않는다 — 번호는 충돌한다(로그 파일의 -20·-27·-28·-29가 그 흔적).
 
 ```markdown
-## 2026-09-10 — 제목 한 줄
+## YYYY-MM-DD — 제목 한 줄
 - 도구·브랜치: Claude Code / yunseong
 - 커밋: abc1234..def5678 (n건)
 - 한 것: (3줄 이내 — 상세는 커밋 본문에)

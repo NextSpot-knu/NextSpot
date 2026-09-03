@@ -811,7 +811,7 @@ def test_feedback_quality_signal_touches_nothing(auth_client, action):
 
 
 # =========================================================================
-# 5. 관리자 가드(require_admin) — X-Admin-Authorization 단일 경로
+# 5. 관리자 가드(require_role(ROLE_ADMIN)) — Supabase JWT + users.role 단일 경로
 # =========================================================================
 
 def test_admin_inquiries_no_header_401(client):
@@ -983,7 +983,7 @@ def test_admin_facility_update_coupon_rate_ok(client):
 # =========================================================================
 
 def test_admin_congestion_override_no_header_401(client):
-    # 관리자 가드(require_admin) — 헤더 없으면 401
+    # 관리자 가드(require_role(ROLE_ADMIN)) — 인증 헤더 없으면 401
     res = client.post("/api/v1/admin/facilities/f-1/congestion", json={"level": 0.8})
     assert res.status_code == 401
 

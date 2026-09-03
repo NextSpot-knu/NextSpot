@@ -94,7 +94,10 @@ if (existsSync(handoverPath)) {
     errors.push(`${HANDOVER}: ${lines.length}줄 — ${HANDOVER_MAX_LINES}줄 초과. 오래된 세션 항목을 docs/archive/HANDOVER_LOG.md 로 옮길 것`);
   }
   const seen = new Map();
+  let inFence = false; // 코드 블록(기록 템플릿 예시) 안의 '## ' 는 세션 제목이 아니다
   lines.forEach((line, i) => {
+    if (/^\s*```/.test(line)) { inFence = !inFence; return; }
+    if (inFence) return;
     if (!line.startsWith("## ")) return;
     if (HANDOVER_FIXED_HEADINGS.has(line.trim())) return;
     const m = line.match(SESSION_HEADING);

@@ -83,7 +83,7 @@ def _patched_db(tables: dict):
 
 
 # =========================================================================
-# 인증 가드 — 관리자 헤더 없으면 401 (require_admin 실경로)
+# 인증 가드 — 관리자 JWT 없으면 401 (require_role(ROLE_ADMIN) 실경로)
 # =========================================================================
 
 def test_briefing_requires_admin_header(client):

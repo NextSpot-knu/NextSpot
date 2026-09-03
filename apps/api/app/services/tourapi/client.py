@@ -33,7 +33,7 @@ CACHE_TTL_SECONDS = 24 * 60 * 60
 # {(endpoint, 정렬된 파라미터 튜플): (저장 시각 epoch, payload)}
 _list_cache: dict[tuple, tuple[float, dict]] = {}
 
-# Kakao Directions(travel.py)와 동일하게 lazy 생성 — 이벤트 루프 밖 생성/누수 방지.
+# lazy 생성 — 이벤트 루프 밖 생성/누수 방지.
 _client: Optional[httpx.AsyncClient] = None
 
 

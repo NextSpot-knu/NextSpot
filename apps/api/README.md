@@ -38,7 +38,7 @@ py -3.11 -m uvicorn app.main:app --reload --port 8000
 (a) Registry의 검증된 active 모델  →  (b) None(degraded_rules)
 ```
 
-- 합성 `model.pkl`과 임의의 0.5는 운영 추론에 사용하지 않는다.
+- 로컬 pkl 파일(저장소에 없음)과 임의의 0.5는 운영 추론에 쓰지 않는다.
 - 모델은 검증된 `verified/corroborated` 관측만 학습한 `OneHotEncoder → Ridge`이며 피처는
   `[facility_type, hour_str, dow_str]`이다.
 - 모델이 없을 때는 경주시 ITS 실시간 주차 잔여면과 관광공사 통계가 있는 경우에만
@@ -67,7 +67,7 @@ python scripts/train.py    # 검증 관측 → 후보 모델 평가 → Registry
 
 `POST /api/v1/voice/turn` (무인증, IP 쿨다운) — 발화를 먼저 키워드로 분류하고, 분류되지 않은 자유 발화만
 `UPSTAGE_API_KEY` 가 있을 때 Solar 에게 묻는다(2026-07-17 도입 — 실패·타임아웃이면 키워드 결과 유지). 의도 종류:
-`accept / next / reject / details / select(서수 지정) / filter(메뉴·종류) / stop / unknown`.
+`accept / next / reject / details / select(서수 지정) / filter(메뉴·종류) / command(앱 명령) / stop / unknown`.
 filter 의 후보 매칭은 `embedding_service.filter_candidates` 가 후보 이름·종류(cuisine)에 대한
 부분문자열 매칭으로 결정한다(임베딩/벡터검색 없음).
 
@@ -85,7 +85,7 @@ filter 의 후보 매칭은 `embedding_service.filter_candidates` 가 후보 이
 - `GET /api/v1/area-demand/parking-lots` — 반경 내 공영주차장과 실제 잔여면(없으면 null)
 - `GET /api/v1/search/places` — 상호·메뉴·음식 종류의 Kakao 장소 검색(경주 8km)
 - `POST /api/v1/area-demand/snapshots/collect` — 현재 실측을 10분 버킷으로 멱등 저장(기계 토큰 — Actions 는 `X-Service-Token`, pg_cron 은 `X-Admin-Authorization: Bearer` — 또는 admin JWT)
-- `POST /api/v1/recommendations` — 혼잡한 원본 장소의 대안 추천(반경 150m)
+- `POST /api/v1/recommendations` — 혼잡한 원본 장소의 대안 추천(도보 상한 `max_walk_minutes`×100m bbox, 기본 1,000m)
 - `POST /api/v1/recommendations/by-type` — 타입별 랭킹(메인 지도 브라우즈)
 - `POST /api/v1/feedback` — 수락/거절 피드백 → 선호 벡터 보정
 - `POST /api/v1/preferences/parse` — 자연어 선호 → 구조화(키워드)

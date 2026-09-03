@@ -21,7 +21,7 @@ NextSpot은 "혼잡한 곳을 보여준다"가 아니라 "지금 출발하면 �
 그 시점의 혼잡도를 추론한다. 대기시간(w2)도 동일한 도착시점 기준으로 계산해, "예측은 미래 시점인데
 대기시간은 현재 시점"이라는 시점 불일치를 제거했다.
 
-> 근거: `apps/api/app/services/spot/score.py` `calculate_spot_score` (`arrival_dt = datetime.now(timezone.utc) + timedelta(minutes=travel_time_min)` → `predict_congestion(type, arrival_hour, arrival_dow)` → `calculate_predicted_wait_time(..., hour=arrival_hour)`)
+> 근거: `apps/api/app/services/spot/score.py` `calculate_spot_score` — 출발시각(`depart_time`, 없으면 현재) + 이동시간으로 `arrival_dt`를 만들고, `predict_congestion_detailed(type, arrival)`로 도착시점 혼잡을 추론하며(실측 근거가 있으면 모델을 건너뜀), 대기시간도 도착시각(KST)의 시간대로 계산한다.
 
 ### ② w3 결합형 인센티브 (개인 효용 + 공익 재배치 기여 + 소상공인 제휴를 한 산식에)
 
@@ -35,7 +35,7 @@ SPOT 스코어는 `w1·선호유사도 − w2·시간비용 + w3·인센티브`�
 두 성분을 `INCENTIVE_COUPON_SHARE=0.5`로 절반씩 결합해 "개인이 받는 혜택"과 "사회가 얻는 분산 효과"를
 분리된 지표가 아니라 추천 순위 자체에 내재화했다.
 
-> 근거: `apps/api/app/services/spot/score.py` (`incentive = INCENTIVE_COUPON_SHARE * coupon_term + (1 - INCENTIVE_COUPON_SHARE) * relief_term`), 컬럼 정의: `supabase/migrations/20260707150000_add_coupon_incentive.sql`
+> 근거: `apps/api/app/services/spot/score.py` (`incentive = INCENTIVE_COUPON_SHARE * coupon_term + (1 - INCENTIVE_COUPON_SHARE) * relief_value` — 도착시점 예측이 없으면 쿠폰 항만), 컬럼 정의: `supabase/migrations/20260707150000_add_coupon_incentive.sql`
 
 ### ③ 음성 AI 비서
 
@@ -53,12 +53,12 @@ SPOT 스코어는 `w1·선호유사도 − w2·시간비용 + w3·인센티브`�
 추천 결과 변화"가 배치 주기 없이 닫힌 루프로 동작한다. 그 개입의 효과는 `/admin/impact`가 수락된
 추천의 `원본 예상대기 − 대안 예상대기` 합산으로 정량 집계해 되돌려준다.
 
-> 근거: 정책 개입 `apps/api/app/routers/admin.py`(`FacilityUpdate.coupon_rate` PATCH, 주석 "변경 즉시 다음 추천 요청의 w3 쿠폰강도에 반영") · 효과 측정 `apps/api/app/routers/admin.py`(`GET /api/v1/admin/impact`)
+> 근거: 정책 개입 `apps/api/app/routers/admin.py`(`FacilityUpdate.coupon_rate` PATCH, 주석: 변경 즉시 다음 추천 요청의 w3 쿠폰강도 `min(1, rate/0.20)`에 반영) · 효과 측정 `apps/api/app/routers/admin.py`(`GET /api/v1/admin/impact`)
 
 ### ⑤ 피드백 학습 선호 벡터
 
-사용자가 추천을 수락/거절할 때마다 8차원 선호 벡터가 시설 벡터 방향으로 소폭(수락 +10%, 거절 −5%)
-이동하며 갱신된다. 다음 추천 요청부터는 갱신된 벡터가 코사인 유사도(w1)에 즉시 반영되어, 별도의
+사용자가 추천을 수락하면 8차원 선호 벡터가 시설 벡터 방향으로 +10%(추천당 1회) 이동하고, 거절은 `나의 실험실`에서
+사유를 확인한 뒤 1회 −5% 이동하며 갱신된다. 다음 추천 요청부터는 갱신된 벡터가 코사인 유사도(w1)에 즉시 반영되어, 별도의
 오프라인 재학습 배치 없이 개인화가 누적된다.
 
 > 근거: `apps/api/app/services/preference_vector_service.py` (`adjust_user_vector_on_feedback`), 호출부 `apps/api/app/routers/recommendations.py` (`POST /api/v1/feedback`)
@@ -74,7 +74,7 @@ SPOT 스코어는 `w1·선호유사도 − w2·시간비용 + w3·인센티브`�
   증가를 겪는다는 것은 다수 언론에서 반복적으로 다뤄진 현상이나, 구체적 대기시간·방문객 수 등의
   정량 수치는 실측 데이터 또는 **보도 인용이 필요**하다.
 - NextSpot이 대응하는 지점은 정확히 이 두 사실의 교집합이다 — "APEC 이후 늘어난 방문 수요"가
-  "이미 포화 상태인 황리단길 핵심 동선"에 그대로 유입되는 것을 막고, 반경 150m 내 대안 시설로
+  "이미 포화 상태인 황리단길 핵심 동선"에 그대로 유입되는 것을 막고, 도보 상한(기본 10분, 약 1km) 안의 대안 시설로
   분산시키는 것이 서비스의 존재 이유다.
 
 ---
@@ -89,10 +89,10 @@ SPOT 스코어는 `w1·선호유사도 − w2·시간비용 + w3·인센티브`�
 | 단계 | 화면/행동 | 실제 구현 |
 |---|---|---|
 | 1. 지도 확인 | 메인 지도(`app/main`)에서 첨성대 마커 확인 | Kakao Maps 지도에 시설 마커, 혼잡도별 색상(혼잡=빨강 · 보통=주황 · 여유=에메랄드 · 한산=파랑, 임계 0.75/0.5/0.25) 표시 |
-| 2. 혼잡 확인 | 첨성대 마커 클릭 → "실시간 혼잡도: 혼잡 · 수용현황 N/M명" 카드 | `congestion_logs` 최신 행 기반, 합성값 없이 로그 부재 시 "데이터 없음" 표기 |
-| 3. 대안 추천 | "대안 찾기" → `/explore/recommend` 이동 | `POST /api/v1/recommendations` — 반경 150m 후보에 SPOT 스코어(도착시점 예측 포함) 산정, 쿠폰 있는 한적한 곳이 상위 랭크될 수 있음(w3) |
-| 4. 수락 (예시: 3분 내) | 추천 카드에서 "수락" 탭 또는 음성으로 "여기로 가자" | `handleAccept` → `POST /api/v1/feedback`(`action=accepted`) → `recommendations.accepted=true` 갱신 + 선호 벡터 학습 |
-| 5. 길안내 | 수락 즉시 카카오맵으로 경로 오픈 | 모바일은 `kakaomap://route` 딥링크, PC/웹은 `map.kakao.com` 길찾기 URL로 이동(`apps/web/app/explore/recommend/page.tsx`) |
+| 2. 혼잡 확인 | 마커 탭 → 혼잡 배지(혼잡/보통/여유/한산)와 근거 출처 표시 | `congestion_logs` 최신 실측 행 기반, 합성값 없이 로그 부재 시 "데이터 없음" 표기 |
+| 3. 대안 추천 | 메인 지도에 SPOT Top 3 카드가 인라인으로 뜨고, 대기 보드(`/waiting`)에서 `/explore/recommend`로 이어진다 | `POST /api/v1/recommendations` — 도보 상한(기본 10분≈1km) 안의 후보에 SPOT 스코어(도착시점 예측 포함) 산정, 쿠폰 있는 한적한 곳이 상위 랭크될 수 있음(w3) |
+| 4. 수락 (예시: 3분 내) | 추천 카드에서 "수락" 탭 또는 음성으로 "여기로 가자" | `handleAccept` → `POST /api/v1/feedback`(`action=accepted_visit_intent`) → `recommendations.accepted=true` 갱신 + 선호 벡터 학습 |
+| 5. 길안내 | 수락 즉시 카카오맵으로 경로 오픈 | `map.kakao.com` 링크(도보 `/link/map`, 차량 `/link/to`)를 새 창으로 연다(`apps/web/lib/navigation.ts`) |
 | 6. 학습 반영 | 다음 추천부터 벡터 반영 | 수락한 시설 벡터 방향으로 선호 벡터가 이동해, 이후 추천의 w1(선호유사도) 계산에 즉시 반영 |
 
 이 여정에서 "쿠폰 있는 한적한 곳"이 우선 노출되는 이유는 임의 배치가 아니라 §1-②의 w3 산식 —
