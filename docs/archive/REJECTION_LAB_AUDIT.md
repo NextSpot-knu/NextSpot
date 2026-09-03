@@ -1,6 +1,6 @@
 # `나의 실험실` 구현 전 거절 피드백 감사
 
-> 2026-07-16 Codex 읽기 전용 감사 결과. 제품 방향은 `docs/COMMERCIAL_PRODUCT_IDEAS.md` §2를
+> 2026-07-16 Codex 읽기 전용 감사 결과. 제품 방향은 `docs/archive/COMMERCIAL_PRODUCT_IDEAS.md` §2를
 > 따른다. Claude Code 또는 다른 구현 에이전트는 이 문서를 읽고 아래 계약을 지킨 뒤 구현한다.
 
 ## 결론

@@ -5,12 +5,12 @@ SPOT(Smart Place Optimization for Tourism) 알고리즘으로 분산·재배치�
 
 - **베이스:** InduSpot(산업단지 공용 인프라 혼잡 분산)의 로컬 전용 모노레포를 시드로 재사용.
   아키텍처(Next.js 웹 + FastAPI + Supabase + 로컬 sklearn)와 SPOT 엔진은 동일, 도메인만 관광으로 피벗.
-- **필수 데이터:** 한국관광공사 OpenAPI(TourAPI). 적응 명세·개조 백로그는 `docs/NEXTSPOT_PIVOT.md`.
+- **필수 데이터:** 한국관광공사 OpenAPI(TourAPI). 적응 명세·개조 백로그는 `docs/archive/NEXTSPOT_PIVOT.md`.
 
 ## 세션 시작
 
 - 현재 상태·우선순위·백로그의 **정본은 `docs/HANDOVER.md`**(최신 세션이 맨 위) — 작업 전 먼저 읽는다.
-- `docs/AUTONOMOUS_SESSION.md`는 무인 세션의 **규칙·재개(RESUME) 절차만** 참조한다.
+- `docs/archive/AUTONOMOUS_SESSION.md`는 무인 세션의 **규칙·재개(RESUME) 절차만** 참조한다.
   그 안의 "진행 상태"는 2026-07-10 세션 로그로 이미 낡았다 — 무엇을 할지는 항상 HANDOVER가 이긴다
   (RESUME 규칙 2의 "미완 항목"을 그대로 따르면 완료된 과거 작업을 다시 잡는다).
 - AI 도구(Claude Code·Codex·Antigravity) 역할 분담·핸드오프 규칙은 `docs/AI_OPS.md`.
@@ -53,7 +53,7 @@ SPOT(Smart Place Optimization for Tourism) 알고리즘으로 분산·재배치�
   ```powershell
   cd apps/api; $env:PYTHONUTF8=1; py -3.11 -m uvicorn app.main:app --reload --port 8000
   ```
-- 상세·스모크 테스트는 `LOCAL_RUN.md`.
+- 상세·스모크 테스트는 `docs/LOCAL_RUN.md`.
 - 백엔드 `.env`는 `apps/api/.env` — CWD가 `apps/api`여야 로드된다. fail-fast env 4종:
   `SUPABASE_URL` `SUPABASE_ANON_KEY` `JWT_SECRET` `ADMIN_API_TOKEN` (하나라도 없으면 부팅 실패, 의도된 동작).
 
@@ -66,7 +66,7 @@ SPOT(Smart Place Optimization for Tourism) 알고리즘으로 분산·재배치�
   (`apps/api/tests/services/test_spot.py`) — 한쪽만 바꾸면 CI 실패. `score.py`는 회귀면이 넓은 **신중 구역** —
   산식·시그니처 변경은 사전 검토 후에만.
 - i18n 문자열은 ko/en/ja/zh **4로케일 동시 반영**(패리티 0 missing 유지). 병렬 에이전트에 i18n을 분할 배정 금지.
-- UI 문구·용어 변경 전 `docs/DEMO_SCENARIO.md`·`docs/JUDGE_QA.md`와 대조 — 발표 대본과 충돌해 반려된 전례 있음.
+- UI 문구·용어 변경 전 `docs/contest/DEMO_SCENARIO.md`·`docs/contest/JUDGE_QA.md`와 대조 — 발표 대본과 충돌해 반려된 전례 있음.
 - 합성/데모 데이터와 실측 데이터는 UI 라벨로 구분하고, 서버 근거 없는 지표는 표시하지 않는다(심사 감점 리스크).
 - 관리자 API 인증은 `X-Admin-Authorization: Bearer <ADMIN_API_TOKEN>` 헤더 **전용** — 일반 `Authorization`은 401.
 - 시크릿은 문서·커밋에 키 이름만 기록(값 노출 금지). 원격 콘솔 작업(Supabase SQL Editor, Render/Vercel env,

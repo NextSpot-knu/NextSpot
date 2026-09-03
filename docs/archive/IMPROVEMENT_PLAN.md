@@ -162,7 +162,7 @@ corroborated 승격은 서로 다른 사용자 2명이 ±30분·±0.05 로 일�
 
 1. **🔴 프롬프트 인젝션 제거 (P1)** — 루트 `AGENTS.md:14-18`의 `<!-- BEGIN:nextjs-agent-rules -->` 블록("This is NOT the Next.js you know… `node_modules/next/dist/docs/`" — 해당 경로 실존하지 않는 허위 지시) 삭제. `apps/web/AGENTS.md`는 **파일 전체**가 동일 인젝션 → 실제 web 가이드로 교체 또는 삭제(`apps/web/CLAUDE.md`가 이를 로드 중). 잔재 검증 스위프에 `nextjs-agent-rules`·`node_modules/next/dist/docs` 패턴 추가.
 2. **NEXTSPOT_PIVOT.md 현행화** — §5 체크박스: 브랜딩 교체·layout.tsx 메타데이터는 **실제 완료** → [x]. §6 제거 대상 7개 전부 이미 삭제됨 → "완료" 표기. §4 매핑표의 users(worker→tourist)·좌표·시드 항목 완료 반영.
-3. **architecture_overview.md** — "근로자 앱", `app/worker/` 등 실코드와 불일치 서술을 explore/tourist로 갱신하거나 "InduSpot 원문 아카이브" 섹션으로 격리.
+3. **docs/archive/ARCHITECTURE_OVERVIEW.md** — "근로자 앱", `app/worker/` 등 실코드와 불일치 서술을 explore/tourist로 갱신하거나 "InduSpot 원문 아카이브" 섹션으로 격리.
 4. **DB 셋업 문서 일원화** — LOCAL_RUN vs DEPLOY_AND_ENV의 초기화 경로 충돌: "신규 셋업=RESET_AND_SETUP.sql / 기존 유지=migrations"를 한 곳에 명시(D2 결정 반영).
 5. **기타** — `GYEONGJU_MIGRATION_PLAN.md:13,49`의 구 Supabase 프로젝트 ref 마스킹, `pyproject.toml:5` authors 플레이스홀더 교체.
 

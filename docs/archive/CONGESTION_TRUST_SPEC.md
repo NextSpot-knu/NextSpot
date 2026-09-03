@@ -142,7 +142,7 @@ PM 관찰: 황리단길 실제 상권 대비 마커가 드문드문함. 원인�
 | D-1 | `none` 단계 문구 | **신규 키 채택** — `card.congestionPreparing`("혼잡 정보 준비 중"), 4로케일 동시 추가. `card.noData`는 waiting 페이지 별건 용도로 유지 |
 | D-2 | 원본 시설 혼잡 0.0 폴백의 W3 입력 처리 | **Phase 1 유지, Phase 2 검토** — 코스 기준선(`courses.py:153`)도 같은 사유로 Phase 2 |
 | D-3 | `seed`/`simulated` 로그의 데모 라벨 | **표시** — `card.demoData`("데모 데이터") 라벨을 카드 혼잡 pill 옆에 병기 |
-| D-4 | Kakao Local 밀도 확충 | **지금 병행 기획** — `docs/KAKAO_LOCAL_EXPANSION.md` 작성 완료(약관상 영속 저장 금지 확인 → 준수형 A-2 설계). 구현은 별도 승인 후 |
+| D-4 | Kakao Local 밀도 확충 | **지금 병행 기획** — `docs/archive/KAKAO_LOCAL_EXPANSION.md` 작성 완료(약관상 영속 저장 금지 확인 → 준수형 A-2 설계). 구현은 별도 승인 후 |
 
 ## 10. 구현 현황
 
@@ -154,5 +154,5 @@ PM 관찰: 황리단길 실제 상권 대비 마커가 드문드문함. 원인�
 - **Phase 2 (미착수)**: D-2(원본·코스 혼잡 기준선 predicted 대체 — 점수 영향 검토),
   shared-types source enum 정본화·레거시 `CongestionLog` 정리, `lib/recommender.ts` 폴백 미러의
   `?? 0` 정리(WS-D 단계적 제거와 함께).
-- **Phase 3 (기획 완료·구현 대기)**: D-4 — `docs/KAKAO_LOCAL_EXPANSION.md` 참조(사람 확인
+- **Phase 3 (기획 완료·구현 대기)**: D-4 — `docs/archive/KAKAO_LOCAL_EXPANSION.md` 참조(사람 확인
   항목: 공모전 2026 요강의 보조 데이터 허용, 카카오 데브톡 캐시 정책 문의).

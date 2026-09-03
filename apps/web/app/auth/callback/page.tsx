@@ -1,6 +1,6 @@
 'use client';
 
-// OAuth 콜백 처리 — docs/OAUTH_PLAN.md F3.
+// OAuth 콜백 처리 — docs/archive/OAUTH_PLAN.md F3.
 // 카카오·구글 로그인/연동 후 Supabase 가 ?code= 를 실어 이 경로로 복귀시킨다. lib/supabase.ts 의
 // detectSessionInUrl(PKCE)이 code 를 자동 교환하며, 여기서는 교환이 '연동 계정' 상태로 반영될 때까지
 // 기다렸다가 프로필을 백필하고 원래 위치(next)로 돌려보낸다.

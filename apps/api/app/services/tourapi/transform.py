@@ -6,7 +6,7 @@ scripts/ingest_tourapi.py 가 사용한다. tests/services/test_tourapi.py 에�
 import re
 from typing import Any, Optional
 
-# 적재 대상 contentTypeId — 관광지(12)·문화시설(14)·음식점(39). (docs/NEXTSPOT_PIVOT.md §1)
+# 적재 대상 contentTypeId — 관광지(12)·문화시설(14)·음식점(39). (docs/archive/NEXTSPOT_PIVOT.md §1)
 CONTENT_TYPE_IDS = (12, 14, 39)
 
 # TourAPI 소분류: A05020900 = 카페/전통찻집 (음식점 39 중 카페 판별 기준)
@@ -36,7 +36,7 @@ _INTRO_PHONE_FIELDS = {
     39: "infocenterfood",     # 음식점
 }
 
-# detailIntro2 확장 필드 → features 키 매핑(구현 1, docs/TOURAPI_EXPANSION.md Tier1 1-3·1-5).
+# detailIntro2 확장 필드 → features 키 매핑(구현 1, docs/archive/TOURAPI_EXPANSION.md Tier1 1-3·1-5).
 # 필드명은 응답 실측으로 확정(2026-07, contentid 2903556=음식점/126214=관광지/3453492=문화시설).
 # accomcount(관광지, 1-1)는 숫자 파싱이 필요해 별도 처리 — 아래 _parse_accom_count 참고.
 _INTRO_EXTRA_FIELDS = {

@@ -18,7 +18,7 @@ const eslintConfig = defineConfig([
   {
     rules: {
       // 기존 관리자 화면(dashboard/reports 등)에 `any` 부채가 누적돼 있어 CI 차단을 막기 위해
-      // 일단 warn 으로 낮춘다. 타입 강화는 docs/IMPROVEMENT_PLAN.md WS-D 에서 일괄 처리 후
+      // 일단 warn 으로 낮춘다. 타입 강화는 docs/archive/IMPROVEMENT_PLAN.md WS-D 에서 일괄 처리 후
       // error 로 복원할 것. 신규 코드는 any 를 쓰지 말 것.
       "@typescript-eslint/no-explicit-any": "warn",
       // `_` 접두 변수/인자는 의도적 미사용 표기로 허용 (예: dashboard 의 _realFacilities)

@@ -2,7 +2,7 @@
 
 > PT심사 발표(15점) 및 서비스 완성도·데이터 활용 증빙용 데모 대본. 전략 근거는
 > [`CONTEST_STRATEGY.md`](./CONTEST_STRATEGY.md) §2-E(E1), 기능·엔드포인트 현황은
-> [`HANDOVER.md`](./HANDOVER.md) 참조. 총 발표 6분(관광객 3분 + 관리자 3분) 기준.
+> [`HANDOVER.md`](../HANDOVER.md) 참조. 총 발표 6분(관광객 3분 + 관리자 3분) 기준.
 
 ---
 
@@ -16,7 +16,7 @@
 3. **Supabase 익명 로그인 ON** — Dashboard → Authentication → "Allow anonymous sign-ins" 켜짐 확인.
    꺼져 있으면 수락/쿠폰/코스/제보가 401로 폴백 상태만 보여줘 데모가 반쪽이 된다.
 4. **DB 마이그레이션 최신 적용 확인** — 원격 DB에 `supabase/migrations/` 마지막 파일까지 적용됐는지
-   확인한다(확인 쿼리는 [`HANDOVER.md`](./HANDOVER.md) "마이그레이션 확인" 절). 미적용 항목이 있으면
+   확인한다(확인 쿼리는 [`HANDOVER.md`](../HANDOVER.md) "마이그레이션 확인" 절). 미적용 항목이 있으면
    해당 파일만 SQL Editor에 붙여넣고 1회 Run. **2026-07-14 리허설 실증**: 미적용 상태에서
    ① "24시간 모의 발생" 버튼 500(source CHECK 거부), ② 수락은 성공하나 쿠폰이 무음 미발급 — 데모가 반쪽이 된다.
 5. **실데이터 확인** — TourAPI 시설과 `GET /api/v1/area-demand/status`의 경주 ITS 실측 여부를 확인한다.

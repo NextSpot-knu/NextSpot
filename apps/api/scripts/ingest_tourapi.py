@@ -1,4 +1,4 @@
-"""경주 황리단길 TourAPI POI 적재 배치 — docs/IMPROVEMENT_PLAN.md WS-B-2.
+"""경주 황리단길 TourAPI POI 적재 배치 — docs/archive/IMPROVEMENT_PLAN.md WS-B-2.
 
 한국관광공사 TourAPI(locationBasedList2)에서 관광지(12)·문화시설(14)·음식점(39) POI 를
 수집해 Supabase `facilities` 테이블에 contentid 기준으로 upsert 한다.
@@ -62,7 +62,7 @@ from app.services.tourapi.client import area_based_sync_list
 from app.services.wikimedia import find_reusable_place_image
 from app.services.kakao_coordinate_service import reconcile_row_coordinate
 
-# 경주 황리단길 기준좌표 (docs/NEXTSPOT_PIVOT.md — 초기 서비스 지역)
+# 경주 황리단길 기준좌표 (docs/archive/NEXTSPOT_PIVOT.md — 초기 서비스 지역)
 DEFAULT_LAT = 35.8361
 DEFAULT_LNG = 129.2105
 DEFAULT_RADIUS_M = 2000

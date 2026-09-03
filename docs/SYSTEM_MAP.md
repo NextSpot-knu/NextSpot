@@ -3,7 +3,7 @@
 > 작성 기준 커밋: `8f84803` (main, 2026-08-20) · 코드 직접 조사 기반
 >
 > 이 문서는 **현재 코드에 실제로 구현된 것**만 기술한다. `README.md`와
-> `architecture_overview.md`는 각각 공모전 서사·상속 베이스 문서라 최신 상태와
+> `docs/archive/ARCHITECTURE_OVERVIEW.md`는 각각 공모전 서사·상속 베이스 문서라 최신 상태와
 > 어긋나는 부분이 있다(§14 참조). 구조를 파악할 때는 이 문서를 우선한다.
 
 ---
@@ -572,7 +572,7 @@ npm run test:e2e --workspace=apps/web       # Playwright (npx playwright install
 
 조사 중 발견한, **문서가 코드보다 뒤처진 지점**들이다.
 
-1. **`architecture_overview.md` §4는 "외부 LLM 없이 내장 폴백"이라고 단언하지만 현재는 틀리다.**
+1. **`docs/archive/ARCHITECTURE_OVERVIEW.md` §4는 "외부 LLM 없이 내장 폴백"이라고 단언하지만 현재는 틀리다.**
    `llm_client.py`가 Upstage Solar를 연동했고 9개 서비스가 소비한다. 다만 문서의 *정신*
    (LLM은 보조, 무해 폴백)은 코드에 정확히 살아 있다.
 

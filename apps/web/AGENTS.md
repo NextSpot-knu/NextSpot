@@ -25,9 +25,9 @@
 - **지도:** Kakao Maps JS SDK. 키는 `NEXT_PUBLIC_KAKAO_*` 환경변수로만 주입(하드코딩 금지).
 - **SPOT 점수:** 산정은 백엔드(`apps/api/app/services/spot/`)가 단일 소스. 클라이언트에서 재구현하지 말 것.
   `lib/recommender.ts`는 데모/폴백용 미러로 아직 실사용 중 — 가중치는 `shared-types`의 SPOT_WEIGHTS만 참조,
-  하드코딩 금지(단계적 제거 대상, docs/IMPROVEMENT_PLAN.md WS-D 참조).
+  하드코딩 금지(단계적 제거 대상, docs/archive/IMPROVEMENT_PLAN.md WS-D 참조).
 - **음성비서:** 공용 훅 `lib/useVoiceAssistant.ts` + `components/VoiceAssistantOrb.tsx`를 사용. 페이지 인라인 재구현 금지.
-- 루트 가이드는 [`../../AGENTS.md`](../../AGENTS.md), 피벗 백로그는 `docs/NEXTSPOT_PIVOT.md` 참조.
+- 루트 가이드는 [`../../AGENTS.md`](../../AGENTS.md), 피벗 백로그는 `docs/archive/NEXTSPOT_PIVOT.md` 참조.
 
 <!-- BEGIN:nextjs-agent-rules -->
 

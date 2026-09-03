@@ -1,6 +1,6 @@
 # Kakao Local 장소 밀도 확충(A안) 기획 — 황리단길 회랑 보강 (2026-07-18 초안, PM 검토 대기)
 
-> `docs/CONGESTION_TRUST_SPEC.md` §8 A안·D-4의 후속 기획. **구현은 별도 승인 후**이며,
+> `docs/archive/CONGESTION_TRUST_SPEC.md` §8 A안·D-4의 후속 기획. **구현은 별도 승인 후**이며,
 > 선행 조건은 혼잡 3단계 표시(신규 장소 = 로그 0건 → `none` 단계 "혼잡 정보 준비 중" 정직 표시).
 > 배경: TourAPI locationBasedList2 적재 105곳(관광지 12·문화시설 14·음식점 39)은 카카오맵 대비
 > 황리단길 실상권(수백 곳)의 일부 — 반경 4km로 늘려도 108곳(`docs/HANDOVER.md:20-21` §-16 실측).
@@ -146,7 +146,7 @@ ON public.kakao_place_refs (kakao_place_id);
 | 추천 제외 | 추천·코스·음성 후보에 미편입(A-2는 facilities 밖이라 구조적 보장) | §1 비목표 |
 | 중복 억제 | `matched_facility_id` 있는 Kakao 장소는 TourAPI 마커만 표시 | §2 매칭 |
 
-주의: 문구 확정 전 `docs/DEMO_SCENARIO.md`·`docs/JUDGE_QA.md` 대조(발표 대본 충돌 반려 전례).
+주의: 문구 확정 전 `docs/contest/DEMO_SCENARIO.md`·`docs/contest/JUDGE_QA.md` 대조(발표 대본 충돌 반려 전례).
 
 ## 5. 번역 전략 (4로케일)
 
@@ -193,5 +193,5 @@ ON public.kakao_place_refs (kakao_place_id);
 ---
 *작성 근거: 저장소 조사(`ingest_tourapi.py`, `kakao_coordinate_service.py`,
 `reconcile_kakao_coordinates.py`, `restroom_service.py`, `supabase/migrations/*`,
-`docs/HANDOVER.md` §-16/-19, `docs/CONGESTION_TRUST_SPEC.md`) + Kakao Developers 문서·데브톡
+`docs/HANDOVER.md` §-16/-19, `docs/archive/CONGESTION_TRUST_SPEC.md`) + Kakao Developers 문서·데브톡
 공식 답변·공모전 공고 웹 조사(2026-07-18). 조사 사실과 제안(결정 대기)을 본문에서 구분 표기.*

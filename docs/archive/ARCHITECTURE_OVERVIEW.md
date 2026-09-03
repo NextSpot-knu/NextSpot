@@ -4,8 +4,8 @@
 > Supabase + 로컬 sklearn)과 SPOT 엔진은 그대로 재사용합니다. 도메인(산업단지→관광객)·좌표(구미→경주)·
 > 라우트(worker→explore)·브랜딩의 코드 반영은 완료됐습니다(2026-07-07 검증). 데이터 소스
 > (TourAPI·경주 교통데이터) 연동과 SPOT 가중치 정렬은 진행 예정입니다.
-> 관광 적응 계획은 [`docs/NEXTSPOT_PIVOT.md`](./docs/NEXTSPOT_PIVOT.md), 남은 작업 로드맵은
-> `docs/IMPROVEMENT_PLAN.md`를 참조하세요.
+> 관광 적응 계획은 [`docs/archive/NEXTSPOT_PIVOT.md`](./NEXTSPOT_PIVOT.md), 남은 작업 로드맵은
+> `docs/archive/IMPROVEMENT_PLAN.md`를 참조하세요.
 
 > Google Cloud AI Agent Challenge 종료 후, 모든 GCP/Firebase 의존성을 제거하고 추가 클라우드 없이
 > 로컬에서 구동되도록 재구성한 정본 문서입니다. 데이터 저장소만 Supabase(비-GCP, PostgreSQL)를 유지합니다.
@@ -57,7 +57,7 @@ SPOT = 0.40 · 선호도 − 0.40 · 시간비용 + 0.20 · 인센티브
 > 아티팩트가 `model_registry.status='active'` 이고 SHA-256·피처 스키마·품질 게이트를
 > 모두 통과해야 적재된다. 검증된 모델이 없으면 0.5 상수가 아니라 **`degraded_rules`**
 > — 혼잡·대기 항 자체를 SPOT 산식에서 제외하고 취향·실제 이동시간·혜택만 쓴다.
-> 정본은 [`docs/SYSTEM_MAP.md`](./docs/SYSTEM_MAP.md) §7 을 보라.
+> 정본은 [`docs/SYSTEM_MAP.md`](../SYSTEM_MAP.md) §7 을 보라.
 
 ## 4. AI 기능 (결정적 경로 + 선택적 LLM 보조)
 
@@ -65,7 +65,7 @@ SPOT = 0.40 · 선호도 − 0.40 · 시간비용 + 0.20 · 인센티브
 > `services/llm_client.py`(OpenAI 호환 어댑터, 기본 Upstage Solar `solar-pro3`)가 재도입됐고
 > 9개 서비스가 소비한다. 다만 **설계 원칙은 그대로다** — LLM 은 항상 '보조'이고, 키가 없거나
 > 타임아웃(3초)·HTTP 오류·JSON 파싱 실패면 전부 `None` 을 반환해 아래의 결정적 경로로 되돌아간다.
-> 즉 LLM 장애가 기능 장애로 승격되지 않는다. 상세는 [`docs/SYSTEM_MAP.md`](./docs/SYSTEM_MAP.md) §8.
+> 즉 LLM 장애가 기능 장애로 승격되지 않는다. 상세는 [`docs/SYSTEM_MAP.md`](../SYSTEM_MAP.md) §8.
 
 아래는 LLM 이 비활성일 때(그리고 LLM 호출이 실패할 때마다) 실제로 동작하는 결정적 경로다.
 대회 때 Vertex AI Gemini/임베딩이 담당하던 기능을 외부 의존성 0의 로컬 규칙으로 대체한 결과물이며,
@@ -95,7 +95,7 @@ SPOT = 0.40 · 선호도 − 0.40 · 시간비용 + 0.20 · 인센티브
 
 ## 7. 구동 / 배포
 
-- 로컬: `run_local.ps1` 또는 개별 `uvicorn` + `npm run dev`. 상세 [`LOCAL_RUN.md`](./LOCAL_RUN.md).
+- 로컬: `run_local.ps1` 또는 개별 `uvicorn` + `npm run dev`. 상세 [`docs/LOCAL_RUN.md`](../LOCAL_RUN.md).
 - 컨테이너: `docker-compose up`(백엔드, 호스트 8000 → 컨테이너 8080). 프론트는 정적 export(`apps/web/out`)라
   임의 정적 호스트(예: 사내 Nginx, `npx serve`)에 올릴 수 있다.
 

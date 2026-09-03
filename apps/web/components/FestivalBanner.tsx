@@ -265,7 +265,7 @@ export function FestivalBanner({ className = '', onFocus }: {
                         const isExpanded = expandedOverviewIds.has(ev.contentId);
                         // P1-4: 비-ko 로케일은 캐시된 AI 요약(overviewI18n)을 우선 표시하고, 필드 부재
                         // (캐시 미적재·구버전 응답)면 기존 한국어 원문 폴백(무해). ko 는 항상 원문.
-                        // 표시 우선순위는 docs/TOURAPI_EXPANSION.md 4-4 — 공식 해당 언어 > 공식 한국어
+                        // 표시 우선순위는 docs/archive/TOURAPI_EXPANSION.md 4-4 — 공식 해당 언어 > 공식 한국어
                         // 원문 > 명시된 AI 번역. 공식 다국어 자매 서비스(2-1) 적재가 후속 정본이며,
                         // 그때까지 이 요약은 'AI 요약·번역' 라벨(festival.aiSummary)로 명시한다.
                         const aiSummary = locale !== 'ko' ? (ev.overviewI18n?.[locale] ?? null) : null;

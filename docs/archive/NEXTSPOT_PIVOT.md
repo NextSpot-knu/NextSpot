@@ -6,7 +6,7 @@
 > - **출처 베이스:** `NextSpot-knu/Induspot` (로컬 전용, GCP 의존성 제거 완료) 의 `main` HEAD 스냅샷.
 > - **공모전 제안서 원본:** 상위 작업폴더 `../Docs/` — 특히
 >   `20260505ver_…『2026 관광데이터 활용 공모전』 제안서…수정_2.pdf` (양식1, 5p)가 본 명세의 근거.
-> - **상속 아키텍처 상세:** [`../architecture_overview.md`](../architecture_overview.md).
+> - **상속 아키텍처 상세:** [`../architecture_overview.md`](./ARCHITECTURE_OVERVIEW.md).
 
 ---
 

@@ -4,7 +4,7 @@
 
 **Goal:** 거절 실험실 자유텍스트에서 Solar가 선호 보정을 제안하고 **사용자 1탭 확인 후에만** 8차원 벡터를 서버 고정 5%로 보정(#5), 그리고 공중화장실 패턴을 복제한 **편의점 편의 레이어**를 추가한다.
 
-**Architecture:** classify(`POST /lab/{id}/reason/classify`)의 기존 chat_json 1회에 제안 스키마를 동승시키고(additive), 확인은 신규 `POST /lab/{id}/adjustment/confirm`이 전용 슬롯 `adjustment_applied_at`을 원자 선점한 뒤에만 벡터를 움직인다(무상태 제안 — 클라이언트 재전송 + 서버 화이트리스트 재검증). 편의점은 `restroom_service` 패턴 복제 — Kakao 카테고리 검색(CS2) 실시간 프록시, DB 저장 없음. 스펙 정본: `docs/SOLAR_AUTONOMY_35_PLAN.md`.
+**Architecture:** classify(`POST /lab/{id}/reason/classify`)의 기존 chat_json 1회에 제안 스키마를 동승시키고(additive), 확인은 신규 `POST /lab/{id}/adjustment/confirm`이 전용 슬롯 `adjustment_applied_at`을 원자 선점한 뒤에만 벡터를 움직인다(무상태 제안 — 클라이언트 재전송 + 서버 화이트리스트 재검증). 편의점은 `restroom_service` 패턴 복제 — Kakao 카테고리 검색(CS2) 실시간 프록시, DB 저장 없음. 스펙 정본: `docs/archive/SOLAR_AUTONOMY_35_PLAN.md`.
 
 **Tech Stack:** FastAPI + supabase-py(service_role) + Upstage Solar(llm_client), Next.js 정적 export + sonner + 자체 i18n, pytest / tsx 단위테스트 / Playwright.
 
@@ -58,7 +58,7 @@ pytest 실행 위치는 항상 `apps/api`, 인터프리터는 `py -3.11` + `$env
 -- 거절 이해(#5) — '확인 후 선호 보정'의 전용 학습 슬롯.
 -- 배경: classify 는 분류 성공 즉시 learning_applied_at 슬롯을 선점한다(-5% 사유 학습).
 --   나중에 오는 '확인 후 속성 보정'이 같은 슬롯을 쓰면 둘이 상호 배제되므로 전용 슬롯을 신설한다
---   (docs/SOLAR_AUTONOMY_35_PLAN.md §3-1 — 두 슬롯은 독립, 각각 행당 at-most-once).
+--   (docs/archive/SOLAR_AUTONOMY_35_PLAN.md §3-1 — 두 슬롯은 독립, 각각 행당 at-most-once).
 -- 재실행 안전: ADD COLUMN IF NOT EXISTS. 새 테이블/함수 없음 → scripts/build_reset.mjs 의
 --   PRELUDE DROP 목록 수정 불필요(user_feedback 은 이미 DROP 대상).
 ALTER TABLE public.user_feedback ADD COLUMN IF NOT EXISTS adjustment_applied_at TIMESTAMP WITH TIME ZONE;
@@ -216,7 +216,7 @@ async def claim_adjustment(client, *, feedback_row: dict) -> bool:
     """확인된 보정의 전용 슬롯(adjustment_applied_at)을 원자적으로 1회 선점한다.
 
     apply_reason 의 learning_applied_at 슬롯과 **독립** — 사유 학습(-5%)과 확인 후 속성 보정은
-    각각 행당 최대 1회씩 공존한다(docs/SOLAR_AUTONOMY_35_PLAN.md §3-1). PostgREST `is.null`
+    각각 행당 최대 1회씩 공존한다(docs/archive/SOLAR_AUTONOMY_35_PLAN.md §3-1). PostgREST `is.null`
     조건부 UPDATE 로 같은 NULL 슬롯을 본 요청 중 한 요청만 승자가 된다.
     True = 이 요청이 승자(호출자만 벡터를 움직인다). False = 이미 적용됨(멱등 응답용).
     선점 후 벡터 호출이 실패하면 그 보정은 유실된다 — '재시도 이중 적용'보다 나은 트레이드오프
@@ -1875,7 +1875,7 @@ interface ConvenienceStore {
 }
 
 // 인근 편의점 편의 레이어 — RestroomChip 패턴 복제(실시간 Kakao 프록시, 실패·0건이면 칩 자체를 숨긴다).
-// SPOT 추천 후보·점수와 완전 분리 — 추천 품질에 영향 0 (docs/SOLAR_AUTONOMY_35_PLAN.md §4).
+// SPOT 추천 후보·점수와 완전 분리 — 추천 품질에 영향 0 (docs/archive/SOLAR_AUTONOMY_35_PLAN.md §4).
 export default function ConvenienceChip({ location }: { location: { lat: number; lng: number } | null }) {
   const t = useT();
   const [items, setItems] = useState<ConvenienceStore[]>([]);
@@ -2042,8 +2042,8 @@ Claude-Session: https://claude.ai/code/session_01QbspJPyV5MiiowxpMkASCx
 ### Task 17: 전체 게이트 + 문서 정합 + 푸시
 
 **Files:**
-- Modify: `docs/JUDGE_QA.md` (Q4·Q10 답변 보강)
-- Modify: `docs/SOLAR_AUTONOMY_PLAN.md` (5안 표 상태 갱신)
+- Modify: `docs/contest/JUDGE_QA.md` (Q4·Q10 답변 보강)
+- Modify: `docs/archive/SOLAR_AUTONOMY_PLAN.md` (5안 표 상태 갱신)
 - Modify: `docs/HANDOVER.md` (세션 기록 — 최신이 맨 위)
 
 - [ ] **Step 1: 전체 게이트 실행** (커밋 전 필수 — CI와 동일)
@@ -2059,16 +2059,16 @@ Expected: 전부 PASS / diff 없음. 실패 시 해당 태스크로 돌아가 �
 
 - [ ] **Step 2: 문서 정합**
 
-- `docs/JUDGE_QA.md` — Q4(취향 가시화)·Q10(개인화 데이터) 답변에 다음 취지의 문장을 추가한다(기존 답변 삭제 금지, 보강만):
+- `docs/contest/JUDGE_QA.md` — Q4(취향 가시화)·Q10(개인화 데이터) 답변에 다음 취지의 문장을 추가한다(기존 답변 삭제 금지, 보강만):
   - Q4: "거절 실험실의 자유 서술에서 AI 가 선호 보정을 제안하지만, **사용자가 [적용]을 눌러 확인한 경우에만** 서버 고정 5% 한도로 반영됩니다 — 자동 반영이 아닙니다."
   - Q10: "개인화에 쓰이는 데이터는 여전히 preferred_categories 와 8차원 선호 벡터뿐입니다. 제안은 무상태(DB 미기록)이고, 확인 시각(adjustment_applied_at)만 멱등 가드로 남습니다."
-- `docs/SOLAR_AUTONOMY_PLAN.md` — 5안 표에서 **#5 상태를 '구현 완료(확인 후 보정)'**로, **#3 상태를 '착수 대기(timeweather 머지 후)'**로 갱신.
+- `docs/archive/SOLAR_AUTONOMY_PLAN.md` — 5안 표에서 **#5 상태를 '구현 완료(확인 후 보정)'**로, **#3 상태를 '착수 대기(timeweather 머지 후)'**로 갱신.
 - `docs/HANDOVER.md` — 맨 위에 이번 세션 항목 추가: 브랜치 `feature/solar-autonomy-35`, 구현 범위(#5 + 편의점), 기능 단위 커밋 해시 목록, 발견·수리한 lab pending 계약 결함, 다음 단계(Codex 적대 감사 → 머지 → #3 착수).
 
 - [ ] **Step 3: Commit + Push**
 
 ```powershell
-git add docs/JUDGE_QA.md docs/SOLAR_AUTONOMY_PLAN.md docs/HANDOVER.md
+git add docs/contest/JUDGE_QA.md docs/archive/SOLAR_AUTONOMY_PLAN.md docs/HANDOVER.md
 git commit -m @'
 docs: 거절 이해(#5)+편의점 사이클 반영 - JUDGE_QA Q4/Q10, 상태표, HANDOVER
 

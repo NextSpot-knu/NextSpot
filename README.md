@@ -137,7 +137,7 @@ SPOT은 `0.40 × 취향 − 0.40 × 시간비용 + 0.20 × 인센티브`로 후�
 관광기관의 정책은 필요한 지역으로 선택을 유도합니다. 이 결과가 다시 추천과 정책을 개선하므로
 관광객 앱·사장님 콘솔·B2G 관제가 각각의 화면이 아니라 **하나의 데이터 플라이휠**로 작동합니다.
 
-심사 서사와 비즈니스 모델은 [`docs/CONTEST_NARRATIVE.md`](./docs/CONTEST_NARRATIVE.md)에서 자세히 설명합니다.
+심사 서사와 비즈니스 모델은 [`docs/contest/CONTEST_NARRATIVE.md`](./docs/contest/CONTEST_NARRATIVE.md)에서 자세히 설명합니다.
 
 ## 만드는 가치
 
@@ -202,7 +202,7 @@ CI 패리티 테스트가 가중치 `0.40 / 0.40 / 0.20`의 불일치를 차단�
 | **기상청 단기예보** | 경주 시간대별 날씨 | 실내외 장소 선택과 여행 맥락 개인화 |
 | **Supabase** | 인증, 장소, 추천, 피드백, 방문 결과 | 개인화 학습과 관광 수요 분산 성과 연결 |
 
-TourAPI 엔드포인트별 매핑과 데이터 흐름은 [`docs/DATA_UTILIZATION.md`](./docs/DATA_UTILIZATION.md)를 참고하세요.
+TourAPI 엔드포인트별 매핑과 데이터 흐름은 [`docs/contest/DATA_UTILIZATION.md`](./docs/contest/DATA_UTILIZATION.md)를 참고하세요.
 
 ## 아키텍처
 
@@ -307,7 +307,7 @@ apps/web/.env.local
 - API: <http://localhost:8000>
 - Swagger UI: <http://localhost:8000/docs>
 
-Windows 외 환경의 개별 실행법, Docker, DB 설정과 스모크 테스트는 [`LOCAL_RUN.md`](./LOCAL_RUN.md)를 참고하세요.
+Windows 외 환경의 개별 실행법, Docker, DB 설정과 스모크 테스트는 [`docs/LOCAL_RUN.md`](./docs/LOCAL_RUN.md)를 참고하세요.
 
 ## 품질 게이트
 
@@ -346,16 +346,8 @@ Chromium 모바일·4개 언어 E2E를 검증합니다.
 
 ## 문서 지도
 
-| 문서 | 내용 |
-| --- | --- |
-| [`docs/HANDOVER.md`](./docs/HANDOVER.md) | 가장 최신 구현 상태와 운영 인계 |
-| [`docs/SYSTEM_MAP.md`](./docs/SYSTEM_MAP.md) | 화면↔API↔서비스↔DB 전체 연결 관계 |
-| [`docs/DATA_UTILIZATION.md`](./docs/DATA_UTILIZATION.md) | 공공데이터 엔드포인트와 SPOT 반영 근거 |
-| [`docs/MODEL_CARD.md`](./docs/MODEL_CARD.md) | 예측 모델 평가와 운영 승격 체계 |
-| [`docs/CONTEST_NARRATIVE.md`](./docs/CONTEST_NARRATIVE.md) | 공모전 핵심 서사와 비즈니스 모델 |
-| [`docs/DEMO_SCENARIO.md`](./docs/DEMO_SCENARIO.md) | 관광객·관제 데모 시나리오 |
-| [`docs/JUDGE_QA.md`](./docs/JUDGE_QA.md) | 예상 심사 질문과 답변 |
-| [`docs/DEPLOY_AND_ENV.md`](./docs/DEPLOY_AND_ENV.md) | Vercel·Render·Supabase 배포 |
+전체 문서 목록과 상태는 [`docs/README.md`](./docs/README.md)에 있습니다. 처음이라면
+[`AGENTS.md`](./AGENTS.md) → [`docs/HANDOVER.md`](./docs/HANDOVER.md) → [`docs/SYSTEM_MAP.md`](./docs/SYSTEM_MAP.md) 순서로 읽으세요.
 
 ## 확장 방향
 
@@ -375,4 +367,4 @@ TourAPI 적재 스크립트의 기준 좌표를 바꾸고 지역 팩을 교체�
 
 프로젝트는 산업단지 혼잡 분산 플랫폼 InduSpot의 SPOT 엔진과 모노레포 구조를 시드로 삼아,
 TourAPI와 경주 관광 도메인에 맞게 전면 재구성했습니다. 피벗 기록은
-[`docs/NEXTSPOT_PIVOT.md`](./docs/NEXTSPOT_PIVOT.md)에 남겨두었습니다.
+[`docs/archive/NEXTSPOT_PIVOT.md`](./docs/archive/NEXTSPOT_PIVOT.md)에 남겨두었습니다.

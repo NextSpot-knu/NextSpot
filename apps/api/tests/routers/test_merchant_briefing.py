@@ -6,7 +6,7 @@
 #  · 예측: merchant_briefing_service 네임스페이스의 get_model_info/predict_congestion/
 #          fetch_latest_congestion_for_all/_utcnow 를 패치 — 결정적 곡선(golden-hour 테스트 관례).
 #  · LLM: app.services.llm_client 의 is_enabled/chat_text 를 monkeypatch — 네트워크 0.
-#  검증 계약(docs/SOLAR_LLM_EXPANSION.md P1-5):
+#  검증 계약(docs/archive/SOLAR_LLM_EXPANSION.md P1-5):
 #    모델 미학습 → LLM 미호출·null / 숫자·금지어(방문객·매출·명)·토큰 오배치·{window} 누락 → 폐기 /
 #    argmin 은 서버(최저 혼잡 시각이 치환값으로 확정) / 성공 치환 / facility+시간버킷 캐시 /
 #    타임세일 현황은 사실 수집(조회 실패 시 {timesale} 토큰 미제공 → 사용하면 폐기).

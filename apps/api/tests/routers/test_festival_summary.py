@@ -1,7 +1,7 @@
 """축제 소개 다국어 요약(P1-4 — festival_summary_service + events 라우터 동봉) 테스트.
 
 LLM 은 전부 mock(네트워크 0 — conftest 가 UPSTAGE_API_KEY="" 고정, 필요 시 개별 monkeypatch).
-검증 계약(docs/SOLAR_LLM_EXPANSION.md P1-4):
+검증 계약(docs/archive/SOLAR_LLM_EXPANSION.md P1-4):
   · 첫 응답 비블로킹 — LLM 이 느려도 원문 즉시 반환(overview_i18n 없음, status=pending)
   · 캐시 적재 후 overview_i18n {en,ja,zh} 3로케일 일괄 동봉(locale 파라미터 없음)
   · 정직성 게이트 — 한글 잔존·숫자(유니코드 N* 카테고리) 검출 로케일은 폐기(저장 안 함)

@@ -1,4 +1,4 @@
-// 유저 스코프 로컬 데이터 격리 — docs/OAUTH_PLAN.md 후속(사용자 데이터 분리).
+// 유저 스코프 로컬 데이터 격리 — docs/archive/OAUTH_PLAN.md 후속(사용자 데이터 분리).
 //
 // 저장 장소·취향·방문 이력·표시이름 등은 localStorage 에 있는데, localStorage 는 '기기' 단위라
 // 로그아웃/계정 전환에도 남아 다음 사용자에게 샌다. 세션(user_id)이 바뀌면 이전 사용자의 개인

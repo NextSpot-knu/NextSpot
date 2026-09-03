@@ -1,4 +1,4 @@
-// OAuth 연동/로그인 유틸 — docs/OAUTH_PLAN.md F2.
+// OAuth 연동/로그인 유틸 — docs/archive/OAUTH_PLAN.md F2.
 //
 // 무마찰 익명 세션(SessionBootstrap) 위에 카카오·구글 소셜 계정을 얹는다. 두 진입:
 //   · linkOAuth : 익명 사용자를 같은 auth.users 행에 소셜 identity 로 '승격'(user_id 불변 → 데이터 승계).
@@ -199,7 +199,7 @@ export async function syncProfileFromProvider(): Promise<void> {
   }
 }
 
-// ── 앱 자체 회원(이메일/비밀번호) — docs/AUTH_MEMBERSHIP_PLAN.md ──────────
+// ── 앱 자체 회원(이메일/비밀번호) — docs/archive/AUTH_MEMBERSHIP_PLAN.md ──────────
 
 /** 이메일/비밀번호 로그인. 성공 시 세션이 해당 회원으로 교체된다(호출부가 데이터 격리·이동 처리). */
 export async function signInWithEmail(

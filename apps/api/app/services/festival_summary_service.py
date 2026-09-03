@@ -1,6 +1,6 @@
 """축제 소개(overview) 다국어 요약 — en/ja/zh 1~2문장, fire-and-forget 배치+캐시 (P1-4).
 
-docs/SOLAR_LLM_EXPANSION.md "P1-4. 축제 소개 다국어 요약" 계약 구현:
+docs/archive/SOLAR_LLM_EXPANSION.md "P1-4. 축제 소개 다국어 요약" 계약 구현:
 
   - 요청 경로 비블로킹(조건 ①): events 응답은 LLM 을 절대 기다리지 않는다. 첫 요청은
     한국어 원문만 반환하고, 백그라운드 태스크가 3로케일 요약을 생성해 content_id 키
@@ -20,7 +20,7 @@ docs/SOLAR_LLM_EXPANSION.md "P1-4. 축제 소개 다국어 요약" 계약 구현
   - 보안(§-14): 프롬프트는 json.dumps 데이터 경계 + 원문 제어/bidi(Cc/Cf) 새니타이즈,
     응답 본문 로그 금지(길이만).
 
-표시 우선순위는 docs/TOURAPI_EXPANSION.md 4-4(공식 해당 언어 > 공식 한국어 원문 >
+표시 우선순위는 docs/archive/TOURAPI_EXPANSION.md 4-4(공식 해당 언어 > 공식 한국어 원문 >
 명시된 AI 번역)를 따른다 — 공식 다국어 자매 서비스(2-1) 적재가 후속 정본이며,
 그 전까지 이 요약은 'AI 요약·번역' 라벨이 명시된 최하위 계층이다.
 """

@@ -19,7 +19,7 @@ NextSpot의 모든 데이터(장소·혼잡도·추천)는 **Supabase**(클라�
 > ⚠️ 되돌릴 수 없습니다(기존 InduSpot 데이터 삭제). InduSpot은 더 안 쓰므로 OK.
 > DB 비밀번호 공유 불필요 — SQL Editor 접근만으로 끝.
 
-> 📌 **DB 셋업 경로 정리** (`LOCAL_RUN.md` 와 공통 기준):
+> 📌 **DB 셋업 경로 정리** (`docs/LOCAL_RUN.md` 와 공통 기준):
 > - **신규/초기화 셋업** = 위처럼 `supabase/RESET_AND_SETUP.sql` **1회 실행**.
 > - **기존 DB를 유지**해야 하면 대신 `supabase/migrations/*` 를 순차 적용(`supabase db push`).
 > - 기존 DB에는 2026-07-07 `security_hardening` 마이그레이션

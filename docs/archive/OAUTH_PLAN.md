@@ -1,7 +1,7 @@
 # OAuth 도입 구현 계획 — 게스트(익명) → 소셜 계정 연동
 
 > 작성 2026-07-15. 실행 전 검토용 계획 문서.
-> 관련 정본: 인증 현황은 `apps/web/components/SessionBootstrap.tsx` 주석, 보안 결정은 `docs/IMPROVEMENT_PLAN.md` D3.
+> 관련 정본: 인증 현황은 `apps/web/components/SessionBootstrap.tsx` 주석, 보안 결정은 `docs/archive/IMPROVEMENT_PLAN.md` D3.
 
 ---
 

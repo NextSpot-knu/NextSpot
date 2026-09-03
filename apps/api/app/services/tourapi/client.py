@@ -1,6 +1,6 @@
 """한국관광공사 TourAPI 4.0 비동기 클라이언트 (KorService2).
 
-공모전 필수 데이터 소스(docs/NEXTSPOT_PIVOT.md §3). 담당 범위:
+공모전 필수 데이터 소스(docs/archive/NEXTSPOT_PIVOT.md §3). 담당 범위:
   - locationBasedList2 : 좌표 반경 POI 조회 (황리단길 후보군)
   - areaBasedList2     : 지역코드 기반 POI 목록
   - detailCommon2 / detailIntro2 / detailInfo2 : 상세(운영시간·무장애 등)
@@ -282,7 +282,7 @@ async def search_festival(
 ) -> dict:
     """searchFestival2 — 행사/축제 조회 (혼잡 예측 외부 변수).
 
-    NOTE: 피벗 문서(docs/NEXTSPOT_PIVOT.md §3-1)는 "eventBasedList" 로 표기하지만,
+    NOTE: 피벗 문서(docs/archive/NEXTSPOT_PIVOT.md §3-1)는 "eventBasedList" 로 표기하지만,
     TourAPI 4.0(KorService2)의 실제 엔드포인트명은 searchFestival2 다.
     event_start_date 형식: YYYYMMDD.
 

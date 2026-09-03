@@ -1,6 +1,6 @@
 """사장님 콘솔 '오늘의 실행 브리핑' — 6시간 혼잡 예측 창의 사실을 한국어 2~3문장 프로즈화 (P1-5).
 
-docs/SOLAR_LLM_EXPANSION.md P1-5 계약 — P0-2(briefing_service)의 플레이스홀더 치환 설계를
+docs/archive/SOLAR_LLM_EXPANSION.md P1-5 계약 — P0-2(briefing_service)의 플레이스홀더 치환 설계를
 공용 게이트(is_honest_briefing 파라미터화)로 재사용한다:
 
   - LLM 은 수치·시각·%를 일절 쓰지 못하고 {window} {low_hour} {low_congestion} {timesale}

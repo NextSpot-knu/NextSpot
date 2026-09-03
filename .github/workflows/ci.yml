@@ -1,4 +1,4 @@
-# NextSpot CI — docs/IMPROVEMENT_PLAN.md WS-E
+# NextSpot CI — docs/archive/IMPROVEMENT_PLAN.md WS-E
 # web: lint → typecheck → 단위테스트(voiceIntent) → 정적 export 빌드
 # api: ruff → pytest (Python 3.11, Dockerfile 과 동일 버전)
 # schema: RESET_AND_SETUP.sql 이 migrations/ 와 일치하는지 검증 (D2 — migrations 가 소스 오브 트루스)

@@ -58,12 +58,12 @@
 
 1. **설계** — Claude Code. 계획은 대화에만 남기지 말고 `docs/HANDOVER.md` 또는 `docs/`에 내구 산출물로.
 2. **구현** — `feature/jinseok`에서. 병렬 작업은 워크트리 격리 + 파일 소유권 분할
-   (`docs/AUTONOMOUS_SESSION.md` 규칙). i18n(교차절단 문자열)은 병렬 금지 — 단일 소유.
+   (`docs/archive/AUTONOMOUS_SESSION.md` 규칙). i18n(교차절단 문자열)은 병렬 금지 — 단일 소유.
 3. **게이트 ① 결정적 검증** — `AGENTS.md` 검증 게이트 4종(web/pytest/ruff/스키마 파리티). 실패 시 커밋 금지.
 4. **게이트 ② 교차 리뷰** — 구현 주체가 아닌 도구로: Claude가 구현했으면 `codex review`,
    Codex가 구현했으면 Claude `/code-review`. 발견은 적대적 재검증 후에만 수정(반증 전례: 127.0.0.1 CORS).
 5. **게이트 ③ 브라우저 검증** (UI 변경 시, **IDE에서 수동**) — Antigravity IDE를 열어
-   `docs/DEMO_SCENARIO.md`의 데모 전 체크리스트 플로우를 실클릭. 대상: `localhost:3000`
+   `docs/contest/DEMO_SCENARIO.md`의 데모 전 체크리스트 플로우를 실클릭. 대상: `localhost:3000`
    (`.\run_local.ps1`) 또는 Vercel 프리뷰. 모바일 뷰포트(하단 safe-area·바텀내비) 포함.
    스크린샷을 증거로 남긴다. 공모전 데모 리허설이 이 게이트의 최종 형태다.
 6. **머지** — `git push origin feature/jinseok:main` (fast-forward). main push가 곧 Vercel prod 배포다.
@@ -85,7 +85,7 @@
 
 무인 세션은 Claude Code로만 돌린다(다른 두 도구는 무인 장기 세션 운영 이력이 없음).
 
-- 루프 규칙·RESUME 절차: `docs/AUTONOMOUS_SESSION.md`. 단 **무엇을 할지는 `docs/HANDOVER.md`가 정본** —
+- 루프 규칙·RESUME 절차: `docs/archive/AUTONOMOUS_SESSION.md`. 단 **무엇을 할지는 `docs/HANDOVER.md`가 정본** —
   AUTONOMOUS_SESSION의 "진행 상태"는 2026-07-10 로그라 그대로 이어받으면 완료된 일을 다시 잡는다.
 - 결정적 게이트 우선 — 게이트 통과분만 커밋, 진행분 즉시 커밋·푸시로 유실 방지.
 - 감사(audit)성 발견은 적대적 재검증을 통과한 것만 수정하고, 반려 항목도 HANDOVER에 기록.

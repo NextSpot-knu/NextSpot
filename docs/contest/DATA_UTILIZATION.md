@@ -3,7 +3,7 @@
 > 2026-07-09 작성. 목적: 2026 관광데이터 활용 공모전 서면심사 필수 항목
 > **「한국관광공사 OpenAPI(TourAPI) 활용의 적절성」**을 심사위원이 코드 근거와 함께 즉시 확인하도록,
 > "TourAPI를 쓴다"가 아니라 **TourAPI 각 필드가 SPOT 산식의 어느 변수에 어떻게 기여하는지**를
-> 매핑한다. (관련 배점 대응 전략: `docs/CONTEST_STRATEGY.md` §2-A, 액션 A6)
+> 매핑한다. (관련 배점 대응 전략: `docs/contest/CONTEST_STRATEGY.md` §2-A, 액션 A6)
 >
 > **정직성 고지**: 이 문서의 모든 서술은 실제 코드(`apps/api/app/services/tourapi/`,
 > `apps/api/app/services/spot/`, `packages/shared-types/spot.ts`)에 근거한다. 존재하지 않는

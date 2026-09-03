@@ -1,7 +1,7 @@
 # 심사위원 예상 질문 10문 + 모범 답변 (2026 관광데이터 활용 공모전)
 
 > PT 심사 질의응답 대비 문서. 각 답변은 코드/문서 근거를 명시한다. 정본 전략은
-> [`CONTEST_STRATEGY.md`](./CONTEST_STRATEGY.md), 최신 상태는 [`HANDOVER.md`](./HANDOVER.md) 참고.
+> [`CONTEST_STRATEGY.md`](./CONTEST_STRATEGY.md), 최신 상태는 [`HANDOVER.md`](../HANDOVER.md) 참고.
 
 ---
 
@@ -30,7 +30,7 @@
 실거래 전환 가능성을 증빙한다. 지자체 대상 B2G는 혼잡 관리 SaaS 라이선스로, 관리자 대시보드
 (`GET /api/v1/admin/dashboard/today`)·수동 혼잡 Override·이상 알림이 이미 동작한다. `CONTEST_STRATEGY.md` D6은
 이를 "B2G 라이선스 + 소상공인 제휴 티어 + 데이터 리포트 판매" 3단 구조로 정리했다.
-[뒷받침 근거: score.py coupon_term/COUPON_RATE_CAP, docs/CONTEST_STRATEGY.md D6/C4]
+[뒷받침 근거: score.py coupon_term/COUPON_RATE_CAP, docs/contest/CONTEST_STRATEGY.md D6/C4]
 
 ## Q4. [기술] 신규 유저·신규 시설의 콜드스타트 문제는 어떻게 푸나?
 
@@ -39,7 +39,7 @@
 보여주고, 서버의 영업 상태·공개 주변 수요 근거가 도착하면 같은 카드 자리에서 갱신한다. 신규 시설도 TourAPI
 유형·좌표·운영정보만 있으면 후보가 되며, 혼잡 이력이 없을 때는 대기 숫자를 만들지 않는다. 장기 개인화는
 길찾기→도착 확인→평가 결과를 추천 ID와 연결해 보강한다.
-[뒷받침 근거: score.py calculate_preference_similarity, docs/CONTEST_STRATEGY.md B4]
+[뒷받침 근거: score.py calculate_preference_similarity, docs/contest/CONTEST_STRATEGY.md B4]
 
 ## Q5. [기술] 데이터가 실시간이 아닌데 신선도는 어떻게 보장하나?
 
@@ -61,7 +61,7 @@ API 장애 시에는 `source="unavailable"`과 함께 빈 목록을 반환해 �
 이미 구현되어 있고, 실시간 프록시 호출이 아니라 사전 배치 적재+캐시 구조라 서비스 중 실호출 자체가 적어
 쿼터 리스크를 구조적으로 낮춘다. 다만 단일 공공 API 의존은 구조적으로 남아 있어, 교통·유동인구 등 타
 공공데이터 결합(A7)으로 다변화하는 것이 다음 단계다.
-[뒷받침 근거: docs/HANDOVER.md -1절 KorService2 함정, FestivalBanner source=unavailable 폴백, docs/CONTEST_STRATEGY.md A7]
+[뒷받침 근거: docs/HANDOVER.md -1절 KorService2 함정, FestivalBanner source=unavailable 폴백, docs/contest/CONTEST_STRATEGY.md A7]
 
 ## Q7. [사업성] 경주에 한정된 것 아닌가? 타 지역 확장은 어떻게 하나?
 
@@ -71,7 +71,7 @@ FacilityTable이 이미 이 설정을 소비하도록 마이그레이션을 마�
 재적재(`ingest_tourapi.py` 파라미터 변경)와 혼잡 모델 재학습(`train.py`) 두 단계로 축소된다. 다만
 `CongestionMap` 등 일부 컴포넌트는 아직 후속 마이그레이션 대상으로 남아 있어, 완전한 이식에는 잔여 작업이
 있다는 점도 밝힌다.
-[뒷받침 근거: docs/CONTEST_STRATEGY.md D2, apps/web/lib/region.ts]
+[뒷받침 근거: docs/contest/CONTEST_STRATEGY.md D2, apps/web/lib/region.ts]
 
 ## Q8. [사업성] 지자체·소상공인이 실제로 비용을 지불할 유인이 있나?
 
@@ -81,7 +81,7 @@ FacilityTable이 이미 이 설정을 소비하도록 마이그레이션을 마�
 이미 동작하는 B2G 도구이며, 경주 APEC 이후 관광 수요 급증이라는 시의성 있는 행정 수요와 맞물린다. 다만
 현재는 기능 증빙 단계이고 실제 유료 계약 사례는 없어, 파일럿 지자체 1곳 무료 시범 운영 후 유료 전환을
 제안하는 것이 현실적 다음 단계다.
-[뒷받침 근거: score.py coupon_term, GET /api/v1/admin/dashboard/today, docs/CONTEST_STRATEGY.md C2/D6]
+[뒷받침 근거: score.py coupon_term, GET /api/v1/admin/dashboard/today, docs/contest/CONTEST_STRATEGY.md C2/D6]
 
 ## Q9. [사회적 가치] 오버투어리즘이 실제로 완화된다는 근거가 있나? 소상공인과는 어떻게 상생하나?
 
@@ -93,7 +93,7 @@ FacilityTable이 이미 이 설정을 소비하도록 마이그레이션을 마�
 추이(`/admin/metrics/trend`, 일평균 혼잡도+일별 수락률)를 전부 서버가 실데이터로 집계하며, 표본이 부족한
 구간은 라벨로 구분된 예시로만 보여준다. 다만 실사용자 모수 자체가 아직 작아 "대규모 행동 변화 실증"은
 파일럿 운영에서 채워야 할 다음 단계라는 점은 정직하게 밝힌다.
-[뒷받침 근거: score.py relief_term/INCENTIVE_COUPON_SHARE, GET /api/v1/admin/metrics/trend, docs/CONTEST_STRATEGY.md E3]
+[뒷받침 근거: score.py relief_term/INCENTIVE_COUPON_SHARE, GET /api/v1/admin/metrics/trend, docs/contest/CONTEST_STRATEGY.md E3]
 
 ## Q9-2. [심사] 사업자·관리자 화면은 어떻게 들어가나?
 

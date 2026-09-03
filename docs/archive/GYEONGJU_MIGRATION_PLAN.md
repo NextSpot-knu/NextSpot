@@ -1,6 +1,6 @@
 # 경주 황리단길 데이터 이관 & InduSpot 잔재 제거 — 실행계획 ✅ 완료(역사적 문서)
 
-> **⚠️ 이 계획은 2026-07-07 기준 전부 실행 완료되었습니다** (잔재 0 검증 — `docs/IMPROVEMENT_PLAN.md` 참조).
+> **⚠️ 이 계획은 2026-07-07 기준 전부 실행 완료되었습니다** (잔재 0 검증 — `docs/archive/IMPROVEMENT_PLAN.md` 참조).
 > 아래 파일 경로·체크리스트는 당시 스냅샷이며 현재 트리와 다를 수 있습니다. 참고용으로만 보관.
 
 > 구미(산업단지) 더미 데이터를 경주 황리단길(관광) 데이터로 전면 교체하고, 모의 위치를 수정하며,
@@ -50,7 +50,7 @@
 - **산업어휘(16파일):** `app/setup`(주간조/야간조·주차구역 온보딩 → 선호 카테고리·방문 시간대)·admin 카피(관제소·수요분산·인프라)·근로자/회의실 주석
 - **라우트 리네임:** `app/worker/`→`app/explore/` + 참조 3곳(`CongestionMap.tsx:7` import, `:374` link, `worker/recommend` `router.push`)
 - **데이터 스크립트:** `scripts/seed.js`(⚠️ 하드코딩 Supabase URL `<old-project-ref>` 스크럽 + 타입/혼잡패턴 관광화)
-- **설정/문서 잔재:** `apps/api/.env.example`·`apps/web/.env.example`·`LOCAL_RUN.md`·`run_local.ps1`·`Dockerfile`·`requirements.txt`·`apps/api/README.md`·`apps/web/README.md`(induspot/공단 문구)
+- **설정/문서 잔재:** `apps/api/.env.example`·`apps/web/.env.example`·`docs/LOCAL_RUN.md`·`run_local.ps1`·`Dockerfile`·`requirements.txt`·`apps/api/README.md`·`apps/web/README.md`(induspot/공단 문구)
 - **⚠️ 크레덴셜 필요(사용자 액션):** 신규 Supabase 프로젝트 생성 → `.env` 갱신(+하드코딩 URL 제거) → `supabase db push`(마이그레이션 적용) → `python apps/api/scripts/train.py`(model.pkl 재학습) → 앱 스모크
 
 ---
@@ -170,7 +170,7 @@
 
 **산업 카피 → 관광 (사용자 노출):** `page.tsx:44`·`layout:15`("공단 생활"→관광), `setup:148-176`(주간조/야간조·주차구역 → 관광 온보딩: 선호 카테고리 3개+·방문 시간대), `admin/login:68`(공단), `admin/simulator:18`(관제소), `DashboardCharts:22`(수요 분산), `SPOTSimulator:137`, `FacilityTable:89`, `admin/reports:303,19,43`, `admin/infrastructure:241,295,467`, `admin/settings:212`, `admin/dashboard:90-94`(하역장 mock), `mypage/support:115`, `mypage:43`(Senior Operator), `worker/recommend:756`.
 
-**config/build/deploy (내부):** `docker-compose.yml:7,20`(container `induspot-api`→`nextspot-api`, token), `run_local.ps1:1`, `LOCAL_RUN.md:3,19,89`, `apps/api/.env.example`, `apps/web/.env.example`, `config.py:9,23`(PROJECT_NAME, ADMIN_API_TOKEN), `main.py:13`(OpenAPI desc), `Dockerfile:1`, `requirements.txt:1`, `apps/api/README.md:1`, `apps/web/README.md:1,3,15`.
+**config/build/deploy (내부):** `docker-compose.yml:7,20`(container `induspot-api`→`nextspot-api`, token), `run_local.ps1:1`, `docs/LOCAL_RUN.md:3,19,89`, `apps/api/.env.example`, `apps/web/.env.example`, `config.py:9,23`(PROJECT_NAME, ADMIN_API_TOKEN), `main.py:13`(OpenAPI desc), `Dockerfile:1`, `requirements.txt:1`, `apps/api/README.md:1`, `apps/web/README.md:1,3,15`.
 
 **storage key `induspot_*` → `nextspot_*` (프론트+백+compose+docs 동시):** `admin-auth.ts:12,14`(+token `induspot-admin-local`→`nextspot-admin-local`), `main/page.tsx`(다수 키), `saved:61,93,103,306`, `setup:30`, CSV명 `admin/dashboard:448`·`admin/reports:220`, `voiceIntent.ts:65`(주석).
 
@@ -181,7 +181,7 @@
 
 **근로자/회의실 주석·문구(내부):** `setup:14,19,156,160`, `api-client:211,173`, `recommender.ts:4`, `preferences.py:4,32,38`, `preference_nlp_service.py:4,19,25,43`, `add_preference_note.sql:1,5`, `RecommendationCard:393`, `scripts/seed.js:59,78`, `preference.py:5`, RLS 주석(`rls.sql:33,85`, `add_user_preference_vectors.sql:3`).
 
-**유지(의도된 heritage / 정당):** `README.md`·`AGENTS.md`·`architecture_overview.md`·`docs/NEXTSPOT_PIVOT.md`의 "베이스: InduSpot" 계승 서술(사실), `fetch_ev_chargers.py`의 "한국환경공단"(API 출처명 — 단 파일 자체는 삭제). 단, 이 문서들이 NextSpot을 산업 제품으로 *서술*하는 부분은 정리.
+**유지(의도된 heritage / 정당):** `README.md`·`AGENTS.md`·`docs/archive/ARCHITECTURE_OVERVIEW.md`·`docs/archive/NEXTSPOT_PIVOT.md`의 "베이스: InduSpot" 계승 서술(사실), `fetch_ev_chargers.py`의 "한국환경공단"(API 출처명 — 단 파일 자체는 삭제). 단, 이 문서들이 NextSpot을 산업 제품으로 *서술*하는 부분은 정리.
 
 ---
 

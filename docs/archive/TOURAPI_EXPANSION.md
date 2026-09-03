@@ -181,7 +181,7 @@ Odii를 결합해 대안 장소의 방문 동기를 만든다.
 
 ## 4-6. `나의 실험실` 피드백과 결합
 
-상용화 기획 정본 `docs/COMMERCIAL_PRODUCT_IDEAS.md`의 거절 이유를 TourAPI 데이터 품질과 연결한다.
+상용화 기획 정본 `docs/archive/COMMERCIAL_PRODUCT_IDEAS.md`의 거절 이유를 TourAPI 데이터 품질과 연결한다.
 
 | 거절 이유 | TourAPI 결합 처리 |
 |---|---|

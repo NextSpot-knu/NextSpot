@@ -2,7 +2,7 @@
 
 ## -45. 2026-08-28 — RBAC 배포 전 디버깅: 배포를 막던 버그 1건 + 잠복 회귀 1건
 
-§-44 를 프로덕션에 올리기 전에 전체 디버깅 패스를 돌렸다. 상세는 `docs/RBAC_DEBUG_REVIEW.md`.
+§-44 를 프로덕션에 올리기 전에 전체 디버깅 패스를 돌렸다. 상세는 `docs/archive/RBAC_DEBUG_REVIEW.md`.
 `main` 은 `e1a058f` 로 배포 완료 — Render·Vercel 둘 다 새 코드가 떠 있는 것을 확인했다.
 
 **배포가 아예 안 나가던 상태였다.** `/login` 에 `?next=` 를 넣으면서 `useSearchParams()` 를
@@ -349,7 +349,7 @@ UUID 하나가 구분자 포함 ~39바이트라 URL 이 60KB 를 넘고, Supabas
 
 ## -32. 2026-08-21 — 혼잡 데이터·라이선스·공공 협업 정본 고정
 
-- 저장소 최상위 [`CONGESTION_DATA_README.md`](../CONGESTION_DATA_README.md)에 SKT·로플랫·FlowEye·
+- 저장소 최상위 [`docs/CONGESTION_DATA.md`](./CONGESTION_DATA.md)에 SKT·로플랫·FlowEye·
   경주 ITS·관광공사 예측의 측정 범위, 공개 가격, 계약 조건과 도입 순서를 정리했다. 다음 에이전트는
   혼잡 데이터 또는 제휴 판단 전에 이 문서를 먼저 읽는다.
 - NextSpot의 현재 상태는 `개인용`이 아니라 **무광고·무과금·비수익 공익형 공개 실증/공모전 서비스**다.
@@ -609,7 +609,7 @@ service_role 로 원격 실데이터를 세어 본 결과(2026-08-21):
 **시연 매장 몇 곳의 좌석 방송 + 관리자 확인**이 압도적으로 빠른 경로다.
 (현재 `merchant_report` 0건 · `event` 0건 — 이 경로가 한 번도 안 쓰였다.)
 
-→ 개선 후보 상세는 `docs/IMPROVEMENT_PLAN.md` 의 2026-08-21 절 참조.
+→ 개선 후보 상세는 `docs/archive/IMPROVEMENT_PLAN.md` 의 2026-08-21 절 참조.
 
 ---
 
@@ -691,7 +691,7 @@ from checks order by seq;
 ### 고친 것 (전부 게이트 통과 후 커밋)
 
 - `docs/SYSTEM_MAP.md` 신규 — 코드 조사 기반 구조/기능/연결관계 정본(화면↔API↔서비스↔테이블
-  전수 매핑). `README.md`·`architecture_overview.md` 의 낡은 서술 3종도 정정했다
+  전수 매핑). `README.md`·`docs/archive/ARCHITECTURE_OVERVIEW.md` 의 낡은 서술 3종도 정정했다
   (LLM 재도입 반영, 폴백 체인, Gemini→Upstage Solar).
 - `next` 16.2.6 → 16.3.1 — npm audit high 6건 → **0건**. semver major 아님.
 - **머천트 토큰 인증 구멍(실제 버그)** — `merchant.py` 가 `os.environ.get` 으로 토큰을 읽었는데
@@ -895,7 +895,7 @@ typecheck 클린 · unit 전체 통과 · build 32 pages · 스키마 재생성 
 
 - §-19 의 **사람 작업(P0) 완료**: Vercel `NEXT_PUBLIC_KAKAO_MAPS_APP_KEY` JavaScript 키 교체 +
   Kakao Web 도메인 등록 완료(PM 직접 수행). SDK 401 해소 전제 충족.
-- **Solar 신규 활용 기획 확정** — 정본: [`SOLAR_LLM_EXPANSION.md`](./SOLAR_LLM_EXPANSION.md).
+- **Solar 신규 활용 기획 확정** — 정본: [`SOLAR_LLM_EXPANSION.md`](./archive/SOLAR_LLM_EXPANSION.md).
   방법론은 Codex A안(8후보) ∥ Fable 멀티에이전트 B안(5렌즈 29건→18후보→적대 검증→누락 비평,
   에이전트 30) 병렬 발산+합성. PM 확정: **P0 2종(자연어 선호 백스톱·관제 오늘의 브리핑) +
   P1 3종(검색 0건 재작성·축제 다국어 요약·머천트 실행 브리핑) 구현, 데모 대본은 현행 유지**.
@@ -938,7 +938,7 @@ typecheck 클린 · unit 전체 통과 · build 32 pages · 스키마 재생성 
   `current_count=0`(잔여석 전체)과 `reason_service.py:67,74`의 "혼잡도 0%, 여유가 있습니다"로
   흘러 실측처럼 노출. `RecommendItem`에 혼잡 출처 필드 자체가 없음. SPOT 랭킹은 0.0을 쓰지
   않고 `predict_congestion`을 쓰므로(`score.py:83-88`) **점수는 오염되지 않음 — 표시만 문제**.
-- 명세 초안: **`docs/CONGESTION_TRUST_SPEC.md`** — 3단계(`measured`/`predicted`/`none`) 근거
+- 명세 초안: **`docs/archive/CONGESTION_TRUST_SPEC.md`** — 3단계(`measured`/`predicted`/`none`) 근거
   모델, API 필드 신설, 사유 문구 규칙, UI 표(수정 대상 file:line 전부 포함), 테스트·완료 조건,
   PM 결정 요청 4건(D-1~D-4). 미학습 모델의 0.5 폴백을 "AI 예측"으로 팔지 않는 규칙 포함.
   대본 충돌 확인 완료: "혼잡도 0%"는 `DEMO_SCENARIO.md`·`JUDGE_QA.md`에 미등장 — 교정 안전.
@@ -976,7 +976,7 @@ typecheck 클린 · unit 전체 통과 · build 32 pages · 스키마 재생성 
   i18n 4로케일 4키 추가. **주의(구현 중 정정)**: `courses.py:153` 기준선은 표시가 아니라 점수
   입력이라 Phase 1 에서 제외(D-2 와 함께 Phase 2) — 명세 §3-2 에 정정 기록.
 - 검증: api pytest 455 통과·ruff 클린 / web lint 0 err·typecheck·test 29/29·build 통과 / 파리티 클린.
-- **D-4 병행 기획 완료**: `docs/KAKAO_LOCAL_EXPANSION.md` — 조사 결과 Kakao Local 결과의 자체 DB
+- **D-4 병행 기획 완료**: `docs/archive/KAKAO_LOCAL_EXPANSION.md` — 조사 결과 Kakao Local 결과의 자체 DB
   영속 저장은 약관상 금지(데브톡 공식 답변) → 기본안을 A-2(준수형: kakao_place_id+url 만 인덱싱,
   표시 데이터는 실시간 프록시)로 재설계. 기존 좌표 정합의 features 저장도 같은 정책 확인 범위(R-2).
   사람 확인: 2026 공모전 요강의 보조 데이터 허용 여부, 데브톡 캐시 TTL 문의.
@@ -1024,7 +1024,7 @@ typecheck 클린 · unit 전체 통과 · build 32 pages · 스키마 재생성 
 
 ### Solar 자율권 기획 확정 + 1번(태깅 배치) 구현·적용 완료
 
-- 기획 정본 **`docs/SOLAR_AUTONOMY_PLAN.md`** 신설(PM 지시 — 세션 재시작에도 인수인계).
+- 기획 정본 **`docs/archive/SOLAR_AUTONOMY_PLAN.md`** 신설(PM 지시 — 세션 재시작에도 인수인계).
   대원칙: "Solar는 심사위원이 아니라 통역사" — 적격 판정·설명은 Solar, **랭킹은 SPOT 독점**
   (공모전 방어력·재배치 목적함수·재현성). 5안 우선순위: ①태깅 ②tool-calling ③사유 사실선택
   ④다턴 슬롯필링 ⑤거절 이해. ①은 완료, 다음은 ②.
@@ -1352,7 +1352,7 @@ TOURAPI_EXPANSION 의 "심사 전: Tier 0→1-2·1-3·1-4" 는 이로써 완료.
   마이그레이션 추가 검토(후속).
 
 > 현재 상태 스냅샷 + 다음 단계. 브랜치 `feature/jinseok` (origin 동기화).
-> 자율 개선 세션 로그·재개 규칙: [`AUTONOMOUS_SESSION.md`](./AUTONOMOUS_SESSION.md) · 전략: [`CONTEST_STRATEGY.md`](./CONTEST_STRATEGY.md)
+> 자율 개선 세션 로그·재개 규칙: [`AUTONOMOUS_SESSION.md`](./archive/AUTONOMOUS_SESSION.md) · 전략: [`CONTEST_STRATEGY.md`](./contest/CONTEST_STRATEGY.md)
 
 ---
 
@@ -1465,7 +1465,7 @@ Codex 감사(읽기 전용) P0/P1 반영. 기능은 이미 실동작했고 '운�
 
 ## -9. 2026-07-16 — `나의 실험실` MVP 구현 완료 (Claude, 6커밋 · Codex 교차 리뷰 대기)
 
-감사([`REJECTION_LAB_AUDIT.md`](./REJECTION_LAB_AUDIT.md))의 구현 계약 12개를 기준으로 구현.
+감사([`REJECTION_LAB_AUDIT.md`](./archive/REJECTION_LAB_AUDIT.md))의 구현 계약 12개를 기준으로 구현.
 착수 전 감사 주장을 file:line 으로 전수 재확인 — **전부 현행 코드와 일치**했다(멱등성 부재,
 accepted 외 -5% 오학습, main 서버 미저장, UNIQUE 부재).
 
@@ -1510,7 +1510,7 @@ typecheck · 29/29 · 스키마 파리티(재생성 동일) · i18n lab 26키 ×
 ## -8. 2026-07-16 — `나의 실험실` 구현 전 Codex 감사
 
 - 구현 전 거절 UI→API→DB→선호 벡터→RLS 경로를 읽기 전용 감사하고 결과를
-  [`REJECTION_LAB_AUDIT.md`](./REJECTION_LAB_AUDIT.md)에 기록했다.
+  [`REJECTION_LAB_AUDIT.md`](./archive/REJECTION_LAB_AUDIT.md)에 기록했다.
 - **P0**: `/feedback`은 recommendation 기준 멱등성이 없어 재호출마다 `user_feedback` INSERT와
   선호 벡터 -5%가 반복된다. 메인 지도의 `관심 없음`은 sessionStorage만 갱신해 서버 실험실 목록에
   나타나지 않는다.
@@ -1524,7 +1524,7 @@ typecheck · 29/29 · 스키마 파리티(재생성 동일) · i18n lab 26키 ×
 ## -7. 2026-07-16 — TourAPI 4차 상용화 기획
 
 - 기존 1~3차 확장안과 코드 현황을 대조한 뒤, 고객 행동 폐루프 중심의 4차 기획을
-  [`TOURAPI_EXPANSION.md` §4차 기획](./TOURAPI_EXPANSION.md)에 추가했다.
+  [`TOURAPI_EXPANSION.md` §4차 기획](./archive/TOURAPI_EXPANSION.md)에 추가했다.
 - 우선순위는 ① 여행 날짜 기반 30일 혼잡 회피 플래너 ② 연관/중심 관광지 기반 분산 그래프
   ③ 공식 다국어 장소 카드 ④ 포토코리아+Odii 이야기형 대안 추천 ⑤ 조건 충족형 안심 코스
   ⑥ B2G 관광 다양성 KPI 순이다.
@@ -1536,7 +1536,7 @@ typecheck · 29/29 · 스키마 파리티(재생성 동일) · i18n lab 26키 ×
 ## -6. 2026-07-16 — 상용화 제품 논의 및 `나의 실험실` 방향
 
 - PM과 논의한 고객/상인/B2G 상용화 기능 및 우선순위를
-  [`COMMERCIAL_PRODUCT_IDEAS.md`](./COMMERCIAL_PRODUCT_IDEAS.md)에 정리했다.
+  [`COMMERCIAL_PRODUCT_IDEAS.md`](./archive/COMMERCIAL_PRODUCT_IDEAS.md)에 정리했다.
 - **제품 방향 확정**: 추천 거절 시마다 이유를 묻지 않는다. 거절은 즉시 처리하고, 마이탭
   `나의 실험실`에서 최근 거절 목록의 이유를 사용자가 선택적으로 나중에 입력한다.
 - 모든 거절을 같은 취향 감점으로 해석하지 않는다. 거리·혼잡·가격은 해당 선호를 조정하고,
@@ -1625,8 +1625,8 @@ typecheck · 29/29 · 스키마 파리티(재생성 동일) · i18n lab 26키 ×
   (MAX_BOOST 0.15 × (1−거리/1.5km), 성공 1h·실패 10분 캐시). score.py 도착시점 예측 + `/predict/batch`
   양쪽 반영, breakdown `event_boost`/`event_title`, 추천 카드 🎪 배지(4로케일).
   테스트 격리: tests/conftest.py autouse 픽스처가 TourAPI 조회 차단(로컬 실키 오염 방지).
-- **발표 산출물** (`cb9cf07`) — [`DEMO_SCENARIO.md`](./DEMO_SCENARIO.md)(E1, 관광객/관리자 각 3분 대본+체크리스트+폴백),
-  [`JUDGE_QA.md`](./JUDGE_QA.md)(E4, 예상 질문 10문+답변), [`TIMELINESS.md`](./TIMELINESS.md)(C2, 검증 보도 8건).
+- **발표 산출물** (`cb9cf07`) — [`DEMO_SCENARIO.md`](./contest/DEMO_SCENARIO.md)(E1, 관광객/관리자 각 3분 대본+체크리스트+폴백),
+  [`JUDGE_QA.md`](./contest/JUDGE_QA.md)(E4, 예상 질문 10문+답변), [`TIMELINESS.md`](./contest/TIMELINESS.md)(C2, 검증 보도 8건).
 - **E3 지표 리얼리티** — 대시보드 '③ 분산 효과' 30일 차트를 실측 전환: 신규 `GET /api/v1/admin/metrics/trend`
   (congestion_logs 일평균 혼잡도 + recommendations 일별 수락률, KST 일 단위·결측일 null 센티넬·20k 캡 truncated 플래그).
   프런트는 혼잡 표본일 ≥3이면 '실측 집계(30일)' 모드(반사실 '도입 전' 계열 제거), 미만이면 기존 데모 폴백
@@ -1635,7 +1635,7 @@ typecheck · 29/29 · 스키마 파리티(재생성 동일) · i18n lab 26키 ×
   ✅ 페이지 8종·익명 인증 ON·추천 5건·A4 축제 배지 실발동(진행 중 실축제, ~08-17)·모델 재학습
   (MAE 0.0802 vs 기준선 0.2159, R²=0.73 — model-info 배지 라이브)·분산 추이 실측 모드.
   ❌ **데모 블로커 2건 실증**: simulate-peak 500 + 쿠폰 무음 미발급 — 원인은 미적용 마이그레이션 5종.
-  **사람 작업(최우선·1회 붙여넣기)**: [`supabase/APPLY_DELTA_20260714.sql`](../supabase/APPLY_DELTA_20260714.sql)
+  **사람 작업(최우선·1회 붙여넣기)**: `supabase/APPLY_DELTA_20260714.sql`(적용 완료 후 2026-09-04 삭제)
   을 SQL Editor에서 Run → simulate-peak·쿠폰 발급 재검증. JUDGE_QA Q2(실측 MAE)·Q9(E3 완료) 갱신됨.
 - **freeze 전 최종 버그 스윕(2026-07-14 오후)** — 6차원 병렬 감사(백엔드/프런트 최근 커밋·에러 상태 B8·데모 대본 추적·PWA sw 스테일·관리자 전수) + 발견별 회의적 검증. 5차원 발견 0건, **확정 demo-blocker 1건 수정**(`42e47e0`): 축제 🎪 배지가 explore/recommend 에만 렌더되고 관광객 데모 화면(/main RecommendationCard)엔 부재 → recToSpot 이 breakdown.eventBoost/eventTitle 보존, 카드에 동일 배지 블록(기존 4로케일 키 재사용). i18n 패리티 스크립트 점검 4로케일 414키 일치. 랜딩 능선 실루엣 SVG 커밋(`747fdcd`).
 - **검증 스냅샷**: pytest 118 passed · ruff clean · tsc/next build(정적 export) · RESET 패리티 일치 (스윕 후 재확인).
