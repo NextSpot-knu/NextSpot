@@ -203,9 +203,36 @@ class _Auth:
         self.admin = _AdminAuth(users)
 
 
+class _Bucket:
+    """서명 URL 생성만 흉내 낸다. 실패를 주입할 수 있어야 폴백 경로를 검사할 수 있다."""
+
+    def __init__(self):
+        self.error: Exception | None = None
+        self.result: dict | None = {"signedURL": "https://example.test/signed"}
+        self.signed: list[tuple] = []
+
+    def create_signed_url(self, path, ttl):
+        self.signed.append((path, ttl))
+        if self.error is not None:
+            raise self.error
+        return self.result
+
+    def remove(self, paths):
+        return None
+
+
+class _Storage:
+    def __init__(self):
+        self.buckets: dict[str, _Bucket] = {}
+
+    def from_(self, name: str) -> _Bucket:
+        return self.buckets.setdefault(name, _Bucket())
+
+
 class _MiniSupabase:
     def __init__(self, tables: dict, auth_users: list | None = None):
         self.tables = tables
+        self.storage = _Storage()
         # {테이블명: 예외} — insert 를 실패시켜 부분 실패 경로를 검사한다.
         self.insert_errors: dict[str, Exception] = {}
         # public.users 에는 이메일이 없다 — auth.users 쪽을 따로 들고 있는다.
@@ -840,3 +867,57 @@ def test_approve_invalidates_profile_cache(client, pending_request):
             f"/api/v1/dev/verification-requests/{REQUEST_ID}/approve", json={}, headers=_headers()
         )
     spy.assert_called_once_with(TARGET_ID)
+
+
+# ── 증빙 서명 URL — 심사자가 서류를 볼 수 있어야 대조가 성립한다 ────────────
+# 버킷은 비공개이고 신청자 본인만 자기 폴더를 읽는다. 심사자는 그 정책으로 못 보므로
+# 백엔드가 service_role 로 서명해 준다. 이 경로가 막히면 심사자는 신청자가 적어 보낸
+# facility_id 를 대조할 근거가 없어진다.
+
+DOC_URL = "/api/v1/dev/verification-requests/{}/document"
+
+
+def test_developer_gets_a_short_lived_signed_url(client, db):
+    db.tables["business_verification_requests"] = [
+        {"id": REQUEST_ID, "user_id": TARGET_ID, "status": "pending", "document_path": "u1/proof.jpg"},
+    ]
+    with _as("developer"):
+        res = client.get(DOC_URL.format(REQUEST_ID), headers=_headers())
+    assert res.status_code == 200
+    assert res.json()["url"] == "https://example.test/signed"
+    # 서명은 그 경로에 대해, 짧은 수명으로 이뤄져야 한다.
+    path, ttl = db.storage.from_("business-documents").signed[0]
+    assert path == "u1/proof.jpg"
+    assert 0 < ttl <= 600, f"서명 URL 수명이 너무 길다: {ttl}s"
+
+
+@pytest.mark.parametrize("role", ["tourist", "merchant", "admin"])
+def test_only_developers_can_open_evidence(client, db, role):
+    """증빙은 사업자등록증이다 — 심사 권한이 없는 역할에게 열리면 안 된다."""
+    db.tables["business_verification_requests"] = [
+        {"id": REQUEST_ID, "user_id": TARGET_ID, "status": "pending", "document_path": "u1/proof.jpg"},
+    ]
+    with _as(role):
+        res = client.get(DOC_URL.format(REQUEST_ID), headers=_headers())
+    assert res.status_code == 403
+
+
+def test_a_reviewed_request_has_no_evidence_left(client, db):
+    """심사가 끝나면 서버가 파일과 경로를 지운다(보관하지 않는다는 결정).
+    그때 404 는 오류가 아니라 정상 상태다 — 500 으로 새어 나가면 안 된다."""
+    db.tables["business_verification_requests"] = [
+        {"id": REQUEST_ID, "user_id": TARGET_ID, "status": "approved", "document_path": None},
+    ]
+    with _as("developer"):
+        res = client.get(DOC_URL.format(REQUEST_ID), headers=_headers())
+    assert res.status_code == 404
+
+
+def test_a_signing_failure_is_a_503_not_a_500(client, db):
+    db.tables["business_verification_requests"] = [
+        {"id": REQUEST_ID, "user_id": TARGET_ID, "status": "pending", "document_path": "u1/proof.jpg"},
+    ]
+    db.storage.from_("business-documents").error = RuntimeError("storage down")
+    with _as("developer"):
+        res = client.get(DOC_URL.format(REQUEST_ID), headers=_headers())
+    assert res.status_code == 503

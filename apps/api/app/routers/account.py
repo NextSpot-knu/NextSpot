@@ -215,6 +215,22 @@ async def create_verification_request(
         )
     if body.requested_role not in REQUESTABLE_ROLES:
         raise HTTPException(status_code=422, detail="신청할 수 없는 역할입니다.")
+
+    # 증빙 경로는 반드시 **자기 폴더** 여야 한다.
+    #
+    # 스토리지 정책(20260904200000)은 남의 uid 폴더에 파일을 **올리는** 것만 막는다. 이미 있는
+    # 남의 경로를 본문에 적어 보내는 것은 막지 못한다 — 그러면 심사자 화면에는 남의 사업자
+    # 등록증이 이 신청서의 증빙으로 붙어 보인다. 경로 규약이 '<uid>/<파일명>' 이라는 사실이
+    # 여기서 검사 근거가 된다.
+    if body.document_path:
+        owner = str(body.document_path).split("/", 1)[0]
+        if owner != str(profile["id"]):
+            logger.warning(
+                "verification_document_path_rejected",
+                user_id=profile["id"],
+                claimed_owner=owner,
+            )
+            raise HTTPException(status_code=422, detail="증빙 경로가 올바르지 않습니다.")
     payload = {
         "user_id": profile["id"],
         "store_name": body.store_name.strip(),

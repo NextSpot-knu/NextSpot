@@ -466,6 +466,48 @@ async def list_verification_requests(
     return {"items": items}
 
 
+# 증빙 서명 URL 수명. 심사자가 열어 보는 데 필요한 만큼만 — 링크가 새어도 곧 죽는다.
+_DOCUMENT_URL_TTL_SECONDS = 300
+
+
+@router.get("/verification-requests/{request_id}/document")
+async def verification_document_url(request_id: str):
+    """증빙 서류를 심사자에게 보여 주기 위한 **단기 서명 URL**.
+
+    버킷은 비공개이고 신청자 본인만 자기 폴더를 읽을 수 있다(20260904200000 정책).
+    심사자는 그 정책으로는 못 본다 — 여기서 service_role 로 서명 URL 을 만들어 전달한다.
+    URL 을 응답에 실어 보내되 저장하지는 않는다(5분 뒤 죽는다).
+
+    심사가 끝난 요청은 document_path 가 NULL 이다(_clear_evidence). 그때는 404 다 —
+    "보관하지 않는다" 는 결정의 자연스러운 귀결이라 오류가 아니라 정상 상태다.
+    """
+    res = await asyncio.to_thread(
+        supabase_admin.table("business_verification_requests")
+        .select("document_path").eq("id", request_id).limit(1).execute
+    )
+    if not res.data:
+        raise HTTPException(status_code=404, detail="해당 요청을 찾을 수 없습니다.")
+    path = res.data[0].get("document_path")
+    if not path:
+        raise HTTPException(status_code=404, detail="첨부된 증빙이 없습니다.")
+
+    try:
+        signed = await asyncio.to_thread(
+            supabase_admin.storage.from_("business-documents").create_signed_url,
+            path,
+            _DOCUMENT_URL_TTL_SECONDS,
+        )
+    except Exception as exc:
+        logger.warning("verification_document_sign_failed", request_id=request_id, error=str(exc))
+        raise HTTPException(status_code=503, detail="증빙을 여는 데 실패했습니다.") from None
+
+    url = (signed or {}).get("signedURL") or (signed or {}).get("signed_url")
+    if not url:
+        logger.warning("verification_document_sign_empty", request_id=request_id)
+        raise HTTPException(status_code=503, detail="증빙을 여는 데 실패했습니다.")
+    return {"url": url, "expires_in": _DOCUMENT_URL_TTL_SECONDS}
+
+
 async def _clear_evidence(request_id: str, path: str | None) -> None:
     """심사가 끝나면 증빙을 지운다 — 인증 완료 후에는 보관하지 않는다는 결정.
 

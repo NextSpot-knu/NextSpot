@@ -313,3 +313,41 @@ def test_duplicate_detector_is_narrow(message, expected):
 )
 def test_missing_column_detector_is_narrow(message, expected):
     assert account._is_missing_requested_role(RuntimeError(message)) is expected
+
+
+# ── 증빙 경로 — 남의 서류를 자기 신청서에 붙일 수 없어야 한다 ───────────────
+# 스토리지 정책은 남의 uid 폴더에 **올리는** 것만 막는다. 이미 있는 남의 경로를 본문에 적어
+# 보내는 것은 서버가 막아야 한다 — 안 그러면 심사자 화면에 남의 사업자등록증이 이 신청서의
+# 증빙으로 붙어 보인다.
+
+
+def test_a_document_path_in_someone_elses_folder_is_rejected(request_client):
+    http, table = request_client
+    res = http.post("/api/v1/account/verification-requests", json={
+        "store_name": "가게", "contact": "010-0000-0000",
+        "requested_role": "merchant",
+        "document_path": "00000000-0000-4000-8000-999999999999/proof.jpg",
+    })
+    assert res.status_code == 422, f"남의 경로가 {res.status_code} 로 통과했다"
+    assert table.inserts == [], "거부했는데 신청서가 저장됐다"
+
+
+def test_own_document_path_is_accepted(request_client):
+    http, table = request_client
+    res = http.post("/api/v1/account/verification-requests", json={
+        "store_name": "가게", "contact": "010-0000-0000",
+        "requested_role": "merchant",
+        "document_path": "u1/proof.jpg",
+    })
+    assert res.status_code == 200
+    assert table.inserts[0]["document_path"] == "u1/proof.jpg"
+
+
+def test_no_document_is_still_allowed(request_client):
+    """관리자 신청에는 사업자등록증이 없다 — 증빙 없이도 접수돼야 한다."""
+    http, table = request_client
+    res = http.post("/api/v1/account/verification-requests", json={
+        "store_name": "소속", "contact": "010-0000-0000", "requested_role": "admin",
+    })
+    assert res.status_code == 200
+    assert table.inserts[0]["document_path"] is None
