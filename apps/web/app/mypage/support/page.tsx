@@ -14,8 +14,14 @@ export default function UserSupportForm() {
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formData, setFormData] = useState({ type: '앱 버그', title: '', content: '' });
+  // 기본값 = 익명 문의. RLS 정책 inquiries_insert_own_or_anonymous
+  // (supabase/migrations/20260904091000_inquiries_insert_ownership.sql)가 user_id 를
+  // "NULL 이거나 본인 auth.uid()"로만 받는다. 그래서 세션을 아직 모르거나(첫 렌더)
+  // 세션 조회가 실패한 상태에서 보낼 수 있는 유일하게 안전한 값이 NULL 이다.
   const [userId, setUserId] = useState<string | null>(null);
-  const [userName, setUserName] = useState<string>('사용자');
+  // user_name 은 NOT NULL 컬럼이라 익명일 때도 값이 필요하다. 화면에 그리는 문자열이
+  // 아니라 DB 로 보내는 값이므로 i18n 대상이 아니다(관리자 화면에서만 읽힌다).
+  const [userName, setUserName] = useState<string>('익명');
 
   useEffect(() => {
     async function loadUser() {
@@ -26,10 +32,10 @@ export default function UserSupportForm() {
           setUserId(session.user.id);
           const name = session.user.user_metadata?.full_name || session.user.email?.split('@')[0] || '사용자';
           setUserName(name);
-        } else {
-          setUserId("a2222222-2222-2222-2222-222222222222");
-          setUserName("임시 사용자");
         }
+        // 세션이 없으면 익명 문의로 남긴다 — 초기값(userId=null)을 그대로 쓴다.
+        // 예전에는 하드코딩 UUID("a2222222-…")를 보냈는데, 그건 남의 신원으로 문의를
+        // 넣는 것과 같아 새 정책이 거부한다.
       } catch (err) {
         console.warn('Failed to load user session:', err);
       }
