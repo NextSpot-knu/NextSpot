@@ -1,4 +1,4 @@
-from app.services.localdata import (
+from app.services.batch.localdata import (
     classify,
     find_duplicate,
     normalize_record,

@@ -28,7 +28,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 load_dotenv(ROOT / ".env")
 
-from app.services.localdata import find_duplicate, normalize_record  # noqa: E402
+from app.services.batch.localdata import find_duplicate, normalize_record  # noqa: E402
 
 
 def decode_csv(raw: bytes) -> str:

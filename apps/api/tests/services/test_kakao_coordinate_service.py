@@ -1,4 +1,4 @@
-from app.services.kakao_coordinate_service import choose_kakao_match
+from app.services.batch.kakao_coordinate_service import choose_kakao_match
 
 
 ROW = {

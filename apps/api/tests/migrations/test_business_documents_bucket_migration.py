@@ -8,7 +8,7 @@ from pathlib import Path
 
 
 def _sql() -> str:
-    root = Path(__file__).resolve().parents[3]
+    root = Path(__file__).resolve().parents[4]
     return (root / "supabase/migrations/20260904200000_business_documents_bucket.sql").read_text(
         encoding="utf-8"
     )

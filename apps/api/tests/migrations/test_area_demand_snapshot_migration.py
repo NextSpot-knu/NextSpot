@@ -2,21 +2,21 @@ from pathlib import Path
 
 
 def _migration_sql() -> str:
-    root = Path(__file__).resolve().parents[3]
+    root = Path(__file__).resolve().parents[4]
     return (
         root / "supabase/migrations/20260820220000_add_area_demand_snapshots.sql"
     ).read_text(encoding="utf-8")
 
 
 def _ten_minute_migration_sql() -> str:
-    root = Path(__file__).resolve().parents[3]
+    root = Path(__file__).resolve().parents[4]
     return (
         root / "supabase/migrations/20260824120000_area_demand_ten_minute_buckets.sql"
     ).read_text(encoding="utf-8")
 
 
 def _scheduler_migration_sql() -> str:
-    root = Path(__file__).resolve().parents[3]
+    root = Path(__file__).resolve().parents[4]
     return (
         root / "supabase/migrations/20260824130000_schedule_area_demand_collection.sql"
     ).read_text(encoding="utf-8")
@@ -45,7 +45,7 @@ def test_area_demand_lots_are_idempotent_children_and_service_only():
 
 
 def test_reset_builder_drops_area_demand_children_before_parent():
-    root = Path(__file__).resolve().parents[3]
+    root = Path(__file__).resolve().parents[4]
     builder = (root / "scripts/build_reset.mjs").read_text(encoding="utf-8")
 
     child_drop = "DROP TABLE IF EXISTS public.area_demand_snapshot_lots CASCADE;"
@@ -127,7 +127,7 @@ def test_scheduler_configuration_rpc_is_service_only_and_rotates_vault_values():
 
 
 def test_collection_workflow_is_manual_recovery_only():
-    root = Path(__file__).resolve().parents[3]
+    root = Path(__file__).resolve().parents[4]
     collector = (root / ".github/workflows/collect-area-demand.yml").read_text(
         encoding="utf-8"
     )

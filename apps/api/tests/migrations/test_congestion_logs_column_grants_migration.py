@@ -11,7 +11,7 @@ PUBLIC = ("id", "facility_id", "timestamp", "current_count", "congestion_level",
 
 
 def _sql() -> str:
-    root = Path(__file__).resolve().parents[3]
+    root = Path(__file__).resolve().parents[4]
     return (root / "supabase/migrations/20260905090000_congestion_logs_column_grants.sql").read_text(
         encoding="utf-8"
     )

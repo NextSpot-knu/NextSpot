@@ -10,7 +10,7 @@ from pathlib import Path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.core.supabase import supabase_admin
-from app.services.kakao_coordinate_service import reconcile_row_coordinate
+from app.services.batch.kakao_coordinate_service import reconcile_row_coordinate
 from app.services.spot.travel import calculate_haversine_distance
 
 

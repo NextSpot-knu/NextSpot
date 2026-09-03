@@ -1,4 +1,4 @@
-from app.services.tourism_demand_evaluation import (
+from app.services.batch.tourism_demand_evaluation import (
     attach_and_measure_tourism_coverage,
     evaluate_tourism_demand_impact,
 )

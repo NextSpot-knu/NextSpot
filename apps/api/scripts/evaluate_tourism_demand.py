@@ -14,7 +14,7 @@ sys.path.insert(0, str(ROOT))
 
 from app.core.supabase import supabase_admin
 from app.routers.infrastructures import fetch_active_facilities
-from app.services.tourism_demand_evaluation import (
+from app.services.batch.tourism_demand_evaluation import (
     attach_and_measure_tourism_coverage,
     evaluate_tourism_demand_impact,
 )

@@ -59,8 +59,8 @@ from app.services.tourapi.transform import (
 # area_based_sync_list 도 패키지 __init__ 재노출 범위 밖(client.py 는 수정 금지 대상이라 __init__.py 도
 # 건드리지 않고 위 transform.py 함수들과 동일하게 서브모듈에서 직접 임포트).
 from app.services.tourapi.client import area_based_sync_list
-from app.services.wikimedia import find_reusable_place_image
-from app.services.kakao_coordinate_service import reconcile_row_coordinate
+from app.services.batch.wikimedia import find_reusable_place_image
+from app.services.batch.kakao_coordinate_service import reconcile_row_coordinate
 
 # 경주 황리단길 기준좌표 (docs/archive/NEXTSPOT_PIVOT.md — 초기 서비스 지역)
 DEFAULT_LAT = 35.8361

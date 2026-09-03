@@ -11,7 +11,7 @@ import re
 from pathlib import Path
 
 
-ROOT = Path(__file__).resolve().parents[3]
+ROOT = Path(__file__).resolve().parents[4]
 MIGRATIONS = ROOT / "supabase" / "migrations"
 MIGRATION = MIGRATIONS / "20260904090000_account_deletion_fk_fix.sql"
 

@@ -1,7 +1,7 @@
 from pathlib import Path
 
 
-ROOT = Path(__file__).resolve().parents[3]
+ROOT = Path(__file__).resolve().parents[4]
 MIGRATION = ROOT / "supabase/migrations/20260821140000_deactivate_unverified_demo_facilities.sql"
 
 
