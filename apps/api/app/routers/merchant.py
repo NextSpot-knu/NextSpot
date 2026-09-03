@@ -23,8 +23,16 @@
   - 좌석 상태(facilities.features.seat_status): **30분 이내로 신선할 때만**
     merchant_boost._apply_seat_status_boost 가 '현재 혼잡'을 대체(low=0.15/mid=0.5/full=0.9).
     30분을 넘긴 값은 무시된다.
-  적용 호출부(확인된 3곳): recommendations.py:370 · courses.py:245 · coupon_service.py:55
-  (쿠폰 발급 시점의 유효 쿠폰율 재확인). 그 외 경로에는 적용되지 않는다.
+  적용 호출부 4곳(2026-09-03 재확인 — 줄 번호는 또 낡으므로 **함수명**을 정본으로 본다):
+    · recommendations.get_recommendations    — POST /recommendations (메인 분산 추천), :379
+    · recommendations._recommend_by_type     — POST /recommendations/by-type, :767
+    · courses._build_course                  — POST /courses/recommend, :299
+    · coupon_service.issue_coupon_if_partner — 쿠폰 발급 시점의 유효 쿠폰율 재확인, :55
+  네 곳 모두 **후보 확정 직후·스코어링 이전**에 얹는다 — 점수 계산 뒤에 얹으면 랭킹에
+  반영되지 않는다. 메인 추천 호출부는 2026-09-03 에 새로 채웠다: 그전까지 이 자리에 있던
+  "확인된 3곳: recommendations.py:370" 은 by-type 쪽만 가리키고 있었고(그나마 줄 번호도
+  낡았다), 그래서 타임세일이 **메인 추천 랭킹에는 전혀 반영되지 않았다**.
+  그 외 경로에는 적용되지 않는다.
 """
 import asyncio
 import hmac

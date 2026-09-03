@@ -33,15 +33,23 @@ class _FakeResult:
 class _FilterableQuery:
     """merchant_timesales 쿼리 체이닝을 실제로 필터링하는 미니 Fake(blind pass-through 아님)."""
 
-    def __init__(self, rows):
+    def __init__(self, rows, seen=None):
         self._rows = list(rows)
+        self._seen = seen
 
     def select(self, *_args, **_kwargs):
         return self
 
+    def __init_seen__(self):  # pragma: no cover - 아래 __init__ 에서 대체됨
+        pass
+
     def in_(self, col, values):
-        vs = set(values)
-        self._rows = [r for r in self._rows if r.get(col) in vs]
+        vs = list(values)
+        # URL 길이 한계는 페이크에 없다. 그래서 '몇 개를 한 번에 실었는가' 를 기록해 두지
+        # 않으면, 청크를 안 해도 테스트가 통과한다(검사하지 않는 테스트가 된다).
+        if self._seen is not None:
+            self._seen.append(len(vs))
+        self._rows = [r for r in self._rows if r.get(col) in set(vs)]
         return self
 
     def is_(self, col, value):
@@ -64,10 +72,12 @@ class _FilterableQuery:
 class _FakeTimesaleClient:
     def __init__(self, rows):
         self._rows = rows
+        # in_ 에 한 번에 실린 id 개수들. 청크 검사가 이 값을 본다.
+        self.in_sizes: list[int] = []
 
     def table(self, name):
         assert name == "merchant_timesales"
-        return _FilterableQuery(self._rows)
+        return _FilterableQuery(self._rows, self.in_sizes)
 
 
 class _RaisingClient:
@@ -144,6 +154,36 @@ async def test_timesale_query_scoped_to_requested_ids_only():
     out = await apply_merchant_boosts(_FakeTimesaleClient(rows), [_facility("f-1", coupon_rate=0.1)])
     assert out[0]["coupon_rate"] == 0.1
     assert "timesale_rate" not in out[0]
+
+
+@pytest.mark.asyncio
+async def test_timesale_ids_are_chunked_for_the_url_limit():
+    """PostgREST 의 in.(...) 는 URL 에 들어간다. 후보 id 를 한 번에 다 실으면 길이 한계에
+    걸리고, 그 실패는 merchant_boost 가 삼켜서 **부스트만 조용히 빠진다** — 장애로 보이지
+    않아 더 오래 간다.
+
+    by-type 경로는 타입 필터가 먼저 걸려 후보가 수십 곳이라 드러나지 않았는데, 메인 추천이
+    이 오버레이를 타게 되면서(타입 필터 없이 1km bbox 전체) 실제로 도달 가능해졌다."""
+    now = datetime.now(timezone.utc)
+    facilities = [_facility(f"f-{i}") for i in range(380)]
+    # 마지막 조각에 들어가는 시설에 세일을 건다 — 조각을 하나라도 빠뜨리면 실패한다.
+    rows = [{
+        "facility_id": "f-379", "rate": 0.4,
+        "starts_at": _iso(now - timedelta(minutes=1)), "ends_at": _iso(now + timedelta(minutes=59)),
+        "canceled_at": None,
+    }]
+    client = _FakeTimesaleClient(rows)
+    out = await apply_merchant_boosts(client, facilities)
+
+    by_id = {f["id"]: f for f in out}
+    assert by_id["f-379"]["timesale_rate"] == 0.4, "마지막 조각의 세일이 반영되지 않았다"
+
+    from app.services.merchant_boost import _TIMESALE_ID_CHUNK
+    assert len(facilities) > _TIMESALE_ID_CHUNK, "조각이 하나뿐이면 이 테스트는 아무것도 검사하지 않는다"
+    # 핵심 단언 — 한 번에 실은 id 수가 상한을 넘지 않아야 한다. 청크를 되돌리면 380 이 되어 실패한다.
+    assert client.in_sizes, "in_ 이 한 번도 호출되지 않았다"
+    assert max(client.in_sizes) <= _TIMESALE_ID_CHUNK, f"한 번에 {max(client.in_sizes)}개를 실었다"
+    assert sum(client.in_sizes) == len(facilities), "조각을 합쳐도 후보 전체가 되지 않는다"
 
 
 # =========================================================================

@@ -16,6 +16,27 @@ router = APIRouter(prefix="/api/v1", tags=["infrastructures"])
 # 혼잡 로그 신선도 임계(시간) — 최신 로그 나이가 이보다 크면 is_stale=True(신뢰도 낮음 표기).
 _STALE_AFTER_HOURS = 24
 
+# ── 데모 '피크타임 모의 발생'(simulate_peak) 파라미터 ─────────────────────────
+# 혼잡 구간 배정 비율(여유/보통/나머지=혼잡). **비율**인 것이 핵심이다.
+#
+# 원래는 절대 인덱스였다: idx<15 여유, idx<30 보통, 그 밖은 전부 혼잡. 작성 당시 시설이
+# 40곳쯤이라 15/15/10 이 곧 37%/37%/25% 였고 시연 화면이 고르게 보였다. 그런데 시설이
+# 늘면서 앞 30곳만 여유·보통이고 **나머지가 전부 혼잡**이 됐다 — 2026-09-03 실측 1,660곳
+# 기준 1,630곳(98%)이 빨간 점이라, 관제 히트맵이 온통 빨갛게 물들어 데모가 못 쓰게 됐다.
+# 시설 수가 어떻게 변하든 그림이 유지되도록 비율로 고정한다.
+_SIMULATE_RELAXED_RATIO = 0.40   # 여유
+_SIMULATE_NORMAL_RATIO = 0.35    # 보통 (나머지 ≈25% 가 혼잡)
+
+# congestion_logs INSERT 배치 크기(행 수).
+#
+# 예전엔 10행씩이라 1,660곳이면 **순차 166 왕복**이었다 — Render 무료 인스턴스(콜드 스타트가
+# 잦고 왕복 지연이 큼)에서 이 엔드포인트만 몇 분씩 잡아먹었다. 그렇다고 한 번에 다 보내면
+# PostgREST/Kong 앞단의 요청 본문 크기 한계에 걸릴 수 있다.
+# 한 행은 {facility_id(uuid), congestion_level, current_count, source, timestamp} 뿐이라
+# JSON 으로 약 150바이트다 → 500행이면 약 75KB 로, 흔한 본문 상한(1MB 안팎)에 한참 못 미친다.
+# 1,660곳 기준 왕복이 166회에서 4회로 줄어든다.
+_SIMULATE_INSERT_CHUNK = 500
+
 
 def _is_stale(timestamp: str | None, *, now: datetime | None = None) -> bool:
     """최신 혼잡 로그의 나이가 _STALE_AFTER_HOURS 를 초과하는지 판정한다.
@@ -330,7 +351,11 @@ async def get_infrastructures(
 async def simulate_peak(admin_claims: dict = Depends(require_role(ROLE_ADMIN))):
     """
     데모 전용 피크타임 혼잡도 데이터 모의 발생 API. (관리자 전용 — require_role(ROLE_ADMIN) 으로 보호)
-    실행 시 모든 시설에 대해 실시간 랜덤 혼잡 로그(여유 15개, 보통 15개, 혼잡 10개)를 생성 및 DB에 삽입합니다.
+
+    전 시설을 무작위로 섞은 뒤 **비율**로 구간을 배정해 혼잡 로그를 1건씩 만들고 삽입한다:
+    앞 40% 여유(0.05~0.28) · 다음 35% 보통(0.35~0.65) · 나머지 약 25% 혼잡(0.72~0.95).
+    (예전 독스트링의 "여유 15개, 보통 15개, 혼잡 10개" 는 시설이 40곳이던 시절의 절대 개수라
+     지금은 사실이 아니다 — _SIMULATE_RELAXED_RATIO 위 주석 참조.)
     """
     try:
         # 1. 모든 시설 목록 가져오기
@@ -348,21 +373,28 @@ async def simulate_peak(admin_claims: dict = Depends(require_role(ROLE_ADMIN))):
         
         logs = []
         now_str = datetime.now(timezone.utc).isoformat()
-        
+
+        # 구간 경계는 전체 시설 수에 대한 **비율**로 잡는다(절대 인덱스 금지 — 위 상수 주석 참조).
+        # 시설이 아주 적어도 인덱스가 깨지지 않는다: int() 내림이라 경계는 항상 0..len 안이고,
+        # 남는 시설은 뒤 구간이 흡수한다(예: 3곳 → 여유 1 · 보통 1 · 혼잡 1).
+        total = len(shuffled)
+        relaxed_end = int(total * _SIMULATE_RELAXED_RATIO)
+        normal_end = relaxed_end + int(total * _SIMULATE_NORMAL_RATIO)
+
         for idx, f in enumerate(shuffled):
             fid = f["id"]
             capacity = f["capacity"]
-            
-            if idx < 15:
+
+            if idx < relaxed_end:
                 # 여유 (0.05 ~ 0.28)
                 level = round(random.uniform(0.05, 0.28), 2)
-            elif idx < 30:
+            elif idx < normal_end:
                 # 보통 (0.35 ~ 0.65)
                 level = round(random.uniform(0.35, 0.65), 2)
             else:
                 # 혼잡 (0.72 ~ 0.95)
                 level = round(random.uniform(0.72, 0.95), 2)
-                
+
             current_count = int(capacity * level)
             # 데모 시뮬 로그는 'simulated' 로 정직하게 기록한다(실 CCTV/제보가 아님 — source 정직화).
             source = "simulated"
@@ -375,10 +407,10 @@ async def simulate_peak(admin_claims: dict = Depends(require_role(ROLE_ADMIN))):
                 "timestamp": now_str
             })
             
-        # 3. DB에 INSERT (10개 청크씩)
+        # 3. DB에 INSERT (_SIMULATE_INSERT_CHUNK 행씩 — 왕복 횟수를 줄이는 것이 목적)
         inserted_count = 0
-        for i in range(0, len(logs), 10):
-            chunk = logs[i:i+10]
+        for i in range(0, len(logs), _SIMULATE_INSERT_CHUNK):
+            chunk = logs[i:i + _SIMULATE_INSERT_CHUNK]
             # service_role 로 INSERT (anon 은 congestion_logs RLS 로 거부됨)
             res_insert = await asyncio.to_thread(supabase_admin.table("congestion_logs").insert(chunk).execute)
             inserted_count += len(res_insert.data or [])

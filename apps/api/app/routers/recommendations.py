@@ -368,6 +368,16 @@ async def get_recommendations(
             # 요청 전용 메타데이터다. 공유 시설 캐시의 원본 dict를 오염시키지 않는다.
             f = {**f, "discovery_theme_match": match}
         eligible.append(f)
+
+    # 활성 타임세일과 신선 좌석 상태를 점수 입력 전에 오버레이한다.
+    #
+    # 여기(후보 확정 직후, 도보 경로/스코어링 이전)여야 하는 이유: 오버레이는 score.py 가 읽는
+    # 입력값(coupon_rate·'현재 혼잡')을 바꿔치기하는 방식이라, 점수 계산 뒤에 얹으면 랭킹에
+    # 반영되지 않는다. _recommend_by_type 의 호출 지점·인자와 동일하게 맞춘다 —
+    # 두 추천 경로가 같은 사장님 신호를 같은 순서로 소비해야 결과가 갈리지 않는다.
+    # (원본 dict 를 건드리지 않는 얕은 복사본이 돌아오므로 공유 시설 캐시는 오염되지 않는다.)
+    eligible = await apply_merchant_boosts(supabase_client, eligible)
+
     routes = await get_walking_routes(
         req.user_lat, req.user_lng,
         [(float(f["latitude"]), float(f["longitude"])) for f in eligible],
@@ -425,12 +435,24 @@ async def get_recommendations(
         )
 
     async def _score_candidate(f: dict, route) -> dict:
-        # 혼잡 3단계 판정(CONGESTION_TRUST_SPEC) — 로그 없는 시설을 0.0(실측 여유)처럼 팔지 않는다.
-        evidence = await resolve_congestion_evidence(f, congestion_by_id.get(f["id"]))
+        # 신선한 좌석 상태 방송(30분 이내)이 있으면 congestion_logs 조회값 대신 사장 확인 실측을 쓴다
+        # (_recommend_by_type._score 와 동일 처리 — 두 경로가 같은 근거 dict 를 만든다).
+        override = f.get(CONGESTION_OVERRIDE_KEY)
+        if override is not None:
+            # 사장님이 방금 확인한 좌석 상태 — 실측으로 취급(프런트 배지는 seat_status_fresh 가 담당).
+            evidence = {
+                "level": override, "source": "measured", "log_source": "merchant_seat",
+                "current_count": None, "evidence_tier": "verified", "is_stale": False,
+                "timestamp": (f.get("seat_status_fresh") or {}).get("updated_at"),
+            }
+        else:
+            # 혼잡 3단계 판정(CONGESTION_TRUST_SPEC) — 로그 없는 시설을 0.0(실측 여유)처럼 팔지 않는다.
+            evidence = await resolve_congestion_evidence(f, congestion_by_id.get(f["id"]))
         candidate_congestion = evidence["level"]
         # 체감 혼잡도를 capacity×level 로 환산한 값은 실제 인원이 아니다. 계수형 소스가
         # 명시적으로 제공한 인원만 노출하고, 방문객·사장 정성 제보는 혼잡 단계만 보여준다.
         f = {**f, "current_count": evidence.get("current_count")}
+        f.pop(CONGESTION_OVERRIDE_KEY, None)  # 내부 전용 오버레이 키 — 응답 payload 에는 노출하지 않는다.
         score_res = await calculate_spot_score(
             user_id=req.user_id,
             preferred_categories=user_info.get("preferred_categories", []),

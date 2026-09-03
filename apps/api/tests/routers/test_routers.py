@@ -18,7 +18,12 @@ from app.core.config import settings
 from app.core.supabase import get_current_user
 from app.services.preference_vector_service import preference_vector_service
 from app.routers.recommendations import resolve_congestion_evidence
-from app.routers.infrastructures import _exact_current_count
+from app.routers.infrastructures import (
+    _SIMULATE_INSERT_CHUNK,
+    _SIMULATE_NORMAL_RATIO,
+    _SIMULATE_RELAXED_RATIO,
+    _exact_current_count,
+)
 from app.services.spot.travel import WalkingRoute, calculate_haversine_distance
 
 # --- 공통 상수 (경주 황리단길 좌표 기준 — 기존 서비스 테스트와 통일) ---
@@ -404,6 +409,112 @@ def test_recommendations_no_log_trained_model_reports_predicted(auth_client):
     assert "예상 혼잡도 42%" in item["reason"]
 
 
+# --- 2-1. 사장님 오버레이(머천트 랭킹 연동)가 메인 추천에도 걸리는지 -------------------
+# 배경: apply_merchant_boosts 호출부가 by-type/코스/쿠폰 발급 3곳에만 있어서, 사장님이 건
+# 타임세일이 **메인 분산 추천(POST /recommendations) 랭킹에는 전혀 반영되지 않았다**.
+# 아래 두 테스트가 그 회귀를 잠근다 — 오버레이가 '점수 계산 전에' 걸려야만 통과한다.
+
+
+def _timesale_row(facility_id: str, rate: float) -> dict:
+    """merchant_timesales 의 활성 세일 1행.
+
+    활성 판정(now ∈ [starts_at, ends_at] · canceled_at is null)은 PostgREST 필터로 나가고
+    FakeSupabase 는 그 체이닝을 전부 흡수하므로, 여기서는 facility_id·rate 만 의미가 있다.
+    """
+    return {
+        "facility_id": facility_id,
+        "rate": rate,
+        "starts_at": "2026-08-27T00:00:00+00:00",
+        "ends_at": "2026-08-28T00:00:00+00:00",
+        "canceled_at": None,
+    }
+
+
+def _run_main_reco(auth_client, facilities: list[dict], tables: dict, congestion_map: dict) -> dict:
+    """메인 추천을 1회 호출하고 시설 id → 응답 항목 맵을 돌려준다."""
+    with patch("app.routers.recommendations.fetch_user", new=AsyncMock(return_value=USER_ROW)), \
+         patch("app.routers.recommendations.fetch_facility", new=AsyncMock(return_value=ORIGIN_ROW)), \
+         patch("app.routers.recommendations.fetch_all_facilities", new=AsyncMock(return_value=[ORIGIN_ROW] + facilities)), \
+         patch("app.routers.recommendations.fetch_congestion_map", new=AsyncMock(return_value=congestion_map)), \
+         patch("app.routers.recommendations.get_model_info", return_value={"trained": True}), \
+         patch.object(preference_vector_service, "get_user_vector", new=AsyncMock(return_value=UNIT_VECTOR)), \
+         patch("app.routers.recommendations.generate_reason_with_source", new=AsyncMock(return_value=("사유", "template"))), \
+         patch("app.routers.recommendations.supabase_client", new=FakeSupabase(tables)):
+        res = auth_client.post("/api/v1/recommendations", json=_reco_body())
+    assert res.status_code == 200
+    return {item["facility"]["id"]: item for item in res.json()}
+
+
+def test_main_recommendations_apply_active_timesale_boost(auth_client):
+    """활성 타임세일이 메인 추천의 점수·응답 쿠폰율에 반영된다(같은 후보로 유/무 2회 비교).
+
+    쿠폰율은 score.py 의 인센티브 항 입력이므로, 오버레이가 스코어링 **전에** 걸려야만
+    spot_score 가 올라간다. 점수 계산 뒤에 얹으면 coupon_rate 표기만 바뀌고 점수는 그대로다.
+    """
+    near = [_facility("c-1", "cafe", 0.0002), _facility("c-2", "cafe", 0.0004)]
+    congestion_map = {f["id"]: _cong(0.2) for f in near}
+    recommendations_table = {"recommendations": [{"id": "rec-1"}]}
+
+    baseline = _run_main_reco(
+        auth_client, near, {**recommendations_table, "merchant_timesales": []}, congestion_map
+    )
+    boosted = _run_main_reco(
+        auth_client, near,
+        {**recommendations_table, "merchant_timesales": [_timesale_row("c-2", 0.25)]},
+        congestion_map,
+    )
+
+    assert set(baseline) == set(boosted) == {"c-1", "c-2"}
+    # 세일을 건 시설만 유효 쿠폰율이 갈아끼워지고 배지용 timesale_rate 가 붙는다.
+    assert baseline["c-2"]["facility"]["coupon_rate"] == pytest.approx(0.0)
+    assert boosted["c-2"]["facility"]["coupon_rate"] == pytest.approx(0.25)
+    assert boosted["c-2"]["facility"]["timesale_rate"] == pytest.approx(0.25)
+    # 점수에 실제로 반영된다(= 스코어링 전에 얹혔다).
+    assert boosted["c-2"]["spot_score"] > baseline["c-2"]["spot_score"]
+    assert boosted["c-2"]["breakdown"]["incentive_coupon"] > baseline["c-2"]["breakdown"]["incentive_coupon"]
+    # 세일 없는 이웃은 점수·쿠폰율 모두 그대로 — 오버레이가 후보 전체를 물들이지 않는다.
+    assert boosted["c-1"]["spot_score"] == pytest.approx(baseline["c-1"]["spot_score"])
+    assert "timesale_rate" not in boosted["c-1"]["facility"]
+    # 랭킹까지 뒤집힌다: c-2 는 c-1 보다 멀지만(거리 항 손해) 25% 세일이 그 손해를 넘어선다.
+    # baseline 에서는 가까운 c-1 이 1위였다 — 즉 이 뒤집힘 자체가 '세일이 랭킹에 반영됨'의 증거다.
+    assert baseline["c-1"]["rank"] == 1
+    assert boosted["c-2"]["rank"] == 1
+
+
+def test_main_recommendations_use_fresh_seat_status_as_measured_congestion(auth_client):
+    """30분 이내 좌석 상태 방송은 메인 추천에서도 '실측'으로 쓰이고, 내부 키는 새지 않는다.
+
+    by-type 의 _score 와 동일한 근거 dict(source=measured / log_source=merchant_seat)를 만들어야
+    두 추천 경로가 같은 혼잡 근거를 말한다. 내부 전용 오버레이 키는 응답에 노출되면 안 된다.
+    """
+    fresh = _facility("seat-1", "cafe", 0.0002)
+    # merchant_boost 는 실제 시각으로 신선도를 재므로(라우터 시계 고정과 무관) 실시간 기준 5분 전.
+    fresh["features"] = {
+        **fresh["features"],
+        "seat_status": {
+            "level": "full",
+            "updated_at": (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat(),
+        },
+    }
+    plain = _facility("seat-2", "cafe", 0.0004)
+
+    items = _run_main_reco(
+        auth_client, [fresh, plain],
+        {"recommendations": [{"id": "rec-1"}], "merchant_timesales": []},
+        {},  # 혼잡 로그 0건 — 오버레이가 없으면 congestion_source='none' 이 된다
+    )
+
+    assert items["seat-1"]["congestion_source"] == "measured"
+    assert items["seat-1"]["congestion_log_source"] == "merchant_seat"
+    assert items["seat-1"]["congestion_level"] == pytest.approx(0.9)  # full
+    assert items["seat-1"]["congestion_is_stale"] is False
+    assert items["seat-1"]["facility"]["seat_status_fresh"]["level"] == "full"
+    # 방송이 없는 이웃은 종전대로 '근거 없음'
+    assert items["seat-2"]["congestion_source"] == "none"
+    # 내부 전용 오버레이 키는 응답 payload 에 실리지 않는다.
+    assert all("_merchant_congestion_override" not in item["facility"] for item in items.values())
+
+
 # =========================================================================
 # 3. 타입별 추천(POST /api/v1/recommendations/by-type)
 # =========================================================================
@@ -737,6 +848,97 @@ def test_admin_simulate_peak_no_header_401(client):
     # infrastructures 라우터의 관리자 엔드포인트도 동일 가드로 보호된다
     res = client.post("/api/v1/admin/simulate-peak")
     assert res.status_code == 401
+
+
+# --- 5-1. 피크타임 모의 발생(POST /api/v1/admin/simulate-peak) — 비율 배정·배치 INSERT ---
+# 배경: 구간 배정이 절대 인덱스(idx<15 여유 / idx<30 보통 / 나머지 혼잡)였다. 시설이 40곳이던
+# 시절엔 균형 잡힌 시연 그림이었지만 2026-09-03 실측 1,660곳에서는 1,630곳(98%)이 혼잡으로
+# 찍혔다. 아래 테스트가 '시설 수가 늘어도 비율이 유지된다'를 잠근다.
+
+
+class _RecordingAdminSupabase:
+    """congestion_logs INSERT 를 청크 단위 그대로 기록하는 fake service_role 클라이언트."""
+
+    def __init__(self):
+        self.chunks: list[list[dict]] = []
+        self._pending: list[dict] = []
+
+    def table(self, name: str):
+        assert name == "congestion_logs"  # simulate_peak 이 쓰는 유일한 쓰기 테이블
+        return self
+
+    def insert(self, rows):
+        self._pending = list(rows)
+        self.chunks.append(self._pending)
+        return self
+
+    def execute(self):
+        # 라우터가 삽입 건수를 res.data 길이로 센다 — INSERT 반환 계약을 그대로 흉내 낸다.
+        return _FakeResult(self._pending)
+
+
+def _sim_facilities(count: int) -> list[dict]:
+    return [{"id": f"sim-{i}", "name": f"시설-{i}", "type": "cafe", "capacity": 50} for i in range(count)]
+
+
+def _sim_band(level: float) -> str:
+    """혼잡 레벨을 구간 이름으로 되돌린다(세 구간의 값 범위는 서로 겹치지 않는다)."""
+    if level <= 0.28:
+        return "relaxed"   # 0.05 ~ 0.28
+    if level <= 0.65:
+        return "normal"    # 0.35 ~ 0.65
+    return "crowded"       # 0.72 ~ 0.95
+
+
+def _run_simulate_peak(client, facility_count: int) -> _RecordingAdminSupabase:
+    admin_client = _RecordingAdminSupabase()
+    with patch("app.routers.infrastructures.supabase_client", new=FakeSupabase({"facilities": _sim_facilities(facility_count)})), \
+         patch("app.routers.infrastructures.supabase_admin", new=admin_client):
+        res = client.post("/api/v1/admin/simulate-peak", headers=_admin_headers())
+    assert res.status_code == 200
+    return admin_client
+
+
+def _band_counts(admin_client: _RecordingAdminSupabase) -> dict:
+    counts = {"relaxed": 0, "normal": 0, "crowded": 0}
+    for chunk in admin_client.chunks:
+        for row in chunk:
+            counts[_sim_band(row["congestion_level"])] += 1
+    return counts
+
+
+def test_simulate_peak_splits_bands_by_ratio_not_absolute_index(client):
+    # 100곳 → 40/35/25. 옛 절대 인덱스였다면 15/15/70 이 됐다.
+    counts = _band_counts(_run_simulate_peak(client, 100))
+    assert counts == {"relaxed": 40, "normal": 35, "crowded": 25}
+
+
+def test_simulate_peak_keeps_ratio_as_facility_count_grows(client):
+    # 시설이 12배로 늘어도 비율은 그대로다(= 혼잡이 전체를 삼키지 않는다).
+    total = 1200
+    counts = _band_counts(_run_simulate_peak(client, total))
+    assert counts["relaxed"] == int(total * _SIMULATE_RELAXED_RATIO)
+    assert counts["normal"] == int(total * _SIMULATE_NORMAL_RATIO)
+    assert counts["crowded"] == total - counts["relaxed"] - counts["normal"]
+    # 혼잡 비중이 사실상 전부였던 회귀를 직접 잠근다(옛 코드에서는 1,170/1,200 = 97.5%).
+    assert counts["crowded"] / total == pytest.approx(0.25, abs=0.01)
+
+
+def test_simulate_peak_inserts_in_large_batches(client):
+    # 1,200행이 10행씩이면 순차 120 왕복이다. Render 무료 인스턴스에서 그 왕복이 비용의 전부라
+    # 굵은 배치로 묶는다 — 청크당 상한은 지키되(_SIMULATE_INSERT_CHUNK) 왕복은 3회로 준다.
+    admin_client = _run_simulate_peak(client, 1200)
+    assert len(admin_client.chunks) == 3
+    assert [len(chunk) for chunk in admin_client.chunks] == [500, 500, 200]
+    assert all(len(chunk) <= _SIMULATE_INSERT_CHUNK for chunk in admin_client.chunks)
+
+
+def test_simulate_peak_survives_tiny_facility_count(client):
+    # 시연용 소규모 환경(시설 3곳)에서도 인덱스가 깨지지 않고 세 구간이 하나씩 나온다.
+    assert _band_counts(_run_simulate_peak(client, 3)) == {"relaxed": 1, "normal": 1, "crowded": 1}
+    # 1곳뿐이어도 500 에러가 아니라 로그 1건이 나간다(경계식이 음수/역전되지 않는다).
+    single = _run_simulate_peak(client, 1)
+    assert sum(len(chunk) for chunk in single.chunks) == 1
 
 
 # =========================================================================

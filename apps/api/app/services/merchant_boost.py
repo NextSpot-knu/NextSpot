@@ -54,6 +54,11 @@ async def apply_merchant_boosts(client, facilities: list[dict]) -> list[dict]:
     return overlaid
 
 
+# in.(...) 한 조각에 실을 id 수. availability_service._AVAILABILITY_ID_CHUNK 와 같은 값이다
+# (같은 PostgREST URL 길이 한계를 상대한다).
+_TIMESALE_ID_CHUNK = 150
+
+
 async def _apply_timesale_boost(client, facilities: list[dict]) -> list[dict]:
     """활성 타임세일(now ∈ [starts_at, ends_at], canceled_at is null)을 한 번의 쿼리로 반영."""
     ids = [f["id"] for f in facilities if f.get("id")]
@@ -61,20 +66,36 @@ async def _apply_timesale_boost(client, facilities: list[dict]) -> list[dict]:
         return facilities
 
     now_iso = datetime.now(timezone.utc).isoformat()
-    try:
-        res = await asyncio.to_thread(
+
+    # id 를 나눠 싣는다. PostgREST 의 in.(...) 는 URL 에 들어가므로 후보가 많으면 길이 한계에
+    # 걸린다. 예전에는 한 번에 다 실었는데, 타입 필터가 먼저 걸리는 by-type 경로에서는 후보가
+    # 수십 곳이라 드러나지 않았다. 메인 추천이 이 오버레이를 타게 되면서(타입 필터 없이 1km
+    # bbox 전체) 후보가 수백 곳이 될 수 있고, 그때 요청이 실패하면 아래 except 가 삼켜
+    # **부스트만 조용히 빠진다** — 장애로 보이지 않아서 더 나쁘다.
+    # 조각 크기는 availability_service._AVAILABILITY_ID_CHUNK 와 같은 150 이다.
+    chunks = [ids[i:i + _TIMESALE_ID_CHUNK] for i in range(0, len(ids), _TIMESALE_ID_CHUNK)]
+
+    def _fetch(chunk: list[str]):
+        return (
             client.table("merchant_timesales")
             .select("facility_id, rate, starts_at, ends_at, canceled_at")
-            .in_("facility_id", ids)
+            .in_("facility_id", chunk)
             .is_("canceled_at", "null")
             .lte("starts_at", now_iso)
             .gte("ends_at", now_iso)
-            .execute
+            .execute()
         )
-        rows = res.data or []
+
+    rows: list[dict] = []
+    try:
+        # 순차로 돈다. 동시 요청을 늘리면 Supabase 커넥션이 끊겨 503 이 나는 것을 이미 겪었다
+        # (courses 간헐 실패, 2026-08-28). 조각이 몇 개 안 되므로 순차로 충분하다.
+        for chunk in chunks:
+            res = await asyncio.to_thread(_fetch, chunk)
+            rows.extend(res.data or [])
     except Exception as e:
         # 테이블 미존재(마이그레이션 미적용)/네트워크 오류 등 — 무해 폴백(원본 그대로).
-        logger.warning("merchant_boost_timesale_fetch_failed", error=str(e))
+        logger.warning("merchant_boost_timesale_fetch_failed", error=str(e), candidates=len(ids))
         return facilities
 
     # facility_id → 활성 타임세일 중 최댓값 rate(동시 다건이면 가장 후한 할인만 의미 있음).
