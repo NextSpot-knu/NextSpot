@@ -42,9 +42,15 @@ export default function SettingsPage() {
     setStatsLoading(true);
     try {
       // count(head:true)는 행을 받지 않아 매우 빠름. 3개 병렬.
+      //
+      // congestion_logs 는 `select('*')` 를 쓸 수 없다. 신원 컬럼(reporter_user_id,
+      // origin_outcome_id)을 브라우저 역할에서 가리려고 테이블 SELECT 를 걷고 공개 컬럼만
+      // 부여했는데(20260905090000), PostgreSQL 의 `*` 는 **모든 컬럼 권한을 요구**하므로
+      // 그대로 두면 이 줄만 권한 오류로 죽는다. 어차피 head:true 라 행을 받지 않으니
+      // 컬럼 하나면 충분하다.
       const [fac, log, last] = await Promise.all([
         supabase.from('facilities').select('*', { count: 'exact', head: true }),
-        supabase.from('congestion_logs').select('*', { count: 'exact', head: true }),
+        supabase.from('congestion_logs').select('id', { count: 'exact', head: true }),
         supabase.from('congestion_logs').select('timestamp').order('timestamp', { ascending: false }).limit(1),
       ]);
       setStats({
