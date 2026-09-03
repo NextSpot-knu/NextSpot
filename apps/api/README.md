@@ -3,20 +3,20 @@
 경주 관광 수요 분산·대안 장소 추천 엔진. 로컬 uvicorn(또는 컨테이너)으로 구동되며, 예측·추천·음성
 계층이 모두 로컬에서 동작한다. 데이터 저장소는 Supabase.
 
-> 대회용 GCP 네이티브 계층(Vertex AI Endpoint·BigQuery/BQML·Pub/Sub·Firestore·Secret Manager·
-> Cloud Run·API Gateway)은 모두 제거되었다. 기존에 폴백으로 존재하던 로컬 경로를 주 경로로 사용한다.
-
 ## 실행
 
-```bash
-cd apps/api
-pip install -r requirements.txt
-uvicorn app.main:app --reload --port 8000
+```powershell
+cd apps/api; $env:PYTHONUTF8 = "1"          # Python 3.11 고정 (CI·Dockerfile) — 3.14 는 websockets 호환 문제로 import 실패
+py -3.11 -m pip install -r requirements.txt -r requirements-dev.txt
+py -3.11 -m uvicorn app.main:app --reload --port 8000
 ```
 
-필수 환경변수(`apps/api/.env`, `.env.example` 복사):
-`SUPABASE_URL`, `SUPABASE_ANON_KEY`, `JWT_SECRET`, `ADMIN_API_TOKEN`(미설정 시 부팅 실패)
-(권장: `SUPABASE_SERVICE_ROLE_KEY` — 관리자 쓰기 경로에 필요 / 선택: `KAKAO_REST_API_KEY`, `ALLOWED_ORIGINS`).
+루트의 `.\run_local.ps1` 이 같은 일을 venv 우선으로 해준다. 상세는 `docs/LOCAL_RUN.md`.
+
+환경변수(`apps/api/.env`, `.env.example` 복사 — 전체 목록과 기본값은 `app/core/config.py`):
+- 필수(미설정 시 부팅 실패): `SUPABASE_URL` `SUPABASE_ANON_KEY` `JWT_SECRET` `ADMIN_API_TOKEN`
+- 권장: `SUPABASE_SERVICE_ROLE_KEY`(관리자 쓰기·수집·증빙 서명 URL) · 선택: `SERVICE_API_TOKEN`(기계 토큰 회전용),
+  `KAKAO_REST_API_KEY`, `TOURAPI_KEY`, `KMA_API_KEY`, `PARKING_API_KEY`, `UPSTAGE_API_KEY`(+`LLM_BASE_URL`/`LLM_MODEL`), `ALLOWED_ORIGINS`.
 
 ## 계층 구성
 
@@ -26,7 +26,7 @@ uvicorn app.main:app --reload --port 8000
 | 저장 | Supabase(PostgreSQL) — 시설·혼잡로그·추천·피드백·선호벡터 |
 | 예측 | 검증된 Storage 모델 또는 공개 지역 수요 규칙(임의 0.5 없음) |
 | 추천 사유 | 결정적 한국어 템플릿 |
-| 음성 의도 | 키워드 분류기 |
+| 음성 의도 | 키워드 분류기 + 미해결 발화만 Upstage Solar 보조(키 없으면 키워드만) |
 
 모든 보조 경로는 입력이 없거나 모델이 없어도 안전하게 폴백한다(데모 무중단).
 
@@ -63,9 +63,10 @@ python scripts/train.py    # 검증 관측 → 후보 모델 평가 → Registry
 어긋나면 통째로 버리고 템플릿 원문을 쓴다. 즉 LLM 은 사실을 만들 수 없고, 호출이 실패하거나
 느려도(개별 1.5초 제한) 결과는 템플릿 그대로다.
 
-## 음성 비서 — 키워드 의도
+## 음성 비서 — 키워드 의도 (+ Solar 보조)
 
-`POST /api/v1/voice/turn` (무인증) — 발화를 키워드로 분류한다:
+`POST /api/v1/voice/turn` (무인증, IP 쿨다운) — 발화를 먼저 키워드로 분류하고, 분류되지 않은 자유 발화만
+`UPSTAGE_API_KEY` 가 있을 때 Solar 에게 묻는다(2026-07-17 도입 — 실패·타임아웃이면 키워드 결과 유지). 의도 종류:
 `accept / next / reject / details / select(서수 지정) / filter(메뉴·종류) / stop / unknown`.
 filter 의 후보 매칭은 `embedding_service.filter_candidates` 가 후보 이름·종류(cuisine)에 대한
 부분문자열 매칭으로 결정한다(임베딩/벡터검색 없음).
@@ -83,7 +84,7 @@ filter 의 후보 매칭은 `embedding_service.filter_candidates` 가 후보 이
 - `GET /api/v1/area-demand/status` — 경주시 ITS 실시간 주차 데이터 커버리지
 - `GET /api/v1/area-demand/parking-lots` — 반경 내 공영주차장과 실제 잔여면(없으면 null)
 - `GET /api/v1/search/places` — 상호·메뉴·음식 종류의 Kakao 장소 검색(경주 8km)
-- `POST /api/v1/area-demand/snapshots/collect` — 현재 실측을 10분 버킷으로 멱등 저장(관리자 헤더)
+- `POST /api/v1/area-demand/snapshots/collect` — 현재 실측을 10분 버킷으로 멱등 저장(기계 토큰 `X-Service-Token` 또는 admin JWT)
 - `POST /api/v1/recommendations` — 혼잡한 원본 장소의 대안 추천(반경 150m)
 - `POST /api/v1/recommendations/by-type` — 타입별 랭킹(메인 지도 브라우즈)
 - `POST /api/v1/feedback` — 수락/거절 피드백 → 선호 벡터 보정
@@ -104,13 +105,13 @@ filter 의 후보 매칭은 `embedding_service.filter_candidates` 가 후보 이
    `supabase/migrations/20260824130000_schedule_area_demand_collection.sql`을 순서대로 실행한다.
 2. Supabase Vault에 `nextspot_area_demand_api_url`과
    `nextspot_area_demand_admin_token`을 만든다. URL 값은 수집 API 전체 주소이고, 토큰 값은
-   Render의 기존 `ADMIN_API_TOKEN`과 동일한 값이다. service-role 전용
+   Render의 `SERVICE_API_TOKEN`(없으면 `ADMIN_API_TOKEN`)과 같은 값이다. service-role 전용
    `configure_area_demand_collection` RPC로 최초 설정·회전하며, 키를 새로 만들거나 migration에 적지 않는다.
 3. `cron.job`에서 `nextspot-area-demand-primary`와 `nextspot-area-demand-retry`가
    `active=true`인지 확인한다.
 4. 다음 본 실행·재시도 시각 뒤 `cron.job_run_details`, `net._http_response`와
    `area_demand_snapshots`·`area_demand_snapshot_lots`가 함께 생성됐는지 확인한다.
-5. 수동 복구를 유지하려면 GitHub Actions의 기존 `ADMIN_API_TOKEN`,
+5. 수동 복구를 유지하려면 GitHub Actions의 `SERVICE_API_TOKEN`(없으면 `ADMIN_API_TOKEN`),
    `BACKEND_HEALTH_URL`, `AREA_DEMAND_COLLECTION_ENABLED=true` 설정을 그대로 둔다.
 
 저장 함수 `record_area_demand_snapshot`는 시점별 집계와 주차장별 원본을 한 트랜잭션에서

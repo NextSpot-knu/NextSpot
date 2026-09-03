@@ -1,99 +1,98 @@
-# NextSpot 배포 & 환경변수 매뉴얼
+# 배포 & 환경변수
 
-> 한 번만 설정하면 됩니다. ① Supabase 스키마 교체 → ② 환경변수 등록 → ③ Vercel 연결.
+배포 대상 3곳(Supabase · Render · Vercel)과 GitHub Actions에 **어떤 이름의 값이 어디에 있어야 하는지**의 정본.
+값은 여기 적지 않는다 — 이름만. 지금 무엇이 배포돼 있는지는 [`HANDOVER.md`](./HANDOVER.md).
 
----
+## 0. 한눈에
 
-## 1. Supabase 설정 (앱이 데이터로 돌아가려면 필수)
-
-NextSpot의 모든 데이터(장소·혼잡도·추천)는 **Supabase**(클라우드 PostgreSQL)에 저장됩니다.
-팀원 프로젝트에는 옛 **InduSpot(구미 산업) 데이터**가 들어 있으므로, **경주 관광용으로 한 번 갈아끼웁니다.**
-
-### 1-1. 스키마 교체 (1회, 약 2분) — *Supabase 대시보드 접근 권한이 있는 사람이 실행*
-1. https://supabase.com 로그인 → 팀 프로젝트 선택
-2. 왼쪽 메뉴 **SQL Editor** → **New query**
-3. 레포의 **`supabase/RESET_AND_SETUP.sql`** 파일 내용을 **전체 복사 → 붙여넣기**
-4. 우측 하단 **Run**
-   → 구미 산업 스키마/데이터 **DROP** + 경주 관광 스키마·시드(16 POI + 7일 혼잡로그) **자동 생성**
-
-> ⚠️ 되돌릴 수 없습니다(기존 InduSpot 데이터 삭제). InduSpot은 더 안 쓰므로 OK.
-> DB 비밀번호 공유 불필요 — SQL Editor 접근만으로 끝.
-
-> 📌 **DB 셋업 경로 정리** (`docs/LOCAL_RUN.md` 와 공통 기준):
-> - **신규/초기화 셋업** = 위처럼 `supabase/RESET_AND_SETUP.sql` **1회 실행**.
-> - **기존 DB를 유지**해야 하면 대신 `supabase/migrations/*` 를 순차 적용(`supabase db push`).
-> - 기존 DB에는 2026-07-07 `security_hardening` 마이그레이션
->   (`supabase/migrations/20260707120000_security_hardening.sql`)을 **반드시** 적용하세요(RLS 보안 수정).
-> - `RESET_AND_SETUP.sql` 은 **자동 생성 파일**입니다(직접 수정 금지 — 스키마 변경은 migrations 에 추가 후 `node scripts/build_reset.mjs` 재실행).
-
-### 1-2. (선택) 예측 모델 학습
-스키마 적용 후 로컬에서 1회:
-```bash
-cd apps/api && python scripts/train.py    # Supabase 혼잡로그 → model.pkl
-```
-검증된 운영 모델이 없으면 임의 혼잡 숫자를 만들지 않고 `degraded_rules`로 동작하며, 취향·이동시간·
-혜택과 별도로 확보된 주변 수요 근거만 사용합니다.
-
-### 1-3. 계정·비밀번호 재설정 URL
-
-Supabase Dashboard → **Authentication → URL Configuration → Redirect URLs**에 OAuth와 복구 메일이
-공유하는 아래 콜백을 등록합니다.
-
-- `https://nextspot-nu.vercel.app/auth/callback`
-- 로컬 개발 시 `http://localhost:3000/auth/callback`
-
-복구 메일도 이 콜백에서 세션을 만든 뒤 안전한 내부 경로 `/auth/reset-password`로 이동하므로 별도
-Redirect URL은 필요 없습니다. 운영 DB에는 `20260825120000_atomic_account_merge.sql`까지 적용해야
-기존 계정 로그인 시 게스트의 저장 장소·추천·방문 결과·쿠폰·제보가 한 트랜잭션으로 승계됩니다.
-
----
-
-## 2. 환경변수 — "키를 어디에 넣나" (질문 답변)
-
-NextSpot은 **Supabase URL/키 + Kakao 지도 키**가 필요합니다. 저장 위치는 **용도별로 다릅니다:**
-
-| 용도 | 저장 위치 | 비고 |
+| 구성 | 무엇 | 트리거 |
 |---|---|---|
-| **로컬 개발** | `apps/api/.env` + `apps/web/.env.local` 파일 | `.gitignore`됨(커밋 안 됨). `.env.example` 복사 후 값 채우기 |
-| **Vercel 배포** | **Vercel 대시보드 → Project → Settings → Environment Variables** | ✅ **이게 "secret 등록"입니다.** 1회 등록 → 매 배포 자동 주입. 깃에 노출 X |
-| **GitHub Actions(Pages 쓸 때만)** | GitHub repo → Settings → Secrets → Actions | Actions 워크플로 전용. **Vercel 쓰면 불필요** |
+| Web | Vercel. 루트 `vercel.json`이 `npm run build --workspace=apps/web` → `apps/web/out` | `main` push 자동 |
+| API | Render Blueprint `render.yaml` (docker, `apps/api/Dockerfile`, healthCheck `/health`) | `main` push 자동 |
+| DB · Auth · Storage | Supabase 팀 프로젝트 | 마이그레이션은 사람이 적용 |
+| 10분 주차 실측 수집 | Supabase pg_cron → `POST /api/v1/area-demand/snapshots/collect` | 자동 |
+| TourAPI 적재 | GitHub Actions `ingest.yml` | 매일 KST 04:00 (`main`에서만) |
+| 모델 학습 후보 | GitHub Actions `train-recommendation-model.yml` | 매주 월 03:00 KST (`main`에서만) |
 
-> **❓ "env를 GitHub Secret으로 등록?"** → **Vercel을 쓰면 GitHub Secret이 아니라 `Vercel 환경변수`에 넣습니다.** 그게 Vercel판 "secret"이고, 깃에 노출되지 않는 안전한 저장소입니다.
-> GitHub Secret은 **GitHub Actions(=Pages 배포)** 일 때만 의미가 있습니다. 우리는 Vercel을 쓰므로 → **Vercel 환경변수**.
+## 1. Supabase
 
-**필요한 키** (기존 `Induspot/.env`에 이미 있음 — 그대로 복사):
-- 백엔드: `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `JWT_SECRET`
-- 프론트: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `NEXT_PUBLIC_KAKAO_MAPS_APP_KEY`, `NEXT_PUBLIC_FASTAPI_URL`
+### 1-1. 스키마
 
-> 💡 Vercel에 등록한 값을 로컬로 가져오기: `npx vercel env pull apps/web/.env.local` → 로컬 `.env`도 수동 관리 불필요.
+- **새 프로젝트**: `supabase/RESET_AND_SETUP.sql` 전체를 SQL Editor에 붙여넣고 1회 Run. 되돌릴 수 없다(전부 DROP 후 재생성).
+  시드 POI는 대부분 비활성(`unverified_demo_seed`)이라 실제 장소는 `ingest_tourapi.py` 적재로 채운다.
+- **기존 프로젝트**: `supabase/migrations/` 미적용분만 적용 → `HANDOVER.md` "마이그레이션 확인" 쿼리로 실측 →
+  `NOTIFY pgrst, 'reload schema';`(PostgREST 스키마 캐시 갱신 — 빼먹으면 새 컬럼을 한동안 못 본다).
+- `RESET_AND_SETUP.sql`은 자동 생성물 — 직접 수정 금지.
 
----
+### 1-2. Auth
 
-## 3. Vercel 자동 배포 (InduSpot과 동일 방식 · 팀원 Vercel 재사용)
+- Authentication → URL Configuration: **Site URL** = `https://nextspot-nu.vercel.app`,
+  **Redirect URLs** = `https://nextspot-nu.vercel.app/auth/callback`, `http://localhost:3000/auth/callback`
+  (OAuth와 비밀번호 재설정 메일이 같은 콜백을 쓴다. `/auth/reset-password`는 내부 이동이라 등록 불필요).
+- **Allow anonymous sign-ins = ON** — 게스트 세션이 이걸 쓴다. 꺼지면 수락·쿠폰·코스·제보가 401 폴백 상태가 된다.
+- Providers: Google(동의 화면 게시 필요), Kakao(비즈 앱 전환 전까지 `account_email` 스코프 오류 — `HANDOVER.md` 사람 작업).
 
-InduSpot도 **Vercel 대시보드에 레포를 연결**해 push 시 자동 배포한 방식입니다(레포에 배포 설정 파일이 따로 없었음). NextSpot도 동일하게:
+### 1-3. Storage (비공개 버킷 2개)
 
-1. **팀원 Vercel 계정**(InduSpot 쓰던 그 계정)으로 https://vercel.com 로그인
-2. **Add New → Project** → GitHub의 **`NextSpot-knu/NextSpot`** import
-   (InduSpot 프로젝트는 그대로 두고, NextSpot은 **새 프로젝트**로 추가 — 레포가 다르므로 재사용이 아니라 새로 import)
-3. **Root Directory = `apps/web`** 설정 (모노레포라 프론트 위치 지정) ← 중요
-4. **Environment Variables**에 위 `NEXT_PUBLIC_*` 키 입력
-5. **Deploy**
+- `recommendation-models` — 모델 아티팩트(`train.py`가 올리고 `model_registry`가 active 한 건을 가리킨다).
+- `business-documents` — 사업자등록증 증빙(마이그레이션 `20260904200000`이 생성, 서명 URL로만 접근).
 
-→ 이후 **`main` 브랜치에 push할 때마다 자동 배포.** URL은 `nextspot-xxx.vercel.app`(또는 커스텀 도메인).
+### 1-4. Vault + pg_cron — 10분 주차 실측 수집
 
-> **GitHub Pages와 차이:** Pages는 `nextspot-knu.github.io/NextSpot` 같은 **서브경로 링크** + `basePath` 설정이 필요해 번거롭습니다. Vercel은 **루트 도메인(`*.vercel.app`)** 이라 깔끔 → **Vercel 권장**.
+- Vault 비밀 2개: `nextspot_area_demand_api_url`(수집 API 전체 주소), `nextspot_area_demand_admin_token`
+  (Render의 `SERVICE_API_TOKEN`과 같은 값 — 없으면 `ADMIN_API_TOKEN`).
+- 최초 설정·회전은 service-role 전용 RPC `configure_area_demand_collection`으로 한다. 값을 마이그레이션에 적지 않는다.
+- `cron.job`: `nextspot-area-demand-primary`(매시 3·13·…·53분), `nextspot-area-demand-retry`(6·16·…·56분, 버킷이 비었을 때만).
+  확인: `cron.job.active`, `cron.job_run_details`, `area_demand_snapshots` 증가.
 
-### 브랜치 전략
-- **`main`** = 배포되는 안정 브랜치 (Vercel이 `main`을 자동 배포)
-- **`feature/seungyong`** = 작업 브랜치. 완성되면 `main`으로 merge → 자동 배포
-- Vercel은 **feature 브랜치도 프리뷰 배포**를 자동 생성 → main 머지 전 미리보기 가능
+## 2. Render — API
 
----
+1. Render → New → **Blueprint** → `NextSpot-knu/NextSpot` 연결 → `render.yaml` 인식 → 서비스 `nextspot-api`.
+2. env는 전부 `sync: false`라 **대시보드에서 직접 입력**한다.
 
-## 4. ⚠️ 백엔드(FastAPI)는 별도 호스팅 필요
+| 구분 | 키 |
+|---|---|
+| 필수 | `SUPABASE_URL` `SUPABASE_ANON_KEY` `SUPABASE_SERVICE_ROLE_KEY` `JWT_SECRET` `ADMIN_API_TOKEN` `ALLOWED_ORIGINS` |
+| 선택 | `SERVICE_API_TOKEN`(토큰 회전용 — `render.yaml`에 없으니 대시보드에서 추가) `TOURAPI_KEY` `KMA_API_KEY` `PARKING_API_KEY` `KAKAO_REST_API_KEY` `UPSTAGE_API_KEY` `LLM_BASE_URL` `LLM_MODEL` |
 
-Vercel은 **프론트(Next.js)만** 배포합니다. 추천 API(`apps/api`, FastAPI)는:
-- `main/page` 추천: 백엔드 미가용 시 **클라이언트 미러(lib/recommender.ts)로 폴백** → 지도/추천 동작
-- `explore/recommend` 상세 추천: **FastAPI 필요** → Render/Railway/Fly.io 등에 별도 배포 후 `NEXT_PUBLIC_FASTAPI_URL` 지정
-- (백엔드 미배포 시 explore/recommend는 빈 추천 상태. 데모는 main 지도 중심으로 가능)
+- `ALLOWED_ORIGINS`에 Vercel 도메인(콤마 구분)을 넣으면 **엄격 모드**(해당 오리진만 + credentials)로 전환된다. 미지정이면 와일드카드.
+- `ADMIN_API_TOKEN`은 `openssl rand -hex 32` 같은 강한 값. 절대 `NEXT_PUBLIC_*`로 프런트에 미러하지 않는다.
+- 배포 후 `https://nextspot-api.onrender.com/health` 200 확인. 무료 티어라 콜드스타트가 있고 `main.py`가 워밍업 4단계를 돈다.
+
+## 3. Vercel — Web
+
+1. Vercel → Add New → Project → `NextSpot-knu/NextSpot` import.
+2. **Root Directory는 비워 둔다.** 루트 `vercel.json`이 워크스페이스 빌드를 정의한다 — `apps/web`으로 잡으면 공유 패키지가 안 보여 빌드가 깨진다.
+3. Environment Variables:
+
+| 키 | 값 출처 |
+|---|---|
+| `NEXT_PUBLIC_SUPABASE_URL` `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase 프로젝트 API 설정 |
+| `NEXT_PUBLIC_KAKAO_MAPS_APP_KEY` | Kakao 개발자 콘솔 JavaScript 키 |
+| `NEXT_PUBLIC_FASTAPI_URL` | `https://nextspot-api.onrender.com` |
+| `NEXT_PUBLIC_SITE_URL` | `https://nextspot-nu.vercel.app` (OG 이미지 절대 URL) |
+
+- 관리자·사장님 콘솔용 env는 없다(앱 계정 로그인 + `users.role`). 토큰·비밀번호를 `NEXT_PUBLIC_*`에 넣지 않는다.
+- Kakao 개발자 콘솔 → 플랫폼 → Web 도메인에 Vercel 도메인(커스텀 도메인 포함)을 등록해야 지도가 렌더링된다.
+- `main` push마다 프로덕션 배포, 다른 브랜치는 프리뷰 배포. 로컬로 값 가져오기: `npx vercel env pull apps/web/.env.local`.
+
+## 4. GitHub Actions
+
+| 종류 | 이름 | 쓰는 워크플로 |
+|---|---|---|
+| Secret | `SUPABASE_URL` `SUPABASE_ANON_KEY` `SUPABASE_SERVICE_ROLE_KEY` | ingest · train |
+| Secret | `JWT_SECRET` `ADMIN_API_TOKEN` | train(부팅 검증 — 없으면 실패. ingest는 플레이스홀더로 대체) |
+| Secret | `TOURAPI_KEY` | ingest(없으면 TourAPI 단계 skip) |
+| Secret | `KAKAO_REST_API_KEY` | ingest(Kakao 장소 보완 · 좌표 대조) |
+| Secret | `LOCALDATA_AUTH_KEY` (선택) | ingest(공공 인허가 변경분 동기화) |
+| Secret | `SERVICE_API_TOKEN` (선택) | collect-area-demand(없으면 `ADMIN_API_TOKEN`) |
+| Variable | `BACKEND_HEALTH_URL` | uptime · collect-area-demand |
+| Variable | `AREA_DEMAND_COLLECTION_ENABLED=true` | collect-area-demand |
+| Variable | `KAKAO_PLACE_DISCOVERY_ENABLED` `TOURAPI_INSIGHTS_ENABLED` `TOURAPI_RELATED_ENABLED` (선택) | ingest의 게이트된 단계 |
+
+`schedule`은 `main`에서만 발화한다. 다른 브랜치에서는 Actions 탭 → Run workflow.
+
+## 5. 브랜치 전략
+
+- `main` = 프로덕션(위 자동 배포 + cron 발화). 각자 브랜치에서 작업하고 게이트 통과 후 `git push origin <내-브랜치>:main`(fast-forward).
+- 로컬 개발은 [`LOCAL_RUN.md`](./LOCAL_RUN.md).

@@ -227,11 +227,11 @@ NextSpot/
 ├── apps/
 │   ├── web/                  # Next.js 관광객 앱 + B2G 관제 + 사장님 콘솔
 │   └── api/                  # FastAPI 추천·데이터·인증 API
-├── packages/shared-types/    # SPOT 상수와 프런트 공용 타입
+├── packages/shared-types/    # SPOT 상수 단일 정의점 (web ↔ api 패리티)
 ├── supabase/migrations/      # DB 스키마 정본
-├── scripts/                  # 적재·스키마 생성·운영 검증 도구
-├── docs/                     # 데이터·모델·배포·공모전 문서
-└── .github/workflows/        # CI, 데이터 적재, 운영 상태 확인
+├── scripts/                  # 저장소 도구(node) — 스키마 생성 · 문서/i18n 검사 · 테스트 러너
+├── docs/                     # 운영 문서 · contest/ 심사 자료 · archive/ (색인 docs/README.md)
+└── .github/workflows/        # CI · TourAPI 적재 · 모델 학습 · 수집/헬스체크 수동 복구
 ```
 
 > 📍 **폴더 구조·전 기능·연결관계의 상세 정본은 [`docs/SYSTEM_MAP.md`](./docs/SYSTEM_MAP.md)** —
@@ -243,7 +243,7 @@ NextSpot/
 | --- | --- |
 | Web | Next.js 16.3.1, React 19, TypeScript 5, Tailwind CSS 4, Recharts, Framer Motion, Playwright |
 | API | FastAPI, Python 3.11, Pydantic, scikit-learn, Ruff, Pytest |
-| Data | Supabase Auth/PostgreSQL/RLS/Realtime/Cron, 한국관광공사 API, 경주 ITS, 기상청 API |
+| Data | Supabase Auth/PostgreSQL/RLS/Storage/Cron, 한국관광공사 API, 경주 ITS, 기상청 API |
 | Map | Kakao Maps SDK, Kakao Local, OpenStreetMap 보행 그래프 |
 | AI | 자체 SPOT 엔진, Upstage Solar 음성 의도 분류·운영 브리핑, 선호 벡터 학습 |
 | Deploy | Vercel, Render, GitHub Actions |
@@ -351,7 +351,8 @@ Chromium 모바일·4개 언어 E2E를 검증합니다.
 
 ## 확장 방향
 
-서비스 지역 좌표·경계·프리셋은 [`apps/web/lib/region.ts`](./apps/web/lib/region.ts)와 환경변수에 모았습니다.
+서비스 지역 좌표·경계·프리셋은 [`apps/web/lib/region.ts`](./apps/web/lib/region.ts)에 모았고, 적재 기준 좌표는
+`apps/api/scripts/ingest_tourapi.py --lat/--lng`로 바꿉니다.
 TourAPI 적재 스크립트의 기준 좌표를 바꾸고 지역 팩을 교체하는 방식으로 전주 한옥마을,
 부산 감천문화마을 등 다른 오버투어리즘 지역으로 확장할 수 있습니다.
 
