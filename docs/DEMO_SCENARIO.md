@@ -15,10 +15,10 @@
    도메인 화이트리스트에 현재 접속 도메인(localhost 포함) 등록 여부 확인.
 3. **Supabase 익명 로그인 ON** — Dashboard → Authentication → "Allow anonymous sign-ins" 켜짐 확인.
    꺼져 있으면 수락/쿠폰/코스/제보가 401로 폴백 상태만 보여줘 데모가 반쪽이 된다.
-4. **⚠️ DB 마이그레이션 5종 적용(최우선)** — [`supabase/APPLY_DELTA_20260714.sql`](../supabase/APPLY_DELTA_20260714.sql)
-   을 SQL Editor에 통째로 붙여넣고 1회 Run(쿠폰 만료·제보 카운트·혼잡 소스 정직성·app_events·상세 필드).
-   **2026-07-14 리허설 실증**: 미적용 상태에서 ① "24시간 모의 발생" 버튼 500(source CHECK 거부),
-   ② 수락은 성공하나 쿠폰이 무음 미발급(`coupon_issued:false`, 쿠폰함 빈 배열) — 두 시나리오 모두 반쪽이 된다.
+4. **DB 마이그레이션 최신 적용 확인** — 원격 DB에 `supabase/migrations/` 마지막 파일까지 적용됐는지
+   확인한다(확인 쿼리는 [`HANDOVER.md`](./HANDOVER.md) "마이그레이션 확인" 절). 미적용 항목이 있으면
+   해당 파일만 SQL Editor에 붙여넣고 1회 Run. **2026-07-14 리허설 실증**: 미적용 상태에서
+   ① "24시간 모의 발생" 버튼 500(source CHECK 거부), ② 수락은 성공하나 쿠폰이 무음 미발급 — 데모가 반쪽이 된다.
 5. **실데이터 확인** — TourAPI 시설과 `GET /api/v1/area-demand/status`의 경주 ITS 실측 여부를 확인한다.
    `GET /predict/model-info`가 `trained:false`인 현재 운영 상태에서는 로컬 모델을 임의로 학습·승격하지 않는다.
    화면은 취향·이동시간·혜택과 공개 주변 수요 근거만 사용하며, 대기시간은 `수집 중`으로 표시해야 정상이다.

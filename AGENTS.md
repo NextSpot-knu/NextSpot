@@ -21,7 +21,7 @@ SPOT(Smart Place Optimization for Tourism) 알고리즘으로 분산·재배치�
   웹 하위 정본: [`apps/web/AGENTS.md`](apps/web/AGENTS.md)
 - `apps/api` — FastAPI 백엔드. SPOT 산식은 `app/services/spot/score.py`(W1 선호 0.40 / W2 시간비용 0.40 / W3 인센티브 0.20)
 - `packages/shared-types` — SPOT 상수의 단일 정의점(web이 `transpilePackages`로 TS 소스 직접 소비)
-- `supabase/` — `migrations/`가 스키마 정본, `RESET_AND_SETUP.sql`은 자동 생성물, `APPLY_DELTA_*.sql`은 사람용 1회성 원격 델타
+- `supabase/` — `migrations/`가 스키마 정본, `RESET_AND_SETUP.sql`은 자동 생성물
 - 배포: web=Vercel(main push 자동배포, `vercel.json`), api=Render Blueprint(`render.yaml`, `/health`), DB=Supabase
 
 ## 검증 게이트 — 커밋 전 필수 (CI `.github/workflows/ci.yml`과 동일)
