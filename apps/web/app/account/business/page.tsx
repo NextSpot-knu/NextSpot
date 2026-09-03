@@ -25,6 +25,7 @@ import { createPublicClient } from '@/lib/supabase';
 import { errorMessage } from '@/lib/errors';
 import { useT } from '@/lib/i18n/I18nProvider';
 import { useAccount, canEnterMerchantConsole, canEnterAdminConsole } from '@/lib/account';
+import { isRoleRequestPending } from '@/lib/accountRoles';
 
 /** 신청 가능한 역할. 백엔드 REQUESTABLE_ROLES 와 같은 집합이어야 한다. */
 type RequestableRole = 'merchant' | 'admin';
@@ -142,7 +143,10 @@ export default function RoleChangeRequestPage() {
   // 마이페이지 카드는 account.pendingVerification 으로 "심사중" 이라 말하는데 눌러 들어오면
   // 폼이 나오는 어긋남이 정확히 이 경로에서 생긴다. 그래서 목록이 비면 계정 컨텍스트를 믿는다
   // — 서버가 같은 사실을 두 경로로 말하고 있고, 둘 중 살아 있는 쪽을 쓰는 것이 맞다.
-  const isPending = latest?.status === 'pending' || (!latest && !!account?.pendingVerification);
+  //
+  // 판정은 **선택한 역할 기준**이다(바로 아래 alreadyHasRole 과 같은 기준). 이유는
+  // lib/accountRoles.ts 의 isRoleRequestPending 주석 참조.
+  const isPending = isRoleRequestPending(requestedRole, latest, !!account?.pendingVerification);
   // 이미 그 권한이 있으면 폼 대신 콘솔로 안내한다. **선택한 역할 기준**으로 판정한다 —
   // 사장님이 관리자 권한을 신청하는 경우가 있어, 역할과 무관하게 막으면 길이 없다.
   const alreadyHasRole = isMerchantRequest

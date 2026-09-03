@@ -167,3 +167,41 @@ export function resolveRefreshFailure(
   if (previous) return { account: previous, status: 'ready' };
   return { account: null, status: 'error' };
 }
+
+/** 신청 가능한 역할. 백엔드 REQUESTABLE_ROLES 와 같은 집합이어야 한다. */
+export type RequestableRole = 'merchant' | 'admin';
+
+/** 심사 대기 판정에 쓰는 신청 행(필요한 두 칼럼만). */
+export interface LatestRequest {
+  status?: string;
+  requestedRole?: RequestableRole;
+}
+
+/**
+ * 지금 **선택한 역할**의 신청이 심사 중인가.
+ *
+ * 역할을 봐야 한다. 신청 화면은 사업자/관리자 탭을 따로 두고, 바로 옆의 `alreadyHasRole`
+ * 판정도 선택한 역할 기준이다. 그런데 이 판정만 역할을 보지 않던 탓에, 사업자 신청이
+ * 심사 중이면 **관리자 탭에도 "심사 중"이 떴다.** 표시가 틀린 것으로 끝나지 않는다 —
+ * 그 자리에 폼 대신 대기 카드가 나오므로 관리자 권한을 **신청할 수 없게 된다.**
+ * (신청한 적 없는 역할이 심사 중이라고 나오니 사용자는 이유도 알 수 없다.)
+ *
+ * 목록 조회가 실패해 행을 못 받았을 때는 계정 컨텍스트의 pendingVerification 을 믿는다.
+ * 그 신호에는 역할이 없어서 어느 탭에서도 대기로 보이지만, 그때 폼을 다시 여는 쪽이 더
+ * 나쁘다 — 제출하면 서버가 409 로 막는다. 대신 그 경로에서는 화면이 어떤 역할인지
+ * 단정하지 않는다(상세 줄은 행이 있을 때만 그린다).
+ *
+ * requestedRole 이 없는 행은 사업자 신청이다 — 컬럼이 생기기 전(20260902130000)에 만들어진
+ * 행이 그렇고, 백엔드도 같은 기본값을 쓴다.
+ */
+export function isRoleRequestPending(
+  selectedRole: RequestableRole,
+  latest: LatestRequest | null,
+  accountPendingVerification: boolean,
+): boolean {
+  if (latest) {
+    if (latest.status !== 'pending') return false;
+    return (latest.requestedRole ?? 'merchant') === selectedRole;
+  }
+  return accountPendingVerification;
+}

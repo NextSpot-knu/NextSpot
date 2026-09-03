@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import {
+  isRoleRequestPending,
   canEnterAdminConsole,
   canEnterDevConsole,
   canEnterMerchantConsole,
@@ -271,3 +272,48 @@ console.log('roleRequestEntryState tests passed');
 }
 
 console.log('parseAccount contract tests passed');
+
+
+// ── 심사 대기 판정은 선택한 역할 기준이어야 한다 ───────────────────────────
+// 실제로 났던 문제: 사업자 신청이 심사 중일 때 **관리자 탭에도 "심사 중"** 이 떴다.
+// 표시가 틀린 것으로 끝나지 않는다 — 그 자리에 폼 대신 대기 카드가 나오므로 관리자 권한을
+// 신청할 수 없게 된다. 신청한 적 없는 역할이라 사용자는 이유도 알 수 없다.
+{
+  const pendingMerchant = { status: 'pending', requestedRole: 'merchant' as const };
+  const pendingAdmin = { status: 'pending', requestedRole: 'admin' as const };
+
+  // 같은 역할이면 대기.
+  assert.equal(isRoleRequestPending('merchant', pendingMerchant, false), true);
+  assert.equal(isRoleRequestPending('admin', pendingAdmin, false), true);
+
+  // **다른 역할이면 대기가 아니다.** 이 두 줄이 그 버그를 잠근다.
+  assert.equal(
+    isRoleRequestPending('admin', pendingMerchant, false),
+    false,
+    '사업자 신청이 관리자 탭을 막았다 — 관리자 신청 경로가 사라진다',
+  );
+  assert.equal(isRoleRequestPending('merchant', pendingAdmin, false), false);
+
+  // 끝난 신청은 어느 역할이든 대기가 아니다(다시 신청할 수 있어야 한다).
+  for (const status of ['approved', 'rejected', 'withdrawn']) {
+    assert.equal(isRoleRequestPending('merchant', { status, requestedRole: 'merchant' }, false), false, status);
+  }
+
+  // requestedRole 이 없는 행은 사업자 신청이다(컬럼이 생기기 전 데이터, 백엔드도 같은 기본값).
+  assert.equal(isRoleRequestPending('merchant', { status: 'pending' }, false), true);
+  assert.equal(isRoleRequestPending('admin', { status: 'pending' }, false), false);
+
+  // 목록 조회가 실패해 행이 없으면 계정 컨텍스트를 믿는다 — 폼을 다시 여는 것보다 낫다.
+  assert.equal(isRoleRequestPending('merchant', null, true), true);
+  assert.equal(isRoleRequestPending('admin', null, true), true);
+  assert.equal(isRoleRequestPending('merchant', null, false), false);
+
+  // 행이 있으면 계정 신호보다 행이 우선이다 — 행 쪽이 역할까지 알기 때문이다.
+  assert.equal(
+    isRoleRequestPending('admin', pendingMerchant, true),
+    false,
+    '역할을 아는 행이 있는데 역할 없는 신호가 이겼다',
+  );
+}
+
+console.log('isRoleRequestPending tests passed');
