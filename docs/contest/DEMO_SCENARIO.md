@@ -2,7 +2,7 @@
 
 > PT심사 발표(15점) 및 서비스 완성도·데이터 활용 증빙용 데모 대본. 전략 근거는
 > [`CONTEST_STRATEGY.md`](./CONTEST_STRATEGY.md) §2-E(E1), 기능·엔드포인트 현황은
-> [`HANDOVER.md`](../HANDOVER.md) 참조. 총 발표 6분(관광객 3분 + 관리자 3분) 기준.
+> [`SYSTEM_MAP.md`](../SYSTEM_MAP.md) §5, 현재 상태는 [`HANDOVER.md`](../HANDOVER.md) 참조. 총 발표 6분(관광객 3분 + 관리자 3분) 기준.
 
 ---
 

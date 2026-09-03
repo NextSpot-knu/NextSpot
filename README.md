@@ -16,7 +16,7 @@
 
 > **2026 관광데이터 활용 공모전 · 웹/앱 개발 부문 출품작**
 >
-> 마지막 문서 갱신: **2026-08-27**
+> 마지막 문서 갱신: **2026-09-04**
 
 ---
 
@@ -281,9 +281,9 @@ Copy-Item apps/web/.env.example apps/web/.env.local
 apps/api/.env
   SUPABASE_URL
   SUPABASE_ANON_KEY
-  SUPABASE_SERVICE_ROLE_KEY
   JWT_SECRET
-  ADMIN_API_TOKEN
+  ADMIN_API_TOKEN               # 위 4개가 없으면 부팅 실패
+  SUPABASE_SERVICE_ROLE_KEY     # 쓰기 경로(관리자·수집·증빙)에 필요
 
 apps/web/.env.local
   NEXT_PUBLIC_SUPABASE_URL
@@ -330,14 +330,17 @@ npm run test:e2e --workspace=apps/web
 # DB 스키마 정합성
 node scripts/build_reset.mjs
 git diff --exit-code supabase/RESET_AND_SETUP.sql
+
+# 문서 트리 규칙 (색인 · 링크 · HANDOVER 형식)
+node scripts/check-docs.mjs
 ```
 
-GitHub Actions는 Web lint·typecheck·unit·build, API Ruff·Pytest, DB 스키마 패리티,
-Chromium 모바일·4개 언어 E2E를 검증합니다.
+GitHub Actions는 Web lint·typecheck·unit·build, API Ruff·Pytest, DB 스키마 패리티, 문서 트리 규칙,
+Chromium 모바일·4개 언어 E2E를 검증합니다. 규칙 정본은 [`AGENTS.md`](./AGENTS.md)입니다.
 
 ## 품질과 운영 기반
 
-- **자동 검증** — Web lint·typecheck·unit·build, API Ruff·Pytest, DB 스키마 패리티와 모바일 E2E를 CI에서 실행합니다.
+- **자동 검증** — Web lint·typecheck·unit·build, API Ruff·Pytest, DB 스키마 패리티, 문서 트리 규칙, 모바일 E2E를 CI에서 실행합니다.
 - **계정 연속성** — 익명 사용 기록을 회원 계정으로 트랜잭션 병합해 첫 방문부터 재방문까지 개인화를 이어갑니다.
 - **데이터 보호** — Supabase RLS와 JWT 인증으로 사용자별 데이터를 분리하고, 서버 쓰기는 FastAPI를 통해 처리합니다.
 - **다국어 품질** — 한국어·영어·일본어·중국어 키 패리티와 실제 모바일 여정을 자동 검사합니다.

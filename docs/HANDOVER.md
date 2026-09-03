@@ -8,6 +8,7 @@
 
 - **main = 프로덕션.** main push가 Vercel(web)·Render(api)를 자동 배포한다. 2026-09-04 기준 `origin/main` = `a02be96`(09-03).
   사람이 마지막으로 배포 결과를 눈으로 확인한 시점은 `e1a058f`(08-28, 로그 §-45).
+  규칙: main에 푸시한 쪽(에이전트 포함)이 위 줄의 날짜·커밋 범위를 갱신하고, Vercel·Render 배포를 눈으로 본 사람이 확인 날짜를 적는다.
 - Web: https://nextspot-nu.vercel.app — 루트 `vercel.json`이 `npm run build --workspace=apps/web` → `apps/web/out`.
   Vercel 대시보드에 Root Directory를 **설정하지 않는다**(설정하면 워크스페이스 빌드가 깨진다).
 - API: https://nextspot-api.onrender.com (`/health`, `/docs`) — `render.yaml` Blueprint, docker, free plan.
@@ -50,6 +51,8 @@
       애드온으로 `auth.<우리도메인>`을 콜백으로 쓰면 우리 도메인이 뜬다(도메인 보유 필요). 로그 §-43.
 - [ ] **Supabase Auth Site URL**이 `localhost:3000`이면 Vercel 도메인으로(대시보드에서만 확인 가능).
 - [ ] **Render `ALLOWED_ORIGINS`** — Vercel 도메인으로 지정해야 엄격 모드(해당 오리진만 + credentials). 미지정 시 와일드카드.
+- [ ] **Render 로그에서 `X-Forwarded-For` 원 헤더 모양 1회 확인** — 리미터의 IP 추출 방향(첫 항목/마지막 항목/`CF-Connecting-IP`)을
+      정하기 위한 관측(보안 진단 중 항목). 결과를 이 문서 "알려진 이슈"에 적는다.
 - [ ] **심사 계정 2개 브라우저 로그인 확인** — `openapi@naver.com` → `/merchant`, `openapi@gmail.com` → `/admin/dashboard`.
 - [ ] **GitHub Actions Secrets 점검** — `train-recommendation-model.yml`은 `JWT_SECRET`·`ADMIN_API_TOKEN` 시크릿이 없으면
       부팅 검증에서 실패한다(플레이스홀더 폴백 없음). `SUPABASE_URL`·`SUPABASE_ANON_KEY`·`SUPABASE_SERVICE_ROLE_KEY`·
@@ -64,8 +67,8 @@
 - ① **집중률 상대지수를 절대 점유율처럼 섞는다** — `app/services/area_demand_service.py`의 0.7/0.3 블렌딩.
   관광공사 집중률은 지점별 기준선 대비 상대값이라 "100 = 만석"이 아니다. 사용자에게 보이는 숫자가 바뀌는 문제라 데이터를 놓고 결정.
 - ② **developer의 좌석 방송이 `verified`로 학습에 들어간다** — 소유자가 아닌 사람의 방송은 `single_report`로 낮추는 안.
-- ③ **인증 없는 쓰기 4경로에 유량 제한이 없다** — 특히 `POST /voice/turn`(LLM 비용). `events/track`, `travel-context/parse`,
-  `search/ingest-request`도 포함. 공개 후에는 `/voice/turn`부터.
+- ③ **인증 없는·게스트 LLM/쓰기 경로에 유량 제한이 없다** — 순서는 아래 "보안 진단"대로: `travel-context/parse`·
+  `preferences/parse`(상) → `/reports/*`(중) → `/voice/turn`·`events/track`·`search/ingest-request`.
 - 스테이징이 없다 — **실 DB는 읽기만**, 쓰기 검증은 로컬 대역으로(08-28에 실 DB에 가짜 verified 3행을 쓴 전례).
 - 프로필 캐시가 프로세스 내부(30초) — 워커 1개라 지금은 무해, `--workers N`을 붙이면 공유 무효화 필요.
 - 메인 지도 `/infrastructures` 응답이 2.5초 경계에 걸려 폴백 경로로 돌던 문제는 타임아웃을 4초로 올려 완화(08-28).
@@ -138,13 +141,15 @@ from checks order by seq;
 ## 2026-09-04 — 저장소 정리: 죽은 파일 제거 · 문서 트리 재편 · 규칙 정본 재작성
 
 - 도구·브랜치: Claude Code(레드팀 하위 에이전트 6렌즈 → 실행 → 재검토 루프) / `chore/repo-cleanup` → main
-- 커밋: 이 브랜치의 커밋 7개 — 죽은 파일 제거 → 문서 트리 → 규칙·상태 문서 → 문서 사실 정정 → web 구조 → api 구조 → 마무리
+- 커밋: `a02be96` 이후 이 브랜치 9건(`git log --oneline a02be96..origin/main`) — 죽은 파일 제거 → 문서 트리 → 규칙·상태 문서 →
+  문서 사실 정정 → 설정·워크플로 → web 구조 → api 구조 → 레드팀 2라운드 반영(보안 진단·i18n 삭제) → 3라운드 반영(심사 문서 정정)
 - 한 것: InduSpot 잔재(seed.js·bg.png·landmarks.ts 등)와 Gemini 파일 제거 · `docs/`를 운영/contest/archive로 나누고
   색인(`docs/README.md`)과 CI 문서 검사(`scripts/check-docs.mjs`) 추가 · `AGENTS.md`를 현재 사실(RBAC 권한, 브랜치, 게이트,
   새 파일 위치)로 재작성 · HANDOVER를 상태 문서 + 아카이브 로그로 분리 · 낡은 문서 사실 약 40건 정정 ·
   web 컴포넌트/lib 일부 묶기 + 테스트 러너 glob화 · api 테스트 폴더 정리.
 - 검증: 커밋마다 해당 게이트(web lint/typecheck/test/build, ruff/pytest, 스키마 파리티, check-docs) 통과 후 커밋.
-- 다음·미결: "우선순위" 4번 정리 후속. 원격 브랜치 6개(feature/*, yunseong 등)는 전부 main에 합쳐져 있으나 팀원 소유라 삭제하지 않았다.
+- 다음·미결: "우선순위" 4번 정리 후속. 원격 브랜치 6개(feature/*, yunseong 등)는 전부 main에 합쳐져 있으나(`ui-editorial-pass`는
+  머지 후 되돌려져 작업물이 브랜치에만 남아 있다 — SYSTEM_MAP §14) 팀원 소유라 삭제하지 않았다.
 - 사람 작업: 위 "사람 작업 대기"에 정리(토큰 회전·Kakao·Google·Site URL·CORS·시크릿 점검·심사 계정 확인).
 
 ## 2026-09-03 — 따라잡기: 08-28 ~ 09-03 73커밋 (기록 없이 main에 올라간 분)

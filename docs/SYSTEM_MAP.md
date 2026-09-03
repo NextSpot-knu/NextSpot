@@ -109,8 +109,8 @@ flowchart TB
     end
 
     subgraph API["apps/api — FastAPI"]
-        R["routers/ 22"]
-        S["services/ 30"]
+        R["routers/ 23"]
+        S["services/ 34 + spot·tourapi·batch"]
         SPOT["★ SPOT 엔진"]
         ML["sklearn 혼잡예측<br/>+ 모델 레지스트리"]
     end
@@ -297,8 +297,8 @@ SessionBootstrap: 익명 세션 자동 발급
 
 진입 경로는 `/mypage`(비즈니스 계정으로 전환) · `/mypage/settings` · `/merchant/dashboard`(가게 변경)
 세 곳이다. 게이트(`/merchant`)는 전체화면이라 그동안 **어느 단계에서도 되돌아갈 수단이 없었다** —
-비밀번호를 모르면 브라우저 뒤로가기 외에는 갇혔다. 2026-08-27 에 상단 좌측 `← 나가기` 를 추가했고,
-세 상태(비밀번호 게이트 · 최근 가게 · 가게 선택) 모두에서 노출된다. 동작은 이력이 있으면
+역할이 없거나 가게 선택 전이면 브라우저 뒤로가기 외에는 갇혔다. 2026-08-27 에 상단 좌측 `← 나가기` 를 추가했고,
+진입 분기(로그인 필요 · 역할 신청 · 최근 가게 · 가게 선택) 모두에서 노출된다(비밀번호 게이트는 08-28 RBAC 전환으로 폐지). 동작은 이력이 있으면
 `router.back()`, 새 탭에서 직접 연 경우처럼 돌아갈 이력이 없으면 `/mypage` 로 보낸다.
 
 ### 5.3 B2G 관제 (`/admin`)
@@ -346,7 +346,7 @@ flowchart TB
 
 ```
 1. 취향 일치      preference.py — 8차원 코사인 (barrier_free는 features로 브리지)
-2. 이동 시간      travel.py — Kakao Directions(키 있으면) 또는 Haversine 도보환산
+2. 이동 시간      travel.py — 번들된 OSM 보행 그래프 최단경로(그래프 밖은 Haversine 도보환산)
 3. 도착시점 혼잡  ★ arrival = 출발시각 + 이동시간   ← 이 제품의 정체성
                   ├ 신선한 실측 있음 → measured (그대로 사용)
                   └ 없음             → sklearn 예측
@@ -400,7 +400,7 @@ seed/simulated  → 공개 조회에서 아예 제외 (개발 이력으로만 �
 
 ### 7.2 모델 승격 게이트 (`predict_service.py`)
 
-저장소의 `model.pkl`은 합성 데모 모델이라 **운영 추론에 쓰지 않는다.**
+로컬 pkl 파일은 저장소에 없고, 운영 추론은 **검증된 Storage 아티팩트만** 쓴다.
 비공개 Storage(`recommendation-models` 버킷, `public=false`)의 아티팩트가
 `model_registry.status='active'`이고 아래를 **전부** 통과해야 메모리에 올라간다.
 
@@ -462,7 +462,7 @@ UPSTAGE_API_KEY 미설정 → is_enabled() False → 네트워크 없이 즉시 
 | **TourAPI** (한국관광공사) | POI 적재·상세·무장애·축제 조회 | 호출 시점에 한국어 오류 (부팅은 정상) |
 | **기상청 단기예보** | 시간대별 날씨 칩 | `unavailable` 폴백 |
 | **Kakao Local** | 좌표 검색·화장실·POI 보강 | 해당 기능 비활성 |
-| **Kakao Directions** | 실경로 도보 시간 | **Haversine 직선거리 도보 환산** |
+| **OSM 보행 그래프**(번들, 외부 호출 없음) | 실경로 도보 시간 | 그래프 범위 밖은 **Haversine 직선거리 도보 환산** |
 | **Kakao Maps SDK** | 프런트 지도 | — |
 | **LOCALDATA** (행안부) | 인허가 기반 영업상태 검증 | 배치 미실행 |
 | **Wikimedia** | 이미지 보강 | 기본 이미지 |

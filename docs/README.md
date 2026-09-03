@@ -32,17 +32,17 @@
 | [`DEPLOY_AND_ENV.md`](./DEPLOY_AND_ENV.md) | Vercel · Render · Supabase · GitHub Actions 배포와 환경변수 이름 | living | 2026-09-04 |
 | [`LOCAL_RUN.md`](./LOCAL_RUN.md) | 로컬 구동 · Docker · 스모크 테스트 | living | 2026-09-04 |
 | [`AI_OPS.md`](./AI_OPS.md) | Claude Code 운영 규칙 — 교차 검토(레드팀·/code-review), 세션 핸드오프, 무인 세션, 다른 도구는 선택 | living | 2026-09-04 |
-| [`MODEL_CARD.md`](./MODEL_CARD.md) | 혼잡 예측 모델의 운영 계약 · 품질 게이트 · 승격 절차 | living | 2026-08-20 |
-| [`CONGESTION_DATA.md`](./CONGESTION_DATA.md) | 혼잡 데이터 원칙 · 외부 데이터 라이선스 · 공공 협업 우선순위 정본 | living | 2026-08-24 |
+| [`MODEL_CARD.md`](./MODEL_CARD.md) | 혼잡 예측 모델의 운영 계약 · 품질 게이트 · 승격 절차 | living | 2026-09-04 |
+| [`CONGESTION_DATA.md`](./CONGESTION_DATA.md) | 혼잡 데이터 원칙 · 외부 데이터 라이선스 · 공공 협업 우선순위 정본 | living | 2026-08-21 |
 
 ## 심사 자료 (`docs/contest/`)
 
 | 문서 | 용도 | 상태 | 마지막 검토 |
 | --- | --- | --- | --- |
-| [`contest/CONTEST_NARRATIVE.md`](./contest/CONTEST_NARRATIVE.md) | 서면·PT 공통 서사, 독창성·수익모델 | frozen | 2026-07-09 |
-| [`contest/DATA_UTILIZATION.md`](./contest/DATA_UTILIZATION.md) | TourAPI 필드 → SPOT 변수 매핑(코드 근거) | living | 2026-09-03 |
+| [`contest/CONTEST_NARRATIVE.md`](./contest/CONTEST_NARRATIVE.md) | 서면·PT 공통 서사, 독창성·수익모델 | frozen | 2026-09-04 |
+| [`contest/DATA_UTILIZATION.md`](./contest/DATA_UTILIZATION.md) | TourAPI 필드 → SPOT 변수 매핑(코드 근거) | living | 2026-09-04 |
 | [`contest/DEMO_SCENARIO.md`](./contest/DEMO_SCENARIO.md) | PT 데모 대본 + 데모 전 체크리스트. UI 문구 변경 전 대조 대상 | living | 2026-09-04 |
-| [`contest/JUDGE_QA.md`](./contest/JUDGE_QA.md) | 심사위원 예상 질문 10문 + 답변. UI 문구 변경 전 대조 대상 | living | 2026-09-03 |
+| [`contest/JUDGE_QA.md`](./contest/JUDGE_QA.md) | 심사위원 예상 질문 10문 + 답변. UI 문구 변경 전 대조 대상 | living | 2026-09-04 |
 | [`contest/CONTEST_STRATEGY.md`](./contest/CONTEST_STRATEGY.md) | 심사 배점 대응 전략 (2026-07-07) | frozen | 2026-07-07 |
 | [`contest/TIMELINESS.md`](./contest/TIMELINESS.md) | 시의성 소재 — 실존 보도 인용집 (2026-07-14 검증) | frozen | 2026-07-14 |
 | [`contest/announcements/README.md`](./contest/announcements/README.md) | 공모전 공고문 · 제출 매뉴얼 · 양식 · 제안서 원본 PDF 목록 | frozen | 2026-09-04 |

@@ -10,7 +10,8 @@ SPOT(Smart Place Optimization for Tourism) 점수로 분산·재배치하는 AI 
 1. 이 파일 — 규칙 · 게이트 · 구조
 2. [`docs/HANDOVER.md`](docs/HANDOVER.md) — 배포 상태 · 사람 작업 대기 · 알려진 이슈 · 최근 세션. **현재 상태의 정본**
 3. [`docs/SYSTEM_MAP.md`](docs/SYSTEM_MAP.md) — 화면↔API↔서비스↔DB 연결. 필요한 절만
-4. 웹 작업이면 [`apps/web/AGENTS.md`](apps/web/AGENTS.md). 전체 문서 목록·상태는 [`docs/README.md`](docs/README.md)
+4. 웹 작업이면 [`apps/web/AGENTS.md`](apps/web/AGENTS.md), API 작업이면 [`apps/api/README.md`](apps/api/README.md).
+   전체 문서 목록·상태는 [`docs/README.md`](docs/README.md)
 
 ## 무엇이 정본인가
 
@@ -96,16 +97,17 @@ SPOT(Smart Place Optimization for Tourism) 점수로 분산·재배치하는 AI 
 | API 테스트 | `apps/api/tests/{routers,services,core,scripts,migrations}/test_<module>.py` |
 | 데이터 · 학습 스크립트 | `apps/api/scripts/<snake_case>.py` (+ `tests/scripts/test_<name>.py`) |
 | 저장소 도구 | `scripts/<kebab-case>.mjs` |
+| API 횡단 관심사(인증·설정·로깅·리미터) | `apps/api/app/core/<snake_case>.py` — 라우터 둘 이상이 쓰는 헬퍼는 라우터 파일의 `_private`로 두지 말고 여기로 |
 | 문서 | `docs/`(운영) · `docs/contest/`(심사) · `docs/archive/`(끝난 것). **루트에 마크다운 금지.** `docs/README.md` 색인 갱신 |
 
 ## 자주 하는 작업 → 손댈 곳 (잊기 쉬운 단계 포함)
 
 | 작업 | 손댈 곳 · 잊기 쉬운 것 |
 |---|---|
-| API 엔드포인트 추가 | `app/routers/<x>.py`에 `APIRouter(prefix="/api/v1/...")` → **`app/main.py`의 `include_router` 목록에 등록** → 가드(`require_role` / `get_current_user` / 기계 호출이면 `require_machine_or_role`) → `tests/routers/test_<x>.py`(`tests/conftest.py`의 `make_test_jwt`·`admin_headers` 픽스처) → `docs/SYSTEM_MAP.md` §5 표 한 줄 |
-| UI 문자열 추가·변경 | `lib/i18n/messages/{ko,en,ja,zh}.json` 4개 동시. `lib/i18n/parity.test.ts`가 en/ja/zh 누락을, `scripts/check-i18n-keys.mjs`가 코드↔ko 누락을 잡는다 → `DEMO_SCENARIO`·`JUDGE_QA` 문구 대조 |
-| DB 컬럼·테이블 추가 | `supabase/migrations/<현재 마지막보다 큰 타임스탬프>_<snake>.sql`(멱등: `IF NOT EXISTS`) → 새 테이블·함수는 `build_reset.mjs` PRELUDE DROP → `node scripts/build_reset.mjs` → `tests/migrations/test_<x>_migration.py` → RLS·GRANT 검토(특히 `congestion_logs`) → 원격 적용은 SQL Editor 사람 작업(HANDOVER 기록) |
-| 프런트 화면 추가 | `app/<route>/page.tsx`(`'use client'`, 정적 export — 서버 코드 불가) → 진입 링크(`components/shell/BottomNav.tsx` 또는 `components/AdminSidebar.tsx`) → i18n 4로케일 → `npm run build`로 프리렌더 확인 |
+| API 엔드포인트 추가 | `app/routers/<x>.py`에 `APIRouter(prefix="/api/v1/...")`(예외: `predict`는 `main.py`에서 prefix 지정) → **`app/main.py`의 `include_router` 목록에 등록** → 가드: 역할이면 `authz.require_role`, 로그인만이면 `supabase.get_current_user`, **게스트(익명)를 막아야 하면 `authz.get_current_profile`**(`is_anonymous`가 여기에만 있다), 기계 호출이면 `require_machine_or_role` → `tests/routers/test_<x>.py`(`tests/conftest.py`의 헬퍼 함수 `make_test_jwt`·`admin_headers`, `test_routers.py`의 `FakeSupabase`) → `docs/SYSTEM_MAP.md` §5 표 한 줄 |
+| UI 문자열 추가·변경 | `lib/i18n/messages/{ko,en,ja,zh}.json` 4개 동시, 키는 `<화면>.<요소>` camelCase(예: `mypage.menuBadges`). `lib/i18n/parity.test.ts`가 en/ja/zh 누락을, `scripts/check-i18n-keys.mjs`가 코드↔ko 누락을 잡는다(둘 다 죽은 키는 못 잡는다 — 지울 때 4 JSON에서 같이) → `DEMO_SCENARIO`·`JUDGE_QA` 문구 대조 |
+| DB 컬럼·테이블 추가 | `supabase/migrations/<타임스탬프>_<snake>.sql` — 타임스탬프는 **현재 마지막 파일보다 큰 값**(마지막이 미래 날짜면 그 날짜의 다음 시각, 예: `20260905100000`), 멱등(`IF NOT EXISTS`) → 새 테이블·함수만 `build_reset.mjs` PRELUDE DROP(컬럼은 불필요) → `node scripts/build_reset.mjs` → `tests/migrations/test_<x>_migration.py` → RLS·GRANT 검토(`facilities`는 anon 전체 읽기, `congestion_logs`는 컬럼 GRANT) → **화면까지 보이려면** API 응답 모델(`routers/infrastructures.py`의 `InfrastructureItem` 등)·웹의 명시 select 목록(`app/main/page.tsx`의 Supabase 직접 읽기)·`lib/api-client.ts` 타입도 같이 → HANDOVER "마이그레이션 확인" 쿼리에 행 추가 → 원격 적용은 SQL Editor 사람 작업 + `NOTIFY pgrst, 'reload schema'`(HANDOVER 기록) |
+| 프런트 화면 추가 | `app/<route>/page.tsx`(`'use client'`, 정적 export — 서버 코드 불가) → 진입 링크: 마이페이지 하위 화면은 `app/mypage/page.tsx`의 메뉴 배열(`labelKey`·`path`), 하단 탭은 `components/shell/BottomNav.tsx`(5탭 고정 — 늘리지 않는다), 관제는 `components/AdminSidebar.tsx`(관제 공용 셸이라 `components/admin/` 밖에 있다) → i18n 4로케일 → `npm run build`로 프리렌더 확인 → 여정에 들어가면 `e2e/`에 케이스 |
 | 외부 API·LLM 연동 추가 | `app/services/<x>_service.py`(키 없으면 무해 폴백, 타임아웃 명시) → `app/core/config.py`에 env(기본값 빈 문자열) → 이름을 `.env.example`·`render.yaml`·`docs/DEPLOY_AND_ENV.md`에 등록 |
 | 새 배치 스크립트 | `apps/api/scripts/<x>.py`(sys.path 부트스트랩 후 `app.*` import — ruff E402 허용) → `tests/scripts/test_<x>.py` → 워크플로가 부르면 `.github/workflows/`와 DEPLOY §4 갱신 |
 | 문서 추가·이동 | `docs/`(운영) · `docs/contest/` · `docs/archive/` → `docs/README.md` 색인 행 → `node scripts/check-docs.mjs` |
@@ -124,13 +126,15 @@ node scripts/check-docs.mjs             # 문서 트리 규칙 (3초)
 
 - `main` = 프로덕션(Vercel·Render 자동 배포 + cron 발화 조건). 각자 브랜치에서 작업 → 게이트 통과 →
   fast-forward `git push origin <내-브랜치>:main`.
-- 커밋 메시지: `type(scope): 한 줄`(한국어). scope는 `web api db i18n docs ci scripts contest handover` 중 하나.
+- 커밋 메시지: `type(scope): 한 줄`(한국어). type은 `feat fix perf refactor test docs chore ci`, scope는
+  `web api db i18n docs ci scripts contest handover` 중 하나 — 저장소 전반(`docs:` `chore:`)이면 scope 생략.
   본문에는 "무엇"보다 **"왜"**를 쓴다. 작성자는 사람 본인의 git identity, AI는 `Co-Authored-By` 트레일러.
-- main에 올리기 전: 게이트 전부 green → HANDOVER 세션 항목 추가 → 푸시. 진행분은 즉시 커밋·푸시로 유실 방지.
+- main에 올리기 전: 게이트 전부 green → HANDOVER 세션 항목 추가 + "배포 상태"에 main 갱신 날짜·커밋 범위 기록 → 푸시.
+  Vercel·Render에 실제로 떴는지는 사람이 확인하고 확인 날짜를 적는다. 진행분은 즉시 커밋·푸시로 유실 방지.
 
 ## 세션 프로토콜 (사람 · 에이전트 공통)
 
-- **시작**: `docs/HANDOVER.md` 상단(배포 상태 · 사람 작업 대기 · 알려진 이슈)만 읽고 시작한다. 과거 로그는 필요할 때만.
+- **시작**: `docs/HANDOVER.md`를 **전부** 읽는다(400줄 이하로 유지하는 이유). `archive/HANDOVER_LOG.md`는 필요할 때만.
 - **끝**: HANDOVER "최근 세션" 맨 위에 `## YYYY-MM-DD — 제목` 항목을 추가한다(템플릿은 HANDOVER 하단 "기록 규칙").
   항목이 10개를 넘으면 가장 오래된 것을 `docs/archive/HANDOVER_LOG.md` 맨 위로 옮긴다. `check-docs`가 형식·중복·길이를 잡는다.
 - 계획은 HANDOVER 항목으로 시작하고, 150줄을 넘길 때만 `docs/<TOPIC>_PLAN.md`로 분리해 색인에 등록한다.

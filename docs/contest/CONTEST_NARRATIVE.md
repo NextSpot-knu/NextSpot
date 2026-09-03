@@ -21,7 +21,7 @@ NextSpot은 "혼잡한 곳을 보여준다"가 아니라 "지금 출발하면 �
 그 시점의 혼잡도를 추론한다. 대기시간(w2)도 동일한 도착시점 기준으로 계산해, "예측은 미래 시점인데
 대기시간은 현재 시점"이라는 시점 불일치를 제거했다.
 
-> 근거: `apps/api/app/services/spot/score.py:69-92` (`arrival_dt = datetime.now(timezone.utc) + timedelta(minutes=travel_time_min)` → `predict_congestion(type, arrival_hour, arrival_dow)` → `calculate_predicted_wait_time(..., hour=arrival_hour)`)
+> 근거: `apps/api/app/services/spot/score.py` `calculate_spot_score` (`arrival_dt = datetime.now(timezone.utc) + timedelta(minutes=travel_time_min)` → `predict_congestion(type, arrival_hour, arrival_dow)` → `calculate_predicted_wait_time(..., hour=arrival_hour)`)
 
 ### ② w3 결합형 인센티브 (개인 효용 + 공익 재배치 기여 + 소상공인 제휴를 한 산식에)
 
@@ -35,16 +35,16 @@ SPOT 스코어는 `w1·선호유사도 − w2·시간비용 + w3·인센티브`�
 두 성분을 `INCENTIVE_COUPON_SHARE=0.5`로 절반씩 결합해 "개인이 받는 혜택"과 "사회가 얻는 분산 효과"를
 분리된 지표가 아니라 추천 순위 자체에 내재화했다.
 
-> 근거: `apps/api/app/services/spot/score.py:97-104` (`incentive = INCENTIVE_COUPON_SHARE * coupon_term + (1 - INCENTIVE_COUPON_SHARE) * relief_term`), 컬럼 정의: `supabase/migrations/20260707150000_add_coupon_incentive.sql`
+> 근거: `apps/api/app/services/spot/score.py` (`incentive = INCENTIVE_COUPON_SHARE * coupon_term + (1 - INCENTIVE_COUPON_SHARE) * relief_term`), 컬럼 정의: `supabase/migrations/20260707150000_add_coupon_incentive.sql`
 
 ### ③ 음성 AI 비서
 
 지도를 손으로 조작하기 어려운 도보 관광 맥락을 고려해, 발화 한 턴을 의도(수락/다음/거절/상세/선호필터/중지)로
 분류하고 한국어 응답을 생성하는 음성 인터페이스를 백엔드 엔드포인트로 제공한다. "고깃집" 같은 모호한
-발화는 백엔드가 구체 검색어로 확장한 뒤 임베딩 의미검색으로 후보를 재필터링해, 다른 업종 후보가
-섞여 나오는 것을 막는다.
+발화는 백엔드가 구체 검색어로 확장한 뒤 후보 이름·종류 태그의 부분문자열 매칭(`embedding_service.filter_candidates` —
+임베딩·벡터검색 없음)으로 후보를 재필터링해, 다른 업종 후보가 섞여 나오는 것을 막는다.
 
-> 근거: `apps/api/app/routers/recommendations.py:416-464` (`POST /api/v1/voice/turn`), 프런트 공용 훅 `apps/web/lib/voice/useVoiceAssistant.ts`
+> 근거: `apps/api/app/routers/recommendations.py` (`POST /api/v1/voice/turn`), 프런트 공용 훅 `apps/web/lib/voice/useVoiceAssistant.ts`
 
 ### ④ B2G 관제 → 개입 폐루프 (쿠폰 정책이 실시간으로 추천 순위에 반영)
 
@@ -53,7 +53,7 @@ SPOT 스코어는 `w1·선호유사도 − w2·시간비용 + w3·인센티브`�
 추천 결과 변화"가 배치 주기 없이 닫힌 루프로 동작한다. 그 개입의 효과는 `/admin/impact`가 수락된
 추천의 `원본 예상대기 − 대안 예상대기` 합산으로 정량 집계해 되돌려준다.
 
-> 근거: 정책 개입 `apps/api/app/routers/admin.py:39-44`(`FacilityUpdate.coupon_rate` PATCH, 주석 "변경 즉시 다음 추천 요청의 w3 쿠폰강도에 반영") · 효과 측정 `apps/api/app/routers/admin.py:239-291`(`GET /api/v1/admin/impact`)
+> 근거: 정책 개입 `apps/api/app/routers/admin.py`(`FacilityUpdate.coupon_rate` PATCH, 주석 "변경 즉시 다음 추천 요청의 w3 쿠폰강도에 반영") · 효과 측정 `apps/api/app/routers/admin.py`(`GET /api/v1/admin/impact`)
 
 ### ⑤ 피드백 학습 선호 벡터
 
@@ -61,7 +61,7 @@ SPOT 스코어는 `w1·선호유사도 − w2·시간비용 + w3·인센티브`�
 이동하며 갱신된다. 다음 추천 요청부터는 갱신된 벡터가 코사인 유사도(w1)에 즉시 반영되어, 별도의
 오프라인 재학습 배치 없이 개인화가 누적된다.
 
-> 근거: `apps/api/app/services/preference_vector_service.py:82-107` (`adjust_user_vector_on_feedback`), 호출부 `apps/api/app/routers/recommendations.py:511-526` (`POST /api/v1/feedback`)
+> 근거: `apps/api/app/services/preference_vector_service.py` (`adjust_user_vector_on_feedback`), 호출부 `apps/api/app/routers/recommendations.py` (`POST /api/v1/feedback`)
 
 ---
 
@@ -88,7 +88,7 @@ SPOT 스코어는 `w1·선호유사도 − w2·시간비용 + w3·인센티브`�
 
 | 단계 | 화면/행동 | 실제 구현 |
 |---|---|---|
-| 1. 지도 확인 | 메인 지도(`app/main`)에서 첨성대 마커 확인 | Kakao Maps 지도에 시설 마커, 혼잡도별 색상(파랑/초록/노랑/주황) 표시 |
+| 1. 지도 확인 | 메인 지도(`app/main`)에서 첨성대 마커 확인 | Kakao Maps 지도에 시설 마커, 혼잡도별 색상(혼잡=빨강 · 보통=주황 · 여유=에메랄드 · 한산=파랑, 임계 0.75/0.5/0.25) 표시 |
 | 2. 혼잡 확인 | 첨성대 마커 클릭 → "실시간 혼잡도: 혼잡 · 수용현황 N/M명" 카드 | `congestion_logs` 최신 행 기반, 합성값 없이 로그 부재 시 "데이터 없음" 표기 |
 | 3. 대안 추천 | "대안 찾기" → `/explore/recommend` 이동 | `POST /api/v1/recommendations` — 반경 150m 후보에 SPOT 스코어(도착시점 예측 포함) 산정, 쿠폰 있는 한적한 곳이 상위 랭크될 수 있음(w3) |
 | 4. 수락 (예시: 3분 내) | 추천 카드에서 "수락" 탭 또는 음성으로 "여기로 가자" | `handleAccept` → `POST /api/v1/feedback`(`action=accepted`) → `recommendations.accepted=true` 갱신 + 선호 벡터 학습 |
@@ -103,7 +103,7 @@ SPOT 스코어는 `w1·선호유사도 − w2·시간비용 + w3·인센티브`�
 ## 4. 수익모델 (D6)
 
 **B2G 라이선스 (관제 대시보드)**
-지자체·관광공사에 관제 대시보드(`/admin/*`, 공유 토큰 인증 `require_admin`)를 SaaS 라이선스로
+지자체·관광공사에 관제 대시보드(`/admin/*`, Supabase 로그인 + `users.role` 판정 `require_role(ROLE_ADMIN)`)를 SaaS 라이선스로
 제공한다. 시설 CRUD, 쿠폰 정책 개입, 수락률·DAU 지표(`/admin/metrics`), 분산 효과 집계
 (`/admin/impact`)가 이미 코드로 구현된 별도 관리자 API 표면이므로 별 도메인 라이선스 판매로
 포장하기에 추가 개발 부담이 적다.

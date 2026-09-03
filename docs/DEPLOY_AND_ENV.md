@@ -41,6 +41,8 @@
 
 - Vault 비밀 2개: `nextspot_area_demand_api_url`(수집 API 전체 주소), `nextspot_area_demand_admin_token`
   (Render의 `SERVICE_API_TOKEN`과 같은 값 — 없으면 `ADMIN_API_TOKEN`).
+- pg_cron은 이 토큰을 `X-Admin-Authorization: Bearer <토큰>` 헤더로 보낸다(마이그레이션 `20260824130000`). API는 정식 헤더
+  `X-Service-Token`(GitHub Actions가 사용)과 둘 다 받는다(`app/core/authz.py`).
 - 최초 설정·회전은 service-role 전용 RPC `configure_area_demand_collection`으로 한다. 값을 마이그레이션에 적지 않는다.
 - `cron.job`: `nextspot-area-demand-primary`(매시 3·13·…·53분), `nextspot-area-demand-retry`(6·16·…·56분, 버킷이 비었을 때만).
   확인: `cron.job.active`, `cron.job_run_details`, `area_demand_snapshots` 증가.
@@ -54,7 +56,7 @@
 |---|---|
 | 부팅 필수 | `SUPABASE_URL` `SUPABASE_ANON_KEY` `JWT_SECRET` `ADMIN_API_TOKEN` |
 | 운영 필수(없으면 기능 결손) | `SUPABASE_SERVICE_ROLE_KEY`(쓰기 경로 전부) `ALLOWED_ORIGINS`(미지정 시 와일드카드) |
-| 선택 | `SERVICE_API_TOKEN`(토큰 회전용 — `render.yaml`에 없으니 대시보드에서 추가) `TOURAPI_KEY` `KMA_API_KEY` `PARKING_API_KEY` `KAKAO_REST_API_KEY` `UPSTAGE_API_KEY` `LLM_BASE_URL` `LLM_MODEL` |
+| 선택 | `SERVICE_API_TOKEN`(토큰 회전용 — `render.yaml`에 없으니 대시보드에서 추가) `TOURAPI_KEY` `KMA_API_KEY` `PARKING_API_KEY` `KAKAO_REST_API_KEY` `UPSTAGE_API_KEY` `LLM_BASE_URL` `LLM_MODEL` `SEARCH_REWRITE_DAILY_BUDGET` |
 
 - `ALLOWED_ORIGINS`에 Vercel 도메인(콤마 구분)을 넣으면 **엄격 모드**(해당 오리진만 + credentials)로 전환된다. 미지정이면 와일드카드.
 - `ADMIN_API_TOKEN`은 `openssl rand -hex 32` 같은 강한 값. 절대 `NEXT_PUBLIC_*`로 프런트에 미러하지 않는다.

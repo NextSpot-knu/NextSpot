@@ -17,17 +17,15 @@
 |---|---|---|
 | TourAPI 비동기 클라이언트 (`client.py`, KorService2, 6개 엔드포인트 함수) | ✅ 구현 완료 | `apps/api/app/services/tourapi/client.py` |
 | 응답→적재 행 변환 (`transform.py`, 순수 함수) | ✅ 구현 완료 + 단위테스트 | `apps/api/tests/services/test_tourapi.py` |
-| 적재 배치 스크립트 (`scripts/ingest_tourapi.py`) | ✅ 구현 완료, **미실행** | `TOURAPI_KEY` 미설정 — 호출 시점에 한국어 `RuntimeError` 발생(`client.py:_require_key`), 부팅은 막지 않음 |
+| 적재 배치 스크립트 (`scripts/ingest_tourapi.py`) | ✅ 구현 완료, **운영 중** | GitHub Actions `ingest.yml`이 매일 KST 04:00 `--details --radius 3000`으로 실행(2026-07-10 첫 실적재, 07-17 상세 적재) |
 | Supabase 스키마 확장 | ✅ 적용 완료 | `supabase/migrations/20260707130000_add_tourapi_fields.sql` (contentid·contenttypeid·address·barrier_free·image_url + 부분 유니크 인덱스) |
 | SPOT 엔진(w1/w2/w3) — TourAPI 파생 필드 소비 경로 | ✅ 구현 완료 | `apps/api/app/services/spot/{score,preference,wait_time}.py` |
-| **DB 내 실데이터** | ⚠️ **TourAPI 실적재분 없음** | `supabase/RESET_AND_SETUP.sql`의 수기 시드 16건뿐. 전부 `contentid IS NULL` — TourAPI에서 온 행이 아니라 데모용 수기 좌표(황리단길 일대)다 |
+| **DB 내 실데이터** | ✅ **실적재분 있음** | 2026-09-03 실측 `facilities` 1,660건(TourAPI `contentid` 보유 89건 + Kakao·LOCALDATA 보완분). 수기 시드는 2026-08-21 마이그레이션으로 비활성(`unverified_demo_seed`) — 수치는 `JUDGE_QA.md` Q5 |
 
-**요약**: 클라이언트·변환·적재·스키마·SPOT 엔진 소비 경로까지 코드 경로는 전 구간 존재하고
-단위테스트로 검증되어 있으나, 공공데이터포털 TourAPI(B551011) 활용신청 키(`TOURAPI_KEY`) 발급
-대기로 `python scripts/ingest_tourapi.py` 실행 전이다. 즉 **"TourAPI 데이터가 SPOT 점수에
-어떻게 반영되는가"는 코드로 확정**되어 있고, **"실제로 몇 건이 반영되었는가"는 키 수령 후
-1회 배치 실행으로 채워질 예정**이다(§6 실행 방법 참고). 아래 매핑은 실행 여부와 무관하게
-"들어오면 이렇게 흐른다"는 구현된 경로를 기술한다.
+**요약**(2026-09-04 갱신): 클라이언트·변환·적재·스키마·SPOT 엔진 소비 경로가 전 구간 존재하고 단위테스트로
+검증되어 있으며, `TOURAPI_KEY` 발급 후 2026-07-10부터 실제 적재가 매일 돌고 있다. 즉 **"TourAPI 데이터가 SPOT 점수에
+어떻게 반영되는가"는 코드로 확정**되어 있고, **"실제로 몇 건이 반영되었는가"는 원격 DB 실측**(`JUDGE_QA.md` Q5, 09-03)으로
+답한다. 아래 매핑은 그 경로를 기술한다. (이 절은 2026-07-09 작성 당시 "실행 전"이었고 2026-09-04에 현재 상태로 정정했다.)
 
 ---
 
@@ -55,7 +53,7 @@ flowchart TD
 
     DB[("Supabase\nfacilities 테이블\ntype/lat/lng/address/\nimage_url/barrier_free/\noperating_hours/features/\ncontentid")]
     CONG[("congestion_logs\n(TourAPI 무관 별도 소스)")]
-    MODEL[["model.pkl\n로컬 sklearn\n(facility_type,hour,dow)→혼잡도"]]
+    MODEL[["Storage 검증 모델(model_registry active)\nsklearn (facility_type,hour,dow)→혼잡도\n없으면 degraded_rules"]]
 
     subgraph SPOT["SPOT 엔진 — apps/api/app/services/spot/"]
         direction TB
@@ -73,8 +71,8 @@ flowchart TD
     E4 -.->|"--details 옵션 시에만"| F3
     E5 -.->|"--details 옵션 시에만"| F3
     F3 -.-> DB
-    E3 -.->|"클라이언트 구현됨, 호출부 없음"| ING
-    E6 -.->|"클라이언트 구현됨, 파이프라인 미연결(A4 백로그)"| ING
+    E3 -->|"routers/events.py — 진행 중 행사의 개요·홈페이지 보강"| OUT
+    E6 -->|"events.py 행사 목록 · event_boost.py 거리 감쇠 → predict 혼잡 보정"| W2
     F2 --> F4 --> DB
 
     DB -->|"latitude/longitude"| W2
@@ -93,10 +91,10 @@ flowchart TD
     SC --> OUT
 
     classDef unwired stroke-dasharray: 5 5,fill:none;
-    class E2,E3,E6 unwired;
+    class E2 unwired;
 ```
 
-범례: 실선 = 코드로 연결되어 실행 가능한 경로(키 수령 시 즉시 동작). 점선 = 클라이언트
+범례: 실선 = 코드로 연결되어 운영 중인 경로. 점선 = 클라이언트
 함수는 구현되어 있으나 파이프라인 호출부가 아직 없는 경로(§5 참고).
 
 ---
@@ -113,7 +111,7 @@ CI 패리티 테스트로 정합 강제).
 | locationBasedList2 | 위 좌표(동일 필드) | 동일 컬럼 | `routers/recommendations.py` — 사용자 위치 기준 반경 150m 이내만 후보군 채택(1차 필터) | 필터(후보 생성) | 연결됨 |
 | locationBasedList2 | `contenttypeid`(12/14/39) + `cat3` | `map_facility_type()` → `facilities.type`(restaurant/cafe/attraction/culture) | `spot/preference.py CATEGORY_VECTORS[type]` → 사용자 벡터와 코사인 유사도 | **w1(선호)** | 연결됨 |
 | locationBasedList2 | 위 `type`(동일) | 동일 | `spot/wait_time.py DEFAULT_PROCESSING_TIMES[type]` → 기본 처리시간 × 혼잡도 × 시간대 보정 = `predicted_wait` | **w2(시간)** | 연결됨 |
-| locationBasedList2 | 위 `type`(동일) | 동일 | `predict_service.py predict_congestion(type, hour, dow)` 3피처 중 1(로컬 sklearn `model.pkl`) → `predicted_congestion` | **w2**(대기시간 산정 입력) 및 **w3**(재배치기여 성분) | 연결됨(모델 미학습 시 0.5 기본값 폴백) |
+| locationBasedList2 | 위 `type`(동일) | 동일 | `predict_service.py predict_congestion(type, hour, dow)` 3피처 중 1(Supabase Storage의 검증된 active sklearn 모델) → `predicted_congestion` | **w2**(대기시간 산정 입력) 및 **w3**(재배치기여 성분) | 연결됨(활성 모델이 없으면 `degraded_rules` — 혼잡 항을 산식에서 제외, 임의 0.5 없음) |
 | locationBasedList2 | `title` | `facilities.name` | 추천 카드·목록 표시명 | 표시 | 연결됨 |
 | locationBasedList2 | `contentid` | `facilities.contentid`(부분 유니크 인덱스) | `upsert_facilities()` 갱신 기준키(중복 적재 방지) | 식별자(산식 미기여) | 연결됨 |
 | locationBasedList2 | `addr1` | `facilities.address` | 추천 카드 주소 표시(`RecommendationCard.tsx:228`, 카카오 장소 주소가 없을 때의 근거값) | 표시 | 연결됨 |

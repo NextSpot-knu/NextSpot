@@ -84,14 +84,14 @@ filter 의 후보 매칭은 `embedding_service.filter_candidates` 가 후보 이
 - `GET /api/v1/area-demand/status` — 경주시 ITS 실시간 주차 데이터 커버리지
 - `GET /api/v1/area-demand/parking-lots` — 반경 내 공영주차장과 실제 잔여면(없으면 null)
 - `GET /api/v1/search/places` — 상호·메뉴·음식 종류의 Kakao 장소 검색(경주 8km)
-- `POST /api/v1/area-demand/snapshots/collect` — 현재 실측을 10분 버킷으로 멱등 저장(기계 토큰 `X-Service-Token` 또는 admin JWT)
+- `POST /api/v1/area-demand/snapshots/collect` — 현재 실측을 10분 버킷으로 멱등 저장(기계 토큰 — Actions 는 `X-Service-Token`, pg_cron 은 `X-Admin-Authorization: Bearer` — 또는 admin JWT)
 - `POST /api/v1/recommendations` — 혼잡한 원본 장소의 대안 추천(반경 150m)
 - `POST /api/v1/recommendations/by-type` — 타입별 랭킹(메인 지도 브라우즈)
 - `POST /api/v1/feedback` — 수락/거절 피드백 → 선호 벡터 보정
 - `POST /api/v1/preferences/parse` — 자연어 선호 → 구조화(키워드)
 - `POST /api/v1/voice/turn` — 음성 1턴 의도 해석(무인증)
 - `GET /api/v1/users/me/vector` — 본인 선호 벡터 조회
-- `POST /api/v1/admin/simulate-peak` — 데모 피크 혼잡 생성(관리자 토큰)
+- `POST /api/v1/admin/simulate-peak` — 데모 피크 혼잡 생성(admin 역할 JWT)
 
 ## 지역 수요 스냅샷 수집 활성화
 

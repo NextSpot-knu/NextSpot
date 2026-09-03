@@ -51,7 +51,7 @@ KST 04:00)으로 이미 자동화되어 있고(D1), `GET /api/v1/freshness`가 �
 화면 신선도 배지로 "언제 데이터인지"를 사용자에게 그대로 증빙한다(D5 — 마커 부재 시 updated_at 추정으로
 폴백하는 정직한 표기). 지역 수요는 경주 ITS를 10분마다 수집하고 관측 후 30분 이내 도착에만 사용한다.
 그보다 먼 도착은 통계 근거로 폴백하거나 비우므로 현재값을 미래 예측처럼 늘리지 않는다.
-[뒷받침 근거: .github/workflows/ingest.yml, apps/api/app/routers/freshness.py, docs/HANDOVER.md -1절 실적재 결과]
+[뒷받침 근거: .github/workflows/ingest.yml, apps/api/app/routers/freshness.py, docs/archive/HANDOVER_LOG.md §-1 실적재 결과]
 
 ## Q6. [기술] TourAPI 의존 리스크(쿼터·장애·스펙 변경)는 어떻게 관리하나?
 
@@ -61,7 +61,7 @@ API 장애 시에는 `source="unavailable"`과 함께 빈 목록을 반환해 �
 이미 구현되어 있고, 실시간 프록시 호출이 아니라 사전 배치 적재+캐시 구조라 서비스 중 실호출 자체가 적어
 쿼터 리스크를 구조적으로 낮춘다. 다만 단일 공공 API 의존은 구조적으로 남아 있어, 교통·유동인구 등 타
 공공데이터 결합(A7)으로 다변화하는 것이 다음 단계다.
-[뒷받침 근거: docs/HANDOVER.md -1절 KorService2 함정, FestivalBanner source=unavailable 폴백, docs/contest/CONTEST_STRATEGY.md A7]
+[뒷받침 근거: docs/archive/HANDOVER_LOG.md §-1 KorService2 함정, FestivalBanner source=unavailable 폴백, docs/contest/CONTEST_STRATEGY.md A7]
 
 ## Q7. [사업성] 경주에 한정된 것 아닌가? 타 지역 확장은 어떻게 하나?
 
@@ -69,8 +69,8 @@ API 장애 시에는 `source="unavailable"`과 함께 빈 목록을 반환해 �
 FacilityTable이 이미 이 설정을 소비하도록 마이그레이션을 마쳐 "설정값 교체만으로 확장 가능"한 구조를 코드로
 증빙한다. TourAPI·SPOT 산식 자체는 지역 비의존적으로 설계돼 있어, 타 지역 확장의 핵심 작업은 신규 지역 POI
 재적재(`ingest_tourapi.py` 파라미터 변경)와 혼잡 모델 재학습(`train.py`) 두 단계로 축소된다. 다만
-`CongestionMap` 등 일부 컴포넌트는 아직 후속 마이그레이션 대상으로 남아 있어, 완전한 이식에는 잔여 작업이
-있다는 점도 밝힌다.
+보행 그래프(`app/data/gyeongju_walking_graph.json.gz`, `scripts/build_walking_graph.py`로 재생성)와 유명 명소 기준 대안 탐색
+(`lib/gyeongjuDiscovery.ts`)처럼 지역 데이터가 코드에 번들된 곳이 남아 있어, 완전한 이식에는 잔여 작업이 있다는 점도 밝힌다.
 [뒷받침 근거: docs/contest/CONTEST_STRATEGY.md D2, apps/web/lib/region.ts]
 
 ## Q8. [사업성] 지자체·소상공인이 실제로 비용을 지불할 유인이 있나?
@@ -123,4 +123,4 @@ Supabase 익명 세션으로 기기별 무마찰 자동 로그인을 제공하�
 `preferred_categories`와 취향 벡터뿐이며, 위치는 매 요청 시 좌표만 사용될 뿐 서버가 이동 이력을 누적해
 개인 프로필로 축적하지 않는다. 다만 익명 세션이 기기 로컬 저장 기반이라 기기 변경 시 이력이 끊기는
 트레이드오프가 있는데, 이는 "저비용 무마찰 온보딩"과 "영구 개인화" 사이의 의도된 설계 선택이라고 설명한다.
-[뒷받침 근거: docs/HANDOVER.md 0절 관광객 인증 완성, supabase/migrations/20260710160000_handle_new_user.sql]
+[뒷받침 근거: docs/archive/HANDOVER_LOG.md §0 관광객 인증 완성, supabase/migrations/20260710160000_handle_new_user.sql]
