@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 
-import { EMPTY_TRAVEL_CONTEXT } from './travelContext';
+import { EMPTY_TRAVEL_CONTEXT } from '../travelContext';
 import { buildVoiceCommandTransition } from './voiceCommands';
 
 const restaurant = buildVoiceCommandTransition(

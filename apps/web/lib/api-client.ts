@@ -2,7 +2,7 @@ import { createPublicClient } from "./supabase";
 import { keysToCamel, keysToSnake } from "./caseTransform";
 import type { TravelContext } from "./travelContext";
 import type { PlaceCategory } from "./travelContext";
-import type { VoiceAppCommand } from "./voiceCommands";
+import type { VoiceAppCommand } from "./voice/voiceCommands";
 import type { Locale } from "./i18n/config";
 import { ensureAnonymousSession } from "./anonymousSession";
 const supabase = createPublicClient();

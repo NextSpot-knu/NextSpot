@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { LayoutDashboard, Building2, BarChart3, Settings, HelpCircle, Sparkles, LogOut, ShieldAlert, Printer, UserCog, Compass } from 'lucide-react';
-import { signOutAdmin } from '@/lib/admin-auth';
+import { signOutAdmin } from '@/lib/adminAuth';
 import { useAccount, canEnterDevConsole } from '@/lib/account';
 
 export function AdminSidebar() {

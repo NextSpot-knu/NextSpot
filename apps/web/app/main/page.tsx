@@ -6,16 +6,16 @@ import { toast } from 'sonner';
 import dynamic from 'next/dynamic';
 import { Search, Mic, X, Utensils, MapPin, Building2, Coffee, Car, ChevronDown, ChevronUp, SlidersHorizontal, Clock3 } from 'lucide-react';
 import { createPublicClient } from '@/lib/supabase';
-import { getMarkerSvg } from '@/lib/utils';
+import { getMarkerSvg } from '@/lib/map/markerSvg';
 import { scoreFacility, compareSpot, displayWalkingMinutes, rankFacilities, rankFacilitiesDegraded, recToSpot, haversineMeters, cuisineMatch, filterReachable, type Spot } from '@/lib/recommender';
 import { REGION, isWithinRegion } from '@/lib/region';
 import { getRecommendations, recommendByType, rejectRecommendation, voiceTurn, apiClient } from '@/lib/api-client';
 // 히트맵 blob 의 색·크기 규칙(마커/배지 임계와 일관) 공용 헬퍼 — 중복 정의 금지, 그대로 재사용.
-import { getHeatGradient, getHeatRadius } from '@/lib/heatmap';
+import { getHeatGradient, getHeatRadius } from '@/lib/map/heatmap';
 // D5: TourAPI 동기화 신선도 상대시간 — lib/freshness 단일 소스 재사용(중복 정의 금지).
 import { relativeParts } from '@/lib/freshness';
-import { useVoiceAssistant } from '@/lib/useVoiceAssistant';
-import { useSpeechSearch } from '@/lib/useSpeechSearch';
+import { useVoiceAssistant } from '@/lib/voice/useVoiceAssistant';
+import { useSpeechSearch } from '@/lib/voice/useSpeechSearch';
 import VoiceAssistantOrb from '@/components/VoiceAssistantOrb';
 import { recordActiveTrip } from '@/lib/visits';
 import { queueRecommendationOutcome } from '@/lib/recommendationOutcomes';
@@ -26,7 +26,7 @@ import { useI18n } from '@/lib/i18n/I18nProvider';
 // T2: 휴무 원문 파서(오늘 휴무 확정만 배제) + 가능/불가능 텍스트 파서(주차·반려동물 필터) — 공용 단일 소스.
 import { getArrivalOpenStatus, isClosedToday, isRecommendationOpen, parseAvailability } from '@/lib/restDate';
 import { loadTravelContext, matchesTravelContext, saveTravelContext, type PlaceCategory, CUISINE_INTENT } from '@/lib/travelContext';
-import { buildVoiceCommandTransition, type VoiceAppCommand } from '@/lib/voiceCommands';
+import { buildVoiceCommandTransition, type VoiceAppCommand } from '@/lib/voice/voiceCommands';
 import { facilityMatchesSearch } from '@/lib/placeSearch';
 import NextSpotMascot from '@/components/NextSpotMascot';
 import { buildSpotComparisons, formatSpotComparison } from '@/lib/spotComparison';
@@ -42,12 +42,12 @@ const RecommendationCard = dynamic(
   () => import('@/components/RecommendationCard').then((m) => m.RecommendationCard),
   { ssr: false },
 );
-const FestivalBanner = dynamic(() => import('@/components/FestivalBanner'), { ssr: false });
-const WeatherChip = dynamic(() => import('@/components/WeatherChip'), { ssr: false });
-const RestroomChip = dynamic(() => import('@/components/RestroomChip'), { ssr: false });
-const TodayCalmSpots = dynamic(() => import('@/components/TodayCalmSpots'), { ssr: false });
-const VisitCheckCard = dynamic(() => import('@/components/VisitCheckCard'), { ssr: false });
-const ActiveJourneyCard = dynamic(() => import('@/components/ActiveJourneyCard'), { ssr: false });
+const FestivalBanner = dynamic(() => import('@/components/main/FestivalBanner'), { ssr: false });
+const WeatherChip = dynamic(() => import('@/components/main/WeatherChip'), { ssr: false });
+const RestroomChip = dynamic(() => import('@/components/main/RestroomChip'), { ssr: false });
+const TodayCalmSpots = dynamic(() => import('@/components/main/TodayCalmSpots'), { ssr: false });
+const VisitCheckCard = dynamic(() => import('@/components/main/VisitCheckCard'), { ssr: false });
+const ActiveJourneyCard = dynamic(() => import('@/components/main/ActiveJourneyCard'), { ssr: false });
 
 const supabase = createPublicClient();
 

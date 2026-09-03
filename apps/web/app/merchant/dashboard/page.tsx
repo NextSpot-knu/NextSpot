@@ -40,7 +40,7 @@ import {
   clearMerchantFacility,
   clearLegacyMerchantSession,
   type MerchantFacility,
-} from '../_lib/merchant-auth';
+} from '../../../lib/merchant/localState';
 import { useAccount, canEnterMerchantConsole } from '@/lib/account';
 import {
   fetchMerchantStats,
@@ -56,7 +56,7 @@ import {
   type MerchantTimesale,
   type SeatLevel,
   type HourlyCongestionPoint,
-} from '../_lib/merchant-api';
+} from '../../../lib/merchant/api';
 
 const TYPE_LABEL: Record<string, string> = {
   restaurant: '음식점',

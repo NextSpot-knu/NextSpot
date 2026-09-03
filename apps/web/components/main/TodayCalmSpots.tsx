@@ -13,7 +13,7 @@ import { createPortal } from 'react-dom';
 import { loadTravelContext } from '@/lib/travelContext';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Leaf, MapPin, X } from 'lucide-react';
-import { haversineMeters, formatDistance } from '@/lib/geo';
+import { haversineMeters, formatDistance } from '@/lib/map/geo';
 import { useT } from '@/lib/i18n/I18nProvider';
 
 // 온보딩 취향 카테고리(우선 정렬용 시설 타입들). 없으면 빈 배열.

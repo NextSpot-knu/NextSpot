@@ -1,7 +1,7 @@
 // 히트맵 오버레이 공용 헬퍼 — 혼잡 blob 의 색/크기 규칙을 한 곳에 모아
 // 카카오맵(CustomOverlay)과 시뮬레이션(절대배치 div) 양쪽에서 동일하게 재사용한다.
 //
-// 색 임계값은 lib/utils 의 getMarkerSvg 와 컴포넌트의 getCongestionBadge 가 쓰는
+// 색 임계값은 lib/map/markerSvg.ts 의 getMarkerSvg 와 컴포넌트의 getCongestionBadge 가 쓰는
 // 0.75 / 0.5 / 0.25 와 완전히 동일하게 유지한다(혼잡=빨강 · 보통=주황 · 여유=에메랄드 · 한산=파랑).
 // 마커/배지와 히트맵 색이 어긋나면 정직성 표기가 훼손되므로 이 한 곳만 고쳐 쓴다.
 

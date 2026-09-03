@@ -21,7 +21,7 @@ import { ShareButton } from "@/components/ShareButton";
 import CourseMap from "@/components/CourseMap";
 import NowChip from "@/components/NowChip";
 import OptimizationLoader from "@/components/OptimizationLoader";
-import { encodeStops, parseShareParam } from "@/lib/course-share";
+import { encodeStops, parseShareParam } from "@/lib/courseShare";
 import { loadTravelContext } from "@/lib/travelContext";
 import { recordActiveTrip } from "@/lib/visits";
 import { track } from "@/lib/analytics";

@@ -2,18 +2,18 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono, Noto_Sans_KR, Noto_Serif_KR } from "next/font/google";
 import "./globals.css";
 import Script from "next/script";
-import PageTransition from "@/components/PageTransition";
-import BottomNav from "@/components/BottomNav";
-import ServiceWorkerRegister from "@/components/ServiceWorkerRegister";
-import SessionBootstrap from "@/components/SessionBootstrap";
-import InstallPrompt from "@/components/InstallPrompt";
-import LlmDebugToast from "@/components/LlmDebugToast";
+import PageTransition from "@/components/shell/PageTransition";
+import BottomNav from "@/components/shell/BottomNav";
+import ServiceWorkerRegister from "@/components/shell/ServiceWorkerRegister";
+import SessionBootstrap from "@/components/shell/SessionBootstrap";
+import InstallPrompt from "@/components/shell/InstallPrompt";
+import LlmDebugToast from "@/components/shell/LlmDebugToast";
 import { I18nProvider } from "@/lib/i18n/I18nProvider";
 // 계정 권한(역할·소유 가게) 단일 출처 — 콘솔 진입점 게이팅에 쓴다(lib/account.tsx).
 import { AccountProvider } from "@/lib/account";
-import MotionProvider from "@/components/MotionProvider";
-import ThemeProvider from "@/components/ThemeProvider";
-import ThemeToaster from "@/components/ThemeToaster";
+import MotionProvider from "@/components/shell/MotionProvider";
+import ThemeProvider from "@/components/shell/ThemeProvider";
+import ThemeToaster from "@/components/shell/ThemeToaster";
 
 const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
 const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });

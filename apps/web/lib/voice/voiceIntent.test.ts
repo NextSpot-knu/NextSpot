@@ -1,7 +1,7 @@
 // voiceIntent 의도 분류 단위 테스트 (프레임워크 불필요).
-// 실행: node --experimental-strip-types lib/voiceIntent.test.ts  (Node 22.6+)
-//   또는: npx tsx lib/voiceIntent.test.ts
-import { classifyIntent, buildCardSpeech, type VoiceIntent } from "./voiceIntent.ts";
+// 실행: apps/web 에서 `npm run test` (scripts/run-web-tests.mjs 가 lib/**/*.test.ts 를 전부 tsx 로 돌린다)
+//   단독: npx tsx lib/voice/voiceIntent.test.ts
+import { classifyIntent, buildCardSpeech, type VoiceIntent } from "./voiceIntent";
 
 const cases: [string, VoiceIntent][] = [
   // accept

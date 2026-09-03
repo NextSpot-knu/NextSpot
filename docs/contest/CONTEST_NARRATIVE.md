@@ -44,7 +44,7 @@ SPOT 스코어는 `w1·선호유사도 − w2·시간비용 + w3·인센티브`�
 발화는 백엔드가 구체 검색어로 확장한 뒤 임베딩 의미검색으로 후보를 재필터링해, 다른 업종 후보가
 섞여 나오는 것을 막는다.
 
-> 근거: `apps/api/app/routers/recommendations.py:416-464` (`POST /api/v1/voice/turn`), 프런트 공용 훅 `apps/web/lib/useVoiceAssistant.ts`
+> 근거: `apps/api/app/routers/recommendations.py:416-464` (`POST /api/v1/voice/turn`), 프런트 공용 훅 `apps/web/lib/voice/useVoiceAssistant.ts`
 
 ### ④ B2G 관제 → 개입 폐루프 (쿠폰 정책이 실시간으로 추천 순위에 반영)
 

@@ -1,4 +1,4 @@
-import type { PlaceCategory, TravelContext } from './travelContext';
+import type { PlaceCategory, TravelContext } from '../travelContext';
 
 export type VoiceAppCommand =
   | { name: 'set_facility_type'; args: { facilityType: PlaceCategory } }

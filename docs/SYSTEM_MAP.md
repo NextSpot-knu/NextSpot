@@ -248,7 +248,7 @@ SessionBootstrap: 익명 세션 자동 발급
 | `/explore/recommend` | **대안 추천 (핵심)** | `POST /recommendations` `/recommendations/by-type` | **SPOT 엔진** |
 | ″ | 추천 사유 생성 | `POST /recommendations/{id}/explain` | `reason_service` `recommendation_explanation_service` |
 | ″ | 수락 / 거절 피드백 | `POST /recommendations/accept` `/reject` `/feedback` | `feedback_service` `preference_vector_service` |
-| ″ | 음성 비서 | `POST /voice/turn` | `voice_intent_service` + `lib/voiceCommands.ts` |
+| ″ | 음성 비서 | `POST /voice/turn` | `voice_intent_service` + `lib/voice/voiceCommands.ts` |
 | ″ | 자연어 현장조건 | `POST /travel-context/parse` | `travel_context_parser` |
 | `/course` | 멀티스톱 분산 코스 | `POST /courses/recommend` | 누적 도착시각 기반 SPOT 반복 |
 | `/waiting` | 대기 현황 보드 | `GET /infrastructures` | `facility_cache` |

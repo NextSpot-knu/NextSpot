@@ -4,7 +4,7 @@
 //
 // 정적 export(SSR) 안전: 모든 Web Speech 접근은 이펙트/이벤트 콜백 내부 + typeof window 가드.
 // 폴백 우선: 미지원 브라우저는 supported=false → 호출부가 마이크를 '준비 중' 비활성으로 유지(크래시 없음).
-// (STT 패턴은 lib/useVoiceAssistant.ts / app/explore/recommend 와 일관되게 맞춤 — 해당 파일은 건드리지 않음.)
+// (STT 패턴은 lib/voice/useVoiceAssistant.ts / app/explore/recommend 와 일관되게 맞춤 — 해당 파일은 건드리지 않음.)
 import { useEffect, useRef, useState } from "react";
 
 export interface SpeechSearch {

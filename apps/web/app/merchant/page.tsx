@@ -20,7 +20,7 @@ import {
   saveMerchantFacility,
   getMerchantFacility,
   type MerchantFacility,
-} from './_lib/merchant-auth';
+} from '../../lib/merchant/localState';
 
 const TYPE_LABEL: Record<string, string> = {
   restaurant: '음식점',
