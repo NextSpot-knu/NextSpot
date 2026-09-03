@@ -52,7 +52,8 @@
 
 | 구분 | 키 |
 |---|---|
-| 필수 | `SUPABASE_URL` `SUPABASE_ANON_KEY` `SUPABASE_SERVICE_ROLE_KEY` `JWT_SECRET` `ADMIN_API_TOKEN` `ALLOWED_ORIGINS` |
+| 부팅 필수 | `SUPABASE_URL` `SUPABASE_ANON_KEY` `JWT_SECRET` `ADMIN_API_TOKEN` |
+| 운영 필수(없으면 기능 결손) | `SUPABASE_SERVICE_ROLE_KEY`(쓰기 경로 전부) `ALLOWED_ORIGINS`(미지정 시 와일드카드) |
 | 선택 | `SERVICE_API_TOKEN`(토큰 회전용 — `render.yaml`에 없으니 대시보드에서 추가) `TOURAPI_KEY` `KMA_API_KEY` `PARKING_API_KEY` `KAKAO_REST_API_KEY` `UPSTAGE_API_KEY` `LLM_BASE_URL` `LLM_MODEL` |
 
 - `ALLOWED_ORIGINS`에 Vercel 도메인(콤마 구분)을 넣으면 **엄격 모드**(해당 오리진만 + credentials)로 전환된다. 미지정이면 와일드카드.
@@ -71,6 +72,7 @@
 | `NEXT_PUBLIC_KAKAO_MAPS_APP_KEY` | Kakao 개발자 콘솔 JavaScript 키 |
 | `NEXT_PUBLIC_FASTAPI_URL` | `https://nextspot-api.onrender.com` |
 | `NEXT_PUBLIC_SITE_URL` | `https://nextspot-nu.vercel.app` (OG 이미지 절대 URL) |
+| `NEXT_PUBLIC_DEMO_CONTROLS` | 운영은 미설정. `1`이면 메인 지도에 시연용 내부 컨트롤 표시 — 데모 프리뷰 배포에서만 |
 
 - 관리자·사장님 콘솔용 env는 없다(앱 계정 로그인 + `users.role`). 토큰·비밀번호를 `NEXT_PUBLIC_*`에 넣지 않는다.
 - Kakao 개발자 콘솔 → 플랫폼 → Web 도메인에 Vercel 도메인(커스텀 도메인 포함)을 등록해야 지도가 렌더링된다.

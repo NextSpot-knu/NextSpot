@@ -6,8 +6,8 @@
 #   .\run_local.ps1 -FrontendOnly  Start only the Next.js frontend.
 #
 # Prerequisites:
-#   - Python 3.11 and Node 20+. CI and apps/api/Dockerfile pin 3.11. A Python 3.14 install breaks the
-#     pinned websockets 12.0 (no websockets.asyncio), so the script resolves 3.11 explicitly and refuses 3.14+.
+#   - Python 3.11 and Node 20+. CI and apps/api/Dockerfile pin 3.11; other versions are unsupported
+#     (dependency import failures have been seen on 3.14), so the script resolves 3.11 explicitly and refuses 3.14+.
 #   - apps/api/.env       (copy apps/api/.env.example and fill Supabase creds + JWT_SECRET).
 #   - apps/web/.env.local (Supabase + Kakao keys + NEXT_PUBLIC_FASTAPI_URL).
 # Messages are intentionally English (PowerShell 5.1 console is cp949 and garbles Hangul).
@@ -28,8 +28,8 @@ $web  = Join-Path $root "apps\web"
 $env:PYTHONUTF8 = "1"
 
 # Resolve the backend interpreter: in-repo venv -> 'py -3.11' launcher -> 'python' on PATH.
-# Plain 'python' is last because a 3.14 install breaks the pinned websockets 12.0 (no
-# websockets.asyncio, which realtime 2.31.0 requires) and dies at app import time.
+# Plain 'python' is last because it is usually a newer, unsupported interpreter (3.14 has died at
+# app import time on dependency incompatibilities); 3.11 is what CI and the Dockerfile run.
 function Resolve-BackendPython {
   param([string]$ApiDir)
 
@@ -63,7 +63,7 @@ if (-not $FrontendOnly) {
   $minor = [int]$pyVer.Split('.')[1]
 
   if ($pyVer -notlike "3.*" -or $minor -ge 14) {
-    throw ("[backend] Python $pyVer is unsupported (3.14+ lacks websockets.asyncio with the pinned websockets 12.0).`n" +
+    throw ("[backend] Python $pyVer is unsupported (CI and Dockerfile pin 3.11; 3.14+ is not supported).`n" +
            "          Resolved: $py`n" +
            "          Fix: py -3.11 -m venv apps\api\.venv    (then re-run this script)")
   }

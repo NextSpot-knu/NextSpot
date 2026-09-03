@@ -51,11 +51,15 @@ jobs:
           cache: pip
           cache-dependency-path: apps/api/requirements*.txt
       - run: pip install -r requirements.txt
+      # dispatch 입력은 env 로 넘긴다 — run: 에 ${{ }} 로 직접 끼우면 입력값이 셸 스크립트로 해석된다(스크립트 주입).
       - name: Validate inputs
         shell: bash
+        env:
+          ACTION: ${{ github.event.inputs.action || 'candidate' }}
+          VERSION: ${{ github.event.inputs.version }}
         run: |
-          action="${{ github.event.inputs.action || 'candidate' }}"
-          version="${{ github.event.inputs.version }}"
+          action="$ACTION"
+          version="$VERSION"
           if [[ "$action" =~ ^(promote|rollback)$ && -z "$version" ]]; then
             echo "version is required for $action" >&2
             exit 2
@@ -68,7 +72,11 @@ jobs:
         run: python scripts/train.py --dry-run
       - name: Promote candidate
         if: ${{ github.event.inputs.action == 'promote' }}
-        run: python scripts/train.py --promote-version "${{ github.event.inputs.version }}"
+        env:
+          VERSION: ${{ github.event.inputs.version }}
+        run: python scripts/train.py --promote-version "$VERSION"
       - name: Roll back
         if: ${{ github.event.inputs.action == 'rollback' }}
-        run: python scripts/train.py --rollback-version "${{ github.event.inputs.version }}"
+        env:
+          VERSION: ${{ github.event.inputs.version }}
+        run: python scripts/train.py --rollback-version "$VERSION"

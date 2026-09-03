@@ -5,8 +5,10 @@ NextSpot을 로컬에서 띄우는 방법. 데이터 저장소는 팀 Supabase �
 
 ## 1. 전제조건
 
-- Python **3.11** (CI·`apps/api/Dockerfile` 고정). 3.14에서는 고정된 `websockets` 12에 `websockets.asyncio`가 없어
-  앱 import가 깨진다. Windows는 `py -3.11`, 또는 venv를 만든다: `py -3.11 -m venv apps/api/.venv`.
+- Python **3.11** (CI·`apps/api/Dockerfile`과 같은 버전). 다른 버전에서 생기는 의존성 문제는 지원하지 않는다 —
+  `run_local.ps1`은 3.14+를 거부한다. Windows는 `py -3.11`, 또는 venv를 만든다: `py -3.11 -m venv apps/api/.venv`.
+  (실측 사례: 3.14 환경에 `websockets` 12.x가 이미 있으면 `realtime`의 `>=11,<16` 범위를 만족해 설치는 통과하지만
+  `websockets.asyncio`가 없어 import에서 깨진다 — 저장소는 websockets를 고정하지 않으며 3.11 venv에서는 15.x가 잡힌다.)
 - Node **20+** (CI는 22).
 - Supabase 프로젝트 자격증명(URL / anon key / service_role key / JWT secret) — 팀 공유 채널에서 받는다.
 - (선택) Docker Desktop — 백엔드를 컨테이너로 띄울 때.
@@ -19,10 +21,11 @@ NextSpot을 로컬에서 띄우는 방법. 데이터 저장소는 팀 Supabase �
 |---|---|
 | 필수(없으면 부팅 실패) | `SUPABASE_URL` `SUPABASE_ANON_KEY` `JWT_SECRET` `ADMIN_API_TOKEN` |
 | 권장 | `SUPABASE_SERVICE_ROLE_KEY` — 관리자 쓰기·수집·증빙 서명 URL 등 service_role 경로 |
-| 선택 | `KAKAO_REST_API_KEY`(장소 검색·화장실) `TOURAPI_KEY` `KMA_API_KEY` `PARKING_API_KEY` `UPSTAGE_API_KEY`(LLM 보조 — 없으면 조용히 비활성) `ALLOWED_ORIGINS`(기본 localhost 3000·3001) |
+| 선택 | `KAKAO_REST_API_KEY`(장소 검색·화장실) `TOURAPI_KEY` `KMA_API_KEY` `PARKING_API_KEY` `UPSTAGE_API_KEY`(LLM 보조 — 없으면 조용히 비활성) `ALLOWED_ORIGINS`(미설정 시 `*`; `.env.example` 값은 localhost 3000·3001) |
 
-- `ADMIN_API_TOKEN`은 사람 로그인용이 아니다. pg_cron·GitHub Actions 같은 기계 호출이 `X-Service-Token`으로 보내는
-  서비스 토큰이며(`SERVICE_API_TOKEN`이 있으면 그것만 유효), 로컬은 `nextspot-admin-local`로 충분하다.
+- `ADMIN_API_TOKEN`은 사람 로그인용이 아니다. 기계 호출이 `X-Service-Token`(GitHub Actions) 또는 구 이름
+  `X-Admin-Authorization: Bearer`(Supabase pg_cron)로 보내는 서비스 토큰이며(`SERVICE_API_TOKEN`이 있으면 그것만 유효),
+  로컬은 `nextspot-admin-local`로 충분하다.
 - CWD가 `apps/api`여야 `.env`가 로드된다.
 
 ### 프런트 `apps/web/.env.local` — `apps/web/.env.example` 복사

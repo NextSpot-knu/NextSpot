@@ -1136,7 +1136,7 @@ export default function MainPage() {
     }
   };
 
-  // AI 추천 동기화: 실 DB 시설은 백엔드(/recommendations/by-type) 랭킹 + Gemini 사유,
+  // AI 추천 동기화: 실 DB 시설은 백엔드(/recommendations/by-type) 랭킹 + 서버 사유(템플릿 + LLM 다듬기),
   // 합성 그룹·시간대 시뮬(mockHour) 등 데모는 lib/recommender 미러(사유 포함)로 처리해 합친 뒤 #1을 표시.
   // (백엔드는 합성 시설/mockHour 를 모르므로 데모는 분리해 클라 미러로 점수를 매긴다.)
   useEffect(() => {

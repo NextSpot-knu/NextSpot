@@ -1,5 +1,5 @@
 # 관제 대시보드 '오늘의 브리핑'(P0-2) 라우터/서비스 테스트 — LLM·supabase 전부 mock.
-#  · 인증: require_admin 실경로(X-Admin-Authorization) — test_routers.py 관례.
+#  · 인증: 관리자 역할 JWT 경로(require_role(ROLE_ADMIN), conftest 의 admin_headers) — test_routers.py 관례.
 #  · DB: app.routers.admin.supabase_admin 을 FakeSupabase(canned)로 패치 — 네트워크 0.
 #  · LLM: app.services.llm_client 의 is_enabled/chat_text 를 monkeypatch — 네트워크 0.
 #  검증 계약(docs/archive/SOLAR_LLM_EXPANSION.md P0-2 + Codex 적대 감사 반영 — 플레이스홀더 설계):

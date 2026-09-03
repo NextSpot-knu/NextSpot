@@ -2,7 +2,7 @@
 
 2026 관광데이터 활용 공모전(웹·앱 개발 부문) 출품작. 경주 황리단길의 오버투어리즘을
 SPOT(Smart Place Optimization for Tourism) 점수로 분산·재배치하는 AI 대안 장소 추천 웹 서비스.
-**이 파일이 사람·에이전트 공통 규칙의 정본이다.** `CLAUDE.md`·`.agents/rules/`는 여기로 오는 포인터일 뿐이며,
+**이 파일이 사람·에이전트 공통 규칙의 정본이다.** `CLAUDE.md`(루트·`apps/web/`)는 여기로 오는 포인터일 뿐이며,
 규칙이 생기면 여기에만 쓴다.
 
 ## 읽는 순서 (첫 5분)
@@ -52,8 +52,8 @@ SPOT(Smart Place Optimization for Tourism) 점수로 분산·재배치하는 AI 
   `apps/api/conftest.py`(주석만 있는 sys.path 앵커)는 삭제 금지.
 - `npm run test` = `scripts/check-i18n-keys.mjs`(코드가 부르는 키가 ko.json에 있는지) +
   `apps/web/lib/**/*.test.ts` 전부(`scripts/run-web-tests.mjs`가 glob으로 찾는다 — 새 테스트는 만들기만 하면 돈다).
-- Python은 **3.11 고정**(CI·Dockerfile). 3.14에서는 고정된 `websockets` 12가 `websockets.asyncio`를 못 찾아
-  import에서 깨진다. Windows는 `py -3.11` 또는 `apps/api/.venv`(`.\run_local.ps1`이 venv → `py -3.11` → `python` 순으로 찾는다).
+- Python은 **3.11 고정**(CI·Dockerfile과 같은 버전). 다른 버전에서 나는 의존성 import 오류는 지원하지 않는다 —
+  `.\run_local.ps1`은 3.14+를 거부하고 venv → `py -3.11` → `python` 순으로 인터프리터를 찾는다. venv: `py -3.11 -m venv apps/api/.venv`.
 
 ## 로컬 실행
 
@@ -67,11 +67,15 @@ SPOT(Smart Place Optimization for Tourism) 점수로 분산·재배치하는 AI 
 - `supabase/RESET_AND_SETUP.sql` **직접 수정 금지**. 스키마 변경 = `supabase/migrations/`에 새 파일
   (타임스탬프는 **현재 마지막 파일보다 커야** 한다) → `node scripts/build_reset.mjs` → 함께 커밋.
   새 테이블·함수는 `build_reset.mjs`의 PRELUDE DROP 목록에도 추가.
+- `congestion_logs`는 테이블 SELECT가 회수되고 공개 컬럼 7개만 `GRANT SELECT(col)`이다(`20260905090000`). 여기에 컬럼을 더하면
+  **브라우저(anon·authenticated)에서 기본 비공개** — 화면이 읽어야 하는 컬럼이면 마이그레이션에 GRANT를 함께 넣는다.
 - SPOT 가중치(0.40/0.40/0.20)는 `score.py` ↔ `shared-types` 패리티 테스트로 강제. `score.py`는 회귀면이 넓은 신중 구역.
 - **권한**: 사람은 Supabase 로그인 + `users.role`(tourist/merchant/admin/developer)로 서버(`app/core/authz.py`)가
-  매 요청 판정한다. 프런트의 `lib/account.tsx` 판정은 UI 게이팅일 뿐이다. 기계 호출(pg_cron·GitHub Actions)만
-  `X-Service-Token`(`SERVICE_API_TOKEN`, 없으면 `ADMIN_API_TOKEN` 폴백)을 쓰고, 수집 트리거 한 경로에만 유효하다.
-  구 공유 토큰 헤더(`X-Merchant-Token`·`X-Admin-Authorization`)는 폐지됐다 — 되살리지 말 것.
+  매 요청 판정한다. 프런트의 `lib/account.tsx` 판정은 UI 게이팅일 뿐이다. 기계 호출(pg_cron·GitHub Actions)만 서비스 토큰
+  (`SERVICE_API_TOKEN`, 없으면 `ADMIN_API_TOKEN` 폴백)을 쓰고, 수집 트리거 한 경로(`require_machine_or_role`)에만 유효하다.
+  헤더는 `X-Service-Token`이 정식이지만 **pg_cron 함수(`20260824130000`)는 아직 `X-Admin-Authorization: Bearer`로 보낸다** —
+  `authz.py`가 두 헤더를 모두 받는 분기를 지우면 10분 수집이 조용히 멈춘다. 폐지된 것은 공유 토큰으로 콘솔 전체를 열던
+  구 인증(`X-Merchant-Token`, 관리자 콘솔의 `X-Admin-Authorization`)이다 — 되살리지 말 것.
 - 토큰·비밀을 `NEXT_PUBLIC_*`에 넣지 않는다(정적 번들에 그대로 박힌다). 문서·커밋에는 키 **이름만**.
 - **실 DB에는 읽기만.** 쓰기 검증은 로컬 대역으로 — 스테이징이 없다.
 - 프런트 라우트를 건드리면 커밋 전에 `npm run build` — `output:'export'`는 프리렌더 실패 하나로 빌드가 통째로 죽는다.
@@ -93,6 +97,28 @@ SPOT(Smart Place Optimization for Tourism) 점수로 분산·재배치하는 AI 
 | 데이터 · 학습 스크립트 | `apps/api/scripts/<snake_case>.py` (+ `tests/scripts/test_<name>.py`) |
 | 저장소 도구 | `scripts/<kebab-case>.mjs` |
 | 문서 | `docs/`(운영) · `docs/contest/`(심사) · `docs/archive/`(끝난 것). **루트에 마크다운 금지.** `docs/README.md` 색인 갱신 |
+
+## 자주 하는 작업 → 손댈 곳 (잊기 쉬운 단계 포함)
+
+| 작업 | 손댈 곳 · 잊기 쉬운 것 |
+|---|---|
+| API 엔드포인트 추가 | `app/routers/<x>.py`에 `APIRouter(prefix="/api/v1/...")` → **`app/main.py`의 `include_router` 목록에 등록** → 가드(`require_role` / `get_current_user` / 기계 호출이면 `require_machine_or_role`) → `tests/routers/test_<x>.py`(`tests/conftest.py`의 `make_test_jwt`·`admin_headers` 픽스처) → `docs/SYSTEM_MAP.md` §5 표 한 줄 |
+| UI 문자열 추가·변경 | `lib/i18n/messages/{ko,en,ja,zh}.json` 4개 동시. `lib/i18n/parity.test.ts`가 en/ja/zh 누락을, `scripts/check-i18n-keys.mjs`가 코드↔ko 누락을 잡는다 → `DEMO_SCENARIO`·`JUDGE_QA` 문구 대조 |
+| DB 컬럼·테이블 추가 | `supabase/migrations/<현재 마지막보다 큰 타임스탬프>_<snake>.sql`(멱등: `IF NOT EXISTS`) → 새 테이블·함수는 `build_reset.mjs` PRELUDE DROP → `node scripts/build_reset.mjs` → `tests/migrations/test_<x>_migration.py` → RLS·GRANT 검토(특히 `congestion_logs`) → 원격 적용은 SQL Editor 사람 작업(HANDOVER 기록) |
+| 프런트 화면 추가 | `app/<route>/page.tsx`(`'use client'`, 정적 export — 서버 코드 불가) → 진입 링크(`components/shell/BottomNav.tsx` 또는 `components/AdminSidebar.tsx`) → i18n 4로케일 → `npm run build`로 프리렌더 확인 |
+| 외부 API·LLM 연동 추가 | `app/services/<x>_service.py`(키 없으면 무해 폴백, 타임아웃 명시) → `app/core/config.py`에 env(기본값 빈 문자열) → 이름을 `.env.example`·`render.yaml`·`docs/DEPLOY_AND_ENV.md`에 등록 |
+| 새 배치 스크립트 | `apps/api/scripts/<x>.py`(sys.path 부트스트랩 후 `app.*` import — ruff E402 허용) → `tests/scripts/test_<x>.py` → 워크플로가 부르면 `.github/workflows/`와 DEPLOY §4 갱신 |
+| 문서 추가·이동 | `docs/`(운영) · `docs/contest/` · `docs/archive/` → `docs/README.md` 색인 행 → `node scripts/check-docs.mjs` |
+
+## 세션 시작 체크리스트
+
+```bash
+git fetch origin && git status          # 깨끗한 트리인지, main 대비 어디에 있는지
+git log --oneline -15                   # 마지막 진행
+node scripts/check-docs.mjs             # 문서 트리 규칙 (3초)
+```
+
+그다음 `docs/HANDOVER.md` 상단을 읽고, 손댈 영역의 게이트를 먼저 한 번 돌려 기준선을 잡는다(실패가 내 변경 때문인지 알 수 있게).
 
 ## 브랜치 · 커밋 · 배포
 

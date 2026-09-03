@@ -41,7 +41,7 @@ from app.services.predict_service import get_model_info, predict_congestion
 logger = structlog.get_logger()
 
 _KST = timezone(timedelta(hours=9))
-_WINDOW_HOURS = 6            # merchant-api.ts 예측 섹션과 동일한 6시간 창 — 계약 ①
+_WINDOW_HOURS = 6            # apps/web/lib/merchant/api.ts 예측 섹션과 동일한 6시간 창 — 계약 ①
 _CACHE_TTL_SECONDS = 1800.0  # 성공 30분 — 계약 범위(30~60분) 하한(예측 창이 시간 단위로 움직인다)
 _FAILURE_TTL_SECONDS = 60.0  # 거부·실패는 1분만(P0-2 관례)
 _LLM_MAX_TOKENS = 300        # 한국어 2~3문장이면 충분

@@ -1,6 +1,6 @@
 # scripts/translate_overviews.py 순수 함수 테스트 — 시설 소개(overview) 다국어 번역 배치.
 # DB/LLM 네트워크 없이 대상 선정·프롬프트 구성·병합·부분 성공(로케일별 실패 허용) 로직만 검증한다.
-# import 패턴은 tests/test_facility_lifecycle.py 의 `import scripts.ingest_tourapi` 와 동일
+# import 패턴은 tests/scripts/test_facility_lifecycle.py 의 `import scripts.ingest_tourapi` 와 동일
 # (apps/api/conftest.py 가 apps/api 를 sys.path 에 앵커 — scripts 는 네임스페이스 패키지로 임포트된다).
 from unittest.mock import AsyncMock, patch
 

@@ -20,7 +20,8 @@ services:
         sync: false
       - key: JWT_SECRET
         sync: false
-      # --- 기계 호출용 서비스 토큰(필수 — 미설정 시 부팅 실패). pg_cron·Actions 가 X-Service-Token 으로 보낸다.
+      # --- 기계 호출용 서비스 토큰(필수 — 미설정 시 부팅 실패). pg_cron 은 X-Admin-Authorization: Bearer 로,
+      #     Actions 는 X-Service-Token 으로 보낸다(authz.py 가 둘 다 수용).
       #     회전용 SERVICE_API_TOKEN 은 Blueprint 에 넣지 않고 대시보드에서 직접 추가한다(config.py 가 우선 사용). ---
       - key: ADMIN_API_TOKEN
         sync: false

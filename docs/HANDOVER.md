@@ -1,6 +1,6 @@
 # HANDOVER — 현재 상태 (정본)
 
-> "지금 어디까지 왔고 무엇이 남았나"만 담는다. 2026-08-28까지의 세션 기록(§-45 → §6)은
+> "지금 어디까지 왔고 무엇이 남았나"만 담는다. 2026-08-28까지의 세션 기록(§-45 → §6, 음수 번호가 최신)은
 > [`archive/HANDOVER_LOG.md`](./archive/HANDOVER_LOG.md)에 그대로 있다. 이 문서는 400줄을 넘기지 않는다 —
 > 넘치면 "최근 세션"의 가장 오래된 항목을 로그 파일 맨 위로 옮긴다(`scripts/check-docs.mjs`가 강제).
 
@@ -13,11 +13,12 @@
 - API: https://nextspot-api.onrender.com (`/health`, `/docs`) — `render.yaml` Blueprint, docker, free plan.
 - DB · Auth · Storage: Supabase 팀 프로젝트. 원격 마이그레이션 적용 상태는 아래 "마이그레이션 확인" 쿼리로만 믿는다.
 - 스케줄: **Supabase pg_cron**이 10분 주기(`nextspot-area-demand-primary`/`-retry`)로
-  `POST /api/v1/area-demand/snapshots/collect`를 `X-Service-Token`으로 호출. GitHub Actions는 `ingest`(매일 KST 04:00),
+  `POST /api/v1/area-demand/snapshots/collect`를 서비스 토큰으로 호출(헤더 이름은 `X-Admin-Authorization: Bearer` —
+  pg_cron 함수가 아직 이 이름을 쓴다. 정식 `X-Service-Token`도 함께 수용, `authz.py`). GitHub Actions는 `ingest`(매일 KST 04:00),
   `train-recommendation-model`(매주 월 03:00 KST) 두 개만 예약 실행이고 `collect-area-demand`·`uptime`은 수동.
 - 환경변수 이름·위치·시크릿 목록: [`DEPLOY_AND_ENV.md`](./DEPLOY_AND_ENV.md).
 - 심사 계정: `openapi@naver.com`(merchant, 이풍녀 구로쌈밥·맥심가옥 소유) · `openapi@gmail.com`(admin).
-  비밀번호는 저장소에 없고 `scripts/seed_judge_accounts.py`가 `JUDGE_ACCOUNT_PASSWORD` env로 시드한다.
+  비밀번호는 저장소에 없고 `apps/api/scripts/seed_judge_accounts.py`가 `JUDGE_ACCOUNT_PASSWORD` env로 시드한다.
   개발자 부트스트랩 계정은 구글 OAuth 1개, `/dev`는 마지막 developer 강등을 거부한다.
 
 ## 우선순위
@@ -26,7 +27,7 @@
    데모 전 체크리스트는 [`contest/DEMO_SCENARIO.md`](./contest/DEMO_SCENARIO.md) §0.
 2. **사람 작업 대기** 처리 — 특히 토큰 회전과 Kakao 비즈 앱 전환(아래).
 3. **결정 필요 3건** — "알려진 이슈" ①~③.
-4. 정리 후속(코드에 영향 없는 것부터): 죽은 i18n 키 후보 53개 정리 · `ingest.yml` 리포트를 artifact로 보존 ·
+4. 정리 후속: 보안 진단의 상·중 항목 구현(아래 "알려진 이슈") · `ingest.yml` 리포트를 artifact로 보존 ·
    `apps/web/lib`·`apps/api/app/services`의 점진 이동(규칙은 `AGENTS.md` "새 파일은 어디에").
 5. [`archive/IMPROVEMENT_PLAN.md`](./archive/IMPROVEMENT_PLAN.md) "2026-08-21 갱신" 절의 미완 항목 재확인(09-04 기준 미실측).
 
@@ -40,7 +41,13 @@
       다음 10분 수집 정상 확인 → `ADMIN_API_TOKEN`을 새 값으로 교체.
 - [ ] **Kakao 개발자 콘솔** — 개인 개발자 → 비즈 앱 전환(`account_email` 스코프가 GoTrue에 고정돼 있어 이것 없이는
       KOE205가 안 풀린다). 앱 이름이 아직 "Induspot" — 동의 화면에 그대로 나온다 → "NextSpot".
-- [ ] **Google OAuth 동의 화면 게시**(테스트 모드 해제) — 로그 §-43.
+- [ ] **Google 로그인 화면이 "<프로젝트ref>.supabase.co(으)로 계속" 이라고 뜨는 것 → "NextSpot"으로.** Google은 OAuth 콜백 주소의
+      루트 도메인을 보여주는데 Supabase Auth 콜백이 `<ref>.supabase.co`라 그렇다(Supabase 공식 문서도 같은 설명).
+      무료 경로: Google Cloud 콘솔 → Google Auth Platform → **Branding**에서 앱 이름 `NextSpot`, 로고(정사각 120px 이상),
+      개인정보처리방침·약관 링크, **Authorized domains**에 `nextspot-nu.vercel.app`(Search Console로 소유 확인 선행) →
+      **Publishing status = Publish**(email·profile·openid 같은 비민감 스코프만이라 즉시) → **브랜드 인증 신청**(며칠 소요).
+      인증 전까지는 도메인 줄이 그대로이고 "확인되지 않은 앱" 경고가 뜰 수 있다. 유료 경로: Supabase **Custom Domain**
+      애드온으로 `auth.<우리도메인>`을 콜백으로 쓰면 우리 도메인이 뜬다(도메인 보유 필요). 로그 §-43.
 - [ ] **Supabase Auth Site URL**이 `localhost:3000`이면 Vercel 도메인으로(대시보드에서만 확인 가능).
 - [ ] **Render `ALLOWED_ORIGINS`** — Vercel 도메인으로 지정해야 엄격 모드(해당 오리진만 + credentials). 미지정 시 와일드카드.
 - [ ] **심사 계정 2개 브라우저 로그인 확인** — `openapi@naver.com` → `/merchant`, `openapi@gmail.com` → `/admin/dashboard`.
@@ -64,10 +71,35 @@
 - 메인 지도 `/infrastructures` 응답이 2.5초 경계에 걸려 폴백 경로로 돌던 문제는 타임아웃을 4초로 올려 완화(08-28).
   근본 해결은 지도용 경량 응답 분리(`overview_i18n` 64KB 제외).
 - `20260905090000_congestion_logs_column_grants.sql`은 09-03에 만든 미래 날짜 파일이다. **새 마이그레이션은 이보다 큰
-  타임스탬프**를 써야 적용 순서가 유지된다(`supabase db push`는 원격 head보다 오래된 파일을 건너뛴다).
+  타임스탬프**를 써야 `RESET_AND_SETUP.sql` 안의 적용 순서가 유지된다(원격 적용은 SQL Editor 수동 — CLI 링크는 없다).
 - 원격 DB에 마이그레이션이 파일명 순서와 다르게 적용된 이력이 있다 — 순서를 가정하지 말고 아래 쿼리로 실측.
-- 죽은 i18n 키 후보 53개(×4로케일) — `setup.step0/1/3`, `auth.signInKakao/…`, `weather.source/…`, `mypage.vectorTitle/…` 등.
-  동적 키(`t(\`ns.${x}\`)`) 오탐 가능성이 있어 지우기 전에 네임스페이스별로 확인.
+- 죽은 i18n 키 53개는 AST 분석(동적 `t(\`ns.${x}\`)` 패턴 전수 대조) 후 2026-09-04에 4로케일에서 삭제했다(823 → 770 leaf).
+  `parity.test.ts`·`check-i18n-keys.mjs`는 죽은 키를 잡지 못한다 — 문자열을 없앨 때는 4 JSON에서 같이 지운다.
+
+### 보안 진단 (2026-09-04, 읽기 전용 코드 감사 — Critical 없음)
+
+결정·구현이 필요한 순서. 각 항목은 코드 근거가 있고, 고치기 전 재검증할 것.
+
+- **상 — 비인증·게스트 LLM 호출이 무제한.** `POST /travel-context/parse`(인증·제한 없음, `routers/travel_context.py`)와
+  `POST /preferences/parse`(익명 JWT 허용, 제한 없음)는 요청마다 Upstage 호출을 낼 수 있다. 일일 예산은 검색 재작성에만 있다
+  (`config.py` `SEARCH_REWRITE_DAILY_BUDGET`). 조치: `routers/search.py`의 `_check_rate_limit`를 두 경로에 재사용 +
+  `services/llm_client.py`에 전역 일일 예산 + `preferences/parse`는 `is_anonymous` 거부.
+- **중 — 게스트가 혼잡 근거를 오염시킬 수 있다.** `/reports/congestion`·`/reports/availability`가 `is_anonymous`를 검사하지
+  않고 쿨다운 키가 (user, facility)라 새 익명 세션마다 우회된다. 두 게스트가 맞장구치면 `corroborated`가 된다.
+  조치: `routers/account.py`처럼 비익명 요구 + IP 키 쿨다운.
+- **중 — X-Forwarded-For 해석 방향 미검증.** 세 리미터(`search.py` `recommendations.py` `tracking.py`의 `_client_ip`)가
+  마지막 항목을 쓴다. Render가 hop을 덧붙이면 전원이 한 키(자기 DoS), 아니면 첫 항목이 위조 가능. 조치: Render에서 원 헤더를
+  1회 로깅해 모양을 확인한 뒤 `CF-Connecting-IP`/`True-Client-IP` 우선으로 통일.
+- **중 — 토큰 회전·CORS**: 위 "사람 작업 대기"의 `ADMIN_API_TOKEN` 회전과 `ALLOWED_ORIGINS`(현재 와일드카드 — 제3자 페이지가
+  방문자 브라우저로 비인증 쓰기·LLM 경로를 두드릴 수 있어 IP 제한이 무력화된다).
+- **하** — `bvr_insert_own` RLS에 `document_path` 접두 검사가 없다(API만 검사) → 마이그레이션에
+  `document_path IS NULL OR document_path LIKE auth.uid()::text || '/%'` 추가 · `LEGACY_CONSOLE_TOKENS=true`인데 토큰이 코드
+  기본값이면 부팅 거부 · Dockerfile 비루트 `USER` · 운영에서 `/docs` 노출 유지 여부 결정 · JWT `issuer` 검증 추가와
+  `compare_digest`에 bytes(비ASCII 헤더 500 방지) · 파이썬 의존성 잠금 파일 + `pip-audit` CI · Actions 액션 SHA 고정.
+- **양호 — 건드리지 말 것**: 추적 파일·이력에 시크릿 없음 · 전 테이블 RLS + `users.role` 상승 이중 차단(정책+트리거) ·
+  SECURITY DEFINER RPC 전부 PUBLIC/anon/authenticated에서 REVOKE · 버킷 비공개·서명 URL 300초·심사 후 증빙 삭제 ·
+  IDOR 가드는 토큰 주체만 사용 · 기계 토큰 상수시간 비교 · `sw.js`는 API 미캐시 · open redirect 차단(`safeNext`) ·
+  원격 데이터 `dangerouslySetInnerHTML` 없음 · 모델 `pickle.load` 전 sha256 검증 · `npm audit --omit=dev` 0건.
 
 ## 마이그레이션 확인
 
@@ -88,8 +120,8 @@ with checks(seq, migration, applied) as (values
   (7, '20260827140000_rbac_roles_and_ownership', to_regclass('public.facility_owners') is not null),
   (8, '20260902130000_role_change_requests', (select count(*)>0 from information_schema.columns
       where table_schema='public' and table_name='business_verification_requests' and column_name='requested_role')),
-  (9, '20260904120000_area_demand_points_rpc', to_regprocedure('public.area_demand_points_near(double precision,double precision,double precision,timestamptz)') is not null
-      or exists (select 1 from pg_proc where proname='area_demand_points_near')),
+  (9, '20260904120000_area_demand_points_rpc', exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+      where n.nspname = 'public' and p.proname = 'area_demand_points_near')),
   (10, '20260904200000_business_documents_bucket', exists (select 1 from storage.buckets where id='business-documents')),
   (11, '20260905090000_congestion_logs_column_grants',
       not has_table_privilege('anon','public.congestion_logs','SELECT')
@@ -117,7 +149,7 @@ from checks order by seq;
 
 ## 2026-09-03 — 따라잡기: 08-28 ~ 09-03 73커밋 (기록 없이 main에 올라간 분)
 
-- 도구·브랜치: ynso-a8 / `yunseong` → main (`e1a058f`..`a02be96`)
+- 도구·브랜치: 팀원(GitHub `ynso-a8`, 커밋 트레일러상 Claude Opus 5 동반) / `yunseong` → main (`e1a058f`..`a02be96`)
 - 한 것(08-28): RBAC 배포 전 디버깅(로그 §-45) · 분산코스 간헐 실패 — stale 연결 재시도 3회 + 풀 리셋, 후보 하나의 실패 격리,
   Supabase 요청 15→5건, 업스트림 장애를 503으로 구분(HTTP/1.1 전환 시도는 되돌림) · 개발자 콘솔 "최근 실패" 탭 ·
   관리자 로그인 시 대시보드로 + 시설 응답 타임아웃 2.5→4초 · `account/me`는 camelCase가 맞음(오진 되돌림).

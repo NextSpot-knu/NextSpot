@@ -43,7 +43,7 @@ _EVENT_PROPS: dict[str, set[str]] = {
 }
 _FACILITY_TYPES = {"restaurant", "cafe", "attraction", "culture"}
 _ATTRIBUTES = {"indoor", "accessible"}
-# 음성 명령 이름·결과. lib/voiceCommands.ts 의 VoiceAppCommand 와 같은 집합이어야 한다.
+# 음성 명령 이름·결과. apps/web/lib/voice/voiceCommands.ts 의 VoiceAppCommand 와 같은 집합이어야 한다.
 _VOICE_TOOLS = {"set_facility_type", "set_indoor_mode", "set_max_walk_minutes", "open_waiting_board"}
 _VOICE_STATUSES = {"applied", "no_match"}
 

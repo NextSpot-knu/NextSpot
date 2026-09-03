@@ -1,6 +1,6 @@
 # scripts/tag_cuisines.py 테스트 — Solar 음식 분류 태깅 배치.
 # DB/LLM 네트워크 없이 대상 선정(fill-missing)·검증 게이트(화이트리스트/태그 형식)·features 병합
-# 무손실·dry-run 무쓰기 계약만 검증한다. import 패턴은 tests/test_translate_overviews.py 와 동일
+# 무손실·dry-run 무쓰기 계약만 검증한다. import 패턴은 tests/scripts/test_translate_overviews.py 와 동일
 # (apps/api/conftest.py 가 apps/api 를 sys.path 에 앵커 — scripts 는 네임스페이스 패키지로 임포트).
 import argparse
 import json

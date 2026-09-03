@@ -2,7 +2,7 @@
 
 한국관광공사 TourAPI(locationBasedList2)에서 관광지(12)·문화시설(14)·음식점(39) POI 를
 수집해 Supabase `facilities` 테이블에 contentid 기준으로 upsert 한다.
-(패턴 참고: 루트 scripts/seed.js, 경로/부트스트랩은 scripts/train.py 컨벤션.)
+(경로/부트스트랩은 scripts/train.py 컨벤션.)
 
 사용 예:
   python scripts/ingest_tourapi.py --dry-run              # DB 미기록, 변환 결과만 출력

@@ -6,7 +6,7 @@
 ## 실행
 
 ```powershell
-cd apps/api; $env:PYTHONUTF8 = "1"          # Python 3.11 고정 (CI·Dockerfile) — 3.14 는 websockets 호환 문제로 import 실패
+cd apps/api; $env:PYTHONUTF8 = "1"          # Python 3.11 고정 (CI·Dockerfile 과 같은 버전) — 다른 버전은 지원하지 않는다
 py -3.11 -m pip install -r requirements.txt -r requirements-dev.txt
 py -3.11 -m uvicorn app.main:app --reload --port 8000
 ```

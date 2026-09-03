@@ -1,6 +1,6 @@
 # docs/ 색인
 
-이 저장소의 모든 문서 목록과 상태. **새 문서를 만들거나 옮기면 이 표를 같이 고친다** —
+이 저장소의 문서 목록과 상태(`docs/` 밖의 몇 개는 아래 표). **새 문서를 만들거나 옮기면 이 표를 같이 고친다** —
 `node scripts/check-docs.mjs`(CI)가 색인에 없는 문서와 깨진 링크를 잡는다.
 
 상태 뜻: **living** = 코드와 함께 계속 갱신 · **frozen** = 완성본, 사실이 바뀌면 고치되 확장하지 않음 ·
@@ -11,6 +11,17 @@
 1. [`../AGENTS.md`](../AGENTS.md) — 규칙·게이트·구조 (5분)
 2. [`HANDOVER.md`](./HANDOVER.md) — 지금 상태, 사람 작업 대기, 최근 세션 (5분)
 3. [`SYSTEM_MAP.md`](./SYSTEM_MAP.md) — 화면↔API↔서비스↔DB 연결 (필요한 절만)
+4. 웹 작업이면 [`../apps/web/AGENTS.md`](../apps/web/AGENTS.md), API 작업이면 [`../apps/api/README.md`](../apps/api/README.md)
+
+### `docs/` 밖에 있는 문서
+
+| 문서 | 용도 |
+| --- | --- |
+| [`../README.md`](../README.md) | 프로젝트 소개 · 공모전 서사 · 기술 스택 (외부 독자용) |
+| [`../AGENTS.md`](../AGENTS.md) | 사람·에이전트 규칙 정본 (게이트 · 가드레일 · 파일 위치 · 세션 프로토콜) |
+| [`../apps/web/AGENTS.md`](../apps/web/AGENTS.md) | 웹 하위 규칙 (빌드 · i18n · 스타일 · 폴더) |
+| [`../apps/api/README.md`](../apps/api/README.md) | API 실행 · 계층 · 주요 엔드포인트 · 수집 활성화 절차 |
+| [`../apps/web/e2e/README.md`](../apps/web/e2e/README.md) | Playwright e2e 범위 |
 
 ## 운영 문서 (`docs/`)
 
@@ -28,7 +39,7 @@
 
 | 문서 | 용도 | 상태 | 마지막 검토 |
 | --- | --- | --- | --- |
-| [`contest/CONTEST_NARRATIVE.md`](./contest/CONTEST_NARRATIVE.md) | 서면·PT 공통 서사, 독창성·수익모델 | living | 2026-07-09 |
+| [`contest/CONTEST_NARRATIVE.md`](./contest/CONTEST_NARRATIVE.md) | 서면·PT 공통 서사, 독창성·수익모델 | frozen | 2026-07-09 |
 | [`contest/DATA_UTILIZATION.md`](./contest/DATA_UTILIZATION.md) | TourAPI 필드 → SPOT 변수 매핑(코드 근거) | living | 2026-09-03 |
 | [`contest/DEMO_SCENARIO.md`](./contest/DEMO_SCENARIO.md) | PT 데모 대본 + 데모 전 체크리스트. UI 문구 변경 전 대조 대상 | living | 2026-09-04 |
 | [`contest/JUDGE_QA.md`](./contest/JUDGE_QA.md) | 심사위원 예상 질문 10문 + 답변. UI 문구 변경 전 대조 대상 | living | 2026-09-03 |
@@ -45,10 +56,10 @@
 | --- | --- | --- |
 | [`archive/HANDOVER_LOG.md`](./archive/HANDOVER_LOG.md) | 2026-06-30 ~ 08-28 세션 인계 로그 전문(구 HANDOVER.md, §-45 → §6) | 2026-09-04 상태 문서와 로그를 분리. 넘치는 세션 항목이 여기로 옮겨진다 |
 | [`archive/ARCHITECTURE_OVERVIEW.md`](./archive/ARCHITECTURE_OVERVIEW.md) | InduSpot에서 상속한 베이스 아키텍처 설명 | `SYSTEM_MAP.md`가 대체 (2026-08-20) |
-| [`archive/NEXTSPOT_PIVOT.md`](./archive/NEXTSPOT_PIVOT.md) | InduSpot → 관광 도메인 적응 명세·개조 백로그 | 피벗 완료 (2026-07-07) |
+| [`archive/NEXTSPOT_PIVOT.md`](./archive/NEXTSPOT_PIVOT.md) | InduSpot → 관광 도메인 적응 명세·개조 백로그 | 결정 2026-07-07, 코드 반영 완료 |
 | [`archive/GYEONGJU_MIGRATION_PLAN.md`](./archive/GYEONGJU_MIGRATION_PLAN.md) | 구미 → 경주 데이터 이관·InduSpot 잔재 제거 체크리스트 | 전부 실행 완료 (2026-07-07) |
 | [`archive/IMPROVEMENT_PLAN.md`](./archive/IMPROVEMENT_PLAN.md) | 7월 전방위 감사 워크스트림(WS-A~F) + 8/21 실측 우선순위 | 남은 항목은 `HANDOVER.md` 우선순위로 이관 |
-| [`archive/TEAM_MEETING.md`](./archive/TEAM_MEETING.md) | 7월 팀원 회의 안건 | 회의 종료 (2026-07-10) |
+| [`archive/TEAM_MEETING.md`](./archive/TEAM_MEETING.md) | 7월 팀원 회의 안건 | 회의 종료 (2026-07) |
 | [`archive/AUTONOMOUS_SESSION.md`](./archive/AUTONOMOUS_SESSION.md) | 2026-07-10 무인 자율 세션 로그와 RESUME 규칙 | 규칙은 `AI_OPS.md`로 흡수, 진행 상태는 낡음 |
 | [`archive/AUTH_MEMBERSHIP_PLAN.md`](./archive/AUTH_MEMBERSHIP_PLAN.md) | 이메일/비밀번호 회원 체계 계획 | 구현 완료 (2026-08-25) |
 | [`archive/OAUTH_PLAN.md`](./archive/OAUTH_PLAN.md) | 게스트 → 카카오·구글 OAuth 연동 계획 | 구현 완료 (2026-08-27) |

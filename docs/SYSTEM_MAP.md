@@ -473,7 +473,7 @@ UPSTAGE_API_KEY 미설정 → is_enabled() False → 네트워크 없이 즉시 
 
 ---
 
-## 10. 데이터 모델 (18 테이블)
+## 10. 데이터 모델 (24 테이블 중 주요 표)
 
 ```
 facilities ──┬── congestion_logs ────── (evidence_tier · source)

@@ -1,6 +1,6 @@
 # FastAPI 라우터 통합 테스트 — 실제 DB/네트워크 없이 라우터 계층(인증 가드·검증·직렬화)을 검증한다.
 #  · 인증: get_current_user 는 dependency_overrides 로 대체(워커 경로),
-#         관리자 가드(require_admin)는 실제 헤더 경로(X-Admin-Authorization)를 그대로 태운다.
+#         관리자 가드(require_role(ROLE_ADMIN))는 실제 JWT 검증 경로(conftest 의 admin_headers)를 그대로 태운다.
 #  · DB: 라우터 헬퍼(fetch_user 등)는 AsyncMock 으로, supabase 클라이언트는 체이닝을 흡수하는
 #        FakeSupabase(canned 데이터) 로 대체 — PostgREST 호출이 전혀 발생하지 않는다.
 from datetime import datetime, timedelta, timezone
