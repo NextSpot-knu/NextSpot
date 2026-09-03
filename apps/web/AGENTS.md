@@ -1,11 +1,13 @@
 # apps/web — NextSpot 웹 (Next.js)
 
-관광객용 앱(`app/main`, `app/explore`, `app/saved`, `app/mypage`, `app/setup`),
-경북문화관광공사 B2G 관제 대시보드(`app/admin/*`), 사장님 콘솔(`app/merchant/*`)을 포함하는 Next.js 앱.
+관광객용 앱(`app/main` 지도·추천, `app/explore`, `app/course`, `app/waiting`, `app/saved`, `app/mypage/*`, `app/setup`,
+인증 `app/login`·`app/auth/*`·`app/forgot-password`·`app/account/*`), 경북문화관광공사 B2G 관제 대시보드(`app/admin/*`),
+사장님 콘솔(`app/merchant/*`), 개발자 콘솔(`app/dev`)을 포함하는 Next.js 앱. 화면↔API 연결은 `docs/SYSTEM_MAP.md`.
 
 - **빌드:** `next build` — `next.config.ts`의 `output: 'export'` 정적 export. 서버 액션/route handler 사용 금지.
-- **검증:** `npm run lint` · `npm run typecheck`(tsc --noEmit, `**/*.test.ts` 제외) · `npm run test`(tsx로
-  `lib/voiceIntent.test.ts` 실행 — jest/vitest 없음) · `npm run build`. 네 개 모두 CI web job과 동일.
+- **검증:** `npm run lint` · `npm run typecheck`(tsc --noEmit, `**/*.test.ts` 제외) · `npm run test`
+  (`scripts/check-i18n-keys.mjs` + `lib/**/*.test.ts` 전부를 tsx로 실행 — jest/vitest 없음, 각 파일은 node:assert 로
+  스스로 판정하는 독립 스크립트) · `npm run build`. 네 개 모두 CI web job과 동일. e2e는 `npm run test:e2e`(Playwright).
 - **데이터 접근:** 읽기는 `lib/supabase.ts`(anon 키, RLS 적용), 백엔드 호출은 `lib/api-client.ts`(FastAPI `/api/v1/*`).
   service_role 키는 절대 클라이언트에 두지 않는다. 관리자 쓰기는 FastAPI 관리자 엔드포인트 경유.
 - **api-client 규약:** camelCase↔snake_case 재귀 자동 변환 — 호출부는 camelCase만 사용.

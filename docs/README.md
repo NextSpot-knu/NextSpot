@@ -20,7 +20,7 @@
 | [`SYSTEM_MAP.md`](./SYSTEM_MAP.md) | 화면↔API↔서비스↔DB 전체 연결 관계, 구현된 것만 기술 | living | 2026-09-04 |
 | [`DEPLOY_AND_ENV.md`](./DEPLOY_AND_ENV.md) | Vercel · Render · Supabase · GitHub Actions 배포와 환경변수 이름 | living | 2026-09-04 |
 | [`LOCAL_RUN.md`](./LOCAL_RUN.md) | 로컬 구동 · Docker · 스모크 테스트 | living | 2026-09-04 |
-| [`AI_OPS.md`](./AI_OPS.md) | Claude Code · Codex CLI 역할 분담, 게이트, 핸드오프 | living | 2026-09-04 |
+| [`AI_OPS.md`](./AI_OPS.md) | Claude Code 운영 규칙 — 교차 검토(레드팀·/code-review), 세션 핸드오프, 무인 세션, 다른 도구는 선택 | living | 2026-09-04 |
 | [`MODEL_CARD.md`](./MODEL_CARD.md) | 혼잡 예측 모델의 운영 계약 · 품질 게이트 · 승격 절차 | living | 2026-08-20 |
 | [`CONGESTION_DATA.md`](./CONGESTION_DATA.md) | 혼잡 데이터 원칙 · 외부 데이터 라이선스 · 공공 협업 우선순위 정본 | living | 2026-08-24 |
 
@@ -43,6 +43,7 @@
 
 | 문서 | 무엇이었나 | 종료 사유 |
 | --- | --- | --- |
+| [`archive/HANDOVER_LOG.md`](./archive/HANDOVER_LOG.md) | 2026-06-30 ~ 08-28 세션 인계 로그 전문(구 HANDOVER.md, §-45 → §6) | 2026-09-04 상태 문서와 로그를 분리. 넘치는 세션 항목이 여기로 옮겨진다 |
 | [`archive/ARCHITECTURE_OVERVIEW.md`](./archive/ARCHITECTURE_OVERVIEW.md) | InduSpot에서 상속한 베이스 아키텍처 설명 | `SYSTEM_MAP.md`가 대체 (2026-08-20) |
 | [`archive/NEXTSPOT_PIVOT.md`](./archive/NEXTSPOT_PIVOT.md) | InduSpot → 관광 도메인 적응 명세·개조 백로그 | 피벗 완료 (2026-07-07) |
 | [`archive/GYEONGJU_MIGRATION_PLAN.md`](./archive/GYEONGJU_MIGRATION_PLAN.md) | 구미 → 경주 데이터 이관·InduSpot 잔재 제거 체크리스트 | 전부 실행 완료 (2026-07-07) |

@@ -11,6 +11,7 @@
     "web:build": "npm run build --workspace=apps/web",
     "web:test": "npm run test --workspace=apps/web",
     "check:i18n": "node scripts/check-i18n-keys.mjs",
+    "check:docs": "node scripts/check-docs.mjs",
     "api:dev": "docker compose up -d",
     "api:stop": "docker compose down"
   },
