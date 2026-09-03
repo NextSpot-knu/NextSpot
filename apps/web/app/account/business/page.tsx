@@ -21,6 +21,7 @@ import { MYPAGE_BACK } from '@/lib/navigation';
 import { ArrowLeft, Store, Clock, Check, X, ShieldCheck } from 'lucide-react';
 import { toast } from 'sonner';
 import { apiClient } from '@/lib/api-client';
+import { createPublicClient } from '@/lib/supabase';
 import { errorMessage } from '@/lib/errors';
 import { useT } from '@/lib/i18n/I18nProvider';
 import { useAccount, canEnterMerchantConsole, canEnterAdminConsole } from '@/lib/account';
@@ -47,6 +48,10 @@ export default function RoleChangeRequestPage() {
   const [storeName, setStoreName] = useState('');
   const [contact, setContact] = useState('');
   const [last4, setLast4] = useState('');
+  // 사업자등록증 이미지. 심사자가 신청서의 가게 이름·facility_id 를 대조할 유일한 근거다 —
+  // facility_id 는 신청 본문에 신청자가 적어 보내는 값이라 그 자체로는 아무것도 증명하지 않는다.
+  const [docFile, setDocFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [latest, setLatest] = useState<RequestRow | null>(null);
   const [loaded, setLoaded] = useState(false);
@@ -77,13 +82,38 @@ export default function RoleChangeRequestPage() {
     e.preventDefault();
     if (busy) return;
     if (!storeName.trim() || !contact.trim()) return;
+    if (isMerchantRequest && !docFile) return;
     setBusy(true);
     try {
+      // 증빙을 **먼저** 올린다. 업로드가 실패했는데 신청만 접수되면 심사자는 근거 없는
+      // 신청을 받고, 신청자는 낸 줄 안다. 실패하면 여기서 멈추고 신청서를 만들지 않는다.
+      let documentPath: string | null = null;
+      if (isMerchantRequest && docFile) {
+        setUploading(true);
+        try {
+          const supabase = createPublicClient();
+          const { data: { user } } = await supabase.auth.getUser();
+          if (!user) throw new Error('no session');
+          // 경로 규약은 '<uid>/<파일명>' 이다 — 스토리지 정책이 첫 세그먼트를 auth.uid() 와
+          // 대조해 남의 폴더에 올리는 것을 막는다(20260904200000).
+          const ext = (docFile.name.split('.').pop() || 'jpg').toLowerCase().slice(0, 8);
+          const path = `${user.id}/${Date.now()}.${ext}`;
+          const { error } = await supabase.storage
+            .from('business-documents')
+            .upload(path, docFile, { contentType: docFile.type || undefined, upsert: false });
+          if (error) throw error;
+          documentPath = path;
+        } finally {
+          setUploading(false);
+        }
+      }
+
       const created = await apiClient.post('/api/v1/account/verification-requests', {
         storeName: storeName.trim(),
         contact: contact.trim(),
         // 사업자번호는 사업자 신청에만 의미가 있다 — 관리자 신청에서는 보내지 않는다.
         businessNumberLast4: isMerchantRequest ? last4.trim() || null : null,
+        documentPath,
         requestedRole,
       });
       setLatest(created as RequestRow);
@@ -95,8 +125,24 @@ export default function RoleChangeRequestPage() {
     }
   };
 
+  const MAX_DOC_BYTES = 5 * 1024 * 1024; // 버킷 제한과 같은 값(20260904200000)
+  const pickDocument = (file: File | null) => {
+    if (file && file.size > MAX_DOC_BYTES) {
+      toast.error(t('account.docTooLarge'));
+      return;
+    }
+    setDocFile(file);
+  };
+
   // 게스트는 신청할 수 없다 — 승인 대상을 특정할 수 없고, 단말을 지우면 권한이 사라진다.
   const isGuest = !account || account.isAnonymous;
+
+  // 심사중 판정에 근거가 둘이다. 목록 조회(latest)가 자세하지만 실패할 수 있고, 그때
+  // `loaded` 는 true 인데 `latest` 가 null 이라 **심사중인 사람에게 빈 신청 폼이 다시 열린다.**
+  // 마이페이지 카드는 account.pendingVerification 으로 "심사중" 이라 말하는데 눌러 들어오면
+  // 폼이 나오는 어긋남이 정확히 이 경로에서 생긴다. 그래서 목록이 비면 계정 컨텍스트를 믿는다
+  // — 서버가 같은 사실을 두 경로로 말하고 있고, 둘 중 살아 있는 쪽을 쓰는 것이 맞다.
+  const isPending = latest?.status === 'pending' || (!latest && !!account?.pendingVerification);
   // 이미 그 권한이 있으면 폼 대신 콘솔로 안내한다. **선택한 역할 기준**으로 판정한다 —
   // 사장님이 관리자 권한을 신청하는 경우가 있어, 역할과 무관하게 막으면 길이 없다.
   const alreadyHasRole = isMerchantRequest
@@ -206,16 +252,20 @@ export default function RoleChangeRequestPage() {
               {t('landing.ctaLogin')}
             </button>
           </div>
-        ) : loaded && latest?.status === 'pending' ? (
+        ) : loaded && isPending ? (
           <div className="rounded-3xl border border-line bg-white p-6 text-center">
             <Clock size={22} className="mx-auto mb-2 text-gold-deep" />
             <p className="font-bold">{t('account.pendingTitle')}</p>
             <p className="mt-1 text-xs text-muk-soft">{t('account.pendingDesc')}</p>
-            <p className="mt-3 text-sm font-semibold">
-              {latest.requestedRole === 'admin'
-                ? `${t('account.roleAdmin')} · ${latest.storeName}`
-                : latest.storeName}
-            </p>
+            {/* 상세는 목록 조회가 성공했을 때만 있다. 없으면 지어내지 않고 생략한다 —
+                "심사중" 이라는 사실만으로도 폼을 다시 여는 것보다 정확하다. */}
+            {latest && (
+              <p className="mt-3 text-sm font-semibold">
+                {latest.requestedRole === 'admin'
+                  ? `${t('account.roleAdmin')} · ${latest.storeName}`
+                  : latest.storeName}
+              </p>
+            )}
           </div>
         ) : (
           <form onSubmit={submit} className="space-y-4 rounded-3xl border border-line bg-white p-6">
@@ -280,16 +330,38 @@ export default function RoleChangeRequestPage() {
                   />
                 </div>
 
+                <div>
+                  <label htmlFor="biz-doc" className="mb-1.5 block text-xs font-semibold text-muk-soft">
+                    {t('account.docLabel')}
+                  </label>
+                  <input
+                    id="biz-doc"
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,application/pdf"
+                    required
+                    onChange={(e) => pickDocument(e.target.files?.[0] ?? null)}
+                    className="w-full rounded-xl border border-line bg-hanji px-3.5 py-3 text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-gold/15 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-gold-deep focus:border-gold/70 focus:outline-none focus:ring-2 focus:ring-gold/40"
+                  />
+                  <p className="mt-1 text-[11px] text-muk-soft">{t('account.docHint')}</p>
+                  {docFile && (
+                    <p className="mt-1 truncate text-[11px] font-semibold text-jade">{docFile.name}</p>
+                  )}
+                </div>
+
                 <p className="text-[11px] leading-relaxed text-muk-soft">{t('account.docNotice')}</p>
               </>
             )}
 
             <button
               type="submit"
-              disabled={busy}
+              disabled={busy || (isMerchantRequest && !docFile)}
               className="w-full rounded-xl bg-gradient-to-r from-gold to-terracotta py-3.5 text-sm font-semibold text-white disabled:opacity-50"
             >
-              {busy ? t('account.submitting') : t('account.roleSubmit')}
+              {uploading
+                ? t('account.docUploading')
+                : busy
+                  ? t('account.submitting')
+                  : t('account.roleSubmit')}
             </button>
           </form>
         )}

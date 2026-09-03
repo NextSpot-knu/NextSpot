@@ -21,6 +21,7 @@ import {
   Check,
   X,
   LogOut,
+  FileText,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { apiClient } from '@/lib/api-client';
@@ -53,6 +54,8 @@ interface VerificationRow {
   facilityId: string | null;
   /** facilities 임베드에서 평탄화한 이름. 관리자 신청이거나 미연결이면 null. */
   facilityName: string | null;
+  /** 사업자등록증 경로. 심사가 끝나면 서버가 지우므로 null 이 된다. */
+  documentPath?: string | null;
   contact: string | null;
   status: string;
   /** 신청한 역할. 컬럼이 없는 DB(마이그레이션 미적용)에서는 undefined → merchant 로 읽는다. */
@@ -579,7 +582,8 @@ function ReviewQueue({
                   가게(POI)가 연결되지 않아 승인할 수 없어요. 먼저 시설을 매핑하세요.
                 </p>
               )}
-              <div className="mt-2 flex gap-2">
+              <div className="mt-2 flex flex-wrap gap-2">
+                {r.documentPath && <EvidenceLink requestId={r.id} />}
                 <button
                   type="button"
                   disabled={blocked}
@@ -602,6 +606,41 @@ function ReviewQueue({
         </div>
       )}
     </>
+  );
+}
+
+/** 사업자등록증 열기 — 서버가 만든 **5분짜리 서명 URL** 로만 연다.
+ *
+ * 버킷은 비공개이고 신청자 본인만 자기 폴더를 읽을 수 있다. 심사자는 그 정책으로는 못 보므로
+ * 백엔드가 service_role 로 서명해 준다. URL 을 상태에 담아 두지 않고 받는 즉시 새 탭으로
+ * 넘기는 이유도 같다 — 화면에 오래 남을수록 링크가 새어 나갈 표면이 넓어진다. */
+function EvidenceLink({ requestId }: { requestId: string }) {
+  const [busy, setBusy] = useState(false);
+
+  const open = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const res = await apiClient.get(`/api/v1/dev/verification-requests/${requestId}/document`);
+      const url = typeof res?.url === 'string' ? res.url : null;
+      if (!url) throw new Error('no url');
+      window.open(url, '_blank', 'noopener,noreferrer');
+    } catch (err) {
+      toast.error(errorMessage(err) || '증빙을 열지 못했어요.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={() => void open()}
+      disabled={busy}
+      className="flex items-center gap-1 rounded-lg border border-line px-3 py-1.5 text-[11px] font-semibold text-muk-soft hover:bg-hanji hover:text-muk disabled:opacity-40"
+    >
+      <FileText size={13} /> {busy ? '여는 중…' : '증빙 보기'}
+    </button>
   );
 }
 
