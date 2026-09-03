@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { ArrowLeft, Check, MapPin } from 'lucide-react';
 import { createPublicClient } from '@/lib/supabase';
 import { track } from '@/lib/analytics';
-import { EMPTY_TRAVEL_CONTEXT, saveTravelContext, type PlaceCategory, type RequiredAttribute, type TravelContext } from '@/lib/travelContext';
+import { EMPTY_TRAVEL_CONTEXT, saveTravelContext, type PlaceCategory, type RequiredAttribute, type TravelContext, CUISINES, type CuisinePreference } from '@/lib/travelContext';
 import { useT } from '@/lib/i18n/I18nProvider';
 
 const CATEGORIES: PlaceCategory[] = ['restaurant', 'cafe', 'attraction', 'culture'];
@@ -70,6 +70,12 @@ export default function SetupPage() {
         <Section title={t('setup.categoriesTitle')}>
           <div className="grid grid-cols-2 gap-2">{CATEGORIES.map((category) => <Chip key={category} active={context.categories.includes(category)} onClick={() => toggleCategory(category)}>{t(`category.${category}`)}</Chip>)}</div>
         </Section>
+        {/* 음식 취향 — v2 재작성 때 빠졌다가 복원. 한 번 더 누르면 해제된다(선택 사항이라
+            강제하지 않는다). 값은 lib/travelContext 의 CUISINE_INTENT 를 거쳐 추천 점수의
+            cuisineIntent 로 들어간다. */}
+        <Section title={t('setup.step2')}>
+          <div className="grid grid-cols-2 gap-2">{CUISINES.map((cuisine) => <Chip key={cuisine} active={context.cuisine === cuisine} onClick={() => setContext((current) => ({ ...current, cuisine: current.cuisine === cuisine ? undefined : cuisine }))}>{t(CUISINE_LABEL_KEY[cuisine])}</Chip>)}</div>
+        </Section>
         <Section title={t('setup.walkTitle')}>
           <div className="grid grid-cols-3 gap-2">{WALKS.map((minutes) => <Chip key={minutes} active={context.maxWalkMinutes === minutes} onClick={() => setContext((current) => ({ ...current, maxWalkMinutes: minutes }))}>{t('setup.minutes', { n: minutes })}</Chip>)}</div>
         </Section>
@@ -88,6 +94,14 @@ export default function SetupPage() {
     </main>
   );
 }
+
+// 취향 라벨의 i18n 키. v1 온보딩이 쓰던 키를 그대로 재사용한다(사전에 그대로 남아 있다).
+const CUISINE_LABEL_KEY: Record<CuisinePreference, string> = {
+  '한식': 'setup.foodKorean',
+  '분식·국밥': 'setup.foodSnack',
+  '양식': 'setup.foodWestern',
+  '카페·디저트': 'setup.foodDessert',
+};
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) { return <section className="mb-6"><h2 className="mb-2 text-sm font-bold">{title}</h2>{children}</section>; }
 function Chip({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) { return <button type="button" aria-pressed={active} onClick={onClick} className={`rounded-xl border px-3 py-3 text-sm font-semibold ${active ? 'border-gold bg-gold/15' : 'border-line bg-white'}`}>{children}</button>; }

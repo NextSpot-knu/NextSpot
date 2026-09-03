@@ -3,8 +3,25 @@ import { getVisitHistory } from '@/lib/visits';
 export type PlaceCategory = 'restaurant' | 'cafe' | 'attraction' | 'culture';
 export type RequiredAttribute = 'indoor' | 'accessible';
 
+/** 온보딩 음식 취향. v1 의 `food` 필드를 그대로 되살린 값이라 라벨 문자열을 쓴다 —
+ *  아래 CUISINE_INTENT 가 검색 의도 문자열로 옮긴다. */
+export type CuisinePreference = '한식' | '분식·국밥' | '양식' | '카페·디저트';
+
+export const CUISINES: CuisinePreference[] = ['한식', '분식·국밥', '양식', '카페·디저트'];
+
+/** 취향 라벨 → 추천 점수에 넘길 검색 의도 문자열.
+ *  v1 이 main/page.tsx 안에서 하던 매핑을 여기로 옮겼다(저장 형태를 아는 모듈이 책임진다). */
+export const CUISINE_INTENT: Record<CuisinePreference, string> = {
+  '한식': '한식',
+  '분식·국밥': '분식 국밥 김밥',
+  '양식': '양식',
+  '카페·디저트': '카페 디저트',
+};
+
 export interface TravelContext {
   categories: PlaceCategory[];
+  /** 음식 취향(선택). 미선택이면 undefined — 의도를 지어내지 않는다. */
+  cuisine?: CuisinePreference;
   maxWalkMinutes?: 5 | 10 | 20;
   availableMinutes?: 30 | 60 | 120;
   requiredAttributes: RequiredAttribute[];
@@ -65,7 +82,13 @@ export function loadTravelContext(): TravelContext {
       '음식점': 'restaurant', '카페': 'cafe', '관광지': 'attraction', '문화시설': 'culture',
     };
     const category = legacyMap[String(value.category ?? '')];
-    return { ...EMPTY_TRAVEL_CONTEXT, categories: category ? [category] : [] };
+    // v1 은 음식 취향을 `food` 에 라벨 문자열로 담았다. 같은 값을 그대로 쓰므로 옮겨만 준다.
+    const legacyFood = String(value.food ?? '') as CuisinePreference;
+    return {
+      ...EMPTY_TRAVEL_CONTEXT,
+      categories: category ? [category] : [],
+      cuisine: CUISINES.includes(legacyFood) ? legacyFood : undefined,
+    };
   } catch { return EMPTY_TRAVEL_CONTEXT; }
 }
 

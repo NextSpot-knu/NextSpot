@@ -25,7 +25,7 @@ import { loadSavedLocal, syncSaved, saveBookmark, type SavedRecord } from '@/lib
 import { useI18n } from '@/lib/i18n/I18nProvider';
 // T2: 휴무 원문 파서(오늘 휴무 확정만 배제) + 가능/불가능 텍스트 파서(주차·반려동물 필터) — 공용 단일 소스.
 import { getArrivalOpenStatus, isClosedToday, isRecommendationOpen, parseAvailability } from '@/lib/restDate';
-import { loadTravelContext, matchesTravelContext, saveTravelContext, type PlaceCategory } from '@/lib/travelContext';
+import { loadTravelContext, matchesTravelContext, saveTravelContext, type PlaceCategory, CUISINE_INTENT } from '@/lib/travelContext';
 import { buildVoiceCommandTransition, type VoiceAppCommand } from '@/lib/voiceCommands';
 import { facilityMatchesSearch } from '@/lib/placeSearch';
 import NextSpotMascot from '@/components/NextSpotMascot';
@@ -823,14 +823,14 @@ export default function MainPage() {
   }, []);
 
   // 온보딩(setup)에서 고른 음식 선호를 '음식 의도' 기본값으로 로드(음성 발화가 있으면 그쪽이 덮어씀).
+  //
+  // 예전에는 저장 형태를 여기서 직접 파싱해 v1 의 `food` 필드를 읽었다. v2 재작성 뒤 그 필드가
+  // 사라져 이 기본값이 통째로 죽어 있었고(온보딩에서 음식을 물어보지도 않았다), 그래서 온보딩만
+  // 마친 사용자는 음식 의도 없이 추천을 받았다. 질문과 필드를 되살리면서 매핑도 저장 형태를
+  // 아는 모듈(lib/travelContext)로 옮겼다 — v1·v2 판단이 한 곳에만 있게 된다.
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem('nextspot_setup_prefs');
-      if (raw) {
-        const food = String(JSON.parse(raw)?.food || '').trim();
-        if (food) cuisineIntentRef.current = food === '분식·국밥' ? '분식 국밥 김밥' : food === '카페·디저트' ? '카페 디저트' : food;
-      }
-    } catch { /* noop */ }
+    const { cuisine } = loadTravelContext();
+    if (cuisine) cuisineIntentRef.current = CUISINE_INTENT[cuisine];
   }, []);
 
   // 추천 점수·정렬·사유 로직은 lib/recommender(백엔드 SPOT 미러)로 분리.
