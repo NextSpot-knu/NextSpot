@@ -1,7 +1,8 @@
-# NextSpot CI — docs/archive/IMPROVEMENT_PLAN.md WS-E
-# web: lint → typecheck → 단위테스트(voiceIntent) → 정적 export 빌드
+# NextSpot CI — 게이트 정본은 AGENTS.md "검증 게이트" (여기와 같아야 한다)
+# web: lint → typecheck → 단위테스트(check-i18n-keys + lib/**/*.test.ts) → 정적 export 빌드
 # api: ruff → pytest (Python 3.11, Dockerfile 과 동일 버전)
-# schema: RESET_AND_SETUP.sql 이 migrations/ 와 일치하는지 검증 (D2 — migrations 가 소스 오브 트루스)
+# schema · docs: RESET_AND_SETUP.sql 이 migrations/ 와 일치하는지 + 문서 트리 규칙(scripts/check-docs.mjs)
+# e2e: Playwright Chromium 390px · 4로케일 — 결정적(실계정·GPS·지도 SDK·외부 네트워크 없이)
 name: CI
 
 on:

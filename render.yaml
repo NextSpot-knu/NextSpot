@@ -1,6 +1,6 @@
 # NextSpot API — Render Blueprint
 # apps/api(FastAPI) 를 Docker 런타임으로 배포한다. apps/api/Dockerfile 참고(단일 스테이지, uvicorn, 기본 PORT=8080).
-# 적용 절차: Render 대시보드 → New → Blueprint → 이 리포 연결 (docs/HANDOVER.md "6. 배포" 섹션 참고).
+# 적용 절차: Render 대시보드 → New → Blueprint → 이 리포 연결 (docs/DEPLOY_AND_ENV.md §2 참고).
 # sync: false 인 env 는 이 파일에 값이 들어가지 않는다 — Render 대시보드에서 서비스별로 직접 입력해야 한다.
 services:
   - type: web
@@ -20,7 +20,8 @@ services:
         sync: false
       - key: JWT_SECRET
         sync: false
-      # --- 관리자 가드 토큰(필수 — 미설정 시 부팅 실패) ---
+      # --- 기계 호출용 서비스 토큰(필수 — 미설정 시 부팅 실패). pg_cron·Actions 가 X-Service-Token 으로 보낸다.
+      #     회전용 SERVICE_API_TOKEN 은 Blueprint 에 넣지 않고 대시보드에서 직접 추가한다(config.py 가 우선 사용). ---
       - key: ADMIN_API_TOKEN
         sync: false
       # --- CORS: 실제 도메인을 콤마로 지정하면 main.py 가 엄격 모드(해당 오리진만 + credentials)로 전환 ---

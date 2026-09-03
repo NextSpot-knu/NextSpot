@@ -1,20 +1,25 @@
-# NextSpot API — 수동 헬스체크
-# 예약 핑은 10분 주차 수집 워크플로가 담당한다. 장애 진단용 수동 실행만 보존한다.
+# NextSpot API — 수동 헬스체크 (장애 진단용)
+# 예약 핑은 없다. 백엔드를 주기적으로 깨우는 것은 Supabase pg_cron 의 10분 주차 실측 수집이 겸한다
+# (docs/DEPLOY_AND_ENV.md §1-4). 이 워크플로는 Actions 탭에서 손으로 눌러 /health 를 확인할 때만 쓴다.
 # 미설정이면 스텝을 skip(무해). 값 등록: GitHub repo → Settings → Secrets and variables → Actions → Variables
-# → BACKEND_HEALTH_URL = https://<render-서비스>.onrender.com/health (docs/HANDOVER.md "6. 배포" 참고)
+# → BACKEND_HEALTH_URL = https://<render-서비스>.onrender.com/health (docs/DEPLOY_AND_ENV.md §4)
 name: Backend Uptime Check
 
 on:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   health-check:
     name: health check (/health)
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: Ping backend health endpoint
         if: ${{ vars.BACKEND_HEALTH_URL != '' }}
-        run: curl -fsS "${{ vars.BACKEND_HEALTH_URL }}"
+        run: curl -fsS --retry 2 --retry-all-errors --max-time 90 "${{ vars.BACKEND_HEALTH_URL }}"
 
       - name: Skip (BACKEND_HEALTH_URL 미설정)
         if: ${{ vars.BACKEND_HEALTH_URL == '' }}
