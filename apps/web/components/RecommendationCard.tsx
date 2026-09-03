@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useId } from 'react';
 import { motion, PanInfo, AnimatePresence } from 'framer-motion';
 import { Bookmark, Check, Sparkles, Star, Phone, MapPin, Clock, ChevronUp, ChevronDown, Info, Globe, Utensils } from 'lucide-react';
 import { apiClient, reportFacilityAvailability, type AvailabilityReportResult } from '@/lib/api-client';
@@ -152,6 +152,9 @@ export function RecommendationCard({
   scoringMode,
 }: RecommendationCardProps) {
   const { t, locale } = useI18n();
+  // 상세 패널의 id — 펼치기 버튼의 aria-controls 가 가리킨다. 한 화면에 카드가 둘 이상
+  // 뜨는 경로(저장 목록)가 있어 고정 문자열을 쓸 수 없고, useId 는 SSR/CSR 이 같은 값을 낸다.
+  const detailsPanelId = `rec-card-details-${useId()}`;
   const [isExpanded, setIsExpanded] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
   const [confirmedAction, setConfirmedAction] = useState<'saved' | 'accepted' | null>(null);
@@ -515,16 +518,18 @@ export function RecommendationCard({
       {/* 상단 장식 라인 — 콜드 블루 글로우를 신라금 웜 그라디언트로 */}
       <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-gold/50 to-transparent" />
 
-      {/* Swipe/Drag Handle Bar */}
-      <div 
+      {/* Swipe/Drag Handle Bar — 포인터 전용 어포던스다.
+          aria-hidden: 이 막대는 포커스를 받을 수 없고(순수 div), 드래그도 마우스·터치에만
+          해당한다. 예전엔 안에 sr-only "Drag handle" 텍스트가 있어 스크린리더에는 조작할 수도
+          없는 정체불명의 문구 하나로만 읽혔다. 토글은 아래 상세 펼치기 버튼 하나로 노출한다. */}
+      <div
+        aria-hidden="true"
         className="w-16 h-1.5 bg-muk/15 hover:bg-muk/25 rounded-full mx-auto mb-1 cursor-pointer flex items-center justify-center transition-colors"
         onClick={() => {
           if (isMinimized) setIsMinimized(false);
           else toggleExpand();
         }}
-      >
-        <div className="sr-only">Drag handle</div>
-      </div>
+      />
 
       {isMinimized ? (
         <div 
@@ -993,7 +998,49 @@ export function RecommendationCard({
         </div>
       )}
 
-      {/* Expandable Details Section (Rating, Address, Phone, Hours) */}
+      {/* 상세 펼치기/접기 — **키보드·스크린리더가 상세에 닿는 유일한 경로**.
+          그동안 toggleExpand 는 순수 <div onClick>(드래그 핸들·헤더·SPOT 지표 그리드)과
+          framer-motion 드래그 제스처로만 도달했다. 마우스·터치는 카드 어디를 눌러도 열렸지만
+          Tab 으로는 포커스조차 갈 수 없어, 키보드 사용자에게 상세는 존재하지 않는 화면이었다.
+
+          헤더 <div> 를 <button> 으로 바꾸지 않은 이유: 그 안에 SPOT 툴팁 버튼과
+          GoldenHourBadge 자체 버튼이 들어 있어 '버튼 안의 버튼'(nested-interactive)이 된다 —
+          FestivalBanner 가 같은 이유로 스트레치드 버튼 패턴을 쓴다(그 파일 주석 참고).
+          그래서 토글만 담당하는 별도 버튼을 패널 **바로 앞**에 둔다: 읽기 순서가
+          '버튼 → 그 버튼이 여는 패널' 이라 aria-controls 를 따라가지 않아도 자연스럽고,
+          펼친 뒤 Tab 한 번이면 상세 안의 링크(전화·지도)로 이어진다.
+
+          기존 div onClick 들은 그대로 둔다 — 넓은 탭 영역은 마우스·터치에서 유용하다.
+          div 는 role 이 없어 접근성 트리에 조작 가능한 요소로 잡히지 않으므로,
+          토글 컨트롤은 이 버튼 하나만 노출된다(드래그 핸들의 sr-only 라벨은 아래에서 제거). */}
+      <button
+        type="button"
+        onClick={toggleExpand}
+        aria-expanded={isExpanded}
+        aria-controls={detailsPanelId}
+        // 보이는 문구와 접근명을 같은 키로 묶는다 — 아이콘만 바뀌고 이름이 그대로면
+        // 음성 제어 사용자가 "접기" 라고 말해도 눌리지 않는다(WCAG 2.5.3).
+        aria-label={t(isExpanded ? 'card.detailsCollapse' : 'card.detailsExpand')}
+        // min-h-[44px]: 터치 타깃 최소치. 카드 팔레트를 그대로 쓰되(한지 바탕 · gold 실선),
+        // 다른 정보 블록과 달리 눌리는 것임이 보이도록 실선 테두리 + 화살표를 준다.
+        className="mt-1 flex min-h-[44px] w-full items-center justify-center gap-1.5 rounded-2xl border border-gold/30 bg-gold/5 px-3 py-2.5 text-[11px] font-bold text-gold-deep transition-colors hover:border-gold/60 hover:bg-gold/10 active:bg-gold/15 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+      >
+        {isExpanded
+          ? <ChevronUp size={14} className="text-gold-deep" aria-hidden />
+          : <ChevronDown size={14} className="text-gold-deep" aria-hidden />}
+        {t(isExpanded ? 'card.detailsCollapse' : 'card.detailsExpand')}
+      </button>
+
+      {/* Expandable Details Section (Rating, Address, Phone, Hours)
+          이 래퍼가 aria-controls 의 대상이다. AnimatePresence 는 접히면 패널을 언마운트하므로
+          id 를 안쪽 motion.div 에 걸면 접힌 동안 가리키는 대상이 사라진다 — 그래서 래퍼는
+          항상 DOM 에 둔다(APG 의 disclosure 패턴도 패널을 남겨 두고 숨긴다).
+
+          `empty:hidden`: 접힌 상태에서 래퍼는 자식이 없다 → display:none 이라 부모 flex 의
+          gap-3 이 빈 줄로 남지 않는다. 접히는 애니메이션이 도는 동안에는 exit 중인 motion.div
+          가 아직 자식으로 붙어 있어 :empty 가 아니고, 따라서 닫힘 동작이 잘리지 않는다.
+          (안쪽 들여쓰기는 원래대로 뒀다 — 240줄을 통째로 밀면 diff 가 공백으로만 가득 찬다.) */}
+      <div id={detailsPanelId} className="empty:hidden">
       <AnimatePresence>
         {isExpanded && (
           <motion.div 
@@ -1195,6 +1242,7 @@ export function RecommendationCard({
           </motion.div>
         )}
       </AnimatePresence>
+      </div>
 
       <AnimatePresence>
         {hoursPromptOpen && (

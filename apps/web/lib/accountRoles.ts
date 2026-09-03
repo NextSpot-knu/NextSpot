@@ -98,6 +98,45 @@ export function canRequestRoleChange(account: Account | null): boolean {
   return !!account && !account.isAnonymous && account.role !== 'developer';
 }
 
+/**
+ * 마이페이지 '역할 변경' 카드의 3상태.
+ *   · hidden  — 카드를 아예 그리지 않는다.
+ *   · apply   — "신청하기"(아직 낸 신청이 없다).
+ *   · pending — "심사중"(낸 신청을 담당자가 보고 있다).
+ */
+export type RoleRequestEntryState = 'hidden' | 'apply' | 'pending';
+
+/**
+ * 역할 변경 카드를 어떤 모습으로 보여 줄지 정한다.
+ *
+ * 왜 필요했나: `pendingVerification` 은 `/account/me` 가 계속 내려주고 parseAccount 도 읽고
+ * 있었는데 **어떤 화면도 쓰지 않았다**. 그래서 신청서를 내고 마이페이지로 돌아온 사용자에게
+ * 카드는 여전히 "신청하기" 였고, 자기가 신청했다는 흔적이 앱 어디에도 없었다 — 다시 눌러
+ * /account/business 까지 들어가 보기 전에는.
+ *
+ * `canRequestRoleChange` 를 넓히지 않고 함수를 새로 둔 이유: 그 함수는 '신청 **자격**이
+ * 있는가' 하나만 답하고 accountRoles.test.ts 가 그 계약을 잠그고 있다. 자격과 표시 상태는
+ * 다른 질문이다 — 심사중인 사람도 자격은 그대로다(재신청이 아니라 상태 확인을 하러 간다).
+ *
+ * `status === 'loading'` 은 hidden 이다. 첫 조회 전에는 account 가 null 이라 게스트와
+ * 구분되지 않는데, 그때 카드를 그리면 조회가 끝나는 순간 사라지거나(게스트) 문구가
+ * 신청하기→심사중으로 바뀌며 깜빡인다. 로딩 중에는 아무것도 약속하지 않는 편이 낫다.
+ *
+ * status === 'error' 를 따로 막지 않는 이유: resolveRefreshFailure 가 일시적 실패에서는
+ * 알던 계정을 유지하고 status 를 'ready' 로 되돌린다. 그래서 여기 도달하는 'error' 는
+ * account 가 null 인 경우뿐이고, 그건 canRequestRoleChange 가 이미 걸러 낸다.
+ */
+export function roleRequestEntryState(
+  account: Account | null,
+  status: AccountStatus,
+): RoleRequestEntryState {
+  if (status === 'loading') return 'hidden';
+  // 자격 판정은 단일 출처를 그대로 쓴다 — 게스트·developer 는 pendingVerification 이 무슨
+  // 값이든 hidden 이다(서버가 그런 조합을 내려줄 일은 없지만, 응답이 오염돼도 문이 열리면 안 된다).
+  if (!account || !canRequestRoleChange(account)) return 'hidden';
+  return account.pendingVerification ? 'pending' : 'apply';
+}
+
 /** 계정 컨텍스트의 상태. 'loading' 은 첫 조회 전이다. */
 export type AccountStatus = 'loading' | 'ready' | 'error';
 

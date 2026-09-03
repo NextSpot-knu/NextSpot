@@ -19,8 +19,10 @@ import {
   canEnterMerchantConsole,
   canEnterAdminConsole,
   canEnterDevConsole,
-  canRequestRoleChange,
 } from '@/lib/account';
+// 역할 변경 카드의 3상태 판정 — 순수 모듈에서 직접 가져온다(lib/account.tsx 는 React 컨텍스트를
+// 얹은 재수출 계층일 뿐이고, 이 함수는 그 계층 없이도 테스트되는 쪽에 산다. postLoginDest 와 동일).
+import { roleRequestEntryState } from '@/lib/accountRoles';
 import { apiClient, isAuthError, fetchLabPendingCount } from '@/lib/api-client';
 import { getVisitCount } from '@/lib/visits';
 import { clearUserScopedData } from '@/lib/userData';
@@ -97,7 +99,9 @@ interface UserProfile {
 export default function MyPage() {
   const router = useRouter();
   const t = useT();
-  const { account } = useAccount();
+  const { account, status: accountStatus } = useAccount();
+  // 역할 변경 카드: 숨김 / 신청 / 심사중. status 를 같이 넘겨야 첫 조회 전에 카드가 깜빡이지 않는다.
+  const roleRequestEntry = roleRequestEntryState(account, accountStatus);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   // 프로필 수정 인라인 모달 — 로컬 즉시 반영 + public.users 저장으로 계정 기기 간 동기화한다.
@@ -548,20 +552,38 @@ export default function MyPage() {
             {/* 계정 역할 변경 신청 — 사업자·관리자 권한을 요청하는 유일한 자기 신청 경로다.
                 예전에는 tourist 에게만 작은 밑줄 링크 하나였다. 사장님이 관리자 권한을
                 신청하려 해도 문이 없었고, 링크가 로그아웃 위 잔글씨라 아무도 못 찾았다.
-                게스트에게는 보이지 않는다(신청하려면 먼저 계정이 필요하다). */}
-            {canRequestRoleChange(account) && (
+                게스트에게는 보이지 않는다(신청하려면 먼저 계정이 필요하다).
+
+                3상태(숨김/신청/심사중) — 판정은 roleRequestEntryState 하나에 모아 뒀다.
+                심사중에도 **카드를 숨기지 않는다**: /account/business 가 대기 상태 카드
+                (account.pendingTitle)를 보여 주므로, 여기를 지우면 사용자가 자기 신청이
+                어떻게 됐는지 확인할 길이 앱에서 사라진다. 링크 목적지는 두 상태 모두 같고
+                아이콘·문구만 바뀐다. */}
+            {roleRequestEntry !== 'hidden' && (
               <button
                 type="button"
                 onClick={() => router.push('/account/business')}
-                className="mb-4 flex w-full items-center justify-between gap-3 rounded-3xl border border-line bg-white p-5 text-left transition-colors hover:bg-hanji-deep"
+                className={`mb-4 flex w-full items-center justify-between gap-3 rounded-3xl border p-5 text-left transition-colors ${
+                  roleRequestEntry === 'pending'
+                    ? 'border-gold/40 bg-gold/5 hover:bg-gold/10'
+                    : 'border-line bg-white hover:bg-hanji-deep'
+                }`}
               >
                 <span className="min-w-0">
                   <span className="flex items-center gap-2 font-bold text-muk">
-                    <UserCog size={17} className="text-gold-deep" />
-                    {t('account.roleRequestEntry')}
+                    {roleRequestEntry === 'pending' ? (
+                      <Hourglass size={17} className="text-gold-deep" />
+                    ) : (
+                      <UserCog size={17} className="text-gold-deep" />
+                    )}
+                    {t(roleRequestEntry === 'pending'
+                      ? 'account.roleRequestPendingEntry'
+                      : 'account.roleRequestEntry')}
                   </span>
                   <span className="mt-0.5 block text-xs text-muk-soft">
-                    {t('account.roleRequestEntryDesc')}
+                    {t(roleRequestEntry === 'pending'
+                      ? 'account.roleRequestPendingEntryDesc'
+                      : 'account.roleRequestEntryDesc')}
                   </span>
                 </span>
                 <ChevronRight size={18} className="shrink-0 text-muk-soft" />

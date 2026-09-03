@@ -8,6 +8,8 @@ import {
   normalizeRole,
   parseAccount,
   resolveRefreshFailure,
+  roleRequestEntryState,
+  VALID_ROLES,
   type Account,
   type AccountRole,
 } from './accountRoles';
@@ -164,6 +166,76 @@ assert.deepEqual(keysToCamel({ alreadyCamel: 1 }), { alreadyCamel: 1 });
   assert.equal(canRequestRoleChange(make('tourist', true)), false);
   assert.equal(canRequestRoleChange(null), false);
 }
+
+// ── 역할 변경 카드의 3상태(숨김/신청/심사중) ──────────────────────────────
+// pendingVerification 은 서버가 줄곧 내려주고 parseAccount 도 읽었는데 **어떤 화면도 쓰지
+// 않았다**. 그래서 신청서를 내고 마이페이지로 돌아와도 카드는 "신청하기" 그대로였고,
+// 신청했다는 흔적이 앱 어디에도 없었다. 아래가 그 표시 규칙을 잠근다.
+{
+  const tourist = (over: Partial<Account> = {}) => account('tourist', over);
+
+  // 신청 전 → 신청하기, 신청 후 → 심사중.
+  assert.equal(roleRequestEntryState(tourist(), 'ready'), 'apply');
+  assert.equal(roleRequestEntryState(tourist({ pendingVerification: true }), 'ready'), 'pending');
+
+  // **심사중이어도 카드는 남는다.** /account/business 의 대기 카드가 진행 상태를 볼 수 있는
+  // 유일한 화면이라, 여기서 숨기면 사용자가 자기 신청이 어떻게 됐는지 확인할 길이 사라진다.
+  assert.notEqual(
+    roleRequestEntryState(tourist({ pendingVerification: true }), 'ready'),
+    'hidden',
+    '심사중이라고 카드를 숨기면 신청 상태를 볼 경로가 없어진다',
+  );
+
+  // 자격이 없으면 pendingVerification 이 true 여도 hidden 이다.
+  assert.equal(
+    roleRequestEntryState(account('developer', { pendingVerification: true }), 'ready'),
+    'hidden',
+    'developer 에게 심사중 카드가 떴다 — /dev 콘솔에서 직접 바꾸는 역할이다',
+  );
+  assert.equal(
+    roleRequestEntryState(account('tourist', { isAnonymous: true, pendingVerification: true }), 'ready'),
+    'hidden',
+    '게스트에게 심사중 카드가 떴다 — 서버는 403 이다',
+  );
+  assert.equal(roleRequestEntryState(null, 'ready'), 'hidden');
+
+  // 폭은 canRequestRoleChange 와 같다 — 사장님·관리자도 다른 역할을 신청/심사받는다.
+  assert.equal(roleRequestEntryState(account('merchant'), 'ready'), 'apply');
+  assert.equal(roleRequestEntryState(account('admin', { pendingVerification: true }), 'ready'), 'pending');
+
+  // 첫 조회 전(status='loading')에는 무조건 숨김. account 가 아직 null 이라 게스트와
+  // 구분되지 않으므로, 여기서 카드를 그리면 조회가 끝나는 순간 사라지거나
+  // 신청하기→심사중으로 문구가 바뀌며 깜빡인다.
+  assert.equal(roleRequestEntryState(null, 'loading'), 'hidden');
+  assert.equal(
+    roleRequestEntryState(tourist(), 'loading'),
+    'hidden',
+    '로딩 중에 카드를 그려 화면이 깜빡인다',
+  );
+  assert.equal(roleRequestEntryState(tourist({ pendingVerification: true }), 'loading'), 'hidden');
+
+  // 일시적 조회 실패(타임아웃 등) 뒤에도 심사중 표시는 유지돼야 한다 —
+  // resolveRefreshFailure 가 알던 계정을 들고 status 를 'ready' 로 돌려주기 때문이다.
+  const kept = resolveRefreshFailure(tourist({ pendingVerification: true }), false);
+  assert.equal(roleRequestEntryState(kept.account, kept.status), 'pending');
+
+  // 두 판정이 어긋나지 않는지 전수로 잠근다: 'hidden' 은 정확히 '자격 없음' 과 같아야 한다
+  // (로딩 제외). 한쪽만 고치면 카드는 열리는데 서버는 403 인 막다른 화면이 생긴다.
+  for (const role of VALID_ROLES) {
+    for (const isAnonymous of [false, true]) {
+      for (const pendingVerification of [false, true]) {
+        const a = account(role, { isAnonymous, pendingVerification });
+        assert.equal(
+          roleRequestEntryState(a, 'ready') === 'hidden',
+          !canRequestRoleChange(a),
+          `${role}/anon=${isAnonymous}/pending=${pendingVerification} 에서 카드 표시와 신청 자격이 어긋났다`,
+        );
+      }
+    }
+  }
+}
+
+console.log('roleRequestEntryState tests passed');
 
 // ── 조회 실패 후 상태 — 실패는 '계정 없음' 이 아니다 ──────────────────────
 // 실제로 났던 버그: 마이페이지의 역할 변경 신청 버튼이 "한 번 들어갔다 나오면 사라진다".
