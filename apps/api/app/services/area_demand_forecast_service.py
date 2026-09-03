@@ -3,6 +3,11 @@
 장소 내부 좌석이나 대기시간을 예측하지 않는다. 동일한 반경 2km 안의 주차장 원본을
 시점별로 다시 집계하고, 과거의 같은 요일군·시간대 표본이 충분할 때만 상대 수요 수준을
 반환한다. 모든 학습 표본은 전망 시점보다 과거여야 하므로 시간 순서 누수를 허용하지 않는다.
+
+집계는 Postgres RPC(``area_demand_points_near``, 마이그레이션 20260904120000)가 한다.
+예전에는 56일치 주차장 원본을 프로세스에 통째로(≈52MB) 올려 두고 **후보 한 곳마다**
+파이썬 루프로 다시 훑었다 — 후보당 0.28~6.4초라 후보가 몇만 되어도 프런트 10초 타임아웃
+안에 추천이 끝나지 않았다. 지금은 후보당 왕복 한 번이고 상주 캐시가 없다.
 """
 
 from __future__ import annotations
@@ -14,9 +19,13 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+import structlog
+
 from app.core.supabase import fetch_all_rows, supabase_admin
 from app.services.spot.travel import calculate_haversine_distance
 from app.services.travel_context import KST
+
+logger = structlog.get_logger()
 
 _RADIUS_M = 2_000.0
 _BUCKET_MINUTES = 10
@@ -27,6 +36,8 @@ _MIN_DISTINCT_DATES = 3
 _MIN_COVERAGE_DAYS = 7
 _TIME_WINDOW_MINUTES = 30
 _MAX_RECENT_ADJUSTMENT = 0.08
+_SOURCE = "gyeongju_its"
+_POINTS_RPC = "area_demand_points_near"
 
 
 @dataclass(frozen=True)
@@ -36,8 +47,17 @@ class AreaDemandPoint:
     lot_count: int
 
 
+# ── 폴백 전용 상태 ────────────────────────────────────────────────────────────
+# 아래 원본 캐시는 **RPC 가 없는 DB** 를 만났을 때만 채워진다(마이그레이션 적용 전 배포
+# 창). RPC 가 한 번이라도 성공하면 즉시 비워지고 다시는 채워지지 않는다.
 _raw_cache: tuple[float, list[dict[str, Any]], list[dict[str, Any]]] | None = None
 _raw_cache_lock = asyncio.Lock()
+# RPC 부재를 감지하면 이 시각(monotonic)까지는 RPC 를 건너뛰고 폴백만 쓴다. 후보마다
+# 실패하는 왕복을 한 번씩 더 하면 배포 창 동안 지연이 두 배가 된다.
+_RPC_MISSING_RETRY_SECONDS = 60.0
+_rpc_missing_until: float = 0.0
+
+# ── 지점별 백테스트 캐시 ──────────────────────────────────────────────────────
 _quality_cache: dict[tuple[float, float, int, str], tuple[float, dict[str, Any]]] = {}
 # 캐시 상한. 한 번의 추천이 훑는 후보 수(수십)보다 넉넉해야 의미가 있고, 항목이 작아
 # 메모리 부담은 없다. 넘으면 만료분 → 오래된 순으로 버린다.
@@ -63,7 +83,13 @@ def aggregate_nearby_points(
     latitude: float,
     longitude: float,
 ) -> list[AreaDemandPoint]:
-    """저장된 주차장 원본을 현재 실시간 계산과 같은 거리·규모 가중으로 재집계한다."""
+    """저장된 주차장 원본을 현재 실시간 계산과 같은 거리·규모 가중으로 재집계한다.
+
+    ⚠️ 이 수식은 이제 **정본이 아니라 대조본**이다. 운영 경로는 같은 계산을 Postgres 에서
+    하는 ``area_demand_points_near`` RPC 다(마이그레이션 20260904120000). 여기는
+    (1) RPC 가 아직 없는 DB 를 위한 폴백, (2) RPC 가 같은 값을 내는지 잠그는 테스트의
+    기준값 두 가지로만 남는다. 한쪽을 바꾸면 반드시 다른 쪽과 대조 테스트도 같이 바꿀 것.
+    """
     parent_times: dict[str, datetime] = {}
     for parent in parents:
         observed_at = _aware(parent.get("observed_at"))
@@ -193,7 +219,102 @@ def forecast_from_points(
     }
 
 
+def _is_missing_points_rpc(exc: BaseException) -> bool:
+    """``area_demand_points_near`` 가 아직 없는 DB인가.
+
+    마이그레이션(20260904120000)은 원격 SQL Editor 에서 사람이 적용한다 — 백엔드 배포가
+    먼저 나가는 순서가 실제로 가능하다(account.py 의 ``_is_missing_requested_role`` 과 같은
+    상황). 그때 이 신호가 통째로 죽으면 **조용히** 나빠진다: 추천 경로는 예외를 삼켜
+    ``None`` 을 돌려주므로 권역 수요 근거만 사라진 채 추천이 그대로 나가고, 관리자
+    품질 엔드포인트는 503 이 된다. 어느 쪽도 화면에 "지금 데이터가 없다"고 말하지 않는다.
+    그래서 이 오류 **하나만** 골라내 기존 파이썬 집계로 폴백한다.
+    마이그레이션 적용을 확인하면 폴백 경로(_load_raw_history / aggregate_nearby_points
+    호출부)를 지워도 된다.
+    """
+    text = str(exc).lower()
+    if _POINTS_RPC not in text:
+        return False
+    return (
+        "pgrst202" in text
+        or "could not find the function" in text
+        or "does not exist" in text
+        or "schema cache" in text
+    )
+
+
+def _points_from_payload(payload: Any) -> list[AreaDemandPoint]:
+    """RPC 의 JSONB 응답을 시계열로 옮긴다. 형식이 깨지면 조용히 비우지 않고 던진다."""
+    if isinstance(payload, list):
+        payload = payload[0] if payload else None
+    if not isinstance(payload, dict):
+        raise ValueError(f"{_POINTS_RPC} returned an unexpected payload")
+    rows = payload.get("points")
+    if not isinstance(rows, list):
+        raise ValueError(f"{_POINTS_RPC} returned no points array")
+    points: list[AreaDemandPoint] = []
+    for row in rows:
+        # [관측시각(UTC ISO-8601), 수요 수준, 주차장 수] — 마이그레이션의 jsonb_build_array 순서.
+        if not isinstance(row, (list, tuple)) or len(row) < 3:
+            raise ValueError(f"{_POINTS_RPC} returned a malformed point")
+        observed_at = _aware(row[0])
+        if observed_at is None:
+            raise ValueError(f"{_POINTS_RPC} returned an unparsable observed_at")
+        points.append(AreaDemandPoint(observed_at, _clamp(float(row[1])), int(row[2])))
+    # RPC 가 이미 정렬해 주지만, 뒤의 백테스트·최근추세가 순서를 전제하므로 계약으로 고정한다.
+    points.sort(key=lambda point: point.observed_at)
+    return points
+
+
+async def _fetch_points_via_rpc(
+    latitude: float, longitude: float, now: datetime
+) -> list[AreaDemandPoint]:
+    since = (now - timedelta(days=_LOOKBACK_DAYS)).astimezone(timezone.utc).isoformat()
+
+    def _call() -> Any:
+        return supabase_admin.rpc(_POINTS_RPC, {
+            "p_latitude": float(latitude),
+            "p_longitude": float(longitude),
+            "p_since": since,
+            "p_radius_m": _RADIUS_M,
+            "p_source": _SOURCE,
+        }).execute()
+
+    response = await asyncio.to_thread(_call)
+    return _points_from_payload(getattr(response, "data", None))
+
+
+async def _load_points(
+    latitude: float, longitude: float, now: datetime
+) -> list[AreaDemandPoint]:
+    """이 좌표 기준 시계열을 얻는다. 기본은 RPC 한 번, 예외적으로 파이썬 폴백."""
+    global _rpc_missing_until, _raw_cache
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    if time.monotonic() >= _rpc_missing_until:
+        try:
+            points = await _fetch_points_via_rpc(latitude, longitude, now)
+        except Exception as exc:
+            if not _is_missing_points_rpc(exc):
+                raise
+            _rpc_missing_until = time.monotonic() + _RPC_MISSING_RETRY_SECONDS
+            logger.warning("area_demand_points_rpc_missing", error=str(exc))
+        else:
+            _rpc_missing_until = 0.0
+            if _raw_cache is not None:
+                # RPC 가 살아 있으면 폴백용 원본(수십 MB)을 붙들고 있을 이유가 없다.
+                _raw_cache = None
+            return points
+    parents, lots = await _load_raw_history(now)
+    return aggregate_nearby_points(parents, lots, latitude, longitude)
+
+
 async def _load_raw_history(now: datetime) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """폴백 전용 — RPC 가 없는 DB 에서만 호출된다.
+
+    5분 TTL 에 stale-while-revalidate 가 없어 만료 직후 한 요청이 갱신 비용을 전부
+    뒤집어쓴다. RPC 경로에는 TTL 캐시 자체가 없어 그 문제가 구조적으로 사라지므로,
+    여기는 배포 창 한정 임시 경로로 두고 고치지 않는다(마이그레이션 적용 후 삭제 대상).
+    """
     global _raw_cache
     monotonic_now = time.monotonic()
     if _raw_cache and monotonic_now - _raw_cache[0] < _CACHE_TTL_SECONDS:
@@ -209,7 +330,7 @@ async def _load_raw_history(now: datetime) -> tuple[list[dict[str, Any]], list[d
             "area_demand_snapshots",
             "id,source,observed_at,bucket_at",
             1000,
-            lambda query: query.eq("source", "gyeongju_its").gte("observed_at", cutoff),
+            lambda query: query.eq("source", _SOURCE).gte("observed_at", cutoff),
         )
         parent_ids = [str(row["id"]) for row in parents if row.get("id")]
         lots: list[dict[str, Any]] = []
@@ -239,10 +360,12 @@ async def get_historical_area_demand_forecast(
     """DB 오류나 부족한 표본은 숫자를 만들지 않고 ``None``으로 닫는다."""
     now = now or datetime.now(timezone.utc)
     try:
-        parents, lots = await _load_raw_history(now)
-    except Exception:
+        points = await _load_points(latitude, longitude, now)
+    except Exception as exc:
+        # 예전에는 통째로 삼켰다. 실패해도 추천은 나가므로(신호 하나가 빠질 뿐) 계속
+        # 닫되, 조용히 사라지지는 않게 남긴다.
+        logger.warning("area_demand_points_unavailable", error=str(exc))
         return None
-    points = aggregate_nearby_points(parents, lots, latitude, longitude)
     forecast = forecast_from_points(points, arrival, now=now)
     if forecast is None:
         return None
@@ -268,8 +391,7 @@ async def get_area_demand_forecast_quality(
 ) -> dict[str, Any]:
     """해당 권역의 시간 순서 백테스트와 현재 데이터 범위를 반환한다."""
     now = now or datetime.now(timezone.utc)
-    parents, lots = await _load_raw_history(now)
-    points = aggregate_nearby_points(parents, lots, latitude, longitude)
+    points = await _load_points(latitude, longitude, now)
     quality = _cached_backtest(points, latitude, longitude)
     if not points:
         return {

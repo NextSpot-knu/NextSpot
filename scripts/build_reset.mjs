@@ -117,6 +117,7 @@ DROP FUNCTION IF EXISTS public.record_facility_availability_report(UUID, UUID, T
 DROP FUNCTION IF EXISTS public.recompute_facility_availability_evidence(UUID) CASCADE;
 DROP FUNCTION IF EXISTS public.refresh_facility_availability_after_delete() CASCADE;
 DROP FUNCTION IF EXISTS public.log_facility_owner_deletion() CASCADE;
+DROP FUNCTION IF EXISTS public.area_demand_points_near(DOUBLE PRECISION, DOUBLE PRECISION, TIMESTAMPTZ, DOUBLE PRECISION, TEXT) CASCADE;
 DROP FUNCTION IF EXISTS public.merge_guest_account_data_without_availability(UUID, UUID) CASCADE;
 DO $$
 DECLARE

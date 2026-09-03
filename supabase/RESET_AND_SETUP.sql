@@ -15,6 +15,11 @@ DROP TABLE IF EXISTS public.business_verification_requests CASCADE;
 DROP TABLE IF EXISTS public.facility_owners CASCADE;
 DROP TABLE IF EXISTS public.user_feedback CASCADE;
 DROP TABLE IF EXISTS public.facility_availability_reports CASCADE;
+-- users + facilities 를 함께 참조하는 표(부모 둘보다 반드시 먼저).
+DROP TABLE IF EXISTS public.user_coupons CASCADE;
+DROP TABLE IF EXISTS public.saved_facilities CASCADE;
+-- facilities 만 참조하는 표.
+DROP TABLE IF EXISTS public.merchant_timesales CASCADE;
 DROP TABLE IF EXISTS public.area_demand_snapshot_lots CASCADE;
 DROP TABLE IF EXISTS public.area_demand_snapshots CASCADE;
 DROP TABLE IF EXISTS public.recommendation_outcomes CASCADE;
@@ -24,11 +29,18 @@ DROP TABLE IF EXISTS public.tourism_insight_snapshots CASCADE;
 DROP TABLE IF EXISTS public.tourism_concentration_forecasts CASCADE;
 DROP TABLE IF EXISTS public.recommendations CASCADE;
 DROP TABLE IF EXISTS public.congestion_logs CASCADE;
-DROP TABLE IF EXISTS public.facilities CASCADE;
-DROP TABLE IF EXISTS public.users CASCADE;
-DROP TABLE IF EXISTS public.system_settings CASCADE;
+-- users 만 참조하는 표(부모보다 먼저 — 예전에는 users 아래에 있었다. CASCADE 덕에
+-- 동작은 했지만 "자식 먼저" 규칙을 깨서 목록을 읽기 어렵게 만들고 있었다).
 DROP TABLE IF EXISTS public.inquiries CASCADE;
 DROP TABLE IF EXISTS public.user_preference_vectors CASCADE;
+-- 부모 — facilities 를 먼저, users 를 마지막에.
+DROP TABLE IF EXISTS public.facilities CASCADE;
+DROP TABLE IF EXISTS public.users CASCADE;
+-- FK 가 없는 독립 표 — 순서 무관. app_events(누적 퍼널 로그)와
+-- admin_ingest_requests(운영자 승인 큐)도 전체 리셋 대상이다(상단 ⚠️ 참고).
+DROP TABLE IF EXISTS public.system_settings CASCADE;
+DROP TABLE IF EXISTS public.app_events CASCADE;
+DROP TABLE IF EXISTS public.admin_ingest_requests CASCADE;
 DROP FUNCTION IF EXISTS public.get_auth_user_info() CASCADE;
 DROP FUNCTION IF EXISTS public.get_auth_user_role() CASCADE;
 DROP FUNCTION IF EXISTS public.is_admin_or_dev() CASCADE;
@@ -43,6 +55,8 @@ DROP FUNCTION IF EXISTS public.merge_guest_account_data(UUID, UUID) CASCADE;
 DROP FUNCTION IF EXISTS public.record_facility_availability_report(UUID, UUID, TEXT) CASCADE;
 DROP FUNCTION IF EXISTS public.recompute_facility_availability_evidence(UUID) CASCADE;
 DROP FUNCTION IF EXISTS public.refresh_facility_availability_after_delete() CASCADE;
+DROP FUNCTION IF EXISTS public.log_facility_owner_deletion() CASCADE;
+DROP FUNCTION IF EXISTS public.area_demand_points_near(DOUBLE PRECISION, DOUBLE PRECISION, TIMESTAMPTZ, DOUBLE PRECISION, TEXT) CASCADE;
 DROP FUNCTION IF EXISTS public.merge_guest_account_data_without_availability(UUID, UUID) CASCADE;
 DO $$
 DECLARE
@@ -3383,3 +3397,462 @@ $$;
 -- ⚠️ 익명 세션의 linkIdentity 승격은 auth.users 를 UPDATE 하므로 이 트리거(AFTER INSERT)를
 --    타지 않는다. 그 경로와 '로그인할 때마다 갱신'은 프런트가 담당한다
 --    (apps/web/lib/auth.ts syncProfileFromProvider → lib/oauthFlow.ts resolveProfileSync).
+
+-- ============================= migrations/20260904090000_account_deletion_fk_fix.sql =============================
+-- 계정 삭제가 인증 신청 이력이 있는 계정에서 영구 실패하는 버그 수정.
+--
+-- 무엇이 깨져 있었나:
+--   DELETE /api/v1/account/me (apps/api/app/routers/account.py) 는 auth.users 행을 지운다.
+--   auth.users → public.users 는 ON DELETE CASCADE 이므로 public.users 행도 함께 지워진다.
+--   그런데 20260827140000_rbac_roles_and_ownership.sql 이 만든 두 FK 가
+--     facility_owners.user_id                  → public.users(id)   -- ON DELETE 절 없음
+--     business_verification_requests.user_id   → public.users(id)   -- ON DELETE 절 없음
+--   ON DELETE 절이 없으면 NO ACTION 이다. 즉 자식 행이 하나라도 남아 있으면 부모 삭제가
+--   FK 위반으로 막힌다. 결과: **사업자/관리자 인증을 한 번이라도 신청한 계정은 탈퇴가
+--   영원히 실패한다**(500). 신청을 철회(withdrawn)하거나 거절당해도 행은 남으므로 마찬가지다.
+--   소유권을 받은 사장님 계정도 같은 이유로 탈퇴할 수 없다.
+--
+-- 이 마이그레이션의 목표는 단 하나 — **탈퇴가 실제로 성공하게 만드는 것**이다.
+--
+-- 나머지 users 참조 FK 는 이미 안전하다(전수 확인함):
+--   CASCADE  — recommendations, user_feedback, user_preference_vectors, user_coupons,
+--              saved_facilities, recommendation_outcomes, facility_availability_reports,
+--              inquiries(20260825120000 에서 SET NULL → CASCADE 로 교체됨)
+--   SET NULL — congestion_logs.reporter_user_id, facility_owners.granted_by,
+--              business_verification_requests.reviewed_by, role_audit_log.actor_id
+--   FK 없음  — app_events.user_id, admin_ingest_requests.requested_by (경량 로그 관례),
+--              role_audit_log.target_id (⚠️ 의도적 — 아래 3절 참고),
+--              facility_owners.verification_request_id
+--              (컬럼만 있고 REFERENCES 가 없다. business_verification_requests 를 가리키는
+--               FK 는 DB 어디에도 없으므로 이번 삭제 경로를 막지 않는다. 무결성이 느슨한
+--               것은 별개 이슈이고, 지금 FK 를 새로 걸면 **없던 삭제 차단이 생기므로**
+--               이 마이그레이션에서는 손대지 않는다.)
+--
+-- 멱등: 제약을 이름으로 추측하지 않고 카탈로그에서 실제 FK 를 찾아 지운 뒤 다시 만든다.
+--   (두 FK 모두 CREATE TABLE 안의 인라인 REFERENCES 로 만들어져 마이그레이션 파일에
+--    이름이 적혀 있지 않다 — 실제 이름은 PostgreSQL 기본 규칙인 <표>_<컬럼>_fkey 이지만,
+--    이름이 다른 환경까지 덮도록 20260827140000 의 users_role_check 처리와 같은 DO 블록을 쓴다.)
+
+-- =========================================================================
+-- 1. business_verification_requests.user_id → ON DELETE CASCADE
+-- =========================================================================
+-- 왜 CASCADE 인가: 계정이 사라진 뒤의 신청 행은 감사 가치가 없다. 심사 결과(승인/거절)는
+--   role_audit_log 에 'verification_review' 로 이미 따로 남아 있고(그쪽은 계정 삭제에
+--   영향을 받지 않는다 — 3절), 이 표에 남는 것은 contact(연락처)·store_name(상호) 같은
+--   **PII 뿐**이다. 탈퇴한 사용자의 연락처를 붙들고 있는 것은 감사가 아니라 유출 위험이다.
+--   증빙 파일(document_path)은 심사 종료 시점에 이미 지워지는 정책이라 남을 것이 없다.
+DO $$
+DECLARE
+    v_name TEXT;
+BEGIN
+    FOR v_name IN
+        SELECT conname
+          FROM pg_constraint
+         WHERE conrelid = 'public.business_verification_requests'::regclass
+           AND contype = 'f'
+           AND confrelid = 'public.users'::regclass
+           AND pg_get_constraintdef(oid) LIKE 'FOREIGN KEY (user_id)%'
+    LOOP
+        EXECUTE format(
+            'ALTER TABLE public.business_verification_requests DROP CONSTRAINT %I', v_name
+        );
+    END LOOP;
+END $$;
+
+ALTER TABLE public.business_verification_requests
+    ADD CONSTRAINT business_verification_requests_user_id_fkey
+    FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
+
+-- =========================================================================
+-- 2. facility_owners.user_id → ON DELETE CASCADE (+ 이력은 role_audit_log 로 옮겨 보존)
+-- =========================================================================
+-- 여기는 판단이 다르다. 원래 주석("CASCADE 아님(의도적): 탈퇴해도 누가 언제 이 가게를
+-- 관리했나 이력을 남긴다")은 옳은 문제의식이었지만, 그 전제였던 "탈퇴 처리는 행 삭제가
+-- 아니라 revoked_at 갱신 + users 익명화로 한다(P1)" 가 **구현되지 않았다.** 실제 탈퇴
+-- 경로는 auth.users 를 하드 삭제한다. 그래서 지금의 NO ACTION 은 이력을 지키는 게 아니라
+-- 그냥 탈퇴를 막고 있을 뿐이다.
+--
+-- 검토한 대안:
+--   (a) ON DELETE SET NULL — user_id 가 NOT NULL 이라 불가. NOT NULL 을 벗기면 가능은
+--       하지만, 소유 이력에서 '누가'를 지우면 남는 건 "언제 어떤 가게에 누군지 모를
+--       사람이 있었다"뿐이라 감사 가치가 사라진다. 게다가 부분 유니크 인덱스
+--       facility_owners_active_uq (facility_id, user_id) WHERE revoked_at IS NULL 은
+--       NULL 을 서로 다른 값으로 보므로 익명화된 활성 행이 무한히 쌓일 수 있다.
+--   (b) FK 자체를 제거 — 삭제는 통과하지만 존재하지 않는 user_id 를 가리키는 행이
+--       남는다. authz.require_facility_owner 는 revoked_at IS NULL 인 행으로 소유권을
+--       판정하므로, 죽은 계정의 활성 소유 행을 남겨 두는 것은 권한 판정 경로에 쓰레기를
+--       남기는 일이다. 무결성 없이 이력만 남기는 것도 정직하지 않다.
+--   (c) ON DELETE RESTRICT / NO ACTION 유지 + 백엔드가 먼저 정리 — 지금 버그의 재생산이다.
+--       탈퇴 API 한 곳에 정리 로직을 얹으면, 앞으로 생길 다른 삭제 경로마다 같은 걸
+--       빠뜨린다(이번에 놓친 것과 똑같은 종류의 드리프트).
+--
+-- 결정: **(d) ON DELETE CASCADE + 삭제 직전에 role_audit_log 로 이력을 옮긴다.**
+--   감사 기록을 담당하는 표는 원래부터 role_audit_log 다. 그 표의 target_id 는
+--   **일부러 FK 가 없는 UUID** 이고 actor_id 는 ON DELETE SET NULL 이라, 계정이 삭제돼도
+--   로그 줄은 그대로 남는다 — 즉 계정 수명과 무관하게 살아남도록 설계된 유일한 표다.
+--   소유 이력을 그쪽으로 옮기면 "누가 언제 이 가게를 관리했나"는 보존되고, 권한 판정에
+--   쓰이는 facility_owners 에는 죽은 행이 남지 않는다.
+--   (dev.py 의 정상 회수 경로는 지금도 삭제가 아니라 revoked_at 갱신이므로 이 트리거를
+--    타지 않는다. 여기서 잡는 것은 계정 삭제 연쇄 같은 **물리 삭제**뿐이다.)
+CREATE OR REPLACE FUNCTION public.log_facility_owner_deletion()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER  -- role_audit_log 는 RLS 가 켜져 있고 쓰기 정책이 service_role 전용이다.
+                  -- 계정 삭제는 supabase_auth_admin 롤로 들어오므로 호출자 권한으로는
+                  -- INSERT 가 막힌다. 표 소유자(postgres) 권한으로 실행해 그 벽을 넘는다.
+SET search_path = public
+AS $$
+BEGIN
+    -- ⚠️ 실패해도 삭제를 되돌리지 않는다. 이 마이그레이션의 목적 자체가 "탈퇴가 성공하게
+    --    만드는 것"인데, 감사 로그 쓰기 실패로 탈퇴가 다시 막히면 본말전도다.
+    --    (authz.log_role_audit 도 같은 원칙 — "실패해도 주 작업을 되돌리지 않되 경고로 남긴다".)
+    BEGIN
+        INSERT INTO public.role_audit_log (actor_id, target_id, action, from_value, reason)
+        -- actor_id NULL = 시스템. from_value 에 facility_id 를 넣는 것은
+        -- dev.py revoke_facility_owner 의 owner_revoke 기록 관례와 같다.
+        VALUES (NULL, OLD.user_id, 'owner_revoke', OLD.facility_id::TEXT,
+                'facility_owners 행 물리 삭제(계정 삭제 연쇄) — granted_at=' ||
+                COALESCE(OLD.granted_at::TEXT, 'unknown') ||
+                ', revoked_at=' || COALESCE(OLD.revoked_at::TEXT, 'active'));
+    EXCEPTION WHEN OTHERS THEN
+        RAISE WARNING 'role_audit_log 기록 실패(facility_owners 삭제는 계속 진행): %', SQLERRM;
+    END;
+    RETURN NULL;  -- AFTER 트리거의 반환값은 무시된다.
+END $$;
+
+DROP TRIGGER IF EXISTS log_facility_owner_deletion ON public.facility_owners;
+CREATE TRIGGER log_facility_owner_deletion
+    AFTER DELETE ON public.facility_owners
+    FOR EACH ROW
+    EXECUTE FUNCTION public.log_facility_owner_deletion();
+
+DO $$
+DECLARE
+    v_name TEXT;
+BEGIN
+    FOR v_name IN
+        SELECT conname
+          FROM pg_constraint
+         WHERE conrelid = 'public.facility_owners'::regclass
+           AND contype = 'f'
+           AND confrelid = 'public.users'::regclass
+           AND pg_get_constraintdef(oid) LIKE 'FOREIGN KEY (user_id)%'
+    LOOP
+        EXECUTE format('ALTER TABLE public.facility_owners DROP CONSTRAINT %I', v_name);
+    END LOOP;
+END $$;
+
+ALTER TABLE public.facility_owners
+    ADD CONSTRAINT facility_owners_user_id_fkey
+    FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
+
+-- =========================================================================
+-- 3. 왜 role_audit_log 는 손대지 않는가
+-- =========================================================================
+-- target_id 는 UUID NOT NULL 이면서 FK 가 없다. 실수처럼 보이지만 이 표에서는 그게 맞다 —
+-- FK 를 걸면 (1) 계정 삭제가 또 막히거나 (2) CASCADE 로 감사 로그가 지워진다. 둘 다
+-- "삭제 API 는 만들지 않는다"(dev.py)는 이 표의 존재 이유와 정면으로 충돌한다.
+-- 감사 로그는 계정보다 오래 살아야 한다. 그대로 둔다.
+
+-- ============================= migrations/20260904091000_inquiries_insert_ownership.sql =============================
+-- inquiries INSERT 정책의 신원 위조 구멍 차단.
+--
+-- 무엇이 깨져 있었나:
+--   20260531220000_add_inquiries_table.sql 의
+--     CREATE POLICY "Allow anonymous or auth inserts on inquiries"
+--       ON public.inquiries FOR INSERT WITH CHECK (true);
+--   에는 TO 절도, 소유권 조건도 없다. WITH CHECK (true) 는 "무엇이든 통과"라는 뜻이므로
+--   anon 키만 있으면(프런트 번들에 들어 있다) **아무나 남의 user_id 로 문의를 넣을 수 있다.**
+--   그 문의는 관리자 화면(/admin/support)에 피해자가 보낸 것처럼 뜨고,
+--   select_own_or_admin_inquiries 때문에 정작 피해자 본인의 '내 문의' 목록에도 나타난다.
+--   또 SELECT/UPDATE 는 20260601120000·20260707120000 에서 이미 조여졌는데 INSERT 만
+--   그때 함께 조여지지 않고 남아 있었다 — 하드닝의 누락분이다.
+--
+-- 익명 문의 경로는 유지해야 한다(로그인 없이도 문의할 수 있어야 한다). 다행히
+-- inquiries.user_id 는 처음부터 NULL 허용 컬럼이고(초기 정의에 NOT NULL 이 없고, 이후
+-- 어떤 마이그레이션도 NOT NULL 을 붙이지 않았다 — 20260825120000 은 FK 의 ON DELETE 만
+-- SET NULL → CASCADE 로 바꿨다), 그래서 "NULL 이거나 본인" 형태를 쓸 수 있다.
+--
+-- 멱등: DROP POLICY IF EXISTS → CREATE POLICY.
+
+-- 구 정책 제거. 이름에 공백이 있어 큰따옴표가 필요하다.
+DROP POLICY IF EXISTS "Allow anonymous or auth inserts on inquiries" ON public.inquiries;
+
+DROP POLICY IF EXISTS inquiries_insert_own_or_anonymous ON public.inquiries;
+CREATE POLICY inquiries_insert_own_or_anonymous ON public.inquiries
+    FOR INSERT TO anon, authenticated
+    -- user_id IS NULL  = 익명 문의(세션 없이 보낸 문의).
+    -- user_id = auth.uid() = 로그인/익명세션 사용자의 본인 문의.
+    -- 그 외(남의 uid)는 거부된다. 앱은 익명 세션(signInAnonymously)을 쓰므로 대부분
+    -- 두 번째 가지를 타고, 익명 세션 부팅이 실패한 경우에만 첫 번째 가지로 떨어진다.
+    WITH CHECK (user_id IS NULL OR user_id = auth.uid());
+
+-- service_role(백엔드 admin 라우터)용 명시 정책 — 다른 표들(user_coupons, saved_facilities,
+-- facility_owners …)이 모두 갖고 있는 *_service_all 관례를 여기에도 맞춘다.
+-- 구 정책은 TO 절이 없어 PUBLIC(=service_role 포함)에 적용됐다. 위에서 TO anon, authenticated
+-- 로 좁혔으므로, service_role 의 BYPASSRLS 에만 기대지 않도록 명시적으로 열어 둔다.
+DROP POLICY IF EXISTS inquiries_service_all ON public.inquiries;
+CREATE POLICY inquiries_service_all ON public.inquiries
+    FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+-- ⚠️ 프런트와 한 세트다. apps/web/app/mypage/support/page.tsx 가 로그아웃 상태에서
+--    하드코딩 UUID(a2222222-…)를 보내고 있었다. 이 정책이 적용되면 그 INSERT 는 거부된다.
+--    같은 커밋에서 "세션 있으면 실제 uid, 없으면 NULL" 로 고쳤다.
+
+-- ============================= migrations/20260904120000_area_demand_points_rpc.sql =============================
+-- 후보 지점 주변 2km 주차 수요 시계열을 Postgres 한 번의 GROUP BY 로 집계한다.
+--
+-- 왜: 추천은 후보 **한 곳마다** 이 시계열을 필요로 하는데, 지금까지는 백엔드가 56일치
+-- 주차장 원본(area_demand_snapshot_lots 수십만 행)을 프로세스 메모리에 통째로 올려 두고
+-- 후보마다 파이썬 루프로 다시 훑었다. 후보당 0.28~6.4초가 나와 프런트 10초 타임아웃 안에
+-- 추천이 끝나지 않았고, 상주 캐시도 52MB 를 차지했다. 집계 자체는 DB 가 한 번의 왕복으로
+-- 할 수 있는 일이다.
+--
+-- ⚠️ 이 함수는 파이썬 aggregate_nearby_points() 와 **같은 값**을 내야 한다. 아래 수식은
+--    apps/api/app/services/area_demand_forecast_service.py 의 집계와 spot/travel.py 의
+--    calculate_haversine_distance() 를 연산 순서까지 그대로 옮긴 것이다. 바꾸려면 양쪽을
+--    같이 바꾸고 test_area_demand_forecast_service.py 의 대조 테스트를 갱신할 것.
+--
+--    거리 = round(6371000 * (2 * asin(min(1, sqrt(a)))), 1)          -- 데시미터 반올림까지 동일
+--      a  = sin((rad(lat2) - rad(lat1)) / 2)^2
+--           + cos(rad(lat1)) * cos(rad(lat2)) * sin((rad(lng2) - rad(lng1)) / 2)^2
+--    점유율 = 1 - available_spaces / total_spaces
+--    가중치 = min(total_spaces, 500) / (1 + 거리 / 500)
+--    수요   = clamp(Σ(점유율 * 가중치) / Σ가중치, 0, 1)              -- 스냅샷(=관측 시점)별
+--
+--    radians 를 먼저 취한 뒤 빼는 순서(rad(a) - rad(b), rad(a-b) 아님)까지 파이썬과 같다.
+
+-- 반환 타입은 SETOF 가 아니라 JSONB 단일 값이다. PostgREST 는 단일 응답 행수를 캡하는데
+-- (Supabase 기본 1000, apps/api/app/core/supabase.py 의 fetch_all_rows 주석 참조) 56일치
+-- 시계열은 10분 간격 기준 8,064 포인트라 SETOF 로 돌려주면 **조용히 잘린다**. 잘린 시계열은
+-- 백테스트 품질 게이트를 통과할 수도 있어(표본만 줄어듦) 눈에 띄지 않는 오염이 된다.
+-- 한 행짜리 JSONB 는 그 캡에 걸리지 않고 왕복도 한 번이다.
+CREATE OR REPLACE FUNCTION public.area_demand_points_near(
+    p_latitude DOUBLE PRECISION,
+    p_longitude DOUBLE PRECISION,
+    p_since TIMESTAMPTZ,
+    p_radius_m DOUBLE PRECISION DEFAULT 2000.0,
+    p_source TEXT DEFAULT 'gyeongju_its'
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+STABLE
+SECURITY INVOKER
+SET search_path = public
+AS $$
+DECLARE
+    v_earth_m CONSTANT DOUBLE PRECISION := 6371000.0;
+    v_sigma DOUBLE PRECISION;
+    v_lat_delta DOUBLE PRECISION;
+    v_lng_delta DOUBLE PRECISION;
+    v_lat_min DOUBLE PRECISION;
+    v_lat_max DOUBLE PRECISION;
+    v_lng_min DOUBLE PRECISION;
+    v_lng_max DOUBLE PRECISION;
+    v_far_lat DOUBLE PRECISION;
+    v_cos_product DOUBLE PRECISION;
+    v_points JSONB;
+BEGIN
+    IF p_latitude IS NULL OR p_longitude IS NULL OR p_since IS NULL THEN
+        RAISE EXCEPTION 'latitude, longitude and since are required'
+            USING ERRCODE = '22023';
+    END IF;
+    IF p_latitude NOT BETWEEN -90.0 AND 90.0
+       OR p_longitude NOT BETWEEN -180.0 AND 180.0 THEN
+        RAISE EXCEPTION 'latitude or longitude is out of range'
+            USING ERRCODE = '22023';
+    END IF;
+    IF p_radius_m IS NULL OR p_radius_m <= 0.0 OR p_radius_m > 50000.0 THEN
+        RAISE EXCEPTION 'radius_m must be greater than 0 and at most 50000'
+            USING ERRCODE = '22023';
+    END IF;
+    IF p_source IS NULL
+       OR p_source NOT IN ('gyeongju_its', 'national_parking_api') THEN
+        RAISE EXCEPTION 'unsupported area demand source'
+            USING ERRCODE = '22023';
+    END IF;
+
+    -- 경계 상자 — 삼각함수를 돌리기 전에 값싼 BETWEEN 으로 후보 주차장을 걸러낸다.
+    -- **반드시 반경 원의 상위집합**이어야 한다(하나라도 덜 걸러지는 건 괜찮지만, 반경 안
+    -- 주차장을 하나라도 빠뜨리면 추천 품질이 조용히 나빠진다). 그래서 근사치가 아니라
+    -- 구면 삼각법에서 유도한 상한을 쓴다. σ 는 중심각(= 거리 / 지구반지름).
+    --
+    --   위도: cos σ = sinφ0·sinφ + cosφ0·cosφ·cosΔλ ≤ cos(φ0-φ) 이므로 σ ≥ |φ0-φ|.
+    --         따라서 |Δφ| ≤ degrees(σ) 가 정확한 상한이다.
+    --   경도: 위 항등식을 정리하면
+    --         2·cosφ0·cosφ·sin²(Δλ/2) = cos(φ0-φ) - cos σ ≤ 1 - cos σ = 2·sin²(σ/2)
+    --         ⇒ |Δλ| ≤ 2·asin( sin(σ/2) / sqrt(cosφ0·cosφ) ).
+    --         cosφ 는 위도 상한에서 가장 작아지므로(|φ| ≤ |φ0| + Δφ) 그 값을 대입하면
+    --         모든 φ 에 대해 안전한 상한이 된다.
+    --
+    -- 거리 자체를 데시미터로 반올림하기 때문에 반경 경계에서 2000.04m 가 2000.0m 로 내려와
+    -- 통과할 수 있다. 반올림 폭과 libm 오차를 덮으려고 반경에 1m 를 더해 상자를 잡는다.
+    v_sigma := (p_radius_m + 1.0) / v_earth_m;
+    v_lat_delta := degrees(v_sigma);
+    v_lat_min := greatest(-90.0, p_latitude - v_lat_delta);
+    v_lat_max := least(90.0, p_latitude + v_lat_delta);
+
+    v_far_lat := least(90.0, abs(p_latitude) + v_lat_delta);
+    v_cos_product := cos(radians(p_latitude)) * cos(radians(v_far_lat));
+    IF v_cos_product <= 0.0 THEN
+        -- 극점을 포함하면 경도는 아무 의미가 없다. 경도 필터를 포기한다.
+        v_lng_delta := 180.0;
+    ELSE
+        v_lng_delta := degrees(
+            2.0 * asin(least(1.0, sin(v_sigma / 2.0) / sqrt(v_cos_product)))
+        );
+    END IF;
+    IF v_lng_delta >= 180.0
+       OR p_longitude - v_lng_delta < -180.0
+       OR p_longitude + v_lng_delta > 180.0 THEN
+        -- 날짜변경선을 걸치면 BETWEEN 한 구간으로 표현되지 않는다. 속도보다 정확도.
+        v_lng_min := -180.0;
+        v_lng_max := 180.0;
+    ELSE
+        v_lng_min := p_longitude - v_lng_delta;
+        v_lng_max := p_longitude + v_lng_delta;
+    END IF;
+
+    SELECT jsonb_agg(
+               -- 객체가 아니라 배열([관측시각, 수요, 주차장수])로 담는다. 한 지점당 최대
+               -- 8천 포인트라 키 이름을 8천 번 반복해 보내는 비용이 무시할 수 없다.
+               jsonb_build_array(
+                   -- 세션 timezone 설정에 좌우되지 않도록 UTC ISO-8601 을 명시적으로 만든다.
+                   to_char(grouped.observed_at AT TIME ZONE 'UTC',
+                           'YYYY-MM-DD"T"HH24:MI:SS.US') || '+00:00',
+                   grouped.demand_level,
+                   grouped.lot_count
+               )
+               ORDER BY grouped.observed_at
+           )
+      INTO v_points
+      FROM (
+            SELECT
+                weighted.snapshot_id,
+                weighted.observed_at,
+                least(1.0, greatest(0.0,
+                    sum(weighted.lot_occupancy * weighted.lot_weight)
+                    / sum(weighted.lot_weight)
+                )) AS demand_level,
+                count(*)::INTEGER AS lot_count
+            FROM (
+                    SELECT
+                        scanned.snapshot_id,
+                        scanned.observed_at,
+                        scanned.lot_occupancy,
+                        scanned.lot_capacity
+                            / (1.0 + scanned.distance_m / 500.0) AS lot_weight
+                    FROM (
+                            SELECT
+                                snap.id AS snapshot_id,
+                                snap.observed_at AS observed_at,
+                                1.0 - lot.available_spaces::DOUBLE PRECISION
+                                      / lot.total_spaces::DOUBLE PRECISION AS lot_occupancy,
+                                least(lot.total_spaces, 500)::DOUBLE PRECISION AS lot_capacity,
+                                round(
+                                    (v_earth_m * (2.0 * asin(least(1.0, sqrt(
+                                        power(sin((radians(lot.latitude)
+                                                   - radians(p_latitude)) / 2.0), 2)
+                                        + cos(radians(p_latitude)) * cos(radians(lot.latitude))
+                                          * power(sin((radians(lot.longitude)
+                                                       - radians(p_longitude)) / 2.0), 2)
+                                    )))))::NUMERIC,
+                                    1
+                                )::DOUBLE PRECISION AS distance_m
+                            FROM public.area_demand_snapshots AS snap
+                            JOIN public.area_demand_snapshot_lots AS lot
+                              ON lot.snapshot_id = snap.id
+                            WHERE snap.source = p_source
+                              AND snap.observed_at >= p_since
+                              AND lot.latitude BETWEEN v_lat_min AND v_lat_max
+                              AND lot.longitude BETWEEN v_lng_min AND v_lng_max
+                              -- 스키마 CHECK 가 보장하지만 파이썬 집계도 같은 방어를 한다.
+                              AND lot.total_spaces > 0
+                              AND lot.available_spaces >= 0
+                              AND lot.available_spaces <= lot.total_spaces
+                            -- OFFSET 0 은 최적화 방벽이다. 없으면 플래너가 서브쿼리를 끌어올려
+                            -- 값비싼 거리식을 경계 상자 필터보다 먼저(=모든 행에) 계산할 수 있다.
+                            OFFSET 0
+                         ) AS scanned
+                    WHERE scanned.distance_m <= p_radius_m
+                 ) AS weighted
+            GROUP BY weighted.snapshot_id, weighted.observed_at
+            HAVING sum(weighted.lot_weight) > 0.0
+           ) AS grouped;
+
+    RETURN jsonb_build_object(
+        'source', p_source,
+        'radius_m', p_radius_m,
+        'since', to_char(p_since AT TIME ZONE 'UTC',
+                         'YYYY-MM-DD"T"HH24:MI:SS.US') || '+00:00',
+        'point_count', jsonb_array_length(COALESCE(v_points, '[]'::JSONB)),
+        'points', COALESCE(v_points, '[]'::JSONB)
+    );
+END;
+$$;
+
+COMMENT ON FUNCTION public.area_demand_points_near(
+    DOUBLE PRECISION, DOUBLE PRECISION, TIMESTAMPTZ, DOUBLE PRECISION, TEXT
+) IS
+    '지정 좌표 반경 내 주차장 원본을 관측 시점별 거리·규모 가중 점유율로 집계한다. '
+    'aggregate_nearby_points(파이썬)와 같은 값을 내야 한다.';
+
+-- area_demand_* 테이블은 RLS 가 켜져 있고 정책이 없다(브라우저 역할은 읽을 수 없다).
+-- 기존 record_area_demand_snapshot 과 같은 경계를 유지한다 — 서버 service_role 전용.
+REVOKE ALL ON FUNCTION public.area_demand_points_near(
+    DOUBLE PRECISION, DOUBLE PRECISION, TIMESTAMPTZ, DOUBLE PRECISION, TEXT
+) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.area_demand_points_near(
+    DOUBLE PRECISION, DOUBLE PRECISION, TIMESTAMPTZ, DOUBLE PRECISION, TEXT
+) TO service_role;
+
+-- ============================= migrations/20260904200000_business_documents_bucket.sql =============================
+-- 사업자등록증 증빙 업로드 — 비공개 버킷과 그 접근 규칙.
+--
+-- 배경: business_verification_requests.document_path 칼럼과, 심사가 끝나면 그 파일을 지우는
+-- 코드(app/routers/dev.py _clear_evidence)는 예전부터 있었다. 그런데 **버킷 자체가 없었고,
+-- 프런트에 업로드 경로도 없었다.** 즉 신청자는 서류를 낼 방법이 없었고, 심사자는 신청서에
+-- 적힌 가게 이름과 facility_id 를 대조할 근거가 없었다(그 facility_id 는 신청자가 본문에
+-- 적어 보낸 값이라 아무도 검증하지 않는다).
+--
+-- 보관 정책은 기존 결정을 그대로 따른다: **확인이 끝나면 보관하지 않는다.** 승인이든 반려든
+-- 결정과 같은 호출에서 파일과 사업자번호 뒤 4자리를 지운다(dev.py). 그래서 이 버킷은
+-- 장기 보관소가 아니라 심사 대기열의 임시 첨부다.
+
+INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+VALUES (
+    'business-documents',
+    'business-documents',
+    false,                                   -- 공개 URL 없음. 심사자는 서명 URL 로만 본다.
+    5242880,                                 -- 5MB. 휴대폰으로 찍은 등록증 한 장이면 충분하다.
+    ARRAY['image/jpeg', 'image/png', 'image/webp', 'application/pdf']
+)
+ON CONFLICT (id) DO UPDATE
+SET public = false,
+    file_size_limit = EXCLUDED.file_size_limit,
+    allowed_mime_types = EXCLUDED.allowed_mime_types;
+
+-- 업로드는 **자기 폴더에만**. 경로는 '<uid>/<파일명>' 규약이고 첫 세그먼트를 auth.uid() 와
+-- 대조한다. 이게 없으면 로그인한 누구나 남의 uid 폴더에 파일을 올려, 그 사람의 신청서에
+-- 붙은 증빙인 것처럼 보이게 만들 수 있다.
+DROP POLICY IF EXISTS business_documents_insert_own ON storage.objects;
+CREATE POLICY business_documents_insert_own ON storage.objects
+    FOR INSERT TO authenticated
+    WITH CHECK (
+        bucket_id = 'business-documents'
+        AND (storage.foldername(name))[1] = auth.uid()::text
+    );
+
+-- 자기가 올린 것만 다시 볼 수 있다(업로드가 됐는지 확인하는 용도).
+-- 심사자(developer)는 이 정책으로 보지 않는다 — 백엔드가 service_role 로 서명 URL 을 만든다.
+-- service_role 은 RLS 를 우회하므로 별도 정책이 필요 없다.
+DROP POLICY IF EXISTS business_documents_select_own ON storage.objects;
+CREATE POLICY business_documents_select_own ON storage.objects
+    FOR SELECT TO authenticated
+    USING (
+        bucket_id = 'business-documents'
+        AND (storage.foldername(name))[1] = auth.uid()::text
+    );
+
+-- 지우는 것은 서버만 한다(심사 종료 시 _clear_evidence). 신청자가 임의로 지우면 심사자가
+-- 보던 근거가 심사 도중 사라진다 — DELETE 정책을 일부러 두지 않는다.
