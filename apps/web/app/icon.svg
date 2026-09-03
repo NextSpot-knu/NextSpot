@@ -1,10 +1,21 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32" role="img" aria-label="NextSpot">
-  <!-- NextSpot 임시 마크 — 분산(흩어짐)을 뜻하는 세 점과 그 중심.
-       이전 파일은 Google Gemini 로고(브랜드 그라디언트 + gradient id="gemini")가 그대로
-       남아 있던 시드 잔재였다. 타사 상표라 즉시 걷어내되, 정식 마크는 디자인 결정이므로
-       팔레트(globals.css)만 따른 중립 도형으로 둔다. -->
-  <rect width="32" height="32" rx="7" fill="#faf5ec"/>
-  <circle cx="16" cy="13" r="4.4" fill="#c19a3e"/>
-  <circle cx="8.2" cy="23.4" r="2.5" fill="#3e7c6a"/>
-  <circle cx="23.8" cy="23.4" r="2.5" fill="#c1553b"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32" role="img" aria-label="NextSpot (임시 아이콘)">
+  <!-- ⚠️ 임시 파비콘 — 정식 마크가 아직 없다. 일부러 '아직 안 만든 자리' 로 보이게 둔 것이다.
+       원래 이 파일에는 Google Gemini 로고(브랜드 그라디언트 + gradient id="gemini")가 시드
+       잔재로 남아 있었다. 타사 상표라 즉시 걷어내고 중립 도형(점 세 개)으로 바꿨더니, 이번엔
+       정식 마크인지 임시인지 구분이 안 됐다 — 그래서 물음표로 다시 바꾼다. 32×32 라 미세한
+       표시는 보이지 않으므로 형태(물음표)와 색(경고성 주칠 바탕)으로 티를 낸다.
+
+       고칠 곳: 이 파일 하나. 정식 마크가 나오면 아래 <rect>/<path>/<circle> 을 통째로 갈고
+       이 주석도 지운다. public/icon-192.png · public/icon-512.png(PWA 아이콘)와 public/og.png
+       도 같은 마크로 맞춰야 한다 — 별도 파일이라 여기 수정이 자동 반영되지 않는다.
+
+       팔레트는 app/globals.css 의 nextspot 색 변수에서만 고른다(terracotta #c1553b / hanji #faf5ec).
+       (변수명을 접두사째 적으면 XML 주석에 금지된 이중 하이픈이 생겨 SVG 파싱이 깨진다.)
+       Google 브랜드 색(#4285F4 / #9B72CB / #D96570)은 절대 쓰지 않는다. -->
+  <rect width="32" height="32" rx="7" fill="#c1553b"/>
+  <!-- 물음표 갈고리 + 점 — 파비콘은 렌더러마다 폰트가 달라 <text> 가 깨질 수 있어
+       글꼴에 의존하지 않도록 도형(호 + 선 + 원)으로 그린다. -->
+  <path d="M10.5 12 A5.5 5.5 0 1 1 16 17.5 L16 20"
+        fill="none" stroke="#faf5ec" stroke-width="3.4" stroke-linecap="round"/>
+  <circle cx="16" cy="24.8" r="2.1" fill="#faf5ec"/>
 </svg>

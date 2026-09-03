@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { Menu, Bell, Compass, Star, Trash2 } from 'lucide-react';
+import { Compass, Star, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { RecommendationCard } from '@/components/RecommendationCard';
 import { CongestionAlertToggle } from '@/components/CongestionAlertToggle';
@@ -187,15 +187,12 @@ export default function SavedPage() {
   return (
     <div className="relative w-full h-[100dvh] bg-hanji flex flex-col overflow-hidden">
 
-      {/* 헤더 */}
-      <header className="flex justify-between items-center p-5 border-b border-line z-10 relative">
-        <button className="text-muk-soft hover:text-muk transition-colors">
-          <Menu size={24} />
-        </button>
+      {/* 헤더 — 제목만. 양옆에 있던 Menu·Bell 버튼은 onClick 도 aria-label 도 없는 껍데기였다:
+          키보드로 포커스는 잡히는데 아무 일도 일어나지 않고, 스크린 리더는 이름 없는 버튼 둘을
+          읽었다. 기능이 정해지면 mypage 헤더처럼(설정 이동 + mypage.bellAria) 다시 붙이면 된다.
+          제목은 justify-center 로 가운데 정렬을 유지한다(버튼이 빠지면 justify-between 이 왼쪽으로 민다). */}
+      <header className="flex justify-center items-center p-5 border-b border-line z-10 relative">
         <h1 className="text-xl font-bold font-serif text-muk tracking-wide">NextSpot</h1>
-        <button className="text-muk-soft hover:text-muk transition-colors">
-          <Bell size={24} />
-        </button>
       </header>
 
       {/* Main Content Area */}

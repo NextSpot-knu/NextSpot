@@ -7,7 +7,8 @@ const HISTORY_KEY = 'nextspot_visit_history';
 const ACTIVE_TRIP_KEY = 'nextspot_active_trip';
 
 // 수락 후 이 시간이 지나야 '다녀오셨나요?' 확인을 노출한다(도착·이용에 걸리는 최소 여유).
-const DUE_AFTER_MS = 30 * 60 * 1000;
+// 테스트에서 경계값(정확히 30분)을 상수 재입력 없이 검증하려고 export 한다.
+export const DUE_AFTER_MS = 30 * 60 * 1000;
 
 export interface PendingVisit {
   facilityId: string;
@@ -154,16 +155,40 @@ export function clearPendingVisit(): void {
   safeRemove(PENDING_KEY);
 }
 
-// 노출 대상 방문 확인 — 대기 중이고(pending) 수락 후 30분이 지났으면 반환, 아니면 null.
-// (pending 자체가 '미처리' 마커 — 처리/닫기 시 clearPendingVisit 로 지우므로 별도 플래그가 필요 없다.)
+// '아직이요/닫기' — 방문 확인 루프를 완전히 종료한다(탭을 다시 열어도 재노출 없음).
+// 두 키를 반드시 함께 지운다. 한쪽만 지우면 두 카드의 상태가 어긋난다:
+//  · PENDING_KEY 만 지우면(= clearPendingVisit 단독) ACTIVE_TRIP_KEY 가 남아
+//    ActiveJourneyCard 가 getActiveTrip() 으로 여정을 계속 띄운다 — 사용자는 '다녀왔냐'는
+//    물음만 닫았는데 진행 중 여정 카드는 그대로 보게 된다.
+//  · ACTIVE_TRIP_KEY 만 지우면 getActiveTrip() 의 legacy 마이그레이션이 남은 pending 을
+//    읽어 여정을 되살려 놓는다.
+// 다시 수락하면 recordActiveTrip 이 두 키를 새로 써서 새 루프가 시작된다.
+export function dismissVisitCheck(): void {
+  clearPendingVisit();
+  clearActiveTrip();
+}
+
+// 노출 판정만 떼어낸 순수 함수 — localStorage 와 Date.now() 에 묶여 있으면 경계값
+// (정확히 30분, 도착 직후, 아직 이른 시각)을 재현할 수 없다. lib/visits.test.ts 가 직접 검증한다.
+export function isVisitCheckDue(
+  acceptedAt: number,
+  tripStatus: ActiveTrip['status'] | null | undefined,
+  now: number,
+): boolean {
+  // '도착' 을 누른 순간은 30분 대기를 건너뛴다 — 사용자가 이미 현장에 있다고 말한 것이다.
+  if (tripStatus === 'arrived') return true;
+  return now - acceptedAt >= DUE_AFTER_MS;
+}
+
+// 노출 대상 방문 확인 — 대기 중이고(pending) 노출 조건을 만족하면 반환, 아니면 null.
+// (pending 자체가 '미처리' 마커 — 확정은 completeVisit, 닫기는 dismissVisitCheck 가
+//  지우므로 별도 플래그가 필요 없다.)
 export function getDueVisit(): PendingVisit | null {
   const pending = getPendingVisit();
   if (!pending) return null;
   const active = getActiveTrip();
-  const withRecommendation = { ...pending, recommendationId: active?.recommendationId };
-  if (active?.status === 'arrived') return withRecommendation;
-  if (Date.now() - pending.acceptedAt < DUE_AFTER_MS) return null;
-  return withRecommendation;
+  if (!isVisitCheckDue(pending.acceptedAt, active?.status, Date.now())) return null;
+  return { ...pending, recommendationId: active?.recommendationId };
 }
 
 export function getVisitHistory(): VisitHistoryEntry[] {

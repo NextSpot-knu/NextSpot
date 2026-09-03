@@ -5,7 +5,8 @@
 // 트리거: main 마운트 + 문서 visibilitychange(visible) 시 lib/visits.getDueVisit() 을 재확인한다
 //   (앱을 잠시 떠났다 돌아오면 방문 완료 시점과 맞물려 자연스럽게 노출된다).
 // 처리: [예 → 원탭 혼잡 → 👍/👎] 순서로 가장 중요한 현장 신호를 먼저 받고 방문 이력을 확정한다.
-//   [아직이요/닫기] → pending 클리어(재노출 안 함, 다시 수락하면 새 루프).
+//   [아직이요/닫기] → lib/visits.dismissVisitCheck() 로 pending + active trip 을 함께 지운다
+//   (저장까지 끝나므로 탭을 다시 열어도 재노출 안 함, 다시 수락하면 새 루프).
 // 팔레트·포털 관례는 FestivalBanner/CongestionReportButton 을 따른다(한지 웜톤 + body 포털 + framer-motion).
 
 import { useEffect, useState } from 'react';
@@ -13,7 +14,7 @@ import Link from 'next/link';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Check, X, ThumbsUp, ThumbsDown, MapPin } from 'lucide-react';
-import { getDueVisit, completeVisit, markTripNavigating, type PendingVisit } from '@/lib/visits';
+import { getDueVisit, completeVisit, dismissVisitCheck, type PendingVisit } from '@/lib/visits';
 import { useT } from '@/lib/i18n/I18nProvider';
 import { queueRecommendationOutcome, type ObservedCongestion, type OutcomeRating } from '@/lib/recommendationOutcomes';
 import { haptic, interactionSpring, sheetSpring } from '@/lib/motion';
@@ -47,16 +48,21 @@ export function VisitCheckCard({ showToast }: { showToast?: (msg: string) => voi
 
   if (!mounted || !due) return null;
 
-  // [아직이요/닫기] — pending 을 지워 재노출하지 않는다(다시 수락하면 새 루프 시작).
+  // [아직이요/닫기] — 로컬 state 만 끄면 탭을 다시 열 때마다 되살아난다(getDueVisit 이 pending 을
+  // 그대로 다시 읽는다). 저장소의 pending + active trip 을 함께 지워 루프를 완전히 종료한다.
+  // 이때 ActiveJourneyCard 도 같이 사라져야 상태가 어긋나지 않는데, 그 카드가 듣는 재동기화
+  // 신호는 'nextspot:trip-navigating' 하나뿐이다 — 이름과 달리 핸들러는 그냥 getActiveTrip() 을
+  // 다시 읽으므로, 여정이 지워진 지금 dispatch 하면 카드가 스스로 숨는다.
   const dismiss = () => {
     haptic('selection');
-    markTripNavigating();
+    dismissVisitCheck();
     window.dispatchEvent(new Event('nextspot:trip-navigating'));
     setDue(null);
     setStage('ask');
   };
 
-  // 👍/👎 로 방문 확정 — visit_history 적립 + pending 클리어.
+  // [예] — 여기서 확정하지 않는다. 혼잡 → 👍/👎 단계로 넘기고, 이력 적립과 클리어는
+  // 마지막 finishRating 의 completeVisit 이 한다.
   const confirmArrival = () => {
     haptic('confirm');
     queueRecommendationOutcome(due.recommendationId, 'arrival_confirmed');
