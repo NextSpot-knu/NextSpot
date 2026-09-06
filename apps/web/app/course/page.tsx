@@ -500,12 +500,18 @@ function CourseContent() {
   // 없으면 undefined 를 넘겨 ShareButton 이 기존 동작(현재 페이지 URL)으로 폴백하게 둔다.
   // window 접근은 정적 export 프리렌더(SSR, window 없음) 안전을 위해 typeof 가드 필수.
   const shareUrl = useMemo(() => {
-    if (activeStops.length === 0 || activeStops.some((stop) => stop.predictedCongestion == null) || typeof window === "undefined") return undefined;
+    // 혼잡 예측이 없는 정류지가 있어도 공유한다. 예전에는 하나라도 null 이면 undefined 를 돌려
+    // ShareButton 이 맨 페이지 URL 로 폴백했는데, 버튼은 그대로 보이는 채 **코스가 빠진 링크**가
+    // 조용히 공유됐다. 받는 사람은 자기 코스를 새로 받을 뿐이라 아무도 어긋난 줄 모른다.
+    // 게다가 모델이 미학습이면(프로덕션 현재 상태 — /predict/model-info trained=false)
+    // 모든 정류지가 null 이라 '가끔' 이 아니라 '항상' 그렇다.
+    // 미상은 '-' 로 실어 보내고 받는 쪽이 혼잡 배지를 생략한다(courseShare.ts 포맷 주석 참조).
+    if (activeStops.length === 0 || typeof window === "undefined") return undefined;
     const encoded = encodeStops(
       activeStops.map((s) => ({
         id: s.facility.id,
         offsetMin: s.arrivalOffsetMin,
-        congestion: s.predictedCongestion as number,
+        congestion: s.predictedCongestion,
       }))
     );
     return `${window.location.origin}/course?s=${encodeURIComponent(encoded)}&ref=share`;
