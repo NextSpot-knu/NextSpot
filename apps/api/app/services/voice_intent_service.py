@@ -1,6 +1,10 @@
-"""음성 응답 의도/선호 해석 — 로컬 키워드 분류기.
+"""음성 응답 의도/선호 해석 — 로컬 키워드 분류기(주) + Upstage Solar 보조 해석(외부 호출).
 
-(대회 종료 후 Vertex AI Gemini 의존성을 제거하고, 키워드 규칙 기반 분류를 단일 경로로 사용.)
+⚠️ 이 모듈은 '로컬 전용'이 아니다. 로컬 키워드 규칙이 주 경로지만, 키워드가 unknown 이거나
+filter 로 분류된 턴에 한해 발화 원문·현재 추천 이름·상위 후보의 이름/종류/대표메뉴가
+Upstage Solar(외부 LLM)로 전송된다 — 전송 조건과 범위는 아래 '--- LLM 보조 해석' 섹션과
+interpret_turn 의 docstring 참조. (대회 종료 후 Vertex AI Gemini 의존성은 제거했고,
+그 자리를 2026-07 에 Upstage Solar 보조 경로가 대체했다 — 그때 이 문단이 갱신되지 않았다.)
 음성 비서가 추천 카드를 안내한 뒤 사용자의 자유발화를 받아 다음 중 하나로 분류한다:
   accept(수락·길안내) / next(다음) / reject(별로) / details(자세히) / select(특정 후보 지정) /
   filter(메뉴·종류 선호로 좁히기) / stop(그만) / unknown(불명확).
@@ -50,7 +54,28 @@ _TYPE_COMMAND_KEYWORDS = {
     "culture": ("문화시설", "박물관", "전시"),
 }
 _WAITING_COMMAND_KEYWORDS = ("대기보드", "대기 보드", "대기 현황", "줄 얼마나", "웨이팅")
-_INDOOR_COMMAND_KEYWORDS = ("비 오", "비가", "우천", "실내")
+
+# 실내모드 명령 트리거. 이전 구현은 ("비 오", "비가", "우천", "실내") 부분 문자열 포함 검사라
+# '갈비가 먹고 싶어'·'준비가 안 됐어' 의 '비가' 를 비(雨)로 읽어, 있지도 않은 비를 근거로
+# 실내모드를 켜고 여행 조건까지 저장했다(2026-09 감사).
+#
+# 한국어는 조사·합성어로 어절이 붙어 있어 완전한 형태소 분리는 이 규칙 계층에서 불가능하다.
+# 그래서 애매한 경우 명령으로 승격하지 않는 쪽(fail-closed)을 택했다:
+#   · '비' 는 **앞에 한글이 붙지 않은 어절 시작**일 때만 비(雨) 후보로 본다 → '갈비/준비/나비' 배제.
+#   · 어절 시작이어도 '비' 하나로는 승격하지 않고, 같은 자리에 강수 서술어(오다/내리다/쏟아지다)가
+#     이어질 때만 명령으로 본다. 그 결과 '비 어때?' 처럼 애매한 발화는 명령이 되지 않고
+#     unknown → 재질문(또는 LLM 보조 해석)으로 흘러간다 — 잘못 켜는 것보다 되묻는 편이 낫다.
+#   · '우천'·'실내' 는 그 자체로 뜻이 확정되는 명사라 어절 경계만 요구한다('교실내' 같은 합성 배제).
+_INDOOR_COMMAND_PATTERNS = (
+    re.compile(r"(?<![가-힣])비\s*(?:가|는|도|를)?\s*(?:많이\s*|조금\s*)?(?:오|와|왔|온|올|내리|내려|쏟아)"),
+    re.compile(r"(?<![가-힣])(?:우천|실내)"),
+)
+
+
+def _wants_indoor(low: str) -> bool:
+    """발화가 실내모드 전환을 요구하는지(어절 경계 + 강수 서술어 요구 — fail-closed)."""
+    return any(p.search(low) for p in _INDOOR_COMMAND_PATTERNS)
+
 
 # 라우터 분류 enum 과 일치하는 정밀분류 라벨(intent_category).
 _INTENT_CATEGORIES = [
@@ -91,13 +116,29 @@ _NEXT_KW = ["다음", "넘겨", "넘어가", "다른거", "다른 거", "딴거"
 _ACCEPT_KW = ["가자", "갈래", "갈게", "길 안내", "길안내", "안내", "거기로", "가 줘", "가줘", "수락", "좋아", "오케이", "콜", "데려다"]
 _ACCEPT_EXACT = {"네", "예", "응", "어", "그래", "ok", "yes", "넵", "응응", "네네", "좋아"}
 
-# select(특정 후보 지정) — 명시적 서수만 사용(짧은 숫자 substring 오매칭 방지).
-_ORDINALS = {
-    "첫번째": 0, "첫 번째": 0, "첫째": 0, "처음": 0, "1번": 0, "일번": 0,
-    "두번째": 1, "두 번째": 1, "둘째": 1, "2번": 1, "이번": 1,
-    "세번째": 2, "세 번째": 2, "셋째": 2, "3번": 2, "삼번": 2,
-    "네번째": 3, "네 번째": 3, "넷째": 3, "4번": 3,
-}
+# select(특정 후보 지정) — 서수는 '순서를 가리키는 어절'일 때만 인정한다.
+#
+# 이전 사전은 부분 문자열 포함 검사라 순서를 가리키지 않는 말까지 서수로 읽었다(2026-09 감사):
+#   · '이번엔 어디가 좋을까' → '이번' 이 2번 후보로 → "네, 그곳으로 안내할게요"
+#   · '처음 와봤어요'        → '처음' 이 1번 후보로 → 사용자가 본 적 없는 곳으로 확정
+#   · '경주일번지 가자'       → 상호명 안의 '일번' 이 1번 후보로
+# select 는 길안내 시작으로 이어지는 **되돌리기 어려운 조작**이라 보수적으로 간다(fail-closed):
+#   · '이번' 은 애초에 서수가 아니다(=this time) → 완전 제거. 2번 후보는 '두 번째/둘째/2번'만.
+#   · '처음' 은 단독으로는 방문 경험을 뜻하는 쪽이 훨씬 흔하다 → 뒤에 후보를 가리키는
+#     지시 대명사(거/것/걸/꺼)가 붙었을 때만 서수로 인정.
+#   · 앞은 한글·숫자가 붙지 않은 어절 시작만, 뒤는 어절 끝이거나 조사일 때만 인정
+#     ('일번지' 는 뒤에 '지' 가 붙어 탈락, '1번으로/2번째' 는 통과).
+# 여기서 걸러진 발화는 unknown 으로 흘러가 재질문(또는 LLM 보조 해석)을 받는다.
+_ORDINAL_HEAD = r"(?<![가-힣0-9])"
+_ORDINAL_TAIL = r"(?:(?![가-힣])|(?=(?:으로|로|을|를|은|는|이|가|에|만|도|요)(?![가-힣])))"
+_ORDINAL_PATTERNS = [
+    (re.compile(
+        _ORDINAL_HEAD + r"(?:첫\s*번째|첫째|처음\s*(?:거|것|걸|꺼)|1\s*번(?:째)?|일\s*번(?:째)?)" + _ORDINAL_TAIL
+    ), 0),
+    (re.compile(_ORDINAL_HEAD + r"(?:두\s*번째|둘째|2\s*번(?:째)?)" + _ORDINAL_TAIL), 1),
+    (re.compile(_ORDINAL_HEAD + r"(?:세\s*번째|셋째|3\s*번(?:째)?|삼\s*번(?:째)?)" + _ORDINAL_TAIL), 2),
+    (re.compile(_ORDINAL_HEAD + r"(?:네\s*번째|넷째|4\s*번(?:째)?)" + _ORDINAL_TAIL), 3),
+]
 
 
 def _cuisine_str(cuisine) -> str:
@@ -180,7 +221,7 @@ def _keyword_interpret(
                 return {**base, "action": "command",
                         "command": {"name": "set_facility_type", "args": {"facility_type": facility_type}},
                         "spoken": "추천 유형을 바꿔볼게요."}
-        if any(k in low for k in _INDOOR_COMMAND_KEYWORDS):
+        if _wants_indoor(low):
             return {**base, "action": "command",
                     "command": {"name": "set_indoor_mode", "args": {"enabled": True}},
                     "spoken": "비 오는 날 이용하기 좋은 실내 장소로 바꿔볼게요."}
@@ -203,8 +244,8 @@ def _keyword_interpret(
         return {**base, "action": "reject"}
     if any(k in low for k in _NEXT_KW):
         return {**base, "action": "next"}
-    for key, idx in _ORDINALS.items():
-        if key in low and idx < len(candidates):
+    for pattern, idx in _ORDINAL_PATTERNS:
+        if pattern.search(low) and idx < len(candidates):
             cid = candidates[idx].get("id")
             if cid is not None:
                 return {**base, "action": "select", "target_facility_id": cid, "spoken": "네, 그곳으로 안내할게요."}
@@ -291,9 +332,14 @@ def _coerce_command(raw) -> dict | None:
     return {"name": name, "args": {}}
 
 
-# --- LLM 보조 해석(Upstage Solar) — 키워드 분류기가 unknown 일 때만 개입 -------------------
+# --- LLM 보조 해석(Upstage Solar) — 외부 전송 구간 -----------------------------------------
 # 원칙: 키워드 분류기 = 주 경로(결정적·지연 0). accept/next 같은 흔한 명령은 LLM 을 타지 않는다.
-# LLM 은 복합 발화("애들 데리고 조용하게 밥 먹을 데")만 받으며, 실패(비활성/타임아웃/파싱)는
+# ⚠️ 개입 조건은 'unknown 일 때만'이 아니다 — 키워드가 **filter 로 분류한 턴도** 후보 문맥으로
+# search_query 를 정제하려고 LLM 을 탄다(interpret_turn 참조). 그때 외부 LLM 제공자
+# (settings.LLM_BASE_URL — 기본 api.upstage.ai)로
+# 나가는 데이터: 발화 원문(300자 절단), 현재 추천 이름, 상위 15개 후보의 이름·종류·대표메뉴,
+# app_context. **가게 이름이 포함된다.** 사용자 계정 정보는 이 경로에 없다(무인증 엔드포인트).
+# LLM 은 복합 발화("애들 데리고 조용하게 밥 먹을 데")도 받으며, 실패(비활성/타임아웃/파싱)는
 # unknown 유지 → 프런트의 기존 재질문 동작 그대로(무해 폴백). 결과는 반드시 _coerce 를 통과해
 # action enum·후보 id·intent_category 화이트리스트 검증을 받는다(환각 이중 방어).
 
@@ -473,6 +519,13 @@ async def interpret_turn(
 ) -> dict:
     """음성 응답 1턴을 해석. 항상 {action, target_facility_id, match_ids, similar_ids, search_query,
     intent_category, spoken, llm_status} 반환(llm_status 는 개발 디버그용 — 프런트 "AI 실제 동작 여부" 배지).
+
+    외부 전송(개인정보 흐름): 로컬 키워드 분류가 먼저 판정한다. 그 결과가 filter 이거나 unknown 이고,
+    후보가 1개 이상이며, UPSTAGE_API_KEY 가 설정돼 있고, llm_gate 를 통과할 때만 Upstage Solar 로
+    발화 원문·현재 추천 이름·상위 15개 후보(이름/종류/대표메뉴)·app_context 가 전송된다.
+    그 외 모든 턴(accept/next/stop/details/select 로 분류된 턴, 키 미설정, 게이트 차단, 후보 0개)은
+    네트워크 호출 없이 로컬에서 끝난다. 반환값의 llm_status 가 그 턴의 실제 경로다
+    (keyword=외부 호출 없음, gated/disabled=호출 안 함, llm/llm_failed=호출함).
 
     llm_gate: LLM 보조 사용 직전에 호출되는 0-인자 콜러블(예: 라우터의 IP 레이트리밋).
     False 를 반환하면 이 턴은 LLM 없이 키워드 결과(unknown)를 유지한다 — 무인증 엔드포인트의

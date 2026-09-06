@@ -660,7 +660,9 @@
     "nlSummaryEmpty": "何をお探しかまだ聞き取れませんでした",
     "nlSummaryAnyPlace": "どこでも",
     "nlSummaryUnderstood": "{cats} の中から {attrs} の条件で探します",
-    "nlSummaryCatsOnly": "{cats} の中から探します"
+    "nlSummaryCatsOnly": "{cats} の中から探します",
+    "nlNotApplied": "好みを聞き取れず反映しませんでした — もう少し具体的にお伝えください",
+    "nlSaveFailed": "好みは理解しましたが保存できませんでした — しばらくしてからお試しください"
   },
   "auth": {
     "callbackLoading": "ログイン処理中です…",

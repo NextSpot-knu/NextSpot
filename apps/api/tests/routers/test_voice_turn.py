@@ -308,3 +308,61 @@ def test_voice_turn_rejects_invalid_app_context_value():
             },
         )
     assert res.status_code == 422
+
+
+def test_voice_turn_galbi_request_is_not_an_indoor_command():
+    """'갈비가 먹고 싶어'가 실내모드 명령으로 둔갑하지 않는다(2026-09 감사 — 실제 사고 발화).
+
+    엔드포인트 전 구간(pydantic → interpret_turn → 후보 재필터 → 응답)을 그대로 태운다.
+    이전 구현은 '갈비' 안의 '비가'를 비(雨)로 읽어, 있지도 않은 비를 근거로 실내모드를 켜고
+    프런트가 app_context(여행 조건)를 저장하게 만들었다.
+    """
+    with TestClient(app) as client:
+        res = client.post(
+            "/api/v1/voice/turn",
+            json={
+                "utterance": "갈비가 먹고 싶어",
+                "facility_type": "restaurant",
+                "candidates": [
+                    {"id": "f1", "name": "황남갈비", "cuisine": "한식", "category": "갈비집"},
+                    {"id": "f2", "name": "카페능", "cuisine": "카페·디저트", "category": "카페"},
+                ],
+                "app_context": {
+                    "route": "main",
+                    "facility_type": "restaurant",
+                    "indoor_required": False,
+                    "max_walk_minutes": None,
+                },
+            },
+        )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["command"] is None, "앱 상태 변경 명령이 나가면 안 된다"
+    assert body["action"] == "filter"
+    # 실제로 갈비를 파는 후보만 좁혀야 한다(카페가 섞이면 분류 게이트가 무너진 것).
+    assert body["match_ids"] == ["f1"]
+
+
+def test_voice_turn_this_time_phrase_does_not_confirm_a_candidate():
+    """'이번엔 어디가 좋을까'가 후보 선택(→ 길안내 확정)으로 둔갑하지 않는다(2026-09 감사).
+
+    이전 구현은 '이번'을 서수로 읽어 2번 후보를 고르고 "네, 그곳으로 안내할게요"라고 확정했다 —
+    사용자가 본 적 없는 곳으로.
+    """
+    with TestClient(app) as client:
+        res = client.post(
+            "/api/v1/voice/turn",
+            json={
+                "utterance": "이번엔 어디가 좋을까",
+                "facility_type": "restaurant",
+                "candidates": [
+                    {"id": "f1", "name": "가게1"},
+                    {"id": "f2", "name": "가게2"},
+                ],
+            },
+        )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["action"] != "select"
+    assert body["target_facility_id"] is None
+    assert body["spoken"] != "네, 그곳으로 안내할게요."

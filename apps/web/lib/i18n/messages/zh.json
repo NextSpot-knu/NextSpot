@@ -660,7 +660,9 @@
     "nlSummaryEmpty": "还没听清您在找什么",
     "nlSummaryAnyPlace": "任何地方",
     "nlSummaryUnderstood": "将在 {cats} 中按 {attrs} 条件查找",
-    "nlSummaryCatsOnly": "将在 {cats} 中查找"
+    "nlSummaryCatsOnly": "将在 {cats} 中查找",
+    "nlNotApplied": "没能识别出偏好，因此未做应用 — 请说得更具体一些",
+    "nlSaveFailed": "已理解你的偏好但未能保存 — 请稍后再试"
   },
   "auth": {
     "callbackLoading": "正在登录…",

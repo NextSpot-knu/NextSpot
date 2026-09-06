@@ -453,3 +453,149 @@ async def test_invalid_llm_app_command_fails_closed(monkeypatch, command):
     )
     assert result["action"] == "unknown"
     assert result["command"] is None
+
+
+# --- 부분 문자열 오탐 방지(2026-09 감사) --------------------------------------------------
+# 배경: 한국어는 조사·합성어로 어절이 붙어 있어 `키워드 in 발화` 검사가 곧바로 오탐이 된다.
+#  · '갈비가 먹고 싶어' 의 '비가' 가 비(雨)로 읽혀 실내모드 명령이 됐다(있지도 않은 비를 근거로 제시).
+#  · '이번엔'·'처음' 이 서수로 읽혀, 사용자가 본 적 없는 후보를 "네, 그곳으로 안내할게요"로 확정했다.
+# 아래 테스트는 그 실제 발화 문자열을 그대로 못 박는다.
+
+_APP_CONTEXT = {"route": "main", "facility_type": "restaurant"}
+
+# 서수 인덱스 2·3 까지 검증하려면 후보가 4개 필요하다.
+_FOUR_CANDIDATES = [
+    {"id": "f1", "name": "첫째집", "cuisine": "한식"},
+    {"id": "f2", "name": "둘째집", "cuisine": "한식"},
+    {"id": "f3", "name": "셋째집", "cuisine": "한식"},
+    {"id": "f4", "name": "넷째집", "cuisine": "한식"},
+]
+
+
+@pytest.mark.parametrize(
+    "utterance",
+    [
+        "갈비가 먹고 싶어",   # '갈비' 안의 '비가' — 감사에서 보고된 실제 사고 발화
+        "나비가 예쁘네요",     # '나비' 안의 '비가'
+        "준비가 다 됐나요",    # '준비' 안의 '비가'
+        "커피가 마시고 싶어",  # 인접 오탐 회귀 방지
+    ],
+)
+@pytest.mark.asyncio
+async def test_indoor_command_not_triggered_by_syllable_collision(utterance):
+    # 어절 중간의 '비'는 비(雨)가 아니다 — 실내모드 명령으로 승격하면 안 된다.
+    result = await interpret_turn(utterance, "식당", None, _CANDIDATES, app_context=_APP_CONTEXT)
+    assert result["command"] is None, f"{utterance!r} 이 앱 명령으로 둔갑했다"
+
+
+@pytest.mark.asyncio
+async def test_galbi_utterance_is_food_filter_not_indoor_command():
+    # 감사 보고 사례 전체 계약: '갈비가 먹고 싶어' 는 갈비집 선호 필터다.
+    result = await interpret_turn(
+        "갈비가 먹고 싶어", "식당", None, _CANDIDATES, app_context=_APP_CONTEXT
+    )
+    assert result["action"] == "filter"
+    assert result["intent_category"] == "갈비집"
+    assert result["command"] is None
+
+
+@pytest.mark.parametrize(
+    "utterance",
+    [
+        "비 오니까 실내로 바꿔줘",
+        "비가 와서 실내가 좋겠어",
+        "지금 비가 많이 내려요",
+        "우천이라 어디가 좋을까",
+        "실내로 바꿔줘",
+    ],
+)
+@pytest.mark.asyncio
+async def test_indoor_command_still_triggers_on_real_rain(utterance):
+    # 진짜 비·실내 요청은 그대로 실내모드 명령이어야 한다(오탐 차단이 기능을 죽이지 않았는지).
+    result = await interpret_turn(utterance, "식당", None, _CANDIDATES, app_context=_APP_CONTEXT)
+    assert result["command"] == {"name": "set_indoor_mode", "args": {"enabled": True}}
+
+
+@pytest.mark.asyncio
+async def test_ambiguous_rain_mention_does_not_promote_to_command():
+    # fail-closed: 어절 시작의 '비'라도 강수 서술어가 없으면 명령으로 승격하지 않는다.
+    # (잘못 켜고 '비 때문에 바꿨어요'라고 말하느니 되묻는 편이 낫다.)
+    result = await interpret_turn("비 안 와도 괜찮아", "식당", None, _CANDIDATES, app_context=_APP_CONTEXT)
+    assert result["command"] is None
+
+
+@pytest.mark.parametrize(
+    "utterance",
+    [
+        "이번엔 어디가 좋을까",  # '이번' 은 서수가 아니다(=this time)
+        "처음 와봤어요",          # '처음' 은 방문 경험 — 후보 지정이 아니다
+        "경주일번지 가자",        # 상호명 안에 묻힌 '일번'
+    ],
+)
+@pytest.mark.asyncio
+async def test_ordinal_select_not_triggered_by_non_ordinal_phrases(utterance):
+    # select 는 길안내로 이어지는 되돌리기 어려운 조작 — 애매하면 후보를 확정하지 않는다.
+    result = await interpret_turn(utterance, "식당", None, _FOUR_CANDIDATES)
+    assert result["action"] != "select", f"{utterance!r} 이 후보 선택으로 둔갑했다"
+    assert result["target_facility_id"] is None
+    assert result["spoken"] != "네, 그곳으로 안내할게요."
+
+
+@pytest.mark.parametrize(
+    ("utterance", "expected_id"),
+    [
+        ("첫번째", "f1"),
+        ("첫 번째로 갈래", "f1"),
+        ("1번으로 가자", "f1"),
+        ("일번 갈게", "f1"),
+        ("처음 거로 할게", "f1"),   # 지시 대명사가 붙으면 서수로 인정
+        ("두 번째", "f2"),
+        ("둘째", "f2"),
+        ("2번", "f2"),
+        ("셋째", "f3"),
+        ("3번째로", "f3"),
+        ("네 번째", "f4"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_ordinal_select_still_works_for_real_ordinals(utterance, expected_id):
+    # 진짜 서수는 그대로 후보를 지정해야 한다(오탐 차단이 기능을 죽이지 않았는지).
+    result = await interpret_turn(utterance, "식당", None, _FOUR_CANDIDATES)
+    assert result["action"] == "select"
+    assert result["target_facility_id"] == expected_id
+
+
+# --- 개인정보 흐름: 무엇이 언제 외부(Upstage Solar)로 나가는가 -----------------------------
+# 라우터·서비스 주석이 단언하는 내용을 실행 가능한 계약으로 못 박는다(주석만으로는 썩는다).
+
+
+@pytest.mark.asyncio
+async def test_keyword_decided_turns_never_leave_the_process(monkeypatch):
+    # 키워드 분류기가 판정한 턴(수락/다음/중지/자세히/서수 선택/앱 명령)은 LLM 키가 있어도
+    # 외부 호출 0 — 발화도 가게 이름도 프로세스 밖으로 나가지 않는다.
+    monkeypatch.setattr(voice_intent_service.llm_client, "is_enabled", lambda: True)
+    chat = AsyncMock()
+    monkeypatch.setattr(voice_intent_service.llm_client, "chat_json", chat)
+    for utterance in ("가자", "다음", "그만", "자세히 알려줘", "첫번째", "실내로 바꿔줘"):
+        result = await interpret_turn(
+            utterance, "식당", "카페능", _FOUR_CANDIDATES, app_context=_APP_CONTEXT
+        )
+        assert result["llm_status"] == "keyword"
+    chat.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_unclassified_utterance_sends_utterance_and_store_names_outward(monkeypatch):
+    # 반대로 미분류 발화는 실제로 나간다 — 발화 원문과 **가게 이름**이 프롬프트에 실린다.
+    # ('로컬 전용'이라는 서술이 거짓인 이유. 주석은 이 사실을 정확히 적어야 한다.)
+    import json as _json
+
+    monkeypatch.setattr(voice_intent_service.llm_client, "is_enabled", lambda: True)
+    chat = AsyncMock(return_value=None)
+    monkeypatch.setattr(voice_intent_service.llm_client, "chat_json", chat)
+    await interpret_turn(_COMPLEX_UTTERANCE, "식당", "카페능", _CANDIDATES)
+    chat.assert_awaited_once()
+    payload = _json.loads(chat.await_args.args[1])
+    assert payload["utterance"] == _COMPLEX_UTTERANCE
+    assert payload["current"] == "카페능"
+    assert [c["name"] for c in payload["candidates"]] == ["카페능", "피자옥"]

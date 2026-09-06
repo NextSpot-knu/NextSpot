@@ -611,6 +611,18 @@ function RecommendContent() {
       dispatchPrefLlmDebug(result.llmStatus);
       // 백엔드 summary(한국어 단일) 대신 구조화 코드로 로케일별 요약을 조립한다.
       setNlSummary(buildNlSummary(t, result.preferredCategories ?? [], result.attributes ?? []));
+      // 서버가 **실제로 반영했는가**를 본다. 2xx 만 보고 '반영했어요' 라고 말하면,
+      // 아무 선호도 못 알아들어 서버가 아무것도 쓰지 않은 경우에도 성공이라고 말하게 된다.
+      // (구버전 백엔드는 applied 를 안 준다 — undefined 는 '모른다' 라 종전대로 성공 처리한다.)
+      if (result.applied === false) {
+        setNlApplied(false);
+        toast.info(
+          result.reason === "storage_unavailable"
+            ? t("recommend.nlSaveFailed")
+            : t("recommend.nlNotApplied"),
+        );
+        return;
+      }
       if (result.preferredCategories?.length) {
         setSelectedOnboardingCats(result.preferredCategories);
       }

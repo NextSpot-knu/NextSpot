@@ -1,6 +1,7 @@
 # NextSpot 시스템 맵 — 구조 · 기능 · 연결관계
 
 > 작성 기준: 2026-08-20 코드 직접 조사(`8f84803`) → 2026-08-28 RBAC 반영 → 2026-09-04 저장소 정리 반영(경로·개수·인증 갱신)
+> → 2026-09-07 화면↔API 매핑 전수 재확인(§5 표 전체를 `apps/web/app` 코드와 1행씩 대조, §6.1 코스 재계획 · §11 수집 감시 추가)
 >
 > 이 문서는 **현재 코드에 실제로 구현된 것**만 기술한다. `README.md`와
 > `docs/archive/ARCHITECTURE_OVERVIEW.md`는 각각 공모전 서사·상속 베이스 문서라 최신 상태와
@@ -44,9 +45,10 @@ SPOT = 0.40 · 취향일치  −  0.40 · 시간비용  +  0.20 · 인센티브
 NextSpot/
 ├── apps/
 │   ├── web/                    # Next.js 16 · React 19 · 정적 export → Vercel
-│   │   ├── app/                # App Router — 33개 라우트 (§5)
-│   │   │   ├── (관광객)         main · explore/{map,recommend} · course · waiting
-│   │   │   │                    saved · setup · mypage/* · login · auth/callback
+│   │   ├── app/                # App Router — 33개 page.tsx (§5)
+│   │   │   ├── (관광객)         main · explore/recommend · course · waiting · saved · setup
+│   │   │   │                    mypage/* · account/business · login · auth/*
+│   │   │   │                    (explore/map 은 /main 으로 보내는 리다이렉트 스텁뿐)
 │   │   │   ├── admin/*         # B2G 관제 10화면
 │   │   │   ├── merchant/*      # 사장님 콘솔 2화면 (API·로컬 상태는 lib/merchant/)
 │   │   │   └── dev             # 개발자 콘솔 — 역할 임명 · 사업자 심사 · 최근 실패
@@ -74,7 +76,8 @@ NextSpot/
 │   ├── migrations/             # 스키마 정본 (타임스탬프 순)
 │   └── RESET_AND_SETUP.sql     # scripts/build_reset.mjs 가 마이그레이션에서 자동 생성
 ├── scripts/                    # build_reset.mjs · check-i18n-keys.mjs · check-docs.mjs · run-web-tests.mjs
-├── .github/workflows/          # ci · ingest · train-recommendation-model · collect-area-demand · uptime
+├── .github/workflows/          # ci · ingest · train-recommendation-model · area-demand-alert
+│                               # + 수동: collect-area-demand · uptime
 └── docs/                       # 운영 문서 · contest/ · archive/ (색인 docs/README.md)
 ```
 
@@ -242,26 +245,43 @@ SessionBootstrap: 익명 세션 자동 발급
 | 화면 | 기능 | 호출 API | 핵심 서비스/모듈 |
 |---|---|---|---|
 | `/` | 랜딩 | — | — |
-| `/setup` | 온보딩 Cold Start (카테고리·도보시간·체류시간·속성) | `POST /preferences/parse` | `preference_nlp_service` |
-| `/main` | 홈 — 혼잡 지도·날씨·축제·화장실·진행중 여정 | `GET /infrastructures` `/weather` `/events` `/restrooms` `/freshness` | `facility_cache` `weather_service` `restroom_service` |
-| `/explore/map` | 혼잡도 지도 + 시간대별 AI 예측 모드 | `POST /predict/batch` `GET /predict/day` `/predict/golden-hour` | `predict_service` |
-| `/explore/recommend` | **대안 추천 (핵심)** | `POST /recommendations` `/recommendations/by-type` | **SPOT 엔진** |
-| ″ | 추천 사유 생성 | `POST /recommendations/{id}/explain` | `reason_service` `recommendation_explanation_service` |
-| ″ | 수락 / 거절 피드백 | `POST /recommendations/accept` `/reject` `/feedback` | `feedback_service` `preference_vector_service` |
+| `/setup` | 온보딩 Cold Start (카테고리·도보시간·체류시간·음식취향) | — (네트워크 호출 없음 — 선택값을 로컬에만 저장) | `lib/travelContext.ts` |
+| `/main` | 홈 — 혼잡 지도·날씨·축제·화장실·주차·진행중 여정 | `GET /infrastructures` `/weather` `/events` `/restrooms` `/freshness` `/area-demand/parking-lots` | `facility_cache` `weather_service` `restroom_service` `parking_demand_service` |
+| ″ | 히트맵 + 시간대별 AI 예측 타임슬라이더 | `POST /predict/batch` | `predict_service` |
+| ″ | 지도 위 추천 바텀시트 (수락·거절) | `POST /recommendations` `/recommendations/by-type` `/recommendations/accept` `/recommendations/reject` | **SPOT 엔진** `feedback_service` |
 | ″ | 음성 비서 | `POST /voice/turn` | `voice_intent_service` + `lib/voice/voiceCommands.ts` |
-| ″ | 자연어 현장조건 | `POST /travel-context/parse` | `travel_context_parser` |
+| ″ | 진행중 여정의 자연어 현장조건 변경 (`ActiveJourneyCard`) | `POST /travel-context/parse` | `travel_context_parser` |
+| ″ | 검색 — 로컬 0건일 때만 외부 조회 | `GET /search/places` (Kakao) | `kakao_place_search_service` |
+| `/explore/recommend` | **대안 추천 (핵심)** | `POST /recommendations` | **SPOT 엔진** |
+| ″ | 추천 사유·비교 설명 (`RecommendationComparison`) | `POST /recommendations/{id}/explain` | `reason_service` `recommendation_explanation_service` |
+| ″ | 수락 / 거절 / 만족도 피드백 | `POST /feedback` | `feedback_service` `preference_vector_service` |
+| ″ | 자연어 취향 입력 | `POST /preferences/parse` | `preference_nlp_service` |
+| ″ | 현장 좌석·대기 제보 | `POST /reports/availability` | `availability_service` |
 | `/course` | 멀티스톱 분산 코스 | `POST /courses/plan` (구 번들은 `POST /courses/recommend`) | 누적 도착시각 기반 SPOT 반복 · 자리마다 현재 위치 기준 후보 재선정 |
-| ″ | 자리 고정·대안 갈아끼우기 | `POST /courses/plan` 의 `pins` | 고정된 자리 뒤를 다시 그리디 |
-| `/waiting` | 대기 현황 보드 | `GET /infrastructures` | `facility_cache` |
-| `/saved` | 저장한 장소 | (로컬) | `lib/savedFacilities.ts` |
-| `/mypage` | 취향 레이더 | `GET /users/me/vector` | `preference_vector_service` |
+| ″ | 자리 고정·대안 갈아끼우기 | `POST /courses/plan` 의 `pins` | 고정된 자리 뒤를 다시 그리디 (§6.1) |
+| `/waiting` | 스마트 줄서기 보드 — 4유형 섹터별 '도착 시점 대기' 순 | `POST /recommendations/by-type` (유형당 1회) | SPOT `breakdown.waitTime/travelTime` 재사용 (새 예약 백엔드 없음) |
+| `/saved` | 저장한 장소 (목록은 로컬) | `POST /feedback` | `lib/savedFacilities.ts` |
+| `/mypage` | 취향 레이더 · 임팩트 요약 · 실험실 대기 수 | `GET /users/me/vector` `/impact/summary` `/lab/pending/count` | `preference_vector_service` |
 | `/mypage/coupons` | 내 쿠폰함 | `GET /coupons/mine` · `POST /coupons/{id}/use` | `coupon_service` |
 | `/mypage/impact` | 내 여행 임팩트 | `GET /impact/summary` | 수락·혼잡회피·쿠폰 성과 집계 |
-| `/mypage/lab` | **거절 실험실** | `GET /lab/pending` · `POST /lab/{id}/reason` | `lab` 라우터 + LLM 분류 |
+| `/mypage/lab` | **거절 실험실** | `GET /lab/pending` · `POST /lab/{id}/reason` · `.../reason/classify` · `.../skip` · `.../hide` | `lab` 라우터 + LLM 분류 |
+| `/mypage/settings` | 회원 탈퇴 | `DELETE /account/me` | `account` 라우터 |
+| `/account/business` | 역할 신청 — 제출·내역·**철회·수정** | `POST /account/verification-requests` · `GET …/mine` · `PATCH …/{id}` · `POST …/{id}/withdraw` | `account` 라우터 (심사는 `/dev` — §5.4) |
+| 추천 카드(전역) | 최적 방문 시각 · 골든아워 배지 | `GET /predict/day` · `/predict/golden-hour` | `predict_service` |
 | 전역 | 혼잡 제보 | `POST /reports/congestion` | `congestion_evidence` |
 | 전역 | 방문 결과 기록 | `PATCH /recommendations/{id}/outcome` | `recommendationOutcomes.ts` (오프라인 큐) |
 | 전역 | 사용성 트래킹 | `POST /events/track` | `tracking` (무인증, IP 쿨다운) |
-| 전역 | 키워드 검색 | `GET /search/keyword` · `POST /search/ingest-request` | `search_rewrite_service` |
+
+- **`/explore/map` 은 더 이상 화면이 아니다.** 히트맵·예측 타임슬라이더가 `/main` 으로 이식되면서
+  중복이던 `CongestionMap` 을 제거했고, 지금 `app/explore/map/page.tsx` 는 `/main` 으로 보내는
+  리다이렉트 스텁뿐이다(구 링크·북마크 보호용).
+- `GET /search/keyword`(TourAPI 키워드 폴백 + `search_rewrite_service`)와 `POST /search/ingest-request`
+  (적재 요청 큐잉)는 **백엔드에는 살아 있지만 현재 웹에서 호출하는 지점이 없다.** 지도 검색이
+  Kakao `GET /search/places` 로 옮겨 가면서 끊겼다 — 관리자 승인 큐(§5.3)는 그대로 동작한다.
+- **역할 신청은 `pending` 인 동안만 신청자가 손댈 수 있다.** 철회는 `status='withdrawn'` 으로 남고
+  (`role_audit_log` 에는 적지 않는다 — 철회는 심사가 아니다), 수정은 연락처·사업자번호·증빙을
+  바꾼다. **`facility_id` 만은 수정할 수 없다**(422) — 연결을 바꾼 뒤 승인받으면 심사자가 본 가게가
+  아닌 곳에 소유권이 붙기 때문이다. 게스트 세션은 둘 다 403.
 
 **거절 실험실**(`/mypage/lab`)은 이 제품 특유의 기능이다 — 거절한 추천의 사유를
 나중에 되묻고, **답한 만큼만 1회** 취향 벡터에 반영한다. 무응답 거절이 선호를
@@ -304,21 +324,48 @@ SessionBootstrap: 익명 세션 자동 발급
 
 ### 5.3 B2G 관제 (`/admin`)
 
+`/admin` 은 `/admin/dashboard` 로 보내는 리다이렉트이고, 권한이 없으면 `admin/layout.tsx` 가드가
+`/admin/login` 으로 보낸다(앱 계정 로그인 — 관리자 전용 비밀번호는 08-28 에 폐지). 아래는 사이드바
+(`AdminSidebar`) 순서대로다. 관제 화면은 관리자 API(`service_role` 경유)와 Supabase anon 읽기를 섞어 쓴다.
+
 | 화면 | API | 설명 |
 |---|---|---|
-| `/admin/dashboard` | `GET /admin/dashboard/today` `/dashboard/briefing` `/metrics` `/metrics/trend` | 지표·추세·AI 브리핑 |
+| `/admin/dashboard` | `GET /admin/dashboard/today` `/dashboard/briefing` `/metrics?days=8` `/metrics/trend?days=30` | 지표·추세·AI 브리핑 |
 | ″ | `GET /admin/model-trust` | **모델 신뢰 패널** (§7.2) |
-| `/admin/infrastructure` | `POST/PATCH/DELETE /admin/facilities` · `POST /admin/facilities/{id}/congestion` | 시설 CRUD·혼잡 수동 입력 |
-| `/admin/simulator` | `POST /admin/simulate-peak` | 피크 시뮬레이션 + SPOT 시뮬레이터 |
-| ″ | (쿠폰 정책 패널) `PUT /admin/settings` | **POI별 할인율 조정 → 추천 순위 즉시 반영** |
+| ″ | `GET /admin/area-demand-reliability?hours=24` | **주차 수집 신뢰도 패널** — `alert.state`(§11) |
+| ″ | `POST/PATCH/DELETE /admin/facilities` (`FacilityTable`) | 시설 CRUD |
+| ″ | (쿠폰 정책 패널) `PATCH /admin/facilities/{id}` 의 `coupon_rate` | **POI별 할인율 조정 → 추천 순위 즉시 반영** |
+| ″ | `POST /admin/simulate-peak` (`SimulatePeakButton`) | "24시간 데이터 모의 발생" — 데모 전용 |
+| ″ | `GET /admin/impact?since=` (`ImpactWidget`) | **분산 효과 정량화** — 절감 대기시간·재배치 건수 |
+| ″ | `GET /freshness` (`DataFreshnessBadge`) | TourAPI 마지막 동기화 |
+| `/admin/infrastructure` | `POST /admin/facilities/{id}/congestion` | 혼잡 수동 입력 (`admin_override` · §7.1) |
+| ″ | `GET /search/ingest-requests?status=pending` · `POST /search/ingest-requests/approve` | **검색 0건 → 승인형 배치 적재** 큐 |
+| ″ | (Supabase anon 직접 조회 — `facilities` 페이지네이션 + `latest_congestion_for_facilities`) | 장소 목록·이상 혼잡 알림 |
+| `/admin/simulator` | `GET /users/me/vector` | SPOT 시뮬레이터 (가중치 슬라이더 — 쓰기 없음) |
+| `/admin/reports` | `GET /admin/metrics?days=28` + Supabase anon `congestion_logs` | 통계 리포트 (요일·카테고리 집계, AI 수락 추이) |
 | `/admin/safety` | `GET /admin/safety/status` | 인파 안전 조기경보 |
-| `/admin/report` | `GET /admin/impact` | 분산 효과 정량화 |
+| `/admin/report` | `GET /admin/metrics/trend?days=30` · `/admin/dashboard/today` · `GET /freshness` | 성과 리포트 — 의회·평가 제출용 인쇄물 |
 | `/admin/support` | `GET/PATCH /admin/inquiries` | 문의 처리 |
-| `/admin/reports` | `GET /search/ingest-requests` · `POST .../approve` | **검색 0건 → 승인형 배치 적재** |
+| `/admin/settings` | `GET/PUT /admin/settings` + Supabase anon 카운트 | `system_settings` 단일 행(공지·임계치) · DB 통계 |
 
 관제의 폐루프는 **관제 → 개입(쿠폰) → 효과 측정**으로 닫힌다.
 쿠폰 정책 패널에서 할인율을 올리면 `coupon_rate`가 SPOT 인센티브 항에 즉시 반영되고,
-그 결과가 `/admin/report`의 "절감 대기시간 · 재배치 건수"로 되돌아온다.
+그 결과가 **같은 대시보드 화면의** `ImpactWidget`("절감 대기시간 · 재배치 건수", `GET /admin/impact`)으로
+되돌아온다. 세 패널이 한 화면에 있는 것이 데모 동선의 전제다(`contest/DEMO_SCENARIO.md` §2).
+`/admin/report` 는 그 지표를 인쇄물로 조립하는 별도 화면이고, 파생 불가능한 수치는 지어내지 않고 뺀다.
+
+### 5.4 개발자 콘솔 (`/dev`)
+
+`developer` 역할에게만 사이드바에 노출된다(관제 화면에는 운영 도구를 내보내지 않는다).
+
+| 기능 | API | 설명 |
+|---|---|---|
+| 사용자 목록·역할 임명 | `GET /dev/users` · `PATCH /dev/users/{id}/role` | 마지막 developer 강등은 거부 |
+| 소유권 직접 부여·회수 | `GET/POST /dev/facility-owners` · `DELETE /dev/facility-owners/{id}` | uuid 형식·`is_active` 를 먼저 본다 |
+| 사업자 신청 심사 | `GET /dev/verification-requests` · `GET .../{id}/document` | 증빙은 서명 URL(300초) |
+| 승인 — 신청에 가게가 붙어 있을 때 | `POST /dev/verification-requests/{id}/approve` | 그 시설에 소유권 부여 |
+| 승인 — **가게가 없는 신청** | 〃 (본문에 기존 시설 id **또는** 새 POI 스펙) | 새로 만들 때 `features.origin='merchant_request'` + `verification_request_id` 를 박아 적재분과 구분한다 |
+| 반려 · 감사 로그 · 최근 실패 | `POST .../reject` · `GET /dev/audit-log` · `GET /dev/failures` | 심사 이력은 `role_audit_log` |
 
 ---
 
@@ -373,6 +420,28 @@ flowchart TB
 > 로그 없는 시설을 `0.0` 실측처럼 팔지 않으며, 예측값에는 반드시 'AI 예측' 라벨을 단다.
 > 응답의 `breakdown`이 점수 분해를 전부 노출해 추천 사유가 검증 가능하다.
 
+### 6.1 분산 코스 재계획 — `POST /courses/plan` (`routers/courses.py`)
+
+코스는 한 번 뽑고 끝나는 목록이 아니라 **자리(slot) 단위로 다시 짜는** 대상이다.
+자리마다 "지금 서 있는 자리"(직전 정류지 좌표 + 누적 도착 시각)를 기준으로 후보를 다시 추린다.
+최대 정류지는 `MAX_STOPS = 3`, 한 자리에 함께 실어 보내는 차점 후보는 `MAX_ALTERNATIVES_PER_STOP = 3`
+(채점은 이미 끝나 있어 추가 연산이 없다).
+
+| 응답 필드 | 무엇 |
+|---|---|
+| `stops[].alternatives` | 그 자리의 차점 후보 — 화면에서 바로 갈아끼운다 |
+| `slot_outcomes[]` | **자리마다 왜 그렇게 됐는지**. `filled` · `no_candidate_of_type` · `closed_at_arrival` · `late_night_unconfirmed`(심야 + 영업 미확인) · `over_time_budget` · `pin_unavailable` |
+| `plan_id` | 선택된 시설 id 열의 sha256 앞 16자. 프런트가 "정말 바뀌었는지"를 추측이 아니라 사실로 판정한다 |
+
+- 요청의 `pins`(`{order, facility_id}`)로 자리를 고정하면 그 자리 후보는 1개가 되고, **뒤 자리의
+  출발점과 누적 도착 시각이 실제로 달라져** 나머지가 다시 그리디로 채워진다. `max_length=MAX_STOPS` —
+  자리 수를 넘는 핀은 받지 않는다(상한이 없던 시절 같은 `order` 를 반복해 보내 후보 풀만 부풀릴 수 있었다).
+- **코스가 비어도 이유를 돌려준다.** 후보가 0곳이어도 `slot_outcomes` 는 자리 수만큼 나가고,
+  고정한 자리는 고정 사실을 그대로 전한다.
+- 최상위 응답이 배열인 `POST /courses/recommend` 는 **구 번들 호환용으로 유지**한다. Vercel(정적
+  export)과 Render 의 배포 시점이 달라 새 API 가 먼저 뜨는 창이 생기는데, 그때 구 번들의
+  `Array.isArray(data) ? data : []` 가 장애를 '갈 곳 없음'으로 보이게 만들기 때문이다.
+
 ---
 
 ## 7. 신뢰 폐루프 — 이 프로젝트에서 가장 정교한 부분
@@ -398,6 +467,22 @@ seed/simulated  → 공개 조회에서 아예 제외 (개발 이력으로만 �
 | 사용자 혼잡 제보 | `single_report` → 교차검증 시 `corroborated` | `POST /reports/congestion` → `correlate_congestion_report_evidence` |
 | 방문 후 체감 혼잡 | 투영 | `recommendation_outcomes` → `project_outcome_congestion_log` |
 | 사장님 좌석 방송 | `merchant_report` / `verified` | `POST /merchant/seat-status` |
+
+**여기에 더해 관리자 개입 1개** — 수집이 아니라 사람이 슬라이더로 넣는 값이라 따로 센다.
+
+| 출처 | source · 등급 | 경로 |
+|---|---|---|
+| 관리자 수동 혼잡 입력 | `admin_override` · `single_report` | `POST /admin/facilities/{id}/congestion` (`/admin/infrastructure`) |
+
+- `source` 를 `event` 에서 **`admin_override`** 로 분리한 것은 마이그레이션 `20260906120000` 이다.
+  그전에는 `20260819120000` 이 `event` 를 운영 검증 소스로 백필해, source 만 봐서는 '측정된 이벤트
+  관측'과 '사람이 넣은 값'을 구분할 수 없었다. 과거 `event` 행은 추측해서 다시 쓰지 않는다 —
+  **구분이 되는 것은 이 시점 이후부터다.**
+- 등급이 `verified` 가 아니라 **`single_report`** 인 이유: `scripts/train.py` 가 `verified`·`corroborated`
+  행을 그대로 학습 정답으로 넣는다. 관측된 적 없는 숫자가 모델의 정답이 되면 안 된다
+  (`NEVER_TRAINABLE_SOURCES = {seed, simulated, admin_override}` 로 이중 차단).
+  **표시에는 그대로 반영된다** — `latest_congestion_for_facilities` 의 source 필터는 거부목록
+  (`seed`·`simulated`)이라 `admin_override` 는 통과하고 tier 허용목록에도 든다.
 
 ### 7.2 모델 승격 게이트 (`predict_service.py`)
 
@@ -489,8 +574,12 @@ facilities ──┬── congestion_logs ────── (evidence_tier · 
 users ──┬── user_preference_vectors   (8차원, 수락 +10% / 거절 −5%)
         ├── user_feedback             (거절 실험실 원천)
         ├── user_coupons
-        └── inquiries
+        ├── inquiries
+        ├── business_verification_requests  (역할 신청 — pending 동안만 본인이 철회·수정)
+        ├── facility_owners                 (승인 결과 = 가게 소유권)
+        └── role_audit_log                  (역할·소유권·심사 이력)
 
+area_demand_snapshots ─── area_demand_snapshot_lots   (경주 ITS 주차 10분 실측)
 model_registry ──── Storage: recommendation-models (private)
 tourism_concentration_forecasts · tourism_insight_snapshots   (TourAPI 데이터랩)
 admin_ingest_requests   (검색 0건 → 승인형 적재)
@@ -518,8 +607,24 @@ system_settings
 | `ci.yml` | push / PR | web(lint→typecheck→test→build) · api(ruff→pytest) · schema · e2e(Chromium 390px, 4로케일) |
 | `ingest.yml` | 매일 04:00 KST | TourAPI POI 적재 (contentid upsert) |
 | `train-recommendation-model.yml` | 매주 월 03:00 KST | 모델 학습 → 게이트 검증 → 승격 |
+| `area-demand-alert.yml` | **매시 정각** | 주차 실측 수집이 멈췄는지 감시 — `GET /admin/area-demand-reliability?hours=6` 의 `alert.state` 를 본다 |
 | `collect-area-demand.yml` | 수동 | 주차 실측 수집 수동 복구(정기 수집은 Supabase pg_cron 10분 주기) |
 | `uptime.yml` | 수동 | 헬스체크(장애 진단용) |
+
+**왜 감시 워크플로가 따로 있나** — 정기 수집은 pg_cron 이 `net.http_post` 로 **발사 후 잊는** 구조라
+API 가 401 을 주든 500 을 주든 `cron.job_run_details` 에는 succeeded 로 남는다. 그래서
+'스케줄러가 돌았는가'가 아니라 **새 스냅샷이 실제로 쌓였는가** 하나만 본다(2026-09-06, `d303d80`).
+
+| `alert.state` | 조건 | 워크플로 |
+|---|---|---|
+| `ok` | 최신 스냅샷 신선 + 버킷 누락률 정상 | 통과 |
+| `degraded` | 10분 버킷 누락률 20% 초과 | `::warning::` 만 (실패시키지 않는다) |
+| `down` | 최신 스냅샷이 35분 초과로 낡음 | **exit 1** — GitHub 실패 알림 + 확인 순서를 로그에 찍는다 |
+| `unknown` | 이력 전무(갓 배포된 환경) | 통과 — 경보가 아니다 |
+
+`BACKEND_HEALTH_URL`·`SERVICE_API_TOKEN` 이 없으면 **조용히 skip** 한다 — 설정이 없다고 매시간
+실패 메일을 보내면 그것부터 무시하게 되기 때문이다. 같은 지표를 관제 대시보드의
+`AreaDemandReliabilityPanel`(`?hours=24`)이 사람 눈으로도 보여 준다(§5.3).
 
 **수동 스크립트** (`apps/api/scripts/`)
 

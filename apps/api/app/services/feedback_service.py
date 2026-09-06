@@ -267,8 +267,10 @@ async def record_decision(client, *, user_id: str, recommendation_id: str, actio
     Args:
         client: service_role Supabase 클라이언트(호출자 주입 — 테스트 패치 지점 일원화).
         user_id: 소유자. 라우터가 검증한 current_user['id'] 여야 한다.
-        recommendation_id: recommendations 테이블의 실제 UUID.
-            (`bytype-…` 합성 ID 는 DB 행이 없으므로 라우터가 진입 전에 404 로 거른다.)
+        recommendation_id: recommendations 테이블의 실제 UUID. by-type 브라우즈 노출도 전부
+            recommendations 에 저장되므로 실제 UUID 로 여기까지 들어온다(합성 id 를 만드는 코드는 없다).
+            DB 행이 없는 값(저장 실패분의 "mock-rec-id" 등 비-UUID)은 라우터의
+            resolve_feedback_target 이 진입 전에 404 로 거른다.
         action: DECISION_ACTIONS 중 하나.
 
     Returns:

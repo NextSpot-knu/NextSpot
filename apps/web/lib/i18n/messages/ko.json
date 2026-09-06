@@ -660,7 +660,9 @@
     "nlSummaryEmpty": "무엇을 찾으시는지 아직 못 알아들었어요",
     "nlSummaryAnyPlace": "아무 곳",
     "nlSummaryUnderstood": "{cats} 중에서 {attrs} 조건으로 찾아볼게요",
-    "nlSummaryCatsOnly": "{cats} 중에서 찾아볼게요"
+    "nlSummaryCatsOnly": "{cats} 중에서 찾아볼게요",
+    "nlNotApplied": "선호를 알아듣지 못해 반영하지 않았어요 — 조금 더 구체적으로 말씀해 주세요",
+    "nlSaveFailed": "선호는 이해했는데 저장하지 못했어요 — 잠시 후 다시 시도해 주세요"
   },
   "auth": {
     "callbackLoading": "로그인 처리 중이에요…",

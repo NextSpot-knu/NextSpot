@@ -660,7 +660,9 @@
     "nlSummaryEmpty": "I didn't catch what you're looking for",
     "nlSummaryAnyPlace": "anywhere",
     "nlSummaryUnderstood": "Looking in {cats} for places that are {attrs}",
-    "nlSummaryCatsOnly": "Looking in {cats}"
+    "nlSummaryCatsOnly": "Looking in {cats}",
+    "nlNotApplied": "Couldn't make out a preference, so nothing was applied — try being more specific",
+    "nlSaveFailed": "Understood your preference but couldn't save it — please try again shortly"
   },
   "auth": {
     "callbackLoading": "Signing you in…",

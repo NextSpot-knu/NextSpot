@@ -6,17 +6,22 @@
 
 ## 배포 상태
 
-- **main = 프로덕션.** main push가 Vercel(web)·Render(api)를 자동 배포한다. 2026-09-04 `chore/repo-cleanup` 10건을 fast-forward 반영(`a02be96..` — tip은 `git log -1 origin/main`).
+- **main = 프로덕션.** main push가 Vercel(web)·Render(api)를 자동 배포한다. 마지막 반영은 2026-09-06 23:55 KST —
+  현재 tip `d303d80`, 09-04 정리(`a02be96`) 이후 27건(`git log --oneline a02be96..origin/main`).
   사람이 마지막으로 배포 결과를 눈으로 확인한 시점은 `e1a058f`(08-28, 로그 §-45).
   규칙: main에 푸시한 쪽(에이전트 포함)이 위 줄의 날짜·커밋 범위를 갱신하고, Vercel·Render 배포를 눈으로 본 사람이 확인 날짜를 적는다.
+- **`yunseong` 에 main 미반영분 6건**(2026-09-07 `373789c` 기준 — 감사 라운드 1·2). 승격은 사용자 확인 후.
 - Web: https://nextspot-nu.vercel.app — 루트 `vercel.json`이 `npm run build --workspace=apps/web` → `apps/web/out`.
   Vercel 대시보드에 Root Directory를 **설정하지 않는다**(설정하면 워크스페이스 빌드가 깨진다).
 - API: https://nextspot-api.onrender.com (`/health`, `/docs`) — `render.yaml` Blueprint, docker, free plan.
 - DB · Auth · Storage: Supabase 팀 프로젝트. 원격 마이그레이션 적용 상태는 아래 "마이그레이션 확인" 쿼리로만 믿는다.
 - 스케줄: **Supabase pg_cron**이 10분 주기(`nextspot-area-demand-primary`/`-retry`)로
   `POST /api/v1/area-demand/snapshots/collect`를 서비스 토큰으로 호출(헤더 이름은 `X-Admin-Authorization: Bearer` —
-  pg_cron 함수가 아직 이 이름을 쓴다. 정식 `X-Service-Token`도 함께 수용, `authz.py`). GitHub Actions는 `ingest`(매일 KST 04:00),
-  `train-recommendation-model`(매주 월 03:00 KST) 두 개만 예약 실행이고 `collect-area-demand`·`uptime`은 수동.
+  pg_cron 함수가 아직 이 이름을 쓴다. 정식 `X-Service-Token`도 함께 수용, `authz.py`). GitHub Actions 예약은 **세 개** —
+  `ingest`(매일 KST 04:00) · `train-recommendation-model`(매주 월 03:00 KST) ·
+  `area-demand-alert`(매시 정각, 2026-09-06 추가 — 새 스냅샷이 쌓였는지만 보고 `alert.state=down`이면 워크플로를 실패시킨다).
+  `collect-area-demand`·`uptime`은 수동이다. `area-demand-alert`는 `BACKEND_HEALTH_URL`·`SERVICE_API_TOKEN`이
+  없으면 조용히 skip 하므로, **설정이 없으면 감시도 없다**(GitHub Actions Variables/Secrets 확인 필요 — 아래 "사람 작업 대기").
 - 환경변수 이름·위치·시크릿 목록: [`DEPLOY_AND_ENV.md`](./DEPLOY_AND_ENV.md).
 - 심사 계정: `openapi@naver.com`(merchant, 이풍녀 구로쌈밥·맥심가옥 소유) · `openapi@gmail.com`(admin).
   비밀번호는 저장소에 없고 `apps/api/scripts/seed_judge_accounts.py`가 `JUDGE_ACCOUNT_PASSWORD` env로 시드한다.
@@ -58,6 +63,9 @@
 - [ ] **GitHub Actions Secrets 점검** — `train-recommendation-model.yml`은 `JWT_SECRET`·`ADMIN_API_TOKEN` 시크릿이 없으면
       부팅 검증에서 실패한다(플레이스홀더 폴백 없음). `SUPABASE_URL`·`SUPABASE_ANON_KEY`·`SUPABASE_SERVICE_ROLE_KEY`·
       `TOURAPI_KEY`·`KAKAO_REST_API_KEY`·`LOCALDATA_AUTH_KEY`(선택)와 함께 등록돼 있는지 확인.
+      함께: **Variable `BACKEND_HEALTH_URL` + Secret `SERVICE_API_TOKEN`(없으면 `ADMIN_API_TOKEN`)** — 없으면
+      `area-demand-alert.yml`이 매시 조용히 skip 해서 수집이 멈춰도 알림이 오지 않는다. Actions 탭에서
+      한 번 수동 실행(`Run workflow`)해 skip 이 아니라 실제 판정이 나오는지 확인할 것.
 - [ ] `docs/MERCHANT_CONSOLE_RBAC_PLAN.md`(로컬 전용, 심사 자격증명 포함이라 미커밋)가 새 클론에는 없다 — 원본 보유자가
       필요하면 보관. 없어도 운영에는 지장 없음(내용은 로그 §-44에 요약).
 
@@ -110,6 +118,10 @@
 읽기 전용 점검 쿼리(Supabase SQL Editor). 적용 후에는 **`NOTIFY pgrst, 'reload schema';`** — PostgREST가 스키마를
 캐시해서 이걸 빼먹으면 새 컬럼·테이블을 한동안 못 보고 백엔드가 폴백 경로로 돈다.
 
+⚠️ **15번(`20260906120000_admin_override_source`)은 코드가 이미 main에 있다**(`3fa2980`, 09-06 배포분).
+CHECK 제약이 원격에 없으면 관리자 수동 혼잡 입력(`POST /admin/facilities/{id}/congestion`)이 **통째로 500**이다 —
+데모 전에 15번부터 확인할 것.
+
 ```sql
 with checks(seq, migration, applied) as (values
   (1, '20260710172000_congestion_source_honesty', (select count(*)>0 from pg_constraint
@@ -135,7 +147,9 @@ with checks(seq, migration, applied) as (values
   (13, '20260904090000_account_deletion_fk_fix', exists (select 1 from pg_constraint
       where conname='business_verification_requests_user_id_fkey' and pg_get_constraintdef(oid) like '%ON DELETE CASCADE%')),
   (14, '20260904091000_inquiries_insert_ownership', exists (select 1 from pg_policies
-      where schemaname='public' and tablename='inquiries' and policyname='inquiries_insert_own_or_anonymous'))
+      where schemaname='public' and tablename='inquiries' and policyname='inquiries_insert_own_or_anonymous')),
+  (15, '20260906120000_admin_override_source', (select count(*)>0 from pg_constraint
+      where conname='congestion_logs_source_check' and pg_get_constraintdef(oid) like '%admin_override%'))
 )
 select seq, migration, case when applied then '적용됨' else '미적용' end as status
 from checks order by seq;
@@ -145,10 +159,36 @@ from checks order by seq;
 
 최신이 위. 10개를 넘으면 가장 오래된 항목을 `archive/HANDOVER_LOG.md` 맨 위로 옮긴다.
 
+## 2026-09-07 — 문서 사실성 감사: 화면↔API 매핑 4행 · 삭제된 화면 · 배포 상태 · 데모 대본
+
+- 도구·브랜치: Claude Code(문서 전담) / `yunseong` — **문서만 수정**(코드는 읽기 전용, 같은 시각 다른 작업자가 `apps/api`·`apps/web` 작업 중)
+- 커밋: 없음 — 작업 트리 상태로 남겼다(커밋·푸시는 사용자 확인 후)
+- 한 것: `SYSTEM_MAP` §5.1(관광객)·§5.3(관제) 표를 `apps/web/app` 코드와 1행씩 대조해 재작성 —
+  삭제된 `/explore/map`(리다이렉트 스텁), `/setup`의 없는 API 호출, `/waiting`의 실제 호출(`/recommendations/by-type`),
+  대시보드에 있는 패널을 `/admin/simulator`·`/admin/report`·`/admin/reports`로 적던 4행 · §5.4(개발자 콘솔) ·
+  §6.1(코스 재계획: `alternatives`·`slot_outcomes`·`plan_id`·`pins`) · §7.1(`admin_override`) · §11(`area-demand-alert`) 추가 ·
+  `HANDOVER` 배포 상태·예약 워크플로 3개·마이그레이션 15번 · `contest/DEMO_SCENARIO.md` 체크리스트 12
+  (비활성 시드는 지도에서도 빠진다 — 배포 API로 실측).
+- 검증: `node scripts/check-docs.mjs` 통과 · 배포 API GET 실측(`/api/v1/infrastructures` 1,645곳)
+- 다음·미결: `/search/keyword`·`/search/ingest-request`가 프런트에서 끊긴 것은 **문서에 사실로 적어 두기만 했다** — 되살릴지 지울지는 코드 결정.
+- 사람 작업: 마이그레이션 15번 원격 적용 여부 확인 · `area-demand-alert` 시크릿/변수 등록 확인(위 두 절에 추가).
+
+## 2026-09-06 — 분산 코스 재계획 · 관리자 개입 정직화 · 주차 수집 중단 감시 (커밋 로그에서 복원)
+
+- 도구·브랜치: 팀원 / `yunseong` → main (`b6bdcd8`..`d303d80`, 17건 — 머지 커밋 1 포함)
+- 한 것: **역할 신청** 본인 철회·수정(`facility_id`는 수정 불가) + 가게가 없는 신청의 승인 경로(기존 연결 / 새 POI 생성) ·
+  **분산 코스** `POST /courses/plan` — 자리마다 현재 위치 기준 재선정, 자리별 대안·고정(`pins`)·`slot_outcomes`·`plan_id`,
+  보행경로 슬롯당 1회 배치, 코스가 비어도 이유를 돌려주기(심야 규칙 포함) · **관리자 수동 혼잡 개입**을
+  `admin_override`/`single_report`로 내려 모델 학습 정답에서 배제 · **주차 실측 수집 중단 경보**(`area-demand-alert.yml` 매시 +
+  `GET /admin/area-demand-reliability`의 `alert.state` + 대시보드 패널) · 코스 공유 링크·온보딩 도보시간 등 web 버그.
+- 마이그레이션 추가 1건: `20260906120000_admin_override_source`(**코드보다 먼저 원격 적용돼야 한다** — 위 점검 쿼리 15번).
+- 검증: 확인 불가 — 이 항목은 커밋 로그에서 복원한 것이고, 이 17건의 커밋 본문에는 게이트 결과가 적혀 있지 않다.
+- 다음·미결: 마이그레이션 원격 적용 여부 미기록. 09-07 감사 라운드 1·2(6건)가 `yunseong`에 남아 main 미반영.
+
 ## 2026-09-04 — 저장소 정리: 죽은 파일 제거 · 문서 트리 재편 · 규칙 정본 재작성
 
 - 도구·브랜치: Claude Code(레드팀 하위 에이전트 6렌즈 → 실행 → 재검토 루프) / `chore/repo-cleanup` → main
-- 커밋: `a02be96` 이후 이 브랜치 10건(`git log --oneline a02be96..origin/main`) — 죽은 파일 제거 → 문서 트리 → 규칙·상태 문서 →
+- 커밋: 이 브랜치 10건(`git log --oneline d267e6b..b6bdcd8`) — 죽은 파일 제거 → 문서 트리 → 규칙·상태 문서 →
   문서 사실 정정 → 설정·워크플로 → web 구조 → api 구조 → 레드팀 2라운드 반영(보안 진단·i18n 삭제) → 3라운드 반영(심사 문서 정정)
 - 한 것: InduSpot 잔재(seed.js·bg.png·landmarks.ts 등)와 Gemini 파일 제거 · `docs/`를 운영/contest/archive로 나누고
   색인(`docs/README.md`)과 CI 문서 검사(`scripts/check-docs.mjs`) 추가 · `AGENTS.md`를 현재 사실(RBAC 권한, 브랜치, 게이트,

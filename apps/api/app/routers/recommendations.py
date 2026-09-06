@@ -958,8 +958,19 @@ class RecommendationOutcomeRequest(BaseModel):
         return self
 
 
-# --- 음성 비서 1턴 해석(키워드 분류): 발화→의도 + 후보 선호매칭 선택 + 한국어 응답 ---
-# 무인증(텍스트/후보만 처리, 사용자 데이터 미접근). 로컬 전용.
+# --- 음성 비서 1턴 해석: 발화→의도 + 후보 선호매칭 선택 + 한국어 응답 ---
+# 무인증 — 로그인 사용자 데이터에 접근하지 않는다(요청 본문의 발화·후보만 읽는다).
+#
+# ⚠️ '로컬 전용'이 아니다. 이 경로는 조건부로 외부 LLM(Upstage Solar)을 호출한다:
+#   1) 로컬 키워드 분류기가 먼저 판정한다(voice_intent_service._keyword_interpret). accept·next·
+#      stop·details·select·command 로 분류되면 외부 호출 0 — 네트워크가 발생하지 않는다.
+#   2) 그 결과가 filter(음식·조건 선호)이거나 unknown 이고, 후보가 1개 이상이며,
+#      UPSTAGE_API_KEY 가 설정돼 있고, IP 레이트리밋(_voice_llm_allowed)을 통과할 때만
+#      외부 LLM 제공자(settings.LLM_BASE_URL — 기본 api.upstage.ai)로 요청이 나간다.
+#   3) 그때 나가는 데이터: 발화 원문(300자 절단), 현재 추천 이름, 상위 15개 후보의 이름·종류·
+#      대표메뉴, app_context. **가게 이름이 외부로 나간다.**
+#   4) 키 미설정·게이트 차단·호출 실패면 외부 전송 없이 키워드 결과로 폴백한다(무해 폴백).
+# 응답의 llm_status 가 그 턴의 실제 경로다(keyword/gated/disabled=외부 호출 없음, llm·llm_failed=호출함).
 class VoiceCandidate(BaseModel):
     """무인증 입력 후보 — 필드별 타입·길이 상한(Codex 감사 P1-4).
 
@@ -1330,11 +1341,16 @@ async def resolve_feedback_target(recommendation_id: str, current_user: dict) ->
         (recommendation, facility)
 
     Raises:
-        HTTPException: 404(합성 id·미존재 추천) / 403(타인 소유).
+        HTTPException: 404(비-UUID·미존재 추천) / 403(타인 소유).
     """
-    # recommendation_id 형식 방어 — by-type 브라우즈는 합성 id("bytype-…", DB 미저장)를 반환하므로
-    # 그런 값이 오면 uuid 컬럼 캐스팅 오류로 500 이 나기 전에 깔끔한 404 로 응답한다.
-    # (브라우즈 랭킹 수락은 쿠폰 발급 경로가 아니라 카카오맵 길안내로 처리된다.)
+    # recommendation_id 형식 방어 — uuid 컬럼에 비-UUID 문자열을 넘기면 캐스팅 오류로 500 이 나므로
+    # 그 전에 깔끔한 404 로 응답한다. 여기로 오는 비-UUID 는 저장 실패분의 "mock-rec-id"(아래 참조)와
+    # 구버전 프런트가 보관 중인 옛 합성 id 다.
+    #
+    # by-type 브라우즈는 더 이상 합성 id 를 만들지 않는다: _recommend_by_type 이 노출된 추천을 전부
+    # recommendations 에 INSERT 하고 **실제 UUID** 를 돌려준다(INSERT 실패 항목만 "mock-rec-id" 로 강등).
+    # 따라서 브라우즈 랭킹에서 온 추천도 이 가드를 통과해 /feedback 으로 들어오고,
+    # accepted_visit_intent 면 제휴 시설 쿠폰이 실제로 발급된다(submit_feedback 4단계).
     try:
         uuid.UUID(str(recommendation_id))
     except (ValueError, TypeError, AttributeError):
@@ -1400,7 +1416,8 @@ async def submit_feedback(
 ):
     logger.info("feedback_received", recommendation_id=req.recommendation_id, action=req.action)
 
-    # 1. 추천 이력 조회 + 소유권 가드(합성 bytype-* 는 404).
+    # 1. 추천 이력 조회 + 소유권 가드(비-UUID·미존재 id 는 404, 타인 소유는 403).
+    #    by-type 브라우즈 노출도 recommendations 에 저장돼 실제 UUID 로 들어온다 — 이 경로를 통과한다.
     _recommendation, facility = await resolve_feedback_target(req.recommendation_id, current_user)
     user_id = current_user["id"]  # body 의 user_id 를 신뢰하지 않는다 — 토큰 주체만 쓴다.
 

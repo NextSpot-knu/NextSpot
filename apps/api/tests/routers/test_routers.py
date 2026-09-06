@@ -555,6 +555,48 @@ def test_recommend_by_type_happy_path(auth_client):
     assert [item["rank"] for item in items] == [1, 2, 3, 4]
 
 
+def test_recommend_by_type_returns_persisted_uuid_not_synthetic_id(auth_client):
+    # by-type 브라우즈는 노출을 recommendations 에 INSERT 하고 **실제 UUID** 를 돌려준다.
+    # 이 계약이 무너져 다시 합성 id("bytype-…")를 돌려주면, 브라우즈 랭킹에서 수락한 추천이
+    # /feedback 에서 404 로 막혀 쿠폰 발급·선호 학습이 통째로 죽는다.
+    # (라우터·서비스 주석이 단언하는 내용 = 이 테스트. 주석만으로는 다시 썩는다.)
+    persisted_id = "11111111-2222-4333-8444-555555555555"
+    cafes = [_facility("c-1", "cafe", 0.0002), _facility("c-2", "cafe", 0.0004)]
+
+    with patch("app.routers.recommendations.fetch_user", new=AsyncMock(return_value=USER_ROW)), \
+         patch("app.routers.recommendations.fetch_all_facilities", new=AsyncMock(return_value=cafes)), \
+         patch("app.routers.recommendations.fetch_congestion_map", new=AsyncMock(return_value={})), \
+         patch.object(preference_vector_service, "get_user_vector", new=AsyncMock(return_value=UNIT_VECTOR)), \
+         patch("app.routers.recommendations.generate_reason_with_source", new=AsyncMock(return_value=("사유", "template"))), \
+         patch("app.routers.recommendations.supabase_client",
+               new=FakeSupabase({"recommendations": [{"id": persisted_id}]})):
+        res = auth_client.post("/api/v1/recommendations/by-type", json={
+            "user_id": AUTH_USER_ID,
+            "facility_type": "cafe",
+            "user_lat": BASE_LAT,
+            "user_lng": BASE_LNG,
+        })
+
+    assert res.status_code == 200
+    items = res.json()
+    assert items, "by-type 후보가 비면 계약을 검증할 수 없다"
+    assert all(item["recommendation_id"] == persisted_id for item in items)
+    assert not any(item["recommendation_id"].startswith("bytype-") for item in items)
+
+
+def test_no_source_file_generates_synthetic_bytype_ids():
+    # 위 계약의 반대편: 저장소 어디에도 'bytype-' 를 만드는(또는 특별취급하는) 코드가 없어야 한다.
+    # 이 전제가 깨진 채로 남아 있던 주석들이 "브라우즈 수락은 쿠폰 경로가 아니다"라는 거짓 서술을
+    # 낳았다(2026-09 감사) — 사실이 바뀌면 여기서 먼저 걸린다.
+    app_dir = Path(__file__).resolve().parents[2] / "app"
+    offenders = [
+        str(path.relative_to(app_dir))
+        for path in app_dir.rglob("*.py")
+        if "bytype" in path.read_text(encoding="utf-8")
+    ]
+    assert offenders == [], f"'bytype-' 서술/생성이 남아 있다: {offenders}"
+
+
 def test_recommend_by_type_never_falls_back_outside_walk_limit(auth_client):
     cafes = [_facility("inside", "cafe", 0.0002), _facility("outside", "cafe", 0.0004)]
     fetch_all = AsyncMock(return_value=cafes)
@@ -702,14 +744,20 @@ def test_feedback_ownership_guard(auth_client):
     assert res.status_code == 403
 
 
-def test_feedback_synthetic_bytype_id_404(auth_client):
-    # by-type 브라우즈 랭킹의 합성 id("bytype-…", DB 미저장·비-UUID)는 uuid 캐스팅 500 대신 깔끔한 404.
+@pytest.mark.parametrize(
+    "bad_id",
+    [
+        "mock-rec-id",  # by-type INSERT 실패분의 명시적 강등 id — DB 행이 없다
+        "bytype-f1000000-0000-0000-0000-000000000001",  # 구버전 프런트가 보관 중인 옛 합성 id
+    ],
+)
+def test_feedback_non_uuid_recommendation_id_404(auth_client, bad_id):
+    # 비-UUID recommendation_id 는 uuid 컬럼 캐스팅 500 대신 깔끔한 404.
+    # (by-type 브라우즈는 이제 노출을 전부 저장하고 실제 UUID 를 돌려주므로 정상 흐름은
+    #  이 가드에 걸리지 않는다 — 저장 실패분의 "mock-rec-id" 만 남는다.)
     res = auth_client.post(
         "/api/v1/feedback",
-        json={
-            "recommendation_id": "bytype-f1000000-0000-0000-0000-000000000001",
-            "action": "accepted_visit_intent",
-        },
+        json={"recommendation_id": bad_id, "action": "accepted_visit_intent"},
     )
     assert res.status_code == 404
 

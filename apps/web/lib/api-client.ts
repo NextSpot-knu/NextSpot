@@ -589,6 +589,12 @@ export interface ParsePreferenceResult {
   vectorUpdated: boolean;
   categoriesSaved: boolean;
   llmStatus?: "keyword" | "llm" | "llm_failed" | "disabled";
+  // 서버가 **실제로 반영했는가.** 2xx 만 보고 '반영했어요' 라고 말하면 안 된다 —
+  // 아무 선호도 못 알아들었을 때 서버는 아무것도 쓰지 않고 200 을 돌려준다(그렇게 고쳤다.
+  // 예전에는 빈 결과로 학습된 벡터를 전 카테고리 평균으로 덮어썼다).
+  // 구버전 백엔드는 이 필드를 안 준다 — undefined 는 '모른다' 이므로 종전대로 성공 처리한다.
+  applied?: boolean;
+  reason?: "no_preference_detected" | "storage_unavailable";
 }
 
 /**
@@ -610,7 +616,10 @@ export async function parseTravelContext(text: string): Promise<ParseTravelConte
   return apiClient.post("/api/v1/travel-context/parse", { text });
 }
 
-// --- 음성 비서 1턴 해석 (백엔드 키워드 분류기) ---
+// --- 음성 비서 1턴 해석 ---
+// 로컬 전용이 아니다: 백엔드가 먼저 키워드로 판정하고(accept·next·stop·details·select·command 면
+// 외부 호출 0), **분류되지 않은 발화와 filter 턴만** Upstage 로 나간다(발화 원문·현재 추천 이름·
+// 후보 가게 이름 포함). 키가 없거나 차단·실패면 전송 없이 폴백한다.
 
 export interface VoiceTurnCandidate {
   id: string;
