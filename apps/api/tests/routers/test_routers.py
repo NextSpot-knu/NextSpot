@@ -76,10 +76,24 @@ class _FakeResult:
 
 
 class FakeTable:
-    """어떤 체이닝 메서드 호출이든 self 를 반환하고, execute() 에서 canned 데이터를 준다."""
+    """어떤 체이닝 메서드 호출이든 self 를 반환하고, execute() 에서 canned 데이터를 준다.
+
+    예외가 둘 있다 — `.range()` 와 **1,000행 캡**은 흡수하지 않고 실제로 흉내 낸다.
+    흡수해 버리면 이 페이크는 PostgREST 가 절대 하지 않는 일(단일 응답으로 전량 반환)을
+    하게 되고, 그러면 **절단 결함이 있는 라우터도 테스트를 통과한다.** 실제로 그랬다:
+    시설 1,200곳으로 도는 simulate-peak 테스트 두 건이 초록이었지만, 프로덕션(1,664곳)에서
+    라우터가 실제로 받는 것은 1,000곳뿐이었다.
+    """
+
+    CAP = 1000  # PostgREST 단일 응답 상한 — 오류가 아니라 조용히 잘린 200 이 온다.
 
     def __init__(self, data):
         self._data = data
+        self._range: tuple[int, int] | None = None
+
+    def range(self, start, end):
+        self._range = (start, end)
+        return self
 
     def __getattr__(self, _name):
         def _chain(*_args, **_kwargs):
@@ -88,7 +102,11 @@ class FakeTable:
         return _chain
 
     def execute(self):
-        return _FakeResult(self._data)
+        rows = self._data
+        if self._range is not None:
+            start, end = self._range
+            rows = rows[start : end + 1]
+        return _FakeResult(rows[: self.CAP])
 
 
 class FakeSupabase:

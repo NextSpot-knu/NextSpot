@@ -373,8 +373,19 @@ async def simulate_peak(admin_claims: dict = Depends(require_role(ROLE_ADMIN))):
     """
     try:
         # 1. 모든 시설 목록 가져오기
-        res = await asyncio.to_thread(supabase_client.table("facilities").select("id, name, type, capacity").execute)
-        facilities = res.data
+        #
+        # **fetch_all_rows 여야 한다.** 단발 select 는 PostgREST 캡에 걸려 1,000곳만 돌려주는데,
+        # 오류가 아니라 200 이라 아무도 모른다. 프로덕션 시설은 1,664곳이므로 시연에서 이 버튼을
+        # 눌러도 664곳은 혼잡 로그를 받지 못한 채 지도에 '데이터 없음' 으로 남는다 —
+        # 위 독스트링이 말하는 "전 시설" 도, 아래 비율 배정(앞 40%/35%/25%)도 그만큼 거짓이 된다.
+        # id 로 정렬해 페이지 경계에서 행이 중복·누락되지 않게 한다(전순서 보장).
+        facilities = await asyncio.to_thread(
+            fetch_all_rows,
+            supabase_client,
+            "facilities",
+            "id, name, type, capacity",
+            apply_filters=lambda q: q.order("id"),
+        )
         if not facilities:
             raise HTTPException(status_code=404, detail="시설 목록을 찾을 수 없습니다.")
         
