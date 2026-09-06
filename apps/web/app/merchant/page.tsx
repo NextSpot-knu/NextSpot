@@ -14,6 +14,7 @@ import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Store, ChevronRight, Loader2, LogOut, Clock, ShieldAlert } from 'lucide-react';
 import { createPublicClient } from '@/lib/supabase';
+import { escapeLikeTerm } from '@/lib/facilitySearch';
 import { useT } from '@/lib/i18n/I18nProvider';
 import { useAccount, canEnterMerchantConsole, type OwnedFacility } from '@/lib/account';
 import {
@@ -190,6 +191,12 @@ function DeveloperFacilityPicker({ onPick }: { onPick: (f: MerchantFacility) => 
   const [total, setTotal] = useState<number | null>(null);
   const [page, setPage] = useState(0);
   const [busy, setBusy] = useState(false);
+  // 조회 자체가 실패했는가. '결과 없음' 과 반드시 구분한다 — 같은 저장소의 lib/facilitySearch.ts
+  // 가 같은 이유로 failed 플래그를 둔다(그쪽 주석에 사고 사례가 적혀 있다).
+  // 예전에는 실패해도 rows=[] 만 남아 화면이 "조건에 맞는 가게가 없어요" 라고 말했다.
+  const [failed, setFailed] = useState(false);
+  // 사람이 눌러 다시 조회하기 위한 토큰(자동 무한 재시도가 아니다).
+  const [reloadToken, setReloadToken] = useState(0);
 
   // 필터가 바뀌면 첫 페이지부터 다시 — 안 그러면 이전 조건의 페이지가 이어 붙는다.
   useEffect(() => {
@@ -207,10 +214,15 @@ function DeveloperFacilityPicker({ onPick }: { onPick: (f: MerchantFacility) => 
           .select('id, name, type', { count: 'exact' })
           .order('name')
           .range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1);
-        if (term) query = query.ilike('name', `%${term}%`);
+        // LIKE 메타문자를 값으로 되돌린다 — 안 하면 사용자가 친 '%'·'_' 가 와일드카드가 되어
+        // 엉뚱한 가게가 딸려 온다(lib/facilitySearch.ts 가 같은 이유로 같은 헬퍼를 쓴다).
+        if (term) query = query.ilike('name', `%${escapeLikeTerm(term)}%`);
         if (type) query = query.eq('type', type);
-        const { data, count } = await query;
+        // supabase-js 는 쿼리 오류를 **던지지 않고** error 로 돌려준다 — 이걸 읽지 않으면
+        // try/catch 가 있어도 실패가 조용히 '결과 0건' 이 된다(원래 버그의 절반이 이것이었다).
+        const { data, count, error } = await query;
         if (!alive) return;
+        if (error) throw error;
         const mapped = (data ?? []).map((r) => ({
           id: String(r.id),
           name: String(r.name ?? ''),
@@ -220,8 +232,13 @@ function DeveloperFacilityPicker({ onPick }: { onPick: (f: MerchantFacility) => 
         // 첫 페이지는 갈아끼우고, 이후 페이지는 이어 붙인다.
         setRows((prev) => (page === 0 ? mapped : [...prev, ...mapped]));
         setTotal(typeof count === 'number' ? count : null);
+        setFailed(false);
       } catch {
-        if (alive && page === 0) {
+        if (!alive) return;
+        setFailed(true);
+        // 이어붙이기(page>0) 실패는 이미 받아 둔 목록을 지우지 않는다 — 보이던 가게가 사라지면
+        // 그것대로 '없어졌다' 는 거짓말이 된다.
+        if (page === 0) {
           setRows([]);
           setTotal(null);
         }
@@ -233,9 +250,10 @@ function DeveloperFacilityPicker({ onPick }: { onPick: (f: MerchantFacility) => 
       alive = false;
       clearTimeout(timer);
     };
-  }, [q, type, page]);
+  }, [q, type, page, reloadToken]);
 
-  const hasMore = total !== null && rows.length < total;
+  // 총 건수를 못 받은(실패한) 상태에서 '더 보기' 를 권하지 않는다.
+  const hasMore = !failed && total !== null && rows.length < total;
 
   return (
     <div className="mt-4 border-t border-line pt-4">
@@ -303,7 +321,21 @@ function DeveloperFacilityPicker({ onPick }: { onPick: (f: MerchantFacility) => 
           </button>
         )}
 
-        {!busy && rows.length === 0 && (
+        {/* 실패와 '결과 없음' 은 다른 말을 한다. 실패에는 다시 시도할 길을 붙인다. */}
+        {!busy && failed && (
+          <div className="flex flex-col items-center gap-2 py-3">
+            <p className="text-center text-xs text-terracotta">{t('common.error')}</p>
+            <button
+              type="button"
+              onClick={() => setReloadToken((n) => n + 1)}
+              className="min-h-9 rounded-lg border border-line px-3 py-1.5 text-xs font-semibold text-muk-soft hover:bg-hanji focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/40"
+            >
+              {t('common.retry')}
+            </button>
+          </div>
+        )}
+
+        {!busy && !failed && rows.length === 0 && (
           <p className="py-3 text-center text-xs text-muk-soft">{t('merchantGate.developerEmpty')}</p>
         )}
       </div>

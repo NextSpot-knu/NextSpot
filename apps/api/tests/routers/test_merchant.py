@@ -327,7 +327,11 @@ def test_merchant_seat_status_clear_removes_key(client):
     body = res.json()
     assert body["facility_id"] == "f-1"
     assert body["level"] is None
-    assert "updated_at" in body  # 응답 형태는 기존 3키 그대로
+    assert "updated_at" in body  # 기존 3키는 그대로(응답 봉투 불변)
+    # 해제에는 남길 관측 자체가 없다 — '기록 실패(False)' 와 구분해 None 으로 준다.
+    assert body["observation_logged"] is None
+    assert body["observation_note"] is None
+    assert "congestion_log" not in captured
 
     # DB 에 기록된 features 에서 seat_status(중첩 updated_at 포함)가 사라지고 나머지는 보존.
     written = captured["payload"]["features"]
@@ -375,6 +379,103 @@ def test_merchant_seat_status_save_still_writes_key(client):
     assert log["evidence_tier"] == "verified"
     assert log["congestion_level"] == pytest.approx(0.5)
     assert log["current_count"] == 20
+    # 둘 다 성공했음을 응답이 말해 준다(성공을 침묵으로 표현하지 않는다).
+    assert res.json()["observation_logged"] is True
+    assert res.json()["observation_note"] is None
+
+
+# =========================================================================
+# 5-2. 부분 커밋(감사 P1) — 좌석 방송은 두 테이블에 나눠 쓰는데 트랜잭션이 없다.
+# 예전에는 둘을 한 try 로 묶어, 두 번째(congestion_logs)가 깨지면 500 을 던졌다.
+# 그런데 첫 번째(facilities)는 이미 커밋된 뒤였다 — 손님 화면의 좌석 상태는 바뀌었는데
+# 사장님 화면만 '실패' 라고 말했고, 다시 눌러도 같은 일이 반복됐다.
+# 아래 두 테스트가 '주 효과=방송' 이라는 판단과 그 실패 보고 방식을 잠근다.
+# =========================================================================
+
+
+class _LogFailingSupabase(_CapturingFacilitiesSupabase):
+    """facilities 갱신은 성공하고 congestion_logs insert 만 터지는 배포 상황 재현."""
+
+    def table(self, name: str):
+        if name == "congestion_logs":
+            class _Raising(FakeTable):
+                def insert(self, _payload):
+                    return self
+
+                def execute(self):
+                    raise RuntimeError('relation "congestion_logs" is unavailable')
+
+            return _Raising([])
+        return super().table(name)
+
+
+def test_merchant_seat_status_log_failure_keeps_broadcast_and_reports_it(client):
+    """관측 로그가 실패해도 방송은 살아 있고, 응답이 그 사실을 숨기지 않는다.
+
+    되돌리면(두 쓰기를 한 try 로 다시 묶으면) 이 테스트는 500 을 받아 실패한다.
+    """
+    facility = {"id": "f-1", "capacity": 40, "features": {"average_processing_time": 10}}
+    captured: dict = {}
+    with patch(
+        "app.routers.merchant.supabase_admin",
+        new=_LogFailingSupabase(facility, captured),
+    ):
+        res = client.post(
+            "/api/v1/merchant/seat-status",
+            headers=_merchant_headers(),
+            json={"facility_id": "f-1", "level": "low"},
+        )
+
+    # 주 효과(화면에 보이는 좌석 상태)는 실제로 커밋됐다 — 실패라고 말하지 않는다.
+    assert res.status_code == 200
+    assert captured["payload"]["features"]["seat_status"]["level"] == "low"
+
+    body = res.json()
+    assert body["level"] == "low"
+    # 그러나 조용히 삼키지도 않는다 — 무엇이 빠졌는지 응답에 실어 보낸다.
+    assert body["observation_logged"] is False
+    assert body["observation_note"]
+    assert "관측" in body["observation_note"]
+
+
+def test_merchant_seat_status_facilities_failure_is_still_500(client):
+    """반대로 '주 효과' 인 facilities 갱신이 깨지면 그건 진짜 실패다 — 200 으로 넘기지 않는다."""
+
+    class _UpdateRaisingTable(FakeTable):
+        """update() 를 거친 체인만 터진다 — select(존재 확인)는 정상 통과시킨다."""
+
+        def __init__(self, data):
+            super().__init__(data)
+            self._is_update = False
+
+        def update(self, _payload):
+            self._is_update = True
+            return self
+
+        def execute(self):
+            if self._is_update:
+                raise RuntimeError("update failed")
+            return _FakeResult(self._data)
+
+    class _UpdateFailingSupabase(_CapturingFacilitiesSupabase):
+        def table(self, name: str):
+            if name == "facilities":
+                return _UpdateRaisingTable([self._facility])
+            return super().table(name)
+
+    captured: dict = {}
+    with patch(
+        "app.routers.merchant.supabase_admin",
+        new=_UpdateFailingSupabase({"id": "f-1", "capacity": 40, "features": {}}, captured),
+    ):
+        res = client.post(
+            "/api/v1/merchant/seat-status",
+            headers=_merchant_headers(),
+            json={"facility_id": "f-1", "level": "full"},
+        )
+    assert res.status_code == 500
+    # 관측 로그는 시도조차 하지 않는다(방송이 없었으니 남길 관측도 없다).
+    assert "congestion_log" not in captured
 
 
 def test_merchant_seat_status_clear_facility_404(client):

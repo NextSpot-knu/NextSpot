@@ -221,6 +221,10 @@ async def get_briefing(facility_id: str, ctx: dict = Depends(merchant_context)):
 # ⚠️ 동시 활성 세일: 발행을 막지 않는다(기존 동작 유지). 다만 오버레이가 활성 세일 중 **최댓값**
 #   rate 만 쓰므로, 방금 발행한 세일이 곧바로 적용되지 않을 수 있다 — 응답에 실제 적용 할인율을
 #   함께 실어 프런트가 사장님에게 안내하게 한다(아래 _active_timesale_rates 참조).
+#   소비처(2026-09-06 확인): apps/web/lib/merchant/api.ts 의 timesalePublishNotice() 가 이 세
+#   필드를 읽고, dashboard/page.tsx 의 TimesaleSection 이 발행 토스트 + 인라인 안내로 띄운다.
+#   ⚠️ 그전까지 프런트는 이 필드를 **한 번도 읽지 않았다** — 이 주석이 거짓이었다. 필드를
+#   지우거나 이름을 바꾸면 저 두 곳도 함께 고칠 것(안 그러면 다시 거짓말이 된다).
 # =========================================================================
 
 
@@ -393,6 +397,8 @@ async def cancel_timesale(req: TimesaleCancel, ctx: dict = Depends(merchant_cont
 # level=null 이면 해제 — features 에서 seat_status 키를 통째로 제거한다(타임스탬프가 그 안에
 # 중첩돼 있어 별도 정리 대상은 없다). 사장님이 "지금은 모르겠다" 로 되돌릴 수 있어야,
 # 오래된 방송이 30분간 랭킹에 남는 상황을 스스로 끊을 수 있다.
+# 쓰기는 두 번이고 **주 효과는 facilities 갱신 하나뿐**이다(congestion_logs 관측은 부수 효과) —
+# 둘을 한 트랜잭션으로 묶을 수 없어서 생기는 문제와 그 판단 근거는 아래 함수 본문 주석 참조.
 # =========================================================================
 
 
@@ -428,16 +434,48 @@ async def update_seat_status(req: SeatStatusUpdate, ctx: dict = Depends(merchant
     else:
         new_features = {**current_features, "seat_status": {"level": req.level, "updated_at": updated_at}}
 
+    # ── 주 효과(①): 화면에 보이는 좌석 상태. 이게 실패하면 방송 자체가 실패다 → 500.
     try:
         upd = await asyncio.to_thread(
             supabase_admin.table("facilities").update({"features": new_features}).eq("id", req.facility_id).execute
         )
         if not upd.data:
             raise HTTPException(status_code=500, detail="좌석 상태 갱신에 실패했습니다.")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("merchant_seat_status_update_failed", facility_id=req.facility_id, error=str(e))
+        raise HTTPException(status_code=500, detail="좌석 상태 갱신에 실패했습니다.")
 
+    # ── 부수 효과(②): 시계열 관측 1행. 여기부터는 **어떤 실패도 500 이 아니다.**
+    #
+    # [왜 이렇게 나눴나 — 2026-09 감사 P1]
+    # 예전에는 ①②를 한 try 로 묶어, ②가 깨지면 except 가 500 "좌석 상태 갱신에 실패했습니다" 를
+    # 던졌다. 그런데 ①은 이미 커밋된 뒤였다(두 테이블에 걸친 트랜잭션이 없다 — PostgREST 를
+    # 통해 각각 별개 요청으로 나간다). 결과는 최악의 조합이었다: 손님 화면의 좌석 상태는 바뀌어
+    # 있는데 사장님 화면은 '실패' 라고 말한다. 사장님은 다시 누르고, 또 절반만 되고, 시계열
+    # 관측만 계속 빠진다. **틀린 실패 보고가 옳은 성공 보고보다 나쁘다** — 사장님이 사실과
+    # 다른 상태를 믿고 행동하게 만들기 때문이다.
+    #
+    # 그래서 '주 효과' 를 ①로 정했다. 사장님이 이 버튼으로 하려는 일은 **지금 우리 가게 상태를
+    # 방송하는 것**이고, ②는 그 방송에서 파생된 기록이다. ①이 성공했으면 방송은 실제로 일어났고,
+    # ②의 실패는 그것을 취소할 이유가 못 된다. 게다가 되돌릴 수단도 없다 — 보상 update 를 쏘면
+    # 그 자체가 또 실패할 수 있고, 그 사이 들어온 다른 갱신을 덮어쓴다.
+    #
+    # 순서를 뒤집어 ②를 먼저 쓰는 안(떠도는 관측 1행은 무해하다)은 택하지 않았다. 그러면 ②가
+    # 성공하고 ①이 실패했을 때 사장님의 본래 목적(방송)만 통째로 실패하고, 재시도할 때마다
+    # evidence_tier='verified' 관측이 중복으로 쌓인다 — 학습 정답에 같은 시각의 같은 제보가
+    # 여러 번 들어가는 편이 관측 1건이 빠지는 것보다 나쁘다고 봤다.
+    #
+    # 대신 **조용히 삼키지 않는다**: 실패 사실을 응답에 실어 사장님에게 그대로 전한다
+    # (이 저장소 원칙 — 실패를 '없음' 과 같은 값으로 표현하지 않는다).
+    #   observation_logged: True=기록됨 / False=기록 실패 / None=해당 없음(해제 요청)
+    observation_logged: bool | None = None
+    observation_note: str | None = None
+    if req.level is not None:
         # 화면용 최신 상태와 별개로 시계열 관측을 남긴다. 매장 운영자가 직접 확인한
         # 좌석 방송은 MVP의 가장 빠른 현장 관측이므로 공식 학습 가능한 verified 로 기록한다.
-        if req.level is not None:
+        try:
             normalized_level = SEAT_LEVEL_CONGESTION[req.level]
             capacity = int(fac_res.data[0].get("capacity") or 0)
             await asyncio.to_thread(
@@ -454,15 +492,28 @@ async def update_seat_status(req: SeatStatusUpdate, ctx: dict = Depends(merchant
                     "reporter_user_id": (ctx.get("profile") or {}).get("id"),
                 }).execute
             )
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error("merchant_seat_status_update_failed", facility_id=req.facility_id, error=str(e))
-        raise HTTPException(status_code=500, detail="좌석 상태 갱신에 실패했습니다.")
+            # insert 결과가 비었는지는 보지 않는다 — PostgREST 의 returning 설정에 따라 정상
+            # 성공에도 빈 배열이 올 수 있어, 그걸 실패로 읽으면 매 방송마다 거짓 경보가 된다.
+            # 여기서 확실히 아는 실패는 '예외가 났다' 뿐이므로 그것만 False 로 보고한다.
+            observation_logged = True
+        except Exception as e:
+            logger.error("merchant_seat_status_log_failed", facility_id=req.facility_id, error=str(e))
+            observation_logged = False
+            observation_note = (
+                "좌석 상태 방송은 정상 반영됐지만, 이 방송을 시계열 관측 기록으로 남기지 못했습니다. "
+                "손님 화면과 추천에는 지금 상태가 그대로 쓰입니다."
+            )
 
     logger.info(
         "merchant_seat_status_cleared" if req.level is None else "merchant_seat_status_updated",
-        facility_id=req.facility_id, level=req.level,
+        facility_id=req.facility_id, level=req.level, observation_logged=observation_logged,
     )
-    # 응답 형태 불변(기존 3키) — 해제 시 level=None, updated_at 은 '해제한 시각'.
-    return {"facility_id": req.facility_id, "level": req.level, "updated_at": updated_at}
+    # 기존 3키는 그대로 두고(응답 봉투 불변) 관측 기록 결과만 덧붙인다 — 해제 시 level=None,
+    # updated_at 은 '해제한 시각'.
+    return {
+        "facility_id": req.facility_id,
+        "level": req.level,
+        "updated_at": updated_at,
+        "observation_logged": observation_logged,
+        "observation_note": observation_note,
+    }

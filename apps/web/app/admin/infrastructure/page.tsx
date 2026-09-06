@@ -12,6 +12,13 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import { createPublicClient } from '@/lib/supabase';
 import { adminApi } from '@/lib/admin-api';
 import { errorMessage } from '@/lib/errors';
+import {
+  chunk,
+  facilityStatusKey,
+  facilityStatusLabel,
+  observedLevel,
+  type FacilityCongestion,
+} from '@/lib/adminMetricState';
 import { toast } from 'sonner';
 
 // --- Types ---
@@ -19,11 +26,31 @@ interface Infrastructure {
   id: string;
   name: string;
   type: '음식점' | '카페' | '관광지' | '문화시설';
-  status: 'blue' | 'green' | 'yellow' | 'orange';
-  level: number; // 최신 혼잡도(0~1) — 이상 알림 판정·Override 초기값에 사용
-  hasObservation: boolean;
+  // 최신 혼잡 상태. '관측 없음'(none)과 '조회 실패'(unavailable)를 level=0 으로 뭉개지 않는다 —
+  // 예전 코드는 둘 다 0.0 으로 만들어 '한산' 으로 그렸고, 그건 없는 사실을 만들어내는 것이었다.
+  congestion: FacilityCongestion;
   capacity: string;
-  expectedDemand: string;
+}
+
+// facilities 에서 화면이 실제로 쓰는 컬럼만 고른다. select('*') 는 features(파이프라인 출처 기록)까지
+// 1,600행 분량으로 끌고 와 브라우저·Supabase 양쪽에 불필요한 부하를 준다.
+const FACILITY_COLUMNS = 'id, name, type, capacity';
+// PostgREST 는 단일 응답 행수를 기본 1000 으로 캡한다. 실측 시설 수가 1,664 라
+// select 한 번으로는 664곳이 **조용히** 누락된다(2026-09-06 프로덕션 확인).
+const FACILITY_PAGE_SIZE = 1000;
+// 무한 루프 방지 상한(= 20,000곳). 도달하면 페이지네이션이 잘못된 것이므로 멈춘다.
+const MAX_FACILITY_PAGES = 20;
+// latest_congestion_for_facilities 는 시설당 최대 1행을 돌려주므로 500개씩 끊으면 캡에 걸리지 않는다.
+const CONGESTION_CHUNK_SIZE = 500;
+
+// latest_congestion_for_facilities RPC 반환 행(snake_case 그대로).
+interface LatestCongestionRow {
+  facility_id: string;
+  congestion_level: number | null;
+  current_count: number | null;
+  timestamp: string;
+  source: string | null;
+  evidence_tier: string | null;
 }
 
 // 이상(anomaly) 알림 임계치 — 최신 혼잡도가 이 값 이상이면 관리자 알림 대상(포화 위험).
@@ -45,18 +72,19 @@ interface IngestRequest {
   created_at: string;
 }
 
-// 데모 폴백: 백엔드가 비어있거나 응답이 없을 때 보여줄 샘플 시설(데모 페이지 무중단).
-const DEMO_FACILITIES: Infrastructure[] = [];
-
 export default function InfrastructurePage() {
   const [facilities, setFacilities] = useState<Infrastructure[]>([]);
   const [selectedInfra, setSelectedInfra] = useState<Infrastructure | null>(null);
   const [chartData, setChartData] = useState<ChartDataPoint[]>([]);
+  const [chartError, setChartError] = useState<string | null>(null); // 추이 조회 실패 ≠ 오늘 기록 없음
   const [activeFilter, setActiveFilter] = useState('음식점');
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
   const [loading, setLoading] = useState(true);
+  // 시설 목록 조회 실패와 최신 혼잡도 조회 실패는 서로 다른 사실이라 따로 보관한다.
+  // (목록은 왔는데 혼잡만 못 가져온 경우, 목록은 그대로 쓰고 혼잡 칸만 '조회 실패' 로 그린다.)
   const [error, setError] = useState<string | null>(null);
+  const [congestionError, setCongestionError] = useState<string | null>(null);
   // 검색(클라이언트 필터)·알림 드롭다운·Override 모달 UI 상태
   const [searchQuery, setSearchQuery] = useState('');
   const [notifOpen, setNotifOpen] = useState(false);
@@ -105,85 +133,112 @@ export default function InfrastructurePage() {
     }
   };
 
+  // 시설 목록 전체를 페이지네이션으로 받는다(PostgREST 1000행 캡 회피).
+  // order('id') 없이 range 를 쓰면 페이지 경계에서 행이 중복/누락될 수 있으므로 정렬을 고정한다.
+  const fetchAllFacilities = useCallback(async () => {
+    const rows: { id: string; name: string; type: string; capacity: number }[] = [];
+    for (let page = 0; page < MAX_FACILITY_PAGES; page++) {
+      const from = page * FACILITY_PAGE_SIZE;
+      const { data, error: fError } = await supabase
+        .from('facilities')
+        .select(FACILITY_COLUMNS)
+        .order('id', { ascending: true })
+        .range(from, from + FACILITY_PAGE_SIZE - 1);
+      if (fError) throw fError;
+      const batch = data || [];
+      rows.push(...batch);
+      if (batch.length < FACILITY_PAGE_SIZE) return rows;
+    }
+    // 상한까지 채웠다면 목록이 잘린 것이다. 잘린 목록을 정상인 척 반환하지 않는다.
+    throw new Error(`시설 목록이 상한(${MAX_FACILITY_PAGES * FACILITY_PAGE_SIZE}곳)을 넘었습니다. 페이지네이션을 확인하세요.`);
+  }, [supabase]);
+
+  // 시설 1,600여 곳의 최신 혼잡을 **묶어서** 조회한다.
+  //
+  // 예전에는 시설마다 congestion_logs 를 limit(1) 로 병렬 조회했다 — 화면 한 번 여는 데
+  // 1,664 요청이 브라우저와 Supabase 양쪽을 때렸다. DB 에는 이미 같은 일을 한 번에 하는
+  // latest_congestion_for_facilities(DISTINCT ON) RPC 가 있다(20260820123000 마이그레이션).
+  //
+  // 필터가 같은지 확인하고 바꿨다: RPC 는 evidence_tier IN (single_report, corroborated,
+  // verified) 로 예전 쿼리와 동일하게 거르고, 여기에 source NOT IN ('seed','simulated') 가
+  // 더 붙는다. 프로덕션의 seed 행은 전부 evidence_tier='synthetic' 이라(2026-09-06 확인:
+  // seed 1,352행 전부 synthetic) 예전 쿼리에서도 이미 제외되던 행들이다 — 표시 결과는 같다.
+  const fetchLatestCongestion = useCallback(async (ids: string[]) => {
+    const byFacility = new Map<string, LatestCongestionRow>();
+    // RPC 도 PostgREST 응답 캡(1000행)을 받는다. 시설당 1행이므로 500개씩이면 안전하다.
+    const responses = await Promise.all(
+      chunk(ids, CONGESTION_CHUNK_SIZE).map(async (part) => {
+        const { data, error: rpcError } = await supabase
+          .rpc('latest_congestion_for_facilities', { facility_ids: part });
+        if (rpcError) throw rpcError;
+        return (data || []) as LatestCongestionRow[];
+      })
+    );
+    for (const rows of responses) {
+      for (const row of rows) byFacility.set(String(row.facility_id), row);
+    }
+    return byFacility;
+  }, [supabase]);
+
   const fetchFacilities = useCallback(async (isSilent = false) => {
     if (!isSilent) setLoading(true);
     try {
-      // 1. 모든 인프라 조회
-      const { data: facilitiesData, error: fError } = await supabase
-        .from('facilities')
-        .select('*');
-      
-      if (fError) throw fError;
+      const facilityRows = await fetchAllFacilities();
+      const ids = facilityRows.map((f) => String(f.id));
 
-      // 2. 각 인프라별 최신 congestion log 조회
-      const mappedInfras = await Promise.all(
-        (facilitiesData || []).map(async (f) => {
-          const { data: logs, error: lError } = await supabase
-            .from('congestion_logs')
-            .select('current_count, congestion_level, timestamp, source, evidence_tier')
-            .eq('facility_id', f.id)
-            .in('evidence_tier', ['single_report', 'corroborated', 'verified'])
-            .order('timestamp', { ascending: false })
-            .limit(1);
+      // 혼잡 조회는 시설 목록과 **별개 실패 경로**다. 여기서 실패해도 시설 목록 자체는
+      // 살아 있으므로 목록을 지우지 않고, 혼잡 칸만 '조회 실패' 로 표시한다.
+      let latest: Map<string, LatestCongestionRow> | null = null;
+      try {
+        latest = await fetchLatestCongestion(ids);
+        setCongestionError(null);
+      } catch (err) {
+        console.warn('최신 혼잡도 일괄 조회 실패:', err);
+        setCongestionError(errorMessage(err) || '최신 혼잡도를 불러오지 못했습니다.');
+      }
 
-          if (lError) throw lError;
+      const typeMap: Record<string, '음식점' | '카페' | '관광지' | '문화시설'> = {
+        restaurant: '음식점',
+        cafe: '카페',
+        attraction: '관광지',
+        culture: '문화시설',
+      };
 
-          const latestLog = logs && logs.length > 0 ? logs[0] : null;
-          const level = latestLog ? latestLog.congestion_level : 0.0;
-          const currentCount = latestLog?.source === 'traffic_cctv' ? latestLog.current_count : null;
+      const mappedInfras: Infrastructure[] = facilityRows.map((f) => {
+        const latestLog = latest ? latest.get(String(f.id)) ?? null : null;
+        const congestion: FacilityCongestion =
+          latest === null
+            ? { kind: 'unavailable' }      // 혼잡 조회 자체가 실패 — '한산' 이 아니다
+            : latestLog && latestLog.congestion_level != null
+              ? { kind: 'observed', level: latestLog.congestion_level }
+              : { kind: 'none' };          // 조회는 됐고, 이 시설엔 아직 관측이 없다
+        // 인원 수는 CCTV 계수일 때만 실측이다(제보/관리자 개입은 정원×비율 추정값).
+        const currentCount = latestLog?.source === 'traffic_cctv' ? latestLog.current_count : null;
+        return {
+          id: String(f.id),
+          name: f.name,
+          type: typeMap[f.type] || '관광지',
+          congestion,
+          capacity: currentCount == null ? `${f.capacity} 정원 · 인원 미계수` : `${currentCount}/${f.capacity}`,
+        };
+      });
 
-          // 타입 매핑
-          const typeMap: Record<string, '음식점' | '카페' | '관광지' | '문화시설'> = {
-            restaurant: '음식점',
-            cafe: '카페',
-            attraction: '관광지',
-            culture: '문화시설'
-          };
-          const mappedType = typeMap[f.type] || '관광지';
-
-          // 상태 매핑 (orange, yellow, green, blue)
-          let status: 'blue' | 'green' | 'yellow' | 'orange' = 'blue';
-          if (level >= 0.75) status = 'orange';
-          else if (level >= 0.50) status = 'yellow';
-          else if (level >= 0.25) status = 'green';
-
-          const expectedDemand = !latestLog ? '관측 대기'
-            : level >= 0.75 ? '혼잡'
-            : level >= 0.5 ? '보통'
-            : level >= 0.25 ? '여유'
-            : '한산';
-
-          return {
-            id: f.id,
-            name: f.name,
-            type: mappedType,
-            status,
-            level,
-            hasObservation: !!latestLog,
-            capacity: currentCount == null ? `${f.capacity} 정원 · 인원 미계수` : `${currentCount}/${f.capacity}`,
-            expectedDemand
-          } as Infrastructure;
-        })
-      );
-
-      // 실데이터가 비면 데모 시설로 대체(데모 페이지 무중단).
-      const finalInfras = mappedInfras.length > 0 ? mappedInfras : DEMO_FACILITIES;
-      setFacilities(finalInfras);
+      setError(null);
+      setFacilities(mappedInfras);
       setSelectedInfra(prev => {
-        if (!prev) return finalInfras[0];
-        const updated = finalInfras.find(item => item.id === prev.id);
-        return updated || finalInfras[0];
+        if (!prev) return mappedInfras[0] ?? null;
+        const updated = mappedInfras.find(item => item.id === prev.id);
+        return updated || mappedInfras[0] || null;
       });
     } catch (err) {
-      // 백엔드 실패/타임아웃 — 에러 대신 데모 데이터로 폴백(데모 무중단).
-      console.warn('인프라 실데이터 로드 실패 — 데모 데이터로 대체:', err);
-      setError(null);
-      setFacilities(DEMO_FACILITIES);
-      setSelectedInfra(prev => prev || DEMO_FACILITIES[0]);
+      // 시설 목록 조회 실패 — 빈 목록으로 두면 '등록된 장소가 없습니다' 로 읽힌다.
+      // 마지막으로 받아둔 목록은 지우지 않고(알림 배지가 0건으로 거짓말하지 않도록) 오류를 표시한다.
+      console.warn('시설 목록 로드 실패:', err);
+      setError(errorMessage(err) || '시설 목록을 불러오지 못했습니다.');
     } finally {
       if (!isSilent) setLoading(false);
     }
-  }, [supabase]);
+  }, [fetchAllFacilities, fetchLatestCongestion]);
 
   const fetchChartData = useCallback(async (facilityId: string) => {
     try {
@@ -215,9 +270,12 @@ export default function InfrastructurePage() {
       });
 
       setChartData(formatted);
+      setChartError(null);
     } catch (err) {
+      // 빈 배열로 두면 '오늘 기록이 없다' 로 읽힌다 — 실패는 실패라고 적는다.
       console.warn('차트 실데이터 로드 실패:', err);
       setChartData([]);
+      setChartError(errorMessage(err) || '혼잡도 추이를 불러오지 못했습니다.');
     }
   }, [supabase]);
 
@@ -242,9 +300,14 @@ export default function InfrastructurePage() {
   });
 
   // 이상 알림: 이미 로드된 시설 데이터에서 임계치 이상 시설만(혼잡도 내림차순). 추가 백엔드 호출 없음.
+  // 관측이 없거나 조회에 실패한 시설은 판정 대상이 아니다(0 으로 간주해 '정상' 처리하지 않는다 —
+  // 판정 불가라는 사실은 아래 드롭다운의 경고 문구가 따로 알린다).
   const anomalies = facilities
-    .filter(infra => infra.level >= ANOMALY_THRESHOLD)
+    .map(infra => ({ infra, level: observedLevel(infra.congestion) }))
+    .filter((row): row is { infra: Infrastructure; level: number } => row.level !== null && row.level >= ANOMALY_THRESHOLD)
     .sort((a, b) => b.level - a.level);
+  // 혼잡도를 못 가져왔으면 '이상 0건' 은 판정 결과가 아니라 판정 불가다.
+  const anomalyJudgementBlocked = congestionError !== null || error !== null;
 
   const totalItems = filteredInfras.length;
   const totalPages = Math.ceil(totalItems / itemsPerPage) || 1;
@@ -261,20 +324,24 @@ export default function InfrastructurePage() {
     }
   };
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
+  // 상태 점 색. unknown(관측 없음/조회 실패)은 혼잡 등급 색을 쓰지 않고 회색 테두리만 둔다 —
+  // 색이 같으면 '측정된 한산' 과 구분이 안 된다.
+  const getStatusColor = (c: FacilityCongestion) => {
+    switch (facilityStatusKey(c)) {
       case 'orange': return 'bg-orange-500';
       case 'yellow': return 'bg-amber-500';
       case 'green': return 'bg-emerald-500';
       case 'blue': return 'bg-gold';
-      default: return 'bg-gray-500';
+      default: return 'bg-transparent border border-dashed border-hanok-muted';
     }
   };
 
   // 관리자 액션: 수동 혼잡도 설정(Override) — 모달을 열어 레벨 선택. 현재 혼잡도를 슬라이더 초기값으로.
   const handleOverride = () => {
     if (!selectedInfra) return;
-    setOverrideLevel(Math.round(Math.min(1, Math.max(0, selectedInfra.level || 0)) * 100));
+    // 관측이 없거나 조회에 실패했으면 초기값을 지어내지 않고 슬라이더 중앙(50%)에서 시작한다.
+    const level = observedLevel(selectedInfra.congestion);
+    setOverrideLevel(level === null ? 50 : Math.round(Math.min(1, Math.max(0, level)) * 100));
     setOverrideOpen(true);
   };
 
@@ -362,6 +429,12 @@ export default function InfrastructurePage() {
                     {anomalies.length}
                   </span>
                 )}
+                {/* 배지가 아예 없으면 '이상 없음' 으로 읽힌다 — 판정 불가는 다른 표시가 필요하다. */}
+                {anomalies.length === 0 && anomalyJudgementBlocked && (
+                  <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 rounded-full bg-amber-500 text-white text-[11px] font-bold flex items-center justify-center">
+                    !
+                  </span>
+                )}
               </button>
               {notifOpen && (
                 <>
@@ -380,13 +453,21 @@ export default function InfrastructurePage() {
                       </span>
                       <span className="text-xs text-hanok-muted">{anomalies.length}건</span>
                     </div>
+                    {anomalyJudgementBlocked && (
+                      <div className="px-4 py-3 border-b border-hanok-line bg-amber-500/10 text-xs text-amber-300">
+                        {error
+                          ? '시설 목록을 불러오지 못해 이상 여부를 판정할 수 없습니다.'
+                          : '최신 혼잡도를 불러오지 못해 이상 여부를 판정할 수 없습니다.'}
+                        {' '}아래 목록은 판정 가능한 시설만 보여줍니다.
+                      </div>
+                    )}
                     {anomalies.length === 0 ? (
                       <div className="px-4 py-8 text-center text-sm text-hanok-muted">
-                        현재 이상 혼잡 시설이 없습니다.
+                        {anomalyJudgementBlocked ? '판정할 수 있는 시설이 없습니다.' : '현재 이상 혼잡 시설이 없습니다.'}
                       </div>
                     ) : (
                       <ul className="py-1">
-                        {anomalies.map(infra => (
+                        {anomalies.map(({ infra, level }) => (
                           <li key={infra.id}>
                             <button
                               onClick={() => openAnomaly(infra)}
@@ -402,7 +483,7 @@ export default function InfrastructurePage() {
                                 </span>
                               </span>
                               <span className="text-sm font-bold text-terracotta flex-shrink-0">
-                                {Math.round(infra.level * 100)}%
+                                {Math.round(level * 100)}%
                               </span>
                             </button>
                           </li>
@@ -491,6 +572,12 @@ export default function InfrastructurePage() {
                 ))}
               </div>
             </div>
+            {/* 목록은 왔지만 혼잡도만 못 가져온 경우 — 모든 시설이 '관측 대기' 로 보이는 이유를 밝힌다. */}
+            {!loading && !error && congestionError && (
+              <div className="mx-4 mt-4 px-3 py-2 rounded-lg border border-amber-500/30 bg-amber-500/10 text-xs text-amber-300">
+                최신 혼잡도를 불러오지 못했습니다 — 아래 혼잡 상태는 &lsquo;없음&rsquo;이 아니라 &lsquo;모름&rsquo;입니다. ({congestionError})
+              </div>
+            )}
             <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-3">
               {loading ? (
                 <div className="flex flex-col items-center justify-center h-48 text-hanok-muted">
@@ -501,10 +588,13 @@ export default function InfrastructurePage() {
                 <div className="p-4 text-center text-red-400 bg-red-500/10 rounded-xl border border-red-500/30">
                   <AlertTriangle className="mx-auto mb-2" size={24} />
                   <p className="text-sm font-semibold">{error}</p>
+                  <p className="text-xs text-hanok-muted mt-2">목록이 비어 있는 것은 등록된 장소가 없다는 뜻이 아닙니다.</p>
                 </div>
               ) : filteredInfras.length === 0 ? (
                 <div className="text-center p-8 text-hanok-muted">
-                  등록된 장소가 없습니다.
+                  {searchQuery.trim()
+                    ? `'${searchQuery.trim()}' 검색 결과가 없습니다.`
+                    : `등록된 ${activeFilter}이(가) 없습니다.`}
                 </div>
               ) : (
                 paginatedInfras.map(infra => (
@@ -524,10 +614,19 @@ export default function InfrastructurePage() {
                         </span>
                         <h3 className="font-bold text-hanok-ink">{infra.name}</h3>
                       </div>
-                      <div className={`w-3 h-3 rounded-full ${getStatusColor(infra.status)} mt-1`} />
+                      <div
+                        title={facilityStatusLabel(infra.congestion)}
+                        className={`w-3 h-3 rounded-full ${getStatusColor(infra.congestion)} mt-1`}
+                      />
                     </div>
                     <div className="text-sm text-hanok-muted flex justify-between mt-3">
                       <span>수용 현황: {infra.capacity}</span>
+                      {/* 혼잡 등급이 없는 시설은 '한산' 이 아니라 그 사실을 글자로 적는다. */}
+                      {infra.congestion.kind !== 'observed' && (
+                        <span className={infra.congestion.kind === 'unavailable' ? 'text-amber-400' : ''}>
+                          {facilityStatusLabel(infra.congestion)}
+                        </span>
+                      )}
                     </div>
                   </div>
                 ))
@@ -604,11 +703,17 @@ export default function InfrastructurePage() {
                   <div className="flex flex-col items-end">
                     <div className="text-sm font-semibold text-hanok-muted mb-1">현재 상태</div>
                     <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-hanok-card border border-hanok-line">
-                      <div className={`w-3 h-3 rounded-full ${getStatusColor(selectedInfra.status)}`} />
-                      <span className="text-sm font-bold text-hanok-ink">
-                        {selectedInfra.status === 'orange' ? '혼잡' : selectedInfra.status === 'yellow' ? '보통' : selectedInfra.status === 'green' ? '여유' : '한산'}
+                      <div className={`w-3 h-3 rounded-full ${getStatusColor(selectedInfra.congestion)}`} />
+                      {/* 관측이 없거나 조회에 실패했을 때 '한산' 으로 단정하던 자리 — 사실대로 적는다. */}
+                      <span className={`text-sm font-bold ${selectedInfra.congestion.kind === 'observed' ? 'text-hanok-ink' : 'text-hanok-muted'}`}>
+                        {facilityStatusLabel(selectedInfra.congestion)}
                       </span>
                     </div>
+                    {selectedInfra.congestion.kind === 'observed' && (
+                      <div className="text-xs text-hanok-muted mt-1 tabular-nums">
+                        최신 혼잡도 {Math.round(selectedInfra.congestion.level * 100)}%
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -624,10 +729,15 @@ export default function InfrastructurePage() {
                   <div className="bg-hanok-panel p-6 rounded-2xl border border-hanok-line shadow-sm border-l-4 border-l-gold">
                     <div className="flex items-center gap-2 text-hanok-muted mb-2">
                       <Activity size={18} />
-                      <span className="font-semibold text-sm">예상 수요 (온보딩 데이터 기반)</span>
+                      <span className="font-semibold text-sm">수요 수준 (최신 관측 기준)</span>
                     </div>
-                    <div className="text-lg font-bold text-gold">{selectedInfra.expectedDemand}</div>
-                    <p className="text-xs text-hanok-muted mt-1">유저의 선호 메뉴 및 동선 데이터 분석 결과</p>
+                    {/* 이 값은 최신 congestion_logs 한 건을 등급으로 환산한 것이다.
+                        예전 라벨('온보딩 데이터 기반' / '선호 메뉴·동선 분석 결과')은 코드가 하는 일과
+                        달랐다 — 온보딩 선호 데이터는 이 계산에 한 줄도 들어가지 않는다. */}
+                    <div className={`text-lg font-bold ${selectedInfra.congestion.kind === 'observed' ? 'text-gold' : 'text-hanok-muted'}`}>
+                      {facilityStatusLabel(selectedInfra.congestion)}
+                    </div>
+                    <p className="text-xs text-hanok-muted mt-1">최신 혼잡 관측 1건을 등급으로 환산한 값입니다.</p>
                   </div>
                 </div>
 
@@ -638,7 +748,13 @@ export default function InfrastructurePage() {
                     시간대별 혼잡도 추이 (금일)
                   </h3>
                   <div className="flex-1 w-full">
-                    {chartData.length === 0 ? (
+                    {chartError ? (
+                      <div className="flex flex-col items-center justify-center h-full gap-1 text-center px-4">
+                        <AlertTriangle className="text-amber-400" size={20} />
+                        <p className="text-sm font-semibold text-amber-300">추이를 불러오지 못했습니다</p>
+                        <p className="text-xs text-hanok-muted">{chartError}</p>
+                      </div>
+                    ) : chartData.length === 0 ? (
                       <div className="flex items-center justify-center h-full text-hanok-muted">
                         오늘 기록된 혼잡도 데이터가 없습니다.
                       </div>

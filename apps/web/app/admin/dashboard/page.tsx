@@ -16,6 +16,14 @@ import { AreaDemandReliabilityPanel } from '@/components/admin/AreaDemandReliabi
 import { DataFreshnessBadge } from '@/components/admin/DataFreshnessBadge';
 
 import { adminApi, getDashboardBriefing } from '@/lib/admin-api';
+import {
+  changeBadge,
+  congestionMetric,
+  metricsMetric,
+  type AdminMetric,
+  type CongestionSlice,
+  type MetricsSlice,
+} from '@/lib/adminMetricState';
 
 // ── 로컬 타입 정의 ──────────────────────────────────────────────────────────
 // admin-api.ts 는 snake_case→camelCase 변환을 하지 않으므로(해당 파일 상단 주석 참조),
@@ -26,6 +34,14 @@ interface AnomalyAlert {
   timestamp: string;
   congestionLevel: number;
   durationMinutes: number;
+}
+// 히트맵 셀 — DashboardCharts.tsx 의 동명 타입 미러(그쪽은 export 하지 않는다).
+// value: null = 그 시간대에 로그가 없음(실측 0.00 과 구분되는 센티넬).
+interface HeatmapCell {
+  facility: string;
+  facilityType: string;
+  hour: number;
+  value: number | null;
 }
 // GET /api/v1/admin/metrics 응답 (apps/api/app/routers/admin.py get_metrics)
 interface MetricsRecommendation {
@@ -45,6 +61,32 @@ interface AdminMetricsResponse {
 // 섹션별 로딩 스켈레톤 — 전면 스피너 게이트 제거 후, 각 지표가 준비될 때까지 자리에 표시한다.
 function Skeleton({ className = '' }: { className?: string }) {
   return <div className={`animate-pulse rounded-md bg-hanok-line/60 ${className}`} />;
+}
+
+// KPI 숫자 자리의 '실패' 표시 — 0 대신 '—' 와 붉은 배지를 둔다.
+// 관리자는 이 타일 하나로 판단하므로, 못 가져온 것을 0 으로 그리면 '문제 없음' 으로 읽힌다.
+function MetricUnavailable({ hint }: { hint: string }) {
+  return (
+    <div className="flex items-center gap-2 cursor-help" title={hint}>
+      <span className="text-3xl font-black text-hanok-muted leading-none">—</span>
+      <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-rose-500/15 text-rose-300 border border-rose-500/30">
+        조회 실패
+      </span>
+    </div>
+  );
+}
+
+// KPI 숫자 자리의 '표본 없음' 표시 — 조회는 됐지만 계산할 데이터가 없다는 뜻.
+// 실패와도, 실측 0 과도 다른 사실이라 셋을 각각 다른 모양으로 그린다.
+function MetricNoSample({ hint }: { hint: string }) {
+  return (
+    <div className="flex items-center gap-2 cursor-help" title={hint}>
+      <span className="text-3xl font-black text-hanok-muted leading-none">—</span>
+      <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-hanok-card text-hanok-muted border border-hanok-line">
+        표본 없음
+      </span>
+    </div>
+  );
 }
 
 // 30일 수요 분산 '예시' 추이(데모) — 실측(metrics/trend) 표본이 3일 미만일 때의 폴백 전용.
@@ -155,36 +197,49 @@ async function withColdStartRetry<T>(fn: () => Promise<T>): Promise<T> {
 // 산식(KST 오늘 구간·평균·이상건수·히트맵·이상알림)은 서버(admin.py get_dashboard_today)가 단일 소스로 보유한다.
 // 실패 시 예외를 그대로 전파 → 호출부 .catch 가 0/빈 값 슬라이스로 강등(기존 동작 유지). 추천 수락률/DAU 는
 // fetchMetrics 로 분리해 이 슬라이스와 병렬 로드한다.
-async function fetchCongestion() {
+//
+// (*1) '전일 대비' 배지의 라벨 대 계산 — 라벨을 계산에 맞췄다.
+// 서버(admin.py get_dashboard_today)의 changePercent 는 **오늘 KST 00:00~현재까지 쌓인 로그의
+// 평균**을 **어제 하루 전체 평균**과 비교한다(어제 구간은 오늘 구간을 통째로 하루 민 것이라
+// 항상 온종일이다). 즉 '동시간대' 비교가 아니라 부분 하루 vs 온종일 비교다. 예전 라벨은
+// '전일 동시간대 평균 대비' 였고, 그건 사실이 아니었다 — 아침에 보면 언제나 큰 감소로 읽혔다.
+//
+// 계산을 라벨(동시간대)에 맞추지 않은 이유: 계산은 서버 소유이고, 어제를 '같은 시각까지' 로
+// 자르면 지표의 정의 자체가 바뀐다(과거 값들과 비교 불가). 프런트에서 몰래 바꿀 일이 아니다.
+// 그래서 여기서는 **라벨을 사실에 맞추고**, 부분 하루 비교라는 편향을 툴팁에 명시했다.
+// 지표 정의를 '동시간대' 로 바꿀지는 사람이 결정할 문제다(보고서 참조).
+async function fetchCongestion(): Promise<CongestionSlice> {
   return withColdStartRetry(() => adminApi.get('/api/v1/admin/dashboard/today'));
 }
 
 // 추천 수락률(최근 7일)/DAU(오늘) 슬라이스 — recommendations/user_feedback 은 RLS 강화로 anon 열람이
 // 막혀(20260707 security_hardening) 관리자 API(/admin/metrics, service_role) 경유(WS-A-6).
-// 혼잡 집계와 별개 슬라이스라 병렬 로드하며, 실패 시 null(호출부에서 0/빈 값으로 강등).
-async function fetchMetrics() {
+// 혼잡 집계와 별개 슬라이스라 병렬 로드한다.
+//
+// 예외를 **잡지 않고 그대로 던진다**: 예전에는 여기서 catch 해 { acceptRate: null, activeUsers: null }
+// 을 돌려줬는데, 그러면 호출부에서 '조회 실패' 와 '지난 7일 추천이 0건(표본 없음)' 이 완전히 같은
+// 값이 되어 화면에 똑같이 0.0% / 0명으로 찍혔다. 실패는 호출부의 .catch 가 failed 슬라이스로 표시한다.
+// (지표별 null 은 이제 '표본 없음' 만 뜻한다.)
+async function fetchMetrics(): Promise<MetricsSlice> {
   const { start, end } = getKstTodayRangeUtc();
-  try {
-    const weekAgo = new Date(new Date(start).getTime() - 6 * 24 * 60 * 60 * 1000).toISOString();
-    const metrics: AdminMetricsResponse = await withColdStartRetry(() => adminApi.get('/api/v1/admin/metrics?days=8'));
-    let acceptRate: { value: number; total: number; accepted: number } | null = null;
-    let activeUsers: number | null = null;
-    const recs = (metrics?.recommendations || []).filter(
-      (r: MetricsRecommendation) => r.created_at >= weekAgo && r.created_at <= end
-    );
-    if (recs.length > 0) {
-      const total = recs.length;
-      const accepted = recs.filter((r: MetricsRecommendation) => r.accepted).length;
-      acceptRate = { value: Math.round((accepted / total) * 1000) / 1000, total, accepted };
-    }
-    const fb = (metrics?.feedback || []).filter(
-      (f: MetricsFeedback) => f.timestamp >= start && f.timestamp <= end
-    );
-    if (fb.length > 0) activeUsers = new Set(fb.map((f: MetricsFeedback) => f.user_id)).size;
-    return { acceptRate, activeUsers };
-  } catch {
-    return { acceptRate: null, activeUsers: null }; // 백엔드 미기동/권한 차이 시 폴백
+  const weekAgo = new Date(new Date(start).getTime() - 6 * 24 * 60 * 60 * 1000).toISOString();
+  const metrics: AdminMetricsResponse = await withColdStartRetry(() => adminApi.get('/api/v1/admin/metrics?days=8'));
+  let acceptRate: { value: number; total: number; accepted: number } | null = null;
+  let activeUsers: number | null = null;
+  const recs = (metrics?.recommendations || []).filter(
+    (r: MetricsRecommendation) => r.created_at >= weekAgo && r.created_at <= end
+  );
+  if (recs.length > 0) {
+    const total = recs.length;
+    const accepted = recs.filter((r: MetricsRecommendation) => r.accepted).length;
+    acceptRate = { value: Math.round((accepted / total) * 1000) / 1000, total, accepted };
   }
+  const fb = (metrics?.feedback || []).filter(
+    (f: MetricsFeedback) => f.timestamp >= start && f.timestamp <= end
+  );
+  // 피드백 0건은 '오늘 활동한 사용자가 없음'(실측 0)이지 '모름' 이 아니다.
+  activeUsers = new Set(fb.map((f: MetricsFeedback) => f.user_id)).size;
+  return { acceptRate, activeUsers };
 }
 
 // ③ 분산 효과 30일 추이 슬라이스 — /admin/metrics/trend(KST 일별 실측: 일평균 혼잡도·추천 수락률).
@@ -228,8 +283,9 @@ async function fetchBriefing(): Promise<string | null> {
 export default function DashboardPage() {
   // 슬라이스별 상태 — 혼잡 집계(오늘/어제 로그)와 추천/DAU 지표를 각각 독립 보관해 준비되는 대로 렌더한다
   // (전면 스피너 게이트 제거 → 섹션별 스켈레톤). null = 아직 로딩 중.
-  const [congestion, setCongestion] = useState<any>(null); // { hasLogs, avgCongestion, anomalyCount, heatmap, anomalies }
-  const [metrics, setMetrics] = useState<any>(null);        // { acceptRate, activeUsers }
+  // failed:true 는 '조회 실패' 전용 표식이다 — 표본 부족(hasLogs=false)과 반드시 구분해 그린다.
+  const [congestion, setCongestion] = useState<CongestionSlice | null>(null);
+  const [metrics, setMetrics] = useState<MetricsSlice | null>(null);
   // 30일 분산 효과 — 실측(metrics/trend)이 충분하면 live, 빈약하면 데모 폴백(fetchTrend 참조). null = 로딩 중.
   const [distribution, setDistribution] = useState<{ mode: 'live' | 'demo'; rows: any[] } | null>(null);
   // 오늘의 브리핑(AI) — null 이면 카드 미렌더(로딩 중/스킵/폐기/장애 모두 동일 취급, 스켈레톤 없음).
@@ -251,12 +307,17 @@ export default function DashboardPage() {
     const congestionTask = fetchCongestion()
       .then((c) => { if (mountedRef.current) setCongestion(c); })
       .catch((err) => {
-        console.warn('혼잡 집계 조회 실패, 0/빈 값으로 대체:', err);
-        if (mountedRef.current) setCongestion({ hasLogs: false, avgCongestion: null, anomalyCount: null, heatmap: null, anomalies: null });
+        // 실패를 '표본 없음'(hasLogs=false)으로 강등하지 않는다. 그렇게 하면 관리자 화면에
+        // 0.0% / 0건이 찍히고, 그건 '문제 없음' 으로 읽힌다.
+        console.warn('혼잡 집계 조회 실패:', err);
+        if (mountedRef.current) setCongestion({ failed: true });
       });
     const metricsTask = fetchMetrics()
       .then((m) => { if (mountedRef.current) setMetrics(m); })
-      .catch(() => { if (mountedRef.current) setMetrics({ acceptRate: null, activeUsers: null }); });
+      .catch((err) => {
+        console.warn('추천 수락률/DAU 조회 실패:', err);
+        if (mountedRef.current) setMetrics({ failed: true });
+      });
     const trendTask = fetchTrend()
       .then((t) => { if (mountedRef.current) setDistribution(t); })
       .catch(() => { if (mountedRef.current) setDistribution({ mode: 'demo', rows: buildDemoDistribution() }); });
@@ -271,33 +332,39 @@ export default function DashboardPage() {
     loadData();
   }, [loadData]);
 
-  // 슬라이스 → 렌더 파생값. 도착 전에는 0/빈 값으로 두고, *Ready 로 스켈레톤 표시 여부를 판별한다.
-  const congestionReady = congestion !== null;
-  const metricsReady = metrics !== null;
-  const kpi = {
-    avgCongestion: congestion?.avgCongestion ?? { value: 0, changePercent: 0 },
-    anomalyCount: congestion?.anomalyCount ?? 0,
-    acceptRate: metrics?.acceptRate ?? { value: 0, total: 0, accepted: 0 },
-    activeUsers: metrics?.activeUsers ?? 0,
-  };
-  const heatmap = congestion?.heatmap ?? [];
-  const anomalies = congestion?.anomalies ?? [];
+  // 슬라이스 → 지표별 표시 상태(로딩/실패/표본없음/정상). 예전에는 여기서 `?? 0` 으로 뭉개서
+  // 세 경우가 화면에 똑같이 0 으로 찍혔다 — 판정은 lib/adminMetricState.ts 에 두고 테스트로 고정한다.
+  const congestionFailed = congestion?.failed === true;
+  const avgCongestion = congestionMetric(congestion, (s) => s.avgCongestion ?? null);
+  const anomalyCount = congestionMetric(congestion, (s) => s.anomalyCount ?? null);
+  const acceptRate = metricsMetric(metrics, (s) => s.acceptRate ?? null);
+  const activeUsers = metricsMetric(metrics, (s) => s.activeUsers ?? null);
+  const heatmap = (congestion?.heatmap ?? []) as HeatmapCell[];
+  const anomalies = (congestion?.anomalies ?? []) as AnomalyAlert[];
 
   // 정적 export 에는 서버 라우트(/api/admin/export)가 없으므로, 현재 로드된 데이터로
   // 클라이언트에서 CSV 를 생성해 다운로드한다(엑셀 한글 깨짐 방지를 위해 BOM 부착).
   const handleExportCsv = () => {
     try {
+      // 화면과 같은 규칙으로 내보낸다 — 못 가져온 값을 0 으로 적으면 CSV 를 받아 본 사람은
+      // '측정값 0' 으로 읽는다. 실패/표본 없음은 숫자 대신 사유 문자열로 적는다.
+      const cell = <T,>(m: AdminMetric<T>, fmt: (v: T) => string) =>
+        m.status === 'ok' ? fmt(m.value) : m.status === 'failed' ? '조회 실패' : m.status === 'empty' ? '표본 없음' : '로딩 중';
       const lines: string[] = [];
       lines.push('구분,항목,값');
-      lines.push(`KPI,오늘 평균 혼잡도(%),${(kpi.avgCongestion.value * 100).toFixed(1)}`);
-      lines.push(`KPI,AI 추천 수락률(%),${(kpi.acceptRate.value * 100).toFixed(1)}`);
-      lines.push(`KPI,활성 사용자(DAU),${kpi.activeUsers}`);
-      lines.push(`KPI,이상 혼잡 발생(건),${kpi.anomalyCount}`);
+      lines.push(`KPI,오늘 평균 혼잡도(%),${cell(avgCongestion, (v) => (v.value * 100).toFixed(1))}`);
+      lines.push(`KPI,AI 추천 수락률(%),${cell(acceptRate, (v) => (v.value * 100).toFixed(1))}`);
+      lines.push(`KPI,활성 사용자(DAU),${cell(activeUsers, (v) => String(v))}`);
+      lines.push(`KPI,이상 혼잡 발생(건),${cell(anomalyCount, (v) => String(v))}`);
       lines.push('');
       lines.push('시설명,유형,시간(시),혼잡도(%)');
+      if (congestionFailed) {
+        lines.push('(혼잡 로그 조회 실패 — 아래 표는 비어 있습니다),,,');
+      }
       for (const c of heatmap) {
         const name = String(c.facility).replace(/[",\n]/g, ' ');
-        lines.push(`${name},${c.facilityType},${c.hour},${Math.round((c.value ?? 0) * 100)}`);
+        // value === null 은 그 시간대에 로그가 없다는 뜻 — 0 이 아니라 빈 칸으로 남긴다.
+        lines.push(`${name},${c.facilityType},${c.hour},${c.value == null ? '' : Math.round(c.value * 100)}`);
       }
       const csv = '﻿' + lines.join('\n');
       const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
@@ -342,8 +409,12 @@ export default function DashboardPage() {
             </div>
             <button className="relative text-hanok-muted hover:text-hanok-ink">
               <Bell size={24} />
-              {kpi.anomalyCount > 0 && (
-                <span className="absolute top-1 right-1 w-2.5 h-2.5 bg-rose-500 rounded-full border-2 border-hanok-line"></span>
+              {/* 이상 건수를 못 가져온 경우에도 점을 찍되 색을 달리한다 — 점이 없으면 '이상 없음' 으로 읽힌다. */}
+              {anomalyCount.status === 'ok' && anomalyCount.value > 0 && (
+                <span title={`이상 혼잡 ${anomalyCount.value}건`} className="absolute top-1 right-1 w-2.5 h-2.5 bg-rose-500 rounded-full border-2 border-hanok-line"></span>
+              )}
+              {anomalyCount.status === 'failed' && (
+                <span title="이상 혼잡 건수를 가져오지 못했습니다" className="absolute top-1 right-1 w-2.5 h-2.5 bg-amber-400 rounded-full border-2 border-hanok-line"></span>
               )}
             </button>
             <div className="w-10 h-10 rounded-full bg-gold/15 border border-gold/30 flex items-center justify-center font-bold text-gold">
@@ -406,27 +477,50 @@ export default function DashboardPage() {
                   <Activity size={24} />
                 </div>
                 <div className="flex items-center gap-2">
-                  {congestionReady ? (
-                    <span
-                      title="전일 동시간대 평균 대비 변화율입니다. 음수(초록)면 혼잡이 줄어든 것으로 분산 효과를 의미합니다."
-                      className={`px-2 py-1 text-xs font-bold rounded-full cursor-help ${kpi.avgCongestion.changePercent < 0 ? 'bg-emerald-500/15 text-emerald-300' : 'bg-rose-500/15 text-rose-300'}`}
-                    >
-                      {kpi.avgCongestion.changePercent > 0 ? '+' : ''}{kpi.avgCongestion.changePercent}%
-                    </span>
-                  ) : (
+                  {/* 변화율 배지는 평균 혼잡도가 '정상' 일 때만 그린다. 실패/표본 없음일 때
+                      0% 배지를 띄우면 '어제와 같다' 는 없는 사실을 만들어낸다. */}
+                  {avgCongestion.status === 'loading' ? (
                     <Skeleton className="h-6 w-12" />
-                  )}
-                  <InfoTip text="오늘(KST) 수집된 혼잡 로그의 평균 혼잡도입니다. 시설 정원 대비 실시간 인원 비율을 0~100%로 환산해 평균낸 값입니다." />
+                  ) : avgCongestion.status === 'ok' ? (
+                    (() => {
+                      const badge = changeBadge(avgCongestion.value.changePercent);
+                      return (
+                        <span
+                          title={
+                            badge.tone === 'flat'
+                              ? '전일 대비 변화가 없거나, 전일 혼잡 로그가 없어 비교 기준이 없는 경우입니다(백엔드가 두 경우를 모두 0으로 내려보냅니다).'
+                              // 라벨을 계산에 맞춘다 — 계산은 서버(admin.py get_dashboard_today) 소유이고,
+                              // 계산을 바꾸면 지표의 정의 자체가 바뀐다. 아래 주석(*1) 참조.
+                              : "오늘 '현재까지' 평균 혼잡도를 전일 '하루 전체' 평균과 비교한 값입니다. 오늘 구간은 아직 하루의 일부라, 이른 시간일수록 감소 쪽으로 크게 보입니다."
+                          }
+                          className={`px-2 py-1 text-xs font-bold rounded-full cursor-help ${
+                            badge.tone === 'decrease'
+                              ? 'bg-emerald-500/15 text-emerald-300'
+                              : badge.tone === 'increase'
+                                ? 'bg-rose-500/15 text-rose-300'
+                                : 'bg-hanok-card text-hanok-muted border border-hanok-line'
+                          }`}
+                        >
+                          {badge.text}
+                        </span>
+                      );
+                    })()
+                  ) : null}
+                  <InfoTip text="오늘(KST) 수집된 혼잡 로그의 평균 혼잡도입니다. 시설 정원 대비 실시간 인원 비율을 0~100%로 환산해 평균낸 값입니다. 비교 배지는 전일 '하루 전체' 평균 대비입니다." />
                 </div>
               </div>
               <div>
                 <h3 className="text-hanok-muted text-sm font-semibold mb-1">오늘 평균 혼잡도</h3>
-                {congestionReady ? (
-                  <div className="text-3xl font-black text-hanok-ink">
-                    {(kpi.avgCongestion.value * 100).toFixed(1)}%
-                  </div>
-                ) : (
+                {avgCongestion.status === 'loading' ? (
                   <Skeleton className="h-9 w-24 mt-1" />
+                ) : avgCongestion.status === 'failed' ? (
+                  <MetricUnavailable hint="혼잡 집계 조회에 실패했습니다. 값이 0이라는 뜻이 아닙니다." />
+                ) : avgCongestion.status === 'empty' ? (
+                  <MetricNoSample hint="오늘(KST) 수집된 혼잡 로그가 5건 미만이라 평균을 계산하지 않았습니다." />
+                ) : (
+                  <div className="text-3xl font-black text-hanok-ink">
+                    {(avgCongestion.value.value * 100).toFixed(1)}%
+                  </div>
                 )}
               </div>
             </div>
@@ -444,17 +538,21 @@ export default function DashboardPage() {
               </div>
               <div>
                 <h3 className="text-hanok-muted text-sm font-semibold mb-1">AI 추천 수락률</h3>
-                {metricsReady ? (
-                  <>
-                    <div className="text-3xl font-black text-hanok-ink">
-                      {(kpi.acceptRate.value * 100).toFixed(1)}%
-                    </div>
-                    <div className="text-xs text-hanok-muted mt-1">총 {kpi.acceptRate.total}건 중 {kpi.acceptRate.accepted}건 수락</div>
-                  </>
-                ) : (
+                {acceptRate.status === 'loading' ? (
                   <>
                     <Skeleton className="h-9 w-24 mt-1" />
                     <Skeleton className="h-3 w-32 mt-2" />
+                  </>
+                ) : acceptRate.status === 'failed' ? (
+                  <MetricUnavailable hint="추천 지표 조회에 실패했습니다. 수락률이 0%라는 뜻이 아닙니다." />
+                ) : acceptRate.status === 'empty' ? (
+                  <MetricNoSample hint="지난 7일간 생성된 추천이 0건이라 수락률을 계산할 수 없습니다." />
+                ) : (
+                  <>
+                    <div className="text-3xl font-black text-hanok-ink">
+                      {(acceptRate.value.value * 100).toFixed(1)}%
+                    </div>
+                    <div className="text-xs text-hanok-muted mt-1">총 {acceptRate.value.total}건 중 {acceptRate.value.accepted}건 수락</div>
                   </>
                 )}
               </div>
@@ -470,12 +568,17 @@ export default function DashboardPage() {
               </div>
               <div>
                 <h3 className="text-hanok-muted text-sm font-semibold mb-1">활성 사용자 수 (DAU)</h3>
-                {metricsReady ? (
-                  <div className="text-3xl font-black text-hanok-ink">
-                    {kpi.activeUsers.toLocaleString()}명
-                  </div>
-                ) : (
+                {activeUsers.status === 'loading' ? (
                   <Skeleton className="h-9 w-20 mt-1" />
+                ) : activeUsers.status === 'failed' ? (
+                  <MetricUnavailable hint="지표 조회에 실패했습니다. 오늘 활성 사용자가 0명이라는 뜻이 아닙니다." />
+                ) : activeUsers.status === 'empty' ? (
+                  <MetricNoSample hint="오늘(KST) 피드백 데이터를 계산할 수 없습니다." />
+                ) : (
+                  // 0명은 실측값이다(조회 성공 + 오늘 피드백 0건) — 실패와 다른 모양으로 그대로 보여준다.
+                  <div className="text-3xl font-black text-hanok-ink">
+                    {activeUsers.value.toLocaleString()}명
+                  </div>
                 )}
               </div>
             </div>
@@ -490,12 +593,17 @@ export default function DashboardPage() {
               </div>
               <div>
                 <h3 className="text-hanok-muted text-sm font-semibold mb-1">이상 혼잡 발생 (오늘)</h3>
-                {congestionReady ? (
-                  <div className="text-3xl font-black text-rose-600">
-                    {kpi.anomalyCount}건
-                  </div>
-                ) : (
+                {anomalyCount.status === 'loading' ? (
                   <Skeleton className="h-9 w-16 mt-1" />
+                ) : anomalyCount.status === 'failed' ? (
+                  <MetricUnavailable hint="혼잡 집계 조회에 실패했습니다. 이상 혼잡이 0건이라는 뜻이 아닙니다." />
+                ) : anomalyCount.status === 'empty' ? (
+                  <MetricNoSample hint="오늘(KST) 수집된 혼잡 로그가 5건 미만이라 이상 건수를 셀 수 없습니다." />
+                ) : (
+                  // 0건은 실측값이다(로그가 있고 임계치 초과가 없었다).
+                  <div className="text-3xl font-black text-rose-600">
+                    {anomalyCount.value}건
+                  </div>
                 )}
               </div>
             </div>
@@ -504,9 +612,18 @@ export default function DashboardPage() {
           {/* 관제 핵심 히트맵 — 개입(simulate-peak)이 바꾸는 화면이므로 개입 행 '위'에 배치해
               스크롤 없이 보이게 한다. id 앵커: '모의 발생' 성공 후 이 영역으로 스크롤해 분산 변화를 즉시 보여준다. */}
           <div id="congestion-heatmap" className="grid grid-cols-4 gap-6 scroll-mt-4">
-            {congestionReady
-              ? <DashboardHeatmap heatmapData={heatmap} />
-              : <Skeleton className="col-span-4 min-h-[500px] rounded-2xl" />}
+            {congestion === null ? (
+              <Skeleton className="col-span-4 min-h-[500px] rounded-2xl" />
+            ) : congestionFailed ? (
+              // 실패를 빈 히트맵으로 그리면 '오늘 아무 일도 없었다' 로 읽힌다.
+              <div className="col-span-4 min-h-[240px] rounded-2xl border border-rose-500/30 bg-rose-500/5 flex flex-col items-center justify-center gap-2 text-center p-8">
+                <AlertTriangle className="text-rose-400" size={28} />
+                <p className="text-sm font-bold text-rose-300">혼잡 집계를 불러오지 못했습니다</p>
+                <p className="text-xs text-hanok-muted">히트맵이 비어 있는 것은 데이터가 없다는 뜻이 아닙니다. 새로고침하거나 백엔드 상태를 확인하세요.</p>
+              </div>
+            ) : (
+              <DashboardHeatmap heatmapData={heatmap} />
+            )}
           </div>
 
           {/* ───────── 폐루프 ② 정책 개입 · ③ 분산 효과 ───────── (아래 행의 두 컬럼에 각각 정렬) */}
@@ -556,6 +673,14 @@ export default function DashboardPage() {
               </div>
               <div className="flex-1 p-4 overflow-y-auto">
                 <div className="flex flex-col gap-3">
+                  {/* 조회 실패는 '알림 없음' 과 다른 사실이라 별도 문구로 그린다. */}
+                  {congestionFailed && (
+                    <div className="p-4 rounded-xl border border-rose-500/30 bg-rose-500/5 text-center">
+                      <AlertTriangle className="mx-auto mb-2 text-rose-400" size={20} />
+                      <p className="text-sm font-semibold text-rose-300">알림 내역을 불러오지 못했습니다</p>
+                      <p className="text-xs text-hanok-muted mt-1">이상 알림이 없다는 뜻이 아닙니다.</p>
+                    </div>
+                  )}
                   {anomalies.map((alert: AnomalyAlert) => (
                     <div key={alert.id} className="p-4 rounded-xl border border-rose-500/15 bg-rose-500/10 flex flex-col gap-2 relative overflow-hidden">
                       <div className="absolute left-0 top-0 bottom-0 w-1 bg-rose-500"></div>
@@ -571,12 +696,14 @@ export default function DashboardPage() {
                       </div>
                     </div>
                   ))}
-                  {congestionReady && anomalies.length === 0 && (
+                  {congestion !== null && !congestionFailed && anomalies.length === 0 && (
                     <div className="text-center text-hanok-muted py-10 text-sm">
-                      현재 발생한 이상 알림이 없습니다.
+                      {congestion.hasLogs
+                        ? '현재 발생한 이상 알림이 없습니다.'
+                        : '오늘 수집된 혼잡 로그가 없어 판정할 수 없습니다.'}
                     </div>
                   )}
-                  {!congestionReady && [0, 1, 2].map((i) => (
+                  {congestion === null && [0, 1, 2].map((i) => (
                     <Skeleton key={i} className="h-20 rounded-xl" />
                   ))}
                 </div>

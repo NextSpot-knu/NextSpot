@@ -51,7 +51,11 @@ import {
   clearSeatStatus,
   fetchFacilityCongestionForecast,
   fetchMerchantBriefing,
+  forecastHonestNote,
+  timesalePublishNotice,
+  hasTimesaleOverlapNotice,
   MerchantApiError,
+  MerchantForecastUnavailableError,
   type MerchantStats,
   type MerchantTimesale,
   type SeatLevel,
@@ -209,6 +213,19 @@ function SkeletonBlock({ heightClass = 'h-24' }: { heightClass?: string }) {
   return <div className={`w-full ${heightClass} rounded-xl bg-hanji-deep animate-pulse`} />;
 }
 
+// 다시 눌러도 결과가 달라지지 않는 실패 전용 안내 — **재시도 버튼을 붙이지 않는다.**
+// ErrorFallback 과 색도 다르게 간다: 사장님이 고칠 수 있는 일이 아니라 서버가 아직 준비되지
+// 않은 상태이므로, 빨간 오류가 아니라 회색 '지금은 불가' 로 보이는 편이 사실에 가깝다.
+function UnavailableNotice({ title, message, detail }: { title: string; message: string; detail?: string | null }) {
+  return (
+    <div className="flex flex-col items-center gap-1.5 py-8 px-3 text-center">
+      <p className="text-sm font-bold text-muk">{title}</p>
+      <p className="text-xs text-muk-soft leading-relaxed">{message}</p>
+      {detail && <p className="text-[11px] text-muk-soft/80 leading-relaxed">{detail}</p>}
+    </div>
+  );
+}
+
 // =========================================================================
 // AI 브리핑 카드(P1-5) — GET /api/v1/merchant/briefing 후행(비차단) fetch.
 // 예측 섹션 렌더를 막지 않는 독립 카드다: 로딩 중·실패·briefing=null 이면 아무것도 렌더하지
@@ -262,15 +279,27 @@ function ForecastSection({ facilityId }: { facilityId: string }) {
   const [state, setState] = useState<AsyncState>('loading');
   const [points, setPoints] = useState<HourlyCongestionPoint[]>([]);
   const [errorMessage, setErrorMessage] = useState('');
+  // 다시 눌러도 소용없는 실패(모델 미학습)인지 — 서버가 준 사유를 그대로 들고 있는다.
+  const [permanentFailure, setPermanentFailure] = useState<{ modelState: string | null } | null>(null);
 
   const load = useCallback(async () => {
     setState('loading');
     try {
       const data = await fetchFacilityCongestionForecast(facilityId, 6);
       setPoints(data);
+      setPermanentFailure(null);
       setState('ready');
     } catch (e) {
       setErrorMessage(e instanceof MerchantApiError ? e.message : '예측 데이터를 불러오지 못했습니다.');
+      // MerchantApiError.retryable=false 는 '서버가 사유까지 확정해 준 영구 실패' 다.
+      setPermanentFailure(
+        e instanceof MerchantForecastUnavailableError
+          ? { modelState: e.modelState }
+          : e instanceof MerchantApiError && !e.retryable
+            ? { modelState: null }
+            : null
+      );
+      setPoints([]);
       setState('error');
     }
   }, [facilityId]);
@@ -285,19 +314,29 @@ function ForecastSection({ facilityId }: { facilityId: string }) {
     congestion: Math.round(p.congestion * 100),
   }));
   const hasAnchored = points.some((p) => p.anchored);
+  // 곡선을 실제로 그릴 때만 '무엇을 보여주는지' 를 말한다(없는 폴백을 약속하지 않는다).
+  const curveShown = state === 'ready' && chartData.length > 0;
 
   return (
     <SectionCard
       badge="① 예상 혼잡"
       title="시간대별 예상 혼잡"
-      honestNote={
-        hasAnchored
-          ? '가게가 얼마나 붐빌지에 대한 예측치이며, 방문객 수나 실측이 아닙니다. 우리 가게의 최근 실측 혼잡도에 앵커링된 시간대 곡선입니다.'
-          : '가게가 얼마나 붐빌지에 대한 예측치이며, 방문객 수나 실측이 아닙니다(최근 실측 혼잡 로그가 없어 유형 평균 곡선을 보여드립니다).'
-      }
+      honestNote={forecastHonestNote({ curveShown, anchored: hasAnchored })}
     >
       {state === 'loading' && <SkeletonBlock heightClass="h-48" />}
-      {state === 'error' && <ErrorFallback message={errorMessage} onRetry={load} />}
+      {state === 'error' && permanentFailure && (
+        <UnavailableNotice
+          title="지금은 예측을 제공할 수 없습니다"
+          message="혼잡 예측 모델이 아직 학습되지 않았습니다. 다시 시도해도 같은 결과이며, 모델이 준비되면 이 자리에 곡선이 나타납니다."
+          // 서버가 한 말을 그대로 함께 보여준다(우리가 다시 풀어쓴 문장만 남기지 않는다).
+          detail={
+            permanentFailure.modelState
+              ? `서버 응답: ${errorMessage} (모델 상태: ${permanentFailure.modelState})`
+              : `서버 응답: ${errorMessage}`
+          }
+        />
+      )}
+      {state === 'error' && !permanentFailure && <ErrorFallback message={errorMessage} onRetry={load} />}
       {state === 'ready' && (
         <div className="h-48 w-full">
           {chartData.length === 0 ? (
@@ -502,6 +541,9 @@ function TimesaleSection({ facilityId }: { facilityId: string }) {
     endsAtMs: number;
   } | null>(null);
   const [cancelConfirmId, setCancelConfirmId] = useState<string | null>(null);
+  // 서버가 알려준 '실제 적용 할인율' 안내. 토스트는 몇 초 뒤 사라지는데 이건 사장님이 방금
+  // 넣은 값과 실제 적용값이 다르다는 사실이라, 화면에도 남겨 둔다(다음 선택 때 사라진다).
+  const [effectiveNote, setEffectiveNote] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setState('loading');
@@ -549,13 +591,20 @@ function TimesaleSection({ facilityId }: { facilityId: string }) {
     setPublishing(true);
     setPublishError('');
     try {
-      await createTimesale(facilityId, rate as 0.15 | 0.2 | 0.3, minutes as 60 | 120 | 180);
+      // 응답에는 '지금 실제로 적용되는 할인율' 안내가 함께 온다 — 활성 세일이 겹치면 추천에는
+      // 최댓값만 반영되므로, 방금 넣은 값이 적용되지 않을 수 있다는 사실을 사장님께 전한다.
+      const created = await createTimesale(facilityId, rate as 0.15 | 0.2 | 0.3, minutes as 60 | 120 | 180);
+      const notice = timesalePublishNotice(created);
+      const overlapped = hasTimesaleOverlapNotice(created);
       setSelectedRate(null);
       setSelectedDuration(null);
       setPublishConfirm(null);
+      setEffectiveNote(overlapped ? notice : null);
       await load();
       toast.success(`${Math.round(rate * 100)}% 타임세일을 발행했습니다.`, {
-        description: '할인율이 기본 쿠폰율보다 높으면 추천 랭킹 인센티브에 반영됩니다.',
+        description: notice,
+        // 중복 안내는 한 줄 더 길고 더 중요하다 — 기본 시간보다 오래 띄운다.
+        duration: overlapped ? 10000 : undefined,
       });
     } catch (e) {
       const message = e instanceof MerchantApiError ? e.message : '타임세일 발행에 실패했습니다.';
@@ -572,6 +621,8 @@ function TimesaleSection({ facilityId }: { facilityId: string }) {
     try {
       await cancelTimesale(id, facilityId);
       setCancelConfirmId(null);
+      // 세일 하나가 사라지면 '실제 적용 할인율' 안내는 더 이상 사실이 아니다 — 같이 지운다.
+      setEffectiveNote(null);
       await load();
       toast.success('타임세일을 취소했습니다.', { description: '추천 인센티브 반영도 함께 해제됩니다.' });
     } catch (e) {
@@ -654,6 +705,7 @@ function TimesaleSection({ facilityId }: { facilityId: string }) {
                   onClick={() => {
                     setSelectedRate(rate);
                     setPublishConfirm(null);
+                    setEffectiveNote(null);
                   }}
                   aria-pressed={selectedRate === rate}
                   className={`py-2.5 rounded-xl border text-sm font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 ${
@@ -674,6 +726,7 @@ function TimesaleSection({ facilityId }: { facilityId: string }) {
                   onClick={() => {
                     setSelectedDuration(opt.minutes);
                     setPublishConfirm(null);
+                    setEffectiveNote(null);
                   }}
                   aria-pressed={selectedDuration === opt.minutes}
                   className={`py-2.5 rounded-xl border text-sm font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 ${
@@ -686,6 +739,15 @@ function TimesaleSection({ facilityId }: { facilityId: string }) {
             </div>
 
             {publishError && <p className="text-xs text-terracotta mb-2">{publishError}</p>}
+
+            {/* 실제 적용 할인율 안내 — 발행은 성공했으나 추천에 반영되는 값이 방금 넣은 값과
+                다를 때만 뜬다. 오류가 아니므로 경고색이 아니라 정보색으로 둔다. */}
+            {effectiveNote && (
+              <div className="mb-2 flex items-start gap-2 px-3 py-2.5 rounded-xl bg-jade/10 border border-jade/30 text-xs text-muk leading-relaxed">
+                <Zap size={14} className="flex-shrink-0 mt-0.5 text-jade" aria-hidden="true" />
+                <span>{effectiveNote}</span>
+              </div>
+            )}
 
             {publishConfirm ? (
               // 발행 전 확인 — 무거운 모달 없이 인라인 단계로(레포에 shadcn 없음).
@@ -760,6 +822,8 @@ function SeatStatusSection({ facilityId }: { facilityId: string }) {
   const [submitting, setSubmitting] = useState<SeatLevel | null>(null);
   const [clearing, setClearing] = useState(false);
   const [submitError, setSubmitError] = useState('');
+  // 실패는 아니지만 사장님이 알아야 하는 사실(방송은 됐는데 관측 기록만 실패) — 오류와 색을 나눈다.
+  const [submitWarning, setSubmitWarning] = useState('');
   const [now, setNow] = useState(() => Date.now());
 
   const load = useCallback(async () => {
@@ -806,8 +870,21 @@ function SeatStatusSection({ facilityId }: { facilityId: string }) {
     try {
       const res = await updateSeatStatus(facilityId, level);
       setCurrent({ level: res.level, updated_at: res.updated_at });
+      // 방송(주 효과)은 성공했는데 시계열 관측 기록만 실패한 경우 — 서버가 200 + 사유로 알린다.
+      // 성공으로 뭉개지 않고 그 사실을 그대로 전한다(merchant.py 의 seat-status 주석 참조).
+      const logFailed = res.observation_logged === false;
+      setSubmitWarning(
+        logFailed
+          ? (res.observation_note ??
+            '좌석 상태 방송은 반영됐지만, 이 방송을 시계열 관측 기록으로 남기지 못했습니다.')
+          : ''
+      );
       toast.success(`좌석 상태를 '${SEAT_LABEL[level]}'(으)로 방송했습니다.`, {
-        description: `${SEAT_FRESH_MINUTES}분 동안 추천 혼잡도에 반영됩니다.`,
+        description: logFailed
+          ? (res.observation_note ??
+            '방송은 반영됐지만 관측 기록은 남기지 못했습니다.')
+          : `${SEAT_FRESH_MINUTES}분 동안 추천 혼잡도에 반영됩니다.`,
+        duration: logFailed ? 10000 : undefined,
       });
     } catch (e) {
       const message = e instanceof MerchantApiError ? e.message : '좌석 상태 갱신에 실패했습니다.';
@@ -821,6 +898,7 @@ function SeatStatusSection({ facilityId }: { facilityId: string }) {
   const handleClear = async () => {
     setClearing(true);
     setSubmitError('');
+    setSubmitWarning('');
     try {
       await clearSeatStatus(facilityId);
       setCurrent(null);
@@ -936,6 +1014,11 @@ function SeatStatusSection({ facilityId }: { facilityId: string }) {
             ))}
           </div>
           {submitError && <p className="text-xs text-terracotta">{submitError}</p>}
+          {submitWarning && (
+            <p className="text-xs text-muk-soft leading-relaxed px-3 py-2 rounded-xl bg-hanji border border-line">
+              {submitWarning}
+            </p>
+          )}
         </div>
       )}
     </SectionCard>
