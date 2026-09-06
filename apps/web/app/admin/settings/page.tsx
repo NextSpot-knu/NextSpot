@@ -8,6 +8,8 @@ import {
 import { AdminSidebar } from '@/components/AdminSidebar';
 import { createPublicClient } from '@/lib/supabase';
 import { adminApi } from '@/lib/admin-api';
+import { errorMessage } from '@/lib/errors';
+import { countLabel, settingsSaveGuard, type LoadStatus, type SettingsLoad } from '@/lib/adminLoadState';
 
 // DB 통계(count)는 anon 읽기(facilities/congestion_logs 공개 유지), system_settings 읽기/쓰기는
 // 관리자 API(FastAPI service_role) 경유 — anon 은 RLS 로 거부된다(WS-A-6).
@@ -16,7 +18,8 @@ const supabase = createPublicClient();
 const DEFAULT_NOTICE = '현재 일부 식당·카페 정보 갱신 중으로 관련 데이터가 일시적으로 부정확할 수 있습니다.';
 
 /** GET /api/v1/admin/settings 응답 — system_settings 단일 행(snake_case, admin-api 는 케이스 변환 없음).
- *  행이 없으면 백엔드가 null 을 반환하고 프런트 기본값을 유지한다. 필드별 typeof 가드가 있으므로 넓게 잡는다. */
+ *  행이 없으면 백엔드가 null 을 반환한다(마이그레이션 미적용 환경 = 'missing').
+ *  필드별 typeof 가드가 있으므로 넓게 잡는다. */
 interface SystemSettingsRow {
   maintenance_mode?: boolean | null;
   notice_text?: string | null;
@@ -25,21 +28,25 @@ interface SystemSettingsRow {
 }
 
 export default function SettingsPage() {
-  // 즉시 렌더용 기본값 → 마운트 후 system_settings 실값으로 교체(스피너 없음).
+  // 화면에 보이는 초기값은 어디까지나 **프런트 기본값**이다. 조회가 성공해야 서버 값으로 바뀐다.
+  // 이 구분을 settingsLoad 가 들고 있다 — 이게 없으면 조회 실패가 '기본값' 으로 위장돼,
+  // 관리자가 저장을 누르는 순간 읽지도 못한 실제 설정이 기본값으로 덮인다.
   const [isMaintenance, setIsMaintenance] = useState(false);
   const [notice, setNotice] = useState(DEFAULT_NOTICE);
   const [threshold, setThreshold] = useState(80);
   const [weight, setWeight] = useState(50);
+  const [settingsLoad, setSettingsLoad] = useState<SettingsLoad>({ status: 'loading' });
 
   const [stats, setStats] = useState<{ facilities: number | null; logs: number | null; lastLog: string | null }>({
     facilities: null, logs: null, lastLog: null,
   });
-  const [statsLoading, setStatsLoading] = useState(true);
+  // DB 통계도 실패를 0 으로 그리지 않는다 — '등록 시설 0개' 는 관리자에게 재난이지 '문제 없음' 이 아니다.
+  const [statsStatus, setStatsStatus] = useState<LoadStatus>('loading');
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
 
   const loadStats = async () => {
-    setStatsLoading(true);
+    setStatsStatus('loading');
     try {
       // count(head:true)는 행을 받지 않아 매우 빠름. 3개 병렬.
       //
@@ -53,15 +60,19 @@ export default function SettingsPage() {
         supabase.from('congestion_logs').select('id', { count: 'exact', head: true }),
         supabase.from('congestion_logs').select('timestamp').order('timestamp', { ascending: false }).limit(1),
       ]);
+      // supabase-js 는 쿼리 오류를 throw 하지 않고 error 로 돌려준다 — 구조분해하지 않으면
+      // try/catch 가 있어도 실패가 조용히 'count=null → 0개' 로 흘러간다.
+      const failure = fac.error || log.error || last.error;
+      if (failure) throw failure;
       setStats({
         facilities: fac.count ?? null,
         logs: log.count ?? null,
         lastLog: last.data && last.data[0] ? last.data[0].timestamp : null,
       });
+      setStatsStatus('ok');
     } catch (e) {
       console.warn('DB 통계 로드 실패:', e);
-    } finally {
-      setStatsLoading(false);
+      setStatsStatus('failed');
     }
   };
 
@@ -70,21 +81,35 @@ export default function SettingsPage() {
     (async () => {
       try {
         const data: SystemSettingsRow | null = await adminApi.get('/api/v1/admin/settings');
-        if (active && data) {
+        if (!active) return;
+        if (data) {
           setIsMaintenance(!!data.maintenance_mode);
           if (typeof data.notice_text === 'string') setNotice(data.notice_text);
           if (typeof data.congestion_threshold === 'number') setThreshold(data.congestion_threshold);
           if (typeof data.coldstart_weight === 'number') setWeight(data.coldstart_weight);
+          setSettingsLoad({ status: 'ok' });
+        } else {
+          // 백엔드가 null = system_settings 행 자체가 없다. 덮어쓸 실제 설정이 없으므로
+          // 저장은 막지 않는다(PUT 은 404 로 사실을 말해 준다).
+          setSettingsLoad({ status: 'missing' });
         }
       } catch (e) {
-        console.warn('설정 로드 실패(기본값 사용):', e);
+        console.warn('설정 로드 실패:', e);
+        if (active) {
+          setSettingsLoad({ status: 'failed', message: errorMessage(e) || '알 수 없는 오류' });
+        }
       }
       if (active) loadStats();
     })();
     return () => { active = false; };
   }, []);
 
+  const saveGuard = settingsSaveGuard(settingsLoad, saving);
+
   const handleSave = async () => {
+    // 조회 실패 상태의 저장은 눌러도 아무 일이 없어야 한다. 버튼 disabled 만 믿지 않는 이유는
+    // 이 핸들러가 유일한 쓰기 경로이고, 여기서 막아야 어떤 경로로 호출돼도 안전하기 때문이다.
+    if (!saveGuard.allowed) return;
     setSaving(true);
     setSaveMsg(null);
     try {
@@ -95,8 +120,10 @@ export default function SettingsPage() {
         coldstart_weight: weight,
       });
       setSaveMsg({ type: 'ok', text: '시스템 설정이 저장되었습니다.' });
+      // 저장에 성공했다면 서버에 우리가 보낸 값이 실제로 들어 있다 — 이제 화면 값은 서버 값이다.
+      setSettingsLoad({ status: 'ok' });
     } catch (e) {
-      setSaveMsg({ type: 'err', text: `저장 실패: ${(e as { message?: string } | null)?.message || '권한 또는 연결 오류'}` });
+      setSaveMsg({ type: 'err', text: `저장 실패: ${errorMessage(e) || '권한 또는 연결 오류'}` });
     } finally {
       setSaving(false);
       setTimeout(() => setSaveMsg(null), 4000);
@@ -154,7 +181,8 @@ export default function SettingsPage() {
                 )}
                 <button
                   onClick={handleSave}
-                  disabled={saving}
+                  disabled={!saveGuard.allowed}
+                  title={saveGuard.reason ?? undefined}
                   className="flex items-center gap-2 bg-gold hover:bg-gold-deep disabled:bg-gold-deep disabled:cursor-not-allowed text-white px-6 py-2.5 rounded-xl font-bold shadow-sm shadow-gold/20 transition-colors"
                 >
                   {saving ? <Loader2 size={18} className="animate-spin" /> : <Save size={18} />}
@@ -162,6 +190,36 @@ export default function SettingsPage() {
                 </button>
               </div>
             </div>
+
+            {/* 조회 실패 배너 — 화면의 값이 서버 값이 아님을 명시한다.
+                이 안내가 없으면 기본값이 '현재 설정' 으로 읽히고, 저장 버튼이 막힌 이유도 알 수 없다. */}
+            {settingsLoad.status === 'failed' && (
+              <div className="flex items-start gap-3 bg-rose-500/10 border border-rose-500/30 rounded-2xl p-4">
+                <AlertCircle size={20} className="text-rose-400 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-bold text-rose-300">현재 설정을 불러오지 못했습니다</p>
+                  <p className="text-sm text-hanok-muted mt-1">
+                    아래 값은 서버에 저장된 설정이 아니라 <span className="font-semibold text-hanok-ink">화면 기본값</span>입니다.
+                    이 상태에서 저장하면 실제 설정이 기본값으로 덮이므로 저장을 막아 두었습니다 — 새로고침해 다시 시도해 주세요.
+                  </p>
+                  <p className="text-xs text-hanok-muted mt-1">사유: {settingsLoad.message}</p>
+                </div>
+              </div>
+            )}
+
+            {/* 'missing' 은 실패가 아니다 — 저장할 행 자체가 없는 상태(마이그레이션 미적용). */}
+            {settingsLoad.status === 'missing' && (
+              <div className="flex items-start gap-3 bg-amber-500/10 border border-amber-500/30 rounded-2xl p-4">
+                <AlertCircle size={20} className="text-amber-400 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-bold text-amber-300">저장된 시스템 설정이 아직 없습니다</p>
+                  <p className="text-sm text-hanok-muted mt-1">
+                    system_settings 행이 없어 화면 기본값을 보여 주고 있습니다(마이그레이션 미적용).
+                    덮어쓸 기존 설정은 없지만, 저장은 행이 생성된 뒤에만 성공합니다.
+                  </p>
+                </div>
+              </div>
+            )}
 
             {/* Section A: 일반 설정 */}
             <section className="bg-hanok-panel rounded-2xl border border-hanok-line shadow-sm overflow-hidden">
@@ -269,21 +327,21 @@ export default function SettingsPage() {
                 </div>
                 <button
                   onClick={loadStats}
-                  disabled={statsLoading}
+                  disabled={statsStatus === 'loading'}
                   className="flex items-center gap-2 px-3 py-1.5 bg-hanok-card border border-hanok-line hover:bg-hanok-line text-hanok-ink text-xs font-semibold rounded-lg transition-colors disabled:opacity-60"
                 >
-                  <RefreshCw size={14} className={statsLoading ? 'animate-spin' : ''} /> 새로고침
+                  <RefreshCw size={14} className={statsStatus === 'loading' ? 'animate-spin' : ''} /> 새로고침
                 </button>
               </div>
               <div className="p-6 grid grid-cols-1 sm:grid-cols-3 gap-4">
-                {/* 시설 수 */}
+                {/* 시설 수 — 조회 실패를 '0개' 로 그리지 않는다(0개는 재난, 실패는 모름). */}
                 <div className="p-4 bg-hanok border border-hanok-line rounded-xl flex flex-col gap-2">
                   <div className="flex items-center gap-2 text-hanok-muted">
                     <Building2 size={16} className="text-gold" />
                     <span className="text-xs font-semibold">등록 시설</span>
                   </div>
-                  <div className="text-2xl font-black text-hanok-ink">
-                    {statsLoading && stats.facilities === null ? '…' : `${(stats.facilities ?? 0).toLocaleString()}개`}
+                  <div className={`text-2xl font-black ${statsStatus === 'failed' ? 'text-rose-400 text-base' : 'text-hanok-ink'}`}>
+                    {statsStatus === 'ok' ? `${(stats.facilities ?? 0).toLocaleString()}개` : countLabel(statsStatus, 0)}
                   </div>
                 </div>
                 {/* 누적 로그 */}
@@ -292,21 +350,26 @@ export default function SettingsPage() {
                     <Activity size={16} className="text-emerald-400" />
                     <span className="text-xs font-semibold">누적 혼잡 로그</span>
                   </div>
-                  <div className="text-2xl font-black text-hanok-ink">
-                    {statsLoading && stats.logs === null ? '…' : `${(stats.logs ?? 0).toLocaleString()}건`}
+                  <div className={`text-2xl font-black ${statsStatus === 'failed' ? 'text-rose-400 text-base' : 'text-hanok-ink'}`}>
+                    {statsStatus === 'ok' ? `${(stats.logs ?? 0).toLocaleString()}건` : countLabel(statsStatus, 0)}
                   </div>
                 </div>
-                {/* 최근 로그 시각 */}
+                {/* 최근 로그 시각 — 실패했을 때의 '—' 는 '수집된 적 없음' 으로 읽히므로 구분한다. */}
                 <div className="p-4 bg-hanok border border-hanok-line rounded-xl flex flex-col gap-2">
                   <div className="flex items-center gap-2 text-hanok-muted">
                     <Clock size={16} className="text-amber-400" />
                     <span className="text-xs font-semibold">최근 데이터 수집</span>
                   </div>
-                  <div className="text-lg font-bold text-hanok-ink">
-                    {statsLoading && stats.lastLog === null ? '…' : fmtTime(stats.lastLog)}
+                  <div className={`text-lg font-bold ${statsStatus === 'failed' ? 'text-rose-400' : 'text-hanok-ink'}`}>
+                    {statsStatus === 'loading' ? '…' : statsStatus === 'failed' ? '조회 실패' : fmtTime(stats.lastLog)}
                   </div>
                 </div>
               </div>
+              {statsStatus === 'failed' && (
+                <p className="px-6 pb-5 -mt-2 text-xs text-rose-300">
+                  DB 통계를 불러오지 못했습니다. 위 값은 0 이 아니라 <span className="font-semibold">모르는 상태</span>입니다 — 새로고침을 눌러 다시 시도하세요.
+                </p>
+              )}
             </section>
 
           </div>

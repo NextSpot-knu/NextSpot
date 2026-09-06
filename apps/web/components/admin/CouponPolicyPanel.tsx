@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import { createPublicClient } from '@/lib/supabase';
 import { adminApi } from '@/lib/admin-api';
 import { errorMessage } from '@/lib/errors';
+import { fetchAllPages } from '@/lib/adminLoadState';
 import { SPOT_WEIGHTS, SPOT_INCENTIVE } from 'shared-types';
 
 // 개입 폐루프(B2G 관제→개입): POI 별 제휴 할인율(coupon_rate)을 슬라이더로 조정하면
@@ -23,6 +24,15 @@ const TYPE_KO: Record<string, string> = {
 
 // 슬라이더 범위: 산식 캡(20%)까지 — 그 이상은 쿠폰강도 만점으로 동일해 정책적 의미가 없다.
 const MAX_RATE_PERCENT = Math.round(SPOT_INCENTIVE.couponRateCap * 100);
+
+// PostgREST 는 단일 응답을 1000행으로 캡한다. 예전 코드의 `.range(0, 1999)` 는 2000행을
+// **요청만** 했고 서버는 1000행에서 잘라 200 으로 돌려줬다 — 오류가 없으니 화면은 정상처럼
+// 보이지만 실측 1,664곳 중 664곳이 사라진다(2026-09-07 프로덕션 GET 확인:
+// `Content-Range: 0-999/1664`). 검색은 이 목록을 클라이언트에서 거르므로, 목록에 없는
+// 시설은 검색해도 안 나온다 — 관리자는 그 가게가 등록돼 있지 않다고 믿는다.
+const FACILITY_PAGE_SIZE = 1000;
+// 무한 루프 방지 상한(= 20,000곳). 인프라 화면(app/admin/infrastructure/page.tsx)과 같은 값.
+const MAX_FACILITY_PAGES = 20;
 
 interface CouponFacility {
   id: string;
@@ -60,14 +70,24 @@ export function CouponPolicyPanel() {
   useEffect(() => {
     (async () => {
       try {
-        const { data, error } = await supabase
-          .from('facilities')
-          .select('id, name, type, coupon_rate')
-          .order('coupon_rate', { ascending: false })
-          .order('name', { ascending: true })
-          .range(0, 1999);
-        if (error) throw error;
-        setFacilities(data || []);
+        // 전량을 페이지네이션으로 받는다. 마지막 정렬 키를 id(유일키)로 두는 이유:
+        // coupon_rate 는 대부분 0 이고 name 도 중복될 수 있어 두 키만으로는 전순서가 아니다.
+        // 전순서가 아니면 페이지 경계에서 같은 행이 두 번 오거나 아예 빠진다.
+        const rows = await fetchAllPages<CouponFacility>(
+          async (from, to) => {
+            const { data, error } = await supabase
+              .from('facilities')
+              .select('id, name, type, coupon_rate')
+              .order('coupon_rate', { ascending: false })
+              .order('name', { ascending: true })
+              .order('id', { ascending: true })
+              .range(from, to);
+            if (error) throw error;
+            return data || [];
+          },
+          { pageSize: FACILITY_PAGE_SIZE, maxPages: MAX_FACILITY_PAGES },
+        );
+        setFacilities(rows);
       } catch (err) {
         console.error('쿠폰 정책 패널 시설 로드 실패:', err);
         // coupon_rate 컬럼 부재(마이그레이션 20260707150000 미적용)도 이 경로로 떨어진다.
@@ -143,6 +163,13 @@ export function CouponPolicyPanel() {
             제휴 할인율을 조정하면 즉시 저장되어 사용자 앱의 추천 순위에 실시간 반영됩니다 — 분산
             목적지에 쿠폰을 걸어 수요를 유도하세요.
           </p>
+          {/* 적재 건수를 드러낸다. 목록이 또 잘리면(행수 캡·필터 실수) 숫자로 바로 보이도록. */}
+          {!loading && !loadError && (
+            <p className="text-[11px] text-hanok-muted mt-1">
+              전체 {facilities.length.toLocaleString()}곳
+              {search ? ` 중 ${filtered.length.toLocaleString()}곳 검색됨` : ' 로드됨'}
+            </p>
+          )}
         </div>
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-hanok-muted" size={14} />

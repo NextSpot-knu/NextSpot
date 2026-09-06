@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { AlertTriangle, Database, ShieldCheck } from 'lucide-react';
 import { adminApi } from '@/lib/admin-api';
+import { describeGuardrailWarnings } from '@/lib/adminGuardrailWarnings';
 
 interface TrustResponse {
   model: { trained: boolean; version: string | null; real_data_count: number; mae: number | null };
@@ -34,7 +35,9 @@ export function ModelTrustPanel() {
   if (!data) return null;
 
   const funnel = data.funnel;
-  const warnings = data.guardrails.warnings;
+  // 코드가 아니라 문장으로 보여준다. 예전에는 `trained_false · metrics_truncated` 처럼
+  // 원문이 그대로 나가서, 이 저장소를 아는 사람만 읽을 수 있었다.
+  const warnings = describeGuardrailWarnings(data.guardrails.warnings);
   const cards = [
     ['추천 노출', funnel.exposures], ['길찾기', funnel.navigations], ['방문 확인', funnel.arrivals],
     ['긍정 평가', funnel.positive_ratings],
@@ -84,7 +87,16 @@ export function ModelTrustPanel() {
         <p>유형별 MAE · {Object.entries(data.registry.metrics.per_type_mae ?? {}).map(([key, value]) => `${key} ${(value * 100).toFixed(1)}%p`).join(' · ') || '표본 없음'}</p>
         <p>학습 근거 · {Object.entries(data.registry.source_composition).filter(([, value]) => value > 0).map(([key, value]) => `${key} ${value}`).join(' · ') || '없음'}</p>
       </div>}
-      {warnings.length > 0 && <p className="mt-3 flex items-center gap-2 text-xs text-rose-300"><AlertTriangle size={14} />{warnings.join(' · ')}</p>}
+      {warnings.length > 0 && (
+        <ul className="mt-3 space-y-1.5 text-xs text-rose-300">
+          {warnings.map((warning) => (
+            <li key={warning.code} className="flex items-start gap-2">
+              <AlertTriangle size={14} className="mt-0.5 shrink-0" aria-hidden="true" />
+              <span>{warning.text}</span>
+            </li>
+          ))}
+        </ul>
+      )}
     </section>
   );
 }

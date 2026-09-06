@@ -245,7 +245,7 @@ SessionBootstrap: 익명 세션 자동 발급
 | 화면 | 기능 | 호출 API | 핵심 서비스/모듈 |
 |---|---|---|---|
 | `/` | 랜딩 | — | — |
-| `/setup` | 온보딩 Cold Start (카테고리·도보시간·체류시간·음식취향) | — (네트워크 호출 없음 — 선택값을 로컬에만 저장) | `lib/travelContext.ts` |
+| `/setup` | 온보딩 Cold Start (카테고리·도보시간·체류시간·음식취향) | `POST /track` (분석) + Supabase 직접 `users.preferred_categories` UPDATE (로그인 상태일 때만, 실패해도 진행) | `lib/travelContext.ts` `lib/analytics.ts` |
 | `/main` | 홈 — 혼잡 지도·날씨·축제·화장실·주차·진행중 여정 | `GET /infrastructures` `/weather` `/events` `/restrooms` `/freshness` `/area-demand/parking-lots` | `facility_cache` `weather_service` `restroom_service` `parking_demand_service` |
 | ″ | 히트맵 + 시간대별 AI 예측 타임슬라이더 | `POST /predict/batch` | `predict_service` |
 | ″ | 지도 위 추천 바텀시트 (수락·거절) | `POST /recommendations` `/recommendations/by-type` `/recommendations/accept` `/recommendations/reject` | **SPOT 엔진** `feedback_service` |

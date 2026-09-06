@@ -620,3 +620,50 @@ def test_classify_requires_auth():
     with TestClient(app) as c:
         res = c.post(f"/api/v1/lab/{FEEDBACK_ID}/reason/classify", json={"text": "x"})
         assert res.status_code == 401
+
+
+# =============================================================================
+# /pending 응답 계약이 프런트 타입과 같은가
+# =============================================================================
+
+def test_pending_item_contract_parity_with_web():
+    """`_serialize_pending` 이 내보내는 키와 웹의 `LabPendingItem` 필드가 일치하는가.
+
+    강제 장치가 필요한 이유: **타입스크립트가 이 어긋남을 못 잡는다.** 실제로 오래 어긋나 있었다.
+    LabPendingItem 이 `feedbackId`/`recommendedAt` 을 선언했지만 서버는 `id`/`created_at` 을
+    보냈다. 선언된 필드는 항상 undefined 였는데도 tsc 는 통과했고, 화면에서는
+
+      · 모든 버튼이 `/api/v1/lab/undefined/reason` 을 호출해 404,
+      · `it.feedbackId !== feedbackId` 필터가 목록을 통째로 비우고,
+      · `noteFor === item.feedbackId` 가 모든 카드의 입력창을 한꺼번에 열었다.
+
+    빌드도 테스트도 초록인 채로 기능이 통째로 죽어 있었다는 뜻이다. 그래서 계약을 여기서 잠근다.
+    apiClient 가 응답에 keysToCamel 을 적용하므로, 비교는 snake_case ↔ camelCase 변환 후에 한다.
+    모노레포 밖(Docker 등)에서는 프런트 파일이 없으므로 건너뛴다.
+    """
+    import re
+    from pathlib import Path
+
+    from app.routers.lab import _serialize_pending
+
+    client = Path(__file__).resolve().parents[4] / "apps" / "web" / "lib" / "api-client.ts"
+    if not client.exists():
+        pytest.skip("apps/web/lib/api-client.ts 부재(모노레포 밖 실행) — 패리티 검증 생략")
+
+    block = re.search(
+        r"export interface LabPendingItem \{(.*?)\n\}", client.read_text(encoding="utf-8"), re.S
+    )
+    assert block, "api-client.ts 에서 LabPendingItem 을 찾지 못했다(이름이 바뀌었다면 이 테스트도 고칠 것)"
+
+    # 주석 줄을 걷어내고 `이름?: 타입;` 만 취한다.
+    declared = set(re.findall(r"^\s{2}(\w+)\??:", block.group(1), re.M))
+    served = {
+        "".join(p.capitalize() if i else p for i, p in enumerate(k.split("_")))
+        for k in _serialize_pending({}).keys()
+    }
+
+    assert declared == served, (
+        "웹 LabPendingItem 과 서버 /lab/pending 응답이 어긋났다.\n"
+        f"  타입에만 있음(항상 undefined 가 된다): {sorted(declared - served)}\n"
+        f"  응답에만 있음(화면이 못 쓴다):        {sorted(served - declared)}"
+    )

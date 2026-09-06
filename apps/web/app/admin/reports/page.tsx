@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import {
   Search, Bell, Download, FileText, Calendar as CalendarIcon,
-  TrendingUp, BarChart2, PieChart as PieChartIcon, Database
+  TrendingUp, BarChart2, PieChart as PieChartIcon, Database, AlertCircle
 } from 'lucide-react';
 import { AdminSidebar } from '@/components/AdminSidebar';
 import {
@@ -12,6 +12,8 @@ import {
 } from 'recharts';
 import { createPublicClient } from '@/lib/supabase';
 import { adminApi } from '@/lib/admin-api';
+import { errorMessage } from '@/lib/errors';
+import { emptyOrFailedText, reportSourceLabel, reportSourceState, type LoadStatus } from '@/lib/adminLoadState';
 
 const supabase = createPublicClient();
 
@@ -106,15 +108,25 @@ async function fetchLogs14d(): Promise<CongestionLogRow[]> {
   }
   return out;
 }
-async function fetchRecs28d(): Promise<RecommendationRow[]> {
+/** 추천 이력 조회 결과. 실패를 빈 배열로 뭉개지 않으려고 실패 사유를 함께 돌려준다. */
+interface RecsResult {
+  rows: RecommendationRow[];
+  error: string | null;
+}
+
+async function fetchRecs28d(): Promise<RecsResult> {
   // 추천 이력은 RLS 강화(20260707 security_hardening)로 anon 열람 불가 →
   // 관리자 API(/admin/metrics, service_role) 경유(WS-A-6).
-  // 실패해도 로그 기반(막대/표) 실데이터는 살리도록 여기서 격리(빈 배열 반환).
+  //
+  // 여기서 예외를 격리하는 이유는 로그 기반(막대/표) 실데이터를 살리기 위해서다. 다만
+  // 예전처럼 빈 배열만 돌려주면 호출부가 '추천 이력이 아직 없다' 와 구분할 수 없어,
+  // 관리자 API 가 죽어도 화면은 'AI 추천 수락 데이터가 아직 없습니다' 라고 말했다.
   try {
     const metrics = await adminApi.get('/api/v1/admin/metrics?days=28');
-    return metrics?.recommendations || [];
-  } catch {
-    return [];
+    return { rows: metrics?.recommendations || [], error: null };
+  } catch (e) {
+    console.warn('추천 이력(/admin/metrics) 로드 실패:', e);
+    return { rows: [], error: errorMessage(e) || '알 수 없는 오류' };
   }
 }
 
@@ -123,15 +135,41 @@ export default function ReportsPage() {
   const [aiTrend, setAiTrend] = useState(EMPTY_AI);
   const [table, setTable] = useState<CategoryTableRow[]>(EMPTY_TABLE);
   const [isLive, setIsLive] = useState(false);
-  const [loading, setLoading] = useState(true); // 최초 로드 중 여부(빈 상태 안내를 '불러오는 중' vs '데이터 없음'으로 구분)
+  const [loading, setLoading] = useState(true); // 최초 로드 중 여부
+  // 두 출처는 따로 실패할 수 있다. 한 덩어리로 묶으면 한쪽 실패가 다른 쪽의 '데이터 없음'
+  // 으로 번지거나, 반대로 한쪽 성공이 다른 쪽 실패를 가린다.
+  const [logsStatus, setLogsStatus] = useState<LoadStatus>('loading');   // 혼잡 로그 → 막대차트·요약표
+  const [recsStatus, setRecsStatus] = useState<LoadStatus>('loading');   // 추천 이력 → AI 수락 트렌드
+  const [loadErrors, setLoadErrors] = useState<string[]>([]);
   const [rangeLabel, setRangeLabel] = useState('최근 7일');
 
   useEffect(() => {
     let active = true;
     (async () => {
+      // 혼잡 로그 조회는 실패해도 추천 이력 쪽을 막지 않는다(allSettled).
+      const [logsSettled, recs] = await Promise.all([
+        fetchLogs14d().then(
+          (rows) => ({ rows, error: null as string | null }),
+          (e) => {
+            console.warn('혼잡 로그 로드 실패:', e);
+            return { rows: [] as CongestionLogRow[], error: errorMessage(e) || '알 수 없는 오류' };
+          },
+        ),
+        fetchRecs28d(),
+      ]);
+      if (!active) return;
+
+      const logs = logsSettled.rows;
+      setLogsStatus(logsSettled.error ? 'failed' : 'ok');
+      setRecsStatus(recs.error ? 'failed' : 'ok');
+      setLoadErrors(
+        [
+          logsSettled.error ? `혼잡 로그: ${logsSettled.error}` : null,
+          recs.error ? `추천 이력: ${recs.error}` : null,
+        ].filter((m): m is string => m !== null),
+      );
+
       try {
-        const [logs, recs] = await Promise.all([fetchLogs14d(), fetchRecs28d()]);
-        if (!active) return;
 
         const now = Date.now();
         const weekAgo = now - 7 * 24 * 60 * 60 * 1000;
@@ -185,12 +223,12 @@ export default function ReportsPage() {
         }
 
         // (3) AI 수락 트렌드 (4주 버킷) — 추천 데이터가 충분할 때만 실측 반영
-        if (recs.length >= 8) {
+        if (recs.rows.length >= 8) {
           const buckets = [0, 1, 2, 3].map(() => ({ acc: 0, tot: 0 }));
-          for (const r of recs) {
+          for (const r of recs.rows) {
             // age 를 0 아래로 두면 인덱스가 **위로** 튄다: 미래 시각이면 Math.min(3, -1) = -1 →
             // wIdx = 4 → buckets[4] 가 undefined 라 그 자리에서 TypeError 가 나고, 바깥
-            // catch 가 페이지를 통째로 목업 데이터로 떨어뜨린다(관리자는 그게 실측인 줄 안다).
+            // catch 가 이 계산을 통째로 날린다(차트는 빈 채로 남는다).
             // 기존 `if (wIdx < 0)` 가드는 죽은 코드였다 — Math.min(3, x) ≤ 3 이라 wIdx 는
             // 절대 음수가 되지 않는다. 막아야 했던 쪽은 반대편이었다.
             const age = now - new Date(r.created_at).getTime();
@@ -212,9 +250,18 @@ export default function ReportsPage() {
 
         if (gotReal) setIsLive(true);
       } catch (e) {
-        console.warn('리포트 실데이터 로드 실패, 목업 유지:', e);
+        // 집계 도중의 예외. 이 화면에 목업 데이터는 존재하지 않는다(EMPTY_* 는 전부 빈 배열)
+        // — 예전 주석은 여기서 목업으로 폴백한다고 말했지만 실제로는 빈 화면이 남았고,
+        // 그게 '데이터 없음' 으로 읽혔다.
+        // 조회는 성공했는데 집계에서 죽은 것도 실패이므로 두 상태 모두 failed 로 올린다.
+        console.warn('리포트 집계 실패:', e);
+        if (active) {
+          setLogsStatus('failed');
+          setRecsStatus('failed');
+          setLoadErrors((prev) => [...prev, `집계: ${errorMessage(e) || '알 수 없는 오류'}`]);
+        }
       } finally {
-        // 로딩 종료 표시: 이후 빈 상태는 '데이터 없음'으로 안내
+        // 로딩 종료. 이후 빈 자리는 조회 상태에 따라 '데이터 없음' 또는 '조회 실패' 로 안내한다.
         if (active) setLoading(false);
       }
     })();
@@ -223,10 +270,19 @@ export default function ReportsPage() {
     };
   }, []);
 
+  const anyFailed = logsStatus === 'failed' || recsStatus === 'failed';
+  const sourceState = reportSourceState({ loading, failed: anyFailed, live: isLive });
+
   // Excel(=CSV) 내보내기: 현재 표시 중인 데이터로 클라이언트에서 생성(엑셀 한글 BOM).
   const handleExcel = () => {
     try {
       const lines: string[] = [];
+      // 조회에 실패한 채 내보낸 CSV 는 화면을 떠나는 순간 출처를 잃는다 — 파일 안에 사실을 남긴다.
+      if (anyFailed) {
+        lines.push('# 주의: 일부 데이터 조회에 실패했습니다. 아래 수치는 불완전하며 빈 값은 0 이 아닙니다.');
+        for (const m of loadErrors) lines.push(`# ${m.replace(/,/g, ' ')}`);
+        lines.push('');
+      }
       lines.push('카테고리,총 이용량,전주 대비,상태');
       for (const r of table) {
         lines.push(`${r.category},${String(r.totalUsers).replace(/,/g, '')},${r.growth},${r.status}`);
@@ -290,16 +346,20 @@ export default function ReportsPage() {
                 <CalendarIcon size={18} className="text-hanok-muted" />
                 <span className="text-sm font-semibold text-hanok-ink">{rangeLabel}</span>
               </div>
-              {/* 데이터 출처 배지: 실DB 반영 여부 표시 */}
+              {/* 데이터 출처 배지. 조회 실패를 '데이터 없음' 으로 표기하면 관리자는 '이번 주엔
+                  아무 일도 없었구나' 로 읽는다 — 실패는 실패라고 적고 색도 따로 쓴다. */}
               <span
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold border ${
-                  isLive
+                  sourceState === 'live'
                     ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30'
-                    : 'bg-hanok-card text-hanok-muted border-hanok-line'
+                    : sourceState === 'failed' || sourceState === 'partial'
+                      ? 'bg-rose-500/10 text-rose-300 border-rose-500/30'
+                      : 'bg-hanok-card text-hanok-muted border-hanok-line'
                 }`}
+                title={loadErrors.length > 0 ? loadErrors.join(' / ') : undefined}
               >
-                <Database size={13} />
-                {isLive ? 'DB 실시간 반영' : loading ? '불러오는 중' : '데이터 없음'}
+                {sourceState === 'failed' || sourceState === 'partial' ? <AlertCircle size={13} /> : <Database size={13} />}
+                {reportSourceLabel(sourceState)}
               </span>
             </div>
             <div className="flex items-center gap-3">
@@ -318,6 +378,24 @@ export default function ReportsPage() {
             </div>
           </div>
 
+          {/* 조회 실패 배너 — 어느 출처가 죽었는지 말한다. 배지만으로는 어떤 차트를 믿으면
+              되는지 알 수 없고, 빈 차트가 '이번 주엔 아무 일도 없었다' 로 읽힌다. */}
+          {anyFailed && (
+            <div className="flex items-start gap-3 bg-rose-500/10 border border-rose-500/30 rounded-2xl p-4 flex-shrink-0">
+              <AlertCircle size={20} className="text-rose-400 flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="font-bold text-rose-300">일부 데이터를 불러오지 못했습니다</p>
+                <p className="text-sm text-hanok-muted mt-1">
+                  비어 있는 차트·표는 <span className="font-semibold text-hanok-ink">데이터가 없다는 뜻이 아니라</span> 조회에 실패했다는 뜻입니다.
+                  내보내기(Excel/PDF) 결과도 불완전합니다.
+                </p>
+                <ul className="text-xs text-hanok-muted mt-1 list-disc list-inside">
+                  {loadErrors.map((m) => <li key={m}>{m}</li>)}
+                </ul>
+              </div>
+            </div>
+          )}
+
           {/* Charts Row */}
           <div className="grid grid-cols-2 gap-6 min-h-[350px] flex-shrink-0">
             {/* Bar Chart */}
@@ -328,9 +406,13 @@ export default function ReportsPage() {
               </div>
               <div className="flex-1 w-full h-[250px]">
                 {weekly.length === 0 ? (
-                  // 빈 상태 안내: 실측 방문량 데이터 없음
-                  <div className="flex items-center justify-center h-full text-hanok-muted text-sm">
-                    {loading ? '데이터를 불러오는 중...' : '표시할 방문량 데이터가 아직 없습니다.'}
+                  // 빈 자리 안내. 조회 실패와 '아직 데이터 없음' 은 다른 사실이므로 문구를 가른다.
+                  <div className={`flex items-center justify-center h-full text-sm text-center px-4 ${logsStatus === 'failed' ? 'text-rose-300' : 'text-hanok-muted'}`}>
+                    {emptyOrFailedText(
+                      loading ? 'loading' : logsStatus,
+                      '표시할 방문량 데이터가 아직 없습니다.',
+                      '데이터를 불러오는 중...',
+                    )}
                   </div>
                 ) : (
                 <ResponsiveContainer width="100%" height="100%">
@@ -358,9 +440,13 @@ export default function ReportsPage() {
               </div>
               <div className="flex-1 w-full h-[250px]">
                 {aiTrend.length === 0 ? (
-                  // 빈 상태 안내: AI 추천 수락 트렌드 데이터 없음(추천 이력 부족 또는 관리자 API 미응답)
-                  <div className="flex items-center justify-center h-full text-hanok-muted text-sm">
-                    {loading ? '데이터를 불러오는 중...' : 'AI 추천 수락 데이터가 아직 없습니다.'}
+                  // 관리자 API 미응답('조회 실패')과 추천 이력 부족('아직 없음')을 갈라 말한다.
+                  <div className={`flex items-center justify-center h-full text-sm text-center px-4 ${recsStatus === 'failed' ? 'text-rose-300' : 'text-hanok-muted'}`}>
+                    {emptyOrFailedText(
+                      loading ? 'loading' : recsStatus,
+                      'AI 추천 수락 데이터가 아직 없습니다.',
+                      '데이터를 불러오는 중...',
+                    )}
                   </div>
                 ) : (
                 <ResponsiveContainer width="100%" height="100%">
@@ -407,10 +493,14 @@ export default function ReportsPage() {
                 </thead>
                 <tbody className="text-sm">
                   {table.length === 0 ? (
-                    // 빈 상태 행: 요약 데이터 없음
+                    // 빈 상태 행: 요약 데이터 없음 / 조회 실패(같은 혼잡 로그 출처)
                     <tr>
-                      <td colSpan={4} className="p-8 text-center text-hanok-muted">
-                        {loading ? '데이터를 불러오는 중...' : '표시할 요약 데이터가 아직 없습니다.'}
+                      <td colSpan={4} className={`p-8 text-center ${logsStatus === 'failed' ? 'text-rose-300' : 'text-hanok-muted'}`}>
+                        {emptyOrFailedText(
+                          loading ? 'loading' : logsStatus,
+                          '표시할 요약 데이터가 아직 없습니다.',
+                          '데이터를 불러오는 중...',
+                        )}
                       </td>
                     </tr>
                   ) : (

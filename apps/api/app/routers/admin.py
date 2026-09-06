@@ -17,7 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from app.core.authz import ROLE_ADMIN, require_role
-from app.core.supabase import supabase_admin
+from app.core.supabase import fetch_all_rows, supabase_admin
 from app.services import briefing_service
 
 logger = structlog.get_logger()
@@ -37,6 +37,64 @@ INQUIRY_STATUSES = {"new", "in_progress", "resolved"}  # inquiries.status CHECK 
 # ⚠️ 이 값은 CHECK 제약에 매여 있다. 마이그레이션 20260906120000 이 적용되지 않은 DB 에
 # 이 코드가 먼저 닿으면 오버라이드가 통째로 500 이 된다(배포 순서: 마이그레이션 먼저).
 _ADMIN_OVERRIDE_SOURCE = "admin_override"
+
+
+# =========================================================================
+# PostgREST 행수 캡 회피 — 관리자 집계 공용 페이지네이션
+# =========================================================================
+# PostgREST 는 단일 응답을 1000행에서 자른다. `.limit(20000)` 처럼 더 큰 값을 걸어도 서버는
+# 1000행만 돌려주고 **잘렸다는 사실은 응답 어디에도 남지 않는다.** 그래서 이 파일의 집계들은
+# 오랫동안 앞 1000행만 보고 계산했다:
+#   · 30일 추이가 (최신순 정렬 탓에) 최근 며칠로 쪼그라들었다.
+#   · model-trust 의 활성 시설 수·커버리지·'수집 공백' 목록이 시설 1,000곳만 보고 만들어졌다
+#     (실측 2026-09-03 기준 1,660곳 — 660곳이 관측 유무와 무관하게 통계에서 사라졌다).
+# 관리자가 '데이터가 없다' 고 **판단하는 근거** 화면이라 특히 나쁜 종류의 오류다.
+#
+# 전량이 필요한 조회는 app/core/supabase.py 의 fetch_all_rows 가 정답 패턴이다(그 docstring 이
+# 이유를 설명한다). 다만 fetch_all_rows 는 '전량' 전용이라 상한에서 멈추지 못한다 — 창이 넓어
+# 행이 폭주할 수 있는 로그·추천 집계는 상한을 유지해야 하므로, 같은 `.range()` 페이지네이션을
+# 상한까지만 도는 헬퍼를 여기 둔다.
+_POSTGREST_PAGE_SIZE = 1000
+
+
+def _fetch_capped(
+    table: str,
+    select: str,
+    apply_filters,
+    cap: int,
+    *,
+    endpoint: str,
+) -> tuple[list[dict], bool]:
+    """`table` 을 cap 행까지 페이지네이션 조회하고 (행, 상한도달여부) 를 돌려준다.
+
+    두 번째 원소가 이 헬퍼의 존재 이유다. 예전 코드는 `.limit(cap)` 을 한 번 쏘고
+    `len(rows) >= cap` 으로 절단을 판정했는데, 서버가 1000행에서 자르므로 cap > 1000 인 한
+    **절단이 실제로 일어난 모든 경우에 False** 였다 — 구조상 참이 될 수 없는 플래그였다.
+    여기서는 실제로 cap 행을 받아냈을 때만 True 다.
+
+    (경계 케이스: 행이 정확히 cap 개면 절단이 없어도 True 다. 한 페이지를 더 받아 확인할 수도
+     있지만, 상한 근처라는 경고로는 과보고가 과소보고보다 안전하므로 그대로 둔다.)
+
+    ⚠️ `apply_filters` 는 결정적 정렬(`.order`)을 반드시 포함해야 한다. 정렬이 없으면 PostgREST
+    가 페이지마다 순서를 달리 줄 수 있어 행이 중복·누락된다(UUID PK 를 마지막 tiebreak 로 건다).
+
+    동기(블로킹) 함수 — 라우터에서는 asyncio.to_thread 로 오프로드해 호출한다.
+    """
+    rows: list[dict] = []
+    start = 0
+    while start < cap:
+        end = min(start + _POSTGREST_PAGE_SIZE, cap) - 1
+        query = apply_filters(supabase_admin.table(table).select(select))
+        page = query.range(start, end).execute().data or []
+        rows.extend(page)
+        if len(page) < end - start + 1:  # 마지막 페이지
+            break
+        start = end + 1
+    truncated = len(rows) >= cap
+    if truncated:
+        # 화면에 내려보내는 truncated 플래그와 별개로, 상한에 닿았다는 사실 자체를 남긴다.
+        logger.warning("admin_query_truncated", endpoint=endpoint, table=table, cap=cap)
+    return rows, truncated
 
 
 # =========================================================================
@@ -140,6 +198,7 @@ async def override_congestion(facility_id: str, req: CongestionOverride):
     정답이 될 수 없다**(train.py 는 verified/corroborated 행을 그대로 학습에 넣는다).
     """
     # 1. 시설 존재 검증 + capacity 조회 (없는 facility_id 로의 FK 위반/유령 로그 방지)
+    #    PK 단건 조회라 limit(1) 은 의도된 상한이다(페이지네이션 대상 아님).
     try:
         fac_res = await asyncio.to_thread(
             supabase_admin.table("facilities").select("id, capacity").eq("id", facility_id).limit(1).execute
@@ -201,6 +260,7 @@ class SettingsUpdate(BaseModel):
 @router.get("/settings")
 async def get_settings():
     try:
+        # system_settings 는 단일 행(id=1) 계약이라 limit(1) 은 의도된 상한이다.
         res = await asyncio.to_thread(
             supabase_admin.table("system_settings").select("*").eq("id", 1).limit(1).execute
         )
@@ -240,6 +300,13 @@ class InquiryStatusUpdate(BaseModel):
 
 @router.get("/inquiries")
 async def list_inquiries(limit: int = 500):
+    """최신 문의 limit 건. **의도된 상한**이라 페이지네이션하지 않는다.
+
+    지원 화면은 최신 문의부터 처리하는 목록이지 집계가 아니다 — 전량이 필요한 화면이 아니고,
+    문의 본문에는 PII 가 들어 있어 필요 이상으로 넓게 내려보내지 않는 편이 낫다.
+    상한을 PostgREST 응답 캡(1000)과 같은 값으로 잡아 둔 덕에 조용한 절단도 일어나지 않는다
+    (limit>1000 을 요청해도 여기서 1000 으로 깎이므로 서버가 말없이 자를 여지가 없다).
+    """
     limit = max(1, min(limit, 1000))
     try:
         res = await asyncio.to_thread(
@@ -279,36 +346,58 @@ async def update_inquiry_status(inquiry_id: str, req: InquiryStatusUpdate):
 # (admin/dashboard: 최근 7일 수락률·오늘 DAU / admin/reports: 최근 28일 수락 추이)
 # =========================================================================
 
+# 원본 행을 그대로 프런트로 넘기는 엔드포인트라 상한을 유지한다(28일 창 × 전 사용자 —
+# 성장하면 무한정 커지는 응답을 관리자 화면에 밀어넣지 않는다). 상한을 넘으면 최신순으로
+# 남기고 truncated 로 알린다: 대시보드가 계산하는 수락률·DAU 가 창 전체의 값이 아니게 되므로
+# '표본이 잘렸다' 는 사실이 화면 판단의 일부여야 한다.
+_METRICS_ROW_CAP = 5000
+
+
 @router.get("/metrics")
 async def get_metrics(days: int = 28):
     days = max(1, min(days, 90))
     since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
     try:
-        recs_res, fb_res = await asyncio.gather(
+        (recs, recs_truncated), (feedback, fb_truncated) = await asyncio.gather(
             asyncio.to_thread(
-                supabase_admin.table("recommendations")
-                .select("accepted, created_at")
-                .neq("source", "browse")
+                _fetch_capped,
+                "recommendations",
+                "accepted, created_at",
+                lambda q: q.neq("source", "browse")
                 .gte("created_at", since)
-                .limit(5000)
-                .execute
+                .order("created_at", desc=True)
+                .order("id", desc=True),
+                _METRICS_ROW_CAP,
+                endpoint="metrics",
             ),
             asyncio.to_thread(
-                supabase_admin.table("user_feedback")
-                .select("user_id, timestamp")
-                .gte("timestamp", since)
-                .limit(5000)
-                .execute
+                _fetch_capped,
+                "user_feedback",
+                "user_id, timestamp",
+                lambda q: q.gte("timestamp", since)
+                .order("timestamp", desc=True)
+                .order("id", desc=True),
+                _METRICS_ROW_CAP,
+                endpoint="metrics",
             ),
         )
         return {
             "since": since,
-            "recommendations": recs_res.data or [],
-            "feedback": fb_res.data or [],
+            "recommendations": recs,
+            "feedback": feedback,
+            # 필드 추가만(구 번들은 이 키를 읽지 않는다). 어느 한쪽이라도 상한에 닿으면 True.
+            "truncated": recs_truncated or fb_truncated,
         }
     except Exception as e:
         logger.error("admin_metrics_fetch_failed", error=str(e))
         raise HTTPException(status_code=500, detail="지표 조회에 실패했습니다.")
+
+
+# model-trust 창 상한. 전량이 필요하지만 무한정 받을 수는 없는 조회들이라 상한은 유지하고,
+# 닿으면 응답의 truncated·warnings 로 알린다(수치가 창 전체의 값이 아니게 되므로).
+_TRUST_REC_CAP = 10000       # 추천 노출·스냅샷 가드레일
+_TRUST_OUTCOME_CAP = 10000   # 추천→길찾기→방문 퍼널
+_TRUST_LOG_CAP = 20000       # 관측 수·출처/티어 분포·시설 커버리지
 
 
 @router.get("/model-trust")
@@ -320,38 +409,67 @@ async def get_model_trust(days: int = 30):
     days = max(1, min(days, 90))
     since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
     try:
-        registry_res, recs_res, outcomes_res, logs_res, facilities_res = await asyncio.gather(
+        (
+            registry_res,
+            (recommendations, recs_truncated),
+            (outcomes, outcomes_truncated),
+            (logs, logs_truncated),
+            facility_rows,
+        ) = await asyncio.gather(
             asyncio.to_thread(
+                # 활성 모델은 정의상 1행이다 — limit(1) 은 의도된 상한(페이지네이션 불필요).
                 supabase_admin.table("model_registry")
                 .select("version,status,real_data_count,training_started_at,training_ended_at,source_composition,metrics")
                 .eq("status", "active").limit(1).execute
             ),
             asyncio.to_thread(
-                supabase_admin.table("recommendations")
-                .select("id,recommendation_snapshot,created_at")
-                .eq("source", "spot").gte("created_at", since).limit(10000).execute
+                _fetch_capped,
+                "recommendations",
+                "id,recommendation_snapshot,created_at",
+                lambda q: q.eq("source", "spot")
+                .gte("created_at", since)
+                .order("created_at", desc=True)
+                .order("id", desc=True),
+                _TRUST_REC_CAP,
+                endpoint="model-trust",
             ),
             asyncio.to_thread(
-                supabase_admin.table("recommendation_outcomes")
-                .select("recommendation_id,navigation_started_at,arrival_confirmed_at,rated_at,rating")
-                .gte("created_at", since).limit(10000).execute
+                _fetch_capped,
+                "recommendation_outcomes",
+                "recommendation_id,navigation_started_at,arrival_confirmed_at,rated_at,rating",
+                lambda q: q.gte("created_at", since)
+                .order("created_at", desc=True)
+                .order("recommendation_id", desc=True),  # PK — created_at 동률에서의 tiebreak
+                _TRUST_OUTCOME_CAP,
+                endpoint="model-trust",
             ),
             asyncio.to_thread(
-                supabase_admin.table("congestion_logs")
-                .select("facility_id,source,evidence_tier,timestamp")
-                .gte("timestamp", since).limit(20000).execute
+                _fetch_capped,
+                "congestion_logs",
+                "facility_id,source,evidence_tier,timestamp",
+                lambda q: q.gte("timestamp", since)
+                .order("timestamp", desc=True)
+                .order("id", desc=True),
+                _TRUST_LOG_CAP,
+                endpoint="model-trust",
             ),
             asyncio.to_thread(
-                supabase_admin.table("facilities")
-                .select("id,name,type,is_active").limit(5000).execute
+                # 시설은 **전량**이 필요하다: 아래 facility_gaps 는 '관측이 하나도 없는 시설'
+                # 목록이라, 조회에서 빠진 시설은 공백으로도 잡히지 않고 active_facilities·
+                # 커버리지 분모까지 함께 틀어진다. 예전의 .limit(5000) 은 시설 수(1,660곳)보다
+                # 컸으니 무해해 보였지만, 정작 자른 것은 PostgREST 의 1000행 캡이었다.
+                fetch_all_rows,
+                supabase_admin,
+                "facilities",
+                "id,name,type,is_active",
+                _POSTGREST_PAGE_SIZE,
+                lambda q: q.order("id"),  # range 페이지 경계 고정
             ),
         )
     except Exception as exc:
         logger.error("admin_model_trust_failed", error=str(exc))
         raise HTTPException(status_code=500, detail="모델 신뢰도 지표 조회에 실패했습니다.")
 
-    recommendations = recs_res.data or []
-    outcomes = outcomes_res.data or []
     outcome_by_id = {row["recommendation_id"]: row for row in outcomes}
     top3 = []
     closed = 0
@@ -407,8 +525,7 @@ async def get_model_trust(days: int = 30):
     arrivals = sum(1 for row in outcomes if row.get("arrival_confirmed_at"))
     positive = sum(1 for row in outcomes if row.get("rating") == "up")
     verified_success = sum(1 for row in outcomes if row.get("arrival_confirmed_at") and row.get("rating") == "up")
-    logs = logs_res.data or []
-    facilities = [row for row in (facilities_res.data or []) if row.get("is_active", True)]
+    facilities = [row for row in facility_rows if row.get("is_active", True)]
     trusted_logs = [row for row in logs if row.get("evidence_tier") in {"verified", "corroborated"}]
     trusted_facility_ids = {str(row.get("facility_id")) for row in trusted_logs if row.get("facility_id")}
     active_facility_ids = {str(row.get("id")) for row in facilities if row.get("id")}
@@ -442,9 +559,16 @@ async def get_model_trust(days: int = 30):
         warnings.append("walk_limit_violation")
     if info.get("mae") is not None and float(info["mae"]) > 0.15:
         warnings.append("active_model_mae_out_of_bounds")
+    truncated = recs_truncated or outcomes_truncated or logs_truncated
+    if truncated:
+        # 창 상한에 닿았다 = 아래 수치가 창 전체의 값이 아니다. 특히 facility_gaps 는
+        # '관측 없는 시설' 목록이라 로그가 잘리면 멀쩡히 관측되는 시설을 공백으로 지목한다.
+        warnings.append("metrics_truncated")
 
     return {
         "since": since, "model": info, "registry": registry,
+        # 필드 추가만(구 번들은 이 키를 읽지 않는다).
+        "truncated": truncated,
         "funnel": {
             "exposures": exposures, "navigations": navigations, "arrivals": arrivals,
             "positive_ratings": positive,
@@ -486,7 +610,21 @@ async def get_model_trust(days: int = 30):
 # 표본이 빈약한 날은 null 로 두어 프런트가 데모 예시로 폴백/구분 표기하게 한다(정직성 원칙).
 # =========================================================================
 
-_TREND_LOG_CAP = 20000  # 30일 창 로그 상한 — 초과 시 최신순으로 절단하고 truncated=True 로 알린다
+# 추이 창의 행 상한. 상한에 닿으면 최신순으로 남기고(오래된 날부터 버린다) truncated=True 로 알린다.
+#
+# 상한을 없애지 않는 이유: 상한에 닿는 것이 가상의 상황이 아니다. /admin/simulate-peak 은
+# 한 번 누를 때 **시설 수만큼**(실측 2026-09-03 기준 1,660행) congestion_logs 에 넣으므로,
+# 데모 준비로 열세 번만 눌러도 30일 창이 20,000행을 넘는다. 반대로 실제 현장 관측은 아직
+# 수백 건 규모라(모델 후보 기준선이 검증 관측 300건이다) 평상시엔 한 페이지로 끝난다.
+# 즉 상한은 '데모가 만든 로그 폭주로 관리자 조회가 수십만 행을 끌어오는 것'을 막는 안전장치다.
+#
+# ⚠️ 예전 코드는 `.limit(_TREND_LOG_CAP)` 한 번으로 받고 `len(logs) >= _TREND_LOG_CAP` 로
+# 절단을 판정했다. PostgREST 가 1000행에서 자르므로 20,000행이 반환될 수 없었고 —
+# **절단이 실제로 일어나는 모든 경우에 truncated=False** 였다. 게다가 정렬이 최신순이라
+# 30일 추이가 조용히 '최근 1000행' 으로 쪼그라들었다(로그가 잦으면 하루치도 안 된다).
+_TREND_LOG_CAP = 20000
+# 추천은 시설 수와 무관하게 실사용자 행동이라 로그보다 훨씬 희소하다 — 상한도 그만큼 낮게 둔다.
+_TREND_REC_CAP = 5000
 
 
 def _kst_date(ts: str) -> str | None:
@@ -507,30 +645,35 @@ async def get_metrics_trend(days: int = 30):
     today_start, _ = _kst_today_range_utc()
     since = (datetime.fromisoformat(today_start) - timedelta(days=days - 1)).isoformat()
     try:
-        logs_res, recs_res = await asyncio.gather(
+        (logs, logs_truncated), (recs, recs_truncated) = await asyncio.gather(
             asyncio.to_thread(
-                supabase_admin.table("congestion_logs")
-                .select("congestion_level, timestamp")
-                .gte("timestamp", since)
-                .order("timestamp", desc=True)  # 상한 절단 시 최근 일자부터 보존
-                .limit(_TREND_LOG_CAP)
-                .execute
+                _fetch_capped,
+                "congestion_logs",
+                "congestion_level, timestamp",
+                # 상한 절단 시 최근 일자부터 보존(desc). id 는 동률 tiebreak — simulate-peak 이
+                # 수천 행을 **같은 timestamp** 로 넣기 때문에 페이지 경계가 실제로 흔들린다.
+                lambda q: q.gte("timestamp", since)
+                .order("timestamp", desc=True)
+                .order("id", desc=True),
+                _TREND_LOG_CAP,
+                endpoint="metrics/trend",
             ),
             asyncio.to_thread(
-                supabase_admin.table("recommendations")
-                .select("accepted, created_at")
-                .neq("source", "browse")
+                _fetch_capped,
+                "recommendations",
+                "accepted, created_at",
+                lambda q: q.neq("source", "browse")
                 .gte("created_at", since)
                 .order("created_at", desc=True)
-                .limit(5000)
-                .execute
+                .order("id", desc=True),
+                _TREND_REC_CAP,
+                endpoint="metrics/trend",
             ),
         )
     except Exception as e:
         logger.error("admin_metrics_trend_failed", error=str(e))
         raise HTTPException(status_code=500, detail="분산 추이 집계에 실패했습니다.")
 
-    logs = logs_res.data or []
     cong: dict[str, dict[str, float]] = {}
     for row in logs:
         day = _kst_date(row.get("timestamp"))
@@ -541,7 +684,7 @@ async def get_metrics_trend(days: int = 30):
         acc["n"] += 1
 
     rec_agg: dict[str, dict[str, int]] = {}
-    for row in recs_res.data or []:
+    for row in recs:
         day = _kst_date(row.get("created_at"))
         if not day:
             continue
@@ -565,7 +708,8 @@ async def get_metrics_trend(days: int = 30):
             "rec_accepted": r["accepted"] if r else 0,
         })
 
-    return {"days": days, "daily": daily, "truncated": len(logs) >= _TREND_LOG_CAP}
+    # 두 계열 중 하나라도 상한에 닿으면 daily 의 앞쪽(오래된 날)이 실제보다 비어 보인다.
+    return {"days": days, "daily": daily, "truncated": logs_truncated or recs_truncated}
 
 
 # =========================================================================
@@ -578,6 +722,9 @@ async def get_metrics_trend(days: int = 30):
 # =========================================================================
 
 _LEGACY_RELIEF_TO_MINUTES = 15.0  # wait_time.DEFAULT_PROCESSING_TIMES 중앙값(카페12·식당25·관광15·문화15)
+# 수락 추천 상한. 절감 분(分)은 **합계**라 행이 빠지면 그만큼 과소 집계된다 — 즉 잘리면
+# '분산 효과가 이만큼 있었다' 를 실제보다 작게 말하게 된다. 상한에 닿으면 truncated 로 알린다.
+_IMPACT_REC_CAP = 5000
 
 
 @router.get("/impact")
@@ -598,13 +745,16 @@ async def get_impact(since: str | None = None, days: int = 1):
         since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
 
     try:
-        res = await asyncio.to_thread(
-            supabase_admin.table("recommendations")
-            .select("score_breakdown, created_at")
-            .eq("accepted", True)
+        rows, truncated = await asyncio.to_thread(
+            _fetch_capped,
+            "recommendations",
+            "score_breakdown, created_at",
+            lambda q: q.eq("accepted", True)
             .gte("created_at", since)
-            .limit(5000)
-            .execute
+            .order("created_at", desc=True)
+            .order("id", desc=True),
+            _IMPACT_REC_CAP,
+            endpoint="impact",
         )
     except Exception as e:
         logger.error("admin_impact_fetch_failed", error=str(e))
@@ -614,7 +764,7 @@ async def get_impact(since: str | None = None, days: int = 1):
     saved_minutes = 0.0
     measured = 0   # original_wait_time 실측 저장 행
     estimated = 0  # 레거시 근사(incentive_relief 기반) 행
-    for row in res.data or []:
+    for row in rows:
         relocations += 1
         bd = row.get("score_breakdown") or {}
         original_wait = bd.get("original_wait_time")
@@ -632,6 +782,8 @@ async def get_impact(since: str | None = None, days: int = 1):
         "saved_wait_minutes": round(saved_minutes, 1),
         "measured": measured,
         "estimated": estimated,
+        # 필드 추가만(구 번들은 이 키를 읽지 않는다). True 면 아래 합계는 하한이다.
+        "truncated": truncated,
     }
 
 
@@ -643,7 +795,15 @@ async def get_impact(since: str | None = None, days: int = 1):
 # =========================================================================
 
 _KST_OFFSET = timedelta(hours=9)
-_DASHBOARD_LOG_CAP = 12000  # 클라이언트 페이지네이션(1000행×12페이지)과 동일한 과다조회 상한
+# 클라이언트 페이지네이션(1000행×12페이지)과 동일한 과다조회 상한.
+# ⚠️ '1000행×12페이지' 는 **클라이언트가 12번 왕복했다**는 뜻이다. 서버로 옮기면서 그것을
+# `.limit(12000)` 한 번으로 바꿨는데, PostgREST 는 1000행에서 자르므로 이관 후의 서버 집계는
+# 사실상 1/12 만 보고 있었다(평균 혼잡도·이상 건수·히트맵·이상 알림 전부). 지금은 캡 너머로
+# 페이지네이션하되 상한은 유지한다 — simulate-peak 한 번이 시설 수만큼(약 1,660행) 넣으므로
+# 데모를 8번만 돌려도 하루치가 이 상한에 닿는다.
+_DASHBOARD_LOG_CAP = 12000
+# 전일 평균은 변화율(%) 하나를 만들 뿐이라 오늘치보다 낮게 잡는다.
+_DASHBOARD_YESTERDAY_CAP = 5000
 
 
 def _js_round(value: float, digits: int) -> float:
@@ -701,31 +861,36 @@ async def get_dashboard_today():
     empty = {"hasLogs": False, "avgCongestion": None, "anomalyCount": None, "heatmap": None, "anomalies": None}
     try:
         # 오늘 로그(시설명/유형 조인)와 어제 로그(변화율용, congestion_level만)를 동시에 조회한다(직렬 왕복 제거).
-        today_res, y_res = await asyncio.gather(
+        (logs, _today_truncated), (y_logs, _y_truncated) = await asyncio.gather(
             asyncio.to_thread(
-                supabase_admin.table("congestion_logs")
-                .select("congestion_level, current_count, timestamp, facility:facilities(name, type)")
-                .gte("timestamp", start)
+                _fetch_capped,
+                "congestion_logs",
+                "congestion_level, current_count, timestamp, facility:facilities(name, type)",
+                lambda q: q.gte("timestamp", start)
                 .lte("timestamp", end)
                 .order("timestamp", desc=False)
-                .limit(_DASHBOARD_LOG_CAP)
-                .execute
+                .order("id", desc=False),  # simulate-peak 이 동일 timestamp 를 대량 생성한다
+                _DASHBOARD_LOG_CAP,
+                endpoint="dashboard/today",
             ),
             asyncio.to_thread(
-                supabase_admin.table("congestion_logs")
-                .select("congestion_level")
-                .gte("timestamp", y_start)
+                _fetch_capped,
+                "congestion_logs",
+                "congestion_level",
+                lambda q: q.gte("timestamp", y_start)
                 .lte("timestamp", y_end)
-                .limit(5000)
-                .execute
+                .order("timestamp", desc=False)
+                .order("id", desc=False),
+                _DASHBOARD_YESTERDAY_CAP,
+                endpoint="dashboard/today",
             ),
         )
     except Exception as e:
         logger.error("admin_dashboard_today_failed", error=str(e))
         raise HTTPException(status_code=500, detail="혼잡 집계 조회에 실패했습니다.")
 
-    logs = today_res.data or []
-    y_logs = y_res.data or []
+    # 절단 사실은 응답이 아니라 구조화 로그로만 남긴다(_fetch_capped 안에서 경고). 이 응답 shape
+    # 은 클라이언트 폴백 경로와 1:1 계약이라 키를 늘리지 않는다 — 브리핑도 같은 dict 를 먹는다.
     if len(logs) < 5:
         return empty
 

@@ -254,6 +254,11 @@ export default function MainPage() {
   // 카테고리·위치가 바뀌면 이전 추천 응답은 더 이상 화면에 쓸 수 없다. 최신 요청만 남겨
   // 모바일의 제한된 연결과 브라우저 파싱 자원을 낭비하지 않는다.
   const recommendationAbortRef = useRef<AbortController | null>(null);
+  // 추천 요청 세대 카운터 — abort() 만으로는 구세대 응답을 막지 못한다. 응답이 이미 도착해
+  // await 가 풀린 뒤(콜백이 마이크로태스크 큐에서 대기 중)에 abort 하면 아무 일도 일어나지 않고,
+  // 그 구세대 결과가 그대로 setState 까지 흘러간다. 세대가 어긋나면 화면에 쓰지 않는다
+  // (같은 저장소 app/course/page.tsx 의 fetchGenRef 와 같은 모양).
+  const recommendationGenRef = useRef(0);
   // 히트맵 CustomOverlay blob 배열 — 토글 off / 데이터·필터·예측 변경 / 언마운트 시 정리(cleanup)용.
   const heatmapOverlaysRef = useRef<kakao.maps.Overlay[]>([]);
   // 축제 포커스 오버레이(핀/영역 원 + 라벨) 배열 — 새 축제 선택·지도 클릭·언마운트 시 정리.
@@ -631,6 +636,15 @@ export default function MainPage() {
   const [noOpenTodayOnly, setNoOpenTodayOnly] = useState(false);
   const [rejectedIds, setRejectedIds] = useState<Set<string>>(new Set());
   const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
+  // 거절/저장은 추천 effect 를 다시 돌리지 않는다(그 effect 의 dep 주석 참조 — 점수/순위 리셋 방지).
+  // 그래서 이미 나가 있던 요청은 '사용자가 방금 치운 곳' 을 모르는 채 계산된 목록을 들고 돌아온다.
+  // 응답을 화면에 쓰기 전에 '요청이 나간 뒤 생긴 판단' 만 걷어내야 방금 누른 '관심 없음'·'저장'이
+  // 되살아나지 않는다(추천 effect 의 dismissedSinceRequest). effect 클로저의 state 는 요청 시점에
+  // 멈춰 있으므로, '지금 이 순간'의 값은 ref 로 따로 들고 다닌다.
+  const rejectedIdsRef = useRef(rejectedIds);
+  const savedIdsRef = useRef(savedIds);
+  useEffect(() => { rejectedIdsRef.current = rejectedIds; }, [rejectedIds]);
+  useEffect(() => { savedIdsRef.current = savedIds; }, [savedIds]);
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number }>({ ...REGION.center });
   const [preferredCategories, setPreferredCategories] = useState<string[]>([]);
 
@@ -1151,6 +1165,16 @@ export default function MainPage() {
     }
     if (facilities.length === 0) return;
 
+    // 요청은 '보낼 때'의 제외 목록으로 계산된다. 응답을 기다리는 동안 누른 '관심 없음'·'저장'은
+    // 이 effect 를 다시 돌리지 않으므로(아래 dep 주석), 결과를 화면에 쓰기 전에 **그 사이에 생긴
+    // 판단만** 걷어낸다. 요청 시점에 이미 제외돼 있던 것은 건드리지 않는다 — 후보가 전부 소진되면
+    // 아래에서 일부러 전체로 되돌려(loopback) 다시 보여주는 설계라, 그것까지 지우면 소진 이후
+    // 화면이 영구히 비어 버린다. rejectedIds/savedIds 는 이 effect 가 돌 때의 값(= 요청 시점),
+    // ref 는 지금 이 순간의 값이다(선언부 주석).
+    const dismissedSinceRequest = (f: Facility) =>
+      (rejectedIdsRef.current.has(f.id) && !rejectedIds.has(f.id))
+      || (savedIdsRef.current.has(f.id) && !savedIds.has(f.id));
+
     // 경주 테마는 유명 장소 자체를 추천하는 모드가 아니다. 선택한 명소를 원본(reference)으로
     // 보내 TourAPI 연관성·도착 영업 가능성·보행 경로를 통과한 같은 유형의 대안을 서버 SPOT으로
     // 다시 매긴다. 일반 by-type 요청과 섞이면 늦게 온 응답이 카드를 덮으므로 이 분기를 독립시킨다.
@@ -1160,6 +1184,8 @@ export default function MainPage() {
       recommendationAbortRef.current?.abort();
       const recommendationController = new AbortController();
       recommendationAbortRef.current = recommendationController;
+      // 테마 분기와 by-type 분기는 같은 카운터를 쓴다 — 둘 사이를 오갈 때도 늦게 온 쪽이 이기면 안 된다.
+      const gen = ++recommendationGenRef.current;
       setDiscoveryLoading(true);
 
       (async () => {
@@ -1175,7 +1201,7 @@ export default function MainPage() {
               signal: recommendationController.signal,
             },
           );
-          if (cancelled) return;
+          if (cancelled || gen !== recommendationGenRef.current) return; // 이후 요청이 이미 나갔다 — 구세대 응답 폐기
           const byId = new Map(expandGroups(facilities).map((facility) => [facility.id, facility]));
           const ranked = recs.map((rec) => {
             const rf = rec.facility;
@@ -1211,20 +1237,24 @@ export default function MainPage() {
               reason: rec.reason || '',
             } as Facility;
           });
-          setRankedFacilities(ranked);
+          // 응답이 도착하는 사이에 누른 '관심 없음'·'저장'을 반영한다(dismissedSinceRequest 주석).
+          const visible = ranked.filter((f) => !dismissedSinceRequest(f));
+          setRankedFacilities(visible);
           setDiscoveryLoading(false);
-          if (ranked.length === 0) {
+          if (visible.length === 0) {
             setSelectedFacility(null);
             setNoOpenTodayOnly(false);
             setNoRecommendation(true);
-            showToast(t('discovery.noAlternatives', { anchor: activeDiscovery.anchorName }));
+            // '서버가 대안을 못 찾았다' 와 '내가 전부 치웠다' 는 다른 사실이다 — 전자일 때만 그렇게 말한다.
+            if (ranked.length === 0) showToast(t('discovery.noAlternatives', { anchor: activeDiscovery.anchorName }));
             return;
           }
           setNoRecommendation(false);
-          setSelectedFacility(ranked[0]);
-          if (mapInstanceRef.current) panToVisible(ranked[0].latitude, ranked[0].longitude);
+          setSelectedFacility(visible[0]);
+          if (mapInstanceRef.current) panToVisible(visible[0].latitude, visible[0].longitude);
         } catch (error) {
-          if (cancelled || (error instanceof DOMException && error.name === 'AbortError')) return;
+          if (cancelled || gen !== recommendationGenRef.current) return; // 구세대 실패로 최신 화면을 덮지 않는다
+          if (error instanceof DOMException && error.name === 'AbortError') return;
           console.warn('경주 테마 대안 추천 실패:', error);
           setDiscoveryLoading(false);
           setSelectedFacility(null);
@@ -1286,6 +1316,7 @@ export default function MainPage() {
     recommendationAbortRef.current?.abort();
     const recommendationController = new AbortController();
     recommendationAbortRef.current = recommendationController;
+    const gen = ++recommendationGenRef.current;
     // 첫 카드는 네트워크 왕복 전에 즉시 보여준다. 이 순위는 취향·추정 도보·혜택만 쓰는 정직한
     // degraded 결과이며, 서버의 실측 지역수요/정확한 근거가 도착하면 아래에서 원자적으로 교체한다.
     if (!voiceFilterIdsRef.current && liveMode) {
@@ -1312,7 +1343,7 @@ export default function MainPage() {
           // 음성 선호 필터(예: '양식'): 후보를 백엔드가 고른 id들로 좁혀 클라 미러로 SPOT 재랭킹(실시간).
           // (필터 변경 직후 첫 카드는 onFilter가 동기로 직접 set하므로 여기선 이후 재실행 케이스만 처리.)
           const filtered = expandGroups(verifiedCandidates)
-            .filter((f) => vfilter.has(f.id) && !rejectedIds.has(f.id) && !savedIds.has(f.id));
+            .filter((f) => vfilter.has(f.id) && !rejectedIds.has(f.id) && !savedIds.has(f.id) && !dismissedSinceRequest(f));
           all = rankFacilities(filtered, scoreOpts);
         } else {
           let realRanked: any[] = [];
@@ -1384,14 +1415,16 @@ export default function MainPage() {
           }
           // 합성/데모 시설은 항상 클라 미러로 점수 부여
           const demoRanked = rankFacilities(demoCands, scoreOpts);
-          all = [...realRanked, ...demoRanked].sort(compareSpot);
-          all.forEach((f, i) => { 
-            f.apiRank = i + 1; 
-            f.totalCandidates = all.length; 
+          // 순위를 매기기 **전에** 제외한다 — 화면에 못 뜰 항목이 자리를 차지하면 apiRank·totalCandidates
+          // ('N곳 중 M번째')가 사용자가 보는 목록과 어긋난다.
+          all = [...realRanked, ...demoRanked].filter((f) => !dismissedSinceRequest(f)).sort(compareSpot);
+          all.forEach((f, i) => {
+            f.apiRank = i + 1;
+            f.totalCandidates = all.length;
           });
         }
 
-        if (cancelled) return;
+        if (cancelled || gen !== recommendationGenRef.current) return; // 이후 요청이 이미 나갔다 — 구세대 응답 폐기
         setRankedFacilities(all);
         if (all.length === 0) {
           setSelectedFacility(null);
@@ -1472,6 +1505,10 @@ export default function MainPage() {
 
     const nextSavedIds = new Set(savedIds);
     nextSavedIds.add(fac.id);
+    // 이미 나가 있는 추천 요청이 돌아왔을 때 이 판단을 알고 있어야 한다. setSavedIds 는 렌더를
+    // 기다리는 예약이라, 응답이 그보다 먼저 도착하는 경합을 막지 못한다 — ref 는 지금 바로 갱신한다.
+    // (nextSavedIds 가 아니라 ref 기준으로 더한다: 한 프레임에 두 번 눌러도 앞의 판단을 잃지 않는다.)
+    savedIdsRef.current = new Set(savedIdsRef.current).add(fac.id);
     const voicePass = (f: Facility) => !voiceFilterIds || voiceFilterIds.has(f.id); // 음성 선호 필터 유지
 
     // rankedFacilities (백엔드 순위) 기준 탐색: 방금 저장한 항목 제외
@@ -1559,6 +1596,8 @@ export default function MainPage() {
     // Next candidates: exclude already-rejected (prev rejectedIds + current fac) and saved
     const nextRejectedIds = new Set(rejectedIds);
     nextRejectedIds.add(fac.id);
+    // handlePutOff 와 같은 이유로 ref 를 즉시 갱신한다(도착 중인 응답이 방금 거절한 곳을 되살리지 못하게).
+    rejectedIdsRef.current = new Set(rejectedIdsRef.current).add(fac.id);
     const voicePass = (f: Facility) => !voiceFilterIds || voiceFilterIds.has(f.id); // 음성 선호 필터 유지
     // 오늘 휴무 '확정' 시설은 다음 추천 후보에서 제외(문 닫은 집 추천 사고 방지 — 음식 칩 풀과 동일 조건).
     // 판정 불가(null)는 배제하지 않는다(정직성: 과판정 금지). camel/snake 이중 표기 방어(keysToCamel 재귀).
@@ -1852,24 +1891,33 @@ export default function MainPage() {
         let centerLng = REGION.center.lng as number;
         let level = 4;
 
+        // 마지막 지도 위치 복원은 '있으면 좋은' 값이다. 그런데 저장소는 읽기만 해도 throw 하는
+        // 환경이 있다(프라이빗 모드·인앱 브라우저·서드파티 저장소 차단). 여기서 예외가 새어 나가면
+        // 아래 new kakao.maps.Map 에 닿지 못해 mapLoaded 도 mapUnavailable 도 영영 켜지지 않는다 —
+        // 폴링 effect 는 initMap 을 부른 뒤 이미 interval 을 지웠고 8초 타임아웃도 지나간 뒤라,
+        // 지도도 폴백 UI 도 없는 빈 화면이 그대로 남는다. 복원 실패는 기본 중심/줌으로 떨어진다.
         if (typeof window !== 'undefined') {
-          const savedLat = sessionStorage.getItem('nextspot_map_center_lat');
-          const savedLng = sessionStorage.getItem('nextspot_map_center_lng');
-          const savedLevel = sessionStorage.getItem('nextspot_map_level');
-          
-          if (savedLat && savedLng) {
-            const parsedLat = parseFloat(savedLat);
-            const parsedLng = parseFloat(savedLng);
-            if (!isNaN(parsedLat) && !isNaN(parsedLng)) {
-              centerLat = parsedLat;
-              centerLng = parsedLng;
+          try {
+            const savedLat = sessionStorage.getItem('nextspot_map_center_lat');
+            const savedLng = sessionStorage.getItem('nextspot_map_center_lng');
+            const savedLevel = sessionStorage.getItem('nextspot_map_level');
+
+            if (savedLat && savedLng) {
+              const parsedLat = parseFloat(savedLat);
+              const parsedLng = parseFloat(savedLng);
+              if (!isNaN(parsedLat) && !isNaN(parsedLng)) {
+                centerLat = parsedLat;
+                centerLng = parsedLng;
+              }
             }
-          }
-          if (savedLevel) {
-            const parsedLevel = parseInt(savedLevel, 10);
-            if (!isNaN(parsedLevel)) {
-              level = parsedLevel;
+            if (savedLevel) {
+              const parsedLevel = parseInt(savedLevel, 10);
+              if (!isNaN(parsedLevel)) {
+                level = parsedLevel;
+              }
             }
+          } catch {
+            /* 저장소 차단 — 기본 중심/줌으로 시작한다(지도는 반드시 뜬다) */
           }
         }
 
@@ -1888,9 +1936,15 @@ export default function MainPage() {
           const lvl = map.getLevel();
           setMapLevel(lvl); // 줌 변경 시 마커 밀집도 재계산 트리거
           setMapViewportVersion((version) => version + 1);
-          sessionStorage.setItem('nextspot_map_center_lat', center.getLat().toString());
-          sessionStorage.setItem('nextspot_map_center_lng', center.getLng().toString());
-          sessionStorage.setItem('nextspot_map_level', lvl.toString());
+          // 위치 기억도 저장소가 막히면 throw 한다. 이 콜백은 지도 idle 마다 SDK 가 부르므로,
+          // 예외가 새어 나가면 같은 이벤트에 걸린 다른 리스너까지 지도를 움직일 때마다 끊긴다.
+          try {
+            sessionStorage.setItem('nextspot_map_center_lat', center.getLat().toString());
+            sessionStorage.setItem('nextspot_map_center_lng', center.getLng().toString());
+            sessionStorage.setItem('nextspot_map_level', lvl.toString());
+          } catch {
+            /* 저장소 차단 — 이번 세션의 지도 위치는 기억하지 않는다 */
+          }
         });
 
         // 빈 지도(마커 외) 클릭 시 그룹 팝업 닫기 + 그룹 하이라이트 해제 + 추천 카드 선택해제 — 일반 지도앱 UX
@@ -2640,7 +2694,9 @@ export default function MainPage() {
                     activeOverlayRef.current = null;
                   }
                   if (typeof window !== 'undefined') {
-                    sessionStorage.setItem('nextspot_active_filter', filter.id);
+                    // 저장소가 막힌 환경에서 여기서 throw 하면 필터 전환 클릭이 통째로 예외로 끝난다
+                    // (지도 초기화와 같은 부류 — 위 initMap 주석 참조). 기억 못 하는 건 감수한다.
+                    try { sessionStorage.setItem('nextspot_active_filter', filter.id); } catch { /* 저장소 차단 */ }
                   }
                 }}
                 className={`toss-pressable flex shrink-0 items-center whitespace-nowrap rounded-full border px-3.5 py-2 fractal-glass shadow-[0_2px_14px_rgba(43,35,32,0.06)] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 sm:px-4 sm:py-2 ${
@@ -3151,7 +3207,8 @@ export default function MainPage() {
                           mapInstanceRef.current.setCenter(new window.kakao.maps.LatLng(loc.lat, loc.lng));
                         }
                         if (typeof window !== 'undefined') {
-                          sessionStorage.removeItem('nextspot_selected_facility_id');
+                          // 저장소 차단 환경에서 throw 하면 아래 토스트까지 못 가 '아무 일도 안 일어난' 것처럼 보인다.
+                          try { sessionStorage.removeItem('nextspot_selected_facility_id'); } catch { /* 저장소 차단 */ }
                         }
                         showToast(`현재 위치를 '${loc.name}'(으)로 이동했어요.`);
                       }}

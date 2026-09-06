@@ -94,8 +94,22 @@ class InfrastructureItem(BaseModel):
     homepage: str | None = None
     overview: str | None = None
     barrier_free: bool | None = None
-    # 폐업·표출중단 자동 감지(2차 기획 1위). is_active 컬럼 미배포(마이그레이션 미적용) 환경에서는
-    # 항상 None — 프런트는 값이 False 일 때만 '운영정보 확인 필요' 배지를 표시한다(None/True 는 무배지).
+    # 폐업·표출중단 자동 감지(2차 기획 1위)의 상태 컬럼.
+    #
+    # ⚠️ 이 응답에서 이 필드는 **구조적으로 False 가 될 수 없다.** 아래 get_infrastructures 는
+    # fetch_active_facilities 로 is_active=true 인 행만 받으므로, 값은 True 이거나
+    # (is_active 컬럼 미배포 → 42703 무필터 폴백일 때) None 뿐이다.
+    #
+    # 예전 주석은 "프런트는 값이 False 일 때만 '운영정보 확인 필요' 배지를 표시한다" 고 적었지만
+    # 그건 사실이 아니다: 그 배지는 docs/archive/TOURAPI_EXPANSION.md 의 계획일 뿐 구현된 적이
+    # 없고(2026-09-07 apps/web 전수 확인 — 이 응답의 is_active 를 읽는 소비자는 하나도 없다.
+    # lib/facilitySearch.ts 가 읽는 is_active 는 Supabase 를 직접 조회하는 다른 경로다),
+    # 설령 구현하더라도 위 필터 때문에 여기서는 절대 켜지지 않는다. 폐업 배지가 필요해지면
+    # 비활성 행까지 내려주는 별도 경로가 있어야 한다.
+    # (이 불변식은 tests/scripts/test_facility_lifecycle.py 가 잠근다.)
+    #
+    # 그럼에도 필드를 지우지 않는 이유: 응답 봉투는 배포된 구 번들도 읽는다. 소비자가 없다는
+    # 이유로 키를 빼면 얻는 것(바이트 몇 개)보다 깨질 위험이 크다.
     is_active: bool | None = None
     place_data_source: str | None = None
     data_updated_at: str | None = None

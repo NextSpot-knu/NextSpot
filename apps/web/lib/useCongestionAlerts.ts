@@ -180,17 +180,28 @@ export function useCongestionAlerts(): UseCongestionAlerts {
 
         if (isCalm && !wasCalm) {
           // 한산으로 '전이' — 1회 알림
+          //
+          // 깃발은 **알림이 실제로 만들어졌을 때만** 세운다. 예전에는 catch 로 삼킨 뒤에도
+          // notified[id] = true 를 찍었는데, 그러면 알림이 뜨지 않은 전이가 '이미 알렸다' 로
+          // 기록돼 **그 한산은 영영 사라진다** — 다시 붐볐다가 또 한산해질 때까지 기회가 없다.
+          // (권한이 세션 중 취소되거나 브라우저가 생성을 막으면 생성자는 던진다.)
+          // 실패해서 깃발이 안 서면 다음 주기에 다시 시도하는데, 그 시점에도 isCalm 을 새로
+          // 판정하므로 '이미 붐벼진 곳' 에 뒤늦게 알리는 일은 없다.
+          let delivered = false;
           try {
             new Notification('한산해졌어요 🍃', {
               body: `'${place.name}'이(가) 지금 한산해요. 다녀오기 좋은 때예요!`,
               tag: `nextspot-calm-${place.id}`, // 같은 장소 알림은 OS 레벨에서도 대체
               icon: '/icon.svg',
             });
+            delivered = true;
           } catch {
-            /* 알림 생성 실패는 무시 */
+            /* 생성 실패 — 깃발을 세우지 않아 다음 주기에 다시 시도한다 */
           }
-          notified[place.id] = true;
-          changed = true;
+          if (delivered) {
+            notified[place.id] = true;
+            changed = true;
+          }
         } else if (!isCalm && wasCalm) {
           // 다시 붐빔 → 플래그 해제(다음 전이에서 재알림 허용)
           notified[place.id] = false;

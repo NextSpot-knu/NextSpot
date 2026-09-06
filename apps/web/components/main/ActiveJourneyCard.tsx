@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Navigation, RefreshCw } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { getActiveTrip, getVisitHistory, markTripArrived, recordActiveTrip, type ActiveTrip } from '@/lib/visits';
@@ -12,6 +12,7 @@ import { useT } from '@/lib/i18n/I18nProvider';
 import { queueRecommendationOutcome } from '@/lib/recommendationOutcomes';
 import { haptic, interactionSpring, sheetSpring } from '@/lib/motion';
 import { displayWalkingMinutes } from '@/lib/recommender';
+import { classifyReplanOutcome, replanNotice, type ReplanOutcome } from '@/lib/replanOutcome';
 
 const CATEGORIES: PlaceCategory[] = ['restaurant', 'cafe', 'attraction', 'culture'];
 const WALKS = [5, 10, 20] as const;
@@ -33,7 +34,12 @@ export default function ActiveJourneyCard({ location }: { location: { lat: numbe
   const [changeText, setChangeText] = useState('');
   const [draft, setDraft] = useState<Partial<TravelContext> | null>(null);
   const [parseError, setParseError] = useState(false);
-  const [replanEmpty, setReplanEmpty] = useState(false);
+  // 재계획이 대체지 없이 끝난 '이유'. 예전에는 불리언 하나였고, 장애·타임아웃·0건이 전부
+  // '추천할 곳이 없어요' 로 나갔다(lib/replanOutcome 주석 참조).
+  const [replanOutcome, setReplanOutcome] = useState<ReplanOutcome | null>(null);
+  // 재시도는 **같은 조건으로** 다시 보내야 한다. 실패한 시도가 draft 였는지 현재 여정 조건이었는지
+  // 기억하지 않으면, '다시 시도' 가 사용자가 방금 고른 조건을 조용히 버린 다른 요청이 된다.
+  const lastReplanContextRef = useRef<Partial<TravelContext> | undefined>(undefined);
   useEffect(() => {
     const sync = () => {
       const active = getActiveTrip();
@@ -64,7 +70,7 @@ export default function ActiveJourneyCard({ location }: { location: { lat: numbe
   const parseChange = async () => {
     if (!changeText.trim() || busy) return;
     setBusy(true);
-    setReplanEmpty(false);
+    setReplanOutcome(null);
     setParseError(false);
     try {
       const result = await parseTravelContext(changeText.trim());
@@ -78,7 +84,8 @@ export default function ActiveJourneyCard({ location }: { location: { lat: numbe
   const replan = async (confirmed?: Partial<TravelContext>) => {
     if (busy) return;
     setBusy(true);
-    setReplanEmpty(false);
+    setReplanOutcome(null);
+    lastReplanContextRef.current = confirmed;
     track('replan_requested', { facility_type: trip.type });
     if (confirmed) {
       track('context_applied', {
@@ -103,21 +110,27 @@ export default function ActiveJourneyCard({ location }: { location: { lat: numbe
       };
       const facilityTypes = context.categories.length ? context.categories : [trip.type];
       let deadlineId: ReturnType<typeof setTimeout> | undefined;
-      const batches = await Promise.race([
+      // 예산 초과를 '빈 배열' 로 표현하지 않는다. 예전에는 setTimeout 이 [] 를 resolve 했고,
+      // 그 [] 가 서버의 '조건에 맞는 곳 0건' 과 구분되지 않아 타임아웃이 '추천할 곳이 없어요' 로
+      // 나갔다. 표식을 따로 돌려주고 아래 classifyReplanOutcome 이 셋을 갈라놓는다.
+      const raced = await Promise.race([
         Promise.all(
           facilityTypes.map((facilityType) => recommendByType(facilityType, location, [trip.facilityId], 1, context)),
-        ),
-        new Promise<never[]>((resolve) => {
-          deadlineId = setTimeout(() => resolve([]), REPLAN_RESPONSE_BUDGET_MS);
+        ).then((batches) => ({ batches })),
+        new Promise<{ overBudget: true }>((resolve) => {
+          deadlineId = setTimeout(() => resolve({ overBudget: true }), REPLAN_RESPONSE_BUDGET_MS);
         }),
       ]);
       if (deadlineId) clearTimeout(deadlineId);
-      const next = batches.flat().sort((a, b) =>
+      const timedOut = 'overBudget' in raced;
+      const candidates = timedOut ? [] : raced.batches.flat().sort((a, b) =>
         b.spotScore - a.spotScore || a.distanceM - b.distanceM || a.facility.id.localeCompare(b.facility.id),
-      )[0];
+      );
+      // 후보가 없으면 outcome 은 'empty' 아니면 'timeout' 이다('replaced' 는 후보가 있을 때만 나온다).
+      const next = candidates[0];
       if (!next) {
-        // Preserve the existing active trip when no eligible replacement exists.
-        setReplanEmpty(true);
+        // 진행 중인 여정은 어떤 경우에도 지우지 않는다. 다만 왜 못 갈아탔는지는 구분해서 말한다.
+        setReplanOutcome(classifyReplanOutcome({ timedOut, candidateCount: candidates.length }));
         return;
       }
       recordActiveTrip({
@@ -138,8 +151,9 @@ export default function ActiveJourneyCard({ location }: { location: { lat: numbe
       });
       queueRecommendationOutcome(next.recommendationId, 'navigation_started');
     } catch {
-      // A failed or slow replacement must never erase the journey already in progress.
-      setReplanEmpty(true);
+      // 호출 자체가 실패했다. 진행 중인 여정은 절대 지우지 않되, 이것을 '조건에 맞는 곳이 없음'
+      // 으로 말하지 않는다 — 조건을 바꿔도 달라지지 않는 문제이므로 재시도 경로를 준다.
+      setReplanOutcome('failed');
     } finally { setBusy(false); }
   };
   const updateDraft = (update: (current: Partial<TravelContext>) => Partial<TravelContext>) => {
@@ -154,6 +168,7 @@ export default function ActiveJourneyCard({ location }: { location: { lat: numbe
     const values = current.requiredAttributes ?? [];
     return { ...current, requiredAttributes: values.includes(attribute) ? values.filter((value) => value !== attribute) : [...values, attribute] };
   });
+  const notice = replanOutcome ? replanNotice(replanOutcome) : null;
 
   return (
     <motion.aside
@@ -182,7 +197,22 @@ export default function ActiveJourneyCard({ location }: { location: { lat: numbe
         >
           <label className="text-xs font-bold text-muk" htmlFor="trip-change">{t('trip.changeTitle')}</label>
           <button type="button" disabled={busy} onClick={() => void replan()} className="mt-2 w-full rounded-xl bg-jade py-2 text-xs font-bold text-white disabled:opacity-50">{busy ? t('common.loading') : t('trip.confirmContext')}</button>
-          {replanEmpty && <p role="status" className="mt-2 rounded-xl bg-terracotta/10 px-3 py-2 text-xs text-terracotta">{t('map.noRecBody')}</p>}
+          {notice && (
+            <div role="status" className="mt-2 rounded-xl bg-terracotta/10 px-3 py-2 text-xs text-terracotta">
+              <p>{t(notice.messageKey)}</p>
+              {/* 장애일 때만 재시도를 준다. 0건은 다시 눌러도 같은 답이라 조건을 바꾸는 쪽이 맞다. */}
+              {notice.retryable && (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => { haptic('selection'); void replan(lastReplanContextRef.current); }}
+                  className="toss-pressable mt-1.5 w-full rounded-lg border border-terracotta/40 py-1.5 font-bold disabled:opacity-50"
+                >
+                  {busy ? t('common.loading') : t('common.retry')}
+                </button>
+              )}
+            </div>
+          )}
           <textarea id="trip-change" maxLength={300} value={changeText} onChange={(event) => setChangeText(event.target.value)} placeholder={t('trip.changePlaceholder')} className="mt-2 w-full min-h-16 resize-none rounded-xl border border-line px-3 py-2 text-xs text-muk outline-none focus:border-jade" />
           <button type="button" disabled={busy || !changeText.trim()} onClick={() => void parseChange()} className="mt-2 w-full rounded-xl border border-jade/30 bg-jade/5 py-2 text-xs font-bold text-jade disabled:opacity-50">{busy ? t('trip.parsing') : t('trip.parse')}</button>
           {draft && (

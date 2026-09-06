@@ -160,15 +160,46 @@ def test_infrastructures_endpoint_falls_back_when_column_missing_end_to_end():
     assert fac_table.call_count == 2
 
 
-def test_infrastructures_endpoint_passes_through_is_active_values():
-    """is_active 컬럼이 있으면 True/False 값이 응답에 그대로 실린다(saved 페이지 배지 판단 근거)."""
+class _FilteringFacilitiesTable(_StatefulFacilitiesTable):
+    """eq 필터를 **실제로 적용하는** facilities 페이크.
+
+    상위 클래스는 모든 체이닝을 흡수한다 — 편하지만 `.eq("is_active", True)` 까지 삼키므로
+    '비활성 시설이 응답에 실리는' 실제로는 불가능한 장면을 만들 수 있다(아래 테스트의 이전
+    버전이 정확히 그것을 검증하고 있었다). 여기서는 eq 만 진짜로 적용한다.
+    """
+
+    def __init__(self, rows):
+        super().__init__(rows)
+        self.eq_calls: list[tuple] = []
+        self._filters: list[tuple] = []
+
+    def eq(self, field, value):
+        self.eq_calls.append((field, value))
+        self._filters.append((field, value))
+        return self
+
+    def execute(self):
+        result = super().execute()
+        rows = [r for r in result.data if all(r.get(f) == v for f, v in self._filters)]
+        self._filters = []  # 쿼리 1회분 필터(다음 호출로 새지 않게)
+        return _FakeResult(rows)
+
+
+def test_infrastructures_endpoint_never_exposes_inactive_facilities():
+    """is_active 는 True 이거나 None 뿐 — **False 는 구조적으로 이 응답에 못 실린다.**
+
+    fetch_active_facilities 가 is_active=true 만 조회하기 때문이다(InfrastructureItem.is_active
+    주석이 근거로 삼는 불변식). 이전 버전의 이 테스트는 "True/False 가 그대로 실린다 —
+    saved 페이지 배지 판단 근거" 라고 주장했는데, 그건 페이크가 필터를 흡수해 만든 장면이었고
+    그 배지는 구현된 적도 없다. 아래 페이크는 필터를 실제로 적용한다.
+    """
     rows = [
         {"id": "f1", "name": "정상영업", "type": "cafe", "latitude": 1.0, "longitude": 1.0,
          "capacity": 5, "operating_hours": None, "features": None, "is_active": True},
         {"id": "f2", "name": "비표출감지", "type": "cafe", "latitude": 1.0, "longitude": 1.0,
          "capacity": 5, "operating_hours": None, "features": None, "is_active": False},
     ]
-    fac_table = _StatefulFacilitiesTable(rows)
+    fac_table = _FilteringFacilitiesTable(rows)
     fake_client = _StatefulSupabase({"facilities": fac_table})
 
     with patch.object(infrastructures, "supabase_client", fake_client), \
@@ -179,9 +210,11 @@ def test_infrastructures_endpoint_passes_through_is_active_values():
         res = client.get("/api/v1/infrastructures")
 
     assert res.status_code == 200
-    by_id = {item["id"]: item for item in res.json()}
-    assert by_id["f1"]["is_active"] is True
-    assert by_id["f2"]["is_active"] is False
+    body = res.json()
+    assert [item["id"] for item in body] == ["f1"]  # 비활성 시설은 애초에 조회되지 않는다
+    assert body[0]["is_active"] is True             # 값 자체는 그대로 실린다
+    assert all(item["is_active"] is not False for item in body)
+    assert ("is_active", True) in fac_table.eq_calls
     assert fac_table.call_count == 1
 
 

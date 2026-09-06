@@ -82,15 +82,43 @@ async def fetch_delta(service: str, start: date, end: date, key: str) -> list[di
 
 
 def load_db_context() -> tuple[list[dict], dict[str, dict]]:
-    from app.core.supabase import supabase_admin
+    """중복 판정에 쓸 **전량** 인덱스를 만든다.
 
-    facilities = supabase_admin.table("facilities").select(
-        "id,name,address,latitude,longitude,type,features,is_active"
-    ).execute().data or []
-    refs = supabase_admin.table("facility_source_refs").select(
-        "facility_id,source,external_id,source_status,source_updated_at,source_hash"
-    ).execute().data or []
-    return facilities, {str(r["external_id"]): r for r in refs if r.get("source") == "localdata"}
+    ⚠️ 여기서 한 행이라도 빠지면 읽기 오류로 끝나지 않고 **쓰기 오염**이 된다.
+    build_actions 는 refs 에도 facilities 에도 매칭이 없으면 facility_id=None 인 action 을
+    만들고, apply_localdata_sync RPC 는 그 경우 facilities 에 **새 행을 INSERT** 한다.
+    즉 이미 있는 가게가 인덱스에서 빠지면 --apply 가 그것을 '신규' 로 판정해 중복 시설을
+    만든다. facilities 에는 (name, address) 유니크 제약이 없고, contentid 유니크 인덱스는
+    LOCALDATA INSERT 가 contentid 를 NULL 로 두므로 걸리지 않는다 — DB 도 못 막는다.
+    게다가 같은 RPC 의 ON CONFLICT ... DO UPDATE SET facility_id 가 출처 ref 를 새 중복 행
+    쪽으로 옮겨, 원본은 출처를 잃고 다음 실행에서 또 '신규' 가 된다.
+
+    반대 방향도 같이 깨진다: 빠진 시설의 폐업 행은 매칭 대상이 없어 격리되고, 그 가게는
+    is_active=true 로 계속 노출된다.
+
+    그래서 단발 .execute() 를 쓰면 안 된다 — PostgREST 가 1000행에서 자르는데 facilities 는
+    1,664행이다(2026-09-07 실측). fetch_all_rows 가 이 저장소의 정답 패턴이고,
+    같은 목적의 ingest_kakao_places.py 도 그것을 쓴다.
+
+    refs 는 source 필터를 **쿼리에** 건다. 예전에는 전량을 받아 파이썬에서 걸렀는데,
+    그러면 캡을 tourapi ref 로 먼저 소진해 localdata 인덱스가 더 얇아진다.
+    페이지 경계가 흔들리지 않도록 정렬도 함께 건다.
+    """
+    from app.core.supabase import fetch_all_rows, supabase_admin
+
+    facilities = fetch_all_rows(
+        supabase_admin,
+        "facilities",
+        "id,name,address,latitude,longitude,type,features,is_active",
+        apply_filters=lambda q: q.order("id"),
+    )
+    refs = fetch_all_rows(
+        supabase_admin,
+        "facility_source_refs",
+        "facility_id,source,external_id,source_status,source_updated_at,source_hash",
+        apply_filters=lambda q: q.eq("source", "localdata").order("external_id"),
+    )
+    return facilities, {str(r["external_id"]): r for r in refs}
 
 
 def require_recent_delta_checkpoint() -> None:

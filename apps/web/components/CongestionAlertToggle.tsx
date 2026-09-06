@@ -13,7 +13,7 @@ import { useT } from '@/lib/i18n/I18nProvider';
  * 한지 라이트 팔레트(gold/jade/muk/hanji) + 접근성(aria-pressed, focus-visible) 준수.
  */
 export function CongestionAlertToggle({ className = '' }: { className?: string }) {
-  const { enabled, permission, supported, toggle } = useCongestionAlerts();
+  const { enabled, permission, supported, toggle, lastCheckFailed } = useCongestionAlerts();
   const t = useT();
 
   // supported/permission 은 window·Notification 에서 파생되므로 서버/정적 export 렌더와 클라이언트가
@@ -107,6 +107,16 @@ export function CongestionAlertToggle({ className = '' }: { className?: string }
           </span>
         )}
       </button>
+
+      {/* 켜져 있는데 확인이 실패하는 중이면 말한다.
+          훅은 lastCheckFailed 를 계속 계산하고 있었는데 **읽는 곳이 한 군데도 없었다.**
+          그래서 백엔드가 죽어도 토글은 금색 '알림 받는 중' 에 종을 흔들며 그대로 있었다 —
+          이 파일 상단이 내건 "되지 않는 버튼을 켜진 것처럼 보이지 않게" 와 정반대다. */}
+      {on && lastCheckFailed && (
+        <p role="status" className="px-1 text-xs leading-tight text-terracotta">
+          {t('alert.checkFailed')}
+        </p>
+      )}
     </div>
   );
 }

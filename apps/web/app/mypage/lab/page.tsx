@@ -117,7 +117,7 @@ export default function LabPage() {
       if (busyId) return;
       setBusyId(feedbackId);
       const snapshot = items;
-      setItems((prev) => prev.filter((it) => it.feedbackId !== feedbackId));
+      setItems((prev) => prev.filter((it) => it.id !== feedbackId));
       setNoteFor((prev) => (prev === feedbackId ? null : prev));
       try {
         await run();
@@ -137,12 +137,12 @@ export default function LabPage() {
     (item: LabPendingItem, code: LabReasonCode) => {
       // '기타'는 메모를 받아야 하므로 바로 제출하지 않고 입력창만 연다(메모는 선택 — 빈 채로도 보낼 수 있다).
       if (code === 'other') {
-        setNoteFor(item.feedbackId);
+        setNoteFor(item.id);
         setNoteText('');
         setFreeTextFor(null); // 에디터는 한 번에 하나만 — 자유 입력을 닫는다.
         return;
       }
-      void mutate(item.feedbackId, () => answerLabReason(item.feedbackId, code), 'lab.answered');
+      void mutate(item.id, () => answerLabReason(item.id, code), 'lab.answered');
     },
     [mutate],
   );
@@ -151,8 +151,8 @@ export default function LabPage() {
     (item: LabPendingItem) => {
       const note = noteText.trim();
       void mutate(
-        item.feedbackId,
-        () => answerLabReason(item.feedbackId, 'other', note || undefined),
+        item.id,
+        () => answerLabReason(item.id, 'other', note || undefined),
         'lab.answered',
       );
     },
@@ -173,12 +173,12 @@ export default function LabPage() {
     async (item: LabPendingItem) => {
       const text = freeText.trim();
       if (!text || busyId) return;
-      setBusyId(item.feedbackId);
+      setBusyId(item.id);
       try {
-        const { resolved } = await classifyLabReason(item.feedbackId, text);
+        const { resolved } = await classifyLabReason(item.id, text);
         if (resolved) {
-          setItems((prev) => prev.filter((it) => it.feedbackId !== item.feedbackId));
-          setFreeTextFor((prev) => (prev === item.feedbackId ? null : prev));
+          setItems((prev) => prev.filter((it) => it.id !== item.id));
+          setFreeTextFor((prev) => (prev === item.id ? null : prev));
           toast.success(t('lab.answered'));
         } else {
           toast.error(t('lab.classifyFallback'));
@@ -279,13 +279,13 @@ export default function LabPage() {
               const typeLabel = item.facilityType && TYPE_IDS.includes(item.facilityType)
                 ? t(`category.${item.facilityType}`)
                 : item.facilityType;
-              const when = formatRecommendedAt(item.recommendedAt, locale);
-              const noteOpen = noteFor === item.feedbackId;
-              const freeOpen = freeTextFor === item.feedbackId;
-              const busy = busyId === item.feedbackId;
+              const when = formatRecommendedAt(item.createdAt, locale);
+              const noteOpen = noteFor === item.id;
+              const freeOpen = freeTextFor === item.id;
+              const busy = busyId === item.id;
               return (
                 <div
-                  key={item.feedbackId}
+                  key={item.id}
                   className={`bg-white border border-line rounded-3xl p-5 shadow-[0_2px_14px_rgba(43,35,32,0.06)] transition-opacity ${busy ? 'opacity-60' : ''}`}
                 >
                   {/* 장소명 + 유형 + 목록에서 제거 */}
@@ -307,7 +307,7 @@ export default function LabPage() {
                       type="button"
                       aria-label={t('lab.hide')}
                       disabled={busy}
-                      onClick={() => void mutate(item.feedbackId, () => hideLabItem(item.feedbackId), 'lab.hidden')}
+                      onClick={() => void mutate(item.id, () => hideLabItem(item.id), 'lab.hidden')}
                       className="shrink-0 text-muk-soft hover:text-muk disabled:opacity-50 transition-colors rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
                     >
                       <X size={18} />
@@ -342,13 +342,13 @@ export default function LabPage() {
                   {noteOpen && (
                     <div className="mt-4 animate-fade-in">
                       <label
-                        htmlFor={`lab-note-${item.feedbackId}`}
+                        htmlFor={`lab-note-${item.id}`}
                         className="block text-sm font-semibold text-muk-soft mb-2"
                       >
                         {t('lab.noteLabel')}
                       </label>
                       <textarea
-                        id={`lab-note-${item.feedbackId}`}
+                        id={`lab-note-${item.id}`}
                         value={noteText}
                         onChange={(e) => setNoteText(e.target.value)}
                         placeholder={t('lab.notePlaceholder')}
@@ -374,13 +374,13 @@ export default function LabPage() {
                   {freeOpen && (
                     <div className="mt-4 animate-fade-in">
                       <label
-                        htmlFor={`lab-free-${item.feedbackId}`}
+                        htmlFor={`lab-free-${item.id}`}
                         className="block text-sm font-semibold text-muk-soft mb-2"
                       >
                         {t('lab.freeTextLabel')}
                       </label>
                       <textarea
-                        id={`lab-free-${item.feedbackId}`}
+                        id={`lab-free-${item.id}`}
                         value={freeText}
                         onChange={(e) => setFreeText(e.target.value)}
                         placeholder={t('lab.freeTextPlaceholder')}
@@ -408,7 +408,7 @@ export default function LabPage() {
                       type="button"
                       disabled={busy}
                       aria-pressed={freeOpen}
-                      onClick={() => toggleFreeText(item.feedbackId)}
+                      onClick={() => toggleFreeText(item.id)}
                       className="text-xs font-semibold text-gold hover:text-gold-deep disabled:opacity-50 transition-colors px-2 py-1 rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
                     >
                       {t('lab.freeText')}
@@ -416,7 +416,7 @@ export default function LabPage() {
                     <button
                       type="button"
                       disabled={busy}
-                      onClick={() => void mutate(item.feedbackId, () => skipLabItem(item.feedbackId), 'lab.skipped')}
+                      onClick={() => void mutate(item.id, () => skipLabItem(item.id), 'lab.skipped')}
                       className="text-xs font-semibold text-muk-soft hover:text-muk disabled:opacity-50 transition-colors px-2 py-1 rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
                     >
                       {t('lab.skip')}

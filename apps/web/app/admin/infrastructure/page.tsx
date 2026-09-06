@@ -19,6 +19,7 @@ import {
   observedLevel,
   type FacilityCongestion,
 } from '@/lib/adminMetricState';
+import { countLabel, emptyOrFailedText, type LoadStatus } from '@/lib/adminLoadState';
 import { toast } from 'sonner';
 
 // --- Types ---
@@ -95,22 +96,28 @@ export default function InfrastructurePage() {
   // 적재 요청 대기(실시간 키워드 게이트웨이 승인 큐) — 접이식 섹션 상태.
   const [ingestRequests, setIngestRequests] = useState<IngestRequest[]>([]);
   const [ingestRequestsOpen, setIngestRequestsOpen] = useState(true);
-  const [ingestRequestsLoading, setIngestRequestsLoading] = useState(true);
+  // 승인 큐 조회도 실패와 '대기 0건' 을 가른다. 이 화면의 다른 지표들과 같은 원칙이다 —
+  // 승인 대기가 쌓여 있는데 배지가 '0' 이면 관리자는 이 섹션을 열어 보지 않는다.
+  const [ingestStatus, setIngestStatus] = useState<LoadStatus>('loading');
+  const [ingestError, setIngestError] = useState<string | null>(null);
   const [approvingIngestId, setApprovingIngestId] = useState<string | null>(null);
 
   const supabase = createPublicClient();
 
   const fetchIngestRequests = useCallback(async () => {
-    setIngestRequestsLoading(true);
+    setIngestStatus('loading');
     try {
       const data = await adminApi.get('/api/v1/search/ingest-requests?status=pending');
       setIngestRequests(Array.isArray(data) ? data : []);
+      setIngestStatus('ok');
     } catch (err) {
-      // 라우터 미배선/마이그레이션 미적용 환경 — 대기 0건과 동일하게 조용히 숨김(데모 무중단).
+      // 라우터 미배선/마이그레이션 미적용 환경도 이 경로로 떨어진다. 예전에는 그걸 이유로
+      // 대기 0건과 똑같이 숨겼는데, 그러면 배선이 정상인 운영 환경의 조회 실패까지 같이
+      // '대기 0건' 이 된다 — 승인 대기가 남아 있어도 아무도 모른다.
       console.warn('적재 요청 목록 로드 실패:', err);
       setIngestRequests([]);
-    } finally {
-      setIngestRequestsLoading(false);
+      setIngestStatus('failed');
+      setIngestError(errorMessage(err) || '알 수 없는 오류');
     }
   }, []);
 
@@ -504,8 +511,11 @@ export default function InfrastructurePage() {
             className="w-full px-8 py-3 flex items-center justify-between text-left hover:bg-hanok-card transition-colors"
           >
             <span className="flex items-center gap-2 text-sm font-semibold text-hanok-ink">
-              <Inbox size={16} className="text-gold" />
-              적재 요청 대기 {ingestRequests.length}
+              <Inbox size={16} className={ingestStatus === 'failed' ? 'text-rose-400' : 'text-gold'} />
+              적재 요청 대기{' '}
+              <span className={ingestStatus === 'failed' ? 'text-rose-300' : undefined}>
+                {countLabel(ingestStatus, ingestRequests.length)}
+              </span>
             </span>
             {ingestRequestsOpen ? (
               <ChevronUp size={16} className="text-hanok-muted" />
@@ -515,10 +525,27 @@ export default function InfrastructurePage() {
           </button>
           {ingestRequestsOpen && (
             <div className="px-8 pb-4">
-              {ingestRequestsLoading ? (
-                <p className="text-xs text-hanok-muted py-2">불러오는 중...</p>
+              {ingestStatus === 'failed' ? (
+                <div className="flex items-start gap-2 bg-rose-500/10 border border-rose-500/30 rounded-xl p-3 my-2">
+                  <AlertTriangle size={14} className="text-rose-400 flex-shrink-0 mt-0.5" />
+                  <div className="text-xs">
+                    <p className="font-bold text-rose-300">승인 큐를 불러오지 못했습니다</p>
+                    <p className="text-hanok-muted mt-1">
+                      대기 중인 적재 요청이 있는지 <span className="font-semibold text-hanok-ink">알 수 없는 상태</span>입니다 — 대기 0건이 아닙니다.
+                    </p>
+                    <p className="text-hanok-muted mt-1">사유: {ingestError}</p>
+                    <button
+                      onClick={fetchIngestRequests}
+                      className="mt-2 text-xs font-semibold text-hanok-ink underline underline-offset-2 hover:text-gold"
+                    >
+                      다시 시도
+                    </button>
+                  </div>
+                </div>
               ) : ingestRequests.length === 0 ? (
-                <p className="text-xs text-hanok-muted py-2">대기 중인 적재 요청이 없습니다.</p>
+                <p className="text-xs text-hanok-muted py-2">
+                  {emptyOrFailedText(ingestStatus, '대기 중인 적재 요청이 없습니다.')}
+                </p>
               ) : (
                 <ul className="flex flex-col gap-2 max-h-64 overflow-y-auto">
                   {ingestRequests.map(req => (

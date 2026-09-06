@@ -139,7 +139,16 @@ async function request(path: string, options: RequestOptions = {}) {
   // body가 존재하는 경우 camelCase -> snake_case 변환 후 전송
   // (평문 객체는 아래에서 JSON 문자열로 직렬화되므로 fetch 에 넘어갈 때는 항상 BodyInit 계열 — 타입 단언만, 런타임 동일)
   let body = options.body as BodyInit | null | undefined;
-  if (body && typeof body === "object" && !(body instanceof FormData)) {
+  // FormData 만 빼면 안 된다. 위 주석이 약속한 것은 "BodyInit 은 그대로" 인데, Blob·
+  // URLSearchParams·ArrayBuffer 도 typeof 가 "object" 라 이 분기에 걸려 JSON.stringify 를
+  // 거치면 **본문이 통째로 "{}" 가 되어** 조용히 빈 요청이 나간다. 지금 그런 호출부는 없지만,
+  // 주석을 믿고 파일 업로드를 붙이는 다음 사람이 그 자리에서 당한다.
+  const isRawBody =
+    body instanceof FormData ||
+    (typeof Blob !== "undefined" && body instanceof Blob) ||
+    (typeof URLSearchParams !== "undefined" && body instanceof URLSearchParams) ||
+    (typeof ArrayBuffer !== "undefined" && (body instanceof ArrayBuffer || ArrayBuffer.isView(body)));
+  if (body && typeof body === "object" && !isRawBody) {
     body = JSON.stringify(keysToSnake(body));
   }
 
@@ -485,15 +494,24 @@ export type LabReasonCode =
   | "inaccurate"
   | "other";
 
-/** GET /api/v1/lab/pending 항목 (keysToCamel 적용 후). */
+/** GET /api/v1/lab/pending 항목 (keysToCamel 적용 후).
+ *
+ * ⚠️ **서버가 실제로 주는 키만 적는다.** 예전에는 `feedbackId`·`recommendedAt`·`spotScore` 를
+ * 선언했는데 서버는 그 이름을 보낸 적이 없어 셋 다 항상 undefined 였다. 타입이 거짓이면
+ * 컴파일러가 잡아 주지 못하고, 그 값으로 만든 URL 이 `/lab/undefined/reason` 이 되어
+ * **거절 실험실의 모든 버튼이 404** 였다(사유 응답·건너뛰기·숨기기·직접 설명하기 전부).
+ * 서버 계약은 lab.py 의 _serialize_pending 이고 test_lab.py 가 그것을 잠근다. */
 export interface LabPendingItem {
-  feedbackId: string;
+  /** feedback 행의 id. 이 값이 곧 /lab/{id}/… 의 경로 조각이다. */
+  id: string;
   recommendationId: string;
   facilityId: string;
   facilityName: string;
   facilityType: string;
-  recommendedAt: string; // ISO 시각
-  spotScore?: number;
+  /** 거절이 기록된 시각(ISO). 서버 키는 created_at 이다. */
+  createdAt: string;
+  action?: string;
+  reasonStatus?: string;
 }
 
 /** 본인의 이유 미응답 거절 목록 — 숨김 제외, 30일 이내, 최신순 최대 10건. */

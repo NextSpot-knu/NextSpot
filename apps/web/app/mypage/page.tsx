@@ -250,15 +250,17 @@ export default function MyPage() {
     setIsEditOpen(true);
   };
 
-  // 표시 이름 저장 — 즉시 로컬에 반영하고 현재 계정의 public.users에도 저장해 다른 기기에서 복원한다.
+  // 표시 이름 저장 — 원격(public.users)에 먼저 쓰고, 성공한 뒤에 로컬 캐시를 갱신한다.
+  //
+  // 왜 '낙관적 갱신 + 롤백' 이 아니라 순서 바꾸기인가: 이 화면의 낙관적 갱신은 사용자에게
+  // 보이는 이득이 하나도 없었다. 헤더의 이름은 setProfile 로 그리는데 그건 원래부터 원격 성공
+  // 뒤에만 실행됐고, 먼저 쓰던 것은 localStorage 캐시뿐이라 저장하는 동안 화면은 어차피 옛 이름을
+  // 보여줬다. 그러면서 원격이 실패하면 '저장하지 못했어요' 토스트를 띄운 채 캐시에는 새 이름이
+  // 남아, 다음 진입에서 (원격 이름이 없는 계정은) 그 이름이 복원돼 저장된 것처럼 보였다
+  // — 얻는 것 없이 거짓말만 남는 구조였다. 되돌릴 것을 만들지 않는 편이 더 단순하고 정직하다.
   const handleSaveProfile = async () => {
     const trimmed = nameInput.trim();
     if (!trimmed) return;
-    try {
-      localStorage.setItem('nextspot_display_name', trimmed);
-    } catch {
-      /* localStorage 차단 환경 — 화면 상태만 갱신 */
-    }
     try {
       const supabase = createPublicClient();
       const { data: { user } } = await supabase.auth.getUser();
@@ -271,10 +273,19 @@ export default function MyPage() {
           .eq('id', user.id);
         if (error) throw error;
       }
+      // 여기까지 왔으면 저장은 끝났다(비로그인 사용자는 이 기기 저장이 전부다).
+      // 캐시 쓰기 실패는 저장 실패가 아니다 — 로그인 사용자는 원격이 원본이고,
+      // 비로그인 사용자는 이 세션 화면에만 반영된다.
+      try {
+        localStorage.setItem('nextspot_display_name', trimmed);
+      } catch {
+        /* localStorage 차단 환경 — 이 기기에 기억시키지 못한다(화면 상태만 갱신) */
+      }
       setProfile((prev) => (prev ? { ...prev, name: trimmed } : prev));
       setIsEditOpen(false);
       toast.success(t('mypage.editNameSaved'));
     } catch {
+      // 실패했으면 아무 데도 쓰지 않는다 — 다음 진입에서 되살아나 '저장된 것처럼' 보이면 안 된다.
       toast.error(t('mypage.editNameFailed'));
     }
   };

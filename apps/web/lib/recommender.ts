@@ -206,7 +206,18 @@ export function cuisineMatch(facility: ScorableFacility | null | undefined, inte
 
 export const WALK_M_PER_MIN = 66.67; // 백엔드 WALKING_SPEED_M_PER_MIN 와 동일
 export const ESTIMATED_ROUTE_FACTOR = 1.18; // 보행망 응답 전 직선거리 폴백의 우회 보정(백엔드 동일)
-const BROWSE_BASELINE_CONGESTION = 0.7; // 원본이 없는 브라우즈 랭킹의 완화항 기준(원점) 혼잡 — 백엔드와 동일
+// 원본이 없는 브라우즈에는 **원점 혼잡이 없다.** 백엔드도 그렇게 본다
+// (recommendations.py `_BROWSE_BASELINE_CONGESTION = None` — "임의 원본 혼잡도를 만들지 않아
+//  재배치 기여를 계산하지 않는다"). 그래서 완화항은 계산하지 않고 incentive 는 쿠폰항만 남는다.
+//
+// 예전에는 여기에 0.7 이 박혀 있었고 주석은 "백엔드와 동일" 이라고 말했다. 둘 다 사실이 아니었다.
+// 그 값 때문에 **같은 화면의 같은 실제 시설이 경로에 따라 다른 순서로** 나왔다:
+//   · 즉시 목록은 rankFacilitiesDegraded → 쿠폰항만(백엔드와 일치)
+//   · 음성 필터 경로는 rankFacilities → 쿠폰항 + (1−couponShare)·max(0, 0.7 − 후보혼잡)
+// 후자는 한산한 곳에 최대 +0.5 의 인센티브를 얹어, 자신이 '미러' 라고 적어 둔 백엔드 순위와도
+// 어긋났다. 바로 아래 scoreFacility 가 "합성값 사용 금지" 라고 막아 둔 그 합성값이기도 하다 —
+// 후보 쪽만 막고 원점 쪽은 만들어 쓰고 있었다.
+const BROWSE_BASELINE_CONGESTION: number | null = null;
 
 /** 보행 경로가 아직 없을 때 직선거리에 우회 보정을 적용한 분 단위 추정치. */
 export function estimateWalkingMinutes(distanceM: number | null | undefined): number {
@@ -231,9 +242,15 @@ export function displayWalkingMinutes(
 //  - 쿠폰항: 할인율 coupon_rate(0.10=10%)를 상한 couponRateCap(20%)으로 정규화. 컬럼 없는 행은 0.
 //  - 완화항: max(0, min(1, 원점 혼잡 − 후보 혼잡)) — 수요 재배치 기여. 백엔드는 '도착시점 예측' 혼잡을
 //    쓰지만 클라 미러는 예측이 없어 현재 혼잡으로 근사한다. 혼잡 로그가 없으면(null) 완화항 0.
-function incentiveTerm(facility: ScorableFacility | null | undefined, candidateCongestion: number | null | undefined, originCongestion: number): number {
+function incentiveTerm(
+  facility: ScorableFacility | null | undefined,
+  candidateCongestion: number | null | undefined,
+  originCongestion: number | null,
+): number {
   const coupon = Math.min(1, (facility?.coupon_rate ?? 0) / SPOT_INCENTIVE.couponRateCap);
-  const relief = typeof candidateCongestion === "number"
+  // 원점이나 후보 중 하나라도 실측이 없으면 재배치 기여를 잴 수 없다 → 완화항 없음(0).
+  // score.py 의 `relief_term = ... if original_congestion_level is not None else None` 과 같은 판단이다.
+  const relief = typeof originCongestion === "number" && typeof candidateCongestion === "number"
     ? Math.max(0, Math.min(1, originCongestion - candidateCongestion))
     : 0;
   return SPOT_INCENTIVE.couponShare * coupon + (1 - SPOT_INCENTIVE.couponShare) * relief;

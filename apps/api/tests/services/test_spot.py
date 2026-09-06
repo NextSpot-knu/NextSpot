@@ -280,3 +280,47 @@ def test_spot_weights_parity_with_shared_types():
     # 인센티브 내부 구성비도 정합 검증 (SPOT_INCENTIVE)
     assert _read("couponShare") == pytest.approx(INCENTIVE_COUPON_SHARE)
     assert _read("couponRateCap") == pytest.approx(COUPON_RATE_CAP)
+
+
+def test_walking_and_browse_baseline_parity_with_web():
+    """`apps/web/lib/recommender.ts` 가 "백엔드와 동일" 이라고 적어 둔 값들이 실제로 동일한가.
+
+    이 주석들은 실제로 거짓말을 한 적이 있다. `BROWSE_BASELINE_CONGESTION` 이 `0.7` 인 채로
+    "백엔드와 동일" 이라고 적혀 있었는데, 백엔드는 그 자리에 **None** 을 넣는다
+    (`recommendations.py::_BROWSE_BASELINE_CONGESTION` — "임의 원본 혼잡도를 만들지 않아
+    재배치 기여를 계산하지 않는다"). 그래서 **같은 화면의 같은 실제 시설**이
+    rankFacilitiesDegraded(쿠폰항만) 로 매겨질 때와 rankFacilities(쿠폰항 + 완화항) 로
+    매겨질 때 순서가 달랐다 — 한산한 곳에 최대 `(1−couponShare)×1.0` 의 인센티브가 더 붙었다.
+
+    도보 상수도 같이 잠근다. 한쪽만 바꾸면 카드에 뜬 도보시간과 코스의 도착 예정 시각이
+    조용히 어긋나는데, 어긋난 뒤에는 어느 쪽이 맞는지 화면만 봐서는 알 수 없다.
+    """
+    repo_root = Path(__file__).resolve().parents[4]
+    recommender = repo_root / "apps" / "web" / "lib" / "recommender.ts"
+    if not recommender.exists():
+        pytest.skip("apps/web/lib/recommender.ts 부재(모노레포 밖 실행) — 패리티 검증 생략")
+
+    from app.routers.recommendations import _BROWSE_BASELINE_CONGESTION
+    from app.services.spot.travel import FALLBACK_ROUTE_FACTOR, WALKING_SPEED_M_PER_MIN
+
+    text = recommender.read_text(encoding="utf-8")
+
+    def _num(name: str) -> float:
+        m = re.search(rf"export const {name} = ([0-9.]+);", text)
+        assert m, f"recommender.ts 에서 {name} 을 찾지 못했다(이름이 바뀌었다면 이 테스트도 고칠 것)"
+        return float(m.group(1))
+
+    assert _num("WALK_M_PER_MIN") == pytest.approx(WALKING_SPEED_M_PER_MIN)
+    assert _num("ESTIMATED_ROUTE_FACTOR") == pytest.approx(FALLBACK_ROUTE_FACTOR)
+
+    # 브라우즈 원점 혼잡: 백엔드가 None 이면 프런트도 null 이어야 한다.
+    m = re.search(r"const BROWSE_BASELINE_CONGESTION[^=]*=\s*([^;]+);", text)
+    assert m, "recommender.ts 에서 BROWSE_BASELINE_CONGESTION 을 찾지 못했다"
+    web_baseline = m.group(1).strip()
+    if _BROWSE_BASELINE_CONGESTION is None:
+        assert web_baseline == "null", (
+            f"백엔드는 브라우즈 원점 혼잡을 만들지 않는데(None) 프런트는 {web_baseline} 를 쓴다 — "
+            "완화항이 프런트에서만 붙어 같은 시설의 순위가 경로마다 달라진다"
+        )
+    else:
+        assert float(web_baseline) == pytest.approx(_BROWSE_BASELINE_CONGESTION)

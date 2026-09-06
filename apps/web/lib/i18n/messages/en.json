@@ -490,7 +490,8 @@
     "off": "Get alerts when it’s quiet",
     "deniedSub": "Allow browser permission to enable alerts",
     "onSub": "We’ll notify you when a saved place frees up",
-    "offSub": "We’ll notify you when a saved place gets quiet"
+    "offSub": "We’ll notify you when a saved place gets quiet",
+    "checkFailed": "Alert checks are failing right now — check your connection"
   },
   "waiting": {
     "backAria": "Back to map",
