@@ -426,7 +426,13 @@ async def _build_course(req: CourseRequest) -> CoursePlan:
         for t in dict.fromkeys(seq):  # 순서 보존 중복 제거
             typed = [f for f, d in with_dist if f.get("type") == t and d <= max_distance]
             if not typed and not (req.context and req.context.max_walk_minutes):
-                # Explicit walking limits are strict eligibility rules; only legacy requests may fall back.
+                # 도보 제한을 **사용자가 고른 경우에만** 엄격한 자격 규칙으로 본다.
+                # 안 고른 요청(max_walk_minutes 없음)은 반경 밖이라도 가까운 순으로 채운다 —
+                # 외곽·데이터 희소 위치에서 코스가 통째로 비는 것을 막으려는 폴백이다.
+                #
+                # 이 분기는 한동안 사실상 죽어 있었다: 웹이 온보딩을 건너뛴 사용자에게도
+                # maxWalkMinutes=20 을 실어 보내서(EMPTY_TRAVEL_CONTEXT) 여기서는 늘
+                # '명시적 제한' 으로 읽혔다. 프런트에서 그 기본값을 걷어내며 다시 살아났다.
                 typed = [f for f, _ in with_dist if f.get("type") == t]
             for f in typed[:_SEQ_CANDIDATES_PER_TYPE]:
                 if f["id"] not in seen_ids:

@@ -32,8 +32,22 @@ export interface TravelContext {
 interface StoredTravelPreferences extends TravelContext { version: 2 }
 export const TRAVEL_CONTEXT_KEY = 'nextspot_setup_prefs';
 
+/** 아직 아무것도 고르지 않은 상태. **정말로 비어 있어야 한다.**
+ *
+ * 예전에는 여기에 `maxWalkMinutes: 20` 이 들어 있었다. 그런데 이 값은 두 곳에서 '사용자가 고른
+ * 조건' 으로 취급된다:
+ *   · 온보딩에서 **건너뛰기**를 눌러도 이 객체가 그대로 저장돼, 사용자가 대지 않은 조건이
+ *     자기 선호로 기록됐다(setup/page.tsx).
+ *   · 백엔드는 max_walk_minutes 가 오면 '명시적 도보 제한 = 엄격한 자격 규칙' 으로 보고,
+ *     후보가 부족할 때의 '가까운 순 폴백' 을 끈다(courses.py / recommendations.py).
+ *     그 폴백은 외곽·데이터 희소 위치에서 코스가 끊기지 않게 하려고 둔 것인데, 정작
+ *     아무것도 고르지 않은 사용자에게 영원히 닿지 않았다.
+ *
+ * 비워도 반경은 그대로다 — 서버 기본값이 같은 20분이고(_DEFAULT_BROWSE_WALK_MINUTES),
+ * 클라이언트 필터도 `context.maxWalkMinutes ?? 20` 으로 읽는다(matchesTravelContext).
+ * 달라지는 것은 '고르지 않은 사람에게 폴백이 열린다' 하나뿐이다. */
 export const EMPTY_TRAVEL_CONTEXT: TravelContext = {
-  categories: [], maxWalkMinutes: 20, requiredAttributes: [], excludeVisited: false, visitedFacilityIds: [],
+  categories: [], requiredAttributes: [], excludeVisited: false, visitedFacilityIds: [],
 };
 
 const WALKING_SPEED_M_PER_MIN = 66.67;

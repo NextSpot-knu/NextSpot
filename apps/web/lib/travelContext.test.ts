@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { CUISINES, CUISINE_INTENT, isIndoorEligible, matchesTravelContext, type TravelContext } from './travelContext';
+import { CUISINES, CUISINE_INTENT, EMPTY_TRAVEL_CONTEXT, isIndoorEligible, matchesTravelContext, type TravelContext } from './travelContext';
 
 const origin = { lat: 35.84, lng: 129.21 };
 const distance = (_lat1: number, _lng1: number, lat2: number, _lng2: number) => lat2;
@@ -45,3 +45,30 @@ console.log('PASS travel context deterministic fallback eligibility');
 }
 
 console.log('travelContext cuisine tests passed');
+
+// --- 아무것도 고르지 않은 상태는 조건을 만들어내지 않는다 -----------------------
+// 온보딩 '건너뛰기' 는 이 객체를 그대로 저장하고, 백엔드는 max_walk_minutes 가 오면
+// '명시적 도보 제한 = 엄격한 자격 규칙' 으로 보고 후보 부족 시의 가까운 순 폴백을 끈다.
+// 즉 여기에 값이 하나 들어 있으면, 아무것도 대지 않은 사용자가 대답한 것으로 취급된다.
+{
+  assert.equal(
+    EMPTY_TRAVEL_CONTEXT.maxWalkMinutes,
+    undefined,
+    '고르지 않은 도보 제한이 사용자 선택으로 기록된다',
+  );
+  assert.equal(EMPTY_TRAVEL_CONTEXT.availableMinutes, undefined);
+  assert.deepEqual(EMPTY_TRAVEL_CONTEXT.categories, []);
+  assert.deepEqual(EMPTY_TRAVEL_CONTEXT.requiredAttributes, []);
+  assert.equal(EMPTY_TRAVEL_CONTEXT.excludeVisited, false);
+
+  // 비었다고 화면 필터가 느슨해지지는 않는다 — matchesTravelContext 는 20분을 기본으로 읽는다.
+  // (latitude 를 거리로 쓰는 위 스텁 기준: 20분 = 1333m 이므로 500 은 통과, 1500 은 탈락)
+  assert.equal(matchesTravelContext(base, EMPTY_TRAVEL_CONTEXT, origin, distance), true);
+  assert.equal(
+    matchesTravelContext({ ...base, latitude: 1500 }, EMPTY_TRAVEL_CONTEXT, origin, distance),
+    false,
+    '기본 반경이 사라지면 안 된다 — 비운 것은 저장되는 선호이지 화면 필터가 아니다',
+  );
+}
+
+console.log('travelContext empty-context tests passed');
