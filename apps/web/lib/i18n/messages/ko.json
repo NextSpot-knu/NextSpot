@@ -224,7 +224,9 @@
     "mobileTools": "필터·편의",
     "mobileToolsTitle": "필터와 여행 편의",
     "mobileToolsDesc": "필요한 기능만 골라 지도를 넓게 보세요",
-    "foodFilters": "음식 종류"
+    "foodFilters": "음식 종류",
+    "voiceSearchUnsupported": "이 브라우저에서는 음성 검색을 쓸 수 없어요",
+    "unsupported": "미지원"
   },
   "mypage": {
     "menuAria": "메뉴",
@@ -324,9 +326,9 @@
     "reasonToggle": "추천 이유",
     "viewList": "목록",
     "directions": "길안내",
-    "directionsAria": "{name}로 도보 길안내",
+    "directionsAria": "{name}(으)로 도보 길안내",
     "driving": "자동차",
-    "drivingAria": "{name}로 자동차 길안내",
+    "drivingAria": "{name}(으)로 자동차 길안내",
     "sharedBanner": "공유받은 코스 · 공유 시점 기준",
     "sharedCta": "내 위치로 새 코스 받기",
     "sharedError": "공유 코스를 불러오지 못했어요. 잠시 후 다시 시도해 주세요.",
@@ -354,7 +356,9 @@
     "emptyReasonsTitle": "이렇게 됐어요",
     "replanRemoved": "조건에 맞춰 다시 짰어요 · {n}곳이 빠졌어요",
     "replanSwapped": "다시 짰어요 · {added}곳이 새로 들어오고 {removed}곳이 빠졌어요",
-    "slotNoCandidateAny": "이 근처에 조건에 맞는 곳이 없어요"
+    "slotNoCandidateAny": "이 근처에 조건에 맞는 곳이 없어요",
+    "unpinAll": "고정 모두 해제",
+    "unpin": "고정 해제"
   },
   "coupons": {
     "expired": "만료됨",
@@ -533,16 +537,16 @@
     "emptyCta": "지도 보러 가기"
   },
   "recommend": {
-    "shareText": "{name}을 경주 대안 장소로 확인해보세요 · NextSpot",
+    "shareText": "{name}을(를) 경주 대안 장소로 확인해보세요 · NextSpot",
     "noFacilityTitle": "선택된 장소가 없어요",
     "noFacilityDesc": "지도에서 장소를 고르면 한산한 대안을 추천해 드려요",
     "backToMap": "지도 보기",
     "headerBrand": "NextSpot 추천 AI",
     "detourNeeded": "우회 필요",
     "congestedPrefix": "지금 ",
-    "congestedSuffix": "은 혼잡합니다.",
+    "congestedSuffix": "은(는) 혼잡합니다.",
     "calmBadge": "지금 여유",
-    "calmSuffix": "은 여유로워요.",
+    "calmSuffix": "은(는) 여유로워요.",
     "calmHint": "지금 가도 좋아요 — 취향에 맞는 다른 스팟도 함께 보여드려요.",
     "waitUnavailable": "현재 대기 정보는 수집 중이에요. 아래 대안은 취향과 이동시간 기준으로 추천합니다.",
     "facilityLoadError": "시설 정보를 불러오지 못했습니다.",
@@ -749,7 +753,7 @@
   },
   "trip": {
     "active": "활성 여정",
-    "heading": "{name}로 이동 중",
+    "heading": "{name}(으)로 이동 중",
     "walkEstimate": "도보 약 {n}분 기준",
     "arrived": "도착했어요",
     "stillGoing": "아직 가는 중",

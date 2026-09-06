@@ -224,7 +224,9 @@
     "mobileTools": "フィルター・便利機能",
     "mobileToolsTitle": "フィルターと旅行便利機能",
     "mobileToolsDesc": "必要な機能だけ開いて地図を広く見られます",
-    "foodFilters": "料理の種類"
+    "foodFilters": "料理の種類",
+    "voiceSearchUnsupported": "このブラウザでは音声検索を使えません",
+    "unsupported": "非対応"
   },
   "mypage": {
     "menuAria": "メニュー",
@@ -354,7 +356,9 @@
     "emptyReasonsTitle": "こうなりました",
     "replanRemoved": "条件に合わせて組み直しました · {n} 件が外れました",
     "replanSwapped": "組み直しました · {added} 件が追加、{removed} 件が外れました",
-    "slotNoCandidateAny": "この近くに条件に合う場所がありません"
+    "slotNoCandidateAny": "この近くに条件に合う場所がありません",
+    "unpinAll": "固定をすべて解除",
+    "unpin": "固定を解除"
   },
   "coupons": {
     "expired": "期限切れ",

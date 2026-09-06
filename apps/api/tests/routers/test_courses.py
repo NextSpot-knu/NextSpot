@@ -624,6 +624,29 @@ def test_empty_course_still_names_the_pinned_place(auth_client):  # noqa: F811
     assert outcomes[2]["facility_id"] == "cafe-near-0"
     assert outcomes[2]["pinned"] is True
 
+
+def test_empty_course_names_a_pin_in_automatic_mode_too(auth_client):  # noqa: F811
+    """자동 모드에도 자리는 셋이다 — 2·3번에 걸린 고정이 조용히 사라지면 안 된다.
+
+    순서 모드는 seq 길이가 자리 수를 말해 주지만 자동 모드에는 그런 선언이 없다. 그렇다고
+    1칸으로 두면, 화면이 세 칸 모두에 고정을 걸 수 있는데 2·3번 고정은 어떤 사유로도
+    나가지 않는다(이 테스트가 없던 시절 실제로 그랬다 — 순서 모드만 검사했다).
+    """
+    facilities = _reorder_fixture()
+    body = _course_body()  # sequence 없음 = 자동 모드
+    body["pins"] = [{"order": 3, "facility_id": "cafe-near-0"}]
+    body["context"] = {"required_attributes": ["accessible"]}  # 모든 후보를 걸러 조기 반환으로 보낸다
+    plan = _run(auth_client, facilities, body)
+
+    assert plan["stops"] == []
+    outcomes = {o["order"]: o for o in plan["slot_outcomes"]}
+    assert 3 in outcomes, f"자동 모드 3번 자리의 고정이 사라졌다: {plan['slot_outcomes']}"
+    assert outcomes[3]["status"] == "pin_unavailable"
+    assert outcomes[3]["facility_id"] == "cafe-near-0"
+    assert outcomes[3]["pinned"] is True
+    # 고정하지 않은 앞 자리들도 사유를 받는다(빈 화면에 이유가 하나도 없으면 안 된다).
+    assert outcomes[1]["status"] == "no_candidate_of_type"
+
 def test_course_stop_limit_parity_with_web():
     """백엔드 MAX_STOPS 와 프런트 MAX_SEQUENCE 가 어긋나면 CI 가 여기서 실패한다.
 

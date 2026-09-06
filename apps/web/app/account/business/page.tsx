@@ -306,7 +306,12 @@ export default function RoleChangeRequestPage() {
     setStoreName(value);
     // 이름을 고쳐 쓰는 것은 '다른 가게를 찾는 중' 이라는 뜻이다. 연결을 그대로 두면 화면에 보이는
     // 이름과 실제로 붙는 facility_id 가 어긋난 채 제출된다.
-    if (facilityId) {
+    //
+    // **수정 모드에서는 떼지 않는다.** PATCH 가 facility_id 를 보내지 않으므로(서버가 422 로
+    // 거절한다) 여기서 떼면 화면에서만 연결이 사라지고 저장되는 값은 그대로다 — 사용자는
+    // 연결을 끊었다고 믿는데 승인은 여전히 옛 가게에 소유권을 준다. 되돌릴 수단도 없다
+    // (수정 모드에서는 검색을 열지 않는다).
+    if (!editing && facilityId) {
       setFacilityId(null);
       setLinkedName(null);
     }
@@ -862,7 +867,8 @@ export default function RoleChangeRequestPage() {
                 )}
               </div>
 
-              {/* 연결됨 칩 — 무엇에 붙는지 이름으로 확인시키고, 언제든 뗄 수 있게 둔다. */}
+              {/* 연결됨 칩 — 무엇에 붙는지 이름으로 확인시킨다. 신규 신청에서는 뗄 수 있고,
+                  수정 모드에서는 못 뗀다(서버가 facility_id 변경을 422 로 거절한다). */}
               {isMerchantRequest && facilityId && (
                 <div className="mt-2 flex items-center justify-between gap-2 rounded-xl border border-jade/40 bg-jade/10 px-3 py-2">
                   <span className="flex min-w-0 items-center gap-1.5 text-[11px] font-semibold text-jade">
@@ -873,13 +879,17 @@ export default function RoleChangeRequestPage() {
                       })}
                     </span>
                   </span>
-                  <button
-                    type="button"
-                    onClick={unlinkFacility}
-                    className="shrink-0 text-[11px] font-bold text-muk-soft underline"
-                  >
-                    {t('account.unlinkFacility')}
-                  </button>
+                  {/* 수정 모드에는 해제 버튼을 그리지 않는다 — 눌러도 저장되지 않는 가짜 버튼이
+                      된다(PATCH 는 facility_id 를 보내지 않는다). 바꾸려면 취소 후 재신청이다. */}
+                  {!editing && (
+                    <button
+                      type="button"
+                      onClick={unlinkFacility}
+                      className="shrink-0 text-[11px] font-bold text-muk-soft underline"
+                    >
+                      {t('account.unlinkFacility')}
+                    </button>
+                  )}
                 </div>
               )}
 

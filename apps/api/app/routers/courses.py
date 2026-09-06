@@ -418,19 +418,27 @@ def _empty_plan(
     가게가 어떻게 됐는지는 어디에도 없었다. 이름을 대고 고정한 사람에게는 그 가게 이야기를
     돌려줘야 한다(슬롯 루프가 pin_unavailable 로 답하는 것과 같은 이유다).
     """
-    orders = seq or [None]
     pinned_by_order = {p.order: p.facility_id for p in (pins or [])}
+    # 자리 수는 '사용자가 말한 만큼' 이다.
+    #
+    # 순서 모드는 seq 길이가 곧 자리 수다. 자동 모드에는 그런 선언이 없어서 예전에는 1칸으로
+    # 뒀는데, 그러면 **2·3번 자리에 걸린 고정이 어떤 SlotOutcome 으로도 나가지 않았다** —
+    # 자동 모드 화면은 세 칸 모두에 고정을 걸 수 있으므로 그건 정상 입력이다. 고정한 자리는
+    # 적어도 그 자리까지는 답해야 한다(슬롯 루프가 overflow_pins 로 답하는 것과 같은 이유).
+    slot_count = len(seq) if seq else 1
+    if pinned_by_order:
+        slot_count = max(slot_count, min(max(pinned_by_order), MAX_STOPS))
     return CoursePlan(
         stops=[],
         slot_outcomes=[
             SlotOutcome(
-                order=i + 1,
-                requested_type=wanted,
-                status=SLOT_PIN_UNAVAILABLE if (i + 1) in pinned_by_order else status,
-                facility_id=pinned_by_order.get(i + 1),
-                pinned=(i + 1) in pinned_by_order,
+                order=order,
+                requested_type=seq[order - 1] if seq and order <= len(seq) else None,
+                status=SLOT_PIN_UNAVAILABLE if order in pinned_by_order else status,
+                facility_id=pinned_by_order.get(order),
+                pinned=order in pinned_by_order,
             )
-            for i, wanted in enumerate(orders)
+            for order in range(1, slot_count + 1)
         ],
         plan_id=_plan_id([]),
     )

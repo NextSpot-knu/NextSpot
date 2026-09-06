@@ -224,7 +224,9 @@
     "mobileTools": "Filters & tools",
     "mobileToolsTitle": "Filters and travel tools",
     "mobileToolsDesc": "Keep the map clear and open tools when needed",
-    "foodFilters": "Food type"
+    "foodFilters": "Food type",
+    "voiceSearchUnsupported": "Voice search isn't available in this browser",
+    "unsupported": "Unsupported"
   },
   "mypage": {
     "menuAria": "Menu",
@@ -354,7 +356,9 @@
     "emptyReasonsTitle": "Here's what happened",
     "replanRemoved": "Replanned for your filters · {n} dropped",
     "replanSwapped": "Replanned · {added} added, {removed} dropped",
-    "slotNoCandidateAny": "Nothing nearby matches your filters"
+    "slotNoCandidateAny": "Nothing nearby matches your filters",
+    "unpinAll": "Unpin all",
+    "unpin": "Unpin"
   },
   "coupons": {
     "expired": "Expired",

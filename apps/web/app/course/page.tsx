@@ -256,7 +256,8 @@ function CourseContent() {
   // 요청 세대 카운터 — 겹쳐 나간 요청의 '구세대 응답'이 늦게 도착해 최신 화면을 덮어쓰지 않게 한다
   // (디바운스가 대부분 막지만, 초기 로드 직후나 500ms 를 넘는 네트워크 지연에서는 여전히 겹칠 수 있다).
   const fetchGenRef = useRef(0);
-  // 한 번이라도 요청을 내보냈는가(응답 도착 여부가 아니다 — 아래 디바운스 주석 참조).
+  // 한 번이라도 요청을 **실제로 내보냈는가**(응답 도착 여부도, 타이머가 돌았는지도 아니다).
+  // fetchCourse 의 가드를 통과한 뒤에 켠다 — 아래 디바운스 주석 참조.
   const dispatchedRef = useRef(false);
 
   // 고정을 붙들어 두는 키. 순서 모드에서는 피커 칸의 uid 다 — 칩을 끌어 순서를 바꾸면 고정도
@@ -296,6 +297,10 @@ function CourseContent() {
 
   const fetchCourse = useCallback(async () => {
     if (!userId || isShareMode) return;
+    // **여기서** 켠다. 타이머 콜백에서 켜면 userId 가 아직 없어 곧바로 return 하는 호출에도
+    // 켜져, 정작 첫 요청이 500ms 늦게 나갔다(세션 없는 첫 방문자는 2500+500ms). 콜드
+    // 스타트가 얹히는 그 첫 왕복 앞에 붙는 순수 지연이었다.
+    dispatchedRef.current = true;
     const gen = ++fetchGenRef.current;
     setLoading(true);
     setError(null);
@@ -364,15 +369,16 @@ function CourseContent() {
 
   // 재조회 디바운스 — framer-motion onReorder 는 '드래그 도중' 순서가 바뀔 때마다 연속 발화하고,
   // 종류 칩도 연타로 담는다. 변경마다 즉시 fetch 하면 그때마다 리렌더/로딩이 끼어들어 드래그가 끊기므로
-  // 마지막 변경 후 500ms 에 한 번만 호출한다(최초 로드는 지연 없이 즉시).
+  // 마지막 변경 후 500ms 에 한 번만 호출한다(실제 첫 요청은 지연 없이 즉시).
   useEffect(() => {
-    // 지연 판정을 '완료' 가 아니라 **'이미 한 번 발사했는가'** 로 한다.
+    // 지연 판정을 '완료' 가 아니라 **'이미 한 번 발사했는가'** 로 한다(발사 = fetchCourse 의
+    // 가드를 통과해 실제 요청이 나갔다는 뜻. 타이머가 돌기만 한 것은 발사가 아니다).
     // hasLoadedOnce 는 응답이 와야 true 가 되는데, 그 전에 geolocation 이 풀리면 coords 가
     // 바뀌어 이펙트가 다시 돌고 그때도 delay 0 이라 **두 번째 요청이 곧바로 나갔다.**
     // 첫 응답은 fetchGenRef 로 버려지지만 서버는 이미 다 계산한 뒤다(취소 수단이 없다) —
     // 위치를 허용한 사용자의 모든 첫 진입에서 단일 워커가 코스를 두 벌 돌렸다.
     const delay = dispatchedRef.current ? 500 : 0;
-    const timer = setTimeout(() => { dispatchedRef.current = true; fetchCourse(); }, delay);
+    const timer = setTimeout(() => { fetchCourse(); }, delay);
     return () => clearTimeout(timer);
     // deps 는 fetchCourse 하나다. 지연 시간은 이제 ref 로 판단하므로(렌더 값이 아니다)
     // 억제할 exhaustive-deps 경고가 없다 — 예전에는 hasLoadedOnce 를 읽느라 필요했다.
@@ -478,6 +484,19 @@ function CourseContent() {
     return next;
   };
 
+  /** 자리 번호로 고정을 푼다(고정이 실패해 StopRow 가 사라진 자리에서 쓴다). */
+  const unpinSlot = (slotIdx: number) => {
+    const key = renderedSlotKeys[slotIdx];
+    if (!key) return;
+    markUserReplan();
+    setPins((prev) => {
+      if (!(key in prev)) return prev;
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+  };
+
   /** 이 자리를 고정하거나 푼다. */
   const togglePin = (slotIdx: number, facilityId: string) => {
     const key = renderedSlotKeys[slotIdx];
@@ -541,7 +560,17 @@ function CourseContent() {
     // 게다가 모델이 미학습이면(프로덕션 현재 상태 — /predict/model-info trained=false)
     // 모든 정류지가 null 이라 '가끔' 이 아니라 '항상' 그렇다.
     // 미상은 '-' 로 실어 보내고 받는 쪽이 혼잡 배지를 생략한다(courseShare.ts 포맷 주석 참조).
-    if (activeStops.length === 0 || typeof window === "undefined") return undefined;
+    if (typeof window === "undefined") return undefined;
+    // **공유받은 코스를 다시 공유할 때는 원본 링크를 그대로 넘긴다.**
+    //
+    // sharedStops 의 도착 오프셋은 경과 시간만큼 이미 깎여 있고(fetchSharedStops), 혼잡 수치는
+    // 원래 도착 시각의 예측값 그대로다. 그걸 다시 인코딩하면 encodeStops 가 **새 공유 시각**을
+    // 찍어서, 3시간 전 링크를 받은 사람이 재공유하면 다음 사람에게는 정류지가 전부 '지금 바로
+    // 도착' 인 존재할 수 없는 일정이 간다. 게다가 새 시각 탓에 '{n}분 전 공유됨' 배너까지
+    // 사라져 맥락을 주던 유일한 장치가 없어진다 — courseShare.ts 가 공유 시각을 싣는 이유가
+    // 정확히 그 왜곡을 막으려는 것인데, 전달 경로가 그 왜곡을 만들고 있었다.
+    if (isShareMode) return shareParam ? window.location.href : undefined;
+    if (activeStops.length === 0) return undefined;
     const encoded = encodeStops(
       activeStops.map((s) => ({
         id: s.facility.id,
@@ -550,7 +579,7 @@ function CourseContent() {
       }))
     );
     return `${window.location.origin}/course?s=${encodeURIComponent(encoded)}&ref=share`;
-  }, [activeStops]);
+  }, [activeStops, isShareMode, shareParam]);
 
   return (
     <main className="min-h-screen bg-hanji text-muk relative overflow-hidden">
@@ -630,6 +659,21 @@ function CourseContent() {
               {/* 가로 스텝퍼 — 정류지가 있을 때만 */}
               {activeStops.length > 0 && <CourseStepper stops={activeStops} />}
 
+              {/* 고정을 비우는 마지막 탈출구.
+                  '순서 초기화'(setPins({}))는 sequence 가 있을 때만 그려지므로, 자동 모드에서
+                  고정을 걸어 두면 그것을 지울 경로가 화면에 하나도 없었다. 고정이 실패한
+                  자리에는 해제 버튼이 붙지만(DroppedSlotRow), 그 자리조차 안 나오는 경우
+                  (후보 0곳 등)를 위해 항상 닿을 수 있는 자리를 둔다. */}
+              {!isShareMode && sequence.length === 0 && Object.keys(pins).length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => { markUserReplan(); setPins({}); }}
+                  className="self-start rounded-full border border-line bg-white px-3 py-1.5 text-[11px] font-bold text-muk-soft hover:border-gold/40 hover:text-gold-deep transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/50"
+                >
+                  📌 {t('course.unpinAll')}
+                </button>
+              )}
+
               {/* 순서 지정 피커 — 공유 모드(읽기 전용)에서는 숨김(간섭 방지). */}
               {!isShareMode && (
                 <OrderPicker
@@ -670,6 +714,7 @@ function CourseContent() {
                         slotKeys={renderedSlotKeys}
                         onTogglePin={togglePin}
                         onSwap={swapTo}
+                        onUnpin={unpinSlot}
                       />
                     )}
                   </div>
@@ -1016,6 +1061,7 @@ function StopRows({
   slotKeys = [],
   onTogglePin,
   onSwap,
+  onUnpin,
 }: {
   stops: CourseStop[];
   readOnly?: boolean;
@@ -1024,6 +1070,7 @@ function StopRows({
   slotKeys?: string[];
   onTogglePin?: (slotIdx: number, facilityId: string) => void;
   onSwap?: (slotIdx: number, facilityId: string) => void;
+  onUnpin?: (slotIdx: number) => void;
 }) {
   // 못 채운 자리를 **요청한 순서 그대로** 사이사이에 끼워 그린다. 목록에서 사라지게 두면
   // 사용자는 자리가 빠졌다는 것만 알고 이유를 영영 모른다(응답 order 는 다시 매겨진다).
@@ -1055,7 +1102,20 @@ function StopRows({
             onSwap={onSwap}
           />
         ) : (
-          <DroppedSlotRow key={`slot-${row.order}`} outcome={row.outcome as SlotOutcome} />
+          <DroppedSlotRow
+            key={`slot-${row.order}`}
+            outcome={row.outcome as SlotOutcome}
+            // 고정이 실패한 자리에서 **고정 해제 수단이 사라지면 안 된다.** 📌 버튼은
+            // StopRow 안에만 있어서, 고정한 가게가 자격에 걸리는 순간 그 자리는
+            // DroppedSlotRow 가 되고 해제할 방법이 화면에서 없어졌다. pins 는 상태로 남아
+            // 매 요청에 다시 실려 나가므로 같은 이유로 계속 비었다 — 새로고침 말고는 탈출구가
+            // 없었고, 밤에 '도착 시각 영업' 으로 떨어진 경우는 되돌릴 조건조차 없다.
+            onUnpin={
+              replanSupported && row.outcome?.pinned && row.order - 1 < slotKeys.length && !readOnly
+                ? () => onUnpin?.(row.order - 1)
+                : undefined
+            }
+          />
         ),
       )}
     </div>
@@ -1085,7 +1145,13 @@ function slotReasonKey(outcome: SlotOutcome): string | undefined {
   return SLOT_REASON_KEY[outcome.status];
 }
 
-function DroppedSlotRow({ outcome }: { outcome: SlotOutcome }) {
+function DroppedSlotRow({
+  outcome,
+  onUnpin,
+}: {
+  outcome: SlotOutcome;
+  onUnpin?: () => void;
+}) {
   const t = useT();
   const reasonKey = slotReasonKey(outcome);
   return (
@@ -1109,6 +1175,15 @@ function DroppedSlotRow({ outcome }: { outcome: SlotOutcome }) {
             </p>
           )}
           <p className="mt-1 text-[10px] text-muk-soft/80">{t('course.slotHint')}</p>
+          {onUnpin && (
+            <button
+              type="button"
+              onClick={onUnpin}
+              className="mt-2 inline-flex items-center gap-1 rounded-full border border-line bg-white px-2.5 py-1 text-[11px] font-bold text-muk-soft hover:border-gold/40 hover:text-gold-deep transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/50"
+            >
+              📌 {t('course.unpin')}
+            </button>
+          )}
         </div>
       </div>
     </div>
