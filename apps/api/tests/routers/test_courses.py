@@ -604,6 +604,26 @@ def test_daytime_keeps_the_same_unconfirmed_places(auth_client):  # noqa: F811
     plan = _run(auth_client, facilities, _seq_body(["cafe", "cafe"]))
     assert len(plan["stops"]) == 2, plan["slot_outcomes"]
 
+
+def test_empty_course_still_names_the_pinned_place(auth_client):  # noqa: F811
+    """후보가 0곳이어도 **고정한 가게 이야기**를 돌려준다.
+
+    이름을 대고 고정한 사람에게 'no_candidate_of_type' 만 주면, 자기가 지목한 가게가
+    어떻게 됐는지는 어디에도 없다 — 슬롯 루프가 pin_unavailable 로 답하는 것과 같은 이유다.
+    """
+    facilities = _reorder_fixture()
+    body = _seq_body(["cafe", "cafe"], pins=[{"order": 2, "facility_id": "cafe-near-0"}])
+    # 여행 조건이 모든 후보를 걸러 조기 반환 경로로 보낸다(무장애 미상인 카페뿐이다).
+    body["context"] = {"required_attributes": ["accessible"]}
+    plan = _run(auth_client, facilities, body)
+
+    assert plan["stops"] == []
+    outcomes = {o["order"]: o for o in plan["slot_outcomes"]}
+    assert outcomes[1]["status"] == "no_candidate_of_type", outcomes
+    assert outcomes[2]["status"] == "pin_unavailable", "고정한 자리가 조용히 뭉개졌다"
+    assert outcomes[2]["facility_id"] == "cafe-near-0"
+    assert outcomes[2]["pinned"] is True
+
 def test_course_stop_limit_parity_with_web():
     """백엔드 MAX_STOPS 와 프런트 MAX_SEQUENCE 가 어긋나면 CI 가 여기서 실패한다.
 

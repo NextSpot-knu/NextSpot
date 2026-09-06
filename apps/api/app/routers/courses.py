@@ -400,7 +400,11 @@ async def plan_course(
     return await _course_or_503(req, current_user)
 
 
-def _empty_plan(seq: list[str] | None, status: str) -> CoursePlan:
+def _empty_plan(
+    seq: list[str] | None,
+    status: str,
+    pins: list[CoursePin] | None = None,
+) -> CoursePlan:
     """후보가 하나도 없어 코스를 못 짠 경우.
 
     자리 결과를 비워 보내지 않는다. 사용자가 [카페, 식당, 관광지] 를 짜 놓고 빈 화면을 받으면
@@ -408,12 +412,24 @@ def _empty_plan(seq: list[str] | None, status: str) -> CoursePlan:
     503 과 빈 배열을 굳이 갈라 놓는 것과 같은 이유다.
 
     자동 모드(seq 없음)에는 사용자가 지정한 자리가 없으므로 1번 자리 하나로 사실만 전한다.
+
+    **고정한 자리는 고정 사실을 그대로 전한다.** 예전에는 이 조기 반환이 pins 를 아예 몰라서,
+    가게를 고정해 둔 사용자가 빈 화면과 함께 'no_candidate_of_type' 만 받았다 — 자기가 지목한
+    가게가 어떻게 됐는지는 어디에도 없었다. 이름을 대고 고정한 사람에게는 그 가게 이야기를
+    돌려줘야 한다(슬롯 루프가 pin_unavailable 로 답하는 것과 같은 이유다).
     """
     orders = seq or [None]
+    pinned_by_order = {p.order: p.facility_id for p in (pins or [])}
     return CoursePlan(
         stops=[],
         slot_outcomes=[
-            SlotOutcome(order=i + 1, requested_type=wanted, status=status)
+            SlotOutcome(
+                order=i + 1,
+                requested_type=wanted,
+                status=SLOT_PIN_UNAVAILABLE if (i + 1) in pinned_by_order else status,
+                facility_id=pinned_by_order.get(i + 1),
+                pinned=(i + 1) in pinned_by_order,
+            )
             for i, wanted in enumerate(orders)
         ],
         plan_id=_plan_id([]),
@@ -438,7 +454,7 @@ async def _build_course(req: CourseRequest) -> CoursePlan:
     ]
     if not candidates:
         # 여행 조건(카테고리·실내·접근성·방문 제외)이 전부 걸러낸 경우다.
-        return _empty_plan(seq, SLOT_NO_CANDIDATE)
+        return _empty_plan(seq, SLOT_NO_CANDIDATE, req.pins)
 
     # 현실성 컷오프 + 인근 상한: 도보 비현실 거리는 제외하고 가까운 순 상위만 후보로(호출량 제한).
     # 반경 내가 최소 정류지 수 미만이면 가까운 순 폴백(외곽/데이터 희소 위치에서도 코스가 끊기지 않게).
@@ -500,7 +516,7 @@ async def _build_course(req: CourseRequest) -> CoursePlan:
 
     if not pool:
         # 조건에 맞는 곳은 있는데 걸어갈 만한 거리 안에 없다.
-        return _empty_plan(seq, SLOT_NO_CANDIDATE)
+        return _empty_plan(seq, SLOT_NO_CANDIDATE, req.pins)
 
     # 머천트 랭킹 연동(2단계): 활성 타임세일(coupon_rate 유효값 교체)·신선 좌석 상태(혼잡 실측 대체)를
     # 스코어링 전에 오버레이한다(score.py 는 무변경 — calculate_spot_score 입력값만 바꿔친다).
