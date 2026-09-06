@@ -50,10 +50,12 @@ function buildFallbackReason(
     : t('recommend.fallbackWithWait', { name, walk, wait: Math.round(waitMin) });
 }
 
-// 합성 추천 id 판별 — mock-(데모 폴백)·bytype-(/recommendations/by-type 브라우즈)는 recommendations
-// 테이블에 행이 없어 /feedback 이 404 다. 서버 전송 전 반드시 걸러 404 소음을 만들지 않는다.
+// 합성 추천 id 판별 — mock-(데모 폴백, by-type 저장 실패분 포함)은 recommendations 테이블에
+// 행이 없어 /feedback 이 404 다. 서버 전송 전 걸러 404 소음을 만들지 않는다.
+// ('bytype-' 가드는 지웠다. 그 접두사를 **만드는 코드가 저장소에 없다** — by-type 은 이제
+//  노출을 전부 저장하고 실제 UUID 를 돌려준다. 아무것도 걸러내지 않는 죽은 조건이었다.)
 function isSyntheticRecommendationId(id: string): boolean {
-  return id.startsWith("mock-") || id.startsWith("bytype-");
+  return id.startsWith("mock-");
 }
 
 // 선호 파싱 llm_status → LLM 동작 디버그 배지(개발 전용). api-client 가 voice/lab 응답에서

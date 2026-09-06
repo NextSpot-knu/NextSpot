@@ -11,7 +11,8 @@
     "share": "共有",
     "linkCopied": "リンクをコピーしました",
     "shareCourse": "慶州のおすすめ旅ルートをチェック · NextSpot",
-    "back": "戻る"
+    "back": "戻る",
+    "shareFailed": "共有できませんでした — 下のリンクをコピーしてください"
   },
   "nav": {
     "home": "ホーム",

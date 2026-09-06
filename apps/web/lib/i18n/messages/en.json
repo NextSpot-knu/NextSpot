@@ -11,7 +11,8 @@
     "share": "Share",
     "linkCopied": "Link copied",
     "shareCourse": "Check out this tailored Gyeongju route · NextSpot",
-    "back": "Back"
+    "back": "Back",
+    "shareFailed": "Couldn't share — copy the link below instead"
   },
   "nav": {
     "home": "Home",

@@ -11,7 +11,8 @@
     "share": "공유",
     "linkCopied": "링크를 복사했어요",
     "shareCourse": "경주 맞춤 여행 코스를 확인해보세요 · NextSpot",
-    "back": "뒤로"
+    "back": "뒤로",
+    "shareFailed": "공유하지 못했어요 — 아래 주소를 직접 복사해 주세요"
   },
   "nav": {
     "home": "홈",

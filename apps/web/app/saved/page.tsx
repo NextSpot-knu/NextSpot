@@ -35,16 +35,19 @@ interface BookmarkData {
   features?: Record<string, unknown> | null;
   spot?: Spot; // main(handlePutOff)이 저장하는 SavedBookmark.spot — lib/recommender 의 Spot 그대로
   reason?: string; // 저장 시점의 추천 사유(백엔드 템플릿 또는 미러)
-  // 저장 당시의 실제 recommendations 행 id(있을 때만). 현재 유일한 저장 경로인 main(handlePutOff)은
-  // /recommendations/by-type 의 합성 id(bytype-*)만 갖고 있어 이 필드를 기록하지 않는다 — 즉 오늘은
-  // 항상 undefined 이고 아래 unsaved 전송은 no-op 이다. 없는 id 를 지어내지 않기 위한 의도적 설계이며,
-  // 저장 경로가 실 추천 행을 갖게 되면 이 필드만 채우면 서버 전송이 자동으로 살아난다.
+  // 저장 당시의 실제 recommendations 행 id(있을 때만).
+  //
+  // /recommendations/by-type 은 이제 노출을 전부 DB 에 저장하고 **실제 UUID** 를 돌려준다
+  // (저장에 실패한 항목만 "mock-rec-id"). 예전에는 합성 id(bytype-*)를 준다는 전제로 이
+  // 필드를 아예 비워 뒀고, 그래서 저장 해제 피드백이 영영 전송되지 않았다.
   recommendationId?: string;
 }
 
-// 서버에 기록된 실제 추천만 피드백 대상 — mock-(데모 폴백)·bytype-(브라우즈 합성 id)는 DB 행이 없어 404 다.
+// 서버에 기록된 실제 추천만 피드백 대상 — mock-(데모 폴백, 저장 실패분 포함)은 DB 행이 없어 404 다.
+// ('bytype-' 가드는 지웠다. 그 접두사를 **만드는 코드가 저장소에 없다** — by-type 이 실제
+//  UUID 를 돌려주게 바뀐 뒤로 아무것도 걸러내지 않는 죽은 조건이었다.)
 function isRealRecommendationId(id: string | undefined): id is string {
-  return !!id && !id.startsWith('mock-') && !id.startsWith('bytype-');
+  return !!id && !id.startsWith('mock-');
 }
 
 export default function SavedPage() {

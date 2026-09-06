@@ -117,8 +117,19 @@ export function flushRecommendationOutcomes(): Promise<void> {
     // 하필 가장 늦게 쌓이는 'rated' 가 가장 잘 지워진다.
     //
     // 그래서 되쓰기 직전에 다시 읽어, 이번 회차가 다루지 않은 항목을 합쳐 넣는다.
+    //
+    // 그 합칠 때 **만료 필터를 다시 걸어야 한다.** handled 는 컷오프를 통과한 항목의 키만
+    // 담으므로, 만료돼 이번 회차에서 빠진 항목은 handled 에 없어 '그 사이 새로 들어온 것'
+    // 으로 오인돼 그대로 되쓰였다 — 즉 7일 컷오프가 **아무것도 버리지 않았다.**
+    //
+    // 잔류가 무해하지도 않았다. queueRecommendationOutcome 은 같은 (recommendationId, stage)
+    // 키를 덮어쓸 때 옛 queuedAt 을 유지한다. 만료 항목이 남아 있으면 같은 키의 새 기록이
+    // 그 낡은 시각을 물려받아 다음 회차 필터에 즉시 걸려 **한 번도 전송되지 않고 묻힌다.**
+    // '길안내 다시 열기'(같은 recommendationId + navigation_started)가 정확히 그 경로다.
     const handled = new Set(queue.map(operationKey));
-    const arrivedDuringFlush = readQueue().filter((item) => !handled.has(operationKey(item)));
+    const arrivedDuringFlush = readQueue().filter(
+      (item) => !handled.has(operationKey(item)) && item.queuedAt >= cutoff,
+    );
     writeQueue([...remaining, ...arrivedDuringFlush]);
   })().finally(() => { flushing = null; });
   return flushing;

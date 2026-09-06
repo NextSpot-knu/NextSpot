@@ -163,6 +163,9 @@ interface SavedBookmark {
   waitEvidence?: 'verified_model';
   spot: Spot;
   reason: string;
+  // 저장 당시의 실제 recommendations 행 id. 저장 화면이 '저장 해제' 피드백을 서버로 보낼 때
+  // 쓴다(apps/web/app/saved/page.tsx). 이 필드가 없어서 그 신호가 영영 전송되지 않았다.
+  recommendationId?: string;
 }
 
 const FACILITY_CACHE_KEY = 'nextspot_facilities_cache_v3';
@@ -1499,6 +1502,11 @@ export default function MainPage() {
       const spot = fac.spot || calculateSPOT(fac);
       const bookmark: SavedBookmark = {
         id: fac.id,
+        // 저장 당시의 실제 recommendations 행 id. rankedFacilities 가 이미 들고 있는데
+        // 여기서만 빠뜨려서, 저장 해제 피드백이 서버로 영영 가지 않았다(id 가 undefined 라
+        // isRealRecommendationId 검사에 닿기도 전에 죽었다). by-type 이 합성 id 를 주던
+        // 시절의 전제가 주석으로만 남아 있었고 코드는 그 전제를 그대로 따르고 있었다.
+        recommendationId: fac.recommendationId,
         name: fac.name,
         category: fac.type === 'restaurant' ? '음식점' : fac.type === 'cafe' ? '카페' : fac.type === 'attraction' ? '관광지' : '문화시설',
         // 저장 페이지의 라이브 혼잡 재조회(매칭)·카카오맵 길찾기 링크에 좌표가 필요하므로 함께 저장한다.

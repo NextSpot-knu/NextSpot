@@ -11,7 +11,8 @@
     "share": "分享",
     "linkCopied": "已复制链接",
     "shareCourse": "看看这条庆州定制旅行路线 · NextSpot",
-    "back": "返回"
+    "back": "返回",
+    "shareFailed": "无法分享 — 请手动复制下面的链接"
   },
   "nav": {
     "home": "首页",
