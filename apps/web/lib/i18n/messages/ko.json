@@ -351,7 +351,10 @@
     "slotPinUnavailable": "고정한 곳을 이 자리에 넣을 수 없어요",
     "slotHint": "종류를 바꾸거나 도보 시간·여행 시간을 넓혀 보세요",
     "slotLateNight": "밤에는 영업이 확인되지 않은 식당·카페를 보내지 않아요",
-    "emptyReasonsTitle": "이렇게 됐어요"
+    "emptyReasonsTitle": "이렇게 됐어요",
+    "replanRemoved": "조건에 맞춰 다시 짰어요 · {n}곳이 빠졌어요",
+    "replanSwapped": "다시 짰어요 · {added}곳이 새로 들어오고 {removed}곳이 빠졌어요",
+    "slotNoCandidateAny": "이 근처에 조건에 맞는 곳이 없어요"
   },
   "coupons": {
     "expired": "만료됨",
@@ -896,7 +899,8 @@
     "searchAgain": "등록된 가게에서 다시 찾을게요",
     "manualNotice": "담당자가 확인 후 새 가게로 등록해 드려요",
     "linkedChip": "연결됨: {name}",
-    "unlinkFacility": "연결 해제"
+    "unlinkFacility": "연결 해제",
+    "searchFailed": "가게 검색을 지금 할 수 없어요 — 잠시 후 다시 시도해 주세요"
   },
   "merchantGate": {
     "title": "내 가게 대시보드",

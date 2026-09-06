@@ -130,7 +130,7 @@ export default function RoleChangeRequestPage() {
   const [manualEntry, setManualEntry] = useState(false);
   // 결과에 **어떤 검색어의 결과인지** 를 함께 담는다. 그래야 타이핑 도중 이전 검색어의 결과가
   // 잠깐 남아 "왜 이 가게가 나왔지" 가 생기는 것을 렌더 단계에서 걸러 낼 수 있다.
-  const [searchResult, setSearchResult] = useState<{ term: string; items: FacilityHit[] } | null>(null);
+  const [searchResult, setSearchResult] = useState<{ term: string; items: FacilityHit[]; failed: boolean } | null>(null);
 
   // 언마운트 후 setState 를 막는 가드. 조회는 마운트 effect 와 재시도 버튼 두 곳에서 부르므로
   // effect 지역 변수 대신 ref 로 둔다(같은 함수를 두 벌 쓰지 않기 위해서다).
@@ -167,7 +167,14 @@ export default function RoleChangeRequestPage() {
   }, [loadRequests]);
 
   const isMerchantRequest = requestedRole === 'merchant';
-  const latest = items[0] ?? null;
+  // **선택한 역할의** 최신 신청. 그냥 items[0] 이면 역할을 가리지 않은 '가장 최근 건' 이라,
+  // 사업자 신청이 대기 중일 때 관리자 신청을 하나 더 내면 items[0] 이 그쪽으로 바뀌고
+  // **먼저 낸 사업자 신청은 어느 탭에서도 취소·수정 버튼이 없는 상태**가 됐다(내역 목록에는
+  // 버튼이 없다). 관리자 건을 철회해도 created_at 순서는 그대로라 영영 손댈 수 없었다 —
+  // 남는 탈출구가 담당자에게 전화하는 것뿐인데, 그게 이 화면이 없애려던 상태다.
+  // (pending 이 둘 생기는 것은 막지 않는 설계다: 사장님이 관리자 권한을 신청할 수 있어야 한다.)
+  // items 는 created_at desc 라 find 가 곧 '그 역할의 최신 건' 이다.
+  const latest = items.find((r) => (r.requestedRole ?? 'merchant') === requestedRole) ?? null;
   const trimmedTerm = storeName.trim();
   // 검색 UI 를 띄우는 조건. 관리자 신청에는 붙일 POI 가 없고, 이미 고른 뒤나 직접 입력을
   // 택한 뒤에 목록이 계속 열려 있으면 방금 한 선택을 다시 묻는 꼴이다.
@@ -183,9 +190,10 @@ export default function RoleChangeRequestPage() {
     // 300ms 디바운스 — 글자마다 Supabase 를 때리면 결과가 뒤늦게 뒤섞여 도착한다.
     const timer = setTimeout(() => {
       void (async () => {
-        // searchFacilities 는 throw 하지 않는다(실패도 빈 결과다) — 그래서 여기서 잡을 것이 없다.
+        // searchFacilities 는 throw 하지 않는다. 다만 '못 찾았다' 와 '못 물어봤다' 는 다르다 —
+        // 후자를 '검색 결과가 없어요' 로 그리면, 자기 가게가 DB 에 있는데도 자유 입력으로 밀려난다.
         const res = await searchFacilities({ term, limit: 8 });
-        if (alive) setSearchResult({ term, items: res.items });
+        if (alive) setSearchResult({ term, items: res.items, failed: res.failed });
       })();
     }, 300);
     return () => {
@@ -908,7 +916,7 @@ export default function RoleChangeRequestPage() {
                     </ul>
                   ) : (
                     <p className="px-3 py-2.5 text-[11px] text-muk-soft">
-                      {t('account.searchNoResults')}
+                      {searchResult?.failed ? t('account.searchFailed') : t('account.searchNoResults')}
                     </p>
                   )}
                   <button

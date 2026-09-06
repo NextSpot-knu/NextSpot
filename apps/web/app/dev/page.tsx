@@ -896,6 +896,7 @@ function FacilityLinkPanel({
   // 신청서와 다른 이름이면 그 자리에서 눈에 띈다.
   const [linkTerm, setLinkTerm] = useState(storeName);
   const [linkHits, setLinkHits] = useState<FacilityHit[]>([]);
+  const [linkFailed, setLinkFailed] = useState(false);
   const [linkBusy, setLinkBusy] = useState(false);
   const [picked, setPicked] = useState<FacilityHit | null>(null);
   const [placeTerm, setPlaceTerm] = useState(storeName);
@@ -918,7 +919,10 @@ function FacilityLinkPanel({
     onSelect(requestId, selection);
   }, [onSelect, requestId, selection]);
 
-  // (A) 등록된 가게 검색 — 300ms 디바운스. searchFacilities 는 던지지 않고 실패 시 빈 목록이다.
+  // (A) 등록된 가게 검색 — 300ms 디바운스. searchFacilities 는 던지지 않지만 실패 여부는 알려 준다.
+  // 여기서 실패를 '결과 없음' 으로 그리면 안 된다: 아래 안내가 '새 가게로 등록' 을 권하는데,
+  // Supabase 가 잠깐 흔들린 것뿐이면 이미 있는 가게에 **중복 유령 POI** 가 만들어지고
+  // 되돌릴 자동 수단이 없다(features.origin='merchant_request' 로 지도에 그대로 남는다).
   //
   // 스피너 켜기와 목록 비우기까지 전부 타이머 안에서 한다. 이펙트 본문에서 곧장 setState 하면
   // 글자 하나마다 렌더가 한 번 더 돈다(react-hooks/set-state-in-effect) — 어차피 300ms 뒤의 일이다.
@@ -929,6 +933,7 @@ function FacilityLinkPanel({
     const timer = setTimeout(async () => {
       if (!term) {
         setLinkHits([]);
+        setLinkFailed(false);
         setLinkBusy(false);
         return;
       }
@@ -937,6 +942,7 @@ function FacilityLinkPanel({
       // 늦게 도착한 이전 검색이 최신 결과를 덮지 않게 한다(타이핑 중에는 요청이 겹친다).
       if (!alive) return;
       setLinkHits(res.items);
+      setLinkFailed(res.failed);
       setLinkBusy(false);
     }, 300);
     return () => {
@@ -1070,9 +1076,16 @@ function FacilityLinkPanel({
             ))}
           </div>
           {!linkBusy && linkTerm.trim() !== '' && linkHits.length === 0 && (
-            <p className="py-2 text-center text-[11px] text-muk-soft">
-              검색 결과가 없어요. 아직 등록되지 않은 가게라면 ‘새 가게로 등록’ 을 쓰세요.
-            </p>
+            linkFailed ? (
+              // 못 물어본 것이지 없는 것이 아니다 — 여기서 '새 가게로 등록' 을 권하면 중복 POI 가 생긴다.
+              <p className="py-2 text-center text-[11px] text-terracotta">
+                가게 검색을 지금 할 수 없어요. 잠시 후 다시 시도해 주세요 — 새로 등록하기 전에 꼭 다시 확인하세요.
+              </p>
+            ) : (
+              <p className="py-2 text-center text-[11px] text-muk-soft">
+                검색 결과가 없어요. 아직 등록되지 않은 가게라면 ‘새 가게로 등록’ 을 쓰세요.
+              </p>
+            )
           )}
         </div>
       )}

@@ -351,7 +351,10 @@
     "slotPinUnavailable": "The place you kept cannot go in this stop",
     "slotHint": "Try another type, or widen your walking or trip time",
     "slotLateNight": "At night we don't send unconfirmed restaurants or cafés",
-    "emptyReasonsTitle": "Here's what happened"
+    "emptyReasonsTitle": "Here's what happened",
+    "replanRemoved": "Replanned for your filters · {n} dropped",
+    "replanSwapped": "Replanned · {added} added, {removed} dropped",
+    "slotNoCandidateAny": "Nothing nearby matches your filters"
   },
   "coupons": {
     "expired": "Expired",
@@ -896,7 +899,8 @@
     "searchAgain": "Search the listed places again",
     "manualNotice": "Our team will add it as a new place after the check",
     "linkedChip": "Linked: {name}",
-    "unlinkFacility": "Unlink"
+    "unlinkFacility": "Unlink",
+    "searchFailed": "Place search is unavailable right now — please try again shortly"
   },
   "merchantGate": {
     "title": "My store dashboard",

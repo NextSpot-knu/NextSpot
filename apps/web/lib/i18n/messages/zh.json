@@ -351,7 +351,10 @@
     "slotPinUnavailable": "固定的地点无法放入此站",
     "slotHint": "换个种类，或放宽步行时间与行程时间",
     "slotLateNight": "夜间不会推荐无法确认营业的餐厅或咖啡馆",
-    "emptyReasonsTitle": "情况如下"
+    "emptyReasonsTitle": "情况如下",
+    "replanRemoved": "已按条件重新规划 · 移除 {n} 处",
+    "replanSwapped": "已重新规划 · 新增 {added} 处，移除 {removed} 处",
+    "slotNoCandidateAny": "附近没有符合条件的地点"
   },
   "coupons": {
     "expired": "已过期",
@@ -896,7 +899,8 @@
     "searchAgain": "重新在已收录店铺中搜索",
     "manualNotice": "工作人员核实后会登记为新店铺",
     "linkedChip": "已关联：{name}",
-    "unlinkFacility": "解除关联"
+    "unlinkFacility": "解除关联",
+    "searchFailed": "暂时无法搜索店铺 — 请稍后再试"
   },
   "merchantGate": {
     "title": "我的店铺看板",

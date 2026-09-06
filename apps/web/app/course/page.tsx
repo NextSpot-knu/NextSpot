@@ -22,6 +22,7 @@ import CourseMap from "@/components/CourseMap";
 import NowChip from "@/components/NowChip";
 import OptimizationLoader from "@/components/OptimizationLoader";
 import { encodeStops, parseShareParam } from "@/lib/courseShare";
+import { describeReplan } from "@/lib/coursePlanDiff";
 import { loadTravelContext } from "@/lib/travelContext";
 import { recordActiveTrip } from "@/lib/visits";
 import { track } from "@/lib/analytics";
@@ -171,6 +172,14 @@ function CourseContent() {
   // 따라와야 하기 때문이다(자리 번호로 잡아 두면 카페를 3번으로 옮겨도 고정은 2번에 남는다).
   // 자동 모드에는 uid 가 없으므로 자리 번호로 만든 키를 쓴다(slotKey 참조).
   const [pins, setPins] = useState<Record<string, string>>({});
+  // **이 응답을 만든 요청의** 자리 키. 화면의 행은 이 배열로 자리를 찾는다.
+  //
+  // slotKeys 는 sequence 에서 즉시 파생되는데 stops/slotOutcomes 는 500ms 디바운스 + 왕복
+  // 뒤에야 갱신된다. 그 사이 결과 영역은 아직 클릭 가능해서(loading 이 false 다), 낡은 행이
+  // **새 키 배열**을 들고 있었다 — 칩을 끌어 순서를 바꾼 직후 📌 를 누르면 핀이 엉뚱한
+  // 자리에 꽂히고(서버는 핀 분기가 종류 분기보다 앞이라 카페 자리에 식당을 넣는다),
+  // 칩을 지운 직후에는 키가 없어 버튼이 활성인 채 아무 일도 일어나지 않았다.
+  const [renderedSlotKeys, setRenderedSlotKeys] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [needsAuth, setNeedsAuth] = useState(false);
@@ -247,6 +256,8 @@ function CourseContent() {
   // 요청 세대 카운터 — 겹쳐 나간 요청의 '구세대 응답'이 늦게 도착해 최신 화면을 덮어쓰지 않게 한다
   // (디바운스가 대부분 막지만, 초기 로드 직후나 500ms 를 넘는 네트워크 지연에서는 여전히 겹칠 수 있다).
   const fetchGenRef = useRef(0);
+  // 한 번이라도 요청을 내보냈는가(응답 도착 여부가 아니다 — 아래 디바운스 주석 참조).
+  const dispatchedRef = useRef(false);
 
   // 고정을 붙들어 두는 키. 순서 모드에서는 피커 칸의 uid 다 — 칩을 끌어 순서를 바꾸면 고정도
   // 함께 따라와야 하기 때문이다(자리 번호로 잡으면 카페를 3번으로 옮겨도 고정은 2번에 남는다).
@@ -269,23 +280,18 @@ function CourseContent() {
    *
    * 다만 '바뀌었다' 고 말하고 싶은 유혹은 서버가 준 planId 로 막는다. 같으면 같다고 말한다. */
   const announceReplan = useCallback((planId: string, nextStops: CourseStop[]) => {
-    const nextIds = nextStops.map((stop) => stop.facility.id);
+    const next = { planId, ids: nextStops.map((stop) => stop.facility.id) };
     const prev = prevPlanRef.current;
-    prevPlanRef.current = { planId, ids: nextIds };
+    prevPlanRef.current = next;
     if (!userReplanRef.current) return;
     userReplanRef.current = false;
-    // planId 가 없으면(구 API 폴백) 판정할 근거가 없다 — 지어내지 않고 침묵한다.
-    if (!planId || !prev?.planId) return;
-    const prevIds = new Set(prev.ids);
-    const added = nextIds.filter((id) => !prevIds.has(id));
-    const message =
-      prev.planId === planId
-        ? t("course.replanSame")
-        : added.length === 0
-          ? t("course.replanReordered")
-          : t("course.replanChanged", { n: added.length });
+    // 무엇이 달라졌는지 고르는 일은 lib/coursePlanDiff 가 한다(순수 판정이라 테스트로 잠긴다).
+    // 여기서 직접 세던 시절, '추가' 만 세고 '제거' 를 빠뜨려 정류지가 사라진 재계획을
+    // "같은 곳들을 순서만 바꿔 다시 계산했어요" 라고 말했다.
+    const message = describeReplan(prev, next);
+    if (!message) return;
     // 같은 id 를 재사용해 드래그 연타로 토스트가 쌓이지 않게 한다.
-    toast(message, { id: "course-replan" });
+    toast(t(message.key, message.vars), { id: "course-replan" });
   }, [t]);
 
   const fetchCourse = useCallback(async () => {
@@ -334,6 +340,8 @@ function CourseContent() {
       announceReplan(plan?.planId ?? "", nextStops);
       setStops(nextStops);
       setSlotOutcomes(Array.isArray(plan?.slotOutcomes) ? plan.slotOutcomes : []);
+      // 결과와 **같은 배치로** 자리 키를 굳힌다(위 renderedSlotKeys 주석 참조).
+      setRenderedSlotKeys(slotKeys);
     } catch (err) {
       if (gen !== fetchGenRef.current) return;
       console.warn("코스 추천 호출 실패:", err);
@@ -358,12 +366,16 @@ function CourseContent() {
   // 종류 칩도 연타로 담는다. 변경마다 즉시 fetch 하면 그때마다 리렌더/로딩이 끼어들어 드래그가 끊기므로
   // 마지막 변경 후 500ms 에 한 번만 호출한다(최초 로드는 지연 없이 즉시).
   useEffect(() => {
-    const delay = hasLoadedOnce ? 500 : 0;
-    const timer = setTimeout(() => { fetchCourse(); }, delay);
+    // 지연 판정을 '완료' 가 아니라 **'이미 한 번 발사했는가'** 로 한다.
+    // hasLoadedOnce 는 응답이 와야 true 가 되는데, 그 전에 geolocation 이 풀리면 coords 가
+    // 바뀌어 이펙트가 다시 돌고 그때도 delay 0 이라 **두 번째 요청이 곧바로 나갔다.**
+    // 첫 응답은 fetchGenRef 로 버려지지만 서버는 이미 다 계산한 뒤다(취소 수단이 없다) —
+    // 위치를 허용한 사용자의 모든 첫 진입에서 단일 워커가 코스를 두 벌 돌렸다.
+    const delay = dispatchedRef.current ? 500 : 0;
+    const timer = setTimeout(() => { dispatchedRef.current = true; fetchCourse(); }, delay);
     return () => clearTimeout(timer);
-    // hasLoadedOnce 는 지연 시간 선택용일 뿐 — 값 변화가 재조회를 트리거하면 첫 로드 직후
-    // 불필요한 2차 호출이 생기므로 의도적으로 deps 에서 제외한다.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // deps 는 fetchCourse 하나다. 지연 시간은 이제 ref 로 판단하므로(렌더 값이 아니다)
+    // 억제할 exhaustive-deps 경고가 없다 — 예전에는 hasLoadedOnce 를 읽느라 필요했다.
   }, [fetchCourse]);
 
   // 3b) 공유 모드 정류지 복원 — anon RLS(createPublicClient)로 facilities 를 id in (...) 조회해
@@ -451,16 +463,33 @@ function CourseContent() {
     userReplanRef.current = true;
   };
 
+  /** 같은 가게가 다른 자리에 고정돼 있으면 그 자리를 비운다.
+   *
+   * 서버는 한 가게가 두 자리에 고정되면 **두 자리를 모두** 죽인다(그 자리의 후보에서 서로를
+   * 빼내기 때문이다). 화면이 그 입력을 만들 수 있으면 안 된다 — 고정은 '옮기는' 것이지
+   * '겹치는' 것이 아니다. */
+  const withoutDuplicate = (pins: Record<string, string>, key: string, facilityId: string) => {
+    const next: Record<string, string> = {};
+    for (const [k, v] of Object.entries(pins)) {
+      if (k !== key && v === facilityId) continue; // 다른 자리의 같은 가게는 놓아 준다
+      next[k] = v;
+    }
+    next[key] = facilityId;
+    return next;
+  };
+
   /** 이 자리를 고정하거나 푼다. */
   const togglePin = (slotIdx: number, facilityId: string) => {
-    const key = slotKeys[slotIdx];
+    const key = renderedSlotKeys[slotIdx];
     if (!key) return;
     markUserReplan();
     setPins((prev) => {
-      const next = { ...prev };
-      if (next[key] === facilityId) delete next[key];
-      else next[key] = facilityId;
-      return next;
+      if (prev[key] === facilityId) {
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      }
+      return withoutDuplicate(prev, key, facilityId);
     });
   };
 
@@ -469,10 +498,10 @@ function CourseContent() {
    * 화면에서 카드만 바꿔치기하면 뒤 정류지의 도착 시각·예상 혼잡이 낡은 값이 된다. 출발점과
    * 출발 시각이 달라졌는데 숫자를 그대로 두면 그 순간 화면이 거짓말을 시작한다. */
   const swapTo = (slotIdx: number, facilityId: string) => {
-    const key = slotKeys[slotIdx];
+    const key = renderedSlotKeys[slotIdx];
     if (!key) return;
     markUserReplan();
-    setPins((prev) => ({ ...prev, [key]: facilityId }));
+    setPins((prev) => withoutDuplicate(prev, key, facilityId));
   };
 
   const addToSequence = (type: string) => {
@@ -638,7 +667,7 @@ function CourseContent() {
                         readOnly={isShareMode}
                         outcomes={isShareMode ? [] : slotOutcomes}
                         pins={pins}
-                        slotKeys={slotKeys}
+                        slotKeys={renderedSlotKeys}
                         onTogglePin={togglePin}
                         onSwap={swapTo}
                       />
@@ -1016,7 +1045,11 @@ function StopRows({
             key={row.stop.facility.id}
             stop={row.stop}
             readOnly={readOnly}
-            slotIdx={replanSupported ? row.order - 1 : undefined}
+            slotIdx={
+              // 매핑할 자리 키가 없으면 아예 넘기지 않는다 — 넘기면 버튼은 활성인데
+              // togglePin 의 `if (!key) return` 에 걸려 아무 일도 안 일어난다.
+              replanSupported && row.order - 1 < slotKeys.length ? row.order - 1 : undefined
+            }
             pinned={pins[slotKeys[row.order - 1]] === row.stop.facility.id}
             onTogglePin={onTogglePin}
             onSwap={onSwap}
@@ -1039,9 +1072,22 @@ const SLOT_REASON_KEY: Record<string, string> = {
   pin_unavailable: 'course.slotPinUnavailable',
 };
 
+/** 그 자리의 사유 문구 키.
+ *
+ * `slotNoCandidate` 는 "이 근처에 조건에 맞는 {type}이(가) 없어요" 라 **종류 이름이 있어야**
+ * 말이 된다. 자동 모드에는 요청한 종류가 없어서(requestedType=null) 예전에는 빈 문자열이
+ * 들어가 "조건에 맞는 이(가) 없어요" 라는 깨진 문장이 나갔다 — 자동 모드에서는 **항상** 그랬다.
+ * 종류가 없을 때는 종류를 말하지 않는 문장을 쓴다. */
+function slotReasonKey(outcome: SlotOutcome): string | undefined {
+  if (outcome.status === 'no_candidate_of_type' && !outcome.requestedType) {
+    return 'course.slotNoCandidateAny';
+  }
+  return SLOT_REASON_KEY[outcome.status];
+}
+
 function DroppedSlotRow({ outcome }: { outcome: SlotOutcome }) {
   const t = useT();
-  const reasonKey = SLOT_REASON_KEY[outcome.status];
+  const reasonKey = slotReasonKey(outcome);
   return (
     <div className="px-4 md:px-6 py-4 bg-hanji-deep/30">
       <div className="flex items-start gap-3">
@@ -1313,11 +1359,17 @@ function CourseSkeleton({ mode }: { mode: "course" | "shared" }) {
 function EmptyState({ outcomes = [] }: { outcomes?: SlotOutcome[] }) {
   const t = useT();
   // 같은 사유가 자리마다 반복되므로(대개 전 자리가 같은 이유로 빈다) 한 번씩만 보여 준다.
+  // 사유 문구는 종류 이름을 품을 수 있으므로(자리마다 다르다) 키가 아니라 **완성된 문장**으로
+  // 모아 중복을 없앤다. 키로만 묶으면 '식당이 없어요' 와 '카페가 없어요' 가 하나로 뭉개진다.
   const reasons = [...new Set(
     outcomes
       .filter((o) => o.status !== 'filled')
-      .map((o) => SLOT_REASON_KEY[o.status])
-      .filter(Boolean),
+      .map((o) => {
+        const key = slotReasonKey(o);
+        if (!key) return null;
+        return t(key, { type: o.requestedType ? t(`category.${o.requestedType}`) : '' });
+      })
+      .filter((line): line is string => Boolean(line)),
   )];
   return (
     <div className="bg-white rounded-2xl border border-line shadow-[0_2px_14px_rgba(43,35,32,0.06)] p-8 text-center space-y-2">
@@ -1327,9 +1379,9 @@ function EmptyState({ outcomes = [] }: { outcomes?: SlotOutcome[] }) {
         <div className="space-y-1">
           <p className="text-[11px] font-semibold text-muk-soft">{t('course.emptyReasonsTitle')}</p>
           <ul className="space-y-0.5">
-            {reasons.map((key) => (
-              <li key={key} className="text-xs text-muk leading-relaxed">
-                {t(key as string, { type: '' })}
+            {reasons.map((line) => (
+              <li key={line} className="text-xs text-muk leading-relaxed">
+                {line}
               </li>
             ))}
           </ul>

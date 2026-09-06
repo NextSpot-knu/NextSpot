@@ -351,7 +351,10 @@
     "slotPinUnavailable": "固定した場所をこの位置に入れられません",
     "slotHint": "種類を変えるか、徒歩時間・滞在時間を広げてみてください",
     "slotLateNight": "夜間は営業が確認できない飲食店・カフェはご案内しません",
-    "emptyReasonsTitle": "こうなりました"
+    "emptyReasonsTitle": "こうなりました",
+    "replanRemoved": "条件に合わせて組み直しました · {n} 件が外れました",
+    "replanSwapped": "組み直しました · {added} 件が追加、{removed} 件が外れました",
+    "slotNoCandidateAny": "この近くに条件に合う場所がありません"
   },
   "coupons": {
     "expired": "期限切れ",
@@ -896,7 +899,8 @@
     "searchAgain": "登録済みの店舗から探し直す",
     "manualNotice": "担当者が確認のうえ新しい店舗として登録します",
     "linkedChip": "連携済み：{name}",
-    "unlinkFacility": "連携を解除"
+    "unlinkFacility": "連携を解除",
+    "searchFailed": "店舗検索を今は実行できません — しばらくしてからお試しください"
   },
   "merchantGate": {
     "title": "マイ店舗ダッシュボード",
