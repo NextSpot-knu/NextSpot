@@ -743,14 +743,74 @@ async def merge_guest(body: MergeGuestRequest, current_user: dict = Depends(get_
         raise HTTPException(status_code=500, detail="게스트 데이터를 병합하지 못했습니다.")
 
 
+async def _evidence_left_by(user_id: str) -> list[tuple[str, str]]:
+    """이 사용자의 신청서에 아직 적혀 있는 증빙 (request_id, 경로) 목록.
+
+    상태로 거르지 않는다. 결정이 끝난 신청은 document_path 가 이미 NULL 이라 어차피 걸리지
+    않고(승인·반려·철회가 모두 그 칼럼을 비운다), 그래도 경로가 남아 있는 행이 있다면 그 행
+    역시 지금 계정과 함께 사라진다 — 그 뒤로는 그 파일의 주인이 영영 없다. 남아 있는 것은
+    전부 지우는 게 맞다.
+
+    최신순으로 받는다. 상한이 있는 조회라 순서를 정하지 않으면 신청 이력이 상한을 넘는
+    계정에서 **정작 대기 중인 신청이 페이지 밖으로 밀려날 수 있다**(증빙을 든 행은 언제나
+    가장 최근 쪽이다). 조용히 빠뜨린 한 건이 곧 고아 파일 한 개다.
+
+    조회 실패는 삼킨다. 여기서 예외를 올리면 파일 정리 실패가 곧 탈퇴 실패가 되는데,
+    그건 아래 delete_my_account 가 고른 우선순위와 정반대다.
+    """
+    try:
+        res = await asyncio.to_thread(
+            supabase_admin.table("business_verification_requests")
+            .select("id, document_path")
+            .eq("user_id", user_id)
+            .order("created_at", desc=True)
+            .limit(50)
+            .execute
+        )
+    except Exception as exc:
+        logger.warning("account_delete_evidence_lookup_failed", user_id=user_id, error=str(exc))
+        return []
+    return [
+        (str(row.get("id")), str(row["document_path"]))
+        for row in (res.data or [])
+        if row.get("document_path")
+    ]
+
+
 @router.delete("/me", response_model=DeleteAccountResponse)
 async def delete_my_account(current_user: dict = Depends(get_current_user)):
     """현재 JWT 주체의 Supabase Auth 계정을 삭제한다.
 
     auth.users 삭제가 public.users 및 사용자 소유 행의 FK CASCADE를 시작한다. 브라우저가 보내는
     user_id는 받지 않아 다른 계정 삭제가 불가능하다.
+
+    ## 증빙을 **먼저** 지우는 이유
+
+    FK CASCADE 는 행만 지운다 — Storage 의 사업자등록증은 CASCADE 대상이 아니다. 심사 대기
+    중에 탈퇴하면 business_verification_requests 행은 사라지고 파일만 버킷에 남는데, 그 파일을
+    가리키는 행이 없으니 **아무도 그것을 지울 수 없다**(경로를 아는 유일한 곳이 그 행이었다).
+    마이그레이션 20260904200000 은 '심사가 끝나면 증빙을 보관하지 않는다' 고 단언한다 —
+    탈퇴도 심사가 끝나는 한 형태다.
+
+    순서가 계약이다. 계정을 먼저 지우면 경로를 읽을 방법이 사라진다.
+
+    ## 그 대신 감수하는 것
+
+    파일을 지운 뒤 계정 삭제가 실패하면, 신청은 pending 인 채로 증빙만 없는 상태가 된다
+    (dev.py 승인·반려가 굳이 피하는 그 상태다). 그래도 이쪽을 고른다: 저 상태는 사용자가
+    신청을 다시 내면 회복되지만, 반대 순서로 생기는 고아 파일은 되돌릴 방법이 아예 없고
+    남는 물건이 사업자등록증이다.
+
+    ## 증빙 삭제 실패는 탈퇴를 막지 않는다
+
+    탈퇴는 사용자의 권리다. 우리 쪽 뒷정리가 실패했다고 그 권리를 미룰 수는 없다.
+    clear_verification_evidence 는 실패해도 예외를 올리지 않고 경고만 남기므로(경로가 로그에
+    남아 수동 정리가 가능하다) 이 호출들은 따로 감싸지 않는다.
     """
     user_id = current_user["id"]
+    for request_id, path in await _evidence_left_by(user_id):
+        logger.info("account_delete_clears_evidence", user_id=user_id, request_id=request_id)
+        await clear_verification_evidence(request_id, path)
     try:
         await asyncio.to_thread(supabase_admin.auth.admin.delete_user, user_id)
         logger.info("account_deleted", user_id=user_id)

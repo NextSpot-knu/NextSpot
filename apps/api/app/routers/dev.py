@@ -19,6 +19,7 @@
   않으며, 뒤 4자리·서류 경로도 결정 즉시 비운다.
 """
 import asyncio
+import uuid as uuid_module
 import time
 from typing import Literal, NamedTuple
 
@@ -368,11 +369,18 @@ async def list_facility_owners(
 
 @router.post("/facility-owners")
 async def grant_facility_owner(body: OwnerGrant, actor: dict = Depends(get_current_profile)):
+    """심사 큐를 거치지 않는 **직접 부여**. 승인 경로와 같은 검사·같은 실패 분류를 쓴다."""
     res = await asyncio.to_thread(
         supabase_admin.table("users").select("id, role").eq("id", body.user_id).limit(1).execute
     )
     if not res.data:
         raise HTTPException(status_code=404, detail="해당 사용자를 찾을 수 없습니다.")
+
+    # 승인 경로와 **같은 검사**를 받는다. 이 갈래만 빠져 있어서 비활성(폐업 처리된)·존재하지
+    # 않는 POI 에 소유권이 붙었다 — 사장님 콘솔은 열리는데 그 가게는 손님에게 한 번도
+    # 추천되지 않는 막다른 계정이 된다. facility_id 는 개발자가 손으로 붙여넣는 값이라
+    # 오타 한 번이면 곧바로 그 상태다.
+    await _require_active_facility(body.facility_id)
 
     try:
         inserted = await asyncio.to_thread(
@@ -384,9 +392,23 @@ async def grant_facility_owner(body: OwnerGrant, actor: dict = Depends(get_curre
             }).execute
         )
     except Exception as exc:
-        # 활성 소유 행은 (가게, 사용자) 당 하나뿐이다(부분 유니크 인덱스).
-        logger.warning("dev_owner_grant_failed", error=str(exc))
-        raise HTTPException(status_code=409, detail="이미 이 가게의 소유자입니다.") from None
+        # 중복만 409 다. 예외 종류를 가리지 않고 409 로 뭉뚱그리면 커넥션 끊김도, RLS 거부도,
+        # FK 위반도 전부 "이미 소유자입니다" 가 된다 — 개발자는 원하던 상태가 이미 성립해
+        # 있다고 믿고 넘어가는데 실제로는 아무 일도 일어나지 않았고, 그 사실은 어느 화면에도
+        # 드러나지 않는다. (account.py 의 _insert_failure 와 같은 판단이다.)
+        if _is_duplicate_owner(exc):
+            logger.info(
+                "dev_owner_grant_duplicate", user_id=body.user_id, facility_id=body.facility_id
+            )
+            raise HTTPException(status_code=409, detail="이미 이 가게의 소유자입니다.") from None
+        logger.error(
+            "dev_owner_grant_failed",
+            user_id=body.user_id, facility_id=body.facility_id, error=str(exc),
+        )
+        raise HTTPException(
+            status_code=503,
+            detail="소유권을 부여하지 못했습니다. 잠시 후 다시 시도해 주세요.",
+        ) from None
 
     invalidate_profile_cache(body.user_id)
     log_role_audit(
@@ -578,7 +600,17 @@ async def _require_active_facility(facility_id: str) -> None:
     확인 없이 소유권을 붙이면 존재하지 않는(또는 폐업 처리된) POI 의 사장님이 만들어진다 —
     콘솔은 열리는데 관리할 대상이 없다. 조회 자체가 실패한 경우는 '없음'이 아니라 우리 쪽
     장애이므로 422 가 아니라 503 이다(없는 가게로 오인해 심사자가 다시 고르게 하면 안 된다).
+
+    다만 **uuid 형식이 아닌 값은 조회 실패가 아니라 입력 오류다.** 그냥 넘기면 PostgREST 가
+    22P02 로 터지고 위 except 가 그것을 503 '잠시 후 다시 시도' 로 옮긴다 — 심사자는 서버
+    문제인 줄 알고 같은 오타를 계속 다시 넣는다. 소유권 직접 부여는 uuid 를 손으로 붙여넣는
+    화면이라 이 오분류가 실제로 걸린다(account.py 의 _ensure_facility_selectable 도 같은 이유로
+    형식을 먼저 본다).
     """
+    try:
+        uuid_module.UUID(str(facility_id))
+    except (ValueError, AttributeError, TypeError):
+        raise HTTPException(status_code=422, detail="선택한 가게를 찾을 수 없습니다.") from None
     try:
         res = await asyncio.to_thread(
             supabase_admin.table("facilities")

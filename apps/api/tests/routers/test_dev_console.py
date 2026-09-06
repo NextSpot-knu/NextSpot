@@ -523,6 +523,105 @@ def test_revoke_unknown_row_is_404(client):
     assert res.status_code == 404
 
 
+# ── 직접 부여(심사 큐를 거치지 않는 경로) ────────────────────────────────────
+# 이 경로는 승인 경로와 **같은 두 가지**를 지켜야 한다: 붙일 가게가 실제로 표출 중인지
+# 확인하고, 실패를 종류대로 구분해서 말하는 것.
+
+
+def _grant(client, facility_id=FACILITY_ID, user_id=TARGET_ID):
+    return client.post(
+        "/api/v1/dev/facility-owners",
+        json={"user_id": user_id, "facility_id": facility_id},
+        headers=_headers(),
+    )
+
+
+def test_a_direct_grant_creates_an_active_owner_row(client, db):
+    with _as("developer"):
+        res = _grant(client, OTHER_FACILITY_ID)
+    assert res.status_code == 200
+    assert res.json()["granted"] is True
+    rows = [r for r in db.tables["facility_owners"] if r["facility_id"] == OTHER_FACILITY_ID]
+    assert len(rows) == 1
+    assert rows[0]["granted_by"] == DEVELOPER_ID
+
+
+def test_a_direct_grant_duplicate_is_a_conflict(client, db):
+    """이미 소유자면 409 다 — 원하던 상태가 이미 성립해 있다는 뜻이다."""
+    db.insert_errors["facility_owners"] = RuntimeError(
+        "duplicate key value violates unique constraint facility_owners_active_uq"
+    )
+    with _as("developer"):
+        res = _grant(client)
+    assert res.status_code == 409
+    assert "이미" in res.json()["detail"]
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        RuntimeError("server disconnected without sending a response"),
+        RuntimeError('{"code":"42501","message":"new row violates row-level security policy"}'),
+        RuntimeError('{"code":"23503","message":"violates foreign key constraint"}'),
+    ],
+    ids=["disconnected", "rls", "foreign_key"],
+)
+def test_a_direct_grant_failure_is_not_reported_as_a_duplicate(client, db, error):
+    """중복이 아닌 실패를 409 "이미 소유자입니다" 로 말하면 개발자는 원하던 상태가 이미
+    성립한 줄 알고 넘어간다 — 실제로는 아무 일도 일어나지 않았고, 그 사실은 어느 화면에도
+    드러나지 않는다. 우리 쪽 장애는 503 이다."""
+    db.insert_errors["facility_owners"] = error
+    with _as("developer"):
+        res = _grant(client)
+    assert res.status_code == 503, "중복이 아닌 실패가 409 로 둔갑했다"
+    assert "이미" not in res.json()["detail"], "소유권이 이미 있다고 잘못 안내했다"
+    assert db.tables["role_audit_log"] == [], "부여되지 않은 소유권이 감사 로그에 남았다"
+
+
+@pytest.mark.parametrize(
+    "facility_id", [MISSING_FACILITY_ID, CLOSED_FACILITY_ID], ids=["missing", "closed"]
+)
+def test_a_direct_grant_refuses_an_unusable_facility(client, db, facility_id):
+    """승인 경로에만 있던 검사다. 없는/비활성 POI 에 소유권이 붙으면 사장님 콘솔은 열리는데
+    그 가게는 손님에게 한 번도 추천되지 않는 막다른 계정이 된다."""
+    with _as("developer"):
+        res = _grant(client, facility_id)
+    assert res.status_code == 422, f"비활성/없는 가게에 소유권이 붙었다({facility_id})"
+    assert db.writes() == [], f"거절해 놓고 쓰기가 일어났다: {db.writes()}"
+
+
+
+def test_a_direct_grant_calls_a_typo_a_typo_not_an_outage(client, db, monkeypatch):
+    """uuid 가 아닌 값은 조회 실패가 아니라 **입력 오류**다.
+
+    그냥 넘기면 PostgREST 가 22P02 로 터지고 조회 except 가 그것을 503 '잠시 후 다시
+    시도' 로 옮긴다 — 개발자는 서버 문제인 줄 알고 같은 오타를 계속 다시 넣는다.
+    이 화면은 uuid 를 손으로 붙여넣는 자리라 그 오분류가 실제로 걸린다.
+
+    ⚠️ 페이크가 **실제로 터져야** 이 테스트가 무언가를 지킨다. 그냥 두면 빈 목록이 돌아와
+    '없는 가게' 분기(422)로 통과해 버리고, 형식 검사를 걷어내도 초록이 뜬다(실제로 그랬다).
+    그래서 여기서만 facilities 조회를 PostgREST 처럼 22P02 로 터뜨린다.
+    """
+    real_table = db.table
+
+    def _explode(name: str):
+        if name == "facilities":
+            raise RuntimeError('invalid input syntax for type uuid: "not-a-uuid" (code 22P02)')
+        return real_table(name)
+
+    monkeypatch.setattr(db, "table", _explode)
+    with _as("developer"):
+        res = _grant(client, "not-a-uuid")
+    assert res.status_code == 422, f"오타를 우리 쪽 장애로 말했다: {res.status_code}"
+    assert db.writes() == []
+
+def test_a_direct_grant_on_a_missing_user_is_404(client, db):
+    with _as("developer"):
+        res = _grant(client, user_id="00000000-0000-4000-8000-000000000000")
+    assert res.status_code == 404
+    assert db.writes() == []
+
+
 def test_owner_list_hides_revoked_rows(client, db):
     db.tables["facility_owners"].append(
         {

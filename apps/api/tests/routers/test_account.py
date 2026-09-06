@@ -5,8 +5,10 @@ import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
+from app.core import verification_evidence
 from app.core.authz import get_current_profile
 from app.core.supabase import get_current_user
+from app.core.verification_evidence import clear_verification_evidence
 from app.routers import account
 
 
@@ -42,6 +44,27 @@ class FakeAdminAuth:
         self.deleted.append(user_id)
 
 
+class FakeEmptyQuery:
+    """신청이 한 건도 없는 계정. 체이닝을 흡수하고 빈 결과를 돌려준다.
+
+    탈퇴가 증빙 경로를 읽으려고 이 표를 조회한다. 대역에 table() 이 아예 없으면 그 조회가
+    AttributeError 로 실패하고, 라우터가 조회 실패를 삼키는 바람에 **아래 두 테스트가 정리
+    경로를 한 번도 지나지 않은 채 통과한다** — 그러면 순서가 깨져도 알 수 없다.
+    """
+
+    def select(self, *_columns, **_kwargs):
+        return self
+
+    def eq(self, *_args):
+        return self
+
+    def limit(self, *_args):
+        return self
+
+    def execute(self):
+        return SimpleNamespace(data=[])
+
+
 class FakeDB:
     def __init__(self):
         self.calls = []
@@ -62,6 +85,9 @@ class FakeDB:
     def rpc(self, name, params):
         self.calls.append((name, params))
         return FakeRpc(dict(self.merge_payload))
+
+    def table(self, _name):
+        return FakeEmptyQuery()
 
 
 @pytest.fixture
@@ -974,3 +1000,104 @@ def test_a_failed_update_does_not_delete_a_reuploaded_path(owner_client):
     )
     assert res.status_code == 503
     assert cleared == [], "살아 있는 신청의 증빙을 지웠다"
+
+
+# ── 탈퇴 — CASCADE 가 닿지 않는 파일 ────────────────────────────────────────
+# auth 사용자를 지우면 FK CASCADE 가 business_verification_requests 행을 함께 지운다.
+# 그런데 Storage 의 사업자등록증은 CASCADE 대상이 **아니다.** 심사 대기 중에 탈퇴하면 행은
+# 사라지고 파일만 버킷에 남는데, 경로를 아는 유일한 곳이 그 행이었으므로 아무도 그 파일을
+# 지울 수 없다. 마이그레이션 20260904200000 은 '심사가 끝나면 보관하지 않는다' 고 단언한다.
+#
+# 그래서 순서가 계약이다: **증빙 먼저, 계정 나중.** 그리고 증빙 정리 실패가 탈퇴를 막아서는
+# 안 된다 — 탈퇴는 사용자의 권리이고 뒷정리는 우리 사정이다.
+
+
+@pytest.fixture
+def delete_client(monkeypatch):
+    """탈퇴하는 본인(u1) 세션. 심사 대기 신청 한 건과 남의 신청 한 건을 심어 둔다."""
+    app = FastAPI()
+    app.include_router(account.router)
+    app.dependency_overrides[get_current_user] = lambda: {"id": "u1"}
+    store = FakeStore()
+    store.rows.append({
+        "id": "req-1", "user_id": "u1", "status": "pending", "document_path": "u1/proof.jpg",
+    })
+    store.rows.append({
+        "id": "req-other", "user_id": "u2", "status": "pending", "document_path": "u2/proof.jpg",
+    })
+    store.auth_admin = FakeAdminAuth()
+    store.auth = SimpleNamespace(admin=store.auth_admin)
+    monkeypatch.setattr(account, "supabase_admin", store)
+
+    cleared = []
+
+    async def _record_clear(request_id, path):
+        # 삭제 시점에 계정이 아직 살아 있는지 함께 붙잡는다. 경로만 보면 순서를 알 수 없는데,
+        # 순서가 뒤집히면(계정 먼저) 경로를 읽을 방법 자체가 사라져 파일이 영영 남는다.
+        cleared.append(
+            {"request_id": request_id, "path": path, "deleted_so_far": list(store.auth_admin.deleted)}
+        )
+
+    monkeypatch.setattr(account, "clear_verification_evidence", _record_clear)
+    with TestClient(app) as http:
+        yield http, store, cleared
+
+
+def test_delete_clears_pending_evidence_before_deleting_the_account(delete_client):
+    http, store, cleared = delete_client
+    res = http.delete("/api/v1/account/me")
+    assert res.status_code == 200
+    assert [c["path"] for c in cleared] == ["u1/proof.jpg"], "버킷에 사업자등록증이 남았다"
+    assert cleared[0]["request_id"] == "req-1"
+    assert cleared[0]["deleted_so_far"] == [], "계정을 먼저 지웠다 — 경로를 읽을 방법이 사라진다"
+    assert store.auth_admin.deleted == ["u1"]
+
+
+def test_delete_never_touches_someone_elses_evidence(delete_client):
+    """경로는 신청 행에서 오고, 그 행은 user_id 로 걸러진다."""
+    http, store, cleared = delete_client
+    http.delete("/api/v1/account/me")
+    assert [c["path"] for c in cleared] == ["u1/proof.jpg"]
+    assert store.row("req-other")["document_path"] == "u2/proof.jpg"
+
+
+def test_delete_without_evidence_clears_nothing(delete_client):
+    """결정이 끝난 신청은 document_path 가 이미 NULL 이다 — 지울 것이 없다."""
+    http, store, cleared = delete_client
+    store.row("req-1")["document_path"] = None
+    assert http.delete("/api/v1/account/me").status_code == 200
+    assert cleared == []
+    assert store.auth_admin.deleted == ["u1"]
+
+
+def test_the_account_is_deleted_even_when_the_evidence_lookup_fails(delete_client):
+    """신청을 못 읽었다고 탈퇴를 막으면, 우리 쪽 장애가 사용자의 권리를 볼모로 잡는다."""
+    http, store, cleared = delete_client
+    store.select_error = RuntimeError("server disconnected without sending a response")
+    res = http.delete("/api/v1/account/me")
+    assert res.status_code == 200, "증빙 조회 실패가 탈퇴를 막았다"
+    assert cleared == []
+    assert store.auth_admin.deleted == ["u1"]
+
+
+def test_the_account_is_deleted_even_when_the_file_removal_fails(monkeypatch, delete_client):
+    """스토리지가 죽어도 탈퇴는 끝난다.
+
+    여기서는 대역이 아니라 **진짜 clear_verification_evidence** 를 태운다 — 그 함수가
+    예외를 삼킨다는 약속에 이 엔드포인트가 기대고 있어서, 대역으로 바꾸면 그 약속이
+    깨지는 날을 이 테스트가 못 잡는다."""
+    http, store, _ = delete_client
+    monkeypatch.setattr(account, "clear_verification_evidence", clear_verification_evidence)
+
+    class _DeadBucket:
+        def remove(self, _paths):
+            raise RuntimeError("storage unavailable")
+
+    monkeypatch.setattr(
+        verification_evidence,
+        "supabase_admin",
+        SimpleNamespace(storage=SimpleNamespace(from_=lambda _bucket: _DeadBucket())),
+    )
+    res = http.delete("/api/v1/account/me")
+    assert res.status_code == 200, "증빙 삭제 실패가 탈퇴를 막았다"
+    assert store.auth_admin.deleted == ["u1"]

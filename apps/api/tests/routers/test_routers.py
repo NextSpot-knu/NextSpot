@@ -3,7 +3,9 @@
 #         관리자 가드(require_role(ROLE_ADMIN))는 실제 JWT 검증 경로(conftest 의 admin_headers)를 그대로 태운다.
 #  · DB: 라우터 헬퍼(fetch_user 등)는 AsyncMock 으로, supabase 클라이언트는 체이닝을 흡수하는
 #        FakeSupabase(canned 데이터) 로 대체 — PostgREST 호출이 전혀 발생하지 않는다.
+import re
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -24,6 +26,7 @@ from app.routers.infrastructures import (
     _SIMULATE_RELAXED_RATIO,
     _exact_current_count,
 )
+from app.routers import reports
 from app.services.spot.travel import WalkingRoute, calculate_haversine_distance
 
 # --- 공통 상수 (경주 황리단길 좌표 기준 — 기존 서비스 테스트와 통일) ---
@@ -1524,6 +1527,54 @@ def test_freshness_no_data_all_null(client):
 # =========================================================================
 # 9. 혼잡 제보(POST /api/v1/reports/congestion) — 인증 가드·라벨 매핑·행복 경로
 # =========================================================================
+
+# ── 문서화된 source 허용값이 실제 제약과 어긋나지 않게 한다 ──────────────────
+# reports.py 는 congestion_logs.source CHECK 가 허용하는 값을 주석으로 적어 둔다. 그 목록은
+# 마이그레이션이 네 번 늘려 왔고(seed·simulated → merchant_report → admin_override), 주석은
+# 첫 목록 그대로 멈춰 있었다. 낡은 목록은 "이 값은 못 쓴다" 는 잘못된 판단의 근거가 된다 —
+# 실제로 admin_override 는 이미 허용값인데 주석만 보면 아니다.
+#
+# 그래서 주석을 마이그레이션에 묶는다. 목록을 늘리는 마이그레이션이 들어오면 이 테스트가
+# 먼저 깨져 주석을 같이 고치게 한다.
+_MIGRATIONS_DIR = Path(__file__).resolve().parents[4] / "supabase" / "migrations"
+
+
+def _allowed_congestion_sources() -> set[str]:
+    """가장 나중 마이그레이션이 정의한 congestion_logs.source 허용값."""
+    files = [
+        path for path in _MIGRATIONS_DIR.glob("*.sql")
+        if "ADD CONSTRAINT congestion_logs_source_check" in path.read_text(encoding="utf-8")
+    ]
+    assert files, f"{_MIGRATIONS_DIR} 에서 source CHECK 마이그레이션을 찾지 못했다"
+    # 파일명이 타임스탬프로 시작하므로 이름 순서가 곧 적용 순서다.
+    latest = max(files, key=lambda path: path.name)
+    body = re.search(
+        r"ADD CONSTRAINT congestion_logs_source_check\s*CHECK \(source IN \((.*?)\)\)",
+        latest.read_text(encoding="utf-8"),
+        re.S,
+    )
+    assert body, f"{latest.name} 의 CHECK 본문을 읽지 못했다"
+    return set(re.findall(r"'([a-z_]+)'", body.group(1)))
+
+
+def test_the_documented_source_list_matches_the_migration():
+    """reports.py 의 주석이 적은 허용값이 실제 CHECK 제약과 같아야 한다.
+
+    주석은 **값만 쉼표로 나열한 한 줄**이어야 한다(traffic_cctv 와 user_report 를 함께 담은
+    줄 하나). 목록 줄과 설명 줄을 섞으면 이 테스트가 설명 속 단어까지 값으로 읽는다.
+    """
+    source_text = Path(reports.__file__).read_text(encoding="utf-8")
+    listing = [
+        line for line in source_text.splitlines()
+        if "traffic_cctv" in line and "user_report" in line
+    ]
+    assert len(listing) == 1, f"허용값 목록 줄이 {len(listing)} 개다 — 한 줄로 유지한다"
+    documented = set(re.findall(r"[a-z_]{4,}", listing[0]))
+    assert documented == _allowed_congestion_sources(), (
+        "reports.py 주석의 source 목록이 마이그레이션과 어긋난다"
+    )
+    assert reports._USER_REPORT_SOURCE in documented
+
 
 def test_report_congestion_requires_auth(client):
     # 인증 헤더 없음 → 401 (get_current_user 실경로 — 익명 대량 조작 1차 차단)

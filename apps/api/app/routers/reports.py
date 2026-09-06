@@ -2,11 +2,17 @@
 
 관광객이 '지금 이곳이 얼마나 붐비는지'를 직접 제보하는 엔드포인트.
 
-보안 배경(20260707120000_security_hardening.sql + init RLS):
-  congestion_logs 는 service_role 만 INSERT 할 수 있도록 잠겨 있다(anon/authenticated 직접
-  쓰기 거부). 따라서 클라이언트가 Supabase 로 직접 insert 하지 못하고, 반드시 이 백엔드
-  엔드포인트를 거쳐 supabase_admin(service_role) 으로 기록해야 한다. 신뢰 경계는
-  get_current_user(로그인 필수)로 강제한다 — 익명 대량 조작을 1차 차단.
+보안 배경(init RLS 20250523120001 + 20260827140000):
+  congestion_logs 에는 일반 사용자용 INSERT 정책이 **없다** — anon 도, 로그인한 관광객도
+  Supabase 로 직접 쓸 수 없다. 그래서 제보는 반드시 이 백엔드 엔드포인트를 거쳐
+  supabase_admin(service_role) 으로 기록된다. 신뢰 경계는 get_current_user(로그인 필수)로
+  강제한다 — 익명 대량 조작을 1차 차단.
+
+  다만 "service_role 만 쓸 수 있다" 는 사실이 아니다: 정책 admin_all_logs
+  (FOR ALL TO authenticated, USING/WITH CHECK = public.is_admin_or_dev()) 가 admin·developer
+  에게는 이 표 전체의 직접 쓰기를 허용한다. 즉 그 두 역할은 브라우저에서 anon 키만으로
+  evidence_tier='verified' 행을 만들 수 있고, 아래 제보 경로가 지키는 tier 규칙
+  (사용자 제보는 single_report)을 우회한다. 좁히려면 RLS 변경이 필요해 아직 열려 있다.
 
 레이트리밋: 사용자·시설당 5분 쿨다운(_REPORT_COOLDOWN_SEC)을 프로세스 인메모리로 적용해
   스팸/조작이 ML 혼잡 신호를 오염시키는 것을 1차 차단한다. 단일 인스턴스 데모 기준이며,
@@ -36,8 +42,12 @@ _REWARD_EVERY = 3
 # 프런트 3지선다 버튼과 정합. 소수 라벨은 UX 부담이 커 이산 3구간으로 단순화한다.
 _LEVEL_ENUM = {"한산": 0.2, "보통": 0.5, "혼잡": 0.8}
 
-# congestion_logs.source CHECK 제약은 ('traffic_cctv','tour_api','event','user_report') 만 허용한다.
+# congestion_logs.source CHECK 제약이 허용하는 값은 여덟 개다(20260906120000 기준):
+#   traffic_cctv, tour_api, event, user_report, merchant_report, admin_override, seed, simulated
 # 사용자 제보는 'user_report' 로 기록한다(스키마 제약을 만족하는 정식 값).
+# 이 목록은 마이그레이션이 늘려 왔다 — 20260710172000(seed·simulated), 20260820123000
+# (merchant_report), 20260906120000(admin_override). 여기 적힌 목록이 낡으면 "이 값은 못 쓴다"
+# 는 잘못된 판단의 근거가 되므로, 제약을 바꿀 때 이 줄도 같이 고친다.
 _USER_REPORT_SOURCE = "user_report"
 
 # 사용자·시설당 제보 쿨다운(초) — 스팸/조작이 ML 혼잡 신호를 오염시키지 않도록 1차 차단.
@@ -249,14 +259,18 @@ async def report_congestion(
         "timestamp": now_str,
     }
 
-    # 2. service_role 로 INSERT (anon/authenticated 직접 쓰기는 RLS 로 거부됨 — 상단 도크 참조)
+    # 2. service_role 로 INSERT (anon·일반 authenticated 직접 쓰기는 RLS 로 거부됨.
+    #    admin·developer 는 예외이고, 그 예외의 정확한 범위는 상단 도크에 적었다.)
     try:
         ins = await asyncio.to_thread(
             supabase_admin.table("congestion_logs").insert(row).execute
         )
     except Exception as e:
         logger.error("congestion_report_insert_failed", error=str(e), facility_id=req.facility_id)
-        raise HTTPException(status_code=500, detail="혼잡 제보 저장에 실패했습니다.")
+        # 우리 쪽 장애는 503 이다(이 저장소의 규칙 — 중복만 409, 잘못된 입력은 422).
+        # 500 은 프런트가 '다시 시도해도 소용없는 오류' 로 다루기 쉽고, 실제로는 Render
+        # 콜드 스타트나 Supabase 순간 장애라 다시 누르면 되는 경우가 대부분이다.
+        raise HTTPException(status_code=503, detail="혼잡 제보를 저장하지 못했어요. 잠시 후 다시 시도해 주세요.")
 
     _last_report_at[cooldown_key] = now_mono  # 성공 제보 후 쿨다운 시작
     inserted = (ins.data or [{}])[0]
