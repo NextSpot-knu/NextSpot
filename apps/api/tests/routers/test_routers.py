@@ -1796,11 +1796,22 @@ def _course_mocks(facilities):
     """courses 라우터의 외부 의존을 전부 결정적 목으로 대체하는 patch 컨텍스트 목록."""
     from types import SimpleNamespace
 
+    from app.services.spot.travel import WalkingRoute
+
+    async def _routes(_lat, _lng, destinations):
+        # 목적지 **개수만큼** 돌려줘야 한다. 짧게 돌려주면 라우터의 zip(strict=True)가 터지고,
+        # strict 가 없던 시절이라면 후보가 소리 없이 잘린 채 테스트가 통과했을 자리다.
+        # 근거는 "estimated" — 이 목은 그래프를 타지 않은 상수값이므로 보행로 경로라고 적지 않는다.
+        return [WalkingRoute(duration_min=5.0, distance_m=400.0, source="estimated") for _ in destinations]
+
     return [
         patch("app.routers.courses.fetch_user", new=AsyncMock(return_value=USER_ROW)),
         patch("app.routers.courses.fetch_all_facilities", new=AsyncMock(return_value=facilities)),
         patch("app.routers.courses.fetch_congestion_map", new=AsyncMock(return_value={f["id"]: _cong(0.3) for f in facilities})),
-        patch("app.routers.courses.get_travel_time_and_distance", new=AsyncMock(return_value=(5.0, 400.0))),
+        # 코스 라우터는 슬롯마다 후보 전체의 보행 경로를 배치로 구한다. 단건 래퍼
+        # (get_travel_time_and_distance)를 패치하면 아무것도 막지 못하는 죽은 목이 되고,
+        # 테스트가 조용히 실제 보행 그래프를 돌기 시작한다.
+        patch("app.routers.courses.get_walking_routes", new=_routes),
         # asyncio.to_thread(predict_congestion, ...) — 동기 함수라 plain 값 반환이면 충분.
         patch("app.routers.courses.predict_congestion", new=lambda *_a, **_k: 0.2),
         patch("app.routers.courses.calculate_spot_score", new=AsyncMock(return_value=SimpleNamespace(score=0.8))),

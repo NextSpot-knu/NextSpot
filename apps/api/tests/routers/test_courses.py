@@ -2,8 +2,10 @@
 #   · 인증: get_current_user 는 auth_client 픽스처(dependency_overrides)로 대체.
 #   · DB: fetch_user/fetch_all_facilities/fetch_congestion_map 는 AsyncMock,
 #         선호 벡터는 preference_vector_service 패치 — PostgREST 호출이 전혀 없다.
-#   · SPOT 스코어(calculate_spot_score)와 predict_congestion 은 실제로 돈다
-#     (Kakao 키·활성 모델 부재 → Haversine·degraded 예측(None) → 결정적). test_routers 와 동일 전략.
+#   · SPOT 스코어(calculate_spot_score)·predict_congestion·보행 경로(get_walking_routes)는
+#     실제로 돈다. 셋 다 외부 키 없이 로컬에서 결정적이다 — 보행 경로는 동봉된 경주 OSM
+#     그래프(app/data)를, 예측은 model.pkl 부재 시 기본값을 쓴다. test_routers 와 달리 여기서는
+#     길찾기를 목으로 막지 않으므로, 이 파일이 배치 경로의 실측 회귀 방어선 역할을 한다.
 from unittest.mock import AsyncMock, patch
 from types import SimpleNamespace
 

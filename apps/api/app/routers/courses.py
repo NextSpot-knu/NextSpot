@@ -8,7 +8,7 @@
   · 1번 정류지 = 사용자 위치에서 가깝고 '지금 도착하면' 여유로운 곳.
   · 2번 정류지 = 1번에서 체류를 마치고 '이동해 도착하는 시각'에 여유로울 것으로 예측되는 곳.
   · 3번 정류지 = 다시 그 뒤 도착 시각 기준으로 여유로울 곳.
-  도착 시각 = 직전 도착 + 체류(COURSE_DWELL_MIN) + 이동(get_travel_time_and_distance) 누적.
+  도착 시각 = 직전 도착 + 체류(COURSE_DWELL_MIN) + 이동(get_walking_routes) 누적.
   각 정류지의 도착시점 예측 혼잡은 predict_service.predict_congestion(도착 hour/dow)로 산출한다.
 
 설계 원칙:
@@ -32,7 +32,11 @@ from app.services.availability_service import (
 )
 from app.services.preference_vector_service import preference_vector_service
 from app.services.spot.score import calculate_spot_score
-from app.services.spot.travel import calculate_haversine_distance, get_travel_time_and_distance
+from app.services.spot.travel import (
+    WalkingRoute,
+    calculate_haversine_distance,
+    get_walking_routes,
+)
 from app.services.travel_context import (
     TravelContext,
     facility_matches_context,
@@ -62,7 +66,9 @@ MIN_STOPS = 2   # '코스'로 성립하는 최소 정류지 수(후보가 이보
 COURSE_DWELL_MIN = {"restaurant": 60, "cafe": 40, "attraction": 45, "culture": 50}
 DEFAULT_DWELL_MIN = 45
 
-# 그리디 탐색 비용 상한: 정류지마다 후보별 이동/예측/점수 호출이 발생하므로 인근 후보 수를 제한한다.
+# 그리디 탐색 비용 상한: 정류지마다 후보별 예측/점수 호출이 발생하므로 인근 후보 수를 제한한다.
+# (보행 경로는 슬롯당 1회 배치라 후보 수에 비례하지 않지만, 예측·SPOT 스코어·지역수요 조회는
+#  여전히 후보마다 한 번씩이다 — 후보를 늘리는 것은 지금도 비싸다.)
 MAX_COURSE_CANDIDATES = 12
 
 class CourseRequest(BaseModel):
@@ -129,6 +135,7 @@ def _build_stop_reason(
 
 async def _evaluate_candidate(
     facility: dict,
+    route: WalkingRoute,
     cur_lat: float,
     cur_lng: float,
     cum_offset_min: float,
@@ -140,16 +147,14 @@ async def _evaluate_candidate(
 ) -> dict:
     """현재 위치/누적 시각에서 후보 하나를 평가한다.
 
-    - travel: 현재 위치→후보 이동시간(분)/거리(m).
+    - route: 호출부가 슬롯 단위로 **한 번에** 구한 현재 위치→후보 보행 경로(분/m/근거).
+      여기서 다시 길찾기를 하지 않는 이유는 호출부 주석 참조(같은 출발점에서 Dijkstra 반복).
     - 도착 시각 = now + 누적오프셋 + 이동시간 → 그 시각(hour/dow)의 예측 혼잡.
     - SPOT 스코어는 calculate_spot_score 로 재사용(선호·시간비용·인센티브). 인센티브의 '재배치기여'
       기준선(original_congestion_level)은 후보의 '현재' 혼잡으로 둬서, 지금보다 도착 시점이
       한산해지는(시간 분산) 후보를 보상한다.
     """
-    travel_min, dist = await get_travel_time_and_distance(
-        start_lat=cur_lat, start_lng=cur_lng,
-        end_lat=facility["latitude"], end_lng=facility["longitude"],
-    )
+    travel_min, dist = route.duration_min, route.distance_m
     arrival_offset = cum_offset_min + travel_min
     arrival_dt = now + timedelta(minutes=arrival_offset)
     # predict_congestion 은 동기(로컬 sklearn) — 이벤트 루프 비블로킹 위해 워커 스레드로 오프로드.
@@ -185,6 +190,15 @@ async def _evaluate_candidate(
         user_vector=user_vector,
         # 누적 출발 시각(직전 정류지까지의 누적 오프셋 반영) → score 내부 도착예측이 predicted_congestion 과 정합.
         depart_time=now + timedelta(minutes=cum_offset_min),
+        # 같은 구간을 score 안에서 또 길찾기하지 않도록 위에서 받은 경로를 그대로 넘긴다.
+        # 넘기지 않으면 score 는 동일 인자로 get_travel_time_and_distance 를 한 번 더 부른다 —
+        # 결과가 같은 중복 계산이었을 뿐이라 override 로 바꿔도 점수는 변하지 않는다.
+        # travel_source 는 '정정'이다. override 없이 부르면 score 가 근거를 무조건 "estimated" 로
+        # 덮어써서(score.py), OSM 보행로로 실제 계산한 구간도 추정으로 기록됐다. 코스 응답은
+        # breakdown 을 싣지 않아 화면에 보이던 값은 아니지만, 없는 사실을 적어 두지는 않는다.
+        travel_time_override=route.duration_min,
+        travel_distance_override=route.distance_m,
+        travel_source=route.source,
     )
 
     return {
@@ -351,18 +365,40 @@ async def _build_course(req: CourseRequest) -> list:
                 if unused:
                     pick_from = unused
 
+        # 보행 경로는 이 슬롯의 후보 전체를 **한 번에** 구한다.
+        #
+        # get_travel_time_and_distance 는 get_walking_routes 의 단건 래퍼다. 후보마다 부르면
+        # 같은 출발점에서 28,832노드 그래프 Dijkstra 전탐색이 후보 수만큼 반복됐고, 게다가
+        # calculate_spot_score 안에서 같은 구간이 한 번 더 돌아 **후보당 2회**였다
+        # (실측: 자동 모드 후보 평가 27회 → Dijkstra 54회). 이 탐색은 to_thread 없이 이벤트
+        # 루프 위에서 동기로 도는지라 그대로 응답 지연이 된다 — Render 무료 플랜에서 이
+        # 엔드포인트가 실제로 타임아웃으로 죽은 적이 있다.
+        #
+        # 배치화해도 값은 바뀌지 않는다. Dijkstra 가 돌려주는 각 목적지까지의 최단거리는
+        # 목적지 집합에 무엇이 더 들어 있든 같고, 목적지 집합은 조기 종료 시점만 늦출 뿐이다.
+        # (경로 근거·폴백 판정도 목적지별로 독립이다 — travel.py.)
+        # recommendations 라우터가 이미 쓰는 패턴이라 코스만 예외로 남아 있던 것이다.
+        routes = await get_walking_routes(
+            cur_lat, cur_lng, [(f["latitude"], f["longitude"]) for f in pick_from]
+        )
+
         # 후보 하나가 터지면 코스 전체가 날아가던 자리다. 후보 평가는 외부 의존이 여럿이라
-        # (경로 탐색·혼잡 예측·SPOT 스코어) 하나쯤 흔들릴 수 있는데, gather 기본 동작은
+        # (혼잡 예측·SPOT 스코어·지역수요) 하나쯤 흔들릴 수 있는데, gather 기본 동작은
         # 첫 예외를 그대로 올려 **나머지 멀쩡한 후보까지 버린다.**
         #
         # 부분 실패는 그 후보만 빼고 진행한다. 다만 **전부 실패하면 올린다** — 그때는 빈 코스가
         # "갈 곳이 없다"는 정상 결과와 구분되지 않기 때문이다(호출부가 503 으로 바꾼다).
+        # 경로 탐색은 이제 이 gather 밖(위 배치)이라 실패하면 슬롯 전체가 예외로 올라간다.
+        # 후보별로 잘라낼 수 있는 실패가 아니라 슬롯의 출발점 자체가 없는 상황이라 그게 맞다.
+        #
+        # zip 의 strict=True: 길이가 어긋나면 zip 은 조용히 뒤를 잘라 후보가 소리 없이 사라진다.
+        # 그러면 '후보가 빠진 것'과 '갈 곳이 없는 것'을 구분할 수 없으므로 여기서는 터뜨린다.
         settled = await asyncio.gather(*[
             _evaluate_candidate(
-                f, cur_lat, cur_lng, cum_offset, now, congestion_now,
+                f, route, cur_lat, cur_lng, cum_offset, now, congestion_now,
                 user_vector, preferred_categories, req.user_id,
             )
-            for f in pick_from
+            for f, route in zip(pick_from, routes, strict=True)
         ], return_exceptions=True)
 
         failures = [r for r in settled if isinstance(r, BaseException)]
