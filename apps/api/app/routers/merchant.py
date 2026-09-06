@@ -26,7 +26,7 @@
   적용 호출부 4곳(2026-09-03 재확인 — 줄 번호는 또 낡으므로 **함수명**을 정본으로 본다):
     · recommendations.get_recommendations    — POST /recommendations (메인 분산 추천), :379
     · recommendations._recommend_by_type     — POST /recommendations/by-type, :767
-    · courses._build_course                  — POST /courses/recommend, :299
+    · courses._build_course                  — POST /courses/plan · /courses/recommend
     · coupon_service.issue_coupon_if_partner — 쿠폰 발급 시점의 유효 쿠폰율 재확인, :55
   네 곳 모두 **후보 확정 직후·스코어링 이전**에 얹는다 — 점수 계산 뒤에 얹으면 랭킹에
   반영되지 않는다. 메인 추천 호출부는 2026-09-03 에 새로 채웠다: 그전까지 이 자리에 있던

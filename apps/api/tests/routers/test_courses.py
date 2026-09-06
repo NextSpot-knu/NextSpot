@@ -522,6 +522,23 @@ def test_recommend_endpoint_still_returns_a_bare_array(auth_client):  # noqa: F8
     assert all("order" in s for s in stops)
 
 
+
+def test_empty_course_still_says_why(auth_client):  # noqa: F811
+    """후보가 하나도 없어도 **자리마다 이유**를 돌려준다.
+
+    빈 배열만 오면 '서버가 죽었나' 와 '조건에 맞는 곳이 없나' 를 화면이 구분할 수 없다.
+    이 라우터가 다른 곳에서 503 과 빈 배열을 굳이 갈라 놓는 것과 같은 이유다.
+    """
+    # 여행 조건이 모든 후보를 걸러내는 상황(무장애 미상인 카페만 있는데 accessible 요구).
+    body = _seq_body(["cafe", "cafe"])
+    body["context"] = {"required_attributes": ["accessible"]}
+    plan = _run(auth_client, _reorder_fixture(), body)
+
+    assert plan["stops"] == []
+    assert [o["order"] for o in plan["slot_outcomes"]] == [1, 2], plan["slot_outcomes"]
+    assert all(o["status"] == "no_candidate_of_type" for o in plan["slot_outcomes"])
+    assert all(o["requested_type"] == "cafe" for o in plan["slot_outcomes"])
+
 def test_course_stop_limit_parity_with_web():
     """백엔드 MAX_STOPS 와 프런트 MAX_SEQUENCE 가 어긋나면 CI 가 여기서 실패한다.
 

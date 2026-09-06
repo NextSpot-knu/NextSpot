@@ -388,6 +388,26 @@ async def plan_course(
     return await _course_or_503(req, current_user)
 
 
+def _empty_plan(seq: list[str] | None, status: str) -> CoursePlan:
+    """후보가 하나도 없어 코스를 못 짠 경우.
+
+    자리 결과를 비워 보내지 않는다. 사용자가 [카페, 식당, 관광지] 를 짜 놓고 빈 화면을 받으면
+    '서버가 죽었나' 와 '조건에 맞는 곳이 없나' 를 구분할 수 없다 — 이 라우터가 다른 곳에서는
+    503 과 빈 배열을 굳이 갈라 놓는 것과 같은 이유다.
+
+    자동 모드(seq 없음)에는 사용자가 지정한 자리가 없으므로 1번 자리 하나로 사실만 전한다.
+    """
+    orders = seq or [None]
+    return CoursePlan(
+        stops=[],
+        slot_outcomes=[
+            SlotOutcome(order=i + 1, requested_type=wanted, status=status)
+            for i, wanted in enumerate(orders)
+        ],
+        plan_id=_plan_id([]),
+    )
+
+
 async def _build_course(req: CourseRequest) -> CoursePlan:
     """코스 조립 본체. 예외 처리는 호출부(recommend_course)가 맡는다."""
     # 영업 근거는 여기서 받지 않는다 — 후보 풀이 정해진 뒤 그 몇 곳에만 붙인다(아래 참고).
@@ -405,7 +425,8 @@ async def _build_course(req: CourseRequest) -> CoursePlan:
         and facility_matches_context(f, req.context)
     ]
     if not candidates:
-        return CoursePlan(stops=[], slot_outcomes=[], plan_id=_plan_id([]))
+        # 여행 조건(카테고리·실내·접근성·방문 제외)이 전부 걸러낸 경우다.
+        return _empty_plan(seq, SLOT_NO_CANDIDATE)
 
     # 현실성 컷오프 + 인근 상한: 도보 비현실 거리는 제외하고 가까운 순 상위만 후보로(호출량 제한).
     # 반경 내가 최소 정류지 수 미만이면 가까운 순 폴백(외곽/데이터 희소 위치에서도 코스가 끊기지 않게).
@@ -459,7 +480,8 @@ async def _build_course(req: CourseRequest) -> CoursePlan:
                 in_pool.add(fid)
 
     if not pool:
-        return CoursePlan(stops=[], slot_outcomes=[], plan_id=_plan_id([]))
+        # 조건에 맞는 곳은 있는데 걸어갈 만한 거리 안에 없다.
+        return _empty_plan(seq, SLOT_NO_CANDIDATE)
 
     # 머천트 랭킹 연동(2단계): 활성 타임세일(coupon_rate 유효값 교체)·신선 좌석 상태(혼잡 실측 대체)를
     # 스코어링 전에 오버레이한다(score.py 는 무변경 — calculate_spot_score 입력값만 바꿔친다).
