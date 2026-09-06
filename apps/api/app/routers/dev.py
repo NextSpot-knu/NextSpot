@@ -20,7 +20,7 @@
 """
 import asyncio
 import time
-from typing import NamedTuple
+from typing import Literal, NamedTuple
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException
@@ -39,6 +39,10 @@ from app.core.authz import (
     require_role,
 )
 from app.core.supabase import supabase_admin
+# 신규 POI 의 capacity 기본값은 적재 파이프라인과 **같은 함수**로 정한다. 여기에 상수를
+# 새로 두면 같은 질문("이 업종의 기본 수용 인원은?")에 서로 다른 답이 둘 생기고, 나중에
+# 한쪽만 고쳐진다.
+from app.services.localdata import capacity_for
 
 logger = structlog.get_logger()
 
@@ -418,12 +422,54 @@ async def revoke_facility_owner(row_id: str, actor: dict = Depends(get_current_p
 # =========================================================================
 # 사업자 인증 심사
 # =========================================================================
+class NewFacilityInput(BaseModel):
+    """심사자가 승인하면서 **새로 만들** 가게.
+
+    카카오맵·TourAPI·LocalData 어디에도 없는 가게의 사장님이 신청하는 경우가 실제로 있다.
+    그런 신청에 "역할만" 주면 콘솔에는 들어가지는데 관리할 POI 가 없어 모든 요청이 403 인
+    막다른 계정이 된다(아래 소유권 부여 실패 주석과 같은 상태다). 그래서 권한이 아니라
+    **가게**를 만들어 준다.
+    """
+
+    name: str = Field(min_length=1, max_length=200)
+    type: Literal["restaurant", "cafe", "attraction", "culture"]
+    latitude: float = Field(ge=-90, le=90)
+    longitude: float = Field(ge=-180, le=180)
+    address: str | None = None
+    phone: str | None = None
+    # 비우면 업종 기본값(capacity_for)을 쓴다. facilities.capacity 는 NOT NULL 이라
+    # '모름'을 그대로 저장할 수 없다 — 대신 features.capacity_evidence 에 근거를 남긴다.
+    capacity: int | None = Field(default=None, ge=1, le=10000)
+
+
 class ReviewDecision(BaseModel):
+    """승인 본문. 가게를 연결하는 길이 둘이고, **동시에 쓸 수는 없다**.
+
+    facility_id  — 이미 등록된 POI 를 연결한다.
+    new_facility — 미등록 가게를 이 승인에서 만들어 연결한다.
+    """
+
     reason: str | None = None
+    facility_id: str | None = None
+    new_facility: NewFacilityInput | None = None
 
 
 class RejectDecision(BaseModel):
     reason: str = Field(min_length=1)
+
+
+def _is_missing_requested_role(exc: Exception) -> bool:
+    """requested_role 컬럼이 아직 없는 DB인가.
+
+    account.py 에 같은 판정이 있다. 그런데도 여기 한 벌 더 두는 이유: 이건 마이그레이션
+    20260902130000 이 원격 SQL Editor 에 수동 적용될 때까지만 사는 **한시적 방어**이고,
+    그 하나를 지우려고 심사 큐(dev)가 신청 접수(account)를 import 하면 그 임시 결합이
+    코드에 오래 남는다. 마이그레이션 적용을 확인하면 **두 곳을 같이** 지운다.
+    """
+    text = str(exc).lower()
+    return "requested_role" in text and (
+        "pgrst204" in text or "column" in text or "schema cache" in text
+    )
 
 
 @router.get("/verification-requests")
@@ -443,20 +489,35 @@ async def list_verification_requests(
     # 본문에 적어 보낸 값**이라 아무도 대조하지 않으면 승인 한 번이 곧 남의 가게 소유권이
     # 된다. 이름이 보이면 최소한 신청서의 store_name 과 눈으로 맞춰 볼 수 있다.
     # (소유권 회수 화면은 이미 같은 임베드를 쓴다 — list_facility_owners 참고.)
-    query = (
-        supabase_admin.table("business_verification_requests")
-        .select("*, facilities(name, type)")
-        .eq("status", status_filter)
-    )
-    if requested_role:
-        query = query.eq("requested_role", requested_role)
+    def _fetch(with_role_filter: bool):
+        # 체이닝은 한 번 쓰면 되돌릴 수 없어(필터가 누적된다) 재시도용으로 매번 새로 만든다.
+        query = (
+            supabase_admin.table("business_verification_requests")
+            .select("*, facilities(name, type)")
+            .eq("status", status_filter)
+        )
+        if with_role_filter and requested_role:
+            query = query.eq("requested_role", requested_role)
+        return query.order("created_at").limit(min(limit, 200)).execute()
 
-    res = await asyncio.to_thread(
-        query.order("created_at").limit(min(limit, 200)).execute
-    )
+    try:
+        res = await asyncio.to_thread(_fetch, True)
+    except Exception as exc:
+        if not (requested_role and _is_missing_requested_role(exc)):
+            raise
+        # 컬럼이 없는 DB(마이그레이션 미적용). 여기서 그냥 터지면 심사 큐 화면이 통째로
+        # 500 이라 **사업자 승인도 같이 막힌다** — 컬럼 하나 때문에 잃기엔 큰 기능이다.
+        # 컬럼이 없다 = 모든 신청이 사업자 신청이다(account.py 는 그 DB 에서 관리자 신청
+        # 접수를 503 으로 막는다). 필터 없이 다시 받아 파이썬에서 같은 기준으로 거른다.
+        logger.warning("verification_queue_legacy_schema", requested_role=requested_role)
+        res = await asyncio.to_thread(_fetch, False)
+
     items = []
     for row in res.data or []:
         row = dict(row)
+        if requested_role and (row.get("requested_role") or "merchant") != requested_role:
+            # 위 폴백으로 받은 목록에만 걸린다(정상 DB 는 서버측에서 이미 걸러져 있다).
+            continue
         # 관리자 신청은 facility_id 가 NULL 이라 임베드가 없다 — or {} 로 흡수한다.
         facility = row.pop("facilities", None) or {}
         row["facility_name"] = facility.get("name")
@@ -528,10 +589,153 @@ async def _clear_evidence(request_id: str, path: str | None) -> None:
             logger.warning("verification_document_delete_failed", request_id=request_id, error=str(exc))
 
 
+async def _require_active_facility(facility_id: str) -> None:
+    """심사자가 고른 기존 가게가 실제로 있고 표출 중인지 확인한다.
+
+    확인 없이 소유권을 붙이면 존재하지 않는(또는 폐업 처리된) POI 의 사장님이 만들어진다 —
+    콘솔은 열리는데 관리할 대상이 없다. 조회 자체가 실패한 경우는 '없음'이 아니라 우리 쪽
+    장애이므로 422 가 아니라 503 이다(없는 가게로 오인해 심사자가 다시 고르게 하면 안 된다).
+    """
+    try:
+        res = await asyncio.to_thread(
+            supabase_admin.table("facilities")
+            .select("id, is_active").eq("id", facility_id).limit(1).execute
+        )
+    except Exception as exc:
+        logger.warning("verification_facility_lookup_failed", facility_id=facility_id, error=str(exc))
+        raise HTTPException(status_code=503, detail="가게 정보를 확인하지 못했습니다.") from None
+    row = (res.data or [None])[0]
+    # is_active 칼럼이 없는 구 DB에서는 필드가 아예 없다 — '없음'을 '비활성'으로 읽지 않는다.
+    if not row or row.get("is_active") is False:
+        raise HTTPException(status_code=422, detail="선택한 가게를 찾을 수 없습니다.")
+
+
+async def _create_facility_for_request(spec: NewFacilityInput, request_id: str) -> str:
+    """미등록 가게를 승인 시점에 만든다. 새 facilities.id 를 돌려준다.
+
+    features 에 출처를 남기는 이유: 이 행은 TourAPI/LocalData 검증을 **거치지 않았다.**
+    사람이 신청서만 보고 만든 POI 라 좌표·업종·수용 인원 어느 것도 외부 출처로 대조되지
+    않았다. 나중에 데이터 품질을 따질 때 이 행들을 구분하지 못하면 적재 파이프라인이 만든
+    행과 뒤섞여 **전체 수치를 믿을 수 없게 된다.** 그래서 origin 과 신청서 id 를 박아 둔다.
+    contentid/external_id 는 넣지 않는다 — 외부 출처가 없으니 비워 두는 게 사실이다.
+
+    실패는 '가게 없음'으로 뭉뚱그리지 않고 503 으로 끊는다. 신청은 pending 그대로 남아
+    심사자가 다시 승인할 수 있다.
+    """
+    capacity = spec.capacity if spec.capacity is not None else capacity_for(spec.type)
+    payload: dict = {
+        "name": spec.name,
+        "type": spec.type,
+        "latitude": spec.latitude,
+        "longitude": spec.longitude,
+        "capacity": capacity,
+        "is_active": True,
+        "operating_hours": {},
+        "features": {
+            "origin": "merchant_request",
+            "verification_request_id": request_id,
+            # 수용 인원의 근거. 심사자가 직접 적어 넣은 값을 업종 기본값이라고 적으면
+            # 그 자체가 잘못된 품질 표시가 된다 — 두 경우를 다른 이름으로 남긴다.
+            "capacity_evidence": (
+                "synthetic_type_default" if spec.capacity is None else "merchant_request_input"
+            ),
+        },
+    }
+    # 없는 값을 빈 문자열로 채우지 않는다 — 주소가 없는 것과 ""는 다르다.
+    if spec.address:
+        payload["address"] = spec.address
+    if spec.phone:
+        payload["phone"] = spec.phone
+
+    try:
+        res = await asyncio.to_thread(supabase_admin.table("facilities").insert(payload).execute)
+    except Exception as exc:
+        logger.error("verification_facility_create_failed", request_id=request_id, error=str(exc))
+        raise HTTPException(
+            status_code=503, detail="가게를 등록하지 못했습니다. 신청은 그대로 두었습니다."
+        ) from None
+
+    facility_id = str(((res.data or [{}])[0] or {}).get("id") or "")
+    if not facility_id:
+        # insert 는 통과했는데 id 를 못 받은 경우. 여기서 계속 진행하면 소유권을 빈 id 에
+        # 붙이게 되므로 같은 자리에서 끊는다(행이 남았을 수 있어 로그로 알린다).
+        logger.error("verification_facility_create_no_id", request_id=request_id, name=spec.name)
+        raise HTTPException(
+            status_code=503, detail="가게를 등록하지 못했습니다. 신청은 그대로 두었습니다."
+        )
+    logger.info(
+        "verification_facility_created",
+        request_id=request_id, facility_id=facility_id, name=spec.name, type=spec.type,
+    )
+    return facility_id
+
+
+async def _link_facility_to_request(request_id: str, facility_id: str) -> None:
+    """새로 만든 가게를 **다른 어떤 쓰기보다 먼저** 신청서에 적는다.
+
+    이 순서가 이 기능의 계약이다. 아래 소유권 부여가 실패하면 (옳게) 503 을 내고 요청을
+    pending 으로 남긴다 — 심사자는 당연히 다시 승인을 누른다. 그때 신청서에 facility_id 가
+    적혀 있지 않으면 **같은 이름의 가게가 한 번 더 만들어진다.** 재시도할수록 지도에 유령
+    POI 가 쌓이고, 그중 어느 행에 소유권이 붙었는지 아무도 모르게 된다(둘 다 검증 없이
+    만들어진 행이라 나중에 구분할 근거도 없다).
+
+    재시도 안전성이 이 코드의 유일한 회복 수단이므로, 갱신이 실패하면 진행하지 않고 503 으로
+    끊는다. 그 경우 만들어진 가게 id 를 로그에 남긴다 — 연결되지 않은 행이라 사람이 지워야
+    한다(자동 롤백은 하지 않는다: 지우는 쪽이 실패하면 같은 문제가 조용히 반복된다).
+    """
+    try:
+        await asyncio.to_thread(
+            supabase_admin.table("business_verification_requests")
+            .update({"facility_id": facility_id}).eq("id", request_id).execute
+        )
+    except Exception as exc:
+        logger.error(
+            "verification_facility_link_failed",
+            request_id=request_id, facility_id=facility_id, error=str(exc),
+        )
+        raise HTTPException(
+            status_code=503,
+            detail="가게는 등록했지만 신청에 연결하지 못했습니다. 다시 시도하기 전에 개발자에게 알려 주세요.",
+        ) from None
+
+
+async def _resolve_facility(
+    request_id: str, req: dict, body: ReviewDecision
+) -> tuple[str, bool]:
+    """사업자 신청에 붙일 가게를 정한다. (facility_id, 새로 만들었는가) 를 돌려준다.
+
+    우선순위는 본문 > 신청서다: 심사자가 이번 승인에서 명시적으로 고른 쪽이 신청자가 적어
+    보낸 값보다 뒤에 있으면, 화면에서 고친 내용이 조용히 무시된다.
+    """
+    if body.facility_id:
+        await _require_active_facility(body.facility_id)
+        return body.facility_id, False
+    if body.new_facility:
+        facility_id = await _create_facility_for_request(body.new_facility, request_id)
+        # 만든 직후, 다른 어떤 쓰기보다 먼저. 이유는 _link_facility_to_request 참조.
+        await _link_facility_to_request(request_id, facility_id)
+        return facility_id, True
+    existing = req.get("facility_id")
+    if existing:
+        return str(existing), False
+    # 여기까지 왔으면 연결할 가게가 없다. 예전 문구("먼저 시설을 매핑하세요")는 존재하지
+    # 않는 화면을 가리켰다 — 매핑 수단이 없어 승인이 영영 불가능했다. 지금은 두 길이 있다.
+    raise HTTPException(
+        status_code=409,
+        detail="가게가 연결되지 않았습니다. 기존 가게를 연결하거나 새 가게로 등록해 주세요.",
+    )
+
+
 @router.post("/verification-requests/{request_id}/approve")
 async def approve_verification(
     request_id: str, body: ReviewDecision, actor: dict = Depends(get_current_profile)
 ):
+    # 가게를 연결하는 두 길은 **배타적**이다. 하나를 조용히 이기게 하면 심사자는 새 가게를
+    # 만들었다고 믿는데 실제로는 기존 가게에 소유권이 붙는(또는 그 반대) 일이 생긴다.
+    # 어떤 쓰기보다도 먼저 막는다 — 잘못된 입력이지 우리 쪽 장애가 아니므로 422 다.
+    if body.facility_id and body.new_facility:
+        raise HTTPException(status_code=422, detail="가게를 연결할 방법을 하나만 고르세요.")
+
     res = await asyncio.to_thread(
         supabase_admin.table("business_verification_requests")
         .select("*").eq("id", request_id).limit(1).execute
@@ -546,12 +750,22 @@ async def approve_verification(
     requested_role = str(req.get("requested_role") or "merchant")
     if requested_role not in REVIEWABLE_ROLES:
         raise HTTPException(status_code=409, detail="신청 역할을 알 수 없어 승인할 수 없습니다.")
+
     # 가게 매핑은 **사업자 신청에만** 필요하다. 관리자 신청은 다루는 가게가 없다.
-    if requested_role == "merchant" and not req.get("facility_id"):
+    if requested_role != "merchant" and (body.facility_id or body.new_facility):
+        # 조용히 무시하면 심사자는 자기가 가게를 연결했다고 믿는다. 관리자에게는 붙일 곳이
+        # 없으니 그 믿음을 정정하는 게 맞다.
         raise HTTPException(
-            status_code=409,
-            detail="가게(POI)가 연결되지 않은 요청입니다. 먼저 시설을 매핑하세요.",
+            status_code=422, detail="관리자 신청에는 가게를 연결하지 않습니다."
         )
+
+    # 사업자 신청이면 여기서 가게가 정해진다(필요하면 새로 만들고 신청서에 적는다).
+    # 아래 역할 갱신보다 **먼저** 하는 이유: 새 가게를 만든 뒤의 첫 쓰기는 신청서 연결이어야
+    # 재시도가 안전하다(_link_facility_to_request 참조).
+    facility_id: str | None = None
+    created_facility = False
+    if requested_role == "merchant":
+        facility_id, created_facility = await _resolve_facility(request_id, req, body)
 
     user_id = str(req["user_id"])
     # 아래 상태 갱신이 document_path 를 NULL 로 만들기 때문에 지금 붙잡아 둔다.
@@ -578,7 +792,7 @@ async def approve_verification(
         try:
             await asyncio.to_thread(
                 supabase_admin.table("facility_owners").insert({
-                    "facility_id": req["facility_id"],
+                    "facility_id": facility_id,
                     "user_id": user_id,
                     "granted_by": actor["id"],
                     "verification_request_id": request_id,
@@ -586,7 +800,7 @@ async def approve_verification(
             )
             log_role_audit(
                 actor_id=actor["id"], target_id=user_id, action="owner_grant",
-                to_value=str(req["facility_id"]), reason=reason,
+                to_value=str(facility_id), reason=reason,
             )
         except Exception as exc:
             # 이미 소유자면 승인 자체는 계속 진행한다(재심사·중복 신청 흡수).
@@ -598,6 +812,8 @@ async def approve_verification(
                 #
                 # 그래서 상태 갱신 **전에** 멈춘다. 요청이 pending 으로 남으면 심사자가 다시
                 # 승인하면 되고, 역할 갱신은 멱등이라(위에서 before_role 비교) 재시도가 안전하다.
+                # 새로 만든 가게도 이미 신청서에 적혀 있어(_link_facility_to_request) 재승인
+                # 때 중복 생성되지 않는다 — 그 순서가 여기서 값을 한다.
                 # 아래 '증빙 삭제는 상태 갱신 뒤에' 와 같은 이유의 순서 판단이다.
                 logger.error(
                     "verification_owner_grant_failed", request_id=request_id, error=str(exc)
@@ -630,8 +846,12 @@ async def approve_verification(
     return {
         "approved": True,
         "user_id": user_id,
-        "facility_id": req.get("facility_id"),
+        # 관리자 승인은 None 이다 — 다루는 가게가 없다는 사실을 0/"" 로 뭉개지 않는다.
+        "facility_id": facility_id,
         "requested_role": requested_role,
+        # 화면이 "새 가게를 등록했습니다" 를 말할 수 있어야 한다. 심사자가 방금 무엇을
+        # 만들었는지 모른 채 목록으로 돌아가면 중복 등록을 알아차릴 방법이 없다.
+        "created_facility": created_facility,
     }
 
 
