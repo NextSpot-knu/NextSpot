@@ -43,6 +43,13 @@ from app.services.predict_service import (
 
 TRUSTED_TIERS = {"verified", "corroborated"}
 
+# 어떤 신뢰 등급이 붙어 있어도 학습에 쓰면 안 되는 source.
+#   seed/simulated  — 합성 데이터.
+#   admin_override  — 관리자가 콘솔 슬라이더로 넣은 값이다. 측정이 아니라 사람의 주장이라
+#                     정답이 될 수 없다(라우터가 single_report 로 쓰므로 정상 경로에서는
+#                     tier 필터에 먼저 걸린다 — 여기 걸린다면 어딘가 잘못 승격된 것이다).
+NEVER_TRAINABLE_SOURCES = {"seed", "simulated", "admin_override"}
+
 
 def parse_time(value: str | None) -> datetime | None:
     if not value:
@@ -92,7 +99,10 @@ def collect_rows(client) -> tuple[list[tuple[datetime, str, float]], dict, list[
         "facility_id,timestamp,congestion_level,source,evidence_tier,reporter_user_id",
     )
     rows: list[tuple[datetime, str, float]] = []
-    sources = Counter({"verified": 0, "corroborated": 0, "synthetic": 0, "single_report": 0, "seed": 0, "simulated": 0})
+    sources = Counter({
+        "verified": 0, "corroborated": 0, "synthetic": 0, "single_report": 0,
+        **{name: 0 for name in NEVER_TRAINABLE_SOURCES},
+    })
     corroborated_logs: dict[tuple[str, datetime], list[float]] = defaultdict(list)
     for log in logs:
         tier = str(log.get("evidence_tier") or "synthetic")
@@ -109,8 +119,9 @@ def collect_rows(client) -> tuple[list[tuple[datetime, str, float]], dict, list[
         else:
             rows.append((ts, facility_type, float(log["congestion_level"])))
             sources[tier] += 1
-        if source in {"seed", "simulated"}:
-            # 방어적 이중 게이트: 잘못 승격된 synthetic source도 공식 모델을 즉시 실패시킨다.
+        if source in NEVER_TRAINABLE_SOURCES:
+            # 방어적 이중 게이트: 잘못 승격된 행이 공식 모델을 즉시 실패시킨다.
+            # (tier 필터를 이미 통과한 뒤라, 여기 걸리는 것은 '신뢰 등급이 잘못 붙은 행' 뿐이다.)
             sources[source] += 1
 
     for (facility_type, bucket), values in corroborated_logs.items():
@@ -215,8 +226,13 @@ def main() -> None:
         return
 
     rows, sources, active_types = collect_rows(client)
-    if sources.get("seed", 0) or sources.get("simulated", 0) or sources.get("synthetic", 0) or sources.get("single_report", 0):
-        raise RuntimeError("untrusted observations entered official dataset")
+    # 신뢰할 수 없는 관측이 한 줄이라도 섞이면 공식 모델을 만들지 않는다.
+    # NEVER_TRAINABLE_SOURCES 를 하나씩 나열하지 않고 상수를 도는 이유: 새 source 를 그 집합에
+    # 넣기만 하면 이 게이트도 같이 강해진다(예전에는 seed/simulated 만 손으로 적혀 있었다).
+    untrusted = ["synthetic", "single_report", *sorted(NEVER_TRAINABLE_SOURCES)]
+    leaked = {name: sources.get(name, 0) for name in untrusted if sources.get(name, 0)}
+    if leaked:
+        raise RuntimeError(f"untrusted observations entered official dataset: {leaked}")
     metrics, model, encoder = evaluate(rows, active_types)
     enforce_active_regression(client, metrics)
 

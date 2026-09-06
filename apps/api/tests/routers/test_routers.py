@@ -1006,15 +1006,17 @@ def test_admin_congestion_override_facility_404(client):
 
 
 def test_admin_congestion_override_happy_path(client):
-    # capacity(50)×level(0.8)=40, source='event' 로 congestion_logs 1행 기록 후 그 행 반환.
-    # FakeSupabase 는 facilities 조회와 congestion_logs INSERT 둘 다 canned 로 응답.
+    # capacity(50)×level(0.8)=40 으로 congestion_logs 1행 기록 후 그 행 반환.
+    # ⚠️ FakeSupabase 는 체이닝 인자를 버리므로 이 테스트가 보는 것은 **canned 응답을 되비춘
+    #    값**이지 라우터가 실제로 쓴 payload 가 아니다. 무엇을 썼는지는 아래
+    #    test_admin_congestion_override_is_not_training_ground_truth 가 기록형 페이크로 본다.
     facility = _facility("f-1", "cafe", 0.0002)  # capacity=50
     inserted = {
         "id": "log-1",
         "facility_id": "f-1",
         "congestion_level": 0.8,
         "current_count": 40,
-        "source": "event",
+        "source": "admin_override",
         "timestamp": "2026-07-10T05:00:00+00:00",
     }
     with patch(
@@ -1028,7 +1030,7 @@ def test_admin_congestion_override_happy_path(client):
     body = res.json()
     assert body["congestion_level"] == 0.8
     assert body["current_count"] == 40
-    assert body["source"] == "event"  # congestion_logs.source CHECK 허용값
+    assert body["source"] == "admin_override"  # 응답은 삽입 행을 그대로 돌려준다
 
 
 # --- 관리자 오버라이드가 학습 정답으로 들어가지 않는지 --------------------------------
@@ -1091,6 +1093,9 @@ def test_admin_congestion_override_is_not_training_ground_truth(client):
     assert res.status_code == 200, res.text
     assert len(fake.inserted) == 1, "congestion_logs 에 정확히 한 행을 써야 한다"
     payload = fake.inserted[0]
+    assert payload["source"] == "admin_override", (
+        "관리자 개입이 'event'(운영 검증 소스)와 같은 이름으로 남으면 로그에서 골라낼 수 없다"
+    )
     assert payload["evidence_tier"] == "single_report", payload
     assert payload["evidence_tier"] not in TRUSTED_TIERS, (
         "관리자 수동 개입이 모델 학습 정답으로 들어간다 — train.py collect_rows 참조"

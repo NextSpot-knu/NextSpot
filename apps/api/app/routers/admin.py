@@ -26,19 +26,17 @@ router = APIRouter(prefix="/api/v1/admin", tags=["admin"], dependencies=[Depends
 FACILITY_TYPES = {"restaurant", "cafe", "attraction", "culture"}
 INQUIRY_STATUSES = {"new", "in_progress", "resolved"}  # inquiries.status CHECK 와 동일
 
-# 관리자 수동 혼잡 개입(Override)의 source.
+# 관리자 수동 혼잡 개입(Override)의 source — **전용 값**이다(20260906120000 에서 CHECK 확장).
 #
-# ⚠️ 이 값은 **다른 뜻과 겹쳐 있다.** 마이그레이션 20260819120000 이
+# 예전에는 'event' 를 재사용했다. 그런데 마이그레이션 20260819120000 이
 # `source IN ('traffic_cctv','tour_api','event') → evidence_tier='verified'` 로 백필하며
-# 'event' 를 운영 검증 소스로 분류했는데, 이 오버라이드가 같은 값을 쓴다. 그래서 source 만
-# 봐서는 '측정된 이벤트 관측' 과 '관리자가 슬라이더로 넣은 값' 을 구분할 수 없다.
-# 신뢰 판정은 evidence_tier 로 한다(아래 override_congestion 참조). source 이름 정리는
-# CHECK 를 넓히는 마이그레이션이 필요해 남겨 뒀다.
+# 'event' 를 운영 검증 소스로 분류한 탓에, source 만 봐서는 '측정된 이벤트 관측' 과
+# '관리자가 슬라이더로 넣은 값' 을 구분할 수 없었다 — 로그에서 관리자 개입분을 골라낼 수
+# 없으면 나중에 데이터 품질을 따질 때 전체 수치를 믿을 수 없다.
 #
-# (CHECK 가 허용하는 값은 20260820123000 기준
-#  'traffic_cctv','tour_api','event','user_report','merchant_report','seed','simulated' 이다.
-#  예전 주석은 init 시절 4개만 적고 있었다.)
-_ADMIN_OVERRIDE_SOURCE = "event"
+# ⚠️ 이 값은 CHECK 제약에 매여 있다. 마이그레이션 20260906120000 이 적용되지 않은 DB 에
+# 이 코드가 먼저 닿으면 오버라이드가 통째로 500 이 된다(배포 순서: 마이그레이션 먼저).
+_ADMIN_OVERRIDE_SOURCE = "admin_override"
 
 
 # =========================================================================
@@ -161,8 +159,8 @@ async def override_congestion(facility_id: str, req: CongestionOverride):
         # 때마다 측정된 적 없는 숫자가 정답으로 들어가는 구조였다(2026-09-06 확인: 프로덕션에
         # verified 행이 0건이라 실제 오염은 아직 없다).
         #
-        # 표시에는 그대로 반영된다 — 지도·추천의 '지금 혼잡' 후보는 synthetic 만 걸러내므로
-        # (infrastructures.py, latest_congestion_for_facilities) single_report 는 통과한다.
+        # 표시에는 그대로 반영된다 — latest_congestion_for_facilities 의 source 필터는
+        # 거부목록('seed','simulated')이라 admin_override 가 통과하고, tier 허용목록에도 든다.
         "evidence_tier": "single_report",
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
