@@ -9,6 +9,20 @@ from typing import Any
 from app.core.supabase import supabase_admin
 
 BUCKET_MINUTES = 10
+
+# 수집이 죽었다고 단정하는 기준.
+#
+# 왜 별도 기준이 필요한가: pg_cron 은 net.http_post 로 **발사 후 잊는다.** API 가 401 을 주든
+# 500 을 주든 cron.job_run_details 에는 succeeded 로 남는다. 그래서 '스케줄러가 돌았는가' 는
+# 수집이 살아 있다는 증거가 못 된다 — 유일하게 믿을 수 있는 신호는 **새 스냅샷이 실제로
+# 쌓였는가** 이고, 그건 원인이 무엇이든(토큰 불일치·Render 다운·cron 해제·Supabase 정지)
+# 똑같이 잡아낸다.
+#
+# 3버킷(30분)을 연달아 놓치면 우연이 아니다 — 재시도 cron 이 :06/:16/… 에 한 번 더 두드리므로
+# 일시적 실패는 다음 버킷에서 메워진다.
+_ALERT_DOWN_AFTER_MINUTES = 35
+# 창 전체에서 이 비율을 넘게 빠지면 '간헐 실패' 다. 지금은 살아 있어도 사람이 봐야 한다.
+_ALERT_DEGRADED_MISSING_RATE = 0.2
 _BUCKET_SECONDS = BUCKET_MINUTES * 60
 _FRESH_MINUTES = 30
 _DELAYED_MINUTES = 60
@@ -123,6 +137,39 @@ def _missing_metrics(
     return missing, longest_gap
 
 
+ALERT_OK = "ok"
+ALERT_DEGRADED = "degraded"
+ALERT_DOWN = "down"
+ALERT_UNKNOWN = "unknown"
+
+
+def _alert(
+    *,
+    latest_payload: dict[str, Any] | None,
+    missing_rate: float,
+    history_state: str,
+) -> dict[str, Any]:
+    """수집이 지금 살아 있는가에 대한 단일 판정.
+
+    reason 은 기계가 읽는 코드다. 사람이 읽을 문장을 여기서 만들지 않는 이유: 이 값을 쓰는
+    곳이 관리자 화면과 스케줄러 둘이고, 문장을 여기 박아 두면 로케일이 갈린다.
+    """
+    if latest_payload is None:
+        # 표가 비어 있는 것과 수집이 죽은 것은 다르다. 갓 배포한 환경에서 경보를 울리면
+        # 사람이 경보를 끄는 법부터 배운다.
+        return {
+            "state": ALERT_UNKNOWN if history_state == "no_data" else ALERT_DOWN,
+            "reason": "no_snapshot",
+            "age_minutes": None,
+        }
+    age = latest_payload["age_minutes"]
+    if age > _ALERT_DOWN_AFTER_MINUTES:
+        return {"state": ALERT_DOWN, "reason": "stale_snapshot", "age_minutes": age}
+    if missing_rate > _ALERT_DEGRADED_MISSING_RATE:
+        return {"state": ALERT_DEGRADED, "reason": "missing_buckets", "age_minutes": age}
+    return {"state": ALERT_OK, "reason": None, "age_minutes": age}
+
+
 async def get_area_demand_reliability(
     *,
     source: str = "gyeongju_its",
@@ -211,8 +258,16 @@ async def get_area_demand_reliability(
 
     received_count = len(received)
     missing_count = len(missing)
+    missing_rate = round(missing_count / expected_count, 4)
     return {
         "source": source,
+        # 여러 지표를 조합해야 알 수 있던 '지금 괜찮은가' 를 한 필드로 답한다.
+        # 사람이 대시보드를 안 보는 시간에도 기계가 이 값만 보고 경보할 수 있어야 한다.
+        "alert": _alert(
+            latest_payload=latest_payload,
+            missing_rate=missing_rate,
+            history_state=history_state,
+        ),
         "history_state": history_state,
         "first_bucket_at": _iso(earliest_bucket) if earliest_bucket else None,
         "window": {
@@ -224,7 +279,7 @@ async def get_area_demand_reliability(
             "expected_bucket_count": expected_count,
             "received_bucket_count": received_count,
             "missing_bucket_count": missing_count,
-            "missing_rate": round(missing_count / expected_count, 4),
+            "missing_rate": missing_rate,
             "missing_buckets": missing,
             "longest_gap_buckets": longest_gap,
             "longest_gap_minutes": longest_gap * BUCKET_MINUTES,

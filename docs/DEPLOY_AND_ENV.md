@@ -11,6 +11,7 @@
 | API | Render Blueprint `render.yaml` (docker, `apps/api/Dockerfile`, healthCheck `/health`) | `main` push 자동 |
 | DB · Auth · Storage | Supabase 팀 프로젝트 | 마이그레이션은 사람이 적용 |
 | 10분 주차 실측 수집 | Supabase pg_cron → `POST /api/v1/area-demand/snapshots/collect` | 자동 |
+| 수집 중단 감시 | GitHub Actions `area-demand-alert.yml` → `GET /api/v1/admin/area-demand-reliability` | 매시 정각 (`main`에서만) |
 | TourAPI 적재 | GitHub Actions `ingest.yml` | 매일 KST 04:00 (`main`에서만) |
 | 모델 학습 후보 | GitHub Actions `train-recommendation-model.yml` | 매주 월 03:00 KST (`main`에서만) |
 
@@ -45,6 +46,18 @@
   `X-Service-Token`(GitHub Actions가 사용)과 둘 다 받는다(`app/core/authz.py`).
 - 최초 설정·회전은 service-role 전용 RPC `configure_area_demand_collection`으로 한다. 값을 마이그레이션에 적지 않는다.
 - `cron.job`: `nextspot-area-demand-primary`(매시 3·13·…·53분), `nextspot-area-demand-retry`(6·16·…·56분, 버킷이 비었을 때만).
+- ⚠️ **pg_cron 은 `net.http_post` 로 발사 후 잊는다.** API 가 401·500 을 줘도
+  `cron.job_run_details` 에는 `succeeded` 로 남으므로 **'cron 이 돌았다' 는 수집이 살아 있다는
+  증거가 아니다.** 실제 응답은 `net._http_response` 에 있고, 수집이 멈췄는지는
+  `area-demand-alert.yml` 이 매시 확인한다(새 스냅샷이 실제로 쌓였는가 하나만 본다 —
+  토큰 불일치·Render 다운·cron 해제·Supabase 정지를 원인과 무관하게 잡는다).
+  멈춘 것을 확인했다면:
+  ```sql
+  select id, status_code, left(coalesce(error_msg, content), 200), created
+    from net._http_response order by created desc limit 10;   -- 401 이면 토큰 불일치
+  select jobname, active from cron.job where jobname like 'nextspot-area-demand%';
+  select public.configure_area_demand_collection('<수집 URL>', '<현재 토큰>');  -- 토큰 재설정
+  ```
   확인: `cron.job.active`, `cron.job_run_details`, `area_demand_snapshots` 증가.
 
 ## 2. Render — API
@@ -89,8 +102,8 @@
 | Secret | `TOURAPI_KEY` | ingest(없으면 TourAPI 단계 skip) |
 | Secret | `KAKAO_REST_API_KEY` | ingest(Kakao 장소 보완 · 좌표 대조) |
 | Secret | `LOCALDATA_AUTH_KEY` (선택) | ingest(공공 인허가 변경분 동기화) |
-| Secret | `SERVICE_API_TOKEN` (선택) | collect-area-demand(없으면 `ADMIN_API_TOKEN`) |
-| Variable | `BACKEND_HEALTH_URL` | uptime · collect-area-demand |
+| Secret | `SERVICE_API_TOKEN` (선택) | collect-area-demand · area-demand-alert(없으면 `ADMIN_API_TOKEN`) |
+| Variable | `BACKEND_HEALTH_URL` | uptime · collect-area-demand · area-demand-alert |
 | Variable | `AREA_DEMAND_COLLECTION_ENABLED=true` | collect-area-demand |
 | Variable | `KAKAO_PLACE_DISCOVERY_ENABLED` `TOURAPI_INSIGHTS_ENABLED` `TOURAPI_RELATED_ENABLED` (선택) | ingest의 게이트된 단계 |
 

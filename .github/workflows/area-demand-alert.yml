@@ -1,0 +1,93 @@
+# NextSpot — 주차 실측 수집이 죽으면 알린다
+#
+# 왜 필요한가: 정기 수집은 Supabase pg_cron 이 net.http_post 로 **발사 후 잊는** 구조다.
+# API 가 401 을 주든 500 을 주든 cron.job_run_details 에는 succeeded 로 남으므로, 수집이
+# 며칠 멈춰도 아무도 모른다. 실제로 그 상태를 눈으로 구분할 수 없어 한 번 오진했다
+# (2026-09-06 — 예보의 오래된 표본을 수집 중단으로 잘못 읽었다).
+#
+# 그래서 '스케줄러가 돌았는가' 가 아니라 **새 스냅샷이 실제로 쌓였는가** 를 본다.
+# 그 신호 하나면 원인이 무엇이든(토큰 불일치·Render 다운·cron 해제·Supabase 정지) 잡힌다.
+#
+# 실패하면 GitHub 이 워크플로 실패 알림을 보낸다 — 별도 알림 인프라를 두지 않는 이유다.
+#
+# 필요한 설정(둘 다 이미 수집 워크플로가 쓰던 값):
+#   Repository Variable BACKEND_HEALTH_URL=https://<render-service>.onrender.com/health
+#   Actions Secret      SERVICE_API_TOKEN (없으면 ADMIN_API_TOKEN 을 그대로 쓴다)
+# 미설정이면 조용히 skip 한다 — 설정이 없다고 매시간 실패 메일을 보내면 그것부터 무시하게 된다.
+name: Area Demand Collection Alert
+
+on:
+  schedule:
+    # 매시 정각. 수집은 10분 주기라, 한 시간 안에 한 번도 못 쌓였으면 확실히 문제다.
+    # (schedule 은 기본 브랜치에서만 발화한다.)
+    - cron: "0 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: area-demand-alert
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: check snapshot freshness
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      BACKEND_HEALTH_URL: ${{ vars.BACKEND_HEALTH_URL }}
+      SERVICE_TOKEN: ${{ secrets.SERVICE_API_TOKEN || secrets.ADMIN_API_TOKEN }}
+    steps:
+      - name: Skip (설정 없음)
+        if: ${{ env.BACKEND_HEALTH_URL == '' || env.SERVICE_TOKEN == '' }}
+        run: echo "BACKEND_HEALTH_URL 또는 SERVICE_API_TOKEN 이 없어 확인을 건너뜁니다."
+
+      - name: Check collection health
+        if: ${{ env.BACKEND_HEALTH_URL != '' && env.SERVICE_TOKEN != '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          api_base="${BACKEND_HEALTH_URL%/health}"
+          # Render 무료 플랜은 콜드 스타트가 있다 — 재시도로 흡수한다(깨우는 데 실패하는 것과
+          # 수집이 죽은 것은 다른 문제이므로, 여기서 성급히 실패로 단정하지 않는다).
+          body="$(curl --fail-with-body --silent --show-error \
+            --retry 3 --retry-all-errors --retry-delay 10 --max-time 120 \
+            -H "X-Service-Token: ${SERVICE_TOKEN}" \
+            "${api_base}/api/v1/admin/area-demand-reliability?hours=6")"
+
+          state="$(printf '%s' "$body" | python3 -c 'import json,sys; print(json.load(sys.stdin)["alert"]["state"])')"
+          reason="$(printf '%s' "$body" | python3 -c 'import json,sys; print(json.load(sys.stdin)["alert"].get("reason") or "-")')"
+          age="$(printf '%s' "$body" | python3 -c 'import json,sys; print(json.load(sys.stdin)["alert"].get("age_minutes"))')"
+
+          echo "state=${state} reason=${reason} age_minutes=${age}"
+          {
+            echo "### 주차 실측 수집 상태: \`${state}\`"
+            echo ""
+            echo "- 사유: \`${reason}\`"
+            echo "- 최신 스냅샷 경과: \`${age}\`분"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          case "$state" in
+            ok)
+              echo "수집 정상." ;;
+            unknown)
+              # 표가 비어 있는 갓 배포 환경. 경보가 아니다.
+              echo "이력이 없어 판정하지 않습니다(신규 환경)." ;;
+            degraded)
+              echo "::warning::수집이 간헐적으로 실패하고 있습니다 (reason=${reason})."
+              echo "지금은 살아 있으나 창 전체에서 누락이 잦습니다 — 확인이 필요합니다." ;;
+            *)
+              echo "::error::주차 실측 수집이 멈췄습니다 (reason=${reason}, 최신 스냅샷 ${age}분 전)."
+              echo ""
+              echo "확인 순서 — Supabase SQL Editor:"
+              echo "  1) select id, status_code, left(coalesce(error_msg, content), 200), created"
+              echo "       from net._http_response order by created desc limit 10;"
+              echo "     → 401 이면 Vault 토큰이 Render 의 SERVICE_API_TOKEN/ADMIN_API_TOKEN 과 다르다."
+              echo "  2) select jobname, active from cron.job where jobname like 'nextspot-area-demand%';"
+              echo "     → active=false 면 예약이 풀린 것이다."
+              echo ""
+              echo "토큰 재설정:"
+              echo "  select public.configure_area_demand_collection('<수집 URL>', '<현재 토큰>');"
+              exit 1 ;;
+          esac

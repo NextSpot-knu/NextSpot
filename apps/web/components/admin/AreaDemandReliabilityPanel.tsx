@@ -6,6 +6,15 @@ import { adminApi } from '@/lib/admin-api';
 
 interface ReliabilityResponse {
   source: string;
+  /** 수집이 지금 살아 있는가에 대한 서버의 단일 판정.
+   *
+   * 여러 지표(신선도·누락률·이력 유무)를 화면이 조합해 판단하면, 같은 사실을 서버의 경보
+   * 스케줄러와 다르게 읽게 된다. 판정은 서버가 한 번 하고 양쪽이 그 값을 쓴다. */
+  alert?: {
+    state: 'ok' | 'degraded' | 'down' | 'unknown';
+    reason: string | null;
+    age_minutes: number | null;
+  };
   history_state: 'no_data' | 'insufficient_history' | 'sufficient_history';
   window: {
     expected_bucket_count: number;
@@ -58,6 +67,13 @@ export function AreaDemandReliabilityPanel() {
 
   const latest = data?.latest;
   const unhealthy = error || !latest || latest.freshness_state !== 'fresh' || !latest.lot_details_complete;
+  // 숫자를 읽어야 알 수 있던 '수집이 멈췄다' 를 맨 위에 한 줄로 세운다. 이 패널은 지표가
+  // 네 칸이라, 멈춘 상태에서도 '최신 관측 1440분 전' 이 다른 숫자들 사이에 묻혔다.
+  const alertState = data?.alert?.state;
+  const alertText: Record<string, string> = {
+    down: '수집이 멈췄습니다 — 새 스냅샷이 들어오지 않습니다.',
+    degraded: '수집이 간헐적으로 실패하고 있습니다.',
+  };
 
   return (
     <section className="rounded-2xl border border-hanok-line bg-hanok-panel p-5" aria-label="공영주차 실측 수집 신뢰도">
@@ -72,6 +88,23 @@ export function AreaDemandReliabilityPanel() {
           <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
         </button>
       </div>
+
+      {alertState && alertText[alertState] && (
+        <p
+          role="alert"
+          className={`mt-4 flex items-start gap-2 rounded-xl border p-3 text-xs ${
+            alertState === 'down'
+              ? 'border-rose-500/40 bg-rose-500/10 text-rose-300'
+              : 'border-amber-500/40 bg-amber-500/10 text-amber-300'
+          }`}
+        >
+          <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+          <span>
+            {alertText[alertState]}
+            {data?.alert?.reason && <span className="ml-1 opacity-80">({data.alert.reason})</span>}
+          </span>
+        </p>
+      )}
 
       {loading && !data ? (
         <div className="mt-4 h-20 animate-pulse rounded-xl bg-hanok-line/50" />
