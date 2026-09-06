@@ -1031,6 +1031,74 @@ def test_admin_congestion_override_happy_path(client):
     assert body["source"] == "event"  # congestion_logs.source CHECK 허용값
 
 
+# --- 관리자 오버라이드가 학습 정답으로 들어가지 않는지 --------------------------------
+class _RecordingSupabase:
+    """insert 페이로드를 붙잡아 두는 페이크.
+
+    공용 FakeSupabase 는 체이닝 인자를 전부 버리기 때문에 '무엇을 썼는지' 를 볼 수 없다
+    (그래서 기존 해피패스 테스트는 페이크가 돌려준 canned 행만 검사한다). 이 테스트가 지키려는
+    계약이 바로 그 payload 라서 여기서만 기록형 페이크를 쓴다.
+    """
+
+    def __init__(self, facility: dict):
+        self._facility = facility
+        self.inserted: list[dict] = []
+
+    def table(self, name: str):
+        return _RecordingTable(self, name)
+
+
+class _RecordingTable:
+    def __init__(self, parent: "_RecordingSupabase", name: str):
+        self._parent = parent
+        self._name = name
+        self._payload = None
+
+    def __getattr__(self, _name):
+        def _chain(*_args, **_kwargs):
+            return self
+
+        return _chain
+
+    def insert(self, payload):
+        self._payload = payload
+        self._parent.inserted.append(payload)
+        return self
+
+    def execute(self):
+        if self._payload is not None:
+            return _FakeResult([{**self._payload, "id": "log-1"}])
+        return _FakeResult([self._parent._facility] if self._name == "facilities" else [])
+
+
+def test_admin_congestion_override_is_not_training_ground_truth(client):
+    """관리자가 슬라이더로 넣은 값은 **측정이 아니다** — 모델 학습 정답이 되면 안 된다.
+
+    apps/api/scripts/train.py 의 collect_rows 는 evidence_tier ∈ TRUSTED_TIERS 인 행을 그대로
+    학습 데이터로 넣는다. 예전에는 이 오버라이드가 verified 라, 관리자가 데모나 보정으로
+    슬라이더를 한 번 움직일 때마다 측정된 적 없는 숫자가 정답으로 들어가는 구조였다.
+
+    TRUSTED_TIERS 를 직접 참조하는 이유: 라우터가 되돌아가도, 누가 TRUSTED_TIERS 를 넓혀도
+    같은 한 줄이 잡아낸다. 두 파일이 따로 놀면 이 계약은 소리 없이 깨진다.
+    """
+    from scripts.train import TRUSTED_TIERS
+
+    fake = _RecordingSupabase(_facility("f-1", "cafe", 0.0002))
+    with patch("app.routers.admin.supabase_admin", new=fake):
+        res = client.post(
+            "/api/v1/admin/facilities/f-1/congestion", headers=_admin_headers(), json={"level": 0.8}
+        )
+    assert res.status_code == 200, res.text
+    assert len(fake.inserted) == 1, "congestion_logs 에 정확히 한 행을 써야 한다"
+    payload = fake.inserted[0]
+    assert payload["evidence_tier"] == "single_report", payload
+    assert payload["evidence_tier"] not in TRUSTED_TIERS, (
+        "관리자 수동 개입이 모델 학습 정답으로 들어간다 — train.py collect_rows 참조"
+    )
+    # 표시에는 그대로 반영돼야 한다(synthetic 이면 지도·추천의 '지금 혼잡' 후보에서 빠진다).
+    assert payload["evidence_tier"] != "synthetic"
+
+
 # =========================================================================
 # 7. 관리자 시스템 설정(PUT /api/v1/admin/settings)
 # =========================================================================

@@ -26,8 +26,18 @@ router = APIRouter(prefix="/api/v1/admin", tags=["admin"], dependencies=[Depends
 FACILITY_TYPES = {"restaurant", "cafe", "attraction", "culture"}
 INQUIRY_STATUSES = {"new", "in_progress", "resolved"}  # inquiries.status CHECK 와 동일
 
-# congestion_logs.source CHECK 는 ('traffic_cctv','tour_api','event','user_report') 만 허용한다.
-# 관리자 수동 혼잡 개입(Override)은 운영자 이벤트성 설정이므로 'event' 로 기록한다(스키마 제약을 만족하는 정식 값).
+# 관리자 수동 혼잡 개입(Override)의 source.
+#
+# ⚠️ 이 값은 **다른 뜻과 겹쳐 있다.** 마이그레이션 20260819120000 이
+# `source IN ('traffic_cctv','tour_api','event') → evidence_tier='verified'` 로 백필하며
+# 'event' 를 운영 검증 소스로 분류했는데, 이 오버라이드가 같은 값을 쓴다. 그래서 source 만
+# 봐서는 '측정된 이벤트 관측' 과 '관리자가 슬라이더로 넣은 값' 을 구분할 수 없다.
+# 신뢰 판정은 evidence_tier 로 한다(아래 override_congestion 참조). source 이름 정리는
+# CHECK 를 넓히는 마이그레이션이 필요해 남겨 뒀다.
+#
+# (CHECK 가 허용하는 값은 20260820123000 기준
+#  'traffic_cctv','tour_api','event','user_report','merchant_report','seed','simulated' 이다.
+#  예전 주석은 init 시절 4개만 적고 있었다.)
 _ADMIN_OVERRIDE_SOURCE = "event"
 
 
@@ -143,7 +153,17 @@ async def override_congestion(facility_id: str, req: CongestionOverride):
         "congestion_level": req.level,
         "current_count": round(capacity * req.level),
         "source": _ADMIN_OVERRIDE_SOURCE,
-        "evidence_tier": "verified",
+        # **관측이 아니라 사람이 슬라이더로 넣은 값이다.** 그래서 single_report 다.
+        #
+        # 예전에는 verified 였는데, 이 값이 곧 모델 학습의 정답이 된다:
+        # apps/api/scripts/train.py 의 collect_rows 는 evidence_tier ∈ {verified, corroborated}
+        # 행을 그대로 학습 데이터로 넣는다. 관리자가 데모나 보정으로 슬라이더를 한 번 움직일
+        # 때마다 측정된 적 없는 숫자가 정답으로 들어가는 구조였다(2026-09-06 확인: 프로덕션에
+        # verified 행이 0건이라 실제 오염은 아직 없다).
+        #
+        # 표시에는 그대로 반영된다 — 지도·추천의 '지금 혼잡' 후보는 synthetic 만 걸러내므로
+        # (infrastructures.py, latest_congestion_for_facilities) single_report 는 통과한다.
+        "evidence_tier": "single_report",
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
