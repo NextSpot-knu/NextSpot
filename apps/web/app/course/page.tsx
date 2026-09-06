@@ -12,6 +12,7 @@ import { useSearchParams } from "next/navigation";
 import { Reorder } from "framer-motion";
 import { ArrowLeft, ChevronDown, X, Navigation } from "lucide-react";
 import { createPublicClient } from "@/lib/supabase";
+import { slotKeysStale } from "@/lib/courseSlotKeys";
 import { apiClient, isAuthError, httpStatus } from "@/lib/api-client";
 import { REGION, isWithinRegion } from "@/lib/region";
 import { toast } from "sonner";
@@ -266,6 +267,16 @@ function CourseContent() {
   const slotKeys = useMemo(
     () => (sequence.length > 0 ? sequence.map((item) => item.uid) : ["auto-0", "auto-1", "auto-2"]),
     [sequence],
+  );
+
+  // 화면에 붙어 있는 자리 키가 **지금의 입력과 아직 같은가.**
+  // 다르면 지금 보이는 행들은 이미 지나간 계획의 것이다 — 사용자가 순서를 바꿨는데 새 계획이
+  // 아직 안 온 창(디바운스 500ms + 왕복)이 실제로 존재한다. 그 창에서 옛 행의 '여기로 바꾸기' 를
+  // 누르면 pins 에 옛 키로 꽂히고, 요청을 만들 때 `slotKeys.indexOf(옛 키)` 가 -1 이라
+  // **조용히 걸러져 아무 일도 일어나지 않는다.** 아래에서 그 창 동안 조작 자체를 내린다.
+  const slotsStale = useMemo(
+    () => slotKeysStale(renderedSlotKeys, slotKeys),
+    [renderedSlotKeys, slotKeys],
   );
 
   const prevPlanRef = useRef<{ planId: string; ids: string[] } | null>(null);
@@ -712,6 +723,7 @@ function CourseContent() {
                         outcomes={isShareMode ? [] : slotOutcomes}
                         pins={pins}
                         slotKeys={renderedSlotKeys}
+                        slotsStale={slotsStale}
                         onTogglePin={togglePin}
                         onSwap={swapTo}
                         onUnpin={unpinSlot}
@@ -1059,6 +1071,7 @@ function StopRows({
   outcomes = [],
   pins = {},
   slotKeys = [],
+  slotsStale = false,
   onTogglePin,
   onSwap,
   onUnpin,
@@ -1068,6 +1081,8 @@ function StopRows({
   outcomes?: SlotOutcome[];
   pins?: Record<string, string>;
   slotKeys?: string[];
+  /** 보이는 행이 이미 지나간 계획의 것인가(순서를 바꿨는데 새 계획이 아직 안 온 창). */
+  slotsStale?: boolean;
   onTogglePin?: (slotIdx: number, facilityId: string) => void;
   onSwap?: (slotIdx: number, facilityId: string) => void;
   onUnpin?: (slotIdx: number) => void;
@@ -1077,7 +1092,9 @@ function StopRows({
   // 자리 결과가 없으면 구 API 응답이다(/plan 이 아직 배포되지 않은 창). 그때는 고정·갈아끼우기를
   // **그리지 않는다** — 버튼은 보이는데 서버가 pins 를 모르고 조용히 무시하면, 눌러도 아무 일도
   // 일어나지 않는 조작을 준 셈이 된다.
-  const replanSupported = outcomes.length > 0;
+  // slotsStale 을 함께 본다: 자리 키가 어긋난 창에서는 눌러도 pins 가 걸러져 아무 일도
+  // 일어나지 않으므로, 위 문단이 세운 원칙(그런 조작은 주지 않는다)이 여기에도 그대로 적용된다.
+  const replanSupported = outcomes.length > 0 && !slotsStale;
   const dropped = outcomes.filter((o) => o.status !== 'filled');
   const rows = [
     ...stops.map((stop) => ({ order: requestedSlotIndex(stop, outcomes) + 1, stop, outcome: null as SlotOutcome | null })),
@@ -1361,6 +1378,11 @@ function StopRow({
                     <button
                       type="button"
                       onClick={() => onSwap?.(slotIdx as number, alt.facility.id)}
+                      // 보이는 글자는 '여기로 바꾸기' 하나뿐이라, 대안이 여러 줄이면 이름이 전부 같아진다.
+                      // 화면 없이 듣는 사람에게는 "여기로 바꾸기, 여기로 바꾸기, 여기로 바꾸기" 가 되어
+                      // 어느 가게로 바꾸는 버튼인지 구분할 방법이 사라진다. 이 파일의 다른 버튼들
+                      // (길안내·자동차·순서 담기)은 모두 시설명을 aria-label 에 넣는다 — 같은 규칙을 따른다.
+                      aria-label={t('course.altsPickAria', { name: alt.facility.name })}
                       className="shrink-0 px-2.5 py-1 rounded-full border border-gold/30 bg-gold/10 text-[10px] font-bold text-gold-deep hover:bg-gold/20 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/50"
                     >
                       {t('course.altsPick')}

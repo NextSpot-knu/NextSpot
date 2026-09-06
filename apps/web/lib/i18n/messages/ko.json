@@ -338,6 +338,7 @@
     "altsToggle": "다른 곳 {n}",
     "altsHide": "접기",
     "altsPick": "여기로 바꾸기",
+    "altsPickAria": "{name}(으)로 바꾸기",
     "altsNote": "고르면 이 자리부터 다시 짜요 — 뒤 정류지의 도착 시각도 다시 계산돼요",
     "pinOn": "이 자리 고정",
     "pinOff": "고정 해제",

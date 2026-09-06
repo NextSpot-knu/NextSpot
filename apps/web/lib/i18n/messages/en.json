@@ -338,6 +338,7 @@
     "altsToggle": "{n} more",
     "altsHide": "Hide",
     "altsPick": "Swap in",
+    "altsPickAria": "Swap in {name}",
     "altsNote": "Picking one replans from this stop — arrival times after it are recalculated",
     "pinOn": "Keep this stop",
     "pinOff": "Unpin",

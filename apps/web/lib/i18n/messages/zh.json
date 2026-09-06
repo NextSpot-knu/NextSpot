@@ -338,6 +338,7 @@
     "altsToggle": "其他 {n} 处",
     "altsHide": "收起",
     "altsPick": "换成这里",
+    "altsPickAria": "换成{name}",
     "altsNote": "选择后将从该站重新规划 — 后续到达时间也会重新计算",
     "pinOn": "固定此站",
     "pinOff": "取消固定",

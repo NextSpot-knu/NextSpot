@@ -338,6 +338,7 @@
     "altsToggle": "他 {n} 件",
     "altsHide": "閉じる",
     "altsPick": "ここに変更",
+    "altsPickAria": "{name}に変更",
     "altsNote": "選ぶとこの地点から組み直します — 以降の到着時刻も再計算されます",
     "pinOn": "この地点を固定",
     "pinOff": "固定を解除",
