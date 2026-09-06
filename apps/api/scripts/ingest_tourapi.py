@@ -188,14 +188,17 @@ def upsert_facilities(rows: list[dict]) -> int:
     transform/enrich 가 만드는 키는 신규 값이 이기고, 배치가 모르는 키는 보존된다.
     """
     # DB 클라이언트는 여기서 지연 임포트 — --dry-run 경로에서 Supabase 연결을 만들지 않는다.
-    from app.core.supabase import supabase_admin
+    from app.core.supabase import fetch_all_rows, supabase_admin
 
     try:
-        existing_res = (
-            supabase_admin.table("facilities")
-            .select("contentid, features")
-            .not_.is_("contentid", "null")
-            .execute()
+        # 전량이어야 한다. 잘린 페이지로 병합하면 **빠진 시설의 features 가 통째로 덮여** 번역·
+        # 음식태그 같은 축적 키가 사라진다 — 바로 아래 except 가 fail-closed 로 막으려는 그 사고를,
+        # 캡 절단은 오류 없이(200) 일으킨다. 지금은 contentid 보유 시설이 89곳이라 잠재적이다.
+        existing_rows = fetch_all_rows(
+            supabase_admin,
+            "facilities",
+            "contentid, features",
+            apply_filters=lambda q: q.not_.is_("contentid", "null").order("contentid"),
         )
     except Exception as e:  # noqa: BLE001
         # 기존 features 를 모르면 병합 불가 → 진행하면 번역 등 축적 키가 소실된다. fail-closed 중단.
@@ -203,7 +206,7 @@ def upsert_facilities(rows: list[dict]) -> int:
         return 0
     existing_features: dict[str, dict] = {
         r["contentid"]: (r.get("features") or {})
-        for r in (existing_res.data or [])
+        for r in (existing_rows)
         if r.get("contentid")
     }
     for row in rows:
@@ -316,7 +319,7 @@ def sync_showflags(showflag_by_id: dict[str, str]) -> dict:
     (오탐 방지 원칙 — 컬럼 없다고 스크립트를 죽이거나 잘못된 값을 쓰지 않는다).
     """
     # DB 클라이언트는 여기서 지연 임포트 — upsert_facilities 와 동일 관례(테스트 용이성 포함).
-    from app.core.supabase import supabase_admin
+    from app.core.supabase import fetch_all_rows, supabase_admin
 
     summary: dict = {"checked": 0, "deactivated": [], "reactivated": 0,
                      "reactivation_deferred": 0, "degraded": False, "reason": None}
@@ -324,11 +327,12 @@ def sync_showflags(showflag_by_id: dict[str, str]) -> dict:
         return summary
 
     try:
-        existing = (
-            supabase_admin.table("facilities")
-            .select("id, contentid, is_active, features")
-            .not_.is_("contentid", "null")
-            .execute()
+        # 전량이어야 한다 — 잘리면 빠진 시설이 showflag 대조에서 누락돼 영업/폐업 반영이 멈춘다.
+        existing_rows = fetch_all_rows(
+            supabase_admin,
+            "facilities",
+            "id, contentid, is_active, features",
+            apply_filters=lambda q: q.not_.is_("contentid", "null").order("contentid"),
         )
     except Exception as e:
         summary["degraded"] = True
@@ -346,7 +350,7 @@ def sync_showflags(showflag_by_id: dict[str, str]) -> dict:
         # 마이그레이션 배포 전 하위호환. 배포 후에는 source ref가 공통 우선순위 정본이다.
         inactive_localdata_ids = set()
 
-    for row in existing.data or []:
+    for row in existing_rows:
         contentid = row.get("contentid")
         showflag = showflag_by_id.get(contentid)
         if showflag is None:

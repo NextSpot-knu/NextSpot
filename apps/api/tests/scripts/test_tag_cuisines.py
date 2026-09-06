@@ -347,3 +347,78 @@ async def test_run_llm_disabled_exits_quietly_without_calls(tmp_path):
     assert code == 0
     chat.assert_not_awaited()
     apply_mock.assert_not_called()
+
+
+# =============================================================================
+# 태그 대상 목록은 **전량**이어야 한다
+# =============================================================================
+
+class _CappedFacilitiesTable:
+    """PostgREST 1,000행 캡을 실제로 강제하는 페이크.
+
+    캡을 흉내내지 않으면 이 테스트는 단발 `.execute()` 로 되돌려도 통과한다 —
+    결함이 다시 들어와도 못 잡는다는 뜻이다.
+    """
+
+    CAP = 1000
+
+    def __init__(self, rows, journal):
+        self._rows = rows
+        self._journal = journal
+        self._range = None
+
+    def select(self, *_a, **_k):
+        return self
+
+    def in_(self, column, values):
+        self._rows = [r for r in self._rows if r.get(column) in values]
+        return self
+
+    def order(self, column, **_k):
+        self._rows = sorted(self._rows, key=lambda r: str(r.get(column) or ""))
+        return self
+
+    def range(self, start, end):
+        self._range = (start, end)
+        return self
+
+    def execute(self):
+        from types import SimpleNamespace
+
+        rows = self._rows if self._range is None else self._rows[self._range[0] : self._range[1] + 1]
+        self._journal.append((None if self._range is None else self._range[0], len(rows)))
+        return SimpleNamespace(data=rows[: self.CAP])
+
+
+class _CappedClient:
+    def __init__(self, rows):
+        self.rows = rows
+        self.calls: list[tuple] = []
+
+    def table(self, _name):
+        return _CappedFacilitiesTable(list(self.rows), self.calls)
+
+
+def test_select_targets_reads_every_restaurant_and_cafe(monkeypatch):
+    """1,000행 캡 너머의 음식점·카페가 태그 대상에 들어오는가.
+
+    되돌림 검증: 단발 `.execute()` 로 돌리면 1,000곳만 잡히고 나머지는 **영영** 태그를 받지
+    못한다(다음 실행에서도 같은 앞쪽 1,000곳만 다시 온다). 그 태그는 추천의 cuisine 매칭이
+    쓰는 값이라, 조용히 후보에서 빠지는 결과가 된다. 프로덕션 대상은 1,623곳이다(2026-09-07).
+    """
+    from app.core import supabase as supabase_module
+
+    rows = [
+        {"id": f"f-{i:05d}", "name": f"가게{i}", "type": "restaurant" if i % 2 else "cafe", "features": {}}
+        for i in range(1623)
+    ]
+    # 대상이 아닌 종류도 섞어 둔다 — 필터가 쿼리 쪽에 걸려 캡을 소진하지 않아야 한다.
+    rows += [{"id": f"x-{i:05d}", "name": f"관광지{i}", "type": "attraction", "features": {}} for i in range(500)]
+    client = _CappedClient(rows)
+    monkeypatch.setattr(supabase_module, "supabase_admin", client)
+
+    targets = tag_cuisines.fetch_candidate_rows()
+
+    assert len(targets) == 1623, f"대상이 캡에서 잘렸다: {len(targets)}곳만 읽었다"
+    assert all(row["type"] in ("restaurant", "cafe") for row in targets), "대상 아닌 종류가 섞였다"
+    assert len(client.calls) >= 2, f"페이지네이션이 없다: {client.calls}"

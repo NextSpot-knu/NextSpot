@@ -306,16 +306,17 @@ def fetch_candidate_rows() -> list[dict]:
     force/limit 등 나머지 조건은 select_targets() 에서 파이썬으로 순수 필터링한다(JSONB 키 존재
     여부를 PostgREST 필터 표현으로 쓰는 것보다 단순 명확).
     """
-    from app.core.supabase import supabase_admin  # 지연 임포트 — 테스트에서 이 함수만 모킹하면 됨
+    from app.core.supabase import fetch_all_rows, supabase_admin  # 지연 임포트 — 테스트에서 이 함수만 모킹하면 됨
 
-    res = (
-        supabase_admin.table("facilities")
-        .select("id, name, overview, features")
-        .not_.is_("overview", "null")
-        .order("id")
-        .execute()
+    # 전량 조회(단발 select 는 PostgREST 캡에서 조용히 잘려, 넘친 시설이 번역 대상 목록에
+    # 아예 오르지 못한다). 지금은 overview 보유가 87곳이라 잠재적이지만, 이 스크립트는
+    # 대상 목록을 곧 '해야 할 일 전부' 로 취급하므로 잘린 목록은 완료 보고까지 거짓으로 만든다.
+    return fetch_all_rows(
+        supabase_admin,
+        "facilities",
+        "id, name, overview, features",
+        apply_filters=lambda q: q.not_.is_("overview", "null").order("id"),
     )
-    return res.data or []
 
 
 async def run(args: argparse.Namespace) -> int:

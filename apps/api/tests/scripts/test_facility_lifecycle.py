@@ -44,14 +44,42 @@ class _FakeResult:
         self.data = data
 
 
+# PostgREST 단일 응답 상한. 페이크가 이걸 흉내 내지 않으면 전량 조회가 필요한 코드를
+# 단발 select 로 되돌려도 테스트가 통과한다 — 결함이 다시 들어와도 못 잡는다는 뜻이다.
+_POSTGREST_CAP = 1000
+
+
+def _page(rows, rng):
+    if rng is not None:
+        start, end = rng
+        rows = rows[start : end + 1]
+    return rows[:_POSTGREST_CAP]
+
+
 class _StatefulFacilitiesTable:
     """.execute() 호출 횟수를 세고, raise_once 가 있으면 1회차만 그 예외를 던진다(폴백 재시도 검증용).
     그 외 체이닝 메서드(select/eq/gte/...)는 전부 self 를 반환해 흡수한다."""
+
+    CAP = 1000  # PostgREST 단일 응답 상한 — 오류가 아니라 조용히 잘린 200 이 온다.
 
     def __init__(self, rows, raise_once: Exception | None = None):
         self.rows = rows
         self._raise_once = raise_once
         self.call_count = 0
+        self._range: tuple[int, int] | None = None
+
+    # `.not_` 는 **호출이 아니라 속성**이다(`q.not_.is_(col, "null")`). __getattr__ 로 뭉뚱그리면
+    # 함수 객체가 돌아와 `.is_` 에서 AttributeError 가 나고, 그 예외를 프로덕션 코드의
+    # fail-closed 분기가 삼켜 **테스트가 '조회 실패' 경로를 검증하게 된다** — 실제로 그랬다.
+    @property
+    def not_(self):
+        return self
+
+    # `.range()` 와 캡은 흡수하지 않고 실제로 흉내 낸다. 흡수하면 이 페이크는 PostgREST 가
+    # 하지 않는 일(단일 응답 전량 반환)을 하게 되고, 절단 결함이 있는 코드도 통과시킨다.
+    def range(self, start, end):
+        self._range = (start, end)
+        return self
 
     def __getattr__(self, _name):
         def _chain(*_a, **_kw):
@@ -62,7 +90,11 @@ class _StatefulFacilitiesTable:
         self.call_count += 1
         if self._raise_once is not None and self.call_count == 1:
             raise self._raise_once
-        return _FakeResult(self.rows)
+        rows = self.rows
+        if self._range is not None:
+            start, end = self._range
+            rows = rows[start : end + 1]
+        return _FakeResult(rows[: self.CAP])
 
 
 class _StatefulSupabase:
@@ -413,6 +445,14 @@ class _RecordingFacilitiesTable:
     def is_(self, *_a, **_kw):
         return self
 
+    def order(self, *_a, **_kw):
+        return self
+
+    # 캡과 range 를 실제로 흉내 낸다 — 흡수하면 절단 결함이 있는 코드도 통과한다.
+    def range(self, start, end):
+        self._range = (start, end)
+        return self
+
     def update(self, payload):
         self._mode = "update"
         self._pending_payload = payload
@@ -427,7 +467,7 @@ class _RecordingFacilitiesTable:
         if self._mode == "select":
             if self.select_error is not None:
                 raise self.select_error
-            return _FakeResult(self.rows)
+            return _FakeResult(_page(self.rows, getattr(self, "_range", None)))
         return _FakeResult(None)
 
 
@@ -476,6 +516,13 @@ class _MergeCaptureTable:
     def is_(self, *_a, **_k):
         return self
 
+    def order(self, *_a, **_k):
+        return self
+
+    def range(self, start, end):
+        self._range = (start, end)
+        return self
+
     def upsert(self, chunk, **_k):
         self._mode = "upsert"
         self.upserted.extend(chunk)
@@ -485,7 +532,7 @@ class _MergeCaptureTable:
         if self._mode == "select":
             if self.select_error is not None:
                 raise self.select_error
-            return _FakeResult(self.existing_rows)
+            return _FakeResult(_page(self.existing_rows, getattr(self, "_range", None)))
         return _FakeResult([])
 
 

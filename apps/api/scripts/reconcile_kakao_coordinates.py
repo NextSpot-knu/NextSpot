@@ -9,7 +9,7 @@ from pathlib import Path
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from app.core.supabase import supabase_admin
+from app.core.supabase import fetch_all_rows, supabase_admin
 from app.services.batch.kakao_coordinate_service import reconcile_row_coordinate
 from app.services.spot.travel import calculate_haversine_distance
 
@@ -44,9 +44,13 @@ def parse_args() -> argparse.Namespace:
 
 async def main() -> int:
     args = parse_args()
-    rows = (supabase_admin.table("facilities")
-            .select("id,name,address,latitude,longitude,features,contentid")
-            .not_.is_("contentid", "null").execute().data or [])
+    # 전량 조회 — 잘리면 좌표 보정에서 빠진 시설이 '대상 아님' 으로 조용히 넘어간다.
+    rows = fetch_all_rows(
+        supabase_admin,
+        "facilities",
+        "id,name,address,latitude,longitude,features,contentid",
+        apply_filters=lambda q: q.not_.is_("contentid", "null").order("id"),
+    )
     matched = 0
     changed = 0
     report: list[dict] = []

@@ -222,16 +222,18 @@ def fetch_candidate_rows() -> list[dict]:
     결손 여부는 select_targets() 에서 파이썬으로 순수 필터링한다(JSONB 결손 판정을
     PostgREST 필터로 쓰는 것보다 단순 명확 — translate_overviews 관례).
     """
-    from app.core.supabase import supabase_admin  # 지연 임포트 — 테스트에서 이 함수만 모킹하면 됨
+    from app.core.supabase import fetch_all_rows, supabase_admin  # 지연 임포트 — 테스트에서 이 함수만 모킹하면 됨
 
-    res = (
-        supabase_admin.table("facilities")
-        .select("id, name, type, features")
-        .in_("type", list(TARGET_TYPES))
-        .order("id")
-        .execute()
+    # **fetch_all_rows 여야 한다.** 단발 select 는 PostgREST 캡에서 조용히 잘린다(오류가 아니라 200).
+    # 프로덕션의 restaurant+cafe 는 1,623곳이라 단발로는 1,000곳만 온다 — 나머지 623곳은
+    # '태그 대상' 목록에 아예 오르지 못해 **영영 음식 태그를 받지 못한다.** 그 태그는 추천의
+    # cuisine 매칭(음성 '양식/한식' 필터 포함)이 쓰는 값이라, 조용히 후보에서 빠지는 결과가 된다.
+    return fetch_all_rows(
+        supabase_admin,
+        "facilities",
+        "id, name, type, features",
+        apply_filters=lambda q: q.in_("type", list(TARGET_TYPES)).order("id"),
     )
-    return res.data or []
 
 
 def apply_update(facility_id, merged_features: dict) -> None:
