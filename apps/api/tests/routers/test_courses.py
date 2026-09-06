@@ -539,6 +539,57 @@ def test_empty_course_still_says_why(auth_client):  # noqa: F811
     assert all(o["status"] == "no_candidate_of_type" for o in plan["slot_outcomes"])
     assert all(o["requested_type"] == "cafe" for o in plan["slot_outcomes"])
 
+
+def test_late_night_unconfirmed_food_says_so(auth_client):  # noqa: F811
+    """밤에는 영업 미확인 식당·카페를 보내지 않는다 — 그리고 **그렇다고 말한다.**
+
+    '문을 닫았다' 와 '열었는지 우리가 모른다' 는 사용자에게 전혀 다른 사실이다. 후자는
+    아침에 다시 오면 결과가 달라진다. 그래서 closed_at_arrival 과 코드를 나눈다.
+
+    이 테스트가 없으면, 심야에 코스가 비는 것과 조건이 너무 좁아서 비는 것을 화면이
+    같은 문구로 말하게 된다(실제로 그랬다 — 2026-09-06 23:00 에 사용자가 빈 화면을 보고
+    "밤이라 그런가?" 라고 물었고, 화면에는 그 답이 없었다).
+    """
+    from datetime import datetime, timezone
+    from unittest.mock import patch as _patch
+
+    # 영업 시간을 **모르는** 카페들(needs_confirmation) — 심야 규칙의 대상이다.
+    facilities = []
+    for i in range(3):
+        cafe = _at("cafe-unknown-%d" % i, "cafe", 0.0002 * (i + 1))
+        cafe.pop("operating_hours", None)
+        facilities.append(cafe)
+
+    late = datetime(2026, 8, 27, 14, 0, tzinfo=timezone.utc)  # = 23:00 KST
+
+    class _LateNight(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return late.astimezone(tz) if tz else late.replace(tzinfo=None)
+
+    with _patch("app.routers.courses.datetime", _LateNight):
+        plan = _run(auth_client, facilities, _seq_body(["cafe", "cafe"]))
+
+    assert plan["stops"] == [], "심야 미확인 식당·카페가 코스에 들어갔다"
+    statuses = {o["status"] for o in plan["slot_outcomes"]}
+    assert statuses == {"late_night_unconfirmed"}, statuses
+
+
+def test_daytime_keeps_the_same_unconfirmed_places(auth_client):  # noqa: F811
+    """낮에는 같은 후보가 그대로 추천된다 — 심야 규칙이 시간대 규칙임을 못 박는다.
+
+    이게 없으면 위 테스트는 '미확인 후보는 언제나 빠진다' 로도 통과한다.
+    """
+    facilities = []
+    for i in range(3):
+        cafe = _at("cafe-unknown-%d" % i, "cafe", 0.0002 * (i + 1))
+        cafe.pop("operating_hours", None)
+        facilities.append(cafe)
+
+    # 파일 기본 픽스처(_freeze_router_clock)가 12:00 KST 로 고정한다.
+    plan = _run(auth_client, facilities, _seq_body(["cafe", "cafe"]))
+    assert len(plan["stops"]) == 2, plan["slot_outcomes"]
+
 def test_course_stop_limit_parity_with_web():
     """백엔드 MAX_STOPS 와 프런트 MAX_SEQUENCE 가 어긋나면 CI 가 여기서 실패한다.
 

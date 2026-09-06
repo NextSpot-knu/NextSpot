@@ -74,7 +74,13 @@ interface CourseAlternative {
 interface SlotOutcome {
   order: number;
   requestedType: string | null;
-  status: 'filled' | 'no_candidate_of_type' | 'closed_at_arrival' | 'over_time_budget' | 'pin_unavailable';
+  status:
+    | 'filled'
+    | 'no_candidate_of_type'
+    | 'closed_at_arrival'
+    | 'late_night_unconfirmed'
+    | 'over_time_budget'
+    | 'pin_unavailable';
   facilityId: string | null;
   pinned: boolean;
 }
@@ -620,7 +626,7 @@ function CourseContent() {
                 ) : activeError ? (
                   <ErrorState message={activeError} onRetry={isShareMode ? fetchSharedStops : fetchCourse} />
                 ) : activeStops.length === 0 ? (
-                  <EmptyState />
+                  <EmptyState outcomes={isShareMode ? [] : slotOutcomes} />
                 ) : (
                   <div className="space-y-4">
                     <ViewToggle mode={viewMode} onChange={setViewMode} />
@@ -1028,6 +1034,7 @@ function StopRows({
 const SLOT_REASON_KEY: Record<string, string> = {
   no_candidate_of_type: 'course.slotNoCandidate',
   closed_at_arrival: 'course.slotClosedAtArrival',
+  late_night_unconfirmed: 'course.slotLateNight',
   over_time_budget: 'course.slotOverTimeBudget',
   pin_unavailable: 'course.slotPinUnavailable',
 };
@@ -1297,15 +1304,40 @@ function CourseSkeleton({ mode }: { mode: "course" | "shared" }) {
   );
 }
 
-function EmptyState() {
+/** 코스가 하나도 안 나왔을 때.
+ *
+ * 서버는 자리마다 **왜** 비었는지 코드로 알려 준다(slot_outcomes). 예전에는 이 화면이
+ * 그걸 받고도 쓰지 않아, 밤에 심야 규칙으로 후보가 전부 빠져도 사용자는 "추천할 코스를
+ * 찾지 못했어요" 한 줄만 봤다 — 조건을 바꿔야 하는지, 기다려야 하는지, 앱이 고장인지
+ * 구분할 방법이 없었다. 사유가 있으면 그것부터 말한다. */
+function EmptyState({ outcomes = [] }: { outcomes?: SlotOutcome[] }) {
   const t = useT();
+  // 같은 사유가 자리마다 반복되므로(대개 전 자리가 같은 이유로 빈다) 한 번씩만 보여 준다.
+  const reasons = [...new Set(
+    outcomes
+      .filter((o) => o.status !== 'filled')
+      .map((o) => SLOT_REASON_KEY[o.status])
+      .filter(Boolean),
+  )];
   return (
     <div className="bg-white rounded-2xl border border-line shadow-[0_2px_14px_rgba(43,35,32,0.06)] p-8 text-center space-y-2">
       <div className="text-3xl">🗺️</div>
       <p className="text-sm font-semibold text-muk">{t('course.emptyTitle')}</p>
-      <p className="text-xs text-muk-soft leading-relaxed">
-        {t('course.emptyBody')}
-      </p>
+      {reasons.length > 0 ? (
+        <div className="space-y-1">
+          <p className="text-[11px] font-semibold text-muk-soft">{t('course.emptyReasonsTitle')}</p>
+          <ul className="space-y-0.5">
+            {reasons.map((key) => (
+              <li key={key} className="text-xs text-muk leading-relaxed">
+                {t(key as string, { type: '' })}
+              </li>
+            ))}
+          </ul>
+          <p className="pt-1 text-[11px] text-muk-soft leading-relaxed">{t('course.slotHint')}</p>
+        </div>
+      ) : (
+        <p className="text-xs text-muk-soft leading-relaxed">{t('course.emptyBody')}</p>
+      )}
     </div>
   );
 }

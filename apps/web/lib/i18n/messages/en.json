@@ -349,7 +349,9 @@
     "slotClosedAtArrival": "Nothing here is open at your arrival time",
     "slotOverTimeBudget": "It does not fit in the trip time you set",
     "slotPinUnavailable": "The place you kept cannot go in this stop",
-    "slotHint": "Try another type, or widen your walking or trip time"
+    "slotHint": "Try another type, or widen your walking or trip time",
+    "slotLateNight": "At night we don't send unconfirmed restaurants or cafés",
+    "emptyReasonsTitle": "Here's what happened"
   },
   "coupons": {
     "expired": "Expired",

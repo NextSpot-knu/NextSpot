@@ -349,7 +349,9 @@
     "slotClosedAtArrival": "到着時刻に開いている場所がありません",
     "slotOverTimeBudget": "設定した滞在時間には収まりません",
     "slotPinUnavailable": "固定した場所をこの位置に入れられません",
-    "slotHint": "種類を変えるか、徒歩時間・滞在時間を広げてみてください"
+    "slotHint": "種類を変えるか、徒歩時間・滞在時間を広げてみてください",
+    "slotLateNight": "夜間は営業が確認できない飲食店・カフェはご案内しません",
+    "emptyReasonsTitle": "こうなりました"
   },
   "coupons": {
     "expired": "期限切れ",

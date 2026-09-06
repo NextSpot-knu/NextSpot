@@ -39,9 +39,10 @@ from app.services.spot.travel import (
     get_walking_routes,
 )
 from app.services.travel_context import (
+    ARRIVAL_LATE_NIGHT_UNCONFIRMED,
     TravelContext,
+    arrival_ineligibility_reason,
     facility_matches_context,
-    is_recommendable_at_arrival,
     open_status_at_arrival,
 )
 from app.services.spot.preference import get_category_average_vector
@@ -163,6 +164,10 @@ class CourseAlternative(BaseModel):
 SLOT_FILLED = "filled"
 SLOT_NO_CANDIDATE = "no_candidate_of_type"      # 그 종류 후보가 풀에 남아 있지 않다
 SLOT_CLOSED_AT_ARRIVAL = "closed_at_arrival"    # 도착 시각 영업 자격에서 전원 탈락
+# 심야(22:00~06:00 KST)에 영업이 확인되지 않은 식당·카페는 후보로 보내지 않는다.
+# closed_at_arrival 과 굳이 나누는 이유: 사용자에게 전혀 다른 사실이다. '문을 닫았다' 가
+# 아니라 '열었는지 우리가 모른다' 이고, 아침에 다시 오면 결과가 달라진다.
+SLOT_LATE_NIGHT_UNCONFIRMED = ARRIVAL_LATE_NIGHT_UNCONFIRMED
 SLOT_OVER_TIME_BUDGET = "over_time_budget"      # available_minutes 예산을 넘긴다
 SLOT_PIN_UNAVAILABLE = "pin_unavailable"        # 고정한 가게를 이 자리에 넣을 수 없다
 
@@ -661,13 +666,16 @@ async def _build_course(req: CourseRequest) -> CoursePlan:
             raise failures[0]
 
         # 도착 시각 자격과 시간 예산을 나눠 센다. 둘을 뭉뚱그리면 자리가 빈 이유를 말할 수 없다.
-        open_ok = [
-            e for e in evaluations
-            if is_recommendable_at_arrival(
+        open_ok, drop_reasons = [], []
+        for e in evaluations:
+            reason = arrival_ineligibility_reason(
                 e["facility"], now + timedelta(minutes=e["arrival_offset_min"])
             )
-        ]
-        dropped_closed = len(evaluations) - len(open_ok)
+            if reason is None:
+                open_ok.append(e)
+            else:
+                drop_reasons.append(reason)
+        dropped_closed = len(drop_reasons)
         evaluations = open_ok
         dropped_budget = 0
         if req.context and req.context.available_minutes:
@@ -686,7 +694,10 @@ async def _build_course(req: CourseRequest) -> CoursePlan:
             if dropped_budget:
                 status = SLOT_OVER_TIME_BUDGET
             elif dropped_closed:
-                status = SLOT_CLOSED_AT_ARRIVAL
+                # 전부 같은 이유로 떨어졌을 때만 그 이유를 말한다. 섞여 있으면 뭉뚱그린
+                # '도착 시각 영업' 으로 돌려준다 — 하나를 골라 대표로 세우면 지어낸 것이 된다.
+                unique = set(drop_reasons)
+                status = unique.pop() if len(unique) == 1 else SLOT_CLOSED_AT_ARRIVAL
             else:
                 status = SLOT_NO_CANDIDATE
             if pinned_id is None:

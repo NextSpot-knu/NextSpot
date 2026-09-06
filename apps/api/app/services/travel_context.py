@@ -119,19 +119,35 @@ def open_status_at_arrival(facility: dict, arrival_at: datetime) -> str:
     return "closed_confirmed"
 
 
-def is_recommendable_at_arrival(facility: dict, arrival_at: datetime) -> bool:
-    """Return whether the place can enter any honest recommendation tier."""
+# 도착 시각 자격 탈락 사유. 화면이 '왜 비었는지' 를 말할 수 있어야 해서 코드로 남긴다
+# (개수 차이로 이유를 추측하게 두면 그건 값을 지어내는 것이다).
+ARRIVAL_CLOSED = "closed_at_arrival"              # 닫혔거나 도착 후 30분 안에 닫힌다
+ARRIVAL_LATE_NIGHT_UNCONFIRMED = "late_night_unconfirmed"  # 심야 + 영업 미확인 식당·카페
+
+
+def arrival_ineligibility_reason(facility: dict, arrival_at: datetime) -> str | None:
+    """이 시각에 보낼 수 없는 이유. 보낼 수 있으면 None.
+
+    is_recommendable_at_arrival 의 판정을 그대로 쓰되 **왜** 를 함께 돌려준다. 두 함수가
+    각자 규칙을 갖지 않도록 아래 bool 판정은 이 함수를 감싸기만 한다 — 규칙이 갈라지면
+    화면이 말하는 이유와 실제 탈락 사유가 어긋난다.
+    """
     status = open_status_at_arrival(facility, arrival_at)
     # 도착 후 30분 안에 닫히는 곳도 이동 목적지로 권하지 않는다.
     if status in {"closed_confirmed", "closing_soon"}:
-        return False
+        return ARRIVAL_CLOSED
     if status == "needs_confirmation" and facility.get("type") in FOOD_TYPES:
         local = arrival_at.astimezone(KST)
         minute = local.hour * 60 + local.minute
         # 심야에는 미확인 식당·카페를 '확인 필요' 후보로도 보내지 않는다.
         if minute >= LATE_NIGHT_START_MINUTE or minute < LATE_NIGHT_END_MINUTE:
-            return False
-    return True
+            return ARRIVAL_LATE_NIGHT_UNCONFIRMED
+    return None
+
+
+def is_recommendable_at_arrival(facility: dict, arrival_at: datetime) -> bool:
+    """Return whether the place can enter any honest recommendation tier."""
+    return arrival_ineligibility_reason(facility, arrival_at) is None
 
 
 def recommendation_eligibility_tier(

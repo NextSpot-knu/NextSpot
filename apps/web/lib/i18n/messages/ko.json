@@ -349,7 +349,9 @@
     "slotClosedAtArrival": "도착 시각에 문을 여는 곳이 없어요",
     "slotOverTimeBudget": "설정한 여행 시간 안에 들르기 어려워요",
     "slotPinUnavailable": "고정한 곳을 이 자리에 넣을 수 없어요",
-    "slotHint": "종류를 바꾸거나 도보 시간·여행 시간을 넓혀 보세요"
+    "slotHint": "종류를 바꾸거나 도보 시간·여행 시간을 넓혀 보세요",
+    "slotLateNight": "밤에는 영업이 확인되지 않은 식당·카페를 보내지 않아요",
+    "emptyReasonsTitle": "이렇게 됐어요"
   },
   "coupons": {
     "expired": "만료됨",

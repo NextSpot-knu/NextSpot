@@ -349,7 +349,9 @@
     "slotClosedAtArrival": "到达时间没有营业中的地点",
     "slotOverTimeBudget": "超出你设定的行程时间",
     "slotPinUnavailable": "固定的地点无法放入此站",
-    "slotHint": "换个种类，或放宽步行时间与行程时间"
+    "slotHint": "换个种类，或放宽步行时间与行程时间",
+    "slotLateNight": "夜间不会推荐无法确认营业的餐厅或咖啡馆",
+    "emptyReasonsTitle": "情况如下"
   },
   "coupons": {
     "expired": "已过期",
