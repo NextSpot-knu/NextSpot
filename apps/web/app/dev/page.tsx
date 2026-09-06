@@ -27,7 +27,7 @@ import {
   AlertTriangle,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { apiClient } from '@/lib/api-client';
+import { apiClient, httpStatus } from '@/lib/api-client';
 import { errorMessage } from '@/lib/errors';
 import { searchFacilities, type FacilityHit } from '@/lib/facilitySearch';
 import { useAccount, canEnterDevConsole, type AccountRole } from '@/lib/account';
@@ -579,6 +579,19 @@ function ReviewQueue({
       onChanged();
     } catch (err) {
       toast.error(errorMessage(err) || '심사 처리에 실패했어요.');
+      // 409 는 '내가 보고 있는 화면이 이미 낡았다' 는 뜻이다(신청이 그 사이 처리됐거나,
+      // 가게가 이미 연결됐거나). 서버 문구가 "화면을 새로 고친 뒤" 라고 말하는데 정작
+      // 목록을 다시 읽지 않으면, 심사자는 같은 낡은 행으로 같은 실패를 반복한다 —
+      // 실제로 그 반복이 유령 POI 를 하나 더 만들던 경로였다.
+      if (httpStatus(err) === 409) {
+        setConfirmingId(null);
+        setSelections((prev) => {
+          const next = { ...prev };
+          delete next[row.id];
+          return next;
+        });
+        await load();
+      }
     } finally {
       setDecidingId(null);
     }

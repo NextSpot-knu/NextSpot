@@ -900,7 +900,8 @@
     "manualNotice": "Our team will add it as a new place after the check",
     "linkedChip": "Linked: {name}",
     "unlinkFacility": "Unlink",
-    "searchFailed": "Place search is unavailable right now — please try again shortly"
+    "searchFailed": "Place search is unavailable right now — please try again shortly",
+    "editStoreLocked": "The place can't be changed here — cancel and file again to pick another"
   },
   "merchantGate": {
     "title": "My store dashboard",

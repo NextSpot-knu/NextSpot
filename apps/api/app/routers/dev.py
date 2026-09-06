@@ -39,6 +39,9 @@ from app.core.authz import (
     require_role,
 )
 from app.core.supabase import supabase_admin
+# 증빙 삭제는 **core 의 한 함수**만 쓴다. 심사(여기)와 철회·교체(account.py)가 같은 약속을
+# 각자 구현하면 한쪽만 고쳐지는 날이 온다 — 실제로 이 파일이 한동안 사본을 들고 있었다.
+from app.core.verification_evidence import clear_verification_evidence
 # 신규 POI 의 capacity 기본값은 적재 파이프라인과 **같은 함수**로 정한다. 여기에 상수를
 # 새로 두면 같은 질문("이 업종의 기본 수용 인원은?")에 서로 다른 답이 둘 생기고, 나중에
 # 한쪽만 고쳐진다.
@@ -539,7 +542,7 @@ async def verification_document_url(request_id: str):
     심사자는 그 정책으로는 못 본다 — 여기서 service_role 로 서명 URL 을 만들어 전달한다.
     URL 을 응답에 실어 보내되 저장하지는 않는다(5분 뒤 죽는다).
 
-    심사가 끝난 요청은 document_path 가 NULL 이다(_clear_evidence). 그때는 404 다 —
+    심사가 끝난 요청은 document_path 가 NULL 이다(clear_verification_evidence). 그때는 404 다 —
     "보관하지 않는다" 는 결정의 자연스러운 귀결이라 오류가 아니라 정상 상태다.
     """
     res = await asyncio.to_thread(
@@ -567,26 +570,6 @@ async def verification_document_url(request_id: str):
         logger.warning("verification_document_sign_empty", request_id=request_id)
         raise HTTPException(status_code=503, detail="증빙을 여는 데 실패했습니다.")
     return {"url": url, "expires_in": _DOCUMENT_URL_TTL_SECONDS}
-
-
-async def _clear_evidence(request_id: str, path: str | None) -> None:
-    """심사가 끝나면 증빙을 지운다 — 인증 완료 후에는 보관하지 않는다는 결정.
-
-    경로를 **인자로 받는다.** 예전에는 request_id 로 document_path 를 다시 읽었는데, 바로
-    앞의 상태 갱신이 그 칼럼을 이미 NULL 로 만든 뒤였다. 그래서 path 가 언제나 None 이었고
-    **Storage 파일은 한 번도 지워지지 않았다** — 보관하지 않는다는 약속이 조용히 깨져 있었다.
-    (칼럼을 먼저 비우는 순서 자체는 옳다. 아래 호출부 주석 참조.)
-
-    Storage 파일 삭제는 경로가 있을 때만 시도하고, 실패해도 심사 결과를 되돌리지 않는다
-    (다만 경고를 남겨 수동 정리가 가능하게 한다).
-    """
-    if path:
-        try:
-            await asyncio.to_thread(
-                supabase_admin.storage.from_("business-documents").remove, [path]
-            )
-        except Exception as exc:
-            logger.warning("verification_document_delete_failed", request_id=request_id, error=str(exc))
 
 
 async def _require_active_facility(facility_id: str) -> None:
@@ -679,6 +662,11 @@ async def _link_facility_to_request(request_id: str, facility_id: str) -> None:
     POI 가 쌓이고, 그중 어느 행에 소유권이 붙었는지 아무도 모르게 된다(둘 다 검증 없이
     만들어진 행이라 나중에 구분할 근거도 없다).
 
+    이 약속은 혼자서는 성립하지 않는다. 신청서에 적어 두더라도 재승인이 그 값을 **읽어야**
+    의미가 있어서, _resolve_facility 가 req.facility_id 를 body.new_facility 보다 먼저 보는
+    것이 짝이다(그쪽 독스트링에 왜 그 순서인지 적었다). 한동안 순서가 반대여서 여기 적힌
+    말이 사실이 아니었다 — 둘 중 하나만 고치면 다시 그렇게 된다.
+
     재시도 안전성이 이 코드의 유일한 회복 수단이므로, 갱신이 실패하면 진행하지 않고 503 으로
     끊는다. 그 경우 만들어진 가게 id 를 로그에 남긴다 — 연결되지 않은 행이라 사람이 지워야
     한다(자동 롤백은 하지 않는다: 지우는 쪽이 실패하면 같은 문제가 조용히 반복된다).
@@ -704,20 +692,48 @@ async def _resolve_facility(
 ) -> tuple[str, bool]:
     """사업자 신청에 붙일 가게를 정한다. (facility_id, 새로 만들었는가) 를 돌려준다.
 
-    우선순위는 본문 > 신청서다: 심사자가 이번 승인에서 명시적으로 고른 쪽이 신청자가 적어
-    보낸 값보다 뒤에 있으면, 화면에서 고친 내용이 조용히 무시된다.
+    순서가 곧 계약이다:
+
+    1. body.facility_id — 심사자가 이번 승인에서 **명시적으로 고른** 정정. 신청자가 적어 보낸
+       값보다 뒤에 있으면 화면에서 바로잡은 내용이 조용히 무시된다.
+    2. req.facility_id — 신청서에 **이미 적힌** 가게. 여기가 body.new_facility 보다 앞이어야
+       한다. 예전에는 반대였고, 그 때문에 _link_facility_to_request 의 독스트링이 약속한
+       재시도 안전성이 실제로는 성립하지 않았다: 소유권 부여가 실패하면 503("신청은 그대로
+       두었으니 다시 승인해 주세요")으로 끊기는데, 그 시점 신청은 pending + facility_id=F1
+       이다. 프런트는 실패해도 목록을 다시 읽지 않아 화면 행은 여전히 facilityId=null 이고
+       심사자의 선택({mode:'create'})도 남아 있다. 안내대로 다시 승인하면 본문에 new_facility
+       가 또 실려 오고, 옛 순서는 신청서의 F1 을 **읽지도 않은 채** F2 를 만들었다. 소유권은
+       F2 에 붙고 F1 은 같은 verification_request_id 를 단 유령 POI 로 지도에 남는다
+       (facilities 에는 이름·좌표 유니크 제약이 없어 몇 번이고 쌓인다).
+    3. body.new_facility — 미등록 가게를 이 승인에서 만들어 연결한다.
+
+    2와 3이 동시에 오면 만들지 않고 409 로 되돌린다. 조용히 2를 쓰면 심사자는 자기가 입력한
+    새 가게가 등록된 줄 알고, 조용히 3을 쓰면 유령 POI 가 다시 생긴다 — 둘 다 사후에
+    구분할 근거가 없으므로, 화면이 낡았다는 사실 자체를 알리는 쪽이 맞다.
     """
     if body.facility_id:
         await _require_active_facility(body.facility_id)
         return body.facility_id, False
+
+    existing = req.get("facility_id")
+    if existing:
+        if body.new_facility:
+            raise HTTPException(
+                status_code=409,
+                detail="이 신청에는 이미 가게가 연결돼 있습니다. 화면을 새로 고친 뒤 다시 승인해 주세요.",
+            )
+        # 다른 갈래와 **같은 검사**를 받는다. 이 갈래만 검사가 없어서, 비활성(폐업 처리된)
+        # POI 에 소유권이 붙었다 — 사장님 콘솔은 열리는데 손님에게는 한 번도 추천되지 않는
+        # 막다른 계정이 된다. 게다가 이 값은 신청자가 적어 보낸 값이라 더더욱 그냥 못 쓴다.
+        await _require_active_facility(str(existing))
+        return str(existing), False
+
     if body.new_facility:
         facility_id = await _create_facility_for_request(body.new_facility, request_id)
         # 만든 직후, 다른 어떤 쓰기보다 먼저. 이유는 _link_facility_to_request 참조.
         await _link_facility_to_request(request_id, facility_id)
         return facility_id, True
-    existing = req.get("facility_id")
-    if existing:
-        return str(existing), False
+
     # 여기까지 왔으면 연결할 가게가 없다. 예전 문구("먼저 시설을 매핑하세요")는 존재하지
     # 않는 화면을 가리켰다 — 매핑 수단이 없어 승인이 영영 불가능했다. 지금은 두 길이 있다.
     raise HTTPException(
@@ -837,7 +853,7 @@ async def approve_verification(
         }).eq("id", request_id).execute
     )
     # 경로는 갱신 **전에** 읽어 둔 값을 넘긴다(갱신이 document_path 를 NULL 로 만든다).
-    await _clear_evidence(request_id, document_path)
+    await clear_verification_evidence(request_id, document_path)
     invalidate_profile_cache(user_id)
     log_role_audit(
         actor_id=actor["id"], target_id=user_id, action="verification_review",
@@ -881,7 +897,7 @@ async def reject_verification(
             "business_number_last4": None,
         }).eq("id", request_id).execute
     )
-    await _clear_evidence(request_id, document_path)
+    await clear_verification_evidence(request_id, document_path)
     log_role_audit(
         actor_id=actor["id"], target_id=str(res.data[0]["user_id"]),
         action="verification_review", to_value="rejected", reason=body.reason,

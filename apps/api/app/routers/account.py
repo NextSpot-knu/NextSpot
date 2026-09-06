@@ -197,6 +197,10 @@ class VerificationRequestPatch(BaseModel):
     보고 있어서, 큐에 떠 있는 신청의 역할이 밑에서 바뀌면 심사자가 보던 화면과 실제가
     어긋난다 — 역할을 바꾸려면 철회하고 새로 내야 한다.
 
+    **facility_id 도 바꿀 수 없다.** 아래 _FACILITY_CHANGE_REJECTED 주석 참조 — 편의 문제가
+    아니라 승인이 소유권을 붙이는 값 자체라서 심사 중에는 얼어 있어야 한다. 필드를 아예
+    지우지 않고 남겨 둔 이유도 거기 적었다(구 번들이 보내는 값을 조용히 삼키지 않기 위해).
+
     None 은 '지움' 이지 '안 보냄' 이 아니다. 둘의 구분은 model_fields_set 이 한다
     (아래 update_verification_request 참조).
     """
@@ -205,8 +209,36 @@ class VerificationRequestPatch(BaseModel):
     store_name: str | None = Field(default=None, max_length=200)
     contact: str | None = Field(default=None, max_length=200)
     business_number_last4: str | None = Field(default=None, pattern=r"^[0-9]{4}$")
+    # 갱신 대상이 아니다 — 받자마자 422 로 되돌린다(update_verification_request 첫머리).
+    # 선언을 남겨 두는 것은 '이 필드는 무시된다' 가 아니라 '이 필드는 거절된다' 를 말하기
+    # 위해서다. 모델에서 지우면 pydantic 기본값(extra=ignore)이 값을 조용히 버리고 200 을
+    # 돌려줘, 프런트는 가게가 바뀐 줄 알고 화면에 반영한다 — 서버 상태와 어긋난 채로.
     facility_id: str | None = None
     document_path: str | None = None
+
+
+# 신청 수정으로 가게를 바꿀 수 없다 — 바꾸려면 철회하고 다시 낸다.
+#
+# 왜 '수정 허용' 이 아니라 '철회 후 재신청' 인가:
+#
+# facility_id 는 승인이 소유권(facility_owners)을 붙이는 **바로 그 값**이다. 심사는 사람이
+# 하고, 그 사람이 보는 것은 큐 화면의 정적 스냅샷이다 — 신청서의 가게 이름과 사업자등록증을
+# 눈으로 대조하고 승인을 누른다. 그 사이에 신청자가 facility_id 를 다른 가게로 바꿀 수 있으면
+# 다음이 성립한다: 자기 가게 A 로 신청하고 A 의 증빙을 붙인다 → 심사자가 A 를 확인한다 →
+# 승인 직전에 B(남의 유명 가게)로 바꾼다 → 승인이 B 의 소유권을 준다. 큐는 새로고침 전까지
+# 갱신되지 않으니 경쟁 상태도 아니고, facilities 는 anon SELECT 라 B 를 고르는 일도 쉽다.
+# 그리고 소유권은 가벼운 자리가 아니다 — 좌석 방송 권한이고, 그 방송은 congestion_logs 에
+# verified 로 들어가 추천 모델의 학습 데이터가 된다.
+#
+# 막는 방법은 여럿이지만(승인 본문에 심사자가 본 facility_id 를 실어 대조하기, 신청서에
+# '마지막 수정 시각' 을 두고 승인이 그걸 확인하기) 둘 다 프런트 배포 순서나 새 칼럼에
+# 의존한다. 여기서 고르는 것은 그 무엇에도 기대지 않는 쪽이다: **심사 중에는 이 값이 얼어
+# 있다.** 가게를 잘못 골랐으면 철회하고 다시 내면 된다(철회 API 가 이미 있고 버튼 한 번이다).
+# 잃는 것은 '가게만 바꾸고 증빙은 유지' 라는 한 가지 편의고, 지키는 것은 심사자가 본 것과
+# 승인이 쓰는 것이 같다는 보장이다.
+#
+# 연락처·상호·증빙 교체는 그대로 열려 있다 — 그것들은 승인이 권한을 붙이는 값이 아니다.
+_FACILITY_CHANGE_REJECTED = "가게를 바꾸려면 신청을 취소하고 다시 신청해 주세요."
 
 
 def _reject_foreign_document_path(document_path: str, user_id: str) -> None:
@@ -317,6 +349,30 @@ def _insert_failure(user_id: str, exc: Exception) -> HTTPException:
     )
 
 
+async def _discard_uploaded_evidence(user_id: str, path: str | None) -> None:
+    """저장에 실패한 신청의 **방금 올린** 증빙을 지운다.
+
+    프런트는 신청서를 만들기 **전에** 증빙을 올린다. 그 순서 자체는 옳다 — 반대로 하면
+    업로드가 실패했는데 신청만 접수돼 심사자가 근거 없는 신청을 받는다. 문제는 그 다음이다:
+    저장이 실패하면 그 파일을 지울 주체가 아무도 없다. clear_verification_evidence 는 신청
+    행에 적힌 경로를 지우는 함수인데 그 행이 없고, 스토리지 정책(20260904200000)은 DELETE
+    정책을 **일부러 두지 않아** 브라우저는 자기가 올린 파일조차 못 지운다. 업로드 경로에는
+    타임스탬프가 들어가 재시도마다 새 파일이 쌓인다. 그리고 가장 흔한 실패가 409(이미
+    pending)와 503(콜드 스타트)이라, 이건 드물게 새는 구멍이 아니라 상시로 새는 구멍이다 —
+    남는 물건이 사업자등록증이라 더 그렇다.
+
+    그래서 서버가 치운다. service_role 은 RLS 를 우회하므로 스토리지 정책은 손대지 않는다.
+    이 정리는 실패해도 조용하다(clear_verification_evidence 는 예외를 올리지 않는다) —
+    사용자에게 돌아가는 오류 응답은 정리 성패와 무관하게 그대로여야 한다.
+    """
+    if not path:
+        return
+    # 지운 사실을 남긴다. 사용자가 "분명히 올렸는데 없다" 고 할 때 되짚을 유일한 흔적이다.
+    logger.info("verification_evidence_discarded", user_id=user_id, path=path)
+    # 신청 행이 없으므로 request_id 가 없다(수정 경로에서는 있다).
+    await clear_verification_evidence(None, path)
+
+
 @router.post("/verification-requests", response_model=VerificationRequestView)
 async def create_verification_request(
     body: VerificationRequestCreate, profile: dict = Depends(get_current_profile)
@@ -348,6 +404,8 @@ async def create_verification_request(
     def _insert(data: dict):
         return supabase_admin.table("business_verification_requests").insert(data).execute()
 
+    # 아래 실패 갈래들은 하나같이 "신청 행은 없는데 파일은 올라가 있는" 상태로 끝난다.
+    # 그 상태를 남기지 않는 것이 _discard_uploaded_evidence 의 일이다(그 독스트링 참조).
     try:
         res = await asyncio.to_thread(_insert, payload)
     except Exception as exc:
@@ -355,6 +413,7 @@ async def create_verification_request(
             if body.requested_role != "merchant":
                 # 관리자 신청을 사업자 신청으로 조용히 바꿔 저장하면 심사자가 잘못된 권한을 준다.
                 logger.error("verification_request_role_column_missing", user_id=profile["id"])
+                await _discard_uploaded_evidence(profile["id"], body.document_path)
                 raise HTTPException(
                     status_code=503,
                     detail="관리자 권한 신청은 아직 준비 중입니다. 잠시 후 다시 시도해 주세요.",
@@ -364,9 +423,14 @@ async def create_verification_request(
             try:
                 res = await asyncio.to_thread(_insert, payload)
             except Exception as retry_exc:
-                raise _insert_failure(profile["id"], retry_exc) from None
+                # 오류를 **먼저** 만든다(로그 순서가 실제 원인 → 정리 순이 되도록).
+                failure = _insert_failure(profile["id"], retry_exc)
+                await _discard_uploaded_evidence(profile["id"], body.document_path)
+                raise failure from None
         else:
-            raise _insert_failure(profile["id"], exc) from None
+            failure = _insert_failure(profile["id"], exc)
+            await _discard_uploaded_evidence(profile["id"], body.document_path)
+            raise failure from None
     row = (res.data or [{}])[0]
     return VerificationRequestView(
         id=str(row.get("id")),
@@ -546,6 +610,8 @@ async def update_verification_request(
 
     수정을 '철회 후 재신청' 으로 대신하게 하면 증빙을 다시 올려야 한다 — 연락처 오타 하나
     고치려고 사업자등록증을 다시 찍어 오게 만드는 셈이라 별도 경로를 둔다.
+
+    **다만 가게(facility_id)만은 예외다** — 이유는 _FACILITY_CHANGE_REJECTED 참조.
     """
     if profile["is_anonymous"]:
         raise HTTPException(
@@ -553,10 +619,27 @@ async def update_verification_request(
             detail="게스트 세션으로는 신청을 수정할 수 없습니다.",
         )
 
+    # 어떤 조회·쓰기보다 **먼저** 막는다. 뒤로 미루면 '거절했는데 갱신은 일어난' 창이 생기고,
+    # 그 창 하나가 곧 이 검사의 우회로다. null(연결 해제)도 같은 변경이다 — 연결을 끊고
+    # 승인받으면 심사자가 본 가게가 아닌 곳으로 붙을 수 있고, 애초에 승인이 막힌다.
+    #
+    # 여기서는 방금 올라온 document_path 를 지우지 않는다(아래 저장 실패 경로와 다른 점).
+    # 지우려면 그 경로가 **이 신청이 현재 쓰고 있는 파일이 아님**을 먼저 확인해야 하는데,
+    # 그 확인은 신청 행을 읽어야 가능하다 — 즉 이 검사를 조회 뒤로 미뤄야 한다. 그러면
+    # {facility_id: 아무거나, document_path: 내 신청의 현재 경로} 한 방으로 심사 중인 자기
+    # 증빙을 지워 심사자를 눈멀게 할 수 있다. 고아 파일 한 개보다 그쪽이 나쁘다.
+    if "facility_id" in body.model_fields_set:
+        logger.info(
+            "verification_request_facility_change_rejected",
+            request_id=request_id,
+            user_id=profile["id"],
+        )
+        raise HTTPException(status_code=422, detail=_FACILITY_CHANGE_REJECTED)
+
     # '보내지 않음' 과 '명시적 null' 을 반드시 갈라야 한다. model_dump() 는 안 보낸 필드도
-    # None 으로 채워 내려주므로 그대로 쓰면 연락처만 고치려던 요청이 facility_id 연결까지
-    # 함께 끊는다. exclude_unset=True 는 실제로 본문에 있던 키만 남긴다 — 그래서
-    # facility_id: null 은 '연결 해제', 키 자체가 없으면 '그대로 둠' 이 된다.
+    # None 으로 채워 내려주므로 그대로 쓰면 연락처만 고치려던 요청이 사업자번호 뒤 4자리와
+    # 증빙까지 함께 지운다. exclude_unset=True 는 실제로 본문에 있던 키만 남긴다 — 그래서
+    # business_number_last4: null 은 '지움', 키 자체가 없으면 '그대로 둠' 이 된다.
     fields = body.model_dump(exclude_unset=True)
     if not fields:
         raise HTTPException(status_code=422, detail="변경할 내용이 없습니다.")
@@ -572,8 +655,8 @@ async def update_verification_request(
 
     if fields.get("document_path"):
         _reject_foreign_document_path(fields["document_path"], profile["id"])
-    if fields.get("facility_id"):
-        await _ensure_facility_selectable(fields["facility_id"])
+    # facility_id 검증(_ensure_facility_selectable)은 여기 없다 — 위에서 이미 거절했으므로
+    # fields 에 들어올 수 없다. 남겨 두면 '수정으로 가게를 바꿀 수 있다' 는 인상을 준다.
 
     row = await _load_own_request(request_id, profile["id"])
     if row.get("status") != "pending":
@@ -591,7 +674,15 @@ async def update_verification_request(
             .execute
         )
     except Exception as exc:
-        raise _update_failure(profile["id"], exc) from None
+        failure = _update_failure(profile["id"], exc)
+        # 갱신이 실패했으면 이번에 올린 파일은 어느 신청도 가리키지 않는다 — 지운다.
+        # 지우는 것은 **이번에 보낸** 경로다. 옛 경로(previous_document_path)는 신청서가
+        # 여전히 가리키고 있으므로 건드리면 살아 있는 신청의 증빙을 없애는 셈이 된다.
+        # 같은 경로로 다시 올린 경우(재업로드)도 마찬가지라 아래 성공 경로와 같은 조건을 쓴다.
+        new_path = fields.get("document_path")
+        if new_path and new_path != previous_document_path:
+            await _discard_uploaded_evidence(profile["id"], new_path)
+        raise failure from None
 
     updated = {**row, **fields}
     if getattr(res, "data", None):

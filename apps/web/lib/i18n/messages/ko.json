@@ -900,7 +900,8 @@
     "manualNotice": "담당자가 확인 후 새 가게로 등록해 드려요",
     "linkedChip": "연결됨: {name}",
     "unlinkFacility": "연결 해제",
-    "searchFailed": "가게 검색을 지금 할 수 없어요 — 잠시 후 다시 시도해 주세요"
+    "searchFailed": "가게 검색을 지금 할 수 없어요 — 잠시 후 다시 시도해 주세요",
+    "editStoreLocked": "가게는 수정할 수 없어요 — 바꾸려면 신청을 취소하고 다시 신청해 주세요"
   },
   "merchantGate": {
     "title": "내 가게 대시보드",

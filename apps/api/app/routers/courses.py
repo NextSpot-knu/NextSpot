@@ -99,7 +99,14 @@ class CourseRequest(BaseModel):
     # 자리 고정. 사용자가 마음에 든 곳을 붙박아 두고 나머지만 다시 짜게 한다.
     # 고정이 하나 생기면 그 뒤 자리의 출발점과 누적 도착 시각이 실제로 달라지므로, 드래그가
     # 처음으로 '다른 가게' 를 데려온다. 채점 수는 오히려 줄어든다(고정된 자리는 후보가 1개다).
-    pins: list["CoursePin"] | None = None
+    #
+    # max_length 가 있어야 하는 이유: 고정은 **자리마다 하나**이므로 의미 있는 핀은 아무리 많아야
+    # MAX_STOPS 개다. 그런데 상한이 없던 시절 이 리스트는 그대로 후보 풀에 얹혔다 — 같은 order 를
+    # 1,600번 반복해 보내면 코스에는 아무 영향도 못 주면서 풀만 1,600곳으로 부풀었고,
+    # apply_merchant_boosts·fetch_congestion_map·fetch_effective_availability_map 이 전부 풀 크기에
+    # 비례한다(availability 는 PostgREST in.() 한계 때문에 150개씩 끊어 나간다). 익명 세션으로도
+    # 인증은 되므로 누구나 보낼 수 있는 요청이었다. 자리 수를 넘는 핀은 애초에 받지 않는다.
+    pins: list["CoursePin"] | None = Field(default=None, max_length=MAX_STOPS)
     context: TravelContext | None = None
 
 
@@ -474,7 +481,14 @@ async def _build_course(req: CourseRequest) -> CoursePlan:
     # 지난 목록이므로 거기서만 끌어온다. 접근성 '미상 = 부적격' 은 fail-closed 판정인데
     # (travel_context.py), 고정이라는 이유로 우회시키면 그 결과는 휠체어 사용자를 계단 앞에
     # 세우는 것이다. 자격에 걸린 고정은 조용히 넣지 않고 pin_unavailable 로 알린다.
-    pinned_ids = {p.facility_id for p in (req.pins or [])}
+    #
+    # 풀에 얹는 대상은 **자리 색인을 거친 핀**뿐이다. `{p.facility_id for p in req.pins}` 로 모으면
+    # 같은 order 에 겹쳐 온 핀까지 전부 들어가는데, 아래 슬롯 루프는 order 하나당 하나(뒤엣것)만
+    # 쓰므로 나머지는 코스에 영향도 못 주면서 풀만 키운다 — 풀 크기는 곧 일괄 조회 비용이다
+    # (CourseRequest.pins 의 max_length 주석 참조). 같은 자리에 두 번 오면 뒤엣것을 쓴다
+    # — 클라이언트 실수를 422 로 만들지 않는다.
+    pins_by_order: dict[int, str] = {p.order: p.facility_id for p in (req.pins or [])}
+    pinned_ids = set(pins_by_order.values())
     if pinned_ids:
         eligible_by_id = {f["id"]: f for f in candidates}
         in_pool = {f["id"] for f in pool}
@@ -517,10 +531,23 @@ async def _build_course(req: CourseRequest) -> CoursePlan:
     preferred_categories = user_info.get("preferred_categories", [])
     now = datetime.now(timezone.utc)
 
-    # 자리 고정(핀) 색인. 같은 자리에 두 번 오면 뒤엣것을 쓴다(클라이언트 실수를 422 로 만들지 않는다).
-    pins_by_order: dict[int, str] = {p.order: p.facility_id for p in (req.pins or [])}
-
     target_stops = len(seq) if seq else min(MAX_STOPS, len(pool))
+
+    # 자리 수를 넘겨 걸린 핀. 아래 루프는 range(target_stops) 만 돌므로 이런 핀에는 **슬롯이
+    # 아예 돌지 않는다.** 자동 모드의 target_stops 는 min(MAX_STOPS, len(pool)) 이라 풀이 2곳이면
+    # 2인데, 프런트 자동 모드의 자리 키는 언제나 3개(auto-0..2)라 3번 칸에 꽂은 핀은 늘 order=3
+    # 으로 나간다. 핀은 다시 짜기 사이에 상태로 살아남으므로, 사용자가 움직이거나 조건이 좁아져
+    # 풀이 줄어든 뒤에도 그 order=3 은 계속 올라온다.
+    #
+    # 그래서 두 가지를 한다.
+    #  · pins_by_order 에서 떼어낸다 — 남겨 두면 other_pinned 에 섞여 1·2번 후보에서까지 그 가게를
+    #    빼 버린다. 자리가 없어진 핀 때문에 그 가게가 **모든 자리에서** 사라지는 것은 사용자가
+    #    고정으로 요청한 바가 아니다(고정은 '여기 넣어라' 지 '아무 데도 넣지 마라' 가 아니다).
+    #  · 그 order 로 pin_unavailable 을 하나 남긴다 — SlotOutcome 을 만든 이유가 '조용히 짧아지지
+    #    않게 한다' 인데, 슬롯이 안 도니 사유 행조차 없어 화면에서 핀이 그냥 증발했다.
+    overflow_pins = {no: fid for no, fid in pins_by_order.items() if no > target_stops}
+    pins_by_order = {no: fid for no, fid in pins_by_order.items() if no <= target_stops}
+
     remaining = list(pool)
     used_types: set[str] = set()
     cur_lat, cur_lng = req.user_lat, req.user_lng
@@ -543,11 +570,21 @@ async def _build_course(req: CourseRequest) -> CoursePlan:
         wanted_type = seq[step_idx] if seq else None
         pinned_id = pins_by_order.get(slot_no)
 
-        # 다른 자리에 고정된 가게는 이 자리의 후보가 아니다.
+        # 다른 자리에 고정된 **다른** 가게는 이 자리의 후보가 아니다.
         #
         # 빼지 않으면 그리디가 먼저 집어가고, 정작 그 자리 차례에는 remaining 에서 이미 빠져
         # pin_unavailable 이 된다 — 사용자가 명시적으로 고정한 자리가 조용히 다른 자리에 먹힌다.
-        other_pinned = {fid for no, fid in pins_by_order.items() if no != slot_no}
+        #
+        # `fid != pinned_id` 가 빠져 있으면 **같은 가게를 두 자리에 고정한 요청이 두 자리를 모두
+        # 죽인다.** pins=[{1,X},{2,X}] 일 때 1번의 other_pinned 는 2번에서 온 X, 2번의 것은 1번에서
+        # 온 X 라 양쪽 다 available 에서 X 가 빠져 둘 다 pin_unavailable 이 됐다 — 한 자리에는
+        # 멀쩡히 들어갈 수 있는 가게가 통째로 사라진 것이다. 자기 자신과 같은 id 를 빼고 나면
+        # 앞 자리가 X 를 실제로 채우고(remaining 에서 빠진다) 뒤 중복 자리만 '앞에서 이미 쓰였다'
+        # 는 정직한 pin_unavailable 이 된다.
+        other_pinned = {
+            fid for no, fid in pins_by_order.items()
+            if no != slot_no and fid != pinned_id
+        }
         available = [f for f in remaining if f["id"] not in other_pinned]
 
         # 고정이 있으면 후보가 하나도 안 남은 경우에도 **고정 기준으로** 답한다.
@@ -728,6 +765,14 @@ async def _build_course(req: CourseRequest) -> CoursePlan:
             best_facility.get("type"), DEFAULT_DWELL_MIN
         )
 
+    # 자리가 없어 슬롯이 돌지 않은 핀도 사유를 남긴다(위 overflow_pins 주석 참조).
+    # order 순으로 이어 붙이면 slot_outcomes 는 그대로 자리 번호 오름차순이 된다.
+    for no in sorted(overflow_pins):
+        outcomes.append(SlotOutcome(
+            order=no, requested_type=None, status=SLOT_PIN_UNAVAILABLE,
+            facility_id=overflow_pins[no], pinned=True,
+        ))
+
     if req.context and req.context.available_minutes:
         # 루프 안의 예산 컷(도착+체류)이 이 조건(도착)보다 엄격하므로 여기서 걸릴 것은 없다.
         # 그래도 남겨 둔다 — 위 조건이 언젠가 느슨해져도 예산을 넘긴 정류지가 화면에 나가면 안 된다.
@@ -746,6 +791,21 @@ async def _build_course(req: CourseRequest) -> CoursePlan:
                 for o in outcomes
             ]
         chosen = kept
+
+    # 코스에 실제로 들어간 시설은 어느 자리의 '다른 곳' 에도 실리지 않는다.
+    #
+    # 대안은 그 자리의 2·3등인데, 선택분이 remaining 에서 빠지는 것은 대안을 실은 **다음** 줄이고
+    # 뒤 자리는 그 remaining 에서 고른다. 그래서 1번의 2등이 그대로 2번 정류지가 되는 흔한 경우
+    # (같은 종류를 연달아 짜면 거의 항상 그렇다) 1번 카드의 '다른 곳' 안에 바로 아래 2번 정류지가
+    # 들어 있었다. '다른 곳' 이라고 이름 붙여 놓고 이미 코스에 있는 곳을 내미는 것이라, 눌러도
+    # 새로운 데를 얻지 못하고 1·2번이 자리만 맞바꾼다 — 목록의 이름이 곧 거짓말이 된다.
+    #
+    # 게다가 그 선택은 프런트에서 '이 자리에 고정' 으로 바뀌어 되돌아온다. 같은 id 가 두 자리에
+    # 걸리는 입력을 화면이 만들지 않게 막는 것과는 별개로, 애초에 내밀지 말았어야 할 후보다.
+    #
+    # 예산 컷(위)으로 떨어져 나간 정류지는 코스에 없으므로 여기 집합에도 넣지 않는다 —
+    # 그 자리는 실제로 '다른 곳' 이다. 채점은 이미 끝나 있어 이 걸러내기에 추가 연산은 없다.
+    chosen_ids = {item["facility"]["id"] for _slot_no, item in chosen}
 
     stops = [
         CourseStop(
@@ -781,6 +841,7 @@ async def _build_course(req: CourseRequest) -> CoursePlan:
                     travel_minutes=alt["travel_minutes"],
                 )
                 for alt in item.get("alternatives", [])
+                if alt["facility"]["id"] not in chosen_ids
             ],
         )
         for i, (_slot_no, item) in enumerate(chosen)

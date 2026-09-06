@@ -900,7 +900,8 @@
     "manualNotice": "工作人员核实后会登记为新店铺",
     "linkedChip": "已关联：{name}",
     "unlinkFacility": "解除关联",
-    "searchFailed": "暂时无法搜索店铺 — 请稍后再试"
+    "searchFailed": "暂时无法搜索店铺 — 请稍后再试",
+    "editStoreLocked": "此处无法更改店铺 — 如需更换请取消申请后重新提交"
   },
   "merchantGate": {
     "title": "我的店铺看板",

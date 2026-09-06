@@ -129,10 +129,15 @@ class CongestionOverride(BaseModel):
 
 @router.post("/facilities/{facility_id}/congestion")
 async def override_congestion(facility_id: str, req: CongestionOverride):
-    """관리자 수동 혼잡도 설정 — congestion_logs 에 source='event' 로 1행 기록하고 그 행을 반환한다.
+    """관리자 수동 혼잡도 설정 — congestion_logs 에 source='admin_override',
+    evidence_tier='single_report' 로 1행 기록하고 그 행을 반환한다.
 
     흐름: 시설 존재/수용량 조회 → current_count = round(capacity×level) 추정 → service_role INSERT.
     (제보 라우터와 달리 쿨다운 없음 — 관리자 신뢰 경로의 의도적 개입이다.)
+
+    source 가 'event' 가 아닌 이유는 아래 _ADMIN_OVERRIDE_SOURCE 주석에 있고, tier 가
+    verified 가 아닌 이유는: **관측이 아니라 사람이 슬라이더로 넣은 값이라 모델 학습의
+    정답이 될 수 없다**(train.py 는 verified/corroborated 행을 그대로 학습에 넣는다).
     """
     # 1. 시설 존재 검증 + capacity 조회 (없는 facility_id 로의 FK 위반/유령 로그 방지)
     try:

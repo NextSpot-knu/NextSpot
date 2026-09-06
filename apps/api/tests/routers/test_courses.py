@@ -2,10 +2,19 @@
 #   · 인증: get_current_user 는 auth_client 픽스처(dependency_overrides)로 대체.
 #   · DB: fetch_user/fetch_all_facilities/fetch_congestion_map 는 AsyncMock,
 #         선호 벡터는 preference_vector_service 패치 — PostgREST 호출이 전혀 없다.
-#   · SPOT 스코어(calculate_spot_score)·predict_congestion·보행 경로(get_walking_routes)는
-#     실제로 돈다. 셋 다 외부 키 없이 로컬에서 결정적이다 — 보행 경로는 동봉된 경주 OSM
-#     그래프(app/data)를, 예측은 model.pkl 부재 시 기본값을 쓴다. test_routers 와 달리 여기서는
-#     길찾기를 목으로 막지 않으므로, 이 파일이 배치 경로의 실측 회귀 방어선 역할을 한다.
+#   · SPOT 스코어(calculate_spot_score)·보행 경로(get_walking_routes)는 **실제로 돈다.** 둘 다
+#     외부 키 없이 로컬에서 결정적이다(보행 경로는 동봉된 경주 OSM 그래프 app/data). test_routers
+#     와 달리 여기서는 길찾기를 목으로 막지 않으므로, 이 파일이 배치 경로의 실측 회귀 방어선이다.
+#   · predict_congestion 은 **실제로 돌지 않는다.** 아래 _verified_model_prediction 이 파일 전체에서
+#     0.5 로 가로챈다. 그리고 진짜 함수는 '기본값' 을 주지 않는다 — 활성 모델 스냅샷이 없으면
+#     None 이다(predict_service.predict_congestion_detailed → get_snapshot() is None).
+#     **프로덕션이 지금 그 상태다**(/predict/model-info trained=false, 점수 근거 degraded_rules).
+#     그러니 0.5 를 전제한 아래 단언들은 '학습된 모델이 있다면' 의 이야기다.
+#   · 게다가 그 픽스처는 courses 에 import 된 이름만 갈아치우고, score.py 가 따로 import 한
+#     predict_congestion_detailed 는 그대로 둔다 — 점수는 degraded 로 매기고 응답 필드만 0.5 인
+#     **어디에도 없는 혼종 상태**다. 그래도 픽스처를 걷어내지 않는 이유는 숫자가 필요한 단언들이
+#     있어서다(대안 정렬·혼잡 범위). 프로덕션이 100% 타는 None 분기는 파일 맨 아래 '미학습
+#     (degraded) 상태' 절에서 따로 검증한다.
 from unittest.mock import AsyncMock, patch
 from types import SimpleNamespace
 
@@ -33,6 +42,11 @@ _COURSE_PATH = "/api/v1/courses/recommend"
 
 @pytest.fixture(autouse=True)
 def _verified_model_prediction(monkeypatch):
+    """'학습된 모델이 있다면' 을 가정한다 — 프로덕션의 상태가 아니다(파일 상단 주석 참조).
+
+    걷어내지 않는 이유는 숫자가 필요한 단언들(0 ≤ predicted_congestion ≤ 1, 대안 점수 내림차순)이
+    이 값에 기대고 있어서다. 실제 프로덕션 분기(None)는 아래 '미학습(degraded) 상태' 절에서 잡는다.
+    """
     monkeypatch.setattr("app.routers.courses.predict_congestion", lambda *_args, **_kwargs: 0.5)
 
 
@@ -618,3 +632,202 @@ def test_course_stop_limit_parity_with_web():
     assert int(match.group(1)) == MAX_STOPS, (
         f"프런트 MAX_SEQUENCE={match.group(1)} 와 백엔드 MAX_STOPS={MAX_STOPS} 가 다르다"
     )
+
+
+# =============================================================================
+# 고정(핀) 이 스스로를, 혹은 남을 죽이지 않는가
+# =============================================================================
+
+def test_same_facility_pinned_to_two_slots_still_fills_one(auth_client):  # noqa: F811
+    """같은 가게를 두 자리에 고정해도 **한 자리는 채워진다.**
+
+    other_pinned 에서 '자기 자신과 같은 facility_id' 를 빼지 않으면 두 자리가 서로를 지운다:
+    1번의 other_pinned 에는 2번에서 온 X 가, 2번에는 1번에서 온 X 가 들어가 양쪽 available 에서
+    X 가 빠지고 둘 다 pin_unavailable 이 된다. 한 자리에는 멀쩡히 들어갈 수 있는 가게가 통째로
+    사라지는 것이라, 사용자에게는 '고정했더니 코스가 비었다' 로 보인다.
+    """
+    target = "cafe-near-3"
+    plan = _run(auth_client, _reorder_fixture(), _seq_body(
+        ["cafe", "cafe"],
+        pins=[{"order": 1, "facility_id": target}, {"order": 2, "facility_id": target}],
+    ))
+
+    ids = [s["facility"]["id"] for s in plan["stops"]]
+    assert ids == [target], "같은 가게를 두 자리에 고정했더니 두 자리가 함께 죽었다: %s" % plan["slot_outcomes"]
+
+    outcomes = {o["order"]: o for o in plan["slot_outcomes"]}
+    assert outcomes[1]["status"] == "filled" and outcomes[1]["pinned"] is True
+    # 뒤 자리는 '앞에서 이미 쓰였다' 는 정직한 사유다 — 넣지 못했다는 사실을 감추지 않는다.
+    assert outcomes[2]["status"] == "pin_unavailable"
+    assert outcomes[2]["facility_id"] == target
+
+
+def test_pins_are_capped_at_the_stop_count(auth_client):  # noqa: F811
+    """고정은 자리마다 하나이므로 MAX_STOPS 개를 넘는 pins 는 받지 않는다.
+
+    상한이 없던 시절 이 리스트는 그대로 후보 풀에 얹혔다. 자리 수를 넘는 핀은 코스에 아무 영향도
+    주지 못하면서 풀만 부풀리는데, 일괄 조회(혼잡·타임세일·영업근거)가 전부 풀 크기에 비례하고
+    영업근거는 PostgREST in.() 한계 때문에 150개씩 끊어 나간다 — 인증만 있으면(익명 세션으로
+    충분) 누구나 보낼 수 있는 요청량 증폭이었다.
+    """
+    body = _seq_body(["cafe", "cafe"], pins=[
+        {"order": 1, "facility_id": "cafe-near-0"},
+        {"order": 2, "facility_id": "cafe-near-1"},
+        {"order": 3, "facility_id": "cafe-near-2"},
+        {"order": 1, "facility_id": "cafe-near-3"},
+    ])
+    res = auth_client.post(_PLAN_PATH, json=body)
+    assert res.status_code == 422, "자리 수를 넘는 pins 가 그대로 통과했다"
+
+
+def test_duplicate_order_pins_do_not_inflate_the_candidate_pool(auth_client, monkeypatch):  # noqa: F811
+    """같은 자리에 겹쳐 온 핀은 **풀에 얹지 않는다.**
+
+    슬롯 루프는 order 하나당 하나(뒤엣것)만 쓴다. 나머지를 풀에 넣으면 코스에는 나타나지도
+    않으면서 일괄 조회 대상만 늘어난다 — 풀 크기가 곧 Supabase 요청량이다.
+    """
+    from app.routers import courses
+
+    # 반경(약 1.3km) 밖이라 후보 풀에는 못 들어가지만 여행 조건은 통과하는 가게들.
+    # 핀으로 지목되면 풀에 얹히므로, 풀에 무엇이 얹혔는지가 그대로 드러난다.
+    outside = [_at("far-pin-%d" % i, "cafe", 0.05 + 0.001 * i) for i in range(3)]
+
+    asked: list[list[str]] = []
+
+    async def spy(ids):
+        asked.append(list(ids))
+        return {}
+
+    monkeypatch.setattr(courses, "fetch_effective_availability_map", spy)
+
+    plan = _run(auth_client, _reorder_fixture() + outside, _seq_body(
+        ["cafe", "cafe"],
+        pins=[{"order": 1, "facility_id": f["id"]} for f in outside],  # 전부 1번 자리
+    ))
+
+    pool_ids = set(asked[0])
+    assert "far-pin-2" in pool_ids, "1번 자리에 실제로 쓰이는 마지막 핀이 풀에서 빠졌다"
+    assert not {"far-pin-0", "far-pin-1"} & pool_ids, (
+        "쓰이지도 않는 겹친 핀이 후보 풀에 얹혔다: %s" % sorted(pool_ids)
+    )
+    # 실제로 쓰인 핀은 1번 자리를 채운다(풀에서 뺐다가 코스가 망가지지 않았는지 함께 본다).
+    assert plan["stops"][0]["facility"]["id"] == "far-pin-2"
+
+
+def test_pin_past_the_last_slot_is_reported_and_blocks_nothing(auth_client):  # noqa: F811
+    """돌지 않는 자리에 걸린 핀은 **사유를 남기고**, 다른 자리를 막지 않는다.
+
+    루프는 range(target_stops) 만 돈다. 자동 모드의 target_stops 는 min(MAX_STOPS, len(pool)) 이라
+    풀이 2곳이면 2인데, 프런트 자동 모드의 자리 키는 언제나 3개(auto-0..2)라 3번 칸 핀은 늘
+    order=3 으로 나가고, 풀이 줄어든 뒤에도 상태에 남아 계속 올라온다.
+    그러면 (a) 그 자리는 슬롯이 안 돌아 SlotOutcome 이 하나도 안 생기고(화면에 사유 행조차 없다),
+    (b) 그러면서 other_pinned 에는 남아 1·2번 후보에서 그 가게를 빼 버렸다 — 고정한 가게가
+    '여기 넣어라' 가 아니라 '아무 데도 넣지 마라' 로 작동한 셈이다.
+    """
+    facilities = [_at("cafe-a", "cafe", 0.0002), _at("cafe-b", "cafe", 0.0004)]
+    body = dict(_course_body(), pins=[{"order": 3, "facility_id": "cafe-a"}])
+    plan = _run(auth_client, facilities, body)
+
+    ids = [s["facility"]["id"] for s in plan["stops"]]
+    assert set(ids) == {"cafe-a", "cafe-b"}, (
+        "자리 없는 핀이 그 가게를 남은 자리에서까지 몰아냈다: %s / %s" % (ids, plan["slot_outcomes"])
+    )
+
+    third = next((o for o in plan["slot_outcomes"] if o["order"] == 3), None)
+    assert third is not None, "돌지 않은 자리의 핀이 사유 없이 증발했다: %s" % plan["slot_outcomes"]
+    assert third["status"] == "pin_unavailable"
+    assert third["facility_id"] == "cafe-a" and third["pinned"] is True
+
+
+def test_alternatives_never_contain_a_stop_of_the_same_course(auth_client):  # noqa: F811
+    """어느 자리의 '다른 곳' 에도 **이 코스에 이미 들어간 가게**가 있으면 안 된다.
+
+    대안은 그 자리의 2·3등인데, 선택분이 remaining 에서 빠지는 것은 대안을 실은 다음 줄이고
+    뒤 자리는 그 remaining 에서 고른다. 그래서 1번의 2등이 그대로 2번 정류지가 되는 흔한
+    경우(같은 종류를 연달아 짜면 거의 항상), 1번 카드의 '다른 곳' 안에 바로 아래 2번 정류지가
+    들어 있었다. 눌러도 새로운 데를 얻지 못하고 1·2번이 자리만 맞바꾸므로, '다른 곳' 이라는
+    이름 자체가 거짓이 된다. 그 선택은 프런트에서 '이 자리에 고정' 으로 되돌아오기도 한다.
+
+    기존 test_alternatives_are_the_runner_ups 는 '2번의 대안에 1번이 없다' 는 **반대 방향만**
+    본다. 실제로 터진 것은 이쪽이다.
+    """
+    plan = _run(auth_client, _reorder_fixture(), _seq_body(["cafe", "cafe", "cafe"]))
+    stop_ids = {s["facility"]["id"] for s in plan["stops"]}
+    assert len(stop_ids) >= 2, plan["slot_outcomes"]
+
+    for stop in plan["stops"]:
+        overlap = stop_ids & {a["facility"]["id"] for a in stop["alternatives"]}
+        assert not overlap, (
+            "%d번 정류지의 '다른 곳' 에 이 코스의 정류지가 들어 있다: %s"
+            % (stop["order"], sorted(overlap))
+        )
+    # 걸러내기가 대안을 통째로 없애 버린 것은 아닌지 함께 본다(기능 삭제가 아니라 정정이다).
+    assert any(s["alternatives"] for s in plan["stops"]), "대안이 전부 사라졌다"
+
+
+# =============================================================================
+# 미학습(degraded) 상태 — 프로덕션이 지금 100% 타는 분기
+# =============================================================================
+# 활성 모델 스냅샷이 없으면 predict_congestion 은 None 이다(기본값이 아니다).
+# 프로덕션이 그 상태다(/predict/model-info trained=false). 위쪽 테스트들은 파일 전체에 걸린
+# _verified_model_prediction 픽스처 때문에 전부 0.5 를 전제하므로, 아래 분기는 그 어느
+# 테스트에서도 실행되지 않았다 — 배포된 어떤 환경에도 없는 상태만 검증하고 있었던 것이다.
+
+
+def _degraded(monkeypatch):
+    """이 요청 한 벌을 프로덕션과 같은 미학습 상태로 되돌린다.
+
+    autouse 픽스처가 갈아치운 courses.predict_congestion 을 **진짜 함수**로 되돌리고,
+    스냅샷 조회만 없는 상태로 고정한다. 그러면 courses 도 score.py 도 같은 get_snapshot 을
+    보므로 응답 필드와 점수 근거가 한 상태(degraded)로 정합한다 — 픽스처가 만들던
+    '점수는 degraded, 필드는 0.5' 인 혼종 상태가 아니다.
+    """
+    from app.services import predict_service
+
+    monkeypatch.setattr(predict_service, "get_snapshot", lambda: None)
+    monkeypatch.setattr("app.routers.courses.predict_congestion", predict_service.predict_congestion)
+
+
+def test_degraded_model_reports_no_congestion_instead_of_inventing_one(auth_client, monkeypatch):  # noqa: F811
+    """모델이 없으면 혼잡 수치를 **주지 않는다** — 지어내지도, 기본값으로 때우지도 않는다."""
+    _degraded(monkeypatch)
+    plan = _run(auth_client, _reorder_fixture(), _seq_body(["cafe", "attraction"]))
+
+    assert plan["stops"], "미학습 상태에서 코스가 통째로 비었다: %s" % plan["slot_outcomes"]
+    for stop in plan["stops"]:
+        assert stop["predicted_congestion"] is None, stop
+        # 도착 시점 예상 인원도 마찬가지다(capacity × None 을 0 으로 접지 않는다).
+        assert stop["facility"]["current_count"] is None, stop["facility"]
+        for alt in stop["alternatives"]:
+            assert alt["predicted_congestion"] is None, alt
+
+
+def test_degraded_reason_does_not_quote_a_percentage(auth_client, monkeypatch):  # noqa: F811
+    """사유 문구도 수치를 말하지 않는다.
+
+    _build_stop_reason 의 None 분기는 '몇 분 후 도착' 만 말하고 혼잡도 %·라벨을 뺀다. 이 분기는
+    픽스처 때문에 이 파일에서 한 번도 실행된 적이 없었는데, 정작 프로덕션은 언제나 여기로 온다.
+    """
+    _degraded(monkeypatch)
+    plan = _run(auth_client, _reorder_fixture(), _seq_body(["cafe", "attraction"]))
+
+    for stop in plan["stops"]:
+        reason = stop["reason"]
+        assert reason
+        assert "%" not in reason, "미학습 상태인데 사유가 혼잡도 수치를 말한다: %s" % reason
+        assert "분 후 도착" in reason, reason
+
+
+def test_degraded_course_still_ranks_and_still_says_why(auth_client, monkeypatch):  # noqa: F811
+    """수치가 없어도 코스는 성립한다 — SPOT(선호·이동시간·인센티브)만으로 순위가 정해진다.
+
+    '모델이 없으면 아무것도 못 한다' 가 아니라 '아는 것만 말한다' 가 이 라우터의 계약이다.
+    """
+    _degraded(monkeypatch)
+    plan = _run(auth_client, _reorder_fixture(), _seq_body(["cafe", "attraction"]))
+
+    assert [o["status"] for o in plan["slot_outcomes"]] == ["filled", "filled"], plan["slot_outcomes"]
+    offsets = [s["arrival_offset_min"] for s in plan["stops"]]
+    assert offsets == sorted(offsets)
+    assert all(0.0 <= s["spot_score"] <= 1.0 for s in plan["stops"])
+    assert plan["plan_id"]

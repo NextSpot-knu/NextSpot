@@ -59,9 +59,17 @@ _rpc_missing_until: float = 0.0
 
 # ── 지점별 백테스트 캐시 ──────────────────────────────────────────────────────
 _quality_cache: dict[tuple[float, float, int, str], tuple[float, dict[str, Any]]] = {}
-# 캐시 상한. 한 번의 추천이 훑는 후보 수(수십)보다 넉넉해야 의미가 있고, 항목이 작아
+# 캐시 상한. 한 번의 추천이 훑는 후보 수보다 넉넉해야 의미가 있고, 항목이 작아
 # 메모리 부담은 없다. 넘으면 만료분 → 오래된 순으로 버린다.
-_QUALITY_CACHE_MAX_ENTRIES = 64
+#
+# 64 였을 때의 근거는 "한 번의 추천이 수십 개" 였는데, courses.py 가 자리마다 '지금 서 있는
+# 자리' 기준으로 후보를 다시 추리게 되면서 전제가 깨졌다: 2·3번 자리는 누적 도착(도착 +
+# COURSE_DWELL_MIN 40~60분)이 항상 live 지평 30분 밖이라 **반드시** 이 이력 경로로 오고,
+# 자리당 MAX_COURSE_CANDIDATES(12)씩 → 코스 요청 하나가 24개 안팎의 **새 키**를 밀어 넣는다.
+# 64 면 세 번째 요청이 첫 요청의 항목을 밀어내 TTL 30분이 사실상 몇 분으로 줄어든다.
+# 256 = 코스 요청 약 10회분. 항목은 (float,float,int,str) 키와 숫자 4개짜리 dict 라
+# 256개라도 수십 KB 수준이다(Render 무료 인스턴스에서도 무시할 만하다).
+_QUALITY_CACHE_MAX_ENTRIES = 256
 _QUALITY_CACHE_TTL_SECONDS = 30 * 60.0
 
 
@@ -369,7 +377,17 @@ async def get_historical_area_demand_forecast(
     forecast = forecast_from_points(points, arrival, now=now)
     if forecast is None:
         return None
-    quality = _cached_backtest(points, latitude, longitude)
+    # ⚠️ 반드시 스레드로 내보낸다 — 캐시 미스 1건이 이벤트 루프를 **초 단위**로 막는다.
+    # (미스 = 56일치 최대 ~8,000점을 2시간 간격으로 슬라이스하며 매번 forecast+median+sort:
+    #  이 파일 docstring 의 실측으로 후보당 0.28~6.4초.)
+    #
+    # 코스 추천이 자리마다 '지금 서 있는 자리' 기준으로 후보를 다시 추리게 되면서 한 요청이
+    # 훑는 **서로 다른 좌표**가 3배가 됐고, 캐시 키에 좌표가 들어가는 이상 미스도 그만큼
+    # 늘었다. 게다가 2·3번 자리는 누적 도착이 항상 live 지평(30분) 밖이라 **반드시** 이
+    # 이력 경로로 온다. Render 무료 플랜은 워커가 하나라 여기서 루프를 잡으면 같은
+    # 프로세스의 다른 요청까지 함께 멈춘다(프런트 타임아웃 20초).
+    # 결과값은 그대로다 — 바뀌는 것은 '어느 스레드에서 도느냐' 뿐이다.
+    quality = await asyncio.to_thread(_cached_backtest, points, latitude, longitude)
     usable = bool(
         quality["sample_count"] >= 30
         and quality["mae"] is not None
@@ -392,7 +410,8 @@ async def get_area_demand_forecast_quality(
     """해당 권역의 시간 순서 백테스트와 현재 데이터 범위를 반환한다."""
     now = now or datetime.now(timezone.utc)
     points = await _load_points(latitude, longitude, now)
-    quality = _cached_backtest(points, latitude, longitude)
+    # 위 get_historical_area_demand_forecast 와 같은 이유로 오프로드한다(같은 비용).
+    quality = await asyncio.to_thread(_cached_backtest, points, latitude, longitude)
     if not points:
         return {
             **quality, "usable": False, "point_count": 0,

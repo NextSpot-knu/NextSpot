@@ -217,6 +217,14 @@ def request_client(monkeypatch):
     monkeypatch.setattr(
         account, "supabase_admin", SimpleNamespace(table=lambda _name: table)
     )
+    # 증빙 삭제는 core 모듈의 **자기 supabase_admin** 을 쓴다 — 여기서 안 막으면 저장 실패
+    # 경로가 실제 Storage 로 나간다(이 대역은 그 왕복을 흉내 내지 않는다).
+    table.cleared = []
+
+    async def _record_clear(request_id, path):
+        table.cleared.append((request_id, path))
+
+    monkeypatch.setattr(account, "clear_verification_evidence", _record_clear)
     with TestClient(app) as test_client:
         yield test_client, table
 
@@ -266,6 +274,30 @@ def test_admin_request_fails_loudly_when_the_column_is_missing(request_client):
     # 두 번째(역할을 뗀) 시도가 있으면 안 된다 — 그게 곧 둔갑이다.
     assert len(table.inserts) == 1
     assert table.inserts[0]["requested_role"] == "admin"
+
+
+@pytest.mark.parametrize(
+    "role,transient,status",
+    [
+        ("admin", False, 503),   # 컬럼이 없어 관리자 신청을 접수하지 못한 경우
+        ("merchant", True, 503),  # 컬럼 없이 다시 시도했는데 그 시도도 실패한 경우
+    ],
+    ids=["admin-blocked", "retry-failed"],
+)
+def test_every_legacy_schema_dead_end_discards_the_uploaded_evidence(
+    request_client, role, transient, status
+):
+    """폴백 갈래도 '행은 없는데 파일은 있는' 상태로 끝난다 — 한 갈래만 빠뜨리면 그 갈래가
+    곧 사업자등록증이 쌓이는 통로가 된다."""
+    http, table = request_client
+    table.missing_column = True
+    table.transient = transient
+    res = http.post("/api/v1/account/verification-requests", json={
+        "store_name": "가게", "contact": "010-0000-0000",
+        "requested_role": role, "document_path": "u1/proof.jpg",
+    })
+    assert res.status_code == status
+    assert table.cleared == [(None, "u1/proof.jpg")], "버킷에 사업자등록증이 남았다"
 
 
 def test_duplicate_request_is_a_conflict(request_client):
@@ -418,6 +450,9 @@ class FakeStore:
         self.inserts = []
         self.select_error = None
         self.update_error = None
+        # 삽입 실패는 흔한 경로다(409 중복 · 503 콜드 스타트). 그때 방금 올린 증빙이
+        # 어떻게 되는지가 검증 대상이라, 이 대역도 실패를 주입할 수 있어야 한다.
+        self.insert_error = None
         self.facility_error = None
 
     def table(self, name):
@@ -466,6 +501,9 @@ class FakeStore:
                 row.update(query.payload)
             return SimpleNamespace(data=[dict(r) for r in touched])
         if query.op == "insert":
+            if self.insert_error:
+                # 행은 남지 않는다 — 실패한 삽입은 시도조차 기록하지 않는다(실 DB 와 같다).
+                raise self.insert_error
             self.inserts.append(dict(query.payload))
             row = {"id": "req-new", "review_note": None, **query.payload}
             self.rows.append(row)
@@ -506,10 +544,13 @@ def owner_client(monkeypatch):
     async def _record_clear(request_id, path):
         # 삭제 시점의 **행 상태**까지 함께 붙잡는다. 경로만 보면 '갱신 전에 지웠는지'를
         # 구분할 수 없다 — 순서가 이 코드에서 가장 깨지기 쉬운 지점이다.
+        # 행이 없을 수도 있다: 저장에 실패해 신청이 아예 만들어지지 않은 업로드를 치우는
+        # 경로에서는 request_id 가 None 이다(그래서 next 에 기본값을 준다).
+        row = next((r for r in store.rows if r["id"] == request_id), None)
         cleared.append({
             "request_id": request_id,
             "path": path,
-            "row_at_delete": dict(store.row(request_id)),
+            "row_at_delete": dict(row) if row else None,
         })
 
     monkeypatch.setattr(account, "clear_verification_evidence", _record_clear)
@@ -609,13 +650,20 @@ def test_patch_sends_only_the_fields_that_were_present_in_the_body(owner_client)
 
 
 def test_patch_distinguishes_an_explicit_null_from_an_omitted_field(owner_client):
-    """facility_id: null 은 '연결 해제' 다 — 안 보낸 것과 같은 뜻이 되면 해제할 방법이 없다."""
+    """명시적 null 은 '지움' 이다 — 안 보낸 것과 같은 뜻이 되면 지울 방법이 없다.
+
+    예전에는 facility_id 로 이 경계를 확인했다. 이제 그 필드는 수정 대상이 아니라
+    (아래 '가게 바꿔치기' 절) 지울 수 있는 다른 선택 칼럼으로 같은 계약을 잠근다 —
+    검증하려는 것은 exclude_unset 의 동작이지 어느 칼럼이냐가 아니다.
+    """
     http, store, _ = owner_client
-    res = http.patch("/api/v1/account/verification-requests/req-1", json={"facility_id": None})
+    res = http.patch(
+        "/api/v1/account/verification-requests/req-1", json={"business_number_last4": None}
+    )
     assert res.status_code == 200
-    assert "facility_id" in store.updates[0], "명시적 null 이 '미지정' 으로 삼켜졌다"
-    assert store.updates[0]["facility_id"] is None
-    assert res.json()["facility_id"] is None
+    assert "business_number_last4" in store.updates[0], "명시적 null 이 '미지정' 으로 삼켜졌다"
+    assert store.updates[0]["business_number_last4"] is None
+    assert store.row("req-1")["business_number_last4"] is None
 
 
 def test_patch_rejects_a_document_path_in_someone_elses_folder(owner_client):
@@ -729,8 +777,61 @@ def test_creating_with_a_real_facility_stores_the_link(owner_client):
     assert store.inserts[-1]["facility_id"] == FACILITY_ID
 
 
-def test_patching_to_an_unknown_facility_is_unprocessable(owner_client):
+def test_a_facility_lookup_failure_is_not_blamed_on_the_user(owner_client):
+    """조회 실패를 422 로 답하면 멀쩡한 가게를 '없는 가게' 라고 말하게 된다.
+
+    (수정이 아니라 신규 신청으로 확인한다 — 가게 검증이 남아 있는 곳이 거기뿐이다.)
+    """
     http, store, _ = owner_client
+    store.facility_error = RuntimeError("server disconnected without sending a response")
+    res = http.post("/api/v1/account/verification-requests", json={
+        "store_name": "가게", "contact": "010-0000-0000", "facility_id": FACILITY_ID,
+    })
+    assert res.status_code == 503
+    assert store.inserts == []
+
+
+# ── 가게 바꿔치기 — 심사 중에는 facility_id 가 얼어 있어야 한다 ──────────────
+# 승인은 신청서의 facility_id 에 소유권(facility_owners)을 붙인다. 심사자가 보는 큐는 정적
+# 스냅샷이라, 신청자가 심사 중에 이 값을 바꿀 수 있으면 다음이 성립한다: 자기 가게 A 로
+# 신청하고 A 의 증빙을 붙인다 → 심사자가 A 를 확인한다 → 승인 직전에 B(남의 유명 가게)로
+# 바꾼다 → 승인이 B 의 소유권을 준다. 경쟁 상태가 아니라 몇 분이면 되는 일이고, 소유권은
+# 좌석 방송 권한이라 그 방송이 congestion_logs 에 verified 로 들어간다.
+#
+# 그래서 수정으로는 못 바꾼다. 바꾸려면 철회하고 다시 낸다.
+
+
+@pytest.mark.parametrize(
+    "value",
+    [UNKNOWN_FACILITY_ID, FACILITY_ID, None],
+    ids=["unknown", "real", "unlink"],
+)
+def test_patch_refuses_to_change_the_linked_facility(owner_client, value):
+    """어떤 값이든 거절이다 — 실존하는 가게로 바꾸는 것이 정확히 이 공격이다.
+
+    null(연결 해제)도 같은 변경이다. 연결을 끊어 두면 심사자가 본 가게가 사라지고,
+    승인은 심사자가 그 자리에서 고른 가게에 소유권을 붙이게 된다.
+    """
+    http, store, _ = owner_client
+    res = http.patch(
+        "/api/v1/account/verification-requests/req-1", json={"facility_id": value}
+    )
+    assert res.status_code == 422, f"가게가 {res.status_code} 로 바뀌었다"
+    assert store.updates == [], "거절해 놓고 갱신이 일어났다"
+    assert store.row("req-1")["facility_id"] == FACILITY_ID, "신청서의 가게가 바뀌었다"
+    # 문구가 다음 동선을 가리켜야 한다 — 막기만 하면 사용자는 잘못 고른 가게에 갇힌다.
+    detail = res.json()["detail"]
+    assert "취소" in detail and "다시 신청" in detail, f"할 일을 알려 주지 않는다: {detail}"
+
+
+def test_the_facility_change_is_refused_before_anything_is_read(owner_client):
+    """검사가 조회·갱신보다 뒤로 밀리면 '거절했는데 쓰기는 일어난' 창이 생긴다.
+
+    조회 자체를 통째로 실패시켜 둔다 — 그래도 422 가 나오면 그 사이 아무것도 읽지 않았다는
+    뜻이다(읽었다면 503 이 됐을 것이다)."""
+    http, store, _ = owner_client
+    store.select_error = RuntimeError("server disconnected without sending a response")
+    store.facility_error = RuntimeError("server disconnected without sending a response")
     res = http.patch(
         "/api/v1/account/verification-requests/req-1", json={"facility_id": UNKNOWN_FACILITY_ID}
     )
@@ -738,15 +839,24 @@ def test_patching_to_an_unknown_facility_is_unprocessable(owner_client):
     assert store.updates == []
 
 
-def test_a_facility_lookup_failure_is_not_blamed_on_the_user(owner_client):
-    """조회 실패를 422 로 답하면 멀쩡한 가게를 '없는 가게' 라고 말하게 된다."""
+def test_other_fields_are_still_editable(owner_client):
+    """가게만 잠긴다 — 연락처 오타 하나 고치려고 사업자등록증을 다시 찍게 만들면 안 된다."""
     http, store, _ = owner_client
-    store.facility_error = RuntimeError("server disconnected without sending a response")
     res = http.patch(
-        "/api/v1/account/verification-requests/req-1", json={"facility_id": FACILITY_ID}
+        "/api/v1/account/verification-requests/req-1",
+        json={"contact": "010-1111-2222", "store_name": "이풍녀 구로쌈밥 본점"},
     )
-    assert res.status_code == 503
-    assert store.updates == []
+    assert res.status_code == 200
+    assert store.row("req-1")["contact"] == "010-1111-2222"
+    assert store.row("req-1")["facility_id"] == FACILITY_ID
+
+
+def test_the_patch_model_never_carries_a_facility_id_into_the_update(owner_client):
+    """모델에서 필드를 지우면 pydantic 이 값을 **조용히** 버리고 200 을 돌려준다 — 프런트는
+    가게가 바뀐 줄 알고 화면에 반영하고, 서버 상태와 어긋난다. 거절이지 무시가 아니다."""
+    assert "facility_id" in account.VerificationRequestPatch.model_fields, (
+        "필드를 지우면 잘못된 요청이 200 으로 통과한다"
+    )
 
 
 # ── 내 신청 목록 ──────────────────────────────────────────────────────────
@@ -784,3 +894,83 @@ def test_mine_survives_a_facility_name_lookup_failure(owner_client):
     assert len(items) == 1, "이름 조회 실패가 목록 전체를 죽였다"
     assert items[0]["facility_name"] is None
     assert items[0]["has_document"] is True
+
+
+# ── 저장에 실패한 신청의 증빙 — 버킷에 남기지 않는다 ────────────────────────
+# 프런트는 신청서를 만들기 **전에** 증빙을 올린다(반대로 하면 근거 없는 신청이 큐에 남으므로
+# 그 순서 자체는 옳다). 문제는 그 다음이다: 저장이 실패하면 그 파일을 지울 주체가 없다.
+# clear_verification_evidence 는 신청 행에 적힌 경로를 지우는데 그 행이 없고, 스토리지
+# 정책(20260904200000)에는 DELETE 정책이 **일부러 없어** 브라우저도 자기 파일을 못 지운다.
+# 업로드 경로에 타임스탬프가 들어가 재시도마다 새 파일이 쌓이고, 남는 물건은 사업자등록증이다.
+# 가장 흔한 실패(409 중복 · 503 콜드 스타트)가 정확히 이 경로다.
+
+NEW_DOC = "u1/1757000000-proof.jpg"
+
+
+def _submit_with_document(http, path=NEW_DOC):
+    return http.post("/api/v1/account/verification-requests", json={
+        "store_name": "가게", "contact": "010-0000-0000", "document_path": path,
+    })
+
+
+@pytest.mark.parametrize(
+    "error,status",
+    [
+        (RuntimeError("duplicate key value violates unique constraint bvr_pending_freeform_uq"), 409),
+        (RuntimeError("server disconnected without sending a response"), 503),
+    ],
+    ids=["duplicate", "transient"],
+)
+def test_a_failed_insert_deletes_the_evidence_it_orphaned(owner_client, error, status):
+    http, store, cleared = owner_client
+    store.insert_error = error
+    res = _submit_with_document(http)
+    assert res.status_code == status, "오류 응답이 정리 때문에 바뀌었다"
+    assert [c["path"] for c in cleared] == [NEW_DOC], "버킷에 사업자등록증이 남았다"
+    # 행이 없으니 request_id 도 없다 — 있는 척하면 로그가 거짓말을 한다.
+    assert cleared[0]["request_id"] is None
+    assert store.inserts == []
+
+
+def test_a_successful_request_keeps_its_evidence(owner_client):
+    """정리가 성공 경로까지 번지면 심사자가 볼 서류가 사라진다."""
+    http, store, cleared = owner_client
+    assert _submit_with_document(http).status_code == 200
+    assert cleared == [], "접수된 신청의 증빙을 지웠다"
+
+
+def test_a_failed_insert_without_evidence_deletes_nothing(owner_client):
+    """관리자 신청에는 서류가 없다 — 지울 것이 없을 때 삭제를 부르면 로그만 더럽힌다."""
+    http, store, cleared = owner_client
+    store.insert_error = RuntimeError("server disconnected without sending a response")
+    res = http.post("/api/v1/account/verification-requests", json={
+        "store_name": "소속", "contact": "010-0000-0000", "requested_role": "admin",
+    })
+    assert res.status_code == 503
+    assert cleared == []
+
+
+def test_a_failed_update_deletes_only_the_path_that_was_just_uploaded(owner_client):
+    """수정도 같다 — 다만 지울 것은 **이번에 보낸** 경로다.
+
+    옛 경로는 신청서가 여전히 가리키고 있다. 그걸 지우면 살아 있는 pending 신청의 증빙이
+    사라져, 심사자는 서류 없는 신청을 받고 신청자는 낸 줄 안다."""
+    http, store, cleared = owner_client
+    store.update_error = RuntimeError("server disconnected without sending a response")
+    res = http.patch(
+        "/api/v1/account/verification-requests/req-1", json={"document_path": NEW_DOC}
+    )
+    assert res.status_code == 503
+    assert [c["path"] for c in cleared] == [NEW_DOC]
+    assert store.row("req-1")["document_path"] == "u1/proof.jpg", "옛 경로가 지워졌다"
+
+
+def test_a_failed_update_does_not_delete_a_reuploaded_path(owner_client):
+    """같은 경로로 다시 올린 경우 그 파일은 **여전히 유효한 신청**의 증빙이다."""
+    http, store, cleared = owner_client
+    store.update_error = RuntimeError("server disconnected without sending a response")
+    res = http.patch(
+        "/api/v1/account/verification-requests/req-1", json={"document_path": "u1/proof.jpg"}
+    )
+    assert res.status_code == 503
+    assert cleared == [], "살아 있는 신청의 증빙을 지웠다"

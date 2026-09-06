@@ -21,7 +21,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.core import authz
+from app.core import authz, verification_evidence
 from app.routers import dev
 from app.services.batch.localdata import capacity_for
 from tests.conftest import make_test_jwt
@@ -356,7 +356,11 @@ def _reset_auth_index():
 def client(db):
     test_app = FastAPI()
     test_app.include_router(dev.router)
-    with patch.object(dev, "supabase_admin", db), patch.object(authz, "supabase_admin", db):
+    # verification_evidence 도 같이 갈아끼운다. 증빙 삭제가 core 로 옮겨 간 뒤로 그 모듈은
+    # **자기 supabase_admin** 을 쓴다 — 여기서 안 막으면, 삭제를 따로 패치하지 않은 테스트가
+    # 실제 Storage 로 나간다(테스트가 네트워크에 닿는 순간 CI 와 로컬이 갈린다).
+    with patch.object(dev, "supabase_admin", db), patch.object(authz, "supabase_admin", db), \
+            patch.object(verification_evidence, "supabase_admin", db):
         with TestClient(test_app) as c:
             yield c
 
@@ -717,7 +721,7 @@ def test_a_duplicate_owner_still_approves(client, db, pending_request):
     db.insert_errors["facility_owners"] = RuntimeError(
         "duplicate key value violates unique constraint facility_owners_active_uq"
     )
-    with _as("developer"), patch.object(dev, "_clear_evidence", new=AsyncMock()):
+    with _as("developer"), patch.object(dev, "clear_verification_evidence", new=AsyncMock()):
         res = client.post(
             f"/api/v1/dev/verification-requests/{REQUEST_ID}/approve",
             json={"reason": "재심사"}, headers=_headers(),
@@ -734,7 +738,7 @@ def test_a_failed_owner_grant_leaves_the_request_reviewable(client, db, pending_
         "server disconnected without sending a response"
     )
     clear = AsyncMock()
-    with _as("developer"), patch.object(dev, "_clear_evidence", new=clear):
+    with _as("developer"), patch.object(dev, "clear_verification_evidence", new=clear):
         res = client.post(
             f"/api/v1/dev/verification-requests/{REQUEST_ID}/approve",
             json={"reason": "서류 확인"}, headers=_headers(),
@@ -789,7 +793,7 @@ def test_review_queue_refuses_a_developer_filter(client):
 
 
 def test_approve_promotes_and_grants_ownership(client, db, pending_request):
-    with _as("developer"), patch.object(dev, "_clear_evidence", new=AsyncMock()):
+    with _as("developer"), patch.object(dev, "clear_verification_evidence", new=AsyncMock()):
         res = client.post(
             f"/api/v1/dev/verification-requests/{REQUEST_ID}/approve",
             json={"reason": "서류 확인"},
@@ -810,7 +814,7 @@ def test_approve_clears_evidence_only_after_the_status_is_written(client, db, pe
     async def _spy(_request_id, path):
         seen.append((pending_request["status"], path))
 
-    with _as("developer"), patch.object(dev, "_clear_evidence", new=_spy):
+    with _as("developer"), patch.object(dev, "clear_verification_evidence", new=_spy):
         client.post(
             f"/api/v1/dev/verification-requests/{REQUEST_ID}/approve",
             json={"reason": "서류 확인"},
@@ -828,7 +832,7 @@ def test_reject_clears_evidence_only_after_the_status_is_written(client, db, pen
     async def _spy(_request_id, path):
         seen.append((pending_request["status"], path))
 
-    with _as("developer"), patch.object(dev, "_clear_evidence", new=_spy):
+    with _as("developer"), patch.object(dev, "clear_verification_evidence", new=_spy):
         client.post(
             f"/api/v1/dev/verification-requests/{REQUEST_ID}/reject",
             json={"reason": "서류 불충분"},
@@ -839,7 +843,7 @@ def test_reject_clears_evidence_only_after_the_status_is_written(client, db, pen
 
 
 def test_reject_does_not_promote_or_grant(client, db, pending_request):
-    with _as("developer"), patch.object(dev, "_clear_evidence", new=AsyncMock()):
+    with _as("developer"), patch.object(dev, "clear_verification_evidence", new=AsyncMock()):
         res = client.post(
             f"/api/v1/dev/verification-requests/{REQUEST_ID}/reject",
             json={"reason": "서류 불충분"},
@@ -861,7 +865,7 @@ def test_reject_requires_a_reason(client, pending_request):
 
 def test_second_review_is_rejected(client, db, pending_request):
     pending_request["status"] = "approved"
-    with _as("developer"), patch.object(dev, "_clear_evidence", new=AsyncMock()):
+    with _as("developer"), patch.object(dev, "clear_verification_evidence", new=AsyncMock()):
         res = client.post(
             f"/api/v1/dev/verification-requests/{REQUEST_ID}/approve", json={}, headers=_headers()
         )
@@ -875,7 +879,7 @@ def test_approve_without_a_mapped_facility_is_refused(client, db, pending_reques
     매핑 화면은 **없었고**, 신청 화면의 가게 검색도 없어서 모든 신청이 facility_id NULL 로
     들어왔다 — 즉 사업자 승인이 앱 전체에서 한 건도 불가능했다."""
     pending_request["facility_id"] = None
-    with _as("developer"), patch.object(dev, "_clear_evidence", new=AsyncMock()):
+    with _as("developer"), patch.object(dev, "clear_verification_evidence", new=AsyncMock()):
         res = client.post(
             f"/api/v1/dev/verification-requests/{REQUEST_ID}/approve", json={}, headers=_headers()
         )
@@ -890,7 +894,7 @@ def test_admin_request_needs_no_facility_and_grants_admin(client, db, pending_re
     """관리자 신청은 다루는 가게가 없다 — 가게 매핑을 요구하면 영원히 승인할 수 없다."""
     pending_request["requested_role"] = "admin"
     pending_request["facility_id"] = None
-    with _as("developer"), patch.object(dev, "_clear_evidence", new=AsyncMock()):
+    with _as("developer"), patch.object(dev, "clear_verification_evidence", new=AsyncMock()):
         res = client.post(
             f"/api/v1/dev/verification-requests/{REQUEST_ID}/approve", json={}, headers=_headers()
         )
@@ -903,7 +907,7 @@ def test_admin_request_needs_no_facility_and_grants_admin(client, db, pending_re
 def test_approving_an_admin_request_never_grants_merchant(client, db, pending_request):
     """신청 역할을 무시하고 merchant 를 주면, 관리자에게 남의 가게 방송 권한이 생긴다."""
     pending_request["requested_role"] = "admin"
-    with _as("developer"), patch.object(dev, "_clear_evidence", new=AsyncMock()):
+    with _as("developer"), patch.object(dev, "clear_verification_evidence", new=AsyncMock()):
         client.post(
             f"/api/v1/dev/verification-requests/{REQUEST_ID}/approve", json={}, headers=_headers()
         )
@@ -913,7 +917,7 @@ def test_approving_an_admin_request_never_grants_merchant(client, db, pending_re
 def test_legacy_request_without_a_role_is_still_a_merchant_request(client, db, pending_request):
     """컬럼이 없는 DB의 기존 행(필드 없음)은 예전과 똑같이 사업자 승인으로 동작해야 한다."""
     pending_request.pop("requested_role", None)
-    with _as("developer"), patch.object(dev, "_clear_evidence", new=AsyncMock()):
+    with _as("developer"), patch.object(dev, "clear_verification_evidence", new=AsyncMock()):
         res = client.post(
             f"/api/v1/dev/verification-requests/{REQUEST_ID}/approve", json={}, headers=_headers()
         )
@@ -924,7 +928,7 @@ def test_legacy_request_without_a_role_is_still_a_merchant_request(client, db, p
 def test_developer_is_never_demoted_by_an_approval(client, db, pending_request):
     """개발자가 사업자 인증을 내면 승인 시 developer 를 잃는다 — 그러면 안 된다."""
     db.tables["users"][1]["role"] = "developer"
-    with _as("developer"), patch.object(dev, "_clear_evidence", new=AsyncMock()):
+    with _as("developer"), patch.object(dev, "clear_verification_evidence", new=AsyncMock()):
         client.post(
             f"/api/v1/dev/verification-requests/{REQUEST_ID}/approve", json={}, headers=_headers()
         )
@@ -932,7 +936,7 @@ def test_developer_is_never_demoted_by_an_approval(client, db, pending_request):
 
 
 def test_approve_invalidates_profile_cache(client, pending_request):
-    with _as("developer"), patch.object(dev, "_clear_evidence", new=AsyncMock()), patch.object(
+    with _as("developer"), patch.object(dev, "clear_verification_evidence", new=AsyncMock()), patch.object(
         dev, "invalidate_profile_cache"
     ) as spy:
         client.post(
@@ -965,7 +969,7 @@ def _approve(client, body):
 def test_two_ways_to_link_a_facility_is_refused_before_any_write(client, db, pending_request):
     """둘 다 주면 어느 쪽이 쓰였는지 심사자가 알 수 없다. 조용히 우선순위를 정하면
     '새로 만든 줄 알았는데 기존 가게에 소유권이 붙었다' 가 된다 — 되돌릴 수도 없다."""
-    with _as("developer"), patch.object(dev, "_clear_evidence", new=AsyncMock()):
+    with _as("developer"), patch.object(dev, "clear_verification_evidence", new=AsyncMock()):
         res = _approve(client, {"facility_id": FACILITY_ID, "new_facility": NEW_FACILITY})
     assert res.status_code == 422
     assert db.writes() == [], f"거절해 놓고 쓰기가 일어났다: {db.writes()}"
@@ -981,7 +985,7 @@ def test_two_ways_to_link_a_facility_is_refused_before_any_write(client, db, pen
 def test_an_admin_request_refuses_a_facility(client, db, pending_request, body):
     """관리자에게는 다루는 가게가 없다. 조용히 무시하면 심사자는 자기가 연결했다고 믿는다."""
     pending_request["requested_role"] = "admin"
-    with _as("developer"), patch.object(dev, "_clear_evidence", new=AsyncMock()):
+    with _as("developer"), patch.object(dev, "clear_verification_evidence", new=AsyncMock()):
         res = _approve(client, body)
     assert res.status_code == 422
     assert db.writes() == []
@@ -994,7 +998,7 @@ def test_a_new_facility_is_linked_to_the_request_before_ownership(client, db, pe
     가게 생성 → 신청서 연결 → 소유권. 연결이 소유권 뒤로 밀리면, 소유권 부여가 실패해
     요청이 pending 으로 남았을 때 재승인이 같은 이름의 가게를 한 번 더 만든다."""
     pending_request["facility_id"] = None
-    with _as("developer"), patch.object(dev, "_clear_evidence", new=AsyncMock()):
+    with _as("developer"), patch.object(dev, "clear_verification_evidence", new=AsyncMock()):
         res = _approve(client, {"reason": "전화 확인", "new_facility": NEW_FACILITY})
     assert res.status_code == 200, res.text
 
@@ -1022,7 +1026,7 @@ def test_a_created_facility_records_that_it_was_never_verified(client, db, pendi
     """이 행은 TourAPI/LocalData 대조를 거치지 않았다 — 사람이 신청서만 보고 만든 POI다.
     적재 파이프라인이 만든 행과 구분되지 않으면 나중에 데이터 품질을 따질 수 없다."""
     pending_request["facility_id"] = None
-    with _as("developer"), patch.object(dev, "_clear_evidence", new=AsyncMock()):
+    with _as("developer"), patch.object(dev, "clear_verification_evidence", new=AsyncMock()):
         assert _approve(client, {"new_facility": NEW_FACILITY}).status_code == 200
 
     row = [f for f in db.tables["facilities"] if f["name"] == NEW_FACILITY["name"]][0]
@@ -1042,7 +1046,7 @@ def test_a_reviewer_supplied_capacity_is_not_labelled_a_default(client, db, pend
     """심사자가 직접 적어 넣은 좌석 수를 '업종 기본값' 이라고 기록하면 그 자체가 거짓된
     품질 표시가 된다 — 나중에 근거로 되짚을 수 없다."""
     pending_request["facility_id"] = None
-    with _as("developer"), patch.object(dev, "_clear_evidence", new=AsyncMock()):
+    with _as("developer"), patch.object(dev, "clear_verification_evidence", new=AsyncMock()):
         assert _approve(client, {"new_facility": {**NEW_FACILITY, "capacity": 12}}).status_code == 200
     row = [f for f in db.tables["facilities"] if f["name"] == NEW_FACILITY["name"]][0]
     assert row["capacity"] == 12
@@ -1059,7 +1063,7 @@ def test_a_failed_owner_grant_keeps_the_new_facility_linked(client, db, pending_
         "server disconnected without sending a response"
     )
     clear = AsyncMock()
-    with _as("developer"), patch.object(dev, "_clear_evidence", new=clear):
+    with _as("developer"), patch.object(dev, "clear_verification_evidence", new=clear):
         res = _approve(client, {"new_facility": NEW_FACILITY})
     assert res.status_code == 503
     assert pending_request["status"] == "pending", "승인이 되돌릴 수 없는 상태로 굳었다"
@@ -1071,7 +1075,7 @@ def test_a_failed_owner_grant_keeps_the_new_facility_linked(client, db, pending_
 
     # 실제로 다시 승인해 본다 — 이번엔 가게를 새로 만들지 않고 신청서의 값을 쓴다.
     db.insert_errors.pop("facility_owners")
-    with _as("developer"), patch.object(dev, "_clear_evidence", new=AsyncMock()):
+    with _as("developer"), patch.object(dev, "clear_verification_evidence", new=AsyncMock()):
         retry = _approve(client, {})
     assert retry.status_code == 200
     assert retry.json()["created_facility"] is False
@@ -1083,7 +1087,7 @@ def test_a_failed_facility_insert_leaves_the_request_pending(client, db, pending
     """가게를 못 만든 건 '가게가 없다'가 아니라 우리 쪽 장애다 — 503 으로 끊고 상태는 둔다."""
     pending_request["facility_id"] = None
     db.insert_errors["facilities"] = RuntimeError("server disconnected")
-    with _as("developer"), patch.object(dev, "_clear_evidence", new=AsyncMock()):
+    with _as("developer"), patch.object(dev, "clear_verification_evidence", new=AsyncMock()):
         res = _approve(client, {"new_facility": NEW_FACILITY})
     assert res.status_code == 503
     assert pending_request["status"] == "pending"
@@ -1096,7 +1100,7 @@ def test_a_failed_link_stops_before_ownership(client, db, pending_request):
     재승인이 두 번째 가게를 만들고 어느 쪽이 진짜인지 알 수 없게 된다."""
     pending_request["facility_id"] = None
     db.update_errors["business_verification_requests"] = RuntimeError("server disconnected")
-    with _as("developer"), patch.object(dev, "_clear_evidence", new=AsyncMock()):
+    with _as("developer"), patch.object(dev, "clear_verification_evidence", new=AsyncMock()):
         res = _approve(client, {"new_facility": NEW_FACILITY})
     assert res.status_code == 503
     assert db.writes("facility_owners") == [], "연결도 못 했는데 소유권이 붙었다"
@@ -1107,7 +1111,7 @@ def test_a_body_facility_id_wins_over_the_request(client, db, pending_request):
     """신청서의 facility_id 는 **신청자가 적어 보낸 값**이다. 심사자가 이번 승인에서 고른
     쪽이 뒤로 밀리면, 화면에서 바로잡은 내용이 조용히 무시된다."""
     pending_request["facility_id"] = FACILITY_ID
-    with _as("developer"), patch.object(dev, "_clear_evidence", new=AsyncMock()):
+    with _as("developer"), patch.object(dev, "clear_verification_evidence", new=AsyncMock()):
         res = _approve(client, {"facility_id": OTHER_FACILITY_ID})
     assert res.status_code == 200
     assert res.json()["facility_id"] == OTHER_FACILITY_ID
@@ -1122,11 +1126,110 @@ def test_a_body_facility_id_wins_over_the_request(client, db, pending_request):
 )
 def test_an_unusable_facility_id_is_refused(client, db, pending_request, facility_id):
     """없는(또는 폐업 처리된) 가게에 소유권을 붙이면 관리할 대상이 없는 사장님이 생긴다."""
-    with _as("developer"), patch.object(dev, "_clear_evidence", new=AsyncMock()):
+    with _as("developer"), patch.object(dev, "clear_verification_evidence", new=AsyncMock()):
         res = _approve(client, {"facility_id": facility_id})
     assert res.status_code == 422
     assert db.writes() == []
     assert pending_request["status"] == "pending"
+
+
+@pytest.mark.parametrize(
+    "facility_id", [MISSING_FACILITY_ID, CLOSED_FACILITY_ID], ids=["missing", "closed"]
+)
+def test_the_facility_written_on_the_request_gets_the_same_check(
+    client, db, pending_request, facility_id
+):
+    """신청서에 적힌 가게도 **같은 검사**를 받아야 한다.
+
+    이 갈래만 검사가 없었다. 그래서 비활성(폐업 처리된) POI 에 소유권이 붙었다 — 사장님
+    콘솔은 열리는데 그 가게는 손님에게 한 번도 추천되지 않는 막다른 계정이다. 게다가 이
+    값은 심사자가 고른 값이 아니라 **신청자가 적어 보낸 값**이라 더더욱 그냥 못 쓴다.
+    (본문에 아무것도 안 싣는 것이 /dev 콘솔의 기본 동작이다 — 행에 facilityId 가 있으면
+    화면은 그대로 승인만 누른다.)"""
+    pending_request["facility_id"] = facility_id
+    with _as("developer"), patch.object(dev, "clear_verification_evidence", new=AsyncMock()):
+        res = _approve(client, {})
+    assert res.status_code == 422, f"비활성/없는 가게에 소유권이 붙었다({facility_id})"
+    assert db.writes() == []
+    assert db.tables["users"][1]["role"] == "tourist", "가게 없이 역할만 올라갔다"
+    assert pending_request["status"] == "pending"
+
+
+# ── 재승인이 같은 가게를 한 번 더 만들지 않는다 ──────────────────────────────
+# _link_facility_to_request 는 '새 가게를 다른 어떤 쓰기보다 먼저 신청서에 적는다' 고
+# 약속한다. 그 약속은 재승인이 그 값을 **읽을 때만** 의미가 있다 — 한동안 body.new_facility
+# 가 req.facility_id 보다 먼저라서 적어 둔 값이 읽히지 않았고, 재승인마다 유령 POI 가
+# 하나씩 늘었다(facilities 에는 이름·좌표 유니크 제약이 없다).
+
+
+def test_a_new_facility_is_refused_when_the_request_is_already_linked(
+    client, db, pending_request
+):
+    """이미 연결된 신청에 new_facility 가 오면 만들지 않고 409 다.
+
+    조용히 신청서 값을 쓰면 심사자는 자기가 입력한 새 가게가 등록된 줄 알고, 조용히 새로
+    만들면 유령 POI 가 생긴다 — 화면이 낡았다는 사실 자체를 알리는 게 맞다."""
+    pending_request["facility_id"] = FACILITY_ID
+    with _as("developer"), patch.object(dev, "clear_verification_evidence", new=AsyncMock()):
+        res = _approve(client, {"new_facility": NEW_FACILITY})
+    assert res.status_code == 409
+    assert db.writes() == [], f"거절해 놓고 쓰기가 일어났다: {db.writes()}"
+    assert len(db.tables["facilities"]) == 3, "가게가 새로 만들어졌다"
+    assert pending_request["status"] == "pending"
+    assert "새로 고친" in res.json()["detail"], "심사자가 무엇을 해야 하는지 알 수 없다"
+
+
+def test_retrying_a_failed_approval_never_creates_a_second_facility(
+    client, db, pending_request
+):
+    """실제로 일어나는 순서를 그대로 재현한다.
+
+    미등록 가게로 승인 → 소유권 부여 실패(503, "신청은 그대로 두었으니 다시 승인해 주세요")
+    → 프런트는 실패 시 목록을 다시 읽지 않아 행은 여전히 facilityId=null 이고 심사자의
+    선택({mode:'create'})도 남아 있다 → 안내대로 다시 승인 → **같은 본문이 또 온다.**
+    여기서 두 번째 가게가 만들어지면 소유권은 그쪽에 붙고, 첫 번째는 같은
+    verification_request_id 를 단 유령 POI 로 지도에 남는다."""
+    pending_request["facility_id"] = None
+    db.insert_errors["facility_owners"] = RuntimeError(
+        "server disconnected without sending a response"
+    )
+    with _as("developer"), patch.object(dev, "clear_verification_evidence", new=AsyncMock()):
+        first = _approve(client, {"new_facility": NEW_FACILITY})
+    assert first.status_code == 503
+    created = [f for f in db.tables["facilities"] if f["name"] == NEW_FACILITY["name"]]
+    assert len(created) == 1
+    assert pending_request["facility_id"] == created[0]["id"]
+
+    # 심사자가 안내대로 다시 승인한다 — 화면이 낡아 본문은 그대로다.
+    db.insert_errors.pop("facility_owners")
+    with _as("developer"), patch.object(dev, "clear_verification_evidence", new=AsyncMock()):
+        retry = _approve(client, {"new_facility": NEW_FACILITY})
+    assert retry.status_code == 409, f"재승인이 {retry.status_code} 로 통과했다"
+    assert len([f for f in db.tables["facilities"] if f["name"] == NEW_FACILITY["name"]]) == 1, (
+        "재승인이 유령 POI 를 하나 더 만들었다"
+    )
+    assert pending_request["status"] == "pending"
+
+    # 화면을 새로 고치면(= 본문 없이 승인) 신청서에 적힌 가게로 그대로 끝난다.
+    with _as("developer"), patch.object(dev, "clear_verification_evidence", new=AsyncMock()):
+        done = _approve(client, {})
+    assert done.status_code == 200
+    assert done.json()["facility_id"] == created[0]["id"]
+    assert done.json()["created_facility"] is False
+
+
+def test_a_reviewer_correction_still_wins_over_the_linked_facility(
+    client, db, pending_request
+):
+    """본문의 facility_id 는 심사자의 **명시적 정정**이라 신청서 값보다 앞이다.
+    (위 409 는 '새로 만들기' 에만 걸린다 — 기존 가게 지정까지 막으면 잘못 연결된 신청을
+    바로잡을 길이 사라진다.)"""
+    pending_request["facility_id"] = FACILITY_ID
+    with _as("developer"), patch.object(dev, "clear_verification_evidence", new=AsyncMock()):
+        res = _approve(client, {"facility_id": OTHER_FACILITY_ID})
+    assert res.status_code == 200
+    assert res.json()["facility_id"] == OTHER_FACILITY_ID
+    assert db.writes("facilities") == []
 
 
 # ── 심사 큐 — requested_role 컬럼이 없는 DB 에서도 살아 있어야 한다 ──────────
@@ -1168,6 +1271,17 @@ def test_the_admin_queue_is_empty_on_a_legacy_schema(client, db):
 # facility_id 를 대조할 근거가 없어진다.
 
 DOC_URL = "/api/v1/dev/verification-requests/{}/document"
+
+
+def test_evidence_deletion_has_exactly_one_implementation():
+    """증빙 삭제 정책의 실행부는 core 한 곳뿐이어야 한다.
+
+    core 모듈의 독스트링이 '이 정책을 실행하는 곳이 둘이라 여기 모았다' 고 적어 두는 동안,
+    dev.py 는 자기 사본(_clear_evidence)을 그대로 쓰고 있었다. 사본이 있으면 다음에 이
+    정책이 바뀔 때 한쪽만 고쳐진다 — 실제로 '경로를 인자로 받는다' 는 수정이 그렇게 한 번
+    늦게 전파됐다. 구조를 잠그는 테스트라 동작 테스트로는 대신할 수 없다."""
+    assert dev.clear_verification_evidence is verification_evidence.clear_verification_evidence
+    assert not hasattr(dev, "_clear_evidence"), "삭제 사본이 다시 생겼다"
 
 
 def test_developer_gets_a_short_lived_signed_url(client, db):

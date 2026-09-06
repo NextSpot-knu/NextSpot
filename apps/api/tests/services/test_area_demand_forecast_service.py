@@ -110,6 +110,70 @@ def test_the_cache_stays_bounded():
     assert len(forecast_svc._quality_cache) <= cap
 
 
+def test_the_cache_holds_more_than_one_course_request():
+    """코스 한 번이 24개 안팎의 새 키를 밀어 넣는다 — 상한이 그보다 빠듯하면 캐시가 아니다.
+
+    2·3번 자리는 누적 도착(도착 + 체류 40~60분)이 항상 live 지평 30분 밖이라 반드시 이
+    이력 경로로 오고, 자리당 MAX_COURSE_CANDIDATES(12)씩 서로 다른 좌표를 훑는다.
+    상한이 그 한두 배면 다음 요청이 직전 요청의 항목을 밀어내 TTL 30분이 무의미해진다.
+    """
+    assert forecast_svc._QUALITY_CACHE_MAX_ENTRIES >= 24 * 4
+
+
+@pytest.mark.asyncio
+async def test_the_backtest_runs_off_the_event_loop_and_returns_the_same_result(monkeypatch):
+    """비싼 백테스트(후보당 0.28~6.4초)가 이벤트 루프 위에서 동기로 돌면 안 된다.
+
+    Render 무료 플랜은 워커가 하나다 — 여기서 루프를 잡으면 같은 프로세스의 다른 요청까지
+    함께 멈추고, 프런트 타임아웃은 20초다. 오프로드는 '어디서 도느냐' 만 바꿔야 하므로
+    같은 입력이 같은 출력을 내는지도 함께 잠근다.
+    """
+    import threading
+
+    async def _resolved(value):
+        return value
+
+    def _async_value(value):
+        return _resolved(value)
+
+    points = _weekly_points(16)
+    monkeypatch.setattr(
+        forecast_svc, "_load_points",
+        lambda _lat, _lng, _now: _async_value(points),
+    )
+
+    real_cached_backtest = forecast_svc._cached_backtest
+    ran_on: list[int] = []
+
+    def _spy(pts, lat, lng):
+        ran_on.append(threading.get_ident())
+        return real_cached_backtest(pts, lat, lng)
+
+    monkeypatch.setattr(forecast_svc, "_cached_backtest", _spy)
+
+    forecast_svc._quality_cache.clear()
+    now = datetime(2026, 8, 1, tzinfo=timezone.utc)
+    result = await forecast_svc.get_area_demand_forecast_quality(35.836, 129.210, now=now)
+
+    # 추천 경로도 같은 백테스트를 탄다 — 두 진입점 모두 잠근다.
+    # (2·3번 자리가 반드시 오는 경로가 바로 이쪽이다.)
+    await forecast_svc.get_historical_area_demand_forecast(
+        35.836, 129.210, datetime(2026, 8, 3, 1, tzinfo=timezone.utc), now=now
+    )
+
+    assert len(ran_on) == 2, f"_cached_backtest 호출 수가 예상과 다르다: {len(ran_on)}"
+    loop_thread = threading.get_ident()
+    assert all(ident != loop_thread for ident in ran_on), (
+        "백테스트가 이벤트 루프 스레드에서 동기로 돌았다 — to_thread 오프로드가 빠졌다"
+    )
+
+    # 같은 입력 → 같은 출력. 오프로드가 값을 바꾸지 않는다.
+    forecast_svc._quality_cache.clear()
+    direct = real_cached_backtest(points, 35.836, 129.210)
+    assert direct["sample_count"] > 0, "표본이 0이면 '같은 값' 비교가 무의미하다"
+    assert {key: result[key] for key in direct} == direct
+
+
 # ── RPC 집계(마이그레이션 20260904120000) ─────────────────────────────────
 # 집계는 이제 Postgres 가 한다. 여기서 SQL 을 실행할 수는 없으므로, 마이그레이션의
 # 수식을 **연산 순서까지 그대로** 파이썬으로 옮긴 대조본을 두고 aggregate_nearby_points

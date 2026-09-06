@@ -900,7 +900,8 @@
     "manualNotice": "担当者が確認のうえ新しい店舗として登録します",
     "linkedChip": "連携済み：{name}",
     "unlinkFacility": "連携を解除",
-    "searchFailed": "店舗検索を今は実行できません — しばらくしてからお試しください"
+    "searchFailed": "店舗検索を今は実行できません — しばらくしてからお試しください",
+    "editStoreLocked": "店舗は変更できません — 変えるには申請を取り消して再申請してください"
   },
   "merchantGate": {
     "title": "マイ店舗ダッシュボード",

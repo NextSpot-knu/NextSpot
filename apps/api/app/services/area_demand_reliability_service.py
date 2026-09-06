@@ -6,7 +6,7 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from app.core.supabase import supabase_admin
+from app.core.supabase import fetch_all_rows, supabase_admin
 
 BUCKET_MINUTES = 10
 
@@ -58,18 +58,33 @@ def _floor_to_bucket(value: datetime) -> datetime:
 
 
 def _query_window(source: str, start_at: datetime, end_at: datetime) -> list[dict[str, Any]]:
-    result = (
-        supabase_admin.table("area_demand_snapshots")
-        .select("id,bucket_at")
-        .eq("source", source)
-        .eq("bucket_minutes", BUCKET_MINUTES)
-        .gte("bucket_at", _iso(start_at))
-        .lt("bucket_at", _iso(end_at))
-        .order("bucket_at")
-        .limit(1008)
-        .execute()
+    """창 안의 버킷 행을 **전량** 받는다 — 페이지네이션이 필수다.
+
+    예전에는 ``.limit(1008)`` 한 번으로 받았다. 그런데 PostgREST 는 단일 응답 행수를
+    캡(기본 1000)하므로 limit 을 크게 걸어도 1000행에서 잘린다. 엔드포인트가 허용하는
+    hours 상한 168 은 expected_count = 168 × 6 = **1008** 이고, area_demand_snapshots 는
+    (source, bucket_at) UNIQUE 라 실제로 1008행이 다 존재할 수 있다. 그러면 8행이 조용히
+    잘리고 _missing_metrics 가 그 8개를 '누락 버킷' 으로 만든다 — 잘린 구간이 창 끝에
+    몰리므로 관리자 화면에 **실재하지 않는 80분 공백**이 뜨고, 수집이 멀쩡한데 사람이
+    장애를 조사하게 된다. 신뢰도 화면의 존재 이유가 정확히 이 판정이므로 캡을 넘겨서는
+    안 된다.
+
+    ``.range()`` 는 정렬이 없으면 페이지 경계가 흔들려 행이 중복·누락될 수 있으므로
+    order 도 필터 콜백에 함께 넣는다.
+    """
+    return fetch_all_rows(
+        supabase_admin,
+        "area_demand_snapshots",
+        "id,bucket_at",
+        1000,
+        lambda query: (
+            query.eq("source", source)
+            .eq("bucket_minutes", BUCKET_MINUTES)
+            .gte("bucket_at", _iso(start_at))
+            .lt("bucket_at", _iso(end_at))
+            .order("bucket_at")
+        ),
     )
-    return result.data or []
 
 
 def _query_boundary(source: str, *, latest: bool) -> dict[str, Any] | None:

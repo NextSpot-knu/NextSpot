@@ -178,7 +178,9 @@ export default function RoleChangeRequestPage() {
   const trimmedTerm = storeName.trim();
   // 검색 UI 를 띄우는 조건. 관리자 신청에는 붙일 POI 가 없고, 이미 고른 뒤나 직접 입력을
   // 택한 뒤에 목록이 계속 열려 있으면 방금 한 선택을 다시 묻는 꼴이다.
-  const showSearch = isMerchantRequest && !manualEntry && !facilityId;
+  // 수정 모드에서는 가게 검색을 열지 않는다 — 바꿔도 서버가 422 로 거절하므로(위 buildPatch
+  // 주석) 고를 수 있게 두는 것 자체가 거짓말이다. 바꾸려면 철회하고 다시 내야 한다.
+  const showSearch = isMerchantRequest && !editing && !manualEntry && !facilityId;
   const hitsForTerm = searchResult && searchResult.term === trimmedTerm ? searchResult.items : null;
   const searching = showSearch && trimmedTerm.length > 0 && hitsForTerm === null;
 
@@ -360,8 +362,15 @@ export default function RoleChangeRequestPage() {
     // 사람의 번호가 사라지므로, 새로 입력했을 때만 보낸다.
     const nextLast4 = last4.trim();
     if (isMerchantRequest && nextLast4) patch.businessNumberLast4 = nextLast4;
-    const nextFacilityId = isMerchantRequest ? facilityId : null;
-    if (nextFacilityId !== (row.facilityId ?? null)) patch.facilityId = nextFacilityId;
+    // **가게(facility_id)는 수정으로 바꿀 수 없다.** 서버가 422 로 거절한다.
+    //
+    // 이유: 승인이 소유권을 주는 값이 바로 이것이라, 심사자가 큐에서 '이름 ↔ 서류' 를 대조한
+    // 뒤 승인을 누르기까지의 몇 분 사이에 신청자가 남의 가게로 바꿔치기할 수 있었다.
+    // 바꾸려면 철회하고 다시 내야 한다(취소 버튼이 바로 옆에 있다).
+    //
+    // 여기서 아예 안 싣는 이유: 실으면 422 인데, 그 요청은 **증빙을 먼저 업로드한 뒤** 실패해서
+    // 올린 파일이 고아로 남는다. 놓치기 쉬운 경로가 있었다 — 수정 중 역할을 사업자→관리자로
+    // 토글하면 isMerchantRequest 가 false 가 되어 facilityId: null 이 실려 나갔다.
     if (uploadedPath) patch.documentPath = uploadedPath;
     return patch;
   };
@@ -930,7 +939,11 @@ export default function RoleChangeRequestPage() {
               )}
 
               <p className="mt-1 text-[11px] text-muk-soft">
-                {isMerchantRequest ? t('account.storeNameHint') : t('account.orgNameHint')}
+                {editing && isMerchantRequest
+                  ? t('account.editStoreLocked')
+                  : isMerchantRequest
+                    ? t('account.storeNameHint')
+                    : t('account.orgNameHint')}
               </p>
             </div>
 

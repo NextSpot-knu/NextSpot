@@ -1,6 +1,6 @@
 """사업자등록증 증빙 버킷 마이그레이션의 계약.
 
-이 버킷이 없던 동안 `document_path` 칼럼과 삭제 코드(dev.py _clear_evidence)는 있었지만
+이 버킷이 없던 동안 `document_path` 칼럼과 삭제 코드(core/verification_evidence.py clear_verification_evidence)는 있었지만
 **신청자가 서류를 낼 방법이 없었다.** 그래서 심사자는 신청자가 본문에 적어 보낸 facility_id 를
 대조할 근거 없이 승인해야 했다.
 """
