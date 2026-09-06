@@ -520,3 +520,33 @@ def test_recommend_endpoint_still_returns_a_bare_array(auth_client):  # noqa: F8
     assert isinstance(stops, list)
     assert stops and "facility" in stops[0]
     assert all("order" in s for s in stops)
+
+
+def test_course_stop_limit_parity_with_web():
+    """백엔드 MAX_STOPS 와 프런트 MAX_SEQUENCE 가 어긋나면 CI 가 여기서 실패한다.
+
+    강제 장치가 필요한 이유: 두 상수는 **한쪽만 늘려도 조용히 어긋난다.**
+      · 프런트만 4 로 올리면 courses.py 의 `seq[:MAX_STOPS]` 가 4번째 칩을 말없이 버린다.
+        사용자는 4칸을 짰는데 3곳만 오고, 화면은 이유를 말하지 못한다.
+      · 그리고 이제는 더 나쁘다 — CoursePin.order 가 `le=MAX_STOPS` 라, 4번 자리에 고정을
+        걸면 요청 전체가 422 로 떨어진다(자리 하나가 비는 게 아니라 코스가 통째로 실패한다).
+    SPOT 가중치가 packages/shared-types 와 패리티 테스트로 묶여 있는 것과 같은 이유다
+    (tests/services/test_spot.py::test_spot_weights_parity_with_shared_types).
+
+    모노레포 밖(Docker 등)에서는 프런트 파일이 없으므로 건너뛴다.
+    """
+    import re
+    from pathlib import Path
+
+    from app.routers.courses import MAX_STOPS
+
+    page = Path(__file__).resolve().parents[4] / "apps" / "web" / "app" / "course" / "page.tsx"
+    if not page.exists():
+        pytest.skip("apps/web/app/course/page.tsx 부재(모노레포 밖 실행) — 패리티 검증 생략")
+
+    text = page.read_text(encoding="utf-8")
+    match = re.search(r"const\s+MAX_SEQUENCE\s*=\s*(\d+)\s*;", text)
+    assert match, "course/page.tsx 에서 MAX_SEQUENCE 를 찾지 못했다(이름이 바뀌었다면 이 테스트도 고칠 것)"
+    assert int(match.group(1)) == MAX_STOPS, (
+        f"프런트 MAX_SEQUENCE={match.group(1)} 와 백엔드 MAX_STOPS={MAX_STOPS} 가 다르다"
+    )
