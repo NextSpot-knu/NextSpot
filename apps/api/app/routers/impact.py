@@ -35,7 +35,7 @@ import structlog
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from app.core.supabase import supabase_admin, get_current_user
+from app.core.supabase import supabase_admin, get_current_user, fetch_all_rows
 
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1/impact", tags=["impact"])
@@ -64,30 +64,34 @@ async def get_impact_summary(current_user: dict = Depends(get_current_user)):
     """본인의 여행 임팩트 요약 — 실제 DB 에서 파생 가능한 지표만 집계해 반환한다."""
     user_id = current_user["id"]
 
+    # 전량이어야 한다. 이 화면이 내는 것은 **누적 합계**(수락 건수·절감 분)라, 한 페이지에서
+    # 잘리면 사용자의 기여가 조용히 축소 보고된다 — 0 이 되는 게 아니라 '그럴듯하게 작은 값' 이
+    # 되므로 화면만 봐서는 알 수 없다. 사용자 한 명당 상한이 없는 표라 실제로 넘는다:
+    # 2026-09-07 프로덕션에서 가장 많이 쓴 계정이 이미 1,123건이다(캡 1,000).
     try:
-        reco_res = await asyncio.to_thread(
-            supabase_admin.table("recommendations")
-            .select("accepted, score_breakdown")
-            .eq("user_id", user_id)
-            .execute
+        reco_rows = await asyncio.to_thread(
+            fetch_all_rows,
+            supabase_admin,
+            "recommendations",
+            "accepted, score_breakdown",
+            apply_filters=lambda q: q.eq("user_id", user_id).order("id"),
         )
     except Exception as e:
         logger.error("impact_summary_recommendations_fetch_failed", user_id=user_id, error=str(e))
         raise HTTPException(status_code=500, detail="여행 임팩트 데이터를 불러오지 못했습니다.")
 
     try:
-        coupon_res = await asyncio.to_thread(
-            supabase_admin.table("user_coupons")
-            .select("status")
-            .eq("user_id", user_id)
-            .execute
+        coupon_rows = await asyncio.to_thread(
+            fetch_all_rows,
+            supabase_admin,
+            "user_coupons",
+            "status",
+            apply_filters=lambda q: q.eq("user_id", user_id).order("id"),
         )
     except Exception as e:
         logger.error("impact_summary_coupons_fetch_failed", user_id=user_id, error=str(e))
         raise HTTPException(status_code=500, detail="여행 임팩트 데이터를 불러오지 못했습니다.")
 
-    reco_rows = reco_res.data or []
-    coupon_rows = coupon_res.data or []
 
     accepted_rows = [r for r in reco_rows if r.get("accepted") is True]
     accepted = len(accepted_rows)

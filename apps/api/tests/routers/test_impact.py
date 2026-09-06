@@ -129,3 +129,35 @@ def test_impact_summary_empty_new_user(auth_client):
         "coupons_used": 0,
         "wait_saved_minutes": 0,
     }
+
+
+# =========================================================================
+# 누적 합계는 **전량**이어야 한다
+# =========================================================================
+
+def test_impact_summary_counts_every_recommendation(auth_client):
+    """1,000행 캡 너머의 수락 기록까지 합계에 들어오는가.
+
+    이 화면이 내는 것은 누적 합계다. 한 페이지에서 잘리면 0 이 되는 게 아니라 **그럴듯하게
+    작은 값**이 되므로 화면만 봐서는 축소 보고를 알아챌 수 없다. 사용자 한 명당 상한이 없는
+    표라 실제로 넘는다 — 2026-09-07 프로덕션에서 가장 많이 쓴 계정이 이미 1,123건이다.
+
+    (공용 FakeSupabase 가 PostgREST 캡을 실제로 강제하므로, 단발 `.execute()` 로 되돌리면
+     여기서 1,000건까지만 세어 실패한다.)
+    """
+    rows = [
+        {
+            "id": f"r-{i:05d}",
+            "accepted": True,
+            "score_breakdown": {"incentive_relief": 0.2, "original_wait_time": 20, "wait_time": 10},
+        }
+        for i in range(1123)
+    ]
+    with patch.object(impact, "supabase_admin", FakeSupabase({"recommendations": rows, "user_coupons": []})):
+        res = auth_client.get("/api/v1/impact/summary")
+
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["accepted"] == 1123, f"수락 건수가 캡에서 잘렸다: {body['accepted']}건만 세었다"
+    assert body["congestion_avoided"] == 1123
+    assert body["wait_saved_minutes"] == 1123 * 10
