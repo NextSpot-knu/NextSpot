@@ -8,7 +8,7 @@
 // 이 화면의 모든 쓰기는 서버에서 role_audit_log 에 남는다(삭제 API 는 없다). 프런트 가드는
 // UX 이고, 실제 차단은 백엔드가 매 요청 수행한다(require_role("developer")).
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   ShieldAlert,
@@ -22,10 +22,14 @@ import {
   X,
   LogOut,
   FileText,
+  Link2,
+  Plus,
+  AlertTriangle,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { apiClient } from '@/lib/api-client';
 import { errorMessage } from '@/lib/errors';
+import { searchFacilities, type FacilityHit } from '@/lib/facilitySearch';
 import { useAccount, canEnterDevConsole, type AccountRole } from '@/lib/account';
 
 type Tab = 'users' | 'requests' | 'audit' | 'failures';
@@ -498,6 +502,19 @@ function ReviewQueue({
 }) {
   const [rows, setRows] = useState<VerificationRow[]>([]);
   const [busy, setBusy] = useState(true);
+  // 미연결 신청마다 심사자가 고른 가게. 값이 하나뿐인 판별 유니언이라 '기존 연결'과
+  // '신규 등록'이 동시에 담길 수 없다(FacilitySelection 주석 참고).
+  const [selections, setSelections] = useState<Record<string, FacilitySelection | null>>({});
+  // 신규 등록 승인 직전의 인라인 확인. window.confirm 을 쓰지 않는 화면이라 카드 안에서 묻는다.
+  const [confirmingId, setConfirmingId] = useState<string | null>(null);
+  // 처리 중인 신청. 승인이 새 POI 를 만들 수 있게 되면서 이중 클릭이 곧 가게 2개다 — 막는다.
+  const [decidingId, setDecidingId] = useState<string | null>(null);
+
+  // 자식이 useEffect 로 값을 올리므로 이 콜백은 렌더마다 새로 만들면 안 된다(올림 → 리렌더 →
+  // 새 콜백 → 다시 올림 의 루프가 된다). useCallback 으로 고정한다.
+  const selectFacility = useCallback((requestId: string, selection: FacilitySelection | null) => {
+    setSelections((prev) => (prev[requestId] === selection ? prev : { ...prev, [requestId]: selection }));
+  }, []);
 
   const load = useCallback(async () => {
     setBusy(true);
@@ -518,20 +535,52 @@ function ReviewQueue({
   }, [load]);
 
   const decide = async (row: VerificationRow, approve: boolean) => {
+    if (decidingId) return;
     // 승인은 역할 승격 + 소유권 부여 + 증빙 삭제를 서버가 한 번에 처리한다.
     // 거절은 사유가 필수다(신청자에게 그대로 보인다).
     const reason = approve ? undefined : window.prompt('반려 사유를 입력하세요');
     if (!approve && !reason) return;
+
+    // 가게 매핑은 **미연결 사업자 신청을 승인할 때만** 싣는다. 관리자 신청에 facility_id 나
+    // new_facility 가 딸려 가면 서버가 422 로 되돌린다(관리자는 다루는 가게가 없다).
+    const body: Record<string, unknown> = { reason };
+    if (approve && row.requestedRole !== 'admin' && !row.facilityId) {
+      const selection = selections[row.id] ?? null;
+      if (!selection) return; // 버튼이 이미 잠겨 있지만, 값이 없으면 서버 422 를 부를 이유가 없다.
+      // 갈래마다 필드가 하나씩만 나온다 — 두 필드를 동시에 실을 방법이 아예 없다.
+      if (selection.mode === 'link') body.facilityId = selection.facilityId;
+      else body.newFacility = selection.newFacility;
+    }
+
+    setDecidingId(row.id);
     try {
-      await apiClient.post(
+      const res = await apiClient.post(
         `/api/v1/dev/verification-requests/${row.id}/${approve ? 'approve' : 'reject'}`,
-        { reason },
+        body,
       );
-      toast.success(approve ? '승인했어요.' : '반려했어요.');
+      // 새 POI 를 만든 승인은 되돌리기 어려운 쓰기다 — '승인했어요'로 뭉뚱그리면 심사자가
+      // 방금 가게가 하나 생겼다는 걸 모른 채 넘어간다.
+      toast.success(
+        approve
+          ? res?.createdFacility
+            ? '새 가게를 등록하고 승인했어요.'
+            : '승인했어요.'
+          : '반려했어요.',
+      );
+      setConfirmingId(null);
+      // 처리된 신청의 선택값만 버린다. 전체를 비우면 화면에 남아 있는 다른 카드의 칩과
+      // 승인 버튼 상태가 어긋난다(패널은 자기 상태를 그대로 들고 있다).
+      setSelections((prev) => {
+        const next = { ...prev };
+        delete next[row.id];
+        return next;
+      });
       await load();
       onChanged();
     } catch (err) {
       toast.error(errorMessage(err) || '심사 처리에 실패했어요.');
+    } finally {
+      setDecidingId(null);
     }
   };
 
@@ -546,7 +595,9 @@ function ReviewQueue({
           {rows.map((r) => {
             // 관리자 신청은 다루는 가게가 없다 — 가게 매핑을 요구하면 영원히 승인할 수 없다.
             const isAdminRequest = r.requestedRole === 'admin';
-            const blocked = !isAdminRequest && !r.facilityId;
+            const needsLink = !isAdminRequest && !r.facilityId;
+            const selection = selections[r.id] ?? null;
+            const blocked = needsLink && !selection;
             return (
             <div key={r.id} className="rounded-xl border border-line px-3.5 py-3">
               <div className="flex flex-wrap items-center gap-2">
@@ -579,33 +630,606 @@ function ReviewQueue({
               </p>
               {blocked && (
                 <p className="mt-1 text-[11px] text-terracotta">
-                  가게(POI)가 연결되지 않아 승인할 수 없어요. 먼저 시설을 매핑하세요.
+                  가게(POI)가 연결되지 않았어요. 아래에서 기존 가게를 연결하거나 새로 등록하면
+                  승인할 수 있어요.
                 </p>
               )}
-              <div className="mt-2 flex flex-wrap gap-2">
-                {r.documentPath && <EvidenceLink requestId={r.id} />}
-                <button
-                  type="button"
-                  disabled={blocked}
-                  onClick={() => void decide(r, true)}
-                  className="flex items-center gap-1 rounded-lg border border-jade/40 bg-jade/10 px-3 py-1.5 text-[11px] font-semibold text-jade disabled:opacity-40"
-                >
-                  <Check size={13} /> 승인
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void decide(r, false)}
-                  className="flex items-center gap-1 rounded-lg border border-terracotta/40 bg-terracotta/10 px-3 py-1.5 text-[11px] font-semibold text-terracotta"
-                >
-                  <X size={13} /> 반려
-                </button>
-              </div>
+              {needsLink && (
+                <FacilityLinkPanel
+                  requestId={r.id}
+                  storeName={r.storeName}
+                  onSelect={selectFacility}
+                />
+              )}
+
+              {/* 신규 등록은 지도에 없던 POI 를 만드는 쓰기다. 좌표 한 자리를 잘못 쳐도 서버는
+                  받아 주므로, 보내기 직전에 무엇이 생기는지 한 번 더 보여 준다.
+                  기존 가게 연결·반려는 예전 그대로 곧장 처리한다(확인을 늘리면 심사가 느려진다). */}
+              {confirmingId === r.id && selection?.mode === 'create' ? (
+                <div className="mt-2 rounded-xl border border-gold/50 bg-gold/10 px-3 py-2.5">
+                  <p className="text-[11px] leading-relaxed text-muk">
+                    새 가게 <span className="font-semibold">{selection.newFacility.name}</span> 을(를)
+                    좌표 {selection.newFacility.latitude}, {selection.newFacility.longitude} 에
+                    등록하고 이 신청을 승인합니다.
+                  </p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      disabled={decidingId === r.id}
+                      onClick={() => void decide(r, true)}
+                      className="flex items-center gap-1 rounded-lg border border-jade/40 bg-jade/10 px-3 py-1.5 text-[11px] font-semibold text-jade disabled:opacity-40"
+                    >
+                      <Check size={13} /> 등록하고 승인
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmingId(null)}
+                      className="rounded-lg border border-line bg-white px-3 py-1.5 text-[11px] font-semibold text-muk-soft hover:text-muk"
+                    >
+                      취소
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {r.documentPath && <EvidenceLink requestId={r.id} />}
+                  <button
+                    type="button"
+                    disabled={blocked || decidingId === r.id}
+                    onClick={() =>
+                      selection?.mode === 'create' ? setConfirmingId(r.id) : void decide(r, true)
+                    }
+                    className="flex items-center gap-1 rounded-lg border border-jade/40 bg-jade/10 px-3 py-1.5 text-[11px] font-semibold text-jade disabled:opacity-40"
+                  >
+                    <Check size={13} />
+                    {selection?.mode === 'link'
+                      ? '연결하고 승인'
+                      : selection?.mode === 'create'
+                        ? '새 가게로 승인'
+                        : '승인'}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={decidingId === r.id}
+                    onClick={() => void decide(r, false)}
+                    className="flex items-center gap-1 rounded-lg border border-terracotta/40 bg-terracotta/10 px-3 py-1.5 text-[11px] font-semibold text-terracotta disabled:opacity-40"
+                  >
+                    <X size={13} /> 반려
+                  </button>
+                </div>
+              )}
             </div>
             );
           })}
         </div>
       )}
     </>
+  );
+}
+
+// =========================================================================
+// 미연결 신청에 가게(POI) 붙이기
+// =========================================================================
+// 심사 큐는 facility_id 가 없는 사업자 신청을 승인 불가로 막아 왔는데, 정작 매핑할 화면이
+// 어디에도 없어서 사업자 승인이 한 건도 되지 않았다. 그 화면을 심사 카드 안에 둔다 —
+// 심사자가 증빙을 보고 있는 자리에서 바로 가게를 고르는 게 맥락이 끊기지 않는다.
+
+const FACILITY_TYPES = [
+  { value: 'restaurant', label: '음식점' },
+  { value: 'cafe', label: '카페' },
+  { value: 'attraction', label: '관광지' },
+  { value: 'culture', label: '문화시설' },
+] as const;
+
+type FacilityType = (typeof FACILITY_TYPES)[number]['value'];
+
+function typeLabel(type: string): string {
+  return FACILITY_TYPES.find((item) => item.value === type)?.label ?? type;
+}
+
+/** 신규 POI 등록 본문. 서버 계약과 같은 이름을 camelCase 로 쓴다(apiClient 가 snake 로 바꿔 보낸다). */
+interface NewFacilityInput {
+  name: string;
+  type: FacilityType;
+  latitude: number;
+  longitude: number;
+  address?: string;
+  phone?: string;
+  capacity?: number;
+}
+
+/**
+ * 심사자가 고른 가게. **둘 중 하나만** 존재할 수 있는 판별 유니언이다.
+ *
+ * 서버는 facility_id 와 new_facility 를 함께 받으면 422 를 낸다. 갈래마다 상태를 따로 두면
+ * "검색으로 하나 고른 뒤 마음을 바꿔 신규 폼도 채운" 화면이 두 값을 동시에 들고 있게 되고,
+ * 그때 422 를 막는 일은 전송 직전 if 문의 몫이 된다. 값 하나로 들면 그 상태를 애초에 만들 수
+ * 없다 — 검증으로 막는 대신 자료구조로 불가능하게 하는 쪽을 골랐다.
+ */
+type FacilitySelection =
+  | { mode: 'link'; facilityId: string; facilityName: string }
+  | { mode: 'create'; newFacility: NewFacilityInput };
+
+/** 어느 갈래를 펼쳤는가. null 은 아직 아무 갈래도 열지 않은 상태다. */
+type LinkBranch = 'link' | 'create' | null;
+
+/**
+ * 신규 등록 폼의 입력값은 **문자열로** 들고 있는다.
+ *
+ * 숫자 상태로 들면 '-' 나 '129.' 같은 입력 중간 단계를 표현할 수 없어 타이핑이 튄다.
+ * 게다가 빈 칸을 Number('') 로 읽으면 0 이라, 위도를 비워 둔 신청이 조용히 적도에 등록된다.
+ * 숫자로 바꾸는 건 선택값을 만들 때 한 번뿐이고, 그때 실패하면 값이 없는 것으로 둔다.
+ */
+interface NewFacilityDraft {
+  name: string;
+  type: FacilityType;
+  latitude: string;
+  longitude: string;
+  address: string;
+  phone: string;
+  capacity: string;
+}
+
+/** 카카오 장소 검색 1건 — GET /api/v1/search/places 응답(keysToCamel 통과 후). */
+interface PlaceHit {
+  placeId: string;
+  name: string;
+  /** 카카오 카테고리에서 유추한 종류. cafe|restaurant 만 오고, 아예 없을 수도 있다. */
+  type?: 'cafe' | 'restaurant' | null;
+  latitude: number;
+  longitude: number;
+  address: string;
+  phone?: string | null;
+  categoryName?: string | null;
+}
+
+/**
+ * 장소 검색의 결과 상태.
+ *
+ * '빈 목록' 하나로 뭉치지 않는다. 0건은 "카카오에도 그런 장소가 없다"이고, unavailable/failed 는
+ * "물어보지 못했다"다. 심사자에게 이 둘은 완전히 다른 뜻이다 — 후자를 0건으로 보여 주면
+ * 좌표를 직접 넣어 등록하면 될 일을 "등록할 수 없는 가게"로 읽고 신청을 덮어 둔다.
+ */
+type PlaceLookup =
+  | { kind: 'idle' }
+  | { kind: 'searching' }
+  | { kind: 'ok'; items: PlaceHit[] }
+  /** 서버가 source:'unavailable' 로 알려 준 경우 — 카카오 키가 없거나 카카오가 죽었다. */
+  | { kind: 'unavailable' }
+  /** 호출 자체가 실패(네트워크·타임아웃). */
+  | { kind: 'failed' };
+
+/** 빈 칸은 '입력 안 함'(null)이지 0 이 아니다. Number('') 가 0 이라 그냥 넘기면 위도 0 이 된다. */
+function parseNumeric(raw: string): number | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  const parsed = Number(trimmed);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+const inLatRange = (v: number) => v >= -90 && v <= 90;
+const inLngRange = (v: number) => v >= -180 && v <= 180;
+
+/** 정원 칸이 채워졌는데 양의 정수가 아니면 true. 빈 칸은 문제가 아니다(서버 기본값이 있다). */
+function hasBadCapacity(raw: string): boolean {
+  if (!raw.trim()) return false;
+  const parsed = parseNumeric(raw);
+  return parsed === null || !Number.isInteger(parsed) || parsed <= 0;
+}
+
+// 경주 대략 범위. **막지 않고 경고만** 한다 — 경주 밖 가게가 있을 수 있는 반면,
+// 자릿수 하나 틀린 좌표(129.21 → 12.921)는 조용히 엉뚱한 곳에 가게를 만든다.
+const GYEONGJU_LAT: readonly [number, number] = [35.6, 36.0];
+const GYEONGJU_LNG: readonly [number, number] = [129.0, 129.5];
+
+function isOutsideGyeongju(lat: number, lng: number): boolean {
+  return (
+    lat < GYEONGJU_LAT[0] || lat > GYEONGJU_LAT[1] || lng < GYEONGJU_LNG[0] || lng > GYEONGJU_LNG[1]
+  );
+}
+
+/**
+ * 펼쳐 둔 갈래에서 **보낼 수 있는 값 하나**를 만든다. 못 만들면 null 이고, null 이면 승인 버튼이 잠긴다.
+ *
+ * 닫힌 갈래의 입력값은 여기서 아예 읽히지 않는다. 그래서 검색으로 가게를 골라 둔 채 신규 폼을
+ * 채워도 전송되는 건 열려 있는 쪽 하나뿐이다.
+ */
+function toSelection(
+  branch: LinkBranch,
+  picked: FacilityHit | null,
+  draft: NewFacilityDraft,
+): FacilitySelection | null {
+  if (branch === 'link') {
+    return picked ? { mode: 'link', facilityId: picked.id, facilityName: picked.name } : null;
+  }
+  if (branch === 'create') {
+    const name = draft.name.trim();
+    const latitude = parseNumeric(draft.latitude);
+    const longitude = parseNumeric(draft.longitude);
+    if (!name || latitude === null || longitude === null) return null;
+    // 서버도 422 로 막지만 왕복을 기다릴 이유가 없다 — 어차피 고쳐야 하는 값이다.
+    if (!inLatRange(latitude) || !inLngRange(longitude)) return null;
+    if (hasBadCapacity(draft.capacity)) return null;
+
+    const newFacility: NewFacilityInput = { name, type: draft.type, latitude, longitude };
+    const address = draft.address.trim();
+    if (address) newFacility.address = address;
+    const phone = draft.phone.trim();
+    if (phone) newFacility.phone = phone;
+    // 정원은 비우면 보내지 않는다(서버 기본값). 적었는데 숫자가 아니면 위에서 이미 null 이다 —
+    // 조용히 버리고 승인하면 심사자는 자기가 넣은 정원이 반영된 줄 안다.
+    const capacity = parseNumeric(draft.capacity);
+    if (capacity !== null) newFacility.capacity = capacity;
+    return { mode: 'create', newFacility };
+  }
+  return null;
+}
+
+const FIELD_CLASS =
+  'rounded-lg border border-line bg-white px-2.5 py-1.5 text-[12px] font-normal text-muk focus:outline-none focus:ring-2 focus:ring-gold/40';
+
+function branchChipClass(active: boolean): string {
+  return `flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-colors ${
+    active
+      ? 'border-gold bg-gold/15 text-gold-deep'
+      : 'border-line bg-white text-muk-soft hover:bg-hanji hover:text-muk'
+  }`;
+}
+
+/**
+ * 미연결 사업자 신청에 가게를 붙이는 패널 — (A) 등록된 가게 연결, (B) 새 가게 등록.
+ *
+ * 두 갈래는 탭이라 한 번에 하나만 열린다. 고른 결과는 FacilitySelection 한 개로 카드에 올린다
+ * (승인 버튼이 카드에 있어서다). 폼의 중간 입력값은 여기 남고 위로 올라가지 않는다.
+ */
+function FacilityLinkPanel({
+  requestId,
+  storeName,
+  onSelect,
+}: {
+  requestId: string;
+  storeName: string;
+  onSelect: (requestId: string, selection: FacilitySelection | null) => void;
+}) {
+  const [branch, setBranch] = useState<LinkBranch>(null);
+  // 검색어·이름의 기본값은 신청서의 가게 이름이다. 심사자가 한 글자도 치기 전에 후보가 뜨고,
+  // 신청서와 다른 이름이면 그 자리에서 눈에 띈다.
+  const [linkTerm, setLinkTerm] = useState(storeName);
+  const [linkHits, setLinkHits] = useState<FacilityHit[]>([]);
+  const [linkBusy, setLinkBusy] = useState(false);
+  const [picked, setPicked] = useState<FacilityHit | null>(null);
+  const [placeTerm, setPlaceTerm] = useState(storeName);
+  const [places, setPlaces] = useState<PlaceLookup>({ kind: 'idle' });
+  const [draft, setDraft] = useState<NewFacilityDraft>(() => ({
+    name: storeName,
+    type: 'restaurant',
+    latitude: '',
+    longitude: '',
+    address: '',
+    phone: '',
+    capacity: '',
+  }));
+
+  const selection = useMemo(() => toSelection(branch, picked, draft), [branch, picked, draft]);
+
+  // 승인 버튼은 카드가 그리므로 고른 값을 위로 올린다. onSelect 는 부모가 useCallback 으로
+  // 고정했고 selection 은 useMemo 라, 값이 실제로 달라질 때만 한 번 올라간다(렌더 루프 방지).
+  useEffect(() => {
+    onSelect(requestId, selection);
+  }, [onSelect, requestId, selection]);
+
+  // (A) 등록된 가게 검색 — 300ms 디바운스. searchFacilities 는 던지지 않고 실패 시 빈 목록이다.
+  //
+  // 스피너 켜기와 목록 비우기까지 전부 타이머 안에서 한다. 이펙트 본문에서 곧장 setState 하면
+  // 글자 하나마다 렌더가 한 번 더 돈다(react-hooks/set-state-in-effect) — 어차피 300ms 뒤의 일이다.
+  useEffect(() => {
+    if (branch !== 'link') return;
+    const term = linkTerm.trim();
+    let alive = true;
+    const timer = setTimeout(async () => {
+      if (!term) {
+        setLinkHits([]);
+        setLinkBusy(false);
+        return;
+      }
+      setLinkBusy(true);
+      const res = await searchFacilities({ term, limit: 8 });
+      // 늦게 도착한 이전 검색이 최신 결과를 덮지 않게 한다(타이핑 중에는 요청이 겹친다).
+      if (!alive) return;
+      setLinkHits(res.items);
+      setLinkBusy(false);
+    }, 300);
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+    };
+  }, [branch, linkTerm]);
+
+  // (B) 카카오 장소 검색 — 자동 채움용. 한 글자로는 결과가 소음이라 두 글자부터 묻는다.
+  useEffect(() => {
+    if (branch !== 'create') return;
+    const term = placeTerm.trim();
+    let alive = true;
+    const timer = setTimeout(async () => {
+      if (term.length < 2) {
+        setPlaces({ kind: 'idle' });
+        return;
+      }
+      setPlaces({ kind: 'searching' });
+      try {
+        const res = await apiClient.get('/api/v1/search/places', {
+          params: { q: term },
+          timeoutMs: 4500,
+        });
+        if (!alive) return;
+        setPlaces(
+          res?.source === 'unavailable'
+            ? { kind: 'unavailable' }
+            : { kind: 'ok', items: Array.isArray(res?.items) ? res.items : [] },
+        );
+      } catch {
+        // 여기서 빈 목록으로 눙치면 '카카오에 없는 가게'와 구분되지 않는다.
+        if (alive) setPlaces({ kind: 'failed' });
+      }
+    }, 300);
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+    };
+  }, [branch, placeTerm]);
+
+  /** 카카오 결과로 폼을 채운다. 채운 뒤에도 모든 칸은 그대로 고칠 수 있다 —
+   *  카카오에 없는 가게가 이 경로의 존재 이유라 자동 채움은 어디까지나 초안이다. */
+  const fillFromPlace = (place: PlaceHit) => {
+    setDraft((prev) => ({
+      ...prev,
+      name: place.name || prev.name,
+      // 카카오는 cafe|restaurant 만 주고 그마저 없을 수 있다. 모를 때 restaurant 로 덮으면
+      // 심사자가 골라 둔 관광지·문화시설이 조용히 뒤집힌다 — 모르면 건드리지 않는다.
+      type: place.type === 'cafe' || place.type === 'restaurant' ? place.type : prev.type,
+      latitude: Number.isFinite(place.latitude) ? String(place.latitude) : prev.latitude,
+      longitude: Number.isFinite(place.longitude) ? String(place.longitude) : prev.longitude,
+      address: place.address || prev.address,
+      phone: place.phone || prev.phone,
+      // 정원은 카카오가 주지 않는다. 심사자가 적어 둔 값을 자동 채움이 지우지 않게 그대로 둔다.
+    }));
+  };
+
+  const lat = parseNumeric(draft.latitude);
+  const lng = parseNumeric(draft.longitude);
+  const latBad = draft.latitude.trim() !== '' && (lat === null || !inLatRange(lat));
+  const lngBad = draft.longitude.trim() !== '' && (lng === null || !inLngRange(lng));
+  const farFromGyeongju = !latBad && !lngBad && lat !== null && lng !== null && isOutsideGyeongju(lat, lng);
+
+  return (
+    <div className="mt-2 rounded-xl border border-line bg-hanji px-3 py-2.5">
+      <div className="flex flex-wrap items-center gap-1.5">
+        <button
+          type="button"
+          onClick={() => setBranch((prev) => (prev === 'link' ? null : 'link'))}
+          className={branchChipClass(branch === 'link')}
+        >
+          <Link2 size={12} /> 기존 가게 연결
+        </button>
+        <button
+          type="button"
+          onClick={() => setBranch((prev) => (prev === 'create' ? null : 'create'))}
+          className={branchChipClass(branch === 'create')}
+        >
+          <Plus size={12} /> 새 가게로 등록
+        </button>
+        {selection?.mode === 'link' && (
+          <span className="flex items-center gap-1 rounded-full border border-jade/40 bg-jade/10 px-2.5 py-1 text-[11px] font-semibold text-jade">
+            연결 예정: {selection.facilityName}
+            <button
+              type="button"
+              onClick={() => setPicked(null)}
+              title="연결 해제"
+              className="text-jade/70 transition-colors hover:text-terracotta"
+            >
+              <X size={12} />
+            </button>
+          </span>
+        )}
+      </div>
+
+      {branch === 'link' && (
+        <div className="mt-2.5">
+          <div className="relative">
+            <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muk-soft" />
+            <input
+              value={linkTerm}
+              onChange={(e) => setLinkTerm(e.target.value)}
+              placeholder="등록된 가게 이름으로 검색"
+              className="w-full rounded-lg border border-line bg-white py-2 pl-8 pr-3 text-[12px] focus:outline-none focus:ring-2 focus:ring-gold/40"
+            />
+          </div>
+          {picked && picked.name !== storeName && (
+            <p className="mt-1.5 text-[11px] text-terracotta">
+              고른 가게 이름이 신청서(<span className="font-semibold">{storeName}</span>)와 달라요.
+              증빙을 한 번 더 확인하세요.
+            </p>
+          )}
+          {linkBusy && <Loader2 size={14} className="mx-auto my-2 animate-spin text-muk-soft" />}
+          <div className="mt-1.5 flex flex-col gap-1">
+            {linkHits.map((hit) => (
+              <button
+                key={hit.id}
+                type="button"
+                onClick={() => setPicked(hit)}
+                className={`rounded-lg border px-2.5 py-1.5 text-left text-[11px] transition-colors ${
+                  picked?.id === hit.id
+                    ? 'border-jade/50 bg-jade/10'
+                    : 'border-line bg-white hover:bg-hanji'
+                }`}
+              >
+                <span className="font-semibold text-muk">{hit.name}</span>
+                <span className="ml-1 text-muk-soft">· {typeLabel(hit.type)}</span>
+                <span className="block truncate text-muk-soft">{hit.address || '주소 없음'}</span>
+              </button>
+            ))}
+          </div>
+          {!linkBusy && linkTerm.trim() !== '' && linkHits.length === 0 && (
+            <p className="py-2 text-center text-[11px] text-muk-soft">
+              검색 결과가 없어요. 아직 등록되지 않은 가게라면 ‘새 가게로 등록’ 을 쓰세요.
+            </p>
+          )}
+        </div>
+      )}
+
+      {branch === 'create' && (
+        <div className="mt-2.5 flex flex-col gap-2">
+          <div className="relative">
+            <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muk-soft" />
+            <input
+              value={placeTerm}
+              onChange={(e) => setPlaceTerm(e.target.value)}
+              placeholder="카카오에서 장소 찾아 자동 채우기(선택)"
+              className="w-full rounded-lg border border-line bg-white py-2 pl-8 pr-3 text-[12px] focus:outline-none focus:ring-2 focus:ring-gold/40"
+            />
+          </div>
+
+          {places.kind === 'searching' && (
+            <Loader2 size={14} className="mx-auto animate-spin text-muk-soft" />
+          )}
+          {places.kind === 'ok' && places.items.length > 0 && (
+            <div className="flex flex-col gap-1">
+              {places.items.slice(0, 6).map((place) => (
+                <button
+                  key={place.placeId}
+                  type="button"
+                  onClick={() => fillFromPlace(place)}
+                  className="rounded-lg border border-line bg-white px-2.5 py-1.5 text-left text-[11px] transition-colors hover:bg-hanji"
+                >
+                  <span className="font-semibold text-muk">{place.name}</span>
+                  {place.categoryName && (
+                    <span className="ml-1 text-muk-soft">· {place.categoryName}</span>
+                  )}
+                  <span className="block truncate text-muk-soft">{place.address}</span>
+                </button>
+              ))}
+            </div>
+          )}
+          {places.kind === 'ok' && places.items.length === 0 && (
+            <p className="text-[11px] text-muk-soft">
+              카카오에도 이 이름의 장소가 없어요. 아래 칸을 직접 채우면 그대로 등록됩니다.
+            </p>
+          )}
+          {(places.kind === 'unavailable' || places.kind === 'failed') && (
+            <p className="rounded-lg border border-terracotta/30 bg-terracotta/5 px-2.5 py-2 text-[11px] leading-relaxed text-terracotta">
+              {places.kind === 'unavailable'
+                ? '카카오 장소 검색을 지금 쓸 수 없어요(키 미설정 또는 카카오 장애).'
+                : '장소 검색 요청이 실패했어요.'}{' '}
+              아래 칸에 이름과 좌표를 직접 입력하면 등록할 수 있어요.
+            </p>
+          )}
+
+          <label className="flex flex-col gap-1 text-[11px] font-semibold text-muk-soft">
+            가게 이름
+            <input
+              value={draft.name}
+              onChange={(e) => setDraft((prev) => ({ ...prev, name: e.target.value }))}
+              placeholder="신청서의 가게 이름"
+              className={FIELD_CLASS}
+            />
+          </label>
+
+          <div className="grid grid-cols-2 gap-2">
+            <label className="flex flex-col gap-1 text-[11px] font-semibold text-muk-soft">
+              종류
+              <select
+                value={draft.type}
+                onChange={(e) =>
+                  setDraft((prev) => ({ ...prev, type: e.target.value as FacilityType }))
+                }
+                className={FIELD_CLASS}
+              >
+                {FACILITY_TYPES.map((item) => (
+                  <option key={item.value} value={item.value}>
+                    {item.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="flex flex-col gap-1 text-[11px] font-semibold text-muk-soft">
+              정원(선택)
+              <input
+                value={draft.capacity}
+                onChange={(e) => setDraft((prev) => ({ ...prev, capacity: e.target.value }))}
+                inputMode="numeric"
+                placeholder="비우면 기본값"
+                className={FIELD_CLASS}
+              />
+            </label>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <label className="flex flex-col gap-1 text-[11px] font-semibold text-muk-soft">
+              위도
+              <input
+                value={draft.latitude}
+                onChange={(e) => setDraft((prev) => ({ ...prev, latitude: e.target.value }))}
+                inputMode="decimal"
+                placeholder="35.8342"
+                className={FIELD_CLASS}
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-[11px] font-semibold text-muk-soft">
+              경도
+              <input
+                value={draft.longitude}
+                onChange={(e) => setDraft((prev) => ({ ...prev, longitude: e.target.value }))}
+                inputMode="decimal"
+                placeholder="129.2094"
+                className={FIELD_CLASS}
+              />
+            </label>
+          </div>
+
+          <label className="flex flex-col gap-1 text-[11px] font-semibold text-muk-soft">
+            주소(선택)
+            <input
+              value={draft.address}
+              onChange={(e) => setDraft((prev) => ({ ...prev, address: e.target.value }))}
+              className={FIELD_CLASS}
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-[11px] font-semibold text-muk-soft">
+            전화(선택)
+            <input
+              value={draft.phone}
+              onChange={(e) => setDraft((prev) => ({ ...prev, phone: e.target.value }))}
+              className={FIELD_CLASS}
+            />
+          </label>
+
+          {(latBad || lngBad) && (
+            <p className="text-[11px] font-semibold text-terracotta">
+              위도는 -90~90, 경도는 -180~180 사이의 숫자여야 해요.
+            </p>
+          )}
+          {hasBadCapacity(draft.capacity) && (
+            <p className="text-[11px] font-semibold text-terracotta">
+              정원은 1 이상의 정수로 적어 주세요. 모르면 비워 두면 됩니다.
+            </p>
+          )}
+          {farFromGyeongju && (
+            <p className="flex items-start gap-1.5 rounded-lg border border-terracotta/50 bg-terracotta/10 px-2.5 py-2 text-[11px] font-semibold leading-relaxed text-terracotta">
+              <AlertTriangle size={14} className="mt-px shrink-0" />
+              <span>
+                경주 밖 좌표예요(경주는 대략 위도 35.6~36.0, 경도 129.0~129.5). 자릿수를 잘못 친 게
+                아닌지 확인하세요. 실제로 경주 밖 가게라면 그대로 등록해도 됩니다.
+              </span>
+            </p>
+          )}
+          {!selection && (
+            <p className="text-[11px] text-muk-soft">
+              가게 이름과 좌표를 올바르게 채우면 승인 버튼이 켜져요.
+            </p>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
