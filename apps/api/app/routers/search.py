@@ -43,7 +43,7 @@ logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1/search", tags=["search"])
 
 # areaBasedList2/searchKeyword2 지역 필터 — legacy areaCode(경북=35)·sigunguCode(경주=2)
-# (docs/DATA_UTILIZATION.md 실측표). searchFestival2 만 예외적으로 법정동 코드를 쓴다
+# (docs/contest/DATA_UTILIZATION.md 실측표). searchFestival2 만 예외적으로 법정동 코드를 쓴다
 # (client.py search_festival 도크·events.py 참고) — 이 라우터는 legacy 코드가 맞는 엔드포인트만 쓴다.
 _AREA_CODE_GYEONGBUK = 35
 _SIGUNGU_CODE_GYEONGJU = 2

@@ -28,7 +28,7 @@ GET /api/v1/events : 지금 경주에서 진행 중이거나 곧 시작하는 �
   - 진행 중 + overview 보유 축제에 en/ja/zh AI 요약(overview_i18n)과 관찰 필드
     (summary_llm_status)를 동봉한다. 요청 경로는 LLM 에 블로킹되지 않는다 — 캐시
     히트분만 싣고 빠진 로케일은 fire-and-forget 태스크가 백그라운드에서 채운다.
-    상세는 docs/SOLAR_LLM_EXPANSION.md P1-4 와 festival_summary_service 도크 참조.
+    상세는 docs/archive/SOLAR_LLM_EXPANSION.md P1-4 와 festival_summary_service 도크 참조.
 """
 import time
 from asyncio import gather
@@ -243,7 +243,7 @@ async def list_events(limit: int = Query(20, ge=1, le=50)):
     # P1-4 축제 소개 다국어 요약 — 요청 경로 비블로킹(계약 ①): 캐시 히트분만 동봉하고,
     # 빠진 로케일은 fire-and-forget 태스크가 백그라운드에서 채운다(첫 요청은 원문만,
     # 이후 요청부터 overview_i18n 동봉 — JUDGE_QA "사전 배치+캐시" 서사 정합).
-    # 표시 우선순위는 docs/TOURAPI_EXPANSION.md 4-4(공식 해당 언어 > 공식 한국어 원문 >
+    # 표시 우선순위는 docs/archive/TOURAPI_EXPANSION.md 4-4(공식 해당 언어 > 공식 한국어 원문 >
     # 명시된 AI 번역) — 공식 다국어 자매 서비스(2-1) 적재가 후속 정본이며, 이 요약은
     # 그때까지 'AI 요약·번역' 라벨이 명시된 최하위 계층이다. 키 미설정이면 태스크 자체
     # 미발행(네트워크 0) + status="disabled" 만 동봉(무해 폴백 — 기존 계약 불변).

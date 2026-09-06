@@ -3,7 +3,7 @@
 # (과거 [tool.poetry] 의존성 명세는 poetry 미사용·requirements 와 드리프트로 제거 — 2026-07-10)
 
 [tool.ruff]
-# CI(.github/workflows/ci.yml)가 `ruff check apps/api` 로 실행하는 린트 설정.
+# CI(.github/workflows/ci.yml)가 apps/api 에서 `ruff check .` 로 실행하는 린트 설정.
 # 기본 규칙(E4/E7/E9 + F)만 사용 — 실수 방지용 최소 세트.
 target-version = "py311"
 

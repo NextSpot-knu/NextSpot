@@ -1,6 +1,6 @@
 """사장님 콘솔 '오늘의 실행 브리핑' — 6시간 혼잡 예측 창의 사실을 한국어 2~3문장 프로즈화 (P1-5).
 
-docs/SOLAR_LLM_EXPANSION.md P1-5 계약 — P0-2(briefing_service)의 플레이스홀더 치환 설계를
+docs/archive/SOLAR_LLM_EXPANSION.md P1-5 계약 — P0-2(briefing_service)의 플레이스홀더 치환 설계를
 공용 게이트(is_honest_briefing 파라미터화)로 재사용한다:
 
   - LLM 은 수치·시각·%를 일절 쓰지 못하고 {window} {low_hour} {low_congestion} {timesale}
@@ -41,7 +41,7 @@ from app.services.predict_service import get_model_info, predict_congestion
 logger = structlog.get_logger()
 
 _KST = timezone(timedelta(hours=9))
-_WINDOW_HOURS = 6            # merchant-api.ts 예측 섹션과 동일한 6시간 창 — 계약 ①
+_WINDOW_HOURS = 6            # apps/web/lib/merchant/api.ts 예측 섹션과 동일한 6시간 창 — 계약 ①
 _CACHE_TTL_SECONDS = 1800.0  # 성공 30분 — 계약 범위(30~60분) 하한(예측 창이 시간 단위로 움직인다)
 _FAILURE_TTL_SECONDS = 60.0  # 거부·실패는 1분만(P0-2 관례)
 _LLM_MAX_TOKENS = 300        # 한국어 2~3문장이면 충분

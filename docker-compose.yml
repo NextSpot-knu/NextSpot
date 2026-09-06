@@ -9,14 +9,12 @@ services:
     ports:
       - "8000:8080"
     volumes:
-      - ./apps/api:/app   # 코드/모델(model.pkl) 라이브 마운트
+      - ./apps/api:/app   # 코드 라이브 마운트 (모델은 부팅 시 Supabase Storage 에서 적재 — 로컬 pkl 없음)
+    # 자격증명은 로컬 실행과 같은 파일(apps/api/.env)을 그대로 읽는다.
+    # 예전처럼 environment: 에 자리표시자 기본값을 두면 pydantic-settings 가 환경변수를 .env 보다
+    # 우선해서, 루트 .env 가 없을 때 가짜 URL·키로 "정상" 부팅하는 문제가 있었다(2026-09-04 정정).
+    env_file:
+      - ./apps/api/.env
     environment:
       - ENV=development
-      # 값은 루트 .env 에서 치환된다(docker-compose 자동 로드).
-      - SUPABASE_URL=${SUPABASE_URL:-https://your-supabase-project.supabase.co}
-      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY:-your-supabase-anon-key}
-      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY:-}
-      - JWT_SECRET=${JWT_SECRET:-your-supabase-jwt-secret}
-      - ADMIN_API_TOKEN=${ADMIN_API_TOKEN:-nextspot-admin-local}
-      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-*}
     restart: unless-stopped

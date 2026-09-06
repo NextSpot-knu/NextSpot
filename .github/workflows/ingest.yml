@@ -3,10 +3,12 @@
 # 주의: schedule 트리거는 기본 브랜치(main)에서만 발화한다 — feature 브랜치 머지 전에는
 #       workflow_dispatch 로 수동 실행할 것 (Actions 탭 → TourAPI Ingest → Run workflow).
 # 필요한 GitHub Secrets (repo → Settings → Secrets and variables → Actions → Secrets):
-#   TOURAPI_KEY, SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY, KAKAO_REST_API_KEY
+#   TOURAPI_KEY, SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY, KAKAO_REST_API_KEY, LOCALDATA_AUTH_KEY(선택)
+# 선택 Repository Variable: KAKAO_PLACE_DISCOVERY_ENABLED=true (TourAPI 가 놓친 카페·식당을 Kakao 로 보완 적재)
 # 선택 Repository Variable: TOURAPI_INSIGHTS_ENABLED=true (집중률 15128555 승인 후)
 # 선택 Repository Variable: TOURAPI_RELATED_ENABLED=true (연관관광지 별도 상품 승인 후)
-# TOURAPI_KEY 미설정이면 전 스텝을 skip(무해 — 매일 실패 이메일 방지).
+# TOURAPI_KEY 가 없으면 TourAPI 단계만 skip 한다. TOURAPI/LOCALDATA/KAKAO 키가 전부 없으면 checkout 도 하지 않는다
+# (무해 — 매일 실패 이메일 방지). 전체 시크릿·변수 목록: docs/DEPLOY_AND_ENV.md §4.
 name: TourAPI Ingest
 
 on:

@@ -38,7 +38,7 @@ class Settings(BaseSettings):
         """기계 호출자가 제시해야 하는 유효 토큰(SERVICE_API_TOKEN 우선)."""
         return self.SERVICE_API_TOKEN.strip() or self.ADMIN_API_TOKEN
 
-    # 구 사장님 콘솔 공유 토큰. **프런트는 더 이상 이 값을 쓰지 않는다** — merchant-api.ts 는
+    # 구 사장님 콘솔 공유 토큰. **프런트는 더 이상 이 값을 쓰지 않는다** — 프런트(apps/web/lib/merchant/api.ts)는
     # Supabase JWT 만 보내고, NEXT_PUBLIC_MERCHANT_API_TOKEN 은 소스 어디에도 없다.
     # (예전 주석은 그 env 와 값을 맞추라고 지시했는데, 12줄 아래 경고와 정면으로 어긋났다.)
     # 아래 LEGACY_CONSOLE_TOKENS 가 켜진 임시 완충 구간에만 서버가 X-Merchant-Token 으로 대조한다.
@@ -52,7 +52,7 @@ class Settings(BaseSettings):
 
     # 구 콘솔 공유 토큰(X-Merchant-Token) 한시 수용 스위치 — **2026-08-28 부로 기본 False**.
     #
-    # 프런트(merchant-api.ts)가 Supabase JWT 로 전환 완료됐으므로 더 이상 필요 없다. 끔으로써
+    # 프런트(lib/merchant/api.ts)가 Supabase JWT 로 전환 완료됐으므로 더 이상 필요 없다. 끔으로써
     # 가게 소유권 검사가 **모든 경로에서** 강제된다 — 공유 토큰만 알면 아무 가게의 좌석 상태를
     # 방송할 수 있던 구멍이 닫힌다(그 방송은 evidence_tier='verified' 로 학습에 들어간다).
     #

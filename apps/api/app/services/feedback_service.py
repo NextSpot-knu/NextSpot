@@ -104,7 +104,7 @@ STATUS_ANSWERED = "answered"
 STATUS_SKIPPED = "skipped"
 STATUS_EXPIRED = "expired"
 
-#: reason_code → learning_scope (정본: docs/REJECTION_LAB_AUDIT.md 계약)
+#: reason_code → learning_scope (정본: docs/archive/REJECTION_LAB_AUDIT.md 계약)
 #: - too_far/too_crowded/not_my_taste/too_expensive → 취향 신호 → long_term(벡터 -5% 정확히 1회)
 #: - closed/inaccurate → 데이터 품질 문제지 취향이 아니다 → 취향 학습 금지
 #: - already_visited → 재추천 억제만

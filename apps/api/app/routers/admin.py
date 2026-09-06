@@ -1,4 +1,4 @@
-"""관리자 전용 라우터 — docs/IMPROVEMENT_PLAN.md WS-A-6.
+"""관리자 전용 라우터 — docs/archive/IMPROVEMENT_PLAN.md WS-A-6.
 
 배경: 관리자 프런트(admin/*)가 anon 키(createPublicClient)로 facilities/system_settings/inquiries 를
 직접 쓰던 경로는 RLS 강화(20260707120000_security_hardening.sql) 이후 전부 거부된다(이전에도
@@ -774,7 +774,7 @@ async def get_dashboard_today():
 
 
 # =========================================================================
-# 오늘의 브리핑 — docs/SOLAR_LLM_EXPANSION.md P0-2 (admin/dashboard 상단 카드)
+# 오늘의 브리핑 — docs/archive/SOLAR_LLM_EXPANSION.md P0-2 (admin/dashboard 상단 카드)
 # 서버가 dashboard/today + impact(KST 오늘) 수치를 사실 JSON 으로 집계하고, Solar 는
 # 한국어 1~2문장 프로즈만 생성한다. 게이트/캐시/폴백 규칙은 briefing_service 가 보유한다.
 # 어떤 실패든 briefing=None 으로 강등되며 프런트는 카드 자체를 렌더하지 않는다(무해 폴백).

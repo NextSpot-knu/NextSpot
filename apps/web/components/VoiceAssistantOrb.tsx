@@ -3,7 +3,7 @@
 // 음성 비서 오버레이 UI(오브 + 자막). 고정 위치는 없음 — 부모가 배치한다(재사용성).
 // 상태는 useVoiceAssistant 훅이 제공한다. 아이콘은 스파크(4점 별) 모티브.
 import React, { useId } from "react";
-import type { VoiceState } from "@/lib/useVoiceAssistant";
+import type { VoiceState } from "@/lib/voice/useVoiceAssistant";
 import { useT } from "@/lib/i18n/I18nProvider";
 
 // 스파크 아이콘(오목한 4점 별, 파랑→보라→핑크 그라데이션).

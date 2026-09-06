@@ -1,6 +1,6 @@
 'use client';
 
-// 앱 자체 회원(이메일/비밀번호) 로그인/회원가입 — docs/AUTH_MEMBERSHIP_PLAN.md.
+// 앱 자체 회원(이메일/비밀번호) 로그인/회원가입 — docs/archive/AUTH_MEMBERSHIP_PLAN.md.
 // 랜딩 '바로 시작' → 이 페이지. 게스트 둘러보기(익명 세션)도 유지한다.
 // 가입은 현재 익명 세션을 '정회원 전환'해 저장·취향 데이터를 승계한다(lib/auth signUpWithEmail).
 

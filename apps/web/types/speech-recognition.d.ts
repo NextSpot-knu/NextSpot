@@ -8,7 +8,7 @@
 //
 // 이 파일은 타입 선언만 있고 런타임 코드가 없다(.d.ts) — 동작은 1비트도 바뀌지 않는다.
 // 선언 범위는 이 저장소가 실제로 쓰는 표면으로 한정했다(전체 스펙 미러가 목적이 아니다):
-//   lib/useSpeechSearch.ts · lib/useVoiceAssistant.ts · app/explore/recommend/page.tsx
+//   lib/voice/useSpeechSearch.ts · lib/voice/useVoiceAssistant.ts · app/explore/recommend/page.tsx
 //
 // 표준화 상태: Web Speech API 는 W3C 정식 표준이 아니라 Community Group 리포트라
 // lib.dom 에 본체가 없다. 브라우저 지원도 갈려서(webkit 접두 필요) 런타임 감지는 그대로

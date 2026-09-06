@@ -1,9 +1,9 @@
 # NextSpot 시스템 맵 — 구조 · 기능 · 연결관계
 
-> 작성 기준 커밋: `8f84803` (main, 2026-08-20) · 코드 직접 조사 기반
+> 작성 기준: 2026-08-20 코드 직접 조사(`8f84803`) → 2026-08-28 RBAC 반영 → 2026-09-04 저장소 정리 반영(경로·개수·인증 갱신)
 >
 > 이 문서는 **현재 코드에 실제로 구현된 것**만 기술한다. `README.md`와
-> `architecture_overview.md`는 각각 공모전 서사·상속 베이스 문서라 최신 상태와
+> `docs/archive/ARCHITECTURE_OVERVIEW.md`는 각각 공모전 서사·상속 베이스 문서라 최신 상태와
 > 어긋나는 부분이 있다(§14 참조). 구조를 파악할 때는 이 문서를 우선한다.
 
 ---
@@ -47,10 +47,11 @@ NextSpot/
 │   │   ├── app/                # App Router — 33개 라우트 (§5)
 │   │   │   ├── (관광객)         main · explore/{map,recommend} · course · waiting
 │   │   │   │                    saved · setup · mypage/* · login · auth/callback
-│   │   │   ├── admin/*         # B2G 관제 8화면
-│   │   │   └── merchant/*      # 사장님 콘솔 2화면 (+ _lib 로컬 인증·API)
-│   │   ├── components/         # 28개 공용 + admin/ 9개
-│   │   ├── lib/                # API 클라이언트 · 인증 · 지역팩 · 음성 · 로컬 상태 · errors
+│   │   │   ├── admin/*         # B2G 관제 10화면
+│   │   │   ├── merchant/*      # 사장님 콘솔 2화면 (API·로컬 상태는 lib/merchant/)
+│   │   │   └── dev             # 개발자 콘솔 — 역할 임명 · 사업자 심사 · 최근 실패
+│   │   ├── components/         # 공용 + main/(메인 화면 전용) · shell/(앱 셸·PWA) · admin/(관제)
+│   │   ├── lib/                # API 클라이언트 · 인증 · 지역팩 · 로컬 상태 + voice/ · map/ · merchant/
 │   │   │   └── i18n/           # ko · en · ja · zh 4개 로케일
 │   │   ├── types/              # 앰비언트 타입 선언 (Web Speech · Kakao Maps — 런타임 코드 없음)
 │   │   ├── e2e/                # Playwright — 여정루프 · 음성 · 다국어
@@ -58,22 +59,23 @@ NextSpot/
 │   │
 │   └── api/                    # FastAPI · Python 3.11 → Render
 │       ├── app/
-│       │   ├── main.py         # 라우터 20개 등록 + 부팅 워밍업 3단계 (§3.2)
-│       │   ├── core/           # config(env) · supabase(인증가드) · logging · vector
-│       │   ├── routers/        # 22개 — HTTP 경계 (§5 표)
-│       │   └── services/       # 30개 — 도메인 로직
+│       │   ├── main.py         # 라우터 23개 등록 + 부팅 워밍업 4단계 (§3.2)
+│       │   ├── core/           # config(env) · authz(역할·소유권) · supabase(JWT·클라이언트) · logging · failure_log · vector
+│       │   ├── routers/        # 23개 — HTTP 경계 (§5 표)
+│       │   └── services/       # 도메인 로직 (평면 34개 + 하위 패키지 3)
 │       │       ├── spot/       # ★ SPOT 산식 런타임 정본 (score·preference·travel·wait_time)
-│       │       └── tourapi/    # 한국관광공사 OpenAPI 클라이언트·변환·인사이트
-│       ├── scripts/            # 9개 배치 — 적재 · 학습 · 품질평가 · 번역 · 태깅
-│       └── tests/              # pytest — 라우터 · 서비스 · 스크립트 3계층
+│       │       ├── tourapi/    # 한국관광공사 OpenAPI 클라이언트·변환·인사이트
+│       │       └── batch/      # 적재 스크립트 전용 (localdata · wikimedia · kakao_coordinate · tourism_demand_evaluation)
+│       ├── scripts/            # 12개 배치 — 적재 · 학습 · 품질평가 · 번역 · 태깅 · 보행 그래프
+│       └── tests/              # pytest — routers · services · core · scripts · migrations
 │
 ├── packages/shared-types/      # ★ SPOT 상수 단일 정의점 (web ↔ api, CI 패리티 강제)
 ├── supabase/
-│   ├── migrations/             # 33개 — 스키마 정본
+│   ├── migrations/             # 스키마 정본 (타임스탬프 순)
 │   └── RESET_AND_SETUP.sql     # scripts/build_reset.mjs 가 마이그레이션에서 자동 생성
-├── scripts/                    # build_reset.mjs · seed.js · gemini_review.ps1
-├── .github/workflows/          # ci · ingest · train-recommendation-model · uptime
-└── docs/                       # 26개 기획·감사·계획 문서
+├── scripts/                    # build_reset.mjs · check-i18n-keys.mjs · check-docs.mjs · run-web-tests.mjs
+├── .github/workflows/          # ci · ingest · train-recommendation-model · collect-area-demand · uptime
+└── docs/                       # 운영 문서 · contest/ · archive/ (색인 docs/README.md)
 ```
 
 **단일 정의점 3곳** — 여기를 바꾸면 여러 곳이 동시에 움직인다.
@@ -107,8 +109,8 @@ flowchart TB
     end
 
     subgraph API["apps/api — FastAPI"]
-        R["routers/ 22"]
-        S["services/ 30"]
+        R["routers/ 23"]
+        S["services/ 34 + spot·tourapi·batch"]
         SPOT["★ SPOT 엔진"]
         ML["sklearn 혼잡예측<br/>+ 모델 레지스트리"]
     end
@@ -116,8 +118,8 @@ flowchart TB
     DB[("Supabase<br/>PostgreSQL + RLS<br/>+ Storage")]
 
     U -->|"Supabase JWT"| R
-    M -->|"X-Merchant-Token"| R
-    A -->|"X-Admin-Authorization"| R
+    M -->|"Supabase JWT (role=merchant)"| R
+    A -->|"Supabase JWT (role=admin)"| R
     R --> S
     S --> SPOT
     SPOT --> ML
@@ -134,17 +136,18 @@ flowchart TB
 ### 3.2 부팅 워밍업 (`main.py` lifespan)
 
 Render 무료 티어(0.1 CPU)의 콜드 비용을 첫 사용자에게 전가하지 않기 위해,
-`/health`가 준비 완료를 알리기 전에 3가지를 미리 채운다. **전부 best-effort** —
+`/health`가 준비 완료를 알리기 전에 4가지를 미리 채운다. **전부 best-effort** —
 실패해도 서버는 기존 lazy 경로로 정상 기동한다.
 
 | 순서 | 워밍업 | 해결하는 문제 |
 |---|---|---|
-| 1 | 모델 매니저 기동 (`start_model_manager`) | `model.pkl` 최초 언피클 비용(로컬 866ms → 0.1 CPU에서 10배) |
+| 1 | 모델 매니저 기동 (`start_model_manager`) | Storage 모델 아티팩트 최초 다운로드·언피클 비용(로컬 866ms → 0.1 CPU에서 10배) |
 | 2 | JWKS 공개키 프리페치 | 첫 인증 요청의 DNS+TLS 신규 왕복(실측 772ms) |
 | 3 | 시설 캐시 프리필 (`fetch_all_facilities`) | 첫 `by-type`의 캐시 미스(실측 최악 13초) |
+| 4 | 지역 근거 병렬 준비 — 주차·날씨·축제(전체 12초 상한) | 첫 추천에서 지역 수요가 빠지거나 콜드 호출로 늦어지는 것 |
 
 > 배경: 2026-07-16 프로덕션에서 첫 `/recommendations/by-type`이 **18.8초** 걸려
-> 프런트 10초 타임아웃을 넘겼다. 콜드 스타트가 아니라 위 3개의 합이었다.
+> 프런트 10초 타임아웃을 넘겼다. 콜드 스타트가 아니라 위 1~3의 합이었다(4는 2026-08-20 추가).
 
 종료 시엔 LLM AsyncClient와 모델 폴링 태스크를 정리한다.
 
@@ -245,7 +248,7 @@ SessionBootstrap: 익명 세션 자동 발급
 | `/explore/recommend` | **대안 추천 (핵심)** | `POST /recommendations` `/recommendations/by-type` | **SPOT 엔진** |
 | ″ | 추천 사유 생성 | `POST /recommendations/{id}/explain` | `reason_service` `recommendation_explanation_service` |
 | ″ | 수락 / 거절 피드백 | `POST /recommendations/accept` `/reject` `/feedback` | `feedback_service` `preference_vector_service` |
-| ″ | 음성 비서 | `POST /voice/turn` | `voice_intent_service` + `lib/voiceCommands.ts` |
+| ″ | 음성 비서 | `POST /voice/turn` | `voice_intent_service` + `lib/voice/voiceCommands.ts` |
 | ″ | 자연어 현장조건 | `POST /travel-context/parse` | `travel_context_parser` |
 | `/course` | 멀티스톱 분산 코스 | `POST /courses/recommend` | 누적 도착시각 기반 SPOT 반복 |
 | `/waiting` | 대기 현황 보드 | `GET /infrastructures` | `facility_cache` |
@@ -294,8 +297,8 @@ SessionBootstrap: 익명 세션 자동 발급
 
 진입 경로는 `/mypage`(비즈니스 계정으로 전환) · `/mypage/settings` · `/merchant/dashboard`(가게 변경)
 세 곳이다. 게이트(`/merchant`)는 전체화면이라 그동안 **어느 단계에서도 되돌아갈 수단이 없었다** —
-비밀번호를 모르면 브라우저 뒤로가기 외에는 갇혔다. 2026-08-27 에 상단 좌측 `← 나가기` 를 추가했고,
-세 상태(비밀번호 게이트 · 최근 가게 · 가게 선택) 모두에서 노출된다. 동작은 이력이 있으면
+역할이 없거나 가게 선택 전이면 브라우저 뒤로가기 외에는 갇혔다. 2026-08-27 에 상단 좌측 `← 나가기` 를 추가했고,
+진입 분기(로그인 필요 · 역할 신청 · 최근 가게 · 가게 선택) 모두에서 노출된다(비밀번호 게이트는 08-28 RBAC 전환으로 폐지). 동작은 이력이 있으면
 `router.back()`, 새 탭에서 직접 연 경우처럼 돌아갈 이력이 없으면 `/mypage` 로 보낸다.
 
 ### 5.3 B2G 관제 (`/admin`)
@@ -343,7 +346,7 @@ flowchart TB
 
 ```
 1. 취향 일치      preference.py — 8차원 코사인 (barrier_free는 features로 브리지)
-2. 이동 시간      travel.py — Kakao Directions(키 있으면) 또는 Haversine 도보환산
+2. 이동 시간      travel.py — 번들된 OSM 보행 그래프 최단경로(그래프 밖은 Haversine 도보환산)
 3. 도착시점 혼잡  ★ arrival = 출발시각 + 이동시간   ← 이 제품의 정체성
                   ├ 신선한 실측 있음 → measured (그대로 사용)
                   └ 없음             → sklearn 예측
@@ -387,7 +390,7 @@ seed/simulated  → 공개 조회에서 아예 제외 (개발 이력으로만 �
 `latest_congestion_for_facilities` RPC가 **DB 레벨에서** 이 필터를 강제한다.
 애플리케이션 버그가 나도 seed 데이터가 '지금 혼잡'으로 새어 나갈 수 없다.
 
-**수집 경로 3개** — 최신 마이그레이션(`20260820123000`)이 연결했다.
+**수집 경로 3개** — 마이그레이션 `20260820123000`이 연결했다.
 
 | 출처 | 등급 | 경로 |
 |---|---|---|
@@ -397,7 +400,7 @@ seed/simulated  → 공개 조회에서 아예 제외 (개발 이력으로만 �
 
 ### 7.2 모델 승격 게이트 (`predict_service.py`)
 
-저장소의 `model.pkl`은 합성 데모 모델이라 **운영 추론에 쓰지 않는다.**
+로컬 pkl 파일은 저장소에 없고, 운영 추론은 **검증된 Storage 아티팩트만** 쓴다.
 비공개 Storage(`recommendation-models` 버킷, `public=false`)의 아티팩트가
 `model_registry.status='active'`이고 아래를 **전부** 통과해야 메모리에 올라간다.
 
@@ -459,7 +462,7 @@ UPSTAGE_API_KEY 미설정 → is_enabled() False → 네트워크 없이 즉시 
 | **TourAPI** (한국관광공사) | POI 적재·상세·무장애·축제 조회 | 호출 시점에 한국어 오류 (부팅은 정상) |
 | **기상청 단기예보** | 시간대별 날씨 칩 | `unavailable` 폴백 |
 | **Kakao Local** | 좌표 검색·화장실·POI 보강 | 해당 기능 비활성 |
-| **Kakao Directions** | 실경로 도보 시간 | **Haversine 직선거리 도보 환산** |
+| **OSM 보행 그래프**(번들, 외부 호출 없음) | 실경로 도보 시간 | 그래프 범위 밖은 **Haversine 직선거리 도보 환산** |
 | **Kakao Maps SDK** | 프런트 지도 | — |
 | **LOCALDATA** (행안부) | 인허가 기반 영업상태 검증 | 배치 미실행 |
 | **Wikimedia** | 이미지 보강 | 기본 이미지 |
@@ -470,7 +473,7 @@ UPSTAGE_API_KEY 미설정 → is_enabled() False → 네트워크 없이 즉시 
 
 ---
 
-## 10. 데이터 모델 (18 테이블)
+## 10. 데이터 모델 (24 테이블 중 주요 표)
 
 ```
 facilities ──┬── congestion_logs ────── (evidence_tier · source)
@@ -514,12 +517,13 @@ system_settings
 | `ci.yml` | push / PR | web(lint→typecheck→test→build) · api(ruff→pytest) · schema · e2e(Chromium 390px, 4로케일) |
 | `ingest.yml` | 매일 04:00 KST | TourAPI POI 적재 (contentid upsert) |
 | `train-recommendation-model.yml` | 매주 월 03:00 KST | 모델 학습 → 게이트 검증 → 승격 |
-| `uptime.yml` | 주기 | 헬스체크 |
+| `collect-area-demand.yml` | 수동 | 주차 실측 수집 수동 복구(정기 수집은 Supabase pg_cron 10분 주기) |
+| `uptime.yml` | 수동 | 헬스체크(장애 진단용) |
 
 **수동 스크립트** (`apps/api/scripts/`)
 
 `ingest_tourapi.py` · `ingest_localdata.py` · `ingest_kakao_places.py` · `ingest_tourism_insights.py`
-`train.py --evaluate` (시간순 홀드아웃 MAE) · `recommendation_quality.py`
+`train.py --dry-run` (후보 평가만, 등록 없음) · `recommendation_quality.py`
 `reconcile_kakao_coordinates.py` · `tag_cuisines.py` · `translate_overviews.py`
 
 ---
@@ -533,13 +537,13 @@ system_settings
 ```bash
 uvicorn app.main:app --reload --port 8000   # apps/api — 문서 /docs
 npm run dev --prefix apps/web               # apps/web — :3000
-pytest apps/api -q                          # API 테스트
-npm run test --workspace=apps/web           # 4개 테스트 스위트
+cd apps/api && python -m pytest -q          # API 테스트 (Python 3.11 · PYTHONUTF8=1)
+npm run test --workspace=apps/web           # i18n 키 검사 + lib/**/*.test.ts 전부
 npm run test:e2e --workspace=apps/web       # Playwright (npx playwright install 선행)
 ```
 
-**필수 env** — `SUPABASE_URL` `SUPABASE_ANON_KEY` `SUPABASE_SERVICE_ROLE_KEY`
-`JWT_SECRET` `ADMIN_API_TOKEN` (뒤 둘은 없으면 부팅 실패)
+**필수 env** — `SUPABASE_URL` `SUPABASE_ANON_KEY` `JWT_SECRET` `ADMIN_API_TOKEN` (없으면 부팅 실패)
++ `SUPABASE_SERVICE_ROLE_KEY` (쓰기 경로에 필요)
 
 **선택 env** — `KAKAO_REST_API_KEY` `TOURAPI_KEY` `KMA_API_KEY` `UPSTAGE_API_KEY`
 `SERVICE_API_TOKEN`(스케줄러 토큰 회전용 — 없으면 `ADMIN_API_TOKEN` 폴백)
@@ -559,7 +563,7 @@ npm run test:e2e --workspace=apps/web       # Playwright (npx playwright install
 
 | 확장 | 건드릴 곳 |
 |---|---|
-| **다른 지역** | `apps/web/lib/region.ts` + `lib/landmarks.ts` + `.env` 좌표 → `ingest_tourapi.py --lat --lng` 재실행 |
+| **다른 지역** | `apps/web/lib/region.ts` + `ingest_tourapi.py --lat --lng` 재실행 |
 | **다른 LLM 제공자** | `LLM_BASE_URL` / `LLM_MODEL` env만 (OpenAI 호환이면 무엇이든) |
 | **SPOT 가중치 조정** | `score.py` **와** `shared-types/spot.ts` 동시 (한쪽만 바꾸면 CI 실패) |
 | **새 데이터 소스** | `services/`에 무해 폴백 갖춘 모듈 + `facility_source_refs`로 출처 추적 |
@@ -572,7 +576,7 @@ npm run test:e2e --workspace=apps/web       # Playwright (npx playwright install
 
 조사 중 발견한, **문서가 코드보다 뒤처진 지점**들이다.
 
-1. **`architecture_overview.md` §4는 "외부 LLM 없이 내장 폴백"이라고 단언하지만 현재는 틀리다.**
+1. **`docs/archive/ARCHITECTURE_OVERVIEW.md` §4는 "외부 LLM 없이 내장 폴백"이라고 단언하지만 현재는 틀리다.**
    `llm_client.py`가 Upstage Solar를 연동했고 9개 서비스가 소비한다. 다만 문서의 *정신*
    (LLM은 보조, 무해 폴백)은 코드에 정확히 살아 있다.
 
@@ -580,11 +584,9 @@ npm run test:e2e --workspace=apps/web       # Playwright (npx playwright install
    현재는 Storage 레지스트리 + 품질 게이트 + `degraded_rules`
    (0.5 상수 대신 **혼잡 항 자체를 산식에서 제외**)로 대체됐다.
 
-3. **`README.md`의 "AI: Gemini(추천 사유·음성 의도)"** — 실제 구현은 Upstage Solar다.
-
-4. **`revert/ui-editorial-pass`(PR #5)로 되돌려진 UI 작업이 복구되지 않았다.**
+3. **`revert/ui-editorial-pass`(PR #5)로 되돌려진 UI 작업이 복구되지 않았다.**
    랜딩·온보딩·추천카드·4개 로케일에 걸친 219줄과 `onboarding-usability.spec.ts`가
    main에서 빠져 있다. 작업물은 `origin/feature/ui-editorial-pass`에 남아 있다.
 
-5. **`docs/`의 26개 문서 중 상당수가 기획·감사 시점 스냅샷**이다.
+4. **`docs/archive/`의 문서는 기획·감사 시점 스냅샷**이다(2026-09-04 정리 — 색인은 `docs/README.md`).
    런타임 정본은 언제나 `score.py` / `predict_service.py` / `congestion_evidence.py` 세 파일이다.

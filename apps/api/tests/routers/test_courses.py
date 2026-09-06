@@ -3,7 +3,7 @@
 #   · DB: fetch_user/fetch_all_facilities/fetch_congestion_map 는 AsyncMock,
 #         선호 벡터는 preference_vector_service 패치 — PostgREST 호출이 전혀 없다.
 #   · SPOT 스코어(calculate_spot_score)와 predict_congestion 은 실제로 돈다
-#     (Kakao 키·model.pkl 부재 → Haversine·기본예측 0.5 → 결정적). test_routers 와 동일 전략.
+#     (Kakao 키·활성 모델 부재 → Haversine·degraded 예측(None) → 결정적). test_routers 와 동일 전략.
 from unittest.mock import AsyncMock, patch
 from types import SimpleNamespace
 

@@ -1,0 +1,178 @@
+# NextSpot 적응 명세 (InduSpot 베이스 → 관광 도메인)
+
+> 이 문서는 **검증된 InduSpot 로컬 베이스를 2026 관광데이터 활용 공모전용 NextSpot으로 재구성**하기 위한
+> 단일 정본 계획서입니다. "무엇을 그대로 쓰고(재사용), 무엇을 어느 파일에서 바꾸는지(개조)"를 정리합니다.
+>
+> - **출처 베이스:** `NextSpot-knu/Induspot` (로컬 전용, GCP 의존성 제거 완료) 의 `main` HEAD 스냅샷.
+> - **공모전 제안서 원본:** 상위 작업폴더 `../Docs/` — 특히
+>   `20260505ver_…『2026 관광데이터 활용 공모전』 제안서…수정_2.pdf` (양식1, 5p)가 본 명세의 근거.
+> - **상속 아키텍처 상세:** [`../architecture_overview.md`](./ARCHITECTURE_OVERVIEW.md).
+
+---
+
+## 0. 한 줄 정의
+
+포화한 관광 수요를 실시간으로 **분산·재배치**하는 AI 기반 대안 장소 추천 웹 서비스.
+초기 서비스 지역은 **경주 황리단길**. 핵심 알고리즘은 **SPOT_Score**, 필수 데이터는 **TourAPI(한국관광공사 OpenAPI)**.
+
+---
+
+## 1. 재사용(AS-IS) vs 피벗(TO-BE) 매핑
+
+| 축 | InduSpot (상속 베이스) | NextSpot (관광, 목표) | 작업 성격 |
+| --- | --- | --- | --- |
+| 대상 사용자 | 산업단지 근로자 | 관광객 | 용어/카피 교체 |
+| 문제 | 피크타임 사내 인프라 혼잡 | 오버투어리즘·상권 양극화 | 기획/카피 |
+| 대상 공간(POI) | 휴게실·회의실·주차장·식당 | 관광지(12)·문화시설(14)·음식점(39) | **데이터/스키마** |
+| 혼잡 데이터 | IoT·CCTV(YOLO)·출입 게이트 | 경주시 교통데이터(공공데이터포털) + TourAPI `eventBasedList` | **데이터 소스** |
+| POI 메타 | 자체 시드 / 카카오 스크랩 | **TourAPI** areaBased/location/detail | **데이터 소스** |
+| 이동시간 | Haversine 직선거리 도보 환산 | **Tmap 도보 경로 API** | **어댑터 교체** |
+| 선호 벡터 | 시설 타입/특성 8차원 | TourAPI `contentTypeId` 기반 카테고리 벡터 | 매핑 재정의 |
+| 지역 | 구미국가산업단지 | 경주 황리단길 (반경 400m 고밀도) | 좌표/데이터 |
+| 사업 모델 | B2B SaaS (사업주) | B2G(경북문화관광공사) + 소상공인 상권 | 대시보드 reframe |
+| SPOT 가중치 | 0.45 / 0.25 / 0.30 | **0.40 / 0.40 / 0.20** (제안서) | 상수/정규화 |
+| 인센티브 항 | `max(0, 원본혼잡 − 후보혼잡)` (혼잡 분산) | 제안서는 "제휴 쿠폰 0/1" — **정의 확정 필요** | 설계 결정 |
+
+**그대로 재사용(변경 최소):** 모노레포 골격, FastAPI 라우팅/인증 골격, Supabase 접근 계층,
+SPOT 산식 구조와 정규화, Next.js 앱 셸·지도·차트, 로컬 예측 모델 파이프라인(`train.py`) 형태.
+
+---
+
+## 2. SPOT_Score (관광 버전)
+
+```
+SPOT_Score = w₁ · (취향 일치율) − w₂ · (예측 대기시간[혼잡 반영] + 이동시간) + w₃ · (인센티브)
+```
+
+| 변수 | 가중치(제안서) | 계산 방법 | 데이터 |
+| --- | --- | --- | --- |
+| 취향 일치율 | w₁ = 0.40 | 사용자 선호 카테고리 벡터 × POI 벡터 코사인 유사도 | TourAPI `contentTypeId` |
+| 예측 대기시간 | w₂ = 0.40 | 시간대·요일 통계 + 행사 변수 기반 회귀 예측 | 경주 교통데이터, `eventBasedList` |
+| 이동시간 | (w₂에 합산) | 실시간 도보 경로 | **Tmap 도보 경로 API** |
+| 인센티브 | w₃ = 0.20 | 제휴 가맹점 할인 쿠폰 제공 여부(0/1) | 파트너 |
+
+### ✅ 베이스와의 차이 — 결정 완료 (2026-07-07)
+1. **가중치:** 제안서 값 `0.40/0.40/0.20` 적용 완료(`score.py`). 정규화식은 W 변수 기반이라 자동 정합,
+   `test_spot.py` 에 정확한 기대 점수 회귀 테스트 + `packages/shared-types/spot.ts` 패리티 테스트 추가
+   (가중치를 한쪽만 바꾸면 CI 실패).
+2. **인센티브(w₃): (c) 결합으로 확정** —
+   `incentive = 0.5 × min(1, coupon_rate/0.20) + 0.5 × max(0, 원본혼잡 − 후보 도착시점 예측혼잡)`
+   - 쿠폰은 0/1 이 아닌 **제휴 등급(할인율 coupon_rate)** 연속값(20% 캡) → 소상공인 제휴 티어 반영.
+   - 혼잡분산 항은 유지하되 후보 혼잡을 **도착시점 예측치**로 교체 — w₂(대기시간)와 시간 기준 통일
+     (베이스의 '현재 혼잡' 시점 불일치 해소).
+   - 스키마: `facilities.coupon_rate` (`20260707150000_add_coupon_incentive.sql`, 데모 제휴점 시드 포함).
+
+---
+
+## 3. 데이터 레이어 설계 (TourAPI 필수)
+
+### 3-1. TourAPI(한국관광공사 OpenAPI) 엔드포인트
+
+| 엔드포인트 | 용도 | SPOT 반영 |
+| --- | --- | --- |
+| `areaBasedList` | 경주 지역 POI 목록 → 대안 후보 DB 기초 구축 | 후보군 |
+| `locationBasedList` | 사용자 현위치 반경 500m POI 실시간 조회 | 후보군(실시간) |
+| `detailCommon` / `detailIntro` | 운영시간·카테고리·소개 → 후보 속성 | 취향/필터 |
+| `detailInfo` (무장애) | 배리어프리 정보 → 접근성 가중치 | 가중치 |
+| `eventBasedList` | 당일 경주 축제·행사 → 혼잡 예측 외부 변수 | 예측 대기 |
+
+### 3-2. 데이터 활용 방식 (레이어 / 소스 / 주기 / 역할)
+
+| 레이어 | 소스 | 주기 | 역할 |
+| --- | --- | --- | --- |
+| Static | TourAPI 국문관광정보 | 일 1회 캐싱 | 대안 POI DB, 카테고리·위치 기준값 |
+| 준실시간 | 경주시 교통 CCTV AI 분석(공공데이터포털) | 일 단위 배치 | 시간대별 유동 패턴 베이스라인 |
+| 실시간(행사) | TourAPI `eventBasedList` | 일 1회 + 당일 조회 | 축제·행사 시 혼잡 가중치 상향 |
+| 인앱 피드백 | 추천 수락/거부 | 즉시 | 알고리즘 가중치 점진 보정 |
+| 경로 | Tmap 도보 경로 API (SKT, 무료) | 호출 시 | 이동 시간(SPOT 핵심 변수) |
+
+---
+
+## 4. 아키텍처 적응 — 파일 단위 매핑
+
+| 베이스 위치 | 현재(InduSpot) | NextSpot 변경 |
+| --- | --- | --- |
+| `apps/api/app/services/spot/score.py` | W=0.45/0.25/0.30, 인센티브=혼잡분산 | 가중치 0.40/0.40/0.20, 인센티브 정의 확정 |
+| `apps/api/app/services/spot/preference.py` | 시설 타입/특성 → 8차원 벡터 | TourAPI `contentTypeId` → 카테고리 벡터 매핑 |
+| `apps/api/app/services/spot/travel.py` | Kakao/Haversine 도보 환산 | **Tmap 도보 경로 API 어댑터** |
+| `apps/api/app/services/spot/wait_time.py` | 시설 유형+혼잡+시각 | 관광 POI 유형 + 행사 변수 반영 |
+| `apps/api/app/services/predict_service.py` | 로컬 Ridge(`model.pkl`) facility/hour/dow | 경주 교통 베이스라인 + 행사로 재학습 |
+| `apps/api/scripts/train.py` | Supabase `congestion_logs` 학습 | 경주 유동/CCTV 시계열로 데이터 소스 교체 |
+| `supabase/` 스키마 | `facilities`, `congestion_logs`, `users` | ✅ 좌표·시드 경주 이관 및 `users` worker→tourist 스키마 완료(2026-07-07 검증) — POI TourAPI 필드 확장(contentid·contenttypeid·주소·운영시간·무장애)·거점 혼잡 시계열은 진행 예정 |
+| `apps/web` 사용자 앱 | worker/recommend·main·saved·mypage·setup | ✅ 관광객 앱으로 카피/플로우 reframe 완료 — 라우트 worker→explore 리네임(2026-07-07 검증) |
+| `apps/web` 관리자 | 공단 수요 분산 대시보드 | 경북문화관광공사 혼잡 관리 대시보드(B2G) |
+| 브랜딩 | `InduSpot` 63건/32파일 | ✅ `NextSpot`으로 일괄 교체 완료 — 코드 내 잔재 0건(2026-07-07 검증) |
+
+### 신규 추가가 필요한 모듈
+- `apps/api/app/services/tourapi/` — TourAPI 클라이언트(areaBased/location/detail/event), 일배치 캐시.
+- `apps/api/app/services/tmap/` — Tmap 도보 경로 호출 + 캐시(`travel.py`가 의존).
+- `apps/api/scripts/ingest_tourapi.py` — 경주 POI 일배치 적재(기존 `scripts/seed*.js` 패턴 참고).
+
+---
+
+## 5. 개조 백로그 (체크리스트)
+
+**P0 — 정체성/구동**
+- [x] 패키지명·README·아키텍처 배너·에이전트 가이드 NextSpot 전환 (시드 커밋)
+- [x] UI/코드 내 `InduSpot`→`NextSpot` 잔여 브랜딩 일괄 교체 — 코드 내 잔재 0건 (검증일 2026-07-07)
+- [x] `apps/web/app/layout.tsx` 메타데이터(title/description) 교체 완료 (검증일 2026-07-07)
+- [x] 환경변수 키 정리(`.env.example`): TourAPI 키, Tmap 키, 경주 좌표 기준값 (2026-07-07)
+
+**P1 — 데이터 파이프라인**
+- [x] TourAPI 클라이언트(`services/tourapi/`) + 일배치 캐시 (2026-07-07 — KorService2, 24h TTL)
+- [x] 경주 황리단길 POI 적재 스크립트(`ingest_tourapi.py`) — 관광지12·문화시설14·음식점39
+      (2026-07-07 — 실적재는 `TOURAPI_KEY` 발급 후 실행 필요)
+- [x] Supabase 스키마: TourAPI 필드 확장 완료(`20260707130000_add_tourapi_fields.sql` —
+      contentid·contenttypeid·address·barrier_free·image_url). `facilities`→`pois` 리네임은
+      침습적이라 D2 결정까지 보류(가산적 확장으로 대체).
+- [ ] 경주시 교통데이터(공공데이터포털) 연동 → 시간대별 유동 베이스라인
+
+**P2 — 알고리즘**
+- [x] SPOT 가중치 0.40/0.40/0.20 적용 + 정규화 재검토 + 테스트 갱신 (2026-07-07 WS-C)
+- [x] 인센티브 항 정의 확정 — 결합형: 0.5·쿠폰강도 + 0.5·재배치기여 (D1)
+- [ ] `preference.py` 카테고리 벡터를 `contentTypeId` 기준으로 재정의
+- [ ] `travel.py` → Tmap 도보 경로 어댑터
+- [ ] 행사(`eventBasedList`) 변수로 도착시점 혼잡 예측 보정
+
+**P3 — 화면/실증**
+- [ ] 사용자 앱 플로우 reframe(온보딩 선호 카테고리 3개+ → 취향 벡터 / 추천 사유 카드)
+- [ ] 혼잡도 예측 지도(Predictive Crowd Map) — 황리단길 거점 히트맵
+- [ ] 관리자 대시보드를 경북문화관광공사 B2G 관제로 reframe
+- [ ] 목표 지표 계측: 추천 수락률 50%+, 온보딩 완료율 80%+
+
+---
+
+## 6. 산업(InduSpot) 잔재 — 제거 완료 (2026-07-07 검증)
+
+> 아래 7개 항목은 모두 저장소에서 삭제 완료됨(2026-07-07 전수 검증 — 코드 내 InduSpot/구미/산업 잔재 0건).
+> 원본은 `NextSpot-knu/Induspot`에 보존돼 있음. 목록은 이력 참고용으로 유지.
+
+- `Gumi kakao restaurant.py` (루트) — 구미 식당 카카오 스크래퍼(일회성) — **삭제 완료**
+- `samples/gumi_*.csv`, `samples/facility_enrichment.json`, `samples/dummy.csv` — 구미 산업 데이터 — **삭제 완료**
+- `docs/FACILITY_ENRICHMENT.md` — 산업 시설 정본화 문서 — **삭제 완료**
+- `scratch/convert_gumi.py`, `scratch/upload_*` — 구미 데이터 업로드 도구 — **삭제 완료**
+- `scripts/fetch_ev_chargers.py`, `scripts/enrich_facilities.js`, `scripts/update_coords.js` — 산업 POI 도구(TourAPI 적재로 대체) — **삭제 완료**
+
+---
+
+## 7. 차별성 (제안서)
+
+| 항목 | 구글/네이버 지도 | 테이블링 | **NextSpot** |
+| --- | --- | --- | --- |
+| 정보 유형 | 현재 혼잡/인기도 | 개별 식당 웨이팅 | **미래 도착시점 혼잡 예측 + 대안 제시** |
+| 대안 제시 | ✕ | ✕ | **최소 기회비용 대안 추천(핵심 차별점)** |
+| 최적화 기준 | 광고·거리·평점 | 대기팀 수 | **SPOT_Score** |
+| TourAPI 연동 | ✕ | ✕ | **POI DB 적극 활용** |
+| 수요 재배치 | ✕ | ✕ | **O** |
+
+---
+
+## 8. 제약·필수 사항
+
+- **한국관광공사 OpenAPI(TourAPI) 활용은 공모전 필수 요건.**
+- 제안서 양식: 5p 이내 / PDF 10MB 미만 (제출물 기준 — 코드와 별개).
+- 개인정보: 사용자 위치/이동 데이터 최소수집·익명화(PIPA 준수 방향 유지).
+
+---
+
+_본 문서는 살아있는 계획서입니다. 결정이 확정되면 해당 섹션을 갱신하고, 백로그 체크박스를 진행 상태로 반영하세요._

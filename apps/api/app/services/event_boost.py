@@ -24,7 +24,7 @@
     이 게이팅은 혼잡 보정 경로 전용이다 — routers/events.py 의 행사 탭 표시는 자체 fetch 를
     쓰므로 영향받지 않는다.
 
-공연시간 정밀 보정(구현 2, docs/TOURAPI_EXPANSION.md 1-4):
+공연시간 정밀 보정(구현 2, docs/archive/TOURAPI_EXPANSION.md 1-4):
   - 반경 내(거리 감쇠 boost > 0)인 축제에 한해 detailIntro2(contentTypeId=15)의 playtime 을
     조회해 'HH:MM~HH:MM'/'HH시~HH시' 류 명확한 패턴만 시간 창으로 파싱한다(복수 창 허용).
   - 파싱 성공 시: 도착 예측 시각이 해당 시간 창 ±1h 버퍼 밖이면 그 축제의 보정을 0 으로

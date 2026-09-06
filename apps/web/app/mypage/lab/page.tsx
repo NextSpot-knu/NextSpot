@@ -17,7 +17,7 @@ import {
 } from '@/lib/api-client';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 
-// 이유 칩 9종 — docs/REJECTION_LAB_AUDIT.md 의 reason_code 목록과 1:1 (백엔드 CHECK 제약과 동일 순서).
+// 이유 칩 9종 — docs/archive/REJECTION_LAB_AUDIT.md 의 reason_code 목록과 1:1 (백엔드 CHECK 제약과 동일 순서).
 // 'other' 만 메모 입력을 연다(learning_scope=none — 취향 학습 없이 자유 서술만 수집).
 const REASON_CODES: readonly LabReasonCode[] = [
   'too_far',

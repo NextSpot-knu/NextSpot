@@ -13,11 +13,11 @@ export default function LoadingPage() {
   const navigatedRef = useRef(false);
 
   // '바로 시작'은 로그인 없이 곧장 온보딩(→ /setup)으로 보낸다 — 관광객 무마찰이 이 제품의 핵심 원칙이고
-  // 발표 대본(docs/DEMO_SCENARIO.md "이 전체 흐름이 로그인 절차 없이 3분 안에 끝납니다")과
+  // 발표 대본(docs/contest/DEMO_SCENARIO.md "이 전체 흐름이 로그인 절차 없이 3분 안에 끝납니다")과
   // JUDGE_QA Q10("로그인 UI 없이도 동작한다")이 이 경로를 전제로 한다.
   // 온보딩 흔적이 있으면 /main 으로 바이패스(재방문자가 3문항을 다시 겪지 않게).
   // 로그인/회원가입은 아래 보조 CTA 로 언제든 갈 수 있고, 게스트로 쌓은 데이터는 가입 시 승계된다
-  // (익명→정회원 전환은 uid 유지 — docs/AUTH_MEMBERSHIP_PLAN.md).
+  // (익명→정회원 전환은 uid 유지 — docs/archive/AUTH_MEMBERSHIP_PLAN.md).
   const go = useCallback(() => {
     if (navigatedRef.current) return;
     // 저장소를 **래치보다 먼저** 읽는다. localStorage 접근은 차단 환경(사파리 사생활 보호,

@@ -18,7 +18,7 @@ import { apiClient, httpStatus, isAuthError } from '@/lib/api-client';
 import { useT } from '@/lib/i18n/I18nProvider';
 import { haptic, sheetSpring } from '@/lib/motion';
 
-// 최소 시설 형태만 요구(id/name). packages/shared-types 의 Facility 나 추천 응답 facility 모두 호환.
+// 최소 시설 형태만 요구(id/name). 추천 응답 facility·지도 마커 등 id/name 을 가진 어떤 객체와도 호환.
 interface ReportableFacility {
   id: string;
   name: string;

@@ -1,5 +1,5 @@
-# 빌드 컨텍스트에서 제외 — runner 스테이지의 `COPY . .` 가 시크릿/대용량 산출물을 이미지 레이어에
-# 박제하지 않도록 한다. 시크릿은 컨테이너 환경변수(.env / docker-compose env)로만 주입.
+# 빌드 컨텍스트에서 제외 — Dockerfile(단일 스테이지)의 `COPY . .` 가 시크릿/대용량 산출물을 이미지 레이어에
+# 박제하지 않도록 한다. 시크릿은 컨테이너 환경변수(Render env / docker-compose env_file)로만 주입.
 
 # 시크릿 (단, 온보딩 참조용 예시는 유지)
 .env
@@ -10,9 +10,12 @@
 .venv/
 __pycache__/
 *.pyc
+.pytest_cache/
+.ruff_cache/
 
-# 로그 (모델 아티팩트 model.pkl 은 이미지에 포함 — 의도적으로 제외하지 않는다)
+# 로그 / 모델 (모델 아티팩트는 이미지에 없다 — 부팅 시 Supabase Storage 의 active 모델을 적재)
 *.log
+*.pkl
 
 # 테스트 / VCS
 tests/

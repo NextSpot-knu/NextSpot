@@ -1,8 +1,8 @@
-"""경주 황리단길 TourAPI POI 적재 배치 — docs/IMPROVEMENT_PLAN.md WS-B-2.
+"""경주 황리단길 TourAPI POI 적재 배치 — docs/archive/IMPROVEMENT_PLAN.md WS-B-2.
 
 한국관광공사 TourAPI(locationBasedList2)에서 관광지(12)·문화시설(14)·음식점(39) POI 를
 수집해 Supabase `facilities` 테이블에 contentid 기준으로 upsert 한다.
-(패턴 참고: 루트 scripts/seed.js, 경로/부트스트랩은 scripts/train.py 컨벤션.)
+(경로/부트스트랩은 scripts/train.py 컨벤션.)
 
 사용 예:
   python scripts/ingest_tourapi.py --dry-run              # DB 미기록, 변환 결과만 출력
@@ -59,10 +59,10 @@ from app.services.tourapi.transform import (
 # area_based_sync_list 도 패키지 __init__ 재노출 범위 밖(client.py 는 수정 금지 대상이라 __init__.py 도
 # 건드리지 않고 위 transform.py 함수들과 동일하게 서브모듈에서 직접 임포트).
 from app.services.tourapi.client import area_based_sync_list
-from app.services.wikimedia import find_reusable_place_image
-from app.services.kakao_coordinate_service import reconcile_row_coordinate
+from app.services.batch.wikimedia import find_reusable_place_image
+from app.services.batch.kakao_coordinate_service import reconcile_row_coordinate
 
-# 경주 황리단길 기준좌표 (docs/NEXTSPOT_PIVOT.md — 초기 서비스 지역)
+# 경주 황리단길 기준좌표 (docs/archive/NEXTSPOT_PIVOT.md — 초기 서비스 지역)
 DEFAULT_LAT = 35.8361
 DEFAULT_LNG = 129.2105
 DEFAULT_RADIUS_M = 2000

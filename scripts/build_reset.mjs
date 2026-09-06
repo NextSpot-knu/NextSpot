@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // =====================================================================
 // build_reset.mjs — supabase/RESET_AND_SETUP.sql 자동 생성기
-// (docs/IMPROVEMENT_PLAN.md §1 D2: migrations/ 가 스키마 소스 오브 트루스,
+// (docs/archive/IMPROVEMENT_PLAN.md §1 D2: migrations/ 가 스키마 소스 오브 트루스,
 //  RESET_AND_SETUP.sql 은 이 스크립트가 만드는 산출물이다.)
 //
 // 동작:
@@ -45,7 +45,7 @@ const HEADER = `-- =============================================================
 -- ⚠️ 자동 생성 파일 — 직접 수정 금지!
 --    이 파일은 scripts/build_reset.mjs 가 supabase/migrations/ 에서 자동 생성한다.
 --    스키마 변경은 migrations/ 에 새 마이그레이션을 추가한 뒤
---    \`node scripts/build_reset.mjs\` 를 재실행해 이 파일을 재생성할 것. (D2, docs/IMPROVEMENT_PLAN.md)
+--    \`node scripts/build_reset.mjs\` 를 재실행해 이 파일을 재생성할 것. (D2, docs/archive/IMPROVEMENT_PLAN.md)
 --
 -- 사용법: Supabase Dashboard > SQL Editor 에 이 파일 전체를 붙여넣고 [Run].
 -- ⚠️ 기존 스키마/데이터를 모두 삭제한 뒤 관광 스키마+경주 시드를 생성합니다(되돌릴 수 없음).

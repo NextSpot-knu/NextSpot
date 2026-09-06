@@ -1,8 +1,8 @@
 # 관제 대시보드 '오늘의 브리핑'(P0-2) 라우터/서비스 테스트 — LLM·supabase 전부 mock.
-#  · 인증: require_admin 실경로(X-Admin-Authorization) — test_routers.py 관례.
+#  · 인증: 관리자 역할 JWT 경로(require_role(ROLE_ADMIN), conftest 의 admin_headers) — test_routers.py 관례.
 #  · DB: app.routers.admin.supabase_admin 을 FakeSupabase(canned)로 패치 — 네트워크 0.
 #  · LLM: app.services.llm_client 의 is_enabled/chat_text 를 monkeypatch — 네트워크 0.
-#  검증 계약(docs/SOLAR_LLM_EXPANSION.md P0-2 + Codex 적대 감사 반영 — 플레이스홀더 설계):
+#  검증 계약(docs/archive/SOLAR_LLM_EXPANSION.md P0-2 + Codex 적대 감사 반영 — 플레이스홀더 설계):
 #    hasLogs=False → LLM 미호출·null / 숫자·수사·미지 토큰·추세어 → 폐기 /
 #    성공 → 템플릿 치환 채택+llmStatus / 캐시 히트 → 재호출 0 / 키 미설정 → 조용한 null.
 #  적대 사례(감사 실증 우회 경로)를 전부 회귀로 고정한다: 한글 수사, 천 단위 콤마,
@@ -83,7 +83,7 @@ def _patched_db(tables: dict):
 
 
 # =========================================================================
-# 인증 가드 — 관리자 헤더 없으면 401 (require_admin 실경로)
+# 인증 가드 — 관리자 JWT 없으면 401 (require_role(ROLE_ADMIN) 실경로)
 # =========================================================================
 
 def test_briefing_requires_admin_header(client):

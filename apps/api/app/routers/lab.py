@@ -3,7 +3,7 @@
 배경: POST /api/v1/feedback 의 `rejected` 는 거절을 **즉시 학습하지 않는다**. reason_status='pending'
 으로만 적재하고 세션 후보에서만 빼둔다. 이 라우터가 그 pending 을 사용자에게 되물어(사유 확정)
 learning_scope 가 long_term 일 때만 취향 벡터를 -5% **정확히 1회** 움직인다.
-(정본: docs/REJECTION_LAB_AUDIT.md — '왜 싫었는지'를 모른 채 깎던 오학습을 제거하는 것이 이 기능의 목적.)
+(정본: docs/archive/REJECTION_LAB_AUDIT.md — '왜 싫었는지'를 모른 채 깎던 오학습을 제거하는 것이 이 기능의 목적.)
 
 신뢰 경계
 --------

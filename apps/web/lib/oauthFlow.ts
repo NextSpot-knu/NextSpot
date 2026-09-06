@@ -1,4 +1,4 @@
-// OAuth 플로우의 순수 판정 로직 — docs/OAUTH_PLAN.md F2/F3.
+// OAuth 플로우의 순수 판정 로직 — docs/archive/OAUTH_PLAN.md F2/F3.
 //
 // 왜 분리했나: 이 세 함수는 OAuth 왕복에서 **틀리면 조용히 위험해지는** 부분인데
 // (오픈 리다이렉트, 계정 상태 오판), 원래는 lib/auth.ts 안의 비공개 함수라 테스트가 불가능했다.

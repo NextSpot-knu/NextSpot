@@ -1110,7 +1110,7 @@ async def voice_turn(req: VoiceTurnRequest, request: Request):
         llm_gate=lambda: _voice_llm_allowed(ip),
         app_context=req.app_context.model_dump() if req.app_context else None,
     )
-    # 2) 임베딩 의미검색: '선호 필터'로 분류되면 어떤 후보가 맞는지는 벡터가 결정(retrieval).
+    # 2) 후보 재필터: '선호 필터'로 분류되면 어떤 후보가 맞는지는 이름·종류 태그 부분문자열 매칭이 결정(embedding_service — 임베딩 아님).
     #    백엔드 가 확장한 search_query("고깃집"→"삼겹살 갈비 숯불구이…")로 검색해 곱창집·순댓국과 섞이지 않게 한다.
     if result["action"] == "filter":
         query = result.get("search_query") or req.utterance

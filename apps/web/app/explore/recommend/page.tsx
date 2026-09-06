@@ -7,7 +7,7 @@ import { createPublicClient } from "@/lib/supabase";
 const supabase = createPublicClient();
 import { apiClient, getRecommendations, reportFacilityAvailability, submitFeedback, parsePreference, RecommendationResponse } from "@/lib/api-client";
 import { displayWalkingMinutes, MAX_RECO_DISTANCE_M } from "@/lib/recommender"; // 빈 상태 문구의 반경(1.5km) — 하드코딩 대신 실제 컷오프 상수 사용
-import { classifyIntent, buildCardSpeech } from "@/lib/voiceIntent";
+import { classifyIntent, buildCardSpeech } from "@/lib/voice/voiceIntent";
 import { getArrivalOpenDisplayStatus, isClosedToday } from "@/lib/restDate";
 import { REGION, isWithinRegion } from "@/lib/region";
 import { toast } from "sonner";

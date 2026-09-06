@@ -13,7 +13,7 @@ import { getAuthState } from '@/lib/auth';
 import { createPublicClient } from '@/lib/supabase';
 import { clearUserScopedData } from '@/lib/userData';
 import { clearSavedAll } from '@/lib/savedFacilities';
-import { useTheme } from '@/components/ThemeProvider';
+import { useTheme } from '@/components/shell/ThemeProvider';
 import type { ThemeMode } from '@/lib/theme';
 
 // 앱 정보 표시용 버전 — package.json 과 동기(정적 export 라 런타임 import 대신 상수 단일 정의점).

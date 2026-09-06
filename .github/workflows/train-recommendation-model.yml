@@ -1,3 +1,9 @@
+# NextSpot — 혼잡 예측 모델 학습 (후보 생성 · 승격 · 롤백)
+# 매주 월 03:00 KST 에 검증된 관측으로 후보 모델을 만들어 Supabase Storage + model_registry 에 등록한다.
+# 승격(promote)·롤백(rollback)은 workflow_dispatch 로 사람이 명시적으로 한다 — 자동 승격 없음(docs/MODEL_CARD.md).
+# 필요한 GitHub Secrets: SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY, JWT_SECRET, ADMIN_API_TOKEN
+#   (뒤 둘은 train.py 가 app 설정을 import 할 때 부팅 검증에 걸리므로 플레이스홀더가 아니라 실제 값이 있어야 한다.)
+# 주의: schedule 은 기본 브랜치(main)에서만 발화한다. 전체 시크릿·변수 목록: docs/DEPLOY_AND_ENV.md §4.
 name: Train Recommendation Model
 
 on:
@@ -19,9 +25,15 @@ on:
 permissions:
   contents: read
 
+# 학습과 승격이 겹치면 registry 상태가 꼬인다 — 직렬화.
+concurrency:
+  group: recommendation-model-training
+  cancel-in-progress: false
+
 jobs:
   train:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     env:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
@@ -32,17 +44,22 @@ jobs:
       run:
         working-directory: apps/api
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.11'
           cache: pip
+          cache-dependency-path: apps/api/requirements*.txt
       - run: pip install -r requirements.txt
+      # dispatch 입력은 env 로 넘긴다 — run: 에 ${{ }} 로 직접 끼우면 입력값이 셸 스크립트로 해석된다(스크립트 주입).
       - name: Validate inputs
         shell: bash
+        env:
+          ACTION: ${{ github.event.inputs.action || 'candidate' }}
+          VERSION: ${{ github.event.inputs.version }}
         run: |
-          action="${{ github.event.inputs.action || 'candidate' }}"
-          version="${{ github.event.inputs.version }}"
+          action="$ACTION"
+          version="$VERSION"
           if [[ "$action" =~ ^(promote|rollback)$ && -z "$version" ]]; then
             echo "version is required for $action" >&2
             exit 2
@@ -55,7 +72,11 @@ jobs:
         run: python scripts/train.py --dry-run
       - name: Promote candidate
         if: ${{ github.event.inputs.action == 'promote' }}
-        run: python scripts/train.py --promote-version "${{ github.event.inputs.version }}"
+        env:
+          VERSION: ${{ github.event.inputs.version }}
+        run: python scripts/train.py --promote-version "$VERSION"
       - name: Roll back
         if: ${{ github.event.inputs.action == 'rollback' }}
-        run: python scripts/train.py --rollback-version "${{ github.event.inputs.version }}"
+        env:
+          VERSION: ${{ github.event.inputs.version }}
+        run: python scripts/train.py --rollback-version "$VERSION"

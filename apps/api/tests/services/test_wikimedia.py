@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, patch
 import httpx
 import pytest
 
-from app.services.wikimedia import find_reusable_place_image
+from app.services.batch.wikimedia import find_reusable_place_image
 
 
 def _response(payload: dict) -> httpx.Response:
