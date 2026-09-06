@@ -318,3 +318,205 @@ def test_course_still_uses_availability_for_open_status(auth_client, monkeypatch
     # 영업 근거가 붙었다면 정류지의 도착 시점 상태에 그 판정이 실린다.
     for stop in res.json():
         assert "open_status_at_arrival" in stop
+
+
+# =============================================================================
+# 자리별 재계획 — 순서를 바꾸면 실제로 다른 답이 나오는가
+# =============================================================================
+# 이 절이 지키는 계약은 하나다: **사용자가 순서를 짜면 2번 이후 정류지가 달라진다.**
+# 1번은 달라지지 않는다(출발점이 언제나 사용자 위치다) — 그 사실도 함께 못 박는다.
+# 과장하지 않는 것이 이 기능의 약속이다.
+
+_PLAN_PATH = "/api/v1/courses/plan"
+_FAR = 0.0100  # 약 1.1km — 반경 컷오프 안이지만 도보로는 먼 거리
+
+
+def _at(fid: str, ftype: str, lat_off: float, lng_off: float = 0.0) -> dict:
+    """_facility 는 위도만 움직인다. 여기서는 '사용자에게선 멀지만 1번 정류지 옆' 을
+    만들어야 해서 경도도 쓴다."""
+    facility = _facility(fid, ftype, lat_off)
+    facility["longitude"] = BASE_LNG + lng_off
+    return facility
+
+
+def _run(auth_client, facilities, body, path=_PLAN_PATH):  # noqa: F811
+    congestion_now = {f["id"]: _cong(0.3) for f in facilities}
+    with patch("app.routers.courses.fetch_user", new=AsyncMock(return_value=USER_ROW)), \
+         patch("app.routers.courses.fetch_all_facilities", new=AsyncMock(return_value=facilities)), \
+         patch("app.routers.courses.fetch_congestion_map", new=AsyncMock(return_value=congestion_now)), \
+         patch.object(preference_vector_service, "get_user_vector", new=AsyncMock(return_value=UNIT_VECTOR)):
+        res = auth_client.post(path, json=body)
+    assert res.status_code == 200, res.text
+    return res.json()
+
+
+def _seq_body(sequence, pins=None):
+    body = dict(_course_body(), sequence=sequence)
+    if pins is not None:
+        body["pins"] = pins
+    return body
+
+
+def _reorder_fixture():
+    """사용자 근처 카페 10곳(미끼) + 멀리 관광지 1곳 + 그 관광지 **바로 옆** 카페 1곳.
+
+    미끼가 10곳인 것이 핵심이다. 후보 풀이 '사용자 기준 가까운 6곳' 이던 시절에는 관광지 옆
+    카페가 풀에 **들어오지도 못했다** — 그래서 순서를 어떻게 바꿔도 2번 카페가 늘 같았다.
+    풀을 넓히고 자리마다 다시 추리는 변경을 되돌리면 아래 테스트들이 깨진다.
+    """
+    decoys = [_at("cafe-near-%d" % i, "cafe", 0.0001 * (i + 1)) for i in range(10)]
+    return decoys + [
+        _at("attr-far", "attraction", _FAR),
+        _at("cafe-by-attr", "cafe", _FAR, lng_off=0.00005),  # 관광지에서 몇 m
+    ]
+
+
+def test_sequence_order_changes_later_stops(auth_client):  # noqa: F811
+    """[관광지, 카페] 와 [카페, 관광지] 는 **다른 카페**를 데려와야 한다.
+
+    관광지를 먼저 가면 2번 카페는 '관광지 옆' 이 맞고, 카페를 먼저 가면 '사용자 옆' 이 맞다.
+    예전에는 둘 다 '사용자 옆' 이었다 — 자리마다 다시 추리지 않아, 이미 옮겨간 출발점
+    근처의 가게가 애초에 후보에 없었기 때문이다.
+    """
+    facilities = _reorder_fixture()
+
+    attr_first = _run(auth_client, facilities, _seq_body(["attraction", "cafe"]))
+    cafe_first = _run(auth_client, facilities, _seq_body(["cafe", "attraction"]))
+
+    attr_first_ids = [s["facility"]["id"] for s in attr_first["stops"]]
+    cafe_first_ids = [s["facility"]["id"] for s in cafe_first["stops"]]
+
+    assert attr_first_ids[0] == "attr-far"
+    assert attr_first_ids[1] == "cafe-by-attr", (
+        "관광지 다음 카페가 관광지 옆이 아니다: %s — 자리마다 '지금 서 있는 자리' 기준으로 "
+        "다시 추리지 않으면 이 단언이 깨진다" % attr_first_ids
+    )
+    assert cafe_first_ids[0].startswith("cafe-near-"), cafe_first_ids
+    assert cafe_first_ids[1] == "attr-far"
+    # 같은 시설 집합·같은 위치인데 결과가 실제로 다르다 — 사용자 불만의 핵심이 이것이었다.
+    assert set(attr_first_ids) != set(cafe_first_ids)
+    assert attr_first["plan_id"] != cafe_first["plan_id"]
+
+
+def test_first_stop_is_not_changed_by_reordering(auth_client):  # noqa: F811
+    """1번 정류지는 순열과 무관하다 — 출발점이 언제나 사용자 위치이기 때문이다.
+
+    이 기능이 약속할 수 있는 범위를 못 박는 테스트다. '순서를 바꾸면 전부 바뀐다' 고
+    말하고 싶어지는 자리인데 그건 사실이 아니다.
+    """
+    facilities = _reorder_fixture()
+    a = _run(auth_client, facilities, _seq_body(["cafe", "attraction"]))
+    b = _run(auth_client, facilities, _seq_body(["cafe", "cafe"]))
+    assert a["stops"][0]["facility"]["id"] == b["stops"][0]["facility"]["id"]
+
+
+def test_alternatives_are_the_runner_ups(auth_client):  # noqa: F811
+    """대안은 그 자리의 2·3등이고, 뽑힌 곳과 겹치지 않는다."""
+    plan = _run(auth_client, _reorder_fixture(), _seq_body(["cafe", "cafe"]))
+    first = plan["stops"][0]
+    alts = first["alternatives"]
+    assert alts, "채점은 다 해 놓고 2등 이하를 버리고 있다"
+    assert len(alts) <= 3
+    assert first["facility"]["id"] not in [a["facility"]["id"] for a in alts]
+    # 같은 자리의 후보이므로 점수는 1등 이하로 내림차순이어야 한다.
+    scores = [first["spot_score"]] + [a["spot_score"] for a in alts]
+    assert scores == sorted(scores, reverse=True), scores
+    # 도착 시각은 '그 자리의 실제 누적 시각' 이라 0 보다 크다(지어낸 값이 아니다).
+    assert all(a["arrival_offset_min"] > 0 for a in alts)
+    # 2번 자리의 대안에 1번에서 이미 쓴 가게가 들어오면 안 된다.
+    if len(plan["stops"]) > 1:
+        used = plan["stops"][0]["facility"]["id"]
+        assert used not in [a["facility"]["id"] for a in plan["stops"][1]["alternatives"]]
+
+
+def test_pin_is_not_stolen_by_an_earlier_slot(auth_client):  # noqa: F811
+    """3번에 고정한 가게를 1번 그리디가 집어가면 안 된다.
+
+    빼놓지 않으면 앞 자리가 먼저 쓰고, 정작 3번 차례에는 remaining 에서 사라져
+    pin_unavailable 이 된다 — 사용자가 명시적으로 고정한 자리가 조용히 먹히는 것이다.
+    """
+    facilities = _reorder_fixture()
+    # 사용자 바로 옆 카페(1번이 자연히 고를 곳)를 3번 자리에 고정한다.
+    target = "cafe-near-0"
+    plan = _run(auth_client, facilities, _seq_body(
+        ["cafe", "attraction", "cafe"], pins=[{"order": 3, "facility_id": target}]
+    ))
+    stops = plan["stops"]
+    assert stops[0]["facility"]["id"] != target, "1번이 3번의 고정 가게를 집어갔다"
+    assert stops[-1]["facility"]["id"] == target
+    third = next(o for o in plan["slot_outcomes"] if o["order"] == 3)
+    assert third["status"] == "filled" and third["pinned"] is True
+
+
+def test_pin_failing_eligibility_is_reported_not_forced(auth_client):  # noqa: F811
+    """자격에 걸린 고정은 **넣지 않고** 알린다.
+
+    접근성은 '미상 = 부적격' 의 fail-closed 판정이다(travel_context.py). 고정이라는
+    이유로 우회시키면 그 결과는 휠체어 사용자를 계단 앞에 세우는 것이다.
+    """
+    facilities = _reorder_fixture()
+    accessible = _at("cafe-ok", "cafe", 0.0003)
+    accessible["barrier_free"] = True
+    facilities.append(accessible)
+
+    body = _seq_body(["cafe", "cafe"], pins=[{"order": 2, "facility_id": "cafe-near-0"}])
+    body["context"] = {"required_attributes": ["accessible"]}
+    plan = _run(auth_client, facilities, body)
+
+    ids = [s["facility"]["id"] for s in plan["stops"]]
+    assert "cafe-near-0" not in ids, "무장애 여부 미상인 가게가 고정을 이유로 들어갔다"
+    second = next(o for o in plan["slot_outcomes"] if o["order"] == 2)
+    assert second["status"] == "pin_unavailable"
+    assert second["facility_id"] == "cafe-near-0"
+
+
+def test_dead_middle_slot_does_not_kill_later_slots(auth_client):  # noqa: F811
+    """가운데 자리가 비어도 뒤 자리는 살아남는다(예전에는 break 라 통째로 사라졌다).
+
+    그리고 왜 비었는지를 코드로 알려 준다 — 개수 차이로 추측하게 두지 않는다.
+    """
+    facilities = _reorder_fixture()
+    closed = _at("cult-closed", "culture", 0.0005)
+    closed["operating_hours"] = {"open": "18:00~22:00"}  # 12:00 KST 도착 → 영업 전
+    facilities.append(closed)
+
+    plan = _run(auth_client, facilities, _seq_body(["cafe", "culture", "attraction"]))
+    outcomes = {o["order"]: o["status"] for o in plan["slot_outcomes"]}
+    assert outcomes[1] == "filled"
+    assert outcomes[2] == "closed_at_arrival", outcomes
+    assert outcomes[3] == "filled", "가운데 자리가 비었다고 뒤 자리까지 날아갔다"
+    assert [s["facility"]["id"] for s in plan["stops"]][-1] == "attr-far"
+    # 응답 order 는 남은 것만으로 1..n 이다 — 그래서 slot_outcomes 가 따로 필요하다.
+    assert [s["order"] for s in plan["stops"]] == [1, 2]
+
+
+def test_missing_type_reports_its_own_code(auth_client):  # noqa: F811
+    """'그 종류가 아예 없다' 와 '있는데 문을 닫았다' 는 다른 코드여야 한다."""
+    plan = _run(auth_client, _reorder_fixture(), _seq_body(["cafe", "culture"]))
+    outcomes = {o["order"]: o["status"] for o in plan["slot_outcomes"]}
+    assert outcomes[2] == "no_candidate_of_type", outcomes
+
+
+def test_plan_id_tracks_the_actual_result(auth_client):  # noqa: F811
+    """같은 입력이면 같고, 결과가 달라지면 달라진다.
+
+    화면이 '새 추천이 왔어요' 를 추측이 아니라 사실로 말할 수 있게 하는 값이다.
+    """
+    facilities = _reorder_fixture()
+    a = _run(auth_client, facilities, _seq_body(["cafe", "attraction"]))
+    b = _run(auth_client, facilities, _seq_body(["cafe", "attraction"]))
+    assert a["plan_id"] == b["plan_id"]
+    c = _run(auth_client, facilities, _seq_body(["attraction", "cafe"]))
+    assert c["plan_id"] != a["plan_id"]
+
+
+def test_recommend_endpoint_still_returns_a_bare_array(auth_client):  # noqa: F811
+    """구 번들 호환 — /recommend 의 최상위는 여전히 배열이다.
+
+    Vercel 과 Render 는 배포 시점이 다르고 스테이징이 없다. 여기가 객체가 되는 순간
+    구 번들의 Array.isArray 검사가 false 로 떨어져 **장애가 '갈 곳 없음' 으로 보인다.**
+    """
+    stops = _run(auth_client, _reorder_fixture(), _course_body(), path=_COURSE_PATH)
+    assert isinstance(stops, list)
+    assert stops and "facility" in stops[0]
+    assert all("order" in s for s in stops)
