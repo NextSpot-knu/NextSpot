@@ -42,7 +42,7 @@ from app.core.supabase import supabase_admin
 # 신규 POI 의 capacity 기본값은 적재 파이프라인과 **같은 함수**로 정한다. 여기에 상수를
 # 새로 두면 같은 질문("이 업종의 기본 수용 인원은?")에 서로 다른 답이 둘 생기고, 나중에
 # 한쪽만 고쳐진다.
-from app.services.localdata import capacity_for
+from app.services.batch.localdata import capacity_for
 
 logger = structlog.get_logger()
 

@@ -23,7 +23,7 @@ from fastapi.testclient import TestClient
 
 from app.core import authz
 from app.routers import dev
-from app.services.localdata import capacity_for
+from app.services.batch.localdata import capacity_for
 from tests.conftest import make_test_jwt
 
 DEVELOPER_ID = "d0000000-0000-4000-8000-000000000001"
