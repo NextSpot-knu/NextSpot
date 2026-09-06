@@ -12,7 +12,7 @@ import { useSearchParams } from "next/navigation";
 import { Reorder } from "framer-motion";
 import { ArrowLeft, ChevronDown, X, Navigation } from "lucide-react";
 import { createPublicClient } from "@/lib/supabase";
-import { apiClient, isAuthError } from "@/lib/api-client";
+import { apiClient, isAuthError, httpStatus } from "@/lib/api-client";
 import { REGION, isWithinRegion } from "@/lib/region";
 import { toast } from "sonner";
 import { useT } from "@/lib/i18n/I18nProvider";
@@ -51,6 +51,39 @@ interface CourseStop {
   reason: string;
   openStatusAtArrival?: 'open_expected' | 'closing_soon' | 'closed_confirmed' | 'needs_confirmation';
   travelMinutes?: number | null;
+  alternatives?: CourseAlternative[];
+}
+
+/** 같은 자리의 차점 후보.
+ *
+ * 서버가 1등을 뽑느라 어차피 전부 채점해 둔 것을 버리지 않고 실어 준 값이다. 도착 시각·예상
+ * 혼잡은 **그 자리의 실제 출발점과 누적 도착 시각** 기준이라 그대로 보여 줘도 거짓이 아니다. */
+interface CourseAlternative {
+  facility: { id: string; name: string; type: string; latitude: number; longitude: number };
+  arrivalOffsetMin: number;
+  predictedCongestion: number | null;
+  spotScore: number;
+  travelMinutes?: number | null;
+}
+
+/** 사용자가 짠 자리 하나의 결과.
+ *
+ * 왜 필요한가: 응답의 order 는 **채운 것만으로** 1..n 다시 매겨진다. 그래서 3곳을 짰는데 2곳만
+ * 왔을 때 어느 자리가 왜 빠졌는지 화면이 알 방법이 없었고, 개수 차이로 이유를 추측할 수밖에
+ * 없었다. 추측한 이유를 사용자에게 말하는 것은 값을 지어내는 것과 같다. */
+interface SlotOutcome {
+  order: number;
+  requestedType: string | null;
+  status: 'filled' | 'no_candidate_of_type' | 'closed_at_arrival' | 'over_time_budget' | 'pin_unavailable';
+  facilityId: string | null;
+  pinned: boolean;
+}
+
+interface CoursePlan {
+  stops: CourseStop[];
+  slotOutcomes: SlotOutcome[];
+  /** 선택된 시설 id 열의 해시. '정말 바뀌었는지' 를 추측이 아니라 사실로 판정하는 근거다. */
+  planId: string;
 }
 
 // 순서 지정 피커에 담긴 한 칸. type 은 백엔드 sequence 슬롯 값, uid 는 프런트 전용 드래그 식별자
@@ -127,6 +160,11 @@ function CourseContent() {
   // 순서 지정 피커 상태 — 1개 이상이면 '순서 모드'(fetchCourse 가 body.sequence 를 보낸다).
   const [sequence, setSequence] = useState<SequenceItem[]>([]);
   const [stops, setStops] = useState<CourseStop[]>([]);
+  const [slotOutcomes, setSlotOutcomes] = useState<SlotOutcome[]>([]);
+  // 자리 고정. 키는 '자리'가 아니라 **피커 칸의 uid** 다 — 칩을 끌어 순서를 바꾸면 고정도 함께
+  // 따라와야 하기 때문이다(자리 번호로 잡아 두면 카페를 3번으로 옮겨도 고정은 2번에 남는다).
+  // 자동 모드에는 uid 가 없으므로 자리 번호로 만든 키를 쓴다(slotKey 참조).
+  const [pins, setPins] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [needsAuth, setNeedsAuth] = useState(false);
@@ -204,6 +242,46 @@ function CourseContent() {
   // (디바운스가 대부분 막지만, 초기 로드 직후나 500ms 를 넘는 네트워크 지연에서는 여전히 겹칠 수 있다).
   const fetchGenRef = useRef(0);
 
+  // 고정을 붙들어 두는 키. 순서 모드에서는 피커 칸의 uid 다 — 칩을 끌어 순서를 바꾸면 고정도
+  // 함께 따라와야 하기 때문이다(자리 번호로 잡으면 카페를 3번으로 옮겨도 고정은 2번에 남는다).
+  // 자동 모드에는 uid 가 없으므로 자리 번호로 만든 키를 쓴다.
+  const slotKeys = useMemo(
+    () => (sequence.length > 0 ? sequence.map((item) => item.uid) : ["auto-0", "auto-1", "auto-2"]),
+    [sequence],
+  );
+
+  const prevPlanRef = useRef<{ planId: string; ids: string[] } | null>(null);
+  // 사용자가 조건을 바꿔서 나간 재조회인가. 위치 갱신·세션 승격 같은 배경 재조회에는 토스트를
+  // 띄우지 않는다 — 사용자가 아무것도 안 했는데 "다시 짰어요" 라고 말하면 그것도 거짓말이다.
+  const userReplanRef = useRef(false);
+
+  /** 재조회 결과가 실제로 무엇이 달라졌는지 말한다.
+   *
+   * 지금까지 재조회의 유일한 신호는 결과 영역의 opacity-50 하나였다. 순서를 바꿨는데 같은 답이
+   * 돌아오면 픽셀이 한 개도 안 바뀌어 '호출조차 안 나갔다' 로 읽혔다 — 사용자가 말한
+   * "아무것도 안 바뀐다" 의 절반은 결과가 아니라 이 침묵에서 왔다.
+   *
+   * 다만 '바뀌었다' 고 말하고 싶은 유혹은 서버가 준 planId 로 막는다. 같으면 같다고 말한다. */
+  const announceReplan = useCallback((planId: string, nextStops: CourseStop[]) => {
+    const nextIds = nextStops.map((stop) => stop.facility.id);
+    const prev = prevPlanRef.current;
+    prevPlanRef.current = { planId, ids: nextIds };
+    if (!userReplanRef.current) return;
+    userReplanRef.current = false;
+    // planId 가 없으면(구 API 폴백) 판정할 근거가 없다 — 지어내지 않고 침묵한다.
+    if (!planId || !prev?.planId) return;
+    const prevIds = new Set(prev.ids);
+    const added = nextIds.filter((id) => !prevIds.has(id));
+    const message =
+      prev.planId === planId
+        ? t("course.replanSame")
+        : added.length === 0
+          ? t("course.replanReordered")
+          : t("course.replanChanged", { n: added.length });
+    // 같은 id 를 재사용해 드래그 연타로 토스트가 쌓이지 않게 한다.
+    toast(message, { id: "course-replan" });
+  }, [t]);
+
   const fetchCourse = useCallback(async () => {
     if (!userId || isShareMode) return;
     const gen = ++fetchGenRef.current;
@@ -222,18 +300,40 @@ function CourseContent() {
       } else if (selectedTypes.length > 0) {
         body.types = selectedTypes;
       }
+      // 고정은 서버에 '자리 번호 → 시설' 로 보낸다. 화면이 uid 로 들고 있는 이유는 위 pins 주석 참조.
+      const pinList = Object.entries(pins)
+        .map(([key, facilityId]) => ({ order: slotKeys.indexOf(key) + 1, facilityId }))
+        .filter((p) => p.order > 0);
+      if (pinList.length > 0) body.pins = pinList;
       // 타임아웃을 명시한다(기본 10초 대신 20초). 코스 추천은 정류지마다 후보를 재평가하는
       // 멀티스톱 계산이라 단일 추천보다 본질적으로 무겁고, 백엔드 시설 캐시가 식은 첫 요청은
       // 여기에 더해 전체 시설을 다시 읽는다. 기본값 10초는 그 정상 범위와 너무 가까워,
       // 조금만 느려도 '분산 코스 전체 실패'로 보였다(2026-08-27 실측: 서버 ~10초 → 100% 실패).
       // 서버 쪽 병목은 availability_service 조회 분할로 별도 수정했고(~1초), 이 값은 그 위의 여유분이다.
-      const data: CourseStop[] = await apiClient.post("/api/v1/courses/recommend", body, { timeoutMs: 20000 });
+      // /plan 은 정류지 + 자리별 결과 + planId 를 함께 준다. 구 API 는 이 경로를 모르므로
+      // 404 면 기존 /recommend 로 내려간다 — Vercel(정적 export)과 Render 는 배포 시점이 다르고
+      // 스테이징이 없어서, **새 화면이 먼저 뜨는 구간이 실제로 존재한다.** 그 구간에서 코스가
+      // 통째로 실패하면 장애가 '갈 곳 없음' 으로 보인다(이 라우터가 가장 피하려는 종류의 거짓말).
+      let plan: CoursePlan;
+      try {
+        plan = await apiClient.post("/api/v1/courses/plan", body, { timeoutMs: 20000 });
+      } catch (planErr) {
+        if (httpStatus(planErr) !== 404) throw planErr;
+        const legacy: CourseStop[] = await apiClient.post("/api/v1/courses/recommend", body, { timeoutMs: 20000 });
+        // planId 가 빈 문자열이면 '판정할 근거가 없다' 는 뜻이다 — 아래에서 토스트를 띄우지 않는다.
+        plan = { stops: Array.isArray(legacy) ? legacy : [], slotOutcomes: [], planId: "" };
+      }
       if (gen !== fetchGenRef.current) return; // 이후 요청이 이미 나감 — 구세대 응답 폐기
-      setStops(Array.isArray(data) ? data : []);
+      const nextStops = Array.isArray(plan?.stops) ? plan.stops : [];
+      announceReplan(plan?.planId ?? "", nextStops);
+      setStops(nextStops);
+      setSlotOutcomes(Array.isArray(plan?.slotOutcomes) ? plan.slotOutcomes : []);
     } catch (err) {
       if (gen !== fetchGenRef.current) return;
       console.warn("코스 추천 호출 실패:", err);
       setStops([]);
+      // 실패는 '자리를 못 채웠다' 와 다르다. 낡은 사유를 남겨 두면 장애를 조건 문제로 읽게 된다.
+      setSlotOutcomes([]);
       // 401(인증 필요)은 서버 장애가 아니다 → 성공할 수 없는 '다시 시도' 대신 정직한 안내.
       if (isAuthError(err)) {
         setNeedsAuth(true);
@@ -246,7 +346,7 @@ function CourseContent() {
         setHasLoadedOnce(true);
       }
     }
-  }, [userId, coords.lat, coords.lng, selectedTypes, sequence, isShareMode, t]);
+  }, [userId, coords.lat, coords.lng, selectedTypes, sequence, pins, slotKeys, isShareMode, announceReplan, t]);
 
   // 재조회 디바운스 — framer-motion onReorder 는 '드래그 도중' 순서가 바뀔 때마다 연속 발화하고,
   // 종류 칩도 연타로 담는다. 변경마다 즉시 fetch 하면 그때마다 리렌더/로딩이 끼어들어 드래그가 끊기므로
@@ -335,12 +435,42 @@ function CourseContent() {
   }, []);
 
   const toggleType = (id: string) => {
+    markUserReplan();
     setSelectedTypes((prev) =>
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
     );
   };
 
+  const markUserReplan = () => {
+    userReplanRef.current = true;
+  };
+
+  /** 이 자리를 고정하거나 푼다. */
+  const togglePin = (slotIdx: number, facilityId: string) => {
+    const key = slotKeys[slotIdx];
+    if (!key) return;
+    markUserReplan();
+    setPins((prev) => {
+      const next = { ...prev };
+      if (next[key] === facilityId) delete next[key];
+      else next[key] = facilityId;
+      return next;
+    });
+  };
+
+  /** 대안으로 갈아끼우기 = **그 자리에 고정을 꽂고 다시 짜는 것**이다.
+   *
+   * 화면에서 카드만 바꿔치기하면 뒤 정류지의 도착 시각·예상 혼잡이 낡은 값이 된다. 출발점과
+   * 출발 시각이 달라졌는데 숫자를 그대로 두면 그 순간 화면이 거짓말을 시작한다. */
+  const swapTo = (slotIdx: number, facilityId: string) => {
+    const key = slotKeys[slotIdx];
+    if (!key) return;
+    markUserReplan();
+    setPins((prev) => ({ ...prev, [key]: facilityId }));
+  };
+
   const addToSequence = (type: string) => {
+    markUserReplan();
     setSequence((prev) => {
       if (prev.length >= MAX_SEQUENCE) return prev;
       const uid = `${type}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
@@ -348,7 +478,16 @@ function CourseContent() {
     });
   };
   const removeFromSequence = (uid: string) => {
+    markUserReplan();
     setSequence((prev) => prev.filter((s) => s.uid !== uid));
+    // 칸이 사라지면 그 칸의 고정도 같이 사라진다. (요청을 만들 때 모르는 키는 어차피 걸러지지만,
+    // 상태에 남겨 두면 같은 uid 가 다시 생겼을 때 되살아난 것처럼 보인다.)
+    setPins((prev) => {
+      if (!(uid in prev)) return prev;
+      const next = { ...prev };
+      delete next[uid];
+      return next;
+    });
   };
 
   // 공유 모드 여부에 따라 렌더에 쓸 정류지/로딩/에러를 단일화 — 이하 JSX 는 이 값만 참조한다.
@@ -456,8 +595,8 @@ function CourseContent() {
                   sequence={sequence}
                   onAdd={addToSequence}
                   onRemove={removeFromSequence}
-                  onReorder={setSequence}
-                  onReset={() => setSequence([])}
+                  onReorder={(next) => { markUserReplan(); setSequence(next); }}
+                  onReset={() => { markUserReplan(); setSequence([]); setPins({}); }}
                   selectedTypes={selectedTypes}
                   onToggleType={toggleType}
                 />
@@ -482,7 +621,15 @@ function CourseContent() {
                     {viewMode === "gantt" ? (
                       <CourseGantt stops={activeStops} />
                     ) : (
-                      <StopRows stops={activeStops} readOnly={isShareMode} />
+                      <StopRows
+                        stops={activeStops}
+                        readOnly={isShareMode}
+                        outcomes={isShareMode ? [] : slotOutcomes}
+                        pins={pins}
+                        slotKeys={slotKeys}
+                        onTogglePin={togglePin}
+                        onSwap={swapTo}
+                      />
                     )}
                   </div>
                 )}
@@ -810,19 +957,127 @@ function CourseGantt({ stops }: { stops: CourseStop[] }) {
 // 정보 행 목록 — 배민 배달 추적 화면의 '배달주소/요청사항' 행 문법(카드 박스가 아니라 플랫한
 // 시트 위 행 + divide-y 구분선). 시트 좌우 패딩을 상쇄(-mx)해 구분선이 시트 폭 끝까지 이어지게 한다.
 // readOnly(공유 모드): spotScore/reason 은 공유 URL 에 싣지 않아 정직하게 알 수 없는 값이므로 숨긴다.
-function StopRows({ stops, readOnly = false }: { stops: CourseStop[]; readOnly?: boolean }) {
+/** 사용자가 짠 자리 번호(1부터)를 찾는다.
+ *
+ * stop.order 는 **채운 것만으로** 다시 매겨진 번호라 요청한 자리와 다를 수 있다(2번이 비면
+ * 3번이 stop.order 2 가 된다). 고정·갈아끼우기는 요청한 자리에 걸어야 하므로 여기서 되돌린다.
+ * 자리 결과가 없으면(구 API 폴백) 둘이 같다고 볼 수밖에 없다 — 그때는 고정도 쓰지 않는다. */
+function requestedSlotIndex(stop: CourseStop, outcomes: SlotOutcome[]): number {
+  const hit = outcomes.find((o) => o.status === 'filled' && o.facilityId === stop.facility.id);
+  return (hit ? hit.order : stop.order) - 1;
+}
+
+function StopRows({
+  stops,
+  readOnly = false,
+  outcomes = [],
+  pins = {},
+  slotKeys = [],
+  onTogglePin,
+  onSwap,
+}: {
+  stops: CourseStop[];
+  readOnly?: boolean;
+  outcomes?: SlotOutcome[];
+  pins?: Record<string, string>;
+  slotKeys?: string[];
+  onTogglePin?: (slotIdx: number, facilityId: string) => void;
+  onSwap?: (slotIdx: number, facilityId: string) => void;
+}) {
+  // 못 채운 자리를 **요청한 순서 그대로** 사이사이에 끼워 그린다. 목록에서 사라지게 두면
+  // 사용자는 자리가 빠졌다는 것만 알고 이유를 영영 모른다(응답 order 는 다시 매겨진다).
+  // 자리 결과가 없으면 구 API 응답이다(/plan 이 아직 배포되지 않은 창). 그때는 고정·갈아끼우기를
+  // **그리지 않는다** — 버튼은 보이는데 서버가 pins 를 모르고 조용히 무시하면, 눌러도 아무 일도
+  // 일어나지 않는 조작을 준 셈이 된다.
+  const replanSupported = outcomes.length > 0;
+  const dropped = outcomes.filter((o) => o.status !== 'filled');
+  const rows = [
+    ...stops.map((stop) => ({ order: requestedSlotIndex(stop, outcomes) + 1, stop, outcome: null as SlotOutcome | null })),
+    ...dropped.map((outcome) => ({ order: outcome.order, stop: null as CourseStop | null, outcome })),
+  ].sort((a, b) => a.order - b.order);
+
   return (
     <div className="-mx-4 md:-mx-6 divide-y divide-line">
-      {stops.map((stop) => (
-        <StopRow key={stop.facility.id} stop={stop} readOnly={readOnly} />
-      ))}
+      {rows.map((row) =>
+        row.stop ? (
+          <StopRow
+            key={row.stop.facility.id}
+            stop={row.stop}
+            readOnly={readOnly}
+            slotIdx={replanSupported ? row.order - 1 : undefined}
+            pinned={pins[slotKeys[row.order - 1]] === row.stop.facility.id}
+            onTogglePin={onTogglePin}
+            onSwap={onSwap}
+          />
+        ) : (
+          <DroppedSlotRow key={`slot-${row.order}`} outcome={row.outcome as SlotOutcome} />
+        ),
+      )}
     </div>
   );
 }
 
-function StopRow({ stop, readOnly = false }: { stop: CourseStop; readOnly?: boolean }) {
+// 채우지 못한 자리 — 사라지게 두지 않고 **이유를 달아** 자리를 지킨다.
+// 이유는 서버가 준 코드를 그대로 옮긴다. 개수 차이로 추측한 문장을 쓰면 그건 지어낸 값이다.
+const SLOT_REASON_KEY: Record<string, string> = {
+  no_candidate_of_type: 'course.slotNoCandidate',
+  closed_at_arrival: 'course.slotClosedAtArrival',
+  over_time_budget: 'course.slotOverTimeBudget',
+  pin_unavailable: 'course.slotPinUnavailable',
+};
+
+function DroppedSlotRow({ outcome }: { outcome: SlotOutcome }) {
+  const t = useT();
+  const reasonKey = SLOT_REASON_KEY[outcome.status];
+  return (
+    <div className="px-4 md:px-6 py-4 bg-hanji-deep/30">
+      <div className="flex items-start gap-3">
+        <span
+          className="shrink-0 flex items-center justify-center w-9 h-9 rounded-full border border-dashed border-line text-base text-muk-soft"
+          aria-hidden
+        >
+          {outcome.requestedType ? typeEmoji(outcome.requestedType) : '·'}
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-bold text-muk-soft">
+            {t('course.slotDropped', { n: outcome.order })}
+          </p>
+          {reasonKey && (
+            <p className="mt-0.5 text-[11px] text-muk-soft">
+              {t(reasonKey, {
+                type: outcome.requestedType ? t(`category.${outcome.requestedType}`) : '',
+              })}
+            </p>
+          )}
+          <p className="mt-1 text-[10px] text-muk-soft/80">{t('course.slotHint')}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function StopRow({
+  stop,
+  readOnly = false,
+  slotIdx,
+  pinned = false,
+  onTogglePin,
+  onSwap,
+}: {
+  stop: CourseStop;
+  readOnly?: boolean;
+  slotIdx?: number;
+  pinned?: boolean;
+  onTogglePin?: (slotIdx: number, facilityId: string) => void;
+  onSwap?: (slotIdx: number, facilityId: string) => void;
+}) {
   const t = useT();
   const [open, setOpen] = useState(false);
+  const [altsOpen, setAltsOpen] = useState(false);
+  const alternatives = stop.alternatives ?? [];
+  // 재계획 조작은 공유 모드(읽기 전용)에도, 자리 번호를 모를 때도 그리지 않는다.
+  const canReplan = !readOnly && slotIdx !== undefined && slotIdx >= 0;
+  const altsId = `course-alts-${stop.facility.id}`;
   const cong = stop.predictedCongestion == null ? null : congestion(stop.predictedCongestion);
   const reasonId = `course-reason-${stop.facility.id}`;
   const startNavigation = (mode: 'walk' | 'car') => {
@@ -858,6 +1113,11 @@ function StopRow({ stop, readOnly = false }: { stop: CourseStop; readOnly?: bool
           <div className="flex items-start justify-between gap-2">
             <h3 className="text-sm font-bold text-muk truncate">
               {stop.order}. {stop.facility.name}
+              {pinned && (
+                <span className="ml-1.5 align-middle px-1.5 py-0.5 rounded-md bg-gold/15 border border-gold/30 text-[9px] font-bold text-gold-deep">
+                  📌 {t('course.pinnedBadge')}
+                </span>
+              )}
             </h3>
             {cong && stop.predictedCongestion != null && <span className={`shrink-0 px-2 py-0.5 rounded-lg text-[10px] font-bold border ${cong.cls}`}>
               {t(`congestion.${cong.key}`)} {Math.round(stop.predictedCongestion * 100)}%
@@ -915,6 +1175,67 @@ function StopRow({ stop, readOnly = false }: { stop: CourseStop; readOnly?: bool
             <p id={reasonId} className="mt-1.5 text-xs text-muk leading-relaxed bg-hanji-deep/60 rounded-lg px-3 py-2">
               {stop.reason}
             </p>
+          )}
+
+          {canReplan && (alternatives.length > 0 || pinned) && (
+            <div className="flex items-center gap-2 mt-2">
+              {alternatives.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setAltsOpen((v) => !v)}
+                  aria-expanded={altsOpen}
+                  aria-controls={altsId}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full border border-line bg-white text-[11px] font-bold text-muk-soft hover:border-gold/40 hover:text-gold-deep transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/50"
+                >
+                  {altsOpen ? t('course.altsHide') : t('course.altsToggle', { n: alternatives.length })}
+                  <ChevronDown size={12} className={`transition-transform ${altsOpen ? 'rotate-180' : ''}`} aria-hidden />
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => onTogglePin?.(slotIdx as number, stop.facility.id)}
+                aria-pressed={pinned}
+                className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full border text-[11px] font-bold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/50 ${
+                  pinned
+                    ? 'border-gold/40 bg-gold/15 text-gold-deep'
+                    : 'border-line bg-white text-muk-soft hover:border-gold/40 hover:text-gold-deep'
+                }`}
+              >
+                📌 {pinned ? t('course.pinOff') : t('course.pinOn')}
+              </button>
+            </div>
+          )}
+
+          {/* 대안 목록. 서버가 그 자리의 실제 출발점·누적 도착 시각에서 이미 채점해 둔 값이라
+              도착 시각·예상 혼잡을 그대로 보여 준다(따로 계산하거나 지어내지 않는다). */}
+          {canReplan && altsOpen && alternatives.length > 0 && (
+            <div id={altsId} className="mt-2 rounded-xl border border-line bg-hanji-deep/40 divide-y divide-line/70">
+              {alternatives.map((alt) => {
+                const altCong = alt.predictedCongestion == null ? null : congestion(alt.predictedCongestion);
+                return (
+                  <div key={alt.facility.id} className="flex items-center gap-2 px-3 py-2">
+                    <span aria-hidden className="shrink-0 text-sm">{typeEmoji(alt.facility.type)}</span>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[12px] font-bold text-muk truncate">{alt.facility.name}</p>
+                      <p className="text-[10px] text-muk-soft">
+                        🕒 {arrivalText(alt.arrivalOffsetMin, t)}
+                        {altCong && alt.predictedCongestion != null && (
+                          <> · {t(`congestion.${altCong.key}`)} {Math.round(alt.predictedCongestion * 100)}%</>
+                        )}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => onSwap?.(slotIdx as number, alt.facility.id)}
+                      className="shrink-0 px-2.5 py-1 rounded-full border border-gold/30 bg-gold/10 text-[10px] font-bold text-gold-deep hover:bg-gold/20 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/50"
+                    >
+                      {t('course.altsPick')}
+                    </button>
+                  </div>
+                );
+              })}
+              <p className="px-3 py-2 text-[10px] leading-snug text-muk-soft">{t('course.altsNote')}</p>
+            </div>
           )}
         </div>
       </div>
