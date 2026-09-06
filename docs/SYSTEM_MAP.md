@@ -250,7 +250,8 @@ SessionBootstrap: 익명 세션 자동 발급
 | ″ | 수락 / 거절 피드백 | `POST /recommendations/accept` `/reject` `/feedback` | `feedback_service` `preference_vector_service` |
 | ″ | 음성 비서 | `POST /voice/turn` | `voice_intent_service` + `lib/voice/voiceCommands.ts` |
 | ″ | 자연어 현장조건 | `POST /travel-context/parse` | `travel_context_parser` |
-| `/course` | 멀티스톱 분산 코스 | `POST /courses/recommend` | 누적 도착시각 기반 SPOT 반복 |
+| `/course` | 멀티스톱 분산 코스 | `POST /courses/plan` (구 번들은 `POST /courses/recommend`) | 누적 도착시각 기반 SPOT 반복 · 자리마다 현재 위치 기준 후보 재선정 |
+| ″ | 자리 고정·대안 갈아끼우기 | `POST /courses/plan` 의 `pins` | 고정된 자리 뒤를 다시 그리디 |
 | `/waiting` | 대기 현황 보드 | `GET /infrastructures` | `facility_cache` |
 | `/saved` | 저장한 장소 | (로컬) | `lib/savedFacilities.ts` |
 | `/mypage` | 취향 레이더 | `GET /users/me/vector` | `preference_vector_service` |

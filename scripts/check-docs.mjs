@@ -15,6 +15,7 @@
 // 실행: node scripts/check-docs.mjs   (루트 어디서 실행해도 된다)
 
 import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -40,7 +41,30 @@ function walkMd(dir, out) {
   return out;
 }
 
-const mdFiles = walkMd(ROOT, []);
+/** git 이 무시하는 파일은 검사 대상이 아니다.
+ *
+ * 왜 필요한가: 이 저장소에는 의도적으로 추적하지 않는 로컬 전용 문서가 있다
+ * (예: docs/MERCHANT_CONSOLE_RBAC_PLAN.md — .gitignore 에 등록돼 있다). CI 에는 아예
+ * 존재하지 않아 통과하지만, **그 파일을 가진 사람의 로컬에서는 매번 실패**한다.
+ * 고칠 수 없는 실패가 늘 하나 떠 있으면 진짜 실패가 그 옆에 묻힌다.
+ *
+ * git 이 없거나(소스 아카이브만 푼 경우) 호출이 실패하면 아무것도 무시하지 않는다 —
+ * 검사를 조용히 약화시키느니 예전처럼 전부 보는 편이 안전하다. */
+function gitIgnored(files) {
+  if (files.length === 0) return new Set();
+  const res = spawnSync("git", ["check-ignore", "--stdin"], {
+    cwd: ROOT,
+    input: files.map((f) => rel(f)).join("\n"),
+    encoding: "utf8",
+  });
+  // 종료코드 0=일부 무시됨, 1=무시된 것 없음, 그 외(128 등)=git 사용 불가 → 무시 목록 없음.
+  if (res.error || (res.status !== 0 && res.status !== 1)) return new Set();
+  return new Set((res.stdout || "").split(/\r?\n/).filter(Boolean));
+}
+
+const allMd = walkMd(ROOT, []);
+const ignored = gitIgnored(allMd);
+const mdFiles = allMd.filter((f) => !ignored.has(rel(f)));
 
 // 3) 루트 마크다운 허용 목록
 for (const f of mdFiles) {
