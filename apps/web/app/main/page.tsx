@@ -28,6 +28,9 @@ import { getArrivalOpenStatus, isClosedToday, isRecommendationOpen, parseAvailab
 import { loadTravelContext, matchesTravelContext, saveTravelContext, type PlaceCategory, CUISINE_INTENT } from '@/lib/travelContext';
 import { buildVoiceCommandTransition, type VoiceAppCommand } from '@/lib/voice/voiceCommands';
 import { facilityMatchesSearch } from '@/lib/placeSearch';
+import { congestionKey } from '@/lib/congestionScale';
+import { useBusyThreshold } from '@/components/shell/PublicSettingsProvider';
+import { errorMessage } from '@/lib/errors';
 import NextSpotMascot from '@/components/NextSpotMascot';
 import { buildSpotComparisons, formatSpotComparison } from '@/lib/spotComparison';
 import {
@@ -210,6 +213,24 @@ interface PlaceSearchItem {
   categoryName?: string | null;
 }
 
+// 관광공사(TourAPI) 키워드 검색 결과 1건 — GET /api/v1/search/keyword 응답.
+//
+// **우리 데이터가 아니다.** 지도 검색(로컬 facilities)도 Kakao 장소 검색도 0건일 때만 부르고,
+// 결과는 출처를 명시한 별도 블록으로만 그린다. 이 목록과 위 두 목록을 한 덩어리로 섞으면
+// 사용자는 어떤 줄이 우리가 아는 장소인지 구분할 수 없다.
+//
+// 백엔드는 TourAPI 원문 필드명을 그대로 쓰고(contentid/addr1/mapx/mapy), keysToCamel 은
+// 밑줄이 없는 이 이름들을 바꾸지 않는다.
+interface TourApiSearchItem {
+  contentid: string;
+  title: string;
+  addr1?: string | null;
+  mapx?: number | null;
+  mapy?: number | null;
+  contenttypeid?: number | null;
+  firstimage?: string | null;
+}
+
 interface ParkingLot {
   id: string;
   name: string;
@@ -269,10 +290,21 @@ export default function MainPage() {
     return ({ restaurant: '음식점', cafe: '카페', attraction: '관광지', culture: '문화시설' } as const)[first ?? 'restaurant'];
   });
   const [searchQuery, setSearchQuery] = useState(''); // 상호·주소·검증 메뉴/업종/소개 검색 + Kakao 0건 폴백.
-  // 로컬 검색이 0건일 때만 GET /api/v1/search/places 로 장소를 찾는다.
-  // 지도 이동/마커 추가는 하지 않는다(적재 전 POI — 행 목록으로만 노출, [다음 배치 추가 요청]으로 큐잉).
+  // 로컬 검색이 0건일 때만 GET /api/v1/search/places 로 장소를 찾는다(적재 전 POI —
+  // 행 목록 + '지도에서 보기' 임시 마커까지만, 상세 카드는 없다).
+  // 여기서도 0건이면 관광공사 폴백(tourApiItems)으로 한 단계 더 내려가고, 그 줄에만
+  // [다음 배치 추가 요청] 버튼이 붙는다(contentid 가 있어야 승인 큐가 단건 적재할 수 있다).
   const [liveSearchItems, setLiveSearchItems] = useState<PlaceSearchItem[]>([]);
   const [liveSearchLoading, setLiveSearchLoading] = useState(false);
+  // Kakao 장소 검색까지 0건일 때만 부르는 관광공사(TourAPI) 키워드 폴백 — 별도 출처 블록.
+  const [tourApiItems, setTourApiItems] = useState<TourApiSearchItem[]>([]);
+  const [tourApiLoading, setTourApiLoading] = useState(false);
+  // 폴백을 실제로 물어봤는가. '아직 안 물어봄' 과 '물어봤는데 0건' 은 다른 사실이라
+  // 하나로 뭉개면 '어디에도 없는 장소' 안내를 조회 전에 띄우게 된다.
+  const [tourApiAsked, setTourApiAsked] = useState(false);
+  // 적재 요청을 이미 보낸 contentid. 같은 줄을 두 번 누르게 두면 백엔드 IP 리밋(분당 3회)만 태운다.
+  const [ingestRequested, setIngestRequested] = useState<Set<string>>(new Set());
+  const [ingestPendingId, setIngestPendingId] = useState<string | null>(null);
   const [facilities, setFacilities] = useState<any[]>([]);
   const [parkingLots, setParkingLots] = useState<ParkingLot[]>([]);
   const [parkingLoading, setParkingLoading] = useState(false);
@@ -364,6 +396,8 @@ export default function MainPage() {
 
   const router = useRouter();
   const { locale, t } = useI18n();
+  // '혼잡' 등급 경계 — 운영자 설정(GET /system/public-settings). 못 받으면 0.75(기존 값).
+  const busyAt = useBusyThreshold();
   const [currentClock, setCurrentClock] = useState<Date | null>(null);
 
   // 영업 여부와 도착 시각을 판단하는 기준과 맞춰 경주 현지 시각(KST)을 보여준다.
@@ -1553,7 +1587,12 @@ export default function MainPage() {
         phone: fac.phone ?? null,
         features: fac.features ?? null,
         // 혼잡 근거 없음(null)은 '한산(blue)'으로 합성하지 않고 unknown 으로 저장(CONGESTION_TRUST_SPEC).
-        trafficStatus: typeof fac.congestionLevel !== 'number' ? 'unknown' : fac.congestionLevel >= 0.75 ? 'orange' : fac.congestionLevel >= 0.50 ? 'yellow' : fac.congestionLevel >= 0.25 ? 'green' : 'blue',
+        // 등급 경계는 운영자 설정(busyAt)을 따른다 — 저장 시점의 등급이 화면 배지와 어긋나면 안 된다.
+        trafficStatus: typeof fac.congestionLevel !== 'number'
+          ? 'unknown'
+          : ({ busy: 'orange', moderate: 'yellow', relaxed: 'green', quiet: 'blue' } as const)[
+              congestionKey(fac.congestionLevel, busyAt)
+            ],
         congestionLevel: typeof fac.congestionLevel === 'number' ? fac.congestionLevel : null,
         waitTime:
           fac.scoringMode === 'model' && fac.congestionSource !== 'none'
@@ -2007,7 +2046,7 @@ export default function MainPage() {
       const w = isSel ? selW : baseW;
       const h = isSel ? selH : baseH;
       const markerImage = new kakao.maps.MarkerImage(
-        getMarkerSvg(f.type, f.congestionLevel, f.features, isSel),
+        getMarkerSvg(f.type, f.congestionLevel, f.features, isSel, busyAt),
         new kakao.maps.Size(w, h),
         { offset: new kakao.maps.Point(w / 2, h) }
       );
@@ -2105,7 +2144,9 @@ export default function MainPage() {
     markersRef.current = newMarkers;
     // selectedFacility 변경 시에도 재렌더해 선택 마커만 진한 색으로 갱신(기존 마커는 effect 시작부에서 정리)
     // markerFacilities 를 dep 으로 둬 예측(hoursAhead) 전환 시에도 마커가 예측 혼잡도로 재채색된다.
-  }, [markerFacilities, activeFilter, mapLoaded, selectedFacility?.id, selectedParkingLot?.id, activeGroupId, mapLevel, mapViewportVersion, searchQuery]);
+    // busyAt: 운영자 혼잡 경계는 부팅 뒤 비동기로 도착한다. dep 에 없으면 마커가 기본 경계로
+    // 칠해진 채 남아 배지와 색이 어긋난다.
+  }, [markerFacilities, activeFilter, mapLoaded, selectedFacility?.id, selectedParkingLot?.id, activeGroupId, mapLevel, mapViewportVersion, searchQuery, busyAt]);
 
   // 히트맵 레이어 (실 카카오맵) — 혼잡 핀과 별개의 CustomOverlay blob(CongestionMap 에서 이식).
   // showHeatmap 이 켜졌을 때만, 마커와 '동일한 표시 시설 집합'(computeDisplayFacilities)에
@@ -2135,7 +2176,7 @@ export default function MainPage() {
       blob.style.width = `${size}px`;
       blob.style.height = `${size}px`;
       blob.style.borderRadius = '50%';
-      blob.style.background = getHeatGradient(f.congestionLevel);
+      blob.style.background = getHeatGradient(f.congestionLevel, busyAt);
       blob.style.mixBlendMode = 'screen'; // 겹칠수록 가산 합성되어 번지는 열지도 효과
       blob.style.pointerEvents = 'none';
 
@@ -2157,7 +2198,7 @@ export default function MainPage() {
       heatmapOverlaysRef.current.forEach((o) => o.setMap(null));
       heatmapOverlaysRef.current = [];
     };
-  }, [markerFacilities, activeFilter, mapLoaded, mapLevel, mapViewportVersion, searchQuery, showHeatmap]);
+  }, [markerFacilities, activeFilter, mapLoaded, mapLevel, mapViewportVersion, searchQuery, showHeatmap, busyAt]);
 
   const filters = [
     { id: '음식점', key: 'restaurant', icon: Utensils },
@@ -2260,6 +2301,8 @@ export default function MainPage() {
     if (!searchActive || q.length < 2 || searchMatchCount > 0) {
       setLiveSearchItems([]);
       setLiveSearchLoading(false);
+      setTourApiItems([]);
+      setTourApiAsked(false);
       if (q.length >= 2 && searchMatchCount > 0 && mapInstanceRef.current) {
         const pool = activeFilter === '주차장' ? parkingLots : facilities;
         const matches = pool.filter((facility) => facilityMatchesSearch(facility as Facility, q));
@@ -2275,21 +2318,71 @@ export default function MainPage() {
       return;
     }
     setLiveSearchLoading(true);
+    // 질의가 바뀌었으면 이전 질의의 관광공사 결과는 즉시 버린다. 그대로 두면 Kakao 응답을
+    // 기다리는 동안 **다른 검색어의 목록**이 화면에 남아 이번 검색 결과처럼 읽힌다.
+    setTourApiItems([]);
+    setTourApiAsked(false);
     const timer = setTimeout(async () => {
+      let kakaoItems: PlaceSearchItem[] = [];
       try {
         const res = await apiClient.get('/api/v1/search/places', { params: { q }, timeoutMs: 4500 });
-        if (sequence === placeSearchSequenceRef.current) {
-          setLiveSearchItems(Array.isArray(res?.items) ? res.items : []);
-        }
+        kakaoItems = Array.isArray(res?.items) ? res.items : [];
       } catch (err) {
         console.warn('Kakao 장소 검색 실패 — 무해 폴백(빈 목록):', err);
-        if (sequence === placeSearchSequenceRef.current) setLiveSearchItems([]);
-      } finally {
-        if (sequence === placeSearchSequenceRef.current) setLiveSearchLoading(false);
       }
+      if (sequence !== placeSearchSequenceRef.current) return;
+      setLiveSearchItems(kakaoItems);
+      setLiveSearchLoading(false);
+      // 여기서 찾았으면 외부 자료는 꺼내지 않는다 — 우리가 아는 장소를 두고 관광공사 목록을
+      // 함께 띄우면 어느 줄이 우리 데이터인지 사용자가 구분할 수 없다.
+      if (kakaoItems.length > 0) return;
+
+      // --- 관광공사(TourAPI) 키워드 폴백 ---------------------------------------
+      //
+      // 배경: 백엔드 GET /api/v1/search/keyword 와 관리자 승인 큐는 살아 있는데 웹 어디에서도
+      // 부르지 않고 있었다(전수 확인). 위 상태 선언의 주석은 '[다음 배치 추가 요청]으로 큐잉'
+      // 이라고 적고 있었지만 그 버튼이 화면에 없었다 — 여기서 그 배선을 되살린다.
+      //
+      // 같은 effect 안에서 이어 부르는 이유: 별도 effect 로 빼면 Kakao 응답이 상태로 반영된
+      // 뒤에야 시작해 디바운스 350ms 를 한 번 더 기다린다. 순서(로컬 → Kakao → 관광공사)와
+      // 취소 판정(placeSearchSequenceRef)도 한 곳에 있어야 서로 어긋나지 않는다.
+      setTourApiLoading(true);
+      let tourItems: TourApiSearchItem[] = [];
+      try {
+        const res = await apiClient.get('/api/v1/search/keyword', { params: { q }, timeoutMs: 6000 });
+        tourItems = Array.isArray(res?.items) ? (res.items as TourApiSearchItem[]) : [];
+      } catch (err) {
+        // 키 미설정·TourAPI 장애는 백엔드가 이미 무해 폴백(빈 목록)으로 흡수한다. 여기 오는
+        // 것은 네트워크·429 정도라 조용히 빈 목록으로 둔다(검색 자체를 막지 않는다).
+        console.warn('관광공사 키워드 검색 실패 — 무해 폴백(빈 목록):', err);
+      }
+      if (sequence !== placeSearchSequenceRef.current) return;
+      setTourApiItems(tourItems);
+      setTourApiLoading(false);
+      setTourApiAsked(true);
     }, 350);
     return () => clearTimeout(timer);
   }, [activeFilter, facilities, parkingLots, searchActive, searchMatchCount, searchQuery, userLocation.lat, userLocation.lng]);
+
+  // '다음 배치 추가 요청' — 관리자 승인 큐(admin_ingest_requests)에 pending 으로 넣는다.
+  // 성공/실패를 그대로 말한다. 실패를 접수된 것처럼 보이게 하면 사용자는 오지 않을 장소를 기다린다.
+  const requestIngest = async (item: TourApiSearchItem) => {
+    setIngestPendingId(item.contentid);
+    try {
+      await apiClient.post('/api/v1/search/ingest-request', {
+        contentid: item.contentid,
+        name: item.title,
+        contentTypeId: item.contenttypeid ?? null,
+      });
+      setIngestRequested((prev) => new Set(prev).add(item.contentid));
+      showToast(t('map.ingestRequestDone', { name: item.title }));
+    } catch (err) {
+      // 서버 문구(레이트리밋·테이블 미준비 안내)가 있으면 그대로 전한다 — 왜 안 됐는지가 정보다.
+      showToast(errorMessage(err) || t('map.ingestRequestFailed'));
+    } finally {
+      setIngestPendingId(null);
+    }
+  };
 
   const focusPlaceSearchResult = (item: PlaceSearchItem) => {
     const map = mapInstanceRef.current;
@@ -2587,11 +2680,15 @@ export default function MainPage() {
           </section>
         )}
 
-        {/* (c) 검색 결과 없음 안내 — 입력값은 있으나 현재 카테고리에 일치 장소가 없을 때 */}
-        {searchActive && searchMatchCount === 0 && !liveSearchLoading && liveSearchItems.length === 0 && (
+        {/* (c) 검색 결과 없음 안내 — 입력값은 있으나 현재 카테고리에 일치 장소가 없을 때.
+            관광공사 폴백이 아직 답하지 않았거나 무언가 찾아냈다면 띄우지 않는다 — 바로 아래에
+            결과 블록이 뜨는데 그 위에 '검색 결과 없음' 이 함께 있으면 서로 반대되는 말이 된다. */}
+        {searchActive && searchMatchCount === 0 && !liveSearchLoading && liveSearchItems.length === 0
+          && !tourApiLoading && tourApiItems.length === 0 && (
           <div className="pointer-events-auto px-2 -mt-1">
             <span className="inline-block text-muk text-xs bg-white/90 border border-line rounded-full px-3 py-1 shadow-[0_2px_14px_rgba(43,35,32,0.06)]">
-              {t('map.searchNoResult', { q: searchQuery.trim() })}
+              {/* 관광공사 자료까지 물어본 뒤라면 그 사실을 밝힌다(어디까지 찾아봤는지가 정보다). */}
+              {tourApiAsked ? t('map.searchNoResultAnywhere', { q: searchQuery.trim() }) : t('map.searchNoResult', { q: searchQuery.trim() })}
             </span>
           </div>
         )}
@@ -2627,6 +2724,53 @@ export default function MainPage() {
                         className="shrink-0 text-[11px] font-semibold rounded-full px-2.5 py-1.5 border text-gold border-gold/50 hover:bg-gold/10 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
                       >
                         {t('map.placeSearchView')}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+        )}
+
+        {/* 관광공사(TourAPI) 키워드 폴백 — 우리 데이터에도 Kakao 에도 없을 때만.
+            출처를 헤더에 못 박아 위 두 목록과 섞이지 않게 한다. 여기 줄들은 아직 우리 DB 에
+            없는 장소라 지도 마커·상세 카드가 없다 — 대신 '추가 요청' 으로 관리자 승인 큐에 넣는다. */}
+        {searchActive && (tourApiLoading || tourApiItems.length > 0) && (
+          <div className="pointer-events-auto rounded-2xl bg-white/95 backdrop-blur border border-jade/40 shadow-[0_2px_14px_rgba(43,35,32,0.06)] overflow-hidden">
+            <div className="px-3 py-2 border-b border-line/70">
+              <p className="text-xs font-semibold text-muk flex items-center gap-1.5">
+                <Search size={12} className="text-jade" />
+                {t('map.tourApiTitle')}
+              </p>
+              <p className="mt-0.5 text-[10px] leading-snug text-muk-soft">{t('map.tourApiSource')}</p>
+            </div>
+            {tourApiLoading ? (
+              <div className="px-3 py-3 flex items-center gap-2 text-xs text-muk-soft">
+                <span className="inline-block w-3 h-3 rounded-full border-2 border-jade/40 border-t-jade animate-spin" />
+                {t('map.tourApiTitle')}…
+              </div>
+            ) : (
+              <ul className="max-h-64 overflow-y-auto divide-y divide-line/60">
+                {tourApiItems.map((item) => {
+                  const requested = ingestRequested.has(item.contentid);
+                  const pending = ingestPendingId === item.contentid;
+                  return (
+                    <li key={item.contentid} className="px-3 py-2.5 flex items-center gap-2">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium text-muk truncate">{item.title}</p>
+                        {item.addr1 && <p className="text-[11px] text-muk-soft truncate">{item.addr1}</p>}
+                      </div>
+                      {/* 접수된 뒤에는 버튼을 '접수됨' 으로 잠근다 — 같은 줄을 다시 눌러도
+                          백엔드가 조용히 무시하므로(contentid UNIQUE) 눌리는 버튼을 남겨 두면
+                          아무 일도 일어나지 않는 조작을 주는 셈이다. */}
+                      <button
+                        type="button"
+                        onClick={() => requestIngest(item)}
+                        disabled={requested || pending}
+                        className="shrink-0 text-[11px] font-semibold rounded-full px-2.5 py-1.5 border text-jade border-jade/50 hover:bg-jade/10 transition-colors disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-jade/60"
+                      >
+                        {requested ? t('map.ingestRequested') : pending ? `${t('map.ingestRequest')}…` : t('map.ingestRequest')}
                       </button>
                     </li>
                   );
@@ -3055,16 +3199,14 @@ export default function MainPage() {
             : null;
           const areaDemandReason = tourismEvidenceReason ?? (typeof spot.areaDemandLevel === 'number'
             ? `${t('recommend.areaDemand')}: ${t(`congestion.${
-                spot.areaDemandLevel >= 0.75 ? 'busy'
-                  : spot.areaDemandLevel >= 0.5 ? 'moderate'
-                    : spot.areaDemandLevel >= 0.25 ? 'relaxed' : 'quiet'
+                congestionKey(spot.areaDemandLevel, busyAt)
               }`)} · ${t(spot.areaDemandMode === 'live'
                 ? 'recommend.areaDemandLive'
                 : spot.areaDemandMode === 'forecast'
                   ? 'recommend.areaDemandForecast'
                   : 'recommend.areaDemandStats')}. ${selectedFacility.name} · ${t('card.travel', { n: walk })}`
             : null);
-          const reason = typeof selectedFacility.congestionLevel === 'number' && selectedFacility.congestionLevel >= 0.75
+          const reason = typeof selectedFacility.congestionLevel === 'number' && selectedFacility.congestionLevel >= busyAt
             ? t('recommend.fallbackBusy', { name: selectedFacility.name, walk, pct: Math.round(selectedFacility.congestionLevel * 100) })
             : verifiedWait !== null
               ? t('recommend.fallbackWithWait', { name: selectedFacility.name, walk, wait: verifiedWait })

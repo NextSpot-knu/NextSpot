@@ -34,6 +34,10 @@ export default function SettingsPage() {
   const [isMaintenance, setIsMaintenance] = useState(false);
   const [notice, setNotice] = useState(DEFAULT_NOTICE);
   const [threshold, setThreshold] = useState(80);
+  // coldstart_weight — **화면에 컨트롤이 없다**(아래 Section B 의 제거 사유 주석 참조).
+  // 그래도 상태로 들고 있는 이유: 서버 모델(SettingsUpdate)이 이 필드를 필수로 받으므로
+  // PUT 에서 뺄 수 없고, 읽어 온 값을 그대로 되돌려 보내야 저장할 때마다 기본값(50)으로
+  // 덮이지 않는다. 즉 이 값은 지금 '읽어서 그대로 돌려주는' 통과 값이다.
   const [weight, setWeight] = useState(50);
   const [settingsLoad, setSettingsLoad] = useState<SettingsLoad>({ status: 'loading' });
 
@@ -117,6 +121,7 @@ export default function SettingsPage() {
         maintenance_mode: isMaintenance,
         notice_text: notice,
         congestion_threshold: threshold,
+        // 화면에 컨트롤이 없는 통과 값 — 읽어 온 값을 그대로 되돌려 보낸다(위 상태 선언 주석).
         coldstart_weight: weight,
       });
       setSaveMsg({ type: 'ok', text: '시스템 설정이 저장되었습니다.' });
@@ -229,11 +234,20 @@ export default function SettingsPage() {
               </div>
               <div className="p-6 flex flex-col gap-6">
 
-                {/* Maintenance Toggle */}
+                {/* Maintenance Toggle
+                    문구를 사실에 맞췄다. 예전에는 '앱 접속이 제한되고' 라고 단언했는데
+                    **이 앱은 접속을 막을 수 없다** — 정적 export(Vercel 정적 호스팅)라
+                    요청을 가로챌 서버 미들웨어가 없고, 번들은 이미 브라우저에 내려가 있다.
+                    실제로 할 수 있는 일은 '점검 안내를 전면에 띄우는 것' 뿐이다.
+                    장애 때 관리자가 이 스위치를 켜고 접속이 차단됐다고 믿는 것이,
+                    스위치가 아무 데도 연결돼 있지 않던 것만큼이나 위험했다. */}
                 <div className="flex items-center justify-between">
                   <div>
-                    <h5 className="font-bold text-hanok-ink mb-1">서비스 점검 모드</h5>
-                    <p className="text-sm text-hanok-muted">점검 모드를 활성화하면 사용자들의 앱 접속이 제한되고 공지사항이 표시됩니다.</p>
+                    <h5 className="font-bold text-hanok-ink mb-1">서비스 점검 안내</h5>
+                    <p className="text-sm text-hanok-muted">
+                      켜면 관광객 앱에 <span className="font-semibold text-hanok-ink">점검 안내가 전면에 표시</span>됩니다.
+                      접속을 차단하지는 않습니다 — 정적 앱이라 서버가 요청을 막을 수 없고, 사용자는 계속 앱을 쓸 수 있습니다.
+                    </p>
                   </div>
                   <button
                     onClick={() => setIsMaintenance(!isMaintenance)}
@@ -257,25 +271,31 @@ export default function SettingsPage() {
               </div>
             </section>
 
-            {/* Section B: AI 추천 엔진 설정 */}
-            <section className="bg-hanok-panel rounded-2xl border border-hanok-line shadow-sm overflow-hidden border-l-4 border-l-purple-500">
-              <div className="p-5 border-b border-hanok-line bg-hanok-card/30 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Sliders size={20} className="text-jade" />
-                  <h4 className="font-bold text-hanok-ink">AI 추천 알고리즘 설정</h4>
-                </div>
-                <span className="text-xs font-bold px-2 py-1 bg-jade/15 text-jade rounded-md">
-                  CORE CONFIG
-                </span>
+            {/* Section B: 혼잡도 표시 기준
+                예전 제목은 'AI 추천 알고리즘 설정' + 'CORE CONFIG' 배지였다. 그 안에 있던
+                컨트롤 둘 중 하나(콜드 스타트 가중치)를 아래 이유로 걷어냈고, 남은 하나는
+                추천 알고리즘이 아니라 **표시 등급 경계**라 제목을 사실에 맞췄다. */}
+            <section className="bg-hanok-panel rounded-2xl border border-hanok-line shadow-sm overflow-hidden">
+              <div className="p-5 border-b border-hanok-line bg-hanok-card/30 flex items-center gap-2">
+                <Sliders size={20} className="text-jade" />
+                <h4 className="font-bold text-hanok-ink">혼잡도 표시 기준</h4>
               </div>
               <div className="p-6 flex flex-col gap-8">
 
-                {/* Threshold Slider */}
+                {/* Threshold Slider
+                    이 값의 뜻: 혼잡도(0~1)를 등급으로 나눌 때의 **'혼잡(Red)' 경계**다.
+                    threshold=75 면 0.75 이상이 '혼잡'. 프런트 분류 함수는 지금
+                    0.25/0.5/0.75 로 하드코딩돼 있고, 이 설정이 정하는 것은 그중
+                    **마지막 경계 하나뿐**이다(여유/보통 경계는 이 설정과 무관하다).
+                    값은 GET /api/v1/system/public-settings 가 congestionThreshold 로 내보낸다. */}
                 <div>
                   <div className="flex justify-between items-end mb-2">
                     <div>
-                      <h5 className="font-bold text-hanok-ink mb-1">혼잡도 임계값 (Congestion Threshold)</h5>
-                      <p className="text-sm text-hanok-muted">인프라 수용량 대비 몇 %일 때 &apos;혼잡(Red)&apos; 상태로 판단할지 설정합니다.</p>
+                      <h5 className="font-bold text-hanok-ink mb-1">혼잡 등급 경계 (Congestion Threshold)</h5>
+                      <p className="text-sm text-hanok-muted">
+                        인프라 수용량 대비 몇 %부터 &apos;혼잡(Red)&apos;으로 표시할지 정합니다.
+                        아래 등급(여유·보통)의 경계는 이 설정이 바꾸지 않습니다.
+                      </p>
                     </div>
                     <span className="text-2xl font-black text-rose-400">{threshold}%</span>
                   </div>
@@ -292,29 +312,20 @@ export default function SettingsPage() {
                   </div>
                 </div>
 
-                {/* Weight Slider */}
-                <div>
-                  <div className="flex justify-between items-end mb-2">
-                    <div>
-                      <h5 className="font-bold text-hanok-ink mb-1">콜드 스타트 방지 데이터 가중치</h5>
-                      <p className="text-sm text-hanok-muted">추천 시 &apos;실시간 빈자리&apos;와 &apos;유저 온보딩 선호도&apos; 중 어느 쪽에 가중치를 둘지 설정합니다.</p>
-                    </div>
-                  </div>
-                  <div className="relative pt-4">
-                    <input
-                      type="range"
-                      min="0" max="100"
-                      value={weight}
-                      onChange={(e) => setWeight(Number(e.target.value))}
-                      className="w-full h-2 bg-hanok-line rounded-lg appearance-none cursor-pointer accent-purple-600"
-                    />
-                    <div className="flex justify-between text-xs font-bold mt-3">
-                      <span className={weight < 50 ? 'text-jade' : 'text-hanok-muted'}>실시간 빈자리 우선</span>
-                      <span className={weight === 50 ? 'text-jade' : 'text-hanok-muted'}>균형 50:50</span>
-                      <span className={weight > 50 ? 'text-jade' : 'text-hanok-muted'}>개인 선호도 우선</span>
-                    </div>
-                  </div>
-                </div>
+                {/* ⚠️ '콜드 스타트 방지 데이터 가중치'(coldstart_weight) 컨트롤을 제거했다.
+                    이유는 배선이 없어서가 아니라, **배선하면 안 되는 값**이기 때문이다:
+                    SPOT 추천 가중치는 packages/shared-types 를 통해 프런트 미러와 백엔드가
+                    같은 값을 쓴다는 전제로 묶여 있고, 그 일치를 패리티 테스트가 지킨다.
+                    런타임에 슬라이더로 바꾸면 서버 랭킹만 움직이고 프런트 미러는 그대로라
+                    두 랭킹이 **조용히 갈라진다**(테스트는 여전히 초록이다 — 상수끼리는
+                    일치하니까). 가중치를 바꾸려면 상수와 패리티 테스트를 함께 고쳐 배포하는
+                    쪽이 맞다.
+
+                    서버 모델(SettingsUpdate)과 DB 컬럼은 **일부러 건드리지 않았다.** 옛 관리자
+                    번들이 coldstart_weight 를 담아 PUT 해도 422 가 나면 안 된다(Vercel·Render
+                    배포 시점이 다르고 스테이징이 없다). 그래서 화면에서만 뺐고, 아래 handleSave
+                    는 서버에서 읽어 온 값을 그대로 되돌려 보낸다 — 컨트롤이 사라졌다고 저장할
+                    때마다 값이 기본값(50)으로 덮이면 그게 더 나쁜 종류의 조용한 변경이다. */}
               </div>
             </section>
 

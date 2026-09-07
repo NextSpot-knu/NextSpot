@@ -1,12 +1,8 @@
 import { expect, test, type Page } from '@playwright/test';
+import { stubExternalServices } from './support/stubs';
 
-test.beforeEach(async ({ page }) => {
-  await page.route('**://dapi.kakao.com/**', route => route.fulfill({
-    status: 200,
-    contentType: 'application/javascript',
-    body: '/* Kakao SDK is intentionally unavailable in deterministic E2E. */',
-  }));
-});
+// 외부로 나가는 호출을 전부 막는다 — 지도 SDK 와 Supabase 인증(support/stubs.ts).
+test.beforeEach(async ({ page }) => stubExternalServices(page));
 
 const facilities = [
   { id: 'restaurant-1', name: '실내 식당', type: 'restaurant', latitude: 35.8363, longitude: 129.2107,

@@ -8,7 +8,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.core.logging import setup_logging
-from app.routers import recommendations, infrastructures, predict, preferences, admin, reports, coupons, courses, events, tracking, freshness, impact, merchant, safety, search, lab, account, dev, weather, restrooms, travel_context, area_demand, area_demand_admin
+from app.routers import recommendations, infrastructures, predict, preferences, admin, reports, coupons, courses, events, tracking, freshness, impact, merchant, safety, search, lab, account, dev, weather, restrooms, travel_context, area_demand, area_demand_admin, inquiries, system, preference_stats
 
 
 # 로깅 설정 초기화
@@ -180,6 +180,9 @@ app.include_router(area_demand_admin.router)  # 관리자 수집 신뢰도 — 1
 app.include_router(tracking.router)  # 경량 제품 분석 이벤트 트래킹(무인증, IP 쿨다운) — app_events 적재
 app.include_router(freshness.router)  # 데이터 신선도(D5) — 마지막 TourAPI 동기화 시각(마커→updated_at 추정 폴백)
 app.include_router(impact.router)  # 여행 임팩트 카드 — 수락·혼잡회피·쿠폰 성과 요약(개인)
+app.include_router(inquiries.router)  # 내 문의 — 본인 문의·관리자 답변 조회(user_id 필터로 PII 격리)
+app.include_router(system.router)  # 공개 시스템 설정(무인증·60초 캐시) — 점검 안내/공지/혼잡 경계
+app.include_router(preference_stats.router)  # 업종별 온보딩 선호 비율(관리자) — 인프라 상세 예상 수요 카드
 app.include_router(merchant.router)  # 머천트 콘솔 — 내 가게 성적표·셀프 타임세일·좌석 방송(데모 게이트)
 app.include_router(safety.router)  # 인파 안전 경보(B2G) — 임계값 초과 존/시설 조기경보(라우터 dependencies 로 require_role(ROLE_ADMIN))
 app.include_router(search.router)  # TourAPI 키워드 폴백 → 관리자 승인형 다음 배치 적재 요청

@@ -13,6 +13,7 @@ import {
 import { createPublicClient } from '@/lib/supabase';
 import { adminApi } from '@/lib/admin-api';
 import { errorMessage } from '@/lib/errors';
+import { foldObservations, describeGrowth } from '@/lib/adminUsageIndex';
 import { emptyOrFailedText, reportSourceLabel, reportSourceState, type LoadStatus } from '@/lib/adminLoadState';
 
 const supabase = createPublicClient();
@@ -20,7 +21,7 @@ const supabase = createPublicClient();
 // --- Types ---
 type CategoryKo = '음식점' | '카페' | '관광지' | '문화시설';
 
-/** 막대 차트 1행: 요일 + 카테고리별 누적 방문량 */
+/** 막대 차트 1행: 요일 + 카테고리별 관측 혼잡 지수(= (시설,30분)당 중앙값의 합) */
 type WeeklyRow = { day: string } & Record<CategoryKo, number>;
 
 /** AI 수락 트렌드 1행(주차 버킷) */
@@ -42,6 +43,7 @@ interface CategoryTableRow {
 /** congestion_logs select('current_count, timestamp, facility:facilities(type)') 행(snake_case).
  *  조인 결과는 Supabase 관계 카디널리티 추정에 따라 객체 또는 배열로 올 수 있다. */
 interface CongestionLogRow {
+  facility_id: string | null;
   current_count: number | null;
   timestamp: string;
   facility: { type: string | null } | { type: string | null }[] | null;
@@ -63,7 +65,6 @@ const EMPTY_TABLE: CategoryTableRow[] = [];
 const TYPE_KO: Record<string, CategoryKo> = {
   restaurant: '음식점', cafe: '카페', attraction: '관광지', culture: '문화시설',
 };
-const TYPE_UNIT: Record<string, string> = { 음식점: '명', 카페: '명', 관광지: '명', 문화시설: '명' };
 const WEEK_ORDER = ['월', '화', '수', '목', '금', '토', '일'];
 const WD_KO = ['일', '월', '화', '수', '목', '금', '토']; // getUTCDay() 인덱스
 
@@ -75,12 +76,6 @@ function joinedType(log: CongestionLogRow): string | null {
   const f = log?.facility;
   const o = Array.isArray(f) ? f[0] : f;
   return o?.type ?? null;
-}
-function statusFromGrowth(g: number) {
-  if (g >= 20) return '급증';
-  if (g >= 5) return '활발';
-  if (g >= -5) return '보통';
-  return '둔화';
 }
 function fmtMD(d: Date) {
   return `${d.getMonth() + 1}.${String(d.getDate()).padStart(2, '0')}`;
@@ -96,7 +91,7 @@ async function fetchLogs14d(): Promise<CongestionLogRow[]> {
   for (let p = 0; p < maxPages; p++) {
     const { data, error } = await supabase
       .from('congestion_logs')
-      .select('current_count, timestamp, facility:facilities(type)')
+      .select('facility_id, current_count, timestamp, facility:facilities(type)')
       .gte('timestamp', since)
       .order('timestamp', { ascending: false })
       .range(from, from + limit - 1);
@@ -178,26 +173,48 @@ export default function ReportsPage() {
 
         let gotReal = false;
 
-        // (1) 주간 사용량 + (2) 카테고리 요약 (current_count 합 = 누적 footfall)
+        // (1) 주간 관측 혼잡 지수 + (2) 카테고리 요약
+        //
+        // 예전에는 `current_count` 를 **그냥 다 더했다.** 그 값은 한 로그 행의 순간 재실 인원
+        // 추정치라, 같은 시설의 로그가 많을수록 커진다 — 사람 수가 아니라 '누가 얼마나 자주
+        // 제보했는가' 를 재고 있었다. 그래서 합을 내기 전에 **(시설, 30분 버킷)당 하나**로
+        // 접는다(중앙값). 판정은 lib/adminUsageIndex.ts 에 있고 테스트가 잠근다.
         if (logs.length > 0) {
+          const folded = foldObservations(
+            logs.map((l) => ({
+              facilityId: l.facility_id,
+              timestamp: l.timestamp,
+              currentCount: l.current_count,
+            }))
+          );
+          // 접힌 조각에 업종을 다시 붙인다 — fold 는 시설 단위라 업종을 모른다.
+          const typeByFacility = new Map<string, string>();
+          for (const l of logs) {
+            if (!l.facility_id) continue;
+            const jt = joinedType(l);
+            if (jt) typeByFacility.set(l.facility_id, jt);
+          }
+
           const wk: Record<string, WeeklyRow> = {};
           for (const d of WEEK_ORDER) wk[d] = { day: d, 음식점: 0, 카페: 0, 관광지: 0, 문화시설: 0 };
           const thisWeek: Record<string, number> = { 음식점: 0, 카페: 0, 관광지: 0, 문화시설: 0 };
           const lastWeek: Record<string, number> = { 음식점: 0, 카페: 0, 관광지: 0, 문화시설: 0 };
+          // 전주에 **관측 조각이 몇 개나 있었는지**. 0 이면 비교 자체가 불가능하다 —
+          // 예전에는 그 자리에서 '+100% 급증' 을 지어냈다.
+          const lastWeekBuckets: Record<string, number> = { 음식점: 0, 카페: 0, 관광지: 0, 문화시설: 0 };
 
-          for (const l of logs) {
-            const t = joinedType(l);
-            if (!t) continue;
-            const ko = TYPE_KO[t];
+          for (const f of folded) {
+            const jt = typeByFacility.get(f.facilityId);
+            if (!jt) continue;
+            const ko = TYPE_KO[jt];
             if (!ko || !(ko in thisWeek)) continue;
-            const tsMs = new Date(l.timestamp).getTime();
-            const cnt = l.current_count || 0;
-            if (tsMs >= weekAgo) {
-              const wd = kstWeekdayKo(l.timestamp);
-              if (wk[wd]) wk[wd][ko] += cnt;
-              thisWeek[ko] += cnt;
-            } else if (tsMs >= twoWeekAgo) {
-              lastWeek[ko] += cnt;
+            if (f.bucketMs >= weekAgo) {
+              const wd = kstWeekdayKo(new Date(f.bucketMs).toISOString());
+              if (wk[wd]) wk[wd][ko] += f.level;
+              thisWeek[ko] += f.level;
+            } else if (f.bucketMs >= twoWeekAgo) {
+              lastWeek[ko] += f.level;
+              lastWeekBuckets[ko] += 1;
             }
           }
 
@@ -206,15 +223,17 @@ export default function ReportsPage() {
             const types = ['음식점', '카페', '관광지', '문화시설'];
             setTable(
               types.map((ko, i) => {
-                const cur = thisWeek[ko];
-                const prev = lastWeek[ko];
-                const g = prev > 0 ? Math.round(((cur - prev) / prev) * 100) : cur > 0 ? 100 : 0;
+                const verdict = describeGrowth(thisWeek[ko], lastWeek[ko], lastWeekBuckets[ko]);
                 return {
                   id: i + 1,
                   category: ko,
-                  totalUsers: `${cur.toLocaleString()}${TYPE_UNIT[ko]}`,
-                  growth: `${g >= 0 ? '+' : ''}${g}%`,
-                  status: statusFromGrowth(g),
+                  // 단위를 뗀다. 접어도 여전히 재실 인원 **추정치**의 합이라 '명' 이 아니다.
+                  totalUsers: Math.round(thisWeek[ko]).toLocaleString(),
+                  growth:
+                    verdict.percent === null
+                      ? '—'
+                      : `${verdict.percent >= 0 ? '+' : ''}${verdict.percent}%`,
+                  status: verdict.status ?? '비교 불가',
                 };
               })
             );
@@ -283,7 +302,7 @@ export default function ReportsPage() {
         for (const m of loadErrors) lines.push(`# ${m.replace(/,/g, ' ')}`);
         lines.push('');
       }
-      lines.push('카테고리,총 이용량,전주 대비,상태');
+      lines.push('카테고리,관측 혼잡 지수,전주 대비,상태');
       for (const r of table) {
         lines.push(`${r.category},${String(r.totalUsers).replace(/,/g, '')},${r.growth},${r.status}`);
       }
@@ -402,7 +421,7 @@ export default function ReportsPage() {
             <div className="bg-hanok-panel p-6 rounded-2xl border border-hanok-line shadow-sm flex flex-col">
               <div className="flex items-center gap-2 mb-6">
                 <BarChart2 className="text-gold" size={20} />
-                <h3 className="text-lg font-bold text-hanok-ink">요일별 관광 장소 누적 방문량</h3>
+                <h3 className="text-lg font-bold text-hanok-ink">요일별 관측 혼잡 지수</h3>
               </div>
               <div className="flex-1 w-full h-[250px]">
                 {weekly.length === 0 ? (
@@ -486,7 +505,7 @@ export default function ReportsPage() {
                 <thead>
                   <tr className="bg-hanok text-hanok-muted text-sm border-b border-hanok-line">
                     <th className="p-4 font-semibold">카테고리</th>
-                    <th className="p-4 font-semibold">총 이용량 (최근 7일)</th>
+                    <th className="p-4 font-semibold">관측 혼잡 지수 (최근 7일)</th>
                     <th className="p-4 font-semibold">전주 대비 증감률</th>
                     <th className="p-4 font-semibold">상태</th>
                   </tr>

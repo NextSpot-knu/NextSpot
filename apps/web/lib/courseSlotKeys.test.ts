@@ -40,4 +40,22 @@ assert.equal(slotKeysStale(['a', 'b'], ['a', 'c']), true);
   assert.match(page, /slotsStale=\{slotsStale\}/, 'StopRows 에 slotsStale 을 넘기지 않는다');
 }
 
+// --- 화면에 보이는 자리 번호는 한 체계뿐이다 ---------------------------------
+// 목록의 정류지 번호와 지도 마커는 **방문 순서**(stop.order)를 쓰는데, 못 채운 자리 행만
+// **요청한 자리 번호**(outcome.order)를 찍고 있었다. 2번 자리가 빠진 코스에서는 화면에 '2' 가
+// 둘 생겨(빠진 자리 2 + 방문 순서로 다시 매겨진 2) 어느 자리가 빠졌는지 특정할 수 없었다 —
+// 자리별 사유를 붙인 목적이 번호 충돌로 무효화된 것이다. 빠진 자리는 숫자 없이 위아래
+// 정류지 사이의 위치로만 읽는다(rows 정렬이 그 위치를 지킨다).
+{
+  const page = readFileSync(join(WEB, 'app/course/page.tsx'), 'utf8').replace(/^\s*\/\/.*$/gm, '');
+  assert.match(page, /t\('course\.slotDroppedHere'\)/, '못 채운 자리 행이 번호 없는 문구를 쓰지 않는다');
+  assert.doesNotMatch(
+    page,
+    /slotDropped'?,\s*\{\s*n:/,
+    '못 채운 자리 행이 다시 번호를 찍는다 — 방문 순서 번호와 충돌한다',
+  );
+  // 정렬용 자리 번호는 이름으로 구분해 둔다(같은 이름이면 언젠가 다시 화면에 찍힌다).
+  assert.match(page, /slotOrder/, '정렬용 자리 번호가 stop.order 와 같은 이름으로 돌아갔다');
+}
+
 console.log('courseSlotKeys tests passed');

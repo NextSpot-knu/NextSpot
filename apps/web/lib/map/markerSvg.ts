@@ -1,5 +1,7 @@
 // lucide-react(설치본) 아이콘의 path 데이터(verbatim). 24x24 viewBox, stroke 기반.
 // 마커 중앙의 까만 원 위에 '흰색 stroke'로 그려 흰 로고를 만든다.
+import { DEFAULT_BUSY_THRESHOLD, congestionKey } from "../congestionScale";
+
 const ICON_PATHS: Record<string, string> = {
   // utensils (음식점)
   restaurant:
@@ -21,25 +23,30 @@ const ICON_PATHS: Record<string, string> = {
     '<path d="M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0"/><path d="M12 10a2 2 0 1 0 0-4 2 2 0 0 0 0 4z"/>',
 };
 
+// 등급별 마커 색. 평소 = 700계열(톤 다운), 선택 = 밝은 500계열.
+const MARKER_COLORS = {
+  busy: { base: "#b91c1c", sel: "#ef4444" },     // 혼잡 (red 700/500)
+  moderate: { base: "#b45309", sel: "#f59e0b" }, // 보통 (amber 700/500)
+  relaxed: { base: "#047857", sel: "#10b981" },  // 여유 (emerald 700/500)
+  quiet: { base: "#1d4ed8", sel: "#3b82f6" },    // 한산 (blue 700/500)
+} as const;
+
 export const getMarkerSvg = (
   type: string,
   level: number | null | undefined,
   features?: any,
-  selected: boolean = false
+  selected: boolean = false,
+  // '혼잡' 경계는 운영자 설정(GET /system/public-settings)에서 온다. 여기에 0.75 를 박아 두면
+  // 설정을 내려도 배지만 '혼잡' 으로 바뀌고 지도 마커는 그대로 남아, 같은 장소가 화면에서
+  // 서로 다른 말을 한다. 못 받았을 때의 기본값은 congestionScale.ts 가 갖는다.
+  busyAt: number = DEFAULT_BUSY_THRESHOLD
 ) => {
   // 마커는 지도 다크 필터를 우회(타일에만 적용)하므로 본래의 색으로 표시된다.
-  // 평소 = 700계열(톤 다운), 선택 = 200 밝은 500계열.
   // 혼잡 로그가 없는 시설(level=null/undefined)은 합성값 대신 회색 '데이터 없음' 마커.
   const p =
     typeof level !== 'number'
       ? { base: "#4b5563", sel: "#9ca3af" } // 데이터 없음 (gray 600/400)
-      : level >= 0.75
-      ? { base: "#b91c1c", sel: "#ef4444" } // 혼잡 (red 700/500)
-      : level >= 0.5
-      ? { base: "#b45309", sel: "#f59e0b" } // 보통 (amber 700/500)
-      : level >= 0.25
-      ? { base: "#047857", sel: "#10b981" } // 여유 (emerald 700/500)
-      : { base: "#1d4ed8", sel: "#3b82f6" }; // 한산 (blue 700/500)
+      : MARKER_COLORS[congestionKey(level, busyAt)];
   const color = selected ? p.sel : p.base;
 
   const glyphKey =

@@ -4,6 +4,7 @@ from pydantic import BaseModel
 from app.services.spot.preference import calculate_preference_similarity
 from app.services.spot.wait_time import calculate_predicted_wait_time
 from app.services.spot.travel import get_travel_time_and_distance
+from app.services.spot.industry_baseline import get_industry_baseline_congestion
 from app.services.congestion_evidence import rankable_measured_level
 from app.services.travel_context import KST
 from app.services.area_demand_service import get_area_demand_signal
@@ -167,7 +168,27 @@ async def calculate_spot_score(
             area_penalty = float(area_demand.get("ranking_penalty_minutes") or 0.0)
         elif scoring_mode == "model":
             area_penalty = float(area_demand.get("parking_penalty_minutes") or 0.0)
-    total_time = travel_time_min + (ranking_wait or 0.0) + area_penalty
+
+    # 4-1. 근거 없는 후보(degraded_rules)의 업종 기준선.
+    # 등급 정렬(ranking.py)이 '무근거가 근거를 이기는' 문제를 없애도, **같은 degraded 등급
+    # 안에서는** 여전히 전원이 대기 0분이라 점심 식당과 카페가 같은 값으로 묶인다. 그래서
+    # 그 업종의 모집단 중앙 혼잡도를 대기 공식에 넣은 값을 시간비용에만 얹는다.
+    # 이건 이 시설을 측정한 값이 아니다 — wait_time/ranking_wait_time 으로는 내보내지 않고
+    # 아래 breakdown 의 별도 키로만 적는다. 표본 미달·조회 실패는 None(기준선 없음)이라
+    # 종전 동작 그대로다(industry_baseline.py 주석 참조).
+    baseline_congestion = None
+    baseline_wait = None
+    if scoring_mode == "degraded_rules":
+        baseline_congestion = await get_industry_baseline_congestion(candidate_facility["type"])
+        if baseline_congestion is not None:
+            baseline_wait = await calculate_predicted_wait_time(
+                facility_type=candidate_facility["type"],
+                congestion_level=baseline_congestion,
+                facility_features=candidate_facility.get("features"),
+                hour=arrival_dt.astimezone(KST).hour,
+            )
+
+    total_time = travel_time_min + (ranking_wait or 0.0) + area_penalty + (baseline_wait or 0.0)
     time_cost = min(1.0, total_time / 60.0)
 
     # 5. 인센티브 (w3) — 쿠폰 강도 + 수요 재배치 기여 결합 (D1 재결정 2026-07-07).
@@ -208,6 +229,12 @@ async def calculate_spot_score(
             "travel_distance_m": travel_distance_m,
             "travel_source": travel_source or "estimated",
             "ranking_wait_time": ranking_wait,
+            # 업종 모집단 기준선(근거 없는 후보 전용). **이 시설의 대기가 아니다** — 그래서
+            # wait_time/ranking_wait_time 과 섞지 않고 별도 키로 둔다. 기준선이 없으면 None.
+            "industry_baseline_congestion": (
+                round(baseline_congestion, 3) if baseline_congestion is not None else None
+            ),
+            "industry_baseline_wait_time": baseline_wait,
             "congestion_input_source": prediction_source,
             "incentive": round(incentive, 3),
             # 인센티브 구성 성분(추천 사유·시뮬레이터 설명용): 쿠폰강도 / 수요 재배치 기여

@@ -14,6 +14,8 @@ import { AccountProvider } from "@/lib/account";
 import MotionProvider from "@/components/shell/MotionProvider";
 import ThemeProvider from "@/components/shell/ThemeProvider";
 import ThemeToaster from "@/components/shell/ThemeToaster";
+// 운영자 공개 설정(점검 모드·공지·혼잡 경계) — 부팅 시 1회 조회. 조회 실패는 평소 화면 그대로.
+import PublicSettingsProvider from "@/components/shell/PublicSettingsProvider";
 
 const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
 const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
@@ -80,11 +82,15 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <I18nProvider>
             <AccountProvider>
             <MotionProvider>
+            {/* 점검 모드면 아래 전부를 점검 안내로 대체한다(관광객 경로 한정 — 관리자·상인
+                콘솔은 점검을 푸는 쪽이라 제외). 문구가 i18n 이라 I18nProvider 안쪽에 둔다. */}
+            <PublicSettingsProvider>
             <BottomNav />
             {/* PWA 설치 유도 배너 — beforeinstallprompt 캡처는 useT() 로 i18n 문구를 쓰므로 I18nProvider 내부에 마운트. */}
             <InstallPrompt />
             <PageTransition>{children}</PageTransition>
             <LlmDebugToast />
+            </PublicSettingsProvider>
             </MotionProvider>
             </AccountProvider>
           </I18nProvider>

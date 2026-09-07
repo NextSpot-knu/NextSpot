@@ -21,6 +21,8 @@ interface TrustResponse {
     facility_gaps: { id: string; name: string; type: string }[];
   };
   guardrails: { warnings: string[]; walk_limit_violations: number; scoring_modes: Record<string, number> };
+  /** 조회가 서버 상한(_TRUST_*_CAP)에 닿았는가. 아래 수치가 기간 전체의 값이 아니라는 뜻. */
+  truncated?: boolean;
 }
 
 export function ModelTrustPanel() {
@@ -62,6 +64,19 @@ export function ModelTrustPanel() {
           {warnings.length ? `경고 ${warnings.length}건` : '가드레일 정상'}
         </span>
       </div>
+      {/* 절단 경고는 **숫자 바로 위**에 둔다. 같은 사실이 아래 경고 목록에도
+          'metrics_truncated' 문장으로 들어가지만(그쪽은 '관측 공백 시설' 이 잘못 지목될 수
+          있다는 부작용까지 설명한다), 목록은 최대 8건까지 늘어나는 작은 글씨라 정작 이
+          카드들을 읽는 순간에는 눈에 들어오지 않는다. 아래 수치가 기간 전체의 값이
+          아니라는 사실은 수치를 보기 전에 알아야 한다. */}
+      {data.truncated && (
+        <p className="mt-3 flex items-start gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+          <AlertTriangle size={14} className="mt-0.5 shrink-0" aria-hidden="true" />
+          <span>
+            표본이 상한에서 잘렸어요 — <strong className="font-bold">아래 수치는 기간 전체가 아닙니다.</strong>
+          </span>
+        </p>
+      )}
       <div className="mt-4 grid grid-cols-2 gap-2 md:grid-cols-4 xl:grid-cols-8">
         {cards.map(([label, value]) => <div key={label} className="rounded-xl border border-hanok-line bg-hanok-card p-3"><p className="text-[10px] text-hanok-muted">{label}</p><p className="mt-1 text-lg font-black text-hanok-ink">{value}</p></div>)}
       </div>

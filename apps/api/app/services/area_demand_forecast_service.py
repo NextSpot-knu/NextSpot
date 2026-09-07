@@ -57,6 +57,62 @@ _raw_cache_lock = asyncio.Lock()
 _RPC_MISSING_RETRY_SECONDS = 60.0
 _rpc_missing_until: float = 0.0
 
+# ── 좌표 격자별 시계열 캐시 ───────────────────────────────────────────────────
+#
+# 왜 필요한가: `_load_points` 는 **후보 좌표마다 RPC 왕복 1회**다. 코스 한 요청은 자리마다
+# 후보를 현재 위치 기준으로 다시 추리므로 이 함수가 수십 번 불린다(2026-09-06 실측: 서로 다른
+# 좌표 12 → 36). 왕복 하나하나는 싸지만 **직렬로 수십 번**이면 Render 무료 인스턴스에서
+# 프런트 타임아웃(20초)에 실제로 가까워진다.
+#
+# 키를 백테스트 캐시(`_cached_backtest`)와 **같은 격자**(round 3자리 ≈ 100m)로 잡는다.
+# 그래야 같은 격자의 후보가 RPC 와 백테스트를 함께 재사용한다 — 한쪽만 격자로 묶으면
+# 나머지 한쪽이 그대로 비용을 낸다.
+#
+# ⚠️ 격자를 더 넓히지 않는다. 키에서 좌표를 빼거나 자리수를 줄이면 다른 지점의 시계열을
+# 서로 주고받게 되어 "지점별 품질" 계약이 "격자별 품질" 로 바뀐다. 그건 값의 의미를 바꾸는
+# 결정이라 여기서 하지 않는다(검토목록 2번 — 사용자가 '캐시 키는 건드리지 말고 선계산으로'
+# 를 골랐다).
+#
+# `now` 는 키에 넣지 않고 TTL 로만 다룬다. 넣으면 초 단위로 키가 갈려 캐시가 무의미해진다.
+_POINTS_CACHE_TTL_SECONDS = 5 * 60.0
+_POINTS_CACHE_MAX_ENTRIES = 256
+_points_cache: dict[tuple[float, float], tuple[float, list["AreaDemandPoint"]]] = {}
+# 같은 격자를 동시에 요청하면 RPC 도 동시에 나간다. 격자마다 락을 하나 두어 **첫 요청만**
+# 왕복하고 나머지는 그 결과를 기다리게 한다(예열과 채점이 겹칠 때 실제로 일어난다).
+_points_locks: dict[tuple[float, float], asyncio.Lock] = {}
+
+
+def _grid_key(latitude: float, longitude: float) -> tuple[float, float]:
+    """백테스트 캐시와 **동일한** 격자. 두 캐시가 어긋나면 한쪽이 늘 빗나간다."""
+    return (round(latitude, 3), round(longitude, 3))
+
+
+def _points_cache_get(key: tuple[float, float]) -> list["AreaDemandPoint"] | None:
+    hit = _points_cache.get(key)
+    if hit is None:
+        return None
+    if time.monotonic() - hit[0] >= _POINTS_CACHE_TTL_SECONDS:
+        _points_cache.pop(key, None)
+        return None
+    return hit[1]
+
+
+def _points_cache_put(key: tuple[float, float], points: list["AreaDemandPoint"]) -> None:
+    now = time.monotonic()
+    if len(_points_cache) >= _POINTS_CACHE_MAX_ENTRIES:
+        for stale in [k for k, (at, _) in _points_cache.items()
+                      if now - at >= _POINTS_CACHE_TTL_SECONDS]:
+            _points_cache.pop(stale, None)
+        while len(_points_cache) >= _POINTS_CACHE_MAX_ENTRIES:
+            _points_cache.pop(min(_points_cache, key=lambda k: _points_cache[k][0]), None)
+    _points_cache[key] = (now, points)
+
+
+def reset_points_cache() -> None:
+    """테스트 전용 — 모듈 전역 캐시가 테스트 간에 새지 않게 한다."""
+    _points_cache.clear()
+    _points_locks.clear()
+
 # ── 지점별 백테스트 캐시 ──────────────────────────────────────────────────────
 _quality_cache: dict[tuple[float, float, int, str], tuple[float, dict[str, Any]]] = {}
 # 캐시 상한. 한 번의 추천이 훑는 후보 수보다 넉넉해야 의미가 있고, 항목이 작아
@@ -294,7 +350,32 @@ async def _fetch_points_via_rpc(
 async def _load_points(
     latitude: float, longitude: float, now: datetime
 ) -> list[AreaDemandPoint]:
-    """이 좌표 기준 시계열을 얻는다. 기본은 RPC 한 번, 예외적으로 파이썬 폴백."""
+    """이 좌표 기준 시계열을 얻는다(격자 캐시 경유). 미스일 때만 RPC 한 번, 예외적으로 폴백.
+
+    캐시를 여기 두는 이유: 호출부가 여럿이다(코스 슬롯 루프·추천 두 경로). 어느 한 호출부에
+    메모를 두면 나머지는 그대로 왕복한다. 그리고 실패는 캐시하지 않는다 — 일시적 장애를
+    5분 동안 '데이터 없음' 으로 굳히면 그게 곧 이 저장소가 계속 지적해 온 '실패를 사실로
+    파는' 모양이 된다.
+    """
+    key = _grid_key(latitude, longitude)
+    cached = _points_cache_get(key)
+    if cached is not None:
+        return cached
+
+    lock = _points_locks.setdefault(key, asyncio.Lock())
+    async with lock:
+        # 락을 기다리는 동안 다른 코루틴이 채웠을 수 있다.
+        cached = _points_cache_get(key)
+        if cached is not None:
+            return cached
+        points = await _load_points_uncached(latitude, longitude, now)
+        _points_cache_put(key, points)
+        return points
+
+
+async def _load_points_uncached(
+    latitude: float, longitude: float, now: datetime
+) -> list[AreaDemandPoint]:
     global _rpc_missing_until, _raw_cache
     if now.tzinfo is None:
         now = now.replace(tzinfo=timezone.utc)
@@ -356,6 +437,52 @@ async def _load_raw_history(now: datetime) -> tuple[list[dict[str, Any]], list[d
             ))
         _raw_cache = (monotonic_now, parents, lots)
         return parents, lots
+
+
+async def prefetch_area_demand_points(
+    coordinates: list[tuple[float, float]],
+    *,
+    now: datetime | None = None,
+    max_concurrency: int = 6,
+) -> int:
+    """후보들의 시계열을 **격자 단위로 한 번에** 미리 받아 둔다. 채운 격자 수를 돌려준다.
+
+    왜 필요한가: 캐시만 두면 왕복 수는 격자 수로 줄지만 **여전히 직렬**이다 — 채점이
+    후보를 하나씩 돌며 미스마다 한 번씩 기다린다. 슬롯 루프에 들어가기 전에 여기서 한 번에
+    병렬로 채워 두면, 채점 경로는 전부 캐시 히트가 되어 왕복 지연이 겹쳐 사라진다.
+    (보행 경로를 슬롯당 1회로 묶은 것과 같은 패턴이다.)
+
+    실패는 삼킨다. 예열은 **최적화이지 계약이 아니다** — 여기서 실패해도 채점 경로가 각자
+    다시 시도하고, 거기서 실패하면 그때 정직하게 `None`(신호 없음)으로 닫힌다. 예열 실패를
+    이유로 코스를 통째로 실패시키면 최적화가 장애 지점이 된다.
+
+    max_concurrency: Render 무료 인스턴스의 단일 워커를 고려한 상한. 격자가 수십 개여도
+    동시 왕복은 이 수를 넘지 않는다.
+    """
+    now = now or datetime.now(timezone.utc)
+    unique: list[tuple[float, float]] = []
+    seen: set[tuple[float, float]] = set()
+    for lat, lng in coordinates:
+        key = _grid_key(lat, lng)
+        if key in seen or _points_cache_get(key) is not None:
+            continue
+        seen.add(key)
+        unique.append((lat, lng))
+    if not unique:
+        return 0
+
+    semaphore = asyncio.Semaphore(max(1, max_concurrency))
+
+    async def _one(lat: float, lng: float) -> None:
+        async with semaphore:
+            try:
+                await _load_points(lat, lng, now)
+            except Exception as exc:  # noqa: BLE001 — 위 독스트링 참조
+                logger.warning("area_demand_prefetch_failed", error=str(exc))
+
+    await asyncio.gather(*(_one(lat, lng) for lat, lng in unique))
+    logger.info("area_demand_prefetch", grids=len(unique), requested=len(coordinates))
+    return len(unique)
 
 
 async def get_historical_area_demand_forecast(

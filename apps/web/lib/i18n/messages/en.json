@@ -227,7 +227,14 @@
     "mobileToolsDesc": "Keep the map clear and open tools when needed",
     "foodFilters": "Food type",
     "voiceSearchUnsupported": "Voice search isn't available in this browser",
-    "unsupported": "Unsupported"
+    "unsupported": "Unsupported",
+    "tourApiTitle": "Found in Korea Tourism Organization data",
+    "tourApiSource": "Not in our data, so we searched Korea Tourism Organization records. These places are not registered with us yet.",
+    "ingestRequest": "Request to add",
+    "ingestRequested": "Request received",
+    "ingestRequestDone": "Request to add '{name}' received. It will be added after an admin reviews it.",
+    "ingestRequestFailed": "We couldn't send your request. Please try again in a moment.",
+    "searchNoResultAnywhere": "'{q}' isn't in our data or in Korea Tourism Organization records"
   },
   "mypage": {
     "menuAria": "Menu",
@@ -252,7 +259,8 @@
     "editNameSaved": "Profile saved.",
     "savedBannerZero": "No time saved yet",
     "savedValueZero": "The more you find quieter spots with NextSpot, the less you wait",
-    "editNameFailed": "Could not save your profile. Please try again."
+    "editNameFailed": "Could not save your profile. Please try again.",
+    "menuInquiries": "My inquiries"
   },
   "settings": {
     "title": "Settings",
@@ -360,7 +368,8 @@
     "replanSwapped": "Replanned · {added} added, {removed} dropped",
     "slotNoCandidateAny": "Nothing nearby matches your filters",
     "unpinAll": "Unpin all",
-    "unpin": "Unpin"
+    "unpin": "Unpin",
+    "slotDroppedHere": "We couldn't fill this stop"
   },
   "coupons": {
     "expired": "Expired",
@@ -950,5 +959,30 @@
     "doneTitle": "Your inquiry was received.",
     "doneDesc": "The team will review it and follow up shortly.",
     "backToMypage": "Back to My Page"
+  },
+  "systemNotice": {
+    "maintenanceTitle": "We're under maintenance",
+    "maintenanceBody": "Please come back in a little while. Everything will work as usual once maintenance is done.",
+    "dismiss": "Dismiss notice"
+  },
+  "inquiries": {
+    "title": "My inquiries",
+    "subtitle": "See the inquiries you sent and their replies",
+    "loading": "Loading…",
+    "empty": "You have not sent any inquiries yet",
+    "emptyCta": "Send an inquiry",
+    "loadFailed": "We could not load your inquiries",
+    "loadFailedHint": "This does not mean you have none - the request failed",
+    "retry": "Try again",
+    "loginRequired": "Sign in to see your inquiries and replies",
+    "statusNew": "Received",
+    "statusInProgress": "In progress",
+    "statusResolved": "Resolved",
+    "replyTitle": "Reply",
+    "awaitingReply": "No reply yet",
+    "replyUnavailable": "The reply feature is not live yet, so replies cannot be shown here",
+    "repliedAt": "Replied {date}",
+    "anonymousHint": "Inquiries sent before signing in do not appear here",
+    "newReplyBadge": "New reply"
   }
 }

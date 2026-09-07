@@ -15,6 +15,22 @@ from app.services.area_demand_forecast_service import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _clear_module_caches():
+    """모듈 전역 캐시를 테스트마다 비운다.
+
+    `_load_points` 는 좌표 격자별 TTL 캐시를 탄다(코스 한 요청의 RPC 왕복 수십 회를 격자
+    수로 줄이려고 넣었다). 이 캐시는 프로세스 수명 동안 살아 있으므로, 비우지 않으면
+    **앞 테스트가 채운 값 때문에 뒤 테스트가 RPC 를 아예 부르지 않는다** — 폴백·실패 전파
+    같은 경로가 조용히 검증되지 않은 채 초록이 된다(실제로 3건이 그렇게 깨졌다).
+    """
+    forecast_svc.reset_points_cache()
+    forecast_svc._rpc_missing_until = 0.0
+    forecast_svc._raw_cache = None
+    yield
+    forecast_svc.reset_points_cache()
+
+
 def test_snapshot_lots_are_reaggregated_for_each_candidate_radius():
     parents = [{"id": "s1", "observed_at": "2026-08-01T01:00:00+00:00"}]
     lots = [

@@ -1982,8 +1982,12 @@ def test_congestion_is_stale_helper():
 # 12. 분산 코스 — 순서 지정(sequence): 정류지 종류가 요청 순서를 따른다
 # =========================================================================
 
-def _course_mocks(facilities):
-    """courses 라우터의 외부 의존을 전부 결정적 목으로 대체하는 patch 컨텍스트 목록."""
+def _course_mocks(facilities, score_mock=None):
+    """courses 라우터의 외부 의존을 전부 결정적 목으로 대체하는 patch 컨텍스트 목록.
+
+    ``score_mock`` 을 주면 SPOT 채점만 갈아 끼운다(후보별로 다른 점수·근거 등급을 주고
+    자리별 정렬을 검증할 때 쓴다). 나머지 목은 그대로다.
+    """
     from types import SimpleNamespace
 
     from app.services.spot.travel import WalkingRoute
@@ -2004,7 +2008,12 @@ def _course_mocks(facilities):
         patch("app.routers.courses.get_walking_routes", new=_routes),
         # asyncio.to_thread(predict_congestion, ...) — 동기 함수라 plain 값 반환이면 충분.
         patch("app.routers.courses.predict_congestion", new=lambda *_a, **_k: 0.2),
-        patch("app.routers.courses.calculate_spot_score", new=AsyncMock(return_value=SimpleNamespace(score=0.8))),
+        # SPOTScoreResult 는 score 와 **breakdown 을 함께** 돌려준다. 라우터가 자리별 정렬에
+        # breakdown["scoring_mode"](근거 등급, spot/ranking.py)를 읽으므로 목도 그 계약을 지킨다.
+        # 여기서는 모든 후보가 같은 등급이라 등급 항이 상수이고 순서는 종전과 동일하다.
+        patch("app.routers.courses.calculate_spot_score", new=score_mock or AsyncMock(
+            return_value=SimpleNamespace(score=0.8, breakdown={"scoring_mode": "degraded_rules"}),
+        )),
         patch.object(preference_vector_service, "get_user_vector", new=AsyncMock(return_value=UNIT_VECTOR)),
     ]
 
@@ -2120,3 +2129,113 @@ def test_map_response_slimming_tolerates_missing_or_odd_features():
     assert _slim_features(None) is None
     assert _slim_features({}) == {}
     assert _slim_features("not-a-dict") == "not-a-dict"
+
+
+# =========================================================================
+# 15. 근거 등급 정렬 — '정직한 방송이 손해' 가 세 엔드포인트 모두에서 사라졌는가
+# =========================================================================
+# 세 곳이 각각 정렬한다(추천 / 종류별 추천 / 코스 슬롯). 한 곳만 빠뜨리면 같은 가게가
+# 화면마다 다른 자리에 놓이므로, 화면별로 한 번씩 실제 응답 순서를 본다.
+# (등급표·정렬 키 자체의 단위 테스트는 tests/services/test_spot_evidence_ranking.py.)
+
+def _fresh_seat_broadcast(level: float) -> dict:
+    """사장님이 방금 확인한 좌석 상태 — score.py 가 순위에 반영하는 실측 근거.
+
+    score.py 의 신선도 판정(rankable_measured_level)은 라우터 시계(_freeze_router_clock)가
+    아니라 **실제 now()** 를 쓴다. 그래서 여기서도 실제 시각으로 찍는다 — 고정 시각을 쓰면
+    30분 신선도 창을 벗어나 조용히 degraded 로 떨어지고, 테스트는 아무것도 증명하지 못한다.
+    """
+    return {
+        "level": level,
+        "current_count": None,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "source": "merchant_seat",
+        "evidence_tier": "verified",
+        "is_stale": False,
+    }
+
+
+async def _same_spot_routes(_lat, _lng, destinations):
+    """후보 전원에게 같은 경로를 준다 — 거리·경로 근거를 상수로 묶어 등급만 남긴다."""
+    return [WalkingRoute(duration_min=5.0, distance_m=400.0, source="estimated") for _ in destinations]
+
+
+def test_recommendations_rank_an_honest_broadcast_above_a_candidate_with_no_evidence(auth_client):
+    # A: 좌석 '여유(0.15)' 를 방송한 가게 → measured_rules(대기 항이 시간비용에 붙는다)
+    # B: 로그도 주변 신호도 없는 옆 가게 → degraded_rules(대기 0분)
+    # 좌표·업종·쿠폰이 같으므로 남는 차이는 근거뿐이다.
+    honest = _facility("honest", "cafe", 0.0004)
+    silent = _facility("silent", "cafe", 0.0004)
+
+    with patch("app.routers.recommendations.fetch_user", new=AsyncMock(return_value=USER_ROW)), \
+         patch("app.routers.recommendations.fetch_facility", new=AsyncMock(return_value=ORIGIN_ROW)), \
+         patch("app.routers.recommendations.fetch_all_facilities",
+               new=AsyncMock(return_value=[ORIGIN_ROW, honest, silent])), \
+         patch("app.routers.recommendations.fetch_congestion_map",
+               new=AsyncMock(return_value={"honest": _fresh_seat_broadcast(0.15)})), \
+         patch("app.routers.recommendations.get_walking_routes", new=_same_spot_routes), \
+         patch.object(preference_vector_service, "get_user_vector", new=AsyncMock(return_value=UNIT_VECTOR)), \
+         patch("app.routers.recommendations.generate_reason_with_source",
+               new=AsyncMock(return_value=("사유", "template"))), \
+         patch("app.routers.recommendations.supabase_client",
+               new=FakeSupabase({"recommendations": [{"id": "rec-1"}]})):
+        res = auth_client.post("/api/v1/recommendations", json=_reco_body())
+
+    assert res.status_code == 200
+    items = res.json()
+    assert [item["facility"]["id"] for item in items] == ["honest", "silent"]
+    assert items[0]["scoring_mode"] == "measured_rules"
+    assert items[1]["scoring_mode"] == "degraded_rules"
+    # 이 줄이 이 테스트의 핵심이다: 점수만 보면 여전히 무근거 후보가 높다.
+    # 등급을 먼저 보지 않으면 위 순서가 그대로 뒤집힌다.
+    assert items[1]["spot_score"] > items[0]["spot_score"]
+
+
+def test_recommend_by_type_ranks_an_honest_broadcast_above_a_candidate_with_no_evidence(auth_client):
+    # 같은 결함이 종류별 브라우즈에도 있었다. 한쪽만 고치면 같은 가게가 화면마다 다른 자리에 선다.
+    honest = _facility("honest", "cafe", 0.0004)
+    silent = _facility("silent", "cafe", 0.0004)
+
+    with patch("app.routers.recommendations.fetch_user", new=AsyncMock(return_value=USER_ROW)), \
+         patch("app.routers.recommendations.fetch_all_facilities",
+               new=AsyncMock(return_value=[honest, silent])), \
+         patch("app.routers.recommendations.fetch_congestion_map",
+               new=AsyncMock(return_value={"honest": _fresh_seat_broadcast(0.15)})), \
+         patch("app.routers.recommendations.get_walking_routes", new=_same_spot_routes), \
+         patch.object(preference_vector_service, "get_user_vector", new=AsyncMock(return_value=UNIT_VECTOR)), \
+         patch("app.routers.recommendations.generate_reason_with_source",
+               new=AsyncMock(return_value=("사유", "template"))):
+        res = auth_client.post("/api/v1/recommendations/by-type", json={
+            "user_id": AUTH_USER_ID, "facility_type": "cafe",
+            "user_lat": BASE_LAT, "user_lng": BASE_LNG,
+        })
+
+    assert res.status_code == 200
+    items = res.json()
+    assert [item["facility"]["id"] for item in items] == ["honest", "silent"]
+    assert items[1]["spot_score"] > items[0]["spot_score"]
+
+
+def test_course_slot_prefers_stronger_evidence_over_a_higher_score(auth_client):
+    # 코스는 자리마다 따로 정렬한다. 여기 등급을 안 넣으면 추천 목록 1위와 코스 1번 정류지가
+    # 서로 다른 가게가 된다 — 사용자에게는 같은 화면의 같은 추천이다.
+    import contextlib
+    from types import SimpleNamespace
+
+    facs = [_facility("strong", "cafe", 0.0002), _facility("weak", "cafe", 0.0004)]
+
+    async def _score(**kwargs):
+        if kwargs["candidate_facility"]["id"] == "strong":
+            return SimpleNamespace(score=0.60, breakdown={"scoring_mode": "measured_rules"})
+        return SimpleNamespace(score=0.95, breakdown={"scoring_mode": "degraded_rules"})
+
+    with contextlib.ExitStack() as stack:
+        for p in _course_mocks(facs, score_mock=_score):
+            stack.enter_context(p)
+        res = auth_client.post("/api/v1/courses/recommend", json=_course_body(["cafe"]))
+
+    assert res.status_code == 200
+    stops = res.json()
+    assert stops, "코스가 비면 정렬을 검증할 수 없다"
+    # 점수는 weak(0.95) 이 높지만 근거는 strong(measured) 이 강하다.
+    assert stops[0]["facility"]["id"] == "strong"

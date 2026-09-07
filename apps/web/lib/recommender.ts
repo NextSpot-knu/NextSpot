@@ -13,6 +13,30 @@
 import { SPOT_WEIGHTS, SPOT_INCENTIVE } from "shared-types";
 import type { RecommendationResponse } from "./api-client";
 
+export type ScoringMode = "model" | "measured_rules" | "area_stats_rules" | "degraded_rules";
+
+// 근거 등급 — 낮을수록 강한 근거. 백엔드 apps/api/app/services/spot/ranking.py 의
+// EVIDENCE_TIER_BY_SCORING_MODE 미러이며, test_spot.py 의 패리티 테스트가 CI 에서 일치를 강제한다.
+//
+// 왜 필요한가: SPOT 점수는 모드마다 **다른 시간비용 공식**으로 나온다
+// (measured/model = 이동+대기, area_stats = 이동+주변수요, degraded = 이동뿐). 다른 모드가
+// 더하는 항은 전부 ≥0 이라, 근거가 하나도 없는 후보는 언제나 최소 시간비용을 받는다 —
+// 정직하게 '여유' 를 방송한 가게가 아무것도 모르는 옆 가게에게 지는 구조적 하한이다.
+// 그래서 등급을 먼저 보고 **같은 등급 안에서만** 점수를 비교한다.
+export const EVIDENCE_TIER_BY_SCORING_MODE: Record<ScoringMode, number> = {
+  model: 0,
+  measured_rules: 0,
+  area_stats_rules: 1,
+  degraded_rules: 2,
+};
+// 모드를 모르면(구버전 응답·미러가 안 적은 경우) 가장 약한 근거로 본다 — 모르면 이기지 못한다.
+export const WEAKEST_EVIDENCE_TIER = 2;
+
+/** scoringMode 를 근거 등급으로. 낮을수록 강한 근거. */
+export function evidenceTier(mode: ScoringMode | undefined | null): number {
+  return mode ? (EVIDENCE_TIER_BY_SCORING_MODE[mode] ?? WEAKEST_EVIDENCE_TIER) : WEAKEST_EVIDENCE_TIER;
+}
+
 export const CATEGORY_VECTORS: Record<string, number[]> = {
   // dim0-3: 카테고리 원핫 / dim4: 맛·평점 / dim5: 감성·인스타 / dim6: 접근성·무장애 / dim7: 한적함
   restaurant: [1.0, 0.0, 0.0, 0.0, 0.3, 0.0, 0.0, 0.0],
@@ -32,6 +56,10 @@ export interface Spot {
   rankingWaitTime?: number;
   areaDemandPenaltyMinutes?: number;
   incentive?: number;
+  // 이 점수가 **어떤 시간비용 공식**으로 나왔는지. compareSpot 이 등급을 먼저 보는 근거다
+  // (아래 EVIDENCE_TIER_BY_SCORING_MODE 주석 참조). 서버 응답은 서버가 판정한 값을 그대로
+  // 싣고(recToSpot), 클라 미러 계산은 자기가 쓴 공식을 적는다.
+  scoringMode?: ScoringMode;
   // A4: 행사 혼잡 보정 배지용 — 백엔드 breakdown 원본 그대로 실어 나른다(recToSpot 전용, 클라 미러 계산엔 없음).
   eventBoost?: number;
   eventTitle?: string;
@@ -373,6 +401,11 @@ export function scoreFacility(facility: ScorableFacility | null | undefined, opt
     rankingWaitTime: isNaN(expectedWait) ? 0 : Math.round(expectedWait * 10) / 10,
     areaDemandPenaltyMinutes: 0,
     incentive: isNaN(incentive) ? 0 : incentive,
+    // 이 함수의 시간비용은 위 `cong = congestionLevel ?? 0` 에 통째로 달려 있다. 혼잡 값이
+    // 있으면 대기 항이 실제로 붙으니 백엔드 measured_rules 와 같은 비용 축이고, 없으면
+    // `?? 0` 이 '모른다' 를 '대기 0분' 으로 바꿔 버리니 degraded_rules 다. 등급은 점수를
+    // 만든 공식을 그대로 적는 것이지, 시설을 평가하는 별도 판단이 아니다.
+    scoringMode: typeof facility.congestionLevel === "number" ? "measured_rules" : "degraded_rules",
   };
 }
 
@@ -380,6 +413,13 @@ export function compareSpot(a: SpotRankable, b: SpotRankable): number {
   const at = a.spot,
     bt = b.spot;
   if (!at || !bt) return (a.name || "").localeCompare(b.name || "", "ko-KR");
+  // 0. 근거 등급 — 점수보다 먼저 본다. 서로 다른 시간비용 공식으로 나온 점수를 한 줄에
+  //    세워 비교하지 않기 위해서다(EVIDENCE_TIER_BY_SCORING_MODE 주석 참조).
+  //    백엔드 spot_ranking_sort_key 와 같은 순서다 — 한쪽만 바꾸면 같은 화면에서
+  //    서버가 준 순위와 로컬 순위가 갈린다.
+  const aTier = evidenceTier(at.scoringMode);
+  const bTier = evidenceTier(bt.scoringMode);
+  if (aTier !== bTier) return aTier - bTier;
   if (bt.score !== at.score) return bt.score - at.score; // 1. 높은 점수
   if (at.timeToService !== bt.timeToService) return at.timeToService - bt.timeToService; // 2. 짧은 총 소요
   if (bt.preferencePercent !== at.preferencePercent) return bt.preferencePercent - at.preferencePercent; // 3. 높은 선호
@@ -433,6 +473,8 @@ export function rankFacilitiesDegraded<T extends ScorableFacility>(
         rankingWaitTime: 0,
         areaDemandPenaltyMinutes: 0,
         incentive,
+        // 이 함수가 곧 백엔드 degraded_rules 의 미러다(혼잡·대기·완화항 없음).
+        scoringMode: 'degraded_rules' as const,
       },
       reason: facility.reason || '',
     };
@@ -459,6 +501,9 @@ export function recToSpot(rec: RecommendationResponse): Spot {
     rankingWaitTime: typeof b.rankingWaitTime === "number" ? b.rankingWaitTime : wait,
     areaDemandPenaltyMinutes: typeof b.areaDemandPenaltyMinutes === "number" ? b.areaDemandPenaltyMinutes : 0,
     incentive: typeof b.incentive === "number" ? b.incentive : 0,
+    // 서버가 판정한 등급을 그대로 싣는다 — 클라가 다시 추측하지 않는다. 이게 없으면
+    // 서버 응답 카드가 로컬 미러 카드와 섞일 때 등급 없이(=최약체로) 줄을 서게 된다.
+    scoringMode: rec.scoringMode,
     eventBoost: typeof b.eventBoost === "number" ? b.eventBoost : undefined,
     eventTitle: typeof b.eventTitle === "string" ? b.eventTitle : undefined,
     areaDemandLevel: typeof b.areaDemandLevel === "number" ? b.areaDemandLevel : undefined,

@@ -42,6 +42,7 @@ from app.services.area_demand_decision_service import (
 )
 from app.services.spot.score import calculate_spot_score
 from app.services.spot.travel import get_walking_routes
+from app.services.spot.ranking import spot_ranking_sort_key
 from app.services.congestion_evidence import rankable_measured_level
 from app.services.travel_context import (
     KST,
@@ -490,8 +491,12 @@ async def get_recommendations(
     # 모든 후보가 같은 권역 신호를 받으면 distinguishable=false가 되어 혼잡 대안이라고 주장하지 않는다.
     annotate_relative_demand(recommendation_results)
 
-    # 4. 스코어 기준 내림차순 정렬 및 상위 5개 선별
-    recommendation_results.sort(key=lambda x: (-x["spot_score"], x["distance_m"], x["facility"]["id"]))
+    # 4. 근거 등급 → 스코어 내림차순 정렬 및 상위 5개 선별.
+    #    등급을 먼저 보는 이유는 spot/ranking.py 주석 참조 — 모드마다 시간비용 공식이 달라서
+    #    근거가 없는 후보가 구조적으로 최소 비용을 받는다. 같은 등급 안에서만 점수로 겨룬다.
+    recommendation_results.sort(key=lambda x: spot_ranking_sort_key(
+        x["breakdown"].get("scoring_mode"), x["spot_score"], x["distance_m"], x["facility"]["id"],
+    ))
     # SPOT 점수순은 추천 계약 그 자체다. UI 다양성을 위해 후처리 재정렬하지 않는다.
     top_n = recommendation_results[:5]
     await _attach_delayed_area_actions(top_n, now=now)
@@ -839,7 +844,11 @@ async def _recommend_by_type(req: "RecommendByTypeRequest") -> list:
 
     scored = list(await asyncio.gather(*[_score(f) for f in candidates]))
     annotate_relative_demand(scored)
-    scored.sort(key=lambda x: (-x["spot_score"], x["distance_m"], x["facility"]["id"]))
+    # get_recommendations 와 **같은 정렬 키**를 쓴다. 한쪽만 등급 정렬이면 같은 시설이
+    # 목록 화면과 종류별 화면에서 다른 자리에 놓인다.
+    scored.sort(key=lambda x: spot_ranking_sort_key(
+        x["breakdown"].get("scoring_mode"), x["spot_score"], x["distance_m"], x["facility"]["id"],
+    ))
     top = scored[: max(1, req.limit)]
     await _attach_delayed_area_actions(top, now=now)
 

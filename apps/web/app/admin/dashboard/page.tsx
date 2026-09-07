@@ -56,6 +56,47 @@ interface AdminMetricsResponse {
   since: string;
   recommendations: MetricsRecommendation[];
   feedback: MetricsFeedback[];
+  /** 표본이 서버 상한(_METRICS_ROW_CAP)에서 잘렸는가 — 아래 수락률·DAU 가 창 전체의 값이 아니다. */
+  truncated?: boolean;
+}
+
+/** /admin/dashboard/today 의 avgCongestion — 서버가 세 값을 함께 싣는다.
+ *
+ *  changePercentOrNull / prevSampleCount 는 신규 키다. lib/adminMetricState.ts 의
+ *  CongestionSlice 는 아직 구 모양(changePercent 만)을 선언하고 있어 여기에 확장 타입을
+ *  둔다 — 그 파일은 지표 판정의 단일 소스라 화면 사정으로 흔들지 않는다.
+ *
+ *  두 키가 optional 인 이유: Render(API)와 Vercel(웹)은 배포 시점이 다르고 스테이징이 없다.
+ *  **새 화면이 옛 서버를 받는 구간**도 실존하므로, 키가 없으면 구 키로 물러난다(아래 참조).
+ */
+interface AvgCongestionValue {
+  value: number;
+  /** 구 키. '변화 없음' 과 '표본 없음' 이 둘 다 0 이라 이것만으로는 판단할 수 없다. */
+  changePercent: number;
+  /** 비교할 수 없으면 null(전일 표본 0건이거나 전일 평균이 0). */
+  changePercentOrNull?: number | null;
+  /** 비교에 실제로 쓴 전일 로그 건수. */
+  prevSampleCount?: number;
+}
+
+/**
+ * 전일 대비 배지를 그릴 수 있는가.
+ *
+ * 서버가 changePercentOrNull 을 실으면 그 값이 유일한 근거다 — null 이면 **배지를 내지
+ * 않는다.** 예전에는 표본이 없는 날에도 0% 배지를 회색으로 그리고 툴팁으로 얼버무렸는데,
+ * 툴팁은 아무도 읽지 않는다. 화면에 배지가 있다는 것 자체가 '비교했다' 는 주장이다.
+ *
+ * 신규 키가 없으면(옛 서버) 구 키를 그대로 쓴다 — 그 구간의 동작은 예전과 같다.
+ */
+function changeComparison(avg: AvgCongestionValue):
+  | { kind: 'badge'; percent: number }
+  | { kind: 'no-sample' } {
+  if (avg.changePercentOrNull === undefined) {
+    // 옛 서버 응답 — 구분할 근거가 없다. 기존 동작(구 키로 배지)을 유지한다.
+    return { kind: 'badge', percent: avg.changePercent };
+  }
+  if (avg.changePercentOrNull === null) return { kind: 'no-sample' };
+  return { kind: 'badge', percent: avg.changePercentOrNull };
 }
 
 // 섹션별 로딩 스켈레톤 — 전면 스피너 게이트 제거 후, 각 지표가 준비될 때까지 자리에 표시한다.
@@ -220,7 +261,7 @@ async function fetchCongestion(): Promise<CongestionSlice> {
 // 을 돌려줬는데, 그러면 호출부에서 '조회 실패' 와 '지난 7일 추천이 0건(표본 없음)' 이 완전히 같은
 // 값이 되어 화면에 똑같이 0.0% / 0명으로 찍혔다. 실패는 호출부의 .catch 가 failed 슬라이스로 표시한다.
 // (지표별 null 은 이제 '표본 없음' 만 뜻한다.)
-async function fetchMetrics(): Promise<MetricsSlice> {
+async function fetchMetrics(): Promise<MetricsSlice & { truncated: boolean }> {
   const { start, end } = getKstTodayRangeUtc();
   const weekAgo = new Date(new Date(start).getTime() - 6 * 24 * 60 * 60 * 1000).toISOString();
   const metrics: AdminMetricsResponse = await withColdStartRetry(() => adminApi.get('/api/v1/admin/metrics?days=8'));
@@ -239,13 +280,15 @@ async function fetchMetrics(): Promise<MetricsSlice> {
   );
   // 피드백 0건은 '오늘 활동한 사용자가 없음'(실측 0)이지 '모름' 이 아니다.
   activeUsers = new Set(fb.map((f: MetricsFeedback) => f.user_id)).size;
-  return { acceptRate, activeUsers };
+  // 서버가 상한(_METRICS_ROW_CAP)에 닿으면 최신순으로 남기고 자른다 — 그러면 위 수락률·DAU
+  // 는 창 전체의 값이 아니다. 서버는 어젯밤부터 이 플래그를 싣고 있었는데 화면이 읽지 않았다.
+  return { acceptRate, activeUsers, truncated: metrics?.truncated === true };
 }
 
 // ③ 분산 효과 30일 추이 슬라이스 — /admin/metrics/trend(KST 일별 실측: 일평균 혼잡도·추천 수락률).
 // 혼잡 표본이 있는 날이 3일 미만이면 추이로서 무의미하므로 기존 데모 예시로 폴백하고,
 // 어느 쪽인지는 차트 헤더 라벨(실측 집계/예시 추이)로 구분 표기한다(정직성 원칙).
-async function fetchTrend(): Promise<{ mode: 'live' | 'demo'; rows: any[] }> {
+async function fetchTrend(): Promise<{ mode: 'live' | 'demo'; rows: any[]; truncated: boolean }> {
   try {
     const t = await withColdStartRetry(() => adminApi.get('/api/v1/admin/metrics/trend?days=30'));
     const daily: any[] = t?.daily || [];
@@ -260,12 +303,14 @@ async function fetchTrend(): Promise<{ mode: 'live' | 'demo'; rows: any[] }> {
           acceptShare: d.rec_total > 0 ? Math.round((d.rec_accepted / d.rec_total) * 1000) / 1000 : null,
         };
       });
-      return { mode: 'live', rows };
+      // truncated 면 창의 **앞쪽(오래된 날)** 이 실제보다 비어 보인다 — 서버가 상한에 닿으면
+      // 최신순으로 남기기 때문이다. 추이 차트에서 이건 '그때는 한산했다' 로 읽힌다.
+      return { mode: 'live', rows, truncated: t?.truncated === true };
     }
   } catch {
     // 백엔드 미기동/권한 차이 시 데모 폴백
   }
-  return { mode: 'demo', rows: buildDemoDistribution() };
+  return { mode: 'demo', rows: buildDemoDistribution(), truncated: false };
 }
 
 // 오늘의 브리핑(P0-2) 슬라이스 — 서버(briefing_service)가 대시보드 집계를 Solar 로 프로즈화.
@@ -287,7 +332,10 @@ export default function DashboardPage() {
   const [congestion, setCongestion] = useState<CongestionSlice | null>(null);
   const [metrics, setMetrics] = useState<MetricsSlice | null>(null);
   // 30일 분산 효과 — 실측(metrics/trend)이 충분하면 live, 빈약하면 데모 폴백(fetchTrend 참조). null = 로딩 중.
-  const [distribution, setDistribution] = useState<{ mode: 'live' | 'demo'; rows: any[] } | null>(null);
+  const [distribution, setDistribution] = useState<{ mode: 'live' | 'demo'; rows: any[]; truncated?: boolean } | null>(null);
+  // 표본 절단 — 서버가 상한에서 자른 사실. 화면이 이걸 말하지 않으면 관리자는 잘린 수치를
+  // 기간 전체의 값으로 읽는다(그래서 '조용한 절단' 이 위험하다).
+  const [metricsTruncated, setMetricsTruncated] = useState(false);
   // 오늘의 브리핑(AI) — null 이면 카드 미렌더(로딩 중/스킵/폐기/장애 모두 동일 취급, 스켈레톤 없음).
   const [briefing, setBriefing] = useState<string | null>(null);
 
@@ -313,7 +361,11 @@ export default function DashboardPage() {
         if (mountedRef.current) setCongestion({ failed: true });
       });
     const metricsTask = fetchMetrics()
-      .then((m) => { if (mountedRef.current) setMetrics(m); })
+      .then((m) => {
+        if (!mountedRef.current) return;
+        setMetrics(m);
+        setMetricsTruncated(m.truncated);
+      })
       .catch((err) => {
         console.warn('추천 수락률/DAU 조회 실패:', err);
         if (mountedRef.current) setMetrics({ failed: true });
@@ -460,6 +512,29 @@ export default function DashboardPage() {
             </div>
           )}
 
+          {/* 표본 절단 경고 — 서버가 상한에서 자른 사실을 화면이 말한다.
+              서버(/admin/metrics·/metrics/trend)는 truncated 를 실어 보내고 있었는데 화면이
+              읽지 않았다. 잘린 수치는 **기간 전체의 값이 아니다** — 특히 수락률처럼 비율로
+              보이는 숫자는 잘려도 그럴듯해 보여서, 화면이 말해 주지 않으면 알 방법이 없다. */}
+          {(metricsTruncated || distribution?.truncated) && (
+            <div className="flex items-start gap-3 bg-amber-500/10 border border-amber-500/30 rounded-2xl p-4">
+              <AlertTriangle size={20} className="text-amber-400 flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="font-bold text-amber-300">표본이 상한에서 잘렸어요</p>
+                <p className="text-sm text-hanok-muted mt-1">
+                  아래 수치는 <span className="font-semibold text-hanok-ink">기간 전체가 아닙니다.</span>{' '}
+                  서버가 조회 상한에 닿아 최신 구간만 남겼습니다
+                  {metricsTruncated && distribution?.truncated
+                    ? ' (수락률·DAU, 30일 추이)'
+                    : metricsTruncated
+                      ? ' (수락률·DAU)'
+                      : ' (30일 추이)'}
+                  . 추이 차트는 오래된 날짜 쪽이 실제보다 비어 보일 수 있습니다.
+                </p>
+              </div>
+            </div>
+          )}
+
           {/* ───────── 폐루프 ① 실시간 관제 ───────── */}
           <StepBanner
             badge="①"
@@ -477,18 +552,34 @@ export default function DashboardPage() {
                   <Activity size={24} />
                 </div>
                 <div className="flex items-center gap-2">
-                  {/* 변화율 배지는 평균 혼잡도가 '정상' 일 때만 그린다. 실패/표본 없음일 때
-                      0% 배지를 띄우면 '어제와 같다' 는 없는 사실을 만들어낸다. */}
+                  {/* 변화율 배지는 평균 혼잡도가 '정상' 이고 **비교할 전일 표본이 있을 때만**
+                      그린다. 실패/표본 없음에 0% 배지를 띄우면 '어제와 같다' 는 없는 사실을
+                      만들어낸다. 예전에는 표본이 없어도 회색 0% 를 그리고 툴팁으로 얼버무렸다 —
+                      툴팁은 아무도 읽지 않고, 배지가 있다는 것 자체가 '비교했다' 는 주장이다. */}
                   {avgCongestion.status === 'loading' ? (
                     <Skeleton className="h-6 w-12" />
                   ) : avgCongestion.status === 'ok' ? (
                     (() => {
-                      const badge = changeBadge(avgCongestion.value.changePercent);
+                      const avg = avgCongestion.value as AvgCongestionValue;
+                      const comparison = changeComparison(avg);
+                      if (comparison.kind === 'no-sample') {
+                        // 배지 대신 '비교 불가' 를 말한다. 색조(증가/감소)를 쓰지 않는다 —
+                        // 색이 붙는 순간 방향이 있는 것처럼 읽힌다.
+                        return (
+                          <span
+                            title="전일(KST 하루 전체) 혼잡 로그가 없어 비교 기준이 없습니다. 변화가 없다는 뜻이 아니라, 비교할 표본이 없다는 뜻입니다."
+                            className="px-2 py-1 text-xs font-bold rounded-full cursor-help bg-hanok-card text-hanok-muted border border-dashed border-hanok-line"
+                          >
+                            —
+                          </span>
+                        );
+                      }
+                      const badge = changeBadge(comparison.percent);
                       return (
                         <span
                           title={
                             badge.tone === 'flat'
-                              ? '전일 대비 변화가 없거나, 전일 혼잡 로그가 없어 비교 기준이 없는 경우입니다(백엔드가 두 경우를 모두 0으로 내려보냅니다).'
+                              ? '전일 평균과 같은 수준입니다(전일 표본이 있고, 변화가 0인 경우).'
                               // 라벨을 계산에 맞춘다 — 계산은 서버(admin.py get_dashboard_today) 소유이고,
                               // 계산을 바꾸면 지표의 정의 자체가 바뀐다. 아래 주석(*1) 참조.
                               : "오늘 '현재까지' 평균 혼잡도를 전일 '하루 전체' 평균과 비교한 값입니다. 오늘 구간은 아직 하루의 일부라, 이른 시간일수록 감소 쪽으로 크게 보입니다."
@@ -518,9 +609,16 @@ export default function DashboardPage() {
                 ) : avgCongestion.status === 'empty' ? (
                   <MetricNoSample hint="오늘(KST) 수집된 혼잡 로그가 5건 미만이라 평균을 계산하지 않았습니다." />
                 ) : (
-                  <div className="text-3xl font-black text-hanok-ink">
-                    {(avgCongestion.value.value * 100).toFixed(1)}%
-                  </div>
+                  <>
+                    <div className="text-3xl font-black text-hanok-ink">
+                      {(avgCongestion.value.value * 100).toFixed(1)}%
+                    </div>
+                    {/* 배지를 못 그린 이유를 타일 안에서 말한다 — 배지 자리의 '—' 만으로는
+                        '왜' 를 알 수 없고, 툴팁은 읽히지 않는다. */}
+                    {changeComparison(avgCongestion.value as AvgCongestionValue).kind === 'no-sample' && (
+                      <p className="text-[11px] text-hanok-muted mt-1">전일 표본이 없어 비교할 수 없어요</p>
+                    )}
+                  </>
                 )}
               </div>
             </div>

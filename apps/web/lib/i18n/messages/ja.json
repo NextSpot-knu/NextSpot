@@ -227,7 +227,14 @@
     "mobileToolsDesc": "必要な機能だけ開いて地図を広く見られます",
     "foodFilters": "料理の種類",
     "voiceSearchUnsupported": "このブラウザでは音声検索を使えません",
-    "unsupported": "非対応"
+    "unsupported": "非対応",
+    "tourApiTitle": "韓国観光公社の資料で見つかった場所",
+    "tourApiSource": "当社のデータにないため、韓国観光公社の資料から探しました。まだ登録されていない場所です。",
+    "ingestRequest": "追加をリクエスト",
+    "ingestRequested": "リクエスト受付済み",
+    "ingestRequestDone": "「{name}」の追加リクエストを受け付けました。管理者の確認後に登録されます。",
+    "ingestRequestFailed": "追加リクエストを送信できませんでした。しばらくしてから再度お試しください。",
+    "searchNoResultAnywhere": "「{q}」は当社のデータにも韓国観光公社の資料にもありません"
   },
   "mypage": {
     "menuAria": "メニュー",
@@ -252,7 +259,8 @@
     "editNameSaved": "プロフィールを保存しました。",
     "savedBannerZero": "まだ節約した時間は0分です",
     "savedValueZero": "NextSpotで空いている場所を見つけるほど、待ち時間が減ります",
-    "editNameFailed": "プロフィールを保存できませんでした。もう一度お試しください。"
+    "editNameFailed": "プロフィールを保存できませんでした。もう一度お試しください。",
+    "menuInquiries": "お問い合わせ履歴"
   },
   "settings": {
     "title": "設定",
@@ -360,7 +368,8 @@
     "replanSwapped": "組み直しました · {added} 件が追加、{removed} 件が外れました",
     "slotNoCandidateAny": "この近くに条件に合う場所がありません",
     "unpinAll": "固定をすべて解除",
-    "unpin": "固定を解除"
+    "unpin": "固定を解除",
+    "slotDroppedHere": "この枠は埋められませんでした"
   },
   "coupons": {
     "expired": "期限切れ",
@@ -950,5 +959,30 @@
     "doneTitle": "お問い合わせを受け付けました。",
     "doneDesc": "担当者が内容を確認し、速やかに対応いたします。",
     "backToMypage": "マイページに戻る"
+  },
+  "systemNotice": {
+    "maintenanceTitle": "ただいまメンテナンス中です",
+    "maintenanceBody": "しばらくしてからもう一度お越しください。メンテナンスが終わればいつも通りご利用いただけます。",
+    "dismiss": "お知らせを閉じる"
+  },
+  "inquiries": {
+    "title": "お問い合わせ履歴",
+    "subtitle": "送信したお問い合わせと回答を確認できます",
+    "loading": "読み込み中…",
+    "empty": "まだ送信したお問い合わせはありません",
+    "emptyCta": "お問い合わせする",
+    "loadFailed": "お問い合わせ履歴を読み込めませんでした",
+    "loadFailedHint": "件数がゼロという意味ではなく、取得に失敗した状態です",
+    "retry": "再試行",
+    "loginRequired": "ログインすると、お問い合わせと回答を確認できます",
+    "statusNew": "受付済み",
+    "statusInProgress": "対応中",
+    "statusResolved": "対応完了",
+    "replyTitle": "回答",
+    "awaitingReply": "まだ回答が登録されていません",
+    "replyUnavailable": "回答機能は準備中です。回答があってもここには表示できません",
+    "repliedAt": "{date} 回答",
+    "anonymousHint": "ログイン前に送信したお問い合わせはここに表示されません",
+    "newReplyBadge": "新しい回答"
   }
 }

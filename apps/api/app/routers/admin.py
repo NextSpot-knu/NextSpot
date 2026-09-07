@@ -16,7 +16,7 @@ import structlog
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from app.core.authz import ROLE_ADMIN, require_role
+from app.core.authz import ROLE_ADMIN, get_current_profile, require_role
 from app.core.supabase import fetch_all_rows, supabase_admin
 from app.services import briefing_service
 
@@ -296,6 +296,33 @@ async def update_settings(req: SettingsUpdate):
 
 class InquiryStatusUpdate(BaseModel):
     status: str
+    # 답변 본문 — **선택**이다. 구 관리자 번들은 status 만 보내므로(필드 추가만) 그 요청도
+    # 그대로 통과해야 한다. Vercel(웹)과 Render(API)는 배포 시점이 달라 옛 번들이 새 서버를
+    # 두드리는 구간이 실제로 존재한다.
+    # 상한 5000자: inquiries.content 는 TEXT 라 제한이 없지만, 답변은 사람이 쓰는 글이고
+    # 무제한 본문을 받아 둘 이유가 없다(초과는 422 로 즉시 되돌려 준다 — 잘라서 저장하면
+    # 관리자가 쓴 것과 저장된 것이 달라진다).
+    reply_body: str | None = Field(default=None, max_length=5000)
+
+
+def _is_missing_reply_columns(exc: Exception) -> bool:
+    """답변 컬럼(reply_body/replied_at/replied_by)이 아직 없는 DB인가.
+
+    마이그레이션(20260907091000)은 원격 SQL Editor 에서 사람이 적용한다 — 백엔드 배포가
+    먼저 나가는 순서가 실제로 가능하다. 그때 **문의 상태 변경까지 같이 죽으면 안 된다.**
+    이 오류만 골라내 status 만으로 한 번 더 시도하고, 답변이 저장되지 않았다는 사실을
+    응답(reply_saved=false)으로 알린다. account.py 의 _is_missing_requested_role 과 같은 방식이다.
+
+    두 가지 오류 문구를 모두 잡는다(실측):
+      · UPDATE 페이로드에 없는 컬럼  → PGRST204 "Could not find the 'reply_body' column
+        of 'inquiries' in the schema cache"
+      · SELECT 에 없는 컬럼          → 42703 "column inquiries.reply_body does not exist"
+    마이그레이션 적용을 확인하면 이 폴백은 지워도 된다.
+    """
+    text = str(exc).lower()
+    return any(column in text for column in ("reply_body", "replied_at", "replied_by")) and (
+        "pgrst204" in text or "42703" in text or "column" in text or "schema cache" in text
+    )
 
 
 @router.get("/inquiries")
@@ -323,22 +350,70 @@ async def list_inquiries(limit: int = 500):
 
 
 @router.patch("/inquiries/{inquiry_id}")
-async def update_inquiry_status(inquiry_id: str, req: InquiryStatusUpdate):
+async def update_inquiry_status(
+    inquiry_id: str,
+    req: InquiryStatusUpdate,
+    # 라우터 dependencies 의 require_role(ROLE_ADMIN) 이 이미 같은 의존성을 평가했으므로
+    # FastAPI 의존성 캐시가 재사용한다(추가 DB 조회 없음). 답한 사람을 남기려면 id 가 필요하다.
+    profile: dict = Depends(get_current_profile),
+):
+    """문의 상태 변경 + (선택) 답변 본문 저장.
+
+    응답은 갱신된 행에 두 필드를 **덧붙여** 돌려준다 — 화면이 '무엇이 실제로 일어났는지'를
+    말할 수 있어야 하기 때문이다(이 화면의 결함이 정확히 그 지점이었다):
+      · reply_saved            — 답변 본문이 실제로 저장됐는가
+      · reply_unavailable_reason — 저장하지 못했다면 그 이유("schema_missing")
+
+    답변을 보내지 않았을 때(reply_body=None)는 reply_saved=false 지만 이유도 없다 —
+    '저장 실패' 가 아니라 '저장할 것이 없었다' 이므로 화면이 둘을 구분해야 한다.
+    """
     if req.status not in INQUIRY_STATUSES:
         raise HTTPException(status_code=422, detail=f"status 는 {sorted(INQUIRY_STATUSES)} 중 하나여야 합니다.")
+
+    # 공백만 있는 본문은 '안 보냄' 과 같다 — 빈 답변을 저장해 '답변함' 으로 만들지 않는다.
+    reply_body = (req.reply_body or "").strip() or None
+    payload: dict = {"status": req.status}
+    if reply_body is not None:
+        payload["reply_body"] = reply_body
+        payload["replied_at"] = datetime.now(timezone.utc).isoformat()
+        payload["replied_by"] = profile["id"]
+
+    def _update(data: dict):
+        return supabase_admin.table("inquiries").update(data).eq("id", inquiry_id).execute()
+
+    reply_saved = reply_body is not None
+    reply_unavailable_reason: str | None = None
     try:
-        res = await asyncio.to_thread(
-            supabase_admin.table("inquiries").update({"status": req.status}).eq("id", inquiry_id).execute
-        )
-        if not res.data:
-            raise HTTPException(status_code=404, detail="해당 문의를 찾을 수 없습니다.")
-        logger.info("admin_inquiry_status_updated", inquiry_id=inquiry_id, status=req.status)
-        return res.data[0]
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error("admin_inquiry_update_failed", inquiry_id=inquiry_id, error=str(e))
-        raise HTTPException(status_code=500, detail="문의 상태 변경에 실패했습니다.")
+        res = await asyncio.to_thread(_update, payload)
+    except Exception as exc:
+        if reply_body is not None and _is_missing_reply_columns(exc):
+            # 마이그레이션 미적용 DB — 상태 변경까지 같이 죽이지 않는다. 대신 답변이
+            # 저장되지 않았다는 사실을 반드시 응답에 실어 보낸다(조용한 성공 금지).
+            logger.warning("admin_inquiry_reply_column_missing", inquiry_id=inquiry_id)
+            reply_saved = False
+            reply_unavailable_reason = "schema_missing"
+            try:
+                res = await asyncio.to_thread(_update, {"status": req.status})
+            except Exception as retry_exc:
+                logger.error("admin_inquiry_update_failed", inquiry_id=inquiry_id, error=str(retry_exc))
+                raise HTTPException(status_code=500, detail="문의 상태 변경에 실패했습니다.") from None
+        else:
+            logger.error("admin_inquiry_update_failed", inquiry_id=inquiry_id, error=str(exc))
+            raise HTTPException(status_code=500, detail="문의 상태 변경에 실패했습니다.") from None
+
+    if not res.data:
+        raise HTTPException(status_code=404, detail="해당 문의를 찾을 수 없습니다.")
+    logger.info(
+        "admin_inquiry_status_updated",
+        inquiry_id=inquiry_id,
+        status=req.status,
+        reply_saved=reply_saved,
+    )
+    return {
+        **res.data[0],
+        "reply_saved": reply_saved,
+        "reply_unavailable_reason": reply_unavailable_reason,
+    }
 
 
 # =========================================================================
@@ -847,7 +922,10 @@ async def get_dashboard_today():
 
     반환: { hasLogs, avgCongestion, anomalyCount, heatmap, anomalies }
       · hasLogs = 오늘 로그 수 >= 5
-      · avgCongestion.value = 평균 혼잡도(소수 2자리), changePercent = 전일 평균 대비(소수 1자리, 없으면 0)
+      · avgCongestion.value = 평균 혼잡도(소수 2자리)
+      · avgCongestion.changePercent        = 전일 평균 대비(소수 1자리) — **구 키, 의미 그대로**
+      · avgCongestion.changePercentOrNull  = 같은 값이되 전일 표본이 없으면 null (신규)
+      · avgCongestion.prevSampleCount      = 비교에 쓴 전일 로그 건수 (신규)
       · anomalyCount = congestion_level >= 0.9 건수
       · heatmap = 시설명×KST시(0..23) 평균(2자리), 로그 없는 칸은 null 센티넬(실측 0.0 과 구분)
       · anomalies = 시설별 >=0.9 피크 상위 6건
@@ -889,8 +967,10 @@ async def get_dashboard_today():
         logger.error("admin_dashboard_today_failed", error=str(e))
         raise HTTPException(status_code=500, detail="혼잡 집계 조회에 실패했습니다.")
 
-    # 절단 사실은 응답이 아니라 구조화 로그로만 남긴다(_fetch_capped 안에서 경고). 이 응답 shape
-    # 은 클라이언트 폴백 경로와 1:1 계약이라 키를 늘리지 않는다 — 브리핑도 같은 dict 를 먹는다.
+    # 절단 사실은 응답이 아니라 구조화 로그로만 남긴다(_fetch_capped 안에서 경고).
+    # 이 응답 shape 은 클라이언트 폴백 경로·브리핑과 공유하므로 **키를 지우거나 뜻을 바꾸지
+    # 않는다.** 아래에서 avgCongestion 에 키를 두 개 더하는 것은 그 규칙과 어긋나지 않는다 —
+    # 구 번들은 모르는 키를 읽지 않고, 브리핑(build_facts)은 changePercent 만 본다.
     if len(logs) < 5:
         return empty
 
@@ -898,13 +978,37 @@ async def get_dashboard_today():
     avg = sum(float(row.get("congestion_level") or 0) for row in logs) / len(logs)
     value = _js_round(avg, 2)
     anomaly_count = sum(1 for row in logs if float(row.get("congestion_level") or 0) >= 0.9)
-    change_percent = 0.0
+    # ── '변화 없음' 과 '표본 없음' 은 다른 사실이다 ──────────────────────────────
+    # 예전에는 둘 다 changePercent=0.0 이었다. 그래서 전일 로그가 **한 건도 없는** 날에도
+    # 화면은 '0%' 배지를 그렸다 — 측정한 적 없는 비교를 한 것처럼 보이게 만드는 값이다.
+    # (반대 방향도 같은 크기의 거짓말이다: 어제 평균이 0.0 이면 분모가 0 이라 변화율을 낼 수
+    #  없는데, 그때도 0% 로 나갔다.)
+    #
+    # 그래서 서버가 세 값을 함께 싣는다:
+    #   · changePercent        — **구 키. 의미를 그대로 둔다.**
+    #   · changePercentOrNull  — 비교할 수 없으면 null
+    #   · prevSampleCount      — 비교에 실제로 쓴 전일 로그 건수(화면이 이유를 말할 근거)
+    #
+    # 왜 구 키를 그대로 두는가: Vercel(웹)과 Render(API)는 배포 시점이 다르고 스테이징이
+    # 없다. 옛 번들이 새 응답을 받는 구간이 실제로 존재하고, 그 번들은 changePercent 를
+    # 숫자로 읽는다 — 여기서 null 을 흘려보내면 배지가 'NaN%' 가 된다.
+    # 계획: 새 화면이 배포돼 안정되면(양쪽 배포 확인 후) changePercent 를 걷고
+    #      changePercentOrNull 을 changePercent 로 되돌린다. 그때 지울 것은
+    #      이 블록의 change_percent 계산과 프런트의 구 키 폴백 두 곳뿐이다.
+    prev_sample_count = len(y_logs)
+    change_percent_or_null: float | None = None
     if y_logs:
         y_avg = sum(float(row.get("congestion_level") or 0) for row in y_logs) / len(y_logs)
         if y_avg > 0:
             # JS: Math.round((value - yAvg)/yAvg * 1000)/10 == _js_round(... * 100, 1)
-            change_percent = _js_round((value - y_avg) / y_avg * 100, 1)
-    avg_congestion = {"value": value, "changePercent": change_percent}
+            change_percent_or_null = _js_round((value - y_avg) / y_avg * 100, 1)
+    avg_congestion = {
+        "value": value,
+        # 구 키 — null 을 절대 넣지 않는다(옛 번들이 숫자로 읽는다).
+        "changePercent": change_percent_or_null if change_percent_or_null is not None else 0.0,
+        "changePercentOrNull": change_percent_or_null,
+        "prevSampleCount": prev_sample_count,
+    }
 
     # 2) 히트맵: 시설명 × KST시 평균(로그 있는 시설만, 첫 등장 순서 유지)
     cells: dict[str, dict[str, float]] = {}
@@ -968,6 +1072,24 @@ async def get_dashboard_today():
 # 어떤 실패든 briefing=None 으로 강등되며 프런트는 카드 자체를 렌더하지 않는다(무해 폴백).
 # =========================================================================
 
+def _briefing_view(today: dict) -> dict:
+    """브리핑에 넘길 때만 changePercent 를 '비교 불가면 null' 로 되돌린 사본.
+
+    briefing_service.build_facts 는 이미 changePercent=None 을 제대로 다룬다 — 그 경우
+    {change} 플레이스홀더 자체를 주지 않아 LLM 이 "전일과 동일" 류 비교를 쓸 수 없게 만든다.
+    그런데 이 라우터가 구 번들 호환을 위해 changePercent 에 0.0 을 채워 보내므로, 그대로
+    넘기면 그 분기가 영영 죽고 **전일 표본이 없는 날에도 "전일과 동일한 수준" 이라는 문장이
+    브리핑에 실린다.** 없는 비교를 문장으로 만들어 주는 셈이라 여기서 끊는다.
+
+    HTTP 응답은 손대지 않는다 — 구 키 계약은 화면 쪽 이야기고, 브리핑은 서버 안에서
+    끝나는 경로라 정직한 값을 그대로 쓸 수 있다.
+    """
+    avg = today.get("avgCongestion")
+    if not isinstance(avg, dict) or "changePercentOrNull" not in avg:
+        return today
+    return {**today, "avgCongestion": {**avg, "changePercent": avg["changePercentOrNull"]}}
+
+
 @router.get("/dashboard/briefing")
 async def get_dashboard_briefing():
     """오늘의 브리핑 — { briefing: str|null, llmStatus }.
@@ -985,4 +1107,4 @@ async def get_dashboard_briefing():
         get_dashboard_today(),
         get_impact(since=today_start),
     )
-    return await briefing_service.generate_briefing(today, impact)
+    return await briefing_service.generate_briefing(_briefing_view(today), impact)

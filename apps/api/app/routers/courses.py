@@ -31,7 +31,9 @@ from app.services.availability_service import (
     attach_availability_evidence,
     fetch_effective_availability_map,
 )
+from app.services.area_demand_forecast_service import prefetch_area_demand_points
 from app.services.preference_vector_service import preference_vector_service
+from app.services.spot.ranking import spot_ranking_sort_key
 from app.services.spot.score import calculate_spot_score
 from app.services.spot.travel import (
     WalkingRoute,
@@ -322,6 +324,10 @@ async def _evaluate_candidate(
     return {
         "facility": scored_facility,
         "spot_score": score_res.score,
+        # 이 후보의 점수가 **어떤 시간비용 공식**으로 나왔는지. 자리별 정렬이 근거 등급을
+        # 먼저 보려면 필요하다(spot/ranking.py). 코스 응답 payload 에는 싣지 않는다 —
+        # breakdown 자체를 안 싣는 엔드포인트라 정렬용 내부 값이다.
+        "scoring_mode": score_res.breakdown.get("scoring_mode"),
         "predicted_congestion": predicted_congestion,
         "current_congestion": current_congestion,
         "arrival_offset_min": round(arrival_offset, 1),
@@ -547,9 +553,30 @@ async def _build_course(req: CourseRequest) -> CoursePlan:
     # 후보 풀은 여기서 확정되므로 이 시점에 조회하면 요청이 1건으로 줄고, 신선도는
     # 오히려 좋아진다(평가 직전 값이다). 혼잡도와 함께 한 번에 나간다.
     pool_ids = [f["id"] for f in pool]
-    congestion_now, availability_by_id = await asyncio.gather(
+    # 지역수요 시계열도 **여기서 한 번에** 예열한다.
+    #
+    # 왜: 그 신호는 후보 좌표마다 RPC 왕복 1회다(area_demand_forecast_service._load_points).
+    # 코스는 자리마다 후보를 현재 위치 기준으로 다시 추리므로 채점 경로에서만 그 왕복이 수십
+    # 번 나가고, 게다가 **직렬**이다(후보를 하나씩 돌며 미스마다 기다린다). 2026-09-06 실측으로
+    # 서로 다른 좌표가 12 → 36 으로 늘었고, 미스 한 건이 56일치 백테스트를 끌고 오는 수백 ms~수
+    # 초짜리 연산이라 프런트 타임아웃(20초)에 실제로 가까워졌다.
+    #
+    # 예열은 좌표를 100m 격자로 접어 **고유 격자만** 병렬로 받아 캐시에 넣는다. 그 뒤 채점
+    # 경로는 전부 캐시 히트가 되어 왕복 지연이 겹쳐 사라진다. 보행 경로를 슬롯당 1회로 묶은
+    # 것과 같은 패턴이다.
+    #
+    # 캐시 키의 좌표 자리수는 **바꾸지 않았다** — 넓히면 "지점별 품질" 계약이 "격자별 품질" 로
+    # 바뀐다(검토목록 2번에서 사용자가 고른 방향이 그것이다).
+    #
+    # gather 에 함께 넣는다: 혼잡도·영업정보 왕복과 겹쳐 돌므로 예열이 벽시계 시간을 더하지
+    # 않는다. 실패해도 예열 함수가 삼키고 `0` 을 돌려준다 — 최적화가 장애 지점이 되면 안 된다.
+    congestion_now, availability_by_id, _warmed_grids = await asyncio.gather(
         fetch_congestion_map(pool_ids),
         fetch_effective_availability_map(pool_ids),
+        prefetch_area_demand_points(
+            [(float(f["latitude"]), float(f["longitude"])) for f in pool
+             if f.get("latitude") is not None and f.get("longitude") is not None]
+        ),
     )
     pool = attach_availability_evidence(pool, availability_by_id)
     preferred_categories = user_info.get("preferred_categories", [])
@@ -770,7 +797,11 @@ async def _build_course(req: CourseRequest) -> CoursePlan:
             continue
 
         # SPOT is the sole ranking objective. Arrival congestion is already an input to SPOT.
-        evaluations.sort(key=lambda e: (-e["spot_score"], e["distance_m"], e["facility"]["id"]))
+        # 단, 점수를 비교하기 전에 근거 등급을 먼저 본다 — 추천 라우터와 **같은 키**다
+        # (spot/ranking.py). 여기만 빼면 같은 가게가 추천 목록과 코스에서 다른 순위로 나온다.
+        evaluations.sort(key=lambda e: spot_ranking_sort_key(
+            e["scoring_mode"], e["spot_score"], e["distance_m"], e["facility"]["id"],
+        ))
         best = evaluations[0]
         # 2등 이하는 버리지 않고 이 자리의 '다른 곳' 으로 실어 보낸다(CourseAlternative 주석 참조).
         best["alternatives"] = evaluations[1 : 1 + MAX_ALTERNATIVES_PER_STOP]

@@ -2,18 +2,32 @@
 // 카카오맵(CustomOverlay)과 시뮬레이션(절대배치 div) 양쪽에서 동일하게 재사용한다.
 //
 // 색 임계값은 lib/map/markerSvg.ts 의 getMarkerSvg 와 컴포넌트의 getCongestionBadge 가 쓰는
-// 0.75 / 0.5 / 0.25 와 완전히 동일하게 유지한다(혼잡=빨강 · 보통=주황 · 여유=에메랄드 · 한산=파랑).
+// 등급 경계와 완전히 동일하게 유지한다(혼잡=빨강 · 보통=주황 · 여유=에메랄드 · 한산=파랑).
 // 마커/배지와 히트맵 색이 어긋나면 정직성 표기가 훼손되므로 이 한 곳만 고쳐 쓴다.
+//
+// '혼잡' 경계는 운영자 설정(GET /system/public-settings 의 congestionThreshold)에서 오고,
+// 등급 판정은 lib/congestionScale.ts 한 곳에만 있다. 여기서 0.75 를 다시 적으면 설정을
+// 바꿨을 때 배지만 '혼잡' 으로 바뀌고 지도 색은 그대로 남는다 — 같은 장소가 화면에서
+// 서로 다른 말을 하게 된다.
+
+import { DEFAULT_BUSY_THRESHOLD, congestionKey } from "../congestionScale";
+
+const HEAT_RGB = {
+  busy: { r: 239, g: 68, b: 68 },      // 혼잡 (red-500)
+  moderate: { r: 245, g: 158, b: 11 }, // 보통 (amber-500)
+  relaxed: { r: 16, g: 185, b: 129 },  // 여유 (emerald-500)
+  quiet: { r: 59, g: 130, b: 246 },    // 한산 (blue-500)
+} as const;
 
 /** 혼잡도(0~1)에 대응하는 히트맵 blob 대표색(밝은 500 계열 RGB 채널) */
-export function getHeatColor(level: number): { r: number; g: number; b: number } {
+export function getHeatColor(
+  level: number,
+  busyAt: number = DEFAULT_BUSY_THRESHOLD,
+): { r: number; g: number; b: number } {
   if (typeof level !== "number" || Number.isNaN(level)) {
     return { r: 148, g: 163, b: 184 }; // 데이터 없음 (slate 400)
   }
-  if (level >= 0.75) return { r: 239, g: 68, b: 68 }; // 혼잡 (red-500)
-  if (level >= 0.5) return { r: 245, g: 158, b: 11 }; // 보통 (amber-500)
-  if (level >= 0.25) return { r: 16, g: 185, b: 129 }; // 여유 (emerald-500)
-  return { r: 59, g: 130, b: 246 }; // 한산 (blue-500)
+  return HEAT_RGB[congestionKey(level, busyAt)];
 }
 
 /** 혼잡도에 비례한 blob 지름(px) — 40~120 사이 선형 보간(혼잡할수록 크게 번진다) */
@@ -23,8 +37,8 @@ export function getHeatRadius(level: number): number {
 }
 
 /** blob 배경용 radial-gradient — 중심은 진하고 가장자리로 갈수록 투명해져 열처럼 번진다 */
-export function getHeatGradient(level: number): string {
-  const { r, g, b } = getHeatColor(level);
+export function getHeatGradient(level: number, busyAt: number = DEFAULT_BUSY_THRESHOLD): string {
+  const { r, g, b } = getHeatColor(level, busyAt);
   return (
     `radial-gradient(circle, ` +
     `rgba(${r},${g},${b},0.75) 0%, ` +

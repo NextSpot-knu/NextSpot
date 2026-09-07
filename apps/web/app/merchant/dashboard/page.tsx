@@ -815,6 +815,22 @@ const SEAT_LABEL: Record<SeatLevel, string> = { low: '여유', mid: '보통', fu
 // 이보다 오래된 방송은 추천에서 무시되므로 콘솔도 '만료됨'으로 표시한다(방송 중으로 오해 금지).
 const SEAT_FRESH_MINUTES = 30;
 
+// 좌석 방송이 **예측 학습용 시계열 관측으로 남는** 최소 간격(분).
+// 백엔드 merchant.py 의 _SEAT_OBSERVATION_MIN_INTERVAL_MINUTES 와 같아야 한다(안내 문구용).
+// ⚠️ 방송 자체는 이 간격과 무관하게 언제든 된다 — 누를 때마다 위 30분 창이 새로 시작한다.
+//    제한되는 것은 congestion_logs 에 쌓이는 관측 행뿐이다.
+const SEAT_OBSERVATION_INTERVAL_MINUTES = 10;
+
+// 서버가 좌석 방송 응답에 싣는 관측 기록 판정.
+// lib/merchant/api.ts 의 SeatStatusResult 에는 아직 이 두 키가 없어(그 파일은 이번 변경 범위
+// 밖이다) 여기서 좁혀 읽는다. 구 서버는 보내지 않으므로 전부 optional 로 두고, 없으면 안내
+// 자체를 띄우지 않는다(모르는 것을 아는 척하지 않는다).
+type SeatObservationStatus = 'logged' | 'failed' | 'throttled' | 'unchanged' | 'not_applicable';
+type SeatObservationFields = {
+  observation_status?: SeatObservationStatus | null;
+  next_observation_in_seconds?: number | null;
+};
+
 function SeatStatusSection({ facilityId }: { facilityId: string }) {
   const [state, setState] = useState<AsyncState>('loading');
   const [current, setCurrent] = useState<{ level: SeatLevel; updated_at: string } | null>(null);
@@ -824,6 +840,15 @@ function SeatStatusSection({ facilityId }: { facilityId: string }) {
   const [submitError, setSubmitError] = useState('');
   // 실패는 아니지만 사장님이 알아야 하는 사실(방송은 됐는데 관측 기록만 실패) — 오류와 색을 나눈다.
   const [submitWarning, setSubmitWarning] = useState('');
+  // 이번 세션에서 방송한 결과의 관측 기록 상태. 페이지를 새로 열면 알 수 없다 — 서버에 조회
+  // 경로가 없으므로 지어내지 않고 감춘다(방송 직후에만 보여준다).
+  //
+  // minutes 는 **서버가 응답에 실어 준 '남은 시간'** 이다(절대 시각이 아니다). 서버 시각을 받아
+  // 단말 시계와 빼면 시계가 어긋난 사장님에게 있지도 않은 대기 시간이 보인다. 여기서는 서버가
+  // 준 남은 시간에서, 아래 broadcast.minutesAgo(이미 계산해 둔 '방송 이후 흐른 시간')만 뺀다.
+  const [observation, setObservation] = useState<
+    { status: SeatObservationStatus; minutes: number | null } | null
+  >(null);
   const [now, setNow] = useState(() => Date.now());
 
   const load = useCallback(async () => {
@@ -857,6 +882,7 @@ function SeatStatusSection({ facilityId }: { facilityId: string }) {
 
   // 만료 카운트다운 — 방송값이 있을 때만 30초 간격으로 갱신한다.
   // (now 가 과거로 뒤처져 있어도 minutesAgo 가 0 으로 클램프되어 '방금 방송'으로 보이고, 30초 안에 보정된다.)
+  // 관측 기록 카운트다운(observation.nextAt)도 같은 틱을 쓴다 — 타이머를 하나 더 두지 않는다.
   const updatedAt = current?.updated_at ?? null;
   useEffect(() => {
     if (!updatedAt) return;
@@ -869,6 +895,7 @@ function SeatStatusSection({ facilityId }: { facilityId: string }) {
     setSubmitError('');
     try {
       const res = await updateSeatStatus(facilityId, level);
+      const extra = res as typeof res & SeatObservationFields;
       setCurrent({ level: res.level, updated_at: res.updated_at });
       // 방송(주 효과)은 성공했는데 시계열 관측 기록만 실패한 경우 — 서버가 200 + 사유로 알린다.
       // 성공으로 뭉개지 않고 그 사실을 그대로 전한다(merchant.py 의 seat-status 주석 참조).
@@ -878,6 +905,19 @@ function SeatStatusSection({ facilityId }: { facilityId: string }) {
           ? (res.observation_note ??
             '좌석 상태 방송은 반영됐지만, 이 방송을 시계열 관측 기록으로 남기지 못했습니다.')
           : ''
+      );
+      // 관측 기록 판정(기록됨/건너뜀) + 다음 기록까지 남은 시간. 구 서버는 이 키를 보내지
+      // 않으므로 그때는 안내를 띄우지 않는다.
+      const observationStatus = extra.observation_status ?? null;
+      const nextInSeconds = extra.next_observation_in_seconds;
+      setObservation(
+        observationStatus && observationStatus !== 'not_applicable' && observationStatus !== 'failed'
+          ? {
+              status: observationStatus,
+              // 초 → 분(올림). 서버가 초로 주는 값을 화면 단위로만 바꾼다.
+              minutes: typeof nextInSeconds === 'number' ? Math.ceil(nextInSeconds / 60) : null,
+            }
+          : null
       );
       toast.success(`좌석 상태를 '${SEAT_LABEL[level]}'(으)로 방송했습니다.`, {
         description: logFailed
@@ -899,6 +939,8 @@ function SeatStatusSection({ facilityId }: { facilityId: string }) {
     setClearing(true);
     setSubmitError('');
     setSubmitWarning('');
+    // 해제하면 방송 자체가 없어지므로 관측 기록 안내도 함께 내린다(남아 있으면 거짓 안내가 된다).
+    setObservation(null);
     try {
       await clearSeatStatus(facilityId);
       setCurrent(null);
@@ -930,11 +972,32 @@ function SeatStatusSection({ facilityId }: { facilityId: string }) {
   // 추천에 실제로 반영 중인 레벨만 '선택됨'으로 칠한다(만료값을 선택된 것처럼 보이게 하지 않는다).
   const activeLevel = broadcast?.fresh ? (current?.level ?? null) : null;
 
+  // 관측 기록 안내 한 줄. 방송은 매번 반영된다는 사실과, 학습에 쓰이는 관측 기록이 언제 다시
+  // 남는지를 함께 말한다 — '눌러도 아무 일도 없는 버튼' 처럼 보이지 않게 하기 위해서다.
+  const observationLine = useMemo(() => {
+    if (!observation) return '';
+    if (observation.status === 'unchanged') {
+      // 기다린다고 기록되는 게 아니라 상태가 바뀌어야 기록된다 — 없는 카운트다운을 만들지 않는다.
+      return '직전과 같은 상태라 관측 기록은 새로 남기지 않았어요 · 방송은 지금 반영 중입니다';
+    }
+    const head =
+      observation.status === 'logged'
+        ? '이번 방송을 관측 기록으로 남겼어요'
+        : '이번 방송은 반영됐지만 관측 기록은 남기지 않았어요';
+    if (observation.minutes === null) return head;
+    // 서버가 준 '남은 분' 에서 방송 이후 흐른 시간을 뺀다. 흐른 시간은 위 broadcast 가 이미
+    // 계산해 둔 값을 그대로 쓴다 — 여기서 시계를 새로 읽지 않는다.
+    const minutesLeft = Math.max(0, observation.minutes - (broadcast?.minutesAgo ?? 0));
+    return minutesLeft > 0
+      ? `${head} · 약 ${minutesLeft}분 뒤에 다시 기록됩니다`
+      : `${head} · 지금 다시 기록할 수 있어요`;
+  }, [observation, broadcast]);
+
   return (
     <SectionCard
       badge="④ 좌석 상태 방송"
       title="지금 우리 가게 상태"
-      honestNote={`방송하면 ${SEAT_FRESH_MINUTES}분 동안 추천 혼잡도에 사장님 확인값으로 반영되고, 그 뒤에는 자동으로 만료되어 예측값으로 돌아갑니다. 손님께 보여드릴 현재 상태 안내로도 함께 활용해주세요.`}
+      honestNote={`방송하면 ${SEAT_FRESH_MINUTES}분 동안 추천 혼잡도에 사장님 확인값으로 반영되고, 그 뒤에는 자동으로 만료되어 예측값으로 돌아갑니다. 손님께 보여드릴 현재 상태 안내로도 함께 활용해주세요. 방송은 언제든 다시 누를 수 있지만, 예측 학습에 쓰이는 관측 기록은 ${SEAT_OBSERVATION_INTERVAL_MINUTES}분에 한 번(같은 상태면 생략) 남습니다.`}
     >
       {state === 'loading' && <SkeletonBlock heightClass="h-20" />}
       {state === 'error' && <ErrorFallback message={errorMessage} onRetry={load} />}
@@ -974,6 +1037,11 @@ function SeatStatusSection({ facilityId }: { facilityId: string }) {
                   `${broadcast.minutesAgo}분 전 방송 · 추천에는 더 이상 반영되지 않습니다`}
                 {current && !broadcast && '방송 시각을 알 수 없어 추천에 반영되지 않습니다.'}
               </p>
+              {observationLine && (
+                <p className="text-xs text-muk-soft/90" aria-live="polite">
+                  {observationLine}
+                </p>
+              )}
             </div>
             {current && (
               <button

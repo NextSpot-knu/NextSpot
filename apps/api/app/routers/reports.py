@@ -8,11 +8,13 @@
   supabase_admin(service_role) 으로 기록된다. 신뢰 경계는 get_current_user(로그인 필수)로
   강제한다 — 익명 대량 조작을 1차 차단.
 
-  다만 "service_role 만 쓸 수 있다" 는 사실이 아니다: 정책 admin_all_logs
+  2026-09-07 이전에는 "service_role 만 쓸 수 있다" 가 **사실이 아니었다.** 정책 admin_all_logs
   (FOR ALL TO authenticated, USING/WITH CHECK = public.is_admin_or_dev()) 가 admin·developer
-  에게는 이 표 전체의 직접 쓰기를 허용한다. 즉 그 두 역할은 브라우저에서 anon 키만으로
-  evidence_tier='verified' 행을 만들 수 있고, 아래 제보 경로가 지키는 tier 규칙
-  (사용자 제보는 single_report)을 우회한다. 좁히려면 RLS 변경이 필요해 아직 열려 있다.
+  에게 이 표 전체의 직접 쓰기를 허용했다 — 그 두 역할은 브라우저에서 anon 키만으로
+  evidence_tier='verified' 행(= 모델 학습의 정답)을 만들 수 있었고, 아래 제보 경로가 지키는
+  tier 규칙(사용자 제보는 single_report)을 우회할 수 있었다.
+  20260907090000_congestion_logs_admin_read_only.sql 이 그 정책을 admin_read_logs(FOR SELECT)
+  로 좁혀 닫았다. **이 문단을 지우지 말 것** — '언제부터 사실인지' 가 이 문장의 핵심이다.
 
 레이트리밋: 사용자·시설당 5분 쿨다운(_REPORT_COOLDOWN_SEC)을 프로세스 인메모리로 적용해
   스팸/조작이 ML 혼잡 신호를 오염시키는 것을 1차 차단한다. 단일 인스턴스 데모 기준이며,
@@ -29,6 +31,8 @@ from pydantic import BaseModel, Field
 
 # congestion_logs 쓰기는 RLS 우회가 필요해 service_role(supabase_admin) 을 쓴다
 # (infrastructures.simulate_peak / recommendations 와 동일 사유 — anon INSERT 는 RLS 로 거부됨).
+# 이 문장이 **모든 authenticated 역할에 대해** 참이 된 시점과 그 전에 무엇이 열려 있었는지는
+# 이 파일 상단 독스트링의 '보안 배경' 을 볼 것(20260907090000 마이그레이션).
 from app.core.supabase import supabase_admin, get_current_user
 from app.services.coupon_service import issue_coupon_if_partner
 

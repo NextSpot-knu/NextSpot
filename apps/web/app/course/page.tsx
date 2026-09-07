@@ -13,6 +13,8 @@ import { Reorder } from "framer-motion";
 import { ArrowLeft, ChevronDown, X, Navigation } from "lucide-react";
 import { createPublicClient } from "@/lib/supabase";
 import { slotKeysStale } from "@/lib/courseSlotKeys";
+import { congestionKey, type CongestionKey } from "@/lib/congestionScale";
+import { useBusyThreshold } from "@/components/shell/PublicSettingsProvider";
 import { apiClient, isAuthError, httpStatus } from "@/lib/api-client";
 import { REGION, isWithinRegion } from "@/lib/region";
 import { toast } from "sonner";
@@ -121,11 +123,17 @@ function truncate(s: string, n: number): string {
 }
 
 // 혼잡 키/색 — 백엔드 _congestion_label 임계값과 통일(라벨은 congestion 네임스페이스로 번역).
-function congestion(level: number): { key: string; cls: string } {
-  if (level >= 0.75) return { key: "busy", cls: "text-terracotta bg-terracotta/10 border-terracotta/25" };
-  if (level >= 0.5) return { key: "moderate", cls: "text-gold-deep bg-gold/10 border-gold/25" };
-  if (level >= 0.25) return { key: "relaxed", cls: "text-jade bg-jade/10 border-jade/25" };
-  return { key: "quiet", cls: "text-jade bg-jade/15 border-jade/30" };
+// '혼잡' 경계는 운영자 설정(GET /system/public-settings 의 congestionThreshold)에서 온다.
+// 예전에는 0.75 가 여기 박혀 있어 설정을 바꿔도 이 화면은 따라오지 않았다(lib/congestionScale.ts).
+const CONGESTION_CLASS: Record<CongestionKey, string> = {
+  busy: "text-terracotta bg-terracotta/10 border-terracotta/25",
+  moderate: "text-gold-deep bg-gold/10 border-gold/25",
+  relaxed: "text-jade bg-jade/10 border-jade/25",
+  quiet: "text-jade bg-jade/15 border-jade/30",
+};
+function congestion(level: number, busyAt: number): { key: CongestionKey; cls: string } {
+  const key = congestionKey(level, busyAt);
+  return { key, cls: CONGESTION_CLASS[key] };
 }
 
 // 도착 오프셋(분) → 예상 시각(HH:MM, 24h) — 헤드라인 보조텍스트/시간행에서 공용으로 재사용.
@@ -965,6 +973,7 @@ function ViewToggle({ mode, onChange }: { mode: "cards" | "gantt"; onChange: (m:
 const DWELL_LAST_MIN = 45;
 function CourseGantt({ stops }: { stops: CourseStop[] }) {
   const t = useT();
+  const busyAt = useBusyThreshold();
   const segments = stops.map((s, i) => {
     const start = Math.max(0, s.arrivalOffsetMin);
     const rawEnd = i < stops.length - 1 ? stops[i + 1].arrivalOffsetMin : s.arrivalOffsetMin + DWELL_LAST_MIN;
@@ -1001,7 +1010,7 @@ function CourseGantt({ stops }: { stops: CourseStop[] }) {
           그래도 넘치는 초장문은 truncate + title 툴팁으로 폴백. 막대는 아래 시간축에 정렬. */}
       <div className="space-y-3">
         {segments.map(({ s, start, end }) => {
-          const cong = s.predictedCongestion == null ? { key: 'moderate', cls: 'bg-hanji-deep border-line text-muk-soft' } : congestion(s.predictedCongestion);
+          const cong = s.predictedCongestion == null ? { key: 'moderate', cls: 'bg-hanji-deep border-line text-muk-soft' } : congestion(s.predictedCongestion, busyAt);
           const leftPct = (start / total) * 100;
           const widthPct = ((end - start) / total) * 100;
           return (
@@ -1096,10 +1105,20 @@ function StopRows({
   // 일어나지 않으므로, 위 문단이 세운 원칙(그런 조작은 주지 않는다)이 여기에도 그대로 적용된다.
   const replanSupported = outcomes.length > 0 && !slotsStale;
   const dropped = outcomes.filter((o) => o.status !== 'filled');
+  // slotOrder 는 **요청한 자리 번호**다. 이 값의 쓰임은 두 가지뿐이다 — 행을 끼워 넣을 위치를
+  // 정하는 것과 자리 키(slotKeys)를 찾는 것. **화면에 숫자로 찍지 않는다.**
+  //
+  // 왜 이름까지 바꿨나: 예전에는 이 필드도 `order` 였는데, 정류지 행이 찍는 번호는
+  // stop.order(= 채운 것만으로 다시 매긴 방문 순서)라 같은 이름의 두 값이 화면에 동시에
+  // 나왔다. 2번 자리가 빠진 코스에서는 '2' 가 목록에 둘 생겨(빠진 자리 2 + 3번째를 방문
+  // 순서로 다시 매긴 2) 어느 자리가 빠졌는지 특정할 수 없었다 — 자리별 사유를 붙인 목적이
+  // 번호 충돌로 무효화된 것이다. 지금은 숫자로 보이는 것이 방문 순서 하나뿐이고
+  // (목록 = stop.order, 지도 마커 = stop.order · CourseMap), 빠진 자리는 숫자 없이
+  // 위아래 정류지 사이의 **위치**로만 읽는다(DroppedSlotRow).
   const rows = [
-    ...stops.map((stop) => ({ order: requestedSlotIndex(stop, outcomes) + 1, stop, outcome: null as SlotOutcome | null })),
-    ...dropped.map((outcome) => ({ order: outcome.order, stop: null as CourseStop | null, outcome })),
-  ].sort((a, b) => a.order - b.order);
+    ...stops.map((stop) => ({ slotOrder: requestedSlotIndex(stop, outcomes) + 1, stop, outcome: null as SlotOutcome | null })),
+    ...dropped.map((outcome) => ({ slotOrder: outcome.order, stop: null as CourseStop | null, outcome })),
+  ].sort((a, b) => a.slotOrder - b.slotOrder);
 
   return (
     <div className="-mx-4 md:-mx-6 divide-y divide-line">
@@ -1112,15 +1131,15 @@ function StopRows({
             slotIdx={
               // 매핑할 자리 키가 없으면 아예 넘기지 않는다 — 넘기면 버튼은 활성인데
               // togglePin 의 `if (!key) return` 에 걸려 아무 일도 안 일어난다.
-              replanSupported && row.order - 1 < slotKeys.length ? row.order - 1 : undefined
+              replanSupported && row.slotOrder - 1 < slotKeys.length ? row.slotOrder - 1 : undefined
             }
-            pinned={pins[slotKeys[row.order - 1]] === row.stop.facility.id}
+            pinned={pins[slotKeys[row.slotOrder - 1]] === row.stop.facility.id}
             onTogglePin={onTogglePin}
             onSwap={onSwap}
           />
         ) : (
           <DroppedSlotRow
-            key={`slot-${row.order}`}
+            key={`slot-${row.slotOrder}`}
             outcome={row.outcome as SlotOutcome}
             // 고정이 실패한 자리에서 **고정 해제 수단이 사라지면 안 된다.** 📌 버튼은
             // StopRow 안에만 있어서, 고정한 가게가 자격에 걸리는 순간 그 자리는
@@ -1128,8 +1147,8 @@ function StopRows({
             // 매 요청에 다시 실려 나가므로 같은 이유로 계속 비었다 — 새로고침 말고는 탈출구가
             // 없었고, 밤에 '도착 시각 영업' 으로 떨어진 경우는 되돌릴 조건조차 없다.
             onUnpin={
-              replanSupported && row.outcome?.pinned && row.order - 1 < slotKeys.length && !readOnly
-                ? () => onUnpin?.(row.order - 1)
+              replanSupported && row.outcome?.pinned && row.slotOrder - 1 < slotKeys.length && !readOnly
+                ? () => onUnpin?.(row.slotOrder - 1)
                 : undefined
             }
           />
@@ -1181,8 +1200,11 @@ function DroppedSlotRow({
           {outcome.requestedType ? typeEmoji(outcome.requestedType) : '·'}
         </span>
         <div className="min-w-0 flex-1">
+          {/* 번호를 쓰지 않는다 — 이 행의 자리 번호(요청 순서)와 바로 아래 정류지가 찍는
+              번호(방문 순서)가 서로 다른 체계라 같은 숫자가 둘 나오곤 했다. 빠진 자리는
+              위아래 정류지 사이의 **위치**로 읽는다(rows 정렬이 그 위치를 지킨다). */}
           <p className="text-sm font-bold text-muk-soft">
-            {t('course.slotDropped', { n: outcome.order })}
+            {t('course.slotDroppedHere')}
           </p>
           {reasonKey && (
             <p className="mt-0.5 text-[11px] text-muk-soft">
@@ -1223,13 +1245,14 @@ function StopRow({
   onSwap?: (slotIdx: number, facilityId: string) => void;
 }) {
   const t = useT();
+  const busyAt = useBusyThreshold();
   const [open, setOpen] = useState(false);
   const [altsOpen, setAltsOpen] = useState(false);
   const alternatives = stop.alternatives ?? [];
   // 재계획 조작은 공유 모드(읽기 전용)에도, 자리 번호를 모를 때도 그리지 않는다.
   const canReplan = !readOnly && slotIdx !== undefined && slotIdx >= 0;
   const altsId = `course-alts-${stop.facility.id}`;
-  const cong = stop.predictedCongestion == null ? null : congestion(stop.predictedCongestion);
+  const cong = stop.predictedCongestion == null ? null : congestion(stop.predictedCongestion, busyAt);
   const reasonId = `course-reason-${stop.facility.id}`;
   const startNavigation = (mode: 'walk' | 'car') => {
     const walkMinutes = stop.travelMinutes ?? stop.arrivalOffsetMin;
@@ -1362,7 +1385,7 @@ function StopRow({
           {canReplan && altsOpen && alternatives.length > 0 && (
             <div id={altsId} className="mt-2 rounded-xl border border-line bg-hanji-deep/40 divide-y divide-line/70">
               {alternatives.map((alt) => {
-                const altCong = alt.predictedCongestion == null ? null : congestion(alt.predictedCongestion);
+                const altCong = alt.predictedCongestion == null ? null : congestion(alt.predictedCongestion, busyAt);
                 return (
                   <div key={alt.facility.id} className="flex items-center gap-2 px-3 py-2">
                     <span aria-hidden className="shrink-0 text-sm">{typeEmoji(alt.facility.type)}</span>

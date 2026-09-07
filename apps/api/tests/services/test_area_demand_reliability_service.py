@@ -76,6 +76,13 @@ async def test_reliability_uses_only_completed_buckets_and_reports_real_gap(monk
         "missing_bucket_count": 1,
         "missing_rate": 0.1667,
         "missing_buckets": ["2026-08-20T11:50:00+00:00"],
+        # 자르지 않았을 때도 세 필드를 항상 보낸다 — 소비처가 유무로 분기하지 않게.
+        "missing_total": 1,
+        "missing_range": {
+            "first_bucket_at": "2026-08-20T11:50:00+00:00",
+            "last_bucket_at": "2026-08-20T11:50:00+00:00",
+        },
+        "missing_truncated": False,
         "longest_gap_buckets": 1,
         "longest_gap_minutes": 10,
         "complete": False,
@@ -130,6 +137,53 @@ async def test_reliability_empty_table_returns_no_data_without_values(monkeypatc
     assert result["lots"] == []
     assert result["window"]["received_bucket_count"] == 0
     assert result["window"]["missing_bucket_count"] == 6
+
+
+@pytest.mark.asyncio
+async def test_reliability_truncates_missing_buckets_but_says_so(monkeypatch):
+    """완전 장애 + hours=168 이면 누락이 1008개다 — 목록은 20개로 자르되 **잘랐다고 말한다.**
+
+    조용히 20개만 주면 관리자 화면에는 '20개만 빠졌다' 는 실재하지 않는 그림이 뜬다.
+    이 화면의 존재 이유가 그 판정이므로, 자를 때는 총 개수와 실제 공백 구간을 함께 준다.
+    """
+    _patch_queries(monkeypatch, rows=[], earliest=None, latest=None)
+
+    result = await reliability.get_area_demand_reliability(hours=168, now=NOW)
+
+    window = result["window"]
+    end_at = reliability._floor_to_bucket(NOW)
+    start_at = end_at - timedelta(hours=168)
+
+    assert window["expected_bucket_count"] == 1008
+    assert window["missing_bucket_count"] == 1008
+    # 총 개수는 전체 그대로, 목록만 20개.
+    assert window["missing_total"] == 1008
+    assert len(window["missing_buckets"]) == 20
+    assert window["missing_truncated"] is True
+    # 자른 목록의 첫 항목은 실제 창 시작 버킷이고, range 는 **자르기 전** 전체 구간을 말한다.
+    assert window["missing_buckets"][0] == reliability._iso(start_at)
+    assert window["missing_range"] == {
+        "first_bucket_at": reliability._iso(start_at),
+        "last_bucket_at": reliability._iso(end_at - timedelta(minutes=reliability.BUCKET_MINUTES)),
+    }
+    # 잘린 목록이 공백 길이 계산까지 줄여 버리면 '80분 공백' 같은 거짓 축소가 된다.
+    assert window["longest_gap_buckets"] == 1008
+    assert window["longest_gap_minutes"] == 10080
+
+
+@pytest.mark.asyncio
+async def test_reliability_marks_untruncated_missing_list_as_complete(monkeypatch):
+    """20개 이하면 자르지 않고, 자르지 않았다는 사실도 응답에 남는다(필드가 사라지지 않는다)."""
+    _patch_queries(monkeypatch, rows=[], earliest=None, latest=None)
+
+    result = await reliability.get_area_demand_reliability(hours=1, now=NOW)
+
+    window = result["window"]
+    assert len(window["missing_buckets"]) == 6
+    assert window["missing_total"] == 6
+    assert window["missing_truncated"] is False
+    assert window["missing_range"]["first_bucket_at"] == window["missing_buckets"][0]
+    assert window["missing_range"]["last_bucket_at"] == window["missing_buckets"][-1]
 
 
 @pytest.mark.asyncio

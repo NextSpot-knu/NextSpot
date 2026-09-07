@@ -54,7 +54,20 @@ def _isolate_event_boost(monkeypatch):
     monkeypatch.setattr(area_demand_service, "get_nearby_parking_signal", _no_parking)
     monkeypatch.setattr(area_demand_service, "get_gyeongju_weather", _no_weather)
     monkeypatch.setattr(area_demand_service, "get_historical_area_demand_forecast", _no_history)
+
+    # 업종 기준선(근거 없는 후보 전용, spot/industry_baseline.py)도 같은 이유로 차단한다.
+    # 열어 두면 채점 테스트가 placeholder Supabase 로 실조회를 시도하고(느리고 환경 의존),
+    # 프로덕션 로그가 쌓일 때마다 단위 테스트 기대값이 흔들린다. 기본은 '기준선 없음'
+    # (= 2026-09-07 프로덕션 현재 상태)이고, 기준선이 필요한 테스트는 이 위에 다시 패치한다.
+    from app.services.spot import industry_baseline, score
+
+    async def _no_industry_baseline(_facility_type):
+        return None
+
+    industry_baseline.reset_cache()
+    monkeypatch.setattr(score, "get_industry_baseline_congestion", _no_industry_baseline)
     yield
+    industry_baseline.reset_cache()
 
 
 # =========================================================================

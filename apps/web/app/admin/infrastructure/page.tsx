@@ -20,6 +20,14 @@ import {
   type FacilityCongestion,
 } from '@/lib/adminMetricState';
 import { countLabel, emptyOrFailedText, type LoadStatus } from '@/lib/adminLoadState';
+import {
+  demandPressure,
+  demandPressureBasis,
+  parseCategoryShares,
+  toCategoryCode,
+  type CategoryCode,
+  type CategoryShares,
+} from '@/lib/demandPressure';
 import { toast } from 'sonner';
 
 // --- Types ---
@@ -27,6 +35,10 @@ interface Infrastructure {
   id: string;
   name: string;
   type: '음식점' | '카페' | '관광지' | '문화시설';
+  // 업종 코드 원문(facilities.type). 한글 라벨은 표시용이고, 온보딩 선호 비율은 이 코드로 찾는다.
+  // 라벨에서 코드를 되짚으면 알 수 없는 type 이 '관광지' 로 떨어진 뒤 attraction 선호가
+  // 그 시설의 근거로 붙는다 — 없는 사실이 된다. 그래서 코드를 따로 들고 다닌다(모르면 null).
+  typeCode: CategoryCode | null;
   // 최신 혼잡 상태. '관측 없음'(none)과 '조회 실패'(unavailable)를 level=0 으로 뭉개지 않는다 —
   // 예전 코드는 둘 다 0.0 으로 만들어 '한산' 으로 그렸고, 그건 없는 사실을 만들어내는 것이었다.
   congestion: FacilityCongestion;
@@ -102,6 +114,10 @@ export default function InfrastructurePage() {
   const [ingestError, setIngestError] = useState<string | null>(null);
   const [approvingIngestId, setApprovingIngestId] = useState<string | null>(null);
 
+  // 업종별 온보딩 선호 비율(GET /api/v1/preference-stats/categories) — 수요 압력 카드의 두 번째 항.
+  // null 은 '아직 못 받음/조회 실패' 다. 그 상태에서는 카드를 그리지 않는다(0% 로 채우지 않는다).
+  const [categoryShares, setCategoryShares] = useState<CategoryShares | null>(null);
+
   const supabase = createPublicClient();
 
   const fetchIngestRequests = useCallback(async () => {
@@ -124,6 +140,24 @@ export default function InfrastructurePage() {
   useEffect(() => {
     fetchIngestRequests();
   }, [fetchIngestRequests]);
+
+  // 온보딩 선호 비율 — 화면당 1회. 서버가 10분 TTL 캐시를 들고 있어 재조회는 의미가 없고,
+  // 이 값은 시설을 바꿔 가며 볼 때 계속 같다(시설별이 아니라 업종별 통계다).
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const data = await adminApi.get('/api/v1/preference-stats/categories');
+        if (alive) setCategoryShares(parseCategoryShares(data));
+      } catch (err) {
+        // 라우터 미배선(404)·권한·장애 모두 이 경로다. 실패를 '표본 0' 으로 만들지 않고
+        // null 로 둔다 — 카드가 통째로 사라질 뿐, 없는 숫자를 그리지는 않는다.
+        console.warn('온보딩 선호 비율 로드 실패:', err);
+        if (alive) setCategoryShares(null);
+      }
+    })();
+    return () => { alive = false; };
+  }, []);
 
   const approveIngestRequest = async (req: IngestRequest) => {
     setApprovingIngestId(req.id);
@@ -225,6 +259,7 @@ export default function InfrastructurePage() {
           id: String(f.id),
           name: f.name,
           type: typeMap[f.type] || '관광지',
+          typeCode: toCategoryCode(f.type),
           congestion,
           capacity: currentCount == null ? `${f.capacity} 정원 · 인원 미계수` : `${currentCount}/${f.capacity}`,
         };
@@ -744,29 +779,45 @@ export default function InfrastructurePage() {
                   </div>
                 </div>
 
-                {/* KPI Overview */}
-                <div className="grid grid-cols-2 gap-6">
-                  <div className="bg-hanok-panel p-6 rounded-2xl border border-hanok-line shadow-sm">
-                    <div className="flex items-center gap-2 text-hanok-muted mb-2">
-                      <Users size={18} />
-                      <span className="font-semibold text-sm">실시간 수용량</span>
+                {/* KPI Overview.
+                    수요 압력 카드는 두 항(관측 혼잡 × 업종 선호)이 모두 있을 때만 그린다.
+                    하나라도 없으면 카드를 통째로 내리고 수용량 카드가 전폭을 쓴다 — 자리를
+                    지키려고 0% 를 채우면 관측한 적 없는 사실이 화면에 남는다. */}
+                {(() => {
+                  const pressure = demandPressure(
+                    observedLevel(selectedInfra.congestion),
+                    selectedInfra.typeCode,
+                    categoryShares,
+                  );
+                  return (
+                    <div className={`grid gap-6 ${pressure.status === 'ok' ? 'grid-cols-2' : 'grid-cols-1'}`}>
+                      <div className="bg-hanok-panel p-6 rounded-2xl border border-hanok-line shadow-sm">
+                        <div className="flex items-center gap-2 text-hanok-muted mb-2">
+                          <Users size={18} />
+                          <span className="font-semibold text-sm">실시간 수용량</span>
+                        </div>
+                        <div className="text-2xl font-bold text-hanok-ink">{selectedInfra.capacity}</div>
+                      </div>
+                      {pressure.status === 'ok' && (
+                        <div className="bg-hanok-panel p-6 rounded-2xl border border-hanok-line shadow-sm border-l-4 border-l-gold">
+                          <div className="flex items-center gap-2 text-hanok-muted mb-2">
+                            <Activity size={18} />
+                            <span className="font-semibold text-sm">예상 수요 (온보딩 선호 반영)</span>
+                          </div>
+                          {/* 값 = 지금 붐비는 정도 × 이 업종을 찾는 사람이 얼마나 많은가.
+                              예전에는 이 자리가 최신 congestion_logs 한 건의 등급이라, 바로 위
+                              '현재 상태' 와 같은 숫자를 같은 라벨로 두 번 그리고 있었다. */}
+                          <div className="text-2xl font-bold text-gold tabular-nums">
+                            {Math.round(pressure.value * 100)}%
+                          </div>
+                          {/* 근거를 반드시 함께 둔다 — 근거 없이 숫자만 남기면 지어낸 수치와
+                              화면상 구분되지 않는다(이번 감사에서 반복해 나온 결함). */}
+                          <p className="text-xs text-hanok-muted mt-1">{demandPressureBasis(pressure)}</p>
+                        </div>
+                      )}
                     </div>
-                    <div className="text-2xl font-bold text-hanok-ink">{selectedInfra.capacity}</div>
-                  </div>
-                  <div className="bg-hanok-panel p-6 rounded-2xl border border-hanok-line shadow-sm border-l-4 border-l-gold">
-                    <div className="flex items-center gap-2 text-hanok-muted mb-2">
-                      <Activity size={18} />
-                      <span className="font-semibold text-sm">수요 수준 (최신 관측 기준)</span>
-                    </div>
-                    {/* 이 값은 최신 congestion_logs 한 건을 등급으로 환산한 것이다.
-                        예전 라벨('온보딩 데이터 기반' / '선호 메뉴·동선 분석 결과')은 코드가 하는 일과
-                        달랐다 — 온보딩 선호 데이터는 이 계산에 한 줄도 들어가지 않는다. */}
-                    <div className={`text-lg font-bold ${selectedInfra.congestion.kind === 'observed' ? 'text-gold' : 'text-hanok-muted'}`}>
-                      {facilityStatusLabel(selectedInfra.congestion)}
-                    </div>
-                    <p className="text-xs text-hanok-muted mt-1">최신 혼잡 관측 1건을 등급으로 환산한 값입니다.</p>
-                  </div>
-                </div>
+                  );
+                })()}
 
                 {/* Time Series Chart */}
                 <div className="bg-hanok-panel p-6 rounded-2xl border border-hanok-line shadow-sm flex flex-col h-[300px]">

@@ -7,7 +7,7 @@ import { useRouter } from 'next/navigation';
 import {
   Menu, Bell, Bookmark, User,
   Edit2, ChevronRight, LogOut,
-  Settings as SettingsIcon, Ticket, X, Footprints, Sparkles, Hourglass, Store, FlaskConical, Wrench, UserCog, ShieldCheck
+  Settings as SettingsIcon, Ticket, X, Footprints, Sparkles, Hourglass, Store, FlaskConical, Wrench, UserCog, ShieldCheck, MessageSquare
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { createPublicClient } from '@/lib/supabase';
@@ -25,6 +25,8 @@ import {
 import { roleRequestEntryState } from '@/lib/accountRoles';
 import { apiClient, isAuthError, fetchLabPendingCount } from '@/lib/api-client';
 import { getVisitCount } from '@/lib/visits';
+// '내 문의' 배지의 읽음 판정 — 이 기기 기준(그 한계는 seen.ts 주석에 적어 뒀다).
+import { countUnseenReplies } from './inquiries/seen';
 import { clearUserScopedData } from '@/lib/userData';
 const TasteRadar = dynamic(() => import('@/components/TasteRadar'), { ssr: false });
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
@@ -146,6 +148,33 @@ export default function MyPage() {
         if (alive) setLabPendingCount(Math.max(0, Math.round(Number(count) || 0)));
       } catch (err) {
         // 401 은 서버 장애가 아니다 — 재시도해도 성공할 수 없으므로 카드를 숨긴 채 종료(무한 재시도 금지).
+        if (isAuthError(err)) return;
+        if (!retried) { retried = true; setTimeout(() => { void load(); }, 2500); }
+      }
+    };
+    void load();
+    return () => { alive = false; };
+  }, []);
+
+  // 안 읽은 관리자 답변 건수 — '내 문의' 메뉴의 배지.
+  // 관리자가 답해도 문의자에게 닿는 채널이 없어(메일·웹푸시 인프라 없음) 답변이 앱 안에
+  // 조용히 쌓인다. 배지가 없으면 사용자는 답이 온 줄을 모른다 — 그게 이 배선의 요점이다.
+  // 0 이거나 조회 실패면 null 을 유지해 배지를 아예 그리지 않는다(가짜 숫자 금지).
+  // 읽음 여부는 이 기기에만 남는다(app/mypage/inquiries/seen.ts 의 한계 주석 참조).
+  const [unseenReplies, setUnseenReplies] = useState<number | null>(null);
+  useEffect(() => {
+    let retried = false;
+    let alive = true;
+    const load = async () => {
+      try {
+        const data = await apiClient.get('/api/v1/inquiries/mine');
+        const repliedIds: string[] = (data?.items || [])
+          .filter((row: { replyBody?: string | null }) => row.replyBody?.trim())
+          .map((row: { id: string }) => String(row.id));
+        const unseen = countUnseenReplies(repliedIds);
+        if (alive) setUnseenReplies(unseen > 0 ? unseen : null);
+      } catch (err) {
+        // 401(비로그인)은 서버 장애가 아니다 — 재시도해도 같은 결과라 배지를 숨긴 채 종료.
         if (isAuthError(err)) return;
         if (!retried) { retried = true; setTimeout(() => { void load(); }, 2500); }
       }
@@ -503,10 +532,14 @@ export default function MyPage() {
                   // 분산 코스 추천은 주 내비게이션 바로 승격됨(홈-저장-분산코스-마이).
                   { id: 'impact', icon: Sparkles, labelKey: 'mypage.menuImpact', path: '/mypage/impact' },
                   { id: 'coupons', icon: Ticket, labelKey: 'mypage.menuCoupons', path: '/mypage/coupons' },
+                  // 내 문의 — 관리자 답변을 볼 수 있는 유일한 경로다(메일·푸시 채널이 없다).
+                  { id: 'inquiries', icon: MessageSquare, labelKey: 'mypage.menuInquiries', path: '/mypage/inquiries' },
                   { id: 'settings', icon: SettingsIcon, labelKey: 'mypage.menuSettings', path: '/mypage/settings' },
                 ];
                 return menus.map((menu, index) => {
                 const Icon = menu.icon;
+                // 배지는 '내 문의' 에만, 안 읽은 답변이 실제로 있을 때만 붙는다.
+                const badge = menu.id === 'inquiries' ? unseenReplies : null;
                 return (
                   <button
                     key={menu.id}
@@ -519,6 +552,11 @@ export default function MyPage() {
                         <Icon size={20} className="text-muk-soft" />
                       </div>
                       <span className="text-muk font-medium">{t(menu.labelKey)}</span>
+                      {badge !== null && (
+                        <span className="px-2 py-0.5 rounded-full bg-terracotta text-white text-[11px] font-bold">
+                          {t('inquiries.newReplyBadge')} {badge}
+                        </span>
+                      )}
                     </div>
                     <ChevronRight size={20} className="text-muk-soft" />
                   </button>

@@ -537,6 +537,17 @@ function ReviewQueue({
   const decide = async (row: VerificationRow, approve: boolean) => {
     if (decidingId) return;
     // 승인은 역할 승격 + 소유권 부여 + 증빙 삭제를 서버가 한 번에 처리한다.
+    // ⚠️ 수용된 위험(2026-09-07 사용자 판단) — **큐는 정적 스냅샷이다.**
+    // 심사자가 '이름 ↔ 서류' 를 대조한 뒤 이 버튼을 누르기까지 몇 분이 있고, 그 사이 신청자가
+    // `store_name`·`document_path` 를 바꿀 수 있다. 즉 **심사자가 본 것과 승인된 것이 다를 수
+    // 있다.** 낙관적 동시성(version 칼럼)이나 '본 값 해시 동봉' 으로 막을 수 있지만, 전자는
+    // 마이그레이션이 필요하고 후자는 프런트·백엔드 배포 시차 처리를 정해야 해서 지금은 두기로 했다.
+    //
+    // 소유권이 걸린 `facility_id` 는 **이미 막혀 있다** — PATCH 가 그 필드를 아예 받지 않아
+    // (account.py) 심사 중 가게 바꿔치기로 남의 소유권을 받아가는 경로는 닫혔다.
+    // 남은 표면은 이름·서류뿐이다. 이 주석을 지우지 마라 — 지우면 다음 사람이 이걸
+    // '검토 안 한 구멍' 으로 오해한다.
+
     // 거절은 사유가 필수다(신청자에게 그대로 보인다).
     const reason = approve ? undefined : window.prompt('반려 사유를 입력하세요');
     if (!approve && !reason) return;

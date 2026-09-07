@@ -28,6 +28,19 @@ _FRESH_MINUTES = 30
 _DELAYED_MINUTES = 60
 _ALLOWED_SOURCES = {"gyeongju_its", "national_parking_api"}
 
+# 응답에 원문 ISO 로 싣는 누락 버킷의 최대 개수.
+#
+# 왜 자르나: hours 상한 168 이면 창은 1008 버킷이고, **완전 장애 시 그 1008개가 전부 누락**이
+# 된다. 그때 목록을 통째로 실으면 응답 대부분이 같은 사실을 1008번 반복하는 ISO 문자열이
+# 된다 — 사람도 기계도 앞 몇 개만 보고 판단한다(경보 워크플로는 alert.state 만 읽는다).
+#
+# 왜 자른 사실을 반드시 함께 싣나: 조용히 20개만 주면 화면에는 '20개만 빠졌다' 는
+# **실재하지 않는 그림**이 뜬다. 이 화면의 존재 이유가 정확히 그 판정이므로, 자를 때는
+# missing_total/missing_range/missing_truncated 로 '무엇이 잘렸는지' 를 같이 말한다.
+# (missing_truncated 와 missing_total 은 자르지 않았을 때도 항상 보낸다 — 있다가 없다가 하는
+#  필드는 소비처가 KeyError 로 깨지거나, 없음을 '거짓' 으로 오독하게 만든다.)
+_MISSING_BUCKET_SAMPLE_LIMIT = 20
+
 
 class AreaDemandReliabilityError(RuntimeError):
     """신뢰도 계산에 필요한 운영 테이블을 안전하게 조회하지 못했다."""
@@ -274,6 +287,13 @@ async def get_area_demand_reliability(
     received_count = len(received)
     missing_count = len(missing)
     missing_rate = round(missing_count / expected_count, 4)
+    # 목록은 앞에서부터 자르고(누락은 시간순이라 앞이 곧 '언제부터'), 잘린 사실과 전체 범위를
+    # 함께 남긴다. missing_range 는 **자르기 전 전체 목록**의 첫·마지막이라 잘라도 실제 공백
+    # 구간의 폭을 그대로 말해 준다.
+    missing_sample = missing[:_MISSING_BUCKET_SAMPLE_LIMIT]
+    missing_range = (
+        {"first_bucket_at": missing[0], "last_bucket_at": missing[-1]} if missing else None
+    )
     return {
         "source": source,
         # 여러 지표를 조합해야 알 수 있던 '지금 괜찮은가' 를 한 필드로 답한다.
@@ -295,7 +315,11 @@ async def get_area_demand_reliability(
             "received_bucket_count": received_count,
             "missing_bucket_count": missing_count,
             "missing_rate": missing_rate,
-            "missing_buckets": missing,
+            # 원문 목록은 최대 _MISSING_BUCKET_SAMPLE_LIMIT 개 — 아래 세 필드가 나머지를 설명한다.
+            "missing_buckets": missing_sample,
+            "missing_total": missing_count,
+            "missing_range": missing_range,
+            "missing_truncated": missing_count > len(missing_sample),
             "longest_gap_buckets": longest_gap,
             "longest_gap_minutes": longest_gap * BUCKET_MINUTES,
             "complete": missing_count == 0,

@@ -227,7 +227,14 @@
     "mobileToolsDesc": "按需打开功能，让地图更清晰",
     "foodFilters": "餐饮类型",
     "voiceSearchUnsupported": "此浏览器不支持语音搜索",
-    "unsupported": "不支持"
+    "unsupported": "不支持",
+    "tourApiTitle": "在韩国观光公社资料中找到的地点",
+    "tourApiSource": "我们的数据中没有，因此在韩国观光公社资料中查找。这些地点尚未收录。",
+    "ingestRequest": "申请添加",
+    "ingestRequested": "已受理申请",
+    "ingestRequestDone": "已受理添加「{name}」的申请。管理员确认后将会收录。",
+    "ingestRequestFailed": "未能发送申请，请稍后再试。",
+    "searchNoResultAnywhere": "「{q}」在我们的数据和韩国观光公社资料中都没有"
   },
   "mypage": {
     "menuAria": "菜单",
@@ -252,7 +259,8 @@
     "editNameSaved": "已保存资料。",
     "savedBannerZero": "目前还没有节省时间",
     "savedValueZero": "用 NextSpot 找到越多空闲地点，等待就越少",
-    "editNameFailed": "无法保存个人资料，请重试。"
+    "editNameFailed": "无法保存个人资料，请重试。",
+    "menuInquiries": "我的咨询"
   },
   "settings": {
     "title": "设置",
@@ -360,7 +368,8 @@
     "replanSwapped": "已重新规划 · 新增 {added} 处，移除 {removed} 处",
     "slotNoCandidateAny": "附近没有符合条件的地点",
     "unpinAll": "全部取消固定",
-    "unpin": "取消固定"
+    "unpin": "取消固定",
+    "slotDroppedHere": "这一站没能安排上"
   },
   "coupons": {
     "expired": "已过期",
@@ -950,5 +959,30 @@
     "doneTitle": "您的问题已收到。",
     "doneDesc": "工作人员将查看内容并尽快处理。",
     "backToMypage": "返回我的页面"
+  },
+  "systemNotice": {
+    "maintenanceTitle": "系统维护中",
+    "maintenanceBody": "请稍后再来。维护结束后即可正常使用。",
+    "dismiss": "关闭公告"
+  },
+  "inquiries": {
+    "title": "我的咨询",
+    "subtitle": "查看您发送的咨询与回复",
+    "loading": "加载中…",
+    "empty": "您还没有发送过咨询",
+    "emptyCta": "前往咨询",
+    "loadFailed": "无法加载咨询记录",
+    "loadFailedHint": "这不代表没有咨询，而是查询失败",
+    "retry": "重试",
+    "loginRequired": "登录后即可查看咨询与回复",
+    "statusNew": "已受理",
+    "statusInProgress": "处理中",
+    "statusResolved": "已处理",
+    "replyTitle": "回复",
+    "awaitingReply": "尚未收到回复",
+    "replyUnavailable": "回复功能正在准备中，暂时无法在此显示",
+    "repliedAt": "{date} 回复",
+    "anonymousHint": "登录前发送的咨询不会显示在此处",
+    "newReplyBadge": "新回复"
   }
 }

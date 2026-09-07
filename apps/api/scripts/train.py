@@ -103,19 +103,37 @@ def collect_rows(client) -> tuple[list[tuple[datetime, str, float]], dict, list[
         "verified": 0, "corroborated": 0, "synthetic": 0, "single_report": 0,
         **{name: 0 for name in NEVER_TRAINABLE_SOURCES},
     })
-    corroborated_logs: dict[tuple[str, datetime], list[float]] = defaultdict(list)
+    # 확증(corroborated) 관측을 합치는 단위는 **'한 가게의 한 사건'** 이다 — 그래서 버킷 키에
+    # facility_id 가 들어간다. 이 등급을 붙이는 트리거(correlate_congestion_report_evidence)가
+    # **같은 시설 안에서** 서로 다른 사용자 2명 이상이 ±30분·±0.05 로 일치할 때만 승격하기
+    # 때문이다(20260819120000_recommendation_trust_loop.sql).
+    #
+    # 예전에는 (facility_type, bucket) 으로만 묶었다. 그러면 같은 30분 안에 서로 다른 카페 세
+    # 곳에서 각각 확증된 0.9 / 0.2 / 0.5 가 중앙값 한 줄 0.5 로 뭉개진다 — 실제 관측 두 개가
+    # 사라지고 **아무 가게에서도 관측된 적 없는 숫자 하나**가 학습 정답으로 남았다.
+    # 게다가 verified 행은 시설·버킷이 같아도 한 줄씩 들어가므로, 두 신뢰 등급이 서로
+    # 비교 불가능한 단위로 한 데이터셋에 섞였고 그 단위가 그대로 승격 게이트의 분모
+    # (real_data_count, MIN_*_COUNT)가 됐다.
+    corroborated_logs: dict[tuple[str, str, datetime], list[float]] = defaultdict(list)
+    # 단위를 바꾸면 같은 관측이 더 잘게 나뉘어 표본 수가 늘어난다. 게이트가 상대적으로
+    # 느슨해졌는지 사람이 판단할 수 있게, 옛 단위로 셌을 때의 개수도 함께 남긴다.
+    legacy_type_buckets: set[tuple[str, datetime]] = set()
+    corroborated_rows = 0
     for log in logs:
         tier = str(log.get("evidence_tier") or "synthetic")
         source = str(log.get("source") or "")
         if tier not in TRUSTED_TIERS:
             continue
         ts = parse_time(log.get("timestamp"))
-        facility_type = facility_types.get(str(log.get("facility_id")))
+        facility_id = str(log.get("facility_id"))
+        facility_type = facility_types.get(facility_id)
         if ts is None or facility_type not in CANONICAL_TYPES:
             continue
         if tier == "corroborated":
             bucket = ts.replace(minute=(ts.minute // 30) * 30, second=0, microsecond=0)
-            corroborated_logs[(facility_type, bucket)].append(float(log["congestion_level"]))
+            corroborated_logs[(facility_id, facility_type, bucket)].append(float(log["congestion_level"]))
+            legacy_type_buckets.add((facility_type, bucket))
+            corroborated_rows += 1
         else:
             rows.append((ts, facility_type, float(log["congestion_level"])))
             sources[tier] += 1
@@ -124,9 +142,20 @@ def collect_rows(client) -> tuple[list[tuple[datetime, str, float]], dict, list[
             # (tier 필터를 이미 통과한 뒤라, 여기 걸리는 것은 '신뢰 등급이 잘못 붙은 행' 뿐이다.)
             sources[source] += 1
 
-    for (facility_type, bucket), values in corroborated_logs.items():
+    for (_facility_id, facility_type, bucket), values in corroborated_logs.items():
         rows.append((bucket, facility_type, statistics.median(values)))
         sources["corroborated"] += 1
+
+    # 학습 로그에 '무슨 단위로 셌는지' 를 남긴다. 이 개수가 그대로 real_data_count 이자
+    # MIN_REAL_DATA_COUNT/MIN_TYPE_COUNT/MIN_HOLDOUT_COUNT 의 분모라, 단위를 밝히지 않으면
+    # 나중에 문턱이 상대적으로 낮아진 것을 '표본이 늘었다' 로 오독하게 된다.
+    print(
+        "corroborated bucket unit=(facility_id, facility_type, 30min): "
+        f"raw_rows={corroborated_rows}, buckets_before(facility_type only)={len(legacy_type_buckets)}, "
+        f"buckets_after={len(corroborated_logs)}, "
+        f"real_data_count_before={sources['verified'] + len(legacy_type_buckets)}, "
+        f"real_data_count_after={sources['verified'] + len(corroborated_logs)}"
+    )
 
     return sorted(rows, key=lambda row: row[0]), dict(sources), active_types
 

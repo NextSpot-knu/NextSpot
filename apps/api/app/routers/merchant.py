@@ -36,6 +36,7 @@
 """
 import asyncio
 import hmac
+import math
 from datetime import datetime, timedelta, timezone
 from typing import Literal
 
@@ -53,7 +54,7 @@ from app.core.authz import (
 from app.core.config import settings
 from app.core.supabase import supabase_admin
 from app.services import merchant_briefing_service
-from app.services.merchant_boost import SEAT_LEVEL_CONGESTION
+from app.services.merchant_boost import SEAT_LEVEL_CONGESTION, SEAT_STATUS_FRESH_MINUTES
 
 logger = structlog.get_logger()
 
@@ -399,7 +400,105 @@ async def cancel_timesale(req: TimesaleCancel, ctx: dict = Depends(merchant_cont
 # 오래된 방송이 30분간 랭킹에 남는 상황을 스스로 끊을 수 있다.
 # 쓰기는 두 번이고 **주 효과는 facilities 갱신 하나뿐**이다(congestion_logs 관측은 부수 효과) —
 # 둘을 한 트랜잭션으로 묶을 수 없어서 생기는 문제와 그 판단 근거는 아래 함수 본문 주석 참조.
+#
+# ⚠️ 관측(②)에는 **빈도 제한**이 걸려 있다. 방송(①) 자체는 언제든 되지만, 같은 버튼을 N번
+#    누른다고 evidence_tier='verified' 학습 정답이 N줄 쌓이지는 않는다 — 아래
+#    _SEAT_OBSERVATION_MIN_INTERVAL_MINUTES 와 _seat_observation_decision 참조.
 # =========================================================================
+
+
+# 좌석 방송이 **시계열 관측으로 남는** 최소 간격(분).
+#
+# 왜 이 값인가: 좌석 상태의 추천 반영 창이 30분이다(merchant_boost.SEAT_STATUS_FRESH_MINUTES).
+# 10분이면 그 한 창 안에 최대 3번까지 관측이 남는다 — 점심 피크처럼 실제로 상태가 바뀌는
+# 구간의 변화를 놓치지 않으면서, 연타가 학습 정답을 부풀리지는 못하는 선이다.
+# (반대로 30분으로 잡으면 창 안의 변화가 통째로 기록되지 않고, 1분으로 잡으면 제한이 없는 것과
+#  같다.)
+#
+# ⚠️ 이 간격은 **방송을 막지 않는다.** facilities.features.seat_status 는 매번 갱신되므로
+#    누를 때마다 손님 화면과 추천 반영 창(30분)은 실제로 새로 시작한다. 막는 것은 오직
+#    congestion_logs 행이 중복으로 쌓이는 것뿐이다 — 눌러도 아무 일도 없는 버튼을 만들지
+#    않기 위한 구분이고, 남은 시간은 응답에 실어 화면이 그대로 말하게 한다.
+_SEAT_OBSERVATION_MIN_INTERVAL_MINUTES = 10
+_SEAT_OBSERVATION_MIN_INTERVAL_SECONDS = _SEAT_OBSERVATION_MIN_INTERVAL_MINUTES * 60
+
+# 좌석 방송이 congestion_logs 에 남길 때 쓰는 source. 직전 관측을 되찾을 때도 같은 값으로
+# 좁힌다 — 손님 제보(user_report)까지 세면 사장님 방송과 무관한 행이 간격 판정을 좌우한다.
+_SEAT_OBSERVATION_SOURCE = "merchant_report"
+
+
+def _parse_iso(value) -> datetime | None:
+    """DB 가 준 타임스탬프 문자열 → aware UTC datetime. 못 읽으면 None."""
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    return parsed.replace(tzinfo=timezone.utc) if parsed.tzinfo is None else parsed.astimezone(timezone.utc)
+
+
+async def _last_seat_observation(facility_id: str) -> dict | None:
+    """이 가게의 직전 좌석 방송 관측 1행(없거나 조회 실패면 None).
+
+    조회가 실패해도 방송을 실패시키지 않고 None 을 준다 — 그러면 아래 판정이 '기록한다' 로
+    가는데, 이는 의도한 fail-open 이다. congestion_logs 를 못 읽는 상황이면 이어지는 insert 도
+    같이 실패해 observation_logged=False 로 정직하게 보고된다. 반대로 fail-closed 로 잡으면
+    일시적 조회 실패가 **멀쩡한 현장 관측을 조용히 버리는** 쪽으로 작동한다.
+    """
+    try:
+        res = await asyncio.to_thread(
+            supabase_admin.table("congestion_logs")
+            .select("timestamp, congestion_level")
+            .eq("facility_id", facility_id)
+            .eq("source", _SEAT_OBSERVATION_SOURCE)
+            .order("timestamp", desc=True)
+            .limit(1)
+            .execute
+        )
+    except Exception as e:
+        logger.warning("merchant_seat_status_last_log_lookup_failed", facility_id=facility_id, error=str(e))
+        return None
+    return (res.data or [None])[0]
+
+
+def _seat_observation_decision(
+    previous: dict | None, level_value: float, now: datetime
+) -> tuple[str, int | None]:
+    """이번 방송을 시계열 관측으로 남길지 정한다 → (판정, 다음 기록까지 남은 초).
+
+    판정은 셋 중 하나다.
+      · "log"       — 남긴다.
+      · "unchanged" — 직전 관측과 값이 같다. **간격과 무관하게** 남기지 않는다. 같은 사실을
+                      두 번 적는 것일 뿐이고, 학습 정답에서는 그 중복이 곧 가중치가 된다.
+                      (남은 시간을 주지 않는다 — 기다린다고 기록되는 게 아니라 값이 바뀌어야
+                       기록되기 때문이다. 없는 카운트다운을 보여주면 그것도 거짓말이다.)
+      · "throttled" — 값은 다른데 직전 기록이 너무 최근이다. 남은 초를 함께 준다.
+    """
+    if previous is None:
+        return "log", None
+    previous_level = previous.get("congestion_level")
+    if previous_level is not None:
+        try:
+            # 좌석 등급은 SEAT_LEVEL_CONGESTION 의 고정 3값이지만, DB 를 왕복하며 numeric →
+            # float 로 오므로 정확히 같은지는 부동소수 오차를 감안해 본다.
+            if math.isclose(float(previous_level), level_value, abs_tol=1e-9):
+                return "unchanged", None
+        except (TypeError, ValueError):
+            pass  # 값을 못 읽으면 '같다' 고 단정하지 않는다 — 관측을 버리는 쪽으로 기울지 않는다.
+    previous_at = _parse_iso(previous.get("timestamp"))
+    if previous_at is None:
+        # 직전 시각을 못 읽으면 간격을 판정할 수 없다. 판정 불가를 '차단' 으로 읽지 않는다.
+        return "log", None
+    elapsed = (now - previous_at).total_seconds()
+    if elapsed >= _SEAT_OBSERVATION_MIN_INTERVAL_SECONDS:
+        return "log", None
+    # elapsed 가 음수(시계 어긋남)여도 간격 이상으로 부풀리지 않는다 — 최대치는 간격 그 자체다.
+    remaining = min(
+        _SEAT_OBSERVATION_MIN_INTERVAL_SECONDS,
+        math.ceil(_SEAT_OBSERVATION_MIN_INTERVAL_SECONDS - elapsed),
+    )
+    return "throttled", max(1, remaining)
 
 
 class SeatStatusUpdate(BaseModel):
@@ -469,46 +568,83 @@ async def update_seat_status(req: SeatStatusUpdate, ctx: dict = Depends(merchant
     #
     # 대신 **조용히 삼키지 않는다**: 실패 사실을 응답에 실어 사장님에게 그대로 전한다
     # (이 저장소 원칙 — 실패를 '없음' 과 같은 값으로 표현하지 않는다).
-    #   observation_logged: True=기록됨 / False=기록 실패 / None=해당 없음(해제 요청)
+    #   observation_logged: True=기록됨 / False=기록 실패 / None=해당 없음(해제·의도적 생략)
+    #
+    # observation_logged 만으로는 '실패' 와 '일부러 안 남김' 을 구분할 수 없어서
+    # observation_status 를 함께 준다. False 는 **진짜 실패에만** 쓴다 — 빈도 제한으로 건너뛴
+    # 것을 False 로 주면 프런트가 장애 문구를 띄우고, 사장님은 멀쩡한 방송을 실패로 읽는다.
+    #   observation_status: logged / failed / throttled / unchanged / not_applicable
     observation_logged: bool | None = None
     observation_note: str | None = None
+    observation_status = "not_applicable"
+    # 다음 관측이 남을 때까지 남은 초. **서버가 계산해서 준다** — 클라이언트 절대시계를 믿고
+    # 화면에서 빼면, 단말 시계가 어긋난 사장님에게는 없는 대기 시간이 보이거나 그 반대가 된다.
+    next_observation_in_seconds: int | None = None
     if req.level is not None:
-        # 화면용 최신 상태와 별개로 시계열 관측을 남긴다. 매장 운영자가 직접 확인한
-        # 좌석 방송은 MVP의 가장 빠른 현장 관측이므로 공식 학습 가능한 verified 로 기록한다.
-        try:
-            normalized_level = SEAT_LEVEL_CONGESTION[req.level]
-            capacity = int(fac_res.data[0].get("capacity") or 0)
-            await asyncio.to_thread(
-                supabase_admin.table("congestion_logs").insert({
-                    "facility_id": req.facility_id,
-                    "timestamp": updated_at,
-                    "current_count": round(capacity * normalized_level),
-                    "congestion_level": normalized_level,
-                    "source": "merchant_report",
-                    "evidence_tier": "verified",
-                    # 누가 방송했는지 남긴다. 이 행은 evidence_tier='verified' 라 모델 학습에
-                    # 들어가므로, 오염이 발견되면 출처를 되짚을 수 있어야 한다.
-                    # 레거시 공유 토큰 경로는 사용자를 특정할 수 없어 NULL 이다.
-                    "reporter_user_id": (ctx.get("profile") or {}).get("id"),
-                }).execute
-            )
-            # insert 결과가 비었는지는 보지 않는다 — PostgREST 의 returning 설정에 따라 정상
-            # 성공에도 빈 배열이 올 수 있어, 그걸 실패로 읽으면 매 방송마다 거짓 경보가 된다.
-            # 여기서 확실히 아는 실패는 '예외가 났다' 뿐이므로 그것만 False 로 보고한다.
-            observation_logged = True
-        except Exception as e:
-            logger.error("merchant_seat_status_log_failed", facility_id=req.facility_id, error=str(e))
-            observation_logged = False
+        normalized_level = SEAT_LEVEL_CONGESTION[req.level]
+        # 빈도 제한(감사 10번) — 방송은 이미 위에서 반영됐다. 여기서 거르는 것은 학습 정답으로
+        # 들어가는 congestion_logs 행뿐이다.
+        previous = await _last_seat_observation(req.facility_id)
+        observation_status, next_observation_in_seconds = _seat_observation_decision(
+            previous, normalized_level, datetime.now(timezone.utc)
+        )
+
+        if observation_status == "log":
+            # 화면용 최신 상태와 별개로 시계열 관측을 남긴다. 매장 운영자가 직접 확인한
+            # 좌석 방송은 MVP의 가장 빠른 현장 관측이므로 공식 학습 가능한 verified 로 기록한다.
+            try:
+                capacity = int(fac_res.data[0].get("capacity") or 0)
+                await asyncio.to_thread(
+                    supabase_admin.table("congestion_logs").insert({
+                        "facility_id": req.facility_id,
+                        "timestamp": updated_at,
+                        "current_count": round(capacity * normalized_level),
+                        "congestion_level": normalized_level,
+                        "source": _SEAT_OBSERVATION_SOURCE,
+                        "evidence_tier": "verified",
+                        # 누가 방송했는지 남긴다. 이 행은 evidence_tier='verified' 라 모델 학습에
+                        # 들어가므로, 오염이 발견되면 출처를 되짚을 수 있어야 한다.
+                        # 레거시 공유 토큰 경로는 사용자를 특정할 수 없어 NULL 이다.
+                        "reporter_user_id": (ctx.get("profile") or {}).get("id"),
+                    }).execute
+                )
+                # insert 결과가 비었는지는 보지 않는다 — PostgREST 의 returning 설정에 따라 정상
+                # 성공에도 빈 배열이 올 수 있어, 그걸 실패로 읽으면 매 방송마다 거짓 경보가 된다.
+                # 여기서 확실히 아는 실패는 '예외가 났다' 뿐이므로 그것만 False 로 보고한다.
+                observation_logged = True
+                observation_status = "logged"
+                # 방금 남겼으니 다음 기록 가능 시점은 정확히 한 간격 뒤다 — 화면이 카운트다운을
+                # 띄울 수 있게 성공 시에도 남은 시간을 준다.
+                next_observation_in_seconds = _SEAT_OBSERVATION_MIN_INTERVAL_SECONDS
+            except Exception as e:
+                logger.error("merchant_seat_status_log_failed", facility_id=req.facility_id, error=str(e))
+                observation_logged = False
+                observation_status = "failed"
+                # 아무것도 못 남겼으니 다음 시도를 막을 근거도 없다 — 카운트다운을 주지 않는다.
+                next_observation_in_seconds = None
+                observation_note = (
+                    "좌석 상태 방송은 정상 반영됐지만, 이 방송을 시계열 관측 기록으로 남기지 못했습니다. "
+                    "손님 화면과 추천에는 지금 상태가 그대로 쓰입니다."
+                )
+        elif observation_status == "throttled":
+            minutes_left = math.ceil((next_observation_in_seconds or 0) / 60)
             observation_note = (
-                "좌석 상태 방송은 정상 반영됐지만, 이 방송을 시계열 관측 기록으로 남기지 못했습니다. "
-                "손님 화면과 추천에는 지금 상태가 그대로 쓰입니다."
+                f"좌석 상태 방송은 정상 반영됐습니다(추천 반영 {SEAT_STATUS_FRESH_MINUTES}분 재시작). "
+                f"다만 직전 관측 기록이 {_SEAT_OBSERVATION_MIN_INTERVAL_MINUTES}분 이내라 이번 방송은 "
+                f"기록으로 남기지 않았습니다 — 약 {minutes_left}분 뒤에 다시 기록됩니다."
+            )
+        elif observation_status == "unchanged":
+            observation_note = (
+                f"좌석 상태 방송은 정상 반영됐습니다(추천 반영 {SEAT_STATUS_FRESH_MINUTES}분 재시작). "
+                "직전 기록과 같은 상태라 관측 기록은 새로 남기지 않았습니다 — 상태가 바뀌면 다시 기록됩니다."
             )
 
     logger.info(
         "merchant_seat_status_cleared" if req.level is None else "merchant_seat_status_updated",
         facility_id=req.facility_id, level=req.level, observation_logged=observation_logged,
+        observation_status=observation_status,
     )
-    # 기존 3키는 그대로 두고(응답 봉투 불변) 관측 기록 결과만 덧붙인다 — 해제 시 level=None,
+    # 기존 5키는 그대로 두고(응답 봉투 불변) 판정·남은 시간만 덧붙인다 — 해제 시 level=None,
     # updated_at 은 '해제한 시각'.
     return {
         "facility_id": req.facility_id,
@@ -516,4 +652,6 @@ async def update_seat_status(req: SeatStatusUpdate, ctx: dict = Depends(merchant
         "updated_at": updated_at,
         "observation_logged": observation_logged,
         "observation_note": observation_note,
+        "observation_status": observation_status,
+        "next_observation_in_seconds": next_observation_in_seconds,
     }

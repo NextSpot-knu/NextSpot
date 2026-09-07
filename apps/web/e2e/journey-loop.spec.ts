@@ -1,14 +1,14 @@
 import { expect, test, type Page } from '@playwright/test';
+import { stubExternalServices } from './support/stubs';
 
+// 지도 SDK 뿐 아니라 **Supabase 인증까지** 막는다. 익명 세션이 제때 붙지 않으면
+// recommendByType 이 AuthError 를 던지고, 화면이 '조건에 맞는 곳 0건' 을 '장애' 로 바꿔 말한다
+// (support/stubs.ts 주석 참조 — 실제로 이 묶음을 불안정하게 만들던 원인이다).
 async function mockKakaoSdk(page: Page) {
-  await page.route('**://dapi.kakao.com/**', route => route.fulfill({
-    status: 200,
-    contentType: 'application/javascript',
-    body: '/* Kakao SDK is intentionally unavailable in deterministic E2E. */',
-  }));
+  await stubExternalServices(page);
 }
 
-test.beforeEach(async ({ page }) => mockKakaoSdk(page));
+test.beforeEach(async ({ page }) => stubExternalServices(page));
 
 const recommendations = [
   ['rec-a', '고요한 찻집', 0.91, 120],

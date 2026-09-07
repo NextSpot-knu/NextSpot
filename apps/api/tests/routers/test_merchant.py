@@ -4,6 +4,7 @@
 #         이 파일은 **엔드포인트 로직**을 보므로 프로필 로더만 목으로 대체하고,
 #         역할·소유권 자체의 계약은 test_merchant_rbac.py 가 따로 잠근다.
 #  · DB: supabase_admin 은 test_routers.py 의 공용 FakeSupabase(canned 데이터)로 대체 — PostgREST 호출 없음.
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -487,6 +488,144 @@ def test_merchant_seat_status_clear_facility_404(client):
             json={"facility_id": "ghost", "level": None},
         )
     assert res.status_code == 404
+
+
+# =========================================================================
+# 5-3. 남용 방지(감사 10번) — 같은 버튼을 N번 누르면 verified 학습 정답이 N줄 쌓였다.
+# 방송(facilities) 자체는 그대로 두고 **관측 행만** 거른다:
+#   · 직전 관측이 10분 이내면 생략(좌석 만료 30분 안에 최대 3번)
+#   · 값이 직전과 같으면 간격과 무관하게 생략
+# 눌러도 아무 일도 없는 버튼이 되지 않게, 남은 시간은 **서버가 계산해** 응답에 실어 준다.
+# =========================================================================
+
+
+class _SeatLogSupabase(_CapturingFacilitiesSupabase):
+    """congestion_logs 의 '직전 관측 조회' 에 canned 행을 물리고 insert 를 붙잡는 Fake."""
+
+    def __init__(self, facility: dict, captured: dict, previous: list[dict] | None = None):
+        super().__init__(facility, captured)
+        self._previous = previous or []
+
+    def table(self, name: str):
+        if name == "congestion_logs":
+            return _PreviousLogTable(self._previous, self._captured)
+        return super().table(name)
+
+
+class _PreviousLogTable(FakeTable):
+    """select 체인은 직전 관측을 돌려주고, insert 는 payload 를 captured 에 남긴다."""
+
+    def __init__(self, previous: list[dict], captured: dict):
+        super().__init__(previous)
+        self._captured = captured
+
+    def insert(self, payload):
+        self._captured["congestion_log"] = payload
+        self._data = [payload]
+        return self
+
+
+def _ago(minutes: float) -> str:
+    return (datetime.now(timezone.utc) - timedelta(minutes=minutes)).isoformat()
+
+
+def _post_seat(client, level: str, previous: list[dict], captured: dict):
+    facility = {"id": "f-1", "capacity": 40, "features": {"average_processing_time": 10}}
+    with patch(
+        "app.routers.merchant.supabase_admin",
+        new=_SeatLogSupabase(facility, captured, previous),
+    ):
+        return client.post(
+            "/api/v1/merchant/seat-status",
+            headers=_merchant_headers(),
+            json={"facility_id": "f-1", "level": level},
+        )
+
+
+def test_merchant_seat_status_throttles_repeat_log_within_interval(client):
+    """직전 관측이 10분 이내면 새 관측을 남기지 않는다 — 방송 자체는 그대로 반영된다.
+
+    빈도 제한을 없애면 이 테스트는 congestion_log 가 남아 실패한다.
+    """
+    captured: dict = {}
+    # 3분 전에 '여유(0.15)' 를 기록해 뒀다. 지금은 '만석(0.9)' 이라 값은 달라졌지만 간격이 짧다.
+    res = _post_seat(client, "full", [{"timestamp": _ago(3), "congestion_level": 0.15}], captured)
+
+    assert res.status_code == 200
+    body = res.json()
+    # ① 방송(주 효과)은 막지 않는다 — 손님 화면과 추천 반영 창은 새로 시작한다.
+    assert captured["payload"]["features"]["seat_status"]["level"] == "full"
+    assert body["level"] == "full"
+    # ② 학습 정답이 되는 관측 행만 생략됐다.
+    assert "congestion_log" not in captured
+    assert body["observation_status"] == "throttled"
+    # '기록 실패'(False)와 구분한다 — 실패가 아니므로 프런트가 장애 문구를 띄우면 안 된다.
+    assert body["observation_logged"] is None
+    # 남은 시간은 서버가 계산해서 준다(클라이언트 시계를 믿지 않는다). 3분 지났으니 7분쯤 남았다.
+    assert 6 * 60 < body["next_observation_in_seconds"] <= 7 * 60
+    assert "다시 기록됩니다" in body["observation_note"]
+
+
+def test_merchant_seat_status_skips_log_when_value_is_unchanged(client):
+    """값이 직전과 같으면 간격과 무관하게 생략한다 — 같은 사실을 두 번 적는 것일 뿐이다."""
+    captured: dict = {}
+    # 두 시간 전 기록이라 간격 제한에는 걸리지 않는다. 그런데 값이 같다.
+    res = _post_seat(client, "mid", [{"timestamp": _ago(120), "congestion_level": 0.5}], captured)
+
+    assert res.status_code == 200
+    body = res.json()
+    assert captured["payload"]["features"]["seat_status"]["level"] == "mid"
+    assert "congestion_log" not in captured
+    assert body["observation_status"] == "unchanged"
+    assert body["observation_logged"] is None
+    # 기다린다고 기록되는 게 아니라 값이 바뀌어야 기록된다 — 없는 카운트다운을 만들지 않는다.
+    assert body["next_observation_in_seconds"] is None
+    assert "같은 상태" in body["observation_note"]
+
+
+def test_merchant_seat_status_logs_again_after_interval(client):
+    """간격이 지났고 값도 달라졌으면 정상적으로 관측을 남기고, 다음 기록까지의 시간을 알려준다."""
+    captured: dict = {}
+    res = _post_seat(client, "full", [{"timestamp": _ago(11), "congestion_level": 0.15}], captured)
+
+    assert res.status_code == 200
+    body = res.json()
+    assert captured["congestion_log"]["evidence_tier"] == "verified"
+    assert captured["congestion_log"]["congestion_level"] == pytest.approx(0.9)
+    assert body["observation_status"] == "logged"
+    assert body["observation_logged"] is True
+    assert body["next_observation_in_seconds"] == 600
+
+
+def test_merchant_seat_status_logs_when_no_previous_observation(client):
+    """직전 관측이 아예 없으면(첫 방송) 당연히 기록한다 — 제한이 첫 관측을 삼키지 않는다."""
+    captured: dict = {}
+    res = _post_seat(client, "low", [], captured)
+
+    assert res.status_code == 200
+    assert captured["congestion_log"]["source"] == "merchant_report"
+    assert res.json()["observation_status"] == "logged"
+
+
+def test_seat_observation_decision_survives_unreadable_previous_row():
+    """직전 행을 못 읽으면 '차단' 이 아니라 '기록' 으로 기운다 — 판정 불가로 관측을 버리지 않는다."""
+    now = datetime(2026, 7, 15, 3, 0, tzinfo=timezone.utc)
+    # 시각을 못 읽는 행: 값은 달라서 unchanged 도 아니다.
+    assert merchant._seat_observation_decision({"timestamp": "not-a-time", "congestion_level": 0.15}, 0.9, now) == ("log", None)
+    # 값을 못 읽는 행: '같다' 고 단정하지 않고 간격만 본다.
+    assert merchant._seat_observation_decision(
+        {"timestamp": (now - timedelta(minutes=30)).isoformat(), "congestion_level": "?"}, 0.9, now
+    ) == ("log", None)
+
+
+def test_seat_observation_decision_clamps_clock_skew():
+    """직전 기록 시각이 미래로 어긋나 있어도 남은 시간을 간격 이상으로 부풀리지 않는다."""
+    now = datetime(2026, 7, 15, 3, 0, tzinfo=timezone.utc)
+    status, remaining = merchant._seat_observation_decision(
+        {"timestamp": (now + timedelta(hours=5)).isoformat(), "congestion_level": 0.15}, 0.9, now
+    )
+    assert status == "throttled"
+    assert remaining == merchant._SEAT_OBSERVATION_MIN_INTERVAL_SECONDS
 
 
 def test_merchant_seat_status_missing_level_422(client):

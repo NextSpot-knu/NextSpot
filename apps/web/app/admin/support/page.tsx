@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import {
-  Search, Bell, MessageSquare, CheckCircle, FileText, AlertCircle
+  Search, Bell, MessageSquare, CheckCircle, FileText, AlertCircle, Send, Loader2
 } from 'lucide-react';
 import { AdminSidebar } from '@/components/AdminSidebar';
 import { adminApi } from '@/lib/admin-api';
@@ -12,23 +12,43 @@ import { countLabel, emptyOrFailedText, type LoadStatus } from '@/lib/adminLoadS
 interface Ticket {
   id: string;
   user: string;
+  /** 문의자 uid. null = 세션 없이 접수된 익명 문의 → 앱 안에서 답변을 볼 사람이 없다(아래 배너). */
+  userId: string | null;
   type: string;
   title: string;
   content: string;
   status: 'new' | 'in_progress' | 'resolved';
   time: string;
+  /** 저장된 답변 본문. null = 아직 답하지 않음. */
+  replyBody: string | null;
+  repliedAt: string | null;
 }
 
 /** GET /api/v1/admin/inquiries 응답 행 — inquiries 테이블 원형(snake_case, admin-api 는 케이스 변환 없음).
- *  status 는 DB CHECK(new/in_progress/resolved)와 동일 집합. */
+ *  status 는 DB CHECK(new/in_progress/resolved)와 동일 집합.
+ *  reply_body/replied_at 은 20260907091000 마이그레이션이 추가한 컬럼이라, 적용 전 DB 에서는
+ *  아예 키가 없다(백엔드는 select('*') 이므로 오류가 아니라 '없음' 으로 온다). */
 interface InquiryRow {
   id: string;
+  user_id: string | null;
   user_name: string | null;
   type: string | null;
   title: string | null;
   content: string | null;
   status: Ticket['status'] | null;
   created_at: string;
+  reply_body?: string | null;
+  replied_at?: string | null;
+}
+
+/** PATCH /api/v1/admin/inquiries/{id} 응답 — 갱신된 행 + 서버가 실제로 한 일.
+ *  reply_saved 가 이 화면의 존재 이유다: 답변이 저장됐는지를 **서버가 말해 준다.**
+ *  예전에는 화면이 스스로 '전송됨' 이라고 판단했고, 그 판단은 언제나 틀렸다. */
+interface InquiryPatchResponse {
+  reply_saved?: boolean;
+  reply_unavailable_reason?: string | null;
+  reply_body?: string | null;
+  replied_at?: string | null;
 }
 
 function formatRelativeTime(dateString: string) {
@@ -53,10 +73,23 @@ function formatRelativeTime(dateString: string) {
   }
 }
 
+/** 답변 시각 표기 — 상대시간(목록)과 달리 '언제 답했는지' 는 정확한 시각이 근거가 된다. */
+function formatDateTime(dateString: string) {
+  try {
+    return new Date(dateString).toLocaleString('ko-KR', {
+      month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+    });
+  } catch {
+    return '시각 불명';
+  }
+}
+
 export default function SupportPage() {
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
   const [replyText, setReplyText] = useState('');
+  // 전송 중 이중 클릭 차단 — 같은 티켓에 답변이 두 번 저장되면 뒤엣것이 앞엣것을 덮는다.
+  const [isSending, setIsSending] = useState(false);
   // 조회 실패를 '문의 없음' 과 같은 값(빈 목록)으로 표현하지 않는다. 예전에는 목록 조회가
   // 실패해도 'Total: 0 · New: 0' 이 떠서, 대기 중인 문의가 쌓여 있는데 관리자가 없다고 믿었다.
   const [loadStatus, setLoadStatus] = useState<LoadStatus>('loading');
@@ -73,11 +106,15 @@ export default function SupportPage() {
         const mappedTickets: Ticket[] = (data || []).map((item: InquiryRow) => ({
           id: item.id,
           user: item.user_name || '익명 사용자',
+          userId: item.user_id ?? null,
           type: item.type || '기타 문의',
           title: item.title || '제목 없음',
           content: item.content || '내용 없음',
           status: item.status || 'new',
-          time: formatRelativeTime(item.created_at)
+          time: formatRelativeTime(item.created_at),
+          // 빈 문자열은 '답변 없음' 과 같이 취급한다 — 빈 답변 카드를 그리면 답한 것처럼 보인다.
+          replyBody: item.reply_body?.trim() ? item.reply_body : null,
+          repliedAt: item.replied_at ?? null,
         }));
         setTickets(mappedTickets);
         setSelectedTicket(mappedTickets[0] ?? null);
@@ -96,32 +133,62 @@ export default function SupportPage() {
     fetchTickets();
   }, []);
 
-  // ⚠️ 이 화면은 답변을 **보내지 않는다.** 보내는 곳이 없다:
-  //   · inquiries 테이블에 답변을 담을 칼럼이 없고(20260531220000 이후 추가된 적 없다),
-  //   · 백엔드 PATCH /admin/inquiries/{id} 는 status 만 받으며(AdminInquiryPatch),
-  //   · 문의자에게 닿는 채널(메일·알림)이 이 저장소에 없다.
-  // 그런데도 예전에는 "답변이 전송되었으며…" 라고 알렸다. 관리자는 답을 썼다고 믿고 창을 닫고,
-  // 티켓은 resolved 로 잠기고, 문의자는 아무것도 받지 못한다 — 사람 사이의 연락이 조용히 사라진다.
-  // 지금은 실제로 일어나는 일(상태 변경)만 말하고, 쓴 글이 어디로도 가지 않는다는 사실을 먼저 알린다.
-  // 진짜 답변 기능은 마이그레이션이 필요해 사람 판단으로 넘겼다(검토 목록 참조).
+  // 답변 저장 + 처리 완료.
+  //
+  // 이 화면은 오랫동안 답변을 **보내지 않았다.** inquiries 에 답변을 담을 칼럼이 없었고
+  // (20260531220000 이후 추가된 적이 없었다), 백엔드 PATCH 도 status 만 받았다. 관리자는
+  // 답을 썼다고 믿고 창을 닫고, 티켓은 resolved 로 잠기고, 문의자는 아무것도 받지 못했다.
+  //
+  // 지금은 실제로 저장한다(마이그레이션 20260907091000). 전달 채널은 **앱 내 표시**다 —
+  // 메일·웹푸시 인프라가 이 저장소에 없어서, 문의자는 /mypage/inquiries 에서 답변을 본다.
+  //
+  // 성공/실패 문구는 **서버 응답(reply_saved)에서 가져온다.** 화면이 스스로 '전송됨' 이라고
+  // 판단하지 않는 것이 이 수정의 핵심이다 — 그 판단이 틀렸던 게 원래 결함이었다.
   const handleReply = async () => {
-    if (!selectedTicket) return;
+    if (!selectedTicket || isSending) return;
+    const body = replyText.trim();
 
+    setIsSending(true);
     try {
       // 관리자 API 경유(0행 갱신은 백엔드가 404 로 반환 — 무음 실패가 성공으로 표시되지 않는다).
-      await adminApi.patch(`/api/v1/admin/inquiries/${selectedTicket.id}`, { status: 'resolved' });
-
-      // 실제 갱신 성공 시에만 로컬 상태 + 성공 알림.
-      const updatedTickets = tickets.map(t =>
-        t.id === selectedTicket.id ? { ...t, status: 'resolved' as const } : t
+      // reply_body 는 쓴 글이 있을 때만 보낸다 — 빈 답변을 저장해 '답변함' 으로 만들지 않는다.
+      const res: InquiryPatchResponse = await adminApi.patch(
+        `/api/v1/admin/inquiries/${selectedTicket.id}`,
+        body ? { status: 'resolved', reply_body: body } : { status: 'resolved' }
       );
-      setTickets(updatedTickets);
-      setSelectedTicket({ ...selectedTicket, status: 'resolved' });
-      setReplyText('');
-      alert('문의를 처리 완료로 표시했습니다. (답변 본문은 전송되지 않습니다 — 아직 발송 기능이 없습니다.)');
+      const replySaved = res?.reply_saved === true;
+
+      // 실제 갱신 성공 시에만 로컬 상태를 옮긴다. 답변 본문/시각도 **서버가 돌려준 값**을
+      // 쓴다(우리가 보낸 값이 아니라) — 저장되지 않았으면 화면에도 남지 않아야 한다.
+      const patched: Ticket = {
+        ...selectedTicket,
+        status: 'resolved',
+        replyBody: replySaved ? (res.reply_body ?? body) : selectedTicket.replyBody,
+        repliedAt: replySaved ? (res.replied_at ?? new Date().toISOString()) : selectedTicket.repliedAt,
+      };
+      setTickets(tickets.map(t => (t.id === patched.id ? patched : t)));
+      setSelectedTicket(patched);
+      if (replySaved) setReplyText('');
+
+      if (body && replySaved) {
+        alert(
+          selectedTicket.userId
+            ? '답변을 저장했습니다. 문의자는 마이페이지 > 내 문의에서 확인할 수 있습니다.'
+            : '답변을 저장했습니다. 다만 이 문의는 세션 없이 접수돼(user_id 없음) 문의자가 앱에서 볼 수 없습니다 — 별도로 연락해 주세요.'
+        );
+      } else if (body && res?.reply_unavailable_reason === 'schema_missing') {
+        // 마이그레이션 미적용 DB. 상태는 바뀌었지만 답변은 저장되지 않았다 — 그 사실을 그대로 말한다.
+        alert('상태만 처리 완료로 바꿨습니다. 답변 저장에 필요한 DB 컬럼이 아직 없어(마이그레이션 미적용) 쓴 내용은 저장되지 않았습니다.');
+      } else if (body) {
+        alert('상태만 처리 완료로 바꿨습니다. 답변 본문은 저장되지 않았습니다.');
+      } else {
+        alert('답변 없이 처리 완료로 표시했습니다.');
+      }
     } catch (err) {
-      console.warn('Failed to resolve ticket:', err);
-      alert('상태 변경에 실패했습니다. 다시 시도해주세요.');
+      console.warn('Failed to save reply:', err);
+      alert(`처리에 실패했습니다: ${errorMessage(err) || '다시 시도해 주세요.'}`);
+    } finally {
+      setIsSending(false);
     }
   };
 
@@ -258,41 +325,77 @@ export default function SupportPage() {
 
                 {/* Reply Section */}
                 <div className="bg-hanok-panel p-6 rounded-b-2xl border border-hanok-line shadow-sm flex-1 flex flex-col">
-                  <h3 className="font-bold text-hanok-ink mb-4">답변 작성</h3>
+                  <h3 className="font-bold text-hanok-ink mb-4">답변</h3>
 
-                  {selectedTicket.status === 'resolved' ? (
-                    <div className="flex-1 flex flex-col items-center justify-center text-hanok-muted bg-hanok rounded-xl border border-dashed border-hanok-line">
-                      <CheckCircle size={48} className="text-emerald-400 mb-4" />
-                      <p className="font-medium">이미 처리가 완료된 문의입니다.</p>
-                    </div>
-                  ) : (
-                    <>
-                      <p className="mb-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-                        <strong className="font-bold">발송 기능이 아직 없습니다.</strong> 여기 쓴 내용은
-                        저장되지도, 문의자에게 전달되지도 않습니다. 아래 버튼은 <span className="font-bold">상태만</span>
-                        {' '}RESOLVED 로 바꿉니다 — 답장이 필요하면 문의자 연락처로 직접 연락해 주세요.
+                  {/* 이미 답한 티켓은 저장된 답변과 그 시각을 보여준다. '답했다' 를 화면이
+                      기억해야 같은 문의에 두 번 답하거나, 답한 걸 잊고 다시 묻지 않는다. */}
+                  {selectedTicket.replyBody && (
+                    <div className="mb-4 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4">
+                      <div className="flex items-center justify-between gap-3 mb-2">
+                        <span className="flex items-center gap-1.5 text-xs font-bold text-emerald-300">
+                          <CheckCircle size={14} /> 답변 완료
+                        </span>
+                        <span className="text-xs text-hanok-muted">
+                          {selectedTicket.repliedAt ? formatDateTime(selectedTicket.repliedAt) : '시각 기록 없음'}
+                        </span>
+                      </div>
+                      <p className="text-sm text-hanok-ink leading-relaxed whitespace-pre-wrap break-all">
+                        {selectedTicket.replyBody}
                       </p>
+                    </div>
+                  )}
+
+                  {selectedTicket.status === 'resolved' && !selectedTicket.replyBody ? (
+                    <div className="flex-1 flex flex-col items-center justify-center text-hanok-muted bg-hanok rounded-xl border border-dashed border-hanok-line p-6 text-center">
+                      <CheckCircle size={48} className="text-emerald-400 mb-4" />
+                      <p className="font-medium">답변 없이 처리 완료된 문의입니다.</p>
+                      {/* 이 구분이 중요하다 — '처리 완료' 는 '답했다' 가 아니다. */}
+                      <p className="text-xs mt-1">저장된 답변 본문이 없습니다. 필요하면 아래에 답변을 남길 수 있습니다.</p>
+                    </div>
+                  ) : null}
+
+                  {selectedTicket.status !== 'resolved' || !selectedTicket.replyBody ? (
+                    <div className="flex-1 flex flex-col">
+                      {/* 세션 없이 접수된 문의는 답변을 볼 주인이 없다. RLS 정책
+                          select_own_or_admin_inquiries 는 user_id = auth.uid() 로 행을 고르는데,
+                          NULL 은 어떤 uid 와도 같아지지 않는다(20260904091000 이 신원 위조를 막느라
+                          익명 문의를 그렇게 열어 뒀다). 저장은 되지만 앱 안에서는 아무도 못 읽는다 —
+                          답변을 쓰기 **전에** 알려야 하는 사실이다. */}
+                      {!selectedTicket.userId && (
+                        <p className="mb-3 flex items-start gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+                          <AlertCircle size={16} className="flex-shrink-0 mt-0.5" />
+                          <span>
+                            <strong className="font-bold">이 문의는 앱에서 답변을 볼 수 없습니다.</strong>{' '}
+                            세션 없이 접수돼 문의자 계정이 연결돼 있지 않습니다(익명 문의). 답변은 저장되지만
+                            문의자에게 보이지 않으니, 본문에 적힌 연락처로 직접 연락해 주세요.
+                          </span>
+                        </p>
+                      )}
                       <textarea
                         className="flex-1 w-full bg-hanok border border-hanok-line text-hanok-ink rounded-xl p-4 resize-none focus:outline-none focus:ring-2 focus:ring-gold mb-4"
-                        placeholder="메모용 임시 작성란 — 저장되지 않습니다"
+                        placeholder={selectedTicket.replyBody ? '답변을 새로 쓰면 기존 답변을 덮어씁니다' : '문의자에게 보낼 답변을 작성하세요'}
                         value={replyText}
                         onChange={(e) => setReplyText(e.target.value)}
                       ></textarea>
-                      <div className="flex justify-between items-center">
+                      <div className="flex justify-between items-center gap-4">
                         <div className="text-sm text-hanok-muted">
-                          상태를 <span className="font-bold text-emerald-400">RESOLVED</span>로 바꿉니다.
+                          {replyText.trim()
+                            ? <>답변을 저장하고 상태를 <span className="font-bold text-emerald-400">RESOLVED</span>로 바꿉니다. 문의자는 <span className="font-semibold text-hanok-ink">마이페이지 &gt; 내 문의</span>에서 봅니다.</>
+                            : <>답변 없이 상태만 <span className="font-bold text-emerald-400">RESOLVED</span>로 바꿉니다.</>}
                         </div>
-                        {/* 예전에는 `disabled={!replyText.trim()}` 였다. 보내지도 않는 글을 쓰게 만들어야
-                            버튼이 열리는 것은 앞뒤가 맞지 않는다 — 이제 상태 변경은 글 없이도 된다. */}
+                        {/* `disabled={!replyText.trim()}` 를 걸지 않는다 — 답변 없이 닫아야 하는
+                            문의(스팸·중복)가 실제로 있고, 그때 억지로 글을 쓰게 만들 이유가 없다. */}
                         <button
                           onClick={handleReply}
-                          className="flex items-center gap-2 px-6 py-2.5 bg-gold hover:bg-gold-deep text-white font-bold rounded-xl transition-colors shadow-sm"
+                          disabled={isSending}
+                          className="flex items-center gap-2 px-6 py-2.5 bg-gold hover:bg-gold-deep disabled:bg-gold-deep disabled:cursor-not-allowed text-white font-bold rounded-xl transition-colors shadow-sm flex-shrink-0"
                         >
-                          <CheckCircle size={18} /> 처리 완료로 표시
+                          {isSending ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
+                          {isSending ? '저장 중…' : replyText.trim() ? '답변 저장 후 완료' : '처리 완료로 표시'}
                         </button>
                       </div>
-                    </>
-                  )}
+                    </div>
+                  ) : null}
                 </div>
 
               </div>
