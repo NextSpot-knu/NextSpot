@@ -45,7 +45,6 @@
 | [`contest/JUDGE_QA.md`](./contest/JUDGE_QA.md) | 심사위원 예상 질문 10문 + 답변. UI 문구 변경 전 대조 대상 | living | 2026-09-04 |
 | [`contest/CONTEST_STRATEGY.md`](./contest/CONTEST_STRATEGY.md) | 심사 배점 대응 전략 (2026-07-07) | frozen | 2026-07-07 |
 | [`contest/TIMELINESS.md`](./contest/TIMELINESS.md) | 시의성 소재 — 실존 보도 인용집 (2026-07-14 검증) | frozen | 2026-07-14 |
-| [`contest/announcements/README.md`](./contest/announcements/README.md) | 공모전 공고문 · 제출 매뉴얼 · 양식 · 제안서 원본 PDF 목록 | frozen | 2026-09-04 |
 
 ## 기록 보관 (`docs/archive/`) — 읽기 전용
 

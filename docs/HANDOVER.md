@@ -31,7 +31,8 @@
 
 ## 우선순위
 
-1. **1차 심사자료 제출** — 절차는 `contest/announcements/2026-contest-round1-submission-manual.pdf`,
+1. **1차 심사자료 제출** — 절차는 저장소 루트 `announcements/` 의
+   `2026 관광데이터 활용 공모전 웹·앱 개발 부문 1차 심사자료 제출 절차 안내 매뉴얼.pdf`,
    데모 전 체크리스트는 [`contest/DEMO_SCENARIO.md`](./contest/DEMO_SCENARIO.md) §0.
 2. **사람 작업 대기** 처리 — 특히 토큰 회전과 Kakao 비즈 앱 전환(아래).
 3. **결정 필요 3건** — "알려진 이슈" ①~③.
