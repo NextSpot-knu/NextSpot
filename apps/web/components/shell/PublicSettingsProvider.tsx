@@ -59,13 +59,15 @@ export default function PublicSettingsProvider({ children }: { children: ReactNo
   // 초기값을 null 로 두고 마운트 뒤에 읽는다. 렌더 중에 localStorage 를 읽으면 정적 export 의
   // 하이드레이션과 어긋난다. 배너는 설정 조회가 끝난 뒤에야 그려지므로(초기 noticeText 는 '')
   // 이 effect 가 먼저 끝나고, 깜빡임은 생기지 않는다.
-  const [dismissedNotice, setDismissedNotice] = useState<string | null>(null);
+  //
+  // 지연 초기화로 읽는다(마운트 이펙트에서 setState 하지 않는다). 이펙트에서 부르면
+  // react-hooks/set-state-in-effect 가 걸리고, 한 프레임 늦게 반영돼 배너가 깜빡일 수 있다.
+  // 하이드레이션은 안전하다: 프리렌더에서는 `typeof window === 'undefined'` 라 null 이고,
+  // 클라이언트 첫 렌더 시점에는 아직 설정을 못 받아 noticeText 가 '' 이므로 **양쪽의 출력이
+  // 똑같이 '배너 없음'** 이다. 서버·클라이언트가 다른 DOM 을 그리는 구간이 없다.
+  const [dismissedNotice, setDismissedNotice] = useState<string | null>(() => readDismissedNotice());
   const pathname = usePathname();
   const t = useT();
-
-  useEffect(() => {
-    setDismissedNotice(readDismissedNotice());
-  }, []);
 
   useEffect(() => {
     let alive = true;
