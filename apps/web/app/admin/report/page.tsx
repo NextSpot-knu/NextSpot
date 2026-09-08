@@ -12,9 +12,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+  ReferenceArea, ReferenceLine, ReferenceDot, Label,
 } from 'recharts';
 import {
-  Printer, BarChart3, Calendar, Satellite, Clock, AlertCircle,
+  Printer, BarChart3, Calendar, Satellite, Clock, AlertCircle, Info,
 } from 'lucide-react';
 import { AdminSidebar } from '@/components/AdminSidebar';
 import { adminApi } from '@/lib/admin-api';
@@ -24,6 +25,23 @@ import { formatRelativeKo } from '@/lib/freshness';
 const REPORT_DAYS = 30;
 // 대시보드(fetchTrend)와 동일 기준 — 실측 표본일이 이 미만이면 통계적 해석 유의 문구를 반드시 덧붙인다.
 const MIN_SAMPLE_DAYS_FOR_CONFIDENCE = 3;
+
+// ── 차트 색 ──────────────────────────────────────────────────────────────
+// recharts 는 stroke/fill 을 SVG presentation attribute 로 내보내므로 var(--color-*) 가 해석되지
+// 않는다(속성은 CSS 가 아니다). 그래서 globals.css @theme 토큰 값을 여기서 그대로 미러링한다
+// — 색의 단일 정의점은 여전히 globals.css 이고, 여기는 recharts 전용 사본이다.
+// 대비는 전부 '이 리포트가 인쇄되는 흰 종이(#ffffff)' 기준 WCAG 상대휘도로 계산했다.
+const CHART_COLOR = {
+  ink: '#2b2320',        // --color-muk        축 눈금/값 라벨. 흰 종이 대비 15.4:1
+  inkSoft: '#6b5d4f',    // --color-muk-soft   축선·평균선·보조 텍스트. 흰 종이 대비 6.4:1 (AA)
+  grid: '#e6dcc6',       // --color-line       격자. 1.36:1 — 데이터보다 항상 약해야 하므로 의도적으로 낮다
+  voidFill: '#f1e7d3',   // --color-hanji-deep 미관측 구간 음영
+  congestion: '#c1553b', // --color-terracotta 혼잡 계열(토큰 주석부터 '혼잡'용). 흰 종이 대비 4.54:1 (AA)
+  accept: '#3e7c6a',     // --color-jade       수락률 계열. 흰 종이 대비 4.89:1 (AA)
+} as const;
+// 주의: terracotta(0.181)와 jade(0.165)는 상대휘도가 거의 같아 흑백 인쇄·색각 이상에서 서로 구분되지
+// 않는다. 그래서 계열 구분을 색에만 맡기지 않고 선 패턴(실선/파선)을 함께 부여한다(WCAG 1.4.1).
+const SERIES_DASH = { congestion: undefined, accept: '7 4' } as const;
 
 // ── 응답 타입 ────────────────────────────────────────────────────────────
 // GET /api/v1/admin/metrics/trend (admin.py get_metrics_trend) — admin-api 는 케이스 변환이 없어
@@ -73,9 +91,11 @@ function fmtNowKo(d: Date): string {
 }
 
 // 로딩/실패 상태를 값 자리에 그대로 노출하는 작은 헬퍼 — 무한 스켈레톤 대신 텍스트로 대체한다.
+// 색은 text-gray-400(흰 배경 대비 2.5:1, AA 미달)에서 muk-soft(6.4:1)로 올렸다 — '데이터 없음'은
+// 이 리포트에서 값만큼 중요한 정보라 값보다 흐리게 보여선 안 된다.
 function ValueOrState({ loading, error, value }: { loading: boolean; error: boolean; value: string | null }) {
-  if (loading) return <span className="text-gray-400">불러오는 중…</span>;
-  if (error || value === null) return <span className="text-gray-400">데이터 없음</span>;
+  if (loading) return <span className="text-muk-soft">불러오는 중…</span>;
+  if (error || value === null) return <span className="text-muk-soft">데이터 없음</span>;
   return <span>{value}</span>;
 }
 
@@ -199,8 +219,19 @@ export default function AdminReportPage() {
 
   return (
     <div className="flex h-screen bg-hanok text-hanok-ink font-sans overflow-hidden print:h-auto print:overflow-visible print:bg-white">
-      {/* A4 페이지 여백 — Tailwind 유틸리티로 표현 불가능한 @page 규칙만 별도 지정 */}
-      <style>{`@page { size: A4; margin: 14mm; }`}</style>
+      {/* Tailwind 유틸리티로 표현 불가능한 인쇄 규칙만 별도 지정한다(@page·print-color-adjust·recharts SVG 폭). */}
+      <style>{`
+        @page { size: A4; margin: 14mm; }
+        @media print {
+          /* 브라우저는 인쇄 시 배경색을 기본적으로 생략한다. 이 리포트는 '미관측 구간' 음영처럼
+             배경이 곧 의미인 요소가 있어(빠지면 데이터 없는 구간과 빈 여백이 구분되지 않는다)
+             종이 영역에 한해 강제 출력한다. */
+          .report-paper, .report-paper * { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+          /* recharts 래퍼 폭은 CSS 로 건드리지 않는다. ResponsiveContainer 가 인쇄 레이아웃 전환 시
+             ResizeObserver 로 스스로 다시 측정해 A4 폭에 맞춘다(실제 PDF 출력으로 확인).
+             width/height 를 !important 로 덮으면 오히려 0×0 중간 래퍼와 얽혀 차트가 통째로 사라진다. */
+        }
+      `}</style>
 
       {/* 사이드바 — 인쇄 시 숨김 */}
       <div className="print:hidden">
@@ -238,7 +269,7 @@ export default function AdminReportPage() {
 
         {/* 리포트 본문 — 화면에서도 인쇄물과 동일한 흰 A4 용지로 미리보기한다 */}
         <div className="flex-1 overflow-y-auto print:overflow-visible print:h-auto bg-hanok-line/20 print:bg-white p-6 print:p-0 flex justify-center">
-          <div className="w-full max-w-[210mm] bg-white text-black shadow-xl print:shadow-none rounded-lg print:rounded-none p-10 print:p-0 flex flex-col gap-8">
+          <div className="report-paper w-full max-w-[210mm] bg-white text-black shadow-xl print:shadow-none rounded-lg print:rounded-none p-10 print:p-0 flex flex-col gap-8">
 
             {/* 표지 헤더 */}
             <section className="break-inside-avoid border-b-2 border-black pb-6">
@@ -356,24 +387,30 @@ export default function AdminReportPage() {
               </div>
             </section>
 
-            {/* 30일 추이 차트 2개 — admin/dashboard 와 동일한 recharts 구성 재사용, 인쇄 폭 고려 고정 높이 */}
+            {/* 30일 추이 차트 2개 — 화면과 인쇄(PDF)에서 모두 읽히도록 설계한 리포트 전용 구성.
+                계열 구분은 색 + 선 패턴 2중이고, 툴팁이 없는 인쇄에서도 값을 읽을 수 있게
+                평균선·최고점 라벨·하단 요약 캡션을 함께 낸다. */}
             <TrendLineChart
               title="30일 일평균 혼잡도 추이"
+              seriesName="일평균 혼잡도(실측)"
               data={chartRows}
               dataKey="avgCongestion"
-              color="#2563eb"
+              color={CHART_COLOR.congestion}
+              dash={SERIES_DASH.congestion}
               loading={loading}
               error={trendError}
-              emptyMessage="표시할 혼잡도 추이 데이터가 없습니다."
+              emptyMessage="집계된 혼잡 로그가 없어 표시할 추이가 없습니다."
             />
             <TrendLineChart
               title="30일 AI 분산 추천 수락률 추이"
+              seriesName="추천 수락률(실측)"
               data={chartRows}
               dataKey="acceptShare"
-              color="#059669"
+              color={CHART_COLOR.accept}
+              dash={SERIES_DASH.accept}
               loading={loading}
               error={trendError}
-              emptyMessage="표시할 추천 수락률 추이 데이터가 없습니다."
+              emptyMessage="집계된 AI 분산 추천 기록이 없어 표시할 추이가 없습니다."
             />
 
             {/* 자동 총평 문단 */}
@@ -399,47 +436,255 @@ export default function AdminReportPage() {
   );
 }
 
-// 30일 추이 라인 차트 1개 — recharts(admin/dashboard 의 DashboardCharts.tsx 와 동일 컴포넌트 구성)를
-// 인쇄용 흰 배경/고정 높이(220px)로 재구성한다. 표본이 전무하면(전부 null) 차트 대신 안내 문구를 낸다.
+// ── 차트 보조 계산 ───────────────────────────────────────────────────────
+// 미관측(값 null)이 연속으로 이어지는 구간. 카테고리 축의 ReferenceArea 로 음영 처리해
+// '선이 끊긴 곳 = 0' 이라는 오독을 막는다. 카테고리 축에서 x1===x2 인 1일짜리 구간은 폭이 0이라
+// 그려지지 않으므로 2일 이상만 음영 대상으로 삼는다(1일 결측은 끊긴 선 자체로 드러난다).
+interface VoidSpan { from: string; to: string; days: number }
+
+interface ChartStats {
+  observed: number;
+  total: number;
+  avg: number | null;
+  max: { date: string; value: number } | null;
+  min: { date: string; value: number } | null;
+  voidSpans: VoidSpan[];
+  voidDays: number;
+}
+
+function summarizeSeries(data: ChartRow[], dataKey: 'avgCongestion' | 'acceptShare'): ChartStats {
+  const points = data
+    .map((d) => ({ date: d.date, value: d[dataKey] }))
+    .filter((p): p is { date: string; value: number } => p.value !== null && p.value !== undefined);
+
+  let sum = 0;
+  let max: { date: string; value: number } | null = null;
+  let min: { date: string; value: number } | null = null;
+  for (const p of points) {
+    sum += p.value;
+    if (!max || p.value > max.value) max = p;
+    if (!min || p.value < min.value) min = p;
+  }
+
+  const voidSpans: VoidSpan[] = [];
+  let runStart: number | null = null;
+  data.forEach((d, i) => {
+    const missing = d[dataKey] === null || d[dataKey] === undefined;
+    if (missing && runStart === null) runStart = i;
+    if ((!missing || i === data.length - 1) && runStart !== null) {
+      const end = missing ? i : i - 1;
+      const days = end - runStart + 1;
+      if (days >= 2) voidSpans.push({ from: data[runStart].date, to: data[end].date, days });
+      runStart = null;
+    }
+  });
+
+  return {
+    observed: points.length,
+    total: data.length,
+    avg: points.length > 0 ? sum / points.length : null,
+    max,
+    min,
+    voidSpans,
+    voidDays: data.length - points.length,
+  };
+}
+
+// 30일 추이 라인 차트 1개 — 의회·평가 제출용 인쇄물이 최종 산출물이라, 화면 전용 어포던스(툴팁)에
+// 값 읽기를 의존하지 않는다. 인쇄에서 살아남는 것만으로 차트를 읽을 수 있게 구성한다:
+//   ① 범례·축 제목·눈금을 muk(15.4:1)/muk-soft(6.4:1)로 명시  ② 평균 기준선(값은 범례) + 최고점 값 라벨
+//   ③ 미관측 구간 음영                                        ④ 차트 아래 숫자 요약 캡션
+// 계열 구분은 색 + 선 패턴 2중(흑백 인쇄 대비). 표본이 전무하면 축을 그리지 않고 '데이터 없음'
+// 패널로 대체한다 — 빈 좌표축만 남으면 '전 구간 0%' 로 읽히기 때문이다.
 function TrendLineChart({
-  title, data, dataKey, color, loading, error, emptyMessage,
+  title, seriesName, data, dataKey, color, dash, loading, error, emptyMessage,
 }: {
   title: string;
+  seriesName: string;
   data: ChartRow[];
   dataKey: 'avgCongestion' | 'acceptShare';
   color: string;
+  dash?: string;
   loading: boolean;
   error: boolean;
   emptyMessage: string;
 }) {
-  const hasData = !loading && !error && data.some((d) => d[dataKey] !== null && d[dataKey] !== undefined);
+  const stats = summarizeSeries(data, dataKey);
+  const hasData = !loading && !error && stats.observed > 0;
   const formatPercent = (value: unknown) => `${(Number(value) * 100).toFixed(1)}%`;
+  // 음영 라벨은 가장 긴 구간 하나에만 붙인다(짧은 구간까지 붙이면 글자가 겹친다).
+  const labeledSpan = stats.voidSpans.reduce<VoidSpan | null>(
+    (best, s) => (!best || s.days > best.days ? s : best), null,
+  );
 
   return (
-    <section className="break-inside-avoid">
-      <h3 className="text-sm font-bold mb-2">{title}</h3>
-      <div className="h-[220px] w-full border border-gray-200 rounded-md p-2">
+    <section className="report-chart break-inside-avoid">
+      {/* 제목 + 범례를 한 줄에 — 범례 스와치가 실제 선 두께·패턴·마커를 그대로 재현하므로
+          차트를 보지 않고도 어떤 선이 무엇인지 알 수 있다. 평균값을 차트 안(ReferenceLine Label)이
+          아니라 여기 두는 이유: 관측일이 오른쪽 끝까지 이어지면 라벨이 추이선 위에 겹쳐 읽히지 않는다. */}
+      <div className="flex items-baseline justify-between gap-x-4 gap-y-1 mb-2 flex-wrap">
+        <h3 className="text-sm font-bold">{title}</h3>
+        <div className="flex items-center gap-3 flex-wrap">
+          <span className="flex items-center gap-1.5 text-xs font-semibold text-muk">
+            <svg width="34" height="10" aria-hidden="true" className="flex-shrink-0">
+              <line x1="1" y1="5" x2="33" y2="5" stroke={color} strokeWidth="2.75" strokeDasharray={dash} />
+              <circle cx="17" cy="5" r="3.2" fill={color} stroke="#ffffff" strokeWidth="1.4" />
+            </svg>
+            {seriesName}
+          </span>
+          {hasData && stats.avg !== null && (
+            <span className="flex items-center gap-1.5 text-xs font-semibold text-muk">
+              <svg width="34" height="10" aria-hidden="true" className="flex-shrink-0">
+                <line x1="1" y1="5" x2="33" y2="5" stroke={CHART_COLOR.inkSoft} strokeWidth="1.25" strokeDasharray="2 3" />
+              </svg>
+              관측 평균 {fmtPct(stats.avg)}
+            </span>
+          )}
+        </div>
+      </div>
+
+      <div className="h-[248px] w-full border border-gray-300 rounded-md p-2">
         {loading ? (
-          <div className="h-full flex items-center justify-center text-sm text-gray-400">불러오는 중…</div>
+          <div className="h-full flex items-center justify-center text-sm text-muk-soft">불러오는 중…</div>
         ) : hasData ? (
           <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={data} margin={{ top: 5, right: 16, bottom: 5, left: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
-              <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fill: '#374151', fontSize: 11 }} />
+            {/* 위 여백 24 — 최고점/평균선 값 라벨이 100% 근처에 놓여도 잘리지 않을 만큼 */}
+            <LineChart data={data} margin={{ top: 24, right: 20, bottom: 22, left: 4 }}>
+              {/* 격자는 데이터보다 항상 약하게(1.36:1) — 이전 gray-200 과 밝기는 비슷하되 한지 웜톤 */}
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CHART_COLOR.grid} />
+
+              {/* 미관측 구간 음영 — '선이 없다 = 0' 오독 방지. 인쇄에서도 나오도록 print-color-adjust:exact */}
+              {stats.voidSpans.map((s) => (
+                <ReferenceArea
+                  key={`void-${s.from}`}
+                  x1={s.from}
+                  x2={s.to}
+                  fill={CHART_COLOR.voidFill}
+                  fillOpacity={1}
+                  stroke={CHART_COLOR.grid}
+                  ifOverflow="extendDomain"
+                >
+                  {labeledSpan && labeledSpan.from === s.from && (
+                    <Label
+                      value={`미관측 ${s.days}일 (${s.from}~${s.to})`}
+                      position="insideBottom"
+                      offset={10}
+                      fill={CHART_COLOR.inkSoft}
+                      fontSize={11}
+                      fontWeight={600}
+                    />
+                  )}
+                </ReferenceArea>
+              ))}
+
+              <XAxis
+                dataKey="date"
+                axisLine={{ stroke: CHART_COLOR.inkSoft }}
+                tickLine={{ stroke: CHART_COLOR.inkSoft }}
+                tick={{ fill: CHART_COLOR.ink, fontSize: 11 }}
+                tickMargin={6}
+                interval="preserveStartEnd"
+                minTickGap={14}
+                padding={{ left: 8, right: 8 }}
+              >
+                <Label value="날짜 (월/일, KST)" position="insideBottom" offset={-16} fill={CHART_COLOR.inkSoft} fontSize={11} />
+              </XAxis>
               <YAxis
-                axisLine={false} tickLine={false} tick={{ fill: '#374151', fontSize: 11 }}
-                domain={[0, 1]} tickFormatter={(v) => `${Math.round(v * 100)}%`} width={40}
+                axisLine={{ stroke: CHART_COLOR.inkSoft }}
+                tickLine={{ stroke: CHART_COLOR.inkSoft }}
+                tick={{ fill: CHART_COLOR.ink, fontSize: 11 }}
+                domain={[0, 1]}
+                ticks={[0, 0.25, 0.5, 0.75, 1]}
+                tickFormatter={(v) => `${Math.round(v * 100)}%`}
+                width={58}
+              >
+                {/* 눈금 글자('100%')와 겹치지 않도록 축 폭을 넓히고 제목을 축 바깥쪽 끝에 붙인다 */}
+                <Label value="비율 (%)" angle={-90} position="insideLeft" offset={0} fill={CHART_COLOR.inkSoft} fontSize={11} />
+              </YAxis>
+
+              {/* 기간 평균 기준선 — 값은 위 범례가 말한다(여기 라벨을 두면 추이선과 겹친다). */}
+              {stats.avg !== null && (
+                <ReferenceLine y={stats.avg} stroke={CHART_COLOR.inkSoft} strokeDasharray="2 3" strokeWidth={1.25} />
+              )}
+
+              <Tooltip
+                formatter={formatPercent}
+                labelFormatter={(l) => `${l} (KST)`}
+                contentStyle={{
+                  fontSize: 12, borderRadius: 6,
+                  border: `1px solid ${CHART_COLOR.grid}`, color: CHART_COLOR.ink,
+                }}
               />
-              <Tooltip formatter={formatPercent} contentStyle={{ fontSize: 12, borderRadius: 6 }} />
-              <Line type="monotone" dataKey={dataKey} stroke={color} strokeWidth={2} dot={{ r: 2 }} connectNulls />
+
+              {/* connectNulls 제거 — 미관측 구간을 직선으로 이으면 없는 관측을 있는 것처럼 그린다.
+                  선은 끊고, 끊긴 이유는 위 음영과 아래 캡션이 말한다(정직성 원칙). */}
+              <Line
+                name={seriesName}
+                type="monotone"
+                dataKey={dataKey}
+                stroke={color}
+                strokeWidth={2.75}
+                strokeDasharray={dash}
+                dot={{ r: 3.2, fill: color, stroke: '#ffffff', strokeWidth: 1.4 }}
+                activeDot={{ r: 6 }}
+                connectNulls={false}
+                isAnimationActive={false}
+              />
+
+              {/* 기간 내 최고점만 값 라벨 — 30개 전부 붙이면 겹쳐서 오히려 안 읽힌다. */}
+              {stats.max && (
+                <ReferenceDot
+                  x={stats.max.date}
+                  y={stats.max.value}
+                  r={4.5}
+                  fill={color}
+                  stroke="#ffffff"
+                  strokeWidth={1.6}
+                  ifOverflow="extendDomain"
+                >
+                  <Label
+                    value={`최고 ${fmtPct(stats.max.value)}`}
+                    position="top"
+                    offset={8}
+                    fill={CHART_COLOR.ink}
+                    fontSize={11}
+                    fontWeight={700}
+                  />
+                </ReferenceDot>
+              )}
             </LineChart>
           </ResponsiveContainer>
         ) : (
-          <div className="h-full flex items-center justify-center text-sm text-gray-400">
-            {error ? '데이터를 불러오지 못했습니다.' : emptyMessage}
+          // 빈 상태는 좌표축 없이 낸다 — 축만 남기면 '전 구간 0%' 로 읽히기 때문.
+          <div className="h-full flex flex-col items-center justify-center gap-1 text-center px-6 bg-hanji-deep rounded-sm">
+            <p className="text-sm font-bold text-muk">{error ? '데이터를 불러오지 못했습니다' : '데이터 없음'}</p>
+            <p className="text-xs text-muk-soft">
+              {error ? '관제 API 응답이 없어 이 구간의 추이를 표시할 수 없습니다.' : emptyMessage}
+            </p>
+            {!error && (
+              <p className="text-xs font-semibold text-muk-soft">값이 0%라는 뜻이 아닙니다 — 해당 기간에 집계된 기록이 없습니다.</p>
+            )}
           </div>
         )}
       </div>
+
+      {/* 인쇄에서 살아남는 숫자 요약 — 툴팁 없이도 이 한 줄로 차트를 읽을 수 있게 한다. */}
+      <p className="mt-1.5 text-[11px] text-muk-soft leading-relaxed flex gap-1.5">
+        <Info size={12} className="flex-shrink-0 mt-0.5" aria-hidden="true" />
+        <span>
+          {hasData ? (
+            <>
+              관측 {stats.observed}일 / {stats.total}일 · 평균 {fmtPct(stats.avg)}
+              {stats.max && ` · 최고 ${fmtPct(stats.max.value)} (${stats.max.date})`}
+              {stats.min && ` · 최저 ${fmtPct(stats.min.value)} (${stats.min.date})`}
+              {stats.voidDays > 0
+                && ` · 미관측 ${stats.voidDays}일은 선을 잇지 않고 음영으로 표시했습니다(0%가 아님).`}
+            </>
+          ) : (
+            <>관측 0일 / {stats.total}일 — 기간 전체가 미관측이라 추이선을 그리지 않았습니다.</>
+          )}
+        </span>
+      </p>
     </section>
   );
 }

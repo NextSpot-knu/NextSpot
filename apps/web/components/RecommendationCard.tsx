@@ -634,9 +634,20 @@ export function RecommendationCard({
                       : 'recommend.areaDemandStats')}
                 </span>
               )}
-              {typeof displayCongestionLevel === 'number' && displayCongestionSource && (
+              {typeof displayCongestionLevel === 'number' && displayCongestionSource ? (
                 <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold border bg-hanji-deep border-line text-muk-soft">
                   {t(`card.congestionSource.${displayCongestionSource}`)}
+                </span>
+              ) : (
+                // 근거가 **없을 때도** 말한다.
+                //
+                // 예전에는 혼잡 수치가 있을 때만 이 배지를 그렸다. 그래서 근거가 하나도 없는
+                // 곳은 화면에서 **아무 표시도 없이** 조용히 지나갔다. 지금은 정렬이 근거 등급을
+                // 점수보다 먼저 보므로(spot/ranking.py) "도보 3분 무근거 카페" 가 "도보 15분
+                // 실측 카페" 뒤로 밀린다 — 사용자 눈에는 이유 없이 먼 곳이 1등인 화면이 된다.
+                // 그 이유를 카드가 스스로 말해야 한다.
+                <span className="px-2 py-0.5 rounded-md text-[10px] font-medium border border-dashed border-line bg-transparent text-muk-soft">
+                  {t('card.evidenceNone')}
                 </span>
               )}
               {/* D-3: 합성(seed)/시뮬(simulated) 혼잡 로그는 데모 데이터임을 라벨로 구분(가드레일). */}
@@ -790,6 +801,9 @@ export function RecommendationCard({
                 <span className="block">
                   {t(scoringMode === 'model' ? 'card.spotTooltipModel' : 'card.spotTooltipRules')}
                 </span>
+                {/* 근거 등급이 점수보다 먼저라는 사실을 여기서 한 줄로 설명한다 —
+                    배지만 있고 이유가 없으면 '왜 먼 곳이 위인가' 에 답이 안 된다. */}
+                <span className="block mt-1.5">{t('card.spotTooltipEvidenceOrder')}</span>
                 <span className="block mt-1.5">{t('card.spotTooltipFootnote')}</span>
               </p>
             </div>

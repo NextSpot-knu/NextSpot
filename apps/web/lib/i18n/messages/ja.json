@@ -476,7 +476,9 @@
       "closed_confirmed": "到着時は休業確認済み",
       "needs_confirmation": "営業時間未確認・出発前に確認",
       "likely_closed_unknown": "営業時間未確認・現在閉店の可能性が高い"
-    }
+    },
+    "evidenceNone": "混雑の根拠なし",
+    "spotTooltipEvidenceOrder": "混雑の根拠がある場所を先に表示します。根拠がなければ近くても後ろに回ります。"
   },
   "report": {
     "trigger": "混雑を報告",
@@ -958,7 +960,9 @@
     "submitFailed": "お問い合わせを送信できませんでした。しばらくしてからもう一度お試しください。",
     "doneTitle": "お問い合わせを受け付けました。",
     "doneDesc": "担当者が内容を確認し、速やかに対応いたします。",
-    "backToMypage": "マイページに戻る"
+    "backToMypage": "マイページに戻る",
+    "anonymousReplyNotice": "ログインせずに送ると、アプリで回答を確認できません。回答をご希望の場合は、本文に連絡先（メールまたは電話番号）をご記入ください。",
+    "anonymousReplyNoticeTitle": "回答をご希望の場合"
   },
   "systemNotice": {
     "maintenanceTitle": "ただいまメンテナンス中です",

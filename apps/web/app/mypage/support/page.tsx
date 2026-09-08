@@ -155,6 +155,21 @@ export default function UserSupportForm() {
               />
             </div>
 
+            {/* 익명 문의는 답변이 **닿을 곳이 없다.**
+                세션 없이 남긴 문의는 user_id 가 NULL 인데(20260904091000 이 신원 위조를 막으려고
+                그렇게 만들었다), NULL 은 auth.uid() 와 절대 같지 않아 '내 문의' 화면에서도 조회되지
+                않는다. 스키마나 정책으로 풀 수 없는 구조다.
+                그래서 **쓰기 전에** 알린다 — 다 쓰고 보낸 뒤에 "답변을 못 받는다" 고 말하면 늦다. */}
+            {userId === null && (
+              <div
+                role="note"
+                className="rounded-xl border border-gold/40 bg-gold/10 px-4 py-3 text-[13px] leading-relaxed text-muk"
+              >
+                <strong className="font-bold">{t('support.anonymousReplyNoticeTitle')}</strong>
+                <span className="mt-0.5 block text-muk-soft">{t('support.anonymousReplyNotice')}</span>
+              </div>
+            )}
+
             <button
               type="submit"
               disabled={isSubmitting}

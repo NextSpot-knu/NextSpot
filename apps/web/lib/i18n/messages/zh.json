@@ -476,7 +476,9 @@
       "closed_confirmed": "确认抵达时休息",
       "needs_confirmation": "营业时间未确认 · 出发前请核实",
       "likely_closed_unknown": "营业时间未确认 · 当前很可能已打烊"
-    }
+    },
+    "evidenceNone": "无拥挤依据",
+    "spotTooltipEvidenceOrder": "有拥挤依据的地点优先显示。没有依据时，即使更近也会排在后面。"
   },
   "report": {
     "trigger": "上报拥挤",
@@ -958,7 +960,9 @@
     "submitFailed": "未能发送您的问题，请稍后再试。",
     "doneTitle": "您的问题已收到。",
     "doneDesc": "工作人员将查看内容并尽快处理。",
-    "backToMypage": "返回我的页面"
+    "backToMypage": "返回我的页面",
+    "anonymousReplyNotice": "未登录提交将无法在应用内查看回复。如需回复，请在内容中一并填写联系方式（邮箱或电话）。",
+    "anonymousReplyNoticeTitle": "如需收到回复"
   },
   "systemNotice": {
     "maintenanceTitle": "系统维护中",

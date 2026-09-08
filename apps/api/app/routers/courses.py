@@ -328,6 +328,11 @@ async def _evaluate_candidate(
         # 먼저 보려면 필요하다(spot/ranking.py). 코스 응답 payload 에는 싣지 않는다 —
         # breakdown 자체를 안 싣는 엔드포인트라 정렬용 내부 값이다.
         "scoring_mode": score_res.breakdown.get("scoring_mode"),
+        # 정렬이 '이미 붐비는 후보' 를 가려낼 때 쓰는 값. **채점이 실제로 쓴 혼잡도**여야 하므로
+        # 여기서 따로 예측한 predicted_congestion 이 아니라 breakdown 에서 가져온다
+        # (score 는 자기 depart_time 으로 다시 예측하므로 둘이 미세하게 다를 수 있다).
+        # 추천 라우터 두 경로도 같은 키를 본다 — 세 정렬이 같은 출처를 봐야 순위가 갈리지 않는다.
+        "ranking_congestion": score_res.breakdown.get("ranking_congestion"),
         "predicted_congestion": predicted_congestion,
         "current_congestion": current_congestion,
         "arrival_offset_min": round(arrival_offset, 1),
@@ -801,6 +806,7 @@ async def _build_course(req: CourseRequest) -> CoursePlan:
         # (spot/ranking.py). 여기만 빼면 같은 가게가 추천 목록과 코스에서 다른 순위로 나온다.
         evaluations.sort(key=lambda e: spot_ranking_sort_key(
             e["scoring_mode"], e["spot_score"], e["distance_m"], e["facility"]["id"],
+            e["ranking_congestion"],
         ))
         best = evaluations[0]
         # 2등 이하는 버리지 않고 이 자리의 '다른 곳' 으로 실어 보낸다(CourseAlternative 주석 참조).

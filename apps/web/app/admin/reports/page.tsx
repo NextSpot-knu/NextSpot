@@ -1,9 +1,10 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import Link from 'next/link';
 import {
   Search, Bell, Download, FileText, Calendar as CalendarIcon,
-  TrendingUp, BarChart2, PieChart as PieChartIcon, Database, AlertCircle
+  TrendingUp, BarChart2, PieChart as PieChartIcon, Database, AlertCircle, RefreshCw, LogIn
 } from 'lucide-react';
 import { AdminSidebar } from '@/components/AdminSidebar';
 import {
@@ -11,10 +12,14 @@ import {
   Tooltip, ResponsiveContainer, Legend
 } from 'recharts';
 import { createPublicClient } from '@/lib/supabase';
-import { adminApi } from '@/lib/admin-api';
+import { adminApi, adminApiKind, adminApiStatus } from '@/lib/admin-api';
 import { errorMessage } from '@/lib/errors';
 import { foldObservations, describeGrowth } from '@/lib/adminUsageIndex';
 import { emptyOrFailedText, reportSourceLabel, reportSourceState, type LoadStatus } from '@/lib/adminLoadState';
+import {
+  adminFailureLine, describeAdminFailure, kindFromMessage, type AdminFailureNotice,
+} from '@/lib/adminApiFailure';
+import { describeObservationGap, type LastObservation } from '@/lib/adminObservationGap';
 
 const supabase = createPublicClient();
 
@@ -66,6 +71,8 @@ const TYPE_KO: Record<string, CategoryKo> = {
   restaurant: '음식점', cafe: '카페', attraction: '관광지', culture: '문화시설',
 };
 const WEEK_ORDER = ['월', '화', '수', '목', '금', '토', '일'];
+/** 혼잡 로그 조회 창. '데이터 없음' 문구가 이 숫자를 밝혀야 관리자가 범위를 안다. */
+const LOG_WINDOW_DAYS = 14;
 const WD_KO = ['일', '월', '화', '수', '목', '금', '토']; // getUTCDay() 인덱스
 
 function kstWeekdayKo(ts: string) {
@@ -83,7 +90,7 @@ function fmtMD(d: Date) {
 
 // 최근 14일 혼잡 로그(시설 유형 조인). 최소 컬럼 + 페이지 캡으로 로딩 비용 최소화.
 async function fetchLogs14d(): Promise<CongestionLogRow[]> {
-  const since = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString();
+  const since = new Date(Date.now() - LOG_WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString();
   let out: CongestionLogRow[] = [];
   let from = 0;
   const limit = 1000;
@@ -103,10 +110,29 @@ async function fetchLogs14d(): Promise<CongestionLogRow[]> {
   }
   return out;
 }
+/**
+ * 혼잡 로그 표의 **마지막 관측 시각**(창 무관, 1행).
+ *
+ * 14일 창이 0행일 때 '데이터가 아직 없습니다' 로만 말하면, 수집이 19일째 멈춘 상황이
+ * '원래 없는 데이터' 로 읽힌다. 그 둘은 관리자에게 정반대의 할 일이다 — 그래서 사실을
+ * 조회해서 붙인다(지어내지 않는다).
+ */
+async function fetchLastObservation(): Promise<LastObservation> {
+  const { data, error } = await supabase
+    .from('congestion_logs')
+    .select('timestamp')
+    .order('timestamp', { ascending: false })
+    .limit(1);
+  if (error) throw error;
+  const iso = data?.[0]?.timestamp;
+  return typeof iso === 'string' && iso ? { status: 'at', iso } : { status: 'none' };
+}
+
 /** 추천 이력 조회 결과. 실패를 빈 배열로 뭉개지 않으려고 실패 사유를 함께 돌려준다. */
 interface RecsResult {
   rows: RecommendationRow[];
-  error: string | null;
+  /** 실패했다면 '관리자가 무엇을 하면 되는지' 까지 담은 안내(성공이면 null). */
+  failure: AdminFailureNotice | null;
 }
 
 async function fetchRecs28d(): Promise<RecsResult> {
@@ -116,12 +142,23 @@ async function fetchRecs28d(): Promise<RecsResult> {
   // 여기서 예외를 격리하는 이유는 로그 기반(막대/표) 실데이터를 살리기 위해서다. 다만
   // 예전처럼 빈 배열만 돌려주면 호출부가 '추천 이력이 아직 없다' 와 구분할 수 없어,
   // 관리자 API 가 죽어도 화면은 'AI 추천 수락 데이터가 아직 없습니다' 라고 말했다.
+  //
+  // 사유를 **문자열 한 줄**로 뭉개던 것도 여기서 끝낸다. 이 엔드포인트는 require_role(admin)
+  // 가드라 401(세션 만료)·403(권한 없음)·타임아웃·5xx 가 전부 다른 조치를 요구하는데,
+  // errorMessage() 한 줄로는 관리자가 그중 무엇인지 알 수 없었다.
   try {
     const metrics = await adminApi.get('/api/v1/admin/metrics?days=28');
-    return { rows: metrics?.recommendations || [], error: null };
+    return { rows: metrics?.recommendations || [], failure: null };
   } catch (e) {
     console.warn('추천 이력(/admin/metrics) 로드 실패:', e);
-    return { rows: [], error: errorMessage(e) || '알 수 없는 오류' };
+    return {
+      rows: [],
+      failure: describeAdminFailure({
+        kind: adminApiKind(e),
+        status: adminApiStatus(e),
+        message: errorMessage(e),
+      }),
+    };
   }
 }
 
@@ -135,19 +172,40 @@ export default function ReportsPage() {
   // 으로 번지거나, 반대로 한쪽 성공이 다른 쪽 실패를 가린다.
   const [logsStatus, setLogsStatus] = useState<LoadStatus>('loading');   // 혼잡 로그 → 막대차트·요약표
   const [recsStatus, setRecsStatus] = useState<LoadStatus>('loading');   // 추천 이력 → AI 수락 트렌드
-  const [loadErrors, setLoadErrors] = useState<string[]>([]);
+  // 실패 사유는 문자열이 아니라 '무엇을 하면 되는지' 까지 담은 안내로 들고 있는다.
+  const [logsFailure, setLogsFailure] = useState<AdminFailureNotice | null>(null);
+  const [recsFailure, setRecsFailure] = useState<AdminFailureNotice | null>(null);
+  // 14일 창이 0행일 때 빈 자리에 넣을 사실 문장(실패가 아닐 때만 채운다).
+  // 렌더가 아니라 **조회 시점에** 만든다 — 'N일 전' 의 기준 시각이 리렌더마다 흔들리면 안 된다.
+  const [observationGap, setObservationGap] = useState<string | null>(null);
   const [rangeLabel, setRangeLabel] = useState('최근 7일');
+  // 재시도 트리거. 타임아웃(콜드 스타트)·5xx 는 다시 누르면 풀릴 수 있는 실패라 버튼을 준다.
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     let active = true;
     (async () => {
+      // 재조회 시작 — 이전 실패 안내를 남겨 두면 성공한 화면에 옛 경고가 붙는다.
+      setLoading(true);
+      setLogsStatus('loading');
+      setRecsStatus('loading');
+      setLogsFailure(null);
+      setRecsFailure(null);
+      setObservationGap(null);
+
       // 혼잡 로그 조회는 실패해도 추천 이력 쪽을 막지 않는다(allSettled).
       const [logsSettled, recs] = await Promise.all([
         fetchLogs14d().then(
-          (rows) => ({ rows, error: null as string | null }),
+          (rows) => ({ rows, failure: null as AdminFailureNotice | null }),
           (e) => {
             console.warn('혼잡 로그 로드 실패:', e);
-            return { rows: [] as CongestionLogRow[], error: errorMessage(e) || '알 수 없는 오류' };
+            // Supabase(PostgREST) 오류에는 HTTP 상태가 없다. 최소한 6초 타임아웃만은
+            // 갈라내 '다시 시도' 를 붙인다(lib/supabase.ts timeoutFetch).
+            const message = errorMessage(e) ?? null;
+            return {
+              rows: [] as CongestionLogRow[],
+              failure: describeAdminFailure({ kind: kindFromMessage(message), message }),
+            };
           },
         ),
         fetchRecs28d(),
@@ -155,14 +213,23 @@ export default function ReportsPage() {
       if (!active) return;
 
       const logs = logsSettled.rows;
-      setLogsStatus(logsSettled.error ? 'failed' : 'ok');
-      setRecsStatus(recs.error ? 'failed' : 'ok');
-      setLoadErrors(
-        [
-          logsSettled.error ? `혼잡 로그: ${logsSettled.error}` : null,
-          recs.error ? `추천 이력: ${recs.error}` : null,
-        ].filter((m): m is string => m !== null),
-      );
+      setLogsStatus(logsSettled.failure ? 'failed' : 'ok');
+      setRecsStatus(recs.failure ? 'failed' : 'ok');
+      setLogsFailure(logsSettled.failure);
+      setRecsFailure(recs.failure);
+
+      // 조회는 성공했는데 창이 비었다 = 실패가 아니라 '수집이 멈췄을 수 있다' 는 사실.
+      // 언제가 마지막이었는지는 조회해서 말한다(창 밖이라 위 질의로는 알 수 없다).
+      if (!logsSettled.failure && logs.length === 0) {
+        let last: LastObservation = { status: 'unknown' };
+        try {
+          last = await fetchLastObservation();
+        } catch (e) {
+          // 마지막 관측 조회 실패 — '기록 없음' 으로 단정하지 않고 unknown 을 유지한다.
+          console.warn('마지막 관측 시각 조회 실패:', e);
+        }
+        if (active) setObservationGap(describeObservationGap(last, LOG_WINDOW_DAYS, Date.now()));
+      }
 
       try {
 
@@ -275,9 +342,14 @@ export default function ReportsPage() {
         // 조회는 성공했는데 집계에서 죽은 것도 실패이므로 두 상태 모두 failed 로 올린다.
         console.warn('리포트 집계 실패:', e);
         if (active) {
+          // 집계에서 죽은 것은 서버 탓이 아니라 우리 코드 탓이다 — 재시도로 풀릴 가능성은
+          // 낮지만 상태 코드가 없는 실패이므로 일반 안내로 떨어진다(사유는 detail 에 남는다).
+          const aggregateFailure = describeAdminFailure({ message: errorMessage(e) });
           setLogsStatus('failed');
           setRecsStatus('failed');
-          setLoadErrors((prev) => [...prev, `집계: ${errorMessage(e) || '알 수 없는 오류'}`]);
+          setLogsFailure((prev) => prev ?? aggregateFailure);
+          setRecsFailure((prev) => prev ?? aggregateFailure);
+          setObservationGap(null);
         }
       } finally {
         // 로딩 종료. 이후 빈 자리는 조회 상태에 따라 '데이터 없음' 또는 '조회 실패' 로 안내한다.
@@ -287,10 +359,18 @@ export default function ReportsPage() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [reloadKey]);
 
   const anyFailed = logsStatus === 'failed' || recsStatus === 'failed';
   const sourceState = reportSourceState({ loading, failed: anyFailed, live: isLive });
+  // 화면 위쪽 배너에 묶어 보여줄 실패 목록(출처 이름 + 안내).
+  const failures: { source: string; notice: AdminFailureNotice }[] = [
+    logsFailure ? { source: '혼잡 로그', notice: logsFailure } : null,
+    recsFailure ? { source: '추천 이력', notice: recsFailure } : null,
+  ].filter((f): f is { source: string; notice: AdminFailureNotice } => f !== null);
+  // CSV 주석·배지 title 처럼 줄바꿈을 못 쓰는 자리용 한 줄 요약.
+  const loadErrors = failures.map((f) => `${f.source}: ${adminFailureLine(f.notice)}`);
+  const reload = () => setReloadKey((k) => k + 1);
 
   // Excel(=CSV) 내보내기: 현재 표시 중인 데이터로 클라이언트에서 생성(엑셀 한글 BOM).
   const handleExcel = () => {
@@ -397,19 +477,51 @@ export default function ReportsPage() {
             </div>
           </div>
 
-          {/* 조회 실패 배너 — 어느 출처가 죽었는지 말한다. 배지만으로는 어떤 차트를 믿으면
-              되는지 알 수 없고, 빈 차트가 '이번 주엔 아무 일도 없었다' 로 읽힌다. */}
+          {/* 조회 실패 배너 — 어느 출처가 죽었는지, 그리고 **관리자가 무엇을 하면 되는지**
+              말한다. 예전에는 서버 원문 한 줄('인증 헤더가 누락되었거나…')만 떴는데, 그건
+              사실이긴 해도 읽는 사람이 할 수 있는 일을 알려주지 않는다. 판정은
+              lib/adminApiFailure.ts 의 순수 함수에 있고 테스트가 잠근다. */}
           {anyFailed && (
             <div className="flex items-start gap-3 bg-rose-500/10 border border-rose-500/30 rounded-2xl p-4 flex-shrink-0">
               <AlertCircle size={20} className="text-rose-400 flex-shrink-0 mt-0.5" />
-              <div>
+              <div className="min-w-0">
                 <p className="font-bold text-rose-300">일부 데이터를 불러오지 못했습니다</p>
                 <p className="text-sm text-hanok-muted mt-1">
                   비어 있는 차트·표는 <span className="font-semibold text-hanok-ink">데이터가 없다는 뜻이 아니라</span> 조회에 실패했다는 뜻입니다.
                   내보내기(Excel/PDF) 결과도 불완전합니다.
                 </p>
-                <ul className="text-xs text-hanok-muted mt-1 list-disc list-inside">
-                  {loadErrors.map((m) => <li key={m}>{m}</li>)}
+                <ul className="mt-3 space-y-3">
+                  {failures.map(({ source, notice }) => (
+                    <li key={source} className="text-sm">
+                      <p className="font-semibold text-hanok-ink">
+                        {source} — {notice.title}
+                      </p>
+                      <p className="text-hanok-muted mt-0.5">{notice.action}</p>
+                      <div className="flex items-center gap-3 mt-1.5">
+                        {notice.href && (
+                          <Link
+                            href={notice.href}
+                            className="inline-flex items-center gap-1 text-xs font-semibold text-hanok-ink underline underline-offset-2 hover:text-gold"
+                          >
+                            <LogIn size={13} /> 관리자 로그인으로 이동
+                          </Link>
+                        )}
+                        {notice.retryable && (
+                          <button
+                            onClick={reload}
+                            disabled={loading}
+                            className="inline-flex items-center gap-1 text-xs font-semibold text-hanok-ink underline underline-offset-2 hover:text-gold disabled:opacity-50 disabled:no-underline"
+                          >
+                            <RefreshCw size={13} className={loading ? 'animate-spin' : ''} /> 다시 시도
+                          </button>
+                        )}
+                      </div>
+                      {/* 원문 근거는 숨기지 않는다 — 개발팀에 전달할 유일한 단서다. */}
+                      {notice.detail && (
+                        <p className="text-xs text-hanok-muted/80 mt-1 break-words">사유: {notice.detail}</p>
+                      )}
+                    </li>
+                  ))}
                 </ul>
               </div>
             </div>
@@ -425,12 +537,25 @@ export default function ReportsPage() {
               </div>
               <div className="flex-1 w-full h-[250px]">
                 {weekly.length === 0 ? (
-                  // 빈 자리 안내. 조회 실패와 '아직 데이터 없음' 은 다른 사실이므로 문구를 가른다.
+                  // 빈 자리 안내. 세 가지가 서로 다른 사실이다:
+                  //  · 조회 실패 → 무엇을 하면 되는지(재로그인/재시도)까지 말한다.
+                  //  · 조회 성공인데 14일 창이 0행 → 실패가 아니다. 마지막 관측이 언제였는지 말한다.
+                  //  · 로그는 있는데 집계에 쓸 게 없음 → 기존 '아직 없습니다'.
                   <div className={`flex items-center justify-center h-full text-sm text-center px-4 ${logsStatus === 'failed' ? 'text-rose-300' : 'text-hanok-muted'}`}>
-                    {emptyOrFailedText(
-                      loading ? 'loading' : logsStatus,
-                      '표시할 방문량 데이터가 아직 없습니다.',
-                      '데이터를 불러오는 중...',
+                    {logsStatus === 'failed' && logsFailure ? (
+                      <span>
+                        <span className="font-semibold">{logsFailure.title}</span>
+                        <br />
+                        {logsFailure.action}
+                      </span>
+                    ) : !loading && observationGap ? (
+                      observationGap
+                    ) : (
+                      emptyOrFailedText(
+                        loading ? 'loading' : logsStatus,
+                        '표시할 방문량 데이터가 아직 없습니다.',
+                        '데이터를 불러오는 중...',
+                      )
                     )}
                   </div>
                 ) : (
@@ -460,11 +585,39 @@ export default function ReportsPage() {
               <div className="flex-1 w-full h-[250px]">
                 {aiTrend.length === 0 ? (
                   // 관리자 API 미응답('조회 실패')과 추천 이력 부족('아직 없음')을 갈라 말한다.
-                  <div className={`flex items-center justify-center h-full text-sm text-center px-4 ${recsStatus === 'failed' ? 'text-rose-300' : 'text-hanok-muted'}`}>
-                    {emptyOrFailedText(
-                      loading ? 'loading' : recsStatus,
-                      'AI 추천 수락 데이터가 아직 없습니다.',
-                      '데이터를 불러오는 중...',
+                  // 실패일 때는 사유가 아니라 **할 일**을 앞세운다(원문 근거는 위 배너에 있다).
+                  <div className={`flex flex-col items-center justify-center h-full text-sm text-center px-4 gap-2 ${recsStatus === 'failed' ? 'text-rose-300' : 'text-hanok-muted'}`}>
+                    {recsStatus === 'failed' && recsFailure ? (
+                      <>
+                        <span>
+                          <span className="font-semibold">{recsFailure.title}</span>
+                          <br />
+                          {recsFailure.action}
+                        </span>
+                        {recsFailure.href && (
+                          <Link
+                            href={recsFailure.href}
+                            className="inline-flex items-center gap-1 text-xs font-semibold text-hanok-ink underline underline-offset-2 hover:text-gold"
+                          >
+                            <LogIn size={13} /> 관리자 로그인으로 이동
+                          </Link>
+                        )}
+                        {recsFailure.retryable && (
+                          <button
+                            onClick={reload}
+                            disabled={loading}
+                            className="inline-flex items-center gap-1 text-xs font-semibold text-hanok-ink underline underline-offset-2 hover:text-gold disabled:opacity-50 disabled:no-underline"
+                          >
+                            <RefreshCw size={13} className={loading ? 'animate-spin' : ''} /> 다시 시도
+                          </button>
+                        )}
+                      </>
+                    ) : (
+                      emptyOrFailedText(
+                        loading ? 'loading' : recsStatus,
+                        'AI 추천 수락 데이터가 아직 없습니다.',
+                        '데이터를 불러오는 중...',
+                      )
                     )}
                   </div>
                 ) : (
@@ -515,10 +668,18 @@ export default function ReportsPage() {
                     // 빈 상태 행: 요약 데이터 없음 / 조회 실패(같은 혼잡 로그 출처)
                     <tr>
                       <td colSpan={4} className={`p-8 text-center ${logsStatus === 'failed' ? 'text-rose-300' : 'text-hanok-muted'}`}>
-                        {emptyOrFailedText(
-                          loading ? 'loading' : logsStatus,
-                          '표시할 요약 데이터가 아직 없습니다.',
-                          '데이터를 불러오는 중...',
+                        {logsStatus === 'failed' && logsFailure ? (
+                          <span>
+                            <span className="font-semibold">{logsFailure.title}</span> — {logsFailure.action}
+                          </span>
+                        ) : !loading && observationGap ? (
+                          observationGap
+                        ) : (
+                          emptyOrFailedText(
+                            loading ? 'loading' : logsStatus,
+                            '표시할 요약 데이터가 아직 없습니다.',
+                            '데이터를 불러오는 중...',
+                          )
                         )}
                       </td>
                     </tr>

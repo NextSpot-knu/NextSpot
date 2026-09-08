@@ -155,14 +155,19 @@ def test_threshold_is_clamped_and_typed(client, monkeypatch):
     assert client.get("/api/v1/system/public-settings").json()["congestionThreshold"] == 75
 
 
-def test_response_is_cacheable_for_a_minute(client, monkeypatch):
+def test_cache_header_matches_the_server_ttl(client, monkeypatch):
+    """앞단 캐시와 서버 TTL 이 **같아야** 한다.
+
+    어긋나면 더 긴 쪽이 실제 지연이 된다 — 서버 TTL 만 줄여 봐야 브라우저·공유 캐시가
+    옛 값을 그대로 붙들고 있어 점검 모드가 늦게 퍼진다. 그래서 상수를 직접 대조한다.
+    """
     monkeypatch.setattr(system, "supabase_admin", _FakeSupabase([_ROW]))
     res = client.get("/api/v1/system/public-settings")
-    assert res.headers["cache-control"] == "public, max-age=60"
+    assert res.headers["cache-control"] == f"public, max-age={int(system._CACHE_TTL_SECONDS)}"
 
 
 def test_second_request_within_ttl_skips_the_query(client, monkeypatch):
-    """60초 TTL 캐시가 실제로 왕복을 줄인다(관광객 앱이 화면마다 두드린다)."""
+    """TTL 캐시가 실제로 왕복을 줄인다(관광객 앱이 화면마다 두드린다)."""
     calls = {"n": 0}
 
     class _CountingSupabase(_FakeSupabase):

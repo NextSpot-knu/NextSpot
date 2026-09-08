@@ -89,10 +89,32 @@ export function DashboardCharts({ distribution, mode = 'demo' }: { distribution:
   );
 }
 
+// 히트맵이 비었을 때 화면이 말해야 하는 것 — lib/dashboardFallback.ts 의 CongestionEmptyNotice 미러
+// (그 파일은 이 컴포넌트에 의존하지 않는 순수 모듈이라 타입을 여기서 다시 선언한다).
+interface HeatmapEmptyNotice {
+  headline: string;
+  detail: string;
+  /** 무엇을 하면 채워지는가. 조회 실패처럼 '적재' 가 답이 아닌 경우엔 null. */
+  remedy: string | null;
+}
+
 // 히트맵 차트는 CSS Grid를 이용한 커스텀 구현 (Recharts에 기본 Heatmap이 없으므로 직관적이고 커스텀 쉬운 Grid 사용)
-export function DashboardHeatmap({ heatmapData }: { heatmapData: HeatmapCell[] }) {
+export function DashboardHeatmap({
+  heatmapData,
+  dateBadge = null,
+  basisNote = null,
+  emptyNotice = null,
+}: {
+  heatmapData: HeatmapCell[];
+  /** '2026-08-21 (KST) 기준' — 오늘이 아닌 날로 폴백했을 때만 들어온다. 없으면 오늘 기준이다. */
+  dateBadge?: string | null;
+  /** 왜 오늘이 아닌지 한 줄. 배지만으로는 '왜' 를 말하지 못한다. */
+  basisNote?: string | null;
+  /** 그릴 셀이 하나도 없을 때 그 자리에 세울 사실(왜 비었는가 + 무엇을 하면 채워지는가). */
+  emptyNotice?: HeatmapEmptyNotice | null;
+}) {
   // heatmapData: [ { facility: string, facilityType: string, hour: number, value: number } ]
-  
+
   const [selectedCategory, setSelectedCategory] = useState('restaurant');
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
@@ -141,17 +163,31 @@ export function DashboardHeatmap({ heatmapData }: { heatmapData: HeatmapCell[] }
   return (
     <div className="bg-hanok-panel p-6 rounded-2xl border border-hanok-line shadow-sm col-span-4 flex flex-col justify-between overflow-x-auto min-h-[500px]">
       <div>
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
-          <div className="flex items-center gap-2">
-            {/* ① 실시간 관제 — 폐루프 첫 단계(현재 혼잡 모니터링) */}
-            <span className="flex-shrink-0 px-2 py-0.5 rounded-full text-[11px] font-bold border bg-gold/15 text-gold border-gold/30">
-              ① 실시간 관제
-            </span>
-            <h3 className="text-lg font-bold text-hanok-ink">장소별 시간대 혼잡 히트맵</h3>
+        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 mb-6">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              {/* ① 실시간 관제 — 폐루프 첫 단계(현재 혼잡 모니터링) */}
+              <span className="flex-shrink-0 px-2 py-0.5 rounded-full text-[11px] font-bold border bg-gold/15 text-gold border-gold/30">
+                ① 실시간 관제
+              </span>
+              <h3 className="text-lg font-bold text-hanok-ink">장소별 시간대 혼잡 히트맵</h3>
+              {/* 지표 출처를 제목 옆에 못 박는다 — 아래 '공영주차 실측(경주 ITS)' 카드와
+                  같은 화면에 있어서, 라벨이 없으면 두 숫자가 한 지표처럼 읽힌다. */}
+              <span className="flex-shrink-0 px-2 py-0.5 rounded-md text-[11px] font-semibold border bg-hanok-card text-hanok-muted border-hanok-line">
+                시설 혼잡 · 제보 기반
+              </span>
+              {/* 기준일 배지 — 오늘이 아닌 날을 그리고 있다면 그 사실이 제목만큼 커야 한다. */}
+              {dateBadge && (
+                <span className="flex-shrink-0 px-2.5 py-1 rounded-md text-xs font-black border bg-amber-500/15 text-amber-300 border-amber-500/40">
+                  {dateBadge}
+                </span>
+              )}
+            </div>
+            {basisNote && <p className="mt-2 text-xs text-amber-300/90 max-w-2xl">{basisNote}</p>}
           </div>
 
           {/* Category Filters */}
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-shrink-0">
             {categories.map((cat) => (
               <button
                 key={cat.id}
@@ -168,6 +204,19 @@ export function DashboardHeatmap({ heatmapData }: { heatmapData: HeatmapCell[] }
           </div>
         </div>
 
+        {/* 셀이 하나도 없으면 격자를 그리는 대신 **왜 비었는지**를 그 자리에 세운다.
+            빈 격자는 '전 시간대 여유' 로도, '고장' 으로도 읽힌다 — 어느 쪽도 사실이 아니다. */}
+        {heatmapData.length === 0 && emptyNotice ? (
+          <div className="min-h-[260px] flex flex-col items-center justify-center gap-2 rounded-xl border border-hanok-line bg-hanok-card/40 px-6 py-10 text-center">
+            <p className="text-sm font-bold text-hanok-ink">{emptyNotice.headline}</p>
+            <p className="max-w-2xl text-xs leading-relaxed text-hanok-muted">{emptyNotice.detail}</p>
+            {emptyNotice.remedy && (
+              <p className="max-w-2xl text-xs leading-relaxed text-hanok-muted border-t border-hanok-line pt-2 mt-1">
+                {emptyNotice.remedy}
+              </p>
+            )}
+          </div>
+        ) : (
         <div className="min-w-[800px]">
           {/* X축 (시간) */}
           <div className="flex ml-36 mb-2">
@@ -215,6 +264,7 @@ export function DashboardHeatmap({ heatmapData }: { heatmapData: HeatmapCell[] }
             <div className="flex items-center gap-1"><div className="w-4 h-4 rounded-sm bg-rose-500"></div>매우 혼잡 (80%~)</div>
           </div>
         </div>
+        )}
       </div>
 
       {/* Pagination Controls */}

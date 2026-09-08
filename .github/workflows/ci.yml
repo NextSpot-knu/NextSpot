@@ -7,7 +7,14 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    # main 뿐 아니라 작업 브랜치에서도 돈다.
+    #
+    # 왜 추가했나: 예전에는 `main` 푸시와 PR 에서만 돌았다. 그런데 이 저장소의 워크플로는
+    # yunseong 에서 작업하고 main 으로 fast-forward 하는 방식이라 **PR 이 없다.** 즉 CI 를
+    # 처음 보는 시점이 곧 프로덕션 배포 시점이었다 — 실제로 2026-09-06 승격 뒤 e2e 잡이
+    # 이틀간 빨간불로 남아 있었고, 그 사이 main 은 계속 배포되고 있었다.
+    # 저장소가 public 이라 Actions 사용량 제한도 없다(무료 무제한).
+    branches: [main, yunseong]
   pull_request:
 
 permissions:

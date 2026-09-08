@@ -9,6 +9,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import {
+  CROWDED_EVIDENCE_CUTOFF,
   EVIDENCE_TIER_BY_SCORING_MODE,
   WEAKEST_EVIDENCE_TIER,
   compareSpot,
@@ -17,6 +18,7 @@ import {
   rankFacilitiesDegraded,
   recToSpot,
   scoreFacility,
+  type ScoringMode,
 } from './recommender';
 import type { RecommendationResponse } from './api-client';
 
@@ -86,6 +88,45 @@ assert.equal(recToSpot(rec).scoringMode, 'area_stats_rules');
 {
   const page = readFileSync(join(WEB, 'app/main/page.tsx'), 'utf8');
   assert.match(page, /\.sort\(compareSpot\)/, 'main 화면이 compareSpot 으로 정렬하지 않는다');
+}
+
+// --- 이미 붐비는 것이 확인된 후보는 등급 이점을 받지 않는다 (검토 38번 ii안) ---------
+//
+// 등급이 점수보다 앞서므로, 이 가드가 없으면 '만석' 을 방송한 가게가 무근거 가게 전부를 이긴다.
+// 사장님에게는 아무 값이나 방송할 유인이 생기고, 분산이라는 목표에도 어긋난다.
+{
+  const spot = (mode: ScoringMode, score: number, congestion: number | null) => ({
+    name: mode + score,
+    spot: {
+      score, preferencePercent: 0, expectedWait: 0, expectedTravel: 0, timeToService: 0,
+      scoringMode: mode, rankingCongestion: congestion,
+    },
+  });
+
+  // 붐빔이 확인되면 등급이 무근거와 같아진다.
+  assert.equal(
+    evidenceTier('measured_rules', 0.95),
+    evidenceTier('degraded_rules', null),
+    '만석 방송이 여전히 등급 이점을 갖는다',
+  );
+  // 경계값 포함(백엔드가 >= 로 세는 것과 같게).
+  assert.equal(evidenceTier('measured_rules', CROWDED_EVIDENCE_CUTOFF), WEAKEST_EVIDENCE_TIER);
+  assert.equal(evidenceTier('measured_rules', 0.899), 0);
+
+  // 모른다는 이유로 강등하지 않는다 — 강등은 '붐빔이 확인됐을 때' 만이다.
+  assert.equal(evidenceTier('measured_rules', null), 0);
+  assert.equal(evidenceTier('measured_rules', undefined), 0);
+  assert.equal(evidenceTier('measured_rules', Number.NaN), 0);
+
+  // 정직한 '여유' 방송은 여전히 무근거를 이긴다(원래 고치려던 왜곡을 되살리지 않는다).
+  const calm = spot('measured_rules', 50, 0.15);
+  const unknownA = spot('degraded_rules', 60, null);
+  assert.ok(compareSpot(calm, unknownA) < 0, "정직한 '여유' 방송이 무근거 후보에 밀린다");
+
+  // 만석은 낮은 점수로 무근거를 이기지 못한다.
+  const crowded = spot('measured_rules', 30, 0.95);
+  const unknownB = spot('degraded_rules', 55, null);
+  assert.ok(compareSpot(crowded, unknownB) > 0, '만석 방송이 낮은 점수로도 무근거 후보를 이긴다');
 }
 
 console.log('recommender evidence-tier tests passed');

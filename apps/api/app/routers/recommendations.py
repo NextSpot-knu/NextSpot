@@ -496,6 +496,7 @@ async def get_recommendations(
     #    근거가 없는 후보가 구조적으로 최소 비용을 받는다. 같은 등급 안에서만 점수로 겨룬다.
     recommendation_results.sort(key=lambda x: spot_ranking_sort_key(
         x["breakdown"].get("scoring_mode"), x["spot_score"], x["distance_m"], x["facility"]["id"],
+        x["breakdown"].get("ranking_congestion"),
     ))
     # SPOT 점수순은 추천 계약 그 자체다. UI 다양성을 위해 후처리 재정렬하지 않는다.
     top_n = recommendation_results[:5]
@@ -848,6 +849,7 @@ async def _recommend_by_type(req: "RecommendByTypeRequest") -> list:
     # 목록 화면과 종류별 화면에서 다른 자리에 놓인다.
     scored.sort(key=lambda x: spot_ranking_sort_key(
         x["breakdown"].get("scoring_mode"), x["spot_score"], x["distance_m"], x["facility"]["id"],
+        x["breakdown"].get("ranking_congestion"),
     ))
     top = scored[: max(1, req.limit)]
     await _attach_delayed_area_actions(top, now=now)

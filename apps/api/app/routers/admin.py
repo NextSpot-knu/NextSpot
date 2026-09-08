@@ -879,6 +879,13 @@ _KST_OFFSET = timedelta(hours=9)
 _DASHBOARD_LOG_CAP = 12000
 # 전일 평균은 변화율(%) 하나를 만들 뿐이라 오늘치보다 낮게 잡는다.
 _DASHBOARD_YESTERDAY_CAP = 5000
+# 하루를 집계로 인정하는 최소 표본. 오늘 구간과 폴백 기준일에 **같은 기준**을 쓴다 —
+# 기준이 갈리면 폴백 화면만 조용히 더 무른 규칙으로 그려진다.
+_DASHBOARD_MIN_DAY_SAMPLES = 5
+# 폴백 기준일을 찾을 때 훑는 최근 관측 시각 수(타임스탬프 한 칼럼만 읽는다).
+# simulate-peak 한 번이 시설 수만큼(약 1,660행) 넣으므로 이 상한은 '표본이 두꺼운 날' 여럿을
+# 덮고, 반대로 1~4건짜리 얇은 날만 이어질 때는 5,000일치까지 거슬러 올라간다.
+_DASHBOARD_FALLBACK_SCAN_CAP = 5000
 
 
 def _js_round(value: float, digits: int) -> float:
@@ -897,6 +904,32 @@ def _kst_today_range_utc() -> tuple[str, str]:
     return start.isoformat(), end.isoformat()
 
 
+def _parse_utc(ts: str) -> datetime:
+    """DB 타임스탬프(UTC 적재) → tz-aware UTC datetime. 나이브면 UTC 로 간주한다."""
+    dt = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+    return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt.astimezone(timezone.utc)
+
+
+def _kst_day_range_utc(moment: datetime) -> tuple[str, str]:
+    """임의 UTC 시각이 속한 **KST 하루**의 00:00~23:59:59.999 를 UTC ISO 로.
+    _kst_today_range_utc 의 '오늘' 을 임의 날짜로 일반화한 것 — 폴백 기준일 조회가 쓴다."""
+    kst = moment.astimezone(timezone.utc) + _KST_OFFSET
+    start = datetime(kst.year, kst.month, kst.day, 0, 0, 0, tzinfo=timezone.utc) - _KST_OFFSET
+    end = datetime(kst.year, kst.month, kst.day, 23, 59, 59, 999000, tzinfo=timezone.utc) - _KST_OFFSET
+    return start.isoformat(), end.isoformat()
+
+
+def _kst_date_str(moment: datetime) -> str:
+    """UTC 시각이 속한 KST 날짜(YYYY-MM-DD).
+
+    화면이 UTC ISO 를 받아 스스로 KST 날짜를 계산하면, 이 파일의 KST 규칙과 두 곳에서
+    갈라진다(그리고 브라우저 TZ 가 KST 가 아닌 관리자에게서만 어긋난다). 날짜 라벨은
+    집계를 소유한 서버가 문자열로 확정해 내려보낸다.
+    """
+    kst = moment.astimezone(timezone.utc) + _KST_OFFSET
+    return f"{kst.year:04d}-{kst.month:02d}-{kst.day:02d}"
+
+
 def _joined_facility(log: dict) -> tuple[str | None, str | None]:
     """조인된 facility 가 dict/list 어느 형태로 와도 name/type 안전 추출(page.tsx joinedFacility 미러)."""
     f = log.get("facility")
@@ -910,69 +943,121 @@ def _joined_facility(log: dict) -> tuple[str | None, str | None]:
 
 def _kst_hour(ts: str) -> int:
     """UTC 타임스탬프의 KST(UTC+9) 시(0..23). page.tsx: getTime()+9h → getUTCHours() 미러."""
-    dt = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    return (dt.astimezone(timezone.utc) + _KST_OFFSET).hour
+    return (_parse_utc(ts) + _KST_OFFSET).hour
 
 
-@router.get("/dashboard/today")
-async def get_dashboard_today():
-    """오늘(KST) 혼잡 집계 — page.tsx fetchCongestion 과 동일 산식의 compact JSON.
+def _fetch_day_logs(start: str, end: str) -> list[dict]:
+    """하루치 혼잡 로그(시설명/유형 조인 포함). 절단 여부는 _fetch_capped 가 구조화 로그로 남긴다."""
+    logs, _truncated = _fetch_capped(
+        "congestion_logs",
+        "congestion_level, current_count, timestamp, facility:facilities(name, type)",
+        lambda q: q.gte("timestamp", start)
+        .lte("timestamp", end)
+        .order("timestamp", desc=False)
+        .order("id", desc=False),  # simulate-peak 이 동일 timestamp 를 대량 생성한다
+        _DASHBOARD_LOG_CAP,
+        endpoint="dashboard/today",
+    )
+    return logs
 
-    반환: { hasLogs, avgCongestion, anomalyCount, heatmap, anomalies }
-      · hasLogs = 오늘 로그 수 >= 5
-      · avgCongestion.value = 평균 혼잡도(소수 2자리)
-      · avgCongestion.changePercent        = 전일 평균 대비(소수 1자리) — **구 키, 의미 그대로**
-      · avgCongestion.changePercentOrNull  = 같은 값이되 전일 표본이 없으면 null (신규)
-      · avgCongestion.prevSampleCount      = 비교에 쓴 전일 로그 건수 (신규)
-      · anomalyCount = congestion_level >= 0.9 건수
-      · heatmap = 시설명×KST시(0..23) 평균(2자리), 로그 없는 칸은 null 센티넬(실측 0.0 과 구분)
-      · anomalies = 시설별 >=0.9 피크 상위 6건
-    로그가 5건 미만이면 hasLogs=false + 나머지 null(클라이언트 폴백과 동일 shape).
+
+def _fetch_day_levels(start: str, end: str) -> list[dict]:
+    """전일 비교용 — congestion_level 만. 변화율(%) 하나를 만들 뿐이라 상한이 더 낮다."""
+    logs, _truncated = _fetch_capped(
+        "congestion_logs",
+        "congestion_level",
+        lambda q: q.gte("timestamp", start)
+        .lte("timestamp", end)
+        .order("timestamp", desc=False)
+        .order("id", desc=False),
+        _DASHBOARD_YESTERDAY_CAP,
+        endpoint="dashboard/today",
+    )
+    return logs
+
+
+def _recent_congestion_timestamps() -> list[str]:
+    """congestion_logs 의 최근 관측 시각을 **내림차순**으로(상한까지). 실패하면 빈 리스트.
+
+    왜 필요한가: 이 대시보드의 '오늘' 구간이 비는 일이 실제로 자주 있다(제보·좌석 방송·
+    관리자 오버라이드·simulate-peak 만이 이 표에 행을 넣고, 주차 실측은 다른 표로 간다).
+    그때 화면은 '고장' 과 '오늘 관측 없음' 을 구분할 근거가 하나도 없었다. 이 목록이 두
+    가지를 만든다 — 마지막 관측이 **언제**였는지, 그리고 **집계할 수 있는 가장 최근 날**이
+    언제인지.
+
+    타임스탬프 한 칼럼만 읽으므로 페이지당 비용이 작고, 이 경로는 오늘이 빈 날에만 돈다.
+
+    실패해도 예외를 올리지 않는다: 부가 정보 때문에 오늘 집계 전체를 500 으로 떨어뜨리면,
+    고치려던 문제(관리자가 아무것도 못 본다)를 그대로 재현한다.
     """
-    start, end = _kst_today_range_utc()
-    # 전일 동일 구간(변화율 보정용) — 오늘 구간을 하루 앞으로 민다.
-    y_start = (datetime.fromisoformat(start) - timedelta(days=1)).isoformat()
-    y_end = (datetime.fromisoformat(end) - timedelta(days=1)).isoformat()
-
-    empty = {"hasLogs": False, "avgCongestion": None, "anomalyCount": None, "heatmap": None, "anomalies": None}
     try:
-        # 오늘 로그(시설명/유형 조인)와 어제 로그(변화율용, congestion_level만)를 동시에 조회한다(직렬 왕복 제거).
-        (logs, _today_truncated), (y_logs, _y_truncated) = await asyncio.gather(
-            asyncio.to_thread(
-                _fetch_capped,
-                "congestion_logs",
-                "congestion_level, current_count, timestamp, facility:facilities(name, type)",
-                lambda q: q.gte("timestamp", start)
-                .lte("timestamp", end)
-                .order("timestamp", desc=False)
-                .order("id", desc=False),  # simulate-peak 이 동일 timestamp 를 대량 생성한다
-                _DASHBOARD_LOG_CAP,
-                endpoint="dashboard/today",
-            ),
-            asyncio.to_thread(
-                _fetch_capped,
-                "congestion_logs",
-                "congestion_level",
-                lambda q: q.gte("timestamp", y_start)
-                .lte("timestamp", y_end)
-                .order("timestamp", desc=False)
-                .order("id", desc=False),
-                _DASHBOARD_YESTERDAY_CAP,
-                endpoint="dashboard/today",
-            ),
+        rows, truncated = _fetch_capped(
+            "congestion_logs",
+            "timestamp",
+            lambda q: q.order("timestamp", desc=True).order("id", desc=True),
+            _DASHBOARD_FALLBACK_SCAN_CAP,
+            endpoint="dashboard/today",
         )
-    except Exception as e:
-        logger.error("admin_dashboard_today_failed", error=str(e))
-        raise HTTPException(status_code=500, detail="혼잡 집계 조회에 실패했습니다.")
+    except Exception as e:  # noqa: BLE001 — 부가 정보라 조용히 포기한다(사유는 로그에 남긴다)
+        logger.warning("admin_recent_congestion_timestamps_failed", error=str(e))
+        return []
+    if truncated:
+        # 상한에 닿으면 그 너머(더 오래된 날)는 못 본다. _pick_fallback_day 는 내림차순으로
+        # 훑어 **가장 최근** 자격일을 고르므로, 절단은 '없는 날을 만들어내는' 방향으로는
+        # 절대 틀리지 않는다 — 찾을 수 있는 날을 놓치는 쪽으로만 틀린다.
+        logger.warning("admin_fallback_scan_truncated", cap=_DASHBOARD_FALLBACK_SCAN_CAP)
+    return [str(r["timestamp"]) for r in rows if r.get("timestamp")]
 
-    # 절단 사실은 응답이 아니라 구조화 로그로만 남긴다(_fetch_capped 안에서 경고).
-    # 이 응답 shape 은 클라이언트 폴백 경로·브리핑과 공유하므로 **키를 지우거나 뜻을 바꾸지
-    # 않는다.** 아래에서 avgCongestion 에 키를 두 개 더하는 것은 그 규칙과 어긋나지 않는다 —
-    # 구 번들은 모르는 키를 읽지 않고, 브리핑(build_facts)은 changePercent 만 본다.
-    if len(logs) < 5:
-        return empty
+
+def _pick_fallback_day(timestamps: list[str]) -> tuple[str, str] | None:
+    """내림차순 관측 시각 목록에서 **집계할 수 있는 가장 최근 KST 하루**를 고른다.
+
+    반환: (KST 날짜 'YYYY-MM-DD', 그 날의 마지막 관측 시각) 또는 None.
+
+    왜 '가장 최근 관측이 있는 날' 이 아니라 '집계할 수 있는 날' 인가 — 실측(2026-09-08)에서
+    최신 행은 KST 2026-08-21 의 **단 1건**이고, 그 아래로 7월 초의 수백 건짜리 날들이 있다.
+    최신 행의 날짜로 폴백하면 폴백해 놓고도 화면이 그대로 빈다(1건으로는 하루 평균도,
+    이상 건수도, 히트맵도 낼 수 없다). 오늘 구간과 **같은 최소 표본 기준**을 적용해,
+    실제로 보여 줄 것이 있는 가장 최근 날을 고른다.
+
+    (건너뛴 날들은 사라지지 않는다 — 최신 관측 시각은 latestObservedAt 으로 따로 나가고,
+     화면은 '그 뒤에도 관측은 있었지만 표본이 모자랐다' 를 말할 수 있다.)
+    """
+    counts: dict[str, int] = {}
+    newest: dict[str, str] = {}
+    order: list[str] = []  # 최신 날짜부터의 등장 순서(입력이 내림차순이라 그대로 보존된다)
+    for ts in timestamps:
+        try:
+            day = _kst_date_str(_parse_utc(ts))
+        except (TypeError, ValueError):
+            continue
+        if day not in counts:
+            counts[day] = 0
+            newest[day] = ts  # 내림차순이라 그 날 첫 등장이 곧 그 날의 최신 관측이다
+            order.append(day)
+        counts[day] += 1
+    for day in order:
+        if counts[day] >= _DASHBOARD_MIN_DAY_SAMPLES:
+            return day, newest[day]
+    return None
+
+
+def _aggregate_congestion_day(logs: list[dict], prev_logs: list[dict]) -> dict:
+    """하루치 로그 → 대시보드 집계 { hasLogs, avgCongestion, anomalyCount, heatmap, anomalies, sampleCount }.
+
+    '오늘' 과 '폴백 기준일' 이 **같은 산식**을 쓰도록 라우터 본문에서 뽑아낸 함수다.
+    두 벌로 두면 폴백 화면만 조용히 다른 규칙으로 그려진다.
+    """
+    if len(logs) < _DASHBOARD_MIN_DAY_SAMPLES:
+        return {
+            "hasLogs": False,
+            "avgCongestion": None,
+            "anomalyCount": None,
+            "heatmap": None,
+            "anomalies": None,
+            # 표본 수는 0 과 '4건뿐' 을 구분하게 해 준다(둘 다 hasLogs=False 지만 사실은 다르다).
+            "sampleCount": len(logs),
+        }
 
     # 1) KPI: 평균 혼잡도 + 이상(>=0.9) 건수 + 전일 대비 변화율
     avg = sum(float(row.get("congestion_level") or 0) for row in logs) / len(logs)
@@ -995,10 +1080,10 @@ async def get_dashboard_today():
     # 계획: 새 화면이 배포돼 안정되면(양쪽 배포 확인 후) changePercent 를 걷고
     #      changePercentOrNull 을 changePercent 로 되돌린다. 그때 지울 것은
     #      이 블록의 change_percent 계산과 프런트의 구 키 폴백 두 곳뿐이다.
-    prev_sample_count = len(y_logs)
+    prev_sample_count = len(prev_logs)
     change_percent_or_null: float | None = None
-    if y_logs:
-        y_avg = sum(float(row.get("congestion_level") or 0) for row in y_logs) / len(y_logs)
+    if prev_logs:
+        y_avg = sum(float(row.get("congestion_level") or 0) for row in prev_logs) / len(prev_logs)
         if y_avg > 0:
             # JS: Math.round((value - yAvg)/yAvg * 1000)/10 == _js_round(... * 100, 1)
             change_percent_or_null = _js_round((value - y_avg) / y_avg * 100, 1)
@@ -1037,7 +1122,7 @@ async def get_dashboard_today():
                 "value": _js_round(acc["sum"] / acc["n"], 2) if acc and acc["n"] else None,
             })
 
-    # 3) 이상 알림: 오늘 >=0.9 피크(시설별 최고 1건), congestionLevel 내림차순 상위 6
+    # 3) 이상 알림: 그날의 >=0.9 피크(시설별 최고 1건), congestionLevel 내림차순 상위 6
     peak: dict[str, dict] = {}
     for row in logs:
         level = float(row.get("congestion_level") or 0)
@@ -1062,7 +1147,118 @@ async def get_dashboard_today():
         "anomalyCount": anomaly_count,
         "heatmap": heatmap,
         "anomalies": anomalies,
+        "sampleCount": len(logs),
     }
+
+
+async def _fallback_day_aggregate(day_kst: str, day_observed_at: str) -> dict | None:
+    """집계 가능한 가장 최근 **KST 하루** 를 오늘과 같은 산식으로 집계해 돌려준다.
+
+    반환에 dateKst/observedAt 을 함께 싣는 이유: 화면은 이 집계를 그리면서 **어느 날짜 기준
+    인지 크게 명시해야** 한다. 날짜 없이 그리면 오늘 것으로 읽히고, 그건 값을 지어낸 것과
+    같은 크기의 거짓말이다. 날짜 계산은 KST 규칙을 소유한 이 파일이 문자열로 확정한다.
+
+    실패하면 None — 폴백은 부가 기능이라 오늘 집계까지 500 으로 끌고 가지 않는다.
+    """
+    try:
+        moment = _parse_utc(day_observed_at)
+    except (TypeError, ValueError):
+        logger.warning("admin_dashboard_fallback_bad_timestamp", timestamp=str(day_observed_at))
+        return None
+
+    f_start, f_end = _kst_day_range_utc(moment)
+    p_start = (datetime.fromisoformat(f_start) - timedelta(days=1)).isoformat()
+    p_end = (datetime.fromisoformat(f_end) - timedelta(days=1)).isoformat()
+    try:
+        f_logs, p_logs = await asyncio.gather(
+            asyncio.to_thread(_fetch_day_logs, f_start, f_end),
+            asyncio.to_thread(_fetch_day_levels, p_start, p_end),
+        )
+    except Exception as e:  # noqa: BLE001 — 폴백 실패가 오늘 집계를 죽이면 안 된다
+        logger.warning("admin_dashboard_fallback_fetch_failed", error=str(e))
+        return None
+
+    return {
+        "dateKst": day_kst,
+        # **그 날의** 마지막 관측 시각(UTC ISO) — 전체 최신 관측(latestObservedAt)과 다를 수 있다.
+        # 실측이 정확히 그렇다: 최신 관측은 8/21 의 1건이지만 집계 가능한 날은 7/09 다.
+        "observedAt": day_observed_at,
+        **_aggregate_congestion_day(f_logs, p_logs),
+    }
+
+
+@router.get("/dashboard/today")
+async def get_dashboard_today():
+    """오늘(KST) 혼잡 집계 — page.tsx fetchCongestion 과 동일 산식의 compact JSON.
+
+    반환: { hasLogs, avgCongestion, anomalyCount, heatmap, anomalies, sampleCount,
+            latestObservedAt, fallback }
+      · hasLogs = 오늘 로그 수 >= 5
+      · avgCongestion.value = 평균 혼잡도(소수 2자리)
+      · avgCongestion.changePercent        = 전일 평균 대비(소수 1자리) — **구 키, 의미 그대로**
+      · avgCongestion.changePercentOrNull  = 같은 값이되 전일 표본이 없으면 null
+      · avgCongestion.prevSampleCount      = 비교에 쓴 전일 로그 건수
+      · anomalyCount = congestion_level >= 0.9 건수
+      · heatmap = 시설명×KST시(0..23) 평균(2자리), 로그 없는 칸은 null 센티넬(실측 0.0 과 구분)
+      · anomalies = 시설별 >=0.9 피크 상위 6건
+    로그가 5건 미만이면 hasLogs=false + 나머지 null(클라이언트 폴백과 동일 shape).
+
+    ── 신규 키(추가만 한다) ─────────────────────────────────────────────────────
+      · sampleCount      = 오늘 구간의 로그 건수(0 과 '4건뿐' 을 구분)
+      · latestObservedAt = congestion_logs 전체의 가장 최근 관측 시각(UTC ISO) 또는 null
+      · fallback         = 오늘이 비었을 때 **집계할 수 있는 가장 최근 KST 하루** 의 같은 집계
+                           { dateKst, observedAt, hasLogs, avgCongestion, anomalyCount,
+                             heatmap, anomalies, sampleCount } 또는 null
+                           observedAt 은 **그 날의** 마지막 관측이라 latestObservedAt 과
+                           다를 수 있다(_pick_fallback_day 주석 참조).
+
+    왜 폴백을 최상위 키에 섞지 않고 **별도 객체**로 두는가: Vercel(웹)과 Render(API)는 배포
+    시점이 다르고 스테이징이 없다. 오늘 구간이 빈 날 최상위 hasLogs 에 폴백 값을 채워
+    보내면, 아직 옛 번들을 받은 관리자 화면은 **19일 전 데이터를 오늘 것으로** 그린다.
+    그건 값을 지어내는 것과 같다. 최상위 키의 뜻은 '오늘' 그대로 두고, 폴백을 읽을 줄 아는
+    새 번들만 날짜 배지와 함께 그린다.
+
+    (이 응답 shape 은 admin/report 화면·브리핑과도 공유한다. 둘 다 최상위 hasLogs/
+     avgCongestion/anomalyCount 만 읽으므로 신규 키의 영향을 받지 않는다.)
+    """
+    start, end = _kst_today_range_utc()
+    # 전일 동일 구간(변화율 보정용) — 오늘 구간을 하루 앞으로 민다.
+    y_start = (datetime.fromisoformat(start) - timedelta(days=1)).isoformat()
+    y_end = (datetime.fromisoformat(end) - timedelta(days=1)).isoformat()
+
+    try:
+        # 오늘 로그(시설명/유형 조인)와 어제 로그(변화율용, congestion_level만)를 동시에 조회한다(직렬 왕복 제거).
+        logs, y_logs = await asyncio.gather(
+            asyncio.to_thread(_fetch_day_logs, start, end),
+            asyncio.to_thread(_fetch_day_levels, y_start, y_end),
+        )
+    except Exception as e:
+        logger.error("admin_dashboard_today_failed", error=str(e))
+        raise HTTPException(status_code=500, detail="혼잡 집계 조회에 실패했습니다.")
+
+    # 절단 사실은 응답이 아니라 구조화 로그로만 남긴다(_fetch_capped 안에서 경고).
+    today = _aggregate_congestion_day(logs, y_logs)
+
+    if today["hasLogs"]:
+        # 오늘 관측이 있으면 가장 최근 관측도 오늘 안에 있다 — 추가 왕복 없이 손에 든 행에서 뽑는다.
+        latest_at = max(str(row["timestamp"]) for row in logs if row.get("timestamp"))
+        return {**today, "latestObservedAt": latest_at, "fallback": None}
+
+    # ── 오늘 구간이 비었다 ──────────────────────────────────────────────────────
+    # 여기가 '고장' 인지 '데이터 없음' 인지는 이 응답만 봐서는 알 수 없었다(둘 다 빈 화면).
+    # 최근 관측 시각을 훑어 (1) 마지막 관측이 언제인지와 (2) 집계할 수 있는 가장 최근 날이
+    # 언제인지를 함께 실어, 화면이 사실을 말할 수 있게 한다. 둘은 다를 수 있다 — 실측에서는
+    # 최신 관측이 8/21 의 1건이고 집계 가능한 날은 7/09 다(_pick_fallback_day 참조).
+    recent = await asyncio.to_thread(_recent_congestion_timestamps)
+    latest_at = recent[0] if recent else None
+    fallback = None
+    picked = _pick_fallback_day(recent)
+    if picked:
+        day_kst, day_observed_at = picked
+        # 고른 날이 '오늘' 이면 폴백할 다른 날이 아니다(오늘이 표본 미달이라는 사실 그대로).
+        if day_kst != _kst_date_str(datetime.now(timezone.utc)):
+            fallback = await _fallback_day_aggregate(day_kst, day_observed_at)
+    return {**today, "latestObservedAt": latest_at, "fallback": fallback}
 
 
 # =========================================================================

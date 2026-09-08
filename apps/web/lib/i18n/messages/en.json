@@ -476,7 +476,9 @@
       "closed_confirmed": "Confirmed closed on arrival",
       "needs_confirmation": "Hours unverified · check before leaving",
       "likely_closed_unknown": "Hours unverified · likely closed now"
-    }
+    },
+    "evidenceNone": "No congestion evidence",
+    "spotTooltipEvidenceOrder": "Places with congestion evidence come first. Without it, even a closer place ranks lower."
   },
   "report": {
     "trigger": "Report crowding",
@@ -958,7 +960,9 @@
     "submitFailed": "We couldn't send your inquiry. Please try again in a moment.",
     "doneTitle": "Your inquiry was received.",
     "doneDesc": "The team will review it and follow up shortly.",
-    "backToMypage": "Back to My Page"
+    "backToMypage": "Back to My Page",
+    "anonymousReplyNotice": "Without signing in you won't be able to read our reply in the app. To get one, include your contact details (email or phone) in the message.",
+    "anonymousReplyNoticeTitle": "To receive a reply"
   },
   "systemNotice": {
     "maintenanceTitle": "We're under maintenance",

@@ -402,4 +402,8 @@ def test_dashboard_today_aggregates_every_log_past_the_row_cap(client):
     # 있으므로 '두 번째 페이지를 요청했는가' 만 본다. 단발 .limit() 이면 range 자체가 없다.
     assert (1000, 1999) in _ranges(calls, "congestion_logs")
     # 응답 shape 은 클라이언트 폴백 계약과 1:1 — 절단 사실은 구조화 로그로만 남긴다.
-    assert set(body) == {"hasLogs", "avgCongestion", "anomalyCount", "heatmap", "anomalies"}
+    # (sampleCount/latestObservedAt/fallback 은 뒤에 **추가만** 된 키다 — test_dashboard_fallback.py 참조.)
+    assert set(body) == {
+        "hasLogs", "avgCongestion", "anomalyCount", "heatmap", "anomalies",
+        "sampleCount", "latestObservedAt", "fallback",
+    }

@@ -229,6 +229,10 @@ async def calculate_spot_score(
             "travel_distance_m": travel_distance_m,
             "travel_source": travel_source or "estimated",
             "ranking_wait_time": ranking_wait,
+            # 이 후보의 시간비용을 실제로 만든 혼잡도(실측이면 실측, 모델이면 예측).
+            # 정렬이 '이미 붐비는 것이 확인된 후보' 를 가려내는 데 쓴다(spot/ranking.py 의
+            # CROWDED_EVIDENCE_CUTOFF). **추가만** 하는 키다 — 구 번들은 읽지 않는다.
+            "ranking_congestion": predicted_congestion,
             # 업종 모집단 기준선(근거 없는 후보 전용). **이 시설의 대기가 아니다** — 그래서
             # wait_time/ranking_wait_time 과 섞지 않고 별도 키로 둔다. 기준선이 없으면 None.
             "industry_baseline_congestion": (

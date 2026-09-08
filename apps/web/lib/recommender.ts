@@ -32,9 +32,28 @@ export const EVIDENCE_TIER_BY_SCORING_MODE: Record<ScoringMode, number> = {
 // 모드를 모르면(구버전 응답·미러가 안 적은 경우) 가장 약한 근거로 본다 — 모르면 이기지 못한다.
 export const WEAKEST_EVIDENCE_TIER = 2;
 
-/** scoringMode 를 근거 등급으로. 낮을수록 강한 근거. */
-export function evidenceTier(mode: ScoringMode | undefined | null): number {
-  return mode ? (EVIDENCE_TIER_BY_SCORING_MODE[mode] ?? WEAKEST_EVIDENCE_TIER) : WEAKEST_EVIDENCE_TIER;
+// 이 이상이면 '이미 붐빈다' 로 보고 **등급 이점을 주지 않는다.**
+// 백엔드 spot/ranking.py 의 CROWDED_EVIDENCE_CUTOFF 미러이며, 패리티 테스트가 일치를 강제한다.
+// 0.9 는 이 저장소가 이미 쓰는 '이상 혼잡' 선이다(관리자 대시보드 anomalyCount).
+export const CROWDED_EVIDENCE_CUTOFF = 0.9;
+
+/**
+ * scoringMode(+ 알려진 혼잡도)를 근거 등급으로. 낮을수록 강한 근거.
+ *
+ * 혼잡도를 **모르면 강등하지 않는다** — 강등은 '붐빔이 확인됐을 때' 만이다.
+ * 이 가드가 없으면 등급이 점수보다 앞서므로 '만석' 을 방송한 가게가 무근거 가게 전부를
+ * 이긴다(사장님에게는 아무 값이나 방송할 유인이 생기고, 분산 목표에도 어긋난다).
+ */
+export function evidenceTier(
+  mode: ScoringMode | undefined | null,
+  congestionLevel?: number | null,
+): number {
+  const tier = mode
+    ? (EVIDENCE_TIER_BY_SCORING_MODE[mode] ?? WEAKEST_EVIDENCE_TIER)
+    : WEAKEST_EVIDENCE_TIER;
+  if (typeof congestionLevel !== "number" || !Number.isFinite(congestionLevel)) return tier;
+  // 이점만 없앤다 — 이미 약한 등급을 더 내리지는 않는다.
+  return congestionLevel >= CROWDED_EVIDENCE_CUTOFF ? Math.max(tier, WEAKEST_EVIDENCE_TIER) : tier;
 }
 
 export const CATEGORY_VECTORS: Record<string, number[]> = {
@@ -60,6 +79,10 @@ export interface Spot {
   // (아래 EVIDENCE_TIER_BY_SCORING_MODE 주석 참조). 서버 응답은 서버가 판정한 값을 그대로
   // 싣고(recToSpot), 클라 미러 계산은 자기가 쓴 공식을 적는다.
   scoringMode?: ScoringMode;
+  // 이 점수의 시간비용을 실제로 만든 혼잡도(실측이면 실측, 모델이면 예측).
+  // compareSpot 이 '이미 붐비는 후보' 를 가려내는 데 쓴다. 모르면 undefined —
+  // **0 으로 채우지 않는다.** 0 은 '한산하다' 는 관측이고, 모르는 것과 다르다.
+  rankingCongestion?: number | null;
   // A4: 행사 혼잡 보정 배지용 — 백엔드 breakdown 원본 그대로 실어 나른다(recToSpot 전용, 클라 미러 계산엔 없음).
   eventBoost?: number;
   eventTitle?: string;
@@ -406,6 +429,10 @@ export function scoreFacility(facility: ScorableFacility | null | undefined, opt
     // `?? 0` 이 '모른다' 를 '대기 0분' 으로 바꿔 버리니 degraded_rules 다. 등급은 점수를
     // 만든 공식을 그대로 적는 것이지, 시설을 평가하는 별도 판단이 아니다.
     scoringMode: typeof facility.congestionLevel === "number" ? "measured_rules" : "degraded_rules",
+    // 이 점수의 시간비용을 만든 혼잡도. 없으면 null 로 둔다 — 0 으로 채우면 '한산하다' 는
+    // 관측을 지어내는 것이고, 그건 이 파일이 계속 막아 온 일이다.
+    rankingCongestion:
+      typeof facility.congestionLevel === "number" ? facility.congestionLevel : null,
   };
 }
 
@@ -417,8 +444,8 @@ export function compareSpot(a: SpotRankable, b: SpotRankable): number {
   //    세워 비교하지 않기 위해서다(EVIDENCE_TIER_BY_SCORING_MODE 주석 참조).
   //    백엔드 spot_ranking_sort_key 와 같은 순서다 — 한쪽만 바꾸면 같은 화면에서
   //    서버가 준 순위와 로컬 순위가 갈린다.
-  const aTier = evidenceTier(at.scoringMode);
-  const bTier = evidenceTier(bt.scoringMode);
+  const aTier = evidenceTier(at.scoringMode, at.rankingCongestion);
+  const bTier = evidenceTier(bt.scoringMode, bt.rankingCongestion);
   if (aTier !== bTier) return aTier - bTier;
   if (bt.score !== at.score) return bt.score - at.score; // 1. 높은 점수
   if (at.timeToService !== bt.timeToService) return at.timeToService - bt.timeToService; // 2. 짧은 총 소요
@@ -475,6 +502,8 @@ export function rankFacilitiesDegraded<T extends ScorableFacility>(
         incentive,
         // 이 함수가 곧 백엔드 degraded_rules 의 미러다(혼잡·대기·완화항 없음).
         scoringMode: 'degraded_rules' as const,
+        // degraded 는 정의상 혼잡 근거가 없다 — null 이어야 한다(0 이 아니다).
+        rankingCongestion: null,
       },
       reason: facility.reason || '',
     };
@@ -499,6 +528,13 @@ export function recToSpot(rec: RecommendationResponse): Spot {
     travelSource: b.travelSource,
     timeToService: Math.round((wait + travel) * 10) / 10,
     rankingWaitTime: typeof b.rankingWaitTime === "number" ? b.rankingWaitTime : wait,
+    // 서버가 판정한 값을 그대로 싣는다(클라가 다시 추측하지 않는다). 구 서버 응답에는
+    // 없을 수 있고, 그때는 undefined 라 등급 강등이 일어나지 않는다 — 없는 근거로
+    // 순위를 내리지 않는 쪽이 안전하다.
+    rankingCongestion:
+      typeof (b as { rankingCongestion?: number | null }).rankingCongestion === "number"
+        ? (b as { rankingCongestion?: number | null }).rankingCongestion
+        : null,
     areaDemandPenaltyMinutes: typeof b.areaDemandPenaltyMinutes === "number" ? b.areaDemandPenaltyMinutes : 0,
     incentive: typeof b.incentive === "number" ? b.incentive : 0,
     // 서버가 판정한 등급을 그대로 싣는다 — 클라가 다시 추측하지 않는다. 이게 없으면

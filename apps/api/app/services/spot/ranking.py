@@ -53,10 +53,42 @@ EVIDENCE_TIER_LABELS = {
 # 최상위로 올라가는 쪽이 아니라 조용히 맨 뒤로 가는 쪽이 안전하다(모르면 이기지 못한다).
 WEAKEST_EVIDENCE_TIER = max(EVIDENCE_TIER_LABELS)
 
+# 이 이상이면 '이미 붐빈다' 로 본다 — **근거 등급 이점을 주지 않는다.**
+#
+# 왜 필요한가: 등급이 점수보다 앞서므로, 위 표만 있으면 **어떤 값을 방송하든** 그 가게가
+# 무근거 가게 전부를 이긴다. '만석(1.0)' 을 방송해도 그렇다. 그러면
+#   · 사장님 콘솔에는 "아무 값이나 방송하면 이득" 이라는 새 유인이 생기고,
+#   · 분산이라는 서비스 목표에서 보면 "만석인 걸 아는 가게" 를 "모르는 가게" 위에 올리게 된다.
+# 앞의 왜곡('정직하면 손해')을 고치다 방향만 바꿔 새 왜곡을 만드는 셈이라, 붐비는 것이
+# 확인된 후보는 등급 이점에서 빼기로 했다(검토 결정 2026-09-08).
+#
+# 0.9 인 이유: 이 저장소가 **이미 쓰고 있는 '이상 혼잡' 선**이다(admin.py 의 대시보드
+# anomalyCount = congestion_level >= 0.9). 새 숫자를 만들면 "이 정도면 붐빔" 의 정의가 둘이
+# 되고, 둘은 반드시 갈라진다. 임의성을 하나라도 줄이려고 있는 선을 그대로 쓴다.
+CROWDED_EVIDENCE_CUTOFF = 0.9
 
-def scoring_evidence_tier(scoring_mode: str | None) -> int:
-    """``scoring_mode`` 를 근거 등급으로 바꾼다. 낮을수록 강한 근거."""
-    return EVIDENCE_TIER_BY_SCORING_MODE.get(scoring_mode or "", WEAKEST_EVIDENCE_TIER)
+
+def scoring_evidence_tier(
+    scoring_mode: str | None, congestion_level: float | None = None
+) -> int:
+    """``scoring_mode``(+ 알려진 혼잡도)를 근거 등급으로 바꾼다. 낮을수록 강한 근거.
+
+    ``congestion_level`` 은 그 후보의 시간비용을 실제로 만든 값이다(실측이면 실측,
+    모델이면 예측 — score.py 의 ``ranking_congestion``). 모르면 ``None`` 이고, 그때는
+    모드만으로 판정한다 — **모른다는 이유로 강등하지 않는다.** 강등은 '붐비는 것이
+    확인됐을 때' 만이다.
+    """
+    tier = EVIDENCE_TIER_BY_SCORING_MODE.get(scoring_mode or "", WEAKEST_EVIDENCE_TIER)
+    if congestion_level is None:
+        return tier
+    try:
+        level = float(congestion_level)
+    except (TypeError, ValueError):
+        return tier
+    if level >= CROWDED_EVIDENCE_CUTOFF:
+        # 이점만 없앤다 — 이미 약한 등급을 더 내리지는 않는다(가장 약한 등급이 바닥이다).
+        return max(tier, WEAKEST_EVIDENCE_TIER)
+    return tier
 
 
 def spot_ranking_sort_key(
@@ -64,6 +96,7 @@ def spot_ranking_sort_key(
     spot_score: float,
     distance_m: float,
     facility_id: str,
+    congestion_level: float | None = None,
 ) -> tuple[int, float, float, str]:
     """추천·코스가 공유하는 SPOT 정렬 키 — (근거 등급, 점수 내림차순, 거리, id).
 
@@ -72,7 +105,7 @@ def spot_ranking_sort_key(
     자리에 놓인다. 뒤의 세 항목은 종전 정렬과 동일하다 — 등급만 앞에 붙였다.
     """
     return (
-        scoring_evidence_tier(scoring_mode),
+        scoring_evidence_tier(scoring_mode, congestion_level),
         -float(spot_score),
         float(distance_m),
         str(facility_id),

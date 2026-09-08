@@ -44,10 +44,18 @@ from app.core.supabase import supabase_admin
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1/system", tags=["system"])
 
-# 60초 TTL. 관광객 앱이 화면 전환마다 두드려도 DB 왕복은 분당 1회로 묶인다.
+# 15초 TTL.
+#
+# 왜 60 → 15 로 줄였나: 이 값의 존재 이유 하나가 **점검 모드**인데, 장애가 났을 때 60초는
+# 길다. 운영자가 점검을 켜도 새로 들어오는 방문자가 최대 1분 동안 평소 화면을 본다.
+#
+# 줄여도 부담이 없다: 이 조회는 `system_settings` **단일 행**(id=1) 하나이고, 관광객 앱은
+# 부팅 시 1회만 부른다(폴링이 아니다). TTL 15초면 최악의 경우에도 DB 왕복이 분당 4회다 —
+# Render 무료 플랜에서도 아무것도 아니다. 더 줄이지 않는 이유는 반대쪽이다: 0 으로 두면
+# 동시 접속자 수만큼 왕복이 나가고, 그건 정작 장애 상황에서 DB 를 더 두드리는 짓이 된다.
 # 점검 안내가 최대 60초 늦게 뜨는 것은 감수한다 — 이 표는 사람이 손으로 바꾸는 설정이고,
 # 그 대가로 장애 시 설정 조회가 트래픽을 증폭시키지 않는다.
-_CACHE_TTL_SECONDS = 60.0
+_CACHE_TTL_SECONDS = 15.0
 
 # 캐시 형식: (성공 시각(monotonic), payload). 저장소의 기존 TTL 캐시 관용구
 # (services/tourism_related_service.py 의 _cache/_lock)를 그대로 따른다.
@@ -150,6 +158,8 @@ async def get_public_settings(response: Response):
       관리자 화면이 조정하는 것은 '혼잡' 하나뿐이기 때문이다.
     """
     payload = await _load_public_settings()
-    # 서버 TTL 과 같은 60초. 이 응답은 사용자별로 달라지지 않으므로 공유 캐시도 허용한다.
-    response.headers["Cache-Control"] = "public, max-age=60"
+    # 서버 TTL 과 같은 15초로 맞춘다. 둘이 어긋나면 더 긴 쪽이 실제 지연이 되므로,
+    # 서버만 줄여 봐야 앞단 캐시가 그대로 60초를 붙들고 있게 된다.
+    # 이 응답은 사용자별로 달라지지 않으므로 공유 캐시도 허용한다.
+    response.headers["Cache-Control"] = "public, max-age=15"
     return payload

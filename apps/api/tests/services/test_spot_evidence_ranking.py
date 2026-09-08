@@ -375,3 +375,103 @@ def test_evidence_tier_parity_with_web_mirror():
     # 등급을 만들어 놓고 정렬이 안 쓰면 아무 일도 일어나지 않는다.
     assert re.search(r"if \(aTier !== bTier\) return aTier - bTier;", text), \
         "compareSpot 이 근거 등급을 먼저 보지 않는다"
+
+    # 붐빔 컷오프도 같은 값이어야 한다. 한쪽만 있으면 같은 화면에서 서버가 뒤로 민 만석
+    # 가게를 로컬 미러가 앞으로 끌어올린다.
+    from app.services.spot.ranking import CROWDED_EVIDENCE_CUTOFF
+
+    cutoff = re.search(r"export const CROWDED_EVIDENCE_CUTOFF = ([0-9.]+);", text)
+    assert cutoff, "recommender.ts 에 CROWDED_EVIDENCE_CUTOFF 가 없다 — 미러가 붐빔 컷오프를 모른다"
+    assert float(cutoff.group(1)) == pytest.approx(CROWDED_EVIDENCE_CUTOFF)
+
+    # 컷오프를 상수로만 두고 비교에 안 넘기면 역시 아무 일도 일어나지 않는다.
+    assert re.search(r"evidenceTier\(at\.scoringMode, at\.rankingCongestion\)", text), \
+        "compareSpot 이 혼잡도를 등급 판정에 넘기지 않는다"
+
+
+# =============================================================================
+# 이미 붐비는 것이 확인된 후보는 등급 이점을 받지 않는다 (검토 38번 ii안)
+# =============================================================================
+
+def test_a_full_house_broadcast_no_longer_beats_every_unknown_candidate():
+    """'만석' 을 방송해도 무근거 후보 전부를 이기지는 못한다.
+
+    등급이 점수보다 앞서므로, 이 가드가 없으면 **어떤 값을 방송하든** 그 가게가 무근거
+    가게 전부를 이긴다. 그러면 (1) 사장님 콘솔에 "아무 값이나 방송하면 이득" 이라는 유인이
+    생기고, (2) 분산이라는 목표에서 '만석인 걸 아는 가게' 를 '모르는 가게' 위에 올리게 된다.
+    앞의 왜곡('정직하면 손해')을 고치다 방향만 바꿔 새 왜곡을 만드는 셈이었다.
+    """
+    from app.services.spot.ranking import scoring_evidence_tier, spot_ranking_sort_key
+
+    # (1) 등급 이점 자체가 사라진다 — 점수·거리가 같으면 두 후보는 같은 줄에 선다.
+    crowded = spot_ranking_sort_key("measured_rules", 0.50, 100.0, "crowded", 0.95)
+    unknown = spot_ranking_sort_key("degraded_rules", 0.50, 100.0, "unknown", None)
+    assert crowded[0] == unknown[0], "만석 방송이 여전히 등급 이점을 갖는다"
+    # 모드만 보면 이점이 있었다는 사실도 함께 남긴다(이 가드가 없으면 무엇이 바뀐 건지 흐려진다).
+    assert scoring_evidence_tier("measured_rules") < scoring_evidence_tier("degraded_rules")
+
+    # (2) 그래서 실제 상황에서 뒤집힌다. 만석이면 대기가 붙어 점수가 낮아지는데(0.30),
+    #     예전에는 등급이 앞서 그 낮은 점수로도 무근거 후보(0.55)를 이겼다.
+    crowded_real = spot_ranking_sort_key("measured_rules", 0.30, 100.0, "crowded", 0.95)
+    unknown_real = spot_ranking_sort_key("degraded_rules", 0.55, 100.0, "unknown", None)
+    assert crowded_real > unknown_real, "만석 방송이 낮은 점수로도 무근거 후보를 이긴다"
+
+
+def test_an_honest_calm_broadcast_still_wins_over_no_evidence():
+    """반대 방향은 그대로여야 한다 — '여유' 방송은 여전히 이긴다.
+
+    이걸 함께 잠그지 않으면, 붐빔 컷오프를 넣다가 원래 고치려던 '정직한 방송이 손해' 를
+    되살릴 수 있다.
+    """
+    from app.services.spot.ranking import spot_ranking_sort_key
+
+    calm = spot_ranking_sort_key("measured_rules", 0.50, 400.0, "calm", 0.15)
+    unknown = spot_ranking_sort_key("degraded_rules", 0.60, 300.0, "unknown", None)
+    assert calm < unknown, "정직한 '여유' 방송이 무근거 후보에 밀린다"
+
+
+def test_unknown_congestion_is_not_a_reason_to_demote():
+    """혼잡도를 모른다는 이유로 강등하지 않는다. 강등은 '붐빔이 확인됐을 때' 만이다."""
+    from app.services.spot.ranking import scoring_evidence_tier
+
+    assert scoring_evidence_tier("measured_rules", None) == 0
+    assert scoring_evidence_tier("measured_rules") == 0
+    # 숫자가 아닌 값이 흘러들어도 모드 판정으로 안전하게 떨어진다.
+    assert scoring_evidence_tier("measured_rules", "n/a") == 0  # type: ignore[arg-type]
+
+
+def test_the_cutoff_reuses_the_dashboard_anomaly_line():
+    """컷오프가 저장소의 기존 '이상 혼잡' 선과 같은 값인가.
+
+    새 숫자를 만들면 "이 정도면 붐빔" 의 정의가 둘이 되고, 둘은 반드시 갈라진다.
+    관리자 대시보드는 `congestion_level >= 0.9` 를 이상 혼잡으로 센다(admin.py).
+    """
+    from app.services.spot.ranking import CROWDED_EVIDENCE_CUTOFF
+
+    admin_src = (Path(__file__).resolve().parents[2] / "app" / "routers" / "admin.py").read_text(
+        encoding="utf-8"
+    )
+    assert re.search(r"congestion_level[^\n]{0,40}>=\s*0\.9", admin_src), (
+        "admin.py 의 이상 혼잡 기준을 찾지 못했다 — 바뀌었다면 이 컷오프도 함께 봐야 한다"
+    )
+    assert CROWDED_EVIDENCE_CUTOFF == 0.9
+
+
+def test_the_cutoff_is_inclusive_at_the_boundary():
+    """경계값(정확히 0.9)도 '붐빔' 으로 본다 — 대시보드가 `>=` 로 세는 것과 같게."""
+    from app.services.spot.ranking import WEAKEST_EVIDENCE_TIER, scoring_evidence_tier
+
+    assert scoring_evidence_tier("measured_rules", 0.9) == WEAKEST_EVIDENCE_TIER
+    assert scoring_evidence_tier("measured_rules", 0.899) == 0
+
+
+def test_a_crowded_candidate_is_not_pushed_below_the_weakest_tier():
+    """이점만 없앤다 — 이미 약한 등급을 더 내리지는 않는다.
+
+    더 내리면 '붐빔이 확인된 곳' 이 '아무것도 모르는 곳' 보다 아래가 되는데, 그건 이번
+    결정(ii안 = 등급 이점을 주지 않는다)의 범위를 넘는 별개의 정책이다.
+    """
+    from app.services.spot.ranking import WEAKEST_EVIDENCE_TIER, scoring_evidence_tier
+
+    assert scoring_evidence_tier("degraded_rules", 0.99) == WEAKEST_EVIDENCE_TIER
+    assert scoring_evidence_tier("area_stats_rules", 0.99) == WEAKEST_EVIDENCE_TIER

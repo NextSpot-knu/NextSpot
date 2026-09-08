@@ -1370,8 +1370,15 @@ def test_admin_dashboard_today_aggregation(client):
 
     assert res.status_code == 200
     body = res.json()
-    assert set(body) == {"hasLogs", "avgCongestion", "anomalyCount", "heatmap", "anomalies"}
+    # 신규 키(sampleCount/latestObservedAt/fallback)는 **추가만** 된 것 — 구 키의 뜻은 그대로다.
+    assert set(body) == {
+        "hasLogs", "avgCongestion", "anomalyCount", "heatmap", "anomalies",
+        "sampleCount", "latestObservedAt", "fallback",
+    }
     assert body["hasLogs"] is True
+    assert body["sampleCount"] == 5
+    # 오늘 관측이 있으면 폴백은 없다(폴백은 '오늘 구간이 빈 날' 전용이다).
+    assert body["fallback"] is None
     # 평균 (0.5+0.6+0.95+0.2+0.3)/5 = 0.51, 이상(>=0.9) 1건
     assert body["avgCongestion"]["value"] == 0.51
     assert body["anomalyCount"] == 1

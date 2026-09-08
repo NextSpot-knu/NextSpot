@@ -235,32 +235,41 @@ export function FacilityTable() {
             <div className="p-8 text-center text-hanok-muted">데이터 로딩 중...</div>
           ) : (
             <>
-              <table className="w-full text-left border-collapse">
+              {/* min-w-[880px]: 이 표는 6칸인데 카드가 grid-cols-3 의 2칸(col-span-2)이라, 좁은 폭에서
+                  브라우저가 열 너비를 균등 압축한다. 그때 '상태' 칸이 배지 두 글자보다 좁아져 '활' / '성'
+                  으로 쪼개졌다(사용자 보고). 표 자체에 최소 폭을 주면 그 아래에서는 부모의 overflow-x-auto
+                  가 가로 스크롤을 맡으므로, 390px 에서도 어떤 칸도 찌그러지지 않는다.
+                  table-fixed 를 쓰지 않는 이유: 고정 폭을 박으면 '운영 시간'(TourAPI 원문, 길이 제각각)이
+                  잘리거나 다른 칸을 밀어낸다. 여기서는 '운영 시간' 만 줄바꿈을 허용하고 나머지는 nowrap 이다. */}
+              <table className="w-full min-w-[880px] text-left border-collapse">
                 <thead>
                   <tr className="bg-hanok-panel text-hanok-muted text-sm border-b border-hanok-line">
-                    <th className="p-4 font-semibold">시설명</th>
-                    <th className="p-4 font-semibold">유형</th>
-                    <th className="p-4 font-semibold">수용 인원</th>
+                    <th className="p-4 font-semibold whitespace-nowrap">시설명</th>
+                    <th className="p-4 font-semibold whitespace-nowrap">유형</th>
+                    <th className="p-4 font-semibold whitespace-nowrap">수용 인원</th>
                     <th className="p-4 font-semibold">운영 시간</th>
-                    <th className="p-4 font-semibold">상태</th>
-                    <th className="p-4 font-semibold text-right">관리</th>
+                    <th className="p-4 font-semibold whitespace-nowrap">상태</th>
+                    <th className="p-4 font-semibold text-right whitespace-nowrap">관리</th>
                   </tr>
                 </thead>
                 <tbody className="text-sm">
                   {paginatedFacilities.map((fac) => (
                     <tr key={fac.id} className="border-b border-hanok-line hover:bg-hanok-card transition-colors">
                       <td className="p-4 font-bold text-hanok-ink">{fac.name}</td>
-                      <td className="p-4">
-                        <span className="px-2 py-1 bg-hanok-card text-hanok-muted rounded-md text-xs font-semibold uppercase">
+                      <td className="p-4 whitespace-nowrap">
+                        <span className="inline-block whitespace-nowrap px-2 py-1 bg-hanok-card text-hanok-muted rounded-md text-xs font-semibold uppercase">
                           {fac.type === 'restaurant' ? '음식점' : fac.type === 'cafe' ? '카페' : fac.type === 'attraction' ? '관광지' : fac.type === 'culture' ? '문화시설' : fac.type}
                         </span>
                       </td>
-                      <td className="p-4 text-hanok-muted">{fac.capacity}명/대</td>
+                      <td className="p-4 text-hanok-muted whitespace-nowrap">{fac.capacity}명/대</td>
+                      {/* 운영 시간만 줄바꿈을 허용한다 — 원문 길이가 제각각이라 여기서 흡수한다. */}
                       <td className="p-4 text-hanok-muted">{getHoursText(fac.operating_hours)}</td>
-                      <td className="p-4">
-                        <span className="px-2 py-1 bg-emerald-500/15 text-emerald-300 text-xs font-bold rounded-md">활성</span>
+                      <td className="p-4 whitespace-nowrap">
+                        {/* inline-block + whitespace-nowrap: 배지 안의 두 글자가 칸 압박으로 쪼개지지 않게 한다.
+                            (td 의 nowrap 만으로는 배지 내부 텍스트 줄바꿈을 막지 못하는 브라우저가 있다.) */}
+                        <span className="inline-block whitespace-nowrap px-2 py-1 bg-emerald-500/15 text-emerald-300 text-xs font-bold rounded-md">활성</span>
                       </td>
-                      <td className="p-4 flex justify-end gap-2">
+                      <td className="p-4 flex justify-end gap-2 whitespace-nowrap">
                         <button
                           onClick={() => openEditModal(fac)}
                           className="p-1.5 text-hanok-muted hover:text-gold transition-colors bg-hanok-panel border border-hanok-line rounded-md"

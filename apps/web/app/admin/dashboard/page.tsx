@@ -24,6 +24,14 @@ import {
   type CongestionSlice,
   type MetricsSlice,
 } from '@/lib/adminMetricState';
+import {
+  basisDateBadge,
+  basisPeriodLabel,
+  congestionEmptyNotice,
+  fallbackExplanation,
+  resolveCongestionView,
+  type DashboardTodayResponse,
+} from '@/lib/dashboardFallback';
 
 // ── 로컬 타입 정의 ──────────────────────────────────────────────────────────
 // admin-api.ts 는 snake_case→camelCase 변환을 하지 않으므로(해당 파일 상단 주석 참조),
@@ -249,7 +257,14 @@ async function withColdStartRetry<T>(fn: () => Promise<T>): Promise<T> {
 // 자르면 지표의 정의 자체가 바뀐다(과거 값들과 비교 불가). 프런트에서 몰래 바꿀 일이 아니다.
 // 그래서 여기서는 **라벨을 사실에 맞추고**, 부분 하루 비교라는 편향을 툴팁에 명시했다.
 // 지표 정의를 '동시간대' 로 바꿀지는 사람이 결정할 문제다(보고서 참조).
-async function fetchCongestion(): Promise<CongestionSlice> {
+//
+// (*2) 응답에는 신규 키 세 개가 더 실린다: sampleCount / latestObservedAt / fallback.
+// 이 화면의 '오늘' 구간은 **실제로 자주 비어 있다** — congestion_logs 를 채우는 경로가
+// 손님 제보·사장 좌석 방송·관리자 오버라이드·simulate-peak 넷뿐이고, 10분마다 들어오는
+// 공영주차 실측은 전혀 다른 표(area_demand_snapshots)로 간다. 예전에는 그때 화면이 그냥
+// 비어서, 관리자가 '고장' 과 '오늘 관측 없음' 을 구분할 수 없었다. 판정은
+// lib/dashboardFallback.ts 에 두고 테스트로 고정한다.
+async function fetchCongestion(): Promise<DashboardTodayResponse> {
   return withColdStartRetry(() => adminApi.get('/api/v1/admin/dashboard/today'));
 }
 
@@ -329,7 +344,7 @@ export default function DashboardPage() {
   // 슬라이스별 상태 — 혼잡 집계(오늘/어제 로그)와 추천/DAU 지표를 각각 독립 보관해 준비되는 대로 렌더한다
   // (전면 스피너 게이트 제거 → 섹션별 스켈레톤). null = 아직 로딩 중.
   // failed:true 는 '조회 실패' 전용 표식이다 — 표본 부족(hasLogs=false)과 반드시 구분해 그린다.
-  const [congestion, setCongestion] = useState<CongestionSlice | null>(null);
+  const [congestion, setCongestion] = useState<DashboardTodayResponse | null>(null);
   const [metrics, setMetrics] = useState<MetricsSlice | null>(null);
   // 30일 분산 효과 — 실측(metrics/trend)이 충분하면 live, 빈약하면 데모 폴백(fetchTrend 참조). null = 로딩 중.
   const [distribution, setDistribution] = useState<{ mode: 'live' | 'demo'; rows: any[]; truncated?: boolean } | null>(null);
@@ -384,15 +399,28 @@ export default function DashboardPage() {
     loadData();
   }, [loadData]);
 
+  // 무엇을 보고 있는가(오늘 / 폴백 기준일 / 표본 없음 / 실패)를 먼저 정한다 — 그 다음에야
+  // 지표를 뽑을 수 있다. 오늘이 비었을 때 폴백일 집계를 그리되, **기준 날짜를 항상 함께**
+  // 들고 다니는 것이 이 판정의 핵심이다(날짜 없이 그리면 오늘 것으로 읽힌다).
+  const view = resolveCongestionView(congestion);
+  const basis = view.basis;
+  const isFallback = basis.kind === 'fallback';
+  const dateBadge = basisDateBadge(basis);
+  const basisNote = fallbackExplanation(basis);
+  const emptyNotice = congestionEmptyNotice(basis);
+  // KPI 타일 제목의 기간 라벨 — 폴백 중에 '오늘' 이라고 적으면 타일 전체가 거짓이 된다.
+  const periodLabel = basisPeriodLabel(basis);
+
   // 슬라이스 → 지표별 표시 상태(로딩/실패/표본없음/정상). 예전에는 여기서 `?? 0` 으로 뭉개서
   // 세 경우가 화면에 똑같이 0 으로 찍혔다 — 판정은 lib/adminMetricState.ts 에 두고 테스트로 고정한다.
-  const congestionFailed = congestion?.failed === true;
-  const avgCongestion = congestionMetric(congestion, (s) => s.avgCongestion ?? null);
-  const anomalyCount = congestionMetric(congestion, (s) => s.anomalyCount ?? null);
+  const congestionFailed = basis.kind === 'failed';
+  const day = view.day as CongestionSlice | null;
+  const avgCongestion = congestionMetric(day, (s) => s.avgCongestion ?? null);
+  const anomalyCount = congestionMetric(day, (s) => s.anomalyCount ?? null);
   const acceptRate = metricsMetric(metrics, (s) => s.acceptRate ?? null);
   const activeUsers = metricsMetric(metrics, (s) => s.activeUsers ?? null);
-  const heatmap = (congestion?.heatmap ?? []) as HeatmapCell[];
-  const anomalies = (congestion?.anomalies ?? []) as AnomalyAlert[];
+  const heatmap = (view.day?.heatmap ?? []) as HeatmapCell[];
+  const anomalies = (view.day?.anomalies ?? []) as AnomalyAlert[];
 
   // 정적 export 에는 서버 라우트(/api/admin/export)가 없으므로, 현재 로드된 데이터로
   // 클라이언트에서 CSV 를 생성해 다운로드한다(엑셀 한글 깨짐 방지를 위해 BOM 부착).
@@ -404,7 +432,10 @@ export default function DashboardPage() {
         m.status === 'ok' ? fmt(m.value) : m.status === 'failed' ? '조회 실패' : m.status === 'empty' ? '표본 없음' : '로딩 중';
       const lines: string[] = [];
       lines.push('구분,항목,값');
-      lines.push(`KPI,오늘 평균 혼잡도(%),${cell(avgCongestion, (v) => (v.value * 100).toFixed(1))}`);
+      // 파일로 나간 숫자는 화면 맥락을 잃는다 — 어느 날 기준인지 첫 줄에 박아 둔다.
+      // (폴백 중인 CSV 를 '오늘' 로 적으면, 그 파일을 받아 본 사람에게는 되돌릴 방법이 없다.)
+      lines.push(`기준,혼잡 지표 기준일,${isFallback ? `${basis.dateKst} (KST) — 오늘 관측 없음` : '오늘 (KST)'}`);
+      lines.push(`KPI,${periodLabel} 평균 혼잡도(%),${cell(avgCongestion, (v) => (v.value * 100).toFixed(1))}`);
       lines.push(`KPI,AI 추천 수락률(%),${cell(acceptRate, (v) => (v.value * 100).toFixed(1))}`);
       lines.push(`KPI,활성 사용자(DAU),${cell(activeUsers, (v) => String(v))}`);
       lines.push(`KPI,이상 혼잡 발생(건),${cell(anomalyCount, (v) => String(v))}`);
@@ -478,8 +509,7 @@ export default function DashboardPage() {
         {/* Dashboard Content (Scrollable) */}
         <div className="flex-1 p-8 overflow-y-auto flex flex-col gap-8">
           <ModelTrustPanel />
-          <AreaDemandReliabilityPanel />
-          
+
           {/* Action Bar (Export & Simulation) */}
           <div className="flex justify-end items-center gap-4">
             {/* onSimulated: 리로드 대신 loadData 재조회로 히트맵을 갱신하고 관제 영역으로 스크롤한다. */}
@@ -539,9 +569,47 @@ export default function DashboardPage() {
           <StepBanner
             badge="①"
             title="실시간 관제"
-            subtitle="현재 혼잡을 모니터링하고 이상 피크를 탐지합니다"
+            subtitle="시설 혼잡(제보 기반)과 공영주차 실측(경주 ITS)을 각각의 출처로 봅니다"
             color="blue"
           />
+
+          {/* 기준일 배너 — 폴백 중이라는 사실을 이 구역 맨 위에 크게 세운다.
+              아래 KPI·히트맵·이상 알림이 **전부** 이 날짜 기준으로 바뀌므로, 카드마다
+              작은 배지로 흩어 놓으면 하나만 놓쳐도 오늘 것으로 읽힌다. */}
+          {isFallback && (
+            <div className="flex items-start gap-3 bg-amber-500/10 border border-amber-500/40 rounded-2xl p-4">
+              <AlertTriangle size={20} className="text-amber-400 flex-shrink-0 mt-0.5" />
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <p className="font-bold text-amber-300">아래 시설 혼잡 지표는 오늘 것이 아닙니다</p>
+                  <span className="px-2.5 py-1 rounded-md text-xs font-black border bg-amber-500/20 text-amber-200 border-amber-500/50">
+                    {dateBadge}
+                  </span>
+                </div>
+                <p className="text-sm text-hanok-muted mt-1">{basisNote}</p>
+              </div>
+            </div>
+          )}
+
+          {/* 두 지표는 원천도 단위도 다르다 — 소제목으로 확실히 가른다. 한 화면에 나란히
+              두면서 라벨을 생략하면, 주차 점유율이 시설 혼잡도로 읽힌다. */}
+          <div className="flex flex-col gap-1 -mb-2">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h4 className="text-sm font-bold text-hanok-ink">시설 혼잡 (손님 제보 · 좌석 방송 기반)</h4>
+              <span className="px-2 py-0.5 rounded-md text-[11px] font-semibold border bg-hanok-card text-hanok-muted border-hanok-line">
+                {isFallback ? dateBadge : '오늘 (KST)'}
+              </span>
+            </div>
+            {/* 아래 KPI 타일이 전부 '표본 없음' 으로 찍히는 이유를 타일 바로 위에서 한 줄로
+                말한다. 자세한 사유와 조치는 히트맵 카드 안(같은 사실의 전체 문장)에 있다 —
+                같은 문단을 한 화면에 두 번 그리지 않는다. */}
+            {emptyNotice && basis.kind === 'none' && (
+              <p className="flex items-center gap-1.5 text-xs text-hanok-muted">
+                <Info size={13} className="flex-shrink-0" />
+                {emptyNotice.headline} — {emptyNotice.detail}
+              </p>
+            )}
+          </div>
 
           {/* KPI Cards (Server Rendered) */}
           <div className="grid grid-cols-4 gap-6">
@@ -597,17 +665,24 @@ export default function DashboardPage() {
                       );
                     })()
                   ) : null}
-                  <InfoTip text="오늘(KST) 수집된 혼잡 로그의 평균 혼잡도입니다. 시설 정원 대비 실시간 인원 비율을 0~100%로 환산해 평균낸 값입니다. 비교 배지는 전일 '하루 전체' 평균 대비입니다." />
+                  <InfoTip
+                    text={
+                      isFallback
+                        ? `${basis.dateKst}(KST) 수집된 혼잡 로그의 평균입니다. 오늘 관측이 없어 그 날로 물러났습니다. 비교 배지는 그 전날 대비입니다.`
+                        : "오늘(KST) 수집된 혼잡 로그의 평균 혼잡도입니다. 시설 정원 대비 실시간 인원 비율을 0~100%로 환산해 평균낸 값입니다. 비교 배지는 전일 '하루 전체' 평균 대비입니다."
+                    }
+                  />
                 </div>
               </div>
               <div>
-                <h3 className="text-hanok-muted text-sm font-semibold mb-1">오늘 평균 혼잡도</h3>
+                {/* 제목의 기간 라벨이 기준을 따라간다 — 폴백 중에 '오늘' 로 남으면 타일 전체가 거짓이다. */}
+                <h3 className="text-hanok-muted text-sm font-semibold mb-1">{periodLabel} 평균 혼잡도</h3>
                 {avgCongestion.status === 'loading' ? (
                   <Skeleton className="h-9 w-24 mt-1" />
                 ) : avgCongestion.status === 'failed' ? (
                   <MetricUnavailable hint="혼잡 집계 조회에 실패했습니다. 값이 0이라는 뜻이 아닙니다." />
                 ) : avgCongestion.status === 'empty' ? (
-                  <MetricNoSample hint="오늘(KST) 수집된 혼잡 로그가 5건 미만이라 평균을 계산하지 않았습니다." />
+                  <MetricNoSample hint="오늘(KST)에도, 폴백할 과거 날짜에도 평균을 낼 만한 혼잡 로그(5건 이상)가 없습니다." />
                 ) : (
                   <>
                     <div className="text-3xl font-black text-hanok-ink">
@@ -687,16 +762,22 @@ export default function DashboardPage() {
                 <div className="p-3 bg-rose-500/10 rounded-xl text-rose-400">
                   <AlertTriangle size={24} />
                 </div>
-                <InfoTip text="오늘(KST) 혼잡도 90% 이상 피크가 발생한 로그 건수입니다. 관제 임계치를 초과한 상황을 의미합니다." />
+                <InfoTip
+                  text={
+                    isFallback
+                      ? `${basis.dateKst}(KST) 혼잡도 90% 이상 피크가 발생한 로그 건수입니다. 오늘 관측이 없어 그 날로 물러났습니다.`
+                      : '오늘(KST) 혼잡도 90% 이상 피크가 발생한 로그 건수입니다. 관제 임계치를 초과한 상황을 의미합니다.'
+                  }
+                />
               </div>
               <div>
-                <h3 className="text-hanok-muted text-sm font-semibold mb-1">이상 혼잡 발생 (오늘)</h3>
+                <h3 className="text-hanok-muted text-sm font-semibold mb-1">이상 혼잡 발생 ({periodLabel})</h3>
                 {anomalyCount.status === 'loading' ? (
                   <Skeleton className="h-9 w-16 mt-1" />
                 ) : anomalyCount.status === 'failed' ? (
                   <MetricUnavailable hint="혼잡 집계 조회에 실패했습니다. 이상 혼잡이 0건이라는 뜻이 아닙니다." />
                 ) : anomalyCount.status === 'empty' ? (
-                  <MetricNoSample hint="오늘(KST) 수집된 혼잡 로그가 5건 미만이라 이상 건수를 셀 수 없습니다." />
+                  <MetricNoSample hint="오늘(KST)에도, 폴백할 과거 날짜에도 이상 건수를 셀 만한 혼잡 로그(5건 이상)가 없습니다." />
                 ) : (
                   // 0건은 실측값이다(로그가 있고 임계치 초과가 없었다).
                   <div className="text-3xl font-black text-rose-600">
@@ -714,15 +795,37 @@ export default function DashboardPage() {
               <Skeleton className="col-span-4 min-h-[500px] rounded-2xl" />
             ) : congestionFailed ? (
               // 실패를 빈 히트맵으로 그리면 '오늘 아무 일도 없었다' 로 읽힌다.
+              // 옛 문구는 "비어 있는 것은 데이터가 없다는 뜻이 아닙니다" 였는데, 그건
+              // **없다는 사실도 함께 부정**한다 — 실패한 조회는 데이터 유무를 말해 주지
+              // 않으므로, 어느 쪽도 단정하지 않는 문장으로 바꾼다.
               <div className="col-span-4 min-h-[240px] rounded-2xl border border-rose-500/30 bg-rose-500/5 flex flex-col items-center justify-center gap-2 text-center p-8">
                 <AlertTriangle className="text-rose-400" size={28} />
-                <p className="text-sm font-bold text-rose-300">혼잡 집계를 불러오지 못했습니다</p>
-                <p className="text-xs text-hanok-muted">히트맵이 비어 있는 것은 데이터가 없다는 뜻이 아닙니다. 새로고침하거나 백엔드 상태를 확인하세요.</p>
+                <p className="text-sm font-bold text-rose-300">{emptyNotice?.headline ?? '혼잡 집계를 불러오지 못했습니다'}</p>
+                <p className="text-xs text-hanok-muted max-w-2xl leading-relaxed">{emptyNotice?.detail}</p>
               </div>
             ) : (
-              <DashboardHeatmap heatmapData={heatmap} />
+              <DashboardHeatmap
+                heatmapData={heatmap}
+                dateBadge={dateBadge}
+                basisNote={basisNote}
+                emptyNotice={emptyNotice}
+              />
             )}
           </div>
+
+          {/* 살아 있는 실측 — 시설 혼잡(제보)이 비는 날에도 이건 10분마다 들어온다.
+              ① 관제 구역 안으로 옮겨 온 이유: 예전에는 페이지 맨 위 별도 카드로 떠 있어서,
+              관제 구역이 통째로 비어 보일 때 '관제가 죽었다' 로 읽혔다. 실제로는 두 지표 중
+              하나만 비어 있었다.
+              두 지표를 **절대 섞지 않는다** — 원천도(제보 vs 경주 ITS) 단위도(시설 정원 대비
+              혼잡도 vs 주차면 점유율) 다르다. 소제목과 카드 자체 라벨로 두 번 갈라 놓는다. */}
+          <div className="flex items-center gap-2 -mb-2">
+            <h4 className="text-sm font-bold text-hanok-ink">공영주차 실측 (경주 ITS · 10분 간격)</h4>
+            <span className="px-2 py-0.5 rounded-md text-[11px] font-semibold border bg-hanok-card text-hanok-muted border-hanok-line">
+              위 시설 혼잡과 다른 지표 · 합산하지 않음
+            </span>
+          </div>
+          <AreaDemandReliabilityPanel />
 
           {/* ───────── 폐루프 ② 정책 개입 · ③ 분산 효과 ───────── (아래 행의 두 컬럼에 각각 정렬) */}
           <div className="grid grid-cols-3 gap-6">
@@ -765,9 +868,16 @@ export default function DashboardPage() {
 
             {/* Anomaly Alerts List (Server Rendered) */}
             <div className="bg-hanok-panel rounded-2xl border border-hanok-line shadow-sm overflow-hidden flex flex-col">
-              <div className="p-6 border-b border-hanok-line flex items-center gap-2 bg-hanok-card/30">
+              <div className="p-6 border-b border-hanok-line flex items-center gap-2 flex-wrap bg-hanok-card/30">
                 <AlertTriangle className="text-rose-400" size={20} />
                 <h3 className="text-lg font-bold text-hanok-ink">이상 혼잡 알림 내역</h3>
+                {/* 목록의 시각이 오늘처럼 보이지 않도록 카드 제목 옆에서도 기준일을 밝힌다 —
+                    아래 항목은 시:분만 찍히므로 날짜 단서가 여기밖에 없다. */}
+                {dateBadge && (
+                  <span className="px-2 py-0.5 rounded-md text-[11px] font-black border bg-amber-500/15 text-amber-300 border-amber-500/40">
+                    {dateBadge}
+                  </span>
+                )}
               </div>
               <div className="flex-1 p-4 overflow-y-auto">
                 <div className="flex flex-col gap-3">
@@ -778,6 +888,12 @@ export default function DashboardPage() {
                       <p className="text-sm font-semibold text-rose-300">알림 내역을 불러오지 못했습니다</p>
                       <p className="text-xs text-hanok-muted mt-1">이상 알림이 없다는 뜻이 아닙니다.</p>
                     </div>
+                  )}
+                  {/* 알림이 실제로 있을 때도 어느 날 것인지 목록 위에 한 줄로 말한다. */}
+                  {isFallback && anomalies.length > 0 && (
+                    <p className="text-xs text-amber-300 border border-amber-500/30 bg-amber-500/10 rounded-lg px-3 py-2">
+                      아래 {anomalies.length}건은 오늘이 아니라 {basis.dateKst}(KST)에 발생한 피크입니다.
+                    </p>
                   )}
                   {anomalies.map((alert: AnomalyAlert) => (
                     <div key={alert.id} className="p-4 rounded-xl border border-rose-500/15 bg-rose-500/10 flex flex-col gap-2 relative overflow-hidden">
@@ -795,10 +911,13 @@ export default function DashboardPage() {
                     </div>
                   ))}
                   {congestion !== null && !congestionFailed && anomalies.length === 0 && (
-                    <div className="text-center text-hanok-muted py-10 text-sm">
-                      {congestion.hasLogs
-                        ? '현재 발생한 이상 알림이 없습니다.'
-                        : '오늘 수집된 혼잡 로그가 없어 판정할 수 없습니다.'}
+                    <div className="text-center text-hanok-muted py-10 text-sm px-4 leading-relaxed">
+                      {basis.kind === 'today'
+                        ? '오늘 발생한 이상 알림이 없습니다.'
+                        : isFallback
+                          ? `${basis.dateKst}(KST)에도 임계치(90%)를 넘은 피크가 없었습니다.`
+                          // 표본이 아예 없으면 '알림 없음' 이 아니라 '판정 불가' 다 — 위 안내 카드와 같은 사실.
+                          : (emptyNotice?.headline ?? '수집된 혼잡 로그가 없어 판정할 수 없습니다.')}
                     </div>
                   )}
                   {congestion === null && [0, 1, 2].map((i) => (
