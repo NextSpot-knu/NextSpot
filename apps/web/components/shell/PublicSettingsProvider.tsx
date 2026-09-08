@@ -33,6 +33,11 @@ import {
   parsePublicSettings,
   type PublicSettings,
 } from '@/lib/publicSettings';
+import {
+  readDismissedNotice,
+  shouldShowNotice,
+  writeDismissedNotice,
+} from '@/lib/noticeDismissal';
 
 const PublicSettingsContext = createContext<PublicSettings>(FALLBACK_PUBLIC_SETTINGS);
 
@@ -48,9 +53,19 @@ export function useBusyThreshold(): number {
 
 export default function PublicSettingsProvider({ children }: { children: ReactNode }) {
   const [settings, setSettings] = useState<PublicSettings>(FALLBACK_PUBLIC_SETTINGS);
-  const [noticeDismissed, setNoticeDismissed] = useState(false);
+  // 이 기기에서 마지막으로 닫은 **공지 문구**. 불리언이 아니라 문구인 이유는
+  // lib/noticeDismissal.ts 주석 참조 — 불리언이면 한 번 닫은 사용자가 다음 진짜 공지를 영영 못 본다.
+  //
+  // 초기값을 null 로 두고 마운트 뒤에 읽는다. 렌더 중에 localStorage 를 읽으면 정적 export 의
+  // 하이드레이션과 어긋난다. 배너는 설정 조회가 끝난 뒤에야 그려지므로(초기 noticeText 는 '')
+  // 이 effect 가 먼저 끝나고, 깜빡임은 생기지 않는다.
+  const [dismissedNotice, setDismissedNotice] = useState<string | null>(null);
   const pathname = usePathname();
   const t = useT();
+
+  useEffect(() => {
+    setDismissedNotice(readDismissedNotice());
+  }, []);
 
   useEffect(() => {
     let alive = true;
@@ -72,7 +87,8 @@ export default function PublicSettingsProvider({ children }: { children: ReactNo
   // 콘솔(관리자·상인·개발)에는 그리지 않는다. 점검을 푸는 쪽이 점검 화면에 갇히면 안 된다.
   const tourist = isTouristPath(pathname);
   const showMaintenance = tourist && settings.maintenanceMode;
-  const showNotice = tourist && !settings.maintenanceMode && !noticeDismissed && settings.noticeText !== '';
+  const showNotice =
+    tourist && !settings.maintenanceMode && shouldShowNotice(settings.noticeText, dismissedNotice);
 
   return (
     <PublicSettingsContext.Provider value={value}>
@@ -94,7 +110,11 @@ export default function PublicSettingsProvider({ children }: { children: ReactNo
                 </p>
                 <button
                   type="button"
-                  onClick={() => setNoticeDismissed(true)}
+                  onClick={() => {
+                    // 기기에 기억한다 — 새로고침마다 같은 문장을 다시 닫게 하지 않는다.
+                    writeDismissedNotice(settings.noticeText);
+                    setDismissedNotice(settings.noticeText);
+                  }}
                   aria-label={t('systemNotice.dismiss')}
                   className="-mr-1 shrink-0 rounded-full p-1 text-muk-soft transition-colors hover:text-muk focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
                 >
