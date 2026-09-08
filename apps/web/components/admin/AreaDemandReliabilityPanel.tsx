@@ -110,7 +110,12 @@ export function AreaDemandReliabilityPanel() {
         <div className="mt-4 h-20 animate-pulse rounded-xl bg-hanok-line/50" />
       ) : error ? (
         <p className="mt-4 flex items-center gap-2 rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-300"><AlertTriangle size={14} />수집 신뢰도 API를 확인해 주세요.</p>
-      ) : data ? (
+      ) : data?.window ? (
+        // `data ?` 만으로는 부족하다 — **응답이 오긴 왔는데 window 가 없는 경우**가 그 가드를
+        // 통과해 아래 `data.window.received_bucket_count` 에서 터졌고, 그러면 이 패널 하나가
+        // 아니라 **관리자 대시보드 전체가 에러 바운더리로 떨어졌다**(브라우저에서 재현).
+        // 배포 시차로 옛 서버가 새 shape 을 아직 안 싣거나 프록시가 `{}` 를 돌려줄 때 실제로 온다.
+        // 그때는 아래 '수집 이력이 아직 없습니다' 로 조용히 빠지는 것이 맞다.
         <>
           <div className="mt-4 grid grid-cols-2 gap-2 md:grid-cols-4">
             <Metric label="최근 24시간 수집" value={`${data.window.received_bucket_count}/${data.window.expected_bucket_count}`} />

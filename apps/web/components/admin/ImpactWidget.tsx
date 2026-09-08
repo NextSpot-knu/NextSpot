@@ -59,13 +59,18 @@ export function ImpactWidget() {
       <div className="flex-1 p-6 flex flex-col justify-center gap-6">
         {/* 실패해도 패널을 비우지 않는다 — 수치는 '—'로 두고 대기 안내만 덧붙여 자리를 유지. */}
         {/* 실패를 실데이터로 위장하지 않으려 0/공란이 아닌 '—'로 명시. */}
+        {/* ⚠️ `data ?` 로는 부족하다. 그 가드는 **객체가 있는지**만 보는데, 응답이 `{}` 이거나
+            키가 빠지면 필드가 undefined 라 `.toLocaleString()` 이 터지고 — 이 위젯 하나가
+            아니라 **대시보드 전체가 에러 바운더리로 떨어진다**(브라우저에서 재현).
+            배포 시차로 옛/새 서버 응답 shape 이 어긋나는 구간에서 실제로 온다.
+            그래서 아래는 **값이 숫자일 때만** 포맷하고, 아니면 '—'(모른다)로 둔다. */}
         <div className="flex items-center gap-4">
           <div className="p-3 bg-emerald-500/10 rounded-xl text-emerald-400">
             <TimerOff size={24} />
           </div>
           <div>
             <div className="text-3xl font-black text-emerald-300">
-              {data ? Math.round(data.saved_wait_minutes).toLocaleString() : '—'}분
+              {typeof data?.saved_wait_minutes === 'number' ? Math.round(data.saved_wait_minutes).toLocaleString() : '—'}분
             </div>
             <div className="text-xs text-hanok-muted font-semibold mt-0.5">절감 대기시간 합계</div>
           </div>
@@ -76,7 +81,7 @@ export function ImpactWidget() {
           </div>
           <div>
             <div className="text-3xl font-black text-hanok-ink">
-              {data ? data.relocations.toLocaleString() : '—'}건
+              {typeof data?.relocations === 'number' ? data.relocations.toLocaleString() : '—'}건
             </div>
             <div className="text-xs text-hanok-muted font-semibold mt-0.5">수요 재배치 (추천 수락)</div>
           </div>

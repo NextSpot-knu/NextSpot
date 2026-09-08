@@ -13,6 +13,7 @@ import { ImpactWidget } from '@/components/admin/ImpactWidget';
 import { ModelAccuracyBadge } from '@/components/admin/ModelAccuracyBadge';
 import { ModelTrustPanel } from '@/components/admin/ModelTrustPanel';
 import { AreaDemandReliabilityPanel } from '@/components/admin/AreaDemandReliabilityPanel';
+import { ParkingDerivedEstimateButton } from '@/components/admin/ParkingDerivedEstimateButton';
 import { DataFreshnessBadge } from '@/components/admin/DataFreshnessBadge';
 
 import { adminApi, getDashboardBriefing } from '@/lib/admin-api';
@@ -861,6 +862,11 @@ export default function DashboardPage() {
             </span>
           </div>
           <AreaDemandReliabilityPanel />
+
+          {/* 이 주차 실측에서 **시설 혼잡 추정치**를 만들어 위 혼잡 카드를 채운다.
+              바로 이 카드 아래 두는 이유: 무엇에서 파생되는지가 한 화면에서 읽혀야 한다.
+              적재된 값은 추정이며(evidence_tier=synthetic) 추천·학습에서는 빠진다. */}
+          <ParkingDerivedEstimateButton onRecorded={loadData} />
 
           {/* ───────── 폐루프 ② 정책 개입 · ③ 분산 효과 ───────── (아래 행의 두 컬럼에 각각 정렬) */}
           <div className="grid grid-cols-3 gap-6">
