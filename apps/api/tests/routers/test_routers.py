@@ -1370,10 +1370,12 @@ def test_admin_dashboard_today_aggregation(client):
 
     assert res.status_code == 200
     body = res.json()
-    # 신규 키(sampleCount/latestObservedAt/fallback)는 **추가만** 된 것 — 구 키의 뜻은 그대로다.
+    # 신규 키(sampleCount/latestObservedAt/fallback/sourceComposition)는 **추가만** 된 것 —
+    # 구 키의 뜻은 그대로다. sourceComposition 은 이 하루의 값이 실측인지 추정
+    # (parking_derived)인지 화면이 말할 수 있게 하는 키다.
     assert set(body) == {
         "hasLogs", "avgCongestion", "anomalyCount", "heatmap", "anomalies",
-        "sampleCount", "latestObservedAt", "fallback",
+        "sampleCount", "latestObservedAt", "fallback", "sourceComposition",
     }
     assert body["hasLogs"] is True
     assert body["sampleCount"] == 5

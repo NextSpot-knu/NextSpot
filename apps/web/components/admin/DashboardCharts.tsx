@@ -1,10 +1,14 @@
 'use client';
 
 import { useState } from 'react';
-import { 
-  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend 
+import {
+  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
+  ReferenceArea, Label,
 } from 'recharts';
-import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Info } from 'lucide-react';
+import {
+  GAP_SHADING_NOTE, findGaps, formatGapLabel, isMissingValue, longestGap, summarizeSeries,
+} from '@/lib/adminSeriesGaps';
 
 // ── 로컬 타입 정의 ──────────────────────────────────────────────────────────
 // 히트맵 셀 (value: null = 데이터 없음 센티넬 — 실측 0.00 과 구분)
@@ -14,6 +18,27 @@ interface HeatmapCell {
   hour: number;
   value: number | null;
 }
+
+// live 모드의 추이 행 — /admin/metrics/trend 를 대시보드가 옮겨 담은 모양.
+// 값 null 은 **로그/추천이 없던 날**이고 실측 0.0 과 다르다(히트맵의 null 센티넬과 같은 규약).
+interface LiveTrendRow {
+  date: string;
+  avgCongestion: number | null;
+  acceptShare: number | null;
+}
+
+// recharts 는 stroke/fill 을 SVG 속성으로 내보내 var(--color-*) 를 해석하지 못한다.
+// 그래서 globals.css @theme 의 한옥(관리자 웜다크) 토큰 값을 여기서 미러링한다 —
+// 색의 단일 정의점은 여전히 globals.css 다.
+// 대비는 이 카드의 실제 배경인 --color-hanok-panel(#241d17) 기준으로 쟀다(흰 종이가 아니다):
+//   voidFill  #3a2f24 vs 패널 1.28:1 — 음영은 데이터보다 약해야 하므로 의도적으로 낮다
+//   voidInk   #b8a894 vs 음영 5.63:1 (AA) — 음영 위 라벨 글자
+const HANOK = {
+  grid: '#3a2f24',     // --color-hanok-line
+  axis: '#b8a894',     // --color-hanok-muted
+  voidFill: '#3a2f24', // --color-hanok-line — 미관측 구간 음영
+  voidInk: '#b8a894',  // --color-hanok-muted — 음영 라벨
+} as const;
 
 export function DashboardCharts({ distribution, mode = 'demo' }: { distribution: any[]; mode?: 'live' | 'demo' }) {
   // mode='demo': distribution = [ { date, beforeCongestion, afterCongestion, alternativeUsage } ] (합성 예시)
@@ -25,6 +50,22 @@ export function DashboardCharts({ distribution, mode = 'demo' }: { distribution:
   // 데이터가 비면 recharts 는 축만 그리고 선이 없어 '빈 화면'처럼 보인다 → 빈 상태 가드로 안내 문구 표시.
   const hasData = Array.isArray(distribution) && distribution.length > 0;
   const live = mode === 'live';
+
+  // ── 미관측 구간 판정 ──────────────────────────────────────────────────────
+  // 판정은 lib/adminSeriesGaps.ts 한 곳에서만 한다 — 성과 리포트(app/admin/report/page.tsx)와
+  // **같은 판정**을 써야 같은 metrics/trend 응답이 두 화면에서 다른 이야기를 하지 않는다.
+  // 예전에 이 차트는 connectNulls 로 결측일을 직선으로 이어 붙였다. 관측이 없던 며칠이
+  // '완만하게 이어진 추세' 로 보였고, 리포트는 같은 날을 '미관측' 으로 비워 두었다.
+  const liveRows: LiveTrendRow[] = live && hasData ? (distribution as LiveTrendRow[]) : [];
+  const congestionStats = summarizeSeries(liveRows, (row) => row.avgCongestion);
+  const acceptStats = summarizeSeries(liveRows, (row) => row.acceptShare);
+  // 음영은 **두 계열 모두** 없는 날만 덮는다 — 한쪽만 없는 날까지 덮으면 있는 관측을 없다고 말한다.
+  const sharedGaps = findGaps(
+    liveRows,
+    (row) => isMissingValue(row.avgCongestion) && isMissingValue(row.acceptShare),
+  );
+  const labeledGap = longestGap(sharedGaps);
+  const hasMissing = congestionStats.missingDays > 0 || acceptStats.missingDays > 0;
 
   return (
     <div className="bg-hanok-panel p-6 rounded-2xl border border-hanok-line shadow-sm col-span-4 flex flex-col gap-4">
@@ -58,16 +99,46 @@ export function DashboardCharts({ distribution, mode = 'demo' }: { distribution:
         {hasData ? (
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={distribution} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#3a2f24" />
-              <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{fill: '#b8a894', fontSize: 12}} />
-              <YAxis axisLine={false} tickLine={false} tick={{fill: '#b8a894', fontSize: 12}} domain={[0, 1]} tickFormatter={(val) => `${Math.round(val * 100)}%`} />
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={HANOK.grid} />
+
+              {/* 미관측 구간 음영 — 선을 끊기만 하면 '그날은 0% 였다' 로 읽힌다.
+                  자식 순서 = 그리는 순서(뒤가 위)라, 격자 뒤·추이선 앞에 둬야
+                  음영이 격자를 덮으면서도 데이터 선을 가리지 않는다. */}
+              {sharedGaps.map((gap) => (
+                <ReferenceArea
+                  key={`gap-${gap.from}`}
+                  x1={gap.from}
+                  x2={gap.to}
+                  fill={HANOK.voidFill}
+                  fillOpacity={1}
+                  stroke={HANOK.voidFill}
+                  ifOverflow="extendDomain"
+                >
+                  {/* 라벨은 가장 긴 구간 하나에만 — 짧은 구간까지 붙이면 글자가 겹쳐 아무것도 안 읽힌다. */}
+                  {labeledGap && labeledGap.from === gap.from && (
+                    <Label
+                      value={formatGapLabel(gap)}
+                      position="insideBottom"
+                      offset={10}
+                      fill={HANOK.voidInk}
+                      fontSize={11}
+                      fontWeight={600}
+                    />
+                  )}
+                </ReferenceArea>
+              ))}
+
+              <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{fill: HANOK.axis, fontSize: 12}} />
+              <YAxis axisLine={false} tickLine={false} tick={{fill: HANOK.axis, fontSize: 12}} domain={[0, 1]} tickFormatter={(val) => `${Math.round(val * 100)}%`} />
               <Tooltip formatter={formatPercent} contentStyle={{ borderRadius: '8px', backgroundColor: '#2c241c', border: '1px solid #3a2f24', color: '#e2e8f0', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
               <Legend iconType="circle" wrapperStyle={{ fontSize: '12px' }} />
               {live ? (
                 <>
-                  {/* 실측 계열 — 반사실('도입 전') 기준선은 실측 불가라 표시하지 않는다. 결측일은 connectNulls 로 건너뛴다. */}
-                  <Line name="일평균 혼잡도(실측)" type="monotone" dataKey="avgCongestion" stroke="#3b82f6" strokeWidth={3} dot={{r: 3}} activeDot={{r: 6}} connectNulls />
-                  <Line name="추천 수락률(실측)" type="monotone" dataKey="acceptShare" stroke="#10b981" strokeWidth={3} dot={{r: 3}} activeDot={{r: 6}} connectNulls />
+                  {/* 실측 계열 — 반사실('도입 전') 기준선은 실측 불가라 표시하지 않는다.
+                      connectNulls={false}: 결측일을 직선으로 이으면 **없는 관측을 그린 것**이다.
+                      성과 리포트와 같은 정책이며, 끊긴 이유는 위 음영과 아래 캡션이 말한다. */}
+                  <Line name="일평균 혼잡도(실측)" type="monotone" dataKey="avgCongestion" stroke="#3b82f6" strokeWidth={3} dot={{r: 3}} activeDot={{r: 6}} connectNulls={false} />
+                  <Line name="추천 수락률(실측)" type="monotone" dataKey="acceptShare" stroke="#10b981" strokeWidth={3} dot={{r: 3}} activeDot={{r: 6}} connectNulls={false} />
                 </>
               ) : (
                 <>
@@ -85,6 +156,18 @@ export function DashboardCharts({ distribution, mode = 'demo' }: { distribution:
           </div>
         )}
       </div>
+
+      {/* 실측일 때만, 그리고 실제로 결측이 있을 때만 낸다 — 할 말이 없으면 하지 않는다.
+          끊긴 선 옆에 이 한 줄이 없으면 관리자는 '그날은 0% 였다' 로 읽는다. */}
+      {live && hasData && hasMissing && (
+        <p className="flex gap-1.5 text-[11px] leading-relaxed text-hanok-muted">
+          <Info size={12} className="flex-shrink-0 mt-0.5" aria-hidden="true" />
+          <span>
+            관측 — 혼잡도 {congestionStats.observed}일 · 수락률 {acceptStats.observed}일 / {congestionStats.total}일.
+            {' '}{GAP_SHADING_NOTE}
+          </span>
+        </p>
+      )}
     </div>
   );
 }

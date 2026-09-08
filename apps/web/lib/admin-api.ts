@@ -12,7 +12,22 @@ import { createPublicClient } from "./supabase";
 import type { AdminFailureKind } from "./adminApiFailure";
 
 const BASE_URL = process.env.NEXT_PUBLIC_FASTAPI_URL || "http://localhost:8000";
-const REQUEST_TIMEOUT_MS = 8000;
+// 25초.
+//
+// 왜 8초가 아닌가: 이 API 는 Render **무료 플랜**에 있다(render.yaml `plan: free`). 15분 유휴면
+// 인스턴스가 내려가고, 다시 깨우는 콜드 스타트가 통상 30~60초다. 관리자가 오랜만에 리포트를
+// 열면 **첫 요청은 거의 확실히 8초를 넘겼다** — 즉 가장 흔한 실패가 타임아웃이었고, 그건
+// 서버가 죽은 것이 아니라 아직 깨는 중이라는 뜻이었다.
+//
+// 25초로 두는 이유(더 늘리지 않는 이유): 콜드 스타트를 다 덮으려면 60초가 필요한데, 그러면
+// **진짜 장애일 때 관리자가 1분을 멍하니 기다린다.** 25초면 깬 서버의 정상 응답(수백 ms~수 초)
+// 과는 여유가 크고, 콜드 스타트는 대개 이 안에 끝난다. 못 끝내도 화면이 "서버 응답이 늦어요
+// (콜드 스타트일 수 있어요)" 로 정직하게 말하고 재시도 버튼을 주며, **첫 요청이 서버를 깨웠으므로
+// 두 번째는 대개 성공한다**(lib/adminApiFailure.ts).
+//
+// 관광객 앱(api-client.ts)의 10초와 다른 값인 것은 의도다. 그쪽은 사용자가 기다리는 화면이고
+// 여기는 운영자가 여는 화면이라, 기다릴 수 있는 시간이 다르다.
+const REQUEST_TIMEOUT_MS = 25000;
 
 /**
  * 관리자 API 실패 — **상태 코드를 버리지 않는 에러**.

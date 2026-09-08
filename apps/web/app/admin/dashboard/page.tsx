@@ -28,6 +28,7 @@ import {
   basisDateBadge,
   basisPeriodLabel,
   congestionEmptyNotice,
+  estimatedBasisNotice,
   fallbackExplanation,
   resolveCongestionView,
   type DashboardTodayResponse,
@@ -313,7 +314,11 @@ async function fetchTrend(): Promise<{ mode: 'live' | 'demo'; rows: any[]; trunc
         const [, m, dd] = String(d.date).split('-');
         return {
           date: `${Number(m)}/${Number(dd)}`,
-          // 로그/추천 없는 날은 null — recharts connectNulls 로 선만 잇고 점은 찍지 않는다.
+          // 로그/추천 없는 날은 **null 로 둔다**(0 으로 채우지 않는다 — 0 은 '실측 0' 이라는 뜻이다).
+          // 차트는 이 null 을 잇지 않고 끊어 그리고 미관측 구간을 음영으로 표시한다
+          // (DashboardCharts 의 connectNulls={false} + lib/adminSeriesGaps.ts).
+          // 예전 주석은 'connectNulls 로 선만 잇는다' 고 적혀 있었는데, 그건 동작을 반대로
+          // 설명한 것이자 지금은 사실도 아니다 — 없는 관측을 직선으로 그리던 것을 걷어냈다.
           avgCongestion: d.avg_congestion,
           acceptShare: d.rec_total > 0 ? Math.round((d.rec_accepted / d.rec_total) * 1000) / 1000 : null,
         };
@@ -408,6 +413,9 @@ export default function DashboardPage() {
   const dateBadge = basisDateBadge(basis);
   const basisNote = fallbackExplanation(basis);
   const emptyNotice = congestionEmptyNotice(basis);
+  // 이 구간의 값이 실측인가 추정인가. 주차 파생 추정치가 섞이면 아래 제목
+  // ('시설 혼잡 (손님 제보 · 좌석 방송 기반)')이 그대로는 거짓이 되므로 배너로 정정한다.
+  const estimatedBasis = estimatedBasisNotice(view.day);
   // KPI 타일 제목의 기간 라벨 — 폴백 중에 '오늘' 이라고 적으면 타일 전체가 거짓이 된다.
   const periodLabel = basisPeriodLabel(basis);
 
@@ -610,6 +618,33 @@ export default function DashboardPage() {
               </p>
             )}
           </div>
+
+          {/* 추정 배너 — 이 구역의 제목은 '손님 제보 · 좌석 방송 기반' 인데, 주차 실측에서
+              파생한 추정치가 섞이면 그 제목이 거짓이 된다. 숫자를 지우는 대신 **무엇에서
+              파생됐는지까지** 값 옆에 세운다(D-3 데모 라벨과 같은 규칙, 같은 이유).
+              옛 서버 응답에는 source 구성이 없어 배너 자체가 그려지지 않는다 —
+              섞이지 않았다고 단정하지 않기 위해서다. */}
+          {estimatedBasis && (
+            <div className="flex items-start gap-3 bg-sky-500/10 border border-sky-500/40 rounded-2xl p-4 -mb-2">
+              <Info size={20} className="text-sky-300 flex-shrink-0 mt-0.5" />
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <p className="font-bold text-sky-200">
+                    {estimatedBasis.entirelyEstimated
+                      ? '아래 값은 현장 관측이 아니라 추정치입니다'
+                      : '아래 값에 추정치가 섞여 있습니다'}
+                  </p>
+                  <span className="px-2.5 py-1 rounded-md text-xs font-black border bg-sky-500/20 text-sky-100 border-sky-500/50">
+                    {estimatedBasis.badge}
+                  </span>
+                </div>
+                <p className="text-sm text-hanok-muted mt-1">{estimatedBasis.detail}</p>
+                <p className="text-xs text-hanok-muted mt-1">
+                  &lsquo;주차 실측 기반 추정&rsquo;은 시설 반경 2km 공영주차(경주 ITS)의 실시간 점유율을 격자로 집계해 그 구역의 시설에 붙인 값입니다. 시설 내부를 측정한 값이 아니며, 추천 순위와 모델 학습에서는 제외됩니다.
+                </p>
+              </div>
+            </div>
+          )}
 
           {/* KPI Cards (Server Rendered) */}
           <div className="grid grid-cols-4 gap-6">

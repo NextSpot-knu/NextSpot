@@ -33,7 +33,7 @@
 | [`LOCAL_RUN.md`](./LOCAL_RUN.md) | 로컬 구동 · Docker · 스모크 테스트 | living | 2026-09-04 |
 | [`AI_OPS.md`](./AI_OPS.md) | Claude Code 운영 규칙 — 교차 검토(레드팀·/code-review), 세션 핸드오프, 무인 세션, 다른 도구는 선택 | living | 2026-09-04 |
 | [`MODEL_CARD.md`](./MODEL_CARD.md) | 혼잡 예측 모델의 운영 계약 · 품질 게이트 · 승격 절차 | living | 2026-09-04 |
-| [`CONGESTION_DATA.md`](./CONGESTION_DATA.md) | 혼잡 데이터 원칙 · 외부 데이터 라이선스 · 공공 협업 우선순위 정본 | living | 2026-08-21 |
+| [`CONGESTION_DATA.md`](./CONGESTION_DATA.md) | 혼잡 데이터 원칙 · 외부 데이터 라이선스 · 공공 협업 우선순위 정본 (§10 = 주차 실측 기반 추정 `parking_derived`) | living | 2026-09-08 |
 
 ## 심사 자료 (`docs/contest/`)
 

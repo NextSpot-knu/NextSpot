@@ -46,12 +46,13 @@ _REWARD_EVERY = 3
 # 프런트 3지선다 버튼과 정합. 소수 라벨은 UX 부담이 커 이산 3구간으로 단순화한다.
 _LEVEL_ENUM = {"한산": 0.2, "보통": 0.5, "혼잡": 0.8}
 
-# congestion_logs.source CHECK 제약이 허용하는 값은 여덟 개다(20260906120000 기준):
-#   traffic_cctv, tour_api, event, user_report, merchant_report, admin_override, seed, simulated
+# congestion_logs.source CHECK 제약이 허용하는 값은 아홉 개다(20260908120000 기준):
+#   traffic_cctv, tour_api, event, user_report, merchant_report, admin_override, seed, simulated, parking_derived
 # 사용자 제보는 'user_report' 로 기록한다(스키마 제약을 만족하는 정식 값).
 # 이 목록은 마이그레이션이 늘려 왔다 — 20260710172000(seed·simulated), 20260820123000
-# (merchant_report), 20260906120000(admin_override). 여기 적힌 목록이 낡으면 "이 값은 못 쓴다"
-# 는 잘못된 판단의 근거가 되므로, 제약을 바꿀 때 이 줄도 같이 고친다.
+# (merchant_report), 20260906120000(admin_override), 20260908120000(주차 실측 파생 추정치).
+# 여기 적힌 목록이 낡으면 "이 값은 못 쓴다" 는 잘못된 판단의 근거가 되므로, 제약을 바꿀 때
+# 이 줄도 같이 고친다.
 _USER_REPORT_SOURCE = "user_report"
 
 # 사용자·시설당 제보 쿨다운(초) — 스팸/조작이 ML 혼잡 신호를 오염시키지 않도록 1차 차단.

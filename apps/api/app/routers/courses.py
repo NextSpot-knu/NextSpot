@@ -52,6 +52,7 @@ from app.services.predict_service import predict_congestion
 from app.services.merchant_boost import apply_merchant_boosts, CONGESTION_OVERRIDE_KEY
 # 코스 후보 조회/현재 혼잡 일괄조회/반경 상수는 recommendations 라우터의 헬퍼를 재사용한다(단일 소스).
 from app.routers.recommendations import (
+    build_candidate_evidence,
     fetch_user,
     fetch_all_facilities,
     fetch_congestion_map,
@@ -236,7 +237,7 @@ def _build_stop_reason(
     facility: dict,
     arrival_offset_min: float,
     predicted_congestion: float | None,
-    current_congestion: float,
+    current_congestion: float | None,
 ) -> str:
     """정직·결정적 한국어 사유. LLM 미사용(코스는 재현 가능해야 함)."""
     name = facility.get("name", "이곳")
@@ -247,6 +248,13 @@ def _build_stop_reason(
     when = "지금 바로" if order == 1 else f"약 {round(arrival_offset_min)}분 뒤"
     reason = f"{order}번째 코스 {name}: {when} 도착하면 예상 혼잡도 {pct}%({label}) 수준이에요."
     # 현재보다 도착 시점이 눈에 띄게 여유로워지면(시간 분산 효과) 이를 함께 알린다.
+    #
+    # `current_congestion` 이 None 이면 **지금이 얼마나 붐비는지 모른다**는 뜻이라 "지금보다
+    # 여유로워진다" 고 말할 수 없다. 예전에는 이 값이 없을 때 호출부가 0.0 을 채워 넣어서
+    # (= '지금 한산하다' 는 실측) 이 분기가 늘 거짓이 됐다 — 우연히 맞는 침묵이었지 판단이
+    # 아니었다. 근거를 배선하면서 그 0.0 을 걷어냈으므로 여기서 명시적으로 다룬다.
+    if current_congestion is None:
+        return reason
     if current_congestion - predicted_congestion >= 0.1:
         drop = round((current_congestion - predicted_congestion) * 100)
         reason += f" 지금보다 약 {drop}%p 여유로워질 시간대예요."
@@ -287,9 +295,22 @@ async def _evaluate_candidate(
     # 복사본에서만 벗겨 응답 payload 에 내부 키가 노출되지 않게 한다.
     # fetch_congestion_map 은 이제 로그 info dict 를 반환한다(CONGESTION_TRUST_SPEC). 여기의
     # 0.0 폴백은 W3 재배치기여의 **점수 입력** — Phase 1 은 점수 입력을 바꾸지 않는다(D-2, Phase 2 재검토).
-    current_congestion = facility.get(
-        CONGESTION_OVERRIDE_KEY, (congestion_now.get(facility["id"]) or {}).get("level", 0.0)
-    )
+    # 이 후보의 혼잡 **근거**를 추천 라우터와 **같은 정의**로 만든다.
+    #
+    # 예전에는 이 값을 만들지 않고 아래 calculate_spot_score 에 congestion_evidence 를 아예
+    # 넘기지 않았다. 그 결과 코스 화면에서는 **사장님 좌석 방송이 measured_rules 로 들어갈 수
+    # 없었고**, 근거 등급 정렬(spot/ranking.py)이 고치려던 '정직한 방송이 손해' 가 이 화면에는
+    # 애초에 도달하지 못했다. 같은 가게가 추천 목록에서는 실측으로, 코스에서는 무근거로 취급됐다.
+    evidence = await build_candidate_evidence(facility, congestion_now.get(facility["id"]))
+
+    # 재배치 기여(w3)의 기준선 — **이 후보의 '현재' 혼잡**이다(추천 라우터의 '출발지 혼잡' 과
+    # 다른 뜻이다. 여기서는 지금보다 도착 시점이 한산해지는 시간 분산을 보상한다).
+    #
+    # 근거가 없으면 `None` 이다. 예전에는 `.get("level", 0.0)` 으로 0.0 을 채웠는데, 0.0 은
+    # '한산하다는 실측' 이라 모른다는 사실과 다른 값이다. score.py 는 기준선이 None 이면
+    # 완화항을 아예 계산하지 않으므로 **순위는 그대로이고**(0.0 이어도 relief 는 0 이었다),
+    # 없는 관측을 만들어 두던 것만 사라진다.
+    current_congestion = evidence["level"]
 
     # 도착 시점 예상 인원 추정치를 응답 facility 에 주입(원본 리스트 불변 — 얕은 복사).
     scored_facility = {
@@ -308,6 +329,9 @@ async def _evaluate_candidate(
         user_lat=cur_lat,
         user_lng=cur_lng,
         user_vector=user_vector,
+        # 근거를 넘겨야 score 가 scoring_mode 를 실측/모델/무근거로 가른다. 넘기지 않으면
+        # 모든 코스 후보가 무근거로 떨어져 등급 정렬이 아무것도 가르지 못한다.
+        congestion_evidence=evidence,
         # 누적 출발 시각(직전 정류지까지의 누적 오프셋 반영) → score 내부 도착예측이 predicted_congestion 과 정합.
         depart_time=now + timedelta(minutes=cum_offset_min),
         # 같은 구간을 score 안에서 또 길찾기하지 않도록 위에서 받은 경로를 그대로 넘긴다.

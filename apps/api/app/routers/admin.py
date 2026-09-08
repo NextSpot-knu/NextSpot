@@ -950,7 +950,10 @@ def _fetch_day_logs(start: str, end: str) -> list[dict]:
     """하루치 혼잡 로그(시설명/유형 조인 포함). 절단 여부는 _fetch_capped 가 구조화 로그로 남긴다."""
     logs, _truncated = _fetch_capped(
         "congestion_logs",
-        "congestion_level, current_count, timestamp, facility:facilities(name, type)",
+        # source 를 함께 읽는다 — 이 카드가 그리는 평균·히트맵이 **무엇으로 만들어졌는지**
+        # 화면이 말할 수 있어야 하기 때문이다. 주차 파생 추정치(parking_derived)가 섞이면
+        # 숫자는 그대로여도 '실측 혼잡' 이 아니게 되고, 그 사실은 값 옆에 있어야 한다.
+        "congestion_level, current_count, timestamp, source, facility:facilities(name, type)",
         lambda q: q.gte("timestamp", start)
         .lte("timestamp", end)
         .order("timestamp", desc=False)
@@ -1048,6 +1051,14 @@ def _aggregate_congestion_day(logs: list[dict], prev_logs: list[dict]) -> dict:
     '오늘' 과 '폴백 기준일' 이 **같은 산식**을 쓰도록 라우터 본문에서 뽑아낸 함수다.
     두 벌로 두면 폴백 화면만 조용히 다른 규칙으로 그려진다.
     """
+    # 이 하루가 **무엇으로 만들어졌는가**. 값과 함께 다녀야 화면이 '실측 혼잡' 과
+    # '주차 실측 기반 추정(parking_derived)' 을 같은 배지 없이 그리지 않는다.
+    # source 를 모르는 옛 행/옛 쿼리는 'unknown' 으로 센다(조용히 버리지 않는다).
+    source_composition: dict[str, int] = {}
+    for row in logs:
+        key = str(row.get("source") or "unknown")
+        source_composition[key] = source_composition.get(key, 0) + 1
+
     if len(logs) < _DASHBOARD_MIN_DAY_SAMPLES:
         return {
             "hasLogs": False,
@@ -1057,6 +1068,7 @@ def _aggregate_congestion_day(logs: list[dict], prev_logs: list[dict]) -> dict:
             "anomalies": None,
             # 표본 수는 0 과 '4건뿐' 을 구분하게 해 준다(둘 다 hasLogs=False 지만 사실은 다르다).
             "sampleCount": len(logs),
+            "sourceComposition": source_composition,
         }
 
     # 1) KPI: 평균 혼잡도 + 이상(>=0.9) 건수 + 전일 대비 변화율
@@ -1148,6 +1160,7 @@ def _aggregate_congestion_day(logs: list[dict], prev_logs: list[dict]) -> dict:
         "heatmap": heatmap,
         "anomalies": anomalies,
         "sampleCount": len(logs),
+        "sourceComposition": source_composition,
     }
 
 

@@ -48,7 +48,11 @@ TRUSTED_TIERS = {"verified", "corroborated"}
 #   admin_override  — 관리자가 콘솔 슬라이더로 넣은 값이다. 측정이 아니라 사람의 주장이라
 #                     정답이 될 수 없다(라우터가 single_report 로 쓰므로 정상 경로에서는
 #                     tier 필터에 먼저 걸린다 — 여기 걸린다면 어딘가 잘못 승격된 것이다).
-NEVER_TRAINABLE_SOURCES = {"seed", "simulated", "admin_override"}
+#   parking_derived — 주변 공영주차 점유율에서 파생한 추정치다(시설 내부를 측정한 적이
+#                     없다). 이것을 정답으로 학습하면 모델이 배우는 것은 '시설 혼잡' 이
+#                     아니라 '주차장까지의 거리' 다. 적재 코드가 synthetic 으로 쓰므로
+#                     정상 경로에서는 tier 필터에 먼저 걸린다 — 여기가 두 번째 겹이다.
+NEVER_TRAINABLE_SOURCES = {"seed", "simulated", "admin_override", "parking_derived"}
 
 
 def parse_time(value: str | None) -> datetime | None:

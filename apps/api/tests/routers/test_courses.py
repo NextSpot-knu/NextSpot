@@ -874,3 +874,71 @@ def test_degraded_course_still_ranks_and_still_says_why(auth_client, monkeypatch
     assert offsets == sorted(offsets)
     assert all(0.0 <= s["spot_score"] <= 1.0 for s in plan["stops"])
     assert plan["plan_id"]
+
+
+# =============================================================================
+# 코스도 혼잡 근거를 받는다 (검토 2-4)
+# =============================================================================
+
+def test_course_candidates_carry_congestion_evidence(auth_client, monkeypatch):  # noqa: F811
+    """코스 후보가 실측 근거를 받으면 `measured_rules` 로 채점되는가.
+
+    예전에는 `_evaluate_candidate` 가 `calculate_spot_score` 에 `congestion_evidence` 를 아예
+    넘기지 않았다. 그래서 **코스 화면에서는 사장님 좌석 방송이 measured_rules 로 들어갈 수
+    없었고**, 근거 등급 정렬(spot/ranking.py)이 고치려던 '정직한 방송이 손해' 가 이 화면에는
+    도달하지 못했다. 같은 가게가 추천 목록에서는 실측으로, 코스에서는 무근거로 취급됐다.
+
+    확증(corroborated) 등급을 쓰는 이유: `rankable_measured_level` 이 신뢰 등급
+    ({verified, corroborated})과 신선도(30분)를 함께 보므로, 그 문을 실제로 통과하는 로그여야
+    measured 로 잡힌다. seed 로그로는 이 경로가 열리지 않는다.
+    """
+    from datetime import datetime, timezone
+
+    from app.routers import courses as courses_module
+
+    captured: list[dict] = []
+    original = courses_module.calculate_spot_score
+
+    async def _capture(**kwargs):
+        captured.append(kwargs)
+        return await original(**kwargs)
+
+    monkeypatch.setattr(courses_module, "calculate_spot_score", _capture)
+
+    fresh = datetime.now(timezone.utc).isoformat()
+    facilities = _reorder_fixture()
+    congestion_now = {
+        "cafe-near-0": {
+            "level": 0.2,
+            "current_count": 10,
+            "timestamp": fresh,
+            "source": "merchant_report",
+            "evidence_tier": "corroborated",
+            "is_stale": False,
+        }
+    }
+
+    with patch("app.routers.courses.fetch_user", new=AsyncMock(return_value=USER_ROW)), \
+         patch("app.routers.courses.fetch_all_facilities", new=AsyncMock(return_value=facilities)), \
+         patch("app.routers.courses.fetch_congestion_map", new=AsyncMock(return_value=congestion_now)), \
+         patch.object(preference_vector_service, "get_user_vector", new=AsyncMock(return_value=UNIT_VECTOR)):
+        res = auth_client.post(_PLAN_PATH, json=_seq_body(["cafe"]))
+
+    assert res.status_code == 200, res.text
+    assert captured, "calculate_spot_score 가 한 번도 불리지 않았다"
+
+    # 1) 근거가 실제로 전달됐는가 — 넘기지 않으면 이 키 자체가 없다.
+    assert all("congestion_evidence" in kw for kw in captured), \
+        "코스가 calculate_spot_score 에 congestion_evidence 를 넘기지 않는다"
+
+    # 2) 로그가 있는 후보는 measured 로, 없는 후보는 그렇지 않게 갈렸는가.
+    by_id = {kw["candidate_facility"]["id"]: kw["congestion_evidence"] for kw in captured}
+    assert by_id["cafe-near-0"]["source"] == "measured", \
+        "실측 로그가 있는데도 measured 로 잡히지 않았다"
+    assert by_id["cafe-near-0"]["level"] == 0.2
+
+    # 3) 로그가 없는 후보에 0.0 을 채워 넣지 않는다 — '모른다' 와 '한산하다' 는 다른 사실이다.
+    others = [ev for fid, ev in by_id.items() if fid != "cafe-near-0"]
+    assert others, "비교할 무근거 후보가 없다(픽스처를 확인할 것)"
+    assert all(ev["level"] is None or ev["source"] != "measured" for ev in others), \
+        "로그 없는 후보가 실측으로 팔렸다"

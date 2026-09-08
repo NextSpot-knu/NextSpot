@@ -314,6 +314,29 @@ async def resolve_congestion_evidence(facility: dict, log_info: dict | None) -> 
     }
 
 
+async def build_candidate_evidence(facility: dict, log_info: dict | None) -> dict:
+    """후보 1건의 혼잡 근거 — **세 경로가 공유하는 단일 정의.**
+
+    좌석 방송 오버레이(30분 이내 사장 확인)가 있으면 그것을 실측으로 쓰고, 없으면
+    `resolve_congestion_evidence` 의 3단계 판정으로 내려간다.
+
+    왜 함수로 뺐나: 같은 판정이 `/recommendations` 와 `/recommendations/by-type` 에 **두 벌로**
+    복사돼 있었고, `/courses/plan` 에는 아예 없었다. 세 벌이 되면 반드시 갈라진다 — 실제로
+    코스만 근거를 못 받아, 사장님이 좌석을 방송해도 코스 화면에서는 `measured_rules` 로
+    들어가지 못했다(어제 고친 '정직한 방송이 손해' 가 그 화면에는 도달하지 못한 것이다).
+    """
+    override = facility.get(CONGESTION_OVERRIDE_KEY)
+    if override is not None:
+        # 사장님이 방금 확인한 좌석 상태 — 실측으로 취급(프런트 배지는 seat_status_fresh 가 담당).
+        return {
+            "level": override, "source": "measured", "log_source": "merchant_seat",
+            "current_count": None, "evidence_tier": "verified", "is_stale": False,
+            "timestamp": (facility.get("seat_status_fresh") or {}).get("updated_at"),
+        }
+    # 혼잡 3단계 판정(CONGESTION_TRUST_SPEC) — 로그 없는 시설을 0.0(실측 여유)처럼 팔지 않는다.
+    return await resolve_congestion_evidence(facility, log_info)
+
+
 async def _resolve_user_vector(user_id: str, preferred_categories: list[str]) -> list[float]:
     """사용자 선호 벡터 1회 조회 — 없으면 Cold Start 벡터 생성 후 1회 업서트.
 
@@ -438,17 +461,7 @@ async def get_recommendations(
     async def _score_candidate(f: dict, route) -> dict:
         # 신선한 좌석 상태 방송(30분 이내)이 있으면 congestion_logs 조회값 대신 사장 확인 실측을 쓴다
         # (_recommend_by_type._score 와 동일 처리 — 두 경로가 같은 근거 dict 를 만든다).
-        override = f.get(CONGESTION_OVERRIDE_KEY)
-        if override is not None:
-            # 사장님이 방금 확인한 좌석 상태 — 실측으로 취급(프런트 배지는 seat_status_fresh 가 담당).
-            evidence = {
-                "level": override, "source": "measured", "log_source": "merchant_seat",
-                "current_count": None, "evidence_tier": "verified", "is_stale": False,
-                "timestamp": (f.get("seat_status_fresh") or {}).get("updated_at"),
-            }
-        else:
-            # 혼잡 3단계 판정(CONGESTION_TRUST_SPEC) — 로그 없는 시설을 0.0(실측 여유)처럼 팔지 않는다.
-            evidence = await resolve_congestion_evidence(f, congestion_by_id.get(f["id"]))
+        evidence = await build_candidate_evidence(f, congestion_by_id.get(f["id"]))
         candidate_congestion = evidence["level"]
         # 체감 혼잡도를 capacity×level 로 환산한 값은 실제 인원이 아니다. 계수형 소스가
         # 명시적으로 제공한 인원만 노출하고, 방문객·사장 정성 제보는 혼잡 단계만 보여준다.
@@ -803,18 +816,7 @@ async def _recommend_by_type(req: "RecommendByTypeRequest") -> list:
     congestion_by_id = await fetch_congestion_map([f["id"] for f in candidates])
 
     async def _score(f: dict) -> dict:
-        # 신선한 좌석 상태 방송(30분 이내)이 있으면 congestion_logs 조회값 대신 사장 확인 실측을 쓴다.
-        override = f.get(CONGESTION_OVERRIDE_KEY)
-        if override is not None:
-            # 사장님이 방금 확인한 좌석 상태 — 실측으로 취급(프런트 배지는 seat_status_fresh 가 담당).
-            evidence = {
-                "level": override, "source": "measured", "log_source": "merchant_seat",
-                "current_count": None, "evidence_tier": "verified", "is_stale": False,
-                "timestamp": (f.get("seat_status_fresh") or {}).get("updated_at"),
-            }
-        else:
-            # 혼잡 3단계 판정(CONGESTION_TRUST_SPEC) — 로그 없는 시설을 0.0 실측처럼 팔지 않는다.
-            evidence = await resolve_congestion_evidence(f, congestion_by_id.get(f["id"]))
+        evidence = await build_candidate_evidence(f, congestion_by_id.get(f["id"]))
         cong = evidence["level"]
         route = route_by_id[f["id"]]
         # 정성 혼잡 단계를 인원수로 합성하지 않는다. 실제 계수 소스의 값만 전달한다.

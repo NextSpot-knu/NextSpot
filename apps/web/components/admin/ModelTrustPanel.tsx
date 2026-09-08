@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { AlertTriangle, Database, ShieldCheck } from 'lucide-react';
 import { adminApi } from '@/lib/admin-api';
 import { describeGuardrailWarnings } from '@/lib/adminGuardrailWarnings';
+import { ESTIMATED_LOG_SOURCES } from '@/lib/dashboardFallback';
 
 interface TrustResponse {
   model: { trained: boolean; version: string | null; real_data_count: number; mae: number | null };
@@ -40,6 +41,11 @@ export function ModelTrustPanel() {
   // 코드가 아니라 문장으로 보여준다. 예전에는 `trained_false · metrics_truncated` 처럼
   // 원문이 그대로 나가서, 이 저장소를 아는 사람만 읽을 수 있었다.
   const warnings = describeGuardrailWarnings(data.guardrails.warnings);
+  // '전체 현장 관측' 은 source 를 가리지 않고 센 값이다 — 파생·합성이 섞이면 그 이름이
+  // 사실이 아니게 되므로, 그 몫을 따로 세어 바로 아래에서 밝힌다.
+  const estimatedObservations = Object.entries(data.collection.by_source)
+    .filter(([key]) => key in ESTIMATED_LOG_SOURCES)
+    .reduce((sum, [, value]) => sum + (value || 0), 0);
   const cards = [
     ['추천 노출', funnel.exposures], ['길찾기', funnel.navigations], ['방문 확인', funnel.arrivals],
     ['긍정 평가', funnel.positive_ratings],
@@ -91,7 +97,20 @@ export function ModelTrustPanel() {
           <p className="text-xs text-hanok-muted">시설 커버리지 <strong className="block text-lg text-hanok-ink">{(data.collection.trusted_facility_coverage_rate * 100).toFixed(1)}%</strong></p>
           <p className="text-xs text-hanok-muted">활성 시설 <strong className="block text-lg text-hanok-ink">{data.collection.active_facilities}</strong></p>
         </div>
-        <p className="mt-3 text-[11px] text-hanok-muted">출처 · {Object.entries(data.collection.by_source).map(([key, value]) => `${key} ${value}`).join(' · ') || '수집 전'}</p>
+        {/* source 이름을 그대로 늘어놓으면 `parking_derived 1653` 처럼 보인다 — 저장소를
+            아는 사람만 그게 '실측이 아니다' 를 안다. 파생·합성 출처는 한국어 이름과 함께
+            '(추정)' 을 붙여, 이 줄만 보고도 어떤 몫이 측정이 아닌지 알 수 있게 한다.
+            모르는 코드는 원문 그대로 둔다(adminGuardrailWarnings 와 같은 규칙 — 매핑에
+            없다고 숨기면 새 출처가 조용히 실측처럼 읽힌다). */}
+        <p className="mt-3 text-[11px] text-hanok-muted">출처 · {Object.entries(data.collection.by_source).map(([key, value]) => {
+          const label = ESTIMATED_LOG_SOURCES[key];
+          return label ? `${key} ${value} — ${label}(추정)` : `${key} ${value}`;
+        }).join(' · ') || '수집 전'}</p>
+        {estimatedObservations > 0 && (
+          <p className="mt-1 text-[11px] text-sky-200">
+            위 &lsquo;전체 현장 관측 {data.collection.observations}&rsquo; 중 {estimatedObservations}건은 현장 관측이 아니라 추정·합성 데이터입니다. 검증·상호확인 수치와 시설 커버리지는 이 몫을 이미 제외한 값입니다.
+          </p>
+        )}
         <p className="mt-1 text-[11px] text-hanok-muted">
           채점 모드 · {Object.entries(data.guardrails.scoring_modes).map(([key, value]) => `${key} ${value}`).join(' · ') || '노출 전'}
           {' · '}도보 제한 위반 {data.guardrails.walk_limit_violations}건

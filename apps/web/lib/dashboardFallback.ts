@@ -32,6 +32,12 @@ export interface CongestionDay {
   anomalies?: unknown[] | null;
   /** 그 구간의 로그 건수. 0 과 '4건뿐'(둘 다 hasLogs=false)을 구분한다. */
   sampleCount?: number;
+  /**
+   * 그 구간 로그의 source 별 건수(admin.py `_aggregate_congestion_day`).
+   * `undefined` = 이 키를 모르는 **옛 서버** 응답 — '섞이지 않았다' 와 다른 사실이라
+   * 그때는 아무 배지도 그리지 않는다(모르는 것을 안다고 말하지 않는다).
+   */
+  sourceComposition?: Record<string, number> | null;
 }
 
 /** GET /api/v1/admin/dashboard/today 응답 + 페이지가 얹는 failed 표식. */
@@ -176,9 +182,67 @@ export function fallbackExplanation(basis: CongestionBasis): string | null {
   return at ? `${head} 그 날의 마지막 관측은 ${at} 입니다.` : head;
 }
 
-/** congestion_logs 를 채우는 경로 — 화면이 '무엇을 하면 채워지는지' 를 말할 때 쓴다. */
+/** congestion_logs 를 채우는 경로 — 화면이 '무엇을 하면 채워지는지' 를 말할 때 쓴다.
+ *
+ *  ⚠️ 다섯 번째 경로가 생겼다(주차 실측 기반 추정 적재). 그래서 "공영주차 실측은 다른 표에
+ *  쌓이므로 이 카드를 채우지 않습니다" 는 더 이상 사실이 아니다 — 문장을 고친다. 대신 그
+ *  경로로 들어온 행은 **실측이 아니라 추정**이라는 사실을 함께 적는다. */
 export const CONGESTION_INGEST_PATHS =
-  "이 지표의 원천(congestion_logs)에 행이 쌓이는 경로는 손님 제보 · 사장 좌석 방송 · 관리자 오버라이드 · 위 '피크타임 모의 발생' 네 가지뿐입니다. 공영주차 실측(경주 ITS)은 다른 표에 쌓이므로 이 카드를 채우지 않습니다.";
+  "이 지표의 원천(congestion_logs)에 행이 쌓이는 경로는 손님 제보 · 사장 좌석 방송 · 관리자 오버라이드 · 위 '피크타임 모의 발생' · 주차 실측 기반 추정 적재(관리자 수동) 다섯 가지입니다. 마지막 경로로 들어온 값은 시설을 측정한 것이 아니라 주변 공영주차 점유율에서 파생한 추정치입니다.";
+
+/** 실측이 아닌 파생·합성 source 와 그 값이 무엇인지. 화면 라벨의 단일 출처. */
+export const ESTIMATED_LOG_SOURCES: Record<string, string> = {
+  parking_derived: '주차 실측 기반 추정',
+  simulated: '데모 모의 생성',
+  seed: '개발 시드',
+};
+
+export interface EstimatedBasisNotice {
+  /** 이 구간 로그 중 파생·합성 건수. */
+  estimatedCount: number;
+  /** 전체 건수. */
+  totalCount: number;
+  /** 전부가 파생·합성인가 — 그렇다면 이 카드에는 실측이 한 건도 없다. */
+  entirelyEstimated: boolean;
+  /** 배지에 그대로 쓸 문구('주차 실측 기반 추정 1,653건' 형태). */
+  badge: string;
+  /** 값 옆에 붙일 한 문장. */
+  detail: string;
+}
+
+/**
+ * 이 하루 집계가 **실측인가 추정인가**를 판정한다.
+ *
+ * 왜 필요한가: 이 카드의 제목은 '시설 혼잡 (손님 제보 · 좌석 방송 기반)' 이다. 주차 파생
+ * 추정치가 섞이는 순간 그 제목이 거짓이 된다 — 숫자는 그대로여도 출처가 다르다. 숫자와
+ * 출처가 분리되면, 그건 이 저장소가 계속 고쳐 온 '근거 없는 수치 노출' 과 같은 모양이다.
+ *
+ * `sourceComposition` 이 없으면(옛 서버) `null` — 섞이지 않았다고 단정하지 않는다.
+ */
+export function estimatedBasisNotice(
+  day: CongestionDay | null | undefined,
+): EstimatedBasisNotice | null {
+  const composition = day?.sourceComposition;
+  if (!composition) return null;
+  const entries = Object.entries(composition).filter(([, n]) => typeof n === 'number' && n > 0);
+  const totalCount = entries.reduce((sum, [, n]) => sum + n, 0);
+  const estimated = entries.filter(([source]) => source in ESTIMATED_LOG_SOURCES);
+  const estimatedCount = estimated.reduce((sum, [, n]) => sum + n, 0);
+  if (!estimatedCount || !totalCount) return null;
+  const parts = estimated
+    .sort((a, b) => b[1] - a[1])
+    .map(([source, n]) => `${ESTIMATED_LOG_SOURCES[source]} ${n.toLocaleString('ko-KR')}건`);
+  const entirelyEstimated = estimatedCount === totalCount;
+  return {
+    estimatedCount,
+    totalCount,
+    entirelyEstimated,
+    badge: parts.join(' · '),
+    detail: entirelyEstimated
+      ? '이 구간의 값은 전부 추정·모의 데이터입니다. 시설 내부를 측정한 현장 관측은 한 건도 없습니다.'
+      : `전체 ${totalCount.toLocaleString('ko-KR')}건 중 ${estimatedCount.toLocaleString('ko-KR')}건이 추정·모의 데이터입니다. 아래 평균과 히트맵은 그 둘을 합쳐 계산한 값입니다.`,
+  };
+}
 
 export interface CongestionEmptyNotice {
   headline: string;

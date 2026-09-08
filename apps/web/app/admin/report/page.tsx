@@ -18,6 +18,9 @@ import {
   Printer, BarChart3, Calendar, Satellite, Clock, AlertCircle, Info,
 } from 'lucide-react';
 import { AdminSidebar } from '@/components/AdminSidebar';
+import {
+  formatGapLabel, formatGapNote, longestGap, summarizeSeries,
+} from '@/lib/adminSeriesGaps';
 import { adminApi } from '@/lib/admin-api';
 import { apiClient } from '@/lib/api-client';
 import { formatRelativeKo } from '@/lib/freshness';
@@ -30,7 +33,17 @@ const MIN_SAMPLE_DAYS_FOR_CONFIDENCE = 3;
 // recharts 는 stroke/fill 을 SVG presentation attribute 로 내보내므로 var(--color-*) 가 해석되지
 // 않는다(속성은 CSS 가 아니다). 그래서 globals.css @theme 토큰 값을 여기서 그대로 미러링한다
 // — 색의 단일 정의점은 여전히 globals.css 이고, 여기는 recharts 전용 사본이다.
-// 대비는 전부 '이 리포트가 인쇄되는 흰 종이(#ffffff)' 기준 WCAG 상대휘도로 계산했다.
+//
+// 대비 기준은 화면·인쇄 **둘 다 흰 종이(#ffffff)** 다. 화면도 같은 흰 A4 미리보기이기 때문이며,
+// 이건 이제 가정이 아니라 렌더로 확인한 사실이다(2026-09-08, DOM 실측).
+//
+// 왜 이 문장을 여기 못 박는가: 색을 한 번 올린 뒤에도 "화면에서 안 보인다" 는 보고가 있었고,
+// 원인은 색이 아니라 **흰 종이가 화면 아래쪽을 칠하지 않던 레이아웃 버그**였다(아래 report-paper
+// 의 self-start 주석). 스크롤 첫 화면 밖으로 넘어간 차트는 종이가 아니라 관제 셸의 다크 배경
+// (bg-hanok-line/20 위에 bg-hanok — 합성 ≈ #211c16) 위에 그려졌고, 거기서 다시 재면
+// terracotta 3.73:1 · jade 3.46:1 · 축 눈금 ink 1.10:1 이다 — 눈금 글자는 사실상 보이지 않았다.
+// 즉 대비 기준이 틀린 게 아니라 배경이 약속을 안 지켰다.
+// 이 파일의 대비 수치를 다시 재려는 사람은 먼저 **차트가 실제로 무엇 위에 그려지는지**부터 볼 것.
 const CHART_COLOR = {
   ink: '#2b2320',        // --color-muk        축 눈금/값 라벨. 흰 종이 대비 15.4:1
   inkSoft: '#6b5d4f',    // --color-muk-soft   축선·평균선·보조 텍스트. 흰 종이 대비 6.4:1 (AA)
@@ -269,7 +282,19 @@ export default function AdminReportPage() {
 
         {/* 리포트 본문 — 화면에서도 인쇄물과 동일한 흰 A4 용지로 미리보기한다 */}
         <div className="flex-1 overflow-y-auto print:overflow-visible print:h-auto bg-hanok-line/20 print:bg-white p-6 print:p-0 flex justify-center">
-          <div className="report-paper w-full max-w-[210mm] bg-white text-black shadow-xl print:shadow-none rounded-lg print:rounded-none p-10 print:p-0 flex flex-col gap-8">
+          {/* self-start 가 없으면 종이가 첫 화면 높이까지만 하얗다.
+              이 div 는 세로 스크롤이 걸린 **가로 플렉스 컨테이너**라 교차축이 세로이고,
+              기본 align-items: stretch 가 종이의 높이를 '플렉스 라인의 높이 = 스크롤 컨테이너의
+              보이는 높이' 로 고정한다. 내용은 그보다 길어서 넘치는데 bg-white 는 고정된 높이만
+              칠하므로, 접힘 아래(차트 2개·총평·각주)는 종이가 아니라 한옥 다크 배경 위에 놓인다.
+              2026-09-08 실측: 종이 페인트 872px vs 내용 1605px — 첫 차트가 y=859 에서 시작해
+              거의 전부가 검은 배경 위였다. "그래프가 배경색이랑 비슷해서 안 보인다" 의 정체.
+              인쇄는 print:h-auto 로 컨테이너 높이 제약이 사라져 원래부터 멀쩡했다 —
+              그래서 PDF 만 확인하면 이 버그가 보이지 않는다.
+              min-h-full 은 반대쪽을 막는다: 내용이 짧은 상태(로딩·데이터 없음)에서 종이가
+              쪼그라들어 반쪽짜리 카드로 보이지 않게 최소 한 화면은 유지한다. 인쇄에서는
+              부모 높이가 auto 라 이 백분율이 풀려 저절로 무효가 된다. */}
+          <div className="report-paper self-start min-h-full w-full max-w-[210mm] bg-white text-black shadow-xl print:shadow-none rounded-lg print:rounded-none p-10 print:p-0 flex flex-col gap-8">
 
             {/* 표지 헤더 */}
             <section className="break-inside-avoid border-b-2 border-black pb-6">
@@ -436,60 +461,6 @@ export default function AdminReportPage() {
   );
 }
 
-// ── 차트 보조 계산 ───────────────────────────────────────────────────────
-// 미관측(값 null)이 연속으로 이어지는 구간. 카테고리 축의 ReferenceArea 로 음영 처리해
-// '선이 끊긴 곳 = 0' 이라는 오독을 막는다. 카테고리 축에서 x1===x2 인 1일짜리 구간은 폭이 0이라
-// 그려지지 않으므로 2일 이상만 음영 대상으로 삼는다(1일 결측은 끊긴 선 자체로 드러난다).
-interface VoidSpan { from: string; to: string; days: number }
-
-interface ChartStats {
-  observed: number;
-  total: number;
-  avg: number | null;
-  max: { date: string; value: number } | null;
-  min: { date: string; value: number } | null;
-  voidSpans: VoidSpan[];
-  voidDays: number;
-}
-
-function summarizeSeries(data: ChartRow[], dataKey: 'avgCongestion' | 'acceptShare'): ChartStats {
-  const points = data
-    .map((d) => ({ date: d.date, value: d[dataKey] }))
-    .filter((p): p is { date: string; value: number } => p.value !== null && p.value !== undefined);
-
-  let sum = 0;
-  let max: { date: string; value: number } | null = null;
-  let min: { date: string; value: number } | null = null;
-  for (const p of points) {
-    sum += p.value;
-    if (!max || p.value > max.value) max = p;
-    if (!min || p.value < min.value) min = p;
-  }
-
-  const voidSpans: VoidSpan[] = [];
-  let runStart: number | null = null;
-  data.forEach((d, i) => {
-    const missing = d[dataKey] === null || d[dataKey] === undefined;
-    if (missing && runStart === null) runStart = i;
-    if ((!missing || i === data.length - 1) && runStart !== null) {
-      const end = missing ? i : i - 1;
-      const days = end - runStart + 1;
-      if (days >= 2) voidSpans.push({ from: data[runStart].date, to: data[end].date, days });
-      runStart = null;
-    }
-  });
-
-  return {
-    observed: points.length,
-    total: data.length,
-    avg: points.length > 0 ? sum / points.length : null,
-    max,
-    min,
-    voidSpans,
-    voidDays: data.length - points.length,
-  };
-}
-
 // 30일 추이 라인 차트 1개 — 의회·평가 제출용 인쇄물이 최종 산출물이라, 화면 전용 어포던스(툴팁)에
 // 값 읽기를 의존하지 않는다. 인쇄에서 살아남는 것만으로 차트를 읽을 수 있게 구성한다:
 //   ① 범례·축 제목·눈금을 muk(15.4:1)/muk-soft(6.4:1)로 명시  ② 평균 기준선(값은 범례) + 최고점 값 라벨
@@ -509,13 +480,14 @@ function TrendLineChart({
   error: boolean;
   emptyMessage: string;
 }) {
-  const stats = summarizeSeries(data, dataKey);
+  // 결측 판정은 lib/adminSeriesGaps.ts 한 곳에서만 한다 — 대시보드 차트와 같은 판정을 써야
+  // 같은 데이터가 두 화면에서 다른 이야기를 하지 않는다(그 파일 머리말 참조).
+  const stats = summarizeSeries(data, (row) => row[dataKey]);
   const hasData = !loading && !error && stats.observed > 0;
   const formatPercent = (value: unknown) => `${(Number(value) * 100).toFixed(1)}%`;
   // 음영 라벨은 가장 긴 구간 하나에만 붙인다(짧은 구간까지 붙이면 글자가 겹친다).
-  const labeledSpan = stats.voidSpans.reduce<VoidSpan | null>(
-    (best, s) => (!best || s.days > best.days ? s : best), null,
-  );
+  const labeledSpan = longestGap(stats.gaps);
+  const gapNote = formatGapNote(stats.missingDays);
 
   return (
     <section className="report-chart break-inside-avoid">
@@ -543,7 +515,10 @@ function TrendLineChart({
         </div>
       </div>
 
-      <div className="h-[248px] w-full border border-gray-300 rounded-md p-2">
+      {/* 배경을 상속에 맡기지 않고 차트 칸이 직접 흰 종이를 깐다 — 위 CHART_COLOR 의 대비 수치
+          (terracotta 4.54:1 / jade 4.89:1)가 '#ffffff 위' 라는 전제로 계산돼 있기 때문이다.
+          조상 어딘가의 레이아웃이 다시 어긋나도 차트만은 약속한 배경 위에 그려진다. */}
+      <div className="h-[248px] w-full border border-gray-300 rounded-md p-2 bg-white">
         {loading ? (
           <div className="h-full flex items-center justify-center text-sm text-muk-soft">불러오는 중…</div>
         ) : hasData ? (
@@ -554,7 +529,7 @@ function TrendLineChart({
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CHART_COLOR.grid} />
 
               {/* 미관측 구간 음영 — '선이 없다 = 0' 오독 방지. 인쇄에서도 나오도록 print-color-adjust:exact */}
-              {stats.voidSpans.map((s) => (
+              {stats.gaps.map((s) => (
                 <ReferenceArea
                   key={`void-${s.from}`}
                   x1={s.from}
@@ -566,7 +541,7 @@ function TrendLineChart({
                 >
                   {labeledSpan && labeledSpan.from === s.from && (
                     <Label
-                      value={`미관측 ${s.days}일 (${s.from}~${s.to})`}
+                      value={formatGapLabel(s)}
                       position="insideBottom"
                       offset={10}
                       fill={CHART_COLOR.inkSoft}
@@ -677,8 +652,7 @@ function TrendLineChart({
               관측 {stats.observed}일 / {stats.total}일 · 평균 {fmtPct(stats.avg)}
               {stats.max && ` · 최고 ${fmtPct(stats.max.value)} (${stats.max.date})`}
               {stats.min && ` · 최저 ${fmtPct(stats.min.value)} (${stats.min.date})`}
-              {stats.voidDays > 0
-                && ` · 미관측 ${stats.voidDays}일은 선을 잇지 않고 음영으로 표시했습니다(0%가 아님).`}
+              {gapNote && ` · ${gapNote}`}
             </>
           ) : (
             <>관측 0일 / {stats.total}일 — 기간 전체가 미관측이라 추이선을 그리지 않았습니다.</>
