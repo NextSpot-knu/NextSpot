@@ -83,9 +83,9 @@
     "signalNowBody": "查看步行路线、到达时的周边需求、营业状态和优惠。",
     "signalResult": "理由清楚的推荐",
     "signalResultBody": "在一张卡片中查看地点、移动时间以及适合你的原因。",
-    "sourceTour": "韩国旅游发展局 · TourAPI",
+    "sourceTour": "ⓒ韩国旅游发展局 · TourAPI",
     "sourceTourBody": "利用景点、文化设施、餐饮、图片、介绍及活动信息进行发现与比较。",
-    "sourceStats": "韩国旅游发展局旅游统计",
+    "sourceStats": "ⓒ韩国旅游发展局旅游统计",
     "sourceStatsBody": "旅游集中率与关联旅游信息用于分析周边需求背景及寻找替代候选。",
     "sourceParking": "庆州 ITS · 公共停车",
     "sourceParkingBody": "根据停车观测与旅游统计估算区域需求。",
@@ -199,6 +199,7 @@
   },
   "landing": {
     "tagline": "少些寻找，马上出发的庆州之旅",
+    "dataAttribution": "数据来源: ⓒ韩国旅游发展局 · 庆州市 · 气象厅",
     "ctaStart": "立即开始",
     "value1": "📍 按偏好与移动时间推荐",
     "value2": "🍃 结合周边需求的备选地点",
@@ -269,7 +270,7 @@
     "chip": "庆典",
     "chipAria": "查看庆州的{n}个庆典活动",
     "title": "庆州庆典·活动",
-    "subtitle": "韩国观光公社TourAPI实时信息",
+    "subtitle": "来源: ⓒ韩国旅游发展局 · TourAPI实时信息",
     "ongoing": "进行中",
     "upcoming": "即将开始",
     "showOnMapAria": "在地图上显示{title}",
@@ -329,7 +330,7 @@
     "minAgo": "{n}分钟前",
     "hourAgo": "{n}小时前",
     "dayAgo": "{n}天前",
-    "tourapiSync": "TourAPI同步 · {rel}"
+    "tourapiSync": "ⓒ韩国旅游发展局 TourAPI同步 · {rel}"
   },
   "cuisine": {
     "korean": "韩餐",
@@ -633,7 +634,7 @@
     "externalChannel": "外部频道",
     "about": "简介",
     "liveRefresh": "刷新实时信息",
-    "liveSource": "TourAPI 实时",
+    "liveSource": "ⓒ韩国旅游发展局 TourAPI 实时",
     "todayForecast": "今日各时段拥挤预测",
     "forecastAria": "今日各时段预测拥挤度。最空闲的时间是{time}。",
     "bestTime": "最空闲时间 · {time}",

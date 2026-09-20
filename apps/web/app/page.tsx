@@ -168,6 +168,11 @@ export default function LoadingPage() {
           <GuideButton compact className="mt-5 min-h-11 px-5" />
         </span>
       </div>
+
+      {/* 공공데이터 출처 표기 — 공모전 규정 형식(출처: ⓒ한국관광공사, 텍스트만). 첫 화면에서 데이터 정당성을 알린다. */}
+      <div className="absolute bottom-3 inset-x-0 z-10 text-center pointer-events-none">
+        <p className="text-[11px] text-muk-soft/70">{t('landing.dataAttribution')}</p>
+      </div>
     </div>
   );
 }

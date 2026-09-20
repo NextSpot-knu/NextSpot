@@ -83,9 +83,9 @@
     "signalNowBody": "We check walking routes, demand around arrival time, opening status and benefits.",
     "signalResult": "A recommendation with reasons",
     "signalResultBody": "See the place, travel time and why it fits you in one card.",
-    "sourceTour": "Korea Tourism Organization · TourAPI",
+    "sourceTour": "ⓒ Korea Tourism Organization · TourAPI",
     "sourceTourBody": "Place details, photos, descriptions and events support discovery and comparison.",
-    "sourceStats": "KTO tourism statistics",
+    "sourceStats": "ⓒ Korea Tourism Organization statistics",
     "sourceStatsBody": "Tourism concentration and related destination data add demand context and alternative candidates.",
     "sourceParking": "Gyeongju ITS · public parking",
     "sourceParkingBody": "Parking observations and tourism statistics estimate area demand.",
@@ -199,6 +199,7 @@
   },
   "landing": {
     "tagline": "Spend less time searching, more time exploring Gyeongju",
+    "dataAttribution": "Data: ⓒ Korea Tourism Organization · Gyeongju City · KMA",
     "ctaStart": "Start now",
     "value1": "📍 Picks matched to your taste and travel time",
     "value2": "🍃 Alternatives informed by nearby demand",
@@ -269,7 +270,7 @@
     "chip": "Festivals",
     "chipAria": "View {n} festivals & events in Gyeongju",
     "title": "Gyeongju Festivals & Events",
-    "subtitle": "Live from Korea Tourism Organization TourAPI",
+    "subtitle": "Source: ⓒ Korea Tourism Organization · live TourAPI data",
     "ongoing": "Now on",
     "upcoming": "Upcoming",
     "showOnMapAria": "Show {title} on map",
@@ -329,7 +330,7 @@
     "minAgo": "{n} min ago",
     "hourAgo": "{n} hr ago",
     "dayAgo": "{n} days ago",
-    "tourapiSync": "TourAPI synced · {rel}"
+    "tourapiSync": "ⓒ KTO TourAPI synced · {rel}"
   },
   "cuisine": {
     "korean": "Korean",
@@ -633,7 +634,7 @@
     "externalChannel": "External channel",
     "about": "About",
     "liveRefresh": "Refresh live info",
-    "liveSource": "TourAPI live",
+    "liveSource": "ⓒ KTO TourAPI live",
     "todayForecast": "Today’s hourly congestion forecast",
     "forecastAria": "Predicted congestion by hour today. The quietest time is {time}.",
     "bestTime": "Quietest time · {time}",

@@ -83,9 +83,9 @@
     "signalNowBody": "도보 경로, 도착할 때의 주변 수요, 영업 여부와 혜택을 확인합니다.",
     "signalResult": "이유가 보이는 추천",
     "signalResultBody": "추천 장소와 이동시간, 왜 나에게 맞는지를 한 카드에서 보여 줍니다.",
-    "sourceTour": "한국관광공사 TourAPI",
+    "sourceTour": "ⓒ한국관광공사 TourAPI",
     "sourceTourBody": "관광지·문화시설·음식점 정보와 사진·소개·행사 정보를 장소 탐색과 비교에 활용합니다.",
-    "sourceStats": "한국관광공사 관광 통계",
+    "sourceStats": "ⓒ한국관광공사 관광 통계",
     "sourceStatsBody": "관광 집중률과 연관 관광 정보를 주변 수요 맥락과 대안 후보 탐색에 활용합니다.",
     "sourceParking": "경주 ITS · 공영주차",
     "sourceParkingBody": "주차 관측과 관광 통계로 주변 권역의 수요를 추정합니다.",
@@ -199,6 +199,7 @@
   },
   "landing": {
     "tagline": "덜 헤매고 바로 떠나는 경주 여행",
+    "dataAttribution": "데이터 출처: ⓒ한국관광공사 · 경주시 · 기상청",
     "ctaStart": "바로 시작",
     "value1": "📍 취향·이동시간 맞춤 추천",
     "value2": "🍃 주변 흐름을 반영한 대안",
@@ -269,7 +270,7 @@
     "chip": "축제",
     "chipAria": "경주 축제·행사 {n}건 보기",
     "title": "경주 축제·행사",
-    "subtitle": "한국관광공사 TourAPI 실시간 정보",
+    "subtitle": "출처: ⓒ한국관광공사 · TourAPI 실시간 정보",
     "ongoing": "진행 중",
     "upcoming": "예정",
     "showOnMapAria": "{title} 지도에 표시",
@@ -329,7 +330,7 @@
     "minAgo": "{n}분 전",
     "hourAgo": "{n}시간 전",
     "dayAgo": "{n}일 전",
-    "tourapiSync": "TourAPI 동기화 · {rel}"
+    "tourapiSync": "ⓒ한국관광공사 TourAPI 동기화 · {rel}"
   },
   "cuisine": {
     "korean": "한식",
@@ -633,7 +634,7 @@
     "externalChannel": "외부 채널",
     "about": "소개",
     "liveRefresh": "실시간 정보 새로고침",
-    "liveSource": "TourAPI 실시간",
+    "liveSource": "ⓒ한국관광공사 TourAPI 실시간",
     "todayForecast": "오늘 시간대별 혼잡 예측",
     "forecastAria": "오늘 시간대별 예측 혼잡도. 가장 한산한 시간은 {time}입니다.",
     "bestTime": "가장 한산한 시간 · {time}",

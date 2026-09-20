@@ -83,9 +83,9 @@
     "signalNowBody": "徒歩ルート、到着時の周辺需要、営業状況、特典を確認します。",
     "signalResult": "理由がわかるおすすめ",
     "signalResultBody": "場所、移動時間、自分に合う理由を1枚のカードで確認できます。",
-    "sourceTour": "韓国観光公社・TourAPI",
+    "sourceTour": "ⓒ韓国観光公社・TourAPI",
     "sourceTourBody": "観光地・文化施設・飲食店の情報、写真、紹介、イベントを探索と比較に活用します。",
-    "sourceStats": "韓国観光公社の観光統計",
+    "sourceStats": "ⓒ韓国観光公社の観光統計",
     "sourceStatsBody": "観光集中率や関連観光情報を周辺需要の文脈と代替候補の探索に活用します。",
     "sourceParking": "慶州ITS・公共駐車場",
     "sourceParkingBody": "駐車観測と観光統計で周辺エリアの需要を推定します。",
@@ -199,6 +199,7 @@
   },
   "landing": {
     "tagline": "迷う時間を減らして、すぐ楽しむ慶州旅行",
+    "dataAttribution": "データ出典: ⓒ韓国観光公社 · 慶州市 · 気象庁",
     "ctaStart": "今すぐ始める",
     "value1": "📍 好みと移動時間に合うおすすめ",
     "value2": "🍃 周辺需要を反映した代替スポット",
@@ -269,7 +270,7 @@
     "chip": "祭り",
     "chipAria": "慶州の祭り・イベント{n}件を見る",
     "title": "慶州の祭り・イベント",
-    "subtitle": "韓国観光公社TourAPIリアルタイム情報",
+    "subtitle": "出典: ⓒ韓国観光公社 · TourAPIリアルタイム情報",
     "ongoing": "開催中",
     "upcoming": "開催予定",
     "showOnMapAria": "{title}を地図に表示",
@@ -329,7 +330,7 @@
     "minAgo": "{n}分前",
     "hourAgo": "{n}時間前",
     "dayAgo": "{n}日前",
-    "tourapiSync": "TourAPI同期 · {rel}"
+    "tourapiSync": "ⓒ韓国観光公社 TourAPI同期 · {rel}"
   },
   "cuisine": {
     "korean": "韓食",
@@ -633,7 +634,7 @@
     "externalChannel": "外部チャンネル",
     "about": "紹介",
     "liveRefresh": "最新情報を更新",
-    "liveSource": "TourAPI リアルタイム",
+    "liveSource": "ⓒ韓国観光公社 TourAPI リアルタイム",
     "todayForecast": "今日の時間帯別混雑予測",
     "forecastAria": "今日の時間帯別予測混雑度。最も空いている時間は{time}です。",
     "bestTime": "最も空いている時間 · {time}",
