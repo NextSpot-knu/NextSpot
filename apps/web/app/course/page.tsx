@@ -15,7 +15,8 @@ import { createPublicClient } from "@/lib/supabase";
 import { slotKeysStale } from "@/lib/courseSlotKeys";
 import { congestionKey, type CongestionKey } from "@/lib/congestionScale";
 import { useBusyThreshold } from "@/components/shell/PublicSettingsProvider";
-import { apiClient, isAuthError, httpStatus } from "@/lib/api-client";
+import { apiClient, isAuthError, httpStatus, type CongestionEstimate } from "@/lib/api-client";
+import { displayableEstimate, estimateRadiusKm, formatEstimateTime } from "@/lib/congestionEstimate";
 import { REGION, isWithinRegion } from "@/lib/region";
 import { toast } from "sonner";
 import { useT } from "@/lib/i18n/I18nProvider";
@@ -56,6 +57,9 @@ interface CourseStop {
   openStatusAtArrival?: 'open_expected' | 'closing_soon' | 'closed_confirmed' | 'needs_confirmation';
   travelMinutes?: number | null;
   alternatives?: CourseAlternative[];
+  // 추정 모드(주차 실측 + 관광 통계). 서버는 예측 혼잡이 없고, 도착이 관측 시각 30분 안일 때만
+  // 싣는다 — '지금' 관측이지 도착 시각 예측이 아니라서, 보통 1번 정류지에만 붙는다. 구 서버는 필드 없음.
+  congestionEstimate?: CongestionEstimate | null;
 }
 
 /** 같은 자리의 차점 후보.
@@ -68,6 +72,7 @@ interface CourseAlternative {
   predictedCongestion: number | null;
   spotScore: number;
   travelMinutes?: number | null;
+  congestionEstimate?: CongestionEstimate | null;
 }
 
 /** 사용자가 짠 자리 하나의 결과.
@@ -134,6 +139,12 @@ const CONGESTION_CLASS: Record<CongestionKey, string> = {
 function congestion(level: number, busyAt: number): { key: CongestionKey; cls: string } {
   const key = congestionKey(level, busyAt);
   return { key, cls: CONGESTION_CLASS[key] };
+}
+
+// 정류지·대안의 **보여도 되는** 추정(예측 수치가 있으면 null, 60분 넘게 낡았으면 null).
+// 공유 링크로 복원한 정류지에는 추정이 없다 — 링크는 몇 시간 뒤에 열리고, 그때의 '지금' 이 아니다.
+function stopEstimate(s: { predictedCongestion: number | null; congestionEstimate?: unknown }) {
+  return displayableEstimate({ congestionLevel: s.predictedCongestion, congestionEstimate: s.congestionEstimate });
 }
 
 // 도착 오프셋(분) → 예상 시각(HH:MM, 24h) — 헤드라인 보조텍스트/시간행에서 공용으로 재사용.
@@ -1010,7 +1021,13 @@ function CourseGantt({ stops }: { stops: CourseStop[] }) {
           그래도 넘치는 초장문은 truncate + title 툴팁으로 폴백. 막대는 아래 시간축에 정렬. */}
       <div className="space-y-3">
         {segments.map(({ s, start, end }) => {
-          const cong = s.predictedCongestion == null ? { key: 'moderate', cls: 'bg-hanji-deep border-line text-muk-soft' } : congestion(s.predictedCongestion, busyAt);
+          const est = stopEstimate(s);
+          // 추정 막대는 같은 등급색이되 **점선 테두리** — 예측 막대(실선)와 섞여 보이지 않게.
+          const cong = s.predictedCongestion != null
+            ? congestion(s.predictedCongestion, busyAt)
+            : est
+              ? { key: congestionKey(est.level, busyAt), cls: `${congestion(est.level, busyAt).cls} border-dashed` }
+              : { key: 'moderate', cls: 'bg-hanji-deep border-line text-muk-soft' };
           const leftPct = (start / total) * 100;
           const widthPct = ((end - start) / total) * 100;
           return (
@@ -1036,7 +1053,11 @@ function CourseGantt({ stops }: { stops: CourseStop[] }) {
                   title={`${s.facility.name} · ${arrivalText(s.arrivalOffsetMin, t)}`}
                 >
                   <span className="text-[10px] font-bold tabular-nums">
-                    {s.predictedCongestion == null ? '—' : `${Math.round(s.predictedCongestion * 100)}%`}
+                    {s.predictedCongestion != null
+                      ? `${Math.round(s.predictedCongestion * 100)}%`
+                      : est
+                        ? `${t('course.estimateShort')} ${Math.round(est.level * 100)}%`
+                        : '—'}
                   </span>
                 </div>
               </div>
@@ -1056,6 +1077,12 @@ function CourseGantt({ stops }: { stops: CourseStop[] }) {
             </span>
           );
         })}
+        {segments.some(({ s }) => s.predictedCongestion == null && stopEstimate(s)) && (
+          <span className="inline-flex items-center gap-1">
+            <span className="w-2.5 h-2.5 rounded-sm border border-dashed border-muk/40" aria-hidden />
+            {t('map.estimateLegend')}
+          </span>
+        )}
       </div>
     </div>
   );
@@ -1253,6 +1280,8 @@ function StopRow({
   const canReplan = !readOnly && slotIdx !== undefined && slotIdx >= 0;
   const altsId = `course-alts-${stop.facility.id}`;
   const cong = stop.predictedCongestion == null ? null : congestion(stop.predictedCongestion, busyAt);
+  const est = cong ? null : stopEstimate(stop);
+  const estCong = est ? congestion(est.level, busyAt) : null;
   const reasonId = `course-reason-${stop.facility.id}`;
   const startNavigation = (mode: 'walk' | 'car') => {
     const walkMinutes = stop.travelMinutes ?? stop.arrivalOffsetMin;
@@ -1296,7 +1325,19 @@ function StopRow({
             {cong && stop.predictedCongestion != null && <span className={`shrink-0 px-2 py-0.5 rounded-lg text-[10px] font-bold border ${cong.cls}`}>
               {t(`congestion.${cong.key}`)} {Math.round(stop.predictedCongestion * 100)}%
             </span>}
+            {/* 추정: 점선 테두리·옅은 바탕. 도착 시각 예측이 아니라 '관측 시각의 지금' 값이다. */}
+            {est && estCong && <span className={`shrink-0 px-2 py-0.5 rounded-lg text-[10px] font-bold border border-dashed bg-white/70 ${estCong.cls.split(' ').filter((c) => c.startsWith('text-') || c.startsWith('border-')).join(' ')}`}>
+              {t('course.estimateChip', { label: t(`congestion.${estCong.key}`), pct: Math.round(est.level * 100) })}
+            </span>}
           </div>
+          {est && (
+            <p className="mt-0.5 text-[10px] text-muk-soft">
+              {t('card.evidenceEstimated', {
+                time: formatEstimateTime(est.observedAt) ?? '—',
+                km: estimateRadiusKm(est.radiusM),
+              })}
+            </p>
+          )}
 
           <div className="flex items-center gap-2 text-[11px] text-muk-soft mt-0.5">
             <span>🕒 {arrivalText(stop.arrivalOffsetMin, t)}</span>
@@ -1386,6 +1427,7 @@ function StopRow({
             <div id={altsId} className="mt-2 rounded-xl border border-line bg-hanji-deep/40 divide-y divide-line/70">
               {alternatives.map((alt) => {
                 const altCong = alt.predictedCongestion == null ? null : congestion(alt.predictedCongestion, busyAt);
+                const altEst = altCong ? null : stopEstimate(alt);
                 return (
                   <div key={alt.facility.id} className="flex items-center gap-2 px-3 py-2">
                     <span aria-hidden className="shrink-0 text-sm">{typeEmoji(alt.facility.type)}</span>
@@ -1395,6 +1437,9 @@ function StopRow({
                         🕒 {arrivalText(alt.arrivalOffsetMin, t)}
                         {altCong && alt.predictedCongestion != null && (
                           <> · {t(`congestion.${altCong.key}`)} {Math.round(alt.predictedCongestion * 100)}%</>
+                        )}
+                        {altEst && (
+                          <> · {t('course.estimateChip', { label: t(`congestion.${congestionKey(altEst.level, busyAt)}`), pct: Math.round(altEst.level * 100) })}</>
                         )}
                       </p>
                     </div>

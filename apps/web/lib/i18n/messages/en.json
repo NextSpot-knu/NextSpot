@@ -234,7 +234,9 @@
     "ingestRequested": "Request received",
     "ingestRequestDone": "Request to add '{name}' received. It will be added after an admin reviews it.",
     "ingestRequestFailed": "We couldn't send your request. Please try again in a moment.",
-    "searchNoResultAnywhere": "'{q}' isn't in our data or in Korea Tourism Organization records"
+    "searchNoResultAnywhere": "'{q}' isn't in our data or in Korea Tourism Organization records",
+    "estimateLegend": "Dashed pin = estimate · from live parking",
+    "estimateLegendHint": "Dashed pins are estimates built from public parking occupancy within 2km and tourism statistics — not on-site measurements."
   },
   "mypage": {
     "menuAria": "Menu",
@@ -369,7 +371,9 @@
     "slotNoCandidateAny": "Nothing nearby matches your filters",
     "unpinAll": "Unpin all",
     "unpin": "Unpin",
-    "slotDroppedHere": "We couldn't fill this stop"
+    "slotDroppedHere": "We couldn't fill this stop",
+    "estimateChip": "Est. {label} {pct}%",
+    "estimateShort": "Est."
   },
   "coupons": {
     "expired": "Expired",
@@ -478,7 +482,9 @@
       "likely_closed_unknown": "Hours unverified · likely closed now"
     },
     "evidenceNone": "No congestion evidence",
-    "spotTooltipEvidenceOrder": "Places with congestion evidence come first. Without it, even a closer place ranks lower."
+    "spotTooltipEvidenceOrder": "Places with congestion evidence come first. Without it, even a closer place ranks lower.",
+    "estimateLevel": "Estimated crowd: {label}",
+    "evidenceEstimated": "Estimate · based on live parking · observed {time} · {km}km radius"
   },
   "report": {
     "trigger": "Report crowding",

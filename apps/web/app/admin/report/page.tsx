@@ -22,6 +22,7 @@ import {
   formatGapLabel, formatGapNote, longestGap, summarizeSeries,
 } from '@/lib/adminSeriesGaps';
 import { adminApi } from '@/lib/admin-api';
+import { estimateBasisLine, readEstimatedDay } from '@/lib/adminEstimateView';
 import { apiClient } from '@/lib/api-client';
 import { formatRelativeKo } from '@/lib/freshness';
 
@@ -77,6 +78,9 @@ interface DashboardTodayResponse {
   hasLogs: boolean;
   avgCongestion: { value: number; changePercent: number } | null;
   anomalyCount: number | null;
+  /** 오늘의 **추정** 집계(경주 추정 모드) — 형을 믿지 않으므로 readEstimatedDay 로만 읽는다.
+   *  옛 서버면 키가 없다(undefined). */
+  estimated?: unknown;
 }
 
 // 차트용 표시 행(월/일 라벨 + 0~1 비율)
@@ -221,6 +225,22 @@ export default function AdminReportPage() {
     : kpi
       ? `${fmtIsoDateKo(kpi.periodStart)} ~ ${fmtIsoDateKo(kpi.periodEnd)} (최근 ${kpi.totalDays}일)`
       : null; // null = 로딩 중(ValueOrState 가 처리)
+
+  // 오늘 스냅샷 — 실측이 있으면 실측, 없으면 **추정**(라벨·근거 필수), 그것도 없으면 '표본 부족'.
+  // 이 리포트는 의회·평가 제출용이라 추정치를 실측 칸에 섞지 않는다: 값 자체에 '(추정)' 을 붙이고
+  // 박스 아래 근거 문장을 따로 적는다. 30일 추이는 추정으로 채우지 않는다(아래 차트 주석 참조).
+  const todayEstimate = today && !today.hasLogs ? readEstimatedDay(today.estimated) : null;
+  const todayEstimateLine = todayEstimate ? estimateBasisLine(todayEstimate.basis, todayEstimate.dateKst) : null;
+  const todayAvgLabel = today && today.hasLogs && today.avgCongestion
+    ? fmtPct(today.avgCongestion.value)
+    : todayEstimate?.avgCongestion
+      ? `${fmtPct(todayEstimate.avgCongestion.value)} (추정)`
+      : (todayError ? null : '표본 부족(로그 5건 미만)');
+  const todayAnomalyLabel = today && today.hasLogs && today.anomalyCount !== null
+    ? `${today.anomalyCount}건`
+    : todayEstimate && typeof todayEstimate.anomalyCount === 'number'
+      ? `${todayEstimate.anomalyCount.toLocaleString('ko-KR')}구간 (추정)`
+      : (todayError ? null : '표본 부족(로그 5건 미만)');
 
   const freshnessLabel = freshnessError
     ? null
@@ -392,29 +412,31 @@ export default function AdminReportPage() {
                 <div>
                   <div className="text-gray-500 mb-1">오늘 평균 혼잡도</div>
                   <div className="font-bold">
-                    <ValueOrState
-                      loading={loading}
-                      error={todayError}
-                      value={today && today.hasLogs && today.avgCongestion ? fmtPct(today.avgCongestion.value) : (todayError ? null : '표본 부족(로그 5건 미만)')}
-                    />
+                    <ValueOrState loading={loading} error={todayError} value={todayAvgLabel} />
                   </div>
                 </div>
                 <div>
                   <div className="text-gray-500 mb-1">오늘 이상 혼잡 발생</div>
                   <div className="font-bold">
-                    <ValueOrState
-                      loading={loading}
-                      error={todayError}
-                      value={today && today.hasLogs && today.anomalyCount !== null ? `${today.anomalyCount}건` : (todayError ? null : '표본 부족(로그 5건 미만)')}
-                    />
+                    <ValueOrState loading={loading} error={todayError} value={todayAnomalyLabel} />
                   </div>
                 </div>
               </div>
+              {/* 추정을 적었다면 근거와 단위를 같은 박스 안에 — 인쇄물은 툴팁이 없다. */}
+              {todayEstimateLine && (
+                <p className="mt-3 text-xs text-gray-600 border-t border-dashed border-gray-300 pt-2 leading-relaxed">
+                  (추정) 오늘 현장 관측(손님 제보·좌석 방송)이 집계 기준(5건)에 못 미쳐, 현장 관측이 아닌 추정치를 적었습니다 —
+                  {' '}{todayEstimateLine}. 이상 혼잡은 혼잡도 90% 이상으로 추정된 (대표 관광지 × 10분) 구간 수입니다.
+                </p>
+              )}
             </section>
 
             {/* 30일 추이 차트 2개 — 화면과 인쇄(PDF)에서 모두 읽히도록 설계한 리포트 전용 구성.
                 계열 구분은 색 + 선 패턴 2중이고, 툴팁이 없는 인쇄에서도 값을 읽을 수 있게
-                평균선·최고점 라벨·하단 요약 캡션을 함께 낸다. */}
+                평균선·최고점 라벨·하단 요약 캡션을 함께 낸다.
+                혼잡 추이는 경주 추정 모드로 채우지 않는다: 추정은 하루 단위로 읽을 때 계산하며(콜드 1~3초/일)
+                30일치를 이 화면에서 부르면 30~90초가 걸린다. 일별 추정 추이는 서버 쪽 일괄 경로가 생긴 뒤에
+                별도 계열('추정')로 싣는다 — 실측 계열에 섞지 않는다. */}
             <TrendLineChart
               title="30일 일평균 혼잡도 추이"
               seriesName="일평균 혼잡도(실측)"

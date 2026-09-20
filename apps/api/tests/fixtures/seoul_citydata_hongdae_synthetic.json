@@ -1,0 +1,31 @@
+{
+ "list_total_count": 1,
+ "RESULT": {"RESULT.CODE": "INFO-000", "RESULT.MESSAGE": "정상 처리되었습니다."},
+ "CITYDATA": {
+  "AREA_NM": "홍대 관광특구",
+  "AREA_CD": "POI_SYNTHETIC",
+  "LIVE_PPLTN_STTS": [
+   {
+    "AREA_NM": "홍대 관광특구",
+    "AREA_CD": "POI_SYNTHETIC",
+    "AREA_CONGEST_LVL": "약간 붐빔",
+    "AREA_CONGEST_MSG": "합성 픽스처 — 실제 응답이 아니다(형식만 광화문 샘플을 따른다).",
+    "AREA_PPLTN_MIN": "42000",
+    "AREA_PPLTN_MAX": "44000",
+    "PPLTN_TIME": "2026-09-20 14:30",
+    "FCST_YN": "Y",
+    "FCST_PPLTN": [
+     {"FCST_TIME": "2026-09-20 15:00", "FCST_CONGEST_LVL": "붐빔", "FCST_PPLTN_MIN": "46000", "FCST_PPLTN_MAX": "48000"},
+     {"FCST_TIME": "2026-09-20 16:00", "FCST_CONGEST_LVL": "붐빔", "FCST_PPLTN_MIN": "48000", "FCST_PPLTN_MAX": "50000"}
+    ]
+   }
+  ],
+  "PRK_STTS": [
+   {"PRK_NM": "합성 공영주차장 A", "PRK_CD": "SYN-A", "PRK_TYPE": "NW", "CPCTY": "200", "CUR_PRK_CNT": "150", "CUR_PRK_TIME": "2026-09-20 14:35:10", "CUR_PRK_YN": "Y", "LNG": "126.9230", "LAT": "37.5560"},
+   {"PRK_NM": "합성 공영주차장 B", "PRK_CD": "SYN-B", "PRK_TYPE": "NW", "CPCTY": "100", "CUR_PRK_CNT": "40", "CUR_PRK_TIME": "2026-09-20 14:33:02", "CUR_PRK_YN": "Y", "LNG": "126.9200", "LAT": "37.5510"},
+   {"PRK_NM": "합성 민영주차장 C(실시간 없음)", "PRK_CD": "SYN-C", "PRK_TYPE": "BS", "CPCTY": "30", "CUR_PRK_CNT": "", "CUR_PRK_TIME": "", "CUR_PRK_YN": "N", "LNG": "126.9215", "LAT": "37.5540"},
+   {"PRK_NM": "합성 주차장 D(대수가 총면 초과)", "PRK_CD": "SYN-D", "PRK_TYPE": "NW", "CPCTY": "50", "CUR_PRK_CNT": "80", "CUR_PRK_TIME": "2026-09-20 14:35:00", "CUR_PRK_YN": "Y", "LNG": "126.9240", "LAT": "37.5545"},
+   {"PRK_NM": "합성 주차장 E(2시간 넘게 갱신 없음)", "PRK_CD": "SYN-E", "PRK_TYPE": "NW", "CPCTY": "120", "CUR_PRK_CNT": "10", "CUR_PRK_TIME": "2026-09-20 12:00:00", "CUR_PRK_YN": "Y", "LNG": "126.9225", "LAT": "37.5535"}
+  ]
+ }
+}

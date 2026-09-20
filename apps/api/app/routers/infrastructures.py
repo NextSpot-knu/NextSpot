@@ -3,12 +3,15 @@ from datetime import datetime, timedelta, timezone
 
 import structlog
 from fastapi import APIRouter, HTTPException, Depends
+from typing import Literal
+
 from pydantic import BaseModel
 # 읽기는 anon, congestion_logs 쓰기(simulate_peak)는 RLS 우회가 필요해 service_role 을 쓴다
 # (ingest 라우터와 동일 사유 — anon INSERT 는 RLS 로 거부됨).
 from app.core.authz import ROLE_ADMIN, require_role
 from app.core.supabase import supabase_client, supabase_admin, fetch_all_rows
 from app.services.availability_service import fetch_effective_availability_map
+from app.services.congestion_evidence import estimate_for, load_current_estimates
 
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1", tags=["infrastructures"])
@@ -64,6 +67,38 @@ class CongestionInfo(BaseModel):
     # 프런트 하위호환: 필드 추가만(기본값 제공). source=출처 라벨, is_stale=로그 나이>24h.
     source: str | None = None
     is_stale: bool = False
+
+
+class CongestionEstimate(BaseModel):
+    """주차 실측 + 관광 통계로 만든 **추정** 혼잡(congestion_estimator_service.estimate_evidence).
+
+    실측이 아니다. 화면은 항상 '추정 · 주차 실측 기반 · HH:MM 관측 · 반경 2km' 로 그린다.
+    인원수·대기 분은 싣지 않는다 — 점유율에서 인원으로 가는 계수가 없으니 지어낸 숫자가 된다.
+    지도(/infrastructures)·추천(/recommendations, /by-type)·코스(/courses/plan)가 같은 모양을 쓴다.
+    """
+
+    level: float
+    source: Literal["estimated"] = "estimated"
+    observed_at: str | None = None      # 원본 주차 스냅샷 관측 시각(UTC ISO)
+    parking_level: float                # 반경 2km 공영주차 가중 점유율(격자 중심)
+    tourism_level: float | None = None  # 관광공사 집중률 기준선 /100 (없으면 주차만)
+    lot_count: int                      # 반경 안 실시간 주차장 수 — 관측이 얼마나 얇은지 같이 말한다
+    nearest_lot_m: float | None = None
+    radius_m: int
+
+
+def congestion_estimate_model(estimate: dict | None) -> CongestionEstimate | None:
+    """추정 dict → 응답 모델. 모양이 어긋난 추정 하나가 응답 전체를 500 으로 만들지 않게 삼킨다.
+
+    (_clean_gallery_images 와 같은 원칙 — 부가 정보 한 칸의 오염이 지도 전체를 죽이면 안 된다.)
+    """
+    if not estimate:
+        return None
+    try:
+        return CongestionEstimate(**estimate)
+    except Exception as exc:  # noqa: BLE001 — pydantic ValidationError 등
+        logger.warning("congestion_estimate_invalid", error=str(exc))
+        return None
 
 
 class AvailabilityEvidence(BaseModel):
@@ -300,6 +335,7 @@ async def get_infrastructures(
     max_lng: float | None = None,
 ):
     logger.info("infrastructures_request", type=type)
+    # 추정(추정 모드)은 여기 싣지 않는다 — GET /congestion/estimates 주석 참조.
     try:
         def _apply_filters(query):
             if type:
@@ -359,6 +395,62 @@ async def get_infrastructures(
         # 예외 원문은 서버 로그로만 — DB 오류/스택 문자열을 클라이언트에 노출하지 않는다.
         logger.error("infrastructures_fetch_error", error=str(e))
         raise HTTPException(status_code=500, detail="시설 데이터 조회에 실패했습니다.")
+
+
+# 지도용 추정 묶음은 추천(3초)보다 조금 더 기다린다 — 이 요청은 지도 로딩과 **병렬**로 나가고,
+# 늦게 와도 마커 위에 덧칠만 하므로 화면을 붙잡지 않는다. 추정기 캐시가 빈 첫 요청만 해당한다.
+_MAP_ESTIMATE_TIMEOUT_SECONDS = 8.0
+
+
+class CongestionEstimatesResponse(BaseModel):
+    """GET /congestion/estimates — 지금 시점의 시설별 **추정** 혼잡(추정 모드, 계획서 §5.2).
+
+    ``estimates`` 에는 반경 2km 에 실시간 주차장이 있는 시설만 있다(나머지는 키가 없다 — 값을
+    만들지 않는다). 실측 우선은 **화면이 적용한다**: 같은 시설에 /infrastructures 의 congestion
+    (실측)이 있으면 추정은 그리지 않는다(apps/web/lib/congestionEstimate.ts displayableEstimate).
+    """
+
+    available: bool
+    reason: str | None = None
+    observed_at: str | None = None
+    radius_m: int | None = None
+    lot_count: int = 0
+    estimates: dict[str, CongestionEstimate] = {}
+
+
+@router.get("/congestion/estimates", response_model=CongestionEstimatesResponse)
+async def get_congestion_estimates():
+    """지도 마커가 덧칠할 추정 묶음. 추정을 못 만들면 ``available=false`` 와 빈 묶음(200)이다.
+
+    왜 /infrastructures 에 싣지 않고 따로 내나(레드팀 2026-09-20 실측):
+      · 프로덕션 /infrastructures 는 이미 TTFB 4.0~5.9초라 프런트의 4초 상한을 자주 넘기고,
+        그러면 화면은 Supabase 직접 읽기로 폴백한다 — 그 경로에는 추정이 없다. 추정을 거기
+        실으면 **대부분의 방문에서 추정이 안 보이고**, 추정 계산이 그 느린 응답을 더 늦춘다.
+      · 따로 받으면 어느 시설 경로가 이기든 그 위에 덧칠할 수 있고, 1,669행 전체에 null 칸을
+        더하는 페이로드 증가(+13%)도 없다.
+    구 번들은 이 엔드포인트를 부르지 않는다 — 추가만이다.
+    """
+    current = await load_current_estimates(timeout=_MAP_ESTIMATE_TIMEOUT_SECONDS)
+    if current is None:
+        return CongestionEstimatesResponse(available=False, reason="estimates_unavailable")
+    estimates: dict[str, CongestionEstimate] = {}
+    for facility_id in (current.get("estimates") or {}):
+        # estimate_for 가 모양·0..1·관측 나이(60분)를 **내보내는 시점에** 다시 잰다.
+        model = congestion_estimate_model(estimate_for(current, facility_id))
+        if model is not None:
+            estimates[str(facility_id)] = model
+    if not estimates:
+        return CongestionEstimatesResponse(
+            available=False, reason="estimates_expired", observed_at=current.get("observed_at"),
+        )
+    first = next(iter(estimates.values()))
+    return CongestionEstimatesResponse(
+        available=True,
+        observed_at=current.get("observed_at"),
+        radius_m=first.radius_m,
+        lot_count=int(current.get("lot_count") or 0),
+        estimates=estimates,
+    )
 
 
 @router.post("/admin/simulate-peak")

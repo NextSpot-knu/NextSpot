@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field
 
 from app.core.authz import ROLE_ADMIN, get_current_profile, require_role
 from app.core.supabase import fetch_all_rows, supabase_admin
-from app.services import briefing_service
+from app.services import briefing_service, congestion_estimator_service
 
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1/admin", tags=["admin"], dependencies=[Depends(require_role(ROLE_ADMIN))])
@@ -1200,6 +1200,61 @@ async def _fallback_day_aggregate(day_kst: str, day_observed_at: str) -> dict | 
     }
 
 
+# ── 오늘의 **추정** 집계(경주 추정 모드) ────────────────────────────────────────
+# congestion_logs 는 사실상 비어 있다(7월 시드 한 덩어리뿐). 그래서 '실시간 관제' 가 매일
+# 빈 카드이거나 두 달 전 시드를 그렸다. 경주에는 시설 단위 실시간 인원 데이터가 없으므로,
+# 10분마다 쌓이는 공영주차 실측(area_demand_snapshots) + 관광공사 집중률로 **읽을 때 계산한
+# 추정치**를 함께 싣는다(congestion_estimator_service — 적재하지 않는다, 그 이유는 거기 적혀 있다).
+#
+# 추정은 부가 정보다. 어떤 실패도 오늘 실측 응답을 죽이지 않는다 — 예외·시간 초과는 전부
+# estimated=None + 구조화 경고로 강등한다(폴백 경로와 같은 원칙).
+#
+# 시간 상한을 두는 이유: 콜드 계산이 1~3초(오늘+전일 스냅샷 약 290개 × 시설 1,600곳)이고,
+# Render 무료 플랜의 콜드 스타트와 겹치면 더 길어질 수 있다. 화면의 요청 타임아웃(25초)을
+# 추정 하나 때문에 넘기면 실측 KPI 까지 통째로 '조회 실패' 가 된다. 상한에 닿아도 계산은
+# shield 로 **계속 돌아 캐시를 채운다** — 다음 새로고침은 캐시에서 즉시 받는다.
+_ESTIMATE_TIMEOUT_SECONDS = 12.0
+# 같은 날짜의 계산이 이미 돌고 있으면 합류한다. 대시보드는 dashboard/today 와 briefing(내부에서
+# get_dashboard_today 재호출)을 동시에 부르므로, 이게 없으면 콜드 계산이 두 번 겹친다.
+_estimate_inflight: dict[str, asyncio.Task] = {}
+
+
+def _estimate_task_done(date_kst: str, task: asyncio.Task) -> None:
+    """끝난 계산을 합류 목록에서 빼고, 예외를 회수한다.
+
+    시간 초과로 아무도 기다리지 않게 된 계산이 나중에 실패하면 asyncio 가
+    'exception was never retrieved' 를 남긴다 — 사유는 위 호출부가 이미 로그로 남겼다.
+    """
+    if _estimate_inflight.get(date_kst) is task:
+        _estimate_inflight.pop(date_kst, None)
+    if not task.cancelled():
+        task.exception()
+
+
+async def _estimated_day_or_none(date_kst: str) -> dict | None:
+    """``congestion_estimator_service.estimated_day_aggregate`` 를 실패·시간 초과에 안전하게."""
+    loop = asyncio.get_running_loop()
+    task = _estimate_inflight.get(date_kst)
+    # 다른 이벤트 루프(테스트 클라이언트 재생성 등)에서 만든 태스크는 await 할 수 없다.
+    if task is None or task.done() or task.get_loop() is not loop:
+        task = asyncio.ensure_future(congestion_estimator_service.estimated_day_aggregate(date_kst))
+        task.add_done_callback(lambda done, key=date_kst: _estimate_task_done(key, done))
+        _estimate_inflight[date_kst] = task
+    try:
+        result = await asyncio.wait_for(asyncio.shield(task), timeout=_ESTIMATE_TIMEOUT_SECONDS)
+    except asyncio.TimeoutError:
+        logger.warning("admin_dashboard_estimate_timeout", date=date_kst, timeout_s=_ESTIMATE_TIMEOUT_SECONDS)
+        return None
+    except Exception as e:  # noqa: BLE001 — 추정 실패가 실측 응답을 죽이면 안 된다
+        logger.warning("admin_dashboard_estimate_failed", date=date_kst, error=str(e), error_type=type(e).__name__)
+        return None
+    # 모양이 어긋난 결과를 그대로 흘리면 화면의 형 가드가 막더라도 원인이 서버 로그에 안 남는다.
+    if not isinstance(result, dict):
+        logger.warning("admin_dashboard_estimate_bad_shape", date=date_kst, type=type(result).__name__)
+        return None
+    return result
+
+
 @router.get("/dashboard/today")
 async def get_dashboard_today():
     """오늘(KST) 혼잡 집계 — page.tsx fetchCongestion 과 동일 산식의 compact JSON.
@@ -1233,11 +1288,28 @@ async def get_dashboard_today():
 
     (이 응답 shape 은 admin/report 화면·브리핑과도 공유한다. 둘 다 최상위 hasLogs/
      avgCongestion/anomalyCount 만 읽으므로 신규 키의 영향을 받지 않는다.)
+
+    ── 신규 키 2(추가만 한다) — 경주 추정 모드 ─────────────────────────────────────
+      · estimated = 오늘(KST)의 **추정** 집계 또는 null(계산 실패·시간 초과·옛 원본 부재)
+                    { dateKst, hasLogs, avgCongestion, anomalyCount, heatmap, anomalies,
+                      sampleCount, sourceComposition{'estimated': n}, basis{...} }
+                    모양은 위 오늘 집계와 같고, basis 가 산식·근거(주차장 수·관측 시각·반경)를
+                    싣는다(congestion_estimator_service.aggregate_estimated_day).
+                    표본 단위가 로그 1행이 아니라 (대표 장소 × 10분 버킷)이다.
+
+    추정을 최상위 키에 섞지 않는 이유는 폴백과 같다: 옛 번들은 최상위만 읽으므로, 거기에
+    추정을 채우면 **추정치가 라벨 없이 실측처럼** 그려진다. 추정을 읽을 줄 아는 새 번들만
+    '추정' 배지와 근거 문장을 붙여 그린다. 실측(최상위)이 있으면 화면은 실측을 쓴다.
     """
     start, end = _kst_today_range_utc()
     # 전일 동일 구간(변화율 보정용) — 오늘 구간을 하루 앞으로 민다.
     y_start = (datetime.fromisoformat(start) - timedelta(days=1)).isoformat()
     y_end = (datetime.fromisoformat(end) - timedelta(days=1)).isoformat()
+
+    # 추정은 실측 조회와 **동시에** 시작한다(직렬로 두면 콜드 1~3초가 응답 시간에 그대로 더해진다).
+    # 오늘 실측이 있어도 계산한다 — 5분 캐시라 비용이 작고, 키의 뜻이 '실측 유무에 따라 있다
+    # 없다' 로 흔들리지 않는다(null 은 오직 '추정을 못 냈다' 를 뜻한다).
+    estimate_task = asyncio.ensure_future(_estimated_day_or_none(_kst_date_str(datetime.now(timezone.utc))))
 
     try:
         # 오늘 로그(시설명/유형 조인)와 어제 로그(변화율용, congestion_level만)를 동시에 조회한다(직렬 왕복 제거).
@@ -1246,6 +1318,8 @@ async def get_dashboard_today():
             asyncio.to_thread(_fetch_day_levels, y_start, y_end),
         )
     except Exception as e:
+        # 기다리지 않을 추정은 끊는다(계산 자체는 shield 안이라 캐시를 채우며 끝까지 돈다).
+        estimate_task.cancel()
         logger.error("admin_dashboard_today_failed", error=str(e))
         raise HTTPException(status_code=500, detail="혼잡 집계 조회에 실패했습니다.")
 
@@ -1255,7 +1329,7 @@ async def get_dashboard_today():
     if today["hasLogs"]:
         # 오늘 관측이 있으면 가장 최근 관측도 오늘 안에 있다 — 추가 왕복 없이 손에 든 행에서 뽑는다.
         latest_at = max(str(row["timestamp"]) for row in logs if row.get("timestamp"))
-        return {**today, "latestObservedAt": latest_at, "fallback": None}
+        return {**today, "latestObservedAt": latest_at, "fallback": None, "estimated": await estimate_task}
 
     # ── 오늘 구간이 비었다 ──────────────────────────────────────────────────────
     # 여기가 '고장' 인지 '데이터 없음' 인지는 이 응답만 봐서는 알 수 없었다(둘 다 빈 화면).
@@ -1271,7 +1345,10 @@ async def get_dashboard_today():
         # 고른 날이 '오늘' 이면 폴백할 다른 날이 아니다(오늘이 표본 미달이라는 사실 그대로).
         if day_kst != _kst_date_str(datetime.now(timezone.utc)):
             fallback = await _fallback_day_aggregate(day_kst, day_observed_at)
-    return {**today, "latestObservedAt": latest_at, "fallback": fallback}
+    # 폴백(과거 실측)과 추정(오늘)을 **둘 다** 싣는다. 무엇을 먼저 그릴지는 화면이 정한다
+    # (오늘 실측 → 오늘 추정 → 과거 실측). 서버가 하나를 골라 버리면, 추정을 못 읽는 옛
+    # 번들은 폴백마저 잃는다.
+    return {**today, "latestObservedAt": latest_at, "fallback": fallback, "estimated": await estimate_task}
 
 
 # =========================================================================

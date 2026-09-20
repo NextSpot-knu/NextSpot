@@ -26,7 +26,9 @@ from app.services.voice_intent_service import interpret_turn
 from app.services.embedding_service import filter_candidates as vector_filter_candidates
 from app.services.embedding_service import enrich_candidates as enrich_voice_candidates
 from app.routers.infrastructures import (
+    CongestionEstimate,
     _exact_current_count,
+    congestion_estimate_model,
     fetch_active_facilities,
     fetch_latest_congestion_for_all,
 )
@@ -43,7 +45,11 @@ from app.services.area_demand_decision_service import (
 from app.services.spot.score import calculate_spot_score
 from app.services.spot.travel import get_walking_routes
 from app.services.spot.ranking import spot_ranking_sort_key
-from app.services.congestion_evidence import rankable_measured_level
+from app.services.congestion_evidence import (
+    attach_estimate,
+    load_current_estimates,
+    rankable_measured_level,
+)
 from app.services.travel_context import (
     KST,
     RECOMMENDATION_ELIGIBILITY_LABELS,
@@ -95,6 +101,12 @@ class RecommendItem(BaseModel):
     congestion_log_source: str | None = None   # measured 일 때 원 로그 source(user_report/seed/…)
     congestion_is_stale: bool | None = None    # measured 일 때 로그 나이>24h
     congestion_timestamp: str | None = None    # measured 일 때 로그 시각
+    # 추정 모드(계획서 §5.2) — congestion_source 가 'none' 일 때만 채운다(measured > predicted >
+    # estimated). congestion_source 에 'estimated' 를 새 값으로 넣지 않은 이유: 구 번들(배포 시차)은
+    # source !== 'none' 이면 level 을 실측·예측처럼 칠하고 로컬 순위에도 쓴다. 옆 칸에 두면 구
+    # 번들은 모르고 지나가고(종전과 같은 '정보 준비 중'), 새 번들만 '추정' 라벨로 그린다.
+    # 순위에는 들어가지 않는다 — 같은 주차·관광 신호가 이미 area_stats_rules 로 반영된다(spot/ranking.py).
+    congestion_estimate: CongestionEstimate | None = None
     rank: int
     total_candidates: int
     open_status_at_arrival: str | None = None
@@ -314,11 +326,16 @@ async def resolve_congestion_evidence(facility: dict, log_info: dict | None) -> 
     }
 
 
-async def build_candidate_evidence(facility: dict, log_info: dict | None) -> dict:
+async def build_candidate_evidence(
+    facility: dict, log_info: dict | None, estimates: dict | None = None
+) -> dict:
     """후보 1건의 혼잡 근거 — **세 경로가 공유하는 단일 정의.**
 
     좌석 방송 오버레이(30분 이내 사장 확인)가 있으면 그것을 실측으로 쓰고, 없으면
-    `resolve_congestion_evidence` 의 3단계 판정으로 내려간다.
+    `resolve_congestion_evidence` 의 3단계 판정으로 내려간다. 그 결과가 'none' 이고
+    ``estimates``(load_current_estimates 결과)에 이 시설의 추정이 있으면 ``estimate`` 칸에
+    싣는다 — source/level 은 'none'/None 그대로다(congestion_evidence.attach_estimate 주석 참조).
+    반환 dict 에는 언제나 ``estimate`` 키가 있다(없으면 None).
 
     왜 함수로 뺐나: 같은 판정이 `/recommendations` 와 `/recommendations/by-type` 에 **두 벌로**
     복사돼 있었고, `/courses/plan` 에는 아예 없었다. 세 벌이 되면 반드시 갈라진다 — 실제로
@@ -332,9 +349,11 @@ async def build_candidate_evidence(facility: dict, log_info: dict | None) -> dic
             "level": override, "source": "measured", "log_source": "merchant_seat",
             "current_count": None, "evidence_tier": "verified", "is_stale": False,
             "timestamp": (facility.get("seat_status_fresh") or {}).get("updated_at"),
+            "estimate": None,
         }
     # 혼잡 3단계 판정(CONGESTION_TRUST_SPEC) — 로그 없는 시설을 0.0(실측 여유)처럼 팔지 않는다.
-    return await resolve_congestion_evidence(facility, log_info)
+    evidence = await resolve_congestion_evidence(facility, log_info)
+    return attach_estimate(evidence, estimates, facility.get("id"))
 
 
 async def _resolve_user_vector(user_id: str, preferred_categories: list[str]) -> list[float]:
@@ -438,8 +457,10 @@ async def get_recommendations(
     # 3. 각 후보군에 대해 SPOT 스코어를 병렬 연산
     #    후보별 최신 혼잡도는 일괄 조회(fetch_congestion_map) 후 맵 참조 — 후보 수만큼의
     #    개별 쿼리 팬아웃(N+1, 스레드풀 고갈 위험)을 제거한다.
-    congestion_by_id = await fetch_congestion_map(
-        [req.original_facility_id, *[f["id"] for f, _ in candidates]]
+    # 추정 묶음(5분 캐시)은 혼잡 로그 조회와 겹쳐 받는다 — 추천 지연을 더하지 않는다.
+    congestion_by_id, estimates = await asyncio.gather(
+        fetch_congestion_map([req.original_facility_id, *[f["id"] for f, _ in candidates]]),
+        load_current_estimates(),
     )
     model_ready = get_model_info()["trained"]
     original_evidence = await resolve_congestion_evidence(
@@ -461,7 +482,7 @@ async def get_recommendations(
     async def _score_candidate(f: dict, route) -> dict:
         # 신선한 좌석 상태 방송(30분 이내)이 있으면 congestion_logs 조회값 대신 사장 확인 실측을 쓴다
         # (_recommend_by_type._score 와 동일 처리 — 두 경로가 같은 근거 dict 를 만든다).
-        evidence = await build_candidate_evidence(f, congestion_by_id.get(f["id"]))
+        evidence = await build_candidate_evidence(f, congestion_by_id.get(f["id"]), estimates)
         candidate_congestion = evidence["level"]
         # 체감 혼잡도를 capacity×level 로 환산한 값은 실제 인원이 아니다. 계수형 소스가
         # 명시적으로 제공한 인원만 노출하고, 방문객·사장 정성 제보는 혼잡 단계만 보여준다.
@@ -557,6 +578,9 @@ async def get_recommendations(
                 "timestamp": evidence["timestamp"], "evidence_tier": evidence.get("evidence_tier"),
                 "log_source": evidence.get("log_source"),
             },
+            # 사용자가 본 추정(있으면). 'congestion' 칸과 섞지 않는다 — 그 칸을 읽는 집계는
+            # 계속 '근거 없음' 으로 센다. 학습은 congestion_logs 만 읽으므로 여기 닿지 않는다.
+            "congestion_estimate": evidence.get("estimate"),
             "max_walk_minutes": max_walk_minutes,
             "travel_source": item["breakdown"].get("travel_source"),
             "availability_evidence": facility.get("availability_evidence"),
@@ -631,6 +655,7 @@ async def get_recommendations(
             congestion_log_source=evidence["log_source"],
             congestion_is_stale=evidence["is_stale"],
             congestion_timestamp=evidence["timestamp"],
+            congestion_estimate=congestion_estimate_model(evidence.get("estimate")),
             rank=idx + 1,
             total_candidates=total_count,
             open_status_at_arrival=open_status_at_arrival(
@@ -813,10 +838,13 @@ async def _recommend_by_type(req: "RecommendByTypeRequest") -> list:
     user_vector = await _resolve_user_vector(req.user_id, user_info.get("preferred_categories", []))
 
     # 후보별 최신 혼잡도 일괄 조회(N+1 제거) — get_recommendations 와 동일 패턴
-    congestion_by_id = await fetch_congestion_map([f["id"] for f in candidates])
+    congestion_by_id, estimates = await asyncio.gather(
+        fetch_congestion_map([f["id"] for f in candidates]),
+        load_current_estimates(),
+    )
 
     async def _score(f: dict) -> dict:
-        evidence = await build_candidate_evidence(f, congestion_by_id.get(f["id"]))
+        evidence = await build_candidate_evidence(f, congestion_by_id.get(f["id"]), estimates)
         cong = evidence["level"]
         route = route_by_id[f["id"]]
         # 정성 혼잡 단계를 인원수로 합성하지 않는다. 실제 계수 소스의 값만 전달한다.
@@ -885,6 +913,7 @@ async def _recommend_by_type(req: "RecommendByTypeRequest") -> list:
                 "level": evidence["level"], "source": evidence["source"], "timestamp": evidence["timestamp"],
                 "evidence_tier": evidence.get("evidence_tier"), "log_source": evidence.get("log_source"),
             },
+            "congestion_estimate": evidence.get("estimate"),
             "max_walk_minutes": max_walk_minutes,
             "travel_source": item["breakdown"].get("travel_source"),
             "availability_evidence": facility.get("availability_evidence"),
@@ -937,6 +966,7 @@ async def _recommend_by_type(req: "RecommendByTypeRequest") -> list:
             congestion_log_source=item["congestion_evidence"]["log_source"],
             congestion_is_stale=item["congestion_evidence"]["is_stale"],
             congestion_timestamp=item["congestion_evidence"]["timestamp"],
+            congestion_estimate=congestion_estimate_model(item["congestion_evidence"].get("estimate")),
             rank=idx + 1,
             total_candidates=total,
             open_status_at_arrival=open_status_at_arrival(

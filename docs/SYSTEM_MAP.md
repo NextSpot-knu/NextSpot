@@ -335,7 +335,8 @@ SessionBootstrap: 익명 세션 자동 발급
 | ″ | `GET /admin/area-demand-reliability?hours=24` | **주차 수집 신뢰도 패널** — `alert.state`(§11) |
 | ″ | `POST/PATCH/DELETE /admin/facilities` (`FacilityTable`) | 시설 CRUD |
 | ″ | (쿠폰 정책 패널) `PATCH /admin/facilities/{id}` 의 `coupon_rate` | **POI별 할인율 조정 → 추천 순위 즉시 반영** |
-| ″ | `POST /admin/simulate-peak` (`SimulatePeakButton`) | "24시간 데이터 모의 발생" — 데모 전용 |
+| ″ | `GET /admin/dashboard/today` 의 `estimated` | **추정 모드** — 현장 관측이 없을 때 주차 실측 + 관광 통계로 읽을 때 계산한 추정 집계(`congestion_estimator_service`). "24시간 모의 발생" 버튼은 2026-09-20 제거(D6, 엔드포인트는 잔존) |
+| `/admin/engine-validation` | `GET /admin/engine-validation/seoul/summary?days=` | **엔진 검증** — 서울 실시간 도시데이터(홍대 관광특구) 실측 대비 추정 등급·전망 오차 |
 | ″ | `GET /admin/impact?since=` (`ImpactWidget`) | **분산 효과 정량화** — 절감 대기시간·재배치 건수 |
 | ″ | `GET /freshness` (`DataFreshnessBadge`) | TourAPI 마지막 동기화 |
 | `/admin/infrastructure` | `POST /admin/facilities/{id}/congestion` | 혼잡 수동 입력 (`admin_override` · §7.1) |

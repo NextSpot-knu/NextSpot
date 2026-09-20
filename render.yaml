@@ -37,6 +37,10 @@ services:
       # --- 한국교통안전공단 주차정보 API(선택 — 경주 실시간 행이 없으면 관광 통계만 사용) ---
       - key: PARKING_API_KEY
         sync: false
+      # --- 서울 열린데이터광장 인증키(선택 — 혼잡 엔진 검증 수집 전용. 비어 있으면 수집만 503 seoul_key_missing).
+      #     대상지 목록 SEOUL_CITYDATA_TARGETS 는 기본값(홍대 관광특구)이 코드에 있어 넣지 않아도 된다. ---
+      - key: SEOUL_OPENDATA_KEY
+        sync: false
       # --- Kakao Local 장소검색(공중화장실 좌표) + Mobility 경로(선택) ---
       - key: KAKAO_REST_API_KEY
         sync: false

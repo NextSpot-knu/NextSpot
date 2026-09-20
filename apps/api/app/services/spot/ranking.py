@@ -73,8 +73,9 @@ def scoring_evidence_tier(
 ) -> int:
     """``scoring_mode``(+ 알려진 혼잡도)를 근거 등급으로 바꾼다. 낮을수록 강한 근거.
 
-    ``congestion_level`` 은 그 후보의 시간비용을 실제로 만든 값이다(실측이면 실측,
-    모델이면 예측 — score.py 의 ``ranking_congestion``). 모르면 ``None`` 이고, 그때는
+    ``congestion_level`` 은 score.py 의 ``ranking_congestion`` 이다 — 실측이면 실측, 모델이면
+    예측(= 시간비용을 만든 값), area_stats_rules 면 화면에 '추정' 으로 보이는 값(추정 모드 — 시간비용
+    에는 들어가지 않고 이 판정에만 쓰인다. score.py 4-2 참조). 모르면 ``None`` 이고, 그때는
     모드만으로 판정한다 — **모른다는 이유로 강등하지 않는다.** 강등은 '붐비는 것이
     확인됐을 때' 만이다.
     """

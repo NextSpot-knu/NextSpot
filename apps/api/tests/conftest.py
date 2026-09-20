@@ -66,6 +66,27 @@ def _isolate_event_boost(monkeypatch):
 
     industry_baseline.reset_cache()
     monkeypatch.setattr(score, "get_industry_baseline_congestion", _no_industry_baseline)
+
+    # 추정 모드(congestion_estimator_service)도 기본은 '추정 없음' 이다. 열어 두면 추천·코스·지도
+    # 라우터 테스트가 placeholder Supabase 로 스냅샷을 읽으려 하고(느리고 환경 의존), 기존 기대값에
+    # 없던 congestion_estimate 가 끼어든다. 추정이 필요한 테스트는 이 위에 다시 패치한다
+    # (congestion_evidence.load_current_estimates 가 이 모듈 속성 한 곳을 부른다).
+    from app.services import congestion_estimator_service
+
+    async def _no_estimates(*, now=None):
+        return {
+            "available": False, "reason": "test_isolation", "observed_at": None,
+            "bucket_at": None, "lot_count": 0, "estimates": {},
+        }
+
+    monkeypatch.setattr(congestion_estimator_service, "current_estimates", _no_estimates)
+
+    # 관리자 대시보드의 하루 추정 집계도 같은 이유로 막는다 — 라우터는 예외를 `estimated: null`
+    # 로 삼키므로, 실패시키는 것이 '추정 없음' 을 가장 싸게 재현한다. 필요한 테스트는 다시 패치한다.
+    async def _no_day_aggregate(date_kst, *, now=None):
+        raise RuntimeError("test_isolation")
+
+    monkeypatch.setattr(congestion_estimator_service, "estimated_day_aggregate", _no_day_aggregate)
     yield
     industry_baseline.reset_cache()
 

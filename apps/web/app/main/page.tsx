@@ -9,7 +9,8 @@ import { createPublicClient } from '@/lib/supabase';
 import { getMarkerSvg } from '@/lib/map/markerSvg';
 import { scoreFacility, compareSpot, displayWalkingMinutes, rankFacilities, rankFacilitiesDegraded, recToSpot, haversineMeters, cuisineMatch, filterReachable, type Spot } from '@/lib/recommender';
 import { REGION, isWithinRegion } from '@/lib/region';
-import { getRecommendations, recommendByType, rejectRecommendation, voiceTurn, apiClient } from '@/lib/api-client';
+import { getRecommendations, recommendByType, rejectRecommendation, voiceTurn, apiClient, getCongestionEstimates, type CongestionEstimate } from '@/lib/api-client';
+import { displayableEstimate, estimatesFromFeed, parseCongestionEstimate } from '@/lib/congestionEstimate';
 // 히트맵 blob 의 색·크기 규칙(마커/배지 임계와 일관) 공용 헬퍼 — 중복 정의 금지, 그대로 재사용.
 import { getHeatGradient, getHeatRadius } from '@/lib/map/heatmap';
 // D5: TourAPI 동기화 신선도 상대시간 — lib/freshness 단일 소스 재사용(중복 정의 금지).
@@ -103,6 +104,12 @@ interface FacilityRecord {
   congestionIsStale?: boolean | null;
   isStale?: boolean;
   congestionTimestamp?: string | null;
+  // 추정 모드(주차 실측 + 관광 통계, 실측 아님). congestionLevel/baseCongestion 과 **따로** 둔다 —
+  // 그 두 필드는 클라 미러 점수(scoreFacility)·히트맵·저장·음성 후보가 '관측' 으로 읽는 자리라, 섞이면
+  // 추정이 실측 등급으로 순위를 얻는다. 그릴 때마다 displayableEstimate 로 신선도(60분)를 다시 본다.
+  // 지도 시설에는 **저장하지 않는다**(24시간 캐시에 60분짜리 값을 넣지 않게) — 추천 응답이 실어 준
+  // 값만 여기 들고, 지도는 별도 피드(estimateById)를 그릴 때 덧씌운다.
+  congestionEstimate?: CongestionEstimate | null;
   dataUpdatedAt?: string | null;
   informationConfidence?: 'verified' | 'unknown';
   eligibilityTier?:
@@ -316,6 +323,13 @@ export default function MainPage() {
   const [facilitiesLoadError, setFacilitiesLoadError] = useState(false);
   const [facilitiesReloadNonce, setFacilitiesReloadNonce] = useState(0); // '다시 시도' 트리거(로드 effect 재실행)
   const [selectedFacility, setSelectedFacility] = useState<any>(null);
+  // 추정 모드 피드(GET /congestion/estimates) — {facilityId: 원본 추정}. 시설 목록과 **따로** 둔다.
+  // 시설은 API·Supabase 폴백·24시간 localStorage 캐시 중 어느 경로로도 그려질 수 있는데, 추정은
+  // 60분이면 만료되는 '지금' 값이라 그 어느 저장소에도 섞으면 안 된다. 그릴 때 덧씌운다.
+  const [estimateById, setEstimateById] = useState<Record<string, unknown>>({});
+  // 마지막으로 피드를 확인한 시각. 5분마다 바뀌어 지도 파생값을 다시 계산하게 한다 — 그래야
+  // 오래 열어 둔 탭에서 60분 지난 점선 핀이 남지 않는다(값이 안 바뀌어도 만료는 다시 판정한다).
+  const [estimateClock, setEstimateClock] = useState(() => Date.now());
   // 음성 선호 필터(예: '양식 먹고 싶어'→양식 식당 id들). null이면 필터 없음.
   // 백엔드 분류기가 실시간으로 추천 풀을 좁혀 그 안에서 SPOT로 재랭킹한다.
   // state = 카드/핸들러 렌더용, ref = 추천 effect가 dep 없이 최신값을 읽기 위함(필터 변경 시 더블셋 방지).
@@ -625,6 +639,38 @@ export default function MainPage() {
       }
     })();
     return () => { active = false; };
+  }, []);
+
+  // 추정 피드 — 시설 로드와 병렬로, 보이는 동안 5분마다 다시 받는다(서버 추정 캐시 5분·스냅샷 10분).
+  // 실패·404(구 서버)·타임아웃은 조용히 넘긴다: 추정은 부가 정보라 지도를 막을 이유가 없고,
+  // 직전 값은 남겨 두되 60분 만료는 그릴 때 다시 판정하므로 낡은 값이 '지금' 으로 팔리지 않는다.
+  useEffect(() => {
+    let active = true;
+    let inflight: AbortController | null = null;
+    const load = async () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      inflight?.abort();
+      const controller = new AbortController();
+      inflight = controller;
+      try {
+        const feed = await getCongestionEstimates({ timeoutMs: 8000, signal: controller.signal });
+        if (active) setEstimateById(estimatesFromFeed(feed));
+      } catch {
+        // 404(구 서버)·타임아웃·네트워크 — '추정 없음' 과 같다. 직전 값은 만료 판정에 맡긴다.
+      } finally {
+        if (active && inflight === controller) setEstimateClock(Date.now());
+      }
+    };
+    void load();
+    const timer = window.setInterval(() => { void load(); }, 5 * 60 * 1000);
+    const onVisible = () => { if (document.visibilityState === 'visible') void load(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      active = false;
+      inflight?.abort();
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
   }, []);
 
   // Apply mock hour congestion scaling
@@ -1102,6 +1148,14 @@ export default function MainPage() {
           latitude: members[0].latitude,
           longitude: members[0].longitude,
           congestionLevel: levels.length > 0 ? Math.max(...levels) : null,
+          // 실측이 하나라도 있으면 그룹은 실측으로 칠한다. 없을 때만 구성원 추정 중 가장 붐비는 값을
+          // 쓴다(실측과 같은 '최댓값' 규칙 — 같은 건물이면 같은 격자라 값도 거의 같다).
+          congestionEstimate: levels.length > 0
+            ? null
+            : members
+              .map((item) => displayableEstimate(item))
+              .filter((e): e is CongestionEstimate => e !== null)
+              .sort((a, b) => b.level - a.level)[0] ?? null,
           isGroup: true,
           subFacilities: members,
         } as FacilityGroup;
@@ -1149,7 +1203,18 @@ export default function MainPage() {
     // barrierFree, 수동 시드는 features.barrier_free — 둘 다 확인). 마커·히트맵 공용 소스에서
     // 한 번만 걸러 두 레이어가 항상 동일 집합을 그린다.
     // 추천은 같은 travelContext.requiredAttributes 를 서버에 보내므로 지도와 후보 자격이 일치한다.
-    let out = src;
+    // 추정 덧씌우기 — 실측 level 이 있는 시설에는 붙이지 않는다(측정이 이긴다). 이 시각 기준으로
+    // 60분이 지난 값도 여기서 떨어진다(estimateClock 이 5분마다 이 파생을 다시 돌린다).
+    // 주차장 탭은 위에서 이미 반환했다 — 주차장 자체에는 추정이 없다.
+    const estimateNow = new Date(estimateClock);
+    const withEstimates = Object.keys(estimateById).length === 0
+      ? src
+      : src.map((f) => {
+          if (typeof f.congestionLevel === 'number') return f;
+          const estimate = parseCongestionEstimate(estimateById[f.id], estimateNow);
+          return estimate ? { ...f, congestionEstimate: estimate } : f;
+        });
+    let out = withEstimates;
     if (showBarrierFree) out = out.filter((f) => (f?.barrierFree ?? f?.barrier_free ?? f?.features?.barrier_free) === true);
     // 🅿🐾 주차·반려동물 필터: 순차 .filter() 체이닝이라 배리어프리와도 자연히 AND 조합된다.
     // 관광지 위주로 적재된 필드라 커버리지가 낮다 — 후보가 확 줄거나 0이어도 숨기지 않고 그대로 보여준다(정직성).
@@ -1157,7 +1222,15 @@ export default function MainPage() {
     if (showParkingFilter) out = out.filter((f) => parseAvailability(f?.features?.parking as string | null | undefined) === true);
     if (showPetFilter) out = out.filter((f) => parseAvailability((f?.features?.chk_pet ?? f?.features?.chkPet) as string | null | undefined) === true);
     return out;
-  }, [activeFilter, facilities, parkingLots, predictionMap, isForecast, showBarrierFree, showParkingFilter, showPetFilter]);
+  }, [activeFilter, facilities, parkingLots, predictionMap, isForecast, showBarrierFree, showParkingFilter, showPetFilter, estimateById, estimateClock]);
+
+  // 점선 핀이 하나라도 그려질 때만 범례를 띄운다. 추정이 없는 날(스냅샷 60분 초과·구 서버)에
+  // '추정' 범례만 떠 있으면 없는 것을 설명하는 셈이다. 예측 모드는 추정을 그리지 않는다(마커 주석).
+  const showEstimateLegend = useMemo(
+    () => activeFilter !== '주차장' && !isForecast
+      && markerFacilities.some((f) => displayableEstimate(f as { congestionLevel?: number | null; congestionEstimate?: unknown }) !== null),
+    [activeFilter, isForecast, markerFacilities],
+  );
 
   // 타임슬라이더 전환: 지금(0)=실측 복귀, +N시간=백엔드 배치 예측으로 마커·히트맵 재채색.
   // 실패 시 예측을 적용하지 않고 '지금' 모드를 유지(토스트 안내) — 회귀 없이 안전.
@@ -1262,6 +1335,11 @@ export default function MainPage() {
               congestionLogSource: rec.congestionLogSource,
               congestionIsStale: rec.congestionIsStale,
               congestionTimestamp: rec.congestionTimestamp,
+              // 새 서버는 추천 응답에 직접 싣는다(null = 실측·예측이 있어 추정을 보이지 않는다).
+              // 구 서버는 필드가 없어 undefined → 지도(/infrastructures)가 받은 추정을 그대로 쓴다.
+              // 새 서버는 추천 응답에 직접 싣는다(null = 실측·예측이 있어 추정을 보이지 않는다).
+              // 구 서버는 필드가 없고 추정 피드도 404 라 어느 쪽이든 null 이다.
+              congestionEstimate: rec.congestionEstimate ?? null,
               dataUpdatedAt: rec.dataUpdatedAt,
               scoringMode: rec.scoringMode,
               apiRank: rec.rank,
@@ -1428,6 +1506,7 @@ export default function MainPage() {
                     congestionLogSource: r.congestionLogSource,
                     congestionIsStale: r.congestionIsStale,
                     congestionTimestamp: r.congestionTimestamp,
+                    congestionEstimate: r.congestionEstimate ?? null,
                     dataUpdatedAt: r.dataUpdatedAt,
                     scoringMode: r.scoringMode,
                     spot,
@@ -2045,8 +2124,12 @@ export default function MainPage() {
           || (!!selectedFacility && f.id === selectedFacility.id));
       const w = isSel ? selW : baseW;
       const h = isSel ? selH : baseH;
+      // 추정은 '지금(HH:MM 관측)' 값이다. 예측 모드(+1h~+3h)에서 점선 핀으로 남기면 그 시각의
+      // 값처럼 읽힌다 — 예측이 없는 곳은 오늘처럼 회색(데이터 없음)으로 둔다. 실측이 있으면
+      // displayableEstimate 가 null 이라 마커는 종전 그대로 실측 색이다.
+      const estimateLevel = isForecast ? null : (displayableEstimate(f)?.level ?? null);
       const markerImage = new kakao.maps.MarkerImage(
-        getMarkerSvg(f.type, f.congestionLevel, f.features, isSel, busyAt),
+        getMarkerSvg(f.type, f.congestionLevel, f.features, isSel, busyAt, estimateLevel),
         new kakao.maps.Size(w, h),
         { offset: new kakao.maps.Point(w / 2, h) }
       );
@@ -2146,7 +2229,7 @@ export default function MainPage() {
     // markerFacilities 를 dep 으로 둬 예측(hoursAhead) 전환 시에도 마커가 예측 혼잡도로 재채색된다.
     // busyAt: 운영자 혼잡 경계는 부팅 뒤 비동기로 도착한다. dep 에 없으면 마커가 기본 경계로
     // 칠해진 채 남아 배지와 색이 어긋난다.
-  }, [markerFacilities, activeFilter, mapLoaded, selectedFacility?.id, selectedParkingLot?.id, activeGroupId, mapLevel, mapViewportVersion, searchQuery, busyAt]);
+  }, [markerFacilities, activeFilter, mapLoaded, selectedFacility?.id, selectedParkingLot?.id, activeGroupId, mapLevel, mapViewportVersion, searchQuery, busyAt, isForecast]);
 
   // 히트맵 레이어 (실 카카오맵) — 혼잡 핀과 별개의 CustomOverlay blob(CongestionMap 에서 이식).
   // showHeatmap 이 켜졌을 때만, 마커와 '동일한 표시 시설 집합'(computeDisplayFacilities)에
@@ -2911,6 +2994,17 @@ export default function MainPage() {
             🔥 {t('map.heatmap')}
           </button>
 
+          {/* 추정 범례 — 점선 핀이 무엇인지 지도 위에서 바로 말한다(실측과 섞여 보이지 않게). */}
+          {showEstimateLegend && (
+            <span
+              title={t('map.estimateLegendHint')}
+              className="flex shrink-0 items-center gap-2 rounded-full border border-dashed border-muk/30 bg-white/85 px-3 py-1.5 text-[12px] font-medium text-muk-soft fractal-glass"
+            >
+              <span aria-hidden className="inline-block h-3 w-3 rounded-full border-2 border-dashed border-gold-deep bg-white" />
+              {t('map.estimateLegend')}
+            </span>
+          )}
+
           {/* ♿ 배리어프리 토글 — 켜지면 features.barrier_free 시설만 지도에 표시(무장애 여행 동선용) */}
           <button
             type="button"
@@ -3058,6 +3152,12 @@ export default function MainPage() {
               <div className="mt-4"><p className="mb-2 text-xs font-bold text-muk-soft">{t('map.foodFilters')}</p><div className="flex gap-2 overflow-x-auto no-scrollbar">{cuisineChips.map((chip) => (
                 <button key={chip.id} type="button" onClick={() => selectCuisineChip(chip)} aria-pressed={cuisineChip === chip.id} className={`shrink-0 rounded-full border px-3 py-1.5 text-xs font-semibold ${cuisineChip === chip.id ? 'border-gold bg-gold/15 text-gold-deep' : 'border-gold/25 bg-white text-muk-soft'}`}><span aria-hidden>{chip.emoji}</span> {t(`cuisine.${chip.id}`)}</button>
               ))}</div></div>
+            )}
+            {showEstimateLegend && (
+              <p className="mt-3 flex items-start gap-2 rounded-xl border border-dashed border-muk/25 bg-white px-3 py-2 text-[11px] leading-snug text-muk-soft">
+                <span aria-hidden className="mt-0.5 inline-block h-3 w-3 shrink-0 rounded-full border-2 border-dashed border-gold-deep bg-white" />
+                <span><b className="font-semibold text-muk">{t('map.estimateLegend')}</b> · {t('map.estimateLegendHint')}</span>
+              </p>
             )}
             <div className="mt-4 flex flex-wrap gap-2"><FestivalBanner onFocus={focusFestivalOnMap} /><RestroomChip location={userLocation} /></div>
           </section>
@@ -3283,6 +3383,13 @@ export default function MainPage() {
                 openStatusAtArrival={selectedFacility.openStatusAtArrival}
                 congestionSource={selectedFacility.congestionSource}
                 scoringMode={selectedFacility.scoringMode}
+                // 지도에서 고른 시설은 추정 피드의 **최신** 값을, 추천 카드는 응답이 실어 준 값을 쓴다.
+                // 실측·예측이 있으면 카드 안의 displayableEstimate 가 추정을 숨긴다(측정이 이긴다).
+                congestionEstimate={
+                  (estimateById[selectedFacility.id] as CongestionEstimate | undefined)
+                    ?? selectedFacility.congestionEstimate
+                    ?? null
+                }
               />
               </div>
             </div>

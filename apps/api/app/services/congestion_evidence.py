@@ -1,8 +1,28 @@
-"""Rules for deciding which observed congestion may influence ranking."""
+"""Rules for deciding which observed congestion may influence ranking.
+
+추정(estimated) 근거도 이 파일이 다룬다 — 다만 **순위에 들어가는 문(rankable_measured_level)과는
+완전히 분리된 옆문**으로만 붙는다. 이유는 아래 ``attach_estimate`` 주석 참조.
+"""
+import asyncio
 from datetime import datetime, timedelta, timezone
+
+import structlog
+
+logger = structlog.get_logger()
 
 TRUSTED_EVIDENCE_TIERS = {"verified", "corroborated"}
 RANKING_FRESHNESS = timedelta(minutes=30)
+
+# 추정 근거의 source 값. congestion_estimator_service.ESTIMATE_SOURCE 와 같아야 한다
+# (여기서 그 모듈을 최상단 import 하지 않는 이유는 load_current_estimates 주석 참조 —
+#  테스트가 둘의 일치를 잠근다).
+ESTIMATE_SOURCE = "estimated"
+
+# 추천·지도 한 요청이 추정치를 기다리는 상한(초). 추정기는 5분 캐시라 거의 항상 즉시 돌아오고,
+# 캐시가 빈 첫 요청만 DB 왕복(최신 스냅샷·주차장·시설 1,600여 곳·관광 통계)을 한다.
+# 그 첫 요청이 추천 전체를 붙잡지 않게 상한을 두고, 넘기면 **이번 응답만 추정 없이** 나간다 —
+# 계산은 shield 로 계속 돌아 캐시를 채우므로 다음 요청부터는 붙는다. 추정은 부가 정보다.
+ESTIMATE_LOAD_TIMEOUT_SECONDS = 3.0
 
 
 def _parse_timestamp(value: object) -> datetime | None:
@@ -18,7 +38,13 @@ def _parse_timestamp(value: object) -> datetime | None:
 
 
 def rankable_measured_level(evidence: dict | None, *, now: datetime | None = None) -> float | None:
-    """Return a measured level only when it is recent and independently trustworthy."""
+    """Return a measured level only when it is recent and independently trustworthy.
+
+    ⚠️ 추정(``source='estimated'``)은 여기서 **절대 통과하지 않는다** — source 가 'measured' 인
+    근거만 본다. 추정치는 evidence["estimate"] 옆 칸에만 실리고 evidence["source"] 는 'none' 으로
+    남으므로 이 함수·merchant 좌석 오버라이드·대기 분 계산 어디에도 닿지 않는다. (추정이 순위에 닿는
+    곳은 딱 하나 — score.py 가 area_stats_rules 후보의 붐빔 판정에 estimate 칸을 읽는다. 강등 전용.)
+    """
     if not evidence or evidence.get("source") != "measured":
         return None
     if evidence.get("evidence_tier") not in TRUSTED_EVIDENCE_TIERS:
@@ -34,3 +60,124 @@ def rankable_measured_level(evidence: dict | None, *, now: datetime | None = Non
         return max(0.0, min(1.0, float(evidence.get("level"))))
     except (TypeError, ValueError):
         return None
+
+
+# ── 추정 모드(docs/CONGESTION_ENGINE_PLAN.md §5.2) ─────────────────────────────
+
+
+async def load_current_estimates(
+    *, timeout: float = ESTIMATE_LOAD_TIMEOUT_SECONDS
+) -> dict | None:
+    """지금의 시설별 추정 묶음. 쓸 수 없으면 ``None`` — **예외를 올리지 않는다.**
+
+    추정기(congestion_estimator_service)를 함수 안에서 모듈째 부르는 이유 두 가지:
+      · 이 파일은 score.py 가 import 한다. 추정기는 area_demand·parking_derived·관광 통계 서비스를
+        끌고 오므로, 최상단에서 import 하면 채점 경로에 순환 import 위험을 들인다.
+      · 테스트가 ``congestion_estimator_service.current_estimates`` 한 곳만 바꿔 끼우면 추천·코스·
+        지도 세 경로가 모두 따라온다(conftest 의 기본 격리가 그 자리다).
+    """
+    from app.services import congestion_estimator_service as estimator
+
+    try:
+        current = await asyncio.wait_for(
+            asyncio.shield(estimator.current_estimates()), timeout=timeout
+        )
+    except asyncio.TimeoutError:
+        logger.info("congestion_estimates_deferred", timeout_s=timeout)
+        return None
+    except Exception as exc:  # noqa: BLE001 — 추정은 부가 정보다. 추천·지도를 죽이지 않는다.
+        logger.warning("congestion_estimates_unavailable", error=str(exc))
+        return None
+    if not isinstance(current, dict) or not current.get("available"):
+        return None
+    return current
+
+
+def estimate_for(
+    current: dict | None, facility_id: object, *, now: datetime | None = None
+) -> dict | None:
+    """시설 하나의 추정 근거(estimate_evidence 모양) 또는 ``None``.
+
+    모양을 한 번 더 확인한다: level 이 0..1 숫자가 아니거나 source 가 'estimated' 가 아니면 버린다.
+    화면은 이 dict 를 그대로 그리므로, 여기서 새는 값은 곧 사용자에게 보이는 값이다.
+
+    **내보내는 시점에도** 관측 나이를 다시 잰다. 추정기는 계산할 때만 60분 한도를 보고 결과를
+    5분 캐시하므로, 캐시 끝자락에는 65분 된 주차를 '지금' 으로 내보낼 수 있었다(레드팀 지적).
+    """
+    if not current or facility_id is None:
+        return None
+    from app.services.congestion_estimator_service import estimate_evidence
+    from app.services.parking_derived_congestion_service import MAX_SNAPSHOT_AGE
+
+    try:
+        estimate = estimate_evidence(current, str(facility_id))
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("congestion_estimate_shape_error", facility_id=str(facility_id), error=str(exc))
+        return None
+    if not estimate or estimate.get("source") != ESTIMATE_SOURCE:
+        return None
+    try:
+        level = float(estimate.get("level"))
+    except (TypeError, ValueError):
+        return None
+    if not 0.0 <= level <= 1.0:
+        return None
+    observed = _parse_timestamp(estimate.get("observed_at"))
+    if observed is None:
+        return None
+    age = (now or datetime.now(timezone.utc)).astimezone(timezone.utc) - observed
+    # 미래 쪽은 시계 오차 5분까지 봐준다(수집기·API 서버 시계가 완전히 같지 않다).
+    if age > MAX_SNAPSHOT_AGE or age < -timedelta(minutes=5):
+        return None
+    return estimate
+
+
+def attach_estimate(
+    evidence: dict, current: dict | None, facility_id: object, *, now: datetime | None = None
+) -> dict:
+    """근거 dict 에 ``estimate`` 칸을 채운 **사본**을 돌려준다. 원본은 건드리지 않는다.
+
+    우선순위: measured(사장 좌석 확인 포함) > predicted(학습된 모델) > estimated > none.
+    추정은 ``source == 'none'`` 일 때만 붙는다.
+
+    · measured 가 이기는 이유: 추정이 채우려는 빈자리가 바로 '실측 없음' 이다. 실측이 들어오면
+      추정은 자리를 비킨다 — "혼잡 정보만 연결하면 바로 실사용" 의 코드 근거(계획서 §5.2).
+    · predicted 가 이기는 이유: 학습 모델은 승격 게이트(verified/corroborated 실측 대비 성능)를
+      통과해야만 켜진다. 추정은 경주에서 검증된 적이 없다(보정 곡선 f 는 서울 검증 전 항등).
+      게다가 모델이 켜진 후보는 scoring_mode='model' 로 **그 예측치가 순위를 만든다** — 화면이
+      다른 숫자(추정)를 보여 주면 "이 숫자 때문에 이 순위" 라는 설명이 어긋난다.
+      (지금 프로덕션은 모델 미학습이라 이 분기는 잠들어 있다.)
+    · 낡은(24h 초과)·단건 실측도 추정을 이긴다 — 의도다. 그 값은 이미 '실측 · 과거 패턴 기반'
+      회색 배지로 나이를 밝히고 있고, 두 숫자를 한 카드에 나란히 두면 어느 쪽이 순위를 만들었는지
+      다시 설명해야 한다. 계획서 §5.2 의 '30분 이내 verified/corroborated 만 덮어쓴다' 로 좁힐지는
+      제품 결정으로 남긴다(프로덕션에서 로그가 있는 시설은 한 곳뿐이라 지금 영향은 없다).
+
+    evidence["source"] / ["level"] 은 **바꾸지 않는다.** 추정은 옆 칸(``estimate``)에만 있다.
+    그래서 rankable_measured_level·대기 분·current_count·사유 문장처럼 source/level
+    을 읽는 기존 경로는 전부 '근거 없음' 그대로 동작한다 — 추정이 실측으로 새어 나갈 문이 없다.
+    응답의 congestion_source 도 'none' 그대로라, 추정을 모르는 구 번들(Vercel·Render 배포 시차)은
+    종전과 똑같이 '정보 준비 중' 을 그린다(값을 실측 색으로 칠할 방법이 없다).
+    """
+    out = {**evidence, "estimate": None}
+    if evidence.get("source") != "none":
+        return out
+    out["estimate"] = estimate_for(current, facility_id, now=now)
+    return out
+
+
+def estimate_applies_to_arrival(estimate: dict | None, arrival: datetime) -> bool:
+    """이 추정(현재 관측)을 도착 시점의 혼잡으로 **보여 줘도 되는가.**
+
+    area_demand_service._live_parking_applies_to_arrival 과 같은 규칙이다 — 관측 후 30분 안의
+    도착에만 현재 관측을 쓴다. 코스의 2·3번 정류지(한 시간 넘게 뒤)에 '지금' 주차를 붙이면
+    도착 시각의 값처럼 읽힌다. 그 자리는 이력 전망이 맡을 몫이고 추정기는 그걸 만들지 않는다.
+    """
+    if not estimate:
+        return False
+    observed = _parse_timestamp(estimate.get("observed_at"))
+    if observed is None:
+        return False
+    if arrival.tzinfo is None:
+        arrival = arrival.replace(tzinfo=timezone.utc)
+    horizon = arrival.astimezone(timezone.utc) - observed
+    return timedelta(0) <= horizon <= RANKING_FRESHNESS

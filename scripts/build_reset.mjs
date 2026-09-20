@@ -102,6 +102,8 @@ DROP TABLE IF EXISTS public.users CASCADE;
 DROP TABLE IF EXISTS public.system_settings CASCADE;
 DROP TABLE IF EXISTS public.app_events CASCADE;
 DROP TABLE IF EXISTS public.admin_ingest_requests CASCADE;
+-- 서울 실시간 도시데이터 검증 표본(엔진 검증 전용, FK 없음 — CONGESTION_ENGINE_PLAN §5.3).
+DROP TABLE IF EXISTS public.seoul_citydata_snapshots CASCADE;
 DROP FUNCTION IF EXISTS public.get_auth_user_info() CASCADE;
 DROP FUNCTION IF EXISTS public.get_auth_user_role() CASCADE;
 DROP FUNCTION IF EXISTS public.is_admin_or_dev() CASCADE;
@@ -125,7 +127,7 @@ DECLARE
 BEGIN
   IF to_regclass('cron.job') IS NOT NULL THEN
     FOR v_job_id IN EXECUTE
-      'SELECT jobid FROM cron.job WHERE jobname IN (''nextspot-area-demand-primary'', ''nextspot-area-demand-retry'')'
+      'SELECT jobid FROM cron.job WHERE jobname IN (''nextspot-area-demand-primary'', ''nextspot-area-demand-retry'', ''nextspot-seoul-citydata-primary'', ''nextspot-seoul-citydata-retry'')'
     LOOP
       EXECUTE format('SELECT cron.unschedule(%s)', v_job_id);
     END LOOP;
@@ -134,6 +136,8 @@ END;
 $$;
 DROP FUNCTION IF EXISTS public.request_area_demand_collection(BOOLEAN) CASCADE;
 DROP FUNCTION IF EXISTS public.configure_area_demand_collection(TEXT, TEXT) CASCADE;
+DROP FUNCTION IF EXISTS public.request_seoul_citydata_collection(BOOLEAN) CASCADE;
+DROP FUNCTION IF EXISTS public.configure_seoul_citydata_collection(TEXT) CASCADE;
 DROP FUNCTION IF EXISTS public.record_area_demand_snapshot(TEXT, TIMESTAMPTZ, JSONB) CASCADE;
 DROP FUNCTION IF EXISTS public.handle_updated_at() CASCADE;`;
 

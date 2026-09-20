@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { LayoutDashboard, Building2, BarChart3, Settings, HelpCircle, Sparkles, LogOut, ShieldAlert, Printer, UserCog, Compass } from 'lucide-react';
+import { LayoutDashboard, Building2, BarChart3, Settings, HelpCircle, Sparkles, LogOut, ShieldAlert, Printer, UserCog, Compass, FlaskConical } from 'lucide-react';
 import { signOutAdmin } from '@/lib/adminAuth';
 import { useAccount, canEnterDevConsole } from '@/lib/account';
 
@@ -24,6 +24,9 @@ export function AdminSidebar() {
     { name: '통계 리포트', path: '/admin/reports', icon: BarChart3 },
     { name: '안전 경보', path: '/admin/safety', icon: ShieldAlert },
     { name: '성과 리포트', path: '/admin/report', icon: Printer },
+    // 혼잡 추정기를 서울 실측과 대조한 성적표(CONGESTION_ENGINE_PLAN §5.4 A). 표본이 없어도 들어가서
+    // '수집 시작 전' 을 확인할 수 있어야 하므로 조건 없이 보인다.
+    { name: '엔진 검증', path: '/admin/engine-validation', icon: FlaskConical },
     { name: '문의 관리 (Support)', path: '/admin/support', icon: HelpCircle },
     { name: '시스템 설정', path: '/admin/settings', icon: Settings },
     // 개발자 콘솔은 팀 전용이라 developer 에게만 보인다 — 관제 화면(정부기관 관계자)에는

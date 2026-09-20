@@ -84,8 +84,10 @@ function main() {
     /이 카드를 채우지 않습니다/,
     '주차 파생 적재 경로가 생겼는데 안내 문구가 옛 사실을 말한다',
   );
+  // 2026-09-20 부터 추정치는 이 표에 적재하지 않고 읽을 때 계산한다 — 문구가 그 사실을 말해야 한다.
   assert.match(CONGESTION_INGEST_PATHS, /주차 실측 기반 추정/);
-  assert.match(CONGESTION_INGEST_PATHS, /추정치입니다/, '파생 경로가 추정임을 말하지 않는다');
+  assert.match(CONGESTION_INGEST_PATHS, /적재하지 않습니다/, '추정치가 이 표에 쌓인다고 오해하게 만든다');
+  assert.match(CONGESTION_INGEST_PATHS, /측정한 값이 아닙니다/, '추정임을 말하지 않는다');
 
   console.log('estimatedBasisNotice.test.ts OK');
 }

@@ -3,7 +3,7 @@
 import { useState, useEffect, useId } from 'react';
 import { motion, PanInfo, AnimatePresence } from 'framer-motion';
 import { Bookmark, Check, Sparkles, Star, Phone, MapPin, Clock, ChevronUp, ChevronDown, Info, Globe, Utensils } from 'lucide-react';
-import { apiClient, reportFacilityAvailability, type AvailabilityReportResult } from '@/lib/api-client';
+import { apiClient, reportFacilityAvailability, type AvailabilityReportResult, type CongestionEstimate } from '@/lib/api-client';
 import { CongestionReportButton } from '@/components/CongestionReportButton';
 import { GoldenHourBadge } from '@/components/GoldenHourBadge';
 import { relativeParts } from '@/lib/freshness';
@@ -12,6 +12,9 @@ import { getArrivalOpenDisplayStatus, getArrivalOpenStatus, isClosedToday } from
 import { displayWalkingMinutes } from '@/lib/recommender';
 import { haptic, interactionSpring, sheetSpring, tapMotion } from '@/lib/motion';
 import { areaDemandDisclosure } from '@/lib/areaDemandPresentation';
+import { displayableEstimate, estimateRadiusKm, formatEstimateTime } from '@/lib/congestionEstimate';
+import { congestionKey as gradeKey } from '@/lib/congestionScale';
+import { useBusyThreshold } from '@/components/shell/PublicSettingsProvider';
 
 // facility prop 이 이 컴포넌트에서 실제로 읽는 필드만 구조적으로 명시한 타입.
 // 콜러 둘의 합집합: main(page)은 Facility(congestionLevel/currentCount: number|null,
@@ -107,6 +110,9 @@ interface RecommendationCardProps {
   openStatusAtArrival?: 'open_expected' | 'closing_soon' | 'closed_confirmed' | 'needs_confirmation';
   congestionSource?: 'measured' | 'predicted' | 'none';
   scoringMode?: 'model' | 'measured_rules' | 'area_stats_rules' | 'degraded_rules';
+  // 추정 모드(주차 실측 + 관광 통계). 실측·예측 숫자가 없을 때만 '추정' 배지로 그린다
+  // (lib/congestionEstimate.ts). facility.congestionLevel 에 넣지 않고 따로 받는 이유가 그 파일 머리말이다.
+  congestionEstimate?: CongestionEstimate | null;
 }
 
 export function RecommendationCard({
@@ -150,8 +156,13 @@ export function RecommendationCard({
   openStatusAtArrival,
   congestionSource,
   scoringMode,
+  congestionEstimate,
 }: RecommendationCardProps) {
   const { t, locale } = useI18n();
+  // 운영자 '혼잡' 경계. 지금은 **새 추정 배지만** 이 값을 따른다 — 지도 점선 핀·코스 칩이 이미
+  // congestionKey(level, busyAt) 로 칠하므로, 같은 추정이 지도에서는 '혼잡' 인데 카드에서는 '보통' 이면
+  // 한 화면이 두 말을 한다. 기존 실측 배지(아래 congestionKey 0.75 고정)는 이 변경 범위 밖이다.
+  const busyAt = useBusyThreshold();
   // 상세 패널의 id — 펼치기 버튼의 aria-controls 가 가리킨다. 한 화면에 카드가 둘 이상
   // 뜨는 경로(저장 목록)가 있어 고정 문자열을 쓸 수 없고, useId 는 SSR/CSR 이 같은 값을 낸다.
   const detailsPanelId = `rec-card-details-${useId()}`;
@@ -189,6 +200,14 @@ export function RecommendationCard({
 
   const displayCongestionLevel = localReport?.level ?? facility?.congestionLevel;
   const displayCongestionSource = localReport ? 'measured' : congestionSource;
+  // 사용자가 방금 제보했거나 실측·예측 숫자가 있으면 추정은 숨는다(측정 > 예측 > 추정).
+  const estimate = localReport
+    ? null
+    : displayableEstimate({
+        congestionLevel: displayCongestionLevel,
+        congestionSource: displayCongestionSource,
+        congestionEstimate,
+      });
   const displayDataSource = localReport
     ? { source: 'user_report', lastUpdated: localReport.timestamp, isStale: false }
     : dataSource;
@@ -589,7 +608,7 @@ export function RecommendationCard({
           
           {/* Status Pills — 펼쳐도(상세 표시 중에도) 혼잡도·잔여석은 항상 표시.
               혼잡 로그가 없는 시설(congestionLevel=null)은 합성값 대신 회색 '데이터 없음'으로 표기. */}
-          {facility && (displayCongestionLevel !== undefined || typeof areaDemandLevel === 'number') && (
+          {facility && (displayCongestionLevel !== undefined || typeof areaDemandLevel === 'number' || estimate) && (
             <div className="flex flex-wrap items-center gap-1.5 mt-2">
               {typeof displayCongestionLevel === 'number' ? (
                 <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold border ${
@@ -602,6 +621,21 @@ export function RecommendationCard({
                     : 'bg-jade/10 border-jade/30 text-jade'
                 }`}>
                   {t('card.congestion')}: {congestionLabel(displayCongestionLevel)}
+                </span>
+              ) : estimate ? (
+                // 추정 모드: **점선 테두리·옅은 바탕**. 실측 배지의 꽉 찬 등급색과 한눈에 달라야 한다 —
+                // 같은 모양이면 '추정' 글자를 읽지 않은 사람에게 실측으로 팔린다. 대기 분·잔여석은 없다
+                // (점유율→대기·인원 계수가 없어 만들면 지어낸 숫자다). 주변 수요 요약 배지는 같은
+                // 주차·관광 신호의 다른 표현이라 여기서는 이 배지로 대신한다(상세 패널은 그대로).
+                <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold border border-dashed bg-white/70 ${
+                  {
+                    busy: 'border-terracotta/60 text-terracotta',
+                    moderate: 'border-gold/60 text-gold-deep',
+                    relaxed: 'border-emerald-500/60 text-emerald-700',
+                    quiet: 'border-jade/60 text-jade',
+                  }[gradeKey(estimate.level, busyAt)]
+                }`}>
+                  {t('card.estimateLevel', { label: t(`congestion.${gradeKey(estimate.level, busyAt)}`) })}
                 </span>
               ) : typeof areaDemandLevel === 'number' ? (
                 // 측정 대상이 다른 주차·관광 통계를 하나의 절대 혼잡률처럼 보이지 않게 근거 수로 요약한다.
@@ -625,7 +659,7 @@ export function RecommendationCard({
                   {t('card.congestionPreparing')}
                 </span>
               )}
-              {typeof displayCongestionLevel !== 'number' && typeof areaDemandLevel === 'number' && demandDisclosure.showQualitativeLevel && (
+              {typeof displayCongestionLevel !== 'number' && !estimate && typeof areaDemandLevel === 'number' && demandDisclosure.showQualitativeLevel && (
                 <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold border bg-sky-500/10 border-sky-500/20 text-sky-700">
                   {t(areaDemandMode === 'live'
                     ? 'recommend.areaDemandLive'
@@ -637,6 +671,14 @@ export function RecommendationCard({
               {typeof displayCongestionLevel === 'number' && displayCongestionSource ? (
                 <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold border bg-hanji-deep border-line text-muk-soft">
                   {t(`card.congestionSource.${displayCongestionSource}`)}
+                </span>
+              ) : estimate ? (
+                // 근거를 스스로 밝힌다: 무엇에서(주차 실측)·언제(관측 시각, KST)·어디까지(반경).
+                <span className="px-2 py-0.5 rounded-md text-[10px] font-medium border border-dashed border-line bg-transparent text-muk-soft">
+                  {t('card.evidenceEstimated', {
+                    time: formatEstimateTime(estimate.observedAt) ?? '—',
+                    km: estimateRadiusKm(estimate.radiusM),
+                  })}
                 </span>
               ) : (
                 // 근거가 **없을 때도** 말한다.

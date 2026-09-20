@@ -44,6 +44,15 @@
 
 외부 콘솔 접근이 필요해 코드로 못 하는 일. 끝나면 줄을 지우고 "최근 세션"에 한 줄 남긴다.
 
+- [ ] **서울 실시간 도시데이터 수집 개시**(엔진 검증 — [`CONGESTION_ENGINE_PLAN.md`](./CONGESTION_ENGINE_PLAN.md) §8).
+      API는 이력을 주지 않아 **늦게 켤수록 검증 표본이 준다.** 순서:
+      ① `apps/api/.env` 에 `SEOUL_OPENDATA_KEY` 를 넣고 홍대 관광특구의 `AREA_CD`·실시간 주차장 수 확인(0곳이면 대상지 재선정)
+      ② Render 에 `SEOUL_OPENDATA_KEY` 설정(sync:false) ③ SQL Editor 에 `20260920120000_seoul_citydata_snapshots.sql` 적용 +
+      `NOTIFY pgrst, 'reload schema';` ④ `20260920121000_schedule_seoul_citydata_collection.sql` 적용 ⑤
+      `select public.configure_seoul_citydata_collection('https://nextspot-api.onrender.com/api/v1/engine-validation/seoul/collect');`
+      ⑥ `select public.request_seoul_citydata_collection(false);` 로 첫 호출 → `/admin/engine-validation` 에서 확인.
+      이 키는 HTTP(평문)로 전송된다 — 다른 곳에 재사용하지 말 것.
+
 - [ ] **`ADMIN_API_TOKEN` 회전** — 구 값은 한때 `NEXT_PUBLIC_`으로 번들에 실렸던 값이라 공개된 것으로 취급.
       순서(서버는 단일 값만 비교하므로 Render 변경과 Vault 갱신 사이엔 수집이 실패한다 — 둘을 같은 10분 슬롯 안에 처리):
       새 값 생성 → Render에 `SERVICE_API_TOKEN` 추가(그 순간부터 이것만 유효, 기존 `ADMIN_API_TOKEN`은 둔다) →
@@ -161,6 +170,43 @@ from checks order by seq;
 ## 최근 세션
 
 최신이 위. 10개를 넘으면 가장 오래된 항목을 `archive/HANDOVER_LOG.md` 맨 위로 옮긴다.
+
+## 2026-09-20 — 혼잡 엔진: 경주 추정 모드(관리자·관광객 화면) + 서울 검증 수집기·검증 화면
+
+- 도구·브랜치: Claude Code(메인 + 서브에이전트 4 병렬) / `yunseong` — 커밋 전(사용자 지시 대기)
+- 결정: [`CONGESTION_ENGINE_PLAN.md`](./CONGESTION_ENGINE_PLAN.md) D1~D6 전부 권장안, 서울 대상지 **홍대 관광특구 1곳**(§4 반영 블록).
+- 한 것:
+  - **추정기** `congestion_estimator_service.py` — 0.7·격자 반경 2km 공영주차 점유율 + 0.3·관광 집중률 기준선. `congestion_logs` 에
+    적재하지 않고 `area_demand_snapshots`(08-20~ 30일치)에서 **읽을 때 계산**(§5.2 반영 블록 — 하루 12만 행 적재·실측 혼합을 피함).
+    실측 확인: 1,669곳 중 846곳 추정, 9/19(토) 대표 관광지 10곳 평균 0.66·피크 0.92.
+  - **관리자 대시보드** — `/admin/dashboard/today` 에 `estimated` 키(추가만). 순서: 오늘 실측 → 오늘 추정 → 과거 폴백.
+    추정 값은 점선 테두리 + "추정" 배지 + 근거 문장. 성과 리포트 '오늘 현황'도 추정 표시. D6: "24시간 모의 발생"·주차 추정 적재 버튼 제거(엔드포인트 잔존).
+  - **관광객 화면** — 지도(점선 핀 + 범례, 새 `GET /api/v1/congestion/estimates`)·시설 상세·추천 카드·코스에 "추정" 근거 배지.
+    D2는 `estimated_rules` 를 **만들지 않았다**: `area_stats_rules` 가 이미 같은 산식(주차 0.7 + 관광 0.3)으로 순위에 반영 중이라
+    새 모드는 이중 계산이다. 대신 추정 ≥0.9 이면 실측 ≥0.9 처럼 계층 이점을 잃는 **강등 전용** 관문만 추가(`score.py` 4-2, 레드팀 발견).
+    추정은 `congestion_source` 를 바꾸지 않는 별도 필드(`congestion_estimate`)라 옛 웹·학습·실측 배지에 닿지 않는다.
+  - **서울 수집기** — `seoul_citydata_service.py` + `POST /api/v1/engine-validation/seoul/collect`(기계·관리자) + 테이블·pg_cron 마이그레이션
+    (`20260920120000`·`20260920121000`, **미적용**). 샘플 키는 어떤 이름을 요청해도 광화문을 돌려줘 이름 불일치를 거절(`seoul_area_mismatch`).
+  - **검증 화면** `/admin/engine-validation` + 사이드바 "엔진 검증" — 등급 일치율·인접 일치율·Spearman·위험 오분류·30분 전망 MAE(지속 모델 대비)·
+    커버리지. 1곳이라 구분 가능률은 계산 불가로 명시. 표본 부족·수집 전 상태를 그대로 보여 준다.
+- 검증: api ruff · pytest 1,427 · web lint(경고 145 = 기준선) · typecheck · test 48파일 · build · e2e 23 · check-docs · check-i18n.
+  관리자 화면은 로그인이 필요해 브라우저 육안 확인은 못 했다(에이전트가 실데이터 읽기 전용으로 값 확인).
+- 다음·미결: 사람 작업 "서울 실시간 도시데이터 수집 개시". 통계 리포트(`/admin/reports`)·성과 리포트 30일 차트는 여전히 실측만 읽어 비어 있다
+  (하루 계산 1~3초라 일괄 경로가 따로 필요). 단일 제보·오래된 실측이 신선한 추정보다 우선하는 규칙 재검토(§5.2는 신뢰 실측 30분만 덮어쓰기).
+- 사람 작업: 위 "사람 작업 대기" 첫 항목.
+
+## 2026-09-09 — 혼잡 엔진 계획 초안: 서울 검증 지역 + 경주 추정 모드
+
+- 도구·브랜치: Claude Code / `yunseong` — **문서만**(코드 변경 없음)
+- 커밋: 09-20 구현 커밋에 함께 포함
+- 한 것: 회의 결론(통신사 실시간 유동인구는 가격 때문에 배제, 서울 실시간 도시데이터를 엔진 검증용으로 도입, 경주는
+  실시간 없음을 인정하고 주차·집중률로 구역 혼잡을 추정)을 [`CONGESTION_ENGINE_PLAN.md`](./CONGESTION_ENGINE_PLAN.md)로 정리.
+  §2에 원안과 코드 사실이 어긋난 7곳(집중률은 총량이 아닌 상대지수 · ITS 실시간 주차장 4곳 · `simulated` 이름 충돌 등),
+  §10에 결정 D1~D6. 서울 API 사양(121곳 · 5분 · 대상지당 1회 호출 · 이력 미제공 · 공공누리 1유형)은 09-09 웹 확인.
+- 검증: `node scripts/check-docs.mjs`
+- 다음·미결: 사용자가 §2·§10을 검토·수정 → 확정되면 계획 §8의 사람 작업을 이 문서 "사람 작업 대기"로 옮기고 Phase 1(서울 수집기)부터.
+  수집 일수가 병목이라 인증키 발급이 가장 급하다.
+- 사람 작업: 계획 §8 참조(서울 열린데이터광장 인증키 · 일 호출 한도 · 대상지 20~30곳 확정) — 확정 전이라 아직 옮기지 않았다.
 
 ## 2026-09-08 — 검토 결정 반영 · 관리자 대시보드 · 주차 실측 기반 혼잡 추정 · e2e 결정성
 

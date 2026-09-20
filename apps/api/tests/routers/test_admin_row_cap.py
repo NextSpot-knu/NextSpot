@@ -120,6 +120,24 @@ def client():
         yield c
 
 
+@pytest.fixture(autouse=True)
+def _no_estimator_network(monkeypatch):
+    """dashboard/today 의 추정(estimated) 계산은 이 파일의 관심사가 아니다 — 원본 조회를 끊는다.
+
+    막지 않으면 추정기가 자기 모듈의 supabase_admin(placeholder URL)으로 실제 DNS 조회를 한다.
+    결과는 estimated=null 로 같지만 환경(네트워크)에 따라 느려지거나 달라질 수 있다.
+    """
+    from app.services import congestion_estimator_service
+
+    async def _isolated(_date_kst, **_kwargs):
+        raise RuntimeError("estimator isolated in test")
+
+    monkeypatch.setattr(congestion_estimator_service, "estimated_day_aggregate", _isolated)
+    admin._estimate_inflight.clear()
+    yield
+    admin._estimate_inflight.clear()
+
+
 def _ranges(calls: list, table: str) -> list[tuple[int, int]]:
     return [(c["start"], c["end"]) for c in calls if c["table"] == table and c["op"] == "range"]
 
@@ -403,8 +421,8 @@ def test_dashboard_today_aggregates_every_log_past_the_row_cap(client):
     assert (1000, 1999) in _ranges(calls, "congestion_logs")
     # 응답 shape 은 클라이언트 폴백 계약과 1:1 — 절단 사실은 구조화 로그로만 남긴다.
     # (sampleCount/latestObservedAt/fallback/sourceComposition 은 뒤에 **추가만** 된 키다 —
-    #  test_dashboard_fallback.py 참조.)
+    #  test_dashboard_fallback.py 참조. estimated 는 경주 추정 모드 — test_admin_dashboard_estimate.py.)
     assert set(body) == {
         "hasLogs", "avgCongestion", "anomalyCount", "heatmap", "anomalies",
-        "sampleCount", "latestObservedAt", "fallback", "sourceComposition",
+        "sampleCount", "latestObservedAt", "fallback", "sourceComposition", "estimated",
     }

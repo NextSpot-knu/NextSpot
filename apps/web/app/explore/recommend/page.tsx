@@ -20,6 +20,9 @@ import { openDrivingDirections, openWalkingDirections } from "@/lib/navigation";
 import { track } from "@/lib/analytics";
 import { loadTravelContext } from "@/lib/travelContext";
 import { relativeParts } from "@/lib/freshness";
+import { displayableEstimate, estimateRadiusKm, formatEstimateTime } from "@/lib/congestionEstimate";
+import { congestionKey } from "@/lib/congestionScale";
+import { useBusyThreshold } from "@/components/shell/PublicSettingsProvider";
 import { buildSpotComparisons, formatSpotComparison } from "@/lib/spotComparison";
 
 // (window.kakao 타입은 types/kakao-maps.d.ts 가 전역으로 선언한다 — 파일마다 declare global 로
@@ -181,6 +184,8 @@ interface OriginalFacility {
 // The core content wrapper component that handles Search Params
 function RecommendContent() {
   const { t, locale } = useI18n();
+  // 운영자 '혼잡' 경계 — 추정 배지 등급 전용(지도·코스와 같은 선). 기존 실측 배지는 0.75 고정 그대로다.
+  const busyAt = useBusyThreshold();
   const searchParams = useSearchParams();
   const router = useRouter();
 
@@ -1330,6 +1335,10 @@ function RecommendContent() {
               const closedToday =
                 isClosedToday((recFeatures?.restDateRaw ?? recFeatures?.rest_date_raw) as string | undefined) === true;
               const freshness = relativeParts(rec.congestionTimestamp ?? rec.dataUpdatedAt);
+              // 추정 모드(주차 실측 + 관광 통계). 실측·예측이 없을 때만 — 대기 분·인원은 만들지 않는다.
+              const estimate = displayableEstimate(rec);
+              // 등급은 운영자 '혼잡' 경계(busyAt)로 — 지도 점선 핀·코스 칩과 같은 말을 해야 한다.
+              const estimateKey = estimate ? congestionKey(estimate.level, busyAt) : null;
               const freshnessText = freshness
                 ? freshness.unit === 'now' ? t('freshness.justNow')
                   : freshness.unit === 'min' ? t('freshness.minAgo', { n: freshness.value })
@@ -1405,7 +1414,28 @@ function RecommendContent() {
                           {t("map.forecast")} · {Math.round(rec.congestionLevel * 100)}%
                         </span>
                       )}
-                      {rec.congestionSource === "none" && (
+                      {rec.congestionSource === "none" && estimate && estimateKey ? (
+                        <>
+                          {/* 점선·옅은 바탕 — 위 실측 pill 의 꽉 찬 등급색과 한눈에 달라야 한다. */}
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ml-2 border border-dashed bg-white/70 ${
+                            estimateKey === "busy"
+                              ? "border-terracotta/60 text-terracotta"
+                              : estimateKey === "moderate"
+                              ? "border-gold/60 text-gold-deep"
+                              : estimateKey === "relaxed"
+                              ? "border-emerald-500/60 text-emerald-700"
+                              : "border-jade/60 text-jade"
+                          }`}>
+                            {t("card.estimateLevel", { label: t(`congestion.${estimateKey}`) })}
+                          </span>
+                          <span className="text-[10px] font-medium px-2 py-0.5 rounded-md ml-2 border border-dashed border-line text-muk-soft">
+                            {t("card.evidenceEstimated", {
+                              time: formatEstimateTime(estimate.observedAt) ?? "—",
+                              km: estimateRadiusKm(estimate.radiusM),
+                            })}
+                          </span>
+                        </>
+                      ) : rec.congestionSource === "none" && (
                         <span className="text-[10px] font-bold px-2 py-0.5 rounded-md ml-2 border bg-muk/5 border-line text-muk-soft">
                           {t("card.congestionPreparing")}
                         </span>
@@ -1573,7 +1603,7 @@ function RecommendContent() {
                   </div>
 
                   {/* SPOT Breakdown Indicators */}
-                  <div className={`grid ${rec.congestionSource === 'none' ? 'grid-cols-2' : 'grid-cols-3'} gap-2 py-2 border-t border-b border-line my-3 text-[11px] text-muk-soft`}>
+                  <div className={`grid ${rec.congestionSource === 'none' && !estimate ? 'grid-cols-2' : 'grid-cols-3'} gap-2 py-2 border-t border-b border-line my-3 text-[11px] text-muk-soft`}>
                     <div className="text-center">
                       <span className="text-muk-soft block text-[10px]">{t("recommend.prefMatch")}</span>
                       <span className="font-bold text-jade">{preferencePct}%</span>
@@ -1581,6 +1611,11 @@ function RecommendContent() {
                     {rec.congestionSource !== 'none' && <div className="text-center border-l border-r border-line">
                       <span className="text-muk-soft block text-[10px]">{t("recommend.expectedWait")}</span>
                       <span className="font-bold text-gold-deep">{t("recommend.minutesValue", { n: waitTime })}</span>
+                    </div>}
+                    {/* 추정은 대기 칸을 채우지 않는다(점유율→대기 계수가 없다). 등급만 '추정' 머리표와 함께. */}
+                    {rec.congestionSource === 'none' && estimate && estimateKey && <div className="text-center border-l border-r border-dashed border-line">
+                      <span className="text-muk-soft block text-[10px]">{t("course.estimateShort")}</span>
+                      <span className="font-bold text-muk-soft">{t(`congestion.${estimateKey}`)}</span>
                     </div>}
                     <div className="text-center">
                       <span className="text-muk-soft block text-[10px]">{t("recommend.expectedWalk")}</span>

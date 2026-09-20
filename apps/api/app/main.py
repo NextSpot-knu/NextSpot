@@ -8,7 +8,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.core.logging import setup_logging
-from app.routers import recommendations, infrastructures, predict, preferences, admin, reports, coupons, courses, events, tracking, freshness, impact, merchant, safety, search, lab, account, dev, weather, restrooms, travel_context, area_demand, area_demand_admin, inquiries, system, preference_stats, congestion_estimates
+from app.routers import recommendations, infrastructures, predict, preferences, admin, reports, coupons, courses, events, tracking, freshness, impact, merchant, safety, search, lab, account, dev, weather, restrooms, travel_context, area_demand, area_demand_admin, inquiries, system, preference_stats, congestion_estimates, engine_validation, engine_validation_admin
 
 
 # 로깅 설정 초기화
@@ -91,6 +91,16 @@ async def lifespan(_app: FastAPI):
         _logger.info("warmup_facilities_ready", count=len(prefilled))
     except Exception as e:
         _logger.warning("warmup_facilities_failed", error=str(e))
+
+    try:
+        # 3-2) 추정 모드 캐시 프리필 — 지도·추천의 첫 요청이 추정 계산(콜드 1~3초)을 물지 않게.
+        #      실패해도 무해하다(current_estimates 는 예외를 올리지 않고 '추정 없음' 을 돌려준다).
+        from app.services.congestion_estimator_service import current_estimates
+        warmed = await current_estimates()
+        _logger.info("warmup_estimates_ready", available=warmed.get("available"),
+                     count=len(warmed.get("estimates") or {}))
+    except Exception as e:
+        _logger.warning("warmup_estimates_failed", error=str(e))
 
     try:
         # 4) 첫 추천 전에 모든 후보가 공유하는 지역 근거를 병렬로 준비한다. 주차 캐시가
@@ -184,6 +194,8 @@ app.include_router(inquiries.router)  # 내 문의 — 본인 문의·관리자 
 app.include_router(system.router)  # 공개 시스템 설정(무인증·60초 캐시) — 점검 안내/공지/혼잡 경계
 app.include_router(preference_stats.router)  # 업종별 온보딩 선호 비율(관리자) — 인프라 상세 예상 수요 카드
 app.include_router(congestion_estimates.router)  # 주차 실측 기반 시설 혼잡 추정 적재(관리자 수동) — evidence_tier=synthetic 이라 추천·학습에서 제외
+app.include_router(engine_validation.router)  # 서울 실시간 도시데이터 수집(기계·관리자) — 추정 엔진 검증용 정답, congestion_logs 와 분리
+app.include_router(engine_validation_admin.router)  # 서울 검증 지표(관리자) — 추정 등급·전망 오차를 실측과 대조, 표본 부족은 부족한 대로 표시
 app.include_router(merchant.router)  # 머천트 콘솔 — 내 가게 성적표·셀프 타임세일·좌석 방송(데모 게이트)
 app.include_router(safety.router)  # 인파 안전 경보(B2G) — 임계값 초과 존/시설 조기경보(라우터 dependencies 로 require_role(ROLE_ADMIN))
 app.include_router(search.router)  # TourAPI 키워드 폴백 → 관리자 승인형 다음 배치 적재 요청

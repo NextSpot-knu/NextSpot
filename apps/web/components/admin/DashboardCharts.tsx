@@ -181,12 +181,29 @@ interface HeatmapEmptyNotice {
   remedy: string | null;
 }
 
+// 추정 모드에서 히트맵이 받는 표식 — lib/adminEstimateView.ts 가 만든 문구를 그대로 받는다.
+interface HeatmapEstimateMark {
+  /** 배지 문구('추정'). */
+  badge: string;
+  /** 근거 한 줄('주차 실측(ITS 공영주차 4곳) + 관광공사 집중률 기반 추정 · 14:50 관측 · 반경 2km'). */
+  basisLine: string;
+}
+
+const HEATMAP_CATEGORIES = [
+  { id: 'restaurant', name: '음식점' },
+  { id: 'cafe', name: '카페' },
+  { id: 'attraction', name: '관광지' },
+  { id: 'culture', name: '문화시설' },
+];
+
 // 히트맵 차트는 CSS Grid를 이용한 커스텀 구현 (Recharts에 기본 Heatmap이 없으므로 직관적이고 커스텀 쉬운 Grid 사용)
 export function DashboardHeatmap({
   heatmapData,
   dateBadge = null,
   basisNote = null,
   emptyNotice = null,
+  estimate = null,
+  pendingFromHour = null,
 }: {
   heatmapData: HeatmapCell[];
   /** '2026-08-21 (KST) 기준' — 오늘이 아닌 날로 폴백했을 때만 들어온다. 없으면 오늘 기준이다. */
@@ -195,19 +212,24 @@ export function DashboardHeatmap({
   basisNote?: string | null;
   /** 그릴 셀이 하나도 없을 때 그 자리에 세울 사실(왜 비었는가 + 무엇을 하면 채워지는가). */
   emptyNotice?: HeatmapEmptyNotice | null;
+  /** 이 격자가 **추정치**라면 그 표식. 없으면 실측(제보 기반)이다. */
+  estimate?: HeatmapEstimateMark | null;
+  /** 오늘을 그릴 때 '아직 오지 않은 시간' 이 시작되는 KST 시. 그 칸의 빈 값은 '데이터 없음' 이 아니다. */
+  pendingFromHour?: number | null;
 }) {
   // heatmapData: [ { facility: string, facilityType: string, hour: number, value: number } ]
 
-  const [selectedCategory, setSelectedCategory] = useState('restaurant');
+  // 관리자가 탭을 직접 고르기 전에는 **행이 있는 첫 탭**을 연다. 예전에는 늘 '음식점' 으로
+  // 열려서, 행이 관광지뿐인 날(추정 모드의 대표 장소가 전부 관광지다)엔 첫 화면이
+  // '해당 카테고리의 장소 데이터가 없습니다' 였다 — 데이터가 있는데 없다고 말하는 화면이다.
+  const [pickedCategory, setPickedCategory] = useState<string | null>(null);
+  const firstWithData =
+    HEATMAP_CATEGORIES.find((cat) => heatmapData.some((d) => d.facilityType === cat.id))?.id ?? 'restaurant';
+  const selectedCategory = pickedCategory ?? firstWithData;
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
 
-  const categories = [
-    { id: 'restaurant', name: '음식점' },
-    { id: 'cafe', name: '카페' },
-    { id: 'attraction', name: '관광지' },
-    { id: 'culture', name: '문화시설' },
-  ];
+  const categories = HEATMAP_CATEGORIES;
 
   // Selected category data
   const filteredData = heatmapData.filter(d => d.facilityType === selectedCategory);
@@ -239,12 +261,20 @@ export function DashboardHeatmap({
   };
 
   const handleCategoryChange = (catId: string) => {
-    setSelectedCategory(catId);
+    setPickedCategory(catId);
     setCurrentPage(1);
   };
 
+  // 아직 오지 않은 시간 — 오늘 격자의 오른쪽 빈 칸은 '관측 없음' 이 아니라 '미래' 다.
+  // 둘을 같은 회색으로 그리면 새벽에 연 화면이 '하루 종일 수집이 죽었다' 로 읽힌다.
+  const isPending = (hour: number) => pendingFromHour !== null && hour >= pendingFromHour;
+
   return (
-    <div className="bg-hanok-panel p-6 rounded-2xl border border-hanok-line shadow-sm col-span-4 flex flex-col justify-between overflow-x-auto min-h-[500px]">
+    // 추정 격자는 테두리를 점선(하늘색)으로 바꾼다 — 색 칸 자체는 실측과 같은 척도로 읽혀야 하므로
+    // 칸 색은 건드리지 않고, 카드 전체의 테두리·배지·범례로 '실측이 아니다' 를 말한다.
+    <div className={`bg-hanok-panel p-6 rounded-2xl shadow-sm col-span-4 flex flex-col justify-between overflow-x-auto min-h-[500px] ${
+      estimate ? 'border-2 border-dashed border-sky-400/50' : 'border border-hanok-line'
+    }`}>
       <div>
         <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 mb-6">
           <div className="min-w-0">
@@ -256,9 +286,15 @@ export function DashboardHeatmap({
               <h3 className="text-lg font-bold text-hanok-ink">장소별 시간대 혼잡 히트맵</h3>
               {/* 지표 출처를 제목 옆에 못 박는다 — 아래 '공영주차 실측(경주 ITS)' 카드와
                   같은 화면에 있어서, 라벨이 없으면 두 숫자가 한 지표처럼 읽힌다. */}
-              <span className="flex-shrink-0 px-2 py-0.5 rounded-md text-[11px] font-semibold border bg-hanok-card text-hanok-muted border-hanok-line">
-                시설 혼잡 · 제보 기반
-              </span>
+              {estimate ? (
+                <span className="flex-shrink-0 px-2 py-0.5 rounded-md text-[11px] font-black border border-dashed bg-sky-500/15 text-sky-200 border-sky-400/60">
+                  시설 혼잡 · {estimate.badge} (주차 실측 + 관광 통계)
+                </span>
+              ) : (
+                <span className="flex-shrink-0 px-2 py-0.5 rounded-md text-[11px] font-semibold border bg-hanok-card text-hanok-muted border-hanok-line">
+                  시설 혼잡 · 제보 기반
+                </span>
+              )}
               {/* 기준일 배지 — 오늘이 아닌 날을 그리고 있다면 그 사실이 제목만큼 커야 한다. */}
               {dateBadge && (
                 <span className="flex-shrink-0 px-2.5 py-1 rounded-md text-xs font-black border bg-amber-500/15 text-amber-300 border-amber-500/40">
@@ -267,6 +303,7 @@ export function DashboardHeatmap({
               )}
             </div>
             {basisNote && <p className="mt-2 text-xs text-amber-300/90 max-w-2xl">{basisNote}</p>}
+            {estimate && <p className="mt-2 text-xs text-sky-200/90 max-w-2xl">{estimate.basisLine}</p>}
           </div>
 
           {/* Category Filters */}
@@ -320,11 +357,21 @@ export function DashboardHeatmap({
                 <div className="flex-1 flex gap-1">
                   {hours.map(h => {
                     const val = getHeatmapValue(fac, h);
+                    const pending = val == null && isPending(h);
+                    const label = estimate ? '추정 ' : '';
                     return (
                       <div
                         key={`${fac}-${h}`}
-                        title={val == null ? `${fac} ${h}시: 데이터 없음` : `${fac} ${h}시: ${(val * 100).toFixed(0)}%`}
-                        className={`flex-1 h-8 rounded-sm transition-colors hover:ring-2 hover:ring-gold cursor-pointer ${getHeatmapColor(val)}`}
+                        title={
+                          pending
+                            ? `${fac} ${h}시: 아직 오지 않은 시간`
+                            : val == null
+                              ? `${fac} ${h}시: 데이터 없음`
+                              : `${fac} ${h}시: ${label}${(val * 100).toFixed(0)}%`
+                        }
+                        className={`flex-1 h-8 rounded-sm transition-colors hover:ring-2 hover:ring-gold cursor-pointer ${
+                          pending ? 'border border-dashed border-hanok-line bg-transparent' : getHeatmapColor(val)
+                        }`}
                       ></div>
                     );
                   })}
@@ -339,7 +386,16 @@ export function DashboardHeatmap({
           </div>
 
           {/* 범례 */}
-          <div className="flex justify-end items-center gap-4 mt-6 text-xs text-hanok-muted">
+          <div className="flex justify-end items-center flex-wrap gap-4 mt-6 text-xs text-hanok-muted">
+            {estimate && (
+              <div className="flex items-center gap-1 font-semibold text-sky-200">
+                <div className="w-4 h-4 rounded-sm border-2 border-dashed border-sky-400/60"></div>
+                모든 칸이 {estimate.badge}치입니다(현장 관측 아님)
+              </div>
+            )}
+            {pendingFromHour !== null && (
+              <div className="flex items-center gap-1"><div className="w-4 h-4 rounded-sm border border-dashed border-hanok-line"></div>아직 오지 않은 시간</div>
+            )}
             <div className="flex items-center gap-1"><div className="w-4 h-4 rounded-sm bg-hanok-card border border-hanok-line"></div>데이터 없음</div>
             <div className="flex items-center gap-1"><div className="w-4 h-4 rounded-sm bg-emerald-100"></div>여유 (0~30%)</div>
             <div className="flex items-center gap-1"><div className="w-4 h-4 rounded-sm bg-emerald-400"></div>보통 (30~60%)</div>

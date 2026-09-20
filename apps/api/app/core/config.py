@@ -83,6 +83,15 @@ class Settings(BaseSettings):
     # 전국 주차 API보다 지역 커버리지가 정확해 1순위로 사용한다.
     GYEONGJU_ITS_BASE_URL: str = "https://its.gyeongju.go.kr"
 
+    # 서울 열린데이터광장 인증키 — 서울 실시간 도시데이터(OA-21285). 혼잡 엔진 **검증 전용**
+    # (docs/CONGESTION_ENGINE_PLAN.md §5.3). 선택값: 비어 있으면 부팅은 정상이고 수집 엔드포인트만
+    # 503 seoul_key_missing 으로 멈춘다. ⚠️ 이 키는 요청 URL **경로**에 들어간다(쿼리가 아니다) —
+    # 로그·응답·예외 메시지에 URL 을 싣지 않는다(seoul_citydata_service 가 httpx 로그도 가린다).
+    SEOUL_OPENDATA_KEY: str = ""
+    # 수집 대상지 이름(서울시 공식 121곳 표기 그대로, 콤마 구분). 이름으로 호출하고 응답의 AREA_CD 를
+    # 함께 저장한다. 대상지를 늘릴 때 코드를 고치지 않도록 설정값 한 줄로 둔다(§4 반영 2).
+    SEOUL_CITYDATA_TARGETS: str = "홍대 관광특구"
+
     # 아래 관광 데이터랩 상품은 KorService2와 별도 활용신청이 필요하지만 승인 후에는 같은
     # 공공데이터포털 인증키를 사용한다. 별도 키를 만들지 않아 운영 시크릿 수를 늘리지 않는다.
 

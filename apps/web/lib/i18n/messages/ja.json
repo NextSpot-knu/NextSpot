@@ -234,7 +234,9 @@
     "ingestRequested": "リクエスト受付済み",
     "ingestRequestDone": "「{name}」の追加リクエストを受け付けました。管理者の確認後に登録されます。",
     "ingestRequestFailed": "追加リクエストを送信できませんでした。しばらくしてから再度お試しください。",
-    "searchNoResultAnywhere": "「{q}」は当社のデータにも韓国観光公社の資料にもありません"
+    "searchNoResultAnywhere": "「{q}」は当社のデータにも韓国観光公社の資料にもありません",
+    "estimateLegend": "点線ピン = 推定 · 駐車場の実測に基づく",
+    "estimateLegendHint": "点線ピンは半径2km内の公営駐車場の実測と観光統計から作った推定です。現地で測った値ではありません。"
   },
   "mypage": {
     "menuAria": "メニュー",
@@ -369,7 +371,9 @@
     "slotNoCandidateAny": "この近くに条件に合う場所がありません",
     "unpinAll": "固定をすべて解除",
     "unpin": "固定を解除",
-    "slotDroppedHere": "この枠は埋められませんでした"
+    "slotDroppedHere": "この枠は埋められませんでした",
+    "estimateChip": "推定 {label} {pct}%",
+    "estimateShort": "推定"
   },
   "coupons": {
     "expired": "期限切れ",
@@ -478,7 +482,9 @@
       "likely_closed_unknown": "営業時間未確認・現在閉店の可能性が高い"
     },
     "evidenceNone": "混雑の根拠なし",
-    "spotTooltipEvidenceOrder": "混雑の根拠がある場所を先に表示します。根拠がなければ近くても後ろに回ります。"
+    "spotTooltipEvidenceOrder": "混雑の根拠がある場所を先に表示します。根拠がなければ近くても後ろに回ります。",
+    "estimateLevel": "推定混雑: {label}",
+    "evidenceEstimated": "推定 · 駐車場の実測に基づく · {time} 観測 · 半径{km}km"
   },
   "report": {
     "trigger": "混雑を報告",

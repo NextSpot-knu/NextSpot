@@ -32,6 +32,7 @@ from app.services.availability_service import (
     fetch_effective_availability_map,
 )
 from app.services.area_demand_forecast_service import prefetch_area_demand_points
+from app.services.congestion_evidence import estimate_applies_to_arrival, load_current_estimates
 from app.services.preference_vector_service import preference_vector_service
 from app.services.spot.ranking import spot_ranking_sort_key
 from app.services.spot.score import calculate_spot_score
@@ -51,6 +52,7 @@ from app.services.spot.preference import get_category_average_vector
 from app.services.predict_service import predict_congestion
 from app.services.merchant_boost import apply_merchant_boosts, CONGESTION_OVERRIDE_KEY
 # 코스 후보 조회/현재 혼잡 일괄조회/반경 상수는 recommendations 라우터의 헬퍼를 재사용한다(단일 소스).
+from app.routers.infrastructures import CongestionEstimate, congestion_estimate_model
 from app.routers.recommendations import (
     build_candidate_evidence,
     fetch_user,
@@ -136,6 +138,10 @@ class CourseStop(BaseModel):
     reason: str
     open_status_at_arrival: str | None = None
     travel_minutes: float | None = None  # 직전 위치→정류지 구간 도보시간(누적 arrival_offset 과 구분)
+    # 추정 모드(계획서 §5.2). predicted_congestion 이 None 이고 실측·예측 근거가 없으며 **도착이 관측
+    # 후 30분 안**일 때만 채운다(보통 1번 정류지뿐이다). 도착 시각 예측이 아니라 '지금' 관측이라,
+    # 한 시간 뒤 도착하는 자리에 붙이면 도착 시점 값처럼 읽힌다. 구 번들은 모르는 필드라 무시한다.
+    congestion_estimate: CongestionEstimate | None = None
     # 같은 자리의 차점 후보들. 구 번들은 모르는 필드라 무시한다(추가만 하고 봉투는 안 바꾼다).
     alternatives: list["CourseAlternative"] = []
 
@@ -168,6 +174,8 @@ class CourseAlternative(BaseModel):
     predicted_congestion: float | None
     spot_score: float
     travel_minutes: float | None = None
+    # CourseStop.congestion_estimate 와 같은 규칙 — 갈아끼웠을 때 그 자리에 보일 값 그대로다.
+    congestion_estimate: CongestionEstimate | None = None
 
 
 # 슬롯 결과 코드. 프런트가 개수 차이로 이유를 **추측하지 않게** 하는 것이 존재 이유다.
@@ -272,6 +280,7 @@ async def _evaluate_candidate(
     user_vector: list[float] | None,
     preferred_categories: list[str],
     user_id: str,
+    estimates: dict | None = None,
 ) -> dict:
     """현재 위치/누적 시각에서 후보 하나를 평가한다.
 
@@ -301,7 +310,16 @@ async def _evaluate_candidate(
     # 넘기지 않았다. 그 결과 코스 화면에서는 **사장님 좌석 방송이 measured_rules 로 들어갈 수
     # 없었고**, 근거 등급 정렬(spot/ranking.py)이 고치려던 '정직한 방송이 손해' 가 이 화면에는
     # 애초에 도달하지 못했다. 같은 가게가 추천 목록에서는 실측으로, 코스에서는 무근거로 취급됐다.
-    evidence = await build_candidate_evidence(facility, congestion_now.get(facility["id"]))
+    evidence = await build_candidate_evidence(facility, congestion_now.get(facility["id"]), estimates)
+
+    # 화면에 싣는 추정 — 순위에는 들어가지 않는다(evidence["source"] 는 'none' 그대로라
+    # score 는 이것을 보지 못한다). 도착 시각 예측(predicted_congestion)이 있으면 그 숫자가
+    # 자리를 차지하고, 도착이 관측 후 30분을 넘으면 '지금' 값을 도착 값처럼 보이지 않게 뺀다.
+    display_estimate = (
+        evidence.get("estimate")
+        if predicted_congestion is None and estimate_applies_to_arrival(evidence.get("estimate"), arrival_dt)
+        else None
+    )
 
     # 재배치 기여(w3)의 기준선 — **이 후보의 '현재' 혼잡**이다(추천 라우터의 '출발지 혼잡' 과
     # 다른 뜻이다. 여기서는 지금보다 도착 시점이 한산해지는 시간 분산을 보상한다).
@@ -363,6 +381,7 @@ async def _evaluate_candidate(
         "travel_minutes": round(travel_min, 1),
         "distance_m": dist,
         "open_status_at_arrival": open_status_at_arrival(scored_facility, arrival_dt),
+        "congestion_estimate": display_estimate,
     }
 
 
@@ -599,13 +618,15 @@ async def _build_course(req: CourseRequest) -> CoursePlan:
     #
     # gather 에 함께 넣는다: 혼잡도·영업정보 왕복과 겹쳐 돌므로 예열이 벽시계 시간을 더하지
     # 않는다. 실패해도 예열 함수가 삼키고 `0` 을 돌려준다 — 최적화가 장애 지점이 되면 안 된다.
-    congestion_now, availability_by_id, _warmed_grids = await asyncio.gather(
+    congestion_now, availability_by_id, _warmed_grids, estimates = await asyncio.gather(
         fetch_congestion_map(pool_ids),
         fetch_effective_availability_map(pool_ids),
         prefetch_area_demand_points(
             [(float(f["latitude"]), float(f["longitude"])) for f in pool
              if f.get("latitude") is not None and f.get("longitude") is not None]
         ),
+        # 추정 묶음(5분 캐시). 실패·지연은 None 으로 삼켜진다 — 코스는 추정 없이도 그대로 짜인다.
+        load_current_estimates(),
     )
     pool = attach_availability_evidence(pool, availability_by_id)
     preferred_categories = user_info.get("preferred_categories", [])
@@ -764,7 +785,7 @@ async def _build_course(req: CourseRequest) -> CoursePlan:
         settled = await asyncio.gather(*[
             _evaluate_candidate(
                 f, route, cur_lat, cur_lng, cum_offset, now, congestion_now,
-                user_vector, preferred_categories, req.user_id,
+                user_vector, preferred_categories, req.user_id, estimates,
             )
             for f, route in zip(pick_from, routes, strict=True)
         ], return_exceptions=True)
@@ -911,6 +932,7 @@ async def _build_course(req: CourseRequest) -> CoursePlan:
             ),
             open_status_at_arrival=item["open_status_at_arrival"],
             travel_minutes=item["travel_minutes"],
+            congestion_estimate=congestion_estimate_model(item.get("congestion_estimate")),
             alternatives=[
                 CourseAlternative(
                     facility={
@@ -924,6 +946,7 @@ async def _build_course(req: CourseRequest) -> CoursePlan:
                     ),
                     spot_score=alt["spot_score"],
                     travel_minutes=alt["travel_minutes"],
+                    congestion_estimate=congestion_estimate_model(alt.get("congestion_estimate")),
                 )
                 for alt in item.get("alternatives", [])
                 if alt["facility"]["id"] not in chosen_ids

@@ -11,6 +11,7 @@
 | API | Render Blueprint `render.yaml` (docker, `apps/api/Dockerfile`, healthCheck `/health`) | `main` push 자동 |
 | DB · Auth · Storage | Supabase 팀 프로젝트 | 마이그레이션은 사람이 적용 |
 | 10분 주차 실측 수집 | Supabase pg_cron → `POST /api/v1/area-demand/snapshots/collect` | 자동 |
+| 10분 서울 검증 수집 | Supabase pg_cron → `POST /api/v1/engine-validation/seoul/collect` (마이그레이션 `20260920121000`) | 자동 — 사람이 예약 SQL 적용 후 |
 | 수집 중단 감시 | GitHub Actions `area-demand-alert.yml` → `GET /api/v1/admin/area-demand-reliability` | 매시 정각 (`main`에서만) |
 | TourAPI 적재 | GitHub Actions `ingest.yml` | 매일 KST 04:00 (`main`에서만) |
 | 모델 학습 후보 | GitHub Actions `train-recommendation-model.yml` | 매주 월 03:00 KST (`main`에서만) |
@@ -46,6 +47,9 @@
   `X-Service-Token`(GitHub Actions가 사용)과 둘 다 받는다(`app/core/authz.py`).
 - 최초 설정·회전은 service-role 전용 RPC `configure_area_demand_collection`으로 한다. 값을 마이그레이션에 적지 않는다.
 - `cron.job`: `nextspot-area-demand-primary`(매시 3·13·…·53분), `nextspot-area-demand-retry`(6·16·…·56분, 버킷이 비었을 때만).
+- 서울 검증 수집(마이그레이션 `20260920121000`, 사람이 적용): Vault 비밀 `nextspot_seoul_citydata_api_url` 하나만 추가하고
+  토큰은 위 `nextspot_area_demand_admin_token`을 같이 쓴다. 설정 `select public.configure_seoul_citydata_collection('<수집 URL>');`.
+  `cron.job`: `nextspot-seoul-citydata-primary`(4·14·…·54분), `nextspot-seoul-citydata-retry`(9·19·…·59분, 버킷이 비었을 때만).
 - ⚠️ **pg_cron 은 `net.http_post` 로 발사 후 잊는다.** API 가 401·500 을 줘도
   `cron.job_run_details` 에는 `succeeded` 로 남으므로 **'cron 이 돌았다' 는 수집이 살아 있다는
   증거가 아니다.** 실제 응답은 `net._http_response` 에 있고, 수집이 멈췄는지는
@@ -69,7 +73,7 @@
 |---|---|
 | 부팅 필수 | `SUPABASE_URL` `SUPABASE_ANON_KEY` `JWT_SECRET` `ADMIN_API_TOKEN` |
 | 운영 필수(없으면 기능 결손) | `SUPABASE_SERVICE_ROLE_KEY`(쓰기 경로 전부) `ALLOWED_ORIGINS`(미지정 시 와일드카드) |
-| 선택 | `SERVICE_API_TOKEN`(토큰 회전용 — `render.yaml`에 없으니 대시보드에서 추가) `TOURAPI_KEY` `KMA_API_KEY` `PARKING_API_KEY` `KAKAO_REST_API_KEY` `UPSTAGE_API_KEY` `LLM_BASE_URL` `LLM_MODEL` `SEARCH_REWRITE_DAILY_BUDGET` |
+| 선택 | `SERVICE_API_TOKEN`(토큰 회전용 — `render.yaml`에 없으니 대시보드에서 추가) `TOURAPI_KEY` `KMA_API_KEY` `PARKING_API_KEY` `SEOUL_OPENDATA_KEY`(서울 검증 수집 — 없으면 그 수집만 503) `SEOUL_CITYDATA_TARGETS`(기본 `홍대 관광특구`, 콤마 구분) `KAKAO_REST_API_KEY` `UPSTAGE_API_KEY` `LLM_BASE_URL` `LLM_MODEL` `SEARCH_REWRITE_DAILY_BUDGET` |
 
 - `ALLOWED_ORIGINS`에 Vercel 도메인(콤마 구분)을 넣으면 **엄격 모드**(해당 오리진만 + credentials)로 전환된다. 미지정이면 와일드카드.
 - `ADMIN_API_TOKEN`은 `openssl rand -hex 32` 같은 강한 값. 절대 `NEXT_PUBLIC_*`로 프런트에 미러하지 않는다.

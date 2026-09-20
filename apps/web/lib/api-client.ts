@@ -242,6 +242,45 @@ export async function deleteMyAccount(): Promise<void> {
 
 // --- SPOT 추천 엔진 연동 API 함수 ---
 
+// 경주 **추정 모드**의 시설별 혼잡 추정(백엔드 congestion_estimator_service.estimate_evidence).
+// 실측이 아니다 — 공영주차 실측(반경 radiusM, lotCount 곳) 0.7 + 관광 집중률 통계 0.3.
+// 서버는 실측(·학습 모델 예측)이 없을 때만 싣고, 구 서버 응답에는 필드 자체가 없다.
+// 화면은 반드시 lib/congestionEstimate.ts 로 검증(모양·60분 신선도)한 뒤 '추정' 라벨과 함께 그린다.
+export interface CongestionEstimate {
+  level: number;
+  source: "estimated";
+  observedAt: string | null;
+  parkingLevel: number;
+  tourismLevel: number | null;
+  lotCount: number;
+  nearestLotM: number | null;
+  radiusM: number;
+}
+
+// GET /api/v1/congestion/estimates — 지도 전용 추정 피드(공개, 5분 캐시).
+//
+// /infrastructures 에 싣지 않고 따로 받는 이유: 그 응답은 프로덕션 TTFB 가 4~6초라 웹의 4초
+// 타임아웃을 자주 넘기고, 그러면 Supabase 직접 읽기 폴백이 이긴다 — 거기에는 추정이 없다.
+// 별도 피드면 시설이 어느 경로(API·폴백·캐시)로 그려졌든 같은 추정을 덧씌울 수 있다.
+// 구 서버는 404 → 호출부가 조용히 '추정 없음' 으로 처리한다. UUID 키는 밑줄이 없어 keysToCamel 을 통과한다.
+export interface CongestionEstimatesResponse {
+  available: boolean;
+  reason: string | null;
+  observedAt: string | null;
+  radiusM: number | null;
+  lotCount: number;
+  estimates: Record<string, CongestionEstimate>;
+}
+
+export async function getCongestionEstimates(
+  options?: { timeoutMs?: number; signal?: AbortSignal },
+): Promise<CongestionEstimatesResponse> {
+  return apiClient.get("/api/v1/congestion/estimates", {
+    timeoutMs: options?.timeoutMs ?? 8000,
+    signal: options?.signal,
+  });
+}
+
 export interface RecommendationResponse {
   recommendationId: string;
   facility: {
@@ -340,6 +379,9 @@ export interface RecommendationResponse {
   congestionLogSource?: string | null; // measured 일 때 원 로그 source(user_report/seed/simulated/…)
   congestionIsStale?: boolean | null;  // measured 일 때 로그 나이>24h
   congestionTimestamp?: string | null;
+  // 추정 모드: congestionSource === 'none' 일 때만 값이 있다(측정 > 예측 > 추정). **추가만** 한 필드라
+  // congestionSource/congestionLevel 은 그대로 'none'/null 이다 — 구 번들이 추정을 실측처럼 칠하지 않게.
+  congestionEstimate?: CongestionEstimate | null;
   rank: number;
   totalCandidates: number;
   openStatusAtArrival?: "open_expected" | "closing_soon" | "closed_confirmed" | "needs_confirmation";

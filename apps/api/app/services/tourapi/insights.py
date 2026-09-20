@@ -11,6 +11,9 @@ from app.services.tourapi.client import _get_client, _require_key, parse_items
 
 GYEONGBUK_TOURISM_AREA_CODE = 47
 GYEONGJU_TOURISM_SIGNGU_CODE = 47130
+# 서울 검증 지역(docs/CONGESTION_ENGINE_PLAN.md §5.1 제공자 매핑). 시군구 코드는 대상지별로
+# seoul_citydata_service 가 넘긴다 — 여기서는 기본값을 바꾸지 않는다(경주 호출부는 인자 없이 부른다).
+SEOUL_TOURISM_AREA_CODE = 11
 
 
 class TourismInsightsError(RuntimeError):
@@ -37,15 +40,24 @@ async def _insight_get(base_url: str, endpoint: str, params: dict[str, Any]) -> 
 
 
 async def concentration_forecast(
-    *, tourist_name: str | None = None, page: int = 1, rows: int = 100
+    *,
+    tourist_name: str | None = None,
+    page: int = 1,
+    rows: int = 100,
+    area_code: int = GYEONGBUK_TOURISM_AREA_CODE,
+    signgu_code: int = GYEONGJU_TOURISM_SIGNGU_CODE,
 ) -> dict:
-    """관광지별 향후 30일 집중률(0~100 상대지수). 실시간 혼잡도로 사용하지 않는다."""
+    """관광지별 향후 30일 집중률(0~100 상대지수). 실시간 혼잡도로 사용하지 않는다.
+
+    지역 인자는 서울 검증(areaCd=11)을 위해 **덧붙인** 것이다. 기본값이 경주라 기존 호출부
+    (scripts/ingest_tourism_insights.py)는 한 글자도 바뀌지 않고 같은 요청을 보낸다.
+    """
     return await _insight_get(
         "https://apis.data.go.kr/B551011/TatsCnctrRateService",
         "tatsCnctrRatedList",
         {
-            "areaCd": GYEONGBUK_TOURISM_AREA_CODE,
-            "signguCd": GYEONGJU_TOURISM_SIGNGU_CODE,
+            "areaCd": area_code,
+            "signguCd": signgu_code,
             "tAtsNm": tourist_name,
             "pageNo": page,
             "numOfRows": rows,

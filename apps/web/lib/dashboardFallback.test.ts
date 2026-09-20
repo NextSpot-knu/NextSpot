@@ -115,7 +115,9 @@ function main() {
   assert.ok(notice);
   assert.match(notice.detail, /2026-08-21 02:05 \(KST\)/, '마지막 관측 시각을 실제로 보여줘야 한다');
   assert.ok(notice.remedy, '무엇을 하면 채워지는지 말해야 한다');
-  assert.match(notice.remedy!, /피크타임 모의 발생/, '이 저장소에 실재하는 조치를 가리켜야 한다');
+  // '피크타임 모의 발생' 버튼은 2026-09-20 제거됐다(D6) — 없는 조치를 가리키면 안 된다.
+  assert.match(notice.remedy!, /손님 제보/, '이 저장소에 실재하는 조치를 가리켜야 한다');
+  assert.doesNotMatch(notice.remedy!, /모의 발생/, '제거된 버튼을 가리킨다');
   assert.match(notice.remedy!, /주차/, '주차 실측이 이 표를 채우지 않는다는 사실을 밝혀야 한다');
 
   // ── 표가 통째로 비었을 때와 '오늘만' 비었을 때는 다른 문장이다 ──────────────

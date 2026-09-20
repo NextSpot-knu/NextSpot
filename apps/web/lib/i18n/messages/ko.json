@@ -234,7 +234,9 @@
     "ingestRequested": "요청 접수됨",
     "ingestRequestDone": "'{name}' 추가 요청을 접수했어요. 관리자 확인 뒤 등록돼요.",
     "ingestRequestFailed": "추가 요청을 보내지 못했어요. 잠시 후 다시 시도해 주세요.",
-    "searchNoResultAnywhere": "'{q}' 는 우리 데이터에도 관광공사 자료에도 없어요"
+    "searchNoResultAnywhere": "'{q}' 는 우리 데이터에도 관광공사 자료에도 없어요",
+    "estimateLegend": "점선 핀 = 추정 · 주차 실측 기반",
+    "estimateLegendHint": "점선 핀은 반경 2km 공영주차 실측과 관광 통계로 만든 추정이에요. 현장에서 잰 값이 아닙니다."
   },
   "mypage": {
     "menuAria": "메뉴",
@@ -369,7 +371,9 @@
     "slotNoCandidateAny": "이 근처에 조건에 맞는 곳이 없어요",
     "unpinAll": "고정 모두 해제",
     "unpin": "고정 해제",
-    "slotDroppedHere": "이 자리는 채우지 못했어요"
+    "slotDroppedHere": "이 자리는 채우지 못했어요",
+    "estimateChip": "추정 {label} {pct}%",
+    "estimateShort": "추정"
   },
   "coupons": {
     "expired": "만료됨",
@@ -478,7 +482,9 @@
       "likely_closed_unknown": "영업시간 미확인 · 현재 닫혀 있을 가능성 높음"
     },
     "evidenceNone": "혼잡 근거 없음",
-    "spotTooltipEvidenceOrder": "혼잡 근거가 있는 곳을 먼저 보여드려요. 근거가 없으면 가까워도 뒤로 갑니다."
+    "spotTooltipEvidenceOrder": "혼잡 근거가 있는 곳을 먼저 보여드려요. 근거가 없으면 가까워도 뒤로 갑니다.",
+    "estimateLevel": "추정 혼잡: {label}",
+    "evidenceEstimated": "추정 · 주차 실측 기반 · {time} 관측 · 반경 {km}km"
   },
   "report": {
     "trigger": "혼잡 제보",

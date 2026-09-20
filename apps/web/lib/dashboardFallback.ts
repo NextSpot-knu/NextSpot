@@ -188,7 +188,7 @@ export function fallbackExplanation(basis: CongestionBasis): string | null {
  *  쌓이므로 이 카드를 채우지 않습니다" 는 더 이상 사실이 아니다 — 문장을 고친다. 대신 그
  *  경로로 들어온 행은 **실측이 아니라 추정**이라는 사실을 함께 적는다. */
 export const CONGESTION_INGEST_PATHS =
-  "이 지표의 원천(congestion_logs)에 행이 쌓이는 경로는 손님 제보 · 사장 좌석 방송 · 관리자 오버라이드 · 위 '피크타임 모의 발생' · 주차 실측 기반 추정 적재(관리자 수동) 다섯 가지입니다. 마지막 경로로 들어온 값은 시설을 측정한 것이 아니라 주변 공영주차 점유율에서 파생한 추정치입니다.";
+  "이 지표의 원천(congestion_logs)에 행이 쌓이는 경로는 손님 제보 · 사장 좌석 방송 · 관리자 오버라이드 세 가지입니다. 현장 관측이 없는 동안 화면은 주차 실측 + 관광 통계로 계산한 추정치를 '추정' 라벨과 함께 보여 줍니다(이 표에는 적재하지 않습니다). 주차 실측 기반 추정치는 시설을 측정한 값이 아닙니다.";
 
 /** 실측이 아닌 파생·합성 source 와 그 값이 무엇인지. 화면 라벨의 단일 출처. */
 export const ESTIMATED_LOG_SOURCES: Record<string, string> = {

@@ -234,7 +234,9 @@
     "ingestRequested": "已受理申请",
     "ingestRequestDone": "已受理添加「{name}」的申请。管理员确认后将会收录。",
     "ingestRequestFailed": "未能发送申请，请稍后再试。",
-    "searchNoResultAnywhere": "「{q}」在我们的数据和韩国观光公社资料中都没有"
+    "searchNoResultAnywhere": "「{q}」在我们的数据和韩国观光公社资料中都没有",
+    "estimateLegend": "虚线图钉 = 估算 · 基于停车场实测",
+    "estimateLegendHint": "虚线图钉是根据半径2km内公共停车场实测与旅游统计得出的估算值，并非现场测量。"
   },
   "mypage": {
     "menuAria": "菜单",
@@ -369,7 +371,9 @@
     "slotNoCandidateAny": "附近没有符合条件的地点",
     "unpinAll": "全部取消固定",
     "unpin": "取消固定",
-    "slotDroppedHere": "这一站没能安排上"
+    "slotDroppedHere": "这一站没能安排上",
+    "estimateChip": "估算 {label} {pct}%",
+    "estimateShort": "估算"
   },
   "coupons": {
     "expired": "已过期",
@@ -478,7 +482,9 @@
       "likely_closed_unknown": "营业时间未确认 · 当前很可能已打烊"
     },
     "evidenceNone": "无拥挤依据",
-    "spotTooltipEvidenceOrder": "有拥挤依据的地点优先显示。没有依据时，即使更近也会排在后面。"
+    "spotTooltipEvidenceOrder": "有拥挤依据的地点优先显示。没有依据时，即使更近也会排在后面。",
+    "estimateLevel": "估算拥挤度: {label}",
+    "evidenceEstimated": "估算 · 基于停车场实测 · {time} 观测 · 半径{km}km"
   },
   "report": {
     "trigger": "上报拥挤",

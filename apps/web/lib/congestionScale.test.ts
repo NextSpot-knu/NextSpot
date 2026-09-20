@@ -56,7 +56,8 @@ for (const bad of [undefined, null, '75', NaN, Infinity, -1, 101, {}, []]) {
 {
   const main = readFileSync(join(WEB, 'app/main/page.tsx'), 'utf8').replace(/^\s*\/\/.*$/gm, '');
   assert.match(main, /useBusyThreshold\(\)/, '지도 화면이 운영자 혼잡 경계를 읽지 않는다');
-  assert.match(main, /getMarkerSvg\([^)]*busyAt\)/, '마커 색이 운영자 경계를 따르지 않는다');
+  // 추정 모드가 6번째 인자(추정 혼잡도)를 붙인다 — busyAt 뒤에 인자가 더 와도 경계는 그대로 전달돼야 한다.
+  assert.match(main, /getMarkerSvg\([^)]*busyAt[,)]/, '마커 색이 운영자 경계를 따르지 않는다');
   assert.match(main, /getHeatGradient\([^)]*busyAt\)/, '히트맵 색이 운영자 경계를 따르지 않는다');
   assert.doesNotMatch(main, /congestionLevel >= 0\.75/, '지도 화면에 하드코딩된 0.75 경계가 남아 있다');
 

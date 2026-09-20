@@ -19,6 +19,7 @@ const stripComments = (s: string) => s.replace(/^\s*\/\/.*$/gm, '').replace(/\{?
 const page = stripComments(read('app/admin/dashboard/page.tsx'));
 const heatmap = stripComments(read('components/admin/DashboardCharts.tsx'));
 const table = stripComments(read('components/admin/FacilityTable.tsx'));
+const estimateView = stripComments(read('lib/adminEstimateView.ts'));
 
 // ── (1) 장소 관리: '상태' 배지가 줄바꿈되지 않는다 ───────────────────────────
 // 사용자 보고: "장소 관리 카드 1페이지의 상태 컬럼에서 '활성' 이라는 단어 절반이 줄바꿈됨".
@@ -38,7 +39,13 @@ const table = stripComments(read('components/admin/FacilityTable.tsx'));
 
 // ── (2) 혼잡 카드가 '무엇을 보고 있는지' 를 말한다 ──────────────────────────
 {
-  assert.match(page, /resolveCongestionView\(congestion\)/, '기준 판정을 부르지 않는다 — 화면이 다시 추측한다');
+  // 판정은 추정 갈래를 얹은 resolveDashboardView 가 하고, 그 안에서 기존 폴백 판정을 그대로 쓴다.
+  assert.match(page, /resolveDashboardView\(congestion\)/, '기준 판정을 부르지 않는다 — 화면이 다시 추측한다');
+  assert.match(
+    estimateView,
+    /return resolveCongestionView\(res\)/,
+    '추정이 없을 때 기존 폴백 판정으로 물러나지 않는다 — 폴백 규칙이 두 벌이 된다',
+  );
   // 지표를 응답 최상위(오늘 전용)에서 직접 뽑으면 폴백이 영영 그려지지 않는다.
   assert.doesNotMatch(
     page,
@@ -90,6 +97,30 @@ const table = stripComments(read('components/admin/FacilityTable.tsx'));
   assert.match(page, /시설 혼잡 \(손님 제보/, '시설 혼잡 지표에 출처 라벨이 없다');
   assert.match(page, /합산하지 않음/, '두 지표를 합치지 않는다는 사실이 화면에 없다');
   assert.match(heatmap, /시설 혼잡 · 제보 기반/, '히트맵 제목 옆 출처 라벨이 없다');
+}
+
+// ── (4) 추정 모드 — 추정치는 라벨·근거 없이 그려지지 않는다 ──────────────────
+// 사용자 요구: 오늘 실측이 비면 추정을 보여 주되, 모든 추정 값에 '추정' 표식과 근거 문장이 붙는다.
+{
+  const props = page.slice(page.indexOf('<DashboardHeatmap'));
+  const tag = props.slice(0, props.indexOf('/>') + 2);
+  assert.ok(tag.includes('estimate={'), '히트맵에 추정 표식을 넘기지 않는다 — 추정 격자가 실측처럼 그려진다');
+  assert.ok(tag.includes('pendingFromHour={'), "히트맵이 '아직 오지 않은 시간' 을 모른다 — 새벽 화면이 '수집 중단' 으로 읽힌다");
+  assert.match(heatmap, /estimate\.basisLine/, '히트맵이 추정 근거 문장을 그리지 않는다');
+  assert.match(heatmap, /아직 오지 않은 시간/, "히트맵 범례에 '아직 오지 않은 시간' 이 없다");
+
+  // KPI 두 타일과 알림 목록이 전부 추정 배지를 단다(한 곳만 빠져도 그 카드는 실측으로 읽힌다).
+  const badges = page.match(/isEstimate && <EstimateBadge/g) ?? [];
+  assert.ok(badges.length >= 4, `추정 배지가 ${badges.length}곳뿐이다 — 평균·이상 건수·알림 제목·알림 항목에 모두 있어야 한다`);
+  assert.match(page, /\{estimateLine\}/, '추정 근거 문장(주차장 수·관측 시각·반경)을 화면에 그리지 않는다');
+  // 추정 모드에서 '손님 제보 · 좌석 방송 기반' 제목은 거짓이다.
+  assert.match(page, /시설 혼잡 \(추정 · 주차 실측 \+ 관광 통계\)/, '추정 모드의 출처 제목이 없다');
+
+  // 엔진 검증 화면으로 가는 링크(데이터 조회 없이 링크만).
+  assert.match(page, /href="\/admin\/engine-validation"/, '엔진 검증 화면 링크가 없다');
+
+  // D6: 합성·수동 적재 버튼은 걷어냈다 — 되살아나면 추정과 이중 집계된다.
+  assert.doesNotMatch(page, /SimulatePeakButton|ParkingDerivedEstimateButton/, '걷어낸 모의 발생/수동 추정 적재 버튼이 돌아왔다');
 }
 
 console.log('adminDashboardWiring.test.ts OK');

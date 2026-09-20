@@ -1376,6 +1376,8 @@ def test_admin_dashboard_today_aggregation(client):
     assert set(body) == {
         "hasLogs", "avgCongestion", "anomalyCount", "heatmap", "anomalies",
         "sampleCount", "latestObservedAt", "fallback", "sourceComposition",
+        # 추정 모드(2026-09-20) — 주차 실측 + 관광 통계로 읽을 때 계산한 추정 집계. 실측과 별도 키.
+        "estimated",
     }
     assert body["hasLogs"] is True
     assert body["sampleCount"] == 5

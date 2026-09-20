@@ -79,8 +79,11 @@ export interface Spot {
   // (아래 EVIDENCE_TIER_BY_SCORING_MODE 주석 참조). 서버 응답은 서버가 판정한 값을 그대로
   // 싣고(recToSpot), 클라 미러 계산은 자기가 쓴 공식을 적는다.
   scoringMode?: ScoringMode;
-  // 이 점수의 시간비용을 실제로 만든 혼잡도(실측이면 실측, 모델이면 예측).
-  // compareSpot 이 '이미 붐비는 후보' 를 가려내는 데 쓴다. 모르면 undefined —
+  // compareSpot 이 '이미 붐비는 후보' 를 가려내는 데 쓰는 혼잡도. 실측이면 실측, 모델이면 예측
+  // (= 시간비용을 만든 값). 서버가 area_stats_rules 후보에 '추정'(추정 모드)을 실어 보낼 수 있다 —
+  // 그 값은 시간비용에는 들어가지 않고 이 붐빔 판정(강등 전용)에만 쓰인다(score.py 4-2).
+  // 클라 미러 계산(scoreFacility)은 추정을 읽지 않는다 — 추정은 화면 전용 칸(congestionEstimate)이다.
+  // 모르면 undefined —
   // **0 으로 채우지 않는다.** 0 은 '한산하다' 는 관측이고, 모르는 것과 다르다.
   rankingCongestion?: number | null;
   // A4: 행사 혼잡 보정 배지용 — 백엔드 breakdown 원본 그대로 실어 나른다(recToSpot 전용, 클라 미러 계산엔 없음).

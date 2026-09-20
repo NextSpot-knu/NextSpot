@@ -64,6 +64,25 @@ def _reset_briefing_cache():
     briefing_service._cache.clear()
 
 
+@pytest.fixture(autouse=True)
+def _no_estimator_network(monkeypatch):
+    """브리핑이 재사용하는 get_dashboard_today 는 추정(estimated)도 계산한다 — 원본 조회를 끊는다.
+
+    브리핑은 최상위(실측) 키만 읽으므로 추정 결과와 무관하다. 막지 않으면 추정기가 placeholder
+    URL 로 실제 DNS 조회를 해서 테스트가 네트워크 상태에 묶인다.
+    """
+    from app.routers import admin
+    from app.services import congestion_estimator_service
+
+    async def _isolated(_date_kst, **_kwargs):
+        raise RuntimeError("estimator isolated in test")
+
+    monkeypatch.setattr(congestion_estimator_service, "estimated_day_aggregate", _isolated)
+    admin._estimate_inflight.clear()
+    yield
+    admin._estimate_inflight.clear()
+
+
 @pytest.fixture
 def llm_calls(monkeypatch):
     """is_enabled=True + chat_text 호출 기록. 반환 텍스트는 calls['reply'] 로 테스트별 지정."""

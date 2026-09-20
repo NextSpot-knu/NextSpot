@@ -5,7 +5,7 @@ from app.services.spot.preference import calculate_preference_similarity
 from app.services.spot.wait_time import calculate_predicted_wait_time
 from app.services.spot.travel import get_travel_time_and_distance
 from app.services.spot.industry_baseline import get_industry_baseline_congestion
-from app.services.congestion_evidence import rankable_measured_level
+from app.services.congestion_evidence import estimate_applies_to_arrival, rankable_measured_level
 from app.services.travel_context import KST
 from app.services.area_demand_service import get_area_demand_signal
 from app.services.predict_service import get_model_info, predict_congestion_detailed
@@ -188,6 +188,30 @@ async def calculate_spot_score(
                 hour=arrival_dt.astimezone(KST).hour,
             )
 
+    # 4-2. 정렬의 '이미 붐빈다' 판정(spot/ranking.py CROWDED_EVIDENCE_CUTOFF)에 쓰는 혼잡도.
+    #
+    # 실측·모델이면 시간비용을 만든 그 값이다. area_stats_rules 는 예측 혼잡이 없어(None) 이 값이
+    # 늘 비어 있었고, 그래서 주변 수요가 아무리 높아도 **등급 이점(1등급)을 잃지 않았다.** 추정
+    # 모드가 들어오며 그게 화면에 드러났다: '추정 · 매우 혼잡(0.95)' 카드가 1위에 서고, '실측 ·
+    # 매우 혼잡(0.92)' 인 가게는 컷오프로 최하 등급에 내려가는 역전이 생긴다(레드팀 2026-09-20).
+    #
+    # 그래서 area_stats_rules 에 한해 **화면에 '추정' 으로 보이는 바로 그 값**을 붐빔 판정에만 쓴다.
+    #  · 시간비용에는 넣지 않는다 — 같은 주차·관광 산식이 area_penalty 로 이미 들어가 있다(이중 계산 방지).
+    #    그래서 'estimated_rules' 같은 새 모드를 만들지 않았다(결정 D2 — 추정은 순위에 반영되되
+    #    기존 area_stats_rules 경로로만).
+    #  · 도착이 관측 후 30분 안일 때만 — area_demand 가 현재 주차를 '도착 시점' 에 쓰는 규칙과 같다
+    #    (_live_parking_applies_to_arrival). 코스의 먼 정류지에 '지금' 붐빔을 들이대지 않는다.
+    #  · 추정은 evidence 의 source 가 'none' 일 때만 붙으므로(attach_estimate) 실측·모델 후보에는
+    #    닿지 않는다. 강등만 할 수 있고 올려 주지는 못한다 — 0.9 미만이면 아무 일도 없다.
+    ranking_congestion = predicted_congestion
+    if scoring_mode == "area_stats_rules":
+        estimate = (congestion_evidence or {}).get("estimate")
+        if estimate_applies_to_arrival(estimate, arrival_dt):
+            try:
+                ranking_congestion = max(0.0, min(1.0, float(estimate["level"])))
+            except (KeyError, TypeError, ValueError):
+                ranking_congestion = None
+
     total_time = travel_time_min + (ranking_wait or 0.0) + area_penalty + (baseline_wait or 0.0)
     time_cost = min(1.0, total_time / 60.0)
 
@@ -229,10 +253,11 @@ async def calculate_spot_score(
             "travel_distance_m": travel_distance_m,
             "travel_source": travel_source or "estimated",
             "ranking_wait_time": ranking_wait,
-            # 이 후보의 시간비용을 실제로 만든 혼잡도(실측이면 실측, 모델이면 예측).
-            # 정렬이 '이미 붐비는 것이 확인된 후보' 를 가려내는 데 쓴다(spot/ranking.py 의
-            # CROWDED_EVIDENCE_CUTOFF). **추가만** 하는 키다 — 구 번들은 읽지 않는다.
-            "ranking_congestion": predicted_congestion,
+            # 정렬이 '이미 붐비는 것이 확인된 후보' 를 가려내는 데 쓰는 혼잡도(spot/ranking.py 의
+            # CROWDED_EVIDENCE_CUTOFF). 실측이면 실측, 모델이면 예측(= 시간비용을 만든 값),
+            # area_stats_rules 면 화면의 '추정'(위 4-2 — 시간비용에는 들어가지 않는다).
+            # **추가만** 하는 키다. 웹 recToSpot 이 그대로 읽어 compareSpot 이 같은 강등을 한다.
+            "ranking_congestion": ranking_congestion,
             # 업종 모집단 기준선(근거 없는 후보 전용). **이 시설의 대기가 아니다** — 그래서
             # wait_time/ranking_wait_time 과 섞지 않고 별도 키로 둔다. 기준선이 없으면 None.
             "industry_baseline_congestion": (
