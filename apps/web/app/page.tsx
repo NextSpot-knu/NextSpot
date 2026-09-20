@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback, useRef } from 'react';
+import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { useT } from '@/lib/i18n/I18nProvider';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
@@ -86,8 +87,25 @@ export default function LoadingPage() {
           isVisible ? 'opacity-100 animate-fade-in' : 'opacity-0'
         }`}
       >
-        <h1 className="text-5xl font-serif font-bold tracking-tight text-muk mb-4">
-          NextSpot
+        <h1 className="mb-4">
+          <Image
+            src="/nextspot-logo.png"
+            alt="NextSpot"
+            width={505}
+            height={109}
+            priority
+            unoptimized
+            className="nextspot-logo-light h-14 w-auto sm:h-[70px]"
+          />
+          <Image
+            src="/nextspot-logo-dark.png"
+            alt="NextSpot"
+            width={505}
+            height={109}
+            priority
+            unoptimized
+            className="nextspot-logo-dark h-14 w-auto sm:h-[70px]"
+          />
         </h1>
         <p className="text-lg text-muk-soft font-medium">
           {t('landing.tagline')}

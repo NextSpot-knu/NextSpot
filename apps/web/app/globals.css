@@ -133,6 +133,12 @@ body,
   transition: background-color 220ms ease, color 220ms ease, border-color 220ms ease;
 }
 
+/* 브랜드 로고 — 라이트(먹빛 네이비)/다크(아이보리) 두 벌을 테마에 맞춰 스왑한다.
+   랜딩 배경이 다크 테마에서 어두워져(hanji→#17130f) 네이비 워드마크가 묻히므로. */
+.nextspot-logo-dark { display: none; }
+html.nextspot-dark .nextspot-logo-light { display: none; }
+html.nextspot-dark .nextspot-logo-dark { display: block; }
+
 /* 모바일 앱다운 입력 피드백. JS 모션을 쓰지 않는 작은 칩/아이콘에도 같은 눌림 문법을 적용한다. */
 .toss-pressable {
   -webkit-tap-highlight-color: transparent;

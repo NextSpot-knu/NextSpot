@@ -174,7 +174,6 @@ export default function GuideContent({ onNavigate }: { onNavigate?: () => void }
             <span>{t('guide.weeks', { weeks })}</span><h3>{t(`guide.${key}`)}</h3><p>{t(`guide.${key}Body`)}</p>
           </article>)}</div>
           <p className={styles.channelNote}>{t('guide.pilotChannels')}</p>
-          <p className={styles.measureNote}>{t('guide.pilotMeasurement')}</p>
         </div>
         <details className={`${styles.details} ${styles.roadmap}`}><summary>{t('guide.businessTitle')}</summary>
           <p>{t('guide.businessIntro')}</p>
@@ -182,7 +181,6 @@ export default function GuideContent({ onNavigate }: { onNavigate?: () => void }
             <span>{timing} · {t('guide.planBadge')}</span><h3>{t(`guide.${key}`)}</h3><p>{t(`guide.${key}Body`)}</p>
           </article>)}</div>
           <p>{t('guide.futureBody')}</p>
-          <p className={styles.measureNote}>{t('guide.businessGuardrail')}</p>
         </details>
         <details className={`${styles.details} ${styles.team}`}><summary>{t('guide.teamTitle')}</summary>
           <p>{t('guide.teamBody')}</p>
