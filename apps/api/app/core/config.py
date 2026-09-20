@@ -83,6 +83,16 @@ class Settings(BaseSettings):
     # 전국 주차 API보다 지역 커버리지가 정확해 1순위로 사용한다.
     GYEONGJU_ITS_BASE_URL: str = "https://its.gyeongju.go.kr"
 
+    # 경주 문화관광 메뉴별음식점(data.go.kr 15114465, 제공기관 5050000). 음식점의 대표메뉴·
+    # 영업시간·주차·편의시설을 보강한다(app/services/gyeongju_restaurant_service.py).
+    # 확정 엔드포인트: {BASE_URL}/getMenuRstrt (오퍼레이션명은 코드 상수). base URL·키는
+    # 활용신청 승인 후 확정되므로 빈 문자열 기본값으로 두고 하드코딩하지 않는다 — 둘 다 설정돼야
+    # 실제 호출을 하고, 비면 빈 리스트로 무해하게 no-op 한다. 실제 base URL 값 예시는
+    # https://apis.data.go.kr/5050000/menuRstrtService. 이 서비스는 TourAPI(B551011)와 다른
+    # 활용신청이라 TOURAPI_KEY 로 폴백하지 않는다(다른 서비스 키로는 미승인 오류가 난다).
+    GYEONGJU_FOOD_API_BASE_URL: str = ""
+    GYEONGJU_FOOD_API_KEY: str = ""
+
     # 서울 열린데이터광장 인증키 — 서울 실시간 도시데이터(OA-21285). 혼잡 엔진 **검증 전용**
     # (docs/CONGESTION_ENGINE_PLAN.md §5.3). 선택값: 비어 있으면 부팅은 정상이고 수집 엔드포인트만
     # 503 seoul_key_missing 으로 멈춘다. ⚠️ 이 키는 요청 URL **경로**에 들어간다(쿼리가 아니다) —
