@@ -596,7 +596,7 @@
     "freshStale": "リアルタイムではありません · 1日以上前の観測",
     "ofCandidates": "代替{n}件中",
     "congestion": "混雑度",
-    "noData": "データなし",
+    "noData": "収集中",
     "remainingLabel": "残り",
     "remainingValue": "{seats}席（計{total}）",
     "spotScoreLabel": "SPOTスコア",

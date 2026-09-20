@@ -596,7 +596,7 @@
     "freshStale": "非实时 · 超过一天前的观测",
     "ofCandidates": "共{n}个备选",
     "congestion": "拥挤度",
-    "noData": "暂无数据",
+    "noData": "收集中",
     "remainingLabel": "剩余",
     "remainingValue": "{seats}个位（共{total}）",
     "spotScoreLabel": "SPOT分数",

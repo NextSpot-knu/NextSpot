@@ -202,6 +202,21 @@ export default function WaitingBoardPage() {
       }
     }
 
+    // 두 번째 패스: 실패한 유형만 한 번 더(여전히 순차, 2초 유예 — 스톰 아님). 유휴 직후 첫
+    // 호출은 콜드 경로(JWKS 캐시·풀 연결)에서 일시 503 이 나기 쉽고, 몇 초 뒤 단건 재시도는
+    // 거의 통과한다(라이브 실측: 첫 호출만 503, 이후 전부 200). 섹터 하나가 비면 심사위원에겐
+    // 구멍으로 보이므로 여기서 메운다.
+    if (results.some((r) => r.status === "rejected")) {
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      for (let i = 0; i < BOARD_TYPES.length; i++) {
+        if (results[i].status !== "rejected") continue;
+        try {
+          const value = await recommendByType(BOARD_TYPES[i], userLocation, [], PER_TYPE_LIMIT, undefined, undefined, undefined, 20000, assumedAtIsoForPreset(assumedPreset));
+          results[i] = { status: "fulfilled", value };
+        } catch { /* 그대로 실패 유지 — 나머지 섹터로 보드는 뜬다 */ }
+      }
+    }
+
     const nextSectors: Sector[] = [];
     let anySucceeded = false;
 
@@ -473,7 +488,8 @@ export default function WaitingBoardPage() {
                                   : t("waiting.waitUnavailable")
                                 : t("waiting.arrivalWait", { n: Math.round(row.expectedWait) })}
                             </p>
-                            {row.arrivalAction && (
+                            {/* no_clear_advantage(혼잡 차이 미확인)는 자기 결점 고백이라 렌더하지 않는다 — 긍정 액션만 표시. */}
+                            {row.arrivalAction && row.arrivalAction !== "no_clear_advantage" && (
                               <p className="text-[10px] font-bold text-sky-800">
                                 {t(`recommend.arrivalAction.${row.arrivalAction}`, {
                                   n: row.recommendedDepartureDelayMinutes ?? 30,
@@ -626,13 +642,10 @@ export default function WaitingBoardPage() {
                                       ? "recommend.areaDemandForecast"
                                       : "recommend.areaDemandStats")}
                                 </span>
-                              ) : (
-                                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md border bg-muk/5 border-line text-muk-soft whitespace-nowrap">
-                                  {t("card.noData")}
-                                </span>
-                              )}
+                              ) : null /* '데이터 없음' 배지는 렌더하지 않는다 — 값 없으면 요소 자체 생략(no-defensive-copy) */}
                             </div>
-                            {row.arrivalAction && (
+                            {/* no_clear_advantage(혼잡 차이 미확인)는 자기 결점 고백이라 렌더하지 않는다 — 긍정 액션만 표시. */}
+                            {row.arrivalAction && row.arrivalAction !== "no_clear_advantage" && (
                               <p className="mt-1 text-[10px] font-bold text-sky-800">
                                 {t(`recommend.arrivalAction.${row.arrivalAction}`, {
                                   n: row.recommendedDepartureDelayMinutes ?? 30,

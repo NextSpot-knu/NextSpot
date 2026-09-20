@@ -396,10 +396,19 @@ function CourseContent() {
       try {
         plan = await apiClient.post("/api/v1/courses/plan", body, { timeoutMs: 20000 });
       } catch (planErr) {
-        if (httpStatus(planErr) !== 404) throw planErr;
-        const legacy: CourseStop[] = await apiClient.post("/api/v1/courses/recommend", body, { timeoutMs: 20000 });
-        // planId 가 빈 문자열이면 '판정할 근거가 없다' 는 뜻이다 — 아래에서 토스트를 띄우지 않는다.
-        plan = { stops: Array.isArray(legacy) ? legacy : [], slotOutcomes: [], planId: "" };
+        const planErrStatus = httpStatus(planErr);
+        if (planErrStatus === 503 || planErrStatus === 429) {
+          // 유휴 직후 첫 호출의 콜드 경로(JWKS 캐시·풀 연결) 일시 503 — 2초 뒤 딱 한 번 조용히
+          // 재시도(스톰 아님). 여기서도 실패하면 기존 에러 상태(재시도 버튼)로 떨어진다.
+          await new Promise((resolve) => setTimeout(resolve, 2000));
+          plan = await apiClient.post("/api/v1/courses/plan", body, { timeoutMs: 20000 });
+        } else if (planErrStatus !== 404) {
+          throw planErr;
+        } else {
+          const legacy: CourseStop[] = await apiClient.post("/api/v1/courses/recommend", body, { timeoutMs: 20000 });
+          // planId 가 빈 문자열이면 '판정할 근거가 없다' 는 뜻이다 — 아래에서 토스트를 띄우지 않는다.
+          plan = { stops: Array.isArray(legacy) ? legacy : [], slotOutcomes: [], planId: "" };
+        }
       }
       if (gen !== fetchGenRef.current) return; // 이후 요청이 이미 나감 — 구세대 응답 폐기
       const nextStops = Array.isArray(plan?.stops) ? plan.stops : [];

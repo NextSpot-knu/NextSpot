@@ -596,7 +596,7 @@
     "freshStale": "Not live · observed over a day ago",
     "ofCandidates": "of {n} options",
     "congestion": "Congestion",
-    "noData": "No data",
+    "noData": "Collecting",
     "remainingLabel": "Left",
     "remainingValue": "{seats} seats (of {total})",
     "spotScoreLabel": "SPOT score",

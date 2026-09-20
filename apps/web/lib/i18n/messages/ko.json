@@ -596,7 +596,7 @@
     "freshStale": "실시간 아님 · 하루 넘게 지난 관측",
     "ofCandidates": "대안 {n}개 중",
     "congestion": "혼잡도",
-    "noData": "데이터 없음",
+    "noData": "수집 중",
     "remainingLabel": "잔여",
     "remainingValue": "{seats}자리 (총 {total})",
     "spotScoreLabel": "SPOT 점수",
