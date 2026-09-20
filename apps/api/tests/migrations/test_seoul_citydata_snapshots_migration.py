@@ -14,6 +14,7 @@ from app.services import seoul_citydata_service as seoul
 ROOT = Path(__file__).resolve().parents[4]
 TABLE_MIGRATION = "supabase/migrations/20260920120000_seoul_citydata_snapshots.sql"
 CRON_MIGRATION = "supabase/migrations/20260920121000_schedule_seoul_citydata_collection.sql"
+RETRY_BUDGET_MIGRATION = "supabase/migrations/20260920140000_seoul_citydata_retry_budget.sql"
 GYEONGJU_CRON = "supabase/migrations/20260824130000_schedule_area_demand_collection.sql"
 
 
@@ -77,11 +78,36 @@ def test_cron_uses_offset_minutes_and_missing_only_retry():
     assert "create extension if not exists pg_cron" in sql
     assert "create extension if not exists pg_net" in sql
     assert "'nextspot-seoul-citydata-primary', '4,14,24,34,44,54 * * * *'" in sql
+    # 원본 파일의 보충 주기는 10분이었다. 20260920140000 이 이것을 시간당 2회로 줄인다
+    # (인증키 일 한도 1,000회 — 아래 test_retry_budget_migration 참조). 원본은 그대로 둔다:
+    # 이미 적용된 파일을 고치면 적용한 DB 와 저장소가 다른 말을 한다.
     assert "'nextspot-seoul-citydata-retry', '9,19,29,39,49,59 * * * *'" in sql
     assert "p_only_if_missing and exists" in sql
     assert "from public.seoul_citydata_snapshots as snapshot where snapshot.bucket_at = v_bucket_at" in sql
     assert "interval '10 minutes'" in sql
     assert "timeout_milliseconds := 90000" in sql
+
+
+def test_retry_budget_migration_fits_the_daily_call_limit():
+    """보충 호출을 시간당 2회로 줄여 최악의 날에도 인증키 한도(1,000회) 안에 있는가.
+
+    대상지 5곳 · 주 호출 10분 주기 = 하루 720회. 보충이 10분 주기면 나쁜 날 720회가 더 붙어
+    1,440회가 되고 한도를 넘는다(그러면 그날 남은 시간 전체가 수집 불가다). 2회/시간이면
+    최악이 720 + 240 = 960회다.
+    """
+    sql = _body(RETRY_BUDGET_MIGRATION)
+    assert "'nextspot-seoul-citydata-retry', '9,39 * * * *'" in sql
+    # 주 호출(10분 주기)은 건드리지 않는다 — 버킷 해상도가 30분 전망 지표의 기반이다.
+    assert "nextspot-seoul-citydata-primary" not in sql
+    assert "select public.request_seoul_citydata_collection(true)" in sql
+    # 재적용해도 잡이 두 벌 생기지 않는다.
+    assert "cron.unschedule" in sql
+
+    targets = 5
+    primary_per_day = 6 * 24 * targets
+    retry_per_day = len("9,39".split(",")) * 24 * targets
+    assert primary_per_day == 720
+    assert primary_per_day + retry_per_day == 960 <= 1000
 
 
 def test_cron_minutes_do_not_collide_with_gyeongju_jobs():
