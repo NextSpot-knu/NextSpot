@@ -10,10 +10,10 @@ test.beforeEach(async ({ page }) => {
 });
 
 const locales = [
-  { code: 'ko', heading: '기다리는 대신', guide: 'NextSpot 알아보기', firstStep: '딱 세 가지만 하세요', formula: '추천 기준 자세히 보기' },
-  { code: 'en', heading: 'Spend less time waiting.', guide: 'Discover NextSpot', firstStep: 'Just do these three things', formula: 'See how recommendations are ranked' },
-  { code: 'ja', heading: '待つ時間を減らして', guide: 'NextSpotを知る', firstStep: 'することは3つだけ', formula: 'おすすめ基準を詳しく見る' },
-  { code: 'zh', heading: '少一点等待', guide: '了解 NextSpot', firstStep: '只需做三件事', formula: '查看推荐排序依据' },
+  { code: 'ko', heading: '줄 서는 대신', guide: 'NextSpot 알아보기', answer: '관광객의 문제와 NextSpot의 해결', problem: '사람이 몰린 한 곳에서 여행 시간이 멈춥니다', solution: '도착할 때 덜 붐비는 주변 장소로 바로 전환' },
+  { code: 'en', heading: 'Skip the queue.', guide: 'Discover NextSpot', answer: 'The traveler’s problem and NextSpot’s solution', problem: 'Your trip stalls where everyone gathers', solution: 'Switch to a less crowded nearby place before you arrive' },
+  { code: 'ja', heading: '並ぶ代わりに', guide: 'NextSpotを知る', answer: '旅行者の問題とNextSpotの解決策', problem: '人が集中する一か所で、旅の時間が止まります', solution: '到着時により空いている周辺の場所へ切り替える' },
+  { code: 'zh', heading: '少排一次队', guide: '了解 NextSpot', answer: '游客的问题与 NextSpot 的解决方案', problem: '所有人挤在一处，旅行时间就停在那里', solution: '在抵达前切换到周边更少拥挤的地点' },
 ] as const;
 
 for (const locale of locales) {
@@ -24,19 +24,15 @@ for (const locale of locales) {
     }, locale.code);
     await page.goto('/guide');
     await expect(page.getByRole('heading', { level: 1 })).toContainText(locale.heading);
-    const quickStart = page.getByRole('region', { name: locale.firstStep });
-    await expect(quickStart).toBeVisible();
-    await expect(quickStart.locator('li')).toHaveCount(3);
-    await expect(page.locator('[data-chapter]')).toHaveCount(6);
+    const answer = page.getByRole('group', { name: locale.answer });
+    await expect(answer).toBeVisible();
+    await expect(answer.getByRole('heading', { name: locale.problem })).toBeVisible();
+    await expect(answer.getByRole('heading', { name: locale.solution })).toBeVisible();
+    await expect(answer.locator('li')).toHaveCount(6);
     expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
-    await expect(page.locator('a[href="/setup"]')).toHaveCount(3);
-    await expect(page.getByText(locale.formula, { exact: true })).toBeVisible();
-    await expect(page.locator('[data-chapter="data"] details')).not.toHaveAttribute('open', '');
-    await expect(page.locator('a[href="/merchant"]')).toHaveCount(1);
-    await expect(page.locator('a[href="/admin/dashboard"]')).toHaveCount(1);
-    await page.locator('[data-chapter="features"] summary').first().click();
-    await expect(page.locator('[data-chapter="features"] details').first()).toHaveAttribute('open', '');
-    await expect(page.locator('body')).not.toContainText(/guide\.(hero|step|source|feature|story|pilot|business|team|resident|plan|weeks|future|sig)/);
+    await expect(page.locator('a[href="/setup"]')).toHaveCount(1);
+    await expect(page.locator('[data-chapter], details')).toHaveCount(0);
+    await expect(page.locator('body')).not.toContainText(/취향을 따라가면|SPOT 계산|심사위원용|For judges|guide\.(hero|problem|solution)/);
   });
 }
 

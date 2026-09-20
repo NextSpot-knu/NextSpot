@@ -1,218 +1,73 @@
 'use client';
 
-import { useId, useRef, type ReactNode } from 'react';
 import Link from 'next/link';
-import { Accessibility, ArrowDown, ArrowRight, Bookmark, Building2, Check, Coffee, Compass, Database, Footprints, Globe, Heart, Home, MapPin, Mic, Quote, Radar, Route, Sparkles, Store, Ticket, Timer, User, Waypoints } from 'lucide-react';
-import { SPOT_WEIGHTS } from 'shared-types';
+import { ArrowRight, Clock, MapPin, Route } from 'lucide-react';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { useT } from '@/lib/i18n/I18nProvider';
 import styles from './guide.module.css';
 
-const chapters = [
-  ['story', 'navStory'], ['score', 'navScore'], ['data', 'navData'],
-  ['journey', 'navJourney'], ['impact', 'navImpact'], ['features', 'navFeatures'],
+const problemItems = [
+  { key: 'problemWait', icon: Clock },
+  { key: 'problemRoute', icon: Route },
+  { key: 'problemMiss', icon: MapPin },
+] as const;
+
+const solutionItems = [
+  { key: 'solutionTiming', icon: Clock },
+  { key: 'solutionAlternative', icon: MapPin },
+  { key: 'solutionRoute', icon: Route },
 ] as const;
 
 export default function GuideContent({ onNavigate }: { onNavigate?: () => void }) {
   const t = useT();
-  const id = useId();
-  const rootRef = useRef<HTMLDivElement>(null);
-  const jump = (chapter: string) => {
-    const section = rootRef.current?.querySelector<HTMLElement>(`[data-chapter="${chapter}"]`);
-    section?.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth', block: 'start' });
-    section?.focus({ preventScroll: true });
-  };
-  const cta = (href: string, label: string, primary = false) => (
-    <Link href={href} prefetch={false} onClick={onNavigate} className={primary ? styles.primary : styles.link}>
-      {label}<ArrowRight size={17} aria-hidden />
-    </Link>
-  );
-  const section = (name: string, eyebrow: string, title: string, body: string, children: ReactNode) => (
-    <section id={`${id}-${name}`} data-chapter={name} tabIndex={-1} className={styles.section} aria-labelledby={`${id}-${name}-title`}>
-      <p className={styles.eyebrow}>{eyebrow}</p>
-      <h2 id={`${id}-${name}-title`} className={styles.title}>{title}</h2>
-      <p className={styles.body}>{body}</p>
-      {children}
-    </section>
-  );
-  const scoreFactors = [
-    { key: 'preference', benefit: 'benefitPreference', icon: Heart },
-    { key: 'time', benefit: 'benefitTime', icon: Footprints },
-    { key: 'incentive', benefit: 'benefitIncentive', icon: Ticket },
-  ] as const;
-  const dataSignals = [
-    { key: 'signalYou', icon: Heart },
-    { key: 'signalNow', icon: Timer },
-    { key: 'signalResult', icon: Compass },
-  ] as const;
-  const sources = [
-    { key: 'sourceTour', icon: Compass }, { key: 'sourceStats', icon: Database },
-    { key: 'sourceParking', icon: MapPin }, { key: 'sourceRoute', icon: Route },
-  ] as const;
-  const steps = [
-    { key: 'stepTaste', href: '/setup', icon: Heart },
-    { key: 'stepCompare', href: '/main', icon: MapPin },
-    { key: 'stepCourse', href: '/course', icon: Route },
-  ] as const;
-  const roles = [
-    { key: 'tourist', href: '/main', icon: Compass },
-    { key: 'merchant', href: '/merchant', icon: Store },
-    { key: 'admin', href: '/admin/dashboard', icon: Building2 },
-    { key: 'resident', href: null, icon: Home },
-  ] as const;
-  const pilotPhases = [
-    { key: 'pilot14', weeks: '1–4' },
-    { key: 'pilot58', weeks: '5–8' },
-    { key: 'pilot912', weeks: '9–12' },
-  ] as const;
-  const businessStages = [
-    { key: 'businessB2b', timing: '2027 H1' },
-    { key: 'businessB2g', timing: '2027 H2' },
-    { key: 'businessData', timing: '2028+' },
-  ] as const;
-  const signatures = [
-    { key: 'sigPredict', icon: Timer },
-    { key: 'sigIncentive', icon: Sparkles },
-    { key: 'sigVoice', icon: Mic },
-    { key: 'sigConsole', icon: Building2 },
-    { key: 'sigLearning', icon: Radar },
-    { key: 'sigBarrierFree', icon: Accessibility },
-  ] as const;
-  const features = [
-    { key: 'featureMap', href: '/main', icon: MapPin },
-    { key: 'featureTime', href: '/waiting', icon: Timer },
-    { key: 'featureCourse', href: '/course', icon: Route },
-    { key: 'featureSaved', href: '/saved', icon: Bookmark },
-    { key: 'featureCoupons', href: '/mypage/coupons', icon: Ticket },
-    { key: 'featureImpact', href: '/mypage/impact', icon: Waypoints },
-    { key: 'featureSettings', href: '/mypage/settings', icon: Globe },
-    { key: 'featureAccount', href: '/mypage', icon: User },
-  ] as const;
 
   return (
-    <div ref={rootRef} className={styles.guide}>
-      <div className={styles.topline}><span>{t('guide.hint')}</span><LanguageSwitcher /></div>
+    <div className={styles.guide}>
+      <div className={styles.topline}>
+        <span>{t('guide.hint')}</span>
+        <LanguageSwitcher />
+      </div>
+
       <section className={styles.hero}>
         <div className={styles.heroLayout}>
           <div className={styles.heroCopy}>
             <p className={styles.eyebrow}>{t('guide.eyebrow')}</p>
             <h1 className={styles.heroTitle}>{t('guide.heroTitle')}</h1>
             <p className={styles.heroBody}>{t('guide.heroBody')}</p>
-            <div className={styles.actions}>
-              {cta('/setup', t('guide.explore'), true)}
-              <button type="button" onClick={() => jump('journey')} className={styles.link}>{t('guide.read')}<ArrowDown size={17} /></button>
-            </div>
+            <Link href="/setup" prefetch={false} onClick={onNavigate} className={styles.primary}>
+              {t('guide.explore')}<ArrowRight size={18} aria-hidden />
+            </Link>
           </div>
-          <section className={styles.quickStart} aria-labelledby={`${id}-quick-title`}>
-            <div className={styles.quickHeader}><h2 id={`${id}-quick-title`}>{t('guide.atAGlance')}</h2><strong>{t('guide.noSignup')}</strong></div>
-            <ol className={styles.quickSteps}>
-              {steps.map(({ key, icon: Icon }, index) => <li key={key}>
-                <div className={styles.quickIcon}><span>0{index + 1}</span><Icon size={22} aria-hidden /></div>
-                <h3>{t(`guide.${key}`)}</h3><p>{t(`guide.${key}Body`)}</p>
-              </li>)}
-            </ol>
-            <div className={styles.quickResult}><Check size={22} aria-hidden /><div><span>{t('guide.resultLabel')}</span><p>{t('guide.resultBody')}</p></div></div>
-          </section>
+
+          <div className={styles.answer} role="group" aria-label={t('guide.answerLabel')}>
+            <section className={styles.problemCard} aria-labelledby="nextspot-problem">
+              <p>{t('guide.problemLabel')}</p>
+              <h2 id="nextspot-problem">{t('guide.problemTitle')}</h2>
+              <ul>
+                {problemItems.map(({ key, icon: Icon }) => (
+                  <li key={key}><Icon size={20} aria-hidden /><span>{t(`guide.${key}`)}</span></li>
+                ))}
+              </ul>
+            </section>
+
+            <div className={styles.turn} aria-hidden>
+              <span>NextSpot</span><ArrowRight size={22} />
+            </div>
+
+            <section className={styles.solutionCard} aria-labelledby="nextspot-solution">
+              <p>{t('guide.solutionLabel')}</p>
+              <h2 id="nextspot-solution">{t('guide.solutionTitle')}</h2>
+              <ul>
+                {solutionItems.map(({ key, icon: Icon }) => (
+                  <li key={key}><Icon size={20} aria-hidden /><span>{t(`guide.${key}`)}</span></li>
+                ))}
+              </ul>
+            </section>
+
+            <strong className={styles.result}>{t('guide.resultLine')}</strong>
+          </div>
         </div>
       </section>
-      <nav className={styles.chapters} aria-label={t('guide.toc')}>
-        {chapters.map(([key, label], index) => <button key={key} type="button" onClick={() => jump(key)}><span>0{index + 1}</span>{t(`guide.${label}`)}</button>)}
-      </nav>
-
-      {section('story', `01 / ${t('guide.navStory')}`, t('guide.storyTitle'), `${t('guide.problem')} ${t('guide.storyBody')}`,
-        <>
-          <blockquote className={styles.storyQuote}><Quote size={22} aria-hidden /><p>{t('guide.storyQuote')}</p><cite>{t('guide.storyOrigin')}</cite></blockquote>
-          <figure className={styles.storyMap}>
-            <div className={styles.origin}><MapPin size={26} /><strong>{t('guide.mapOrigin')}</strong><span>{t('guide.sameExperience')}</span></div>
-            <div className={styles.branches} aria-hidden="true"><span /><span /><span /></div>
-            <div className={styles.destinations}>{[Coffee, Footprints, Compass].map((Icon, index) => <div key={index}><Icon size={28} /><strong>{t(`guide.${['mapCafe', 'mapWalk', 'mapCulture'][index]}`)}</strong></div>)}</div>
-            <figcaption>{t('guide.mapCaption')}</figcaption>
-          </figure>
-        </>
-      )}
-
-      {section('score', `02 / ${t('guide.navScore')}`, t('guide.scoreTitle'), t('guide.scoreBody'), <>
-        <div className={styles.factorGrid}>{scoreFactors.map(({ key, benefit, icon: Icon }, index) => <article key={key} className={styles.factor}>
-          <div className={styles.factorTop}><Icon size={26} /><span>0{index + 1}</span></div>
-          <h3>{t(`guide.${benefit}`)}</h3><p>{t(`guide.${key}Body`)}</p>
-        </article>)}</div>
-        <details className={styles.details}><summary>{t('guide.formulaLabel')}</summary>
-          <p className={styles.formula}>{SPOT_WEIGHTS.preference} × {t('guide.preference')} − {SPOT_WEIGHTS.time} × {t('guide.time')} + {SPOT_WEIGHTS.incentive} × {t('guide.incentive')}</p>
-          <p>{t('guide.formulaNote')}</p>
-        </details>
-      </>)}
-
-      {section('data', `03 / ${t('guide.navData')}`, t('guide.dataTitle'), t('guide.dataBody'), <>
-        <div className={styles.signalFlow}>{dataSignals.map(({ key, icon: Icon }, index) => <article key={key}>
-          <div className={styles.signalIcon}><Icon size={23} /><span>0{index + 1}</span></div>
-          <h3>{t(`guide.${key}`)}</h3><p>{t(`guide.${key}Body`)}</p>
-        </article>)}</div>
-        <div className={styles.evidenceAction}><p>{t('guide.evidenceAction')}</p>{cta('/main', t('guide.touristCta'))}</div>
-        <details className={`${styles.details} ${styles.sourceDetails}`}><summary>{t('guide.sourceLabel')}</summary>
-          <div className={styles.sourceGrid}>{sources.map(({ key, icon: Icon }, index) => <article key={key} className={styles.source}>
-            <div className={styles.sourceTop}><Icon size={23} /><span>0{index + 1}</span></div>
-            <h3>{t(`guide.${key}`)}</h3><p>{t(`guide.${key}Body`)}</p>
-          </article>)}</div>
-          <p className={styles.note}>{t('guide.dataOther')}</p>
-        </details>
-      </>)}
-
-      {section('journey', `04 / ${t('guide.navJourney')}`, t('guide.journeyTitle'), t('guide.journeyBody'), <>
-        <div className={styles.steps}>{steps.map(({ key, href, icon: Icon }, index) => <article key={key}>
-          <div className={styles.stepNumber}>0{index + 1}<Icon size={25} /></div>
-          <h3>{t(`guide.${key}`)}</h3><p>{t(`guide.${key}Body`)}</p>{cta(href, t('guide.openFeature'))}
-        </article>)}</div>
-        <p className={styles.note}>{t('guide.journeyNote')}</p>
-        <div className={styles.visitLoop}>
-          <h3>{t('guide.loopTitle')}</h3>
-          <ol>{['loopChoose', 'loopNavigate', 'loopArrive', 'loopFeedback'].map((key, index) => <li key={key}><span>{index + 1}</span>{t(`guide.${key}`)}{index < 3 && <ArrowRight size={15} aria-hidden />}</li>)}</ol>
-          <p>{t('guide.loopBody')}</p>
-        </div>
-      </>)}
-
-      {section('impact', `05 / ${t('guide.navImpact')}`, t('guide.impactTitle'), t('guide.impactBody'), <>
-        <div className={styles.roles}>{roles.map(({ key, href, icon: Icon }) => <article key={key}>
-          <Icon size={30} /><h3>{t(`guide.${key}`)}</h3><p>{t(`guide.${key}Body`)}</p>{href && cta(href, t(`guide.${key}Cta`))}
-        </article>)}</div>
-        <p className={styles.note}>{t('guide.roleRequired')}</p>
-        <details className={styles.details}><summary>{t('guide.validationTitle')}</summary><p>{t('guide.validationBody')}</p>{cta('/login?next=%2Fadmin%2Fengine-validation', t('guide.validationLink'))}</details>
-        <div className={styles.pilot}>
-          <div className={styles.planHeading}><Sparkles size={25} /><div><span>{t('guide.planBadge')}</span><h3>{t('guide.pilotTitle')}</h3></div></div>
-          <p>{t('guide.pilotBody')}</p>
-          <div className={styles.timeline}>{pilotPhases.map(({ key, weeks }) => <article key={key}>
-            <span>{t('guide.weeks', { weeks })}</span><h3>{t(`guide.${key}`)}</h3><p>{t(`guide.${key}Body`)}</p>
-          </article>)}</div>
-          <p className={styles.channelNote}>{t('guide.pilotChannels')}</p>
-        </div>
-        <details className={`${styles.details} ${styles.roadmap}`}><summary>{t('guide.businessTitle')}</summary>
-          <p>{t('guide.businessIntro')}</p>
-          <div className={styles.businessGrid}>{businessStages.map(({ key, timing }) => <article key={key}>
-            <span>{timing} · {t('guide.planBadge')}</span><h3>{t(`guide.${key}`)}</h3><p>{t(`guide.${key}Body`)}</p>
-          </article>)}</div>
-          <p>{t('guide.futureBody')}</p>
-        </details>
-        <details className={`${styles.details} ${styles.team}`}><summary>{t('guide.teamTitle')}</summary>
-          <p>{t('guide.teamBody')}</p>
-        </details>
-      </>)}
-
-      <section data-chapter="features" tabIndex={-1} className={styles.section} aria-labelledby={`${id}-features-title`}>
-        <p className={styles.eyebrow}>06 / {t('guide.navFeatures')}</p><h2 id={`${id}-features-title`} className={styles.title}>{t('guide.featuresTitle')}</h2>
-        <div className={styles.signature}>
-          <p className={styles.signatureHeading}>{t('guide.signatureTitle')}</p>
-          <div className={styles.signatureGrid}>{signatures.map(({ key, icon: Icon }) => <article key={key}>
-            <Icon size={22} /><h3>{t(`guide.${key}`)}</h3><p>{t(`guide.${key}Body`)}</p>
-          </article>)}</div>
-        </div>
-        <div className={styles.features}>{features.map(({ key, href, icon: Icon }) => <details key={key} className={styles.feature}>
-          <summary><Icon size={21} /><span>{t(`guide.${key}`)}</span><span className={styles.plus} aria-hidden>+</span></summary>
-          <div><p>{t(`guide.${key}Body`)}</p>{cta(href, t('guide.openFeature'))}</div>
-        </details>)}</div>
-      </section>
-      <footer className={styles.footer}><Check size={30} /><h2>{t('guide.endTitle')}</h2><p>{t('guide.endBody')}</p>
-        <div className={styles.actions}>{cta('/setup', t('guide.explore'), true)}{onNavigate && cta('/guide', t('guide.direct'))}</div>
-        <span className={styles.signature}>NextSpot · Gyeongju</span>
-      </footer>
     </div>
   );
 }
