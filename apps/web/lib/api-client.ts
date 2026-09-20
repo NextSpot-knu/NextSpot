@@ -103,11 +103,21 @@ const BASE_URL = process.env.NEXT_PUBLIC_FASTAPI_URL || "http://localhost:8000";
 // 무응답 백엔드에 무한 대기하지 않도록 타임아웃(lib/admin-api.ts adminRequest 의 기존 패턴 미러).
 const REQUEST_TIMEOUT_MS = 10000;
 
+// 재시도 백오프(ms). Render 공유 Cloudflare 의 Managed Challenge 가 버스트 요청을 엣지에서
+// 막으면 브라우저엔 네트워크/CORS 실패(fetch 거부)로 나타난다 — 요청이 서버에 도달조차 못 한다.
+// 짧게 기다렸다 다시 보내면 대개 통과한다. 배열 길이 = 최대 재시도 횟수. 지터로 동시 버스트를 흩뜨려
+// 재도전이 또 같은 챌린지에 묶이지 않게 한다.
+const RETRY_BACKOFF_MS = [400, 900];
+const jittered = (ms: number) => ms + Math.floor(Math.random() * 250);
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
 interface RequestOptions extends Omit<RequestInit, "body"> {
   params?: Record<string, string>;
   timeoutMs?: number;
   /** 평문 객체를 주면 request() 가 snake_case 변환 후 JSON 직렬화한다(FormData 등 BodyInit 은 그대로 전송) */
   body?: unknown;
+  /** true 면 네트워크/엣지 실패에도 재시도하지 않는다(기본은 재시도 — request() 재시도 주석 참고). */
+  noRetry?: boolean;
 }
 
 async function request(path: string, options: RequestOptions = {}) {
@@ -153,35 +163,73 @@ async function request(path: string, options: RequestOptions = {}) {
   }
 
   // 10초 타임아웃 — 미응답 시 명확한 에러로 실패시켜 화면이 무한 로딩에 갇히지 않게 한다.
-  const controller = new AbortController();
   const externalSignal = options.signal;
-  let timedOut = false;
-  const abortFromCaller = () => controller.abort();
-  if (externalSignal?.aborted) controller.abort();
-  else externalSignal?.addEventListener('abort', abortFromCaller, { once: true });
-  const timer = setTimeout(() => {
-    timedOut = true;
-    controller.abort();
-  }, options.timeoutMs ?? REQUEST_TIMEOUT_MS);
 
-  let response: Response;
-  try {
-    const { params: _params, timeoutMs: _timeoutMs, signal: _signal, ...fetchOptions } = options;
-    response = await fetch(url, {
-      ...fetchOptions,
-      headers,
-      body,
-      signal: controller.signal,
-    });
-  } catch (err) {
-    if (err instanceof DOMException && err.name === "AbortError") {
-      if (!timedOut && externalSignal?.aborted) throw err;
-      throw new Error("요청 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요.");
+  // --- 재시도: Render 공유 Cloudflare 의 Managed Challenge 는 버스트 요청을 엣지에서 막아
+  // 브라우저에 네트워크/CORS 실패(fetch 거부)로 나타난다 — 요청이 서버에 도달조차 못 하므로
+  // 짧은 백오프 뒤 다시 보내면 대개 통과하고, 서버 미도달이라 재시도가 안전하다(멱등성 무관).
+  // '응답을 받은' 경우는 서버가 처리한 결과이므로 재시도하지 않는다. 단, 멱등 GET 의 429 만
+  // 예외적으로 한 번 더 시도한다. 타임아웃·외부 취소는 의도된 중단이라 재시도하지 않는다.
+  // 재생 불가능한 본문(FormData/Blob 등)·noRetry 는 재시도에서 제외한다.
+  const method = (options.method ?? "GET").toUpperCase();
+  const canRetry = !options.noRetry && !isRawBody;
+  const maxAttempts = canRetry ? RETRY_BACKOFF_MS.length + 1 : 1;
+
+  let response: Response | undefined;
+  let lastNetworkErr: unknown;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const controller = new AbortController();
+    let timedOut = false;
+    const abortFromCaller = () => controller.abort();
+    if (externalSignal?.aborted) controller.abort();
+    else externalSignal?.addEventListener('abort', abortFromCaller, { once: true });
+    const timer = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, options.timeoutMs ?? REQUEST_TIMEOUT_MS);
+
+    let networkErr: unknown;
+    try {
+      const { params: _params, timeoutMs: _timeoutMs, signal: _signal, noRetry: _noRetry, ...fetchOptions } = options;
+      response = await fetch(url, {
+        ...fetchOptions,
+        headers,
+        body,
+        signal: controller.signal,
+      });
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") {
+        // 타임아웃/외부 취소는 의도된 중단 — 재시도하지 않고 즉시 알린다.
+        if (!timedOut && externalSignal?.aborted) throw err;
+        throw new Error("요청 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요.");
+      }
+      networkErr = err; // 네트워크/CORS 실패(엣지 챌린지 포함) — 서버 미도달.
+    } finally {
+      clearTimeout(timer);
+      externalSignal?.removeEventListener('abort', abortFromCaller);
     }
-    throw err;
-  } finally {
-    clearTimeout(timer);
-    externalSignal?.removeEventListener('abort', abortFromCaller);
+
+    if (networkErr !== undefined) {
+      lastNetworkErr = networkErr;
+      response = undefined;
+      if (attempt < maxAttempts - 1) {
+        await sleep(jittered(RETRY_BACKOFF_MS[attempt]));
+        continue;
+      }
+      throw networkErr; // 모든 시도 소진 — 마지막 네트워크 오류를 그대로 던진다.
+    }
+
+    // 멱등 GET 이 429 면(엣지든 앱이든) 한 번 더 시도해 자가 치유한다. 그 외 응답은 그대로 처리.
+    if (response && response.status === 429 && method === "GET" && attempt < maxAttempts - 1) {
+      await sleep(jittered(RETRY_BACKOFF_MS[attempt]));
+      continue;
+    }
+    break;
+  }
+
+  if (!response) {
+    // 위 루프가 네트워크 실패 시 throw 하므로 이론상 도달 불가 — 타입 좁히기용 안전망.
+    throw lastNetworkErr ?? new Error("요청에 실패했습니다. 잠시 후 다시 시도해 주세요.");
   }
 
   if (!response.ok) {
