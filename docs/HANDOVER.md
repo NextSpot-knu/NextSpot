@@ -188,6 +188,14 @@ from checks order by seq;
 
 최신이 위. 10개를 넘으면 가장 오래된 항목을 `archive/HANDOVER_LOG.md` 맨 위로 옮긴다.
 
+## 2026-09-20c — 심사위원이 30초 안에 이해하는 서비스 소개
+
+- 도구·브랜치: Codex / `feature/judge-guide`.
+- 한 것: `/guide` 첫 화면을 사용자 효익 한 문장 + 취향 선택→장소 비교→코스 완성 3단계 + 실제로 받는 결과로 재구성하고, 첫 CTA를 회원가입 없는 `/setup` 체험에 연결했다. SPOT 가중치와 데이터 출처는 처음부터 노출하지 않고, 취향·도보시간·혜택 및 원하는 것→여행 여건→이유가 보이는 추천의 일상 언어로 먼저 설명한 뒤 심사위원용 펼침 영역에 원식과 출처를 보존했다. ko/en/ja/zh와 데스크톱·모바일·다크 테마를 함께 반영했다.
+- 검증: web lint(기존 145 warnings, 0 errors) · typecheck · test 50파일 · 정적 build 39페이지 · guide Playwright 7건(4로케일, 320/390/1440px, 키보드·테마), API ruff · pytest 1,559건, 스키마 파리티 · check-docs 통과.
+- 다음·미결: 게이트 완료 후 커밋·main 승격과 Vercel 배포 확인.
+- 사람 작업: 없음.
+
 ## 2026-09-20b — 심사 체험을 연결하는 서비스 소개
 
 - 도구·브랜치: Codex / `feature/judge-guide` — `bf954d0` 원격 main을 새 클론으로 받아 작업.

@@ -10,10 +10,10 @@ test.beforeEach(async ({ page }) => {
 });
 
 const locales = [
-  { code: 'ko', heading: '가고 싶은 경주.', guide: 'NextSpot 알아보기' },
-  { code: 'en', heading: 'The Gyeongju you love.', guide: 'Discover NextSpot' },
-  { code: 'ja', heading: '行きたい慶州。', guide: 'NextSpotを知る' },
-  { code: 'zh', heading: '想去的庆州。', guide: '了解 NextSpot' },
+  { code: 'ko', heading: '내 취향에 맞는', guide: 'NextSpot 알아보기', firstStep: '딱 세 가지만 하세요' },
+  { code: 'en', heading: 'Your kind of place.', guide: 'Discover NextSpot', firstStep: 'Just do these three things' },
+  { code: 'ja', heading: '好みに合う', guide: 'NextSpotを知る', firstStep: 'することは3つだけ' },
+  { code: 'zh', heading: '符合喜好', guide: '了解 NextSpot', firstStep: '只需做三件事' },
 ] as const;
 
 for (const locale of locales) {
@@ -24,9 +24,14 @@ for (const locale of locales) {
     }, locale.code);
     await page.goto('/guide');
     await expect(page.getByRole('heading', { level: 1 })).toContainText(locale.heading);
+    const quickStart = page.getByRole('region', { name: locale.firstStep });
+    await expect(quickStart).toBeVisible();
+    await expect(quickStart.locator('li')).toHaveCount(3);
     await expect(page.locator('[data-chapter]')).toHaveCount(6);
     expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
-    await expect(page.locator('a[href="/setup"]')).toHaveCount(1);
+    await expect(page.locator('a[href="/setup"]')).toHaveCount(3);
+    await expect(page.getByText(/SPOT 계산 근거|SPOT calculation|SPOTの計算根拠|SPOT 计算依据/)).toBeVisible();
+    await expect(page.locator('[data-chapter="data"] details')).not.toHaveAttribute('open', '');
     await expect(page.locator('a[href="/merchant"]')).toHaveCount(1);
     await expect(page.locator('a[href="/admin/dashboard"]')).toHaveCount(1);
     await page.locator('[data-chapter="features"] summary').first().click();
@@ -68,7 +73,7 @@ test('opening guide preserves theme and current page; CTA closes before navigati
   await expect(page).toHaveURL(/\/mypage\/settings/);
   await expect(page.getByRole('radio', { name: '다크' })).toHaveAttribute('aria-checked', 'true');
   await launcher.click();
-  await dialog.locator('a[href="/setup"]').click();
+  await dialog.locator('a[href="/setup"]').first().click();
   await expect(page).toHaveURL(/\/setup/);
   await expect(dialog).not.toBeVisible();
   expect(await page.evaluate(() => document.body.style.overflow)).not.toBe('hidden');

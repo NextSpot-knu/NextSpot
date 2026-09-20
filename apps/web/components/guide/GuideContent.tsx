@@ -36,9 +36,14 @@ export default function GuideContent({ onNavigate }: { onNavigate?: () => void }
     </section>
   );
   const scoreFactors = [
-    { key: 'preference', weight: SPOT_WEIGHTS.preference, icon: Heart },
-    { key: 'time', weight: SPOT_WEIGHTS.time, icon: Footprints },
-    { key: 'incentive', weight: SPOT_WEIGHTS.incentive, icon: Ticket },
+    { key: 'preference', benefit: 'benefitPreference', icon: Heart },
+    { key: 'time', benefit: 'benefitTime', icon: Footprints },
+    { key: 'incentive', benefit: 'benefitIncentive', icon: Ticket },
+  ] as const;
+  const dataSignals = [
+    { key: 'signalYou', icon: Heart },
+    { key: 'signalNow', icon: Timer },
+    { key: 'signalResult', icon: Compass },
   ] as const;
   const sources = [
     { key: 'sourceTour', icon: Compass }, { key: 'sourceStats', icon: Database },
@@ -88,23 +93,26 @@ export default function GuideContent({ onNavigate }: { onNavigate?: () => void }
     <div ref={rootRef} className={styles.guide}>
       <div className={styles.topline}><span>{t('guide.hint')}</span><LanguageSwitcher /></div>
       <section className={styles.hero}>
-        <p className={styles.eyebrow}>{t('guide.eyebrow')}</p>
-        <h1 className={styles.heroTitle}>{t('guide.heroTitle')}</h1>
-        <p className={styles.heroBody}>{t('guide.heroBody')}</p>
-        <div className={styles.actions}>
-          {cta('/main', t('guide.explore'), true)}
-          <button type="button" onClick={() => jump('story')} className={styles.link}>{t('guide.read')}<ArrowDown size={17} /></button>
-        </div>
-        <div className={styles.heroArt} aria-hidden="true">
-          <svg viewBox="0 0 920 310" className={styles.landscape}>
-            <path d="M0 280 Q150 50 310 280 Q420 120 550 280 Q750 15 920 280 V310 H0Z" fill="currentColor" opacity=".09" />
-            <path d="M0 310 Q195 120 370 310 Q650 95 920 310Z" fill="currentColor" opacity=".12" />
-            <path d="M185 230 C280 300 280 120 460 165 S660 310 750 145" fill="none" stroke="var(--color-gold)" strokeWidth="3" strokeDasharray="7 9" />
-            <circle cx="185" cy="230" r="8" fill="var(--color-jade)" /><circle cx="460" cy="165" r="8" fill="var(--color-gold)" /><circle cx="750" cy="145" r="8" fill="var(--color-terracotta)" />
-          </svg>
-          <div className={`${styles.placePill} ${styles.pillOne}`}><Coffee size={19} />{t('guide.mapCafe')}</div>
-          <div className={`${styles.placePill} ${styles.pillTwo}`}><Footprints size={19} />{t('guide.mapWalk')}</div>
-          <div className={`${styles.placePill} ${styles.pillThree}`}><Compass size={19} />{t('guide.mapCulture')}</div>
+        <div className={styles.heroLayout}>
+          <div className={styles.heroCopy}>
+            <p className={styles.eyebrow}>{t('guide.eyebrow')}</p>
+            <h1 className={styles.heroTitle}>{t('guide.heroTitle')}</h1>
+            <p className={styles.heroBody}>{t('guide.heroBody')}</p>
+            <div className={styles.actions}>
+              {cta('/setup', t('guide.explore'), true)}
+              <button type="button" onClick={() => jump('journey')} className={styles.link}>{t('guide.read')}<ArrowDown size={17} /></button>
+            </div>
+          </div>
+          <section className={styles.quickStart} aria-labelledby={`${id}-quick-title`}>
+            <div className={styles.quickHeader}><h2 id={`${id}-quick-title`}>{t('guide.atAGlance')}</h2><strong>{t('guide.noSignup')}</strong></div>
+            <ol className={styles.quickSteps}>
+              {steps.map(({ key, icon: Icon }, index) => <li key={key}>
+                <div className={styles.quickIcon}><span>0{index + 1}</span><Icon size={22} aria-hidden /></div>
+                <h3>{t(`guide.${key}`)}</h3><p>{t(`guide.${key}Body`)}</p>
+              </li>)}
+            </ol>
+            <div className={styles.quickResult}><Check size={22} aria-hidden /><div><span>{t('guide.resultLabel')}</span><p>{t('guide.resultBody')}</p></div></div>
+          </section>
         </div>
       </section>
       <nav className={styles.chapters} aria-label={t('guide.toc')}>
@@ -124,9 +132,9 @@ export default function GuideContent({ onNavigate }: { onNavigate?: () => void }
       )}
 
       {section('score', `02 / ${t('guide.navScore')}`, t('guide.scoreTitle'), t('guide.scoreBody'), <>
-        <div className={styles.factorGrid}>{scoreFactors.map(({ key, weight, icon: Icon }, index) => <article key={key} className={styles.factor}>
-          <Icon size={26} /><span className={styles.weight}>{index === 1 ? '−' : '+'}{Math.round(weight * 100)}<small>%</small></span>
-          <h3>{t(`guide.${key}`)}</h3><p>{t(`guide.${key}Body`)}</p>
+        <div className={styles.factorGrid}>{scoreFactors.map(({ key, benefit, icon: Icon }, index) => <article key={key} className={styles.factor}>
+          <div className={styles.factorTop}><Icon size={26} /><span>0{index + 1}</span></div>
+          <h3>{t(`guide.${benefit}`)}</h3><p>{t(`guide.${key}Body`)}</p>
         </article>)}</div>
         <details className={styles.details}><summary>{t('guide.formulaLabel')}</summary>
           <p className={styles.formula}>{SPOT_WEIGHTS.preference} × {t('guide.preference')} − {SPOT_WEIGHTS.time} × {t('guide.time')} + {SPOT_WEIGHTS.incentive} × {t('guide.incentive')}</p>
@@ -135,17 +143,23 @@ export default function GuideContent({ onNavigate }: { onNavigate?: () => void }
       </>)}
 
       {section('data', `03 / ${t('guide.navData')}`, t('guide.dataTitle'), t('guide.dataBody'), <>
-        <div className={styles.sourceGrid}>{sources.map(({ key, icon: Icon }, index) => <article key={key} className={styles.source}>
-          <div className={styles.sourceTop}><Icon size={23} /><span>0{index + 1}</span></div>
+        <div className={styles.signalFlow}>{dataSignals.map(({ key, icon: Icon }, index) => <article key={key}>
+          <div className={styles.signalIcon}><Icon size={23} /><span>0{index + 1}</span></div>
           <h3>{t(`guide.${key}`)}</h3><p>{t(`guide.${key}Body`)}</p>
         </article>)}</div>
-        <p className={styles.note}>{t('guide.dataOther')}</p>
         <div className={styles.evidenceAction}><p>{t('guide.evidenceAction')}</p>{cta('/main', t('guide.touristCta'))}</div>
         <div className={styles.trust}><h3><ShieldCheck size={22} />{t('guide.trustTitle')}</h3>
           <div className={styles.trustGrid}>{['observed', 'estimated', 'unknown'].map((key, index) => <div key={key}>
             <span className={styles.trustBadge} data-kind={index}>{t(`guide.${key}`)}</span><p>{t(`guide.${key}Body`)}</p>
           </div>)}</div>
         </div>
+        <details className={`${styles.details} ${styles.sourceDetails}`}><summary>{t('guide.sourceLabel')}</summary>
+          <div className={styles.sourceGrid}>{sources.map(({ key, icon: Icon }, index) => <article key={key} className={styles.source}>
+            <div className={styles.sourceTop}><Icon size={23} /><span>0{index + 1}</span></div>
+            <h3>{t(`guide.${key}`)}</h3><p>{t(`guide.${key}Body`)}</p>
+          </article>)}</div>
+          <p className={styles.note}>{t('guide.dataOther')}</p>
+        </details>
       </>)}
 
       {section('journey', `04 / ${t('guide.navJourney')}`, t('guide.journeyTitle'), t('guide.journeyBody'), <>
@@ -201,7 +215,7 @@ export default function GuideContent({ onNavigate }: { onNavigate?: () => void }
         </details>)}</div>
       </section>
       <footer className={styles.footer}><Check size={30} /><h2>{t('guide.endTitle')}</h2><p>{t('guide.endBody')}</p>
-        <div className={styles.actions}>{cta('/main', t('guide.explore'), true)}{onNavigate && cta('/guide', t('guide.direct'))}</div>
+        <div className={styles.actions}>{cta('/setup', t('guide.explore'), true)}{onNavigate && cta('/guide', t('guide.direct'))}</div>
         <span className={styles.signature}>NextSpot · Gyeongju</span>
       </footer>
     </div>
