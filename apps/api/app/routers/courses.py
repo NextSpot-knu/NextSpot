@@ -26,6 +26,12 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from app.core.failure_log import record_failure
+from app.core.response_cache import (
+    ResponseCache,
+    assumed_time_bucket,
+    model_signature,
+    round_location,
+)
 from app.core.supabase import get_current_user, supabase_admin
 from app.services.availability_service import (
     attach_availability_evidence,
@@ -410,6 +416,37 @@ async def _evaluate_candidate(
     }
 
 
+# 코스 응답 캐시(180초). recommendations 의 by-type 캐시와 같은 이유·같은 규약이다
+# (app/core/response_cache.py 모듈 주석). 코스 한 번은 by-type 보다도 비싸다 — 실측 43초.
+_course_cache = ResponseCache("course_plan")
+
+
+def _course_cache_key(req: CourseRequest) -> tuple:
+    """_build_course 의 출력을 바꿀 수 있는 입력을 **빠짐없이** 담은 키.
+
+      · user_id — 선호 벡터·preferred_categories·calculate_spot_score 가 사용자별이다.
+      · 반올림 좌표 — 1번 정류지의 출발점(그 뒤 자리는 앞 정류지에서 이어진다).
+      · types — `set(req.types)` 로만 쓰이므로 정렬·중복제거해 접는다(순서는 답을 안 바꾼다).
+      · sequence — **순서가 곧 답이다.** 접지 않고 그대로 넣는다.
+      · pins — `{p.order: p.facility_id}` 로 접히는데 같은 order 가 겹쳐 오면 **뒤엣것이
+        이긴다.** 그래서 정렬하지 않고 요청 순서 그대로 넣는다.
+      · context — facility_matches_context · max_distance_m · available_minutes(시간 예산 컷).
+      · 가정 시각 버킷 — 누적 도착 시각·도착시점 예측 혼잡·도착 영업여부의 기준 '지금'.
+
+    핀·순서 지정 요청도 그냥 캐시한다(건너뛰지 않는다). 둘 다 키에 통째로 들어가 있으므로
+    '다른 요청' 은 자동으로 다른 키가 되고, 같은 배치를 다시 그리는 경우에만 적중한다.
+    """
+    return (
+        req.user_id,
+        *round_location(req.user_lat, req.user_lng),
+        tuple(sorted(set(req.types or ()))),
+        tuple(req.sequence or ()),
+        tuple((p.order, p.facility_id) for p in (req.pins or ())),
+        model_signature(req.context),
+        assumed_time_bucket(parse_assumed_time(req.assumed_at)),
+    )
+
+
 async def _course_or_503(req: CourseRequest, current_user: dict) -> CoursePlan:
     """두 엔드포인트가 공유하는 가드 + 예외 처리."""
     logger.info("course_request", user_id=req.user_id, types=req.types, sequence=req.sequence)
@@ -428,7 +465,11 @@ async def _course_or_503(req: CourseRequest, current_user: dict) -> CoursePlan:
     # 대신 503 으로 구분해 던진다. 프런트는 이미 503 을 ServiceUnavailableError 로 따로
     # 잡는다(apps/web/lib/api-client.ts).
     try:
-        return await _build_course(req)
+        # 캐시는 예외 처리 **안쪽**이다 — 미스가 그대로 파이프라인 호출이라 위 503 강등·
+        # record_failure 경로가 종전과 똑같이 돈다. 실패는 캐시에 남지 않는다.
+        return await _course_cache.get_or_compute(
+            _course_cache_key(req), lambda: _build_course(req)
+        )
     except HTTPException:
         raise
     except Exception as exc:

@@ -111,6 +111,18 @@ const RETRY_BACKOFF_MS = [700];
 const jittered = (ms: number) => ms + Math.floor(Math.random() * 250);
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
+/**
+ * 백엔드 캐시 워밍 트리거 — 발사 후 망각(fire-and-forget).
+ * 랜딩 마운트 시 호출해 시설·availability·주차·축제 캐시를 미리 데운다. 사용자가 지도/대기보드/
+ * 코스에 도달할 즈음 백엔드가 이미 웜 상태가 되게 하는 것이 목적(콜드 단건 20~40초 실측 대응).
+ * 엔드포인트 부재(구 배포 404)·네트워크 실패 전부 조용히 무시 — 어떤 경우에도 UI 에 영향 없다.
+ */
+export function warmBackend(): void {
+  try {
+    void fetch(`${BASE_URL}/api/v1/warmup`, { method: "GET", keepalive: true }).catch(() => {});
+  } catch { /* fetch 자체가 없는 환경(SSR 등) — 무시 */ }
+}
+
 interface RequestOptions extends Omit<RequestInit, "body"> {
   params?: Record<string, string>;
   timeoutMs?: number;

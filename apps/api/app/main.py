@@ -8,7 +8,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.core.logging import setup_logging
-from app.routers import recommendations, infrastructures, predict, preferences, admin, reports, coupons, courses, events, tracking, freshness, impact, merchant, safety, search, lab, account, dev, weather, restrooms, travel_context, area_demand, area_demand_admin, inquiries, system, preference_stats, congestion_estimates, engine_validation, engine_validation_admin, engine_validation_calibration
+from app.routers import recommendations, infrastructures, predict, preferences, admin, reports, coupons, courses, events, tracking, freshness, impact, merchant, safety, search, lab, account, dev, weather, restrooms, travel_context, area_demand, area_demand_admin, inquiries, system, preference_stats, congestion_estimates, engine_validation, engine_validation_admin, engine_validation_calibration, warmup
 
 
 # 로깅 설정 초기화
@@ -192,6 +192,7 @@ app.include_router(freshness.router)  # 데이터 신선도(D5) — 마지막 To
 app.include_router(impact.router)  # 여행 임팩트 카드 — 수락·혼잡회피·쿠폰 성과 요약(개인)
 app.include_router(inquiries.router)  # 내 문의 — 본인 문의·관리자 답변 조회(user_id 필터로 PII 격리)
 app.include_router(system.router)  # 공개 시스템 설정(무인증·60초 캐시) — 점검 안내/공지/혼잡 경계
+app.include_router(warmup.router)  # 수동 예열(무인증·즉시 응답) — 유휴 후 첫 추천이 콜드 경로를 물지 않게
 app.include_router(preference_stats.router)  # 업종별 온보딩 선호 비율(관리자) — 인프라 상세 예상 수요 카드
 app.include_router(congestion_estimates.router)  # 주차 실측 기반 시설 혼잡 추정 적재(관리자 수동) — evidence_tier=synthetic 이라 추천·학습에서 제외
 app.include_router(engine_validation.router)  # 서울 실시간 도시데이터 수집(기계·관리자) — 추정 엔진 검증용 정답, congestion_logs 와 분리

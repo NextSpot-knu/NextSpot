@@ -14,6 +14,12 @@ from pydantic import AliasChoices, BaseModel, Field, field_validator, model_vali
 # (ingest/preferences 라우터가 동일 사유로 supabase_admin 을 쓴다.) 따라서 service_role 클라이언트로
 # 통일하고, 신뢰 경계는 아래 get_recommendations/submit_feedback 의 소유권 가드로 강제한다.
 from app.core.failure_log import record_failure
+from app.core.response_cache import (
+    ResponseCache,
+    assumed_time_bucket,
+    model_signature,
+    round_location,
+)
 from app.core.supabase import supabase_admin as supabase_client, get_current_user
 from app.services import feedback_service
 from app.services.coupon_service import issue_coupon_if_partner
@@ -866,6 +872,44 @@ class RecommendByTypeRequest(BaseModel):
     assumed_at: str | None = None
 
 
+# by-type 응답 캐시(180초). 판정·점수·라벨은 하나도 건드리지 않는다 — **같은 질문에 같은
+# 답을 두 번 계산하지 않을 뿐**이다. 심사 동선은 /waiting 이 종류 4개를, /main 이 한 개를
+# 같은 계정·같은 위치·같은 가정 시각 프리셋으로 반복 호출하는데, 그 한 번이 시설 전체 조회 +
+# 영업근거 청크 + 타임세일 + 혼잡 RPC + 지역수요 RPC 수십 건이다(콜드 20초 실측).
+# 0.5 CPU 인스턴스에서는 그게 겹치는 순간 헬스체크가 굶어 Render 가 프로세스를 재시작한다.
+_by_type_cache = ResponseCache("recommend_by_type")
+
+
+def _by_type_cache_key(req: "RecommendByTypeRequest") -> tuple:
+    """_recommend_by_type 의 출력을 바꿀 수 있는 입력을 **빠짐없이** 담은 키.
+
+    아래 목록이 곧 "이 두 요청은 같은 질문인가" 의 정의다. 하나라도 빠지면 다른 질문에 남의
+    답을 내주게 되므로, 요청 본문을 통째로 해싱하지 않고 필드를 하나씩 적는다(대신 답을
+    바꾸지 않는 필드가 늘어도 적중률이 떨어지지 않는다).
+
+      · user_id — 선호 벡터·preferred_categories·calculate_spot_score(user_id=…) 가 전부
+        사용자별이다. 그래서 개인화 입력을 따로 키에 넣지 않는다: user_id 하나가 그 전부를
+        덮는다(심사 세션은 한 계정을 계속 쓰므로 적중률도 그대로다).
+      · facility_type / limit / exclude_ids — 후보 집합과 잘라내는 개수 그 자체.
+        exclude_ids 는 집합으로만 쓰이므로(`f["id"] not in exclude`) 정렬해 접는다.
+      · 반올림 좌표 — 아래 round_location 주석 참조(도보 경로·거리 점수의 출발점).
+      · preference_intent — 채점 입력.
+      · context — facility_matches_context(카테고리·실내·접근성·방문제외)와
+        max_walk_minutes 를 통해 후보 자격과 반경을 모두 바꾼다.
+      · 가정 시각 버킷 — 도착 영업여부·도착시점 혼잡·SPOT 채점의 기준 '지금'.
+    """
+    return (
+        req.user_id,
+        req.facility_type,
+        *round_location(req.user_lat, req.user_lng),
+        int(req.limit),
+        req.preference_intent or None,
+        tuple(sorted(set(req.exclude_ids or ()))),
+        model_signature(req.context),
+        assumed_time_bucket(parse_assumed_time(req.assumed_at)),
+    )
+
+
 @router.post("/recommendations/by-type", response_model=list[RecommendItem])
 async def recommend_by_type(
     req: RecommendByTypeRequest,
@@ -881,7 +925,11 @@ async def recommend_by_type(
     # 업스트림이 흔들리면 그대로 500 이 나갔다 — 동시 호출 시 실측으로 확인했다.
     # 프런트는 이미 503 을 ServiceUnavailableError 로 따로 잡아 로컬 폴백으로 내려간다.
     try:
-        return await _recommend_by_type(req)
+        # 캐시는 예외 처리 **안쪽**이다 — 미스가 그대로 파이프라인 호출이라 실패 경로(503 강등·
+        # record_failure)가 종전과 똑같이 돈다. 실패는 캐시에 남지 않는다.
+        return await _by_type_cache.get_or_compute(
+            _by_type_cache_key(req), lambda: _recommend_by_type(req)
+        )
     except HTTPException:
         raise
     except Exception as exc:

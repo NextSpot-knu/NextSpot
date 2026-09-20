@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { useT } from '@/lib/i18n/I18nProvider';
+import { warmBackend } from '@/lib/api-client';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { GuideButton } from '@/components/guide/GuideProvider';
 
@@ -44,6 +45,9 @@ export default function LoadingPage() {
   }, [router]);
 
   useEffect(() => {
+    // 첫 화면에서 백엔드 캐시 워밍을 미리 발사 — 사용자가 지도·대기보드·코스에 도달할 즈음
+    // 백엔드가 웜 상태가 되게 한다(실패·404 무해, UI 무영향).
+    warmBackend();
     // Trigger fade-in animation shortly after mount
     const timer = setTimeout(() => {
       setIsVisible(true);

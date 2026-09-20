@@ -1,0 +1,26 @@
+# NextSpot API keep-warm — 심사일 콜드 캐시 방지.
+# 10분마다 /api/v1/warmup(무인증 캐시 프리로드 트리거)과 /health 를 찔러
+# 시설·availability·주차·축제 캐시를 항상 데운 상태로 유지한다. 0.5CPU/512MB 인스턴스는
+# 콜드 상태에서 단건 처리도 20~40초라(2026-09-21 실측) 심사위원 첫 요청이 이 시간에 걸린다 —
+# 이 워크플로가 그 '첫 요청'을 대신 맞는다. 실패해도 조용히 넘어간다(|| true — 배포 중 창 무해).
+# ※ uptime.yml 은 수동 전용 가드 테스트(test_collection_workflow_is_manual_recovery_only)가
+#    schedule 을 금지하므로 keep-warm 은 이 별도 파일에 둔다.
+name: API Keep-Warm
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "*/10 * * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  warm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Trigger cache warmup
+        run: curl -fsS --max-time 30 https://nextspot-api.onrender.com/api/v1/warmup || true
+      - name: Health ping
+        run: curl -fsS --max-time 60 https://nextspot-api.onrender.com/health || true

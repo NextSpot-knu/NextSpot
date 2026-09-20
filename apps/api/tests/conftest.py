@@ -103,6 +103,30 @@ def _isolate_event_boost(monkeypatch):
     industry_baseline.reset_cache()
 
 
+@pytest.fixture(autouse=True)
+def _isolate_response_cache(monkeypatch):
+    """by-type·코스 응답 캐시(180초)를 테스트에서는 기본으로 **끈다**.
+
+    프로덕션 계약은 "같은 질문에는 180초 동안 같은 답" 이다. 그런데 테스트는 바로 그 '같은
+    질문' 을 일부러 여러 번 던지면서 사이사이 세계를 바꿔 끼운다(예:
+    test_solar_state_never_changes_candidates_scores_or_rank 는 동일 본문을 세 번 보내면서
+    generate_reason_with_source 만 갈아 낀다). 캐시를 켜 두면 두 번째부터는 첫 번째 답이
+    돌아와, 검증하려던 차이가 사라진다 — 게다가 테스트 사이로도 새어 나간다.
+
+    그래서 TTL 을 0 으로 떨어뜨려(= 저장하자마자 만료) 캐시가 없던 시절과 동일하게 돌린다.
+    캐시 자체의 동작은 tests/routers/test_response_cache.py 가 TTL 을 되돌려 검증한다.
+    """
+    from app.routers import courses, recommendations
+
+    caches = (recommendations._by_type_cache, courses._course_cache)
+    for cache in caches:
+        cache.clear()
+        monkeypatch.setattr(cache, "ttl_seconds", 0.0)
+    yield
+    for cache in caches:
+        cache.clear()
+
+
 # =========================================================================
 # 관리자·역할 인증(RBAC) 테스트 지원
 # =========================================================================
