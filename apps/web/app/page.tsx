@@ -13,6 +13,8 @@ export default function LoadingPage() {
   const [isVisible, setIsVisible] = useState(false);
   // 자동 리다이렉트와 탭 스킵이 겹쳐 중복 이동하는 것을 방지
   const navigatedRef = useRef(false);
+  // 첫 방문 서비스 소개 자동 노출용 — 가이드 버튼을 프로그램적으로 눌러 모달을 연다(아래 useEffect).
+  const introTriggerRef = useRef<HTMLSpanElement>(null);
 
   // '바로 시작'은 로그인 없이 곧장 온보딩(→ /setup)으로 보낸다 — 관광객 무마찰이 이 제품의 핵심 원칙이고
   // 발표 대본(docs/contest/DEMO_SCENARIO.md "이 전체 흐름이 로그인 절차 없이 3분 안에 끝납니다")과
@@ -51,6 +53,28 @@ export default function LoadingPage() {
       clearTimeout(timer);
     };
   }, [go]);
+
+  // 첫 방문자에게 서비스 소개(가이드)를 자동으로 띄운다 — 아무것도 모르는 심사위원이 첫 화면에서
+  // 3초 안에 가치를 이해하도록. 이미 본 사용자·재방문자에겐 안 띄운다(localStorage 게이트).
+  // 저장소 차단 환경(사파리 사생활 보호 등)은 조용히 건너뛴다 — 자동 노출만 생략하고 진행은 막지 않는다.
+  useEffect(() => {
+    let seenIntro: string | null = 'skip';
+    try {
+      seenIntro = typeof window !== 'undefined' ? window.localStorage.getItem('nextspot_intro_seen') : 'skip';
+    } catch {
+      seenIntro = 'skip';
+    }
+    if (seenIntro) return;
+    // 페이드인이 자리 잡은 뒤(600ms) 가이드 버튼을 눌러 모달을 연다. 한 번 열면 플래그를 세워 반복 노출 방지.
+    const timer = setTimeout(() => {
+      const btn = introTriggerRef.current?.querySelector('button');
+      if (btn) {
+        btn.click();
+        try { window.localStorage.setItem('nextspot_intro_seen', '1'); } catch { /* 저장 실패 무시 */ }
+      }
+    }, 600);
+    return () => clearTimeout(timer);
+  }, []);
 
   return (
     <div
@@ -140,7 +164,9 @@ export default function LoadingPage() {
         >
           {t('landing.ctaLogin')}
         </button>
-        <GuideButton compact className="mt-5 min-h-11 px-5" />
+        <span ref={introTriggerRef} className="contents">
+          <GuideButton compact className="mt-5 min-h-11 px-5" />
+        </span>
       </div>
     </div>
   );
