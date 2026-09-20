@@ -64,6 +64,7 @@ from app.services.tourism_related_service import attach_related_destination_prio
 from app.services.discovery_theme_service import discovery_theme_match
 from app.services.recommendation_explanation_service import explain as explain_snapshot
 from app.services.spot.wait_time import calculate_predicted_wait_time
+from app.services.spot.industry_baseline import get_predicted_baseline_congestion
 from app.services.spot.preference import CATEGORY_VECTORS, build_facility_preference_vector, get_category_average_vector
 
 logger = structlog.get_logger()
@@ -317,12 +318,19 @@ async def _attach_delayed_area_actions(
     annotate_arrival_actions(items, delayed_signals, delay_minutes=delay_minutes)
 
 
-async def resolve_congestion_evidence(facility: dict, log_info: dict | None) -> dict:
+async def resolve_congestion_evidence(
+    facility: dict, log_info: dict | None, *, now: datetime | None = None
+) -> dict:
     """후보 1건의 혼잡 근거 3단계를 판정한다(CONGESTION_TRUST_SPEC).
 
     - measured: 최신 congestion_logs 현장 관측(원 로그 source·신선도·증거등급 동봉)
-    - predicted: 로그 없음 + 모델이 실제로 학습된 AI 예측(현재 시각 UTC 기준)
+    - predicted: 로그 없음 + 모델이 실제로 학습된 AI 예측(``now`` 시각 기준)
     - none: 로그 없음 + 모델 미학습 — 0.5 평탄 폴백을 예측으로 팔지 않는다
+      (업종 예측 기준선 폴백은 여기서 하지 않는다 — build_candidate_evidence 가 추정보다 뒤,
+       'none' 자리에서만 얹는다. 그래야 실측·모델·추정 우선순위가 보존된다.)
+
+    ``now`` 는 예측 시각의 기준이다. 없으면 서버 현재 시각(UTC)을 쓴다 — 기존 동작 그대로.
+    데모 '가정 시각'을 넘기면 그 시각의 hour/weekday 로 예측한다(가정 시각 시뮬레이터 정합).
 
     ⚠️ 알려진 순서 공백(지금은 잠들어 있다): 로그가 **있기만 하면** 나이·등급을 보지 않고 measured 로
     내려가므로, '모델이 학습된 상태 + 낡은 실측' 후보는 예측이 아니라 추정이 '지금' 자리를 가져간다
@@ -348,9 +356,10 @@ async def resolve_congestion_evidence(facility: dict, log_info: dict | None) -> 
             "level": None, "source": "none", "log_source": None,
             "evidence_tier": None, "is_stale": None, "timestamp": None,
         }
-    now = datetime.now(timezone.utc)  # 모델은 UTC 시각으로 학습됨(score.py 와 동일 관례)
+    # 모델은 UTC 시각으로 학습됨(score.py 와 동일 관례). now 를 넘기면 그 시각(가정 시각 포함)으로.
+    moment = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     predicted, pred_source = await asyncio.to_thread(
-        predict_congestion_detailed, facility.get("type") or "", now.hour, now.weekday()
+        predict_congestion_detailed, facility.get("type") or "", moment.hour, moment.weekday()
     )
     if pred_source == "registry" and predicted is not None:
         return {
@@ -364,7 +373,8 @@ async def resolve_congestion_evidence(facility: dict, log_info: dict | None) -> 
 
 
 async def build_candidate_evidence(
-    facility: dict, log_info: dict | None, estimates: dict | None = None
+    facility: dict, log_info: dict | None, estimates: dict | None = None,
+    *, now: datetime | None = None,
 ) -> dict:
     """후보 1건의 혼잡 근거 — **세 경로가 공유하는 단일 정의.**
 
@@ -374,6 +384,22 @@ async def build_candidate_evidence(
     결과)에 이 시설의 추정이 있으면 ``estimate`` 칸에 싣는다 — source/level 은 **손대지 않는다**
     (congestion_evidence.attach_estimate 주석 참조).
     반환 dict 에는 언제나 ``estimate``·``is_current`` 키가 있다.
+
+    우선순위(높은 것이 이긴다):
+      1. 실측(신선·신뢰) / 사장님 좌석 방송
+      2. 학습된 모델의 예측
+      3. 추정(주차 실측 + 관광 통계) — estimate 옆 칸(source 는 'none' 그대로)
+      4. **업종 예측 기준선** — 위 셋이 모두 없을 때만. congestion_source='predicted'(화면 '예측'
+         라벨)로 얹는다. 이 값은 이 시설을 측정한 것이 아니라 업종의 일반적 시각·요일 패턴을
+         코드화한 휴리스틱 예측이라(industry_baseline.get_predicted_baseline_congestion),
+         'measured' 로는 절대 쓰지 않고 순위(SPOT 점수)에도 넣지 않는다 — 카드 표시 전용이다.
+         ``now`` 의 KST 시각·요일에 따라 값이 달라져, 가정 시각 시뮬레이터가 카드 혼잡을 실제로
+         움직이게 한다(그전에는 이 자리가 늘 'none' 이라 시각을 바꿔도 카드가 그대로였다).
+      5. 없음('none').
+
+    ``now`` 는 예측 기준 시각이다(가정 시각 또는 서버 현재 시각). resolve 의 모델 예측과 위 4번
+    기준선에만 쓰고, 추정·실측의 '지금' 신선도 판정(attach_estimate)에는 넘기지 않는다 —
+    그 판정은 실제 벽시계로 해야 한다(가정 시각으로 재면 방금 만든 추정이 만료로 잘못 걸린다).
 
     왜 함수로 뺐나: 같은 판정이 `/recommendations` 와 `/recommendations/by-type` 에 **두 벌로**
     복사돼 있었고, `/courses/plan` 에는 아예 없었다. 세 벌이 되면 반드시 갈라진다 — 실제로
@@ -393,8 +419,24 @@ async def build_candidate_evidence(
             "estimate": None, "is_current": True,
         }
     # 혼잡 3단계 판정(CONGESTION_TRUST_SPEC) — 로그 없는 시설을 0.0(실측 여유)처럼 팔지 않는다.
-    evidence = await resolve_congestion_evidence(facility, log_info)
-    return attach_estimate(evidence, estimates, facility.get("id"))
+    evidence = await resolve_congestion_evidence(facility, log_info, now=now)
+    # 추정은 벽시계 기준으로 붙인다(가정 시각을 넘기지 않는다 — 위 docstring).
+    evidence = attach_estimate(evidence, estimates, facility.get("id"))
+    # 실측·모델·추정이 모두 없을 때만(= source 'none' 이고 추정도 못 붙은 자리) 업종 예측
+    # 기준선을 '예측' 으로 얹는다. 관측을 지어내지 않으려는 선은 그대로다 — 라벨이 예측이고,
+    # 순위에는 들어가지 않으며, 추정이 있으면 그 실데이터가 이 휴리스틱보다 앞선다.
+    if evidence.get("source") == "none" and evidence.get("estimate") is None:
+        baseline = get_predicted_baseline_congestion(facility.get("type"), now)
+        if baseline is not None:
+            evidence = {
+                **evidence,
+                "level": baseline,
+                "source": "predicted",
+                # 예측은 언제나 '지금' 을 말할 자격이 있다(congestion_evidence.evidence_is_current
+                # 규약과 동일). 화면은 이 값을 '예측 · 지금' 으로 칠하고, 사유도 예측 문구를 쓴다.
+                "is_current": True,
+            }
+    return evidence
 
 
 def _reason_congestion_ctx(item: dict) -> dict:
@@ -527,7 +569,7 @@ async def get_recommendations(
     )
     model_ready = get_model_info()["trained"]
     original_evidence = await resolve_congestion_evidence(
-        original_infra, congestion_by_id.get(req.original_facility_id)
+        original_infra, congestion_by_id.get(req.original_facility_id), now=now
     )
     original_congestion = (
         rankable_measured_level(original_evidence)
@@ -545,7 +587,7 @@ async def get_recommendations(
     async def _score_candidate(f: dict, route) -> dict:
         # 신선한 좌석 상태 방송(30분 이내)이 있으면 congestion_logs 조회값 대신 사장 확인 실측을 쓴다
         # (_recommend_by_type._score 와 동일 처리 — 두 경로가 같은 근거 dict 를 만든다).
-        evidence = await build_candidate_evidence(f, congestion_by_id.get(f["id"]), estimates)
+        evidence = await build_candidate_evidence(f, congestion_by_id.get(f["id"]), estimates, now=now)
         candidate_congestion = evidence["level"]
         # 체감 혼잡도를 capacity×level 로 환산한 값은 실제 인원이 아니다. 계수형 소스가
         # 명시적으로 제공한 인원만 노출하고, 방문객·사장 정성 제보는 혼잡 단계만 보여준다.
@@ -919,7 +961,7 @@ async def _recommend_by_type(req: "RecommendByTypeRequest") -> list:
     )
 
     async def _score(f: dict) -> dict:
-        evidence = await build_candidate_evidence(f, congestion_by_id.get(f["id"]), estimates)
+        evidence = await build_candidate_evidence(f, congestion_by_id.get(f["id"]), estimates, now=now)
         cong = evidence["level"]
         route = route_by_id[f["id"]]
         # 정성 혼잡 단계를 인원수로 합성하지 않는다. 실제 계수 소스의 값만 전달한다.

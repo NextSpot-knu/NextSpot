@@ -34,13 +34,14 @@ from __future__ import annotations
 import asyncio
 import statistics
 import time
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import structlog
 
 from app.core.supabase import fetch_all_rows, supabase_admin
 from app.services.congestion_evidence import TRUSTED_EVIDENCE_TIERS
-from app.services.predict_service import MIN_TYPE_COUNT
+from app.services.predict_service import MIN_TYPE_COUNT, normalize_facility_type
 
 logger = structlog.get_logger()
 
@@ -152,3 +153,89 @@ async def get_industry_baseline_congestion(facility_type: str | None) -> float |
             return None
         _cache = (now, CACHE_TTL_SECONDS, baseline)
         return baseline.get(facility_type)
+
+
+# ── 시각·요일 기반 예측 기준선(카드 표시 전용) ────────────────────────────────────
+#
+# 위 get_industry_baseline_congestion 은 **표본에서 뽑은 업종 중앙값**이라 (1) 시각·요일에
+# 따라 움직이지 않고 (2) 신뢰 등급 로그가 0건인 현재 프로덕션에서는 전 업종 None 이다. 그래서
+# 실측도 학습 모델도 추정도 없는 후보의 카드는 여전히 '혼잡 정보 준비 중' 으로 비어 보인다 —
+# 특히 심사위원이 '가정 시각' 을 바꿔도 카드 혼잡이 그대로라 기능이 죽은 것처럼 보인다.
+#
+# 아래 값은 **이 시설을 측정한 값이 아니다.** 업종의 일반적인 하루 패턴(식사·오후·주간 피크)과
+# 요일 효과를 코드로 옮긴 **휴리스틱 예측**이다. 그래서
+#   · 호출부는 이 값을 오직 congestion_source='predicted'(화면 '예측' 라벨)로만 노출한다.
+#     'measured' 로는 절대 쓰지 않는다 — '지금 이만큼 붐빈다는 관측' 을 지어내지 않는다.
+#   · 순위(SPOT 점수)에는 들어가지 않는다. score.py 는 자기 예측/실측만 쓰고, 이 값은 카드
+#     표시에서만 산다. 표본 기반 랭킹 기준선(get_industry_baseline_congestion, 표본 미달 시 None)
+#     과 역할이 다르다 — 그쪽은 순위 시간비용용이라 값이 없으면 침묵하는 것이 옳고, 이쪽은
+#     "이 업종이면 이 시각에 보통 이 정도" 라는 예측을 정직한 라벨로 보여 주는 것이 목적이다.
+#   · KST 시각·요일에 따라 값이 **실제로 달라진다** — 가정 시각 시뮬레이터가 카드 혼잡을
+#     움직이게 하는 것이 존재 이유다.
+
+_KST = timezone(timedelta(hours=9))
+
+# 업종별 '가장 붐비는 시각(주말 피크)' 의 예측 혼잡도(0..1).
+_PREDICTED_PEAK_BY_TYPE = {
+    "restaurant": 0.85,
+    "cafe": 0.72,
+    "attraction": 0.80,
+    "culture": 0.62,
+}
+_PREDICTED_PEAK_DEFAULT = 0.68
+
+# 업종별 KST 시각(0~23)의 피크 대비 비율(0..1). 심야·영업 외 시간은 0 근처, 업종별 피크가 다르다
+# (식당=점심·저녁, 카페=오후, 관광지·문화=한낮).
+_PREDICTED_HOUR_SHAPE = {
+    "restaurant": (
+        0.05, 0.04, 0.03, 0.03, 0.03, 0.04, 0.08, 0.15, 0.22, 0.28,
+        0.40, 0.65, 1.00, 0.95, 0.55, 0.42, 0.45, 0.65, 0.95, 1.00,
+        0.88, 0.60, 0.35, 0.15,
+    ),
+    "cafe": (
+        0.05, 0.04, 0.03, 0.03, 0.03, 0.05, 0.10, 0.20, 0.32, 0.45,
+        0.58, 0.68, 0.78, 0.88, 0.96, 1.00, 0.95, 0.85, 0.72, 0.60,
+        0.48, 0.35, 0.22, 0.10,
+    ),
+    "attraction": (
+        0.03, 0.02, 0.02, 0.02, 0.02, 0.03, 0.08, 0.18, 0.35, 0.55,
+        0.72, 0.86, 0.92, 0.96, 1.00, 0.95, 0.82, 0.62, 0.42, 0.26,
+        0.16, 0.09, 0.05, 0.03,
+    ),
+    "culture": (
+        0.03, 0.02, 0.02, 0.02, 0.02, 0.03, 0.05, 0.12, 0.30, 0.52,
+        0.72, 0.86, 0.92, 0.96, 1.00, 0.94, 0.78, 0.52, 0.22, 0.10,
+        0.07, 0.05, 0.04, 0.03,
+    ),
+}
+# 알 수 없는 업종의 기본 곡선(완만한 주간 피크).
+_PREDICTED_HOUR_SHAPE_DEFAULT = (
+    0.05, 0.04, 0.03, 0.03, 0.03, 0.05, 0.10, 0.20, 0.35, 0.50,
+    0.62, 0.72, 0.80, 0.82, 0.80, 0.75, 0.68, 0.58, 0.48, 0.38,
+    0.28, 0.20, 0.12, 0.07,
+)
+
+# 요일 효과(KST, 월=0 … 일=6). 주말이 가장 붐비고 평일이 한산하다.
+_PREDICTED_WEEKDAY_FACTOR = (0.70, 0.70, 0.72, 0.75, 0.85, 1.00, 0.98)
+
+
+def get_predicted_baseline_congestion(
+    facility_type: str | None, now: datetime | None = None
+) -> float | None:
+    """업종·KST 시각·요일 기반 **예측** 혼잡도(0..1). 업종이 비어 있으면 ``None``.
+
+    실측 로그·학습 모델·추정이 모두 없는 후보의 카드에 'AI 예측(예측)' 으로 보여줄 값이다.
+    이 값은 이 시설을 측정한 것이 아니라 업종의 일반적 하루 패턴을 코드화한 휴리스틱 예측이라,
+    호출부는 반드시 ``source='predicted'`` 로만 노출한다(모듈 상단 주석 참조). ``now`` 는 tz-aware
+    datetime(가정 시각 또는 현재 UTC)이며 내부에서 KST 로 변환해 시각·요일을 읽는다 — 같은
+    가게라도 심야와 점심, 평일과 주말에 값이 달라진다.
+    """
+    if not facility_type:
+        return None
+    moment = (now or datetime.now(timezone.utc)).astimezone(_KST)
+    norm_type = normalize_facility_type(facility_type)
+    peak = _PREDICTED_PEAK_BY_TYPE.get(norm_type, _PREDICTED_PEAK_DEFAULT)
+    shape = _PREDICTED_HOUR_SHAPE.get(norm_type, _PREDICTED_HOUR_SHAPE_DEFAULT)
+    weekday_factor = _PREDICTED_WEEKDAY_FACTOR[moment.weekday()]
+    level = peak * shape[moment.hour] * weekday_factor
+    return round(max(0.0, min(1.0, level)), 3)

@@ -8,7 +8,7 @@
 """
 
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -19,6 +19,7 @@ from app.services.spot.industry_baseline import (
     MIN_BASELINE_FACILITIES_PER_TYPE,
     MIN_BASELINE_LOGS_PER_TYPE,
     get_industry_baseline_congestion,
+    get_predicted_baseline_congestion,
 )
 from app.services.spot.ranking import (
     EVIDENCE_TIER_BY_SCORING_MODE,
@@ -33,6 +34,46 @@ API_ROOT = Path(__file__).resolve().parents[2]
 UNIT_VECTOR = [1.0 / (8 ** 0.5)] * 8
 # 12:00 KST 출발 — wait_time 의 점심 피크 배수(1.3)가 걸리는 구간. 위 4.875분이 그 값이다.
 NOON_KST_DEPART = datetime(2026, 8, 20, 3, 0, tzinfo=timezone.utc)
+
+
+# =========================================================================
+# 0. 카드 표시용 업종 예측 기준선(시각·요일 곡선) — get_predicted_baseline_congestion
+# =========================================================================
+# 이 함수는 실측·모델·추정이 모두 없을 때 카드에 '예측' 으로 얹을 값을 준다. 표본 기반
+# 중앙값(get_industry_baseline_congestion)과 달리 **시각·요일에 따라 실제로 달라져야** 한다 —
+# 가정 시각 시뮬레이터가 카드 혼잡을 움직이게 하는 것이 존재 이유이기 때문이다.
+
+def _kst(hour: int, *, day: int = 24) -> datetime:
+    # 2026-08-24 = 월요일, 2026-08-29 = 토요일. KST 시각을 UTC 로 만들어 넘긴다.
+    return datetime(2026, 8, day, hour, 0, tzinfo=timezone(timedelta(hours=9))).astimezone(timezone.utc)
+
+
+def test_predicted_baseline_varies_by_hour_and_stays_in_range():
+    quiet = get_predicted_baseline_congestion("cafe", _kst(5))    # 새벽 — 한산
+    peak = get_predicted_baseline_congestion("cafe", _kst(15))    # 오후 — 카페 피크
+    assert quiet is not None and peak is not None
+    assert 0.0 <= quiet <= 1.0 and 0.0 <= peak <= 1.0
+    assert quiet < peak  # 시각이 바뀌면 값이 달라진다(같은 요일에서)
+
+
+def test_predicted_baseline_varies_by_weekday():
+    weekday = get_predicted_baseline_congestion("restaurant", _kst(12, day=24))  # 월 정오
+    weekend = get_predicted_baseline_congestion("restaurant", _kst(12, day=29))  # 토 정오
+    assert weekday is not None and weekend is not None
+    assert weekend > weekday  # 같은 시각이라도 주말이 더 붐빈다
+
+
+def test_predicted_baseline_separates_industries_at_the_same_moment():
+    # 같은 시각(오후 3시)에도 업종별 피크 패턴이 달라 값이 갈린다(카페 피크 vs 식당 비피크).
+    moment = _kst(15)
+    cafe = get_predicted_baseline_congestion("cafe", moment)
+    restaurant = get_predicted_baseline_congestion("restaurant", moment)
+    assert cafe != restaurant
+
+
+def test_predicted_baseline_none_for_missing_type():
+    assert get_predicted_baseline_congestion(None, _kst(12)) is None
+    assert get_predicted_baseline_congestion("", _kst(12)) is None
 
 
 # =========================================================================

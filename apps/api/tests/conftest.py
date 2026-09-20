@@ -67,6 +67,18 @@ def _isolate_event_boost(monkeypatch):
     industry_baseline.reset_cache()
     monkeypatch.setattr(score, "get_industry_baseline_congestion", _no_industry_baseline)
 
+    # 카드 표시용 '업종 예측 기준선'(industry_baseline.get_predicted_baseline_congestion,
+    # recommendations.build_candidate_evidence 가 실측·모델·추정이 모두 없을 때 'predicted' 로
+    # 얹는다)도 기본은 꺼 둔다. 이 값은 시각·요일에 따라 달라지는 순수 함수라 켜 두면 '근거 없음
+    # → none' 을 검증하던 기존 라우터/코스 테스트에 예측 카드가 끼어든다. 세 관광객 경로가 이 한
+    # 참조를 공유하므로(코스는 build_candidate_evidence 를 import) 여기 한 곳만 막으면 된다.
+    # 기준선 표시가 필요한 테스트는 이 위에 실제 함수로 다시 패치한다(가정 시각 검증 테스트).
+    from app.routers import recommendations as _recommendations
+
+    monkeypatch.setattr(
+        _recommendations, "get_predicted_baseline_congestion", lambda _facility_type, _now=None: None
+    )
+
     # 추정 모드(congestion_estimator_service)도 기본은 '추정 없음' 이다. 열어 두면 추천·코스·지도
     # 라우터 테스트가 placeholder Supabase 로 스냅샷을 읽으려 하고(느리고 환경 의존), 기존 기대값에
     # 없던 congestion_estimate 가 끼어든다. 추정이 필요한 테스트는 이 위에 다시 패치한다

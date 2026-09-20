@@ -315,7 +315,11 @@ async def _evaluate_candidate(
     # 넘기지 않았다. 그 결과 코스 화면에서는 **사장님 좌석 방송이 measured_rules 로 들어갈 수
     # 없었고**, 근거 등급 정렬(spot/ranking.py)이 고치려던 '정직한 방송이 손해' 가 이 화면에는
     # 애초에 도달하지 못했다. 같은 가게가 추천 목록에서는 실측으로, 코스에서는 무근거로 취급됐다.
-    evidence = await build_candidate_evidence(facility, congestion_now.get(facility["id"]), estimates)
+    # now(가정 시각 또는 현재)를 넘겨 모델 예측·업종 예측 기준선이 코스가 쓰는 기준 시각을 따라가게
+    # 한다(추정·실측의 '지금' 신선도는 벽시계로 재므로 영향 없다 — build_candidate_evidence docstring).
+    evidence = await build_candidate_evidence(
+        facility, congestion_now.get(facility["id"]), estimates, now=now
+    )
 
     # 화면에 싣는 추정 — 순위의 시간비용에는 들어가지 않는다(evidence["source"] 는 그대로라
     # score 의 measured/model 경로가 이것을 보지 못한다. area_stats_rules 후보의 '이미 붐빈다'

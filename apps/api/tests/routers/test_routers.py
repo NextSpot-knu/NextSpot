@@ -625,6 +625,62 @@ def test_recommend_by_type_assumed_time_reopens_night_empty_state(auth_client):
     assert all(it["open_status_at_arrival"] == "open_expected" for it in items)
 
 
+def test_recommend_by_type_predicted_baseline_moves_with_assumed_time(auth_client):
+    """가정 시각을 바꾸면 카드 혼잡도 함께 바뀐다(기능이 죽은 것처럼 보이던 버그의 회귀 방지).
+
+    실측 로그도 학습 모델도 추정도 없는 카페 후보다. 예전에는 이 자리가 늘 congestion_source
+    ='none' 이라, 심사위원이 가정 시각을 바꿔 순위가 움직여도 카드 혼잡은 그대로였다. 이제는
+    업종 예측 기준선이 'predicted'(화면 '예측' 라벨)로 얹히고, 그 값이 가정 시각(KST 시각·요일)에
+    따라 실제로 달라진다. 실측/모델/추정이 있으면 여전히 그것들이 이긴다(우선순위 보존).
+
+    conftest 는 이 예측 기준선을 기본으로 꺼 두므로(다른 테스트의 'none' 계약 보호), 이 테스트는
+    실제 함수로 되돌려 패치한 뒤 두 가정 시각으로 각각 호출한다.
+    """
+    from app.services.spot.industry_baseline import (
+        get_predicted_baseline_congestion as real_predicted_baseline,
+    )
+
+    cafes = [_facility("c-1", "cafe", 0.0002)]
+
+    def _run(assumed_at: str):
+        with patch("app.routers.recommendations.get_predicted_baseline_congestion",
+                   new=real_predicted_baseline), \
+             patch("app.routers.recommendations.fetch_user", new=AsyncMock(return_value=USER_ROW)), \
+             patch("app.routers.recommendations.fetch_all_facilities", new=AsyncMock(return_value=cafes)), \
+             patch("app.routers.recommendations.fetch_congestion_map", new=AsyncMock(return_value={})), \
+             patch("app.routers.recommendations.get_model_info", return_value={"trained": False}), \
+             patch.object(preference_vector_service, "get_user_vector", new=AsyncMock(return_value=UNIT_VECTOR)), \
+             patch("app.routers.recommendations.generate_reason_with_source",
+                   new=AsyncMock(return_value=("사유", "template"))), \
+             patch("app.routers.recommendations.supabase_client",
+                   new=FakeSupabase({"recommendations": [{"id": "rec-1"}]})):
+            res = auth_client.post("/api/v1/recommendations/by-type", json={
+                "user_id": AUTH_USER_ID, "facility_type": "cafe",
+                "user_lat": BASE_LAT, "user_lng": BASE_LNG, "assumed_at": assumed_at,
+            })
+        assert res.status_code == 200, res.text
+        items = res.json()
+        assert len(items) == 1
+        return items[0]
+
+    # 같은 요일(2026-08-27 목)에 이른 아침(08:00 KST, 카페 한산) vs 오후 피크(15:00 KST).
+    quiet = _run("2026-08-27T08:00:00+09:00")
+    peak = _run("2026-08-27T15:00:00+09:00")
+
+    # 정직 표기: 실측이 아니라 예측이다.
+    assert quiet["congestion_source"] == "predicted"
+    assert peak["congestion_source"] == "predicted"
+    assert quiet["congestion_level"] is not None and peak["congestion_level"] is not None
+    # 핵심: 가정 시각이 바뀌면 카드 혼잡도 실제로 달라진다(한산 < 피크).
+    assert quiet["congestion_level"] < peak["congestion_level"]
+    # 예측은 '지금' 을 말할 자격이 있어 카드가 '예측 · 지금' 으로 그린다(마지막 관측이 아니다).
+    assert peak["congestion_is_current"] is True
+    # 예측은 인원수를 지어내지 않는다.
+    assert peak["facility"]["current_count"] is None
+    # 순위 근거는 여전히 무근거(degraded) — 예측 기준선은 카드 표시 전용이고 점수에 들어가지 않는다.
+    assert peak["scoring_mode"] == "degraded_rules"
+
+
 def test_recommend_by_type_returns_persisted_uuid_not_synthetic_id(auth_client):
     # by-type 브라우즈는 노출을 recommendations 에 INSERT 하고 **실제 UUID** 를 돌려준다.
     # 이 계약이 무너져 다시 합성 id("bytype-…")를 돌려주면, 브라우즈 랭킹에서 수락한 추천이
