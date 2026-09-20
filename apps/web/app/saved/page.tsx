@@ -168,7 +168,6 @@ export default function SavedPage() {
       yellow: 'bg-gold',         // 보통
       green: 'bg-emerald-500',   // 여유
       blue: 'bg-jade',           // 한산
-      unknown: 'bg-muk/20'       // 근거 없음(회색) — 지도 '데이터 없음' 마커와 동일 관례
     };
     // 색만으로는 다섯 상태를 구분할 수 없다 — 색각 이상 사용자에게도, 스크린 리더에게도,
     // 햇빛 아래 화면에서도. 12px 점 하나에 의미를 전부 싣지 말고 글자를 함께 둔다.
@@ -177,9 +176,10 @@ export default function SavedPage() {
       yellow: 'congestion.moderate',
       green: 'congestion.relaxed',
       blue: 'congestion.quiet',
-      unknown: 'congestion.unknown',
     } as const;
-    const key = (status in colors ? status : 'unknown') as keyof typeof colors;
+    // 근거 없으면 배지 자체를 렌더하지 않는다 — '근거 없음' 회색 점은 자기 결점 고백(no-defensive-copy).
+    if (!(status in colors)) return null;
+    const key = status as keyof typeof colors;
     return (
       <span className="inline-flex items-center gap-1">
         <span className={`w-3 h-3 rounded-full ${colors[key]}`} aria-hidden="true" />
