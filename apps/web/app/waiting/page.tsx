@@ -32,7 +32,7 @@ import { REGION } from "@/lib/region";
 import { useI18n, useT } from "@/lib/i18n/I18nProvider";
 import { GoldenHourBadge } from "@/components/GoldenHourBadge";
 import NowChip from "@/components/NowChip";
-import OptimizationLoader from "@/components/OptimizationLoader";
+import LoadingReveal from "@/components/LoadingReveal";
 // T2: 휴무 원문(rest_date_raw) 파서 — 오늘 휴무 '확정'만 판정(모르면 null, 과판정 금지). 공용 단일 소스.
 import { isClosedToday } from "@/lib/restDate";
 
@@ -391,7 +391,7 @@ export default function WaitingBoardPage() {
 
         {/* 본문 */}
         {loading ? (
-          <BoardSkeleton />
+          <LoadingReveal variant="waiting" />
         ) : failed ? (
           <ErrorState onRetry={fetchBoard} />
         ) : !sectors || sectors.length === 0 ? (
@@ -643,46 +643,6 @@ export default function WaitingBoardPage() {
         )}
       </div>
     </main>
-  );
-}
-
-function BoardSkeleton() {
-  return (
-    <div className="flex flex-col gap-6">
-      <OptimizationLoader mode="waiting" />
-      <div className="flex flex-col gap-6" aria-hidden>
-      {[0, 1].map((s) => (
-        <div key={s} className="space-y-2">
-          <div className="h-4 w-20 bg-hanji-deep rounded animate-pulse" />
-          <div className="grid grid-cols-3 gap-2">
-            {[0, 1, 2].map((i) => (
-              <div
-                key={i}
-                className="h-64 bg-white/70 border border-line rounded-2xl p-2 animate-pulse"
-              >
-                <div className="w-6 h-6 rounded-full bg-hanji-deep" />
-                <div className="h-3 bg-hanji-deep rounded w-full mt-2" />
-              </div>
-            ))}
-          </div>
-          <div className="flex flex-col gap-2 mt-2">
-            {[0, 1].map((i) => (
-              <div
-                key={i}
-                className="bg-white/70 border border-line rounded-2xl px-3.5 py-2.5 flex items-center gap-2.5 animate-pulse"
-              >
-                <div className="w-7 h-7 rounded-full bg-hanji-deep shrink-0" />
-                <div className="flex-1 space-y-2">
-                  <div className="h-3.5 bg-hanji-deep rounded w-1/2" />
-                  <div className="h-3 bg-hanji-deep rounded w-1/3" />
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      ))}
-      </div>
-    </div>
   );
 }
 

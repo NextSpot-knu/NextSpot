@@ -1017,6 +1017,26 @@
       "step3": "Route"
     }
   },
+  "loadingReveal": {
+    "waiting": {
+      "title": "Finding you a calmer spot",
+      "step1": "Checking Gyeongju's live crowd levels…",
+      "step2": "Picking the less crowded places…",
+      "step3": "Checking who's open at your arrival time…"
+    },
+    "course": {
+      "title": "Planning a calmer route",
+      "step1": "Gathering course candidates…",
+      "step2": "Calculating the travel route…",
+      "step3": "Ordering stops to avoid the crowds…"
+    },
+    "shared": {
+      "title": "Opening the shared course",
+      "step1": "Loading the shared places…",
+      "step2": "Checking when it was shared…",
+      "step3": "Restoring the route…"
+    }
+  },
   "account": {
     "businessTitle": "Request store access",
     "businessDesc": "We will open the merchant console after verification. Our team will contact you.",

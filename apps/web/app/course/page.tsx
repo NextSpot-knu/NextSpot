@@ -34,7 +34,7 @@ import { ErrorState } from "@/components/ErrorState";
 import { ShareButton } from "@/components/ShareButton";
 import CourseMap from "@/components/CourseMap";
 import NowChip from "@/components/NowChip";
-import OptimizationLoader from "@/components/OptimizationLoader";
+import LoadingReveal from "@/components/LoadingReveal";
 import { encodeStops, parseShareParam } from "@/lib/courseShare";
 import { describeReplan } from "@/lib/coursePlanDiff";
 import { loadTravelContext } from "@/lib/travelContext";
@@ -1537,36 +1537,7 @@ function CourseSkeleton({ mode }: { mode: "course" | "shared" }) {
         <div className="w-12 h-1.5 rounded-full bg-line mx-auto mt-3" />
 
         <div className="mx-auto w-full max-w-md md:max-w-2xl px-4 md:px-6 pt-4 pb-[calc(var(--tourist-nav-clearance)+env(safe-area-inset-bottom))] md:pb-10 space-y-6">
-          <OptimizationLoader mode={mode} />
-          {/* 헤더 */}
-          <div className="space-y-2">
-            <div className="h-5 w-28 rounded-full bg-hanji-deep animate-pulse" />
-            <div className="h-6 w-2/3 rounded-md bg-hanji-deep animate-pulse" />
-            <div className="h-3 w-1/2 rounded-md bg-hanji-deep animate-pulse" />
-          </div>
-
-          {/* 스텝퍼 */}
-          <div className="flex items-start gap-3">
-            {[0, 1, 2].map((i) => (
-              <div key={i} className="flex-1 flex flex-col items-center gap-1.5">
-                <div className="w-8 h-8 rounded-full bg-hanji-deep animate-pulse" />
-                <div className="h-2 w-10 rounded bg-hanji-deep animate-pulse" />
-              </div>
-            ))}
-          </div>
-
-          {/* 정보 행 */}
-          <div className="space-y-3">
-            {[0, 1, 2].map((i) => (
-              <div key={i} className="flex items-start gap-3">
-                <div className="w-9 h-9 rounded-full bg-hanji-deep animate-pulse shrink-0" />
-                <div className="flex-1 space-y-2">
-                  <div className="h-4 w-2/3 rounded bg-hanji-deep animate-pulse" />
-                  <div className="h-3 w-1/2 rounded bg-hanji-deep animate-pulse" />
-                </div>
-              </div>
-            ))}
-          </div>
+          <LoadingReveal variant={mode} />
         </div>
       </div>
     </div>
