@@ -1,5 +1,72 @@
 @import "tailwindcss";
 
+/* Freesentation — 전역 통일 서체(OFL 라이선스, Noonnu 배포·jsDelivr CDN 호스팅).
+   런타임 로드라 정적 export 빌드에는 영향 없음. 본문/제목/버튼/카드 등 모든 텍스트가
+   이 하나의 서체를 쓰도록 --font-sans/--font-serif 토큰에서 최우선으로 참조한다(아래 @theme). */
+@font-face {
+  font-family: 'Freesentation';
+  src: url('https://cdn.jsdelivr.net/gh/projectnoonnu/2404@1.0/Freesentation-1Thin.woff2') format('woff2');
+  font-weight: 100;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Freesentation';
+  src: url('https://cdn.jsdelivr.net/gh/projectnoonnu/2404@1.0/Freesentation-2ExtraLight.woff2') format('woff2');
+  font-weight: 200;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Freesentation';
+  src: url('https://cdn.jsdelivr.net/gh/projectnoonnu/2404@1.0/Freesentation-3Light.woff2') format('woff2');
+  font-weight: 300;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Freesentation';
+  src: url('https://cdn.jsdelivr.net/gh/projectnoonnu/2404@1.0/Freesentation-4Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Freesentation';
+  src: url('https://cdn.jsdelivr.net/gh/projectnoonnu/2404@1.0/Freesentation-5Medium.woff2') format('woff2');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Freesentation';
+  src: url('https://cdn.jsdelivr.net/gh/projectnoonnu/2404@1.0/Freesentation-6SemiBold.woff2') format('woff2');
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Freesentation';
+  src: url('https://cdn.jsdelivr.net/gh/projectnoonnu/2404@1.0/Freesentation-7Bold.woff2') format('woff2');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Freesentation';
+  src: url('https://cdn.jsdelivr.net/gh/projectnoonnu/2404@1.0/Freesentation-8ExtraBold.woff2') format('woff2');
+  font-weight: 800;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Freesentation';
+  src: url('https://cdn.jsdelivr.net/gh/projectnoonnu/2404@1.0/Freesentation-9Black.woff2') format('woff2');
+  font-weight: 900;
+  font-style: normal;
+  font-display: swap;
+}
+
 :root {
   --tourist-nav-clearance: 80px;
   --background: #faf5ec;
@@ -28,9 +95,11 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  /* 서체: 본문=한글 산세(Noto Sans KR), 제목=한글 명조(Noto Serif KR) */
-  --font-sans: var(--font-noto-sans-kr), var(--font-geist-sans), system-ui, sans-serif;
-  --font-serif: var(--font-noto-serif-kr), Georgia, serif;
+  /* 서체: 전역 통일 — Freesentation 우선, 로드 전/실패 시 기존 한글 폴백 스택 유지.
+     본문·제목·버튼·카드·가이드 등 모든 텍스트가 font-sans/font-serif 토큰을 거치므로
+     여기 한 곳만 바꾸면 앱 전체에 전파된다("다 같은 글씨체"가 목표). */
+  --font-sans: 'Freesentation', var(--font-noto-sans-kr), var(--font-geist-sans), system-ui, sans-serif;
+  --font-serif: 'Freesentation', var(--font-noto-serif-kr), Georgia, serif;
   --font-mono: var(--font-geist-mono);
 
   /* 한지(관광객 라이트) */
