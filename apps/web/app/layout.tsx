@@ -7,7 +7,6 @@ import BottomNav from "@/components/shell/BottomNav";
 import ServiceWorkerRegister from "@/components/shell/ServiceWorkerRegister";
 import SessionBootstrap from "@/components/shell/SessionBootstrap";
 import InstallPrompt from "@/components/shell/InstallPrompt";
-import LlmDebugToast from "@/components/shell/LlmDebugToast";
 import { I18nProvider } from "@/lib/i18n/I18nProvider";
 // 계정 권한(역할·소유 가게) 단일 출처 — 콘솔 진입점 게이팅에 쓴다(lib/account.tsx).
 import { AccountProvider } from "@/lib/account";
@@ -91,7 +90,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             {/* PWA 설치 유도 배너 — beforeinstallprompt 캡처는 useT() 로 i18n 문구를 쓰므로 I18nProvider 내부에 마운트. */}
             <InstallPrompt />
             <PageTransition>{children}</PageTransition>
-            <LlmDebugToast />
+            {/* LlmDebugToast(추천 사유 AI/템플릿 디버그 배지)는 심사 라이브 데모에서 내부 동작을
+                노출해 제거했다(PM 지시 2026-09-21). 이벤트 발행부는 무해하게 남아 있다 —
+                다시 필요하면 이 자리에 <LlmDebugToast /> 를 되살릴 것. */}
             </GuideProvider>
             </PublicSettingsProvider>
             </MotionProvider>
