@@ -6,9 +6,10 @@
 
 ## 배포 상태
 
-- **main = 프로덕션.** main push가 Vercel(web)·Render(api)를 자동 배포한다. 마지막 반영은 2026-09-08 —
-  09-04 정리(`a02be96`) 이후 커밋 범위는 `git log --oneline a02be96..origin/main` 으로 확인한다.
-  사람이 마지막으로 배포 결과를 눈으로 확인한 시점은 2026-09-08(관리자 대시보드·통계/성과 리포트 화면).
+- **main = 프로덕션.** main push가 Vercel(web)·Render(api)를 자동 배포한다. 마지막 반영은 2026-09-20 —
+  `feature/judge-guide`를 fast-forward(`fd80ce2..` 소개/심사 동선 + 창업 신청서 근거 + 시그니처 6종 그리드,
+  로컬 게이트 lint/typecheck/test 50파일/build 39페이지/check-docs/e2e 30건 전부 통과 후 승격).
+  사람이 마지막으로 배포 결과를 눈으로 확인한 시점은 2026-09-08(관리자 대시보드·통계/성과 리포트 화면) — **09-20 반영분 확인 대기**.
   규칙: main에 푸시한 쪽(에이전트 포함)이 위 줄의 날짜를 갱신하고, Vercel·Render 배포를 눈으로 본 사람이 확인 날짜를 적는다.
 - **CI 는 이제 `yunseong` 푸시에서도 돈다**(`ci.yml` 트리거에 추가, 09-08). 그전에는 `main` 과 PR 뿐이라
   PR 없이 fast-forward 하는 이 저장소에서는 **CI 를 처음 보는 시점이 곧 배포 시점**이었다 —
