@@ -4,6 +4,7 @@ import dynamic from 'next/dynamic';
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import Image from 'next/image';
 import {
   Menu, Bell, Bookmark, User,
   Edit2, ChevronRight, LogOut,
@@ -349,7 +350,10 @@ export default function MyPage() {
         >
           <Menu size={24} />
         </button>
-        <h1 className="text-xl font-bold font-serif text-muk tracking-wide">NextSpot</h1>
+        <h1 className="flex items-center">
+          <Image src="/nextspot-logo.png" alt="NextSpot" width={505} height={109} priority className="nextspot-logo-light h-7 w-auto" />
+          <Image src="/nextspot-logo-dark.png" alt="NextSpot" width={505} height={109} priority className="nextspot-logo-dark h-7 w-auto" />
+        </h1>
         <div className="flex items-center gap-2">
           <LanguageSwitcher />
           <button

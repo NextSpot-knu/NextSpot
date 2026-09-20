@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import Image from 'next/image';
 import { Compass, Star, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { RecommendationCard } from '@/components/RecommendationCard';
@@ -195,7 +196,10 @@ export default function SavedPage() {
           읽었다. 기능이 정해지면 mypage 헤더처럼(설정 이동 + mypage.bellAria) 다시 붙이면 된다.
           제목은 justify-center 로 가운데 정렬을 유지한다(버튼이 빠지면 justify-between 이 왼쪽으로 민다). */}
       <header className="flex justify-center items-center p-5 border-b border-line z-10 relative">
-        <h1 className="text-xl font-bold font-serif text-muk tracking-wide">NextSpot</h1>
+        <h1 className="flex items-center">
+          <Image src="/nextspot-logo.png" alt="NextSpot" width={505} height={109} priority className="nextspot-logo-light h-7 w-auto" />
+          <Image src="/nextspot-logo-dark.png" alt="NextSpot" width={505} height={109} priority className="nextspot-logo-dark h-7 w-auto" />
+        </h1>
       </header>
 
       {/* Main Content Area */}
