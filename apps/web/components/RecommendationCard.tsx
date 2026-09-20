@@ -724,11 +724,7 @@ export function RecommendationCard({
                     ? t('recommend.areaEvidenceCount', { n: evidenceCount })
                     : `${t('recommend.areaDemand')}: ${congestionLabel(areaDemandLevel)}`}
                 </span>
-              ) : (
-                <span className="px-2 py-0.5 rounded-md text-[10px] font-bold border bg-muk/5 border-line text-muk-soft">
-                  {t('card.congestionPreparing')}
-                </span>
-              )}
+              ) : null}
               {shownCongestionLevel === null && !estimate && typeof areaDemandLevel === 'number' && demandDisclosure.showQualitativeLevel && (
                 <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold border bg-sky-500/10 border-sky-500/20 text-sky-700">
                   {t(areaDemandMode === 'live'
@@ -753,18 +749,7 @@ export function RecommendationCard({
                     km: estimateRadiusKm(estimate.radiusM),
                   })}
                 </span>
-              ) : (
-                // 근거가 **없을 때도** 말한다.
-                //
-                // 예전에는 혼잡 수치가 있을 때만 이 배지를 그렸다. 그래서 근거가 하나도 없는
-                // 곳은 화면에서 **아무 표시도 없이** 조용히 지나갔다. 지금은 정렬이 근거 등급을
-                // 점수보다 먼저 보므로(spot/ranking.py) "도보 3분 무근거 카페" 가 "도보 15분
-                // 실측 카페" 뒤로 밀린다 — 사용자 눈에는 이유 없이 먼 곳이 1등인 화면이 된다.
-                // 그 이유를 카드가 스스로 말해야 한다.
-                <span className="px-2 py-0.5 rounded-md text-[10px] font-medium border border-dashed border-line bg-transparent text-muk-soft">
-                  {t('card.evidenceNone')}
-                </span>
-              )}
+              ) : null}
               {/* '지금' 자격을 잃은 관측을 **지우지 않고** 맥락으로 남긴다.
                   추정이 자리를 가져갔든(위 점선 배지), 대신할 추정이 없어 그대로 칠했든 —
                   사용자가 보는 숫자가 언제 본 것인지는 늘 말해야 한다. 이 칩은 '지금' 을 주장하지
