@@ -41,6 +41,12 @@ services:
       #     대상지 목록 SEOUL_CITYDATA_TARGETS 는 기본값(홍대 관광특구)이 코드에 있어 넣지 않아도 된다. ---
       - key: SEOUL_OPENDATA_KEY
         sync: false
+      # --- 경주 메뉴별음식점(data.go.kr 15114465, 제공기관 5050000)(선택 — 둘 다 비면 보강 배치가 no-op).
+      #     base URL 예: https://apis.data.go.kr/5050000/menuRstrtService. TOURAPI_KEY 와 별도 활용신청 키. ---
+      - key: GYEONGJU_FOOD_API_BASE_URL
+        sync: false
+      - key: GYEONGJU_FOOD_API_KEY
+        sync: false
       # --- Kakao Local 장소검색(공중화장실 좌표) + Mobility 경로(선택) ---
       - key: KAKAO_REST_API_KEY
         sync: false

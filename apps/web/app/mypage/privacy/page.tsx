@@ -34,7 +34,7 @@ export default function PrivacyPage() {
       </header>
 
       {/* Main Content */}
-      <main className="flex-1 flex flex-col gap-4 relative z-10 px-6 overflow-y-auto pb-[calc(80px+env(safe-area-inset-bottom))] md:pb-6 no-scrollbar">
+      <main className="flex-1 flex flex-col gap-4 relative z-10 px-6 overflow-y-auto pb-[calc(var(--tourist-nav-clearance)+env(safe-area-inset-bottom))] md:pb-6 no-scrollbar">
 
         {/* 안내 문단 */}
         <p className="text-sm text-muk-soft leading-relaxed px-1">

@@ -1,8 +1,9 @@
 import asyncio
+import time
 from datetime import datetime, timedelta, timezone
 
 import structlog
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Query, Request
 from typing import Literal
 
 from pydantic import BaseModel
@@ -15,6 +16,12 @@ from app.services.congestion_evidence import (
     estimate_for,
     load_current_estimates,
     measurement_is_current,
+)
+from app.services.tourapi import client as tourapi
+from app.services.tourapi.transform import (
+    extract_detail_common,
+    extract_intro_phone_fallback,
+    extract_operating_hours,
 )
 
 logger = structlog.get_logger()
@@ -148,6 +155,11 @@ class InfrastructureItem(BaseModel):
     # 프런트 하위호환: 필드 추가만(전부 Optional·기본 None). TourAPI 적재분(locationBasedList2·
     # detailCommon2·detailInfo2)만 값이 있고, 수동 시드 행은 None — 프런트는 값 있을 때만 렌더.
     image_url: str | None = None
+    # TourAPI 적재분의 원문 식별자(전부 Optional·기본 None — 수동 시드/Kakao 발굴 행은 None).
+    # 프런트의 '실시간 정보 새로고침'(GET /infrastructures/live-detail/{contentid})이 이 둘로
+    # detailCommon2/Intro2 를 다시 조회한다. 값이 없으면 프런트는 그 버튼을 그리지 않는다(추가만).
+    contentid: str | None = None
+    contenttypeid: int | None = None
     # detailImage2 갤러리(최대 5장) — 추천(by-type) 응답은 원본 dict 라 이미 내려가는데
     # 이 모델만 누락돼 /main 경로가 갤러리를 영영 못 받던 결손(2026-07-17 소비 경로 감사).
     gallery_images: list[str] | None = None
@@ -406,6 +418,8 @@ async def get_infrastructures(
                 features=_slim_features(f.get("features")),
                 congestion=congestion,
                 image_url=f.get("image_url"),
+                contentid=f.get("contentid"),
+                contenttypeid=f.get("contenttypeid"),
                 gallery_images=_clean_gallery_images(f.get("gallery_images")),
                 address=f.get("address"),
                 phone=f.get("phone"),
@@ -424,6 +438,101 @@ async def get_infrastructures(
         # 예외 원문은 서버 로그로만 — DB 오류/스택 문자열을 클라이언트에 노출하지 않는다.
         logger.error("infrastructures_fetch_error", error=str(e))
         raise HTTPException(status_code=500, detail="시설 데이터 조회에 실패했습니다.")
+
+
+# =============================================================================
+# GET /api/v1/infrastructures/live-detail/{contentid} — POI 상세 실시간 조회
+# =============================================================================
+#
+# 캐시된 시설 행이 먼저 그려진 위에, 사용자가 눌러 TourAPI(detailCommon2/detailIntro2)로
+# 최신 표시 필드(운영시간·개요·홈페이지·이미지·전화)를 다시 받아 덧씌우는 용도(무인증·게스트 허용).
+# detail_common/detail_intro 는 목록 캐시(_get_cached)를 타지 않는 단건 조회라 쿼터를 직접 소모하므로,
+# search.py 의 인메모리 IP 슬라이딩 윈도우 리밋 패턴을 그대로 미러링해 남용을 막는다(단일 인스턴스
+# 데모 기준 — reports.py/tracking.py 와 동일 전제). 어떤 실패(키 미설정·네트워크·쿼터·파싱·리밋
+# 초과)도 500 이 아니라 200 + {"source": "unavailable"} 무해 폴백으로 흡수한다 — 프런트는 캐시된
+# 행을 그대로 유지한다(events.py 축제 상세와 동일한 '조용한 저하'). 데모 안정성상 5xx 를 던지지 않는다.
+_LIVE_DETAIL_RATE_LIMIT_WINDOW_SEC = 60.0
+_LIVE_DETAIL_RATE_LIMIT = 10  # IP 당 분당 10회
+_live_detail_hits: dict[str, list[float]] = {}
+
+
+def _live_detail_client_ip(request: Request) -> str:
+    """레이트리밋 키용 클라이언트 IP(search._client_ip 미러 — XFF 는 신뢰 프록시가 덧붙인 마지막 값)."""
+    xff = request.headers.get("x-forwarded-for")
+    if xff:
+        parts = [p.strip() for p in xff.split(",") if p.strip()]
+        if parts:
+            return parts[-1]
+    return request.client.host if request.client else "unknown"
+
+
+def _live_detail_rate_limited(ip: str) -> bool:
+    """분당 _LIVE_DETAIL_RATE_LIMIT 회 슬라이딩 윈도우(search._check_rate_limit 미러). 초과면 True."""
+    now = time.monotonic()
+    hits = [t for t in _live_detail_hits.get(ip, []) if now - t < _LIVE_DETAIL_RATE_LIMIT_WINDOW_SEC]
+    if len(hits) >= _LIVE_DETAIL_RATE_LIMIT:
+        _live_detail_hits[ip] = hits  # 초과 요청은 기록하지 않는다(윈도우가 계속 밀리지 않게)
+        return True
+    hits.append(now)
+    _live_detail_hits[ip] = hits
+    return False
+
+
+@router.get("/infrastructures/live-detail/{contentid}")
+async def get_infrastructure_live_detail(
+    contentid: str,
+    request: Request,
+    contentTypeId: int = Query(..., description="TourAPI contentTypeId(관광지 12·문화시설 14·음식점 39)"),
+):
+    """POI 상세를 TourAPI 로 실시간 조회해 표시용 필드만 camelCase 로 돌려준다.
+
+    반환 계약(값이 실측된 필드만 포함):
+      · 성공: {"source": "tourapi-live", operatingHours?, overview?, homepage?, imageUrl?, phone?}
+      · 실패/미조회/리밋 초과: {"source": "unavailable"} (HTTP 200 — 프런트는 캐시값 유지)
+
+    detail_common(개요·홈페이지·이미지·전화)과 detail_intro(운영시간·전화 폴백)을 각각 독립
+    try/except 로 시도한다(events._fetch_festival_detail 관례 — 한쪽 실패가 다른 쪽 값을 버리지
+    않는다). 추출은 _enrich_and_transform 과 동일한 extract_* 헬퍼를 재사용한다.
+    """
+    ip = _live_detail_client_ip(request)
+    if _live_detail_rate_limited(ip):
+        logger.info("live_detail_rate_limited", ip_prefix=ip[:12])
+        return {"source": "unavailable"}
+
+    result: dict = {}
+
+    try:
+        common_items = tourapi.parse_items(await tourapi.detail_common(contentid))
+        if common_items:
+            common = extract_detail_common(common_items[0])
+            if common.get("overview"):
+                result["overview"] = common["overview"]
+            if common.get("homepage"):
+                result["homepage"] = common["homepage"]
+            if common.get("image_url"):
+                result["imageUrl"] = common["image_url"]
+            if common.get("phone"):
+                result["phone"] = common["phone"]
+    except Exception as e:  # RuntimeError(키 미설정)·TourAPIError 모두 무해 폴백
+        logger.warning("live_detail_common_failed", contentid=contentid, error=str(e))
+
+    try:
+        intro_items = tourapi.parse_items(await tourapi.detail_intro(contentid, contentTypeId))
+        if intro_items:
+            intro_item = intro_items[0]
+            hours = extract_operating_hours(intro_item, contentTypeId)
+            if hours:
+                result["operatingHours"] = hours
+            if not result.get("phone"):
+                phone_fallback = extract_intro_phone_fallback(intro_item, contentTypeId)
+                if phone_fallback:
+                    result["phone"] = phone_fallback
+    except Exception as e:  # RuntimeError(키 미설정)·TourAPIError 모두 무해 폴백
+        logger.warning("live_detail_intro_failed", contentid=contentid, error=str(e))
+
+    if not result:
+        return {"source": "unavailable"}
+    return {"source": "tourapi-live", **result}
 
 
 # 지도용 추정 묶음은 추천(3초)보다 조금 더 기다린다 — 이 요청은 지도 로딩과 **병렬**로 나가고,

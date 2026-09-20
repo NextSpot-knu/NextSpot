@@ -2,8 +2,9 @@
 
 > PT 심사 질의응답 대비 문서. 각 답변은 코드/문서 근거를 명시한다. 정본 전략은
 > [`CONTEST_STRATEGY.md`](./CONTEST_STRATEGY.md), 최신 상태는 [`HANDOVER.md`](../HANDOVER.md) 참고.
-> 2026-09-20에 **추정 모드·서울 검증**을 묻는 4문(Q11~Q14)을 더하고 Q2·Q5를 현재 수치로 고쳤다.
-> 데이터 쪽 근거는 [`DATA_UTILIZATION.md`](./DATA_UTILIZATION.md) §7·§8.
+> 2026-09-20에 **추정 모드·서울 검증**을 묻는 4문(Q11~Q14)과 **실시간 호출 여부**를 묻는 1문(Q15)을
+> 더하고 Q2·Q5를 현재 수치로 고쳤다.
+> 데이터 쪽 근거는 [`DATA_UTILIZATION.md`](./DATA_UTILIZATION.md) §7·§8·§9.
 
 ---
 
@@ -176,3 +177,26 @@ Supabase 익명 세션으로 기기별 무마찰 자동 로그인을 제공하�
 실측 인파가 둘 다 있어 **검증 지점**으로 쓴다(각 5곳·8곳 — 경주 ITS 4곳과 자릿수가 비슷하다).
 출처는 "서울 실시간 도시데이터, 서울특별시(서울 열린데이터광장), 공공누리 제1유형"으로 화면과 발표에 명시한다.
 [뒷받침 근거: apps/api/app/services/seoul_citydata_service.py(_TARGET_PROFILES), supabase/migrations/20260920120000_seoul_citydata_snapshots.sql]
+
+---
+
+## Q15. [데이터] OpenAPI를 실시간으로 호출하나, 로컬 DB에만 저장해 두고 쓰는 것 아닌가?
+
+아니다 — 배치 적재는 사실이지만 그게 전부가 아니다. KorService2를 실제로 부르는 지점이 배치 1곳과
+런타임 2곳, 총 세 곳이다. ① 매일 KST 04:00 GitHub Actions cron이 `locationBasedList2` + POI당
+`detailCommon2`/`detailIntro2`/`detailInfo2`/`detailImage2` + `areaBasedSyncList2`를 부르고(성공
+1회당 약 300건, 2026-09-20 실측), ② 메인 화면 진입마다 `GET /api/v1/events`가 `searchFestival2` +
+진행 중 축제 상세를 부르며(24h/1h TTL로 쿼터만 보호할 뿐 요청 자체는 캐시 창마다 실제로 발생한다),
+③ 지도 검색과 Kakao 장소 검색이 **둘 다 0건**일 때만 `GET /api/v1/search/keyword`가 `searchKeyword2`를
+부른다. 셋 다 서버 쪽 `TOURAPI_KEY`로만 호출하고(브라우저 직접 호출 없음), `facilities` 테이블은
+이 호출들의 결과를 담아 두는 **쿼터·지연·가용성 캐시**이지 TourAPI를 대신하는 저장소가 아니다 —
+메인 화면의 POI 목록·지도 마커는 이 캐시에서 서빙되는 게 맞고, 그것이 배치 ①이 매일 채워 넣는
+대상이다. 관리자가 검색 폴백 결과를 승인해 적재할 때도(`POST /api/v1/search/ingest-requests/approve`)
+그 1건에 대해 `detailCommon2`/`detailIntro2`를 그 자리에서 한 번 더 부른다.
+
+호출 이력도 확인 가능하다. `gh run list`로 2026-07-15~2026-09-20 구간의 스케줄 실행 62회를 전수
+확인한 결과 47회 성공(75.8%)했고, 나머지 15회는 `locationBasedList2` 첫 호출 실패로 그날 배치가
+중단됐다(다음 날 재개돼 회복 — 코드 결함이 아니라 TourAPI 쪽 일시 오류로 보인다). 이 실패 자체가
+방증이다 — 고정 응답을 캐시에서 재생하는 구조라면 이런 실패가 날 수 없다. 발급된 `TOURAPI_KEY`의
+공공데이터포털 활용현황에는 이 개발 기간 내내의 실제 타임스탬프가 이미 두텁게 쌓여 있다.
+[뒷받침 근거: docs/contest/DATA_UTILIZATION.md §9, .github/workflows/ingest.yml, apps/api/app/routers/events.py, apps/api/app/routers/search.py, apps/web/app/main/page.tsx:2455-2469]

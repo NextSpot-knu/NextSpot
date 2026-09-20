@@ -253,5 +253,75 @@ TourAPI는 **장소(POI)** 를 준다. 장소가 "지금 붐비는지"는 주지
 
 ---
 
+## 9. 실시간 호출 검증 — 배치·런타임 호출 지점과 실제 호출 이력 (2026-09-20 추가)
+
+이 절은 「데이터 활용 적절성(공사 OpenAPI 필수) 20점」이 확인하는 것 — **실제로 KorService2를
+실시간으로 부르는가, 그 호출 이력이 발급키에 남아 있는가** — 에 file:line 근거로 답한다. `facilities`
+캐시는 §1~§3의 경로를 대체하는 저장소가 아니라 **그 경로 위에 얹은 쿼터·지연·가용성 계층**이다.
+아래 지점 전부 KorService2를 서버 쪽 `TOURAPI_KEY`로만 부르며(브라우저 직접 호출 없음), 파일 데이터가
+아니다.
+
+### 9-1. 실호출 지점 — 배치 1 + 런타임 2 (+ 관리자 승인 1)
+
+| 경로 | 트리거 | 부르는 엔드포인트 | 캐시 정책(쿼터 보호) | 근거 |
+|---|---|---|---|---|
+| **① 일배치(cron)** | GitHub Actions 스케줄, 매일 KST 04:00 | `locationBasedList2`(contentTypeId 12/14/39 페이지네이션) → POI당 `detailCommon2`/`detailIntro2`/`detailInfo2`/`detailImage2`(`--details`) → `areaBasedSyncList2`(지역 전체 showflag 동기화) | 없음 — 배치 자체가 매일의 "새로고침"이라 매 실행이 곧 새 실호출 | `.github/workflows/ingest.yml:63`, `apps/api/scripts/ingest_tourapi.py`(`fetch_pois`/`enrich_row`/`fetch_showflag_map`) |
+| **② 축제 피드(런타임)** | 메인 화면 진입 시 `GET /api/v1/events` | `searchFestival2`(목록) + 진행 중 축제당 `detailCommon2`/`detailIntro2` | 목록 24h·상세 1h TTL(`client.py` `CACHE_TTL_SECONDS`, `events.py` `_DETAIL_TTL_SECONDS`) — 창이 지나면 다음 요청이 실호출을 새로 낸다 | `apps/api/app/routers/events.py:213`(목록), `:153`·`:169`(상세) |
+| **③ 키워드 검색 폴백(런타임)** | 지도 검색(로컬 `facilities`)과 Kakao 장소 검색이 **둘 다 0건**일 때만 `GET /api/v1/search/keyword` | `searchKeyword2` | 키워드별 24h TTL(같은 캐시 함수) | `apps/web/app/main/page.tsx:2455-2469`(순서: 로컬→Kakao→관광공사), `apps/api/app/routers/search.py:221-231,285-295` |
+
+부가로 한 곳 더 있다 — **관리자 검수 승인**(`POST /api/v1/search/ingest-requests/approve`)도 승인
+버튼을 누르는 순간 해당 1건에 대해 `detailCommon2`/`detailIntro2`를 캐시 없이 그 자리에서 부른다
+(`apps/api/app/routers/search.py:415,435` `_enrich_and_transform`). 위 세 지점의 "덤"이라 표에는
+넣지 않았지만, 배치·이벤트·검색 밖에 또 다른 실호출 경로가 있다는 근거로 남긴다.
+
+**메인 POI 목록·지도 마커 자체는 실시간 호출이 아니다.** 지도·추천 카드가 읽는 것은 위 ①이 매일
+채워 놓은 `facilities` 테이블이다(§2 다이어그램의 `DB` 노드). 캐시가 서빙하는 것과, 그 캐시를 채우는
+실제 KorService2 호출을 구분하지 않으면 "저장만 하고 안 부른다"는 지적에 답할 수 없다 — 이 절이
+그 구분이다.
+
+### 9-2. 배치 1회당 실제 호출 건수 — 실측(2026-09-20)
+
+최근 5회 연속 성공한 스케줄 실행 로그(`gh run view <id> --log`, 예: run `35396258788` 2026-09-18)가
+전부 동일하게 보고한다 — 관광지 27 + 문화시설 2 + 음식점 45 = **POI 74곳**, showflag 동기화 대상
+76건. 이걸로 실제 호출 건수를 그대로 셀 수 있다.
+
+```
+locationBasedList2   3건   (관광지/문화시설/음식점 각 1페이지 — 매 타입 100건 미만이라 페이지 추가 없음)
+detailCommon2 등 4종 296건  (POI 74곳 × 4콜: detailCommon2·detailIntro2·detailInfo2·detailImage2)
+areaBasedSyncList2    1건   (76건 확인 — 100건 미만이라 1페이지)
+─────────────────────────
+합계                 300건  (성공 실행 1회당)
+```
+
+`.github/workflows/ingest.yml:61` 주석의 "약 360콜" 어림은 2026-07-17 반경 확장 직후 POI 수
+(~90곳) 기준이었다 — 그 사이 POI 수가 74곳으로 줄어(폐업·표출중단 자동 감지, §5) 지금 실측치는
+약 300건이다. 정확한 숫자는 그날의 POI 수에 달려 있고, 부풀리지 않기 위해 추정이 아니라 실행
+로그의 숫자를 그대로 쓴다.
+
+### 9-3. 성공률과 호출 이력의 두께 — 실패도 실호출의 증거다
+
+`gh run list --workflow="TourAPI Ingest"`로 2026-07-15~2026-09-20 구간의 스케줄 실행 62회를 전수
+확인했다 — **47회 성공(75.8%), 15회 실패**. 실패는 전부 같은 패턴이다: `locationBasedList2` 첫
+호출이 빈 오류로 실패해(`tourapi_request_failed endpoint=locationBasedList2`) 그 배치가 중단된다
+(예: run `35469549638`·`35027665494`·`34649241605`). 원인 로그에 응답 본문이 없어 TourAPI 쪽
+일시 장애·레이트리밋으로 추정하며, 코드 결함은 아니다 — 다음 날 스케줄이 매번 정상 재개돼 회복된다.
+
+이 실패·재개 패턴 자체가 방증이다. 고정된 응답을 캐시에서 재생하는 구조라면 이런 실패가 날 수
+없다 — 매 실행이 실제 원격 KorService2 서버를 두드리기 때문에 나오는 실패다. 성공한 47회 각각
+수백 건(최근 기준 약 300건, §9-2)의 실호출을 냈고, 여기에 §9-1의 런타임 2경로(축제·키워드)가
+매일 더해진다 — 심사가 열어볼 `TOURAPI_KEY`의 공공데이터포털 활용현황에는 개발 기간 내내의 실제
+타임스탬프가 이미 두텁게 쌓여 있다.
+
+### 9-4. 출처 표기 — 공모전 규정과 현재 앱 문구의 차이
+
+공모전 규정상 TourAPI 파생 콘텐츠의 표기 의무는 **"출처: ⓒ한국관광공사"**(원 저작물에 따라
+**"출처: ⓒ한국관광콘텐츠랩"**) 텍스트다 — "TourAPI"라는 API 상표명 단독 표기나 로고 이미지로는
+충족되지 않는다. 현재 앱 가이드 화면 문구(`apps/web/lib/i18n/messages/ko.json:52`
+`"sourceTour": "한국관광공사 TourAPI"`)는 기관명은 담고 있지만 규정이 요구하는 "출처: ⓒ" 접두
+형식과는 다르다 — 코드 변경은 이 문서(docs/contest/)의 범위 밖이라 여기서는 격차만 정직하게
+남긴다. **제출 전 UI 문구 정정이 필요하다.**
+
+---
+
 _이 문서는 서면 심사 제출용 데이터 활용 명세다. 실적재 완료·상세 카드 UI 반영 등 §5 백로그가
 진척되면 본 문서와 매핑 표를 함께 갱신한다._

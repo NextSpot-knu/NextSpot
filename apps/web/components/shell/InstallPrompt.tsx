@@ -180,7 +180,7 @@ export function InstallPrompt() {
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: 24 }}
           transition={{ type: 'spring', bounce: 0.25, duration: 0.5 }}
-          className="fixed z-[54] left-1/2 -translate-x-1/2 bottom-[calc(88px+env(safe-area-inset-bottom))] w-full max-w-sm px-4"
+          className="fixed z-[54] left-1/2 -translate-x-1/2 bottom-[calc(var(--tourist-nav-clearance)+8px+env(safe-area-inset-bottom))] w-full max-w-sm px-4"
         >
           <div className="relative bg-white/95 backdrop-blur-2xl border border-line rounded-3xl p-4 shadow-[0_8px_30px_rgba(43,35,32,0.16)]">
             {/* 상단 장식 라인 */}

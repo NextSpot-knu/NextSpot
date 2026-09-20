@@ -6,6 +6,7 @@ import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useT } from '@/lib/i18n/I18nProvider';
 import NextSpotMascot from '@/components/NextSpotMascot';
+import { GuideButton } from '@/components/guide/GuideProvider';
 import { haptic, interactionSpring, tapMotion } from '@/lib/motion';
 
 // 관광객 앱 주 내비게이션 — 반응형:
@@ -105,6 +106,7 @@ export default function BottomNav() {
             );
           })}
         </div>
+        <GuideButton className="mt-auto min-h-16 w-16 flex-col py-2" />
       </nav>
 
       {/* ── 모바일: 하단 가로 바 (fixed 오버레이) ── */}
@@ -112,6 +114,9 @@ export default function BottomNav() {
         aria-label="주요 내비게이션"
         className="md:hidden fixed bottom-0 left-0 w-full z-40 bg-white/90 backdrop-blur-xl border-t border-line shadow-[0_-2px_14px_rgba(43,35,32,0.06)] px-6 py-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))]"
       >
+        <div className="mb-1 flex h-8 items-center border-b border-line pb-1">
+          <GuideButton compact className="min-h-8 px-1" />
+        </div>
         <div className="relative flex justify-around items-center w-full">
           {/* 활성 탭 가로 슬라이딩 인디케이터 — 탭 수 기반 일반화(중심 = (idx+0.5)/N). */}
           <motion.div

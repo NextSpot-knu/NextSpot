@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useId } from 'react';
 import { motion, PanInfo, AnimatePresence } from 'framer-motion';
-import { Bookmark, Check, Sparkles, Star, Phone, MapPin, Clock, ChevronUp, ChevronDown, Info, Globe, Utensils } from 'lucide-react';
+import { Bookmark, Check, Sparkles, Star, Phone, MapPin, Clock, ChevronUp, ChevronDown, Info, Globe, Utensils, RefreshCw } from 'lucide-react';
 import { apiClient, reportFacilityAvailability, type AvailabilityReportResult, type CongestionEstimate } from '@/lib/api-client';
 import { CongestionReportButton } from '@/components/CongestionReportButton';
 import { GoldenHourBadge } from '@/components/GoldenHourBadge';
@@ -38,6 +38,10 @@ interface RecommendationCardFacility {
   phone?: string | null;
   homepage?: string | null;
   overview?: string | null;
+  // TourAPI 원문 식별자 — '실시간 정보 새로고침'(GET /infrastructures/live-detail/{contentid})용.
+  // 둘 다 있는 TourAPI 적재분에만 버튼을 노출한다(수동 시드·저장 목록 리터럴은 없어 미노출).
+  contentid?: string | null;
+  contenttypeid?: number | null;
   latitude?: number | null;
   longitude?: number | null;
   // 머천트 랭킹 연동 2단계(facility 최상위 필드, features 아님) — keysToCamel 적용 후 형태.
@@ -183,6 +187,15 @@ export function RecommendationCard({
   const [hoursSubmitting, setHoursSubmitting] = useState(false);
   const [hoursSubmitError, setHoursSubmitError] = useState(false);
   const [localAvailability, setLocalAvailability] = useState<AvailabilityReportResult | null>(null);
+  // '실시간 정보 새로고침'(TourAPI live-detail) 결과 — 캐시된 표시값 위에 덧씌운다(비면 캐시값 유지).
+  const [liveDetail, setLiveDetail] = useState<{
+    operatingHours?: RecommendationCardFacility['operatingHours'];
+    overview?: string | null;
+    homepage?: string | null;
+    imageUrl?: string | null;
+    phone?: string | null;
+  } | null>(null);
+  const [liveLoading, setLiveLoading] = useState(false);
 
   // '최적 방문 시각' — 펼쳤을 때 백엔드(/predict/day)에서 받아오는 오늘 24시간 예측 혼잡 곡선.
   // 백엔드 미기동/실패 시 null 로 남아 조용히 숨긴다(카드 나머지는 그대로).
@@ -203,6 +216,9 @@ export function RecommendationCard({
     setLocalAvailability(null);
     // 다른 장소로 바뀌면 이전 장소의 '최적 방문 시각' 데이터가 남아 깜빡이지 않게 초기화
     setDayPred(null);
+    // 이전 장소의 실시간 조회 결과가 새 장소에 덧씌워지지 않게 초기화
+    setLiveDetail(null);
+    setLiveLoading(false);
   }, [title]);
 
   const displayCongestionLevel = localReport?.level ?? facility?.congestionLevel;
@@ -467,17 +483,49 @@ export function RecommendationCard({
     | null
     | undefined;
   const translatedOverview = locale !== 'ko' ? overviewI18n?.[locale] : undefined;
-  const displayOverview = translatedOverview || facility?.overview;
+  // 실시간 조회 결과가 있으면 캐시값 위에 덧씌운다(값이 비면 캐시값 그대로 — 추가만).
+  const displayOverview = translatedOverview || liveDetail?.overview || facility?.overview;
+
+  // '실시간 정보 새로고침'(TourAPI live-detail) — contentid/contenttypeid 가 있는 TourAPI 적재분만 노출.
+  const liveContentId = facility?.contentid;
+  const liveContentTypeId = facility?.contenttypeid;
+  const canLiveRefresh = !!liveContentId && typeof liveContentTypeId === 'number';
+  const handleLiveRefresh = async () => {
+    if (!liveContentId || typeof liveContentTypeId !== 'number' || liveLoading) return;
+    setLiveLoading(true);
+    try {
+      const res = await apiClient.get(
+        `/api/v1/infrastructures/live-detail/${encodeURIComponent(liveContentId)}?contentTypeId=${liveContentTypeId}`,
+      );
+      // 성공(필드 포함)일 때만 덧씌운다. source='unavailable'·실패는 캐시값 유지(에러 UI 없음).
+      if (res?.source === 'tourapi-live') {
+        setLiveDetail({
+          operatingHours: res.operatingHours ?? null,
+          overview: res.overview ?? null,
+          homepage: res.homepage ?? null,
+          imageUrl: res.imageUrl ?? null,
+          phone: res.phone ?? null,
+        });
+      }
+    } catch {
+      // 무해 폴백 — 캐시된 행을 그대로 둔다(에러 토스트 없음).
+    } finally {
+      setLiveLoading(false);
+    }
+  };
 
   // TourAPI 상세(A2) — 시설 정규 컬럼(facility.address/phone) 우선, 카카오 Places 검색값은 폴백으로 강등.
-  // 둘 다 없으면 렌더하지 않는다('지어내지 않기').
+  // 둘 다 없으면 렌더하지 않는다('지어내지 않기'). phone/homepage/운영시간은 실시간 조회값이 있으면 우선.
   const displayAddress = facility?.address || placeInfo?.address;
-  const displayPhone = facility?.phone || placeInfo?.phone;
+  const displayPhone = liveDetail?.phone || facility?.phone || placeInfo?.phone;
   // TourAPI homepage 원문은 순수 URL 또는 <a href="..."> HTML 조각일 수 있어 첫 http(s) URL 만 방어적으로 추출.
   // 추출 실패 시 링크를 만들지 않는다(깨진 링크 미노출).
-  const homepageUrl = facility?.homepage
-    ? String(facility.homepage).match(/https?:\/\/[^\s"'<>]+/)?.[0] ?? null
+  const homepageSource = liveDetail?.homepage ?? facility?.homepage;
+  const homepageUrl = homepageSource
+    ? String(homepageSource).match(/https?:\/\/[^\s"'<>]+/)?.[0] ?? null
     : null;
+  // 운영시간/휴무일도 실시간 조회값 우선(형태 동일 — {open, closed}).
+  const displayOperatingHours = liveDetail?.operatingHours ?? facility?.operatingHours;
   const homepageHost = (() => {
     if (!homepageUrl) return null;
     try { return new URL(homepageUrl).hostname; } catch { return homepageUrl; }
@@ -506,7 +554,7 @@ export function RecommendationCard({
   // 원본 서버에서 만료·차단된 URL 이 섞여 있어 onError 시 다음 후보로 넘어가고, 전부 실패하면 숨긴다.
   const cardImageUrls = Array.from(
     new Set(
-      [facility?.imageUrl, ...(facility?.galleryImages ?? [])].filter(
+      [liveDetail?.imageUrl, facility?.imageUrl, ...(facility?.galleryImages ?? [])].filter(
         (url): url is string => typeof url === 'string' && url.trim().length > 0
       )
     )
@@ -1153,6 +1201,28 @@ export function RecommendationCard({
           >
             <div className="border-t border-line pt-3.5 space-y-3 text-xs text-muk-soft">
 
+          {/* 실시간 정보 새로고침 — TourAPI(detailCommon2/Intro2) 라이브 조회로 아래 표시값(운영시간·개요·
+              홈페이지·사진·전화)을 덧씌운다. contentid/contenttypeid 가 있는 TourAPI 적재분에만 노출하고,
+              실패/미조회는 캐시된 값을 그대로 유지한다(에러 UI 없음 — 무해 폴백). */}
+          {canLiveRefresh && (
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleLiveRefresh}
+                disabled={liveLoading}
+                className="inline-flex items-center gap-1 text-[11px] font-bold text-gold-deep underline decoration-dotted underline-offset-2 hover:text-gold disabled:opacity-50"
+              >
+                <RefreshCw size={12} className={liveLoading ? 'animate-spin' : ''} aria-hidden />
+                {t('card.liveRefresh')}
+              </button>
+              {liveDetail && (
+                <span className="rounded-full border border-jade/30 bg-jade/10 px-2 py-0.5 text-[10px] font-bold text-jade">
+                  {t('card.liveSource')}
+                </span>
+              )}
+            </div>
+          )}
+
           {/* 대표 사진(TourAPI firstimage→갤러리 폴백) — 실제 이미지가 있을 때만. 전부 로드 실패 시 숨겨 깨진 이미지를 노출하지 않는다. */}
           {cardImageUrl && (
             /* TourAPI 이미지 원본은 도메인이 다양해 next/image 최적화 대상이 아님(정적 export) — img 사용 */
@@ -1272,27 +1342,27 @@ export function RecommendationCard({
 
           {/* Operating Hours — 실제 영업시간이 있을 때만. 인제스트는 {open: 영업시간, closed: 휴무일} 저장 —
               open 만으로 표시한다(레거시 close/weekday 키는 있으면 덧붙임). */}
-          {facility?.operatingHours?.open && (
+          {displayOperatingHours?.open && (
             <div className="flex items-start gap-2">
               <Clock size={14} className="text-muk-soft mt-0.5 flex-shrink-0" />
               <div>
                 <span className="text-muk-soft block text-[10px] font-bold">{t('card.hours')}</span>
                 <span className="text-muk">
-                  {facility.operatingHours.open}
-                  {facility.operatingHours.close && ` ~ ${facility.operatingHours.close}`}
-                  {facility.operatingHours.weekday && ` (${facility.operatingHours.weekday})`}
+                  {displayOperatingHours.open}
+                  {displayOperatingHours.close && ` ~ ${displayOperatingHours.close}`}
+                  {displayOperatingHours.weekday && ` (${displayOperatingHours.weekday})`}
                 </span>
               </div>
             </div>
           )}
 
           {/* 휴무일 — closed 가 있을 때만 별도 라인(운영시간과 키 의미가 다름: closed=휴무일 텍스트) */}
-          {facility?.operatingHours?.closed && (
+          {displayOperatingHours?.closed && (
             <div className="flex items-start gap-2">
               <Clock size={14} className="text-muk-soft mt-0.5 flex-shrink-0" />
               <div>
                 <span className="text-muk-soft block text-[10px] font-bold">{t('card.closedDays')}</span>
-                <span className="text-muk">{facility.operatingHours.closed}</span>
+                <span className="text-muk">{displayOperatingHours.closed}</span>
               </div>
             </div>
           )}

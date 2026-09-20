@@ -1,9 +1,11 @@
 'use client';
 
 import { useEffect, useState, useCallback, useRef } from 'react';
+import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { useT } from '@/lib/i18n/I18nProvider';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
+import { GuideButton } from '@/components/guide/GuideProvider';
 
 export default function LoadingPage() {
   const router = useRouter();
@@ -45,14 +47,8 @@ export default function LoadingPage() {
       setIsVisible(true);
     }, 100);
 
-    // 자동 이동(3초 타이머)은 제거했다 — 사용자가 '바로 시작'(또는 화면 탭/키 입력)으로 직접 시작한다.
-    // 아무 키나 누르면 시작 (포커스와 무관하게 동작하도록 window 에 부착)
-    const handleKey = () => go();
-    window.addEventListener('keydown', handleKey);
-
     return () => {
       clearTimeout(timer);
-      window.removeEventListener('keydown', handleKey);
     };
   }, [go]);
 
@@ -91,8 +87,25 @@ export default function LoadingPage() {
           isVisible ? 'opacity-100 animate-fade-in' : 'opacity-0'
         }`}
       >
-        <h1 className="text-5xl font-serif font-bold tracking-tight text-muk mb-4">
-          NextSpot
+        <h1 className="mb-4">
+          <Image
+            src="/nextspot-logo.png"
+            alt="NextSpot"
+            width={505}
+            height={109}
+            priority
+            unoptimized
+            className="nextspot-logo-light h-14 w-auto sm:h-[70px]"
+          />
+          <Image
+            src="/nextspot-logo-dark.png"
+            alt="NextSpot"
+            width={505}
+            height={109}
+            priority
+            unoptimized
+            className="nextspot-logo-dark h-14 w-auto sm:h-[70px]"
+          />
         </h1>
         <p className="text-lg text-muk-soft font-medium">
           {t('landing.tagline')}
@@ -127,6 +140,7 @@ export default function LoadingPage() {
         >
           {t('landing.ctaLogin')}
         </button>
+        <GuideButton compact className="mt-5 min-h-11 px-5" />
       </div>
     </div>
   );

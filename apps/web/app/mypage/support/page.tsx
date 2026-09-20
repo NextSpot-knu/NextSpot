@@ -90,7 +90,7 @@ export default function UserSupportForm() {
       </header>
 
       {/* Content */}
-      <main className="flex-1 flex flex-col relative z-10 p-6 overflow-y-auto">
+      <main className="flex-1 flex flex-col relative z-10 p-6 pb-[calc(var(--tourist-nav-clearance)+env(safe-area-inset-bottom))] md:pb-6 overflow-y-auto">
         {isSubmitted ? (
           <div className="flex-1 flex flex-col items-center justify-center animate-fade-in text-center">
             <div className="w-20 h-20 bg-jade/15 rounded-full flex items-center justify-center mb-6">

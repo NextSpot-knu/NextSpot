@@ -127,7 +127,7 @@ export default function LlmDebugToast() {
   return (
     <div
       aria-live="polite"
-      className="fixed z-[80] left-3 bottom-[calc(88px+env(safe-area-inset-bottom))] flex flex-col gap-1.5 pointer-events-none max-w-[85vw]"
+      className="fixed z-[80] left-3 bottom-[calc(var(--tourist-nav-clearance)+8px+env(safe-area-inset-bottom))] flex flex-col gap-1.5 pointer-events-none max-w-[85vw]"
     >
       {badges.map((b) => (
         <span

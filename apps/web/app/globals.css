@@ -1,6 +1,7 @@
 @import "tailwindcss";
 
 :root {
+  --tourist-nav-clearance: 80px;
   --background: #faf5ec;
   --foreground: #2b2320;
   --nextspot-hanji: #faf5ec;
@@ -65,6 +66,11 @@ body {
   overflow-x: clip;
 }
 
+/* Five primary tabs plus a 36px help row on mobile. Shared by sheets and page padding. */
+@media (max-width: 767px) {
+  :root { --tourist-nav-clearance: 116px; }
+}
+
 /* 관광객 야간 팔레트. 관리자·사장님 경로는 ThemeProvider가 이 클래스를 붙이지 않아
    각각의 기존 전용 색상 체계를 그대로 유지한다. 순수 검정 대신 한옥 먹빛을 사용해
    금빛·주칠 강조색과 지도 위 카드의 대비를 보존한다. */
@@ -126,6 +132,12 @@ body,
 .bg-hanji-deep {
   transition: background-color 220ms ease, color 220ms ease, border-color 220ms ease;
 }
+
+/* 브랜드 로고 — 라이트(먹빛 네이비)/다크(아이보리) 두 벌을 테마에 맞춰 스왑한다.
+   랜딩 배경이 다크 테마에서 어두워져(hanji→#17130f) 네이비 워드마크가 묻히므로. */
+.nextspot-logo-dark { display: none; }
+html.nextspot-dark .nextspot-logo-light { display: none; }
+html.nextspot-dark .nextspot-logo-dark { display: block; }
 
 /* 모바일 앱다운 입력 피드백. JS 모션을 쓰지 않는 작은 칩/아이콘에도 같은 눌림 문법을 적용한다. */
 .toss-pressable {
