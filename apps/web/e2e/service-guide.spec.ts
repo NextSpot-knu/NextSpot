@@ -31,7 +31,7 @@ for (const locale of locales) {
     await expect(page.locator('a[href="/admin/dashboard"]')).toHaveCount(1);
     await page.locator('[data-chapter="features"] summary').first().click();
     await expect(page.locator('[data-chapter="features"] details').first()).toHaveAttribute('open', '');
-    await expect(page.locator('body')).not.toContainText(/guide\.(hero|step|source|feature)/);
+    await expect(page.locator('body')).not.toContainText(/guide\.(hero|step|source|feature|story|pilot|business|team|resident|plan|weeks|future)/);
   });
 }
 

@@ -2,7 +2,7 @@
 
 import { useId, useRef, type ReactNode } from 'react';
 import Link from 'next/link';
-import { ArrowDown, ArrowRight, Bookmark, Building2, Check, Coffee, Compass, Database, Footprints, Globe, Heart, MapPin, Route, ShieldCheck, Sparkles, Store, Ticket, Timer, User, Waypoints } from 'lucide-react';
+import { ArrowDown, ArrowRight, Bookmark, Building2, Check, Coffee, Compass, Database, Footprints, Globe, Heart, Home, MapPin, Quote, Route, ShieldCheck, Sparkles, Store, Ticket, Timer, User, Waypoints } from 'lucide-react';
 import { SPOT_WEIGHTS } from 'shared-types';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { useT } from '@/lib/i18n/I18nProvider';
@@ -53,6 +53,17 @@ export default function GuideContent({ onNavigate }: { onNavigate?: () => void }
     { key: 'tourist', href: '/main', icon: Compass },
     { key: 'merchant', href: '/merchant', icon: Store },
     { key: 'admin', href: '/admin/dashboard', icon: Building2 },
+    { key: 'resident', href: null, icon: Home },
+  ] as const;
+  const pilotPhases = [
+    { key: 'pilot14', weeks: '1–4' },
+    { key: 'pilot58', weeks: '5–8' },
+    { key: 'pilot912', weeks: '9–12' },
+  ] as const;
+  const businessStages = [
+    { key: 'businessB2b', timing: '2027 H1' },
+    { key: 'businessB2g', timing: '2027 H2' },
+    { key: 'businessData', timing: '2028+' },
   ] as const;
   const features = [
     { key: 'featureMap', href: '/main', icon: MapPin },
@@ -93,12 +104,15 @@ export default function GuideContent({ onNavigate }: { onNavigate?: () => void }
       </nav>
 
       {section('story', `01 / ${t('guide.navStory')}`, t('guide.storyTitle'), `${t('guide.problem')} ${t('guide.storyBody')}`,
-        <figure className={styles.storyMap}>
-          <div className={styles.origin}><MapPin size={26} /><strong>{t('guide.mapOrigin')}</strong><span>{t('guide.sameExperience')}</span></div>
-          <div className={styles.branches} aria-hidden="true"><span /><span /><span /></div>
-          <div className={styles.destinations}>{[Coffee, Footprints, Compass].map((Icon, index) => <div key={index}><Icon size={28} /><strong>{t(`guide.${['mapCafe', 'mapWalk', 'mapCulture'][index]}`)}</strong></div>)}</div>
-          <figcaption>{t('guide.mapCaption')}</figcaption>
-        </figure>
+        <>
+          <blockquote className={styles.storyQuote}><Quote size={22} aria-hidden /><p>{t('guide.storyQuote')}</p><cite>{t('guide.storyOrigin')}</cite></blockquote>
+          <figure className={styles.storyMap}>
+            <div className={styles.origin}><MapPin size={26} /><strong>{t('guide.mapOrigin')}</strong><span>{t('guide.sameExperience')}</span></div>
+            <div className={styles.branches} aria-hidden="true"><span /><span /><span /></div>
+            <div className={styles.destinations}>{[Coffee, Footprints, Compass].map((Icon, index) => <div key={index}><Icon size={28} /><strong>{t(`guide.${['mapCafe', 'mapWalk', 'mapCulture'][index]}`)}</strong></div>)}</div>
+            <figcaption>{t('guide.mapCaption')}</figcaption>
+          </figure>
+        </>
       )}
 
       {section('score', `02 / ${t('guide.navScore')}`, t('guide.scoreTitle'), t('guide.scoreBody'), <>
@@ -141,11 +155,30 @@ export default function GuideContent({ onNavigate }: { onNavigate?: () => void }
 
       {section('impact', `05 / ${t('guide.navImpact')}`, t('guide.impactTitle'), t('guide.impactBody'), <>
         <div className={styles.roles}>{roles.map(({ key, href, icon: Icon }) => <article key={key}>
-          <Icon size={30} /><h3>{t(`guide.${key}`)}</h3><p>{t(`guide.${key}Body`)}</p>{cta(href, t(`guide.${key}Cta`))}
+          <Icon size={30} /><h3>{t(`guide.${key}`)}</h3><p>{t(`guide.${key}Body`)}</p>{href && cta(href, t(`guide.${key}Cta`))}
         </article>)}</div>
         <p className={styles.note}>{t('guide.roleRequired')}</p>
         <details className={styles.details}><summary>{t('guide.validationTitle')}</summary><p>{t('guide.validationBody')}</p>{cta('/login?next=%2Fadmin%2Fengine-validation', t('guide.validationLink'))}</details>
-        <div className={styles.future}><Sparkles size={25} /><h3>{t('guide.futureTitle')}</h3><p>{t('guide.futureBody')}</p></div>
+        <div className={styles.pilot}>
+          <div className={styles.planHeading}><Sparkles size={25} /><div><span>{t('guide.planBadge')}</span><h3>{t('guide.pilotTitle')}</h3></div></div>
+          <p>{t('guide.pilotBody')}</p>
+          <div className={styles.timeline}>{pilotPhases.map(({ key, weeks }) => <article key={key}>
+            <span>{t('guide.weeks', { weeks })}</span><h3>{t(`guide.${key}`)}</h3><p>{t(`guide.${key}Body`)}</p>
+          </article>)}</div>
+          <p className={styles.channelNote}>{t('guide.pilotChannels')}</p>
+          <p className={styles.measureNote}>{t('guide.pilotMeasurement')}</p>
+        </div>
+        <details className={`${styles.details} ${styles.roadmap}`}><summary>{t('guide.businessTitle')}</summary>
+          <p>{t('guide.businessIntro')}</p>
+          <div className={styles.businessGrid}>{businessStages.map(({ key, timing }) => <article key={key}>
+            <span>{timing} · {t('guide.planBadge')}</span><h3>{t(`guide.${key}`)}</h3><p>{t(`guide.${key}Body`)}</p>
+          </article>)}</div>
+          <p>{t('guide.futureBody')}</p>
+          <p className={styles.measureNote}>{t('guide.businessGuardrail')}</p>
+        </details>
+        <details className={`${styles.details} ${styles.team}`}><summary>{t('guide.teamTitle')}</summary>
+          <p>{t('guide.teamBody')}</p>
+        </details>
       </>)}
 
       <section data-chapter="features" tabIndex={-1} className={styles.section} aria-labelledby={`${id}-features-title`}>
