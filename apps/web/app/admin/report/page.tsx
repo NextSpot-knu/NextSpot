@@ -1,13 +1,20 @@
 'use client';
 
 // 분산정책 성과 리포트(B2G) — 관제 데이터를 의회/평가 제출용 인쇄물로 원클릭 조립하는 화면.
-// 신규 백엔드 없이 기존 관리자 엔드포인트만 조합한다:
-//   - GET /api/v1/admin/metrics/trend?days=30 (일평균 혼잡·추천 수락 KST 일별 실측)
-//   - GET /api/v1/admin/dashboard/today       (오늘 스냅샷 — 참고용, 30일 KPI와는 별개 기간)
-//   - GET /api/v1/freshness                  (TourAPI 마지막 동기화 신선도)
-// 정직성 원칙: 위 3개 응답에서 파생 불가능한 지표(쿠폰 발급·사용 등)는 지어내지 않고 표에서 제외하며
+// 기존 관리자 엔드포인트를 조합한다:
+//   - GET /api/v1/admin/metrics/trend?days=30     (일평균 혼잡·추천 수락 KST 일별 실측)
+//   - GET /api/v1/admin/dashboard/today           (오늘 스냅샷 — 참고용, 30일 KPI와는 별개 기간)
+//   - GET /api/v1/admin/reports/estimated?days=30 (일별 **추정** 집계 — 실측이 없는 날을 위한 것)
+//   - GET /api/v1/freshness                       (TourAPI 마지막 동기화 신선도)
+// 정직성 원칙: 위 응답에서 파생 불가능한 지표(쿠폰 발급·사용 등)는 지어내지 않고 표에서 제외하며
 // 그 사유를 각주로 명시한다. 표본이 부족한 30일 추이는(대시보드와 달리) 데모 데이터로 대체하지 않고
 // '데이터 없음/표본 부족' 상태를 그대로 노출한다 — 의회·평가 제출용 공식 리포트이기 때문이다.
+//
+// 추정은 **실측 칸에 섞지 않는다.** KPI 표·자동 총평·실측 표본일수는 지금까지와 한 글자도 달라지지
+// 않는다(전부 /metrics/trend 의 실측만 본다). 추정은 (1) 실측 표본이 0일일 때 혼잡 추이 차트를
+// 별도 계열·별도 색·파선으로 채우고, (2) 그 아래 '참고' 상자에 기간 요약을 싣는다. 둘 다 '추정'
+// 배지와 근거 문장(출처·관측 기간·표본 간격·반경)을 반드시 달고 나간다.
+// 추천 수락률 추이에는 추정을 넣지 않는다 — 주차·관광 통계는 추천 수락에 대해 아무 말도 하지 않는다.
 
 import { useEffect, useMemo, useState } from 'react';
 import {
@@ -23,6 +30,11 @@ import {
 } from '@/lib/adminSeriesGaps';
 import { adminApi } from '@/lib/admin-api';
 import { estimateBasisLine, readEstimatedDay } from '@/lib/adminEstimateView';
+import {
+  ESTIMATE_BADGE, ESTIMATE_NO_HEADCOUNT_NOTE, estimatedSeriesBasisLine, estimatedSeriesMethodNote,
+  estimatedSeriesSummary, estimatedSeriesUnavailableNote, estimatedTrendRows, readEstimatedSeries,
+  type EstimatedSeries,
+} from '@/lib/adminEstimatedSeries';
 import { apiClient } from '@/lib/api-client';
 import { formatRelativeKo } from '@/lib/freshness';
 
@@ -52,10 +64,14 @@ const CHART_COLOR = {
   voidFill: '#f1e7d3',   // --color-hanji-deep 미관측 구간 음영
   congestion: '#c1553b', // --color-terracotta 혼잡 계열(토큰 주석부터 '혼잡'용). 흰 종이 대비 4.54:1 (AA)
   accept: '#3e7c6a',     // --color-jade       수락률 계열. 흰 종이 대비 4.89:1 (AA)
+  // 추정 계열. 실측 두 색과 **상대휘도까지** 벌려 둔다(0.086 vs terracotta 0.181 · jade 0.165) —
+  // 흑백 인쇄에서 회색조만 남아도 "이 선은 다른 것" 이 보여야 한다. 흰 종이 대비 7.7:1.
+  estimate: '#3d4f8f',
 } as const;
 // 주의: terracotta(0.181)와 jade(0.165)는 상대휘도가 거의 같아 흑백 인쇄·색각 이상에서 서로 구분되지
 // 않는다. 그래서 계열 구분을 색에만 맡기지 않고 선 패턴(실선/파선)을 함께 부여한다(WCAG 1.4.1).
-const SERIES_DASH = { congestion: undefined, accept: '7 4' } as const;
+// 추정은 셋 중 가장 촘촘한 파선이다 — 색을 못 보는 독자에게도 '끊긴 선 = 추정' 이라는 단서가 남는다.
+const SERIES_DASH = { congestion: undefined, accept: '7 4', estimate: '4 3' } as const;
 
 // ── 응답 타입 ────────────────────────────────────────────────────────────
 // GET /api/v1/admin/metrics/trend (admin.py get_metrics_trend) — admin-api 는 케이스 변환이 없어
@@ -123,6 +139,9 @@ export default function AdminReportPage() {
   const [todayError, setTodayError] = useState(false);
   const [freshness, setFreshness] = useState<{ lastTourapiSync: string | null; source: string | null } | null>(null);
   const [freshnessError, setFreshnessError] = useState(false);
+  // 추정 추이 응답 **원문**을 들고 있는다 — 형을 믿지 않으므로 readEstimatedSeries 로만 읽는다.
+  // 조회 자체가 실패한 것(reason 도 없음)과 서버가 '못 냈다' 고 답한 것은 다른 사실이라 갈라 둔다.
+  const [estimateRaw, setEstimateRaw] = useState<unknown>(undefined);
   const [loading, setLoading] = useState(true);
   // 생성 시각은 마운트 시점에 1회 고정(리렌더마다 바뀌지 않도록).
   const [generatedAt] = useState(() => new Date());
@@ -130,13 +149,16 @@ export default function AdminReportPage() {
   useEffect(() => {
     let active = true;
     (async () => {
+      // 추정은 **별도 요청**이다(별도 엔드포인트). 몇 초가 걸리거나 죽어도 실측 KPI 응답은
+      // 애초에 영향을 받을 수 없다 — 같은 응답에 얹고 서버에서 막는 것보다 강한 보장이다.
       const results = await Promise.allSettled([
         adminApi.get(`/api/v1/admin/metrics/trend?days=${REPORT_DAYS}`),
         adminApi.get('/api/v1/admin/dashboard/today'),
         apiClient.getFreshness(),
+        adminApi.get(`/api/v1/admin/reports/estimated?days=${REPORT_DAYS}`),
       ]);
       if (!active) return;
-      const [trendRes, todayRes, freshRes] = results;
+      const [trendRes, todayRes, freshRes, estimateRes] = results;
 
       if (trendRes.status === 'fulfilled') setTrend(trendRes.value);
       else { setTrendError(true); console.warn('[report] 30일 추이 조회 실패:', trendRes.reason); }
@@ -151,7 +173,12 @@ export default function AdminReportPage() {
         console.warn('[report] 데이터 신선도 조회 실패:', freshRes.reason);
       }
 
-      setLoading(false); // adminApi/apiClient 모두 요청 타임아웃(8~10초)이 있어 유한하게 종료된다.
+      // 옛 서버에는 이 엔드포인트가 없다(404) — 그때 원문은 undefined 로 남고, 화면은
+      // '추정 기능이 고장났다' 가 아니라 **아무 말도 하지 않는다**(없는 기능의 고장은 없다).
+      if (estimateRes.status === 'fulfilled') setEstimateRaw(estimateRes.value);
+      else console.warn('[report] 추정 추이 조회 실패:', estimateRes.reason);
+
+      setLoading(false); // adminApi/apiClient 모두 요청 타임아웃(8~25초)이 있어 유한하게 종료된다.
     })();
     return () => { active = false; };
   }, []);
@@ -191,6 +218,31 @@ export default function AdminReportPage() {
     });
   }, [trend]);
 
+  // ── 30일 **추정** 추이 ────────────────────────────────────────────────
+  // 실측이 이기는 규칙은 여기서 끝낸다: 실측 표본일이 1일이라도 있으면 추정 계열을 만들지 않는다.
+  // (절반은 실측 · 절반은 추정인 한 줄을 그리면 그 선이 무엇인지 아무도 말할 수 없다.)
+  const estimatedSeries: EstimatedSeries | null = useMemo(
+    () => readEstimatedSeries(estimateRaw),
+    [estimateRaw],
+  );
+  const measuredHasSamples = (kpi?.sampleDays ?? 0) > 0;
+  const estimateForChart = !measuredHasSamples && estimatedSeries && estimatedSeries.observedDays > 0
+    ? estimatedSeries
+    : null;
+  const estimateChartRows: ChartRow[] = useMemo(
+    () => (estimateForChart
+      ? estimatedTrendRows(estimateForChart).map((row) => ({ ...row, acceptShare: null }))
+      : []),
+    [estimateForChart],
+  );
+  const estimateSummary = estimateForChart ? estimatedSeriesSummary(estimateForChart) : null;
+  // 추정이 없을 때 **왜** 없는지. 실측이 있거나 옛 서버(응답 자체가 없음)면 아무 말도 하지 않는다.
+  const estimateNote = measuredHasSamples || estimateForChart
+    ? null
+    : estimatedSeries
+      ? '추정치도 이 기간에는 표본이 없습니다 — 공영주차 실측(경주 ITS)이 10분마다 쌓이면 추정 추이가 그려집니다.'
+      : estimatedSeriesUnavailableNote(estimateRaw);
+
   // ── 자동 총평 문단(수치 기반 템플릿 — 지어낸 문장 없음) ──────────────
   const narrative = useMemo(() => {
     if (loading) return null;
@@ -200,6 +252,14 @@ export default function AdminReportPage() {
     const sentences: string[] = [];
     if (kpi.sampleDays === 0) {
       sentences.push(`최근 ${kpi.totalDays}일간 실측 혼잡 로그 표본이 없어 평균 혼잡도를 산출할 수 없습니다.`);
+      // 실측이 없다는 사실을 지운 게 아니라, 그 옆에 **추정임을 밝힌** 문장을 덧붙인다.
+      // 값 앞의 '(추정)' 과 뒤의 근거를 같은 문장 안에 두어, 한 문장만 인용돼도 오해가 없게 한다.
+      if (estimateSummary && estimateSummary.avgCongestion !== null) {
+        sentences.push(
+          `대신 같은 기간 주차 실측 + 관광 통계 기반 (추정) 평균 혼잡도는 ${fmtPct(estimateSummary.avgCongestion)}`
+          + `(관측 ${estimateSummary.observedDays}일 / ${estimateSummary.totalDays}일, 현장 관측 아님)입니다.`,
+        );
+      }
     } else {
       const stable = kpi.avgCongestion !== null && kpi.maxCongestion !== null
         && (kpi.maxCongestion - kpi.avgCongestion) > 0.05;
@@ -217,7 +277,7 @@ export default function AdminReportPage() {
       sentences.push('표본이 부족하여 통계적 해석에 주의가 필요합니다.');
     }
     return sentences.join(' ');
-  }, [loading, trendError, kpi]);
+  }, [loading, trendError, kpi, estimateSummary]);
 
   // ── 표지 헤더 표시값 ─────────────────────────────────────────────────
   const periodLabel = trendError
@@ -434,9 +494,11 @@ export default function AdminReportPage() {
             {/* 30일 추이 차트 2개 — 화면과 인쇄(PDF)에서 모두 읽히도록 설계한 리포트 전용 구성.
                 계열 구분은 색 + 선 패턴 2중이고, 툴팁이 없는 인쇄에서도 값을 읽을 수 있게
                 평균선·최고점 라벨·하단 요약 캡션을 함께 낸다.
-                혼잡 추이는 경주 추정 모드로 채우지 않는다: 추정은 하루 단위로 읽을 때 계산하며(콜드 1~3초/일)
-                30일치를 이 화면에서 부르면 30~90초가 걸린다. 일별 추정 추이는 서버 쪽 일괄 경로가 생긴 뒤에
-                별도 계열('추정')로 싣는다 — 실측 계열에 섞지 않는다. */}
+
+                혼잡 추이는 실측 표본이 **0일일 때만** 추정 계열로 채운다(서버 일괄 경로:
+                GET /admin/reports/estimated). 실측이 하루라도 있으면 추정은 아예 만들지 않는다 —
+                절반은 실측·절반은 추정인 한 줄은 그 선이 무엇인지 아무도 말할 수 없기 때문이다.
+                추정 계열은 색·선 패턴·범례·캡션이 전부 다르고 근거 문장을 달고 나간다. */}
             <TrendLineChart
               title="30일 일평균 혼잡도 추이"
               seriesName="일평균 혼잡도(실측)"
@@ -447,6 +509,13 @@ export default function AdminReportPage() {
               loading={loading}
               error={trendError}
               emptyMessage="집계된 혼잡 로그가 없어 표시할 추이가 없습니다."
+              estimate={estimateForChart ? {
+                rows: estimateChartRows,
+                seriesName: '일평균 혼잡도(추정 · 현장 관측 아님)',
+                basisLine: estimatedSeriesBasisLine(estimateForChart),
+                methodNote: estimatedSeriesMethodNote(estimateForChart),
+              } : null}
+              unavailableNote={estimateNote}
             />
             <TrendLineChart
               title="30일 AI 분산 추천 수락률 추이"
@@ -459,6 +528,53 @@ export default function AdminReportPage() {
               error={trendError}
               emptyMessage="집계된 AI 분산 추천 기록이 없어 표시할 추이가 없습니다."
             />
+
+            {/* 참고: 30일 **추정** 요약 — 실측 표본이 0일일 때만 낸다.
+                위 KPI 표(실측)와 절대 섞지 않으려고 별도 상자·별도 제목·(추정) 표기를 쓴다.
+                인원 수 칸이 없는 이유를 여기서 말한다 — 추정치에는 인원 수가 없고, 0 으로
+                채우면 없는 관측을 만들어 내는 것이다. */}
+            {estimateForChart && estimateSummary && (
+              <section className="break-inside-avoid border border-dashed border-gray-400 bg-gray-50 rounded-md p-4">
+                <h3 className="text-sm font-bold mb-1 flex items-center gap-2">
+                  <Info size={14} />
+                  참고: 기간 내(30일) {ESTIMATE_BADGE} 요약 — 현장 관측 아님
+                </h3>
+                <p className="text-xs text-gray-600 mb-3">
+                  위 KPI 표는 현장 관측(손님 제보·좌석 방송·관리자 개입)만 집계합니다. 그 표본이 0일이라,
+                  같은 기간을 공영주차 실측과 관광 통계로 계산한 {ESTIMATE_BADGE}치를 별도로 싣습니다.
+                </p>
+                <table className="w-full text-sm border-collapse">
+                  <tbody>
+                    <tr className="border-b border-gray-200">
+                      <td className="py-2 pr-4 text-gray-600 w-1/2">평균 혼잡도 (추정, 표본 가중평균)</td>
+                      <td className="py-2 font-bold">{fmtPct(estimateSummary.avgCongestion)} (추정)</td>
+                    </tr>
+                    <tr className="border-b border-gray-200">
+                      <td className="py-2 pr-4 text-gray-600">기간 내 최고 일평균 (추정)</td>
+                      <td className="py-2 font-bold">
+                        {fmtPct(estimateSummary.maxCongestion)} (추정)
+                        {estimateSummary.maxDate && ` · ${fmtIsoDateKo(estimateSummary.maxDate)}`}
+                      </td>
+                    </tr>
+                    <tr className="border-b border-gray-200">
+                      <td className="py-2 pr-4 text-gray-600">추정 산출일수</td>
+                      <td className="py-2 font-bold">
+                        {estimateSummary.observedDays}일 / {estimateSummary.totalDays}일
+                      </td>
+                    </tr>
+                    <tr className="border-b border-gray-200">
+                      <td className="py-2 pr-4 text-gray-600">누적 방문자 수</td>
+                      <td className="py-2 font-bold text-gray-500">산출 불가</td>
+                    </tr>
+                  </tbody>
+                </table>
+                <p className="mt-2 text-xs text-gray-600 leading-relaxed">{ESTIMATE_NO_HEADCOUNT_NOTE}</p>
+                <p className="mt-1 text-xs text-gray-600 leading-relaxed">
+                  근거: {estimatedSeriesBasisLine(estimateForChart)}<br />
+                  {estimatedSeriesMethodNote(estimateForChart)}
+                </p>
+              </section>
+            )}
 
             {/* 자동 총평 문단 */}
             <section className="break-inside-avoid">
@@ -491,6 +607,7 @@ export default function AdminReportPage() {
 // 패널로 대체한다 — 빈 좌표축만 남으면 '전 구간 0%' 로 읽히기 때문이다.
 function TrendLineChart({
   title, seriesName, data, dataKey, color, dash, loading, error, emptyMessage,
+  estimate = null, unavailableNote = null,
 }: {
   title: string;
   seriesName: string;
@@ -501,10 +618,22 @@ function TrendLineChart({
   loading: boolean;
   error: boolean;
   emptyMessage: string;
+  /** 실측 표본이 0일일 때만 그릴 **추정** 계열. null 이면 지금까지와 똑같이 '데이터 없음' 패널이 나온다. */
+  estimate?: { rows: ChartRow[]; seriesName: string; basisLine: string; methodNote: string } | null;
+  /** 추정도 못 그린 이유(있으면 빈 패널 안에 덧붙인다 — 말하지 않으면 '고장' 으로 읽힌다). */
+  unavailableNote?: string | null;
 }) {
   // 결측 판정은 lib/adminSeriesGaps.ts 한 곳에서만 한다 — 대시보드 차트와 같은 판정을 써야
   // 같은 데이터가 두 화면에서 다른 이야기를 하지 않는다(그 파일 머리말 참조).
-  const stats = summarizeSeries(data, (row) => row[dataKey]);
+  const measured = summarizeSeries(data, (row) => row[dataKey]);
+  // **실측이 이긴다.** 실측 관측일이 1일이라도 있으면 추정은 그리지 않는다 — 한 선 안에
+  // 두 출처를 섞으면 그 선이 무엇인지 아무도 말할 수 없다.
+  const showEstimate = !loading && !error && measured.observed === 0 && estimate !== null;
+  const activeData = showEstimate ? estimate.rows : data;
+  const activeName = showEstimate ? estimate.seriesName : seriesName;
+  const activeColor = showEstimate ? CHART_COLOR.estimate : color;
+  const activeDash = showEstimate ? SERIES_DASH.estimate : dash;
+  const stats = showEstimate ? summarizeSeries(estimate.rows, (row) => row[dataKey]) : measured;
   const hasData = !loading && !error && stats.observed > 0;
   const formatPercent = (value: unknown) => `${(Number(value) * 100).toFixed(1)}%`;
   // 음영 라벨은 가장 긴 구간 하나에만 붙인다(짧은 구간까지 붙이면 글자가 겹친다).
@@ -517,14 +646,22 @@ function TrendLineChart({
           차트를 보지 않고도 어떤 선이 무엇인지 알 수 있다. 평균값을 차트 안(ReferenceLine Label)이
           아니라 여기 두는 이유: 관측일이 오른쪽 끝까지 이어지면 라벨이 추이선 위에 겹쳐 읽히지 않는다. */}
       <div className="flex items-baseline justify-between gap-x-4 gap-y-1 mb-2 flex-wrap">
-        <h3 className="text-sm font-bold">{title}</h3>
+        <h3 className="text-sm font-bold flex items-center gap-2">
+          {title}
+          {/* 배지는 제목 옆에 — 잘라 붙인 스크린샷 한 장에도 '추정' 이 함께 따라가야 한다. */}
+          {showEstimate && (
+            <span className="px-1.5 py-0.5 rounded border border-dashed border-gray-500 text-[10px] font-bold text-gray-700 bg-white">
+              {ESTIMATE_BADGE}
+            </span>
+          )}
+        </h3>
         <div className="flex items-center gap-3 flex-wrap">
           <span className="flex items-center gap-1.5 text-xs font-semibold text-muk">
             <svg width="34" height="10" aria-hidden="true" className="flex-shrink-0">
-              <line x1="1" y1="5" x2="33" y2="5" stroke={color} strokeWidth="2.75" strokeDasharray={dash} />
-              <circle cx="17" cy="5" r="3.2" fill={color} stroke="#ffffff" strokeWidth="1.4" />
+              <line x1="1" y1="5" x2="33" y2="5" stroke={activeColor} strokeWidth="2.75" strokeDasharray={activeDash} />
+              <circle cx="17" cy="5" r="3.2" fill={activeColor} stroke="#ffffff" strokeWidth="1.4" />
             </svg>
-            {seriesName}
+            {activeName}
           </span>
           {hasData && stats.avg !== null && (
             <span className="flex items-center gap-1.5 text-xs font-semibold text-muk">
@@ -546,7 +683,7 @@ function TrendLineChart({
         ) : hasData ? (
           <ResponsiveContainer width="100%" height="100%">
             {/* 위 여백 24 — 최고점/평균선 값 라벨이 100% 근처에 놓여도 잘리지 않을 만큼 */}
-            <LineChart data={data} margin={{ top: 24, right: 20, bottom: 22, left: 4 }}>
+            <LineChart data={activeData} margin={{ top: 24, right: 20, bottom: 22, left: 4 }}>
               {/* 격자는 데이터보다 항상 약하게(1.36:1) — 이전 gray-200 과 밝기는 비슷하되 한지 웜톤 */}
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={CHART_COLOR.grid} />
 
@@ -616,13 +753,13 @@ function TrendLineChart({
               {/* connectNulls 제거 — 미관측 구간을 직선으로 이으면 없는 관측을 있는 것처럼 그린다.
                   선은 끊고, 끊긴 이유는 위 음영과 아래 캡션이 말한다(정직성 원칙). */}
               <Line
-                name={seriesName}
+                name={activeName}
                 type="monotone"
                 dataKey={dataKey}
-                stroke={color}
+                stroke={activeColor}
                 strokeWidth={2.75}
-                strokeDasharray={dash}
-                dot={{ r: 3.2, fill: color, stroke: '#ffffff', strokeWidth: 1.4 }}
+                strokeDasharray={activeDash}
+                dot={{ r: 3.2, fill: activeColor, stroke: '#ffffff', strokeWidth: 1.4 }}
                 activeDot={{ r: 6 }}
                 connectNulls={false}
                 isAnimationActive={false}
@@ -634,7 +771,7 @@ function TrendLineChart({
                   x={stats.max.date}
                   y={stats.max.value}
                   r={4.5}
-                  fill={color}
+                  fill={activeColor}
                   stroke="#ffffff"
                   strokeWidth={1.6}
                   ifOverflow="extendDomain"
@@ -661,17 +798,31 @@ function TrendLineChart({
             {!error && (
               <p className="text-xs font-semibold text-muk-soft">값이 0%라는 뜻이 아닙니다 — 해당 기간에 집계된 기록이 없습니다.</p>
             )}
+            {/* 추정도 못 그렸다면 그 이유까지. 말하지 않으면 '추정 모드가 사라졌다(고장)' 로 읽힌다. */}
+            {!error && unavailableNote && (
+              <p className="text-xs text-muk-soft max-w-prose">{unavailableNote}</p>
+            )}
           </div>
         )}
       </div>
 
-      {/* 인쇄에서 살아남는 숫자 요약 — 툴팁 없이도 이 한 줄로 차트를 읽을 수 있게 한다. */}
+      {/* 인쇄에서 살아남는 숫자 요약 — 툴팁 없이도 이 한 줄로 차트를 읽을 수 있게 한다.
+          추정을 그렸다면 근거(출처·관측 기간·표본 간격·반경)를 같은 자리에 낸다 — 인쇄물에는
+          툴팁도 배너도 없고, 이 줄이 그 숫자가 무엇인지 말하는 유일한 자리다. */}
       <p className="mt-1.5 text-[11px] text-muk-soft leading-relaxed flex gap-1.5">
         <Info size={12} className="flex-shrink-0 mt-0.5" aria-hidden="true" />
         <span>
+          {showEstimate && (
+            <>
+              <span className="font-bold text-muk">{ESTIMATE_BADGE} · 현장 관측 아님</span> — {estimate.basisLine}
+              <br />
+              {estimate.methodNote}
+              <br />
+            </>
+          )}
           {hasData ? (
             <>
-              관측 {stats.observed}일 / {stats.total}일 · 평균 {fmtPct(stats.avg)}
+              {showEstimate ? '추정 산출' : '관측'} {stats.observed}일 / {stats.total}일 · 평균 {fmtPct(stats.avg)}
               {stats.max && ` · 최고 ${fmtPct(stats.max.value)} (${stats.max.date})`}
               {stats.min && ` · 최저 ${fmtPct(stats.min.value)} (${stats.min.date})`}
               {gapNote && ` · ${gapNote}`}

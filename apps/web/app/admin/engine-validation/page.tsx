@@ -17,6 +17,8 @@ import { AdminSidebar } from '@/components/AdminSidebar';
 import { MetricTile, OmittedMetricTile } from '@/components/admin/engine-validation/MetricTile';
 import { ConfusionTable } from '@/components/admin/engine-validation/ConfusionTable';
 import { ValidationSeriesChart } from '@/components/admin/engine-validation/ValidationSeriesChart';
+import { SeoulAlternativesPanel } from '@/components/admin/engine-validation/SeoulAlternativesPanel';
+import { SeoulCalibrationPanel } from '@/components/admin/engine-validation/SeoulCalibrationPanel';
 import { adminApi, adminApiKind, adminApiStatus } from '@/lib/admin-api';
 import { errorMessage } from '@/lib/errors';
 import type { AdminFailureNotice } from '@/lib/adminApiFailure';
@@ -325,13 +327,27 @@ export default function EngineValidationPage() {
                       서울시 인구는 통신사 기지국 5분 집계를 50m 격자로 배분한 값이고 단위는 핫스팟 전체다. 가게 단위 검증이 아니다.
                     </p>
                   </div>
+                  <div>
+                    <p className="font-semibold text-hanok-ink">주차는 경주의 임시 대용이다</p>
+                    <p className="text-xs mt-1">
+                      우리가 정말 쓰고 싶은 신호는 서울이 가진 <span className="text-hanok-ink font-semibold">실시간 유동인구</span>다.
+                      경주에는 그것이 없어(통신사 B2B 데이터는 기업용 가격) 살아 있는 실측 가운데 구할 수 있는 것 —
+                      공영주차 점유율 — 으로 대신한다. 주차는 정답이 아니라 <span className="text-hanok-ink font-semibold">대용</span>이고,
+                      아래 두 블록이 그 사실을 양쪽에서 보여 준다: 실시간 인구가 있으면 엔진이 어떻게 도는지(대안 추천),
+                      그리고 그 인구로 주차 대용을 얼마나 바로잡을 수 있는지(보정).
+                    </p>
+                  </div>
                 </section>
               </div>
             </>
           )}
 
+          {/* 아래 두 블록은 검증 표본 상태와 무관하게 스스로 조회한다 — 위 지표가 실패해도 보여야 한다. */}
+          <SeoulAlternativesPanel />
+          <SeoulCalibrationPanel />
+
           <footer className="text-xs text-hanok-muted border-t border-hanok-line pt-4">
-            {SEOUL_ATTRIBUTION}. 계획: docs/CONGESTION_ENGINE_PLAN.md §5.3·§6.
+            {SEOUL_ATTRIBUTION}. 계획: docs/CONGESTION_ENGINE_PLAN.md §5.3·§5.4 A·A2·§6.
           </footer>
         </div>
       </main>

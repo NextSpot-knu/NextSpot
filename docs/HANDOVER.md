@@ -243,7 +243,7 @@ from checks order by seq;
   §6.1(코스 재계획: `alternatives`·`slot_outcomes`·`plan_id`·`pins`) · §7.1(`admin_override`) · §11(`area-demand-alert`) 추가 ·
   `HANDOVER` 배포 상태·예약 워크플로 3개·마이그레이션 15번 · `contest/DEMO_SCENARIO.md` 체크리스트 12
   (비활성 시드는 지도에서도 빠진다 — 배포 API로 실측).
-- 검증: `node scripts/check-docs.mjs` 통과 · 배포 API GET 실측(`/api/v1/infrastructures` 1,645곳)
+- 검증: `node scripts/check-docs.mjs` 통과 · 배포 API GET 실측(당시 1,645곳 — 2026-09-20 재측정 활성 1,669곳/전체 1,688곳)
 - 다음·미결: `/search/keyword`·`/search/ingest-request`가 프런트에서 끊긴 것은 **문서에 사실로 적어 두기만 했다** — 되살릴지 지울지는 코드 결정.
 - 사람 작업: 마이그레이션 15번 원격 적용 여부 확인 · `area-demand-alert` 시크릿/변수 등록 확인(위 두 절에 추가).
 

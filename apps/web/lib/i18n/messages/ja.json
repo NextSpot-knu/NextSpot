@@ -416,7 +416,7 @@
     "aiRec": "AIおすすめ",
     "freshLive": "{rel}時点",
     "freshReport": "訪問者レポート · {rel}",
-    "freshStale": "過去パターンによる推定（リアルタイムではありません）",
+    "freshStale": "リアルタイムではありません · 1日以上前の観測",
     "ofCandidates": "代替{n}件中",
     "congestion": "混雑度",
     "noData": "データなし",
@@ -483,7 +483,10 @@
     "evidenceNone": "混雑の根拠なし",
     "spotTooltipEvidenceOrder": "混雑の根拠がある場所を先に表示します。根拠がなければ近くても後ろに回ります。",
     "estimateLevel": "推定混雑: {label}",
-    "evidenceEstimated": "推定 · 駐車場の実測に基づく · {time} 観測 · 半径{km}km"
+    "evidenceEstimated": "推定 · 駐車場の実測に基づく · {time} 観測 · 半径{km}km",
+    "evidenceEstimatedCalibrated": "推定 · 駐車場の実測に基づく（ソウル実測で補正） · {time} 観測 · 半径{km}km",
+    "lastObserved": "最終観測 {time}",
+    "lastObservedLevel": "最終観測 {time} · {label}"
   },
   "report": {
     "trigger": "混雑を報告",

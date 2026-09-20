@@ -20,7 +20,7 @@ import { openDrivingDirections, openWalkingDirections } from "@/lib/navigation";
 import { track } from "@/lib/analytics";
 import { loadTravelContext } from "@/lib/travelContext";
 import { relativeParts } from "@/lib/freshness";
-import { displayableEstimate, estimateRadiusKm, formatEstimateTime } from "@/lib/congestionEstimate";
+import { congestionDisplay, estimateRadiusKm, formatEstimateTime, formatLastObserved } from "@/lib/congestionEstimate";
 import { congestionKey } from "@/lib/congestionScale";
 import { useBusyThreshold } from "@/components/shell/PublicSettingsProvider";
 import { buildSpotComparisons, formatSpotComparison } from "@/lib/spotComparison";
@@ -51,6 +51,20 @@ function buildFallbackReason(
   return waitMin === null
     ? t('recommend.fallbackMeasured', { name, walk })
     : t('recommend.fallbackWithWait', { name, walk, wait: Math.round(waitMin) });
+}
+
+/**
+ * 문장(사유·음성)이 '지금 이만큼 붐빈다' 고 **주장해도 되는** 값. 아니면 null.
+ *
+ * 백엔드 _reason_congestion_ctx(app/routers/recommendations.py)와 같은 판단이다. 서버가 한국어
+ * 사유에서 그 주장을 이미 걷어내지만, 이 화면은 ko 가 아니면 **언제나** 위 클라이언트 폴백 문장을
+ * 쓰고(`locale === 'ko' && rec.reason` 조건), 그 문장이 다시 원시 congestionLevel 을 읽었다.
+ * 그래서 en/ja/zh 에서는 배지가 '추정 · 여유' 인데 문장은 "혼잡도 92%" 가 됐고, 같은 문자열이
+ * 음성으로도 읽혔다(2026-09-20 적대적 검토). 판정은 congestionDisplay 한 곳에서만 한다.
+ */
+function assertableCongestionLevel(rec: RecommendationResponse): number | null {
+  const display = congestionDisplay(rec);
+  return display.mode === 'measured' || display.mode === 'predicted' ? display.level : null;
 }
 
 // 합성 추천 id 판별 — mock-(데모 폴백, by-type 저장 실패분 포함)은 recommendations 테이블에
@@ -1107,7 +1121,9 @@ function RecommendContent() {
         rec.facility.name,
         typeof rec.breakdown?.waitTime === 'number' ? rec.breakdown.waitTime : null,
         rec.distanceM,
-        typeof rec.congestionLevel === 'number' ? rec.congestionLevel : null,
+        // 원시 congestionLevel 이 아니라 '지금 주장해도 되는' 값 — 배지와 문장(그리고 음성)이
+        // 다른 말을 하지 않게 한다. 서버는 한국어 사유에서 이미 같은 판단을 한다.
+        assertableCongestionLevel(rec),
       );
     const reasonText = locale === 'ko' && rec.reason ? rec.reason : localizedFallback;
     const sentence = buildCardSpeech(rec.facility.name, reasonText, index);
@@ -1335,8 +1351,15 @@ function RecommendContent() {
               const closedToday =
                 isClosedToday((recFeatures?.restDateRaw ?? recFeatures?.rest_date_raw) as string | undefined) === true;
               const freshness = relativeParts(rec.congestionTimestamp ?? rec.dataUpdatedAt);
-              // 추정 모드(주차 실측 + 관광 통계). 실측·예측이 없을 때만 — 대기 분·인원은 만들지 않는다.
-              const estimate = displayableEstimate(rec);
+              // 무엇을 '지금' 으로 칠할지 — 추천 카드·코스와 **같은 함수**로 정한다
+              // (lib/congestionEstimate.ts congestionDisplay). 이 화면이 따로 판정하지 않는다.
+              // 추정은 '지금' 자격이 있는 실측·예측이 없을 때만 — 대기 분·인원은 만들지 않는다.
+              const display = congestionDisplay(rec);
+              const estimate = display.estimate;
+              // 추정에 자리를 내줬거나 대신할 추정이 없어 그대로 칠한 '낡은 관측'. 지우지 않는다.
+              const lastObserved = display.lastObserved;
+              const shownLevel =
+                display.mode === 'measured' || display.mode === 'predicted' ? display.level : null;
               // 등급은 운영자 '혼잡' 경계(busyAt)로 — 지도 점선 핀·코스 칩과 같은 말을 해야 한다.
               const estimateKey = estimate ? congestionKey(estimate.level, busyAt) : null;
               const freshnessText = freshness
@@ -1350,7 +1373,7 @@ function RecommendContent() {
                 rec.facility.name,
                 typeof rec.breakdown?.waitTime === 'number' ? rec.breakdown.waitTime : null,
                 rec.distanceM,
-                typeof rec.congestionLevel === 'number' ? rec.congestionLevel : null,
+                assertableCongestionLevel(rec),   // 배지와 같은 판정(위 helper 주석 참조)
               );
               const displayReason = locale === 'ko' && rec.reason ? rec.reason : localizedReason;
               const spotComparison = spotComparisonById.get(rec.recommendationId);
@@ -1394,27 +1417,27 @@ function RecommendContent() {
                       )}
                       {/* 혼잡 3단계 근거 배지(CONGESTION_TRUST_SPEC): 실측 4단계 pill / AI 예측 / 준비 중.
                           색·임계는 RecommendationCard 혼잡 pill 과 동일 규약(0.75/0.5/0.25). */}
-                      {rec.congestionSource === "measured" && typeof rec.congestionLevel === "number" && (
+                      {display.mode === "measured" && shownLevel !== null && (
                         <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ml-2 border ${
-                          rec.congestionLevel >= 0.75
+                          shownLevel >= 0.75
                             ? "bg-terracotta/10 border-terracotta/30 text-terracotta"
-                            : rec.congestionLevel >= 0.5
+                            : shownLevel >= 0.5
                             ? "bg-gold/10 border-gold/30 text-gold-deep"
-                            : rec.congestionLevel >= 0.25
+                            : shownLevel >= 0.25
                             ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-600"
                             : "bg-jade/10 border-jade/30 text-jade"
                         }`}>
                           {t("card.congestion")}: {t(`congestion.${
-                            rec.congestionLevel >= 0.75 ? "busy" : rec.congestionLevel >= 0.5 ? "moderate" : rec.congestionLevel >= 0.25 ? "relaxed" : "quiet"
+                            shownLevel >= 0.75 ? "busy" : shownLevel >= 0.5 ? "moderate" : shownLevel >= 0.25 ? "relaxed" : "quiet"
                           }`)}
                         </span>
                       )}
-                      {rec.congestionSource === "predicted" && typeof rec.congestionLevel === "number" && (
+                      {display.mode === "predicted" && shownLevel !== null && (
                         <span className="text-[10px] font-bold px-2 py-0.5 rounded-md ml-2 border bg-sky-500/10 border-sky-500/30 text-sky-700">
-                          {t("map.forecast")} · {Math.round(rec.congestionLevel * 100)}%
+                          {t("map.forecast")} · {Math.round(shownLevel * 100)}%
                         </span>
                       )}
-                      {rec.congestionSource === "none" && estimate && estimateKey ? (
+                      {estimate && estimateKey ? (
                         <>
                           {/* 점선·옅은 바탕 — 위 실측 pill 의 꽉 찬 등급색과 한눈에 달라야 한다. */}
                           <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ml-2 border border-dashed bg-white/70 ${
@@ -1429,15 +1452,30 @@ function RecommendContent() {
                             {t("card.estimateLevel", { label: t(`congestion.${estimateKey}`) })}
                           </span>
                           <span className="text-[10px] font-medium px-2 py-0.5 rounded-md ml-2 border border-dashed border-line text-muk-soft">
-                            {t("card.evidenceEstimated", {
+                            {/* 보정이 실제로 적용된 값이면 같은 칩 안에서 한 마디만 더 — 새 배지는 만들지 않는다. */}
+                            {t(estimate.calibrated ? "card.evidenceEstimatedCalibrated" : "card.evidenceEstimated", {
                               time: formatEstimateTime(estimate.observedAt) ?? "—",
                               km: estimateRadiusKm(estimate.radiusM),
                             })}
                           </span>
                         </>
-                      ) : rec.congestionSource === "none" && (
+                      ) : display.mode === "none" && (
                         <span className="text-[10px] font-bold px-2 py-0.5 rounded-md ml-2 border bg-muk/5 border-line text-muk-soft">
                           {t("card.congestionPreparing")}
+                        </span>
+                      )}
+                      {/* '지금' 자격을 잃은 관측은 지우지 않고 맥락으로 남긴다(마지막 관측 시각).
+                          등급색을 쓰지 않는 이유: 이 칩은 '지금' 을 주장하지 않는다. */}
+                      {lastObserved && (
+                        <span className="text-[10px] font-medium px-2 py-0.5 rounded-md ml-2 border border-dashed border-line text-muk-soft">
+                          {typeof lastObserved.level === "number"
+                            ? t("card.lastObservedLevel", {
+                                time: formatLastObserved(lastObserved.observedAt) ?? "—",
+                                label: t(`congestion.${congestionKey(lastObserved.level, busyAt)}`),
+                              })
+                            : t("card.lastObserved", {
+                                time: formatLastObserved(lastObserved.observedAt) ?? "—",
+                              })}
                         </span>
                       )}
                       {/* D-3: 합성(seed)/시뮬(simulated) 로그는 데모 데이터임을 UI 라벨로 구분(가드레일). */}
@@ -1447,7 +1485,9 @@ function RecommendContent() {
                           {t("card.demoData")}
                         </span>
                       )}
-                      {rec.congestionSource === "measured" && rec.congestionIsStale && (
+                      {/* 24시간 배지는 '마지막 관측' 칩이 없을 때만 — 같은 말을 두 번 하지 않는다
+                          (구 서버 응답처럼 '지금' 판정이 없을 때 남는 경로다). */}
+                      {rec.congestionSource === "measured" && rec.congestionIsStale && !lastObserved && (
                         <span className="text-[10px] font-medium px-2 py-0.5 rounded-md ml-2 border bg-hanji-deep border-line text-muk-soft/70">
                           {t("card.freshStale")}
                         </span>
@@ -1460,7 +1500,9 @@ function RecommendContent() {
                       <h4 className="text-base font-extrabold text-muk mt-1.5">
                         {rec.facility.name}
                       </h4>
-                      {rec.congestionSource !== 'none' && freshnessText && (
+                      {/* lastObserved 가 있으면 위 칩이 이미 '언제' 를 말했다 — 'n일 전 기준' 을 또 쓰면
+                          지금 칠해진 값(추정)이 n일 전 값으로 읽힌다. */}
+                      {rec.congestionSource !== 'none' && freshnessText && !lastObserved && (
                         <p className="mt-0.5 text-[10px] text-muk-soft">
                           {rec.congestionLogSource === 'user_report'
                             ? t('card.freshReport', { rel: freshnessText })
@@ -1603,17 +1645,20 @@ function RecommendContent() {
                   </div>
 
                   {/* SPOT Breakdown Indicators */}
-                  <div className={`grid ${rec.congestionSource === 'none' && !estimate ? 'grid-cols-2' : 'grid-cols-3'} gap-2 py-2 border-t border-b border-line my-3 text-[11px] text-muk-soft`}>
+                  <div className={`grid ${display.mode === 'none' && !estimate ? 'grid-cols-2' : 'grid-cols-3'} gap-2 py-2 border-t border-b border-line my-3 text-[11px] text-muk-soft`}>
                     <div className="text-center">
                       <span className="text-muk-soft block text-[10px]">{t("recommend.prefMatch")}</span>
                       <span className="font-bold text-jade">{preferencePct}%</span>
                     </div>
-                    {rec.congestionSource !== 'none' && <div className="text-center border-l border-r border-line">
+                    {/* 추정이 '지금' 자리를 가져갔으면 대기 칸은 그리지 않는다 — 그 대기 분은
+                        낡은 관측에서 나온 값이라, 추정 배지 옆에 두면 두 시점이 한 줄에 섞인다.
+                        (추정 자체는 대기 분을 만들지 않는다 — 점유율→대기 계수가 없다.) */}
+                    {display.mode !== 'none' && !estimate && <div className="text-center border-l border-r border-line">
                       <span className="text-muk-soft block text-[10px]">{t("recommend.expectedWait")}</span>
                       <span className="font-bold text-gold-deep">{t("recommend.minutesValue", { n: waitTime })}</span>
                     </div>}
                     {/* 추정은 대기 칸을 채우지 않는다(점유율→대기 계수가 없다). 등급만 '추정' 머리표와 함께. */}
-                    {rec.congestionSource === 'none' && estimate && estimateKey && <div className="text-center border-l border-r border-dashed border-line">
+                    {estimate && estimateKey && <div className="text-center border-l border-r border-dashed border-line">
                       <span className="text-muk-soft block text-[10px]">{t("course.estimateShort")}</span>
                       <span className="font-bold text-muk-soft">{t(`congestion.${estimateKey}`)}</span>
                     </div>}
@@ -1701,6 +1746,11 @@ function RecommendContent() {
                                 congestionTimestamp,
                                 congestionLogSource: 'user_report',
                                 congestionIsStale: false,
+                                // **반드시 함께 덮어써야 한다.** 서버가 내려준 congestionIsCurrent 가
+                                // false(낡은 관측)인 채로 남으면, 방금 사용자가 눈으로 보고 남긴 제보가
+                                // '마지막 관측 14:37' 로 밀려나고 추정이 '지금' 자리를 차지한다.
+                                // 사용자가 지금 본 것보다 새로운 근거는 없다.
+                                congestionIsCurrent: true,
                               }
                             : item
                         )));

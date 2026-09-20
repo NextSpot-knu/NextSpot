@@ -11,12 +11,21 @@ from pydantic import BaseModel
 from app.core.authz import ROLE_ADMIN, require_role
 from app.core.supabase import supabase_client, supabase_admin, fetch_all_rows
 from app.services.availability_service import fetch_effective_availability_map
-from app.services.congestion_evidence import estimate_for, load_current_estimates
+from app.services.congestion_evidence import (
+    estimate_for,
+    load_current_estimates,
+    measurement_is_current,
+)
 
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1", tags=["infrastructures"])
 
 # 혼잡 로그 신선도 임계(시간) — 최신 로그 나이가 이보다 크면 is_stale=True(신뢰도 낮음 표기).
+#
+# ⚠️ 이 24시간은 '**몹시** 낡았다' 경고선이지, "이 값이 지금이다" 의 기준선이 아니다. 후자는
+# congestion_evidence.measurement_is_current 의 30분 × 신뢰등급이며(계획서 §5.2), 아래 혼잡 info 의
+# ``is_current`` 로 함께 실려 나간다. 두 선이 필요한 이유는 그 함수 주석 참조 — 사용자에게 보이는
+# 문구는 30분 선(마지막 관측 HH:MM)으로 통일하고, is_stale 은 배포된 구 번들 호환으로 남긴다.
 _STALE_AFTER_HOURS = 24
 
 # ── 데모 '피크타임 모의 발생'(simulate_peak) 파라미터 ─────────────────────────
@@ -67,6 +76,14 @@ class CongestionInfo(BaseModel):
     # 프런트 하위호환: 필드 추가만(기본값 제공). source=출처 라벨, is_stale=로그 나이>24h.
     source: str | None = None
     is_stale: bool = False
+    # 이 관측이 '지금' 을 말할 자격이 있는가(verified/corroborated · 30분 이내 —
+    # congestion_evidence.measurement_is_current). False 면 화면은 같은 시설의 추정
+    # (GET /congestion/estimates)을 '지금' 으로 칠하고 이 값은 '마지막 관측 HH:MM' 으로 남긴다.
+    # **지도 마커는 그대로 실측만 칠한다** — 추정이 마커 색을 만들지 않는다(사용자 결정).
+    # 기본값 False 가 아니라 True 인 이유: 이 모델은 구 응답을 역직렬화하는 자리가 아니라 항상
+    # 아래 두 조회 함수가 계산해 채운다. 혹시 키가 빠진 경로가 생기더라도 '지금이 아니다' 로
+    # 오해해 멀쩡한 실측을 추정으로 덮는 쪽보다, 종전 동작(실측을 그대로 그림)이 안전하다.
+    is_current: bool = True
 
 
 class CongestionEstimate(BaseModel):
@@ -85,6 +102,16 @@ class CongestionEstimate(BaseModel):
     lot_count: int                      # 반경 안 실시간 주차장 수 — 관측이 얼마나 얇은지 같이 말한다
     nearest_lot_m: float | None = None
     radius_m: int
+    # 서울 실측 보정(congestion_calibration_service)의 흔적. 추정기가 항상 싣지만 이 모델이
+    # 받지 않아 /congestion/estimates 에서만 조용히 사라지고 있었다(pydantic extra='ignore').
+    # **전부 Optional** — 보정을 모르는 구 추정기 payload 도 그대로 검증을 통과해야 한다.
+    #  · raw_level        : 보정 전 원값. 보정이 꺼져 있으면 level 과 같다(원값은 어느 경우에도 안 버린다).
+    #  · calibrated       : 이 level 에 보정 곡선이 실제로 적용됐는지.
+    #  · calibration_basis: 사람이 읽는 근거 한 줄("보정 전(서울 표본 부족)" / "서울 실측으로 보정(…)").
+    #    화면은 이 문장을 '추정' 라벨 옆 출처 텍스트로만 쓴다 — 새 배지를 만들지 않는다.
+    raw_level: float | None = None
+    calibrated: bool | None = None
+    calibration_basis: str | None = None
 
 
 def congestion_estimate_model(estimate: dict | None) -> CongestionEstimate | None:
@@ -182,6 +209,7 @@ async def _fetch_latest_one(fid: str) -> tuple[str, dict | None]:
                 "source": row.get("source"),
                 "evidence_tier": row.get("evidence_tier"),
                 "is_stale": _is_stale(ts),
+                "is_current": measurement_is_current(row.get("evidence_tier"), ts),
             }
     except Exception as e:
         logger.warning("congestion_fetch_one_failed", facility_id=fid, error=str(e))
@@ -287,6 +315,7 @@ async def fetch_latest_congestion_for_all(facility_ids: list[str]) -> dict:
                 "source": row.get("source"),
                 "evidence_tier": row.get("evidence_tier"),
                 "is_stale": _is_stale(ts),
+                "is_current": measurement_is_current(row.get("evidence_tier"), ts),
             }
         return result
     except Exception as e:
@@ -406,8 +435,12 @@ class CongestionEstimatesResponse(BaseModel):
     """GET /congestion/estimates — 지금 시점의 시설별 **추정** 혼잡(추정 모드, 계획서 §5.2).
 
     ``estimates`` 에는 반경 2km 에 실시간 주차장이 있는 시설만 있다(나머지는 키가 없다 — 값을
-    만들지 않는다). 실측 우선은 **화면이 적용한다**: 같은 시설에 /infrastructures 의 congestion
-    (실측)이 있으면 추정은 그리지 않는다(apps/web/lib/congestionEstimate.ts displayableEstimate).
+    만들지 않는다). 실측 우선은 **화면이 적용한다**: 같은 시설에 /infrastructures 의 congestion 이
+    있고 그 관측이 ``is_current=True``(verified/corroborated · 30분 이내)면 추정은 그리지 않는다.
+    ``is_current=False`` 인 낡은·단건 관측은 추정에 '지금' 자리를 내주고 '마지막 관측 HH:MM' 으로
+    남는다 — 판정은 서버가 하고 화면은 그 결론만 읽는다
+    (apps/web/lib/congestionEstimate.ts congestionDisplay).
+    지도 마커는 어느 경우에도 실측만 칠한다 — 추정은 시설 상세·카드의 '추정' 배지로만 보인다.
     """
 
     available: bool

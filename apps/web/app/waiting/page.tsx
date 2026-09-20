@@ -19,6 +19,7 @@ import { useRouter } from "next/navigation";
 import { ArrowLeft, Crown } from "lucide-react";
 import { isServiceUnavailable, recommendByType } from "@/lib/api-client";
 import { recToSpot } from "@/lib/recommender";
+import { congestionDisplay } from "@/lib/congestionEstimate";
 import { REGION } from "@/lib/region";
 import { useI18n, useT } from "@/lib/i18n/I18nProvider";
 import { GoldenHourBadge } from "@/components/GoldenHourBadge";
@@ -230,7 +231,14 @@ export default function WaitingBoardPage() {
               ? source as BoardRow["imageSource"]
               : null;
           })(),
-          congestionLevel: typeof rec.congestionLevel === "number" ? rec.congestionLevel : null,
+          // 카드·추천 목록과 **같은 판정**을 쓴다. 이 보드는 같은 RecommendItem 을 받으면서
+          // 원시 congestionLevel 만 읽어, 추천 화면이 '추정 · 여유' 라고 말하는 시설을
+          // '혼잡' 으로 그리고 있었다(2026-09-20 적대적 검토). 추정은 여기서 그리지 않고
+          // (이 보드는 대기 예측 화면이라 추정 어휘가 없다) '근거 없음' 으로 둔다.
+          congestionLevel: (() => {
+            const display = congestionDisplay(rec);
+            return display.mode === "measured" || display.mode === "predicted" ? display.level : null;
+          })(),
           areaDemandLevel: typeof spot.areaDemandLevel === "number" ? spot.areaDemandLevel : null,
           areaDemandMode: spot.areaDemandMode ?? null,
           areaDemandRadiusM: typeof spot.areaDemandRadiusM === "number" ? spot.areaDemandRadiusM : null,

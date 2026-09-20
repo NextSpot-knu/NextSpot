@@ -416,7 +416,7 @@
     "aiRec": "AI推荐",
     "freshLive": "截至{rel}",
     "freshReport": "游客上报 · {rel}",
-    "freshStale": "基于历史模式估算（非实时）",
+    "freshStale": "非实时 · 超过一天前的观测",
     "ofCandidates": "共{n}个备选",
     "congestion": "拥挤度",
     "noData": "暂无数据",
@@ -483,7 +483,10 @@
     "evidenceNone": "无拥挤依据",
     "spotTooltipEvidenceOrder": "有拥挤依据的地点优先显示。没有依据时，即使更近也会排在后面。",
     "estimateLevel": "估算拥挤度: {label}",
-    "evidenceEstimated": "估算 · 基于停车场实测 · {time} 观测 · 半径{km}km"
+    "evidenceEstimated": "估算 · 基于停车场实测 · {time} 观测 · 半径{km}km",
+    "evidenceEstimatedCalibrated": "估算 · 基于停车场实测（已用首尔实测校准） · {time} 观测 · 半径{km}km",
+    "lastObserved": "最后观测 {time}",
+    "lastObservedLevel": "最后观测 {time} · {label}"
   },
   "report": {
     "trigger": "上报拥挤",

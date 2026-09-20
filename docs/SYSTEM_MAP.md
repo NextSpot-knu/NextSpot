@@ -2,6 +2,7 @@
 
 > 작성 기준: 2026-08-20 코드 직접 조사(`8f84803`) → 2026-08-28 RBAC 반영 → 2026-09-04 저장소 정리 반영(경로·개수·인증 갱신)
 > → 2026-09-07 화면↔API 매핑 전수 재확인(§5 표 전체를 `apps/web/app` 코드와 1행씩 대조, §6.1 코스 재계획 · §11 수집 감시 추가)
+> → 2026-09-20 **추정 모드 · 서울 검증** 반영(§5.1 추정 피드 · §5.3 엔진 검증 화면과 기계 엔드포인트 · §9 외부 데이터 2종 · §10 새 표 · §11 서울 10분 수집)
 >
 > 이 문서는 **현재 코드에 실제로 구현된 것**만 기술한다. `README.md`와
 > `docs/archive/ARCHITECTURE_OVERVIEW.md`는 각각 공모전 서사·상속 베이스 문서라 최신 상태와
@@ -11,8 +12,12 @@
 
 ## 1. 제품 한눈에
 
-경주 황리단길의 **오버투어리즘을 실시간으로 분산**시키는 대안 장소 추천 서비스.
-사용자가 가려는 곳이 붐빌 때, **"당신이 도착할 시점"의 혼잡을 예측**해 한산한 대안을 추천한다.
+경주 황리단길의 **오버투어리즘을 분산**시키는 대안 장소 추천 서비스.
+사용자가 가려는 곳이 붐빌 때, **"당신이 도착할 시점"** 기준으로 한산한 대안을 추천한다.
+
+> 현재 상태(2026-09-20): 시설 단위 실시간 유동인구 데이터가 없어 혼잡은 **추정**이고(주차 10분 실측
+> 0.7 + 관광 집중률 0.3, §5.1), 승격된 예측 모델도 없다(`degraded_rules` — 혼잡 항이 산식에서 빠진다,
+> §7.2). 코드는 "실시간"이라고 말하지 않는다.
 
 핵심 산식은 **SPOT Score** 하나로 수렴한다.
 
@@ -247,6 +252,7 @@ SessionBootstrap: 익명 세션 자동 발급
 | `/` | 랜딩 | — | — |
 | `/setup` | 온보딩 Cold Start (카테고리·도보시간·체류시간·음식취향) | `POST /track` (분석) + Supabase 직접 `users.preferred_categories` UPDATE (로그인 상태일 때만, 실패해도 진행) | `lib/travelContext.ts` `lib/analytics.ts` |
 | `/main` | 홈 — 혼잡 지도·날씨·축제·화장실·주차·진행중 여정 | `GET /infrastructures` `/weather` `/events` `/restrooms` `/freshness` `/area-demand/parking-lots` | `facility_cache` `weather_service` `restroom_service` `parking_demand_service` |
+| ″ | **추정 모드 피드**(실측·예측이 없는 시설의 '추정' 혼잡) | `GET /congestion/estimates` (공개·5분 캐시, `routers/infrastructures.py`) | `congestion_estimator_service` ← `area_demand_snapshots`(주차 10분) + 관광 집중률 · 웹은 `lib/congestionEstimate.ts` |
 | ″ | 히트맵 + 시간대별 AI 예측 타임슬라이더 | `POST /predict/batch` | `predict_service` |
 | ″ | 지도 위 추천 바텀시트 (수락·거절) | `POST /recommendations` `/recommendations/by-type` `/recommendations/accept` `/recommendations/reject` | **SPOT 엔진** `feedback_service` |
 | ″ | 음성 비서 | `POST /voice/turn` | `voice_intent_service` + `lib/voice/voiceCommands.ts` |
@@ -278,6 +284,12 @@ SessionBootstrap: 익명 세션 자동 발급
 - `GET /search/keyword`(TourAPI 키워드 폴백 + `search_rewrite_service`)와 `POST /search/ingest-request`
   (적재 요청 큐잉)는 **백엔드에는 살아 있지만 현재 웹에서 호출하는 지점이 없다.** 지도 검색이
   Kakao `GET /search/places` 로 옮겨 가면서 끊겼다 — 관리자 승인 큐(§5.3)는 그대로 동작한다.
+- **추정은 관측 자리에 들어가지 않는다**(2026-09-20). `GET /congestion/estimates` 는 `/infrastructures`
+  와 **따로** 받는다 — 시설이 어느 경로(API·Supabase 폴백·캐시)로 그려졌든 같은 추정을 덧씌우기
+  위해서다. 응답의 `level` 은 `congestionLevel`·`baseCongestion` 에 절대 섞이지 않고,
+  **'추정' 배지로 시설 상세·추천 카드(`RecommendationCard`)·`/course` 에만** 붙는다.
+  **지도 마커는 추정으로 칠하지 않는다**(2026-09-20 `a64eb1c` 로 되돌림 — 마커 색은 관측/예측의 자리다).
+  실측·예측 값이 있으면 웹이 추정을 숨긴다(측정 > 예측 > 추정). 구 서버의 404 는 '추정 없음'으로 처리한다.
 - **역할 신청은 `pending` 인 동안만 신청자가 손댈 수 있다.** 철회는 `status='withdrawn'` 으로 남고
   (`role_audit_log` 에는 적지 않는다 — 철회는 심사가 아니다), 수정은 연락처·사업자번호·증빙을
   바꾼다. **`facility_id` 만은 수정할 수 없다**(422) — 연결을 바꾼 뒤 승인받으면 심사자가 본 가게가
@@ -335,8 +347,10 @@ SessionBootstrap: 익명 세션 자동 발급
 | ″ | `GET /admin/area-demand-reliability?hours=24` | **주차 수집 신뢰도 패널** — `alert.state`(§11) |
 | ″ | `POST/PATCH/DELETE /admin/facilities` (`FacilityTable`) | 시설 CRUD |
 | ″ | (쿠폰 정책 패널) `PATCH /admin/facilities/{id}` 의 `coupon_rate` | **POI별 할인율 조정 → 추천 순위 즉시 반영** |
-| ″ | `GET /admin/dashboard/today` 의 `estimated` | **추정 모드** — 현장 관측이 없을 때 주차 실측 + 관광 통계로 읽을 때 계산한 추정 집계(`congestion_estimator_service`). "24시간 모의 발생" 버튼은 2026-09-20 제거(D6, 엔드포인트는 잔존) |
-| `/admin/engine-validation` | `GET /admin/engine-validation/seoul/summary?days=` | **엔진 검증** — 서울 실시간 도시데이터(홍대 관광특구) 실측 대비 추정 등급·전망 오차 |
+| ″ | `GET /admin/dashboard/today` 의 `estimated` | **추정 모드** — 현장 관측이 없을 때 주차 실측 + 관광 통계로 읽을 때 계산한 추정 집계(`congestion_estimator_service`). 대시보드에서 **"24시간 모의 발생"·"주차 실측 기반 추정 적재(수동)" 두 버튼은 2026-09-20 제거**(D6 — 합성 로그로 화면을 채우지 않는다). 백엔드 엔드포인트(`POST /admin/simulate-peak`, `GET/POST /admin/congestion-estimates/parking-derived*`)는 잔존하나 호출하는 화면이 없다 |
+| `/admin/engine-validation` | `GET /admin/engine-validation/seoul/summary?days=` | **엔진 검증** — 서울 실시간 도시데이터 실측 대비 추정 등급·전망 오차. 지표는 값·표본·기준·판정(`pass`/`fail`/`insufficient`/`report`)을 **항상** 함께 낸다(`engine_validation_metrics.py`) |
+| ″ | `GET /admin/engine-validation/seoul/calibration?days=` | **보정 곡선 패널**(`SeoulCalibrationPanel`) — 주차 신호 → 실측 인파 단조 곡선. 관문(3일·300버킷·홀드아웃 MAE 개선) 통과 전에는 **항등**이라 값이 바뀌지 않는다 (`congestion_calibration_service`, 쓰기 없음) |
+| ″ | `GET /admin/engine-validation/seoul/alternatives?origin=` | **권역 대안 패널**(`SeoulAlternativesPanel`) — 홍대(`POI007`)·연남동(`POI073`)·합정역(`POI053`) 시연 권역의 실측 인파 비교("여기가 붐비니 저기로") |
 | ″ | `GET /admin/impact?since=` (`ImpactWidget`) | **분산 효과 정량화** — 절감 대기시간·재배치 건수 |
 | ″ | `GET /freshness` (`DataFreshnessBadge`) | TourAPI 마지막 동기화 |
 | `/admin/infrastructure` | `POST /admin/facilities/{id}/congestion` | 혼잡 수동 입력 (`admin_override` · §7.1) |
@@ -346,6 +360,7 @@ SessionBootstrap: 익명 세션 자동 발급
 | `/admin/reports` | `GET /admin/metrics?days=28` + Supabase anon `congestion_logs` | 통계 리포트 (요일·카테고리 집계, AI 수락 추이) |
 | `/admin/safety` | `GET /admin/safety/status` | 인파 안전 조기경보 |
 | `/admin/report` | `GET /admin/metrics/trend?days=30` · `/admin/dashboard/today` · `GET /freshness` | 성과 리포트 — 의회·평가 제출용 인쇄물 |
+| ″ | `GET /admin/reports/estimated?days=` (`estimated_report_service`) | **추정 일별 시계열** — 2026-09-20 신설. 이 글을 쓰는 시점에 웹 호출부는 아직 없다(다른 에이전트가 배선 중) |
 | `/admin/support` | `GET/PATCH /admin/inquiries` | 문의 처리 |
 | `/admin/settings` | `GET/PUT /admin/settings` + Supabase anon 카운트 | `system_settings` 단일 행(공지·임계치) · DB 통계 |
 
@@ -354,6 +369,16 @@ SessionBootstrap: 익명 세션 자동 발급
 그 결과가 **같은 대시보드 화면의** `ImpactWidget`("절감 대기시간 · 재배치 건수", `GET /admin/impact`)으로
 되돌아온다. 세 패널이 한 화면에 있는 것이 데모 동선의 전제다(`contest/DEMO_SCENARIO.md` §2).
 `/admin/report` 는 그 지표를 인쇄물로 조립하는 별도 화면이고, 파생 불가능한 수치는 지어내지 않고 뺀다.
+
+**엔진 검증의 수집 쪽은 화면이 아니라 기계가 부른다**(`routers/engine_validation.py`, 2026-09-20).
+`POST /api/v1/engine-validation/seoul/collect` 는 Supabase pg_cron 이 10분마다 부르는 적재 경로이고
+(§11), `GET /api/v1/engine-validation/seoul/status` 는 키 설정 여부·대상지·추정기 버전
+(`ESTIMATOR_VERSION`)·마지막 수집 결과를 돌려준다. 둘 다 관리자/서비스 토큰이 필요하다(무인증 401).
+수집 대상지는 5곳이고 목적이 갈린다 — **시연 권역** 홍대 관광특구·연남동·합정역(2026-09-20 실측
+실시간 주차장 0·0·0 → 추정치가 만들어지지 않고 서울시 실측 인파만 쓴다)과 **검증 지점** 명동·동대문
+(각 5곳·8곳). 저장은 `seoul_citydata_snapshots` 전용 표이고 `congestion_logs` 와 섞지 않는다.
+⚠️ 2026-09-20 기준 프로덕션에는 마이그레이션 `20260920120000` 이 **아직 적용되지 않았다**(PostgREST 가
+표를 모른다) — 적용 전까지 수집·검증 화면은 `not_migrated` 로 떨어진다.
 
 ### 5.4 개발자 콘솔 (`/dev`)
 
@@ -552,6 +577,8 @@ UPSTAGE_API_KEY 미설정 → is_enabled() False → 네트워크 없이 즉시 
 | **OSM 보행 그래프**(번들, 외부 호출 없음) | 실경로 도보 시간 | 그래프 범위 밖은 **Haversine 직선거리 도보 환산** |
 | **Kakao Maps SDK** | 프런트 지도 | — |
 | **LOCALDATA** (행안부) | 인허가 기반 영업상태 검증 | 배치 미실행 |
+| **경주 ITS 공영주차 실시간** | 주변 권역 수요 + **추정 모드의 주차 성분**(0.7 가중) | 수집 중단 → 스냅샷이 낡으면 추정을 **만들지 않는다**(빈칸) |
+| **서울 실시간 도시데이터**(서울시 열린데이터광장, OA-21285, 공공누리 제1유형) | 추정 엔진 **검증**(`/admin/engine-validation`) + 시연. 경주 서비스 화면에는 나오지 않는다 | `SEOUL_OPENDATA_KEY` 없으면 503 `seoul_key_missing` — 수집만 멈추고 서비스는 무관 |
 | **Wikimedia** | 이미지 보강 | 기본 이미지 |
 | **Upstage Solar** | LLM 보조 | 결정적 경로 (§8) |
 
@@ -581,6 +608,8 @@ users ──┬── user_preference_vectors   (8차원, 수락 +10% / 거절 �
         └── role_audit_log                  (역할·소유권·심사 이력)
 
 area_demand_snapshots ─── area_demand_snapshot_lots   (경주 ITS 주차 10분 실측)
+seoul_citydata_snapshots  (서울 실시간 도시데이터 10분 — 실측 인파 정답 + 같은 버킷의 우리 추정 level_est.
+                           검증 전용, congestion_logs 와 분리. 마이그레이션 20260920120000)
 model_registry ──── Storage: recommendation-models (private)
 tourism_concentration_forecasts · tourism_insight_snapshots   (TourAPI 데이터랩)
 admin_ingest_requests   (검색 0건 → 승인형 적재)
@@ -610,6 +639,7 @@ system_settings
 | `train-recommendation-model.yml` | 매주 월 03:00 KST | 모델 학습 → 게이트 검증 → 승격 |
 | `area-demand-alert.yml` | **매시 정각** | 주차 실측 수집이 멈췄는지 감시 — `GET /admin/area-demand-reliability?hours=6` 의 `alert.state` 를 본다 |
 | `collect-area-demand.yml` | 수동 | 주차 실측 수집 수동 복구(정기 수집은 Supabase pg_cron 10분 주기) |
+| (워크플로 아님) Supabase pg_cron — **서울 실시간 도시데이터** | 10분(분 4·14·… 주 호출 / 9·19·… 버킷이 비었을 때만 보충) | `POST /api/v1/engine-validation/seoul/collect` 호출 → `seoul_citydata_snapshots` 적재. URL 은 Vault `nextspot_seoul_citydata_api_url`, 토큰은 경주 수집기와 같은 Vault 비밀을 **공유**한다(회전 한 번이면 둘 다 반영). 마이그레이션 `20260920121000` — 2026-09-20 기준 **적용 대기** |
 | `uptime.yml` | 수동 | 헬스체크(장애 진단용) |
 
 **왜 감시 워크플로가 따로 있나** — 정기 수집은 pg_cron 이 `net.http_post` 로 **발사 후 잊는** 구조라

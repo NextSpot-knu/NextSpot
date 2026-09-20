@@ -4,7 +4,9 @@
 분·학습은 evidence["source"] / ["level"] 을 보는데, 추정이 붙어도 그 둘은 'none' / None 그대로다.
 이 파일이 그 경계를 잠근다:
 
-  1. 우선순위: measured(사장 좌석 포함) > predicted(학습 모델) > estimated > none
+  1. 우선순위: '지금' 자격이 있는 measured(verified/corroborated · 30분 이내, 사장 좌석 포함)
+     > predicted(학습 모델) > estimated > none. 낡거나 단건인 실측은 추정에 자리를 내주되
+     응답에서 **지워지지는 않는다**(화면이 '마지막 관측' 으로 보여 준다)
   2. 추정은 rankable_measured_level·scoring_mode·시간비용·대기 분에 닿지 않는다. 닿는 곳은 딱 하나 —
      area_stats_rules 후보의 붐빔 판정(ranking_congestion → CROWDED_EVIDENCE_CUTOFF, 강등 전용)
   3. 추정기를 못 쓰면(낡음·실패·지연) 조용히 '추정 없음' — 추천을 죽이지 않는다
@@ -22,6 +24,8 @@ import pytest
 from app.services import congestion_estimator_service
 from app.services.congestion_evidence import (
     ESTIMATE_SOURCE,
+    RANKING_FRESHNESS,
+    TRUSTED_EVIDENCE_TIERS,
     attach_estimate,
     estimate_applies_to_arrival,
     estimate_for,
@@ -89,12 +93,77 @@ def test_estimate_fills_only_the_none_slot():
     assert not any("wait" in key for key in estimate)
 
 
-@pytest.mark.parametrize("source", ["measured", "predicted"])
-def test_measured_and_predicted_both_beat_the_estimate(source):
-    evidence = {**_NONE, "source": source, "level": 0.3}
+def _measured(level=0.3, *, tier="verified", age_minutes=5) -> dict:
+    """실측 근거 한 건. 나이·신뢰 등급만 바꿔 가며 우선순위 행렬을 만든다."""
+    return {
+        "level": level, "source": "measured", "log_source": "user_report",
+        "evidence_tier": tier, "is_stale": age_minutes > 24 * 60,
+        "timestamp": (NOW - timedelta(minutes=age_minutes)).isoformat(),
+    }
+
+
+# 우선순위 행렬(2026-09-20 결정) — "신선하고 신뢰할 수 있는 실측 > 모델 예측 > 추정 > 없음".
+# 낡거나 단건인 실측은 **추정에 '지금' 자리를 내준다.** 그래도 값은 응답에서 사라지지 않는다.
+@pytest.mark.parametrize(
+    "evidence,expect_current,expect_estimate",
+    [
+        # 1) 신선한 verified/corroborated 실측 — 추정은 붙지 않는다.
+        (_measured(tier="verified", age_minutes=5), True, False),
+        (_measured(tier="corroborated", age_minutes=29), True, False),
+        # 2) 같은 신뢰 등급이어도 30분이 지나면 '지금' 이 아니다.
+        (_measured(tier="verified", age_minutes=31), False, True),
+        # 3) 한 달 된 시드 한 건(프로덕션에서 실제로 있던 상태).
+        (_measured(tier="single_report", age_minutes=32 * 24 * 60), False, True),
+        # 4) 신선해도 단건 제보는 혼자서 '지금' 을 주장하지 못한다(rankable 과 같은 선).
+        (_measured(tier="single_report", age_minutes=2), False, True),
+        # 5) 시각을 모르는 실측 — 나이를 잴 수 없으면 '지금' 이 아니다.
+        ({**_measured(), "timestamp": None}, False, True),
+        # 6) 학습된 모델 예측은 추정을 이긴다(그 숫자가 순위를 만든 값이다).
+        ({**_NONE, "source": "predicted", "level": 0.3}, True, False),
+        # 7) 근거 없음 — 추정이 채우려던 바로 그 자리.
+        (dict(_NONE), False, True),
+    ],
+)
+def test_precedence_matrix(evidence, expect_current, expect_estimate):
     out = attach_estimate(evidence, _current(), "f-1", now=NOW)
+
+    assert out["is_current"] is expect_current
+    assert (out["estimate"] is not None) is expect_estimate
+    # **관측은 어느 경우에도 지워지지 않는다.** 추정은 옆 칸에만 앉는다.
+    assert out["source"] == evidence["source"]
+    assert out["level"] == evidence["level"]
+    assert out["timestamp"] == evidence["timestamp"]
+    # 추정이 실측 칸으로 새어 나가지 않는다(순위·대기 분이 읽는 문).
+    if expect_estimate:
+        assert out["estimate"]["source"] == ESTIMATE_SOURCE
+        assert out["level"] != out["estimate"]["level"]
+
+
+def test_stale_measurement_loses_the_ranking_door_too():
+    """화면 판정(is_current)과 순위 판정(rankable_measured_level)은 **같은 선**이어야 한다.
+
+    한쪽만 30분을 쓰면 '카드는 추정인데 순위는 실측' 같은 설명 불가능한 상태가 생긴다.
+    """
+    for tier, age, expected in [
+        ("verified", 5, True), ("corroborated", 29, True),
+        ("verified", 31, False), ("single_report", 2, False),
+    ]:
+        evidence = _measured(0.42, tier=tier, age_minutes=age)
+        out = attach_estimate(evidence, _current(), "f-1", now=NOW)
+        assert out["is_current"] is expected
+        assert (rankable_measured_level(out, now=NOW) is not None) is expected
+
+
+def test_merchant_seat_broadcast_keeps_the_now_slot():
+    """사장님 좌석 방송은 라우터가 is_current=True 를 직접 찍어 추정을 타지 않는다."""
+    from app.routers.recommendations import build_candidate_evidence
+
+    facility = {"id": "f-1", "_merchant_congestion_override": 0.9,
+                "seat_status_fresh": {"level": "full", "updated_at": NOW.isoformat()}}
+    out = asyncio.run(build_candidate_evidence(facility, None, _current()))
+    assert out["is_current"] is True
     assert out["estimate"] is None
-    assert out["source"] == source and out["level"] == 0.3
+    assert out["level"] == 0.9 and out["log_source"] == "merchant_seat"
 
 
 def test_attach_does_not_mutate_the_input_evidence():
@@ -331,6 +400,34 @@ async def test_load_passes_through_an_available_bundle(monkeypatch):
     monkeypatch.setattr(congestion_estimator_service, "current_estimates", _ok)
     current = await load_current_estimates()
     assert current is not None and "f-1" in current["estimates"]
+
+
+def test_web_fallback_mirror_matches_the_backend_rule():
+    """웹의 폴백 전용 미러(apps/web/lib/congestionEstimate.ts)가 이 파일의 규칙과 같은가.
+
+    지도에는 서버를 거치지 않는 경로가 하나 있다 — /infrastructures 가 4초 안에 안 오면
+    Supabase 를 직접 읽는 2순위 폴백이다(프로덕션 TTFB 4~6초라 드문 길이 아니다). 거기엔
+    내려줄 서버 판정이 없어 웹이 같은 규칙을 한 벌 미러한다. 미러는 갈라질 수 있으므로
+    recommender.ts ↔ spot/ 과 같은 방식으로 여기서 잠근다.
+    """
+    mirror = REPO_ROOT / "apps" / "web" / "lib" / "congestionEstimate.ts"
+    if not mirror.exists():
+        pytest.skip("apps/web/lib/congestionEstimate.ts 부재(모노레포 밖 실행)")
+    src = mirror.read_text(encoding="utf-8")
+
+    m = re.search(r"MEASUREMENT_NOW_WINDOW_MS\s*=\s*([0-9*\s]+);", src)
+    assert m, "congestionEstimate.ts 에서 MEASUREMENT_NOW_WINDOW_MS 를 찾지 못했다"
+    window_ms = eval(m.group(1).strip(), {"__builtins__": {}})  # noqa: S307 — 숫자·곱셈뿐
+    assert window_ms == RANKING_FRESHNESS.total_seconds() * 1000, (
+        f"신선도 창이 갈라졌다: 백엔드 {RANKING_FRESHNESS} vs 웹 {window_ms}ms"
+    )
+
+    m = re.search(r"TRUSTED_EVIDENCE_TIERS\s*=\s*\[([^\]]*)\]", src)
+    assert m, "congestionEstimate.ts 에서 TRUSTED_EVIDENCE_TIERS 를 찾지 못했다"
+    web_tiers = set(re.findall(r"'([a-z_]+)'", m.group(1)))
+    assert web_tiers == TRUSTED_EVIDENCE_TIERS, (
+        f"신뢰 등급이 갈라졌다: 백엔드 {TRUSTED_EVIDENCE_TIERS} vs 웹 {web_tiers}"
+    )
 
 
 # =========================================================================

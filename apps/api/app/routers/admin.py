@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field
 
 from app.core.authz import ROLE_ADMIN, get_current_profile, require_role
 from app.core.supabase import fetch_all_rows, supabase_admin
-from app.services import briefing_service, congestion_estimator_service
+from app.services import briefing_service, congestion_estimator_service, estimated_report_service
 
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1/admin", tags=["admin"], dependencies=[Depends(require_role(ROLE_ADMIN))])
@@ -785,6 +785,84 @@ async def get_metrics_trend(days: int = 30):
 
     # 두 계열 중 하나라도 상한에 닿으면 daily 의 앞쪽(오래된 날)이 실제보다 비어 보인다.
     return {"days": days, "daily": daily, "truncated": logs_truncated or recs_truncated}
+
+
+# =========================================================================
+# 리포트 화면의 **일별 추정 추이** — 경주 추정 모드의 일괄 경로
+# =========================================================================
+# 왜 `/metrics/trend` 에 키를 더하지 않고 **별도 엔드포인트**인가:
+#
+#   · `/metrics/trend` 는 대시보드도 부른다. 거기에 몇 초짜리 추정 계산을 붙이면 추정과
+#     아무 상관 없는 화면이 같이 느려진다.
+#   · 화면이 실측과 추정을 **따로** 요청하면, 추정이 느리거나 죽어도 실측 응답은 애초에
+#     영향을 받을 수 없다(같은 응답 안에서 shield/timeout 으로 막는 것보다 강한 보장이다).
+#
+# 실패를 HTTP 오류로 만들지 않는 이유: 이 화면들에게 '추정이 없다' 는 정상 상태다(실측이
+# 있으면 애초에 쓰지 않는다). 500 을 주면 화면이 '관제 API 장애' 라고 말하게 되는데 그건
+# 사실이 아니다. 대신 available=false + reason 으로 **왜 없는지**를 싣는다.
+_REPORT_ESTIMATE_TIMEOUT_SECONDS = 10.0
+# 같은 기간의 계산이 이미 돌고 있으면 합류한다(두 리포트 화면이 같은 30일을 동시에 부른다).
+_report_estimate_inflight: dict[tuple[int, str], asyncio.Task] = {}
+
+
+def _report_estimate_task_done(key: tuple[int, str], task: asyncio.Task) -> None:
+    """끝난 계산을 합류 목록에서 빼고 예외를 회수한다(dashboard/today 와 같은 이유)."""
+    if _report_estimate_inflight.get(key) is task:
+        _report_estimate_inflight.pop(key, None)
+    if not task.cancelled():
+        task.exception()
+
+
+def _empty_report_estimate(days: int, reason: str) -> dict:
+    """추정을 못 낸 응답. 모양은 성공과 같게 두어 화면이 키 존재로 분기하지 않게 한다."""
+    return {
+        "days": days, "available": False, "reason": reason,
+        "startDateKst": None, "endDateKst": None, "samplingMinutes": None,
+        "daily": [], "basis": None,
+    }
+
+
+@router.get("/reports/estimated")
+async def get_estimated_report(days: int = 30):
+    """최근 days일(KST, 오늘 포함)의 **추정** 일별 집계 — 실측이 아니다.
+
+    반환: { days, available, reason, startDateKst, endDateKst, samplingMinutes, daily[], basis }
+      · daily[i] = { date, avgCongestion|null, sampleCount, snapshotCount, anomalyCount|null,
+                     byType: { <시설 유형>: { avgCongestion, sampleCount, anomalyCount } } }
+      · basis    = 산식·가중치·반경·표본 간격·주차장 수·관측 시각·보정 상태
+                   (estimated_report_service.aggregate_estimated_days)
+
+    ⚠️ 이 응답에는 **인원 수가 없다.** 추정치는 0~1 의 혼잡도 비율이고 사람 수가 아니다.
+    '몇 명' 칸을 이 값으로 채우면 없는 관측을 만들어 내는 것이다 — 화면은 그 칸을 0 으로
+    채우지 말고 "추정에는 인원 수가 없다" 고 말해야 한다.
+
+    available=false 의 reason:
+      · "timeout"        — 상한(10초) 안에 못 끝냈다. 계산은 shield 안에서 계속 돌아 캐시를
+                           채우므로 다음 새로고침은 대개 즉시 성공한다.
+      · "compute_failed" — 계산 중 예외(원본 조회 실패 등). 서버 로그에 사유가 남는다.
+      · "bad_shape"      — 계산 결과 모양이 어긋났다(있을 수 없지만, 조용히 흘리지 않는다).
+    """
+    days = max(1, min(days, estimated_report_service.MAX_DAYS))
+    key = (days, _kst_date_str(datetime.now(timezone.utc)))
+    loop = asyncio.get_running_loop()
+    task = _report_estimate_inflight.get(key)
+    # 다른 이벤트 루프(테스트 클라이언트 재생성 등)에서 만든 태스크는 await 할 수 없다.
+    if task is None or task.done() or task.get_loop() is not loop:
+        task = asyncio.ensure_future(estimated_report_service.estimated_daily_series(days))
+        task.add_done_callback(lambda done, k=key: _report_estimate_task_done(k, done))
+        _report_estimate_inflight[key] = task
+    try:
+        result = await asyncio.wait_for(asyncio.shield(task), timeout=_REPORT_ESTIMATE_TIMEOUT_SECONDS)
+    except asyncio.TimeoutError:
+        logger.warning("admin_report_estimate_timeout", days=days, timeout_s=_REPORT_ESTIMATE_TIMEOUT_SECONDS)
+        return _empty_report_estimate(days, "timeout")
+    except Exception as e:  # noqa: BLE001 — 추정 실패가 리포트 화면을 죽이면 안 된다
+        logger.warning("admin_report_estimate_failed", days=days, error=str(e), error_type=type(e).__name__)
+        return _empty_report_estimate(days, "compute_failed")
+    if not isinstance(result, dict) or not isinstance(result.get("daily"), list):
+        logger.warning("admin_report_estimate_bad_shape", days=days, type=type(result).__name__)
+        return _empty_report_estimate(days, "bad_shape")
+    return {**result, "available": True, "reason": None}
 
 
 # =========================================================================

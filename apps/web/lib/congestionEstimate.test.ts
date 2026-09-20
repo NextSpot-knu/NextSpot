@@ -11,11 +11,17 @@ import { join } from 'node:path';
 
 import {
   ESTIMATE_MAX_AGE_MS,
+  congestionDisplay,
   displayableEstimate,
   estimateRadiusKm,
   estimatesFromFeed,
+  MEASUREMENT_NOW_WINDOW_MS,
+  TRUSTED_EVIDENCE_TIERS,
   formatEstimateTime,
+  formatLastObserved,
+  measurementIsCurrentFallback,
   parseCongestionEstimate,
+  revalidateIsCurrent,
 } from './congestionEstimate';
 import { getMarkerSvg } from './map/markerSvg';
 import { rankFacilities, scoreFacility } from './recommender';
@@ -98,6 +104,112 @@ const raw = {
   );
   // mockHour(시간 모킹)가 congestionLevel 을 채운 경우 — 숫자가 있으면 추정은 숨는다.
   assert.equal(displayableEstimate({ congestionLevel: 0.8, congestionEstimate: raw }, NOW), null);
+
+  // 서버가 '지금이 아니다' 라고 말한 실측(30분 초과·단건 제보)은 신선한 추정을 덮지 못한다.
+  assert.ok(
+    displayableEstimate(
+      { congestionLevel: 0.9, congestionSource: 'measured', congestionIsCurrent: false, congestionEstimate: raw },
+      NOW,
+    ),
+    "낡은 실측이 아직도 추정을 가린다",
+  );
+  // true 는 종전과 같다 — 신선·신뢰 실측은 계속 이긴다.
+  assert.equal(
+    displayableEstimate(
+      { congestionLevel: 0.9, congestionSource: 'measured', congestionIsCurrent: true, congestionEstimate: raw },
+      NOW,
+    ),
+    null,
+  );
+  // 낡은 실측이어도 추정이 없거나 만료면 추정은 여전히 없다(값을 지어내지 않는다).
+  assert.equal(
+    displayableEstimate({ congestionLevel: 0.9, congestionSource: 'measured', congestionIsCurrent: false }, NOW),
+    null,
+  );
+}
+
+// --- 2-b) congestionDisplay: 화면 세 곳이 공유하는 '지금 무엇을 칠하나' --------------
+{
+  const observedAt = '2026-08-21T04:00:00+00:00'; // 한 달 전 — 프로덕션에 실제로 있던 상태
+  const fresh = congestionDisplay(
+    { congestionLevel: 0.3, congestionSource: 'measured', congestionIsCurrent: true, congestionTimestamp: observedAt, congestionEstimate: raw },
+    NOW,
+  );
+  assert.equal(fresh.mode, 'measured');
+  assert.equal(fresh.level, 0.3);
+  assert.equal(fresh.estimate, null);
+  assert.equal(fresh.lastObserved, null, '신선한 실측에 "마지막 관측" 을 붙였다');
+
+  const predicted = congestionDisplay(
+    { congestionLevel: 0.6, congestionSource: 'predicted', congestionIsCurrent: true, congestionEstimate: raw },
+    NOW,
+  );
+  assert.equal(predicted.mode, 'predicted');
+  assert.equal(predicted.level, 0.6);
+
+  // 핵심 경우: 낡은 실측 + 신선한 추정 → 추정이 '지금', 관측은 맥락으로 남는다(지우지 않는다).
+  const superseded = congestionDisplay(
+    { congestionLevel: 0.92, congestionSource: 'measured', congestionIsCurrent: false, congestionTimestamp: observedAt, congestionEstimate: raw },
+    NOW,
+  );
+  assert.equal(superseded.mode, 'estimated');
+  assert.equal(superseded.level, null, '추정이 이겼는데 실측 숫자가 지금 값으로 남았다');
+  assert.equal(superseded.estimate?.level, 0.44);
+  assert.equal(superseded.lastObserved?.level, 0.92, '관측이 화면에서 사라졌다');
+  assert.equal(superseded.lastObserved?.observedAt, observedAt);
+
+  // 낡은 실측인데 추정이 없으면 그대로 칠하되 '언제 본 값인지' 는 말한다.
+  const noAlternative = congestionDisplay(
+    { congestionLevel: 0.92, congestionSource: 'measured', congestionIsCurrent: false, congestionTimestamp: observedAt },
+    NOW,
+  );
+  assert.equal(noAlternative.mode, 'measured');
+  assert.equal(noAlternative.level, 0.92);
+  assert.equal(noAlternative.lastObserved?.observedAt, observedAt);
+
+  // 근거가 하나도 없으면 'none' — 0 을 지어내지 않는다.
+  const nothing = congestionDisplay({ congestionLevel: null, congestionSource: 'none' }, NOW);
+  assert.equal(nothing.mode, 'none');
+  assert.equal(nothing.level, null);
+  assert.equal(nothing.lastObserved, null);
+
+  // 구 서버(판정 필드 없음)는 종전 그대로 — 실측이 이기고 '마지막 관측' 도 없다.
+  const legacy = congestionDisplay(
+    { congestionLevel: 0.92, congestionSource: 'measured', congestionTimestamp: observedAt, congestionEstimate: raw },
+    NOW,
+  );
+  assert.equal(legacy.mode, 'measured');
+  assert.equal(legacy.lastObserved, null);
+}
+
+// --- 2-c) '마지막 관측' 시각 표기 — 한 달 전 관측이 오늘로 읽히면 안 된다 -----------
+{
+  assert.equal(formatLastObserved('2026-09-20T05:23:00+00:00', NOW), '14:23', '오늘 안이면 HH:MM');
+  assert.equal(formatLastObserved('2026-08-21T04:00:00+00:00', NOW), '8/21 13:00', '다른 날이면 날짜를 붙인다');
+  // 해가 다르면 연도까지 — 지난 시즌 7월 시드가 올해 7월로 읽히면 안 된다.
+  assert.equal(formatLastObserved('2025-08-21T04:00:00+00:00', NOW), '2025. 8/21 13:00');
+  // KST 자정 경계: UTC 로는 어제지만 KST 로는 오늘이다.
+  assert.equal(formatLastObserved('2026-09-19T15:30:00+00:00', NOW), '00:30');
+  assert.equal(formatLastObserved(null, NOW), null);
+  assert.equal(formatLastObserved('not-a-date', NOW), null);
+}
+
+// --- 2-d) 보정 흔적(서울 실측 보정)을 흘리지 않는다 ---------------------------------
+{
+  const calibrated = parseCongestionEstimate(
+    { ...raw, rawLevel: 0.52, calibrated: true, calibrationBasis: '서울 실측으로 보정(명동·동대문, 14일 · 900표본)' },
+    NOW,
+  );
+  assert.ok(calibrated);
+  assert.equal(calibrated.rawLevel, 0.52);
+  assert.equal(calibrated.calibrated, true);
+  assert.match(String(calibrated.calibrationBasis), /서울 실측으로 보정/);
+  // 구 서버(보정 필드 없음)도 그대로 통과한다 — 원값은 level 과 같고 보정은 꺼진 것으로 읽는다.
+  const legacy = parseCongestionEstimate(raw, NOW);
+  assert.ok(legacy);
+  assert.equal(legacy.rawLevel, 0.44);
+  assert.equal(legacy.calibrated, false);
+  assert.equal(legacy.calibrationBasis, null);
 }
 
 // --- 3) 클라 미러는 추정을 모른다 ----------------------------------------------
@@ -165,6 +277,60 @@ const raw = {
     assert.match(src, /card\.evidenceEstimated/, `${file} 이 추정 근거(관측 시각·반경)를 밝히지 않는다`);
     assert.doesNotMatch(src, /[Ee]st(imate)?\.level\s*\*\s*avg|estimate[^;\n]*expectedWait/, `${file} 이 추정으로 대기를 만든다`);
   }
+}
+
+// --- 6) '지금' 판정은 서버에만 있다(복사본 금지) ------------------------------------
+// 이 저장소는 같은 판단을 여러 벌 복사해 이미 데였다(사장님 좌석 방송이 코스 화면에만 도달하지
+// 못했던 전례). 30분·신뢰등급 규칙은 백엔드 congestion_evidence.measurement_is_current 하나뿐이고,
+// 화면은 그 결론(congestionIsCurrent)만 읽는다. 여기서 규칙이 다시 나타나면 갈라진 것이다.
+{
+  const strip = (src: string) => src.replace(/^\s*\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
+
+  // 규칙의 '한 벌' 은 백엔드다. 웹에는 폴백 경로(서버를 거치지 않는 Supabase 직접 읽기) 전용
+  // 미러가 **정확히 하나** 있고, 그 값은 백엔드 상수와 같아야 한다(패리티는 API 테스트가 잠근다).
+  assert.equal(MEASUREMENT_NOW_WINDOW_MS, 30 * 60 * 1000);
+  assert.deepEqual([...TRUSTED_EVIDENCE_TIERS], ['verified', 'corroborated']);
+  assert.equal(measurementIsCurrentFallback('verified', new Date(NOW.getTime() - 5 * 60_000).toISOString(), NOW), true);
+  assert.equal(measurementIsCurrentFallback('verified', new Date(NOW.getTime() - 31 * 60_000).toISOString(), NOW), false);
+  assert.equal(measurementIsCurrentFallback('single_report', new Date(NOW.getTime() - 60_000).toISOString(), NOW), false);
+  assert.equal(measurementIsCurrentFallback('verified', new Date(NOW.getTime() + 2 * 60_000).toISOString(), NOW), false);
+  assert.equal(measurementIsCurrentFallback(null, null, NOW), false);
+  // 24시간 캐시가 30분짜리 판정을 되살리지 못한다.
+  assert.equal(revalidateIsCurrent(true, new Date(NOW.getTime() - 5 * 60_000).toISOString(), NOW), true);
+  assert.equal(revalidateIsCurrent(true, new Date(NOW.getTime() - 5 * 60 * 60_000).toISOString(), NOW), false);
+  assert.equal(revalidateIsCurrent(false, new Date(NOW.getTime() - 60_000).toISOString(), NOW), false);
+  assert.equal(revalidateIsCurrent(undefined, null, NOW), undefined);
+
+  // 판정 경로(화면이 그릴 때)는 서버 결론만 읽는다 — 폴백 미러를 부르지 않는다.
+  const display = strip(readFileSync(join(WEB, 'lib/congestionEstimate.ts'), 'utf8'));
+  assert.match(display, /congestionIsCurrent/, '서버 판정을 읽지 않는다');
+  assert.equal(
+    (display.match(/MEASUREMENT_NOW_WINDOW_MS/g) || []).length, 2,
+    '30분 상수가 선언·사용 각 1회를 넘었다(규칙이 퍼지고 있다)',
+  );
+  assert.doesNotMatch(display, /congestionDisplay[\s\S]{0,400}measurementIsCurrentFallback/,
+    '표시 경로가 폴백 미러로 판정을 다시 한다');
+
+  // 같은 추천 객체를 읽는 관광객 화면은 전부 **같은 함수**로 판정한다 — 각자 원시
+  // congestionLevel 을 읽으면 한 화면이 두 말을 한다(2026-09-20 적대적 검토에서 4곳이 나왔다).
+  for (const file of [
+    'components/RecommendationCard.tsx',
+    'app/explore/recommend/page.tsx',
+    'components/RecommendationComparison.tsx',
+    'app/waiting/page.tsx',
+  ]) {
+    const src = strip(readFileSync(join(WEB, file), 'utf8'));
+    assert.match(src, /congestionDisplay\(/, `${file} 이 공용 판정 함수를 쓰지 않는다`);
+  }
+  // '지금 한산' 칩과 '지금 한산해요' 푸시는 서버 판정을 반드시 본다.
+  for (const file of ['components/main/TodayCalmSpots.tsx', 'lib/useCongestionAlerts.ts']) {
+    const src = strip(readFileSync(join(WEB, file), 'utf8'));
+    assert.match(src, /[Ii]sCurrent\s*!==\s*false|isCurrent === false/, `${file} 이 '지금' 판정을 보지 않는다`);
+  }
+  // 사용자가 방금 남긴 제보는 절대 '마지막 관측' 으로 밀려나지 않는다.
+  const recommendPage = readFileSync(join(WEB, 'app/explore/recommend/page.tsx'), 'utf8');
+  assert.match(recommendPage, /congestionLogSource: 'user_report',[\s\S]{0,600}?congestionIsCurrent: true/,
+    '로컬 제보 낙관적 갱신이 congestionIsCurrent 를 덮어쓰지 않는다');
 }
 
 console.log('congestionEstimate tests passed');

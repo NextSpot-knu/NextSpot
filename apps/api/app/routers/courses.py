@@ -312,9 +312,16 @@ async def _evaluate_candidate(
     # 애초에 도달하지 못했다. 같은 가게가 추천 목록에서는 실측으로, 코스에서는 무근거로 취급됐다.
     evidence = await build_candidate_evidence(facility, congestion_now.get(facility["id"]), estimates)
 
-    # 화면에 싣는 추정 — 순위에는 들어가지 않는다(evidence["source"] 는 'none' 그대로라
-    # score 는 이것을 보지 못한다). 도착 시각 예측(predicted_congestion)이 있으면 그 숫자가
-    # 자리를 차지하고, 도착이 관측 후 30분을 넘으면 '지금' 값을 도착 값처럼 보이지 않게 뺀다.
+    # 화면에 싣는 추정 — 순위의 시간비용에는 들어가지 않는다(evidence["source"] 는 그대로라
+    # score 의 measured/model 경로가 이것을 보지 못한다. area_stats_rules 후보의 '이미 붐빈다'
+    # 강등 판정에만 닿는다 — score.py 4-2).
+    # 도착 시각 예측(predicted_congestion)이 있으면 그 숫자가 자리를 차지하고, 도착이 관측 후
+    # 30분을 넘으면 '지금' 값을 도착 값처럼 보이지 않게 뺀다.
+    #
+    # 코스 화면은 실측을 아예 그리지 않는다(정류지에 보이는 숫자는 '도착 시점' 예측이다). 그래서
+    # 낡은 실측이 있는 시설이라도 여기서는 가릴 관측이 없고, attach_estimate 가 is_current=False
+    # 라고 판정해 추정을 실어 주면 그 자리는 종전의 빈칸이 채워지는 것뿐이다 —
+    # 추천 카드와 같은 우선순위를 코스도 자동으로 따른다(판정을 여기서 다시 하지 않는 이유).
     display_estimate = (
         evidence.get("estimate")
         if predicted_congestion is None and estimate_applies_to_arrival(evidence.get("estimate"), arrival_dt)
@@ -328,7 +335,16 @@ async def _evaluate_candidate(
     # '한산하다는 실측' 이라 모른다는 사실과 다른 값이다. score.py 는 기준선이 None 이면
     # 완화항을 아예 계산하지 않으므로 **순위는 그대로이고**(0.0 이어도 relief 는 0 이었다),
     # 없는 관측을 만들어 두던 것만 사라진다.
-    current_congestion = evidence["level"]
+    #
+    # '지금' 자격이 없는 값(30분이 지난·단건 실측)도 None 이다 — 2026-09-20 적대적 검토에서
+    # 잡힌 세 번째 복사본이다. 이 값은 두 곳으로 흘렀다:
+    #   · _build_stop_reason 의 "지금보다 약 N%p 여유로워질 시간대예요" — 한 달 된 0.92 로
+    #     **지금**을 주장하는 문장이 된다(추천 쪽은 _reason_congestion_ctx 로 이미 막았다).
+    #   · calculate_spot_score(original_congestion_level=…) 의 재배치 기여(w3) 기준선 —
+    #     /recommendations 는 같은 자리를 rankable_measured_level 로 거르는데(원본 시설 근거)
+    #     코스만 거르지 않아, 같은 시설이 두 화면에서 다른 w3 를 받고 있었다.
+    # 두 소비처가 같은 질문("지금 얼마나 붐비나")을 하므로 판정도 하나여야 한다.
+    current_congestion = evidence["level"] if evidence.get("is_current") else None
 
     # 도착 시점 예상 인원 추정치를 응답 facility 에 주입(원본 리스트 불변 — 얕은 복사).
     scored_facility = {

@@ -10,7 +10,13 @@ import { getMarkerSvg } from '@/lib/map/markerSvg';
 import { scoreFacility, compareSpot, displayWalkingMinutes, rankFacilities, rankFacilitiesDegraded, recToSpot, haversineMeters, cuisineMatch, filterReachable, type Spot } from '@/lib/recommender';
 import { REGION, isWithinRegion } from '@/lib/region';
 import { getRecommendations, recommendByType, rejectRecommendation, voiceTurn, apiClient, getCongestionEstimates, type CongestionEstimate } from '@/lib/api-client';
-import { displayableEstimate, estimatesFromFeed, parseCongestionEstimate } from '@/lib/congestionEstimate';
+import {
+  displayableEstimate,
+  estimatesFromFeed,
+  measurementIsCurrentFallback,
+  parseCongestionEstimate,
+  revalidateIsCurrent,
+} from '@/lib/congestionEstimate';
 // 히트맵 blob 의 색·크기 규칙(마커/배지 임계와 일관) 공용 헬퍼 — 중복 정의 금지, 그대로 재사용.
 import { getHeatGradient, getHeatRadius } from '@/lib/map/heatmap';
 // D5: TourAPI 동기화 신선도 상대시간 — lib/freshness 단일 소스 재사용(중복 정의 금지).
@@ -104,6 +110,10 @@ interface FacilityRecord {
   congestionIsStale?: boolean | null;
   isStale?: boolean;
   congestionTimestamp?: string | null;
+  // 서버 판정 — 위 congestionLevel 이 '지금' 을 말할 자격이 있는가(백엔드 CongestionInfo.is_current /
+  // RecommendItem.congestion_is_current). 화면은 다시 계산하지 않는다(lib/congestionEstimate.ts 머리말).
+  // 지도 마커는 이 값을 보지 않는다 — 마커는 언제나 실측만 칠한다.
+  congestionIsCurrent?: boolean | null;
   // 추정 모드(주차 실측 + 관광 통계, 실측 아님). congestionLevel/baseCongestion 과 **따로** 둔다 —
   // 그 두 필드는 클라 미러 점수(scoreFacility)·히트맵·저장·음성 후보가 '관측' 으로 읽는 자리라, 섞이면
   // 추정이 실측 등급으로 순위를 얻는다. 그릴 때마다 displayableEstimate 로 신선도(60분)를 다시 본다.
@@ -190,7 +200,15 @@ function loadFacilityCache(): Facility[] | null {
     } | null;
     if (!parsed?.savedAt || !Array.isArray(parsed.facilities)) return null;
     if (Date.now() - parsed.savedAt > FACILITY_CACHE_MAX_AGE_MS) return null;
-    return parsed.facilities;
+    // 30분짜리 판정을 24시간 캐시가 그대로 되살리지 않게 나이로 다시 본다. 이 캐시가 첫 화면을
+    // 그리는데, 5시간 전 'is_current: true' 를 믿으면 그 낡은 관측이 방금 받은 추정을 가린다.
+    return parsed.facilities.map((f) => ({
+      ...f,
+      congestionIsCurrent: revalidateIsCurrent(
+        f.congestionIsCurrent,
+        f.congestionTimestamp ?? f.lastUpdated,
+      ),
+    }));
   } catch {
     return null;
   }
@@ -514,6 +532,9 @@ export default function MainPage() {
             // 신선도 정직화(계약 5): 혼잡 출처(user_report 등)와 24h 초과 여부를 카드로 전달.
             source: f.congestion ? (f.congestion.source ?? null) : null,
             isStale: f.congestion ? !!f.congestion.isStale : false,
+            // 서버가 '지금' 이라고 판정한 관측만 추정을 이긴다. 필드가 없는 구 서버 응답은
+            // undefined 로 남아 종전 동작(실측이 이긴다) 그대로다 — 값을 지어내지 않는다.
+            congestionIsCurrent: f.congestion ? f.congestion.isCurrent ?? undefined : undefined,
           };
         });
         setFacilities(mapped);
@@ -593,6 +614,13 @@ export default function MainPage() {
             isStale: latestLog
               ? Date.now() - new Date(latestLog.timestamp).getTime() > 24 * 60 * 60 * 1000
               : false,
+            // 이 경로에는 서버 판정이 없다(Supabase 직접 읽기). 그대로 두면 undefined 가 되어
+            // **가장 흔한 프로덕션 경로에서만** 낡은 실측이 계속 신선한 추정을 가린다.
+            // 그래서 백엔드 규칙의 미러로 여기서 한 번 판정한다(패리티 테스트가 잠근다).
+            // 위 쿼리가 이미 evidence_tier 를 받아 오고 있었는데 쓰이지 않고 있었다.
+            congestionIsCurrent: latestLog
+              ? measurementIsCurrentFallback(latestLog.evidence_tier, latestLog.timestamp)
+              : undefined,
           };
         });
 
@@ -1148,6 +1176,13 @@ export default function MainPage() {
           latitude: members[0].latitude,
           longitude: members[0].longitude,
           congestionLevel: levels.length > 0 ? Math.max(...levels) : null,
+          // 그룹에는 '지금' 판정을 싣지 않는다(undefined = 모름 → 종전 규칙: 실측이 이긴다).
+          //
+          // 위 congestionLevel 은 **여러 구성원의 최댓값**인데 ...members[0] 로 딸려 온 판정과
+          // 관측 시각은 그중 한 곳의 것이다. 그대로 두면 A 가게의 시각을 B 가게의 값에 붙여
+          // '마지막 관측 HH:MM' 을 그리게 된다 — 없는 관측을 만드는 것과 같다. 건물 묶음은
+          // 지도 클러스터 개념이라 여기서는 보수적으로 종전 동작을 쓴다.
+          congestionIsCurrent: undefined,
           // 실측이 하나라도 있으면 그룹은 실측으로 칠한다. 없을 때만 구성원 추정 중 가장 붐비는 값을
           // 쓴다(실측과 같은 '최댓값' 규칙 — 같은 건물이면 같은 격자라 값도 거의 같다).
           congestionEstimate: levels.length > 0
@@ -1327,6 +1362,8 @@ export default function MainPage() {
               congestionLogSource: rec.congestionLogSource,
               congestionIsStale: rec.congestionIsStale,
               congestionTimestamp: rec.congestionTimestamp,
+              // 서버 판정('지금' 자격). 구 서버는 undefined → 카드가 종전 규칙으로 동작한다.
+              congestionIsCurrent: rec.congestionIsCurrent,
               // 새 서버는 추천 응답에 직접 싣는다(null = 실측·예측이 있어 추정을 보이지 않는다).
               // 구 서버는 필드가 없어 undefined → 지도(/infrastructures)가 받은 추정을 그대로 쓴다.
               // 새 서버는 추천 응답에 직접 싣는다(null = 실측·예측이 있어 추정을 보이지 않는다).
@@ -1498,6 +1535,7 @@ export default function MainPage() {
                     congestionLogSource: r.congestionLogSource,
                     congestionIsStale: r.congestionIsStale,
                     congestionTimestamp: r.congestionTimestamp,
+                    congestionIsCurrent: r.congestionIsCurrent,
                     congestionEstimate: r.congestionEstimate ?? null,
                     dataUpdatedAt: r.dataUpdatedAt,
                     scoringMode: r.scoringMode,
@@ -1807,7 +1845,11 @@ export default function MainPage() {
       const tags = f?.features?.cuisine_tags;
       const kind = Array.isArray(tags) ? tags.join(', ') : (typeof tags === 'string' ? tags : null);
       if (kind) parts.push(`${kind} 쪽`);
-      if (typeof f?.congestionLevel === 'number') parts.push(`혼잡도 ${Math.round(f.congestionLevel * 100)}%`);
+      // '지금' 자격이 없는 관측(30분 초과·단건)은 말하지 않는다 — 화면 배지가 추정을 보여 주는데
+      // 음성만 한 달 전 92% 를 읽으면 같은 앱이 두 말을 한다(2026-09-20 적대적 검토).
+      if (typeof f?.congestionLevel === 'number' && f?.congestionIsCurrent !== false) {
+        parts.push(`혼잡도 ${Math.round(f.congestionLevel * 100)}%`);
+      }
       if (t?.expectedTravel != null) parts.push(`도보 ${Math.max(1, Math.ceil(t.expectedTravel))}분`);
       else if (t?.expectedWait != null) parts.push(`예상 대기 ${t.expectedWait}분`);
       return parts.length
@@ -3281,7 +3323,11 @@ export default function MainPage() {
                   ? 'recommend.areaDemandForecast'
                   : 'recommend.areaDemandStats')}. ${selectedFacility.name} · ${t('card.travel', { n: walk })}`
             : null);
-          const reason = typeof selectedFacility.congestionLevel === 'number' && selectedFacility.congestionLevel >= busyAt
+          // 사유 문장도 배지와 같은 판정을 쓴다 — congestionIsCurrent === false 인 값으로
+          // "현재 혼잡도 92%로 붐빌 수 있어요" 를 적으면 바로 위 '추정 · 여유' 배지와 모순된다.
+          const reason = typeof selectedFacility.congestionLevel === 'number'
+            && selectedFacility.congestionIsCurrent !== false
+            && selectedFacility.congestionLevel >= busyAt
             ? t('recommend.fallbackBusy', { name: selectedFacility.name, walk, pct: Math.round(selectedFacility.congestionLevel * 100) })
             : verifiedWait !== null
               ? t('recommend.fallbackWithWait', { name: selectedFacility.name, walk, wait: verifiedWait })
@@ -3357,9 +3403,14 @@ export default function MainPage() {
                 }}
                 openStatusAtArrival={selectedFacility.openStatusAtArrival}
                 congestionSource={selectedFacility.congestionSource}
+                // 서버 판정: 이 실측이 '지금' 을 말할 자격이 있는가(verified/corroborated · 30분).
+                // false 면 카드가 추정을 '지금' 으로 칠하고 이 관측은 '마지막 관측' 으로 남는다.
+                // **지도 마커는 영향을 받지 않는다** — 마커는 계속 실측만 칠한다(사용자 결정).
+                congestionIsCurrent={selectedFacility.congestionIsCurrent}
+                congestionTimestamp={selectedFacility.congestionTimestamp ?? selectedFacility.lastUpdated}
                 scoringMode={selectedFacility.scoringMode}
                 // 지도에서 고른 시설은 추정 피드의 **최신** 값을, 추천 카드는 응답이 실어 준 값을 쓴다.
-                // 실측·예측이 있으면 카드 안의 displayableEstimate 가 추정을 숨긴다(측정이 이긴다).
+                // '지금' 자격이 있는 실측·예측이 있으면 카드 안의 congestionDisplay 가 추정을 숨긴다.
                 congestionEstimate={
                   (estimateById[selectedFacility.id] as CongestionEstimate | undefined)
                     ?? selectedFacility.congestionEstimate

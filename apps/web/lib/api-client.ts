@@ -255,6 +255,14 @@ export interface CongestionEstimate {
   lotCount: number;
   nearestLotM: number | null;
   radiusM: number;
+  // 서울 실측 보정의 흔적(백엔드 congestion_calibration_service). 전부 Optional —
+  // 보정을 모르는 구 서버 응답에는 아예 없다.
+  //  · rawLevel        : 보정 전 원값(보정이 꺼져 있으면 level 과 같다)
+  //  · calibrated      : 이 level 에 보정이 실제로 적용됐는지
+  //  · calibrationBasis: 사람이 읽는 근거 한 줄. '추정' 라벨 **옆 출처 텍스트로만** 쓴다(새 배지 금지).
+  rawLevel?: number | null;
+  calibrated?: boolean | null;
+  calibrationBasis?: string | null;
 }
 
 // GET /api/v1/congestion/estimates — 지도 전용 추정 피드(공개, 5분 캐시).
@@ -379,8 +387,15 @@ export interface RecommendationResponse {
   congestionLogSource?: string | null; // measured 일 때 원 로그 source(user_report/seed/simulated/…)
   congestionIsStale?: boolean | null;  // measured 일 때 로그 나이>24h
   congestionTimestamp?: string | null;
-  // 추정 모드: congestionSource === 'none' 일 때만 값이 있다(측정 > 예측 > 추정). **추가만** 한 필드라
-  // congestionSource/congestionLevel 은 그대로 'none'/null 이다 — 구 번들이 추정을 실측처럼 칠하지 않게.
+  // 위 congestionLevel 이 '지금' 을 말할 자격이 있는지 — **서버 판정**이다(백엔드
+  // congestion_evidence.evidence_is_current: measured 는 verified/corroborated · 30분 이내,
+  // predicted 는 언제나 true, none 은 false). 화면은 다시 계산하지 않고 이 값만 읽는다.
+  // false 면 congestionEstimate 가 '지금' 이 되고 이 관측은 '마지막 관측 HH:MM' 으로 남는다.
+  // 구 서버 응답에는 없다(undefined) — 그때는 종전 규칙(실측이 있으면 추정을 감춘다) 그대로다.
+  congestionIsCurrent?: boolean | null;
+  // 추정 모드: '지금' 자격이 있는 실측·예측이 없을 때만 값이 있다
+  // (측정(신선·신뢰) > 예측 > 추정 > 없음). **추가만** 한 필드라 congestionSource/congestionLevel 은
+  // 건드리지 않는다 — 구 번들이 추정을 실측처럼 칠하지 않게.
   congestionEstimate?: CongestionEstimate | null;
   rank: number;
   totalCandidates: number;

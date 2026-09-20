@@ -201,8 +201,12 @@ async def calculate_spot_score(
     #    기존 area_stats_rules 경로로만).
     #  · 도착이 관측 후 30분 안일 때만 — area_demand 가 현재 주차를 '도착 시점' 에 쓰는 규칙과 같다
     #    (_live_parking_applies_to_arrival). 코스의 먼 정류지에 '지금' 붐빔을 들이대지 않는다.
-    #  · 추정은 evidence 의 source 가 'none' 일 때만 붙으므로(attach_estimate) 실측·모델 후보에는
-    #    닿지 않는다. 강등만 할 수 있고 올려 주지는 못한다 — 0.9 미만이면 아무 일도 없다.
+    #  · 추정은 '지금' 자격이 있는 근거가 없을 때만 붙으므로(attach_estimate — 근거 없음이거나,
+    #    30분이 지난·단건 실측), 신선한 실측·모델 후보에는 닿지 않는다. 낡은 실측 후보에는 닿을 수
+    #    있지만 그 후보는 애초에 measured_rules 가 아니다(rankable_measured_level 이 같은 30분·신뢰
+    #    등급 선을 쓴다) — '실측으로 순위를 받은 값' 을 추정이 덮는 일은 구조적으로 생기지 않는다.
+    #  · 강등만 한다. 올려 주지는 못하므로(0.9 미만이면 아무 일도 없다) 이 경로로 붐비는 곳이
+    #    한산해 보일 수는 없다 — 가능한 오작동 방향은 '한산한데 뒤로 밀림' 하나뿐이다.
     ranking_congestion = predicted_congestion
     if scoring_mode == "area_stats_rules":
         estimate = (congestion_evidence or {}).get("estimate")

@@ -24,6 +24,18 @@
 
 그래서 추정치는 학습 데이터에도(`congestion_logs` 에 없으니) 실측 배지에도 들어가지 않는다.
 화면은 이 값을 반드시 '추정' 라벨과 함께 그린다.
+
+## 서울 실측 보정 f (2026-09-20 추가 — §5.3-5·6, 결정 D5)
+
+주차는 임시 방편이다(경주에는 실시간 유동인구를 살 방법이 없다). 서울 명동·동대문에는 주차 신호와
+**통신사 기반 실측 인파**가 같이 있어서, "주차가 이만큼 찼을 때 실제 인파는 이만큼이었다" 를 배울 수
+있다. 그 단조 곡선을 `congestion_calibration_service` 가 적합하고, 여기서 혼합값 위에 한 번 얹는다:
+
+    level = f(0.7 · parking + 0.3 · tourism)
+
+f 는 **관문(3일 · 300버킷 · 홀드아웃 MAE 개선)을 통과하기 전에는 항등**이다. 즉 서울 수집이 시작되기
+전인 오늘은 값이 하나도 바뀌지 않는다. 원값(`raw_level`)은 절대 버리지 않고 보정 여부·근거 문자열과
+함께 응답에 실어, 화면이 "무엇이 보정된 값인지" 를 말할 수 있게 한다.
 """
 
 from __future__ import annotations
@@ -37,6 +49,7 @@ from typing import Any
 import structlog
 
 from app.core.supabase import fetch_all_rows, supabase_admin
+from app.services import congestion_calibration_service as calibration
 from app.services.area_demand_service import _PARKING_WEIGHT, _TOURISM_WEIGHT
 from app.services.parking_derived_congestion_service import (
     MAX_SNAPSHOT_AGE,
@@ -125,13 +138,18 @@ def estimate_facilities(
     facilities: list[dict[str, Any]],
     *,
     radius_m: float = RADIUS_M,
+    calibration_state: calibration.CalibrationState | None = None,
 ) -> dict[str, dict[str, Any]]:
     """스냅샷 하나 → {facility_id: 추정}. 주차 반경 밖 시설은 **키 자체가 없다.**
 
     주차 성분은 격자 중심에서 잰다(parking_derived 와 같은 이유 — 원본 4곳에 없는 해상도를
     주장하지 않는다). 관광 성분은 시설별 기준선이라 같은 격자 안에서도 조금 다를 수 있다.
+
+    ``calibration_state`` 가 없거나 관문을 못 넘었으면 f 는 항등이다 — 그때 ``level`` 과
+    ``raw_level`` 은 같은 값이고 ``calibrated`` 는 False 다. 원값은 어느 경우에도 버리지 않는다.
     """
     lots = list(lots)
+    applied = bool(calibration_state is not None and calibration_state.applied)
     cells: dict[tuple[int, int], dict[str, Any] | None] = {}
     out: dict[str, dict[str, Any]] = {}
     for facility in facilities:
@@ -151,11 +169,14 @@ def estimate_facilities(
         if demand is None:
             continue
         tourism = facility_tourism_level(facility)
-        level = blend_level(demand["level"], tourism)
-        if level is None:
+        raw_level = blend_level(demand["level"], tourism)
+        if raw_level is None:
             continue
+        level = calibration_state.apply(raw_level) if applied else raw_level
         out[facility_id] = {
             "level": level,
+            "raw_level": raw_level,
+            "calibrated": applied,
             "parking_level": demand["level"],
             "tourism_level": round(tourism, 4) if tourism is not None else None,
             "zone": f"{cell[0]}:{cell[1]}",
@@ -215,14 +236,21 @@ def aggregate_estimated_day(
     *,
     prev_avg: float | None = None,
     prev_samples: int = 0,
+    calibration_state: calibration.CalibrationState | None = None,
 ) -> dict[str, Any]:
     """하루치 스냅샷 → 관리자 대시보드 집계와 **같은 모양**. 순수 함수.
 
     ``facilities`` 에는 그 날짜의 관광 기준선이 이미 붙어 있어야 한다.
     표본 단위는 (대표 장소 × 10분 버킷)이다 — 실측 집계의 '로그 1행' 에 해당한다.
+
+    보정은 '지금' 과 같은 곡선을 하루 전체에 건다. 날짜별로 다른 곡선을 쓰면 히트맵의 어제와
+    오늘이 다른 눈금이 되어 비교가 무의미해진다.
     """
     places = representative_places(facilities, forecasts)
-    per_snapshot = [(snapshot, estimate_facilities(snapshot.lots, facilities)) for snapshot in snapshots]
+    per_snapshot = [
+        (snapshot, estimate_facilities(snapshot.lots, facilities, calibration_state=calibration_state))
+        for snapshot in snapshots
+    ]
     # 히트맵에 한 칸이라도 값이 있는 장소만 남긴다(주차 반경 밖 관광지는 줄 자체를 그리지 않는다).
     covered = [
         place for place in places
@@ -249,6 +277,7 @@ def aggregate_estimated_day(
         "estimatedFacilityCount": len(covered_facility_ids),
         "facilityCount": len(facilities),
         "latestObservedAt": latest.isoformat() if latest else None,
+        "calibration": (calibration_state or calibration.IDENTITY).to_dict(),
     }
 
     if len(samples) < MIN_DAY_SAMPLES:
@@ -430,11 +459,12 @@ _current_lock = asyncio.Lock()
 
 
 def reset_caches() -> None:
-    """테스트용."""
+    """테스트용. 보정 캐시까지 비운다 — 이 캐시들이 들고 있는 값이 보정된 값이라 따로 비우면 섞인다."""
     global _current_cache, _facility_cache
     _current_cache = None
     _facility_cache = None
     _day_cache.clear()
+    calibration.reset_caches()
 
 
 def _empty_current(reason: str, observed_at: datetime | None = None) -> dict[str, Any]:
@@ -445,6 +475,7 @@ def _empty_current(reason: str, observed_at: datetime | None = None) -> dict[str
         "bucket_at": None,
         "lot_count": 0,
         "estimates": {},
+        "calibration": calibration.IDENTITY.to_dict(),
     }
 
 
@@ -495,7 +526,16 @@ async def _compute_current(now: datetime) -> dict[str, Any]:
     except Exception as exc:  # noqa: BLE001
         logger.warning("estimator_facilities_unavailable", error=str(exc))
         return _empty_current("facilities_unavailable", snapshot.observed_at)
-    estimates = await asyncio.to_thread(estimate_facilities, snapshot.lots, facilities)
+    # active_calibration 은 예외를 올리지 않는다(실패 = 항등). 그래도 여기서 한 번 더 감싸는 이유는
+    # 이 경로가 지도·추천의 앞단이기 때문이다 — 보정 때문에 추정 전체가 사라지면 안 된다.
+    try:
+        state = await asyncio.to_thread(calibration.active_calibration)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("estimator_calibration_unavailable", error=str(exc))
+        state = calibration.IDENTITY
+    estimates = await asyncio.to_thread(
+        estimate_facilities, snapshot.lots, facilities, calibration_state=state
+    )
     return {
         "available": True,
         "reason": None,
@@ -503,16 +543,23 @@ async def _compute_current(now: datetime) -> dict[str, Any]:
         "bucket_at": snapshot.bucket_at.isoformat(),
         "lot_count": len(snapshot.lots),
         "estimates": estimates,
+        "calibration": state.to_dict(),
     }
 
 
 def estimate_evidence(current: dict[str, Any], facility_id: str) -> dict[str, Any] | None:
-    """추천·지도 응답에 싣는 근거 한 건. 추정이 없으면 ``None``."""
+    """추천·지도 응답에 싣는 근거 한 건. 추정이 없으면 ``None``.
+
+    보정 흔적(``raw_level`` · ``calibrated`` · ``calibration_basis``)을 **항상** 함께 싣는다 —
+    보정이 꺼져 있으면 raw_level == level 이고 basis 는 '보정 전(서울 표본 부족)' 이다.
+    기존 키는 그대로 둔다(지도·추천·코스가 이미 읽고 있다 — 추가만).
+    """
     if not current.get("available"):
         return None
     estimate = (current.get("estimates") or {}).get(str(facility_id))
     if estimate is None:
         return None
+    state = current.get("calibration") or {}
     return {
         "level": estimate["level"],
         "source": ESTIMATE_SOURCE,
@@ -522,6 +569,11 @@ def estimate_evidence(current: dict[str, Any], facility_id: str) -> dict[str, An
         "lot_count": estimate["lot_count"],
         "nearest_lot_m": estimate["nearest_lot_m"],
         "radius_m": round(RADIUS_M),
+        # 원값은 절대 버리지 않는다. 보정된 숫자만 남기면 "무엇을 얼마나 고쳤는가" 를 사후에
+        # 확인할 수 없고, 서울 표본이 바뀌면 같은 주차 관측이 다른 값으로 보이는 이유를 말할 수 없다.
+        "raw_level": estimate.get("raw_level", estimate["level"]),
+        "calibrated": bool(estimate.get("calibrated", False)),
+        "calibration_basis": str(state.get("basis") or calibration.BASIS_NOT_APPLIED),
     }
 
 
@@ -536,6 +588,7 @@ def _estimated_day_sync(date_kst: str, *, with_prev: bool) -> dict[str, Any]:
     start, end = _day_bounds_kst(date_kst)
     snapshots = _load_snapshots(start, end)
     facilities, forecasts = _facilities_for_date(date_kst)
+    state = calibration.active_calibration()
     prev_avg: float | None = None
     prev_samples = 0
     if with_prev:
@@ -545,7 +598,8 @@ def _estimated_day_sync(date_kst: str, *, with_prev: bool) -> dict[str, Any]:
             prev_avg = prev["avgCongestion"]["value"]
             prev_samples = prev["sampleCount"]
     result = aggregate_estimated_day(
-        snapshots, facilities, forecasts, prev_avg=prev_avg, prev_samples=prev_samples
+        snapshots, facilities, forecasts,
+        prev_avg=prev_avg, prev_samples=prev_samples, calibration_state=state,
     )
     return {"dateKst": date_kst, **result}
 

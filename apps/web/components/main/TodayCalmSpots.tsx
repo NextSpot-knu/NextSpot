@@ -62,6 +62,10 @@ export function TodayCalmSpots({
       .filter(
         (f: any) =>
           typeof f?.congestionLevel === 'number' &&
+          // 이 컴포넌트의 이름이 '지금 한산' 이다. 서버가 '지금이 아니다' 라고 판정한 관측
+          // (30분 초과·단건)으로 한산을 주장하지 않는다 — 한 달 전 0.2 가 '지금 한산' 칩이 되면
+          // 같은 시설의 카드가 '추정 · 혼잡' 을 말하는 것과 정면으로 어긋난다.
+          f.congestionIsCurrent !== false &&
           f.congestionLevel < 0.3 &&
           Number.isFinite(f?.latitude) &&
           Number.isFinite(f?.longitude),

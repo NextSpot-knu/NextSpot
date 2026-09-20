@@ -297,7 +297,7 @@ def _load_active_facilities() -> list[dict[str, Any]]:
     """활성 시설 전량.
 
     **fetch_all_rows 여야 한다.** 단발 select 는 PostgREST 캡(1000)에 걸려 조용히 잘리는데
-    오류가 아니라 200 이다 — 실측 1,653곳 중 653곳이 이유 없이 추정에서 빠진다.
+    오류가 아니라 200 이다 — 활성 1,669곳(2026-09-20 실측) 중 669곳이 이유 없이 추정에서 빠진다.
     """
     rows = fetch_all_rows(
         supabase_admin,

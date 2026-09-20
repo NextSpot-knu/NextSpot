@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import {
   Search, Bell, Download, FileText, Calendar as CalendarIcon,
@@ -20,6 +20,11 @@ import {
   adminFailureLine, describeAdminFailure, kindFromMessage, type AdminFailureNotice,
 } from '@/lib/adminApiFailure';
 import { describeObservationGap, type LastObservation } from '@/lib/adminObservationGap';
+import {
+  ESTIMATE_BADGE, ESTIMATE_NO_HEADCOUNT_NOTE, categoryEstimateRows, estimatedSeriesBasisLine,
+  estimatedSeriesMethodNote, estimatedSeriesUnavailableNote, readEstimatedSeries,
+  weekdayEstimateRows, type CategoryEstimateRow, type WeekdayEstimateRow,
+} from '@/lib/adminEstimatedSeries';
 
 const supabase = createPublicClient();
 
@@ -71,8 +76,18 @@ const TYPE_KO: Record<string, CategoryKo> = {
   restaurant: '음식점', cafe: '카페', attraction: '관광지', culture: '문화시설',
 };
 const WEEK_ORDER = ['월', '화', '수', '목', '금', '토', '일'];
+/** 막대·표에서 카테고리를 그리는 순서. TYPE_KO 의 값과 같은 집합이어야 한다. */
+const CATEGORY_ORDER: CategoryKo[] = ['음식점', '카페', '관광지', '문화시설'];
+/** 추정 막대 4색. 실측 막대와 같은 계열을 쓰되(같은 업종=같은 색), 파선 테두리로 갈라 본다. */
+const CATEGORY_COLOR: Record<CategoryKo, string> = {
+  음식점: '#3b82f6', 카페: '#10b981', 관광지: '#8b5cf6', 문화시설: '#f59e0b',
+};
 /** 혼잡 로그 조회 창. '데이터 없음' 문구가 이 숫자를 밝혀야 관리자가 범위를 안다. */
 const LOG_WINDOW_DAYS = 14;
+/** 추정 추이 조회 창. 화면은 최근 7일을 보여 주고, 앞 7일은 '전주 대비' 비교에만 쓴다. */
+const ESTIMATE_WINDOW_DAYS = 14;
+/** 요약표·막대 차트가 보여 주는 최근 창(일). 실측 쪽 '최근 7일' 과 같은 길이다. */
+const ESTIMATE_SUMMARY_DAYS = 7;
 const WD_KO = ['일', '월', '화', '수', '목', '금', '토']; // getUTCDay() 인덱스
 
 function kstWeekdayKo(ts: string) {
@@ -181,6 +196,9 @@ export default function ReportsPage() {
   const [rangeLabel, setRangeLabel] = useState('최근 7일');
   // 재시도 트리거. 타임아웃(콜드 스타트)·5xx 는 다시 누르면 풀릴 수 있는 실패라 버튼을 준다.
   const [reloadKey, setReloadKey] = useState(0);
+  // 일별 **추정** 집계 응답 원문. 형을 믿지 않으므로 readEstimatedSeries 로만 읽는다
+  // (옛 서버에는 이 엔드포인트가 없다 — 그때는 undefined 로 남고 화면은 아무 말도 하지 않는다).
+  const [estimateRaw, setEstimateRaw] = useState<unknown>(undefined);
 
   useEffect(() => {
     let active = true;
@@ -192,6 +210,14 @@ export default function ReportsPage() {
       setLogsFailure(null);
       setRecsFailure(null);
       setObservationGap(null);
+      setEstimateRaw(undefined);
+
+      // 추정 추이는 **별도 요청**이다. 실측 두 출처와 서로를 막지 않는다 — 추정이 몇 초 걸리거나
+      // 죽어도 실측 집계는 이미 자기 요청으로 끝나 있다.
+      adminApi.get(`/api/v1/admin/reports/estimated?days=${ESTIMATE_WINDOW_DAYS}`).then(
+        (value) => { if (active) setEstimateRaw(value); },
+        (e) => { console.warn('추정 추이(/admin/reports/estimated) 로드 실패:', e); },
+      );
 
       // 혼잡 로그 조회는 실패해도 추천 이력 쪽을 막지 않는다(allSettled).
       const [logsSettled, recs] = await Promise.all([
@@ -363,6 +389,33 @@ export default function ReportsPage() {
 
   const anyFailed = logsStatus === 'failed' || recsStatus === 'failed';
   const sourceState = reportSourceState({ loading, failed: anyFailed, live: isLive });
+
+  // ── 추정 모드 ──────────────────────────────────────────────────────────────
+  // **실측이 이긴다.** 실측 집계가 한 줄이라도 나오면(weekly/table 이 비지 않으면) 추정은
+  // 아예 만들지 않는다. 한 화면에 두 출처를 섞어 그리면 어느 막대가 무엇인지 말할 수 없다.
+  // 조회 실패(logsStatus==='failed')일 때도 추정을 그리지 않는다 — 그때 화면이 말해야 하는
+  // 사실은 '추정치' 가 아니라 '실측을 못 읽었다' 이고, 그 둘은 관리자의 할 일이 다르다.
+  const estimatedSeries = useMemo(() => readEstimatedSeries(estimateRaw), [estimateRaw]);
+  const measuredEmpty = !loading && logsStatus === 'ok' && weekly.length === 0 && table.length === 0;
+  const estimateInUse = measuredEmpty && estimatedSeries && estimatedSeries.observedDays > 0
+    ? estimatedSeries
+    : null;
+  const estimateWeekly: WeekdayEstimateRow[] = useMemo(
+    () => (estimateInUse ? weekdayEstimateRows(estimateInUse.daily.slice(-ESTIMATE_SUMMARY_DAYS), TYPE_KO) : []),
+    [estimateInUse],
+  );
+  const estimateTable: CategoryEstimateRow[] = useMemo(
+    () => (estimateInUse ? categoryEstimateRows(estimateInUse.daily, TYPE_KO, { windowDays: ESTIMATE_SUMMARY_DAYS }) : []),
+    [estimateInUse],
+  );
+  const estimateBasis = estimateInUse ? estimatedSeriesBasisLine(estimateInUse) : null;
+  const estimateMethod = estimateInUse ? estimatedSeriesMethodNote(estimateInUse) : null;
+  // 추정을 못 그린 이유. 실측이 있거나 조회 실패 중이거나 옛 서버면 아무 말도 하지 않는다.
+  const estimateNote = !measuredEmpty || estimateInUse
+    ? null
+    : estimatedSeries
+      ? '추정치도 이 기간에는 표본이 없습니다 — 공영주차 실측(경주 ITS)이 10분마다 쌓이면 추정으로 채워집니다.'
+      : estimatedSeriesUnavailableNote(estimateRaw);
   // 화면 위쪽 배너에 묶어 보여줄 실패 목록(출처 이름 + 안내).
   const failures: { source: string; notice: AdminFailureNotice }[] = [
     logsFailure ? { source: '혼잡 로그', notice: logsFailure } : null,
@@ -382,14 +435,41 @@ export default function ReportsPage() {
         for (const m of loadErrors) lines.push(`# ${m.replace(/,/g, ' ')}`);
         lines.push('');
       }
-      lines.push('카테고리,관측 혼잡 지수,전주 대비,상태');
-      for (const r of table) {
-        lines.push(`${r.category},${String(r.totalUsers).replace(/,/g, '')},${r.growth},${r.status}`);
-      }
-      lines.push('');
-      lines.push('요일,음식점,카페,관광지,문화시설');
-      for (const w of weekly) {
-        lines.push(`${w.day},${w.음식점},${w.카페},${w.관광지},${w.문화시설}`);
+      if (estimateInUse) {
+        // 파일로 나간 숫자는 화면 맥락을 잃는다 — 추정이라는 사실과 근거를 **파일 안에** 박는다.
+        lines.push('# 아래 수치는 현장 관측이 아니라 추정치입니다(혼잡도 0~100%, 인원 수 아님).');
+        lines.push(`# 근거: ${(estimateBasis ?? '').replace(/,/g, ' ')}`);
+        lines.push(`# 산식: ${(estimateMethod ?? '').replace(/,/g, ' ')}`);
+        lines.push(`# ${ESTIMATE_NO_HEADCOUNT_NOTE.replace(/,/g, ' ')}`);
+        lines.push('');
+        lines.push('카테고리,추정 평균 혼잡도(%),전주 대비(%p),상태,산출일수');
+        for (const r of estimateTable) {
+          lines.push([
+            r.label,
+            r.avgCongestion === null ? '' : (r.avgCongestion * 100).toFixed(1),
+            r.changePoints === null ? '' : r.changePoints.toFixed(1),
+            r.status ?? '',
+            r.dayCount,
+          ].join(','));
+        }
+        lines.push('');
+        lines.push('요일,음식점,카페,관광지,문화시설  (추정 평균 혼잡도 %)');
+        for (const w of estimateWeekly) {
+          lines.push([w.day, ...CATEGORY_ORDER.map((ko) => {
+            const value = w[ko];
+            return typeof value === 'number' ? (value * 100).toFixed(1) : '';
+          })].join(','));
+        }
+      } else {
+        lines.push('카테고리,관측 혼잡 지수,전주 대비,상태');
+        for (const r of table) {
+          lines.push(`${r.category},${String(r.totalUsers).replace(/,/g, '')},${r.growth},${r.status}`);
+        }
+        lines.push('');
+        lines.push('요일,음식점,카페,관광지,문화시설');
+        for (const w of weekly) {
+          lines.push(`${w.day},${w.음식점},${w.카페},${w.관광지},${w.문화시설}`);
+        }
       }
       const csv = '﻿' + lines.join('\n');
       const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
@@ -460,6 +540,11 @@ export default function ReportsPage() {
                 {sourceState === 'failed' || sourceState === 'partial' ? <AlertCircle size={13} /> : <Database size={13} />}
                 {reportSourceLabel(sourceState)}
               </span>
+              {/* 화면 전체가 추정으로 그려지고 있다는 사실을 맨 위에서도 한 번 말한다
+                  (차트·표 옆 배지와 중복이지만, 어느 쪽을 먼저 보든 놓치지 않게).
+                  옆 배지가 '데이터 없음' 이라 여기만 말을 늘린다 — 실측은 정말로 없고,
+                  지금 보이는 것은 그 자리를 채운 추정치다. */}
+              {estimateInUse && <EstimateBadge label="실측 없음 · 추정으로 표시 중" />}
             </div>
             <div className="flex items-center gap-3">
               <button
@@ -533,10 +618,44 @@ export default function ReportsPage() {
             <div className="bg-hanok-panel p-6 rounded-2xl border border-hanok-line shadow-sm flex flex-col">
               <div className="flex items-center gap-2 mb-6">
                 <BarChart2 className="text-gold" size={20} />
-                <h3 className="text-lg font-bold text-hanok-ink">요일별 관측 혼잡 지수</h3>
+                <h3 className="text-lg font-bold text-hanok-ink">
+                  {/* 제목까지 바꾼다 — 단위가 다르기 때문이다. 실측은 (시설,30분)당 재실 추정의
+                      **합**(지수)이고, 추정은 0~100% 의 **평균 혼잡도**다. 같은 제목 아래 두면
+                      두 막대가 같은 양을 재는 것처럼 읽힌다. */}
+                  {estimateInUse ? '요일별 추정 혼잡도 (업종 평균)' : '요일별 관측 혼잡 지수'}
+                </h3>
+                {estimateInUse && <EstimateBadge />}
               </div>
               <div className="flex-1 w-full h-[250px]">
-                {weekly.length === 0 ? (
+                {estimateInUse ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={estimateWeekly} margin={{ top: 5, right: 0, bottom: 5, left: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#3a2f24" />
+                      <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{ fill: '#b8a894', fontSize: 12 }} />
+                      {/* 0~100% 고정 축. 실측 지수 차트와 달리 값이 비율이라 축이 데이터에 따라
+                          늘었다 줄었다 하면 요일 간 차이가 실제보다 커 보인다. */}
+                      <YAxis
+                        axisLine={false}
+                        tickLine={false}
+                        tick={{ fill: '#b8a894', fontSize: 12 }}
+                        domain={[0, 1]}
+                        ticks={[0, 0.25, 0.5, 0.75, 1]}
+                        tickFormatter={(v) => `${Math.round(Number(v) * 100)}%`}
+                      />
+                      <Tooltip
+                        cursor={{ fill: '#3a2f24' }}
+                        formatter={(value: unknown) => (typeof value === 'number' ? `${(value * 100).toFixed(1)}% (추정)` : '—')}
+                        contentStyle={{ borderRadius: '8px', backgroundColor: '#2c241c', border: '1px solid #3a2f24', color: '#e2e8f0' }}
+                      />
+                      <Legend iconType="circle" wrapperStyle={{ fontSize: '12px' }} />
+                      {/* 누적이 아니라 **나란히** 둔다 — 비율은 더할 수 있는 양이 아니다.
+                          (쌓으면 400% 짜리 막대가 나오고, 그건 아무 뜻도 없는 숫자다.) */}
+                      {CATEGORY_ORDER.map((ko) => (
+                        <Bar key={ko} dataKey={ko} fill={CATEGORY_COLOR[ko]} radius={[3, 3, 0, 0]} />
+                      ))}
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : weekly.length === 0 ? (
                   // 빈 자리 안내. 세 가지가 서로 다른 사실이다:
                   //  · 조회 실패 → 무엇을 하면 되는지(재로그인/재시도)까지 말한다.
                   //  · 조회 성공인데 14일 창이 0행 → 실패가 아니다. 마지막 관측이 언제였는지 말한다.
@@ -549,13 +668,19 @@ export default function ReportsPage() {
                         {logsFailure.action}
                       </span>
                     ) : !loading && observationGap ? (
-                      observationGap
+                      <span>
+                        {observationGap}
+                        {estimateNote && <><br />{estimateNote}</>}
+                      </span>
                     ) : (
-                      emptyOrFailedText(
-                        loading ? 'loading' : logsStatus,
-                        '표시할 방문량 데이터가 아직 없습니다.',
-                        '데이터를 불러오는 중...',
-                      )
+                      <span>
+                        {emptyOrFailedText(
+                          loading ? 'loading' : logsStatus,
+                          '표시할 방문량 데이터가 아직 없습니다.',
+                          '데이터를 불러오는 중...',
+                        )}
+                        {estimateNote && <><br />{estimateNote}</>}
+                      </span>
                     )}
                   </div>
                 ) : (
@@ -574,6 +699,15 @@ export default function ReportsPage() {
                 </ResponsiveContainer>
                 )}
               </div>
+              {/* 근거는 차트 **바로 아래**에 둔다 — 화면 위 배너에만 적으면 스크린샷 한 장에서
+                  떨어져 나가고, 그 순간 이 막대는 실측처럼 보인다. */}
+              {estimateInUse && estimateBasis && (
+                <p className="mt-3 text-xs text-hanok-muted leading-relaxed border-t border-dashed border-hanok-line pt-2">
+                  {estimateBasis}
+                  <br />
+                  {estimateMethod}
+                </p>
+              )}
             </div>
 
             {/* Area Chart */}
@@ -651,20 +785,68 @@ export default function ReportsPage() {
           <div className="bg-hanok-panel rounded-2xl border border-hanok-line shadow-sm overflow-hidden flex-shrink-0">
             <div className="p-6 border-b border-hanok-line flex items-center gap-2">
               <PieChartIcon className="text-hanok-muted" size={20} />
-              <h3 className="text-lg font-bold text-hanok-ink">카테고리별 누적 요약 데이터</h3>
+              <h3 className="text-lg font-bold text-hanok-ink">
+                {estimateInUse ? '카테고리별 추정 혼잡도 요약' : '카테고리별 누적 요약 데이터'}
+              </h3>
+              {estimateInUse && <EstimateBadge />}
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse">
                 <thead>
                   <tr className="bg-hanok text-hanok-muted text-sm border-b border-hanok-line">
                     <th className="p-4 font-semibold">카테고리</th>
-                    <th className="p-4 font-semibold">관측 혼잡 지수 (최근 7일)</th>
-                    <th className="p-4 font-semibold">전주 대비 증감률</th>
+                    {/* 열 이름을 바꾸는 것이 핵심이다 — 값의 단위가 '지수(합)' 에서 '평균 혼잡도(%)'
+                        로 바뀌었는데 머리글이 그대로면 그 표는 거짓말이 된다. */}
+                    <th className="p-4 font-semibold">
+                      {estimateInUse
+                        ? `추정 평균 혼잡도 (최근 ${ESTIMATE_SUMMARY_DAYS}일)`
+                        : '관측 혼잡 지수 (최근 7일)'}
+                    </th>
+                    <th className="p-4 font-semibold">
+                      {/* 비율의 변화는 '증감률' 이 아니라 **%포인트**다. 50%→60% 를 '+20%' 로 적으면
+                          읽는 사람이 혼잡도가 20% 올랐다고 읽는다. */}
+                      {estimateInUse ? '전주 대비 (%p)' : '전주 대비 증감률'}
+                    </th>
                     <th className="p-4 font-semibold">상태</th>
                   </tr>
                 </thead>
                 <tbody className="text-sm">
-                  {table.length === 0 ? (
+                  {estimateInUse ? (
+                    estimateTable.map((row) => (
+                      <tr key={row.type} className="border-b border-hanok-line hover:bg-hanok-card transition-colors">
+                        <td className="p-4 font-bold text-hanok-ink">{row.label}</td>
+                        <td className="p-4 text-hanok-muted">
+                          {row.avgCongestion === null
+                            ? '—'
+                            : `${(row.avgCongestion * 100).toFixed(1)}% (추정)`}
+                          {row.dayCount > 0 && (
+                            <span className="ml-2 text-xs text-hanok-muted/70">산출 {row.dayCount}일</span>
+                          )}
+                        </td>
+                        <td className="p-4">
+                          {/* 직전 주에 추정 표본이 없으면 비교를 **만들지 않는다**(실측 쪽
+                              describeGrowth 와 같은 규칙 — 없는 비교는 '—' 다). */}
+                          {row.changePoints === null ? (
+                            <span className="text-hanok-muted">—</span>
+                          ) : (
+                            <span className={`font-bold ${row.changePoints < 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
+                              {row.changePoints >= 0 ? '+' : ''}{row.changePoints.toFixed(1)}%p
+                            </span>
+                          )}
+                        </td>
+                        <td className="p-4">
+                          <span className={`px-2 py-1 rounded-md text-xs font-bold ${
+                            row.status === '혼잡' ? 'bg-rose-500/15 text-rose-300' :
+                            row.status === '보통' ? 'bg-amber-500/15 text-amber-300' :
+                            row.status === '여유' ? 'bg-emerald-500/15 text-emerald-300' :
+                            'bg-hanok-card text-hanok-ink'
+                          }`}>
+                            {row.status ?? '—'}
+                          </span>
+                        </td>
+                      </tr>
+                    ))
+                  ) : table.length === 0 ? (
                     // 빈 상태 행: 요약 데이터 없음 / 조회 실패(같은 혼잡 로그 출처)
                     <tr>
                       <td colSpan={4} className={`p-8 text-center ${logsStatus === 'failed' ? 'text-rose-300' : 'text-hanok-muted'}`}>
@@ -673,13 +855,19 @@ export default function ReportsPage() {
                             <span className="font-semibold">{logsFailure.title}</span> — {logsFailure.action}
                           </span>
                         ) : !loading && observationGap ? (
-                          observationGap
+                          <span>
+                            {observationGap}
+                            {estimateNote && <><br />{estimateNote}</>}
+                          </span>
                         ) : (
-                          emptyOrFailedText(
-                            loading ? 'loading' : logsStatus,
-                            '표시할 요약 데이터가 아직 없습니다.',
-                            '데이터를 불러오는 중...',
-                          )
+                          <span>
+                            {emptyOrFailedText(
+                              loading ? 'loading' : logsStatus,
+                              '표시할 요약 데이터가 아직 없습니다.',
+                              '데이터를 불러오는 중...',
+                            )}
+                            {estimateNote && <><br />{estimateNote}</>}
+                          </span>
                         )}
                       </td>
                     </tr>
@@ -709,10 +897,31 @@ export default function ReportsPage() {
                 </tbody>
               </table>
             </div>
+            {/* '총 이용량(명)' 칸이 왜 없는지. 추정치에는 인원 수가 없고, 0 으로 채우면
+                없는 관측을 만들어 내는 것이다 — 이 화면이 예전에 하던 바로 그 실수다. */}
+            {estimateInUse && (
+              <div className="px-6 py-4 border-t border-hanok-line text-xs text-hanok-muted leading-relaxed">
+                <p>{ESTIMATE_NO_HEADCOUNT_NOTE}</p>
+                {estimateBasis && <p className="mt-1">{estimateBasis}</p>}
+              </div>
+            )}
           </div>
 
         </div>
       </main>
     </div>
+  );
+}
+
+/** '추정' 배지 — 이 화면 안에서 한 번만 정의하고 차트·표가 같은 모양을 쓴다.
+ *  파선 테두리는 실측 배지(실선)와 눈으로 갈라 보라는 신호다. */
+function EstimateBadge({ label }: { label?: string }) {
+  return (
+    <span
+      className="flex items-center gap-1 px-2 py-0.5 rounded-md border border-dashed border-indigo-400/60 bg-indigo-500/10 text-indigo-200 text-xs font-bold"
+      title="현장 관측이 아니라 공영주차 실측(경주 ITS) + 관광공사 집중률로 계산한 추정치입니다."
+    >
+      {label ?? ESTIMATE_BADGE}
+    </span>
   );
 }

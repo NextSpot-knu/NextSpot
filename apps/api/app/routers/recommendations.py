@@ -101,8 +101,17 @@ class RecommendItem(BaseModel):
     congestion_log_source: str | None = None   # measured 일 때 원 로그 source(user_report/seed/…)
     congestion_is_stale: bool | None = None    # measured 일 때 로그 나이>24h
     congestion_timestamp: str | None = None    # measured 일 때 로그 시각
-    # 추정 모드(계획서 §5.2) — congestion_source 가 'none' 일 때만 채운다(measured > predicted >
-    # estimated). congestion_source 에 'estimated' 를 새 값으로 넣지 않은 이유: 구 번들(배포 시차)은
+    # 위 congestion_level 이 '지금' 을 말할 자격이 있는가(congestion_evidence.evidence_is_current):
+    # measured 는 verified/corroborated · 30분 이내(사장님 좌석 방송 포함), predicted 는 언제나 true,
+    # none 은 false. **판정은 서버만 한다** — 화면이 다시 계산하면 같은 판단의 네 번째 복사본이 된다.
+    # false 면 화면은 아래 congestion_estimate 를 '지금' 으로 칠하고 이 관측은 '마지막 관측 HH:MM'
+    # 으로 남긴다. 값 자체는 응답에서 지우지 않는다(실제로 있었던 관측이고, 이 필드를 모르는 구
+    # 번들은 종전과 똑같이 그 실측을 그린다 — 새 필드가 화면에서 값을 빼앗지 않는다).
+    congestion_is_current: bool | None = None
+    # 추정 모드(계획서 §5.2) — '지금' 자격이 있는 실측·예측이 없을 때만 채운다
+    # (측정(신선·신뢰) > 예측 > 추정 > 없음. 낡은·단건 실측은 여기서 자리를 내준다 — 2026-09-20 결정,
+    #  근거는 congestion_evidence.attach_estimate 주석).
+    # congestion_source 에 'estimated' 를 새 값으로 넣지 않은 이유: 구 번들(배포 시차)은
     # source !== 'none' 이면 level 을 실측·예측처럼 칠하고 로컬 순위에도 쓴다. 옆 칸에 두면 구
     # 번들은 모르고 지나가고(종전과 같은 '정보 준비 중'), 새 번들만 '추정' 라벨로 그린다.
     # 순위에는 들어가지 않는다 — 같은 주차·관광 신호가 이미 area_stats_rules 로 반영된다(spot/ranking.py).
@@ -293,6 +302,13 @@ async def resolve_congestion_evidence(facility: dict, log_info: dict | None) -> 
     - measured: 최신 congestion_logs 현장 관측(원 로그 source·신선도·증거등급 동봉)
     - predicted: 로그 없음 + 모델이 실제로 학습된 AI 예측(현재 시각 UTC 기준)
     - none: 로그 없음 + 모델 미학습 — 0.5 평탄 폴백을 예측으로 팔지 않는다
+
+    ⚠️ 알려진 순서 공백(지금은 잠들어 있다): 로그가 **있기만 하면** 나이·등급을 보지 않고 measured 로
+    내려가므로, '모델이 학습된 상태 + 낡은 실측' 후보는 예측이 아니라 추정이 '지금' 자리를 가져간다
+    (우선순위 문장은 예측 > 추정이다). 여기서 predicted 로 갈아 끼우지 않는 이유는 그렇게 하면 실측
+    값이 응답에서 **사라지기** 때문이다 — 관측을 지우지 않는다는 선이 더 중요하다. 프로덕션은 모델
+    미학습이라 이 분기가 실제로 갈라지지 않는다. 고치려면 evidence 에 예측을 옆 칸으로 더 싣고
+    화면이 고르게 해야 한다(제품 결정으로 남긴다).
     """
     # 모델 유무와 현장 관측 유무는 별개다. 모델이 없어도 방문객·사장·운영자가 방금 남긴
     # 실제 관측은 출처와 함께 표시한다. 단, degraded_rules 점수에는 혼잡/대기를 섞지 않는다.
@@ -332,10 +348,11 @@ async def build_candidate_evidence(
     """후보 1건의 혼잡 근거 — **세 경로가 공유하는 단일 정의.**
 
     좌석 방송 오버레이(30분 이내 사장 확인)가 있으면 그것을 실측으로 쓰고, 없으면
-    `resolve_congestion_evidence` 의 3단계 판정으로 내려간다. 그 결과가 'none' 이고
-    ``estimates``(load_current_estimates 결과)에 이 시설의 추정이 있으면 ``estimate`` 칸에
-    싣는다 — source/level 은 'none'/None 그대로다(congestion_evidence.attach_estimate 주석 참조).
-    반환 dict 에는 언제나 ``estimate`` 키가 있다(없으면 None).
+    `resolve_congestion_evidence` 의 3단계 판정으로 내려간다. 그 결과가 '지금' 을 말할 자격이
+    없고(``is_current=False`` — 근거 없음이거나, 낡은·단건 실측) ``estimates``(load_current_estimates
+    결과)에 이 시설의 추정이 있으면 ``estimate`` 칸에 싣는다 — source/level 은 **손대지 않는다**
+    (congestion_evidence.attach_estimate 주석 참조).
+    반환 dict 에는 언제나 ``estimate``·``is_current`` 키가 있다.
 
     왜 함수로 뺐나: 같은 판정이 `/recommendations` 와 `/recommendations/by-type` 에 **두 벌로**
     복사돼 있었고, `/courses/plan` 에는 아예 없었다. 세 벌이 되면 반드시 갈라진다 — 실제로
@@ -345,15 +362,40 @@ async def build_candidate_evidence(
     override = facility.get(CONGESTION_OVERRIDE_KEY)
     if override is not None:
         # 사장님이 방금 확인한 좌석 상태 — 실측으로 취급(프런트 배지는 seat_status_fresh 가 담당).
+        # is_current=True 를 **직접 찍는다**: merchant_boost 가 이미 같은 30분 창으로 걸렀는데,
+        # 그 판정과 여기 사이에 흐른 몇 초로 경계를 넘겨 '방금 확인' 이 추정에 밀리면 안 된다.
+        # (좌석 방송은 사장님이 '지금' 을 말한 것이다 — 이 경로가 우선순위 1번의 나머지 절반이다.)
         return {
             "level": override, "source": "measured", "log_source": "merchant_seat",
             "current_count": None, "evidence_tier": "verified", "is_stale": False,
             "timestamp": (facility.get("seat_status_fresh") or {}).get("updated_at"),
-            "estimate": None,
+            "estimate": None, "is_current": True,
         }
     # 혼잡 3단계 판정(CONGESTION_TRUST_SPEC) — 로그 없는 시설을 0.0(실측 여유)처럼 팔지 않는다.
     evidence = await resolve_congestion_evidence(facility, log_info)
     return attach_estimate(evidence, estimates, facility.get("id"))
+
+
+def _reason_congestion_ctx(item: dict) -> dict:
+    """사유 문장(reason_service)이 혼잡을 주장해도 되는지 — 카드 배지와 **같은 판정**을 쓴다.
+
+    reason_service 의 템플릿은 source 가 'measured' 면 "혼잡도 92%" 를 사실처럼 적는다. 한 달 된
+    관측에 그 문장을 붙이면, 같은 카드가 배지로는 '추정 · 여유' 를 말하면서 문장으로는 '혼잡도 92%'
+    를 말하는 자기모순이 된다(2026-09-20 적대적 검토에서 잡힌 항목). '지금' 자격이 없는 값은
+    혼잡을 주장하지 않는다 — 'none' 으로 넘기면 템플릿이 혼잡 문구 자체를 생략한다.
+
+    관측을 숨기는 것이 아니다: 그 값은 응답 필드로 그대로 나가고 카드가 '마지막 관측 HH:MM' 으로
+    보여 준다. 여기서 빼는 것은 **없는 시점을 주장하는 문장 한 줄**뿐이다.
+    추정을 문장에 넣지 않는 이유도 같다 — 템플릿에는 '추정' 어휘가 없어서, 넣는 순간 추정이
+    실측 문장으로 팔린다(추정은 배지 전용이다).
+    """
+    evidence = item["congestion_evidence"]
+    if evidence.get("is_current"):
+        return {
+            "candidate_congestion": item["candidate_congestion"],
+            "congestion_source": evidence["source"],
+        }
+    return {"candidate_congestion": None, "congestion_source": "none"}
 
 
 async def _resolve_user_vector(user_id: str, preferred_categories: list[str]) -> list[float]:
@@ -544,8 +586,7 @@ async def get_recommendations(
         return await generate_reason_with_source({
             "facility_id": item["facility"].get("id"),
             "recommended_facility_name": item["facility"].get("name"),
-            "candidate_congestion": item["candidate_congestion"],
-            "congestion_source": item["congestion_evidence"]["source"],
+            **_reason_congestion_ctx(item),
             "travel_time": bd.get("travel_time"),
             "predicted_wait": bd.get("wait_time"),
         }, polish=False)
@@ -577,6 +618,9 @@ async def get_recommendations(
                 "level": evidence["level"], "source": evidence["source"],
                 "timestamp": evidence["timestamp"], "evidence_tier": evidence.get("evidence_tier"),
                 "log_source": evidence.get("log_source"),
+                # 사용자가 이 값을 '지금' 으로 봤는지. 이 칸을 읽는 집계는 source 만 세므로 영향이
+                # 없고, 나중에 "낡은 실측이 몇 번 노출됐나" 를 되짚을 수 있게 스냅샷에 남긴다.
+                "is_current": evidence.get("is_current"),
             },
             # 사용자가 본 추정(있으면). 'congestion' 칸과 섞지 않는다 — 그 칸을 읽는 집계는
             # 계속 '근거 없음' 으로 센다. 학습은 congestion_logs 만 읽으므로 여기 닿지 않는다.
@@ -655,6 +699,7 @@ async def get_recommendations(
             congestion_log_source=evidence["log_source"],
             congestion_is_stale=evidence["is_stale"],
             congestion_timestamp=evidence["timestamp"],
+            congestion_is_current=evidence.get("is_current"),
             congestion_estimate=congestion_estimate_model(evidence.get("estimate")),
             rank=idx + 1,
             total_candidates=total_count,
@@ -891,8 +936,7 @@ async def _recommend_by_type(req: "RecommendByTypeRequest") -> list:
         return await generate_reason_with_source({
             "facility_id": item["facility"].get("id"),
             "recommended_facility_name": item["facility"].get("name"),
-            "candidate_congestion": item["candidate_congestion"],
-            "congestion_source": item["congestion_evidence"]["source"],
+            **_reason_congestion_ctx(item),   # /recommendations 와 같은 판정(중복 정의 금지)
             "travel_time": bd.get("travel_time"),
             "predicted_wait": bd.get("wait_time"),
         }, polish=False)
@@ -912,6 +956,7 @@ async def _recommend_by_type(req: "RecommendByTypeRequest") -> list:
             "congestion": {
                 "level": evidence["level"], "source": evidence["source"], "timestamp": evidence["timestamp"],
                 "evidence_tier": evidence.get("evidence_tier"), "log_source": evidence.get("log_source"),
+                "is_current": evidence.get("is_current"),  # 위 /recommendations 스냅샷과 같은 뜻.
             },
             "congestion_estimate": evidence.get("estimate"),
             "max_walk_minutes": max_walk_minutes,
@@ -966,6 +1011,7 @@ async def _recommend_by_type(req: "RecommendByTypeRequest") -> list:
             congestion_log_source=item["congestion_evidence"]["log_source"],
             congestion_is_stale=item["congestion_evidence"]["is_stale"],
             congestion_timestamp=item["congestion_evidence"]["timestamp"],
+            congestion_is_current=item["congestion_evidence"].get("is_current"),
             congestion_estimate=congestion_estimate_model(item["congestion_evidence"].get("estimate")),
             rank=idx + 1,
             total_candidates=total,

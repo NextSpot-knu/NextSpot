@@ -416,7 +416,7 @@
     "aiRec": "AI pick",
     "freshLive": "as of {rel}",
     "freshReport": "Visitor report · {rel}",
-    "freshStale": "Estimated from past patterns (not live)",
+    "freshStale": "Not live · observed over a day ago",
     "ofCandidates": "of {n} options",
     "congestion": "Congestion",
     "noData": "No data",
@@ -483,7 +483,10 @@
     "evidenceNone": "No congestion evidence",
     "spotTooltipEvidenceOrder": "Places with congestion evidence come first. Without it, even a closer place ranks lower.",
     "estimateLevel": "Estimated crowd: {label}",
-    "evidenceEstimated": "Estimate · based on live parking · observed {time} · {km}km radius"
+    "evidenceEstimated": "Estimate · based on live parking · observed {time} · {km}km radius",
+    "evidenceEstimatedCalibrated": "Estimate · based on live parking (calibrated on Seoul data) · observed {time} · {km}km radius",
+    "lastObserved": "Last observed {time}",
+    "lastObservedLevel": "Last observed {time} · {label}"
   },
   "report": {
     "trigger": "Report crowding",

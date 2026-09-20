@@ -95,9 +95,18 @@ function buildCongestionMap(items: unknown): Record<string, number | null> {
   const out: Record<string, number | null> = {};
   if (!Array.isArray(items)) return out;
   for (const raw of items) {
-    const f = raw as { id?: unknown; congestion?: { level?: unknown } | null };
+    const f = raw as {
+      id?: unknown;
+      congestion?: { level?: unknown; isCurrent?: unknown } | null;
+    };
     if (!f || typeof f.id !== 'string') continue;
-    const level = f.congestion && typeof f.congestion.level === 'number' ? f.congestion.level : null;
+    // 서버가 '지금이 아니다' 라고 판정한 관측(30분 초과·단건)으로는 알림을 보내지 않는다.
+    // 이 알림 문구는 "지금 한산해요" 다 — 한 달 전 0.2 로 휴대폰을 울리면, 앱을 열었을 때
+    // 카드가 말하는 '추정 · 혼잡' 과 정반대의 약속을 한 셈이 된다(2026-09-20 적대적 검토).
+    // 판정이 없는 구 서버 응답(undefined)은 종전대로 통과시킨다.
+    const notNow = f.congestion?.isCurrent === false;
+    const level =
+      !notNow && f.congestion && typeof f.congestion.level === 'number' ? f.congestion.level : null;
     out[f.id] = level;
   }
   return out;

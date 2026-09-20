@@ -7,9 +7,13 @@ import { track } from '@/lib/analytics';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 import { displayWalkingMinutes } from '@/lib/recommender';
 import { buildSpotComparisons, formatSpotComparison } from '@/lib/spotComparison';
+import { congestionDisplay } from '@/lib/congestionEstimate';
+import { congestionKey } from '@/lib/congestionScale';
+import { useBusyThreshold } from '@/components/shell/PublicSettingsProvider';
 
 export default function RecommendationComparison({ recommendations }: { recommendations: RecommendationResponse[] }) {
   const { t, locale } = useI18n();
+  const busyAt = useBusyThreshold();
   const top = recommendations.slice(0, 3);
   const [open, setOpen] = useState(false);
   const [answer, setAnswer] = useState<{ text: string; labels: string[] } | null>(null);
@@ -94,7 +98,16 @@ export default function RecommendationComparison({ recommendations }: { recommen
             ? `${displayWalkingMinutes(r.breakdown.travelTime, r.distanceM)}m · ${t('card.noData')}`
             : `${displayWalkingMinutes(r.breakdown.travelTime, r.distanceM)}m · ${Math.round(r.breakdown.waitTime)}m`
         )} />
-        <Row label={t('compare.congestion')} values={top.map((r) => r.congestionLevel == null ? t('card.noData') : `${Math.round(r.congestionLevel * 100)}%`)} />
+        {/* 카드와 **같은 판정**으로 그린다. 원시 congestionLevel 을 그대로 쓰면 같은 화면에서
+            카드는 '추정 · 여유' 인데 이 표는 '92%' 라고 말한다(2026-09-20 적대적 검토).
+            추정은 퍼센트로 팔지 않는다 — 등급 라벨을 '추정' 머리표와 함께 쓴다. */}
+        <Row label={t('compare.congestion')} values={top.map((r) => {
+          const display = congestionDisplay(r);
+          if (display.mode === 'estimated' && display.estimate) {
+            return t('card.estimateLevel', { label: t(`congestion.${congestionKey(display.estimate.level, busyAt)}`) });
+          }
+          return display.level == null ? t('card.noData') : `${Math.round(display.level * 100)}%`;
+        })} />
         <Row label={t('compare.openStatus')} values={top.map((r) => r.openStatusAtArrival ? t(`card.arrivalStatus.${r.openStatusAtArrival}`) : t('card.noData'))} />
         <Row label={t('compare.coupon')} values={top.map((r) => r.facility.couponRate ? `${Math.round(r.facility.couponRate * 100)}%` : '—')} />
       </tbody></table></div>

@@ -31,6 +31,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from app.core.authz import ROLE_ADMIN, require_role
 from app.core.supabase import fetch_all_rows, supabase_admin
 from app.services import engine_validation_metrics as metrics
+from app.services import seoul_alternatives_service as alternatives
 
 logger = structlog.get_logger()
 
@@ -154,4 +155,138 @@ async def seoul_summary(days: int = Query(14, ge=1, le=28)):
         return await asyncio.to_thread(build_summary, days)
     except Exception as exc:
         logger.error("engine_validation_summary_failed", error=str(exc))
+        raise HTTPException(status_code=503, detail="engine_validation_unavailable") from exc
+
+
+# ---------------------------------------------------------------------------
+# 시연 권역 — 실측 인구로 돌린 대안 추천 (§5.4 A2)
+# ---------------------------------------------------------------------------
+#
+# summary 와 같은 표를 읽지만 **묻는 것이 다르다.** summary 는 "우리 추정이 실측을 맞히나" 이고,
+# 여기는 "실시간 인구가 있으면 SPOT 이 어떻게 도나" 다. 그래서 이 응답에는 `level_est` 가 한 번도
+#들어가지 않는다 — 섞이면 두 질문이 한 화면에서 뒤섞인다.
+#
+# 상태는 summary 와 같은 어법이되 이 화면이 답해야 하는 네 가지만 둔다:
+#
+#     not_migrated  표가 없다
+#     empty         시연 권역 3곳의 행이 한 줄도 없다
+#     stale         행은 있는데 최신 버킷이 30분보다 오래됐다 — "지금" 이라고 말하면 안 된다
+#     ready         30분 안의 실측으로 답할 수 있다
+
+# 대안 추천에 필요한 열만 읽는다. 추정(level_est)·주차 원문은 일부러 뺐다(위 주석).
+_ALTERNATIVE_COLUMNS = "area_cd,area_nm,bucket_at,observed_at,congest_lvl,ppltn_min,ppltn_max"
+_CLUSTER_NAMES = [place.area_nm for place in alternatives.DEMO_CLUSTER]
+
+
+def _load_cluster_window(since_iso: str) -> list[dict[str, Any]]:
+    return fetch_all_rows(
+        supabase_admin,
+        TABLE,
+        select=_ALTERNATIVE_COLUMNS,
+        apply_filters=lambda query: (
+            query.in_("area_nm", _CLUSTER_NAMES).gte("bucket_at", since_iso).order("bucket_at").order("area_nm")
+        ),
+    )
+
+
+def _load_cluster_latest() -> dict[str, Any] | None:
+    """창 밖이라도 가장 최근 행 하나. '한 번도 없음'(empty)과 '멈췄음'(stale)을 가른다."""
+    res = (
+        supabase_admin.table(TABLE)
+        .select("area_nm,bucket_at")
+        .in_("area_nm", _CLUSTER_NAMES)
+        .order("bucket_at", desc=True)
+        .limit(1)
+        .execute()
+    )
+    return res.data[0] if res.data else None
+
+
+def _alternatives_envelope(state: str, *, origin: str, now: datetime, since: datetime) -> dict[str, Any]:
+    return {
+        "state": state,
+        "generated_at": now.isoformat(),
+        "table": TABLE,
+        "migration": MIGRATION,
+        "origin": origin,
+        "default_origin": alternatives.DEFAULT_ORIGIN,
+        "cluster": [
+            {
+                "area_cd": place.area_cd,
+                "area_nm": place.area_nm,
+                "latitude": place.latitude,
+                "longitude": place.longitude,
+            }
+            for place in alternatives.DEMO_CLUSTER
+        ],
+        "source": alternatives.SOURCE_MEASURED,
+        "source_note": alternatives.MEASURED_CAVEAT,
+        "attribution": "서울특별시 서울 실시간 도시데이터 (공공누리 제1유형)",
+        "stale_after_minutes": alternatives.STALE_AFTER_MINUTES,
+        "lookback_days": alternatives.LOOKBACK_DAYS,
+        "lookback_start": since.isoformat(),
+        "grade_labels": list(metrics.GRADE_LABELS),
+        "grade_levels": dict(alternatives.GRADE_LEVELS),
+        "estimate_grade_edges": list(metrics.ESTIMATE_GRADE_EDGES),
+        "walking": alternatives.walking_method(),
+        "latest_bucket_at": None,
+        "latest_age_minutes": None,
+        "places": [],
+        "ranking": [],
+        "recommendation": None,
+    }
+
+
+def build_alternatives(origin: str, *, now: datetime | None = None) -> dict[str, Any]:
+    """동기 본체(테스트가 직접 부른다). `origin` 은 이미 검증된 대상지 이름이어야 한다."""
+    now = now or datetime.now(timezone.utc)
+    since = now - timedelta(days=alternatives.LOOKBACK_DAYS)
+    try:
+        rows = _load_cluster_window(since.isoformat())
+    except Exception as exc:
+        if _is_missing_table(exc):
+            logger.info("engine_validation_table_missing", error=str(exc))
+            return _alternatives_envelope("not_migrated", origin=origin, now=now, since=since)
+        raise
+
+    envelope = _alternatives_envelope("empty", origin=origin, now=now, since=since)
+    if not rows:
+        latest = _load_cluster_latest()
+        latest_bucket = metrics.parse_time(latest.get("bucket_at")) if latest else None
+        if latest_bucket is not None:
+            envelope["state"] = "stale"
+            envelope["latest_bucket_at"] = latest_bucket.isoformat()
+            envelope["latest_age_minutes"] = round((now - latest_bucket).total_seconds() / 60.0, 1)
+        # 행이 없어도 카드 3장은 만든다 — 무엇을 기다리는 중인지가 이 화면의 답이다.
+        envelope["places"] = alternatives.build_places([], origin=origin, now=now)
+        envelope["recommendation"] = alternatives.build_recommendation(envelope["places"], origin=origin)
+        return envelope
+
+    places = alternatives.build_places(rows, origin=origin, now=now)
+    envelope["places"] = places
+    envelope["recommendation"] = alternatives.build_recommendation(places, origin=origin)
+    envelope["ranking"] = [card["area_nm"] for card in sorted(
+        (card for card in places if card["rank"] is not None), key=lambda card: card["rank"]
+    )]
+    ages = [card["age_minutes"] for card in places if card["age_minutes"] is not None]
+    buckets = [card["bucket_at"] for card in places if card["bucket_at"]]
+    if buckets:
+        envelope["latest_bucket_at"] = max(buckets)
+        envelope["latest_age_minutes"] = min(ages) if ages else None
+    # 가장 싱싱한 버킷마저 30분을 넘었으면 이 화면은 '지금' 을 말할 수 없다.
+    envelope["state"] = "stale" if (not ages or min(ages) > alternatives.STALE_AFTER_MINUTES) else "ready"
+    return envelope
+
+
+@router.get("/seoul/alternatives")
+async def seoul_alternatives(origin: str | None = Query(None)):
+    """시연 권역(홍대·연남동·합정역)의 **실측 인구**로 돌린 대안 추천."""
+    resolved = alternatives.resolve_origin(origin)
+    if resolved is None:
+        # 422: 모르는 출발지를 기본값으로 조용히 바꾸면 화면이 엉뚱한 곳을 '선택됨' 으로 보여 준다.
+        raise HTTPException(status_code=422, detail="unknown_origin")
+    try:
+        return await asyncio.to_thread(build_alternatives, resolved)
+    except Exception as exc:
+        logger.error("engine_validation_alternatives_failed", error=str(exc))
         raise HTTPException(status_code=503, detail="engine_validation_unavailable") from exc

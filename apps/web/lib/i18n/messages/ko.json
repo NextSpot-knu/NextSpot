@@ -416,7 +416,7 @@
     "aiRec": "AI 추천",
     "freshLive": "{rel} 기준",
     "freshReport": "방문객 제보 · {rel}",
-    "freshStale": "과거 패턴 기반 추정 (실시간 아님)",
+    "freshStale": "실시간 아님 · 하루 넘게 지난 관측",
     "ofCandidates": "대안 {n}개 중",
     "congestion": "혼잡도",
     "noData": "데이터 없음",
@@ -483,7 +483,10 @@
     "evidenceNone": "혼잡 근거 없음",
     "spotTooltipEvidenceOrder": "혼잡 근거가 있는 곳을 먼저 보여드려요. 근거가 없으면 가까워도 뒤로 갑니다.",
     "estimateLevel": "추정 혼잡: {label}",
-    "evidenceEstimated": "추정 · 주차 실측 기반 · {time} 관측 · 반경 {km}km"
+    "evidenceEstimated": "추정 · 주차 실측 기반 · {time} 관측 · 반경 {km}km",
+    "evidenceEstimatedCalibrated": "추정 · 주차 실측 기반(서울 실측 보정) · {time} 관측 · 반경 {km}km",
+    "lastObserved": "마지막 관측 {time}",
+    "lastObservedLevel": "마지막 관측 {time} · {label}"
   },
   "report": {
     "trigger": "혼잡 제보",

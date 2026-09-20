@@ -144,6 +144,9 @@ function congestion(level: number, busyAt: number): { key: CongestionKey; cls: s
 // 정류지·대안의 **보여도 되는** 추정(예측 수치가 있으면 null, 60분 넘게 낡았으면 null).
 // 공유 링크로 복원한 정류지에는 추정이 없다 — 링크는 몇 시간 뒤에 열리고, 그때의 '지금' 이 아니다.
 function stopEstimate(s: { predictedCongestion: number | null; congestionEstimate?: unknown }) {
+  // 코스 정류지에 보이는 숫자는 '도착 시점' 모델 예측이지 실측이 아니다 — 그래서 여기에는
+  // '지금 자격'(congestionIsCurrent) 판정이 필요 없다. 낡은 실측이 있는 시설이든 아니든 서버가
+  // 이미 우선순위를 적용해 congestion_estimate 를 실어 줄지 말지 정한다(app/routers/courses.py).
   return displayableEstimate({ congestionLevel: s.predictedCongestion, congestionEstimate: s.congestionEstimate });
 }
 
@@ -1332,7 +1335,8 @@ function StopRow({
           </div>
           {est && (
             <p className="mt-0.5 text-[10px] text-muk-soft">
-              {t('card.evidenceEstimated', {
+              {/* 보정이 적용된 값이면 같은 문장에 한 마디만 더 — 새 배지는 만들지 않는다. */}
+              {t(est.calibrated ? 'card.evidenceEstimatedCalibrated' : 'card.evidenceEstimated', {
                 time: formatEstimateTime(est.observedAt) ?? '—',
                 km: estimateRadiusKm(est.radiusM),
               })}

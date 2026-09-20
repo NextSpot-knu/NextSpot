@@ -1515,7 +1515,9 @@ def test_infrastructures_happy_path(client):
     assert [item["id"] for item in items] == ["f-1", "f-2"]
     assert items[0]["congestion"] == {
         "level": 0.4, "current_count": 20, "timestamp": "2026-07-07T09:00:00+00:00",
-        "source": "seed", "is_stale": True,
+        # is_current 는 모델 기본값(True) — 이 테스트는 조회 함수를 통째로 바꿔 끼우므로
+        # 그 함수가 채우는 '지금' 판정이 없다. 실제 판정은 아래 전용 테스트가 잠근다.
+        "source": "seed", "is_stale": True, "is_current": True,
     }
     assert items[1]["congestion"] is None
 
@@ -1987,6 +1989,37 @@ def test_congestion_is_stale_helper():
     assert _is_stale(old, now=now) is True
     assert _is_stale(None, now=now) is False        # 미상은 오탐 방지로 False
     assert _is_stale("not-a-date", now=now) is False
+
+
+def test_congestion_info_carries_the_now_verdict():
+    """혼잡 info 는 24시간 경고선(is_stale)과 30분 주장선(is_current)을 **둘 다** 싣는다.
+
+    둘이 다른 질문이라는 것이 요점이다: 1시간 된 verified 관측은 is_stale=False 지만
+    is_current 도 False 다(그래서 신선한 추정이 '지금' 자리를 가져간다). 화면이 30분 선
+    하나로 말하도록 판정은 congestion_evidence.measurement_is_current 한 곳에서만 한다.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    from app.routers.infrastructures import _is_stale
+    from app.services.congestion_evidence import measurement_is_current
+
+    now = datetime(2026, 7, 10, 12, 0, 0, tzinfo=timezone.utc)
+
+    def at(minutes):
+        return (now - timedelta(minutes=minutes)).isoformat()
+
+    assert measurement_is_current("verified", at(5), now=now) is True
+    assert measurement_is_current("corroborated", at(30), now=now) is True
+    assert measurement_is_current("verified", at(31), now=now) is False
+    assert measurement_is_current("single_report", at(1), now=now) is False
+    assert measurement_is_current(None, at(1), now=now) is False
+    assert measurement_is_current("verified", None, now=now) is False
+    assert measurement_is_current("verified", "not-a-date", now=now) is False
+    # 시계 오차로 미래에 찍힌 값은 '지금' 으로 받지 않는다(rankable_measured_level 과 같은 규칙).
+    assert measurement_is_current("verified", (now + timedelta(minutes=2)).isoformat(), now=now) is False
+    # 두 선은 독립이다 — 60분 된 관측은 아직 stale 이 아니지만 이미 '지금' 이 아니다.
+    assert _is_stale(at(60), now=now) is False
+    assert measurement_is_current("verified", at(60), now=now) is False
 
 
 # =========================================================================
