@@ -383,7 +383,10 @@ function CourseContent() {
       // 시각·도착시점 혼잡·영업여부를 계산한다. 'now'(null)면 보내지 않아 기존 동작 그대로다.
       const assumedAt = assumedAtIsoForPreset(assumedPreset);
       if (assumedAt) body.assumedAt = assumedAt;
-      // 타임아웃을 명시한다(기본 10초 대신 20초). 코스 추천은 정류지마다 후보를 재평가하는
+      // 타임아웃을 명시한다(기본 10초 대신 60초). 라이브 실측(2026-09-21 Render 로그): 콜드 캐시
+      // (주차·축제·availability) 첫 코스 생성이 43초 걸려 서버는 성공했는데 클라 20초 타임아웃이
+      // 먼저 끊었다 — 프리미엄 로딩 화면이 대기를 덮으므로 60초로 여유를 준다. 웜 캐시면 수 초.
+      // 코스 추천은 정류지마다 후보를 재평가하는
       // 멀티스톱 계산이라 단일 추천보다 본질적으로 무겁고, 백엔드 시설 캐시가 식은 첫 요청은
       // 여기에 더해 전체 시설을 다시 읽는다. 기본값 10초는 그 정상 범위와 너무 가까워,
       // 조금만 느려도 '분산 코스 전체 실패'로 보였다(2026-08-27 실측: 서버 ~10초 → 100% 실패).
@@ -394,18 +397,18 @@ function CourseContent() {
       // 통째로 실패하면 장애가 '갈 곳 없음' 으로 보인다(이 라우터가 가장 피하려는 종류의 거짓말).
       let plan: CoursePlan;
       try {
-        plan = await apiClient.post("/api/v1/courses/plan", body, { timeoutMs: 20000 });
+        plan = await apiClient.post("/api/v1/courses/plan", body, { timeoutMs: 60000 });
       } catch (planErr) {
         const planErrStatus = httpStatus(planErr);
         if (planErrStatus === 503 || planErrStatus === 429) {
           // 유휴 직후 첫 호출의 콜드 경로(JWKS 캐시·풀 연결) 일시 503 — 2초 뒤 딱 한 번 조용히
           // 재시도(스톰 아님). 여기서도 실패하면 기존 에러 상태(재시도 버튼)로 떨어진다.
           await new Promise((resolve) => setTimeout(resolve, 2000));
-          plan = await apiClient.post("/api/v1/courses/plan", body, { timeoutMs: 20000 });
+          plan = await apiClient.post("/api/v1/courses/plan", body, { timeoutMs: 60000 });
         } else if (planErrStatus !== 404) {
           throw planErr;
         } else {
-          const legacy: CourseStop[] = await apiClient.post("/api/v1/courses/recommend", body, { timeoutMs: 20000 });
+          const legacy: CourseStop[] = await apiClient.post("/api/v1/courses/recommend", body, { timeoutMs: 60000 });
           // planId 가 빈 문자열이면 '판정할 근거가 없다' 는 뜻이다 — 아래에서 토스트를 띄우지 않는다.
           plan = { stops: Array.isArray(legacy) ? legacy : [], slotOutcomes: [], planId: "" };
         }
