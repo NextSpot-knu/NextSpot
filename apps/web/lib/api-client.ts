@@ -107,7 +107,7 @@ const REQUEST_TIMEOUT_MS = 10000;
 // 막으면 브라우저엔 네트워크/CORS 실패(fetch 거부)로 나타난다 — 요청이 서버에 도달조차 못 한다.
 // 짧게 기다렸다 다시 보내면 대개 통과한다. 배열 길이 = 최대 재시도 횟수. 지터로 동시 버스트를 흩뜨려
 // 재도전이 또 같은 챌린지에 묶이지 않게 한다.
-const RETRY_BACKOFF_MS = [500, 1200, 2500];
+const RETRY_BACKOFF_MS = [700];
 const jittered = (ms: number) => ms + Math.floor(Math.random() * 250);
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
@@ -218,11 +218,9 @@ async function request(path: string, options: RequestOptions = {}) {
       throw networkErr; // 모든 시도 소진 — 마지막 네트워크 오류를 그대로 던진다.
     }
 
-    // 429(레이트리밋·엣지 챌린지)·503(일시적 미가용)은 백오프 후 다시 시도해 자가 치유한다.
-    if (response && (response.status === 429 || response.status === 503) && attempt < maxAttempts - 1) {
-      await sleep(jittered(RETRY_BACKOFF_MS[attempt]));
-      continue;
-    }
+    // 응답을 받았으면(성공/4xx/5xx 무관) 그대로 처리한다. 429·503 을 재시도하면 이미 과부하·
+    // 봇차단된 백엔드에 부하를 더해 악화시킨다(리트라이 스톰 → Cloudflare IP 차단 — 라이브에서 확인됨).
+    // 그래서 응답 상태로는 재시도하지 않고, 네트워크 실패(서버 미도달)만 위에서 1회 재시도한다.
     break;
   }
 
