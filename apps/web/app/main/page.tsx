@@ -1378,7 +1378,8 @@ export default function MainPage() {
               // 구 서버는 필드가 없어 undefined → 지도(/infrastructures)가 받은 추정을 그대로 쓴다.
               // 새 서버는 추천 응답에 직접 싣는다(null = 실측·예측이 있어 추정을 보이지 않는다).
               // 구 서버는 필드가 없고 추정 피드도 404 라 어느 쪽이든 null 이다.
-              congestionEstimate: rec.congestionEstimate ?? null,
+              // 선택 카드와 동일하게 추정 피드(estimateById) 최신값을 우선 덧씌운다(모든 랭킹 카드에 배지).
+              congestionEstimate: (estimateById[rf.id] as CongestionEstimate | undefined) ?? rec.congestionEstimate ?? null,
               dataUpdatedAt: rec.dataUpdatedAt,
               scoringMode: rec.scoringMode,
               apiRank: rec.rank,
@@ -1510,6 +1511,8 @@ export default function MainPage() {
                 travelContext,
                 cuisineIntentRef.current,
                 recommendationController.signal,
+                // 프리티어 콜드스타트가 깨어날 여유(20s) — 10s 전역 타임아웃이면 빈 degraded 미러로 떨어진다.
+                20000,
               );
               const byId = new Map(realCands.map(f => [f.id, f]));
               realRanked = recs
@@ -1546,7 +1549,9 @@ export default function MainPage() {
                     congestionIsStale: r.congestionIsStale,
                     congestionTimestamp: r.congestionTimestamp,
                     congestionIsCurrent: r.congestionIsCurrent,
-                    congestionEstimate: r.congestionEstimate ?? null,
+                    // 선택 카드와 동일한 덧씌우기: 추정 피드(estimateById) 최신값을 우선하고, 없으면
+                    // 응답이 실어 준 추정으로 폴백한다 → 웜 응답에서 상위 카드뿐 아니라 모든 랭킹 카드에 '추정' 배지가 뜬다.
+                    congestionEstimate: (estimateById[rf.id] as CongestionEstimate | undefined) ?? r.congestionEstimate ?? null,
                     dataUpdatedAt: r.dataUpdatedAt,
                     scoringMode: r.scoringMode,
                     spot,
@@ -2290,20 +2295,26 @@ export default function MainPage() {
 
     if (!showHeatmap) return;
 
-    // 혼잡 로그 없는 시설(congestionLevel === null)은 열지도에서 제외 — '데이터 없음'을 색으로 합성하지 않음(정직성).
+    // 실측 혼잡(congestionLevel)이 있으면 그것으로, 없으면 추정 피드(congestionEstimate.level)로 칠한다.
+    // 추정도 없는 시설만 열지도에서 제외 — '데이터 없음'을 색으로 합성하지 않음(정직성). 추정은
+    // markerFacilities 가 이미 실어 온 라벨된 합성 '추정' 지표라, 별도 데이터 없이 그라데이션을 채운다.
     const displayFacilities = computeDisplayFacilities(markerFacilities)
       .flatMap((f) => (f.isGroup && Array.isArray(f.subFacilities)) ? f.subFacilities : [f])
       .filter(
-        (f) => typeof f.congestionLevel === 'number' && typeof f.latitude === 'number' && typeof f.longitude === 'number'
+        (f) =>
+          (typeof f.congestionLevel === 'number' || typeof f.congestionEstimate?.level === 'number') &&
+          typeof f.latitude === 'number' && typeof f.longitude === 'number'
       );
 
     const overlays = displayFacilities.map((f) => {
-      const size = getHeatRadius(f.congestionLevel);
+      // 필터가 둘 중 하나는 number 임을 보장하므로 level 은 항상 number 다.
+      const level = typeof f.congestionLevel === 'number' ? f.congestionLevel : (f.congestionEstimate?.level ?? 0);
+      const size = getHeatRadius(level);
       const blob = document.createElement('div');
       blob.style.width = `${size}px`;
       blob.style.height = `${size}px`;
       blob.style.borderRadius = '50%';
-      blob.style.background = getHeatGradient(f.congestionLevel, busyAt);
+      blob.style.background = getHeatGradient(level, busyAt);
       blob.style.mixBlendMode = 'screen'; // 겹칠수록 가산 합성되어 번지는 열지도 효과
       blob.style.pointerEvents = 'none';
 

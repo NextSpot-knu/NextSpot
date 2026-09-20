@@ -167,7 +167,9 @@ export default function WaitingBoardPage() {
     // 4유형을 병렬 조회하되 allSettled 로 부분 실패를 흡수한다 — 일부만 살아 있어도 나머지 섹터는 채운다.
     // 전부 실패했을 때만 '백엔드 미가용'으로 판정(정직한 에러 상태 + 재시도).
     const results = await Promise.allSettled(
-      BOARD_TYPES.map((type) => recommendByType(type, userLocation, [], PER_TYPE_LIMIT))
+      // 마지막 인자(20s)는 이 호출 전용 타임아웃 — 프리티어 콜드스타트가 깨어날 여유를 준다.
+      // 10s 전역 타임아웃이면 대기 보드가 빈 채로 실패 상태에 갇힌다.
+      BOARD_TYPES.map((type) => recommendByType(type, userLocation, [], PER_TYPE_LIMIT, undefined, undefined, undefined, 20000))
     );
 
     const nextSectors: Sector[] = [];

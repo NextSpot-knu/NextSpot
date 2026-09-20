@@ -419,7 +419,8 @@ export default function SavedPage() {
 
       {/* Selected Item Detail Bottom Sheet (RecommendationCard) */}
       {selectedBookmark && (
-        <div className="absolute bottom-[calc(var(--tourist-nav-clearance)+env(safe-area-inset-bottom))] w-full z-20 px-4 animate-slide-up">
+        <div className="absolute bottom-[calc(var(--tourist-nav-clearance)+env(safe-area-inset-bottom))] inset-x-0 z-20 px-4 animate-slide-up flex justify-center">
+          <div className="w-full max-w-[400px]">
           <RecommendationCard
             title={selectedBookmark.name}
             matchPercentage={100}
@@ -467,6 +468,7 @@ export default function SavedPage() {
               toast.success(t('saved.removedFromSaved', { name: selectedBookmark.name }));
             }}
           />
+          </div>
         </div>
       )}
 

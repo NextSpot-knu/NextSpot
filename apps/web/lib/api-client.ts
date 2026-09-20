@@ -636,6 +636,9 @@ export async function recommendByType(
   context?: TravelContext,
   preferenceIntent?: string | null,
   signal?: AbortSignal,
+  // 콜드스타트로 깨어나는 백엔드가 실데이터를 돌려줄 때까지 이 호출에만 더 긴 대기를 허용한다.
+  // 미지정이면 전역 기본(REQUEST_TIMEOUT_MS)을 그대로 쓴다 — 전역 기본은 건드리지 않는다.
+  timeoutMs?: number,
 ): Promise<RecommendationResponse[]> {
   const session = await ensureAnonymousSession();
   const userId = session?.user?.id;
@@ -649,7 +652,7 @@ export async function recommendByType(
     limit,
     context,
     preferenceIntent,
-  }, { signal });
+  }, { signal, timeoutMs });
   dispatchReasonSourceDebug(res);
   return res;
 }
