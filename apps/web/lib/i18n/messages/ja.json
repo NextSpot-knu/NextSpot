@@ -606,6 +606,8 @@
     "website": "ウェブサイト",
     "externalChannel": "外部チャンネル",
     "about": "紹介",
+    "liveRefresh": "最新情報を更新",
+    "liveSource": "TourAPI リアルタイム",
     "todayForecast": "今日の時間帯別混雑予測",
     "forecastAria": "今日の時間帯別予測混雑度。最も空いている時間は{time}です。",
     "bestTime": "最も空いている時間 · {time}",

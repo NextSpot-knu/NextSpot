@@ -103,6 +103,10 @@ interface FacilityRecord {
   homepage?: string | null;
   overview?: string | null;
   barrierFree?: boolean | null;
+  // TourAPI 원문 식별자 — 상세 카드의 '실시간 정보 새로고침'(GET /infrastructures/live-detail/{contentid})용.
+  // 값이 없는 행(수동 시드·Kakao 발굴)은 카드가 그 버튼을 그리지 않는다(추가만).
+  contentid?: string | null;
+  contenttypeid?: number | null;
   lastUpdated: string | null;
   source?: string | null;
   congestionSource?: 'measured' | 'predicted' | 'none';
@@ -524,6 +528,9 @@ export default function MainPage() {
             homepage: f.homepage ?? null,
             overview: f.overview ?? null,
             barrierFree: f.barrierFree ?? null,
+            // TourAPI 식별자 — 밑줄이 없어 keysToCamel 이 그대로 통과시킨다(contentid/contenttypeid).
+            contentid: f.contentid ?? null,
+            contenttypeid: f.contenttypeid ?? null,
             availabilityEvidence: f.availabilityEvidence ?? null,
             baseCongestion: level,
             congestionLevel: level,
@@ -551,7 +558,7 @@ export default function MainPage() {
         const [facRes, logRes] = await Promise.all([
           supabase
             .from("facilities")
-            .select("id, name, type, latitude, longitude, capacity, operating_hours, features, address, image_url, phone, homepage, overview, barrier_free")
+            .select("id, name, type, latitude, longitude, capacity, operating_hours, features, address, image_url, phone, homepage, overview, barrier_free, contentid, contenttypeid")
             .gte("latitude", REGION.bounds.minLat)
             .lte("latitude", REGION.bounds.maxLat)
             .gte("longitude", REGION.bounds.minLng)
@@ -605,6 +612,9 @@ export default function MainPage() {
             homepage: f.homepage ?? null,
             overview: f.overview ?? null,
             barrierFree: f.barrier_free ?? null,
+            // TourAPI 식별자(컬럼명에 밑줄 없음) — API 경로와 동일 필드 집합 유지.
+            contentid: f.contentid ?? null,
+            contenttypeid: f.contenttypeid ?? null,
             baseCongestion: baseCongestion,
             congestionLevel: baseCongestion,
             // 방문객·사장 정성 제보의 capacity 환산값을 실제 인원으로 노출하지 않는다.

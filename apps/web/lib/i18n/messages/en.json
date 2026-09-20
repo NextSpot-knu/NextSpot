@@ -606,6 +606,8 @@
     "website": "Website",
     "externalChannel": "External channel",
     "about": "About",
+    "liveRefresh": "Refresh live info",
+    "liveSource": "TourAPI live",
     "todayForecast": "Today’s hourly congestion forecast",
     "forecastAria": "Predicted congestion by hour today. The quietest time is {time}.",
     "bestTime": "Quietest time · {time}",

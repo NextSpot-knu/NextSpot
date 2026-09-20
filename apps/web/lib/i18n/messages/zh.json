@@ -606,6 +606,8 @@
     "website": "网站",
     "externalChannel": "外部频道",
     "about": "简介",
+    "liveRefresh": "刷新实时信息",
+    "liveSource": "TourAPI 实时",
     "todayForecast": "今日各时段拥挤预测",
     "forecastAria": "今日各时段预测拥挤度。最空闲的时间是{time}。",
     "bestTime": "最空闲时间 · {time}",

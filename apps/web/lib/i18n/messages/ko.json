@@ -606,6 +606,8 @@
     "website": "웹사이트",
     "externalChannel": "외부 채널",
     "about": "소개",
+    "liveRefresh": "실시간 정보 새로고침",
+    "liveSource": "TourAPI 실시간",
     "todayForecast": "오늘 시간대별 혼잡 예측",
     "forecastAria": "오늘 시간대별 예측 혼잡도. 가장 한산한 시간은 {time}입니다.",
     "bestTime": "가장 한산한 시간 · {time}",
