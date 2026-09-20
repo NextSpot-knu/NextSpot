@@ -79,7 +79,9 @@ def test_applied_curve_changes_the_level_and_keeps_the_raw_one():
 
     estimate = out["f1"]
     assert estimate["raw_level"] == pytest.approx(0.65), "원값은 절대 버리지 않는다"
-    assert estimate["level"] == pytest.approx(_CURVE.apply(0.65))
+    # f 는 **주차 성분에만** 얹고 같은 가중치로 다시 섞는다 — 서울에서 배운 관계가
+    # "주차 점유율 → 인파" 이기 때문이다(혼합값에 통째로 적용하면 배운 적 없는 입력에 쓰는 셈).
+    assert estimate["level"] == pytest.approx(0.7 * _CURVE.apply(0.5) + 0.3 * 1.0)
     assert estimate["level"] < estimate["raw_level"]
     assert estimate["calibrated"] is True
     # 주차·관광 성분은 **보정 전** 입력 그대로다 — 근거를 되짚을 수 있어야 한다.
