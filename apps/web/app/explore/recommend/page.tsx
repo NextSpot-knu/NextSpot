@@ -1212,15 +1212,16 @@ function RecommendContent() {
       <main className="min-h-screen bg-hanji text-muk p-4 md:p-8 flex flex-col items-center justify-center relative overflow-hidden">
         <div className="absolute top-[-20%] left-[-10%] w-[600px] h-[600px] rounded-full bg-sunset-1/10 blur-[120px] pointer-events-none" />
         <div className="absolute bottom-[-10%] right-[-10%] w-[600px] h-[600px] rounded-full bg-gold/10 blur-[120px] pointer-events-none" />
-        <div className="bg-white p-8 rounded-2xl border border-line shadow-[0_2px_14px_rgba(43,35,32,0.06)] flex flex-col items-center text-center w-full max-w-[320px] relative z-10">
+        <div className="bg-white p-8 rounded-2xl border border-line toss-surface flex flex-col items-center text-center w-full max-w-[320px] relative z-10">
           <div className="w-16 h-16 rounded-full bg-gradient-to-b from-gold/20 to-gold/10 border border-line flex items-center justify-center mb-6 text-2xl">
             🧭
           </div>
           <h2 className="text-lg font-serif font-bold text-muk mb-2">{t("recommend.noFacilityTitle")}</h2>
           <p className="text-muk-soft text-sm leading-relaxed mb-6 px-1">{t("recommend.noFacilityDesc")}</p>
           <button
+            type="button"
             onClick={() => router.push("/main")}
-            className="w-full py-2.5 bg-gradient-to-r from-gold to-terracotta text-white rounded-xl font-bold text-xs transition-all hover:opacity-90 active:scale-[0.98] shadow-sm"
+            className="toss-pressable min-h-11 w-full flex items-center justify-center py-2.5 bg-gradient-to-r from-gold to-terracotta text-white rounded-xl font-bold text-xs transition-opacity duration-300 hover:opacity-90 shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
           >
             {t("recommend.backToMap")}
           </button>
@@ -1239,8 +1240,9 @@ function RecommendContent() {
         {/* Header */}
         <header className="flex items-center justify-between border-b border-line pb-4">
           <button
+            type="button"
             onClick={() => { quietAssistant(); router.push("/main"); }}
-            className="text-xs text-muk-soft hover:text-muk flex items-center gap-1.5 transition-all duration-200"
+            className="toss-pressable -ml-2 flex min-h-11 items-center gap-1.5 rounded-lg px-2 text-xs font-medium text-muk-soft transition-colors hover:text-muk focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
           >
             ← {t("recommend.backToMap")}
           </button>
@@ -1251,7 +1253,7 @@ function RecommendContent() {
         {/* 1. Original Facility Card */}
         <section>
           {loadingOriginal ? (
-            <div className="bg-white p-5 rounded-2xl border border-line shadow-[0_2px_14px_rgba(43,35,32,0.06)] animate-pulse flex flex-col gap-3">
+            <div className="bg-white p-6 rounded-2xl border border-line toss-surface animate-pulse flex flex-col gap-3">
               <div className="h-4 bg-hanji-deep w-2/3 rounded-md" />
               <div className="h-3 bg-hanji-deep w-1/2 rounded-md" />
             </div>
@@ -1262,24 +1264,24 @@ function RecommendContent() {
               // 로그 0건(congestionLevel=null)은 '여유'로도 팔지 않는다 — 중립 카드(CONGESTION_TRUST_SPEC).
               if (originalFacility.congestionLevel === null) {
                 return (
-                  <div className="bg-white p-5 rounded-2xl border border-line shadow-[0_2px_14px_rgba(43,35,32,0.06)] relative overflow-hidden">
+                  <div className="bg-white p-6 rounded-2xl border border-line toss-surface relative overflow-hidden">
                     <div className="flex items-center gap-2">
                       <span className="w-2 h-2 rounded-full bg-muk-soft/40" />
                       <span className="text-[10px] text-muk-soft font-bold tracking-wider">
                         {t("card.congestionPreparing")}
                       </span>
                     </div>
-                    <h2 className="text-base md:text-lg font-serif font-bold text-muk mt-2">
+                    <h2 className="text-xl md:text-2xl font-serif font-bold text-muk tracking-tight mt-2.5 leading-snug">
                       <span>{originalFacility.name}</span>
                       {t("recommend.unknownSuffix")}
                     </h2>
-                    <p className="text-xs text-muk-soft mt-1 leading-relaxed">{t("recommend.unknownHint")}</p>
+                    <p className="text-xs text-muk-soft mt-1.5 leading-relaxed">{t("recommend.unknownHint")}</p>
                   </div>
                 );
               }
               const crowded = originalFacility.congestionLevel >= 0.6;
               return (
-                <div className={`bg-white p-5 rounded-2xl border ${crowded ? "border-terracotta/25" : "border-jade/25"} shadow-[0_2px_14px_rgba(43,35,32,0.06)] relative overflow-hidden`}>
+                <div className={`bg-white p-6 rounded-2xl border ${crowded ? "border-terracotta/25" : "border-jade/25"} toss-surface relative overflow-hidden`}>
                   <div className={`absolute top-0 right-0 w-24 h-24 ${crowded ? "bg-terracotta/10" : "bg-jade/10"} rounded-full blur-2xl pointer-events-none`} />
                   <div className="flex items-center gap-2">
                     <span className={`w-2 h-2 rounded-full ${crowded ? "bg-terracotta animate-pulse" : "bg-jade"}`} />
@@ -1287,12 +1289,12 @@ function RecommendContent() {
                       {crowded ? t("recommend.detourNeeded") : t("recommend.calmBadge")}
                     </span>
                   </div>
-                  <h2 className="text-base md:text-lg font-serif font-bold text-muk mt-2">
+                  <h2 className="text-xl md:text-2xl font-serif font-bold text-muk tracking-tight mt-2.5 leading-snug">
                     {t("recommend.congestedPrefix")}
                     <span className={crowded ? "text-terracotta" : "text-jade"}>{originalFacility.name}</span>
                     {crowded ? t("recommend.congestedSuffix") : t("recommend.calmSuffix")}
                   </h2>
-                  <p className="text-xs text-muk-soft mt-1 leading-relaxed">
+                  <p className="text-xs text-muk-soft mt-1.5 leading-relaxed">
                     {t("recommend.waitUnavailable")}
                   </p>
                   {!crowded && (
@@ -1302,7 +1304,7 @@ function RecommendContent() {
               );
             })()
           ) : (
-            <div className="bg-white p-5 rounded-2xl border border-line shadow-[0_2px_14px_rgba(43,35,32,0.06)] text-center text-xs text-muk-soft">
+            <div className="bg-white p-5 rounded-2xl border border-line toss-surface text-center text-xs text-muk-soft">
               {t("recommend.facilityLoadError")}
             </div>
           )}
@@ -1315,7 +1317,7 @@ function RecommendContent() {
           {loadingRecommendations ? (
             // Skeleton Loader
             [1, 2, 3].map((idx) => (
-              <div key={idx} className="bg-white p-5 rounded-2xl border border-line shadow-[0_2px_14px_rgba(43,35,32,0.06)] animate-pulse flex flex-col gap-3">
+              <div key={idx} className="bg-white p-5 rounded-2xl border border-line toss-surface animate-pulse flex flex-col gap-3">
                 <div className="flex justify-between items-center">
                   <div className="h-4 bg-hanji-deep w-1/3 rounded-md" />
                   <div className="h-4 bg-hanji-deep w-16 rounded-full" />
@@ -1381,44 +1383,58 @@ function RecommendContent() {
               return (
                 <div
                   key={rec.recommendationId}
-                  className={`bg-white p-5 rounded-2xl border transition-all duration-300 shadow-[0_2px_14px_rgba(43,35,32,0.06)] ${
+                  className={`bg-white p-5 rounded-2xl border transition-all duration-300 toss-surface ${
                     isVoiceActive
                       ? "border-gold ring-2 ring-gold/40 scale-[1.02]"
                       : "border-line hover:border-gold/40 hover:scale-[1.01]"
                   }`}
                 >
+                  {/* 시설 사진 — TourAPI firstimage(이미 응답에 실려 옴). 정적 export 라 raw img 사용
+                      (대기 보드 WaitingCardImage 와 동일 관례). 로드 실패 시 상태 없이 요소만 숨겨
+                      레이아웃이 깨지지 않는다. */}
+                  {rec.facility.imageUrl && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={rec.facility.imageUrl}
+                      alt={rec.facility.name}
+                      loading="lazy"
+                      onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                      className="w-full h-36 object-cover rounded-xl border border-line mb-4"
+                    />
+                  )}
                   {/* Top info row */}
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <span className="text-[10px] font-bold text-jade bg-jade/10 px-2 py-0.5 rounded-md">
+                  <div className="flex justify-between items-start gap-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="text-[10px] font-bold text-jade bg-jade/10 border border-jade/30 px-2 py-0.5 rounded-md">
                         {getTypeName(rec.facility.type)}
                       </span>
                       {/* 오늘 휴무 배지 — RecommendationCard(/main)와 동일 톤(terracotta), 확정 시에만. */}
                       {closedToday && (
-                        <span className="text-[10px] font-bold text-terracotta bg-terracotta/10 px-2 py-0.5 rounded-md ml-2">
+                        <span className="text-[10px] font-bold text-terracotta bg-terracotta/10 border border-terracotta/30 px-2 py-0.5 rounded-md">
                           {t("card.closedToday")}
                         </span>
                       )}
                       {arrivalDisplayStatus && (
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ml-2 ${
+                        <span className={`text-[10px] font-bold border px-2 py-0.5 rounded-md ${
                           arrivalDisplayStatus === "open_expected"
-                            ? "text-jade bg-jade/10"
+                            ? "text-jade bg-jade/10 border-jade/30"
                             : arrivalDisplayStatus === "closing_soon" || arrivalDisplayStatus === "likely_closed_unknown"
-                              ? "text-terracotta bg-terracotta/10"
-                              : "text-muk-soft bg-hanji-deep"
+                              ? "text-terracotta bg-terracotta/10 border-terracotta/30"
+                              : "text-muk-soft bg-hanji-deep border-line"
                         }`}>
                           {t(`card.arrivalStatus.${arrivalDisplayStatus}`)}
                         </span>
                       )}
                       {rec.rank && rec.totalCandidates && (
-                        <span className="text-[10px] font-bold text-gold-deep bg-gold/10 px-2 py-0.5 rounded-md ml-2">
+                        <span className="text-[10px] font-bold text-gold-deep bg-gold/10 border border-gold/30 px-2 py-0.5 rounded-md">
                           {t("recommend.rankOfTotal", { total: rec.totalCandidates, rank: rec.rank })}
                         </span>
                       )}
                       {/* 혼잡 3단계 근거 배지(CONGESTION_TRUST_SPEC): 실측 4단계 pill / AI 예측 / 준비 중.
                           색·임계는 RecommendationCard 혼잡 pill 과 동일 규약(0.75/0.5/0.25). */}
                       {display.mode === "measured" && shownLevel !== null && (
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ml-2 border ${
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${
                           shownLevel >= 0.75
                             ? "bg-terracotta/10 border-terracotta/30 text-terracotta"
                             : shownLevel >= 0.5
@@ -1433,14 +1449,14 @@ function RecommendContent() {
                         </span>
                       )}
                       {display.mode === "predicted" && shownLevel !== null && (
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-md ml-2 border bg-sky-500/10 border-sky-500/30 text-sky-700">
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-md border bg-sky-500/10 border-sky-500/30 text-sky-700">
                           {t("map.forecast")} · {Math.round(shownLevel * 100)}%
                         </span>
                       )}
                       {estimate && estimateKey ? (
                         <>
                           {/* 점선·옅은 바탕 — 위 실측 pill 의 꽉 찬 등급색과 한눈에 달라야 한다. */}
-                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ml-2 border border-dashed bg-white/70 ${
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md border border-dashed bg-white/70 ${
                             estimateKey === "busy"
                               ? "border-terracotta/60 text-terracotta"
                               : estimateKey === "moderate"
@@ -1451,7 +1467,7 @@ function RecommendContent() {
                           }`}>
                             {t("card.estimateLevel", { label: t(`congestion.${estimateKey}`) })}
                           </span>
-                          <span className="text-[10px] font-medium px-2 py-0.5 rounded-md ml-2 border border-dashed border-line text-muk-soft">
+                          <span className="text-[10px] font-medium px-2 py-0.5 rounded-md border border-dashed border-line text-muk-soft">
                             {/* 보정이 실제로 적용된 값이면 같은 칩 안에서 한 마디만 더 — 새 배지는 만들지 않는다. */}
                             {t(estimate.calibrated ? "card.evidenceEstimatedCalibrated" : "card.evidenceEstimated", {
                               time: formatEstimateTime(estimate.observedAt) ?? "—",
@@ -1460,14 +1476,14 @@ function RecommendContent() {
                           </span>
                         </>
                       ) : display.mode === "none" && (
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-md ml-2 border bg-muk/5 border-line text-muk-soft">
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-md border bg-muk/5 border-line text-muk-soft">
                           {t("card.congestionPreparing")}
                         </span>
                       )}
                       {/* '지금' 자격을 잃은 관측은 지우지 않고 맥락으로 남긴다(마지막 관측 시각).
                           등급색을 쓰지 않는 이유: 이 칩은 '지금' 을 주장하지 않는다. */}
                       {lastObserved && (
-                        <span className="text-[10px] font-medium px-2 py-0.5 rounded-md ml-2 border border-dashed border-line text-muk-soft">
+                        <span className="text-[10px] font-medium px-2 py-0.5 rounded-md border border-dashed border-line text-muk-soft">
                           {typeof lastObserved.level === "number"
                             ? t("card.lastObservedLevel", {
                                 time: formatLastObserved(lastObserved.observedAt) ?? "—",
@@ -1481,36 +1497,37 @@ function RecommendContent() {
                       {/* D-3: 합성(seed)/시뮬(simulated) 로그는 데모 데이터임을 UI 라벨로 구분(가드레일). */}
                       {rec.congestionSource === "measured" &&
                         (rec.congestionLogSource === "seed" || rec.congestionLogSource === "simulated") && (
-                        <span className="text-[10px] font-medium px-2 py-0.5 rounded-md ml-2 border bg-hanji-deep border-line text-muk-soft">
+                        <span className="text-[10px] font-medium px-2 py-0.5 rounded-md border bg-hanji-deep border-line text-muk-soft">
                           {t("card.demoData")}
                         </span>
                       )}
                       {/* 24시간 배지는 '마지막 관측' 칩이 없을 때만 — 같은 말을 두 번 하지 않는다
                           (구 서버 응답처럼 '지금' 판정이 없을 때 남는 경로다). */}
                       {rec.congestionSource === "measured" && rec.congestionIsStale && !lastObserved && (
-                        <span className="text-[10px] font-medium px-2 py-0.5 rounded-md ml-2 border bg-hanji-deep border-line text-muk-soft/70">
+                        <span className="text-[10px] font-medium px-2 py-0.5 rounded-md border bg-hanji-deep border-line text-muk-soft/70">
                           {t("card.freshStale")}
                         </span>
                       )}
                       {isVoiceActive && voiceState !== "idle" && (
-                        <span className="text-[10px] font-bold text-jade bg-jade/10 px-2 py-0.5 rounded-md ml-2 inline-flex items-center gap-1 align-middle">
+                        <span className="text-[10px] font-bold text-jade bg-jade/10 border border-jade/30 px-2 py-0.5 rounded-md inline-flex items-center gap-1 align-middle">
                           {voiceState === "speaking" ? t("recommend.stateSpeaking") : voiceState === "listening" ? t("recommend.stateListening") : t("recommend.stateThinking")}
                         </span>
                       )}
-                      <h4 className="text-base font-extrabold text-muk mt-1.5">
+                      </div>
+                      <h4 className="text-lg md:text-xl font-extrabold text-muk tracking-tight mt-2 leading-snug break-words">
                         {rec.facility.name}
                       </h4>
                       {/* lastObserved 가 있으면 위 칩이 이미 '언제' 를 말했다 — 'n일 전 기준' 을 또 쓰면
                           지금 칠해진 값(추정)이 n일 전 값으로 읽힌다. */}
                       {rec.congestionSource !== 'none' && freshnessText && !lastObserved && (
-                        <p className="mt-0.5 text-[10px] text-muk-soft">
+                        <p className="mt-1 text-[10px] text-muk-soft">
                           {rec.congestionLogSource === 'user_report'
                             ? t('card.freshReport', { rel: freshnessText })
                             : t('card.freshLive', { rel: freshnessText })}
                         </p>
                       )}
                       {rec.placeDataSource === 'localdata' && (
-                        <p className="mt-0.5 text-[10px] text-muk-soft">
+                        <p className="mt-1 text-[10px] text-muk-soft">
                           {t('card.publicLicenseSource', {
                             date: rec.dataUpdatedAt
                               ? new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(new Date(rec.dataUpdatedAt))
@@ -1520,23 +1537,25 @@ function RecommendContent() {
                       )}
                       {/* 공식 대표 메뉴(TourAPI first_menu) — 있을 때만, 앞 2개('지어내지 않기'). */}
                       {firstMenuTokens.length > 0 && (
-                        <p className="mt-0.5 text-[11px] text-muk-soft">
+                        <p className="mt-1 text-[11px] text-muk-soft">
                           <span className="font-bold text-gold-deep">{t("card.signatureMenu")}</span>
                           {" · "}
                           {firstMenuTokens.join(" · ")}
                         </p>
                       )}
                     </div>
-                    <div className="text-right">
-                      <span className="text-[10px] text-muk-soft block">{t("recommend.spotIndex")}</span>
-                      <span className="text-sm font-extrabold text-gold-deep">
+                    <div className="flex shrink-0 flex-col items-center justify-center rounded-xl border border-gold/25 bg-gold/5 px-3 py-2 text-center">
+                      <span className="text-[9px] font-bold uppercase tracking-wide text-muk-soft whitespace-nowrap">{t("recommend.spotIndex")}</span>
+                      <span className="text-base font-extrabold text-gold-deep leading-none mt-1">
                         {Math.round(rec.spotScore <= 1.0 ? rec.spotScore * 100 : rec.spotScore)}{t("card.pointSuffix")}
                       </span>
                     </div>
                   </div>
 
+                  <div className="mt-4 flex flex-col gap-3">
+
                   {spotComparison && (
-                    <div className="mt-3 rounded-xl border border-jade/20 bg-jade/5 px-3 py-2.5">
+                    <div className="rounded-xl border border-jade/20 bg-jade/5 px-3 py-2.5">
                       <p className="text-[9px] font-extrabold uppercase tracking-wide text-jade">
                         {t('recommend.spotComparison.current')}
                       </p>
@@ -1548,14 +1567,14 @@ function RecommendContent() {
 
                   {/* 백엔드 템플릿 추천 사유 (있을 때만 노출) */}
                   {displayReason && (
-                    <p className="mt-2 text-[11px] leading-snug text-muk bg-gold/10 border border-gold/20 rounded-xl px-3 py-2">
+                    <p className="text-[11px] leading-snug text-muk bg-gold/10 border border-gold/20 rounded-xl px-3 py-2">
                       💡 {displayReason}
                     </p>
                   )}
 
                   {/* A4: 행사 혼잡 보정 배지 — 도착시점 인근 진행 중 축제로 예측이 가중됐을 때만 노출(투명성) */}
                   {(rec.breakdown?.eventBoost ?? 0) > 0 && (
-                    <p className="mt-2 text-[11px] leading-snug text-terracotta bg-terracotta/10 border border-terracotta/20 rounded-xl px-3 py-2">
+                    <p className="text-[11px] leading-snug text-terracotta bg-terracotta/10 border border-terracotta/20 rounded-xl px-3 py-2">
                       🎪 {t("recommend.festivalAdjusted", {
                         title: rec.breakdown?.eventTitle ?? "",
                         pct: Math.round((rec.breakdown?.eventBoost ?? 0) * 100),
@@ -1564,7 +1583,7 @@ function RecommendContent() {
                   )}
 
                   {typeof rec.breakdown?.areaDemandLevel === "number" && (
-                    <div className="mt-2 text-[11px] leading-snug text-sky-800 bg-sky-500/10 border border-sky-500/20 rounded-xl px-3 py-2">
+                    <div className="text-[11px] leading-snug text-sky-800 bg-sky-500/10 border border-sky-500/20 rounded-xl px-3 py-2">
                       <div className="flex items-center justify-between gap-2">
                         <span className="font-bold">
                           {rec.breakdown.areaDemandTourismEvidence
@@ -1636,7 +1655,7 @@ function RecommendContent() {
                   )}
 
                   {/* Minimap container */}
-                  <div className="my-3">
+                  <div>
                     <MiniMap
                       latitude={rec.facility.latitude}
                       longitude={rec.facility.longitude}
@@ -1645,7 +1664,7 @@ function RecommendContent() {
                   </div>
 
                   {/* SPOT Breakdown Indicators */}
-                  <div className={`grid ${display.mode === 'none' && !estimate ? 'grid-cols-2' : 'grid-cols-3'} gap-2 py-2 border-t border-b border-line my-3 text-[11px] text-muk-soft`}>
+                  <div className={`grid ${display.mode === 'none' && !estimate ? 'grid-cols-2' : 'grid-cols-3'} gap-2 py-2 border-t border-b border-line text-[11px] text-muk-soft`}>
                     <div className="text-center">
                       <span className="text-muk-soft block text-[10px]">{t("recommend.prefMatch")}</span>
                       <span className="font-bold text-jade">{preferencePct}%</span>
@@ -1669,7 +1688,7 @@ function RecommendContent() {
                   </div>
 
                   {/* 만족도 피드백 (👍/👎) — 선호 벡터를 보정해 다음 추천에 반영 */}
-                  <div className="flex items-center justify-between gap-2 mb-2.5">
+                  <div className="flex items-center justify-between gap-2">
                     <span className="text-[10px] text-muk-soft">{t("recommend.feedbackQuestion")}</span>
                     {feedbackVotes[rec.recommendationId] ? (
                       <span className="text-[10px] font-semibold text-jade">
@@ -1678,16 +1697,18 @@ function RecommendContent() {
                     ) : (
                       <div className="flex items-center gap-1.5">
                         <button
+                          type="button"
                           onClick={() => handleSatisfactionFeedback(rec, "up")}
                           aria-label={t("recommend.feedbackUpAria")}
-                          className="px-2.5 py-1 rounded-lg text-[11px] font-semibold border bg-hanji-deep border-line text-muk-soft hover:border-jade/50 hover:text-jade transition-all active:scale-95"
+                          className="toss-pressable min-h-11 px-2.5 rounded-lg text-[11px] font-semibold border bg-hanji-deep border-line text-muk-soft hover:border-jade/50 hover:text-jade focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
                         >
                           👍 {t("recommend.like")}
                         </button>
                         <button
+                          type="button"
                           onClick={() => handleSatisfactionFeedback(rec, "down")}
                           aria-label={t("recommend.feedbackDownAria")}
-                          className="px-2.5 py-1 rounded-lg text-[11px] font-semibold border bg-hanji-deep border-line text-muk-soft hover:border-terracotta/50 hover:text-terracotta transition-all active:scale-95"
+                          className="toss-pressable min-h-11 px-2.5 rounded-lg text-[11px] font-semibold border bg-hanji-deep border-line text-muk-soft hover:border-terracotta/50 hover:text-terracotta focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
                         >
                           👎 {t("recommend.dislike")}
                         </button>
@@ -1697,81 +1718,89 @@ function RecommendContent() {
 
                   {/* CTA button */}
                   {hoursPrompt?.recommendationId === rec.recommendationId && (
-                    <div className="mb-2 rounded-2xl border border-gold/30 bg-gold/10 p-3" role="group" aria-label={t('card.hoursCheckQuestion')}>
+                    <div className="rounded-2xl border border-gold/30 bg-gold/10 p-3" role="group" aria-label={t('card.hoursCheckQuestion')}>
                       <p className="text-xs font-extrabold text-muk">{t('card.hoursCheckQuestion')}</p>
                       <p className="mt-1 text-[11px] leading-relaxed text-muk-soft">{t('card.hoursCheckPrivacy')}</p>
                       <div className="mt-3 grid grid-cols-3 gap-2">
-                        <button type="button" disabled={hoursSubmitting} onClick={() => void submitHoursStatus(rec, 'open')} className="rounded-xl bg-jade px-2 py-2 text-[11px] font-bold text-white disabled:opacity-50">
+                        <button type="button" disabled={hoursSubmitting} onClick={() => void submitHoursStatus(rec, 'open')} className="toss-pressable min-h-11 rounded-xl bg-jade px-2 py-2 text-[11px] font-bold text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 disabled:opacity-50">
                           {t('card.hoursOpen')}
                         </button>
-                        <button type="button" disabled={hoursSubmitting} onClick={() => void submitHoursStatus(rec, 'closed')} className="rounded-xl bg-terracotta px-2 py-2 text-[11px] font-bold text-white disabled:opacity-50">
+                        <button type="button" disabled={hoursSubmitting} onClick={() => void submitHoursStatus(rec, 'closed')} className="toss-pressable min-h-11 rounded-xl bg-terracotta px-2 py-2 text-[11px] font-bold text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 disabled:opacity-50">
                           {t('card.hoursClosed')}
                         </button>
-                        <button type="button" disabled={hoursSubmitting} onClick={() => { setHoursPrompt(null); setHoursSubmitError(false); }} className="rounded-xl border border-line bg-white px-2 py-2 text-[11px] font-bold text-muk-soft disabled:opacity-50">
+                        <button type="button" disabled={hoursSubmitting} onClick={() => { setHoursPrompt(null); setHoursSubmitError(false); }} className="toss-pressable min-h-11 rounded-xl border border-line bg-white px-2 py-2 text-[11px] font-bold text-muk-soft focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 disabled:opacity-50">
                           {t('card.hoursUnsure')}
                         </button>
                       </div>
                       {hoursSubmitError && <p className="mt-2 text-[10px] font-semibold text-terracotta">{t('card.hoursReportFailed')}</p>}
                     </div>
                   )}
-                  <button
-                    onClick={() => requestAccept(rec)}
-                    className="w-full py-2.5 bg-gradient-to-r from-gold to-terracotta text-white rounded-xl font-bold text-xs transition-all duration-300 hover:opacity-90 active:scale-[0.98] shadow-sm"
-                  >
-                    {t("card.accept")}
-                  </button>
-                  <button
-                    onClick={() => requestAccept(rec, 'car')}
-                    className="mt-2 w-full rounded-xl border border-line bg-white py-2 text-[11px] font-bold text-muk-soft hover:border-gold/40 hover:text-gold-deep"
-                  >
-                    {t('card.drive')} · <span className="font-medium">{t('card.driveBasisHint')}</span>
-                  </button>
 
-                  {/* 현장 혼잡 수집 — 정보가 없는 장소일수록 CTA를 강조한다. 제보 직후에는
-                      서버 재조회 없이 이 카드만 실측 상태로 갱신해 사용자의 행동 결과를 보여준다. */}
-                  <div className="mt-2 flex justify-center">
-                    <CongestionReportButton
-                      facility={{ id: rec.facility.id, name: rec.facility.name }}
-                      isFirst={rec.congestionSource === 'none'}
-                      className="w-full justify-center"
-                      onReported={(level) => {
-                        const congestionLevel = level === '한산' ? 0.2 : level === '보통' ? 0.5 : 0.8;
-                        const congestionTimestamp = new Date().toISOString();
-                        setRecommendations((current) => current.map((item) => (
-                          item.recommendationId === rec.recommendationId
-                            ? {
-                                ...item,
-                                congestionLevel,
-                                congestionSource: 'measured',
-                                congestionTimestamp,
-                                congestionLogSource: 'user_report',
-                                congestionIsStale: false,
-                                // **반드시 함께 덮어써야 한다.** 서버가 내려준 congestionIsCurrent 가
-                                // false(낡은 관측)인 채로 남으면, 방금 사용자가 눈으로 보고 남긴 제보가
-                                // '마지막 관측 14:37' 로 밀려나고 추정이 '지금' 자리를 차지한다.
-                                // 사용자가 지금 본 것보다 새로운 근거는 없다.
-                                congestionIsCurrent: true,
-                              }
-                            : item
-                        )));
-                      }}
-                    />
+                  <div className="flex flex-col gap-2">
+                    <button
+                      type="button"
+                      onClick={() => requestAccept(rec)}
+                      className="toss-pressable min-h-11 w-full flex items-center justify-center py-2.5 bg-gradient-to-r from-gold to-terracotta text-white rounded-xl font-bold text-xs transition-opacity duration-300 hover:opacity-90 shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+                    >
+                      {t("card.accept")}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => requestAccept(rec, 'car')}
+                      className="toss-pressable min-h-11 w-full flex items-center justify-center rounded-xl border border-line bg-white py-2 text-[11px] font-bold text-muk-soft hover:border-gold/40 hover:text-gold-deep focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+                    >
+                      {t('card.drive')} · <span className="font-medium">{t('card.driveBasisHint')}</span>
+                    </button>
                   </div>
 
-                  {/* 공유 — 지금 한산한 이 장소를 퍼뜨려 자연 유입을 만든다. 링크는 같은 페이지(원 시설/좌표)로
-                      돌아오되 ref=share 를 붙여 위 계측 useEffect 가 방문을 집계한다. */}
-                  <div className="mt-2 flex justify-center">
-                    <ShareButton
-                      title={t("common.appName")}
-                      text={rec.facility.name}
-                      shareText={t("recommend.shareText", { name: rec.facility.name })}
-                      url={
-                        typeof window !== "undefined"
-                          ? `${window.location.origin}/explore/recommend?facilityId=${encodeURIComponent(facilityId)}&lat=${lat}&lng=${lng}&ref=share`
-                          : undefined
-                      }
-                      className="w-full justify-center"
-                    />
+                  <div className="flex flex-col gap-2">
+                    {/* 현장 혼잡 수집 — 정보가 없는 장소일수록 CTA를 강조한다. 제보 직후에는
+                        서버 재조회 없이 이 카드만 실측 상태로 갱신해 사용자의 행동 결과를 보여준다. */}
+                    <div className="flex justify-center">
+                      <CongestionReportButton
+                        facility={{ id: rec.facility.id, name: rec.facility.name }}
+                        isFirst={rec.congestionSource === 'none'}
+                        className="w-full justify-center"
+                        onReported={(level) => {
+                          const congestionLevel = level === '한산' ? 0.2 : level === '보통' ? 0.5 : 0.8;
+                          const congestionTimestamp = new Date().toISOString();
+                          setRecommendations((current) => current.map((item) => (
+                            item.recommendationId === rec.recommendationId
+                              ? {
+                                  ...item,
+                                  congestionLevel,
+                                  congestionSource: 'measured',
+                                  congestionTimestamp,
+                                  congestionLogSource: 'user_report',
+                                  congestionIsStale: false,
+                                  // **반드시 함께 덮어써야 한다.** 서버가 내려준 congestionIsCurrent 가
+                                  // false(낡은 관측)인 채로 남으면, 방금 사용자가 눈으로 보고 남긴 제보가
+                                  // '마지막 관측 14:37' 로 밀려나고 추정이 '지금' 자리를 차지한다.
+                                  // 사용자가 지금 본 것보다 새로운 근거는 없다.
+                                  congestionIsCurrent: true,
+                                }
+                              : item
+                          )));
+                        }}
+                      />
+                    </div>
+
+                    {/* 공유 — 지금 한산한 이 장소를 퍼뜨려 자연 유입을 만든다. 링크는 같은 페이지(원 시설/좌표)로
+                        돌아오되 ref=share 를 붙여 위 계측 useEffect 가 방문을 집계한다. */}
+                    <div className="flex justify-center">
+                      <ShareButton
+                        title={t("common.appName")}
+                        text={rec.facility.name}
+                        shareText={t("recommend.shareText", { name: rec.facility.name })}
+                        url={
+                          typeof window !== "undefined"
+                            ? `${window.location.origin}/explore/recommend?facilityId=${encodeURIComponent(facilityId)}&lat=${lat}&lng=${lng}&ref=share`
+                            : undefined
+                        }
+                        className="w-full justify-center"
+                      />
+                    </div>
+                  </div>
                   </div>
                 </div>
               );
@@ -1781,7 +1810,7 @@ function RecommendContent() {
             // 실패는 '없음' 이 아니다 — 다시 시도할 길을 준다.
             <ErrorState message={t("recommend.loadFailed")} onRetry={() => window.location.reload()} />
           ) : (
-            <div className="bg-white p-8 rounded-2xl border border-line shadow-[0_2px_14px_rgba(43,35,32,0.06)] text-center text-sm text-muk-soft">
+            <div className="bg-white p-8 rounded-2xl border border-line toss-surface text-center text-sm text-muk-soft">
               {t("recommend.noAlternatives", { km: MAX_RECO_DISTANCE_M / 1000 })}
             </div>
           )}
@@ -1791,9 +1820,10 @@ function RecommendContent() {
         {recommendations.length > 0 && (
           <div className="pt-2">
             <button
+              type="button"
               onClick={handleRejectAllAndRefresh}
               disabled={isRefreshing}
-              className="w-full py-3 bg-white hover:bg-hanji-deep border border-line rounded-xl text-muk-soft hover:text-muk font-semibold text-xs transition-all duration-300 flex items-center justify-center gap-2 disabled:opacity-50 shadow-[0_2px_14px_rgba(43,35,32,0.06)]"
+              className="toss-pressable min-h-11 w-full py-3 bg-white hover:bg-hanji-deep border border-line rounded-xl text-muk-soft hover:text-muk font-semibold text-xs transition-colors flex items-center justify-center gap-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 disabled:opacity-50 toss-surface"
             >
               {isRefreshing ? (
                 <>
@@ -1822,7 +1852,7 @@ function RecommendContent() {
               role="status"
               aria-live="polite"
               aria-atomic="true"
-              className="max-w-[15rem] md:max-w-[17rem] border border-line rounded-2xl px-3.5 py-2.5 shadow-[0_2px_14px_rgba(43,35,32,0.10)] bg-white/90 backdrop-blur"
+              className="max-w-[15rem] md:max-w-[17rem] border border-line rounded-2xl px-3.5 py-2.5 toss-surface bg-white/90 backdrop-blur"
             >
               <div className="flex items-center gap-1.5 mb-1">
                 {/* 단청 오방색 점 */}
@@ -1855,17 +1885,19 @@ function RecommendContent() {
           <div className="flex items-center gap-2">
             {assistantActive && (
               <button
+                type="button"
                 onClick={toggleAssistantMute}
                 aria-label={assistantMuted ? t("recommend.unmuteAria") : t("recommend.muteAria")}
-                className="w-9 h-9 rounded-full flex items-center justify-center border border-line bg-white text-muk-soft hover:text-muk text-sm transition-all shadow-sm"
+                className="toss-pressable w-11 h-11 rounded-full flex items-center justify-center border border-line bg-white text-muk-soft hover:text-muk text-sm shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
               >
                 {assistantMuted ? "🔇" : "🔈"}
               </button>
             )}
             <button
+              type="button"
               onClick={onOrbClick}
               aria-label={assistantActive ? t("recommend.stopAria") : t("recommend.listenCta")}
-              className={`relative w-14 h-14 overflow-hidden rounded-full flex items-center justify-center text-xl shadow-sm transition-all active:scale-95 border ${
+              className={`relative w-14 h-14 overflow-hidden rounded-full flex items-center justify-center text-xl shadow-sm transition-all active:scale-95 border focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 ${
                 voiceState === "listening"
                   ? "bg-jade/15 border-jade/60"
                   : voiceState === "speaking"
@@ -1943,13 +1975,13 @@ function RecommendContent() {
                   onChange={(e) => setNlText(e.target.value)}
                   rows={2}
                   placeholder={t("recommend.nlPlaceholder")}
-                  className="w-full bg-hanji-deep border border-line rounded-2xl p-3 pr-11 text-xs text-muk placeholder:text-muk-soft outline-none focus:border-gold/60 resize-none"
+                  className="w-full bg-hanji-deep border border-line rounded-2xl p-3 pr-14 text-xs text-muk placeholder:text-muk-soft outline-none focus:border-gold/60 resize-none"
                 />
                 <button
                   type="button"
                   onClick={isListening ? stopVoice : startVoice}
                   title={t("recommend.speakByVoice")}
-                  className={`absolute right-2 top-2 w-8 h-8 rounded-full flex items-center justify-center border transition-all ${
+                  className={`toss-pressable absolute right-2 top-2 w-10 h-10 rounded-full flex items-center justify-center border focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 ${
                     isListening
                       ? "bg-terracotta/20 border-terracotta text-terracotta animate-pulse"
                       : "bg-white border-line text-muk-soft hover:text-muk hover:border-gold/40"
@@ -1962,7 +1994,7 @@ function RecommendContent() {
                 type="button"
                 onClick={handleNlAnalyze}
                 disabled={isParsingNl || !nlText.trim()}
-                className="w-full py-2.5 bg-gold/15 border border-gold/30 text-gold-deep rounded-xl font-bold text-xs transition-all hover:bg-gold/25 disabled:opacity-40"
+                className="toss-pressable min-h-11 w-full flex items-center justify-center py-2.5 bg-gold/15 border border-gold/30 text-gold-deep rounded-xl font-bold text-xs hover:bg-gold/25 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 disabled:opacity-40"
               >
                 {isParsingNl ? t("recommend.nlAnalyzing") : t("recommend.nlAnalyzeCta")}
               </button>
@@ -1975,7 +2007,7 @@ function RecommendContent() {
                 <button
                   type="button"
                   onClick={handleApplyNlAndFetch}
-                  className="w-full py-2.5 bg-gradient-to-r from-jade to-gold text-white rounded-xl font-bold text-xs transition-all hover:opacity-90 active:scale-[0.98] shadow-sm"
+                  className="toss-pressable min-h-11 w-full flex items-center justify-center py-2.5 bg-gradient-to-r from-jade to-gold text-white rounded-xl font-bold text-xs transition-opacity hover:opacity-90 shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
                 >
                   {t("recommend.nlGetRecs")} →
                 </button>
@@ -1996,6 +2028,8 @@ function RecommendContent() {
                 return (
                   <button
                     key={cat.id}
+                    type="button"
+                    aria-pressed={isSelected}
                     onClick={() => {
                       if (isSelected) {
                         setSelectedOnboardingCats(selectedOnboardingCats.filter((id) => id !== cat.id));
@@ -2003,7 +2037,7 @@ function RecommendContent() {
                         setSelectedOnboardingCats([...selectedOnboardingCats, cat.id]);
                       }
                     }}
-                    className={`p-3 rounded-2xl border text-xs font-semibold text-center transition-all duration-200 ${
+                    className={`toss-pressable min-h-11 p-3 rounded-2xl border text-xs font-semibold text-center focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 ${
                       isSelected
                         ? "bg-gold/15 border-gold text-muk shadow-sm"
                         : "bg-hanji-deep border-line text-muk-soft hover:border-gold/40 hover:text-muk"
@@ -2017,9 +2051,10 @@ function RecommendContent() {
 
             {/* Submit onboarding Button */}
             <button
+              type="button"
               onClick={handleOnboardingSubmit}
               disabled={selectedOnboardingCats.length < 3 || isOnboardingSubmitting}
-              className="w-full py-3 bg-gradient-to-r from-gold to-terracotta text-white rounded-xl font-bold text-xs transition-all duration-300 hover:opacity-90 active:scale-[0.98] shadow-sm disabled:opacity-50"
+              className="toss-pressable min-h-11 w-full flex items-center justify-center py-3 bg-gradient-to-r from-gold to-terracotta text-white rounded-xl font-bold text-xs transition-opacity duration-300 hover:opacity-90 shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 disabled:opacity-50"
             >
               {isOnboardingSubmitting ? t("recommend.savingSettings") : t("recommend.selectDone", { n: selectedOnboardingCats.length })}
             </button>
