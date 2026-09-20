@@ -44,6 +44,14 @@ def _is_stale_connection_error(exc: BaseException) -> bool:
         httpx.RemoteProtocolError,
         httpcore.RemoteProtocolError,
         httpcore.ConnectionNotAvailable,
+        # Broken pipe([Errno 32])도 같은 병이다 — upstream 이 먼저 닫은 풀 연결을 집어
+        # 읽기/쓰기 중 터지면 ReadError/WriteError 로 나타난다(2026-09-21 프로덕션 로그:
+        # httpcore.ReadError: [Errno 32] Broken pipe → recommend_by_type 503). 새 연결로
+        # 재시도하면 통과한다. 진짜 타임아웃(ReadTimeout 등)은 별도 타입이라 여기 안 걸린다.
+        httpx.ReadError,
+        httpcore.ReadError,
+        httpx.WriteError,
+        httpcore.WriteError,
     )
     while current is not None and id(current) not in seen:
         if isinstance(current, retryable_types):
