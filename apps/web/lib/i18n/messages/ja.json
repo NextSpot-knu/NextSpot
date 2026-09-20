@@ -1,4 +1,13 @@
 {
+  "timeSim": {
+    "label": "想定時間",
+    "now": "現在(リアルタイム)",
+    "weekdayNoon": "平日 12:00",
+    "friEve": "金 18:00",
+    "satAfternoon": "土 14:00",
+    "sunMorning": "日 11:00",
+    "badge": "想定: {label}"
+  },
   "guide": {
     "problem": "皇理団通りに集中する観光需要を、似た魅力を持つ周辺の路地へつなぎます。",
     "loopTitle": "おすすめを、実際の訪問へ。",
@@ -221,7 +230,7 @@
     "skip": "スキップ",
     "fieldBadge": "現地向け",
     "contextTitle": "今行ける場所を探しましょう",
-    "contextDesc": "条件は候補の絞り込みだけに使い、順番はSPOTが決めます。",
+    "contextDesc": "条件を教えていただければ、今開いていて空いている、行く価値のある場所をご案内します。",
     "categoriesTitle": "場所タイプ",
     "walkTitle": "歩ける時間",
     "availableTitle": "残りの旅行時間",

@@ -1,4 +1,13 @@
 {
+  "timeSim": {
+    "label": "가정 시간",
+    "now": "지금(실시간)",
+    "weekdayNoon": "평일 12:00",
+    "friEve": "금 18:00",
+    "satAfternoon": "토 14:00",
+    "sunMorning": "일 11:00",
+    "badge": "가정: {label}"
+  },
   "guide": {
     "problem": "황리단길에 몰리는 관광 수요를, 비슷한 매력의 주변 골목으로 연결합니다.",
     "loopTitle": "추천이 실제 방문으로 이어지도록.",
@@ -221,7 +230,7 @@
     "skip": "건너뛰기",
     "fieldBadge": "현장 맞춤",
     "contextTitle": "지금 갈 수 있는 곳을 맞춰볼게요",
-    "contextDesc": "선택한 조건은 후보를 고르는 데만 쓰고 SPOT 순서는 바꾸지 않아요.",
+    "contextDesc": "조건을 알려주시면, 지금 문 연 곳 중 덜 붐비는 좋은 곳부터 맞춰 보여드려요.",
     "categoriesTitle": "장소 유형",
     "walkTitle": "가능한 도보시간",
     "availableTitle": "남은 여행시간",

@@ -17,7 +17,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Crown } from "lucide-react";
-import { isServiceUnavailable, recommendByType } from "@/lib/api-client";
+import {
+  isServiceUnavailable,
+  recommendByType,
+  ASSUMED_TIME_PRESETS,
+  ASSUMED_TIME_EVENT,
+  assumedAtIsoForPreset,
+  getStoredAssumedPreset,
+  setStoredAssumedPreset,
+} from "@/lib/api-client";
 import { recToSpot } from "@/lib/recommender";
 import { congestionDisplay } from "@/lib/congestionEstimate";
 import { REGION } from "@/lib/region";
@@ -137,6 +145,20 @@ export default function WaitingBoardPage() {
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
 
+  // 데모 '가정 시각' 프리셋 — /main·/course 와 localStorage 한 키로 공유하고 이벤트로 동기화한다.
+  // 초기값은 'now'(SSR/정적 export 안전) → 마운트 후 저장값으로 맞춘다.
+  const [assumedPreset, setAssumedPreset] = useState<string>("now");
+  useEffect(() => {
+    setAssumedPreset(getStoredAssumedPreset());
+    const sync = () => setAssumedPreset(getStoredAssumedPreset());
+    window.addEventListener(ASSUMED_TIME_EVENT, sync);
+    window.addEventListener("storage", sync);
+    return () => {
+      window.removeEventListener(ASSUMED_TIME_EVENT, sync);
+      window.removeEventListener("storage", sync);
+    };
+  }, []);
+
   // fetchBoard 는 useCallback([]) 로 마운트 시 1회만 만들어져 locale 을 클로저로 캡처하면 언어 전환
   // 후 재조회(재시도 버튼 등)해도 옛 로케일로 요약을 구성하게 된다 — ref 로 항상 최신값을 읽는다.
   const localeRef = useRef(locale);
@@ -169,7 +191,7 @@ export default function WaitingBoardPage() {
     const results = await Promise.allSettled(
       // 마지막 인자(20s)는 이 호출 전용 타임아웃 — 프리티어 콜드스타트가 깨어날 여유를 준다.
       // 10s 전역 타임아웃이면 대기 보드가 빈 채로 실패 상태에 갇힌다.
-      BOARD_TYPES.map((type) => recommendByType(type, userLocation, [], PER_TYPE_LIMIT, undefined, undefined, undefined, 20000))
+      BOARD_TYPES.map((type) => recommendByType(type, userLocation, [], PER_TYPE_LIMIT, undefined, undefined, undefined, 20000, assumedAtIsoForPreset(assumedPreset)))
     );
 
     const nextSectors: Sector[] = [];
@@ -302,8 +324,9 @@ export default function WaitingBoardPage() {
 
     setSectors(nextSectors);
     setLoading(false);
+    // assumedPreset 이 바뀌면 새 가정 시각으로 다시 조회한다(나머지는 ref/마운트 1회 캡처).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [assumedPreset]);
 
   useEffect(() => {
     fetchBoard();
@@ -342,6 +365,29 @@ export default function WaitingBoardPage() {
         <p className="text-xs md:text-sm text-muk-soft leading-relaxed">
           {t("landing.value2")} · {t("recommend.areaDemandHint")}
         </p>
+
+        {/* 데모: 가정 시간 시뮬레이터 — 심야에도 낮 시각을 가정해 실제 결과를 보여준다(/main·/course 공유). */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <label className="inline-flex items-center gap-1.5 rounded-full border border-line bg-white/90 px-3 py-1.5 text-xs font-medium shadow-[0_2px_10px_rgba(43,35,32,0.06)]">
+            <span aria-hidden>🕒</span>
+            <span className="text-muk-soft">{t("timeSim.label")}</span>
+            <select
+              value={assumedPreset}
+              onChange={(e) => setStoredAssumedPreset(e.target.value)}
+              aria-label={t("timeSim.label")}
+              className="bg-transparent font-semibold text-muk focus:outline-none cursor-pointer"
+            >
+              {ASSUMED_TIME_PRESETS.map((p) => (
+                <option key={p.id} value={p.id}>{t(p.labelKey)}</option>
+              ))}
+            </select>
+          </label>
+          {assumedPreset !== "now" && (
+            <span className="inline-flex items-center rounded-full bg-gold/15 border border-gold/40 px-2.5 py-1 text-[11px] font-bold text-gold-deep">
+              {t("timeSim.badge", { label: t(ASSUMED_TIME_PRESETS.find((p) => p.id === assumedPreset)?.labelKey ?? "timeSim.now") })}
+            </span>
+          )}
+        </div>
 
         {/* 본문 */}
         {loading ? (

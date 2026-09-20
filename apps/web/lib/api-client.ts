@@ -240,6 +240,87 @@ export async function deleteMyAccount(): Promise<void> {
   await apiClient.delete("/api/v1/account/me");
 }
 
+// --- 가정 시각 시뮬레이터 (데모 전용, /main·/waiting·/course 공용) ---
+// 문제: 심야에 서비스를 열면 백엔드가 서버 현재 시각으로 '도착 시 영업여부'를 판정해
+// 모든 곳이 걸러진다("도착 시각에 문을 여는 곳이 없어요"·"표시할 장소가 없어요"·"추천할 코스를
+// 찾지 못했어요"). 심사위원이 밤에 봐도 실제 결과가 나오도록, 사용자가 요일+시각을 '가정'하면
+// 그 절대 시각(ISO 8601)을 recommend/course 로 실어 보내 그 시점 기준으로 계산하게 한다.
+// 기본값은 'now'(실시간) — 프리셋을 고르기 전에는 기존 동작과 **완전히 동일**하다.
+//
+// 상태는 세 화면이 localStorage 한 키(nextspot_assumed_at)로 공유하고, 변경 시 커스텀 이벤트로
+// 즉시 서로에게 알린다. 값은 절대 시각이 아니라 **프리셋 id** 를 저장한다 — 매 호출 때 '가장 가까운
+// 그 요일/시각'을 다시 계산하므로 세션이 길어져도 어제 날짜가 굳지 않는다.
+export const ASSUMED_TIME_STORAGE_KEY = "nextspot_assumed_at";
+export const ASSUMED_TIME_EVENT = "nextspot:assumed-time";
+
+export interface AssumedTimePreset {
+  id: string;
+  labelKey: string;        // i18n 키(timeSim.*)
+  dow: number | null;      // JS getUTCDay 규약(0=일 … 6=토). 'now' 는 null.
+  hour: number | null;     // KST 기준 시(0-23). 'now' 는 null.
+}
+
+// 프리셋: 지금(실시간) · 평일 12:00(수요일 고정) · 금 18:00 · 토 14:00 · 일 11:00.
+export const ASSUMED_TIME_PRESETS: AssumedTimePreset[] = [
+  { id: "now", labelKey: "timeSim.now", dow: null, hour: null },
+  { id: "weekday_noon", labelKey: "timeSim.weekdayNoon", dow: 3, hour: 12 },
+  { id: "fri_evening", labelKey: "timeSim.friEve", dow: 5, hour: 18 },
+  { id: "sat_afternoon", labelKey: "timeSim.satAfternoon", dow: 6, hour: 14 },
+  { id: "sun_morning", labelKey: "timeSim.sunMorning", dow: 0, hour: 11 },
+];
+
+const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
+
+export function getStoredAssumedPreset(): string {
+  if (typeof window === "undefined") return "now";
+  try {
+    const v = window.localStorage.getItem(ASSUMED_TIME_STORAGE_KEY);
+    return v && ASSUMED_TIME_PRESETS.some((p) => p.id === v) ? v : "now";
+  } catch {
+    return "now"; // 저장소 차단 환경 — 기본(실시간)
+  }
+}
+
+export function setStoredAssumedPreset(id: string): void {
+  if (typeof window === "undefined") return;
+  const valid = ASSUMED_TIME_PRESETS.some((p) => p.id === id) ? id : "now";
+  try {
+    window.localStorage.setItem(ASSUMED_TIME_STORAGE_KEY, valid);
+  } catch { /* 저장소 차단 무시 */ }
+  try {
+    // 같은 탭의 다른 화면(마운트된 페이지)에 즉시 알린다. storage 이벤트는 '다른 탭' 에서만
+    // 발화하므로 같은 탭 동기화에는 커스텀 이벤트가 필요하다.
+    window.dispatchEvent(new CustomEvent(ASSUMED_TIME_EVENT, { detail: valid }));
+  } catch { /* CustomEvent 미지원 무시 */ }
+}
+
+/** 프리셋 id → 백엔드로 보낼 절대 시각(UTC ISO). 'now'·미상은 null(기존 동작 = 서버 현재 시각). */
+export function assumedAtIsoForPreset(id: string): string | null {
+  const preset = ASSUMED_TIME_PRESETS.find((p) => p.id === id);
+  if (!preset || preset.dow === null || preset.hour === null) return null;
+  // KST 벽시계로 환산: 지금(UTC)에 +9h 한 Date 의 UTC 게터가 곧 'KST 벽시계' 다.
+  const kstNow = new Date(Date.now() + KST_OFFSET_MS);
+  const deltaDays = (preset.dow - kstNow.getUTCDay() + 7) % 7;
+  // 목표 KST 벽시계(요일+시각, 0분)의 실제 UTC instant = Date.UTC(...) − 9h.
+  let utcMs =
+    Date.UTC(
+      kstNow.getUTCFullYear(),
+      kstNow.getUTCMonth(),
+      kstNow.getUTCDate() + deltaDays,
+      preset.hour,
+      0,
+      0,
+    ) - KST_OFFSET_MS;
+  // 오늘이 그 요일이지만 시각이 이미 지났으면 다음 주 같은 요일로 굴린다(과거 시각 회피).
+  if (utcMs <= Date.now()) utcMs += 7 * 24 * 60 * 60 * 1000;
+  return new Date(utcMs).toISOString();
+}
+
+/** 현재 저장된 프리셋 기준 절대 시각(UTC ISO). 'now' 면 null. */
+export function getAssumedAtIso(): string | null {
+  return assumedAtIsoForPreset(getStoredAssumedPreset());
+}
+
 // --- SPOT 추천 엔진 연동 API 함수 ---
 
 // 경주 **추정 모드**의 시설별 혼잡 추정(백엔드 congestion_estimator_service.estimate_evidence).
@@ -639,6 +720,9 @@ export async function recommendByType(
   // 콜드스타트로 깨어나는 백엔드가 실데이터를 돌려줄 때까지 이 호출에만 더 긴 대기를 허용한다.
   // 미지정이면 전역 기본(REQUEST_TIMEOUT_MS)을 그대로 쓴다 — 전역 기본은 건드리지 않는다.
   timeoutMs?: number,
+  // 데모 '가정 시각'(UTC ISO, assumedAtIsoForPreset 결과). null/미지정이면 서버 현재 시각을 쓴다
+  // (기본 동작 불변). 있으면 백엔드가 이 시각 기준으로 도착 영업여부·혼잡·채점을 계산한다.
+  assumedAt?: string | null,
 ): Promise<RecommendationResponse[]> {
   const session = await ensureAnonymousSession();
   const userId = session?.user?.id;
@@ -652,6 +736,7 @@ export async function recommendByType(
     limit,
     context,
     preferenceIntent,
+    assumedAt: assumedAt ?? null,
   }, { signal, timeoutMs });
   dispatchReasonSourceDebug(res);
   return res;

@@ -15,7 +15,17 @@ import { createPublicClient } from "@/lib/supabase";
 import { slotKeysStale } from "@/lib/courseSlotKeys";
 import { congestionKey, type CongestionKey } from "@/lib/congestionScale";
 import { useBusyThreshold } from "@/components/shell/PublicSettingsProvider";
-import { apiClient, isAuthError, httpStatus, type CongestionEstimate } from "@/lib/api-client";
+import {
+  apiClient,
+  isAuthError,
+  httpStatus,
+  type CongestionEstimate,
+  ASSUMED_TIME_PRESETS,
+  ASSUMED_TIME_EVENT,
+  assumedAtIsoForPreset,
+  getStoredAssumedPreset,
+  setStoredAssumedPreset,
+} from "@/lib/api-client";
 import { displayableEstimate, estimateRadiusKm, formatEstimateTime } from "@/lib/congestionEstimate";
 import { REGION, isWithinRegion } from "@/lib/region";
 import { toast } from "sonner";
@@ -213,6 +223,20 @@ function CourseContent() {
   // 언마운트되어 드래그가 끊기고(폼-리셋 감각), 지도도 매번 재초기화되어 깜빡인다.
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
 
+  // 데모 '가정 시각' 프리셋 — /main·/waiting 과 localStorage 한 키로 공유하고 이벤트로 동기화한다.
+  // 초기값은 'now'(SSR/정적 export 안전) → 마운트 후 저장값으로 맞춘다.
+  const [assumedPreset, setAssumedPreset] = useState<string>("now");
+  useEffect(() => {
+    setAssumedPreset(getStoredAssumedPreset());
+    const sync = () => setAssumedPreset(getStoredAssumedPreset());
+    window.addEventListener(ASSUMED_TIME_EVENT, sync);
+    window.addEventListener("storage", sync);
+    return () => {
+      window.removeEventListener(ASSUMED_TIME_EVENT, sync);
+      window.removeEventListener("storage", sync);
+    };
+  }, []);
+
   // 공유 모드 전용 상태 — facilities 조회로 복원한 정류지(이름/좌표는 조회 시점 최신, 오프셋/혼잡은
   // 공유 시점 스냅샷). sharedLoading 초기값은 공유 모드일 때만 true 로 시작해 첫 프레임 빈 상태 깜빡임을 막는다.
   const [sharedStops, setSharedStops] = useState<CourseStop[]>([]);
@@ -355,6 +379,10 @@ function CourseContent() {
         .map(([key, facilityId]) => ({ order: slotKeys.indexOf(key) + 1, facilityId }))
         .filter((p) => p.order > 0);
       if (pinList.length > 0) body.pins = pinList;
+      // 데모 '가정 시각' — 있으면 백엔드가 이 시각을 코스의 기준 '지금'으로 삼아 정류지별 도착
+      // 시각·도착시점 혼잡·영업여부를 계산한다. 'now'(null)면 보내지 않아 기존 동작 그대로다.
+      const assumedAt = assumedAtIsoForPreset(assumedPreset);
+      if (assumedAt) body.assumedAt = assumedAt;
       // 타임아웃을 명시한다(기본 10초 대신 20초). 코스 추천은 정류지마다 후보를 재평가하는
       // 멀티스톱 계산이라 단일 추천보다 본질적으로 무겁고, 백엔드 시설 캐시가 식은 첫 요청은
       // 여기에 더해 전체 시설을 다시 읽는다. 기본값 10초는 그 정상 범위와 너무 가까워,
@@ -398,7 +426,7 @@ function CourseContent() {
         setHasLoadedOnce(true);
       }
     }
-  }, [userId, coords.lat, coords.lng, selectedTypes, sequence, pins, slotKeys, isShareMode, announceReplan, t]);
+  }, [userId, coords.lat, coords.lng, selectedTypes, sequence, pins, slotKeys, isShareMode, announceReplan, t, assumedPreset]);
 
   // 재조회 디바운스 — framer-motion onReorder 는 '드래그 도중' 순서가 바뀔 때마다 연속 발화하고,
   // 종류 칩도 연타로 담는다. 변경마다 즉시 fetch 하면 그때마다 리렌더/로딩이 끼어들어 드래그가 끊기므로
@@ -688,6 +716,32 @@ function CourseContent() {
                   </>
                 )}
               </section>
+
+              {/* 데모: 가정 시간 시뮬레이터 — 심야에도 낮 시각을 가정해 실제 코스를 보여준다(/main·/waiting 공유).
+                  공유 모드는 읽기 전용이라 노출하지 않는다(재조회 없음). */}
+              {!isShareMode && (
+                <div className="flex items-center gap-2 flex-wrap">
+                  <label className="inline-flex items-center gap-1.5 rounded-full border border-line bg-white px-3 py-1.5 text-xs font-medium shadow-[0_2px_10px_rgba(43,35,32,0.06)]">
+                    <span aria-hidden>🕒</span>
+                    <span className="text-muk-soft">{t('timeSim.label')}</span>
+                    <select
+                      value={assumedPreset}
+                      onChange={(e) => setStoredAssumedPreset(e.target.value)}
+                      aria-label={t('timeSim.label')}
+                      className="bg-transparent font-semibold text-muk focus:outline-none cursor-pointer"
+                    >
+                      {ASSUMED_TIME_PRESETS.map((p) => (
+                        <option key={p.id} value={p.id}>{t(p.labelKey)}</option>
+                      ))}
+                    </select>
+                  </label>
+                  {assumedPreset !== "now" && (
+                    <span className="inline-flex items-center rounded-full bg-gold/15 border border-gold/40 px-2.5 py-1 text-[11px] font-bold text-gold-deep">
+                      {t('timeSim.badge', { label: t(ASSUMED_TIME_PRESETS.find((p) => p.id === assumedPreset)?.labelKey ?? 'timeSim.now') })}
+                    </span>
+                  )}
+                </div>
+              )}
 
               {/* 가로 스텝퍼 — 정류지가 있을 때만 */}
               {activeStops.length > 0 && <CourseStepper stops={activeStops} />}

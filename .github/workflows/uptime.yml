@@ -1,20 +1,15 @@
-# NextSpot API — 헬스체크 · 프리티어 콜드스타트 완화(keep-warm)
-# 두 가지 용도로 쓴다:
-#  1) 예약 keep-warm(10분마다): Render 프리티어 인스턴스가 무요청으로 잠드는 것을 막기 위해 /health 를
-#     주기적으로 깨운다. 심사 중 첫 요청이 콜드스타트(수십 초)에 걸려 화면이 degraded 폴백으로 떨어지는 것을 줄인다.
-#     ⚠️ GitHub cron 은 지연·건너뜀이 잦다(정시 보장 없음). 콜드스타트를 확실히 없애는 길은 Render 플랜을
-#        유료(always-on)로 올리는 것 — 사람/과금 작업이다(docs/HANDOVER.md "사람 작업 대기").
-#  2) 수동 헬스체크(Actions 탭에서 손으로): repository variable BACKEND_HEALTH_URL 로 임의 배포를 확인.
+# NextSpot API — 수동 헬스체크 / keep-warm 핑
+# Render 플랜을 유료(always-on)로 올렸으므로 인스턴스가 무요청으로 잠들지 않는다 →
+# 예약(schedule) keep-warm 은 더 이상 필요 없어 제거했다(불필요한 Actions 분 소모·정시 미보장 cron 회피).
+# 두 잡 모두 필요할 때 Actions 탭에서 수동(workflow_dispatch)으로 돌린다:
+#  1) keep-warm: /health 를 한 번 깨운다(배포 직후 워밍업 등).
+#  2) health-check: repository variable BACKEND_HEALTH_URL 로 임의 배포를 확인.
 #     미설정이면 스텝 skip(무해). 값 등록: Settings → Secrets and variables → Actions → Variables
 #     → BACKEND_HEALTH_URL = https://<render-서비스>.onrender.com/health (docs/DEPLOY_AND_ENV.md §4)
-# schedule 은 main 에서만 발화한다(다른 브랜치는 workflow_dispatch).
 name: Backend Uptime Check
 
 on:
   workflow_dispatch:
-  schedule:
-    # 10분마다 keep-warm 핑 — 프리티어 슬립다운(무요청 약 15분) 방지.
-    - cron: "*/10 * * * *"
 
 permissions:
   contents: read

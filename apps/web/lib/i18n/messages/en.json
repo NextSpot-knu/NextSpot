@@ -1,4 +1,13 @@
 {
+  "timeSim": {
+    "label": "Assumed time",
+    "now": "Now (live)",
+    "weekdayNoon": "Weekday 12:00",
+    "friEve": "Fri 18:00",
+    "satAfternoon": "Sat 14:00",
+    "sunMorning": "Sun 11:00",
+    "badge": "Assumed: {label}"
+  },
   "guide": {
     "problem": "Connect demand concentrated on Hwangnidan-gil with nearby streets offering similar experiences.",
     "loopTitle": "From recommendation to a visit.",
@@ -221,7 +230,7 @@
     "skip": "Skip",
     "fieldBadge": "For right now",
     "contextTitle": "Find somewhere you can visit now",
-    "contextDesc": "These conditions filter eligibility only; SPOT decides the order.",
+    "contextDesc": "Tell us your conditions — we'll match you to the open, less-crowded places worth going to right now.",
     "categoriesTitle": "Place types",
     "walkTitle": "Maximum walk",
     "availableTitle": "Time remaining",

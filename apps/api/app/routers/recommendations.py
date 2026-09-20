@@ -69,6 +69,27 @@ from app.services.spot.preference import CATEGORY_VECTORS, build_facility_prefer
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1", tags=["recommendations"])
 
+
+def parse_assumed_time(raw: str | None) -> datetime | None:
+    """데모용 '가정 출발 시각'(ISO 8601)을 UTC datetime 으로 파싱한다.
+
+    심야에 심사위원이 방문해도 실제 결과가 보이도록, 프런트가 사용자가 고른 요일+시각을
+    절대 시각(ISO 8601)으로 실어 보낸다. 이 값이 있으면 추천/코스의 도착 시각 영업여부·
+    도착시점 혼잡·SPOT 채점의 기준 시각이 된다. 없거나(빈 값) 형식이 틀리면 ``None`` 을
+    돌려주고, 호출부는 그대로 ``datetime.now(UTC)`` 로 동작한다 — **기본 동작을 절대 바꾸지 않고,
+    잘못된 입력에도 절대 죽지 않는다**(조용히 무시). 두 추천/코스 라우터가 이 단일 정의를 공유한다.
+    """
+    if not raw or not isinstance(raw, str):
+        return None
+    try:
+        dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except (ValueError, TypeError):
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
 # --- Request/Response Pydantic Models ---
 class RecommendRequest(BaseModel):
     user_id: str
@@ -797,6 +818,10 @@ class RecommendByTypeRequest(BaseModel):
     limit: int = Field(5, ge=1, le=20)  # 서버 상한: 후보 점수화(예측 + 사유 생성) 호출량 폭증 방지
     context: TravelContext | None = None
     preference_intent: str | None = Field(None, max_length=120)
+    # 데모용 '가정 시각'(ISO 8601, UTC). 있으면 도착 영업여부·도착시점 혼잡·SPOT 채점의 기준
+    # 시각이 이 값이 된다(parse_assumed_time). 없거나 형식 오류면 무시하고 서버 현재 시각을 쓴다
+    # — 기본 동작 불변, 잘못된 입력에도 500 없이 조용히 무시.
+    assumed_at: str | None = None
 
 
 @router.post("/recommendations/by-type", response_model=list[RecommendItem])
@@ -860,7 +885,12 @@ async def _recommend_by_type(req: "RecommendByTypeRequest") -> list:
         req.user_lat, req.user_lng,
         [(float(f["latitude"]), float(f["longitude"])) for f in candidates],
     )
-    now = datetime.now(timezone.utc)
+    # 데모 '가정 시각'이 있으면 그 시각을 기준으로 삼는다 — 도착 영업여부(eligibility tier·
+    # open_status_at_arrival)와 아래 SPOT 채점의 도착시점 혼잡이 모두 이 now 를 따라간다.
+    # 없으면(assumed_now=None) 종전과 완전히 동일하게 동작한다: now 는 서버 현재 시각이고,
+    # 아래 채점에는 depart_time 을 넘기지 않아(None) score 가 자기 datetime.now 를 쓴다.
+    assumed_now = parse_assumed_time(req.assumed_at)
+    now = assumed_now or datetime.now(timezone.utc)
     tiered_candidate_routes = []
     for facility, route in zip(candidates, routes):
         if route.duration_min > max_walk_minutes:
@@ -905,6 +935,10 @@ async def _recommend_by_type(req: "RecommendByTypeRequest") -> list:
             user_vector=user_vector,
             congestion_evidence=evidence,
             preference_intent=req.preference_intent,
+            # 가정 시각이 있으면 채점 기준 출발 시각으로도 넘긴다 → score 내부 도착예측 hour/dow 가
+            # 위 eligibility·open_status 판정과 같은 시각을 본다. 가정이 없으면 None 을 넘겨 score 가
+            # 종전처럼 자기 datetime.now 를 쓰게 둔다(기본 동작 완전 불변).
+            depart_time=assumed_now,
             travel_time_override=route.duration_min,
             travel_distance_override=route.distance_m,
             travel_source=route.source,

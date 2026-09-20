@@ -58,6 +58,7 @@ from app.routers.recommendations import (
     fetch_user,
     fetch_all_facilities,
     fetch_congestion_map,
+    parse_assumed_time,
     _MAX_RECO_DISTANCE_M,
 )
 
@@ -113,6 +114,10 @@ class CourseRequest(BaseModel):
     # 인증은 되므로 누구나 보낼 수 있는 요청이었다. 자리 수를 넘는 핀은 애초에 받지 않는다.
     pins: list["CoursePin"] | None = Field(default=None, max_length=MAX_STOPS)
     context: TravelContext | None = None
+    # 데모용 '가정 시각'(ISO 8601, UTC). 있으면 코스 각 정류지의 누적 도착 시각·도착시점 혼잡·
+    # 영업여부 판정의 기준 '지금'이 이 값이 된다(parse_assumed_time). 없거나 형식 오류면 무시하고
+    # 서버 현재 시각을 쓴다 — 기본 동작 불변, 잘못된 입력에도 500 없이 조용히 무시.
+    assumed_at: str | None = None
 
 
 # sequence 검증용 캐노니컬 시설 종류(DB CHECK 와 동일 집합).
@@ -646,7 +651,11 @@ async def _build_course(req: CourseRequest) -> CoursePlan:
     )
     pool = attach_availability_evidence(pool, availability_by_id)
     preferred_categories = user_info.get("preferred_categories", [])
-    now = datetime.now(timezone.utc)
+    # 데모 '가정 시각'이 있으면 그 시각이 코스의 기준 '지금'이 된다 — 정류지별 누적 도착 시각,
+    # 도착시점 예측 혼잡(_evaluate_candidate 의 predict + depart_time), 도착 영업여부
+    # (open_status_at_arrival·arrival_ineligibility_reason)가 모두 이 now 를 따라간다.
+    # 없거나 형식 오류면 종전과 동일하게 서버 현재 시각을 쓴다(기본 동작 불변).
+    now = parse_assumed_time(req.assumed_at) or datetime.now(timezone.utc)
 
     target_stops = len(seq) if seq else min(MAX_STOPS, len(pool))
 

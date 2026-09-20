@@ -1,4 +1,13 @@
 {
+  "timeSim": {
+    "label": "假定时间",
+    "now": "现在(实时)",
+    "weekdayNoon": "工作日 12:00",
+    "friEve": "周五 18:00",
+    "satAfternoon": "周六 14:00",
+    "sunMorning": "周日 11:00",
+    "badge": "假定: {label}"
+  },
   "guide": {
     "problem": "将集中在皇理团路的旅游需求，连接到拥有相似魅力的周边街巷。",
     "loopTitle": "让推荐衔接实际到访。",
@@ -221,7 +230,7 @@
     "skip": "跳过",
     "fieldBadge": "现场定制",
     "contextTitle": "寻找现在可以去的地方",
-    "contextDesc": "条件只用于筛选候选，顺序由SPOT决定。",
+    "contextDesc": "告诉我们你的条件，我们就为你匹配现在营业、人少又值得去的地方。",
     "categoriesTitle": "地点类型",
     "walkTitle": "可步行时间",
     "availableTitle": "剩余旅行时间",

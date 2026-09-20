@@ -573,6 +573,58 @@ def test_recommend_by_type_happy_path(auth_client):
     assert [item["rank"] for item in items] == [1, 2, 3, 4]
 
 
+def test_recommend_by_type_assumed_time_reopens_night_empty_state(auth_client):
+    """데모 '가정 시각' 시뮬레이터: 심야에도 낮 시각을 가정하면 빈 상태가 다시 채워진다.
+
+    심야(22:30 KST)엔 낮에만 영업하는 카페가 '도착 시 마감'으로 전부 걸러져 빈 목록이 된다.
+    assumed_at(가정 낮 시각)을 주면 그 시각 기준으로 영업여부를 판정해 다시 채워지고,
+    잘못된 값은 무시하고 종전과 동일하게(500 없이) 동작해야 한다.
+    """
+    day_only = {"open": "09:00~18:00"}  # 낮에만 영업 — 심야 도착이면 closed_confirmed
+    cafes = [
+        {**_facility("day-a", "cafe", 0.0004), "operating_hours": day_only},
+        {**_facility("day-b", "cafe", 0.0006), "operating_hours": day_only},
+    ]
+
+    class _Night(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            base = datetime(2026, 8, 27, 13, 30, tzinfo=timezone.utc)  # = 22:30 KST(심야)
+            return base.astimezone(tz) if tz else base.replace(tzinfo=None)
+
+    def _run(body_extra: dict):
+        with patch("app.routers.recommendations.datetime", _Night), \
+             patch("app.routers.recommendations.fetch_user", new=AsyncMock(return_value=USER_ROW)), \
+             patch("app.routers.recommendations.fetch_all_facilities", new=AsyncMock(return_value=cafes)), \
+             patch("app.routers.recommendations.fetch_congestion_map", new=AsyncMock(return_value={})), \
+             patch.object(preference_vector_service, "get_user_vector", new=AsyncMock(return_value=UNIT_VECTOR)), \
+             patch("app.routers.recommendations.generate_reason_with_source",
+                   new=AsyncMock(return_value=("사유", "template"))), \
+             patch("app.routers.recommendations.supabase_client",
+                   new=FakeSupabase({"recommendations": [{"id": "rec-1"}]})):
+            return auth_client.post("/api/v1/recommendations/by-type", json={
+                "user_id": AUTH_USER_ID, "facility_type": "cafe",
+                "user_lat": BASE_LAT, "user_lng": BASE_LNG, **body_extra,
+            })
+
+    # 1) 가정 시각 없음 → 심야라 낮 영업 카페가 전부 '도착 시 마감'으로 걸러져 빈 목록.
+    empty = _run({})
+    assert empty.status_code == 200
+    assert empty.json() == []
+
+    # 2) 잘못된 assumed_at → 무시하고 종전과 동일(여전히 빈 목록). 500/422 없이 200.
+    bad = _run({"assumed_at": "not-a-datetime"})
+    assert bad.status_code == 200
+    assert bad.json() == []
+
+    # 3) 가정 낮 시각(11:00 KST) → 그 시각 기준 영업여부로 다시 채워지고 도착 상태 open_expected.
+    filled = _run({"assumed_at": "2026-08-27T02:00:00+00:00"})
+    assert filled.status_code == 200
+    items = filled.json()
+    assert {it["facility"]["id"] for it in items} == {"day-a", "day-b"}
+    assert all(it["open_status_at_arrival"] == "open_expected" for it in items)
+
+
 def test_recommend_by_type_returns_persisted_uuid_not_synthetic_id(auth_client):
     # by-type 브라우즈는 노출을 recommendations 에 INSERT 하고 **실제 UUID** 를 돌려준다.
     # 이 계약이 무너져 다시 합성 id("bytype-…")를 돌려주면, 브라우즈 랭킹에서 수락한 추천이

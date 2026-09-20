@@ -9,7 +9,7 @@ import { createPublicClient } from '@/lib/supabase';
 import { getMarkerSvg } from '@/lib/map/markerSvg';
 import { scoreFacility, compareSpot, displayWalkingMinutes, rankFacilities, rankFacilitiesDegraded, recToSpot, haversineMeters, cuisineMatch, filterReachable, type Spot } from '@/lib/recommender';
 import { REGION, isWithinRegion } from '@/lib/region';
-import { getRecommendations, recommendByType, rejectRecommendation, voiceTurn, apiClient, getCongestionEstimates, type CongestionEstimate } from '@/lib/api-client';
+import { getRecommendations, recommendByType, rejectRecommendation, voiceTurn, apiClient, getCongestionEstimates, type CongestionEstimate, ASSUMED_TIME_PRESETS, ASSUMED_TIME_EVENT, assumedAtIsoForPreset, getStoredAssumedPreset, setStoredAssumedPreset } from '@/lib/api-client';
 import {
   displayableEstimate,
   estimatesFromFeed,
@@ -374,6 +374,20 @@ export default function MainPage() {
   const [isMockLocationMinimized, setIsMockLocationMinimized] = useState(true);
   const [isMockTimeMinimized, setIsMockTimeMinimized] = useState(true);
   const [mockHour, setMockHour] = useState<number | null>(null);
+  // 데모 '가정 시각' 프리셋 — /waiting·/course 와 localStorage 한 키로 공유하고 이벤트로 동기화한다.
+  // mockHour(클라 전용 합성 혼잡 시뮬)와 별개다: 이 값은 백엔드 recommend 로 실려 도착 영업여부·
+  // 도착시점 혼잡·채점을 그 시각 기준으로 계산하게 한다. 초기값 'now'(정적 export 안전).
+  const [assumedPreset, setAssumedPreset] = useState<string>("now");
+  useEffect(() => {
+    setAssumedPreset(getStoredAssumedPreset());
+    const sync = () => setAssumedPreset(getStoredAssumedPreset());
+    window.addEventListener(ASSUMED_TIME_EVENT, sync);
+    window.addEventListener("storage", sync);
+    return () => {
+      window.removeEventListener(ASSUMED_TIME_EVENT, sync);
+      window.removeEventListener("storage", sync);
+    };
+  }, []);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [travelContext, setTravelContext] = useState(loadTravelContext);
   const [showMobileTools, setShowMobileTools] = useState(false);
@@ -1513,6 +1527,8 @@ export default function MainPage() {
                 recommendationController.signal,
                 // 프리티어 콜드스타트가 깨어날 여유(20s) — 10s 전역 타임아웃이면 빈 degraded 미러로 떨어진다.
                 20000,
+                // 데모 '가정 시각'(있으면). null 이면 서버 현재 시각 = 기존 동작.
+                assumedAtIsoForPreset(assumedPreset),
               );
               const byId = new Map(realCands.map(f => [f.id, f]));
               realRanked = recs
@@ -1611,7 +1627,7 @@ export default function MainPage() {
     // voiceFilterIds 는 dep로 두지 않는다(필터 변경은 onFilter가 직접 처리; effect는 ref로 최신값 읽음 → 더블셋/경합 방지).
     // rejectedIds, savedIds 도 dep에서 제외하여 거절/저장 시 불필요한 백엔드 API 재호출(점수/순위 리셋 현상)을 방지.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [facilities, activeFilter, userLocation, preferredCategories, mockHour, travelContext, activeDiscovery]);
+  }, [facilities, activeFilter, userLocation, preferredCategories, mockHour, travelContext, activeDiscovery, assumedPreset]);
 
   // Action Button Handlers
   const handleAccept = (fac: Facility, navigationMode: 'walk' | 'car' = 'walk') => {
@@ -2295,26 +2311,21 @@ export default function MainPage() {
 
     if (!showHeatmap) return;
 
-    // 실측 혼잡(congestionLevel)이 있으면 그것으로, 없으면 추정 피드(congestionEstimate.level)로 칠한다.
-    // 추정도 없는 시설만 열지도에서 제외 — '데이터 없음'을 색으로 합성하지 않음(정직성). 추정은
-    // markerFacilities 가 이미 실어 온 라벨된 합성 '추정' 지표라, 별도 데이터 없이 그라데이션을 채운다.
+    // 혼잡 로그 없는 시설(congestionLevel === null)은 열지도에서 제외 — '데이터 없음'을 색으로 합성하지 않음(정직성).
+    // 밤처럼 실측이 비는 시각은 상단 🕒 '가정 시각'으로 낮을 골라 실측·예측을 보게 한다(히트맵은 실측 전용, 사용자 결정 2026-09-20).
     const displayFacilities = computeDisplayFacilities(markerFacilities)
       .flatMap((f) => (f.isGroup && Array.isArray(f.subFacilities)) ? f.subFacilities : [f])
       .filter(
-        (f) =>
-          (typeof f.congestionLevel === 'number' || typeof f.congestionEstimate?.level === 'number') &&
-          typeof f.latitude === 'number' && typeof f.longitude === 'number'
+        (f) => typeof f.congestionLevel === 'number' && typeof f.latitude === 'number' && typeof f.longitude === 'number'
       );
 
     const overlays = displayFacilities.map((f) => {
-      // 필터가 둘 중 하나는 number 임을 보장하므로 level 은 항상 number 다.
-      const level = typeof f.congestionLevel === 'number' ? f.congestionLevel : (f.congestionEstimate?.level ?? 0);
-      const size = getHeatRadius(level);
+      const size = getHeatRadius(f.congestionLevel);
       const blob = document.createElement('div');
       blob.style.width = `${size}px`;
       blob.style.height = `${size}px`;
       blob.style.borderRadius = '50%';
-      blob.style.background = getHeatGradient(level, busyAt);
+      blob.style.background = getHeatGradient(f.congestionLevel, busyAt);
       blob.style.mixBlendMode = 'screen'; // 겹칠수록 가산 합성되어 번지는 열지도 효과
       blob.style.pointerEvents = 'none';
 
@@ -3119,6 +3130,27 @@ export default function MainPage() {
               }
             }}
           />
+
+          {/* 데모: 가정 시간 시뮬레이터 — 심야에도 낮 시각을 가정해 실제 추천을 보여준다(/waiting·/course 공유).
+              항상 노출(개발용 시간 모킹 패널과 달리 심사위원이 직접 쓴다). */}
+          <label className="flex shrink-0 items-center gap-1.5 rounded-full border border-line bg-white/80 px-3 py-1.5 text-[13px] font-medium fractal-glass shadow-[0_2px_14px_rgba(43,35,32,0.06)] sm:text-sm">
+            <span aria-hidden>🕒</span>
+            <select
+              value={assumedPreset}
+              onChange={(e) => setStoredAssumedPreset(e.target.value)}
+              aria-label={t('timeSim.label')}
+              className="bg-transparent font-semibold text-muk focus:outline-none cursor-pointer"
+            >
+              {ASSUMED_TIME_PRESETS.map((p) => (
+                <option key={p.id} value={p.id}>{t(p.labelKey)}</option>
+              ))}
+            </select>
+          </label>
+          {assumedPreset !== "now" && (
+            <span className="shrink-0 inline-flex items-center rounded-full bg-gold/15 border border-gold/40 px-2.5 py-1 text-[11px] font-bold text-gold-deep whitespace-nowrap">
+              {t('timeSim.badge', { label: t(ASSUMED_TIME_PRESETS.find((p) => p.id === assumedPreset)?.labelKey ?? 'timeSim.now') })}
+            </span>
+          )}
 
           {/* 예측 정직성 배지 — 실측(Live)과 혼동 방지. anchored false 면 '추정' 꼬리표로 실측 앵커 부재를 알린다. */}
           {isForecast && (
