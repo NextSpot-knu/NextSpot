@@ -81,13 +81,13 @@ async function main() {
     return { calls, fetchPage };
   };
 
-  const s1664 = makeServer(1664);
-  const all = await fetchAllPages(s1664.fetchPage, { pageSize: CAP, maxPages: 20 });
-  assert.equal(all.length, 1664, '프로덕션 실측 시설 수 1,664곳이 전부 와야 한다');
+  const s1688 = makeServer(1688);
+  const all = await fetchAllPages(s1688.fetchPage, { pageSize: CAP, maxPages: 20 });
+  assert.equal(all.length, 1688, '프로덕션 실측 시설 수 1,688곳이 전부 와야 한다(2026-09-20)');
   assert.deepEqual(all.slice(0, 3), [0, 1, 2]);
-  assert.equal(all[1663], 1663, '마지막 행까지 왔는지 — 664곳이 잘리던 자리');
+  assert.equal(all[1687], 1687, '마지막 행까지 왔는지 — 688곳이 잘리던 자리');
   assert.equal(new Set(all).size, all.length, '페이지 경계에서 중복된 행이 없어야 한다');
-  assert.deepEqual(s1664.calls, [[0, 999], [1000, 1999]]);
+  assert.deepEqual(s1688.calls, [[0, 999], [1000, 1999]]);
 
   // 정확히 배수로 떨어지면 마지막에 빈 페이지를 한 번 더 받아 끝을 확인한다.
   const exact = makeServer(2000);
