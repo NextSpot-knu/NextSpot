@@ -65,15 +65,26 @@ export default function LoadingPage() {
       seenIntro = 'skip';
     }
     if (seenIntro) return;
-    // 페이드인이 자리 잡은 뒤(600ms) 가이드 버튼을 눌러 모달을 연다. 한 번 열면 플래그를 세워 반복 노출 방지.
-    const timer = setTimeout(() => {
-      const btn = introTriggerRef.current?.querySelector('button');
-      if (btn) {
-        btn.click();
-        try { window.localStorage.setItem('nextspot_intro_seen', '1'); } catch { /* 저장 실패 무시 */ }
-      }
-    }, 600);
-    return () => clearTimeout(timer);
+    // 가이드 버튼을 눌러 모달을 연다. 단발 클릭은 하이드레이션/로케일 로딩과 경합해 씹힐 수 있어
+    // (라이브에서 재현: 600ms 단발 클릭 → 모달 안 열림, 수동 클릭은 정상) **열림이 확인될 때까지**
+    // 900ms 간격으로 재시도하고, 플래그는 dialog.open 확인 후에만 세운다. 4회 실패면 조용히 포기.
+    let cancelled = false;
+    let attempts = 0;
+    let timer: ReturnType<typeof setTimeout>;
+    const markSeen = () => {
+      try { window.localStorage.setItem('nextspot_intro_seen', '1'); } catch { /* 저장 실패 무시 */ }
+    };
+    const tryOpen = () => {
+      if (cancelled) return;
+      const dialog = document.querySelector('dialog');
+      if (dialog?.open) { markSeen(); return; } // 열림 확인 → 완료
+      attempts += 1;
+      if (attempts > 4) { markSeen(); return; } // 반복 실패 — 다음 방문에 다시 괴롭히지 않는다
+      introTriggerRef.current?.querySelector('button')?.click();
+      timer = setTimeout(tryOpen, 900);
+    };
+    timer = setTimeout(tryOpen, 900);
+    return () => { cancelled = true; clearTimeout(timer); };
   }, []);
 
   return (
