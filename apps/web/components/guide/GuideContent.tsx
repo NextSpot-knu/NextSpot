@@ -2,7 +2,7 @@
 
 import { useId, useRef, type ReactNode } from 'react';
 import Link from 'next/link';
-import { Accessibility, ArrowDown, ArrowRight, Bookmark, Building2, Check, Coffee, Compass, Database, Footprints, Globe, Heart, Home, MapPin, Mic, Quote, Radar, Route, ShieldCheck, Sparkles, Store, Ticket, Timer, User, Waypoints } from 'lucide-react';
+import { Accessibility, ArrowDown, ArrowRight, Bookmark, Building2, Check, Coffee, Compass, Database, Footprints, Globe, Heart, Home, MapPin, Mic, Quote, Radar, Route, Sparkles, Store, Ticket, Timer, User, Waypoints } from 'lucide-react';
 import { SPOT_WEIGHTS } from 'shared-types';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { useT } from '@/lib/i18n/I18nProvider';
@@ -148,11 +148,6 @@ export default function GuideContent({ onNavigate }: { onNavigate?: () => void }
           <h3>{t(`guide.${key}`)}</h3><p>{t(`guide.${key}Body`)}</p>
         </article>)}</div>
         <div className={styles.evidenceAction}><p>{t('guide.evidenceAction')}</p>{cta('/main', t('guide.touristCta'))}</div>
-        <div className={styles.trust}><h3><ShieldCheck size={22} />{t('guide.trustTitle')}</h3>
-          <div className={styles.trustGrid}>{['observed', 'estimated', 'unknown'].map((key, index) => <div key={key}>
-            <span className={styles.trustBadge} data-kind={index}>{t(`guide.${key}`)}</span><p>{t(`guide.${key}Body`)}</p>
-          </div>)}</div>
-        </div>
         <details className={`${styles.details} ${styles.sourceDetails}`}><summary>{t('guide.sourceLabel')}</summary>
           <div className={styles.sourceGrid}>{sources.map(({ key, icon: Icon }, index) => <article key={key} className={styles.source}>
             <div className={styles.sourceTop}><Icon size={23} /><span>0{index + 1}</span></div>

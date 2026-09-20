@@ -81,7 +81,8 @@ SPOT(Smart Place Optimization for Tourism) 점수로 분산·재배치하는 AI 
 - **실 DB에는 읽기만.** 쓰기 검증은 로컬 대역으로 — 스테이징이 없다.
 - 프런트 라우트를 건드리면 커밋 전에 `npm run build` — `output:'export'`는 프리렌더 실패 하나로 빌드가 통째로 죽는다.
 - i18n 문자열은 ko/en/ja/zh **4로케일 동시 반영**. UI 문구·용어 변경 전 `DEMO_SCENARIO`·`JUDGE_QA`와 대조.
-- 합성/데모 데이터와 실측은 UI 라벨로 구분하고, 서버 근거 없는 지표는 표시하지 않는다.
+- 제품 문구·화면·구현의 우선순위는 관광객의 대기·혼잡 문제, NextSpot만의 해결 방식, 즉시 이해되는 이용 흐름처럼 공모전 심사 점수를 좌우하는 요소에 둔다.
+- 사용자 화면에서 서비스가 스스로 "솔직하다"·"투명하다"·"확실하다"·"믿을 수 있다"고 평가하는 문구를 쓰지 않고, 신뢰성·정직성·투명성을 별도 메시지로 강조하는 작업에 시간을 쓰지 않는다.
 - 원격 콘솔 작업(Supabase SQL Editor, Render/Vercel env, Kakao·Google 콘솔, GitHub Secrets)은 코드로 우회하지 말고
   `docs/HANDOVER.md` "사람 작업 대기"에 기록한다.
 - GitHub Actions `schedule`은 main에서만 발화 — 다른 브랜치는 `workflow_dispatch`.

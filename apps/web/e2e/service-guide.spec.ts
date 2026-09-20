@@ -10,10 +10,10 @@ test.beforeEach(async ({ page }) => {
 });
 
 const locales = [
-  { code: 'ko', heading: '내 취향에 맞는', guide: 'NextSpot 알아보기', firstStep: '딱 세 가지만 하세요' },
-  { code: 'en', heading: 'Your kind of place.', guide: 'Discover NextSpot', firstStep: 'Just do these three things' },
-  { code: 'ja', heading: '好みに合う', guide: 'NextSpotを知る', firstStep: 'することは3つだけ' },
-  { code: 'zh', heading: '符合喜好', guide: '了解 NextSpot', firstStep: '只需做三件事' },
+  { code: 'ko', heading: '기다리는 대신', guide: 'NextSpot 알아보기', firstStep: '딱 세 가지만 하세요', formula: '추천 기준 자세히 보기' },
+  { code: 'en', heading: 'Spend less time waiting.', guide: 'Discover NextSpot', firstStep: 'Just do these three things', formula: 'See how recommendations are ranked' },
+  { code: 'ja', heading: '待つ時間を減らして', guide: 'NextSpotを知る', firstStep: 'することは3つだけ', formula: 'おすすめ基準を詳しく見る' },
+  { code: 'zh', heading: '少一点等待', guide: '了解 NextSpot', firstStep: '只需做三件事', formula: '查看推荐排序依据' },
 ] as const;
 
 for (const locale of locales) {
@@ -30,7 +30,7 @@ for (const locale of locales) {
     await expect(page.locator('[data-chapter]')).toHaveCount(6);
     expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
     await expect(page.locator('a[href="/setup"]')).toHaveCount(3);
-    await expect(page.getByText(/SPOT 계산 근거|SPOT calculation|SPOTの計算根拠|SPOT 计算依据/)).toBeVisible();
+    await expect(page.getByText(locale.formula, { exact: true })).toBeVisible();
     await expect(page.locator('[data-chapter="data"] details')).not.toHaveAttribute('open', '');
     await expect(page.locator('a[href="/merchant"]')).toHaveCount(1);
     await expect(page.locator('a[href="/admin/dashboard"]')).toHaveCount(1);
