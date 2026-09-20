@@ -188,10 +188,16 @@ export default function WaitingBoardPage() {
 
     // 4유형을 병렬 조회하되 allSettled 로 부분 실패를 흡수한다 — 일부만 살아 있어도 나머지 섹터는 채운다.
     // 전부 실패했을 때만 '백엔드 미가용'으로 판정(정직한 에러 상태 + 재시도).
+    // 4유형을 '동시에' 쏘면 단일 IP 버스트라 Cloudflare 봇 챌린지(429)·백엔드 과부하(503)를 유발한다
+    // (라이브에서 200 503 503 503 429... 로 재현됨). 그래서 350ms 간격으로 시차 발사해 동시 버스트
+    // 신호를 흩뜨린다 — 총 소요는 가장 느린 호출 + ~1s 이고 프리미엄 로딩 화면이 그 사이를 덮는다.
+    // 마지막 인자(20s)는 이 호출 전용 타임아웃(10s 전역이면 보드가 빈 채 실패에 갇힌다).
     const results = await Promise.allSettled(
-      // 마지막 인자(20s)는 이 호출 전용 타임아웃 — 프리티어 콜드스타트가 깨어날 여유를 준다.
-      // 10s 전역 타임아웃이면 대기 보드가 빈 채로 실패 상태에 갇힌다.
-      BOARD_TYPES.map((type) => recommendByType(type, userLocation, [], PER_TYPE_LIMIT, undefined, undefined, undefined, 20000, assumedAtIsoForPreset(assumedPreset)))
+      BOARD_TYPES.map((type, i) =>
+        new Promise<void>((resolve) => setTimeout(resolve, i * 350)).then(() =>
+          recommendByType(type, userLocation, [], PER_TYPE_LIMIT, undefined, undefined, undefined, 20000, assumedAtIsoForPreset(assumedPreset)),
+        ),
+      ),
     );
 
     const nextSectors: Sector[] = [];
