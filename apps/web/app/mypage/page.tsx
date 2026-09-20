@@ -364,7 +364,7 @@ export default function MyPage() {
       </header>
 
       {/* Main Content Area */}
-      <main className="flex-1 flex flex-col relative z-10 px-6 overflow-y-auto pb-[calc(80px+env(safe-area-inset-bottom))] md:pb-6 no-scrollbar">
+      <main className="flex-1 flex flex-col relative z-10 px-6 overflow-y-auto pb-[calc(var(--tourist-nav-clearance)+env(safe-area-inset-bottom))] md:pb-6 no-scrollbar">
         {isLoading || !profile ? (
           // 프로필 블록 + 취향 레이더 + 통계 형태의 스켈레톤(스피너 대체) — 실제 콘텐츠와 동일한 중앙정렬 폭으로 폭 점프 최소화.
           <div className="flex flex-col mt-4 md:max-w-4xl md:mx-auto md:w-full" aria-hidden>

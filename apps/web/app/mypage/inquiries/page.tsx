@@ -123,7 +123,7 @@ export default function MyInquiriesPage() {
         <h1 className="text-xl font-bold font-serif text-muk tracking-wide">{t('inquiries.title')}</h1>
       </header>
 
-      <main className="flex-1 flex flex-col relative z-10 p-6 overflow-y-auto">
+      <main className="flex-1 flex flex-col relative z-10 p-6 pb-[calc(var(--tourist-nav-clearance)+env(safe-area-inset-bottom))] md:pb-6 overflow-y-auto">
         <div className="max-w-md mx-auto w-full flex flex-col gap-4">
           <p className="text-muk-soft text-sm">{t('inquiries.subtitle')}</p>
 

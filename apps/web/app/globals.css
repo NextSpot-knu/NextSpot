@@ -1,6 +1,7 @@
 @import "tailwindcss";
 
 :root {
+  --tourist-nav-clearance: 80px;
   --background: #faf5ec;
   --foreground: #2b2320;
   --nextspot-hanji: #faf5ec;
@@ -63,6 +64,11 @@ body {
   /* Fixed assistant pulses and decorative glows may paint beyond the viewport
      during animation; clip only the page axis while preserving inner x-scroll areas. */
   overflow-x: clip;
+}
+
+/* Five primary tabs plus a 36px help row on mobile. Shared by sheets and page padding. */
+@media (max-width: 767px) {
+  :root { --tourist-nav-clearance: 116px; }
 }
 
 /* 관광객 야간 팔레트. 관리자·사장님 경로는 ThemeProvider가 이 클래스를 붙이지 않아

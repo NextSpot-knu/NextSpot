@@ -116,7 +116,7 @@ export default function ImpactPage() {
       </header>
 
       {/* Main Content */}
-      <main className="flex-1 flex flex-col relative z-10 px-6 overflow-y-auto pb-[calc(80px+env(safe-area-inset-bottom))] md:pb-6 no-scrollbar">
+      <main className="flex-1 flex flex-col relative z-10 px-6 overflow-y-auto pb-[calc(var(--tourist-nav-clearance)+env(safe-area-inset-bottom))] md:pb-6 no-scrollbar">
         {isLoading ? (
           // 공유 카드 형태의 스켈레톤(스피너 대체) — 유한 로딩(요청 타임아웃 시 에러 상태로 전환).
           <div className="flex flex-col mt-2 md:max-w-md md:mx-auto md:w-full" aria-hidden>

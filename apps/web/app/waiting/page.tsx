@@ -308,7 +308,7 @@ export default function WaitingBoardPage() {
   }, [fetchBoard]);
 
   return (
-    <main className="min-h-screen bg-hanji text-muk p-4 md:p-8 max-md:pb-[calc(80px+env(safe-area-inset-bottom))] relative overflow-hidden">
+    <main className="min-h-screen bg-hanji text-muk p-4 md:p-8 max-md:pb-[calc(var(--tourist-nav-clearance)+env(safe-area-inset-bottom))] relative overflow-hidden">
       {/* 배경 은은한 노을·금빛 광원 — course/explore 페이지와 동일 톤. */}
       <div className="absolute top-[-20%] left-[-10%] w-[520px] h-[520px] rounded-full bg-sunset-1/10 blur-[120px] pointer-events-none" />
       <div className="absolute bottom-[-10%] right-[-10%] w-[520px] h-[520px] rounded-full bg-gold/10 blur-[120px] pointer-events-none" />

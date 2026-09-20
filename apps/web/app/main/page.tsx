@@ -3221,7 +3221,7 @@ export default function MainPage() {
 
       {/* AI Recommendation Card (Floating Bottom Sheet) */}
       {activeFilter === '주차장' && parkingLoading && parkingLots.length === 0 && (
-        <div className="absolute z-20 px-4 bottom-[calc(80px+env(safe-area-inset-bottom))] w-full md:bottom-6 md:left-auto md:right-4 md:w-[370px] md:px-0 pointer-events-none">
+        <div className="absolute z-20 px-4 bottom-[calc(var(--tourist-nav-clearance)+env(safe-area-inset-bottom))] w-full md:bottom-6 md:left-auto md:right-4 md:w-[370px] md:px-0 pointer-events-none">
           <div className="rounded-2xl border border-line bg-white/95 px-5 py-4 text-sm font-semibold text-muk shadow-lg">
             {t('map.parkingLoading')}
           </div>
@@ -3229,7 +3229,7 @@ export default function MainPage() {
       )}
 
       {activeFilter === '주차장' && !parkingLoading && parkingLots.length === 0 && (
-        <div className="absolute z-20 px-4 bottom-[calc(80px+env(safe-area-inset-bottom))] w-full md:bottom-6 md:left-auto md:right-4 md:w-[370px] md:px-0 pointer-events-none">
+        <div className="absolute z-20 px-4 bottom-[calc(var(--tourist-nav-clearance)+env(safe-area-inset-bottom))] w-full md:bottom-6 md:left-auto md:right-4 md:w-[370px] md:px-0 pointer-events-none">
           <div className="pointer-events-auto rounded-2xl border border-line bg-white/95 px-5 py-4 text-sm font-semibold text-muk shadow-lg">
             <p>{t(parkingLoadError ? 'map.parkingLoadFailed' : 'map.parkingEmpty')}</p>
             {parkingLoadError && (
@@ -3246,7 +3246,7 @@ export default function MainPage() {
       )}
 
       {selectedParkingLot && activeFilter === '주차장' && (
-        <div className="absolute z-20 px-4 bottom-[calc(80px+env(safe-area-inset-bottom))] w-full md:bottom-6 md:left-auto md:right-4 md:w-[370px] md:px-0 pointer-events-none">
+        <div className="absolute z-20 px-4 bottom-[calc(var(--tourist-nav-clearance)+env(safe-area-inset-bottom))] w-full md:bottom-6 md:left-auto md:right-4 md:w-[370px] md:px-0 pointer-events-none">
           <div className="pointer-events-auto rounded-3xl border border-line bg-white/95 p-5 shadow-[0_8px_30px_rgba(43,35,32,0.16)] backdrop-blur">
             <div className="flex items-start justify-between gap-3">
               <div>
@@ -3338,7 +3338,7 @@ export default function MainPage() {
           return (
             // pointer-events-none(컨테이너): bottom 고정 absolute 라 카드가 높으면 박스 상단이 세부 음식 칩
             // 행까지 자라 칩 탭을 통째로 가로챘다(elementFromPoint 실측). 상호작용 자식(카드·오브)만 auto.
-            <div className="absolute z-20 px-4 transition-all duration-300 bottom-[calc(80px+env(safe-area-inset-bottom))] w-full md:bottom-6 md:top-24 md:left-auto md:right-4 md:w-[370px] md:px-0 md:overflow-y-auto md:overscroll-contain no-scrollbar pointer-events-none">
+            <div className="absolute z-20 px-4 transition-all duration-300 bottom-[calc(var(--tourist-nav-clearance)+env(safe-area-inset-bottom))] w-full md:bottom-6 md:top-24 md:left-auto md:right-4 md:w-[370px] md:px-0 md:overflow-y-auto md:overscroll-contain no-scrollbar pointer-events-none">
               {voice.ttsSupported && (
                 // pointer-events-none: 이 행은 전폭 스트립이라 카드가 높을 때 세부 음식 칩 위를 덮어
                 // 칩 탭을 가로챘다(실측). 오브 자체는 루트에 pointer-events-auto 라 계속 탭 가능.
@@ -3428,7 +3428,7 @@ export default function MainPage() {
 
       {/* (b) 현재 카테고리 추천 후보 0건 — 카드가 조용히 사라지는 대신 안내 표시 */}
       {!isLoadingFacilities && !facilitiesLoadError && facilities.length > 0 && !selectedFacility && noRecommendation && (
-        <div className="absolute z-20 px-4 bottom-[calc(80px+env(safe-area-inset-bottom))] w-full md:bottom-auto md:top-24 md:left-auto md:right-4 md:w-[370px] md:px-0">
+        <div className="absolute z-20 px-4 bottom-[calc(var(--tourist-nav-clearance)+env(safe-area-inset-bottom))] w-full md:bottom-auto md:top-24 md:left-auto md:right-4 md:w-[370px] md:px-0">
           <div className="bg-white border border-line rounded-2xl px-5 py-4 shadow-[0_2px_14px_rgba(43,35,32,0.06)] flex flex-col items-center gap-1.5 text-center">
             <NextSpotMascot className="w-12" />
             <p className="text-muk text-sm font-semibold">{t('map.noRecTitle')}</p>

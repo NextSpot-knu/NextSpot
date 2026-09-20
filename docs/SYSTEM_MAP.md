@@ -250,6 +250,7 @@ SessionBootstrap: 익명 세션 자동 발급
 | 화면 | 기능 | 호출 API | 핵심 서비스/모듈 |
 |---|---|---|---|
 | `/` | 랜딩 | — | — |
+| `/guide` | 서비스 소개 6개 장면·전체 기능·체험 링크 (랜딩/내비게이션 `?`에서도 대화상자로 열림) | 소개 전용 API 없음 | `components/guide/GuideContent.tsx` · `GuideProvider.tsx`, ko/en/ja/zh |
 | `/setup` | 온보딩 Cold Start (카테고리·도보시간·체류시간·음식취향) | `POST /track` (분석) + Supabase 직접 `users.preferred_categories` UPDATE (로그인 상태일 때만, 실패해도 진행) | `lib/travelContext.ts` `lib/analytics.ts` |
 | `/main` | 홈 — 혼잡 지도·날씨·축제·화장실·주차·진행중 여정 | `GET /infrastructures` `/weather` `/events` `/restrooms` `/freshness` `/area-demand/parking-lots` | `facility_cache` `weather_service` `restroom_service` `parking_demand_service` |
 | ″ | **추정 모드 피드**(실측·예측이 없는 시설의 '추정' 혼잡) | `GET /congestion/estimates` (공개·5분 캐시, `routers/infrastructures.py`) | `congestion_estimator_service` ← `area_demand_snapshots`(주차 10분) + 관광 집중률 · 웹은 `lib/congestionEstimate.ts` |

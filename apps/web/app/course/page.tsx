@@ -649,7 +649,7 @@ function CourseContent() {
           <div className="relative -mt-6 rounded-t-3xl bg-white shadow-[0_-8px_30px_rgba(43,35,32,0.12)]">
             <div className="w-12 h-1.5 rounded-full bg-line mx-auto mt-3" aria-hidden />
 
-            <div className="mx-auto w-full max-w-md md:max-w-2xl px-4 md:px-6 pt-4 pb-10 space-y-6">
+            <div className="mx-auto w-full max-w-md md:max-w-2xl px-4 md:px-6 pt-4 pb-[calc(var(--tourist-nav-clearance)+env(safe-area-inset-bottom))] md:pb-10 space-y-6">
               {/* 공유 모드 배너 — '공유받은 코스' 명시 + 내 위치로 새 코스 받기(param 제거 라우팅). */}
               {isShareMode && <SharedBanner elapsedMin={sharedElapsedMin} />}
 
@@ -1482,7 +1482,7 @@ function CourseSkeleton({ mode }: { mode: "course" | "shared" }) {
       <div className="relative -mt-6 rounded-t-3xl bg-white shadow-[0_-8px_30px_rgba(43,35,32,0.12)]">
         <div className="w-12 h-1.5 rounded-full bg-line mx-auto mt-3" />
 
-        <div className="mx-auto w-full max-w-md md:max-w-2xl px-4 md:px-6 pt-4 pb-10 space-y-6">
+        <div className="mx-auto w-full max-w-md md:max-w-2xl px-4 md:px-6 pt-4 pb-[calc(var(--tourist-nav-clearance)+env(safe-area-inset-bottom))] md:pb-10 space-y-6">
           <OptimizationLoader mode={mode} />
           {/* 헤더 */}
           <div className="space-y-2">

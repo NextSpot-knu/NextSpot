@@ -212,7 +212,7 @@ export default function LabPage() {
       </header>
 
       {/* Main Content */}
-      <main className="flex-1 flex flex-col relative z-10 px-6 overflow-y-auto pb-[calc(80px+env(safe-area-inset-bottom))] md:pb-6 no-scrollbar">
+      <main className="flex-1 flex flex-col relative z-10 px-6 overflow-y-auto pb-[calc(var(--tourist-nav-clearance)+env(safe-area-inset-bottom))] md:pb-6 no-scrollbar">
         {isLoading ? (
           // 카드 형태의 스켈레톤(스피너 대체) — 장소명 + 시각 + 칩 줄 레이아웃을 암시한다.
           <div className="flex flex-col gap-4 mt-2 md:max-w-2xl md:mx-auto md:w-full" aria-hidden>
