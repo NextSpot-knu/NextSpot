@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import type { User } from '@supabase/supabase-js';
-import { buildRedirectTo, deriveAuthState, resolveProfileSync, safeNext } from './oauthFlow';
+import { buildRedirectTo, deriveAuthState, isPasswordRecoveryEntry, resolveProfileSync, safeNext } from './oauthFlow';
 
 // ── safeNext — 오픈 리다이렉트 방어 ────────────────────────────────────────
 // `next` 는 콜백 URL 쿼리에서 오므로 공격자가 통제할 수 있다. 앱 내부 절대경로만 통과해야 한다.
@@ -177,5 +177,36 @@ assert.equal(
     .nickname,
   '오윤성',
 );
+
+// ── isPasswordRecoveryEntry — 비밀번호 변경 폼을 열어도 되는가 ─────────────
+//
+// 2026-09-20 배포본 실측: /auth/reset-password 는 '익명이 아닌 세션' 만 보고 폼을 열었다.
+// 그래서 이미 로그인한 사람이 주소만 쳐도 폼이 떴다. 세션이 아니라 '복구 흐름으로 들어왔다는
+// 증거' 를 본다.
+
+// 증거 없음 — 주소만 친 경우(로그인 상태든 아니든 폼을 열면 안 된다).
+assert.equal(isPasswordRecoveryEntry({ search: '', hash: '' }), false);
+assert.equal(isPasswordRecoveryEntry({}), false);
+assert.equal(isPasswordRecoveryEntry({ search: '?foo=bar', hash: '#baz' }), false);
+
+// 우리 앱의 기본 경로: 콜백이 PKCE 교환을 끝내고 남긴 표식.
+assert.equal(isPasswordRecoveryEntry({ search: '', hash: '', marker: true }), true);
+
+// PKCE 링크가 이 경로로 바로 떨어진 경우.
+assert.equal(isPasswordRecoveryEntry({ search: '?code=abc123' }), true);
+assert.equal(isPasswordRecoveryEntry({ search: 'code=abc123' }), true, '? 없이 와도 같게 읽는다');
+
+// implicit 흐름 복구 링크(해시로 온다).
+assert.equal(isPasswordRecoveryEntry({ hash: '#access_token=xyz&type=recovery' }), true);
+assert.equal(isPasswordRecoveryEntry({ hash: 'type=recovery' }), true);
+assert.equal(isPasswordRecoveryEntry({ search: '?type=recovery' }), true);
+
+// 빈 값은 증거가 아니다.
+assert.equal(isPasswordRecoveryEntry({ search: '?code=' }), false);
+assert.equal(isPasswordRecoveryEntry({ hash: '#access_token=' }), false);
+assert.equal(isPasswordRecoveryEntry({ marker: false }), false);
+
+// 다른 인증 왕복(OAuth 로그인)의 해시를 복구로 오인하지 않는다.
+assert.equal(isPasswordRecoveryEntry({ hash: '#type=signup' }), false);
 
 console.log('oauthFlow tests passed');

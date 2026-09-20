@@ -121,14 +121,49 @@ def test_non_anonymous_token_is_forbidden(client, monkeypatch):
 
 
 @pytest.mark.parametrize("detail", ["expired", "forged"])
-def test_invalid_guest_token_is_unauthorized(client, monkeypatch, detail):
+def test_invalid_guest_token_is_a_body_error_not_a_session_error(client, monkeypatch, detail):
+    """만료된 게스트 토큰은 **422** 다. 401 이면 방금 로그인한 사람이 튕긴다.
+
+    호출자 인증은 get_current_user 가 이미 통과시켰다. 여기서 검증하는 것은 본문에 실려 온
+    다른 세션의 토큰이고, 그것이 만료라는 사실은 지금 로그인한 사람의 자격과 무관하다.
+    그런데 프런트는 401 을 '로그인이 풀렸다' 로 읽고(lib/api-client.ts AuthError), 이
+    엔드포인트는 **로그인 콜백 직후** 호출된다 — 게스트로 한 시간 넘게 둘러본 심사위원이
+    로그인하자마자 튕기는 것처럼 보인다(게스트 액세스 토큰 수명이 1시간이라 흔하다).
+    """
     http, db = client
 
     def reject(_):
         raise HTTPException(status_code=401, detail=detail)
 
     monkeypatch.setattr(account, "verify_supabase_token", reject)
-    assert http.post("/api/v1/account/merge-guest", json={"guest_token": detail}).status_code == 401
+    res = http.post("/api/v1/account/merge-guest", json={"guest_token": detail})
+    assert res.status_code == 422
+    assert db.calls == []
+
+
+def test_guest_token_rejection_does_not_echo_the_token(client, monkeypatch):
+    """응답 본문에 토큰이 실려 나가면 로그·프록시·오류 리포터가 그것을 보관한다."""
+    http, _db = client
+    secret = "eyJhbGciOiJIUzI1NiJ9.super-secret-guest-token"
+
+    def reject(_):
+        raise HTTPException(status_code=401, detail=f"bad token: {secret}")
+
+    monkeypatch.setattr(account, "verify_supabase_token", reject)
+    res = http.post("/api/v1/account/merge-guest", json={"guest_token": secret})
+    assert secret not in res.text
+
+
+def test_jwks_outage_during_merge_stays_a_server_error(client, monkeypatch):
+    """우리 쪽 장애를 사용자 입력 오류(422)로 바꿔 쓰지 않는다 — 재시도해야 할 상황이다."""
+    http, db = client
+
+    def unavailable(_):
+        raise HTTPException(status_code=503, detail="인증 서버에 일시적으로 연결할 수 없습니다.")
+
+    monkeypatch.setattr(account, "verify_supabase_token", unavailable)
+    res = http.post("/api/v1/account/merge-guest", json={"guest_token": "guest"})
+    assert res.status_code == 503
     assert db.calls == []
 
 

@@ -112,8 +112,26 @@ async def _load_profile(user_id: str) -> dict:
     return {"role": role, "facility_ids": facility_ids}
 
 
+# 역할을 읽지 못했을 때 돌려줄 문구. 고정 상수다 — 예외 메시지를 그대로 싣지 않는다
+# (드라이버 예외에는 URL·헤더 조각이 섞여 들어올 수 있다).
+_PROFILE_UNAVAILABLE_DETAIL = "권한 정보를 확인하지 못했어요. 잠시 후 다시 시도해 주세요."
+
+
 async def _build_profile(user_id: str, email: str | None, payload: dict) -> dict:
-    """캐시를 거쳐 role·소유 가게를 붙인 프로필을 만든다."""
+    """캐시를 거쳐 role·소유 가게를 붙인 프로필을 만든다.
+
+    조회가 실패하면 프로필을 만들지 않고 **503** 을 던진다. 예전에는 tourist + 빈 소유 집합을
+    그대로 돌려줬는데, 그 값은 '권한이 없다' 와 글자 하나 다르지 않아서 우리 쪽 장애가
+    사용자에게 **권한 문제로 둔갑**했다. 실제로 나가던 응답이 이랬다:
+      · 관리자 → 403 "이 기능에 접근할 권한이 없습니다."
+      · 사장님 → 403 "내 가게가 아닙니다."  (소유권 조회만 실패해도)
+      · GET /account/me → 200 role="tourist"  ← 가장 나쁘다. 오류가 아니어서 프런트가
+        재시도하지도 않고, 화면이 조용히 관광객 모드로 내려앉는다(심사 중이면 '미완성' 이다).
+    503 이면 셋 다 "잠시 후 다시" 가 되고, 프런트(lib/account.tsx)는 401 이 아닌 실패를
+    알던 계정을 유지한 채 2.5초 뒤 한 번 재시도한다 — 콜드 스타트가 정확히 이 모양이다.
+
+    막는 것 자체는 그대로다(fail-closed). 바뀐 것은 **거부의 이유를 정직하게 말하는 것**뿐이다.
+    """
     cached = _profile_cache.get(user_id)
     if cached and cached[0] > time.monotonic():
         loaded = cached[1]
@@ -131,6 +149,12 @@ async def _build_profile(user_id: str, email: str | None, payload: dict) -> dict
                 # (프런트에서 같은 모양의 버그를 이미 겪었다: lib/account.tsx 의 sticky null)
                 if not loaded.get("degraded"):
                     _profile_cache[user_id] = (time.monotonic() + _PROFILE_TTL_SECONDS, loaded)
+    if loaded.get("degraded"):
+        # 위 독스트링 참조. 여기서 끊어야 '역할 없음' 이 호출부로 흘러가지 않는다.
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=_PROFILE_UNAVAILABLE_DETAIL,
+        )
     return {
         "id": user_id,
         "email": email,
@@ -167,18 +191,31 @@ def _extract_bearer(request: Request) -> str | None:
 
 
 async def load_profile_from_request(request: Request) -> dict | None:
-    """요청에서 직접 프로필을 만든다. 토큰이 없거나 무효면 None(401 을 던지지 않는다).
+    """요청에서 직접 프로필을 만든다. 토큰이 없거나 **인증에 실패하면** None.
 
     이행기 동안 레거시 공유 토큰 경로와 JWT 경로가 한 엔드포인트에 공존하므로,
     "토큰이 없다" 를 즉시 실패로 만들지 않고 호출부가 판단하게 한다.
+
+    ⚠️ None 은 "이 요청은 인증되지 않았다" 만 뜻한다. 호출부(merchant_context,
+    require_machine_or_role)는 None 을 보면 **무조건 401** 로 바꾼다 — 그러므로 401 이 아닌
+    실패를 None 으로 뭉개면 안 된다. verify_supabase_token 은 JWKS 를 읽지 못할 때 503 을
+    던지는데(콜드 스타트 첫 요청·Supabase Auth 장애), 예전 코드는 HTTPException 을 통째로
+    삼켜 그 503 까지 401 로 바꿨다. 프런트는 401 을 '아직 로그인 전' 으로 읽고 재시도 없이
+    게스트로 떨어지므로(lib/api-client.ts AuthError, lib/account.tsx), 서버가 잠깐 못 읽은
+    것이 **사장님이 로그아웃당한 것**으로 보인다. 인증 실패가 아닌 것은 그대로 올려보낸다.
     """
     token = _extract_bearer(request)
     if not token:
         return None
     try:
-        payload = verify_supabase_token(token)
-    except HTTPException:
-        return None
+        # 동기 함수다 — JWKS 콜드 페치가 최대 4.2초 걸린다(app/core/supabase.py 상수).
+        # async 의존성에서 직접 부르면 그 시간 동안 이벤트 루프가 통째로 멈춰, 콜드 스타트
+        # 첫 요청 하나가 같은 워커의 다른 모든 요청을 함께 지연시킨다.
+        payload = await asyncio.to_thread(verify_supabase_token, token)
+    except HTTPException as exc:
+        if exc.status_code == status.HTTP_401_UNAUTHORIZED:
+            return None
+        raise
     user_id = payload.get("sub")
     if not user_id:
         return None

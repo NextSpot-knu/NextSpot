@@ -142,10 +142,20 @@ def test_estimator_bad_shape_degrades_to_null(client, monkeypatch):
     assert res.json()["estimated"] is None
 
 
+def _kst_today_at(minutes_after_midnight: int) -> str:
+    """KST 오늘 00:00 + N분 을 UTC ISO 로. 이 라우터의 하루 경계가 KST 라서 필요하다.
+
+    `now - 1시간` 으로 만들면 KST 00:00~01:00 에 돌릴 때 그 행이 **어제**로 떨어져
+    실행 시각 때문에 테스트가 빨개진다(2026-09-21 00:17 KST 에 재현).
+    """
+    kst = timezone(timedelta(hours=9))
+    midnight = datetime.now(kst).replace(hour=0, minute=0, second=0, microsecond=0)
+    return (midnight + timedelta(minutes=minutes_after_midnight)).astimezone(timezone.utc).isoformat()
+
+
 def _measured_today_rows() -> list[dict]:
-    now = datetime.now(timezone.utc)
-    rows = [_log(0.5, (now - timedelta(hours=1)).isoformat()) for _ in range(5)]
-    rows.append(_log(1.0, (now - timedelta(minutes=1)).isoformat()))
+    rows = [_log(0.5, _kst_today_at(30)) for _ in range(5)]
+    rows.append(_log(1.0, _kst_today_at(90)))
     return rows
 
 

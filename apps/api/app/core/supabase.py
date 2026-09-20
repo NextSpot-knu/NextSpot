@@ -223,14 +223,31 @@ def fetch_all_rows(
 # 2. HTTP Bearer 인증 체계 정의 (프록시 상황에서 누락 에러 방지를 위해 auto_error=False 설정)
 security = HTTPBearer(auto_error=False)
 
+# exp/iat/nbf 검사에 허용할 시계 오차(초).
+#
+# 토큰은 Supabase 가 서명하고 검증은 Render 워커가 한다 — 서로 다른 기계의 시계다. 둘 다
+# NTP 를 쓰지만 수백 ms~수 초의 차이는 정상 범위이고, 그만큼 어긋나면 **방금 발급받은**
+# 토큰이 ImmatureSignatureError(iat/nbf 가 미래)로 401 이 된다. 로그인 직후 첫 요청이
+# "유효하지 않은 JWT" 로 거부되는 모양이라 원인을 짚기도 어렵다.
+# 30초는 만료 쪽으로도 30초를 더 받아 준다는 뜻이지만, 액세스 토큰 수명이 1시간이라
+# 실질적인 보안 차이는 없다(회수는 토큰 만료가 아니라 role 재조회로 한다 — authz.py 참조).
+_JWT_LEEWAY_SECONDS = 30
+
+
 def verify_supabase_token(token: str) -> dict:
     """get_current_user와 같은 키 선택/오류 계약으로 access token을 독립 검증한다."""
     try:
         alg = str(jwt.get_unverified_header(token).get("alg", "")).upper()
         if alg.startswith(("ES", "RS", "PS", "ED")):
-            payload = jwt.decode(token, _get_signing_key(token), algorithms=[alg], audience="authenticated")
+            payload = jwt.decode(
+                token, _get_signing_key(token), algorithms=[alg], audience="authenticated",
+                leeway=_JWT_LEEWAY_SECONDS,
+            )
         else:
-            payload = jwt.decode(token, settings.JWT_SECRET, algorithms=["HS256"], audience="authenticated")
+            payload = jwt.decode(
+                token, settings.JWT_SECRET, algorithms=["HS256"], audience="authenticated",
+                leeway=_JWT_LEEWAY_SECONDS,
+            )
         if not payload.get("sub"):
             raise HTTPException(status_code=401, detail="JWT 토큰에 sub(user_id) 필드가 존재하지 않습니다.")
         return payload

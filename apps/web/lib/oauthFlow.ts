@@ -76,6 +76,40 @@ export function deriveAuthState(user: User | null | undefined): AuthState {
 }
 
 
+// ── 비밀번호 복구 진입 판정 ─────────────────────────────────────────────────
+
+/**
+ * `/auth/reset-password` 를 **복구 링크로** 열었는지 판정한다.
+ *
+ * 왜 필요한가(2026-09-20 실측): 그 화면은 "익명이 아닌 세션이 있으면 준비됨" 으로만 판단했다.
+ * 그래서 두 가지가 동시에 깨져 있었다.
+ *   · 이미 로그인한 사람이 주소를 직접 치면 **남의 링크 없이도 비밀번호 변경 폼**이 떴다.
+ *   · 로그아웃 상태로 만료된 링크를 타고 오면 8초 스피너 뒤에 "링크가 만료…" 만 남고
+ *     재설정 메일을 다시 받을 길이 없었다.
+ * 세션 유무가 아니라 **복구 흐름으로 들어왔다는 증거**를 본다.
+ *
+ * 증거는 셋 중 하나다:
+ *   · `?code=`        — PKCE 링크가 이 경로로 바로 떨어진 경우(교환은 supabase-js 가 한다).
+ *   · `#...type=recovery` / `#...access_token=` — implicit 흐름 복구 링크.
+ *   · marker          — 우리 앱의 기본 경로. 메일 링크는 `/auth/callback?next=/auth/reset-password`
+ *     로 돌아오고, 콜백이 교환을 끝낸 뒤 표식을 남기고 이 화면으로 넘긴다(lib/auth 의 세션 표식).
+ */
+export function isPasswordRecoveryEntry(input: {
+  search?: string;
+  hash?: string;
+  marker?: boolean;
+}): boolean {
+  if (input.marker) return true;
+  const search = new URLSearchParams((input.search ?? '').replace(/^\?/, ''));
+  if (search.get('code')) return true;
+  if (search.get('type') === 'recovery') return true;
+  const hash = new URLSearchParams((input.hash ?? '').replace(/^#/, ''));
+  if (hash.get('type') === 'recovery') return true;
+  if (hash.get('access_token')) return true;
+  return false;
+}
+
+
 // ── 프로필 동기화 판정 ──────────────────────────────────────────────────────
 
 /** public.users 에서 읽어 온 현재 프로필(동기화 판단에 필요한 세 칼럼). */
