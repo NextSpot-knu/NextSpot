@@ -4,11 +4,12 @@
 // 랜딩 '바로 시작' → 이 페이지. 게스트 둘러보기(익명 세션)도 유지한다.
 // 가입은 현재 익명 세션을 '정회원 전환'해 저장·취향 데이터를 승계한다(lib/auth signUpWithEmail).
 
-import { Suspense, useState } from 'react';
+import { Suspense, useEffect, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
 import { Mail, Lock, User } from 'lucide-react';
 import { signInWithEmail, signUpWithEmail, signInOAuth, type OAuthProvider } from '@/lib/auth';
+import type { SignInFailReason } from '@/lib/authErrors';
 import { safeNext } from '@/lib/oauthFlow';
 import { resolvePostLoginDest } from '@/lib/postLoginDest';
 import { reconcileUserData } from '@/lib/userData';
@@ -18,6 +19,22 @@ import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { useT } from '@/lib/i18n/I18nProvider';
 
 type Mode = 'login' | 'signup';
+
+// 로그인 실패 원인 → 안내 문구 키.
+//
+// 핵심은 '서버 장애' 를 '비밀번호가 틀렸다' 로 말하지 않는 것이다. 전자는 사용자가 아무리 다시
+// 쳐도 안 되고, 후자는 다시 치면 된다 — 반대로 안내하면 사용자는 맞는 비밀번호를 의심한다.
+// ⚠️ 여기 문구는 전부 **이미 있는 키**다(이 작업은 lib/i18n 을 건드릴 수 없다).
+//    login.serverError / login.emailNotConfirmed 전용 키가 생기면 아래를 그리로 옮길 것.
+const SIGN_IN_ERROR_KEY: Record<SignInFailReason, string> = {
+  invalid_credentials: 'login.loginError',
+  // "확인 메일을 보냈어요. 메일 링크로 인증한 뒤 로그인하세요." — 가입 시 발송된 그 메일 얘기다.
+  email_not_confirmed: 'login.confirmSent',
+  // "문제가 발생했어요" — 자격증명 문구와 확실히 구분되는 일반 장애 안내.
+  server: 'common.error',
+  // 분류되지 않은 4xx 는 기존 동작(자격증명 안내)을 유지한다 — 대부분 실제로 그 경우다.
+  unknown: 'login.loginError',
+};
 
 function LoginForm() {
   const router = useRouter();
@@ -37,6 +54,29 @@ function LoginForm() {
   const [password, setPassword] = useState('');
   const [nickname, setNickname] = useState('');
   const [busy, setBusy] = useState(false);
+  const busyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // 버튼이 영영 비활성으로 남지 않게 하는 안전망 두 개.
+  //
+  // (1) 뒤로가기 복귀(bfcache): 'SNS 계속하기' → 카카오 동의 화면 → **뒤로가기** 로 돌아오면
+  //     브라우저가 페이지를 얼린 그대로(busy=true) 되살린다 — 화면은 로그인 폼인데 모든 버튼이
+  //     죽어 있고, 새로고침 말고는 방법이 없다. 심사위원이 동의를 취소하면 정확히 이 경로다.
+  // (2) 타이머: 리다이렉트가 시작되지 않은 경우(armBusyRelease).
+  useEffect(() => {
+    const revive = (event: PageTransitionEvent) => {
+      if (event.persisted) setBusy(false);
+    };
+    window.addEventListener('pageshow', revive);
+    return () => {
+      window.removeEventListener('pageshow', revive);
+      if (busyTimer.current) clearTimeout(busyTimer.current);
+    };
+  }, []);
+
+  const armBusyRelease = () => {
+    if (busyTimer.current) clearTimeout(busyTimer.current);
+    busyTimer.current = setTimeout(() => setBusy(false), 8000);
+  };
 
   // 인증 성공 후: 세션 uid 로 이전(게스트) 로컬 데이터를 격리하고 이 계정의 저장 목록을 복원한 뒤 이동.
   const afterAuth = async (dest: string) => {
@@ -50,7 +90,9 @@ function LoginForm() {
       /* 무시 — 이동은 계속 */
     }
     // 목적지가 명시되지 않았으면 역할을 보고 정한다(admin → 관제 대시보드).
-    router.push(await resolvePostLoginDest(hasNext ? dest : null, dest));
+    // replace 인 이유: push 로 보내면 **뒤로가기가 로그인 폼으로 돌아온다**. 이미 로그인된
+    // 상태로 빈 로그인 화면을 다시 보면 "로그인이 안 된 건가" 로 읽힌다(/auth/callback 도 replace).
+    router.replace(await resolvePostLoginDest(hasNext ? dest : null, dest));
   };
 
   // SNS 계속하기 — 이 화면은 '로그인하러 온' 곳이므로 signInOAuth(계정 전환)를 **바로** 쓴다.
@@ -76,7 +118,12 @@ function LoginForm() {
       console.warn('[login] SNS 계속하기 실패:', error);
       setBusy(false);
       toast.error(t('auth.linkError'));
+      return;
     }
+    // 에러가 없으면 곧 프로바이더로 떠난다. 그런데 '곧' 이 보장되지는 않는다 —
+    // 팝업 차단·리다이렉트 누락이면 화면은 그대로인데 버튼만 영영 비활성으로 남는다.
+    // 안전망으로 되살린다(정상 경로에서는 그 전에 페이지가 사라져 실행되지 않는다).
+    armBusyRelease();
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -89,9 +136,9 @@ function LoginForm() {
     setBusy(true);
     try {
       if (mode === 'login') {
-        const { error } = await signInWithEmail(email.trim(), password);
+        const { error, reason } = await signInWithEmail(email.trim(), password);
         if (error) {
-          toast.error(t('login.loginError'));
+          toast.error(t(SIGN_IN_ERROR_KEY[reason ?? 'unknown']));
           setBusy(false);
           return;
         }
@@ -120,7 +167,9 @@ function LoginForm() {
         await afterAuth(signUpDest);
       }
     } catch {
-      toast.error(t('login.signupError'));
+      // 여기까지 왔다면 던져진 예외(네트워크·라우팅)다 — 자격증명 문제가 아니다.
+      // 가입 탭에서 로그인 문구가, 로그인 탭에서 회원가입 문구가 뜨지 않게 모드별로 고른다.
+      toast.error(t(mode === 'login' ? 'common.error' : 'login.signupError'));
       setBusy(false);
     }
   };

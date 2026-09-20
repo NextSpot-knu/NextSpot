@@ -9,6 +9,8 @@
 import pytest
 from unittest.mock import AsyncMock, patch
 
+from fastapi import HTTPException
+
 from app.core import authz
 
 PAYLOAD = {"is_anonymous": False}
@@ -22,25 +24,53 @@ def _clear_cache():
     authz._profile_cache.clear()
 
 
+DEGRADED = {"role": "tourist", "facility_ids": frozenset(), "degraded": True}
+
+
 @pytest.mark.asyncio
 async def test_a_degraded_profile_is_not_cached():
-    degraded = {"role": "tourist", "facility_ids": frozenset(), "degraded": True}
-    with patch.object(authz, "_load_profile", new=AsyncMock(return_value=degraded)):
-        await authz._build_profile(UID, None, PAYLOAD)
+    with patch.object(authz, "_load_profile", new=AsyncMock(return_value=DEGRADED)):
+        with pytest.raises(HTTPException):
+            await authz._build_profile(UID, None, PAYLOAD)
     assert UID not in authz._profile_cache, "실패로 만든 프로필이 30초간 굳었다"
+
+
+@pytest.mark.asyncio
+async def test_a_lookup_failure_is_503_not_a_silent_demotion():
+    """조회 실패를 tourist 로 돌려주면 우리 쪽 장애가 '권한 없음' 으로 둔갑한다.
+
+    그 모양이 실제로 나가던 응답이다 — 관리자는 403, 사장님은 "내 가게가 아닙니다",
+    /account/me 는 **오류도 아닌** 200 role=tourist. 마지막 것이 가장 나쁘다: 프런트가
+    실패로 보지 않으니 재시도도 없이 화면이 관광객 모드로 내려앉는다.
+    """
+    with patch.object(authz, "_load_profile", new=AsyncMock(return_value=DEGRADED)):
+        with pytest.raises(HTTPException) as err:
+            await authz._build_profile(UID, None, PAYLOAD)
+    assert err.value.status_code == 503
+    # 401 이면 프런트가 '로그인이 풀렸다' 로 읽고 로그아웃시킨다 — 그것도 거짓말이다.
+    assert err.value.status_code != 401
+
+
+@pytest.mark.asyncio
+async def test_the_degraded_detail_carries_no_exception_text():
+    """드라이버 예외 문구에는 URL·헤더 조각이 섞여 들어올 수 있다 — 고정 문구여야 한다."""
+    async def _boom(_user_id: str) -> dict:
+        return DEGRADED
+
+    with patch.object(authz, "_load_profile", new=_boom):
+        with pytest.raises(HTTPException) as err:
+            await authz._build_profile(UID, None, PAYLOAD)
+    assert err.value.detail == authz._PROFILE_UNAVAILABLE_DETAIL
 
 
 @pytest.mark.asyncio
 async def test_the_next_request_retries_after_a_failure():
     good = {"role": "merchant", "facility_ids": frozenset({"f-1"})}
-    loader = AsyncMock(side_effect=[
-        {"role": "tourist", "facility_ids": frozenset(), "degraded": True},
-        good,
-    ])
+    loader = AsyncMock(side_effect=[DEGRADED, good])
     with patch.object(authz, "_load_profile", new=loader):
-        first = await authz._build_profile(UID, None, PAYLOAD)
+        with pytest.raises(HTTPException):
+            await authz._build_profile(UID, None, PAYLOAD)
         second = await authz._build_profile(UID, None, PAYLOAD)
-    assert first["role"] == "tourist"
     assert second["role"] == "merchant", "실패값을 물려받아 재조회하지 않았다"
     assert second["facility_ids"] == frozenset({"f-1"})
     assert loader.await_count == 2
@@ -60,9 +90,13 @@ async def test_a_healthy_profile_is_still_cached():
 
 @pytest.mark.asyncio
 async def test_the_degraded_marker_never_reaches_the_caller():
-    """내부 신호다. 프로필 응답에 새어 나가면 호출부가 그걸 권한처럼 읽을 수 있다."""
-    degraded = {"role": "tourist", "facility_ids": frozenset(), "degraded": True}
-    with patch.object(authz, "_load_profile", new=AsyncMock(return_value=degraded)):
+    """내부 신호다. 프로필 응답에 새어 나가면 호출부가 그걸 권한처럼 읽을 수 있다.
+
+    이제 degraded 는 애초에 프로필이 되지 못하고 503 으로 끊긴다. 정상 경로의 키 집합이
+    그대로인지는 여전히 잠가 둔다 — 여기에 키가 늘면 호출부가 권한으로 오독할 수 있다.
+    """
+    good = {"role": "merchant", "facility_ids": frozenset({"f-1"})}
+    with patch.object(authz, "_load_profile", new=AsyncMock(return_value=good)):
         profile = await authz._build_profile(UID, None, PAYLOAD)
     assert "degraded" not in profile
     assert set(profile) == {"id", "email", "is_anonymous", "role", "facility_ids"}

@@ -20,6 +20,19 @@ from app.main import app
 from app.routers import admin
 from tests.routers.test_routers import _admin_headers
 
+# 이 라우터의 하루 경계는 **KST** 다. 그래서 행을 `datetime.now() - 10분` 으로 만들면
+# KST 00:00~00:30 에 테스트를 돌릴 때 그 행이 **어제**로 떨어져, 코드가 아니라 실행 시각
+# 때문에 빨개진다(2026-09-21 00:17 KST 에 실제로 재현됐다). 오늘 안의 고정 벽시계 시각을
+# 쓰면 언제 돌려도 같은 하루에 머문다.
+_KST = timezone(timedelta(hours=9))
+
+
+def _kst_today_at(minutes_after_midnight: int) -> str:
+    """KST 오늘 00:00 + N분 을 UTC ISO 문자열로. 실행 시각과 무관하게 '오늘' 이다."""
+    kst_midnight = datetime.now(_KST).replace(hour=0, minute=0, second=0, microsecond=0)
+    return (kst_midnight + timedelta(minutes=minutes_after_midnight)).astimezone(timezone.utc).isoformat()
+
+
 
 @pytest.fixture
 def client():
@@ -206,9 +219,8 @@ def test_no_logs_at_all_says_so_without_inventing_a_day(client):
 
 def test_today_with_logs_reports_todays_latest_and_no_fallback(client):
     """오늘 관측이 있으면 폴백은 null 이고, latestObservedAt 은 오늘 안의 최대 시각이다."""
-    now = datetime.now(timezone.utc)
-    newest = (now - timedelta(minutes=1)).isoformat()
-    rows = [_log(0.5, (now - timedelta(hours=1)).isoformat()) for _ in range(5)]
+    newest = _kst_today_at(90)
+    rows = [_log(0.5, _kst_today_at(30)) for _ in range(5)]
     rows.append(_log(0.5, newest))
     with patch.object(admin, "supabase_admin", _DayFilteredSupabase(rows)):
         res = client.get("/api/v1/admin/dashboard/today", headers=_admin_headers())
@@ -224,8 +236,7 @@ def test_today_thin_but_latest_is_today_has_no_fallback(client):
 
     (그 상태에서 '오늘' 을 폴백 기준일로 다시 집계하면 같은 결과를 두 번 그리게 된다.)
     """
-    now = datetime.now(timezone.utc)
-    rows = [_log(0.5, (now - timedelta(minutes=10 * i)).isoformat()) for i in range(3)]
+    rows = [_log(0.5, _kst_today_at(30 - 10 * i)) for i in range(3)]
     with patch.object(admin, "supabase_admin", _DayFilteredSupabase(rows)):
         res = client.get("/api/v1/admin/dashboard/today", headers=_admin_headers())
 

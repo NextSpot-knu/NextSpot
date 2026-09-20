@@ -11,7 +11,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { resolvePostLoginDest } from '@/lib/postLoginDest';
 import { createPublicClient } from '@/lib/supabase';
-import { discardCapturedGuestData, getAuthState, syncProfileFromProvider, mergeCapturedGuestData, signInOAuth, type OAuthProvider } from '@/lib/auth';
+import { discardCapturedGuestData, getAuthState, markPasswordRecovery, syncProfileFromProvider, mergeCapturedGuestData, signInOAuth, type OAuthProvider } from '@/lib/auth';
 import { useT } from '@/lib/i18n/I18nProvider';
 
 // 오픈 리다이렉트 방지 — 앱 내부 절대경로만 허용(lib/auth.ts 와 동일 규칙).
@@ -23,14 +23,20 @@ function safeNext(next: string | null): string {
 export default function AuthCallbackPage() {
   const router = useRouter();
   const t = useT();
-  // null=처리중, 'generic'=일반 실패, 'already_linked'=이 소셜 계정이 이미 다른 계정에 연동됨.
-  const [failed, setFailed] = useState<null | 'generic' | 'already_linked'>(null);
+  // null=처리중, 'generic'=일반 실패, 'already_linked'=이 소셜 계정이 이미 다른 계정에 연동됨,
+  // 'recovery'=비밀번호 재설정 메일 왕복의 실패(`?next=/auth/reset-password`). 마지막 것은
+  // 안내 문구도 '다음에 할 일' 도 로그인 실패와 다르다 — 만료된 링크는 메일을 다시 받아야 한다.
+  const [failed, setFailed] = useState<null | 'generic' | 'already_linked' | 'recovery'>(null);
+  const recoveryFlow = failed === 'recovery';
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
     const params = new URLSearchParams(window.location.search);
     const next = safeNext(params.get('next'));
+    const isRecovery = next.startsWith('/auth/reset-password');
+    // 이 왕복에서 '일반 실패' 가 무엇으로 보여야 하는지.
+    const genericFail = isRecovery ? 'recovery' : 'generic';
     // 프로바이더/Supabase 가 거부하면 error(_code/_description) 로 복귀한다.
     const oauthError = params.get('error_description') || params.get('error');
     if (oauthError) {
@@ -47,13 +53,13 @@ export default function AuthCallbackPage() {
       if (errorCode === 'identity_already_exists' && provider && !isRetry) {
         void (async () => {
           const { error } = await signInOAuth(provider, next);
-          if (error) setFailed('generic'); // 폴백 로그인 개시 자체가 실패하면 일반 안내.
+          if (error) setFailed(genericFail); // 폴백 로그인 개시 자체가 실패하면 일반 안내.
         })();
         return; // 리다이렉트 진행 중 — 스피너 유지.
       }
 
       discardCapturedGuestData();
-      setFailed(errorCode === 'identity_already_exists' ? 'already_linked' : 'generic');
+      setFailed(errorCode === 'identity_already_exists' ? 'already_linked' : genericFail);
       return;
     }
 
@@ -64,11 +70,21 @@ export default function AuthCallbackPage() {
     const finish = async () => {
       if (done) return;
       done = true;
-      await mergeCapturedGuestData();
-      await syncProfileFromProvider();
-      // `?next=` 가 없어 기본값(/mypage)으로 온 경우에만 역할을 본다 — admin 은 관제로.
-      const explicit = params.get('next');
-      router.replace(await resolvePostLoginDest(explicit ? next : null, next));
+      // 복구 링크 왕복이면 여기서 표식을 남긴다 — 비밀번호 변경 화면은 '세션이 있다' 가 아니라
+      // 이 표식으로 폼을 연다(주소만 치고 들어온 사람에게 폼이 열리면 안 된다).
+      if (isRecovery) markPasswordRecovery();
+      try {
+        await mergeCapturedGuestData();
+        await syncProfileFromProvider();
+        // `?next=` 가 없어 기본값(/mypage)으로 온 경우에만 역할을 본다 — admin 은 관제로.
+        const explicit = params.get('next');
+        router.replace(await resolvePostLoginDest(explicit ? next : null, next));
+      } catch (err) {
+        // 부가 작업(병합·프로필·역할 조회)이 어떻게 실패하든 **이동은 반드시 한다**.
+        // 여기서 예외가 새면 done=true 라 폴링도 실패 처리를 못 해 스피너가 영원히 남는다.
+        console.warn('[auth/callback] 후처리 실패 — 목적지로 그대로 이동:', err);
+        router.replace(next);
+      }
     };
 
     // 완료 판정: code 교환이 '연동 계정' 상태로 반영되면(getAuthState → linked) 복귀한다.
@@ -80,7 +96,9 @@ export default function AuthCallbackPage() {
 
     // 이벤트(교환 완료 시 SIGNED_IN/USER_UPDATED)와 폴링(리스너 부착 전 이벤트를 놓친 경우 대비)을 병행.
     const { data: sub } = supabase.auth.onAuthStateChange((event) => {
-      if (event === 'SIGNED_IN' || event === 'USER_UPDATED' || event === 'TOKEN_REFRESHED') {
+      // PASSWORD_RECOVERY 는 복구 토큰이 세션으로 바뀐 순간이다 — 표식의 1차 출처.
+      if (event === 'PASSWORD_RECOVERY') markPasswordRecovery();
+      if (event === 'SIGNED_IN' || event === 'USER_UPDATED' || event === 'TOKEN_REFRESHED' || event === 'PASSWORD_RECOVERY') {
         void tryFinishIfLinked();
       }
     });
@@ -92,7 +110,7 @@ export default function AuthCallbackPage() {
       if (tries >= 27) {
         // ~8초(300ms×27) 내 연동 반영이 안 되면 실패 안내(교환 실패/설정 부재 등).
         clearInterval(poll);
-        if (!done) setFailed('generic');
+        if (!done) setFailed(genericFail);
       }
     }, 300);
     void tryFinishIfLinked();
@@ -106,19 +124,32 @@ export default function AuthCallbackPage() {
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-hanji text-muk px-6 text-center">
       {failed ? (
+        // 실패 화면은 **반드시 나갈 길을 준다**. 복구 링크 왕복이면 '메일 다시 받기' 가,
+        // 그 밖에는 마이페이지와 로그인 재시도가 다음 걸음이다.
         <div className="animate-fade-in flex flex-col items-center">
           <p className="text-lg font-serif font-bold text-muk mb-2">
-            {t(failed === 'already_linked' ? 'auth.callbackAlreadyLinkedTitle' : 'auth.callbackFailedTitle')}
+            {recoveryFlow
+              ? t('password.requestTitle')
+              : t(failed === 'already_linked' ? 'auth.callbackAlreadyLinkedTitle' : 'auth.callbackFailedTitle')}
           </p>
           <p className="text-sm text-muk-soft mb-6 max-w-xs break-keep">
-            {t(failed === 'already_linked' ? 'auth.callbackAlreadyLinkedDesc' : 'auth.callbackFailedDesc')}
+            {recoveryFlow
+              ? t('password.invalidLink')
+              : t(failed === 'already_linked' ? 'auth.callbackAlreadyLinkedDesc' : 'auth.callbackFailedDesc')}
           </p>
           <button
             type="button"
-            onClick={() => router.replace('/mypage')}
+            onClick={() => router.replace(recoveryFlow ? '/forgot-password' : '/mypage')}
             className="px-6 py-3 rounded-full bg-gold hover:bg-gold-deep text-white font-bold transition-colors"
           >
-            {t('auth.callbackBackToMypage')}
+            {recoveryFlow ? t('password.requestSubmit') : t('auth.callbackBackToMypage')}
+          </button>
+          <button
+            type="button"
+            onClick={() => router.replace('/login')}
+            className="mt-3 px-4 py-2 text-sm text-muk-soft underline hover:text-muk transition-colors"
+          >
+            {t('login.tabLogin')}
           </button>
         </div>
       ) : (

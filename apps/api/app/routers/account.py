@@ -718,7 +718,31 @@ async def update_verification_request(
 
 @router.post("/merge-guest", response_model=MergeGuestResponse)
 async def merge_guest(body: MergeGuestRequest, current_user: dict = Depends(get_current_user)):
-    payload = verify_supabase_token(body.guest_token)
+    """방금 로그인한 계정으로 게스트 세션 데이터를 옮긴다.
+
+    ## 게스트 토큰이 만료돼도 **401 은 아니다**
+
+    호출자 인증은 get_current_user 가 이미 통과시켰다. 여기서 검증하는 것은 본문에 실려 온
+    **다른 세션의** 토큰이고, 그것이 만료·위조라는 사실은 지금 로그인한 사람의 자격과 아무
+    상관이 없다. 그런데 예전에는 verify_supabase_token 의 401 이 그대로 나갔고, 프런트는
+    401 을 '로그인이 풀렸다' 로 읽는다(lib/api-client.ts AuthError) — 로그인 직후 콜백에서
+    부르는 엔드포인트라, 게스트로 한 시간 넘게 둘러본 심사위원이 **로그인하자마자 튕기는**
+    것처럼 보인다. 게스트 액세스 토큰 수명이 1시간이라 이 조건은 드물지도 않다.
+    본문 값이 잘못된 것이므로 422 다.
+    """
+    try:
+        # 동기 함수(JWKS 콜드 페치 최대 4.2초) — async 엔드포인트에서 직접 부르면
+        # 그동안 이벤트 루프가 멈춘다. authz.load_profile_from_request 와 같은 처리.
+        payload = await asyncio.to_thread(verify_supabase_token, body.guest_token)
+    except HTTPException as exc:
+        if exc.status_code != 401:
+            # JWKS 장애의 503 등은 그대로 — 우리 쪽 문제를 사용자 입력 오류로 바꾸지 않는다.
+            raise
+        logger.info("guest_merge_token_rejected", target_uid=current_user["id"])
+        raise HTTPException(
+            status_code=422,
+            detail="게스트 세션 정보가 만료되었거나 올바르지 않습니다.",
+        ) from None
     if payload.get("is_anonymous") is not True:
         raise HTTPException(status_code=403, detail="익명 세션 토큰만 병합할 수 있습니다.")
     guest_uid, target_uid = payload["sub"], current_user["id"]

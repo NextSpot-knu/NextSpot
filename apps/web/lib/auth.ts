@@ -21,9 +21,40 @@ import {
 export type { AuthState, AuthStatus, OAuthProvider };
 import { createPublicClient } from "@/lib/supabase";
 import { mergeGuestData } from "@/lib/api-client";
-import { classifySignUpError, type SignUpFailReason } from "@/lib/authErrors";
+import {
+  classifyPasswordUpdateError,
+  classifySignInError,
+  classifySignUpError,
+  shouldRetryGuestMerge,
+  type PasswordUpdateFailReason,
+  type SignInFailReason,
+  type SignUpFailReason,
+} from "@/lib/authErrors";
 
 const GUEST_MERGE_KEY = "nextspot_guest_merge";
+// 비밀번호 복구 흐름 표식 — /auth/callback 이 code 교환을 끝낸 뒤 남기고,
+// /auth/reset-password 가 폼을 열기 전에 확인한다(탭을 닫으면 사라지는 sessionStorage).
+const PASSWORD_RECOVERY_KEY = "nextspot_password_recovery";
+
+/** 복구 링크로 세션이 성립했음을 표시한다(콜백 → 비밀번호 변경 화면 인계). */
+export function markPasswordRecovery(): void {
+  if (typeof window !== "undefined") sessionStorage.setItem(PASSWORD_RECOVERY_KEY, "1");
+}
+
+/** 표식이 있는지 본다. 읽기만 한다 — 새로고침해도 폼이 유지되어야 한다. */
+export function hasPasswordRecoveryMark(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return sessionStorage.getItem(PASSWORD_RECOVERY_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+/** 비밀번호를 실제로 바꿨거나 흐름을 벗어날 때 지운다. */
+export function clearPasswordRecoveryMark(): void {
+  if (typeof window !== "undefined") sessionStorage.removeItem(PASSWORD_RECOVERY_KEY);
+}
 
 export function discardCapturedGuestData(): void {
   if (typeof window !== "undefined") sessionStorage.removeItem(GUEST_MERGE_KEY);
@@ -55,7 +86,14 @@ export async function mergeCapturedGuestData(): Promise<boolean> {
     discardCapturedGuestData();
     return true;
   } catch (err) {
-    // 원자 RPC가 실패하면 캡처를 지우지 않는다. 다음 인증 이벤트/재시도에서 전체를 다시 병합한다.
+    // 서버가 잠깐 흔들린 경우에만 캡처를 남긴다 — 다음 인증 이벤트에서 전체를 다시 병합한다.
+    // 422(만료·손상된 게스트 토큰)처럼 확정된 실패까지 보존하면 인증 상태가 바뀔 때마다
+    // 실패가 보장된 요청을 영원히 반복한다(게스트로 한 시간 넘게 둘러본 뒤 로그인한 경우).
+    if (!shouldRetryGuestMerge(err)) {
+      console.warn("[auth] 게스트 데이터 병합 불가 — 캡처 폐기:", err);
+      discardCapturedGuestData();
+      return true;
+    }
     console.warn("[auth] 게스트 데이터 병합 재시도 예정:", err);
     return false;
   }
@@ -201,21 +239,31 @@ export async function syncProfileFromProvider(): Promise<void> {
 
 // ── 앱 자체 회원(이메일/비밀번호) — docs/archive/AUTH_MEMBERSHIP_PLAN.md ──────────
 
-/** 이메일/비밀번호 로그인. 성공 시 세션이 해당 회원으로 교체된다(호출부가 데이터 격리·이동 처리). */
+/**
+ * 이메일/비밀번호 로그인. 성공 시 세션이 해당 회원으로 교체된다(호출부가 데이터 격리·이동 처리).
+ *
+ * @returns reason: 실패 원인 분류 — 화면이 '비밀번호가 틀렸다' 와 '서버가 죽었다' 를 다르게
+ *   안내하는 데 쓴다. 이걸 합치면 서버 장애 중에 사용자가 맞는 비밀번호를 계속 다시 치게 된다.
+ */
 export async function signInWithEmail(
   email: string,
   password: string,
-): Promise<{ error: string | null }> {
+): Promise<{ error: string | null; reason: SignInFailReason | null }> {
   try {
     const supabase = createPublicClient();
     await captureGuestSession();
     const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (!error) await mergeCapturedGuestData();
-    else discardCapturedGuestData();
-    return { error: error?.message ?? null };
+    if (!error) {
+      await mergeCapturedGuestData();
+      return { error: null, reason: null };
+    }
+    discardCapturedGuestData();
+    return { error: error.message, reason: classifySignInError(error) };
   } catch (err) {
     discardCapturedGuestData();
-    return { error: err instanceof Error ? err.message : String(err) };
+    // 여기로 오는 것은 대개 네트워크 단절이나 lib/supabase.ts 의 6초 타임아웃(AbortError)이다.
+    const message = err instanceof Error ? err.message : String(err);
+    return { error: message, reason: classifySignInError({ message }) };
   }
 }
 
@@ -282,12 +330,21 @@ export async function requestPasswordReset(email: string): Promise<{ error: stri
   }
 }
 
-/** 복구 링크로 만들어진 세션에서 새 비밀번호를 저장한다. */
-export async function updatePassword(password: string): Promise<{ error: string | null }> {
+/**
+ * 복구 링크로 만들어진 세션에서 새 비밀번호를 저장한다.
+ *
+ * @returns reason: 'expired_link' 면 이 화면에서 다시 눌러도 영원히 실패한다 —
+ *   호출부가 재설정 메일 요청으로 유도해야 한다.
+ */
+export async function updatePassword(
+  password: string,
+): Promise<{ error: string | null; reason: PasswordUpdateFailReason | null }> {
   try {
     const { error } = await createPublicClient().auth.updateUser({ password });
-    return { error: error?.message ?? null };
+    if (!error) return { error: null, reason: null };
+    return { error: error.message, reason: classifyPasswordUpdateError(error) };
   } catch (err) {
-    return { error: err instanceof Error ? err.message : String(err) };
+    const message = err instanceof Error ? err.message : String(err);
+    return { error: message, reason: classifyPasswordUpdateError({ message }) };
   }
 }
