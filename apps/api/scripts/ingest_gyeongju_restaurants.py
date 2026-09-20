@@ -213,11 +213,16 @@ async def run(*, apply: bool) -> dict[str, Any]:
 
     updated = 0
     if apply and update_rows:
-        for offset in range(0, len(update_rows), UPSERT_CHUNK):
-            chunk = update_rows[offset:offset + UPSERT_CHUNK]
-            supabase_admin.table("facilities").upsert(chunk, on_conflict="id").execute()
-            updated += len(chunk)
-        print(f"[upsert] features 보강 {updated}건 완료")
+        # 매칭된 기존 시설만 보강한다. upsert(insert 경로)는 SELECT 에 없는 NOT NULL 컬럼
+        # (capacity 등)까지 요구해 실패하므로, id 로 대상만 지정하는 update 로 갱신한다.
+        for row in update_rows:
+            fid = row.get("id")
+            if not fid:
+                continue
+            patch = {k: v for k, v in row.items() if k != "id"}
+            supabase_admin.table("facilities").update(patch).eq("id", fid).execute()
+            updated += 1
+        print(f"[update] features 보강 {updated}건 완료")
     elif not apply:
         print("[dry-run] DB 미기록 — 매칭/보강 계획만 출력")
         for action in actions:
