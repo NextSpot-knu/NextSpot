@@ -147,6 +147,7 @@ def estimate_facilities(
 
     ``calibration_state`` 가 없거나 관문을 못 넘었으면 f 는 항등이다 — 그때 ``level`` 과
     ``raw_level`` 은 같은 값이고 ``calibrated`` 는 False 다. 원값은 어느 경우에도 버리지 않는다.
+    f 는 혼합값이 아니라 **주차 성분**에 적용한다(아래 주석 — 서울에서 배운 관계가 그것이다).
     """
     lots = list(lots)
     applied = bool(calibration_state is not None and calibration_state.applied)
@@ -172,7 +173,16 @@ def estimate_facilities(
         raw_level = blend_level(demand["level"], tourism)
         if raw_level is None:
             continue
-        level = calibration_state.apply(raw_level) if applied else raw_level
+        # 보정 곡선은 **주차 성분에만** 얹는다.
+        #
+        # 곡선이 서울에서 배운 관계는 "주차 점유율 → 실제 인파" 하나다(서울 대상지에는 관광
+        # 집중률 앵커가 없어 `tourism_level` 이 비어 있고, 서울의 level_est 는 주차 단독이다 —
+        # 2026-09-20 첫 수집으로 확인). 그 곡선을 관광 성분이 섞인 혼합값에 통째로 적용하면
+        # **배운 적 없는 입력**에 곡선을 쓰는 것이 되고, 경주에서만 0.3 만큼 계통 오차가 생긴다.
+        # 그래서 f 를 주차에 적용한 뒤 같은 가중치로 다시 섞는다 — 서울에서 관광 성분까지
+        # 붙게 되면(대상지에 앵커가 생기면) 그때 적합 입력을 혼합값으로 올리고 여기도 되돌린다.
+        calibrated_level = blend_level(calibration_state.apply(demand["level"]), tourism) if applied else raw_level
+        level = calibrated_level if calibrated_level is not None else raw_level
         out[facility_id] = {
             "level": level,
             "raw_level": raw_level,
