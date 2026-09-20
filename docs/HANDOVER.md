@@ -44,15 +44,30 @@
 
 외부 콘솔 접근이 필요해 코드로 못 하는 일. 끝나면 줄을 지우고 "최근 세션"에 한 줄 남긴다.
 
-- [ ] **서울 실시간 도시데이터 수집 개시**(엔진 검증 — [`CONGESTION_ENGINE_PLAN.md`](./CONGESTION_ENGINE_PLAN.md) §8).
-      API는 이력을 주지 않아 **늦게 켤수록 검증 표본이 준다.** 순서:
-      ① ~~홍대 확인~~ 완료(09-20): `POI007`, 실시간 주차 **0곳** → 대상지를 5곳으로 재조정(시연 홍대·연남동·합정역 + 검증 명동·동대문, 하루 720회).
-      인증키 **일 호출 한도**(마이페이지 인증키 화면)가 720보다 낮으면 `SEOUL_CITYDATA_TARGETS` 로 앞 3곳만 남긴다.
-      ② Render 에 `SEOUL_OPENDATA_KEY` 설정(sync:false) ③ SQL Editor 에 `20260920120000_seoul_citydata_snapshots.sql` 적용 +
-      `NOTIFY pgrst, 'reload schema';` ④ `20260920121000_schedule_seoul_citydata_collection.sql` 적용 ⑤
-      `select public.configure_seoul_citydata_collection('https://nextspot-api.onrender.com/api/v1/engine-validation/seoul/collect');`
-      ⑥ `select public.request_seoul_citydata_collection(false);` 로 첫 호출 → `/admin/engine-validation` 에서 확인.
-      이 키는 HTTP(평문)로 전송된다 — 다른 곳에 재사용하지 말 것.
+- [ ] **서울 수집이 0건이다 — 원인 확인**(2026-09-20 20:38 KST 기준 `seoul_citydata_snapshots` 0행).
+      표는 생겼고 Render 배포·인증키도 들어갔으며 API 엔드포인트도 살아 있다(401 = 인증 필요, 404 아님).
+      남은 후보는 **수집 URL 시크릿 미설정**이 가장 유력하다. SQL Editor 에서 순서대로:
+      ```sql
+      -- 1) 잡이 걸려 있나
+      select jobname, schedule, active from cron.job where jobname like 'nextspot-seoul%';
+      -- 2) URL 시크릿이 있나(없으면 3번을 실행한다)
+      select name from vault.decrypted_secrets where name like 'nextspot_seoul%';
+      -- 3) 수집 URL 연결(한 번만)
+      select public.configure_seoul_citydata_collection(
+        'https://nextspot-api.onrender.com/api/v1/engine-validation/seoul/collect');
+      -- 4) 지금 한 번 호출
+      select public.request_seoul_citydata_collection(false);
+      -- 5) 결과 확인(10초쯤 뒤)
+      select status_code, left(content, 300) from net._http_response order by created desc limit 3;
+      select area_nm, bucket_at, congest_lvl, live_lot_count, level_est
+        from public.seoul_citydata_snapshots order by bucket_at desc limit 10;
+      ```
+      5번이 200 이고 표에 행이 생기면 이후는 10분마다 자동이다. 401 이면 Vault 의 서비스 토큰이
+      Render 의 값과 다른 것이고, 503 `seoul_key_missing` 이면 Render 환경변수가 아직 반영되지 않은 것이다.
+- [ ] **`20260920140000_seoul_citydata_retry_budget.sql` 적용** — 인증키 일 한도가 **1,000회**로 확인됐다(사용자).
+      대상지 5곳 · 주 호출 10분 주기 = 하루 720회라 정상일 때는 맞지만, 주 호출이 계속 실패하는 날에는
+      보충 호출(현재 10분 주기)이 720회를 더 써 한도를 넘긴다. 이 마이그레이션이 보충만 시간당 2회로 줄여
+      최악의 날도 960회로 묶는다. 주 호출 주기는 그대로 둔다(검증 지표가 10분 버킷 위에 있다).
 
 - [ ] **`ADMIN_API_TOKEN` 회전** — 구 값은 한때 `NEXT_PUBLIC_`으로 번들에 실렸던 값이라 공개된 것으로 취급.
       순서(서버는 단일 값만 비교하므로 Render 변경과 Vault 갱신 사이엔 수집이 실패한다 — 둘을 같은 10분 슬롯 안에 처리):
