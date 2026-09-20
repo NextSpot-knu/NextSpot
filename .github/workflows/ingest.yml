@@ -127,8 +127,9 @@ jobs:
 
       # 경주 메뉴별음식점(15114465)으로 음식점 시설의 대표메뉴·영업시간·주차를 features 로 보강.
       # TOURAPI(B551011)와 다른 활용신청이라 자체 base URL·키로 게이트한다(승인 전 정기 배치 보호).
+      # !cancelled() — 앞선 TourAPI 적재 스텝이 간헐 실패(약 1/4)해도 독립 데이터원인 이 보강은 돌린다.
       - name: Enrich facilities with Gyeongju restaurant menus
-        if: ${{ env.GYEONGJU_FOOD_CONFIGURED != '' && vars.GYEONGJU_FOOD_ENABLED == 'true' }}
+        if: ${{ !cancelled() && env.GYEONGJU_FOOD_CONFIGURED != '' && vars.GYEONGJU_FOOD_ENABLED == 'true' }}
         run: python scripts/ingest_gyeongju_restaurants.py
         env:
           GYEONGJU_FOOD_API_BASE_URL: ${{ vars.GYEONGJU_FOOD_API_BASE_URL }}
