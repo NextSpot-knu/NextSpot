@@ -191,11 +191,12 @@ export default function WaitingBoardPage() {
     // 백엔드가 '동시' 요청에 503 을 낸다(용량 한계 — 라이브에서 첫 요청만 200, 나머지 503 확인).
     // 그래서 4유형을 동시에 쏘지 않고 '순차'로 하나씩 호출해 동시성 1 을 유지한다: 단건 요청은
     // 성공하므로 보드가 안정적으로 채워지고, 재시도 스톰으로 백엔드를 무너뜨리지 않는다. 프리미엄
-    // 로딩 화면이 그 사이를 덮는다. 마지막 인자(20s)는 이 호출 전용 타임아웃.
+    // 로딩 화면이 그 사이를 덮는다. 마지막 인자(45s)는 이 호출 전용 타임아웃 — 0.5CPU/512MB 인스턴스가
+    // 재시작 직후 콜드 상태면 단건 처리도 20초를 넘겨(라이브 실측), 20s 는 서버 성공을 클라가 끊었다.
     const results: PromiseSettledResult<Awaited<ReturnType<typeof recommendByType>>>[] = [];
     for (const type of BOARD_TYPES) {
       try {
-        const value = await recommendByType(type, userLocation, [], PER_TYPE_LIMIT, undefined, undefined, undefined, 20000, assumedAtIsoForPreset(assumedPreset));
+        const value = await recommendByType(type, userLocation, [], PER_TYPE_LIMIT, undefined, undefined, undefined, 45000, assumedAtIsoForPreset(assumedPreset));
         results.push({ status: "fulfilled", value });
       } catch (reason) {
         results.push({ status: "rejected", reason });
@@ -211,7 +212,7 @@ export default function WaitingBoardPage() {
       for (let i = 0; i < BOARD_TYPES.length; i++) {
         if (results[i].status !== "rejected") continue;
         try {
-          const value = await recommendByType(BOARD_TYPES[i], userLocation, [], PER_TYPE_LIMIT, undefined, undefined, undefined, 20000, assumedAtIsoForPreset(assumedPreset));
+          const value = await recommendByType(BOARD_TYPES[i], userLocation, [], PER_TYPE_LIMIT, undefined, undefined, undefined, 45000, assumedAtIsoForPreset(assumedPreset));
           results[i] = { status: "fulfilled", value };
         } catch { /* 그대로 실패 유지 — 나머지 섹터로 보드는 뜬다 */ }
       }
