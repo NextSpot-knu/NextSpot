@@ -129,6 +129,25 @@ _TARGET_PROFILES: dict[str, TargetProfile] = {
         signgu_code=11440,
         tourism_names=("홍대 관광특구", "홍대 걷고싶은거리"),
     ),
+    # ── 시연 권역(홍대에서 걸어서 오갈 수 있는 이웃) ────────────────────────
+    # 실시간 주차 대수를 주는 주차장이 0곳이라(2026-09-20 확인) 추정치는 만들어지지 않는다.
+    # 이 세 곳의 쓸모는 **실측 인구**다 — "홍대가 붐비니 연남동으로" 를 실제 데이터로 보여 준다.
+    "연남동": TargetProfile(
+        latitude=37.5606, longitude=126.9256, signgu_code=11440, tourism_names=(),
+    ),
+    "합정역": TargetProfile(
+        latitude=37.5497, longitude=126.9137, signgu_code=11440, tourism_names=(),
+    ),
+    # ── 검증 지점(실시간 주차가 있는 곳) ───────────────────────────────────
+    # 2026-09-20 실측 실시간 주차장 수: 동대문 8곳 · 명동 5곳 · 신촌 1곳 · 광화문 1곳 · 나머지 0곳.
+    # 경주(ITS 3~4곳)와 자릿수가 비슷해, 주차만으로 만든 추정이 실제 인파를 얼마나 맞히는지
+    # 여기서만 물을 수 있다.
+    "명동 관광특구": TargetProfile(
+        latitude=37.5636, longitude=126.9826, signgu_code=11140, tourism_names=(),
+    ),
+    "동대문 관광특구": TargetProfile(
+        latitude=37.5707, longitude=127.0094, signgu_code=11140, tourism_names=(),
+    ),
 }
 
 

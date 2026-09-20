@@ -46,7 +46,8 @@
 
 - [ ] **서울 실시간 도시데이터 수집 개시**(엔진 검증 — [`CONGESTION_ENGINE_PLAN.md`](./CONGESTION_ENGINE_PLAN.md) §8).
       API는 이력을 주지 않아 **늦게 켤수록 검증 표본이 준다.** 순서:
-      ① `apps/api/.env` 에 `SEOUL_OPENDATA_KEY` 를 넣고 홍대 관광특구의 `AREA_CD`·실시간 주차장 수 확인(0곳이면 대상지 재선정)
+      ① ~~홍대 확인~~ 완료(09-20): `POI007`, 실시간 주차 **0곳** → 대상지를 5곳으로 재조정(시연 홍대·연남동·합정역 + 검증 명동·동대문, 하루 720회).
+      인증키 **일 호출 한도**(마이페이지 인증키 화면)가 720보다 낮으면 `SEOUL_CITYDATA_TARGETS` 로 앞 3곳만 남긴다.
       ② Render 에 `SEOUL_OPENDATA_KEY` 설정(sync:false) ③ SQL Editor 에 `20260920120000_seoul_citydata_snapshots.sql` 적용 +
       `NOTIFY pgrst, 'reload schema';` ④ `20260920121000_schedule_seoul_citydata_collection.sql` 적용 ⑤
       `select public.configure_seoul_citydata_collection('https://nextspot-api.onrender.com/api/v1/engine-validation/seoul/collect');`
