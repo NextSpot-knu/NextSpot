@@ -69,6 +69,16 @@ export default function SavedPage() {
     return () => clearInterval(interval);
   }, []);
 
+  // 상세 오버레이가 열려 있을 때 Esc 로 닫는다(딤 배경 탭·Enter 와 동일한 닫기 경로 — 키보드 접근).
+  useEffect(() => {
+    if (!selectedBookmark) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setSelectedBookmark(null);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [selectedBookmark]);
+
   const formatTime = (date: Date | null) => {
     if (!date) return '';
     return date.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false });
@@ -421,10 +431,24 @@ export default function SavedPage() {
         )}
       </main>
 
-      {/* Selected Item Detail Bottom Sheet (RecommendationCard) */}
+      {/* Selected Item Detail — 포커스 오버레이(딤 배경 + 하단 중앙 세로 카드).
+          배경을 탭/Enter 하거나 Esc 로 닫는다. 카드는 max-w 로 데스크톱 과폭을 막고,
+          펼쳐 길어지면 내부에서 스크롤한다(뷰포트 밖으로 넘쳐 잘리지 않게). */}
       {selectedBookmark && (
-        <div className="absolute bottom-[calc(var(--tourist-nav-clearance)+env(safe-area-inset-bottom))] inset-x-0 z-20 px-4 animate-slide-up flex justify-center">
-          <div className="w-full max-w-[400px]">
+        <>
+          {/* 딤 스크림 — 실제 <button> 이라 키보드 포커스·Enter 로도 닫힌다(기존 common.close 재사용).
+              색은 테마 불변인 한옥 먹빛(bg-hanok)이라 라이트/다크 모두에서 확실히 어두워진다
+              (bg-muk 는 다크에서 밝은색으로 뒤집혀 스크림으로 부적합). */}
+          <button
+            type="button"
+            aria-label={t('common.close')}
+            onClick={() => setSelectedBookmark(null)}
+            className="absolute inset-0 z-20 bg-hanok/40 backdrop-blur-[2px] animate-page-enter focus:outline-none"
+          />
+          {/* 하단 중앙 도킹 세로 카드. 컨테이너는 pointer-events-none(양옆 빈 공간 탭이 스크림으로
+              떨어져 닫히도록) — 카드만 auto 로 복원. 내부 px-4 는 모바일 여백 겸 카드 그림자 여유. */}
+          <div className="absolute inset-x-0 bottom-[calc(var(--tourist-nav-clearance)+env(safe-area-inset-bottom))] z-30 flex justify-center pointer-events-none">
+            <div className="w-full max-w-[400px] max-h-[calc(100dvh-var(--tourist-nav-clearance)-5rem)] overflow-y-auto overscroll-contain no-scrollbar px-4 animate-slide-up pointer-events-auto">
           <RecommendationCard
             title={selectedBookmark.name}
             matchPercentage={100}
@@ -472,8 +496,9 @@ export default function SavedPage() {
               toast.success(t('saved.removedFromSaved', { name: selectedBookmark.name }));
             }}
           />
+            </div>
           </div>
-        </div>
+        </>
       )}
 
       {/* 은은한 노을 광원 (콜드 블루 글로우 → 웜) */}
