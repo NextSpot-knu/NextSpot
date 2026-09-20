@@ -235,8 +235,7 @@
     "ingestRequestDone": "Request to add '{name}' received. It will be added after an admin reviews it.",
     "ingestRequestFailed": "We couldn't send your request. Please try again in a moment.",
     "searchNoResultAnywhere": "'{q}' isn't in our data or in Korea Tourism Organization records",
-    "estimateLegend": "Dashed pin = estimate · from live parking",
-    "estimateLegendHint": "Dashed pins are estimates built from public parking occupancy within 2km and tourism statistics — not on-site measurements."
+    "estimateLegend": "Dashed = estimate · from live parking"
   },
   "mypage": {
     "menuAria": "Menu",

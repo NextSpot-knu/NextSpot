@@ -235,8 +235,7 @@
     "ingestRequestDone": "'{name}' 추가 요청을 접수했어요. 관리자 확인 뒤 등록돼요.",
     "ingestRequestFailed": "추가 요청을 보내지 못했어요. 잠시 후 다시 시도해 주세요.",
     "searchNoResultAnywhere": "'{q}' 는 우리 데이터에도 관광공사 자료에도 없어요",
-    "estimateLegend": "점선 핀 = 추정 · 주차 실측 기반",
-    "estimateLegendHint": "점선 핀은 반경 2km 공영주차 실측과 관광 통계로 만든 추정이에요. 현장에서 잰 값이 아닙니다."
+    "estimateLegend": "점선 = 추정 · 주차 실측 기반"
   },
   "mypage": {
     "menuAria": "메뉴",

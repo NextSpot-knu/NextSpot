@@ -235,8 +235,7 @@
     "ingestRequestDone": "已受理添加「{name}」的申请。管理员确认后将会收录。",
     "ingestRequestFailed": "未能发送申请，请稍后再试。",
     "searchNoResultAnywhere": "「{q}」在我们的数据和韩国观光公社资料中都没有",
-    "estimateLegend": "虚线图钉 = 估算 · 基于停车场实测",
-    "estimateLegendHint": "虚线图钉是根据半径2km内公共停车场实测与旅游统计得出的估算值，并非现场测量。"
+    "estimateLegend": "虚线 = 估算 · 基于实时停车数据"
   },
   "mypage": {
     "menuAria": "菜单",

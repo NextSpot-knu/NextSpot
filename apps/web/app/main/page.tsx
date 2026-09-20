@@ -1224,14 +1224,6 @@ export default function MainPage() {
     return out;
   }, [activeFilter, facilities, parkingLots, predictionMap, isForecast, showBarrierFree, showParkingFilter, showPetFilter, estimateById, estimateClock]);
 
-  // 점선 핀이 하나라도 그려질 때만 범례를 띄운다. 추정이 없는 날(스냅샷 60분 초과·구 서버)에
-  // '추정' 범례만 떠 있으면 없는 것을 설명하는 셈이다. 예측 모드는 추정을 그리지 않는다(마커 주석).
-  const showEstimateLegend = useMemo(
-    () => activeFilter !== '주차장' && !isForecast
-      && markerFacilities.some((f) => displayableEstimate(f as { congestionLevel?: number | null; congestionEstimate?: unknown }) !== null),
-    [activeFilter, isForecast, markerFacilities],
-  );
-
   // 타임슬라이더 전환: 지금(0)=실측 복귀, +N시간=백엔드 배치 예측으로 마커·히트맵 재채색.
   // 실패 시 예측을 적용하지 않고 '지금' 모드를 유지(토스트 안내) — 회귀 없이 안전.
   const handleTimeShift = async (n: number) => {
@@ -2124,12 +2116,10 @@ export default function MainPage() {
           || (!!selectedFacility && f.id === selectedFacility.id));
       const w = isSel ? selW : baseW;
       const h = isSel ? selH : baseH;
-      // 추정은 '지금(HH:MM 관측)' 값이다. 예측 모드(+1h~+3h)에서 점선 핀으로 남기면 그 시각의
-      // 값처럼 읽힌다 — 예측이 없는 곳은 오늘처럼 회색(데이터 없음)으로 둔다. 실측이 있으면
-      // displayableEstimate 가 null 이라 마커는 종전 그대로 실측 색이다.
-      const estimateLevel = isForecast ? null : (displayableEstimate(f)?.level ?? null);
+      // 마커는 **실측 혼잡만** 칠한다. 추정치는 마커 디자인을 건드리지 않고 상세 패널에서만
+      // 말한다 — 지도 핀은 이 서비스의 얼굴이라 근거 등급마다 모양을 늘리지 않는다(사용자 결정).
       const markerImage = new kakao.maps.MarkerImage(
-        getMarkerSvg(f.type, f.congestionLevel, f.features, isSel, busyAt, estimateLevel),
+        getMarkerSvg(f.type, f.congestionLevel, f.features, isSel, busyAt),
         new kakao.maps.Size(w, h),
         { offset: new kakao.maps.Point(w / 2, h) }
       );
@@ -2227,8 +2217,10 @@ export default function MainPage() {
     markersRef.current = newMarkers;
     // selectedFacility 변경 시에도 재렌더해 선택 마커만 진한 색으로 갱신(기존 마커는 effect 시작부에서 정리)
     // markerFacilities 를 dep 으로 둬 예측(hoursAhead) 전환 시에도 마커가 예측 혼잡도로 재채색된다.
-    // busyAt: 운영자 혼잡 경계는 부팅 뒤 비동기로 도착한다. dep 에 없으면 마커가 기본 경계로
-    // 칠해진 채 남아 배지와 색이 어긋난다.
+    // busyAt: 운영자 혼잡 경계는 부팅 뒤 비동기로 도착한다. dep 에 없으면 마커가 기본 경계로
+
+    // 칠해진 채 남아 배지와 색이 어긋난다.
+
   }, [markerFacilities, activeFilter, mapLoaded, selectedFacility?.id, selectedParkingLot?.id, activeGroupId, mapLevel, mapViewportVersion, searchQuery, busyAt, isForecast]);
 
   // 히트맵 레이어 (실 카카오맵) — 혼잡 핀과 별개의 CustomOverlay blob(CongestionMap 에서 이식).
@@ -2994,17 +2986,6 @@ export default function MainPage() {
             🔥 {t('map.heatmap')}
           </button>
 
-          {/* 추정 범례 — 점선 핀이 무엇인지 지도 위에서 바로 말한다(실측과 섞여 보이지 않게). */}
-          {showEstimateLegend && (
-            <span
-              title={t('map.estimateLegendHint')}
-              className="flex shrink-0 items-center gap-2 rounded-full border border-dashed border-muk/30 bg-white/85 px-3 py-1.5 text-[12px] font-medium text-muk-soft fractal-glass"
-            >
-              <span aria-hidden className="inline-block h-3 w-3 rounded-full border-2 border-dashed border-gold-deep bg-white" />
-              {t('map.estimateLegend')}
-            </span>
-          )}
-
           {/* ♿ 배리어프리 토글 — 켜지면 features.barrier_free 시설만 지도에 표시(무장애 여행 동선용) */}
           <button
             type="button"
@@ -3152,12 +3133,6 @@ export default function MainPage() {
               <div className="mt-4"><p className="mb-2 text-xs font-bold text-muk-soft">{t('map.foodFilters')}</p><div className="flex gap-2 overflow-x-auto no-scrollbar">{cuisineChips.map((chip) => (
                 <button key={chip.id} type="button" onClick={() => selectCuisineChip(chip)} aria-pressed={cuisineChip === chip.id} className={`shrink-0 rounded-full border px-3 py-1.5 text-xs font-semibold ${cuisineChip === chip.id ? 'border-gold bg-gold/15 text-gold-deep' : 'border-gold/25 bg-white text-muk-soft'}`}><span aria-hidden>{chip.emoji}</span> {t(`cuisine.${chip.id}`)}</button>
               ))}</div></div>
-            )}
-            {showEstimateLegend && (
-              <p className="mt-3 flex items-start gap-2 rounded-xl border border-dashed border-muk/25 bg-white px-3 py-2 text-[11px] leading-snug text-muk-soft">
-                <span aria-hidden className="mt-0.5 inline-block h-3 w-3 shrink-0 rounded-full border-2 border-dashed border-gold-deep bg-white" />
-                <span><b className="font-semibold text-muk">{t('map.estimateLegend')}</b> · {t('map.estimateLegendHint')}</span>
-              </p>
             )}
             <div className="mt-4 flex flex-wrap gap-2"><FestivalBanner onFocus={focusFestivalOnMap} /><RestroomChip location={userLocation} /></div>
           </section>

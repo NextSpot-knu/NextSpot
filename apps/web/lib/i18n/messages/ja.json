@@ -235,8 +235,7 @@
     "ingestRequestDone": "「{name}」の追加リクエストを受け付けました。管理者の確認後に登録されます。",
     "ingestRequestFailed": "追加リクエストを送信できませんでした。しばらくしてから再度お試しください。",
     "searchNoResultAnywhere": "「{q}」は当社のデータにも韓国観光公社の資料にもありません",
-    "estimateLegend": "点線ピン = 推定 · 駐車場の実測に基づく",
-    "estimateLegendHint": "点線ピンは半径2km内の公営駐車場の実測と観光統計から作った推定です。現地で測った値ではありません。"
+    "estimateLegend": "破線 = 推定 · リアルタイム駐車データに基づく"
   },
   "mypage": {
     "menuAria": "メニュー",

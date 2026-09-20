@@ -121,20 +121,17 @@ const raw = {
   assert.equal(ranked[0].spot.score, ranked[1].spot.score, '추정이 미러 점수를 바꿨다');
 }
 
-// --- 4) 마커 모양 --------------------------------------------------------------
+// --- 4) 마커는 추정을 그리지 않는다 --------------------------------------------
+// 지도 핀은 **실측 혼잡만** 칠한다(사용자 결정 2026-09-20 — 근거 등급마다 핀 모양을 늘리지 않는다).
+// 추정은 시설 상세·추천 카드에서 '추정' 배지로만 말한다.
 {
   const decode = (uri: string) => decodeURIComponent(uri.replace(/^data:image\/svg\+xml;charset=utf-8,/, ''));
   const measured = decode(getMarkerSvg('cafe', 0.44, null, false, 0.75));
-  const estimated = decode(getMarkerSvg('cafe', null, null, false, 0.75, 0.44));
   const none = decode(getMarkerSvg('cafe', null, null, false, 0.75));
-  const both = decode(getMarkerSvg('cafe', 0.44, null, false, 0.75, 0.9));
 
-  assert.match(estimated, /stroke-dasharray/, '추정 마커가 점선이 아니다');
   assert.doesNotMatch(measured, /stroke-dasharray/, '실측 마커가 점선으로 바뀌었다');
-  assert.notEqual(estimated, measured, '추정과 실측 마커가 같다');
-  assert.match(estimated, /#047857/, '추정 마커가 등급색(여유)을 쓰지 않는다');
   assert.match(none, /#4b5563/, '근거 없음은 종전처럼 회색이어야 한다');
-  assert.equal(both, measured, '실측이 있으면 추정 인자는 무시돼야 한다(측정이 이긴다)');
+  assert.notEqual(measured, none, '실측과 근거 없음이 같은 마커다');
 }
 
 // --- 5) 배선: 추정이 관측 필드로 새지 않는가 ------------------------------------
@@ -145,8 +142,8 @@ const raw = {
   assert.doesNotMatch(main, /baseCongestion:\s*[^,\n]*[Ee]stimate/, '지도 화면이 추정을 baseCongestion 에 넣는다');
   assert.doesNotMatch(main, /currentCount:\s*[^,\n]*[Ee]stimate/, '추정으로 인원을 만든다');
   assert.doesNotMatch(main, /congestion:\s*x\.congestionEstimate/, '음성 후보가 추정을 관측처럼 보낸다');
-  assert.match(main, /getMarkerSvg\([^)]*busyAt, estimateLevel\)/, '마커가 추정 인자를 받지 않는다');
-  assert.match(main, /isForecast \? null/, '예측 모드에서 추정 핀을 끄지 않는다');
+  // 지도 핀은 실측 전용이다(사용자 결정 2026-09-20 — 마커 디자인은 종전 그대로 둔다).
+  assert.doesNotMatch(main, /getMarkerSvg\([^)]*[Ee]stimate/, '마커가 추정으로 다시 칠해진다');
 
   // 추정은 별도 피드에서 받고, 24시간 시설 캐시(loadFacilities → saveFacilityCache)에는 넣지 않는다.
   assert.match(main, /getCongestionEstimates\(/, '지도가 추정 피드를 받지 않는다');
