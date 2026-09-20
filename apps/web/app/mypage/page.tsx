@@ -48,7 +48,7 @@ function DevConsoleEntry() {
     <button
       type="button"
       onClick={() => router.push('/dev')}
-      className="mb-4 flex w-full items-center justify-between gap-3 rounded-3xl border border-jade/30 bg-jade/5 p-5 text-left transition-colors hover:bg-jade/10"
+      className="mb-4 flex w-full items-center justify-between gap-3 rounded-3xl border border-jade/30 bg-jade/5 p-5 text-left toss-pressable hover:bg-jade/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
     >
       <span className="min-w-0">
         <span className="flex items-center gap-2 font-bold text-muk">
@@ -74,7 +74,7 @@ function AdminConsoleEntry() {
       // `/admin` 이 아니라 `/admin/dashboard` 다 — `/admin` 은 정적 export 때문에 남겨 둔
       // 클라이언트 리다이렉트 껍데기라, 거쳐 가면 뒤로 가기에 빈 칸이 하나 낀다.
       onClick={() => router.push('/admin/dashboard')}
-      className="mb-4 flex w-full items-center justify-between gap-3 rounded-3xl border border-gold/30 bg-gold/5 p-5 text-left transition-colors hover:bg-gold/10"
+      className="mb-4 flex w-full items-center justify-between gap-3 rounded-3xl border border-gold/30 bg-gold/5 p-5 text-left toss-pressable hover:bg-gold/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
     >
       <span className="min-w-0">
         <span className="flex items-center gap-2 font-bold text-muk">
@@ -346,7 +346,7 @@ export default function MyPage() {
           type="button"
           aria-label={t('mypage.menuAria')}
           onClick={() => router.push('/mypage/settings')}
-          className="text-muk-soft hover:text-muk transition-colors"
+          className="-m-2 rounded-full p-2 text-muk-soft toss-pressable hover:bg-hanji-deep hover:text-muk focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
         >
           <Menu size={24} />
         </button>
@@ -360,7 +360,7 @@ export default function MyPage() {
             type="button"
             aria-label={t('mypage.bellAria')}
             onClick={() => router.push('/mypage/settings')}
-            className="text-muk-soft hover:text-muk transition-colors"
+            className="-m-2 rounded-full p-2 text-muk-soft toss-pressable hover:bg-hanji-deep hover:text-muk focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
           >
             <Bell size={24} />
           </button>
@@ -423,7 +423,7 @@ export default function MyPage() {
                   <button
                     type="button"
                     onClick={handleOpenEdit}
-                    className="flex items-center gap-2 px-5 py-2.5 rounded-xl border border-line bg-hanji hover:bg-hanji-deep text-muk text-sm font-medium transition-colors"
+                    className="flex items-center gap-2 px-5 py-2.5 rounded-xl border border-line bg-hanji text-muk text-sm font-medium toss-pressable hover:bg-hanji-deep focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
                   >
                     <Edit2 size={14} />
                     <span>{t('mypage.editProfile')}</span>
@@ -437,7 +437,7 @@ export default function MyPage() {
                     type="button"
                     onClick={() => router.push('/saved')}
                     aria-label={`${t('mypage.statSaved')} ${profile.saved}`}
-                    className="bg-white border border-line rounded-2xl p-4 flex items-center justify-center gap-3 max-[420px]:gap-1.5 shadow-[0_2px_14px_rgba(43,35,32,0.06)] transition-colors hover:bg-hanji-deep focus:outline-none focus-visible:ring-2 focus-visible:ring-terracotta/60"
+                    className="bg-white border border-line rounded-2xl p-4 flex items-center justify-center gap-3 max-[420px]:gap-1.5 shadow-[0_2px_14px_rgba(43,35,32,0.06)] toss-pressable hover:bg-hanji-deep focus:outline-none focus-visible:ring-2 focus-visible:ring-terracotta/60"
                   >
                     <Bookmark size={20} className="text-terracotta shrink-0" fill="currentColor" />
                     <span className="text-xl font-bold text-muk">{profile.saved}</span>
@@ -460,7 +460,7 @@ export default function MyPage() {
                     type="button"
                     onClick={() => router.push('/mypage/impact')}
                     aria-label={waitSaved > 0 ? t('mypage.savedBanner', { n: waitSaved }) : t('mypage.savedBannerZero')}
-                    className="w-full mt-3 bg-gradient-to-r from-gold/15 via-hanji-deep/60 to-jade/10 border border-gold/30 rounded-2xl px-4 py-3.5 flex items-center gap-3 text-left shadow-[0_2px_14px_rgba(43,35,32,0.06)] hover:from-gold/25 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+                    className="w-full mt-3 bg-gradient-to-r from-gold/15 via-hanji-deep/60 to-jade/10 border border-gold/30 rounded-2xl px-4 py-3.5 flex items-center gap-3 text-left shadow-[0_2px_14px_rgba(43,35,32,0.06)] toss-pressable hover:from-gold/25 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
                   >
                     <Hourglass size={22} className="text-gold-deep shrink-0" />
                     <span className="min-w-0">
@@ -482,6 +482,11 @@ export default function MyPage() {
                 <TasteRadar />
               </div>
             </div>
+
+            {/* PC(md+): 아래 목록형 카드들은 위 프로필 그리드(4xl)보다 좁게 다시 중앙 정렬한다 —
+                4xl 폭까지 그대로 늘어나면 라벨과 화살표 사이가 헐거워 보인다(Apple-급 절제).
+                모바일은 md: 프리픽스라 영향 없음. */}
+            <div className="md:mx-auto md:w-full md:max-w-2xl">
 
             {/* 계정 — 게스트면 소셜 연동 유도, 연동됐으면 프로바이더 뱃지(OAUTH_PLAN F5). */}
             <AccountSection />
@@ -507,7 +512,7 @@ export default function MyPage() {
                 type="button"
                 onClick={() => router.push('/mypage/lab')}
                 aria-label={t('lab.cardCta', { count: labPendingCount })}
-                className="group w-full mb-4 rounded-3xl border border-jade/35 bg-gradient-to-r from-jade/12 via-hanji to-gold/10 p-5 text-left shadow-[0_2px_14px_rgba(43,35,32,0.06)] transition-colors hover:border-jade/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+                className="group w-full mb-4 rounded-3xl border border-jade/35 bg-gradient-to-r from-jade/12 via-hanji to-gold/10 p-5 text-left shadow-[0_2px_14px_rgba(43,35,32,0.06)] toss-pressable hover:border-jade/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
               >
                 <div className="flex items-center justify-between gap-4">
                   <div className="flex min-w-0 items-center gap-4">
@@ -549,7 +554,7 @@ export default function MyPage() {
                     key={menu.id}
                     type="button"
                     onClick={() => router.push(menu.path)}
-                    className={`w-full flex items-center justify-between p-5 hover:bg-hanji transition-colors ${index !== menus.length - 1 ? 'border-b border-line' : ''}`}
+                    className={`w-full flex items-center justify-between p-5 toss-pressable hover:bg-hanji focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-gold/60 ${index !== menus.length - 1 ? 'border-b border-line' : ''}`}
                   >
                     <div className="flex items-center gap-4">
                       <div className="w-10 h-10 rounded-full bg-hanji-deep flex items-center justify-center">
@@ -576,7 +581,7 @@ export default function MyPage() {
             {canEnterMerchantConsole(account) && <button
               type="button"
               onClick={() => router.push('/merchant')}
-              className="group w-full mb-4 rounded-3xl border border-gold/35 bg-gradient-to-r from-gold/15 via-hanji to-terracotta/10 p-5 text-left shadow-[0_2px_14px_rgba(43,35,32,0.06)] transition-colors hover:border-gold/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+              className="group w-full mb-4 rounded-3xl border border-gold/35 bg-gradient-to-r from-gold/15 via-hanji to-terracotta/10 p-5 text-left shadow-[0_2px_14px_rgba(43,35,32,0.06)] toss-pressable hover:border-gold/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
             >
               <div className="flex items-center justify-between gap-4">
                 <div className="flex min-w-0 items-center gap-4">
@@ -616,7 +621,7 @@ export default function MyPage() {
               <button
                 type="button"
                 onClick={() => router.push('/account/business')}
-                className={`mb-4 flex w-full items-center justify-between gap-3 rounded-3xl border p-5 text-left transition-colors ${
+                className={`mb-4 flex w-full items-center justify-between gap-3 rounded-3xl border p-5 text-left toss-pressable focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 ${
                   roleRequestEntry === 'pending'
                     ? 'border-gold/40 bg-gold/5 hover:bg-gold/10'
                     : 'border-line bg-white hover:bg-hanji-deep'
@@ -647,7 +652,7 @@ export default function MyPage() {
             <button
               type="button"
               onClick={handleSignOut}
-              className="w-full flex items-center justify-center gap-2 py-4 rounded-2xl border border-line bg-transparent hover:bg-hanji-deep text-muk-soft font-semibold transition-colors mb-4"
+              className="w-full flex items-center justify-center gap-2 py-4 rounded-2xl border border-line bg-transparent text-muk-soft font-semibold toss-pressable hover:bg-hanji-deep focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 mb-4"
             >
               <LogOut size={18} className="text-terracotta" />
               <span className="text-terracotta">{t('mypage.signOut')}</span>
@@ -655,13 +660,15 @@ export default function MyPage() {
 
             {/* 보조 링크 — 개인정보·고객지원은 메인 메뉴에서 분리해 작게 배치 */}
             <div className="flex items-center justify-center gap-3 text-xs text-muk-soft pb-2">
-              <button type="button" onClick={() => router.push('/mypage/privacy')} className="hover:text-muk transition-colors">
+              <button type="button" onClick={() => router.push('/mypage/privacy')} className="-my-2 rounded-lg px-1 py-2 toss-pressable hover:text-muk focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60">
                 {t('mypage.menuPrivacy')}
               </button>
               <span className="text-line">·</span>
-              <button type="button" onClick={() => router.push('/mypage/support')} className="hover:text-muk transition-colors">
+              <button type="button" onClick={() => router.push('/mypage/support')} className="-my-2 rounded-lg px-1 py-2 toss-pressable hover:text-muk focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60">
                 {t('mypage.menuHelp')}
               </button>
+            </div>
+
             </div>
 
           </div>
@@ -692,7 +699,7 @@ export default function MyPage() {
                 type="button"
                 aria-label={t('common.close')}
                 onClick={() => setIsEditOpen(false)}
-                className="text-muk-soft hover:text-muk transition-colors"
+                className="-m-2 rounded-full p-2 text-muk-soft toss-pressable hover:bg-hanji-deep hover:text-muk focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
               >
                 <X size={20} />
               </button>
@@ -718,7 +725,7 @@ export default function MyPage() {
               <button
                 type="button"
                 onClick={() => setIsEditOpen(false)}
-                className="flex-1 py-3 rounded-xl border border-line bg-hanji hover:bg-hanji-deep text-muk-soft font-semibold transition-colors"
+                className="flex-1 py-3 rounded-xl border border-line bg-hanji text-muk-soft font-semibold toss-pressable hover:bg-hanji-deep focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
               >
                 {t('common.cancel')}
               </button>
@@ -726,7 +733,7 @@ export default function MyPage() {
                 type="button"
                 onClick={() => { void handleSaveProfile(); }}
                 disabled={!nameInput.trim()}
-                className="flex-1 py-3 rounded-xl bg-gold hover:bg-gold-deep disabled:opacity-50 disabled:hover:bg-gold text-white font-bold transition-colors"
+                className="flex-1 py-3 rounded-xl bg-gold text-white font-bold toss-pressable hover:bg-gold-deep focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 disabled:opacity-50 disabled:hover:bg-gold"
               >
                 {t('common.save')}
               </button>
