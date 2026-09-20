@@ -2,7 +2,7 @@
 
 import { useId, useRef, type ReactNode } from 'react';
 import Link from 'next/link';
-import { ArrowDown, ArrowRight, Bookmark, Building2, Check, Coffee, Compass, Database, Footprints, Globe, Heart, Home, MapPin, Quote, Route, ShieldCheck, Sparkles, Store, Ticket, Timer, User, Waypoints } from 'lucide-react';
+import { Accessibility, ArrowDown, ArrowRight, Bookmark, Building2, Check, Coffee, Compass, Database, Footprints, Globe, Heart, Home, MapPin, Mic, Quote, Radar, Route, ShieldCheck, Sparkles, Store, Ticket, Timer, User, Waypoints } from 'lucide-react';
 import { SPOT_WEIGHTS } from 'shared-types';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { useT } from '@/lib/i18n/I18nProvider';
@@ -64,6 +64,14 @@ export default function GuideContent({ onNavigate }: { onNavigate?: () => void }
     { key: 'businessB2b', timing: '2027 H1' },
     { key: 'businessB2g', timing: '2027 H2' },
     { key: 'businessData', timing: '2028+' },
+  ] as const;
+  const signatures = [
+    { key: 'sigPredict', icon: Timer },
+    { key: 'sigIncentive', icon: Sparkles },
+    { key: 'sigVoice', icon: Mic },
+    { key: 'sigConsole', icon: Building2 },
+    { key: 'sigLearning', icon: Radar },
+    { key: 'sigBarrierFree', icon: Accessibility },
   ] as const;
   const features = [
     { key: 'featureMap', href: '/main', icon: MapPin },
@@ -183,6 +191,12 @@ export default function GuideContent({ onNavigate }: { onNavigate?: () => void }
 
       <section data-chapter="features" tabIndex={-1} className={styles.section} aria-labelledby={`${id}-features-title`}>
         <p className={styles.eyebrow}>06 / {t('guide.navFeatures')}</p><h2 id={`${id}-features-title`} className={styles.title}>{t('guide.featuresTitle')}</h2>
+        <div className={styles.signature}>
+          <p className={styles.signatureHeading}>{t('guide.signatureTitle')}</p>
+          <div className={styles.signatureGrid}>{signatures.map(({ key, icon: Icon }) => <article key={key}>
+            <Icon size={22} /><h3>{t(`guide.${key}`)}</h3><p>{t(`guide.${key}Body`)}</p>
+          </article>)}</div>
+        </div>
         <div className={styles.features}>{features.map(({ key, href, icon: Icon }) => <details key={key} className={styles.feature}>
           <summary><Icon size={21} /><span>{t(`guide.${key}`)}</span><span className={styles.plus} aria-hidden>+</span></summary>
           <div><p>{t(`guide.${key}Body`)}</p>{cta(href, t('guide.openFeature'))}</div>
