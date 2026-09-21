@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { AlertTriangle, Database, Info, ShieldCheck } from 'lucide-react';
 import { adminApi } from '@/lib/admin-api';
+import { useCountUp } from '@/lib/useCountUp';
 import { describeGuardrailWarnings } from '@/lib/adminGuardrailWarnings';
 import { ESTIMATED_LOG_SOURCES } from '@/lib/dashboardFallback';
 
@@ -81,6 +82,25 @@ interface TrustResponse {
   truncated?: boolean;
 }
 
+/** KPI 타일 수치의 카운트업 표시 — 도착 시 0에서 실제 값으로 굴러 올라간다(DB 집계 실값만).
+ *  파싱 안전: 순수 숫자 또는 'N.N%' 형태만 애니메이션하고, 그 외 형태는 그대로 정적 표시
+ *  (잘못 파싱해 다른 숫자를 그리는 순간 지어낸 값이 된다). 훅 규칙 때문에 map 안에서
+ *  직접 useCountUp 을 못 부르므로 타일당 컴포넌트로 감싼다. */
+function AnimatedKpiValue({ value }: { value: string | number }) {
+  const pctMatch = typeof value === 'string' ? /^(\d+(?:\.(\d+))?)%$/.exec(value) : null;
+  const target =
+    typeof value === 'number' && Number.isFinite(value)
+      ? value
+      : pctMatch
+        ? Number(pctMatch[1])
+        : Number.NaN;
+  const decimals = pctMatch?.[2]?.length ?? 0;
+  const animated = useCountUp(target, { decimals });
+  if (!Number.isFinite(target)) return <>{value}</>;
+  // 퍼센트는 원본과 동일한 소수 자리 고정(toFixed) — 굴러가는 동안에도 표기 폭이 안 흔들린다.
+  return <>{pctMatch ? `${animated.toFixed(decimals)}%` : animated}</>;
+}
+
 export function ModelTrustPanel() {
   const [data, setData] = useState<TrustResponse | null>(null);
   useEffect(() => {
@@ -157,7 +177,7 @@ export function ModelTrustPanel() {
         </p>
       )}
       <div className="mt-4 grid grid-cols-2 gap-2 md:grid-cols-4 xl:grid-cols-8">
-        {cards.map(([label, value]) => <div key={label} className="rounded-xl border border-hanok-line bg-hanok-card p-3"><p className="text-[10px] text-hanok-muted">{label}</p><p className="mt-1 text-lg font-black text-hanok-ink">{value}</p></div>)}
+        {cards.map(([label, value]) => <div key={label} className="rounded-xl border border-hanok-line bg-hanok-card p-3"><p className="text-[10px] text-hanok-muted">{label}</p><p className="mt-1 text-lg font-black text-hanok-ink"><AnimatedKpiValue value={value} /></p></div>)}
       </div>
       {/* 실데이터 수집 현황은 관측이 시작된 뒤 표시한다. */}
       {data.collection.observations > 0 && (

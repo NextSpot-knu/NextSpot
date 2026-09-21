@@ -30,6 +30,12 @@ export default function NowChip({ className = '' }: { className?: string }) {
       className={`inline-flex items-center gap-1 rounded-full bg-hanji-deep/70 border border-line px-2 py-0.5 text-[10px] font-medium text-muk-soft whitespace-nowrap ${className}`}
     >
       <Clock size={11} aria-hidden />
+      {/* 살아 있는 시계 표시 — 위 setInterval(30초)이 실제로 시각을 갱신하므로 펄스가 정직하다.
+          순수 시각 요소(점)라 i18n 키 불필요. 감속 모션 선호 시 전역 CSS 규칙 + halo 숨김. */}
+      <span className="relative flex h-1.5 w-1.5 shrink-0" aria-hidden>
+        <span className="absolute inline-flex h-full w-full animate-ping [animation-duration:2s] rounded-full bg-jade opacity-60 motion-reduce:hidden" />
+        <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-jade" />
+      </span>
       {t('common.nowTime', { time: now })}
     </span>
   );

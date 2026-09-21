@@ -12,6 +12,7 @@ import { getArrivalOpenDisplayStatus, getArrivalOpenStatus, isClosedToday } from
 import { displayWalkingMinutes } from '@/lib/recommender';
 import { haptic, interactionSpring, sheetSpring, tapMotion } from '@/lib/motion';
 import { areaDemandDisclosure } from '@/lib/areaDemandPresentation';
+import { useCountUp } from '@/lib/useCountUp';
 import { congestionDisplay, estimateRadiusKm, formatEstimateTime, formatLastObserved } from '@/lib/congestionEstimate';
 import { congestionKey as gradeKey } from '@/lib/congestionScale';
 import { useBusyThreshold } from '@/components/shell/PublicSettingsProvider';
@@ -204,6 +205,18 @@ export function RecommendationCard({
     bestHour: number;
     bestCongestion: number;
   } | null>(null);
+
+  // 살아 있는 수치 연출 — SPOT 점수·취향 일치율이 0에서 실제 값으로 짧게 굴러 올라간다.
+  // 정직성: 목표는 이미 props 로 받은 실제 값 그대로이고(반올림 규칙도 기존과 동일),
+  // 값이 없으면 NaN 을 넘겨 훅이 아무것도 하지 않는다. 감속 모션 선호 시 즉시 최종값.
+  const animatedSpotScore = useCountUp(
+    spotScore !== undefined ? Math.round(spotScore || 0) : Number.NaN,
+  );
+  const animatedPreference = useCountUp(
+    typeof preferencePercent === 'number' && Number.isInteger(preferencePercent)
+      ? preferencePercent
+      : Number.NaN,
+  );
 
   const [currentTime, setCurrentTime] = useState<Date | null>(null);
   useEffect(() => {
@@ -892,7 +905,8 @@ export function RecommendationCard({
               className="flex flex-col items-center justify-center min-w-[60px] h-[60px] rounded-2xl border border-gold/40 bg-gradient-to-b from-gold/20 to-gold/5 cursor-pointer shadow-sm"
             >
               <span className="text-[10px] text-gold-deep font-bold mb-0.5">{t('card.spotScoreLabel')}</span>
-              <span className="text-muk font-black text-xl leading-none">{Math.round(spotScore || 0)}<span className="text-[10px] font-normal text-muk-soft ml-0.5">{t('card.pointSuffix')}</span></span>
+              {/* 표시만 카운트업(animatedSpotScore) — 목표값·반올림은 기존 Math.round(spotScore) 그대로 */}
+              <span className="text-muk font-black text-xl leading-none">{animatedSpotScore}<span className="text-[10px] font-normal text-muk-soft ml-0.5">{t('card.pointSuffix')}</span></span>
             </div>
             
             {/* Info Icon — 탭/포커스로 툴팁 토글(터치·키보드 접근) */}
@@ -964,7 +978,12 @@ export function RecommendationCard({
                 <div className="w-[110px] bg-hanji-deep border border-line rounded-2xl p-3 flex flex-col justify-center items-center text-center">
                   <span className="text-muk-soft text-[10px] font-semibold mb-1">{t('card.prefMatch')}</span>
                   <div className="flex items-baseline gap-0.5 mb-1">
-                    <span className="text-xl font-black text-jade">{preferencePercent}</span>
+                    {/* 정수 값일 때만 카운트업(소수 값은 반올림이 표기를 바꾸므로 원본 그대로) */}
+                    <span className="text-xl font-black text-jade">
+                      {typeof preferencePercent === 'number' && Number.isInteger(preferencePercent)
+                        ? animatedPreference
+                        : preferencePercent}
+                    </span>
                     <span className="text-xs text-jade/80 font-bold">%</span>
                   </div>
                   <span className="text-[10px] text-muk-soft mt-0.5 line-clamp-2">{t('card.prefBasis')}</span>

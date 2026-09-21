@@ -538,3 +538,25 @@
     transition: none !important;
   }
 }
+
+/* 실행 계획 접힘(맨 아래) — 기본 접힘, 요약 행은 가운데 정렬 골드 라벨. */
+.planFold {
+  border-top: 1px solid var(--color-line);
+  background: var(--color-hanji);
+}
+.planSummary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 22px 24px;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--color-gold-deep);
+}
+.planSummary::-webkit-details-marker { display: none; }
+.planSummary svg { transition: transform 0.2s ease; }
+.planFold[open] .planSummary svg { transform: rotate(180deg); }
+.planSummary:hover { background: color-mix(in srgb, var(--color-gold) 8%, transparent); }

@@ -41,6 +41,23 @@ import {
   resolveDashboardView,
   type DashboardTodayWithEstimate,
 } from '@/lib/adminEstimateView';
+import { useCountUp } from '@/lib/useCountUp';
+
+// KPI 숫자의 카운트업 표시 — 조회가 끝나 상태에 들어온 **실제 값**을 향해서만 굴러간다
+// (값 생성·부풀림 없음, 포맷은 호출부가 기존 포맷터를 그대로 넘긴다). 훅 규칙상 조건부
+// 렌더 분기 안에서 useCountUp 을 직접 못 부르므로 숫자당 컴포넌트로 감싼다.
+function CountUpNumber({
+  value,
+  decimals = 0,
+  format,
+}: {
+  value: number;
+  decimals?: number;
+  format: (n: number) => string;
+}) {
+  const animated = useCountUp(value, { decimals });
+  return <>{format(animated)}</>;
+}
 
 // ── 로컬 타입 정의 ──────────────────────────────────────────────────────────
 // admin-api.ts 는 snake_case→camelCase 변환을 하지 않으므로(해당 파일 상단 주석 참조),
@@ -928,7 +945,12 @@ export default function DashboardPage() {
                 ) : (
                   <>
                     <div className="text-3xl font-black text-hanok-ink">
-                      {(avgCongestion.value.value * 100).toFixed(1)}%
+                      {/* 표시만 카운트업 — 목표·소수 자리는 기존 (value*100).toFixed(1) 그대로 */}
+                      <CountUpNumber
+                        value={avgCongestion.value.value * 100}
+                        decimals={1}
+                        format={(n) => `${n.toFixed(1)}%`}
+                      />
                     </div>
                     {/* 배지를 못 그린 이유를 타일 안에서 말한다 — 배지 자리의 '—' 만으로는
                         '왜' 를 알 수 없고, 툴팁은 읽히지 않는다. */}
@@ -969,7 +991,11 @@ export default function DashboardPage() {
                 ) : (
                   <>
                     <div className="text-3xl font-black text-hanok-ink">
-                      {(acceptRate.value.value * 100).toFixed(1)}%
+                      <CountUpNumber
+                        value={acceptRate.value.value * 100}
+                        decimals={1}
+                        format={(n) => `${n.toFixed(1)}%`}
+                      />
                     </div>
                     <div className="text-xs text-hanok-muted mt-1">총 {acceptRate.value.total}건 중 {acceptRate.value.accepted}건 수락</div>
                   </>
@@ -996,7 +1022,10 @@ export default function DashboardPage() {
                 ) : (
                   // 0명은 실측값이다(조회 성공 + 오늘 피드백 0건) — 실패와 다른 모양으로 그대로 보여준다.
                   <div className="text-3xl font-black text-hanok-ink">
-                    {activeUsers.value.toLocaleString()}명
+                    <CountUpNumber
+                      value={activeUsers.value}
+                      format={(n) => `${n.toLocaleString()}명`}
+                    />
                   </div>
                 )}
               </div>
@@ -1036,14 +1065,17 @@ export default function DashboardPage() {
                   // 추정 구간 수 — '건' 이 아니라 '구간' 이다(위 주석).
                   <>
                     <div className="text-3xl font-black text-rose-700">
-                      {anomalyCount.value.toLocaleString('ko-KR')}구간
+                      <CountUpNumber
+                        value={anomalyCount.value}
+                        format={(n) => `${n.toLocaleString('ko-KR')}구간`}
+                      />
                     </div>
                     <p className="text-[11px] text-sky-700/90 mt-1 leading-snug">{ESTIMATE_ANOMALY_UNIT}</p>
                   </>
                 ) : (
                   // 0건은 실측값이다(로그가 있고 임계치 초과가 없었다).
                   <div className="text-3xl font-black text-rose-700">
-                    {anomalyCount.value}건
+                    <CountUpNumber value={anomalyCount.value} format={(n) => `${n}건`} />
                   </div>
                 )}
               </div>
@@ -1083,7 +1115,14 @@ export default function DashboardPage() {
               두 지표를 **절대 섞지 않는다** — 원천도(제보 vs 경주 ITS) 단위도(시설 정원 대비
               혼잡도 vs 주차면 점유율) 다르다. 소제목과 카드 자체 라벨로 두 번 갈라 놓는다. */}
           <div className="flex items-center gap-2 -mb-2">
+            {/* 살아 있는 수집 표시 — 이 데이터는 pg_cron 이 실제로 10분마다 새로 넣는다(정직한 펄스).
+                감속 모션 선호 시 globals.css 전역 규칙이 애니메이션을 끄므로 halo 는 숨긴다. */}
+            <span className="relative flex h-2 w-2 shrink-0" aria-hidden>
+              <span className="absolute inline-flex h-full w-full animate-ping [animation-duration:2s] rounded-full bg-jade opacity-60 motion-reduce:hidden" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-jade" />
+            </span>
             <h4 className="text-sm font-bold text-hanok-ink">공영주차 실측 (경주 ITS · 10분 간격)</h4>
+            <span className="text-[11px] font-semibold text-jade whitespace-nowrap">10분 주기 자동 갱신</span>
             <span className="px-2 py-0.5 rounded-md text-[11px] font-semibold border bg-hanok-card text-hanok-muted border-hanok-line">
               위 시설 혼잡과 다른 지표 · 합산하지 않음
             </span>
