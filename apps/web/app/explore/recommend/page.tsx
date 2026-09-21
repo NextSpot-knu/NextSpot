@@ -7,7 +7,7 @@ import { ErrorState } from "@/components/ErrorState";
 import NowChip from "@/components/NowChip";
 import { createPublicClient } from "@/lib/supabase";
 const supabase = createPublicClient();
-import { apiClient, getRecommendations, reportFacilityAvailability, submitFeedback, parsePreference, RecommendationResponse } from "@/lib/api-client";
+import { apiClient, getRecommendations, recommendByType, reportFacilityAvailability, submitFeedback, parsePreference, RecommendationResponse } from "@/lib/api-client";
 import { displayWalkingMinutes, MAX_RECO_DISTANCE_M } from "@/lib/recommender"; // 빈 상태 문구의 반경(1.5km) — 하드코딩 대신 실제 컷오프 상수 사용
 import { classifyIntent, buildCardSpeech } from "@/lib/voice/voiceIntent";
 import { getArrivalOpenDisplayStatus, isClosedToday } from "@/lib/restDate";
@@ -571,7 +571,16 @@ function RecommendContent() {
           console.warn("추천 1차 실패 — 2.5초 후 1회 재시도:", firstErr);
           await new Promise((resolve) => setTimeout(resolve, 2500));
           if (cancelled) return;
-          recommendationsList = await getRecommendations(facilityId, { lat, lng }, loadTravelContext());
+          try {
+            recommendationsList = await getRecommendations(facilityId, { lat, lng }, loadTravelContext());
+          } catch (secondErr) {
+            if (cancelled) return;
+            // 최후 폴백 — 같은 SPOT 엔진의 by-type 경로로 대안을 채운다(과부하 창에서도 응답 실측).
+            // 반환 타입이 동일(RecommendationResponse[])해 화면 로직 변경 없음. 원 시설은 제외한다.
+            console.warn("추천 2차 실패 — by-type 엔진 폴백:", secondErr);
+            const fallbackType = originalFacility?.type ?? "restaurant";
+            recommendationsList = await recommendByType(fallbackType, { lat, lng }, [facilityId], 5, loadTravelContext());
+          }
         }
         if (cancelled) return;
         setRecommendations(recommendationsList);
