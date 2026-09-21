@@ -560,3 +560,153 @@
 .planSummary svg { transition: transform 0.2s ease; }
 .planFold[open] .planSummary svg { transform: rotate(180deg); }
 .planSummary:hover { background: color-mix(in srgb, var(--color-gold) 8%, transparent); }
+
+/* ── 데이터 절(공공데이터 출처 표) ───────────────────────────────────────
+   모바일(모달 100vw)에서는 표를 줄이지 않고 가로 스크롤을 준다 — 기관명·오퍼레이션명이
+   줄바꿈으로 뭉개지면 "어떤 API 를 쓰는가" 라는 이 표의 유일한 목적이 사라진다. */
+.dataTableWrap {
+  margin-top: 30px;
+  overflow-x: auto;
+  border: 1px solid var(--color-line);
+  border-radius: 18px;
+  background: var(--color-hanji);
+  -webkit-overflow-scrolling: touch;
+}
+
+.dataTable {
+  width: 100%;
+  min-width: 640px;
+  border-collapse: collapse;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.dataTable th,
+.dataTable td {
+  padding: 12px 14px;
+  text-align: left;
+  vertical-align: top;
+  word-break: keep-all;
+  border-bottom: 1px solid var(--color-line);
+}
+
+.dataTable tbody tr:last-child th,
+.dataTable tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.dataTable thead th {
+  position: sticky;
+  top: 0;
+  background: var(--color-hanji-deep);
+  color: var(--color-muk-soft);
+  font-size: 12.5px;
+  font-weight: 800;
+  letter-spacing: .02em;
+  white-space: nowrap;
+}
+
+.dataTable tbody th {
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.dataTable tbody td {
+  color: var(--color-muk-soft);
+}
+
+.dataOp {
+  display: block;
+  margin-top: 5px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  color: var(--color-gold-deep);
+  word-break: break-all;
+}
+
+.dataCycle {
+  white-space: nowrap;
+}
+
+/* 신선도 카드 — 표가 '무엇을 쓰는가'라면 이 칸은 '그게 언제 것인가'다. */
+.freshCard {
+  margin-top: 22px;
+  padding: 20px 24px;
+  border: 1px solid var(--color-line);
+  border-radius: 18px;
+  background: var(--color-hanji-deep);
+}
+
+.freshTitle {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.freshValue {
+  margin: 10px 0 0;
+  font-size: 16px;
+  font-weight: 700;
+  word-break: keep-all;
+}
+
+.freshStrong {
+  color: var(--color-gold-deep);
+}
+
+.freshMeta {
+  margin: 8px 0 0;
+  color: var(--color-muk-soft);
+  font-size: 13px;
+  line-height: 1.7;
+  word-break: keep-all;
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* 계획 절 끝의 서울 실측 검증 카드 */
+.seoulCard {
+  margin-top: 18px;
+  padding: 22px 24px;
+  border: 1px solid var(--color-line);
+  border-radius: 18px;
+  background: var(--color-hanji);
+}
+
+.seoulCard h3 {
+  margin: 10px 0 0;
+}
+
+.seoulBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 11px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-gold) 18%, transparent);
+  color: var(--color-gold-deep);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: .04em;
+}
+
+@media (max-width: 767px) {
+  .dataTable {
+    font-size: 13px;
+  }
+
+  .freshCard,
+  .seoulCard {
+    padding: 18px 18px;
+    border-radius: 15px;
+  }
+}

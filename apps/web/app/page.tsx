@@ -1,11 +1,12 @@
 'use client';
 
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback, useRef, type MouseEvent } from 'react';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { ChevronRight } from 'lucide-react';
 import { useT } from '@/lib/i18n/I18nProvider';
 import { warmBackend } from '@/lib/api-client';
+import { requestGuideDataSection } from '@/lib/guideDataSection';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { GuideButton } from '@/components/guide/GuideProvider';
 import NextSpotMascot from '@/components/NextSpotMascot';
@@ -39,6 +40,15 @@ export default function LoadingPage() {
     navigatedRef.current = true;
     router.push(seen ? '/main' : '/setup');
   }, [router]);
+
+  // 푸터의 '데이터 출처' 줄 → 서비스 소개 모달의 '데이터' 절. 모달을 여는 경로는 가이드 버튼
+  // 하나뿐이라(GuideProvider 의 컨텍스트 API), 여기서도 같은 버튼을 눌러 열고 어느 절을 펼칠지는
+  // 모듈 신호로 넘긴다(lib/guideDataSection.ts) — 본문이 dynamic import 라 클릭 직후엔 없다.
+  const openDataSection = useCallback((event: MouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation(); // 화면 전체 탭(go)으로 새지 않게
+    requestGuideDataSection();
+    introTriggerRef.current?.querySelector('button')?.click();
+  }, []);
 
   const goLogin = useCallback(() => {
     if (navigatedRef.current) return;
@@ -266,9 +276,18 @@ export default function LoadingPage() {
         </span>
       </div>
 
-      {/* 공공데이터 출처 */}
-      <div className="relative z-10 shrink-0 px-4 pb-3 text-center pointer-events-none">
-        <p className="text-xs text-muk-soft">{t('landing.dataAttribution')}</p>
+      {/* 공공데이터 출처 — 누르면 서비스 소개의 '데이터' 절(어떤 공공 API 를 어느 화면에 쓰는지
+          표 + 실시간 신선도)이 펼쳐진 채로 열린다. 화면 전체 onClick(go)과 겹치므로 전파를 막는다. */}
+      <div className="relative z-10 shrink-0 px-4 pb-3 text-center">
+        <button
+          type="button"
+          onClick={openDataSection}
+          className="toss-pressable inline-flex min-h-11 items-center gap-1 rounded-lg px-3 text-xs text-muk-soft underline decoration-line underline-offset-4 transition-colors hover:text-muk focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold-deep"
+        >
+          {t('landing.dataAttribution')}
+          <ChevronRight size={13} aria-hidden />
+          <span className="sr-only">{t('dataTab.footerHint')}</span>
+        </button>
       </div>
     </div>
   );
