@@ -16,7 +16,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Crown } from "lucide-react";
+import { ArrowLeft, ChevronRight } from "lucide-react";
 import {
   isServiceUnavailable,
   recommendByType,
@@ -108,7 +108,7 @@ function WaitingCardImage({ imageUrls, name, type }: Pick<BoardRow, "imageUrls" 
   if (!imageUrl) {
     return (
       <div
-        className="h-24 w-full shrink-0 flex items-center justify-center bg-hanji-deep/70 border-b border-line text-2xl"
+        className="h-28 w-full shrink-0 flex items-center justify-center bg-hanji-deep/70 border-b border-line text-2xl"
         aria-hidden
       >
         {TYPE_EMOJI[type] ?? "📍"}
@@ -124,7 +124,7 @@ function WaitingCardImage({ imageUrls, name, type }: Pick<BoardRow, "imageUrls" 
       alt={name}
       loading="lazy"
       onError={() => setImageIndex((current) => current + 1)}
-      className="w-full h-24 shrink-0 object-cover border-b border-line"
+      className="w-full h-28 shrink-0 object-cover border-b border-line"
     />
   );
 }
@@ -134,14 +134,16 @@ const congestionKey = (c: number) =>
   c >= 0.75 ? "busy" : c >= 0.5 ? "moderate" : c >= 0.25 ? "relaxed" : "quiet";
 
 // 혼잡 배지 색상 클래스 — 대표 카드·리스트 행에서 공유.
+// 여유·한산은 jade 하나로 통일한다(/course CONGESTION_CLASS 와 동일 팔레트) — 같은 '여유'가
+// 화면마다 다른 초록으로 보이면 같은 등급인지 헷갈린다. terracotta 는 '혼잡' 하나에만 아껴 쓴다.
 const congestionBadgeClass = (c: number) =>
   c >= 0.75
     ? "bg-terracotta/10 border-terracotta/30 text-terracotta"
     : c >= 0.5
     ? "bg-gold/10 border-gold/30 text-gold-deep"
     : c >= 0.25
-    ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-600"
-    : "bg-jade/10 border-jade/30 text-jade";
+    ? "bg-jade/10 border-jade/25 text-jade"
+    : "bg-jade/15 border-jade/30 text-jade";
 
 export default function WaitingBoardPage() {
   const router = useRouter();
@@ -395,6 +397,20 @@ export default function WaitingBoardPage() {
     fetchBoard();
   }, [fetchBoard]);
 
+  // 히어로 요약 스탯 — 이미 상태에 있는 결과에서 '도착 시 대기'가 가장 짧은 값 하나만 뽑는다
+  // (새 수치 계산·추정 없음, 순수 표시용). 오늘 휴무 확정 시설은 지금 갈 수 없으므로 제외한다.
+  const bestWait = (() => {
+    if (!sectors) return null;
+    let best: number | null = null;
+    for (const sector of sectors) {
+      for (const row of sector.rows) {
+        if (row.closedToday || row.expectedWait === null) continue;
+        if (best === null || row.expectedWait < best) best = row.expectedWait;
+      }
+    }
+    return best === null ? null : Math.round(best);
+  })();
+
   return (
     <main className="min-h-screen bg-hanji text-muk p-4 md:p-8 max-md:pb-[calc(var(--tourist-nav-clearance)+env(safe-area-inset-bottom))] relative overflow-hidden">
       {/* 배경 은은한 노을·금빛 광원 — course/explore 페이지와 동일 톤. */}
@@ -402,55 +418,65 @@ export default function WaitingBoardPage() {
       <div className="absolute bottom-[-10%] right-[-10%] w-[520px] h-[520px] rounded-full bg-gold/10 blur-[120px] pointer-events-none" />
 
       <div className="w-full max-w-md md:max-w-2xl mx-auto space-y-5 relative z-10">
-        {/* 헤더 */}
-        <div className="flex items-center gap-3">
-          <button
-            type="button"
-            onClick={() => router.push("/main")}
-            aria-label={t("waiting.backAria")}
-            className="flex shrink-0 items-center justify-center w-10 h-10 rounded-full bg-white/90 border border-line shadow-[0_2px_10px_rgba(43,35,32,0.1)] text-muk hover:bg-white transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
-          >
-            <ArrowLeft size={18} />
-          </button>
-          <div className="min-w-0">
-            {/* 브랜드 칩 + 현재 시각 — '도착 시 대기 N분'의 기준 시점을 명시(예측 수치 혼동 방지). */}
-            <div className="flex items-center gap-2">
-              <span className="inline-flex items-center w-fit px-2.5 py-1 rounded-full bg-gold/10 border border-gold/25 text-[11px] font-bold text-gold-deep">
-                {t("waiting.brand")}
-              </span>
-              <NowChip />
-            </div>
-            <h1 className="text-xl md:text-2xl font-serif font-bold text-muk leading-tight mt-1">
+        {/* 상단 바 — 뒤로가기(44px 터치)만 별도 행으로 분리해 아래 히어로 카드가 시선의 출발점이 되게 한다. */}
+        <button
+          type="button"
+          onClick={() => router.push("/main")}
+          aria-label={t("waiting.backAria")}
+          className="toss-pressable flex shrink-0 items-center justify-center w-11 h-11 rounded-full bg-white/90 border border-line shadow-[0_2px_10px_rgba(43,35,32,0.1)] text-muk hover:bg-white focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+        >
+          <ArrowLeft size={18} />
+        </button>
+
+        {/* 히어로 요약 카드 — /course 헤더 블록과 같은 문법(브랜드 칩 → 큰 헤드라인 → 한 줄 가치 →
+            골드 스탯 + 가정 시간 컨트롤). '도착 시 대기 N분'의 기준 시점(NowChip·가정 시간)을 헤드라인과
+            한 덩어리로 묶어, 보드의 숫자가 어느 시점 기준인지 바로 옆에서 읽히게 한다. */}
+        <section className="rounded-2xl border border-line/70 bg-hanji-deep/45 p-4 md:p-5 space-y-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="inline-flex items-center w-fit px-2.5 py-1 rounded-full bg-gold/15 border border-gold/30 text-[11px] font-bold text-gold-deep">
+              {t("waiting.brand")}
+            </span>
+            <NowChip />
+          </div>
+          <div className="space-y-1.5">
+            <h1 className="text-[22px] md:text-[28px] font-serif font-black text-muk leading-[1.15] tracking-tight">
               {t("waiting.title")}
             </h1>
+            <p className="text-[13px] md:text-sm text-muk-soft leading-relaxed">
+              {t("landing.value2")} · {t("recommend.areaDemandHint")}
+            </p>
           </div>
-        </div>
-        <p className="text-xs md:text-sm text-muk-soft leading-relaxed">
-          {t("landing.value2")} · {t("recommend.areaDemandHint")}
-        </p>
 
-        {/* 데모: 가정 시간 시뮬레이터 — 심야에도 낮 시각을 가정해 실제 결과를 보여준다(/main·/course 공유). */}
-        <div className="flex items-center gap-2 flex-wrap">
-          <label className="inline-flex items-center gap-1.5 rounded-full border border-line bg-white/90 px-3 py-1.5 text-xs font-medium shadow-[0_2px_10px_rgba(43,35,32,0.06)]">
-            <span aria-hidden>🕒</span>
-            <span className="text-muk-soft">{t("timeSim.label")}</span>
-            <select
-              value={assumedPreset}
-              onChange={(e) => setStoredAssumedPreset(e.target.value)}
-              aria-label={t("timeSim.label")}
-              className="bg-transparent font-semibold text-muk focus:outline-none cursor-pointer"
-            >
-              {ASSUMED_TIME_PRESETS.map((p) => (
-                <option key={p.id} value={p.id}>{t(p.labelKey)}</option>
-              ))}
-            </select>
-          </label>
-          {assumedPreset !== "now" && (
-            <span className="inline-flex items-center rounded-full bg-gold/15 border border-gold/40 px-2.5 py-1 text-[11px] font-bold text-gold-deep">
-              {t("timeSim.badge", { label: t(ASSUMED_TIME_PRESETS.find((p) => p.id === assumedPreset)?.labelKey ?? "timeSim.now") })}
-            </span>
-          )}
-        </div>
+          {/* 스탯 스트립 — 보드 최단 대기(골드 박스)와 가정 시간 컨트롤을 한 줄에 묶는다.
+              데모: 가정 시간 시뮬레이터 — 심야에도 낮 시각을 가정해 실제 결과를 보여준다(/main·/course 공유). */}
+          <div className="flex flex-wrap items-center gap-2 pt-0.5">
+            {bestWait !== null && (
+              <span className="inline-flex items-center gap-1.5 rounded-xl border border-gold/40 bg-gold/15 px-3 py-2 text-[13px] font-black text-gold-deep tabular-nums shadow-[0_2px_10px_rgba(193,154,62,0.16)]">
+                <span aria-hidden>⏱️</span>
+                {t("waiting.heroBestWait", { n: bestWait })}
+              </span>
+            )}
+            <label className="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-line bg-white px-3 py-2 text-xs font-medium shadow-[0_2px_10px_rgba(43,35,32,0.06)] focus-within:ring-2 focus-within:ring-gold/60">
+              <span aria-hidden>🕒</span>
+              <span className="text-muk-soft">{t("timeSim.label")}</span>
+              <select
+                value={assumedPreset}
+                onChange={(e) => setStoredAssumedPreset(e.target.value)}
+                aria-label={t("timeSim.label")}
+                className="bg-transparent font-bold text-muk focus:outline-none cursor-pointer"
+              >
+                {ASSUMED_TIME_PRESETS.map((p) => (
+                  <option key={p.id} value={p.id}>{t(p.labelKey)}</option>
+                ))}
+              </select>
+            </label>
+            {assumedPreset !== "now" && (
+              <span className="inline-flex items-center rounded-full bg-gold/15 border border-gold/40 px-2.5 py-1 text-[11px] font-bold text-gold-deep">
+                {t("timeSim.badge", { label: t(ASSUMED_TIME_PRESETS.find((p) => p.id === assumedPreset)?.labelKey ?? "timeSim.now") })}
+              </span>
+            )}
+          </div>
+        </section>
 
         {/* 본문 */}
         {loading ? (
@@ -469,12 +495,27 @@ export default function WaitingBoardPage() {
               const topRows = openRows.slice(0, TOP_CARD_COUNT);
               const restRows = [...openRows.slice(TOP_CARD_COUNT), ...closedRows];
               return (
-                <section key={sector.type}>
-                  {/* 섹터 헤더 — 기존 category.* i18n 키 재사용(신규 키 없음). */}
-                  <h2 className="flex items-center gap-1.5 text-sm font-bold text-muk mb-2">
-                    <span aria-hidden>{TYPE_EMOJI[sector.type] ?? "📍"}</span>
-                    {t(`category.${sector.type}`)}
-                  </h2>
+                // 섹터 = 반투명 보드 패널(fractal-glass) — 흰 카드·행이 한지 배경 위에 흩어져 보이지 않고
+                // '한 유형의 게시판 한 판'으로 묶여 읽히게 한다(상업 대기 보드의 섹션 문법).
+                <section
+                  key={sector.type}
+                  className="rounded-3xl border border-line/70 bg-white/55 fractal-glass p-3 md:p-4 shadow-[0_2px_14px_rgba(43,35,32,0.06)]"
+                >
+                  {/* 섹터 헤더 — 유형 이모지 칩 + 이름 + 표시 개수(기존 category.* i18n 키 재사용). */}
+                  <div className="flex items-center gap-2 mb-2.5">
+                    <span
+                      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gold/10 border border-gold/25 text-base"
+                      aria-hidden
+                    >
+                      {TYPE_EMOJI[sector.type] ?? "📍"}
+                    </span>
+                    <h2 className="text-[15px] font-bold text-muk leading-tight">
+                      {t(`category.${sector.type}`)}
+                    </h2>
+                    <span className="ml-auto rounded-full bg-hanji-deep px-2.5 py-1 text-[11px] font-bold text-muk-soft tabular-nums">
+                      {t("waiting.sectorCount", { n: sector.rows.length })}
+                    </span>
+                  </div>
 
                   {/* 대표 카드 3장 — 도착 대기 짧은 순 상위 3곳, 세로로 긴 포트레이트 카드 */}
                   <div className="grid grid-cols-3 items-stretch gap-2">
@@ -483,41 +524,46 @@ export default function WaitingBoardPage() {
                       <button
                         type="button"
                         onClick={() => goToDetail(row.facilityId)}
-                        className={`group relative flex h-64 flex-col overflow-hidden text-left rounded-2xl border shadow-[0_2px_14px_rgba(43,35,32,0.06)] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 ${
+                        className={`group toss-pressable relative flex h-72 flex-col overflow-hidden text-left rounded-2xl border shadow-[0_2px_14px_rgba(43,35,32,0.06)] hover:shadow-[0_6px_20px_rgba(43,35,32,0.12)] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 ${
                           idx === 0
                             ? "bg-gold/10 border-gold/40 hover:border-gold/60"
                             : "bg-white/90 border-line hover:border-gold/40 hover:bg-white"
                         }`}
                       >
-                        {/* 1위 표식(왕관) — 골든타임 배지는 카드 폭이 좁아 안 들어가므로 카드 밖 한 줄로 뺀다. */}
-                        {idx === 0 && (
-                          <span
-                            className="absolute -top-1.5 -left-1.5 w-5 h-5 rounded-full bg-gold text-white flex items-center justify-center shadow-[0_1px_4px_rgba(43,35,32,0.35)]"
-                            aria-hidden
-                          >
-                            <Crown size={11} strokeWidth={2.5} />
-                          </span>
-                        )}
+                        {/* 순위 배지 — /course 정류지 번호 배지와 같은 문법(금빛 원 + 흰 숫자 + 2px 흰 테두리).
+                            카드가 overflow-hidden 이라 모서리 밖이 아니라 사진 위 좌상단에 얹는다(상업 랭킹
+                            카드의 썸네일 순위 관례). 1위만 그라데이션으로 반 단계 더 세운다. */}
+                        <span
+                          className={`absolute top-1.5 left-1.5 z-10 flex h-7 w-7 items-center justify-center rounded-full border-2 border-white text-[13px] font-extrabold text-white tabular-nums shadow-[0_2px_8px_rgba(193,154,62,0.45)] ${
+                            idx === 0 ? "bg-gradient-to-br from-gold to-gold-deep" : "bg-gold"
+                          }`}
+                          aria-hidden
+                        >
+                          {idx + 1}
+                        </span>
                         <WaitingCardImage imageUrls={row.imageUrls} name={row.name} type={row.type} />
                         <div className="flex flex-1 min-h-0 flex-col justify-between p-2">
-                          <div>
-                            <p className="text-[11px] font-bold text-muk leading-snug line-clamp-2">
+                          {/* 위 소개 블록은 공간이 모자라면 깔끔히 잘리고(overflow-hidden), 아래 대기
+                              스탯 블록은 shrink-0 으로 항상 온전히 남는다 — 카드의 주인공은 '도착 시 대기'다. */}
+                          <div className="min-h-0 overflow-hidden">
+                            <p className="text-xs font-bold text-muk leading-snug line-clamp-2">
                               {row.name}
                             </p>
                             {/* 공식 대표 메뉴(TourAPI) — 있을 때만 한 줄. 🍽 이모지는 TYPE_EMOJI 관례와 동일 톤. */}
                             {row.menus.length > 0 && (
-                              <p className="mt-0.5 text-[9px] font-bold text-gold-deep leading-snug line-clamp-2">
+                              <p className="mt-0.5 text-[10px] font-bold text-gold-deep leading-snug line-clamp-2">
                                 🍽 {row.menus.join(" · ")}
                               </p>
                             )}
                             {row.summary && (
-                              <p className="mt-1 text-[9px] leading-snug text-muk-soft break-words line-clamp-6">
+                              <p className="mt-1 text-[10px] leading-snug text-muk-soft break-words line-clamp-5">
                                 {row.summary}
                               </p>
                             )}
                           </div>
-                          <div className="space-y-1 mt-1">
-                            <p className="text-xs font-extrabold text-gold-deep leading-tight">
+                          <div className="shrink-0 space-y-1.5 mt-1.5">
+                            {/* 대기 스탯 — 카드의 핵심 숫자를 골드 박스로 세운다(/course 도착 ETA 스탯과 동일 문법). */}
+                            <p className="rounded-lg border border-gold/30 bg-gold/10 px-2 py-1 text-xs font-extrabold text-gold-deep leading-snug tabular-nums">
                               {row.expectedWait === null
                                 ? row.areaDemandTourismEvidence
                                   ? typeof row.areaDemandTourismEvidence.relativeIndex === "number"
@@ -537,12 +583,12 @@ export default function WaitingBoardPage() {
                               </p>
                             )}
                             {row.areaDemandParkingEvidence && typeof row.areaDemandParkingEvidence.radiusM === "number" && (
-                              <p className="text-[9px] font-semibold text-sky-700">
+                              <p className="text-[10px] font-semibold text-sky-700">
                                 {t("recommend.parkingEvidenceRadius", { n: row.areaDemandParkingEvidence.radiusM.toLocaleString() })}
                               </p>
                             )}
                             {row.areaDemandTourismEvidence && (
-                              <p className="text-[9px] leading-snug text-indigo-700">
+                              <p className="text-[10px] leading-snug text-indigo-700">
                                 {typeof row.areaDemandTourismEvidence.relativeIndex === "number"
                                   ? t("recommend.tourismEvidenceIndex", { n: Math.round(row.areaDemandTourismEvidence.relativeIndex) })
                                   : t("recommend.tourismEvidenceTitle")}
@@ -557,20 +603,20 @@ export default function WaitingBoardPage() {
                             )}
                             {row.congestionLevel != null ? (
                               <span
-                                className={`inline-block text-[9px] font-bold px-1.5 py-0.5 rounded-md border whitespace-nowrap ${congestionBadgeClass(
+                                className={`inline-block text-[10px] font-bold px-1.5 py-0.5 rounded-md border whitespace-nowrap ${congestionBadgeClass(
                                   row.congestionLevel
                                 )}`}
                               >
                                 {t(`congestion.${congestionKey(row.congestionLevel)}`)}
                               </span>
                             ) : row.areaDemandTourismEvidence ? (
-                              <span className="inline-block text-[9px] font-bold px-1.5 py-0.5 rounded-md border whitespace-nowrap bg-indigo-500/10 border-indigo-500/20 text-indigo-700">
+                              <span className="inline-block text-[10px] font-bold px-1.5 py-0.5 rounded-md border whitespace-nowrap bg-indigo-500/10 border-indigo-500/20 text-indigo-700">
                                 {t("recommend.areaEvidenceCount", {
                                   n: Number(!!row.areaDemandParkingEvidence) + 1,
                                 })}
                               </span>
                             ) : row.areaDemandLevel !== null ? (
-                              <span className={`inline-block text-[9px] font-bold px-1.5 py-0.5 rounded-md border whitespace-nowrap ${congestionBadgeClass(row.areaDemandLevel)}`}>
+                              <span className={`inline-block text-[10px] font-bold px-1.5 py-0.5 rounded-md border whitespace-nowrap ${congestionBadgeClass(row.areaDemandLevel)}`}>
                                 {t(row.areaDemandMode === "live"
                                   ? "recommend.areaDemandLive"
                                   : row.areaDemandMode === "forecast"
@@ -578,7 +624,7 @@ export default function WaitingBoardPage() {
                                     : "recommend.areaDemandStats")}
                               </span>
                             ) : (
-                              <span className="inline-block text-[9px] font-bold px-1.5 py-0.5 rounded-md border bg-muk/5 border-line text-muk-soft whitespace-nowrap">
+                              <span className="inline-block text-[10px] font-bold px-1.5 py-0.5 rounded-md border bg-muk/5 border-line text-muk-soft whitespace-nowrap">
                                 {t("card.noData")}
                               </span>
                             )}
@@ -605,31 +651,31 @@ export default function WaitingBoardPage() {
                   {/* 섹터 1위 골든타임 — 카드 밖 한 줄(컴팩트 카드 폭 안에 배지+알림 버튼이 안 들어감).
                       available:false/실패면 GoldenHourBadge 자체가 조용히 숨는다. */}
                   {topRows[0] && (
-                    <div className="mt-1.5">
+                    <div className="mt-2">
                       <GoldenHourBadge facilityId={topRows[0].facilityId} />
                     </div>
                   )}
 
                   {/* 나머지 리스트 — 이름·대기·혼잡 컴팩트 행 줄줄이 */}
                   {restRows.length > 0 && (
-                    <div className="flex flex-col gap-2 mt-2">
+                    <div className="flex flex-col gap-2 mt-2.5">
                       {restRows.map((row) => (
                         <button
                           key={row.facilityId}
                           type="button"
                           onClick={() => goToDetail(row.facilityId)}
-                          className="group text-left w-full bg-white/90 border border-line rounded-2xl px-3.5 py-2.5 flex items-center gap-2.5 shadow-[0_2px_14px_rgba(43,35,32,0.06)] hover:border-gold/40 hover:bg-white transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+                          className="group toss-pressable text-left w-full min-h-11 bg-white/90 border border-line rounded-2xl px-3.5 py-3 flex items-center gap-3 shadow-[0_2px_14px_rgba(43,35,32,0.06)] hover:border-gold/40 hover:bg-white hover:shadow-[0_4px_16px_rgba(43,35,32,0.1)] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
                         >
                           <span
-                            className="w-7 h-7 shrink-0 rounded-full bg-gold/10 border border-gold/25 flex items-center justify-center text-sm"
+                            className="w-9 h-9 shrink-0 rounded-full bg-gold/10 border border-gold/25 flex items-center justify-center text-base"
                             aria-hidden
                           >
                             {TYPE_EMOJI[row.type] ?? "📍"}
                           </span>
                           <div className="flex-1 min-w-0">
-                            <p className="text-sm font-bold text-muk leading-snug truncate">{row.name}</p>
+                            <p className="text-[15px] font-bold text-muk leading-snug truncate">{row.name}</p>
                             <div className="flex flex-wrap items-center gap-1.5 mt-1">
-                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-gold/10 border border-gold/25 text-gold-deep whitespace-nowrap">
+                              <span className="text-[11px] font-bold px-2 py-1 rounded-md bg-gold/10 border border-gold/25 text-gold-deep whitespace-nowrap tabular-nums">
                                 {row.expectedWait === null
                                   ? row.areaDemandTourismEvidence
                                     ? typeof row.areaDemandTourismEvidence.relativeIndex === "number"
@@ -642,17 +688,17 @@ export default function WaitingBoardPage() {
                               </span>
                               {/* 오늘 휴무 확정 — 숨기지 않고 정직하게 배지로 알린다(리스트 맨 뒤 배치와 함께). */}
                               {row.closedToday && (
-                                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md border whitespace-nowrap bg-terracotta/10 border-terracotta/30 text-terracotta">
+                                <span className="text-[11px] font-bold px-2 py-1 rounded-md border whitespace-nowrap bg-terracotta/10 border-terracotta/30 text-terracotta">
                                   {t("card.closedToday")}
                                 </span>
                               )}
                               {row.areaDemandParkingEvidence && typeof row.areaDemandParkingEvidence.radiusM === "number" && (
-                                <span className="text-[10px] font-semibold text-sky-700 whitespace-nowrap">
+                                <span className="text-[11px] font-semibold text-sky-700 whitespace-nowrap">
                                   {t("recommend.parkingEvidenceRadius", { n: row.areaDemandParkingEvidence.radiusM.toLocaleString() })}
                                 </span>
                               )}
                               {row.areaDemandTourismEvidence && (
-                                <span className="text-[10px] font-semibold text-indigo-700">
+                                <span className="text-[11px] font-semibold text-indigo-700">
                                   {typeof row.areaDemandTourismEvidence.relativeIndex === "number"
                                     ? t("recommend.tourismEvidenceIndex", { n: Math.round(row.areaDemandTourismEvidence.relativeIndex) })
                                     : t("recommend.tourismEvidenceTitle")}
@@ -662,20 +708,20 @@ export default function WaitingBoardPage() {
                               )}
                               {row.congestionLevel != null ? (
                                 <span
-                                  className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md border whitespace-nowrap ${congestionBadgeClass(
+                                  className={`text-[11px] font-bold px-2 py-1 rounded-md border whitespace-nowrap ${congestionBadgeClass(
                                     row.congestionLevel
                                   )}`}
                                 >
                                   {t(`congestion.${congestionKey(row.congestionLevel)}`)}
                                 </span>
                               ) : row.areaDemandTourismEvidence ? (
-                                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md border whitespace-nowrap bg-indigo-500/10 border-indigo-500/20 text-indigo-700">
+                                <span className="text-[11px] font-bold px-2 py-1 rounded-md border whitespace-nowrap bg-indigo-500/10 border-indigo-500/20 text-indigo-700">
                                   {t("recommend.areaEvidenceCount", {
                                     n: Number(!!row.areaDemandParkingEvidence) + 1,
                                   })}
                                 </span>
                               ) : row.areaDemandLevel !== null ? (
-                                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md border whitespace-nowrap ${congestionBadgeClass(row.areaDemandLevel)}`}>
+                                <span className={`text-[11px] font-bold px-2 py-1 rounded-md border whitespace-nowrap ${congestionBadgeClass(row.areaDemandLevel)}`}>
                                   {t(row.areaDemandMode === "live"
                                     ? "recommend.areaDemandLive"
                                     : row.areaDemandMode === "forecast"
@@ -686,13 +732,19 @@ export default function WaitingBoardPage() {
                             </div>
                             {/* no_clear_advantage(혼잡 차이 미확인)는 자기 결점 고백이라 렌더하지 않는다 — 긍정 액션만 표시. */}
                             {row.arrivalAction && row.arrivalAction !== "no_clear_advantage" && (
-                              <p className="mt-1 text-[10px] font-bold text-sky-800">
+                              <p className="mt-1 text-[11px] font-bold text-sky-800">
                                 {t(`recommend.arrivalAction.${row.arrivalAction}`, {
                                   n: row.recommendedDepartureDelayMinutes ?? 30,
                                 })}
                               </p>
                             )}
                           </div>
+                          {/* 우측 셰브런 — '탭하면 상세로'가 그림으로 읽히는 행동 신호(상업 리스트 행 관례). */}
+                          <ChevronRight
+                            size={18}
+                            className="shrink-0 text-muk-soft/50 group-hover:text-gold-deep transition-colors"
+                            aria-hidden
+                          />
                         </button>
                       ))}
                     </div>
@@ -711,9 +763,9 @@ function EmptyState() {
   const t = useT();
   return (
     <div className="bg-white rounded-2xl border border-line shadow-[0_2px_14px_rgba(43,35,32,0.06)] p-8 text-center space-y-2">
-      <div className="text-3xl">🗺️</div>
-      <p className="text-sm font-semibold text-muk">{t("waiting.emptyTitle")}</p>
-      <p className="text-xs text-muk-soft leading-relaxed">{t("waiting.emptyBody")}</p>
+      <div className="text-4xl">🗺️</div>
+      <p className="text-[15px] font-bold text-muk">{t("waiting.emptyTitle")}</p>
+      <p className="text-[13px] text-muk-soft leading-relaxed">{t("waiting.emptyBody")}</p>
     </div>
   );
 }
@@ -722,11 +774,12 @@ function ErrorState({ onRetry }: { onRetry: () => void }) {
   const t = useT();
   return (
     <div className="bg-white rounded-2xl border border-terracotta/25 shadow-[0_2px_14px_rgba(43,35,32,0.06)] p-8 text-center space-y-3">
-      <div className="text-3xl">⚠️</div>
-      <p className="text-sm font-semibold text-muk">{t("waiting.fetchError")}</p>
+      <div className="text-4xl">⚠️</div>
+      <p className="text-[15px] font-bold text-muk">{t("waiting.fetchError")}</p>
+      {/* 재시도 = 이 화면의 유일한 주 행동 — /course 와 동일한 금빛 그라데이션 CTA 문법으로 세운다. */}
       <button
         onClick={onRetry}
-        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full bg-gold text-white text-xs font-bold hover:bg-gold-deep transition-colors"
+        className="toss-pressable inline-flex min-h-11 items-center gap-1.5 px-5 rounded-full bg-gradient-to-r from-gold to-terracotta text-white text-[13px] font-bold shadow-[0_4px_14px_rgba(193,85,59,0.25)] hover:from-gold-deep hover:to-terracotta focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
       >
         {t("common.retry")}
       </button>

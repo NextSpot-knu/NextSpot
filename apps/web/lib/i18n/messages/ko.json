@@ -698,6 +698,8 @@
     "title": "지금 출발하면?",
     "arrivalWait": "도착 시 대기 {n}분",
     "waitUnavailable": "대기 정보 수집 중",
+    "heroBestWait": "도착 시 최단 대기 {n}분",
+    "sectorCount": "{n}곳",
     "emptyTitle": "표시할 장소가 없어요",
     "emptyBody": "조건을 조금 넓히면 더 많은 장소를 보여드릴게요.",
     "fetchError": "잠시 후 다시 불러올게요."

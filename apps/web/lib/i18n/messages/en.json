@@ -698,6 +698,8 @@
     "title": "Heading out now?",
     "arrivalWait": "{n} min wait on arrival",
     "waitUnavailable": "Collecting wait information",
+    "heroBestWait": "Shortest wait on arrival: {n} min",
+    "sectorCount": "{n} spots",
     "emptyTitle": "No places to show",
     "emptyBody": "Widen your filters to see more places nearby.",
     "fetchError": "We'll load this again shortly."

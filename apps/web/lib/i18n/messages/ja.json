@@ -698,6 +698,8 @@
     "title": "今出発したら?",
     "arrivalWait": "到着時待ち{n}分",
     "waitUnavailable": "待ち時間情報を収集中",
+    "heroBestWait": "到着時の最短待ち{n}分",
+    "sectorCount": "{n}ヶ所",
     "emptyTitle": "表示できる場所がありません",
     "emptyBody": "条件を少し広げると、より多くの場所をご案内できます。",
     "fetchError": "しばらくしてからもう一度読み込みます。"

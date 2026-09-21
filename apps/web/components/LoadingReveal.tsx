@@ -120,23 +120,33 @@ function NarrationHeader({ variant }: { variant: Variant }) {
   );
 }
 
-// /waiting 결과 레이아웃 미러 — 유형 섹터(대표 포트레이트 카드 3장 + 컴팩트 행)를 두 벌 시머로 채운다.
+// /waiting 결과 레이아웃 미러 — 섹터 패널(헤더 칩 + 대표 포트레이트 카드 3장 + 컴팩트 행)을 두 벌 시머로 채운다.
+// 실제 화면과 같은 골격: 패널 컨테이너·h-72 카드·h-28 사진·좌상단 순위 원·하단 골드 대기 스탯 박스.
 function WaitingSkeleton() {
   return (
     <div className="flex flex-col gap-6" aria-hidden>
       {[0, 1].map((sector) => (
-        <div key={sector} className="space-y-2">
-          <div className="ns-skel h-4 w-24 rounded bg-hanji-deep" />
+        <div
+          key={sector}
+          className="space-y-2.5 rounded-3xl border border-line/70 bg-white/55 p-3 shadow-[0_2px_14px_rgba(43,35,32,0.06)]"
+        >
+          {/* 섹터 헤더 미러 — 이모지 칩 + 제목 + 우측 개수 알약 */}
+          <div className="flex items-center gap-2">
+            <div className="ns-skel h-8 w-8 rounded-xl bg-gold/20" />
+            <div className="ns-skel h-4 w-24 rounded bg-hanji-deep" />
+            <div className="ns-skel ml-auto h-5 w-11 rounded-full bg-hanji-deep" />
+          </div>
           <div className="grid grid-cols-3 gap-2">
             {[0, 1, 2].map((card) => (
               <div
                 key={card}
-                className="flex h-64 flex-col overflow-hidden rounded-2xl border border-line bg-white/80 shadow-[0_2px_14px_rgba(43,35,32,0.06)]"
+                className="relative flex h-72 flex-col overflow-hidden rounded-2xl border border-line bg-white/80 shadow-[0_2px_14px_rgba(43,35,32,0.06)]"
               >
-                {/* 렌즈 초점 고스트 — 실제 카드의 색·구조(사진·제목·배지·점수)를 블러 아래 실루엣으로.
+                {/* 렌즈 초점 고스트 — 실제 카드의 색·구조(순위 원·사진·제목·배지·대기 스탯)를 블러 아래 실루엣으로.
                     글자 0개(가짜 정보 없음), 형태와 색만. */}
                 <div className="ns-ghost flex h-full flex-col">
-                  <div className="ns-skel h-24 w-full bg-gradient-to-br from-hanji-deep via-gold/25 to-jade/20" />
+                  <span className="absolute top-1.5 left-1.5 z-10 h-7 w-7 rounded-full border-2 border-white bg-gold/70" />
+                  <div className="ns-skel h-28 w-full bg-gradient-to-br from-hanji-deep via-gold/25 to-jade/20" />
                   <div className="flex flex-1 flex-col gap-1.5 p-2">
                     <div className="h-3 w-11/12 rounded bg-muk/45" />
                     <div className="h-2.5 w-3/5 rounded bg-muk/25" />
@@ -146,7 +156,7 @@ function WaitingSkeleton() {
                     </div>
                     <div className="mt-auto space-y-1.5">
                       <div className="h-3.5 w-3/4 rounded bg-muk/30" />
-                      <div className="h-5 w-14 rounded-md border border-gold/40 bg-gold/25" />
+                      <div className="h-6 w-full rounded-lg border border-gold/40 bg-gold/25" />
                     </div>
                   </div>
                 </div>
@@ -157,17 +167,18 @@ function WaitingSkeleton() {
             {[0, 1].map((row) => (
               <div
                 key={row}
-                className="flex items-center gap-2.5 rounded-2xl border border-line bg-white/80 px-3.5 py-2.5 shadow-[0_2px_14px_rgba(43,35,32,0.06)]"
+                className="flex items-center gap-3 rounded-2xl border border-line bg-white/80 px-3.5 py-3 shadow-[0_2px_14px_rgba(43,35,32,0.06)]"
               >
-                <div className="ns-ghost flex flex-1 items-center gap-2.5">
-                  <div className="h-7 w-7 shrink-0 rounded-full bg-gold/30" />
+                <div className="ns-ghost flex flex-1 items-center gap-3">
+                  <div className="h-9 w-9 shrink-0 rounded-full bg-gold/30" />
                   <div className="flex-1 space-y-2">
                     <div className="h-3.5 w-1/2 rounded bg-muk/40" />
                     <div className="flex gap-1.5">
-                      <span className="h-3 w-16 rounded-md bg-gold/35" />
-                      <span className="h-3 w-12 rounded-md bg-jade/30" />
+                      <span className="h-3.5 w-16 rounded-md bg-gold/35" />
+                      <span className="h-3.5 w-12 rounded-md bg-jade/30" />
                     </div>
                   </div>
+                  <div className="h-4 w-2 shrink-0 rounded bg-muk/20" />
                 </div>
               </div>
             ))}

@@ -698,6 +698,8 @@
     "title": "现在出发的话?",
     "arrivalWait": "到达时等待{n}分钟",
     "waitUnavailable": "正在收集等待信息",
+    "heroBestWait": "到达时最短等待{n}分钟",
+    "sectorCount": "{n}处",
     "emptyTitle": "没有可显示的地点",
     "emptyBody": "放宽筛选条件即可看到更多附近地点。",
     "fetchError": "稍后将重新加载。"
