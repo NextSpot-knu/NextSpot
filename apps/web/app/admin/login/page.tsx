@@ -27,6 +27,17 @@ export default function AdminLoginPage() {
     if (allowed) router.replace('/admin/dashboard');
   }, [status, allowed, router]);
 
+  // 게이트 캐시(레이아웃과 한 쌍)가 긍정이면 판정을 기다리지 않고 대시보드로 먼저 보낸다 —
+  // 진짜 판정은 레이아웃이 백그라운드에서 계속 하고, 부정이면 다시 이리로 돌아온다.
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem('nextspot_admin_gate_v1');
+      if (!raw) return;
+      const cached = JSON.parse(raw) as { allowed?: boolean };
+      if (cached.allowed === true) router.replace('/admin/dashboard');
+    } catch { /* 저장소 차단 — 기존 판정 경로 그대로 */ }
+  }, [router]);
+
   // 권한이 확인되면 리다이렉트가 진행 중이므로 로더를 유지한다.
   const loading = status === 'loading' || allowed;
   // 세션이 없거나 익명이면 '로그인 필요', 로그인은 했는데 role 이 모자라면 '권한 없음'.
