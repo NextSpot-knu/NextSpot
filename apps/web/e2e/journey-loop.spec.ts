@@ -34,10 +34,11 @@ const recommendations = [
 }));
 
 const firstReportCta = {
-  ko: '데이터 없음 · 혼잡 제보',
-  en: 'No data · Report crowding',
-  ja: 'データなし · 混雑を報告',
-  zh: '暂无数据 · 上报拥挤',
+  // card.noData 값이 '데이터 없음'류 → '수집 중'류로 바뀜(부정적 배지 제거, 2026-09-21 1a81240).
+  ko: '수집 중 · 혼잡 제보',
+  en: 'Collecting · Report crowding',
+  ja: '収集中 · 混雑を報告',
+  zh: '收集中 · 上报拥挤',
 } as const;
 
 const areaDemandLabel = {
