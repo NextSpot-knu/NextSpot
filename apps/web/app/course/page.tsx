@@ -128,6 +128,25 @@ const TYPE_OPTIONS = [
 // 순서 지정 피커 최대 슬롯 — 백엔드 sequence 상한(최대 3)과 동일.
 const MAX_SEQUENCE = 3;
 
+// 스테일-우선 캐시 — 마지막 성공 계획을 로컬에 보관해 재방문 시 **즉시** 그리고, 백그라운드로
+// 조용히 새로고침한다. 새 조회가 실패해도 캐시가 있으면 에러 화면 대신 최근 계획을 유지한다
+// (/waiting BOARD_CACHE_KEY 와 같은 패턴 — 백엔드 지연·재시작 창에서 심사위원이 빈손을 보지 않게).
+const COURSE_CACHE_KEY = "nextspot_course_plan_v1";
+const COURSE_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
+// 계획을 바꾸는 입력의 서명 — 여행 컨텍스트(취향·조건·방문 이력) + 순서/종류 필터 + 자리 고정을
+// 한 문자열로 요약해, 캐시된 계획이 '지금의 입력'에서 만든 것인지 대조한다. 좌표·세션 id 는 넣지
+// 않는다: 마운트 직후엔 기본 좌표(REGION.center)·무세션이라 서명이 항상 어긋나 캐시가 한 번도
+// 안 쓰이고, 위치·세션 차이는 어차피 백그라운드 갱신이 곧바로 바로잡는다.
+// 가정 시각(preset)은 /waiting 과 동일하게 서명 밖의 별도 필드로 대조한다.
+function coursePlanSignature(
+  sequenceTypes: string[],
+  types: string[],
+  pins: { order: number; facilityId: string }[],
+): string {
+  return JSON.stringify({ context: loadTravelContext(), sequence: sequenceTypes, types, pins });
+}
+
 function typeEmoji(type: string): string {
   return TYPE_OPTIONS.find((o) => o.id === type)?.emoji ?? "📍";
 }
@@ -330,6 +349,52 @@ function CourseContent() {
   // 띄우지 않는다 — 사용자가 아무것도 안 했는데 "다시 짰어요" 라고 말하면 그것도 거짓말이다.
   const userReplanRef = useRef(false);
 
+  // 스테일-우선: 화면에 같은 조건의 계획이 이미 있으면(캐시 또는 직전 성공) 이후 조회는 조용히
+  // 돌고, 실패해도 에러 화면으로 갈아치우지 않는다(/waiting hasRenderedResultsRef 패턴 미러).
+  // preset(가정 시각)이나 서명(컨텍스트·순서·필터·고정)이 바뀐 조회는 종전 로더/인라인 dimmed 그대로다.
+  const hasRenderedResultsRef = useRef(false);
+  const renderedPresetRef = useRef<string | null>(null);
+  const renderedSignatureRef = useRef<string | null>(null);
+
+  // 마운트 시 캐시 하이드레이션 — 아래 디바운스 fetch 이펙트보다 먼저 선언되어 먼저 실행된다.
+  // 공유 링크(?s=) 복원 경로는 캐시를 쓰지 않는다 — 공유받은 코스는 내 마지막 계획이 아니고,
+  // 캐시를 얹으면 읽기 전용 화면에 다른 계획이 섞인다.
+  useEffect(() => {
+    if (isShareMode) return;
+    try {
+      const raw = window.localStorage.getItem(COURSE_CACHE_KEY);
+      if (!raw) return;
+      const cached = JSON.parse(raw) as {
+        stops?: CourseStop[];
+        slotOutcomes?: SlotOutcome[];
+        renderedSlotKeys?: string[];
+        planId?: string;
+        savedAt?: number;
+        preset?: string;
+        contextSignature?: string;
+      };
+      if (!Array.isArray(cached.stops) || cached.stops.length === 0) return;
+      if (typeof cached.savedAt !== "number" || Date.now() - cached.savedAt > COURSE_CACHE_MAX_AGE_MS) return;
+      if ((cached.preset ?? "now") !== getStoredAssumedPreset()) return; // 다른 가정 시각의 계획은 안 보여준다
+      // 마운트 시점 입력(순서·필터·고정 전부 초기값 = 비어 있음)과 같은 조건에서 만든 계획만
+      // 되살린다 — 핀·순서 재계획으로 덮인 캐시는 서명이 달라 여기서 걸러진다(평소 로딩 경로).
+      if (cached.contextSignature !== coursePlanSignature([], [], [])) return;
+      hasRenderedResultsRef.current = true;
+      renderedPresetRef.current = cached.preset ?? "now";
+      renderedSignatureRef.current = cached.contextSignature;
+      // 재계획 토스트의 비교 기준도 캐시 계획으로 맞춘다 — 백그라운드 갱신 전에 사용자가 핀을
+      // 꽂으면, 방금 보고 있던 계획 대비 무엇이 달라졌는지 정직하게 말할 수 있다.
+      prevPlanRef.current = { planId: cached.planId ?? "", ids: cached.stops.map((s) => s.facility.id) };
+      setStops(cached.stops);
+      setSlotOutcomes(Array.isArray(cached.slotOutcomes) ? cached.slotOutcomes : []);
+      setRenderedSlotKeys(Array.isArray(cached.renderedSlotKeys) ? cached.renderedSlotKeys : []);
+      setLoading(false); // 이후 fetchCourse 가 백그라운드로 갱신
+      setHasLoadedOnce(true); // 전면 스켈레톤 게이트 해제 — 캐시 계획을 즉시 그린다
+    } catch { /* 캐시 손상·저장소 차단 — 평소 로딩 경로 그대로 */ }
+    // 마운트 1회 — isShareMode 는 첫 렌더에 확정된다(?s= 는 마운트 후 바뀌지 않는다).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   /** 재조회 결과가 실제로 무엇이 달라졌는지 말한다.
    *
    * 지금까지 재조회의 유일한 신호는 결과 영역의 opacity-50 하나였다. 순서를 바꿨는데 같은 답이
@@ -359,7 +424,25 @@ function CourseContent() {
     // 스타트가 얹히는 그 첫 왕복 앞에 붙는 순수 지연이었다.
     dispatchedRef.current = true;
     const gen = ++fetchGenRef.current;
-    setLoading(true);
+    // 고정은 서버에 '자리 번호 → 시설' 로 보낸다. 화면이 uid 로 들고 있는 이유는 위 pins 주석 참조.
+    // (캐시 서명에도 그대로 들어가므로 로더 판정보다 먼저 만든다 — 요청 내용은 종전과 동일.)
+    const pinList = Object.entries(pins)
+      .map(([key, facilityId]) => ({ order: slotKeys.indexOf(key) + 1, facilityId }))
+      .filter((p) => p.order > 0);
+    // 이 요청을 만든 입력의 서명 — 성공 시 계획과 함께 캐시에 저장해 다음 마운트의 하이드레이션 대조에 쓴다.
+    const signature = coursePlanSignature(
+      sequence.map((s) => s.type),
+      sequence.length > 0 ? [] : selectedTypes,
+      pinList,
+    );
+    // 화면에 같은 조건(가정 시각 + 서명)의 계획이 이미 있으면 조용한 새로고침 — 로더(dimmed 포함)를
+    // 생략하고, 실패해도 보이는 계획을 유지한다(스테일-우선). 위치 갱신·세션 승격 같은 배경 재조회가
+    // 여기에 해당하고, 사용자가 조건을 바꾼 재조회(핀·순서·필터)는 서명이 달라져 종전 dimmed 갱신 그대로다.
+    const silentRefresh =
+      hasRenderedResultsRef.current &&
+      renderedPresetRef.current === assumedPreset &&
+      renderedSignatureRef.current === signature;
+    if (!silentRefresh) setLoading(true);
     setError(null);
     setNeedsAuth(false);
     try {
@@ -374,10 +457,6 @@ function CourseContent() {
       } else if (selectedTypes.length > 0) {
         body.types = selectedTypes;
       }
-      // 고정은 서버에 '자리 번호 → 시설' 로 보낸다. 화면이 uid 로 들고 있는 이유는 위 pins 주석 참조.
-      const pinList = Object.entries(pins)
-        .map(([key, facilityId]) => ({ order: slotKeys.indexOf(key) + 1, facilityId }))
-        .filter((p) => p.order > 0);
       if (pinList.length > 0) body.pins = pinList;
       // 데모 '가정 시각' — 있으면 백엔드가 이 시각을 코스의 기준 '지금'으로 삼아 정류지별 도착
       // 시각·도착시점 혼잡·영업여부를 계산한다. 'now'(null)면 보내지 않아 기존 동작 그대로다.
@@ -415,14 +494,40 @@ function CourseContent() {
       }
       if (gen !== fetchGenRef.current) return; // 이후 요청이 이미 나감 — 구세대 응답 폐기
       const nextStops = Array.isArray(plan?.stops) ? plan.stops : [];
+      const nextOutcomes = Array.isArray(plan?.slotOutcomes) ? plan.slotOutcomes : [];
       announceReplan(plan?.planId ?? "", nextStops);
       setStops(nextStops);
-      setSlotOutcomes(Array.isArray(plan?.slotOutcomes) ? plan.slotOutcomes : []);
+      setSlotOutcomes(nextOutcomes);
       // 결과와 **같은 배치로** 자리 키를 굳힌다(위 renderedSlotKeys 주석 참조).
       setRenderedSlotKeys(slotKeys);
+      hasRenderedResultsRef.current = nextStops.length > 0;
+      renderedPresetRef.current = assumedPreset;
+      renderedSignatureRef.current = signature;
+      // 성공 계획을 캐시에 남긴다 — 다음 방문은 즉시 그리고 백그라운드 갱신(스테일-우선).
+      // 첫 로드·핀·순서 재계획 모두 이 경로라, 화면의 계획이 바뀔 때마다 캐시도 같은 계획으로 덮인다.
+      // 빈 계획도 그대로 저장한다 — 낡은 코스가 다음 방문에 '아직 있는 것처럼' 되살아나지 않게
+      // (하이드레이션이 stops 0개를 걸러 평소 로딩 경로로 간다).
+      try {
+        window.localStorage.setItem(
+          COURSE_CACHE_KEY,
+          JSON.stringify({
+            stops: nextStops,
+            slotOutcomes: nextOutcomes,
+            renderedSlotKeys: slotKeys,
+            planId: plan?.planId ?? "",
+            savedAt: Date.now(),
+            preset: assumedPreset,
+            contextSignature: signature,
+          }),
+        );
+      } catch { /* 저장소 차단/용량 — 캐시 없이도 동작 동일 */ }
     } catch (err) {
       if (gen !== fetchGenRef.current) return;
       console.warn("코스 추천 호출 실패:", err);
+      // 조용한 새로고침 실패 — 화면의 계획(캐시 또는 직전 성공)을 에러로 갈아치우지 않는다.
+      // 다음 재조회가 언제든 다시 시도한다(스테일-우선의 핵심 계약, /waiting 과 동일).
+      if (silentRefresh) return;
+      hasRenderedResultsRef.current = false; // 아래에서 결과를 비운다 — 다음 조회는 조용하면 안 된다
       setStops([]);
       // 실패는 '자리를 못 채웠다' 와 다르다. 낡은 사유를 남겨 두면 장애를 조건 문제로 읽게 된다.
       setSlotOutcomes([]);

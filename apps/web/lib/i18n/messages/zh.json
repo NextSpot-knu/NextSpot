@@ -411,8 +411,8 @@
     "foodFilters": "餐饮类型",
     "voiceSearchUnsupported": "此浏览器不支持语音搜索",
     "unsupported": "不支持",
-    "tourApiTitle": "来自ⓒ韩国观光公社资料的地点",
-    "tourApiSource": "在ⓒ韩国观光公社资料中找到的地点 — 可立即为您导航。",
+    "tourApiTitle": "来自ⓒ韩国旅游发展局资料的地点",
+    "tourApiSource": "在ⓒ韩国旅游发展局资料中找到的地点 — 可立即为您导航。",
     "ingestRequest": "申请添加",
     "ingestRequested": "已受理申请",
     "ingestRequestDone": "已受理添加「{name}」的申请。管理员确认后将会收录。",
@@ -556,7 +556,7 @@
     "slotDroppedHere": "调整条件后可以重新安排这一站",
     "estimateChip": "估算 {label} {pct}%",
     "estimateShort": "估算",
-    "dataAttribution": "地点·照片 ⓒ韩国观光公社 TourAPI · 步行路线 OpenStreetMap"
+    "dataAttribution": "地点·照片 ⓒ韩国旅游发展局 TourAPI · 步行路线 OpenStreetMap"
   },
   "coupons": {
     "expired": "已过期",
@@ -710,7 +710,7 @@
     "emptyBody": "放宽筛选条件即可看到更多附近地点。",
     "fetchError": "稍后将重新加载。",
     "subtitle": "出发前先比较到达时的等待时间",
-    "dataAttribution": "地点信息·照片来源: ⓒ韩国观光公社 TourAPI"
+    "dataAttribution": "地点信息·照片来源: ⓒ韩国旅游发展局 TourAPI"
   },
   "golden": {
     "badge": "今日空闲: {start}~{end}点",
@@ -877,7 +877,7 @@
     "nlSummaryCatsOnly": "将在 {cats} 中查找",
     "nlNotApplied": "没能识别出偏好，因此未做应用 — 请说得更具体一些",
     "nlSaveFailed": "已理解你的偏好但未能保存 — 请稍后再试",
-    "dataAttribution": "地点信息·照片来源: ⓒ韩国观光公社 TourAPI"
+    "dataAttribution": "地点信息·照片来源: ⓒ韩国旅游发展局 TourAPI"
   },
   "auth": {
     "callbackLoading": "正在登录…",
