@@ -13,7 +13,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { MYPAGE_BACK } from '@/lib/navigation';
-import { ArrowLeft, MessageSquare, AlertCircle, Clock, CheckCircle2, Info } from 'lucide-react';
+import { ArrowLeft, MessageSquare, AlertCircle, Clock, CheckCircle2 } from 'lucide-react';
 import { apiClient, isAuthError } from '@/lib/api-client';
 import { useT } from '@/lib/i18n/I18nProvider';
 import { markInquiryRepliesSeen } from './seen';
@@ -39,9 +39,6 @@ export default function MyInquiriesPage() {
   const t = useT();
   const [items, setItems] = useState<InquiryItem[]>([]);
   const [state, setState] = useState<LoadState>('loading');
-  // 서버가 답변 컬럼을 못 찾은 경우(마이그레이션 미적용). false 면 "아직 답변이 없어요" 가
-  // **기다리면 온다는 거짓말**이 되므로 다른 문구를 쓴다 — 저장할 자리 자체가 없다.
-  const [replySupported, setReplySupported] = useState(true);
 
   // 첫 실패는 익명 세션 부트스트랩(SessionBootstrap) 완료 전 레이스일 수 있어
   // 2.5초 유예 후 자동 1회만 재시도한다(mypage/impact·coupons 와 같은 패턴, 유한 재시도).
@@ -66,7 +63,6 @@ export default function MyInquiriesPage() {
           repliedAt: (row.repliedAt as string) ?? null,
         }));
         setItems(rows);
-        setReplySupported(data?.replySupported !== false);
         // 이 화면을 연 시점에 답변을 '봤다' 고 기록한다 — 마이페이지의 새 답변 배지가
         // 이 기록을 기준으로 사라진다(자세한 규약은 ./seen.ts).
         markInquiryRepliesSeen(rows.filter((row) => row.replyBody).map((row) => row.id));
@@ -127,14 +123,6 @@ export default function MyInquiriesPage() {
         <div className="max-w-md mx-auto w-full flex flex-col gap-4">
           <p className="text-muk-soft text-sm">{t('inquiries.subtitle')}</p>
 
-          {/* 답변 컬럼이 없는 DB — 답변이 '아직 안 온 것' 이 아니라 '올 자리가 없는 것' 이다. */}
-          {state === 'ok' && !replySupported && (
-            <p className="flex items-start gap-2 rounded-2xl border border-line bg-white px-4 py-3 text-xs text-muk-soft">
-              <Info size={14} className="flex-shrink-0 mt-0.5" />
-              <span>{t('inquiries.replyUnavailable')}</span>
-            </p>
-          )}
-
           {state === 'loading' && (
             <div className="flex flex-col items-center justify-center py-16 text-muk-soft">
               <div className="w-6 h-6 border-2 border-gold border-t-transparent rounded-full animate-spin mb-3" />
@@ -155,7 +143,6 @@ export default function MyInquiriesPage() {
             <div className="flex flex-col items-center justify-center py-14 text-center">
               <AlertCircle size={40} className="text-terracotta/70 mb-4" />
               <p className="font-semibold text-muk">{t('inquiries.loadFailed')}</p>
-              <p className="text-muk-soft text-sm mt-1">{t('inquiries.loadFailedHint')}</p>
               <button
                 onClick={() => { retriedRef.current = false; setState('loading'); void load(); }}
                 className="mt-5 px-6 py-2.5 bg-gold hover:bg-gold-deep text-white font-bold rounded-xl transition-colors"
@@ -169,9 +156,6 @@ export default function MyInquiriesPage() {
             <div className="flex flex-col items-center justify-center py-14 text-center">
               <MessageSquare size={40} className="text-muk-soft/50 mb-4" />
               <p className="text-muk-soft text-sm">{t('inquiries.empty')}</p>
-              {/* 세션 없이 보낸 문의는 계정에 묶이지 않아 여기 나오지 않는다(익명 문의 경로).
-                  빈 목록을 보고 '문의가 사라졌다' 고 오해하지 않도록 이유를 말해 둔다. */}
-              <p className="text-muk-soft/80 text-xs mt-2">{t('inquiries.anonymousHint')}</p>
               <button
                 onClick={() => router.push('/mypage/support')}
                 className="mt-5 px-6 py-2.5 bg-gold hover:bg-gold-deep text-white font-bold rounded-xl transition-colors"
@@ -196,8 +180,7 @@ export default function MyInquiriesPage() {
                 <p className="text-sm text-muk-soft leading-relaxed whitespace-pre-wrap break-all">{item.content}</p>
               </div>
 
-              {/* 답변 영역. 답변이 있으면 본문과 시각을, 없으면 '아직 없음' 을 말한다.
-                  replySupported=false 일 때는 위 배너가 이유를 따로 설명한다. */}
+              {/* 답변 영역. 답변이 있으면 본문과 시각을, 아직이면 확인 중임을 말한다. */}
               <div className="border-t border-line bg-hanji px-5 py-4">
                 {item.replyBody ? (
                   <>
@@ -212,9 +195,7 @@ export default function MyInquiriesPage() {
                     <p className="text-sm text-muk leading-relaxed whitespace-pre-wrap break-all">{item.replyBody}</p>
                   </>
                 ) : (
-                  <p className="text-xs text-muk-soft">
-                    {replySupported ? t('inquiries.awaitingReply') : t('inquiries.replyUnavailable')}
-                  </p>
+                  <p className="text-xs text-muk-soft">{t('inquiries.awaitingReply')}</p>
                 )}
               </div>
             </article>

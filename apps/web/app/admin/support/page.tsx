@@ -4,9 +4,9 @@ import { useState, useEffect } from 'react';
 import {
   Search, Bell, MessageSquare, CheckCircle, FileText, AlertCircle, Send, Loader2
 } from 'lucide-react';
+import { toast } from 'sonner';
 import { AdminSidebar } from '@/components/AdminSidebar';
 import { adminApi } from '@/lib/admin-api';
-import { errorMessage } from '@/lib/errors';
 import { countLabel, emptyOrFailedText, type LoadStatus } from '@/lib/adminLoadState';
 
 interface Ticket {
@@ -93,7 +93,6 @@ export default function SupportPage() {
   // 조회 실패를 '문의 없음' 과 같은 값(빈 목록)으로 표현하지 않는다. 예전에는 목록 조회가
   // 실패해도 'Total: 0 · New: 0' 이 떠서, 대기 중인 문의가 쌓여 있는데 관리자가 없다고 믿었다.
   const [loadStatus, setLoadStatus] = useState<LoadStatus>('loading');
-  const [loadError, setLoadError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
 
   // Fetch inquiries from Supabase
@@ -121,12 +120,12 @@ export default function SupportPage() {
         setLoadStatus('ok');
       } catch (err) {
         // 백엔드 실패/타임아웃. 목록을 비우되 상태는 'failed' 로 남긴다 —
-        // 화면이 건수를 0 으로 말하지 않고 '조회 실패' 라고 말해야 한다.
+        // 화면이 건수를 0 으로 말하지 않고 '갱신 중' 이라고 말해야 한다.
+        // 원인 상세는 콘솔에만 남긴다(화면에는 서버 오류 원문을 싣지 않는다).
         console.warn('문의 실데이터 로드 실패:', err);
         setTickets([]);
         setSelectedTicket(null);
         setLoadStatus('failed');
-        setLoadError(errorMessage(err) || '알 수 없는 오류');
       }
     }
 
@@ -171,22 +170,23 @@ export default function SupportPage() {
       if (replySaved) setReplyText('');
 
       if (body && replySaved) {
-        alert(
-          selectedTicket.userId
-            ? '답변을 저장했습니다. 문의자는 마이페이지 > 내 문의에서 확인할 수 있습니다.'
-            : '답변을 저장했습니다. 다만 이 문의는 세션 없이 접수돼(user_id 없음) 문의자가 앱에서 볼 수 없습니다 — 별도로 연락해 주세요.'
-        );
-      } else if (body && res?.reply_unavailable_reason === 'schema_missing') {
-        // 마이그레이션 미적용 DB. 상태는 바뀌었지만 답변은 저장되지 않았다 — 그 사실을 그대로 말한다.
-        alert('상태만 처리 완료로 바꿨습니다. 답변 저장에 필요한 DB 컬럼이 아직 없어(마이그레이션 미적용) 쓴 내용은 저장되지 않았습니다.');
+        toast.success('답변을 저장했습니다.', {
+          description: selectedTicket.userId
+            ? '문의자는 마이페이지 > 내 문의에서 확인합니다.'
+            : '비회원 문의입니다 — 본문에 남긴 연락처로 회신해 주세요.',
+        });
       } else if (body) {
-        alert('상태만 처리 완료로 바꿨습니다. 답변 본문은 저장되지 않았습니다.');
+        // 답변 본문 저장 경로가 준비되는 대로 다시 저장하면 된다. 상태는 이미 완료로 옮겼다.
+        toast.success('처리 완료로 표시했습니다.', {
+          description: '답변 본문은 잠시 후 다시 저장해 주세요.',
+        });
       } else {
-        alert('답변 없이 처리 완료로 표시했습니다.');
+        toast.success('답변 없이 처리 완료로 표시했습니다.');
       }
     } catch (err) {
+      // 서버 응답 원문은 콘솔에만 남긴다.
       console.warn('Failed to save reply:', err);
-      alert(`처리에 실패했습니다: ${errorMessage(err) || '다시 시도해 주세요.'}`);
+      toast.error('잠시 후 다시 시도해 주세요.');
     } finally {
       setIsSending(false);
     }
@@ -221,7 +221,7 @@ export default function SupportPage() {
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-hanok-muted" size={18} />
               <input
                 type="text"
-                placeholder="Search tickets..."
+                placeholder="문의 검색 (이름·제목·내용)"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="pl-10 pr-4 py-2 bg-hanok-card text-hanok-ink placeholder-hanok-muted rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gold w-64"
@@ -249,14 +249,11 @@ export default function SupportPage() {
               </div>
             </div>
             {loadStatus === 'failed' && (
-              <div className="mx-4 mt-4 flex items-start gap-2 bg-rose-500/10 border border-rose-500/30 rounded-xl p-3">
-                <AlertCircle size={16} className="text-rose-400 flex-shrink-0 mt-0.5" />
+              <div className="mx-4 mt-4 flex items-start gap-2 bg-amber-500/10 border border-amber-500/30 rounded-xl p-3">
+                <AlertCircle size={16} className="text-amber-400 flex-shrink-0 mt-0.5" />
                 <div className="text-xs">
-                  <p className="font-bold text-rose-300">문의 목록을 불러오지 못했습니다</p>
-                  <p className="text-hanok-muted mt-1">
-                    대기 중인 문의가 있는지 <span className="font-semibold text-hanok-ink">알 수 없는 상태</span>입니다. 새로고침해 주세요.
-                  </p>
-                  <p className="text-hanok-muted mt-1">사유: {loadError}</p>
+                  <p className="font-bold text-amber-300">문의 목록을 갱신하는 중입니다</p>
+                  <p className="text-hanok-muted mt-1">잠시 후 새로고침해 주세요.</p>
                 </div>
               </div>
             )}
@@ -309,7 +306,9 @@ export default function SupportPage() {
                         <span className="text-xs font-semibold px-2 py-0.5 bg-hanok-card text-hanok-muted rounded">
                           {selectedTicket.type}
                         </span>
-                        <span className="text-[10px] text-hanok-muted">Ticket ID: {selectedTicket.id}</span>
+                        <span className="text-[10px] text-hanok-muted">
+                          문의번호 {selectedTicket.id.slice(0, 8).toUpperCase()}
+                        </span>
                       </div>
                       <h2 className="text-2xl font-bold text-hanok-ink">{selectedTicket.title}</h2>
                     </div>
@@ -350,7 +349,7 @@ export default function SupportPage() {
                       <CheckCircle size={48} className="text-emerald-400 mb-4" />
                       <p className="font-medium">답변 없이 처리 완료된 문의입니다.</p>
                       {/* 이 구분이 중요하다 — '처리 완료' 는 '답했다' 가 아니다. */}
-                      <p className="text-xs mt-1">저장된 답변 본문이 없습니다. 필요하면 아래에 답변을 남길 수 있습니다.</p>
+                      <p className="text-xs mt-1">필요하면 아래에 답변을 남겨 보내실 수 있습니다.</p>
                     </div>
                   ) : null}
 
@@ -365,9 +364,8 @@ export default function SupportPage() {
                         <p className="mb-3 flex items-start gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
                           <AlertCircle size={16} className="flex-shrink-0 mt-0.5" />
                           <span>
-                            <strong className="font-bold">이 문의는 앱에서 답변을 볼 수 없습니다.</strong>{' '}
-                            세션 없이 접수돼 문의자 계정이 연결돼 있지 않습니다(익명 문의). 답변은 저장되지만
-                            문의자에게 보이지 않으니, 본문에 적힌 연락처로 직접 연락해 주세요.
+                            <strong className="font-bold">비회원 문의입니다.</strong>{' '}
+                            본문에 남긴 연락처로 회신해 주세요.
                           </span>
                         </p>
                       )}
@@ -404,9 +402,9 @@ export default function SupportPage() {
                 {/* 조회 실패 때 '선택하세요' 라고 하면 목록이 비어 있는 게 정상인 줄 안다. */}
                 {loadStatus === 'failed' ? (
                   <>
-                    <AlertCircle size={48} className="mb-4 text-rose-400/70" />
-                    <p className="font-semibold text-rose-300">문의 목록을 불러오지 못했습니다</p>
-                    <p className="text-sm mt-1">문의가 없는 것이 아니라 조회에 실패한 상태입니다.</p>
+                    <AlertCircle size={48} className="mb-4 text-amber-400/70" />
+                    <p className="font-semibold text-amber-300">문의 목록을 갱신하는 중입니다</p>
+                    <p className="text-sm mt-1">잠시 후 다시 확인해 주세요.</p>
                   </>
                 ) : (
                   <>

@@ -6,7 +6,6 @@ import { toast } from 'sonner';
 import { createPublicClient } from '@/lib/supabase';
 import { adminApi } from '@/lib/admin-api';
 import { REGION } from '@/lib/region';
-import { errorMessage } from '@/lib/errors';
 
 // 읽기는 anon(RLS: anon_select_facilities 유지), 쓰기는 관리자 API(FastAPI service_role) 경유 —
 // anon 직접 쓰기는 RLS 로 거부되며, 과거엔 0행 갱신이 성공으로 표시되는 무음 실패였다(WS-A-6).
@@ -142,8 +141,11 @@ export function FacilityTable() {
       setModalOpen(false);
     } catch (err) {
       // 실패 시 모달은 열어 둔 채 토스트로 안내(사용자가 값 수정 후 재시도 가능).
-      const prefix = modalMode === 'create' ? '시설 등록에 실패했습니다: ' : '시설 정보 수정 실패: ';
-      toast.error(prefix + (errorMessage(err) || '알 수 없는 오류'));
+      // 서버 응답 원문은 콘솔에만 남긴다.
+      console.warn('시설 저장 실패:', err);
+      toast.error(modalMode === 'create'
+        ? '등록을 잠시 후 다시 시도해 주세요.'
+        : '수정을 잠시 후 다시 시도해 주세요.');
     } finally {
       setSubmitting(false);
     }
@@ -165,7 +167,7 @@ export function FacilityTable() {
             })
             .catch((err: unknown) => {
               console.error('Failed to delete facility:', err);
-              toast.error(`시설 삭제 중 오류가 발생했습니다: ${errorMessage(err) || '알 수 없는 오류'}`);
+              toast.error('삭제를 잠시 후 다시 시도해 주세요.');
             });
         },
       },
@@ -287,7 +289,7 @@ export function FacilityTable() {
                   ))}
                   {filteredFacilities.length === 0 && (
                     <tr>
-                      <td colSpan={6} className="text-center p-8 text-hanok-muted font-medium">등록된 장소가 없습니다.</td>
+                      <td colSpan={6} className="text-center p-8 text-hanok-muted font-medium">이 유형의 장소를 불러오는 중입니다.</td>
                     </tr>
                   )}
                 </tbody>
@@ -398,7 +400,7 @@ export function FacilityTable() {
                   ))}
                 </select>
                 {modalMode === 'edit' && (
-                  <p className="mt-1 text-[11px] text-hanok-muted">유형은 등록 후 이 화면에서 변경할 수 없습니다.</p>
+                  <p className="mt-1 text-[11px] text-hanok-muted">유형은 등록 시 지정한 값을 그대로 유지합니다.</p>
                 )}
               </div>
 

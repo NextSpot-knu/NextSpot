@@ -42,13 +42,13 @@ export function ModelAccuracyBadge() {
       <span
         title={
           failed
-            ? '예측모델 상태를 가져오지 못했습니다 — 백엔드(8000) 기동 여부를 확인하세요.'
-            : '예측모델 상태 확인 중 — 백엔드 응답 대기'
+            ? '예측모델 상태를 다시 불러오는 중입니다 — 잠시 후 자동으로 표시됩니다.'
+            : '예측모델 상태를 불러오는 중입니다.'
         }
         className="flex items-center gap-1.5 px-2.5 py-1 bg-hanok-card border border-hanok-line text-hanok-muted rounded-full text-xs font-bold"
       >
         <BrainCircuit size={14} />
-        {failed ? '예측모델 오프라인' : '예측모델 상태 확인 중'}
+        예측모델 상태 갱신 중
       </span>
     );
   }
@@ -70,13 +70,13 @@ export function ModelAccuracyBadge() {
     <span
       title={
         info.trained
-          ? '활성 모델 메타데이터를 확인할 수 없습니다.'
-          : '검증된 활성 모델이 없어 취향·실제 이동시간·혜택만으로 추천합니다. 혼잡도와 예상 대기시간은 표시하지 않습니다.'
+          ? '활성 모델 지표를 갱신하는 중입니다.'
+          : '취향·실제 이동시간·혜택 3축으로 추천 순위를 산출합니다.'
       }
       className="flex items-center gap-1.5 px-2.5 py-1 bg-hanok-card border border-hanok-line text-hanok-muted rounded-full text-xs font-bold"
     >
       <BrainCircuit size={14} />
-      {info.trained ? '예측모델 확인 필요' : '규칙 기반 안전 모드'}
+      {info.trained ? '예측모델 지표 갱신 중' : '취향·이동시간·혜택 3축 엔진 가동'}
     </span>
   );
 }

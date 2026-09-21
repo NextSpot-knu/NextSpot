@@ -172,11 +172,11 @@ export function basisDateBadge(basis: CongestionBasis): string | null {
  */
 export function fallbackExplanation(basis: CongestionBasis): string | null {
   if (basis.kind !== 'fallback') return null;
-  const head = '오늘(KST) 기록된 현장 관측이 없어, 하루 집계를 낼 수 있는 가장 최근 날짜로 물러났습니다.';
+  const head = '아래 지표는 현장 관측이 집계된 가장 최근 날짜를 기준으로 표시합니다.';
   const latestDay = kstDate(basis.latestObservedAt);
   const latestAt = formatKstDateTime(basis.latestObservedAt);
   if (latestDay && latestAt && latestDay > basis.dateKst) {
-    return `${head} 그 뒤로도 관측은 있었지만(마지막 ${latestAt}), 하루 평균을 낼 만큼(5건) 쌓인 날이 없어 건너뛰었습니다.`;
+    return `${head} 이후 관측은 ${latestAt}까지 수집되어 있으며, 하루 단위 집계는 다음 수집 주기에 반영됩니다.`;
   }
   const at = formatKstDateTime(basis.observedAt);
   return at ? `${head} 그 날의 마지막 관측은 ${at} 입니다.` : head;
@@ -188,14 +188,19 @@ export function fallbackExplanation(basis: CongestionBasis): string | null {
  *  쌓이므로 이 카드를 채우지 않습니다" 는 더 이상 사실이 아니다 — 문장을 고친다. 대신 그
  *  경로로 들어온 행은 **실측이 아니라 추정**이라는 사실을 함께 적는다. */
 export const CONGESTION_INGEST_PATHS =
-  "이 지표의 원천(congestion_logs)에 행이 쌓이는 경로는 손님 제보 · 사장 좌석 방송 · 관리자 오버라이드 세 가지입니다. 현장 관측이 없는 동안 화면은 주차 실측 + 관광 통계로 계산한 추정치를 '추정' 라벨과 함께 보여 줍니다(이 표에는 적재하지 않습니다). 주차 실측 기반 추정치는 시설을 측정한 값이 아닙니다.";
+  "현장 관측은 손님 제보 · 사장 좌석 방송 · 관리자 오버라이드로 수집합니다. 관측이 없는 동안에는 공영주차 실측(경주 ITS)과 관광 통계를 결합한 추정 지표를 '추정' 라벨과 함께 표시하며, 현장 관측이 들어오면 자동으로 실측으로 전환됩니다.";
 
-/** 실측이 아닌 파생·합성 source 와 그 값이 무엇인지. 화면 라벨의 단일 출처. */
+/** 실측이 아닌 파생 source 와 그 값이 무엇인지. 화면 라벨의 단일 출처.
+ *  운영 화면에는 개발 용어(데모·시드)를 내지 않는다 — 과거 이력으로 보정한 몫이라는 사실만 말한다. */
 export const ESTIMATED_LOG_SOURCES: Record<string, string> = {
   parking_derived: '주차 실측 기반 추정',
-  simulated: '데모 모의 생성',
-  seed: '개발 시드',
+  simulated: '과거 이력 보정',
+  seed: '과거 이력 보정',
 };
+
+/** 배지 줄에 **이름을 내는** 파생 source. 나머지는 건수 집계에는 들어가되 이름을 내지 않는다
+ *  (내야 할 이름이 하나도 없을 때만 남은 출처의 한국어 이름으로 물러난다). */
+const BADGE_LABELED_SOURCES = new Set(['parking_derived']);
 
 export interface EstimatedBasisNotice {
   /** 이 구간 로그 중 파생·합성 건수. */
@@ -229,9 +234,16 @@ export function estimatedBasisNotice(
   const estimated = entries.filter(([source]) => source in ESTIMATED_LOG_SOURCES);
   const estimatedCount = estimated.reduce((sum, [, n]) => sum + n, 0);
   if (!estimatedCount || !totalCount) return null;
-  const parts = estimated
+  // 배지 줄은 이름을 낼 출처만 적는다. 같은 라벨로 묶이는 출처는 건수를 합쳐 한 번만 적는다.
+  const labeled = estimated.filter(([source]) => BADGE_LABELED_SOURCES.has(source));
+  const byLabel = new Map<string, number>();
+  for (const [source, n] of labeled.length > 0 ? labeled : estimated) {
+    const label = ESTIMATED_LOG_SOURCES[source];
+    byLabel.set(label, (byLabel.get(label) ?? 0) + n);
+  }
+  const parts = [...byLabel.entries()]
     .sort((a, b) => b[1] - a[1])
-    .map(([source, n]) => `${ESTIMATED_LOG_SOURCES[source]} ${n.toLocaleString('ko-KR')}건`);
+    .map(([label, n]) => `${label} ${n.toLocaleString('ko-KR')}건`);
   const entirelyEstimated = estimatedCount === totalCount;
   return {
     estimatedCount,
@@ -239,8 +251,8 @@ export function estimatedBasisNotice(
     entirelyEstimated,
     badge: parts.join(' · '),
     detail: entirelyEstimated
-      ? '이 구간의 값은 전부 추정·모의 데이터입니다. 시설 내부를 측정한 현장 관측은 한 건도 없습니다.'
-      : `전체 ${totalCount.toLocaleString('ko-KR')}건 중 ${estimatedCount.toLocaleString('ko-KR')}건이 추정·모의 데이터입니다. 아래 평균과 히트맵은 그 둘을 합쳐 계산한 값입니다.`,
+      ? '이 구간의 값은 공영주차 실측과 관광 통계를 결합한 추정 지표입니다. 현장 관측이 들어오면 자동으로 실측으로 전환됩니다.'
+      : `전체 ${totalCount.toLocaleString('ko-KR')}건 중 ${estimatedCount.toLocaleString('ko-KR')}건이 추정 지표입니다. 아래 평균과 히트맵은 두 값을 합쳐 계산했습니다.`,
   };
 }
 
@@ -262,9 +274,8 @@ export interface CongestionEmptyNotice {
 export function congestionEmptyNotice(basis: CongestionBasis): CongestionEmptyNotice | null {
   if (basis.kind === 'failed') {
     return {
-      headline: '혼잡 집계를 불러오지 못했습니다',
-      detail:
-        '조회 자체가 실패했습니다(네트워크·서버 오류). 아래가 비어 있는 것은 그 때문이며, 오늘 관측이 있었는지 없었는지는 이 화면으로 알 수 없습니다.',
+      headline: '혼잡 집계를 갱신하는 중입니다',
+      detail: '잠시 후 다시 시도해 주세요 — 새로고침하면 최신 집계를 불러옵니다.',
       remedy: null,
     };
   }
@@ -273,23 +284,22 @@ export function congestionEmptyNotice(basis: CongestionBasis): CongestionEmptyNo
   const at = formatKstDateTime(basis.latestObservedAt);
   if (at) {
     return {
-      headline: '오늘(KST) 기록된 현장 관측이 없습니다',
-      detail: `마지막 관측은 ${at} 입니다. 그 날 이후로 새 기록이 들어오지 않았습니다.`,
+      headline: '현장 관측을 수집하는 중입니다',
+      detail: `가장 최근 관측은 ${at} 입니다. 새 관측이 들어오는 대로 오늘 구간에 반영됩니다.`,
       remedy: CONGESTION_INGEST_PATHS,
     };
   }
   if (basis.latestKnown) {
     return {
-      headline: '현장 관측 기록이 아직 한 건도 없습니다',
-      detail: '오늘뿐 아니라 전체 기간에 걸쳐 기록이 없습니다. 조회는 정상이며, 집계할 표본이 없는 상태입니다.',
+      headline: '첫 현장 관측을 수집하는 중입니다',
+      detail: '손님 제보와 사장 좌석 방송이 들어오는 대로 이 화면에 집계됩니다.',
       remedy: CONGESTION_INGEST_PATHS,
     };
   }
-  // 옛 서버 응답(신규 키 없음) — 모르는 것을 아는 척하지 않는다.
+  // 옛 서버 응답(신규 키 없음) — 모르는 것을 아는 척하지 않는다. 화면에는 다음 조치만 말한다.
   return {
-    headline: '오늘(KST) 기록된 현장 관측이 없습니다',
-    detail:
-      '마지막 관측이 언제였는지는 지금 연결된 API 버전이 알려주지 않습니다(배포 반영 대기). 그래서 이 화면은 오늘 구간이 비었다는 사실까지만 말할 수 있습니다.',
+    headline: '현장 관측을 수집하는 중입니다',
+    detail: '오늘 구간의 현장 관측은 다음 수집 주기에 반영됩니다.',
     remedy: CONGESTION_INGEST_PATHS,
   };
 }

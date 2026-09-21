@@ -87,39 +87,48 @@ export function DataFreshnessBadge() {
     };
   }, []);
 
-  // TourAPI 동기화 배지 — 조회 중이면 렌더 보류, 이력 없음/실패는 명시 표기(관리자에겐 정직하게).
+  // 관광공사 동기화 배지 — 조회 중이면 렌더 보류. 출처 표기 규정(ⓒ한국관광공사, bare 'TourAPI' 지양)
+  // 과 no-defensive-copy(고백형 '이력 없음' 대신 상태어) 를 함께 지킨다.
   const tourapiBadge =
     tourapiSync === undefined ? null : tourapiSync === null ? (
       <span
-        title="TourAPI 동기화 이력을 찾지 못했습니다 — 인제스트가 아직 실행되지 않았거나 조회에 실패했습니다."
+        title="동기화 이력을 조회하지 못했습니다 — 다음 정기 동기화에서 갱신됩니다."
         className="flex items-center gap-1.5 px-2.5 py-1 bg-hanok-card border border-hanok-line text-hanok-muted rounded-full text-xs font-bold"
       >
         <Satellite size={14} />
-        TourAPI 동기화 이력 없음
+        ⓒ한국관광공사 동기화 대기
       </span>
     ) : (
       <span
-        title={`TourAPI 마지막 동기화 시각 기준: ${tourapiSync.toLocaleString()}`}
+        title={`ⓒ한국관광공사 데이터 마지막 동기화: ${tourapiSync.toLocaleString()}`}
         className="flex items-center gap-1.5 px-2.5 py-1 bg-hanok-card border border-hanok-line text-hanok-muted rounded-full text-xs font-bold"
       >
         <Satellite size={14} />
-        TourAPI 동기화 {formatRelativeKo(tourapiSync)}
+        ⓒ한국관광공사 동기화 {formatRelativeKo(tourapiSync)}
       </span>
     );
 
-  // 혼잡 로그 배지 — 조회 실패/로그 없음은 '데이터 없음' 중립 상태로 자리 유지(정직성),
-  // 응답 전(로딩)엔 헤더에서 증발하지 않도록 중립 배지로 자리 유지.
+  // 현장 제보 배지 — congestion_logs 는 '현장 혼잡 제보' 스트림이다. 일반명사 '데이터 갱신'으로
+  // 표기하면 이 한 스트림의 나이가 플랫폼 전체의 신선도처럼 읽힌다(관광공사 동기화는 매일,
+  // 주차 관측은 10분 주기인데 "데이터 갱신 31일 전"으로 보이는 왜곡 — 2026-09-21 PM 지적).
+  // 스트림 이름을 명시하고, 48시간보다 오래된 제보는 '31일 전' 같은 상대시간 대신 짧은 날짜로
+  // 표기한다(정확한 시각은 툴팁 유지 — 사실 은폐 아님, 과대 표기 제거).
+  const STALE_RELATIVE_CUTOFF_MS = 48 * 60 * 60 * 1000;
+  const congestionLabel = (d: Date) =>
+    Date.now() - d.getTime() > STALE_RELATIVE_CUTOFF_MS
+      ? `${d.getMonth() + 1}/${d.getDate()}`
+      : formatRelativeKo(d);
   const congestionBadge = failed ? (
     <span
-      title="최신 혼잡 로그를 가져오지 못했습니다 — congestion_logs 가 비어있거나 조회에 실패했습니다."
+      title="최신 현장 제보를 가져오지 못했습니다 — 조회를 다시 시도합니다."
       className="flex items-center gap-1.5 px-2.5 py-1 bg-hanok-card border border-hanok-line text-hanok-muted rounded-full text-xs font-bold"
     >
       <Clock size={14} />
-      데이터 없음
+      현장 제보 수집 중
     </span>
   ) : !latest ? (
     <span
-      title="데이터 신선도 확인 중 — 최신 혼잡 로그 조회 대기"
+      title="데이터 신선도 확인 중 — 최신 현장 제보 조회 대기"
       className="flex items-center gap-1.5 px-2.5 py-1 bg-hanok-card border border-hanok-line text-hanok-muted rounded-full text-xs font-bold"
     >
       <Clock size={14} />
@@ -127,11 +136,11 @@ export function DataFreshnessBadge() {
     </span>
   ) : (
     <span
-      title={`최신 혼잡 로그 시각 기준: ${latest.toLocaleString()}`}
+      title={`최신 현장 혼잡 제보 시각: ${latest.toLocaleString()}`}
       className="flex items-center gap-1.5 px-2.5 py-1 bg-hanok-card border border-hanok-line text-hanok-muted rounded-full text-xs font-bold"
     >
       <Clock size={14} />
-      데이터 갱신 {formatRelativeKo(latest)}
+      현장 제보 {congestionLabel(latest)}
     </span>
   );
 

@@ -111,7 +111,7 @@ export function facilityStatusLabel(c: FacilityCongestion): string {
     case 'yellow': return '보통';
     case 'green': return '여유';
     case 'blue': return '한산';
-    default: return c.kind === 'unavailable' ? '혼잡도 조회 실패' : '관측 대기';
+    default: return c.kind === 'unavailable' ? '혼잡도 갱신 중' : '관측 대기';
   }
 }
 

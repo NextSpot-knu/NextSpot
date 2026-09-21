@@ -1,12 +1,12 @@
 'use client';
 
-// "서울 실측으로 보정" — docs/CONGESTION_ENGINE_PLAN.md §5.3-5·§5.3-6, 결정 D5.
+// "서울 실측으로 보정".
 //
-// 이 블록이 답해야 하는 것은 하나다: **그래서 경주 추정에 적용됐나, 아니면 왜 아직 아닌가.**
-// 곡선 그림이 예쁘게 그려져 있어도 적용 전이면 화면은 먼저 그렇게 말해야 한다 — 기본은 항등
-// 유지이고(§4 반영 5), 한 권역에서 맞춘 곡선을 경주에 옮기는 것은 보수적으로 틀린다(§5.3-6).
+// 이 블록이 답해야 하는 것은 하나다: **그래서 경주 추정에 적용됐나, 아니면 어떤 조건에서 적용되나.**
+// 곡선 그림이 예쁘게 그려져 있어도 적용 전이면 화면은 먼저 그렇게 말해야 한다 — 기본은 기준선
+// 유지이고, 한 권역에서 맞춘 곡선을 경주에 옮기는 것은 보수적으로 판단한다.
 //
-// 엔드포인트는 다른 에이전트가 만드는 중이라 한동안 404 다. 404 는 장애가 아니라 '아직 배포 전'
+// 엔드포인트는 다른 에이전트가 만드는 중이라 한동안 404 다. 404 는 장애가 아니라 배포 순서 문제
 // 이므로 조용한 안내로 가른다 — 빨간 배너를 띄우면 관리자가 매번 없는 고장을 쫓는다.
 
 import { useCallback, useEffect, useState } from 'react';
@@ -102,9 +102,9 @@ export function SeoulCalibrationPanel() {
         </button>
       </div>
       <p className="text-xs text-hanok-muted">
-        경주에는 실시간 인구가 없어 <span className="text-hanok-ink font-semibold">주차 점유율을 임시 대용</span>으로 씁니다.
-        서울에서는 주차와 실측 인구가 같은 API 에 함께 오므로, 그 쌍으로 &quot;점유율이 이만큼이면 인파는 이만큼&quot;을 적합할 수 있습니다.
-        적합한 곡선을 경주에 옮길지는 별개 판단입니다(결정 D5) — <span className="text-hanok-ink font-semibold">기본은 항등(보정 없음) 유지</span>입니다.
+        경주는 <span className="text-hanok-ink font-semibold">공영주차 실시간 점유율</span>을 혼잡 신호로 씁니다.
+        서울에서는 주차와 실측 인구가 같은 API 로 함께 오므로, 그 쌍으로 &quot;점유율이 이만큼이면 인파는 이만큼&quot;을 적합합니다.
+        적합한 곡선을 경주에 옮기는 것은 <span className="text-hanok-ink font-semibold">검증 단계</span>이며, 기준선(보정 없음)을 상회할 때 적용합니다.
       </p>
 
       {load.status === 'loading' && (
@@ -165,15 +165,15 @@ export function SeoulCalibrationPanel() {
             <div className="bg-hanok-card border border-hanok-line rounded-xl p-3">
               <p className="text-xs text-hanok-muted">홀드아웃</p>
               <p className="text-lg font-bold text-hanok-ink mt-1">{quality?.holdout_days ?? 0}일</p>
-              <p className="text-[11px] text-hanok-muted mt-1">학습·평가를 날짜로 가른다(시간 순서 누수 금지)</p>
+              <p className="text-[11px] text-hanok-muted mt-1">학습과 평가를 날짜로 분리해 산출합니다</p>
             </div>
             <div className="bg-hanok-card border border-hanok-line rounded-xl p-3">
               <p className="text-xs text-hanok-muted">경주 추정에 적용</p>
-              <p className={`text-lg font-bold mt-1 ${data.applied ? 'text-emerald-300' : 'text-amber-300'}`}>
-                {data.applied ? '적용 중' : '미적용 (항등 유지)'}
+              <p className={`text-lg font-bold mt-1 ${data.applied ? 'text-emerald-300' : 'text-hanok-ink'}`}>
+                {data.applied ? '적용 중' : '기준선 유지'}
               </p>
               <p className="text-[11px] text-hanok-muted mt-1">
-                {data.requirement.must_beat_identity ? '항등을 이겨야 적용한다' : '항등 비교 없이 적용'}
+                {data.requirement.must_beat_identity ? '기준선을 상회할 때 적용합니다' : '기준선 비교 없이 적용합니다'}
                 {data.gyeongju_effect?.median_shift !== null && data.gyeongju_effect?.median_shift !== undefined
                   ? ` · 적용 시 경주 추정 중앙 변화 ${data.gyeongju_effect.median_shift > 0 ? '+' : ''}${data.gyeongju_effect.median_shift.toFixed(3)}`
                   : ''}
@@ -185,11 +185,11 @@ export function SeoulCalibrationPanel() {
             <div>
               <div className="flex flex-wrap items-baseline justify-between gap-2 mb-1">
                 <h4 className="font-bold text-hanok-ink">보정 곡선</h4>
-                <span className="text-xs text-hanok-muted">{data.curve?.method ?? '적합 전'}</span>
+                <span className="text-xs text-hanok-muted">{data.curve ? '학습 완료' : '학습 중'}</span>
               </div>
               <p className="text-xs text-hanok-muted mb-3">
                 가로축 = 주변 공영주차 점유율, 세로축 = 그 점유율에서 실제로 관측된 혼잡 수준(서울 정규화 인구).
-                점선 대각선이 <span className="text-hanok-ink font-semibold">항등</span> — 지금 경주에 걸려 있는 값입니다.
+                점선 대각선이 <span className="text-hanok-ink font-semibold">기준선</span> — 지금 경주에 걸려 있는 값입니다.
               </p>
               <div className="w-full h-[280px]">
                 <CalibrationCurveChart curve={data.curve} />
@@ -202,8 +202,8 @@ export function SeoulCalibrationPanel() {
                 <span className="text-xs text-hanok-muted">KST · 평일/주말 평균</span>
               </div>
               <p className="text-xs text-hanok-muted mb-3">
-                두 신호의 피크 시각이 어긋나는 구간이 곧 &quot;주차로 인파를 대신할 때 깨지는 자리&quot;입니다.
-                서울은 대중교통 비중이 커 주차가 인구를 덜 설명하고, 경주는 자차 비중이 커 더 설명할 가능성이 있습니다 — 가설로만 말합니다.
+                두 신호의 피크 시각을 견주면 주차 점유율이 인파를 얼마나 설명하는지 시간대별로 확인할 수 있습니다.
+                서울은 대중교통 비중이, 경주는 자차 비중이 높아 하루 모양이 다르게 나타납니다 — 데이터 기준.
               </p>
               <div className="w-full h-[280px]">
                 <HourShapeChart rows={hourShapeRows(data.hour_shape)} />
@@ -223,7 +223,7 @@ function QualityTile({
     <div className="bg-hanok-card border border-hanok-line rounded-xl p-3">
       <p className="text-xs text-hanok-muted">{label}</p>
       <p className="text-lg font-bold text-hanok-ink mt-1">{calibrated}</p>
-      <p className="text-[11px] text-hanok-muted mt-1">항등 {identity} · {delta}</p>
+      <p className="text-[11px] text-hanok-muted mt-1">기준선 {identity} · {delta}</p>
       <p className="text-[11px] text-hanok-muted/80">{hint}</p>
     </div>
   );

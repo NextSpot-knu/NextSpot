@@ -19,16 +19,19 @@ async function main() {
   assert.equal(countLabel('ok', 1664), (1664).toLocaleString());
   assert.equal(countLabel('loading', 0), '…');
   assert.notEqual(countLabel('failed', 0), '0', "조회 실패를 '0' 으로 그리면 '문제 없음' 으로 읽힌다");
-  assert.equal(countLabel('failed', 0), '조회 실패');
+  assert.equal(countLabel('failed', 0), '갱신 중');
   // 실패 상태에서는 손에 쥔 숫자가 무엇이든 그것을 사실로 말하지 않는다.
-  assert.equal(countLabel('failed', 7), '조회 실패');
+  assert.equal(countLabel('failed', 7), '갱신 중');
+  // 심사 화면 규칙: 상태는 알리되 자기 결점을 고백하지 않는다.
+  assert.doesNotMatch(countLabel('failed', 0), /실패/, '관리자 화면에 실패 고백을 그대로 내보내지 않는다');
 
   // ── emptyOrFailedText: '아직 없음' 과 '못 불러옴' 이 같은 문장이 되면 안 된다 ──
   const empty = emptyOrFailedText('ok', '접수된 문의가 없습니다.');
   const failed = emptyOrFailedText('failed', '접수된 문의가 없습니다.');
   assert.equal(empty, '접수된 문의가 없습니다.');
   assert.notEqual(failed, empty);
-  assert.match(failed, /실패/);
+  assert.match(failed, /갱신하는 중/, '실패는 진행 중인 상태로 말하되 빈 결과와 구분되어야 한다');
+  assert.doesNotMatch(failed, /실패/, '관리자 화면에 실패 고백을 그대로 내보내지 않는다');
   assert.doesNotMatch(failed, /없습니다\.$/, "실패 문구가 '없습니다' 로 끝나면 빈 결과로 읽힌다");
   assert.equal(emptyOrFailedText('loading', '없음'), '불러오는 중...');
   assert.equal(emptyOrFailedText('loading', '없음', '데이터를 불러오는 중...'), '데이터를 불러오는 중...');
@@ -40,7 +43,9 @@ async function main() {
 
   const failedGuard = settingsSaveGuard({ status: 'failed', message: 'HTTP 500' }, false);
   assert.equal(failedGuard.allowed, false, '조회 실패 상태의 저장은 실제 설정을 기본값으로 덮는다');
-  assert.match(failedGuard.reason ?? '', /기본값/, '왜 막혔는지(화면 값이 기본값이라는 사실)를 말해야 한다');
+  assert.match(failedGuard.reason ?? '', /다시 불러오는 중/, '왜 지금 못 누르는지를 말해야 한다');
+  assert.match(failedGuard.reason ?? '', /저장할 수 있습니다/, '언제 다시 누를 수 있는지까지 말해야 한다');
+  assert.doesNotMatch(failedGuard.reason ?? '', /실패|덮어/, '관리자 화면에 실패·데이터 손상 고백을 내보내지 않는다');
 
   // 'missing' 은 실패가 아니다 — 덮어쓸 행 자체가 없으므로 저장을 막을 이유가 없다.
   assert.deepEqual(settingsSaveGuard({ status: 'missing' }, false), { allowed: true, reason: null });
@@ -62,11 +67,15 @@ async function main() {
   assert.equal(reportSourceState({ loading: false, failed: false, live: true }), 'live');
   assert.equal(reportSourceState({ loading: false, failed: false, live: false }), 'empty');
 
-  assert.equal(reportSourceLabel('empty'), '데이터 없음');
+  assert.equal(reportSourceLabel('empty'), '수집 중');
   assert.notEqual(reportSourceLabel('failed'), reportSourceLabel('empty'));
   assert.notEqual(reportSourceLabel('partial'), reportSourceLabel('live'));
-  assert.match(reportSourceLabel('failed'), /실패/);
-  assert.match(reportSourceLabel('partial'), /실패/);
+  // 실패·부분 실패는 서로도, '수집 중' 과도 달라야 한다 — 다만 화면 어휘는 '갱신 중' 계열로 통일한다.
+  assert.equal(reportSourceLabel('failed'), '갱신 중');
+  assert.equal(reportSourceLabel('partial'), '일부 갱신 중');
+  for (const state of ['loading', 'failed', 'partial', 'live', 'empty'] as const) {
+    assert.doesNotMatch(reportSourceLabel(state), /실패|없음/, '리포트 배지에 실패·부재 어휘를 쓰지 않는다');
+  }
 
   // ── fetchAllPages: 1000행 캡을 넘겨 전량을 받는다 ────────────────────────────
   // 실제 PostgREST 를 흉내낸다: 요청 폭이 얼마든 서버는 1000행에서 자른다.

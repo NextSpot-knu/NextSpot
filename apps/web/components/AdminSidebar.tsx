@@ -31,7 +31,9 @@ export function AdminSidebar() {
     { name: '시스템 설정', path: '/admin/settings', icon: Settings },
     // 개발자 콘솔은 팀 전용이라 developer 에게만 보인다 — 관제 화면(정부기관 관계자)에는
     // 역할 임명 같은 운영 도구를 노출하지 않는다.
-    ...(canEnterDevConsole(account)
+    // 프로덕션에서는 역할과 무관하게 감춘다(벨트+멜빵): 심사 계정에 developer 가 잘못 붙어도
+    // 관제 사이드바에 내부 도구 링크가 뜨지 않는다.
+    ...(canEnterDevConsole(account) && process.env.NODE_ENV !== 'production'
       ? [{ name: '개발자 콘솔', path: '/dev', icon: UserCog }]
       : []),
   ];

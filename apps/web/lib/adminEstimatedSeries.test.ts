@@ -104,10 +104,15 @@ async function main() {
   assert.match(
     estimatedSeriesUnavailableNote({ available: false, reason: 'timeout' }) ?? '',
     /새로고침/,
-    '시간 초과는 다시 누르면 풀리는 실패다 — 그 사실을 말해야 한다',
+    '시간 초과는 다시 누르면 풀린다 — 다음 행동을 말해야 한다',
   );
-  assert.match(estimatedSeriesUnavailableNote({ available: false, reason: 'compute_failed' }) ?? '', /주차 원본/);
+  assert.match(estimatedSeriesUnavailableNote({ available: false, reason: 'compute_failed' }) ?? '', /공영주차 실측/);
   assert.ok(estimatedSeriesUnavailableNote({ available: false, reason: 'who-knows' }));
+  // 서버가 준 reason 키는 화면 문구에 새지 않는다.
+  for (const reason of ['timeout', 'compute_failed', 'bad_shape', 'who-knows']) {
+    const note = estimatedSeriesUnavailableNote({ available: false, reason }) ?? '';
+    assert.doesNotMatch(note, new RegExp(reason), `서버 reason 키가 화면에 샜다: ${note}`);
+  }
 
   // ── 3. 근거 문장 ───────────────────────────────────────────────────────────
   const series = readEstimatedSeries(response([day('2026-09-19', 0.64), day('2026-09-20', 0.57)]));
@@ -206,8 +211,8 @@ async function main() {
 
   // ── 8. 인원 수를 만들지 않는다 ─────────────────────────────────────────────
   // 이 모듈 어디에서도 '명' 을 만들어 내지 않는다는 사실을 문구로 고정한다.
-  assert.match(ESTIMATE_NO_HEADCOUNT_NOTE, /인원 수/);
-  assert.match(ESTIMATE_NO_HEADCOUNT_NOTE, /0 이 아니라/);
+  assert.match(ESTIMATE_NO_HEADCOUNT_NOTE, /0~100% 혼잡도/, '값의 단위를 밝혀야 사람 수로 읽히지 않는다');
+  assert.match(ESTIMATE_NO_HEADCOUNT_NOTE, /주차 점유율과 관광 집중률/, '무엇으로 산출했는지 말한다');
   assert.ok(
     Object.keys(series.daily[0]).every((key) => !/count$/i.test(key) || /sampleCount|snapshotCount|anomalyCount/.test(key)),
     '추정 일자에 인원 수 비슷한 칸이 생기면 화면이 그것을 사람 수로 읽는다',

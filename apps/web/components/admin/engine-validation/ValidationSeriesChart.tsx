@@ -9,14 +9,14 @@ import { chartRows, formatKst, type ChartRow, type SeriesPoint } from '@/lib/eng
 // (components/admin/DashboardCharts.tsx 와 같은 방식).
 // 두 선의 색은 패널 배경(#241d17) 기준으로 명도대·색각이상 분리·대비를 검증한 쌍이다
 // (OKLCH L 0.48~0.67, 색각이상 ΔE ≥ 19, 대비 ≥ 3:1). 색만으로 구분하지 않도록 추정은 점선이다 —
-// 저장소 전체에서 '추정' 은 실측과 같은 모양으로 그리지 않는다(CONGESTION_ENGINE_PLAN §5.2).
+// 프로젝트 전체에서 '추정' 은 실측과 같은 모양으로 그리지 않는다.
 const COLOR = {
   grid: '#3a2f24',    // --color-hanok-line
   axis: '#b8a894',    // --color-hanok-muted
   ink: '#f0e7d8',     // --color-hanok-ink
   card: '#2c241c',    // --color-hanok-card
   actual: '#4a90d9',  // 서울 실측(정규화 인구)
-  estimate: '#b08a2c', // 우리 추정(level_est)
+  estimate: '#b08a2c', // NextSpot 추정 혼잡도
 } as const;
 
 const GRADE_EDGES: { y: number; label: string }[] = [
@@ -35,7 +35,7 @@ export function ValidationSeriesChart({ series }: { series: SeriesPoint[] }) {
   if (rows.length === 0) {
     return (
       <div className="flex items-center justify-center h-full text-sm text-hanok-muted text-center px-4">
-        아직 그릴 표본이 없습니다. 수집이 시작되면 10분마다 한 점씩 쌓입니다.
+        10분 주기로 표본을 수집하는 중입니다 — 수집된 구간부터 곡선이 그려집니다.
       </div>
     );
   }
@@ -99,7 +99,7 @@ export function ValidationSeriesChart({ series }: { series: SeriesPoint[] }) {
           isAnimationActive={false}
         />
         <Line
-          name="우리 추정 (level_est)"
+          name="NextSpot 추정 혼잡도"
           type="linear"
           dataKey="estimate"
           stroke={COLOR.estimate}

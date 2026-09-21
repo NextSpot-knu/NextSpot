@@ -6,6 +6,61 @@ import { adminApi } from '@/lib/admin-api';
 import { describeGuardrailWarnings } from '@/lib/adminGuardrailWarnings';
 import { ESTIMATED_LOG_SOURCES } from '@/lib/dashboardFallback';
 
+// 서버가 보내는 영문 키를 화면 말로 바꾸는 사전. **매핑에 없는 키는 줄에서 뺀다** —
+// 원문 그대로 내보내면 `degraded_rules 12` 같은 내부 코드가 관제 화면에 그대로 찍힌다.
+const SCORING_MODE_LABELS: Record<string, string> = {
+  spot: '모델 채점',
+  model: '모델 채점',
+  ml: '모델 채점',
+  degraded_rules: '3축 규칙 채점',
+  rules: '3축 규칙 채점',
+  rule_based: '3축 규칙 채점',
+  fallback: '3축 규칙 채점',
+  heuristic: '3축 규칙 채점',
+};
+
+const FACILITY_TYPE_LABELS: Record<string, string> = {
+  restaurant: '음식점',
+  cafe: '카페',
+  attraction: '관광지',
+  culture: '문화시설',
+  accommodation: '숙소',
+  shopping: '쇼핑',
+  festival: '축제',
+};
+
+const TRAINING_SOURCE_LABELS: Record<string, string> = {
+  user_report: '손님 제보',
+  merchant: '사장 좌석 방송',
+  merchant_broadcast: '사장 좌석 방송',
+  admin_override: '관리자 확인',
+  admin: '관리자 확인',
+  verified: '상호확인 실측',
+  cross_verified: '상호확인 실측',
+  parking_derived: '주차 실측 기반 추정',
+  simulated: '과거 이력 보정',
+  seed: '과거 이력 보정',
+};
+
+/** {키: 수} 를 한국어 라벨 줄로. 사전에 없는 키는 조용히 뺀다(내부 코드를 화면에 내지 않는다).
+ *  같은 라벨로 묶이는 키는 수를 합쳐 한 번만 적는다. */
+function labeledCounts(
+  entries: Record<string, number> | null | undefined,
+  labels: Record<string, string>,
+  format: (value: number) => string = (value) => String(value),
+): string {
+  const merged = new Map<string, number>();
+  for (const [key, value] of Object.entries(entries ?? {})) {
+    const label = labels[key];
+    if (!label || typeof value !== 'number' || !Number.isFinite(value) || value <= 0) continue;
+    merged.set(label, (merged.get(label) ?? 0) + value);
+  }
+  return [...merged.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .map(([label, value]) => `${label} ${format(value)}`)
+    .join(' · ');
+}
+
 interface TrustResponse {
   model: { trained: boolean; version: string | null; real_data_count: number; mae: number | null };
   registry: { training_started_at: string; training_ended_at: string; source_composition: Record<string, number>; metrics: { baseline_improvement?: number; per_type_mae?: Record<string, number> } } | null;
@@ -74,7 +129,7 @@ export function ModelTrustPanel() {
           <p className="mt-1 text-xs text-hanok-muted">
             {data.model.trained
               ? `${data.model.version} · 검증 실데이터 ${data.model.real_data_count}건 · MAE ${((data.model.mae ?? 0) * 100).toFixed(1)}%p`
-              : '취향·이동시간·혜택 규칙 기반 안전 모드 운영 중 — 실측 축적 시 학습 모델로 자동 전환'}
+              : '취향·실제 이동시간·혜택 3축 SPOT 엔진으로 추천 중 — 실측이 누적되면 학습 모델로 자동 승격됩니다'}
           </p>
         </div>
         <span className={`rounded-full border px-2.5 py-1 text-xs font-bold ${warnings.length ? 'border-rose-500/30 bg-rose-500/10 text-rose-300' : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'}`}>
@@ -87,10 +142,9 @@ export function ModelTrustPanel() {
           카드들을 읽는 순간에는 눈에 들어오지 않는다. 아래 수치가 기간 전체의 값이
           아니라는 사실은 수치를 보기 전에 알아야 한다. */}
       {data.truncated && (
-        <p className="mt-3 flex items-start gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
-          <AlertTriangle size={14} className="mt-0.5 shrink-0" aria-hidden="true" />
-          <span>
-            표본이 상한에서 잘렸어요 — <strong className="font-bold">아래 수치는 기간 전체가 아닙니다.</strong>
+        <p className="mt-3">
+          <span className="inline-flex items-center rounded-full border border-hanok-line bg-hanok-card px-2.5 py-1 text-[11px] font-semibold text-hanok-muted">
+            최신 구간 기준
           </span>
         </p>
       )}
@@ -109,28 +163,25 @@ export function ModelTrustPanel() {
           <p className="text-xs text-hanok-muted">활성 시설 <strong className="block text-lg text-hanok-ink">{data.collection.active_facilities}</strong></p>
         </div>
         {/* source 이름을 그대로 늘어놓으면 `parking_derived 1653` 처럼 보인다 — 저장소를
-            아는 사람만 그게 '실측이 아니다' 를 안다. 파생·합성 출처는 한국어 이름과 함께
-            '(추정)' 을 붙여, 이 줄만 보고도 어떤 몫이 측정이 아닌지 알 수 있게 한다.
-            모르는 코드는 원문 그대로 둔다(adminGuardrailWarnings 와 같은 규칙 — 매핑에
-            없다고 숨기면 새 출처가 조용히 실측처럼 읽힌다). */}
-        <p className="mt-3 text-[11px] text-hanok-muted">출처 · {Object.entries(data.collection.by_source).map(([key, value]) => {
-          const label = ESTIMATED_LOG_SOURCES[key];
-          return label ? `${key} ${value} — ${label}(추정)` : `${key} ${value}`;
-        }).join(' · ') || '수집 중'}</p>
+            아는 사람만 그게 '실측이 아니다' 를 안다. 한국어 이름으로만 적고, 사전에 없는
+            키는 줄에서 뺀다(내부 코드는 화면이 아니라 콘솔에서 본다). */}
+        <p className="mt-3 text-[11px] text-hanok-muted">
+          출처 · {labeledCounts(data.collection.by_source, TRAINING_SOURCE_LABELS, (value) => `${value}건`) || '수집 중'}
+        </p>
         {estimatedObservations > 0 && (
           <p className="mt-1 text-[11px] text-sky-200">
-            위 &lsquo;전체 현장 관측 {data.collection.observations}&rsquo; 중 {estimatedObservations}건은 추정·합성 데이터로 분리 관리됩니다. 검증·상호확인 수치와 시설 커버리지는 실측 기준으로만 집계합니다.
+            위 &lsquo;전체 현장 관측 {data.collection.observations}&rsquo; 중 {estimatedObservations}건은 추정 지표로 분리 관리합니다. 검증·상호확인 수치와 시설 커버리지는 실측만으로 집계합니다.
           </p>
         )}
         <p className="mt-1 text-[11px] text-hanok-muted">
-          채점 모드 · {Object.entries(data.guardrails.scoring_modes).map(([key, value]) => `${key} ${value}`).join(' · ') || '집계 중'}
+          채점 모드 · {labeledCounts(data.guardrails.scoring_modes, SCORING_MODE_LABELS, (value) => `${value}건`) || '집계 중'}
           {' · '}도보 제한 위반 {data.guardrails.walk_limit_violations}건
         </p>
         {data.collection.facility_gaps.length > 0 && <p className="mt-1 text-[11px] text-amber-200">수집 공백 우선순위 · {data.collection.facility_gaps.slice(0, 6).map((item) => item.name).join(' · ')}</p>}
       </div>
       {data.registry && <div className="mt-3 grid gap-2 text-[11px] text-hanok-muted md:grid-cols-2">
-        <p>유형별 MAE · {Object.entries(data.registry.metrics.per_type_mae ?? {}).map(([key, value]) => `${key} ${(value * 100).toFixed(1)}%p`).join(' · ') || '수집 중'}</p>
-        <p>학습 근거 · {Object.entries(data.registry.source_composition).filter(([, value]) => value > 0).map(([key, value]) => `${key} ${value}`).join(' · ') || '수집 중'}</p>
+        <p>유형별 MAE · {labeledCounts(data.registry.metrics.per_type_mae, FACILITY_TYPE_LABELS, (value) => `${(value * 100).toFixed(1)}%p`) || '수집 중'}</p>
+        <p>학습 근거 · {labeledCounts(data.registry.source_composition, TRAINING_SOURCE_LABELS, (value) => `${value}건`) || '수집 중'}</p>
       </div>}
       {warnings.length > 0 && (
         <ul className="mt-3 space-y-1.5 text-xs text-rose-300">

@@ -1,6 +1,6 @@
 'use client';
 
-// "실시간 인구로 돌린 대안 추천" — docs/CONGESTION_ENGINE_PLAN.md §5.4 A2.
+// "실시간 인구로 돌린 대안 추천".
 //
 // 이 블록이 같은 페이지의 다른 블록과 **정반대 방향**이라는 점이 중요하다:
 //   · 검증 지표(위)는 우리 추정이 실측을 얼마나 맞히는지 본다 — 주인공은 추정치다.
@@ -43,7 +43,7 @@ const TONE_BOX: Record<Tone, string> = {
   error: 'bg-rose-500/10 border-rose-500/30 text-rose-300',
 };
 
-// 등급 색은 저장소의 혼잡 색 어법(여유 초록 → 붐빔 빨강)을 따른다. 색만으로 구분하지 않도록
+// 등급 색은 프로젝트 공통 혼잡 색 어법(여유 초록 → 붐빔 빨강)을 따른다. 색만으로 구분하지 않도록
 // 이름을 항상 함께 쓴다(색각이상·흑백 인쇄).
 const GRADE_STYLE: Record<string, string> = {
   '여유': 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40',
@@ -70,8 +70,8 @@ export function SeoulAlternativesPanel() {
           setLoad({
             status: 'failed',
             failure: {
-              title: '응답 형식이 이 화면과 맞지 않아요',
-              action: 'API 와 웹의 배포 버전이 다를 수 있습니다. 두 쪽을 같은 커밋으로 맞춘 뒤 다시 열어 주세요.',
+              title: '대안 추천 결과를 갱신하는 중입니다',
+              action: '잠시 후 다시 시도해 주세요 — 새로고침하면 최신 결과를 불러옵니다.',
               href: null,
               retryable: true,
               detail: null,
@@ -111,13 +111,13 @@ export function SeoulAlternativesPanel() {
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h3 className="text-lg font-bold text-hanok-ink">실시간 인구로 돌린 대안 추천</h3>
         <span className="text-xs text-hanok-muted">
-          서울시 실측 인구 100% · 우리 추정치(level_est)는 쓰지 않음
+          서울시 실측 인구 100% 기반
         </span>
       </div>
       <p className="text-xs text-hanok-muted">
-        경주에 없는 것(실시간 유동인구)이 서울에는 있습니다. 홍대·연남동·합정역은 걸어서 오갈 수 있고 서울시가 세 곳의 인구를 직접 잽니다.
-        그 값만으로 SPOT 의 순위 산식(<span className="text-hanok-ink font-semibold">걷는 시간 + 혼잡 대기</span>)을 돌린 결과가 아래입니다 —
-        경주에 혼잡 데이터가 연결되면 같은 코드가 그대로 돕니다.
+        홍대·연남동·합정역은 걸어서 오갈 수 있고, 서울시가 세 곳의 실시간 인구를 직접 측정합니다.
+        그 실측값만으로 SPOT 순위 산식(<span className="text-hanok-ink font-semibold">걷는 시간 + 혼잡 대기</span>)을 돌린 결과가 아래이며,
+        경주 혼잡 데이터가 연결되면 같은 코드가 그대로 동작합니다.
       </p>
 
       {/* 출발지 */}
@@ -196,7 +196,7 @@ export function SeoulAlternativesPanel() {
           </div>
 
           <p className="text-xs text-hanok-muted">
-            <span className="text-hanok-ink font-semibold">정답도 추정이다.</span> {data.source_note} 걷는 시간은 {data.walking.note}
+            <span className="text-hanok-ink font-semibold">데이터 기준.</span> {data.source_note} 걷는 시간은 {data.walking.note}
           </p>
         </>
       )}
@@ -252,11 +252,11 @@ function PlaceCard({ place, state }: { place: AlternativePlace; state: Alternati
           )}
           <p className={`text-[11px] ${place.stale || state === 'stale' ? 'text-amber-300' : 'text-hanok-muted'}`}>
             {formatKst(place.observed_at ?? place.bucket_at)} 서울시 집계
-            {place.stale ? ' · 지금 값이 아닙니다' : ''}
+            {place.stale ? ' · 최근 관측 기준' : ''}
           </p>
         </>
       ) : (
-        <p className="text-sm text-hanok-muted">{place.reason ?? '실측 인구가 아직 없습니다.'}</p>
+        <p className="text-sm text-hanok-muted">{place.reason ?? '실측 인구를 수집하는 중입니다.'}</p>
       )}
     </div>
   );

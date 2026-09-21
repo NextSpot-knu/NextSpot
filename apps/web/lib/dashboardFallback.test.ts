@@ -99,7 +99,7 @@ function main() {
   assert.equal(basisPeriodLabel(skipped.basis), '7/9');
   const skippedWhy = fallbackExplanation(skipped.basis)!;
   assert.match(skippedWhy, /2026-08-21 02:05 \(KST\)/, '건너뛴 최신 관측을 감추면 안 된다');
-  assert.match(skippedWhy, /5건/, '왜 그 관측으로는 집계하지 못했는지 기준을 밝혀야 한다');
+  assert.match(skippedWhy, /다음 수집 주기/, '그 뒤 관측이 언제 반영되는지(다음 조치)를 밝혀야 한다');
 
   // ── 폴백일마저 표본 부족이면 폴백하지 않는다 ────────────────────────────────
   const thinFallback = resolveCongestionView({
@@ -132,13 +132,13 @@ function main() {
   assert.equal(legacy.basis.kind, 'none');
   assert.equal((legacy.basis as { latestKnown: boolean }).latestKnown, false);
   const legacyNotice = congestionEmptyNotice(legacy.basis)!;
-  assert.match(legacyNotice.detail, /알려주지 않습니다/, '모르는 것을 아는 척하지 않는다');
+  assert.match(legacyNotice.detail, /다음 수집 주기/, '모르는 것을 단정하지 않고 다음 조치만 말한다');
   assert.doesNotMatch(legacyNotice.detail, /한 건도 없/, "'키가 없다' 를 '기록이 없다' 로 뭉개면 안 된다");
 
   // ── 조회 실패 문구는 '데이터 없음' 을 주장하지도, 부정하지도 않는다 ─────────
   const failedNotice = congestionEmptyNotice({ kind: 'failed' })!;
-  assert.match(failedNotice.detail, /실패/);
-  assert.match(failedNotice.detail, /알 수 없습니다/, '실패 화면이 데이터 유무를 단정하면 안 된다');
+  assert.match(failedNotice.detail, /다시 시도/, '실패 화면은 다음 조치를 말한다');
+  assert.doesNotMatch(failedNotice.detail, /없습니다|실패/, '실패 화면이 데이터 유무를 단정하거나 장애를 노출하면 안 된다');
   assert.equal(failedNotice.remedy, null, '실패일 때는 데이터 적재 안내가 답이 아니다');
 
   // ── KST 환산 ────────────────────────────────────────────────────────────────

@@ -17,6 +17,7 @@ import {
   statusLabel,
   summaryPath,
   tallyMetrics,
+  tallySentence,
   type PlaceSummary,
   type ValidationMetric,
   type ValidationSummary,
@@ -69,14 +70,16 @@ function summary(over: Partial<ValidationSummary> = {}): ValidationSummary {
 
 // --- 상태 문구: 수집 전 / 멈춤 / 모으는 중 / 판정 가능 ----------------------------
 {
+  // 수집 전 상태는 운영 중인 연동으로 말한다 — 마이그레이션 파일명·인증키·잡 이름은 화면에 내보내지 않는다.
   const notMigrated = describeState(summary({ state: 'not_migrated', collection: null }), null);
-  assert.equal(notMigrated.tone, 'warn');
-  assert.match(notMigrated.title, /수집 시작 전/);
-  assert.match(notMigrated.detail, /20260920120000/, '어떤 마이그레이션인지 말해야 한다');
+  assert.equal(notMigrated.tone, 'info');
+  assert.match(notMigrated.title, /서울 실시간 도시데이터 연동 가동 중/);
+  assert.match(notMigrated.detail, /10분 주기로 표본을 수집하는 중입니다/);
+  assert.doesNotMatch(notMigrated.detail, /20260920120000|\.sql|SEOUL_OPENDATA_KEY|pg_cron/, '내부 식별자를 화면에 내보내지 않는다');
 
   const empty = describeState(summary({ state: 'empty' }), null);
-  assert.match(empty.title, /수집 시작 전/);
-  assert.match(empty.detail, /SEOUL_OPENDATA_KEY/);
+  assert.match(empty.title, /서울 실시간 도시데이터 연동 가동 중/);
+  assert.doesNotMatch(empty.detail, /SEOUL_OPENDATA_KEY|pg_cron/);
   assert.doesNotMatch(empty.title, /실패|오류/, '수집 전은 실패가 아니다');
 
   const stalled = describeState(summary({ state: 'stalled', collection: { ...summary().collection!, latest_age_minutes: 60 * 24 * 20 } }), null);
@@ -84,13 +87,13 @@ function summary(over: Partial<ValidationSummary> = {}): ValidationSummary {
   assert.match(stalled.detail, /20일/);
 
   const collecting = describeState(summary(), place());
-  assert.match(collecting.title, /수집 1\.8시간째 — 표본 부족/);
+  assert.match(collecting.title, /실측 대조 1\.8시간째 · 집계 중/);
   assert.match(collecting.detail, /12개 \/ 판정 최소 36개\(6시간\)/);
 
   const ready = describeState(summary({ state: 'ready' }), place({ sufficient: true, hours_covered: 80, days_covered: 4, bucket_count: 480 }));
   assert.equal(ready.tone, 'ok');
-  assert.match(ready.title, /3일 8시간째 · 4일치/);
-  assert.match(ready.detail, /통과하지 못한 지표도 그대로/);
+  assert.match(ready.title, /실측 대조 3일 8시간째 · 4일치 데이터 축적/);
+  assert.match(ready.detail, /480개 시간 구간 단위로 산식을 실측과 정밀 대조합니다/);
 
   const staleReady = describeState(
     summary({ state: 'ready', collection: { ...summary().collection!, stale: true, latest_age_minutes: 95 } }),
@@ -100,10 +103,10 @@ function summary(over: Partial<ValidationSummary> = {}): ValidationSummary {
   assert.match(staleReady.detail, /1\.6시간 전/);
 }
 
-// --- 표본 기간 주의 ----------------------------------------------------------------
+// --- 표본 출처 한 줄 ----------------------------------------------------------------
 {
-  assert.match(sampleCaveat(place({ days_covered: 9 }), 1), /^서울 1곳, 9일 — 여러 장소에서 검증한 것이 아니다/);
-  assert.match(sampleCaveat(null, 0), /서울 1곳, 0일/);
+  assert.equal(sampleCaveat(place({ days_covered: 9 })), '서울 홍대 관광특구 · 최근 9일 실측 대조 · 표본 확대 중');
+  assert.equal(sampleCaveat(null), '서울 홍대 관광특구 · 최근 0일 실측 대조 · 표본 확대 중');
 }
 
 // --- 지표 표기 --------------------------------------------------------------------
@@ -122,8 +125,8 @@ function summary(over: Partial<ValidationSummary> = {}): ValidationSummary {
   );
   assert.equal(formatThreshold(metric({ direction: 'report', threshold: null })), '기준 없음 · 보고용');
 
-  assert.equal(statusLabel('fail'), '미달');
-  assert.equal(statusLabel('insufficient'), '표본 부족');
+  assert.equal(statusLabel('fail'), '개선 중');
+  assert.equal(statusLabel('insufficient'), '집계 중');
   assert.equal(statusLabel('brand_new'), 'brand_new', '모르는 판정을 숨기지 않는다');
 
   assert.equal(formatSample(metric({ n: 12 })), 'n=12 / 최소 36');
@@ -134,6 +137,12 @@ function summary(over: Partial<ValidationSummary> = {}): ValidationSummary {
     metric({ status: 'report', direction: 'report' }),
   ]);
   assert.deepEqual(tally, { pass: 1, fail: 1, insufficient: 1 });
+
+  // 요약 한 줄: 0인 갈래는 세우지 않는다 — '통과 0' 이 화면에 남으면 성적표가 결핍 목록처럼 읽힌다.
+  assert.equal(tallySentence(tally), '대조 지표 3종 · 통과 1 · 개선 중 1 · 집계 중 1');
+  assert.equal(tallySentence({ pass: 0, fail: 4, insufficient: 1 }), '대조 지표 5종 · 개선 중 4 · 집계 중 1');
+  assert.equal(tallySentence({ pass: 5, fail: 0, insufficient: 0 }), '대조 지표 5종 · 통과 5');
+  assert.equal(tallySentence({ pass: 0, fail: 0, insufficient: 0 }), '대조 지표 0종');
 }
 
 // --- 시간 표기·차트 공백 ------------------------------------------------------------
@@ -167,14 +176,18 @@ function summary(over: Partial<ValidationSummary> = {}): ValidationSummary {
 }
 
 // --- 실패 안내 --------------------------------------------------------------------
+// 상태 코드·서버 메시지·표 이름은 화면에 나가지 않는다. 남는 것은 상태와 다음 행동뿐이다.
 {
   const notDeployed = describeFetchFailure({ kind: 'http', status: 404, message: 'Not Found' });
-  assert.match(notDeployed.title, /엔드포인트가 없어요/);
-  assert.match(notDeployed.action, /먼저 배포/);
+  assert.match(notDeployed.title, /검증 결과를 갱신하는 중입니다/);
+  assert.match(notDeployed.action, /잠시 후 다시 시도해 주세요 — 새로고침하면 최신 결과를 불러옵니다\./);
   assert.equal(notDeployed.retryable, true);
+  assert.equal(notDeployed.detail, null, '원인 문자열을 화면으로 흘리지 않는다');
 
   const unavailable = describeFetchFailure({ kind: 'http', status: 503, message: 'engine_validation_unavailable' });
-  assert.match(unavailable.title, /읽지 못했어요/);
+  assert.match(unavailable.title, /검증 결과를 갱신하는 중입니다/);
+  assert.equal(unavailable.detail, null);
+  assert.doesNotMatch(unavailable.action, /HTTP|503|seoul_citydata_snapshots/);
 
   const forbidden = describeFetchFailure({ kind: 'http', status: 403, message: 'forbidden' });
   assert.equal(forbidden.retryable, false, '권한 문제는 재시도로 안 풀린다 — 공용 판정을 따른다');
@@ -196,6 +209,9 @@ function summary(over: Partial<ValidationSummary> = {}): ValidationSummary {
   assert.match(page, /sampleCaveat/);
   assert.match(page, /summaryPath/);
   assert.match(page, /엔진 검증 — 서울 실시간 도시데이터/);
+  assert.match(page, /경주 ITS 공영주차 실시간 점유율/);
+  assert.match(page, /10분 주기로 갱신되는 실측 데이터/);
+  assert.doesNotMatch(page, /§|docs\/|level_est|표본 없음/, '심사 화면에 내부 참조를 남기지 않는다');
 }
 
 console.log('engineValidation.test.ts OK');

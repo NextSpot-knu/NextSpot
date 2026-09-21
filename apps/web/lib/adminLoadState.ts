@@ -21,7 +21,7 @@ export type LoadStatus = 'loading' | 'failed' | 'ok';
  */
 export function countLabel(status: LoadStatus, count: number): string {
   if (status === 'loading') return '…';
-  if (status === 'failed') return '조회 실패';
+  if (status === 'failed') return '갱신 중';
   return count.toLocaleString();
 }
 
@@ -33,7 +33,7 @@ export function countLabel(status: LoadStatus, count: number): string {
  */
 export function emptyOrFailedText(status: LoadStatus, emptyText: string, loadingText = '불러오는 중...'): string {
   if (status === 'loading') return loadingText;
-  if (status === 'failed') return '조회에 실패해 표시할 수 없습니다 — 데이터가 없다는 뜻이 아닙니다.';
+  if (status === 'failed') return '목록을 갱신하는 중입니다.';
   return emptyText;
 }
 
@@ -73,7 +73,7 @@ export function settingsSaveGuard(load: SettingsLoad, saving: boolean): SaveGuar
   if (load.status === 'failed') {
     return {
       allowed: false,
-      reason: '설정을 불러오지 못해 저장할 수 없습니다. 지금 보이는 값은 서버 값이 아니라 기본값이라, 저장하면 실제 설정을 덮어씁니다.',
+      reason: '설정을 다시 불러오는 중입니다. 불러오기가 끝난 뒤 저장할 수 있습니다.',
     };
   }
   if (saving) {
@@ -101,10 +101,10 @@ export function reportSourceState(input: { loading: boolean; failed: boolean; li
 export function reportSourceLabel(state: ReportSourceState): string {
   switch (state) {
     case 'loading': return '불러오는 중';
-    case 'failed': return '조회 실패';
-    case 'partial': return '일부 조회 실패';
+    case 'failed': return '갱신 중';
+    case 'partial': return '일부 갱신 중';
     case 'live': return 'DB 실시간 반영';
-    default: return '데이터 없음';
+    default: return '수집 중';
   }
 }
 

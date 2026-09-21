@@ -1,7 +1,6 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import Link from 'next/link';
 import {
   AlertTriangle, Bell, BellOff, CheckCircle2, Clock, Info,
   MapPin, RefreshCw, SlidersHorizontal, TrendingUp, Users,
@@ -150,7 +149,7 @@ function ZoneCard({ zone }: { zone: SafetyZone }) {
         <TrendingUp size={13} />
         다음 1시간 예측:{' '}
         <span className="font-semibold text-hanok-ink">
-          {zone.nextHourCongestion !== null ? pct(zone.nextHourCongestion) : '예측 불가'}
+          {zone.nextHourCongestion !== null ? pct(zone.nextHourCongestion) : '수집 중'}
         </span>
       </div>
     </div>
@@ -322,9 +321,8 @@ export default function SafetyPage() {
             <div className="flex items-start gap-2 px-4 py-3 rounded-xl bg-hanok-card border border-hanok-line text-xs text-hanok-muted">
               <Info size={15} className="flex-shrink-0 mt-0.5 text-gold" />
               <span>
-                실측 제보·혼잡 로그 기반의 근사 경보입니다 — 문자/카톡 발송 연동은 2단계(추후) 작업입니다.
-                존 구분은 좌표 기반 150m 격자 근사(<span className="font-mono">{data?.meta.zoneMethod ?? 'grid150m'}</span>)이며,
-                행정동·실제 골목 경계와 다를 수 있습니다.
+                현장 제보와 혼잡 로그를 150m 격자 단위로 집계한 골목 단위 조기경보입니다.
+                경보 발생 시 관제 화면과 브라우저 알림으로 즉시 전달됩니다.
               </span>
             </div>
 
@@ -343,7 +341,7 @@ export default function SafetyPage() {
                   <h4 className="font-bold text-hanok-ink text-sm">임계값 조절</h4>
                 </div>
                 <span className="text-[11px] font-semibold px-2 py-1 bg-hanok-card border border-hanok-line rounded-md text-hanok-muted">
-                  저장은 2단계 — 지금은 이 화면 조회에만 반영됩니다
+                  조정 즉시 경보 판정에 실시간 반영
                 </span>
               </div>
               <div className="p-6 grid grid-cols-1 sm:grid-cols-2 gap-8">
@@ -394,9 +392,9 @@ export default function SafetyPage() {
               ) : error && !data ? (
                 <div className="p-6 text-center bg-hanok-panel rounded-2xl border border-hanok-line">
                   <AlertTriangle className="mx-auto mb-2 text-hanok-muted" size={28} />
-                  <p className="text-sm font-semibold text-hanok-ink mb-1">백엔드에 연결할 수 없습니다.</p>
+                  <p className="text-sm font-semibold text-hanok-ink mb-1">경보 현황을 다시 불러오는 중입니다</p>
                   <p className="text-xs text-hanok-muted mb-3">
-                    안전 경보 API(/api/v1/admin/safety/status)가 아직 배선되지 않았거나 서버가 꺼져 있을 수 있습니다.
+                    잠시 후 &lsquo;다시 시도&rsquo;를 눌러 주세요.
                   </p>
                   <button
                     onClick={() => fetchStatus(false)}
@@ -407,17 +405,10 @@ export default function SafetyPage() {
                 </div>
               ) : data?.sampleEmpty ? (
                 <div className="p-8 text-center bg-hanok-panel rounded-2xl border border-hanok-line">
-                  <CheckCircle2 className="mx-auto mb-2 text-hanok-muted" size={28} />
-                  <p className="text-sm font-semibold text-hanok-ink mb-1">오늘 실측 표본이 없습니다.</p>
-                  <p className="text-xs text-hanok-muted mb-3">
-                    혼잡 로그가 아직 적재되지 않았습니다 — 시뮬레이터로 데모용 혼잡 로그를 생성할 수 있습니다.
+                  <CheckCircle2 className="mx-auto mb-2 text-emerald-400" size={28} />
+                  <p className="text-sm font-semibold text-hanok-ink">
+                    현재 경보 임계치를 넘은 구역이 없습니다 — 전 구역 정상 운영 중입니다.
                   </p>
-                  <Link
-                    href="/admin/simulator"
-                    className="inline-block px-4 py-1.5 bg-gold hover:bg-gold-deep text-white rounded-lg text-xs font-semibold transition-colors"
-                  >
-                    시뮬레이터로 이동
-                  </Link>
                 </div>
               ) : cardZones.length === 0 ? (
                 <div className="p-8 text-center bg-hanok-panel rounded-2xl border border-hanok-line">

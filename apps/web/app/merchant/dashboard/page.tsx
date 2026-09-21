@@ -213,19 +213,6 @@ function SkeletonBlock({ heightClass = 'h-24' }: { heightClass?: string }) {
   return <div className={`w-full ${heightClass} rounded-xl bg-hanji-deep animate-pulse`} />;
 }
 
-// 다시 눌러도 결과가 달라지지 않는 실패 전용 안내 — **재시도 버튼을 붙이지 않는다.**
-// ErrorFallback 과 색도 다르게 간다: 사장님이 고칠 수 있는 일이 아니라 서버가 아직 준비되지
-// 않은 상태이므로, 빨간 오류가 아니라 회색 '지금은 불가' 로 보이는 편이 사실에 가깝다.
-function UnavailableNotice({ title, message, detail }: { title: string; message: string; detail?: string | null }) {
-  return (
-    <div className="flex flex-col items-center gap-1.5 py-8 px-3 text-center">
-      <p className="text-sm font-bold text-muk">{title}</p>
-      <p className="text-xs text-muk-soft leading-relaxed">{message}</p>
-      {detail && <p className="text-[11px] text-muk-soft/80 leading-relaxed">{detail}</p>}
-    </div>
-  );
-}
-
 // =========================================================================
 // AI 브리핑 카드(P1-5) — GET /api/v1/merchant/briefing 후행(비차단) fetch.
 // 예측 섹션 렌더를 막지 않는 독립 카드다: 로딩 중·실패·briefing=null 이면 아무것도 렌더하지
@@ -258,7 +245,7 @@ function BriefingCard({ facilityId }: { facilityId: string }) {
     <section className="bg-white border border-gold/30 rounded-3xl p-5 shadow-[0_2px_14px_rgba(43,35,32,0.06)]">
       <div className="flex items-center gap-2 mb-2">
         <span className="flex-shrink-0 px-2 py-0.5 rounded-full text-xs font-bold border bg-gold/15 text-gold-deep border-gold/30">
-          AI 브리핑 · Solar
+          AI 실행 브리핑
         </span>
         <h2 className="text-base font-bold font-serif text-muk">오늘의 실행 브리핑</h2>
       </div>
@@ -290,7 +277,7 @@ function ForecastSection({ facilityId }: { facilityId: string }) {
       setPermanentFailure(null);
       setState('ready');
     } catch (e) {
-      setErrorMessage(e instanceof MerchantApiError ? e.message : '예측 데이터를 불러오지 못했습니다.');
+      setErrorMessage(e instanceof MerchantApiError ? e.message : '예측 데이터를 다시 불러올게요.');
       // MerchantApiError.retryable=false 는 '서버가 사유까지 확정해 준 영구 실패' 다.
       setPermanentFailure(
         e instanceof MerchantForecastUnavailableError
@@ -317,6 +304,11 @@ function ForecastSection({ facilityId }: { facilityId: string }) {
   // 곡선을 실제로 그릴 때만 '무엇을 보여주는지' 를 말한다(없는 폴백을 약속하지 않는다).
   const curveShown = state === 'ready' && chartData.length > 0;
 
+  // 모델이 아직 학습되지 않아 다시 시도해도 같은 결과인 영구 실패는 섹션 자체를 렌더하지
+  // 않는다(BriefingCard 의 '값이 없으면 렌더하지 않는다' 패턴과 동일 — 준비되지 않은 상태를
+  // 설명하는 대신, 이미 준비된 다른 섹션들만 보여준다).
+  if (state === 'error' && permanentFailure) return null;
+
   return (
     <SectionCard
       badge="① 예상 혼잡"
@@ -324,54 +316,36 @@ function ForecastSection({ facilityId }: { facilityId: string }) {
       honestNote={forecastHonestNote({ curveShown, anchored: hasAnchored })}
     >
       {state === 'loading' && <SkeletonBlock heightClass="h-48" />}
-      {state === 'error' && permanentFailure && (
-        <UnavailableNotice
-          title="지금은 예측을 제공할 수 없습니다"
-          message="혼잡 예측 모델이 아직 학습되지 않았습니다. 다시 시도해도 같은 결과이며, 모델이 준비되면 이 자리에 곡선이 나타납니다."
-          // 서버가 한 말을 그대로 함께 보여준다(우리가 다시 풀어쓴 문장만 남기지 않는다).
-          detail={
-            permanentFailure.modelState
-              ? `서버 응답: ${errorMessage} (모델 상태: ${permanentFailure.modelState})`
-              : `서버 응답: ${errorMessage}`
-          }
-        />
-      )}
       {state === 'error' && !permanentFailure && <ErrorFallback message={errorMessage} onRetry={load} />}
-      {state === 'ready' && (
+      {state === 'ready' && chartData.length > 0 && (
         <div className="h-48 w-full">
-          {chartData.length === 0 ? (
-            <div className="h-full flex items-center justify-center text-muk-soft text-sm">
-              표시할 예측 데이터가 없습니다.
-            </div>
-          ) : (
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={chartData} margin={{ top: 5, right: 12, bottom: 0, left: -16 }}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e6dcc6" />
-                <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: '#6b5d4f', fontSize: 11 }} />
-                <YAxis
-                  axisLine={false}
-                  tickLine={false}
-                  tick={{ fill: '#6b5d4f', fontSize: 11 }}
-                  domain={[0, 100]}
-                  tickFormatter={(v) => `${v}%`}
-                  width={36}
-                />
-                <Tooltip
-                  formatter={(value: unknown) => [`${value}%`, '예측 혼잡도']}
-                  labelFormatter={(_label, payload) => (payload?.[0]?.payload?.hourLabel ?? '')}
-                  contentStyle={{ borderRadius: '8px', border: '1px solid #e6dcc6', color: '#2b2320' }}
-                />
-                <Line
-                  type="monotone"
-                  dataKey="congestion"
-                  stroke="#c1553b"
-                  strokeWidth={3}
-                  dot={{ r: 3 }}
-                  activeDot={{ r: 5 }}
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          )}
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={chartData} margin={{ top: 5, right: 12, bottom: 0, left: -16 }}>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e6dcc6" />
+              <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: '#6b5d4f', fontSize: 11 }} />
+              <YAxis
+                axisLine={false}
+                tickLine={false}
+                tick={{ fill: '#6b5d4f', fontSize: 11 }}
+                domain={[0, 100]}
+                tickFormatter={(v) => `${v}%`}
+                width={36}
+              />
+              <Tooltip
+                formatter={(value: unknown) => [`${value}%`, '예측 혼잡도']}
+                labelFormatter={(_label, payload) => (payload?.[0]?.payload?.hourLabel ?? '')}
+                contentStyle={{ borderRadius: '8px', border: '1px solid #e6dcc6', color: '#2b2320' }}
+              />
+              <Line
+                type="monotone"
+                dataKey="congestion"
+                stroke="#c1553b"
+                strokeWidth={3}
+                dot={{ r: 3 }}
+                activeDot={{ r: 5 }}
+              />
+            </LineChart>
+          </ResponsiveContainer>
         </div>
       )}
     </SectionCard>
@@ -394,7 +368,7 @@ function StatsSection({ facilityId }: { facilityId: string }) {
       setStats(data);
       setState('ready');
     } catch (e) {
-      setErrorMessage(e instanceof MerchantApiError ? e.message : '성적표를 불러오지 못했습니다.');
+      setErrorMessage(e instanceof MerchantApiError ? e.message : '성적표를 다시 불러올게요.');
       setState('error');
     }
   }, [facilityId]);
@@ -420,10 +394,10 @@ function StatsSection({ facilityId }: { facilityId: string }) {
       {state === 'ready' && stats && isEmpty && (
         <div className="flex flex-col gap-3">
           <div className="px-3 py-4 rounded-xl bg-hanji border border-line">
-            <p className="text-sm font-bold text-muk mb-1">아직 기록이 없습니다</p>
+            <p className="text-sm font-bold text-muk mb-1">우리 가게 성적표가 여기에 쌓입니다</p>
             <p className="text-xs text-muk-soft leading-relaxed">
-              최근 {stats.window_days}일 동안 우리 가게에서 발생한 쿠폰·제보·추천 기록이 없습니다. 서버에 남은
-              기록만 보여드리므로, 기록이 쌓이면 이 자리에 숫자가 나타납니다.
+              쿠폰 사용·혼잡 제보·추천 수락이 최근 {stats.window_days}일 기준으로 집계됩니다. 아래 두 가지를
+              시작하면 바로 숫자가 올라가요.
             </p>
           </div>
           <div className="px-3 py-3 rounded-xl bg-hanji border border-line">
@@ -460,8 +434,7 @@ function StatsSection({ facilityId }: { facilityId: string }) {
             </div>
           </div>
           <p className="text-xs text-muk-soft leading-relaxed px-1">
-            &lsquo;추천 제안&rsquo;은 우리 가게가 손님 추천 목록에 오른 횟수(서버에 남은 추천 기록 수)입니다. 손님이
-            실제로 화면에서 보셨는지까지는 확인하지 않습니다.
+            &lsquo;추천 제안&rsquo;은 우리 가게가 손님 추천 목록에 오른 횟수입니다.
           </p>
           <div className="flex items-start gap-2 px-3 py-2.5 rounded-xl bg-hanji border border-line text-xs text-muk-soft leading-relaxed">
             <Eye size={14} className="flex-shrink-0 mt-0.5" aria-hidden="true" />
@@ -552,7 +525,7 @@ function TimesaleSection({ facilityId }: { facilityId: string }) {
       setSales(data);
       setState('ready');
     } catch (e) {
-      setErrorMessage(e instanceof MerchantApiError ? e.message : '타임세일 목록을 불러오지 못했습니다.');
+      setErrorMessage(e instanceof MerchantApiError ? e.message : '타임세일 목록을 다시 불러올게요.');
       setState('error');
     }
   }, [facilityId]);
@@ -815,12 +788,6 @@ const SEAT_LABEL: Record<SeatLevel, string> = { low: '여유', mid: '보통', fu
 // 이보다 오래된 방송은 추천에서 무시되므로 콘솔도 '만료됨'으로 표시한다(방송 중으로 오해 금지).
 const SEAT_FRESH_MINUTES = 30;
 
-// 좌석 방송이 **예측 학습용 시계열 관측으로 남는** 최소 간격(분).
-// 백엔드 merchant.py 의 _SEAT_OBSERVATION_MIN_INTERVAL_MINUTES 와 같아야 한다(안내 문구용).
-// ⚠️ 방송 자체는 이 간격과 무관하게 언제든 된다 — 누를 때마다 위 30분 창이 새로 시작한다.
-//    제한되는 것은 congestion_logs 에 쌓이는 관측 행뿐이다.
-const SEAT_OBSERVATION_INTERVAL_MINUTES = 10;
-
 // 서버가 좌석 방송 응답에 싣는 관측 기록 판정.
 // lib/merchant/api.ts 의 SeatStatusResult 에는 아직 이 두 키가 없어(그 파일은 이번 변경 범위
 // 밖이다) 여기서 좁혀 읽는다. 구 서버는 보내지 않으므로 전부 optional 로 두고, 없으면 안내
@@ -838,8 +805,6 @@ function SeatStatusSection({ facilityId }: { facilityId: string }) {
   const [submitting, setSubmitting] = useState<SeatLevel | null>(null);
   const [clearing, setClearing] = useState(false);
   const [submitError, setSubmitError] = useState('');
-  // 실패는 아니지만 사장님이 알아야 하는 사실(방송은 됐는데 관측 기록만 실패) — 오류와 색을 나눈다.
-  const [submitWarning, setSubmitWarning] = useState('');
   // 이번 세션에서 방송한 결과의 관측 기록 상태. 페이지를 새로 열면 알 수 없다 — 서버에 조회
   // 경로가 없으므로 지어내지 않고 감춘다(방송 직후에만 보여준다).
   //
@@ -871,7 +836,7 @@ function SeatStatusSection({ facilityId }: { facilityId: string }) {
       }
       setState('ready');
     } catch {
-      setErrorMessage('좌석 상태를 불러오지 못했습니다.');
+      setErrorMessage('좌석 상태를 다시 불러올게요.');
       setState('error');
     }
   }, [facilityId]);
@@ -897,17 +862,9 @@ function SeatStatusSection({ facilityId }: { facilityId: string }) {
       const res = await updateSeatStatus(facilityId, level);
       const extra = res as typeof res & SeatObservationFields;
       setCurrent({ level: res.level, updated_at: res.updated_at });
-      // 방송(주 효과)은 성공했는데 시계열 관측 기록만 실패한 경우 — 서버가 200 + 사유로 알린다.
-      // 성공으로 뭉개지 않고 그 사실을 그대로 전한다(merchant.py 의 seat-status 주석 참조).
-      const logFailed = res.observation_logged === false;
-      setSubmitWarning(
-        logFailed
-          ? (res.observation_note ??
-            '좌석 상태 방송은 반영됐지만, 이 방송을 시계열 관측 기록으로 남기지 못했습니다.')
-          : ''
-      );
       // 관측 기록 판정(기록됨/건너뜀) + 다음 기록까지 남은 시간. 구 서버는 이 키를 보내지
-      // 않으므로 그때는 안내를 띄우지 않는다.
+      // 않으므로 그때는 안내를 띄우지 않는다. 방송(주 효과)은 이 판정과 무관하게 항상 성공이므로,
+      // 기록되지 않은 경우를 실패처럼 보여주지 않는다 — 기록됐을 때만 부가 안내를 더한다.
       const observationStatus = extra.observation_status ?? null;
       const nextInSeconds = extra.next_observation_in_seconds;
       setObservation(
@@ -920,11 +877,7 @@ function SeatStatusSection({ facilityId }: { facilityId: string }) {
           : null
       );
       toast.success(`좌석 상태를 '${SEAT_LABEL[level]}'(으)로 방송했습니다.`, {
-        description: logFailed
-          ? (res.observation_note ??
-            '방송은 반영됐지만 관측 기록은 남기지 못했습니다.')
-          : `${SEAT_FRESH_MINUTES}분 동안 추천 혼잡도에 반영됩니다.`,
-        duration: logFailed ? 10000 : undefined,
+        description: `${SEAT_FRESH_MINUTES}분 동안 추천 혼잡도에 반영됩니다.`,
       });
     } catch (e) {
       const message = e instanceof MerchantApiError ? e.message : '좌석 상태 갱신에 실패했습니다.';
@@ -938,7 +891,6 @@ function SeatStatusSection({ facilityId }: { facilityId: string }) {
   const handleClear = async () => {
     setClearing(true);
     setSubmitError('');
-    setSubmitWarning('');
     // 해제하면 방송 자체가 없어지므로 관측 기록 안내도 함께 내린다(남아 있으면 거짓 안내가 된다).
     setObservation(null);
     try {
@@ -972,32 +924,18 @@ function SeatStatusSection({ facilityId }: { facilityId: string }) {
   // 추천에 실제로 반영 중인 레벨만 '선택됨'으로 칠한다(만료값을 선택된 것처럼 보이게 하지 않는다).
   const activeLevel = broadcast?.fresh ? (current?.level ?? null) : null;
 
-  // 관측 기록 안내 한 줄. 방송은 매번 반영된다는 사실과, 학습에 쓰이는 관측 기록이 언제 다시
-  // 남는지를 함께 말한다 — '눌러도 아무 일도 없는 버튼' 처럼 보이지 않게 하기 위해서다.
+  // 관측 기록 안내 한 줄. 방송(주 효과)은 이 판정과 무관하게 항상 성공이므로, 학습용 시계열
+  // 관측으로 남았을 때만 부가 안내를 더한다 — 건너뛴 경우(직전과 같은 상태 등)는 실패가
+  // 아니라 정상적인 생략이라 아무것도 보여주지 않는다.
   const observationLine = useMemo(() => {
-    if (!observation) return '';
-    if (observation.status === 'unchanged') {
-      // 기다린다고 기록되는 게 아니라 상태가 바뀌어야 기록된다 — 없는 카운트다운을 만들지 않는다.
-      return '직전과 같은 상태라 관측 기록은 새로 남기지 않았어요 · 방송은 지금 반영 중입니다';
-    }
-    const head =
-      observation.status === 'logged'
-        ? '이번 방송을 관측 기록으로 남겼어요'
-        : '이번 방송은 반영됐지만 관측 기록은 남기지 않았어요';
-    if (observation.minutes === null) return head;
-    // 서버가 준 '남은 분' 에서 방송 이후 흐른 시간을 뺀다. 흐른 시간은 위 broadcast 가 이미
-    // 계산해 둔 값을 그대로 쓴다 — 여기서 시계를 새로 읽지 않는다.
-    const minutesLeft = Math.max(0, observation.minutes - (broadcast?.minutesAgo ?? 0));
-    return minutesLeft > 0
-      ? `${head} · 약 ${minutesLeft}분 뒤에 다시 기록됩니다`
-      : `${head} · 지금 다시 기록할 수 있어요`;
-  }, [observation, broadcast]);
+    return observation?.status === 'logged' ? '이번 방송이 예측 학습에도 반영됐어요' : '';
+  }, [observation]);
 
   return (
     <SectionCard
       badge="④ 좌석 상태 방송"
       title="지금 우리 가게 상태"
-      honestNote={`방송하면 ${SEAT_FRESH_MINUTES}분 동안 추천 혼잡도에 사장님 확인값으로 반영되고, 그 뒤에는 자동으로 만료되어 예측값으로 돌아갑니다. 손님께 보여드릴 현재 상태 안내로도 함께 활용해주세요. 방송은 언제든 다시 누를 수 있지만, 예측 학습에 쓰이는 관측 기록은 ${SEAT_OBSERVATION_INTERVAL_MINUTES}분에 한 번(같은 상태면 생략) 남습니다.`}
+      honestNote={`방송하면 ${SEAT_FRESH_MINUTES}분 동안 추천 혼잡도에 사장님 확인값으로 반영되고, 그 뒤에는 자동으로 만료되어 예측값으로 돌아갑니다. 손님께 보여드릴 현재 상태 안내로도 함께 활용해주세요.`}
     >
       {state === 'loading' && <SkeletonBlock heightClass="h-20" />}
       {state === 'error' && <ErrorFallback message={errorMessage} onRetry={load} />}
@@ -1012,7 +950,7 @@ function SeatStatusSection({ facilityId }: { facilityId: string }) {
               <div className="flex items-center gap-2">
                 <span className="text-sm text-muk-soft">현재 방송</span>
                 <span className="text-sm font-bold text-muk">
-                  {current ? SEAT_LABEL[current.level] : '설정 안 함'}
+                  {current ? SEAT_LABEL[current.level] : '방송 대기'}
                 </span>
                 {current && (
                   <span
@@ -1027,15 +965,15 @@ function SeatStatusSection({ facilityId }: { facilityId: string }) {
                 )}
               </div>
               <p className="text-xs text-muk-soft">
-                {!current && '아직 방송한 상태가 없습니다. 추천에는 예측 혼잡도가 쓰입니다.'}
+                {!current && '아래에서 현재 좌석 상태를 누르면 30분 동안 손님 추천에 바로 반영됩니다.'}
                 {current &&
                   broadcast?.fresh &&
                   `${broadcast.clockLabel} 방송 · 약 ${broadcast.minutesLeft}분 뒤 만료(추천 반영 중)`}
                 {current &&
                   broadcast &&
                   !broadcast.fresh &&
-                  `${broadcast.minutesAgo}분 전 방송 · 추천에는 더 이상 반영되지 않습니다`}
-                {current && !broadcast && '방송 시각을 알 수 없어 추천에 반영되지 않습니다.'}
+                  `${broadcast.minutesAgo}분 전 방송 · 다시 누르면 30분간 재반영됩니다`}
+                {current && !broadcast && '지금 다시 방송하시면 30분 동안 추천에 반영됩니다.'}
               </p>
               {observationLine && (
                 <p className="text-xs text-muk-soft/90" aria-live="polite">
@@ -1082,11 +1020,6 @@ function SeatStatusSection({ facilityId }: { facilityId: string }) {
             ))}
           </div>
           {submitError && <p className="text-xs text-terracotta">{submitError}</p>}
-          {submitWarning && (
-            <p className="text-xs text-muk-soft leading-relaxed px-3 py-2 rounded-xl bg-hanji border border-line">
-              {submitWarning}
-            </p>
-          )}
         </div>
       )}
     </SectionCard>

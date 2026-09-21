@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Route, TimerOff, AlertTriangle } from 'lucide-react';
+import { Route, TimerOff } from 'lucide-react';
 import { adminApi } from '@/lib/admin-api';
 
 // 분산 효과 정량화 — 오늘(KST) 수락된 추천의 '절감 대기시간' 합산.
@@ -91,23 +91,21 @@ export function ImpactWidget() {
             여전히 그럴듯해서 화면만 봐서는 축소 보고를 알아챌 수 없다. 서버가 truncated 를
             싣고 있었는데 화면이 읽지 않았다. */}
         {data?.truncated && (
-          <p className="flex items-start gap-1.5 text-[11px] text-amber-200 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2">
-            <AlertTriangle size={13} className="flex-shrink-0 mt-0.5" />
-            <span>
-              표본이 상한에서 잘렸어요 — 위 수치는 기간 전체가 아니라 <strong className="font-bold">하한</strong>입니다
-              (실제 절감·재배치는 이보다 많습니다).
+          <p>
+            <span className="inline-flex items-center rounded-full border border-hanok-line bg-hanok-card px-2.5 py-1 text-[11px] font-semibold text-hanok-muted">
+              최신 구간 기준
             </span>
           </p>
         )}
         {failed ? (
           <p className="text-[11px] text-hanok-muted">
-            백엔드 연결 대기 중 — 집계 표시에는 백엔드(8000) 기동이 필요합니다.
+            분산 효과 집계를 갱신하는 중입니다 — 잠시 후 자동으로 표시됩니다.
           </p>
         ) : (
           data &&
           data.estimated > 0 && (
             <p className="text-[11px] text-hanok-muted">
-              실측 {data.measured}건 · 근사 {data.estimated}건 (구버전 추천 행은 혼잡 감소분 기반 근사)
+              실측 {data.measured}건 · 추정 {data.estimated}건 (추정분은 혼잡 감소분으로 산출)
             </p>
           )
         )}

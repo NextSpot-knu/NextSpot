@@ -43,6 +43,30 @@ const LOADER_STYLES = `
   to { opacity: 1; transform: translateY(0); }
 }
 .ns-line-in { animation: ns-line-in 0.4s ease-out; }
+/* 비선형 진행 바 — 지각 심리: 초반 ~2초에 74%까지 급가속해 "거의 다 됐다"로 읽히게 하고,
+   이후 94%까지 아주 천천히 긴다. 100%에 도달하지 않아 "다 됐는데 왜 안 뜨지"를 만들지 않는다. */
+@keyframes ns-progress {
+  0% { width: 0%; }
+  4% { width: 46%; }
+  9% { width: 68%; }
+  16% { width: 76%; }
+  100% { width: 94%; }
+}
+.ns-progress { animation: ns-progress 28s cubic-bezier(0.25, 0.6, 0.35, 1) forwards; }
+/* 블러 고스트 — '서버 로딩'이 아니라 '초점을 맞추는 렌즈'로 읽히게, 실제 카드와 같은 색·구조의
+   콘텐츠 실루엣을 강한 블러 아래 숨쉬듯 보여준다. 글자는 한 글자도 없다(가짜 정보 0) —
+   색면과 형태만으로 "내용이 이미 있다"는 인상을 만든다. reduced-motion 시 정지 블러(무해). */
+@keyframes ns-focus-breathe {
+  0%, 100% { filter: blur(9px) saturate(0.92); }
+  50% { filter: blur(6px) saturate(1); }
+}
+.ns-ghost {
+  animation: ns-focus-breathe 2.6s ease-in-out infinite;
+  filter: blur(8px);
+  opacity: 0.75;
+  pointer-events: none;
+  user-select: none;
+}
 `;
 
 // 내레이션을 ~1.2초마다 한 단계씩 진행하고 마지막 문장에서 멈춘다(백엔드가 빠르면 잠깐만 스친다).
@@ -87,12 +111,10 @@ function NarrationHeader({ variant }: { variant: Variant }) {
           </p>
         </div>
       </div>
-      {/* 3단계 진행 바 — 내레이션이 넘어갈수록 금빛으로 차오른다. */}
+      {/* 비선형 진행 바 — 초반 급가속 후 94%까지 크롤(위 ns-progress 주석 참조). reduced-motion 시
+          애니메이션이 전역 규칙으로 눌려 마지막 프레임(94%) 근처로 고정된다 — 정지 상태로도 무해. */}
       <div className="relative mt-4 h-1.5 w-full overflow-hidden rounded-full bg-line" aria-hidden>
-        <span
-          className="block h-full rounded-full bg-gold transition-all duration-700 ease-out"
-          style={{ width: `${((step + 1) / STEP_COUNT) * 100}%` }}
-        />
+        <span className="ns-progress block h-full rounded-full bg-gold" />
       </div>
     </section>
   );
@@ -111,13 +133,21 @@ function WaitingSkeleton() {
                 key={card}
                 className="flex h-64 flex-col overflow-hidden rounded-2xl border border-line bg-white/80 shadow-[0_2px_14px_rgba(43,35,32,0.06)]"
               >
-                <div className="ns-skel h-24 w-full bg-hanji-deep" />
-                <div className="flex flex-1 flex-col gap-1.5 p-2">
-                  <div className="ns-skel h-3 w-full rounded bg-hanji-deep" />
-                  <div className="ns-skel h-2.5 w-4/5 rounded bg-hanji-deep" />
-                  <div className="mt-auto space-y-1.5">
-                    <div className="ns-skel h-3.5 w-3/4 rounded bg-hanji-deep" />
-                    <div className="ns-skel h-4 w-12 rounded-md bg-hanji-deep" />
+                {/* 렌즈 초점 고스트 — 실제 카드의 색·구조(사진·제목·배지·점수)를 블러 아래 실루엣으로.
+                    글자 0개(가짜 정보 없음), 형태와 색만. */}
+                <div className="ns-ghost flex h-full flex-col">
+                  <div className="ns-skel h-24 w-full bg-gradient-to-br from-hanji-deep via-gold/25 to-jade/20" />
+                  <div className="flex flex-1 flex-col gap-1.5 p-2">
+                    <div className="h-3 w-11/12 rounded bg-muk/45" />
+                    <div className="h-2.5 w-3/5 rounded bg-muk/25" />
+                    <div className="flex gap-1">
+                      <span className="h-3.5 w-10 rounded-md bg-jade/35" />
+                      <span className="h-3.5 w-12 rounded-md bg-gold/40" />
+                    </div>
+                    <div className="mt-auto space-y-1.5">
+                      <div className="h-3.5 w-3/4 rounded bg-muk/30" />
+                      <div className="h-5 w-14 rounded-md border border-gold/40 bg-gold/25" />
+                    </div>
                   </div>
                 </div>
               </div>
@@ -129,10 +159,15 @@ function WaitingSkeleton() {
                 key={row}
                 className="flex items-center gap-2.5 rounded-2xl border border-line bg-white/80 px-3.5 py-2.5 shadow-[0_2px_14px_rgba(43,35,32,0.06)]"
               >
-                <div className="ns-skel h-7 w-7 shrink-0 rounded-full bg-hanji-deep" />
-                <div className="flex-1 space-y-2">
-                  <div className="ns-skel h-3.5 w-1/2 rounded bg-hanji-deep" />
-                  <div className="ns-skel h-3 w-1/3 rounded bg-hanji-deep" />
+                <div className="ns-ghost flex flex-1 items-center gap-2.5">
+                  <div className="h-7 w-7 shrink-0 rounded-full bg-gold/30" />
+                  <div className="flex-1 space-y-2">
+                    <div className="h-3.5 w-1/2 rounded bg-muk/40" />
+                    <div className="flex gap-1.5">
+                      <span className="h-3 w-16 rounded-md bg-gold/35" />
+                      <span className="h-3 w-12 rounded-md bg-jade/30" />
+                    </div>
+                  </div>
                 </div>
               </div>
             ))}
@@ -147,25 +182,28 @@ function WaitingSkeleton() {
 function CourseBodySkeleton() {
   return (
     <div className="flex flex-col gap-6" aria-hidden>
-      <div className="flex items-start gap-3">
+      <div className="ns-ghost flex items-start gap-3">
         {[0, 1, 2].map((step) => (
           <div key={step} className="flex flex-1 flex-col items-center gap-1.5">
-            <div className="ns-skel h-8 w-8 rounded-full bg-hanji-deep" />
-            <div className="ns-skel h-2 w-10 rounded bg-hanji-deep" />
+            <div className="h-8 w-8 rounded-full border-2 border-gold/50 bg-gold/25" />
+            <div className="h-2 w-10 rounded bg-muk/30" />
           </div>
         ))}
       </div>
       <div className="-mx-4 divide-y divide-line md:-mx-6">
         {[0, 1, 2].map((row) => (
           <div key={row} className="px-4 py-4 md:px-6">
-            <div className="flex items-start gap-3">
-              <div className="ns-skel h-9 w-9 shrink-0 rounded-full bg-hanji-deep" />
+            <div className="ns-ghost flex items-start gap-3">
+              <div className="h-9 w-9 shrink-0 rounded-full bg-gold/30" />
               <div className="min-w-0 flex-1 space-y-2">
                 <div className="flex items-center justify-between gap-2">
-                  <div className="ns-skel h-4 w-1/2 rounded bg-hanji-deep" />
-                  <div className="ns-skel h-4 w-14 rounded-lg bg-hanji-deep" />
+                  <div className="h-4 w-1/2 rounded bg-muk/40" />
+                  <div className="h-4 w-14 rounded-lg border border-gold/40 bg-gold/20" />
                 </div>
-                <div className="ns-skel h-3 w-2/3 rounded bg-hanji-deep" />
+                <div className="flex gap-1.5">
+                  <span className="h-3 w-20 rounded bg-muk/25" />
+                  <span className="h-3 w-14 rounded-md bg-jade/30" />
+                </div>
               </div>
             </div>
           </div>

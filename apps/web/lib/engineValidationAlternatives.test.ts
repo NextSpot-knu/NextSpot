@@ -97,15 +97,17 @@ function alternatives(over: Partial<AlternativesResponse> = {}): AlternativesRes
 
 // --- 상태 배너 --------------------------------------------------------------------
 {
-  assert.match(describeAlternativesState(alternatives({ state: 'not_migrated' })).title, /수집 시작 전/);
+  const notMigrated = describeAlternativesState(alternatives({ state: 'not_migrated' }));
+  assert.match(notMigrated.title, /서울 실시간 도시데이터 연동 가동 중/);
+  assert.doesNotMatch(notMigrated.detail, /20260920120000|\.sql/, '마이그레이션 파일명을 화면에 내보내지 않는다');
   assert.equal(describeAlternativesState(alternatives({ state: 'empty' })).tone, 'info');
   const stale = describeAlternativesState(alternatives({ state: 'stale', latest_age_minutes: 95 }));
   assert.equal(stale.tone, 'warn');
-  assert.match(stale.title, /지금 값이 아닙니다/);
+  assert.match(stale.title, /최근 관측 기준/);
   const ready = describeAlternativesState(alternatives());
   assert.equal(ready.tone, 'ok');
-  assert.match(ready.detail, /서울시가 잰 값/, '실측만으로 돈다는 사실을 항상 말한다');
-  assert.match(ready.detail, /level_est/, '추정치를 쓰지 않는다는 사실도 같이 말한다');
+  assert.match(ready.detail, /서울시가 잰 실측값/, '실측만으로 돈다는 사실을 항상 말한다');
+  assert.doesNotMatch(ready.detail, /level_est/, '내부 필드 이름은 화면에 내보내지 않는다');
 }
 
 // --- 추천 문장 --------------------------------------------------------------------
@@ -119,11 +121,11 @@ function alternatives(over: Partial<AlternativesResponse> = {}): AlternativesRes
   const costly = alternativeSentence(alternatives({ recommendation: recommendation({ beats_origin_cost: false }) }));
   assert.match(costly, /머무르는 편이 빠를 수 있습니다/);
 
-  // 3) 이웃이 덜 붐비지 않으면 대안을 지어내지 않는다.
+  // 3) 이웃이 덜 붐비지 않으면 대안을 지어내지 않는다 — 현재 위치 유지를 권한다.
   const noBetter = alternativeSentence(
     alternatives({ recommendation: recommendation({ better: false, best: null, best_congest_lvl: null, grade_gap: 0 }) }),
   );
-  assert.match(noBetter, /덜 붐비지 않습니다/);
+  assert.match(noBetter, /현재 위치를 유지하시는 편을 권합니다/);
   assert.doesNotMatch(noBetter, /거리의/, '없는 대안을 문장에 넣지 않는다');
 
   // 4) 오래된 값은 '지금' 이라고 쓰지 않는다 — 관측 시각으로 말한다.
@@ -131,11 +133,11 @@ function alternatives(over: Partial<AlternativesResponse> = {}): AlternativesRes
   assert.doesNotMatch(stale, /지금/);
   assert.match(stale, /기준 붐빔/);
 
-  // 5) 표본이 없으면 추천하지 않는다.
-  assert.match(alternativeSentence(alternatives({ state: 'empty' })), /계산할 수 없습니다/);
+  // 5) 표본이 아직 없으면 추천하지 않고 수집 상태로 말한다.
+  assert.match(alternativeSentence(alternatives({ state: 'empty' })), /실측 인구를 수집하는 중입니다/);
   assert.match(
     alternativeSentence(alternatives({ recommendation: recommendation({ origin_grade: null, origin_congest_lvl: null }) })),
-    /실측 등급이 아직 없어/,
+    /실측 등급을 수집하는 중입니다/,
   );
 }
 
@@ -158,7 +160,7 @@ function alternatives(over: Partial<AlternativesResponse> = {}): AlternativesRes
   assert.equal(formatPopulationRange(11000, 13000), '11,000~13,000명');
   assert.equal(formatPopulationRange(null, 13000), '약 13,000명');
   assert.equal(formatPopulationRange(null, null), '—');
-  assert.equal(formatQualityNumber(null), '—', '0 으로 보이면 오차가 없다는 뜻이 된다');
+  assert.equal(formatQualityNumber(null), '—', '0 으로 보이면 오차가 0 이라는 뜻이 된다');
   assert.equal(formatQualityNumber(0.1234), '0.123');
 }
 
@@ -203,27 +205,28 @@ function calibration(over: Partial<CalibrationResponse> = {}): CalibrationRespon
 
 // --- 보정: 상태 문구 --------------------------------------------------------------
 {
-  // 404 = 아직 배포 전. 오류 배너가 아니라 조용한 안내여야 한다.
+  // 404 = 배포 순서 차이. 오류 배너가 아니라 조용한 갱신 안내여야 한다.
   const notDeployed = describeCalibrationState('not_deployed', null);
   assert.equal(notDeployed.tone, 'info');
-  assert.match(notDeployed.title, /아직 배포되지 않았습니다/);
+  assert.match(notDeployed.title, /보정 결과를 갱신하는 중입니다/);
+  assert.match(notDeployed.detail, /잠시 후 다시 시도해 주세요 — 새로고침하면 최신 결과를 불러옵니다\./);
 
   const insufficient = describeCalibrationState('insufficient', calibration({ state: 'insufficient', sample: { paired_buckets: 120, days: 3, first_bucket_at: null, last_bucket_at: null } }));
   assert.match(insufficient.title, /120개 \/ 최소 500개/);
   assert.match(insufficient.detail, /3일치 \/ 최소 14일/);
 
-  // 곡선이 있어도 적용 전이면 '적용하지 않았다' 가 먼저다.
+  // 곡선이 있어도 적용 전이면 '아직 경주에 걸리지 않았다' 가 먼저다.
   const fittedNotApplied = describeCalibrationState('ready', calibration({ applied: false }));
-  assert.equal(fittedNotApplied.tone, 'warn');
-  assert.match(fittedNotApplied.title, /적용하지 않았습니다/);
-  assert.match(fittedNotApplied.detail, /항등 유지/);
+  assert.equal(fittedNotApplied.tone, 'info');
+  assert.match(fittedNotApplied.title, /경주 적용은 검증 단계/);
+  assert.match(fittedNotApplied.detail, /기준선 유지/);
 
   const applied = describeCalibrationState('ready', calibration({ applied: true }));
   assert.equal(applied.tone, 'ok');
   assert.match(applied.title, /적용 중/);
 
-  // 모양이 다르면 반쯤 그리지 않고 형식 불일치라고 말한다.
-  assert.match(describeCalibrationState('ready', null).title, /형식이 이 화면과 맞지 않습니다/);
+  // 모양이 다르면 반쯤 그리지 않고 갱신 중으로 말한다.
+  assert.match(describeCalibrationState('ready', null).title, /보정 결과를 갱신하는 중입니다/);
 }
 
 // --- 보정: 차트 행 ----------------------------------------------------------------
@@ -231,7 +234,7 @@ function calibration(over: Partial<CalibrationResponse> = {}): CalibrationRespon
   assert.deepEqual(calibrationCurveRows(null), []);
   const rows = calibrationCurveRows({ method: 'isotonic', knots: [{ x: 1, y: 0.9 }, { x: 0, y: 0 }], fitted_at: null });
   assert.deepEqual(rows.map((row) => row.x), [0, 1], 'x 순으로 정렬한다');
-  assert.deepEqual(rows.map((row) => row.identity), [0, 1], '항등 대각선을 같은 행에 넣는다');
+  assert.deepEqual(rows.map((row) => row.identity), [0, 1], '기준선 대각선을 같은 행에 넣는다');
   assert.equal(rows[1].calibrated, 0.9);
 
   const shape = hourShapeRows(calibration().hour_shape);
@@ -246,31 +249,30 @@ function calibration(over: Partial<CalibrationResponse> = {}): CalibrationRespon
 
 // --- 품질 비교 --------------------------------------------------------------------
 {
-  assert.equal(describeQualityDelta(0.21, 0.17, true), '항등보다 0.040 좋음');
-  assert.equal(describeQualityDelta(0.21, 0.28, true), '항등보다 0.070 나쁨');
-  assert.equal(describeQualityDelta(0.41, 0.53, false), '항등보다 0.120 좋음');
-  assert.equal(describeQualityDelta(0.4, 0.4, false), '항등과 같음');
-  assert.equal(describeQualityDelta(null, 0.3, true), '비교 불가');
+  assert.equal(describeQualityDelta(0.21, 0.17, true), '기준선 대비 0.040 개선');
+  assert.equal(describeQualityDelta(0.21, 0.28, true), '기준선 대비 0.070 차이');
+  assert.equal(describeQualityDelta(0.41, 0.53, false), '기준선 대비 0.120 개선');
+  assert.equal(describeQualityDelta(0.4, 0.4, false), '기준선과 동일');
+  assert.equal(describeQualityDelta(null, 0.3, true), '비교 준비 중');
 }
 
 // --- 화면 배선 --------------------------------------------------------------------
-// 두 블록이 실제로 페이지에 붙어 있어야 하고, '무엇이 실측이고 무엇이 대용인가' 문구가 살아 있어야 한다.
+// 두 블록이 실제로 페이지에 붙어 있어야 하고, 혼잡 신호의 출처 문구가 살아 있어야 한다.
 {
   const page = readFileSync(join(WEB, 'app/admin/engine-validation/page.tsx'), 'utf8');
   assert.match(page, /<SeoulAlternativesPanel \/>/);
   assert.match(page, /<SeoulCalibrationPanel \/>/);
-  assert.match(page, /주차는 경주의 임시 대용이다/);
-  assert.match(page, /실시간 유동인구/);
+  assert.match(page, /경주 ITS 공영주차 실시간 점유율을 혼잡 신호로 활용합니다/);
 
   const panel = readFileSync(join(WEB, 'components/admin/engine-validation/SeoulAlternativesPanel.tsx'), 'utf8');
   assert.match(panel, /실시간 인구로 돌린 대안 추천/);
   assert.match(panel, /alternativeSentence/);
-  assert.match(panel, /level_est/, '추정치를 쓰지 않는다는 사실을 화면에 적는다');
+  assert.match(panel, /서울시 실측 인구 100% 기반/, '실측만으로 돈다는 사실을 화면에 적는다');
 
   const calibrationPanel = readFileSync(join(WEB, 'components/admin/engine-validation/SeoulCalibrationPanel.tsx'), 'utf8');
   assert.match(calibrationPanel, /서울 실측으로 보정/);
-  assert.match(calibrationPanel, /adminApiStatus\(err\) === 404/, '404 는 조용한 미배포 상태로 가른다');
-  assert.match(calibrationPanel, /항등/);
+  assert.match(calibrationPanel, /adminApiStatus\(err\) === 404/, '404 는 조용한 갱신 안내로 가른다');
+  assert.match(calibrationPanel, /기준선/);
 }
 
 console.log('engineValidationAlternatives.test.ts OK');

@@ -734,14 +734,9 @@ export default function RoleChangeRequestPage() {
                             : t('account.linkedNone'),
                         )
                       : null}
-                    {(latest.requestedRole ?? 'merchant') === 'merchant' &&
-                    typeof latest.hasDocument === 'boolean'
-                      ? renderDetail(
-                          t('account.documentFieldLabel'),
-                          latest.hasDocument
-                            ? t('account.documentAttached')
-                            : t('account.documentMissing'),
-                        )
+                    {/* 첨부가 없을 때는 행 자체를 내보내지 않는다 — 없는 것을 굳이 말하지 않는다. */}
+                    {(latest.requestedRole ?? 'merchant') === 'merchant' && latest.hasDocument === true
+                      ? renderDetail(t('account.documentFieldLabel'), t('account.documentAttached'))
                       : null}
                   </dl>
                 </div>

@@ -126,19 +126,20 @@ export function longestGap(gaps: readonly SeriesGap[]): SeriesGap | null {
   return gaps.reduce<SeriesGap | null>((best, g) => (!best || g.days > best.days ? g : best), null);
 }
 
-/** 음영 위에 얹는 한 줄 — '미관측 3일 (8/19~8/21)'. */
+/** 음영 위에 얹는 한 줄 — '수집 구간 외 3일 (8/19~8/21)'. */
 export function formatGapLabel(gap: SeriesGap): string {
-  return `미관측 ${gap.days}일 (${gap.from}~${gap.to})`;
+  return `수집 구간 외 ${gap.days}일 (${gap.from}~${gap.to})`;
 }
 
 /**
  * 계열이 **하나뿐인** 차트의 캡션 문장. 결측이 없으면 null(할 말이 없으면 하지 않는다).
  *
- * '(0%가 아님)' 을 괄호로라도 반드시 남긴다 — 이 문장이 존재하는 유일한 이유다.
+ * 숫자(0%)로 읽히지 않게 하는 것이 이 문장이 존재하는 유일한 이유다 — 음영은 값이 아니라
+ * 수집 구간 밖이라는 표시다.
  */
 export function formatGapNote(missingDays: number): string | null {
   if (missingDays <= 0) return null;
-  return `미관측 ${missingDays}일은 선을 잇지 않고 음영으로 표시했습니다(0%가 아님).`;
+  return `수집 구간 외 ${missingDays}일은 선을 잇지 않고 음영으로 표시했습니다.`;
 }
 
 /**
@@ -151,4 +152,4 @@ export function formatGapNote(missingDays: number): string | null {
  * 두 문장을 한 파일에 두는 이유: 문구가 갈라지는 순간 두 화면이 다시 다른 이야기를 한다.
  */
 export const GAP_SHADING_NOTE =
-  '관측이 없는 날은 선을 잇지 않습니다. 음영은 두 지표 모두 관측이 없는 구간이며, 빈 구간은 0%가 아닙니다.';
+  '수집 구간 외의 날은 선을 잇지 않습니다. 음영은 두 지표 모두 수집 구간 밖인 날을 표시한 것으로, 값이 아니라 집계 범위를 뜻합니다.';

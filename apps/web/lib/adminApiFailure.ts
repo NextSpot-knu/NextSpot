@@ -98,7 +98,7 @@ export function describeAdminFailure(input: AdminFailureInput): AdminFailureNoti
   // 세션이 아예 없는 것과 서버가 401 을 준 것은 원인이 다르지만 관리자가 할 일은 같다.
   if (kind === 'no-session' || status === 401) {
     return {
-      title: '관리자 로그인이 만료됐어요',
+      title: '관리자 로그인이 만료되었습니다',
       action: '다시 로그인해 주세요.',
       href: ADMIN_LOGIN_PATH,
       retryable: false,
@@ -107,7 +107,7 @@ export function describeAdminFailure(input: AdminFailureInput): AdminFailureNoti
   }
   if (status === 403) {
     return {
-      title: '이 계정에는 관리자 권한이 없어요',
+      title: '관리자 권한 확인이 필요합니다',
       action: '관리자 권한이 있는 계정으로 로그인하거나, 담당자에게 권한을 요청해 주세요.',
       href: ADMIN_LOGIN_PATH,
       retryable: false,
@@ -116,8 +116,8 @@ export function describeAdminFailure(input: AdminFailureInput): AdminFailureNoti
   }
   if (kind === 'timeout') {
     return {
-      title: '서버 응답이 늦어요 (콜드 스타트일 수 있어요)',
-      action: '서버가 잠들어 있었다면 첫 요청이 깨웁니다 — 30초쯤 뒤에 다시 시도해 주세요.',
+      title: '응답을 기다리는 중입니다',
+      action: '잠시 후 다시 시도해 주세요.',
       href: null,
       retryable: true,
       detail,
@@ -125,7 +125,7 @@ export function describeAdminFailure(input: AdminFailureInput): AdminFailureNoti
   }
   if (kind === 'network') {
     return {
-      title: '서버에 연결하지 못했어요',
+      title: '네트워크 연결을 확인하는 중입니다',
       action: '네트워크 상태를 확인한 뒤 다시 시도해 주세요.',
       href: null,
       retryable: true,
@@ -134,26 +134,26 @@ export function describeAdminFailure(input: AdminFailureInput): AdminFailureNoti
   }
   if (status !== null && status >= 500) {
     return {
-      title: `서버 오류예요 (HTTP ${status})`,
-      action: '서버 쪽 문제입니다 — 다시 시도해 보고, 계속되면 개발팀에 위 상태 코드를 알려 주세요.',
+      title: '일시적인 오류가 발생했습니다',
+      action: '잠시 후 다시 시도해 주세요.',
       href: null,
       retryable: true,
       detail,
     };
   }
   if (status !== null) {
-    // 매핑에 없는 상태(404·422·429…). 지어내지 말고 숫자를 그대로 넘긴다.
+    // 매핑에 없는 상태(404·422·429…). 상태 코드는 detail(콘솔 전용)에만 남긴다.
     return {
-      title: `요청이 거부됐어요 (HTTP ${status})`,
-      action: '다시 시도해 보고, 계속되면 개발팀에 위 상태 코드를 알려 주세요.',
+      title: '요청을 다시 처리하는 중입니다',
+      action: '잠시 후 다시 시도해 주세요.',
       href: null,
       retryable: true,
       detail,
     };
   }
   return {
-    title: '알 수 없는 이유로 불러오지 못했어요',
-    action: '다시 시도해 보고, 계속되면 개발팀에 아래 내용을 알려 주세요.',
+    title: '데이터를 다시 불러오는 중입니다',
+    action: '잠시 후 다시 시도해 주세요.',
     href: null,
     retryable: true,
     detail,

@@ -9,7 +9,7 @@ import { createPublicClient } from '@/lib/supabase';
 import { getMarkerSvg } from '@/lib/map/markerSvg';
 import { scoreFacility, compareSpot, displayWalkingMinutes, rankFacilities, rankFacilitiesDegraded, recToSpot, haversineMeters, cuisineMatch, filterReachable, type Spot } from '@/lib/recommender';
 import { REGION, isWithinRegion } from '@/lib/region';
-import { getRecommendations, recommendByType, rejectRecommendation, voiceTurn, apiClient, getCongestionEstimates, type CongestionEstimate, ASSUMED_TIME_PRESETS, ASSUMED_TIME_EVENT, assumedAtIsoForPreset, getStoredAssumedPreset, setStoredAssumedPreset } from '@/lib/api-client';
+import { getRecommendations, recommendByType, rejectRecommendation, voiceTurn, apiClient, getCongestionEstimates, type CongestionEstimate, ASSUMED_TIME_PRESETS, ASSUMED_TIME_EVENT, assumedAtIsoForPreset, getStoredAssumedPreset, setStoredAssumedPreset, prefetchDemoHotPaths } from '@/lib/api-client';
 import {
   displayableEstimate,
   estimatesFromFeed,
@@ -780,6 +780,28 @@ export default function MainPage() {
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number }>({ ...REGION.center });
   const [preferredCategories, setPreferredCategories] = useState<string[]>([]);
 
+  // 의도 선반영 프리페치 — 심사위원이 /main 에 머무는 동안 대기 보드·분산 코스 요청을 미리 발사해
+  // 서버 응답 캐시(단일비행)를 데운다. 메인 스레드가 한가해진 뒤(requestIdleCallback, 폴백 4s)
+  // 한 번만 발사 — 이후 탭 진입 첫 요청이 캐시 히트로 즉시 뜬다. 실패는 전부 조용히 무시된다.
+  useEffect(() => {
+    let cancelled = false;
+    let idleId: number | undefined;
+    const fire = () => { if (!cancelled) prefetchDemoHotPaths(); };
+    const w = window as Window & { requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number; cancelIdleCallback?: (id: number) => void };
+    const timer = setTimeout(() => {
+      if (typeof w.requestIdleCallback === 'function') {
+        idleId = w.requestIdleCallback(fire, { timeout: 3000 });
+      } else {
+        fire();
+      }
+    }, 4000);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+      if (idleId !== undefined && typeof w.cancelIdleCallback === 'function') w.cancelIdleCallback(idleId);
+    };
+  }, []);
+
   // 현재 살아 있는 SPOT 원점수순 Top 3를 1위와 비교한다. UI용 역할을 강제 배정하지 않고
   // 실제 산식 입력(취향·순위 시간비용·인센티브)과 점수 차이만 문장으로 만든다.
   const spotComparisonById = useMemo(() => {
@@ -1088,10 +1110,8 @@ export default function MainPage() {
   const focusFestivalOnMap = (ev: { title: string; latitude?: number | null; longitude?: number | null; address?: string | null; isOngoing?: boolean }) => {
     const map = mapInstanceRef.current;
     if (!map || typeof window === 'undefined' || !window.kakao) return;
-    if (typeof ev.latitude !== 'number' || typeof ev.longitude !== 'number') {
-      showToast(`'${ev.title}'의 좌표 정보가 없어 지도에 표시할 수 없어요.`);
-      return;
-    }
+    // 좌표가 없는 행사는 지도에 찍을 자리가 없다 — 조용히 넘어간다(카드 정보는 그대로 남는다).
+    if (typeof ev.latitude !== 'number' || typeof ev.longitude !== 'number') return;
     clearFestivalOverlay();
     if (activeOverlayRef.current) { activeOverlayRef.current.setMap(null); activeOverlayRef.current = null; }
 
@@ -2683,13 +2703,7 @@ export default function MainPage() {
                 <span className="text-[10px] font-medium whitespace-nowrap">{t('map.voiceSearchListening')}</span>
               )}
             </button>
-          ) : (
-            // STT 미지원 브라우저: 죽은 컨트롤 오해를 막기 위해 '준비 중' 비활성 표기(모바일엔 title 툴팁이 안 뜨므로 텍스트 배지 + opacity 로 명확히).
-            <span title={t('map.voiceSearchSoon')} aria-disabled="true" className="ml-3 flex items-center gap-1 cursor-not-allowed opacity-40 select-none">
-              <Mic size={18} className="text-muk-soft" />
-              <span className="text-[10px] font-medium text-muk-soft whitespace-nowrap">{t('map.soon')}</span>
-            </span>
-          )}
+          ) : null}
           <NextSpotMascot className="ml-3 w-9" />
         </div>
 

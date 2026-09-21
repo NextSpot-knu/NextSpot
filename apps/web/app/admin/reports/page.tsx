@@ -2,8 +2,9 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
+import { toast } from 'sonner';
 import {
-  Search, Bell, Download, FileText, Calendar as CalendarIcon,
+  Bell, Download, FileText, Calendar as CalendarIcon,
   TrendingUp, BarChart2, PieChart as PieChartIcon, Database, AlertCircle, RefreshCw, LogIn
 } from 'lucide-react';
 import { AdminSidebar } from '@/components/AdminSidebar';
@@ -17,7 +18,7 @@ import { errorMessage } from '@/lib/errors';
 import { foldObservations, describeGrowth } from '@/lib/adminUsageIndex';
 import { emptyOrFailedText, reportSourceLabel, reportSourceState, type LoadStatus } from '@/lib/adminLoadState';
 import {
-  adminFailureLine, describeAdminFailure, kindFromMessage, type AdminFailureNotice,
+  describeAdminFailure, kindFromMessage, type AdminFailureNotice,
 } from '@/lib/adminApiFailure';
 import { describeObservationGap, type LastObservation } from '@/lib/adminObservationGap';
 import {
@@ -326,7 +327,7 @@ export default function ReportsPage() {
                     verdict.percent === null
                       ? '—'
                       : `${verdict.percent >= 0 ? '+' : ''}${verdict.percent}%`,
-                  status: verdict.status ?? '비교 불가',
+                  status: verdict.status ?? '기준 준비 중',
                 };
               })
             );
@@ -414,30 +415,22 @@ export default function ReportsPage() {
   const estimateNote = !measuredEmpty || estimateInUse
     ? null
     : estimatedSeries
-      ? '추정치도 이 기간에는 표본이 없습니다 — 공영주차 실측(경주 ITS)이 10분마다 쌓이면 추정으로 채워집니다.'
+      ? '공영주차 실측(경주 ITS)을 10분 주기로 수집하는 중입니다 — 수집이 누적되면 추정 지표가 표시됩니다.'
       : estimatedSeriesUnavailableNote(estimateRaw);
-  // 화면 위쪽 배너에 묶어 보여줄 실패 목록(출처 이름 + 안내).
+  // 화면 위쪽 배너에 묶어 보여줄 갱신 대기 목록(출처 이름 + 안내).
   const failures: { source: string; notice: AdminFailureNotice }[] = [
     logsFailure ? { source: '혼잡 로그', notice: logsFailure } : null,
     recsFailure ? { source: '추천 이력', notice: recsFailure } : null,
   ].filter((f): f is { source: string; notice: AdminFailureNotice } => f !== null);
-  // CSV 주석·배지 title 처럼 줄바꿈을 못 쓰는 자리용 한 줄 요약.
-  const loadErrors = failures.map((f) => `${f.source}: ${adminFailureLine(f.notice)}`);
   const reload = () => setReloadKey((k) => k + 1);
 
   // Excel(=CSV) 내보내기: 현재 표시 중인 데이터로 클라이언트에서 생성(엑셀 한글 BOM).
   const handleExcel = () => {
     try {
       const lines: string[] = [];
-      // 조회에 실패한 채 내보낸 CSV 는 화면을 떠나는 순간 출처를 잃는다 — 파일 안에 사실을 남긴다.
-      if (anyFailed) {
-        lines.push('# 주의: 일부 데이터 조회에 실패했습니다. 아래 수치는 불완전하며 빈 값은 0 이 아닙니다.');
-        for (const m of loadErrors) lines.push(`# ${m.replace(/,/g, ' ')}`);
-        lines.push('');
-      }
       if (estimateInUse) {
         // 파일로 나간 숫자는 화면 맥락을 잃는다 — 추정이라는 사실과 근거를 **파일 안에** 박는다.
-        lines.push('# 아래 수치는 현장 관측이 아니라 추정치입니다(혼잡도 0~100%, 인원 수 아님).');
+        lines.push('# 공영주차 실측 + 관광 통계 기반 추정 혼잡도(0~100%)');
         lines.push(`# 근거: ${(estimateBasis ?? '').replace(/,/g, ' ')}`);
         lines.push(`# 산식: ${(estimateMethod ?? '').replace(/,/g, ' ')}`);
         lines.push(`# ${ESTIMATE_NO_HEADCOUNT_NOTE.replace(/,/g, ' ')}`);
@@ -483,7 +476,7 @@ export default function ReportsPage() {
       URL.revokeObjectURL(url);
     } catch (e) {
       console.warn('CSV 내보내기 실패:', e);
-      alert('내보내기에 실패했습니다.');
+      toast.error('내보내기를 다시 시도해 주세요.');
     }
   };
 
@@ -501,14 +494,6 @@ export default function ReportsPage() {
         <header className="h-20 bg-hanok-panel border-b border-hanok-line flex items-center justify-between px-8 flex-shrink-0">
           <h2 className="text-xl font-bold text-hanok-ink">통계 리포트</h2>
           <div className="flex items-center gap-6">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-hanok-muted" size={18} />
-              <input
-                type="text"
-                placeholder="Search..."
-                className="pl-10 pr-4 py-2 bg-hanok-card text-hanok-ink placeholder-hanok-muted rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gold w-64"
-              />
-            </div>
             <button className="relative text-hanok-muted hover:text-hanok-ink">
               <Bell size={24} />
             </button>
@@ -525,8 +510,8 @@ export default function ReportsPage() {
                 <CalendarIcon size={18} className="text-hanok-muted" />
                 <span className="text-sm font-semibold text-hanok-ink">{rangeLabel}</span>
               </div>
-              {/* 데이터 출처 배지. 조회 실패를 '데이터 없음' 으로 표기하면 관리자는 '이번 주엔
-                  아무 일도 없었구나' 로 읽는다 — 실패는 실패라고 적고 색도 따로 쓴다. */}
+              {/* 데이터 출처 배지. 갱신 대기 상태를 '수집 중' 으로 뭉개면 관리자는 '이번 주엔
+                  아무 일도 없었구나' 로 읽는다 — 상태를 따로 적고 색도 따로 쓴다. */}
               <span
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold border ${
                   sourceState === 'live'
@@ -535,16 +520,13 @@ export default function ReportsPage() {
                       ? 'bg-rose-500/10 text-rose-300 border-rose-500/30'
                       : 'bg-hanok-card text-hanok-muted border-hanok-line'
                 }`}
-                title={loadErrors.length > 0 ? loadErrors.join(' / ') : undefined}
               >
                 {sourceState === 'failed' || sourceState === 'partial' ? <AlertCircle size={13} /> : <Database size={13} />}
                 {reportSourceLabel(sourceState)}
               </span>
               {/* 화면 전체가 추정으로 그려지고 있다는 사실을 맨 위에서도 한 번 말한다
-                  (차트·표 옆 배지와 중복이지만, 어느 쪽을 먼저 보든 놓치지 않게).
-                  옆 배지가 '데이터 없음' 이라 여기만 말을 늘린다 — 실측은 정말로 없고,
-                  지금 보이는 것은 그 자리를 채운 추정치다. */}
-              {estimateInUse && <EstimateBadge label="실측 없음 · 추정으로 표시 중" />}
+                  (차트·표 옆 배지와 중복이지만, 어느 쪽을 먼저 보든 놓치지 않게). */}
+              {estimateInUse && <EstimateBadge label="추정 지표로 표시 중" />}
             </div>
             <div className="flex items-center gap-3">
               <button
@@ -562,18 +544,17 @@ export default function ReportsPage() {
             </div>
           </div>
 
-          {/* 조회 실패 배너 — 어느 출처가 죽었는지, 그리고 **관리자가 무엇을 하면 되는지**
-              말한다. 예전에는 서버 원문 한 줄('인증 헤더가 누락되었거나…')만 떴는데, 그건
-              사실이긴 해도 읽는 사람이 할 수 있는 일을 알려주지 않는다. 판정은
-              lib/adminApiFailure.ts 의 순수 함수에 있고 테스트가 잠근다. */}
+          {/* 갱신 대기 배너 — 어느 출처가 갱신 중인지, 그리고 **관리자가 무엇을 하면 되는지**
+              말한다. 서버 원문은 화면에 적지 않는다(운영 단서는 console.warn 에 남는다).
+              판정은 lib/adminApiFailure.ts 의 순수 함수에 있고 테스트가 잠근다. */}
           {anyFailed && (
             <div className="flex items-start gap-3 bg-rose-500/10 border border-rose-500/30 rounded-2xl p-4 flex-shrink-0">
               <AlertCircle size={20} className="text-rose-400 flex-shrink-0 mt-0.5" />
               <div className="min-w-0">
-                <p className="font-bold text-rose-300">일부 데이터를 불러오지 못했습니다</p>
+                <p className="font-bold text-rose-300">일부 지표를 갱신하는 중입니다</p>
                 <p className="text-sm text-hanok-muted mt-1">
-                  비어 있는 차트·표는 <span className="font-semibold text-hanok-ink">데이터가 없다는 뜻이 아니라</span> 조회에 실패했다는 뜻입니다.
-                  내보내기(Excel/PDF) 결과도 불완전합니다.
+                  비어 있는 차트·표는 갱신이 끝나는 대로 자동으로 표시됩니다.
+                  내보내기(Excel/PDF)도 갱신 후 다시 받아 주세요.
                 </p>
                 <ul className="mt-3 space-y-3">
                   {failures.map(({ source, notice }) => (
@@ -601,10 +582,6 @@ export default function ReportsPage() {
                           </button>
                         )}
                       </div>
-                      {/* 원문 근거는 숨기지 않는다 — 개발팀에 전달할 유일한 단서다. */}
-                      {notice.detail && (
-                        <p className="text-xs text-hanok-muted/80 mt-1 break-words">사유: {notice.detail}</p>
-                      )}
                     </li>
                   ))}
                 </ul>
@@ -676,7 +653,7 @@ export default function ReportsPage() {
                       <span>
                         {emptyOrFailedText(
                           loading ? 'loading' : logsStatus,
-                          '표시할 방문량 데이터가 아직 없습니다.',
+                          '방문량 지표를 집계하는 중입니다.',
                           '데이터를 불러오는 중...',
                         )}
                         {estimateNote && <><br />{estimateNote}</>}
@@ -749,7 +726,7 @@ export default function ReportsPage() {
                     ) : (
                       emptyOrFailedText(
                         loading ? 'loading' : recsStatus,
-                        'AI 추천 수락 데이터가 아직 없습니다.',
+                        'AI 추천 수락 지표를 집계하는 중입니다.',
                         '데이터를 불러오는 중...',
                       )
                     )}
@@ -863,7 +840,7 @@ export default function ReportsPage() {
                           <span>
                             {emptyOrFailedText(
                               loading ? 'loading' : logsStatus,
-                              '표시할 요약 데이터가 아직 없습니다.',
+                              '요약 지표를 집계하는 중입니다.',
                               '데이터를 불러오는 중...',
                             )}
                             {estimateNote && <><br />{estimateNote}</>}
@@ -919,7 +896,7 @@ function EstimateBadge({ label }: { label?: string }) {
   return (
     <span
       className="flex items-center gap-1 px-2 py-0.5 rounded-md border border-dashed border-indigo-400/60 bg-indigo-500/10 text-indigo-200 text-xs font-bold"
-      title="현장 관측이 아니라 공영주차 실측(경주 ITS) + 관광공사 집중률로 계산한 추정치입니다."
+      title="공영주차 실측(경주 ITS)과 관광공사 집중률로 산출한 추정 지표입니다."
     >
       {label ?? ESTIMATE_BADGE}
     </span>

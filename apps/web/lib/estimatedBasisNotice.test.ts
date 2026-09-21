@@ -43,7 +43,7 @@ function main() {
     // 무엇에서 파생됐는지까지 말한다 — 'parking_derived 806' 은 저장소를 아는 사람만 읽는다.
     assert.match(notice.badge, /주차 실측 기반 추정/);
     assert.match(notice.badge, /806/);
-    assert.match(notice.detail, /현장 관측은 한 건도 없습니다/);
+    assert.match(notice.detail, /추정 지표입니다/);
   }
 
   // ── 섞여 있으면 몫을 밝힌다 ────────────────────────────────────────────────
@@ -56,15 +56,22 @@ function main() {
     assert.match(notice.detail, /800/);
   }
 
-  // ── 기존 데모 데이터(seed·simulated)도 같은 규칙으로 라벨한다 ──────────────
-  // 새 source 만 라벨하고 옛 합성 데이터를 실측처럼 두면 라벨의 의미가 없다.
+  // ── 옛 합성 데이터(seed·simulated)도 집계에는 들어가되 개발 용어를 화면에 내지 않는다 ──
+  // 새 source 만 라벨하고 옛 합성 데이터를 실측처럼 두면 라벨의 의미가 없다. 그렇다고
+  // 관제 화면에 '개발 시드' 를 적을 수도 없다 — 같은 라벨로 묶어 건수만 합쳐 말한다.
   {
     const notice = estimatedBasisNotice(day({ simulated: 1660, seed: 100, user_report: 1 }))!;
-    assert.equal(notice.estimatedCount, 1760);
-    assert.match(notice.badge, /데모 모의 생성/);
-    assert.match(notice.badge, /개발 시드/);
-    // 큰 몫이 먼저 온다.
-    assert.ok(notice.badge.indexOf('데모 모의 생성') < notice.badge.indexOf('개발 시드'));
+    assert.equal(notice.estimatedCount, 1760, '집계에서 빠지면 실측 몫이 부풀려진다');
+    assert.match(notice.badge, /과거 이력 보정 1,760건/, '같은 라벨의 출처는 건수를 합쳐 한 번만 적는다');
+    assert.doesNotMatch(notice.badge, /데모|시드|simulated|seed/, '개발 용어가 관제 화면에 그대로 나간다');
+  }
+
+  // ── 주차 파생 추정이 함께 있으면 배지 줄에는 그것만 적는다 ─────────────────
+  {
+    const notice = estimatedBasisNotice(day({ parking_derived: 800, seed: 100 }))!;
+    assert.equal(notice.estimatedCount, 900, '건수 집계에서는 빠지지 않는다');
+    assert.match(notice.badge, /주차 실측 기반 추정 800건/);
+    assert.doesNotMatch(notice.badge, /과거 이력 보정/, '이름을 낼 출처가 있으면 그것만 적는다');
   }
 
   // ── 0 건짜리 항목은 배지를 만들지 않는다 ───────────────────────────────────
@@ -84,10 +91,11 @@ function main() {
     /이 카드를 채우지 않습니다/,
     '주차 파생 적재 경로가 생겼는데 안내 문구가 옛 사실을 말한다',
   );
-  // 2026-09-20 부터 추정치는 이 표에 적재하지 않고 읽을 때 계산한다 — 문구가 그 사실을 말해야 한다.
-  assert.match(CONGESTION_INGEST_PATHS, /주차 실측 기반 추정/);
-  assert.match(CONGESTION_INGEST_PATHS, /적재하지 않습니다/, '추정치가 이 표에 쌓인다고 오해하게 만든다');
-  assert.match(CONGESTION_INGEST_PATHS, /측정한 값이 아닙니다/, '추정임을 말하지 않는다');
+  // 추정 지표라는 사실과 무엇이 그것을 만드는지가 문구에 남아 있어야 한다.
+  assert.match(CONGESTION_INGEST_PATHS, /공영주차 실측/);
+  assert.match(CONGESTION_INGEST_PATHS, /라벨과 함께 표시/, '추정임을 화면이 밝힌다는 사실이 빠졌다');
+  assert.match(CONGESTION_INGEST_PATHS, /손님 제보/, '실측이 어떻게 쌓이는지 말하지 않는다');
+  assert.doesNotMatch(CONGESTION_INGEST_PATHS, /congestion_logs/, '표 이름이 관제 화면에 그대로 나간다');
 
   console.log('estimatedBasisNotice.test.ts OK');
 }

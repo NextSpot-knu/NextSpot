@@ -123,20 +123,21 @@ async function main() {
 
   // ── 문구 ───────────────────────────────────────────────────────────────────
   {
-    assert.equal(formatGapLabel({ from: '8/19', to: '8/21', days: 3 }), '미관측 3일 (8/19~8/21)');
+    assert.equal(formatGapLabel({ from: '8/19', to: '8/21', days: 3 }), '수집 구간 외 3일 (8/19~8/21)');
 
     const note = formatGapNote(6) as string;
     assert.match(note, /선을 잇지 않고/, '왜 선이 끊겼는지를 말해야 한다');
-    assert.match(note, /0%가 아님/, "이 괄호가 이 문장의 존재 이유다 — 빈 구간이 '0' 으로 읽히면 안 된다");
+    assert.match(note, /수집 구간 외 6일/, '몇 날이 수집 구간 밖인지 말해야 한다');
+    assert.doesNotMatch(note, /0%/, "빈 구간이 '0' 으로 읽히면 안 된다");
     assert.equal(formatGapNote(0), null, '결측이 없으면 아무 말도 하지 않는다');
     assert.equal(formatGapNote(-1), null);
 
     // 계열이 둘인 차트용 문장 — 일수를 말하지 않는 대신 음영의 의미를 밝힌다.
     assert.match(GAP_SHADING_NOTE, /선을 잇지 않/, '두 화면이 같은 정책을 말해야 한다');
-    assert.match(GAP_SHADING_NOTE, /0%가 아/, '빈 구간이 0 으로 읽히면 안 된다는 사실이 빠지면 안 된다');
+    assert.match(GAP_SHADING_NOTE, /값이 아니라 집계 범위/, '빈 구간이 0 으로 읽히면 안 된다는 사실이 빠지면 안 된다');
     assert.doesNotMatch(
       GAP_SHADING_NOTE,
-      /미관측 \d+일/,
+      /(미관측|수집 구간 외) \d+일/,
       '계열마다 결측일이 다른데 한 숫자로 말하면 그 숫자가 어느 계열의 것인지 알 수 없다',
     );
   }

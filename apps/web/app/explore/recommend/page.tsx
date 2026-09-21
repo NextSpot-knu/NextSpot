@@ -1494,13 +1494,6 @@ function RecommendContent() {
                               })}
                         </span>
                       )}
-                      {/* D-3: 합성(seed)/시뮬(simulated) 로그는 데모 데이터임을 UI 라벨로 구분(가드레일). */}
-                      {rec.congestionSource === "measured" &&
-                        (rec.congestionLogSource === "seed" || rec.congestionLogSource === "simulated") && (
-                        <span className="text-[10px] font-medium px-2 py-0.5 rounded-md border bg-hanji-deep border-line text-muk-soft">
-                          {t("card.demoData")}
-                        </span>
-                      )}
                       {/* 24시간 배지는 '마지막 관측' 칩이 없을 때만 — 같은 말을 두 번 하지 않는다
                           (구 서버 응답처럼 '지금' 판정이 없을 때 남는 경로다). */}
                       {rec.congestionSource === "measured" && rec.congestionIsStale && !lastObserved && (

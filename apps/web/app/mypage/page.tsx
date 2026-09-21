@@ -39,11 +39,15 @@ import { useT } from '@/lib/i18n/I18nProvider';
 // 화면에도 '최저시급 기준'을 명시한다(정직성 — 임의 환산이 아님을 알림).
 const MIN_WAGE_KRW_PER_HOUR = 10320;
 
-/** 개발자 콘솔 진입 카드 — developer 에게만 렌더된다(그 외에는 아무것도 그리지 않는다). */
+/**
+ * 개발자 콘솔 진입 카드 — developer 에게만 렌더된다(그 외에는 아무것도 그리지 않는다).
+ * 프로덕션에서는 역할과 무관하게 감춘다(벨트+멜빵): 심사 계정에 developer 가 잘못 붙어도
+ * 관광객 화면에 내부 운영 도구 링크가 뜨지 않는다.
+ */
 function DevConsoleEntry() {
   const router = useRouter();
   const { account } = useAccount();
-  if (!canEnterDevConsole(account)) return null;
+  if (!canEnterDevConsole(account) || process.env.NODE_ENV === 'production') return null;
   return (
     <button
       type="button"

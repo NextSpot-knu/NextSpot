@@ -34,20 +34,18 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     }
   }, [resolved, isLoginRoute, authed, pathname, router]);
 
-  // 로그인 페이지는 항상 통과.
-  if (isLoginRoute) {
-    return <>{children}</>;
-  }
-
-  // 마운트 전(프리렌더) 또는 미인증(로그인으로 리다이렉트 진행 중)에는 로더.
-  if (!authed) {
-    return (
+  // 로그인 페이지는 항상 통과. 그 외에는 마운트 전(프리렌더)·미인증 동안 로더를 보인다.
+  const content = isLoginRoute || authed
+    ? children
+    : (
       <div className="min-h-screen w-full flex items-center justify-center bg-hanok text-hanok-muted">
         <Loader2 className="animate-spin" size={20} />
         <span className="ml-2 text-sm">권한 확인 중…</span>
       </div>
     );
-  }
 
-  return <>{children}</>;
+  // `nextspot-admin` 은 globals.css 에서 단청 강조색(금·청록·주칠)을 한옥 웜다크 서페이스에
+  // 맞춰 한 단계 밝히는 토큰 스코프다. `contents` 라 레이아웃 박스를 만들지 않으므로
+  // 사이드바+본문 flex 구조에 영향이 없고, 커스텀 속성만 하위로 상속된다.
+  return <div className="contents nextspot-admin">{content}</div>;
 }

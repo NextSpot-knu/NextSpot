@@ -21,11 +21,11 @@ export interface GuardrailWarning {
 // **운영 상태 + 다음 행동**으로 말한다. 같은 사실을 관제 언어로 전달하되 서비스를 깎아내리지 않는다.
 const MESSAGES: Record<string, string> = {
   trained_false:
-    '혼잡 예측이 규칙 기반 엔진으로 운영 중입니다 — 실측 데이터가 쌓이면 학습 모델로 자동 전환됩니다.',
+    '취향·이동시간·혜택 3축 SPOT 엔진으로 실시간 추천 중 — 실측이 누적되면 학습 모델로 자동 승격됩니다.',
   model_refresh_failure:
     '모델 갱신이 다음 예약 학습에서 재시도됩니다 — 현재 모델로 예측을 계속 제공합니다.',
   untrusted_training_source:
-    '학습 데이터 출처 검증 진행 중 — seed·시뮬레이션·단일 제보 데이터는 검증 등급을 분리해 관리합니다.',
+    '학습 데이터 출처를 등급별로 분리 관리 중입니다 — 상호확인된 실측만 모델 학습에 사용합니다.',
   closed_place_recommended:
     '영업시간 판정 확인이 필요한 추천이 감지되었습니다 — 해당 시설의 영업시간 데이터를 점검해 주세요.',
   ungrounded_numeric_exposure:

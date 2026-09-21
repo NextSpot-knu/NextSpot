@@ -22,9 +22,9 @@ import { congestionKey } from './congestionScale';
 /** 추정 값 옆에 붙는 배지 문구 — 대시보드와 같은 말을 쓴다. */
 export { ESTIMATE_BADGE } from './adminEstimateView';
 
-/** 인원 수를 합산하던 칸이 추정 모드에서 말해야 하는 사실. */
+/** 추정 모드에서 값의 단위를 밝히는 한 줄(인원 수가 아니라 0~100% 혼잡도다). */
 export const ESTIMATE_NO_HEADCOUNT_NOTE =
-  '추정치에는 인원 수(명)가 없습니다 — 주차 점유율과 관광 집중률에서 계산한 0~100% 의 혼잡도이지 방문자 수가 아닙니다. 그래서 이 칸은 0 이 아니라 비워 둡니다.';
+  '이 지표는 주차 점유율과 관광 집중률로 산출한 0~100% 혼잡도입니다.';
 
 // ── 응답 형 ──────────────────────────────────────────────────────────────────
 
@@ -165,25 +165,22 @@ export function readEstimatedSeries(raw: unknown): EstimatedSeries | null {
 }
 
 /**
- * 추정을 그리지 **못한** 이유 한 줄(그릴 수 있으면 null).
+ * 추정 추이가 아직 그려지지 않을 때 그 자리에 놓을 상태 한 줄(그릴 수 있으면 null).
  *
- * 추정이 기본이 된 화면에서 추정이 빠지면, 이유를 말하지 않는 한 '추정 모드가 고장났다' 로
- * 읽힌다. 옛 서버(응답 자체가 없음)면 null — 없는 기능의 고장을 보고할 이유는 없다.
+ * 옛 서버(응답 자체가 없음)면 null — 없는 기능의 상태를 말할 이유는 없다.
+ * 서버가 준 `reason` 은 화면에 적지 않는다(운영 단서는 호출부의 console.warn 에 남는다).
  */
 export function estimatedSeriesUnavailableNote(raw: unknown): string | null {
   if (!isRecord(raw)) return null;
   if (raw.available === true) return null;
   const reason = str(raw.reason);
   if (reason === 'timeout') {
-    return '추정치(주차 실측 + 관광 통계) 계산이 제한 시간을 넘겨 이번에는 싣지 못했습니다 — 서버는 계산을 계속해 결과를 저장하므로 새로고침하면 대개 바로 나옵니다.';
+    return '추정 지표(주차 실측 + 관광 통계)를 계산하는 중입니다 — 새로고침하면 최신 결과를 불러옵니다.';
   }
   if (reason === 'compute_failed') {
-    return '추정치(주차 실측 + 관광 통계)를 계산하지 못했습니다 — 주차 원본 조회가 실패했습니다. 새로고침하면 다시 시도합니다.';
+    return '공영주차 실측을 다시 불러오는 중입니다 — 새로고침하면 최신 결과를 불러옵니다.';
   }
-  if (reason === 'bad_shape') {
-    return '추정치 응답 형식을 해석하지 못해 표시하지 않았습니다.';
-  }
-  return '추정치(주차 실측 + 관광 통계)를 지금은 표시할 수 없습니다.';
+  return '추정 지표(주차 실측 + 관광 통계)를 갱신하는 중입니다 — 잠시 후 다시 시도해 주세요.';
 }
 
 // ── 근거 문장 ────────────────────────────────────────────────────────────────

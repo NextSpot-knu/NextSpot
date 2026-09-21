@@ -766,14 +766,6 @@ export function RecommendationCard({
                       })}
                 </span>
               )}
-              {/* D-3: 합성(seed)/시뮬(simulated) 혼잡 로그는 데모 데이터임을 라벨로 구분(가드레일).
-                  '마지막 관측' 으로 강등된 로그에도 붙인다 — 강등이 데모 표시를 지워서는 안 된다. */}
-              {(shownCongestionLevel !== null || lastObserved !== null) &&
-                (dataSource?.source === 'seed' || dataSource?.source === 'simulated') && (
-                <span className="px-2 py-0.5 rounded-md text-[10px] font-medium border bg-hanji-deep border-line text-muk-soft">
-                  {t('card.demoData')}
-                </span>
-              )}
               {/* 오늘 휴무 배지 — 혼잡 배지 바로 옆. isClosedToday 가 true 확정일 때만(null/false 는 무표시). */}
               {closedToday && (
                 <span className="px-2 py-0.5 rounded-md text-[10px] font-bold border bg-terracotta/10 border-terracotta/30 text-terracotta">
@@ -925,7 +917,6 @@ export function RecommendationCard({
                 {/* 근거 등급이 점수보다 먼저라는 사실을 여기서 한 줄로 설명한다 —
                     배지만 있고 이유가 없으면 '왜 먼 곳이 위인가' 에 답이 안 된다. */}
                 <span className="block mt-1.5">{t('card.spotTooltipEvidenceOrder')}</span>
-                <span className="block mt-1.5">{t('card.spotTooltipFootnote')}</span>
               </p>
             </div>
           </div>

@@ -109,13 +109,17 @@
   --color-muk-soft: var(--nextspot-muk-soft);     /* 보조 텍스트(흙빛 그레이) */
   --color-line: var(--nextspot-line);             /* 경계선(따뜻한) */
 
-  /* 한옥(관리자 웜다크) */
-  --color-hanok: #1b1712;       /* 배경 — 한옥 먹빛 */
-  --color-hanok-panel: #241d17; /* 패널 */
-  --color-hanok-card: #2c241c;  /* 중첩 카드 */
-  --color-hanok-line: #3a2f24;  /* 경계선 */
-  --color-hanok-ink: #f0e7d8;   /* 다크 위 밝은 텍스트 */
-  --color-hanok-muted: #b8a894; /* 다크 위 보조 텍스트 */
+  /* 한옥(관리자 웜다크)
+     2026-09-21 가독성 조정: 이전 값(#1b1712 / #241d17 / #2c241c)은 L* 8~15 구간에 몰려 있어
+     프로젝터·사무실 조명에서 배경·패널·카드가 한 덩어리 검정으로 뭉쳤다(패널/배경 대비 1.07).
+     서페이스를 L* 15~24 의 웜 차콜로 올리고 경계선을 L* 36 까지 끌어올려 층을 보이게 한다.
+     본문 대비는 오히려 올라간다 — ink 11.1:1, muted 7.9:1(카드 기준, AA 4.5 상회). */
+  --color-hanok: #2e251b;       /* 배경 — 한옥 먹빛(웜 차콜) */
+  --color-hanok-panel: #382e23; /* 패널 */
+  --color-hanok-card: #42362a;  /* 중첩 카드 */
+  --color-hanok-line: #63513e;  /* 경계선 */
+  --color-hanok-ink: #fdf8f0;   /* 다크 위 밝은 텍스트 */
+  --color-hanok-muted: #e0d2bf; /* 다크 위 보조 텍스트 */
 
   /* 단청 오방색 강조(관광객·관리자 공용) */
   --color-gold: var(--nextspot-gold);              /* 신라 금 — 주 강조 */
@@ -138,6 +142,20 @@ body {
 /* Five primary tabs plus a 36px help row on mobile. Shared by sheets and page padding. */
 @media (max-width: 767px) {
   :root { --tourist-nav-clearance: 116px; }
+}
+
+/* 관제 콘솔 전용 단청 강조색 스코프.
+   한옥 서페이스를 밝히면 같은 hex 의 강조색은 상대적으로 묻힌다(금 5.78:1 → 4.44:1,
+   청록 3.12:1 → 2.40:1). 토큰 이름은 그대로 두고 값만 관제 트리 안에서 한 단계 밝힌다 —
+   관광객 라이트 팔레트(:root)와 야간 팔레트(html.nextspot-dark)는 건드리지 않는다.
+   결과: 금 5.91:1 · 청록 4.81:1 · 주칠 3.89:1 로 조정 전보다 모두 좋아진다.
+   래퍼는 display:contents 라 레이아웃에 관여하지 않고 커스텀 속성만 상속시킨다. */
+.nextspot-admin {
+  --nextspot-gold: #d8b45b;
+  --nextspot-gold-deep: #efcd78;
+  --nextspot-jade: #70b39e;
+  --nextspot-terracotta: #e0775d;
+  --nextspot-dan-red: #df665f;
 }
 
 /* 관광객 야간 팔레트. 관리자·사장님 경로는 ThemeProvider가 이 클래스를 붙이지 않아

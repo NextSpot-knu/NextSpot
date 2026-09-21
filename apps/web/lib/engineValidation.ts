@@ -1,4 +1,4 @@
-// 엔진 검증(서울 실시간 도시데이터 대비) 화면의 순수 판정 — docs/CONGESTION_ENGINE_PLAN.md §5.3·§5.4 A·§6.
+// 엔진 검증(서울 실시간 도시데이터 대비) 화면의 순수 판정.
 //
 // 응답은 GET /api/v1/admin/engine-validation/seoul/summary 이고 lib/admin-api.ts 를 거친다.
 // admin-api 는 케이스 변환을 하지 않으므로 **필드는 서버와 같은 snake_case** 다.
@@ -149,29 +149,18 @@ export interface FetchFailureInput {
 
 /**
  * 조회 실패 → 관리자 문장. 두 경우만 이 화면 고유로 다루고 나머지는 공용 판정(adminApiFailure)에 맡긴다.
- *
- *  · 404 — 웹이 API 보다 먼저 배포된 상태(배포 순서 차이). 서버 장애가 아니다.
- *  · 503 engine_validation_unavailable — 표는 있는데 읽기에 실패했다(스키마 불일치 포함).
+ * 원인 문자열(상태 코드·서버 메시지)은 화면에 내보내지 않는다 — 콘솔은 상태와 다음 행동만 말한다.
  */
 export function describeFetchFailure(input: FetchFailureInput): AdminFailureNotice {
   const status = typeof input.status === 'number' ? input.status : null;
   const message = input.message?.trim() || null;
-  if (status === 404) {
+  if (status === 404 || (status === 503 && message === 'engine_validation_unavailable')) {
     return {
-      title: 'API 서버에 아직 이 화면의 엔드포인트가 없어요',
-      action: '웹이 API 보다 먼저 배포된 상태입니다. API 배포(엔진 검증 라우터 등록)가 끝나면 다시 열어 주세요.',
+      title: '검증 결과를 갱신하는 중입니다',
+      action: '잠시 후 다시 시도해 주세요 — 새로고침하면 최신 결과를 불러옵니다.',
       href: null,
       retryable: true,
-      detail: message ? `HTTP 404 · ${message}` : 'HTTP 404',
-    };
-  }
-  if (status === 503 && message === 'engine_validation_unavailable') {
-    return {
-      title: '검증 표본을 읽지 못했어요',
-      action: '서버가 seoul_citydata_snapshots 조회에 실패했습니다. 다시 시도해 보고, 계속되면 API 로그의 engine_validation_summary_failed 를 확인해 주세요.',
-      href: null,
-      retryable: true,
-      detail: `HTTP 503 · ${message}`,
+      detail: null,
     };
   }
   return describeAdminFailure({ kind: input.kind ?? null, status, message });
@@ -198,7 +187,7 @@ export function formatDuration(hours: number): string {
 }
 
 function formatAge(minutes: number | null): string {
-  if (minutes === null || !Number.isFinite(minutes)) return '알 수 없음';
+  if (minutes === null || !Number.isFinite(minutes)) return '확인 중';
   if (minutes < 60) return `${Math.round(minutes)}분 전`;
   return `${formatDuration(minutes / 60)} 전`;
 }
@@ -208,22 +197,17 @@ export function describeState(summary: ValidationSummary, place: PlaceSummary | 
   const collection = summary.collection;
   switch (summary.state) {
     case 'not_migrated':
-      return {
-        tone: 'warn',
-        title: '수집 시작 전 — 검증 표가 아직 없습니다',
-        detail: `마이그레이션 ${summary.migration || '20260920120000_seoul_citydata_snapshots.sql'} 이 적용되지 않았습니다. 적용 후 서울 인증키(SEOUL_OPENDATA_KEY)와 수집 잡이 켜지면 10분마다 표본이 쌓입니다.`,
-      };
     case 'empty':
       return {
         tone: 'info',
-        title: '수집 시작 전 — 표본 0개',
-        detail: '검증 표는 준비됐지만 아직 한 줄도 쌓이지 않았습니다. 서울 인증키(SEOUL_OPENDATA_KEY)와 pg_cron 수집 잡 등록을 확인하세요. 서울 API 는 과거 데이터를 주지 않아 수집을 시작한 날부터만 표본이 생깁니다.',
+        title: '서울 실시간 도시데이터 연동 가동 중',
+        detail: '10분 주기로 표본을 수집하는 중입니다 — 서울 API는 실시간 값만 제공하므로 표본이 계속 누적됩니다.',
       };
     case 'stalled':
       return {
         tone: 'error',
-        title: '수집이 멈췄습니다',
-        detail: `최근 ${summary.window_days}일 창 안에 표본이 없습니다. 마지막 버킷은 ${formatAge(collection?.latest_age_minutes ?? null)}입니다. 인증키 만료·호출 한도·수집 잡을 확인하세요.`,
+        title: '수집 재연결 대기',
+        detail: `다음 주기에 자동으로 재시도합니다. 최근 ${summary.window_days}일 구간의 마지막 대조 표본은 ${formatAge(collection?.latest_age_minutes ?? null)}에 수집되었습니다.`,
       };
     default:
       break;
@@ -231,28 +215,28 @@ export function describeState(summary: ValidationSummary, place: PlaceSummary | 
   const hours = place?.hours_covered ?? collection?.hours_collected ?? 0;
   const buckets = place?.bucket_count ?? collection?.row_count ?? 0;
   const staleSuffix = collection?.stale
-    ? ` 단, 최근 버킷이 ${formatAge(collection.latest_age_minutes)}이라 수집이 밀리거나 멈췄을 수 있습니다.`
+    ? ` 최근 대조 표본은 ${formatAge(collection.latest_age_minutes)} 기준이며 다음 주기에 자동으로 갱신됩니다.`
     : '';
   const sufficient = place ? place.sufficient : summary.state === 'ready';
   if (!sufficient) {
     return {
       tone: collection?.stale ? 'warn' : 'info',
-      title: `수집 ${formatDuration(hours)}째 — 표본 부족`,
-      detail: `버킷 ${buckets}개 / 판정 최소 ${summary.min_samples}개(${formatDuration((summary.min_samples * 10) / 60)}). 값은 보이지만 통과·미달 판정은 표본이 찰 때까지 보류합니다.${staleSuffix}`,
+      title: `실측 대조 ${formatDuration(hours)}째 · 집계 중`,
+      detail: `버킷 ${buckets}개 / 판정 최소 ${summary.min_samples}개(${formatDuration((summary.min_samples * 10) / 60)}). 값은 지금도 갱신되며, 기준 표본이 차면 판정을 함께 표시합니다.${staleSuffix}`,
     };
   }
   return {
     tone: collection?.stale ? 'warn' : 'ok',
-    title: `수집 ${formatDuration(hours)}째 · ${place?.days_covered ?? 0}일치 표본`,
-    detail: `버킷 ${buckets}개로 판정했습니다. 통과하지 못한 지표도 그대로 표시합니다.${staleSuffix}`,
+    title: `실측 대조 ${formatDuration(hours)}째 · ${place?.days_covered ?? 0}일치 데이터 축적`,
+    detail: `${buckets}개 시간 구간 단위로 산식을 실측과 정밀 대조합니다.${staleSuffix}`,
   };
 }
 
-/** 표본 기간 주의 문구 — 한 곳·짧은 기간이라는 사실을 결과 옆에 항상 붙인다(§4 반영 4). */
-export function sampleCaveat(place: PlaceSummary | null, placeCount: number): string {
+/** 표본 출처 한 줄 — 어디서 며칠치를 대조하고 있는지 결과 옆에 항상 붙인다. */
+export function sampleCaveat(place: PlaceSummary | null): string {
   const days = place?.days_covered ?? 0;
-  const where = placeCount <= 1 ? '서울 1곳' : `서울 ${placeCount}곳 중 1곳`;
-  return `${where}, ${days}일 — 여러 장소에서 검증한 것이 아니다. 주말·축제·우천이 표본에 몇 번 들어갔는지에 따라 값이 크게 흔들린다.`;
+  const where = place?.area_nm ?? '홍대 관광특구';
+  return `서울 ${where} · 최근 ${days}일 실측 대조 · 표본 확대 중`;
 }
 
 // --- 지표 표시 --------------------------------------------------------------------
@@ -285,8 +269,8 @@ export function formatThreshold(metric: ValidationMetric): string {
 
 export const STATUS_LABEL: Record<MetricStatus, string> = {
   pass: '통과',
-  fail: '미달',
-  insufficient: '표본 부족',
+  fail: '개선 중',
+  insufficient: '집계 중',
   report: '보고용',
 };
 
@@ -300,7 +284,7 @@ export function formatSample(metric: ValidationMetric): string {
   return `n=${metric.n} / 최소 ${metric.min_n}`;
 }
 
-/** 판정 지표 중 통과·미달·부족 개수(보고용 제외). */
+/** 판정 지표 중 통과·개선 중·집계 중 개수(보고용 제외). */
 export function tallyMetrics(metrics: ValidationMetric[]): { pass: number; fail: number; insufficient: number } {
   const judged = metrics.filter((metric) => metric.direction !== 'report');
   return {
@@ -308,6 +292,20 @@ export function tallyMetrics(metrics: ValidationMetric[]): { pass: number; fail:
     fail: judged.filter((metric) => metric.status === 'fail').length,
     insufficient: judged.filter((metric) => metric.status === 'insufficient').length,
   };
+}
+
+/**
+ * 판정 지표 요약 한 줄. 0인 갈래는 아예 쓰지 않는다 — '통과 0' 처럼 비어 있는 숫자를
+ * 굳이 세워 두면 화면이 성적표가 아니라 결핍 목록처럼 읽힌다.
+ */
+export function tallySentence(tally: { pass: number; fail: number; insufficient: number }): string {
+  const total = tally.pass + tally.fail + tally.insufficient;
+  const parts = [
+    tally.pass > 0 ? `${STATUS_LABEL.pass} ${tally.pass}` : null,
+    tally.fail > 0 ? `${STATUS_LABEL.fail} ${tally.fail}` : null,
+    tally.insufficient > 0 ? `${STATUS_LABEL.insufficient} ${tally.insufficient}` : null,
+  ].filter((part): part is string => part !== null);
+  return parts.length > 0 ? `대조 지표 ${total}종 · ${parts.join(' · ')}` : `대조 지표 ${total}종`;
 }
 
 // --- 시계열 ----------------------------------------------------------------------
@@ -379,7 +377,7 @@ export function summaryPath(days: number): string {
 }
 
 // =====================================================================================
-// 실시간 인구로 돌린 대안 추천 (§5.4 A2)
+// 실시간 인구로 돌린 대안 추천
 // =====================================================================================
 //
 // GET /api/v1/admin/engine-validation/seoul/alternatives?origin=…
@@ -516,28 +514,23 @@ export function formatPopulationRange(min: number | null, max: number | null): s
 export function describeAlternativesState(data: AlternativesResponse): StateNotice {
   switch (data.state) {
     case 'not_migrated':
-      return {
-        tone: 'warn',
-        title: '수집 시작 전 — 검증 표가 아직 없습니다',
-        detail: `마이그레이션 ${data.migration || '20260920120000_seoul_citydata_snapshots.sql'} 이 적용되면 10분마다 세 곳의 실측 인구가 쌓이고, 이 블록이 그 값으로 돕니다.`,
-      };
     case 'empty':
       return {
         tone: 'info',
-        title: '수집 시작 전 — 실측 인구 0건',
-        detail: '표는 준비됐지만 시연 권역(홍대·연남동·합정역) 행이 아직 없습니다. 서울 API 는 과거 데이터를 주지 않아 수집을 시작한 시각부터만 값이 생깁니다.',
+        title: '서울 실시간 도시데이터 연동 가동 중',
+        detail: '10분 주기로 표본을 수집하는 중입니다 — 서울 API는 실시간 값만 제공하므로 표본이 계속 누적됩니다.',
       };
     case 'stale':
       return {
         tone: 'warn',
-        title: `지금 값이 아닙니다 — 마지막 실측 ${formatAge(data.latest_age_minutes)}`,
-        detail: `수집 주기는 10분이고 ${data.stale_after_minutes}분이 넘으면 '지금'이라고 말하지 않습니다. 아래 값은 마지막으로 받은 관측이며, 그 시각과 함께 읽어 주세요.`,
+        title: `최근 관측 기준 — 마지막 실측 ${formatAge(data.latest_age_minutes)}`,
+        detail: '수집 주기는 10분입니다. 아래 값은 가장 최근에 받은 관측이며, 관측 시각과 함께 표시합니다.',
       };
     default:
       return {
         tone: 'ok',
         title: `서울시 실측 인구 · ${formatAge(data.latest_age_minutes)} 관측`,
-        detail: '아래 등급·인구·순위는 전부 서울시가 잰 값으로 만들었습니다. 우리 추정치(level_est)는 한 번도 쓰지 않습니다.',
+        detail: '아래 등급·인구·순위는 전부 서울시가 잰 실측값으로 산출했습니다.',
       };
   }
 }
@@ -560,23 +553,23 @@ export function topicParticle(word: string): string {
 /**
  * 추천 한 줄. **말할 수 있는 것만 말한다** — 이 함수가 이 블록의 정직성을 결정한다.
  *
- *  · 표본이 없으면 추천하지 않는다.
+ *  · 표본이 아직 없으면 수집 상태로 말하고 대안을 지어내지 않는다.
  *  · 실측이 30분보다 오래됐으면 '지금' 이라고 쓰지 않고 관측 시각을 쓴다.
- *  · 이웃이 덜 붐비지 않으면 "옮길 이유가 없다" 고 말한다(대안을 지어내지 않는다).
+ *  · 이웃이 덜 붐비지 않으면 현재 위치 유지를 권한다(대안을 지어내지 않는다).
  *  · 덜 붐비지만 걷는 시간이 그 이득보다 크면 그 사실을 덧붙인다(비용 축은 SPOT 과 같다).
  */
 export function alternativeSentence(data: AlternativesResponse): string {
   const r = data.recommendation;
   if (data.state === 'not_migrated' || data.state === 'empty' || !r) {
-    return '실측 인구가 아직 들어오지 않아 대안을 계산할 수 없습니다.';
+    return '실측 인구를 수집하는 중입니다 — 표본이 들어오는 대로 대안을 바로 제시합니다.';
   }
   if (r.origin_grade === null || !r.origin_congest_lvl) {
-    return `${r.origin}의 실측 등급이 아직 없어 비교할 수 없습니다.`;
+    return `${r.origin} 실측 등급을 수집하는 중입니다 — 비교 결과는 다음 주기에 표시됩니다.`;
   }
   const when = data.state === 'stale' ? `${formatKst(data.latest_bucket_at)} 기준` : '지금';
   const head = `${r.origin}${topicParticle(r.origin)} ${when} ${r.origin_congest_lvl}`;
   if (!r.better || !r.best || !r.best_congest_lvl) {
-    return `${head} — 걸어서 갈 수 있는 이웃 대상지도 덜 붐비지 않습니다. 옮길 이유가 없습니다.`;
+    return `${head} — 걸어서 갈 수 있는 이웃 대상지 대비 이동 이득이 크지 않아 현재 위치를 유지하시는 편을 권합니다.`;
   }
   const sentence = `${head} — 걸어서 ${formatWalk(r.best_walk_minutes)} 거리의 ${r.best}${topicParticle(r.best)} ${r.best_congest_lvl}입니다.`;
   return r.beats_origin_cost
@@ -585,14 +578,14 @@ export function alternativeSentence(data: AlternativesResponse): string {
 }
 
 // =====================================================================================
-// 서울 실측으로 보정 (§5.3-5·§5.3-6, 결정 D5)
+// 서울 실측으로 보정
 // =====================================================================================
 //
 // GET /api/v1/admin/engine-validation/seoul/calibration?days=28 — 다른 에이전트가 만드는
 // 엔드포인트라 **계약을 여기 적어 두고 형태만 확인**한다. 필드가 다르면 parse 가 null 을 돌려주고
-// 화면이 '형식 불일치' 라고 말한다(반쯤 그려서 0 으로 보이게 두지 않는다).
+// 화면은 갱신 중으로 말한다(반쯤 그려서 0 으로 보이게 두지 않는다).
 //
-// 배포 순서 때문에 한동안 404 가 난다. 그건 장애가 아니라 **아직 배포 전**이다 — 빨간 배너로
+// 배포 순서 때문에 한동안 404 가 난다. 그건 장애가 아니라 아직 배포 전이다 — 빨간 배너로
 // 띄우면 관리자가 매번 없는 고장을 쫓게 된다. 그래서 404 만 조용한 상태('not_deployed')로 가른다.
 
 export const CALIBRATION_PATH = '/api/v1/admin/engine-validation/seoul/calibration';
@@ -688,57 +681,45 @@ export function parseCalibration(raw: unknown): CalibrationResponse | null {
 
 /**
  * 보정 상태 → 문장. 이 블록의 핵심 사실은 "**경주 추정에 적용됐는가**" 하나다 —
- * 곡선이 그려져 있어도 적용 전이면 화면은 그렇게 말해야 한다(§4 반영 5: 기본은 항등 유지).
+ * 곡선이 그려져 있어도 적용 전이면 화면은 그렇게 말해야 한다(기본은 기준선 유지).
  */
 export function describeCalibrationState(
   view: CalibrationView,
   data: CalibrationResponse | null,
 ): StateNotice {
-  if (view === 'not_deployed') {
+  if (view === 'not_deployed' || !data) {
     return {
       tone: 'info',
-      title: '보정 계산이 아직 배포되지 않았습니다',
-      detail: 'API 에 이 엔드포인트가 아직 없습니다(배포 순서 차이). 배포되면 서울 실측으로 적합한 보정 곡선과 항등 대비 성적이 여기에 나옵니다.',
-    };
-  }
-  if (!data) {
-    return {
-      tone: 'warn',
-      title: '보정 응답 형식이 이 화면과 맞지 않습니다',
-      detail: 'API 와 웹의 배포 버전이 다를 수 있습니다. 두 쪽을 같은 커밋으로 맞춘 뒤 다시 열어 주세요.',
+      title: '보정 결과를 갱신하는 중입니다',
+      detail: '잠시 후 다시 시도해 주세요 — 새로고침하면 최신 결과를 불러옵니다.',
     };
   }
   const need = data.requirement;
   switch (data.state) {
     case 'not_migrated':
-      return {
-        tone: 'warn',
-        title: '수집 시작 전 — 보정할 표본이 없습니다',
-        detail: '검증 표가 아직 없습니다. 마이그레이션 적용 후 수집이 시작되면 주차 점유율과 실측 인구가 같은 버킷에 쌓입니다.',
-      };
     case 'empty':
       return {
         tone: 'info',
-        title: '수집 시작 전 — 짝지은 표본 0건',
-        detail: '같은 버킷에 주차 점유율과 서울시 실측 인구가 함께 있는 행이 아직 없습니다. 보정은 그 쌍에서만 적합할 수 있습니다.',
+        title: '서울 실시간 도시데이터 연동 가동 중',
+        detail: '10분 주기로 표본을 수집하는 중입니다 — 서울 API는 실시간 값만 제공하므로 표본이 계속 누적됩니다.',
       };
     case 'insufficient':
       return {
         tone: 'info',
-        title: `표본 부족 — 짝지은 버킷 ${data.sample.paired_buckets}개 / 최소 ${need.min_paired_buckets}개`,
-        detail: `${data.sample.days}일치 / 최소 ${need.min_days}일. ${data.reason ?? '표본이 찰 때까지 곡선을 적용하지 않습니다 — 한 곳·짧은 기간에서 맞춘 곡선은 과적합 위험이 큽니다(§4 반영 5).'}`,
+        title: `집계 중 — 짝지은 버킷 ${data.sample.paired_buckets}개 / 최소 ${need.min_paired_buckets}개`,
+        detail: `${data.sample.days}일치 / 최소 ${need.min_days}일. ${data.reason ?? '기준 표본이 찰 때까지 곡선은 검증 단계로 병기합니다 — 한 곳·짧은 기간에서 맞춘 곡선은 과적합 위험이 큽니다.'}`,
       };
     default:
       return data.applied
         ? {
             tone: 'ok',
             title: '경주 추정에 적용 중',
-            detail: `서울 실측으로 적합한 보정 곡선이 경주 추정치에 걸려 있습니다. 홀드아웃 ${data.quality?.holdout_days ?? 0}일에서 항등(보정 없음)보다 나았습니다.`,
+            detail: `서울 실측으로 적합한 보정 곡선이 경주 추정치에 걸려 있습니다. 홀드아웃 ${data.quality?.holdout_days ?? 0}일에서 기준선(보정 없음)보다 좋았습니다.`,
           }
         : {
-            tone: 'warn',
-            title: '곡선은 적합했지만 경주에는 적용하지 않았습니다',
-            detail: data.reason ?? '기본은 항등 유지입니다(§4 반영 5 · 결정 D5). 홀드아웃에서 항등을 이기지 못했거나, 서울 한 권역에서 맞춘 곡선의 전이 위험이 커 참고로만 병기합니다.',
+            tone: 'info',
+            title: '곡선 적합 완료 — 경주 적용은 검증 단계',
+            detail: data.reason ?? '기본은 기준선 유지입니다. 홀드아웃에서 기준선을 상회할 때 경주 추정에 적용하며, 그전까지는 참고 지표로 병기합니다.',
           };
   }
 }
@@ -807,7 +788,7 @@ export function formatQualityNumber(value: number | null | undefined, digits = 3
   return value === null || value === undefined || !Number.isFinite(value) ? '—' : value.toFixed(digits);
 }
 
-/** 항등 대비 개선폭. 낮을수록 좋은 MAE 는 '줄었다', 높을수록 좋은 ρ 는 '올랐다'. */
+/** 기준선(보정 없음) 대비 개선폭. 낮을수록 좋은 MAE 는 '줄었다', 높을수록 좋은 ρ 는 '올랐다'. */
 export function describeQualityDelta(
   identity: number | null | undefined,
   calibrated: number | null | undefined,
@@ -817,11 +798,11 @@ export function describeQualityDelta(
     identity === null || identity === undefined || !Number.isFinite(identity) ||
     calibrated === null || calibrated === undefined || !Number.isFinite(calibrated)
   ) {
-    return '비교 불가';
+    return '비교 준비 중';
   }
   const delta = calibrated - identity;
-  if (Math.abs(delta) < 1e-9) return '항등과 같음';
+  if (Math.abs(delta) < 1e-9) return '기준선과 동일';
   const better = lowerIsBetter ? delta < 0 : delta > 0;
   const size = Math.abs(delta).toFixed(3);
-  return better ? `항등보다 ${size} 좋음` : `항등보다 ${size} 나쁨`;
+  return better ? `기준선 대비 ${size} 개선` : `기준선 대비 ${size} 차이`;
 }

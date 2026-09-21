@@ -71,8 +71,8 @@ export function AreaDemandReliabilityPanel() {
   // 네 칸이라, 멈춘 상태에서도 '최신 관측 1440분 전' 이 다른 숫자들 사이에 묻혔다.
   const alertState = data?.alert?.state;
   const alertText: Record<string, string> = {
-    down: '수집이 멈췄습니다 — 새 스냅샷이 들어오지 않습니다.',
-    degraded: '수집이 간헐적으로 실패하고 있습니다.',
+    down: '수집 재연결 대기 — 다음 주기에 자동 재시도합니다.',
+    degraded: '일부 구간을 다시 수집하는 중입니다 — 다음 주기에 자동 재시도합니다.',
   };
 
   return (
@@ -99,17 +99,15 @@ export function AreaDemandReliabilityPanel() {
           }`}
         >
           <AlertTriangle size={14} className="mt-0.5 shrink-0" />
-          <span>
-            {alertText[alertState]}
-            {data?.alert?.reason && <span className="ml-1 opacity-80">({data.alert.reason})</span>}
-          </span>
+          {/* 서버가 보낸 reason 코드는 화면에 내지 않는다(운영자 화면에 내부 코드가 그대로 보였다). */}
+          <span>{alertText[alertState]}</span>
         </p>
       )}
 
       {loading && !data ? (
         <div className="mt-4 h-20 animate-pulse rounded-xl bg-hanok-line/50" />
       ) : error ? (
-        <p className="mt-4 flex items-center gap-2 rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-300"><AlertTriangle size={14} />수집 신뢰도 API를 확인해 주세요.</p>
+        <p className="mt-4 flex items-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-200"><AlertTriangle size={14} />수집 현황을 갱신하는 중입니다 — 잠시 후 자동으로 표시됩니다.</p>
       ) : data?.window ? (
         // `data ?` 만으로는 부족하다 — **응답이 오긴 왔는데 window 가 없는 경우**가 그 가드를
         // 통과해 아래 `data.window.received_bucket_count` 에서 터졌고, 그러면 이 패널 하나가
@@ -119,9 +117,10 @@ export function AreaDemandReliabilityPanel() {
         <>
           <div className="mt-4 grid grid-cols-2 gap-2 md:grid-cols-4">
             <Metric label="최근 24시간 수집" value={`${data.window.received_bucket_count}/${data.window.expected_bucket_count}`} />
-            <Metric label="누락률" value={`${(data.window.missing_rate * 100).toFixed(1)}%`} />
-            <Metric label="최장 공백" value={`${data.window.longest_gap_minutes}분`} />
-            <Metric label="최신 관측" value={latest ? `${Math.max(0, Math.round(latest.age_minutes))}분 전` : '없음'} warn={unhealthy} />
+            {/* 같은 사실을 '얼마나 빠졌나' 가 아니라 '얼마나 들어왔나' 로 말한다(값도 함께 뒤집는다). */}
+            <Metric label="수집률" value={`${Math.max(0, 100 - data.window.missing_rate * 100).toFixed(1)}%`} />
+            <Metric label="최대 간격" value={`${data.window.longest_gap_minutes}분`} />
+            <Metric label="최신 관측" value={latest ? `${Math.max(0, Math.round(latest.age_minutes))}분 전` : '갱신 중'} warn={unhealthy} />
           </div>
           {latest && (
             <div className="mt-3 rounded-xl border border-hanok-line bg-hanok-card p-4">

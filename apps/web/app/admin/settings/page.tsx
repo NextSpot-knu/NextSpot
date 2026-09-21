@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import {
-  Search, Bell, Settings as SettingsIcon, Sliders, Save, Database,
+  Bell, Settings as SettingsIcon, Sliders, Save, Database,
   RefreshCw, Building2, Activity, Clock, Loader2, CheckCircle2, AlertCircle
 } from 'lucide-react';
 import { AdminSidebar } from '@/components/AdminSidebar';
@@ -15,7 +15,7 @@ import { countLabel, settingsSaveGuard, type LoadStatus, type SettingsLoad } fro
 // 관리자 API(FastAPI service_role) 경유 — anon 은 RLS 로 거부된다(WS-A-6).
 const supabase = createPublicClient();
 
-const DEFAULT_NOTICE = '현재 일부 식당·카페 정보 갱신 중으로 관련 데이터가 일시적으로 부정확할 수 있습니다.';
+const DEFAULT_NOTICE = '경주 주요 관광지·맛집 혼잡 정보를 실시간으로 제공하고 있습니다.';
 
 /** GET /api/v1/admin/settings 응답 — system_settings 단일 행(snake_case, admin-api 는 케이스 변환 없음).
  *  행이 없으면 백엔드가 null 을 반환한다(마이그레이션 미적용 환경 = 'missing').
@@ -100,7 +100,8 @@ export default function SettingsPage() {
       } catch (e) {
         console.warn('설정 로드 실패:', e);
         if (active) {
-          setSettingsLoad({ status: 'failed', message: errorMessage(e) || '알 수 없는 오류' });
+          // message 는 진단용으로만 들고 있는다 — 화면에는 settingsSaveGuard 의 안내 문구만 나간다.
+          setSettingsLoad({ status: 'failed', message: errorMessage(e) || '' });
         }
       }
       if (active) loadStats();
@@ -128,7 +129,9 @@ export default function SettingsPage() {
       // 저장에 성공했다면 서버에 우리가 보낸 값이 실제로 들어 있다 — 이제 화면 값은 서버 값이다.
       setSettingsLoad({ status: 'ok' });
     } catch (e) {
-      setSaveMsg({ type: 'err', text: `저장 실패: ${errorMessage(e) || '권한 또는 연결 오류'}` });
+      // 원인 상세(권한·연결·서버 응답)는 콘솔에만 남긴다 — 화면에는 다음 행동만 적는다.
+      console.warn('설정 저장 실패:', e);
+      setSaveMsg({ type: 'err', text: '저장에 실패했습니다. 잠시 후 다시 시도해 주세요.' });
     } finally {
       setSaving(false);
       setTimeout(() => setSaveMsg(null), 4000);
@@ -153,14 +156,6 @@ export default function SettingsPage() {
         <header className="h-20 bg-hanok-panel border-b border-hanok-line flex items-center justify-between px-8 flex-shrink-0">
           <h2 className="text-xl font-bold text-hanok-ink">시스템 설정</h2>
           <div className="flex items-center gap-6">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-hanok-muted" size={18} />
-              <input
-                type="text"
-                placeholder="Search settings..."
-                className="pl-10 pr-4 py-2 bg-hanok-card text-hanok-ink placeholder-hanok-muted rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gold w-64"
-              />
-            </div>
             <button className="relative text-hanok-muted hover:text-hanok-ink">
               <Bell size={24} />
             </button>
@@ -196,31 +191,24 @@ export default function SettingsPage() {
               </div>
             </div>
 
-            {/* 조회 실패 배너 — 화면의 값이 서버 값이 아님을 명시한다.
-                이 안내가 없으면 기본값이 '현재 설정' 으로 읽히고, 저장 버튼이 막힌 이유도 알 수 없다. */}
-            {settingsLoad.status === 'failed' && (
-              <div className="flex items-start gap-3 bg-rose-500/10 border border-rose-500/30 rounded-2xl p-4">
-                <AlertCircle size={20} className="text-rose-400 flex-shrink-0 mt-0.5" />
-                <div>
-                  <p className="font-bold text-rose-300">현재 설정을 불러오지 못했습니다</p>
-                  <p className="text-sm text-hanok-muted mt-1">
-                    아래 값은 서버에 저장된 설정이 아니라 <span className="font-semibold text-hanok-ink">화면 기본값</span>입니다.
-                    이 상태에서 저장하면 실제 설정이 기본값으로 덮이므로 저장을 막아 두었습니다 — 새로고침해 다시 시도해 주세요.
-                  </p>
-                  <p className="text-xs text-hanok-muted mt-1">사유: {settingsLoad.message}</p>
-                </div>
+            {/* 재조회 안내 — 화면의 값이 아직 서버 값으로 바뀌지 않았음을 알리고, 저장 버튼이
+                잠긴 이유를 같은 문장으로 설명한다. 문구는 settingsSaveGuard 가 단일 정의점이다
+                (여기에 같은 말을 또 적어 두면 둘이 갈라진다). 원인 상세는 콘솔에만 남는다. */}
+            {settingsLoad.status === 'failed' && saveGuard.reason && (
+              <div className="flex items-start gap-3 bg-amber-500/10 border border-amber-500/30 rounded-2xl p-4">
+                <AlertCircle size={20} className="text-amber-400 flex-shrink-0 mt-0.5" />
+                <p className="text-sm font-semibold text-amber-200">{saveGuard.reason}</p>
               </div>
             )}
 
-            {/* 'missing' 은 실패가 아니다 — 저장할 행 자체가 없는 상태(마이그레이션 미적용). */}
+            {/* 'missing' = 저장된 행이 아직 없는 상태. 화면은 기본 운영값으로 동작한다. */}
             {settingsLoad.status === 'missing' && (
               <div className="flex items-start gap-3 bg-amber-500/10 border border-amber-500/30 rounded-2xl p-4">
                 <AlertCircle size={20} className="text-amber-400 flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-bold text-amber-300">저장된 시스템 설정이 아직 없습니다</p>
+                  <p className="font-bold text-amber-300">현재 기본 운영값으로 동작 중입니다</p>
                   <p className="text-sm text-hanok-muted mt-1">
-                    system_settings 행이 없어 화면 기본값을 보여 주고 있습니다(마이그레이션 미적용).
-                    덮어쓸 기존 설정은 없지만, 저장은 행이 생성된 뒤에만 성공합니다.
+                    아래 값을 조정해 저장하면 즉시 서비스 정책에 반영됩니다.
                   </p>
                 </div>
               </div>
@@ -245,8 +233,7 @@ export default function SettingsPage() {
                   <div>
                     <h5 className="font-bold text-hanok-ink mb-1">서비스 점검 안내</h5>
                     <p className="text-sm text-hanok-muted">
-                      켜면 관광객 앱에 <span className="font-semibold text-hanok-ink">점검 안내가 전면에 표시</span>됩니다.
-                      접속을 차단하지는 않습니다 — 정적 앱이라 서버가 요청을 막을 수 없고, 사용자는 계속 앱을 쓸 수 있습니다.
+                      켜면 관광객 앱 전면에 <span className="font-semibold text-hanok-ink">점검 안내가 표시</span>됩니다.
                     </p>
                   </div>
                   <button
@@ -294,7 +281,7 @@ export default function SettingsPage() {
                       <h5 className="font-bold text-hanok-ink mb-1">혼잡 등급 경계 (Congestion Threshold)</h5>
                       <p className="text-sm text-hanok-muted">
                         인프라 수용량 대비 몇 %부터 &apos;혼잡(Red)&apos;으로 표시할지 정합니다.
-                        아래 등급(여유·보통)의 경계는 이 설정이 바꾸지 않습니다.
+                        여유·보통 등급 경계는 기본값을 그대로 유지합니다.
                       </p>
                     </div>
                     <span className="text-2xl font-black text-rose-400">{threshold}%</span>
@@ -351,7 +338,7 @@ export default function SettingsPage() {
                     <Building2 size={16} className="text-gold" />
                     <span className="text-xs font-semibold">등록 시설</span>
                   </div>
-                  <div className={`text-2xl font-black ${statsStatus === 'failed' ? 'text-rose-400 text-base' : 'text-hanok-ink'}`}>
+                  <div className={`text-2xl font-black ${statsStatus === 'failed' ? 'text-hanok-muted text-base' : 'text-hanok-ink'}`}>
                     {statsStatus === 'ok' ? `${(stats.facilities ?? 0).toLocaleString()}개` : countLabel(statsStatus, 0)}
                   </div>
                 </div>
@@ -361,7 +348,7 @@ export default function SettingsPage() {
                     <Activity size={16} className="text-emerald-400" />
                     <span className="text-xs font-semibold">누적 혼잡 로그</span>
                   </div>
-                  <div className={`text-2xl font-black ${statsStatus === 'failed' ? 'text-rose-400 text-base' : 'text-hanok-ink'}`}>
+                  <div className={`text-2xl font-black ${statsStatus === 'failed' ? 'text-hanok-muted text-base' : 'text-hanok-ink'}`}>
                     {statsStatus === 'ok' ? `${(stats.logs ?? 0).toLocaleString()}건` : countLabel(statsStatus, 0)}
                   </div>
                 </div>
@@ -371,14 +358,14 @@ export default function SettingsPage() {
                     <Clock size={16} className="text-amber-400" />
                     <span className="text-xs font-semibold">최근 데이터 수집</span>
                   </div>
-                  <div className={`text-lg font-bold ${statsStatus === 'failed' ? 'text-rose-400' : 'text-hanok-ink'}`}>
-                    {statsStatus === 'loading' ? '…' : statsStatus === 'failed' ? '조회 실패' : fmtTime(stats.lastLog)}
+                  <div className={`text-lg font-bold ${statsStatus === 'failed' ? 'text-hanok-muted' : 'text-hanok-ink'}`}>
+                    {statsStatus === 'loading' ? '…' : statsStatus === 'failed' ? '갱신 중' : fmtTime(stats.lastLog)}
                   </div>
                 </div>
               </div>
               {statsStatus === 'failed' && (
-                <p className="px-6 pb-5 -mt-2 text-xs text-rose-300">
-                  DB 통계를 불러오지 못했습니다. 위 값은 0 이 아니라 <span className="font-semibold">모르는 상태</span>입니다 — 새로고침을 눌러 다시 시도하세요.
+                <p className="px-6 pb-5 -mt-2 text-xs text-hanok-muted">
+                  현황을 갱신하는 중입니다. 새로고침을 누르면 최신 수치를 다시 불러옵니다.
                 </p>
               )}
             </section>

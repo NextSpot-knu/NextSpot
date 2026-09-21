@@ -241,7 +241,7 @@ export function dashboardFallbackExplanation(basis: DashboardBasis): string | nu
  * 가리키는 문장을 화면에 두지 않으려고 여기서 바꿔 끼운다.
  */
 export const DASHBOARD_INGEST_PATHS =
-  '이 지표의 실측 원천(congestion_logs)에 행이 쌓이는 경로는 손님 제보 · 사장 좌석 방송 · 관리자 오버라이드입니다. 실측이 없는 날에는 공영주차 실측(경주 ITS)과 관광공사 집중률로 오늘의 추정치를 계산해 ‘추정’ 라벨과 함께 보여 줍니다.';
+  '현장 관측은 손님 제보 · 사장 좌석 방송 · 관리자 오버라이드로 수집합니다. 오늘은 공영주차 실측(경주 ITS)과 관광 통계를 결합한 추정 지표를 ‘추정’ 라벨과 함께 표시하며, 현장 관측이 들어오면 자동으로 실측으로 전환됩니다.';
 
 export function dashboardEmptyNotice(basis: DashboardBasis): CongestionEmptyNotice | null {
   if (basis.kind === 'estimate') return null;
@@ -260,20 +260,20 @@ export function estimateUnavailableNote(res: DashboardTodayWithEstimate | null, 
   if (!res || res.failed || res.hasLogs || basis.kind === 'estimate' || basis.kind === 'today') return null;
   if (!('estimated' in res) || res.estimated === undefined) return null;
   if (res.estimated === null) {
-    return '오늘의 추정치(주차 실측 + 관광 통계)도 지금은 계산하지 못했습니다 — 주차 원본 조회가 실패했거나 시간이 초과됐습니다. 새로고침하면 다시 시도합니다.';
+    return '오늘의 추정 지표(공영주차 실측 + 관광 통계)를 갱신하는 중입니다 — 새로고침하면 다시 불러옵니다.';
   }
   if (isRecord(res.estimated) && res.estimated.hasLogs === false) {
     const n = num(res.estimated.sampleCount);
-    return `오늘의 추정치(주차 실측 + 관광 통계)는 아직 표본이 모자랍니다${n !== null ? `(${n}개 구간)` : ''} — 공영주차 실측이 10분마다 쌓이면 추정으로 바뀝니다.`;
+    return `오늘의 추정 지표(공영주차 실측 + 관광 통계)는 표본을 수집하는 중입니다${n !== null ? `(${n}개 구간)` : ''} — 공영주차 실측이 10분마다 누적되면 추정 지표로 전환됩니다.`;
   }
-  return '오늘의 추정치 응답 형식을 해석하지 못해 표시하지 않았습니다.';
+  return '오늘의 추정 지표는 다음 수집 주기에 표시됩니다.';
 }
 
 /** CSV 첫 줄 '기준' 칸. 파일로 나간 숫자는 화면 맥락을 잃으므로 추정 여부를 여기 박는다. */
 export function csvBasisCell(basis: DashboardBasis): string {
   if (basis.kind === 'estimate') {
-    return `오늘 (KST) — 추정치(현장 관측 아님): ${estimateBasisLine(basis.info, basis.dateKst)}`;
+    return `오늘 (KST) — 공영주차 실측 + 관광 통계 기반 추정: ${estimateBasisLine(basis.info, basis.dateKst)}`;
   }
-  if (basis.kind === 'fallback') return `${basis.dateKst} (KST) — 오늘 관측 없음`;
+  if (basis.kind === 'fallback') return `${basis.dateKst} (KST) — 현장 관측 집계 기준일`;
   return '오늘 (KST)';
 }

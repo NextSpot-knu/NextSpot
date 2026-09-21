@@ -105,7 +105,7 @@ export default function TasteRadar() {
               ? 'bg-gold/15 border-gold/30 text-gold-deep'
               : 'bg-hanji-deep border-line text-muk-soft'
           }`}>
-            {taste.source === 'learned' ? '실시간 학습 반영' : '온보딩 선호 기반 (아직 학습 전)'}
+            {taste.source === 'learned' ? '실시간 학습 반영' : '온보딩 선호 반영 중'}
           </span>
         )}
       </div>

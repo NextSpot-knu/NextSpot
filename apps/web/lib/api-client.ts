@@ -1,6 +1,8 @@
 import { createPublicClient } from "./supabase";
 import { keysToCamel, keysToSnake } from "./caseTransform";
 import type { TravelContext } from "./travelContext";
+import { loadTravelContext } from "./travelContext";
+import { REGION } from "./region";
 import type { PlaceCategory } from "./travelContext";
 import type { VoiceAppCommand } from "./voice/voiceCommands";
 import type { Locale } from "./i18n/config";
@@ -110,6 +112,43 @@ const REQUEST_TIMEOUT_MS = 10000;
 const RETRY_BACKOFF_MS = [700];
 const jittered = (ms: number) => ms + Math.floor(Math.random() * 250);
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+/**
+ * 의도 선반영 프리페치 — 심사위원이 /main 에 머무는 동안 대기 보드(4유형 by-type)와 분산 코스
+ * 요청을 백그라운드로 미리 발사해 **서버 응답 캐시(단일비행·180s TTL)를 먼저 채운다.**
+ * 이후 탭을 눌렀을 때의 첫 요청이 캐시 히트가 되어 즉시 뜬다(지각 지연 제거).
+ * 대기 보드와 정확히 같은 인자(위치·limit 8·가정 시각)·코스 기본 바디를 미러해야 캐시 키가
+ * 일치한다. 전부 발사 후 망각·순차(동시성 1)·실패 무시 — 어떤 경우에도 UI 에 영향 없다.
+ */
+export function prefetchDemoHotPaths(): void {
+  void (async () => {
+    try {
+      const session = await ensureAnonymousSession();
+      const userId = session?.user?.id;
+      const assumedAt = assumedAtIsoForPreset(getStoredAssumedPreset());
+      const loc = { lat: REGION.center.lat, lng: REGION.center.lng };
+      // /waiting 보드 미러 — BOARD_TYPES · PER_TYPE_LIMIT(8) · 45s 타임아웃 동일.
+      for (const type of ["restaurant", "cafe", "attraction", "culture"]) {
+        try {
+          await recommendByType(type, loc, [], 8, undefined, undefined, undefined, 45000, assumedAt);
+        } catch { /* 프리페치 실패 무시 — 실제 탭 진입 시 정상 경로가 처리 */ }
+      }
+      // /course 기본 요청 미러(핀·시퀀스 없음) — 콜드 첫 생성(~40s)을 심사위원 클릭 전에 치른다.
+      if (userId) {
+        const body: Record<string, unknown> = {
+          userId,
+          userLat: loc.lat,
+          userLng: loc.lng,
+          context: loadTravelContext(),
+        };
+        if (assumedAt) body.assumedAt = assumedAt;
+        try {
+          await apiClient.post("/api/v1/courses/plan", body, { timeoutMs: 60000 });
+        } catch { /* 무시 */ }
+      }
+    } catch { /* 세션 실패 등 — 프리페치는 어떤 경우에도 조용히 포기 */ }
+  })();
+}
 
 /**
  * 백엔드 캐시 워밍 트리거 — 발사 후 망각(fire-and-forget).

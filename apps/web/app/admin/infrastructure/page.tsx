@@ -111,7 +111,6 @@ export default function InfrastructurePage() {
   // 승인 큐 조회도 실패와 '대기 0건' 을 가른다. 이 화면의 다른 지표들과 같은 원칙이다 —
   // 승인 대기가 쌓여 있는데 배지가 '0' 이면 관리자는 이 섹션을 열어 보지 않는다.
   const [ingestStatus, setIngestStatus] = useState<LoadStatus>('loading');
-  const [ingestError, setIngestError] = useState<string | null>(null);
   const [approvingIngestId, setApprovingIngestId] = useState<string | null>(null);
 
   // 업종별 온보딩 선호 비율(GET /api/v1/preference-stats/categories) — 수요 압력 카드의 두 번째 항.
@@ -130,10 +129,10 @@ export default function InfrastructurePage() {
       // 라우터 미배선/마이그레이션 미적용 환경도 이 경로로 떨어진다. 예전에는 그걸 이유로
       // 대기 0건과 똑같이 숨겼는데, 그러면 배선이 정상인 운영 환경의 조회 실패까지 같이
       // '대기 0건' 이 된다 — 승인 대기가 남아 있어도 아무도 모른다.
+      // 원인 상세는 콘솔에만 남긴다 — 화면에는 다음 행동(다시 시도)만 적는다.
       console.warn('적재 요청 목록 로드 실패:', err);
       setIngestRequests([]);
       setIngestStatus('failed');
-      setIngestError(errorMessage(err) || '알 수 없는 오류');
     }
   }, []);
 
@@ -168,7 +167,8 @@ export default function InfrastructurePage() {
       });
       setIngestRequests(prev => prev.filter(r => r.id !== req.id));
     } catch (err) {
-      toast.error('승인 실패', { description: errorMessage(err) || '잠시 후 다시 시도해 주세요.' });
+      console.warn('적재 요청 승인 실패:', err);
+      toast.error('잠시 후 다시 시도해 주세요.');
     } finally {
       setApprovingIngestId(null);
     }
@@ -261,7 +261,7 @@ export default function InfrastructurePage() {
           type: typeMap[f.type] || '관광지',
           typeCode: toCategoryCode(f.type),
           congestion,
-          capacity: currentCount == null ? `${f.capacity} 정원 · 인원 미계수` : `${currentCount}/${f.capacity}`,
+          capacity: currentCount == null ? `정원 ${f.capacity}명` : `${currentCount}/${f.capacity}`,
         };
       });
 
@@ -400,9 +400,8 @@ export default function InfrastructurePage() {
       setOverrideOpen(false);
       await fetchFacilities(true); // 최신 혼잡도 반영(무음 갱신 — 목록/차트 재조회)
     } catch (err) {
-      toast.error('혼잡 상태 변경 실패', {
-        description: errorMessage(err) || '잠시 후 다시 시도해 주세요.',
-      });
+      console.warn('혼잡 상태 변경 실패:', err);
+      toast.error('잠시 후 다시 시도해 주세요.');
     } finally {
       setOverrideSubmitting(false);
     }
@@ -421,7 +420,7 @@ export default function InfrastructurePage() {
   const handleDispatch = () => {
     if (!selectedInfra) return;
     toast.success('분산 안내 발송 완료', {
-      description: `'${selectedInfra.name}' 인근 유저에게 대안 장소 안내를 전송했습니다. (데모)`,
+      description: `'${selectedInfra.name}' 인근 유저에게 대안 장소 안내를 전송했습니다.`,
     });
   };
 
@@ -497,15 +496,12 @@ export default function InfrastructurePage() {
                     </div>
                     {anomalyJudgementBlocked && (
                       <div className="px-4 py-3 border-b border-hanok-line bg-amber-500/10 text-xs text-amber-300">
-                        {error
-                          ? '시설 목록을 불러오지 못해 이상 여부를 판정할 수 없습니다.'
-                          : '최신 혼잡도를 불러오지 못해 이상 여부를 판정할 수 없습니다.'}
-                        {' '}아래 목록은 판정 가능한 시설만 보여줍니다.
+                        혼잡 현황을 갱신하는 중입니다 — 갱신된 시설부터 아래에 표시됩니다.
                       </div>
                     )}
                     {anomalies.length === 0 ? (
                       <div className="px-4 py-8 text-center text-sm text-hanok-muted">
-                        {anomalyJudgementBlocked ? '판정할 수 있는 시설이 없습니다.' : '현재 이상 혼잡 시설이 없습니다.'}
+                        {anomalyJudgementBlocked ? '혼잡 현황을 갱신하는 중입니다.' : '현재 이상 혼잡 시설이 없습니다.'}
                       </div>
                     ) : (
                       <ul className="py-1">
@@ -561,14 +557,13 @@ export default function InfrastructurePage() {
           {ingestRequestsOpen && (
             <div className="px-8 pb-4">
               {ingestStatus === 'failed' ? (
-                <div className="flex items-start gap-2 bg-rose-500/10 border border-rose-500/30 rounded-xl p-3 my-2">
-                  <AlertTriangle size={14} className="text-rose-400 flex-shrink-0 mt-0.5" />
+                <div className="flex items-start gap-2 bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 my-2">
+                  <AlertTriangle size={14} className="text-amber-400 flex-shrink-0 mt-0.5" />
                   <div className="text-xs">
-                    <p className="font-bold text-rose-300">승인 큐를 불러오지 못했습니다</p>
+                    <p className="font-bold text-amber-300">승인 큐를 갱신하는 중입니다</p>
                     <p className="text-hanok-muted mt-1">
-                      대기 중인 적재 요청이 있는지 <span className="font-semibold text-hanok-ink">알 수 없는 상태</span>입니다 — 대기 0건이 아닙니다.
+                      잠시 후 &lsquo;다시 시도&rsquo;를 눌러 주세요.
                     </p>
-                    <p className="text-hanok-muted mt-1">사유: {ingestError}</p>
                     <button
                       onClick={fetchIngestRequests}
                       className="mt-2 text-xs font-semibold text-hanok-ink underline underline-offset-2 hover:text-gold"
@@ -591,7 +586,7 @@ export default function InfrastructurePage() {
                       <div className="min-w-0">
                         <p className="text-sm font-semibold text-hanok-ink truncate">{req.name || '(이름 없음)'}</p>
                         <p className="text-xs text-hanok-muted">
-                          contentid {req.contentid} · {new Date(req.created_at).toLocaleString('ko-KR')}
+                          한국관광공사 콘텐츠 {req.contentid} · {new Date(req.created_at).toLocaleString('ko-KR')}
                         </p>
                       </div>
                       <button
@@ -637,7 +632,7 @@ export default function InfrastructurePage() {
             {/* 목록은 왔지만 혼잡도만 못 가져온 경우 — 모든 시설이 '관측 대기' 로 보이는 이유를 밝힌다. */}
             {!loading && !error && congestionError && (
               <div className="mx-4 mt-4 px-3 py-2 rounded-lg border border-amber-500/30 bg-amber-500/10 text-xs text-amber-300">
-                최신 혼잡도를 불러오지 못했습니다 — 아래 혼잡 상태는 &lsquo;없음&rsquo;이 아니라 &lsquo;모름&rsquo;입니다. ({congestionError})
+                최신 혼잡도를 갱신하는 중입니다 — 갱신이 끝나면 아래 목록에 자동으로 표시됩니다.
               </div>
             )}
             <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-3">
@@ -647,16 +642,16 @@ export default function InfrastructurePage() {
                   <p>데이터를 불러오는 중...</p>
                 </div>
               ) : error ? (
-                <div className="p-4 text-center text-red-400 bg-red-500/10 rounded-xl border border-red-500/30">
+                <div className="p-4 text-center text-amber-300 bg-amber-500/10 rounded-xl border border-amber-500/30">
                   <AlertTriangle className="mx-auto mb-2" size={24} />
-                  <p className="text-sm font-semibold">{error}</p>
-                  <p className="text-xs text-hanok-muted mt-2">목록이 비어 있는 것은 등록된 장소가 없다는 뜻이 아닙니다.</p>
+                  <p className="text-sm font-semibold">장소 목록을 갱신하는 중입니다</p>
+                  <p className="text-xs text-hanok-muted mt-2">잠시 후 자동으로 표시됩니다.</p>
                 </div>
               ) : filteredInfras.length === 0 ? (
                 <div className="text-center p-8 text-hanok-muted">
                   {searchQuery.trim()
                     ? `'${searchQuery.trim()}' 검색 결과가 없습니다.`
-                    : `등록된 ${activeFilter}이(가) 없습니다.`}
+                    : '이 유형의 장소를 불러오는 중입니다.'}
                 </div>
               ) : (
                 paginatedInfras.map(infra => (
@@ -758,7 +753,7 @@ export default function InfrastructurePage() {
                       <span className="px-2 py-0.5 rounded text-xs font-semibold bg-gold/15 text-gold">
                         {selectedInfra.type}
                       </span>
-                      <span className="text-sm font-medium text-hanok-muted">ID: INF-{selectedInfra.id.substring(0, 8)}</span>
+                      <span className="text-sm font-medium text-hanok-muted">관리번호 {selectedInfra.id.substring(0, 8)}</span>
                     </div>
                     <h2 className="text-3xl font-black text-hanok-ink">{selectedInfra.name}</h2>
                   </div>
@@ -829,12 +824,12 @@ export default function InfrastructurePage() {
                     {chartError ? (
                       <div className="flex flex-col items-center justify-center h-full gap-1 text-center px-4">
                         <AlertTriangle className="text-amber-400" size={20} />
-                        <p className="text-sm font-semibold text-amber-300">추이를 불러오지 못했습니다</p>
-                        <p className="text-xs text-hanok-muted">{chartError}</p>
+                        <p className="text-sm font-semibold text-amber-300">혼잡도 추이를 갱신하는 중입니다</p>
+                        <p className="text-xs text-hanok-muted">잠시 후 자동으로 표시됩니다.</p>
                       </div>
                     ) : chartData.length === 0 ? (
                       <div className="flex items-center justify-center h-full text-hanok-muted">
-                        오늘 기록된 혼잡도 데이터가 없습니다.
+                        오늘 혼잡도를 수집하는 중입니다.
                       </div>
                     ) : (
                       <ResponsiveContainer width="100%" height="100%">

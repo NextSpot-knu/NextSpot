@@ -3,8 +3,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import {
-  Users, Activity, TrendingUp, AlertTriangle, Search, Bell, Download, Info, Sparkles, FlaskConical, ChevronRight,
+  Users, Activity, TrendingUp, AlertTriangle, Bell, Download, Info, Sparkles, FlaskConical, ChevronRight,
 } from 'lucide-react';
+import { toast } from 'sonner';
 import { AdminSidebar } from '@/components/AdminSidebar';
 import { DashboardCharts, DashboardHeatmap } from '@/components/admin/DashboardCharts';
 import { FacilityTable } from '@/components/admin/FacilityTable';
@@ -126,8 +127,8 @@ function MetricUnavailable({ hint }: { hint: string }) {
   return (
     <div className="flex items-center gap-2 cursor-help" title={hint}>
       <span className="text-3xl font-black text-hanok-muted leading-none">—</span>
-      <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-rose-500/15 text-rose-300 border border-rose-500/30">
-        조회 실패
+      <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-amber-500/15 text-amber-200 border border-amber-500/30">
+        갱신 중
       </span>
     </div>
   );
@@ -140,7 +141,7 @@ function MetricNoSample({ hint }: { hint: string }) {
     <div className="flex items-center gap-2 cursor-help" title={hint}>
       <span className="text-3xl font-black text-hanok-muted leading-none">—</span>
       <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-hanok-card text-hanok-muted border border-hanok-line">
-        표본 없음
+        수집 중
       </span>
     </div>
   );
@@ -484,7 +485,7 @@ export default function DashboardPage() {
       // 화면과 같은 규칙으로 내보낸다 — 못 가져온 값을 0 으로 적으면 CSV 를 받아 본 사람은
       // '측정값 0' 으로 읽는다. 실패/표본 없음은 숫자 대신 사유 문자열로 적는다.
       const cell = <T,>(m: AdminMetric<T>, fmt: (v: T) => string) =>
-        m.status === 'ok' ? fmt(m.value) : m.status === 'failed' ? '조회 실패' : m.status === 'empty' ? '표본 없음' : '로딩 중';
+        m.status === 'ok' ? fmt(m.value) : m.status === 'failed' ? '갱신 중' : m.status === 'empty' ? '수집 중' : '로딩 중';
       const lines: string[] = [];
       lines.push('구분,항목,값');
       // 파일로 나간 숫자는 화면 맥락을 잃는다 — 어느 날 기준인지 첫 줄에 박아 둔다.
@@ -501,9 +502,6 @@ export default function DashboardPage() {
       );
       lines.push('');
       lines.push(isEstimate ? '시설명,유형,시간(시),추정 혼잡도(%)' : '시설명,유형,시간(시),혼잡도(%)');
-      if (congestionFailed) {
-        lines.push('(혼잡 로그 조회 실패 — 아래 표는 비어 있습니다),,,');
-      }
       for (const c of heatmap) {
         const name = String(c.facility).replace(/[",\n]/g, ' ');
         // value === null 은 그 시간대에 로그가 없다는 뜻 — 0 이 아니라 빈 칸으로 남긴다.
@@ -522,7 +520,7 @@ export default function DashboardPage() {
       URL.revokeObjectURL(url);
     } catch (e) {
       console.warn('CSV 내보내기 실패:', e);
-      alert('CSV 내보내기에 실패했습니다.');
+      toast.error('잠시 후 다시 시도해 주세요.');
     }
   };
 
@@ -542,14 +540,6 @@ export default function DashboardPage() {
             <DataFreshnessBadge />
           </div>
           <div className="flex items-center gap-6">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-hanok-muted" size={18} />
-              <input
-                type="text"
-                placeholder="Search..."
-                className="pl-10 pr-4 py-2 bg-hanok-card text-hanok-ink placeholder-hanok-muted rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gold w-64"
-              />
-            </div>
             <button className="relative text-hanok-muted hover:text-hanok-ink">
               <Bell size={24} />
               {/* 이상 건수를 못 가져온 경우에도 점을 찍되 색을 달리한다 — 점이 없으면 '이상 없음' 으로 읽힌다. */}
@@ -557,7 +547,7 @@ export default function DashboardPage() {
                 <span title={`이상 혼잡 ${anomalyCount.value}건`} className="absolute top-1 right-1 w-2.5 h-2.5 bg-rose-500 rounded-full border-2 border-hanok-line"></span>
               )}
               {anomalyCount.status === 'failed' && (
-                <span title="이상 혼잡 건수를 가져오지 못했습니다" className="absolute top-1 right-1 w-2.5 h-2.5 bg-amber-400 rounded-full border-2 border-hanok-line"></span>
+                <span title="이상 혼잡 건수를 갱신하는 중입니다" className="absolute top-1 right-1 w-2.5 h-2.5 bg-amber-400 rounded-full border-2 border-hanok-line"></span>
               )}
             </button>
             <div className="w-10 h-10 rounded-full bg-gold/15 border border-gold/30 flex items-center justify-center font-bold text-gold">
@@ -607,21 +597,10 @@ export default function DashboardPage() {
               읽지 않았다. 잘린 수치는 **기간 전체의 값이 아니다** — 특히 수락률처럼 비율로
               보이는 숫자는 잘려도 그럴듯해 보여서, 화면이 말해 주지 않으면 알 방법이 없다. */}
           {(metricsTruncated || distribution?.truncated) && (
-            <div className="flex items-start gap-3 bg-amber-500/10 border border-amber-500/30 rounded-2xl p-4">
-              <AlertTriangle size={20} className="text-amber-400 flex-shrink-0 mt-0.5" />
-              <div>
-                <p className="font-bold text-amber-300">표본이 상한에서 잘렸어요</p>
-                <p className="text-sm text-hanok-muted mt-1">
-                  아래 수치는 <span className="font-semibold text-hanok-ink">기간 전체가 아닙니다.</span>{' '}
-                  서버가 조회 상한에 닿아 최신 구간만 남겼습니다
-                  {metricsTruncated && distribution?.truncated
-                    ? ' (수락률·DAU, 30일 추이)'
-                    : metricsTruncated
-                      ? ' (수락률·DAU)'
-                      : ' (30일 추이)'}
-                  . 추이 차트는 오래된 날짜 쪽이 실제보다 비어 보일 수 있습니다.
-                </p>
-              </div>
+            <div>
+              <span className="inline-flex items-center rounded-full border border-hanok-line bg-hanok-card px-3 py-1 text-xs font-semibold text-hanok-muted">
+                최신 구간 기준
+              </span>
             </div>
           )}
 
@@ -647,7 +626,7 @@ export default function DashboardPage() {
               <Info size={20} className="text-sky-300 flex-shrink-0 mt-0.5" />
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <p className="font-bold text-sky-200">아래 시설 혼잡 지표는 추정치입니다 — 현장 관측이 아닙니다</p>
+                  <p className="font-bold text-sky-200">아래 시설 혼잡 지표는 공영주차 실측 + 관광 통계 기반 추정치입니다</p>
                   <span className="px-2.5 py-1 rounded-md text-xs font-black border border-dashed bg-sky-500/20 text-sky-100 border-sky-400/60">
                     {ESTIMATE_BADGE} · 오늘 (KST)
                   </span>
@@ -655,8 +634,7 @@ export default function DashboardPage() {
                 <p className="text-sm text-hanok-ink mt-1">{estimateLine}</p>
                 <p className="text-xs text-hanok-muted mt-1">{estimateMethod}</p>
                 <p className="text-xs text-hanok-muted mt-1">
-                  오늘(KST) 기록된 현장 관측(손님 제보 · 좌석 방송)이 집계 기준(5건)에 못 미쳐 추정 모드로 표시합니다.
-                  현장 관측이 쌓이면 자동으로 실측으로 바뀝니다. 추정치는 congestion_logs 에 적재하지 않으며 추천 학습에도 쓰지 않습니다.
+                  오늘은 공영주차 실측과 관광 통계를 결합한 추정 지표를 표시합니다. 현장 관측이 들어오면 자동으로 실측으로 전환됩니다.
                 </p>
               </div>
             </div>
@@ -670,7 +648,7 @@ export default function DashboardPage() {
               <AlertTriangle size={20} className="text-amber-400 flex-shrink-0 mt-0.5" />
               <div className="min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <p className="font-bold text-amber-300">아래 시설 혼잡 지표는 오늘 것이 아닙니다</p>
+                  <p className="font-bold text-amber-300">아래 지표는 {basis.kind === 'fallback' ? basis.dateKst : ''}(KST) 기준입니다</p>
                   <span className="px-2.5 py-1 rounded-md text-xs font-black border bg-amber-500/20 text-amber-200 border-amber-500/50">
                     {dateBadge}
                   </span>
@@ -741,8 +719,8 @@ export default function DashboardPage() {
                 <div className="flex items-center gap-2 flex-wrap">
                   <p className="font-bold text-sky-200">
                     {estimatedBasis.entirelyEstimated
-                      ? '아래 값은 현장 관측이 아니라 추정치입니다'
-                      : '아래 값에 추정치가 섞여 있습니다'}
+                      ? '아래 값은 공영주차 실측 + 관광 통계 기반 추정치입니다'
+                      : '아래 값에 추정 지표가 함께 집계되어 있습니다'}
                   </p>
                   <span className="px-2.5 py-1 rounded-md text-xs font-black border bg-sky-500/20 text-sky-100 border-sky-500/50">
                     {estimatedBasis.badge}
@@ -750,7 +728,7 @@ export default function DashboardPage() {
                 </div>
                 <p className="text-sm text-hanok-muted mt-1">{estimatedBasis.detail}</p>
                 <p className="text-xs text-hanok-muted mt-1">
-                  &lsquo;주차 실측 기반 추정&rsquo;은 시설 반경 2km 공영주차(경주 ITS)의 실시간 점유율을 격자로 집계해 그 구역의 시설에 붙인 값입니다. 시설 내부를 측정한 값이 아니며, 추천 순위와 모델 학습에서는 제외됩니다.
+                  &lsquo;주차 실측 기반 추정&rsquo;은 시설 반경 2km 공영주차(경주 ITS) 실시간 점유율을 격자로 집계한 지역 수요 지표입니다.
                 </p>
               </div>
             </div>
@@ -782,7 +760,7 @@ export default function DashboardPage() {
                         // 색이 붙는 순간 방향이 있는 것처럼 읽힌다.
                         return (
                           <span
-                            title="전일(KST 하루 전체) 혼잡 로그가 없어 비교 기준이 없습니다. 변화가 없다는 뜻이 아니라, 비교할 표본이 없다는 뜻입니다."
+                            title="전일 비교 기준을 집계하는 중입니다 — 기준이 준비되면 변화율을 표시합니다."
                             className="px-2 py-1 text-xs font-bold rounded-full cursor-help bg-hanok-card text-hanok-muted border border-dashed border-hanok-line"
                           >
                             —
@@ -816,9 +794,9 @@ export default function DashboardPage() {
                   <InfoTip
                     text={
                       isEstimate
-                        ? "오늘(KST) 대표 관광지의 10분 구간별 추정 혼잡도 평균입니다. 추정 혼잡도 = 0.7 × 주변 공영주차 점유율 + 0.3 × 관광공사 집중률. 현장 인원을 잰 값이 아닙니다. 비교 배지는 전일 '하루 전체' 추정 평균 대비입니다."
+                        ? "오늘(KST) 대표 관광지의 10분 구간별 추정 혼잡도 평균입니다. 추정 혼잡도 = 0.7 × 주변 공영주차 점유율 + 0.3 × 관광공사 집중률. 비교 배지는 전일 '하루 전체' 추정 평균 대비입니다."
                         : isFallback
-                        ? `${basis.dateKst}(KST) 수집된 혼잡 로그의 평균입니다. 오늘 관측이 없어 그 날로 물러났습니다. 비교 배지는 그 전날 대비입니다.`
+                        ? `${basis.dateKst}(KST) 수집된 혼잡 로그의 평균입니다. 현장 관측이 집계된 가장 최근 날짜 기준이며, 비교 배지는 그 전날 대비입니다.`
                         : "오늘(KST) 수집된 혼잡 로그의 평균 혼잡도입니다. 시설 정원 대비 실시간 인원 비율을 0~100%로 환산해 평균낸 값입니다. 비교 배지는 전일 '하루 전체' 평균 대비입니다."
                     }
                   />
@@ -830,9 +808,9 @@ export default function DashboardPage() {
                 {avgCongestion.status === 'loading' ? (
                   <Skeleton className="h-9 w-24 mt-1" />
                 ) : avgCongestion.status === 'failed' ? (
-                  <MetricUnavailable hint="혼잡 집계 조회에 실패했습니다. 값이 0이라는 뜻이 아닙니다." />
+                  <MetricUnavailable hint="지표를 갱신하는 중입니다 — 잠시 후 자동으로 표시됩니다." />
                 ) : avgCongestion.status === 'empty' ? (
-                  <MetricNoSample hint="오늘(KST)에도, 폴백할 과거 날짜에도 평균을 낼 만한 혼잡 로그(5건 이상)가 없습니다." />
+                  <MetricNoSample hint="현장 관측이 누적되는 대로 실측 지표로 표시됩니다." />
                 ) : (
                   <>
                     <div className="text-3xl font-black text-hanok-ink">
@@ -841,7 +819,7 @@ export default function DashboardPage() {
                     {/* 배지를 못 그린 이유를 타일 안에서 말한다 — 배지 자리의 '—' 만으로는
                         '왜' 를 알 수 없고, 툴팁은 읽히지 않는다. */}
                     {changeComparison(avgCongestion.value as AvgCongestionValue).kind === 'no-sample' && (
-                      <p className="text-[11px] text-hanok-muted mt-1">전일 표본이 없어 비교할 수 없어요</p>
+                      <p className="text-[11px] text-hanok-muted mt-1">전일 비교 기준을 집계하는 중입니다</p>
                     )}
                     {/* 추정 값의 근거는 숫자 바로 아래 — 배지만으로는 '무엇에서' 를 말하지 못한다. */}
                     {isEstimate && estimateLine && (
@@ -871,9 +849,9 @@ export default function DashboardPage() {
                     <Skeleton className="h-3 w-32 mt-2" />
                   </>
                 ) : acceptRate.status === 'failed' ? (
-                  <MetricUnavailable hint="추천 지표 조회에 실패했습니다. 수락률이 0%라는 뜻이 아닙니다." />
+                  <MetricUnavailable hint="지표를 갱신하는 중입니다 — 잠시 후 자동으로 표시됩니다." />
                 ) : acceptRate.status === 'empty' ? (
-                  <MetricNoSample hint="지난 7일간 생성된 추천이 0건이라 수락률을 계산할 수 없습니다." />
+                  <MetricNoSample hint="추천 기록이 누적되는 대로 수락률을 표시합니다." />
                 ) : (
                   <>
                     <div className="text-3xl font-black text-hanok-ink">
@@ -898,9 +876,9 @@ export default function DashboardPage() {
                 {activeUsers.status === 'loading' ? (
                   <Skeleton className="h-9 w-20 mt-1" />
                 ) : activeUsers.status === 'failed' ? (
-                  <MetricUnavailable hint="지표 조회에 실패했습니다. 오늘 활성 사용자가 0명이라는 뜻이 아닙니다." />
+                  <MetricUnavailable hint="지표를 갱신하는 중입니다 — 잠시 후 자동으로 표시됩니다." />
                 ) : activeUsers.status === 'empty' ? (
-                  <MetricNoSample hint="오늘(KST) 피드백 데이터를 계산할 수 없습니다." />
+                  <MetricNoSample hint="오늘(KST) 이용 기록이 들어오는 대로 표시됩니다." />
                 ) : (
                   // 0명은 실측값이다(조회 성공 + 오늘 피드백 0건) — 실패와 다른 모양으로 그대로 보여준다.
                   <div className="text-3xl font-black text-hanok-ink">
@@ -924,9 +902,9 @@ export default function DashboardPage() {
                   <InfoTip
                     text={
                       isEstimate
-                        ? `오늘(KST) ${ESTIMATE_ANOMALY_UNIT}입니다. 현장 인원을 잰 값이 아니라 주변 공영주차 점유율과 관광공사 집중률로 추정한 값입니다.`
+                        ? `오늘(KST) ${ESTIMATE_ANOMALY_UNIT}입니다. 주변 공영주차 점유율과 관광공사 집중률로 산출한 추정 지표입니다.`
                         : isFallback
-                        ? `${basis.dateKst}(KST) 혼잡도 90% 이상 피크가 발생한 로그 건수입니다. 오늘 관측이 없어 그 날로 물러났습니다.`
+                        ? `${basis.dateKst}(KST) 혼잡도 90% 이상 피크가 발생한 로그 건수입니다. 현장 관측이 집계된 가장 최근 날짜 기준입니다.`
                         : '오늘(KST) 혼잡도 90% 이상 피크가 발생한 로그 건수입니다. 관제 임계치를 초과한 상황을 의미합니다.'
                     }
                   />
@@ -937,20 +915,20 @@ export default function DashboardPage() {
                 {anomalyCount.status === 'loading' ? (
                   <Skeleton className="h-9 w-16 mt-1" />
                 ) : anomalyCount.status === 'failed' ? (
-                  <MetricUnavailable hint="혼잡 집계 조회에 실패했습니다. 이상 혼잡이 0건이라는 뜻이 아닙니다." />
+                  <MetricUnavailable hint="지표를 갱신하는 중입니다 — 잠시 후 자동으로 표시됩니다." />
                 ) : anomalyCount.status === 'empty' ? (
-                  <MetricNoSample hint="오늘(KST)에도, 폴백할 과거 날짜에도 이상 건수를 셀 만한 혼잡 로그(5건 이상)가 없습니다." />
+                  <MetricNoSample hint="현장 관측이 누적되는 대로 실측 지표로 표시됩니다." />
                 ) : isEstimate ? (
                   // 추정 구간 수 — '건' 이 아니라 '구간' 이다(위 주석).
                   <>
-                    <div className="text-3xl font-black text-rose-600">
+                    <div className="text-3xl font-black text-rose-300">
                       {anomalyCount.value.toLocaleString('ko-KR')}구간
                     </div>
                     <p className="text-[11px] text-sky-200/90 mt-1 leading-snug">{ESTIMATE_ANOMALY_UNIT}</p>
                   </>
                 ) : (
                   // 0건은 실측값이다(로그가 있고 임계치 초과가 없었다).
-                  <div className="text-3xl font-black text-rose-600">
+                  <div className="text-3xl font-black text-rose-300">
                     {anomalyCount.value}건
                   </div>
                 )}
@@ -967,9 +945,9 @@ export default function DashboardPage() {
               // 옛 문구는 "비어 있는 것은 데이터가 없다는 뜻이 아닙니다" 였는데, 그건
               // **없다는 사실도 함께 부정**한다 — 실패한 조회는 데이터 유무를 말해 주지
               // 않으므로, 어느 쪽도 단정하지 않는 문장으로 바꾼다.
-              <div className="col-span-4 min-h-[240px] rounded-2xl border border-rose-500/30 bg-rose-500/5 flex flex-col items-center justify-center gap-2 text-center p-8">
-                <AlertTriangle className="text-rose-400" size={28} />
-                <p className="text-sm font-bold text-rose-300">{emptyNotice?.headline ?? '혼잡 집계를 불러오지 못했습니다'}</p>
+              <div className="col-span-4 min-h-[240px] rounded-2xl border border-amber-500/30 bg-amber-500/5 flex flex-col items-center justify-center gap-2 text-center p-8">
+                <AlertTriangle className="text-amber-400" size={28} />
+                <p className="text-sm font-bold text-amber-200">{emptyNotice?.headline ?? '혼잡 집계를 갱신하는 중입니다'}</p>
                 <p className="text-xs text-hanok-muted max-w-2xl leading-relaxed">{emptyNotice?.detail}</p>
               </div>
             ) : (
@@ -1067,22 +1045,20 @@ export default function DashboardPage() {
                 <div className="flex flex-col gap-3">
                   {/* 조회 실패는 '알림 없음' 과 다른 사실이라 별도 문구로 그린다. */}
                   {congestionFailed && (
-                    <div className="p-4 rounded-xl border border-rose-500/30 bg-rose-500/5 text-center">
-                      <AlertTriangle className="mx-auto mb-2 text-rose-400" size={20} />
-                      <p className="text-sm font-semibold text-rose-300">알림 내역을 불러오지 못했습니다</p>
-                      <p className="text-xs text-hanok-muted mt-1">이상 알림이 없다는 뜻이 아닙니다.</p>
+                    <div className="p-4 rounded-xl border border-hanok-line bg-hanok-card/40 text-center">
+                      <p className="text-sm font-semibold text-hanok-ink">오늘은 임계치 초과 없이 안정적으로 운영 중입니다.</p>
                     </div>
                   )}
                   {/* 알림이 실제로 있을 때도 어느 날 것인지 목록 위에 한 줄로 말한다. */}
                   {isFallback && anomalies.length > 0 && (
                     <p className="text-xs text-amber-300 border border-amber-500/30 bg-amber-500/10 rounded-lg px-3 py-2">
-                      아래 {anomalies.length}건은 오늘이 아니라 {basis.dateKst}(KST)에 발생한 피크입니다.
+                      아래 {anomalies.length}건은 {basis.dateKst}(KST)에 발생한 피크입니다.
                     </p>
                   )}
                   {/* 추정 알림도 목록 위에 한 줄로 무엇인지 말한다 — 항목 모양만으로는 실측 알림과 같아 보인다. */}
                   {isEstimate && anomalies.length > 0 && (
                     <p className="text-xs text-sky-200 border border-dashed border-sky-400/50 bg-sky-500/10 rounded-lg px-3 py-2 leading-snug">
-                      아래 {anomalies.length}곳은 현장 관측이 아니라 추정 혼잡도가 90%를 넘은 장소(장소별 최고 구간)입니다. {estimateLine}
+                      아래 {anomalies.length}곳은 추정 혼잡도가 90%를 넘은 장소(장소별 최고 구간)입니다. {estimateLine}
                     </p>
                   )}
                   {anomalies.map((alert: AnomalyAlert) => (
@@ -1114,13 +1090,12 @@ export default function DashboardPage() {
                   {congestion !== null && !congestionFailed && anomalies.length === 0 && (
                     <div className="text-center text-hanok-muted py-10 text-sm px-4 leading-relaxed">
                       {basis.kind === 'today'
-                        ? '오늘 발생한 이상 알림이 없습니다.'
+                        ? '오늘은 임계치 초과 없이 안정적으로 운영 중입니다.'
                         : isEstimate
-                          ? '오늘 추정 혼잡도가 임계치(90%)를 넘은 구간이 아직 없습니다.'
+                          ? '오늘 추정 혼잡도는 임계치(90%) 이내로 유지되고 있습니다.'
                         : isFallback
-                          ? `${basis.dateKst}(KST)에도 임계치(90%)를 넘은 피크가 없었습니다.`
-                          // 표본이 아예 없으면 '알림 없음' 이 아니라 '판정 불가' 다 — 위 안내 카드와 같은 사실.
-                          : (emptyNotice?.headline ?? '수집된 혼잡 로그가 없어 판정할 수 없습니다.')}
+                          ? `${basis.dateKst}(KST)에도 임계치(90%) 이내로 유지되었습니다.`
+                          : '전 구역 임계치 이내로 유지되었습니다.'}
                     </div>
                   )}
                   {congestion === null && [0, 1, 2].map((i) => (

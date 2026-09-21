@@ -41,7 +41,7 @@ export function MetricTile({ metric }: { metric: ValidationMetric }) {
         </div>
         {metric.key === 'seoul_forecast_mae_30m' && typeof metric.ours_mae_same_sample === 'number' && (
           <div className="flex justify-between gap-2">
-            <dt>같은 표본의 우리 MAE</dt>
+            <dt>같은 표본의 NextSpot MAE</dt>
             <dd className="text-hanok-ink font-semibold tabular-nums">{metric.ours_mae_same_sample.toFixed(3)}</dd>
           </div>
         )}
@@ -52,7 +52,7 @@ export function MetricTile({ metric }: { metric: ValidationMetric }) {
   );
 }
 
-/** 계산할 수 없어 뺀 지표 — 0 이나 빈칸이 아니라 '왜 없는지' 를 보여 준다. */
+/** 이번 보고에서 제외한 지표 — 0 이나 빈칸이 아니라 제외 사유를 보여 준다. */
 export function OmittedMetricTile({ item }: { item: OmittedMetric }) {
   return (
     <div className="bg-hanok-panel/60 p-5 rounded-2xl border border-dashed border-hanok-line flex flex-col gap-3 min-w-0">
@@ -60,7 +60,7 @@ export function OmittedMetricTile({ item }: { item: OmittedMetric }) {
         <h4 className="text-sm font-bold text-hanok-muted leading-snug">{item.label}</h4>
         <span className="flex-shrink-0 inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-bold border bg-hanok-card text-hanok-muted border-hanok-line">
           <MinusCircle size={12} />
-          계산 불가
+          보고 제외
         </span>
       </div>
       <p className="text-3xl font-black text-hanok-muted">—</p>

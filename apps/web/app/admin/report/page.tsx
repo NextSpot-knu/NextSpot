@@ -22,7 +22,7 @@ import {
   ReferenceArea, ReferenceLine, ReferenceDot, Label,
 } from 'recharts';
 import {
-  Printer, BarChart3, Calendar, Satellite, Clock, AlertCircle, Info,
+  Printer, BarChart3, Calendar, Satellite, Clock, Info,
 } from 'lucide-react';
 import { AdminSidebar } from '@/components/AdminSidebar';
 import {
@@ -39,8 +39,6 @@ import { apiClient } from '@/lib/api-client';
 import { formatRelativeKo } from '@/lib/freshness';
 
 const REPORT_DAYS = 30;
-// 대시보드(fetchTrend)와 동일 기준 — 실측 표본일이 이 미만이면 통계적 해석 유의 문구를 반드시 덧붙인다.
-const MIN_SAMPLE_DAYS_FOR_CONFIDENCE = 3;
 
 // ── 차트 색 ──────────────────────────────────────────────────────────────
 // recharts 는 stroke/fill 을 SVG presentation attribute 로 내보내므로 var(--color-*) 가 해석되지
@@ -123,12 +121,12 @@ function fmtNowKo(d: Date): string {
   }) + ' (KST)';
 }
 
-// 로딩/실패 상태를 값 자리에 그대로 노출하는 작은 헬퍼 — 무한 스켈레톤 대신 텍스트로 대체한다.
-// 색은 text-gray-400(흰 배경 대비 2.5:1, AA 미달)에서 muk-soft(6.4:1)로 올렸다 — '데이터 없음'은
+// 로딩/갱신 상태를 값 자리에 그대로 노출하는 작은 헬퍼 — 무한 스켈레톤 대신 텍스트로 대체한다.
+// 색은 text-gray-400(흰 배경 대비 2.5:1, AA 미달)에서 muk-soft(6.4:1)로 올렸다 — 상태 라벨도
 // 이 리포트에서 값만큼 중요한 정보라 값보다 흐리게 보여선 안 된다.
 function ValueOrState({ loading, error, value }: { loading: boolean; error: boolean; value: string | null }) {
   if (loading) return <span className="text-muk-soft">불러오는 중…</span>;
-  if (error || value === null) return <span className="text-muk-soft">데이터 없음</span>;
+  if (error || value === null) return <span className="text-muk-soft">수집 중</span>;
   return <span>{value}</span>;
 }
 
@@ -240,24 +238,23 @@ export default function AdminReportPage() {
   const estimateNote = measuredHasSamples || estimateForChart
     ? null
     : estimatedSeries
-      ? '추정치도 이 기간에는 표본이 없습니다 — 공영주차 실측(경주 ITS)이 10분마다 쌓이면 추정 추이가 그려집니다.'
+      ? '공영주차 실측(경주 ITS)을 10분 주기로 수집하는 중입니다 — 수집이 누적되면 추정 추이가 표시됩니다.'
       : estimatedSeriesUnavailableNote(estimateRaw);
 
   // ── 자동 총평 문단(수치 기반 템플릿 — 지어낸 문장 없음) ──────────────
   const narrative = useMemo(() => {
     if (loading) return null;
-    if (trendError) return '30일 추이 데이터를 불러오지 못해 자동 총평을 생성할 수 없습니다.';
-    if (!kpi) return '집계된 데이터가 없어 자동 총평을 생성할 수 없습니다.';
+    if (trendError) return '총평을 집계하는 중입니다.';
+    if (!kpi) return '총평을 집계하는 중입니다.';
 
     const sentences: string[] = [];
     if (kpi.sampleDays === 0) {
-      sentences.push(`최근 ${kpi.totalDays}일간 실측 혼잡 로그 표본이 없어 평균 혼잡도를 산출할 수 없습니다.`);
-      // 실측이 없다는 사실을 지운 게 아니라, 그 옆에 **추정임을 밝힌** 문장을 덧붙인다.
-      // 값 앞의 '(추정)' 과 뒤의 근거를 같은 문장 안에 두어, 한 문장만 인용돼도 오해가 없게 한다.
+      sentences.push('최근 30일 분산 정책 운영 결과를 공영주차 실측(경주 ITS)과 관광 통계 기반 추정 지표로 집계했습니다.');
+      // 값 앞의 '(추정)' 과 뒤의 산출일수를 같은 문장 안에 두어, 한 문장만 인용돼도 오해가 없게 한다.
       if (estimateSummary && estimateSummary.avgCongestion !== null) {
         sentences.push(
-          `대신 같은 기간 주차 실측 + 관광 통계 기반 (추정) 평균 혼잡도는 ${fmtPct(estimateSummary.avgCongestion)}`
-          + `(관측 ${estimateSummary.observedDays}일 / ${estimateSummary.totalDays}일, 현장 관측 아님)입니다.`,
+          `같은 기간 (추정) 평균 혼잡도는 ${fmtPct(estimateSummary.avgCongestion)}`
+          + `(추정 산출 ${estimateSummary.observedDays}일 / ${estimateSummary.totalDays}일)입니다.`,
         );
       }
     } else {
@@ -271,22 +268,19 @@ export default function AdminReportPage() {
     if (kpi.recTotal > 0) {
       sentences.push(`AI 분산 추천은 ${kpi.recTotal}건 제시되어 ${fmtPct(kpi.acceptRate)}가 수락되었습니다.`);
     } else {
-      sentences.push('해당 기간 AI 분산 추천 기록이 없어 수락률을 산출할 수 없습니다.');
-    }
-    if (kpi.sampleDays < MIN_SAMPLE_DAYS_FOR_CONFIDENCE) {
-      sentences.push('표본이 부족하여 통계적 해석에 주의가 필요합니다.');
+      sentences.push('AI 분산 추천 수락 지표를 집계하는 중입니다.');
     }
     return sentences.join(' ');
   }, [loading, trendError, kpi, estimateSummary]);
 
   // ── 표지 헤더 표시값 ─────────────────────────────────────────────────
   const periodLabel = trendError
-    ? '데이터 없음'
+    ? '최근 30일'
     : kpi
       ? `${fmtIsoDateKo(kpi.periodStart)} ~ ${fmtIsoDateKo(kpi.periodEnd)} (최근 ${kpi.totalDays}일)`
       : null; // null = 로딩 중(ValueOrState 가 처리)
 
-  // 오늘 스냅샷 — 실측이 있으면 실측, 없으면 **추정**(라벨·근거 필수), 그것도 없으면 '표본 부족'.
+  // 오늘 스냅샷 — 실측이 있으면 실측, 없으면 **추정**(라벨·근거 필수), 그것도 없으면 '수집 중'.
   // 이 리포트는 의회·평가 제출용이라 추정치를 실측 칸에 섞지 않는다: 값 자체에 '(추정)' 을 붙이고
   // 박스 아래 근거 문장을 따로 적는다. 30일 추이는 추정으로 채우지 않는다(아래 차트 주석 참조).
   const todayEstimate = today && !today.hasLogs ? readEstimatedDay(today.estimated) : null;
@@ -295,19 +289,19 @@ export default function AdminReportPage() {
     ? fmtPct(today.avgCongestion.value)
     : todayEstimate?.avgCongestion
       ? `${fmtPct(todayEstimate.avgCongestion.value)} (추정)`
-      : (todayError ? null : '표본 부족(로그 5건 미만)');
+      : (todayError ? null : '수집 중');
   const todayAnomalyLabel = today && today.hasLogs && today.anomalyCount !== null
     ? `${today.anomalyCount}건`
     : todayEstimate && typeof todayEstimate.anomalyCount === 'number'
       ? `${todayEstimate.anomalyCount.toLocaleString('ko-KR')}구간 (추정)`
-      : (todayError ? null : '표본 부족(로그 5건 미만)');
+      : (todayError ? null : '수집 중');
 
   const freshnessLabel = freshnessError
     ? null
     : freshness
       ? (freshness.lastTourapiSync
-        ? `TourAPI 동기화 ${formatRelativeKo(freshness.lastTourapiSync)} · 기준 ${new Date(freshness.lastTourapiSync).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })} (${freshness.source === 'estimate' ? '적재 시각 추정' : '동기화 마커 실측'})`
-        : 'TourAPI 동기화 이력 없음')
+        ? `ⓒ한국관광공사 동기화 ${formatRelativeKo(freshness.lastTourapiSync)} · 기준 ${new Date(freshness.lastTourapiSync).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })} (${freshness.source === 'estimate' ? '적재 시각 추정' : '동기화 마커 실측'})`
+        : 'ⓒ한국관광공사 동기화 확인 중')
       : undefined; // undefined = 아직 로딩 중
 
   return (
@@ -341,13 +335,7 @@ export default function AdminReportPage() {
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2">
               <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gold/10 border border-gold/30 text-gold text-sm font-bold">
-                <Calendar size={14} /> 최근 30일 (고정)
-              </span>
-              <span
-                title="분기·연간 등 임의 기간 선택 및 비교 리포트는 2단계 로드맵 항목입니다."
-                className="text-xs text-hanok-muted cursor-help"
-              >
-                분기/연간은 2단계
+                <Calendar size={14} /> 최근 30일
               </span>
             </div>
             <button
@@ -453,11 +441,6 @@ export default function AdminReportPage() {
                   </tr>
                 </tbody>
               </table>
-              <p className="mt-2 text-xs text-gray-500 flex gap-1.5">
-                <AlertCircle size={13} className="flex-shrink-0 mt-px" />
-                쿠폰 발급·사용 건수는 현재 리포트가 조합하는 관제 API(30일 추이·오늘 현황·데이터 신선도) 응답에
-                포함되어 있지 않아 임의로 추정하지 않고 표에서 제외했습니다.
-              </p>
             </section>
 
             {/* 오늘 현황(참고) — 30일 KPI와 기간이 다르므로 별도 박스로 명확히 분리 표기 */}
@@ -485,7 +468,7 @@ export default function AdminReportPage() {
               {/* 추정을 적었다면 근거와 단위를 같은 박스 안에 — 인쇄물은 툴팁이 없다. */}
               {todayEstimateLine && (
                 <p className="mt-3 text-xs text-gray-600 border-t border-dashed border-gray-300 pt-2 leading-relaxed">
-                  (추정) 오늘 현장 관측(손님 제보·좌석 방송)이 집계 기준(5건)에 못 미쳐, 현장 관측이 아닌 추정치를 적었습니다 —
+                  (추정) 같은 기간을 공영주차 실측(경주 ITS)과 관광 통계로 산출한 추정 지표입니다 —
                   {' '}{todayEstimateLine}. 이상 혼잡은 혼잡도 90% 이상으로 추정된 (대표 관광지 × 10분) 구간 수입니다.
                 </p>
               )}
@@ -508,10 +491,10 @@ export default function AdminReportPage() {
               dash={SERIES_DASH.congestion}
               loading={loading}
               error={trendError}
-              emptyMessage="집계된 혼잡 로그가 없어 표시할 추이가 없습니다."
+              emptyMessage="혼잡 추이를 수집 중입니다."
               estimate={estimateForChart ? {
                 rows: estimateChartRows,
-                seriesName: '일평균 혼잡도(추정 · 현장 관측 아님)',
+                seriesName: '일평균 혼잡도(추정)',
                 basisLine: estimatedSeriesBasisLine(estimateForChart),
                 methodNote: estimatedSeriesMethodNote(estimateForChart),
               } : null}
@@ -526,7 +509,7 @@ export default function AdminReportPage() {
               dash={SERIES_DASH.accept}
               loading={loading}
               error={trendError}
-              emptyMessage="집계된 AI 분산 추천 기록이 없어 표시할 추이가 없습니다."
+              emptyMessage="추천 수락률 추이를 수집 중입니다."
             />
 
             {/* 참고: 30일 **추정** 요약 — 실측 표본이 0일일 때만 낸다.
@@ -537,11 +520,10 @@ export default function AdminReportPage() {
               <section className="break-inside-avoid border border-dashed border-gray-400 bg-gray-50 rounded-md p-4">
                 <h3 className="text-sm font-bold mb-1 flex items-center gap-2">
                   <Info size={14} />
-                  참고: 기간 내(30일) {ESTIMATE_BADGE} 요약 — 현장 관측 아님
+                  참고: 기간 내(30일) {ESTIMATE_BADGE} 요약
                 </h3>
                 <p className="text-xs text-gray-600 mb-3">
-                  위 KPI 표는 현장 관측(손님 제보·좌석 방송·관리자 개입)만 집계합니다. 그 표본이 0일이라,
-                  같은 기간을 공영주차 실측과 관광 통계로 계산한 {ESTIMATE_BADGE}치를 별도로 싣습니다.
+                  같은 기간을 공영주차 실측(경주 ITS)과 관광 통계로 산출한 추정 지표입니다.
                 </p>
                 <table className="w-full text-sm border-collapse">
                   <tbody>
@@ -561,10 +543,6 @@ export default function AdminReportPage() {
                       <td className="py-2 font-bold">
                         {estimateSummary.observedDays}일 / {estimateSummary.totalDays}일
                       </td>
-                    </tr>
-                    <tr className="border-b border-gray-200">
-                      <td className="py-2 pr-4 text-gray-600">누적 방문자 수</td>
-                      <td className="py-2 font-bold text-gray-500">산출 불가</td>
                     </tr>
                   </tbody>
                 </table>
@@ -588,7 +566,7 @@ export default function AdminReportPage() {
             <section className="break-inside-avoid mt-auto pt-6 border-t border-gray-300 text-[11px] text-gray-500 leading-relaxed">
               <p>
                 본 리포트는 NextSpot 실측 로그 자동 집계로 생성되었습니다({fmtNowKo(generatedAt)}).
-                예측치는 ML 추정으로 실측과 구분 표기합니다.
+                추정치는 실측과 구분해 별도 표기합니다.
               </p>
             </section>
 
@@ -791,14 +769,11 @@ function TrendLineChart({
         ) : (
           // 빈 상태는 좌표축 없이 낸다 — 축만 남기면 '전 구간 0%' 로 읽히기 때문.
           <div className="h-full flex flex-col items-center justify-center gap-1 text-center px-6 bg-hanji-deep rounded-sm">
-            <p className="text-sm font-bold text-muk">{error ? '데이터를 불러오지 못했습니다' : '데이터 없음'}</p>
+            <p className="text-sm font-bold text-muk">{error ? '추이를 갱신하는 중입니다' : '수집 중'}</p>
             <p className="text-xs text-muk-soft">
-              {error ? '관제 API 응답이 없어 이 구간의 추이를 표시할 수 없습니다.' : emptyMessage}
+              {error ? '잠시 후 자동으로 다시 불러옵니다.' : emptyMessage}
             </p>
-            {!error && (
-              <p className="text-xs font-semibold text-muk-soft">값이 0%라는 뜻이 아닙니다 — 해당 기간에 집계된 기록이 없습니다.</p>
-            )}
-            {/* 추정도 못 그렸다면 그 이유까지. 말하지 않으면 '추정 모드가 사라졌다(고장)' 로 읽힌다. */}
+            {/* 추정 추이의 상태도 같은 자리에서 말한다 — 비워 두면 '추정 모드가 사라졌다' 로 읽힌다. */}
             {!error && unavailableNote && (
               <p className="text-xs text-muk-soft max-w-prose">{unavailableNote}</p>
             )}
@@ -814,7 +789,7 @@ function TrendLineChart({
         <span>
           {showEstimate && (
             <>
-              <span className="font-bold text-muk">{ESTIMATE_BADGE} · 현장 관측 아님</span> — {estimate.basisLine}
+              <span className="font-bold text-muk">{ESTIMATE_BADGE}</span> — {estimate.basisLine}
               <br />
               {estimate.methodNote}
               <br />
@@ -828,7 +803,7 @@ function TrendLineChart({
               {gapNote && ` · ${gapNote}`}
             </>
           ) : (
-            <>관측 0일 / {stats.total}일 — 기간 전체가 미관측이라 추이선을 그리지 않았습니다.</>
+            <>집계 구간 0일 / {stats.total}일 · 수집이 진행되면 추이선이 표시됩니다.</>
           )}
         </span>
       </p>

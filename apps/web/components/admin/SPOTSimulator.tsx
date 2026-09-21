@@ -13,6 +13,10 @@ const DEFAULT_WEIGHTS = {
     inc: Math.round(SPOT_WEIGHTS.incentive * 100),
 };
 
+// 8차원 선호 벡터의 축 이름 — apps/api/app/services/spot/preference.py 및 components/TasteRadar.tsx 와 동일 순서.
+// (예전에는 벡터 원본 배열과 'Dim N' 툴팁을 그대로 노출해, 관제 화면에서 읽을 수 없는 숫자열이었다.)
+const PREFERENCE_AXIS_LABELS = ['음식점', '카페', '관광지', '문화시설', '맛·평점', '감성·인스타', '접근성', '한적함'];
+
 export default function SPOTSimulator() {
     // 슬라이더 및 입력 필드 동기화 상태 (기본값 = 공유 상수 유도)
     const [weights, setWeights] = useState({ ...DEFAULT_WEIGHTS });
@@ -121,7 +125,7 @@ export default function SPOTSimulator() {
             <div className="mb-6 border-b border-hanok-line pb-4">
                 <h2 className="text-xl font-bold text-hanok-ink">SPOT 추천 알고리즘 튜닝 센터</h2>
                 <p className="text-sm text-hanok-muted mt-1">
-                    가중치(총합 100)를 입력하거나 슬라이더를 조작하여 1,000개 모의 시설의 점수 군집화를 분석하십시오.
+                    가중치(총합 100)를 입력하거나 슬라이더를 조작해 가상 시설 1,000곳의 점수 분포 변화를 실시간으로 분석합니다.
                 </p>
             </div>
 
@@ -155,23 +159,26 @@ export default function SPOTSimulator() {
                         <p className="text-sm text-hanok-ink font-medium leading-relaxed">{analysisText}</p>
                     </div>
 
-                    <div className="mt-4 p-4 bg-hanok-panel text-hanok-ink rounded-lg border border-hanok-line font-mono">
-                        <h4 className="text-xs font-bold text-jade mb-2 uppercase tracking-wide">사용자 선호도 벡터 (실시간)</h4>
+                    <div className="mt-4 p-4 bg-hanok-panel text-hanok-ink rounded-lg border border-hanok-line">
+                        <h4 className="text-xs font-bold text-jade mb-2 uppercase tracking-wide">사용자 선호도 8축 (실시간)</h4>
                         {userVector ? (
-                            <div className="space-y-2">
-                                <div className="text-[10px] text-hanok-muted break-all leading-normal select-all bg-hanok p-2 rounded border border-hanok-line">
-                                    [{userVector.map(v => v.toFixed(3)).join(', ')}]
-                                </div>
-                                <div className="grid grid-cols-8 gap-1 h-3 mt-2">
-                                    {userVector.map((v, i) => (
-                                        <div key={i} className="bg-hanok-card rounded overflow-hidden h-full relative" title={`Dim ${i+1}: ${v.toFixed(4)}`}>
-                                            <div className="bg-jade absolute bottom-0 left-0 right-0" style={{ height: `${Math.max(0, Math.min(100, (v + 1) * 50))}%` }} />
+                            <div className="grid grid-cols-8 gap-1 mt-1">
+                                {userVector.map((v, i) => (
+                                    <div key={i} className="flex flex-col items-center gap-1">
+                                        <div className="bg-hanok-card rounded overflow-hidden h-10 w-full relative">
+                                            <div
+                                                className="bg-jade absolute bottom-0 left-0 right-0"
+                                                style={{ height: `${Math.max(0, Math.min(100, (v + 1) * 50))}%` }}
+                                            />
                                         </div>
-                                    ))}
-                                </div>
+                                        <span className="text-[9px] leading-tight text-hanok-muted text-center break-keep">
+                                            {PREFERENCE_AXIS_LABELS[i] ?? ''}
+                                        </span>
+                                    </div>
+                                ))}
                             </div>
                         ) : (
-                            <div className="text-[11px] text-hanok-muted">벡터 조회 중...</div>
+                            <div className="text-[11px] text-hanok-muted">선호도 축을 불러오는 중입니다.</div>
                         )}
                     </div>
                 </div>

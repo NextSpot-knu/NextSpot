@@ -148,11 +148,11 @@ function main() {
   assert.equal(dashboardDateBadge(eb), null, '추정은 오늘이다 — 과거 기준일 배지를 달지 않는다');
   assert.equal(dashboardFallbackExplanation(eb), null);
   assert.equal(dashboardEmptyNotice(eb), null);
-  assert.match(csvBasisCell(eb), /추정치\(현장 관측 아님\)/);
+  assert.match(csvBasisCell(eb), /공영주차 실측 \+ 관광 통계 기반 추정/);
   const fb = resolveDashboardView(emptyToday({ estimated: null })).basis;
   assert.equal(dashboardPeriodLabel(fb), '7/9');
   assert.equal(dashboardDateBadge(fb), '2026-07-09 (KST) 기준');
-  assert.equal(csvBasisCell(fb), '2026-07-09 (KST) — 오늘 관측 없음');
+  assert.equal(csvBasisCell(fb), '2026-07-09 (KST) — 현장 관측 집계 기준일');
 
   // 빈 안내의 '무엇을 하면 채워지는가' 가 걷어낸 버튼(모의 발생·수동 적재)을 가리키지 않는다.
   const none = resolveDashboardView(emptyToday({ fallback: null, estimated: null })).basis;
@@ -162,10 +162,10 @@ function main() {
   assert.doesNotMatch(DASHBOARD_INGEST_PATHS, /모의 발생|수동/);
 
   // ── 왜 추정이 아닌가 ─────────────────────────────────────────────────────────
-  assert.match(estimateUnavailableNote(emptyToday({ estimated: null }), fb) ?? '', /계산하지 못했습니다/);
+  assert.match(estimateUnavailableNote(emptyToday({ estimated: null }), fb) ?? '', /갱신하는 중입니다/);
   assert.match(
     estimateUnavailableNote(emptyToday({ estimated: { ...ESTIMATED, hasLogs: false, sampleCount: 3 } }), fb) ?? '',
-    /표본이 모자랍니다\(3개 구간\)/,
+    /표본을 수집하는 중입니다\(3개 구간\)/,
   );
   assert.equal(estimateUnavailableNote(emptyToday({}), fb), null, '옛 서버(키 없음)면 말하지 않는다');
   assert.equal(estimateUnavailableNote(emptyToday({ estimated: ESTIMATED }), eb), null);

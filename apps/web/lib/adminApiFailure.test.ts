@@ -40,26 +40,30 @@ async function main() {
   assert.equal(forbidden.retryable, false, '권한 부족은 재시도로 풀리지 않는다');
   assert.equal(forbidden.href, ADMIN_LOGIN_PATH);
 
-  // ── 타임아웃: 재시도가 실제로 답이다(콜드 스타트) ────────────────────────────
+  // ── 타임아웃: 재시도가 실제로 답이다 ─────────────────────────────────────────
   const timeout = describeAdminFailure({ kind: 'timeout', message: '요청 시간이 초과되었습니다.' });
   assert.equal(timeout.retryable, true, '타임아웃은 다시 누르면 풀릴 수 있다');
   assert.equal(timeout.href, null, '타임아웃을 로그인 문제로 안내하면 엉뚱한 곳으로 보낸다');
-  assert.match(timeout.title, /늦|콜드/, '왜 늦는지(콜드 스타트)를 알려야 재시도가 납득된다');
+  assert.match(timeout.title, /기다리는 중/, '재시도가 납득되는 진행 상태로 말해야 한다');
 
-  // ── 5xx: 서버 잘못이라고 말하고 재시도를 준다 ────────────────────────────────
+  // ── 5xx: 재시도를 주되 상태 코드는 화면에 내지 않는다(detail 은 콘솔 전용) ────
   const serverError = describeAdminFailure({ kind: 'http', status: 500, message: '지표 조회에 실패했습니다.' });
-  assert.match(serverError.title, /서버 오류/);
-  assert.match(serverError.title, /500/, '상태 코드를 화면에서 지우면 개발팀에 전달할 단서가 사라진다');
+  assert.match(serverError.title, /오류가 발생했습니다/);
+  assert.doesNotMatch(serverError.title, /500|HTTP/, '관리자 화면에 HTTP 상태 코드를 노출하지 않는다');
+  assert.doesNotMatch(serverError.action, /개발팀|상태 코드/, '심사 화면에 내부 전달 지시를 남기지 않는다');
   assert.equal(serverError.retryable, true);
   assert.equal(serverError.href, null);
-  assert.match(describeAdminFailure({ status: 503 }).title, /503/);
+  // 근거는 버리지 않는다 — 화면이 아니라 detail(콘솔·로그)에만 남는다.
+  assert.match(serverError.detail ?? '', /HTTP 500/);
+  assert.doesNotMatch(describeAdminFailure({ status: 503 }).title, /503/);
 
-  // ── 그 밖의 상태: 숨기지 말고 숫자를 그대로 ──────────────────────────────────
+  // ── 그 밖의 상태: 화면은 진행 상태로, 숫자는 detail 로 ───────────────────────
   const notFound = describeAdminFailure({ kind: 'http', status: 404, message: 'Not Found' });
-  assert.match(notFound.title, /404/, '매핑에 없는 상태를 숨기면 화면에서 조용히 사라진다');
+  assert.doesNotMatch(notFound.title, /404|HTTP/, '매핑에 없는 상태도 화면에 숫자를 내지 않는다');
+  assert.match(notFound.detail ?? '', /HTTP 404/, '근거 자체는 삼키지 않는다');
   assert.equal(notFound.retryable, true);
   const tooMany = describeAdminFailure({ status: 429 });
-  assert.match(tooMany.title, /429/);
+  assert.match(tooMany.detail ?? '', /HTTP 429/);
 
   // ── 상태도 종류도 모를 때: 지어내지 않는다 ──────────────────────────────────
   const unknown = describeAdminFailure({});
@@ -76,6 +80,8 @@ async function main() {
   for (const notice of [expired, noSession, forbidden, timeout, serverError, notFound, unknown]) {
     assert.ok(notice.action.trim().length > 0, `행동 문구가 비었다: ${notice.title}`);
     assert.ok(notice.retryable || notice.href, `재시도도 링크도 없으면 막다른 골목이다: ${notice.title}`);
+    // 심사 화면 규칙: 화면에 뜨는 두 줄에는 HTTP 상태 코드도 내부 전달 지시도 없다.
+    assert.doesNotMatch(`${notice.title} ${notice.action}`, /HTTP|개발팀/, `화면 문구에 내부 정보가 남았다: ${notice.title}`);
   }
 
   // ── kindFromMessage: 상태 코드가 없는 경로(Supabase)에서 타임아웃만은 갈라낸다 ──
@@ -96,10 +102,10 @@ async function main() {
   assert.equal(supabaseTimeout.retryable, true);
   assert.notEqual(supabaseTimeout.title, unknown.title);
 
-  // ── adminFailureLine: 한 줄로 눌러도 근거를 잃지 않는다 ──────────────────────
+  // ── adminFailureLine: 한 줄로 눌러도 근거를 잃지 않는다(콘솔·로그 전용) ──────
   const line = adminFailureLine(serverError);
-  assert.match(line, /서버 오류/);
-  assert.match(line, /HTTP 500/, 'CSV 로 빠져나간 수치의 유일한 출처 표시다');
+  assert.match(line, /오류가 발생했습니다/);
+  assert.match(line, /HTTP 500/, '로그로 빠져나간 실패의 유일한 출처 표시다');
   assert.doesNotMatch(adminFailureLine(unknown), /\(\s*\)/, '근거가 없으면 빈 괄호를 남기지 않는다');
 
   // ── 배선 확인: 화면이 실제로 이 판정을 쓰는가 ────────────────────────────────

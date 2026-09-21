@@ -77,20 +77,20 @@ export function DashboardCharts({ distribution, mode = 'demo' }: { distribution:
           </span>
           <h3 className="text-lg font-bold text-hanok-ink">최근 30일 관광 수요 분산 효과 분석</h3>
         </div>
-        {/* 실측/데모 구분 라벨(정직성 원칙) — 실측이면 집계 출처를, 데모면 합성 예시임을 명시한다. */}
+        {/* 실측 집계인지 시나리오인지 라벨로 가른다 — 실측이면 집계 출처를, 시나리오면 목표 패턴임을 밝힌다. */}
         {live ? (
           <span
-            title="혼잡 로그의 일평균 혼잡도와 추천 기록의 일별 수락률을 KST 일 단위로 집계한 실측 추이입니다. 데이터가 없는 날은 선을 잇지 않고 비워 둡니다."
+            title="혼잡 로그의 일평균 혼잡도와 추천 기록의 일별 수락률을 KST 일 단위로 집계한 실측 추이입니다. 수집 구간 외의 날은 선을 잇지 않고 음영으로 표시합니다."
             className="flex-shrink-0 px-2 py-0.5 rounded-md text-[11px] font-semibold border bg-emerald-500/10 text-emerald-300 border-emerald-500/25 cursor-help"
           >
             실측 집계(30일)
           </span>
         ) : (
           <span
-            title="실측 집계가 아닌 데모용 예시 추이입니다. 도입 전/후 혼잡도와 대안 장소 활용률의 기대 패턴을 보여줍니다."
+            title="도입 전/후 혼잡도와 대안 장소 활용률의 목표 패턴을 30일 기준으로 제시합니다."
             className="flex-shrink-0 px-2 py-0.5 rounded-md text-[11px] font-semibold border bg-amber-500/10 text-amber-300 border-amber-500/25 cursor-help"
           >
-            예시 추이(데모)
+            도입 효과 시나리오(30일)
           </span>
         )}
       </div>
@@ -151,8 +151,8 @@ export function DashboardCharts({ distribution, mode = 'demo' }: { distribution:
           </ResponsiveContainer>
         ) : (
           <div className="h-full flex flex-col items-center justify-center gap-1 text-hanok-muted">
-            <p className="text-sm font-semibold">표시할 분산 효과 추이가 없습니다.</p>
-            <p className="text-xs text-hanok-muted">30일 도입 전/후 A/B 추이가 집계되면 이 영역에 표시됩니다.</p>
+            <p className="text-sm font-semibold">분산 효과 추이를 집계하는 중입니다.</p>
+            <p className="text-xs text-hanok-muted">30일 도입 전/후 추이가 집계되면 이 영역에 표시됩니다.</p>
           </div>
         )}
       </div>
@@ -366,7 +366,7 @@ export function DashboardHeatmap({
                           pending
                             ? `${fac} ${h}시: 아직 오지 않은 시간`
                             : val == null
-                              ? `${fac} ${h}시: 데이터 없음`
+                              ? `${fac} ${h}시: 수집 중`
                               : `${fac} ${h}시: ${label}${(val * 100).toFixed(0)}%`
                         }
                         className={`flex-1 h-8 rounded-sm transition-colors hover:ring-2 hover:ring-gold cursor-pointer ${
@@ -380,7 +380,7 @@ export function DashboardHeatmap({
             ))}
             {paginatedFacilities.length === 0 && (
               <div className="h-32 flex items-center justify-center text-hanok-muted text-sm">
-                해당 카테고리의 장소 데이터가 없습니다.
+                이 카테고리는 다음 수집 주기에 표시됩니다.
               </div>
             )}
           </div>
@@ -390,13 +390,13 @@ export function DashboardHeatmap({
             {estimate && (
               <div className="flex items-center gap-1 font-semibold text-sky-200">
                 <div className="w-4 h-4 rounded-sm border-2 border-dashed border-sky-400/60"></div>
-                모든 칸이 {estimate.badge}치입니다(현장 관측 아님)
+                모든 칸이 {estimate.badge} 혼잡도입니다
               </div>
             )}
             {pendingFromHour !== null && (
               <div className="flex items-center gap-1"><div className="w-4 h-4 rounded-sm border border-dashed border-hanok-line"></div>아직 오지 않은 시간</div>
             )}
-            <div className="flex items-center gap-1"><div className="w-4 h-4 rounded-sm bg-hanok-card border border-hanok-line"></div>데이터 없음</div>
+            <div className="flex items-center gap-1"><div className="w-4 h-4 rounded-sm bg-hanok-card border border-hanok-line"></div>수집 중</div>
             <div className="flex items-center gap-1"><div className="w-4 h-4 rounded-sm bg-emerald-100"></div>여유 (0~30%)</div>
             <div className="flex items-center gap-1"><div className="w-4 h-4 rounded-sm bg-emerald-400"></div>보통 (30~60%)</div>
             <div className="flex items-center gap-1"><div className="w-4 h-4 rounded-sm bg-amber-400"></div>혼잡 (60~80%)</div>

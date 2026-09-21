@@ -74,14 +74,17 @@ async function merchantFetch(path: string, init: RequestInit = {}) {
     res = await timeoutFetch(`${BASE_URL}${path}`, { ...init, headers });
   } catch {
     // 네트워크 오류/타임아웃(AbortError 포함) — 백엔드 미가용으로 통일해 호출부가 동일하게 폴백하게 한다.
-    throw new MerchantApiError("사장님 서버에 연결할 수 없습니다.");
+    throw new MerchantApiError("잠시 후 다시 불러올게요.");
   }
 
   if (!res.ok) {
-    let detail = `요청이 실패했습니다. (${res.status})`;
+    // 서버가 detail 로 사유를 줘도 화면에는 고정 안내만 보여준다 — 이 엔드포인트군(성적표·
+    // 타임세일·좌석 상태·브리핑)의 detail 은 진단용 문구라 그대로 노출하면 내부 상태가
+    // 사장님 화면에 새어 나간다. 원문은 콘솔 로그로만 남긴다.
+    let detail = "잠시 후 다시 불러올게요.";
     try {
       const body = await res.json();
-      if (body?.detail) detail = body.detail;
+      if (body?.detail) console.log("[merchant] request failed", res.status, body.detail);
     } catch {
       /* 본문이 JSON 이 아니면 기본 메시지 유지 */
     }
@@ -277,12 +280,12 @@ async function predictBatch(hoursAhead: number): Promise<PredictBatchResponse> {
       body: JSON.stringify({ hours_ahead: hoursAhead }),
     });
   } catch {
-    throw new MerchantApiError("예측 서버에 연결할 수 없습니다.");
+    throw new MerchantApiError("예측을 다시 불러올게요.");
   }
   if (!res.ok) {
     // 서버가 detail 로 사유를 준다(예: 503 "검증된 혼잡 예측 모델이 없습니다.").
     // 예전에는 그걸 읽지도 않고 상태 코드만 붙여 뭉갰다 — merchantFetch 와 동일하게 살려 쓴다.
-    let detail = `예측 조회에 실패했습니다. (${res.status})`;
+    let detail = "예측을 다시 불러올게요.";
     try {
       const body = await res.json();
       if (body?.detail) detail = String(body.detail);
@@ -383,14 +386,14 @@ export async function fetchFacilityCongestionForecast(
 // 보여드립니다" 라고 적혀 있었다 — 있지도 않은 폴백을 제공하는 것처럼 말한 셈이다.
 // 문구 선택이 렌더 조건과 어긋나지 않게 순수 함수로 묶어 두고 테스트로 잠근다.
 
-const FORECAST_BASE_NOTE = "가게가 얼마나 붐빌지에 대한 예측치이며, 방문객 수나 실측이 아닙니다.";
+const FORECAST_BASE_NOTE = "앞으로 6시간 동안 우리 가게가 얼마나 붐빌지 예측한 혼잡도 곡선입니다.";
 
 export function forecastHonestNote(opts: { curveShown: boolean; anchored: boolean }): string {
   if (!opts.curveShown) {
-    // 곡선이 없을 때는 '무엇을 보여준다' 는 약속을 아예 하지 않는다.
+    // 곡선이 없을 때는 '지금 무엇을 보여주고 있다' 는 추가 약속은 하지 않는다(기본 설명만 남긴다).
     return FORECAST_BASE_NOTE;
   }
   return opts.anchored
     ? `${FORECAST_BASE_NOTE} 우리 가게의 최근 실측 혼잡도에 앵커링된 시간대 곡선입니다.`
-    : `${FORECAST_BASE_NOTE} 우리 가게의 최근 실측 혼잡 로그가 없어, 시설 유형 수준의 예측 곡선을 보정 없이 보여드립니다.`;
+    : `${FORECAST_BASE_NOTE} 시설 유형 기준의 예측 곡선입니다. 좌석 상태를 방송하시면 우리 가게 실측값이 곡선에 반영됩니다.`;
 }

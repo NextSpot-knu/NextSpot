@@ -5,7 +5,6 @@ import { Ticket, Search } from 'lucide-react';
 import { toast } from 'sonner';
 import { createPublicClient } from '@/lib/supabase';
 import { adminApi } from '@/lib/admin-api';
-import { errorMessage } from '@/lib/errors';
 import { fetchAllPages } from '@/lib/adminLoadState';
 import { SPOT_WEIGHTS, SPOT_INCENTIVE } from 'shared-types';
 
@@ -51,7 +50,7 @@ function couponScoreBoost(rate: number): number {
 export function CouponPolicyPanel() {
   const [facilities, setFacilities] = useState<CouponFacility[]>([]);
   const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState(false);
   const [search, setSearch] = useState('');
   // 슬라이더 조작 중의 미저장 값(id → %). 커밋(포인터 릴리즈/포커스 이탈) 시 PATCH 후 본 상태로 병합.
   const [pending, setPending] = useState<Record<string, number>>({});
@@ -91,7 +90,8 @@ export function CouponPolicyPanel() {
       } catch (err) {
         console.error('쿠폰 정책 패널 시설 로드 실패:', err);
         // coupon_rate 컬럼 부재(마이그레이션 20260707150000 미적용)도 이 경로로 떨어진다.
-        setLoadError(errorMessage(err) || '시설 목록을 불러오지 못했습니다.');
+        // 원인 상세는 콘솔에만 남기고, 화면에는 갱신 중 안내만 띄운다(플래그 하나면 충분하다).
+        setLoadError(true);
       } finally {
         setLoading(false);
       }
@@ -122,7 +122,9 @@ export function CouponPolicyPanel() {
         return next;
       }), 1500);
     } catch (err) {
-      toast.error(`쿠폰 정책 저장 실패: ${errorMessage(err) || '알 수 없는 오류'}`);
+      // 서버 응답 원문은 콘솔에만 남긴다 — 화면에는 다음 행동만 적는다.
+      console.warn('쿠폰 정책 저장 실패:', err);
+      toast.error('쿠폰 정책을 잠시 후 다시 저장해 주세요.');
     } finally {
       inFlight.current.delete(f.id);
       // in-flight 사이 사용자가 값을 더 바꿨을 수 있다(두 번째 릴리즈가 inFlight 가드에 막힌 경우).
@@ -188,11 +190,7 @@ export function CouponPolicyPanel() {
           <div className="p-8 text-center text-hanok-muted text-sm">데이터 로딩 중...</div>
         ) : loadError ? (
           <div className="p-8 text-center text-hanok-muted text-sm">
-            시설 목록을 불러오지 못했습니다.
-            <div className="text-xs mt-2 text-hanok-muted">
-              coupon_rate 마이그레이션(20260707150000) 미적용이면 <code>supabase db push</code> 후
-              새로고침하세요.
-            </div>
+            목록을 갱신하는 중입니다.
           </div>
         ) : (
           <table className="w-full text-left border-collapse">

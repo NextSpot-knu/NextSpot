@@ -68,7 +68,7 @@ assert.equal(facilityStatusKey({ kind: 'unavailable' }), 'unknown');
 
 assert.equal(facilityStatusLabel({ kind: 'observed', level: 0 }), '한산');
 assert.equal(facilityStatusLabel({ kind: 'none' }), '관측 대기');
-assert.equal(facilityStatusLabel({ kind: 'unavailable' }), '혼잡도 조회 실패');
+assert.equal(facilityStatusLabel({ kind: 'unavailable' }), '혼잡도 갱신 중');
 
 assert.equal(observedLevel({ kind: 'observed', level: 0 }), 0);
 assert.equal(observedLevel({ kind: 'none' }), null);

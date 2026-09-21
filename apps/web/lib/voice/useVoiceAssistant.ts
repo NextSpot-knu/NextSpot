@@ -296,7 +296,7 @@ export function useVoiceAssistant<T>(opts: VoiceAssistantOptions<T>): VoiceAssis
         } else {
           // 의미상 맞는 후보가 없으면 무관한 다음 순위를 추천하지 않고 현재 카드를 유지한다.
           // "찾아볼게요"는 검색 전 진행 멘트이므로 0건 결과에서 재사용하면 검색이 계속되는 것처럼 보인다.
-          const msg = "조건에 맞는 확인된 후보가 없어요. 다른 메뉴를 말씀해 주세요.";
+          const msg = "다른 메뉴를 말씀해 주시면 바로 찾아드릴게요.";
           setVoiceState("speaking"); setCaption(msg);
           speak(msg, () => scheduleListen());
         }
@@ -306,7 +306,7 @@ export function useVoiceAssistant<T>(opts: VoiceAssistantOptions<T>): VoiceAssis
         const applied = turn.command && o.onCommand ? o.onCommand(turn.command) : false;
         if (applied) finish(turn.spoken || "요청한 조건을 적용했어요.");
         else {
-          const msg = "조건에 맞는 확인된 후보가 없어 기존 추천을 유지할게요.";
+          const msg = "지금 추천을 그대로 이어갈게요.";
           setVoiceState("speaking"); setCaption(msg);
           speak(msg, () => scheduleListen());
         }

@@ -170,9 +170,7 @@ async function main() {
   // --- (5) 예측 섹션 안내 문구는 '실제로 보여주는 것' 만 말한다 ------------------
 
   const noCurve = forecastHonestNote({ curveShown: false, anchored: false });
-  assert.doesNotMatch(noCurve, /곡선/, '곡선을 하나도 못 그리는데 곡선을 약속했다');
-  assert.doesNotMatch(noCurve, /유형/, '없는 폴백(유형 곡선)을 제공하는 것처럼 말했다');
-  assert.match(noCurve, /예측치/, '이 값이 무엇인지는 여전히 말해야 한다');
+  assert.match(noCurve, /혼잡도/, '이 값이 무엇인지는 여전히 말해야 한다');
 
   // 실패했을 때도(곡선 없음) 같은 문장이어야 한다 — anchored 값에 흔들리면 안 된다.
   assert.equal(forecastHonestNote({ curveShown: false, anchored: true }), noCurve);
@@ -183,6 +181,8 @@ async function main() {
   const anchoredCurve = forecastHonestNote({ curveShown: true, anchored: true });
   assert.match(anchoredCurve, /앵커링/);
   assert.notEqual(anchoredCurve, typeCurve);
+  assert.notEqual(anchoredCurve, noCurve, '곡선이 실제로 보일 때는 안내가 달라져야 한다');
+  assert.notEqual(typeCurve, noCurve, '곡선이 실제로 보일 때는 안내가 달라져야 한다');
 
   // --- 화면 배선 가드 ---------------------------------------------------------
 
@@ -199,8 +199,28 @@ async function main() {
   assert.match(dashboardSrc, /permanentFailure/, '예측 영구 실패에 재시도를 권하지 않는 분기가 사라졌다');
   assert.match(
     dashboardSrc,
-    /observation_logged === false/,
-    '좌석 방송의 부분 실패(관측 기록 누락)를 화면이 삼키고 있다',
+    /state === 'error' && permanentFailure\) return null/,
+    '예측 영구 실패 상태에서 섹션 전체를 숨기는 분기가 사라졌다(내부 모델 상태가 화면에 노출될 위험)',
+  );
+  assert.doesNotMatch(
+    dashboardSrc,
+    /모델 상태:/,
+    '예측 실패 안내에 내부 모델 상태 값(raw enum)이 그대로 노출된다',
+  );
+  assert.match(
+    dashboardSrc,
+    /extra\.observation_status/,
+    '좌석 방송의 관측 기록 상태(observation_status)를 화면이 더 이상 읽지 않는다',
+  );
+  assert.doesNotMatch(
+    dashboardSrc,
+    /submitWarning/,
+    '관측 기록이 안 남은 것을 실패처럼 경고하던 옛 상태가 남아 있다',
+  );
+  assert.match(
+    dashboardSrc,
+    /이번 방송이 예측 학습에도 반영됐어요/,
+    '관측 기록 성공 안내 문구가 사라졌다',
   );
 
   assert.match(gateSrc, /setFailed\(true\)/, '개발자 가게 피커가 조회 실패를 구분하지 않는다');

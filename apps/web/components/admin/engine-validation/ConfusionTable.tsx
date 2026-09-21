@@ -9,14 +9,14 @@ const CELL_STYLE = {
   danger: 'bg-rose-500/15 text-rose-200 font-bold',
 } as const;
 
-/** 행 = 서울 실측 등급, 열 = 우리 추정 등급. 대각선 = 일치, 붐빔→여유·보통 = 위험 오분류. */
+/** 행 = 서울 실측 등급, 열 = NextSpot 추정 등급. 대각선 = 일치, 붐빔→여유·보통 = 위험 오분류. */
 export function ConfusionTable({ matrix, total }: { matrix: number[][]; total: number }) {
   const labels = GRADE_LABELS;
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-sm border-collapse">
         <caption className="text-left text-xs text-hanok-muted pb-3">
-          행 = 서울 실측 등급 · 열 = 우리 추정 등급 · 표본 {total}개 버킷. 초록 = 일치, 빨강 = 위험 오분류(실측 붐빔을 여유·보통으로 표시).
+          행 = 서울 실측 등급 · 열 = NextSpot 추정 등급 · 표본 {total}개 버킷. 초록 = 일치, 빨강 = 위험 오분류(실측 붐빔을 여유·보통으로 표시).
         </caption>
         <thead>
           <tr className="text-hanok-muted text-xs">

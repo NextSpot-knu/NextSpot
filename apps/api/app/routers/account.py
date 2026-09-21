@@ -416,7 +416,7 @@ async def create_verification_request(
                 await _discard_uploaded_evidence(profile["id"], body.document_path)
                 raise HTTPException(
                     status_code=503,
-                    detail="관리자 권한 신청은 아직 준비 중입니다. 잠시 후 다시 시도해 주세요.",
+                    detail="신청을 접수하지 못했습니다. 잠시 후 다시 시도해 주세요.",
                 ) from None
             logger.warning("verification_request_legacy_schema", user_id=profile["id"])
             payload.pop("requested_role", None)
