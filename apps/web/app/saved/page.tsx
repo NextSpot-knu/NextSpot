@@ -7,6 +7,7 @@ import { Compass, Star, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { RecommendationCard } from '@/components/RecommendationCard';
 import { CongestionAlertToggle } from '@/components/CongestionAlertToggle';
+import NowChip from '@/components/NowChip';
 import { submitFeedback } from '@/lib/api-client';
 import { displayWalkingMinutes, type Spot } from '@/lib/recommender';
 import { loadSavedLocal, syncSaved, removeBookmark, clearSavedAll } from '@/lib/savedFacilities';
@@ -177,7 +178,7 @@ export default function SavedPage() {
       green: 'congestion.relaxed',
       blue: 'congestion.quiet',
     } as const;
-    // 근거 없으면 배지 자체를 렌더하지 않는다 — '근거 없음' 회색 점은 자기 결점 고백(no-defensive-copy).
+    // 혼잡 근거가 있는 카드에만 상태 배지를 표시한다.
     if (!(status in colors)) return null;
     const key = status as keyof typeof colors;
     return (
@@ -239,9 +240,10 @@ export default function SavedPage() {
               <p className="text-muk-soft text-sm leading-relaxed mb-8 px-2">
                 {t('saved.emptyBody')}
               </p>
+              {/* 지도 둘러보기 = 이 화면의 유일한 주 행동 — /course 와 동일한 금빛 그라데이션 CTA 문법. */}
               <button
                 onClick={() => router.push('/main')}
-                className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gold hover:bg-gold-deep text-white text-sm font-semibold transition-all"
+                className="toss-pressable flex min-h-11 items-center gap-2 px-5 rounded-full bg-gradient-to-r from-gold to-terracotta hover:from-gold-deep hover:to-terracotta text-white text-sm font-bold shadow-[0_4px_14px_rgba(193,85,59,0.25)] transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
               >
                 <Compass size={18} className="text-white" />
                 <span>{t('saved.browseMap')}</span>
@@ -251,21 +253,35 @@ export default function SavedPage() {
         ) : (
           // List State
           <div className="flex flex-col gap-4">
-            <div className="flex justify-between items-center px-1 mb-2">
-              <div className="flex items-baseline gap-2">
-                <h2 className="text-lg font-bold font-serif text-muk">{t('saved.title')}</h2>
-                {/* 저장한 장소 총 개수 */}
-                <span className="text-sm font-bold text-gold-deep bg-gold/15 border border-gold/30 rounded-full px-2.5 py-0.5">
-                  {bookmarks.length}
+            {/* 히어로 요약 카드 — /course·/waiting 헤더 블록과 같은 문법(칩 → 큰 헤드라인 → 한 줄 가치 →
+                골드 스탯). 타임라인 수치의 기준 시점(NowChip)을 헤드라인 옆에 명시하고, 스탯은 이미
+                현재 저장 개수를 보여준다. */}
+            <section className="rounded-2xl border border-line/70 bg-hanji-deep/45 p-4 md:p-5 space-y-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="inline-flex items-center gap-1 w-fit px-2.5 py-1 rounded-full bg-gold/15 border border-gold/30 text-[11px] font-bold text-gold-deep">
+                  <Star size={11} className="fill-gold/60" aria-hidden /> {t('saved.title')}
                 </span>
+                <NowChip />
               </div>
-              <button
-                onClick={handleClearAll}
-                className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-terracotta/15 text-terracotta border border-terracotta/30 hover:bg-terracotta/25 transition-colors"
-              >
-                {t('saved.clearAll')}
-              </button>
-            </div>
+              <h2 className="text-[22px] md:text-[28px] font-serif font-black text-muk leading-[1.15] tracking-tight">
+                {t('saved.heroTitle')}
+              </h2>
+              <p className="text-[13px] md:text-sm text-muk-soft leading-relaxed">
+                {t('saved.heroDesc')}
+              </p>
+              <div className="flex flex-wrap items-center gap-2 pt-0.5">
+                <span className="inline-flex items-center gap-1.5 rounded-xl border border-gold/40 bg-gold/15 px-3 py-2 text-[13px] font-black text-gold-deep tabular-nums shadow-[0_2px_10px_rgba(193,154,62,0.16)]">
+                  <span aria-hidden>⭐</span>
+                  {t('saved.heroCount', { n: bookmarks.length })}
+                </span>
+                <button
+                  onClick={handleClearAll}
+                  className="toss-pressable ml-auto inline-flex min-h-11 items-center rounded-full border border-terracotta/30 bg-terracotta/10 px-4 text-xs font-bold text-terracotta hover:bg-terracotta/20 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-terracotta/60"
+                >
+                  {t('saved.clearAll')}
+                </button>
+              </div>
+            </section>
 
             {/* 카테고리 필터 칩 — 저장이 있는 분류만 노출(2개 이상일 때). 각 칩에 개수 표시. */}
             {availableCategories.length > 1 && (
@@ -280,7 +296,7 @@ export default function SavedPage() {
                       type="button"
                       onClick={() => setActiveCategory(cat)}
                       aria-pressed={isActive}
-                      className={`flex shrink-0 items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-[13px] font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 ${
+                      className={`toss-pressable flex shrink-0 min-h-11 items-center gap-1.5 rounded-full border px-3.5 text-[13px] font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 ${
                         isActive
                           ? 'bg-gold/15 border-gold text-muk'
                           : 'bg-white border-line text-muk-soft hover:bg-hanji-deep hover:text-muk'
@@ -322,20 +338,26 @@ export default function SavedPage() {
                     setSelectedBookmark(bookmark);
                   }
                 }}
-                className={`group flex flex-col p-4 rounded-2xl border transition-all text-left relative overflow-hidden cursor-pointer shadow-[0_2px_14px_rgba(43,35,32,0.06)] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 ${
+                className={`group toss-pressable flex flex-col p-4 rounded-2xl border transition-all text-left relative overflow-hidden cursor-pointer shadow-[0_2px_14px_rgba(43,35,32,0.06)] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 ${
                   selectedBookmark?.id === bookmark.id
                     ? 'bg-gold/15 border-gold'
-                    : 'bg-white border-line hover:bg-hanji-deep'
+                    : 'bg-white border-line hover:border-gold/40 hover:shadow-[0_6px_20px_rgba(43,35,32,0.12)]'
                 }`}
               >
-                {/* 랭크 표시 뱃지 */}
-                <div className="absolute top-0 left-0 bg-gold text-white text-[10px] font-bold px-2 py-1 rounded-br-lg z-10">
-                  {t('saved.rankSuffix', { rank: index + 1 })}
+                {/* 순위 배지 — /course 정류지 번호·/waiting 순위 배지와 같은 문법
+                    (금빛 원 + 흰 숫자 + 2px 흰 테두리). 1위만 그라데이션으로 반 단계 더 세운다. */}
+                <div
+                  className={`absolute top-3 left-3 z-10 flex h-8 w-8 items-center justify-center rounded-full border-2 border-white text-[13px] font-extrabold text-white tabular-nums shadow-[0_2px_8px_rgba(193,154,62,0.45)] ${
+                    index === 0 ? 'bg-gradient-to-br from-gold to-gold-deep' : 'bg-gold'
+                  }`}
+                  aria-label={t('saved.rankSuffix', { rank: index + 1 })}
+                >
+                  {index + 1}
                 </div>
-                
+
                 {/* 상단: 기본 정보 */}
                 <div className="flex justify-between items-start w-full">
-                  <div className="pl-4">
+                  <div className="pl-9">
                     <div className="flex items-center gap-2 mb-1 mt-1">
                       <span className="text-xs font-semibold px-2 py-0.5 rounded-md bg-hanji-deep text-muk-soft">
                         {CATEGORY_LABEL_TO_KEY[bookmark.category] ? t(`category.${CATEGORY_LABEL_TO_KEY[bookmark.category]}`) : bookmark.category}
@@ -351,7 +373,7 @@ export default function SavedPage() {
                       type="button"
                       aria-label={t('saved.deleteAria', { name: bookmark.name })}
                       onClick={(e) => handleDelete(bookmark.id, e)}
-                      className="p-2 rounded-xl bg-terracotta/10 text-terracotta hover:bg-terracotta/20 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-terracotta/60 transition-opacity md:flex hidden"
+                      className="w-11 h-11 items-center justify-center rounded-xl bg-terracotta/10 text-terracotta hover:bg-terracotta/20 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-terracotta/60 transition-opacity md:flex hidden"
                     >
                       <Trash2 size={18} />
                     </button>
@@ -359,7 +381,7 @@ export default function SavedPage() {
                       type="button"
                       aria-label={t('saved.deleteAria', { name: bookmark.name })}
                       onClick={(e) => handleDelete(bookmark.id, e)}
-                      className="p-2.5 rounded-lg bg-terracotta/10 text-terracotta hover:bg-terracotta/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-terracotta/60 md:hidden flex"
+                      className="w-11 h-11 items-center justify-center rounded-xl bg-terracotta/10 text-terracotta hover:bg-terracotta/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-terracotta/60 md:hidden flex"
                     >
                       <Trash2 size={16} />
                     </button>
@@ -385,11 +407,13 @@ export default function SavedPage() {
                     <div className="w-full mt-4 bg-hanji border border-line rounded-2xl px-4 py-3 flex flex-col gap-3">
                       <div className="flex justify-between items-center px-1 mb-1">
                         <span className="text-muk-soft text-[10px] font-semibold">{t('saved.totalTime')}</span>
-                        <span className="text-gold font-bold text-sm">{t('saved.minutes', { n: timeToService })}</span>
+                        {/* 총 소요 시간 — 카드의 핵심 숫자(골드 스탯 톤 + tabular-nums, /course ETA 문법). */}
+                        {/* 분 표시는 정수로 — 0.6분 같은 소수는 신뢰를 깎는다(RecommendationCard 와 같은 규칙). */}
+                        <span className="text-gold-deep font-extrabold text-sm tabular-nums">{t('saved.minutes', { n: Math.max(1, Math.round(timeToService)) })}</span>
                       </div>
                       <div className="flex items-start justify-between relative">
-                        {/* 연결선 */}
-                        <div className="absolute top-[3px] left-4 right-4 h-[2px] bg-line z-0" />
+                        {/* 연결선 — /course 스텝퍼와 같은 금빛 그라데이션(여정을 잇는 강조색 하나로 통일). */}
+                        <div className="absolute top-[3px] left-4 right-4 h-[2px] rounded-full bg-gradient-to-r from-gold/20 via-gold/45 to-gold/20 z-0" />
 
                         {/* 이동 시간 라벨 */}
                         <div className={`absolute top-[-10px] ${serviceTime ? 'left-[25%]' : 'left-1/2'} -translate-x-1/2 z-10`}>
@@ -403,21 +427,21 @@ export default function SavedPage() {
                         {/* 출발 시점 */}
                         <div className="flex flex-col items-center z-10 w-12">
                           <div className="w-2 h-2 rounded-full bg-muk ring-4 ring-hanji mb-1.5" />
-                          <span className="text-[10px] text-muk font-bold">{formatTime(currentTime)}</span>
+                          <span className="text-[10px] text-muk font-bold tabular-nums">{formatTime(currentTime)}</span>
                           <span className="text-[10px] text-muk-soft mt-0.5">{t('saved.depart')}</span>
                         </div>
 
                         {/* 도착 시점 */}
                         <div className="flex flex-col items-center z-10 w-12">
                           <div className="w-2 h-2 rounded-full bg-jade ring-4 ring-hanji mb-1.5" />
-                          <span className="text-[10px] text-muk font-bold">{formatTime(arrivalTime)}</span>
+                          <span className="text-[10px] text-muk font-bold tabular-nums">{formatTime(arrivalTime)}</span>
                           <span className="text-[10px] text-muk-soft mt-0.5">{t('saved.arrive')}</span>
                         </div>
 
                         {/* 이용 시작 시점 */}
                         {serviceTime && <div className="flex flex-col items-center z-10 w-12">
                           <div className="w-2 h-2 rounded-full bg-gold ring-4 ring-hanji mb-1.5" />
-                          <span className="text-[10px] text-muk font-bold">{formatTime(serviceTime)}</span>
+                          <span className="text-[10px] text-muk font-bold tabular-nums">{formatTime(serviceTime)}</span>
                           <span className="text-[10px] text-muk-soft mt-0.5">{bookmark.category === '음식점' || bookmark.category === '카페' ? t('saved.dine') : t('saved.view')}</span>
                         </div>}
                       </div>
@@ -501,8 +525,9 @@ export default function SavedPage() {
         </>
       )}
 
-      {/* 은은한 노을 광원 (콜드 블루 글로우 → 웜) */}
+      {/* 은은한 노을·금빛 광원 — course/waiting 페이지와 동일 톤(두 광원 문법). */}
       <div className="absolute top-1/4 left-1/4 w-[300px] h-[300px] bg-sunset-1/10 rounded-full blur-[100px] pointer-events-none z-0"></div>
+      <div className="absolute bottom-[-10%] right-[-10%] w-[300px] h-[300px] bg-gold/10 rounded-full blur-[100px] pointer-events-none z-0"></div>
     </div>
   );
 }

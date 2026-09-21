@@ -16,14 +16,15 @@ import {
 import type { CalibrationCurve, HourShapeRow } from '@/lib/engineValidation';
 import { calibrationCurveRows } from '@/lib/engineValidation';
 
+// 라이트 종이 테마 전환에 맞춰 미러도 갱신 — 다크 시절 값이 남으면 축·툴팁이 한지 배경에서 씻겨 보인다.
 const COLOR = {
-  grid: '#3a2f24',     // --color-hanok-line
-  axis: '#b8a894',     // --color-hanok-muted
-  ink: '#f0e7d8',      // --color-hanok-ink
-  card: '#2c241c',     // --color-hanok-card
-  measured: '#4a90d9', // 서울 실측
-  parking: '#b08a2c',  // 주차 점유율(경주 신호)
-  identity: '#8d7f6e', // 기준선 대각선 — 기준이라 일부러 눈에 덜 띄게
+  grid: '#d8cab2',     // --color-hanok-line
+  axis: '#63533f',     // --color-hanok-muted
+  ink: '#251d15',      // --color-hanok-ink
+  card: '#fffdf7',     // --color-hanok-card
+  measured: '#2f6fb8', // 서울 실측 — 라이트 배경 대비를 위해 한 단계 진하게
+  parking: '#8a6a1c',  // 주차 점유율(경주 신호) — 라이트 배경 대비를 위해 한 단계 진하게
+  identity: '#8d7f6e', // 기준선 대각선 — 기준이라 일부러 눈에 덜 띄게(라이트에서도 가독 확인)
 } as const;
 
 const TOOLTIP = {

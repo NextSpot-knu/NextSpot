@@ -39,7 +39,7 @@ type LoadState =
 const TONE_BOX: Record<Tone, string> = {
   ok: 'bg-emerald-500/10 border-emerald-500/30 text-emerald-700',
   info: 'bg-hanok-card border-hanok-line text-hanok-ink',
-  warn: 'bg-amber-500/10 border-amber-500/30 text-amber-300',
+  warn: 'bg-amber-500/10 border-amber-500/30 text-amber-800',
   error: 'bg-rose-500/10 border-rose-500/30 text-rose-700',
 };
 
@@ -48,7 +48,7 @@ const TONE_BOX: Record<Tone, string> = {
 const GRADE_STYLE: Record<string, string> = {
   '여유': 'bg-emerald-500/15 text-emerald-700 border-emerald-500/40',
   '보통': 'bg-sky-500/15 text-sky-700 border-sky-500/40',
-  '약간 붐빔': 'bg-amber-500/15 text-amber-300 border-amber-500/40',
+  '약간 붐빔': 'bg-amber-500/15 text-amber-700 border-amber-500/40',
   '붐빔': 'bg-rose-500/15 text-rose-700 border-rose-500/40',
 };
 
@@ -160,7 +160,7 @@ export function SeoulAlternativesPanel() {
 
       {load.status === 'failed' && (
         <div className="flex items-start gap-3 bg-rose-500/10 border border-rose-500/30 rounded-xl p-4">
-          <AlertCircle size={18} className="text-rose-400 flex-shrink-0 mt-0.5" />
+          <AlertCircle size={18} className="text-rose-600 flex-shrink-0 mt-0.5" />
           <div className="min-w-0 text-sm">
             <p className="font-bold text-rose-700">{load.failure.title}</p>
             <p className="text-hanok-muted mt-1">{load.failure.action}</p>
@@ -185,7 +185,7 @@ export function SeoulAlternativesPanel() {
             <p className="text-base font-bold text-hanok-ink leading-relaxed">{alternativeSentence(data)}</p>
             <p className="text-xs text-hanok-muted mt-2">{data.recommendation?.ranking_note}</p>
             {data.recommendation?.reason && (
-              <p className="text-xs text-amber-300/90 mt-1">{data.recommendation.reason}</p>
+              <p className="text-xs text-amber-700/90 mt-1">{data.recommendation.reason}</p>
             )}
           </div>
 
@@ -250,7 +250,7 @@ function PlaceCard({ place, state }: { place: AlternativePlace; state: Alternati
               걷기 {place.walk_minutes}분 + 혼잡 대기 {place.crowd_wait_minutes}분
             </p>
           )}
-          <p className={`text-[11px] ${place.stale || state === 'stale' ? 'text-amber-300' : 'text-hanok-muted'}`}>
+          <p className={`text-[11px] ${place.stale || state === 'stale' ? 'text-amber-700' : 'text-hanok-muted'}`}>
             {formatKst(place.observed_at ?? place.bucket_at)} 서울시 집계
             {place.stale ? ' · 최근 관측 기준' : ''}
           </p>

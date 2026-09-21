@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { AlertTriangle, Database, ShieldCheck } from 'lucide-react';
+import { AlertTriangle, Database, Info, ShieldCheck } from 'lucide-react';
 import { adminApi } from '@/lib/admin-api';
 import { describeGuardrailWarnings } from '@/lib/adminGuardrailWarnings';
 import { ESTIMATED_LOG_SOURCES } from '@/lib/dashboardFallback';
@@ -107,19 +107,24 @@ export function ModelTrustPanel() {
   // 코드가 아니라 문장으로 보여준다. 예전에는 `trained_false · metrics_truncated` 처럼
   // 원문이 그대로 나가서, 이 저장소를 아는 사람만 읽을 수 있었다.
   const warnings = describeGuardrailWarnings(data.guardrails.warnings);
+  // 엔진 상태 안내와 운영 점검 항목을 서로 다른 톤으로 표시한다.
+  const INFO_CODES = new Set(['trained_false', 'model_refresh_failure', 'untrusted_training_source', 'metrics_truncated']);
+  const infoNotes = warnings.filter((warning) => INFO_CODES.has(warning.code));
+  const alerts = warnings.filter((warning) => !INFO_CODES.has(warning.code));
   // '전체 현장 관측' 은 source 를 가리지 않고 센 값이다 — 파생·합성이 섞이면 그 이름이
   // 사실이 아니게 되므로, 그 몫을 따로 세어 바로 아래에서 밝힌다.
   const estimatedObservations = Object.entries(data.collection.by_source)
     .filter(([key]) => key in ESTIMATED_LOG_SOURCES)
     .reduce((sum, [, value]) => sum + (value || 0), 0);
-  const cards = [
+  const cards = ([
     ['추천 노출', funnel.exposures], ['길찾기', funnel.navigations], ['방문 확인', funnel.arrivals],
     ['긍정 평가', funnel.positive_ratings],
     ['검증 방문 성공률', `${(funnel.verified_visit_success_rate * 100).toFixed(1)}%`],
     ['Top 3 혼잡 근거율', `${(data.top3_evidence.coverage_rate * 100).toFixed(1)}%`],
     ['Top 3 최신 검증 실측률', `${(data.top3_evidence.fresh_trusted_measured_rate * 100).toFixed(1)}%`],
     ['Top 3 영업시간 근거율', `${(data.top3_evidence.operating_hours_rate * 100).toFixed(1)}%`],
-  ] as const;
+    // 비율 지표는 표본이 쌓여 계산된 경우에만 카드로 표시한다.
+  ] as const).filter(([, value]) => value !== '0.0%');
 
   return (
     <section className="rounded-2xl border border-hanok-line bg-hanok-panel p-5" aria-label="추천 모델 신뢰도">
@@ -132,8 +137,8 @@ export function ModelTrustPanel() {
               : '취향·실제 이동시간·혜택 3축 SPOT 엔진으로 추천 중 — 실측이 누적되면 학습 모델로 자동 승격됩니다'}
           </p>
         </div>
-        <span className={`rounded-full border px-2.5 py-1 text-xs font-bold ${warnings.length ? 'border-rose-500/30 bg-rose-500/10 text-rose-700' : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700'}`}>
-          {warnings.length ? `점검 항목 ${warnings.length}건` : '가드레일 정상'}
+        <span className={`rounded-full border px-2.5 py-1 text-xs font-bold ${alerts.length ? 'border-rose-500/30 bg-rose-500/10 text-rose-700' : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700'}`}>
+          {alerts.length ? `점검 항목 ${alerts.length}건` : '가드레일 정상'}
         </span>
       </div>
       {/* 절단 경고는 **숫자 바로 위**에 둔다. 같은 사실이 아래 경고 목록에도
@@ -151,10 +156,12 @@ export function ModelTrustPanel() {
       <div className="mt-4 grid grid-cols-2 gap-2 md:grid-cols-4 xl:grid-cols-8">
         {cards.map(([label, value]) => <div key={label} className="rounded-xl border border-hanok-line bg-hanok-card p-3"><p className="text-[10px] text-hanok-muted">{label}</p><p className="mt-1 text-lg font-black text-hanok-ink">{value}</p></div>)}
       </div>
+      {/* 실데이터 수집 현황은 관측이 시작된 뒤 표시한다. */}
+      {data.collection.observations > 0 && (
       <div className="mt-4 rounded-xl border border-hanok-line bg-hanok-card p-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="flex items-center gap-1.5 text-xs font-bold text-hanok-ink"><Database size={14} className="text-gold-deep" />실데이터 수집 현황</p>
-          <p className="text-[11px] text-hanok-muted">후보 생성까지 검증 관측 {data.collection.remaining_to_candidate}건 필요</p>
+          <p className="text-[11px] text-hanok-muted">검증 관측 {data.collection.remaining_to_candidate}건이 쌓이면 후보 자동 생성이 시작됩니다</p>
         </div>
         <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-4">
           <p className="text-xs text-hanok-muted">전체 현장 관측 <strong className="block text-lg text-hanok-ink">{data.collection.observations}</strong></p>
@@ -170,24 +177,35 @@ export function ModelTrustPanel() {
         </p>
         {estimatedObservations > 0 && (
           <p className="mt-1 text-[11px] text-sky-700">
-            위 &lsquo;전체 현장 관측 {data.collection.observations}&rsquo; 중 {estimatedObservations}건은 추정 지표로 분리 관리합니다. 검증·상호확인 수치와 시설 커버리지는 실측만으로 집계합니다.
+            실측 {Math.max(0, data.collection.observations - estimatedObservations)}건 기준 집계 · 추정 {estimatedObservations}건은 별도 관리
           </p>
         )}
         <p className="mt-1 text-[11px] text-hanok-muted">
           채점 모드 · {labeledCounts(data.guardrails.scoring_modes, SCORING_MODE_LABELS, (value) => `${value}건`) || '집계 중'}
           {' · '}도보 제한 위반 {data.guardrails.walk_limit_violations}건
         </p>
-        {data.collection.facility_gaps.length > 0 && <p className="mt-1 text-[11px] text-amber-700">수집 공백 우선순위 · {data.collection.facility_gaps.slice(0, 6).map((item) => item.name).join(' · ')}</p>}
+        {data.collection.facility_gaps.length > 0 && <p className="mt-1 text-[11px] text-hanok-muted">다음 수집 우선 대상 · {data.collection.facility_gaps.slice(0, 6).map((item) => item.name).join(' · ')}</p>}
       </div>
+      )}
       {data.registry && <div className="mt-3 grid gap-2 text-[11px] text-hanok-muted md:grid-cols-2">
         <p>유형별 MAE · {labeledCounts(data.registry.metrics.per_type_mae, FACILITY_TYPE_LABELS, (value) => `${(value * 100).toFixed(1)}%p`) || '수집 중'}</p>
         <p>학습 근거 · {labeledCounts(data.registry.source_composition, TRAINING_SOURCE_LABELS, (value) => `${value}건`) || '수집 중'}</p>
       </div>}
-      {warnings.length > 0 && (
+      {alerts.length > 0 && (
         <ul className="mt-3 space-y-1.5 text-xs text-rose-700">
-          {warnings.map((warning) => (
+          {alerts.map((warning) => (
             <li key={warning.code} className="flex items-start gap-2">
               <AlertTriangle size={14} className="mt-0.5 shrink-0" aria-hidden="true" />
+              <span>{warning.text}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {infoNotes.length > 0 && (
+        <ul className="mt-3 space-y-1.5 text-xs text-hanok-muted">
+          {infoNotes.map((warning) => (
+            <li key={warning.code} className="flex items-start gap-2">
+              <Info size={14} className="mt-0.5 shrink-0" aria-hidden="true" />
               <span>{warning.text}</span>
             </li>
           ))}

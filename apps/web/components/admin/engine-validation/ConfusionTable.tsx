@@ -2,11 +2,12 @@
 
 import { confusionCellKind, GRADE_LABELS } from '@/lib/engineValidation';
 
+// 라이트 종이 배경 — 다크용 -200 톤은 옅은 셀 배경 위에서 읽히지 않는다. -800 로 대비 확보.
 const CELL_STYLE = {
-  match: 'bg-emerald-500/15 text-emerald-200 font-bold',
+  match: 'bg-emerald-500/15 text-emerald-800 font-bold',
   near: 'text-hanok-ink',
   far: 'text-hanok-muted',
-  danger: 'bg-rose-500/15 text-rose-200 font-bold',
+  danger: 'bg-rose-500/15 text-rose-800 font-bold',
 } as const;
 
 /** 행 = 서울 실측 등급, 열 = NextSpot 추정 등급. 대각선 = 일치, 붐빔→여유·보통 = 위험 오분류. */

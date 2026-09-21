@@ -88,7 +88,7 @@ function summary(over: Partial<ValidationSummary> = {}): ValidationSummary {
 
   const collecting = describeState(summary(), place());
   assert.match(collecting.title, /실측 대조 1\.8시간째 · 집계 중/);
-  assert.match(collecting.detail, /12개 \/ 판정 최소 36개\(6시간\)/);
+  assert.match(collecting.detail, /버킷 12개 수집 · 판정 기준 36개/);
 
   const ready = describeState(summary({ state: 'ready' }), place({ sufficient: true, hours_covered: 80, days_covered: 4, bucket_count: 480 }));
   assert.equal(ready.tone, 'ok');
@@ -105,8 +105,8 @@ function summary(over: Partial<ValidationSummary> = {}): ValidationSummary {
 
 // --- 표본 출처 한 줄 ----------------------------------------------------------------
 {
-  assert.equal(sampleCaveat(place({ days_covered: 9 })), '서울 홍대 관광특구 · 최근 9일 실측 대조 · 표본 확대 중');
-  assert.equal(sampleCaveat(null), '서울 홍대 관광특구 · 최근 0일 실측 대조 · 표본 확대 중');
+  assert.equal(sampleCaveat(place({ days_covered: 9 })), '서울 홍대 관광특구 · 최근 9일 실측 대조 진행 중');
+  assert.equal(sampleCaveat(null), '서울 홍대 관광특구 · 최근 0일 실측 대조 진행 중');
 }
 
 // --- 지표 표기 --------------------------------------------------------------------

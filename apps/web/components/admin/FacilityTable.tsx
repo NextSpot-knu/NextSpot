@@ -234,7 +234,25 @@ export function FacilityTable() {
 
         <div className="overflow-x-auto">
           {loading ? (
-            <div className="p-8 text-center text-hanok-muted">데이터 로딩 중...</div>
+            // 회색 글자 한 줄 대신 대시보드와 같은 시머 스켈레톤 — dash-* 스타일은 이 컴포넌트가
+            // 어느 페이지에 얹힐지 보장이 없어 fct-* 로 자족한다(<style> 인라인).
+            <div className="p-6 flex flex-col gap-3">
+              <style>{`
+                @keyframes fct-shimmer { 100% { transform: translateX(100%); } }
+                .fct-skel { position: relative; overflow: hidden; }
+                .fct-skel::after {
+                  content: "";
+                  position: absolute;
+                  inset: 0;
+                  transform: translateX(-100%);
+                  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.55), transparent);
+                  animation: fct-shimmer 1.6s ease-in-out infinite;
+                }
+              `}</style>
+              {[0, 1, 2].map((i) => (
+                <div key={i} className="fct-skel h-12 rounded-xl bg-gradient-to-r from-hanok-line/50 via-gold/15 to-hanok-line/50" />
+              ))}
+            </div>
           ) : (
             <>
               {/* min-w-[880px]: 이 표는 6칸인데 카드가 grid-cols-3 의 2칸(col-span-2)이라, 좁은 폭에서
@@ -280,7 +298,7 @@ export function FacilityTable() {
                         </button>
                         <button
                           onClick={() => handleDelete(fac.id, fac.name)}
-                          className="p-1.5 text-hanok-muted hover:text-rose-400 transition-colors bg-hanok-panel border border-hanok-line rounded-md"
+                          className="p-1.5 text-hanok-muted hover:text-rose-600 transition-colors bg-hanok-panel border border-hanok-line rounded-md"
                         >
                           <Trash2 size={16} />
                         </button>
@@ -289,7 +307,16 @@ export function FacilityTable() {
                   ))}
                   {filteredFacilities.length === 0 && (
                     <tr>
-                      <td colSpan={6} className="text-center p-8 text-hanok-muted font-medium">이 유형의 장소를 불러오는 중입니다.</td>
+                      <td colSpan={6} className="p-8">
+                        {/* 빈 목록 — 아이콘 + 다음 행동 안내로 '비어 있어도 관리되는 화면' 으로 보이게 한다. */}
+                        <div className="flex flex-col items-center text-center gap-2">
+                          <div className="w-11 h-11 rounded-2xl bg-gold/10 border border-gold/30 flex items-center justify-center">
+                            <Settings size={20} className="text-gold-deep" />
+                          </div>
+                          <p className="text-sm font-semibold text-hanok-ink">이 유형의 장소를 불러오는 중입니다.</p>
+                          <p className="text-xs text-hanok-muted">우측 상단 &lsquo;신규 장소 등록&rsquo; 버튼으로 새 장소를 바로 등록할 수도 있습니다.</p>
+                        </div>
+                      </td>
                     </tr>
                   )}
                 </tbody>
@@ -419,7 +446,7 @@ export function FacilityTable() {
               </div>
 
               {formError && (
-                <p className="text-xs font-medium text-rose-400">{formError}</p>
+                <p className="text-xs font-medium text-rose-700">{formError}</p>
               )}
 
               <div className="flex justify-end gap-2 pt-1">

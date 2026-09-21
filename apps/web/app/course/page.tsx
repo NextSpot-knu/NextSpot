@@ -827,6 +827,10 @@ function CourseContent() {
                   </div>
                 )}
               </div>
+
+              <p className="border-t border-line pt-4 text-center text-[11px] leading-relaxed text-muk-soft">
+                {t('course.dataAttribution')}
+              </p>
             </div>
           </div>
         </div>

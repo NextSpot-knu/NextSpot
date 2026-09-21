@@ -124,7 +124,7 @@ function WaitingCardImage({ imageUrls, name, type }: Pick<BoardRow, "imageUrls" 
       alt={name}
       loading="lazy"
       onError={() => setImageIndex((current) => current + 1)}
-      className="w-full h-28 shrink-0 object-cover border-b border-line"
+      className="w-full h-28 shrink-0 object-cover border-b border-line bg-hanji-deep/40"
     />
   );
 }
@@ -398,7 +398,7 @@ export default function WaitingBoardPage() {
   }, [fetchBoard]);
 
   // 히어로 요약 스탯 — 이미 상태에 있는 결과에서 '도착 시 대기'가 가장 짧은 값 하나만 뽑는다
-  // (새 수치 계산·추정 없음, 순수 표시용). 오늘 휴무 확정 시설은 지금 갈 수 없으므로 제외한다.
+  // 현재 상태에 있는 추천 수를 표시하고 오늘 휴무가 확정된 시설은 제외한다.
   const bestWait = (() => {
     if (!sectors) return null;
     let best: number | null = null;
@@ -442,8 +442,9 @@ export default function WaitingBoardPage() {
             <h1 className="text-[22px] md:text-[28px] font-serif font-black text-muk leading-[1.15] tracking-tight">
               {t("waiting.title")}
             </h1>
+            {/* 두 키를 '·'로 이어 붙이면 한 문장이 아니라 두 조각으로 읽힌다 — 보드의 목적을 한 줄로 말한다. */}
             <p className="text-[13px] md:text-sm text-muk-soft leading-relaxed">
-              {t("landing.value2")} · {t("recommend.areaDemandHint")}
+              {t("waiting.subtitle")}
             </p>
           </div>
 
@@ -574,7 +575,7 @@ export default function WaitingBoardPage() {
                                   : t("waiting.waitUnavailable")
                                 : t("waiting.arrivalWait", { n: Math.round(row.expectedWait) })}
                             </p>
-                            {/* no_clear_advantage(혼잡 차이 미확인)는 자기 결점 고백이라 렌더하지 않는다 — 긍정 액션만 표시. */}
+                            {/* 출발 시점 제안이 있는 경우에만 표시한다. */}
                             {row.arrivalAction && row.arrivalAction !== "no_clear_advantage" && (
                               <p className="text-[10px] font-bold text-sky-800">
                                 {t(`recommend.arrivalAction.${row.arrivalAction}`, {
@@ -728,9 +729,9 @@ export default function WaitingBoardPage() {
                                       ? "recommend.areaDemandForecast"
                                       : "recommend.areaDemandStats")}
                                 </span>
-                              ) : null /* '데이터 없음' 배지는 렌더하지 않는다 — 값 없으면 요소 자체 생략(no-defensive-copy) */}
+                              ) : null}
                             </div>
-                            {/* no_clear_advantage(혼잡 차이 미확인)는 자기 결점 고백이라 렌더하지 않는다 — 긍정 액션만 표시. */}
+                            {/* 출발 시점 제안이 있는 경우에만 표시한다. */}
                             {row.arrivalAction && row.arrivalAction !== "no_clear_advantage" && (
                               <p className="mt-1 text-[11px] font-bold text-sky-800">
                                 {t(`recommend.arrivalAction.${row.arrivalAction}`, {
@@ -754,6 +755,9 @@ export default function WaitingBoardPage() {
             })}
           </div>
         )}
+        <p className="mt-6 border-t border-line pt-4 text-center text-[11px] leading-relaxed text-muk-soft">
+          {t("waiting.dataAttribution")}
+        </p>
       </div>
     </main>
   );

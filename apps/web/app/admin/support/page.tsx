@@ -192,12 +192,14 @@ export default function SupportPage() {
     }
   };
 
+  // 상태 칩 — 라이트 종이 위에서는 옅은 배경만으로 구분이 약해 테두리를 함께 쓴다
+  // (bg-{hue}-500/10 + border-{hue}-500/30 + text-{hue}-700 — 관제 공통 패턴).
   const getStatusBadge = (status: string) => {
     switch(status) {
-      case 'new': return <span className="px-2 py-1 bg-red-500/15 text-red-300 text-xs font-bold rounded-md">NEW</span>;
-      case 'in_progress': return <span className="px-2 py-1 bg-amber-500/15 text-amber-300 text-xs font-bold rounded-md">IN PROGRESS</span>;
-      case 'resolved': return <span className="px-2 py-1 bg-emerald-500/15 text-emerald-700 text-xs font-bold rounded-md">RESOLVED</span>;
-      default: return <span className="px-2 py-1 bg-hanok-card text-hanok-ink text-xs font-bold rounded-md">NEW</span>;
+      case 'new': return <span className="px-2 py-1 bg-red-500/10 border border-red-500/30 text-red-700 text-xs font-bold rounded-md">NEW</span>;
+      case 'in_progress': return <span className="px-2 py-1 bg-amber-500/10 border border-amber-500/30 text-amber-700 text-xs font-bold rounded-md">IN PROGRESS</span>;
+      case 'resolved': return <span className="px-2 py-1 bg-emerald-500/10 border border-emerald-500/30 text-emerald-700 text-xs font-bold rounded-md">RESOLVED</span>;
+      default: return <span className="px-2 py-1 bg-hanok-card border border-hanok-line text-hanok-ink text-xs font-bold rounded-md">NEW</span>;
     }
   };
 
@@ -244,15 +246,15 @@ export default function SupportPage() {
               <div className="flex items-center gap-2 text-hanok-muted font-semibold text-sm">
                 <FileText size={16} /> Total: {countLabel(loadStatus, filteredTickets.length)}
               </div>
-              <div className={`flex items-center gap-2 font-semibold text-sm ${loadStatus === 'failed' ? 'text-hanok-muted' : 'text-red-400'}`}>
+              <div className={`flex items-center gap-2 font-semibold text-sm ${loadStatus === 'failed' ? 'text-hanok-muted' : 'text-red-700'}`}>
                 <MessageSquare size={16} /> New: {countLabel(loadStatus, filteredTickets.filter(t => t.status === 'new').length)}
               </div>
             </div>
             {loadStatus === 'failed' && (
               <div className="mx-4 mt-4 flex items-start gap-2 bg-amber-500/10 border border-amber-500/30 rounded-xl p-3">
-                <AlertCircle size={16} className="text-amber-400 flex-shrink-0 mt-0.5" />
+                <AlertCircle size={16} className="text-amber-600 flex-shrink-0 mt-0.5" />
                 <div className="text-xs">
-                  <p className="font-bold text-amber-300">문의 목록을 갱신하는 중입니다</p>
+                  <p className="font-bold text-amber-800">문의 목록을 갱신하는 중입니다</p>
                   <p className="text-hanok-muted mt-1">잠시 후 새로고침해 주세요.</p>
                 </div>
               </div>
@@ -263,8 +265,18 @@ export default function SupportPage() {
                   <div className="w-6 h-6 border-2 border-gold border-t-transparent rounded-full animate-spin"></div>
                 </div>
               ) : filteredTickets.length === 0 ? (
-                <div className="text-center p-8 text-hanok-muted text-sm">
-                  {emptyOrFailedText(loadStatus, searchQuery ? '검색된 문의가 없습니다.' : '접수된 문의가 없습니다.')}
+                // 빈 목록 — 문구는 emptyOrFailedText 판정(실패≠0건)을 그대로 쓰되,
+                // 아이콘 + 다음 행동 안내로 '비어 있어도 관리되는 화면' 으로 보이게 한다.
+                <div className="flex flex-col items-center text-center gap-2 p-10">
+                  <div className="w-12 h-12 rounded-2xl bg-gold/10 border border-gold/30 flex items-center justify-center">
+                    <MessageSquare size={22} className="text-gold-deep" />
+                  </div>
+                  <p className="text-sm font-semibold text-hanok-ink">
+                    {emptyOrFailedText(loadStatus, searchQuery ? '검색된 문의가 없습니다.' : '접수된 문의가 없습니다.')}
+                  </p>
+                  <p className="text-xs text-hanok-muted">
+                    {searchQuery ? '다른 검색어로 다시 찾아보세요.' : '새 문의가 접수되면 이 목록에 바로 표시됩니다.'}
+                  </p>
                 </div>
               ) : (
                 filteredTickets.map(ticket => (
@@ -346,7 +358,7 @@ export default function SupportPage() {
 
                   {selectedTicket.status === 'resolved' && !selectedTicket.replyBody ? (
                     <div className="flex-1 flex flex-col items-center justify-center text-hanok-muted bg-hanok rounded-xl border border-dashed border-hanok-line p-6 text-center">
-                      <CheckCircle size={48} className="text-emerald-400 mb-4" />
+                      <CheckCircle size={48} className="text-emerald-600 mb-4" />
                       <p className="font-medium">답변 없이 처리 완료된 문의입니다.</p>
                       {/* 이 구분이 중요하다 — '처리 완료' 는 '답했다' 가 아니다. */}
                       <p className="text-xs mt-1">필요하면 아래에 답변을 남겨 보내실 수 있습니다.</p>
@@ -378,8 +390,8 @@ export default function SupportPage() {
                       <div className="flex justify-between items-center gap-4">
                         <div className="text-sm text-hanok-muted">
                           {replyText.trim()
-                            ? <>답변을 저장하고 상태를 <span className="font-bold text-emerald-400">RESOLVED</span>로 바꿉니다. 문의자는 <span className="font-semibold text-hanok-ink">마이페이지 &gt; 내 문의</span>에서 봅니다.</>
-                            : <>답변 없이 상태만 <span className="font-bold text-emerald-400">RESOLVED</span>로 바꿉니다.</>}
+                            ? <>답변을 저장하고 상태를 <span className="font-bold text-emerald-700">RESOLVED</span>로 바꿉니다. 문의자는 <span className="font-semibold text-hanok-ink">마이페이지 &gt; 내 문의</span>에서 봅니다.</>
+                            : <>답변 없이 상태만 <span className="font-bold text-emerald-700">RESOLVED</span>로 바꿉니다.</>}
                         </div>
                         {/* `disabled={!replyText.trim()}` 를 걸지 않는다 — 답변 없이 닫아야 하는
                             문의(스팸·중복)가 실제로 있고, 그때 억지로 글을 쓰게 만들 이유가 없다. */}
@@ -402,8 +414,8 @@ export default function SupportPage() {
                 {/* 조회 실패 때 '선택하세요' 라고 하면 목록이 비어 있는 게 정상인 줄 안다. */}
                 {loadStatus === 'failed' ? (
                   <>
-                    <AlertCircle size={48} className="mb-4 text-amber-400/70" />
-                    <p className="font-semibold text-amber-300">문의 목록을 갱신하는 중입니다</p>
+                    <AlertCircle size={48} className="mb-4 text-amber-600/70" />
+                    <p className="font-semibold text-amber-800">문의 목록을 갱신하는 중입니다</p>
                     <p className="text-sm mt-1">잠시 후 다시 확인해 주세요.</p>
                   </>
                 ) : (

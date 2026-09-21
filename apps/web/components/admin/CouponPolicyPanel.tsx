@@ -158,7 +158,7 @@ export function CouponPolicyPanel() {
       <div className="p-6 border-b border-hanok-line bg-hanok-card/30 flex justify-between items-center">
         <div>
           <div className="flex items-center gap-2">
-            <Ticket className="text-amber-400" size={20} />
+            <Ticket className="text-amber-600" size={20} />
             <h3 className="text-lg font-bold text-hanok-ink">쿠폰 정책 개입 (w3 인센티브)</h3>
           </div>
           <p className="text-xs text-hanok-muted mt-1">
@@ -235,7 +235,7 @@ export function CouponPolicyPanel() {
                         />
                         <span
                           className={`text-xs font-bold w-16 ${
-                            percent > 0 ? 'text-amber-300' : 'text-hanok-muted'
+                            percent > 0 ? 'text-amber-700' : 'text-hanok-muted'
                           }`}
                         >
                           {percent > 0 ? `${percent}% 할인` : '제휴 없음'}
@@ -246,11 +246,11 @@ export function CouponPolicyPanel() {
                       {savingIds[f.id] ? (
                         <span className="text-xs text-hanok-muted">저장 중…</span>
                       ) : savedIds[f.id] ? (
-                        <span className="text-xs font-bold text-emerald-400">저장됨 ✓</span>
+                        <span className="text-xs font-bold text-emerald-700">저장됨 ✓</span>
                       ) : (
                         <span
                           className={`text-xs font-bold ${
-                            boost > 0 ? 'text-amber-300' : 'text-hanok-muted'
+                            boost > 0 ? 'text-amber-700' : 'text-hanok-muted'
                           }`}
                         >
                           +{boost.toFixed(3)}점
@@ -262,8 +262,15 @@ export function CouponPolicyPanel() {
               })}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={4} className="text-center p-8 text-hanok-muted text-sm">
-                    검색 결과가 없습니다.
+                  <td colSpan={4} className="p-8">
+                    {/* 빈 결과 — 아이콘 + 다음 행동 안내로 '비어 있어도 관리되는 화면' 으로 보이게 한다. */}
+                    <div className="flex flex-col items-center text-center gap-2">
+                      <div className="w-11 h-11 rounded-2xl bg-gold/10 border border-gold/30 flex items-center justify-center">
+                        <Ticket size={20} className="text-gold-deep" />
+                      </div>
+                      <p className="text-sm font-semibold text-hanok-ink">검색 결과가 없습니다.</p>
+                      <p className="text-xs text-hanok-muted">다른 상점 이름으로 다시 검색해 보세요.</p>
+                    </div>
                   </td>
                 </tr>
               )}

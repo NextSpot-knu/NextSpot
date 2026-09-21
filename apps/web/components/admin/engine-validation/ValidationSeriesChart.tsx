@@ -6,17 +6,17 @@ import {
 import { chartRows, formatKst, type ChartRow, type SeriesPoint } from '@/lib/engineValidation';
 
 // recharts 는 SVG 속성으로 색을 내보내 var(--color-*) 를 못 읽는다 — globals.css 한옥 토큰을 미러링한다
-// (components/admin/DashboardCharts.tsx 와 같은 방식).
-// 두 선의 색은 패널 배경(#241d17) 기준으로 명도대·색각이상 분리·대비를 검증한 쌍이다
-// (OKLCH L 0.48~0.67, 색각이상 ΔE ≥ 19, 대비 ≥ 3:1). 색만으로 구분하지 않도록 추정은 점선이다 —
+// (components/admin/DashboardCharts.tsx 와 같은 방식). 라이트 종이 테마 전환에 맞춰 미러도 갱신했다 —
+// 다크 시절 값이 남으면 축·툴팁이 한지 배경에서 씻겨 보인다. 두 선(실측 파랑·추정 골드)은 라이트
+// 배경에서도 명도·색각이상 분리가 유지되고, 색만으로 구분하지 않도록 추정은 점선이다 —
 // 프로젝트 전체에서 '추정' 은 실측과 같은 모양으로 그리지 않는다.
 const COLOR = {
-  grid: '#3a2f24',    // --color-hanok-line
-  axis: '#b8a894',    // --color-hanok-muted
-  ink: '#f0e7d8',     // --color-hanok-ink
-  card: '#2c241c',    // --color-hanok-card
-  actual: '#4a90d9',  // 서울 실측(정규화 인구)
-  estimate: '#b08a2c', // NextSpot 추정 혼잡도
+  grid: '#d8cab2',    // --color-hanok-line
+  axis: '#63533f',    // --color-hanok-muted
+  ink: '#251d15',     // --color-hanok-ink
+  card: '#fffdf7',    // --color-hanok-card
+  actual: '#2f6fb8',  // 서울 실측(정규화 인구) — 라이트 배경 대비를 위해 한 단계 진하게
+  estimate: '#8a6a1c', // NextSpot 추정 혼잡도 — 라이트 배경 대비를 위해 한 단계 진하게
 } as const;
 
 const GRADE_EDGES: { y: number; label: string }[] = [

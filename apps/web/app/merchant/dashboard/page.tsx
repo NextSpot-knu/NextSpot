@@ -119,40 +119,44 @@ export default function MerchantDashboardPage() {
 
   return (
     <div className="min-h-screen w-full bg-hanji font-sans pb-16">
-      <header className="sticky top-0 z-10 bg-hanji/90 backdrop-blur border-b border-line px-4 py-3 flex items-center justify-between">
+      {/* 콘솔 톱바 — 흰 서페이스 위에 가게 이름을 주인공으로 세운다(종류는 금색 칩).
+          좌우 조작은 모두 44px 급 버튼으로 — 스크린샷·고령 사용자 모두에서 '전문 도구' 로 읽히게. */}
+      <header className="sticky top-0 z-10 bg-white/95 backdrop-blur border-b border-line px-3 py-2.5 flex items-center justify-between gap-2">
         <button
           onClick={() => router.push('/merchant')}
           aria-label="사장님 콘솔 홈으로"
-          className="flex items-center gap-1 text-muk-soft text-sm hover:text-muk transition-colors rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+          className="toss-pressable flex min-h-11 min-w-11 items-center justify-center rounded-xl border border-line bg-white text-muk-soft hover:bg-hanji hover:text-muk transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
         >
-          <ChevronLeft size={18} aria-hidden="true" />
+          <ChevronLeft size={20} aria-hidden="true" />
         </button>
-        <div className="text-center">
-          <p className="text-sm font-bold font-serif text-muk">{facility.name}</p>
-          <p className="text-xs text-muk-soft">{TYPE_LABEL[facility.type] || facility.type}</p>
+        <div className="min-w-0 text-center">
+          <p className="truncate text-[15px] font-bold font-serif text-muk">{facility.name}</p>
+          <p className="mt-0.5 inline-block rounded-full border border-gold/30 bg-gold/10 px-2 py-px text-[13px] font-semibold leading-5 text-gold-deep">
+            {TYPE_LABEL[facility.type] || facility.type}
+          </p>
         </div>
         {/* 오른쪽은 '가게 변경'(콘솔 안에서 대상 바꾸기)과 '나가기'(콘솔 밖으로) 둘이다.
             여기 나가기가 없던 동안 대시보드에서 앱으로 돌아갈 길은 게이트를 한 번 거치는
             것뿐이었다 — 하단 내비도 /merchant 경로에서는 숨겨진다(BottomNav 의 allowlist).
             목적지를 못박는 이유는 게이트의 leave 주석 참조(히스토리 back 은 못 나간다). */}
-        <div className="flex items-center gap-3">
+        <div className="flex flex-shrink-0 items-center gap-1.5">
           <button
             onClick={handleChangeFacility}
-            className="text-xs text-muk-soft hover:text-muk transition-colors underline underline-offset-2 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+            className="toss-pressable min-h-11 rounded-xl border border-line bg-white px-3 text-[13px] font-semibold text-muk hover:bg-hanji transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
           >
             가게 변경
           </button>
           <button
             onClick={() => router.push('/main')}
             aria-label="관광객 앱으로 나가기"
-            className="flex items-center gap-1 text-xs text-muk-soft hover:text-muk transition-colors rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+            className="toss-pressable flex min-h-11 items-center gap-1 rounded-xl border border-line bg-white px-3 text-[13px] font-semibold text-muk-soft hover:bg-hanji hover:text-muk transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
           >
-            <LogOut size={15} aria-hidden="true" /> 나가기
+            <LogOut size={14} aria-hidden="true" /> 나가기
           </button>
         </div>
       </header>
 
-      <main className="max-w-2xl mx-auto px-4 py-5 flex flex-col gap-5">
+      <main className="max-w-2xl mx-auto px-4 py-6 flex flex-col gap-5">
         {/* key=시설 id — 가게가 바뀌면 카드 상태(이전 가게 브리핑)를 통째로 리셋한다 */}
         <BriefingCard key={facility.id} facilityId={facility.id} />
         <ForecastSection facilityId={facility.id} />
@@ -180,16 +184,16 @@ function SectionCard({
   children: React.ReactNode;
 }) {
   return (
-    <section className="bg-white border border-line rounded-3xl p-5 shadow-[0_2px_14px_rgba(43,35,32,0.06)]">
-      <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
+    <section className="toss-surface bg-white border border-line rounded-3xl p-5">
+      <div className="flex items-center justify-between flex-wrap gap-2 mb-2">
         <div className="flex items-center gap-2">
-          <span className="flex-shrink-0 px-2 py-0.5 rounded-full text-xs font-bold border bg-gold/15 text-gold-deep border-gold/30">
+          <span className="flex-shrink-0 px-2.5 py-0.5 rounded-full text-[13px] font-bold border bg-gold/15 text-gold-deep border-gold/30">
             {badge}
           </span>
-          <h2 className="text-base font-bold font-serif text-muk">{title}</h2>
+          <h2 className="text-[17px] font-bold font-serif text-muk">{title}</h2>
         </div>
       </div>
-      {honestNote && <p className="text-xs text-muk-soft mb-3 leading-relaxed">{honestNote}</p>}
+      {honestNote && <p className="text-[13px] text-muk-soft mb-3 leading-relaxed">{honestNote}</p>}
       {children}
     </section>
   );
@@ -198,10 +202,10 @@ function SectionCard({
 function ErrorFallback({ message, onRetry }: { message: string; onRetry: () => void }) {
   return (
     <div className="flex flex-col items-center gap-3 py-8">
-      <p className="text-sm text-terracotta text-center">{message}</p>
+      <p className="text-sm text-terracotta text-center leading-relaxed">{message}</p>
       <button
         onClick={onRetry}
-        className="flex items-center gap-2 px-4 py-2 rounded-lg border border-line text-muk text-sm hover:bg-hanji transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+        className="toss-pressable flex min-h-11 items-center gap-2 px-5 py-2 rounded-xl border border-line bg-white text-muk text-sm font-semibold hover:bg-hanji transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
       >
         <RefreshCw size={14} aria-hidden="true" /> 다시 시도
       </button>
@@ -241,16 +245,17 @@ function BriefingCard({ facilityId }: { facilityId: string }) {
 
   if (!briefing) return null;
 
+  // 브리핑은 '오늘 무엇을 할지' 를 알려주는 카드라 일반 섹션보다 반 톤 밝은 금빛 서페이스로 띄운다.
   return (
-    <section className="bg-white border border-gold/30 rounded-3xl p-5 shadow-[0_2px_14px_rgba(43,35,32,0.06)]">
+    <section className="toss-surface bg-gradient-to-br from-gold/10 via-white to-white border border-gold/30 rounded-3xl p-5">
       <div className="flex items-center gap-2 mb-2">
-        <span className="flex-shrink-0 px-2 py-0.5 rounded-full text-xs font-bold border bg-gold/15 text-gold-deep border-gold/30">
+        <span className="flex-shrink-0 px-2.5 py-0.5 rounded-full text-[13px] font-bold border bg-gold/15 text-gold-deep border-gold/30">
           AI 실행 브리핑
         </span>
-        <h2 className="text-base font-bold font-serif text-muk">오늘의 실행 브리핑</h2>
+        <h2 className="text-[17px] font-bold font-serif text-muk">오늘의 실행 브리핑</h2>
       </div>
-      <p className="text-sm text-muk leading-relaxed">{briefing}</p>
-      <p className="text-xs text-muk-soft mt-2 leading-relaxed">
+      <p className="text-[15px] text-muk leading-relaxed">{briefing}</p>
+      <p className="text-[13px] text-muk-soft mt-2 leading-relaxed">
         문구 속 시간대·수치는 서버가 계산한 예측값입니다. 타임세일 발행 여부는 사장님이 결정하세요.
       </p>
     </section>
@@ -320,26 +325,38 @@ function ForecastSection({ facilityId }: { facilityId: string }) {
       {state === 'ready' && chartData.length > 0 && (
         <div className="h-48 w-full">
           <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={chartData} margin={{ top: 5, right: 12, bottom: 0, left: -16 }}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e6dcc6" />
-              <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: '#6b5d4f', fontSize: 11 }} />
+            {/* 색은 globals.css 토큰(var)만 쓴다 — hex 를 여기 다시 박으면 팔레트 조정 시 이 차트만 뒤처진다.
+                축 글자는 13px — 고령 사용자 최소 가독 크기를 차트에도 동일 적용. */}
+            <LineChart data={chartData} margin={{ top: 5, right: 12, bottom: 0, left: -8 }}>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--nextspot-line)" />
+              <XAxis
+                dataKey="label"
+                axisLine={false}
+                tickLine={false}
+                tick={{ fill: 'var(--nextspot-muk-soft)', fontSize: 13 }}
+              />
               <YAxis
                 axisLine={false}
                 tickLine={false}
-                tick={{ fill: '#6b5d4f', fontSize: 11 }}
+                tick={{ fill: 'var(--nextspot-muk-soft)', fontSize: 13 }}
                 domain={[0, 100]}
                 tickFormatter={(v) => `${v}%`}
-                width={36}
+                width={42}
               />
               <Tooltip
                 formatter={(value: unknown) => [`${value}%`, '예측 혼잡도']}
                 labelFormatter={(_label, payload) => (payload?.[0]?.payload?.hourLabel ?? '')}
-                contentStyle={{ borderRadius: '8px', border: '1px solid #e6dcc6', color: '#2b2320' }}
+                contentStyle={{
+                  borderRadius: '10px',
+                  border: '1px solid var(--nextspot-line)',
+                  color: 'var(--nextspot-muk)',
+                  fontSize: 13,
+                }}
               />
               <Line
                 type="monotone"
                 dataKey="congestion"
-                stroke="#c1553b"
+                stroke="var(--nextspot-terracotta)"
                 strokeWidth={3}
                 dot={{ r: 3 }}
                 activeDot={{ r: 5 }}
@@ -394,15 +411,15 @@ function StatsSection({ facilityId }: { facilityId: string }) {
       {state === 'ready' && stats && isEmpty && (
         <div className="flex flex-col gap-3">
           <div className="px-3 py-4 rounded-xl bg-hanji border border-line">
-            <p className="text-sm font-bold text-muk mb-1">우리 가게 성적표가 여기에 쌓입니다</p>
-            <p className="text-xs text-muk-soft leading-relaxed">
+            <p className="text-[15px] font-bold text-muk mb-1">우리 가게 성적표가 여기에 쌓입니다</p>
+            <p className="text-[13px] text-muk-soft leading-relaxed">
               쿠폰 사용·혼잡 제보·추천 수락이 최근 {stats.window_days}일 기준으로 집계됩니다. 아래 두 가지를
               시작하면 바로 숫자가 올라가요.
             </p>
           </div>
           <div className="px-3 py-3 rounded-xl bg-hanji border border-line">
-            <p className="text-xs font-bold text-muk mb-1.5">이렇게 시작해보세요</p>
-            <ul className="text-xs text-muk-soft leading-relaxed list-disc pl-4 flex flex-col gap-1">
+            <p className="text-[13px] font-bold text-muk mb-1.5">이렇게 시작해보세요</p>
+            <ul className="text-[13px] text-muk-soft leading-relaxed list-disc pl-4 flex flex-col gap-1">
               <li>③ 셀프 타임세일을 발행하면 추천 랭킹 인센티브에 반영됩니다.</li>
               <li>④ 좌석 상태를 방송하면 30분 동안 추천 혼잡도에 사장님 확인값이 쓰입니다.</li>
             </ul>
@@ -433,10 +450,10 @@ function StatsSection({ facilityId }: { facilityId: string }) {
               />
             </div>
           </div>
-          <p className="text-xs text-muk-soft leading-relaxed px-1">
+          <p className="text-[13px] text-muk-soft leading-relaxed px-1">
             &lsquo;추천 제안&rsquo;은 우리 가게가 손님 추천 목록에 오른 횟수입니다.
           </p>
-          <div className="flex items-start gap-2 px-3 py-2.5 rounded-xl bg-hanji border border-line text-xs text-muk-soft leading-relaxed">
+          <div className="flex items-start gap-2 px-3 py-2.5 rounded-xl bg-hanji border border-line text-[13px] text-muk-soft leading-relaxed">
             <Eye size={14} className="flex-shrink-0 mt-0.5" aria-hidden="true" />
             <span>{stats.visit_confirmations_note}</span>
           </div>
@@ -458,15 +475,16 @@ function StatTile({
   sub?: string;
 }) {
   return (
-    <div className="flex flex-col gap-1 px-3 py-3 rounded-xl bg-hanji border border-line">
-      <div className="flex items-center gap-1.5 text-muk-soft">
-        <span aria-hidden="true" className="flex items-center">
+    <div className="flex flex-col gap-1 px-3.5 py-3.5 rounded-2xl bg-hanji border border-line">
+      <div className="flex items-center gap-1.5">
+        {/* 아이콘만 금색으로 — 숫자(먹빛)와 역할이 섞이지 않게 한다. */}
+        <span aria-hidden="true" className="flex items-center text-gold-deep">
           {icon}
         </span>
-        <span className="text-xs font-semibold">{label}</span>
+        <span className="text-[13px] font-semibold text-muk-soft">{label}</span>
       </div>
-      <span className="text-xl font-bold text-muk">{value}</span>
-      {sub && <span className="text-xs text-muk-soft">{sub}</span>}
+      <span className="text-2xl font-bold tabular-nums text-muk">{value}</span>
+      {sub && <span className="text-[13px] text-muk-soft">{sub}</span>}
     </div>
   );
 }
@@ -622,31 +640,33 @@ function TimesaleSection({ facilityId }: { facilityId: string }) {
               {activeSales.map((sale) => (
                 <div
                   key={sale.id}
-                  className="flex items-center justify-between px-3 py-2.5 rounded-xl bg-gold/10 border border-gold/30"
+                  className="flex items-center justify-between px-3.5 py-3 rounded-2xl bg-gold/10 border border-gold/30"
                 >
-                  <div className="flex items-center gap-2">
-                    <Zap size={16} className="text-gold-deep" aria-hidden="true" />
+                  <div className="flex items-center gap-2.5">
+                    <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-gold/15 text-gold-deep">
+                      <Zap size={16} aria-hidden="true" />
+                    </span>
                     <div>
-                      <p className="text-sm font-bold text-muk">{Math.round(sale.rate * 100)}% 할인 중</p>
-                      <p className="text-xs text-muk-soft flex items-center gap-1">
+                      <p className="text-[15px] font-bold text-muk">{Math.round(sale.rate * 100)}% 할인 중</p>
+                      <p className="text-[13px] text-muk-soft flex items-center gap-1 tabular-nums">
                         <Timer size={12} aria-hidden="true" /> {formatRemaining(new Date(sale.ends_at).getTime() - now)}
                       </p>
                     </div>
                   </div>
                   {cancelConfirmId === sale.id ? (
                     <div className="flex items-center gap-1.5">
-                      <span className="text-xs text-muk font-semibold">지금 종료할까요?</span>
+                      <span className="text-[13px] text-muk font-semibold">지금 종료할까요?</span>
                       <button
                         onClick={() => setCancelConfirmId(null)}
                         disabled={cancelingId === sale.id}
-                        className="px-2.5 py-1.5 rounded-lg border border-line text-muk-soft text-xs hover:bg-hanji transition-colors disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+                        className="min-h-10 px-3 py-1.5 rounded-lg border border-line bg-white text-muk-soft text-[13px] font-semibold hover:bg-hanji transition-colors disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
                       >
                         유지
                       </button>
                       <button
                         onClick={() => handleCancel(sale.id)}
                         disabled={cancelingId === sale.id}
-                        className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-terracotta text-terracotta text-xs font-bold hover:bg-terracotta/10 transition-colors disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-terracotta/60"
+                        className="flex min-h-10 items-center gap-1 px-3 py-1.5 rounded-lg border border-terracotta bg-white text-terracotta text-[13px] font-bold hover:bg-terracotta/10 transition-colors disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-terracotta/60"
                       >
                         {cancelingId === sale.id && <Loader2 size={12} className="animate-spin" aria-hidden="true" />}
                         종료
@@ -656,7 +676,7 @@ function TimesaleSection({ facilityId }: { facilityId: string }) {
                     <button
                       onClick={() => setCancelConfirmId(sale.id)}
                       aria-label={`${Math.round(sale.rate * 100)}% 할인 타임세일 취소`}
-                      className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-line text-muk-soft text-xs hover:bg-hanji transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+                      className="flex min-h-10 items-center gap-1 px-3 py-1.5 rounded-lg border border-line bg-white text-muk-soft text-[13px] font-semibold hover:bg-hanji transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
                     >
                       <XIcon size={12} aria-hidden="true" />
                       취소
@@ -668,7 +688,7 @@ function TimesaleSection({ facilityId }: { facilityId: string }) {
           )}
 
           <div>
-            <p className="text-xs font-semibold text-muk-soft mb-2" id="timesale-rate-label">
+            <p className="text-[13px] font-semibold text-muk-soft mb-2" id="timesale-rate-label">
               할인율
             </p>
             <div className="grid grid-cols-3 gap-2 mb-3" role="group" aria-labelledby="timesale-rate-label">
@@ -681,15 +701,15 @@ function TimesaleSection({ facilityId }: { facilityId: string }) {
                     setEffectiveNote(null);
                   }}
                   aria-pressed={selectedRate === rate}
-                  className={`py-2.5 rounded-xl border text-sm font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 ${
-                    selectedRate === rate ? 'border-gold bg-gold/10 text-gold-deep' : 'border-line text-muk hover:bg-hanji'
+                  className={`toss-pressable min-h-11 py-2.5 rounded-xl border-2 text-base font-bold tabular-nums transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 ${
+                    selectedRate === rate ? 'border-gold bg-gold/10 text-gold-deep' : 'border-line bg-white text-muk hover:bg-hanji'
                   }`}
                 >
                   {Math.round(rate * 100)}%
                 </button>
               ))}
             </div>
-            <p className="text-xs font-semibold text-muk-soft mb-2" id="timesale-duration-label">
+            <p className="text-[13px] font-semibold text-muk-soft mb-2" id="timesale-duration-label">
               지속 시간
             </p>
             <div className="grid grid-cols-3 gap-2 mb-3" role="group" aria-labelledby="timesale-duration-label">
@@ -702,8 +722,8 @@ function TimesaleSection({ facilityId }: { facilityId: string }) {
                     setEffectiveNote(null);
                   }}
                   aria-pressed={selectedDuration === opt.minutes}
-                  className={`py-2.5 rounded-xl border text-sm font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 ${
-                    selectedDuration === opt.minutes ? 'border-gold bg-gold/10 text-gold-deep' : 'border-line text-muk hover:bg-hanji'
+                  className={`toss-pressable min-h-11 py-2.5 rounded-xl border-2 text-base font-bold tabular-nums transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 ${
+                    selectedDuration === opt.minutes ? 'border-gold bg-gold/10 text-gold-deep' : 'border-line bg-white text-muk hover:bg-hanji'
                   }`}
                 >
                   {opt.label}
@@ -711,12 +731,12 @@ function TimesaleSection({ facilityId }: { facilityId: string }) {
               ))}
             </div>
 
-            {publishError && <p className="text-xs text-terracotta mb-2">{publishError}</p>}
+            {publishError && <p className="text-[13px] text-terracotta mb-2">{publishError}</p>}
 
             {/* 실제 적용 할인율 안내 — 발행은 성공했으나 추천에 반영되는 값이 방금 넣은 값과
                 다를 때만 뜬다. 오류가 아니므로 경고색이 아니라 정보색으로 둔다. */}
             {effectiveNote && (
-              <div className="mb-2 flex items-start gap-2 px-3 py-2.5 rounded-xl bg-jade/10 border border-jade/30 text-xs text-muk leading-relaxed">
+              <div className="mb-2 flex items-start gap-2 px-3 py-2.5 rounded-xl bg-jade/10 border border-jade/30 text-[13px] text-muk leading-relaxed">
                 <Zap size={14} className="flex-shrink-0 mt-0.5 text-jade" aria-hidden="true" />
                 <span>{effectiveNote}</span>
               </div>
@@ -725,26 +745,26 @@ function TimesaleSection({ facilityId }: { facilityId: string }) {
             {publishConfirm ? (
               // 발행 전 확인 — 무거운 모달 없이 인라인 단계로(레포에 shadcn 없음).
               <div className="flex flex-col gap-2.5 px-3 py-3 rounded-xl border border-gold/40 bg-gold/10">
-                <p className="text-sm text-muk leading-relaxed">
+                <p className="text-[15px] text-muk leading-relaxed">
                   <span className="font-bold">{Math.round(publishConfirm.rate * 100)}% 할인</span>을 지금부터{' '}
                   <span className="font-bold">{publishConfirm.label}</span> 동안 발행합니다. 종료 예정{' '}
                   <span className="font-bold">{formatClock(publishConfirm.endsAtMs)}</span>.
                 </p>
-                <p className="text-xs text-muk-soft leading-relaxed">
+                <p className="text-[13px] text-muk-soft leading-relaxed">
                   할인율이 기본 쿠폰율보다 높으면 추천 랭킹 인센티브에 반영됩니다. 이대로 발행할까요?
                 </p>
                 <div className="grid grid-cols-2 gap-2">
                   <button
                     onClick={() => setPublishConfirm(null)}
                     disabled={publishing}
-                    className="py-2.5 rounded-xl border border-line bg-white text-muk text-sm font-semibold hover:bg-hanji transition-colors disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+                    className="toss-pressable min-h-11 py-2.5 rounded-xl border border-line bg-white text-muk text-sm font-semibold hover:bg-hanji transition-colors disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
                   >
                     다시 고르기
                   </button>
                   <button
                     onClick={handlePublish}
                     disabled={publishing}
-                    className="py-2.5 rounded-xl font-semibold text-sm text-white bg-gradient-to-r from-gold to-terracotta hover:opacity-90 transition-opacity disabled:opacity-40 flex items-center justify-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+                    className="toss-pressable min-h-11 py-2.5 rounded-xl font-bold text-sm text-white bg-gradient-to-r from-gold to-terracotta shadow-md shadow-terracotta/20 hover:opacity-90 transition-opacity disabled:opacity-40 flex items-center justify-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
                   >
                     {publishing ? (
                       <Loader2 size={15} className="animate-spin" aria-hidden="true" />
@@ -759,7 +779,7 @@ function TimesaleSection({ facilityId }: { facilityId: string }) {
               <button
                 disabled={selectedRate === null || selectedDuration === null}
                 onClick={openPublishConfirm}
-                className="w-full py-3 rounded-xl font-semibold text-sm text-white bg-gradient-to-r from-gold to-terracotta hover:opacity-90 transition-opacity disabled:opacity-40 disabled:pointer-events-none flex items-center justify-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+                className="toss-pressable min-h-12 w-full py-3 rounded-xl font-bold text-[15px] text-white bg-gradient-to-r from-gold to-terracotta shadow-md shadow-terracotta/20 hover:opacity-90 transition-opacity disabled:opacity-40 disabled:pointer-events-none flex items-center justify-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
               >
                 <Zap size={15} aria-hidden="true" />
                 타임세일 발행
@@ -777,9 +797,9 @@ function TimesaleSection({ facilityId }: { facilityId: string }) {
 // =========================================================================
 
 const SEAT_OPTIONS: { level: SeatLevel; label: string; icon: React.ReactNode }[] = [
-  { level: 'low', label: '여유', icon: <CircleCheck size={16} /> },
-  { level: 'mid', label: '보통', icon: <CircleDot size={16} /> },
-  { level: 'full', label: '만석', icon: <CircleX size={16} /> },
+  { level: 'low', label: '여유', icon: <CircleCheck size={20} /> },
+  { level: 'mid', label: '보통', icon: <CircleDot size={20} /> },
+  { level: 'full', label: '만석', icon: <CircleX size={20} /> },
 ];
 
 const SEAT_LABEL: Record<SeatLevel, string> = { low: '여유', mid: '보통', full: '만석' };
@@ -942,29 +962,33 @@ function SeatStatusSection({ facilityId }: { facilityId: string }) {
       {state === 'ready' && (
         <div className="flex flex-col gap-3">
           <div
-            className={`flex items-center justify-between flex-wrap gap-2 px-3 py-2.5 rounded-xl border ${
+            className={`flex items-center justify-between flex-wrap gap-2 px-3.5 py-3 rounded-2xl border ${
               broadcast?.fresh ? 'bg-gold/10 border-gold/30' : 'bg-hanji border-line'
             }`}
           >
             <div className="flex flex-col gap-0.5">
               <div className="flex items-center gap-2">
                 <span className="text-sm text-muk-soft">현재 방송</span>
-                <span className="text-sm font-bold text-muk">
+                <span className="text-[15px] font-bold text-muk">
                   {current ? SEAT_LABEL[current.level] : '방송 대기'}
                 </span>
                 {current && (
                   <span
-                    className={`px-2 py-0.5 rounded-full text-xs font-bold border ${
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[13px] font-bold border ${
                       broadcast?.fresh
                         ? 'bg-gold/15 text-gold-deep border-gold/30'
                         : 'bg-white text-muk-soft border-line'
                     }`}
                   >
+                    {/* 방송이 살아 있는 동안만 점이 깜빡인다 — '지금 반영 중' 을 글자보다 먼저 전달. */}
+                    {broadcast?.fresh && (
+                      <span className="h-1.5 w-1.5 rounded-full bg-gold-deep animate-pulse" aria-hidden="true" />
+                    )}
                     {broadcast?.fresh ? '적용 중' : '만료됨'}
                   </span>
                 )}
               </div>
-              <p className="text-xs text-muk-soft">
+              <p className="text-[13px] text-muk-soft">
                 {!current && '아래에서 현재 좌석 상태를 누르면 30분 동안 손님 추천에 바로 반영됩니다.'}
                 {current &&
                   broadcast?.fresh &&
@@ -976,7 +1000,7 @@ function SeatStatusSection({ facilityId }: { facilityId: string }) {
                 {current && !broadcast && '지금 다시 방송하시면 30분 동안 추천에 반영됩니다.'}
               </p>
               {observationLine && (
-                <p className="text-xs text-muk-soft/90" aria-live="polite">
+                <p className="text-[13px] text-muk-soft/90" aria-live="polite">
                   {observationLine}
                 </p>
               )}
@@ -986,7 +1010,7 @@ function SeatStatusSection({ facilityId }: { facilityId: string }) {
                 onClick={handleClear}
                 disabled={clearing || submitting !== null}
                 aria-label="좌석 상태 방송 끄기"
-                className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-line bg-white text-muk-soft text-xs hover:bg-hanji transition-colors disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+                className="flex min-h-10 items-center gap-1 px-3 py-1.5 rounded-lg border border-line bg-white text-muk-soft text-[13px] font-semibold hover:bg-hanji transition-colors disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
               >
                 {clearing ? (
                   <Loader2 size={12} className="animate-spin" aria-hidden="true" />
@@ -1004,12 +1028,12 @@ function SeatStatusSection({ facilityId }: { facilityId: string }) {
                 onClick={() => handleBroadcast(opt.level)}
                 disabled={submitting !== null || clearing}
                 aria-pressed={activeLevel === opt.level}
-                className={`flex flex-col items-center gap-1 py-3 rounded-xl border text-sm font-bold transition-colors disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 ${
-                  activeLevel === opt.level ? 'border-gold bg-gold/10 text-gold-deep' : 'border-line text-muk hover:bg-hanji'
+                className={`toss-pressable flex min-h-[72px] flex-col items-center justify-center gap-1.5 py-3 rounded-xl border-2 text-[15px] font-bold transition-colors disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 ${
+                  activeLevel === opt.level ? 'border-gold bg-gold/10 text-gold-deep' : 'border-line bg-white text-muk hover:bg-hanji'
                 }`}
               >
                 {submitting === opt.level ? (
-                  <Loader2 size={16} className="animate-spin" aria-hidden="true" />
+                  <Loader2 size={20} className="animate-spin" aria-hidden="true" />
                 ) : (
                   <span aria-hidden="true" className="flex items-center">
                     {opt.icon}
@@ -1019,7 +1043,7 @@ function SeatStatusSection({ facilityId }: { facilityId: string }) {
               </button>
             ))}
           </div>
-          {submitError && <p className="text-xs text-terracotta">{submitError}</p>}
+          {submitError && <p className="text-[13px] text-terracotta">{submitError}</p>}
         </div>
       )}
     </SectionCard>

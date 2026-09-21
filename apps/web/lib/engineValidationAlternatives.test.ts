@@ -213,7 +213,8 @@ function calibration(over: Partial<CalibrationResponse> = {}): CalibrationRespon
 
   const insufficient = describeCalibrationState('insufficient', calibration({ state: 'insufficient', sample: { paired_buckets: 120, days: 3, first_bucket_at: null, last_bucket_at: null } }));
   assert.match(insufficient.title, /120개 \/ 최소 500개/);
-  assert.match(insufficient.detail, /3일치 \/ 최소 14일/);
+  // 문구 개편(결점 서술 제거)에 맞춘 기대값 — 서버 reason 원문 대신 검증 절차의 사실만 말한다.
+  assert.match(insufficient.detail, /3일치 수집 · 검증 단계 곡선/);
 
   // 곡선이 있어도 적용 전이면 '아직 경주에 걸리지 않았다' 가 먼저다.
   const fittedNotApplied = describeCalibrationState('ready', calibration({ applied: false }));

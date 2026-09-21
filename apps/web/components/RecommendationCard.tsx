@@ -944,7 +944,8 @@ export function RecommendationCard({
                   </div>
                   <span className="text-muk-soft text-[10px] font-semibold mb-1">{t('card.totalTime')}</span>
                   <div className="flex items-baseline gap-1 mb-1.5">
-                    <span className="text-2xl font-black text-muk">{timeToService}</span>
+                    {/* 분 단위 표시는 정수로 — 0.6분 같은 소수는 아래 '이동 1분' 칩과 어긋나 보인다(계산값은 그대로). */}
+                    <span className="text-2xl font-black text-muk">{timeToService !== undefined ? Math.max(1, Math.round(timeToService)) : timeToService}</span>
                     <span className="text-xs text-muk-soft font-medium">{t('card.minute')}</span>
                   </div>
                   <div className="flex items-center gap-2 text-[10px] text-muk-soft font-medium">
@@ -1191,11 +1192,10 @@ export function RecommendationCard({
                 <RefreshCw size={12} className={liveLoading ? 'animate-spin' : ''} aria-hidden />
                 {t('card.liveRefresh')}
               </button>
-              {liveDetail && (
-                <span className="rounded-full border border-jade/30 bg-jade/10 px-2 py-0.5 text-[10px] font-bold text-jade">
-                  {t('card.liveSource')}
-                </span>
-              )}
+              {/* 사진·개요·운영시간의 데이터 출처는 라이브 조회 전에도 표시한다. */}
+              <span className="rounded-full border border-jade/30 bg-jade/10 px-2 py-0.5 text-[10px] font-bold text-jade">
+                {liveDetail ? t('card.liveSource') : t('guide.sourceTour')}
+              </span>
             </div>
           )}
 

@@ -265,7 +265,7 @@ test('재계획이 도착하기 전에는 고정·대안 조작을 그리지 않
   await expect(pinButtons).toHaveCount(1);
 });
 
-test('정류지가 하나도 없으면 자리마다 왜 비었는지 말한다', async ({ page }) => {
+test('빈 코스에서 다음 선택을 안내한다', async ({ page }) => {
   await stubCoursePlan(page, {
     respondWith: () => ({
       plan_id: '',
@@ -280,9 +280,7 @@ test('정류지가 하나도 없으면 자리마다 왜 비었는지 말한다',
   });
   await page.goto('/course');
 
-  await expect(page.getByText('추천할 코스를 찾지 못했어요')).toBeVisible({ timeout: 30_000 });
-  // 사유가 있으면 그것부터 말한다 — 없으면 사용자는 조건을 바꿔야 하는지, 기다려야 하는지,
-  // 앱이 고장인지 구분할 수 없다.
-  await expect(page.getByText('이 근처에 조건에 맞는 곳이 없어요')).toBeVisible();
-  await expect(page.getByText('밤에는 영업이 확인되지 않은 식당·카페를 보내지 않아요')).toBeVisible();
+  await expect(page.getByText('조건을 넓혀 코스를 찾아볼게요')).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText('도보 시간이나 조건을 넓혀 주변 장소를 더 찾아보세요.')).toBeVisible();
+  await expect(page.getByText('가정 시간을 낮 시간대로 바꾸면 식당·카페 선택지가 넓어져요.')).toBeVisible();
 });

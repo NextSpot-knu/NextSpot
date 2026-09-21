@@ -182,7 +182,7 @@ test('SPOT order is stable, comparison falls back, and navigation persists', asy
 
   await page.getByRole('button', { name: '상위 추천 비교하기' }).click();
   await page.getByRole('button', { name: /왜 1위인가요/ }).click();
-  await expect(page.getByText(/설명을 불러오지 못했어요/)).toBeVisible();
+  await expect(page.getByText('설명을 다시 불러올게요 — 위의 수치는 그대로 보실 수 있어요.')).toBeVisible();
 
   await page.getByRole('button', { name: '도보 길안내' }).first().click();
   const active = await page.evaluate(() => JSON.parse(localStorage.getItem('nextspot_active_trip') ?? 'null'));

@@ -37,7 +37,7 @@ type LoadState =
 const TONE_STYLE: Record<Tone, { box: string; title: string; Icon: typeof Info }> = {
   ok: { box: 'bg-emerald-500/10 border-emerald-500/30', title: 'text-emerald-700', Icon: CheckCircle2 },
   info: { box: 'bg-hanok-panel border-hanok-line', title: 'text-hanok-ink', Icon: Info },
-  warn: { box: 'bg-amber-500/10 border-amber-500/30', title: 'text-amber-300', Icon: AlertTriangle },
+  warn: { box: 'bg-amber-500/10 border-amber-500/30', title: 'text-amber-800', Icon: AlertTriangle },
   error: { box: 'bg-rose-500/10 border-rose-500/30', title: 'text-rose-700', Icon: AlertCircle },
 };
 
@@ -179,7 +179,7 @@ export default function EngineValidationPage() {
 
           {load.status === 'failed' && (
             <div className="flex items-start gap-3 bg-rose-500/10 border border-rose-500/30 rounded-2xl p-4">
-              <AlertCircle size={20} className="text-rose-400 flex-shrink-0 mt-0.5" />
+              <AlertCircle size={20} className="text-rose-600 flex-shrink-0 mt-0.5" />
               <div className="min-w-0">
                 <p className="font-bold text-rose-700">{load.failure.title}</p>
                 <p className="text-sm text-hanok-muted mt-1">{load.failure.action}</p>

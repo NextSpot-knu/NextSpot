@@ -39,7 +39,7 @@ type LoadState =
 const TONE_BOX: Record<Tone, string> = {
   ok: 'bg-emerald-500/10 border-emerald-500/30 text-emerald-700',
   info: 'bg-hanok-card border-hanok-line text-hanok-ink',
-  warn: 'bg-amber-500/10 border-amber-500/30 text-amber-300',
+  warn: 'bg-amber-500/10 border-amber-500/30 text-amber-800',
   error: 'bg-rose-500/10 border-rose-500/30 text-rose-700',
 };
 
@@ -115,7 +115,7 @@ export function SeoulCalibrationPanel() {
 
       {load.status === 'failed' && (
         <div className="flex items-start gap-3 bg-rose-500/10 border border-rose-500/30 rounded-xl p-4">
-          <AlertCircle size={18} className="text-rose-400 flex-shrink-0 mt-0.5" />
+          <AlertCircle size={18} className="text-rose-600 flex-shrink-0 mt-0.5" />
           <div className="min-w-0 text-sm">
             <p className="font-bold text-rose-700">{load.failure.title}</p>
             <p className="text-hanok-muted mt-1">{load.failure.action}</p>

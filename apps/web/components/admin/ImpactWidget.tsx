@@ -50,7 +50,7 @@ export function ImpactWidget() {
     <div className="bg-hanok-panel rounded-2xl border border-hanok-line shadow-sm overflow-hidden flex flex-col">
       <div className="p-6 border-b border-hanok-line bg-hanok-card/30">
         <div className="flex items-center gap-2">
-          <Route className="text-emerald-400" size={20} />
+          <Route className="text-emerald-600" size={20} />
           <h3 className="text-lg font-bold text-hanok-ink">오늘 분산 효과</h3>
         </div>
         <p className="text-xs text-hanok-muted mt-1">수락된 추천이 실제로 덜어낸 혼잡 (KST 오늘 기준)</p>
@@ -65,7 +65,7 @@ export function ImpactWidget() {
             배포 시차로 옛/새 서버 응답 shape 이 어긋나는 구간에서 실제로 온다.
             그래서 아래는 **값이 숫자일 때만** 포맷하고, 아니면 '—'(모른다)로 둔다. */}
         <div className="flex items-center gap-4">
-          <div className="p-3 bg-emerald-500/10 rounded-xl text-emerald-400">
+          <div className="p-3 bg-emerald-500/10 rounded-xl text-emerald-600">
             <TimerOff size={24} />
           </div>
           <div>

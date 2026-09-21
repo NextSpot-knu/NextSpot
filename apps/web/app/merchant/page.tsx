@@ -129,8 +129,8 @@ export default function MerchantGatePage() {
   const last = getMerchantFacility();
   return (
     <Shell onLeave={leave}>
-      <div className="rounded-3xl border border-line bg-white p-6 shadow-[0_2px_14px_rgba(43,35,32,0.06)]">
-        <p className="mb-4 text-sm font-semibold text-muk">
+      <div className="toss-surface rounded-3xl border border-line bg-white p-6">
+        <p className="mb-4 text-base font-bold text-muk">
           {owned.length > 0 ? t('merchantGate.pickStore') : t('merchantGate.developerPickAny')}
         </p>
         <div className="flex flex-col gap-2">
@@ -142,23 +142,35 @@ export default function MerchantGatePage() {
                 saveMerchantFacility(toStored(f));
                 router.push('/merchant/dashboard');
               }}
-              className={`flex min-h-11 w-full items-center justify-between gap-2 rounded-xl border px-4 py-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/40 ${
+              className={`toss-pressable flex min-h-14 w-full items-center justify-between gap-3 rounded-2xl border px-4 py-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/40 ${
                 last?.id === f.id ? 'border-gold bg-gold/10' : 'border-line hover:bg-hanji'
               }`}
             >
-              <span>
-                <span className="block text-sm font-semibold text-muk">{f.name}</span>
-                <span className="block text-[11px] text-muk-soft">
-                  {TYPE_LABEL[f.type] || f.type}
+              <span className="flex items-center gap-3">
+                {/* 가게 아바타 — 목록이 텍스트만일 때보다 행 단위 스캔이 빨라진다(마지막 선택 가게는 금색). */}
+                <span
+                  className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl border ${
+                    last?.id === f.id
+                      ? 'border-gold/40 bg-gold/15 text-gold-deep'
+                      : 'border-line bg-hanji text-muk-soft'
+                  }`}
+                >
+                  <Store size={18} />
+                </span>
+                <span>
+                  <span className="block text-[15px] font-bold text-muk">{f.name}</span>
+                  <span className="block text-[13px] text-muk-soft">
+                    {TYPE_LABEL[f.type] || f.type}
+                  </span>
                 </span>
               </span>
-              <ChevronRight size={16} className="text-muk-soft" />
+              <ChevronRight size={18} className="flex-shrink-0 text-muk-soft" />
             </button>
           ))}
         </div>
         {isDeveloper && (
           <>
-            <p className="mt-4 rounded-xl border border-jade/30 bg-jade/10 px-3 py-2 text-[11px] text-muk-soft">
+            <p className="mt-4 rounded-xl border border-jade/30 bg-jade/10 px-3 py-2 text-[13px] text-muk-soft">
               {t('merchantGate.developerNote')}
             </p>
             <DeveloperFacilityPicker
@@ -258,11 +270,11 @@ function DeveloperFacilityPicker({ onPick }: { onPick: (f: MerchantFacility) => 
   return (
     <div className="mt-4 border-t border-line pt-4">
       <div className="mb-2 flex items-baseline justify-between gap-2">
-        <label htmlFor="dev-facility-q" className="text-xs font-semibold text-muk-soft">
+        <label htmlFor="dev-facility-q" className="text-[13px] font-semibold text-muk-soft">
           {t('merchantGate.developerSearch')}
         </label>
         {total !== null && (
-          <span className="text-[11px] tabular-nums text-muk-soft">
+          <span className="text-[13px] tabular-nums text-muk-soft">
             {t('merchantGate.developerCount').replace('{count}', String(total))}
           </span>
         )}
@@ -273,7 +285,7 @@ function DeveloperFacilityPicker({ onPick }: { onPick: (f: MerchantFacility) => 
         value={q}
         onChange={(e) => setQ(e.target.value)}
         placeholder={t('merchantGate.developerSearchHint')}
-        className="w-full rounded-xl border border-line bg-hanji px-3.5 py-2.5 text-sm focus:border-gold/70 focus:outline-none"
+        className="min-h-11 w-full rounded-xl border border-line bg-hanji px-3.5 py-2.5 text-sm text-muk placeholder:text-muk-soft/70 focus:border-gold/70 focus:outline-none"
       />
 
       <div className="mt-2 flex flex-wrap gap-1.5">
@@ -285,7 +297,7 @@ function DeveloperFacilityPicker({ onPick }: { onPick: (f: MerchantFacility) => 
               type="button"
               onClick={() => setType(tp)}
               aria-pressed={on}
-              className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-colors ${
+              className={`min-h-9 rounded-full border px-3 py-1.5 text-[13px] font-semibold transition-colors ${
                 on ? 'border-gold bg-gold/10 text-gold-deep' : 'border-line text-muk-soft hover:bg-hanji'
               }`}
             >
@@ -301,10 +313,10 @@ function DeveloperFacilityPicker({ onPick }: { onPick: (f: MerchantFacility) => 
             key={f.id}
             type="button"
             onClick={() => onPick(f)}
-            className="flex min-h-10 items-center justify-between rounded-lg border border-line px-3 py-2 text-left text-sm hover:bg-hanji"
+            className="flex min-h-11 items-center justify-between rounded-lg border border-line px-3 py-2 text-left text-sm text-muk hover:bg-hanji"
           >
             <span className="truncate">{f.name}</span>
-            <span className="ml-2 shrink-0 text-[11px] text-muk-soft">
+            <span className="ml-2 shrink-0 text-[13px] text-muk-soft">
               {TYPE_LABEL[f.type] || f.type}
             </span>
           </button>
@@ -315,7 +327,7 @@ function DeveloperFacilityPicker({ onPick }: { onPick: (f: MerchantFacility) => 
             type="button"
             onClick={() => setPage((n) => n + 1)}
             disabled={busy}
-            className="min-h-10 rounded-lg border border-dashed border-line px-3 py-2 text-xs font-semibold text-muk-soft hover:bg-hanji disabled:opacity-50"
+            className="min-h-11 rounded-lg border border-dashed border-line px-3 py-2 text-[13px] font-semibold text-muk-soft hover:bg-hanji disabled:opacity-50"
           >
             {busy ? <Loader2 size={14} className="mx-auto animate-spin" /> : t('merchantGate.developerMore')}
           </button>
@@ -324,11 +336,11 @@ function DeveloperFacilityPicker({ onPick }: { onPick: (f: MerchantFacility) => 
         {/* 실패와 '결과 없음' 은 다른 말을 한다. 실패에는 다시 시도할 길을 붙인다. */}
         {!busy && failed && (
           <div className="flex flex-col items-center gap-2 py-3">
-            <p className="text-center text-xs text-terracotta">{t('common.error')}</p>
+            <p className="text-center text-[13px] text-terracotta">{t('common.error')}</p>
             <button
               type="button"
               onClick={() => setReloadToken((n) => n + 1)}
-              className="min-h-9 rounded-lg border border-line px-3 py-1.5 text-xs font-semibold text-muk-soft hover:bg-hanji focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/40"
+              className="min-h-10 rounded-lg border border-line px-3.5 py-1.5 text-[13px] font-semibold text-muk hover:bg-hanji focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/40"
             >
               {t('common.retry')}
             </button>
@@ -336,7 +348,7 @@ function DeveloperFacilityPicker({ onPick }: { onPick: (f: MerchantFacility) => 
         )}
 
         {!busy && !failed && rows.length === 0 && (
-          <p className="py-3 text-center text-xs text-muk-soft">{t('merchantGate.developerEmpty')}</p>
+          <p className="py-3 text-center text-[13px] text-muk-soft">{t('merchantGate.developerEmpty')}</p>
         )}
       </div>
     </div>
@@ -359,20 +371,24 @@ function Shell({ children, onLeave }: { children: React.ReactNode; onLeave?: () 
             <button
               type="button"
               onClick={onLeave}
-              className="-ml-1 inline-flex min-h-9 items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm font-medium text-muk-soft transition-colors hover:bg-white hover:text-muk focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/40"
+              className="-ml-1 inline-flex min-h-10 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium text-muk-soft transition-colors hover:bg-white hover:text-muk focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/40"
             >
               <LogOut size={16} /> {t('merchantGate.leave')}
             </button>
           </div>
         )}
+        {/* 브랜드 헤더 — 금→주칠 그라데이션 심볼 + 서비스 라벨 칩 + 큰 제목.
+            콘솔 첫인상이 '전문 B2B 도구' 로 읽히도록 위계를 칩(무엇) → 제목(어디) 순서로 세운다. */}
         <div className="mb-8 flex flex-col items-center">
-          <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-gold/30 bg-gold/15 text-gold-deep">
-            <Store size={26} />
+          <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-gold to-terracotta text-white shadow-lg shadow-terracotta/20">
+            <Store size={30} />
           </div>
-          <h1 className="font-serif text-2xl font-bold tracking-tight text-muk">
+          <span className="mb-2 rounded-full border border-gold/30 bg-gold/10 px-3 py-1 text-[13px] font-bold tracking-tight text-gold-deep">
+            {t('merchantGate.subtitle')}
+          </span>
+          <h1 className="font-serif text-[26px] font-bold tracking-tight text-muk">
             {t('merchantGate.title')}
           </h1>
-          <p className="mt-1 text-sm text-muk-soft">{t('merchantGate.subtitle')}</p>
         </div>
         {children}
       </div>
@@ -392,15 +408,18 @@ function Card({
   action?: { label: string; onClick: () => void };
 }) {
   return (
-    <div className="rounded-3xl border border-line bg-white p-6 text-center shadow-[0_2px_14px_rgba(43,35,32,0.06)]">
-      <div className="mx-auto mb-2 w-fit">{icon}</div>
-      <p className="font-bold text-muk">{title}</p>
-      <p className="mt-1 text-xs leading-relaxed text-muk-soft">{desc}</p>
+    <div className="toss-surface rounded-3xl border border-line bg-white p-7 text-center">
+      {/* 아이콘을 원판 위에 올려 상태(안내·대기)가 한눈에 잡히게 한다 — 고령 사용자 가독 우선. */}
+      <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl border border-gold/25 bg-gold/10">
+        {icon}
+      </div>
+      <p className="text-lg font-bold text-muk">{title}</p>
+      <p className="mt-1.5 text-sm leading-relaxed text-muk-soft">{desc}</p>
       {action && (
         <button
           type="button"
           onClick={action.onClick}
-          className="mt-4 w-full rounded-xl bg-gradient-to-r from-gold to-terracotta py-3 text-sm font-semibold text-white transition-opacity hover:opacity-90"
+          className="toss-pressable mt-5 flex min-h-12 w-full items-center justify-center rounded-xl bg-gradient-to-r from-gold to-terracotta text-[15px] font-bold text-white shadow-md shadow-terracotta/20 transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
         >
           {action.label}
         </button>

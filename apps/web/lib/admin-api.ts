@@ -103,18 +103,22 @@ async function adminRequest(path: string, options: RequestInit = {}): Promise<an
     if (timedOut) {
       throw new AdminApiError("요청 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요.", "timeout");
     }
-    const reason = err instanceof Error ? err.message : String(err);
-    throw new AdminApiError(`관리자 API 에 연결하지 못했습니다: ${reason}`, "network");
+    // 원인(reason)은 콘솔로만 — 'Failed to fetch' 같은 영문 원문이 화면 문자열에 실리면
+    // 어느 호출부가 {error} 를 그대로 그리는 순간 관제 화면에 노출된다.
+    console.warn('[admin-api] network failure:', err instanceof Error ? err.message : String(err));
+    throw new AdminApiError('관제 데이터를 다시 불러오는 중입니다. 잠시 후 자동으로 표시됩니다.', "network");
   } finally {
     clearTimeout(timer);
   }
 
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
-    // 상태 코드를 함께 싣는다. 이게 없으면 401(재로그인)·403(권한 없음)·500(서버 장애)이
-    // 호출부에서 전부 같은 문자열 한 줄로 뭉개진다.
+    // 상태 코드는 **타입 필드(status)** 로 구분한다(adminApiFailure.ts 가 이 필드를 읽는다).
+    // 서버 detail 원문과 'HTTP 500' 류 표기는 메시지 문자열에 싣지 않는다 — 검수 안 된
+    // 백엔드 문장이 관제 화면에 그대로 나갈 수 있는 유일한 경로였다. 원문은 콘솔로만.
+    if (errorData?.detail) console.warn('[admin-api] http failure:', response.status, errorData.detail);
     throw new AdminApiError(
-      errorData.detail || `관리자 API 오류 (HTTP ${response.status})`,
+      '관제 데이터를 다시 불러오는 중입니다. 잠시 후 자동으로 표시됩니다.',
       "http",
       response.status,
     );

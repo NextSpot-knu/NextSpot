@@ -22,6 +22,21 @@ const REFRESH_INTERVAL_MS = 30_000;
 const DEFAULT_ALERT_PCT = 85; // 백엔드 기본 threshold(0.85)와 동일
 const DEFAULT_WARN_PCT = 70;  // 백엔드 기본 warn(0.7)과 동일
 
+// 로딩 스켈레톤 — 회색 판 대신 대시보드와 같은 시머('초점이 맞는 중') 연출.
+// 대시보드의 dash-* 스타일은 이 페이지에 로드되지 않으므로 saf-* 로 자족한다(<style> 인라인).
+const SAFETY_LOADER_STYLES = `
+@keyframes saf-shimmer { 100% { transform: translateX(100%); } }
+.saf-skel { position: relative; overflow: hidden; }
+.saf-skel::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.55), transparent);
+  animation: saf-shimmer 1.6s ease-in-out infinite;
+}
+`;
+
 interface SafetyFacilityItem {
   facilityId: string;
   facilityName: string;
@@ -90,9 +105,10 @@ function KpiCard({
   tone: 'red' | 'amber' | 'emerald';
   icon: React.ReactNode;
 }) {
+  // 라이트 종이 배경 — 다크용 -300/-400 톤은 씻겨 보인다. 큰 숫자는 -600 으로 대비 확보.
   const toneClass: Record<string, string> = {
-    red: 'border-l-rose-500 text-rose-400',
-    amber: 'border-l-amber-500 text-amber-300',
+    red: 'border-l-rose-500 text-rose-600',
+    amber: 'border-l-amber-500 text-amber-600',
     emerald: 'border-l-emerald-500 text-emerald-700',
   };
   return (
@@ -118,7 +134,7 @@ function ZoneCard({ zone }: { zone: SafetyZone }) {
     >
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-2 min-w-0">
-          <MapPin size={18} className={isAlert ? 'text-rose-400' : 'text-amber-300'} />
+          <MapPin size={18} className={isAlert ? 'text-rose-600' : 'text-amber-600'} />
           <h3 className="font-bold text-hanok-ink truncate">{zone.zoneLabel}</h3>
         </div>
         <span
@@ -136,7 +152,7 @@ function ZoneCard({ zone }: { zone: SafetyZone }) {
         </div>
         <div>
           <div className="text-hanok-muted text-xs mb-0.5">최대 혼잡</div>
-          <div className={`font-bold tabular-nums ${isAlert ? 'text-rose-400' : 'text-amber-300'}`}>
+          <div className={`font-bold tabular-nums ${isAlert ? 'text-rose-700' : 'text-amber-700'}`}>
             {pct(zone.maxCongestion)}
           </div>
         </div>
@@ -348,7 +364,7 @@ export default function SafetyPage() {
                 <div>
                   <div className="flex justify-between items-end mb-2">
                     <h5 className="font-bold text-hanok-ink text-sm">경보 임계값</h5>
-                    <span className="text-xl font-black text-rose-400 tabular-nums">{alertPct}%</span>
+                    <span className="text-xl font-black text-rose-600 tabular-nums">{alertPct}%</span>
                   </div>
                   <input
                     type="range"
@@ -362,7 +378,7 @@ export default function SafetyPage() {
                 <div>
                   <div className="flex justify-between items-end mb-2">
                     <h5 className="font-bold text-hanok-ink text-sm">주의 임계값</h5>
-                    <span className="text-xl font-black text-amber-300 tabular-nums">{warnPct}%</span>
+                    <span className="text-xl font-black text-amber-600 tabular-nums">{warnPct}%</span>
                   </div>
                   <input
                     type="range"
@@ -385,8 +401,9 @@ export default function SafetyPage() {
 
               {loading && !data ? (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <style>{SAFETY_LOADER_STYLES}</style>
                   {[0, 1].map((i) => (
-                    <div key={i} className="h-32 rounded-2xl bg-hanok-line/40 animate-pulse" />
+                    <div key={i} className="saf-skel h-32 rounded-2xl bg-gradient-to-r from-hanok-line/50 via-gold/15 to-hanok-line/50" />
                   ))}
                 </div>
               ) : error && !data ? (
@@ -405,14 +422,14 @@ export default function SafetyPage() {
                 </div>
               ) : data?.sampleEmpty ? (
                 <div className="p-8 text-center bg-hanok-panel rounded-2xl border border-hanok-line">
-                  <CheckCircle2 className="mx-auto mb-2 text-emerald-400" size={28} />
+                  <CheckCircle2 className="mx-auto mb-2 text-emerald-600" size={28} />
                   <p className="text-sm font-semibold text-hanok-ink">
                     현재 경보 임계치를 넘은 구역이 없습니다 — 전 구역 정상 운영 중입니다.
                   </p>
                 </div>
               ) : cardZones.length === 0 ? (
                 <div className="p-8 text-center bg-hanok-panel rounded-2xl border border-hanok-line">
-                  <CheckCircle2 className="mx-auto mb-2 text-emerald-400" size={28} />
+                  <CheckCircle2 className="mx-auto mb-2 text-emerald-600" size={28} />
                   <p className="text-sm font-semibold text-hanok-ink">현재 경보·주의 존이 없습니다. 전체 정상입니다.</p>
                 </div>
               ) : (

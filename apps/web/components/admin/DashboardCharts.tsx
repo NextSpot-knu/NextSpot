@@ -28,16 +28,17 @@ interface LiveTrendRow {
 }
 
 // recharts 는 stroke/fill 을 SVG 속성으로 내보내 var(--color-*) 를 해석하지 못한다.
-// 그래서 globals.css @theme 의 한옥(관리자 웜다크) 토큰 값을 여기서 미러링한다 —
-// 색의 단일 정의점은 여전히 globals.css 다.
-// 대비는 이 카드의 실제 배경인 --color-hanok-panel(#241d17) 기준으로 쟀다(흰 종이가 아니다):
-//   voidFill  #3a2f24 vs 패널 1.28:1 — 음영은 데이터보다 약해야 하므로 의도적으로 낮다
-//   voidInk   #b8a894 vs 음영 5.63:1 (AA) — 음영 위 라벨 글자
+// 그래서 globals.css @theme 의 한옥(관리자 라이트 종이) 토큰 값을 여기서 미러링한다 —
+// 색의 단일 정의점은 여전히 globals.css 다. 테마가 라이트로 바뀌며 미러도 함께 갱신했다
+// (다크 시절 값이 남으면 축 글자·음영이 한지 배경에서 씻겨 보인다).
+// 대비는 이 카드의 실제 배경인 --color-hanok-panel(#f8f3e9) 기준:
+//   voidFill  = 한 단계 어두운 종이 톤 — 음영은 데이터보다 약해야 하므로 의도적으로 옅다
+//   voidInk   #63533f — 음영 위 라벨 글자(옅은 음영 위에서도 AA 확보)
 const HANOK = {
-  grid: '#3a2f24',     // --color-hanok-line
-  axis: '#b8a894',     // --color-hanok-muted
-  voidFill: '#3a2f24', // --color-hanok-line — 미관측 구간 음영
-  voidInk: '#b8a894',  // --color-hanok-muted — 음영 라벨
+  grid: '#d8cab2',     // --color-hanok-line
+  axis: '#63533f',     // --color-hanok-muted
+  voidFill: '#e8ddc8', // 미관측 구간 음영 — 패널보다 살짝 가라앉은 종이 톤
+  voidInk: '#63533f',  // --color-hanok-muted — 음영 라벨
 } as const;
 
 export function DashboardCharts({ distribution, mode = 'demo' }: { distribution: any[]; mode?: 'live' | 'demo' }) {
@@ -88,7 +89,7 @@ export function DashboardCharts({ distribution, mode = 'demo' }: { distribution:
         ) : (
           <span
             title="도입 전/후 혼잡도와 대안 장소 활용률의 목표 패턴을 30일 기준으로 제시합니다."
-            className="flex-shrink-0 px-2 py-0.5 rounded-md text-[11px] font-semibold border bg-amber-500/10 text-amber-300 border-amber-500/25 cursor-help"
+            className="flex-shrink-0 px-2 py-0.5 rounded-md text-[11px] font-semibold border bg-amber-500/10 text-amber-800 border-amber-500/25 cursor-help"
           >
             도입 효과 시나리오(30일)
           </span>
@@ -130,7 +131,7 @@ export function DashboardCharts({ distribution, mode = 'demo' }: { distribution:
 
               <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{fill: HANOK.axis, fontSize: 12}} />
               <YAxis axisLine={false} tickLine={false} tick={{fill: HANOK.axis, fontSize: 12}} domain={[0, 1]} tickFormatter={(val) => `${Math.round(val * 100)}%`} />
-              <Tooltip formatter={formatPercent} contentStyle={{ borderRadius: '8px', backgroundColor: '#2c241c', border: '1px solid #3a2f24', color: '#e2e8f0', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
+              <Tooltip formatter={formatPercent} contentStyle={{ borderRadius: '8px', backgroundColor: '#fffdf7', border: '1px solid #d8cab2', color: '#251d15', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
               <Legend iconType="circle" wrapperStyle={{ fontSize: '12px' }} />
               {live ? (
                 <>
@@ -142,7 +143,7 @@ export function DashboardCharts({ distribution, mode = 'demo' }: { distribution:
                 </>
               ) : (
                 <>
-                  <Line name="원본 장소(도입 전)" type="monotone" dataKey="beforeCongestion" stroke="#b8a894" strokeDasharray="5 5" strokeWidth={2} dot={false} />
+                  <Line name="원본 장소(도입 전)" type="monotone" dataKey="beforeCongestion" stroke="#8d7f6e" strokeDasharray="5 5" strokeWidth={2} dot={false} />
                   <Line name="원본 장소(도입 후)" type="monotone" dataKey="afterCongestion" stroke="#3b82f6" strokeWidth={3} dot={{r: 4}} activeDot={{r: 6}} />
                   <Line name="대안 장소 활용률" type="monotone" dataKey="alternativeUsage" stroke="#10b981" strokeWidth={3} dot={{r: 4}} activeDot={{r: 6}} />
                 </>
@@ -297,12 +298,12 @@ export function DashboardHeatmap({
               )}
               {/* 기준일 배지 — 오늘이 아닌 날을 그리고 있다면 그 사실이 제목만큼 커야 한다. */}
               {dateBadge && (
-                <span className="flex-shrink-0 px-2.5 py-1 rounded-md text-xs font-black border bg-amber-500/15 text-amber-300 border-amber-500/40">
+                <span className="flex-shrink-0 px-2.5 py-1 rounded-md text-xs font-black border bg-amber-500/15 text-amber-800 border-amber-500/40">
                   {dateBadge}
                 </span>
               )}
             </div>
-            {basisNote && <p className="mt-2 text-xs text-amber-300/90 max-w-2xl">{basisNote}</p>}
+            {basisNote && <p className="mt-2 text-xs text-amber-800/90 max-w-2xl">{basisNote}</p>}
             {estimate && <p className="mt-2 text-xs text-sky-700/90 max-w-2xl">{estimate.basisLine}</p>}
           </div>
 

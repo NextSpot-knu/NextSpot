@@ -495,7 +495,7 @@ export default function InfrastructurePage() {
                       <span className="text-xs text-hanok-muted">{anomalies.length}건</span>
                     </div>
                     {anomalyJudgementBlocked && (
-                      <div className="px-4 py-3 border-b border-hanok-line bg-amber-500/10 text-xs text-amber-300">
+                      <div className="px-4 py-3 border-b border-hanok-line bg-amber-500/10 text-xs text-amber-800">
                         혼잡 현황을 갱신하는 중입니다 — 갱신된 시설부터 아래에 표시됩니다.
                       </div>
                     )}
@@ -542,7 +542,7 @@ export default function InfrastructurePage() {
             className="w-full px-8 py-3 flex items-center justify-between text-left hover:bg-hanok-card transition-colors"
           >
             <span className="flex items-center gap-2 text-sm font-semibold text-hanok-ink">
-              <Inbox size={16} className={ingestStatus === 'failed' ? 'text-rose-400' : 'text-gold-deep'} />
+              <Inbox size={16} className={ingestStatus === 'failed' ? 'text-rose-600' : 'text-gold-deep'} />
               적재 요청 대기{' '}
               <span className={ingestStatus === 'failed' ? 'text-rose-700' : undefined}>
                 {countLabel(ingestStatus, ingestRequests.length)}
@@ -558,9 +558,9 @@ export default function InfrastructurePage() {
             <div className="px-8 pb-4">
               {ingestStatus === 'failed' ? (
                 <div className="flex items-start gap-2 bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 my-2">
-                  <AlertTriangle size={14} className="text-amber-400 flex-shrink-0 mt-0.5" />
+                  <AlertTriangle size={14} className="text-amber-600 flex-shrink-0 mt-0.5" />
                   <div className="text-xs">
-                    <p className="font-bold text-amber-300">승인 큐를 갱신하는 중입니다</p>
+                    <p className="font-bold text-amber-800">승인 큐를 갱신하는 중입니다</p>
                     <p className="text-hanok-muted mt-1">
                       잠시 후 &lsquo;다시 시도&rsquo;를 눌러 주세요.
                     </p>
@@ -631,7 +631,7 @@ export default function InfrastructurePage() {
             </div>
             {/* 목록은 왔지만 혼잡도만 못 가져온 경우 — 모든 시설이 '관측 대기' 로 보이는 이유를 밝힌다. */}
             {!loading && !error && congestionError && (
-              <div className="mx-4 mt-4 px-3 py-2 rounded-lg border border-amber-500/30 bg-amber-500/10 text-xs text-amber-300">
+              <div className="mx-4 mt-4 px-3 py-2 rounded-lg border border-amber-500/30 bg-amber-500/10 text-xs text-amber-800">
                 최신 혼잡도를 갱신하는 중입니다 — 갱신이 끝나면 아래 목록에 자동으로 표시됩니다.
               </div>
             )}
@@ -642,16 +642,25 @@ export default function InfrastructurePage() {
                   <p>데이터를 불러오는 중...</p>
                 </div>
               ) : error ? (
-                <div className="p-4 text-center text-amber-300 bg-amber-500/10 rounded-xl border border-amber-500/30">
+                <div className="p-4 text-center text-amber-800 bg-amber-500/10 rounded-xl border border-amber-500/30">
                   <AlertTriangle className="mx-auto mb-2" size={24} />
                   <p className="text-sm font-semibold">장소 목록을 갱신하는 중입니다</p>
                   <p className="text-xs text-hanok-muted mt-2">잠시 후 자동으로 표시됩니다.</p>
                 </div>
               ) : filteredInfras.length === 0 ? (
-                <div className="text-center p-8 text-hanok-muted">
-                  {searchQuery.trim()
-                    ? `'${searchQuery.trim()}' 검색 결과가 없습니다.`
-                    : '이 유형의 장소를 불러오는 중입니다.'}
+                // 빈 목록 — 검색 무결과와 '유형 로딩 중' 을 아이콘 + 다음 행동 안내로 구분해 보여준다.
+                <div className="flex flex-col items-center text-center gap-2 p-8">
+                  <div className="w-12 h-12 rounded-2xl bg-gold/10 border border-gold/30 flex items-center justify-center">
+                    <Search size={22} className="text-gold-deep" />
+                  </div>
+                  <p className="text-sm font-semibold text-hanok-ink">
+                    {searchQuery.trim()
+                      ? `'${searchQuery.trim()}' 검색 결과가 없습니다.`
+                      : '이 유형의 장소를 불러오는 중입니다.'}
+                  </p>
+                  {searchQuery.trim() && (
+                    <p className="text-xs text-hanok-muted">다른 이름이나 유형으로 다시 검색해 보세요.</p>
+                  )}
                 </div>
               ) : (
                 paginatedInfras.map(infra => (
@@ -680,7 +689,7 @@ export default function InfrastructurePage() {
                       <span>수용 현황: {infra.capacity}</span>
                       {/* 혼잡 등급이 없는 시설은 '한산' 이 아니라 그 사실을 글자로 적는다. */}
                       {infra.congestion.kind !== 'observed' && (
-                        <span className={infra.congestion.kind === 'unavailable' ? 'text-amber-400' : ''}>
+                        <span className={infra.congestion.kind === 'unavailable' ? 'text-amber-700' : ''}>
                           {facilityStatusLabel(infra.congestion)}
                         </span>
                       )}
@@ -823,8 +832,8 @@ export default function InfrastructurePage() {
                   <div className="flex-1 w-full">
                     {chartError ? (
                       <div className="flex flex-col items-center justify-center h-full gap-1 text-center px-4">
-                        <AlertTriangle className="text-amber-400" size={20} />
-                        <p className="text-sm font-semibold text-amber-300">혼잡도 추이를 갱신하는 중입니다</p>
+                        <AlertTriangle className="text-amber-600" size={20} />
+                        <p className="text-sm font-semibold text-amber-800">혼잡도 추이를 갱신하는 중입니다</p>
                         <p className="text-xs text-hanok-muted">잠시 후 자동으로 표시됩니다.</p>
                       </div>
                     ) : chartData.length === 0 ? (
@@ -834,10 +843,12 @@ export default function InfrastructurePage() {
                     ) : (
                       <ResponsiveContainer width="100%" height="100%">
                         <LineChart data={chartData} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
-                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#3a2f24" />
-                          <XAxis dataKey="time" axisLine={false} tickLine={false} tick={{fill: '#b8a894', fontSize: 12}} />
-                          <YAxis axisLine={false} tickLine={false} tick={{fill: '#b8a894', fontSize: 12}} />
-                          <Tooltip contentStyle={{ borderRadius: '8px', backgroundColor: '#2c241c', border: '1px solid #3a2f24', color: '#e2e8f0', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
+                          {/* recharts 는 SVG 속성이라 var(--color-*) 를 못 읽는다 — 라이트 한옥 토큰의 hex 미러
+                              (line=#d8cab2 · muted=#63533f · card=#fffdf7 · ink=#251d15). 다크 시절 hex 잔재 교체. */}
+                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#d8cab2" />
+                          <XAxis dataKey="time" axisLine={false} tickLine={false} tick={{fill: '#63533f', fontSize: 12}} />
+                          <YAxis axisLine={false} tickLine={false} tick={{fill: '#63533f', fontSize: 12}} />
+                          <Tooltip contentStyle={{ borderRadius: '8px', backgroundColor: '#fffdf7', border: '1px solid #d8cab2', color: '#251d15', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
                           <Line type="monotone" dataKey="demand" stroke="#0ea5e9" strokeWidth={3} dot={{r: 4, strokeWidth: 2}} activeDot={{r: 6}} fill="url(#colorDemand)" />
                         </LineChart>
                       </ResponsiveContainer>

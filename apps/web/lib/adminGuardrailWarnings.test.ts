@@ -12,12 +12,16 @@ assert.equal(known.length, 2);
 assert.ok(known.every((w) => w.known), '아는 코드를 모른다고 표시했다');
 assert.ok(known.every((w) => !w.text.includes('_')), `코드가 문장에 그대로 남았다: ${JSON.stringify(known)}`);
 
-// --- 모르는 코드는 숨기지 않고 원문을 보여준다 -------------------------------
-// 매핑에 없다고 지우면 백엔드가 새 경고를 붙였을 때 화면에서 조용히 사라진다.
+// --- 모르는 코드는 숨기지 않되, 내부 식별자를 화면 문장에 싣지 않는다 ---------
+// 항목이 '있다'는 사실은 유지하고(개수·경고 톤에 반영), 원문 코드는 code 필드로만 남긴다 —
+// 화면 문장과 진단용 원문 코드를 분리한다.
 const unknown = describeGuardrailWarnings(['brand_new_code']);
 assert.equal(unknown.length, 1, '모르는 경고를 버렸다');
-assert.equal(unknown[0].known, false);
-assert.match(unknown[0].text, /brand_new_code/, '모르는 코드의 원문을 보여주지 않는다');
+assert.deepEqual(unknown[0], {
+  code: 'brand_new_code',
+  text: '운영 점검 항목이 추가되었습니다 — 상세는 운영 로그에서 확인해 주세요.',
+  known: false,
+});
 
 // --- 빈/깨진 입력 ------------------------------------------------------------
 assert.deepEqual(describeGuardrailWarnings([]), []);

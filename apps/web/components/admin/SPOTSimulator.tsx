@@ -142,14 +142,14 @@ export default function SPOTSimulator() {
                     <SyncControl
                         label="시간비용 패널티 (W_time)"
                         value={weights.time}
-                        colorClass="text-red-400 bg-red-500/10 border-red-500/30"
+                        colorClass="text-red-700 bg-red-500/10 border-red-500/30"
                         accentClass="accent-red-600"
                         onChange={(v) => handleWeightChange('time', v)}
                     />
                     <SyncControl
                         label="혼잡 분산 보너스 (W_inc)"
                         value={weights.inc}
-                        colorClass="text-green-400 bg-green-500/10 border-green-500/30"
+                        colorClass="text-green-700 bg-green-500/10 border-green-500/30"
                         accentClass="accent-green-600"
                         onChange={(v) => handleWeightChange('inc', v)}
                     />
@@ -193,12 +193,14 @@ export default function SPOTSimulator() {
                                     <stop offset="95%" stopColor="#4f46e5" stopOpacity={0} />
                                 </linearGradient>
                             </defs>
-                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#3a2f24" />
-                            <XAxis dataKey="name" tick={{ fontSize: 12, fill: '#b8a894' }} tickLine={false} axisLine={false} />
-                            <YAxis tick={{ fontSize: 12, fill: '#b8a894' }} tickLine={false} axisLine={false} />
+                            {/* recharts 는 SVG 속성이라 var(--color-*) 를 못 읽는다 — 라이트 한옥 토큰 hex 미러
+                                (line=#d8cab2 · muted=#63533f · card=#fffdf7 · ink=#251d15). 다크 시절 hex 잔재 교체. */}
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#d8cab2" />
+                            <XAxis dataKey="name" tick={{ fontSize: 12, fill: '#63533f' }} tickLine={false} axisLine={false} />
+                            <YAxis tick={{ fontSize: 12, fill: '#63533f' }} tickLine={false} axisLine={false} />
                             <Tooltip
-                                contentStyle={{ borderRadius: '8px', backgroundColor: '#2c241c', border: '1px solid #3a2f24', color: '#e2e8f0', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
-                                labelStyle={{ fontWeight: 'bold', color: '#e2e8f0', marginBottom: '4px' }}
+                                contentStyle={{ borderRadius: '8px', backgroundColor: '#fffdf7', border: '1px solid #d8cab2', color: '#251d15', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                                labelStyle={{ fontWeight: 'bold', color: '#251d15', marginBottom: '4px' }}
                                 itemStyle={{ color: '#4f46e5', fontWeight: 'bold' }}
                             />
                             <Area type="monotone" dataKey="count" name="시설 수" stroke="#4f46e5" strokeWidth={3} fillOpacity={1} fill="url(#colorCount)" animationDuration={300} />

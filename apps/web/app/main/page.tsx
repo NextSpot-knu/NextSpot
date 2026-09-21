@@ -39,6 +39,7 @@ import { congestionKey } from '@/lib/congestionScale';
 import { useBusyThreshold } from '@/components/shell/PublicSettingsProvider';
 import { errorMessage } from '@/lib/errors';
 import NextSpotMascot from '@/components/NextSpotMascot';
+import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { buildSpotComparisons, formatSpotComparison } from '@/lib/spotComparison';
 import {
   DISCOVERY_THEMES,
@@ -2658,6 +2659,13 @@ export default function MainPage() {
   return (
     <div className="relative w-full h-[100dvh] overflow-hidden flex flex-col">
 
+      <div className="absolute left-3 top-[calc(env(safe-area-inset-top)+0.5rem)] z-30 flex max-w-[220px] flex-col items-start gap-1.5 md:left-auto md:right-5 md:top-20 md:items-end">
+        <LanguageSwitcher className="pointer-events-auto" />
+        <span className="rounded-full border border-line bg-white/90 px-2.5 py-1 text-[10px] font-semibold leading-tight text-muk-soft shadow-[0_2px_10px_rgba(43,35,32,0.08)] backdrop-blur-md">
+          {t('guide.sourceTour')}
+        </span>
+      </div>
+
       {/* 지도는 주간에는 원본 Kakao 타일, 야간에는 전역 테마의 저휘도 필터를 사용한다. */}
       <div
         ref={mapContainerRef}
@@ -2682,7 +2690,7 @@ export default function MainPage() {
       )}
 
       {/* Top Layer: Search & Filters — 다크 오버레이 그라디언트 제거(플로팅 패널 자체 배경으로 가독성 확보) */}
-      <div ref={topBarRef} className="absolute top-0 w-full z-20 pt-12 md:pt-5 pb-4 px-4 md:pr-[190px] flex flex-col gap-2 md:gap-4 pointer-events-none">
+      <div ref={topBarRef} className="absolute top-0 w-full z-20 pt-24 md:pt-5 pb-4 px-4 md:pr-[190px] flex flex-col gap-2 md:gap-4 pointer-events-none">
 
         {/* 지도 SDK 로드 실패(8초 타임아웃) 안내 칩 — 검색/배리어프리 빈 상태 칩과 동일 스타일 재사용.
             추천 카드 등 나머지 UI 는 지도 유무와 무관하게 계속 동작한다. */}
@@ -3239,19 +3247,22 @@ export default function MainPage() {
             <span className="shrink-0 text-[10px] font-medium text-muk-soft">+3h</span>
           </div>}
 
-          {/* D5: TourAPI 동기화 신선도 — 소형 정보 표시(비대화형). 동기화 이력이 전혀 없으면
-              렌더하지 않는다(관광객 화면 정직성 — 없는 걸 있는 척하지 않음). */}
-          {tourapiSyncAt && (() => {
-            const parts = relativeParts(tourapiSyncAt);
-            if (!parts) return null; // 파싱 불가 — 신선한 것으로 위장하지 않고 숨김
-            const rel =
-              parts.unit === 'now' ? t('freshness.justNow')
-              : parts.unit === 'min' ? t('freshness.minAgo', { n: parts.value })
-              : parts.unit === 'hour' ? t('freshness.hourAgo', { n: parts.value })
-              : t('freshness.dayAgo', { n: parts.value });
+          {/* D5: TourAPI 동기화 신선도 + 출처 표기 — 동기화 시각을 모르면 시각을 지어내지 않고
+              출처 표기만 남긴다(공모전 규정: 공사 데이터가 흐르는 화면에는 ⓒ 텍스트가 항상 보인다). */}
+          {(() => {
+            const parts = tourapiSyncAt ? relativeParts(tourapiSyncAt) : null;
+            const label = parts
+              ? t('freshness.tourapiSync', {
+                  rel:
+                    parts.unit === 'now' ? t('freshness.justNow')
+                    : parts.unit === 'min' ? t('freshness.minAgo', { n: parts.value })
+                    : parts.unit === 'hour' ? t('freshness.hourAgo', { n: parts.value })
+                    : t('freshness.dayAgo', { n: parts.value }),
+                })
+              : t('guide.sourceTour'); // 시각 미상 — 출처만 표기(위장 없음)
             return (
               <span className="shrink-0 px-2.5 py-1 rounded-full text-[10px] font-medium bg-white/70 border border-line text-muk-soft whitespace-nowrap pointer-events-none">
-                🛰️ {t('freshness.tourapiSync', { rel })}
+                🛰️ {label}
               </span>
             );
           })()}

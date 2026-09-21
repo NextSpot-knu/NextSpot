@@ -549,7 +549,7 @@ export default function ReportsPage() {
               판정은 lib/adminApiFailure.ts 의 순수 함수에 있고 테스트가 잠근다. */}
           {anyFailed && (
             <div className="flex items-start gap-3 bg-rose-500/10 border border-rose-500/30 rounded-2xl p-4 flex-shrink-0">
-              <AlertCircle size={20} className="text-rose-400 flex-shrink-0 mt-0.5" />
+              <AlertCircle size={20} className="text-rose-600 flex-shrink-0 mt-0.5" />
               <div className="min-w-0">
                 <p className="font-bold text-rose-700">일부 지표를 갱신하는 중입니다</p>
                 <p className="text-sm text-hanok-muted mt-1">
@@ -607,22 +607,24 @@ export default function ReportsPage() {
                 {estimateInUse ? (
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={estimateWeekly} margin={{ top: 5, right: 0, bottom: 5, left: 0 }}>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#3a2f24" />
-                      <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{ fill: '#b8a894', fontSize: 12 }} />
+                      {/* recharts 는 SVG 속성이라 var(--color-*) 를 못 읽는다 — 라이트 한옥 토큰 hex 미러
+                          (line=#d8cab2 · muted=#63533f · card=#fffdf7 · ink=#251d15). 다크 시절 hex 잔재 교체. */}
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#d8cab2" />
+                      <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{ fill: '#63533f', fontSize: 12 }} />
                       {/* 0~100% 고정 축. 실측 지수 차트와 달리 값이 비율이라 축이 데이터에 따라
                           늘었다 줄었다 하면 요일 간 차이가 실제보다 커 보인다. */}
                       <YAxis
                         axisLine={false}
                         tickLine={false}
-                        tick={{ fill: '#b8a894', fontSize: 12 }}
+                        tick={{ fill: '#63533f', fontSize: 12 }}
                         domain={[0, 1]}
                         ticks={[0, 0.25, 0.5, 0.75, 1]}
                         tickFormatter={(v) => `${Math.round(Number(v) * 100)}%`}
                       />
                       <Tooltip
-                        cursor={{ fill: '#3a2f24' }}
+                        cursor={{ fill: 'rgba(216, 202, 178, 0.4)' }}
                         formatter={(value: unknown) => (typeof value === 'number' ? `${(value * 100).toFixed(1)}% (추정)` : '—')}
-                        contentStyle={{ borderRadius: '8px', backgroundColor: '#2c241c', border: '1px solid #3a2f24', color: '#e2e8f0' }}
+                        contentStyle={{ borderRadius: '8px', backgroundColor: '#fffdf7', border: '1px solid #d8cab2', color: '#251d15' }}
                       />
                       <Legend iconType="circle" wrapperStyle={{ fontSize: '12px' }} />
                       {/* 누적이 아니라 **나란히** 둔다 — 비율은 더할 수 있는 양이 아니다.
@@ -663,10 +665,10 @@ export default function ReportsPage() {
                 ) : (
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={weekly} margin={{ top: 5, right: 0, bottom: 5, left: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#3a2f24" />
-                    <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{fill: '#b8a894', fontSize: 12}} />
-                    <YAxis axisLine={false} tickLine={false} tick={{fill: '#b8a894', fontSize: 12}} />
-                    <Tooltip cursor={{fill: '#3a2f24'}} contentStyle={{ borderRadius: '8px', backgroundColor: '#2c241c', border: '1px solid #3a2f24', color: '#e2e8f0', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#d8cab2" />
+                    <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{fill: '#63533f', fontSize: 12}} />
+                    <YAxis axisLine={false} tickLine={false} tick={{fill: '#63533f', fontSize: 12}} />
+                    <Tooltip cursor={{fill: 'rgba(216, 202, 178, 0.4)'}} contentStyle={{ borderRadius: '8px', backgroundColor: '#fffdf7', border: '1px solid #d8cab2', color: '#251d15', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
                     <Legend iconType="circle" wrapperStyle={{ fontSize: '12px' }} />
                     <Bar dataKey="음식점" stackId="a" fill="#3b82f6" radius={[0, 0, 4, 4]} />
                     <Bar dataKey="카페" stackId="a" fill="#10b981" />
@@ -739,18 +741,19 @@ export default function ReportsPage() {
                         <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.8}/>
                         <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0}/>
                       </linearGradient>
+                      {/* 거절 계열 — 밝은 slate(#cbd5e1)는 한지 배경에서 씻겨 보인다. 톤 다운한 무크 계열로. */}
                       <linearGradient id="colorReject" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#cbd5e1" stopOpacity={0.8}/>
-                        <stop offset="95%" stopColor="#cbd5e1" stopOpacity={0}/>
+                        <stop offset="5%" stopColor="#a89a86" stopOpacity={0.8}/>
+                        <stop offset="95%" stopColor="#a89a86" stopOpacity={0}/>
                       </linearGradient>
                     </defs>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#3a2f24" />
-                    <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{fill: '#b8a894', fontSize: 12}} />
-                    <YAxis axisLine={false} tickLine={false} tick={{fill: '#b8a894', fontSize: 12}} />
-                    <Tooltip contentStyle={{ borderRadius: '8px', backgroundColor: '#2c241c', border: '1px solid #3a2f24', color: '#e2e8f0', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#d8cab2" />
+                    <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{fill: '#63533f', fontSize: 12}} />
+                    <YAxis axisLine={false} tickLine={false} tick={{fill: '#63533f', fontSize: 12}} />
+                    <Tooltip contentStyle={{ borderRadius: '8px', backgroundColor: '#fffdf7', border: '1px solid #d8cab2', color: '#251d15', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
                     <Legend iconType="circle" wrapperStyle={{ fontSize: '12px' }} />
                     <Area type="monotone" dataKey="수락" stroke="#8b5cf6" fillOpacity={1} fill="url(#colorAccept)" />
-                    <Area type="monotone" dataKey="거절" stroke="#b8a894" fillOpacity={1} fill="url(#colorReject)" />
+                    <Area type="monotone" dataKey="거절" stroke="#8d7f6e" fillOpacity={1} fill="url(#colorReject)" />
                   </AreaChart>
                 </ResponsiveContainer>
                 )}
@@ -806,17 +809,17 @@ export default function ReportsPage() {
                           {row.changePoints === null ? (
                             <span className="text-hanok-muted">—</span>
                           ) : (
-                            <span className={`font-bold ${row.changePoints < 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
+                            <span className={`font-bold ${row.changePoints < 0 ? 'text-rose-700' : 'text-emerald-700'}`}>
                               {row.changePoints >= 0 ? '+' : ''}{row.changePoints.toFixed(1)}%p
                             </span>
                           )}
                         </td>
                         <td className="p-4">
-                          <span className={`px-2 py-1 rounded-md text-xs font-bold ${
-                            row.status === '혼잡' ? 'bg-rose-500/15 text-rose-700' :
-                            row.status === '보통' ? 'bg-amber-500/15 text-amber-300' :
-                            row.status === '여유' ? 'bg-emerald-500/15 text-emerald-700' :
-                            'bg-hanok-card text-hanok-ink'
+                          <span className={`px-2 py-1 rounded-md text-xs font-bold border ${
+                            row.status === '혼잡' ? 'bg-rose-500/10 border-rose-500/30 text-rose-700' :
+                            row.status === '보통' ? 'bg-amber-500/10 border-amber-500/30 text-amber-700' :
+                            row.status === '여유' ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-700' :
+                            'bg-hanok-card border-hanok-line text-hanok-ink'
                           }`}>
                             {row.status ?? '—'}
                           </span>
@@ -854,16 +857,16 @@ export default function ReportsPage() {
                       <td className="p-4 font-bold text-hanok-ink">{row.category}</td>
                       <td className="p-4 text-hanok-muted">{row.totalUsers}</td>
                       <td className="p-4">
-                        <span className={`font-bold ${row.growth.startsWith('-') ? 'text-rose-400' : 'text-emerald-400'}`}>
+                        <span className={`font-bold ${row.growth.startsWith('-') ? 'text-rose-700' : 'text-emerald-700'}`}>
                           {row.growth}
                         </span>
                       </td>
                       <td className="p-4">
-                        <span className={`px-2 py-1 rounded-md text-xs font-bold ${
-                          row.status === '급증' ? 'bg-rose-500/15 text-rose-700' :
-                          row.status === '활발' ? 'bg-gold/15 text-gold-deep' :
-                          row.status === '보통' ? 'bg-amber-500/15 text-amber-300' :
-                          'bg-hanok-card text-hanok-ink'
+                        <span className={`px-2 py-1 rounded-md text-xs font-bold border ${
+                          row.status === '급증' ? 'bg-rose-500/10 border-rose-500/30 text-rose-700' :
+                          row.status === '활발' ? 'bg-gold/10 border-gold/30 text-gold-deep' :
+                          row.status === '보통' ? 'bg-amber-500/10 border-amber-500/30 text-amber-700' :
+                          'bg-hanok-card border-hanok-line text-hanok-ink'
                         }`}>
                           {row.status}
                         </span>

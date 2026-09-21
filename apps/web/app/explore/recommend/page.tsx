@@ -2,7 +2,9 @@
 
 import React, { useState, useEffect, useRef, useMemo, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
+import { ArrowLeft } from "lucide-react";
 import { ErrorState } from "@/components/ErrorState";
+import NowChip from "@/components/NowChip";
 import { createPublicClient } from "@/lib/supabase";
 const supabase = createPublicClient();
 import { apiClient, getRecommendations, reportFacilityAvailability, submitFeedback, parsePreference, RecommendationResponse } from "@/lib/api-client";
@@ -1237,18 +1239,43 @@ function RecommendContent() {
       <div className="absolute bottom-[-10%] right-[-10%] w-[600px] h-[600px] rounded-full bg-gold/10 blur-[120px] pointer-events-none" />
 
       <div className="w-full max-w-md md:max-w-2xl space-y-6 relative z-10 flex-1 py-4">
-        {/* Header */}
-        <header className="flex items-center justify-between border-b border-line pb-4">
-          <button
-            type="button"
-            onClick={() => { quietAssistant(); router.push("/main"); }}
-            className="toss-pressable -ml-2 flex min-h-11 items-center gap-1.5 rounded-lg px-2 text-xs font-medium text-muk-soft transition-colors hover:text-muk focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
-          >
-            ← {t("recommend.backToMap")}
-          </button>
-          <span className="text-sm font-extrabold tracking-tight gradient-text">{t("recommend.headerBrand")}</span>
-          <div className="w-14"></div> {/* spacer */}
-        </header>
+        {/* 상단 바 — 뒤로가기(44px 터치)만 별도 행으로 분리해 아래 히어로 카드가 시선의 출발점이 되게 한다
+            (/waiting 상단 바와 동일 문법). 브랜드명은 히어로 카드의 칩으로 승격. */}
+        <button
+          type="button"
+          onClick={() => { quietAssistant(); router.push("/main"); }}
+          aria-label={t("recommend.backToMap")}
+          className="toss-pressable flex shrink-0 items-center justify-center w-11 h-11 rounded-full bg-white/90 border border-line shadow-[0_2px_10px_rgba(43,35,32,0.1)] text-muk hover:bg-white focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+        >
+          <ArrowLeft size={18} />
+        </button>
+
+        {/* 히어로 요약 카드 — /course·/waiting 헤더 블록과 같은 문법(브랜드 칩 → 큰 헤드라인 →
+            한 줄 가치 → 골드 스탯). 스탯은 현재 추천 개수를 보여준다. */}
+        <section className="rounded-2xl border border-line/70 bg-hanji-deep/45 p-4 md:p-5 space-y-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="inline-flex items-center w-fit px-2.5 py-1 rounded-full bg-gold/15 border border-gold/30 text-[11px] font-bold text-gold-deep">
+              {t("recommend.headerBrand")}
+            </span>
+            <NowChip />
+          </div>
+          <div className="space-y-1.5">
+            <h1 className="text-[22px] md:text-[28px] font-serif font-black text-muk leading-[1.15] tracking-tight">
+              {t("recommend.heroTitle")}
+            </h1>
+            <p className="text-[13px] md:text-sm text-muk-soft leading-relaxed">
+              {t("recommend.heroDesc")}
+            </p>
+          </div>
+          {!loadingRecommendations && recommendations.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2 pt-0.5">
+              <span className="inline-flex items-center gap-1.5 rounded-xl border border-gold/40 bg-gold/15 px-3 py-2 text-[13px] font-black text-gold-deep tabular-nums shadow-[0_2px_10px_rgba(193,154,62,0.16)]">
+                <span aria-hidden>🧭</span>
+                {t("recommend.heroCount", { n: recommendations.length })}
+              </span>
+            </div>
+          )}
+        </section>
 
         {/* 1. Original Facility Card */}
         <section>
@@ -1312,7 +1339,21 @@ function RecommendContent() {
 
         {/* 2. Alternative Recommendation Cards List */}
         <section className="space-y-4">
-          <h3 className="text-sm font-bold text-muk">{t("recommend.altListTitle")}</h3>
+          {/* 섹션 헤더 — /waiting 섹터 헤더와 같은 문법(이모지 칩 + 제목 + 개수 pill). */}
+          <div className="flex items-center gap-2">
+            <span
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gold/10 border border-gold/25 text-base"
+              aria-hidden
+            >
+              ✨
+            </span>
+            <h3 className="text-[15px] font-bold text-muk leading-tight">{t("recommend.altListTitle")}</h3>
+            {!loadingRecommendations && recommendations.length > 0 && (
+              <span className="ml-auto rounded-full bg-hanji-deep px-2.5 py-1 text-[11px] font-bold text-muk-soft tabular-nums">
+                {t("waiting.sectorCount", { n: recommendations.length })}
+              </span>
+            )}
+          </div>
 
           {loadingRecommendations ? (
             // Skeleton Loader
@@ -1383,12 +1424,22 @@ function RecommendContent() {
               return (
                 <div
                   key={rec.recommendationId}
-                  className={`bg-white p-5 rounded-2xl border transition-all duration-300 toss-surface ${
+                  className={`relative bg-white p-5 rounded-2xl border transition-all duration-300 toss-surface ${
                     isVoiceActive
                       ? "border-gold ring-2 ring-gold/40 scale-[1.02]"
                       : "border-line hover:border-gold/40 hover:scale-[1.01]"
                   }`}
                 >
+                  {/* 순위 배지 — /course 정류지 번호·/waiting 순위 배지와 같은 문법
+                      (금빛 원 + 흰 숫자 + 2px 흰 테두리). 1위만 그라데이션으로 반 단계 더 세운다. */}
+                  <span
+                    className={`absolute -top-2 -left-2 z-10 flex h-8 w-8 items-center justify-center rounded-full border-2 border-white text-[13px] font-extrabold text-white tabular-nums shadow-[0_2px_8px_rgba(193,154,62,0.45)] ${
+                      idx === 0 ? "bg-gradient-to-br from-gold to-gold-deep" : "bg-gold"
+                    }`}
+                    aria-hidden
+                  >
+                    {idx + 1}
+                  </span>
                   {/* 시설 사진 — TourAPI firstimage(이미 응답에 실려 옴). 정적 export 라 raw img 사용
                       (대기 보드 WaitingCardImage 와 동일 관례). 로드 실패 시 상태 없이 요소만 숨겨
                       레이아웃이 깨지지 않는다. */}
@@ -1537,9 +1588,10 @@ function RecommendContent() {
                         </p>
                       )}
                     </div>
-                    <div className="flex shrink-0 flex-col items-center justify-center rounded-xl border border-gold/25 bg-gold/5 px-3 py-2 text-center">
+                    {/* SPOT 지수 — 골드 스탯 박스 문법(/course 도착 ETA 스탯과 동일 톤)으로 카드의 핵심 숫자를 세운다. */}
+                    <div className="flex shrink-0 flex-col items-center justify-center rounded-xl border border-gold/40 bg-gold/15 px-3 py-2 text-center shadow-[0_2px_10px_rgba(193,154,62,0.16)]">
                       <span className="text-[9px] font-bold uppercase tracking-wide text-muk-soft whitespace-nowrap">{t("recommend.spotIndex")}</span>
-                      <span className="text-base font-extrabold text-gold-deep leading-none mt-1">
+                      <span className="text-base font-extrabold text-gold-deep leading-none mt-1 tabular-nums">
                         {Math.round(rec.spotScore <= 1.0 ? rec.spotScore * 100 : rec.spotScore)}{t("card.pointSuffix")}
                       </span>
                     </div>
@@ -1660,14 +1712,14 @@ function RecommendContent() {
                   <div className={`grid ${display.mode === 'none' && !estimate ? 'grid-cols-2' : 'grid-cols-3'} gap-2 py-2 border-t border-b border-line text-[11px] text-muk-soft`}>
                     <div className="text-center">
                       <span className="text-muk-soft block text-[10px]">{t("recommend.prefMatch")}</span>
-                      <span className="font-bold text-jade">{preferencePct}%</span>
+                      <span className="font-bold text-jade tabular-nums">{preferencePct}%</span>
                     </div>
                     {/* 추정이 '지금' 자리를 가져갔으면 대기 칸은 그리지 않는다 — 그 대기 분은
                         낡은 관측에서 나온 값이라, 추정 배지 옆에 두면 두 시점이 한 줄에 섞인다.
                         (추정 자체는 대기 분을 만들지 않는다 — 점유율→대기 계수가 없다.) */}
                     {display.mode !== 'none' && !estimate && <div className="text-center border-l border-r border-line">
                       <span className="text-muk-soft block text-[10px]">{t("recommend.expectedWait")}</span>
-                      <span className="font-bold text-gold-deep">{t("recommend.minutesValue", { n: waitTime })}</span>
+                      <span className="font-bold text-gold-deep tabular-nums">{t("recommend.minutesValue", { n: waitTime })}</span>
                     </div>}
                     {/* 추정은 대기 칸을 채우지 않는다(점유율→대기 계수가 없다). 등급만 '추정' 머리표와 함께. */}
                     {estimate && estimateKey && <div className="text-center border-l border-r border-dashed border-line">
@@ -1676,7 +1728,7 @@ function RecommendContent() {
                     </div>}
                     <div className="text-center">
                       <span className="text-muk-soft block text-[10px]">{t("recommend.expectedWalk")}</span>
-                      <span className="font-bold text-jade">{t("recommend.walkValue", { n: travelTime, dist: Math.round(rec.distanceM) })}</span>
+                      <span className="font-bold text-jade tabular-nums">{t("recommend.walkValue", { n: travelTime, dist: Math.round(rec.distanceM) })}</span>
                     </div>
                   </div>
 
@@ -1803,8 +1855,20 @@ function RecommendContent() {
             // 실패는 '없음' 이 아니다 — 다시 시도할 길을 준다.
             <ErrorState message={t("recommend.loadFailed")} onRetry={() => window.location.reload()} />
           ) : (
-            <div className="bg-white p-8 rounded-2xl border border-line toss-surface text-center text-sm text-muk-soft">
-              {t("recommend.noAlternatives", { km: MAX_RECO_DISTANCE_M / 1000 })}
+            // 빈 상태 — 사과가 아니라 다음 행동으로의 초대(지도에서 다른 출발점 고르기).
+            <div className="bg-white p-8 rounded-2xl border border-line toss-surface text-center space-y-3">
+              <div className="text-4xl" aria-hidden>🧭</div>
+              <p className="text-[15px] font-bold text-muk">{t("recommend.emptyTitle")}</p>
+              <p className="text-[13px] text-muk-soft leading-relaxed">
+                {t("recommend.noAlternatives", { km: MAX_RECO_DISTANCE_M / 1000 })}
+              </p>
+              <button
+                type="button"
+                onClick={() => { quietAssistant(); router.push("/main"); }}
+                className="toss-pressable inline-flex min-h-11 items-center gap-1.5 px-5 rounded-full bg-gradient-to-r from-gold to-terracotta text-white text-[13px] font-bold shadow-[0_4px_14px_rgba(193,85,59,0.25)] hover:from-gold-deep hover:to-terracotta focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+              >
+                {t("recommend.backToMap")}
+              </button>
             </div>
           )}
         </section>
@@ -1816,7 +1880,7 @@ function RecommendContent() {
               type="button"
               onClick={handleRejectAllAndRefresh}
               disabled={isRefreshing}
-              className="toss-pressable min-h-11 w-full py-3 bg-white hover:bg-hanji-deep border border-line rounded-xl text-muk-soft hover:text-muk font-semibold text-xs transition-colors flex items-center justify-center gap-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 disabled:opacity-50 toss-surface"
+              className="toss-pressable min-h-11 w-full py-3 bg-white border border-line rounded-xl text-muk-soft hover:border-gold/40 hover:text-gold-deep font-semibold text-xs transition-colors flex items-center justify-center gap-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 disabled:opacity-50 toss-surface"
             >
               {isRefreshing ? (
                 <>
@@ -1831,6 +1895,10 @@ function RecommendContent() {
             </button>
           </div>
         )}
+
+        <p className="border-t border-line pt-4 text-center text-[11px] leading-relaxed text-muk-soft">
+          {t("recommend.dataAttribution")}
+        </p>
       </div>
 
       {/* ── 음성 비서 오버레이 (음성 컨시어지) ── */}

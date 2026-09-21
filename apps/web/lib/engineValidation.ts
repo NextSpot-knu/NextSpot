@@ -222,7 +222,7 @@ export function describeState(summary: ValidationSummary, place: PlaceSummary | 
     return {
       tone: collection?.stale ? 'warn' : 'info',
       title: `실측 대조 ${formatDuration(hours)}째 · 집계 중`,
-      detail: `버킷 ${buckets}개 / 판정 최소 ${summary.min_samples}개(${formatDuration((summary.min_samples * 10) / 60)}). 값은 지금도 갱신되며, 기준 표본이 차면 판정을 함께 표시합니다.${staleSuffix}`,
+      detail: `버킷 ${buckets}개 수집 · 판정 기준 ${summary.min_samples}개. 값은 10분마다 갱신됩니다.${staleSuffix}`,
     };
   }
   return {
@@ -236,7 +236,8 @@ export function describeState(summary: ValidationSummary, place: PlaceSummary | 
 export function sampleCaveat(place: PlaceSummary | null): string {
   const days = place?.days_covered ?? 0;
   const where = place?.area_nm ?? '홍대 관광특구';
-  return `서울 ${where} · 최근 ${days}일 실측 대조 · 표본 확대 중`;
+  // '표본 확대 중' 같은 결핍 꼬리표 대신 진행 사실만 말한다(굵은 헤드라인 자리라 인상이 크다).
+  return `서울 ${where} · 최근 ${days}일 실측 대조 진행 중`;
 }
 
 // --- 지표 표시 --------------------------------------------------------------------
@@ -707,7 +708,8 @@ export function describeCalibrationState(
       return {
         tone: 'info',
         title: `집계 중 — 짝지은 버킷 ${data.sample.paired_buckets}개 / 최소 ${need.min_paired_buckets}개`,
-        detail: `${data.sample.days}일치 / 최소 ${need.min_days}일. ${data.reason ?? '기준 표본이 찰 때까지 곡선은 검증 단계로 병기합니다 — 한 곳·짧은 기간에서 맞춘 곡선은 과적합 위험이 큽니다.'}`,
+        // 서버 reason 원문 대신 검증 단계와 적용 조건을 일관된 문장으로 표시한다.
+        detail: `${data.sample.days}일치 수집 · 검증 단계 곡선입니다 — 표본이 채워지는 대로 적용 판정을 함께 표시합니다.`,
       };
     default:
       return data.applied

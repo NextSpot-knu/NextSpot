@@ -3,10 +3,12 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
+import { ChevronRight } from 'lucide-react';
 import { useT } from '@/lib/i18n/I18nProvider';
 import { warmBackend } from '@/lib/api-client';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { GuideButton } from '@/components/guide/GuideProvider';
+import NextSpotMascot from '@/components/NextSpotMascot';
 
 export default function LoadingPage() {
   const router = useRouter();
@@ -94,7 +96,7 @@ export default function LoadingPage() {
   return (
     <div
       onClick={go}
-      className="flex flex-col items-center justify-center min-h-screen bg-gradient-to-b from-hanji via-hanji-deep to-sunset-1/25 relative overflow-hidden cursor-pointer"
+      className="relative flex min-h-[100dvh] flex-col items-center overflow-x-hidden bg-gradient-to-b from-hanji via-hanji-deep to-sunset-1/25 cursor-pointer"
     >
       {/* 언어 선택 — 진입 즉시 외국인 관광객이 전환 가능(부모 onClick 이동 방지) */}
       <div className="absolute top-4 right-4 z-20" onClick={(e) => e.stopPropagation()}>
@@ -122,11 +124,19 @@ export default function LoadingPage() {
       </svg>
 
       <div
-        className={`z-10 flex flex-col items-center text-center transition-opacity duration-1000 ${
+        className={`z-10 flex w-full flex-1 flex-col items-center justify-center px-6 pb-8 pt-20 text-center transition-opacity duration-1000 ${
           isVisible ? 'opacity-100 animate-fade-in' : 'opacity-0'
         }`}
       >
-        <h1 className="mb-4">
+        {/* 길잡이 마스코트는 장식 전용이며 aria-hidden은 컴포넌트 내부에서 처리한다. */}
+        <NextSpotMascot variant="full" className="w-20 sm:w-24 shadow-[0_10px_28px_rgba(43,35,32,0.14)]" />
+
+        {/* 서비스 지역 배지 */}
+        <span className="mt-3 inline-flex items-center px-3 py-1.5 rounded-full bg-gold/15 border border-gold/30 text-xs font-bold text-gold-deep">
+          {t('landing.badge')}
+        </span>
+
+        <h1 className="mt-3">
           <Image
             src="/nextspot-logo.png"
             alt="NextSpot"
@@ -146,26 +156,42 @@ export default function LoadingPage() {
             className="nextspot-logo-dark h-14 w-auto sm:h-[70px]"
           />
         </h1>
-        <p className="text-lg text-muk-soft font-medium">
+
+        {/* 가치 헤드라인 — 기존 tagline 을 세리프 헤드라인으로 승격(/course·/waiting 히어로와 같은 서체 문법). */}
+        <p className="mt-4 max-w-md text-[22px] sm:text-[26px] font-serif font-black text-muk leading-[1.25] tracking-tight">
           {t('landing.tagline')}
         </p>
+        <p className="mt-2.5 max-w-sm text-[15px] text-muk-soft leading-relaxed">
+          {t('landing.subline')}
+        </p>
 
-        {/* 가치 선전달: 도착 전 핵심 가치 3가지를 먼저 보여줘 이탈을 줄인다 */}
-        <ul className="mt-6 flex flex-col items-center gap-1.5 text-sm text-muk-soft">
-          <li>{t('landing.value1')}</li>
-          <li>{t('landing.value2')}</li>
-          <li>{t('landing.value3')}</li>
+        {/* 기능 스트립 — 수치 없는 정성 라벨만(fractal-glass 필, 다크 테마는 globals.css 가 bg-white/* 를 치환). */}
+        <ul className="mt-4 flex max-w-md flex-wrap items-center justify-center gap-2">
+          <li className="inline-flex items-center rounded-2xl border border-line/70 bg-white/70 fractal-glass px-3.5 py-2 text-sm font-semibold text-muk leading-snug shadow-[0_1px_2px_rgba(43,35,32,0.05)]">
+            {t('landing.value1')}
+          </li>
+          <li className="inline-flex items-center rounded-2xl border border-line/70 bg-white/70 fractal-glass px-3.5 py-2 text-sm font-semibold text-muk leading-snug shadow-[0_1px_2px_rgba(43,35,32,0.05)]">
+            {t('landing.value2')}
+          </li>
+          <li className="inline-flex items-center rounded-2xl border border-line/70 bg-white/70 fractal-glass px-3.5 py-2 text-sm font-semibold text-muk leading-snug shadow-[0_1px_2px_rgba(43,35,32,0.05)]">
+            {t('landing.value3')}
+          </li>
+          <li className="inline-flex items-center rounded-2xl border border-line/70 bg-white/70 fractal-glass px-3.5 py-2 text-sm font-semibold text-muk leading-snug shadow-[0_1px_2px_rgba(43,35,32,0.05)]">
+            {t('landing.value4')}
+          </li>
         </ul>
 
-        {/* '바로 시작'(게스트, 로그인 불필요) — 화면 탭/키 입력과 동일한 go() 재사용 */}
+        {/* '바로 시작'(게스트, 로그인 불필요) — 화면 탭/키 입력과 동일한 go() 재사용.
+            금→주칠 그라디언트 CTA(/course·/waiting·추천 카드와 동일 문법) + toss-pressable 눌림. */}
         <button
           onClick={(e) => {
             e.stopPropagation();
             go();
           }}
-          className="mt-8 px-8 py-3.5 rounded-full bg-gold hover:bg-gold-deep text-white font-bold text-base shadow-[0_8px_24px_rgba(197,148,74,0.35)] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold-deep focus-visible:ring-offset-2 focus-visible:ring-offset-hanji"
+          className="toss-pressable mt-6 inline-flex min-h-[52px] items-center gap-1.5 rounded-full bg-gradient-to-r from-gold to-terracotta px-10 text-[17px] font-bold text-white shadow-[0_8px_24px_rgba(193,85,59,0.28)] hover:from-gold-deep hover:to-terracotta focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold-deep focus-visible:ring-offset-2 focus-visible:ring-offset-hanji"
         >
           {t('landing.ctaStart')}
+          <ChevronRight size={20} aria-hidden />
         </button>
 
         {/* 보조 CTA — 로그인은 선택이다. 기기 간 동기화를 원하는 사용자만 여기로 가고,
@@ -175,18 +201,18 @@ export default function LoadingPage() {
             e.stopPropagation();
             goLogin();
           }}
-          className="mt-3 px-4 py-2 text-sm font-medium text-muk-soft hover:text-muk underline underline-offset-4 decoration-line transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold-deep rounded-lg"
+          className="toss-pressable mt-3 inline-flex min-h-11 items-center rounded-lg px-4 text-sm font-semibold text-muk-soft underline decoration-line underline-offset-4 transition-colors hover:text-muk focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold-deep"
         >
           {t('landing.ctaLogin')}
         </button>
         <span ref={introTriggerRef} className="contents">
-          <GuideButton compact className="mt-5 min-h-11 px-5" />
+          <GuideButton compact className="mt-2 min-h-11 px-5" />
         </span>
       </div>
 
-      {/* 공공데이터 출처 표기 — 공모전 규정 형식(출처: ⓒ한국관광공사, 텍스트만). 첫 화면에서 데이터 정당성을 알린다. */}
-      <div className="absolute bottom-3 inset-x-0 z-10 text-center pointer-events-none">
-        <p className="text-[11px] text-muk-soft/70">{t('landing.dataAttribution')}</p>
+      {/* 공공데이터 출처 */}
+      <div className="relative z-10 shrink-0 px-4 pb-3 text-center pointer-events-none">
+        <p className="text-xs text-muk-soft">{t('landing.dataAttribution')}</p>
       </div>
     </div>
   );

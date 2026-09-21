@@ -174,7 +174,7 @@ export default function SettingsPage() {
               </div>
               <div className="flex items-center gap-3">
                 {saveMsg && (
-                  <span className={`flex items-center gap-1.5 text-sm font-semibold ${saveMsg.type === 'ok' ? 'text-emerald-400' : 'text-rose-400'}`}>
+                  <span className={`flex items-center gap-1.5 text-sm font-semibold ${saveMsg.type === 'ok' ? 'text-emerald-700' : 'text-rose-700'}`}>
                     {saveMsg.type === 'ok' ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
                     {saveMsg.text}
                   </span>
@@ -196,7 +196,7 @@ export default function SettingsPage() {
                 (여기에 같은 말을 또 적어 두면 둘이 갈라진다). 원인 상세는 콘솔에만 남는다. */}
             {settingsLoad.status === 'failed' && saveGuard.reason && (
               <div className="flex items-start gap-3 bg-amber-500/10 border border-amber-500/30 rounded-2xl p-4">
-                <AlertCircle size={20} className="text-amber-400 flex-shrink-0 mt-0.5" />
+                <AlertCircle size={20} className="text-amber-600 flex-shrink-0 mt-0.5" />
                 <p className="text-sm font-semibold text-amber-700">{saveGuard.reason}</p>
               </div>
             )}
@@ -204,9 +204,9 @@ export default function SettingsPage() {
             {/* 'missing' = 저장된 행이 아직 없는 상태. 화면은 기본 운영값으로 동작한다. */}
             {settingsLoad.status === 'missing' && (
               <div className="flex items-start gap-3 bg-amber-500/10 border border-amber-500/30 rounded-2xl p-4">
-                <AlertCircle size={20} className="text-amber-400 flex-shrink-0 mt-0.5" />
+                <AlertCircle size={20} className="text-amber-600 flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-bold text-amber-300">현재 기본 운영값으로 동작 중입니다</p>
+                  <p className="font-bold text-amber-800">현재 기본 운영값으로 동작 중입니다</p>
                   <p className="text-sm text-hanok-muted mt-1">
                     아래 값을 조정해 저장하면 즉시 서비스 정책에 반영됩니다.
                   </p>
@@ -284,7 +284,7 @@ export default function SettingsPage() {
                         여유·보통 등급 경계는 기본값을 그대로 유지합니다.
                       </p>
                     </div>
-                    <span className="text-2xl font-black text-rose-400">{threshold}%</span>
+                    <span className="text-2xl font-black text-rose-600">{threshold}%</span>
                   </div>
                   <input
                     type="range"
@@ -345,7 +345,7 @@ export default function SettingsPage() {
                 {/* 누적 로그 */}
                 <div className="p-4 bg-hanok border border-hanok-line rounded-xl flex flex-col gap-2">
                   <div className="flex items-center gap-2 text-hanok-muted">
-                    <Activity size={16} className="text-emerald-400" />
+                    <Activity size={16} className="text-emerald-600" />
                     <span className="text-xs font-semibold">누적 혼잡 로그</span>
                   </div>
                   <div className={`text-2xl font-black ${statsStatus === 'failed' ? 'text-hanok-muted text-base' : 'text-hanok-ink'}`}>
@@ -355,7 +355,7 @@ export default function SettingsPage() {
                 {/* 최근 로그 시각 — 실패했을 때의 '—' 는 '수집된 적 없음' 으로 읽히므로 구분한다. */}
                 <div className="p-4 bg-hanok border border-hanok-line rounded-xl flex flex-col gap-2">
                   <div className="flex items-center gap-2 text-hanok-muted">
-                    <Clock size={16} className="text-amber-400" />
+                    <Clock size={16} className="text-amber-600" />
                     <span className="text-xs font-semibold">최근 데이터 수집</span>
                   </div>
                   <div className={`text-lg font-bold ${statsStatus === 'failed' ? 'text-hanok-muted' : 'text-hanok-ink'}`}>

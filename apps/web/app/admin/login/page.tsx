@@ -44,7 +44,8 @@ export default function AdminLoginPage() {
           </div>
           {/* eslint-disable-next-line @next/next/no-img-element -- 정적 export, public 자산 직접 참조 */}
           <img src="/nextspot-logo.png" alt="NextSpot" className="h-8 w-auto" />
-          <p className="mt-1 text-sm text-hanok-muted">경북문화관광공사 운영 대시보드</p>
+          {/* 운영 주체 표기 금지 — 공공기관이 운영하는 것처럼 보이는 문구는 쓰지 않는다(출처 표기는 데이터 각주로만). */}
+          <p className="mt-1 text-sm text-hanok-muted">관광 수요 관제 대시보드</p>
         </div>
 
         <div className="rounded-3xl border border-hanok-line bg-hanok-card p-6 text-center shadow-sm">

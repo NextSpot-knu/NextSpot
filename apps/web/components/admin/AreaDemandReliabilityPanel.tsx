@@ -95,7 +95,7 @@ export function AreaDemandReliabilityPanel() {
           className={`mt-4 flex items-start gap-2 rounded-xl border p-3 text-xs ${
             alertState === 'down'
               ? 'border-rose-500/40 bg-rose-500/10 text-rose-700'
-              : 'border-amber-500/40 bg-amber-500/10 text-amber-300'
+              : 'border-amber-500/40 bg-amber-500/10 text-amber-800'
           }`}
         >
           <AlertTriangle size={14} className="mt-0.5 shrink-0" />
@@ -105,7 +105,23 @@ export function AreaDemandReliabilityPanel() {
       )}
 
       {loading && !data ? (
-        <div className="mt-4 h-20 animate-pulse rounded-xl bg-hanok-line/50" />
+        // 회색 판 대신 대시보드와 같은 시머 연출 — dash-* 스타일은 이 컴포넌트가 어느 페이지에
+        // 얹힐지 보장이 없어 adr-* 로 자족한다(<style> 인라인).
+        <>
+          <style>{`
+            @keyframes adr-shimmer { 100% { transform: translateX(100%); } }
+            .adr-skel { position: relative; overflow: hidden; }
+            .adr-skel::after {
+              content: "";
+              position: absolute;
+              inset: 0;
+              transform: translateX(-100%);
+              background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.55), transparent);
+              animation: adr-shimmer 1.6s ease-in-out infinite;
+            }
+          `}</style>
+          <div className="adr-skel mt-4 h-20 rounded-xl bg-gradient-to-r from-hanok-line/50 via-gold/15 to-hanok-line/50" />
+        </>
       ) : error ? (
         <p className="mt-4 flex items-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-700"><AlertTriangle size={14} />수집 현황을 갱신하는 중입니다 — 잠시 후 자동으로 표시됩니다.</p>
       ) : data?.window ? (

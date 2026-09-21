@@ -427,7 +427,7 @@ export default function MyPage() {
                   <button
                     type="button"
                     onClick={handleOpenEdit}
-                    className="flex items-center gap-2 px-5 py-2.5 rounded-xl border border-line bg-hanji text-muk text-sm font-medium toss-pressable hover:bg-hanji-deep focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+                    className="flex min-h-11 items-center gap-2 px-5 rounded-xl border border-line bg-hanji text-muk text-sm font-medium toss-pressable hover:border-gold/40 hover:bg-hanji-deep focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
                   >
                     <Edit2 size={14} />
                     <span>{t('mypage.editProfile')}</span>
@@ -444,12 +444,12 @@ export default function MyPage() {
                     className="bg-white border border-line rounded-2xl p-4 flex items-center justify-center gap-3 max-[420px]:gap-1.5 shadow-[0_2px_14px_rgba(43,35,32,0.06)] toss-pressable hover:bg-hanji-deep focus:outline-none focus-visible:ring-2 focus-visible:ring-terracotta/60"
                   >
                     <Bookmark size={20} className="text-terracotta shrink-0" fill="currentColor" />
-                    <span className="text-xl font-bold text-muk">{profile.saved}</span>
+                    <span className="text-xl font-bold text-muk tabular-nums">{profile.saved}</span>
                     <span className="text-xs text-muk-soft font-medium whitespace-nowrap">{t('mypage.statSaved')}</span>
                   </button>
                   <div className="bg-white border border-line rounded-2xl p-4 flex items-center justify-center gap-3 max-[420px]:gap-1.5 shadow-[0_2px_14px_rgba(43,35,32,0.06)]">
                     <Footprints size={20} className="text-jade shrink-0" />
-                    <span className="text-xl font-bold text-muk">{visitCount}</span>
+                    <span className="text-xl font-bold text-muk tabular-nums">{visitCount}</span>
                     <span className="text-xs text-muk-soft font-medium whitespace-nowrap">{t('mypage.statVisited')}</span>
                   </div>
                 </div>
@@ -664,11 +664,11 @@ export default function MyPage() {
 
             {/* 보조 링크 — 개인정보·고객지원은 메인 메뉴에서 분리해 작게 배치 */}
             <div className="flex items-center justify-center gap-3 text-xs text-muk-soft pb-2">
-              <button type="button" onClick={() => router.push('/mypage/privacy')} className="-my-2 rounded-lg px-1 py-2 toss-pressable hover:text-muk focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60">
+              <button type="button" onClick={() => router.push('/mypage/privacy')} className="-my-2 inline-flex min-h-11 items-center rounded-lg px-1 toss-pressable hover:text-muk focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60">
                 {t('mypage.menuPrivacy')}
               </button>
               <span className="text-line">·</span>
-              <button type="button" onClick={() => router.push('/mypage/support')} className="-my-2 rounded-lg px-1 py-2 toss-pressable hover:text-muk focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60">
+              <button type="button" onClick={() => router.push('/mypage/support')} className="-my-2 inline-flex min-h-11 items-center rounded-lg px-1 toss-pressable hover:text-muk focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60">
                 {t('mypage.menuHelp')}
               </button>
             </div>
