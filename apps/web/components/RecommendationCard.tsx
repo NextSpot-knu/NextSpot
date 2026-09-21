@@ -607,7 +607,7 @@ export function RecommendationCard({
 
   return (
     <motion.div 
-      className={`w-full max-h-[calc(100dvh-var(--tourist-nav-clearance)-6rem)] bg-white/95 backdrop-blur-2xl border border-line rounded-3xl ${isMinimized ? 'p-3' : 'p-5'} toss-surface flex flex-col ${isMinimized ? 'gap-1' : 'gap-3'} select-none relative overflow-hidden`}
+      className={`w-full max-h-[calc(100dvh-var(--tourist-nav-clearance)-8rem)] bg-white/95 backdrop-blur-2xl border border-line rounded-3xl ${isMinimized ? 'p-3' : 'p-5'} toss-surface flex flex-col ${isMinimized ? 'gap-1' : 'gap-3'} select-none relative overflow-hidden`}
       initial={{ opacity: 0, y: 18, scale: 0.985 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       drag="y"
