@@ -16,6 +16,8 @@ import { reconcileUserData } from '@/lib/userData';
 import { syncSaved } from '@/lib/savedFacilities';
 import { createPublicClient } from '@/lib/supabase';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
+import { JudgeAccountHint } from '@/components/JudgeAccountHint';
+import { JUDGE_ACCOUNTS, judgeConsoleForNext } from '@/lib/judgeAccounts';
 import { useT } from '@/lib/i18n/I18nProvider';
 
 type Mode = 'login' | 'signup';
@@ -49,12 +51,16 @@ function LoginForm() {
   // 소셜 로그인은 프로바이더 왕복 뒤 /auth/callback 이 이동을 맡으므로 역할 판정도 거기서 한다.
   // 여기(이메일 로그인)는 afterAuth 가 처리한다.
   const signUpDest = hasNext ? nextPath : '/setup';
+  // 콘솔 관문(/merchant·/admin)이 보내온 로그인이면 그 콘솔의 심사용 계정을 이메일 칸에 미리 넣는다.
+  // 계정이 둘이라 직접 고르게 두면 반대 계정으로 들어가 '권한 없음'에서 멈춘다(lib/judgeAccounts.ts).
+  const judgeConsole = judgeConsoleForNext(hasNext ? nextPath : null);
   const [mode, setMode] = useState<Mode>('login');
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(() => (judgeConsole ? JUDGE_ACCOUNTS[judgeConsole] : ''));
   const [password, setPassword] = useState('');
   const [nickname, setNickname] = useState('');
   const [busy, setBusy] = useState(false);
   const busyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const passwordRef = useRef<HTMLInputElement | null>(null);
 
   // 버튼이 영영 비활성으로 남지 않게 하는 안전망 두 개.
   //
@@ -193,7 +199,11 @@ function LoginForm() {
             <button
               key={m}
               type="button"
-              onClick={() => setMode(m)}
+              onClick={() => {
+                setMode(m);
+                // 심사용 계정을 미리 넣어둔 채 가입 탭으로 가면 '이미 가입된 이메일'로 튕긴다 — 비운다.
+                if (m === 'signup' && judgeConsole && email === JUDGE_ACCOUNTS[judgeConsole]) setEmail('');
+              }}
               className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition-colors ${
                 mode === m ? 'bg-gold text-white' : 'text-muk-soft hover:text-muk'
               }`}
@@ -202,6 +212,18 @@ function LoginForm() {
             </button>
           ))}
         </div>
+
+        {/* 공모전 심사용 계정 안내 — 가입 탭에는 필요 없다. 콘솔에서 넘어왔으면 그 콘솔 계정만 보여준다. */}
+        {mode === 'login' && (
+          <JudgeAccountHint
+            only={judgeConsole ?? undefined}
+            onFill={(judgeEmail) => {
+              setEmail(judgeEmail);
+              passwordRef.current?.focus();
+            }}
+            className="mb-4"
+          />
+        )}
 
         <form onSubmit={handleSubmit} className="flex flex-col gap-3">
           <label className="flex items-center gap-2 bg-white border border-line rounded-xl px-3.5 py-3 focus-within:border-gold transition-colors">
@@ -219,6 +241,7 @@ function LoginForm() {
           <label className="flex items-center gap-2 bg-white border border-line rounded-xl px-3.5 py-3 focus-within:border-gold transition-colors">
             <Lock size={18} className="text-muk-soft shrink-0" />
             <input
+              ref={passwordRef}
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}

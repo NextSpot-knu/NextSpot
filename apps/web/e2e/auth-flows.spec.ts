@@ -112,6 +112,38 @@ test('?next= 로 요청된 목적지가 로그인 뒤에 지켜진다', async ({
   await expect(page).toHaveURL(/\/saved/, { timeout: 20_000 });
 });
 
+// ── 심사용 계정 안내 ─────────────────────────────────────────────────────────
+// 제출 양식에는 테스트 계정이 하나만 들어가는데 콘솔 계정은 둘이라, 콘솔 관문에서 넘어온 로그인은
+// 그 콘솔 계정만 보여주고 이메일 칸에 미리 넣는다. 정본은 lib/judgeAccounts.ts ↔ seed_judge_accounts.py.
+
+test('콘솔 관문에서 넘어온 로그인은 그 콘솔의 심사용 계정만 안내하고 이메일을 미리 넣는다', async ({ page }) => {
+  await stubOurApi(page);
+  const hint = () => page.getByRole('region', { name: '공모전 심사용 계정' });
+
+  await page.goto('/login?next=/merchant');
+  await expect(page.getByPlaceholder('이메일')).toHaveValue('openapi@naver.com');
+  await expect(hint()).toContainText('openapi@naver.com');
+  await expect(hint()).not.toContainText('openapi@gmail.com');
+
+  await page.goto('/login?next=/admin/dashboard');
+  await expect(page.getByPlaceholder('이메일')).toHaveValue('openapi@gmail.com');
+  await expect(hint()).not.toContainText('openapi@naver.com');
+
+  // 목적지가 없으면 두 계정을 역할과 함께 보여주고, '입력'은 이메일 칸을 채운다.
+  await page.goto('/login');
+  await expect(page.getByPlaceholder('이메일')).toHaveValue('');
+  await expect(hint()).toContainText('openapi@naver.com');
+  await expect(hint()).toContainText('openapi@gmail.com');
+  await hint().getByRole('button', { name: 'openapi@gmail.com 입력' }).click();
+  await expect(page.getByPlaceholder('이메일')).toHaveValue('openapi@gmail.com');
+
+  // 가입 탭에는 안내가 없고, 미리 넣어둔 심사 계정도 가입 폼으로 따라가지 않는다.
+  await page.goto('/login?next=/merchant');
+  await page.getByRole('button', { name: '회원가입', exact: true }).click();
+  await expect(hint()).toHaveCount(0);
+  await expect(page.getByPlaceholder('이메일')).toHaveValue('');
+});
+
 // ── 로그인 실패: 원인별로 다른 말을 한다 ────────────────────────────────────
 
 test('비밀번호가 틀리면 자격증명 안내가 뜨고 버튼이 다시 눌린다', async ({ page }) => {

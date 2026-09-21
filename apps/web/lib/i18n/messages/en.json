@@ -1210,5 +1210,14 @@
     "repliedAt": "Replied {date}",
     "anonymousHint": "Inquiries sent before signing in do not appear here",
     "newReplyBadge": "New reply"
+  },
+  "judgeAccount": {
+    "title": "Contest judge accounts",
+    "merchant": "Merchant console",
+    "admin": "Admin dashboard",
+    "password": "Use the test-account password set by the contest.",
+    "fill": "Fill in",
+    "fillAria": "Fill in {email}",
+    "switchAccount": "Log in with a different account"
   }
 }

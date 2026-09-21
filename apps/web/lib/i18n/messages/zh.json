@@ -1210,5 +1210,14 @@
     "repliedAt": "{date} 回复",
     "anonymousHint": "登录前发送的咨询不会显示在此处",
     "newReplyBadge": "新回复"
+  },
+  "judgeAccount": {
+    "title": "比赛评审专用账号",
+    "merchant": "商家控制台",
+    "admin": "管理仪表盘",
+    "password": "密码为比赛指定的测试账号密码。",
+    "fill": "填入",
+    "fillAria": "填入 {email}",
+    "switchAccount": "使用其他账号登录"
   }
 }

@@ -15,6 +15,7 @@ import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { ShieldCheck, ShieldAlert, Loader2 } from 'lucide-react';
 import { useAccount, canEnterAdminConsole } from '@/lib/account';
+import { JudgeAccountHint } from '@/components/JudgeAccountHint';
 
 export default function AdminLoginPage() {
   const router = useRouter();
@@ -72,6 +73,7 @@ export default function AdminLoginPage() {
                 이 대시보드는 관리자 계정만 들어올 수 있어요. 다른 계정으로 로그인하거나
                 담당자에게 권한을 요청해 주세요.
               </p>
+              <JudgeAccountHint only="admin" tone="console" className="mt-4" />
               <button
                 type="button"
                 onClick={() => router.push('/login?next=/admin/dashboard')}
@@ -93,6 +95,7 @@ export default function AdminLoginPage() {
               <p className="mt-1.5 text-xs leading-relaxed text-hanok-muted">
                 관제 대시보드는 NextSpot 계정으로 들어옵니다. 별도 관리자 비밀번호는 없습니다.
               </p>
+              <JudgeAccountHint only="admin" tone="console" className="mt-4" />
               <button
                 type="button"
                 onClick={() => router.push('/login?next=/admin/dashboard')}

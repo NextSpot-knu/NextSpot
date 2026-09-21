@@ -17,6 +17,7 @@ import { createPublicClient } from '@/lib/supabase';
 import { escapeLikeTerm } from '@/lib/facilitySearch';
 import { useT } from '@/lib/i18n/I18nProvider';
 import { useAccount, canEnterMerchantConsole, type OwnedFacility } from '@/lib/account';
+import { JudgeAccountHint } from '@/components/JudgeAccountHint';
 import {
   saveMerchantFacility,
   getMerchantFacility,
@@ -76,6 +77,7 @@ export default function MerchantGatePage() {
             onClick: () => router.push('/login?next=/merchant'),
           }}
         />
+        <JudgeAccountHint only="merchant" className="mt-4" />
       </Shell>
     );
   }
@@ -96,9 +98,26 @@ export default function MerchantGatePage() {
                   label: t('account.businessTitle'),
                   onClick: () => router.push('/account/business'),
                 }
-              : undefined
+              : {
+                  // 게스트(익명 세션)와 관리자 계정은 신청 대상이 아니라 버튼이 없었고, 이 화면이 막다른
+                  // 길이었다. '바로 시작'으로 들어온 심사위원이 정확히 이 경로다 — 로그인으로 보낸다.
+                  // 이미 로그인한 관리자 계정에게 '로그인'은 세션이 끊긴 것처럼 읽혀 '다른 계정으로'라고 쓴다.
+                  label: account.isAnonymous ? t('login.submitLogin') : t('judgeAccount.switchAccount'),
+                  onClick: () => router.push('/login?next=/merchant'),
+                }
           }
         />
+        <JudgeAccountHint only="merchant" className="mt-4" />
+        {/* 가입한 관광객 계정이면 카드 버튼이 '사업자 인증'이라 계정을 바꿀 길이 따로 필요하다. */}
+        {canApply && (
+          <button
+            type="button"
+            onClick={() => router.push('/login?next=/merchant')}
+            className="mt-3 flex min-h-10 w-full items-center justify-center rounded-xl text-sm font-medium text-muk-soft underline transition-colors hover:text-muk focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/40"
+          >
+            {t('judgeAccount.switchAccount')}
+          </button>
+        )}
       </Shell>
     );
   }

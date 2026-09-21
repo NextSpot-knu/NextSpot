@@ -1210,5 +1210,14 @@
     "repliedAt": "{date} 답변",
     "anonymousHint": "로그인 전에 보낸 문의는 여기에 표시되지 않아요",
     "newReplyBadge": "새 답변"
+  },
+  "judgeAccount": {
+    "title": "공모전 심사용 계정",
+    "merchant": "사장님 콘솔",
+    "admin": "관제 대시보드",
+    "password": "비밀번호는 공모전에서 지정한 테스트 계정 비밀번호입니다.",
+    "fill": "입력",
+    "fillAria": "{email} 입력",
+    "switchAccount": "다른 계정으로 로그인"
   }
 }

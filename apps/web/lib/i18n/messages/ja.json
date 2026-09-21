@@ -1210,5 +1210,14 @@
     "repliedAt": "{date} 回答",
     "anonymousHint": "ログイン前に送信したお問い合わせはここに表示されません",
     "newReplyBadge": "新しい回答"
+  },
+  "judgeAccount": {
+    "title": "コンテスト審査用アカウント",
+    "merchant": "オーナーコンソール",
+    "admin": "管制ダッシュボード",
+    "password": "パスワードはコンテスト指定のテストアカウント用パスワードです。",
+    "fill": "自動入力",
+    "fillAria": "{email} を入力",
+    "switchAccount": "別のアカウントでログイン"
   }
 }
