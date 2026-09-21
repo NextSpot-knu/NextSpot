@@ -223,7 +223,7 @@ export function FacilityTable() {
               }}
               className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
                 selectedCategory === cat.id
-                  ? 'bg-gold/25 border-gold/50 text-gold font-bold shadow-sm'
+                  ? 'bg-gold/25 border-gold/50 text-gold-deep font-bold shadow-sm'
                   : 'bg-hanok-card/80 border-hanok-line/80 text-hanok-muted hover:bg-hanok-card hover:text-hanok-ink'
               }`}
             >
@@ -269,12 +269,12 @@ export function FacilityTable() {
                       <td className="p-4 whitespace-nowrap">
                         {/* inline-block + whitespace-nowrap: 배지 안의 두 글자가 칸 압박으로 쪼개지지 않게 한다.
                             (td 의 nowrap 만으로는 배지 내부 텍스트 줄바꿈을 막지 못하는 브라우저가 있다.) */}
-                        <span className="inline-block whitespace-nowrap px-2 py-1 bg-emerald-500/15 text-emerald-300 text-xs font-bold rounded-md">활성</span>
+                        <span className="inline-block whitespace-nowrap px-2 py-1 bg-emerald-500/15 text-emerald-700 text-xs font-bold rounded-md">활성</span>
                       </td>
                       <td className="p-4 flex justify-end gap-2 whitespace-nowrap">
                         <button
                           onClick={() => openEditModal(fac)}
-                          className="p-1.5 text-hanok-muted hover:text-gold transition-colors bg-hanok-panel border border-hanok-line rounded-md"
+                          className="p-1.5 text-hanok-muted hover:text-gold-deep transition-colors bg-hanok-panel border border-hanok-line rounded-md"
                         >
                           <Edit2 size={16} />
                         </button>

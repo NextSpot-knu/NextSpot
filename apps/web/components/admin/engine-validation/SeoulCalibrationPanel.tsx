@@ -37,10 +37,10 @@ type LoadState =
   | { status: 'failed'; failure: AdminFailureNotice };
 
 const TONE_BOX: Record<Tone, string> = {
-  ok: 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300',
+  ok: 'bg-emerald-500/10 border-emerald-500/30 text-emerald-700',
   info: 'bg-hanok-card border-hanok-line text-hanok-ink',
   warn: 'bg-amber-500/10 border-amber-500/30 text-amber-300',
-  error: 'bg-rose-500/10 border-rose-500/30 text-rose-300',
+  error: 'bg-rose-500/10 border-rose-500/30 text-rose-700',
 };
 
 export function SeoulCalibrationPanel() {
@@ -91,12 +91,12 @@ export function SeoulCalibrationPanel() {
     <section className="bg-hanok-panel p-6 rounded-2xl border border-hanok-line shadow-sm space-y-4">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h3 className="text-lg font-bold text-hanok-ink flex items-center gap-2">
-          <Sigma size={18} className="text-gold" /> 서울 실측으로 보정
+          <Sigma size={18} className="text-gold-deep" /> 서울 실측으로 보정
         </h3>
         <button
           onClick={reload}
           disabled={load.status === 'loading'}
-          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold border bg-hanok-card text-hanok-ink border-hanok-line hover:text-gold disabled:opacity-50"
+          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold border bg-hanok-card text-hanok-ink border-hanok-line hover:text-gold-deep disabled:opacity-50"
         >
           <RefreshCw size={13} className={load.status === 'loading' ? 'animate-spin' : ''} /> 새로고침
         </button>
@@ -117,10 +117,10 @@ export function SeoulCalibrationPanel() {
         <div className="flex items-start gap-3 bg-rose-500/10 border border-rose-500/30 rounded-xl p-4">
           <AlertCircle size={18} className="text-rose-400 flex-shrink-0 mt-0.5" />
           <div className="min-w-0 text-sm">
-            <p className="font-bold text-rose-300">{load.failure.title}</p>
+            <p className="font-bold text-rose-700">{load.failure.title}</p>
             <p className="text-hanok-muted mt-1">{load.failure.action}</p>
             {load.failure.retryable && (
-              <button onClick={reload} className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-hanok-ink underline underline-offset-2 hover:text-gold">
+              <button onClick={reload} className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-hanok-ink underline underline-offset-2 hover:text-gold-deep">
                 <RefreshCw size={13} /> 다시 시도
               </button>
             )}
@@ -169,7 +169,7 @@ export function SeoulCalibrationPanel() {
             </div>
             <div className="bg-hanok-card border border-hanok-line rounded-xl p-3">
               <p className="text-xs text-hanok-muted">경주 추정에 적용</p>
-              <p className={`text-lg font-bold mt-1 ${data.applied ? 'text-emerald-300' : 'text-hanok-ink'}`}>
+              <p className={`text-lg font-bold mt-1 ${data.applied ? 'text-emerald-700' : 'text-hanok-ink'}`}>
                 {data.applied ? '적용 중' : '기준선 유지'}
               </p>
               <p className="text-[11px] text-hanok-muted mt-1">

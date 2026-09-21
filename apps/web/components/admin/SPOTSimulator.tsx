@@ -135,7 +135,7 @@ export default function SPOTSimulator() {
                     <SyncControl
                         label="선호도 일치율 (W_pref)"
                         value={weights.pref}
-                        colorClass="text-gold bg-gold/10 border-gold/30"
+                        colorClass="text-gold-deep bg-gold/10 border-gold/30"
                         accentClass="accent-gold"
                         onChange={(v) => handleWeightChange('pref', v)}
                     />
@@ -210,7 +210,7 @@ export default function SPOTSimulator() {
             {/* SPOT Explanation Guide */}
             <div className="mt-8 bg-hanok-panel p-6 rounded-2xl shadow-sm border border-hanok-line">
                 <h3 className="text-lg font-bold text-hanok-ink mb-4 flex items-center gap-2">
-                    <span className="bg-gold/15 text-gold p-1.5 rounded-lg"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg></span>
+                    <span className="bg-gold/15 text-gold-deep p-1.5 rounded-lg"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg></span>
                     SPOT (Smart Place Optimization for Tourism) 알고리즘 가이드
                 </h3>
 
@@ -218,7 +218,7 @@ export default function SPOTSimulator() {
                     <div>
                         <p className="mb-4 leading-relaxed">
                             <strong className="text-hanok-ink">SPOT란?</strong><br/>
-                            사용자가 서비스를 이용하기 위해 소비하는 <span className="font-semibold text-gold">대기 시간과 이동 시간의 기회비용을 가치(Value)로 환산</span>하여 최적의 스팟을 추천하는 NextSpot만의 핵심 알고리즘입니다. 점수(0~100점)가 높을수록 현재 상황에서 가장 합리적인 선택지임을 의미합니다.
+                            사용자가 서비스를 이용하기 위해 소비하는 <span className="font-semibold text-gold-deep">대기 시간과 이동 시간의 기회비용을 가치(Value)로 환산</span>하여 최적의 스팟을 추천하는 NextSpot만의 핵심 알고리즘입니다. 점수(0~100점)가 높을수록 현재 상황에서 가장 합리적인 선택지임을 의미합니다.
                         </p>
                         <p className="leading-relaxed">
                             <strong className="text-hanok-ink">시뮬레이터 활용법:</strong><br/>

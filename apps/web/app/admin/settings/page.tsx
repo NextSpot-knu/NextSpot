@@ -197,7 +197,7 @@ export default function SettingsPage() {
             {settingsLoad.status === 'failed' && saveGuard.reason && (
               <div className="flex items-start gap-3 bg-amber-500/10 border border-amber-500/30 rounded-2xl p-4">
                 <AlertCircle size={20} className="text-amber-400 flex-shrink-0 mt-0.5" />
-                <p className="text-sm font-semibold text-amber-200">{saveGuard.reason}</p>
+                <p className="text-sm font-semibold text-amber-700">{saveGuard.reason}</p>
               </div>
             )}
 
@@ -335,7 +335,7 @@ export default function SettingsPage() {
                 {/* 시설 수 — 조회 실패를 '0개' 로 그리지 않는다(0개는 재난, 실패는 모름). */}
                 <div className="p-4 bg-hanok border border-hanok-line rounded-xl flex flex-col gap-2">
                   <div className="flex items-center gap-2 text-hanok-muted">
-                    <Building2 size={16} className="text-gold" />
+                    <Building2 size={16} className="text-gold-deep" />
                     <span className="text-xs font-semibold">등록 시설</span>
                   </div>
                   <div className={`text-2xl font-black ${statsStatus === 'failed' ? 'text-hanok-muted text-base' : 'text-hanok-ink'}`}>

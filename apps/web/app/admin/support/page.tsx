@@ -196,7 +196,7 @@ export default function SupportPage() {
     switch(status) {
       case 'new': return <span className="px-2 py-1 bg-red-500/15 text-red-300 text-xs font-bold rounded-md">NEW</span>;
       case 'in_progress': return <span className="px-2 py-1 bg-amber-500/15 text-amber-300 text-xs font-bold rounded-md">IN PROGRESS</span>;
-      case 'resolved': return <span className="px-2 py-1 bg-emerald-500/15 text-emerald-300 text-xs font-bold rounded-md">RESOLVED</span>;
+      case 'resolved': return <span className="px-2 py-1 bg-emerald-500/15 text-emerald-700 text-xs font-bold rounded-md">RESOLVED</span>;
       default: return <span className="px-2 py-1 bg-hanok-card text-hanok-ink text-xs font-bold rounded-md">NEW</span>;
     }
   };
@@ -331,7 +331,7 @@ export default function SupportPage() {
                   {selectedTicket.replyBody && (
                     <div className="mb-4 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4">
                       <div className="flex items-center justify-between gap-3 mb-2">
-                        <span className="flex items-center gap-1.5 text-xs font-bold text-emerald-300">
+                        <span className="flex items-center gap-1.5 text-xs font-bold text-emerald-700">
                           <CheckCircle size={14} /> 답변 완료
                         </span>
                         <span className="text-xs text-hanok-muted">
@@ -361,7 +361,7 @@ export default function SupportPage() {
                           익명 문의를 그렇게 열어 뒀다). 저장은 되지만 앱 안에서는 아무도 못 읽는다 —
                           답변을 쓰기 **전에** 알려야 하는 사실이다. */}
                       {!selectedTicket.userId && (
-                        <p className="mb-3 flex items-start gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+                        <p className="mb-3 flex items-start gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-700">
                           <AlertCircle size={16} className="flex-shrink-0 mt-0.5" />
                           <span>
                             <strong className="font-bold">비회원 문의입니다.</strong>{' '}

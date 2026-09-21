@@ -80,7 +80,7 @@ export function AreaDemandReliabilityPanel() {
       <div className="flex items-start justify-between gap-3">
         <div>
           <h3 className="flex items-center gap-2 font-bold text-hanok-ink">
-            <CarFront size={18} className="text-gold" />공영주차 실측 수집
+            <CarFront size={18} className="text-gold-deep" />공영주차 실측 수집
           </h3>
           <p className="mt-1 text-xs text-hanok-muted">장소 내부 혼잡이 아닌 경주 ITS 주차 수요 · 10분 간격</p>
         </div>
@@ -94,7 +94,7 @@ export function AreaDemandReliabilityPanel() {
           role="alert"
           className={`mt-4 flex items-start gap-2 rounded-xl border p-3 text-xs ${
             alertState === 'down'
-              ? 'border-rose-500/40 bg-rose-500/10 text-rose-300'
+              ? 'border-rose-500/40 bg-rose-500/10 text-rose-700'
               : 'border-amber-500/40 bg-amber-500/10 text-amber-300'
           }`}
         >
@@ -107,7 +107,7 @@ export function AreaDemandReliabilityPanel() {
       {loading && !data ? (
         <div className="mt-4 h-20 animate-pulse rounded-xl bg-hanok-line/50" />
       ) : error ? (
-        <p className="mt-4 flex items-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-200"><AlertTriangle size={14} />수집 현황을 갱신하는 중입니다 — 잠시 후 자동으로 표시됩니다.</p>
+        <p className="mt-4 flex items-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-700"><AlertTriangle size={14} />수집 현황을 갱신하는 중입니다 — 잠시 후 자동으로 표시됩니다.</p>
       ) : data?.window ? (
         // `data ?` 만으로는 부족하다 — **응답이 오긴 왔는데 window 가 없는 경우**가 그 가드를
         // 통과해 아래 `data.window.received_bucket_count` 에서 터졌고, 그러면 이 패널 하나가
@@ -145,5 +145,5 @@ export function AreaDemandReliabilityPanel() {
 }
 
 function Metric({ label, value, warn = false }: { label: string; value: string; warn?: boolean }) {
-  return <div className="rounded-xl border border-hanok-line bg-hanok-card p-3"><p className="text-[10px] text-hanok-muted">{label}</p><p className={`mt-1 text-lg font-black ${warn ? 'text-rose-300' : 'text-hanok-ink'}`}>{value}</p></div>;
+  return <div className="rounded-xl border border-hanok-line bg-hanok-card p-3"><p className="text-[10px] text-hanok-muted">{label}</p><p className={`mt-1 text-lg font-black ${warn ? 'text-rose-700' : 'text-hanok-ink'}`}>{value}</p></div>;
 }

@@ -37,19 +37,19 @@ type LoadState =
   | { status: 'failed'; failure: AdminFailureNotice };
 
 const TONE_BOX: Record<Tone, string> = {
-  ok: 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300',
+  ok: 'bg-emerald-500/10 border-emerald-500/30 text-emerald-700',
   info: 'bg-hanok-card border-hanok-line text-hanok-ink',
   warn: 'bg-amber-500/10 border-amber-500/30 text-amber-300',
-  error: 'bg-rose-500/10 border-rose-500/30 text-rose-300',
+  error: 'bg-rose-500/10 border-rose-500/30 text-rose-700',
 };
 
 // 등급 색은 프로젝트 공통 혼잡 색 어법(여유 초록 → 붐빔 빨강)을 따른다. 색만으로 구분하지 않도록
 // 이름을 항상 함께 쓴다(색각이상·흑백 인쇄).
 const GRADE_STYLE: Record<string, string> = {
-  '여유': 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40',
-  '보통': 'bg-sky-500/15 text-sky-300 border-sky-500/40',
+  '여유': 'bg-emerald-500/15 text-emerald-700 border-emerald-500/40',
+  '보통': 'bg-sky-500/15 text-sky-700 border-sky-500/40',
   '약간 붐빔': 'bg-amber-500/15 text-amber-300 border-amber-500/40',
-  '붐빔': 'bg-rose-500/15 text-rose-300 border-rose-500/40',
+  '붐빔': 'bg-rose-500/15 text-rose-700 border-rose-500/40',
 };
 
 const CLUSTER_FALLBACK = [DEFAULT_ORIGIN, '연남동', '합정역'];
@@ -136,7 +136,7 @@ export function SeoulAlternativesPanel() {
             aria-pressed={name === origin}
             className={`px-3 py-1.5 rounded-lg text-sm font-semibold border transition-colors ${
               name === origin
-                ? 'bg-gold/10 text-gold border-gold/40'
+                ? 'bg-gold/10 text-gold-deep border-gold/40'
                 : 'bg-hanok-card text-hanok-muted border-hanok-line hover:text-hanok-ink'
             }`}
           >
@@ -146,7 +146,7 @@ export function SeoulAlternativesPanel() {
         <button
           onClick={reload}
           disabled={load.status === 'loading'}
-          className="ml-auto inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-semibold border bg-hanok-card text-hanok-ink border-hanok-line hover:text-gold disabled:opacity-50"
+          className="ml-auto inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-semibold border bg-hanok-card text-hanok-ink border-hanok-line hover:text-gold-deep disabled:opacity-50"
         >
           <RefreshCw size={14} className={load.status === 'loading' ? 'animate-spin' : ''} /> 새로고침
         </button>
@@ -162,10 +162,10 @@ export function SeoulAlternativesPanel() {
         <div className="flex items-start gap-3 bg-rose-500/10 border border-rose-500/30 rounded-xl p-4">
           <AlertCircle size={18} className="text-rose-400 flex-shrink-0 mt-0.5" />
           <div className="min-w-0 text-sm">
-            <p className="font-bold text-rose-300">{load.failure.title}</p>
+            <p className="font-bold text-rose-700">{load.failure.title}</p>
             <p className="text-hanok-muted mt-1">{load.failure.action}</p>
             {load.failure.retryable && (
-              <button onClick={reload} className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-hanok-ink underline underline-offset-2 hover:text-gold">
+              <button onClick={reload} className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-hanok-ink underline underline-offset-2 hover:text-gold-deep">
                 <RefreshCw size={13} /> 다시 시도
               </button>
             )}
@@ -218,7 +218,7 @@ function PlaceCard({ place, state }: { place: AlternativePlace; state: Alternati
           <p className="text-[11px] text-hanok-muted">{place.area_cd}</p>
         </div>
         {place.is_origin ? (
-          <span className="text-[11px] font-semibold text-gold border border-gold/40 rounded px-1.5 py-0.5 flex-shrink-0">출발지</span>
+          <span className="text-[11px] font-semibold text-gold-deep border border-gold/40 rounded px-1.5 py-0.5 flex-shrink-0">출발지</span>
         ) : place.rank !== null ? (
           <span className="text-[11px] font-semibold text-hanok-ink border border-hanok-line rounded px-1.5 py-0.5 flex-shrink-0">
             {place.rank}순위

@@ -109,17 +109,17 @@
   --color-muk-soft: var(--nextspot-muk-soft);     /* 보조 텍스트(흙빛 그레이) */
   --color-line: var(--nextspot-line);             /* 경계선(따뜻한) */
 
-  /* 한옥(관리자 웜다크)
-     2026-09-21 가독성 조정: 이전 값(#1b1712 / #241d17 / #2c241c)은 L* 8~15 구간에 몰려 있어
-     프로젝터·사무실 조명에서 배경·패널·카드가 한 덩어리 검정으로 뭉쳤다(패널/배경 대비 1.07).
-     서페이스를 L* 15~24 의 웜 차콜로 올리고 경계선을 L* 36 까지 끌어올려 층을 보이게 한다.
-     본문 대비는 오히려 올라간다 — ink 11.1:1, muted 7.9:1(카드 기준, AA 4.5 상회). */
-  --color-hanok: #2e251b;       /* 배경 — 한옥 먹빛(웜 차콜) */
-  --color-hanok-panel: #382e23; /* 패널 */
-  --color-hanok-card: #42362a;  /* 중첩 카드 */
-  --color-hanok-line: #63513e;  /* 경계선 */
-  --color-hanok-ink: #fdf8f0;   /* 다크 위 밝은 텍스트 */
-  --color-hanok-muted: #e0d2bf; /* 다크 위 보조 텍스트 */
+  /* 한옥(관리자) — 라이트 종이 테마 (2026-09-21 전환)
+     웜다크는 밝기를 올려도 프로젝터·사무실 조명·고령 심사위원 시인성에서 라이트를 못 이긴다.
+     대시보드 UX 정석(밝고 여백 있는 표면 + 진한 잉크)대로 한지 계열 라이트로 전환하되,
+     토큰 이름은 유지해 관제 전 컴포넌트가 값 교체만으로 따라온다.
+     대비(카드 기준): ink 14.9:1 · muted 6.9:1 (AA 4.5 상회). 배경→패널→카드 3층 분리 유지. */
+  --color-hanok: #efe7d8;       /* 배경 — 한지 딥(앱 바닥) */
+  --color-hanok-panel: #f8f3e9; /* 패널 */
+  --color-hanok-card: #fffdf7;  /* 중첩 카드(웜 화이트) */
+  --color-hanok-line: #d8cab2;  /* 경계선(웜 샌드) */
+  --color-hanok-ink: #251d15;   /* 라이트 위 먹 잉크 */
+  --color-hanok-muted: #63533f; /* 보조 텍스트(흙빛) */
 
   /* 단청 오방색 강조(관광객·관리자 공용) */
   --color-gold: var(--nextspot-gold);              /* 신라 금 — 주 강조 */
@@ -144,18 +144,11 @@ body {
   :root { --tourist-nav-clearance: 116px; }
 }
 
-/* 관제 콘솔 전용 단청 강조색 스코프.
-   한옥 서페이스를 밝히면 같은 hex 의 강조색은 상대적으로 묻힌다(금 5.78:1 → 4.44:1,
-   청록 3.12:1 → 2.40:1). 토큰 이름은 그대로 두고 값만 관제 트리 안에서 한 단계 밝힌다 —
-   관광객 라이트 팔레트(:root)와 야간 팔레트(html.nextspot-dark)는 건드리지 않는다.
-   결과: 금 5.91:1 · 청록 4.81:1 · 주칠 3.89:1 로 조정 전보다 모두 좋아진다.
-   래퍼는 display:contents 라 레이아웃에 관여하지 않고 커스텀 속성만 상속시킨다. */
+/* 관제 콘솔 강조색 스코프 — 라이트 전환(위 hanok 블록) 후에는 :root 라이트 강조색이
+   그대로 옳으므로 다크용 밝힘값을 걷어냈다. 래퍼(.nextspot-admin, display:contents)는
+   무해하게 남겨 두어 이후 관제 전용 미세조정 지점으로 쓴다. */
 .nextspot-admin {
-  --nextspot-gold: #d8b45b;
-  --nextspot-gold-deep: #efcd78;
-  --nextspot-jade: #70b39e;
-  --nextspot-terracotta: #e0775d;
-  --nextspot-dan-red: #df665f;
+  /* intentionally empty — light accents inherit from :root */
 }
 
 /* 관광객 야간 팔레트. 관리자·사장님 경로는 ThemeProvider가 이 클래스를 붙이지 않아

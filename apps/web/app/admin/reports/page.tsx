@@ -515,9 +515,9 @@ export default function ReportsPage() {
               <span
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold border ${
                   sourceState === 'live'
-                    ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30'
+                    ? 'bg-emerald-500/10 text-emerald-700 border-emerald-500/30'
                     : sourceState === 'failed' || sourceState === 'partial'
-                      ? 'bg-rose-500/10 text-rose-300 border-rose-500/30'
+                      ? 'bg-rose-500/10 text-rose-700 border-rose-500/30'
                       : 'bg-hanok-card text-hanok-muted border-hanok-line'
                 }`}
               >
@@ -531,13 +531,13 @@ export default function ReportsPage() {
             <div className="flex items-center gap-3">
               <button
                 onClick={handleExcel}
-                className="flex items-center gap-2 px-4 py-2 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-semibold rounded-lg transition-colors text-sm"
+                className="flex items-center gap-2 px-4 py-2 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-700 border border-emerald-500/30 font-semibold rounded-lg transition-colors text-sm"
               >
                 <FileText size={16} /> Excel 내보내기
               </button>
               <button
                 onClick={handlePdf}
-                className="flex items-center gap-2 px-4 py-2 bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 font-semibold rounded-lg transition-colors text-sm"
+                className="flex items-center gap-2 px-4 py-2 bg-rose-500/10 hover:bg-rose-500/20 text-rose-700 border border-rose-500/30 font-semibold rounded-lg transition-colors text-sm"
               >
                 <Download size={16} /> PDF 다운로드
               </button>
@@ -551,7 +551,7 @@ export default function ReportsPage() {
             <div className="flex items-start gap-3 bg-rose-500/10 border border-rose-500/30 rounded-2xl p-4 flex-shrink-0">
               <AlertCircle size={20} className="text-rose-400 flex-shrink-0 mt-0.5" />
               <div className="min-w-0">
-                <p className="font-bold text-rose-300">일부 지표를 갱신하는 중입니다</p>
+                <p className="font-bold text-rose-700">일부 지표를 갱신하는 중입니다</p>
                 <p className="text-sm text-hanok-muted mt-1">
                   비어 있는 차트·표는 갱신이 끝나는 대로 자동으로 표시됩니다.
                   내보내기(Excel/PDF)도 갱신 후 다시 받아 주세요.
@@ -567,7 +567,7 @@ export default function ReportsPage() {
                         {notice.href && (
                           <Link
                             href={notice.href}
-                            className="inline-flex items-center gap-1 text-xs font-semibold text-hanok-ink underline underline-offset-2 hover:text-gold"
+                            className="inline-flex items-center gap-1 text-xs font-semibold text-hanok-ink underline underline-offset-2 hover:text-gold-deep"
                           >
                             <LogIn size={13} /> 관리자 로그인으로 이동
                           </Link>
@@ -576,7 +576,7 @@ export default function ReportsPage() {
                           <button
                             onClick={reload}
                             disabled={loading}
-                            className="inline-flex items-center gap-1 text-xs font-semibold text-hanok-ink underline underline-offset-2 hover:text-gold disabled:opacity-50 disabled:no-underline"
+                            className="inline-flex items-center gap-1 text-xs font-semibold text-hanok-ink underline underline-offset-2 hover:text-gold-deep disabled:opacity-50 disabled:no-underline"
                           >
                             <RefreshCw size={13} className={loading ? 'animate-spin' : ''} /> 다시 시도
                           </button>
@@ -594,7 +594,7 @@ export default function ReportsPage() {
             {/* Bar Chart */}
             <div className="bg-hanok-panel p-6 rounded-2xl border border-hanok-line shadow-sm flex flex-col">
               <div className="flex items-center gap-2 mb-6">
-                <BarChart2 className="text-gold" size={20} />
+                <BarChart2 className="text-gold-deep" size={20} />
                 <h3 className="text-lg font-bold text-hanok-ink">
                   {/* 제목까지 바꾼다 — 단위가 다르기 때문이다. 실측은 (시설,30분)당 재실 추정의
                       **합**(지수)이고, 추정은 0~100% 의 **평균 혼잡도**다. 같은 제목 아래 두면
@@ -637,7 +637,7 @@ export default function ReportsPage() {
                   //  · 조회 실패 → 무엇을 하면 되는지(재로그인/재시도)까지 말한다.
                   //  · 조회 성공인데 14일 창이 0행 → 실패가 아니다. 마지막 관측이 언제였는지 말한다.
                   //  · 로그는 있는데 집계에 쓸 게 없음 → 기존 '아직 없습니다'.
-                  <div className={`flex items-center justify-center h-full text-sm text-center px-4 ${logsStatus === 'failed' ? 'text-rose-300' : 'text-hanok-muted'}`}>
+                  <div className={`flex items-center justify-center h-full text-sm text-center px-4 ${logsStatus === 'failed' ? 'text-rose-700' : 'text-hanok-muted'}`}>
                     {logsStatus === 'failed' && logsFailure ? (
                       <span>
                         <span className="font-semibold">{logsFailure.title}</span>
@@ -697,7 +697,7 @@ export default function ReportsPage() {
                 {aiTrend.length === 0 ? (
                   // 관리자 API 미응답('조회 실패')과 추천 이력 부족('아직 없음')을 갈라 말한다.
                   // 실패일 때는 사유가 아니라 **할 일**을 앞세운다(원문 근거는 위 배너에 있다).
-                  <div className={`flex flex-col items-center justify-center h-full text-sm text-center px-4 gap-2 ${recsStatus === 'failed' ? 'text-rose-300' : 'text-hanok-muted'}`}>
+                  <div className={`flex flex-col items-center justify-center h-full text-sm text-center px-4 gap-2 ${recsStatus === 'failed' ? 'text-rose-700' : 'text-hanok-muted'}`}>
                     {recsStatus === 'failed' && recsFailure ? (
                       <>
                         <span>
@@ -708,7 +708,7 @@ export default function ReportsPage() {
                         {recsFailure.href && (
                           <Link
                             href={recsFailure.href}
-                            className="inline-flex items-center gap-1 text-xs font-semibold text-hanok-ink underline underline-offset-2 hover:text-gold"
+                            className="inline-flex items-center gap-1 text-xs font-semibold text-hanok-ink underline underline-offset-2 hover:text-gold-deep"
                           >
                             <LogIn size={13} /> 관리자 로그인으로 이동
                           </Link>
@@ -717,7 +717,7 @@ export default function ReportsPage() {
                           <button
                             onClick={reload}
                             disabled={loading}
-                            className="inline-flex items-center gap-1 text-xs font-semibold text-hanok-ink underline underline-offset-2 hover:text-gold disabled:opacity-50 disabled:no-underline"
+                            className="inline-flex items-center gap-1 text-xs font-semibold text-hanok-ink underline underline-offset-2 hover:text-gold-deep disabled:opacity-50 disabled:no-underline"
                           >
                             <RefreshCw size={13} className={loading ? 'animate-spin' : ''} /> 다시 시도
                           </button>
@@ -813,9 +813,9 @@ export default function ReportsPage() {
                         </td>
                         <td className="p-4">
                           <span className={`px-2 py-1 rounded-md text-xs font-bold ${
-                            row.status === '혼잡' ? 'bg-rose-500/15 text-rose-300' :
+                            row.status === '혼잡' ? 'bg-rose-500/15 text-rose-700' :
                             row.status === '보통' ? 'bg-amber-500/15 text-amber-300' :
-                            row.status === '여유' ? 'bg-emerald-500/15 text-emerald-300' :
+                            row.status === '여유' ? 'bg-emerald-500/15 text-emerald-700' :
                             'bg-hanok-card text-hanok-ink'
                           }`}>
                             {row.status ?? '—'}
@@ -826,7 +826,7 @@ export default function ReportsPage() {
                   ) : table.length === 0 ? (
                     // 빈 상태 행: 요약 데이터 없음 / 조회 실패(같은 혼잡 로그 출처)
                     <tr>
-                      <td colSpan={4} className={`p-8 text-center ${logsStatus === 'failed' ? 'text-rose-300' : 'text-hanok-muted'}`}>
+                      <td colSpan={4} className={`p-8 text-center ${logsStatus === 'failed' ? 'text-rose-700' : 'text-hanok-muted'}`}>
                         {logsStatus === 'failed' && logsFailure ? (
                           <span>
                             <span className="font-semibold">{logsFailure.title}</span> — {logsFailure.action}
@@ -860,8 +860,8 @@ export default function ReportsPage() {
                       </td>
                       <td className="p-4">
                         <span className={`px-2 py-1 rounded-md text-xs font-bold ${
-                          row.status === '급증' ? 'bg-rose-500/15 text-rose-300' :
-                          row.status === '활발' ? 'bg-gold/15 text-gold' :
+                          row.status === '급증' ? 'bg-rose-500/15 text-rose-700' :
+                          row.status === '활발' ? 'bg-gold/15 text-gold-deep' :
                           row.status === '보통' ? 'bg-amber-500/15 text-amber-300' :
                           'bg-hanok-card text-hanok-ink'
                         }`}>
@@ -895,7 +895,7 @@ export default function ReportsPage() {
 function EstimateBadge({ label }: { label?: string }) {
   return (
     <span
-      className="flex items-center gap-1 px-2 py-0.5 rounded-md border border-dashed border-indigo-400/60 bg-indigo-500/10 text-indigo-200 text-xs font-bold"
+      className="flex items-center gap-1 px-2 py-0.5 rounded-md border border-dashed border-indigo-400/60 bg-indigo-500/10 text-indigo-700 text-xs font-bold"
       title="공영주차 실측(경주 ITS)과 관광공사 집중률로 산출한 추정 지표입니다."
     >
       {label ?? ESTIMATE_BADGE}

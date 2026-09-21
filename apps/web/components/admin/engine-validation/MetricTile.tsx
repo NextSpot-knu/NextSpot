@@ -8,10 +8,10 @@ import {
 
 // 판정은 색만으로 말하지 않는다 — 아이콘 + 글자 + 색을 함께 쓴다.
 const STATUS_STYLE: Record<MetricStatus, { badge: string; Icon: typeof CheckCircle2 }> = {
-  pass: { badge: 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30', Icon: CheckCircle2 },
-  fail: { badge: 'bg-rose-500/10 text-rose-300 border-rose-500/30', Icon: XCircle },
+  pass: { badge: 'bg-emerald-500/10 text-emerald-700 border-emerald-500/30', Icon: CheckCircle2 },
+  fail: { badge: 'bg-rose-500/10 text-rose-700 border-rose-500/30', Icon: XCircle },
   insufficient: { badge: 'bg-hanok-card text-hanok-muted border-hanok-line', Icon: Hourglass },
-  report: { badge: 'bg-sky-500/10 text-sky-300 border-sky-500/30', Icon: FileText },
+  report: { badge: 'bg-sky-500/10 text-sky-700 border-sky-500/30', Icon: FileText },
 };
 
 export function MetricTile({ metric }: { metric: ValidationMetric }) {

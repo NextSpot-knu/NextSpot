@@ -72,7 +72,7 @@ export function DashboardCharts({ distribution, mode = 'demo' }: { distribution:
       <div className="flex justify-between items-center flex-wrap gap-2">
         <div className="flex items-center gap-2">
           {/* ③ 분산 효과 — 폐루프의 마지막 단계(개입이 만든 장기 추이) */}
-          <span className="flex-shrink-0 px-2 py-0.5 rounded-full text-[11px] font-bold border bg-emerald-500/15 text-emerald-300 border-emerald-500/30">
+          <span className="flex-shrink-0 px-2 py-0.5 rounded-full text-[11px] font-bold border bg-emerald-500/15 text-emerald-700 border-emerald-500/30">
             ③ 분산 효과
           </span>
           <h3 className="text-lg font-bold text-hanok-ink">최근 30일 관광 수요 분산 효과 분석</h3>
@@ -81,7 +81,7 @@ export function DashboardCharts({ distribution, mode = 'demo' }: { distribution:
         {live ? (
           <span
             title="혼잡 로그의 일평균 혼잡도와 추천 기록의 일별 수락률을 KST 일 단위로 집계한 실측 추이입니다. 수집 구간 외의 날은 선을 잇지 않고 음영으로 표시합니다."
-            className="flex-shrink-0 px-2 py-0.5 rounded-md text-[11px] font-semibold border bg-emerald-500/10 text-emerald-300 border-emerald-500/25 cursor-help"
+            className="flex-shrink-0 px-2 py-0.5 rounded-md text-[11px] font-semibold border bg-emerald-500/10 text-emerald-700 border-emerald-500/25 cursor-help"
           >
             실측 집계(30일)
           </span>
@@ -280,14 +280,14 @@ export function DashboardHeatmap({
           <div className="min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
               {/* ① 실시간 관제 — 폐루프 첫 단계(현재 혼잡 모니터링) */}
-              <span className="flex-shrink-0 px-2 py-0.5 rounded-full text-[11px] font-bold border bg-gold/15 text-gold border-gold/30">
+              <span className="flex-shrink-0 px-2 py-0.5 rounded-full text-[11px] font-bold border bg-gold/15 text-gold-deep border-gold/30">
                 ① 실시간 관제
               </span>
               <h3 className="text-lg font-bold text-hanok-ink">장소별 시간대 혼잡 히트맵</h3>
               {/* 지표 출처를 제목 옆에 못 박는다 — 아래 '공영주차 실측(경주 ITS)' 카드와
                   같은 화면에 있어서, 라벨이 없으면 두 숫자가 한 지표처럼 읽힌다. */}
               {estimate ? (
-                <span className="flex-shrink-0 px-2 py-0.5 rounded-md text-[11px] font-black border border-dashed bg-sky-500/15 text-sky-200 border-sky-400/60">
+                <span className="flex-shrink-0 px-2 py-0.5 rounded-md text-[11px] font-black border border-dashed bg-sky-500/15 text-sky-700 border-sky-400/60">
                   시설 혼잡 · {estimate.badge} (주차 실측 + 관광 통계)
                 </span>
               ) : (
@@ -303,7 +303,7 @@ export function DashboardHeatmap({
               )}
             </div>
             {basisNote && <p className="mt-2 text-xs text-amber-300/90 max-w-2xl">{basisNote}</p>}
-            {estimate && <p className="mt-2 text-xs text-sky-200/90 max-w-2xl">{estimate.basisLine}</p>}
+            {estimate && <p className="mt-2 text-xs text-sky-700/90 max-w-2xl">{estimate.basisLine}</p>}
           </div>
 
           {/* Category Filters */}
@@ -314,7 +314,7 @@ export function DashboardHeatmap({
                 onClick={() => handleCategoryChange(cat.id)}
                 className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
                   selectedCategory === cat.id
-                    ? 'bg-gold/10 border-gold/30 text-gold font-bold'
+                    ? 'bg-gold/10 border-gold/30 text-gold-deep font-bold'
                     : 'bg-hanok-card border-hanok-line text-hanok-muted hover:bg-hanok-line'
                 }`}
               >
@@ -388,7 +388,7 @@ export function DashboardHeatmap({
           {/* 범례 */}
           <div className="flex justify-end items-center flex-wrap gap-4 mt-6 text-xs text-hanok-muted">
             {estimate && (
-              <div className="flex items-center gap-1 font-semibold text-sky-200">
+              <div className="flex items-center gap-1 font-semibold text-sky-700">
                 <div className="w-4 h-4 rounded-sm border-2 border-dashed border-sky-400/60"></div>
                 모든 칸이 {estimate.badge} 혼잡도입니다
               </div>

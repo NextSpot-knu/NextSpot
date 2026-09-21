@@ -69,14 +69,14 @@ export function ImpactWidget() {
             <TimerOff size={24} />
           </div>
           <div>
-            <div className="text-3xl font-black text-emerald-300">
+            <div className="text-3xl font-black text-emerald-700">
               {typeof data?.saved_wait_minutes === 'number' ? Math.round(data.saved_wait_minutes).toLocaleString() : '—'}분
             </div>
             <div className="text-xs text-hanok-muted font-semibold mt-0.5">절감 대기시간 합계</div>
           </div>
         </div>
         <div className="flex items-center gap-4">
-          <div className="p-3 bg-gold/10 rounded-xl text-gold">
+          <div className="p-3 bg-gold/10 rounded-xl text-gold-deep">
             <Route size={24} />
           </div>
           <div>

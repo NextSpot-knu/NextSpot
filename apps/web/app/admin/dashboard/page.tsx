@@ -127,7 +127,7 @@ function MetricUnavailable({ hint }: { hint: string }) {
   return (
     <div className="flex items-center gap-2 cursor-help" title={hint}>
       <span className="text-3xl font-black text-hanok-muted leading-none">—</span>
-      <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-amber-500/15 text-amber-200 border border-amber-500/30">
+      <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-amber-500/15 text-amber-700 border border-amber-500/30">
         갱신 중
       </span>
     </div>
@@ -153,7 +153,7 @@ function EstimateBadge({ title }: { title?: string }) {
   return (
     <span
       title={title}
-      className="px-2 py-0.5 rounded-full text-[11px] font-black border border-dashed bg-sky-500/15 text-sky-200 border-sky-400/60 cursor-help whitespace-nowrap"
+      className="px-2 py-0.5 rounded-full text-[11px] font-black border border-dashed bg-sky-500/15 text-sky-700 border-sky-400/60 cursor-help whitespace-nowrap"
     >
       {ESTIMATE_BADGE}
     </span>
@@ -201,9 +201,9 @@ function StepBanner({
   color: 'blue' | 'amber' | 'emerald';
 }) {
   const palette: Record<string, string> = {
-    blue: 'bg-gold/15 text-gold border-gold/30',
+    blue: 'bg-gold/15 text-gold-deep border-gold/30',
     amber: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
-    emerald: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
+    emerald: 'bg-emerald-500/15 text-emerald-700 border-emerald-500/30',
   };
   return (
     <div className="flex items-center gap-3">
@@ -550,7 +550,7 @@ export default function DashboardPage() {
                 <span title="이상 혼잡 건수를 갱신하는 중입니다" className="absolute top-1 right-1 w-2.5 h-2.5 bg-amber-400 rounded-full border-2 border-hanok-line"></span>
               )}
             </button>
-            <div className="w-10 h-10 rounded-full bg-gold/15 border border-gold/30 flex items-center justify-center font-bold text-gold">
+            <div className="w-10 h-10 rounded-full bg-gold/15 border border-gold/30 flex items-center justify-center font-bold text-gold-deep">
               AD
             </div>
           </div>
@@ -567,7 +567,7 @@ export default function DashboardPage() {
             <button
               type="button"
               onClick={handleExportCsv}
-              className="flex items-center gap-2 px-4 py-2 bg-hanok-line hover:bg-hanok-line text-white font-semibold rounded-lg shadow-sm transition-colors text-sm cursor-pointer"
+              className="flex items-center gap-2 px-4 py-2 bg-hanok-ink/90 hover:bg-hanok-ink text-hanok-card font-semibold rounded-lg shadow-sm transition-colors text-sm cursor-pointer"
             >
               <Download size={16} /> 데이터 내보내기 (CSV)
             </button>
@@ -577,13 +577,13 @@ export default function DashboardPage() {
               briefing 이 null(로딩/스킵/폐기/장애)이면 카드 자체를 렌더하지 않는다. */}
           {briefing && (
             <div className="bg-hanok-panel p-5 rounded-2xl border border-gold/30 shadow-sm flex items-start gap-3">
-              <div className="p-2.5 bg-gold/10 rounded-xl text-gold flex-shrink-0">
+              <div className="p-2.5 bg-gold/10 rounded-xl text-gold-deep flex-shrink-0">
                 <Sparkles size={20} />
               </div>
               <div className="min-w-0">
                 <div className="flex items-center gap-2 mb-1">
                   <span className="text-sm font-bold text-hanok-ink">오늘의 브리핑</span>
-                  <span className="px-2 py-0.5 text-[10px] font-semibold text-gold border border-gold/30 rounded-full bg-gold/5">
+                  <span className="px-2 py-0.5 text-[10px] font-semibold text-gold-deep border border-gold/30 rounded-full bg-gold/5">
                     AI 브리핑 · Solar
                   </span>
                 </div>
@@ -623,10 +623,10 @@ export default function DashboardPage() {
               현장 관측이 아니라는 사실을 한순간도 숨기지 않는다. */}
           {isEstimate && (
             <div className="flex items-start gap-3 bg-sky-500/10 border-2 border-dashed border-sky-400/50 rounded-2xl p-4">
-              <Info size={20} className="text-sky-300 flex-shrink-0 mt-0.5" />
+              <Info size={20} className="text-sky-700 flex-shrink-0 mt-0.5" />
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <p className="font-bold text-sky-200">아래 시설 혼잡 지표는 공영주차 실측 + 관광 통계 기반 추정치입니다</p>
+                  <p className="font-bold text-sky-700">아래 시설 혼잡 지표는 공영주차 실측 + 관광 통계 기반 추정치입니다</p>
                   <span className="px-2.5 py-1 rounded-md text-xs font-black border border-dashed bg-sky-500/20 text-sky-100 border-sky-400/60">
                     {ESTIMATE_BADGE} · 오늘 (KST)
                   </span>
@@ -649,7 +649,7 @@ export default function DashboardPage() {
               <div className="min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
                   <p className="font-bold text-amber-300">아래 지표는 {basis.kind === 'fallback' ? basis.dateKst : ''}(KST) 기준입니다</p>
-                  <span className="px-2.5 py-1 rounded-md text-xs font-black border bg-amber-500/20 text-amber-200 border-amber-500/50">
+                  <span className="px-2.5 py-1 rounded-md text-xs font-black border bg-amber-500/20 text-amber-700 border-amber-500/50">
                     {dateBadge}
                   </span>
                 </div>
@@ -667,11 +667,11 @@ export default function DashboardPage() {
             href="/admin/engine-validation"
             className="group flex items-center gap-3 rounded-xl border border-hanok-line bg-hanok-card/40 px-4 py-2.5 text-sm hover:border-gold/40 hover:bg-hanok-card transition-colors -mt-2"
           >
-            <FlaskConical size={16} className="text-gold flex-shrink-0" />
+            <FlaskConical size={16} className="text-gold-deep flex-shrink-0" />
             <span className="text-hanok-muted">
               엔진 정확도는 <span className="font-semibold text-hanok-ink">서울 실시간 도시데이터</span>로 검증 중
             </span>
-            <span className="ml-auto flex items-center gap-1 font-semibold text-gold whitespace-nowrap">
+            <span className="ml-auto flex items-center gap-1 font-semibold text-gold-deep whitespace-nowrap">
               검증 화면 <ChevronRight size={14} className="transition-transform group-hover:translate-x-0.5" />
             </span>
           </Link>
@@ -682,7 +682,7 @@ export default function DashboardPage() {
             <div className="flex items-center gap-2 flex-wrap">
               {/* 추정 모드에서 '손님 제보 · 좌석 방송 기반' 제목은 거짓이다 — 출처를 따라 바꾼다. */}
               {isEstimate ? (
-                <h4 className="text-sm font-bold text-sky-200">시설 혼잡 (추정 · 주차 실측 + 관광 통계)</h4>
+                <h4 className="text-sm font-bold text-sky-700">시설 혼잡 (추정 · 주차 실측 + 관광 통계)</h4>
               ) : (
                 <h4 className="text-sm font-bold text-hanok-ink">시설 혼잡 (손님 제보 · 좌석 방송 기반)</h4>
               )}
@@ -714,10 +714,10 @@ export default function DashboardPage() {
               섞이지 않았다고 단정하지 않기 위해서다. */}
           {estimatedBasis && (
             <div className="flex items-start gap-3 bg-sky-500/10 border border-sky-500/40 rounded-2xl p-4 -mb-2">
-              <Info size={20} className="text-sky-300 flex-shrink-0 mt-0.5" />
+              <Info size={20} className="text-sky-700 flex-shrink-0 mt-0.5" />
               <div className="min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <p className="font-bold text-sky-200">
+                  <p className="font-bold text-sky-700">
                     {estimatedBasis.entirelyEstimated
                       ? '아래 값은 공영주차 실측 + 관광 통계 기반 추정치입니다'
                       : '아래 값에 추정 지표가 함께 집계되어 있습니다'}
@@ -741,7 +741,7 @@ export default function DashboardPage() {
               isEstimate ? 'border-2 border-dashed border-sky-400/50' : 'border border-hanok-line'
             }`}>
               <div className="flex justify-between items-start mb-4">
-                <div className="p-3 bg-gold/10 rounded-xl text-gold">
+                <div className="p-3 bg-gold/10 rounded-xl text-gold-deep">
                   <Activity size={24} />
                 </div>
                 <div className="flex items-center gap-2">
@@ -779,9 +779,9 @@ export default function DashboardPage() {
                           }
                           className={`px-2 py-1 text-xs font-bold rounded-full cursor-help ${
                             badge.tone === 'decrease'
-                              ? 'bg-emerald-500/15 text-emerald-300'
+                              ? 'bg-emerald-500/15 text-emerald-700'
                               : badge.tone === 'increase'
-                                ? 'bg-rose-500/15 text-rose-300'
+                                ? 'bg-rose-500/15 text-rose-700'
                                 : 'bg-hanok-card text-hanok-muted border border-hanok-line'
                           }`}
                         >
@@ -823,7 +823,7 @@ export default function DashboardPage() {
                     )}
                     {/* 추정 값의 근거는 숫자 바로 아래 — 배지만으로는 '무엇에서' 를 말하지 못한다. */}
                     {isEstimate && estimateLine && (
-                      <p className="text-[11px] text-sky-200/90 mt-1 leading-snug">{estimateLine}</p>
+                      <p className="text-[11px] text-sky-700/90 mt-1 leading-snug">{estimateLine}</p>
                     )}
                   </>
                 )}
@@ -921,14 +921,14 @@ export default function DashboardPage() {
                 ) : isEstimate ? (
                   // 추정 구간 수 — '건' 이 아니라 '구간' 이다(위 주석).
                   <>
-                    <div className="text-3xl font-black text-rose-300">
+                    <div className="text-3xl font-black text-rose-700">
                       {anomalyCount.value.toLocaleString('ko-KR')}구간
                     </div>
-                    <p className="text-[11px] text-sky-200/90 mt-1 leading-snug">{ESTIMATE_ANOMALY_UNIT}</p>
+                    <p className="text-[11px] text-sky-700/90 mt-1 leading-snug">{ESTIMATE_ANOMALY_UNIT}</p>
                   </>
                 ) : (
                   // 0건은 실측값이다(로그가 있고 임계치 초과가 없었다).
-                  <div className="text-3xl font-black text-rose-300">
+                  <div className="text-3xl font-black text-rose-700">
                     {anomalyCount.value}건
                   </div>
                 )}
@@ -947,7 +947,7 @@ export default function DashboardPage() {
               // 않으므로, 어느 쪽도 단정하지 않는 문장으로 바꾼다.
               <div className="col-span-4 min-h-[240px] rounded-2xl border border-amber-500/30 bg-amber-500/5 flex flex-col items-center justify-center gap-2 text-center p-8">
                 <AlertTriangle className="text-amber-400" size={28} />
-                <p className="text-sm font-bold text-amber-200">{emptyNotice?.headline ?? '혼잡 집계를 갱신하는 중입니다'}</p>
+                <p className="text-sm font-bold text-amber-700">{emptyNotice?.headline ?? '혼잡 집계를 갱신하는 중입니다'}</p>
                 <p className="text-xs text-hanok-muted max-w-2xl leading-relaxed">{emptyNotice?.detail}</p>
               </div>
             ) : (
@@ -975,7 +975,7 @@ export default function DashboardPage() {
             </span>
             {/* 추정 모드에서는 위 추정치의 주차 성분이 바로 이 실측이다 — 파생 관계를 한 화면에서 읽히게. */}
             {isEstimate && (
-              <span className="px-2 py-0.5 rounded-md text-[11px] font-semibold border border-dashed bg-sky-500/10 text-sky-200 border-sky-400/50">
+              <span className="px-2 py-0.5 rounded-md text-[11px] font-semibold border border-dashed bg-sky-500/10 text-sky-700 border-sky-400/50">
                 위 {ESTIMATE_BADGE}치의 주차 성분 원본
               </span>
             )}
@@ -1057,7 +1057,7 @@ export default function DashboardPage() {
                   )}
                   {/* 추정 알림도 목록 위에 한 줄로 무엇인지 말한다 — 항목 모양만으로는 실측 알림과 같아 보인다. */}
                   {isEstimate && anomalies.length > 0 && (
-                    <p className="text-xs text-sky-200 border border-dashed border-sky-400/50 bg-sky-500/10 rounded-lg px-3 py-2 leading-snug">
+                    <p className="text-xs text-sky-700 border border-dashed border-sky-400/50 bg-sky-500/10 rounded-lg px-3 py-2 leading-snug">
                       아래 {anomalies.length}곳은 추정 혼잡도가 90%를 넘은 장소(장소별 최고 구간)입니다. {estimateLine}
                     </p>
                   )}
@@ -1070,7 +1070,7 @@ export default function DashboardPage() {
                     >
                       <div className="absolute left-0 top-0 bottom-0 w-1 bg-rose-500"></div>
                       <div className="flex justify-between items-start gap-2">
-                        <span className="font-bold text-rose-300 flex items-center gap-1.5">
+                        <span className="font-bold text-rose-700 flex items-center gap-1.5">
                           {alert.facilityName}
                           {isEstimate && <EstimateBadge />}
                         </span>

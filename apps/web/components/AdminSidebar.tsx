@@ -41,7 +41,7 @@ export function AdminSidebar() {
   return (
     <aside className="w-64 bg-hanok-panel border-r border-hanok-line flex flex-col flex-shrink-0 h-screen overflow-y-auto">
       <div className="p-6 border-b border-hanok-line sticky top-0 bg-hanok-panel z-10">
-        <h1 className="text-2xl font-black font-serif text-gold tracking-tight">
+        <h1 className="text-2xl font-black font-serif text-gold-deep tracking-tight">
           NextSpot<span className="text-hanok-muted font-medium text-sm ml-2">관광 관제</span>
         </h1>
       </div>
@@ -55,7 +55,7 @@ export function AdminSidebar() {
               href={item.path}
               className={`flex items-center gap-3 px-4 py-3 rounded-xl font-semibold transition-colors ${
                 isActive
-                  ? 'bg-gold/10 text-gold'
+                  ? 'bg-gold/10 text-gold-deep'
                   : 'text-hanok-muted hover:bg-hanok-card font-medium'
               }`}
             >

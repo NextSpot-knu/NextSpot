@@ -93,7 +93,7 @@ function KpiCard({
   const toneClass: Record<string, string> = {
     red: 'border-l-rose-500 text-rose-400',
     amber: 'border-l-amber-500 text-amber-300',
-    emerald: 'border-l-emerald-500 text-emerald-300',
+    emerald: 'border-l-emerald-500 text-emerald-700',
   };
   return (
     <div className={`flex-1 bg-hanok-panel p-5 rounded-2xl border border-hanok-line border-l-4 shadow-sm ${toneClass[tone]}`}>
@@ -295,7 +295,7 @@ export default function SafetyPage() {
                 title={notifPermission === 'denied' ? '브라우저 알림 권한이 차단되어 있습니다.' : '경보 증가 시 브라우저 알림 받기'}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
                   notifEnabled
-                    ? 'bg-gold/15 border-gold text-gold'
+                    ? 'bg-gold/15 border-gold text-gold-deep'
                     : 'bg-hanok-card border-hanok-line text-hanok-muted hover:border-gold'
                 }`}
               >
@@ -319,7 +319,7 @@ export default function SafetyPage() {
 
             {/* 정직성 라벨 */}
             <div className="flex items-start gap-2 px-4 py-3 rounded-xl bg-hanok-card border border-hanok-line text-xs text-hanok-muted">
-              <Info size={15} className="flex-shrink-0 mt-0.5 text-gold" />
+              <Info size={15} className="flex-shrink-0 mt-0.5 text-gold-deep" />
               <span>
                 현장 제보와 혼잡 로그를 150m 격자 단위로 집계한 골목 단위 조기경보입니다.
                 경보 발생 시 관제 화면과 브라우저 알림으로 즉시 전달됩니다.

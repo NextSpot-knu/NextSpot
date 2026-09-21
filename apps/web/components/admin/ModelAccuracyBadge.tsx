@@ -58,7 +58,7 @@ export function ModelAccuracyBadge() {
     return (
       <span
         title={`활성 ${info.version} · 검증 실데이터 ${info.realDataCount}건 · 기준선 대비 ${((info.baselineImprovement ?? 0) * 100).toFixed(1)}% 개선`}
-        className="flex items-center gap-1.5 px-2.5 py-1 bg-emerald-500/10 border border-emerald-500/25 text-emerald-300 rounded-full text-xs font-bold"
+        className="flex items-center gap-1.5 px-2.5 py-1 bg-emerald-500/10 border border-emerald-500/25 text-emerald-700 rounded-full text-xs font-bold"
       >
         <BrainCircuit size={14} />
         예측 오차 ±{(mae * 100).toFixed(1)}%p · 실데이터 {info.realDataCount}건

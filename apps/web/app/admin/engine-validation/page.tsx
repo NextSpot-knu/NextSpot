@@ -35,10 +35,10 @@ type LoadState =
   | { status: 'failed'; failure: AdminFailureNotice };
 
 const TONE_STYLE: Record<Tone, { box: string; title: string; Icon: typeof Info }> = {
-  ok: { box: 'bg-emerald-500/10 border-emerald-500/30', title: 'text-emerald-300', Icon: CheckCircle2 },
+  ok: { box: 'bg-emerald-500/10 border-emerald-500/30', title: 'text-emerald-700', Icon: CheckCircle2 },
   info: { box: 'bg-hanok-panel border-hanok-line', title: 'text-hanok-ink', Icon: Info },
   warn: { box: 'bg-amber-500/10 border-amber-500/30', title: 'text-amber-300', Icon: AlertTriangle },
-  error: { box: 'bg-rose-500/10 border-rose-500/30', title: 'text-rose-300', Icon: AlertCircle },
+  error: { box: 'bg-rose-500/10 border-rose-500/30', title: 'text-rose-700', Icon: AlertCircle },
 };
 
 export default function EngineValidationPage() {
@@ -110,7 +110,7 @@ export default function EngineValidationPage() {
       <main className="flex-1 flex flex-col h-full min-h-0 overflow-hidden">
         <header className="h-20 bg-hanok-panel border-b border-hanok-line flex items-center justify-between px-8 flex-shrink-0">
           <h2 className="text-xl font-bold text-hanok-ink flex items-center gap-2">
-            <FlaskConical size={22} className="text-gold" />
+            <FlaskConical size={22} className="text-gold-deep" />
             엔진 검증 — 서울 실시간 도시데이터
           </h2>
           <span className="text-xs text-hanok-muted hidden md:block">{SEOUL_ATTRIBUTION}</span>
@@ -138,7 +138,7 @@ export default function EngineValidationPage() {
                       onClick={() => setSelectedPlace(key)}
                       aria-pressed={active}
                       className={`px-3 py-1.5 rounded-lg text-sm font-semibold border transition-colors ${
-                        active ? 'bg-gold/10 text-gold border-gold/40' : 'bg-hanok-card text-hanok-muted border-hanok-line hover:text-hanok-ink'
+                        active ? 'bg-gold/10 text-gold-deep border-gold/40' : 'bg-hanok-card text-hanok-muted border-hanok-line hover:text-hanok-ink'
                       }`}
                     >
                       {p.area_nm ?? p.area_cd}
@@ -155,7 +155,7 @@ export default function EngineValidationPage() {
                   onClick={() => changeDays(option)}
                   aria-pressed={option === days}
                   className={`px-3 py-1.5 rounded-lg text-sm font-semibold border transition-colors ${
-                    option === days ? 'bg-gold/10 text-gold border-gold/40' : 'bg-hanok-card text-hanok-muted border-hanok-line hover:text-hanok-ink'
+                    option === days ? 'bg-gold/10 text-gold-deep border-gold/40' : 'bg-hanok-card text-hanok-muted border-hanok-line hover:text-hanok-ink'
                   }`}
                 >
                   최근 {option}일
@@ -164,7 +164,7 @@ export default function EngineValidationPage() {
               <button
                 onClick={reload}
                 disabled={load.status === 'loading'}
-                className="ml-2 inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-semibold border bg-hanok-card text-hanok-ink border-hanok-line hover:text-gold disabled:opacity-50"
+                className="ml-2 inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-semibold border bg-hanok-card text-hanok-ink border-hanok-line hover:text-gold-deep disabled:opacity-50"
               >
                 <RefreshCw size={14} className={load.status === 'loading' ? 'animate-spin' : ''} /> 새로고침
               </button>
@@ -181,16 +181,16 @@ export default function EngineValidationPage() {
             <div className="flex items-start gap-3 bg-rose-500/10 border border-rose-500/30 rounded-2xl p-4">
               <AlertCircle size={20} className="text-rose-400 flex-shrink-0 mt-0.5" />
               <div className="min-w-0">
-                <p className="font-bold text-rose-300">{load.failure.title}</p>
+                <p className="font-bold text-rose-700">{load.failure.title}</p>
                 <p className="text-sm text-hanok-muted mt-1">{load.failure.action}</p>
                 <div className="flex items-center gap-3 mt-2">
                   {load.failure.href && (
-                    <Link href={load.failure.href} className="inline-flex items-center gap-1 text-xs font-semibold text-hanok-ink underline underline-offset-2 hover:text-gold">
+                    <Link href={load.failure.href} className="inline-flex items-center gap-1 text-xs font-semibold text-hanok-ink underline underline-offset-2 hover:text-gold-deep">
                       <LogIn size={13} /> 관리자 로그인으로 이동
                     </Link>
                   )}
                   {load.failure.retryable && (
-                    <button onClick={reload} className="inline-flex items-center gap-1 text-xs font-semibold text-hanok-ink underline underline-offset-2 hover:text-gold">
+                    <button onClick={reload} className="inline-flex items-center gap-1 text-xs font-semibold text-hanok-ink underline underline-offset-2 hover:text-gold-deep">
                       <RefreshCw size={13} /> 다시 시도
                     </button>
                   )}

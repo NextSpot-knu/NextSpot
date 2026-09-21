@@ -39,10 +39,10 @@ export default function AdminLoginPage() {
 
       <div className="relative z-10 w-full max-w-sm px-6">
         <div className="mb-8 flex flex-col items-center text-center">
-          <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-gold/30 bg-gold/15 text-gold">
+          <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-gold/30 bg-gold/15 text-gold-deep">
             {signedIn && !loading ? <ShieldAlert size={26} /> : <ShieldCheck size={26} />}
           </div>
-          <h1 className="font-serif text-2xl font-bold tracking-tight text-white">NextSpot 관제</h1>
+          <h1 className="font-serif text-2xl font-bold tracking-tight text-hanok-ink">NextSpot 관제</h1>
           <p className="mt-1 text-sm text-hanok-muted">경북문화관광공사 운영 대시보드</p>
         </div>
 
@@ -54,7 +54,7 @@ export default function AdminLoginPage() {
             </div>
           ) : signedIn ? (
             <>
-              <p className="font-bold text-white">관리자 권한이 없는 계정입니다</p>
+              <p className="font-bold text-hanok-ink">관리자 권한이 없는 계정입니다</p>
               <p className="mt-1.5 text-xs leading-relaxed text-hanok-muted">
                 이 대시보드는 관리자 계정만 들어올 수 있어요. 다른 계정으로 로그인하거나
                 담당자에게 권한을 요청해 주세요.
@@ -62,28 +62,28 @@ export default function AdminLoginPage() {
               <button
                 type="button"
                 onClick={() => router.push('/login?next=/admin/dashboard')}
-                className="mt-5 w-full rounded-xl bg-gradient-to-r from-gold to-terracotta py-3 text-sm font-semibold text-white transition-opacity hover:opacity-90"
+                className="mt-5 w-full rounded-xl bg-gradient-to-r from-gold to-terracotta py-3 text-sm font-semibold text-hanok-ink transition-opacity hover:opacity-90"
               >
                 다른 계정으로 로그인
               </button>
               <button
                 type="button"
                 onClick={() => router.push('/main')}
-                className="mt-2 w-full rounded-xl border border-hanok-line py-2.5 text-sm text-hanok-muted transition-colors hover:text-white"
+                className="mt-2 w-full rounded-xl border border-hanok-line py-2.5 text-sm text-hanok-muted transition-colors hover:text-hanok-ink"
               >
                 관광객 앱으로 돌아가기
               </button>
             </>
           ) : (
             <>
-              <p className="font-bold text-white">로그인이 필요합니다</p>
+              <p className="font-bold text-hanok-ink">로그인이 필요합니다</p>
               <p className="mt-1.5 text-xs leading-relaxed text-hanok-muted">
                 관제 대시보드는 NextSpot 계정으로 들어옵니다. 별도 관리자 비밀번호는 없습니다.
               </p>
               <button
                 type="button"
                 onClick={() => router.push('/login?next=/admin/dashboard')}
-                className="mt-5 w-full rounded-xl bg-gradient-to-r from-gold to-terracotta py-3 text-sm font-semibold text-white transition-opacity hover:opacity-90"
+                className="mt-5 w-full rounded-xl bg-gradient-to-r from-gold to-terracotta py-3 text-sm font-semibold text-hanok-ink transition-opacity hover:opacity-90"
               >
                 로그인하기
               </button>

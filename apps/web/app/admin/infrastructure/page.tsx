@@ -542,9 +542,9 @@ export default function InfrastructurePage() {
             className="w-full px-8 py-3 flex items-center justify-between text-left hover:bg-hanok-card transition-colors"
           >
             <span className="flex items-center gap-2 text-sm font-semibold text-hanok-ink">
-              <Inbox size={16} className={ingestStatus === 'failed' ? 'text-rose-400' : 'text-gold'} />
+              <Inbox size={16} className={ingestStatus === 'failed' ? 'text-rose-400' : 'text-gold-deep'} />
               적재 요청 대기{' '}
-              <span className={ingestStatus === 'failed' ? 'text-rose-300' : undefined}>
+              <span className={ingestStatus === 'failed' ? 'text-rose-700' : undefined}>
                 {countLabel(ingestStatus, ingestRequests.length)}
               </span>
             </span>
@@ -566,7 +566,7 @@ export default function InfrastructurePage() {
                     </p>
                     <button
                       onClick={fetchIngestRequests}
-                      className="mt-2 text-xs font-semibold text-hanok-ink underline underline-offset-2 hover:text-gold"
+                      className="mt-2 text-xs font-semibold text-hanok-ink underline underline-offset-2 hover:text-gold-deep"
                     >
                       다시 시도
                     </button>
@@ -750,7 +750,7 @@ export default function InfrastructurePage() {
                 <div className="bg-hanok-panel p-6 rounded-2xl border border-hanok-line shadow-sm flex justify-between items-start">
                   <div>
                     <div className="flex items-center gap-2 mb-2">
-                      <span className="px-2 py-0.5 rounded text-xs font-semibold bg-gold/15 text-gold">
+                      <span className="px-2 py-0.5 rounded text-xs font-semibold bg-gold/15 text-gold-deep">
                         {selectedInfra.type}
                       </span>
                       <span className="text-sm font-medium text-hanok-muted">관리번호 {selectedInfra.id.substring(0, 8)}</span>
@@ -802,7 +802,7 @@ export default function InfrastructurePage() {
                           {/* 값 = 지금 붐비는 정도 × 이 업종을 찾는 사람이 얼마나 많은가.
                               예전에는 이 자리가 최신 congestion_logs 한 건의 등급이라, 바로 위
                               '현재 상태' 와 같은 숫자를 같은 라벨로 두 번 그리고 있었다. */}
-                          <div className="text-2xl font-bold text-gold tabular-nums">
+                          <div className="text-2xl font-bold text-gold-deep tabular-nums">
                             {Math.round(pressure.value * 100)}%
                           </div>
                           {/* 근거를 반드시 함께 둔다 — 근거 없이 숫자만 남기면 지어낸 수치와
@@ -889,7 +889,7 @@ export default function InfrastructurePage() {
               <div className="flex items-start justify-between">
                 <div>
                   <h3 className="text-lg font-bold text-hanok-ink flex items-center gap-2">
-                    <SlidersHorizontal size={18} className="text-gold" />
+                    <SlidersHorizontal size={18} className="text-gold-deep" />
                     수동 혼잡 상태 변경
                   </h3>
                   <p className="text-sm text-hanok-muted mt-1">
@@ -908,7 +908,7 @@ export default function InfrastructurePage() {
               <div className="flex flex-col gap-3">
                 <div className="flex items-end justify-between">
                   <span className="text-sm font-semibold text-hanok-muted">설정 혼잡도</span>
-                  <span className="text-3xl font-black text-gold tabular-nums">{overrideLevel}%</span>
+                  <span className="text-3xl font-black text-gold-deep tabular-nums">{overrideLevel}%</span>
                 </div>
                 <input
                   type="range"

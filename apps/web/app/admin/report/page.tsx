@@ -329,12 +329,12 @@ export default function AdminReportPage() {
         {/* 상단 컨트롤바 — 인쇄 시 숨김 */}
         <header className="print:hidden h-20 bg-hanok-panel border-b border-hanok-line flex items-center justify-between px-8 flex-shrink-0">
           <div className="flex items-center gap-3">
-            <BarChart3 className="text-gold" size={22} />
+            <BarChart3 className="text-gold-deep" size={22} />
             <h2 className="text-xl font-bold text-hanok-ink">분산정책 성과 리포트</h2>
           </div>
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2">
-              <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gold/10 border border-gold/30 text-gold text-sm font-bold">
+              <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gold/10 border border-gold/30 text-gold-deep text-sm font-bold">
                 <Calendar size={14} /> 최근 30일
               </span>
             </div>

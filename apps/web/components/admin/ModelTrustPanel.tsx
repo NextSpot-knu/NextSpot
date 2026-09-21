@@ -125,14 +125,14 @@ export function ModelTrustPanel() {
     <section className="rounded-2xl border border-hanok-line bg-hanok-panel p-5" aria-label="추천 모델 신뢰도">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h3 className="flex items-center gap-2 font-bold text-hanok-ink"><ShieldCheck size={18} className="text-emerald-300" />추천 신뢰도</h3>
+          <h3 className="flex items-center gap-2 font-bold text-hanok-ink"><ShieldCheck size={18} className="text-emerald-700" />추천 신뢰도</h3>
           <p className="mt-1 text-xs text-hanok-muted">
             {data.model.trained
               ? `${data.model.version} · 검증 실데이터 ${data.model.real_data_count}건 · MAE ${((data.model.mae ?? 0) * 100).toFixed(1)}%p`
               : '취향·실제 이동시간·혜택 3축 SPOT 엔진으로 추천 중 — 실측이 누적되면 학습 모델로 자동 승격됩니다'}
           </p>
         </div>
-        <span className={`rounded-full border px-2.5 py-1 text-xs font-bold ${warnings.length ? 'border-rose-500/30 bg-rose-500/10 text-rose-300' : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'}`}>
+        <span className={`rounded-full border px-2.5 py-1 text-xs font-bold ${warnings.length ? 'border-rose-500/30 bg-rose-500/10 text-rose-700' : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700'}`}>
           {warnings.length ? `점검 항목 ${warnings.length}건` : '가드레일 정상'}
         </span>
       </div>
@@ -153,7 +153,7 @@ export function ModelTrustPanel() {
       </div>
       <div className="mt-4 rounded-xl border border-hanok-line bg-hanok-card p-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className="flex items-center gap-1.5 text-xs font-bold text-hanok-ink"><Database size={14} className="text-gold" />실데이터 수집 현황</p>
+          <p className="flex items-center gap-1.5 text-xs font-bold text-hanok-ink"><Database size={14} className="text-gold-deep" />실데이터 수집 현황</p>
           <p className="text-[11px] text-hanok-muted">후보 생성까지 검증 관측 {data.collection.remaining_to_candidate}건 필요</p>
         </div>
         <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-4">
@@ -169,7 +169,7 @@ export function ModelTrustPanel() {
           출처 · {labeledCounts(data.collection.by_source, TRAINING_SOURCE_LABELS, (value) => `${value}건`) || '수집 중'}
         </p>
         {estimatedObservations > 0 && (
-          <p className="mt-1 text-[11px] text-sky-200">
+          <p className="mt-1 text-[11px] text-sky-700">
             위 &lsquo;전체 현장 관측 {data.collection.observations}&rsquo; 중 {estimatedObservations}건은 추정 지표로 분리 관리합니다. 검증·상호확인 수치와 시설 커버리지는 실측만으로 집계합니다.
           </p>
         )}
@@ -177,14 +177,14 @@ export function ModelTrustPanel() {
           채점 모드 · {labeledCounts(data.guardrails.scoring_modes, SCORING_MODE_LABELS, (value) => `${value}건`) || '집계 중'}
           {' · '}도보 제한 위반 {data.guardrails.walk_limit_violations}건
         </p>
-        {data.collection.facility_gaps.length > 0 && <p className="mt-1 text-[11px] text-amber-200">수집 공백 우선순위 · {data.collection.facility_gaps.slice(0, 6).map((item) => item.name).join(' · ')}</p>}
+        {data.collection.facility_gaps.length > 0 && <p className="mt-1 text-[11px] text-amber-700">수집 공백 우선순위 · {data.collection.facility_gaps.slice(0, 6).map((item) => item.name).join(' · ')}</p>}
       </div>
       {data.registry && <div className="mt-3 grid gap-2 text-[11px] text-hanok-muted md:grid-cols-2">
         <p>유형별 MAE · {labeledCounts(data.registry.metrics.per_type_mae, FACILITY_TYPE_LABELS, (value) => `${(value * 100).toFixed(1)}%p`) || '수집 중'}</p>
         <p>학습 근거 · {labeledCounts(data.registry.source_composition, TRAINING_SOURCE_LABELS, (value) => `${value}건`) || '수집 중'}</p>
       </div>}
       {warnings.length > 0 && (
-        <ul className="mt-3 space-y-1.5 text-xs text-rose-300">
+        <ul className="mt-3 space-y-1.5 text-xs text-rose-700">
           {warnings.map((warning) => (
             <li key={warning.code} className="flex items-start gap-2">
               <AlertTriangle size={14} className="mt-0.5 shrink-0" aria-hidden="true" />
