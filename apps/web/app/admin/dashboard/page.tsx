@@ -980,6 +980,16 @@ export default function DashboardPage() {
               </span>
             )}
           </div>
+          {/* 30일 분산 효과 추이 — 비전공 심사 동선(F-패턴) 최적화: 가장 자기설명적인 차트를
+              KPI·히트맵 바로 아래로 올렸다. 내부 신뢰도 패널은 아래로 내림. */}
+          <div className="grid grid-cols-4 gap-6">
+            {distribution !== null
+              ? <DashboardCharts distribution={distribution.rows} mode={distribution.mode} />
+              : <Skeleton className="col-span-4 min-h-[380px] rounded-2xl" />}
+          </div>
+
+          {/* 수요 수집 신뢰도 — ① 실시간 관제 구역 안(주차 실측과 같은 구역, wiring 테스트 계약),
+              단 차트 아래로 내려 심사 동선(F-패턴)에서 큰 그림이 먼저 읽히게 한다. */}
           <AreaDemandReliabilityPanel />
 
           {/* (예전 '주차 실측 기반 추정 적재' 버튼 자리 — D6 결정으로 걷어냈다. 수동으로 적재한
@@ -1010,14 +1020,6 @@ export default function DashboardPage() {
           <div className="grid grid-cols-3 gap-6">
             <CouponPolicyPanel />
             <ImpactWidget />
-          </div>
-
-          {/* 30일 분산 효과 추이(③) — 실측 집계(metrics/trend) 우선, 표본 부족 시 데모 폴백.
-              어느 쪽인지는 차트 헤더 라벨(실측 집계/예시 추이)이 구분 표기한다. */}
-          <div className="grid grid-cols-4 gap-6">
-            {distribution !== null
-              ? <DashboardCharts distribution={distribution.rows} mode={distribution.mode} />
-              : <Skeleton className="col-span-4 min-h-[380px] rounded-2xl" />}
           </div>
 
           {/* Bottom Section */}

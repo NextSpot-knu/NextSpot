@@ -671,7 +671,7 @@ function CourseContent() {
             <Link
               href="/main"
               aria-label={t('course.backToMap')}
-              className="absolute top-4 left-4 z-20 flex items-center justify-center w-10 h-10 rounded-full bg-white/90 backdrop-blur border border-line shadow-[0_2px_10px_rgba(43,35,32,0.15)] text-muk hover:bg-white transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+              className="toss-pressable absolute top-4 left-4 z-20 flex items-center justify-center w-11 h-11 rounded-full bg-white/90 backdrop-blur border border-line shadow-[0_2px_10px_rgba(43,35,32,0.15)] text-muk hover:bg-white focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
             >
               <ArrowLeft size={18} />
             </Link>
@@ -689,71 +689,78 @@ function CourseContent() {
           <div className="relative -mt-6 rounded-t-3xl bg-white shadow-[0_-8px_30px_rgba(43,35,32,0.12)]">
             <div className="w-12 h-1.5 rounded-full bg-line mx-auto mt-3" aria-hidden />
 
-            <div className="mx-auto w-full max-w-md md:max-w-2xl px-4 md:px-6 pt-4 pb-[calc(var(--tourist-nav-clearance)+env(safe-area-inset-bottom))] md:pb-10 space-y-6">
+            <div className="mx-auto w-full max-w-md md:max-w-2xl px-4 md:px-6 pt-4 pb-[calc(var(--tourist-nav-clearance)+env(safe-area-inset-bottom))] md:pb-10 space-y-5">
               {/* 공유 모드 배너 — '공유받은 코스' 명시 + 내 위치로 새 코스 받기(param 제거 라우팅). */}
               {isShareMode && <SharedBanner elapsedMin={sharedElapsedMin} />}
 
-              {/* 헤더 블록: 브랜드 칩 → 헤드라인(+도착 보조텍스트) → 한 줄 설명.
+              {/* 헤더 블록(요약 스트립) — 브랜드 칩 → 큰 헤드라인 → 한 줄 설명 → 도착 ETA 골드 스탯 + 가정 시간.
+                  상업 서비스의 여정 화면 문법대로 '몇 곳 · 언제 도착'을 한 덩어리로 묶어 시선의 출발점을 하나로 만든다.
                   정류지가 아직 없으면(로딩 직후 빈 결과/에러/인증 등) 기존 제목/설명으로 폴백. */}
-              <section className="space-y-2">
+              <section className="rounded-2xl border border-line/70 bg-hanji-deep/45 p-4 md:p-5 space-y-3">
                 {/* 브랜드 칩 + 현재 시각 — 도착 예정시각(headlineEta)이 어느 시점 기준인지 명시(혼동 방지). */}
-                <div className="flex items-center gap-2">
-                  <span className="inline-flex items-center w-fit px-2.5 py-1 rounded-full bg-gold/10 border border-gold/25 text-[11px] font-bold text-gold-deep">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="inline-flex items-center w-fit px-2.5 py-1 rounded-full bg-gold/15 border border-gold/30 text-[11px] font-bold text-gold-deep">
                     {t('course.brand')}
                   </span>
                   <NowChip />
                 </div>
                 {activeStops.length > 0 && lastStop ? (
-                  <>
-                    <div className="flex items-end justify-between gap-3">
-                      <h1 className="text-xl md:text-2xl font-serif font-bold text-muk leading-tight">
-                        {t('course.headline', { n: activeStops.length })}
-                      </h1>
-                      <span className="shrink-0 text-xs font-semibold text-muk-soft tabular-nums pb-0.5">
-                        {t('course.headlineEta', { time: hhmm(lastStop.arrivalOffsetMin) })}
-                      </span>
-                    </div>
+                  <div className="space-y-1.5">
+                    <h1 className="text-[22px] md:text-[28px] font-serif font-black text-muk leading-[1.15] tracking-tight">
+                      {t('course.headline', { n: activeStops.length })}
+                    </h1>
                     <p className="text-xs md:text-sm text-muk-soft leading-relaxed">
                       {t('course.subline')}
                     </p>
-                  </>
+                  </div>
                 ) : (
-                  <>
-                    <h1 className="text-lg md:text-xl font-serif font-bold text-muk">
+                  <div className="space-y-1.5">
+                    <h1 className="text-lg md:text-2xl font-serif font-black text-muk leading-tight tracking-tight">
                       {t('course.title')}
                     </h1>
                     <p className="text-xs md:text-sm text-muk-soft leading-relaxed">
                       {t('course.desc')}
                     </p>
-                  </>
+                  </div>
+                )}
+
+                {/* 스탯 스트립 — 도착 ETA(골드 박스)와 가정 시간 컨트롤을 한 줄에 묶는다.
+                    데모: 가정 시간 시뮬레이터 — 심야에도 낮 시각을 가정해 실제 코스를 보여준다(/main·/waiting 공유).
+                    공유 모드는 읽기 전용이라 컨트롤을 노출하지 않는다(재조회 없음). */}
+                {(!isShareMode || (activeStops.length > 0 && lastStop)) && (
+                  <div className="flex flex-wrap items-center gap-2 pt-0.5">
+                    {activeStops.length > 0 && lastStop && (
+                      <span className="inline-flex items-center gap-1.5 rounded-xl border border-gold/40 bg-gold/15 px-3 py-2 text-[13px] font-black text-gold-deep tabular-nums shadow-[0_2px_10px_rgba(193,154,62,0.16)]">
+                        <span aria-hidden>🕒</span>
+                        {t('course.headlineEta', { time: hhmm(lastStop.arrivalOffsetMin) })}
+                      </span>
+                    )}
+                    {!isShareMode && (
+                      <>
+                        <label className="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-line bg-white px-3 py-2 text-xs font-medium shadow-[0_2px_10px_rgba(43,35,32,0.06)] focus-within:ring-2 focus-within:ring-gold/60">
+                          <span aria-hidden>🕒</span>
+                          <span className="text-muk-soft">{t('timeSim.label')}</span>
+                          <select
+                            value={assumedPreset}
+                            onChange={(e) => setStoredAssumedPreset(e.target.value)}
+                            aria-label={t('timeSim.label')}
+                            className="bg-transparent font-bold text-muk focus:outline-none cursor-pointer"
+                          >
+                            {ASSUMED_TIME_PRESETS.map((p) => (
+                              <option key={p.id} value={p.id}>{t(p.labelKey)}</option>
+                            ))}
+                          </select>
+                        </label>
+                        {assumedPreset !== "now" && (
+                          <span className="inline-flex items-center rounded-full bg-gold/15 border border-gold/40 px-2.5 py-1 text-[11px] font-bold text-gold-deep">
+                            {t('timeSim.badge', { label: t(ASSUMED_TIME_PRESETS.find((p) => p.id === assumedPreset)?.labelKey ?? 'timeSim.now') })}
+                          </span>
+                        )}
+                      </>
+                    )}
+                  </div>
                 )}
               </section>
-
-              {/* 데모: 가정 시간 시뮬레이터 — 심야에도 낮 시각을 가정해 실제 코스를 보여준다(/main·/waiting 공유).
-                  공유 모드는 읽기 전용이라 노출하지 않는다(재조회 없음). */}
-              {!isShareMode && (
-                <div className="flex items-center gap-2 flex-wrap">
-                  <label className="inline-flex items-center gap-1.5 rounded-full border border-line bg-white px-3 py-1.5 text-xs font-medium shadow-[0_2px_10px_rgba(43,35,32,0.06)]">
-                    <span aria-hidden>🕒</span>
-                    <span className="text-muk-soft">{t('timeSim.label')}</span>
-                    <select
-                      value={assumedPreset}
-                      onChange={(e) => setStoredAssumedPreset(e.target.value)}
-                      aria-label={t('timeSim.label')}
-                      className="bg-transparent font-semibold text-muk focus:outline-none cursor-pointer"
-                    >
-                      {ASSUMED_TIME_PRESETS.map((p) => (
-                        <option key={p.id} value={p.id}>{t(p.labelKey)}</option>
-                      ))}
-                    </select>
-                  </label>
-                  {assumedPreset !== "now" && (
-                    <span className="inline-flex items-center rounded-full bg-gold/15 border border-gold/40 px-2.5 py-1 text-[11px] font-bold text-gold-deep">
-                      {t('timeSim.badge', { label: t(ASSUMED_TIME_PRESETS.find((p) => p.id === assumedPreset)?.labelKey ?? 'timeSim.now') })}
-                    </span>
-                  )}
-                </div>
-              )}
 
               {/* 가로 스텝퍼 — 정류지가 있을 때만 */}
               {activeStops.length > 0 && <CourseStepper stops={activeStops} />}
@@ -767,7 +774,7 @@ function CourseContent() {
                 <button
                   type="button"
                   onClick={() => { markUserReplan(); setPins({}); }}
-                  className="self-start rounded-full border border-line bg-white px-3 py-1.5 text-[11px] font-bold text-muk-soft hover:border-gold/40 hover:text-gold-deep transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/50"
+                  className="toss-pressable inline-flex min-h-11 items-center gap-1.5 self-start rounded-full border border-line bg-white px-4 text-xs font-bold text-muk-soft hover:border-gold/40 hover:text-gold-deep focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
                 >
                   📌 {t('course.unpinAll')}
                 </button>
@@ -800,7 +807,7 @@ function CourseContent() {
                 ) : activeStops.length === 0 ? (
                   <EmptyState outcomes={isShareMode ? [] : slotOutcomes} />
                 ) : (
-                  <div className="space-y-4">
+                  <div className="space-y-3">
                     <ViewToggle mode={viewMode} onChange={setViewMode} />
                     {viewMode === "gantt" ? (
                       <CourseGantt stops={activeStops} />
@@ -844,7 +851,7 @@ export default function CoursePage() {
 function SharedBanner({ elapsedMin = 0 }: { elapsedMin?: number }) {
   const t = useT();
   return (
-    <div className="flex items-center justify-between gap-3 rounded-xl border border-gold/25 bg-gold/10 px-3 py-2.5">
+    <div className="flex items-center justify-between gap-3 rounded-2xl border border-gold/30 bg-gold/10 px-3.5 py-3">
       <p className="text-[11px] font-semibold text-gold-deep leading-snug">
         {t('course.sharedBanner')}
         {/* 5분 이상 지난 링크는 경과 시간을 명시해 '방금 계산된 코스'로 오인하지 않게 한다. */}
@@ -852,7 +859,7 @@ function SharedBanner({ elapsedMin = 0 }: { elapsedMin?: number }) {
       </p>
       <Link
         href="/course"
-        className="shrink-0 inline-flex items-center px-3 py-1.5 rounded-full bg-white border border-gold/30 text-[11px] font-bold text-gold-deep hover:bg-gold/5 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/50"
+        className="toss-pressable shrink-0 inline-flex min-h-11 items-center px-3.5 rounded-full bg-white border border-gold/35 text-[11px] font-bold text-gold-deep hover:bg-gold/5 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
       >
         {t('course.sharedCta')}
       </Link>
@@ -865,31 +872,46 @@ function SharedBanner({ elapsedMin = 0 }: { elapsedMin?: number }) {
 function CourseStepper({ stops }: { stops: CourseStop[] }) {
   const t = useT();
   return (
-    <ol className="flex items-start w-full" aria-label={t('course.stepperAria')}>
+    <ol
+      className="flex items-start w-full rounded-2xl border border-line/60 bg-white px-2 py-3.5 shadow-[0_1px_2px_rgba(43,35,32,0.04)]"
+      aria-label={t('course.stepperAria')}
+    >
       {stops.map((stop, idx) => {
         const isFirst = idx === 0;
         return (
           // 정류지 1개면 li 가 flex-1 로 전체 폭을 차지해 좌측에 쏠린다 → 가운데 정렬로 보정.
           <li key={stop.facility.id} className={`flex items-start flex-1 min-w-0 ${stops.length === 1 ? "justify-center" : ""}`}>
-            {idx > 0 && <span className="h-0.5 bg-line flex-1 mt-4 mx-1" aria-hidden />}
-            <div className="flex flex-col items-center gap-1 w-16 shrink-0 min-w-0">
+            {/* 연결선은 금빛으로 — 지도 위 점선 경로·번호 마커와 같은 강조색 하나로 통일한다. */}
+            {idx > 0 && (
               <span
-                className={`flex items-center justify-center w-8 h-8 rounded-full text-sm border-2 shrink-0 ${
-                  isFirst ? "bg-gold border-gold text-white" : "bg-white border-line text-muk-soft"
+                className="h-[3px] rounded-full bg-gradient-to-r from-gold/20 via-gold/40 to-gold/20 flex-1 mt-[18px] mx-1"
+                aria-hidden
+              />
+            )}
+            <div className="flex flex-col items-center gap-1.5 w-[4.25rem] shrink-0 min-w-0">
+              <span
+                className={`flex items-center justify-center w-10 h-10 rounded-full text-base shrink-0 transition-colors ${
+                  isFirst
+                    ? "bg-gradient-to-br from-gold to-gold-deep border-2 border-white text-white shadow-[0_2px_10px_rgba(193,154,62,0.45)]"
+                    : "bg-hanji-deep border-2 border-gold/25 text-muk"
                 }`}
                 aria-hidden
               >
                 {typeEmoji(stop.facility.type)}
               </span>
               <span
-                className={`text-[10px] max-w-full truncate text-center ${
-                  isFirst ? "font-bold text-muk" : "text-muk-soft"
+                className={`text-[10px] leading-tight max-w-full truncate text-center ${
+                  isFirst ? "font-extrabold text-muk" : "font-semibold text-muk-soft"
                 }`}
                 title={stop.facility.name}
               >
                 {truncate(stop.facility.name, 6)}
               </span>
-              <span className="text-[9px] text-muk-soft/80 tabular-nums">
+              <span
+                className={`rounded-full px-1.5 py-0.5 text-[9px] font-bold tabular-nums leading-none ${
+                  isFirst ? "bg-gold/15 text-gold-deep" : "bg-hanji-deep text-muk-soft"
+                }`}
+              >
                 {t('course.stepperOffset', { min: Math.round(stop.arrivalOffsetMin) })}
               </span>
             </div>
@@ -923,10 +945,10 @@ function OrderPicker({
 }) {
   const t = useT();
   return (
-    <section className="space-y-2.5">
+    <section className="rounded-2xl border border-line/70 bg-hanji-deep/35 p-4 space-y-3">
       <div>
-        <h2 className="text-sm font-bold text-muk">{t('course.orderTitle')}</h2>
-        <p className="text-[11px] text-muk-soft mt-0.5">{t('course.orderHint')}</p>
+        <h2 className="text-[15px] font-bold text-muk leading-tight">{t('course.orderTitle')}</h2>
+        <p className="text-[11px] text-muk-soft mt-1 leading-relaxed">{t('course.orderHint')}</p>
       </div>
 
       <div className="flex flex-wrap gap-2">
@@ -937,9 +959,9 @@ function OrderPicker({
             onClick={() => onAdd(opt.id)}
             disabled={sequence.length >= MAX_SEQUENCE}
             aria-label={t('course.orderAddAria', { type: t(`category.${opt.id}`) })}
-            className="px-3 py-1.5 rounded-full text-xs font-semibold border bg-white border-line text-muk-soft hover:border-gold/40 hover:text-gold-deep transition-colors disabled:opacity-40 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/50"
+            className="toss-pressable inline-flex min-h-11 items-center gap-1.5 px-4 rounded-full text-[13px] font-bold border bg-white border-line text-muk-soft hover:border-gold/45 hover:bg-gold/5 hover:text-gold-deep disabled:opacity-40 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
           >
-            {opt.emoji} {t(`category.${opt.id}`)}
+            <span aria-hidden>{opt.emoji}</span> {t(`category.${opt.id}`)}
           </button>
         ))}
       </div>
@@ -961,17 +983,17 @@ function OrderPicker({
               <Reorder.Item
                 key={item.uid}
                 value={item}
-                className="flex items-center gap-1.5 pl-2.5 pr-1.5 py-1.5 min-w-0 rounded-full bg-gold/15 border border-gold/40 text-gold-deep text-xs font-bold cursor-grab active:cursor-grabbing select-none touch-none"
+                className="flex min-h-11 items-center gap-1.5 pl-3 pr-1.5 py-1.5 min-w-0 rounded-full bg-gold/15 border border-gold/40 text-gold-deep text-[13px] font-bold cursor-grab active:cursor-grabbing select-none touch-none shadow-[0_1px_4px_rgba(193,154,62,0.18)]"
               >
-                <span className="tabular-nums shrink-0">{idx + 1}.</span>
+                <span className="tabular-nums shrink-0 text-gold-deep/70">{idx + 1}</span>
                 <span className="truncate min-w-0">{typeEmoji(item.type)} {t(`category.${item.type}`)}</span>
                 <button
                   type="button"
                   onClick={() => onRemove(item.uid)}
                   aria-label={t('course.orderRemoveAria', { type: t(`category.${item.type}`) })}
-                  className="ml-0.5 p-0.5 shrink-0 rounded-full hover:bg-gold/25 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/50"
+                  className="toss-pressable ml-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full hover:bg-gold/25 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
                 >
-                  <X size={12} />
+                  <X size={13} />
                 </button>
               </Reorder.Item>
             ))}
@@ -979,7 +1001,7 @@ function OrderPicker({
           <button
             type="button"
             onClick={onReset}
-            className="text-[11px] font-semibold text-muk-soft hover:text-terracotta transition-colors underline underline-offset-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/50 rounded"
+            className="toss-pressable inline-flex min-h-11 items-center rounded-full border border-line bg-white px-4 text-[11px] font-bold text-muk-soft hover:border-terracotta/40 hover:text-terracotta focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
           >
             {t('course.orderReset')}
           </button>
@@ -990,8 +1012,8 @@ function OrderPicker({
           sequence 가 비어있을 때만 렌더한다. 위 '순서대로 담기' 칩과 모양이 같아 중복으로 보이던
           문제(UX): 라벨로 두 그룹의 의도를 구분한다(위=순서 담기, 아래=종류만 선택·순서 자동). */}
       {sequence.length === 0 && (
-        <div className="pt-1.5 mt-1 border-t border-line/70 space-y-1.5">
-          <p className="text-[11px] text-muk-soft">{t('course.typeFilterLabel')}</p>
+        <div className="pt-3 mt-1 border-t border-line/70 space-y-2">
+          <p className="text-[11px] font-semibold text-muk-soft leading-relaxed">{t('course.typeFilterLabel')}</p>
           <div className="flex flex-wrap gap-2">
           {TYPE_OPTIONS.map((opt) => {
             const on = selectedTypes.includes(opt.id);
@@ -1001,13 +1023,13 @@ function OrderPicker({
                 type="button"
                 onClick={() => onToggleType(opt.id)}
                 aria-pressed={on}
-                className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors ${
+                className={`toss-pressable inline-flex min-h-11 items-center gap-1.5 px-4 rounded-full text-[13px] font-bold border focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 ${
                   on
-                    ? "bg-gold/15 border-gold/40 text-gold-deep"
-                    : "bg-white border-line text-muk-soft hover:border-gold/30"
+                    ? "bg-gold/15 border-gold text-gold-deep shadow-[0_2px_10px_rgba(193,154,62,0.18)]"
+                    : "bg-white border-line text-muk-soft hover:border-gold/45 hover:bg-gold/5 hover:text-gold-deep"
                 }`}
               >
-                {opt.emoji} {t(`category.${opt.id}`)}
+                <span aria-hidden>{opt.emoji}</span> {t(`category.${opt.id}`)}
               </button>
             );
           })}
@@ -1026,7 +1048,7 @@ function ViewToggle({ mode, onChange }: { mode: "cards" | "gantt"; onChange: (m:
     { id: "gantt", label: t("course.viewGantt") },
   ];
   return (
-    <div className="inline-flex items-center gap-1 p-1 rounded-full border border-line bg-white" role="tablist" aria-label={t("course.title")}>
+    <div className="inline-flex items-center gap-1 p-1 rounded-full border border-line bg-white shadow-[0_1px_2px_rgba(43,35,32,0.04)]" role="tablist" aria-label={t("course.title")}>
       {opts.map((o) => {
         const on = mode === o.id;
         return (
@@ -1035,8 +1057,8 @@ function ViewToggle({ mode, onChange }: { mode: "cards" | "gantt"; onChange: (m:
             role="tab"
             aria-selected={on}
             onClick={() => onChange(o.id)}
-            className={`px-3.5 py-1.5 rounded-full text-xs font-bold transition-colors ${
-              on ? "bg-gold text-white shadow-[0_2px_8px_rgba(193,154,62,0.3)]" : "text-muk-soft hover:text-muk"
+            className={`toss-pressable inline-flex min-h-9 items-center px-4 rounded-full text-xs font-bold focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 ${
+              on ? "bg-gold text-white shadow-[0_2px_8px_rgba(193,154,62,0.3)]" : "text-muk-soft hover:bg-hanji-deep hover:text-muk"
             }`}
           >
             {o.label}
@@ -1217,7 +1239,9 @@ function StopRows({
   ].sort((a, b) => a.slotOrder - b.slotOrder);
 
   return (
-    <div className="-mx-4 md:-mx-6 divide-y divide-line">
+    // 타임라인 조판: 행마다 금빛 세로 연결선을 깔고 마지막 행만 선을 숨긴다(무거운 구분선 대신 '이어짐'으로 읽히게).
+    // 마지막 행 판정을 프롭으로 내리지 않고 CSS 형제 선택자로 해, 행 컴포넌트의 계약을 건드리지 않는다.
+    <div className="relative [&>div:last-child_[data-timeline]]:hidden">
       {rows.map((row) =>
         row.stop ? (
           <StopRow
@@ -1287,34 +1311,40 @@ function DroppedSlotRow({
   const t = useT();
   const reasonKey = slotReasonKey(outcome);
   return (
-    <div className="px-4 md:px-6 py-4 bg-hanji-deep/30">
-      <div className="flex items-start gap-3">
+    <div className="relative py-2.5">
+      {/* 빈 자리에서도 동선은 끊기지 않는다 — 같은 위치에 같은 금빛 선을 잇되 점선으로 낮춘다. */}
+      <span
+        data-timeline
+        className="pointer-events-none absolute left-[17px] top-[3rem] -bottom-2.5 w-[2px] rounded-full bg-gradient-to-b from-gold/25 to-gold/10"
+        aria-hidden
+      />
+      <div className="relative flex items-start gap-3">
         <span
-          className="shrink-0 flex items-center justify-center w-9 h-9 rounded-full border border-dashed border-line text-base text-muk-soft"
+          className="shrink-0 flex items-center justify-center w-9 h-9 rounded-full border-2 border-dashed border-line bg-hanji text-base text-muk-soft"
           aria-hidden
         >
           {outcome.requestedType ? typeEmoji(outcome.requestedType) : '·'}
         </span>
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0 flex-1 rounded-2xl border border-dashed border-line bg-hanji-deep/40 px-3.5 py-3">
           {/* 번호를 쓰지 않는다 — 이 행의 자리 번호(요청 순서)와 바로 아래 정류지가 찍는
               번호(방문 순서)가 서로 다른 체계라 같은 숫자가 둘 나오곤 했다. 빠진 자리는
               위아래 정류지 사이의 **위치**로 읽는다(rows 정렬이 그 위치를 지킨다). */}
-          <p className="text-sm font-bold text-muk-soft">
+          <p className="text-[13px] font-bold text-muk-soft">
             {t('course.slotDroppedHere')}
           </p>
           {reasonKey && (
-            <p className="mt-0.5 text-[11px] text-muk-soft">
+            <p className="mt-1 text-[11px] leading-relaxed text-muk-soft">
               {t(reasonKey, {
                 type: outcome.requestedType ? t(`category.${outcome.requestedType}`) : '',
               })}
             </p>
           )}
-          <p className="mt-1 text-[10px] text-muk-soft/80">{t('course.slotHint')}</p>
+          <p className="mt-1 text-[10px] leading-relaxed text-muk-soft/80">{t('course.slotHint')}</p>
           {onUnpin && (
             <button
               type="button"
               onClick={onUnpin}
-              className="mt-2 inline-flex items-center gap-1 rounded-full border border-line bg-white px-2.5 py-1 text-[11px] font-bold text-muk-soft hover:border-gold/40 hover:text-gold-deep transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/50"
+              className="toss-pressable mt-2.5 inline-flex min-h-11 items-center gap-1 rounded-full border border-line bg-white px-3.5 text-[11px] font-bold text-muk-soft hover:border-gold/40 hover:text-gold-deep focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
             >
               📌 {t('course.unpin')}
             </button>
@@ -1373,34 +1403,45 @@ function StopRow({
     }
   };
   return (
-    <div className="px-4 md:px-6 py-4">
-      <div className="flex items-start gap-3">
-        <span
-          className="shrink-0 flex items-center justify-center w-9 h-9 rounded-full bg-hanji-deep text-base"
-          aria-hidden
-        >
-          {typeEmoji(stop.facility.type)}
+    <div className="relative py-3">
+      {/* 정류지를 잇는 금빛 세로선 — 목록이 '따로 놓인 카드들'이 아니라 하나의 동선으로 읽히게 한다.
+          마지막 행에서는 부모(StopRows)가 CSS 로 숨긴다. */}
+      <span
+        data-timeline
+        className="pointer-events-none absolute left-[17px] top-[3.35rem] -bottom-3 w-[2px] rounded-full bg-gradient-to-b from-gold/45 via-gold/25 to-gold/15"
+        aria-hidden
+      />
+      <div className="relative flex items-start gap-3">
+        {/* 번호 뱃지 — 지도 위 번호 마커(금빛 원 + 흰 숫자 + 흰 테두리)와 같은 문법으로 맞춘다. */}
+        <span className="shrink-0 flex items-center justify-center w-9 h-9 rounded-full bg-gold border-2 border-white text-sm font-extrabold text-white tabular-nums shadow-[0_2px_8px_rgba(193,154,62,0.45)]">
+          {stop.order}
         </span>
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-2">
-            <h3 className="text-sm font-bold text-muk truncate">
-              {stop.order}. {stop.facility.name}
+            <h3 className="min-w-0 flex items-center gap-1.5 text-[15px] md:text-base font-bold text-muk leading-snug">
+              <span
+                className="shrink-0 inline-flex items-center justify-center w-5 h-5 rounded-md bg-hanji-deep text-[11px]"
+                aria-hidden
+              >
+                {typeEmoji(stop.facility.type)}
+              </span>
+              <span className="truncate">{stop.facility.name}</span>
               {pinned && (
-                <span className="ml-1.5 align-middle px-1.5 py-0.5 rounded-md bg-gold/15 border border-gold/30 text-[9px] font-bold text-gold-deep">
+                <span className="shrink-0 px-1.5 py-0.5 rounded-full bg-gold/15 border border-gold/30 text-[9px] font-bold text-gold-deep">
                   📌 {t('course.pinnedBadge')}
                 </span>
               )}
             </h3>
-            {cong && stop.predictedCongestion != null && <span className={`shrink-0 px-2 py-0.5 rounded-lg text-[10px] font-bold border ${cong.cls}`}>
+            {cong && stop.predictedCongestion != null && <span className={`shrink-0 mt-0.5 px-2 py-1 rounded-full text-[10px] font-bold border tabular-nums ${cong.cls}`}>
               {t(`congestion.${cong.key}`)} {Math.round(stop.predictedCongestion * 100)}%
             </span>}
             {/* 추정: 점선 테두리·옅은 바탕. 도착 시각 예측이 아니라 '관측 시각의 지금' 값이다. */}
-            {est && estCong && <span className={`shrink-0 px-2 py-0.5 rounded-lg text-[10px] font-bold border border-dashed bg-white/70 ${estCong.cls.split(' ').filter((c) => c.startsWith('text-') || c.startsWith('border-')).join(' ')}`}>
+            {est && estCong && <span className={`shrink-0 mt-0.5 px-2 py-1 rounded-full text-[10px] font-bold border border-dashed bg-white/70 tabular-nums ${estCong.cls.split(' ').filter((c) => c.startsWith('text-') || c.startsWith('border-')).join(' ')}`}>
               {t('course.estimateChip', { label: t(`congestion.${estCong.key}`), pct: Math.round(est.level * 100) })}
             </span>}
           </div>
           {est && (
-            <p className="mt-0.5 text-[10px] text-muk-soft">
+            <p className="mt-1 text-[10px] leading-relaxed text-muk-soft">
               {/* 보정이 적용된 값이면 같은 문장에 한 마디만 더 — 새 배지는 만들지 않는다. */}
               {t(est.calibrated ? 'card.evidenceEstimatedCalibrated' : 'card.evidenceEstimated', {
                 time: formatEstimateTime(est.observedAt) ?? '—',
@@ -1409,29 +1450,35 @@ function StopRow({
             </p>
           )}
 
-          <div className="flex items-center gap-2 text-[11px] text-muk-soft mt-0.5">
-            <span>🕒 {arrivalText(stop.arrivalOffsetMin, t)}</span>
+          {/* 시간·점수·도착시점 영업 — 같은 알약 문법으로 통일해 한 줄에 흐르게 한다. */}
+          <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+            <span className="inline-flex items-center gap-1 rounded-full bg-hanji-deep px-2 py-1 text-[11px] font-semibold text-muk-soft tabular-nums">
+              <span aria-hidden>🕒</span>
+              {arrivalText(stop.arrivalOffsetMin, t)}
+            </span>
             {!readOnly && (
-              <>
-                <span className="text-line">·</span>
-                <span>{t('course.spotScore', { score: Math.round(stop.spotScore * 100) })}</span>
-              </>
+              <span className="inline-flex items-center rounded-full border border-line bg-white px-2 py-1 text-[11px] font-semibold text-muk-soft tabular-nums">
+                {t('course.spotScore', { score: Math.round(stop.spotScore * 100) })}
+              </span>
+            )}
+            {stop.openStatusAtArrival && (
+              <span className="inline-flex items-center rounded-full bg-hanji-deep px-2 py-1 text-[11px] font-semibold text-muk-soft">
+                {t(`card.arrivalStatus.${stop.openStatusAtArrival}`)}
+              </span>
             )}
           </div>
-          {stop.openStatusAtArrival && (
-            <p className="mt-1 text-[10px] font-semibold text-muk-soft">{t(`card.arrivalStatus.${stop.openStatusAtArrival}`)}</p>
-          )}
 
           {/* 이유 토글(왼쪽) + 길안내 버튼(오른쪽, ml-auto 로 항상 우측 정렬). 길안내는 새 탭으로 열리는
-              순수 링크라 이유 토글과 클릭이 겹칠 일이 없지만, 혹시 모를 이벤트 버블링까지 stopPropagation 으로 차단. */}
-          <div className="flex items-center gap-2 mt-1.5">
+              순수 링크라 이유 토글과 클릭이 겹칠 일이 없지만, 혹시 모를 이벤트 버블링까지 stopPropagation 으로 차단.
+              길안내는 이 행의 주 행동이라 금빛 그라데이션으로 단 하나만 눈에 띄게 하고, 자동차는 조용한 보조로 둔다. */}
+          <div className="flex flex-wrap items-center gap-2 mt-2">
             {!readOnly && (
               <button
                 type="button"
                 onClick={() => setOpen((v) => !v)}
                 aria-expanded={open}
                 aria-controls={reasonId}
-                className="flex items-center gap-1 text-[11px] font-semibold text-gold-deep hover:text-gold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/50 rounded"
+                className="toss-pressable inline-flex min-h-11 items-center gap-1 rounded-full px-2 text-[12px] font-bold text-gold-deep hover:bg-gold/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
               >
                 {t('course.reasonToggle')}
                 <ChevronDown size={13} className={`transition-transform ${open ? "rotate-180" : ""}`} aria-hidden />
@@ -1441,36 +1488,36 @@ function StopRow({
               type="button"
               onClick={(e) => { e.stopPropagation(); startNavigation('walk'); }}
               aria-label={t('course.directionsAria', { name: stop.facility.name })}
-              className="ml-auto shrink-0 inline-flex items-center gap-1 px-2.5 py-1 rounded-full border border-gold/30 bg-gold/10 text-[11px] font-bold text-gold-deep hover:bg-gold/20 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/50"
+              className="toss-pressable ml-auto shrink-0 inline-flex min-h-11 items-center gap-1.5 px-4 rounded-full bg-gradient-to-r from-gold to-terracotta text-[12px] font-bold text-white shadow-[0_4px_14px_rgba(193,85,59,0.25)] hover:from-gold-deep hover:to-terracotta focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
             >
-              <Navigation size={11} aria-hidden />
+              <Navigation size={13} aria-hidden />
               {t('course.directions')}
             </button>
             <button
               type="button"
               onClick={(e) => { e.stopPropagation(); startNavigation('car'); }}
               aria-label={t('course.drivingAria', { name: stop.facility.name })}
-              className="shrink-0 px-2 py-1 rounded-full border border-line bg-white text-[10px] font-bold text-muk-soft hover:border-gold/30 hover:text-gold-deep"
+              className="toss-pressable shrink-0 inline-flex min-h-11 items-center px-3 rounded-full border border-line bg-white text-[11px] font-bold text-muk-soft hover:border-gold/40 hover:text-gold-deep focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
             >
               {t('course.driving')}
             </button>
           </div>
 
           {!readOnly && open && (
-            <p id={reasonId} className="mt-1.5 text-xs text-muk leading-relaxed bg-hanji-deep/60 rounded-lg px-3 py-2">
+            <p id={reasonId} className="mt-2 text-xs text-muk leading-relaxed bg-hanji-deep/60 border-l-2 border-gold/45 rounded-r-xl rounded-l-sm px-3 py-2.5">
               {stop.reason}
             </p>
           )}
 
           {canReplan && (alternatives.length > 0 || pinned) && (
-            <div className="flex items-center gap-2 mt-2">
+            <div className="flex flex-wrap items-center gap-2 mt-2">
               {alternatives.length > 0 && (
                 <button
                   type="button"
                   onClick={() => setAltsOpen((v) => !v)}
                   aria-expanded={altsOpen}
                   aria-controls={altsId}
-                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full border border-line bg-white text-[11px] font-bold text-muk-soft hover:border-gold/40 hover:text-gold-deep transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/50"
+                  className="toss-pressable inline-flex min-h-11 items-center gap-1 px-3.5 rounded-full border border-line bg-white text-[11px] font-bold text-muk-soft hover:border-gold/40 hover:text-gold-deep focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
                 >
                   {altsOpen ? t('course.altsHide') : t('course.altsToggle', { n: alternatives.length })}
                   <ChevronDown size={12} className={`transition-transform ${altsOpen ? 'rotate-180' : ''}`} aria-hidden />
@@ -1480,9 +1527,9 @@ function StopRow({
                 type="button"
                 onClick={() => onTogglePin?.(slotIdx as number, stop.facility.id)}
                 aria-pressed={pinned}
-                className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full border text-[11px] font-bold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/50 ${
+                className={`toss-pressable inline-flex min-h-11 items-center gap-1 px-3.5 rounded-full border text-[11px] font-bold focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 ${
                   pinned
-                    ? 'border-gold/40 bg-gold/15 text-gold-deep'
+                    ? 'border-gold bg-gold/15 text-gold-deep shadow-[0_2px_10px_rgba(193,154,62,0.18)]'
                     : 'border-line bg-white text-muk-soft hover:border-gold/40 hover:text-gold-deep'
                 }`}
               >
@@ -1494,16 +1541,16 @@ function StopRow({
           {/* 대안 목록. 서버가 그 자리의 실제 출발점·누적 도착 시각에서 이미 채점해 둔 값이라
               도착 시각·예상 혼잡을 그대로 보여 준다(따로 계산하거나 지어내지 않는다). */}
           {canReplan && altsOpen && alternatives.length > 0 && (
-            <div id={altsId} className="mt-2 rounded-xl border border-line bg-hanji-deep/40 divide-y divide-line/70">
+            <div id={altsId} className="mt-2.5 rounded-2xl border border-line bg-hanji-deep/40 divide-y divide-line/70 overflow-hidden">
               {alternatives.map((alt) => {
                 const altCong = alt.predictedCongestion == null ? null : congestion(alt.predictedCongestion, busyAt);
                 const altEst = altCong ? null : stopEstimate(alt);
                 return (
-                  <div key={alt.facility.id} className="flex items-center gap-2 px-3 py-2">
-                    <span aria-hidden className="shrink-0 text-sm">{typeEmoji(alt.facility.type)}</span>
+                  <div key={alt.facility.id} className="flex items-center gap-2 px-3 py-2.5">
+                    <span aria-hidden className="shrink-0 inline-flex items-center justify-center w-6 h-6 rounded-md bg-white text-xs">{typeEmoji(alt.facility.type)}</span>
                     <div className="min-w-0 flex-1">
                       <p className="text-[12px] font-bold text-muk truncate">{alt.facility.name}</p>
-                      <p className="text-[10px] text-muk-soft">
+                      <p className="text-[10px] text-muk-soft tabular-nums">
                         🕒 {arrivalText(alt.arrivalOffsetMin, t)}
                         {altCong && alt.predictedCongestion != null && (
                           <> · {t(`congestion.${altCong.key}`)} {Math.round(alt.predictedCongestion * 100)}%</>
@@ -1521,14 +1568,14 @@ function StopRow({
                       // 어느 가게로 바꾸는 버튼인지 구분할 방법이 사라진다. 이 파일의 다른 버튼들
                       // (길안내·자동차·순서 담기)은 모두 시설명을 aria-label 에 넣는다 — 같은 규칙을 따른다.
                       aria-label={t('course.altsPickAria', { name: alt.facility.name })}
-                      className="shrink-0 px-2.5 py-1 rounded-full border border-gold/30 bg-gold/10 text-[10px] font-bold text-gold-deep hover:bg-gold/20 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/50"
+                      className="toss-pressable shrink-0 inline-flex min-h-10 items-center px-3 rounded-full border border-gold/35 bg-gold/10 text-[10px] font-bold text-gold-deep hover:bg-gold/25 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
                     >
                       {t('course.altsPick')}
                     </button>
                   </div>
                 );
               })}
-              <p className="px-3 py-2 text-[10px] leading-snug text-muk-soft">{t('course.altsNote')}</p>
+              <p className="px-3 py-2.5 text-[10px] leading-relaxed text-muk-soft bg-white/50">{t('course.altsNote')}</p>
             </div>
           )}
         </div>
@@ -1612,7 +1659,7 @@ function AuthState() {
       <p className="text-xs text-muk-soft leading-relaxed">{t('course.authBody')}</p>
       <Link
         href="/main"
-        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full bg-gold text-white text-xs font-bold hover:bg-gold-deep transition-colors"
+        className="toss-pressable inline-flex min-h-11 items-center gap-1.5 px-5 rounded-full bg-gradient-to-r from-gold to-terracotta text-white text-[13px] font-bold shadow-[0_4px_14px_rgba(193,85,59,0.25)] hover:from-gold-deep hover:to-terracotta focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
       >
         {t('course.authCta')}
       </Link>

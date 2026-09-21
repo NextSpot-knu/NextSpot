@@ -81,7 +81,7 @@ async function merchantFetch(path: string, init: RequestInit = {}) {
     // 서버가 detail 로 사유를 줘도 화면에는 고정 안내만 보여준다 — 이 엔드포인트군(성적표·
     // 타임세일·좌석 상태·브리핑)의 detail 은 진단용 문구라 그대로 노출하면 내부 상태가
     // 사장님 화면에 새어 나간다. 원문은 콘솔 로그로만 남긴다.
-    let detail = "잠시 후 다시 불러올게요.";
+    const detail = "잠시 후 다시 불러올게요.";
     try {
       const body = await res.json();
       if (body?.detail) console.log("[merchant] request failed", res.status, body.detail);

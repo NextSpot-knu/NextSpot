@@ -52,6 +52,12 @@ const TOP_CARD_COUNT = 3;
 // 유형당 조회 개수(대표 3 + 리스트 여유분) — 과호출 방지를 위한 상한.
 const PER_TYPE_LIMIT = 8;
 
+// 스테일-우선 캐시 — 마지막 성공 보드를 로컬에 보관해 재방문 시 **즉시** 그리고,
+// 백그라운드로 조용히 새로고침한다. 새 조회가 실패해도 캐시가 있으면 에러 화면 대신
+// 최근 결과를 유지한다(백엔드 지연·재시작 창에서 심사위원이 빈손을 보지 않게).
+const BOARD_CACHE_KEY = "nextspot_waiting_board_v1";
+const BOARD_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
 interface BoardRow {
   facilityId: string;
   name: string;
@@ -171,6 +177,26 @@ export default function WaitingBoardPage() {
   const retriedRef = useRef(false);
   // JWKS 등 서버 일시 장애(503)는 짧은 backoff 뒤 1회만 별도 재시도한다.
   const serviceUnavailableRetriedRef = useRef(false);
+  // 스테일-우선: 화면에 결과가 이미 있으면(캐시 또는 직전 성공) 이후 조회는 조용히 돌고,
+  // 실패해도 에러 화면으로 갈아치우지 않는다. preset 이 바뀌면 로더를 다시 보여준다.
+  const hasRenderedResultsRef = useRef(false);
+  const renderedPresetRef = useRef<string | null>(null);
+
+  // 마운트 시 캐시 하이드레이션 — fetch 이펙트보다 먼저 선언되어 먼저 실행된다.
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(BOARD_CACHE_KEY);
+      if (!raw) return;
+      const cached = JSON.parse(raw) as { sectors?: Sector[]; savedAt?: number; preset?: string };
+      if (!Array.isArray(cached.sectors) || cached.sectors.length === 0) return;
+      if (typeof cached.savedAt !== "number" || Date.now() - cached.savedAt > BOARD_CACHE_MAX_AGE_MS) return;
+      if ((cached.preset ?? "now") !== getStoredAssumedPreset()) return; // 다른 가정 시각의 결과는 안 보여준다
+      hasRenderedResultsRef.current = true;
+      renderedPresetRef.current = cached.preset ?? "now";
+      setSectors(cached.sectors);
+      setLoading(false); // 이후 fetchBoard 가 백그라운드로 갱신
+    } catch { /* 캐시 손상·저장소 차단 — 평소 로딩 경로 그대로 */ }
+  }, []);
 
   const goToDetail = useCallback(
     (facilityId: string) => {
@@ -183,7 +209,9 @@ export default function WaitingBoardPage() {
   );
 
   const fetchBoard = useCallback(async () => {
-    setLoading(true);
+    // 화면에 같은 가정 시각의 결과가 이미 있으면 조용한 새로고침(로더 생략) — 스테일-우선.
+    const silentRefresh = hasRenderedResultsRef.current && renderedPresetRef.current === assumedPreset;
+    if (!silentRefresh) setLoading(true);
     setFailed(false);
 
     // 4유형을 병렬 조회하되 allSettled 로 부분 실패를 흡수한다 — 일부만 살아 있어도 나머지 섹터는 채운다.
@@ -327,6 +355,7 @@ export default function WaitingBoardPage() {
           setTimeout(() => { void fetchBoard(); }, 500);
           return; // loading 유지 — 503 자동 재시도는 1회로 제한
         }
+        if (silentRefresh) { setLoading(false); return; } // 캐시 결과 유지 — 에러로 갈아치우지 않는다
         setFailed(true);
         setSectors(null);
         setLoading(false);
@@ -340,6 +369,7 @@ export default function WaitingBoardPage() {
         setTimeout(() => { void fetchBoard(); }, 2500);
         return; // loading 유지(스켈레톤) — 유예는 유한(1회)이라 무한 스켈레톤 아님
       }
+      if (silentRefresh) { setLoading(false); return; } // 캐시 결과 유지
       setFailed(true);
       setSectors(null);
       setLoading(false);
@@ -348,6 +378,15 @@ export default function WaitingBoardPage() {
 
     setSectors(nextSectors);
     setLoading(false);
+    hasRenderedResultsRef.current = true;
+    renderedPresetRef.current = assumedPreset;
+    // 성공 결과를 캐시에 남긴다 — 다음 방문은 즉시 그리고 백그라운드 갱신(스테일-우선).
+    try {
+      window.localStorage.setItem(
+        BOARD_CACHE_KEY,
+        JSON.stringify({ sectors: nextSectors, savedAt: Date.now(), preset: assumedPreset }),
+      );
+    } catch { /* 저장소 차단/용량 — 캐시 없이도 동작 동일 */ }
     // assumedPreset 이 바뀌면 새 가정 시각으로 다시 조회한다(나머지는 ref/마운트 1회 캡처).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [assumedPreset]);
