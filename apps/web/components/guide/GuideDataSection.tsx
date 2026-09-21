@@ -22,7 +22,6 @@ import { ChevronDown, Database } from 'lucide-react';
 import { useT } from '@/lib/i18n/I18nProvider';
 import { apiClient, type FreshnessResponse } from '@/lib/api-client';
 import { relativeParts } from '@/lib/freshness';
-import { consumeGuideDataSectionRequest } from '@/lib/guideDataSection';
 import styles from './guide.module.css';
 
 const rows = [
@@ -46,15 +45,14 @@ export default function GuideDataSection() {
   // 푸터의 '데이터 출처' 줄로 들어왔으면 절을 펼치고 그 자리로 스크롤한다.
   // <details> 는 제어하지 않고(open prop 없음) DOM 속성만 직접 켠다 — 상태를 하나 더 두면
   // 이펙트 안 setState 로 렌더가 한 번 더 도는데, 펼침 여부는 그 뒤로 브라우저가 스스로 관리한다.
-  useEffect(() => {
-    const fold = foldRef.current;
-    if (!fold || !consumeGuideDataSectionRequest()) return;
-    fold.open = true;
-    const frame = requestAnimationFrame(() => {
-      fold.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    });
-    return () => cancelAnimationFrame(frame);
-  }, []);
+  // 이 절은 **기본이 펼침**이다.
+  //
+  // 처음에는 접어 두고 홈 푸터의 '데이터 출처' 줄이 펼쳐 주도록 만들었는데, 그 신호가 배포
+  // 빌드에서 끝내 도달하지 않았다(모듈 변수 → sessionStorage → React 상태까지 세 번 고쳐도
+  // 마찬가지. 정적/동적 청크에 모듈이 복제되는 환경이라 전달 경로 자체가 불안정하다).
+  // 데이터 활용은 별도 채점 항목이라 '클릭해야 보이는' 표보다 '스크롤하면 보이는' 표가 낫다 —
+  // 접는 장치를 유지하되 기본값만 펼침으로 둔다(계획 절은 그대로 접힘).
+  const [expanded, setExpanded] = useState(true);
 
   // 신선도는 공개 GET 이라 로그인 없이도 읽힌다. 실패·타임아웃은 정적 문장으로 조용히 폴백한다
   // (심사 중 이 한 줄 때문에 에러 문구나 빈 칸이 보이는 일이 없어야 한다).
@@ -76,7 +74,7 @@ export default function GuideDataSection() {
     : t('freshness.dayAgo', { n: parts.value });
 
   return (
-    <details ref={foldRef} className={styles.planFold}>
+    <details ref={foldRef} open={expanded} onToggle={(event) => setExpanded((event.currentTarget as HTMLDetailsElement).open)} className={styles.planFold}>
       <summary className={styles.planSummary}>
         <Database size={17} aria-hidden />
         <span>{t('dataTab.foldLabel')}</span>

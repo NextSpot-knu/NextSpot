@@ -6,7 +6,6 @@ import { useRouter } from 'next/navigation';
 import { ChevronRight } from 'lucide-react';
 import { useT } from '@/lib/i18n/I18nProvider';
 import { warmBackend } from '@/lib/api-client';
-import { requestGuideDataSection } from '@/lib/guideDataSection';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { GuideButton } from '@/components/guide/GuideProvider';
 import NextSpotMascot from '@/components/NextSpotMascot';
@@ -46,7 +45,10 @@ export default function LoadingPage() {
   // 모듈 신호로 넘긴다(lib/guideDataSection.ts) — 본문이 dynamic import 라 클릭 직후엔 없다.
   const openDataSection = useCallback((event: MouseEvent<HTMLButtonElement>) => {
     event.stopPropagation(); // 화면 전체 탭(go)으로 새지 않게
-    requestGuideDataSection();
+    // 소개 모달을 연다(데이터 절은 그 안에서 기본 펼침이라 스크롤만 하면 보인다).
+    // 컨텍스트를 직접 쓰는 편이 깔끔하지만 **되지 않는다** — GuideProvider 가 정적/동적 두 청크에
+    // 복제되면서 createContext 객체가 둘로 갈려, 여기서 읽은 컨텍스트는 실제 모달을 들고 있는
+    // 쪽이 아니다(배포 빌드에서 확인).
     introTriggerRef.current?.querySelector('button')?.click();
   }, []);
 
