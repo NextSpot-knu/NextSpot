@@ -2166,7 +2166,14 @@ export default function MainPage() {
 
         // 첫 진입(복원 없음): 기본 중심(=현재 위치 점)을 전체 화면이 아니라, 상단 칩 바 아래·
         // 우측 카드 패널 왼쪽 '실제 보이는 영역'의 한가운데에 오도록 보정한다.
-        if (!restoredCenter) centerOnFreeArea(centerLat, centerLng);
+        // 복원된 중심이라도 '내 위치(지역 중심)'와 사실상 같으면 보정한다 — 사용자가 지도를
+        // 옮긴 적 없이 저장된 중심(보정 배포 전 저장본 포함)은 전체 화면 중앙에 점을 놓는
+        // 옛 화면을 그대로 재현하기 때문이다. 판별 반경 ±0.0005°(≈50m): 실제로 패닝한 지도는
+        // 이보다 크게 벗어나고, 보정된 중심도 통상 줌에서 수백 m 이동이라 재보정되지 않는다.
+        const restoredNearMyLocation =
+          Math.abs(centerLat - (REGION.center.lat as number)) < 0.0005
+          && Math.abs(centerLng - (REGION.center.lng as number)) < 0.0005;
+        if (!restoredCenter || restoredNearMyLocation) centerOnFreeArea(centerLat, centerLng);
 
         // Save center and level on map idle
         setMapLevel(map.getLevel());
