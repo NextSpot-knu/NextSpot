@@ -31,7 +31,11 @@ for (const locale of locales) {
     await expect(answer.locator('li')).toHaveCount(6);
     expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
     await expect(page.locator('a[href="/setup"]')).toHaveCount(1);
-    await expect(page.locator('[data-chapter], details')).toHaveCount(0);
+    // 옛 챕터 기계는 계속 금지하되, 맨 아래 '계획' 접힘(<details data-plan-fold>)은 의도된
+    // 단일 예외다(2026-09-21 PM 지시: 실행 계획을 기본 접힘으로 최하단 배치). 기본 접힘도 잠근다.
+    await expect(page.locator('[data-chapter], details:not([data-plan-fold])')).toHaveCount(0);
+    await expect(page.locator('details[data-plan-fold]')).toHaveCount(1);
+    await expect(page.locator('details[data-plan-fold]')).not.toHaveAttribute('open', '');
     await expect(page.locator('body')).not.toContainText(/취향을 따라가면|SPOT 계산|심사위원용|For judges|guide\.(hero|problem|solution)/);
   });
 }

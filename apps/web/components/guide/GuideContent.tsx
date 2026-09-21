@@ -120,7 +120,7 @@ export default function GuideContent({ onNavigate }: { onNavigate?: () => void }
 
       {/* 실행 계획(12주 실증·사업 모델)은 맨 아래 접힘으로 — 관심 있는 심사위원만 펼쳐 본다.
           기본 접힘(<details>)이라 키보드·스크린리더 접근이 그대로 동작한다. */}
-      <details className={styles.planFold}>
+      <details className={styles.planFold} data-plan-fold>
         <summary className={styles.planSummary}>
           <span>{t('guide.planBadge')}</span>
           <ChevronDown size={18} aria-hidden />
