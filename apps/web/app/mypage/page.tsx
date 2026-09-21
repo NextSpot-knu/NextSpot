@@ -33,6 +33,8 @@ const TasteRadar = dynamic(() => import('@/components/TasteRadar'), { ssr: false
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { CongestionAlertToggle } from '@/components/CongestionAlertToggle';
 import { AccountSection } from '@/components/AccountSection';
+// 최상단 누적 임팩트 카드 — 분산 유도 / 절약된 대기 / 참여 점포. 탭하면 임팩트 상세로.
+import ImpactSummaryCard from '@/components/ImpactSummaryCard';
 import { useT } from '@/lib/i18n/I18nProvider';
 
 // 2026년 최저시급(고용노동부 고시, 원/시간) — '아낀 시간'을 기회비용으로 환산하는 기준.
@@ -373,6 +375,11 @@ export default function MyPage() {
 
       {/* Main Content Area */}
       <main className="flex-1 flex flex-col relative z-10 px-6 overflow-y-auto pb-[calc(var(--tourist-nav-clearance)+env(safe-area-inset-bottom))] md:pb-6 no-scrollbar">
+        {/* 맨 위 — 서비스가 만들어 낸 누적 성과. 프로필 로딩과 무관하게 즉시 자리를 잡는다
+            (프로필 조회가 느려도 심사위원이 가장 먼저 보는 숫자가 비어 있지 않게). */}
+        <div className="mt-4 md:max-w-4xl md:mx-auto md:w-full">
+          <ImpactSummaryCard />
+        </div>
         {isLoading || !profile ? (
           // 프로필 블록 + 취향 레이더 + 통계 형태의 스켈레톤(스피너 대체) — 실제 콘텐츠와 동일한 중앙정렬 폭으로 폭 점프 최소화.
           <div className="flex flex-col mt-4 md:max-w-4xl md:mx-auto md:w-full" aria-hidden>

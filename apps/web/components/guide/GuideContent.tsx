@@ -6,6 +6,8 @@ import {
 } from 'lucide-react';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { useT } from '@/lib/i18n/I18nProvider';
+import GuideDataSection from './GuideDataSection';
+import { JudgeAccountHint } from '@/components/JudgeAccountHint';
 import styles from './guide.module.css';
 
 const problemItems = [
@@ -106,17 +108,26 @@ export default function GuideContent({ onNavigate }: { onNavigate?: () => void }
               </li>
             ))}
           </ul>
+          {/* 로그인 벽 대신 데모 라우트로 — 심사위원이 계정 없이 상인·관제 화면을 바로 본다
+              (?demo=1 은 각 콘솔이 읽는 읽기 전용 데모 플래그). */}
           <div className={styles.ctaRow}>
-            <Link href="/merchant" prefetch={false} onClick={onNavigate} className={styles.consoleCta}>
-              {t('guide.merchantCta')}<ArrowRight size={16} aria-hidden />
+            <Link href="/merchant?demo=1" prefetch={false} onClick={onNavigate} className={styles.consoleCta}>
+              {t('dataTab.merchantCta')}<ArrowRight size={16} aria-hidden />
             </Link>
-            <Link href="/admin/login" prefetch={false} onClick={onNavigate} className={styles.consoleCta}>
-              {t('guide.adminCta')}<ArrowRight size={16} aria-hidden />
+            <Link href="/admin/dashboard?demo=1" prefetch={false} onClick={onNavigate} className={styles.consoleCta}>
+              {t('dataTab.adminCta')}<ArrowRight size={16} aria-hidden />
             </Link>
           </div>
-          <p className={styles.note}>{t('guide.roleRequired')}</p>
+          <p className={styles.note}>{t('dataTab.roleNote')}</p>
+          {/* 콘솔 버튼이 데모로 바로 가므로, 실제 계정으로 들어갈 심사위원은 여기서 계정을 본다
+              (관문·로그인 화면에도 같은 안내가 있다 — lib/judgeAccounts.ts). */}
+          <JudgeAccountHint className="mt-3 max-w-md" />
         </div>
       </section>
+
+      {/* 데이터 절 — '어떤 공공 API 를 어디에 쓰는가'를 한 표로. 홈 푸터의 데이터 출처 줄이
+          이 절을 펼친 채로 연다(lib/guideDataSection.ts). 계획 절과 같은 접힘 문법. */}
+      <GuideDataSection />
 
       {/* 실행 계획(12주 실증·사업 모델)은 맨 아래 접힘으로 — 관심 있는 심사위원만 펼쳐 본다.
           기본 접힘(<details>)이라 키보드·스크린리더 접근이 그대로 동작한다. */}
@@ -162,6 +173,16 @@ export default function GuideContent({ onNavigate }: { onNavigate?: () => void }
               ))}
             </ul>
             <p className={styles.future}>{t('guide.futureBody')}</p>
+
+            {/* 추정 엔진의 정확도를 '계획'이 아니라 '지금 돌아가는 일'로 보여주는 카드.
+                서울 검증 현황 API(GET /engine-validation/seoul/status)는 관리자 인증이 필요해
+                여기서 호출하지 않는다 — 수집 대상·주기는 고정 사실이라 정적 문장으로 적는다
+                (app/services/seoul_citydata_service.py · docs/CONGESTION_ENGINE_PLAN.md §5.1). */}
+            <div className={styles.seoulCard}>
+              <span className={styles.seoulBadge}>{t('dataTab.seoulBadge')}</span>
+              <h3>{t('dataTab.seoulTitle')}</h3>
+              <p className={styles.cardBody}>{t('dataTab.seoulBody')}</p>
+            </div>
           </div>
         </section>
       </details>

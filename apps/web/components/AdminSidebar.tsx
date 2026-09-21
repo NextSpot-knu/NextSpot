@@ -5,13 +5,22 @@ import { usePathname, useRouter } from 'next/navigation';
 import { LayoutDashboard, Building2, BarChart3, Settings, HelpCircle, Sparkles, LogOut, ShieldAlert, Printer, UserCog, Compass, FlaskConical } from 'lucide-react';
 import { signOutAdmin } from '@/lib/adminAuth';
 import { useAccount, canEnterDevConsole } from '@/lib/account';
+import { useDemoToast } from '@/components/DemoBadge';
 
-export function AdminSidebar() {
+// demo=true 는 `/admin/dashboard?demo=1`(로그인 없는 읽기 전용 데모) 전용이다. 메뉴는 그대로
+// 보이되 **어디로도 이동하지 않는다** — 데모에는 세션이 없어서 다른 관제 화면은 전부 로그인
+// 게이트로 튕기고, 심사위원에게는 그게 '고장' 으로 읽힌다. 로그아웃도 진짜 세션을 버리므로 막는다.
+export function AdminSidebar({ demo = false }: { demo?: boolean } = {}) {
   const pathname = usePathname();
   const router = useRouter();
   const { account } = useAccount();
+  const demoToast = useDemoToast();
 
   const handleLogout = () => {
+    if (demo) {
+      demoToast();
+      return;
+    }
     // 세션 폐기를 기다리지 않고 즉시 화면을 옮긴다(실패해도 로그인으로 보내는 게 맞다).
     void signOutAdmin();
     router.replace('/admin/login');
@@ -51,17 +60,23 @@ export function AdminSidebar() {
       <nav className="flex-1 p-4 flex flex-col gap-2">
         {menuItems.map((item) => {
           const Icon = item.icon;
-          const isActive = pathname === item.path;
+          // 데모에서는 대시보드가 '현재 화면' 이고 나머지는 열 수 없다(이동 대신 토스트).
+          const isActive = demo ? item.path === '/admin/dashboard' : pathname === item.path;
+          const className = `flex items-center gap-3 px-4 py-3 rounded-xl font-semibold transition-colors ${
+            isActive
+              ? 'bg-gold/10 text-gold-deep'
+              : 'text-hanok-muted hover:bg-hanok-card font-medium'
+          }`;
+          if (demo) {
+            return (
+              <button key={item.path} type="button" onClick={demoToast} className={`${className} w-full text-left`}>
+                <Icon size={20} />
+                {item.name}
+              </button>
+            );
+          }
           return (
-            <Link
-              key={item.path}
-              href={item.path}
-              className={`flex items-center gap-3 px-4 py-3 rounded-xl font-semibold transition-colors ${
-                isActive
-                  ? 'bg-gold/10 text-gold-deep'
-                  : 'text-hanok-muted hover:bg-hanok-card font-medium'
-              }`}
-            >
+            <Link key={item.path} href={item.path} className={className}>
               <Icon size={20} />
               {item.name}
             </Link>

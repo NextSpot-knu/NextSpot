@@ -16,9 +16,11 @@ import { useRouter } from 'next/navigation';
 import { ShieldCheck, ShieldAlert, Loader2 } from 'lucide-react';
 import { useAccount, canEnterAdminConsole } from '@/lib/account';
 import { JudgeAccountHint } from '@/components/JudgeAccountHint';
+import { useT } from '@/lib/i18n/I18nProvider';
 
 export default function AdminLoginPage() {
   const router = useRouter();
+  const t = useT();
   const { account, status } = useAccount();
 
   const allowed = canEnterAdminConsole(account);
@@ -83,6 +85,13 @@ export default function AdminLoginPage() {
               </button>
               <button
                 type="button"
+                onClick={() => router.push('/admin/dashboard?demo=1')}
+                className="mt-2 w-full rounded-xl border border-gold/40 bg-gold/10 py-2.5 text-sm font-semibold text-gold-deep transition-colors hover:bg-gold/20"
+              >
+                {t('demo.enter')}
+              </button>
+              <button
+                type="button"
                 onClick={() => router.push('/main')}
                 className="mt-2 w-full rounded-xl border border-hanok-line py-2.5 text-sm text-hanok-muted transition-colors hover:text-hanok-ink"
               >
@@ -102,6 +111,14 @@ export default function AdminLoginPage() {
                 className="mt-5 w-full rounded-xl bg-gradient-to-r from-gold to-terracotta py-3 text-sm font-semibold text-hanok-ink transition-opacity hover:opacity-90"
               >
                 로그인하기
+              </button>
+              {/* 계정이 없는 사람(심사위원)이 관제 화면을 볼 수 있는 유일한 길 — 읽기 전용 고정값. */}
+              <button
+                type="button"
+                onClick={() => router.push('/admin/dashboard?demo=1')}
+                className="mt-2 w-full rounded-xl border border-gold/40 bg-gold/10 py-2.5 text-sm font-semibold text-gold-deep transition-colors hover:bg-gold/20"
+              >
+                {t('demo.enter')}
               </button>
             </>
           )}

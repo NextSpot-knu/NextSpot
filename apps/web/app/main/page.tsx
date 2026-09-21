@@ -167,6 +167,12 @@ type Facility = SingleFacility | FacilityGroup;
 
 // '관심 없음' 직후 거절 이유를 나중에 알려줄 수 있다는 안내(lab.hint)를 처음 몇 번만 노출하기 위한 카운터.
 // 매번 띄우면 거절 흐름을 방해하므로 상한을 둔다.
+// 재계산 스켈레톤의 경과 시간 계산용. 컴포넌트 본문에서 Date.now() 를 직접 부르면
+// react-hooks/purity 가 '렌더 중 불순 호출'로 본다(실제 호출은 이벤트 핸들러·타이머에서만 일어난다).
+function recalcClockMs(): number {
+  return Date.now();
+}
+
 const LAB_HINT_KEY = 'nextspot_lab_hint_shown';
 const LAB_HINT_MAX_SHOWS = 2;
 
@@ -338,6 +344,9 @@ export default function MainPage() {
   const [ingestPendingId, setIngestPendingId] = useState<string | null>(null);
   const [facilities, setFacilities] = useState<any[]>([]);
   const [parkingLots, setParkingLots] = useState<ParkingLot[]>([]);
+  // 🔥 히트맵 전용 공영주차 실측 스냅샷(주차장 탭의 parkingLots 와 독립 — 탭을 바꿔도 열지도가 비지 않는다).
+  const [heatParkingLots, setHeatParkingLots] = useState<ParkingLot[]>([]);
+  const heatParkingAskedRef = useRef(false);
   const [parkingLoading, setParkingLoading] = useState(false);
   const [parkingLoadError, setParkingLoadError] = useState(false);
   const [parkingReloadNonce, setParkingReloadNonce] = useState(0);
@@ -451,6 +460,60 @@ export default function MainPage() {
   // '혼잡' 등급 경계 — 운영자 설정(GET /system/public-settings). 못 받으면 0.75(기존 값).
   const busyAt = useBusyThreshold();
   const [currentClock, setCurrentClock] = useState<Date | null>(null);
+
+  // ── 3-a/3-b 재계산 피드백 ───────────────────────────────────────────────────
+  // 🕒 시간대 셀렉트와 ✨ 테마 칩은 예전에도 추천을 다시 요청하고 있었지만, 화면이 아무 말도
+  // 하지 않아 '눌러도 아무 일 없는 버튼'으로 보였다. 이제 누르는 즉시 카드 자리에 스켈레톤을
+  // 깔고(= 1초 안에 눈에 보이는 변화), 결과가 도착하면 카드가 다시 나타나며 토스트로 무엇을
+  // 기준으로 다시 계산했는지 말한다. 결과가 같아도 그 사실("이 시간대에도 같은 추천이 유효해요")
+  // 을 말한다 — 침묵은 고장과 구분되지 않는다.
+  const [recalcLabel, setRecalcLabel] = useState<string | null>(null);
+  const recalcRef = useRef<{ label: string; prevTopId: string | null; startedAt: number } | null>(null);
+  const recalcTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // 완성 신호가 오지 않는 경로(effect 조기 반환 등)를 대비한 비상 종료용 최신 선택 id.
+  const selectedFacilityIdRef = useRef<string | null>(null);
+
+  const startRecalc = (label: string, prevTopId: string | null) => {
+    if (recalcTimerRef.current) {
+      clearTimeout(recalcTimerRef.current);
+      recalcTimerRef.current = null;
+    }
+    recalcRef.current = { label, prevTopId, startedAt: recalcClockMs() };
+    setRecalcLabel(label);
+  };
+
+  // 스켈레톤을 걷고 토스트를 띄운다. 너무 빨리 끝나면(캐시 히트) 깜빡임만 남으므로
+  // 최소 420ms 는 보여 준다 — '눌렀다 → 다시 계산했다'가 한 동작으로 읽히게.
+  const finishRecalc = (topId: string | null) => {
+    const pending = recalcRef.current;
+    if (!pending) return;
+    recalcRef.current = null;
+    const same = pending.prevTopId !== null && topId !== null && String(topId) === String(pending.prevTopId);
+    const delay = Math.max(0, 420 - (recalcClockMs() - pending.startedAt));
+    if (recalcTimerRef.current) clearTimeout(recalcTimerRef.current);
+    recalcTimerRef.current = setTimeout(() => {
+      recalcTimerRef.current = null;
+      setRecalcLabel(null);
+      showToast(same ? t('assume.sameResult') : t('assume.recalculated', { label: pending.label }));
+    }, delay);
+  };
+
+  useEffect(() => {
+    selectedFacilityIdRef.current = selectedFacility?.id ?? null;
+  }, [selectedFacility?.id]);
+
+  // 비상 종료 — 재계산이 3초 안에 스스로 끝났다고 말하지 않으면(백엔드 지연, effect 조기 반환)
+  // 스켈레톤을 영원히 띄워 두지 않는다. 심사 화면에서 '멈춘 로딩'은 죽은 버튼보다 나쁘다.
+  useEffect(() => {
+    if (!recalcLabel) return;
+    const timer = setTimeout(() => finishRecalc(selectedFacilityIdRef.current), 3000);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recalcLabel]);
+
+  useEffect(() => () => {
+    if (recalcTimerRef.current) clearTimeout(recalcTimerRef.current);
+  }, []);
 
   // 영업 여부와 도착 시각을 판단하는 기준과 맞춰 경주 현지 시각(KST)을 보여준다.
   // 최초 SSR에는 렌더하지 않아 하이드레이션 차이를 막고, 이후 30초마다 분 경계를 갱신한다.
@@ -921,6 +984,31 @@ export default function MainPage() {
     return () => { active = false; };
   }, [activeFilter, userLocation.lat, userLocation.lng, parkingReloadNonce]);
 
+  // 🔥 히트맵용 공영주차 실측 — 경주시 ITS 실시간 잔여면(GET /area-demand/parking-lots, 공개 GET).
+  // 시설 실측 로그는 드물어 열지도가 '점 몇 개'로만 보였는데, 공영주차 점유율은 도심 전역에
+  // 흩어진 **실측** 좌표라 같은 정직성 기준을 지키면서 구역을 칠할 수 있다(주차장 탭이 이미 쓰는 자료).
+  // 토글을 처음 켤 때 한 번만 받는다 — 꺼져 있으면 호출하지 않는다.
+  useEffect(() => {
+    if (!showHeatmap || heatParkingAskedRef.current) return;
+    heatParkingAskedRef.current = true;
+    let active = true;
+    apiClient.get('/api/v1/area-demand/parking-lots', {
+      params: { lat: String(userLocation.lat), lng: String(userLocation.lng), radiusM: '6000' },
+      timeoutMs: 6000,
+    }).then((response) => {
+      if (!active) return;
+      const lots = Array.isArray(response?.lots) ? response.lots : [];
+      setHeatParkingLots(lots
+        .filter((lot: ParkingLot) => typeof lot?.occupancy === 'number'
+          && Number.isFinite(Number(lot?.latitude)) && Number.isFinite(Number(lot?.longitude)))
+        .map((lot: ParkingLot) => ({ ...lot, latitude: Number(lot.latitude), longitude: Number(lot.longitude) })));
+    }).catch(() => {
+      // 열지도는 부가 레이어다 — 실패하면 시설 실측만으로 그린다(조용히).
+    });
+    return () => { active = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showHeatmap]);
+
   // Synchronize User Location Marker on Map
   useEffect(() => {
     if (!mapLoaded || !mapInstanceRef.current || !userLocation) return;
@@ -1039,6 +1127,8 @@ export default function MainPage() {
       showToast(t('discovery.noAnchor'));
       return;
     }
+    // 칩을 누른 즉시 카드 자리에 스켈레톤 — 결과가 와야만 뭔가 바뀌면 그 사이 몇 초는 '죽은 칩'이다.
+    startRecalc(t(`discovery.theme.${theme.id}`), selectedFacility?.id != null ? String(selectedFacility.id) : null);
     recommendationAbortRef.current?.abort();
     applyVoiceFilter(null);
     setCuisineChip(null);
@@ -1461,10 +1551,13 @@ export default function MainPage() {
             setNoRecommendation(true);
             // '서버가 대안을 못 찾았다' 와 '내가 전부 치웠다' 는 다른 사실이다 — 전자일 때만 그렇게 말한다.
             if (ranked.length === 0) showToast(t('discovery.noAlternatives', { anchor: activeDiscovery.anchorName }));
+            recalcRef.current = null; // 이 경우의 안내는 위 토스트가 대신한다(토스트 두 개 금지)
+            setRecalcLabel(null);
             return;
           }
           setNoRecommendation(false);
           setSelectedFacility(visible[0]);
+          finishRecalc(String(visible[0].id));
           if (mapInstanceRef.current) panToVisible(visible[0].latitude, visible[0].longitude);
         } catch (error) {
           if (cancelled || gen !== recommendationGenRef.current) return; // 구세대 실패로 최신 화면을 덮지 않는다
@@ -1474,6 +1567,7 @@ export default function MainPage() {
           setSelectedFacility(null);
           setNoOpenTodayOnly(false);
           setNoRecommendation(true);
+          finishRecalc(null);
         }
       })();
 
@@ -1507,6 +1601,7 @@ export default function MainPage() {
       setSelectedFacility(null);
       setNoOpenTodayOnly(false); // 이 경로는 유형 자체가 0건 — 휴무 소진과 구분
       setNoRecommendation(true); // (b) 후보 0건 → 카드 자리에 빈 상태 안내
+      finishRecalc(null);
       return;
     }
     setNoRecommendation(false); // 후보 존재 확인 → 이전 카테고리의 빈 상태 안내 즉시 해제(async 지연 중 오표시 방지)
@@ -1652,16 +1747,19 @@ export default function MainPage() {
           setSelectedFacility(null);
           setNoOpenTodayOnly(false); // 랭킹 0건 — 휴무 소진과 구분
           setNoRecommendation(true); // (b) 랭킹 결과 0건 → 빈 상태 안내
+          finishRecalc(null);
           return;
         }
         setNoRecommendation(false); // 후보 있음 → 안내 숨김
         const top = all[0];
         setSelectedFacility(top);
+        finishRecalc(String(top.id));
         if (mapInstanceRef.current && typeof top.latitude === 'number') {
           panToVisible(top.latitude, top.longitude);
         }
       } catch (err) {
         console.warn("Error in recommendation synchronization effect:", err);
+        finishRecalc(null);
       }
     })();
 
@@ -2374,26 +2472,55 @@ export default function MainPage() {
 
     if (!showHeatmap) return;
 
-    // 혼잡 로그 없는 시설(congestionLevel === null)은 열지도에서 제외 — '데이터 없음'을 색으로 합성하지 않음(정직성).
-    // 밤처럼 실측이 비는 시각은 상단 🕒 '가정 시각'으로 낮을 골라 실측·예측을 보게 한다(히트맵은 실측 전용, 사용자 결정 2026-09-20).
-    const displayFacilities = computeDisplayFacilities(markerFacilities)
-      .flatMap((f) => (f.isGroup && Array.isArray(f.subFacilities)) ? f.subFacilities : [f])
-      .filter(
-        (f) => typeof f.congestionLevel === 'number' && typeof f.latitude === 'number' && typeof f.longitude === 'number'
-      );
+    // 열지도에 칠할 점(= 혼잡을 말할 **실측 근거가 있는** 좌표)을 모은다.
+    // 히트맵은 실측 전용이라는 선은 그대로다(사용자 결정 2026-09-20, lib/congestionEstimate.test.ts
+    // 가 이 블록을 지킨다). 달라진 것은 '실측을 어디서 더 찾느냐'뿐이다:
+    //   1) 지도에 뜬 시설의 실측/예측 혼잡도(기존)
+    //   2) 지금 카드가 비교 중인 추천 후보들 — 지도 필터 밖이어도 같은 화면이 말하는 장소다
+    //   3) 후보 주변의 **공영주차 실측** 수요(live) — 사람이 아니라 구역의 사실이라 면으로 읽힌다
+    //   4) 경주시 ITS 공영주차장 실시간 잔여면 — 도심 전역에 흩어진 실측 좌표
+    //   5) 테마 대표 랜드마크(앵커) — 우리가 '대신 가자'고 말하는 바로 그 줄의 위치
+    const heatPoints = new Map<string, { lat: number; lng: number; level: number }>();
+    const addHeatPoint = (id: unknown, lat: unknown, lng: unknown, level: unknown) => {
+      const key = String(id ?? '');
+      if (!key || heatPoints.has(key)) return;
+      if (typeof lat !== 'number' || typeof lng !== 'number') return;
+      if (typeof level !== 'number' || !Number.isFinite(level)) return;
+      heatPoints.set(key, { lat, lng, level: Math.max(0, Math.min(1, level)) });
+    };
 
-    const overlays = displayFacilities.map((f) => {
-      const size = getHeatRadius(f.congestionLevel);
+    const displayFacilities = computeDisplayFacilities(markerFacilities)
+      .flatMap((f) => (f.isGroup && Array.isArray(f.subFacilities)) ? f.subFacilities : [f]);
+    displayFacilities.forEach((f) => {
+      addHeatPoint(f.id, f.latitude, f.longitude, f.congestionLevel);
+    });
+    (rankedFacilities as Facility[]).forEach((f) => {
+      const parking = f?.spot?.areaDemandParkingEvidence;
+      addHeatPoint(f?.id, f?.latitude, f?.longitude,
+        typeof f?.congestionLevel === 'number' ? f.congestionLevel
+          : parking?.mode === 'live' ? parking.level : undefined);
+    });
+    heatParkingLots.forEach((lot) => {
+      addHeatPoint(`parking-${lot.id}`, lot.latitude, lot.longitude, lot.occupancy);
+    });
+    DISCOVERY_THEMES.forEach((theme) => {
+      const anchor = findDiscoveryAnchor(expandGroups(facilities), theme) as Facility | null;
+      if (!anchor) return;
+      addHeatPoint(anchor.id, anchor.latitude, anchor.longitude, anchor.congestionLevel);
+    });
+
+    const overlays = [...heatPoints.values()].map((point) => {
+      const size = getHeatRadius(point.level);
       const blob = document.createElement('div');
       blob.style.width = `${size}px`;
       blob.style.height = `${size}px`;
       blob.style.borderRadius = '50%';
-      blob.style.background = getHeatGradient(f.congestionLevel, busyAt);
+      blob.style.background = getHeatGradient(point.level, busyAt);
       blob.style.mixBlendMode = 'screen'; // 겹칠수록 가산 합성되어 번지는 열지도 효과
       blob.style.pointerEvents = 'none';
 
       const overlay = new kakao.maps.CustomOverlay({
-        position: new kakao.maps.LatLng(f.latitude, f.longitude),
+        position: new kakao.maps.LatLng(point.lat, point.lng),
         content: blob,
         xAnchor: 0.5, // 시설 좌표를 blob 중앙에 정렬
         yAnchor: 0.5,
@@ -2410,7 +2537,10 @@ export default function MainPage() {
       heatmapOverlaysRef.current.forEach((o) => o.setMap(null));
       heatmapOverlaysRef.current = [];
     };
-  }, [markerFacilities, activeFilter, mapLoaded, mapLevel, mapViewportVersion, searchQuery, showHeatmap, busyAt]);
+    // rankedFacilities/estimateById/facilities 도 dep 이다 — 추천이 바뀌거나 추정 피드가 도착하면
+    // 열지도도 같은 사실을 따라가야 한다(카드와 지도가 다른 말을 하지 않도록).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [markerFacilities, activeFilter, mapLoaded, mapLevel, mapViewportVersion, searchQuery, showHeatmap, busyAt, rankedFacilities, heatParkingLots, facilities]);
 
   const filters = [
     { id: '음식점', key: 'restaurant', icon: Utensils },
@@ -3178,7 +3308,7 @@ export default function MainPage() {
 
           {/* 🏮 경주 축제 칩 — TourAPI 실시간 축제/행사(GET /api/v1/events). 0건·백엔드 다운이면 스스로 숨는다.
               축제 선택 시 지도에 핀(구체 주소) 또는 색상 영역(동·일원 등 넓은 지역)으로 표시. */}
-          <FestivalBanner onFocus={focusFestivalOnMap} />
+          <FestivalBanner onFocus={focusFestivalOnMap} location={userLocation} />
 
           {/* 인근 공중화장실. 외부 키/호출 실패 시 칩이 스스로 숨는다. */}
           <RestroomChip location={userLocation} />
@@ -3204,7 +3334,15 @@ export default function MainPage() {
             <span aria-hidden>🕒</span>
             <select
               value={assumedPreset}
-              onChange={(e) => setStoredAssumedPreset(e.target.value)}
+              onChange={(e) => {
+                const id = e.target.value;
+                // 스켈레톤을 먼저 깔고(= 1초 안의 눈에 보이는 반응) 그 다음 재요청을 트리거한다.
+                startRecalc(
+                  t(ASSUMED_TIME_PRESETS.find((p) => p.id === id)?.labelKey ?? 'timeSim.now'),
+                  selectedFacility?.id != null ? String(selectedFacility.id) : null,
+                );
+                setStoredAssumedPreset(id);
+              }}
               aria-label={t('timeSim.label')}
               className="bg-transparent font-semibold text-muk focus:outline-none cursor-pointer"
             >
@@ -3280,6 +3418,25 @@ export default function MainPage() {
 
         </div>{/* /오른쪽 열(칩·컨트롤) */}
         </div>{/* /구글맵스식 톱바 행 */}
+
+        {/* 🔥 히트맵 범례 — 토글이 켜져 있는 동안에만. 색이 무엇을 뜻하는지 말하지 않는 열지도는
+            '알록달록한 얼룩'이다. 색·경계는 마커/배지와 같은 congestionKey 를 쓴다. */}
+        {showHeatmap && activeFilter !== '주차장' && (
+          <div className="pointer-events-none flex w-fit flex-wrap items-center gap-2 rounded-2xl border border-line bg-white/90 px-3 py-1.5 shadow-[0_2px_12px_rgba(43,35,32,0.10)] backdrop-blur">
+            <span className="text-[11px] font-extrabold text-muk">🔥 {t('compare.heatLegendTitle')}</span>
+            {([
+              { key: 'quiet', color: 'rgb(59,130,246)' },
+              { key: 'relaxed', color: 'rgb(16,185,129)' },
+              { key: 'moderate', color: 'rgb(245,158,11)' },
+              { key: 'busy', color: 'rgb(239,68,68)' },
+            ] as const).map((item) => (
+              <span key={item.key} className="flex items-center gap-1 text-[10px] font-bold text-muk-soft">
+                <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: item.color }} aria-hidden />
+                {t(`congestion.${item.key}`)}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
 
       {showMobileTools && activeFilter !== '주차장' && (
@@ -3290,7 +3447,8 @@ export default function MainPage() {
               <button type="button" onClick={() => setShowMobileTools(false)} aria-label={t('common.close')} className="rounded-full border border-line bg-white p-2 text-muk"><X size={18} /></button>
             </div>
             <div className="grid grid-cols-2 gap-2">
-              <button type="button" onClick={() => setShowHeatmap((value) => !value)} aria-pressed={showHeatmap} className={`rounded-xl border px-3 py-3 text-sm font-semibold ${showHeatmap ? 'border-jade bg-jade/15' : 'border-jade/30 bg-white'}`}>🔥 {t('map.heatmap')}</button>
+              {/* 이 패널은 지도를 덮는 모달이라, 여기서 히트맵을 켜면 바뀐 지도를 볼 수 없다 — 함께 닫는다. */}
+              <button type="button" onClick={() => { setShowHeatmap((value) => !value); setShowMobileTools(false); }} aria-pressed={showHeatmap} className={`rounded-xl border px-3 py-3 text-sm font-semibold ${showHeatmap ? 'border-jade bg-jade/15' : 'border-jade/30 bg-white'}`}>🔥 {t('map.heatmap')}</button>
               <button type="button" onClick={toggleBarrierFree} aria-pressed={showBarrierFree} className={`rounded-xl border px-3 py-3 text-sm font-semibold ${showBarrierFree ? 'border-jade bg-jade/15' : 'border-jade/30 bg-white'}`}>♿ {t('map.barrierFree')}</button>
               <button type="button" onClick={() => setShowParkingFilter((value) => !value)} aria-pressed={showParkingFilter} className={`rounded-xl border px-3 py-3 text-sm font-semibold ${showParkingFilter ? 'border-jade bg-jade/15' : 'border-jade/30 bg-white'}`}>🅿 {t('map.filterParking')}</button>
             </div>
@@ -3299,7 +3457,7 @@ export default function MainPage() {
                 <button key={chip.id} type="button" onClick={() => selectCuisineChip(chip)} aria-pressed={cuisineChip === chip.id} className={`shrink-0 rounded-full border px-3 py-1.5 text-xs font-semibold ${cuisineChip === chip.id ? 'border-gold bg-gold/15 text-gold-deep' : 'border-gold/25 bg-white text-muk-soft'}`}><span aria-hidden>{chip.emoji}</span> {t(`cuisine.${chip.id}`)}</button>
               ))}</div></div>
             )}
-            <div className="mt-4 flex flex-wrap gap-2"><FestivalBanner onFocus={focusFestivalOnMap} /><RestroomChip location={userLocation} /></div>
+            <div className="mt-4 flex flex-wrap gap-2"><FestivalBanner onFocus={focusFestivalOnMap} location={userLocation} /><RestroomChip location={userLocation} /></div>
           </section>
         </div>
       )}
@@ -3402,7 +3560,36 @@ export default function MainPage() {
         </div>
       )}
 
-      {selectedFacility && activeFilter !== '주차장' && (() => {
+      {/* 3-a/3-b 재계산 스켈레톤 — 카드와 **같은 자리·같은 폭**에 앉아 화면이 튀지 않는다.
+          카드가 언마운트됐다가 다시 마운트되므로, 결과가 오면 카드의 등장 모션이 그대로 재생된다
+          (= 판이 바뀌었다는 전환). */}
+      {recalcLabel && activeFilter !== '주차장' && (
+        <div className="absolute z-20 px-4 bottom-[calc(var(--tourist-nav-clearance)+env(safe-area-inset-bottom))] w-full md:bottom-6 md:top-24 md:left-auto md:right-4 md:w-[370px] md:px-0 pointer-events-none">
+          <div
+            role="status"
+            aria-live="polite"
+            className="pointer-events-auto w-full rounded-3xl border border-line bg-white/95 p-5 toss-surface backdrop-blur-2xl"
+          >
+            <div className="mx-auto mb-3 h-1.5 w-16 rounded-full bg-muk/15" />
+            <p className="flex items-center gap-2 text-[12px] font-extrabold text-muk">
+              <span className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-gold/30 border-t-gold-deep" />
+              {t('assume.recalculating', { label: recalcLabel })}
+            </p>
+            <div className="mt-3 flex flex-col gap-2">
+              <div className="h-3 w-2/5 animate-pulse rounded-full bg-hanji-deep" />
+              <div className="h-6 w-4/5 animate-pulse rounded-lg bg-hanji-deep" />
+              <div className="h-3 w-3/5 animate-pulse rounded-full bg-hanji-deep" />
+              <div className="mt-1 h-16 w-full animate-pulse rounded-2xl bg-hanji-deep" />
+              <div className="mt-1 flex gap-2">
+                <div className="h-10 flex-1 animate-pulse rounded-2xl bg-hanji-deep" />
+                <div className="h-10 flex-1 animate-pulse rounded-2xl bg-hanji-deep" />
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {selectedFacility && !recalcLabel && activeFilter !== '주차장' && (() => {
         try {
           const targetType = selectedFacility.type;
           let rank = selectedFacility.apiRank;
@@ -3422,6 +3609,31 @@ export default function MainPage() {
           }
 
           const spot = selectedFacility.spot || calculateSPOT(selectedFacility);
+          // P2 비교 헤더의 '기준 명소'. 테마 칩이 켜져 있으면 그 테마의 대표 랜드마크가 이기고,
+          // 아니면 카드가 이미 쓰고 있는 관광 근거의 referenceName(= "…기준 · 후보와 184m")을 쓴다.
+          const compareAnchorName: string | null = activeDiscovery?.anchorName
+            ?? spot.areaDemandTourismEvidence?.referenceName
+            ?? null;
+          // 그 명소 자체의 혼잡 추정(1순위 근거). 시설 목록에서 이름·id 로 되찾아 추정 피드 값을 읽는다.
+          // 못 찾으면 null — 카드가 주차 실측 → 관광 상대지수 순으로 내려간다(지어내지 않는다).
+          const compareAnchorFacility = compareAnchorName
+            ? expandGroups(facilities).find((f) =>
+                (activeDiscovery ? f?.id === activeDiscovery.anchorId : false) || f?.name === compareAnchorName)
+            : undefined;
+          const compareAnchorEstimate = compareAnchorFacility
+            ? ((estimateById[compareAnchorFacility.id] as CongestionEstimate | undefined)
+                ?? compareAnchorFacility.congestionEstimate
+                ?? null)
+            : null;
+          const compareAnchorLevel: number | null =
+            (typeof compareAnchorEstimate?.level === 'number' ? compareAnchorEstimate.level : null)
+            ?? (typeof compareAnchorFacility?.congestionLevel === 'number' ? compareAnchorFacility.congestionLevel : null);
+          const assumedTimeLabel = assumedPreset !== 'now'
+            ? t(ASSUMED_TIME_PRESETS.find((p) => p.id === assumedPreset)?.labelKey ?? 'timeSim.now')
+            : null;
+          const cardContextBadge = activeDiscovery
+            ? t('compare.contextBadge', { label: t(`discovery.theme.${activeDiscovery.themeId}`) })
+            : null;
           // 서버 사유는 한국어 템플릿이므로 화면에서는 구조화된 사실로 현재 로케일 문장을 조립한다.
           const walk = displayWalkingMinutes(spot.expectedTravel);
           const verifiedWait = selectedFacility.scoringMode === 'model' && selectedFacility.congestionSource !== 'none'
@@ -3539,6 +3751,10 @@ export default function MainPage() {
                     ?? selectedFacility.congestionEstimate
                     ?? null
                 }
+                compareAnchorName={compareAnchorName}
+                compareAnchorLevel={compareAnchorLevel}
+                assumedTimeLabel={assumedTimeLabel}
+                contextBadge={cardContextBadge}
               />
               </div>
             </div>
@@ -3550,7 +3766,8 @@ export default function MainPage() {
       })()}
 
       {/* (b) 현재 카테고리 추천 후보 0건 — 카드가 조용히 사라지는 대신 안내 표시 */}
-      {!isLoadingFacilities && !facilitiesLoadError && facilities.length > 0 && !selectedFacility && noRecommendation && (
+      {/* 재계산 중에는 띄우지 않는다 — 스켈레톤과 같은 자리라 두 패널이 겹친다. */}
+      {!isLoadingFacilities && !facilitiesLoadError && facilities.length > 0 && !selectedFacility && noRecommendation && !recalcLabel && (
         <div className="absolute z-20 px-4 bottom-[calc(var(--tourist-nav-clearance)+env(safe-area-inset-bottom))] w-full md:bottom-auto md:top-24 md:left-auto md:right-4 md:w-[370px] md:px-0">
           <div className="bg-white border border-line rounded-2xl px-5 py-4 shadow-[0_2px_14px_rgba(43,35,32,0.06)] flex flex-col items-center gap-1.5 text-center">
             <NextSpotMascot className="w-12" />

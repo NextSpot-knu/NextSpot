@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { Loader2 } from 'lucide-react';
 import { useAccount, canEnterAdminConsole } from '@/lib/account';
+import { isDemoParam } from '@/lib/demoFixtures';
 
 // 정적 export 에서는 Next 미들웨어가 실행되지 않으므로, /admin/* 보호는
 // 이 클라이언트 레이아웃 가드가 담당한다.
@@ -27,9 +28,17 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const [mounted, setMounted] = useState(false);
   // 직전 세션의 긍정 판정 캐시 — 마운트 후에만 읽는다(프리렌더/하이드레이션 불일치 방지).
   const [optimisticAllowed, setOptimisticAllowed] = useState(false);
+  // 읽기 전용 데모(?demo=1) — 로그인도 역할 검사도 없이 관제 화면을 보여 준다.
+  // useSearchParams 대신 location 을 마운트 후에 읽는다: 레이아웃에 Suspense 경계를 두지
+  // 않아도 되고(정적 export 의 CSR bailout 회피), 프리렌더 HTML 과도 어긋나지 않는다.
+  // 데모는 **화면만** 연다 — 데이터는 전부 고정값이고 관리자 API 는 세션이 없으면 여전히 403 이다.
+  const [demo, setDemo] = useState(false);
 
   useEffect(() => {
     setMounted(true);
+    try {
+      if (isDemoParam(new URLSearchParams(window.location.search).get('demo'))) setDemo(true);
+    } catch { /* URL 파싱 불가 — 평소 게이트 경로 그대로 */ }
     try {
       const raw = window.localStorage.getItem(GATE_CACHE_KEY);
       if (!raw) return;
@@ -48,7 +57,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   // 판정이 끝날 때마다 캐시를 갱신한다 — 긍정이면 저장, 부정이면 제거(다음 방문은 로더 경로).
   useEffect(() => {
-    if (!resolved) return;
+    if (!resolved || demo) return; // 데모는 남의 게이트 캐시를 지우지 않는다.
     try {
       if (authed) {
         window.localStorage.setItem(GATE_CACHE_KEY, JSON.stringify({ allowed: true, savedAt: Date.now() }));
@@ -56,17 +65,17 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         window.localStorage.removeItem(GATE_CACHE_KEY);
       }
     } catch { /* 저장소 차단 — 캐시 없이 동작 */ }
-  }, [resolved, authed]);
+  }, [resolved, authed, demo]);
 
   useEffect(() => {
-    if (resolved && !isLoginRoute && !authed) {
+    if (resolved && !isLoginRoute && !authed && !demo) {
       router.replace('/admin/login');
     }
-  }, [resolved, isLoginRoute, authed, pathname, router]);
+  }, [resolved, isLoginRoute, authed, demo, pathname, router]);
 
   // 로그인 페이지는 항상 통과. 캐시된 긍정 판정은 판정이 '끝나기 전까지만' 낙관 렌더한다 —
   // 부정으로 끝나면 즉시 로더+리다이렉트 경로로 떨어진다.
-  const content = isLoginRoute || authed || (optimisticAllowed && !resolved)
+  const content = isLoginRoute || demo || authed || (optimisticAllowed && !resolved)
     ? children
     : (
       <div className="min-h-screen w-full flex items-center justify-center bg-hanok text-hanok-muted">

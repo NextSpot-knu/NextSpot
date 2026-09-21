@@ -186,7 +186,10 @@ async function main() {
 
   // --- 화면 배선 가드 ---------------------------------------------------------
 
-  const dashboardSrc = readFileSync(join(WEB, 'app', 'merchant', 'dashboard', 'page.tsx'), 'utf8');
+  // 콘솔 구현은 2026-09-21 에 라우트(app/merchant/dashboard/page.tsx)에서 컴포넌트로 옮겼다 —
+  // `/merchant` 와 `/merchant/dashboard`, 그리고 `?demo=1` 데모가 같은 화면을 공유해야 해서다
+  // (Next 라우트 파일은 default 외 export 를 못 한다). 가드는 구현 파일을 따라간다.
+  const dashboardSrc = readFileSync(join(WEB, 'components', 'merchant', 'MerchantConsole.tsx'), 'utf8');
   const gateSrc = readFileSync(join(WEB, 'app', 'merchant', 'page.tsx'), 'utf8');
 
   assert.match(dashboardSrc, /timesalePublishNotice\(/, '대시보드가 실제 적용 할인율 안내를 쓰지 않는다');

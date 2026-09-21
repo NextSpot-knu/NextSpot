@@ -15,6 +15,7 @@ import { areaDemandDisclosure } from '@/lib/areaDemandPresentation';
 import { useCountUp } from '@/lib/useCountUp';
 import { congestionDisplay, estimateRadiusKm, formatEstimateTime, formatLastObserved } from '@/lib/congestionEstimate';
 import { congestionKey as gradeKey } from '@/lib/congestionScale';
+import { resolveAnchorCrowd, resolveCandidateCrowd } from '@/lib/compareHeader';
 import { useBusyThreshold } from '@/components/shell/PublicSettingsProvider';
 
 // facility prop 이 이 컴포넌트에서 실제로 읽는 필드만 구조적으로 명시한 타입.
@@ -123,6 +124,17 @@ interface RecommendationCardProps {
   // 추정 모드(주차 실측 + 관광 통계). '지금' 자격이 있는 실측·예측이 없을 때만 '추정' 배지로 그린다
   // (lib/congestionEstimate.ts). facility.congestionLevel 에 넣지 않고 따로 받는 이유가 그 파일 머리말이다.
   congestionEstimate?: CongestionEstimate | null;
+  // ── P2 비교 헤더("지금 A 혼잡 → 대신 B") ────────────────────────────────────
+  // 기준 명소 이름. 미지정이면 areaDemandTourismEvidence.referenceName(= 카드가 이미
+  // "…기준 · 후보와 184m" 로 쓰고 있는 그 값)을 쓴다. 테마 칩이 켜지면 그 테마의 대표
+  // 랜드마크로 덮어쓴다.
+  compareAnchorName?: string | null;
+  /** 기준 명소 자체의 혼잡 추정(0~1). 있으면 등급 문구의 1순위 근거가 된다. */
+  compareAnchorLevel?: number | null;
+  /** '가정 시각' 프리셋 라벨(예: '토 14:00'). 지금(실시간)이면 넘기지 않는다. */
+  assumedTimeLabel?: string | null;
+  /** 테마 칩 맥락 배지 문구(예: '신라 핵심 산책 기준 대안'). */
+  contextBadge?: string | null;
 }
 
 export function RecommendationCard({
@@ -169,6 +181,10 @@ export function RecommendationCard({
   congestionTimestamp,
   scoringMode,
   congestionEstimate,
+  compareAnchorName,
+  compareAnchorLevel,
+  assumedTimeLabel,
+  contextBadge,
 }: RecommendationCardProps) {
   const { t, locale } = useI18n();
   // 운영자 '혼잡' 경계. 지금은 **새 추정 배지만** 이 값을 따른다 — 지도 점선 핀·코스 칩이 이미
@@ -605,6 +621,35 @@ export function RecommendationCard({
   const demandDisclosure = areaDemandDisclosure(areaDemandParkingEvidence, areaDemandTourismEvidence);
   const evidenceCount = demandDisclosure.evidenceCount;
 
+  // ── P2 비교 헤더 ────────────────────────────────────────────────────────────
+  // "지금 천마총(대릉원) 혼잡 → 대신 우직 · 도보 3분 · 여유"
+  // 재료는 전부 이미 카드에 있는 값이다(새 호출 없음). 근거가 하나도 없어도 문장은 만들어진다 —
+  // 이 줄이 사라지면 접힌 카드가 매번 다른 높이로 뜨고, 서비스의 약속도 함께 사라진다.
+  const compareAnchorLabelName = compareAnchorName
+    ?? areaDemandTourismEvidence?.referenceName
+    ?? null;
+  const anchorCrowd = resolveAnchorCrowd({
+    estimateLevel: compareAnchorLevel,
+    parkingLevel: areaDemandParkingEvidence?.level,
+    tourismRelativeIndex: areaDemandTourismEvidence?.relativeIndex,
+    busyAt,
+  });
+  // 후보 쪽 등급: 카드가 '지금'으로 칠한 실측 → 점선 추정 → (주차 단독일 때만) 주변 수요.
+  // 관광 상대지수가 섞인 종합값은 단일 혼잡률로 말하지 않는다(areaDemandPresentation 계약).
+  const candidateCrowdGrade = resolveCandidateCrowd({
+    congestionLevel: shownCongestionLevel,
+    estimateLevel: estimate?.level,
+    areaDemandLevel: demandDisclosure.showQualitativeLevel ? areaDemandLevel : null,
+    busyAt,
+  });
+  const compareHeaderText = t('compare.header', {
+    anchor: compareAnchorLabelName ?? t('compare.anchorFallback'),
+    anchorCrowd: anchorCrowd.grade ? t(`congestion.${anchorCrowd.grade}`) : t('compare.crowdPopular'),
+    candidate: title,
+    walk: displayedTravelMins,
+    candidateCrowd: candidateCrowdGrade ? t(`congestion.${candidateCrowdGrade}`) : t('compare.collecting'),
+  });
+
   return (
     <motion.div 
       className={`w-full max-h-[calc(100dvh-var(--tourist-nav-clearance)-8rem)] bg-white/95 backdrop-blur-2xl border border-line rounded-3xl ${isMinimized ? 'p-3' : 'p-5'} toss-surface flex flex-col ${isMinimized ? 'gap-1' : 'gap-3'} select-none relative overflow-hidden`}
@@ -633,8 +678,33 @@ export function RecommendationCard({
         }}
       />
 
+      {/* P2 — 비교 헤더. 카드 맨 위, **접힌 상태에서도** 보인다. 이 추천이 무슨 줄을 대신하는지가
+          카드의 첫 문장이어야 한다("줄 서는 대신, 경주를 한 곳 더"). 근거가 없어도 사라지지 않는다. */}
+      <div className="rounded-2xl border border-terracotta/25 bg-gradient-to-r from-terracotta/10 via-gold/10 to-jade/10 px-3 py-2">
+        <p className="text-[9px] font-extrabold uppercase tracking-wide text-terracotta">
+          {t('compare.headerKicker')}
+        </p>
+        <p className="mt-0.5 break-keep text-[12px] font-extrabold leading-snug text-muk">
+          {compareHeaderText}
+        </p>
+        {(assumedTimeLabel || contextBadge) && (
+          <div className="mt-1.5 flex flex-wrap items-center gap-1">
+            {assumedTimeLabel && (
+              <span className="rounded-full border border-gold/40 bg-gold/15 px-2 py-0.5 text-[10px] font-bold text-gold-deep">
+                🕒 {t('assume.basisBadge', { label: assumedTimeLabel })}
+              </span>
+            )}
+            {contextBadge && (
+              <span className="rounded-full border border-jade/40 bg-jade/10 px-2 py-0.5 text-[10px] font-bold text-jade">
+                ✨ {contextBadge}
+              </span>
+            )}
+          </div>
+        )}
+      </div>
+
       {isMinimized ? (
-        <div 
+        <div
           className="flex items-center justify-between px-2 pb-1 cursor-pointer"
           onClick={() => setIsMinimized(false)}
         >
@@ -695,7 +765,9 @@ export function RecommendationCard({
           
           {/* Status Pills — 펼쳐도(상세 표시 중에도) 혼잡도·잔여석은 항상 표시.
               혼잡 로그가 없는 시설(congestionLevel=null)은 합성값 대신 회색 '데이터 없음'으로 표기. */}
-          {facility && (displayCongestionLevel !== undefined || typeof areaDemandLevel === 'number' || estimate) && (
+          {/* 근거가 하나도 없어도 이 줄은 남긴다 — 첫 카드에만 배지가 통째로 빠지면 카드 높이가
+              들쭉날쭉해지고, 심사 중에는 그게 '깨진 화면'으로 읽힌다. 대신 '수집 중'이라고 말한다. */}
+          {facility && (
             <div className="flex flex-wrap items-center gap-1.5 mt-2">
               {shownCongestionLevel !== null ? (
                 <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold border ${
@@ -741,7 +813,18 @@ export function RecommendationCard({
                     ? t('recommend.areaEvidenceCount', { n: evidenceCount })
                     : `${t('recommend.areaDemand')}: ${congestionLabel(areaDemandLevel)}`}
                 </span>
-              ) : null}
+              ) : (
+                // 실측·추정·주변 수요가 모두 없는 첫 카드 — 자리를 비우지 않고 상태를 말한다.
+                <span className="px-2 py-0.5 rounded-md text-[10px] font-bold border border-dashed border-line bg-white/70 text-muk-soft">
+                  {t('compare.congestionCollecting')}
+                </span>
+              )}
+              {/* 가정 시각 — 이 배지들이 '지금'이 아니라 무슨 시각을 말하는지 바로 옆에서 밝힌다. */}
+              {assumedTimeLabel && (
+                <span className="px-2 py-0.5 rounded-md text-[10px] font-bold border border-gold/40 bg-gold/15 text-gold-deep whitespace-nowrap">
+                  🕒 {t('assume.basisBadge', { label: assumedTimeLabel })}
+                </span>
+              )}
               {shownCongestionLevel === null && !estimate && typeof areaDemandLevel === 'number' && demandDisclosure.showQualitativeLevel && (
                 <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold border bg-sky-500/10 border-sky-500/20 text-sky-700">
                   {t(areaDemandMode === 'live'
@@ -1145,6 +1228,20 @@ export function RecommendationCard({
               {t(`recommend.areaConfidence.${areaDemandConfidence}`)}
             </p>
           )}
+        </div>
+      )}
+      {/* 같은 자리, 값이 아직 없을 때. 로드 직후 첫 카드만 이 블록이 통째로 빠져 카드 모양이
+          한 번 바뀌던 문제를 막는다 — 섹션은 항상 있고, 모르면 '수집 중'이라고 말한다. */}
+      {typeof areaDemandLevel !== 'number' && (
+        <div className="text-[11px] leading-snug text-sky-800 bg-sky-500/10 border border-sky-500/20 rounded-xl px-3 py-2">
+          <div className="flex items-center justify-between gap-2">
+            <span className="font-bold">{t('recommend.areaDemandForRanking')}</span>
+            <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-sky-700">
+              <span className="inline-block h-2.5 w-2.5 animate-spin rounded-full border-2 border-sky-500/30 border-t-sky-600" />
+              {t('compare.collecting')}
+            </span>
+          </div>
+          <p className="mt-1.5 text-sky-800/80">{t('compare.demandCollectingHint')}</p>
         </div>
       )}
 

@@ -10,8 +10,8 @@
 // 프런트 분기는 UX 일 뿐이고 보안 경계는 백엔드다 — 이 화면을 우회해 dashboard 로 직접 가도
 // 모든 API 가 403 을 돌려준다(app/core/authz.py).
 
-import React, { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import React, { Suspense, useEffect, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Store, ChevronRight, Loader2, LogOut, Clock, ShieldAlert } from 'lucide-react';
 import { createPublicClient } from '@/lib/supabase';
 import { escapeLikeTerm } from '@/lib/facilitySearch';
@@ -23,6 +23,8 @@ import {
   getMerchantFacility,
   type MerchantFacility,
 } from '../../lib/merchant/localState';
+import { MerchantConsole } from '@/components/merchant/MerchantConsole';
+import { isDemoParam } from '@/lib/demoFixtures';
 
 const TYPE_LABEL: Record<string, string> = {
   restaurant: '음식점',
@@ -31,7 +33,23 @@ const TYPE_LABEL: Record<string, string> = {
   culture: '문화시설',
 };
 
-export default function MerchantGatePage() {
+// 라우트 진입점 — `?demo=1` 이면 게이트(계정 판정) 자체를 건너뛰고 읽기 전용 데모 콘솔을 그린다.
+// 게이트 컴포넌트를 아예 렌더하지 않으므로 useAccount 기반 분기·리다이렉트도 돌지 않는다.
+export default function MerchantEntryPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen w-full bg-hanji" />}>
+      <MerchantEntry />
+    </Suspense>
+  );
+}
+
+function MerchantEntry() {
+  const demo = isDemoParam(useSearchParams().get('demo'));
+  if (demo) return <MerchantConsole demo />;
+  return <MerchantGatePage />;
+}
+
+function MerchantGatePage() {
   const router = useRouter();
   const t = useT();
   const { account, status } = useAccount();
@@ -76,6 +94,7 @@ export default function MerchantGatePage() {
             label: t('landing.ctaLogin'),
             onClick: () => router.push('/login?next=/merchant'),
           }}
+          secondary={{ label: t('demo.enter'), onClick: () => router.push('/merchant?demo=1') }}
         />
         <JudgeAccountHint only="merchant" className="mt-4" />
       </Shell>
@@ -106,6 +125,7 @@ export default function MerchantGatePage() {
                   onClick: () => router.push('/login?next=/merchant'),
                 }
           }
+          secondary={{ label: t('demo.enter'), onClick: () => router.push('/merchant?demo=1') }}
         />
         <JudgeAccountHint only="merchant" className="mt-4" />
         {/* 가입한 관광객 계정이면 카드 버튼이 '사업자 인증'이라 계정을 바꿀 길이 따로 필요하다. */}
@@ -138,6 +158,7 @@ export default function MerchantGatePage() {
             label: t('account.businessTitle'),
             onClick: () => router.push('/account/business'),
           }}
+          secondary={{ label: t('demo.enter'), onClick: () => router.push('/merchant?demo=1') }}
         />
       </Shell>
     );
@@ -420,11 +441,14 @@ function Card({
   title,
   desc,
   action,
+  secondary,
 }: {
   icon: React.ReactNode;
   title: string;
   desc: string;
   action?: { label: string; onClick: () => void };
+  /** 보조 행동(테두리 버튼) — 지금은 '데모로 둘러보기' 가 여기 들어간다. */
+  secondary?: { label: string; onClick: () => void };
 }) {
   return (
     <div className="toss-surface rounded-3xl border border-line bg-white p-7 text-center">
@@ -441,6 +465,15 @@ function Card({
           className="toss-pressable mt-5 flex min-h-12 w-full items-center justify-center rounded-xl bg-gradient-to-r from-gold to-terracotta text-[15px] font-bold text-white shadow-md shadow-terracotta/20 transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
         >
           {action.label}
+        </button>
+      )}
+      {secondary && (
+        <button
+          type="button"
+          onClick={secondary.onClick}
+          className="toss-pressable mt-2.5 flex min-h-12 w-full items-center justify-center rounded-xl border border-line bg-white text-[15px] font-bold text-muk transition-colors hover:bg-hanji focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+        >
+          {secondary.label}
         </button>
       )}
     </div>

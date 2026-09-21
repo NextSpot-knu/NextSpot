@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, Suspense } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import {
   Users, Activity, TrendingUp, AlertTriangle, Bell, Download, Info, Sparkles, FlaskConical, ChevronRight,
 } from 'lucide-react';
@@ -42,6 +43,25 @@ import {
   type DashboardTodayWithEstimate,
 } from '@/lib/adminEstimateView';
 import { useCountUp } from '@/lib/useCountUp';
+import { AdminDemoDashboard } from '@/components/admin/DemoDashboard';
+import { isDemoParam } from '@/lib/demoFixtures';
+
+// 라우트 진입점 — `?demo=1` 이면 아래 DashboardPage(관리자 API 를 병렬로 호출하는 실화면)를
+// **아예 렌더하지 않는다**. 컴포넌트가 마운트되지 않으므로 loadData 의 어떤 요청도 나가지 않는다.
+// Suspense 래핑은 useSearchParams 때문(정적 export 의 CSR bailout 회피 — app/login/page.tsx 관례).
+export default function AdminDashboardRoute() {
+  return (
+    <Suspense fallback={<div className="min-h-screen w-full bg-hanok" />}>
+      <AdminDashboardSwitch />
+    </Suspense>
+  );
+}
+
+function AdminDashboardSwitch() {
+  const demo = isDemoParam(useSearchParams().get('demo'));
+  if (demo) return <AdminDemoDashboard />;
+  return <DashboardPage />;
+}
 
 // KPI 숫자의 카운트업 표시 — 조회가 끝나 상태에 들어온 **실제 값**을 향해서만 굴러간다
 // (값 생성·부풀림 없음, 포맷은 호출부가 기존 포맷터를 그대로 넘긴다). 훅 규칙상 조건부
@@ -483,7 +503,7 @@ async function fetchBriefing(): Promise<string | null> {
   }
 }
 
-export default function DashboardPage() {
+function DashboardPage() {
   // 슬라이스별 상태 — 혼잡 집계(오늘/어제 로그)와 추천/DAU 지표를 각각 독립 보관해 준비되는 대로 렌더한다
   // (전면 스피너 게이트 제거 → 섹션별 스켈레톤). null = 아직 로딩 중.
   // failed:true 는 '조회 실패' 전용 표식이다 — 표본 부족(hasLogs=false)과 반드시 구분해 그린다.
