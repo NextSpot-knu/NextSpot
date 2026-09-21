@@ -31,7 +31,10 @@ for (const locale of locales) {
     await expect(answer.locator('li')).toHaveCount(6);
     expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
     await expect(page.locator('a[href="/setup"]')).toHaveCount(1);
-    await expect(page.locator('[data-chapter], details')).toHaveCount(0);
+    // 접힘은 두 곳만 허용한다 — '데이터'(공공데이터 출처 표, 기본 펼침)와 '계획'(12주 실증).
+    // 그 밖의 챕터를 접어 두면 심사위원이 못 보고 지나간다(원래 이 단언의 취지).
+    await expect(page.locator('[data-chapter]')).toHaveCount(0);
+    await expect(page.locator('details')).toHaveCount(2);
     await expect(page.locator('body')).not.toContainText(/취향을 따라가면|SPOT 계산|심사위원용|For judges|guide\.(hero|problem|solution)/);
   });
 }

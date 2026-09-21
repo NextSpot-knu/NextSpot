@@ -3446,6 +3446,32 @@ export default function MainPage() {
               <div><h2 className="font-bold text-muk">{t('map.mobileToolsTitle')}</h2><p className="text-xs text-muk-soft">{t('map.mobileToolsDesc')}</p></div>
               <button type="button" onClick={() => setShowMobileTools(false)} aria-label={t('common.close')} className="rounded-full border border-line bg-white p-2 text-muk"><X size={18} /></button>
             </div>
+            {/* 가정 시간 — 톱바의 같은 컨트롤은 `md:flex` 라 **휴대폰에서는 아예 렌더되지 않는다.**
+                소개 문구가 "상단 '가정 시간'에서 요일·시각을 고르면 …" 이라고 약속하는데 심사위원이
+                휴대폰으로 열면 그 컨트롤이 없었다(e2e 가 잡았다). 여기에 같은 것을 둔다. */}
+            <label className="mb-4 flex items-center gap-2 rounded-xl border border-gold/30 bg-white px-3 py-3 text-sm font-semibold text-muk">
+              <span aria-hidden>🕒</span>
+              <span className="shrink-0 text-xs font-bold text-muk-soft">{t('timeSim.label')}</span>
+              <select
+                value={assumedPreset}
+                onChange={(event) => {
+                  const id = event.target.value;
+                  startRecalc(
+                    t(ASSUMED_TIME_PRESETS.find((preset) => preset.id === id)?.labelKey ?? 'timeSim.now'),
+                    selectedFacility?.id != null ? String(selectedFacility.id) : null,
+                  );
+                  setStoredAssumedPreset(id);
+                  setShowMobileTools(false);  // 바뀐 추천을 바로 보게 패널을 닫는다(히트맵과 같은 이유).
+                }}
+                aria-label={t('timeSim.label')}
+                className="ml-auto bg-transparent font-semibold text-muk focus:outline-none cursor-pointer"
+              >
+                {ASSUMED_TIME_PRESETS.map((preset) => (
+                  <option key={preset.id} value={preset.id}>{t(preset.labelKey)}</option>
+                ))}
+              </select>
+            </label>
+
             <div className="grid grid-cols-2 gap-2">
               {/* 이 패널은 지도를 덮는 모달이라, 여기서 히트맵을 켜면 바뀐 지도를 볼 수 없다 — 함께 닫는다. */}
               <button type="button" onClick={() => { setShowHeatmap((value) => !value); setShowMobileTools(false); }} aria-pressed={showHeatmap} className={`rounded-xl border px-3 py-3 text-sm font-semibold ${showHeatmap ? 'border-jade bg-jade/15' : 'border-jade/30 bg-white'}`}>🔥 {t('map.heatmap')}</button>
@@ -3502,7 +3528,7 @@ export default function MainPage() {
 
       {/* AI Recommendation Card (Floating Bottom Sheet) */}
       {activeFilter === '주차장' && parkingLoading && parkingLots.length === 0 && (
-        <div className="absolute z-20 px-4 bottom-[calc(var(--tourist-nav-clearance)+env(safe-area-inset-bottom))] w-full md:bottom-6 md:left-auto md:right-4 md:w-[370px] md:px-0 pointer-events-none">
+        <div className="absolute z-20 px-4 bottom-[calc(var(--tourist-nav-clearance)+env(safe-area-inset-bottom))] w-full max-h-[calc(100dvh-var(--tourist-nav-clearance)-262px)] overflow-y-auto overscroll-contain no-scrollbar md:max-h-none md:bottom-6 md:left-auto md:right-4 md:w-[370px] md:px-0 pointer-events-none">
           <div className="rounded-2xl border border-line bg-white/95 px-5 py-4 text-sm font-semibold text-muk shadow-lg">
             {t('map.parkingLoading')}
           </div>
@@ -3510,7 +3536,7 @@ export default function MainPage() {
       )}
 
       {activeFilter === '주차장' && !parkingLoading && parkingLots.length === 0 && (
-        <div className="absolute z-20 px-4 bottom-[calc(var(--tourist-nav-clearance)+env(safe-area-inset-bottom))] w-full md:bottom-6 md:left-auto md:right-4 md:w-[370px] md:px-0 pointer-events-none">
+        <div className="absolute z-20 px-4 bottom-[calc(var(--tourist-nav-clearance)+env(safe-area-inset-bottom))] w-full max-h-[calc(100dvh-var(--tourist-nav-clearance)-262px)] overflow-y-auto overscroll-contain no-scrollbar md:max-h-none md:bottom-6 md:left-auto md:right-4 md:w-[370px] md:px-0 pointer-events-none">
           <div className="pointer-events-auto rounded-2xl border border-line bg-white/95 px-5 py-4 text-sm font-semibold text-muk shadow-lg">
             <p>{t(parkingLoadError ? 'map.parkingLoadFailed' : 'map.parkingEmpty')}</p>
             {parkingLoadError && (
@@ -3527,7 +3553,7 @@ export default function MainPage() {
       )}
 
       {selectedParkingLot && activeFilter === '주차장' && (
-        <div className="absolute z-20 px-4 bottom-[calc(var(--tourist-nav-clearance)+env(safe-area-inset-bottom))] w-full md:bottom-6 md:left-auto md:right-4 md:w-[370px] md:px-0 pointer-events-none">
+        <div className="absolute z-20 px-4 bottom-[calc(var(--tourist-nav-clearance)+env(safe-area-inset-bottom))] w-full max-h-[calc(100dvh-var(--tourist-nav-clearance)-262px)] overflow-y-auto overscroll-contain no-scrollbar md:max-h-none md:bottom-6 md:left-auto md:right-4 md:w-[370px] md:px-0 pointer-events-none">
           <div className="pointer-events-auto rounded-3xl border border-line bg-white/95 p-5 shadow-[0_8px_30px_rgba(43,35,32,0.16)] backdrop-blur">
             <div className="flex items-start justify-between gap-3">
               <div>
@@ -3673,7 +3699,14 @@ export default function MainPage() {
           return (
             // pointer-events-none(컨테이너): bottom 고정 absolute 라 카드가 높으면 박스 상단이 세부 음식 칩
             // 행까지 자라 칩 탭을 통째로 가로챘다(elementFromPoint 실측). 상호작용 자식(카드·오브)만 auto.
-            <div className="absolute z-20 px-4 transition-all duration-300 bottom-[calc(var(--tourist-nav-clearance)+env(safe-area-inset-bottom))] w-full md:bottom-6 md:top-24 md:left-auto md:right-4 md:w-[370px] md:px-0 md:overflow-y-auto md:overscroll-contain no-scrollbar pointer-events-none">
+            //
+            // ⚠️ 모바일에는 **높이 상한이 필요하다.** bottom 고정이라 카드가 길어지면 박스가 위로 자라는데,
+            // 390×844 에서 근거가 붙은 카드는 985px 까지 커져 화면 밖(top -163px)으로 넘쳤다(e2e 실측).
+            // 그러면 톱바의 '필터·편의' 버튼이 카드에 덮여 히트맵·배리어프리·주차·축제·화장실이 전부
+            // 눌리지 않고, 음성 오브도 화면 밖(top -260px)으로 나간다. 상한을 두고 안에서 스크롤한다.
+            // 262px 은 그 버튼의 아래 끝(390×844 실측 250px)에 여유를 더한 값이다 — 이보다 작게 잡으면
+            // 카드가 다시 버튼을 덮는다(176px 로 먼저 시도했다가 e2e 가 잡았다).
+            <div className="absolute z-20 px-4 transition-all duration-300 bottom-[calc(var(--tourist-nav-clearance)+env(safe-area-inset-bottom))] w-full max-h-[calc(100dvh-var(--tourist-nav-clearance)-262px)] overflow-y-auto overscroll-contain md:max-h-none md:bottom-6 md:top-24 md:left-auto md:right-4 md:w-[370px] md:px-0 md:overflow-y-auto md:overscroll-contain no-scrollbar pointer-events-none">
               {voice.ttsSupported && (
                 // pointer-events-none: 이 행은 전폭 스트립이라 카드가 높을 때 세부 음식 칩 위를 덮어
                 // 칩 탭을 가로챘다(실측). 오브 자체는 루트에 pointer-events-auto 라 계속 탭 가능.
