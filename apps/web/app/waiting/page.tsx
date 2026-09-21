@@ -704,8 +704,10 @@ export default function WaitingBoardPage() {
                                   {t("recommend.parkingEvidenceRadius", { n: row.areaDemandParkingEvidence.radiusM.toLocaleString() })}
                                 </span>
                               )}
-                              {/* 컴팩트 행도 동일 — 대기 null 이면 앞의 골드 칩이 이미 지수를 말했으니 기준지만 덧붙인다. */}
-                              {row.areaDemandTourismEvidence && (
+                              {/* 컴팩트 행도 동일 — 대기 null 이면 앞의 골드 칩이 이미 지수를 말했으니 기준지만 덧붙인다.
+                                  단, 그때 기준지 이름마저 없으면 빈 span 이 flex gap 만 벌린다 — 게이트로 아예 안 그린다. */}
+                              {row.areaDemandTourismEvidence
+                                && (row.expectedWait !== null || row.areaDemandTourismEvidence.referenceName) && (
                                 <span className="text-[11px] font-semibold text-indigo-700">
                                   {row.expectedWait !== null && (
                                     typeof row.areaDemandTourismEvidence.relativeIndex === "number"

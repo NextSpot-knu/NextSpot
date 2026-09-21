@@ -2666,7 +2666,10 @@ export default function MainPage() {
   return (
     <div className="relative w-full h-[100dvh] overflow-hidden flex flex-col">
 
-      <div className="absolute left-3 top-[calc(env(safe-area-inset-top)+0.5rem)] z-30 flex max-w-[220px] flex-col items-start gap-1.5 md:left-auto md:right-5 md:top-20 md:items-end">
+      {/* PC 에선 시계 왼쪽 최상단 가로 배치 — 이전 위치(md:top-20 우측)는 우측 도킹 추천 패널
+          (md:top-24)의 상단 47px 과 겹쳐 음성 오브·배지를 가렸다(실측 확인). y≈20~56 는 시계 행이라
+          패널(96px~)·칩 행(120px~)과 전혀 겹치지 않는다. 모바일 배치는 그대로. */}
+      <div className="absolute left-3 top-[calc(env(safe-area-inset-top)+0.5rem)] z-30 flex max-w-[220px] flex-col items-start gap-1.5 md:left-auto md:right-[178px] md:top-5 md:max-w-none md:flex-row-reverse md:items-center">
         <LanguageSwitcher className="pointer-events-auto" />
         <span className="rounded-full border border-line bg-white/90 px-2.5 py-1 text-[10px] font-semibold leading-tight text-muk-soft shadow-[0_2px_10px_rgba(43,35,32,0.08)] backdrop-blur-md">
           {t('guide.sourceTour')}

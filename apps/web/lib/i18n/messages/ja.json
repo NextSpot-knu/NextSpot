@@ -193,7 +193,7 @@
   "nav": {
     "home": "ホーム",
     "saved": "保存",
-    "waiting": "今出発なら?",
+    "waiting": "今出発なら？",
     "course": "コース",
     "mypage": "マイ"
   },
@@ -206,7 +206,7 @@
     "value1": "📍 好みと移動時間に合うおすすめ",
     "value2": "🍃 混雑の代わりに、同じ魅力のすいた代替スポット",
     "value3": "🎟️ 提携割引クーポン",
-    "value4": "🌏 韓国語·英語·日本語·中国語対応",
+    "value4": "🌏 韓国語・英語・日本語・中国語対応",
     "ctaLogin": "ログイン / 会員登録"
   },
   "category": {
@@ -247,7 +247,7 @@
   },
   "saved": {
     "title": "保存した場所",
-    "heroTitle": "お気に入りの場所、いま出発したら?",
+    "heroTitle": "お気に入りの場所、いま出発したら？",
     "heroDesc": "保存した場所ごとに、いま出発した場合の到着時刻を表示します。",
     "heroCount": "保存{n}か所",
     "emptyTitle": "気に入った場所をここに集めましょう",
@@ -701,11 +701,11 @@
   "waiting": {
     "backAria": "地図に戻る",
     "brand": "NextSpot 待ち時間ボード",
-    "title": "今出発したら?",
+    "title": "今出発したら？",
     "arrivalWait": "到着時待ち{n}分",
     "waitUnavailable": "待ち時間情報を収集中",
     "heroBestWait": "到着時の最短待ち{n}分",
-    "sectorCount": "{n}ヶ所",
+    "sectorCount": "{n}か所",
     "emptyTitle": "表示できる場所がありません",
     "emptyBody": "条件を少し広げると、より多くの場所をご案内できます。",
     "fetchError": "しばらくしてからもう一度読み込みます。",
@@ -731,7 +731,7 @@
     "metricCouponsIssued": "発行クーポン",
     "metricCouponsUsedInline": "使用{n}枚",
     "metricWaitSaved": "待ち時間短縮",
-    "tileAcceptedValue": "{n}ヶ所",
+    "tileAcceptedValue": "{n}か所",
     "tileCongestionAvoidedValue": "{n}回",
     "tileCouponsIssuedValue": "{n}枚",
     "tileWaitSavedValue": "{n}分",

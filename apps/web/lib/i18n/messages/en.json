@@ -411,8 +411,8 @@
     "foodFilters": "Food type",
     "voiceSearchUnsupported": "Voice search isn't available in this browser",
     "unsupported": "Unsupported",
-    "tourApiTitle": "Places from ⓒKorea Tourism Organization data",
-    "tourApiSource": "Found in ⓒKorea Tourism Organization records — we can guide you there right away.",
+    "tourApiTitle": "Places from ⓒ Korea Tourism Organization data",
+    "tourApiSource": "Found in ⓒ Korea Tourism Organization records — we can guide you there right away.",
     "ingestRequest": "Request to add",
     "ingestRequested": "Request received",
     "ingestRequestDone": "Request to add '{name}' received. It will be added after an admin reviews it.",
@@ -556,7 +556,7 @@
     "slotDroppedHere": "Adjust the conditions to rebuild this stop",
     "estimateChip": "Est. {label} {pct}%",
     "estimateShort": "Est.",
-    "dataAttribution": "Places & photos ⓒKorea Tourism Organization TourAPI · Walking routes OpenStreetMap"
+    "dataAttribution": "Places & photos ⓒ Korea Tourism Organization TourAPI · Walking routes OpenStreetMap"
   },
   "coupons": {
     "expired": "Expired",
@@ -710,7 +710,7 @@
     "emptyBody": "Widen your filters to see more places nearby.",
     "fetchError": "We'll load this again shortly.",
     "subtitle": "Compare expected waits before you set off",
-    "dataAttribution": "Place info & photos: ⓒKorea Tourism Organization TourAPI"
+    "dataAttribution": "Place info & photos: ⓒ Korea Tourism Organization TourAPI"
   },
   "golden": {
     "badge": "Quiet today: {start}-{end}h",
@@ -877,7 +877,7 @@
     "nlSummaryCatsOnly": "Looking in {cats}",
     "nlNotApplied": "Couldn't make out a preference, so nothing was applied — try being more specific",
     "nlSaveFailed": "Understood your preference but couldn't save it — please try again shortly",
-    "dataAttribution": "Place info & photos: ⓒKorea Tourism Organization TourAPI"
+    "dataAttribution": "Place info & photos: ⓒ Korea Tourism Organization TourAPI"
   },
   "auth": {
     "callbackLoading": "Signing you in…",
