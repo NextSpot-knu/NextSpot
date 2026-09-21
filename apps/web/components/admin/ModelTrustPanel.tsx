@@ -119,7 +119,10 @@ export function ModelTrustPanel() {
   const cards = ([
     ['추천 노출', funnel.exposures], ['길찾기', funnel.navigations], ['방문 확인', funnel.arrivals],
     ['긍정 평가', funnel.positive_ratings],
-    ['검증 방문 성공률', `${(funnel.verified_visit_success_rate * 100).toFixed(1)}%`],
+    // '노출→긍정' 복합 비율은 싣지 않는다: 노출에는 화면에 스친 수동 노출(프리페치 포함)이
+    // 섞여 있어 구성상 낮게 나오는 지표다 — 단계 절대값 타일이 이미 깔때기 전체를 말하고,
+    // 여기서는 인접 타일 두 개(길찾기·방문 확인)로 정의가 자명한 단계 전환율만 싣는다.
+    ['안내 후 방문 전환', funnel.navigations > 0 ? `${((funnel.arrivals / funnel.navigations) * 100).toFixed(1)}%` : '0.0%'],
     ['Top 3 혼잡 근거율', `${(data.top3_evidence.coverage_rate * 100).toFixed(1)}%`],
     ['Top 3 최신 검증 실측률', `${(data.top3_evidence.fresh_trusted_measured_rate * 100).toFixed(1)}%`],
     ['Top 3 영업시간 근거율', `${(data.top3_evidence.operating_hours_rate * 100).toFixed(1)}%`],
