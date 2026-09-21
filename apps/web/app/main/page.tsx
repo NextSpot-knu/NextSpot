@@ -293,6 +293,7 @@ function isBarFacility(f: Facility): boolean {
 
 export default function MainPage() {
   const mapContainerRef = useRef<HTMLDivElement>(null);
+  const topBarRef = useRef<HTMLDivElement>(null); // 상단 검색·칩 오버레이 — 초기 중심 보정에서 높이를 잰다
   const mapInstanceRef = useRef<kakao.maps.Map | null>(null);
   const markersRef = useRef<kakao.maps.Marker[]>([]);
   const searchMatchLabelsRef = useRef<kakao.maps.CustomOverlay[]>([]);
@@ -1068,6 +1069,32 @@ export default function MainPage() {
     setRankedFacilities([]);
     setSelectedFacility(null);
     setNoRecommendation(false);
+  };
+
+  // 지도 중심을 '실제 가시영역'의 한가운데로 보정한다 — 전체 화면 기준으로 중심을 잡으면
+  // 상단 검색·칩 바(오버레이)와 PC 우측 카드 패널(370px + right-4)에 눌려 현재 위치 점이
+  // 가려진 영역의 중앙, 즉 시각적으로는 오른쪽 위로 치우친 자리에 놓인다. 카드 패널 폭은
+  // 아직 카드가 뜨기 전이어도 곧 그 자리를 차지하므로 처음부터 비워 두고 잡는다.
+  const centerOnFreeArea = (lat: number, lng: number) => {
+    const map = mapInstanceRef.current;
+    if (!map || typeof window === 'undefined' || !window.kakao) return;
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+    const latlng = new window.kakao.maps.LatLng(lat, lng);
+    try {
+      map.setCenter(latlng);
+      const proj = map.getProjection();
+      const pt = proj.containerPointFromCoords(latlng); // 화면 정중앙의 컨테이너 좌표
+      const topH = topBarRef.current?.getBoundingClientRect().height ?? 0;
+      const rightW = window.matchMedia('(min-width: 768px)').matches ? 386 : 0;
+      if (topH === 0 && rightW === 0) return;
+      // 가시영역 중앙에 latlng 이 놓이려면 중심을 (우측 가림폭/2, -상단 가림높이/2)만큼 옮긴다.
+      const target = proj.coordsFromContainerPoint(
+        new window.kakao.maps.Point(pt.x + Math.round(rightW / 2), pt.y - Math.round(topH / 2))
+      );
+      map.setCenter(target);
+    } catch {
+      map.setCenter(latlng); // 투영 실패 — 무보정 중심이라도 반드시 이동한다
+    }
   };
 
   // 선택 마커가 하단 카드에 가리지 않도록 지도 위쪽 가시영역으로 패닝(지도 중심을 마커보다 아래로 둔다).
@@ -2093,6 +2120,9 @@ export default function MainPage() {
         let centerLat = REGION.center.lat as number;
         let centerLng = REGION.center.lng as number;
         let level = 4;
+        // 세션에서 지도 위치를 복원했는지 — 복원한 화면은 사용자가 보던 그대로가 맞으므로
+        // 아래 '가시영역 중심 보정'을 건너뛴다(복원값은 이미 보정된 중심의 저장본이기도 하다).
+        let restoredCenter = false;
 
         // 마지막 지도 위치 복원은 '있으면 좋은' 값이다. 그런데 저장소는 읽기만 해도 throw 하는
         // 환경이 있다(프라이빗 모드·인앱 브라우저·서드파티 저장소 차단). 여기서 예외가 새어 나가면
@@ -2111,6 +2141,7 @@ export default function MainPage() {
               if (!isNaN(parsedLat) && !isNaN(parsedLng)) {
                 centerLat = parsedLat;
                 centerLng = parsedLng;
+                restoredCenter = true;
               }
             }
             if (savedLevel) {
@@ -2131,6 +2162,10 @@ export default function MainPage() {
         const map = new window.kakao.maps.Map(container, options);
         mapInstanceRef.current = map;
         setMapLoaded(true);
+
+        // 첫 진입(복원 없음): 기본 중심(=현재 위치 점)을 전체 화면이 아니라, 상단 칩 바 아래·
+        // 우측 카드 패널 왼쪽 '실제 보이는 영역'의 한가운데에 오도록 보정한다.
+        if (!restoredCenter) centerOnFreeArea(centerLat, centerLng);
 
         // Save center and level on map idle
         setMapLevel(map.getLevel());
@@ -2647,7 +2682,7 @@ export default function MainPage() {
       )}
 
       {/* Top Layer: Search & Filters — 다크 오버레이 그라디언트 제거(플로팅 패널 자체 배경으로 가독성 확보) */}
-      <div className="absolute top-0 w-full z-20 pt-12 md:pt-5 pb-4 px-4 md:pr-[190px] flex flex-col gap-2 md:gap-4 pointer-events-none">
+      <div ref={topBarRef} className="absolute top-0 w-full z-20 pt-12 md:pt-5 pb-4 px-4 md:pr-[190px] flex flex-col gap-2 md:gap-4 pointer-events-none">
 
         {/* 지도 SDK 로드 실패(8초 타임아웃) 안내 칩 — 검색/배리어프리 빈 상태 칩과 동일 스타일 재사용.
             추천 카드 등 나머지 UI 는 지도 유무와 무관하게 계속 동작한다. */}
@@ -3545,9 +3580,9 @@ export default function MainPage() {
                       key={loc.id}
                       onClick={() => {
                         setUserLocation({ lat: loc.lat, lng: loc.lng });
-                        if (mapInstanceRef.current) {
-                          mapInstanceRef.current.setCenter(new window.kakao.maps.LatLng(loc.lat, loc.lng));
-                        }
+                        // 전체 화면 중심이 아니라 가시영역(칩 바 아래·카드 패널 왼쪽) 중심으로 —
+                        // 초기 진입과 같은 규칙이라 '내 위치' 점이 항상 같은 자리에 놓인다.
+                        centerOnFreeArea(loc.lat, loc.lng);
                         if (typeof window !== 'undefined') {
                           // 저장소 차단 환경에서 throw 하면 아래 토스트까지 못 가 '아무 일도 안 일어난' 것처럼 보인다.
                           try { sessionStorage.removeItem('nextspot_selected_facility_id'); } catch { /* 저장소 차단 */ }

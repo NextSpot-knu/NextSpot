@@ -116,9 +116,97 @@ function changeComparison(avg: AvgCongestionValue):
   return { kind: 'badge', percent: avg.changePercentOrNull };
 }
 
-// 섹션별 로딩 스켈레톤 — 전면 스피너 게이트 제거 후, 각 지표가 준비될 때까지 자리에 표시한다.
+// 섹션별 로딩 연출 — 전면 스피너 게이트 제거 후, 각 지표가 준비될 때까지 자리에 표시한다.
+// 회색 판이 아니라 '초점이 맞는 중'으로 읽히게 한다: 시머 + 콘텐츠 실루엣(블러 고스트) +
+// 비선형 진행 바. 스타일은 globals.css 를 건드리지 않고 이 파일 안에서 자족한다(<style> —
+// LoadingReveal 과 같은 방식, 클래스명은 dash-* 로 분리). 가짜 숫자·글자는 만들지 않는다.
+const DASH_LOADER_STYLES = `
+@keyframes dash-shimmer { 100% { transform: translateX(100%); } }
+.dash-skel { position: relative; overflow: hidden; }
+.dash-skel::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.55), transparent);
+  animation: dash-shimmer 1.6s ease-in-out infinite;
+}
+@keyframes dash-breathe {
+  0%, 100% { filter: blur(9px) saturate(0.92); }
+  50% { filter: blur(6px) saturate(1); }
+}
+.dash-ghost {
+  animation: dash-breathe 2.6s ease-in-out infinite;
+  filter: blur(8px);
+  opacity: 0.8;
+  pointer-events: none;
+  user-select: none;
+}
+@keyframes dash-progress {
+  0% { width: 0%; }
+  4% { width: 46%; }
+  9% { width: 68%; }
+  16% { width: 76%; }
+  100% { width: 94%; }
+}
+.dash-progress { animation: dash-progress 28s cubic-bezier(0.25, 0.6, 0.35, 1) forwards; }
+`;
+
 function Skeleton({ className = '' }: { className?: string }) {
-  return <div className={`animate-pulse rounded-md bg-hanok-line/60 ${className}`} />;
+  return <div className={`dash-skel rounded-md bg-gradient-to-r from-hanok-line/50 via-gold/15 to-hanok-line/50 ${className}`} />;
+}
+
+// 히트맵 자리의 콘텐츠 실루엣 — 500px 회색 판 대신 실제 히트맵(시설 행 × 시간대 셀)과 같은
+// 구조·색을 강한 블러 아래 보여준다. 글자 0개(가짜 정보 없음), 셀 농도는 결정적 수식이라
+// 렌더마다 같다(하이드레이션 안전).
+function HeatmapGhost() {
+  const CELL_TONES = [
+    'bg-jade/35', 'bg-jade/50', 'bg-gold/40', 'bg-gold/55', 'bg-terracotta/45', 'bg-gold/35',
+    'bg-jade/40', 'bg-gold/50', 'bg-terracotta/35', 'bg-jade/45', 'bg-gold/45', 'bg-jade/30',
+  ];
+  return (
+    <div className="col-span-4 min-h-[500px] rounded-2xl border border-hanok-line bg-hanok-panel p-6 shadow-sm" aria-hidden>
+      <div className="dash-ghost flex h-full min-h-[450px] flex-col gap-5">
+        <div className="flex items-center gap-3">
+          <div className="h-5 w-40 rounded bg-hanok-ink/40" />
+          <div className="h-5 w-16 rounded-full bg-gold/30" />
+        </div>
+        <div className="flex flex-1 flex-col justify-between gap-2.5">
+          {[0, 1, 2, 3, 4, 5, 6].map((row) => (
+            <div key={row} className="flex items-center gap-2.5">
+              <div className="h-3.5 w-24 shrink-0 rounded bg-hanok-ink/30" />
+              <div className="grid flex-1 grid-cols-12 gap-1.5">
+                {CELL_TONES.map((tone, i) => (
+                  <div key={i} className={`h-9 rounded-md ${tone}`} style={{ opacity: ((row * 5 + i * 3) % 7) / 10 + 0.35 }} />
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// 30일 추이 차트 자리의 콘텐츠 실루엣 — 세로 막대 + 축 구조를 미러링한다(막대 높이는 고정 배열).
+function ChartGhost() {
+  const BAR_HEIGHTS = [42, 58, 36, 66, 50, 74, 62, 80, 55, 68, 88, 72, 60, 78, 92, 70, 84, 64, 76, 90];
+  return (
+    <div className="col-span-4 min-h-[380px] rounded-2xl border border-hanok-line bg-hanok-panel p-6 shadow-sm" aria-hidden>
+      <div className="dash-ghost flex h-full min-h-[330px] flex-col gap-5">
+        <div className="flex items-center gap-3">
+          <div className="h-5 w-48 rounded bg-hanok-ink/40" />
+          <div className="h-5 w-14 rounded-full bg-jade/30" />
+          <div className="h-5 w-14 rounded-full bg-gold/30" />
+        </div>
+        <div className="flex flex-1 items-end gap-1.5 border-b-2 border-l-2 border-hanok-line/70 pb-1 pl-1">
+          {BAR_HEIGHTS.map((h, i) => (
+            <div key={i} className={`flex-1 rounded-t-md ${i % 3 === 0 ? 'bg-jade/40' : 'bg-gold/40'}`} style={{ height: `${h}%` }} />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 // KPI 숫자 자리의 '실패' 표시 — 0 대신 '—' 와 붉은 배지를 둔다.
@@ -202,7 +290,7 @@ function StepBanner({
 }) {
   const palette: Record<string, string> = {
     blue: 'bg-gold/15 text-gold-deep border-gold/30',
-    amber: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
+    amber: 'bg-amber-500/15 text-amber-800 border-amber-500/30',
     emerald: 'bg-emerald-500/15 text-emerald-700 border-emerald-500/30',
   };
   return (
@@ -475,6 +563,13 @@ export default function DashboardPage() {
   const anomalyCount = congestionMetric(day, (s) => s.anomalyCount ?? null);
   const acceptRate = metricsMetric(metrics, (s) => s.acceptRate ?? null);
   const activeUsers = metricsMetric(metrics, (s) => s.activeUsers ?? null);
+
+  // 첫 로드 동기화 스트립 — 핵심 지표 중 하나라도 도착 전이면 상단에 진행 표시를 세운다.
+  // 전부 도착하면 스스로 사라진다(각 자리의 실루엣과 함께 '준비 중'이 '멈춤'으로 읽히는 것을 막는다).
+  const initialSyncing =
+    congestion === null || distribution === null
+    || avgCongestion.status === 'loading' || acceptRate.status === 'loading'
+    || activeUsers.status === 'loading' || anomalyCount.status === 'loading';
   const heatmap = (view.day?.heatmap ?? []) as HeatmapCell[];
   const anomalies = (view.day?.anomalies ?? []) as AnomalyAlert[];
 
@@ -558,6 +653,25 @@ export default function DashboardPage() {
 
         {/* Dashboard Content (Scrollable) */}
         <div className="flex-1 p-8 overflow-y-auto flex flex-col gap-8">
+          <style>{DASH_LOADER_STYLES}</style>
+
+          {/* 첫 로드 동기화 스트립 — 지표 도착 전의 '빈 화면'을 '일부러 준비 중'으로 바꾼다.
+              비선형 진행 바(초반 급가속 후 94%에서 크롤)는 LoadingReveal 과 같은 지각 곡선. */}
+          {initialSyncing && (
+            <div className="flex items-center gap-4 rounded-2xl border border-gold/30 bg-hanok-panel px-5 py-3.5 shadow-sm" role="status" aria-live="polite">
+              <span className="relative flex h-2.5 w-2.5 shrink-0" aria-hidden>
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-gold/60" />
+                <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-gold" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-bold text-hanok-ink">실시간 관제 데이터 동기화 중</p>
+                <div className="relative mt-2 h-1.5 w-full overflow-hidden rounded-full bg-hanok-line/60" aria-hidden>
+                  <span className="dash-progress block h-full rounded-full bg-gold" />
+                </div>
+              </div>
+            </div>
+          )}
+
           <ModelTrustPanel />
 
           {/* Action Bar (Export) — '24시간 모의 발생' 버튼은 D6 결정으로 걷어냈다. 합성 로그를
@@ -627,7 +741,7 @@ export default function DashboardPage() {
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2 flex-wrap">
                   <p className="font-bold text-sky-700">아래 시설 혼잡 지표는 공영주차 실측 + 관광 통계 기반 추정치입니다</p>
-                  <span className="px-2.5 py-1 rounded-md text-xs font-black border border-dashed bg-sky-500/20 text-sky-100 border-sky-400/60">
+                  <span className="px-2.5 py-1 rounded-md text-xs font-black border border-dashed bg-sky-500/20 text-sky-800 border-sky-400/60">
                     {ESTIMATE_BADGE} · 오늘 (KST)
                   </span>
                 </div>
@@ -645,10 +759,10 @@ export default function DashboardPage() {
               작은 배지로 흩어 놓으면 하나만 놓쳐도 오늘 것으로 읽힌다. */}
           {isFallback && (
             <div className="flex items-start gap-3 bg-amber-500/10 border border-amber-500/40 rounded-2xl p-4">
-              <AlertTriangle size={20} className="text-amber-400 flex-shrink-0 mt-0.5" />
+              <AlertTriangle size={20} className="text-amber-600 flex-shrink-0 mt-0.5" />
               <div className="min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <p className="font-bold text-amber-300">아래 지표는 {basis.kind === 'fallback' ? basis.dateKst : ''}(KST) 기준입니다</p>
+                  <p className="font-bold text-amber-800">아래 지표는 {basis.kind === 'fallback' ? basis.dateKst : ''}(KST) 기준입니다</p>
                   <span className="px-2.5 py-1 rounded-md text-xs font-black border bg-amber-500/20 text-amber-700 border-amber-500/50">
                     {dateBadge}
                   </span>
@@ -722,7 +836,7 @@ export default function DashboardPage() {
                       ? '아래 값은 공영주차 실측 + 관광 통계 기반 추정치입니다'
                       : '아래 값에 추정 지표가 함께 집계되어 있습니다'}
                   </p>
-                  <span className="px-2.5 py-1 rounded-md text-xs font-black border bg-sky-500/20 text-sky-100 border-sky-500/50">
+                  <span className="px-2.5 py-1 rounded-md text-xs font-black border bg-sky-500/20 text-sky-800 border-sky-500/50">
                     {estimatedBasis.badge}
                   </span>
                 </div>
@@ -866,7 +980,7 @@ export default function DashboardPage() {
             {/* DAU */}
             <div className="bg-hanok-panel p-6 rounded-2xl border border-hanok-line shadow-sm flex flex-col justify-between">
               <div className="flex justify-between items-start mb-4">
-                <div className="p-3 bg-emerald-500/10 rounded-xl text-emerald-400">
+                <div className="p-3 bg-emerald-500/10 rounded-xl text-emerald-600">
                   <Users size={24} />
                 </div>
                 <InfoTip text="오늘(KST) 피드백을 남긴 순 사용자 수(DAU, Daily Active Users)입니다." />
@@ -894,7 +1008,7 @@ export default function DashboardPage() {
               isEstimate ? 'border-2 border-dashed border-sky-400/50' : 'border border-hanok-line'
             }`}>
               <div className="flex justify-between items-start mb-4">
-                <div className="p-3 bg-rose-500/10 rounded-xl text-rose-400">
+                <div className="p-3 bg-rose-500/10 rounded-xl text-rose-700">
                   <AlertTriangle size={24} />
                 </div>
                 <div className="flex items-center gap-2">
@@ -939,14 +1053,14 @@ export default function DashboardPage() {
           {/* 관제 핵심 히트맵 — KPI 바로 아래, 개입 행 '위'에 두어 스크롤 없이 보이게 한다. */}
           <div id="congestion-heatmap" className="grid grid-cols-4 gap-6 scroll-mt-4">
             {congestion === null ? (
-              <Skeleton className="col-span-4 min-h-[500px] rounded-2xl" />
+              <HeatmapGhost />
             ) : congestionFailed ? (
               // 실패를 빈 히트맵으로 그리면 '오늘 아무 일도 없었다' 로 읽힌다.
               // 옛 문구는 "비어 있는 것은 데이터가 없다는 뜻이 아닙니다" 였는데, 그건
               // **없다는 사실도 함께 부정**한다 — 실패한 조회는 데이터 유무를 말해 주지
               // 않으므로, 어느 쪽도 단정하지 않는 문장으로 바꾼다.
               <div className="col-span-4 min-h-[240px] rounded-2xl border border-amber-500/30 bg-amber-500/5 flex flex-col items-center justify-center gap-2 text-center p-8">
-                <AlertTriangle className="text-amber-400" size={28} />
+                <AlertTriangle className="text-amber-600" size={28} />
                 <p className="text-sm font-bold text-amber-700">{emptyNotice?.headline ?? '혼잡 집계를 갱신하는 중입니다'}</p>
                 <p className="text-xs text-hanok-muted max-w-2xl leading-relaxed">{emptyNotice?.detail}</p>
               </div>
@@ -985,7 +1099,7 @@ export default function DashboardPage() {
           <div className="grid grid-cols-4 gap-6">
             {distribution !== null
               ? <DashboardCharts distribution={distribution.rows} mode={distribution.mode} />
-              : <Skeleton className="col-span-4 min-h-[380px] rounded-2xl" />}
+              : <ChartGhost />}
           </div>
 
           {/* 수요 수집 신뢰도 — ① 실시간 관제 구역 안(주차 실측과 같은 구역, wiring 테스트 계약),
@@ -1032,12 +1146,12 @@ export default function DashboardPage() {
               isEstimate ? 'border-2 border-dashed border-sky-400/50' : 'border border-hanok-line'
             }`}>
               <div className="p-6 border-b border-hanok-line flex items-center gap-2 flex-wrap bg-hanok-card/30">
-                <AlertTriangle className="text-rose-400" size={20} />
+                <AlertTriangle className="text-rose-700" size={20} />
                 <h3 className="text-lg font-bold text-hanok-ink">이상 혼잡 알림 내역</h3>
                 {/* 목록의 시각이 오늘처럼 보이지 않도록 카드 제목 옆에서도 기준일을 밝힌다 —
                     아래 항목은 시:분만 찍히므로 날짜 단서가 여기밖에 없다. */}
                 {dateBadge && (
-                  <span className="px-2 py-0.5 rounded-md text-[11px] font-black border bg-amber-500/15 text-amber-300 border-amber-500/40">
+                  <span className="px-2 py-0.5 rounded-md text-[11px] font-black border bg-amber-500/15 text-amber-800 border-amber-500/40">
                     {dateBadge}
                   </span>
                 )}
@@ -1053,7 +1167,7 @@ export default function DashboardPage() {
                   )}
                   {/* 알림이 실제로 있을 때도 어느 날 것인지 목록 위에 한 줄로 말한다. */}
                   {isFallback && anomalies.length > 0 && (
-                    <p className="text-xs text-amber-300 border border-amber-500/30 bg-amber-500/10 rounded-lg px-3 py-2">
+                    <p className="text-xs text-amber-800 border border-amber-500/30 bg-amber-500/10 rounded-lg px-3 py-2">
                       아래 {anomalies.length}건은 {basis.dateKst}(KST)에 발생한 피크입니다.
                     </p>
                   )}
@@ -1076,11 +1190,11 @@ export default function DashboardPage() {
                           {alert.facilityName}
                           {isEstimate && <EstimateBadge />}
                         </span>
-                        <span className="text-xs font-semibold text-rose-400">
+                        <span className="text-xs font-semibold text-rose-700">
                           {new Date(alert.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
                         </span>
                       </div>
-                      <div className="text-sm text-rose-400 flex justify-between">
+                      <div className="text-sm text-rose-700 flex justify-between">
                         <span>{isEstimate ? '추정 혼잡도' : '임계치 초과'}: {(alert.congestionLevel * 100).toFixed(0)}%</span>
                         {/* 추정의 '10분' 은 지속 시간이 아니라 원본 버킷(10분) 하나의 길이다. */}
                         <span className="font-bold">
@@ -1100,8 +1214,21 @@ export default function DashboardPage() {
                           : '전 구역 임계치 이내로 유지되었습니다.'}
                     </div>
                   )}
+                  {/* 알림 행 실루엣 — 실제 알림 행(아이콘·제목·배지)의 구조를 블러 아래 미러링. */}
                   {congestion === null && [0, 1, 2].map((i) => (
-                    <Skeleton key={i} className="h-20 rounded-xl" />
+                    <div key={i} className="rounded-xl border border-hanok-line bg-hanok-card px-4 py-3.5" aria-hidden>
+                      <div className="dash-ghost flex items-center gap-3">
+                        <div className="h-9 w-9 shrink-0 rounded-full bg-terracotta/30" />
+                        <div className="flex-1 space-y-2">
+                          <div className="h-3.5 rounded bg-hanok-ink/35" style={{ width: `${72 - i * 14}%` }} />
+                          <div className="flex gap-1.5">
+                            <span className="h-3 w-16 rounded-md bg-gold/35" />
+                            <span className="h-3 w-12 rounded-md bg-jade/30" />
+                          </div>
+                        </div>
+                        <div className="h-5 w-14 rounded-full bg-terracotta/25" />
+                      </div>
+                    </div>
                   ))}
                 </div>
               </div>
