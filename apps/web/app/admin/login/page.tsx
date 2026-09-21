@@ -42,11 +42,12 @@ export default function AdminLoginPage() {
           <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-gold/30 bg-gold/15 text-gold-deep">
             {signedIn && !loading ? <ShieldAlert size={26} /> : <ShieldCheck size={26} />}
           </div>
-          <h1 className="font-serif text-2xl font-bold tracking-tight text-hanok-ink">NextSpot 관제</h1>
+          {/* eslint-disable-next-line @next/next/no-img-element -- 정적 export, public 자산 직접 참조 */}
+          <img src="/nextspot-logo.png" alt="NextSpot" className="h-8 w-auto" />
           <p className="mt-1 text-sm text-hanok-muted">경북문화관광공사 운영 대시보드</p>
         </div>
 
-        <div className="rounded-3xl border border-hanok-line bg-hanok-deep/60 p-6 text-center">
+        <div className="rounded-3xl border border-hanok-line bg-hanok-card p-6 text-center shadow-sm">
           {loading ? (
             <div className="flex items-center justify-center gap-2 py-6 text-hanok-muted">
               <Loader2 className="animate-spin" size={18} />

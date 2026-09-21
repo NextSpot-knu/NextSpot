@@ -41,9 +41,12 @@ export function AdminSidebar() {
   return (
     <aside className="w-64 bg-hanok-panel border-r border-hanok-line flex flex-col flex-shrink-0 h-screen overflow-y-auto">
       <div className="p-6 border-b border-hanok-line sticky top-0 bg-hanok-panel z-10">
-        <h1 className="text-2xl font-black font-serif text-gold-deep tracking-tight">
-          NextSpot<span className="text-hanok-muted font-medium text-sm ml-2">관광 관제</span>
-        </h1>
+        {/* 라이트 종이 테마 전환 후 워드마크(네이비/코랄, 라이트 배경용)를 그대로 쓴다. */}
+        <div className="flex items-end gap-2">
+          {/* eslint-disable-next-line @next/next/no-img-element -- 정적 export, public 자산 직접 참조 */}
+          <img src="/nextspot-logo.png" alt="NextSpot" className="h-7 w-auto" />
+          <span className="text-hanok-muted font-semibold text-sm leading-none pb-0.5">관광 관제</span>
+        </div>
       </div>
       <nav className="flex-1 p-4 flex flex-col gap-2">
         {menuItems.map((item) => {
