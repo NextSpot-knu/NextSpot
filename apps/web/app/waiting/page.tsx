@@ -590,10 +590,16 @@ export default function WaitingBoardPage() {
                             )}
                             {row.areaDemandTourismEvidence && (
                               <p className="text-[10px] leading-snug text-indigo-700">
-                                {typeof row.areaDemandTourismEvidence.relativeIndex === "number"
-                                  ? t("recommend.tourismEvidenceIndex", { n: Math.round(row.areaDemandTourismEvidence.relativeIndex) })
-                                  : t("recommend.tourismEvidenceTitle")}
-                                <br />
+                                {/* 대기 null 이면 골드 스탯 박스가 이미 상대지수를 크게 보여준다 —
+                                    같은 지수를 한 카드에 두 번 찍지 않고 근거(기준지·거리·날짜)만 남긴다. */}
+                                {row.expectedWait !== null && (
+                                  <>
+                                    {typeof row.areaDemandTourismEvidence.relativeIndex === "number"
+                                      ? t("recommend.tourismEvidenceIndex", { n: Math.round(row.areaDemandTourismEvidence.relativeIndex) })
+                                      : t("recommend.tourismEvidenceTitle")}
+                                    <br />
+                                  </>
+                                )}
                                 {t("recommend.tourismEvidenceBasis", {
                                   name: row.areaDemandTourismEvidence.referenceName ?? t("recommend.tourismReferenceUnknown"),
                                   distance: typeof row.areaDemandTourismEvidence.distanceM === "number"
@@ -698,13 +704,16 @@ export default function WaitingBoardPage() {
                                   {t("recommend.parkingEvidenceRadius", { n: row.areaDemandParkingEvidence.radiusM.toLocaleString() })}
                                 </span>
                               )}
+                              {/* 컴팩트 행도 동일 — 대기 null 이면 앞의 골드 칩이 이미 지수를 말했으니 기준지만 덧붙인다. */}
                               {row.areaDemandTourismEvidence && (
                                 <span className="text-[11px] font-semibold text-indigo-700">
-                                  {typeof row.areaDemandTourismEvidence.relativeIndex === "number"
-                                    ? t("recommend.tourismEvidenceIndex", { n: Math.round(row.areaDemandTourismEvidence.relativeIndex) })
-                                    : t("recommend.tourismEvidenceTitle")}
+                                  {row.expectedWait !== null && (
+                                    typeof row.areaDemandTourismEvidence.relativeIndex === "number"
+                                      ? t("recommend.tourismEvidenceIndex", { n: Math.round(row.areaDemandTourismEvidence.relativeIndex) })
+                                      : t("recommend.tourismEvidenceTitle")
+                                  )}
                                   {row.areaDemandTourismEvidence.referenceName
-                                    ? ` · ${row.areaDemandTourismEvidence.referenceName}` : ""}
+                                    ? `${row.expectedWait !== null ? " · " : ""}${row.areaDemandTourismEvidence.referenceName}` : ""}
                                 </span>
                               )}
                               {row.congestionLevel != null ? (

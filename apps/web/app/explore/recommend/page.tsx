@@ -1014,7 +1014,7 @@ function RecommendContent() {
         const preferencePct = Math.round((rec.breakdown?.preference || 0) * 100);
         sayThen(
           t(waitTime == null ? "recommend.voiceDetailNoWait" : "recommend.voiceDetail", {
-            wait: waitTime == null ? '' : waitTime.toFixed(1),
+            wait: waitTime == null ? '' : String(Math.max(1, Math.round(waitTime))), // 음성도 정수 분으로 읽는다
             travel: travelTime,
             pref: preferencePct,
           }),
@@ -1372,7 +1372,10 @@ function RecommendContent() {
             <>
             <RecommendationComparison recommendations={recommendations} />
             {recommendations.map((rec, idx) => {
-              const waitTime = rec.breakdown?.waitTime?.toFixed(1) || "--";
+              // 대기 분은 정수 표시(12.3분 → 12분), 값이 없으면 칸 자체를 그리지 않는다("--분" 금지).
+              const rawWait = rec.breakdown?.waitTime;
+              const hasWait = typeof rawWait === "number";
+              const waitTime = hasWait ? String(Math.max(1, Math.round(rawWait))) : "--";
               const travelTime = displayWalkingMinutes(rec.breakdown?.travelTime, rec.distanceM);
               const arrivalDisplayStatus = rec.openStatusAtArrival
                 ? getArrivalOpenDisplayStatus(
@@ -1709,7 +1712,7 @@ function RecommendContent() {
                   </div>
 
                   {/* SPOT Breakdown Indicators */}
-                  <div className={`grid ${display.mode === 'none' && !estimate ? 'grid-cols-2' : 'grid-cols-3'} gap-2 py-2 border-t border-b border-line text-[11px] text-muk-soft`}>
+                  <div className={`grid ${(display.mode !== 'none' && !estimate && hasWait) || (estimate && estimateKey) ? 'grid-cols-3' : 'grid-cols-2'} gap-2 py-2 border-t border-b border-line text-[11px] text-muk-soft`}>
                     <div className="text-center">
                       <span className="text-muk-soft block text-[10px]">{t("recommend.prefMatch")}</span>
                       <span className="font-bold text-jade tabular-nums">{preferencePct}%</span>
@@ -1717,7 +1720,7 @@ function RecommendContent() {
                     {/* 추정이 '지금' 자리를 가져갔으면 대기 칸은 그리지 않는다 — 그 대기 분은
                         낡은 관측에서 나온 값이라, 추정 배지 옆에 두면 두 시점이 한 줄에 섞인다.
                         (추정 자체는 대기 분을 만들지 않는다 — 점유율→대기 계수가 없다.) */}
-                    {display.mode !== 'none' && !estimate && <div className="text-center border-l border-r border-line">
+                    {display.mode !== 'none' && !estimate && hasWait && <div className="text-center border-l border-r border-line">
                       <span className="text-muk-soft block text-[10px]">{t("recommend.expectedWait")}</span>
                       <span className="font-bold text-gold-deep tabular-nums">{t("recommend.minutesValue", { n: waitTime })}</span>
                     </div>}

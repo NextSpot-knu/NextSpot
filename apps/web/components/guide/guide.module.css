@@ -306,6 +306,233 @@
   }
 }
 
+/* ---- 발전성: 12주 실증 · 사업 모델 · 함께하는 역할 ---- */
+
+.section {
+  padding: 72px 40px;
+}
+
+.sectionAlt {
+  border-top: 1px solid var(--color-line);
+  border-bottom: 1px solid var(--color-line);
+  background: var(--color-hanji-deep);
+}
+
+.sectionInner {
+  width: min(1020px, 100%);
+  margin: 0 auto;
+}
+
+.kicker {
+  margin: 0 0 14px;
+  color: var(--color-gold-deep);
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: .09em;
+}
+
+.sectionTitle {
+  margin: 0;
+  font-size: clamp(27px, 3.2vw, 38px);
+  font-weight: 800;
+  line-height: 1.22;
+  letter-spacing: -.045em;
+  white-space: pre-line;
+  word-break: keep-all;
+  text-wrap: balance;
+}
+
+.sectionBody {
+  max-width: 660px;
+  margin: 18px 0 0;
+  color: var(--color-muk-soft);
+  font-size: 16px;
+  line-height: 1.8;
+  word-break: keep-all;
+}
+
+.timeline {
+  display: grid;
+  gap: 14px;
+  margin-top: 34px;
+  list-style: none;
+}
+
+.timelineCard {
+  display: flex;
+  align-items: flex-start;
+  gap: 18px;
+  padding: 24px 26px;
+  border: 1px solid var(--color-line);
+  border-radius: 21px;
+  background: var(--color-hanji-deep);
+}
+
+.stepBadge {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--color-gold-deep) 45%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-gold) 20%, transparent);
+  color: var(--color-gold-deep);
+  font-size: 16px;
+  font-weight: 800;
+}
+
+.weeksTag {
+  margin: 0 0 5px;
+  color: var(--color-gold-deep);
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: .04em;
+}
+
+.timelineCard h3,
+.modelCard h3,
+.roleCard h3 {
+  font-size: 17px;
+  font-weight: 750;
+  line-height: 1.4;
+  letter-spacing: -.025em;
+  word-break: keep-all;
+}
+
+.cardBody {
+  margin-top: 7px;
+  color: var(--color-muk-soft);
+  font-size: 15px;
+  line-height: 1.75;
+  word-break: keep-all;
+}
+
+.modelGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 34px;
+  list-style: none;
+}
+
+.modelCard {
+  padding: 26px 24px;
+  border: 1px solid var(--color-line);
+  border-radius: 21px;
+  background: var(--color-hanji);
+}
+
+.modelCard svg,
+.roleCard svg {
+  color: var(--color-gold-deep);
+}
+
+.modelCard h3,
+.roleCard h3 {
+  margin-top: 14px;
+}
+
+.future {
+  margin-top: 26px;
+  padding: 18px 24px;
+  border-left: 3px solid var(--color-gold-deep);
+  border-radius: 0 16px 16px 0;
+  background: color-mix(in srgb, var(--color-gold) 10%, transparent);
+  font-size: 15px;
+  font-weight: 650;
+  line-height: 1.8;
+  word-break: keep-all;
+}
+
+.roleGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 34px;
+  list-style: none;
+}
+
+.roleCard {
+  padding: 26px 24px;
+  border: 1px solid var(--color-line);
+  border-radius: 21px;
+  background: var(--color-hanji-deep);
+}
+
+.ctaRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 32px;
+}
+
+.consoleCta {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 11px 24px;
+  border: 1.5px solid var(--color-line);
+  border-radius: 999px;
+  color: var(--color-muk);
+  background: var(--color-hanji);
+  font-size: 15px;
+  font-weight: 700;
+  text-decoration: none;
+  transition: border-color .2s, background .2s, transform .2s;
+}
+
+.consoleCta:hover {
+  border-color: var(--color-gold-deep);
+  background: var(--color-hanji-deep);
+  transform: translateY(-1px);
+}
+
+.note {
+  margin-top: 22px;
+  color: var(--color-muk-soft);
+  font-size: 13px;
+  line-height: 1.7;
+  word-break: keep-all;
+}
+
+@media (max-width: 1023px) {
+  .modelGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 767px) {
+  .section {
+    padding: 48px 20px;
+  }
+
+  .sectionTitle {
+    font-size: 25px;
+  }
+
+  .sectionBody {
+    font-size: 15px;
+  }
+
+  .timelineCard,
+  .modelCard,
+  .roleCard {
+    padding: 20px 18px;
+    border-radius: 17px;
+  }
+
+  .roleGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .consoleCta {
+    flex: 1 1 100%;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .guide * {
     transition: none !important;

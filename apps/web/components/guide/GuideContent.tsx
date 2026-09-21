@@ -1,7 +1,9 @@
 'use client';
 
 import Link from 'next/link';
-import { ArrowRight, Clock, MapPin, Route } from 'lucide-react';
+import {
+  ArrowRight, BarChart3, Building2, Clock, Compass, Handshake, Home, Landmark, MapPin, Route, Store,
+} from 'lucide-react';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { useT } from '@/lib/i18n/I18nProvider';
 import styles from './guide.module.css';
@@ -16,6 +18,25 @@ const solutionItems = [
   { key: 'solutionTiming', icon: Clock },
   { key: 'solutionAlternative', icon: MapPin },
   { key: 'solutionRoute', icon: Route },
+] as const;
+
+const pilotPhases = [
+  { key: 'pilot14', weeks: '1~4' },
+  { key: 'pilot58', weeks: '5~8' },
+  { key: 'pilot912', weeks: '9~12' },
+] as const;
+
+const businessModels = [
+  { key: 'businessB2b', icon: Handshake },
+  { key: 'businessB2g', icon: Building2 },
+  { key: 'businessData', icon: BarChart3 },
+] as const;
+
+const ecosystemRoles = [
+  { key: 'tourist', icon: Compass },
+  { key: 'merchant', icon: Store },
+  { key: 'admin', icon: Landmark },
+  { key: 'resident', icon: Home },
 ] as const;
 
 export default function GuideContent({ onNavigate }: { onNavigate?: () => void }) {
@@ -66,6 +87,71 @@ export default function GuideContent({ onNavigate }: { onNavigate?: () => void }
 
             <strong className={styles.result}>{t('guide.resultLine')}</strong>
           </div>
+        </div>
+      </section>
+
+      <section className={styles.section} aria-labelledby="nextspot-pilot">
+        <div className={styles.sectionInner}>
+          <p className={styles.kicker}>{t('guide.planBadge')}</p>
+          <h2 id="nextspot-pilot" className={styles.sectionTitle}>{t('guide.pilotTitle')}</h2>
+          <p className={styles.sectionBody}>{t('guide.pilotBody')}</p>
+          <ol className={styles.timeline}>
+            {pilotPhases.map(({ key, weeks }, index) => (
+              <li key={key} className={styles.timelineCard}>
+                <span className={styles.stepBadge} aria-hidden>{index + 1}</span>
+                <div>
+                  <p className={styles.weeksTag}>{t('guide.weeks', { weeks })}</p>
+                  <h3>{t(`guide.${key}`)}</h3>
+                  <p className={styles.cardBody}>{t(`guide.${key}Body`)}</p>
+                </div>
+              </li>
+            ))}
+          </ol>
+          <p className={styles.note}>{t('guide.pilotChannels')}</p>
+        </div>
+      </section>
+
+      <section className={`${styles.section} ${styles.sectionAlt}`} aria-labelledby="nextspot-business">
+        <div className={styles.sectionInner}>
+          <p className={styles.kicker}>{t('guide.planBadge')}</p>
+          <h2 id="nextspot-business" className={styles.sectionTitle}>{t('guide.businessTitle')}</h2>
+          <p className={styles.sectionBody}>{t('guide.businessIntro')}</p>
+          <ul className={styles.modelGrid}>
+            {businessModels.map(({ key, icon: Icon }) => (
+              <li key={key} className={styles.modelCard}>
+                <Icon size={22} aria-hidden />
+                <h3>{t(`guide.${key}`)}</h3>
+                <p className={styles.cardBody}>{t(`guide.${key}Body`)}</p>
+              </li>
+            ))}
+          </ul>
+          <p className={styles.future}>{t('guide.futureBody')}</p>
+        </div>
+      </section>
+
+      <section className={styles.section} aria-labelledby="nextspot-impact">
+        <div className={styles.sectionInner}>
+          <p className={styles.kicker}>{t('guide.navImpact')}</p>
+          <h2 id="nextspot-impact" className={styles.sectionTitle}>{t('guide.impactTitle')}</h2>
+          <p className={styles.sectionBody}>{t('guide.impactBody')}</p>
+          <ul className={styles.roleGrid}>
+            {ecosystemRoles.map(({ key, icon: Icon }) => (
+              <li key={key} className={styles.roleCard}>
+                <Icon size={22} aria-hidden />
+                <h3>{t(`guide.${key}`)}</h3>
+                <p className={styles.cardBody}>{t(`guide.${key}Body`)}</p>
+              </li>
+            ))}
+          </ul>
+          <div className={styles.ctaRow}>
+            <Link href="/merchant" prefetch={false} onClick={onNavigate} className={styles.consoleCta}>
+              {t('guide.merchantCta')}<ArrowRight size={16} aria-hidden />
+            </Link>
+            <Link href="/admin/login" prefetch={false} onClick={onNavigate} className={styles.consoleCta}>
+              {t('guide.adminCta')}<ArrowRight size={16} aria-hidden />
+            </Link>
+          </div>
+          <p className={styles.note}>{t('guide.roleRequired')}</p>
         </div>
       </section>
     </div>
