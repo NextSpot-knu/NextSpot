@@ -361,9 +361,17 @@ async function withColdStartRetry<T>(fn: () => Promise<T>): Promise<T> {
   try {
     return await fn();
   } catch (err) {
-    console.warn('초기 요청 실패, 1초 후 1회만 재시도합니다:', err);
+    console.warn('초기 요청 실패, 1초 후 재시도합니다:', err);
     await new Promise((resolve) => setTimeout(resolve, 1000));
-    return fn();
+    try {
+      return await fn();
+    } catch (secondErr) {
+      // 무료 플랜 큐잉 창(요청이 줄 서서 타임아웃)에서는 1초 재시도도 같은 줄에 선다 —
+      // 마지막으로 3.5초 더 물러서 1회만 더 시도한다(실측: 14:36 과부하 창에서 배너 노출).
+      console.warn('재시도 실패, 3.5초 후 최종 1회 재시도합니다:', secondErr);
+      await new Promise((resolve) => setTimeout(resolve, 3500));
+      return fn();
+    }
   }
 }
 

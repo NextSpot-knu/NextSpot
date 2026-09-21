@@ -121,6 +121,14 @@ const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
  * 일치한다. 전부 발사 후 망각·순차(동시성 1)·실패 무시 — 어떤 경우에도 UI 에 영향 없다.
  */
 export function prefetchDemoHotPaths(): void {
+  // 세션당 1회만 — 매 /main 진입마다 무거운 엔진 호출 5개(유형 4 + 코스 1)를 다시 쏘면
+  // 무료 플랜 단일 인스턴스가 큐잉으로 밀린다(14:36 과부하 실측). 프리셋이 바뀌면
+  // 각 화면의 정상 경로가 어차피 새로 계산한다.
+  try {
+    const KEY = 'nextspot_prefetch_done_v1';
+    if (window.sessionStorage.getItem(KEY) === '1') return;
+    window.sessionStorage.setItem(KEY, '1');
+  } catch { /* 저장소 차단 — 가드 없이 진행(기존 동작) */ }
   void (async () => {
     try {
       const session = await ensureAnonymousSession();

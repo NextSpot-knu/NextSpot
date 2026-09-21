@@ -607,7 +607,7 @@ export function RecommendationCard({
 
   return (
     <motion.div 
-      className={`w-full bg-white/95 backdrop-blur-2xl border border-line rounded-3xl ${isMinimized ? 'p-3' : 'p-5'} toss-surface flex flex-col ${isMinimized ? 'gap-1' : 'gap-3'} select-none relative overflow-hidden`}
+      className={`w-full max-h-[calc(100dvh-var(--tourist-nav-clearance)-6rem)] bg-white/95 backdrop-blur-2xl border border-line rounded-3xl ${isMinimized ? 'p-3' : 'p-5'} toss-surface flex flex-col ${isMinimized ? 'gap-1' : 'gap-3'} select-none relative overflow-hidden`}
       initial={{ opacity: 0, y: 18, scale: 0.985 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       drag="y"
@@ -645,6 +645,10 @@ export function RecommendationCard({
         </div>
       ) : (
         <>
+          {/* 짧은 뷰포트에서 하단 액션 버튼이 잘리던 문제(루트 overflow-hidden + 외부 스크롤) 해결 —
+              루트에 뷰포트 기반 max-h 를 걸고, 버튼 위 콘텐츠만 이 래퍼 안에서 스크롤한다.
+              버튼·안내 행은 래퍼 밖(핀 고정)이라 카드가 아무리 길어도 항상 보인다. */}
+          <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain no-scrollbar flex flex-col gap-3">
           {/* Top Header Row — 클릭 시 상세(구체적 장소) 펼침/접기 */}
       <div className="flex justify-between items-start gap-3 cursor-pointer" onClick={toggleExpand}>
         <div className="flex-1">
@@ -1438,6 +1442,8 @@ export function RecommendationCard({
           </motion.div>
         )}
       </AnimatePresence>
+
+          </div>{/* /내부 스크롤 래퍼 — 액션 버튼은 아래에 핀 고정 */}
 
       {/* Action Buttons: 관심 없어요 · 나중에 볼게요(저장) · 여기로 갈래요 */}
       <div className="flex gap-2 mt-1">
