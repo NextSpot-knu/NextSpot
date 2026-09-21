@@ -20,6 +20,7 @@ import { ArrowLeft, ChevronRight } from "lucide-react";
 import {
   isServiceUnavailable,
   recommendByType,
+  getCongestionEstimates,
   ASSUMED_TIME_PRESETS,
   ASSUMED_TIME_EVENT,
   assumedAtIsoForPreset,
@@ -27,7 +28,10 @@ import {
   setStoredAssumedPreset,
 } from "@/lib/api-client";
 import { recToSpot } from "@/lib/recommender";
-import { congestionDisplay } from "@/lib/congestionEstimate";
+import { congestionDisplay, parseCongestionEstimate } from "@/lib/congestionEstimate";
+// 보드의 세 숫자(예상 대기 · 혼잡 등급 · 한산해지는 시각)의 단일 소스.
+import { estimateWait, displayHour, type WaitEstimate } from "@/lib/waitEstimate";
+import { fetchAreaDemandCurve, type AreaDemandCurve } from "@/lib/areaDemandCurve";
 import { REGION } from "@/lib/region";
 import { useI18n, useT } from "@/lib/i18n/I18nProvider";
 import { GoldenHourBadge } from "@/components/GoldenHourBadge";
@@ -55,7 +59,8 @@ const PER_TYPE_LIMIT = 8;
 // 스테일-우선 캐시 — 마지막 성공 보드를 로컬에 보관해 재방문 시 **즉시** 그리고,
 // 백그라운드로 조용히 새로고침한다. 새 조회가 실패해도 캐시가 있으면 에러 화면 대신
 // 최근 결과를 유지한다(백엔드 지연·재시작 창에서 심사위원이 빈손을 보지 않게).
-const BOARD_CACHE_KEY = "nextspot_waiting_board_v1";
+// v2: 카드가 대기 추정에 쓰는 필드(capacity·rankingWait·baselineWait)가 늘어 옛 캐시는 버린다.
+const BOARD_CACHE_KEY = "nextspot_waiting_board_v2";
 const BOARD_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 interface BoardRow {
@@ -86,6 +91,12 @@ interface BoardRow {
   recommendedDepartureDelayMinutes: number | null;
   // 검증 모델이 없는 degraded 응답은 waitTime=null이다. 0분으로 바꾸면 안 된다.
   expectedWait: number | null;
+  // 엔진이 순위에 실제로 쓴 대기(breakdown.ranking_wait_time) — 화면엔 '추정'으로 표기한다.
+  rankingWait: number | null;
+  // 근거 없는 후보의 업종 기준선 대기(breakdown.industry_baseline_wait_time). 이 시설의 측정값이 아니다.
+  baselineWait: number | null;
+  // 좌석/수용 인원 — 같은 수요라도 큰 가게는 줄이 짧다(대기 추정의 시설 규모 항).
+  capacity: number | null;
   expectedTravel: number;
   // 오늘 휴무 '확정'(isClosedToday === true) 여부 — 대표 카드 선정에서 제외 + 리스트 맨 뒤 + 배지 표시용.
   closedToday: boolean;
@@ -129,21 +140,95 @@ function WaitingCardImage({ imageUrls, name, type }: Pick<BoardRow, "imageUrls" 
   );
 }
 
-// 카드 상단 혼잡 pill 과 동일한 4단계 임계값(혼잡/보통/여유/한산) — RecommendationCard 미러.
-const congestionKey = (c: number) =>
-  c >= 0.75 ? "busy" : c >= 0.5 ? "moderate" : c >= 0.25 ? "relaxed" : "quiet";
-
-// 혼잡 배지 색상 클래스 — 대표 카드·리스트 행에서 공유.
-// 여유·한산은 jade 하나로 통일한다(/course CONGESTION_CLASS 와 동일 팔레트) — 같은 '여유'가
-// 화면마다 다른 초록으로 보이면 같은 등급인지 헷갈린다. terracotta 는 '혼잡' 하나에만 아껴 쓴다.
-const congestionBadgeClass = (c: number) =>
-  c >= 0.75
+// 혼잡 등급(여유·보통·혼잡) 배지 색 — /course CONGESTION_CLASS 와 같은 팔레트를 3단계로 쓴다.
+// 같은 '여유'가 화면마다 다른 초록이면 같은 등급인지 헷갈린다. terracotta 는 '혼잡' 하나에만 아껴 쓴다.
+// (기존 4단계 congestionKey/congestionBadgeClass 는 이 보드에서 더 이상 쓰지 않는다 — 카드가 말하는
+//  등급이 '대기 기준 3단계' 하나로 통일됐다. 원시 혼잡도 배지와 섞이면 어느 쪽이 기준인지 알 수 없다.)
+const gradeBadgeClass = (grade: WaitEstimate["grade"]) =>
+  grade === "busy"
     ? "bg-terracotta/10 border-terracotta/30 text-terracotta"
-    : c >= 0.5
+    : grade === "moderate"
     ? "bg-gold/10 border-gold/30 text-gold-deep"
-    : c >= 0.25
-    ? "bg-jade/10 border-jade/25 text-jade"
-    : "bg-jade/15 border-jade/30 text-jade";
+    : "bg-jade/12 border-jade/30 text-jade";
+
+// 근거 한 줄 — 이 카드의 숫자가 무엇에서 나왔는지. 새 배지를 만들지 않고 작은 회색 글씨로만 둔다.
+function basisKey(basis: WaitEstimate["basis"]): string {
+  switch (basis) {
+    case "server": return "wait.basisServer";
+    case "ranking": return "wait.basisRanking";
+    case "baseline": return "wait.basisBaseline";
+    case "measured": return "wait.basisMeasured";
+    case "estimate": return "wait.basisEstimate";
+    case "area": return "wait.basisArea";
+    case "tourism": return "wait.basisTourism";
+    default: return "wait.basisDefault";
+  }
+}
+
+/** 대표 카드의 세 숫자 블록 — ① 예상 대기 ② 혼잡 등급 ③ 한산해지는 시각. */
+function WaitStats({ est, row }: { est: WaitEstimate; row: BoardRow }) {
+  const t = useT();
+  return (
+    <div className="shrink-0 space-y-1 mt-1.5">
+      {/* ① 예상 대기 — 카드의 주인공. 골드 박스로 가장 크게 세운다. */}
+      <p className="rounded-lg border border-gold/30 bg-gold/10 px-2 py-1 text-xs font-extrabold text-gold-deep leading-snug tabular-nums">
+        {est.minutes <= 0 ? t("wait.noWait") : t("wait.minutes", { n: est.minutes })}
+      </p>
+      <div className="flex flex-wrap items-center gap-1">
+        {/* ② 혼잡 등급 */}
+        <span className={`inline-block text-[10px] font-bold px-1.5 py-0.5 rounded-md border whitespace-nowrap ${gradeBadgeClass(est.grade)}`}>
+          {t(`wait.grade.${est.grade}`)}
+        </span>
+        {est.estimated && (
+          <span className="inline-block text-[10px] font-bold px-1.5 py-0.5 rounded-md border bg-muk/5 border-line text-muk-soft whitespace-nowrap">
+            {t("wait.estimatedTag")}
+          </span>
+        )}
+        {row.closedToday && (
+          <span className="inline-block text-[10px] font-bold px-1.5 py-0.5 rounded-md border whitespace-nowrap bg-terracotta/10 border-terracotta/30 text-terracotta">
+            {t("card.closedToday")}
+          </span>
+        )}
+      </div>
+      {/* ③ 한산해지는 시각 — 8시간 안에 없으면 '지금이 가장 한산'으로 정직하게 말한다. */}
+      <p className="text-[10px] font-bold leading-snug text-jade">
+        {est.calmHour === null
+          ? t("wait.calmNow")
+          : t("wait.calmAt", { h: est.calmHour })}
+      </p>
+      <p className="text-[9px] leading-snug text-muk-soft line-clamp-2">
+        {t("wait.arrivalBasis", { h: displayHour(est.arrivalHour) })} · {t(basisKey(est.basis))}
+      </p>
+    </div>
+  );
+}
+
+/** 컴팩트 행의 세 숫자 — 같은 값을 칩 한 줄로 압축한다. */
+function WaitRowChips({ est, row }: { est: WaitEstimate; row: BoardRow }) {
+  const t = useT();
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 mt-1">
+      <span className="text-[11px] font-bold px-2 py-1 rounded-md bg-gold/10 border border-gold/25 text-gold-deep whitespace-nowrap tabular-nums">
+        {est.minutes <= 0 ? t("wait.noWait") : t("wait.minutes", { n: est.minutes })}
+      </span>
+      <span className={`text-[11px] font-bold px-2 py-1 rounded-md border whitespace-nowrap ${gradeBadgeClass(est.grade)}`}>
+        {t(`wait.grade.${est.grade}`)}
+      </span>
+      <span className="text-[11px] font-bold text-jade whitespace-nowrap">
+        {est.calmHour === null ? t("wait.calmNow") : t("wait.calmAt", { h: est.calmHour })}
+      </span>
+      {est.estimated && (
+        <span className="text-[11px] font-semibold text-muk-soft whitespace-nowrap">{t("wait.estimatedTag")}</span>
+      )}
+      {/* 오늘 휴무 확정 — 숨기지 않고 정직하게 배지로 알린다(리스트 맨 뒤 배치와 함께). */}
+      {row.closedToday && (
+        <span className="text-[11px] font-bold px-2 py-1 rounded-md border whitespace-nowrap bg-terracotta/10 border-terracotta/30 text-terracotta">
+          {t("card.closedToday")}
+        </span>
+      )}
+    </div>
+  );
+}
 
 export default function WaitingBoardPage() {
   const router = useRouter();
@@ -174,6 +259,86 @@ export default function WaitingBoardPage() {
 
   // main 과 동일한 기본 좌표 폴백(경주 황리단길 중심) — 지역 단일 소스(REGION)에서 가져온다.
   const userLocation = { lat: REGION.center.lat, lng: REGION.center.lng };
+
+  // ── 보드의 세 숫자(예상 대기 · 혼잡 등급 · 한산해지는 시각)를 위한 보조 피드 ──────────────
+  // 추천 응답의 breakdown.waitTime 은 프로덕션에서 거의 항상 null 이라(검증 모델 미가동)
+  // 그것만 믿으면 카드마다 같은 문구만 남는다. 아래 두 공개 GET 이 **시설별로 갈리는** 근거를 준다.
+  //   · /congestion/estimates : 공영주차 실측 + 관광 통계로 만든 시설별 혼잡 추정(0~1)
+  //   · /area-demand/forecast : 앞으로 6시간 정시별 권역 주차 수요 전망(한산해지는 시각의 근거)
+  // 둘 다 실패해도 보드는 내장 시간대 곡선으로 계속 세 숫자를 보여준다(빈칸 금지).
+  const [estimateLevels, setEstimateLevels] = useState<Record<string, number>>({});
+  const [areaCurve, setAreaCurve] = useState<AreaDemandCurve | null>(null);
+
+  // 가정 시각 프리셋이 가리키는 절대 시각 — 대기·한산 시각 계산의 기준점.
+  // 'now' 면 현재. 프리셋이 바뀌면 곡선도 그 시각 기준으로 다시 받는다.
+  const assumedIso = assumedAtIsoForPreset(assumedPreset);
+  const baseAtMs = assumedIso ? new Date(assumedIso).getTime() : null;
+
+  // 'now' 프리셋의 기준 시각은 **상태로 고정**한다. 렌더 중 new Date() 를 부르면 정적 export 의
+  // 프리렌더 HTML 과 하이드레이션 결과가 갈리고, 리렌더마다 숫자가 미세하게 흔들린다.
+  // 5분마다 한 번만 갱신 — 대기 추정의 시간 해상도(정시 곡선)에는 충분하다.
+  const [nowMs, setNowMs] = useState<number | null>(null);
+  useEffect(() => {
+    setNowMs(Date.now());
+    const id = setInterval(() => setNowMs(Date.now()), 5 * 60 * 1000);
+    return () => clearInterval(id);
+  }, []);
+  const effectiveBaseMs = baseAtMs ?? nowMs;
+
+  useEffect(() => {
+    let alive = true;
+    const controller = new AbortController();
+    void (async () => {
+      try {
+        const feed = await getCongestionEstimates({ timeoutMs: 8000, signal: controller.signal });
+        if (!alive || !feed?.available) return;
+        const next: Record<string, number> = {};
+        // 신선도(60분)·모양 검증은 공용 파서에 맡긴다 — 낡은 추정으로 '지금'을 말하지 않는다.
+        for (const [facilityId, raw] of Object.entries(feed.estimates ?? {})) {
+          const parsed = parseCongestionEstimate(raw);
+          if (parsed) next[facilityId] = parsed.level;
+        }
+        setEstimateLevels(next);
+      } catch { /* 추정 피드 없음 — 아래 폴백(권역 수요·상대지수)으로 계산한다 */ }
+    })();
+    return () => { alive = false; controller.abort(); };
+  }, []);
+
+  useEffect(() => {
+    let alive = true;
+    const controller = new AbortController();
+    void (async () => {
+      const curve = await fetchAreaDemandCurve(
+        REGION.center.lat,
+        REGION.center.lng,
+        baseAtMs ? new Date(baseAtMs) : new Date(),
+        controller.signal,
+      );
+      if (alive && Object.keys(curve).length > 0) setAreaCurve(curve);
+    })();
+    return () => { alive = false; controller.abort(); };
+  }, [baseAtMs]);
+
+  // 카드 한 장의 세 숫자. 렌더 중 여러 번 불리므로 순수 계산만 한다(네트워크 없음).
+  const waitOf = useCallback(
+    (row: BoardRow): WaitEstimate =>
+      estimateWait({
+        facilityType: row.type,
+        serverWaitMinutes: row.expectedWait,
+        rankingWaitMinutes: row.rankingWait,
+        baselineWaitMinutes: row.baselineWait,
+        capacity: row.capacity,
+        measuredLevel: row.congestionLevel,
+        estimateLevel: estimateLevels[row.facilityId] ?? null,
+        areaDemandLevel: row.areaDemandLevel,
+        tourismRelativeIndex: row.areaDemandTourismEvidence?.relativeIndex ?? null,
+        tourismDistanceM: row.areaDemandTourismEvidence?.distanceM ?? null,
+        travelMinutes: row.expectedTravel,
+        baseAt: new Date(effectiveBaseMs ?? Date.now()),
+        areaCurve,
+      }),
+    [estimateLevels, areaCurve, effectiveBaseMs],
+  );
 
   // 세션 부트스트랩 유예 자동 재시도 1회 플래그(아래 fetchBoard 참조)
   const retriedRef = useRef(false);
@@ -326,6 +491,15 @@ export default function WaitingBoardPage() {
           recommendedDepartureDelayMinutes: spot.recommendedDepartureDelayMinutes ?? null,
           expectedWait:
             typeof rec.breakdown?.waitTime === "number" ? rec.breakdown.waitTime : null,
+          rankingWait:
+            typeof rec.breakdown?.rankingWaitTime === "number" ? rec.breakdown.rankingWaitTime : null,
+          // 구 서버 응답에는 없는 키라 TS 계약에 없다 — 있으면 쓰고, 없으면 조용히 null.
+          baselineWait: (() => {
+            const b = rec.breakdown as Record<string, unknown> | undefined;
+            const raw = b?.industryBaselineWaitTime ?? b?.industry_baseline_wait_time;
+            return typeof raw === "number" && Number.isFinite(raw) ? raw : null;
+          })(),
+          capacity: typeof rec.facility.capacity === "number" ? rec.facility.capacity : null,
           expectedTravel: spot.expectedTravel,
           // 휴무 '확정'(true)만 표시 — 모름(null)/영업 확정(false)은 평소처럼 취급(정직성: 과판정 금지).
           closedToday: isClosedToday(restDateRaw) === true,
@@ -404,11 +578,12 @@ export default function WaitingBoardPage() {
     let best: number | null = null;
     for (const sector of sectors) {
       for (const row of sector.rows) {
-        if (row.closedToday || row.expectedWait === null) continue;
-        if (best === null || row.expectedWait < best) best = row.expectedWait;
+        if (row.closedToday) continue;
+        const minutes = waitOf(row).minutes;
+        if (best === null || minutes < best) best = minutes;
       }
     }
-    return best === null ? null : Math.round(best);
+    return best;
   })();
 
   return (
@@ -445,6 +620,10 @@ export default function WaitingBoardPage() {
             {/* 두 키를 '·'로 이어 붙이면 한 문장이 아니라 두 조각으로 읽힌다 — 보드의 목적을 한 줄로 말한다. */}
             <p className="text-[13px] md:text-sm text-muk-soft leading-relaxed">
               {t("waiting.subtitle")}
+            </p>
+            {/* 카드가 무엇을 보여주는지 한 줄로 먼저 말한다 — 판단 근거를 숨기지 않는 것이 이 보드의 계약. */}
+            <p className="text-[11px] text-muk-soft/90 leading-relaxed">
+              {t("wait.legend")}
             </p>
           </div>
 
@@ -491,7 +670,13 @@ export default function WaitingBoardPage() {
             {sectors.map((sector) => {
               // 오늘 휴무 확정 시설은 대표 카드(topRows) 선정에서 아예 배제 — open 이 3곳 미만이어도
               // closed 로 자리를 채우지 않는다(rows 는 이미 closedToday 를 맨 뒤로 정렬해 뒀다).
-              const openRows = sector.rows.filter((r) => !r.closedToday);
+              // 정렬 기준을 **화면이 실제로 보여주는 숫자**로 맞춘다. fetchBoard 의 1차 정렬은
+              // 서버 대기(프로덕션에서 거의 항상 null)로만 줄을 세우므로 순위 배지 ①②③ 이 무의미했다.
+              // 여기서 추정 대기로 다시 세우면 '1번이 가장 덜 기다린다'가 카드 숫자와 일치한다.
+              const openRows = sector.rows
+                .filter((r) => !r.closedToday)
+                .slice()
+                .sort((a, b) => waitOf(a).minutes - waitOf(b).minutes);
               const closedRows = sector.rows.filter((r) => r.closedToday);
               const topRows = openRows.slice(0, TOP_CARD_COUNT);
               const restRows = [...openRows.slice(TOP_CARD_COUNT), ...closedRows];
@@ -556,86 +741,16 @@ export default function WaitingBoardPage() {
                                 🍽 {row.menus.join(" · ")}
                               </p>
                             )}
+                            {/* TourAPI 소개는 2줄로 자른다 — 길게 풀어 두면 카드의 주인공(아래 세 숫자)을
+                                밀어내고 눈이 먼저 가서, 보드를 훑는 목적 자체를 방해한다. */}
                             {row.summary && (
-                              <p className="mt-1 text-[10px] leading-snug text-muk-soft break-words line-clamp-5">
+                              <p className="mt-1 text-[10px] leading-snug text-muk-soft break-words line-clamp-2">
                                 {row.summary}
                               </p>
                             )}
                           </div>
-                          <div className="shrink-0 space-y-1.5 mt-1.5">
-                            {/* 대기 스탯 — 카드의 핵심 숫자를 골드 박스로 세운다(/course 도착 ETA 스탯과 동일 문법). */}
-                            <p className="rounded-lg border border-gold/30 bg-gold/10 px-2 py-1 text-xs font-extrabold text-gold-deep leading-snug tabular-nums">
-                              {row.expectedWait === null
-                                ? row.areaDemandTourismEvidence
-                                  ? typeof row.areaDemandTourismEvidence.relativeIndex === "number"
-                                    ? t("recommend.tourismEvidenceIndex", { n: Math.round(row.areaDemandTourismEvidence.relativeIndex) })
-                                    : t("recommend.tourismEvidenceTitle")
-                                : row.areaDemandLevel !== null
-                                  ? `${t("recommend.areaDemand")}: ${t(`congestion.${congestionKey(row.areaDemandLevel)}`)}`
-                                  : t("waiting.waitUnavailable")
-                                : t("waiting.arrivalWait", { n: Math.round(row.expectedWait) })}
-                            </p>
-                            {/* 출발 시점 제안이 있는 경우에만 표시한다. */}
-                            {row.arrivalAction && row.arrivalAction !== "no_clear_advantage" && (
-                              <p className="text-[10px] font-bold text-sky-800">
-                                {t(`recommend.arrivalAction.${row.arrivalAction}`, {
-                                  n: row.recommendedDepartureDelayMinutes ?? 30,
-                                })}
-                              </p>
-                            )}
-                            {row.areaDemandParkingEvidence && typeof row.areaDemandParkingEvidence.radiusM === "number" && (
-                              <p className="text-[10px] font-semibold text-sky-700">
-                                {t("recommend.parkingEvidenceRadius", { n: row.areaDemandParkingEvidence.radiusM.toLocaleString() })}
-                              </p>
-                            )}
-                            {row.areaDemandTourismEvidence && (
-                              <p className="text-[10px] leading-snug text-indigo-700">
-                                {/* 대기 null 이면 골드 스탯 박스가 이미 상대지수를 크게 보여준다 —
-                                    같은 지수를 한 카드에 두 번 찍지 않고 근거(기준지·거리·날짜)만 남긴다. */}
-                                {row.expectedWait !== null && (
-                                  <>
-                                    {typeof row.areaDemandTourismEvidence.relativeIndex === "number"
-                                      ? t("recommend.tourismEvidenceIndex", { n: Math.round(row.areaDemandTourismEvidence.relativeIndex) })
-                                      : t("recommend.tourismEvidenceTitle")}
-                                    <br />
-                                  </>
-                                )}
-                                {t("recommend.tourismEvidenceBasis", {
-                                  name: row.areaDemandTourismEvidence.referenceName ?? t("recommend.tourismReferenceUnknown"),
-                                  distance: typeof row.areaDemandTourismEvidence.distanceM === "number"
-                                    ? Math.round(row.areaDemandTourismEvidence.distanceM).toLocaleString() : "-",
-                                  date: row.areaDemandTourismEvidence.forecastDate ?? "-",
-                                })}
-                              </p>
-                            )}
-                            {row.congestionLevel != null ? (
-                              <span
-                                className={`inline-block text-[10px] font-bold px-1.5 py-0.5 rounded-md border whitespace-nowrap ${congestionBadgeClass(
-                                  row.congestionLevel
-                                )}`}
-                              >
-                                {t(`congestion.${congestionKey(row.congestionLevel)}`)}
-                              </span>
-                            ) : row.areaDemandTourismEvidence ? (
-                              <span className="inline-block text-[10px] font-bold px-1.5 py-0.5 rounded-md border whitespace-nowrap bg-indigo-500/10 border-indigo-500/20 text-indigo-700">
-                                {t("recommend.areaEvidenceCount", {
-                                  n: Number(!!row.areaDemandParkingEvidence) + 1,
-                                })}
-                              </span>
-                            ) : row.areaDemandLevel !== null ? (
-                              <span className={`inline-block text-[10px] font-bold px-1.5 py-0.5 rounded-md border whitespace-nowrap ${congestionBadgeClass(row.areaDemandLevel)}`}>
-                                {t(row.areaDemandMode === "live"
-                                  ? "recommend.areaDemandLive"
-                                  : row.areaDemandMode === "forecast"
-                                    ? "recommend.areaDemandForecast"
-                                    : "recommend.areaDemandStats")}
-                              </span>
-                            ) : (
-                              <span className="inline-block text-[10px] font-bold px-1.5 py-0.5 rounded-md border bg-muk/5 border-line text-muk-soft whitespace-nowrap">
-                                {t("card.noData")}
-                              </span>
-                            )}
-                          </div>
+                          {/* 세 숫자 — 예상 대기 / 혼잡 등급 / 한산해지는 시각. 보드 제목이 약속한 것. */}
+                          <WaitStats est={waitOf(row)} row={row} />
                         </div>
                       </button>
                       <div className="min-h-4">
@@ -681,67 +796,9 @@ export default function WaitingBoardPage() {
                           </span>
                           <div className="flex-1 min-w-0">
                             <p className="text-[15px] font-bold text-muk leading-snug truncate">{row.name}</p>
-                            <div className="flex flex-wrap items-center gap-1.5 mt-1">
-                              <span className="text-[11px] font-bold px-2 py-1 rounded-md bg-gold/10 border border-gold/25 text-gold-deep whitespace-nowrap tabular-nums">
-                                {row.expectedWait === null
-                                  ? row.areaDemandTourismEvidence
-                                    ? typeof row.areaDemandTourismEvidence.relativeIndex === "number"
-                                      ? t("recommend.tourismEvidenceIndex", { n: Math.round(row.areaDemandTourismEvidence.relativeIndex) })
-                                      : t("recommend.tourismEvidenceTitle")
-                                  : row.areaDemandLevel !== null
-                                    ? `${t("recommend.areaDemand")}: ${t(`congestion.${congestionKey(row.areaDemandLevel)}`)}`
-                                    : t("waiting.waitUnavailable")
-                                  : t("waiting.arrivalWait", { n: Math.round(row.expectedWait) })}
-                              </span>
-                              {/* 오늘 휴무 확정 — 숨기지 않고 정직하게 배지로 알린다(리스트 맨 뒤 배치와 함께). */}
-                              {row.closedToday && (
-                                <span className="text-[11px] font-bold px-2 py-1 rounded-md border whitespace-nowrap bg-terracotta/10 border-terracotta/30 text-terracotta">
-                                  {t("card.closedToday")}
-                                </span>
-                              )}
-                              {row.areaDemandParkingEvidence && typeof row.areaDemandParkingEvidence.radiusM === "number" && (
-                                <span className="text-[11px] font-semibold text-sky-700 whitespace-nowrap">
-                                  {t("recommend.parkingEvidenceRadius", { n: row.areaDemandParkingEvidence.radiusM.toLocaleString() })}
-                                </span>
-                              )}
-                              {/* 컴팩트 행도 동일 — 대기 null 이면 앞의 골드 칩이 이미 지수를 말했으니 기준지만 덧붙인다.
-                                  단, 그때 기준지 이름마저 없으면 빈 span 이 flex gap 만 벌린다 — 게이트로 아예 안 그린다. */}
-                              {row.areaDemandTourismEvidence
-                                && (row.expectedWait !== null || row.areaDemandTourismEvidence.referenceName) && (
-                                <span className="text-[11px] font-semibold text-indigo-700">
-                                  {row.expectedWait !== null && (
-                                    typeof row.areaDemandTourismEvidence.relativeIndex === "number"
-                                      ? t("recommend.tourismEvidenceIndex", { n: Math.round(row.areaDemandTourismEvidence.relativeIndex) })
-                                      : t("recommend.tourismEvidenceTitle")
-                                  )}
-                                  {row.areaDemandTourismEvidence.referenceName
-                                    ? `${row.expectedWait !== null ? " · " : ""}${row.areaDemandTourismEvidence.referenceName}` : ""}
-                                </span>
-                              )}
-                              {row.congestionLevel != null ? (
-                                <span
-                                  className={`text-[11px] font-bold px-2 py-1 rounded-md border whitespace-nowrap ${congestionBadgeClass(
-                                    row.congestionLevel
-                                  )}`}
-                                >
-                                  {t(`congestion.${congestionKey(row.congestionLevel)}`)}
-                                </span>
-                              ) : row.areaDemandTourismEvidence ? (
-                                <span className="text-[11px] font-bold px-2 py-1 rounded-md border whitespace-nowrap bg-indigo-500/10 border-indigo-500/20 text-indigo-700">
-                                  {t("recommend.areaEvidenceCount", {
-                                    n: Number(!!row.areaDemandParkingEvidence) + 1,
-                                  })}
-                                </span>
-                              ) : row.areaDemandLevel !== null ? (
-                                <span className={`text-[11px] font-bold px-2 py-1 rounded-md border whitespace-nowrap ${congestionBadgeClass(row.areaDemandLevel)}`}>
-                                  {t(row.areaDemandMode === "live"
-                                    ? "recommend.areaDemandLive"
-                                    : row.areaDemandMode === "forecast"
-                                      ? "recommend.areaDemandForecast"
-                                      : "recommend.areaDemandStats")}
-                                </span>
-                              ) : null}
-                            </div>
+                            {/* 컴팩트 행도 대표 카드와 **같은 세 숫자**를 같은 순서로 보여준다 —
+                                보드를 아래로 훑을 때 읽는 규칙이 중간에 바뀌지 않게. */}
+                            <WaitRowChips est={waitOf(row)} row={row} />
                             {/* 출발 시점 제안이 있는 경우에만 표시한다. */}
                             {row.arrivalAction && row.arrivalAction !== "no_clear_advantage" && (
                               <p className="mt-1 text-[11px] font-bold text-sky-800">

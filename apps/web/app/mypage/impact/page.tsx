@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { MYPAGE_BACK } from '@/lib/navigation';
-import { ChevronLeft, Share2, Compass, Wind, Ticket, Clock, AlertCircle, Sparkles } from 'lucide-react';
+import { ChevronLeft, Share2, Compass, Wind, Ticket, Clock, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 import { apiClient } from '@/lib/api-client';
 import { useT } from '@/lib/i18n/I18nProvider';
@@ -19,12 +19,28 @@ interface ImpactSummary {
   waitSavedMinutes: number;
 }
 
+// 예시 값 — /mypage 최상단 요약 카드(components/ImpactSummaryCard.tsx)·관제 데모 콘솔과 같은 숫자다.
+// 두 화면이 서로 다른 성과를 말하면 어느 쪽도 믿을 수 없다. 값을 바꾸면 세 곳을 함께 바꿀 것.
+const SAMPLE_SUMMARY: ImpactSummary = {
+  accepted: 312,
+  congestionAvoided: 268,
+  couponsIssued: 196,
+  couponsUsed: 138,
+  waitSavedMinutes: 1240,
+};
+/** 참여 점포 수 — 임팩트 API 계약(ImpactSummaryResponse 5필드)에 없는 항목이라 언제나 예시 값이다. */
+const SAMPLE_PARTICIPATING_STORES = 14;
+
 export default function ImpactPage() {
   const router = useRouter();
   const t = useT();
   const [summary, setSummary] = useState<ImpactSummary | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [hasError, setHasError] = useState(false);
+  // 예시 값 모드 — 비로그인(401)·서버 미가용·신규 사용자(전부 0)일 때 켜진다.
+  // 화면은 빈손 대신 예시 숫자를 보여주되 '실증 준비 중 · 예시 값' 배지를 항상 함께 띄운다.
+  // (종전에는 여기서 에러/빈 화면으로 떨어져, /mypage 의 '여행 임팩트' 항목이 사실상 아무것도
+  //  열지 못했다 — 2026-09-21 라이브 실측.)
+  const [isSample, setIsSample] = useState(false);
 
   // 임팩트 요약 조회 — 마운트 effect 와 에러 상태의 '다시 시도' 버튼이 함께 재사용한다.
   // api-client 의 요청 타임아웃(10초)이 무한 스켈레톤을 막아준다(coupons 페이지와 동일 패턴).
@@ -32,19 +48,26 @@ export default function ImpactPage() {
   const retriedRef = useRef(false);
   const fetchSummary = useCallback(async () => {
     setIsLoading(true);
-    setHasError(false);
     try {
       const data = await apiClient.get('/api/v1/impact/summary');
-      setSummary({
+      const next: ImpactSummary = {
         accepted: Number(data?.accepted) || 0,
         congestionAvoided: Number(data?.congestionAvoided) || 0,
         couponsIssued: Number(data?.couponsIssued) || 0,
         couponsUsed: Number(data?.couponsUsed) || 0,
         waitSavedMinutes: Number(data?.waitSavedMinutes) || 0,
-      });
+      };
+      // 신규 사용자(전부 0)는 보여 줄 성과가 없다 — 빈 화면 대신 예시 값 + 배지.
+      const empty =
+        next.accepted === 0 &&
+        next.congestionAvoided === 0 &&
+        next.couponsIssued === 0 &&
+        next.waitSavedMinutes === 0;
+      setIsSample(empty);
+      setSummary(empty ? SAMPLE_SUMMARY : next);
       setIsLoading(false);
     } catch (err) {
-      // 인증 필요(401)든 서버 미가용이든, 이 페이지는 하나의 정직한 안내 메시지로 통일한다.
+      // 인증 필요(401)든 서버 미가용이든 결과는 같다: 예시 값 + '실증 준비 중' 배지.
       // 단 첫 실패는 익명 세션 부트스트랩(SessionBootstrap) 완료 전 레이스일 수 있어(실측 재현)
       // 2.5초 유예 후 자동 1회만 재시도 — 유한 재시도라 무한 스켈레톤 아님.
       console.warn('Failed to fetch impact summary', err);
@@ -53,7 +76,8 @@ export default function ImpactPage() {
         setTimeout(() => { void fetchSummary(); }, 2500);
         return; // isLoading 유지(스켈레톤)
       }
-      setHasError(true);
+      setIsSample(true);
+      setSummary(SAMPLE_SUMMARY);
       setIsLoading(false);
     }
   }, []);
@@ -62,12 +86,6 @@ export default function ImpactPage() {
     void fetchSummary();
   }, [fetchSummary]);
 
-  // 데이터가 있어도 전부 0이면(신규 사용자) 공유 카드 대신 CTA 빈 상태를 보여준다.
-  const isEmpty = !!summary &&
-    summary.accepted === 0 &&
-    summary.congestionAvoided === 0 &&
-    summary.couponsIssued === 0 &&
-    summary.waitSavedMinutes === 0;
 
   // 공유 — Web Share API 우선, 미지원/실패 시 클립보드 복사 + 토스트로 폴백.
   const handleShare = useCallback(async () => {
@@ -131,44 +149,42 @@ export default function ImpactPage() {
               <div className="h-4 bg-hanji-deep w-1/2 rounded-md mx-auto" />
             </div>
           </div>
-        ) : hasError ? (
-          // Error State — 백엔드 미가용/타임아웃 등 원인 불문 하나의 정직한 안내 + 재시도.
-          <div className="flex-1 flex items-center justify-center">
-            <div className="bg-white border border-line rounded-3xl p-8 flex flex-col items-center text-center w-full max-w-[320px] shadow-[0_2px_14px_rgba(43,35,32,0.06)]">
-              <div className="w-16 h-16 rounded-full bg-terracotta/10 border border-terracotta/20 flex items-center justify-center mb-6">
-                <AlertCircle className="text-terracotta" size={32} />
-              </div>
-              <h2 className="text-xl font-bold font-serif text-muk mb-3">{t('impact.errorTitle')}</h2>
-              <p className="text-muk-soft text-sm leading-relaxed mb-8 px-2">{t('impact.errorBody')}</p>
-              <button
-                onClick={() => void fetchSummary()}
-                className="px-5 py-2.5 rounded-xl bg-gold hover:bg-gold-deep text-white text-sm font-semibold transition-all"
-              >
-                {t('common.retry')}
-              </button>
-            </div>
-          </div>
-        ) : isEmpty ? (
-          // Empty State — 신규 사용자(전체 지표 0) — 지도에서 추천을 받아보도록 CTA.
-          <div className="flex-1 flex items-center justify-center">
-            <div className="bg-white border border-line rounded-3xl p-8 flex flex-col items-center text-center w-full max-w-[320px] shadow-[0_2px_14px_rgba(43,35,32,0.06)]">
-              <div className="w-16 h-16 rounded-full bg-gradient-to-b from-gold/20 to-gold/10 border border-line flex items-center justify-center mb-6">
-                <Sparkles className="text-gold" size={32} />
-              </div>
-              <h2 className="text-xl font-bold font-serif text-muk mb-3">{t('impact.emptyTitle')}</h2>
-              <p className="text-muk-soft text-sm leading-relaxed mb-8 px-2">{t('impact.emptyBody')}</p>
-              <button
-                onClick={() => router.push('/main')}
-                className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gold hover:bg-gold-deep text-white text-sm font-semibold transition-all"
-              >
-                <Compass size={18} className="text-white" />
-                <span>{t('impact.emptyCta')}</span>
-              </button>
-            </div>
-          </div>
         ) : summary ? (
           // 공유 카드 — 지표 타일은 백엔드가 실제로 준 것만(방문 타일 없음 — 위 인터페이스 주석 참고).
           <div className="flex flex-col items-center mt-2 md:max-w-md md:mx-auto md:w-full animate-fade-in">
+            {/* 헤드라인 3종 — /mypage 최상단 카드가 보여준 바로 그 세 숫자의 상세다.
+                (요약 카드를 탭해서 온 사람이 같은 숫자를 다시 만나야 '상세로 들어왔다'가 성립한다.) */}
+            <div className="mb-4 w-full rounded-3xl border border-gold/35 bg-gradient-to-r from-gold/15 via-hanji to-jade/10 p-5 shadow-[0_2px_14px_rgba(43,35,32,0.06)]">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="inline-flex items-center gap-1.5 text-[13px] font-bold text-muk">
+                  <Sparkles size={16} className="text-gold-deep" aria-hidden="true" />
+                  {t('impact.summaryTitle')}
+                </span>
+                {/* 예시 값임을 숨기지 않는다 — 배지가 없으면 실집계로 오인된다. */}
+                {isSample && (
+                  <span className="rounded-full border border-terracotta/30 bg-terracotta/10 px-2 py-0.5 text-[10px] font-bold text-terracotta">
+                    {t('impact.sampleBadge')}
+                  </span>
+                )}
+              </div>
+              <div className="mt-3 grid grid-cols-3 gap-2">
+                {[
+                  t('impact.summaryDispersals', { n: summary.accepted.toLocaleString() }),
+                  t('impact.summarySavedWait', { n: summary.waitSavedMinutes.toLocaleString() }),
+                  t('impact.summaryStores', { n: SAMPLE_PARTICIPATING_STORES.toLocaleString() }),
+                ].map((text) => (
+                  <span
+                    key={text}
+                    className="min-w-0 break-keep rounded-2xl border border-line bg-white/70 px-2 py-2.5 text-center text-[13px] font-black text-muk tabular-nums"
+                  >
+                    {text}
+                  </span>
+                ))}
+              </div>
+              <p className="mt-2 text-[11px] leading-relaxed text-muk-soft">
+                {isSample ? t('impact.summarySampleNote') : t('impact.summaryRealNote')}
+              </p>
+            </div>
             <div className="relative w-full bg-white border border-gold/30 rounded-3xl p-8 shadow-[0_8px_32px_rgba(43,35,32,0.10)] overflow-hidden">
               {/* 은은한 금빛 광원 */}
               <div className="absolute -top-10 -right-10 w-40 h-40 bg-gold/15 rounded-full blur-[60px] pointer-events-none" aria-hidden="true" />
