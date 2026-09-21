@@ -601,7 +601,7 @@ export async function getRecommendations(
   const userId = session?.user?.id;
   if (!userId) throw new AuthError();
 
-  const res: RecommendationResponse[] = await apiClient.post("/api/v1/recommendations", {
+  const body = {
     userId,
     originalFacilityId,
     userLat: userLocation.lat,
@@ -610,7 +610,23 @@ export async function getRecommendations(
     preferenceIntent: options?.preferenceIntent ?? null,
     candidateTypes: options?.candidateTypes ?? [],
     discoveryTheme: options?.discoveryTheme ?? null,
-  }, { signal: options?.signal });
+  };
+  // 타임아웃 45s: POI 상세의 대안 추천은 재시작 직후 콜드 백엔드에서 기본 10s 를 넘겨
+  // 서버가 성공하는데 클라가 먼저 끊었다(2026-09-21 라이브 재현 — waiting 45s·course 60s 와 동일 계열).
+  const reqOpts = { signal: options?.signal, timeoutMs: 45000 };
+  let res: RecommendationResponse[];
+  try {
+    res = await apiClient.post("/api/v1/recommendations", body, reqOpts);
+  } catch (err) {
+    const st = httpStatus(err);
+    // 콜드/재시작 직후 일시 503·429 — 2초 뒤 딱 한 번 조용히 재시도(스톰 아님). 호출자 취소 시 제외.
+    if ((st === 503 || st === 429) && !options?.signal?.aborted) {
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      res = await apiClient.post("/api/v1/recommendations", body, reqOpts);
+    } else {
+      throw err;
+    }
+  }
   dispatchReasonSourceDebug(res);
   return res;
 }
