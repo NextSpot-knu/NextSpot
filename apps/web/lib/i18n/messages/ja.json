@@ -758,7 +758,7 @@
     "areaDemandLive": "リアルタイムの周辺動向",
     "areaDemandStats": "統計に基づく周辺動向",
     "areaDemandForecast": "実測履歴に基づく到着時予測",
-    "areaDemandHint": "施設内の混雑ではなく、周辺地域の移動需要です。",
+    "areaDemandHint": "半径2km圏の移動需要から、到着時点のゆとりを予測します。",
     "areaDemandRank": "比較候補{total}件中、周辺需要が{rank}番目に低いです",
     "areaDemandLower": "候補中央値より{n}ポイント低い",
     "delayedDemand": "{n}分後に出発すると周辺需要は{level}の予測",

@@ -758,7 +758,7 @@
     "areaDemandLive": "Live area activity",
     "areaDemandStats": "Statistical area activity",
     "areaDemandForecast": "Arrival forecast from observed history",
-    "areaDemandHint": "This reflects demand around the area, not crowding inside the venue.",
+    "areaDemandHint": "Real-time travel demand within a 2 km radius predicts how relaxed your arrival will be.",
     "areaDemandRank": "{rank} lowest area demand among {total} candidates",
     "areaDemandLower": "{n} points below the candidate median",
     "delayedDemand": "In {n} min, area demand is forecast to be {level}",

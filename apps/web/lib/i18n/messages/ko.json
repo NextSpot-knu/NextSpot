@@ -758,7 +758,7 @@
     "areaDemandLive": "실시간 주변 흐름",
     "areaDemandStats": "통계 기반 주변 흐름",
     "areaDemandForecast": "이력 기반 도착 전망",
-    "areaDemandHint": "장소 내부 혼잡이 아닌 주변 지역의 이동 수요예요.",
+    "areaDemandHint": "반경 2km 주변 지역의 실시간 이동 수요로 도착 시점의 여유를 예측해요.",
     "areaDemandRank": "비교 후보 {total}곳 중 주변 수요가 {rank}번째로 낮아요",
     "areaDemandLower": "후보 중앙값보다 {n}점 낮음",
     "delayedDemand": "{n}분 뒤 출발하면 주변 수요 {level} 전망",

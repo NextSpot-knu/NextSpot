@@ -22,6 +22,15 @@ assert.match(formatSpotComparison(t, comparisons[1]), /timeShorter/);
 assert.match(formatSpotComparison(t, comparisons[1]), /scoreLower/);
 assert.match(formatSpotComparison(t, comparisons[2]), /preferenceHigher/);
 
+// 혜택·분산 0%는 표기 자체를 생략한다(0%는 값이 아니라 공백의 고백 — no-defensive-copy).
+// 항이 살아 있으면(타임세일 등) 종전처럼 표기한다.
+const zeroIncentive = buildSpotComparisons([
+  { id: 'z', rank: 1, spotScore: 0.77, preference: 1, travelMinutes: 5, incentive: 0 },
+]);
+assert.match(formatSpotComparison(t, zeroIncentive[0]), /firstNoIncentive/);
+assert.doesNotMatch(formatSpotComparison(t, zeroIncentive[0]), /incentive=/);
+assert.match(formatSpotComparison(t, comparisons[0]), /first:.*incentive=20/);
+
 const withHiddenRankingCosts = buildSpotComparisons([
   { id: 'a', rank: 1, spotScore: 80, preference: 0.7, travelMinutes: 5, rankingWaitMinutes: 4, areaDemandPenaltyMinutes: 2 },
 ]);

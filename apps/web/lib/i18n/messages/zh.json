@@ -758,7 +758,7 @@
     "areaDemandLive": "实时周边动态",
     "areaDemandStats": "基于统计的周边动态",
     "areaDemandForecast": "基于实测历史的到达预测",
-    "areaDemandHint": "这反映的是周边区域需求，并非场所内部拥挤度。",
+    "areaDemandHint": "以半径2公里内的实时移动需求，预测你到达时的宽松程度。",
     "areaDemandRank": "在{total}个候选中，周边需求第{rank}低",
     "areaDemandLower": "比候选中位数低{n}点",
     "delayedDemand": "{n}分钟后出发时周边需求预计为{level}",

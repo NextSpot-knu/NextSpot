@@ -66,6 +66,15 @@ function signedMagnitude(value: number): number {
 /** 카드 설명을 실제 SPOT 입력값에서만 만든다. 장점이 없으면 없다고 그대로 표시한다. */
 export function formatSpotComparison(t: SpotComparisonTranslator, comparison: SpotComparison): string {
   if (comparison.rank === 1) {
+    // 혜택·분산 항이 0이면 그 항 자체를 표기하지 않는다 — '0%'는 값이 아니라 공백의 고백으로
+    // 읽힌다(no-defensive-copy). 타임세일 등으로 항이 살아나면 자동으로 다시 표기된다.
+    if (comparison.incentivePercent < 1) {
+      return t('recommend.spotComparison.firstNoIncentive', {
+        score: comparison.scorePoints,
+        preference: comparison.preferencePercent,
+        time: Math.max(1, Math.ceil(comparison.rankingTimeMinutes)),
+      });
+    }
     return t('recommend.spotComparison.first', {
       score: comparison.scorePoints,
       preference: comparison.preferencePercent,
