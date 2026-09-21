@@ -30,19 +30,28 @@ export function getHeatColor(
   return HEAT_RGB[congestionKey(level, busyAt)];
 }
 
-/** 혼잡도에 비례한 blob 지름(px) — 40~120 사이 선형 보간(혼잡할수록 크게 번진다) */
+/** 혼잡도에 비례한 blob 지름(px) — 140~380 사이 선형 보간(혼잡할수록 크게 번진다).
+ *
+ * 예전 값(40~120px)은 시설 하나를 겨우 덮는 크기라 토글을 켜도 '점 몇 개'로만 보였다.
+ * 혼잡은 건물이 아니라 **구역**의 성질이므로 반경을 걸어 다니는 블록 규모까지 넓히고,
+ * 겹치는 blob 들이 screen 합성으로 이어 붙어 '면'으로 읽히게 한다.
+ * 색·등급 경계는 그대로다(마커/배지와 동일한 congestionKey). */
 export function getHeatRadius(level: number): number {
   const clamped = Math.max(0, Math.min(1, typeof level === "number" ? level : 0));
-  return Math.round(40 + clamped * 80);
+  return Math.round(140 + clamped * 240);
 }
 
-/** blob 배경용 radial-gradient — 중심은 진하고 가장자리로 갈수록 투명해져 열처럼 번진다 */
+/** blob 배경용 radial-gradient — 중심은 진하고 가장자리로 갈수록 투명해져 열처럼 번진다.
+ *
+ * 반경을 넓힌 만큼 중심 알파는 낮추고 꼬리는 길게 끌어(0% → 88%) 경계선이 또렷한 '원'이
+ * 아니라 서로 스며드는 '면'이 되게 한다. */
 export function getHeatGradient(level: number, busyAt: number = DEFAULT_BUSY_THRESHOLD): string {
   const { r, g, b } = getHeatColor(level, busyAt);
   return (
     `radial-gradient(circle, ` +
-    `rgba(${r},${g},${b},0.75) 0%, ` +
-    `rgba(${r},${g},${b},0.45) 40%, ` +
-    `rgba(${r},${g},${b},0) 72%)`
+    `rgba(${r},${g},${b},0.55) 0%, ` +
+    `rgba(${r},${g},${b},0.34) 35%, ` +
+    `rgba(${r},${g},${b},0.14) 62%, ` +
+    `rgba(${r},${g},${b},0) 88%)`
   );
 }
