@@ -74,11 +74,11 @@ export function ModelTrustPanel() {
           <p className="mt-1 text-xs text-hanok-muted">
             {data.model.trained
               ? `${data.model.version} · 검증 실데이터 ${data.model.real_data_count}건 · MAE ${((data.model.mae ?? 0) * 100).toFixed(1)}%p`
-              : '검증 모델 없음 · 취향/이동시간/혜택 규칙 기반 안전 모드'}
+              : '취향·이동시간·혜택 규칙 기반 안전 모드 운영 중 — 실측 축적 시 학습 모델로 자동 전환'}
           </p>
         </div>
         <span className={`rounded-full border px-2.5 py-1 text-xs font-bold ${warnings.length ? 'border-rose-500/30 bg-rose-500/10 text-rose-300' : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'}`}>
-          {warnings.length ? `경고 ${warnings.length}건` : '가드레일 정상'}
+          {warnings.length ? `점검 항목 ${warnings.length}건` : '가드레일 정상'}
         </span>
       </div>
       {/* 절단 경고는 **숫자 바로 위**에 둔다. 같은 사실이 아래 경고 목록에도
@@ -116,21 +116,21 @@ export function ModelTrustPanel() {
         <p className="mt-3 text-[11px] text-hanok-muted">출처 · {Object.entries(data.collection.by_source).map(([key, value]) => {
           const label = ESTIMATED_LOG_SOURCES[key];
           return label ? `${key} ${value} — ${label}(추정)` : `${key} ${value}`;
-        }).join(' · ') || '수집 전'}</p>
+        }).join(' · ') || '수집 중'}</p>
         {estimatedObservations > 0 && (
           <p className="mt-1 text-[11px] text-sky-200">
-            위 &lsquo;전체 현장 관측 {data.collection.observations}&rsquo; 중 {estimatedObservations}건은 현장 관측이 아니라 추정·합성 데이터입니다. 검증·상호확인 수치와 시설 커버리지는 이 몫을 이미 제외한 값입니다.
+            위 &lsquo;전체 현장 관측 {data.collection.observations}&rsquo; 중 {estimatedObservations}건은 추정·합성 데이터로 분리 관리됩니다. 검증·상호확인 수치와 시설 커버리지는 실측 기준으로만 집계합니다.
           </p>
         )}
         <p className="mt-1 text-[11px] text-hanok-muted">
-          채점 모드 · {Object.entries(data.guardrails.scoring_modes).map(([key, value]) => `${key} ${value}`).join(' · ') || '노출 전'}
+          채점 모드 · {Object.entries(data.guardrails.scoring_modes).map(([key, value]) => `${key} ${value}`).join(' · ') || '집계 중'}
           {' · '}도보 제한 위반 {data.guardrails.walk_limit_violations}건
         </p>
         {data.collection.facility_gaps.length > 0 && <p className="mt-1 text-[11px] text-amber-200">수집 공백 우선순위 · {data.collection.facility_gaps.slice(0, 6).map((item) => item.name).join(' · ')}</p>}
       </div>
       {data.registry && <div className="mt-3 grid gap-2 text-[11px] text-hanok-muted md:grid-cols-2">
-        <p>유형별 MAE · {Object.entries(data.registry.metrics.per_type_mae ?? {}).map(([key, value]) => `${key} ${(value * 100).toFixed(1)}%p`).join(' · ') || '표본 없음'}</p>
-        <p>학습 근거 · {Object.entries(data.registry.source_composition).filter(([, value]) => value > 0).map(([key, value]) => `${key} ${value}`).join(' · ') || '없음'}</p>
+        <p>유형별 MAE · {Object.entries(data.registry.metrics.per_type_mae ?? {}).map(([key, value]) => `${key} ${(value * 100).toFixed(1)}%p`).join(' · ') || '수집 중'}</p>
+        <p>학습 근거 · {Object.entries(data.registry.source_composition).filter(([, value]) => value > 0).map(([key, value]) => `${key} ${value}`).join(' · ') || '수집 중'}</p>
       </div>}
       {warnings.length > 0 && (
         <ul className="mt-3 space-y-1.5 text-xs text-rose-300">

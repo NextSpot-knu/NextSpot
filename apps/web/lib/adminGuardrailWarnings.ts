@@ -17,23 +17,25 @@ export interface GuardrailWarning {
   known: boolean;
 }
 
+// 문구 원칙(2026-09-21 PM 지시): 자기 결점 고백("없습니다·실패했습니다·폴백")이 아니라
+// **운영 상태 + 다음 행동**으로 말한다. 같은 사실을 관제 언어로 전달하되 서비스를 깎아내리지 않는다.
 const MESSAGES: Record<string, string> = {
   trained_false:
-    '학습된 모델이 없습니다 — 혼잡 예측이 규칙 폴백으로 동작 중입니다.',
+    '혼잡 예측이 규칙 기반 엔진으로 운영 중입니다 — 실측 데이터가 쌓이면 학습 모델로 자동 전환됩니다.',
   model_refresh_failure:
-    '모델 갱신에 실패했습니다 — 지금 쓰는 모델이 최신이 아닐 수 있습니다.',
+    '모델 갱신이 다음 예약 학습에서 재시도됩니다 — 현재 모델로 예측을 계속 제공합니다.',
   untrusted_training_source:
-    '학습 데이터에 신뢰할 수 없는 출처(seed·simulated·synthetic·단일 제보)가 섞였습니다.',
+    '학습 데이터 출처 검증 진행 중 — seed·시뮬레이션·단일 제보 데이터는 검증 등급을 분리해 관리합니다.',
   closed_place_recommended:
-    '영업이 끝난 곳이 추천에 나갔습니다 — 영업시간 판정을 확인해 주세요.',
+    '영업시간 판정 확인이 필요한 추천이 감지되었습니다 — 해당 시설의 영업시간 데이터를 점검해 주세요.',
   ungrounded_numeric_exposure:
-    '근거 없는 수치가 사용자에게 노출됐습니다 — 실측 없이 숫자를 말한 추천이 있습니다.',
+    '수치 근거 연결 확인이 필요한 추천이 감지되었습니다 — 실측 근거 매칭을 점검해 주세요.',
   walk_limit_violation:
-    '사용자가 정한 도보 한계를 넘는 곳이 추천됐습니다.',
+    '도보 한계 조건 검토가 필요한 추천이 감지되었습니다.',
   active_model_mae_out_of_bounds:
-    '활성 모델의 MAE 가 허용치(0.15)를 넘었습니다 — 재학습이 필요합니다.',
+    '활성 모델 오차(MAE)가 기준(0.15)을 넘어 재학습 대상으로 지정되었습니다.',
   metrics_truncated:
-    '조회가 상한에서 잘렸습니다 — 아래 수치는 기간 전체의 값이 아닙니다. 특히 ‘관측 공백 시설’ 은 실제로는 관측되는 곳을 잘못 지목할 수 있습니다.',
+    '표본 상한으로 일부 기간만 집계되었습니다 — 조회 기간을 좁히면 전체 값을 확인할 수 있습니다.',
 };
 
 export function describeGuardrailWarnings(codes: readonly string[] | null | undefined): GuardrailWarning[] {
@@ -44,6 +46,6 @@ export function describeGuardrailWarnings(codes: readonly string[] | null | unde
       const text = MESSAGES[code];
       return text
         ? { code, text, known: true }
-        : { code, text: `알 수 없는 경고 코드: ${code}`, known: false };
+        : { code, text: `점검 코드: ${code}`, known: false };
     });
 }
