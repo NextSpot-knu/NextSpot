@@ -85,7 +85,8 @@ def _build_template(ctx: dict) -> str:
             return f"{name}: " + ", ".join(parts) + " 수준으로 지금은 붐벼 대기가 길 수 있어요."
         if not isinstance(cand_cong, (int, float)):
             # 혼잡 근거 없음 — "여유"도 혼잡 주장이므로 쓰지 않는다(거리·대기 사실만 안내).
-            return f"{name} 추천: " + ", ".join(parts) + " 수준입니다. 혼잡 정보는 준비 중이에요."
+            # '준비 중이에요' 같은 자기 결점 고백도 붙이지 않는다(no-defensive-copy, 2026-09-21).
+            return f"{name} 추천: " + ", ".join(parts) + " 수준입니다."
         return f"{name} 추천: " + ", ".join(parts) + " 수준으로 여유가 있습니다."
     if is_congested:
         return f"{name}은(는) 현재 혼잡해 대기가 길 수 있어요."

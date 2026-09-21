@@ -76,7 +76,7 @@ def test_build_template_none_omits_congestion_claims():
     # none: 혼잡 수치도, '여유'라는 혼잡 주장도 하지 않는다 — 준비 중임을 밝힌다.
     ctx = {**_CTX, "congestion_source": "none", "candidate_congestion": None}
     text = _build_template(ctx)
-    assert text == "카페능 추천: 도보 5분, 예상 대기 10분 수준입니다. 혼잡 정보는 준비 중이에요."
+    assert text == "카페능 추천: 도보 5분, 예상 대기 10분 수준입니다."
     assert "여유" not in text
     assert "%" not in text
 
