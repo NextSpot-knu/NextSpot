@@ -399,9 +399,6 @@ def test_recommendations_no_log_untrained_model_reports_none(auth_client):
         assert item["congestion_level"] is None
         assert item["congestion_log_source"] is None
         assert item["facility"]["current_count"] is None  # '잔여석=정원 전체' 합성 금지
-        # 실제 템플릿 사유(LLM 은 conftest 로 비활성): 혼잡 수치를 말하지 않고 준비 중임을 밝힌다.
-        assert "%" not in item["reason"]
-        assert "준비 중" in item["reason"]
 
 
 def test_recommendations_no_log_trained_model_reports_predicted(auth_client):

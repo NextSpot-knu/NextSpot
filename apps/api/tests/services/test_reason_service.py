@@ -72,21 +72,16 @@ def test_build_template_predicted_congested_still_honest():
     assert "붐벼" in text
 
 
-def test_build_template_none_omits_congestion_claims():
-    # none: 혼잡 수치도, '여유'라는 혼잡 주장도 하지 않는다 — 준비 중임을 밝힌다.
+def test_build_template_none_uses_available_facts():
     ctx = {**_CTX, "congestion_source": "none", "candidate_congestion": None}
     text = _build_template(ctx)
     assert text == "카페능 추천: 도보 5분, 예상 대기 10분 수준입니다."
-    assert "여유" not in text
-    assert "%" not in text
 
 
-def test_build_template_none_ignores_stray_numeric_congestion():
-    # 방어: congestion_source='none' 인데 수치가 딸려 와도(호출자 실수) 혼잡 문구를 만들지 않는다.
+def test_build_template_none_keeps_available_fact_summary_with_stray_value():
     ctx = {**_CTX, "congestion_source": "none"}  # candidate_congestion=0.3 그대로
     text = _build_template(ctx)
-    assert "혼잡도" not in text.replace("혼잡 정보는", "")
-    assert "30%" not in text
+    assert text == "카페능 추천: 도보 5분, 예상 대기 10분 수준입니다."
 
 
 def test_build_template_measured_unchanged_without_source_key():
