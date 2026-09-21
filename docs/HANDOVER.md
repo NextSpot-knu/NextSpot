@@ -6,8 +6,8 @@
 
 ## 배포 상태
 
-- **main = 프로덕션.** main push가 Vercel(web)·Render(api)를 자동 배포한다. 마지막 반영은 2026-09-20 —
-  `374254c`(소개 개편 `a3b8a6b` 포함). `/guide`는 줄·혼잡으로 잃는 여행 시간과 주변 대안·이동 코스라는
+- **main = 프로덕션.** main push가 Vercel(web)·Render(api)를 자동 배포한다. 마지막 반영은 2026-09-21 —
+  `9ec3894`+(심사용 계정 안내, 아래 `2026-09-21b`; 그전 `374254c`·소개 개편 `a3b8a6b` 포함). `/guide`는 줄·혼잡으로 잃는 여행 시간과 주변 대안·이동 코스라는
   문제·해결 한 화면만 남겼다. Vercel 응답에서 새 제목·문제 카드·해결 카드가 있고 이전 취향 서사와 기술 설명은 없는 것을 확인했다.
   사람이 마지막으로 배포 결과를 눈으로 확인한 시점은 2026-09-08(관리자 대시보드·통계/성과 리포트 화면) — **09-20 시각 확인 대기**.
   규칙: main에 푸시한 쪽(에이전트 포함)이 위 줄의 날짜를 갱신하고, Vercel·Render 배포를 눈으로 본 사람이 확인 날짜를 적는다.
@@ -188,6 +188,28 @@ from checks order by seq;
 
 최신이 위. 10개를 넘으면 가장 오래된 항목을 `archive/HANDOVER_LOG.md` 맨 위로 옮긴다.
 
+## 2026-09-21b — 심사용 계정 안내: 로그인 화면과 두 콘솔 관문
+
+- 도구·브랜치: claude.ai 세션(패치 초안) → Claude Code(워크트리 적용 · 7렌즈 리뷰 워크플로 + Codex 교차 리뷰 · 검증 · 푸시) /
+  `feature/judge-account-hint` → main.
+- 커밋: `9ec3894` (기능 1건) + 이 기록.
+- 한 것: 제출 양식은 테스트 계정 도메인을 **하나만** 받는데 콘솔 계정은 둘이라(사장님 `openapi@naver.com`, 관제
+  `openapi@gmail.com`), 폼에 못 적은 쪽 콘솔은 심사위원이 들어올 방법이 없었다. `JudgeAccountHint`를 `/login`
+  (`?next=`가 콘솔이면 그 계정만 + 이메일 자동 입력, 없으면 두 계정을 역할과 함께), `/admin/login` 두 상태, `/merchant` 관문에 붙였다.
+  `/merchant`는 게스트(익명)·관리자 계정에 버튼이 하나도 없던 막다른 길이라 로그인 버튼도 넣었다(이미 로그인된 계정에는 '다른 계정으로 로그인').
+  서비스 소개(`/guide`)에는 넣지 않았다 — 소개는 관광객 문구만 두기로 한 09-20 결정을 따랐고, 소개의 콘솔 버튼이 곧장 관문으로 보내
+  거기서 안내가 보인다(넣으려면 `GuideContent.tsx`에 `<JudgeAccountHint />` 한 줄, 문구 키는 이미 있다).
+  계정↔역할 정본은 `seed_judge_accounts.py`이고 `lib/judgeAccounts.test.ts`가 어긋남을 잡는다. 비밀번호는 화면·번들에 두지 않는다.
+  리뷰 반영: 라벨 위·주소 아래 2줄 배치(ja 라벨이 고정폭을 넘쳤다) · '입력' 버튼을 `dd` 안으로(HTML 내용 모델) ·
+  가입 탭으로 바꾸면 미리 넣은 심사 이메일을 비움 · `auth-flows.spec.ts`에 심사 계정 안내·자동 입력 케이스 추가.
+- 검증: web lint 0 errors · typecheck · test 52파일(i18n 4로케일 패리티) · Turbopack `next build` 정적 프리렌더 · check-docs ·
+  Playwright e2e 전체 43개 중 42 통과 + `voice-controls.spec.ts:99` 1회 실패 후 단독 재실행 통과(`/main` 음성 테스트, 이 변경과 무관) ·
+  리뷰 반영 뒤 `auth-flows.spec.ts` 재실행 · 390px 스크린샷 10장(ko·en × `/login` 3상태·`/merchant`·`/admin/login`)으로
+  계정·자동 입력·가로 스크롤 없음 확인.
+- 다음·미결: 공용 `/login`(`?next=` 없음)에 두 계정을 보이는 것은 심사 기간의 의도적 선택 — 심사 뒤 관광객 화면에서 빼려면
+  `app/login/page.tsx`의 힌트 렌더를 `judgeConsole &&`로 묶는다. 심사 계정의 시설 삭제·설정 변경 차단(관리자 API)은 하지 않았다.
+- 사람 작업: 배포 후 시크릿 창에서 두 계정 로그인 → `/merchant`·`/admin/dashboard` 열림 확인. 운영사무국에 추가 계정 통보.
+
 ## 2026-09-21 — 제출일 전면 스윕: 출처표기·관제 라이트 테마·상용 UI·심사 대비
 
 - 도구·브랜치: Claude Code(메인 + 병렬 서브에이전트 다수 + 워크플로 2회) + Codex 병행 / `feature/judge-guide` → main (`706353a`…`6a7d653`+).
@@ -324,25 +346,6 @@ from checks order by seq;
 - 다음·미결: "우선순위" 4번 정리 후속. 원격 브랜치 6개(feature/*, yunseong 등)는 전부 main에 합쳐져 있으나(`ui-editorial-pass`는
   머지 후 되돌려져 작업물이 브랜치에만 남아 있다 — SYSTEM_MAP §14) 팀원 소유라 삭제하지 않았다.
 - 사람 작업: 위 "사람 작업 대기"에 정리(토큰 회전·Kakao·Google·Site URL·CORS·시크릿 점검·심사 계정 확인).
-
-## 2026-09-03 — 따라잡기: 08-28 ~ 09-03 73커밋 (기록 없이 main에 올라간 분)
-
-- 도구·브랜치: 팀원(GitHub `ynso-a8`, 커밋 트레일러상 Claude Opus 5 동반) / `yunseong` → main (`e1a058f`..`a02be96`)
-- 한 것(08-28): RBAC 배포 전 디버깅(로그 §-45) · 분산코스 간헐 실패 — stale 연결 재시도 3회 + 풀 리셋, 후보 하나의 실패 격리,
-  Supabase 요청 15→5건, 업스트림 장애를 503으로 구분(HTTP/1.1 전환 시도는 되돌림) · 개발자 콘솔 "최근 실패" 탭 ·
-  관리자 로그인 시 대시보드로 + 시설 응답 타임아웃 2.5→4초 · `account/me`는 camelCase가 맞음(오진 되돌림).
-- 한 것(09-02): 역할 변경 신청 동선 + 개발자 콘솔 사용자 관리 개편, 인증 심사 하위 메뉴 · 닉네임 출처 추적(프로바이더 이름
-  변경 반영) · 딥링크 진입 시 뒤로가기 5곳 · 마이페이지 관제 진입 카드 · i18n 패리티 검사를 사이드 사전 3개로 확장.
-- 한 것(09-03): 사업자등록증 증빙 업로드(버킷·서명 URL·경로 검증 + UI, 심사 화면 증빙 보기, 증빙 삭제 누락 수정) ·
-  타임세일이 메인 추천 랭킹에 반영 · 주차 수요 집계를 Postgres RPC(`area_demand_points_near`)로 · `congestion_logs` 신원
-  컬럼을 anon에서 차단(컬럼 GRANT) · 계정 삭제 FK + inquiries INSERT 소유권 · `/predict` 미학습 조합 500 · 음성 퍼널 계측
-  복구 + XFF 쿨다운 키 · 온보딩 음식 취향 복원 · 파비콘 교체(Gemini 로고였음) · `/mypage/support` i18n · 북마크 되살아남·
-  422 표시·저장소 차단 브라우저 첫 화면 등 UI 버그 다수 · 주석·심사 문서 사실 정정 다수.
-- 마이그레이션 추가 7건: `20260902130000` role_change_requests · `20260903120000` nickname_source ·
-  `20260904090000` account_deletion_fk_fix · `20260904091000` inquiries_insert_ownership · `20260904120000`
-  area_demand_points_rpc · `20260904200000` business_documents_bucket · `20260905090000` congestion_logs_column_grants.
-  **원격 적용 여부는 문서에 기록되지 않았다** — 위 점검 쿼리 8~14번으로 실측할 것.
-- 검증: 각 커밋 메시지에 게이트 결과 기록(pytest·ruff·web 4종). 세션 인계 항목은 남기지 않았다(이 항목은 09-04에 git log로 복원).
 
 ## 기록 규칙
 
