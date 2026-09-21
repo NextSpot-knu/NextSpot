@@ -106,6 +106,62 @@ export default function LoadingPage() {
       {/* 은은한 금빛 광원 (기존 콜드 blue 글로우 대체) */}
       <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[300px] h-[300px] bg-gold/15 rounded-full blur-[100px] pointer-events-none z-0"></div>
 
+      {/* 반딧불이 — 경주 여름밤의 은은한 금빛 점들이 천천히 떠다니며 숨쉬듯 밝아졌다 사그라든다.
+          장식 전용(z-0·pointer-events-none), 위치·주기는 고정 배열(SSG 하이드레이션 안전),
+          reduced-motion 이면 전역 규칙이 애니메이션을 눌러 정지 점광으로만 남는다. */}
+      <style>{`
+        @keyframes ns-firefly-drift {
+          0%   { transform: translate(0, 0); }
+          25%  { transform: translate(14px, -22px); }
+          50%  { transform: translate(-10px, -38px); }
+          75%  { transform: translate(-20px, -14px); }
+          100% { transform: translate(0, 0); }
+        }
+        @keyframes ns-firefly-glow {
+          0%, 100% { opacity: 0; }
+          35%      { opacity: 0.9; }
+          55%      { opacity: 0.45; }
+          70%      { opacity: 0.85; }
+        }
+        .ns-firefly {
+          position: absolute;
+          border-radius: 9999px;
+          background: radial-gradient(circle, rgba(255, 236, 180, 0.95) 0%, rgba(193, 154, 62, 0.55) 45%, rgba(193, 154, 62, 0) 75%);
+          box-shadow: 0 0 10px 3px rgba(193, 154, 62, 0.35);
+          opacity: 0;
+          animation: ns-firefly-drift var(--ff-drift) ease-in-out infinite, ns-firefly-glow var(--ff-glow) ease-in-out infinite;
+          animation-delay: var(--ff-delay), var(--ff-delay);
+        }
+      `}</style>
+      <div className="pointer-events-none absolute inset-0 overflow-hidden z-0" aria-hidden="true">
+        {([
+          { left: '12%', top: '30%', size: 5, drift: '11s', glow: '5.2s', delay: '0s' },
+          { left: '22%', top: '62%', size: 4, drift: '13s', glow: '6.1s', delay: '1.4s' },
+          { left: '31%', top: '18%', size: 3, drift: '10s', glow: '4.6s', delay: '2.8s' },
+          { left: '44%', top: '74%', size: 5, drift: '14s', glow: '5.8s', delay: '0.9s' },
+          { left: '58%', top: '24%', size: 4, drift: '12s', glow: '5.0s', delay: '2.1s' },
+          { left: '67%', top: '58%', size: 3, drift: '15s', glow: '6.6s', delay: '3.6s' },
+          { left: '76%', top: '36%', size: 5, drift: '11.5s', glow: '4.9s', delay: '1.8s' },
+          { left: '85%', top: '68%', size: 4, drift: '13.5s', glow: '5.5s', delay: '0.4s' },
+          { left: '52%', top: '44%', size: 3, drift: '12.5s', glow: '6.3s', delay: '4.2s' },
+          { left: '8%', top: '80%', size: 4, drift: '14.5s', glow: '5.7s', delay: '3.1s' },
+        ] as const).map((fly, index) => (
+          <span
+            key={index}
+            className="ns-firefly"
+            style={{
+              left: fly.left,
+              top: fly.top,
+              width: `${fly.size}px`,
+              height: `${fly.size}px`,
+              ['--ff-drift' as string]: fly.drift,
+              ['--ff-glow' as string]: fly.glow,
+              ['--ff-delay' as string]: fly.delay,
+            }}
+          />
+        ))}
+      </div>
+
       {/* 하단 경주 노을 광원 */}
       <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-[420px] h-[280px] bg-sunset-1/20 rounded-full blur-[120px] pointer-events-none z-0"></div>
 
