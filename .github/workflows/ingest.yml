@@ -130,6 +130,9 @@ jobs:
       # !cancelled() — 앞선 TourAPI 적재 스텝이 간헐 실패(약 1/4)해도 독립 데이터원인 이 보강은 돌린다.
       - name: Enrich facilities with Gyeongju restaurant menus
         if: ${{ !cancelled() && env.GYEONGJU_FOOD_CONFIGURED != '' && vars.GYEONGJU_FOOD_ENABLED == 'true' }}
+        # 업스트림(15114465)이 0건을 주며 실패해 일배치 전체를 2일 연속 죽였다(2026-09-19·20 실측).
+        # 독립 보강 데이터라 실패해도 본 배치(TourAPI 동기화·신선도 배지)는 살아야 한다 → non-fatal.
+        continue-on-error: true
         run: python scripts/ingest_gyeongju_restaurants.py
         env:
           GYEONGJU_FOOD_API_BASE_URL: ${{ vars.GYEONGJU_FOOD_API_BASE_URL }}
