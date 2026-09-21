@@ -560,7 +560,19 @@ function RecommendContent() {
           return;
         }
 
-        const recommendationsList = await getRecommendations(facilityId, { lat, lng }, loadTravelContext());
+        // 서버가 큐잉으로 느려진 창(무료 플랜 과부하·콜드 스타트)에서는 첫 시도가 타임아웃으로
+        // 떨어질 수 있다 — 에러 화면 대신 짧은 백오프 뒤 1회 조용히 재시도한다(로더 유지).
+        // 사용자에게는 '조금 더 긴 로딩'으로만 보인다.
+        let recommendationsList;
+        try {
+          recommendationsList = await getRecommendations(facilityId, { lat, lng }, loadTravelContext());
+        } catch (firstErr) {
+          if (cancelled) return;
+          console.warn("추천 1차 실패 — 2.5초 후 1회 재시도:", firstErr);
+          await new Promise((resolve) => setTimeout(resolve, 2500));
+          if (cancelled) return;
+          recommendationsList = await getRecommendations(facilityId, { lat, lng }, loadTravelContext());
+        }
         if (cancelled) return;
         setRecommendations(recommendationsList);
         setLoadFailed(false);
