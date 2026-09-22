@@ -7,6 +7,21 @@
 
 <!-- 새로 옮겨오는 항목은 이 줄 아래에 붙인다 (최신이 위) -->
 
+## 2026-09-04 — 저장소 정리: 죽은 파일 제거 · 문서 트리 재편 · 규칙 정본 재작성
+
+- 도구·브랜치: Claude Code(레드팀 하위 에이전트 6렌즈 → 실행 → 재검토 루프) / `chore/repo-cleanup` → main
+- 커밋: 이 브랜치 10건(`git log --oneline d267e6b..b6bdcd8`) — 죽은 파일 제거 → 문서 트리 → 규칙·상태 문서 →
+  문서 사실 정정 → 설정·워크플로 → web 구조 → api 구조 → 레드팀 2라운드 반영(보안 진단·i18n 삭제) → 3라운드 반영(심사 문서 정정)
+- 한 것: InduSpot 잔재(seed.js·bg.png·landmarks.ts 등)와 Gemini 파일 제거 · `docs/`를 운영/contest/archive로 나누고
+  색인(`docs/README.md`)과 CI 문서 검사(`scripts/check-docs.mjs`) 추가 · `AGENTS.md`를 현재 사실(RBAC 권한, 브랜치, 게이트,
+  새 파일 위치)로 재작성 · HANDOVER를 상태 문서 + 아카이브 로그로 분리 · 낡은 문서 사실 약 40건 정정 ·
+  web 컴포넌트/lib 일부 묶기 + 테스트 러너 glob화 · api 테스트 폴더 정리.
+- 검증: 커밋마다 해당 게이트(web lint/typecheck/test/build, ruff/pytest, 스키마 파리티, check-docs) 통과 후 커밋.
+- 다음·미결: "우선순위" 4번 정리 후속. 원격 브랜치 6개(feature/*, yunseong 등)는 전부 main에 합쳐져 있으나(`ui-editorial-pass`는
+  머지 후 되돌려져 작업물이 브랜치에만 남아 있다 — SYSTEM_MAP §14) 팀원 소유라 삭제하지 않았다.
+- 사람 작업: 위 "사람 작업 대기"에 정리(토큰 회전·Kakao·Google·Site URL·CORS·시크릿 점검·심사 계정 확인).
+
+
 ## 2026-09-03 — 따라잡기: 08-28 ~ 09-03 73커밋 (기록 없이 main에 올라간 분)
 
 - 도구·브랜치: 팀원(GitHub `ynso-a8`, 커밋 트레일러상 Claude Opus 5 동반) / `yunseong` → main (`e1a058f`..`a02be96`)
