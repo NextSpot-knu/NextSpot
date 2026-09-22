@@ -30,8 +30,10 @@ import {
 import { recToSpot } from "@/lib/recommender";
 import { congestionDisplay, parseCongestionEstimate } from "@/lib/congestionEstimate";
 // 보드의 세 숫자(예상 대기 · 혼잡 등급 · 한산해지는 시각)의 단일 소스.
-import { estimateWait, displayHour, type WaitEstimate } from "@/lib/waitEstimate";
+import { estimateWait, displayHour, compareWaitMinutes, showsCalmLine, heroWaitCandidate, type WaitEstimate } from "@/lib/waitEstimate";
 import { fetchAreaDemandCurve, type AreaDemandCurve } from "@/lib/areaDemandCurve";
+// 분으로 말할 근거가 없는 카드는 등급으로 말한다 — 등급 경계는 지도·카드와 같은 공용 판정을 쓴다.
+import { congestionKey } from "@/lib/congestionScale";
 import { REGION } from "@/lib/region";
 import { useI18n, useT } from "@/lib/i18n/I18nProvider";
 import { GoldenHourBadge } from "@/components/GoldenHourBadge";
@@ -144,7 +146,7 @@ function WaitingCardImage({ imageUrls, name, type }: Pick<BoardRow, "imageUrls" 
 // 같은 '여유'가 화면마다 다른 초록이면 같은 등급인지 헷갈린다. terracotta 는 '혼잡' 하나에만 아껴 쓴다.
 // (기존 4단계 congestionKey/congestionBadgeClass 는 이 보드에서 더 이상 쓰지 않는다 — 카드가 말하는
 //  등급이 '대기 기준 3단계' 하나로 통일됐다. 원시 혼잡도 배지와 섞이면 어느 쪽이 기준인지 알 수 없다.)
-const gradeBadgeClass = (grade: WaitEstimate["grade"]) =>
+const gradeBadgeClass = (grade: NonNullable<WaitEstimate["grade"]>) =>
   grade === "busy"
     ? "bg-terracotta/10 border-terracotta/30 text-terracotta"
     : grade === "moderate"
@@ -165,20 +167,55 @@ function basisKey(basis: WaitEstimate["basis"]): string {
   }
 }
 
+/**
+ * 카드의 주인공 한 줄. 분으로 말할 근거가 있으면 분을, 없으면 그 근거가 **실제로 아는 것**
+ * (시설 추정 혼잡 · 주변 권역 수요 등급 · 관광 상대지수)을 그대로 말한다.
+ * 주변 주차·관광 상대지수를 '대기 N분'으로 바꾸지 않는다(docs/CONGESTION_DATA.md §2 원칙 3·4).
+ */
+function waitHeadline(
+  est: WaitEstimate,
+  row: BoardRow,
+  estimateLevel: number | undefined,
+  t: (key: string, vars?: Record<string, string | number>) => string,
+): string {
+  if (est.minutes !== null) {
+    if (est.minutes > 0) return t("wait.minutes", { n: est.minutes });
+    // '대기 없음'은 검증 예측(server)에만 허용한다 — 추정으로 0분을 단언하지 않는다(원칙 6).
+    return est.basis === "server" ? t("wait.noWait") : t("wait.grade.relaxed");
+  }
+  if (est.basis === "estimate" && typeof estimateLevel === "number") {
+    return t("card.estimateLevel", { label: t(`congestion.${congestionKey(estimateLevel)}`) });
+  }
+  if (est.basis === "area" && row.areaDemandLevel !== null) {
+    return `${t("recommend.areaDemand")}: ${t(`congestion.${congestionKey(row.areaDemandLevel)}`)}`;
+  }
+  const relativeIndex = row.areaDemandTourismEvidence?.relativeIndex;
+  if (est.basis === "tourism" && typeof relativeIndex === "number") {
+    return t("recommend.tourismEvidenceIndex", { n: Math.round(relativeIndex) });
+  }
+  // 아무 근거도 없을 때 — 0분을 만들지 않고 '수집 중'이라고 둔다.
+  return t("waiting.waitUnavailable");
+}
+
 /** 대표 카드의 세 숫자 블록 — ① 예상 대기 ② 혼잡 등급 ③ 한산해지는 시각. */
-function WaitStats({ est, row }: { est: WaitEstimate; row: BoardRow }) {
+function WaitStats({ est, row, estimateLevel }: { est: WaitEstimate; row: BoardRow; estimateLevel?: number }) {
   const t = useT();
+  const headline = waitHeadline(est, row, estimateLevel, t);
   return (
     <div className="shrink-0 space-y-1 mt-1.5">
-      {/* ① 예상 대기 — 카드의 주인공. 골드 박스로 가장 크게 세운다. */}
+      {/* ① 예상 대기 — 카드의 주인공. 골드 박스로 가장 크게 세운다.
+          분으로 말할 근거가 없는 카드는 여기에 등급·지수가 그대로 들어온다(waitHeadline). */}
       <p className="rounded-lg border border-gold/30 bg-gold/10 px-2 py-1 text-xs font-extrabold text-gold-deep leading-snug tabular-nums">
-        {est.minutes <= 0 ? t("wait.noWait") : t("wait.minutes", { n: est.minutes })}
+        {headline}
       </p>
       <div className="flex flex-wrap items-center gap-1">
-        {/* ② 혼잡 등급 */}
-        <span className={`inline-block text-[10px] font-bold px-1.5 py-0.5 rounded-md border whitespace-nowrap ${gradeBadgeClass(est.grade)}`}>
-          {t(`wait.grade.${est.grade}`)}
-        </span>
+        {/* ② 혼잡 등급 — 분이 있을 때만 붙인다. 분이 없으면 대기 등급도 말할 수 없고,
+            0분이면 위 골드 박스가 이미 같은 말('대기 없음'·'여유')을 하고 있다. */}
+        {est.grade !== null && est.minutes !== null && est.minutes > 0 && (
+          <span className={`inline-block text-[10px] font-bold px-1.5 py-0.5 rounded-md border whitespace-nowrap ${gradeBadgeClass(est.grade)}`}>
+            {t(`wait.grade.${est.grade}`)}
+          </span>
+        )}
         {est.estimated && (
           <span className="inline-block text-[10px] font-bold px-1.5 py-0.5 rounded-md border bg-muk/5 border-line text-muk-soft whitespace-nowrap">
             {t("wait.estimatedTag")}
@@ -190,33 +227,45 @@ function WaitStats({ est, row }: { est: WaitEstimate; row: BoardRow }) {
           </span>
         )}
       </div>
-      {/* ③ 한산해지는 시각 — 8시간 안에 없으면 '지금이 가장 한산'으로 정직하게 말한다. */}
-      <p className="text-[10px] font-bold leading-snug text-jade">
-        {est.calmHour === null
-          ? t("wait.calmNow")
-          : t("wait.calmAt", { h: est.calmHour })}
-      </p>
+      {/* ③ 한산해지는 시각 — 분이 있는 카드는 8시간 안에 없으면 '지금이 가장 한산'. 분이 없는 카드는
+          권역 수요 곡선에서 실제로 찾은 시각이 있을 때만 쓴다(showsCalmLine): 내장 시간대 곡선만으로
+          한산하다고 말할 수는 없다. */}
+      {showsCalmLine(est) && (
+        <p className="text-[10px] font-bold leading-snug text-jade">
+          {est.calmHour === null
+            ? t("wait.calmNow")
+            : t("wait.calmAt", { h: est.calmHour })}
+        </p>
+      )}
       <p className="text-[9px] leading-snug text-muk-soft line-clamp-2">
-        {t("wait.arrivalBasis", { h: displayHour(est.arrivalHour) })} · {t(basisKey(est.basis))}
+        {/* 근거가 하나도 없는 카드에는 근거 문구를 붙이지 않는다 — 위 한 줄이 '수집 중'이라고
+            말해 놓고 옆에서 무슨 근거라고 하면 한 카드가 두 말을 한다. */}
+        {t("wait.arrivalBasis", { h: displayHour(est.arrivalHour) })}
+        {est.basis !== "default" && ` · ${t(basisKey(est.basis))}`}
       </p>
     </div>
   );
 }
 
 /** 컴팩트 행의 세 숫자 — 같은 값을 칩 한 줄로 압축한다. */
-function WaitRowChips({ est, row }: { est: WaitEstimate; row: BoardRow }) {
+function WaitRowChips({ est, row, estimateLevel }: { est: WaitEstimate; row: BoardRow; estimateLevel?: number }) {
   const t = useT();
+  const headline = waitHeadline(est, row, estimateLevel, t);
   return (
     <div className="flex flex-wrap items-center gap-1.5 mt-1">
       <span className="text-[11px] font-bold px-2 py-1 rounded-md bg-gold/10 border border-gold/25 text-gold-deep whitespace-nowrap tabular-nums">
-        {est.minutes <= 0 ? t("wait.noWait") : t("wait.minutes", { n: est.minutes })}
+        {headline}
       </span>
-      <span className={`text-[11px] font-bold px-2 py-1 rounded-md border whitespace-nowrap ${gradeBadgeClass(est.grade)}`}>
-        {t(`wait.grade.${est.grade}`)}
-      </span>
-      <span className="text-[11px] font-bold text-jade whitespace-nowrap">
-        {est.calmHour === null ? t("wait.calmNow") : t("wait.calmAt", { h: est.calmHour })}
-      </span>
+      {est.grade !== null && est.minutes !== null && est.minutes > 0 && (
+        <span className={`text-[11px] font-bold px-2 py-1 rounded-md border whitespace-nowrap ${gradeBadgeClass(est.grade)}`}>
+          {t(`wait.grade.${est.grade}`)}
+        </span>
+      )}
+      {showsCalmLine(est) && (
+        <span className="text-[11px] font-bold text-jade whitespace-nowrap">
+          {est.calmHour === null ? t("wait.calmNow") : t("wait.calmAt", { h: est.calmHour })}
+        </span>
+      )}
       {est.estimated && (
         <span className="text-[11px] font-semibold text-muk-soft whitespace-nowrap">{t("wait.estimatedTag")}</span>
       )}
@@ -572,15 +621,21 @@ export default function WaitingBoardPage() {
   }, [fetchBoard]);
 
   // 히어로 요약 스탯 — 이미 상태에 있는 결과에서 '도착 시 대기'가 가장 짧은 값 하나만 뽑는다
-  // 현재 상태에 있는 추천 수를 표시하고 오늘 휴무가 확정된 시설은 제외한다.
+  // (오늘 휴무가 확정된 시설은 제외). 분이 없는 카드는 후보에서 빠진다 — 0분으로 치면
+  // 아무것도 모르는 곳이 '최단 대기'가 된다. 추정 0분도 빠진다(heroWaitCandidate) — 카드는 그것을
+  // '여유'라고만 말하는데 히어로가 '0분'이라 단언하면 같은 값이 두 말을 한다. 추정값이 이기면 카드와
+  // 똑같이 '추정'을 함께 단다.
   const bestWait = (() => {
     if (!sectors) return null;
-    let best: number | null = null;
+    let best: { minutes: number; estimated: boolean } | null = null;
     for (const sector of sectors) {
       for (const row of sector.rows) {
         if (row.closedToday) continue;
-        const minutes = waitOf(row).minutes;
-        if (best === null || minutes < best) best = minutes;
+        const est = waitOf(row);
+        if (!heroWaitCandidate(est) || est.minutes === null) continue;
+        if (best === null || est.minutes < best.minutes) {
+          best = { minutes: est.minutes, estimated: est.estimated };
+        }
       }
     }
     return best;
@@ -633,7 +688,13 @@ export default function WaitingBoardPage() {
             {bestWait !== null && (
               <span className="inline-flex items-center gap-1.5 rounded-xl border border-gold/40 bg-gold/15 px-3 py-2 text-[13px] font-black text-gold-deep tabular-nums shadow-[0_2px_10px_rgba(193,154,62,0.16)]">
                 <span aria-hidden>⏱️</span>
-                {t("waiting.heroBestWait", { n: bestWait })}
+                {t("waiting.heroBestWait", { n: bestWait.minutes })}
+                {/* 카드마다 붙는 '추정' 라벨이 히어로에서만 빠지면 같은 숫자가 두 성격으로 읽힌다. */}
+                {bestWait.estimated && (
+                  <span className="rounded-md border border-line bg-white/70 px-1.5 py-0.5 text-[10px] font-bold text-muk-soft">
+                    {t("wait.estimatedTag")}
+                  </span>
+                )}
               </span>
             )}
             <label className="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-line bg-white px-3 py-2 text-xs font-medium shadow-[0_2px_10px_rgba(43,35,32,0.06)] focus-within:ring-2 focus-within:ring-gold/60">
@@ -673,10 +734,12 @@ export default function WaitingBoardPage() {
               // 정렬 기준을 **화면이 실제로 보여주는 숫자**로 맞춘다. fetchBoard 의 1차 정렬은
               // 서버 대기(프로덕션에서 거의 항상 null)로만 줄을 세우므로 순위 배지 ①②③ 이 무의미했다.
               // 여기서 추정 대기로 다시 세우면 '1번이 가장 덜 기다린다'가 카드 숫자와 일치한다.
+              // 분이 없는 카드는 0분이 아니라 **맨 뒤**다(compareWaitMinutes) — 근거가 없다고
+              // 보드 1위에 서면 순위 배지 ①②③ 이 다시 거짓말을 한다.
               const openRows = sector.rows
                 .filter((r) => !r.closedToday)
                 .slice()
-                .sort((a, b) => waitOf(a).minutes - waitOf(b).minutes);
+                .sort((a, b) => compareWaitMinutes(waitOf(a), waitOf(b)));
               const closedRows = sector.rows.filter((r) => r.closedToday);
               const topRows = openRows.slice(0, TOP_CARD_COUNT);
               const restRows = [...openRows.slice(TOP_CARD_COUNT), ...closedRows];
@@ -750,7 +813,7 @@ export default function WaitingBoardPage() {
                             )}
                           </div>
                           {/* 세 숫자 — 예상 대기 / 혼잡 등급 / 한산해지는 시각. 보드 제목이 약속한 것. */}
-                          <WaitStats est={waitOf(row)} row={row} />
+                          <WaitStats est={waitOf(row)} row={row} estimateLevel={estimateLevels[row.facilityId]} />
                         </div>
                       </button>
                       <div className="min-h-4">
@@ -798,7 +861,7 @@ export default function WaitingBoardPage() {
                             <p className="text-[15px] font-bold text-muk leading-snug truncate">{row.name}</p>
                             {/* 컴팩트 행도 대표 카드와 **같은 세 숫자**를 같은 순서로 보여준다 —
                                 보드를 아래로 훑을 때 읽는 규칙이 중간에 바뀌지 않게. */}
-                            <WaitRowChips est={waitOf(row)} row={row} />
+                            <WaitRowChips est={waitOf(row)} row={row} estimateLevel={estimateLevels[row.facilityId]} />
                             {/* 출발 시점 제안이 있는 경우에만 표시한다. */}
                             {row.arrivalAction && row.arrivalAction !== "no_clear_advantage" && (
                               <p className="mt-1 text-[11px] font-bold text-sky-800">

@@ -173,6 +173,15 @@ function recalcClockMs(): number {
   return Date.now();
 }
 
+// 추천 요청 타임아웃. 프리티어 콜드스타트가 깨어날 여유를 준다(10초 전역 타임아웃이면 빈 미러로 떨어진다).
+const RECOMMENDATION_TIMEOUT_MS = 20_000;
+// 테마 칩(✨) 재계산은 by-type 이 아니라 getRecommendations(POI 대안 경로)를 타고, 그 요청은
+// lib/api-client 가 45s 로 끊는다 — 비상 종료는 둘 중 긴 쪽을 기준으로 잡는다.
+const THEME_RECOMMENDATION_TIMEOUT_MS = 45_000;
+// 재계산 스켈레톤의 비상 종료 시각. **가장 긴 요청 타임아웃보다 뒤**여야 한다 — 먼저 끊으면 아직
+// 날아오는 중인 응답을 두고 스켈레톤을 걷게 되고, 곧 도착할 카드가 안내 없이 바뀐다.
+const RECALC_EMERGENCY_MS = Math.max(RECOMMENDATION_TIMEOUT_MS, THEME_RECOMMENDATION_TIMEOUT_MS) + 2_000;
+
 const LAB_HINT_KEY = 'nextspot_lab_hint_shown';
 const LAB_HINT_MAX_SHOWS = 2;
 
@@ -470,8 +479,6 @@ export default function MainPage() {
   const [recalcLabel, setRecalcLabel] = useState<string | null>(null);
   const recalcRef = useRef<{ label: string; prevTopId: string | null; startedAt: number } | null>(null);
   const recalcTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // 완성 신호가 오지 않는 경로(effect 조기 반환 등)를 대비한 비상 종료용 최신 선택 id.
-  const selectedFacilityIdRef = useRef<string | null>(null);
 
   const startRecalc = (label: string, prevTopId: string | null) => {
     if (recalcTimerRef.current) {
@@ -498,17 +505,26 @@ export default function MainPage() {
     }, delay);
   };
 
-  useEffect(() => {
-    selectedFacilityIdRef.current = selectedFacility?.id ?? null;
-  }, [selectedFacility?.id]);
+  // 스켈레톤만 걷고 **아무 말도 하지 않는다**. 결과를 받지 못한 채 끝내는 경로라
+  // '같은 추천이 유효해요'/'다시 계산했어요'를 말할 자격이 없다 — 둘 다 응답을 비교해야 나오는 문장이다.
+  // recalcRef 가 이미 비어 있어도 끝까지 간다 — finishRecalc 가 토스트를 예약해 둔 420ms 사이에 불리면
+  // 그 예약도 함께 걷어야 한다(주차장 분기처럼 결과를 보여 주지 않는 화면에서 '다시 계산했어요'가 뜨지 않게).
+  const abandonRecalc = () => {
+    recalcRef.current = null;
+    if (recalcTimerRef.current) {
+      clearTimeout(recalcTimerRef.current);
+      recalcTimerRef.current = null;
+    }
+    setRecalcLabel(null);
+  };
 
-  // 비상 종료 — 재계산이 3초 안에 스스로 끝났다고 말하지 않으면(백엔드 지연, effect 조기 반환)
+  // 비상 종료 — 재계산이 스스로 끝났다고 말하지 않는 경로(effect 조기 반환 등)를 대비해
   // 스켈레톤을 영원히 띄워 두지 않는다. 심사 화면에서 '멈춘 로딩'은 죽은 버튼보다 나쁘다.
+  // 시한은 추천 요청 타임아웃 뒤(RECALC_EMERGENCY_MS) — 그 전에는 아직 응답이 오는 중이다.
   useEffect(() => {
     if (!recalcLabel) return;
-    const timer = setTimeout(() => finishRecalc(selectedFacilityIdRef.current), 3000);
+    const timer = setTimeout(abandonRecalc, RECALC_EMERGENCY_MS);
     return () => clearTimeout(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recalcLabel]);
 
   useEffect(() => () => {
@@ -990,8 +1006,11 @@ export default function MainPage() {
   // 토글을 처음 켤 때 한 번만 받는다 — 꺼져 있으면 호출하지 않는다.
   useEffect(() => {
     if (!showHeatmap || heatParkingAskedRef.current) return;
+    // 이 플래그는 '이미 받았다'가 아니라 **중복 호출을 막는 잠금**이다. 받지 못한 채로 잠가 두면
+    // 첫 호출이 실패하거나 응답 전에 토글이 꺼졌을 때 주차 레이어가 세션 내내 되살아나지 못한다.
     heatParkingAskedRef.current = true;
     let active = true;
+    let applied = false;
     apiClient.get('/api/v1/area-demand/parking-lots', {
       params: { lat: String(userLocation.lat), lng: String(userLocation.lng), radiusM: '6000' },
       timeoutMs: 6000,
@@ -1002,10 +1021,18 @@ export default function MainPage() {
         .filter((lot: ParkingLot) => typeof lot?.occupancy === 'number'
           && Number.isFinite(Number(lot?.latitude)) && Number.isFinite(Number(lot?.longitude)))
         .map((lot: ParkingLot) => ({ ...lot, latitude: Number(lot.latitude), longitude: Number(lot.longitude) })));
+      applied = true;
     }).catch(() => {
       // 열지도는 부가 레이어다 — 실패하면 시설 실측만으로 그린다(조용히).
+      // 다만 잠금은 푼다: 다음에 토글을 다시 켜면 한 번 더 시도한다. 이 effect 가 이미 정리됐다면
+      // (토글을 껐다 켜서 새 요청이 나간 뒤) 그 잠금은 새 요청의 것이라 건드리지 않는다.
+      if (active) heatParkingAskedRef.current = false;
     });
-    return () => { active = false; };
+    return () => {
+      active = false;
+      // 응답을 화면에 반영하지 못한 채 토글이 꺼졌다 — 잠금을 풀어 다시 켰을 때 재시도되게 한다.
+      if (!applied) heatParkingAskedRef.current = false;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showHeatmap]);
 
@@ -1453,13 +1480,19 @@ export default function MainPage() {
   // 합성 그룹·시간대 시뮬(mockHour) 등 데모는 lib/recommender 미러(사유 포함)로 처리해 합친 뒤 #1을 표시.
   // (백엔드는 합성 시설/mockHour 를 모르므로 데모는 분리해 클라 미러로 점수를 매긴다.)
   useEffect(() => {
+    // 이 두 갈래는 요청을 아예 보내지 않는다 — 비상 타이머(요청 타임아웃 뒤)를 기다리지 말고
+    // 그 자리에서 스켈레톤을 걷는다. 말할 결과가 없으니 토스트도 띄우지 않는다.
     if (activeFilter === '주차장') {
       setSelectedFacility(null);
       setRankedFacilities([]);
       setNoRecommendation(false);
+      abandonRecalc();
       return;
     }
-    if (facilities.length === 0) return;
+    if (facilities.length === 0) {
+      abandonRecalc();
+      return;
+    }
 
     // 요청은 '보낼 때'의 제외 목록으로 계산된다. 응답을 기다리는 동안 누른 '관심 없음'·'저장'은
     // 이 effect 를 다시 돌리지 않으므로(아래 dep 주석), 결과를 화면에 쓰기 전에 **그 사이에 생긴
@@ -1668,8 +1701,8 @@ export default function MainPage() {
                 travelContext,
                 cuisineIntentRef.current,
                 recommendationController.signal,
-                // 프리티어 콜드스타트가 깨어날 여유(20s) — 10s 전역 타임아웃이면 빈 degraded 미러로 떨어진다.
-                20000,
+                // 재계산 스켈레톤의 비상 종료(RECALC_EMERGENCY_MS)가 이 값을 기준으로 잡힌다.
+                RECOMMENDATION_TIMEOUT_MS,
                 // 데모 '가정 시각'(있으면). null 이면 서버 현재 시각 = 기존 동작.
                 assumedAtIsoForPreset(assumedPreset),
               );
@@ -3751,6 +3784,8 @@ export default function MainPage() {
                     ?? selectedFacility.congestionEstimate
                     ?? null
                 }
+                // 비교 헤더·주변 수요 자리는 이 화면에서만 켠다 — 지도에서 고른 명소가 '대신할 A' 다.
+                showCompare
                 compareAnchorName={compareAnchorName}
                 compareAnchorLevel={compareAnchorLevel}
                 assumedTimeLabel={assumedTimeLabel}

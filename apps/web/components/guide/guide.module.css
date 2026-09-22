@@ -498,6 +498,23 @@
   word-break: keep-all;
 }
 
+.noteLinks {
+  display: block;
+  margin-top: 4px;
+}
+
+.noteLink {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  white-space: nowrap; /* 링크 라벨이 중간에서 줄바꿈되지 않게 — 통째로 다음 줄로 */
+}
+
+.noteLink:hover,
+.noteLink:focus-visible {
+  color: var(--color-muk);
+}
+
 @media (max-width: 1023px) {
   .modelGrid {
     grid-template-columns: 1fr;

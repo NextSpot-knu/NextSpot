@@ -8,7 +8,8 @@ import { useRouter } from 'next/navigation';
 export default function AdminPage() {
   const router = useRouter();
   useEffect(() => {
-    router.replace('/admin/dashboard');
+    // 쿼리를 보존한다 — /admin?demo=1 이 대시보드 데모로 이어지고, 레이아웃의 데모 판정과 어긋나지 않게.
+    router.replace('/admin/dashboard' + window.location.search);
   }, [router]);
   return null;
 }

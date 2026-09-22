@@ -2,25 +2,25 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { LayoutDashboard, Building2, BarChart3, Settings, HelpCircle, Sparkles, LogOut, ShieldAlert, Printer, UserCog, Compass, FlaskConical } from 'lucide-react';
+import { LayoutDashboard, Building2, BarChart3, Settings, HelpCircle, Sparkles, LogIn, LogOut, ShieldAlert, Printer, UserCog, Compass, FlaskConical } from 'lucide-react';
 import { signOutAdmin } from '@/lib/adminAuth';
 import { useAccount, canEnterDevConsole } from '@/lib/account';
 import { useDemoToast } from '@/components/DemoBadge';
+import { useT } from '@/lib/i18n/I18nProvider';
 
 // demo=true 는 `/admin/dashboard?demo=1`(로그인 없는 읽기 전용 데모) 전용이다. 메뉴는 그대로
 // 보이되 **어디로도 이동하지 않는다** — 데모에는 세션이 없어서 다른 관제 화면은 전부 로그인
-// 게이트로 튕기고, 심사위원에게는 그게 '고장' 으로 읽힌다. 로그아웃도 진짜 세션을 버리므로 막는다.
+// 게이트로 튕기고, 심사위원에게는 그게 '고장' 으로 읽힌다.
+// 대신 데모에는 버릴 세션이 없으므로 로그아웃 자리에 **로그인 게이트로 가는 길**을 둔다 —
+// 데모로 들어온 사람이 실제 계정으로 넘어갈 문이 없으면 이 화면은 일방통행이 된다.
 export function AdminSidebar({ demo = false }: { demo?: boolean } = {}) {
   const pathname = usePathname();
   const router = useRouter();
+  const t = useT();
   const { account } = useAccount();
   const demoToast = useDemoToast();
 
   const handleLogout = () => {
-    if (demo) {
-      demoToast();
-      return;
-    }
     // 세션 폐기를 기다리지 않고 즉시 화면을 옮긴다(실패해도 로그인으로 보내는 게 맞다).
     void signOutAdmin();
     router.replace('/admin/login');
@@ -48,7 +48,9 @@ export function AdminSidebar({ demo = false }: { demo?: boolean } = {}) {
   ];
 
   return (
-    <aside className="w-64 bg-hanok-panel border-r border-hanok-line flex flex-col flex-shrink-0 h-screen overflow-y-auto">
+    // 데모는 모바일(심사 링크가 바로 여는 화면)에서 사이드바를 접는다 — 390px 에서 w-64 가
+    // 본문을 세로 띠로 눌러버린다. 실제 관제(데스크톱 전용)는 그대로 둔다.
+    <aside className={`w-64 bg-hanok-panel border-r border-hanok-line flex-col flex-shrink-0 h-screen overflow-y-auto ${demo ? 'hidden lg:flex' : 'flex'}`}>
       <div className="p-6 border-b border-hanok-line sticky top-0 bg-hanok-panel z-10">
         {/* 라이트 종이 테마 전환 후 워드마크(네이비/코랄, 라이트 배경용)를 그대로 쓴다. */}
         <div className="flex items-end gap-2">
@@ -96,13 +98,24 @@ export function AdminSidebar({ demo = false }: { demo?: boolean } = {}) {
           <Compass size={20} />
           관광객 앱으로
         </Link>
-        <button
-          onClick={handleLogout}
-          className="w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-hanok-muted hover:bg-hanok-card hover:text-hanok-ink transition-colors"
-        >
-          <LogOut size={20} />
-          로그아웃
-        </button>
+        {demo ? (
+          // 데모에는 버릴 세션이 없다 — 로그아웃 대신 로그인 게이트로 보낸다(심사 계정 안내가 거기 있다).
+          <Link
+            href="/admin/login"
+            className="w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-hanok-muted hover:bg-hanok-card hover:text-hanok-ink transition-colors"
+          >
+            <LogIn size={20} />
+            {t('demo.realLogin')}
+          </Link>
+        ) : (
+          <button
+            onClick={handleLogout}
+            className="w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-hanok-muted hover:bg-hanok-card hover:text-hanok-ink transition-colors"
+          >
+            <LogOut size={20} />
+            로그아웃
+          </button>
+        )}
       </div>
     </aside>
   );

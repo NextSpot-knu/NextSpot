@@ -170,7 +170,9 @@
     "endBody": "설명을 읽었다면, 경주 지도에서 직접 비교해 보세요.",
     "direct": "소개 링크 열기",
     "example": "기능 흐름 예시",
-    "toc": "소개 목차"
+    "toc": "소개 목차",
+    "consoleLoginMerchant": "사장님 콘솔 로그인",
+    "consoleLoginAdmin": "관제 대시보드 로그인"
   },
   "common": {
     "appName": "NextSpot",
@@ -748,9 +750,9 @@
     "summarySavedWait": "절약된 대기 {n}분",
     "summaryStores": "참여 점포 {n}곳",
     "summaryAria": "누적 임팩트 상세 보기",
-    "sampleBadge": "실증 준비 중 · 예시 값",
+    "sampleBadge": "예시 값",
     "summaryRealNote": "내 여행 기록에서 집계한 실제 값이에요. 참여 점포 수만 예시입니다.",
-    "summarySampleNote": "실증 데이터가 쌓이면 실제 집계로 바뀝니다. 지금은 규모감을 보여 주는 예시 값이에요."
+    "summarySampleNote": "여행 기록이 쌓이면 내 실제 집계로 바뀌어요."
   },
   "recommend": {
     "shareText": "{name}을(를) 경주 대안 장소로 확인해보세요 · NextSpot",
@@ -1179,7 +1181,9 @@
     "developerAllTypes": "전체",
     "developerMore": "더 보기",
     "developerCount": "{count}곳",
-    "developerEmpty": "다른 이름이나 종류로 찾아보세요"
+    "developerEmpty": "다른 이름이나 종류로 찾아보세요",
+    "serverTitle": "서버 연결을 확인하고 있어요",
+    "serverDesc": "서버가 잠시 응답하지 않아 계정을 확인하지 못했어요. 잠시 후 다시 시도해 주세요."
   },
   "support": {
     "title": "고객지원",
@@ -1267,12 +1271,12 @@
     "apiParking": "공영주차장 현황·실시간 주차면",
     "apiOsm": "보행 경로 네트워크",
     "apiKakao": "지도 SDK·장소 키워드 검색",
-    "screenLocation": "지도 POI·추천 후보 생성",
+    "screenLocation": "지도 POI·추천 카드",
     "screenDetail": "장소 상세·운영시간·무장애 정보",
     "screenImage": "추천 카드·장소 상세 사진",
-    "screenFestival": "축제 패널·혼잡 가중치",
+    "screenFestival": "축제 패널",
     "screenConcentration": "방문자 추이 기반 추천 근거·주변 수요",
-    "screenWeather": "상단 날씨 카드·추천 가중치",
+    "screenWeather": "상단 날씨 카드",
     "screenParking": "혼잡 추정·주변 수요 근거",
     "screenOsm": "도보 이동 시간·도착 시각",
     "screenKakao": "지도 렌더링·화장실 목록",
@@ -1347,7 +1351,12 @@
     "anomalyTitle": "이상 혼잡 알림 내역",
     "seatLow": "여유",
     "seatMid": "보통",
-    "seatFull": "만석"
+    "seatFull": "만석",
+    "realLogin": "실제 계정으로 로그인",
+    "previewTitle": "콘솔 미리보기",
+    "previewDesc": "사장님 콘솔과 관제 대시보드를 예시 데이터로 둘러봅니다",
+    "previewMerchant": "사장님 콘솔",
+    "previewAdmin": "관제 대시보드"
   },
   "wait": {
     "minutes": "예상 대기 약 {n}분",
@@ -1361,9 +1370,9 @@
     "calmAt": "{h}시 이후 한산",
     "calmNow": "지금이 가장 한산",
     "arrivalBasis": "도착 {h}시 기준",
-    "legend": "카드마다 도착 시 예상 대기 · 혼잡 등급 · 한산해지는 시각을 보여드려요. 공영주차 실측과 관광 집중률 통계로 계산한 추정값이에요.",
-    "basisServer": "예측 모델 검증값",
-    "basisRanking": "추천 엔진이 순위에 쓴 대기",
+    "legend": "카드마다 도착 시 예상 대기와 한산해지는 시각을 보여드려요. 대기를 예측할 근거가 없는 곳은 대신 주변 수요 등급을 보여드려요.",
+    "basisServer": "실측 기반 예측",
+    "basisRanking": "업종·시간대 기준 추정",
     "basisBaseline": "업종 기준선",
     "basisMeasured": "실측 혼잡 기반",
     "basisEstimate": "공영주차 실측 + 관광 통계",

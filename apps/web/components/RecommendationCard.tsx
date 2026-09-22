@@ -125,6 +125,13 @@ interface RecommendationCardProps {
   // (lib/congestionEstimate.ts). facility.congestionLevel 에 넣지 않고 따로 받는 이유가 그 파일 머리말이다.
   congestionEstimate?: CongestionEstimate | null;
   // ── P2 비교 헤더("지금 A 혼잡 → 대신 B") ────────────────────────────────────
+  /**
+   * 비교 헤더와 '주변 수요' 자리를 띄울지. **기준 명소(A)가 있는 화면에서만 켠다.**
+   * /main 은 지도에서 고른 명소가 A 라서 "A 대신 B" 가 성립하지만, 저장 목록(/saved)은
+   * 사용자가 직접 고른 한 곳을 열어 보는 화면이라 대신할 A 가 없고 주변 수요도 요청하지
+   * 않는다 — 켜 두면 '인기 명소 대신…' 이라는 빈 문장과 끝나지 않는 '수집 중'만 남는다.
+   */
+  showCompare?: boolean;
   // 기준 명소 이름. 미지정이면 areaDemandTourismEvidence.referenceName(= 카드가 이미
   // "…기준 · 후보와 184m" 로 쓰고 있는 그 값)을 쓴다. 테마 칩이 켜지면 그 테마의 대표
   // 랜드마크로 덮어쓴다.
@@ -181,6 +188,7 @@ export function RecommendationCard({
   congestionTimestamp,
   scoringMode,
   congestionEstimate,
+  showCompare = false,
   compareAnchorName,
   compareAnchorLevel,
   assumedTimeLabel,
@@ -249,6 +257,20 @@ export function RecommendationCard({
     setLiveDetail(null);
     setLiveLoading(false);
   }, [title]);
+
+  // 주변 수요 '수집 중' 표시의 시한. 이 카드는 주변 수요를 스스로 부르지 않고 props 로 받기만 하므로
+  // '아직 오는 중'인지 '서버가 줄 게 없었는지'를 구분할 수 없다 — 그래서 시간으로 끊는다.
+  // 8초: 따뜻한 응답이면 이미 도착하고도 남는 시간이고, 넘기면 회전을 멈춘다. 값이 뒤늦게 오면
+  // 이 블록 자체가 실제 주변 수요 패널로 바뀌므로 짧게 잡아도 잃는 정보가 없다.
+  // 끝나지 않는 스피너는 '수집 중'이 아니라 '고장'으로 읽힌다 — 그래서 자리는 남기되 회전만 멈추고
+  // "근거가 도착하면 여기에 표시된다"는 설명을 남긴다(카드 높이는 그대로).
+  const [demandCollectingExpired, setDemandCollectingExpired] = useState(false);
+  useEffect(() => {
+    setDemandCollectingExpired(false);
+    if (typeof areaDemandLevel === 'number') return;
+    const timer = setTimeout(() => setDemandCollectingExpired(true), 8_000);
+    return () => clearTimeout(timer);
+  }, [title, areaDemandLevel]);
 
   const displayCongestionLevel = localReport?.level ?? facility?.congestionLevel;
   const displayCongestionSource = localReport ? 'measured' : congestionSource;
@@ -679,7 +701,9 @@ export function RecommendationCard({
       />
 
       {/* P2 — 비교 헤더. 카드 맨 위, **접힌 상태에서도** 보인다. 이 추천이 무슨 줄을 대신하는지가
-          카드의 첫 문장이어야 한다("줄 서는 대신, 경주를 한 곳 더"). 근거가 없어도 사라지지 않는다. */}
+          카드의 첫 문장이어야 한다("줄 서는 대신, 경주를 한 곳 더"). 근거 값이 비어도 사라지지 않는다 —
+          단, 대신할 기준 명소 자체가 없는 화면(showCompare=false, 예: 저장 목록)에서는 아예 띄우지 않는다. */}
+      {showCompare && (
       <div className="rounded-2xl border border-terracotta/25 bg-gradient-to-r from-terracotta/10 via-gold/10 to-jade/10 px-3 py-2">
         <p className="text-[9px] font-extrabold uppercase tracking-wide text-terracotta">
           {t('compare.headerKicker')}
@@ -702,6 +726,7 @@ export function RecommendationCard({
           </div>
         )}
       </div>
+      )}
 
       {isMinimized ? (
         <div
@@ -1231,15 +1256,19 @@ export function RecommendationCard({
         </div>
       )}
       {/* 같은 자리, 값이 아직 없을 때. 로드 직후 첫 카드만 이 블록이 통째로 빠져 카드 모양이
-          한 번 바뀌던 문제를 막는다 — 섹션은 항상 있고, 모르면 '수집 중'이라고 말한다. */}
-      {typeof areaDemandLevel !== 'number' && (
+          한 번 바뀌던 문제를 막는다 — 섹션은 항상 있고, 모르면 '수집 중'이라고 말한다.
+          주변 수요를 아예 요청하지 않는 화면(showCompare=false)에서는 이 자리도 두지 않는다.
+          회전 표시는 시한부다(demandCollectingExpired) — 끝나지 않는 스피너는 고장으로 읽힌다. */}
+      {showCompare && typeof areaDemandLevel !== 'number' && (
         <div className="text-[11px] leading-snug text-sky-800 bg-sky-500/10 border border-sky-500/20 rounded-xl px-3 py-2">
           <div className="flex items-center justify-between gap-2">
             <span className="font-bold">{t('recommend.areaDemandForRanking')}</span>
-            <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-sky-700">
-              <span className="inline-block h-2.5 w-2.5 animate-spin rounded-full border-2 border-sky-500/30 border-t-sky-600" />
-              {t('compare.collecting')}
-            </span>
+            {!demandCollectingExpired && (
+              <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-sky-700">
+                <span className="inline-block h-2.5 w-2.5 animate-spin rounded-full border-2 border-sky-500/30 border-t-sky-600" />
+                {t('compare.collecting')}
+              </span>
+            )}
           </div>
           <p className="mt-1.5 text-sky-800/80">{t('compare.demandCollectingHint')}</p>
         </div>

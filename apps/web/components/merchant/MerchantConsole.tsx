@@ -30,6 +30,7 @@ import {
   CircleDot,
   CircleX,
   PowerOff,
+  LogIn,
   LogOut,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -94,6 +95,7 @@ type AsyncState = 'loading' | 'ready' | 'error';
 
 export function MerchantConsole({ demo = false }: { demo?: boolean }) {
   const router = useRouter();
+  const t = useT();
   const { account, status } = useAccount();
   const [mounted, setMounted] = useState(false);
   // 데모는 고를 가게가 없다 — 고정 가게로 바로 시작한다(로컬 저장소도 읽지 않는다).
@@ -146,40 +148,53 @@ export function MerchantConsole({ demo = false }: { demo?: boolean }) {
       {demo && <DemoBadge />}
       {/* 콘솔 톱바 — 흰 서페이스 위에 가게 이름을 주인공으로 세운다(종류는 금색 칩).
           좌우 조작은 모두 44px 급 버튼으로 — 스크린샷·고령 사용자 모두에서 '전문 도구' 로 읽히게. */}
-      <header className={`sticky ${demo ? 'top-11' : 'top-0'} z-10 bg-white/95 backdrop-blur border-b border-line px-3 py-2.5 flex items-center justify-between gap-2`}>
-        <button
-          onClick={() => router.push(demo ? '/main' : '/merchant')}
-          aria-label="사장님 콘솔 홈으로"
-          className="toss-pressable flex min-h-11 min-w-11 items-center justify-center rounded-xl border border-line bg-white text-muk-soft hover:bg-hanji hover:text-muk transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
-        >
-          <ChevronLeft size={20} aria-hidden="true" />
-        </button>
-        <div className="min-w-0 text-center">
-          <p className="truncate text-[15px] font-bold font-serif text-muk">{facility.name}</p>
-          <p className="mt-0.5 inline-block rounded-full border border-gold/30 bg-gold/10 px-2 py-px text-[13px] font-semibold leading-5 text-gold-deep">
-            {TYPE_LABEL[facility.type] || facility.type}
-          </p>
-        </div>
-        {/* 오른쪽은 '가게 변경'(콘솔 안에서 대상 바꾸기)과 '나가기'(콘솔 밖으로) 둘이다.
-            여기 나가기가 없던 동안 대시보드에서 앱으로 돌아갈 길은 게이트를 한 번 거치는
-            것뿐이었다 — 하단 내비도 /merchant 경로에서는 숨겨진다(BottomNav 의 allowlist).
-            목적지를 못박는 이유는 게이트의 leave 주석 참조(히스토리 back 은 못 나간다). */}
-        <div className="flex flex-shrink-0 items-center gap-1.5">
-          {/* 데모에는 고를 다른 가게가 없다 — 버튼 자체를 감춘다(눌러도 할 일이 없는 버튼을 두지 않는다). */}
-          {!demo && <button
-            onClick={handleChangeFacility}
-            className="toss-pressable min-h-11 rounded-xl border border-line bg-white px-3 text-[13px] font-semibold text-muk hover:bg-hanji transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
-          >
-            가게 변경
-          </button>}
+      <header className={`sticky ${demo ? 'top-11' : 'top-0'} z-10 bg-white/95 backdrop-blur border-b border-line px-3 py-2.5 flex flex-col gap-2`}>
+        <div className="flex items-center justify-between gap-2">
+          {/* 데모에서도 목적지는 콘솔 홈(/merchant) 이다 — 게이트에 로그인·데모·심사 계정 안내가 모여 있다.
+              앱으로 나가는 길은 오른쪽 '나가기' 가 따로 맡는다. */}
           <button
-            onClick={() => router.push('/main')}
-            aria-label="관광객 앱으로 나가기"
-            className="toss-pressable flex min-h-11 items-center gap-1 rounded-xl border border-line bg-white px-3 text-[13px] font-semibold text-muk-soft hover:bg-hanji hover:text-muk transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+            onClick={() => router.push('/merchant')}
+            aria-label="사장님 콘솔 홈으로"
+            className="toss-pressable flex min-h-11 min-w-11 items-center justify-center rounded-xl border border-line bg-white text-muk-soft hover:bg-hanji hover:text-muk transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
           >
-            <LogOut size={14} aria-hidden="true" /> 나가기
+            <ChevronLeft size={20} aria-hidden="true" />
           </button>
+          <div className="min-w-0 text-center">
+            <p className="truncate text-[15px] font-bold font-serif text-muk">{facility.name}</p>
+            <p className="mt-0.5 inline-block rounded-full border border-gold/30 bg-gold/10 px-2 py-px text-[13px] font-semibold leading-5 text-gold-deep">
+              {TYPE_LABEL[facility.type] || facility.type}
+            </p>
+          </div>
+          {/* 오른쪽은 '가게 변경'(콘솔 안에서 대상 바꾸기)과 '나가기'(콘솔 밖으로) 둘이다.
+              여기 나가기가 없던 동안 대시보드에서 앱으로 돌아갈 길은 게이트를 한 번 거치는
+              것뿐이었다 — 하단 내비도 /merchant 경로에서는 숨겨진다(BottomNav 의 allowlist).
+              목적지를 못박는 이유는 게이트의 leave 주석 참조(히스토리 back 은 못 나간다). */}
+          <div className="flex flex-shrink-0 items-center gap-1.5">
+            {/* 데모에는 고를 다른 가게가 없다 — 버튼 자체를 감춘다(눌러도 할 일이 없는 버튼을 두지 않는다). */}
+            {!demo && <button
+              onClick={handleChangeFacility}
+              className="toss-pressable min-h-11 rounded-xl border border-line bg-white px-3 text-[13px] font-semibold text-muk hover:bg-hanji transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+            >
+              가게 변경
+            </button>}
+            <button
+              onClick={() => router.push('/main')}
+              aria-label="관광객 앱으로 나가기"
+              className="toss-pressable flex min-h-11 items-center gap-1 rounded-xl border border-line bg-white px-3 text-[13px] font-semibold text-muk-soft hover:bg-hanji hover:text-muk transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+            >
+              <LogOut size={14} aria-hidden="true" /> 나가기
+            </button>
+          </div>
         </div>
+        {/* 데모에서 실제 계정으로 넘어가는 길 — 위 줄에 끼워 넣으면 390px 에서 가게 이름이 눌린다. */}
+        {demo && (
+          <button
+            onClick={() => router.push('/merchant')}
+            className="toss-pressable flex min-h-10 w-full items-center justify-center gap-1.5 rounded-xl border border-gold/40 bg-gold/10 px-3 text-[13px] font-semibold text-gold-deep hover:bg-gold/20 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+          >
+            <LogIn size={14} aria-hidden="true" /> {t('demo.realLogin')}
+          </button>
+        )}
       </header>
 
       <main className="max-w-2xl mx-auto px-4 py-6 flex flex-col gap-5">

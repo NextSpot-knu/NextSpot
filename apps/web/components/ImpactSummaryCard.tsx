@@ -20,16 +20,15 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ChevronRight, Sparkles } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
+import { DEMO_ADMIN_KPI } from '@/lib/demoFixtures';
 import { useT } from '@/lib/i18n/I18nProvider';
 
-// 예시 값 — 관제 데모 콘솔(lib/demoFixtures.ts 의 DEMO_ADMIN_KPI)과 **같은 숫자**를 쓴다.
-// 심사위원이 두 화면을 오가며 서로 다른 성과 숫자를 보면 어느 쪽도 믿지 못한다.
-// (그 파일을 import 하지 않고 상수를 복제한 이유: 데모 콘솔은 별도 작업자가 동시에 고치고 있어
-//  결합을 늘리지 않기로 했다. 값이 달라지면 여기도 맞춰야 한다.)
-const SAMPLE_DISPERSALS = 312;
-const SAMPLE_SAVED_WAIT_MINUTES = 1240;
+// 예시 값 — 관제 데모 콘솔이 쓰는 상수를 **그대로 읽는다**(복제하지 않는다).
+// 숫자를 베껴 두면 한쪽만 고쳐졌을 때 심사위원이 두 화면에서 다른 성과를 보고 어느 쪽도 믿지 못한다.
+const SAMPLE_DISPERSALS = DEMO_ADMIN_KPI.dispersals;
+const SAMPLE_SAVED_WAIT_MINUTES = DEMO_ADMIN_KPI.savedWaitMinutes;
 /** 참여 점포 수 — 임팩트 API 가 내려주지 않는 항목이라 항상 예시 값이다. */
-const SAMPLE_PARTICIPATING_STORES = 14;
+const SAMPLE_PARTICIPATING_STORES = DEMO_ADMIN_KPI.participatingStores;
 
 interface ImpactNumbers {
   dispersals: number;
@@ -104,12 +103,15 @@ export default function ImpactSummaryCard() {
     <button
       type="button"
       onClick={() => router.push('/mypage/impact')}
+      // aria 는 두 모드 공통 — 이 버튼이 여는 곳(누적 임팩트 상세)은 예시 모드에서도 같다.
       aria-label={t('impact.summaryAria')}
       className="group mb-4 w-full rounded-3xl border border-gold/35 bg-gradient-to-r from-gold/15 via-hanji to-jade/10 p-5 text-left shadow-[0_2px_14px_rgba(43,35,32,0.06)] toss-pressable hover:border-gold/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
+            {/* 제목은 두 모드 같다 — 이 버튼의 aria 와 이 버튼이 여는 /mypage/impact 가 '누적 임팩트'라
+                부르는 숫자를 카드에서만 다르게 부르면 한 숫자가 두 이름을 갖는다. 예시 모드는 아래 배지가 말한다. */}
             <span className="inline-flex items-center gap-1.5 text-[13px] font-bold text-muk">
               <Sparkles size={16} className="text-gold-deep" aria-hidden />
               {t('impact.summaryTitle')}

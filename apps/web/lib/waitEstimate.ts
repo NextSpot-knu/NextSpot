@@ -3,18 +3,22 @@
 //
 // 왜 필요한가(2026-09-21 라이브 실측): 보드 제목은 "지금 출발하면? / 도착할 때 얼마나 기다릴지"
 // 인데, 프로덕션 추천 응답의 `breakdown.waitTime` 은 검증 모델이 없어 **거의 항상 null** 이다.
-// 그래서 모든 카드가 같은 두 줄("관광지 상대지수 44/100", "반경 2,000m의 주차 수요")만 찍고 있었다
-// — 제목이 약속한 것을 화면이 한 번도 보여주지 못한 셈이다.
 //
-// 이 모듈은 **이미 있는 실데이터**로 그 세 숫자를 만든다. 새로 지어내는 값은 없다:
-//   · GET /api/v1/congestion/estimates — 공영주차 실측 0.7 + 관광 집중률 통계 0.3 으로 만든
-//     **시설별** 혼잡 추정(0~1). 847곳에 385종의 서로 다른 값이 실린다 → 카드마다 값이 갈린다.
-//   · GET /api/v1/area-demand/forecast — 도착 시각별 권역 주차 수요 전망(검증 MAE 0.049,
-//     베이스라인 대비 75% 개선). 앞으로 6시간 정시를 훑어 '한산해지는 시각'을 고른다.
-//   · 추천 응답의 areaDemandLevel / 관광 상대지수 — 위 둘이 없을 때의 폴백.
+// ⚠️ 분(minutes)으로 말할 수 있는 근거는 정해져 있다 — docs/CONGESTION_DATA.md §2 원칙 3·4·6:
+//   · server   : 검증 모델의 대기(분)              → 분 O, '추정' 라벨 없음
+//   · ranking  : 엔진이 순위에 실제로 쓴 대기(분)  → 분 O, '추정' 라벨
+//   · baseline : 업종 기준선 대기(분)              → 분 O, '추정' 라벨
+//   · measured : 이 장소의 실측·예측 혼잡(0~1)     → 분 O, '추정' 라벨
+//   · estimate(공영주차+관광 통계) / area(주변 권역 수요) / tourism(관광 상대지수) / default
+//                                                  → **분 X** (minutes = null)
+// 주변 주차 수요나 관광 상대지수는 '이 장소 안에서 몇 분 기다린다'는 뜻이 아니다. 그 값을 분으로
+// 바꾸면 원칙 3·4(주변 유동을 매장 내부로 표현 · 상대 추이를 '대기 N분'으로 변환)를 어기고,
+// 근거가 아예 없을 때 0분을 찍으면 원칙 6(없으면 '정보 없음')을 어긴다. 그래서 그 근거들은 분 대신
+// **등급·지수 그대로** 화면으로 넘긴다(보드가 근거 종류에 맞는 정성 문구를 고른다).
 //
-// 서버가 검증 대기(분)를 실제로 내려주면 그 값이 항상 이긴다(estimated=false → '추정' 라벨 없음).
-// 그 외에는 전부 `estimated=true` 로 표시해 화면이 '추정'이라고 **말하게** 한다 — 정직성 원칙.
+// 분이 없어도 ③ 은 남는다: 한산해지는 시각은 권역 주차 수요 전망(GET /api/v1/area-demand/forecast,
+// 검증 MAE 0.049)과 유형별 시간대 곡선으로 고르는 **상대적** 판단이라 분 변환에 해당하지 않는다.
+// 다만 근거가 하나도 없는 카드(basis 'default')에는 그것도 말하지 않는다.
 
 /** 혼잡 등급 — 화면 라벨은 i18n `wait.grade*` 가 담당한다. */
 export type WaitGrade = "relaxed" | "moderate" | "busy";
@@ -43,9 +47,9 @@ export interface WaitEstimateInput {
   capacity?: number | null;
   /** congestionDisplay 가 measured/predicted 로 인정한 혼잡(0~1). */
   measuredLevel?: number | null;
-  /** /congestion/estimates 의 시설별 추정(0~1). */
+  /** /congestion/estimates 의 시설별 추정(0~1). 주차·관광 파생이라 분으로 바꾸지 않는다. */
   estimateLevel?: number | null;
-  /** 추천 응답의 주변 권역 수요(0~1). */
+  /** 추천 응답의 주변 권역 수요(0~1). 장소 내부가 아니다 — 분으로 바꾸지 않는다. */
   areaDemandLevel?: number | null;
   /** 관광 상대지수(0~100). 같은 기준지를 공유하는 시설끼리는 값이 같다(그래서 이것만으론 못 가른다). */
   tourismRelativeIndex?: number | null;
@@ -60,12 +64,13 @@ export interface WaitEstimateInput {
 }
 
 export interface WaitEstimate {
-  /** 예상 대기(분, 0 이상 정수). */
-  minutes: number;
-  grade: WaitGrade;
-  /** 서버 검증 대기가 아니면 true → 화면에 '추정' 라벨. */
+  /** 예상 대기(분, 0 이상 정수). 분으로 말할 근거가 없으면 **null** — 화면이 등급·지수로 대신 말한다. */
+  minutes: number | null;
+  /** 대기 등급. minutes 가 null 이면 null(대기 등급을 말할 근거가 없다). */
+  grade: WaitGrade | null;
+  /** 서버 검증 대기가 아닌 분이면 true → 화면에 '추정' 라벨. 분이 없으면 false(추정한 게 없다). */
   estimated: boolean;
-  /** 한산해지는 시각(KST 0~23 정시). 이미 가장 한산하면 null. */
+  /** 한산해지는 시각(KST 0~23 정시). 이미 가장 한산하거나 근거가 없으면 null. */
   calmHour: number | null;
   /** 도착 예정 KST 시(소수 — 이동 시간이 반영돼 시설마다 갈린다). */
   arrivalHour: number;
@@ -150,7 +155,7 @@ function hourFactor(type: string, hour: number): number {
   return curve[lo] * (1 - frac) + curve[hi] * frac;
 }
 
-// 시설별 혼잡 추정(0~1)을 '대기 압력'(0~1)으로 편다.
+// 혼잡(0~1)을 '대기 압력'(0~1)으로 편다.
 // 주차 기반 추정은 0 근처로 내려오지 않는다(라이브 847곳 실측: 0.64~1.00, 중앙값 0.76).
 // 그 관측 구간을 그대로 펴서, 같은 시간대 안에서도 카드끼리 값이 갈리게 한다.
 const PRESSURE_FLOOR = 0.35;
@@ -158,17 +163,35 @@ const PRESSURE_CEIL = 0.95;
 const spreadPressure = (level: number) =>
   clamp01((level - PRESSURE_FLOOR) / (PRESSURE_CEIL - PRESSURE_FLOOR));
 
-function pickPressure(input: WaitEstimateInput): { pressure: number; basis: WaitBasis } {
+/** 이 근거가 무엇인지 + **분으로 말해도 되는 종류인지**(waitShaped). */
+interface PressurePick {
+  pressure: number;
+  basis: WaitBasis;
+  /** true 면 이 압력을 대기(분)로 환산해도 된다. false 면 등급·지수로만 말한다. */
+  waitShaped: boolean;
+}
+
+function pickPressure(input: WaitEstimateInput): PressurePick {
+  // 이 장소를 실제로 관측·예측한 혼잡 — 백엔드가 대기를 만들 때 쓰는 것과 같은 입력이다.
   const measured = finite(input.measuredLevel);
-  if (measured !== null) return { pressure: spreadPressure(clamp01(measured)), basis: "measured" };
+  if (measured !== null) {
+    return { pressure: spreadPressure(clamp01(measured)), basis: "measured", waitShaped: true };
+  }
+  // 아래 셋은 '이 장소 안의 줄'이 아니라 주변·상대 지표다 — 분으로 바꾸지 않는다(§2 원칙 3·4).
   const estimate = finite(input.estimateLevel);
-  if (estimate !== null) return { pressure: spreadPressure(clamp01(estimate)), basis: "estimate" };
+  if (estimate !== null) {
+    return { pressure: spreadPressure(clamp01(estimate)), basis: "estimate", waitShaped: false };
+  }
   const area = finite(input.areaDemandLevel);
-  if (area !== null) return { pressure: spreadPressure(clamp01(area)), basis: "area" };
+  if (area !== null) {
+    return { pressure: spreadPressure(clamp01(area)), basis: "area", waitShaped: false };
+  }
   const tourism = finite(input.tourismRelativeIndex);
-  if (tourism !== null) return { pressure: spreadPressure(clamp01(tourism / 100)), basis: "tourism" };
-  // 아무 근거도 없을 때만 중앙값 가정. 이 경우에도 '추정' 라벨이 붙는다.
-  return { pressure: 0.5, basis: "default" };
+  if (tourism !== null) {
+    return { pressure: spreadPressure(clamp01(tourism / 100)), basis: "tourism", waitShaped: false };
+  }
+  // 아무 근거도 없을 때의 중앙값 가정 — '한산해지는 시각' 탐색 척도로만 쓰고 화면에 분을 내지 않는다.
+  return { pressure: 0.5, basis: "default", waitShaped: false };
 }
 
 // 권역 수요 곡선(실측 전망)을 시간 가중치로 바꾼다. 0.6~1.0 사이로만 움직여 내장 유형 곡선의
@@ -209,7 +232,7 @@ export function estimateWait(input: WaitEstimateInput): WaitEstimate {
   const travel = Math.max(0, finite(input.travelMinutes) ?? 0);
   const arrivalHour = kstHourOf(baseAt) + travel / 60;
 
-  const { pressure, basis } = pickPressure(input);
+  const { pressure, basis, waitShaped } = pickPressure(input);
   const curve = input.areaCurve ?? null;
   const anchor = curve ? finite(curve[((Math.round(arrivalHour) % 24) + 24) % 24]) : null;
   const anchorFactor = areaFactorAt(arrivalHour, curve, anchor);
@@ -226,6 +249,7 @@ export function estimateWait(input: WaitEstimateInput): WaitEstimate {
   //   ① wait_time              : 학습 모델의 검증 대기(추정 아님)
   //   ② ranking_wait_time      : 엔진이 **순위에 실제로 쓴** 대기 — 화면 계약상 '추정'으로 표기
   //   ③ industry_baseline_wait : 근거 없는 후보의 업종 기준선 대기(이 시설의 측정값이 아니다)
+  // 셋 다 서버가 이미 '분' 으로 내려준 값이다 — 상대지수를 분으로 바꾸는 것과는 다른 이야기.
   const serverWait = finite(input.serverWaitMinutes);
   const rankingWait = finite(input.rankingWaitMinutes);
   const baselineWait = finite(input.baselineWaitMinutes);
@@ -240,12 +264,23 @@ export function estimateWait(input: WaitEstimateInput): WaitEstimate {
       : baselineWait !== null && baselineWait >= 0
       ? { value: baselineWait, basis: "baseline" as WaitBasis, estimated: true }
       : null;
-  const minutes = Math.max(0, Math.round(supplied ? supplied.value : modeledNow));
+  // 분은 '분으로 말해도 되는 근거'에서만 나온다. 나머지는 null — 보드가 등급·지수로 대신 말한다.
+  const minutes =
+    supplied !== null
+      ? Math.max(0, Math.round(supplied.value))
+      : waitShaped
+      ? Math.max(0, Math.round(modeledNow))
+      : null;
 
   // 한산해지는 시각 — 도착 이후 8시간 안에서 지금 예상 대기의 절반 이하가 되는 첫 정시.
   // 이미 충분히 한산하거나(<=3분) 8시간 안에 그런 시각이 없으면 null(화면은 그 줄을 다르게 쓴다).
+  // 분이 없는 카드(추정·권역·관광 등급)는 **권역 수요 곡선(실측 전망)이 있을 때만** 말한다 — 내장
+  // 시간대 곡선만으로는 이 장소가 몇 시에 한산해지는지 알 수 없다(§2 원칙 6). 근거가 하나도 없는
+  // 카드(basis 'default')도 같은 이유로 말하지 않는다. 화면에 그 줄을 그릴지는 showsCalmLine 이 판정한다.
   let calmHour: number | null = null;
-  if (minutes > 3) {
+  const scaleMinutes = minutes ?? modeledNow;
+  const calmEvidence = minutes !== null || (basis !== "default" && anchor !== null);
+  if (calmEvidence && scaleMinutes > 3) {
     const target = Math.max(1, modeledNow * 0.5);
     for (let step = 1; step <= 8; step++) {
       const h = Math.floor(arrivalHour) + step;
@@ -258,12 +293,40 @@ export function estimateWait(input: WaitEstimateInput): WaitEstimate {
 
   return {
     minutes,
-    grade: gradeFor(minutes, peak),
-    estimated: supplied ? supplied.estimated : true,
+    grade: minutes === null ? null : gradeFor(minutes, peak),
+    estimated: minutes === null ? false : supplied ? supplied.estimated : true,
     calmHour,
     arrivalHour: ((arrivalHour % 24) + 24) % 24,
     basis: supplied ? supplied.basis : basis,
   };
+}
+
+/**
+ * 대기 짧은 순 정렬용 비교자. 분을 말할 수 없는 카드는 **0분이 아니라 맨 뒤**로 보낸다 —
+ * null 을 0 으로 취급하면 '아무것도 모르는 곳'이 보드 1위에 선다.
+ */
+/**
+ * '한산해지는 시각' 줄을 그려도 되는가. 분이 있는 카드는 calmHour 가 null 이어도 '지금이 가장 한산'을
+ * 말할 수 있지만(분이라는 척도가 있다), 분이 없는 카드는 곡선에서 실제로 찾은 시각이 있을 때만 말한다.
+ */
+export function showsCalmLine(est: WaitEstimate): boolean {
+  return est.minutes !== null || est.calmHour !== null;
+}
+
+/**
+ * 히어로 '도착 시 최단 대기 N분' 후보가 될 수 있는가. 카드의 waitHeadline 과 같은 규칙이다 —
+ * 추정 0분은 '여유'로만 말하고 분으로 단언하지 않는다(§2 원칙 6). 0분을 분으로 말하는 것은 server 근거뿐.
+ * 히어로는 최솟값을 고르므로, 이 규칙이 없으면 추정 0분이 거의 항상 히어로를 차지한다.
+ */
+export function heroWaitCandidate(est: WaitEstimate): boolean {
+  return est.minutes !== null && (est.minutes > 0 || est.basis === "server");
+}
+
+export function compareWaitMinutes(a: WaitEstimate, b: WaitEstimate): number {
+  if (a.minutes === null && b.minutes === null) return 0;
+  if (a.minutes === null) return 1;
+  if (b.minutes === null) return -1;
+  return a.minutes - b.minutes;
 }
 
 /** 도착 시각(KST) 표시용 — "14시" 형태의 정수 시. */

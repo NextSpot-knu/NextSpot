@@ -8,7 +8,7 @@ import Image from 'next/image';
 import {
   Menu, Bell, Bookmark, User,
   Edit2, ChevronRight, LogOut,
-  Settings as SettingsIcon, Ticket, X, Footprints, Sparkles, Hourglass, Store, FlaskConical, Wrench, UserCog, ShieldCheck, MessageSquare
+  Settings as SettingsIcon, Ticket, X, Footprints, Sparkles, Hourglass, Store, FlaskConical, Wrench, UserCog, ShieldCheck, MessageSquare, Eye
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { createPublicClient } from '@/lib/supabase';
@@ -92,6 +92,33 @@ function AdminConsoleEntry() {
       </span>
       <ChevronRight size={18} className="shrink-0 text-muk-soft" />
     </button>
+  );
+}
+
+/** 콘솔 미리보기 — 사장님·관리자 권한이 없는 사람(게스트·관광객)에게 두 콘솔을 예시 데이터(?demo=1)로 열어 준다.
+    실 콘솔 카드가 보이는 계정에는 그리지 않는다(실화면과 예시 화면이 나란히 있으면 헷갈린다). 데모는 서버를 부르지 않는다. */
+function ConsolePreviewEntry() {
+  const router = useRouter();
+  const t = useT();
+  const { account, status } = useAccount();
+  // 계정 판정이 끝나기 전에는 그리지 않는다 — 사장님·관리자에게 예시 카드가 잠깐 보였다 사라지면 안 된다.
+  if (status === 'loading' || canEnterMerchantConsole(account) || canEnterAdminConsole(account)) return null;
+  const buttonClass = 'toss-pressable flex min-h-11 items-center justify-center gap-1.5 rounded-xl border border-gold/40 bg-white px-3 text-sm font-bold text-gold-deep hover:bg-hanji-deep focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60';
+  return (
+    <div className="mb-4 rounded-3xl border border-gold/30 bg-gold/5 p-5">
+      <p className="flex items-center gap-2 font-bold text-muk">
+        <Eye size={17} className="text-gold-deep" /> {t('demo.previewTitle')}
+      </p>
+      <p className="mt-0.5 text-xs text-muk-soft">{t('demo.previewDesc')}</p>
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        <button type="button" onClick={() => router.push('/merchant?demo=1')} className={buttonClass}>
+          <Store size={16} /> {t('demo.previewMerchant')}
+        </button>
+        <button type="button" onClick={() => router.push('/admin/dashboard?demo=1')} className={buttonClass}>
+          <ShieldCheck size={16} /> {t('demo.previewAdmin')}
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -617,6 +644,9 @@ export default function MyPage() {
                 developer 는 위쪽 개발자 콘솔 카드까지 셋을 함께 보는데, 팀 전용 도구(위)와
                 승인형 콘솔(여기) 구분이 그대로 보여 순서가 어색하지 않다. */}
             <AdminConsoleEntry />
+
+            {/* 콘솔 미리보기 — 권한 카드가 없는 게스트·관광객에게만 보인다(위 두 카드와 같은 자리). */}
+            <ConsolePreviewEntry />
 
             {/* 계정 역할 변경 신청 — 사업자·관리자 권한을 요청하는 유일한 자기 신청 경로다.
                 예전에는 tourist 에게만 작은 밑줄 링크 하나였다. 사장님이 관리자 권한을

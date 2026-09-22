@@ -37,9 +37,6 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   useEffect(() => {
     setMounted(true);
     try {
-      if (isDemoParam(new URLSearchParams(window.location.search).get('demo'))) setDemo(true);
-    } catch { /* URL 파싱 불가 — 평소 게이트 경로 그대로 */ }
-    try {
       const raw = window.localStorage.getItem(GATE_CACHE_KEY);
       if (!raw) return;
       const cached = JSON.parse(raw) as { allowed?: boolean; savedAt?: number };
@@ -49,6 +46,17 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       }
     } catch { /* 저장소 차단 — 기존 로더 경로 그대로 */ }
   }, []);
+
+  // 데모 플래그는 **대시보드 한 화면에만** 유효하다 — 다른 관제 화면은 데모 구현이 없어, 플래그가 살아
+  // 있으면 세션 없이 실화면을 그린다. 경로가 바뀔 때마다 다시 읽어, 쿼리가 떨어지면 플래그도 내린다.
+  // /admin(인덱스)은 쿼리를 들고 대시보드로 보내는 리다이렉트뿐이라 함께 통과시킨다 — 여기서 막으면
+  // 자식 페이지가 마운트되지 못해 /admin?demo=1 이 로그인 화면으로 떨어진다.
+  useEffect(() => {
+    try {
+      setDemo((pathname === '/admin/dashboard' || pathname === '/admin')
+        && isDemoParam(new URLSearchParams(window.location.search).get('demo')));
+    } catch { setDemo(false); /* URL 파싱 불가 — 평소 게이트 경로 그대로 */ }
+  }, [pathname]);
 
   // 마운트 후에만 localStorage 평가(서버 프리렌더/하이드레이션 불일치 방지).
   const { account, status } = useAccount();

@@ -52,7 +52,7 @@ function MerchantEntry() {
 function MerchantGatePage() {
   const router = useRouter();
   const t = useT();
-  const { account, status } = useAccount();
+  const { account, status, unreachable, refresh } = useAccount();
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => setMounted(true), []);
@@ -78,6 +78,22 @@ function MerchantGatePage() {
         <div className="flex items-center justify-center gap-2 py-10 text-muk-soft">
           <Loader2 className="animate-spin" size={20} />
         </div>
+      </Shell>
+    );
+  }
+
+  // 0) 서버에 닿지 못했다 → '로그인 필요'가 아니다. 세션은 그대로일 수 있으니 다시 묻는 길만 준다
+  //    (로그인을 다시 시키면 같은 장애 창 안에서 같은 화면으로 되돌아온다 — 2026-09-22 실측).
+  if (!account && unreachable) {
+    return (
+      <Shell onLeave={leave}>
+        <Card
+          icon={<ShieldAlert size={22} className="text-gold-deep" />}
+          title={t('merchantGate.serverTitle')}
+          desc={t('merchantGate.serverDesc')}
+          action={{ label: t('common.retry'), onClick: () => void refresh() }}
+          secondary={{ label: t('demo.enter'), onClick: () => router.push('/merchant?demo=1') }}
+        />
       </Shell>
     );
   }

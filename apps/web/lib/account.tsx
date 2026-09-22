@@ -47,10 +47,19 @@ interface AccountContextValue {
   account: Account | null;
   /** 'loading' 은 첫 조회 전 — 이때 권한 분기를 확정하면 화면이 깜빡인다. */
   status: 'loading' | 'ready' | 'error';
+  /**
+   * 마지막 조회가 **서버에 닿지 못해**(타임아웃·5xx) 실패했는가. status 'error' 만으로는 '세션 없음'(401)과
+   * 구분이 안 된다 — 관문이 이 값을 보고 '로그인 필요' 대신 '서버 연결 확인 · 다시 시도'를 보여 준다.
+   * (2026-09-22 실측: 관제 API 인스턴스가 재시작하는 2분 동안 로그인한 심사 계정이 로그인 화면으로 튕겼다.)
+   */
+  unreachable: boolean;
   refresh: () => Promise<void>;
 }
 
 const AccountContext = createContext<AccountContextValue | null>(null);
+
+/** 서버에 닿지 못했을 때의 자동 재시도 간격(ms). 합계 15.5초 + 각 시도의 타임아웃. */
+const ACCOUNT_RETRY_DELAYS_MS = [2500, 5000, 8000];
 
 export function AccountProvider({ children }: { children: ReactNode }) {
   // account 와 status 를 한 덩어리로 둔다 — 실패 처리에서 둘을 **같이** 정해야 하는데,
@@ -58,31 +67,36 @@ export function AccountProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AccountState>({ account: null, status: 'loading' });
   // 겹쳐 나간 조회의 구세대 응답이 최신 상태를 덮지 않게 한다(로그인/로그아웃 연타).
   const genRef = useRef(0);
-  // 재시도는 한 번만. 콜드 스타트를 넘기려는 것이지 계속 두드리려는 게 아니다.
-  const retriedRef = useRef(false);
+  // 자동 재시도는 세 번까지, 간격을 늘려 가며(2.5s → 5s → 8s). 콜드 스타트(10초 타임아웃 1회)와
+  // 인스턴스 재시작(수십 초)을 넘기려는 것이지 계속 두드리려는 게 아니다 — 그 뒤로는 화면의 '다시 시도'가 맡는다.
+  const retriesRef = useRef(0);
+  const [unreachable, setUnreachable] = useState(false);
 
   const refresh = useCallback(async function run(): Promise<void> {
     const gen = ++genRef.current;
     try {
       const data = await apiClient.get('/api/v1/account/me');
       if (gen !== genRef.current) return;
-      retriedRef.current = false;
+      retriesRef.current = 0;
+      setUnreachable(false);
       setState({ account: parseAccount(data), status: 'ready' });
     } catch (err) {
       if (gen !== genRef.current) return;
       const authFailure = isAuthError(err);
       // 401(세션 없음)은 장애가 아니라 '아직 로그인 전' 이다 — 게스트로 취급한다.
       if (!authFailure) console.warn('[account] 프로필 조회 실패:', err);
+      setUnreachable(!authFailure);
       // 실패했다고 알던 계정을 지우지 않는다. 이유는 resolveRefreshFailure 주석 참조.
       setState((prev) => resolveRefreshFailure(prev.account, authFailure));
 
-      // 백엔드가 Render 무료 플랜이라 쉬다 깨는 첫 요청이 10초 타임아웃에 걸리곤 한다.
-      // 한 번은 다시 물어본다(마이페이지의 다른 로더들과 같은 2.5초 유예 1회 재시도).
-      if (!authFailure && !retriedRef.current) {
-        retriedRef.current = true;
+      // 백엔드가 Render 무료 플랜이라 쉬다 깨는 첫 요청이 10초 타임아웃에 걸리곤 하고,
+      // 메모리 한계로 인스턴스가 재시작하는 동안은 응답이 아예 없다 — 간격을 늘려 가며 다시 물어본다.
+      if (!authFailure && retriesRef.current < ACCOUNT_RETRY_DELAYS_MS.length) {
+        const delay = ACCOUNT_RETRY_DELAYS_MS[retriesRef.current];
+        retriesRef.current += 1;
         setTimeout(() => {
           void run();
-        }, 2500);
+        }, delay);
       }
     }
   }, []);
@@ -111,8 +125,8 @@ export function AccountProvider({ children }: { children: ReactNode }) {
   }, [refresh]);
 
   const value = useMemo<AccountContextValue>(
-    () => ({ account, status, refresh }),
-    [account, status, refresh],
+    () => ({ account, status, unreachable, refresh }),
+    [account, status, unreachable, refresh],
   );
 
   return <AccountContext.Provider value={value}>{children}</AccountContext.Provider>;
@@ -121,5 +135,5 @@ export function AccountProvider({ children }: { children: ReactNode }) {
 export function useAccount(): AccountContextValue {
   const ctx = useContext(AccountContext);
   // 프로바이더 밖에서 불려도 화면을 깨뜨리지 않는다(관광객 경로는 권한과 무관하게 동작해야 한다).
-  return ctx ?? { account: null, status: 'error', refresh: async () => {} };
+  return ctx ?? { account: null, status: 'error', unreachable: false, refresh: async () => {} };
 }

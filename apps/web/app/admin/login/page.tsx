@@ -21,7 +21,7 @@ import { useT } from '@/lib/i18n/I18nProvider';
 export default function AdminLoginPage() {
   const router = useRouter();
   const t = useT();
-  const { account, status } = useAccount();
+  const { account, status, unreachable, refresh } = useAccount();
 
   const allowed = canEnterAdminConsole(account);
 
@@ -68,6 +68,36 @@ export default function AdminLoginPage() {
               <Loader2 className="animate-spin" size={18} />
               <span className="text-sm">권한 확인 중…</span>
             </div>
+          ) : unreachable && !signedIn ? (
+            <>
+              {/* 서버에 닿지 못한 것은 '로그인 필요'가 아니다 — 세션은 그대로일 수 있다. 로그인을 다시 시키면
+                  같은 장애 창 안에서 같은 화면으로 되돌아온다(2026-09-22 실측). 다시 묻는 길만 준다. */}
+              <p className="font-bold text-hanok-ink">서버 연결을 확인하고 있어요</p>
+              <p className="mt-1.5 text-xs leading-relaxed text-hanok-muted">
+                관제 서버가 잠시 응답하지 않아 권한을 확인하지 못했어요. 잠시 후 다시 시도해 주세요.
+              </p>
+              <button
+                type="button"
+                onClick={() => void refresh()}
+                className="mt-5 w-full rounded-xl bg-gradient-to-r from-gold to-terracotta py-3 text-sm font-semibold text-hanok-ink transition-opacity hover:opacity-90"
+              >
+                다시 시도
+              </button>
+              <button
+                type="button"
+                onClick={() => router.push('/admin/dashboard?demo=1')}
+                className="mt-2 w-full rounded-xl border border-gold/40 bg-gold/10 py-2.5 text-sm font-semibold text-gold-deep transition-colors hover:bg-gold/20"
+              >
+                {t('demo.enter')}
+              </button>
+              <button
+                type="button"
+                onClick={() => router.push('/main')}
+                className="mt-2 w-full rounded-xl border border-hanok-line py-2.5 text-sm text-hanok-muted transition-colors hover:text-hanok-ink"
+              >
+                관광객 앱으로 돌아가기
+              </button>
+            </>
           ) : signedIn ? (
             <>
               <p className="font-bold text-hanok-ink">관리자 권한이 없는 계정입니다</p>
@@ -119,6 +149,14 @@ export default function AdminLoginPage() {
                 className="mt-2 w-full rounded-xl border border-gold/40 bg-gold/10 py-2.5 text-sm font-semibold text-gold-deep transition-colors hover:bg-gold/20"
               >
                 {t('demo.enter')}
+              </button>
+              {/* 로그인 전에도 앱으로 돌아갈 길을 둔다 — 위 분기에만 있어서 여기선 주소를 직접 쳐야 했다. */}
+              <button
+                type="button"
+                onClick={() => router.push('/main')}
+                className="mt-2 w-full rounded-xl border border-hanok-line py-2.5 text-sm text-hanok-muted transition-colors hover:text-hanok-ink"
+              >
+                관광객 앱으로 돌아가기
               </button>
             </>
           )}

@@ -170,7 +170,9 @@
     "endBody": "You've seen how it works. Try comparing places on the Gyeongju map.",
     "direct": "Open guide link",
     "example": "Feature flow illustration",
-    "toc": "Guide contents"
+    "toc": "Guide contents",
+    "consoleLoginMerchant": "Merchant console sign-in",
+    "consoleLoginAdmin": "Admin dashboard sign-in"
   },
   "common": {
     "appName": "NextSpot",
@@ -748,9 +750,9 @@
     "summarySavedWait": "{n} min saved",
     "summaryStores": "{n} partner stores",
     "summaryAria": "View cumulative impact details",
-    "sampleBadge": "Pilot pending · sample values",
+    "sampleBadge": "Sample values",
     "summaryRealNote": "Aggregated from your own trips. Only the partner store count is a sample value.",
-    "summarySampleNote": "Sample values that show the scale. They switch to real totals once pilot data accumulates."
+    "summarySampleNote": "As your trips add up, these become your real totals."
   },
   "recommend": {
     "shareText": "Check out {name} as a Gyeongju alternative · NextSpot",
@@ -1179,7 +1181,9 @@
     "developerAllTypes": "All",
     "developerMore": "Load more",
     "developerCount": "{count} places",
-    "developerEmpty": "Try another name or category"
+    "developerEmpty": "Try another name or category",
+    "serverTitle": "Checking the server connection",
+    "serverDesc": "The server did not respond for a moment, so we could not verify your account. Please try again shortly."
   },
   "support": {
     "title": "Support",
@@ -1267,12 +1271,12 @@
     "apiParking": "Parking lot status · live available bays",
     "apiOsm": "Walking route network",
     "apiKakao": "Map SDK · local keyword search",
-    "screenLocation": "Map POIs · recommendation candidates",
+    "screenLocation": "Map POIs · recommendation cards",
     "screenDetail": "Place details · hours · accessibility",
     "screenImage": "Recommendation cards · place photos",
-    "screenFestival": "Festival panel · crowding weight",
+    "screenFestival": "Festival panel",
     "screenConcentration": "Visitor-trend evidence · area demand",
-    "screenWeather": "Weather card · recommendation weight",
+    "screenWeather": "Weather card",
     "screenParking": "Crowding estimate · area demand evidence",
     "screenOsm": "Walking time · arrival time",
     "screenKakao": "Map rendering · restroom list",
@@ -1347,7 +1351,12 @@
     "anomalyTitle": "Congestion alerts",
     "seatLow": "Open",
     "seatMid": "Moderate",
-    "seatFull": "Full"
+    "seatFull": "Full",
+    "realLogin": "Sign in with a real account",
+    "previewTitle": "Console preview",
+    "previewDesc": "Browse the merchant console and the admin dashboard with sample data",
+    "previewMerchant": "Merchant console",
+    "previewAdmin": "Admin dashboard"
   },
   "wait": {
     "minutes": "About {n} min wait",
@@ -1361,9 +1370,9 @@
     "calmAt": "Calmer after {h}:00",
     "calmNow": "Calmest right now",
     "arrivalBasis": "For a {h}:00 arrival",
-    "legend": "Each card shows the wait you can expect on arrival, a crowding grade, and the hour it calms down — estimated from live public-parking counts and tourism concentration statistics.",
-    "basisServer": "Validated prediction model",
-    "basisRanking": "Wait used by the recommender",
+    "legend": "Every card shows the wait to expect when you arrive and when it quiets down. Where there is nothing to base a wait on, we show the demand around the place instead.",
+    "basisServer": "Prediction from measured data",
+    "basisRanking": "Estimate by venue type and hour",
     "basisBaseline": "Category baseline",
     "basisMeasured": "Based on measured crowding",
     "basisEstimate": "Public parking + tourism statistics",

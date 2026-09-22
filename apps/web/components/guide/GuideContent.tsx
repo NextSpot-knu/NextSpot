@@ -7,7 +7,6 @@ import {
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { useT } from '@/lib/i18n/I18nProvider';
 import GuideDataSection from './GuideDataSection';
-import { JudgeAccountHint } from '@/components/JudgeAccountHint';
 import styles from './guide.module.css';
 
 const problemItems = [
@@ -118,10 +117,21 @@ export default function GuideContent({ onNavigate }: { onNavigate?: () => void }
               {t('dataTab.adminCta')}<ArrowRight size={16} aria-hidden />
             </Link>
           </div>
-          <p className={styles.note}>{t('dataTab.roleNote')}</p>
-          {/* 콘솔 버튼이 데모로 바로 가므로, 실제 계정으로 들어갈 심사위원은 여기서 계정을 본다
-              (관문·로그인 화면에도 같은 안내가 있다 — lib/judgeAccounts.ts). */}
-          <JudgeAccountHint className="mt-3 max-w-md" />
+          {/* 콘솔 버튼은 데모로 바로 가므로, 실제 계정으로 들어갈 길은 관문(/merchant · /admin/login)으로 잇는다 —
+              계정 안내는 그 관문과 로그인 화면이 맡는다(components/JudgeAccountHint.tsx). 소개 본문에는 심사 문구를 두지 않는다. */}
+          <p className={styles.note}>
+            {t('dataTab.roleNote')}
+            {/* 링크는 문장 아래 줄에 — 같은 줄에 이어 붙이면 문장과 링크가 한 문장처럼 읽힌다. */}
+            <span className={styles.noteLinks}>
+              <Link href="/merchant" prefetch={false} onClick={onNavigate} className={styles.noteLink}>
+                {t('guide.consoleLoginMerchant')}
+              </Link>
+              {' · '}
+              <Link href="/admin/login" prefetch={false} onClick={onNavigate} className={styles.noteLink}>
+                {t('guide.consoleLoginAdmin')}
+              </Link>
+            </span>
+          </p>
         </div>
       </section>
 
