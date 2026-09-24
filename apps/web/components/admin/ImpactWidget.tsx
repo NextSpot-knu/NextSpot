@@ -3,10 +3,20 @@
 import { useState, useEffect } from 'react';
 import { Route, TimerOff } from 'lucide-react';
 import { adminApi } from '@/lib/admin-api';
+import { useCountUp } from '@/lib/useCountUp';
+import { MIN_MEASURED_SAMPLES, SCENARIO_BADGE, basisSubline, resolveKpiBasis, scenarioKpis } from '@/lib/adminPredictedView';
 
 // 분산 효과 정량화 — 오늘(KST) 수락된 추천의 '절감 대기시간' 합산.
 // 산식(백엔드 GET /api/v1/admin/impact): Σ max(0, 원본 예상대기 − 대안 도착시점 예상대기).
 // 원본/대안 대기는 추천 생성 시점의 score_breakdown 스냅샷이라 사후 재계산 왜곡이 없다.
+//
+// 시나리오 모드(2026-09-22 PM 결정): 오늘 실측 수락이 MIN_MEASURED_SAMPLES(5)건 미만이면 서버 합계
+// 대신 lib/adminPredictedView.scenarioKpis(응답 도착 시각) 의 재배치·절감 분을 '시나리오' 배지와 함께
+// 보여 준다. 실측이 5건이 되는 순간 이 분기는 사라지고 아래 실측 렌더가 그대로 돌아온다.
+// 조회 실패는 시나리오로 덮지 않는다 — 실패는 '—' 와 '갱신 중' 이다(서버 부재 ≠ 데이터 부재).
+
+/** 시나리오 값 아래 붙는 산식 한 줄 — 무엇을 곱했는지와 언제 실측으로 바뀌는지. */
+const SCENARIO_FOOTNOTE = '시나리오 재배치 × 유형별 기본 처리시간 · 실측 수락 기록이 쌓이면 실측으로 전환';
 
 interface ImpactData {
   relocations: number;
@@ -29,13 +39,19 @@ function kstTodayStartUtcIso(): string {
 export function ImpactWidget() {
   const [data, setData] = useState<ImpactData | null>(null);
   const [failed, setFailed] = useState(false);
+  // 응답이 도착한 시각(ms). 시나리오 값의 시각 입력은 렌더 중 시계가 아니라 이 값이다 —
+  // 같은 응답은 다시 그려도 같은 숫자여야 한다.
+  const [loadedAt, setLoadedAt] = useState<number | null>(null);
 
   useEffect(() => {
     let active = true;
     adminApi
       .get(`/api/v1/admin/impact?since=${encodeURIComponent(kstTodayStartUtcIso())}`)
       .then(res => {
-        if (active) setData(res);
+        if (active) {
+          setData(res);
+          setLoadedAt(Date.now());
+        }
       })
       .catch(err => {
         console.warn('분산 효과 집계 조회 실패:', err);
@@ -46,14 +62,38 @@ export function ImpactWidget() {
     };
   }, []);
 
+  // 실측 표본 = 오늘 수락된 추천 건수(relocations). 숫자가 아니면(응답 모양이 다름) 모른다 → 기존 '—'.
+  const relocationsMeasured = typeof data?.relocations === 'number' && Number.isFinite(data.relocations) ? data.relocations : null;
+  const basis = data && !failed && relocationsMeasured !== null ? resolveKpiBasis(relocationsMeasured) : null;
+  const scenario = basis === 'scenario' && loadedAt !== null ? scenarioKpis(loadedAt) : null;
+  // 시나리오 숫자만 굴린다(실측 렌더는 그대로). NaN 이면 훅이 아무것도 하지 않는다.
+  const scenarioSaved = useCountUp(scenario ? scenario.savedWaitMinutes : Number.NaN);
+  const scenarioRelocations = useCountUp(scenario ? scenario.relocations : Number.NaN);
+  const scenarioLine = scenario ? basisSubline({ basis: 'scenario', measuredCount: relocationsMeasured, unit: '건' }) : null;
+
   return (
-    <div className="bg-hanok-panel rounded-2xl border border-hanok-line shadow-sm overflow-hidden flex flex-col">
+    <div className={`bg-hanok-panel rounded-2xl shadow-sm overflow-hidden flex flex-col ${
+      scenario ? 'border-2 border-dashed border-amber-400/50' : 'border border-hanok-line'
+    }`}>
       <div className="p-6 border-b border-hanok-line bg-hanok-card/30">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <Route className="text-emerald-600" size={20} />
           <h3 className="text-lg font-bold text-hanok-ink">오늘 분산 효과</h3>
+          {scenario && (
+            <span
+              title={scenarioLine ?? undefined}
+              className="px-2 py-0.5 rounded-full text-[11px] font-black border border-dashed bg-amber-500/15 text-amber-800 border-amber-400/60"
+            >
+              {SCENARIO_BADGE}
+            </span>
+          )}
         </div>
-        <p className="text-xs text-hanok-muted mt-1">수락된 추천이 실제로 덜어낸 혼잡 (KST 오늘 기준)</p>
+        <p className="text-xs text-hanok-muted mt-1">
+          {scenario
+            ? `도입 목표 패턴 기준 — 실측 ${MIN_MEASURED_SAMPLES}건이 쌓이면 실측으로 전환됩니다 (KST 오늘 기준)`
+            : '수락된 추천이 실제로 덜어낸 혼잡 (KST 오늘 기준)'}
+        </p>
+        {scenarioLine && <p className="text-[11px] text-amber-800/90 mt-1">{scenarioLine}</p>}
       </div>
 
       <div className="flex-1 p-6 flex flex-col justify-center gap-6">
@@ -70,9 +110,11 @@ export function ImpactWidget() {
           </div>
           <div>
             <div className="text-3xl font-black text-emerald-700">
-              {typeof data?.saved_wait_minutes === 'number' ? Math.round(data.saved_wait_minutes).toLocaleString() : '—'}분
+              {scenario
+                ? Math.round(scenarioSaved).toLocaleString()
+                : typeof data?.saved_wait_minutes === 'number' ? Math.round(data.saved_wait_minutes).toLocaleString() : '—'}분
             </div>
-            <div className="text-xs text-hanok-muted font-semibold mt-0.5">절감 대기시간 합계</div>
+            <div className="text-xs text-hanok-muted font-semibold mt-0.5">절감 대기시간 합계{scenario ? ` (${SCENARIO_BADGE})` : ''}</div>
           </div>
         </div>
         <div className="flex items-center gap-4">
@@ -81,9 +123,11 @@ export function ImpactWidget() {
           </div>
           <div>
             <div className="text-3xl font-black text-hanok-ink">
-              {typeof data?.relocations === 'number' ? data.relocations.toLocaleString() : '—'}건
+              {scenario
+                ? Math.round(scenarioRelocations).toLocaleString()
+                : typeof data?.relocations === 'number' ? data.relocations.toLocaleString() : '—'}건
             </div>
-            <div className="text-xs text-hanok-muted font-semibold mt-0.5">수요 재배치 (추천 수락)</div>
+            <div className="text-xs text-hanok-muted font-semibold mt-0.5">수요 재배치 (추천 수락){scenario ? ` (${SCENARIO_BADGE})` : ''}</div>
           </div>
         </div>
         {/* 절단은 이 위젯에서 특히 나쁘게 작동한다: 여기 두 숫자는 **합계**라, 행이 빠지면
@@ -100,6 +144,14 @@ export function ImpactWidget() {
         {failed ? (
           <p className="text-[11px] text-hanok-muted">
             분산 효과 집계를 갱신하는 중입니다 — 잠시 후 자동으로 표시됩니다.
+          </p>
+        ) : scenario ? (
+          // 실측 1~4건이면 그 수를 적는다(basisSubline 이 '실측 3건 수집 중' 을 만든다). 0건은 문장에 적지 않는다.
+          <p className="text-[11px] text-amber-800/90">
+            {SCENARIO_FOOTNOTE}
+            {relocationsMeasured !== null && relocationsMeasured >= 1 && relocationsMeasured < MIN_MEASURED_SAMPLES
+              ? ` · 실측 ${relocationsMeasured}건 수집 중`
+              : ''}
           </p>
         ) : (
           data &&

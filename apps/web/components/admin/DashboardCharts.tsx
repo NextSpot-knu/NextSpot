@@ -9,6 +9,7 @@ import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Info } from 'lu
 import {
   GAP_SHADING_NOTE, findGaps, formatGapLabel, isMissingValue, longestGap, summarizeSeries,
 } from '@/lib/adminSeriesGaps';
+import type { CellBasis } from '@/lib/adminPredictedView';
 
 // ── 로컬 타입 정의 ──────────────────────────────────────────────────────────
 // 히트맵 셀 (value: null = 데이터 없음 센티넬 — 실측 0.00 과 구분)
@@ -17,7 +18,16 @@ interface HeatmapCell {
   facilityType: string;
   hour: number;
   value: number | null;
+  /** 이 칸의 근거(2026-09-22 예측 모드). 없으면 격자 전체의 근거(estimate 유무)를 따른다 —
+   *  lib/adminPredictedView.fillHeatmapPredicted 가 채운 칸만 'predicted' 를 달고 들어온다. */
+  basis?: CellBasis;
 }
+
+// 예측 칸의 빗금 — 색 척도는 실측·추정과 같게 두고(같은 % 는 같은 색), 무늬만으로 '예측' 을 말한다.
+// 흰 빗금은 네 단계 색 어디에 얹어도 읽히고, 범례 견본(bg-amber-400)과 같은 무늬라 눈으로 대조된다.
+const PREDICTED_HATCH = {
+  backgroundImage: 'repeating-linear-gradient(135deg, rgba(255,255,255,0.5) 0 3px, transparent 3px 7px)',
+} as const;
 
 // live 모드의 추이 행 — /admin/metrics/trend 를 대시보드가 옮겨 담은 모양.
 // 값 null 은 **로그/추천이 없던 날**이고 실측 0.0 과 다르다(히트맵의 null 센티넬과 같은 규약).
@@ -190,6 +200,15 @@ interface HeatmapEstimateMark {
   basisLine: string;
 }
 
+// 격자에 예측 칸이 섞였을 때 받는 표식(2026-09-22) — 예측 단독이면 note 는 근거 한 줄
+// (adminEstimateView.predictedBasisLine), 추정·실측에 예측이 섞였으면 혼합 문장(PREDICTED_MIXED_SENTENCE).
+interface HeatmapPredictedMark {
+  /** 배지 문구('예측'). */
+  badge: string;
+  /** 근거 또는 혼합 설명 한 줄. */
+  note: string;
+}
+
 const HEATMAP_CATEGORIES = [
   { id: 'restaurant', name: '음식점' },
   { id: 'cafe', name: '카페' },
@@ -205,6 +224,7 @@ export function DashboardHeatmap({
   emptyNotice = null,
   estimate = null,
   pendingFromHour = null,
+  predicted = null,
 }: {
   heatmapData: HeatmapCell[];
   /** '2026-08-21 (KST) 기준' — 오늘이 아닌 날로 폴백했을 때만 들어온다. 없으면 오늘 기준이다. */
@@ -217,15 +237,32 @@ export function DashboardHeatmap({
   estimate?: HeatmapEstimateMark | null;
   /** 오늘을 그릴 때 '아직 오지 않은 시간' 이 시작되는 KST 시. 그 칸의 빈 값은 '데이터 없음' 이 아니다. */
   pendingFromHour?: number | null;
+  /** 격자에 예측 칸(basis==='predicted')이 있으면 그 표식. 없으면 예측 칸을 그리지 않는 격자다. */
+  predicted?: HeatmapPredictedMark | null;
 }) {
-  // heatmapData: [ { facility: string, facilityType: string, hour: number, value: number } ]
+  // heatmapData: [ { facility: string, facilityType: string, hour: number, value: number, basis? } ]
+
+  // 칸의 근거 — 칸에 basis 가 없으면 격자 전체의 근거(추정 격자면 추정, 아니면 실측)를 따른다.
+  const cellBasis = (cell: HeatmapCell | undefined): CellBasis =>
+    cell?.basis ?? (estimate ? 'estimate' : 'measured');
+  // 서버가 준 칸(실측·추정)이 하나라도 있는가 — 예측 단독 모드(모든 칸이 예측)와 혼합 모드를 가른다.
+  const hasServerCells = heatmapData.some((d) => cellBasis(d) !== 'predicted');
+  const predictedOnly = predicted !== null && !hasServerCells;
 
   // 관리자가 탭을 직접 고르기 전에는 **행이 있는 첫 탭**을 연다. 예전에는 늘 '음식점' 으로
   // 열려서, 행이 관광지뿐인 날(추정 모드의 대표 장소가 전부 관광지다)엔 첫 화면이
   // '해당 카테고리의 장소 데이터가 없습니다' 였다 — 데이터가 있는데 없다고 말하는 화면이다.
+  // 예측 채움(2026-09-22) 뒤에는 네 탭 전부 행이 생기므로 '첫 탭' 이 늘 음식점이 된다 —
+  // 그래서 서버 칸(실측·추정)이 있는 탭을 먼저, 없으면 관광지(예측 단독 모드의 기본 탭)를 연다.
   const [pickedCategory, setPickedCategory] = useState<string | null>(null);
+  const firstWithServerData = HEATMAP_CATEGORIES.find((cat) =>
+    heatmapData.some((d) => d.facilityType === cat.id && cellBasis(d) !== 'predicted'),
+  )?.id;
   const firstWithData =
-    HEATMAP_CATEGORIES.find((cat) => heatmapData.some((d) => d.facilityType === cat.id))?.id ?? 'restaurant';
+    firstWithServerData ??
+    (heatmapData.some((d) => d.facilityType === 'attraction') ? 'attraction' : null) ??
+    HEATMAP_CATEGORIES.find((cat) => heatmapData.some((d) => d.facilityType === cat.id))?.id ??
+    'restaurant';
   const selectedCategory = pickedCategory ?? firstWithData;
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
@@ -255,11 +292,12 @@ export function DashboardHeatmap({
     return 'bg-rose-500';
   };
 
-  const getHeatmapValue = (facility: string, hour: number): number | null => {
-    const item = heatmapData.find(d => d.facility === facility && d.hour === hour);
-    // 셀이 없거나(미존재) 데이터 없음 센티넬(null)이면 null. 실측 0.00 은 0 그대로 반환된다.
-    return item ? item.value : null;
-  };
+  // 셀 자체를 돌려준다(값 + 근거). 셀이 없으면 undefined → 값 null 로 읽는다(데이터 없음 센티넬과 같은 뜻).
+  // 실측 0.00 은 0 그대로 남는다.
+  const getHeatmapCell = (facility: string, hour: number): HeatmapCell | undefined =>
+    heatmapData.find(d => d.facility === facility && d.hour === hour);
+  // 툴팁 접두어 — 실측은 접두어 없음, 추정 '추정 ', 예측 '예측 '. 칸마다 근거가 다를 수 있어 칸 단위로 정한다.
+  const cellLabel = (basis: CellBasis) => (basis === 'predicted' ? '예측 ' : basis === 'estimate' ? '추정 ' : '');
 
   const handleCategoryChange = (catId: string) => {
     setPickedCategory(catId);
@@ -273,8 +311,13 @@ export function DashboardHeatmap({
   return (
     // 추정 격자는 테두리를 점선(하늘색)으로 바꾼다 — 색 칸 자체는 실측과 같은 척도로 읽혀야 하므로
     // 칸 색은 건드리지 않고, 카드 전체의 테두리·배지·범례로 '실측이 아니다' 를 말한다.
+    // 예측 단독 격자는 보라 점선(추정과 다른 어휘는 다른 색). 혼합 격자는 서버 칸의 근거를 따른다.
     <div className={`bg-hanok-panel p-6 rounded-2xl shadow-sm col-span-4 flex flex-col justify-between overflow-x-auto min-h-[500px] ${
-      estimate ? 'border-2 border-dashed border-sky-400/50' : 'border border-hanok-line'
+      estimate
+        ? 'border-2 border-dashed border-sky-400/50'
+        : predictedOnly
+          ? 'border-2 border-dashed border-violet-400/50'
+          : 'border border-hanok-line'
     }`}>
       <div>
         <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 mb-6">
@@ -287,13 +330,27 @@ export function DashboardHeatmap({
               <h3 className="text-lg font-bold text-hanok-ink">장소별 시간대 혼잡 히트맵</h3>
               {/* 지표 출처를 제목 옆에 못 박는다 — 아래 '공영주차 실측(경주 ITS)' 카드와
                   같은 화면에 있어서, 라벨이 없으면 두 숫자가 한 지표처럼 읽힌다. */}
+              {/* 예측이 섞이면 출처 칩도 그 사실을 말한다 — 추정 격자에 예측이 섞이면 '추정 + 예측',
+                  예측 단독이면 '예측 (업종 시간대 패턴)', 실측 격자에 미래 시간이 예측이면 '제보 기반 + 예측'. */}
               {estimate ? (
-                <span className="flex-shrink-0 px-2 py-0.5 rounded-md text-[11px] font-black border border-dashed bg-sky-500/15 text-sky-700 border-sky-400/60">
-                  시설 혼잡 · {estimate.badge} (주차 실측 + 관광 통계)
+                <span
+                  title={predicted ? predicted.note : undefined}
+                  className="flex-shrink-0 px-2 py-0.5 rounded-md text-[11px] font-black border border-dashed bg-sky-500/15 text-sky-700 border-sky-400/60"
+                >
+                  {predicted
+                    ? `시설 혼잡 · ${estimate.badge} + ${predicted.badge}`
+                    : `시설 혼잡 · ${estimate.badge} (주차 실측 + 관광 통계)`}
+                </span>
+              ) : predictedOnly && predicted ? (
+                <span
+                  title={predicted.note}
+                  className="flex-shrink-0 px-2 py-0.5 rounded-md text-[11px] font-black border border-dashed bg-violet-500/15 text-violet-700 border-violet-400/60"
+                >
+                  시설 혼잡 · {predicted.badge} (업종 시간대 패턴)
                 </span>
               ) : (
                 <span className="flex-shrink-0 px-2 py-0.5 rounded-md text-[11px] font-semibold border bg-hanok-card text-hanok-muted border-hanok-line">
-                  시설 혼잡 · 제보 기반
+                  시설 혼잡 · 제보 기반{predicted ? ` + ${predicted.badge}` : ''}
                 </span>
               )}
               {/* 기준일 배지 — 오늘이 아닌 날을 그리고 있다면 그 사실이 제목만큼 커야 한다. */}
@@ -305,6 +362,7 @@ export function DashboardHeatmap({
             </div>
             {basisNote && <p className="mt-2 text-xs text-amber-800/90 max-w-2xl">{basisNote}</p>}
             {estimate && <p className="mt-2 text-xs text-sky-700/90 max-w-2xl">{estimate.basisLine}</p>}
+            {predicted && <p className="mt-2 text-xs text-violet-700/90 max-w-2xl">{predicted.note}</p>}
           </div>
 
           {/* Category Filters */}
@@ -357,9 +415,12 @@ export function DashboardHeatmap({
                 </div>
                 <div className="flex-1 flex gap-1">
                   {hours.map(h => {
-                    const val = getHeatmapValue(fac, h);
+                    const cell = getHeatmapCell(fac, h);
+                    const val = cell ? cell.value : null;
+                    // 값이 있는 미래 칸은 '아직 오지 않은 시간' 이 아니다 — 예측 칸은 값을 갖고 들어온다.
                     const pending = val == null && isPending(h);
-                    const label = estimate ? '추정 ' : '';
+                    const basis = cellBasis(cell);
+                    const hatched = val != null && basis === 'predicted';
                     return (
                       <div
                         key={`${fac}-${h}`}
@@ -368,8 +429,9 @@ export function DashboardHeatmap({
                             ? `${fac} ${h}시: 아직 오지 않은 시간`
                             : val == null
                               ? `${fac} ${h}시: 수집 중`
-                              : `${fac} ${h}시: ${label}${(val * 100).toFixed(0)}%`
+                              : `${fac} ${h}시: ${cellLabel(basis)}${(val * 100).toFixed(0)}%`
                         }
+                        style={hatched ? PREDICTED_HATCH : undefined}
                         className={`flex-1 h-8 rounded-sm transition-colors hover:ring-2 hover:ring-gold cursor-pointer ${
                           pending ? 'border border-dashed border-hanok-line bg-transparent' : getHeatmapColor(val)
                         }`}
@@ -379,7 +441,9 @@ export function DashboardHeatmap({
                 </div>
               </div>
             ))}
-            {paginatedFacilities.length === 0 && (
+            {/* 빈 탭 문구는 예측 채움이 없는 격자에서만 — 예측이 켜진 격자에서 비어 있는 탭은
+                '다음 수집 주기' 가 채우는 것이 아니라 시설 목록에 그 업종이 없다는 뜻이다. */}
+            {paginatedFacilities.length === 0 && !predicted && (
               <div className="h-32 flex items-center justify-center text-hanok-muted text-sm">
                 이 카테고리는 다음 수집 주기에 표시됩니다.
               </div>
@@ -391,7 +455,21 @@ export function DashboardHeatmap({
             {estimate && (
               <div className="flex items-center gap-1 font-semibold text-sky-700">
                 <div className="w-4 h-4 rounded-sm border-2 border-dashed border-sky-400/60"></div>
-                모든 칸이 {estimate.badge} 혼잡도입니다
+                {predicted
+                  ? `빗금 없는 칸은 ${estimate.badge}, 빗금 칸은 ${predicted.badge}입니다`
+                  : `모든 칸이 ${estimate.badge} 혼잡도입니다`}
+              </div>
+            )}
+            {predicted && !estimate && hasServerCells && (
+              <div className="flex items-center gap-1 font-semibold text-hanok-ink">
+                <div className="w-4 h-4 rounded-sm border-2 border-hanok-line"></div>
+                빗금 없는 칸은 실측, 빗금 칸은 {predicted.badge}입니다
+              </div>
+            )}
+            {predicted && (
+              <div className="flex items-center gap-1 font-semibold text-violet-700">
+                <div className="w-4 h-4 rounded-sm bg-amber-400" style={PREDICTED_HATCH}></div>
+                {predicted.badge} (업종 시간대 패턴 · 빗금)
               </div>
             )}
             {pendingFromHour !== null && (

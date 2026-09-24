@@ -6,6 +6,7 @@ import { adminApi } from '@/lib/admin-api';
 import { useCountUp } from '@/lib/useCountUp';
 import { describeGuardrailWarnings } from '@/lib/adminGuardrailWarnings';
 import { ESTIMATED_LOG_SOURCES } from '@/lib/dashboardFallback';
+import { SCENARIO_BADGE, basisSubline, resolveKpiBasis, scenarioKpis } from '@/lib/adminPredictedView';
 
 // 서버가 보내는 영문 키를 화면 말로 바꾸는 사전. **매핑에 없는 키는 줄에서 뺀다** —
 // 원문 그대로 내보내면 `degraded_rules 12` 같은 내부 코드가 관제 화면에 그대로 찍힌다.
@@ -103,10 +104,15 @@ function AnimatedKpiValue({ value }: { value: string | number }) {
 
 export function ModelTrustPanel() {
   const [data, setData] = useState<TrustResponse | null>(null);
+  // 응답 도착 시각(ms) — 시나리오 깔때기의 시각 입력. 렌더 중 시계를 읽지 않아 같은 응답은 같은 숫자다.
+  const [loadedAt, setLoadedAt] = useState<number | null>(null);
   useEffect(() => {
     let active = true;
     adminApi.get('/api/v1/admin/model-trust').then((value: TrustResponse) => {
-      if (active) setData(value);
+      if (active) {
+        setData(value);
+        setLoadedAt(Date.now());
+      }
     }).catch(() => { /* 헤더 상태 배지가 별도로 장애를 알린다. */ });
     return () => { active = false; };
   }, []);
@@ -136,29 +142,62 @@ export function ModelTrustPanel() {
   const estimatedObservations = Object.entries(data.collection.by_source)
     .filter(([key]) => key in ESTIMATED_LOG_SOURCES)
     .reduce((sum, [, value]) => sum + (value || 0), 0);
-  const cards = ([
-    ['추천 노출', funnel.exposures], ['길찾기', funnel.navigations], ['방문 확인', funnel.arrivals],
-    ['긍정 평가', funnel.positive_ratings],
-    // '노출→긍정' 복합 비율은 싣지 않는다: 노출에는 화면에 스친 수동 노출(프리페치 포함)이
-    // 섞여 있어 구성상 낮게 나오는 지표다 — 단계 절대값 타일이 이미 깔때기 전체를 말하고,
-    // 여기서는 인접 타일 두 개(길찾기·방문 확인)로 정의가 자명한 단계 전환율만 싣는다.
-    ['안내 후 방문 전환', funnel.navigations > 0 ? `${((funnel.arrivals / funnel.navigations) * 100).toFixed(1)}%` : '0.0%'],
+  // 깔때기 전환(2026-09-22 PM 결정): 오늘 노출이 MIN_MEASURED_SAMPLES(5)건 미만이면 네 단계 타일을
+  // 시나리오 깔때기(lib/adminPredictedView.scenarioKpis — demoFixtures 하루 총량 × KST 진행률)로 채우고
+  // '시나리오' 배지를 단다. 0 을 향해 굴러가는 카운트업은 측정한 0 처럼 보이므로 그리지 않는다.
+  // 노출 5건부터는 아래 실측 타일이 그대로 돌아온다. Top 3 근거율 세 카드는 서버 비율 그대로다.
+  const funnelBasis = resolveKpiBasis(funnel.exposures);
+  const scenario = funnelBasis === 'scenario' && loadedAt !== null ? scenarioKpis(loadedAt) : null;
+  const scenarioLine = scenario ? basisSubline({ basis: 'scenario', measuredCount: funnel.exposures, unit: '건' }) : null;
+  const funnelCards = (scenario
+    ? ([
+        ['추천 노출', scenario.funnel.offered], ['길찾기', scenario.funnel.navigated], ['방문 확인', scenario.funnel.arrived],
+        ['긍정 평가', scenario.funnel.positive],
+        ['안내 후 방문 전환', scenario.funnel.navigated > 0 ? `${((scenario.funnel.arrived / scenario.funnel.navigated) * 100).toFixed(1)}%` : '0.0%'],
+      ] as const)
+    : ([
+        ['추천 노출', funnel.exposures], ['길찾기', funnel.navigations], ['방문 확인', funnel.arrivals],
+        ['긍정 평가', funnel.positive_ratings],
+        // '노출→긍정' 복합 비율은 싣지 않는다: 노출에는 화면에 스친 수동 노출(프리페치 포함)이
+        // 섞여 있어 구성상 낮게 나오는 지표다 — 단계 절대값 타일이 이미 깔때기 전체를 말하고,
+        // 여기서는 인접 타일 두 개(길찾기·방문 확인)로 정의가 자명한 단계 전환율만 싣는다.
+        ['안내 후 방문 전환', funnel.navigations > 0 ? `${((funnel.arrivals / funnel.navigations) * 100).toFixed(1)}%` : '0.0%'],
+      ] as const)
+  ).filter(([, value]) => value !== '0.0%');
+  const evidenceCards = ([
     ['Top 3 혼잡 근거율', `${(data.top3_evidence.coverage_rate * 100).toFixed(1)}%`],
     ['Top 3 최신 검증 실측률', `${(data.top3_evidence.fresh_trusted_measured_rate * 100).toFixed(1)}%`],
     ['Top 3 영업시간 근거율', `${(data.top3_evidence.operating_hours_rate * 100).toFixed(1)}%`],
     // 비율 지표는 표본이 쌓여 계산된 경우에만 카드로 표시한다.
   ] as const).filter(([, value]) => value !== '0.0%');
+  // ML 후보 학습 관문까지의 진행 — 관문 = 검증 관측 + 남은 수(서버 remaining_to_candidate). 0건이어도 그린다:
+  // '0' 은 여기서 측정한 행 수이고, 관문까지 얼마나 남았는지가 이 블록이 말할 사실이다.
+  const trusted = Math.max(0, data.collection.trusted_observations || 0);
+  const remaining = Math.max(0, data.collection.remaining_to_candidate || 0);
+  const candidateGate = trusted + remaining;
+  const gateProgress = candidateGate > 0 ? Math.min(1, trusted / candidateGate) : 0;
 
   return (
     <section className="rounded-2xl border border-hanok-line bg-hanok-panel p-5" aria-label="추천 모델 신뢰도">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h3 className="flex items-center gap-2 font-bold text-hanok-ink"><ShieldCheck size={18} className="text-emerald-700" />추천 신뢰도</h3>
+          <h3 className="flex items-center gap-2 font-bold text-hanok-ink">
+            <ShieldCheck size={18} className="text-emerald-700" />추천 신뢰도
+            {scenario && (
+              <span
+                title={scenarioLine ?? undefined}
+                className="rounded-full border border-dashed bg-amber-500/15 px-2 py-0.5 text-[11px] font-black text-amber-800 border-amber-400/60"
+              >
+                {SCENARIO_BADGE}
+              </span>
+            )}
+          </h3>
           <p className="mt-1 text-xs text-hanok-muted">
             {data.model.trained
               ? `${data.model.version} · 검증 실데이터 ${data.model.real_data_count}건 · MAE ${((data.model.mae ?? 0) * 100).toFixed(1)}%p`
               : '취향·실제 이동시간·혜택 3축 SPOT 엔진으로 추천 중 — 실측이 누적되면 학습 모델로 자동 승격됩니다'}
           </p>
+          {scenarioLine && <p className="mt-1 text-[11px] text-amber-800/90">{scenarioLine}</p>}
         </div>
         <span className={`rounded-full border px-2.5 py-1 text-xs font-bold ${alerts.length ? 'border-rose-500/30 bg-rose-500/10 text-rose-700' : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700'}`}>
           {alerts.length ? `점검 항목 ${alerts.length}건` : '가드레일 정상'}
@@ -177,14 +216,28 @@ export function ModelTrustPanel() {
         </p>
       )}
       <div className="mt-4 grid grid-cols-2 gap-2 md:grid-cols-4 xl:grid-cols-8">
-        {cards.map(([label, value]) => <div key={label} className="rounded-xl border border-hanok-line bg-hanok-card p-3"><p className="text-[10px] text-hanok-muted">{label}</p><p className="mt-1 text-lg font-black text-hanok-ink"><AnimatedKpiValue value={value} /></p></div>)}
+        {funnelCards.map(([label, value]) => (
+          <div
+            key={label}
+            title={scenario ? `${SCENARIO_BADGE} · ${scenarioLine ?? ''}` : undefined}
+            className={`rounded-xl bg-hanok-card p-3 ${scenario ? 'border border-dashed border-amber-400/50' : 'border border-hanok-line'}`}
+          >
+            <p className="text-[10px] text-hanok-muted">{label}{scenario ? ` · ${SCENARIO_BADGE}` : ''}</p>
+            <p className={`mt-1 text-lg font-black ${scenario ? 'text-amber-900' : 'text-hanok-ink'}`}><AnimatedKpiValue value={value} /></p>
+          </div>
+        ))}
+        {evidenceCards.map(([label, value]) => <div key={label} className="rounded-xl border border-hanok-line bg-hanok-card p-3"><p className="text-[10px] text-hanok-muted">{label}</p><p className="mt-1 text-lg font-black text-hanok-ink"><AnimatedKpiValue value={value} /></p></div>)}
       </div>
-      {/* 실데이터 수집 현황은 관측이 시작된 뒤 표시한다. */}
-      {data.collection.observations > 0 && (
+      {/* 실데이터 수집 현황은 관측 0건이어도 그린다(2026-09-22) — 활성 시설 수와 후보 학습 관문까지의
+          진행이 이 화면이 지금 말할 수 있는 사실이고, 블록이 사라지면 '수집 자체가 없다' 로 읽힌다. */}
       <div className="mt-4 rounded-xl border border-hanok-line bg-hanok-card p-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="flex items-center gap-1.5 text-xs font-bold text-hanok-ink"><Database size={14} className="text-gold-deep" />실데이터 수집 현황</p>
-          <p className="text-[11px] text-hanok-muted">검증 관측 {data.collection.remaining_to_candidate}건이 쌓이면 후보 자동 생성이 시작됩니다</p>
+          <p className="text-[11px] text-hanok-muted">
+            {remaining > 0
+              ? `검증 관측 ${remaining}건이 더 쌓이면 후보 자동 생성이 시작됩니다`
+              : '후보 자동 생성 관문에 도달했습니다'}
+          </p>
         </div>
         <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-4">
           <p className="text-xs text-hanok-muted">전체 현장 관측 <strong className="block text-lg text-hanok-ink">{data.collection.observations}</strong></p>
@@ -192,6 +245,18 @@ export function ModelTrustPanel() {
           <p className="text-xs text-hanok-muted">시설 커버리지 <strong className="block text-lg text-hanok-ink">{(data.collection.trusted_facility_coverage_rate * 100).toFixed(1)}%</strong></p>
           <p className="text-xs text-hanok-muted">활성 시설 <strong className="block text-lg text-hanok-ink">{data.collection.active_facilities}</strong></p>
         </div>
+        {/* 후보 학습 관문 진행 막대 — 검증 관측 / (검증 관측 + 남은 수). 관문 크기는 서버가 정한다. */}
+        {candidateGate > 0 && (
+          <div className="mt-3" role="progressbar" aria-valuemin={0} aria-valuemax={candidateGate} aria-valuenow={trusted} aria-label="ML 후보 학습 관문 진행">
+            <div className="flex items-center justify-between text-[11px] text-hanok-muted">
+              <span>ML 후보 학습 관문</span>
+              <span>검증 관측 {trusted} / {candidateGate}건 · {Math.round(gateProgress * 100)}%</span>
+            </div>
+            <div className="mt-1 h-2 w-full overflow-hidden rounded-full bg-hanok-line">
+              <div className="h-full rounded-full bg-gold transition-all" style={{ width: `${Math.round(gateProgress * 100)}%` }} />
+            </div>
+          </div>
+        )}
         {/* source 이름을 그대로 늘어놓으면 `parking_derived 1653` 처럼 보인다 — 저장소를
             아는 사람만 그게 '실측이 아니다' 를 안다. 한국어 이름으로만 적고, 사전에 없는
             키는 줄에서 뺀다(내부 코드는 화면이 아니라 콘솔에서 본다). */}
@@ -207,9 +272,8 @@ export function ModelTrustPanel() {
           채점 모드 · {labeledCounts(data.guardrails.scoring_modes, SCORING_MODE_LABELS, (value) => `${value}건`) || '집계 중'}
           {' · '}도보 제한 위반 {data.guardrails.walk_limit_violations}건
         </p>
-        {data.collection.facility_gaps.length > 0 && <p className="mt-1 text-[11px] text-hanok-muted">다음 수집 우선 대상 · {data.collection.facility_gaps.slice(0, 6).map((item) => item.name).join(' · ')}</p>}
+        {(data.collection.facility_gaps ?? []).length > 0 && <p className="mt-1 text-[11px] text-hanok-muted">다음 수집 우선 대상 · {data.collection.facility_gaps.slice(0, 6).map((item) => item.name).join(' · ')}</p>}
       </div>
-      )}
       {data.registry && <div className="mt-3 grid gap-2 text-[11px] text-hanok-muted md:grid-cols-2">
         <p>유형별 MAE · {labeledCounts(data.registry.metrics.per_type_mae, FACILITY_TYPE_LABELS, (value) => `${(value * 100).toFixed(1)}%p`) || '수집 중'}</p>
         <p>학습 근거 · {labeledCounts(data.registry.source_composition, TRAINING_SOURCE_LABELS, (value) => `${value}건`) || '수집 중'}</p>

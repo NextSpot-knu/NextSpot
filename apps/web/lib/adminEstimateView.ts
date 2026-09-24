@@ -29,6 +29,13 @@ import {
   type CongestionEmptyNotice,
   type DashboardTodayResponse,
 } from './dashboardFallback';
+import {
+  HEATMAP_PLACE_CAP,
+  KST_WEEKDAY_LABELS,
+  PREDICTED_BADGE,
+  type PredictedBasisInfo,
+  type PredictedDay,
+} from './adminPredictedView';
 
 /** 서버 `estimated.basis` — 추정의 근거(congestion_estimator_service.aggregate_estimated_day). */
 export interface EstimateBasisInfo {
@@ -63,8 +70,13 @@ export interface DashboardTodayWithEstimate extends DashboardTodayResponse {
   estimated?: unknown;
 }
 
-/** 화면이 지금 무엇을 보고 있는가 — 기존 네 갈래 + '오늘 추정'. */
-export type DashboardBasis = CongestionBasis | { kind: 'estimate'; dateKst: string; info: EstimateBasisInfo };
+/** 화면이 지금 무엇을 보고 있는가 — 기존 네 갈래 + '오늘 추정' + '오늘 예측'(2026-09-22).
+ *  순서: 오늘 실측 → 오늘 추정 → 오늘 **예측** → 과거 실측(폴백) → 없음. 예측이 시드 폴백보다 앞선다 —
+ *  '오늘 이 시각의 업종 패턴 예측' 이 '두 달 전 실측' 보다 지금 판단에 쓸모 있다(추정이 앞선 이유와 같다). */
+export type DashboardBasis =
+  | CongestionBasis
+  | { kind: 'estimate'; dateKst: string; info: EstimateBasisInfo }
+  | { kind: 'predicted'; dateKst: string; info: PredictedBasisInfo };
 
 export interface DashboardView {
   basis: DashboardBasis;
@@ -142,16 +154,26 @@ export function readEstimatedDay(raw: unknown): EstimatedDay | null {
 }
 
 /**
- * 응답 하나 → '기준' 과 '그릴 집계'. 순서: 오늘 실측 → 오늘 추정 → 과거 실측(폴백).
+ * 응답 하나 → '기준' 과 '그릴 집계'. 순서: 오늘 실측 → 오늘 추정 → 오늘 예측 → 과거 실측(폴백).
  *
  * 실측/실패/로딩 판정은 dashboardFallback.resolveCongestionView 에 그대로 맡긴다 — 두 벌로
  * 두면 폴백 규칙이 여기서만 조용히 갈라진다.
+ *
+ * `predicted` 는 페이지가 클라이언트에서 만든 예측 집계(adminPredictedView.predictedDay)다.
+ * 로딩(null)·실패(failed)·오늘 실측·오늘 추정이 있으면 무시된다 — 예측은 **데이터의 부재**만 채운다.
+ * 서버가 죽었을 때(failed) 예측을 그리면 장애가 '한산한 하루' 로 보인다. 그때는 '갱신 중' 이다.
  */
-export function resolveDashboardView(res: DashboardTodayWithEstimate | null): DashboardView {
+export function resolveDashboardView(
+  res: DashboardTodayWithEstimate | null,
+  predicted?: PredictedDay | null,
+): DashboardView {
   if (res && !res.failed && !res.hasLogs) {
     const estimated = readEstimatedDay(res.estimated);
     if (estimated) {
       return { basis: { kind: 'estimate', dateKst: estimated.dateKst, info: estimated.basis }, day: estimated };
+    }
+    if (predicted) {
+      return { basis: { kind: 'predicted', dateKst: predicted.dateKst, info: predicted.info }, day: predicted };
     }
   }
   return resolveCongestionView(res);
@@ -201,6 +223,43 @@ export function estimateMethodNote(info: EstimateBasisInfo): string {
 /** 이상 혼잡 건수의 단위 — 실측은 '로그 1행', 추정은 '(대표 장소 × 10분) 구간' 이다. */
 export const ESTIMATE_ANOMALY_UNIT = '혼잡도 90% 이상으로 추정된 (대표 관광지 × 10분) 구간 수';
 
+// ── 예측 모드 문구(2026-09-22) ─────────────────────────────────────────────
+// 추정 배너와 같은 구조(제목 · 칩 · 근거 한 줄 · 산식 · 전환 문장). 문구는 PM 결정 그대로이며 화면은
+// 이 상수만 쓴다(같은 문장을 page.tsx 에 다시 적지 않는다 — 두 벌이면 한쪽만 고쳐진다).
+
+/** 예측 배너 제목. */
+export const PREDICTED_BANNER_HEADLINE = '아래 시설 혼잡 지표는 업종 시간대 패턴 + 관광공사 집중률 기반 예측치입니다';
+/** 예측 배너 칩. */
+export const PREDICTED_BANNER_CHIP = `${PREDICTED_BADGE} · 오늘 (KST)`;
+/** 예측 배너의 전환 문장 — 무엇이 쌓이면 무엇으로 바뀌는지. */
+export const PREDICTED_SWITCH_SENTENCE = '공영주차 실측이 쌓이면 추정으로, 현장 관측이 들어오면 실측으로 자동 전환됩니다';
+/** 혼합 모드 문장 — 추정은 있는데 미래 시간·주차 반경 밖 업종을 예측으로 채웠을 때(추정 배너 아래 한 줄). */
+export const PREDICTED_MIXED_SENTENCE = '아직 오지 않은 시간과 주차장 반경 밖 시설은 업종 패턴 기반 예측으로 채웠습니다(빗금 표시).';
+/** 예측 모드의 시설 혼잡 소제목(추정 모드의 '시설 혼잡 (추정 · 주차 실측 + 관광 통계)' 자리). */
+export const PREDICTED_HEADING = '시설 혼잡 (예측 · 업종 시간대 패턴)';
+/** 예측 이상 혼잡의 단위 — 실측 '건'·추정 '(장소 × 10분) 구간' 과 다른 척도라 숫자 옆에 적는다. */
+export const PREDICTED_ANOMALY_UNIT = '혼잡도 90% 이상으로 예측된 (시설 × 1시간) 구간 수';
+
+/**
+ * 예측 값 옆에 붙는 근거 한 줄.
+ * 예: '업종 시간대 패턴 × 요일 계수(토) · 시설 48곳 · 오늘 추정 앵커 ×1.08'
+ * 앵커가 없으면(오늘 추정이 없는 날) 그 칸은 뺀다 — 없는 앵커를 1.00 이라고 적지 않는다.
+ */
+export function predictedBasisLine(info: PredictedBasisInfo): string {
+  const wd = KST_WEEKDAY_LABELS[((info.weekday % 7) + 7) % 7];
+  const parts = [`업종 시간대 패턴 × 요일 계수(${wd})`, `시설 ${info.placeCount.toLocaleString('ko-KR')}곳`];
+  if (typeof info.anchor === 'number' && Number.isFinite(info.anchor)) parts.push(`오늘 추정 앵커 ×${info.anchor.toFixed(2)}`);
+  return parts.join(' · ');
+}
+
+/** 예측 산식과 적용 범위 — 배너의 두 번째 줄. */
+export function predictedMethodNote(info: PredictedBasisInfo): string {
+  const formula = typeof info.anchor === 'number'
+    ? '예측 혼잡도 = 업종 피크값 × 시각 곡선 × 요일 계수 × 오늘 추정 앵커'
+    : '예측 혼잡도 = 업종 피크값 × 시각 곡선 × 요일 계수';
+  return `${formula} · 업종별 상위 ${HEATMAP_PLACE_CAP}곳(정원 순) × 1시간 단위 · ${info.elapsedHours}시까지의 평균`;
+}
+
 /**
  * 히트맵에서 '아직 오지 않은 시간' 이 시작되는 KST 시(0..23). 없으면 null.
  * 오늘을 그릴 때만 의미가 있다 — 과거 날짜의 빈 칸은 '데이터 없음' 이지 '미래' 가 아니다.
@@ -216,20 +275,25 @@ export function pendingFromHour(dateKst: string | null, nowMs: number): number |
   return next >= 24 ? null : next;
 }
 
-// ── 기존 판정 함수의 '추정' 갈래 확장 ────────────────────────────────────────
-// dashboardFallback 의 함수들은 CongestionBasis 만 안다. 추정은 '오늘' 이므로 날짜 배지·폴백
+// ── 기존 판정 함수의 '추정'·'예측' 갈래 확장 ─────────────────────────────────
+// dashboardFallback 의 함수들은 CongestionBasis 만 안다. 추정·예측은 '오늘' 이므로 날짜 배지·폴백
 // 설명은 없고(null), 기간 라벨은 '오늘' 이다.
 
+/** 오늘을 그리는 비실측 갈래인가(추정·예측). 이 둘만 '아직 오지 않은 시간' 이 있다. */
+export function isTodayNonMeasured(basis: DashboardBasis): basis is Extract<DashboardBasis, { kind: 'estimate' | 'predicted' }> {
+  return basis.kind === 'estimate' || basis.kind === 'predicted';
+}
+
 export function dashboardPeriodLabel(basis: DashboardBasis): string {
-  return basis.kind === 'estimate' ? '오늘' : basisPeriodLabel(basis);
+  return isTodayNonMeasured(basis) ? '오늘' : basisPeriodLabel(basis);
 }
 
 export function dashboardDateBadge(basis: DashboardBasis): string | null {
-  return basis.kind === 'estimate' ? null : basisDateBadge(basis);
+  return isTodayNonMeasured(basis) ? null : basisDateBadge(basis);
 }
 
 export function dashboardFallbackExplanation(basis: DashboardBasis): string | null {
-  return basis.kind === 'estimate' ? null : fallbackExplanation(basis);
+  return isTodayNonMeasured(basis) ? null : fallbackExplanation(basis);
 }
 
 /**
@@ -244,7 +308,7 @@ export const DASHBOARD_INGEST_PATHS =
   '현장 관측은 손님 제보 · 사장 좌석 방송 · 관리자 오버라이드로 수집합니다. 오늘은 공영주차 실측(경주 ITS)과 관광 통계를 결합한 추정 지표를 ‘추정’ 라벨과 함께 표시하며, 현장 관측이 들어오면 자동으로 실측으로 전환됩니다.';
 
 export function dashboardEmptyNotice(basis: DashboardBasis): CongestionEmptyNotice | null {
-  if (basis.kind === 'estimate') return null;
+  if (isTodayNonMeasured(basis)) return null;
   const notice = congestionEmptyNotice(basis);
   if (!notice || notice.remedy === null) return notice;
   return { ...notice, remedy: DASHBOARD_INGEST_PATHS };
@@ -269,10 +333,13 @@ export function estimateUnavailableNote(res: DashboardTodayWithEstimate | null, 
   return '오늘의 추정 지표는 다음 수집 주기에 표시됩니다.';
 }
 
-/** CSV 첫 줄 '기준' 칸. 파일로 나간 숫자는 화면 맥락을 잃으므로 추정 여부를 여기 박는다. */
+/** CSV 첫 줄 '기준' 칸. 파일로 나간 숫자는 화면 맥락을 잃으므로 추정·예측 여부를 여기 박는다. */
 export function csvBasisCell(basis: DashboardBasis): string {
   if (basis.kind === 'estimate') {
     return `오늘 (KST) — 공영주차 실측 + 관광 통계 기반 추정: ${estimateBasisLine(basis.info, basis.dateKst)}`;
+  }
+  if (basis.kind === 'predicted') {
+    return `오늘 (KST) — 업종 시간대 패턴 + 관광공사 집중률 기반 예측: ${predictedBasisLine(basis.info)}`;
   }
   if (basis.kind === 'fallback') return `${basis.dateKst} (KST) — 현장 관측 집계 기준일`;
   return '오늘 (KST)';

@@ -4,7 +4,9 @@
 > [`CONTEST_STRATEGY.md`](./CONTEST_STRATEGY.md), 최신 상태는 [`HANDOVER.md`](../HANDOVER.md) 참고.
 > 2026-09-20에 **추정 모드·서울 검증**을 묻는 4문(Q11~Q14)과 **실시간 호출 여부**를 묻는 1문(Q15)을
 > 더하고 Q2·Q5를 현재 수치로 고쳤다.
-> 데이터 쪽 근거는 [`DATA_UTILIZATION.md`](./DATA_UTILIZATION.md) §7·§8·§9.
+> 2026-09-22에 관제 대시보드의 **예측·시나리오 라벨**(클라이언트 전용)을 Q9·Q11에 반영하고 Q16을 더했다.
+> 데이터 쪽 근거는 [`DATA_UTILIZATION.md`](./DATA_UTILIZATION.md) §7·§8·§9,
+> 네 어휘(실측·추정·예측·시나리오)의 정의는 [`CONGESTION_DATA.md`](../CONGESTION_DATA.md) §10.2.
 
 ---
 
@@ -95,11 +97,14 @@ FacilityTable이 이미 이 설정을 소비하도록 마이그레이션을 마�
 비용으로 반영하고, 취향·이동시간·쿠폰 혜택과 함께 도착 시점에 상대적으로 덜 붐빌 가능성이 높은 대안을 고른다.
 향후 검증 모델이 승격되면 재배치기여(`원본혼잡 − 후보 도착시점 예측혼잡`)가 다시 인센티브 항에 들어가도록
 구조화돼 있다. 소상공인 상생은 쿠폰 제휴(`coupon_rate`)가 추천 혜택에 반영되는 방식으로 이미 작동한다.
-측정 인프라도 이미 실측 기반이다 — 수락률(최근 7일)·DAU(오늘)·절감 대기시간(`/admin/impact`)·30일 분산
-추이(`/admin/metrics/trend`, 일평균 혼잡도+일별 수락률)를 전부 서버가 실데이터로 집계하며, 표본이 부족한
-구간은 라벨로 구분된 예시로만 보여준다. 다만 실사용자 모수 자체가 아직 작아 "대규모 행동 변화 실증"은
-파일럿 운영에서 채워야 할 다음 단계라는 점은 정직하게 밝힌다.
-[뒷받침 근거: score.py relief_term/INCENTIVE_COUPON_SHARE, GET /api/v1/admin/metrics/trend, docs/contest/CONTEST_STRATEGY.md E3]
+측정 인프라는 서버가 실데이터로 집계한다 — 수락률(최근 7일)·DAU(오늘)·절감 대기시간·재배치(`/admin/impact`)·
+30일 분산 추이(`/admin/metrics/trend`, 일평균 혼잡도+일별 수락률). 다만 지금은 실사용자 모수가 작아 창 안
+실측 표본이 5건에 못 미치는 패널이 많고, 그 패널은 화면에서 **'시나리오'** 배지(호박색 점선)와 근거 한 줄
+(`도입 목표 패턴 × 시각 진행률 · 실측 N건 수집 중`)을 달고 도입 목표 패턴 값을 보여 준다. 실측이 5건이
+되는 순간 같은 자리가 배지 없는 실측으로 자동 전환되고, 30일 추이도 혼잡 표본일 3일부터 "실측 집계(30일)"
+로 바뀐다(그 전에는 "도입 효과 시나리오(30일)"). 배지 없는 숫자는 전부 실측이고, 배지 있는 숫자는 실측이
+아니다 — "대규모 행동 변화 실증"은 파일럿 운영에서 채워야 할 다음 단계라는 점은 그대로 밝힌다.
+[뒷받침 근거: score.py relief_term/INCENTIVE_COUPON_SHARE, GET /api/v1/admin/metrics/trend, apps/web/lib/adminPredictedView.ts(resolveKpiBasis·MIN_MEASURED_SAMPLES), docs/contest/CONTEST_STRATEGY.md E3]
 
 ## Q9-2. [심사] 사업자·관리자 화면은 어떻게 들어가나?
 
@@ -141,10 +146,20 @@ Supabase 익명 세션으로 기기별 무마찰 자동 로그인을 제공하�
 경주에는 시설 단위 실시간 유동인구 데이터가 없어서, 공영주차 실측과 관광 통계로 읽는 시점에
 계산한다 — `0.7 · (반경 2km 공영주차 가중 점유율, 경주 ITS 10분 스냅샷) + 0.3 · (관광공사 집중률 기준선)`.
 화면에는 반드시 **'추정' 배지**와 근거 한 줄(주차장 수·관측 시각·반경 2km)이 같이 나가고, 실측이나
-예측 값이 있으면 추정은 표시되지 않는다(측정 > 예측 > 추정). 이 값은 `congestion_logs`에 적재하지
-않으므로 **모델 학습에도 들어가지 않는다.** 2026-09-20 배포 API 실측으로 활성 1,669곳 중 846곳(50.7%)에만
-값이 생기고, 반경 밖 823곳은 **비워 둔다** — 지어내지 않는 쪽을 택했다.
-[뒷받침 근거: apps/api/app/services/congestion_estimator_service.py, GET /api/v1/congestion/estimates, docs/contest/DATA_UTILIZATION.md §8]
+승격된 모델 예측 값이 있으면 추정은 표시되지 않는다(서버 혼잡 엔진의 순서: 측정 > 모델 예측 > 추정).
+이 값은 `congestion_logs`에 적재하지 않으므로 **모델 학습에도 들어가지 않는다.** 2026-09-20 배포 API
+실측으로 활성 1,669곳 중 846곳(50.7%)에만 값이 생기고, 반경 밖 823곳은 **비워 둔다** — 관광객 앱과
+추천 엔진에서는 지어내지 않는 쪽을 택했다.
+
+관제 대시보드(관리자만)는 여기에 어휘 둘을 더 쓴다(2026-09-22, 브라우저 계산 — API·저장·추천에는 닿지
+않는다). **'예측'**(보라 점선)은 오늘 실측도 추정도 없을 때 업종별 시간대 곡선 × 요일 계수 × 당일 추정
+앵커로 만든 시설 혼잡값이고, 추정 격자의 아직 오지 않은 시간과 주차장 반경 밖 업종도 같은 방식으로
+빗금 칸으로 채운다. **'시나리오'**(호박색 점선)는 혼잡 모델 입력이 아예 없는 KPI(수락률·DAU·재배치·절감
+분·깔때기)에 쓰는 고정 예시값 × KST 시각 누적 비율이다. 대시보드의 표시 순서는 오늘 실측 > 오늘 추정
+> 오늘 예측 > 과거 실측일 > 없음이고, KPI 패널은 자기 창에 실측이 **5건 이상**이면 실측, 미만이면
+가장 높은 비실측 근거(추정 > 예측 > 시나리오)를 배지와 근거 한 줄과 함께 보여 주며 1~4건일 때는
+`실측 3건 수집 중`처럼 실제 건수를 적는다. 서버가 응답하지 않으면 예측이 아니라 `갱신 중`이다.
+[뒷받침 근거: apps/api/app/services/congestion_estimator_service.py, GET /api/v1/congestion/estimates, apps/web/lib/adminPredictedView.ts, apps/web/lib/adminEstimateView.ts(resolveDashboardView), docs/CONGESTION_DATA.md §10.2, docs/contest/DATA_UTILIZATION.md §8]
 
 ## Q12. [데이터] 추정이면 정확도는 어떻게 아나?
 
@@ -202,3 +217,21 @@ Supabase 익명 세션으로 기기별 무마찰 자동 로그인을 제공하�
 방증이다 — 고정 응답을 캐시에서 재생하는 구조라면 이런 실패가 날 수 없다. 발급된 `TOURAPI_KEY`의
 공공데이터포털 활용현황에는 이 개발 기간 내내의 실제 타임스탬프가 이미 두텁게 쌓여 있다.
 [뒷받침 근거: docs/contest/DATA_UTILIZATION.md §9, .github/workflows/ingest.yml, apps/api/app/routers/events.py, apps/api/app/routers/search.py, apps/web/app/main/page.tsx:2455-2469]
+
+---
+
+## Q16. [데이터] 대시보드 숫자가 '예측'·'시나리오'라고 적혀 있는데 실측은 언제 보이나?
+
+각 패널이 스스로 바꾼다. 규칙은 하나다 — 그 패널의 집계 창(수락률은 최근 7일, DAU·재배치·깔때기는
+오늘) 안에 실측 표본이 **5건 이상**이면 배지 없이 실측을 보여 주고, 미만이면 그 패널이 가진 가장 높은
+비실측 근거를 배지와 함께 보여 준다. 어휘는 넷이다. **실측**은 현장 관측·추천 기록·피드백처럼 서버에
+저장된 사실이다. **추정**은 공영주차 실측(경주 ITS) + 관광공사 집중률로 읽는 시점에 계산한 시설 혼잡
+(Q11). **예측**은 오늘 추정이 없을 때 업종별 시간대 곡선 × 요일 계수 × 당일 추정 앵커로 브라우저가
+만든 혼잡값이며, 추정 격자의 아직 오지 않은 시간도 이 값으로 빗금 칸을 채운다 — 곡선 상수는 서버
+`industry_baseline.py`에서 숫자 그대로 옮겼다. **시나리오**는 혼잡 모델 입력이 없는 KPI(수락률·DAU·
+재배치·절감 분·깔때기)를 고정 예시 하루 총량 × KST 시각 누적 비율로 그린 값이라 하루 동안 결정적으로
+올라간다. 실측이 1~4건이면 배지 아래에 `실측 3건 수집 중`처럼 실제 건수를 적고, 0건은 측정한 0이
+아니므로 숫자로 적지 않는다. 이 셋은 어느 것도 저장되거나 추천·학습에 들어가지 않고, 관제 화면의
+표시와 CSV `근거` 칸에만 존재한다. 서버가 응답하지 않으면 채우지 않고 `갱신 중`으로 둔다 — 예측은
+데이터 공백을 채우지 서버 부재를 가리지 않는다.
+[뒷받침 근거: apps/web/lib/adminPredictedView.ts(MIN_MEASURED_SAMPLES·resolveKpiBasis·basisSubline·scenarioKpis·fillHeatmapPredicted), apps/api/app/services/spot/industry_baseline.py, apps/web/lib/demoFixtures.ts(DEMO_ADMIN_KPI·DEMO_ADMIN_SCENARIO_DAY), docs/CONGESTION_DATA.md §10.2]
