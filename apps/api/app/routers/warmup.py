@@ -18,6 +18,7 @@
 """
 
 import asyncio
+import math
 import threading
 import time
 from datetime import datetime, timezone
@@ -37,7 +38,11 @@ _RECENTLY_WARMED_SECONDS = 300.0
 # 전체 상한. 넘기면 남은 단계를 포기한다 — 예열 태스크가 인스턴스를 붙들고 있으면 안 된다.
 _WARMUP_BUDGET_SECONDS = 45.0
 # 지역수요 RPC 예열에 쓸 시설 좌표 상한(중복 격자는 서비스가 알아서 접는다).
-_AREA_DEMAND_PREFETCH_LIMIT = 60
+# DB 순서 앞 60개가 아니라 **데모 중심에서 가장 가까운** 좌표만 채운다 — 첫 by-type/코스
+# 요청이 채점하는 후보는 데모 중심 반경 안이라 그 격자만 채우면 적중률은 오르고 메모리는 준다
+# (실측 2026-09-21: 그 60개가 경주 전역에 흩어져 40~57격자·~20-26MB 를 채웠다 → 근접 24개면
+# 10~20격자로 준다).
+_AREA_DEMAND_PREFETCH_LIMIT = 24
 
 _state_lock = threading.Lock()
 _running = False
@@ -86,6 +91,43 @@ async def _step(name: str, coro) -> None:
     logger.info("warmup_step_ready", step=name, elapsed_ms=round((time.perf_counter() - started) * 1000))
 
 
+def _nearest_coordinates(facilities: list[dict], limit: int) -> list[tuple[float, float]]:
+    """시설 목록에서 데모 중심(_DEMO_CENTER_LAT/LNG)과 가장 가까운 좌표 상위 `limit`개.
+
+    순수 함수로 뺀 이유: _warm_all 안에 박아 두면 "가까운 순 정렬"이라는 선택 로직 자체를
+    지역수요 서비스·워킹그래프 임포트 없이 단위 테스트할 방법이 없다. 좌표가 없거나(None)
+    숫자로 못 바꾸는 행(문자열 쓰레기값 등)은 건너뛴다 — 하버사인 계산이 죽으면 예열 단계
+    하나가 그냥 통째로 실패하는 것보다, 그 행 하나만 조용히 빼는 편이 낫다.
+
+    거리 계산까지 try 안에 넣고 isfinite 로 한 번 더 거르는 이유(2026-09-21 리뷰 지적):
+    float("1e309") 는 예외 없이 inf 를 돌려주고(Postgres double precision 은 'Infinity' 를
+    실제로 저장할 수 있다), calculate_haversine_distance 는 그 값으로 math.sin(inf) 를 불러
+    ValueError(math domain error) 를 낸다. 이 함수는 _warm_all 이 gather 를 만들기 **전에**
+    동기로 불리므로, 그 한 행 때문에 예열 6단계가 하나도 돌지 않는다. 더 나쁜 건 조용하다는
+    것이다 — _run_warmup 이 예외를 삼키고 finally 에서 5분 쿨다운을 걸어 그 뒤 5분간의
+    /warmup 은 실제로 아무것도 채우지 않은 채 no-op 이 된다. NaN 은 예외를 내지 않는 대신
+    지구 반대편 거리(약 2만 km)로 정렬되는데, 좌표로 넘기면 지역수요 격자가 엉뚱한 곳에
+    생기니 같이 버린다.
+    """
+    from app.services.spot.travel import calculate_haversine_distance
+
+    scored: list[tuple[float, tuple[float, float]]] = []
+    for facility in facilities:
+        lat, lng = facility.get("latitude"), facility.get("longitude")
+        if lat is None or lng is None:
+            continue
+        try:
+            lat, lng = float(lat), float(lng)
+            if not (math.isfinite(lat) and math.isfinite(lng)):
+                continue
+            distance = calculate_haversine_distance(_DEMO_CENTER_LAT, _DEMO_CENTER_LNG, lat, lng)
+        except (TypeError, ValueError):
+            continue
+        scored.append((distance, (lat, lng)))
+    scored.sort(key=lambda pair: pair[0])
+    return [coord for _, coord in scored[:limit]]
+
+
 async def _warm_all() -> None:
     """공유 캐시를 채운다. 하나가 실패해도 나머지는 계속한다."""
     # import 를 함수 안에 두는 이유: 이 라우터가 추천·코스 서비스 그래프를 부팅 시점에
@@ -115,11 +157,7 @@ async def _warm_all() -> None:
     # 2) 나머지 상류는 서로 독립이라 함께 돌린다. 하나가 느려도 다른 것을 막지 않는다.
     #    보행 그래프(gzip JSON 언피클)는 CPU 작업이라 워커 스레드로 밀어낸다 —
     #    이벤트 루프에서 돌리면 예열이 헬스체크를 굶기는 자충수가 된다.
-    coords = [
-        (float(f["latitude"]), float(f["longitude"]))
-        for f in facilities[:_AREA_DEMAND_PREFETCH_LIMIT]
-        if f.get("latitude") is not None and f.get("longitude") is not None
-    ]
+    coords = _nearest_coordinates(facilities, _AREA_DEMAND_PREFETCH_LIMIT)
     await asyncio.gather(
         _step("walking_graph", asyncio.to_thread(travel_service._load_graph)),
         _step("estimates", load_current_estimates()),

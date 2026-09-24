@@ -15,6 +15,12 @@ COPY . .
 ENV ENV=production
 ENV PORT=8080
 
+# glibc 가 스레드마다 malloc arena 를 늘려 해제된 메모리를 붙들고 있어(asyncio.to_thread 워커
+# 스레드가 늘어날 때마다) RSS 가 계단식으로 오르는 것을 막는다 - 512MB 단일 인스턴스 OOM
+# (2026-09-21, Render nextspot-api 15~60분마다 재시작) 대응. python:3.11-slim 은 Debian
+# 기반(glibc)이라 이 환경변수가 그대로 적용된다(Alpine/musl 베이스였다면 무의미).
+ENV MALLOC_ARENA_MAX=2
+
 # 포트 개방 메타데이터
 EXPOSE 8080
 

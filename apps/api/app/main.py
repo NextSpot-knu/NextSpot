@@ -1,4 +1,5 @@
 import asyncio
+import concurrent.futures
 import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -15,6 +16,39 @@ from app.routers import recommendations, infrastructures, predict, preferences, 
 setup_logging()
 
 _logger = structlog.get_logger()
+
+# 0.5 CPU 인스턴스에서 asyncio 기본 executor 는 스레드를 최대 32개까지 늘린다. 스레드가 늘면
+# glibc malloc arena 도 같이 늘어 해제된 메모리를 붙들고, 무거운 작업이 겹치면 순간 메모리가
+# 512MB 를 넘긴다(2026-09-21 Render nextspot-api OOM 재시작). 그래서 상한을 둔다.
+#
+# 다만 **너무 낮추면 안 된다** — 이 풀은 asyncio.to_thread 전용이 아니다. CPython
+# `BaseEventLoop.getaddrinfo` 가 `run_in_executor(None, socket.getaddrinfo, ...)` 라서 앱의
+# 모든 httpx.AsyncClient(LLM·Kakao·기상청) DNS 조회가 같은 풀에서 대기하고, Supabase 동기
+# 호출은 app 안에서 250곳 넘게 to_thread 로 나간다 — 관리자 대시보드 한 탭이 gather 로 5~8개를
+# 한 번에 잡는다(/admin/model-trust 5개, /admin/congestion/dashboard 2개+최근 타임스탬프).
+# 처음 8로 잡았더니 관리자 탭 두 개가 풀을 다 채우는 수 초 동안 사용자 요청의 DNS 조회가
+# 막히는(=32 워커 시절에는 없던) 새 실패 모드가 생겨 16으로 올렸다.
+#
+# 메모리 피크의 실제 원인은 스레드 총량이 아니라 **무거운 작업이 동시에 몇 개 도는지**다.
+# 그쪽은 congestion_estimator_service 의 전용 2-워커 풀로 따로 묶는다(_HEAVY_EXECUTOR_*) —
+# I/O 상한과 분리해야 DNS·Supabase 대기가 하루 집계 뒤에 줄 서지 않는다.
+_IO_EXECUTOR_MAX_WORKERS = 16
+
+
+def _install_bounded_executor(loop: asyncio.AbstractEventLoop) -> concurrent.futures.ThreadPoolExecutor:
+    """asyncio 기본 executor 를 스레드 수 상한이 있는 것으로 교체한다.
+
+    이 루프의 기본 executor 를 새 ThreadPoolExecutor 로 바꾸므로 이후의 모든
+    asyncio.to_thread 호출(모델 예측, JWKS 조회, 관리자 집계 등)과 **loop.getaddrinfo(DNS)**
+    가 이 상한을 공유한다 — 위 주석대로 상한을 내릴 때는 DNS 지연을 같이 봐야 한다.
+    FastAPI 의 동기 엔드포인트(예: /health)는 anyio 의 별도 스레드풀에서 돌아가므로
+    이 설정의 영향을 받지 않는다.
+    """
+    executor = concurrent.futures.ThreadPoolExecutor(
+        max_workers=_IO_EXECUTOR_MAX_WORKERS, thread_name_prefix="nextspot-io"
+    )
+    loop.set_default_executor(executor)
+    return executor
 
 
 def _check_legacy_console_token() -> None:
@@ -59,6 +93,7 @@ async def lifespan(_app: FastAPI):
     마치면 트래픽이 오기 전에 캐시가 채워진다. 워밍업 실패가 서비스 부팅을 막으면 본말전도이므로
     전부 best-effort(예외를 삼키고 경고만) — 실패해도 기존 lazy 경로가 그대로 동작한다.
     """
+    executor = _install_bounded_executor(asyncio.get_running_loop())
     t0 = time.perf_counter()
     try:
         # 비공개 Storage의 active 모델을 해시·스키마·품질 검증 후 적재하고 5분 폴링을 시작한다.
@@ -143,6 +178,10 @@ async def lifespan(_app: FastAPI):
         await stop_model_manager()
     except Exception as e:
         _logger.warning("shutdown_model_manager_failed", error=str(e))
+    try:
+        executor.shutdown(wait=False, cancel_futures=False)
+    except Exception as e:
+        _logger.warning("shutdown_bounded_executor_failed", error=str(e))
 
 
 app = FastAPI(
