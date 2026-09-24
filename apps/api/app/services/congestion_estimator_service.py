@@ -41,7 +41,12 @@ f 는 **관문(3일 · 300버킷 · 홀드아웃 MAE 개선)을 통과하기 전
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
+import contextvars
+import functools
+import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -217,15 +222,20 @@ def representative_places(
 
 
 def _hourly_heatmap(
-    places: list[dict[str, Any]], per_snapshot: list[tuple[Snapshot, dict[str, dict[str, Any]]]]
+    places: list[dict[str, Any]], per_snapshot_levels: list[tuple[Snapshot, dict[str, float]]]
 ) -> list[dict[str, Any]]:
+    """대표 장소 × KST 시 평균. 추정 dict 전체가 아니라 **대표 장소 레벨만** 받는다.
+
+    이유는 `aggregate_estimated_day` 의 스트리밍 주석과 같다 — 히트맵이 쓰는 값은 레벨 하나인데
+    dict 전체를 다시 읽으려면 스냅샷 144개분을 끝까지 들고 있어야 한다.
+    """
     cells: dict[tuple[str, int], list[float]] = {}
-    for snapshot, estimates in per_snapshot:
+    for snapshot, levels in per_snapshot_levels:
         hour = snapshot.bucket_at.astimezone(_KST).hour
         for place in places:
-            estimate = estimates.get(str(place["id"]))
-            if estimate is not None:
-                cells.setdefault((str(place["id"]), hour), []).append(estimate["level"])
+            place_id = str(place["id"])
+            if place_id in levels:
+                cells.setdefault((place_id, hour), []).append(levels[place_id])
     heatmap: list[dict[str, Any]] = []
     for place in places:
         for hour in range(24):
@@ -257,24 +267,41 @@ def aggregate_estimated_day(
     오늘이 다른 눈금이 되어 비교가 무의미해진다.
     """
     places = representative_places(facilities, forecasts)
-    per_snapshot = [
-        (snapshot, estimate_facilities(snapshot.lots, facilities, calibration_state=calibration_state))
-        for snapshot in snapshots
-    ]
+
+    # 스냅샷을 **하나씩** 계산하고 그 자리에서 줄인다(반환값은 예전과 바이트 단위로 같다).
+    #
+    # 스냅샷 144개 × 시설 1,689곳의 추정 dict 를 동시에 들고 있으면 +96MB(실측, 스냅샷당 0.8MB) —
+    # 관리자 대시보드가 오늘·어제를 연달아, 여러 탭이 겹쳐 부르면 512MB 인스턴스를 넘긴다(2026-09-21
+    # Render OOM 재시작의 한 원인). 스냅샷 하나를 계산하는 즉시 **대표 장소 레벨과 커버 집합만**
+    # 남기면 스냅샷당 수백 바이트(대표 장소 수십 곳 × float 하나)로 줄어든다.
+    per_snapshot_levels: list[tuple[Snapshot, dict[str, float]]] = []
+    covered_facility_ids: set[str] = set()
+    for snapshot in snapshots:
+        estimates = estimate_facilities(snapshot.lots, facilities, calibration_state=calibration_state)
+        covered_facility_ids.update(estimates)
+        levels: dict[str, float] = {}
+        for place in places:
+            place_id = str(place["id"])
+            estimate = estimates.get(place_id)
+            if estimate is not None:
+                levels[place_id] = estimate["level"]
+        per_snapshot_levels.append((snapshot, levels))
+        # 다음 스냅샷을 계산하기 전에 참조를 끊는다 — 두 개가 겹치면 피크가 그만큼 두 배다.
+        del estimates
+
     # 히트맵에 한 칸이라도 값이 있는 장소만 남긴다(주차 반경 밖 관광지는 줄 자체를 그리지 않는다).
     covered = [
         place for place in places
-        if any(str(place["id"]) in estimates for _, estimates in per_snapshot)
+        if any(str(place["id"]) in levels for _, levels in per_snapshot_levels)
     ][:HEATMAP_PLACE_CAP]
 
     samples: list[tuple[Snapshot, dict[str, Any], float]] = []
-    for snapshot, estimates in per_snapshot:
+    for snapshot, snapshot_levels in per_snapshot_levels:
         for place in covered:
-            estimate = estimates.get(str(place["id"]))
-            if estimate is not None:
-                samples.append((snapshot, place, estimate["level"]))
+            place_id = str(place["id"])
+            if place_id in snapshot_levels:
+                samples.append((snapshot, place, snapshot_levels[place_id]))
 
-    covered_facility_ids = {fid for _, estimates in per_snapshot for fid in estimates}
     latest = max((snapshot.observed_at for snapshot in snapshots), default=None)
     lot_counts = [len(snapshot.lots) for snapshot in snapshots]
     basis = {
@@ -334,7 +361,7 @@ def aggregate_estimated_day(
             "prevSampleCount": prev_samples,
         },
         "anomalyCount": anomaly_count,
-        "heatmap": _hourly_heatmap(covered, per_snapshot),
+        "heatmap": _hourly_heatmap(covered, per_snapshot_levels),
         "anomalies": anomalies,
         "sampleCount": len(samples),
         "sourceComposition": {ESTIMATE_SOURCE: len(samples)},
@@ -619,6 +646,42 @@ _DAY_TTL_TODAY_SECONDS = 300.0
 _DAY_TTL_PAST_SECONDS = 6 * 3600.0
 _day_cache: dict[str, tuple[float, dict[str, Any]]] = {}
 
+# 하루 집계 전용 스레드풀(2개). 기본 executor(app.main._IO_EXECUTOR_MAX_WORKERS)를 쓰지 않는
+# 이유가 둘이다(2026-09-21 리뷰):
+#   · 메모리 — _estimated_day_sync 한 번이 스냅샷 144개 + 시설 1,689곳을 들고 1~2초 CPU 를 쓰고,
+#     with_prev=True 라 같은 스레드에서 어제까지 한 번 더 돈다. 기본 풀(16)에 맡기면 관리자 탭·
+#     백테스트가 겹칠 때 그만큼 동시에 떠서 512MB 인스턴스가 OOM 으로 재시작한다(실측). 2개로
+#     묶으면 그 transient 피크가 최대 2배로 고정된다.
+#   · 지연 — 거꾸로 이 집계가 기본 풀 슬롯을 잡고 있으면 같은 풀을 쓰는 DNS 조회
+#     (loop.getaddrinfo)와 Supabase 동기 호출이 그 뒤에 줄 선다. 무거운 CPU 작업과 I/O 대기는
+#     풀을 나눠야 서로를 굶기지 않는다.
+# 여러 날 집계(estimated_report_service.aggregate_estimated_days)도 성격이 같아 다음 후보다.
+# 풀은 **게으르게** 만든다 — import 만으로 스레드를 띄우면 이 경로를 쓰지 않는 배치 스크립트·
+# 테스트까지 워커 스레드를 물고 시작한다.
+_HEAVY_EXECUTOR_MAX_WORKERS = 2
+_heavy_executor: concurrent.futures.ThreadPoolExecutor | None = None
+_heavy_executor_lock = threading.Lock()
+
+
+def _heavy_executor_pool() -> concurrent.futures.ThreadPoolExecutor:
+    """하루 집계 전용 풀(최초 호출 때 생성)."""
+    global _heavy_executor
+    with _heavy_executor_lock:
+        if _heavy_executor is None:
+            _heavy_executor = concurrent.futures.ThreadPoolExecutor(
+                max_workers=_HEAVY_EXECUTOR_MAX_WORKERS, thread_name_prefix="nextspot-heavy"
+            )
+        return _heavy_executor
+
+
+async def _run_heavy(func: Callable[..., Any], /, *args: Any, **kwargs: Any) -> Any:
+    """`asyncio.to_thread` 와 같은 의미(contextvars 복사 포함)로, 전용 풀에서 실행한다."""
+    loop = asyncio.get_running_loop()
+    ctx = contextvars.copy_context()
+    return await loop.run_in_executor(
+        _heavy_executor_pool(), functools.partial(ctx.run, func, *args, **kwargs)
+    )
+
 
 async def estimated_day_aggregate(date_kst: str, *, now: datetime | None = None) -> dict[str, Any]:
     """KST 하루의 추정 집계(관리자 대시보드 모양 + ``basis``). 실패는 호출부가 판단한다.
@@ -631,7 +694,7 @@ async def estimated_day_aggregate(date_kst: str, *, now: datetime | None = None)
     monotonic_now = time.monotonic()
     if cached and monotonic_now - cached[0] < ttl:
         return cached[1]
-    result = await asyncio.to_thread(_estimated_day_sync, date_kst, with_prev=True)
+    result = await _run_heavy(_estimated_day_sync, date_kst, with_prev=True)
     _day_cache[date_kst] = (monotonic_now, result)
     # 캐시가 날짜 수만큼 자라지 않게 최근 며칠만 남긴다.
     for stale in sorted(_day_cache)[:-8]:

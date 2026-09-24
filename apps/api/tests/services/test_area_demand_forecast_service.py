@@ -1,5 +1,7 @@
 import math
 import random
+import time
+from dataclasses import FrozenInstanceError
 from datetime import datetime, timedelta, timezone
 from decimal import ROUND_HALF_UP, Decimal
 from types import SimpleNamespace
@@ -539,3 +541,155 @@ async def test_a_real_rpc_failure_is_not_disguised_as_a_missing_migration(
             _QUERY_LAT, _QUERY_LNG, datetime(2026, 8, 2, tzinfo=timezone.utc)
         )
     assert forecast_svc._rpc_missing_until == 0.0
+
+
+# ── 격자 캐시 메모리 — 512MB 인스턴스가 OOM 으로 재시작한 경로 ─────────────────
+# 2026-09-21: Render nextspot-api(0.5 CPU · 512MB · 단일 워커)가 15~60분마다
+# "Ran out of memory" 로 재시작했다. 격자 하나가 그 반경의 스냅샷 전량(실측 4,172점 ·
+# 0.46MB)이라 상한 256이면 118MB 다. 아래 테스트들은 (1) 점 하나가 작아진 상태,
+# (2) 격자 간 값 공유, (3) 상한과 축출 순서를 잠근다. **값은 하나도 바뀌지 않아야 한다.**
+
+
+def _shared_rows() -> list[list]:
+    """같은 시각·수준을 담은 RPC 행. 호출마다 **새 객체**로 만든다.
+
+    level 을 float 리터럴로 두면 파이썬이 이미 같은 객체를 주므로 인턴 효과를 검증할 수
+    없다(테스트가 자기도 모르게 통과한다). 그래서 float("...") 로 매번 새로 만든다.
+    """
+    return [
+        ["2026-08-01T01:00:00+00:00", float("0.25"), 3],
+        ["2026-08-01T01:10:00+00:00", float("0.5"), 4],
+    ]
+
+
+def test_two_grids_share_the_same_timestamp_and_level_objects():
+    """격자마다 같은 스냅샷 시각을 복제하면 그게 곧 118MB 다 — 한 벌만 들고 공유한다."""
+    rows = _shared_rows()
+    first = forecast_svc._points_from_payload({"points": _shared_rows()})
+    second = forecast_svc._points_from_payload({"points": _shared_rows()})
+
+    for left, right, row in zip(first, second, rows):
+        assert left.observed_at is right.observed_at, "격자마다 observed_at 을 새로 만든다"
+        assert left.level is right.level, "격자마다 level 을 새로 만든다"
+        # 공유해도 값과 표시 문자열은 입력 그대로여야 한다.
+        assert left.observed_at.isoformat() == row[0]
+        assert left.level == row[1]
+        assert left.lot_count == row[2]
+    assert first == second
+
+    # reset 이 인턴 표까지 비우지 않으면 테스트 간에 객체가 새어 격리가 깨진다.
+    forecast_svc.reset_points_cache()
+    third = forecast_svc._points_from_payload({"points": _shared_rows()})
+    assert third[0].observed_at is not first[0].observed_at
+    assert third == first
+
+
+def test_interning_never_changes_the_isoformat_of_a_point():
+    """aware datetime 의 ==/hash 는 **순간만** 본다 — tzinfo 표기가 다르면 공유하면 안 된다.
+
+    01:00+00:00 과 10:00+09:00 은 같다고 판정되므로 datetime 만 키로 쓰면 먼저 들어온
+    쪽의 tzinfo 를 돌려주고, 관리자 응답의 `data_from`·`observed_at` 문자열이 조용히 바뀐다.
+    """
+    utc = forecast_svc._points_from_payload({"points": [["2026-08-01T01:00:00+00:00", 0.4, 2]]})
+    kst = forecast_svc._points_from_payload({"points": [["2026-08-01T10:00:00+09:00", 0.4, 2]]})
+    assert utc[0].observed_at == kst[0].observed_at, "같은 순간이 아니면 이 테스트가 무의미하다"
+    assert utc[0].observed_at is not kst[0].observed_at
+    assert utc[0].observed_at.isoformat() == "2026-08-01T01:00:00+00:00"
+    assert kst[0].observed_at.isoformat() == "2026-08-01T10:00:00+09:00"
+
+    # RPC 가 실제로 주는 두 표기("Z" / "+00:00")와 tz 없는 값은 예전처럼 모두 UTC 다.
+    same_instant = forecast_svc._points_from_payload({"points": [
+        ["2026-08-01T01:00:00Z", 0.4, 2],
+        ["2026-08-01T01:00:00", 0.4, 2],
+    ]})
+    for point in same_instant:
+        assert point.observed_at.isoformat() == "2026-08-01T01:00:00+00:00"
+        assert point.observed_at is utc[0].observed_at
+
+
+def test_a_point_has_no_instance_dict_and_stays_frozen():
+    """slots 로 __dict__ 를 없애 점 하나가 ~106B → ~65B 가 된다(격자당 4,172점 실측)."""
+    observed_at = datetime(2026, 8, 1, 1, tzinfo=timezone.utc)
+    positional = AreaDemandPoint(observed_at, 0.4, 2)
+    keyword = AreaDemandPoint(observed_at=observed_at, level=0.4, lot_count=2)
+
+    assert not hasattr(positional, "__dict__"), "__dict__ 가 살아 있으면 slots 가 빠졌다"
+    assert AreaDemandPoint.__slots__ == ("observed_at", "level", "lot_count")
+    assert positional == keyword
+    assert hash(positional) == hash(keyword)
+    assert {positional, keyword} == {positional}
+    with pytest.raises(FrozenInstanceError):
+        positional.level = 0.9
+
+
+def test_the_intern_tables_stay_bounded_and_keep_the_same_values():
+    """상한을 넘으면 그냥 비운다 — 공유만 잠시 풀리고 값은 같다(56일 × 144 = 8,064 이니 여유)."""
+    forecast_svc.reset_points_cache()
+    limit = forecast_svc._INTERN_MAX_ENTRIES
+    base = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    started = time.monotonic()
+    for index in range(limit + 500):
+        moment = base + timedelta(minutes=index)
+        level = index / 3.0
+        assert forecast_svc._intern_datetime(moment) == moment
+        assert forecast_svc._intern_level(level) == level
+    assert time.monotonic() - started < 1.0, "인턴이 파싱 경로를 눈에 띄게 느리게 만든다"
+
+    assert len(forecast_svc._datetime_intern) <= limit + 1
+    assert len(forecast_svc._level_intern) <= limit + 1
+
+    # 비워진 뒤에도 값·표시 문자열은 그대로.
+    again = base + timedelta(minutes=7)
+    assert forecast_svc._intern_datetime(again) == again
+    assert forecast_svc._intern_datetime(again).isoformat() == again.isoformat()
+    assert forecast_svc._intern_level(0.375) == 0.375
+
+
+def test_the_points_cache_cap_fits_the_512mb_instance():
+    """격자 하나가 0.46MB(56일 창이 차면 0.9MB)다 — 상한이 곧 상주 메모리다."""
+    cap = forecast_svc._POINTS_CACHE_MAX_ENTRIES
+    # 코스 요청 하나가 새 격자 24개 안팎을 만든다. 3회분 미만이면 TTL 5분이 무의미해지고,
+    # 128을 넘으면 56일 창이 찬 시점에 100MB 를 넘어 다시 OOM 이다.
+    assert 24 * 3 <= cap <= 128
+    assert cap == 96
+
+
+def test_the_points_cache_drops_expired_entries_before_live_ones():
+    forecast_svc.reset_points_cache()
+    cap = forecast_svc._POINTS_CACHE_MAX_ENTRIES
+    ttl = forecast_svc._POINTS_CACHE_TTL_SECONDS
+    now = time.monotonic()
+    pts = _points(3)
+
+    expired = [(0.0, float(index)) for index in range(3)]
+    live = [(1.0, float(index)) for index in range(cap - 3)]
+    for key in expired:
+        forecast_svc._points_cache[key] = (now - ttl - 10.0, pts)
+    for offset, key in enumerate(live):
+        forecast_svc._points_cache[key] = (now - 60.0 + offset * 0.001, pts)
+    assert len(forecast_svc._points_cache) == cap
+
+    forecast_svc._points_cache_put((2.0, 0.0), pts)
+
+    assert all(key not in forecast_svc._points_cache for key in expired), "만료분이 남았다"
+    assert all(key in forecast_svc._points_cache for key in live), "살아 있는 격자가 먼저 나갔다"
+    assert (2.0, 0.0) in forecast_svc._points_cache
+    assert len(forecast_svc._points_cache) <= cap
+
+
+def test_the_points_cache_evicts_the_oldest_when_nothing_has_expired():
+    """만료분이 없으면 오래된 순으로 버려 상한을 지킨다(무한 성장 = OOM)."""
+    forecast_svc.reset_points_cache()
+    cap = forecast_svc._POINTS_CACHE_MAX_ENTRIES
+    now = time.monotonic()
+    pts = _points(3)
+    keys = [(3.0, float(index)) for index in range(cap)]
+    for offset, key in enumerate(keys):
+        forecast_svc._points_cache[key] = (now - 30.0 + offset * 0.001, pts)
+
+    forecast_svc._points_cache_put((4.0, 0.0), pts)
+
+    assert len(forecast_svc._points_cache) <= cap
+    assert keys[0] not in forecast_svc._points_cache, "가장 오래된 격자가 남았다"
+    assert keys[-1] in forecast_svc._points_cache
+    assert (4.0, 0.0) in forecast_svc._points_cache

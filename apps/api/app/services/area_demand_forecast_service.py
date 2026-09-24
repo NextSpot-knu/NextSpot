@@ -40,11 +40,57 @@ _SOURCE = "gyeongju_its"
 _POINTS_RPC = "area_demand_points_near"
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class AreaDemandPoint:
+    """권역 수요 시계열의 한 점.
+
+    메모리: 이 점은 격자 캐시에 **격자마다 전량**(2026-09-21 실측 4,172개) 쌓인다.
+    ``slots=True`` 로 인스턴스 ``__dict__`` 를 없애 점 하나가 ~106B → ~65B 가 되고
+    (tracemalloc 실측, 4,172점 431KB → 265KB), ``observed_at``·``level`` 은 아래 인턴
+    표로 격자 간에 **같은 객체를 공유**한다 — 모든 격자가 같은 10분 스냅샷 시각을 쓰는데
+    예전에는 격자마다 datetime(하나 57B, 격자당 233KB)을 새로 만들어 복제했다.
+    값·비교·isoformat() 결과는 그대로다 — 바뀌는 것은 '몇 개의 객체로 표현하느냐' 뿐이다.
+    """
+
     observed_at: datetime
     level: float
     lot_count: int
+
+
+# ── 값 인턴(격자 간 공유) ─────────────────────────────────────────────────────
+# 격자마다 시계열 전량을 들고 있는데, 그 시각들은 **모든 격자가 동일**하다(10분 스냅샷
+# 한 번당 한 점). 2026-09-21 실측으로 격자 하나가 4,172점이라 256격자면 같은 datetime
+# 객체가 최대 256벌 복제됐다. 여기서 한 벌만 남기고 공유한다.
+#
+# 넘치면 그냥 비운다: 공유가 잠시 풀릴 뿐 값은 같다. 56일 × 144버킷 = 8,064 이니
+# 20,000 은 넉넉하다(연속 배포 없이 창이 다 차도 여유).
+#
+# 표 자체의 비용도 재 봤다: 8,064개일 때 1.14MB(항목당 ~148B — 키 tuple + dict 슬롯).
+# 격자 96개에서 복제를 걷어내며 줄이는 양(격자당 233KB × 96 ≈ 22MB)에 비하면 무시할 만하다.
+_INTERN_MAX_ENTRIES = 20_000
+# 키에 tzinfo 표기를 함께 넣는 이유: aware datetime 의 ==/hash 는 **순간만** 본다.
+# 01:00+00:00 과 10:00+09:00 은 같다고 판정되므로 datetime 만 키로 쓰면 먼저 들어온
+# 쪽의 tzinfo 를 돌려주고, 하류의 isoformat() 출력이 조용히 달라진다(응답 문자열이 바뀐다).
+_datetime_intern: dict[tuple[datetime, str], datetime] = {}
+_level_intern: dict[float, float] = {}
+
+
+def _intern_datetime(value: datetime) -> datetime:
+    """같은 순간 **그리고 같은 tzinfo 표기**일 때만 객체를 공유한다."""
+    if len(_datetime_intern) > _INTERN_MAX_ENTRIES:
+        _datetime_intern.clear()
+    return _datetime_intern.setdefault((value, str(value.tzinfo)), value)
+
+
+def _intern_level(value: float) -> float:
+    """수요 수준은 반올림하지 않는다 — 값이 **정확히 같을 때만** 공유한다.
+
+    float 키의 유일한 함정인 ``-0.0``(0.0 과 ==/hash 가 같다)은 ``_clamp`` 가
+    ``max(0.0, ...)`` 로 항상 ``0.0`` 을 돌려주므로 여기 들어오지 않는다.
+    """
+    if len(_level_intern) > _INTERN_MAX_ENTRIES:
+        _level_intern.clear()
+    return _level_intern.setdefault(value, value)
 
 
 # ── 폴백 전용 상태 ────────────────────────────────────────────────────────────
@@ -75,7 +121,14 @@ _rpc_missing_until: float = 0.0
 #
 # `now` 는 키에 넣지 않고 TTL 로만 다룬다. 넣으면 초 단위로 키가 갈려 캐시가 무의미해진다.
 _POINTS_CACHE_TTL_SECONDS = 5 * 60.0
-_POINTS_CACHE_MAX_ENTRIES = 256
+# 상한. 항목 하나가 **가볍지 않다**: 격자 하나 = 그 반경의 스냅샷 전량이다
+# (2026-09-21 실측 4,172점 · 0.46MB, 56일 창이 다 차면 8,064점으로 두 배).
+# 256격자면 118MB — 512MB Render 인스턴스가 15~60분마다 OOM 으로 재시작한 주범 중 하나다.
+#
+# 96 = 코스 요청 3~4회분(요청당 새 격자 ~24개)이고 TTL 이 5분이라 그 이상은 어차피 만료분이다.
+# 밀려난 격자를 다시 받아도 CPU 는 늘지 않는다: RPC 재조회는 I/O 0.5~1.2초이고 비싼
+# 백테스트 결과는 `_quality_cache`(TTL 30분, 상한 256)가 따로 들고 있다.
+_POINTS_CACHE_MAX_ENTRIES = 96
 _points_cache: dict[tuple[float, float], tuple[float, list["AreaDemandPoint"]]] = {}
 # 같은 격자를 동시에 요청하면 RPC 도 동시에 나간다. 격자마다 락을 하나 두어 **첫 요청만**
 # 왕복하고 나머지는 그 결과를 기다리게 한다(예열과 채점이 겹칠 때 실제로 일어난다).
@@ -109,9 +162,15 @@ def _points_cache_put(key: tuple[float, float], points: list["AreaDemandPoint"])
 
 
 def reset_points_cache() -> None:
-    """테스트 전용 — 모듈 전역 캐시가 테스트 간에 새지 않게 한다."""
+    """테스트 전용 — 모듈 전역 캐시가 테스트 간에 새지 않게 한다.
+
+    인턴 표도 함께 비운다: 남겨 두면 앞 테스트가 만든 객체를 뒤 테스트가 돌려받아
+    '같은 객체인가' 를 보는 검사가 자기 테스트와 무관하게 통과한다(테스트 격리).
+    """
     _points_cache.clear()
     _points_locks.clear()
+    _datetime_intern.clear()
+    _level_intern.clear()
 
 # ── 지점별 백테스트 캐시 ──────────────────────────────────────────────────────
 _quality_cache: dict[tuple[float, float, int, str], tuple[float, dict[str, Any]]] = {}
@@ -323,7 +382,13 @@ def _points_from_payload(payload: Any) -> list[AreaDemandPoint]:
         observed_at = _aware(row[0])
         if observed_at is None:
             raise ValueError(f"{_POINTS_RPC} returned an unparsable observed_at")
-        points.append(AreaDemandPoint(observed_at, _clamp(float(row[1])), int(row[2])))
+        # 시각·수준은 격자마다 같은 값이 반복되므로 인턴 표를 거쳐 객체를 공유한다
+        # (값은 그대로 — AreaDemandPoint 독스트링의 '메모리' 절 참조).
+        points.append(AreaDemandPoint(
+            _intern_datetime(observed_at),
+            _intern_level(_clamp(float(row[1]))),
+            int(row[2]),
+        ))
     # RPC 가 이미 정렬해 주지만, 뒤의 백테스트·최근추세가 순서를 전제하므로 계약으로 고정한다.
     points.sort(key=lambda point: point.observed_at)
     return points
