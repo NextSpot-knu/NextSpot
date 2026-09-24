@@ -41,6 +41,23 @@ class TourAPIError(RuntimeError):
     """TourAPI 호출 실패(비정상 resultCode, 네트워크 오류 등). 메시지는 일반화된 한국어 문구만 담는다."""
 
 
+class TourAPITransientError(TourAPIError):
+    """일시적 전송 실패(타임아웃·연결 실패·5xx·429) — 다시 부르면 통과할 수 있는 부류.
+
+    TourAPIError 의 하위 타입이라 기존 `except TourAPIError` 는 그대로 잡는다. 재시도 여부는
+    호출자가 정한다(일배치만 재시도 — 사용자 요청 경로는 지연을 늘리지 않도록 즉시 실패 유지).
+    resultCode 오류(키·쿼터·파라미터)는 다시 불러도 같으므로 여기에 넣지 않는다.
+    """
+
+
+def _is_transient(exc: Exception) -> bool:
+    if isinstance(exc, httpx.HTTPStatusError):
+        status = exc.response.status_code
+        return status >= 500 or status == 429
+    # TimeoutException(ConnectTimeout 등)·ConnectError·ReadError·RemoteProtocolError 모두 TransportError.
+    return isinstance(exc, httpx.TransportError)
+
+
 def _get_client() -> httpx.AsyncClient:
     global _client
     if _client is None or _client.is_closed:
@@ -136,8 +153,13 @@ async def _get(endpoint: str, params: dict) -> dict:
         payload = response.json()  # 인증키 오류 등은 XML 로 와서 여기서 실패 → 아래 except 로 포섭
     except Exception as e:
         # 예외 원문(스택·URL 내 인증키 포함 가능)은 서버 로그로만 — 밖으로는 일반화된 메시지.
-        _logger.warning("tourapi_request_failed", endpoint=endpoint, error=str(e))
-        raise TourAPIError(
+        # error_type 을 같이 남긴다: httpx 타임아웃은 str(e) 가 빈 문자열이라 error= 만으로는
+        # 원인이 안 보인다(2026-09 일배치 실패 로그가 전부 `error=` 공란이었다).
+        _logger.warning(
+            "tourapi_request_failed", endpoint=endpoint, error_type=type(e).__name__, error=str(e)
+        )
+        error_cls = TourAPITransientError if _is_transient(e) else TourAPIError
+        raise error_cls(
             f"TourAPI 호출에 실패했습니다(endpoint={endpoint}). 인증키/네트워크 상태를 확인하세요."
         ) from None
     _check_result(payload, endpoint)

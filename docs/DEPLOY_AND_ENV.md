@@ -13,7 +13,7 @@
 | 10분 주차 실측 수집 | Supabase pg_cron → `POST /api/v1/area-demand/snapshots/collect` | 자동 |
 | 10분 서울 검증 수집 | Supabase pg_cron → `POST /api/v1/engine-validation/seoul/collect` (마이그레이션 `20260920121000`) | 자동 — 사람이 예약 SQL 적용 후 |
 | 수집 중단 감시 | GitHub Actions `area-demand-alert.yml` → `GET /api/v1/admin/area-demand-reliability` | 매시 정각 (`main`에서만) |
-| TourAPI 적재 | GitHub Actions `ingest.yml` | 매일 KST 04:00 (`main`에서만) |
+| TourAPI 적재 | GitHub Actions `ingest.yml` | 매일 KST 04:00 (`main`에서만). 실패 시 새 러너로 최대 2회 자동 재실행, 그래도 실패면 이슈 "TourAPI 일배치 인제스트 실패"로 알림 |
 | 모델 학습 후보 | GitHub Actions `train-recommendation-model.yml` | 매주 월 03:00 KST (`main`에서만) |
 
 ## 1. Supabase
