@@ -166,6 +166,7 @@ async def test_network_error_is_swallowed(monkeypatch):
     svc.clear_cache()
     monkeypatch.setattr(svc.settings, "GYEONGJU_FOOD_API_BASE_URL", "https://apis.data.go.kr/5050000/menuRstrtService")
     monkeypatch.setattr(svc.settings, "GYEONGJU_FOOD_API_KEY", "test-key")
+    monkeypatch.setattr(svc, "_RETRY_DELAYS_S", (0.0, 0.0))
 
     class _BoomClient:
         async def __aenter__(self):
@@ -179,3 +180,82 @@ async def test_network_error_is_swallowed(monkeypatch):
 
     monkeypatch.setattr(svc.httpx, "AsyncClient", lambda **_kwargs: _BoomClient())
     assert await svc.get_gyeongju_restaurants(use_cache=False) == []
+
+
+# --- 일시 실패 재시도 ---------------------------------------------------------
+# 2026-09-20·21·22 일배치 '0건 수신'은 일부 러너에서 apis.data.go.kr 연결이 10초 타임아웃된 것이었다.
+
+def _scripted_client(outcomes: list, calls: dict):
+    """호출 순서대로 outcomes 를 소비한다 — 예외면 raise, 문자열이면 그 본문으로 응답."""
+
+    class _Response:
+        def __init__(self, text):
+            self.text = text
+
+        def raise_for_status(self):
+            return None
+
+    class _Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def get(self, *_args, **_kwargs):
+            calls["n"] = calls.get("n", 0) + 1
+            outcome = outcomes.pop(0)
+            if isinstance(outcome, Exception):
+                raise outcome
+            return _Response(outcome)
+
+    return lambda **_kwargs: _Client()
+
+
+@pytest.fixture
+def configured_no_sleep(monkeypatch):
+    svc.clear_cache()
+    monkeypatch.setattr(svc.settings, "GYEONGJU_FOOD_API_BASE_URL", "https://apis.data.go.kr/5050000/menuRstrtService")
+    monkeypatch.setattr(svc.settings, "GYEONGJU_FOOD_API_KEY", "test-key")
+    monkeypatch.setattr(svc, "_RETRY_DELAYS_S", (0.0, 0.0))
+
+
+@pytest.mark.asyncio
+async def test_timeout_then_success_is_retried(monkeypatch, configured_no_sleep):
+    calls = {"n": 0}
+    outcomes = [httpx.ConnectTimeout(""), httpx.ReadTimeout(""), _envelope([_item()])]
+    monkeypatch.setattr(svc.httpx, "AsyncClient", _scripted_client(outcomes, calls))
+
+    rows = await svc.get_gyeongju_restaurants(use_cache=False)
+    assert [r["name"] for r in rows] == ["황남밀면"]
+    assert calls["n"] == 3
+
+
+@pytest.mark.asyncio
+async def test_retry_is_bounded_then_empty(monkeypatch, configured_no_sleep):
+    calls = {"n": 0}
+    outcomes = [httpx.ConnectTimeout("") for _ in range(10)]
+    monkeypatch.setattr(svc.httpx, "AsyncClient", _scripted_client(outcomes, calls))
+
+    assert await svc.get_gyeongju_restaurants(use_cache=False) == []
+    assert calls["n"] == len(svc._RETRY_DELAYS_S) + 1
+
+
+@pytest.mark.asyncio
+async def test_non_transient_errors_are_not_retried(monkeypatch, configured_no_sleep):
+    # 잘못된 응답 형식(파싱 오류)·resultCode 오류는 다시 불러도 같다 — 1회로 끝낸다.
+    calls = {"n": 0}
+    monkeypatch.setattr(svc.httpx, "AsyncClient", _scripted_client(["{not json", _envelope([_item()])], calls))
+    assert await svc.get_gyeongju_restaurants(use_cache=False) == []
+    assert calls["n"] == 1
+
+    calls = {"n": 0}
+    monkeypatch.setattr(svc.httpx, "AsyncClient", _scripted_client([_envelope([_item()], result_code="30")], calls))
+    assert await svc.get_gyeongju_restaurants(use_cache=False) == []
+    assert calls["n"] == 1
+
+
+def test_batch_timeout_is_longer_than_runner_stall():
+    # 실패 러너는 10초 안에 연결하지 못했다 — 배치 전용 타임아웃은 그보다 넉넉해야 한다.
+    assert svc._REQUEST_TIMEOUT_SECONDS >= 20.0
+    assert 1 <= len(svc._RETRY_DELAYS_S) <= 3

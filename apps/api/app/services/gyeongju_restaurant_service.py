@@ -40,7 +40,19 @@ logger = structlog.get_logger()
 
 _OPERATION = "getMenuRstrt"  # 경로 확정 — 오퍼레이션명만 코드 상수(base URL·키는 env).
 _CACHE_TTL_SECONDS = 24 * 60 * 60.0
-_REQUEST_TIMEOUT_SECONDS = 10.0
+# 이 서비스는 일배치(scripts/ingest_gyeongju_restaurants.py) 전용이다 — 사용자 요청 경로에서 부르지 않는다.
+# 2026-09-20·21·22 일배치의 '0건 수신'은 일부 GitHub 러너가 apis.data.go.kr 첫 연결을 10초 안에
+# 맺지 못한 타임아웃이었다(같은 러너의 TourAPI 도 동일). 배치라 기다려도 되므로 25초로 늘리고,
+# 타임아웃·연결 끊김에 한해 짧게 재시도한다. 최악(요청당 3회 시도) ≈ 25·3 + 5 + 15 = 95초.
+_REQUEST_TIMEOUT_SECONDS = 25.0
+_RETRY_DELAYS_S: tuple[float, ...] = (5.0, 15.0)
+# 재시도 대상 — 다시 부르면 통과할 수 있는 전송 실패만. 4xx/5xx·resultCode·파싱 오류는 다시 불러도
+# 같으므로(또는 서버 쪽 문제라) 즉시 포기하고 빈 리스트로 끝낸다(본 배치에는 non-fatal).
+_TRANSIENT_ERRORS: tuple[type[Exception], ...] = (
+    httpx.TimeoutException,  # ConnectTimeout·ReadTimeout 등
+    httpx.NetworkError,  # ConnectError·ReadError 등
+    httpx.RemoteProtocolError,  # 응답 없이 연결이 끊김
+)
 _PAGE_SIZE = 100
 _MAX_PAGES = 10
 
@@ -236,6 +248,30 @@ def _total_count(payload: Any) -> int:
         return 0
 
 
+async def _get_with_retry(
+    client: httpx.AsyncClient, url: str, params: dict[str, Any]
+) -> httpx.Response:
+    """GET 1회를 전송 실패(_TRANSIENT_ERRORS)에 한해 _RETRY_DELAYS_S 간격으로 다시 시도한다."""
+    attempt = 0
+    while True:
+        try:
+            return await client.get(url, params=params)
+        except _TRANSIENT_ERRORS as exc:
+            if attempt >= len(_RETRY_DELAYS_S):
+                raise
+            delay = _RETRY_DELAYS_S[attempt]
+            attempt += 1
+            # httpx 타임아웃은 str(exc) 가 빈 문자열이라 error_type 으로 원인을 남긴다.
+            logger.warning(
+                "gyeongju_food_fetch_retry",
+                error_type=type(exc).__name__,
+                attempt=attempt,
+                max_retries=len(_RETRY_DELAYS_S),
+                delay_s=delay,
+            )
+            await asyncio.sleep(delay)
+
+
 async def _fetch_all() -> list[dict[str, Any]]:
     """getMenuRstrt 를 페이지네이션 호출해 원시 item 을 전량 수집한다(에러는 삼켜 빈 리스트)."""
     base_url = settings.GYEONGJU_FOOD_API_BASE_URL.strip().rstrip("/")
@@ -248,7 +284,7 @@ async def _fetch_all() -> list[dict[str, Any]]:
     try:
         async with httpx.AsyncClient(timeout=_REQUEST_TIMEOUT_SECONDS, follow_redirects=True) as client:
             for page in range(1, _MAX_PAGES + 1):
-                response = await client.get(url, params={
+                response = await _get_with_retry(client, url, {
                     "serviceKey": key,
                     "pageNo": page,
                     "numOfRows": _PAGE_SIZE,
@@ -270,7 +306,7 @@ async def _fetch_all() -> list[dict[str, Any]]:
                 if len(page_items) < _PAGE_SIZE:
                     break
     except (httpx.HTTPError, ValueError, TypeError, ElementTree.ParseError) as exc:
-        logger.warning("gyeongju_food_fetch_failed", error=str(exc))
+        logger.warning("gyeongju_food_fetch_failed", error_type=type(exc).__name__, error=str(exc))
         return []
     return rows
 
