@@ -17,6 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from app.core.authz import ROLE_ADMIN, get_current_profile, require_role
+from app.core.executors import run_admin_io
 from app.core.supabase import fetch_all_rows, supabase_admin
 from app.services import briefing_service, congestion_estimator_service, estimated_report_service
 
@@ -78,7 +79,7 @@ def _fetch_capped(
     ⚠️ `apply_filters` 는 결정적 정렬(`.order`)을 반드시 포함해야 한다. 정렬이 없으면 PostgREST
     가 페이지마다 순서를 달리 줄 수 있어 행이 중복·누락된다(UUID PK 를 마지막 tiebreak 로 건다).
 
-    동기(블로킹) 함수 — 라우터에서는 asyncio.to_thread 로 오프로드해 호출한다.
+    동기(블로킹) 함수 — 라우터에서는 run_admin_io(관리자 전용 풀)로 오프로드해 호출한다.
     """
     rows: list[dict] = []
     start = 0
@@ -122,7 +123,7 @@ async def create_facility(req: FacilityCreate):
     if req.type not in FACILITY_TYPES:
         raise HTTPException(status_code=422, detail=f"type 은 {sorted(FACILITY_TYPES)} 중 하나여야 합니다.")
     try:
-        res = await asyncio.to_thread(
+        res = await run_admin_io(
             supabase_admin.table("facilities").insert(req.model_dump()).execute
         )
         if not res.data:
@@ -142,7 +143,7 @@ async def update_facility(facility_id: str, req: FacilityUpdate):
     if not fields:
         raise HTTPException(status_code=422, detail="수정할 필드가 없습니다.")
     try:
-        res = await asyncio.to_thread(
+        res = await run_admin_io(
             supabase_admin.table("facilities").update(fields).eq("id", facility_id).execute
         )
         if not res.data:
@@ -159,7 +160,7 @@ async def update_facility(facility_id: str, req: FacilityUpdate):
 @router.delete("/facilities/{facility_id}")
 async def delete_facility(facility_id: str):
     try:
-        res = await asyncio.to_thread(
+        res = await run_admin_io(
             supabase_admin.table("facilities").delete().eq("id", facility_id).execute
         )
         if not res.data:
@@ -200,7 +201,7 @@ async def override_congestion(facility_id: str, req: CongestionOverride):
     # 1. 시설 존재 검증 + capacity 조회 (없는 facility_id 로의 FK 위반/유령 로그 방지)
     #    PK 단건 조회라 limit(1) 은 의도된 상한이다(페이지네이션 대상 아님).
     try:
-        fac_res = await asyncio.to_thread(
+        fac_res = await run_admin_io(
             supabase_admin.table("facilities").select("id, capacity").eq("id", facility_id).limit(1).execute
         )
     except Exception as e:
@@ -231,7 +232,7 @@ async def override_congestion(facility_id: str, req: CongestionOverride):
 
     # 2. service_role 로 INSERT (anon/authenticated 직접 쓰기는 RLS 로 거부됨)
     try:
-        ins = await asyncio.to_thread(
+        ins = await run_admin_io(
             supabase_admin.table("congestion_logs").insert(row).execute
         )
         if not ins.data:
@@ -261,7 +262,7 @@ class SettingsUpdate(BaseModel):
 async def get_settings():
     try:
         # system_settings 는 단일 행(id=1) 계약이라 limit(1) 은 의도된 상한이다.
-        res = await asyncio.to_thread(
+        res = await run_admin_io(
             supabase_admin.table("system_settings").select("*").eq("id", 1).limit(1).execute
         )
         # 행이 없으면 null — 프런트가 기본값으로 폴백한다(마이그레이션 미적용 환경).
@@ -276,7 +277,7 @@ async def update_settings(req: SettingsUpdate):
     try:
         payload = req.model_dump()
         payload["updated_at"] = datetime.now(timezone.utc).isoformat()
-        res = await asyncio.to_thread(
+        res = await run_admin_io(
             supabase_admin.table("system_settings").update(payload).eq("id", 1).execute
         )
         if not res.data:
@@ -336,7 +337,7 @@ async def list_inquiries(limit: int = 500):
     """
     limit = max(1, min(limit, 1000))
     try:
-        res = await asyncio.to_thread(
+        res = await run_admin_io(
             supabase_admin.table("inquiries")
             .select("*")
             .order("created_at", desc=True)
@@ -384,7 +385,7 @@ async def update_inquiry_status(
     reply_saved = reply_body is not None
     reply_unavailable_reason: str | None = None
     try:
-        res = await asyncio.to_thread(_update, payload)
+        res = await run_admin_io(_update, payload)
     except Exception as exc:
         if reply_body is not None and _is_missing_reply_columns(exc):
             # 마이그레이션 미적용 DB — 상태 변경까지 같이 죽이지 않는다. 대신 답변이
@@ -393,7 +394,7 @@ async def update_inquiry_status(
             reply_saved = False
             reply_unavailable_reason = "schema_missing"
             try:
-                res = await asyncio.to_thread(_update, {"status": req.status})
+                res = await run_admin_io(_update, {"status": req.status})
             except Exception as retry_exc:
                 logger.error("admin_inquiry_update_failed", inquiry_id=inquiry_id, error=str(retry_exc))
                 raise HTTPException(status_code=500, detail="문의 상태 변경에 실패했습니다.") from None
@@ -434,7 +435,7 @@ async def get_metrics(days: int = 28):
     since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
     try:
         (recs, recs_truncated), (feedback, fb_truncated) = await asyncio.gather(
-            asyncio.to_thread(
+            run_admin_io(
                 _fetch_capped,
                 "recommendations",
                 "accepted, created_at",
@@ -445,7 +446,7 @@ async def get_metrics(days: int = 28):
                 _METRICS_ROW_CAP,
                 endpoint="metrics",
             ),
-            asyncio.to_thread(
+            run_admin_io(
                 _fetch_capped,
                 "user_feedback",
                 "user_id, timestamp",
@@ -491,13 +492,13 @@ async def get_model_trust(days: int = 30):
             (logs, logs_truncated),
             facility_rows,
         ) = await asyncio.gather(
-            asyncio.to_thread(
+            run_admin_io(
                 # 활성 모델은 정의상 1행이다 — limit(1) 은 의도된 상한(페이지네이션 불필요).
                 supabase_admin.table("model_registry")
                 .select("version,status,real_data_count,training_started_at,training_ended_at,source_composition,metrics")
                 .eq("status", "active").limit(1).execute
             ),
-            asyncio.to_thread(
+            run_admin_io(
                 _fetch_capped,
                 "recommendations",
                 "id,recommendation_snapshot,created_at",
@@ -508,7 +509,7 @@ async def get_model_trust(days: int = 30):
                 _TRUST_REC_CAP,
                 endpoint="model-trust",
             ),
-            asyncio.to_thread(
+            run_admin_io(
                 _fetch_capped,
                 "recommendation_outcomes",
                 "recommendation_id,navigation_started_at,arrival_confirmed_at,rated_at,rating",
@@ -518,7 +519,7 @@ async def get_model_trust(days: int = 30):
                 _TRUST_OUTCOME_CAP,
                 endpoint="model-trust",
             ),
-            asyncio.to_thread(
+            run_admin_io(
                 _fetch_capped,
                 "congestion_logs",
                 "facility_id,source,evidence_tier,timestamp",
@@ -528,7 +529,7 @@ async def get_model_trust(days: int = 30):
                 _TRUST_LOG_CAP,
                 endpoint="model-trust",
             ),
-            asyncio.to_thread(
+            run_admin_io(
                 # 시설은 **전량**이 필요하다: 아래 facility_gaps 는 '관측이 하나도 없는 시설'
                 # 목록이라, 조회에서 빠진 시설은 공백으로도 잡히지 않고 active_facilities·
                 # 커버리지 분모까지 함께 틀어진다. 예전의 .limit(5000) 은 시설 수(활성 1,669곳,
@@ -721,7 +722,7 @@ async def get_metrics_trend(days: int = 30):
     since = (datetime.fromisoformat(today_start) - timedelta(days=days - 1)).isoformat()
     try:
         (logs, logs_truncated), (recs, recs_truncated) = await asyncio.gather(
-            asyncio.to_thread(
+            run_admin_io(
                 _fetch_capped,
                 "congestion_logs",
                 "congestion_level, timestamp",
@@ -733,7 +734,7 @@ async def get_metrics_trend(days: int = 30):
                 _TREND_LOG_CAP,
                 endpoint="metrics/trend",
             ),
-            asyncio.to_thread(
+            run_admin_io(
                 _fetch_capped,
                 "recommendations",
                 "accepted, created_at",
@@ -898,7 +899,7 @@ async def get_impact(since: str | None = None, days: int = 1):
         since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
 
     try:
-        rows, truncated = await asyncio.to_thread(
+        rows, truncated = await run_admin_io(
             _fetch_capped,
             "recommendations",
             "score_breakdown, created_at",
@@ -1262,8 +1263,8 @@ async def _fallback_day_aggregate(day_kst: str, day_observed_at: str) -> dict | 
     p_end = (datetime.fromisoformat(f_end) - timedelta(days=1)).isoformat()
     try:
         f_logs, p_logs = await asyncio.gather(
-            asyncio.to_thread(_fetch_day_logs, f_start, f_end),
-            asyncio.to_thread(_fetch_day_levels, p_start, p_end),
+            run_admin_io(_fetch_day_logs, f_start, f_end),
+            run_admin_io(_fetch_day_levels, p_start, p_end),
         )
     except Exception as e:  # noqa: BLE001 — 폴백 실패가 오늘 집계를 죽이면 안 된다
         logger.warning("admin_dashboard_fallback_fetch_failed", error=str(e))
@@ -1392,8 +1393,8 @@ async def get_dashboard_today():
     try:
         # 오늘 로그(시설명/유형 조인)와 어제 로그(변화율용, congestion_level만)를 동시에 조회한다(직렬 왕복 제거).
         logs, y_logs = await asyncio.gather(
-            asyncio.to_thread(_fetch_day_logs, start, end),
-            asyncio.to_thread(_fetch_day_levels, y_start, y_end),
+            run_admin_io(_fetch_day_logs, start, end),
+            run_admin_io(_fetch_day_levels, y_start, y_end),
         )
     except Exception as e:
         # 기다리지 않을 추정은 끊는다(계산 자체는 shield 안이라 캐시를 채우며 끝까지 돈다).
@@ -1414,7 +1415,7 @@ async def get_dashboard_today():
     # 최근 관측 시각을 훑어 (1) 마지막 관측이 언제인지와 (2) 집계할 수 있는 가장 최근 날이
     # 언제인지를 함께 실어, 화면이 사실을 말할 수 있게 한다. 둘은 다를 수 있다 — 실측에서는
     # 최신 관측이 8/21 의 1건이고 집계 가능한 날은 7/09 다(_pick_fallback_day 참조).
-    recent = await asyncio.to_thread(_recent_congestion_timestamps)
+    recent = await run_admin_io(_recent_congestion_timestamps)
     latest_at = recent[0] if recent else None
     fallback = None
     picked = _pick_fallback_day(recent)

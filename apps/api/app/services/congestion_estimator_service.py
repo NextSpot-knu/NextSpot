@@ -41,18 +41,15 @@ f 는 **관문(3일 · 300버킷 · 홀드아웃 MAE 개선)을 통과하기 전
 from __future__ import annotations
 
 import asyncio
-import concurrent.futures
-import contextvars
 import functools
-import threading
 import time
-from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import structlog
 
+from app.core.executors import run_heavy
 from app.core.supabase import fetch_all_rows, supabase_admin
 from app.services import congestion_calibration_service as calibration
 from app.services.area_demand_service import _PARKING_WEIGHT, _TOURISM_WEIGHT
@@ -501,6 +498,7 @@ def reset_caches() -> None:
     _current_cache = None
     _facility_cache = None
     _day_cache.clear()
+    _day_inflight.clear()
     calibration.reset_caches()
 
 
@@ -646,57 +644,59 @@ _DAY_TTL_TODAY_SECONDS = 300.0
 _DAY_TTL_PAST_SECONDS = 6 * 3600.0
 _day_cache: dict[str, tuple[float, dict[str, Any]]] = {}
 
-# 하루 집계 전용 스레드풀(2개). 기본 executor(app.main._IO_EXECUTOR_MAX_WORKERS)를 쓰지 않는
-# 이유가 둘이다(2026-09-21 리뷰):
+# 하루 집계는 전용 HEAVY 풀(app.core.executors, 동시 2개)에서 돈다. 기본 executor
+# (app.main._IO_EXECUTOR_MAX_WORKERS)를 쓰지 않는 이유가 둘이다(2026-09-21 리뷰):
 #   · 메모리 — _estimated_day_sync 한 번이 스냅샷 144개 + 시설 1,689곳을 들고 1~2초 CPU 를 쓰고,
 #     with_prev=True 라 같은 스레드에서 어제까지 한 번 더 돈다. 기본 풀(16)에 맡기면 관리자 탭·
 #     백테스트가 겹칠 때 그만큼 동시에 떠서 512MB 인스턴스가 OOM 으로 재시작한다(실측). 2개로
 #     묶으면 그 transient 피크가 최대 2배로 고정된다.
 #   · 지연 — 거꾸로 이 집계가 기본 풀 슬롯을 잡고 있으면 같은 풀을 쓰는 DNS 조회
-#     (loop.getaddrinfo)와 Supabase 동기 호출이 그 뒤에 줄 선다. 무거운 CPU 작업과 I/O 대기는
-#     풀을 나눠야 서로를 굶기지 않는다.
-# 여러 날 집계(estimated_report_service.aggregate_estimated_days)도 성격이 같아 다음 후보다.
-# 풀은 **게으르게** 만든다 — import 만으로 스레드를 띄우면 이 경로를 쓰지 않는 배치 스크립트·
-# 테스트까지 워커 스레드를 물고 시작한다.
-_HEAVY_EXECUTOR_MAX_WORKERS = 2
-_heavy_executor: concurrent.futures.ThreadPoolExecutor | None = None
-_heavy_executor_lock = threading.Lock()
+#     (loop.getaddrinfo)와 관광객 요청의 Supabase 동기 호출이 그 뒤에 줄 선다.
+# 여러 날 집계(estimated_report_service.aggregate_estimated_days)도 같은 풀을 쓴다.
+#
+# 같은 날짜의 콜드 계산은 **서비스 계층에서 하나로 합친다**(single-flight). 라우터에도 합류
+# 목록이 있지만 그건 admin 라우터 한 곳의 것이라, 다른 호출부나 라우터 합류가 끝난 직후의 요청이
+# 같은 날짜를 또 풀에 올리면 2-워커 풀이 같은 계산 두 번으로 차 버린다. 서로 다른 날짜는 합칠 수
+# 없으므로 풀 상한(2) 안에서 줄 선다.
+_day_inflight: dict[str, asyncio.Task] = {}
 
 
-def _heavy_executor_pool() -> concurrent.futures.ThreadPoolExecutor:
-    """하루 집계 전용 풀(최초 호출 때 생성)."""
-    global _heavy_executor
-    with _heavy_executor_lock:
-        if _heavy_executor is None:
-            _heavy_executor = concurrent.futures.ThreadPoolExecutor(
-                max_workers=_HEAVY_EXECUTOR_MAX_WORKERS, thread_name_prefix="nextspot-heavy"
-            )
-        return _heavy_executor
+def _day_task_done(date_kst: str, task: asyncio.Task) -> None:
+    """끝난 계산을 합류 목록에서 빼고 예외를 회수한다(기다리던 쪽이 모두 떠났을 때의 경고 방지)."""
+    if _day_inflight.get(date_kst) is task:
+        _day_inflight.pop(date_kst, None)
+    if not task.cancelled():
+        task.exception()
 
 
-async def _run_heavy(func: Callable[..., Any], /, *args: Any, **kwargs: Any) -> Any:
-    """`asyncio.to_thread` 와 같은 의미(contextvars 복사 포함)로, 전용 풀에서 실행한다."""
-    loop = asyncio.get_running_loop()
-    ctx = contextvars.copy_context()
-    return await loop.run_in_executor(
-        _heavy_executor_pool(), functools.partial(ctx.run, func, *args, **kwargs)
-    )
+async def _compute_day(date_kst: str) -> dict[str, Any]:
+    started = time.monotonic()
+    result = await run_heavy(_estimated_day_sync, date_kst, with_prev=True)
+    # 캐시 시각은 계산을 **시작한** 시각이다(예전 동작 그대로 — 계산 중에 쌓인 버킷을 놓치지 않게).
+    _day_cache[date_kst] = (started, result)
+    # 캐시가 날짜 수만큼 자라지 않게 최근 며칠만 남긴다.
+    for stale in sorted(_day_cache)[:-8]:
+        _day_cache.pop(stale, None)
+    return result
 
 
 async def estimated_day_aggregate(date_kst: str, *, now: datetime | None = None) -> dict[str, Any]:
     """KST 하루의 추정 집계(관리자 대시보드 모양 + ``basis``). 실패는 호출부가 판단한다.
 
-    계산에 1~2초(스냅샷 144개 × 시설 1,600곳)가 들어 날짜별로 캐시한다.
+    계산에 1~2초(스냅샷 144개 × 시설 1,600곳)가 들어 날짜별로 캐시하고, 같은 날짜의 동시
+    콜드 요청은 계산 하나에 합류한다. 호출부가 기다리다 취소돼도(시간 초과) 계산은 계속 돌아
+    캐시를 채운다.
     """
     today_kst = (now or datetime.now(timezone.utc)).astimezone(_KST).date().isoformat()
     ttl = _DAY_TTL_TODAY_SECONDS if date_kst >= today_kst else _DAY_TTL_PAST_SECONDS
     cached = _day_cache.get(date_kst)
-    monotonic_now = time.monotonic()
-    if cached and monotonic_now - cached[0] < ttl:
+    if cached and time.monotonic() - cached[0] < ttl:
         return cached[1]
-    result = await _run_heavy(_estimated_day_sync, date_kst, with_prev=True)
-    _day_cache[date_kst] = (monotonic_now, result)
-    # 캐시가 날짜 수만큼 자라지 않게 최근 며칠만 남긴다.
-    for stale in sorted(_day_cache)[:-8]:
-        _day_cache.pop(stale, None)
-    return result
+    loop = asyncio.get_running_loop()
+    task = _day_inflight.get(date_kst)
+    # 다른 이벤트 루프(테스트의 asyncio.run 반복 등)에서 만든 태스크는 await 할 수 없다.
+    if task is None or task.done() or task.get_loop() is not loop:
+        task = loop.create_task(_compute_day(date_kst))
+        task.add_done_callback(functools.partial(_day_task_done, date_kst))
+        _day_inflight[date_kst] = task
+    return await asyncio.shield(task)

@@ -8,6 +8,7 @@ import structlog
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
+from app.core.executors import shutdown_executors
 from app.core.logging import setup_logging
 from app.routers import recommendations, infrastructures, predict, preferences, admin, reports, coupons, courses, events, tracking, freshness, impact, merchant, safety, search, lab, account, dev, weather, restrooms, travel_context, area_demand, area_demand_admin, inquiries, system, preference_stats, congestion_estimates, engine_validation, engine_validation_admin, engine_validation_calibration, warmup
 
@@ -30,8 +31,9 @@ _logger = structlog.get_logger()
 # 막히는(=32 워커 시절에는 없던) 새 실패 모드가 생겨 16으로 올렸다.
 #
 # 메모리 피크의 실제 원인은 스레드 총량이 아니라 **무거운 작업이 동시에 몇 개 도는지**다.
-# 그쪽은 congestion_estimator_service 의 전용 2-워커 풀로 따로 묶는다(_HEAVY_EXECUTOR_*) —
-# I/O 상한과 분리해야 DNS·Supabase 대기가 하루 집계 뒤에 줄 서지 않는다.
+# 그쪽은 app.core.executors 의 전용 풀로 따로 묶는다 — 하루/여러 날 추정 집계는 HEAVY(2),
+# 관리자 대시보드·리포트의 블로킹 조회는 ADMIN_IO(4). I/O 상한과 분리해야 관광객 요청의
+# DNS·Supabase 대기가 관리자 집계 뒤에 줄 서지 않는다.
 _IO_EXECUTOR_MAX_WORKERS = 16
 
 
@@ -182,6 +184,11 @@ async def lifespan(_app: FastAPI):
         executor.shutdown(wait=False, cancel_futures=False)
     except Exception as e:
         _logger.warning("shutdown_bounded_executor_failed", error=str(e))
+    # 관리자·집계 전용 풀(app.core.executors)도 닫는다 — 게으르게 만든 풀이라 쓰인 적 없으면 no-op.
+    try:
+        shutdown_executors()
+    except Exception as e:
+        _logger.warning("shutdown_dedicated_executors_failed", error=str(e))
 
 
 app = FastAPI(

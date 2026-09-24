@@ -587,3 +587,74 @@ def test_estimated_day_aggregate_caches_per_date(monkeypatch):
 
     assert first == second == {"dateKst": "2026-09-20", "hasLogs": False}
     assert calls == ["2026-09-20", "2026-09-19"], "같은 날짜는 TTL 동안 다시 계산하지 않는다"
+
+
+def test_estimated_day_aggregate_single_flight_per_date(monkeypatch):
+    """같은 날짜의 동시 콜드 요청은 HEAVY 풀에 계산 하나만 올린다(서비스 계층 single-flight)."""
+    import threading
+
+    est.reset_caches()
+    calls: list[str] = []
+    threads: list[str] = []
+    release = threading.Event()
+
+    def _slow_sync(date_kst, *, with_prev):
+        calls.append(date_kst)
+        threads.append(threading.current_thread().name)
+        release.wait(2.0)
+        return {"dateKst": date_kst}
+
+    monkeypatch.setattr(est, "_estimated_day_sync", _slow_sync)
+    monkeypatch.setattr(est, "estimated_day_aggregate", _REAL_ESTIMATED_DAY_AGGREGATE)
+    now = datetime(2026, 9, 20, 3, 0, tzinfo=timezone.utc)
+
+    async def run():
+        waiters = [asyncio.ensure_future(est.estimated_day_aggregate("2026-09-20", now=now)) for _ in range(5)]
+        other = asyncio.ensure_future(est.estimated_day_aggregate("2026-09-19", now=now))
+        await asyncio.sleep(0.05)
+        release.set()
+        return await asyncio.gather(*waiters), await other
+
+    try:
+        same, other = asyncio.run(run())
+    finally:
+        est.reset_caches()
+
+    assert same == [{"dateKst": "2026-09-20"}] * 5
+    assert other == {"dateKst": "2026-09-19"}
+    assert sorted(calls) == ["2026-09-19", "2026-09-20"], "같은 날짜는 한 번만 계산한다"
+    assert all(name.startswith("nextspot-heavy") for name in threads), "집계는 HEAVY 풀에서만 돈다"
+
+
+def test_estimated_day_aggregate_survives_a_cancelled_waiter(monkeypatch):
+    """라우터가 시간 초과로 기다림을 접어도 계산은 계속 돌아 캐시를 채운다."""
+    import threading
+
+    est.reset_caches()
+    calls: list[str] = []
+    release = threading.Event()
+
+    def _slow_sync(date_kst, *, with_prev):
+        calls.append(date_kst)
+        release.wait(2.0)
+        return {"dateKst": date_kst}
+
+    monkeypatch.setattr(est, "_estimated_day_sync", _slow_sync)
+    monkeypatch.setattr(est, "estimated_day_aggregate", _REAL_ESTIMATED_DAY_AGGREGATE)
+    now = datetime(2026, 9, 20, 3, 0, tzinfo=timezone.utc)
+
+    async def run():
+        try:
+            await asyncio.wait_for(est.estimated_day_aggregate("2026-09-20", now=now), timeout=0.05)
+        except asyncio.TimeoutError:
+            pass
+        release.set()
+        return await est.estimated_day_aggregate("2026-09-20", now=now)
+
+    try:
+        result = asyncio.run(run())
+    finally:
+        est.reset_caches()
+
+    assert result == {"dateKst": "2026-09-20"}
+    assert calls == ["2026-09-20"], "취소된 기다림 뒤의 요청은 진행 중인 계산에 합류한다"

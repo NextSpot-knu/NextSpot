@@ -54,6 +54,7 @@ from typing import Any
 
 import structlog
 
+from app.core.executors import run_admin_io, run_heavy
 from app.core.supabase import fetch_all_rows, supabase_admin
 from app.services import congestion_calibration_service as calibration
 from app.services.congestion_estimator_service import (
@@ -540,14 +541,19 @@ async def _compute(dates: Sequence[str], sample_minutes: int) -> dict[str, Any]:
     추정이 가끔 통째로 사라지지 않는 쪽이 낫다.
 
     스냅샷 조회 실패는 올린다 — 주차 원본이 없으면 추정 자체가 없다(라우터가 강등한다).
+
+    **풀 분리(2026-09-24 OOM 대응):** 조회 둘은 관리자 I/O 풀, 집계는 HEAVY 풀(동시 2개)에서
+    돈다(app.core.executors). 예전에는 셋 다 기본 executor 였다 — 30일 집계가 수 초 동안 그 풀
+    슬롯을 잡으면 관광객 요청의 Supabase 호출·DNS 조회가 뒤에 줄 서고, 하루 집계와 겹치면 메모리
+    피크도 상한 없이 겹쳤다. 풀 안의 함수는 모두 동기라 같은 풀로 재진입하지 않는다.
     """
     start_iso, end_iso = day_bounds_utc(dates)
     snapshots, context = await asyncio.gather(
-        asyncio.to_thread(_load_snapshots, start_iso, end_iso),
-        asyncio.to_thread(_context_sync, dates),
+        run_admin_io(_load_snapshots, start_iso, end_iso),
+        run_admin_io(_context_sync, dates),
     )
     facilities, forecasts, state = context
-    return await asyncio.to_thread(
+    return await run_heavy(
         aggregate_estimated_days,
         snapshots, facilities, forecasts, dates,
         sample_minutes=sample_minutes, calibration_state=state,

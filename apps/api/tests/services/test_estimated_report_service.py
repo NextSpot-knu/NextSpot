@@ -325,6 +325,35 @@ async def test_series_is_clamped_to_max_days(monkeypatch):
     assert len(result["daily"]) == svc.MAX_DAYS
 
 
+@pytest.mark.asyncio
+async def test_compute_runs_loads_on_admin_pool_and_aggregation_on_heavy_pool(monkeypatch):
+    """여러 날 집계가 기본 executor(관광객 요청 풀)를 쓰지 않는다 — 조회는 관리자 풀, 집계는 HEAVY 풀."""
+    import threading
+
+    seen: dict[str, str] = {}
+
+    def _loads(start_iso, end_iso):
+        seen["snapshots"] = threading.current_thread().name
+        return []
+
+    def _context(dates):
+        seen["context"] = threading.current_thread().name
+        return [], {}, None
+
+    def _aggregate(snapshots, facilities, forecasts, dates, *, sample_minutes, calibration_state):
+        seen["aggregate"] = threading.current_thread().name
+        return {"daily": [], "basis": {}}
+
+    monkeypatch.setattr(svc, "_load_snapshots", _loads)
+    monkeypatch.setattr(svc, "_context_sync", _context)
+    monkeypatch.setattr(svc, "aggregate_estimated_days", _aggregate)
+
+    assert await svc._compute(["2026-09-20"], 10) == {"daily": [], "basis": {}}
+    assert seen["snapshots"].startswith("nextspot-admin")
+    assert seen["context"].startswith("nextspot-admin")
+    assert seen["aggregate"].startswith("nextspot-heavy")
+
+
 def test_embedded_rows_drop_impossible_lots():
     """총면수 0·잔여면 범위 밖 행을 살리면 점유율이 1 을 넘거나 음수가 된다."""
     rows = [
