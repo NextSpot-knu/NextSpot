@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef, Suspense } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef, Suspense } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import {
@@ -30,6 +30,12 @@ import { estimatedBasisNotice } from '@/lib/dashboardFallback';
 import {
   ESTIMATE_ANOMALY_UNIT,
   ESTIMATE_BADGE,
+  PREDICTED_ANOMALY_UNIT,
+  PREDICTED_BANNER_CHIP,
+  PREDICTED_BANNER_HEADLINE,
+  PREDICTED_HEADING,
+  PREDICTED_MIXED_SENTENCE,
+  PREDICTED_SWITCH_SENTENCE,
   csvBasisCell,
   dashboardDateBadge,
   dashboardEmptyNotice,
@@ -38,10 +44,35 @@ import {
   estimateBasisLine,
   estimateMethodNote,
   estimateUnavailableNote,
+  isTodayNonMeasured,
   pendingFromHour,
+  predictedBasisLine,
+  predictedMethodNote,
   resolveDashboardView,
   type DashboardTodayWithEstimate,
 } from '@/lib/adminEstimateView';
+// 예측·시나리오 모드(2026-09-22, PM 결정) — 실측이 없는 자리에만 결정적 계산값을 라벨과 함께 채운다.
+// 판정·곡선·문구는 전부 lib/adminPredictedView.ts 가 단일 소스이고 이 화면은 그것을 배선만 한다.
+import {
+  HEATMAP_PLACE_CAP,
+  HEATMAP_TYPES,
+  PREDICTED_BADGE,
+  SCENARIO_BADGE,
+  anchorFromEstimate,
+  basisSubline,
+  csvBasisLabel,
+  fillHeatmapPredicted,
+  groupFacilitiesByType,
+  kstParts,
+  predictedDay,
+  predictedPeaks,
+  resolveKpiBasis,
+  scenarioKpis,
+  type FacilityLite,
+  type HeatmapCellInput,
+  type PredictedHeatmapCell,
+} from '@/lib/adminPredictedView';
+import { createPublicClient } from '@/lib/supabase';
 import { useCountUp } from '@/lib/useCountUp';
 import { AdminDemoDashboard } from '@/components/admin/DemoDashboard';
 import { isDemoParam } from '@/lib/demoFixtures';
@@ -88,14 +119,18 @@ interface AnomalyAlert {
   timestamp: string;
   congestionLevel: number;
   durationMinutes: number;
+  /** 예측 피크(adminPredictedView.PredictedAlert)에만 있는 KST 시(0..23). 서버 알림에는 없다. */
+  hour?: number;
 }
 // 히트맵 셀 — DashboardCharts.tsx 의 동명 타입 미러(그쪽은 export 하지 않는다).
 // value: null = 그 시간대에 로그가 없음(실측 0.00 과 구분되는 센티넬).
+// basis: 칸의 근거(2026-09-22 예측 모드) — 없으면 격자 전체의 근거(실측/추정)를 따른다.
 interface HeatmapCell {
   facility: string;
   facilityType: string;
   hour: number;
   value: number | null;
+  basis?: 'measured' | 'estimate' | 'predicted';
 }
 // GET /api/v1/admin/metrics 응답 (apps/api/app/routers/admin.py get_metrics)
 interface MetricsRecommendation {
@@ -285,6 +320,36 @@ function EstimateBadge({ title }: { title?: string }) {
   );
 }
 
+// '예측' 배지 — 업종 시간대 패턴으로 계산한 값(2026-09-22). 추정 배지와 같은 모양, 보라색.
+// 추정(하늘)·예측(보라)·시나리오(호박)를 색으로도 가른다 — 세 어휘는 서로 다른 근거다.
+function PredictedBadge({ title }: { title?: string }) {
+  return (
+    <span
+      title={title}
+      className="px-2 py-0.5 rounded-full text-[11px] font-black border border-dashed bg-violet-500/15 text-violet-700 border-violet-400/60 cursor-help whitespace-nowrap"
+    >
+      {PREDICTED_BADGE}
+    </span>
+  );
+}
+
+// '시나리오' 배지 — 모델 입력이 없는 KPI(수락률·DAU)를 lib/demoFixtures 하루 총량 × 시각 진행률로
+// 채운 값. DashboardCharts 의 '도입 효과 시나리오(30일)' 칩과 같은 호박색·같은 어휘.
+function ScenarioBadge({ title }: { title?: string }) {
+  return (
+    <span
+      title={title}
+      className="px-2 py-0.5 rounded-full text-[11px] font-black border border-dashed bg-amber-500/15 text-amber-800 border-amber-400/60 cursor-help whitespace-nowrap"
+    >
+      {SCENARIO_BADGE}
+    </span>
+  );
+}
+
+// 시나리오 KPI 타일의 툴팁 — 두 타일(수락률·DAU)이 같은 문장을 쓴다.
+const SCENARIO_TIP =
+  '시나리오 값입니다 — lib/demoFixtures 의 하루 총량에 KST 시각 진행률을 곱해 하루 동안 결정적으로 올라갑니다. 실측 5건이 쌓이면 실측으로 전환됩니다.';
+
 // 30일 수요 분산 '예시' 추이(데모) — 실측(metrics/trend) 표본이 3일 미만일 때의 폴백 전용.
 // 도입 전/후 혼잡도와 대안 장소 활용률의 기대 패턴을 합성해 '③ 분산 효과'를 시각적으로 설명한다.
 // 반드시 차트에 '예시 추이(데모)' 라벨과 함께 노출해 실측으로 오인되지 않게 한다(정직성 원칙).
@@ -435,7 +500,9 @@ async function fetchCongestion(): Promise<DashboardTodayWithEstimate> {
 // 을 돌려줬는데, 그러면 호출부에서 '조회 실패' 와 '지난 7일 추천이 0건(표본 없음)' 이 완전히 같은
 // 값이 되어 화면에 똑같이 0.0% / 0명으로 찍혔다. 실패는 호출부의 .catch 가 failed 슬라이스로 표시한다.
 // (지표별 null 은 이제 '표본 없음' 만 뜻한다.)
-async function fetchMetrics(): Promise<MetricsSlice & { truncated: boolean }> {
+// feedbackCount: 오늘 피드백 행 수(DAU 의 실측 표본 수). DAU 타일의 실측/시나리오 전환(하한 5건)은
+// 순 사용자 수가 아니라 이 행 수로 판정한다 — 표본이 몇 건 쌓였는지가 전환 기준이다(2026-09-22).
+async function fetchMetrics(): Promise<MetricsSlice & { truncated: boolean; feedbackCount: number }> {
   const { start, end } = getKstTodayRangeUtc();
   const weekAgo = new Date(new Date(start).getTime() - 6 * 24 * 60 * 60 * 1000).toISOString();
   const metrics: AdminMetricsResponse = await withColdStartRetry(() => adminApi.get('/api/v1/admin/metrics?days=8'));
@@ -456,7 +523,35 @@ async function fetchMetrics(): Promise<MetricsSlice & { truncated: boolean }> {
   activeUsers = new Set(fb.map((f: MetricsFeedback) => f.user_id)).size;
   // 서버가 상한(_METRICS_ROW_CAP)에 닿으면 최신순으로 남기고 자른다 — 그러면 위 수락률·DAU
   // 는 창 전체의 값이 아니다. 서버는 어젯밤부터 이 플래그를 싣고 있었는데 화면이 읽지 않았다.
-  return { acceptRate, activeUsers, truncated: metrics?.truncated === true };
+  return { acceptRate, activeUsers, truncated: metrics?.truncated === true, feedbackCount: fb.length };
+}
+
+// 예측 행이 될 시설 — 업종별 정원 상위 HEATMAP_PLACE_CAP 곳만(2026-09-22 예측 모드). 읽기 전용 anon
+// 조회(FacilityTable 과 같은 createPublicClient().from('facilities'))이며, 실패하면 null → 예측 없이
+// 기존 폴백(시드 날짜/빈 화면)으로 그린다. PostgREST 1000행 캡을 피하려 업종별로 잘라 받는다.
+async function fetchPredictionFacilities(): Promise<FacilityLite[] | null> {
+  try {
+    const supabase = createPublicClient();
+    const perType = await Promise.all(
+      HEATMAP_TYPES.map((type) =>
+        supabase
+          .from('facilities')
+          .select('name, type, capacity')
+          .eq('type', type)
+          .order('capacity', { ascending: false })
+          .order('name', { ascending: true })
+          .limit(HEATMAP_PLACE_CAP),
+      ),
+    );
+    const rows: FacilityLite[] = [];
+    for (const r of perType) {
+      if (!r.error && r.data) rows.push(...(r.data as FacilityLite[]));
+    }
+    return rows.length > 0 ? rows : null;
+  } catch (err) {
+    console.warn('예측용 시설 목록 조회 실패(예측 없이 기존 폴백으로 그립니다):', err);
+    return null;
+  }
 }
 
 // ③ 분산 효과 30일 추이 슬라이스 — /admin/metrics/trend(KST 일별 실측: 일평균 혼잡도·추천 수락률).
@@ -510,7 +605,12 @@ function DashboardPage() {
   const [congestion, setCongestion] = useState<DashboardTodayWithEstimate | null>(null);
   // 혼잡 응답을 받은 시각(ms) — 히트맵의 '아직 오지 않은 시간' 경계를 이 시각으로 긋는다.
   const [congestionAt, setCongestionAt] = useState<number | null>(null);
-  const [metrics, setMetrics] = useState<MetricsSlice | null>(null);
+  const [metrics, setMetrics] = useState<(MetricsSlice & { feedbackCount?: number }) | null>(null);
+  // 지표 응답을 받은 시각(ms) — 시나리오 KPI 의 시각 진행률을 이 시각으로 고정한다(렌더 중 시계 읽기 금지).
+  // 실패하면 null 로 남긴다 — 실패한 조회 위에 시나리오를 그리지 않는다(예측은 데이터의 부재만 채운다).
+  const [metricsAt, setMetricsAt] = useState<number | null>(null);
+  // 예측 행이 될 시설(업종별 상위 12곳). null = 아직 없음/실패 → 예측 없이 기존 폴백.
+  const [facilities, setFacilities] = useState<FacilityLite[] | null>(null);
   // 30일 분산 효과 — 실측(metrics/trend)이 충분하면 live, 빈약하면 데모 폴백(fetchTrend 참조). null = 로딩 중.
   const [distribution, setDistribution] = useState<{ mode: 'live' | 'demo'; rows: any[]; truncated?: boolean } | null>(null);
   // 표본 절단 — 서버가 상한에서 자른 사실. 화면이 이걸 말하지 않으면 관리자는 잘린 수치를
@@ -550,6 +650,7 @@ function DashboardPage() {
         if (!mountedRef.current) return;
         setMetrics(m);
         setMetricsTruncated(m.truncated);
+        setMetricsAt(Date.now());
       })
       .catch((err) => {
         console.warn('추천 수락률/DAU 조회 실패:', err);
@@ -562,7 +663,10 @@ function DashboardPage() {
     const briefingTask = fetchBriefing()
       .then((b) => { if (mountedRef.current) setBriefing(b); })
       .catch(() => { if (mountedRef.current) setBriefing(null); });
-    await Promise.all([congestionTask, metricsTask, trendTask, briefingTask]);
+    // 예측용 시설 목록 — 혼잡 집계와 병렬. 실패는 fetchPredictionFacilities 안에서 null 로 삼킨다.
+    const facilitiesTask = fetchPredictionFacilities()
+      .then((f) => { if (mountedRef.current) setFacilities(f); });
+    await Promise.all([congestionTask, metricsTask, trendTask, briefingTask, facilitiesTask]);
   }, []);
 
   useEffect(() => {
@@ -573,12 +677,54 @@ function DashboardPage() {
   // 지표를 뽑을 수 있다. 오늘이 비었을 때 폴백일 집계를 그리되, **기준 날짜를 항상 함께**
   // 들고 다니는 것이 이 판정의 핵심이다(날짜 없이 그리면 오늘 것으로 읽힌다).
   //
-  // 순서: 오늘 실측 → 오늘 **추정** → 과거 실측(폴백). 추정은 두 달 전 시드보다 앞선다 —
+  // 순서: 오늘 실측 → 오늘 **추정** → 오늘 **예측** → 과거 실측(폴백). 추정은 두 달 전 시드보다 앞선다 —
   // 관리자가 지금 판단하는 데는 '오늘 이 시각의 추정' 이 더 쓸모 있다. 실측이 들어오면 실측이 이긴다.
-  const view = resolveDashboardView(congestion);
+  //
+  // 1차 판정(실측/추정/폴백)으로 서버 행을 알아낸 뒤, 빈 자리(미래 시간·반경 밖 업종·행이 전혀 없는 날)를
+  // 예측으로 채운다(2026-09-22 예측 모드, lib/adminPredictedView.ts). 시각은 응답을 받은 congestionAt 으로
+  // 고정한다(렌더 중 시계 읽기 금지 — 같은 응답은 같은 격자). 로딩·실패는 예측으로 채우지 않는다 —
+  // 서버의 부재를 예측으로 메우면 장애가 '한산한 하루' 로 보인다. 그때는 '갱신 중' 이다.
+  const rawView = useMemo(() => resolveDashboardView(congestion), [congestion]);
+  const facilitiesByType = useMemo(() => (facilities ? groupFacilitiesByType(facilities) : null), [facilities]);
+  const filledHeatmap = useMemo<PredictedHeatmapCell[] | null>(() => {
+    if (!facilitiesByType || congestionAt === null) return null;
+    const k = rawView.basis.kind;
+    if (k === 'loading' || k === 'failed') return null;
+    const serverRows = (k === 'today' || k === 'estimate') ? ((rawView.day?.heatmap ?? []) as HeatmapCellInput[]) : [];
+    // 앵커는 오늘 추정에서만 뽑는다 — 실측·시드에서 앵커를 지어내지 않는다.
+    const anchor = k === 'estimate' ? anchorFromEstimate(serverRows, congestionAt) : undefined;
+    return fillHeatmapPredicted({
+      rows: serverRows,
+      rowsBasis: k === 'today' ? 'measured' : 'estimate',
+      facilitiesByType,
+      now: congestionAt,
+      anchor,
+    });
+  }, [facilitiesByType, congestionAt, rawView]);
+  // 예측 단독 집계 — 오늘 실측·추정이 둘 다 없을 때(폴백/없음)만 만든다. 예측 칸이 없으면 null → 기존 폴백.
+  const pDay = useMemo(() => {
+    const k = rawView.basis.kind;
+    if (!filledHeatmap || congestionAt === null || (k !== 'fallback' && k !== 'none')) return null;
+    return predictedDay({ rows: filledHeatmap, now: congestionAt });
+  }, [filledHeatmap, congestionAt, rawView]);
+  const view = resolveDashboardView(congestion, pDay);
   const basis = view.basis;
   const isFallback = basis.kind === 'fallback';
   const isEstimate = basis.kind === 'estimate';
+  const isPredicted = basis.kind === 'predicted';
+  // 예측 근거 한 줄('업종 시간대 패턴 × 요일 계수(토) · 시설 48곳 · 오늘 추정 앵커 ×1.08') — 예측 값이 그려지는
+  // 모든 자리가 이 문장(또는 배지+툴팁)을 함께 단다. 추정의 estimateLine 과 같은 규칙.
+  const predictedLine = basis.kind === 'predicted' ? predictedBasisLine(basis.info) : null;
+  const predictedMethod = basis.kind === 'predicted' ? predictedMethodNote(basis.info) : null;
+  // 실측/추정 격자에 예측 칸이 섞였는가(혼합 모드 문장·히트맵 범례용). 예측 단독 모드는 따로 센다.
+  const hasPredictedCells = !isPredicted && (filledHeatmap?.some((c) => c.basis === 'predicted') ?? false);
+  // 응답 시각의 KST 시 — '이후 시간대' 예측 피크의 경계. 응답 시각으로 고정한다(위와 같은 이유).
+  const nowKstHour = congestionAt !== null ? kstParts(congestionAt).hour : null;
+  // 이후 시간대(현재 시 이후)에 90% 를 넘는 예측 피크 — 실측·추정·예측 어느 모드든 격자에 예측 칸이 있으면 뽑는다.
+  const futurePeaks = useMemo(
+    () => (filledHeatmap && nowKstHour !== null ? predictedPeaks({ rows: filledHeatmap, fromHour: nowKstHour + 1 }) : []),
+    [filledHeatmap, nowKstHour],
+  );
   // 추정 근거 한 줄('주차 실측(ITS 공영주차 N곳) + 관광공사 집중률 기반 추정 · HH:MM 관측 · 반경 2km').
   // 추정 값이 그려지는 모든 자리가 이 문장(또는 배지+이 문장의 툴팁)을 함께 단다.
   const estimateLine = basis.kind === 'estimate' ? estimateBasisLine(basis.info, basis.dateKst) : null;
@@ -597,8 +743,12 @@ function DashboardPage() {
   const periodLabel = dashboardPeriodLabel(basis);
   // 오늘을 그릴 때만 '아직 오지 않은 시간' 이 있다. 기준 시각은 **응답을 받은 시각**이다 —
   // 렌더 중에 시계를 읽으면 같은 응답이 리렌더마다 다른 격자가 된다(그리고 순수성 규칙 위반).
-  const pendingHour =
-    basis.kind === 'estimate' && congestionAt !== null ? pendingFromHour(basis.dateKst, congestionAt) : null;
+  // 오늘 실측(today)에는 dateKst 가 없으므로 응답 시각에서 뽑는다 — 예측 칸이 미래 시간을 채우는 지금은
+  // 실측 모드에서도 '아직 오지 않은 시간' 경계가 필요하다.
+  const todayDateKst = isTodayNonMeasured(basis)
+    ? basis.dateKst
+    : basis.kind === 'today' && congestionAt !== null ? kstParts(congestionAt).dateKst : null;
+  const pendingHour = todayDateKst !== null && congestionAt !== null ? pendingFromHour(todayDateKst, congestionAt) : null;
 
   // 슬라이스 → 지표별 표시 상태(로딩/실패/표본없음/정상). 예전에는 여기서 `?? 0` 으로 뭉개서
   // 세 경우가 화면에 똑같이 0 으로 찍혔다 — 판정은 lib/adminMetricState.ts 에 두고 테스트로 고정한다.
@@ -609,14 +759,40 @@ function DashboardPage() {
   const acceptRate = metricsMetric(metrics, (s) => s.acceptRate ?? null);
   const activeUsers = metricsMetric(metrics, (s) => s.activeUsers ?? null);
 
+  // 시나리오 KPI(2026-09-22) — 수락률·DAU 는 모델 입력이 없어 추정·예측을 만들 수 없다. 창 안의 실측 표본이
+  // 5건(MIN_MEASURED_SAMPLES) 미만이면 lib/demoFixtures 하루 총량 × 시각 진행률의 시나리오 값을 배지와 함께
+  // 그린다. 표본 수: 수락률 = 지난 7일 추천 건수(total), DAU = 오늘 피드백 행 수. 조회 실패(failed)는 null —
+  // 실패 위에 시나리오를 그리지 않는다('갱신 중' 그대로).
+  const scenario = useMemo(() => (metricsAt !== null ? scenarioKpis(metricsAt) : null), [metricsAt]);
+  const acceptMeasuredCount = acceptRate.status === 'ok' ? acceptRate.value.total : 0;
+  const dauMeasuredCount = metrics?.feedbackCount ?? 0;
+  const acceptBasis =
+    acceptRate.status === 'ok' ? resolveKpiBasis(acceptMeasuredCount) : acceptRate.status === 'empty' ? 'scenario' : null;
+  const dauBasis =
+    activeUsers.status === 'ok' ? resolveKpiBasis(dauMeasuredCount) : activeUsers.status === 'empty' ? 'scenario' : null;
+  const acceptScenario = acceptBasis === 'scenario' && scenario ? scenario : null;
+  const dauScenario = dauBasis === 'scenario' && scenario ? scenario : null;
+
   // 첫 로드 동기화 스트립 — 핵심 지표 중 하나라도 도착 전이면 상단에 진행 표시를 세운다.
   // 전부 도착하면 스스로 사라진다(각 자리의 실루엣과 함께 '준비 중'이 '멈춤'으로 읽히는 것을 막는다).
   const initialSyncing =
     congestion === null || distribution === null
     || avgCongestion.status === 'loading' || acceptRate.status === 'loading'
     || activeUsers.status === 'loading' || anomalyCount.status === 'loading';
-  const heatmap = (view.day?.heatmap ?? []) as HeatmapCell[];
+  // 히트맵 원천: 오늘(실측·추정·예측)이고 채운 격자가 있으면 그것(실측/추정 칸 + 예측 칸), 아니면 서버 집계 그대로.
+  // 폴백(과거 날짜)에는 예측을 섞지 않는다 — 두 달 전 실측 옆에 오늘 예측을 두면 날짜가 섞인다.
+  const useFilled = filledHeatmap !== null && (isPredicted || isEstimate || basis.kind === 'today');
+  const heatmap = (view.day?.heatmap ? (useFilled ? filledHeatmap : view.day.heatmap) : []) as HeatmapCell[];
   const anomalies = (view.day?.anomalies ?? []) as AnomalyAlert[];
+  // 예측 단독 모드의 목록은 지나간 시간의 피크만 — 이후 시간대는 아래 '예측 피크 (이후 시간대)' 가 따로 든다
+  // (같은 피크를 두 번 그리지 않고, 이상 건수 타일(0시~현재 시)과 같은 구간을 본다).
+  const listedAnomalies =
+    isPredicted && nowKstHour !== null ? anomalies.filter((a) => a.hour === undefined || a.hour <= nowKstHour) : anomalies;
+  // 예측 피크 소목록을 그리는가 — 격자에 예측 칸이 있고 아직 오지 않은 시간이 남았을 때.
+  const showFuturePeaks = (isPredicted || hasPredictedCells) && nowKstHour !== null && nowKstHour < 23;
+  // 혼잡 블록의 근거 어휘(CSV·상단 배지용).
+  const congestionBasisKind: 'measured' | 'estimate' | 'predicted' | null =
+    isPredicted ? 'predicted' : isEstimate ? 'estimate' : basis.kind === 'today' ? 'measured' : null;
 
   // 정적 export 에는 서버 라우트(/api/admin/export)가 없으므로, 현재 로드된 데이터로
   // 클라이언트에서 CSV 를 생성해 다운로드한다(엑셀 한글 깨짐 방지를 위해 BOM 부착).
@@ -626,26 +802,46 @@ function DashboardPage() {
       // '측정값 0' 으로 읽는다. 실패/표본 없음은 숫자 대신 사유 문자열로 적는다.
       const cell = <T,>(m: AdminMetric<T>, fmt: (v: T) => string) =>
         m.status === 'ok' ? fmt(m.value) : m.status === 'failed' ? '갱신 중' : m.status === 'empty' ? '수집 중' : '로딩 중';
+      // 근거 칸 — 값이 숫자일 때만 어휘(실측/추정/예측/시나리오)를 적고, 갱신 중/수집 중/로딩 중이면 비운다.
+      const basisCell = <T,>(m: AdminMetric<T>, kind: 'measured' | 'estimate' | 'predicted' | 'scenario') =>
+        m.status === 'ok' ? csvBasisLabel(kind) : '';
+      const congestionCsvKind = congestionBasisKind ?? 'measured';
+      // 비실측 KPI 값에는 파일 안에서도 어휘를 붙인다 — 배지가 없는 파일에서 '12.3' 만 보면 실측으로 읽힌다.
+      const suffix = (kind: 'predicted' | 'scenario') => `(${csvBasisLabel(kind)})`;
       const lines: string[] = [];
-      lines.push('구분,항목,값');
+      lines.push('구분,항목,값,근거');
       // 파일로 나간 숫자는 화면 맥락을 잃는다 — 어느 날 기준인지 첫 줄에 박아 둔다.
       // (폴백 중인 CSV 를 '오늘' 로 적으면, 그 파일을 받아 본 사람에게는 되돌릴 방법이 없다.)
-      // 추정이면 '추정치(현장 관측 아님)' 와 근거까지 — 파일에는 배지가 없다.
-      lines.push(`기준,혼잡 지표 기준일,${csvBasisCell(basis)}`);
-      lines.push(`KPI,${periodLabel} 평균 혼잡도(%),${cell(avgCongestion, (v) => (v.value * 100).toFixed(1))}`);
-      lines.push(`KPI,AI 추천 수락률(%),${cell(acceptRate, (v) => (v.value * 100).toFixed(1))}`);
-      lines.push(`KPI,활성 사용자(DAU),${cell(activeUsers, (v) => String(v))}`);
+      // 추정·예측이면 '현장 관측 아님' 과 근거까지 — 파일에는 배지가 없다.
+      lines.push(`기준,혼잡 지표 기준일,${csvBasisCell(basis)},`);
       lines.push(
-        isEstimate
-          ? `KPI,이상 혼잡 발생(추정 구간 수 — 대표 관광지×10분),${cell(anomalyCount, (v) => String(v))}`
-          : `KPI,이상 혼잡 발생(건),${cell(anomalyCount, (v) => String(v))}`,
+        `KPI,${periodLabel} 평균 혼잡도(%),${cell(avgCongestion, (v) => `${(v.value * 100).toFixed(1)}${isPredicted ? suffix('predicted') : ''}`)},${basisCell(avgCongestion, congestionCsvKind)}`,
+      );
+      // 시나리오 타일은 화면과 같은 값(시나리오 값)을 적고 근거를 '시나리오' 로 남긴다.
+      lines.push(
+        acceptScenario
+          ? `KPI,AI 추천 수락률(%),${(acceptScenario.acceptance.rate * 100).toFixed(1)}${suffix('scenario')},${csvBasisLabel('scenario')}`
+          : `KPI,AI 추천 수락률(%),${cell(acceptRate, (v) => (v.value * 100).toFixed(1))},${basisCell(acceptRate, 'measured')}`,
+      );
+      lines.push(
+        dauScenario
+          ? `KPI,활성 사용자(DAU),${dauScenario.dau}${suffix('scenario')},${csvBasisLabel('scenario')}`
+          : `KPI,활성 사용자(DAU),${cell(activeUsers, (v) => String(v))},${basisCell(activeUsers, 'measured')}`,
+      );
+      lines.push(
+        isPredicted
+          ? `KPI,이상 혼잡 발생(예측 구간 수 — 시설×1시간),${cell(anomalyCount, (v) => `${v}${suffix('predicted')}`)},${basisCell(anomalyCount, 'predicted')}`
+          : isEstimate
+            ? `KPI,이상 혼잡 발생(추정 구간 수 — 대표 관광지×10분),${cell(anomalyCount, (v) => String(v))},${basisCell(anomalyCount, 'estimate')}`
+            : `KPI,이상 혼잡 발생(건),${cell(anomalyCount, (v) => String(v))},${basisCell(anomalyCount, 'measured')}`,
       );
       lines.push('');
-      lines.push(isEstimate ? '시설명,유형,시간(시),추정 혼잡도(%)' : '시설명,유형,시간(시),혼잡도(%)');
+      lines.push(isEstimate ? '시설명,유형,시간(시),추정 혼잡도(%),근거' : isPredicted ? '시설명,유형,시간(시),예측 혼잡도(%),근거' : '시설명,유형,시간(시),혼잡도(%),근거');
       for (const c of heatmap) {
         const name = String(c.facility).replace(/[",\n]/g, ' ');
-        // value === null 은 그 시간대에 로그가 없다는 뜻 — 0 이 아니라 빈 칸으로 남긴다.
-        lines.push(`${name},${c.facilityType},${c.hour},${c.value == null ? '' : Math.round(c.value * 100)}`);
+        // value === null 은 그 시간대에 로그가 없다는 뜻 — 0 이 아니라 빈 칸으로 남긴다(근거도 비운다).
+        const cellBasis = c.value == null ? '' : csvBasisLabel(c.basis ?? congestionCsvKind);
+        lines.push(`${name},${c.facilityType},${c.hour},${c.value == null ? '' : Math.round(c.value * 100)},${cellBasis}`);
       }
       const csv = '﻿' + lines.join('\n');
       const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
@@ -677,13 +873,15 @@ function DashboardPage() {
           <div className="flex items-center gap-4">
             <h2 className="text-xl font-bold text-hanok-ink">경주 관광 혼잡 종합 대시보드</h2>
             <ModelAccuracyBadge />
-            <DataFreshnessBadge />
+            {/* 오늘 혼잡 지표의 근거(실측/추정/예측)를 상단에서도 한 번 더 말한다. */}
+            <DataFreshnessBadge congestionBasis={congestionBasisKind} />
           </div>
           <div className="flex items-center gap-6">
             <button className="relative text-hanok-muted hover:text-hanok-ink">
               <Bell size={24} />
-              {/* 이상 건수를 못 가져온 경우에도 점을 찍되 색을 달리한다 — 점이 없으면 '이상 없음' 으로 읽힌다. */}
-              {anomalyCount.status === 'ok' && anomalyCount.value > 0 && (
+              {/* 이상 건수를 못 가져온 경우에도 점을 찍되 색을 달리한다 — 점이 없으면 '이상 없음' 으로 읽힌다.
+                  예측 구간 수에는 점을 찍지 않는다 — 알림 점은 '지금 일어난 일' 이고 예측은 아직 아니다. */}
+              {anomalyCount.status === 'ok' && anomalyCount.value > 0 && !isPredicted && (
                 <span title={`이상 혼잡 ${anomalyCount.value}건`} className="absolute top-1 right-1 w-2.5 h-2.5 bg-rose-500 rounded-full border-2 border-hanok-line"></span>
               )}
               {anomalyCount.status === 'failed' && (
@@ -770,7 +968,9 @@ function DashboardPage() {
             subtitle={
               isEstimate
                 ? '시설 혼잡(오늘은 추정 — 주차 실측 + 관광 통계)과 공영주차 실측(경주 ITS)을 각각의 출처로 봅니다'
-                : '시설 혼잡(제보 기반)과 공영주차 실측(경주 ITS)을 각각의 출처로 봅니다'
+                : isPredicted
+                  ? '시설 혼잡(오늘은 예측 — 업종 시간대 패턴)과 공영주차 실측(경주 ITS)을 각각의 출처로 봅니다'
+                  : '시설 혼잡(제보 기반)과 공영주차 실측(경주 ITS)을 각각의 출처로 봅니다'
             }
             color="blue"
           />
@@ -795,6 +995,30 @@ function DashboardPage() {
                 <p className="text-xs text-hanok-muted mt-1">
                   오늘은 공영주차 실측과 관광 통계를 결합한 추정 지표를 표시합니다. 현장 관측이 들어오면 자동으로 실측으로 전환됩니다.
                 </p>
+                {/* 혼합 모드 — 추정 격자의 빈 자리(미래 시간·반경 밖 업종)를 예측으로 채웠다는 사실을 같은 배너에서 말한다. */}
+                {hasPredictedCells && <p className="text-xs text-violet-700 mt-1">{PREDICTED_MIXED_SENTENCE}</p>}
+              </div>
+            </div>
+          )}
+
+          {/* 예측 모드 배너(2026-09-22) — 오늘 실측도 추정도 없을 때 아래 KPI·히트맵·이상 알림이 **전부** 업종
+              시간대 패턴 기반 예측치로 바뀐다는 사실을 추정 배너와 같은 자리·같은 구조로 세운다. 근거 한 줄
+              (요일 계수·시설 수·앵커)과 산식, 그리고 무엇이 쌓이면 무엇으로 바뀌는지를 값과 같은 화면에 둔다. */}
+          {isPredicted && (
+            <div className="flex items-start gap-3 bg-violet-500/10 border-2 border-dashed border-violet-400/50 rounded-2xl p-4">
+              <Info size={20} className="text-violet-700 flex-shrink-0 mt-0.5" />
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <p className="font-bold text-violet-700">{PREDICTED_BANNER_HEADLINE}</p>
+                  <span className="px-2.5 py-1 rounded-md text-xs font-black border border-dashed bg-violet-500/20 text-violet-800 border-violet-400/60">
+                    {PREDICTED_BANNER_CHIP}
+                  </span>
+                </div>
+                <p className="text-sm text-hanok-ink mt-1">{predictedLine}</p>
+                <p className="text-xs text-hanok-muted mt-1">{predictedMethod}</p>
+                <p className="text-xs text-hanok-muted mt-1">{PREDICTED_SWITCH_SENTENCE}</p>
+                {/* 추정이 왜 비었는지(표본 수집 중 등) — 예측이 추정을 '대신' 하는 이유를 작은 글씨로. */}
+                {estimateMissing && <p className="text-xs text-hanok-muted mt-1">{estimateMissing}</p>}
               </div>
             </div>
           )}
@@ -842,6 +1066,8 @@ function DashboardPage() {
               {/* 추정 모드에서 '손님 제보 · 좌석 방송 기반' 제목은 거짓이다 — 출처를 따라 바꾼다. */}
               {isEstimate ? (
                 <h4 className="text-sm font-bold text-sky-700">시설 혼잡 (추정 · 주차 실측 + 관광 통계)</h4>
+              ) : isPredicted ? (
+                <h4 className="text-sm font-bold text-violet-700">{PREDICTED_HEADING}</h4>
               ) : (
                 <h4 className="text-sm font-bold text-hanok-ink">시설 혼잡 (손님 제보 · 좌석 방송 기반)</h4>
               )}
@@ -895,9 +1121,13 @@ function DashboardPage() {
 
           {/* KPI Cards (Server Rendered) */}
           <div className="grid grid-cols-4 gap-6">
-            {/* 오늘 평균 혼잡도 — 추정이면 점선 테두리 + '추정' 배지 + 근거 한 줄(실측과 같은 모양이 아니다). */}
+            {/* 오늘 평균 혼잡도 — 추정/예측이면 점선 테두리 + 배지 + 근거 한 줄(실측과 같은 모양이 아니다). */}
             <div className={`bg-hanok-panel p-6 rounded-2xl shadow-sm flex flex-col justify-between ${
-              isEstimate ? 'border-2 border-dashed border-sky-400/50' : 'border border-hanok-line'
+              isEstimate
+                ? 'border-2 border-dashed border-sky-400/50'
+                : isPredicted
+                  ? 'border-2 border-dashed border-violet-400/50'
+                  : 'border border-hanok-line'
             }`}>
               <div className="flex justify-between items-start mb-4">
                 <div className="p-3 bg-gold/10 rounded-xl text-gold-deep">
@@ -950,10 +1180,13 @@ function DashboardPage() {
                     })()
                   ) : null}
                   {isEstimate && <EstimateBadge title={estimateLine ?? undefined} />}
+                  {isPredicted && <PredictedBadge title={predictedLine ?? undefined} />}
                   <InfoTip
                     text={
                       isEstimate
                         ? "오늘(KST) 대표 관광지의 10분 구간별 추정 혼잡도 평균입니다. 추정 혼잡도 = 0.7 × 주변 공영주차 점유율 + 0.3 × 관광공사 집중률. 비교 배지는 전일 '하루 전체' 추정 평균 대비입니다."
+                        : isPredicted
+                        ? '오늘(KST) 업종 시간대 곡선 × 요일 계수로 계산한 예측 혼잡도의 0시~현재 시 평균입니다. 시설 정원 상위 12곳/업종. 전일 비교는 예측끼리 비교하지 않으므로 표시하지 않습니다.'
                         : isFallback
                         ? `${basis.dateKst}(KST) 수집된 혼잡 로그의 평균입니다. 현장 관측이 집계된 가장 최근 날짜 기준이며, 비교 배지는 그 전날 대비입니다.`
                         : "오늘(KST) 수집된 혼잡 로그의 평균 혼잡도입니다. 시설 정원 대비 실시간 인원 비율을 0~100%로 환산해 평균낸 값입니다. 비교 배지는 전일 '하루 전체' 평균 대비입니다."
@@ -989,20 +1222,33 @@ function DashboardPage() {
                     {isEstimate && estimateLine && (
                       <p className="text-[11px] text-sky-700/90 mt-1 leading-snug">{estimateLine}</p>
                     )}
+                    {isPredicted && predictedLine && (
+                      <p className="text-[11px] text-violet-700/90 mt-1 leading-snug">{predictedLine}</p>
+                    )}
                   </>
                 )}
               </div>
             </div>
 
-            {/* 추천 수락률 */}
-            <div className="bg-hanok-panel p-6 rounded-2xl border border-hanok-line shadow-sm flex flex-col justify-between">
+            {/* 추천 수락률 — 창(지난 7일) 안의 추천이 5건 미만이면 시나리오 값(호박 점선 + 배지 + 근거 한 줄).
+                실측 1~4건이면 그 수를 부제에 적는다('실측 3건 수집 중'). 조회 실패는 그대로 '갱신 중'. */}
+            <div className={`bg-hanok-panel p-6 rounded-2xl shadow-sm flex flex-col justify-between ${
+              acceptScenario ? 'border-2 border-dashed border-amber-400/50' : 'border border-hanok-line'
+            }`}>
               <div className="flex justify-between items-start mb-4">
                 <div className="p-3 bg-jade/10 rounded-xl text-jade">
                   <TrendingUp size={24} />
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-bold text-hanok-muted">지난 7일</span>
-                  <InfoTip text="지난 7일간 생성된 AI 대안 추천 중 사용자가 실제 수락한 비율입니다. (수락 건수 ÷ 전체 추천 건수)" />
+                  {acceptScenario && <ScenarioBadge title={basisSubline({ basis: 'scenario', measuredCount: acceptMeasuredCount, unit: '건' }) ?? undefined} />}
+                  <InfoTip
+                    text={
+                      acceptScenario
+                        ? SCENARIO_TIP
+                        : '지난 7일간 생성된 AI 대안 추천 중 사용자가 실제 수락한 비율입니다. (수락 건수 ÷ 전체 추천 건수)'
+                    }
+                  />
                 </div>
               </div>
               <div>
@@ -1014,6 +1260,24 @@ function DashboardPage() {
                   </>
                 ) : acceptRate.status === 'failed' ? (
                   <MetricUnavailable hint="지표를 갱신하는 중입니다 — 잠시 후 자동으로 표시됩니다." />
+                ) : acceptScenario ? (
+                  // 시나리오 비율은 하루 종일 고정(건수만 오른다) — '총 N건 중 M건' 은 적지 않는다(측정한 건수가 아니다).
+                  <>
+                    <div className="text-3xl font-black text-hanok-ink">
+                      {acceptScenario.acceptance.rate > 0 ? (
+                        <CountUpNumber
+                          value={acceptScenario.acceptance.rate * 100}
+                          decimals={1}
+                          format={(n) => `${n.toFixed(1)}%`}
+                        />
+                      ) : (
+                        `${(acceptScenario.acceptance.rate * 100).toFixed(1)}%`
+                      )}
+                    </div>
+                    <p className="text-[11px] text-amber-800/90 mt-1 leading-snug">
+                      {basisSubline({ basis: 'scenario', measuredCount: acceptMeasuredCount, unit: '건' })}
+                    </p>
+                  </>
                 ) : acceptRate.status === 'empty' ? (
                   <MetricNoSample hint="추천 기록이 누적되는 대로 수락률을 표시합니다." />
                 ) : (
@@ -1031,13 +1295,20 @@ function DashboardPage() {
               </div>
             </div>
 
-            {/* DAU */}
-            <div className="bg-hanok-panel p-6 rounded-2xl border border-hanok-line shadow-sm flex flex-col justify-between">
+            {/* DAU — 오늘 피드백 행이 5건 미만이면 시나리오 값(수락률 타일과 같은 규칙). */}
+            <div className={`bg-hanok-panel p-6 rounded-2xl shadow-sm flex flex-col justify-between ${
+              dauScenario ? 'border-2 border-dashed border-amber-400/50' : 'border border-hanok-line'
+            }`}>
               <div className="flex justify-between items-start mb-4">
                 <div className="p-3 bg-emerald-500/10 rounded-xl text-emerald-600">
                   <Users size={24} />
                 </div>
-                <InfoTip text="오늘(KST) 피드백을 남긴 순 사용자 수(DAU, Daily Active Users)입니다." />
+                <div className="flex items-center gap-2">
+                  {dauScenario && <ScenarioBadge title={basisSubline({ basis: 'scenario', measuredCount: dauMeasuredCount, unit: '건' }) ?? undefined} />}
+                  <InfoTip
+                    text={dauScenario ? SCENARIO_TIP : '오늘(KST) 피드백을 남긴 순 사용자 수(DAU, Daily Active Users)입니다.'}
+                  />
+                </div>
               </div>
               <div>
                 <h3 className="text-hanok-muted text-sm font-semibold mb-1">활성 사용자 수 (DAU)</h3>
@@ -1045,6 +1316,21 @@ function DashboardPage() {
                   <Skeleton className="h-9 w-20 mt-1" />
                 ) : activeUsers.status === 'failed' ? (
                   <MetricUnavailable hint="지표를 갱신하는 중입니다 — 잠시 후 자동으로 표시됩니다." />
+                ) : dauScenario ? (
+                  // 시나리오 건수는 시각 진행률을 곱한 값 — KST 0시 직후의 0명은 모델의 시작점이지 측정한 0이 아니다
+                  // (배지가 그 사실을 말한다). 0 을 향해 굴리지는 않는다.
+                  <>
+                    <div className="text-3xl font-black text-hanok-ink">
+                      {dauScenario.dau > 0 ? (
+                        <CountUpNumber value={dauScenario.dau} format={(n) => `${n.toLocaleString()}명`} />
+                      ) : (
+                        `${dauScenario.dau.toLocaleString()}명`
+                      )}
+                    </div>
+                    <p className="text-[11px] text-amber-800/90 mt-1 leading-snug">
+                      {basisSubline({ basis: 'scenario', measuredCount: dauMeasuredCount, unit: '건' })}
+                    </p>
+                  </>
                 ) : activeUsers.status === 'empty' ? (
                   <MetricNoSample hint="오늘(KST) 이용 기록이 들어오는 대로 표시됩니다." />
                 ) : (
@@ -1062,7 +1348,11 @@ function DashboardPage() {
             {/* 이상 혼잡 알림 건수 — 추정이면 단위가 다르다('로그 1행' 이 아니라 '대표 관광지 × 10분 구간').
                 같은 '건' 으로 적으면 실측 건수와 같은 척도로 읽히므로 단위를 숫자 옆에 적는다. */}
             <div className={`bg-hanok-panel p-6 rounded-2xl shadow-sm flex flex-col justify-between ${
-              isEstimate ? 'border-2 border-dashed border-sky-400/50' : 'border border-hanok-line'
+              isEstimate
+                ? 'border-2 border-dashed border-sky-400/50'
+                : isPredicted
+                  ? 'border-2 border-dashed border-violet-400/50'
+                  : 'border border-hanok-line'
             }`}>
               <div className="flex justify-between items-start mb-4">
                 <div className="p-3 bg-rose-500/10 rounded-xl text-rose-700">
@@ -1070,10 +1360,13 @@ function DashboardPage() {
                 </div>
                 <div className="flex items-center gap-2">
                   {isEstimate && <EstimateBadge title={estimateLine ?? undefined} />}
+                  {isPredicted && <PredictedBadge title={predictedLine ?? undefined} />}
                   <InfoTip
                     text={
                       isEstimate
                         ? `오늘(KST) ${ESTIMATE_ANOMALY_UNIT}입니다. 주변 공영주차 점유율과 관광공사 집중률로 산출한 추정 지표입니다.`
+                        : isPredicted
+                        ? `오늘(KST) ${PREDICTED_ANOMALY_UNIT}입니다. 업종 시간대 패턴 기반 예측 지표입니다.`
                         : isFallback
                         ? `${basis.dateKst}(KST) 혼잡도 90% 이상 피크가 발생한 로그 건수입니다. 현장 관측이 집계된 가장 최근 날짜 기준입니다.`
                         : '오늘(KST) 혼잡도 90% 이상 피크가 발생한 로그 건수입니다. 관제 임계치를 초과한 상황을 의미합니다.'
@@ -1099,6 +1392,22 @@ function DashboardPage() {
                       />
                     </div>
                     <p className="text-[11px] text-sky-700/90 mt-1 leading-snug">{ESTIMATE_ANOMALY_UNIT}</p>
+                  </>
+                ) : isPredicted ? (
+                  // 예측 구간 수 — '(시설 × 1시간)' 구간이라 실측 '건'·추정 '10분 구간' 과 또 다른 척도다.
+                  // 0구간도 배지와 함께 그대로 적는다(예측이 임계치 아래였다는 뜻 — 측정한 0 이 아니다).
+                  <>
+                    <div className="text-3xl font-black text-rose-700">
+                      {anomalyCount.value > 0 ? (
+                        <CountUpNumber
+                          value={anomalyCount.value}
+                          format={(n) => `${n.toLocaleString('ko-KR')}구간`}
+                        />
+                      ) : (
+                        `${anomalyCount.value.toLocaleString('ko-KR')}구간`
+                      )}
+                    </div>
+                    <p className="text-[11px] text-violet-700/90 mt-1 leading-snug">{PREDICTED_ANOMALY_UNIT}</p>
                   </>
                 ) : (
                   // 0건은 실측값이다(로그가 있고 임계치 초과가 없었다).
@@ -1132,6 +1441,11 @@ function DashboardPage() {
                 emptyNotice={emptyNotice}
                 estimate={isEstimate && estimateLine ? { badge: ESTIMATE_BADGE, basisLine: estimateLine } : null}
                 pendingFromHour={pendingHour}
+                predicted={
+                  hasPredictedCells || isPredicted
+                    ? { badge: PREDICTED_BADGE, note: isPredicted ? (predictedLine ?? '') : PREDICTED_MIXED_SENTENCE }
+                    : null
+                }
               />
             )}
           </div>
@@ -1210,7 +1524,11 @@ function DashboardPage() {
 
             {/* Anomaly Alerts List (Server Rendered) */}
             <div className={`bg-hanok-panel rounded-2xl shadow-sm overflow-hidden flex flex-col ${
-              isEstimate ? 'border-2 border-dashed border-sky-400/50' : 'border border-hanok-line'
+              isEstimate
+                ? 'border-2 border-dashed border-sky-400/50'
+                : isPredicted
+                  ? 'border-2 border-dashed border-violet-400/50'
+                  : 'border border-hanok-line'
             }`}>
               <div className="p-6 border-b border-hanok-line flex items-center gap-2 flex-wrap bg-hanok-card/30">
                 <AlertTriangle className="text-rose-700" size={20} />
@@ -1223,32 +1541,47 @@ function DashboardPage() {
                   </span>
                 )}
                 {isEstimate && <EstimateBadge title={estimateLine ?? undefined} />}
+                {isPredicted && <PredictedBadge title={predictedLine ?? undefined} />}
               </div>
               <div className="flex-1 p-4 overflow-y-auto">
                 <div className="flex flex-col gap-3">
-                  {/* 조회 실패는 '알림 없음' 과 다른 사실이라 별도 문구로 그린다. */}
+                  {/* 조회 실패는 '알림 없음' 과 다른 사실이라 별도 문구로 그린다 — '안정적으로 운영 중' 은 실패한
+                      조회가 말해 줄 수 없는 사실이다. KPI 타일과 같은 '갱신 중' 어휘로 적는다. */}
                   {congestionFailed && (
-                    <div className="p-4 rounded-xl border border-hanok-line bg-hanok-card/40 text-center">
-                      <p className="text-sm font-semibold text-hanok-ink">오늘은 임계치 초과 없이 안정적으로 운영 중입니다.</p>
+                    <div className="p-4 rounded-xl border border-amber-500/30 bg-amber-500/5 text-center flex flex-col items-center gap-2">
+                      <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-amber-500/15 text-amber-700 border border-amber-500/30">
+                        갱신 중
+                      </span>
+                      <p className="text-sm font-semibold text-hanok-ink">이상 혼잡 알림을 갱신하는 중입니다 — 잠시 후 자동으로 표시됩니다.</p>
                     </div>
                   )}
                   {/* 알림이 실제로 있을 때도 어느 날 것인지 목록 위에 한 줄로 말한다. */}
-                  {isFallback && anomalies.length > 0 && (
+                  {isFallback && listedAnomalies.length > 0 && (
                     <p className="text-xs text-amber-800 border border-amber-500/30 bg-amber-500/10 rounded-lg px-3 py-2">
-                      아래 {anomalies.length}건은 {basis.dateKst}(KST)에 발생한 피크입니다.
+                      아래 {listedAnomalies.length}건은 {basis.dateKst}(KST)에 발생한 피크입니다.
                     </p>
                   )}
                   {/* 추정 알림도 목록 위에 한 줄로 무엇인지 말한다 — 항목 모양만으로는 실측 알림과 같아 보인다. */}
-                  {isEstimate && anomalies.length > 0 && (
+                  {isEstimate && listedAnomalies.length > 0 && (
                     <p className="text-xs text-sky-700 border border-dashed border-sky-400/50 bg-sky-500/10 rounded-lg px-3 py-2 leading-snug">
-                      아래 {anomalies.length}곳은 추정 혼잡도가 90%를 넘은 장소(장소별 최고 구간)입니다. {estimateLine}
+                      아래 {listedAnomalies.length}곳은 추정 혼잡도가 90%를 넘은 장소(장소별 최고 구간)입니다. {estimateLine}
                     </p>
                   )}
-                  {anomalies.map((alert: AnomalyAlert) => (
+                  {/* 예측 알림(예측 단독 모드)도 같은 규칙 — 무엇으로 계산했는지를 목록 위에서 말한다. */}
+                  {isPredicted && listedAnomalies.length > 0 && (
+                    <p className="text-xs text-violet-700 border border-dashed border-violet-400/50 bg-violet-500/10 rounded-lg px-3 py-2 leading-snug">
+                      아래 {listedAnomalies.length}곳은 예측 혼잡도가 90%를 넘는 시설(시설별 최고 시간대)입니다. {predictedLine}
+                    </p>
+                  )}
+                  {listedAnomalies.map((alert: AnomalyAlert) => (
                     <div
                       key={alert.id}
                       className={`p-4 rounded-xl bg-rose-500/10 flex flex-col gap-2 relative overflow-hidden ${
-                        isEstimate ? 'border border-dashed border-sky-400/50' : 'border border-rose-500/15'
+                        isEstimate
+                          ? 'border border-dashed border-sky-400/50'
+                          : isPredicted
+                            ? 'border border-dashed border-violet-400/50'
+                            : 'border border-rose-500/15'
                       }`}
                     >
                       <div className="absolute left-0 top-0 bottom-0 w-1 bg-rose-500"></div>
@@ -1256,29 +1589,63 @@ function DashboardPage() {
                         <span className="font-bold text-rose-700 flex items-center gap-1.5">
                           {alert.facilityName}
                           {isEstimate && <EstimateBadge />}
+                          {isPredicted && <PredictedBadge />}
                         </span>
                         <span className="text-xs font-semibold text-rose-700">
                           {new Date(alert.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
                         </span>
                       </div>
                       <div className="text-sm text-rose-700 flex justify-between">
-                        <span>{isEstimate ? '추정 혼잡도' : '임계치 초과'}: {(alert.congestionLevel * 100).toFixed(0)}%</span>
-                        {/* 추정의 '10분' 은 지속 시간이 아니라 원본 버킷(10분) 하나의 길이다. */}
+                        <span>{isEstimate ? '추정 혼잡도' : isPredicted ? '예측 혼잡도' : '임계치 초과'}: {(alert.congestionLevel * 100).toFixed(0)}%</span>
+                        {/* 추정의 '10분' 은 지속 시간이 아니라 원본 버킷(10분) 하나의 길이다. 예측은 1시간 칸이라 시각(KST)으로 적는다. */}
                         <span className="font-bold">
-                          {isEstimate ? `구간: ${alert.durationMinutes}분` : `지속: ${alert.durationMinutes}분`}
+                          {isEstimate
+                            ? `구간: ${alert.durationMinutes}분`
+                            : isPredicted && alert.hour !== undefined
+                              ? `시간대: ${alert.hour}시`
+                              : `지속: ${alert.durationMinutes}분`}
                         </span>
                       </div>
                     </div>
                   ))}
-                  {congestion !== null && !congestionFailed && anomalies.length === 0 && (
+                  {congestion !== null && !congestionFailed && listedAnomalies.length === 0 && (
                     <div className="text-center text-hanok-muted py-10 text-sm px-4 leading-relaxed">
                       {basis.kind === 'today'
                         ? '오늘은 임계치 초과 없이 안정적으로 운영 중입니다.'
                         : isEstimate
                           ? '오늘 추정 혼잡도는 임계치(90%) 이내로 유지되고 있습니다.'
+                        : isPredicted
+                          ? '오늘 예측 혼잡도는 임계치(90%) 이내로 유지됩니다.'
                         : isFallback
                           ? `${basis.dateKst}(KST)에도 임계치(90%) 이내로 유지되었습니다.`
                           : '전 구역 임계치 이내로 유지되었습니다.'}
+                    </div>
+                  )}
+                  {/* 예측 피크 (이후 시간대) — 격자의 예측 칸(현재 시 이후) 중 90% 를 넘는 시설별 최고 시간대.
+                      위 목록(지금까지 일어난/집계된 피크)과 구간이 겹치지 않는다. 시각은 KST 시, 칸은 1시간. */}
+                  {showFuturePeaks && (
+                    <div className="mt-2 pt-3 border-t border-dashed border-violet-400/40 flex flex-col gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-xs font-bold text-violet-700">예측 피크 (이후 시간대)</span>
+                        <PredictedBadge title={predictedLine ?? PREDICTED_MIXED_SENTENCE} />
+                      </div>
+                      {futurePeaks.length === 0 ? (
+                        <p className="text-xs text-hanok-muted px-1">이후 시간대에 90%를 넘는 예측 피크는 없습니다.</p>
+                      ) : (
+                        futurePeaks.map((peak) => (
+                          <div
+                            key={`future-${peak.facility}-${peak.hour}`}
+                            className="px-3 py-2 rounded-lg border border-dashed border-violet-400/50 bg-violet-500/5 text-xs text-violet-800 flex justify-between items-center gap-2"
+                          >
+                            <span className="font-semibold">
+                              {peak.facility} {String(peak.hour).padStart(2, '0')}시 예측
+                            </span>
+                            <span className="whitespace-nowrap">
+                              예측 혼잡도: {(peak.value * 100).toFixed(0)}% · 구간: 1시간
+                            </span>
+                          </div>
+                        ))
+                      )}
                     </div>
                   )}
                   {/* 알림 행 실루엣 — 실제 알림 행(아이콘·제목·배지)의 구조를 블러 아래 미러링. */}

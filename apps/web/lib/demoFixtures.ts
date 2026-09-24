@@ -135,6 +135,17 @@ export const DEMO_ADMIN_KPI = {
   alternativeConversion: 0.384,
 };
 
+/** 관제 KPI 의 '시나리오' 하루 총량 — lib/adminPredictedView.ts scenarioKpis() 가 시각 진행률(cumulativeDayShare)을
+ *  곱해 하루 동안 결정적으로 올라가는 값을 만든다(2026-09-22 예측 모드). 나머지 총량은 이미 위·아래 상수에 있다:
+ *  노출 = DEMO_ADMIN_ALTERNATIVES.offered 합(1,013), 길찾기 = moved 합(384), 방문 확인 = DEMO_ADMIN_KPI.dispersals(312).
+ *  여기 두 값만 다른 상수에서 파생되지 않아 따로 선언한다. 이 파일 규칙 1(전부 합성값)이 그대로 적용된다. */
+export const DEMO_ADMIN_SCENARIO_DAY = {
+  /** 오늘 활성 사용자(DAU) 하루 총량 — dispersals(312)의 약 1.5배 규모. */
+  dailyActiveUsers: 468,
+  /** 방문 확인(312) 뒤 긍정 평가를 남긴 건수 — 방문의 약 3/4. */
+  positiveRatings: 236,
+};
+
 /** 핫스팟별 시간대 혼잡 추이(오늘, KST). */
 export const DEMO_ADMIN_HOTSPOT_TREND: {
   hour: string;
