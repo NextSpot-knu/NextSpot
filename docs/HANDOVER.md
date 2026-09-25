@@ -6,7 +6,7 @@
 
 ## 배포 상태
 
-- **main = 프로덕션.** main push가 Vercel(web)·Render(api)를 자동 배포한다. 마지막 반영은 2026-09-25 — API OOM 대응(`0408bd7`·`c3e700d`·`09edacb`, 아래 2026-09-25). 그 전 2026-09-22 `ec127ee`, 09-21 —
+- **main = 프로덕션.** main push가 Vercel(web)·Render(api)를 자동 배포한다. 마지막 반영은 2026-09-25 — API OOM 대응(`0408bd7`..`0ce394d`, 아래 2026-09-25). 그 전 2026-09-22 `ec127ee`, 09-21 —
   `fafdd06`+(심사용 계정 안내 + yunseong 데모 콘솔·비교 헤더·데이터 절 통합, 아래 `2026-09-21b`·`c`; 그전 `374254c`·소개 개편
   `a3b8a6b` 포함). `/guide`는 줄·혼잡으로 잃는 여행 시간과 주변 대안·이동 코스라는
   문제·해결 한 화면만 남겼다. Vercel 응답에서 새 제목·문제 카드·해결 카드가 있고 이전 취향 서사와 기술 설명은 없는 것을 확인했다.
@@ -192,12 +192,13 @@ from checks order by seq;
 ## 2026-09-25 — API OOM 대응 승격: 관제 대시보드 동시 조회 상한·메모리 반환 + 09-24 OOM 수정
 
 - 도구·브랜치: Claude Code(원인 조사 워크플로 5렌즈 + 수정 검증 워크플로 4렌즈) / `fix/api-oom-admin-gate` = `ec127ee` +
-  `0408bd7`·`c3e700d`(09-24 OOM 수정, 미배포였음) + `09edacb`(관제 대시보드 게이트) → main.
+  `0408bd7`·`c3e700d`(09-24 OOM 수정, 미배포였음) + `09edacb`·`0ce394d`(관제 대시보드 게이트) → main.
 - 한 것: Render `nextspot-api`(512MB 단일 인스턴스)가 09-21 이후 8회 OOM 재시작 — 운영은 OOM 수정이 없는 `6a7d653` API 였다.
   09-25 18:15 KST 는 관제 대시보드가 무거운 관리자 GET 7개를 한꺼번에 쏜 순간(예열이 계단식으로 남긴 ~335MB 위, 09-22 09:40 도
   같은 패턴), 나머지는 예열 직후·예열 타임아웃 직후. `09edacb`: 무거운 관리자 GET 을 동시 2개로 묶는 ASGI 게이트 + 끝날 때마다
   gc·`malloc_trim(0)`(예열 끝에도) · model-trust 는 스냅샷 통째 대신 읽는 칸만 JSON 경로로(거부 시 통째 조회로 물러섬).
-- 검증: api `ruff` + `pytest` 1641 통과(게이트·폴백 테스트 포함) · 합성 6,000행 model-trust 16.5→4.4MB · 리뷰·전후 RSS 측정은 커밋 본문.
+- 검증: api `ruff` + `pytest` 1644 통과 · 리뷰 3렌즈(ship, 비차단 지적 1건 `0ce394d` 로 반영) · Linux 전후 RSS(합성 운영 규모,
+  관리자 GET 7개 동시): 피크 main 369~375MB → 165~172MB, 예열 뒤 208MB 고정 → 139MB 로 반환, JSON 경로 거부 폴백 시 256MB.
 - 다음·미결: 배포 후 Render Metrics 에서 관제 대시보드를 한 번 열어 RSS 가 되돌아오는지, 로그에 `admin_trust_slim_select_failed`
   가 없는지 확인. 예열(GitHub Actions `warmup.yml`)이 남기는 캐시 상한은 `0408bd7` 이 맡는다.
 - 사람 작업: Render 대시보드에서 배포 커밋이 `09edacb`+ 인지, `MALLOC_ARENA_MAX=2` 가 이미지 env 로 들어갔는지(Dockerfile) 확인.
