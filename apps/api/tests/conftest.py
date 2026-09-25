@@ -104,6 +104,18 @@ def _isolate_event_boost(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _isolate_admin_cache(monkeypatch):
+    """관리자 집계 캐시(60초, app/core/admin_cache.py)도 테스트에서는 끈다 — 같은 엔드포인트를 가짜 데이터만
+    바꿔 여러 번 부르는 테스트가 첫 답을 돌려받지 않게. 캐시 동작 자체는 tests/core/test_admin_cache.py."""
+    from app.core import admin_cache
+
+    admin_cache.invalidate()
+    monkeypatch.setattr(admin_cache._cache, "ttl_seconds", 0.0)
+    yield
+    admin_cache.invalidate()
+
+
+@pytest.fixture(autouse=True)
 def _isolate_response_cache(monkeypatch):
     """by-type·코스 응답 캐시(180초)를 테스트에서는 기본으로 **끈다**.
 

@@ -29,6 +29,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.core.authz import ROLE_ADMIN, require_role
 from app.services import congestion_calibration_service as calibration
+from app.core.admin_cache import cached_admin_view
 
 logger = structlog.get_logger()
 
@@ -40,6 +41,7 @@ router = APIRouter(
 
 
 @router.get("/seoul/calibration")
+@cached_admin_view("admin/engine-validation/seoul/calibration")
 async def seoul_calibration(
     days: int = Query(calibration.DEFAULT_WINDOW_DAYS, ge=1, le=calibration.MAX_WINDOW_DAYS),
 ):

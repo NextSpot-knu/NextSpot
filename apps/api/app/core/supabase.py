@@ -15,9 +15,14 @@ from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 # pyrefly: ignore [missing-import]
 from supabase import Client, ClientOptions, create_client
+from app.core import postgrest_json
 from app.core.config import settings
 
 _logger = structlog.get_logger()
+
+# 모든 PostgREST 응답을 json.loads 로 읽는다(pydantic 재귀 유니언 검증은 페이지당 네이티브 메모리를
+# ~5배 쓴다 — app/core/postgrest_json.py). 이 모듈을 거치는 앱·배치 스크립트 모두에 적용된다.
+postgrest_json.install()
 
 # Supabase 는 신규 프로젝트에서 GoTrue JWT 를 비대칭키(ES256/RS256, JWKS)로 서명한다.
 # (익명 로그인 토큰도 동일.) HS256 legacy 시크릿으로는 검증 불가하므로 JWKS 공개키로 검증한다.

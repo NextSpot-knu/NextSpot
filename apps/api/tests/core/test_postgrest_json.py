@@ -1,0 +1,48 @@
+"""PostgREST 응답 파서 교체(app/core/postgrest_json.py) — 결과는 원래 pydantic 경로와 같고, 빈 본문 폴백도 같다."""
+
+import json
+
+import httpx
+import pytest
+from postgrest import base_request_builder
+from postgrest.types import JSONAdapter as ORIGINAL
+
+from app.core import postgrest_json
+
+PAYLOADS = [
+    [],
+    {},
+    [{"id": "a", "n": 1, "f": 0.25, "b": True, "z": None, "s": "황리단길 ☕", "nested": {"l": [1, 2.5, "x", None]}}],
+    [{"big": 12345678901234567890, "neg": -3, "exp": 1e-7, "empty": "", "deep": [[[{"k": [{}]}]]]}],
+    "plain string",
+    42,
+    3.5,
+    None,
+    True,
+]
+
+
+def test_install_replaces_the_parser_and_is_idempotent():
+    assert postgrest_json.install() is True  # app.core.supabase 가 import 때 이미 설치했다
+    assert postgrest_json.install() is True
+    assert isinstance(base_request_builder.JSONAdapter, postgrest_json._JsonLoadsAdapter)
+
+
+@pytest.mark.parametrize("payload", PAYLOADS)
+def test_same_python_values_as_the_pydantic_path(payload):
+    raw = json.dumps(payload, ensure_ascii=False).encode()
+    assert base_request_builder.JSONAdapter.validate_json(raw) == ORIGINAL.validate_json(raw)
+
+
+def _response(body: bytes, status: int = 200) -> httpx.Response:
+    return httpx.Response(status, content=body, request=httpx.Request("GET", "https://x.test/rest/v1/t"))
+
+
+def test_library_fallbacks_for_empty_and_non_json_bodies_are_unchanged():
+    APIResponse = base_request_builder.APIResponse
+    # Prefer: return=minimal 쓰기 응답(빈 본문) → 원래처럼 [].
+    assert APIResponse.from_http_request_response(_response(b"", 201)).data == []
+    # 비 JSON 본문 → 원래처럼 텍스트 그대로.
+    assert APIResponse.from_http_request_response(_response(b"not json")).data == "not json"
+    rows = [{"id": 1, "v": "x"}]
+    assert APIResponse.from_http_request_response(_response(json.dumps(rows).encode())).data == rows
