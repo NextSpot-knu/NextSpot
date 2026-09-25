@@ -23,7 +23,7 @@ def test_heavy_admin_paths_are_gated_and_everything_else_passes():
     assert not is_heavy_admin_request("GET", "/health")
 
 
-def _run_burst(paths: list[str], monkeypatch) -> tuple[int, int]:
+def _run_burst(paths: list[str], monkeypatch, status: int = 200) -> tuple[int, int]:
     """경로마다 요청 하나씩 동시에 흘려 (최대 동시 실행 수, release_memory 호출 수) 를 돌려준다."""
     released = []
     monkeypatch.setattr(memory_guard, "release_memory", lambda: released.append(1) or True)
@@ -34,7 +34,7 @@ def _run_burst(paths: list[str], monkeypatch) -> tuple[int, int]:
         state["peak"] = max(state["peak"], state["active"])
         await asyncio.sleep(0.02)
         state["active"] -= 1
-        await send({"type": "http.response.start", "status": 200, "headers": []})
+        await send({"type": "http.response.start", "status": status, "headers": []})
         await send({"type": "http.response.body", "body": b"{}"})
 
     gate = HeavyAdminGateMiddleware(inner_app)
@@ -66,7 +66,45 @@ def test_dashboard_burst_runs_at_most_the_configured_number_at_once(monkeypatch)
     peak, released = _run_burst(burst, monkeypatch)
 
     assert peak == memory_guard.HEAVY_ADMIN_CONCURRENCY == 2
-    assert released == len(burst)  # 무거운 요청마다 끝나고 한 번씩 메모리를 반환한다
+    # 반환(전체 gc + malloc_trim)은 GIL 을 쥔다 — 7개가 몰려도 마지막에 한 번만.
+    assert released == 1
+
+
+def test_unauthenticated_heavy_requests_do_not_trigger_memory_release(monkeypatch):
+    # 게이트는 인증 앞에 있다. 401 에도 전체 gc 를 돌리면 스캐너가 관광객 요청을 멈출 수 있다.
+    peak, released = _run_burst(["/api/v1/admin/model-trust"] * 5, monkeypatch, status=401)
+    assert released == 0
+
+
+def test_cancelled_waiter_leaves_the_queue_count_consistent(monkeypatch):
+    released = []
+    monkeypatch.setattr(memory_guard, "release_memory", lambda: released.append(1) or True)
+    hold = None
+
+    async def slow_app(scope, receive, send):
+        await hold.wait()
+        await send({"type": "http.response.start", "status": 200, "headers": []})
+
+    gate = HeavyAdminGateMiddleware(slow_app)
+    scope = {"type": "http", "method": "GET", "path": "/api/v1/admin/model-trust"}
+
+    async def send(_m):
+        return None
+
+    async def run():
+        nonlocal hold
+        hold = asyncio.Event()
+        running = [asyncio.create_task(gate(scope, None, send)) for _ in range(2)]
+        waiter = asyncio.create_task(gate(scope, None, send))  # 세 번째는 줄에서 기다린다
+        await asyncio.sleep(0.01)
+        waiter.cancel()  # 클라이언트가 끊었다
+        await asyncio.gather(waiter, return_exceptions=True)
+        hold.set()
+        await asyncio.gather(*running)
+        return gate._pending
+
+    assert asyncio.run(run()) == 0
+    assert released == [1]  # 줄이 비었으니 마지막 성공 요청 뒤에 한 번 반환
 
 
 def test_light_requests_are_not_serialized_or_trimmed(monkeypatch):

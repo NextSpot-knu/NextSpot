@@ -126,31 +126,53 @@ _gate = _LoopBoundSemaphore(HEAVY_ADMIN_CONCURRENCY)
 
 
 class HeavyAdminGateMiddleware:
-    """무거운 관리자 GET 을 동시에 HEAVY_ADMIN_CONCURRENCY 개만 통과시키고, 끝나면 메모리를 반환한다.
+    """무거운 관리자 GET 을 동시에 HEAVY_ADMIN_CONCURRENCY 개만 통과시키고, 몰림이 끝나면 메모리를 반환한다.
 
     순수 ASGI 미들웨어다(BaseHTTPMiddleware 는 응답 스트리밍·컨텍스트 전파에 부작용이 있다).
-    슬롯은 응답 전송이 끝난 **뒤** 메모리 반환까지 마치고 돌려준다 — 다음 무거운 조회가 이전 조회의
-    잔여 힙 위에서 시작하지 않게.
+
+    메모리 반환(gc 전체 수집 + malloc_trim)은 GIL 을 쥐고 수십~수백 ms 걸리므로 **몰림의 끝에 한 번만** 한다:
+      · 성공 응답(<400)일 때만 — 인증 실패(401/403)는 행을 들고 있지 않다. 게이트가 인증 앞에 있으므로
+        이 조건이 없으면 무인증 스캐너가 요청마다 전체 gc 를 일으켜 관광객 요청을 멈출 수 있다.
+      · 줄 선 무거운 요청이 하나도 남지 않았을 때만 — 대시보드 한 번에 7개가 몰려도 반환은 마지막에 한 번.
+        그 사이의 요청들은 앞 요청이 비운 힙을 glibc 가 재사용하므로 계단이 쌓이지 않는다.
+    반환은 슬롯을 쥔 채 한다 — 다음 무거운 조회가 이전 조회의 잔여 힙 위에서 시작하지 않게.
     """
 
     def __init__(self, app: Any) -> None:
         self.app = app
+        self._pending = 0  # 대기 + 실행 중인 무거운 요청 수(이벤트 루프 스레드에서만 바뀐다)
 
     async def __call__(self, scope: dict, receive: Any, send: Any) -> None:
         if scope.get("type") != "http" or not is_heavy_admin_request(scope.get("method", ""), scope.get("path", "")):
             await self.app(scope, receive, send)
             return
         sem = _gate.get()
-        waited_from = time.monotonic()
-        async with sem:
-            waited_ms = int((time.monotonic() - waited_from) * 1000)
-            if waited_ms >= 1000:
-                logger.info("heavy_admin_gate_waited", path=scope.get("path"), waited_ms=waited_ms)
-            try:
-                await self.app(scope, receive, send)
-            finally:
-                # malloc_trim 은 힙 크기에 비례해 수~수십 ms 걸린다 — 이벤트 루프를 막지 않게 스레드로.
+        status = {"code": 0}
+
+        async def send_with_status(message: dict) -> None:
+            if message.get("type") == "http.response.start":
+                status["code"] = int(message.get("status") or 0)
+            await send(message)
+
+        self._pending += 1
+        counted = True  # 줄에서 빠질 때 정확히 한 번 _pending 을 줄이기 위한 표시
+        try:
+            waited_from = time.monotonic()
+            async with sem:
+                waited_ms = int((time.monotonic() - waited_from) * 1000)
+                if waited_ms >= 1000:
+                    logger.info("heavy_admin_gate_waited", path=scope.get("path"), waited_ms=waited_ms)
                 try:
-                    await asyncio.to_thread(release_memory)
-                except Exception as exc:  # noqa: BLE001
-                    logger.warning("release_memory_offload_failed", error=str(exc))
+                    await self.app(scope, receive, send_with_status)
+                finally:
+                    self._pending -= 1
+                    counted = False
+                    if self._pending == 0 and 0 < status["code"] < 400:
+                        # malloc_trim 은 힙 크기에 비례해 수~수십 ms — 이벤트 루프를 막지 않게 스레드로.
+                        try:
+                            await asyncio.to_thread(release_memory)
+                        except Exception as exc:  # noqa: BLE001
+                            logger.warning("release_memory_offload_failed", error=str(exc))
+        finally:
+            if counted:  # 슬롯을 얻기 전에 취소됐다(클라이언트 끊김) — 줄에서 뺀다.
+                self._pending -= 1
