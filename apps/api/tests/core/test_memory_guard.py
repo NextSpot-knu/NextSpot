@@ -245,3 +245,19 @@ def test_successful_admin_write_advances_the_admin_coalesce_generation(monkeypat
     _call_gate(HeavyAdminGateMiddleware(app_with(403)), "POST", "/api/v1/admin/simulate-peak")
     _call_gate(HeavyAdminGateMiddleware(app_with(200)), "POST", "/api/v1/reports")
     assert cleared == [1]  # 성공한 관리자 쓰기만
+
+
+def test_preflight_trim_is_rate_limited_so_unauthenticated_floods_cannot_force_repeated_gc(monkeypatch):
+    """게이트는 인증 앞에서 돈다 — 메모리가 높은 동안 무인증 요청이 몰려도 전체 gc+trim 은 5초에 한 번뿐."""
+    released = []
+    monkeypatch.setattr(memory_guard, "release_memory", lambda *a, **_k: released.append(a) or True)
+    monkeypatch.setattr(memory_guard, "current_rss_mb", lambda: memory_guard.HEAVY_ADMIN_TRIM_RSS_MB + 10)
+
+    async def unauthorized(scope, receive, send):
+        await send({"type": "http.response.start", "status": 401, "headers": []})
+
+    gate = HeavyAdminGateMiddleware(unauthorized)
+    for _ in range(20):
+        sent = _call_gate(gate, "GET", "/api/v1/admin/model-trust")
+        assert sent[0]["status"] == 401  # 차단 문턱(SHED) 아래라 그대로 통과
+    assert released == [("admin_preflight",)]  # 20번 중 사전 반환은 한 번

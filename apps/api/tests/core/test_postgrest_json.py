@@ -46,3 +46,25 @@ def test_library_fallbacks_for_empty_and_non_json_bodies_are_unchanged():
     assert APIResponse.from_http_request_response(_response(b"not json")).data == "not json"
     rows = [{"id": 1, "v": "x"}]
     assert APIResponse.from_http_request_response(_response(json.dumps(rows).encode())).data == rows
+
+
+def test_library_still_routes_responses_through_the_installed_parser(monkeypatch):
+    """postgrest 가 새 버전에서 from_http_request_response 가 JSONAdapter 를 더는 부르지 않으면, 교체가 조용히
+    꺼지고 페이지당 +70MB 가 돌아온다(requirements 는 supabase>=2.3.0 비고정). 그때 이 테스트가 깨진다."""
+    calls = []
+    installed = base_request_builder.JSONAdapter
+    original = installed.validate_json
+
+    def spy(data, *a, **k):
+        calls.append(len(data))
+        return original(data, *a, **k)
+
+    monkeypatch.setattr(installed, "validate_json", spy)
+    assert base_request_builder.APIResponse.from_http_request_response(_response(b'[{"a": 1}]')).data == [{"a": 1}]
+    assert calls, "postgrest 가 응답을 교체된 파서로 읽지 않는다 — postgrest_json.install() 경로를 다시 확인할 것"
+
+
+def test_pathologically_deep_body_falls_back_like_the_original():
+    deep = ("[" * 3000 + "]" * 3000).encode()
+    data = base_request_builder.APIResponse.from_http_request_response(_response(deep)).data
+    assert data == deep.decode()  # 원래처럼 텍스트로 물러선다(RecursionError 로 요청이 깨지지 않는다)

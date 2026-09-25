@@ -35,7 +35,7 @@ class _JsonLoadsAdapter:
     def validate_json(self, data: Any, *args: Any, **kwargs: Any) -> Any:
         try:
             return json.loads(data)
-        except (ValueError, TypeError):
+        except (ValueError, TypeError, RecursionError):
             # 빈 본문·비 JSON: 원래 어댑터가 pydantic ValidationError 를 내야 라이브러리의 폴백이 탄다.
             return self._original.validate_json(data, *args, **kwargs)
 

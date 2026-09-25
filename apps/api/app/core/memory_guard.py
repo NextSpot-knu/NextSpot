@@ -18,10 +18,13 @@ dashboard/today·dashboard/briefing·area-demand-reliability)를 **한꺼번에*
     OS 에 돌려준다 — 한 번 오른 RSS 가 계단식으로 쌓이는(270→335→[OOM]→420→480MB) 현상을 끊는다.
     glibc 가 아닌 환경(Windows 개발기·musl)에서는 gc 만 한다.
 
-인증과의 관계: 이 게이트는 라우터 의존성(require_role) **앞**에서 줄만 세운다. 응답을 캐시하거나
-대신 만들지 않으므로 권한 우회 경로가 없다. 인증 실패 요청은 빨리 끝나 슬롯을 곧바로 돌려준다.
+인증과의 관계: 이 게이트는 라우터 의존성(require_role) **앞**에서 돈다. 응답을 캐시하거나 관리자 데이터를
+대신 만들지 않으므로 권한 우회 경로가 없다. 게이트가 직접 만드는 응답은 둘뿐이다: 메모리가 반환 뒤에도
+차단 문턱 이상일 때의 503(Retry-After), 줄 서는 동안 연결이 끊긴 요청의 무응답 종료. 사전 메모리 반환은
+일정 간격에 한 번으로 묶여 무인증 요청이 비용을 키우지 못한다. 인증 실패 요청은 빨리 끝나 슬롯을 돌려준다.
 
-CORS 사전 요청(OPTIONS)·쓰기(POST 등)·관광객 경로는 건드리지 않는다.
+CORS 사전 요청(OPTIONS)·관광객 경로는 건드리지 않는다. 관리자 쓰기(/api/v1/admin/* 의 POST·PUT·PATCH·
+DELETE)는 그대로 통과시키고, 성공하면 관리자 집계 합류의 세대만 올린다(app.core.admin_coalesce).
 """
 
 from __future__ import annotations
@@ -51,9 +54,23 @@ HEAVY_ADMIN_CONCURRENCY = 2
 #   · TRIM 이상이면 먼저 빈 힙을 반환하고 다시 잰다.
 #   · 그래도 SHED 이상이면 그 관리자 조회만 503(잠시 후 재시도)으로 돌려보낸다. 관광객 경로는 절대 거절하지 않는다.
 # 512MB 인스턴스 기준값이다. 인스턴스를 키우면 env 로 올린다(Render Environment).
-HEAVY_ADMIN_TRIM_RSS_MB = float(os.environ.get("HEAVY_ADMIN_TRIM_RSS_MB", "320"))
-HEAVY_ADMIN_SHED_RSS_MB = float(os.environ.get("HEAVY_ADMIN_SHED_RSS_MB", "400"))
+def _env_mb(name: str, default: float) -> float:
+    """잘못된 env 값(오타·빈 값)으로 부팅이 죽지 않게 — 기본값으로 물러서고 남긴다."""
+    raw = os.environ.get(name)
+    if raw is None or not raw.strip():
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        logger.warning("memory_guard_env_invalid", name=name, value=raw, fallback=default)
+        return default
+
+
+HEAVY_ADMIN_TRIM_RSS_MB = _env_mb("HEAVY_ADMIN_TRIM_RSS_MB", 320.0)
+HEAVY_ADMIN_SHED_RSS_MB = _env_mb("HEAVY_ADMIN_SHED_RSS_MB", 400.0)
 _SHED_RETRY_AFTER_SECONDS = 5
+# 사전 반환(전체 gc + malloc_trim) 최소 간격. 인증 앞에서 도는 점검이라 요청 수와 무관하게 비용을 묶는다.
+_PREFLIGHT_TRIM_MIN_INTERVAL_S = 5.0
 
 # 행 수천~수만 개를 끌어와 요청 동안 쥐는 관리자 조회. 정확 일치 경로 + 접두 경로.
 _HEAVY_ADMIN_PATHS = frozenset({
@@ -195,6 +212,8 @@ class HeavyAdminGateMiddleware:
         # 이번 몰림에서 성공 응답(행을 들었던 요청)이 하나라도 있었나 — 마지막으로 끝난 요청이 실패·끊김이어도
         # 앞 요청들이 남긴 빈 힙은 반환해야 한다.
         self._burst_had_success = False
+        # 마지막 사전 반환 시각 — 사전 반환을 일정 간격에 한 번으로 묶는다(_over_memory_budget).
+        self._last_preflight_trim = float("-inf")
 
     async def __call__(self, scope: dict, receive: Any, send: Any) -> None:
         if scope.get("type") != "http":
@@ -253,15 +272,25 @@ class HeavyAdminGateMiddleware:
                 self._pending -= 1
 
     async def _over_memory_budget(self, path: str) -> bool:
-        """무거운 조회를 시작해도 되는지 실제 RSS 로 판단한다. 넘치면 True(이 요청은 503)."""
+        """무거운 조회를 시작해도 되는지 실제 RSS 로 판단한다. 넘치면 True(이 요청은 503).
+
+        RSS 읽기(/proc/self/statm)는 싸서 매번 한다. 비싼 것은 메모리 반환(전체 gc + malloc_trim —
+        GIL 을 쥐고 수십~수백 ms)이다. 이 점검은 인증 **앞**에서 돌기 때문에(게이트는 줄만 세운다),
+        반환을 매 요청 하면 무인증 요청 폭주가 전체 gc 를 반복시켜 관광객 요청까지 멈출 수 있다
+        (리뷰 3렌즈 + Codex 지적). 그래서 사전 반환은 _PREFLIGHT_TRIM_MIN_INTERVAL_S 에 한 번으로 묶는다
+        — 누가 보내든 비용 상한이 고정된다.
+        """
         rss = current_rss_mb()
         if rss is None or rss < HEAVY_ADMIN_TRIM_RSS_MB:
             return False
-        await asyncio.to_thread(release_memory, "admin_preflight")
-        rss_after = current_rss_mb()
-        if rss_after is None or rss_after < HEAVY_ADMIN_SHED_RSS_MB:
+        now = time.monotonic()
+        if now - self._last_preflight_trim >= _PREFLIGHT_TRIM_MIN_INTERVAL_S:
+            self._last_preflight_trim = now
+            await asyncio.to_thread(release_memory, "admin_preflight")
+            rss = current_rss_mb()
+        if rss is None or rss < HEAVY_ADMIN_SHED_RSS_MB:
             return False
-        logger.warning("heavy_admin_shed", path=path, rss_mb=round(rss_after, 1), limit_mb=HEAVY_ADMIN_SHED_RSS_MB)
+        logger.warning("heavy_admin_shed", path=path, rss_mb=round(rss, 1), limit_mb=HEAVY_ADMIN_SHED_RSS_MB)
         return True
 
     async def _admin_write(self, scope: dict, receive: Any, send: Any) -> None:

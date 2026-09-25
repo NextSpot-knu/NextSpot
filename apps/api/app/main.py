@@ -213,7 +213,7 @@ else:
     _cors_origin_policy = {"allow_origins": _allowed_origins, "allow_credentials": True}
 
 # 무거운 관리자 조회 동시 실행 상한 + 끝난 뒤 메모리 반환(app.core.memory_guard). CORS 보다 먼저
-# 등록해 CORS 가 바깥(응답 헤더 담당)에 오게 한다 — 이 게이트는 줄만 세우고 응답을 바꾸지 않는다.
+# 등록해 CORS 가 바깥(응답 헤더 담당)에 오게 한다 — 게이트의 503·끊긴 요청 처리도 CORS 헤더를 받는다.
 app.add_middleware(HeavyAdminGateMiddleware)
 
 app.add_middleware(

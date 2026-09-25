@@ -14,7 +14,8 @@
   · 관리자 쓰기가 성공하면 세대를 올린다(app.core.memory_guard) — 쓰기 전에 시작한 계산에 쓰기 뒤의
     요청이 합류하지 않는다.
   · 합류한 쪽은 결과의 깊은 복사본을 받는다(한 객체를 두 응답이 공유하지 않는다). 예외는 합류한 쪽에도
-    그대로 올라간다. 합류한 요청이 끊겨도(취소) 진행 중인 계산은 취소되지 않는다.
+    그대로 올라간다. 계산은 별도 태스크라 어느 요청이 끊겨도(시작한 요청 포함) 계산은 끝까지 가고,
+    남은 요청들은 결과를 받는다.
   · 모든 상태는 이벤트 루프 스레드에서만 바뀐다(잠금 불필요).
 """
 
@@ -57,22 +58,18 @@ def coalesced_admin_view(name: str) -> Callable[[F], F]:
             if running is not None:
                 return copy.deepcopy(await asyncio.shield(running))
 
-            future = asyncio.get_running_loop().create_future()
-            future.add_done_callback(_consume_exception)
-            _inflight[key] = future
-            try:
-                value = await handler(*args, **kwargs)
-            except BaseException as exc:
-                if not future.done():
-                    future.set_exception(exc)
-                raise
-            else:
-                if not future.done():
-                    future.set_result(value)
-                return value
-            finally:
-                if _inflight.get(key) is future:
+            # 계산은 별도 태스크로 — 시작한 요청이 끊겨(취소) 도 합류한 요청들은 결과를 받는다.
+            # (시작한 쪽의 취소가 계산까지 취소하면 합류자 전원이 CancelledError 로 끝났다 — 리뷰 재현.)
+            task = asyncio.ensure_future(handler(*args, **kwargs))
+            task.add_done_callback(_consume_exception)
+            _inflight[key] = task
+
+            def _forget(done: asyncio.Future) -> None:
+                if _inflight.get(key) is done:
                     _inflight.pop(key, None)
+
+            task.add_done_callback(_forget)
+            return await asyncio.shield(task)
 
         return wrapper  # type: ignore[return-value]
 

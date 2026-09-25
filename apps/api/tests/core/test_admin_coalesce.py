@@ -88,3 +88,28 @@ def test_requests_after_an_admin_write_do_not_join_a_computation_started_before_
     old, fresh = asyncio.run(run())
     assert old == {"version": 1}
     assert fresh == {"version": 2}
+
+
+def test_cancelled_starter_does_not_fail_the_requests_that_joined():
+    calls = []
+
+    @admin_coalesce.coalesced_admin_view("t/model-trust")
+    async def handler():
+        calls.append(1)
+        await asyncio.sleep(0.05)
+        return {"ok": True}
+
+    async def run():
+        starter = asyncio.create_task(handler())
+        await asyncio.sleep(0.01)
+        joiner = asyncio.create_task(handler())
+        await asyncio.sleep(0.01)
+        starter.cancel()  # 시작한 요청의 클라이언트가 끊겼다
+        joined = await joiner
+        cancelled = starter.cancelled() or isinstance(
+            (await asyncio.gather(starter, return_exceptions=True))[0], asyncio.CancelledError)
+        return joined, cancelled
+
+    joined, cancelled = asyncio.run(run())
+    assert cancelled
+    assert joined == {"ok": True} and calls == [1]  # 계산은 끝까지 갔고 합류한 요청은 결과를 받았다
