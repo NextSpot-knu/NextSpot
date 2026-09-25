@@ -1,8 +1,10 @@
 """키 없는 경주 보행로 경로와 범위 밖의 보수적 직선거리 폴백."""
+import asyncio
 import gzip
 import heapq
 import json
 import math
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -13,6 +15,9 @@ MAX_GRAPH_SNAP_M = 250.0
 _SPATIAL_CELL_DEGREES = 0.002
 _GRAPH_PATH = Path(__file__).resolve().parents[2] / "data/gyeongju_walking_graph.json.gz"
 _graph_cache: dict[str, Any] | None | bool = False
+# 그래프 적재(15.9MB, 수 초)를 스레드 여럿이 동시에 시작하지 않게 — 콜드 스타트에 추천·코스가 겹치면
+# 각자 적재해 메모리가 두 배로 튀었다. 적재가 끝난 뒤의 조회는 잠금 없이 읽는다(아래 빠른 경로).
+_graph_lock = threading.Lock()
 
 
 @dataclass(frozen=True)
@@ -41,8 +46,15 @@ def estimate_walking_route(start_lat: float, start_lng: float, end_lat: float, e
 
 
 def _load_graph() -> dict[str, Any] | None:
-    global _graph_cache
     if _graph_cache is not False:
+        return _graph_cache if isinstance(_graph_cache, dict) else None
+    with _graph_lock:
+        return _load_graph_locked()
+
+
+def _load_graph_locked() -> dict[str, Any] | None:
+    global _graph_cache
+    if _graph_cache is not False:  # 기다리는 동안 다른 스레드가 적재를 끝냈다
         return _graph_cache if isinstance(_graph_cache, dict) else None
     try:
         with gzip.open(_GRAPH_PATH, "rt", encoding="utf-8") as source:
@@ -124,7 +136,20 @@ def _dijkstra(
 async def get_walking_routes(
     start_lat: float, start_lng: float, destinations: list[tuple[float, float]]
 ) -> list[WalkingRoute]:
-    """경주 중심은 OSM 보행로 최단경로, 그래프 밖·스냅 실패는 정직한 추정으로 반환한다."""
+    """경주 중심은 OSM 보행로 최단경로, 그래프 밖·스냅 실패는 정직한 추정으로 반환한다.
+
+    계산(그래프 적재 + 28,832노드 Dijkstra)은 **이벤트 루프 밖**(스레드)에서 돈다. 예전에는 async 함수
+    안에서 동기로 돌아, 코스·추천 하나가 계산하는 동안 서버 전체가 멈췄다 — /account/me·관리자 조회·
+    /health 까지. 2026-09-26 01:21 KST 운영: 코스 계산 23초 동안 /account/me 가 프런트 10초 타임아웃에
+    걸려 관제 콘솔이 로그인으로 튕겼고, 09-22 의 헬스체크 타임아웃 재시작도 같은 병으로 본다.
+    결과는 같다 — 실행 위치만 바뀐다.
+    """
+    return await asyncio.to_thread(_walking_routes_sync, start_lat, start_lng, destinations)
+
+
+def _walking_routes_sync(
+    start_lat: float, start_lng: float, destinations: list[tuple[float, float]]
+) -> list[WalkingRoute]:
     fallbacks = [estimate_walking_route(start_lat, start_lng, lat, lng) for lat, lng in destinations]
     graph = _load_graph()
     if not graph or not destinations:

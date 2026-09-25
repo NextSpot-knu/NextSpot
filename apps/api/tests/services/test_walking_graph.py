@@ -50,3 +50,51 @@ async def test_ichinisanndo_to_pizzaok_matches_three_minute_walk():
     assert route.source == "osm_pedestrian"
     assert route.distance_m == pytest.approx(196, abs=15)
     assert 2.7 <= route.duration_min <= 3.1
+
+
+def test_route_search_does_not_block_the_event_loop(monkeypatch):
+    """2026-09-26 01:21 KST 회귀: 경로 탐색이 이벤트 루프 위에서 동기로 돌면 그 동안 서버 전체
+    (/account/me·/health 포함)가 멈춘다. 탐색이 스레드에서 도는 동안 다른 코루틴이 계속 돌아야 한다."""
+    import asyncio
+    import time
+
+    from app.services.spot import travel
+
+    graph = {
+        "coordinates": {1: (35.8347, 129.2190), 2: (35.8360, 129.2105)},
+        "adjacency": {1: [(2, 800.0)], 2: [(1, 800.0)]},
+        "spatial_index": {},
+        "metadata": {},
+    }
+    for node_id, (lat, lng) in graph["coordinates"].items():
+        cell = (int(lat // travel._SPATIAL_CELL_DEGREES), int(lng // travel._SPATIAL_CELL_DEGREES))
+        graph["spatial_index"].setdefault(cell, []).append(node_id)
+    real_dijkstra = travel._dijkstra
+
+    def slow_dijkstra(adjacency, start, targets):
+        time.sleep(0.4)  # 28,832노드 전탐색의 대역
+        return real_dijkstra(adjacency, start, targets)
+
+    monkeypatch.setattr(travel, "_load_graph", lambda: graph)
+    monkeypatch.setattr(travel, "_dijkstra", slow_dijkstra)
+
+    async def run():
+        ticks = 0
+        stop = asyncio.Event()
+
+        async def heartbeat():
+            nonlocal ticks
+            while not stop.is_set():
+                ticks += 1
+                await asyncio.sleep(0.02)
+
+        beat = asyncio.create_task(heartbeat())
+        routes = await travel.get_walking_routes(35.8347, 129.2190, [(35.8360, 129.2105)])
+        stop.set()
+        await beat
+        return ticks, routes
+
+    ticks, routes = asyncio.run(run())
+    assert len(routes) == 1 and routes[0].source == "osm_pedestrian"
+    # 0.4초 동안 루프가 살아 있었다면 20ms 박동이 여러 번 뛴다(막혔다면 1회 이하).
+    assert ticks >= 5, f"이벤트 루프가 경로 탐색 동안 멈췄다(heartbeat {ticks}회)"
