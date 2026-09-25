@@ -1,0 +1,9022 @@
+{
+ "components": {
+  "schemas": {
+   "AcceptRequest": {
+    "properties": {
+     "facility_id": {
+      "description": "수락(방문 확정)할 시설 id",
+      "title": "Facility Id",
+      "type": "string"
+     }
+    },
+    "required": [
+     "facility_id"
+    ],
+    "title": "AcceptRequest",
+    "type": "object"
+   },
+   "AccountMeResponse": {
+    "description": "프런트 권한 게이팅의 **단일 출처**.\n\n화면들이 각자 users 를 직조회하며 역할을 추측하지 않게, 여기 한 곳에서만 내려준다.\n프런트 가드는 UX 이고 보안 경계는 항상 서버다 — 이 응답을 위조해도 API 는 막힌다.",
+    "properties": {
+     "id": {
+      "title": "Id",
+      "type": "string"
+     },
+     "is_anonymous": {
+      "title": "Is Anonymous",
+      "type": "boolean"
+     },
+     "nickname": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Nickname"
+     },
+     "owned_facilities": {
+      "default": [],
+      "items": {
+       "$ref": "#/components/schemas/OwnedFacility"
+      },
+      "title": "Owned Facilities",
+      "type": "array"
+     },
+     "pending_verification": {
+      "default": false,
+      "title": "Pending Verification",
+      "type": "boolean"
+     },
+     "role": {
+      "title": "Role",
+      "type": "string"
+     }
+    },
+    "required": [
+     "id",
+     "role",
+     "is_anonymous"
+    ],
+    "title": "AccountMeResponse",
+    "type": "object"
+   },
+   "AreaDemandForecastResponse": {
+    "properties": {
+     "available": {
+      "title": "Available",
+      "type": "boolean"
+     },
+     "forecast": {
+      "anyOf": [
+       {
+        "additionalProperties": true,
+        "type": "object"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Forecast"
+     },
+     "kind": {
+      "const": "surrounding_area_demand_forecast",
+      "default": "surrounding_area_demand_forecast",
+      "title": "Kind",
+      "type": "string"
+     },
+     "venue_congestion": {
+      "const": false,
+      "default": false,
+      "title": "Venue Congestion",
+      "type": "boolean"
+     }
+    },
+    "required": [
+     "available"
+    ],
+    "title": "AreaDemandForecastResponse",
+    "type": "object"
+   },
+   "AreaDemandStatusResponse": {
+    "properties": {
+     "kind": {
+      "const": "surrounding_area_demand",
+      "default": "surrounding_area_demand",
+      "title": "Kind",
+      "type": "string"
+     },
+     "parking": {
+      "$ref": "#/components/schemas/ParkingCoverage"
+     },
+     "venue_congestion": {
+      "const": false,
+      "default": false,
+      "title": "Venue Congestion",
+      "type": "boolean"
+     }
+    },
+    "required": [
+     "parking"
+    ],
+    "title": "AreaDemandStatusResponse",
+    "type": "object"
+   },
+   "AvailabilityEvidence": {
+    "properties": {
+     "corroborating_count": {
+      "title": "Corroborating Count",
+      "type": "integer"
+     },
+     "evidence_tier": {
+      "title": "Evidence Tier",
+      "type": "string"
+     },
+     "expires_at": {
+      "title": "Expires At",
+      "type": "string"
+     },
+     "reported_at": {
+      "title": "Reported At",
+      "type": "string"
+     },
+     "status": {
+      "title": "Status",
+      "type": "string"
+     }
+    },
+    "required": [
+     "status",
+     "evidence_tier",
+     "corroborating_count",
+     "reported_at",
+     "expires_at"
+    ],
+    "title": "AvailabilityEvidence",
+    "type": "object"
+   },
+   "AvailabilityReportRequest": {
+    "properties": {
+     "facility_id": {
+      "title": "Facility Id",
+      "type": "string"
+     },
+     "status": {
+      "enum": [
+       "open",
+       "closed"
+      ],
+      "title": "Status",
+      "type": "string"
+     }
+    },
+    "required": [
+     "facility_id",
+     "status"
+    ],
+    "title": "AvailabilityReportRequest",
+    "type": "object"
+   },
+   "AvailabilityReportResponse": {
+    "properties": {
+     "corroborating_count": {
+      "title": "Corroborating Count",
+      "type": "integer"
+     },
+     "evidence_tier": {
+      "enum": [
+       "single_report",
+       "corroborated"
+      ],
+      "title": "Evidence Tier",
+      "type": "string"
+     },
+     "expires_at": {
+      "title": "Expires At",
+      "type": "string"
+     },
+     "facility_id": {
+      "title": "Facility Id",
+      "type": "string"
+     },
+     "reported_at": {
+      "title": "Reported At",
+      "type": "string"
+     },
+     "status": {
+      "enum": [
+       "open",
+       "closed"
+      ],
+      "title": "Status",
+      "type": "string"
+     },
+     "success": {
+      "default": true,
+      "title": "Success",
+      "type": "boolean"
+     }
+    },
+    "required": [
+     "facility_id",
+     "status",
+     "evidence_tier",
+     "corroborating_count",
+     "reported_at",
+     "expires_at"
+    ],
+    "title": "AvailabilityReportResponse",
+    "type": "object"
+   },
+   "BatchPredictRequest": {
+    "properties": {
+     "hours_ahead": {
+      "description": "몇 시간 뒤 예측인지 (0=지금)",
+      "maximum": 12.0,
+      "minimum": 0.0,
+      "title": "Hours Ahead",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "hours_ahead"
+    ],
+    "title": "BatchPredictRequest",
+    "type": "object"
+   },
+   "BatchPredictResponse": {
+    "properties": {
+     "generated_at": {
+      "title": "Generated At",
+      "type": "string"
+     },
+     "hours_ahead": {
+      "title": "Hours Ahead",
+      "type": "integer"
+     },
+     "predictions": {
+      "items": {
+       "$ref": "#/components/schemas/BatchPredictionItem"
+      },
+      "title": "Predictions",
+      "type": "array"
+     }
+    },
+    "required": [
+     "generated_at",
+     "hours_ahead",
+     "predictions"
+    ],
+    "title": "BatchPredictResponse",
+    "type": "object"
+   },
+   "BatchPredictionItem": {
+    "properties": {
+     "anchored": {
+      "default": true,
+      "title": "Anchored",
+      "type": "boolean"
+     },
+     "event_boost": {
+      "default": 0.0,
+      "title": "Event Boost",
+      "type": "number"
+     },
+     "facility_id": {
+      "title": "Facility Id",
+      "type": "string"
+     },
+     "predicted_congestion": {
+      "title": "Predicted Congestion",
+      "type": "number"
+     }
+    },
+    "required": [
+     "facility_id",
+     "predicted_congestion"
+    ],
+    "title": "BatchPredictionItem",
+    "type": "object"
+   },
+   "CategorySharesResponse": {
+    "description": "업종별 선호 비율(0..1) + 그 비율이 선 근거.\n\n화면은 비율만이 아니라 sample_size 도 함께 보여 줘야 한다 — 26명의 73% 와 6,000명의 73%는\n같은 숫자지만 같은 근거가 아니다.",
+    "properties": {
+     "sample_size": {
+      "title": "Sample Size",
+      "type": "integer"
+     },
+     "shares": {
+      "additionalProperties": {
+       "type": "number"
+      },
+      "title": "Shares",
+      "type": "object"
+     },
+     "total_users": {
+      "title": "Total Users",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "sample_size",
+     "total_users",
+     "shares"
+    ],
+    "title": "CategorySharesResponse",
+    "type": "object"
+   },
+   "ClassifyReasonRequest": {
+    "properties": {
+     "text": {
+      "maxLength": 200,
+      "minLength": 1,
+      "title": "Text",
+      "type": "string"
+     }
+    },
+    "required": [
+     "text"
+    ],
+    "title": "ClassifyReasonRequest",
+    "type": "object"
+   },
+   "CongestionEstimate": {
+    "description": "주차 실측 + 관광 통계로 만든 **추정** 혼잡(congestion_estimator_service.estimate_evidence).\n\n실측이 아니다. 화면은 항상 '추정 · 주차 실측 기반 · HH:MM 관측 · 반경 2km' 로 그린다.\n인원수·대기 분은 싣지 않는다 — 점유율에서 인원으로 가는 계수가 없으니 지어낸 숫자가 된다.\n지도(/infrastructures)·추천(/recommendations, /by-type)·코스(/courses/plan)가 같은 모양을 쓴다.",
+    "properties": {
+     "calibrated": {
+      "anyOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Calibrated"
+     },
+     "calibration_basis": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Calibration Basis"
+     },
+     "level": {
+      "title": "Level",
+      "type": "number"
+     },
+     "lot_count": {
+      "title": "Lot Count",
+      "type": "integer"
+     },
+     "nearest_lot_m": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Nearest Lot M"
+     },
+     "observed_at": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Observed At"
+     },
+     "parking_level": {
+      "title": "Parking Level",
+      "type": "number"
+     },
+     "radius_m": {
+      "title": "Radius M",
+      "type": "integer"
+     },
+     "raw_level": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Raw Level"
+     },
+     "source": {
+      "const": "estimated",
+      "default": "estimated",
+      "title": "Source",
+      "type": "string"
+     },
+     "tourism_level": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Tourism Level"
+     }
+    },
+    "required": [
+     "level",
+     "parking_level",
+     "lot_count",
+     "radius_m"
+    ],
+    "title": "CongestionEstimate",
+    "type": "object"
+   },
+   "CongestionEstimatesResponse": {
+    "description": "GET /congestion/estimates — 지금 시점의 시설별 **추정** 혼잡(추정 모드, 계획서 §5.2).\n\n``estimates`` 에는 반경 2km 에 실시간 주차장이 있는 시설만 있다(나머지는 키가 없다 — 값을\n만들지 않는다). 실측 우선은 **화면이 적용한다**: 같은 시설에 /infrastructures 의 congestion 이\n있고 그 관측이 ``is_current=True``(verified/corroborated · 30분 이내)면 추정은 그리지 않는다.\n``is_current=False`` 인 낡은·단건 관측은 추정에 '지금' 자리를 내주고 '마지막 관측 HH:MM' 으로\n남는다 — 판정은 서버가 하고 화면은 그 결론만 읽는다\n(apps/web/lib/congestionEstimate.ts congestionDisplay).\n지도 마커는 어느 경우에도 실측만 칠한다 — 추정은 시설 상세·카드의 '추정' 배지로만 보인다.",
+    "properties": {
+     "available": {
+      "title": "Available",
+      "type": "boolean"
+     },
+     "estimates": {
+      "additionalProperties": {
+       "$ref": "#/components/schemas/CongestionEstimate"
+      },
+      "default": {},
+      "title": "Estimates",
+      "type": "object"
+     },
+     "lot_count": {
+      "default": 0,
+      "title": "Lot Count",
+      "type": "integer"
+     },
+     "observed_at": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Observed At"
+     },
+     "radius_m": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Radius M"
+     },
+     "reason": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Reason"
+     }
+    },
+    "required": [
+     "available"
+    ],
+    "title": "CongestionEstimatesResponse",
+    "type": "object"
+   },
+   "CongestionInfo": {
+    "properties": {
+     "current_count": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Current Count"
+     },
+     "is_current": {
+      "default": true,
+      "title": "Is Current",
+      "type": "boolean"
+     },
+     "is_stale": {
+      "default": false,
+      "title": "Is Stale",
+      "type": "boolean"
+     },
+     "level": {
+      "title": "Level",
+      "type": "number"
+     },
+     "source": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Source"
+     },
+     "timestamp": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Timestamp"
+     }
+    },
+    "required": [
+     "level",
+     "current_count",
+     "timestamp"
+    ],
+    "title": "CongestionInfo",
+    "type": "object"
+   },
+   "CongestionOverride": {
+    "properties": {
+     "level": {
+      "maximum": 1.0,
+      "minimum": 0.0,
+      "title": "Level",
+      "type": "number"
+     }
+    },
+    "required": [
+     "level"
+    ],
+    "title": "CongestionOverride",
+    "type": "object"
+   },
+   "CongestionReportRequest": {
+    "properties": {
+     "facility_id": {
+      "title": "Facility Id",
+      "type": "string"
+     },
+     "level": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "enum": [
+         "한산",
+         "보통",
+         "혼잡"
+        ],
+        "type": "string"
+       }
+      ],
+      "description": "0~1 혼잡 추정치 또는 한산/보통/혼잡",
+      "title": "Level"
+     }
+    },
+    "required": [
+     "facility_id",
+     "level"
+    ],
+    "title": "CongestionReportRequest",
+    "type": "object"
+   },
+   "CongestionReportResponse": {
+    "properties": {
+     "congestion_level": {
+      "title": "Congestion Level",
+      "type": "number"
+     },
+     "current_count": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Current Count"
+     },
+     "facility_id": {
+      "title": "Facility Id",
+      "type": "string"
+     },
+     "reward": {
+      "$ref": "#/components/schemas/ReportReward"
+     },
+     "source": {
+      "title": "Source",
+      "type": "string"
+     },
+     "success": {
+      "title": "Success",
+      "type": "boolean"
+     },
+     "timestamp": {
+      "title": "Timestamp",
+      "type": "string"
+     }
+    },
+    "required": [
+     "success",
+     "facility_id",
+     "congestion_level",
+     "current_count",
+     "timestamp",
+     "source",
+     "reward"
+    ],
+    "title": "CongestionReportResponse",
+    "type": "object"
+   },
+   "CourseAlternative": {
+    "description": "같은 자리의 차점 후보.\n\n⚠️ 이 수치들은 **그 슬롯의 실제 출발점과 실제 누적 도착 시각**에서 계산된 값이다.\n1등을 뽑느라 어차피 전부 채점해 둔 것을 버리지 않고 실어 보내는 것뿐이라 추가 연산이 0 이다\n(예전에는 `evaluations[0]` 만 꺼내고 나머지를 지역 변수와 함께 소멸시켰다).\n\n나중에 \"대안은 대충 계산해도 되겠지\" 라고 생각하지 말 것 — 그 순간 화면의 숫자가 거짓이 된다.\n사용자가 대안으로 갈아끼우면 그 자리의 도착 시각·예상 혼잡은 여기 적힌 값 그대로여야 한다.",
+    "properties": {
+     "arrival_offset_min": {
+      "title": "Arrival Offset Min",
+      "type": "number"
+     },
+     "congestion_estimate": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/CongestionEstimate"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "facility": {
+      "additionalProperties": true,
+      "title": "Facility",
+      "type": "object"
+     },
+     "predicted_congestion": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Predicted Congestion"
+     },
+     "spot_score": {
+      "title": "Spot Score",
+      "type": "number"
+     },
+     "travel_minutes": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Travel Minutes"
+     }
+    },
+    "required": [
+     "facility",
+     "arrival_offset_min",
+     "predicted_congestion",
+     "spot_score"
+    ],
+    "title": "CourseAlternative",
+    "type": "object"
+   },
+   "CoursePin": {
+    "description": "이 자리는 이 가게로 고정한다.\n\n`order` 는 1부터다(응답 CourseStop.order 와 같은 축). `dict[int, str]` 로 받지 않은 이유:\nJSON 객체의 키는 언제나 문자열이라 \"1\" 과 1 을 오가는 변환이 클라이언트마다 달라진다.\n리스트는 그 애매함이 없고, 같은 자리에 핀이 두 번 오는 것도 여기서 걸러 낼 수 있다.",
+    "properties": {
+     "facility_id": {
+      "title": "Facility Id",
+      "type": "string"
+     },
+     "order": {
+      "maximum": 3.0,
+      "minimum": 1.0,
+      "title": "Order",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "order",
+     "facility_id"
+    ],
+    "title": "CoursePin",
+    "type": "object"
+   },
+   "CoursePlan": {
+    "description": "코스 한 벌 + 그 코스가 어떻게 만들어졌는지.\n\n`/courses/recommend` 는 **배열**을 그대로 유지하고(구 번들 호환), 이 봉투는 `/courses/plan`\n으로만 나간다. 최상위를 배열에서 객체로 바꾸면, Vercel(정적 export)과 Render 의 배포 시점이\n다른 탓에 새 API 가 먼저 뜨는 창에서 구 번들의 `Array.isArray(data) ? data : []` 가 false 로\n떨어져 **장애가 '갈 곳 없음'으로 보인다.** 그건 이 라우터가 가장 피하려는 종류의 거짓말이다.",
+    "properties": {
+     "plan_id": {
+      "title": "Plan Id",
+      "type": "string"
+     },
+     "slot_outcomes": {
+      "items": {
+       "$ref": "#/components/schemas/SlotOutcome"
+      },
+      "title": "Slot Outcomes",
+      "type": "array"
+     },
+     "stops": {
+      "items": {
+       "$ref": "#/components/schemas/CourseStop"
+      },
+      "title": "Stops",
+      "type": "array"
+     }
+    },
+    "required": [
+     "stops",
+     "slot_outcomes",
+     "plan_id"
+    ],
+    "title": "CoursePlan",
+    "type": "object"
+   },
+   "CourseRequest": {
+    "properties": {
+     "assumed_at": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Assumed At"
+     },
+     "context": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/TravelContext"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "pins": {
+      "anyOf": [
+       {
+        "items": {
+         "$ref": "#/components/schemas/CoursePin"
+        },
+        "maxItems": 3,
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Pins"
+     },
+     "sequence": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "string"
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Sequence"
+     },
+     "types": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "string"
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Types"
+     },
+     "user_id": {
+      "title": "User Id",
+      "type": "string"
+     },
+     "user_lat": {
+      "title": "User Lat",
+      "type": "number"
+     },
+     "user_lng": {
+      "title": "User Lng",
+      "type": "number"
+     }
+    },
+    "required": [
+     "user_id",
+     "user_lat",
+     "user_lng"
+    ],
+    "title": "CourseRequest",
+    "type": "object"
+   },
+   "CourseStop": {
+    "properties": {
+     "alternatives": {
+      "default": [],
+      "items": {
+       "$ref": "#/components/schemas/CourseAlternative"
+      },
+      "title": "Alternatives",
+      "type": "array"
+     },
+     "arrival_offset_min": {
+      "title": "Arrival Offset Min",
+      "type": "number"
+     },
+     "congestion_estimate": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/CongestionEstimate"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "facility": {
+      "additionalProperties": true,
+      "title": "Facility",
+      "type": "object"
+     },
+     "open_status_at_arrival": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Open Status At Arrival"
+     },
+     "order": {
+      "title": "Order",
+      "type": "integer"
+     },
+     "predicted_congestion": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Predicted Congestion"
+     },
+     "reason": {
+      "title": "Reason",
+      "type": "string"
+     },
+     "spot_score": {
+      "title": "Spot Score",
+      "type": "number"
+     },
+     "travel_minutes": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Travel Minutes"
+     }
+    },
+    "required": [
+     "order",
+     "facility",
+     "arrival_offset_min",
+     "predicted_congestion",
+     "spot_score",
+     "reason"
+    ],
+    "title": "CourseStop",
+    "type": "object"
+   },
+   "DayHour": {
+    "properties": {
+     "congestion": {
+      "title": "Congestion",
+      "type": "number"
+     },
+     "hour": {
+      "title": "Hour",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "hour",
+     "congestion"
+    ],
+    "title": "DayHour",
+    "type": "object"
+   },
+   "DayPredictResponse": {
+    "properties": {
+     "best_congestion": {
+      "title": "Best Congestion",
+      "type": "number"
+     },
+     "best_hour": {
+      "title": "Best Hour",
+      "type": "integer"
+     },
+     "dow": {
+      "title": "Dow",
+      "type": "integer"
+     },
+     "facility_type": {
+      "title": "Facility Type",
+      "type": "string"
+     },
+     "hours": {
+      "items": {
+       "$ref": "#/components/schemas/DayHour"
+      },
+      "title": "Hours",
+      "type": "array"
+     }
+    },
+    "required": [
+     "facility_type",
+     "dow",
+     "hours",
+     "best_hour",
+     "best_congestion"
+    ],
+    "title": "DayPredictResponse",
+    "type": "object"
+   },
+   "DeleteAccountResponse": {
+    "properties": {
+     "deleted": {
+      "title": "Deleted",
+      "type": "boolean"
+     }
+    },
+    "required": [
+     "deleted"
+    ],
+    "title": "DeleteAccountResponse",
+    "type": "object"
+   },
+   "EventsResponse": {
+    "properties": {
+     "events": {
+      "items": {
+       "$ref": "#/components/schemas/FestivalEvent"
+      },
+      "title": "Events",
+      "type": "array"
+     },
+     "source": {
+      "enum": [
+       "tourapi",
+       "unavailable"
+      ],
+      "title": "Source",
+      "type": "string"
+     }
+    },
+    "required": [
+     "events",
+     "source"
+    ],
+    "title": "EventsResponse",
+    "type": "object"
+   },
+   "ExplainRequest": {
+    "properties": {
+     "comparison_recommendation_ids": {
+      "items": {
+       "type": "string"
+      },
+      "maxItems": 2,
+      "title": "Comparison Recommendation Ids",
+      "type": "array"
+     },
+     "locale": {
+      "default": "ko",
+      "enum": [
+       "ko",
+       "en",
+       "ja",
+       "zh"
+      ],
+      "title": "Locale",
+      "type": "string"
+     },
+     "question": {
+      "enum": [
+       "why_first",
+       "difference",
+       "family_check"
+      ],
+      "title": "Question",
+      "type": "string"
+     }
+    },
+    "required": [
+     "question"
+    ],
+    "title": "ExplainRequest",
+    "type": "object"
+   },
+   "ExplainResponse": {
+    "properties": {
+     "answer": {
+      "title": "Answer",
+      "type": "string"
+     },
+     "llm_status": {
+      "title": "Llm Status",
+      "type": "string"
+     },
+     "source_labels": {
+      "items": {
+       "type": "string"
+      },
+      "title": "Source Labels",
+      "type": "array"
+     }
+    },
+    "required": [
+     "answer",
+     "source_labels",
+     "llm_status"
+    ],
+    "title": "ExplainResponse",
+    "type": "object"
+   },
+   "FacilityCreate": {
+    "properties": {
+     "capacity": {
+      "maximum": 100000.0,
+      "minimum": 1.0,
+      "title": "Capacity",
+      "type": "integer"
+     },
+     "latitude": {
+      "maximum": 90.0,
+      "minimum": -90.0,
+      "title": "Latitude",
+      "type": "number"
+     },
+     "longitude": {
+      "maximum": 180.0,
+      "minimum": -180.0,
+      "title": "Longitude",
+      "type": "number"
+     },
+     "name": {
+      "maxLength": 100,
+      "minLength": 1,
+      "title": "Name",
+      "type": "string"
+     },
+     "type": {
+      "title": "Type",
+      "type": "string"
+     }
+    },
+    "required": [
+     "name",
+     "type",
+     "capacity",
+     "latitude",
+     "longitude"
+    ],
+    "title": "FacilityCreate",
+    "type": "object"
+   },
+   "FacilityUpdate": {
+    "properties": {
+     "capacity": {
+      "anyOf": [
+       {
+        "maximum": 100000.0,
+        "minimum": 1.0,
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Capacity"
+     },
+     "coupon_rate": {
+      "anyOf": [
+       {
+        "maximum": 1.0,
+        "minimum": 0.0,
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Coupon Rate"
+     },
+     "name": {
+      "anyOf": [
+       {
+        "maxLength": 100,
+        "minLength": 1,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Name"
+     }
+    },
+    "title": "FacilityUpdate",
+    "type": "object"
+   },
+   "FeedbackRequest": {
+    "properties": {
+     "action": {
+      "enum": [
+       "accepted_visit_intent",
+       "rejected",
+       "skipped",
+       "dismissed_batch",
+       "unsaved",
+       "helpful",
+       "not_helpful"
+      ],
+      "title": "Action",
+      "type": "string"
+     },
+     "recommendation_id": {
+      "title": "Recommendation Id",
+      "type": "string"
+     }
+    },
+    "required": [
+     "recommendation_id",
+     "action"
+    ],
+    "title": "FeedbackRequest",
+    "type": "object"
+   },
+   "FestivalEvent": {
+    "properties": {
+     "address": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Address"
+     },
+     "content_id": {
+      "title": "Content Id",
+      "type": "string"
+     },
+     "end_date": {
+      "title": "End Date",
+      "type": "string"
+     },
+     "event_place": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Event Place"
+     },
+     "homepage": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Homepage"
+     },
+     "image_url": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Image Url"
+     },
+     "is_ongoing": {
+      "title": "Is Ongoing",
+      "type": "boolean"
+     },
+     "latitude": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Latitude"
+     },
+     "longitude": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Longitude"
+     },
+     "overview": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Overview"
+     },
+     "overview_i18n": {
+      "anyOf": [
+       {
+        "additionalProperties": {
+         "type": "string"
+        },
+        "type": "object"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Overview I18N"
+     },
+     "playtime": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Playtime"
+     },
+     "start_date": {
+      "title": "Start Date",
+      "type": "string"
+     },
+     "summary_llm_status": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Summary Llm Status"
+     },
+     "tel": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Tel"
+     },
+     "title": {
+      "title": "Title",
+      "type": "string"
+     },
+     "usetime_festival": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Usetime Festival"
+     }
+    },
+    "required": [
+     "content_id",
+     "title",
+     "start_date",
+     "end_date",
+     "is_ongoing"
+    ],
+    "title": "FestivalEvent",
+    "type": "object"
+   },
+   "FreshnessResponse": {
+    "properties": {
+     "last_tourapi_sync": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Last Tourapi Sync"
+     },
+     "source": {
+      "anyOf": [
+       {
+        "enum": [
+         "event",
+         "estimate"
+        ],
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Source"
+     },
+     "written": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Written"
+     }
+    },
+    "title": "FreshnessResponse",
+    "type": "object"
+   },
+   "GoldenHourPoint": {
+    "properties": {
+     "congestion": {
+      "title": "Congestion",
+      "type": "number"
+     },
+     "hour": {
+      "title": "Hour",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "hour",
+     "congestion"
+    ],
+    "title": "GoldenHourPoint",
+    "type": "object"
+   },
+   "GoldenHourResponse": {
+    "properties": {
+     "available": {
+      "title": "Available",
+      "type": "boolean"
+     },
+     "congestion": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Congestion"
+     },
+     "curve": {
+      "default": [],
+      "items": {
+       "$ref": "#/components/schemas/GoldenHourPoint"
+      },
+      "title": "Curve",
+      "type": "array"
+     },
+     "end": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "End"
+     },
+     "facility_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Facility Id"
+     },
+     "start": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Start"
+     }
+    },
+    "required": [
+     "available"
+    ],
+    "title": "GoldenHourResponse",
+    "type": "object"
+   },
+   "HTTPValidationError": {
+    "properties": {
+     "detail": {
+      "items": {
+       "$ref": "#/components/schemas/ValidationError"
+      },
+      "title": "Detail",
+      "type": "array"
+     }
+    },
+    "title": "HTTPValidationError",
+    "type": "object"
+   },
+   "ImpactSummaryResponse": {
+    "properties": {
+     "accepted": {
+      "title": "Accepted",
+      "type": "integer"
+     },
+     "congestion_avoided": {
+      "title": "Congestion Avoided",
+      "type": "integer"
+     },
+     "coupons_issued": {
+      "title": "Coupons Issued",
+      "type": "integer"
+     },
+     "coupons_used": {
+      "title": "Coupons Used",
+      "type": "integer"
+     },
+     "wait_saved_minutes": {
+      "title": "Wait Saved Minutes",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "accepted",
+     "congestion_avoided",
+     "coupons_issued",
+     "coupons_used",
+     "wait_saved_minutes"
+    ],
+    "title": "ImpactSummaryResponse",
+    "type": "object"
+   },
+   "InfrastructureItem": {
+    "properties": {
+     "address": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Address"
+     },
+     "availability_evidence": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/AvailabilityEvidence"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "barrier_free": {
+      "anyOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Barrier Free"
+     },
+     "capacity": {
+      "title": "Capacity",
+      "type": "integer"
+     },
+     "congestion": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/CongestionInfo"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "contentid": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Contentid"
+     },
+     "contenttypeid": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Contenttypeid"
+     },
+     "data_updated_at": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Data Updated At"
+     },
+     "features": {
+      "anyOf": [
+       {
+        "additionalProperties": true,
+        "type": "object"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Features"
+     },
+     "gallery_images": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "string"
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Gallery Images"
+     },
+     "homepage": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Homepage"
+     },
+     "id": {
+      "title": "Id",
+      "type": "string"
+     },
+     "image_url": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Image Url"
+     },
+     "is_active": {
+      "anyOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Is Active"
+     },
+     "latitude": {
+      "title": "Latitude",
+      "type": "number"
+     },
+     "longitude": {
+      "title": "Longitude",
+      "type": "number"
+     },
+     "name": {
+      "title": "Name",
+      "type": "string"
+     },
+     "operating_hours": {
+      "anyOf": [
+       {
+        "additionalProperties": true,
+        "type": "object"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Operating Hours"
+     },
+     "overview": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Overview"
+     },
+     "phone": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Phone"
+     },
+     "place_data_source": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Place Data Source"
+     },
+     "type": {
+      "title": "Type",
+      "type": "string"
+     }
+    },
+    "required": [
+     "id",
+     "name",
+     "type",
+     "latitude",
+     "longitude",
+     "capacity",
+     "operating_hours",
+     "features",
+     "congestion"
+    ],
+    "title": "InfrastructureItem",
+    "type": "object"
+   },
+   "IngestApproveRequest": {
+    "properties": {
+     "id": {
+      "title": "Id",
+      "type": "string"
+     }
+    },
+    "required": [
+     "id"
+    ],
+    "title": "IngestApproveRequest",
+    "type": "object"
+   },
+   "IngestRequestCreate": {
+    "properties": {
+     "content_type_id": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Content Type Id"
+     },
+     "contentid": {
+      "maxLength": 32,
+      "minLength": 1,
+      "title": "Contentid",
+      "type": "string"
+     },
+     "name": {
+      "default": "",
+      "maxLength": 200,
+      "title": "Name",
+      "type": "string"
+     }
+    },
+    "required": [
+     "contentid"
+    ],
+    "title": "IngestRequestCreate",
+    "type": "object"
+   },
+   "InquiryStatusUpdate": {
+    "properties": {
+     "reply_body": {
+      "anyOf": [
+       {
+        "maxLength": 5000,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Reply Body"
+     },
+     "status": {
+      "title": "Status",
+      "type": "string"
+     }
+    },
+    "required": [
+     "status"
+    ],
+    "title": "InquiryStatusUpdate",
+    "type": "object"
+   },
+   "IssueCouponRequest": {
+    "properties": {
+     "facility_id": {
+      "description": "쿠폰을 발급할 시설(제휴 가맹점) id",
+      "title": "Facility Id",
+      "type": "string"
+     }
+    },
+    "required": [
+     "facility_id"
+    ],
+    "title": "IssueCouponRequest",
+    "type": "object"
+   },
+   "KeywordSearchItem": {
+    "properties": {
+     "addr1": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Addr1"
+     },
+     "contentid": {
+      "title": "Contentid",
+      "type": "string"
+     },
+     "contenttypeid": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Contenttypeid"
+     },
+     "firstimage": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Firstimage"
+     },
+     "mapx": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Mapx"
+     },
+     "mapy": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Mapy"
+     },
+     "title": {
+      "title": "Title",
+      "type": "string"
+     }
+    },
+    "required": [
+     "contentid",
+     "title"
+    ],
+    "title": "KeywordSearchItem",
+    "type": "object"
+   },
+   "KeywordSearchResponse": {
+    "properties": {
+     "items": {
+      "items": {
+       "$ref": "#/components/schemas/KeywordSearchItem"
+      },
+      "title": "Items",
+      "type": "array"
+     },
+     "llm_status": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Llm Status"
+     },
+     "rewritten": {
+      "default": false,
+      "title": "Rewritten",
+      "type": "boolean"
+     },
+     "source": {
+      "enum": [
+       "tourapi",
+       "unavailable"
+      ],
+      "title": "Source",
+      "type": "string"
+     }
+    },
+    "required": [
+     "items",
+     "source"
+    ],
+    "title": "KeywordSearchResponse",
+    "type": "object"
+   },
+   "MergeGuestRequest": {
+    "properties": {
+     "guest_token": {
+      "title": "Guest Token",
+      "type": "string"
+     }
+    },
+    "required": [
+     "guest_token"
+    ],
+    "title": "MergeGuestRequest",
+    "type": "object"
+   },
+   "MergeGuestResponse": {
+    "properties": {
+     "availability_reports": {
+      "default": 0,
+      "title": "Availability Reports",
+      "type": "integer"
+     },
+     "congestion_reports": {
+      "title": "Congestion Reports",
+      "type": "integer"
+     },
+     "inquiries": {
+      "title": "Inquiries",
+      "type": "integer"
+     },
+     "preference_vector_moved": {
+      "title": "Preference Vector Moved",
+      "type": "boolean"
+     },
+     "recommendation_outcomes": {
+      "title": "Recommendation Outcomes",
+      "type": "integer"
+     },
+     "recommendations": {
+      "title": "Recommendations",
+      "type": "integer"
+     },
+     "saved_facilities": {
+      "title": "Saved Facilities",
+      "type": "integer"
+     },
+     "user_coupons": {
+      "title": "User Coupons",
+      "type": "integer"
+     },
+     "user_feedback": {
+      "title": "User Feedback",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "recommendations",
+     "user_feedback",
+     "recommendation_outcomes",
+     "saved_facilities",
+     "user_coupons",
+     "congestion_reports",
+     "inquiries",
+     "preference_vector_moved"
+    ],
+    "title": "MergeGuestResponse",
+    "type": "object"
+   },
+   "ModelInfoResponse": {
+    "properties": {
+     "baseline_improvement": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Baseline Improvement"
+     },
+     "fallback_state": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Fallback State"
+     },
+     "loaded_at": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Loaded At"
+     },
+     "mae": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Mae"
+     },
+     "real_data_count": {
+      "default": 0,
+      "title": "Real Data Count",
+      "type": "integer"
+     },
+     "refresh_error": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Refresh Error"
+     },
+     "trained": {
+      "title": "Trained",
+      "type": "boolean"
+     },
+     "training_ended_at": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Training Ended At"
+     },
+     "training_started_at": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Training Started At"
+     },
+     "version": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Version"
+     }
+    },
+    "required": [
+     "trained"
+    ],
+    "title": "ModelInfoResponse",
+    "type": "object"
+   },
+   "NewFacilityInput": {
+    "description": "심사자가 승인하면서 **새로 만들** 가게.\n\n카카오맵·TourAPI·LocalData 어디에도 없는 가게의 사장님이 신청하는 경우가 실제로 있다.\n그런 신청에 \"역할만\" 주면 콘솔에는 들어가지는데 관리할 POI 가 없어 모든 요청이 403 인\n막다른 계정이 된다(아래 소유권 부여 실패 주석과 같은 상태다). 그래서 권한이 아니라\n**가게**를 만들어 준다.",
+    "properties": {
+     "address": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Address"
+     },
+     "capacity": {
+      "anyOf": [
+       {
+        "maximum": 10000.0,
+        "minimum": 1.0,
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Capacity"
+     },
+     "latitude": {
+      "maximum": 90.0,
+      "minimum": -90.0,
+      "title": "Latitude",
+      "type": "number"
+     },
+     "longitude": {
+      "maximum": 180.0,
+      "minimum": -180.0,
+      "title": "Longitude",
+      "type": "number"
+     },
+     "name": {
+      "maxLength": 200,
+      "minLength": 1,
+      "title": "Name",
+      "type": "string"
+     },
+     "phone": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Phone"
+     },
+     "type": {
+      "enum": [
+       "restaurant",
+       "cafe",
+       "attraction",
+       "culture"
+      ],
+      "title": "Type",
+      "type": "string"
+     }
+    },
+    "required": [
+     "name",
+     "type",
+     "latitude",
+     "longitude"
+    ],
+    "title": "NewFacilityInput",
+    "type": "object"
+   },
+   "OwnedFacility": {
+    "properties": {
+     "id": {
+      "title": "Id",
+      "type": "string"
+     },
+     "name": {
+      "title": "Name",
+      "type": "string"
+     },
+     "type": {
+      "title": "Type",
+      "type": "string"
+     }
+    },
+    "required": [
+     "id",
+     "name",
+     "type"
+    ],
+    "title": "OwnedFacility",
+    "type": "object"
+   },
+   "OwnerGrant": {
+    "properties": {
+     "facility_id": {
+      "title": "Facility Id",
+      "type": "string"
+     },
+     "note": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Note"
+     },
+     "user_id": {
+      "title": "User Id",
+      "type": "string"
+     }
+    },
+    "required": [
+     "user_id",
+     "facility_id"
+    ],
+    "title": "OwnerGrant",
+    "type": "object"
+   },
+   "ParkingCoverage": {
+    "properties": {
+     "available": {
+      "title": "Available",
+      "type": "boolean"
+     },
+     "available_spaces": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Available Spaces"
+     },
+     "configured": {
+      "title": "Configured",
+      "type": "boolean"
+     },
+     "facility_checked_at": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Facility Checked At"
+     },
+     "facility_error_code": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Facility Error Code"
+     },
+     "gyeongju_facility_count": {
+      "title": "Gyeongju Facility Count",
+      "type": "integer"
+     },
+     "gyeongju_realtime_count": {
+      "title": "Gyeongju Realtime Count",
+      "type": "integer"
+     },
+     "national_api_configured": {
+      "title": "National Api Configured",
+      "type": "boolean"
+     },
+     "nearby_realtime_count": {
+      "title": "Nearby Realtime Count",
+      "type": "integer"
+     },
+     "realtime_checked_at": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Realtime Checked At"
+     },
+     "realtime_error_code": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Realtime Error Code"
+     },
+     "source": {
+      "anyOf": [
+       {
+        "enum": [
+         "gyeongju_its",
+         "national_parking_api"
+        ],
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Source"
+     },
+     "state": {
+      "enum": [
+       "not_configured",
+       "checking",
+       "available",
+       "upstream_unavailable",
+       "no_gyeongju_facilities",
+       "no_gyeongju_realtime",
+       "no_nearby_realtime"
+      ],
+      "title": "State",
+      "type": "string"
+     },
+     "total_spaces": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Total Spaces"
+     }
+    },
+    "required": [
+     "configured",
+     "national_api_configured",
+     "state",
+     "available",
+     "gyeongju_facility_count",
+     "gyeongju_realtime_count",
+     "nearby_realtime_count"
+    ],
+    "title": "ParkingCoverage",
+    "type": "object"
+   },
+   "ParkingLotItem": {
+    "properties": {
+     "available_spaces": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Available Spaces"
+     },
+     "distance_m": {
+      "title": "Distance M",
+      "type": "integer"
+     },
+     "id": {
+      "title": "Id",
+      "type": "string"
+     },
+     "latitude": {
+      "title": "Latitude",
+      "type": "number"
+     },
+     "live": {
+      "title": "Live",
+      "type": "boolean"
+     },
+     "longitude": {
+      "title": "Longitude",
+      "type": "number"
+     },
+     "name": {
+      "title": "Name",
+      "type": "string"
+     },
+     "observed_at": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Observed At"
+     },
+     "occupancy": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Occupancy"
+     },
+     "source": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Source"
+     },
+     "total_spaces": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Total Spaces"
+     }
+    },
+    "required": [
+     "id",
+     "name",
+     "latitude",
+     "longitude",
+     "distance_m",
+     "live"
+    ],
+    "title": "ParkingLotItem",
+    "type": "object"
+   },
+   "ParkingLotsResponse": {
+    "properties": {
+     "available": {
+      "title": "Available",
+      "type": "boolean"
+     },
+     "lots": {
+      "items": {
+       "$ref": "#/components/schemas/ParkingLotItem"
+      },
+      "title": "Lots",
+      "type": "array"
+     },
+     "observed_at": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Observed At"
+     },
+     "radius_m": {
+      "title": "Radius M",
+      "type": "integer"
+     },
+     "source": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Source"
+     },
+     "state": {
+      "title": "State",
+      "type": "string"
+     }
+    },
+    "required": [
+     "available",
+     "state",
+     "radius_m",
+     "lots"
+    ],
+    "title": "ParkingLotsResponse",
+    "type": "object"
+   },
+   "ParsePreferenceRequest": {
+    "properties": {
+     "text": {
+      "description": "사용자가 자연어로 말한 선호(예: '조용한 한옥카페 선호')",
+      "title": "Text",
+      "type": "string"
+     }
+    },
+    "required": [
+     "text"
+    ],
+    "title": "ParsePreferenceRequest",
+    "type": "object"
+   },
+   "ParsePreferenceResponse": {
+    "properties": {
+     "applied": {
+      "default": true,
+      "title": "Applied",
+      "type": "boolean"
+     },
+     "attributes": {
+      "items": {
+       "type": "string"
+      },
+      "title": "Attributes",
+      "type": "array"
+     },
+     "categories_saved": {
+      "title": "Categories Saved",
+      "type": "boolean"
+     },
+     "is_fallback": {
+      "title": "Is Fallback",
+      "type": "boolean"
+     },
+     "llm_status": {
+      "title": "Llm Status",
+      "type": "string"
+     },
+     "preferred_categories": {
+      "items": {
+       "type": "string"
+      },
+      "title": "Preferred Categories",
+      "type": "array"
+     },
+     "reason": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Reason"
+     },
+     "summary": {
+      "title": "Summary",
+      "type": "string"
+     },
+     "vector_updated": {
+      "title": "Vector Updated",
+      "type": "boolean"
+     }
+    },
+    "required": [
+     "preferred_categories",
+     "attributes",
+     "summary",
+     "is_fallback",
+     "vector_updated",
+     "categories_saved",
+     "llm_status"
+    ],
+    "title": "ParsePreferenceResponse",
+    "type": "object"
+   },
+   "ParseRequest": {
+    "properties": {
+     "text": {
+      "maxLength": 300,
+      "minLength": 1,
+      "title": "Text",
+      "type": "string"
+     }
+    },
+    "required": [
+     "text"
+    ],
+    "title": "ParseRequest",
+    "type": "object"
+   },
+   "ParseResponse": {
+    "properties": {
+     "context": {
+      "additionalProperties": true,
+      "title": "Context",
+      "type": "object"
+     },
+     "llm_status": {
+      "title": "Llm Status",
+      "type": "string"
+     },
+     "requires_confirmation": {
+      "default": true,
+      "title": "Requires Confirmation",
+      "type": "boolean"
+     }
+    },
+    "required": [
+     "context",
+     "llm_status"
+    ],
+    "title": "ParseResponse",
+    "type": "object"
+   },
+   "PlaceSearchItem": {
+    "properties": {
+     "address": {
+      "title": "Address",
+      "type": "string"
+     },
+     "category_name": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Category Name"
+     },
+     "latitude": {
+      "title": "Latitude",
+      "type": "number"
+     },
+     "longitude": {
+      "title": "Longitude",
+      "type": "number"
+     },
+     "name": {
+      "title": "Name",
+      "type": "string"
+     },
+     "phone": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Phone"
+     },
+     "place_id": {
+      "title": "Place Id",
+      "type": "string"
+     },
+     "place_url": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Place Url"
+     },
+     "type": {
+      "anyOf": [
+       {
+        "enum": [
+         "cafe",
+         "restaurant"
+        ],
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Type"
+     }
+    },
+    "required": [
+     "place_id",
+     "name",
+     "latitude",
+     "longitude",
+     "address"
+    ],
+    "title": "PlaceSearchItem",
+    "type": "object"
+   },
+   "PlaceSearchResponse": {
+    "properties": {
+     "items": {
+      "items": {
+       "$ref": "#/components/schemas/PlaceSearchItem"
+      },
+      "title": "Items",
+      "type": "array"
+     },
+     "source": {
+      "enum": [
+       "kakao",
+       "unavailable"
+      ],
+      "title": "Source",
+      "type": "string"
+     }
+    },
+    "required": [
+     "items",
+     "source"
+    ],
+    "title": "PlaceSearchResponse",
+    "type": "object"
+   },
+   "PredictRequest": {
+    "properties": {
+     "day_of_week": {
+      "description": "Day of the week (0-6, where 0=Monday, 6=Sunday)",
+      "maximum": 6.0,
+      "minimum": 0.0,
+      "title": "Day Of Week",
+      "type": "integer"
+     },
+     "facility_type": {
+      "description": "Facility type (e.g., restaurant, cafe, attraction, culture)",
+      "title": "Facility Type",
+      "type": "string"
+     },
+     "hour": {
+      "description": "Hour of the day (0-23)",
+      "maximum": 23.0,
+      "minimum": 0.0,
+      "title": "Hour",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "facility_type",
+     "hour",
+     "day_of_week"
+    ],
+    "title": "PredictRequest",
+    "type": "object"
+   },
+   "PredictResponse": {
+    "properties": {
+     "predicted_congestion": {
+      "title": "Predicted Congestion",
+      "type": "number"
+     }
+    },
+    "required": [
+     "predicted_congestion"
+    ],
+    "title": "PredictResponse",
+    "type": "object"
+   },
+   "ReasonRequest": {
+    "properties": {
+     "reason_code": {
+      "enum": [
+       "too_far",
+       "too_crowded",
+       "not_my_taste",
+       "too_expensive",
+       "closed",
+       "already_visited",
+       "bad_timing",
+       "inaccurate",
+       "other"
+      ],
+      "title": "Reason Code",
+      "type": "string"
+     },
+     "reason_note": {
+      "anyOf": [
+       {
+        "maxLength": 200,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Reason Note"
+     }
+    },
+    "required": [
+     "reason_code"
+    ],
+    "title": "ReasonRequest",
+    "type": "object"
+   },
+   "RecommendByTypeRequest": {
+    "properties": {
+     "assumed_at": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Assumed At"
+     },
+     "context": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/TravelContext"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "exclude_ids": {
+      "default": [],
+      "items": {
+       "type": "string"
+      },
+      "title": "Exclude Ids",
+      "type": "array"
+     },
+     "facility_type": {
+      "title": "Facility Type",
+      "type": "string"
+     },
+     "limit": {
+      "default": 5,
+      "maximum": 20.0,
+      "minimum": 1.0,
+      "title": "Limit",
+      "type": "integer"
+     },
+     "preference_intent": {
+      "anyOf": [
+       {
+        "maxLength": 120,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Preference Intent"
+     },
+     "user_id": {
+      "title": "User Id",
+      "type": "string"
+     },
+     "user_lat": {
+      "title": "User Lat",
+      "type": "number"
+     },
+     "user_lng": {
+      "title": "User Lng",
+      "type": "number"
+     }
+    },
+    "required": [
+     "user_id",
+     "facility_type",
+     "user_lat",
+     "user_lng"
+    ],
+    "title": "RecommendByTypeRequest",
+    "type": "object"
+   },
+   "RecommendItem": {
+    "properties": {
+     "breakdown": {
+      "additionalProperties": true,
+      "title": "Breakdown",
+      "type": "object"
+     },
+     "congestion_estimate": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/CongestionEstimate"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "congestion_is_current": {
+      "anyOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Congestion Is Current"
+     },
+     "congestion_is_stale": {
+      "anyOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Congestion Is Stale"
+     },
+     "congestion_level": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Congestion Level"
+     },
+     "congestion_log_source": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Congestion Log Source"
+     },
+     "congestion_source": {
+      "default": "none",
+      "enum": [
+       "measured",
+       "predicted",
+       "none"
+      ],
+      "title": "Congestion Source",
+      "type": "string"
+     },
+     "congestion_timestamp": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Congestion Timestamp"
+     },
+     "data_updated_at": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Data Updated At"
+     },
+     "distance_m": {
+      "title": "Distance M",
+      "type": "number"
+     },
+     "eligibility_tier": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Eligibility Tier"
+     },
+     "facility": {
+      "additionalProperties": true,
+      "title": "Facility",
+      "type": "object"
+     },
+     "information_confidence": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Information Confidence"
+     },
+     "model_version": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Model Version"
+     },
+     "open_status_at_arrival": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Open Status At Arrival"
+     },
+     "place_data_source": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Place Data Source"
+     },
+     "prediction_source": {
+      "default": "unavailable",
+      "enum": [
+       "registry",
+       "measured",
+       "unavailable"
+      ],
+      "title": "Prediction Source",
+      "type": "string"
+     },
+     "rank": {
+      "title": "Rank",
+      "type": "integer"
+     },
+     "reason": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Reason"
+     },
+     "reason_source": {
+      "default": "template",
+      "title": "Reason Source",
+      "type": "string"
+     },
+     "recommendation_id": {
+      "title": "Recommendation Id",
+      "type": "string"
+     },
+     "scoring_mode": {
+      "default": "degraded_rules",
+      "enum": [
+       "model",
+       "measured_rules",
+       "area_stats_rules",
+       "degraded_rules"
+      ],
+      "title": "Scoring Mode",
+      "type": "string"
+     },
+     "spot_score": {
+      "title": "Spot Score",
+      "type": "number"
+     },
+     "total_candidates": {
+      "title": "Total Candidates",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "recommendation_id",
+     "facility",
+     "spot_score",
+     "breakdown",
+     "distance_m",
+     "rank",
+     "total_candidates"
+    ],
+    "title": "RecommendItem",
+    "type": "object"
+   },
+   "RecommendRequest": {
+    "properties": {
+     "candidate_types": {
+      "items": {
+       "enum": [
+        "restaurant",
+        "cafe",
+        "attraction",
+        "culture"
+       ],
+       "type": "string"
+      },
+      "maxItems": 2,
+      "title": "Candidate Types",
+      "type": "array"
+     },
+     "context": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/TravelContext"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "discovery_theme": {
+      "anyOf": [
+       {
+        "enum": [
+         "silla_core",
+         "night_heritage",
+         "hanok_cafe",
+         "indoor_history",
+         "gyochon_walk"
+        ],
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Discovery Theme"
+     },
+     "original_facility_id": {
+      "title": "Original Facility Id",
+      "type": "string"
+     },
+     "preference_intent": {
+      "anyOf": [
+       {
+        "maxLength": 120,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Preference Intent"
+     },
+     "user_id": {
+      "title": "User Id",
+      "type": "string"
+     },
+     "user_lat": {
+      "title": "User Lat",
+      "type": "number"
+     },
+     "user_lng": {
+      "title": "User Lng",
+      "type": "number"
+     }
+    },
+    "required": [
+     "user_id",
+     "original_facility_id",
+     "user_lat",
+     "user_lng"
+    ],
+    "title": "RecommendRequest",
+    "type": "object"
+   },
+   "RecommendationOutcomeRequest": {
+    "properties": {
+     "observed_congestion": {
+      "anyOf": [
+       {
+        "enum": [
+         "quiet",
+         "normal",
+         "busy"
+        ],
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Observed Congestion"
+     },
+     "rating": {
+      "anyOf": [
+       {
+        "enum": [
+         "up",
+         "down"
+        ],
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Rating"
+     },
+     "stage": {
+      "enum": [
+       "navigation_started",
+       "arrival_confirmed",
+       "rated"
+      ],
+      "title": "Stage",
+      "type": "string"
+     }
+    },
+    "required": [
+     "stage"
+    ],
+    "title": "RecommendationOutcomeRequest",
+    "type": "object"
+   },
+   "RejectDecision": {
+    "properties": {
+     "reason": {
+      "minLength": 1,
+      "title": "Reason",
+      "type": "string"
+     }
+    },
+    "required": [
+     "reason"
+    ],
+    "title": "RejectDecision",
+    "type": "object"
+   },
+   "RejectRequest": {
+    "properties": {
+     "facility_id": {
+      "description": "메인 탐색에서 거절한 시설 id",
+      "title": "Facility Id",
+      "type": "string"
+     }
+    },
+    "required": [
+     "facility_id"
+    ],
+    "title": "RejectRequest",
+    "type": "object"
+   },
+   "ReportReward": {
+    "properties": {
+     "coupon_issued": {
+      "title": "Coupon Issued",
+      "type": "boolean"
+     },
+     "next_reward_in": {
+      "title": "Next Reward In",
+      "type": "integer"
+     },
+     "report_count": {
+      "title": "Report Count",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "report_count",
+     "coupon_issued",
+     "next_reward_in"
+    ],
+    "title": "ReportReward",
+    "type": "object"
+   },
+   "ReviewDecision": {
+    "description": "승인 본문. 가게를 연결하는 길이 둘이고, **동시에 쓸 수는 없다**.\n\nfacility_id  — 이미 등록된 POI 를 연결한다.\nnew_facility — 미등록 가게를 이 승인에서 만들어 연결한다.",
+    "properties": {
+     "facility_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Facility Id"
+     },
+     "new_facility": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/NewFacilityInput"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "reason": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Reason"
+     }
+    },
+    "title": "ReviewDecision",
+    "type": "object"
+   },
+   "RoleChange": {
+    "properties": {
+     "reason": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Reason"
+     },
+     "role": {
+      "title": "Role",
+      "type": "string"
+     }
+    },
+    "required": [
+     "role"
+    ],
+    "title": "RoleChange",
+    "type": "object"
+   },
+   "SeatStatusUpdate": {
+    "properties": {
+     "facility_id": {
+      "title": "Facility Id",
+      "type": "string"
+     },
+     "level": {
+      "anyOf": [
+       {
+        "enum": [
+         "low",
+         "mid",
+         "full"
+        ],
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "description": "여유(low)/보통(mid)/만석(full), null 이면 좌석 상태 해제",
+      "title": "Level"
+     }
+    },
+    "required": [
+     "facility_id",
+     "level"
+    ],
+    "title": "SeatStatusUpdate",
+    "type": "object"
+   },
+   "SeoulCollectResponse": {
+    "properties": {
+     "bucket_at": {
+      "title": "Bucket At",
+      "type": "string"
+     },
+     "estimator_version": {
+      "title": "Estimator Version",
+      "type": "string"
+     },
+     "failed_count": {
+      "title": "Failed Count",
+      "type": "integer"
+     },
+     "run_at": {
+      "title": "Run At",
+      "type": "string"
+     },
+     "state": {
+      "enum": [
+       "ok",
+       "partial"
+      ],
+      "title": "State",
+      "type": "string"
+     },
+     "stored_count": {
+      "title": "Stored Count",
+      "type": "integer"
+     },
+     "targets": {
+      "items": {
+       "$ref": "#/components/schemas/SeoulTargetResult"
+      },
+      "title": "Targets",
+      "type": "array"
+     }
+    },
+    "required": [
+     "state",
+     "run_at",
+     "bucket_at",
+     "estimator_version",
+     "stored_count",
+     "failed_count",
+     "targets"
+    ],
+    "title": "SeoulCollectResponse",
+    "type": "object"
+   },
+   "SeoulStatusResponse": {
+    "properties": {
+     "estimator_version": {
+      "title": "Estimator Version",
+      "type": "string"
+     },
+     "key_configured": {
+      "title": "Key Configured",
+      "type": "boolean"
+     },
+     "kind": {
+      "const": "seoul_citydata_validation",
+      "default": "seoul_citydata_validation",
+      "title": "Kind",
+      "type": "string"
+     },
+     "last_run": {
+      "additionalProperties": true,
+      "title": "Last Run",
+      "type": "object"
+     },
+     "latest": {
+      "additionalProperties": {
+       "anyOf": [
+        {
+         "additionalProperties": true,
+         "type": "object"
+        },
+        {
+         "type": "null"
+        }
+       ]
+      },
+      "title": "Latest",
+      "type": "object"
+     },
+     "targets": {
+      "items": {
+       "type": "string"
+      },
+      "title": "Targets",
+      "type": "array"
+     }
+    },
+    "required": [
+     "key_configured",
+     "targets",
+     "estimator_version",
+     "last_run",
+     "latest"
+    ],
+    "title": "SeoulStatusResponse",
+    "type": "object"
+   },
+   "SeoulTargetResult": {
+    "properties": {
+     "area_cd": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Area Cd"
+     },
+     "area_nm": {
+      "title": "Area Nm",
+      "type": "string"
+     },
+     "bucket_at": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Bucket At"
+     },
+     "congest_lvl": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Congest Lvl"
+     },
+     "error_code": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Error Code"
+     },
+     "level_est": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Level Est"
+     },
+     "live_lot_count": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Live Lot Count"
+     },
+     "observed_at": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Observed At"
+     },
+     "parking_level": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Parking Level"
+     },
+     "stale_lot_count": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Stale Lot Count"
+     },
+     "state": {
+      "enum": [
+       "stored",
+       "failed"
+      ],
+      "title": "State",
+      "type": "string"
+     },
+     "tourism_level": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Tourism Level"
+     },
+     "upstream_code": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Upstream Code"
+     }
+    },
+    "required": [
+     "area_nm",
+     "state"
+    ],
+    "title": "SeoulTargetResult",
+    "type": "object"
+   },
+   "SettingsUpdate": {
+    "properties": {
+     "coldstart_weight": {
+      "maximum": 100.0,
+      "minimum": 0.0,
+      "title": "Coldstart Weight",
+      "type": "integer"
+     },
+     "congestion_threshold": {
+      "maximum": 100.0,
+      "minimum": 0.0,
+      "title": "Congestion Threshold",
+      "type": "integer"
+     },
+     "maintenance_mode": {
+      "title": "Maintenance Mode",
+      "type": "boolean"
+     },
+     "notice_text": {
+      "maxLength": 500,
+      "title": "Notice Text",
+      "type": "string"
+     }
+    },
+    "required": [
+     "maintenance_mode",
+     "notice_text",
+     "congestion_threshold",
+     "coldstart_weight"
+    ],
+    "title": "SettingsUpdate",
+    "type": "object"
+   },
+   "SlotOutcome": {
+    "description": "요청한 자리 하나가 어떻게 됐는지.\n\n왜 필요한가: 코스는 **조용히 짧아진다.** 3곳을 짰는데 2곳만 돌아와도 응답의 order 는\n1..n 으로 다시 매겨져서, 어느 자리가 왜 빠졌는지 응답에서 복원할 방법이 없었다.\n화면은 개수 차이만 보고 이유를 추측할 수밖에 없었는데, 추측한 이유를 사용자에게 말하는\n것은 값을 지어내는 것과 같다(이 라우터가 다른 곳에서는 하지 않는 일이다).\n그래서 서버가 아는 사실만 그대로 내려보낸다.",
+    "properties": {
+     "facility_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Facility Id"
+     },
+     "order": {
+      "title": "Order",
+      "type": "integer"
+     },
+     "pinned": {
+      "default": false,
+      "title": "Pinned",
+      "type": "boolean"
+     },
+     "requested_type": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Requested Type"
+     },
+     "status": {
+      "title": "Status",
+      "type": "string"
+     }
+    },
+    "required": [
+     "order",
+     "status"
+    ],
+    "title": "SlotOutcome",
+    "type": "object"
+   },
+   "SnapshotCollectionResponse": {
+    "properties": {
+     "available_spaces": {
+      "title": "Available Spaces",
+      "type": "integer"
+     },
+     "bucket_at": {
+      "title": "Bucket At",
+      "type": "string"
+     },
+     "live_lot_count": {
+      "title": "Live Lot Count",
+      "type": "integer"
+     },
+     "observed_at": {
+      "title": "Observed At",
+      "type": "string"
+     },
+     "snapshot_id": {
+      "title": "Snapshot Id",
+      "type": "string"
+     },
+     "source": {
+      "enum": [
+       "gyeongju_its",
+       "national_parking_api"
+      ],
+      "title": "Source",
+      "type": "string"
+     },
+     "state": {
+      "const": "collected",
+      "default": "collected",
+      "title": "State",
+      "type": "string"
+     },
+     "stored": {
+      "title": "Stored",
+      "type": "boolean"
+     },
+     "total_spaces": {
+      "title": "Total Spaces",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "snapshot_id",
+     "source",
+     "observed_at",
+     "bucket_at",
+     "total_spaces",
+     "available_spaces",
+     "live_lot_count",
+     "stored"
+    ],
+    "title": "SnapshotCollectionResponse",
+    "type": "object"
+   },
+   "TimesaleCancel": {
+    "properties": {
+     "facility_id": {
+      "title": "Facility Id",
+      "type": "string"
+     },
+     "id": {
+      "title": "Id",
+      "type": "string"
+     }
+    },
+    "required": [
+     "id",
+     "facility_id"
+    ],
+    "title": "TimesaleCancel",
+    "type": "object"
+   },
+   "TimesaleCreate": {
+    "properties": {
+     "duration_minutes": {
+      "description": "지속 시간(분) — 1/2/3시간 중 하나",
+      "enum": [
+       60,
+       120,
+       180
+      ],
+      "title": "Duration Minutes",
+      "type": "integer"
+     },
+     "facility_id": {
+      "title": "Facility Id",
+      "type": "string"
+     },
+     "rate": {
+      "description": "타임세일 할인율(15/20/30% 중 하나)",
+      "enum": [
+       0.15,
+       0.2,
+       0.3
+      ],
+      "title": "Rate",
+      "type": "number"
+     }
+    },
+    "required": [
+     "facility_id",
+     "rate",
+     "duration_minutes"
+    ],
+    "title": "TimesaleCreate",
+    "type": "object"
+   },
+   "TrackRequest": {
+    "properties": {
+     "event": {
+      "description": "이벤트명(<=64자)",
+      "maxLength": 64,
+      "title": "Event",
+      "type": "string"
+     },
+     "props": {
+      "additionalProperties": true,
+      "description": "부가 속성(<=1KB)",
+      "title": "Props",
+      "type": "object"
+     }
+    },
+    "required": [
+     "event"
+    ],
+    "title": "TrackRequest",
+    "type": "object"
+   },
+   "TravelContext": {
+    "properties": {
+     "available_minutes": {
+      "anyOf": [
+       {
+        "enum": [
+         30,
+         60,
+         120
+        ],
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Available Minutes"
+     },
+     "categories": {
+      "items": {
+       "enum": [
+        "restaurant",
+        "cafe",
+        "attraction",
+        "culture"
+       ],
+       "type": "string"
+      },
+      "title": "Categories",
+      "type": "array"
+     },
+     "exclude_visited": {
+      "default": false,
+      "title": "Exclude Visited",
+      "type": "boolean"
+     },
+     "max_walk_minutes": {
+      "anyOf": [
+       {
+        "enum": [
+         5,
+         10,
+         20
+        ],
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Max Walk Minutes"
+     },
+     "required_attributes": {
+      "items": {
+       "enum": [
+        "indoor",
+        "accessible"
+       ],
+       "type": "string"
+      },
+      "title": "Required Attributes",
+      "type": "array"
+     },
+     "visited_facility_ids": {
+      "items": {
+       "type": "string"
+      },
+      "maxItems": 200,
+      "title": "Visited Facility Ids",
+      "type": "array"
+     }
+    },
+    "title": "TravelContext",
+    "type": "object"
+   },
+   "UserVectorResponse": {
+    "properties": {
+     "user_id": {
+      "title": "User Id",
+      "type": "string"
+     },
+     "vector": {
+      "items": {
+       "type": "number"
+      },
+      "title": "Vector",
+      "type": "array"
+     }
+    },
+    "required": [
+     "user_id",
+     "vector"
+    ],
+    "title": "UserVectorResponse",
+    "type": "object"
+   },
+   "ValidationError": {
+    "properties": {
+     "ctx": {
+      "title": "Context",
+      "type": "object"
+     },
+     "input": {
+      "title": "Input"
+     },
+     "loc": {
+      "items": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "integer"
+        }
+       ]
+      },
+      "title": "Location",
+      "type": "array"
+     },
+     "msg": {
+      "title": "Message",
+      "type": "string"
+     },
+     "type": {
+      "title": "Error Type",
+      "type": "string"
+     }
+    },
+    "required": [
+     "loc",
+     "msg",
+     "type"
+    ],
+    "title": "ValidationError",
+    "type": "object"
+   },
+   "VerificationRequestCreate": {
+    "properties": {
+     "business_number_last4": {
+      "anyOf": [
+       {
+        "pattern": "^[0-9]{4}$",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Business Number Last4"
+     },
+     "contact": {
+      "maxLength": 200,
+      "minLength": 1,
+      "title": "Contact",
+      "type": "string"
+     },
+     "document_path": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Document Path"
+     },
+     "facility_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Facility Id"
+     },
+     "requested_role": {
+      "default": "merchant",
+      "title": "Requested Role",
+      "type": "string"
+     },
+     "store_name": {
+      "maxLength": 200,
+      "minLength": 1,
+      "title": "Store Name",
+      "type": "string"
+     }
+    },
+    "required": [
+     "store_name",
+     "contact"
+    ],
+    "title": "VerificationRequestCreate",
+    "type": "object"
+   },
+   "VerificationRequestPatch": {
+    "description": "대기 중인 신청의 수정 — 전 필드 선택.\n\n**requested_role 은 받지 않는다.** 역할을 바꾸는 것은 같은 신청의 수정이 아니라 다른\n신청이다. 심사자는 역할별 큐(GET /dev/verification-requests?requested_role=...)로 나눠\n보고 있어서, 큐에 떠 있는 신청의 역할이 밑에서 바뀌면 심사자가 보던 화면과 실제가\n어긋난다 — 역할을 바꾸려면 철회하고 새로 내야 한다.\n\n**facility_id 도 바꿀 수 없다.** 아래 _FACILITY_CHANGE_REJECTED 주석 참조 — 편의 문제가\n아니라 승인이 소유권을 붙이는 값 자체라서 심사 중에는 얼어 있어야 한다. 필드를 아예\n지우지 않고 남겨 둔 이유도 거기 적었다(구 번들이 보내는 값을 조용히 삼키지 않기 위해).\n\nNone 은 '지움' 이지 '안 보냄' 이 아니다. 둘의 구분은 model_fields_set 이 한다\n(아래 update_verification_request 참조).",
+    "properties": {
+     "business_number_last4": {
+      "anyOf": [
+       {
+        "pattern": "^[0-9]{4}$",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Business Number Last4"
+     },
+     "contact": {
+      "anyOf": [
+       {
+        "maxLength": 200,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Contact"
+     },
+     "document_path": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Document Path"
+     },
+     "facility_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Facility Id"
+     },
+     "store_name": {
+      "anyOf": [
+       {
+        "maxLength": 200,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Store Name"
+     }
+    },
+    "title": "VerificationRequestPatch",
+    "type": "object"
+   },
+   "VerificationRequestView": {
+    "properties": {
+     "created_at": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Created At"
+     },
+     "facility_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Facility Id"
+     },
+     "id": {
+      "title": "Id",
+      "type": "string"
+     },
+     "requested_role": {
+      "default": "merchant",
+      "title": "Requested Role",
+      "type": "string"
+     },
+     "review_note": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Review Note"
+     },
+     "status": {
+      "title": "Status",
+      "type": "string"
+     },
+     "store_name": {
+      "title": "Store Name",
+      "type": "string"
+     }
+    },
+    "required": [
+     "id",
+     "store_name",
+     "status"
+    ],
+    "title": "VerificationRequestView",
+    "type": "object"
+   },
+   "VoiceAppCommand": {
+    "properties": {
+     "args": {
+      "additionalProperties": true,
+      "title": "Args",
+      "type": "object"
+     },
+     "name": {
+      "enum": [
+       "set_facility_type",
+       "set_indoor_mode",
+       "set_max_walk_minutes",
+       "open_waiting_board"
+      ],
+      "title": "Name",
+      "type": "string"
+     }
+    },
+    "required": [
+     "name"
+    ],
+    "title": "VoiceAppCommand",
+    "type": "object"
+   },
+   "VoiceAppContext": {
+    "properties": {
+     "facility_type": {
+      "default": "restaurant",
+      "enum": [
+       "restaurant",
+       "cafe",
+       "attraction",
+       "culture"
+      ],
+      "title": "Facility Type",
+      "type": "string"
+     },
+     "indoor_required": {
+      "default": false,
+      "title": "Indoor Required",
+      "type": "boolean"
+     },
+     "max_walk_minutes": {
+      "anyOf": [
+       {
+        "enum": [
+         5,
+         10,
+         20
+        ],
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Max Walk Minutes"
+     },
+     "route": {
+      "const": "main",
+      "default": "main",
+      "title": "Route",
+      "type": "string"
+     }
+    },
+    "title": "VoiceAppContext",
+    "type": "object"
+   },
+   "VoiceCandidate": {
+    "description": "무인증 입력 후보 — 필드별 타입·길이 상한(Codex 감사 P1-4).\n\n기존 list[dict] 는 후보 '개수'만 제한하고 내부 문자열이 무제한이라 발화 300자 절단을\n우회해 프롬프트 토큰·메모리를 폭증시킬 수 있었다. 정상 트래픽(프런트 실사용 값)은\n전부 상한 안이므로 422 대신 조용한 절단으로 처리해 UX 회귀를 만들지 않는다.",
+    "properties": {
+     "category": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Category"
+     },
+     "congestion": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Congestion"
+     },
+     "cuisine": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "items": {
+         "type": "string"
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Cuisine"
+     },
+     "distance_m": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Distance M"
+     },
+     "id": {
+      "maxLength": 64,
+      "minLength": 1,
+      "title": "Id",
+      "type": "string"
+     },
+     "menu": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Menu"
+     },
+     "name": {
+      "minLength": 1,
+      "title": "Name",
+      "type": "string"
+     }
+    },
+    "required": [
+     "id",
+     "name"
+    ],
+    "title": "VoiceCandidate",
+    "type": "object"
+   },
+   "VoiceTurnRequest": {
+    "properties": {
+     "app_context": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/VoiceAppContext"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "candidates": {
+      "items": {
+       "$ref": "#/components/schemas/VoiceCandidate"
+      },
+      "maxItems": 30,
+      "title": "Candidates",
+      "type": "array"
+     },
+     "current_name": {
+      "anyOf": [
+       {
+        "maxLength": 120,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Current Name"
+     },
+     "facility_type": {
+      "default": "restaurant",
+      "title": "Facility Type",
+      "type": "string"
+     },
+     "utterance": {
+      "default": "",
+      "maxLength": 500,
+      "title": "Utterance",
+      "type": "string"
+     }
+    },
+    "title": "VoiceTurnRequest",
+    "type": "object"
+   },
+   "VoiceTurnResponse": {
+    "properties": {
+     "action": {
+      "title": "Action",
+      "type": "string"
+     },
+     "command": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/VoiceAppCommand"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "llm_status": {
+      "title": "Llm Status",
+      "type": "string"
+     },
+     "match_ids": {
+      "default": [],
+      "items": {
+       "type": "string"
+      },
+      "title": "Match Ids",
+      "type": "array"
+     },
+     "spoken": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Spoken"
+     },
+     "suggestion_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Suggestion Id"
+     },
+     "target_facility_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Target Facility Id"
+     }
+    },
+    "required": [
+     "action",
+     "llm_status"
+    ],
+    "title": "VoiceTurnResponse",
+    "type": "object"
+   }
+  },
+  "securitySchemes": {
+   "HTTPBearer": {
+    "scheme": "bearer",
+    "type": "http"
+   }
+  }
+ },
+ "info": {
+  "description": "NextSpot 관광 수요 분산·대안 장소 추천 AI 엔진 API",
+  "title": "NextSpot API",
+  "version": "0.1.0"
+ },
+ "openapi": "3.1.0",
+ "paths": {
+  "/": {
+   "get": {
+    "operationId": "health_check__get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "summary": "Health Check"
+   }
+  },
+  "/api/v1/account/me": {
+   "delete": {
+    "description": "현재 JWT 주체의 Supabase Auth 계정을 삭제한다.\n\nauth.users 삭제가 public.users 및 사용자 소유 행의 FK CASCADE를 시작한다. 브라우저가 보내는\nuser_id는 받지 않아 다른 계정 삭제가 불가능하다.\n\n## 증빙을 **먼저** 지우는 이유\n\nFK CASCADE 는 행만 지운다 — Storage 의 사업자등록증은 CASCADE 대상이 아니다. 심사 대기\n중에 탈퇴하면 business_verification_requests 행은 사라지고 파일만 버킷에 남는데, 그 파일을\n가리키는 행이 없으니 **아무도 그것을 지울 수 없다**(경로를 아는 유일한 곳이 그 행이었다).\n마이그레이션 20260904200000 은 '심사가 끝나면 증빙을 보관하지 않는다' 고 단언한다 —\n탈퇴도 심사가 끝나는 한 형태다.\n\n순서가 계약이다. 계정을 먼저 지우면 경로를 읽을 방법이 사라진다.\n\n## 그 대신 감수하는 것\n\n파일을 지운 뒤 계정 삭제가 실패하면, 신청은 pending 인 채로 증빙만 없는 상태가 된다\n(dev.py 승인·반려가 굳이 피하는 그 상태다). 그래도 이쪽을 고른다: 저 상태는 사용자가\n신청을 다시 내면 회복되지만, 반대 순서로 생기는 고아 파일은 되돌릴 방법이 아예 없고\n남는 물건이 사업자등록증이다.\n\n## 증빙 삭제 실패는 탈퇴를 막지 않는다\n\n탈퇴는 사용자의 권리다. 우리 쪽 뒷정리가 실패했다고 그 권리를 미룰 수는 없다.\nclear_verification_evidence 는 실패해도 예외를 올리지 않고 경고만 남기므로(경로가 로그에\n남아 수동 정리가 가능하다) 이 호출들은 따로 감싸지 않는다.",
+    "operationId": "delete_my_account_api_v1_account_me_delete",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/DeleteAccountResponse"
+        }
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Delete My Account",
+    "tags": [
+     "account"
+    ]
+   },
+   "get": {
+    "operationId": "get_me_api_v1_account_me_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AccountMeResponse"
+        }
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Get Me",
+    "tags": [
+     "account"
+    ]
+   }
+  },
+  "/api/v1/account/merge-guest": {
+   "post": {
+    "description": "방금 로그인한 계정으로 게스트 세션 데이터를 옮긴다.\n\n## 게스트 토큰이 만료돼도 **401 은 아니다**\n\n호출자 인증은 get_current_user 가 이미 통과시켰다. 여기서 검증하는 것은 본문에 실려 온\n**다른 세션의** 토큰이고, 그것이 만료·위조라는 사실은 지금 로그인한 사람의 자격과 아무\n상관이 없다. 그런데 예전에는 verify_supabase_token 의 401 이 그대로 나갔고, 프런트는\n401 을 '로그인이 풀렸다' 로 읽는다(lib/api-client.ts AuthError) — 로그인 직후 콜백에서\n부르는 엔드포인트라, 게스트로 한 시간 넘게 둘러본 심사위원이 **로그인하자마자 튕기는**\n것처럼 보인다. 게스트 액세스 토큰 수명이 1시간이라 이 조건은 드물지도 않다.\n본문 값이 잘못된 것이므로 422 다.",
+    "operationId": "merge_guest_api_v1_account_merge_guest_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/MergeGuestRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/MergeGuestResponse"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Merge Guest",
+    "tags": [
+     "account"
+    ]
+   }
+  },
+  "/api/v1/account/verification-requests": {
+   "post": {
+    "operationId": "create_verification_request_api_v1_account_verification_requests_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/VerificationRequestCreate"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/VerificationRequestView"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Create Verification Request",
+    "tags": [
+     "account"
+    ]
+   }
+  },
+  "/api/v1/account/verification-requests/mine": {
+   "get": {
+    "operationId": "my_verification_requests_api_v1_account_verification_requests_mine_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "My Verification Requests",
+    "tags": [
+     "account"
+    ]
+   }
+  },
+  "/api/v1/account/verification-requests/{request_id}": {
+   "patch": {
+    "description": "대기 중인 신청의 내용을 고친다.\n\n수정을 '철회 후 재신청' 으로 대신하게 하면 증빙을 다시 올려야 한다 — 연락처 오타 하나\n고치려고 사업자등록증을 다시 찍어 오게 만드는 셈이라 별도 경로를 둔다.\n\n**다만 가게(facility_id)만은 예외다** — 이유는 _FACILITY_CHANGE_REJECTED 참조.",
+    "operationId": "update_verification_request_api_v1_account_verification_requests__request_id__patch",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "request_id",
+      "required": true,
+      "schema": {
+       "title": "Request Id",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/VerificationRequestPatch"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/VerificationRequestView"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Update Verification Request",
+    "tags": [
+     "account"
+    ]
+   }
+  },
+  "/api/v1/account/verification-requests/{request_id}/withdraw": {
+   "post": {
+    "description": "신청자 본인이 대기 중인 신청을 철회한다.\n\n감사 로그(role_audit_log)에는 남기지 않는다. action 칼럼 CHECK 가\n('role_change','owner_grant','owner_revoke','verification_review') 라 새 값에는\n마이그레이션이 필요한데, 철회는 애초에 **심사가 아니다** — 행 자체가 남는다\n(status='withdrawn' + reviewed_at). 흔적이 이미 있는 일을 위해 사람 손이 필요한\nDDL 을 늘리지 않는다. 대신 structlog 로 남겨 사후 추적을 가능하게 한다.",
+    "operationId": "withdraw_verification_request_api_v1_account_verification_requests__request_id__withdraw_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "request_id",
+      "required": true,
+      "schema": {
+       "title": "Request Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Withdraw Verification Request",
+    "tags": [
+     "account"
+    ]
+   }
+  },
+  "/api/v1/admin/area-demand-forecast-quality": {
+   "get": {
+    "description": "권역별 시간 순서 홀드아웃 MAE와 사용자 노출 가능 여부를 반환한다.",
+    "operationId": "area_demand_forecast_quality_api_v1_admin_area_demand_forecast_quality_get",
+    "parameters": [
+     {
+      "in": "query",
+      "name": "lat",
+      "required": false,
+      "schema": {
+       "default": 35.8361,
+       "maximum": 39.0,
+       "minimum": 33.0,
+       "title": "Lat",
+       "type": "number"
+      }
+     },
+     {
+      "in": "query",
+      "name": "lng",
+      "required": false,
+      "schema": {
+       "default": 129.2105,
+       "maximum": 132.0,
+       "minimum": 124.0,
+       "title": "Lng",
+       "type": "number"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Area Demand Forecast Quality",
+    "tags": [
+     "admin"
+    ]
+   }
+  },
+  "/api/v1/admin/area-demand-reliability": {
+   "get": {
+    "description": "최근 완료 버킷의 실측 수집률·누락·최신 주차장 원본을 반환한다.",
+    "operationId": "area_demand_reliability_api_v1_admin_area_demand_reliability_get",
+    "parameters": [
+     {
+      "in": "query",
+      "name": "hours",
+      "required": false,
+      "schema": {
+       "default": 24,
+       "maximum": 168,
+       "minimum": 1,
+       "title": "Hours",
+       "type": "integer"
+      }
+     },
+     {
+      "in": "query",
+      "name": "source",
+      "required": false,
+      "schema": {
+       "default": "gyeongju_its",
+       "enum": [
+        "gyeongju_its",
+        "national_parking_api"
+       ],
+       "title": "Source",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Area Demand Reliability",
+    "tags": [
+     "admin"
+    ]
+   }
+  },
+  "/api/v1/admin/congestion-estimates/parking-derived": {
+   "post": {
+    "description": "최신 주차 실측에서 시설별 추정치를 만들어 적재한다.\n\n같은 버킷 시각에 이미 적재돼 있으면 아무것도 넣지 않고 ``status: already_recorded`` 로\n돌려준다 — 두 번 눌러도 같은 관측이 두 배로 쌓이지 않는다.",
+    "operationId": "record_parking_derived_api_v1_admin_congestion_estimates_parking_derived_post",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Record Parking Derived",
+    "tags": [
+     "admin"
+    ]
+   }
+  },
+  "/api/v1/admin/congestion-estimates/parking-derived/preview": {
+   "get": {
+    "description": "무엇이 적재될지 계산만 한다(쓰기 없음).\n\n낡은 스냅샷도 거절하지 않고 ``stale: true`` 로 그대로 보여 준다 — 관리자가 확인해야\n하는 것이 바로 그 사실이기 때문이다. 적재(POST)만 막힌다.",
+    "operationId": "preview_parking_derived_api_v1_admin_congestion_estimates_parking_derived_preview_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Preview Parking Derived",
+    "tags": [
+     "admin"
+    ]
+   }
+  },
+  "/api/v1/admin/dashboard/briefing": {
+   "get": {
+    "description": "오늘의 브리핑 — { briefing: str|null, llmStatus }.\n\n캐시(12분 TTL, KST 날짜 키) 히트 시 집계 쿼리 없이 즉시 반환한다. 미스면\nget_dashboard_today/get_impact 를 그대로 재사용해 집계 후 브리핑을 생성한다.",
+    "operationId": "get_dashboard_briefing_api_v1_admin_dashboard_briefing_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Get Dashboard Briefing",
+    "tags": [
+     "admin"
+    ]
+   }
+  },
+  "/api/v1/admin/dashboard/today": {
+   "get": {
+    "description": "오늘(KST) 혼잡 집계 — page.tsx fetchCongestion 과 동일 산식의 compact JSON.\n\n반환: { hasLogs, avgCongestion, anomalyCount, heatmap, anomalies, sampleCount,\n        latestObservedAt, fallback }\n  · hasLogs = 오늘 로그 수 >= 5\n  · avgCongestion.value = 평균 혼잡도(소수 2자리)\n  · avgCongestion.changePercent        = 전일 평균 대비(소수 1자리) — **구 키, 의미 그대로**\n  · avgCongestion.changePercentOrNull  = 같은 값이되 전일 표본이 없으면 null\n  · avgCongestion.prevSampleCount      = 비교에 쓴 전일 로그 건수\n  · anomalyCount = congestion_level >= 0.9 건수\n  · heatmap = 시설명×KST시(0..23) 평균(2자리), 로그 없는 칸은 null 센티넬(실측 0.0 과 구분)\n  · anomalies = 시설별 >=0.9 피크 상위 6건\n로그가 5건 미만이면 hasLogs=false + 나머지 null(클라이언트 폴백과 동일 shape).\n\n── 신규 키(추가만 한다) ─────────────────────────────────────────────────────\n  · sampleCount      = 오늘 구간의 로그 건수(0 과 '4건뿐' 을 구분)\n  · latestObservedAt = congestion_logs 전체의 가장 최근 관측 시각(UTC ISO) 또는 null\n  · fallback         = 오늘이 비었을 때 **집계할 수 있는 가장 최근 KST 하루** 의 같은 집계\n                       { dateKst, observedAt, hasLogs, avgCongestion, anomalyCount,\n                         heatmap, anomalies, sampleCount } 또는 null\n                       observedAt 은 **그 날의** 마지막 관측이라 latestObservedAt 과\n                       다를 수 있다(_pick_fallback_day 주석 참조).\n\n왜 폴백을 최상위 키에 섞지 않고 **별도 객체**로 두는가: Vercel(웹)과 Render(API)는 배포\n시점이 다르고 스테이징이 없다. 오늘 구간이 빈 날 최상위 hasLogs 에 폴백 값을 채워\n보내면, 아직 옛 번들을 받은 관리자 화면은 **19일 전 데이터를 오늘 것으로** 그린다.\n그건 값을 지어내는 것과 같다. 최상위 키의 뜻은 '오늘' 그대로 두고, 폴백을 읽을 줄 아는\n새 번들만 날짜 배지와 함께 그린다.\n\n(이 응답 shape 은 admin/report 화면·브리핑과도 공유한다. 둘 다 최상위 hasLogs/\n avgCongestion/anomalyCount 만 읽으므로 신규 키의 영향을 받지 않는다.)\n\n── 신규 키 2(추가만 한다) — 경주 추정 모드 ─────────────────────────────────────\n  · estimated = 오늘(KST)의 **추정** 집계 또는 null(계산 실패·시간 초과·옛 원본 부재)\n                { dateKst, hasLogs, avgCongestion, anomalyCount, heatmap, anomalies,\n                  sampleCount, sourceComposition{'estimated': n}, basis{...} }\n                모양은 위 오늘 집계와 같고, basis 가 산식·근거(주차장 수·관측 시각·반경)를\n                싣는다(congestion_estimator_service.aggregate_estimated_day).\n                표본 단위가 로그 1행이 아니라 (대표 장소 × 10분 버킷)이다.\n\n추정을 최상위 키에 섞지 않는 이유는 폴백과 같다: 옛 번들은 최상위만 읽으므로, 거기에\n추정을 채우면 **추정치가 라벨 없이 실측처럼** 그려진다. 추정을 읽을 줄 아는 새 번들만\n'추정' 배지와 근거 문장을 붙여 그린다. 실측(최상위)이 있으면 화면은 실측을 쓴다.",
+    "operationId": "get_dashboard_today_api_v1_admin_dashboard_today_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Get Dashboard Today",
+    "tags": [
+     "admin"
+    ]
+   }
+  },
+  "/api/v1/admin/engine-validation/seoul/alternatives": {
+   "get": {
+    "description": "시연 권역(홍대·연남동·합정역)의 **실측 인구**로 돌린 대안 추천.",
+    "operationId": "seoul_alternatives_api_v1_admin_engine_validation_seoul_alternatives_get",
+    "parameters": [
+     {
+      "in": "query",
+      "name": "origin",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Origin"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Seoul Alternatives",
+    "tags": [
+     "admin"
+    ]
+   }
+  },
+  "/api/v1/admin/engine-validation/seoul/calibration": {
+   "get": {
+    "description": "보정 곡선·관문 통과 여부·시간대 모양·경주에 미치는 영향.",
+    "operationId": "seoul_calibration_api_v1_admin_engine_validation_seoul_calibration_get",
+    "parameters": [
+     {
+      "in": "query",
+      "name": "days",
+      "required": false,
+      "schema": {
+       "default": 28,
+       "maximum": 28,
+       "minimum": 1,
+       "title": "Days",
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Seoul Calibration",
+    "tags": [
+     "admin"
+    ]
+   }
+  },
+  "/api/v1/admin/engine-validation/seoul/summary": {
+   "get": {
+    "description": "서울 대상지별 검증 지표·혼동표·시계열 + 수집 상태.",
+    "operationId": "seoul_summary_api_v1_admin_engine_validation_seoul_summary_get",
+    "parameters": [
+     {
+      "in": "query",
+      "name": "days",
+      "required": false,
+      "schema": {
+       "default": 14,
+       "maximum": 28,
+       "minimum": 1,
+       "title": "Days",
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Seoul Summary",
+    "tags": [
+     "admin"
+    ]
+   }
+  },
+  "/api/v1/admin/facilities": {
+   "post": {
+    "operationId": "create_facility_api_v1_admin_facilities_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/FacilityCreate"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Create Facility",
+    "tags": [
+     "admin"
+    ]
+   }
+  },
+  "/api/v1/admin/facilities/{facility_id}": {
+   "delete": {
+    "operationId": "delete_facility_api_v1_admin_facilities__facility_id__delete",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "facility_id",
+      "required": true,
+      "schema": {
+       "title": "Facility Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Delete Facility",
+    "tags": [
+     "admin"
+    ]
+   },
+   "patch": {
+    "operationId": "update_facility_api_v1_admin_facilities__facility_id__patch",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "facility_id",
+      "required": true,
+      "schema": {
+       "title": "Facility Id",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/FacilityUpdate"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Update Facility",
+    "tags": [
+     "admin"
+    ]
+   }
+  },
+  "/api/v1/admin/facilities/{facility_id}/congestion": {
+   "post": {
+    "description": "관리자 수동 혼잡도 설정 — congestion_logs 에 source='admin_override',\nevidence_tier='single_report' 로 1행 기록하고 그 행을 반환한다.\n\n흐름: 시설 존재/수용량 조회 → current_count = round(capacity×level) 추정 → service_role INSERT.\n(제보 라우터와 달리 쿨다운 없음 — 관리자 신뢰 경로의 의도적 개입이다.)\n\nsource 가 'event' 가 아닌 이유는 아래 _ADMIN_OVERRIDE_SOURCE 주석에 있고, tier 가\nverified 가 아닌 이유는: **관측이 아니라 사람이 슬라이더로 넣은 값이라 모델 학습의\n정답이 될 수 없다**(train.py 는 verified/corroborated 행을 그대로 학습에 넣는다).",
+    "operationId": "override_congestion_api_v1_admin_facilities__facility_id__congestion_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "facility_id",
+      "required": true,
+      "schema": {
+       "title": "Facility Id",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/CongestionOverride"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Override Congestion",
+    "tags": [
+     "admin"
+    ]
+   }
+  },
+  "/api/v1/admin/impact": {
+   "get": {
+    "description": "수락 추천 기준 재배치 건수·절감 대기시간(분) 집계.\n\nsince(ISO8601, UTC)가 오면 그 시각 이후, 없으면 최근 days(기본 1)일 롤링 윈도우.\n프런트(대시보드)는 KST '오늘 00:00' 을 since 로 넘겨 '오늘' 지표로 쓴다.",
+    "operationId": "get_impact_api_v1_admin_impact_get",
+    "parameters": [
+     {
+      "in": "query",
+      "name": "since",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Since"
+      }
+     },
+     {
+      "in": "query",
+      "name": "days",
+      "required": false,
+      "schema": {
+       "default": 1,
+       "title": "Days",
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Get Impact",
+    "tags": [
+     "admin"
+    ]
+   }
+  },
+  "/api/v1/admin/inquiries": {
+   "get": {
+    "description": "최신 문의 limit 건. **의도된 상한**이라 페이지네이션하지 않는다.\n\n지원 화면은 최신 문의부터 처리하는 목록이지 집계가 아니다 — 전량이 필요한 화면이 아니고,\n문의 본문에는 PII 가 들어 있어 필요 이상으로 넓게 내려보내지 않는 편이 낫다.\n상한을 PostgREST 응답 캡(1000)과 같은 값으로 잡아 둔 덕에 조용한 절단도 일어나지 않는다\n(limit>1000 을 요청해도 여기서 1000 으로 깎이므로 서버가 말없이 자를 여지가 없다).",
+    "operationId": "list_inquiries_api_v1_admin_inquiries_get",
+    "parameters": [
+     {
+      "in": "query",
+      "name": "limit",
+      "required": false,
+      "schema": {
+       "default": 500,
+       "title": "Limit",
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "List Inquiries",
+    "tags": [
+     "admin"
+    ]
+   }
+  },
+  "/api/v1/admin/inquiries/{inquiry_id}": {
+   "patch": {
+    "description": "문의 상태 변경 + (선택) 답변 본문 저장.\n\n응답은 갱신된 행에 두 필드를 **덧붙여** 돌려준다 — 화면이 '무엇이 실제로 일어났는지'를\n말할 수 있어야 하기 때문이다(이 화면의 결함이 정확히 그 지점이었다):\n  · reply_saved            — 답변 본문이 실제로 저장됐는가\n  · reply_unavailable_reason — 저장하지 못했다면 그 이유(\"schema_missing\")\n\n답변을 보내지 않았을 때(reply_body=None)는 reply_saved=false 지만 이유도 없다 —\n'저장 실패' 가 아니라 '저장할 것이 없었다' 이므로 화면이 둘을 구분해야 한다.",
+    "operationId": "update_inquiry_status_api_v1_admin_inquiries__inquiry_id__patch",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "inquiry_id",
+      "required": true,
+      "schema": {
+       "title": "Inquiry Id",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/InquiryStatusUpdate"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Update Inquiry Status",
+    "tags": [
+     "admin"
+    ]
+   }
+  },
+  "/api/v1/admin/metrics": {
+   "get": {
+    "operationId": "get_metrics_api_v1_admin_metrics_get",
+    "parameters": [
+     {
+      "in": "query",
+      "name": "days",
+      "required": false,
+      "schema": {
+       "default": 28,
+       "title": "Days",
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Get Metrics",
+    "tags": [
+     "admin"
+    ]
+   }
+  },
+  "/api/v1/admin/metrics/trend": {
+   "get": {
+    "description": "최근 days일(KST 일 단위, 오늘 포함) 혼잡·추천수락 실측 추이 — 과거→오늘 순 daily 배열.",
+    "operationId": "get_metrics_trend_api_v1_admin_metrics_trend_get",
+    "parameters": [
+     {
+      "in": "query",
+      "name": "days",
+      "required": false,
+      "schema": {
+       "default": 30,
+       "title": "Days",
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Get Metrics Trend",
+    "tags": [
+     "admin"
+    ]
+   }
+  },
+  "/api/v1/admin/model-trust": {
+   "get": {
+    "description": "활성 모델 품질·추천→방문 퍼널·근거 노출 가드레일의 비식별 운영 요약.",
+    "operationId": "get_model_trust_api_v1_admin_model_trust_get",
+    "parameters": [
+     {
+      "in": "query",
+      "name": "days",
+      "required": false,
+      "schema": {
+       "default": 30,
+       "title": "Days",
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Get Model Trust",
+    "tags": [
+     "admin"
+    ]
+   }
+  },
+  "/api/v1/admin/reports/estimated": {
+   "get": {
+    "description": "최근 days일(KST, 오늘 포함)의 **추정** 일별 집계 — 실측이 아니다.\n\n반환: { days, available, reason, startDateKst, endDateKst, samplingMinutes, daily[], basis }\n  · daily[i] = { date, avgCongestion|null, sampleCount, snapshotCount, anomalyCount|null,\n                 byType: { <시설 유형>: { avgCongestion, sampleCount, anomalyCount } } }\n  · basis    = 산식·가중치·반경·표본 간격·주차장 수·관측 시각·보정 상태\n               (estimated_report_service.aggregate_estimated_days)\n\n⚠️ 이 응답에는 **인원 수가 없다.** 추정치는 0~1 의 혼잡도 비율이고 사람 수가 아니다.\n'몇 명' 칸을 이 값으로 채우면 없는 관측을 만들어 내는 것이다 — 화면은 그 칸을 0 으로\n채우지 말고 \"추정에는 인원 수가 없다\" 고 말해야 한다.\n\navailable=false 의 reason:\n  · \"timeout\"        — 상한(10초) 안에 못 끝냈다. 계산은 shield 안에서 계속 돌아 캐시를\n                       채우므로 다음 새로고침은 대개 즉시 성공한다.\n  · \"compute_failed\" — 계산 중 예외(원본 조회 실패 등). 서버 로그에 사유가 남는다.\n  · \"bad_shape\"      — 계산 결과 모양이 어긋났다(있을 수 없지만, 조용히 흘리지 않는다).",
+    "operationId": "get_estimated_report_api_v1_admin_reports_estimated_get",
+    "parameters": [
+     {
+      "in": "query",
+      "name": "days",
+      "required": false,
+      "schema": {
+       "default": 30,
+       "title": "Days",
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Get Estimated Report",
+    "tags": [
+     "admin"
+    ]
+   }
+  },
+  "/api/v1/admin/safety/status": {
+   "get": {
+    "description": "시설·존(150m 격자) 단위 인파 밀집 안전 경보 현황.\n\n반환 shape:\n  generatedAt, sampleEmpty, thresholds{alert,warn}, meta{zoneMethod},\n  facilityAlerts[], facilityWarnings[], zones[], summary{...}\n실측 로그가 전혀 없으면(sampleEmpty=true) 목록은 모두 빈 배열 — 프런트가 시뮬레이터 안내로 대체한다.",
+    "operationId": "get_safety_status_api_v1_admin_safety_status_get",
+    "parameters": [
+     {
+      "description": "경보(alert) 임계값(0~1)",
+      "in": "query",
+      "name": "threshold",
+      "required": false,
+      "schema": {
+       "default": 0.85,
+       "description": "경보(alert) 임계값(0~1)",
+       "maximum": 1.0,
+       "minimum": 0.0,
+       "title": "Threshold",
+       "type": "number"
+      }
+     },
+     {
+      "description": "주의(warn) 임계값(0~1)",
+      "in": "query",
+      "name": "warn",
+      "required": false,
+      "schema": {
+       "default": 0.7,
+       "description": "주의(warn) 임계값(0~1)",
+       "maximum": 1.0,
+       "minimum": 0.0,
+       "title": "Warn",
+       "type": "number"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Get Safety Status",
+    "tags": [
+     "admin-safety"
+    ]
+   }
+  },
+  "/api/v1/admin/settings": {
+   "get": {
+    "operationId": "get_settings_api_v1_admin_settings_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Get Settings",
+    "tags": [
+     "admin"
+    ]
+   },
+   "put": {
+    "operationId": "update_settings_api_v1_admin_settings_put",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/SettingsUpdate"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Update Settings",
+    "tags": [
+     "admin"
+    ]
+   }
+  },
+  "/api/v1/admin/simulate-peak": {
+   "post": {
+    "description": "데모 전용 피크타임 혼잡도 데이터 모의 발생 API. (관리자 전용 — require_role(ROLE_ADMIN) 으로 보호)\n\n전 시설을 무작위로 섞은 뒤 **비율**로 구간을 배정해 혼잡 로그를 1건씩 만들고 삽입한다:\n앞 40% 여유(0.05~0.28) · 다음 35% 보통(0.35~0.65) · 나머지 약 25% 혼잡(0.72~0.95).\n(예전 독스트링의 \"여유 15개, 보통 15개, 혼잡 10개\" 는 시설이 40곳이던 시절의 절대 개수라\n 지금은 사실이 아니다 — _SIMULATE_RELAXED_RATIO 위 주석 참조.)",
+    "operationId": "simulate_peak_api_v1_admin_simulate_peak_post",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Simulate Peak",
+    "tags": [
+     "infrastructures"
+    ]
+   }
+  },
+  "/api/v1/area-demand/forecast": {
+   "get": {
+    "description": "앞으로 30분~6시간의 권역 주차 수요 전망을 반환한다.\n\n과거 동일 시간대 표본이 부족하면 ``available=false``이며 숫자를 만들지 않는다.",
+    "operationId": "area_demand_forecast_api_v1_area_demand_forecast_get",
+    "parameters": [
+     {
+      "in": "query",
+      "name": "arrival_at",
+      "required": true,
+      "schema": {
+       "format": "date-time",
+       "title": "Arrival At",
+       "type": "string"
+      }
+     },
+     {
+      "in": "query",
+      "name": "lat",
+      "required": true,
+      "schema": {
+       "maximum": 39.0,
+       "minimum": 33.0,
+       "title": "Lat",
+       "type": "number"
+      }
+     },
+     {
+      "in": "query",
+      "name": "lng",
+      "required": true,
+      "schema": {
+       "maximum": 132.0,
+       "minimum": 124.0,
+       "title": "Lng",
+       "type": "number"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AreaDemandForecastResponse"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Area Demand Forecast",
+    "tags": [
+     "area-demand"
+    ]
+   }
+  },
+  "/api/v1/area-demand/parking-lots": {
+   "get": {
+    "description": "현재 위치 주변 공식 주차장과 실제 잔여면을 반환한다.",
+    "operationId": "parking_lots_api_v1_area_demand_parking_lots_get",
+    "parameters": [
+     {
+      "in": "query",
+      "name": "lat",
+      "required": false,
+      "schema": {
+       "default": 35.8361,
+       "maximum": 39.0,
+       "minimum": 33.0,
+       "title": "Lat",
+       "type": "number"
+      }
+     },
+     {
+      "in": "query",
+      "name": "lng",
+      "required": false,
+      "schema": {
+       "default": 129.2105,
+       "maximum": 132.0,
+       "minimum": 124.0,
+       "title": "Lng",
+       "type": "number"
+      }
+     },
+     {
+      "in": "query",
+      "name": "radius_m",
+      "required": false,
+      "schema": {
+       "default": 3000,
+       "maximum": 10000,
+       "minimum": 500,
+       "title": "Radius M",
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ParkingLotsResponse"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Parking Lots",
+    "tags": [
+     "area-demand"
+    ]
+   }
+  },
+  "/api/v1/area-demand/snapshots/collect": {
+   "post": {
+    "description": "경주시 ITS 현재값을 조회해 10분 시계열로 한 번 저장한다.",
+    "operationId": "collect_snapshot_api_v1_area_demand_snapshots_collect_post",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/SnapshotCollectionResponse"
+        }
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "summary": "Collect Snapshot",
+    "tags": [
+     "area-demand"
+    ]
+   }
+  },
+  "/api/v1/area-demand/status": {
+   "get": {
+    "description": "지정 지점 2km 안의 경주 실시간 주차 데이터 커버리지를 반환한다.",
+    "operationId": "area_demand_status_api_v1_area_demand_status_get",
+    "parameters": [
+     {
+      "in": "query",
+      "name": "lat",
+      "required": false,
+      "schema": {
+       "default": 35.8361,
+       "maximum": 39.0,
+       "minimum": 33.0,
+       "title": "Lat",
+       "type": "number"
+      }
+     },
+     {
+      "in": "query",
+      "name": "lng",
+      "required": false,
+      "schema": {
+       "default": 129.2105,
+       "maximum": 132.0,
+       "minimum": 124.0,
+       "title": "Lng",
+       "type": "number"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AreaDemandStatusResponse"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Area Demand Status",
+    "tags": [
+     "area-demand"
+    ]
+   }
+  },
+  "/api/v1/congestion/estimates": {
+   "get": {
+    "description": "지도 마커가 덧칠할 추정 묶음. 추정을 못 만들면 ``available=false`` 와 빈 묶음(200)이다.\n\n왜 /infrastructures 에 싣지 않고 따로 내나(레드팀 2026-09-20 실측):\n  · 프로덕션 /infrastructures 는 이미 TTFB 4.0~5.9초라 프런트의 4초 상한을 자주 넘기고,\n    그러면 화면은 Supabase 직접 읽기로 폴백한다 — 그 경로에는 추정이 없다. 추정을 거기\n    실으면 **대부분의 방문에서 추정이 안 보이고**, 추정 계산이 그 느린 응답을 더 늦춘다.\n  · 따로 받으면 어느 시설 경로가 이기든 그 위에 덧칠할 수 있고, 1,669행 전체에 null 칸을\n    더하는 페이로드 증가(+13%)도 없다.\n구 번들은 이 엔드포인트를 부르지 않는다 — 추가만이다.",
+    "operationId": "get_congestion_estimates_api_v1_congestion_estimates_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/CongestionEstimatesResponse"
+        }
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "summary": "Get Congestion Estimates",
+    "tags": [
+     "infrastructures"
+    ]
+   }
+  },
+  "/api/v1/coupons/issue": {
+   "post": {
+    "description": "제휴 시설의 현재 coupon_rate 로 쿠폰을 발급(upsert on user_id+facility_id).\n\ncoupon_rate <= 0(제휴 없음)인 시설은 발급을 거부한다(422).",
+    "operationId": "issue_coupon_api_v1_coupons_issue_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/IssueCouponRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Issue Coupon",
+    "tags": [
+     "coupons"
+    ]
+   }
+  },
+  "/api/v1/coupons/mine": {
+   "get": {
+    "description": "현재 사용자의 쿠폰 목록 — 시설명/유형을 조인해 반환(발급 최신순).",
+    "operationId": "list_my_coupons_api_v1_coupons_mine_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "List My Coupons",
+    "tags": [
+     "coupons"
+    ]
+   }
+  },
+  "/api/v1/coupons/{coupon_id}/use": {
+   "post": {
+    "description": "쿠폰 사용 처리 — 본인 소유의 'issued' 쿠폰을 'used'(used_at=now)로 전환한다.\n\n소유권(IDOR) 가드: 대상 쿠폰의 user_id 가 토큰 주체와 일치해야 한다.\n멱등: 이미 'used' 인 쿠폰은 상태를 바꾸지 않고 그대로 반환한다(중복 탭/재요청 안전).",
+    "operationId": "use_coupon_api_v1_coupons__coupon_id__use_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "coupon_id",
+      "required": true,
+      "schema": {
+       "title": "Coupon Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Use Coupon",
+    "tags": [
+     "coupons"
+    ]
+   }
+  },
+  "/api/v1/courses/plan": {
+   "post": {
+    "description": "정류지 + 자리별 결과 + plan_id.\n\n/recommend 와 같은 계산이다(같은 _build_course). 다른 것은 봉투뿐 — 왜 나눴는지는\n/recommend docstring 참조.",
+    "operationId": "plan_course_api_v1_courses_plan_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/CourseRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/CoursePlan"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Plan Course",
+    "tags": [
+     "courses"
+    ]
+   }
+  },
+  "/api/v1/courses/recommend": {
+   "post": {
+    "description": "정류지 배열만 돌려주는 **기존 계약**. 바꾸지 않는다.\n\nVercel(정적 export)과 Render 는 배포 시점이 다르고 스테이징이 없다. 최상위를 객체로\n바꾸면 새 API 가 먼저 뜨는 창에서 구 번들의 `Array.isArray(data) ? data : []` 가 false 로\n떨어져 **장애가 '갈 곳 없음'으로 보인다.** 새 정보가 필요한 화면은 /courses/plan 을 쓴다.",
+    "operationId": "recommend_course_api_v1_courses_recommend_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/CourseRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "items": {
+          "$ref": "#/components/schemas/CourseStop"
+         },
+         "title": "Response Recommend Course Api V1 Courses Recommend Post",
+         "type": "array"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Recommend Course",
+    "tags": [
+     "courses"
+    ]
+   }
+  },
+  "/api/v1/dev/audit-log": {
+   "get": {
+    "operationId": "list_audit_log_api_v1_dev_audit_log_get",
+    "parameters": [
+     {
+      "in": "query",
+      "name": "limit",
+      "required": false,
+      "schema": {
+       "default": 100,
+       "title": "Limit",
+       "type": "integer"
+      }
+     },
+     {
+      "in": "query",
+      "name": "target_id",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Target Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "List Audit Log",
+    "tags": [
+     "dev"
+    ]
+   }
+  },
+  "/api/v1/dev/facility-owners": {
+   "get": {
+    "description": "활성 소유권 목록. `user_ids` 는 쉼표 구분 — 사용자 목록 한 화면분을 한 번에 받는다.\n\n가게 이름을 임베드해서 내려준다. uuid 만 보여 주면 개발자가 어느 가게인지 알 수 없어\n회수 버튼을 누르기 무섭다(FK 가 있으므로 PostgREST 가 조인해 준다).",
+    "operationId": "list_facility_owners_api_v1_dev_facility_owners_get",
+    "parameters": [
+     {
+      "in": "query",
+      "name": "facility_id",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Facility Id"
+      }
+     },
+     {
+      "in": "query",
+      "name": "user_id",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "User Id"
+      }
+     },
+     {
+      "in": "query",
+      "name": "user_ids",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "User Ids"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "List Facility Owners",
+    "tags": [
+     "dev"
+    ]
+   },
+   "post": {
+    "description": "심사 큐를 거치지 않는 **직접 부여**. 승인 경로와 같은 검사·같은 실패 분류를 쓴다.",
+    "operationId": "grant_facility_owner_api_v1_dev_facility_owners_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/OwnerGrant"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Grant Facility Owner",
+    "tags": [
+     "dev"
+    ]
+   }
+  },
+  "/api/v1/dev/facility-owners/{row_id}": {
+   "delete": {
+    "operationId": "revoke_facility_owner_api_v1_dev_facility_owners__row_id__delete",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "row_id",
+      "required": true,
+      "schema": {
+       "title": "Row Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Revoke Facility Owner",
+    "tags": [
+     "dev"
+    ]
+   }
+  },
+  "/api/v1/dev/failures": {
+   "get": {
+    "description": "이 프로세스에서 최근에 난 실패를 돌려준다.\n\nRender 로그에 접근하기 어려울 때 프로덕션 예외의 정체를 확인하는 통로다.\n인메모리라 재시작하면 사라지고, 워커가 여럿이면 이 워커 것만 보인다.",
+    "operationId": "list_recent_failures_api_v1_dev_failures_get",
+    "parameters": [
+     {
+      "in": "query",
+      "name": "limit",
+      "required": false,
+      "schema": {
+       "default": 50,
+       "title": "Limit",
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "List Recent Failures",
+    "tags": [
+     "dev"
+    ]
+   }
+  },
+  "/api/v1/dev/users": {
+   "get": {
+    "description": "이메일·닉네임 부분일치 또는 uid 정확일치로 찾는다.\n\n`role` 을 주면 그 역할만 추린다(개발자 콘솔의 사업자/관리자/개발자 하위 메뉴).\n응답의 `counts` 는 역할별 인원이라 화면이 따로 세지 않아도 된다.\n\n이메일은 **마스킹해서** 돌려준다(_mask_email). 개발자 화면이라도 원문을 그대로\n뿌리지 않는다는 기존 결정을 따른다 — 도메인이 남아 계정 구분에는 충분하다.\n\n익명(게스트) 세션은 목록에서 제외한다. 몇 명을 뺐는지는 `hidden_guests` 로 같이 준다.\nuid 를 정확히 넣으면 게스트도 그대로 조회된다.",
+    "operationId": "search_users_api_v1_dev_users_get",
+    "parameters": [
+     {
+      "in": "query",
+      "name": "q",
+      "required": false,
+      "schema": {
+       "default": "",
+       "title": "Q",
+       "type": "string"
+      }
+     },
+     {
+      "in": "query",
+      "name": "role",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Role"
+      }
+     },
+     {
+      "in": "query",
+      "name": "limit",
+      "required": false,
+      "schema": {
+       "default": 20,
+       "title": "Limit",
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Search Users",
+    "tags": [
+     "dev"
+    ]
+   }
+  },
+  "/api/v1/dev/users/{user_id}/role": {
+   "patch": {
+    "operationId": "change_role_api_v1_dev_users__user_id__role_patch",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "user_id",
+      "required": true,
+      "schema": {
+       "title": "User Id",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/RoleChange"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Change Role",
+    "tags": [
+     "dev"
+    ]
+   }
+  },
+  "/api/v1/dev/verification-requests": {
+   "get": {
+    "description": "심사 큐. `requested_role` 로 사업자/관리자 하위 메뉴를 가른다.\n\ndeveloper 는 여기 올 수 없다 — 신청 자체가 만들어지지 않는다(REQUESTABLE_ROLES,\n그리고 DB CHECK). 그래서 값으로도 받지 않는다: 받아 주면 '개발자 심사 큐가 있다'는\n잘못된 인상을 주고, 영원히 빈 목록을 돌려준다.",
+    "operationId": "list_verification_requests_api_v1_dev_verification_requests_get",
+    "parameters": [
+     {
+      "in": "query",
+      "name": "status_filter",
+      "required": false,
+      "schema": {
+       "default": "pending",
+       "title": "Status Filter",
+       "type": "string"
+      }
+     },
+     {
+      "in": "query",
+      "name": "requested_role",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Requested Role"
+      }
+     },
+     {
+      "in": "query",
+      "name": "limit",
+      "required": false,
+      "schema": {
+       "default": 100,
+       "title": "Limit",
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "List Verification Requests",
+    "tags": [
+     "dev"
+    ]
+   }
+  },
+  "/api/v1/dev/verification-requests/{request_id}/approve": {
+   "post": {
+    "operationId": "approve_verification_api_v1_dev_verification_requests__request_id__approve_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "request_id",
+      "required": true,
+      "schema": {
+       "title": "Request Id",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ReviewDecision"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Approve Verification",
+    "tags": [
+     "dev"
+    ]
+   }
+  },
+  "/api/v1/dev/verification-requests/{request_id}/document": {
+   "get": {
+    "description": "증빙 서류를 심사자에게 보여 주기 위한 **단기 서명 URL**.\n\n버킷은 비공개이고 신청자 본인만 자기 폴더를 읽을 수 있다(20260904200000 정책).\n심사자는 그 정책으로는 못 본다 — 여기서 service_role 로 서명 URL 을 만들어 전달한다.\nURL 을 응답에 실어 보내되 저장하지는 않는다(5분 뒤 죽는다).\n\n심사가 끝난 요청은 document_path 가 NULL 이다(clear_verification_evidence). 그때는 404 다 —\n\"보관하지 않는다\" 는 결정의 자연스러운 귀결이라 오류가 아니라 정상 상태다.",
+    "operationId": "verification_document_url_api_v1_dev_verification_requests__request_id__document_get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "request_id",
+      "required": true,
+      "schema": {
+       "title": "Request Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Verification Document Url",
+    "tags": [
+     "dev"
+    ]
+   }
+  },
+  "/api/v1/dev/verification-requests/{request_id}/reject": {
+   "post": {
+    "operationId": "reject_verification_api_v1_dev_verification_requests__request_id__reject_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "request_id",
+      "required": true,
+      "schema": {
+       "title": "Request Id",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/RejectDecision"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Reject Verification",
+    "tags": [
+     "dev"
+    ]
+   }
+  },
+  "/api/v1/engine-validation/seoul/collect": {
+   "post": {
+    "description": "설정된 서울 대상지를 한 번씩 조회해 10분 버킷으로 저장한다(같은 버킷 재호출은 덮어쓰기).",
+    "operationId": "collect_seoul_api_v1_engine_validation_seoul_collect_post",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/SeoulCollectResponse"
+        }
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "summary": "Collect Seoul",
+    "tags": [
+     "engine-validation"
+    ]
+   }
+  },
+  "/api/v1/engine-validation/seoul/status": {
+   "get": {
+    "description": "마지막 수집 결과(프로세스 메모리)와 대상지별 DB 최신 행.",
+    "operationId": "seoul_status_api_v1_engine_validation_seoul_status_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/SeoulStatusResponse"
+        }
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Seoul Status",
+    "tags": [
+     "engine-validation"
+    ]
+   }
+  },
+  "/api/v1/events": {
+   "get": {
+    "description": "경주 축제 목록 — 진행 중 우선, 그다음 시작일 순.\n\n실패(키 미설정·네트워크·쿼터)는 전부 source=\"unavailable\" 빈 목록으로 흡수한다.\n축제는 부가 정보라 이 엔드포인트 장애가 관광객 플로우를 막아선 안 된다.",
+    "operationId": "list_events_api_v1_events_get",
+    "parameters": [
+     {
+      "in": "query",
+      "name": "limit",
+      "required": false,
+      "schema": {
+       "default": 20,
+       "maximum": 50,
+       "minimum": 1,
+       "title": "Limit",
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/EventsResponse"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "List Events",
+    "tags": [
+     "events"
+    ]
+   }
+  },
+  "/api/v1/events/track": {
+   "post": {
+    "description": "익명 분석 이벤트 1건 적재 → 204. props 과대(422)·IP 쿨다운(조용히 드롭, 204).",
+    "operationId": "track_event_api_v1_events_track_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/TrackRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "204": {
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Track Event",
+    "tags": [
+     "tracking"
+    ]
+   }
+  },
+  "/api/v1/feedback": {
+   "post": {
+    "operationId": "submit_feedback_api_v1_feedback_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/FeedbackRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Submit Feedback",
+    "tags": [
+     "recommendations"
+    ]
+   }
+  },
+  "/api/v1/freshness": {
+   "get": {
+    "description": "마지막 TourAPI 동기화 시각 — ① 동기화 마커 → ② updated_at 추정 → ③ 전부 null.",
+    "operationId": "get_freshness_api_v1_freshness_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/FreshnessResponse"
+        }
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "summary": "Get Freshness",
+    "tags": [
+     "freshness"
+    ]
+   }
+  },
+  "/api/v1/impact/summary": {
+   "get": {
+    "description": "본인의 여행 임팩트 요약 — 실제 DB 에서 파생 가능한 지표만 집계해 반환한다.",
+    "operationId": "get_impact_summary_api_v1_impact_summary_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ImpactSummaryResponse"
+        }
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Get Impact Summary",
+    "tags": [
+     "impact"
+    ]
+   }
+  },
+  "/api/v1/infrastructures": {
+   "get": {
+    "operationId": "get_infrastructures_api_v1_infrastructures_get",
+    "parameters": [
+     {
+      "in": "query",
+      "name": "type",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Type"
+      }
+     },
+     {
+      "in": "query",
+      "name": "min_lat",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "number"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Min Lat"
+      }
+     },
+     {
+      "in": "query",
+      "name": "max_lat",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "number"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Max Lat"
+      }
+     },
+     {
+      "in": "query",
+      "name": "min_lng",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "number"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Min Lng"
+      }
+     },
+     {
+      "in": "query",
+      "name": "max_lng",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "number"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Max Lng"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "items": {
+          "$ref": "#/components/schemas/InfrastructureItem"
+         },
+         "title": "Response Get Infrastructures Api V1 Infrastructures Get",
+         "type": "array"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Get Infrastructures",
+    "tags": [
+     "infrastructures"
+    ]
+   }
+  },
+  "/api/v1/infrastructures/live-detail/{contentid}": {
+   "get": {
+    "description": "POI 상세를 TourAPI 로 실시간 조회해 표시용 필드만 camelCase 로 돌려준다.\n\n반환 계약(값이 실측된 필드만 포함):\n  · 성공: {\"source\": \"tourapi-live\", operatingHours?, overview?, homepage?, imageUrl?, phone?}\n  · 실패/미조회/리밋 초과: {\"source\": \"unavailable\"} (HTTP 200 — 프런트는 캐시값 유지)\n\ndetail_common(개요·홈페이지·이미지·전화)과 detail_intro(운영시간·전화 폴백)을 각각 독립\ntry/except 로 시도한다(events._fetch_festival_detail 관례 — 한쪽 실패가 다른 쪽 값을 버리지\n않는다). 추출은 _enrich_and_transform 과 동일한 extract_* 헬퍼를 재사용한다.",
+    "operationId": "get_infrastructure_live_detail_api_v1_infrastructures_live_detail__contentid__get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "contentid",
+      "required": true,
+      "schema": {
+       "title": "Contentid",
+       "type": "string"
+      }
+     },
+     {
+      "description": "TourAPI contentTypeId(관광지 12·문화시설 14·음식점 39)",
+      "in": "query",
+      "name": "contentTypeId",
+      "required": true,
+      "schema": {
+       "description": "TourAPI contentTypeId(관광지 12·문화시설 14·음식점 39)",
+       "title": "Contenttypeid",
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Get Infrastructure Live Detail",
+    "tags": [
+     "infrastructures"
+    ]
+   }
+  },
+  "/api/v1/inquiries/mine": {
+   "get": {
+    "description": "내가 낸 문의 목록(최신순) — 관리자 답변이 있으면 함께 준다.\n\n반환: { items: [...], replySupported: bool }\n\nreplySupported 가 필요한 이유: 답변 컬럼이 없는 DB 에서 items 의 reply_body 는 전부\n없다. 그 상태를 화면이 \"아직 답변이 없어요\" 로 그리면 **기다리면 온다는 거짓말**이 된다\n(답변을 저장할 자리 자체가 없으므로 기다려도 오지 않는다). 두 상태를 구분해 준다.",
+    "operationId": "my_inquiries_api_v1_inquiries_mine_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "My Inquiries",
+    "tags": [
+     "inquiries"
+    ]
+   }
+  },
+  "/api/v1/lab/pending": {
+   "get": {
+    "description": "사유 미응답(pending) 거절 목록 — 본인·미숨김·30일 이내, 최신순 최대 10건.",
+    "operationId": "list_pending_api_v1_lab_pending_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "List Pending",
+    "tags": [
+     "lab"
+    ]
+   }
+  },
+  "/api/v1/lab/pending/count": {
+   "get": {
+    "description": "pending 개수 — 목록의 10건 상한과 달리 실제 전체 개수를 센다(배지 표시용).",
+    "operationId": "count_pending_api_v1_lab_pending_count_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Count Pending",
+    "tags": [
+     "lab"
+    ]
+   }
+  },
+  "/api/v1/lab/{feedback_id}/hide": {
+   "post": {
+    "description": "실험실 목록에서 영구히 숨긴다(reason_status 는 보존 — 왜 숨겼는지 분석 가능하게).",
+    "operationId": "hide_pending_api_v1_lab__feedback_id__hide_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "feedback_id",
+      "required": true,
+      "schema": {
+       "title": "Feedback Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Hide Pending",
+    "tags": [
+     "lab"
+    ]
+   }
+  },
+  "/api/v1/lab/{feedback_id}/reason": {
+   "post": {
+    "description": "거절 사유를 확정한다 — answered 로 전환하고, long_term 사유일 때만 벡터를 -5% 정확히 1회.\n\n학습 스코프는 reason_code 가 결정한다(feedback_service.REASON_LEARNING_SCOPE):\n  - too_far/too_crowded/not_my_taste/too_expensive → long_term(감점)\n  - closed/inaccurate → data_quality(취향 학습 금지 — 가게 사정이지 취향이 아니다)\n  - already_visited/other → none, bad_timing → session\n재호출해도 학습 슬롯(learning_applied_at)이 이미 차 있어 재학습하지 않는다(멱등).",
+    "operationId": "answer_reason_api_v1_lab__feedback_id__reason_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "feedback_id",
+      "required": true,
+      "schema": {
+       "title": "Feedback Id",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ReasonRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Answer Reason",
+    "tags": [
+     "lab"
+    ]
+   }
+  },
+  "/api/v1/lab/{feedback_id}/reason/classify": {
+   "post": {
+    "description": "자유 텍스트 거절 사유를 LLM 으로 기존 카테고리에 매핑하고, 성공하면 **기존 사유 적용 경로를 그대로** 탄다.\n\n설계(학습 경로 재사용): 분류가 화이트리스트를 통과하면 answer_reason 과 **동일하게** fs.apply_reason\n(학습 슬롯 = learning_applied_at) → should_learn_vector 일 때만 라우터가 벡터 -5%. 즉 자유 텍스트도\n선택지 버튼과 **완전히 같은 '정확히 1회' 계약**을 공유한다. 새 학습 경로를 만들지 않는다.\n\n무해 폴백(422 아님, 200 + {\"resolved\": false}):\n  - LLM 비활성/실패, 또는 분류 결과가 null·화이트리스트 밖(환각) → resolved=false.\n    프런트가 \"선택지에서 골라주세요\"로 유도하고 기존 이유 칩을 그대로 유지한다.\n개인정보: 자유 텍스트 원문·LLM 요약 원문은 서버 로그에 남기지 않는다(길이·코드만).\n\n응답의 llm_status(개발 디버그용 — \"AI 가 실제로 돌았는지\" 프런트 배지): llm(분류 채택) |\nllm_failed(호출 실패 또는 화이트리스트 불일치 → resolved false) | disabled(키 미설정).",
+    "operationId": "classify_reason_api_v1_lab__feedback_id__reason_classify_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "feedback_id",
+      "required": true,
+      "schema": {
+       "title": "Feedback Id",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ClassifyReasonRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Classify Reason",
+    "tags": [
+     "lab"
+    ]
+   }
+  },
+  "/api/v1/lab/{feedback_id}/skip": {
+   "post": {
+    "description": "사유 응답을 건너뛴다 — 목록에서 내려가되 나중에 답할 수 있게 행은 남긴다. 학습 없음.",
+    "operationId": "skip_reason_api_v1_lab__feedback_id__skip_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "feedback_id",
+      "required": true,
+      "schema": {
+       "title": "Feedback Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Skip Reason",
+    "tags": [
+     "lab"
+    ]
+   }
+  },
+  "/api/v1/merchant/briefing": {
+   "get": {
+    "operationId": "get_briefing_api_v1_merchant_briefing_get",
+    "parameters": [
+     {
+      "in": "query",
+      "name": "facility_id",
+      "required": true,
+      "schema": {
+       "title": "Facility Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Get Briefing",
+    "tags": [
+     "merchant"
+    ]
+   }
+  },
+  "/api/v1/merchant/seat-status": {
+   "post": {
+    "operationId": "update_seat_status_api_v1_merchant_seat_status_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/SeatStatusUpdate"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Update Seat Status",
+    "tags": [
+     "merchant"
+    ]
+   }
+  },
+  "/api/v1/merchant/stats": {
+   "get": {
+    "operationId": "get_stats_api_v1_merchant_stats_get",
+    "parameters": [
+     {
+      "in": "query",
+      "name": "facility_id",
+      "required": true,
+      "schema": {
+       "title": "Facility Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Get Stats",
+    "tags": [
+     "merchant"
+    ]
+   }
+  },
+  "/api/v1/merchant/timesale": {
+   "get": {
+    "operationId": "list_active_timesales_api_v1_merchant_timesale_get",
+    "parameters": [
+     {
+      "in": "query",
+      "name": "facility_id",
+      "required": true,
+      "schema": {
+       "title": "Facility Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "List Active Timesales",
+    "tags": [
+     "merchant"
+    ]
+   },
+   "post": {
+    "operationId": "create_timesale_api_v1_merchant_timesale_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/TimesaleCreate"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Create Timesale",
+    "tags": [
+     "merchant"
+    ]
+   }
+  },
+  "/api/v1/merchant/timesale/cancel": {
+   "post": {
+    "operationId": "cancel_timesale_api_v1_merchant_timesale_cancel_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/TimesaleCancel"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Cancel Timesale",
+    "tags": [
+     "merchant"
+    ]
+   }
+  },
+  "/api/v1/preference-stats/categories": {
+   "get": {
+    "description": "업종별 온보딩 선호 비율. 관리자 전용 — 개별 사용자 데이터는 응답에 없다.",
+    "operationId": "category_preference_shares_api_v1_preference_stats_categories_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/CategorySharesResponse"
+        }
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Category Preference Shares",
+    "tags": [
+     "preference-stats"
+    ]
+   }
+  },
+  "/api/v1/preferences/parse": {
+   "post": {
+    "operationId": "parse_and_apply_preference_api_v1_preferences_parse_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ParsePreferenceRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ParsePreferenceResponse"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Parse And Apply Preference",
+    "tags": [
+     "preferences"
+    ]
+   }
+  },
+  "/api/v1/recommendations": {
+   "post": {
+    "operationId": "get_recommendations_api_v1_recommendations_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/RecommendRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "items": {
+          "$ref": "#/components/schemas/RecommendItem"
+         },
+         "title": "Response Get Recommendations Api V1 Recommendations Post",
+         "type": "array"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Get Recommendations",
+    "tags": [
+     "recommendations"
+    ]
+   }
+  },
+  "/api/v1/recommendations/accept": {
+   "post": {
+    "description": "특정 시설 방문을 수락 확정하고 제휴 시설이면 쿠폰을 발급한다.\n\n흐름: 인증 → 시설 존재 검증(404) → recommendations 수락 이력 기록(best-effort) →\nissue_coupon_if_partner(제휴면 발급, coupon_rate 0 이면 발급 없이 issued=False).\n응답: {\"success\": True, \"coupon_issued\": bool, \"coupon_rate\": float, \"expires_at\": str|None}",
+    "operationId": "accept_recommendation_api_v1_recommendations_accept_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/AcceptRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Accept Recommendation",
+    "tags": [
+     "recommendations"
+    ]
+   }
+  },
+  "/api/v1/recommendations/by-type": {
+   "post": {
+    "operationId": "recommend_by_type_api_v1_recommendations_by_type_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/RecommendByTypeRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "items": {
+          "$ref": "#/components/schemas/RecommendItem"
+         },
+         "title": "Response Recommend By Type Api V1 Recommendations By Type Post",
+         "type": "array"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Recommend By Type",
+    "tags": [
+     "recommendations"
+    ]
+   }
+  },
+  "/api/v1/recommendations/reject": {
+   "post": {
+    "description": "메인 브라우즈 거절을 실험실 pending 결정으로 비차단 적재할 수 있게 한다.",
+    "operationId": "reject_recommendation_api_v1_recommendations_reject_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/RejectRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Reject Recommendation",
+    "tags": [
+     "recommendations"
+    ]
+   }
+  },
+  "/api/v1/recommendations/{recommendation_id}/explain": {
+   "post": {
+    "operationId": "explain_recommendation_api_v1_recommendations__recommendation_id__explain_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "recommendation_id",
+      "required": true,
+      "schema": {
+       "title": "Recommendation Id",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ExplainRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ExplainResponse"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Explain Recommendation",
+    "tags": [
+     "recommendations"
+    ]
+   }
+  },
+  "/api/v1/recommendations/{recommendation_id}/outcome": {
+   "patch": {
+    "description": "추천 소유자의 방문 단계를 서버 시각으로 전진시킨다(DB RPC가 멱등·원자성 보장).",
+    "operationId": "record_recommendation_outcome_api_v1_recommendations__recommendation_id__outcome_patch",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "recommendation_id",
+      "required": true,
+      "schema": {
+       "title": "Recommendation Id",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/RecommendationOutcomeRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Record Recommendation Outcome",
+    "tags": [
+     "recommendations"
+    ]
+   }
+  },
+  "/api/v1/reports/availability": {
+   "post": {
+    "description": "Record a short-lived opening-status check using server time.\n\nThe database RPC atomically keeps one current report per user/place and promotes\nonly two-user agreement to corroborated evidence. A single report never affects\nrecommendation eligibility.",
+    "operationId": "report_availability_api_v1_reports_availability_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/AvailabilityReportRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AvailabilityReportResponse"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Report Availability",
+    "tags": [
+     "reports"
+    ]
+   }
+  },
+  "/api/v1/reports/congestion": {
+   "post": {
+    "description": "관광객의 실시간 혼잡 제보를 congestion_logs 에 기록한다(source='user_report').\n\n흐름: 인증(get_current_user) → level 정규화 → 시설 존재 검증 →\nsupabase_admin 으로 로그 INSERT. current_count 는 capacity×level 로 추정한다\n(congestion_logs 에 실인원 컬럼은 있으나 제보는 인원을 모르므로 수용량 기반 추정).",
+    "operationId": "report_congestion_api_v1_reports_congestion_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/CongestionReportRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/CongestionReportResponse"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Report Congestion",
+    "tags": [
+     "reports"
+    ]
+   }
+  },
+  "/api/v1/restrooms": {
+   "get": {
+    "operationId": "restrooms_api_v1_restrooms_get",
+    "parameters": [
+     {
+      "in": "query",
+      "name": "lat",
+      "required": false,
+      "schema": {
+       "default": 35.8361,
+       "maximum": 90,
+       "minimum": -90,
+       "title": "Lat",
+       "type": "number"
+      }
+     },
+     {
+      "in": "query",
+      "name": "lng",
+      "required": false,
+      "schema": {
+       "default": 129.2105,
+       "maximum": 180,
+       "minimum": -180,
+       "title": "Lng",
+       "type": "number"
+      }
+     },
+     {
+      "in": "query",
+      "name": "radius_m",
+      "required": false,
+      "schema": {
+       "default": 3000,
+       "maximum": 5000,
+       "minimum": 100,
+       "title": "Radius M",
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Restrooms",
+    "tags": [
+     "restrooms"
+    ]
+   }
+  },
+  "/api/v1/search/ingest-request": {
+   "post": {
+    "description": "\"다음 배치 추가 요청\" 큐잉 — admin_ingest_requests 에 pending 으로 upsert.\n\n무인증 + IP 당 분당 3회 제한. contentid 가 이미 요청돼 있으면(UNIQUE) 조용히 무시한다\n(ignore_duplicates=True — 상태와 무관하게 재요청이 기존 행을 덮어쓰지 않는다).",
+    "operationId": "create_ingest_request_api_v1_search_ingest_request_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/IngestRequestCreate"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Create Ingest Request",
+    "tags": [
+     "search"
+    ]
+   }
+  },
+  "/api/v1/search/ingest-requests": {
+   "get": {
+    "operationId": "list_ingest_requests_api_v1_search_ingest_requests_get",
+    "parameters": [
+     {
+      "in": "query",
+      "name": "status",
+      "required": false,
+      "schema": {
+       "default": "pending",
+       "title": "Status",
+       "type": "string"
+      }
+     },
+     {
+      "in": "query",
+      "name": "limit",
+      "required": false,
+      "schema": {
+       "default": 100,
+       "title": "Limit",
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "List Ingest Requests",
+    "tags": [
+     "search"
+    ]
+   }
+  },
+  "/api/v1/search/ingest-requests/approve": {
+   "post": {
+    "description": "적재 요청 승인 — detailCommon2/Intro2 조회 → facilities upsert → status='approved'.\n\nfacilities 적재가 실패하면 admin_ingest_requests 상태는 갱신하지 않는다(pending 유지 + 에러 반환).",
+    "operationId": "approve_ingest_request_api_v1_search_ingest_requests_approve_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/IngestApproveRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Approve Ingest Request",
+    "tags": [
+     "search"
+    ]
+   }
+  },
+  "/api/v1/search/keyword": {
+   "get": {
+    "description": "지도 검색 0건일 때만 프런트가 호출하는 TourAPI 키워드 폴백. 상위 5건만 반환한다.\n\n무인증 + IP 당 분당 5회 제한. TOURAPI_KEY 미설정/호출 실패는 500 이 아니라\n{items: [], source: 'unavailable'} 무해 폴백(events.py 축제 라우터와 동일 관례).\n정상 응답(source='tourapi')인데 0건이면 LLM 질의 재작성 폴백(P1-3)을 한 번 시도한다 —\n원 질의 우선 검색은 무개입, unavailable 위에는 LLM 을 쌓지 않는다.",
+    "operationId": "search_keyword_endpoint_api_v1_search_keyword_get",
+    "parameters": [
+     {
+      "description": "검색 키워드",
+      "in": "query",
+      "name": "q",
+      "required": true,
+      "schema": {
+       "description": "검색 키워드",
+       "maxLength": 100,
+       "minLength": 1,
+       "title": "Q",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/KeywordSearchResponse"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Search Keyword Endpoint",
+    "tags": [
+     "search"
+    ]
+   }
+  },
+  "/api/v1/search/places": {
+   "get": {
+    "description": "장소·메뉴·업종으로 경주 카페/식당을 검색한다. 좌표는 같은 Kakao 레코드만 쓴다.",
+    "operationId": "search_places_endpoint_api_v1_search_places_get",
+    "parameters": [
+     {
+      "description": "장소·메뉴·업종 검색어",
+      "in": "query",
+      "name": "q",
+      "required": true,
+      "schema": {
+       "description": "장소·메뉴·업종 검색어",
+       "maxLength": 100,
+       "minLength": 1,
+       "title": "Q",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/PlaceSearchResponse"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Search Places Endpoint",
+    "tags": [
+     "search"
+    ]
+   }
+  },
+  "/api/v1/system/public-settings": {
+   "get": {
+    "description": "공개 시스템 설정 — 인증 없음, 60초 캐시.\n\n반환: { maintenanceMode, noticeText, congestionThreshold, source }\n\n· maintenanceMode — **접속을 막는 플래그가 아니다.** 이 앱은 정적 export 라 서버가\n  요청을 가로챌 수 없다. 이 값으로 할 수 있는 일은 '점검 안내를 전면에 띄우는 것'\n  뿐이다(관리자 화면의 설명 문구도 그렇게 고쳤다).\n· noticeText — 앱 상단 고정 공지. 빈 문자열이면 띄우지 않는다.\n· congestionThreshold — '혼잡(Red)' 등급의 **경계값(%)**. 혼잡도 0~1 스케일로는\n  threshold/100 이다(75 → 0.75). 프런트 분류 함수가 지금 0.25/0.5/0.75 로 하드코딩한\n  마지막 경계가 이 값에 해당한다. 나머지 두 경계(여유/보통)는 이 설정이 정하지 않는다 —\n  관리자 화면이 조정하는 것은 '혼잡' 하나뿐이기 때문이다.",
+    "operationId": "get_public_settings_api_v1_system_public_settings_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "summary": "Get Public Settings",
+    "tags": [
+     "system"
+    ]
+   }
+  },
+  "/api/v1/travel-context/parse": {
+   "post": {
+    "operationId": "parse_context_api_v1_travel_context_parse_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ParseRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ParseResponse"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Parse Context",
+    "tags": [
+     "travel-context"
+    ]
+   }
+  },
+  "/api/v1/users/me/vector": {
+   "get": {
+    "description": "현재 로그인된 사용자의 8차원 선호도 벡터 배열을 조회합니다.",
+    "operationId": "get_my_vector_api_v1_users_me_vector_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/UserVectorResponse"
+        }
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Get My Vector",
+    "tags": [
+     "recommendations"
+    ]
+   }
+  },
+  "/api/v1/voice/turn": {
+   "post": {
+    "operationId": "voice_turn_api_v1_voice_turn_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/VoiceTurnRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/VoiceTurnResponse"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Voice Turn",
+    "tags": [
+     "recommendations"
+    ]
+   }
+  },
+  "/api/v1/warmup": {
+   "get": {
+    "description": "무거운 공유 캐시를 백그라운드로 채우기 시작하고 즉시 돌려준다.\n\n반환은 언제나 `{\"status\": \"warming\"}` 이다 — 이미 돌고 있든, 방금 시작했든, 5분 안에\n끝난 적이 있든 호출자가 할 일은 같다(잠시 뒤에 화면을 열면 된다). 상태를 여러 값으로\n나누면 호출자가 그 값에 분기를 만들게 되는데, 예열은 분기할 만한 사실이 아니다.",
+    "operationId": "warmup_api_v1_warmup_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "additionalProperties": true,
+         "title": "Response Warmup Api V1 Warmup Get",
+         "type": "object"
+        }
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "summary": "Warmup",
+    "tags": [
+     "system"
+    ]
+   }
+  },
+  "/api/v1/weather": {
+   "get": {
+    "operationId": "weather_api_v1_weather_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "summary": "Weather",
+    "tags": [
+     "weather"
+    ]
+   }
+  },
+  "/health": {
+   "get": {
+    "operationId": "health_check_health_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "summary": "Health Check"
+   }
+  },
+  "/predict": {
+   "post": {
+    "operationId": "predict_endpoint_predict_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/PredictRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/PredictResponse"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Predict Endpoint",
+    "tags": [
+     "predict"
+    ]
+   }
+  },
+  "/predict/batch": {
+   "post": {
+    "operationId": "predict_batch_predict_batch_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/BatchPredictRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/BatchPredictResponse"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Predict Batch",
+    "tags": [
+     "predict"
+    ]
+   }
+  },
+  "/predict/day": {
+   "get": {
+    "operationId": "predict_day_predict_day_get",
+    "parameters": [
+     {
+      "description": "시설 타입 (restaurant/cafe/attraction/culture)",
+      "in": "query",
+      "name": "facilityType",
+      "required": true,
+      "schema": {
+       "description": "시설 타입 (restaurant/cafe/attraction/culture)",
+       "title": "Facilitytype",
+       "type": "string"
+      }
+     },
+     {
+      "description": "요일(KST, 0=월 … 6=일). 생략 시 오늘(KST).",
+      "in": "query",
+      "name": "dow",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "maximum": 6,
+         "minimum": 0,
+         "type": "integer"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "description": "요일(KST, 0=월 … 6=일). 생략 시 오늘(KST).",
+       "title": "Dow"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/DayPredictResponse"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Predict Day",
+    "tags": [
+     "predict"
+    ]
+   }
+  },
+  "/predict/golden-hour": {
+   "get": {
+    "description": "오늘 남은 시간대(현재시각 KST ~ 22시, 1시간 격자)의 예측 혼잡 곡선에서 최저 혼잡 60분 창을 찾는다.\n\n/predict/day 와 동일하게 KST↔UTC 변환 후 predict_congestion 을 재사용하고, /predict/batch 와\n동일한 앵커링(현재 실측 혼잡 - 지금 시점 타입수준예측 = offset)으로 시설 개성을 반영한다.\n모델이 미학습이면(get_model_info().trained=False) 모든 시각이 0.5 로 평탄해 '골든타임'이\n의미가 없으므로, 그 평탄 곡선을 그럴듯하게 보여주는 대신 available=False 로 정직하게 폴백한다.",
+    "operationId": "predict_golden_hour_predict_golden_hour_get",
+    "parameters": [
+     {
+      "description": "시설 UUID",
+      "in": "query",
+      "name": "facilityId",
+      "required": true,
+      "schema": {
+       "description": "시설 UUID",
+       "title": "Facilityid",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/GoldenHourResponse"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Predict Golden Hour",
+    "tags": [
+     "predict"
+    ]
+   }
+  },
+  "/predict/model-info": {
+   "get": {
+    "operationId": "model_info_endpoint_predict_model_info_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/ModelInfoResponse"
+        }
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "summary": "Model Info Endpoint",
+    "tags": [
+     "predict"
+    ]
+   }
+  }
+ }
+}
