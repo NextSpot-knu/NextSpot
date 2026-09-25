@@ -133,3 +133,55 @@ def test_pool_is_closed_so_the_retry_gets_a_fresh_connection():
     assert transport.handle_request(_request()).status_code == 200
     assert inner.closed >= 1, "풀을 닫지 않아 재시도가 같은 죽은 연결을 다시 집는다"
     assert inner.calls == 2
+
+
+# --- 닫힌 HTTP/2 연결에 헤더 보내기 거부(LocalProtocolError) — 운영 로그에 50회+ 찍힌 형태 -----------------
+
+_CLOSED_SEND_HEADERS = "Invalid input ConnectionInputs.SEND_HEADERS in state ConnectionState.CLOSED"
+
+
+def _httpcore_closed_error():
+    """httpcore/_sync/http2.py 와 같은 모양: h2 ProtocolError 를 LocalProtocolError 로 감싼다."""
+    import h2.exceptions
+
+    return httpcore.LocalProtocolError(h2.exceptions.ProtocolError(_CLOSED_SEND_HEADERS))
+
+
+def test_closed_connection_send_headers_is_retried_at_the_httpcore_level():
+    inner = _SequenceTransport([_httpcore_closed_error(), _response()])
+    transport = _StaleConnectionRetryTransport(inner)
+
+    assert transport.handle_request(_request()).status_code == 200
+    assert inner.calls == 2
+
+
+def test_closed_connection_send_headers_is_retried_as_httpx_wraps_it():
+    wrapped = httpx.LocalProtocolError(_CLOSED_SEND_HEADERS)
+    wrapped.__cause__ = _httpcore_closed_error()
+    inner = _SequenceTransport([wrapped, _response()])
+    transport = _StaleConnectionRetryTransport(inner)
+
+    assert transport.handle_request(_request()).status_code == 200
+    assert inner.calls == 2
+
+
+def test_closed_connection_retry_is_safe_for_writes_because_nothing_was_sent():
+    # 헤더조차 못 보낸 요청이라 서버는 모른다 — POST 도 한 번만 반영된다.
+    inner = _SequenceTransport([_httpcore_closed_error(), _response()])
+    transport = _StaleConnectionRetryTransport(inner)
+    post = httpx.Request("POST", "https://example.test/rest/v1/recommendations", json={"a": 1})
+
+    assert transport.handle_request(post).status_code == 200
+    assert inner.calls == 2
+
+
+def test_other_local_protocol_errors_are_not_retried():
+    for message in (
+        "Invalid input ConnectionInputs.SEND_DATA in state ConnectionState.CLOSED",  # 헤더는 이미 나감
+        "Header value must be str or bytes",
+    ):
+        inner = _SequenceTransport([httpcore.LocalProtocolError(message)])
+        transport = _StaleConnectionRetryTransport(inner)
+        with pytest.raises(httpcore.LocalProtocolError):
+            transport.handle_request(_request())
+        assert inner.calls == 1

@@ -509,6 +509,15 @@ def test_warmup_never_500s_when_every_loader_explodes(client):  # noqa: F811
     assert client.get("/api/v1/warmup").status_code == 200
 
 
+def _wait_until(predicate, timeout: float = 5.0) -> None:
+    """백그라운드 태스크의 효과를 기다린다(상한 있음 — 끝내 안 오면 뒤의 단정이 실패를 보고한다)."""
+    import time as _time
+
+    deadline = _time.monotonic() + timeout
+    while not predicate() and _time.monotonic() < deadline:
+        _time.sleep(0.01)
+
+
 def test_warmup_recovers_when_the_task_cannot_be_scheduled(client):  # noqa: F811
     """예약 자체가 실패하면 쿨다운 없이 플래그를 풀어 다음 호출이 다시 시도한다."""
     def _cannot_schedule(coro, **_kwargs):
@@ -523,6 +532,9 @@ def test_warmup_recovers_when_the_task_cannot_be_scheduled(client):  # noqa: F81
     warm = AsyncMock(return_value=None)
     with patch.object(warmup_router, "_warm_all", new=warm):
         client.get("/api/v1/warmup")
+        # 예열은 응답 뒤 백그라운드 태스크로 돈다 — 태스크가 시작되기 전에 단정하면 부하 걸린 머신에서
+        # 간헐 실패한다(0 == 1). 패치가 살아 있는 동안(실제 _warm_all 이 돌지 않게) 시작을 기다린다.
+        _wait_until(lambda: warm.await_count >= 1)
     assert warm.await_count == 1
 
 

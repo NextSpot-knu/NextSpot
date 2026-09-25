@@ -56,9 +56,30 @@ def _is_stale_connection_error(exc: BaseException) -> bool:
     while current is not None and id(current) not in seen:
         if isinstance(current, retryable_types):
             return True
+        if _is_closed_connection_send_headers(current):
+            return True
         seen.add(id(current))
         current = current.__cause__ or current.__context__
     return False
+
+
+def _is_closed_connection_send_headers(exc: BaseException) -> bool:
+    """h2 가 **이미 닫힌** 연결에 요청 헤더 보내기를 거부한 오류인가(요청이 한 바이트도 나가지 않은 경우).
+
+    풀에 남은 HTTP/2 연결이 GOAWAY 기록 없이 닫혀 있으면 httpcore 는 h2 의 ProtocolError 를
+    LocalProtocolError 로 감싸 올린다(httpcore/_sync/http2.py — `raise LocalProtocolError(exc)`).
+    메시지: "Invalid input ConnectionInputs.SEND_HEADERS in state ConnectionState.CLOSED".
+    RemoteProtocolError 와 같은 병(죽은 풀 연결)인데 타입이 달라 재시도에서 빠져 있었다 —
+    2026-09-21 이후 운영 로그에 recommend_by_type·account_me_pending·admin_model_trust·
+    availability_evidence 등의 실패로 50회 넘게 찍혔다.
+
+    SEND_HEADERS 단계로 한정한다: 헤더조차 못 보냈으니 서버는 요청을 모른다 → POST·PATCH 도 중복 없이
+    안전하게 다시 보낼 수 있다. 다른 이유의 LocalProtocolError(잘못된 헤더 값 등)는 재시도하지 않는다.
+    """
+    if not isinstance(exc, (httpx.LocalProtocolError, httpcore.LocalProtocolError)):
+        return False
+    message = str(exc)
+    return "ConnectionState.CLOSED" in message and "SEND_HEADERS" in message
 
 
 # 재시도 간격(초). 즉시 한 번, 그다음은 아주 짧게 쉬었다가.
