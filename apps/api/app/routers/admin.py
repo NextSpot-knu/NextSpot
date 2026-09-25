@@ -475,6 +475,69 @@ _TRUST_REC_CAP = 10000       # 추천 노출·스냅샷 가드레일
 _TRUST_OUTCOME_CAP = 10000   # 추천→길찾기→방문 퍼널
 _TRUST_LOG_CAP = 20000       # 관측 수·출처/티어 분포·시설 커버리지
 
+# model-trust 가 recommendation_snapshot 에서 실제로 읽는 칸만 JSON 경로로 받는다(PostgREST `별칭:열->키`).
+# 스냅샷 전체(칸 ~20개 — 추정·가용 근거·TourAPI 사실·참조 시설 등)를 최대 10,000행 받아 쥐던 것을
+# 줄인다(합성 6,000행 실측: 파이썬 객체 16.5MB → 4.4MB). 관제 대시보드 OOM(2026-09-25 18:15 KST)의
+# 주된 방어는 동시 실행 상한·메모리 반환(app.core.memory_guard)이고 이것은 보탬이다.
+# 새 칸을 읽게 되면 여기에도 더한다.
+_TRUST_REC_SELECT = ",".join((
+    "id",
+    "created_at",
+    "s_scoring_mode:recommendation_snapshot->scoring_mode",
+    "s_rank:recommendation_snapshot->rank",
+    "s_open_status_at_arrival:recommendation_snapshot->open_status_at_arrival",
+    "s_max_walk_minutes:recommendation_snapshot->max_walk_minutes",
+    "s_travel_time:recommendation_snapshot->breakdown->travel_time",
+    "s_wait_time:recommendation_snapshot->breakdown->wait_time",
+    "s_congestion:recommendation_snapshot->congestion",
+    "s_operating_hours:recommendation_snapshot->tourapi_facts->operating_hours",
+))
+
+
+def _trust_snapshot(row: dict) -> dict:
+    """_TRUST_REC_SELECT 로 받은 행을 model-trust 가 읽던 스냅샷 모양으로 되돌린다.
+
+    예전 조회(`recommendation_snapshot` 통째)는 행에 스냅샷 dict 가 그대로 있었다 — 그 모양도 받아 준다
+    (테스트 가짜·구 응답 호환). 없는 칸은 None 이라 `.get()` 결과가 예전과 같다.
+    """
+    full = row.get("recommendation_snapshot")
+    if isinstance(full, dict):
+        return full
+    return {
+        "scoring_mode": row.get("s_scoring_mode"),
+        "rank": row.get("s_rank"),
+        "open_status_at_arrival": row.get("s_open_status_at_arrival"),
+        "max_walk_minutes": row.get("s_max_walk_minutes"),
+        "breakdown": {"travel_time": row.get("s_travel_time"), "wait_time": row.get("s_wait_time")},
+        "congestion": row.get("s_congestion"),
+        "tourapi_facts": {"operating_hours": row.get("s_operating_hours")},
+    }
+
+
+def _fetch_trust_recommendations(since: str) -> tuple[list[dict], bool]:
+    """model-trust 의 추천 창 — 얇은 JSON 경로 조회, 거부되면 예전 통째 조회로 한 번 물러선다.
+
+    JSON 경로 select 는 운영 PostgREST 에서 처음 쓰는 모양이라, 만에 하나 거부(400)돼도 관제 화면이
+    500 으로 깨지지 않게 한다. 물러선 조회는 메모리를 더 쓰지만 게이트(app.core.memory_guard)가 동시
+    실행을 묶고 있다. 두 번째도 실패하면 예외를 그대로 올린다(라우터가 500 으로 바꾼다).
+    """
+    def _filters(q):
+        return (
+            q.eq("source", "spot")
+            .gte("created_at", since)
+            .order("created_at", desc=True)
+            .order("id", desc=True)
+        )
+
+    try:
+        return _fetch_capped("recommendations", _TRUST_REC_SELECT, _filters, _TRUST_REC_CAP, endpoint="model-trust")
+    except Exception as exc:  # noqa: BLE001 — 어떤 거부든 한 번은 통째 조회로 물러선다
+        logger.warning("admin_trust_slim_select_failed", error=str(exc))
+        return _fetch_capped(
+            "recommendations", "id,recommendation_snapshot,created_at", _filters, _TRUST_REC_CAP,
+            endpoint="model-trust",
+        )
+
 
 @router.get("/model-trust")
 async def get_model_trust(days: int = 30):
@@ -498,17 +561,7 @@ async def get_model_trust(days: int = 30):
                 .select("version,status,real_data_count,training_started_at,training_ended_at,source_composition,metrics")
                 .eq("status", "active").limit(1).execute
             ),
-            run_admin_io(
-                _fetch_capped,
-                "recommendations",
-                "id,recommendation_snapshot,created_at",
-                lambda q: q.eq("source", "spot")
-                .gte("created_at", since)
-                .order("created_at", desc=True)
-                .order("id", desc=True),
-                _TRUST_REC_CAP,
-                endpoint="model-trust",
-            ),
+            run_admin_io(_fetch_trust_recommendations, since),
             run_admin_io(
                 _fetch_capped,
                 "recommendation_outcomes",
@@ -553,7 +606,7 @@ async def get_model_trust(days: int = 30):
     walk_limit_violations = 0
     scoring_modes: dict[str, int] = {}
     for row in recommendations:
-        snapshot = row.get("recommendation_snapshot") or {}
+        snapshot = _trust_snapshot(row)
         mode = str(snapshot.get("scoring_mode") or "unknown")
         scoring_modes[mode] = scoring_modes.get(mode, 0) + 1
         rank = snapshot.get("rank")

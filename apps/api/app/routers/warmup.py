@@ -26,6 +26,8 @@ from datetime import datetime, timezone
 import structlog
 from fastapi import APIRouter
 
+from app.core.memory_guard import release_memory
+
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1", tags=["system"])
 
@@ -180,6 +182,9 @@ async def _run_warmup() -> None:
     finally:
         _release_warmup()
     logger.info("warmup_run_done", total_ms=round((time.perf_counter() - started) * 1000))
+    # 예열이 끝날 때마다 RSS 가 계단식으로 쌓이던 것(2026-09-25 실측 270→335MB, 타임아웃 뒤 +55MB)을
+    # 끊는다 — 캐시에 남길 것만 남기고 계산 중 쓴 빈 힙은 OS 에 돌려준다(app.core.memory_guard).
+    await asyncio.to_thread(release_memory)
 
 
 @router.get("/warmup")

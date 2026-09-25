@@ -9,6 +9,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.core.executors import shutdown_executors
+from app.core.memory_guard import HeavyAdminGateMiddleware
 from app.core.logging import setup_logging
 from app.routers import recommendations, infrastructures, predict, preferences, admin, reports, coupons, courses, events, tracking, freshness, impact, merchant, safety, search, lab, account, dev, weather, restrooms, travel_context, area_demand, area_demand_admin, inquiries, system, preference_stats, congestion_estimates, engine_validation, engine_validation_admin, engine_validation_calibration, warmup
 
@@ -210,6 +211,10 @@ if "*" in _allowed_origins:
     _cors_origin_policy = {"allow_origins": ["*"], "allow_credentials": False}
 else:
     _cors_origin_policy = {"allow_origins": _allowed_origins, "allow_credentials": True}
+
+# 무거운 관리자 조회 동시 실행 상한 + 끝난 뒤 메모리 반환(app.core.memory_guard). CORS 보다 먼저
+# 등록해 CORS 가 바깥(응답 헤더 담당)에 오게 한다 — 이 게이트는 줄만 세우고 응답을 바꾸지 않는다.
+app.add_middleware(HeavyAdminGateMiddleware)
 
 app.add_middleware(
     CORSMiddleware,
