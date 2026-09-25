@@ -4,7 +4,9 @@ import { useEffect, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { Loader2 } from 'lucide-react';
 import { useAccount, canEnterAdminConsole } from '@/lib/account';
+import { decideAdminGate } from '@/lib/adminGate';
 import { isDemoParam } from '@/lib/demoFixtures';
+import { useT } from '@/lib/i18n/I18nProvider';
 
 // 정적 export 에서는 Next 미들웨어가 실행되지 않으므로, /admin/* 보호는
 // 이 클라이언트 레이아웃 가드가 담당한다.
@@ -12,7 +14,8 @@ import { isDemoParam } from '@/lib/demoFixtures';
 //    (예전엔 번들에 박힌 비밀번호와 localStorage 플래그였다 — 콘솔 한 줄로 통과 가능했다.)
 //  - 이 가드는 UX 일 뿐이다. 우회해도 관리자 API 는 서버가 매 요청 role 을 확인해 403 을 낸다.
 //  - status==='loading' 동안만 로더를 보인다. /account/me 가 실패하면 status='error' 로 끝나므로
-//    "권한 확인 중" 에 영원히 갇히지 않는다(로그인 화면으로 보낸다).
+//    "권한 확인 중" 에 영원히 갇히지 않는다. 로그인 화면으로 보내는 것은 판정이 **부정으로 끝났을 때만**
+//    (세션 없음·역할 부족)이다 — 서버에 닿지 못한 실패는 권한 판정이 아니다(lib/adminGate.ts).
 //  - 로그인 페이지(/admin/login)는 공개로 통과. 그 외 /admin/* 는 세션 없으면 로그인으로 보낸다.
 // 재방문 스테일-우선 게이트 캐시 — 직전에 관리자로 판정된 브라우저는 "권한 확인 중" 로더 없이
 // 콘솔을 먼저 그리고, 실제 판정은 백그라운드에서 계속 진행한다. 이 가드는 UX 일 뿐이므로(아래
@@ -23,6 +26,7 @@ const GATE_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
+  const t = useT();
   const pathname = usePathname();
   const isLoginRoute = pathname === '/admin/login';
   const [mounted, setMounted] = useState(false);
@@ -59,38 +63,74 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   }, [pathname]);
 
   // 마운트 후에만 localStorage 평가(서버 프리렌더/하이드레이션 불일치 방지).
-  const { account, status } = useAccount();
-  const resolved = mounted && status !== 'loading';
-  const authed = resolved && canEnterAdminConsole(account);
+  const { account, status, unreachable, refresh } = useAccount();
+  const gate = decideAdminGate({
+    mounted,
+    status,
+    unreachable,
+    allowed: canEnterAdminConsole(account),
+    isLoginRoute,
+    demo,
+    optimisticAllowed,
+  });
 
-  // 판정이 끝날 때마다 캐시를 갱신한다 — 긍정이면 저장, 부정이면 제거(다음 방문은 로더 경로).
+  // 판정이 끝날 때마다 캐시를 갱신한다 — 긍정이면 저장, 부정으로 끝났을 때만 제거(다음 방문은 로더 경로).
+  // 서버에 닿지 못한 실패는 캐시를 건드리지 않는다. 데모는 남의 게이트 캐시를 건드리지 않는다.
   useEffect(() => {
-    if (!resolved || demo) return; // 데모는 남의 게이트 캐시를 지우지 않는다.
+    if (gate.cache === 'keep') return;
     try {
-      if (authed) {
+      if (gate.cache === 'save') {
         window.localStorage.setItem(GATE_CACHE_KEY, JSON.stringify({ allowed: true, savedAt: Date.now() }));
       } else {
         window.localStorage.removeItem(GATE_CACHE_KEY);
       }
     } catch { /* 저장소 차단 — 캐시 없이 동작 */ }
-  }, [resolved, authed, demo]);
+  }, [gate.cache]);
 
   useEffect(() => {
-    if (resolved && !isLoginRoute && !authed && !demo) {
+    if (gate.redirectToLogin) {
       router.replace('/admin/login');
     }
-  }, [resolved, isLoginRoute, authed, demo, pathname, router]);
+  }, [gate.redirectToLogin, pathname, router]);
 
-  // 로그인 페이지는 항상 통과. 캐시된 긍정 판정은 판정이 '끝나기 전까지만' 낙관 렌더한다 —
-  // 부정으로 끝나면 즉시 로더+리다이렉트 경로로 떨어진다.
-  const content = isLoginRoute || demo || authed || (optimisticAllowed && !resolved)
-    ? children
-    : (
+  // 로그인 페이지·데모·확인된 관리자는 통과. 캐시된 긍정 판정은 판정이 '부정으로 끝나기 전까지' 낙관
+  // 렌더한다(서버에 닿지 못한 동안에도 콘솔을 유지) — 부정으로 끝나면 즉시 로더+리다이렉트로 떨어진다.
+  let content: React.ReactNode;
+  if (gate.view === 'console') {
+    content = children;
+  } else if (gate.view === 'server-unreachable') {
+    // 서버가 잠시 응답하지 않아 권한을 확인하지 못했다 — 로그인을 다시 시키지 않는다(세션은 그대로다).
+    // AccountProvider 가 간격을 늘려 가며 자동으로 다시 묻고, 여기서도 직접 다시 물을 수 있다.
+    content = (
+      <div className="min-h-screen w-full flex items-center justify-center bg-hanok px-6">
+        <div className="w-full max-w-sm rounded-3xl border border-hanok-line bg-hanok-card p-6 text-center shadow-sm">
+          <p className="font-bold text-hanok-ink">{t('merchantGate.serverTitle')}</p>
+          <p className="mt-1.5 text-xs leading-relaxed text-hanok-muted">{t('merchantGate.serverDesc')}</p>
+          <button
+            type="button"
+            onClick={() => void refresh()}
+            className="mt-5 w-full rounded-xl bg-gradient-to-r from-gold to-terracotta py-3 text-sm font-semibold text-hanok-ink transition-opacity hover:opacity-90"
+          >
+            {t('common.retry')}
+          </button>
+          <button
+            type="button"
+            onClick={() => router.push('/admin/dashboard?demo=1')}
+            className="mt-2 w-full rounded-xl border border-gold/40 bg-gold/10 py-2.5 text-sm font-semibold text-gold-deep transition-colors hover:bg-gold/20"
+          >
+            {t('demo.enter')}
+          </button>
+        </div>
+      </div>
+    );
+  } else {
+    content = (
       <div className="min-h-screen w-full flex items-center justify-center bg-hanok text-hanok-muted">
         <Loader2 className="animate-spin" size={20} />
         <span className="ml-2 text-sm">권한 확인 중…</span>
       </div>
     );
+  }
 
   // `nextspot-admin` 은 globals.css 에서 단청 강조색(금·청록·주칠)을 한옥 웜다크 서페이스에
   // 맞춰 한 단계 밝히는 토큰 스코프다. `contents` 라 레이아웃 박스를 만들지 않으므로
