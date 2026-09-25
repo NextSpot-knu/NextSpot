@@ -1,5 +1,6 @@
 import asyncio
 import concurrent.futures
+import sys
 import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -36,6 +37,13 @@ _logger = structlog.get_logger()
 # 관리자 대시보드·리포트의 블로킹 조회는 ADMIN_IO(4). I/O 상한과 분리해야 관광객 요청의
 # DNS·Supabase 대기가 관리자 집계 뒤에 줄 서지 않는다.
 _IO_EXECUTOR_MAX_WORKERS = 16
+
+# GIL 전환 간격(기본 5ms)을 1ms 로 줄인다. 0.5 CPU 에서 CPU 를 쓰는 스레드(권역 수요 백테스트·
+# 보행 경로·gc)가 여럿 돌면 이벤트 루프 스레드가 GIL 을 얻을 때마다 스레드 수 × 5ms 를 기다려
+# /health 까지 초 단위로 늦어진다(실측: 합성 부하 /health 최대 2.0~2.8초 → 0.5초, 혼합 부하 5초 초과 44~64회 → 0회).
+# 값은 결과를 바꾸지 않고 '누가 언제 GIL 을 잡느냐' 만 바꾼다.
+_GIL_SWITCH_INTERVAL_SECONDS = 0.001
+sys.setswitchinterval(_GIL_SWITCH_INTERVAL_SECONDS)
 
 
 def _install_bounded_executor(loop: asyncio.AbstractEventLoop) -> concurrent.futures.ThreadPoolExecutor:
@@ -258,9 +266,12 @@ app.include_router(dev.router)  # 개발자 콘솔 — 역할 임명·가게 소
                                 #   /admin(정부기관 관제)과 경로부터 분리한다 — 권한 운영은 팀 전용.
 
 # 1. Health Check Endpoint
+# Render 는 /health 가 5초 안에 답하지 않으면 인스턴스를 재시작한다. 동기 def 는 anyio 스레드풀
+# (토큰 40개)에서 돌아 동기 의존성(get_current_user)·동기 엔드포인트가 풀을 채우면 그 뒤에 줄을 선다.
+# async def 는 이벤트 루프에서 바로 답하므로 스레드풀·executor 포화와 무관하다.
 @app.get("/")
 @app.get("/health")
-def health_check():
+async def health_check():
     return {
         "status": "healthy",
         "project": settings.PROJECT_NAME,

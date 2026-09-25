@@ -22,3 +22,22 @@ def test_importing_the_app_does_not_load_pyproj():
     )
     assert out.returncode == 0, out.stderr[-2000:]
     assert out.stdout.strip().splitlines()[-1] == "False", "API 기동 경로가 pyproj 를 적재한다 — 배치 전용으로 되돌릴 것"
+
+
+def test_health_endpoint_answers_on_the_event_loop_not_the_thread_pool():
+    """Render 는 /health 가 5초 안에 답하지 않으면 재시작한다. 동기 def 는 anyio 스레드풀(40)에서 돌아
+    get_current_user 같은 동기 의존성이 풀을 채우면 그 뒤에 줄을 섰다(실측: 풀 포화 시 509회 중 483회 5초 초과).
+    async def 는 풀과 무관하게 루프에서 바로 답한다."""
+    import inspect
+
+    from app import main
+
+    assert inspect.iscoroutinefunction(main.health_check)
+
+
+def test_gil_switch_interval_is_short_so_the_event_loop_is_not_starved():
+    import sys
+
+    from app import main
+
+    assert sys.getswitchinterval() == main._GIL_SWITCH_INTERVAL_SECONDS <= 0.001
