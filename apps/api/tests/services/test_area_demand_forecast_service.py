@@ -85,6 +85,50 @@ def test_backtest_is_time_ordered_and_reports_real_mae_only_when_available():
     assert quality["baseline_mae"] is not None
 
 
+def _backtest_series(seed: int, *, mixed_offsets: bool, ties: bool) -> list[AreaDemandPoint]:
+    rng = random.Random(seed)
+    kst = timezone(timedelta(hours=9))
+    at = datetime(2026, 8, 1, tzinfo=timezone.utc) + timedelta(minutes=rng.randint(0, 1439))
+    points = []
+    for _ in range(36 * 96):  # 15분 간격 36일 — 28일 평가 창 전체가 비자명한 예측을 낸다
+        at += timedelta(minutes=rng.choice((10, 15, 20)), seconds=rng.randint(0, 120))
+        observed = at.astimezone(kst) if mixed_offsets and rng.random() < 0.5 else at
+        level = rng.choice((0.0, 0.5, 1.0)) if ties and rng.random() < 0.3 else round(rng.random(), 6)
+        points.append(AreaDemandPoint(observed, level, 3))
+        if ties and rng.random() < 0.05:  # 같은 순간, 다른 오프셋 표기
+            points.append(AreaDemandPoint(observed.astimezone(timezone.utc), round(rng.random(), 3), 2))
+    rng.shuffle(points)
+    return points
+
+
+@pytest.mark.parametrize(
+    ("seed", "mixed_offsets", "ties"),
+    [(1, False, False), (2, True, False), (3, True, True)],
+)
+def test_backtest_fast_path_equals_reference_bit_for_bit(seed, mixed_offsets, ties):
+    """빠른 백테스트는 예전 구현(정의)과 **repr 까지** 같아야 한다 — 근사 금지."""
+    points = _backtest_series(seed, mixed_offsets=mixed_offsets, ties=ties)
+    expected = forecast_svc._backtest_forecast_points_reference(points)
+    actual = backtest_forecast_points(points)
+    assert expected["sample_count"] > 30
+    assert repr(actual) == repr(expected)
+
+
+def test_backtest_falls_back_to_reference_for_naive_timestamps(monkeypatch):
+    points = [
+        AreaDemandPoint(datetime(2026, 8, 1) + timedelta(minutes=15 * i), (i % 7) / 7, 3)
+        for i in range(10)
+    ]
+    calls = []
+    real = forecast_svc._backtest_forecast_points_reference
+    monkeypatch.setattr(
+        forecast_svc, "_backtest_forecast_points_reference",
+        lambda pts: calls.append(len(pts)) or real(pts),
+    )
+    assert backtest_forecast_points(points) == real(points)
+    assert calls == [10]
+
+
 # ── 백테스트 캐시 — 후보마다 빗나가면 캐시가 아니다 ────────────────────────
 # 예전에는 삽입 직전에 _quality_cache.clear() 를 해서 항목이 항상 하나뿐이었다.
 # 키에 좌표가 들어가므로 한 번의 추천 안에서도 후보마다 키가 달라, TTL 30분짜리 캐시가
@@ -136,6 +180,106 @@ def test_the_cache_holds_more_than_one_course_request():
     상한이 그 한두 배면 다음 요청이 직전 요청의 항목을 밀어내 TTL 30분이 무의미해진다.
     """
     assert forecast_svc._QUALITY_CACHE_MAX_ENTRIES >= 24 * 4
+
+
+def test_concurrent_misses_on_the_same_key_run_the_backtest_once(monkeypatch):
+    """코스 한 자리의 후보 12곳은 함께 채점된다 — 같은 격자 둘이 동시에 빗나가면 비싼
+    백테스트(미스 1건 ≈ 1.3 CPU초)가 두 번 돌았다. 첫 호출만 계산하고 나머지는 그 값을 받는다."""
+    import threading
+
+    forecast_svc._quality_cache.clear()
+    pts = _points()
+    real = forecast_svc.backtest_forecast_points
+    calls: list[int] = []
+    started = threading.Event()
+    release = threading.Event()
+
+    def _slow(points):
+        calls.append(1)
+        started.set()
+        assert release.wait(5)
+        return real(points)
+
+    monkeypatch.setattr(forecast_svc, "backtest_forecast_points", _slow)
+    results: list = [None] * 4
+
+    def _run(slot: int) -> None:
+        results[slot] = forecast_svc._cached_backtest(pts, 35.836, 129.210)
+
+    first = threading.Thread(target=_run, args=(0,))
+    first.start()
+    assert started.wait(5)
+    others = [threading.Thread(target=_run, args=(i,)) for i in range(1, 4)]
+    for thread in others:
+        thread.start()
+    time.sleep(0.05)
+    release.set()
+    for thread in [first, *others]:
+        thread.join(5)
+
+    assert len(calls) == 1, f"같은 키의 백테스트가 {len(calls)}번 돌았다"
+    assert all(result is results[0] for result in results)
+    assert results[0] == real(pts)
+    assert not forecast_svc._quality_inflight
+
+
+def test_a_failed_backtest_is_not_shared_and_the_next_caller_recomputes(monkeypatch):
+    forecast_svc._quality_cache.clear()
+    pts = _points()
+    real = forecast_svc.backtest_forecast_points
+
+    def _boom(points):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(forecast_svc, "backtest_forecast_points", _boom)
+    with pytest.raises(RuntimeError):
+        forecast_svc._cached_backtest(pts, 35.836, 129.210)
+    assert not forecast_svc._quality_inflight
+    assert not forecast_svc._quality_cache
+
+    monkeypatch.setattr(forecast_svc, "backtest_forecast_points", real)
+    assert forecast_svc._cached_backtest(pts, 35.836, 129.210) == real(pts)
+
+
+def test_the_backtest_cache_survives_concurrent_worker_threads(monkeypatch):
+    """to_thread 워커 여러 개가 상한에 닿은 캐시를 동시에 넣고 빼도 예외가 나면 안 된다.
+
+    락이 없으면 한 워커의 min()/items() 순회 중 다른 워커가 삽입·축출해
+    RuntimeError('dictionary keys changed during iteration') 나 KeyError 가 났고,
+    그 요청 전체가 503 이 됐다(대기판 골든에서 실측). 전환 간격을 극단적으로 줄여
+    경합 창을 넓힌다 — 락이 빠지면 이 테스트는 수천 건의 예외로 실패한다.
+    """
+    import sys
+    import threading
+
+    monkeypatch.setattr(
+        forecast_svc, "backtest_forecast_points",
+        lambda _pts: {"sample_count": 0, "mae": None, "baseline_mae": None, "improvement_rate": None},
+    )
+    forecast_svc._quality_cache.clear()
+    pts = _points(4)
+    errors: list[str] = []
+
+    def _worker(tid: int) -> None:
+        for i in range(600):
+            try:
+                forecast_svc._cached_backtest(pts, 35.0 + tid * 0.5 + i * 0.001, 129.0)
+            except Exception as exc:  # noqa: BLE001 — 예외 자체가 검사 대상이다
+                errors.append(repr(exc))
+
+    previous = sys.getswitchinterval()
+    sys.setswitchinterval(1e-6)
+    try:
+        threads = [threading.Thread(target=_worker, args=(tid,)) for tid in range(8)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+    finally:
+        sys.setswitchinterval(previous)
+        forecast_svc._quality_cache.clear()
+
+    assert not errors, f"동시 접근에서 캐시가 깨졌다: {len(errors)}건, 예: {errors[:2]}"
 
 
 @pytest.mark.asyncio
@@ -693,3 +837,63 @@ def test_the_points_cache_evicts_the_oldest_when_nothing_has_expired():
     assert keys[0] not in forecast_svc._points_cache, "가장 오래된 격자가 남았다"
     assert keys[-1] in forecast_svc._points_cache
     assert (4.0, 0.0) in forecast_svc._points_cache
+
+
+def _indexed_series(seed: int) -> list[AreaDemandPoint]:
+    """자정(KST) 경계·같은 순간의 다른 tz 표기·중복 시각·동률 수준이 섞인 정렬된 시계열."""
+    rng = random.Random(seed)
+    kst = timezone(timedelta(hours=9))
+    start = datetime(2026, 7, 1, 14, 3, 17, tzinfo=timezone.utc)  # 23:03 KST
+    points: list[AreaDemandPoint] = []
+    at = start
+    for step in range(2_500):
+        at += timedelta(minutes=rng.choice([1, 7, 10, 10, 13, 31]), seconds=rng.randint(0, 59))
+        observed = at.astimezone(kst) if step % 3 == 0 else at
+        points.append(AreaDemandPoint(observed, rng.choice([0.0, 0.5, 1.0, round(rng.random(), 2)]), 2))
+        if step % 17 == 0:
+            other = at if observed is not at else at.astimezone(kst)
+            points.append(AreaDemandPoint(other, round(rng.random(), 1), 1))
+    points.sort(key=lambda point: point.observed_at)
+    return points
+
+
+def test_indexed_forecast_is_identical_to_the_full_scan():
+    """격자 캐시용 색인 경로는 전수 필터와 **같은 dict**(값·float 비트·isoformat·키 순서)를 내야 한다."""
+    for seed in (1, 2, 3):
+        points = _indexed_series(seed)
+        index = forecast_svc._SeriesIndex.build(points)
+        assert index is not None
+        last = points[-1].observed_at
+        nows = [last, last + timedelta(minutes=20), points[len(points) // 2].observed_at,
+                points[0].observed_at, last - timedelta(days=3, seconds=1)]
+        compared = non_null = 0
+        for now in nows:
+            for minutes in range(0, 60 * 26, 23):
+                arrival = now + timedelta(minutes=minutes)
+                expected = forecast_from_points(points, arrival, now=now)
+                actual = forecast_svc._forecast_from_points(points, arrival, now, index)
+                assert actual == expected and repr(actual) == repr(expected), (seed, now, arrival)
+                compared += 1
+                non_null += expected is not None
+        assert non_null > compared // 3  # 대부분 실제 예측값을 비교했다(모두 None 이면 무의미)
+
+
+def test_series_index_refuses_inputs_it_cannot_prove_equal():
+    points = _indexed_series(4)[:200]
+    assert forecast_svc._SeriesIndex.build(list(reversed(points))) is None  # 정렬 안 됨
+    naive = [AreaDemandPoint(p.observed_at.replace(tzinfo=None), p.level, 1) for p in points]
+    assert forecast_svc._SeriesIndex.build(naive) is None  # naive 시각
+
+
+def test_series_index_is_only_kept_for_the_cached_list_and_dropped_with_it():
+    points = _indexed_series(5)[:300]
+    key = (35.836, 129.21)
+    assert forecast_svc._series_index_for(key, points) is None  # 캐시에 없는 리스트는 색인하지 않는다
+    forecast_svc._points_cache_put(key, points)
+    index = forecast_svc._series_index_for(key, points)
+    assert index is not None and forecast_svc._series_index_for(key, points) is index
+    assert forecast_svc._series_index_for(key, list(points)) is None  # 다른 리스트 객체
+    forecast_svc._points_cache_put(key, list(points))
+    assert key not in forecast_svc._series_indexes  # 덮어쓰면 함께 버린다
+    forecast_svc.reset_points_cache()
+    assert not forecast_svc._series_indexes

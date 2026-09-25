@@ -83,13 +83,31 @@ def _start_background_reload(
 async def get_facilities_cached(
     key: tuple[Any, ...],
     loader: Callable[[], Awaitable[list[dict]]],
+    *,
+    isolate: bool = True,
 ) -> list[dict]:
-    """Return an isolated copy, serving soft-expired rows while refreshing."""
+    """Return an isolated copy, serving soft-expired rows while refreshing.
+
+    ``isolate=False`` skips the deep copy and returns a new list holding the
+    cached row objects themselves. Callers that pass it must treat every row
+    (and everything nested in it) as read-only, and deep-copy the rows they keep
+    before anything can mutate them. The cached rows are never mutated in place;
+    a reload stores a new list, so a snapshot stays valid after a refresh.
+    """
+    rows = await _get_cached_rows(key, loader)
+    return copy.deepcopy(rows) if isolate else list(rows)
+
+
+async def _get_cached_rows(
+    key: tuple[Any, ...],
+    loader: Callable[[], Awaitable[list[dict]]],
+) -> list[dict]:
+    """Return the shared cached list. Callers must not mutate it or its rows."""
     now = time.monotonic()
     with _lock:
         cached = _entries.get(key)
         if cached is not None and cached[0] > now:
-            return copy.deepcopy(cached[2])
+            return cached[2]
 
         if cached is not None and cached[1] > now:
             flight = _flights.get(key)
@@ -97,7 +115,7 @@ async def get_facilities_cached(
                 flight = Future()
                 _flights[key] = flight
                 _start_background_reload(key, loader, flight, _generation)
-            return copy.deepcopy(cached[2])
+            return cached[2]
 
         if cached is not None:
             _entries.pop(key, None)
@@ -111,10 +129,10 @@ async def get_facilities_cached(
 
     if not owner:
         rows = await asyncio.wrap_future(flight)
-        return copy.deepcopy(rows)
+        return rows
 
     rows = await _reload(key, loader, flight, load_generation)
-    return copy.deepcopy(rows)
+    return rows
 
 
 def invalidate_facility_cache() -> None:

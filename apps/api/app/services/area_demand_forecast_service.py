@@ -13,10 +13,16 @@
 from __future__ import annotations
 
 import asyncio
+import bisect
 import statistics
+import threading
 import time
+from array import array
+from bisect import bisect_left
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from functools import lru_cache
+from operator import attrgetter
 from typing import Any
 
 import structlog
@@ -133,6 +139,10 @@ _points_cache: dict[tuple[float, float], tuple[float, list["AreaDemandPoint"]]] 
 # 같은 격자를 동시에 요청하면 RPC 도 동시에 나간다. 격자마다 락을 하나 두어 **첫 요청만**
 # 왕복하고 나머지는 그 결과를 기다리게 한다(예열과 채점이 겹칠 때 실제로 일어난다).
 _points_locks: dict[tuple[float, float], asyncio.Lock] = {}
+# 격자 시계열의 (요일군, 시각-분) 색인 — `_SeriesIndex` 참조. **캐시에 들어 있는 바로 그 리스트**
+# 에 대해서만 만들고, 격자가 `_points_cache` 에서 빠지는 모든 자리(TTL·상한·덮어쓰기·리셋)에서
+# 함께 버린다. 그래서 캐시가 이미 붙들고 있는 시계열 외에 아무것도 더 붙들지 않는다.
+_series_indexes: dict[tuple[float, float], tuple[list["AreaDemandPoint"], "_SeriesIndex"]] = {}
 
 
 def _grid_key(latitude: float, longitude: float) -> tuple[float, float]:
@@ -146,6 +156,7 @@ def _points_cache_get(key: tuple[float, float]) -> list["AreaDemandPoint"] | Non
         return None
     if time.monotonic() - hit[0] >= _POINTS_CACHE_TTL_SECONDS:
         _points_cache.pop(key, None)
+        _series_indexes.pop(key, None)
         return None
     return hit[1]
 
@@ -156,8 +167,12 @@ def _points_cache_put(key: tuple[float, float], points: list["AreaDemandPoint"])
         for stale in [k for k, (at, _) in _points_cache.items()
                       if now - at >= _POINTS_CACHE_TTL_SECONDS]:
             _points_cache.pop(stale, None)
+            _series_indexes.pop(stale, None)
         while len(_points_cache) >= _POINTS_CACHE_MAX_ENTRIES:
-            _points_cache.pop(min(_points_cache, key=lambda k: _points_cache[k][0]), None)
+            oldest = min(_points_cache, key=lambda k: _points_cache[k][0])
+            _points_cache.pop(oldest, None)
+            _series_indexes.pop(oldest, None)
+    _series_indexes.pop(key, None)
     _points_cache[key] = (now, points)
 
 
@@ -169,6 +184,7 @@ def reset_points_cache() -> None:
     """
     _points_cache.clear()
     _points_locks.clear()
+    _series_indexes.clear()
     _datetime_intern.clear()
     _level_intern.clear()
 
@@ -186,6 +202,16 @@ _quality_cache: dict[tuple[float, float, int, str], tuple[float, dict[str, Any]]
 # 256개라도 수십 KB 수준이다(Render 무료 인스턴스에서도 무시할 만하다).
 _QUALITY_CACHE_MAX_ENTRIES = 256
 _QUALITY_CACHE_TTL_SECONDS = 30 * 60.0
+# 같은 키의 백테스트가 **동시에** 빗나가면 각자 처음부터 다시 돈다(코스 한 자리에서 후보
+# 12곳을 asyncio.gather 로 함께 채점하므로, 같은 100m 격자의 두 후보가 둘 다 미스를 본다 —
+# 실측: 기본 코스의 미스 17건 중 7건이 이미 돌고 있던 키의 중복 계산). 키마다 진행 중 표시를
+# 두어 첫 호출만 계산하고 나머지는 그 결과를 기다린다(single-flight). 값은 그대로다:
+# 백테스트는 순수 함수이고, 기다린 쪽이 받는 값은 캐시 적중 때 받았을 바로 그 값이다.
+# 같은 락이 캐시 조회·만료 정리·삽입도 감싼다 — 여러 to_thread 워커가 락 없이 dict 를
+# 고치면 min() 순회 중 "dictionary keys changed during iteration" 으로 요청이 503 이 된다.
+# 비싼 계산 자체는 락 밖에서 돈다.
+_quality_lock = threading.Lock()
+_quality_inflight: dict[tuple[float, float, int, str], threading.Event] = {}
 
 
 def _aware(value: Any) -> datetime | None:
@@ -268,6 +294,101 @@ def _circular_minutes(a: int, b: int) -> int:
     return min(direct, 24 * 60 - direct)
 
 
+_DAY_MINUTES = 24 * 60
+
+
+@lru_cache(maxsize=None)
+def _window_minutes(target_clock: int, window: int) -> tuple[int, ...]:
+    """``_circular_minutes(m, target_clock) <= window`` 인 시각-분 m(0~1439) 전부, 오름차순.
+
+    원래 필터의 시간대 조건을 **그 함수 그대로** 1,440개 분에 미리 적용해 둔 것이다.
+    항목은 (시각-분 1,440종 x 창 크기) 이하라 상한이 필요 없다.
+    """
+    return tuple(
+        minute for minute in range(_DAY_MINUTES)
+        if _circular_minutes(minute, target_clock) <= window
+    )
+
+
+class _SeriesIndex:
+    """정렬된 시계열 하나에 대한 (KST 요일군, KST 시각-분) -> 원소 번호 색인.
+
+    왜: 추천·코스가 후보마다 부르는 ``forecast_from_points`` 는 매번 시계열 전량(격자당 4~8천 점)을
+    훑으며 점마다 ``astimezone`` 을 2~4번 한다(웜 코스 CPU 의 절반). 그런데 같은 격자 시계열은
+    ``_points_cache`` 에 5분 동안 **같은 리스트 객체**로 남아 여러 후보·요청이 되풀이해 쓴다.
+    점마다의 요일군·시각-분은 시계열에만 달린 값이라 한 번만 계산해 두고, 호출마다는
+    도착 시각 ±30분에 드는 분 버킷만 읽는다.
+
+    값은 원래 필터와 **정확히 같다**: 버킷은 ``_is_weekend``/``_clock_minutes`` 와 같은 식으로
+    만들고, 과거 조건(``observed_at < cutoff``)은 정렬된 시계열의 앞부분이므로 이분 탐색으로 자른다.
+    그 전제(고정 오프셋 aware 시각·오름차순)가 하나라도 깨지면 ``build`` 가 ``None`` 을 돌려
+    호출부가 원래 전수 필터로 돌아간다.
+    """
+
+    __slots__ = ("size", "order", "starts")
+
+    def __init__(self, size: int, order: array, starts: array) -> None:
+        self.size = size
+        self.order = order    # 원소 번호: (주말 여부, 시각-분) 버킷 순, 버킷 안에서는 오름차순
+        self.starts = starts  # 버킷 b 의 원소 번호 = order[starts[b]:starts[b + 1]]
+
+    @classmethod
+    def build(cls, points: list[AreaDemandPoint]) -> _SeriesIndex | None:
+        buckets: list[list[int]] = [[] for _ in range(2 * _DAY_MINUTES)]
+        previous: datetime | None = None
+        for position, point in enumerate(points):
+            observed_at = point.observed_at
+            # 고정 오프셋만: 그래야 '비교 순서 = 순간 순서' 가 되어 앞부분 자르기가 원래 필터와 같다.
+            if type(observed_at.tzinfo) is not timezone:
+                return None
+            if previous is not None and not previous <= observed_at:
+                return None
+            previous = observed_at
+            local = observed_at.astimezone(KST)  # _is_weekend·_clock_minutes 와 같은 변환
+            weekend = local.weekday() >= 5
+            buckets[(_DAY_MINUTES if weekend else 0) + local.hour * 60 + local.minute].append(position)
+        order = array("I")
+        starts = array("I", [0])
+        for bucket in buckets:
+            order.extend(bucket)
+            starts.append(len(order))
+        return cls(len(points), order, starts)
+
+    def eligible(
+        self,
+        points: list[AreaDemandPoint],
+        before: int,
+        target_weekend: bool,
+        target_clock: int,
+    ) -> list[AreaDemandPoint]:
+        """원래 ``eligible`` 과 같은 원소를 **같은 순서**(시계열 순)로 돌려준다."""
+        base = _DAY_MINUTES if target_weekend else 0
+        order, starts = self.order, self.starts
+        picked: list[int] = []
+        for minute in _window_minutes(target_clock, _TIME_WINDOW_MINUTES):
+            low, high = starts[base + minute], starts[base + minute + 1]
+            if low != high:
+                picked.extend(order[low:bisect_left(order, before, low, high)])
+        picked.sort()
+        return [points[position] for position in picked]
+
+
+def _series_index_for(
+    key: tuple[float, float], points: list[AreaDemandPoint]
+) -> _SeriesIndex | None:
+    """``points`` 가 지금 격자 캐시에 든 바로 그 리스트일 때만 색인을 (만들어) 돌려준다."""
+    cached = _points_cache.get(key)
+    if cached is None or cached[1] is not points:
+        return None
+    hit = _series_indexes.get(key)
+    if hit is not None and hit[0] is points and hit[1].size == len(points):
+        return hit[1]
+    index = _SeriesIndex.build(points)
+    if index is not None:
+        _series_indexes[key] = (points, index)
+    return index
+
+
 def forecast_from_points(
     points: list[AreaDemandPoint],
     arrival: datetime,
@@ -275,6 +396,16 @@ def forecast_from_points(
     now: datetime | None = None,
 ) -> dict[str, Any] | None:
     """과거 자료만으로 동일 요일군·시간대 중앙값과 제한된 최근 추세를 계산한다."""
+    return _forecast_from_points(points, arrival, now, None)
+
+
+def _forecast_from_points(
+    points: list[AreaDemandPoint],
+    arrival: datetime,
+    now: datetime | None,
+    index: _SeriesIndex | None,
+) -> dict[str, Any] | None:
+    """``forecast_from_points`` 본체. ``index`` 가 있으면 전수 필터 대신 색인으로 같은 표본을 고른다."""
     now = now or datetime.now(timezone.utc)
     if now.tzinfo is None:
         now = now.replace(tzinfo=timezone.utc)
@@ -284,13 +415,19 @@ def forecast_from_points(
     cutoff = now.astimezone(timezone.utc)
     target_clock = _clock_minutes(arrival)
     target_weekend = _is_weekend(arrival)
-    eligible = [
-        point for point in points
-        if point.observed_at.astimezone(timezone.utc) < cutoff
-        and _is_weekend(point.observed_at) == target_weekend
-        and _circular_minutes(_clock_minutes(point.observed_at), target_clock)
-        <= _TIME_WINDOW_MINUTES
-    ]
+    if index is not None and index.size == len(points):
+        # 오름차순 시계열에서 'observed_at < cutoff' 인 원소는 정확히 앞의 `before` 개다.
+        before = bisect_left(points, cutoff, key=attrgetter("observed_at"))
+        eligible = index.eligible(points, before, target_weekend, target_clock)
+    else:
+        index = None
+        eligible = [
+            point for point in points
+            if point.observed_at.astimezone(timezone.utc) < cutoff
+            and _is_weekend(point.observed_at) == target_weekend
+            and _circular_minutes(_clock_minutes(point.observed_at), target_clock)
+            <= _TIME_WINDOW_MINUTES
+        ]
     distinct_dates = {
         point.observed_at.astimezone(KST).date() for point in eligible
     }
@@ -304,8 +441,14 @@ def forecast_from_points(
         return None
 
     baseline = statistics.median(point.level for point in eligible)
-    recent_all = [point for point in points if point.observed_at.astimezone(timezone.utc) < cutoff]
-    recent_all.sort(key=lambda point: point.observed_at)
+    if index is not None:
+        # 이미 정렬된 앞부분이라 안정 정렬해도 그대로다. 아래는 끝 9개만 쓰므로 끝 9개만 자른다.
+        recent_all = points[max(0, before - 9):before]
+    else:
+        recent_all = [
+            point for point in points if point.observed_at.astimezone(timezone.utc) < cutoff
+        ]
+        recent_all.sort(key=lambda point: point.observed_at)
     recent_adjustment = 0.0
     # 10분 버킷 3개(최근 30분)와 직전 6개(60분)를 비교한다. 호출 지연이나
     # 전환 전 15분 자료가 섞여도 observed_at 순서를 사용하므로 시간 누수는 없다.
@@ -566,7 +709,10 @@ async def get_historical_area_demand_forecast(
         # 닫되, 조용히 사라지지는 않게 남긴다.
         logger.warning("area_demand_points_unavailable", error=str(exc))
         return None
-    forecast = forecast_from_points(points, arrival, now=now)
+    # 격자 캐시의 같은 시계열을 후보·요청마다 다시 훑지 않게 색인을 쓴다(값은 그대로 — _SeriesIndex).
+    forecast = _forecast_from_points(
+        points, arrival, now, _series_index_for(_grid_key(latitude, longitude), points)
+    )
     if forecast is None:
         return None
     # ⚠️ 반드시 스레드로 내보낸다 — 캐시 미스 1건이 이벤트 루프를 **초 단위**로 막는다.
@@ -627,7 +773,142 @@ async def get_area_demand_forecast_quality(
 
 
 def backtest_forecast_points(points: list[AreaDemandPoint]) -> dict[str, Any]:
-    """시간 순서 홀드아웃 MAE. 각 실제값은 그 시점 이전 관측만 사용한다."""
+    """시간 순서 홀드아웃 MAE. 각 실제값은 그 시점 이전 관측만 사용한다.
+
+    결과는 아래 ``_backtest_forecast_points_reference``(예전 구현)와 **비트 단위로 같다**.
+    예전 구현은 2시간 간격 평가점(~321개)마다 앞쪽 전체(최대 ~8,000점)를 다시 훑으며 점마다
+    astimezone 을 2~4번 불렀다 — 격자 하나에 CPU 1.3~1.9초, 0.5 CPU 인스턴스에서 벽시계
+    2.5~4초였고 코스 한 번(2·3번 자리)과 대기판 by-type 마다 여러 번 돌았다.
+
+    바뀌는 것은 '어떻게 세느냐' 뿐이다.
+    - 점마다 UTC 순간·주말 여부·KST 시각(분)·KST 날짜를 **한 번만** 계산한다.
+    - 같은 요일군 ±30분 창은 (주말, 시각분) 버킷 61개에서 ``index < i`` 인 점만 읽는다.
+      ``_circular_minutes(m, t) <= 30`` 인 m 은 정확히 ``(t + d) % 1440, d ∈ [-30, 30]`` 이다.
+      읽은 인덱스를 오름차순으로 정렬해 예전과 **같은 순서**로 median·max·min 에 넣는다.
+    - 최근 추세 ``recent_all`` 은 정렬된 앞쪽에서 ``utc < cutoff`` 인 접두부다(정렬이
+      안정적이므로 다시 정렬해도 같은 리스트) — bisect 로 끝 위치만 찾는다.
+    - 단순 비교치(같은 요일군 중앙값)는 insort 로 유지하는 정렬 리스트에서 구한다. insort_right
+      는 같은 값 사이에서 삽입 순서를 지키므로 ``sorted(same_slot)`` 과 원소 단위로 같다.
+    - 부동소수 식(baseline·recent_adjustment·round)은 예전과 한 글자도 다르지 않다.
+    tz 가 없는(naive) 시각, 고정 오프셋이 아닌 tzinfo, NaN 수준이 하나라도 있으면 예전 구현으로
+    그대로 넘긴다(그 경우의 의미를 다시 증명하지 않기 위해). 운영 RPC 점은 늘 고정 오프셋·유한값이다.
+    """
+    for point in points:
+        tzinfo = point.observed_at.tzinfo
+        if not isinstance(tzinfo, timezone) or point.level != point.level:
+            return _backtest_forecast_points_reference(points)
+    ordered = sorted(points, key=lambda point: point.observed_at)
+    if not ordered:
+        return {"sample_count": 0, "mae": None, "baseline_mae": None, "improvement_rate": None}
+    total = len(ordered)
+    observed = [point.observed_at for point in ordered]
+    levels = [point.level for point in ordered]
+    instants = [value.astimezone(timezone.utc) for value in observed]
+    weekend = [_is_weekend(value) for value in observed]
+    clock = [_clock_minutes(value) for value in observed]
+    local_dates = [value.astimezone(KST).date() for value in observed]
+    buckets: dict[tuple[bool, int], list[int]] = {}
+    for position in range(total):
+        buckets.setdefault((weekend[position], clock[position]), []).append(position)
+    window_offsets = range(-_TIME_WINDOW_MINUTES, _TIME_WINDOW_MINUTES + 1)
+    # 같은 요일군 수준을 앞쪽(ordered[:index])만큼 정렬해 둔다(단순 비교치용).
+    same_slot_sorted: dict[bool, list[float]] = {True: [], False: []}
+    inserted = 0
+
+    predictions: list[tuple[float, float, float]] = []
+    eval_cutoff = observed[-1] - timedelta(days=28)
+    first_eval_index = next(
+        (index for index, value in enumerate(observed) if value >= eval_cutoff),
+        total,
+    )
+    last_eval_at: datetime | None = None
+    for index in range(first_eval_index, total):
+        actual_at = observed[index]
+        if last_eval_at is not None and actual_at - last_eval_at < timedelta(hours=2):
+            continue
+        last_eval_at = actual_at
+        while inserted < index:
+            bisect.insort(same_slot_sorted[weekend[inserted]], levels[inserted])
+            inserted += 1
+        level = _backtest_forecast_level(
+            index, instants[index], clock[index], weekend[index],
+            buckets, window_offsets, observed, levels, instants, local_dates,
+        )
+        if level is None:
+            continue
+        same_slot = same_slot_sorted[weekend[index]]
+        if not same_slot:
+            continue
+        naive = statistics.median(same_slot)
+        predictions.append((float(level), levels[index], naive))
+    if not predictions:
+        return {"sample_count": 0, "mae": None, "baseline_mae": None, "improvement_rate": None}
+    mae = sum(abs(predicted - actual) for predicted, actual, _ in predictions) / len(predictions)
+    baseline_mae = sum(abs(naive - actual) for _, actual, naive in predictions) / len(predictions)
+    improvement = (baseline_mae - mae) / baseline_mae if baseline_mae > 0 else None
+    return {
+        "sample_count": len(predictions),
+        "mae": round(mae, 4),
+        "baseline_mae": round(baseline_mae, 4),
+        "improvement_rate": round(improvement, 4) if improvement is not None else None,
+    }
+
+
+def _backtest_forecast_level(
+    index: int,
+    cutoff: datetime,
+    target_clock: int,
+    target_weekend: bool,
+    buckets: dict[tuple[bool, int], list[int]],
+    window_offsets: range,
+    observed: list[datetime],
+    levels: list[float],
+    instants: list[datetime],
+    local_dates: list[Any],
+) -> float | None:
+    """``forecast_from_points(ordered[:index], t, now=t)["level"]`` 와 같은 값(t = 평가 시각).
+
+    arrival == now 이므로 horizon 은 0, decay 는 1.0 이다 — 식은 그대로 둔다.
+    """
+    eligible: list[int] = []
+    for offset in window_offsets:
+        bucket = buckets.get((target_weekend, (target_clock + offset) % (24 * 60)))
+        if not bucket:
+            continue
+        for position in bucket[: bisect.bisect_left(bucket, index)]:
+            if instants[position] < cutoff:
+                eligible.append(position)
+    eligible.sort()  # 예전과 같은 순서(앞쪽 리스트 순서)
+    if len(eligible) < _MIN_SAMPLES or len({local_dates[p] for p in eligible}) < _MIN_DISTINCT_DATES:
+        return None
+    coverage_days = (
+        max(observed[p] for p in eligible)
+        - min(observed[p] for p in eligible)
+    ).total_seconds() / 86_400.0
+    if coverage_days < _MIN_COVERAGE_DAYS:
+        return None
+    baseline = statistics.median(levels[p] for p in eligible)
+    # recent_all == ordered[:recent_end]: 정렬된 앞쪽에서 utc < cutoff 인 부분은 접두부다.
+    recent_end = bisect.bisect_left(instants, cutoff, 0, index)
+    recent_adjustment = 0.0
+    if recent_end >= 9:
+        freshness = cutoff - instants[recent_end - 1]
+        if timedelta(0) <= freshness <= timedelta(minutes=45):
+            recent = statistics.median(levels[recent_end - 3:recent_end])
+            previous = statistics.median(levels[recent_end - 9:recent_end - 3])
+            arrival = now = observed[index]
+            horizon_minutes = max(0.0, (arrival - now).total_seconds() / 60.0)
+            decay = max(0.0, 1.0 - horizon_minutes / 180.0)
+            recent_adjustment = max(
+                -_MAX_RECENT_ADJUSTMENT,
+                min(_MAX_RECENT_ADJUSTMENT, (recent - previous) * decay),
+            )
+    level = _clamp(baseline + recent_adjustment)
+    return round(level, 4)
+
+
+def _backtest_forecast_points_reference(points: list[AreaDemandPoint]) -> dict[str, Any]:
+    """예전 구현(정의). 빠른 경로가 전제를 못 세울 때의 폴백이자 동등성 시험의 기준."""
     predictions: list[tuple[float, float, float]] = []
     ordered = sorted(points, key=lambda point: point.observed_at)
     # 10분 자료와 전환 전 15분 자료가 섞여도 최근 28일을 시간으로 자르고, 실제
@@ -681,11 +962,28 @@ def _cached_backtest(
         len(points),
         points[-1].observed_at.isoformat(),
     )
-    now = time.monotonic()
-    cached = _quality_cache.get(key)
-    if cached and now - cached[0] < _QUALITY_CACHE_TTL_SECONDS:
-        return cached[1]
-    quality = backtest_forecast_points(points)
+    while True:
+        with _quality_lock:
+            now = time.monotonic()
+            cached = _quality_cache.get(key)
+            if cached and now - cached[0] < _QUALITY_CACHE_TTL_SECONDS:
+                return cached[1]
+            running = _quality_inflight.get(key)
+            if running is None:
+                done = threading.Event()
+                _quality_inflight[key] = done
+                break
+        # 같은 키를 다른 스레드가 계산 중이다 — 끝나면 캐시를 다시 본다. 그쪽이 실패했으면
+        # 캐시가 비어 있으므로 다음 바퀴에서 이 호출이 직접 계산한다(예외를 나눠 갖지 않는다).
+        running.wait()
+
+    try:
+        quality = backtest_forecast_points(points)
+    except BaseException:
+        with _quality_lock:
+            _quality_inflight.pop(key, None)
+        done.set()
+        raise
 
     # 예전에는 여기서 _quality_cache.clear() 를 했다. 그런데 키에 좌표가 들어가므로
     # (round(lat,3), round(lng,3), ...) 한 번의 추천 안에서도 후보마다 키가 다르고,
@@ -694,13 +992,16 @@ def _cached_backtest(
     #
     # 키는 그대로 둔다(좌표를 빼면 다른 지점의 결과를 서로 주고받게 된다). 대신 크기만
     # 묶는다: 만료된 항목을 먼저 걷어내고, 그래도 넘치면 오래된 것부터 버린다.
-    if len(_quality_cache) >= _QUALITY_CACHE_MAX_ENTRIES:
-        for stale_key in [k for k, (at, _) in _quality_cache.items()
-                          if now - at >= _QUALITY_CACHE_TTL_SECONDS]:
-            _quality_cache.pop(stale_key, None)
-        while len(_quality_cache) >= _QUALITY_CACHE_MAX_ENTRIES:
-            oldest = min(_quality_cache, key=lambda k: _quality_cache[k][0])
-            _quality_cache.pop(oldest, None)
+    with _quality_lock:
+        if len(_quality_cache) >= _QUALITY_CACHE_MAX_ENTRIES:
+            for stale_key in [k for k, (at, _) in _quality_cache.items()
+                              if now - at >= _QUALITY_CACHE_TTL_SECONDS]:
+                _quality_cache.pop(stale_key, None)
+            while len(_quality_cache) >= _QUALITY_CACHE_MAX_ENTRIES:
+                oldest = min(_quality_cache, key=lambda k: _quality_cache[k][0])
+                _quality_cache.pop(oldest, None)
 
-    _quality_cache[key] = (now, quality)
+        _quality_cache[key] = (now, quality)
+        _quality_inflight.pop(key, None)
+    done.set()
     return quality

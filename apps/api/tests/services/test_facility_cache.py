@@ -32,6 +32,29 @@ async def test_cache_hit_returns_isolated_copy(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_non_isolated_read_shares_rows_without_copying(monkeypatch):
+    now = [100.0]
+    monkeypatch.setattr(facility_cache.time, "monotonic", lambda: now[0])
+
+    async def loader():
+        return [{"id": "f-1", "features": {"source": "tourapi"}}, {"id": "f-2"}]
+
+    first = await facility_cache.get_facilities_cached(("all",), loader, isolate=False)
+    second = await facility_cache.get_facilities_cached(("all",), loader, isolate=False)
+    isolated = await facility_cache.get_facilities_cached(("all",), loader)
+
+    # Same row objects (no deep copy), but each caller gets its own list.
+    assert first is not second
+    assert all(a is b for a, b in zip(first, second))
+    first.pop()
+    assert len(second) == 2
+    # The default read is still an independent deep copy of the same values.
+    assert isolated == second
+    assert isolated[0] is not second[0]
+    assert isolated[0]["features"] is not second[0]["features"]
+
+
+@pytest.mark.asyncio
 async def test_ttl_expiry_reloads(monkeypatch):
     now = [100.0]
     monkeypatch.setattr(facility_cache.time, "monotonic", lambda: now[0])

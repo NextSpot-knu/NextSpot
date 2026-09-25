@@ -18,6 +18,7 @@
     조용히 저하되어 빈 코스([])나 짧은 코스를 반환할 뿐, 값을 지어내지 않는다.
 """
 import asyncio
+import copy
 import hashlib
 from datetime import datetime, timedelta, timezone
 
@@ -567,8 +568,10 @@ def _empty_plan(
 async def _build_course(req: CourseRequest) -> CoursePlan:
     """코스 조립 본체. 예외 처리는 호출부(recommend_course)가 맡는다."""
     # 영업 근거는 여기서 받지 않는다 — 후보 풀이 정해진 뒤 그 몇 곳에만 붙인다(아래 참고).
+    # 시설 행은 **공유 캐시 행 그대로**(깊은 복사 없이) 받는다. 아래 풀 확정까지는 읽기만
+    # 하고, 풀이 정해지면 그 행들만 깊은 복사한다(1,600여 곳 전체 복사 → 풀 수십 곳).
     user_info, all_facilities = await asyncio.gather(
-        fetch_user(req.user_id), fetch_all_facilities(with_availability=False)
+        fetch_user(req.user_id), fetch_all_facilities(with_availability=False, copy_rows=False)
     )
 
     # 순서 지정(sequence) 정규화 — 무효 종류 제거, 코스 길이 상한까지만. 주어지면 types 를 대체한다.
@@ -645,6 +648,11 @@ async def _build_course(req: CourseRequest) -> CoursePlan:
     if not pool:
         # 조건에 맞는 곳은 있는데 걸어갈 만한 거리 안에 없다.
         return _empty_plan(seq, SLOT_NO_CANDIDATE, req.pins)
+
+    # 여기까지는 공유 캐시 행을 읽기만 했다. 이후 단계가 행을 고쳐도 캐시가 오염되지 않게
+    # 풀에 남은 행만 한 번에(공유 참조 관계 그대로) 깊은 복사한다 — 예전의 전체 복사에서
+    # 이 행들이 받던 것과 같은 값이다.
+    pool = copy.deepcopy(pool)
 
     # 머천트 랭킹 연동(2단계): 활성 타임세일(coupon_rate 유효값 교체)·신선 좌석 상태(혼잡 실측 대체)를
     # 스코어링 전에 오버레이한다(score.py 는 무변경 — calculate_spot_score 입력값만 바꿔친다).

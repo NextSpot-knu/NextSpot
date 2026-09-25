@@ -248,8 +248,14 @@ async def fetch_all_facilities(
     center_lng: float | None = None,
     radius_m: float | None = None,
     with_availability: bool = True,
+    copy_rows: bool = True,
 ):
     """시설 목록. ``with_availability=False`` 면 영업 근거를 붙이지 않는다.
+
+    ``copy_rows=False`` 면 캐시 행을 깊은 복사하지 않고 **공유 행 그대로** 돌려준다
+    (목록만 새 list). 호출부는 행과 그 안의 중첩 값을 읽기만 하고, 계속 쓸 행은
+    쓰기 전에 직접 ``copy.deepcopy`` 해야 한다. 코스처럼 1,600여 곳 중 수십 곳만 남기는
+    호출부가 전체 깊은 복사(요청당 수십~백여 ms CPU)를 치르지 않게 하려는 것이다.
 
     영업 근거는 캐시 밖에서 매 요청 조회하는데, PostgREST 의 in.(...) URL 한계 때문에
     150개씩 끊어 받는다 — 시설이 1,600곳이면 **그것만으로 요청 11건**이다.
@@ -269,7 +275,10 @@ async def fetch_all_facilities(
     async def _load():
         return await _fetch_all_facilities_uncached()
 
-    facilities = await get_facilities_cached(key, _load)
+    if copy_rows:
+        facilities = await get_facilities_cached(key, _load)
+    else:
+        facilities = await get_facilities_cached(key, _load, isolate=False)
 
     if center_lat is not None and center_lng is not None and radius_m is not None:
         # _fetch_all_facilities_uncached 의 DB bbox 와 동일한 사각형(NULL 좌표는 DB 필터와

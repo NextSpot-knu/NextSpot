@@ -106,6 +106,33 @@ def test_course_happy_path(auth_client):  # noqa: F811
         assert isinstance(s["reason"], str) and s["reason"]
 
 
+def test_course_never_mutates_the_shared_facility_rows(auth_client):  # noqa: F811
+    # 코스는 시설 캐시 행을 깊은 복사 없이(copy_rows=False) 받아 풀만 복사한다.
+    # 받은 행(중첩 값 포함)이 요청 뒤에도 그대로여야 캐시가 요청 사이에 오염되지 않는다.
+    import copy
+
+    facilities = [
+        _facility("f-cafe", "cafe", 0.0002),
+        _facility("f-rest", "restaurant", 0.0004),
+        _facility("f-attr", "attraction", 0.0006),
+        _facility("f-cult", "culture", 0.0008),
+    ]
+    snapshot = copy.deepcopy(facilities)
+    fetch = AsyncMock(return_value=facilities)
+    congestion_now = {f["id"]: _cong(0.3) for f in facilities}
+
+    with patch("app.routers.courses.fetch_user", new=AsyncMock(return_value=USER_ROW)), \
+         patch("app.routers.courses.fetch_all_facilities", new=fetch), \
+         patch("app.routers.courses.fetch_congestion_map", new=AsyncMock(return_value=congestion_now)), \
+         patch.object(preference_vector_service, "get_user_vector", new=AsyncMock(return_value=UNIT_VECTOR)):
+        res = auth_client.post(_COURSE_PATH, json=_course_body())
+
+    assert res.status_code == 200
+    assert res.json()
+    assert fetch.await_args.kwargs.get("copy_rows") is False
+    assert facilities == snapshot
+
+
 def test_course_type_filter(auth_client):  # noqa: F811
     # types 화이트리스트 → 지정 종류만 코스에 포함.
     facilities = [
