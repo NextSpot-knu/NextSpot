@@ -20,6 +20,10 @@ ENV PORT=8080
 # (2026-09-21, Render nextspot-api 15~60분마다 재시작) 대응. python:3.11-slim 은 Debian
 # 기반(glibc)이라 이 환경변수가 그대로 적용된다(Alpine/musl 베이스였다면 무의미).
 ENV MALLOC_ARENA_MAX=2
+# 고정 128KB 문턱: glibc 의 동적 mmap 문턱(최대 32MB까지 커진다)을 끈다 — 큰 PostgREST 응답 버퍼가 늘 mmap 되어
+# 해제 즉시 OS 로 돌아간다. python:3.11-slim(trixie) 실측: ARENA_MAX=2 단독 대비 정착·피크 -5MB, CPU 불변.
+ENV MALLOC_MMAP_THRESHOLD_=131072
+ENV MALLOC_TRIM_THRESHOLD_=131072
 
 # 포트 개방 메타데이터
 EXPOSE 8080
