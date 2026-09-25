@@ -6,7 +6,7 @@
 
 ## 배포 상태
 
-- **main = 프로덕션.** main push가 Vercel(web)·Render(api)를 자동 배포한다. 마지막 반영은 2026-09-21 —
+- **main = 프로덕션.** main push가 Vercel(web)·Render(api)를 자동 배포한다. 마지막 반영은 2026-09-25 — API OOM 대응(`0408bd7`·`c3e700d`·`09edacb`, 아래 2026-09-25). 그 전 2026-09-22 `ec127ee`, 09-21 —
   `fafdd06`+(심사용 계정 안내 + yunseong 데모 콘솔·비교 헤더·데이터 절 통합, 아래 `2026-09-21b`·`c`; 그전 `374254c`·소개 개편
   `a3b8a6b` 포함). `/guide`는 줄·혼잡으로 잃는 여행 시간과 주변 대안·이동 코스라는
   문제·해결 한 화면만 남겼다. Vercel 응답에서 새 제목·문제 카드·해결 카드가 있고 이전 취향 서사와 기술 설명은 없는 것을 확인했다.
@@ -189,6 +189,19 @@ from checks order by seq;
 
 최신이 위. 10개를 넘으면 가장 오래된 항목을 `archive/HANDOVER_LOG.md` 맨 위로 옮긴다.
 
+## 2026-09-25 — API OOM 대응 승격: 관제 대시보드 동시 조회 상한·메모리 반환 + 09-24 OOM 수정
+
+- 도구·브랜치: Claude Code(원인 조사 워크플로 5렌즈 + 수정 검증 워크플로 4렌즈) / `fix/api-oom-admin-gate` = `ec127ee` +
+  `0408bd7`·`c3e700d`(09-24 OOM 수정, 미배포였음) + `09edacb`(관제 대시보드 게이트) → main.
+- 한 것: Render `nextspot-api`(512MB 단일 인스턴스)가 09-21 이후 8회 OOM 재시작 — 운영은 OOM 수정이 없는 `6a7d653` API 였다.
+  09-25 18:15 KST 는 관제 대시보드가 무거운 관리자 GET 7개를 한꺼번에 쏜 순간(예열이 계단식으로 남긴 ~335MB 위, 09-22 09:40 도
+  같은 패턴), 나머지는 예열 직후·예열 타임아웃 직후. `09edacb`: 무거운 관리자 GET 을 동시 2개로 묶는 ASGI 게이트 + 끝날 때마다
+  gc·`malloc_trim(0)`(예열 끝에도) · model-trust 는 스냅샷 통째 대신 읽는 칸만 JSON 경로로(거부 시 통째 조회로 물러섬).
+- 검증: api `ruff` + `pytest` 1641 통과(게이트·폴백 테스트 포함) · 합성 6,000행 model-trust 16.5→4.4MB · 리뷰·전후 RSS 측정은 커밋 본문.
+- 다음·미결: 배포 후 Render Metrics 에서 관제 대시보드를 한 번 열어 RSS 가 되돌아오는지, 로그에 `admin_trust_slim_select_failed`
+  가 없는지 확인. 예열(GitHub Actions `warmup.yml`)이 남기는 캐시 상한은 `0408bd7` 이 맡는다.
+- 사람 작업: Render 대시보드에서 배포 커밋이 `09edacb`+ 인지, `MALLOC_ARENA_MAX=2` 가 이미지 env 로 들어갔는지(Dockerfile) 확인.
+
 ## 2026-09-21c — 통합: yunseong 데모 콘솔·비교 헤더·데이터 절 + 심사용 계정 안내 → main 승격 준비
 
 - 도구·브랜치: Claude Code(통합 병합 · 6렌즈 리뷰 워크플로 + 3렌즈 검증 워크플로 · 게이트 전체) / `feature/judge-demo-integration`
@@ -363,18 +376,6 @@ from checks order by seq;
 - 검증: `node scripts/check-docs.mjs` 통과 · 배포 API GET 실측(당시 1,645곳 — 2026-09-20 재측정 활성 1,669곳/전체 1,688곳)
 - 다음·미결: `/search/keyword`·`/search/ingest-request`가 프런트에서 끊긴 것은 **문서에 사실로 적어 두기만 했다** — 되살릴지 지울지는 코드 결정.
 - 사람 작업: 마이그레이션 15번 원격 적용 여부 확인 · `area-demand-alert` 시크릿/변수 등록 확인(위 두 절에 추가).
-
-## 2026-09-06 — 분산 코스 재계획 · 관리자 개입 정직화 · 주차 수집 중단 감시 (커밋 로그에서 복원)
-
-- 도구·브랜치: 팀원 / `yunseong` → main (`b6bdcd8`..`d303d80`, 17건 — 머지 커밋 1 포함)
-- 한 것: **역할 신청** 본인 철회·수정(`facility_id`는 수정 불가) + 가게가 없는 신청의 승인 경로(기존 연결 / 새 POI 생성) ·
-  **분산 코스** `POST /courses/plan` — 자리마다 현재 위치 기준 재선정, 자리별 대안·고정(`pins`)·`slot_outcomes`·`plan_id`,
-  보행경로 슬롯당 1회 배치, 코스가 비어도 이유를 돌려주기(심야 규칙 포함) · **관리자 수동 혼잡 개입**을
-  `admin_override`/`single_report`로 내려 모델 학습 정답에서 배제 · **주차 실측 수집 중단 경보**(`area-demand-alert.yml` 매시 +
-  `GET /admin/area-demand-reliability`의 `alert.state` + 대시보드 패널) · 코스 공유 링크·온보딩 도보시간 등 web 버그.
-- 마이그레이션 추가 1건: `20260906120000_admin_override_source`(**코드보다 먼저 원격 적용돼야 한다** — 위 점검 쿼리 15번).
-- 검증: 확인 불가 — 이 항목은 커밋 로그에서 복원한 것이고, 이 17건의 커밋 본문에는 게이트 결과가 적혀 있지 않다.
-- 다음·미결: 마이그레이션 원격 적용 여부 미기록. 09-07 감사 라운드 1·2(6건)가 `yunseong`에 남아 main 미반영.
 
 ## 기록 규칙
 
