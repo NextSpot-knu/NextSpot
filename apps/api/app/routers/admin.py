@@ -20,7 +20,7 @@ from app.core.authz import ROLE_ADMIN, get_current_profile, require_role
 from app.core.executors import run_admin_io
 from app.core.supabase import fetch_all_rows, supabase_admin
 from app.services import briefing_service, congestion_estimator_service, estimated_report_service
-from app.core.admin_cache import cached_admin_view
+from app.core.admin_coalesce import coalesced_admin_view
 
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1/admin", tags=["admin"], dependencies=[Depends(require_role(ROLE_ADMIN))])
@@ -431,7 +431,7 @@ _METRICS_ROW_CAP = 5000
 
 
 @router.get("/metrics")
-@cached_admin_view("admin/metrics")
+@coalesced_admin_view("admin/metrics")
 async def get_metrics(days: int = 28):
     days = max(1, min(days, 90))
     since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
@@ -542,7 +542,7 @@ def _fetch_trust_recommendations(since: str) -> tuple[list[dict], bool]:
 
 
 @router.get("/model-trust")
-@cached_admin_view("admin/model-trust")
+@coalesced_admin_view("admin/model-trust")
 async def get_model_trust(days: int = 30):
     """활성 모델 품질·추천→방문 퍼널·근거 노출 가드레일의 비식별 운영 요약."""
     from app.services.predict_service import get_model_info
@@ -771,7 +771,7 @@ def _kst_date(ts: str) -> str | None:
 
 
 @router.get("/metrics/trend")
-@cached_admin_view("admin/metrics/trend")
+@coalesced_admin_view("admin/metrics/trend")
 async def get_metrics_trend(days: int = 30):
     """최근 days일(KST 일 단위, 오늘 포함) 혼잡·추천수락 실측 추이 — 과거→오늘 순 daily 배열."""
     days = max(1, min(days, 90))
@@ -881,7 +881,7 @@ def _empty_report_estimate(days: int, reason: str) -> dict:
 
 
 @router.get("/reports/estimated")
-@cached_admin_view("admin/reports/estimated")
+@coalesced_admin_view("admin/reports/estimated")
 async def get_estimated_report(days: int = 30):
     """최근 days일(KST, 오늘 포함)의 **추정** 일별 집계 — 실측이 아니다.
 
@@ -940,7 +940,7 @@ _IMPACT_REC_CAP = 5000
 
 
 @router.get("/impact")
-@cached_admin_view("admin/impact")
+@coalesced_admin_view("admin/impact")
 async def get_impact(since: str | None = None, days: int = 1):
     """수락 추천 기준 재배치 건수·절감 대기시간(분) 집계.
 
@@ -1394,7 +1394,7 @@ async def _estimated_day_or_none(date_kst: str) -> dict | None:
 
 
 @router.get("/dashboard/today")
-@cached_admin_view("admin/dashboard/today")
+@coalesced_admin_view("admin/dashboard/today")
 async def get_dashboard_today():
     """오늘(KST) 혼잡 집계 — page.tsx fetchCongestion 과 동일 산식의 compact JSON.
 
@@ -1516,7 +1516,7 @@ def _briefing_view(today: dict) -> dict:
 
 
 @router.get("/dashboard/briefing")
-@cached_admin_view("admin/dashboard/briefing")
+@coalesced_admin_view("admin/dashboard/briefing")
 async def get_dashboard_briefing():
     """오늘의 브리핑 — { briefing: str|null, llmStatus }.
 

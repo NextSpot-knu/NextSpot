@@ -11,7 +11,7 @@ from app.services.area_demand_reliability_service import (
     get_area_demand_reliability,
 )
 from app.services.area_demand_forecast_service import get_area_demand_forecast_quality
-from app.core.admin_cache import cached_admin_view
+from app.core.admin_coalesce import coalesced_admin_view
 
 logger = structlog.get_logger()
 # 가드를 라우터가 아니라 **엔드포인트마다** 건다.
@@ -27,7 +27,7 @@ router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
     # 읽기 전용이고, 노출되는 것은 수집률·신선도·주차장 잔여면뿐이다(개인정보 없음).
     dependencies=[Depends(require_machine_or_role(ROLE_ADMIN))],
 )
-@cached_admin_view("admin/area-demand-reliability")
+@coalesced_admin_view("admin/area-demand-reliability")
 async def area_demand_reliability(
     hours: int = Query(24, ge=1, le=168),
     source: Literal["gyeongju_its", "national_parking_api"] = "gyeongju_its",
@@ -48,7 +48,7 @@ async def area_demand_reliability(
     # 이쪽은 사람 전용 그대로 둔다 — 경보에 쓰지 않으므로 기계에 열 이유가 없다.
     dependencies=[Depends(require_role(ROLE_ADMIN))],
 )
-@cached_admin_view("admin/area-demand-forecast-quality")
+@coalesced_admin_view("admin/area-demand-forecast-quality")
 async def area_demand_forecast_quality(
     lat: float = Query(35.8361, ge=33.0, le=39.0),
     lng: float = Query(129.2105, ge=124.0, le=132.0),

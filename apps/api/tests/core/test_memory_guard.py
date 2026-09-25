@@ -230,11 +230,11 @@ def test_trim_before_start_can_bring_memory_back_under_the_limit(monkeypatch):
     assert released[0] == ("admin_preflight",)
 
 
-def test_successful_admin_write_invalidates_the_admin_cache(monkeypatch):
-    from app.core import admin_cache
+def test_successful_admin_write_advances_the_admin_coalesce_generation(monkeypatch):
+    from app.core import admin_coalesce
 
     cleared = []
-    monkeypatch.setattr(admin_cache, "invalidate", lambda: cleared.append(1))
+    monkeypatch.setattr(admin_coalesce, "invalidate", lambda: cleared.append(1))
 
     def app_with(status):
         async def inner_app(scope, receive, send):

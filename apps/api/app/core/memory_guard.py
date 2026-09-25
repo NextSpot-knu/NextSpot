@@ -38,7 +38,7 @@ from typing import Any
 
 import structlog
 
-from app.core import admin_cache
+from app.core import admin_coalesce
 
 logger = structlog.get_logger(__name__)
 
@@ -277,7 +277,7 @@ class HeavyAdminGateMiddleware:
             await self.app(scope, receive, send_with_status)
         finally:
             if 0 < status["code"] < 400:
-                admin_cache.invalidate()
+                admin_coalesce.invalidate()
 
 
 async def _send_busy(send: Any) -> None:

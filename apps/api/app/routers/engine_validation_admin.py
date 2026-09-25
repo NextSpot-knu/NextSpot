@@ -32,7 +32,7 @@ from app.core.authz import ROLE_ADMIN, require_role
 from app.core.supabase import fetch_all_rows, supabase_admin
 from app.services import engine_validation_metrics as metrics
 from app.services import seoul_alternatives_service as alternatives
-from app.core.admin_cache import cached_admin_view
+from app.core.admin_coalesce import coalesced_admin_view
 
 logger = structlog.get_logger()
 
@@ -150,7 +150,7 @@ def build_summary(days: int, *, now: datetime | None = None) -> dict[str, Any]:
 
 
 @router.get("/seoul/summary")
-@cached_admin_view("admin/engine-validation/seoul/summary")
+@coalesced_admin_view("admin/engine-validation/seoul/summary")
 async def seoul_summary(days: int = Query(14, ge=1, le=28)):
     """서울 대상지별 검증 지표·혼동표·시계열 + 수집 상태."""
     try:
@@ -281,7 +281,7 @@ def build_alternatives(origin: str, *, now: datetime | None = None) -> dict[str,
 
 
 @router.get("/seoul/alternatives")
-@cached_admin_view("admin/engine-validation/seoul/alternatives")
+@coalesced_admin_view("admin/engine-validation/seoul/alternatives")
 async def seoul_alternatives(origin: str | None = Query(None)):
     """시연 권역(홍대·연남동·합정역)의 **실측 인구**로 돌린 대안 추천."""
     resolved = alternatives.resolve_origin(origin)
