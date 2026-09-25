@@ -6,7 +6,7 @@
 
 ## 배포 상태
 
-- **main = 프로덕션.** main push가 Vercel(web)·Render(api)를 자동 배포한다. 마지막 반영은 2026-09-25 — API OOM 대응(`0408bd7`..`0ce394d`, 아래 2026-09-25). 그 전 2026-09-22 `ec127ee`, 09-21 —
+- **main = 프로덕션.** main push가 Vercel(web)·Render(api)를 자동 배포한다. 마지막 반영은 2026-09-26 — 운영 긴급 수정 3건(`0ae42b8`..`4d21383`, 아래 2026-09-26). 그 전 2026-09-25 API OOM 대응(`0408bd7`..`0ce394d`). 그 전 2026-09-22 `ec127ee`, 09-21 —
   `fafdd06`+(심사용 계정 안내 + yunseong 데모 콘솔·비교 헤더·데이터 절 통합, 아래 `2026-09-21b`·`c`; 그전 `374254c`·소개 개편
   `a3b8a6b` 포함). `/guide`는 줄·혼잡으로 잃는 여행 시간과 주변 대안·이동 코스라는
   문제·해결 한 화면만 남겼다. Vercel 응답에서 새 제목·문제 카드·해결 카드가 있고 이전 취향 서사와 기술 설명은 없는 것을 확인했다.
@@ -189,6 +189,19 @@ from checks order by seq;
 
 최신이 위. 10개를 넘으면 가장 오래된 항목을 `archive/HANDOVER_LOG.md` 맨 위로 옮긴다.
 
+## 2026-09-26 — 관제 콘솔 튕김·서버 멈춤·닫힌 HTTP/2 연결 재시도 (운영 긴급 수정 3건)
+
+- 도구·브랜치: Claude Code / `fix/supabase-h2-closed-retry`(`0ae42b8`) + `fix/admin-gate-no-bounce`(`d257f98`→`5f8e4b9`) +
+  `fix/walking-routes-off-event-loop`(`4d21383`) → main. Render `4d21383` Live · Vercel 번들에 새 게이트 확인(09-26 02:0x KST).
+- 한 것: ① 01:21 KST 관제 콘솔 '튕김→재접속' — 코스 계산 23초 동안 /account/me 가 프런트 10초 타임아웃, `admin/layout.tsx` 가
+  그 실패를 권한 없음으로 읽어 로그인으로 보냈다 → `lib/adminGate.ts`(부정 판정일 때만 이동, 닿지 못함은 콘솔 유지/다시 시도).
+  ② 멈춤의 근원: `spot/travel.py` 가 28,832노드 Dijkstra 를 **이벤트 루프 위에서** 돌렸다 → `asyncio.to_thread`(결과 동일).
+  ③ 09-21 이후 50회+ `SEND_HEADERS in state ConnectionState.CLOSED` 실패(추천·계정·관제) → 해당 LocalProtocolError 만 stale 재시도.
+- 검증: api ruff+pytest 1649 · web lint(0 에러)/typecheck/test 55/build 39 · CI(5f8e4b9) 4잡 green · 새 회귀 테스트 3종은 수정 전 코드에서 실패 확인.
+- 다음·미결: 이벤트 루프를 막는 다른 동기 계산 전수 조사(포화 실험 진행 중) · /account/me 401 시 세션 갱신 후 1회 재시도(운영 401 0건이라 후순위)
+  · `perf/api-memory-root`(json.loads 파싱·RSS 차단·합류) 는 리뷰 지적(인증 전 RSS 사전점검) 수정 후 별도 배포.
+- 사람 작업: 심사 계정 두 개로 로그인 → 관제 대시보드·상인 콘솔 진입 확인(비밀번호 입력은 사람만).
+
 ## 2026-09-25 — API OOM 대응 승격: 관제 대시보드 동시 조회 상한·메모리 반환 + 09-24 OOM 수정
 
 - 도구·브랜치: Claude Code(원인 조사 워크플로 5렌즈 + 수정 검증 워크플로 4렌즈) / `fix/api-oom-admin-gate` = `ec127ee` +
@@ -363,20 +376,6 @@ from checks order by seq;
 - 마이그레이션 3건이 **적용 대기**: `20260908090000`(혼잡 경계 75) · `20260908091000`(기본 공지 문구 비우기) ·
   `20260908120000`(parking_derived source + `current_count` NULL 허용 + 버킷 유니크 인덱스).
 - 사람 판단이 남은 것은 저장소 밖 검토 문서에 정리했다.
-
-## 2026-09-07 — 문서 사실성 감사: 화면↔API 매핑 4행 · 삭제된 화면 · 배포 상태 · 데모 대본
-
-- 도구·브랜치: Claude Code(문서 전담) / `yunseong` — **문서만 수정**(코드는 읽기 전용, 같은 시각 다른 작업자가 `apps/api`·`apps/web` 작업 중)
-- 커밋: 없음 — 작업 트리 상태로 남겼다(커밋·푸시는 사용자 확인 후)
-- 한 것: `SYSTEM_MAP` §5.1(관광객)·§5.3(관제) 표를 `apps/web/app` 코드와 1행씩 대조해 재작성 —
-  삭제된 `/explore/map`(리다이렉트 스텁), `/setup`의 없는 API 호출, `/waiting`의 실제 호출(`/recommendations/by-type`),
-  대시보드에 있는 패널을 `/admin/simulator`·`/admin/report`·`/admin/reports`로 적던 4행 · §5.4(개발자 콘솔) ·
-  §6.1(코스 재계획: `alternatives`·`slot_outcomes`·`plan_id`·`pins`) · §7.1(`admin_override`) · §11(`area-demand-alert`) 추가 ·
-  `HANDOVER` 배포 상태·예약 워크플로 3개·마이그레이션 15번 · `contest/DEMO_SCENARIO.md` 체크리스트 12
-  (비활성 시드는 지도에서도 빠진다 — 배포 API로 실측).
-- 검증: `node scripts/check-docs.mjs` 통과 · 배포 API GET 실측(당시 1,645곳 — 2026-09-20 재측정 활성 1,669곳/전체 1,688곳)
-- 다음·미결: `/search/keyword`·`/search/ingest-request`가 프런트에서 끊긴 것은 **문서에 사실로 적어 두기만 했다** — 되살릴지 지울지는 코드 결정.
-- 사람 작업: 마이그레이션 15번 원격 적용 여부 확인 · `area-demand-alert` 시크릿/변수 등록 확인(위 두 절에 추가).
 
 ## 기록 규칙
 

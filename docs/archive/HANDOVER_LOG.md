@@ -7,6 +7,20 @@
 
 <!-- 새로 옮겨오는 항목은 이 줄 아래에 붙인다 (최신이 위) -->
 
+## 2026-09-07 — 문서 사실성 감사: 화면↔API 매핑 4행 · 삭제된 화면 · 배포 상태 · 데모 대본
+
+- 도구·브랜치: Claude Code(문서 전담) / `yunseong` — **문서만 수정**(코드는 읽기 전용, 같은 시각 다른 작업자가 `apps/api`·`apps/web` 작업 중)
+- 커밋: 없음 — 작업 트리 상태로 남겼다(커밋·푸시는 사용자 확인 후)
+- 한 것: `SYSTEM_MAP` §5.1(관광객)·§5.3(관제) 표를 `apps/web/app` 코드와 1행씩 대조해 재작성 —
+  삭제된 `/explore/map`(리다이렉트 스텁), `/setup`의 없는 API 호출, `/waiting`의 실제 호출(`/recommendations/by-type`),
+  대시보드에 있는 패널을 `/admin/simulator`·`/admin/report`·`/admin/reports`로 적던 4행 · §5.4(개발자 콘솔) ·
+  §6.1(코스 재계획: `alternatives`·`slot_outcomes`·`plan_id`·`pins`) · §7.1(`admin_override`) · §11(`area-demand-alert`) 추가 ·
+  `HANDOVER` 배포 상태·예약 워크플로 3개·마이그레이션 15번 · `contest/DEMO_SCENARIO.md` 체크리스트 12
+  (비활성 시드는 지도에서도 빠진다 — 배포 API로 실측).
+- 검증: `node scripts/check-docs.mjs` 통과 · 배포 API GET 실측(당시 1,645곳 — 2026-09-20 재측정 활성 1,669곳/전체 1,688곳)
+- 다음·미결: `/search/keyword`·`/search/ingest-request`가 프런트에서 끊긴 것은 **문서에 사실로 적어 두기만 했다** — 되살릴지 지울지는 코드 결정.
+- 사람 작업: 마이그레이션 15번 원격 적용 여부 확인 · `area-demand-alert` 시크릿/변수 등록 확인(위 두 절에 추가).
+
 ## 2026-09-06 — 분산 코스 재계획 · 관리자 개입 정직화 · 주차 수집 중단 감시 (커밋 로그에서 복원)
 
 - 도구·브랜치: 팀원 / `yunseong` → main (`b6bdcd8`..`d303d80`, 17건 — 머지 커밋 1 포함)
