@@ -14,15 +14,19 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Iterable
 
-from pyproj import Transformer
+from functools import lru_cache
 
 SERVICE_BOUNDS = (35.82, 35.85, 129.19, 129.24)
 ACTIVE_STATUS = "01"
 SOURCE = "localdata"
 SERVICE_CODES = {"07_24_04_P", "07_24_05_P"}
 
-_T5174 = Transformer.from_crs(5174, 4326, always_xy=True)
-_T2097 = Transformer.from_crs(2097, 4326, always_xy=True)
+@lru_cache(maxsize=2)
+def _transformer(epsg: int):
+    # pyproj(+PROJ DB) 는 적재 스크립트에서만 필요하다 - import 시점에 올리지 않는다.
+    from pyproj import Transformer
+
+    return Transformer.from_crs(epsg, 4326, always_xy=True)
 _SPACE = re.compile(r"[\s\-_,.()（）]+")
 _AUTO_EXCLUDE = re.compile(
     r"단란주점|유흥주점|감성주점|헌팅포차|룸살롱|편의점|자동판매기|자판기|휴게소|푸드트럭|노점"
@@ -88,11 +92,11 @@ def transform_coordinate(x_raw: str, y_raw: str, *, allow_legacy: bool = False) 
     except (TypeError, ValueError):
         return CoordinateResult(None, None, None, "invalid_coordinate")
     candidates = []
-    transforms = [("EPSG:5174", _T5174)]
+    transforms = [("EPSG:5174", 5174)]
     if allow_legacy:
-        transforms.append(("EPSG:2097", _T2097))
-    for crs, transformer in transforms:
-        lng, lat = transformer.transform(x, y)
+        transforms.append(("EPSG:2097", 2097))
+    for crs, epsg in transforms:
+        lng, lat = _transformer(epsg).transform(x, y)
         if in_service_bounds(lat, lng):
             candidates.append((crs, lat, lng))
     if not candidates:
