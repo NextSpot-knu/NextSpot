@@ -4,19 +4,28 @@ import { useState, useEffect } from 'react';
 import { Route, TimerOff } from 'lucide-react';
 import { adminApi } from '@/lib/admin-api';
 import { useCountUp } from '@/lib/useCountUp';
-import { MIN_MEASURED_SAMPLES, SCENARIO_BADGE, basisSubline, resolveKpiBasis, scenarioKpis } from '@/lib/adminPredictedView';
+import {
+  MIN_MEASURED_SAMPLES,
+  SCENARIO_BADGE,
+  basisSubline,
+  scenarioKpis,
+  type KpiBasis,
+  type LoopSamples,
+} from '@/lib/adminPredictedView';
 
 // 분산 효과 정량화 — 오늘(KST) 수락된 추천의 '절감 대기시간' 합산.
 // 산식(백엔드 GET /api/v1/admin/impact): Σ max(0, 원본 예상대기 − 대안 도착시점 예상대기).
 // 원본/대안 대기는 추천 생성 시점의 score_breakdown 스냅샷이라 사후 재계산 왜곡이 없다.
 //
-// 시나리오 모드(2026-09-22 PM 결정): 오늘 실측 수락이 MIN_MEASURED_SAMPLES(5)건 미만이면 서버 합계
-// 대신 lib/adminPredictedView.scenarioKpis(응답 도착 시각) 의 재배치·절감 분을 '시나리오' 배지와 함께
-// 보여 준다. 실측이 5건이 되는 순간 이 분기는 사라지고 아래 실측 렌더가 그대로 돌아온다.
-// 조회 실패는 시나리오로 덮지 않는다 — 실패는 '—' 와 '갱신 중' 이다(서버 부재 ≠ 데이터 부재).
+// 시나리오 모드(2026-09-22 PM 결정, 2026-09-26 공동 판정): 추천 고리 네 패널(수락률·DAU·이 위젯·깔때기)이
+// 모두 실측 5건 미만일 때만(페이지의 resolveLoopBasis → loopBasis === 'scenario') 서버 합계 대신
+// lib/adminPredictedView.scenarioKpis(응답 도착 시각)의 재배치·절감 분을 '시나리오' 배지와 함께 보여 준다.
+// 이 위젯 혼자 5건 미만이어도 옆 패널이 실측이면 실측 그대로다 — '5,000건 중 0건 수락'(실측) 옆에
+// '179건 재배치(추천 수락)'(시나리오)을 세우지 않는다. 이 위젯은 자기 창(오늘 수락)의 표본 수를
+// onMeasuredSamples 로 페이지에 알린다. 조회 실패는 시나리오로 덮지 않는다 — '—' 와 '갱신 중' 이다.
 
-/** 시나리오 값 아래 붙는 산식 한 줄 — 무엇을 곱했는지와 언제 실측으로 바뀌는지. */
-const SCENARIO_FOOTNOTE = '시나리오 재배치 × 유형별 기본 처리시간 · 실측 수락 기록이 쌓이면 실측으로 전환';
+/** 시나리오 값 아래 붙는 근거 한 줄 — 무엇으로 만든 값인지와 언제 실측으로 바뀌는지. */
+const SCENARIO_FOOTNOTE = '도입 목표 패턴의 하루 총량 × 시각 진행률 · 실측 수락 기록이 쌓이면 실측으로 전환';
 
 interface ImpactData {
   relocations: number;
@@ -36,7 +45,15 @@ function kstTodayStartUtcIso(): string {
   return new Date(startUtcMs).toISOString();
 }
 
-export function ImpactWidget() {
+export function ImpactWidget({
+  loopBasis = 'measured',
+  onMeasuredSamples,
+}: {
+  /** 추천 고리 공동 판정 — 'scenario' 일 때만 시나리오를 그린다. null = 아직 판정 전(로딩 모양). 기본은 실측. */
+  loopBasis?: KpiBasis | null;
+  /** 이 위젯 창(오늘 수락)의 실측 표본 수를 페이지에 알린다(실패·모양 불일치면 'failed'). */
+  onMeasuredSamples?: (samples: LoopSamples) => void;
+} = {}) {
   const [data, setData] = useState<ImpactData | null>(null);
   const [failed, setFailed] = useState(false);
   // 응답이 도착한 시각(ms). 시나리오 값의 시각 입력은 렌더 중 시계가 아니라 이 값이다 —
@@ -64,8 +81,18 @@ export function ImpactWidget() {
 
   // 실측 표본 = 오늘 수락된 추천 건수(relocations). 숫자가 아니면(응답 모양이 다름) 모른다 → 기존 '—'.
   const relocationsMeasured = typeof data?.relocations === 'number' && Number.isFinite(data.relocations) ? data.relocations : null;
-  const basis = data && !failed && relocationsMeasured !== null ? resolveKpiBasis(relocationsMeasured) : null;
-  const scenario = basis === 'scenario' && loadedAt !== null ? scenarioKpis(loadedAt) : null;
+  const loaded = !!data && !failed && relocationsMeasured !== null;
+
+  // 페이지에 이 창의 표본 수를 알린다. 실패하거나 숫자가 아니면 'failed' — 화면에 실측 숫자가 없는 자리다.
+  useEffect(() => {
+    if (!onMeasuredSamples) return;
+    if (failed || (data && relocationsMeasured === null)) onMeasuredSamples('failed');
+    else if (data && relocationsMeasured !== null) onMeasuredSamples(relocationsMeasured);
+  }, [data, failed, relocationsMeasured, onMeasuredSamples]);
+
+  // 공동 판정 전이면 숫자를 비워 둔다(실측 몇 건을 잠깐 보였다가 시나리오로 바꾸지 않는다).
+  const pending = loaded && loopBasis === null;
+  const scenario = loaded && loopBasis === 'scenario' && loadedAt !== null ? scenarioKpis(loadedAt) : null;
   // 시나리오 숫자만 굴린다(실측 렌더는 그대로). NaN 이면 훅이 아무것도 하지 않는다.
   const scenarioSaved = useCountUp(scenario ? scenario.savedWaitMinutes : Number.NaN);
   const scenarioRelocations = useCountUp(scenario ? scenario.relocations : Number.NaN);
@@ -112,7 +139,7 @@ export function ImpactWidget() {
             <div className="text-3xl font-black text-emerald-700">
               {scenario
                 ? Math.round(scenarioSaved).toLocaleString()
-                : typeof data?.saved_wait_minutes === 'number' ? Math.round(data.saved_wait_minutes).toLocaleString() : '—'}분
+                : !pending && typeof data?.saved_wait_minutes === 'number' ? Math.round(data.saved_wait_minutes).toLocaleString() : '—'}분
             </div>
             <div className="text-xs text-hanok-muted font-semibold mt-0.5">절감 대기시간 합계{scenario ? ` (${SCENARIO_BADGE})` : ''}</div>
           </div>
@@ -125,7 +152,7 @@ export function ImpactWidget() {
             <div className="text-3xl font-black text-hanok-ink">
               {scenario
                 ? Math.round(scenarioRelocations).toLocaleString()
-                : typeof data?.relocations === 'number' ? data.relocations.toLocaleString() : '—'}건
+                : !pending && typeof data?.relocations === 'number' ? data.relocations.toLocaleString() : '—'}건
             </div>
             <div className="text-xs text-hanok-muted font-semibold mt-0.5">수요 재배치 (추천 수락){scenario ? ` (${SCENARIO_BADGE})` : ''}</div>
           </div>
@@ -134,7 +161,7 @@ export function ImpactWidget() {
             '분산 효과가 이만큼 있었다' 를 실제보다 작게 말하게 된다. 그런데 작아진 합계는
             여전히 그럴듯해서 화면만 봐서는 축소 보고를 알아챌 수 없다. 서버가 truncated 를
             싣고 있었는데 화면이 읽지 않았다. */}
-        {data?.truncated && (
+        {!pending && !scenario && data?.truncated && (
           <p>
             <span className="inline-flex items-center rounded-full border border-hanok-line bg-hanok-card px-2.5 py-1 text-[11px] font-semibold text-hanok-muted">
               최신 구간 기준
@@ -154,6 +181,7 @@ export function ImpactWidget() {
               : ''}
           </p>
         ) : (
+          !pending &&
           data &&
           data.estimated > 0 && (
             <p className="text-[11px] text-hanok-muted">

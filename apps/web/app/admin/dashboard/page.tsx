@@ -32,9 +32,9 @@ import {
   ESTIMATE_BADGE,
   PREDICTED_ANOMALY_UNIT,
   PREDICTED_BANNER_CHIP,
-  PREDICTED_BANNER_HEADLINE,
   PREDICTED_HEADING,
   PREDICTED_MIXED_SENTENCE,
+  PREDICTED_MIXED_SENTENCE_MEASURED,
   PREDICTED_SWITCH_SENTENCE,
   csvBasisCell,
   dashboardDateBadge,
@@ -46,9 +46,11 @@ import {
   estimateUnavailableNote,
   isTodayNonMeasured,
   pendingFromHour,
+  predictedBannerHeadline,
   predictedBasisLine,
   predictedMethodNote,
   resolveDashboardView,
+  todayFieldSampleNote,
   type DashboardTodayWithEstimate,
 } from '@/lib/adminEstimateView';
 // 예측·시나리오 모드(2026-09-22, PM 결정) — 실측이 없는 자리에만 결정적 계산값을 라벨과 함께 채운다.
@@ -64,12 +66,14 @@ import {
   fillHeatmapPredicted,
   groupFacilitiesByType,
   kstParts,
+  peakLabel,
   predictedDay,
   predictedPeaks,
-  resolveKpiBasis,
+  resolveLoopBasis,
   scenarioKpis,
   type FacilityLite,
   type HeatmapCellInput,
+  type LoopSamples,
   type PredictedHeatmapCell,
 } from '@/lib/adminPredictedView';
 import { createPublicClient } from '@/lib/supabase';
@@ -333,7 +337,7 @@ function PredictedBadge({ title }: { title?: string }) {
   );
 }
 
-// '시나리오' 배지 — 모델 입력이 없는 KPI(수락률·DAU)를 lib/demoFixtures 하루 총량 × 시각 진행률로
+// '시나리오' 배지 — 모델 입력이 없는 KPI(수락률·DAU)를 도입 목표 패턴의 하루 총량 × 시각 진행률로
 // 채운 값. DashboardCharts 의 '도입 효과 시나리오(30일)' 칩과 같은 호박색·같은 어휘.
 function ScenarioBadge({ title }: { title?: string }) {
   return (
@@ -346,9 +350,10 @@ function ScenarioBadge({ title }: { title?: string }) {
   );
 }
 
-// 시나리오 KPI 타일의 툴팁 — 두 타일(수락률·DAU)이 같은 문장을 쓴다.
+// 시나리오 KPI 타일의 툴팁 — 두 타일(수락률·DAU)이 같은 문장을 쓴다. 화면 문구에는 파일·코드 경로를
+// 적지 않는다(심사위원이 읽는 문장이다).
 const SCENARIO_TIP =
-  '시나리오 값입니다 — lib/demoFixtures 의 하루 총량에 KST 시각 진행률을 곱해 하루 동안 결정적으로 올라갑니다. 실측 5건이 쌓이면 실측으로 전환됩니다.';
+  '도입 목표 패턴 기준 시나리오 값입니다 — 하루 목표 총량에 KST 시각 진행률을 곱해 하루 동안 올라갑니다. 추천·이용 실측이 5건 쌓이면 실측으로 전환됩니다.';
 
 // 30일 수요 분산 '예시' 추이(데모) — 실측(metrics/trend) 표본이 3일 미만일 때의 폴백 전용.
 // 도입 전/후 혼잡도와 대안 장소 활용률의 기대 패턴을 합성해 '③ 분산 효과'를 시각적으로 설명한다.
@@ -529,6 +534,9 @@ async function fetchMetrics(): Promise<MetricsSlice & { truncated: boolean; feed
 // 예측 행이 될 시설 — 업종별 정원 상위 HEATMAP_PLACE_CAP 곳만(2026-09-22 예측 모드). 읽기 전용 anon
 // 조회(FacilityTable 과 같은 createPublicClient().from('facilities'))이며, 실패하면 null → 예측 없이
 // 기존 폴백(시드 날짜/빈 화면)으로 그린다. PostgREST 1000행 캡을 피하려 업종별로 잘라 받는다.
+// **활성 시설만** 받는다(is_active=true) — anon 은 비활성 행도 읽을 수 있고, 20260821140000 이 끈
+// 미검증 시드 15곳은 정원이 커서 정원순 상위를 전부 차지한다. 서버(admin.py·추정 엔진)와
+// lib/facilitySearch.ts 가 거르는 것과 같은 조건이다.
 async function fetchPredictionFacilities(): Promise<FacilityLite[] | null> {
   try {
     const supabase = createPublicClient();
@@ -537,6 +545,7 @@ async function fetchPredictionFacilities(): Promise<FacilityLite[] | null> {
         supabase
           .from('facilities')
           .select('name, type, capacity')
+          .eq('is_active', true)
           .eq('type', type)
           .order('capacity', { ascending: false })
           .order('name', { ascending: true })
@@ -611,6 +620,10 @@ function DashboardPage() {
   const [metricsAt, setMetricsAt] = useState<number | null>(null);
   // 예측 행이 될 시설(업종별 상위 12곳). null = 아직 없음/실패 → 예측 없이 기존 폴백.
   const [facilities, setFacilities] = useState<FacilityLite[] | null>(null);
+  // 추천 고리의 두 위젯(분산 효과 = 오늘 수락, 깔때기 = 지난 30일 노출)이 알려 주는 자기 창의 실측 표본 수.
+  // 수락률·DAU 와 함께 공동 판정(resolveLoopBasis)에 들어간다 — 한 화면에 실측과 시나리오가 섞이지 않게.
+  const [impactSamples, setImpactSamples] = useState<LoopSamples>('loading');
+  const [funnelSamples, setFunnelSamples] = useState<LoopSamples>('loading');
   // 30일 분산 효과 — 실측(metrics/trend)이 충분하면 live, 빈약하면 데모 폴백(fetchTrend 참조). null = 로딩 중.
   const [distribution, setDistribution] = useState<{ mode: 'live' | 'demo'; rows: any[]; truncated?: boolean } | null>(null);
   // 표본 절단 — 서버가 상한에서 자른 사실. 화면이 이걸 말하지 않으면 관리자는 잘린 수치를
@@ -716,8 +729,14 @@ function DashboardPage() {
   // 모든 자리가 이 문장(또는 배지+툴팁)을 함께 단다. 추정의 estimateLine 과 같은 규칙.
   const predictedLine = basis.kind === 'predicted' ? predictedBasisLine(basis.info) : null;
   const predictedMethod = basis.kind === 'predicted' ? predictedMethodNote(basis.info) : null;
+  // 예측 배너 제목 — 앵커가 실제로 곱해졌을 때만 추정(주차 실측 + 관광공사 집중률)을 입력으로 적는다.
+  const predictedHeadline = basis.kind === 'predicted' ? predictedBannerHeadline(basis.info) : null;
   // 실측/추정 격자에 예측 칸이 섞였는가(혼합 모드 문장·히트맵 범례용). 예측 단독 모드는 따로 센다.
   const hasPredictedCells = !isPredicted && (filledHeatmap?.some((c) => c.basis === 'predicted') ?? false);
+  // 혼합 모드 문장은 격자에 따라 다르다 — 실측 격자에는 미래 시간만 예측이 붙는다(주차 반경은 실측과 무관).
+  const mixedSentence = basis.kind === 'today' ? PREDICTED_MIXED_SENTENCE_MEASURED : PREDICTED_MIXED_SENTENCE;
+  // 오늘 현장 실측이 1~4건이면 추정·예측 배너와 평균 혼잡도 타일에 그 수를 적는다(0건·5건 이상이면 null).
+  const fieldSampleNote = isEstimate || isPredicted ? todayFieldSampleNote(congestion) : null;
   // 응답 시각의 KST 시 — '이후 시간대' 예측 피크의 경계. 응답 시각으로 고정한다(위와 같은 이유).
   const nowKstHour = congestionAt !== null ? kstParts(congestionAt).hour : null;
   // 이후 시간대(현재 시 이후)에 90% 를 넘는 예측 피크 — 실측·추정·예측 어느 모드든 격자에 예측 칸이 있으면 뽑는다.
@@ -759,19 +778,37 @@ function DashboardPage() {
   const acceptRate = metricsMetric(metrics, (s) => s.acceptRate ?? null);
   const activeUsers = metricsMetric(metrics, (s) => s.activeUsers ?? null);
 
-  // 시나리오 KPI(2026-09-22) — 수락률·DAU 는 모델 입력이 없어 추정·예측을 만들 수 없다. 창 안의 실측 표본이
-  // 5건(MIN_MEASURED_SAMPLES) 미만이면 lib/demoFixtures 하루 총량 × 시각 진행률의 시나리오 값을 배지와 함께
-  // 그린다. 표본 수: 수락률 = 지난 7일 추천 건수(total), DAU = 오늘 피드백 행 수. 조회 실패(failed)는 null —
-  // 실패 위에 시나리오를 그리지 않는다('갱신 중' 그대로).
+  // 시나리오 KPI(2026-09-22) — 수락률·DAU 는 모델 입력이 없어 추정·예측을 만들 수 없다. 표본이 부족하면
+  // 도입 목표 패턴의 하루 총량 × 시각 진행률(scenarioKpis)을 배지와 함께 그린다. 표본 수: 수락률 = 지난 7일
+  // 추천 건수(total), DAU = 오늘 피드백 행 수. 조회 실패(failed)는 시나리오로 덮지 않는다('갱신 중' 그대로).
+  //
+  // 전환은 추천 고리 네 패널이 **함께** 한다(2026-09-26 검증 반영, resolveLoopBasis): 수락률·DAU·분산 효과
+  // (ImpactWidget)·깔때기(ModelTrustPanel) 중 하나라도 실측 5건 이상이거나 오늘의 브리핑(실측 사실 문장)이
+  // 떠 있으면 넷 다 실측이다. 예전처럼 패널마다 따로 바꾸면 '5,000건 중 0건 수락'(실측) 옆에 '179건 재배치
+  // (추천 수락)'(시나리오)이 서고, 브리핑의 '수락된 추천 2건' 아래에 시나리오 179건이 선다.
+  // 판정 전(null — 아직 로딩 중인 패널이 있다)에는 5건 미만 패널을 로딩 모양으로 둔다 — 실측 3건을 배지 없이
+  // 잠깐 보여 줬다가 시나리오로 바꾸지 않는다.
   const scenario = useMemo(() => (metricsAt !== null ? scenarioKpis(metricsAt) : null), [metricsAt]);
   const acceptMeasuredCount = acceptRate.status === 'ok' ? acceptRate.value.total : 0;
   const dauMeasuredCount = metrics?.feedbackCount ?? 0;
-  const acceptBasis =
-    acceptRate.status === 'ok' ? resolveKpiBasis(acceptMeasuredCount) : acceptRate.status === 'empty' ? 'scenario' : null;
-  const dauBasis =
-    activeUsers.status === 'ok' ? resolveKpiBasis(dauMeasuredCount) : activeUsers.status === 'empty' ? 'scenario' : null;
-  const acceptScenario = acceptBasis === 'scenario' && scenario ? scenario : null;
-  const dauScenario = dauBasis === 'scenario' && scenario ? scenario : null;
+  const loopSamplesOf = (status: AdminMetric<unknown>['status'], count: number): LoopSamples =>
+    status === 'loading' ? 'loading' : status === 'failed' ? 'failed' : status === 'empty' ? 0 : count;
+  const loopBasis = resolveLoopBasis({
+    samples: [
+      loopSamplesOf(acceptRate.status, acceptMeasuredCount),
+      loopSamplesOf(activeUsers.status, dauMeasuredCount),
+      impactSamples,
+      funnelSamples,
+    ],
+    measuredElsewhere: briefing !== null,
+  });
+  const loopScenario = loopBasis === 'scenario' ? scenario : null;
+  const acceptShown = acceptRate.status === 'ok' || acceptRate.status === 'empty';
+  const dauShown = activeUsers.status === 'ok' || activeUsers.status === 'empty';
+  const acceptScenario = acceptShown ? loopScenario : null;
+  const dauScenario = dauShown ? loopScenario : null;
+  const acceptPending = acceptShown && loopBasis === null;
+  const dauPending = dauShown && loopBasis === null;
 
   // 첫 로드 동기화 스트립 — 핵심 지표 중 하나라도 도착 전이면 상단에 진행 표시를 세운다.
   // 전부 도착하면 스스로 사라진다(각 자리의 실루엣과 함께 '준비 중'이 '멈춤'으로 읽히는 것을 막는다).
@@ -807,7 +844,8 @@ function DashboardPage() {
         m.status === 'ok' ? csvBasisLabel(kind) : '';
       const congestionCsvKind = congestionBasisKind ?? 'measured';
       // 비실측 KPI 값에는 파일 안에서도 어휘를 붙인다 — 배지가 없는 파일에서 '12.3' 만 보면 실측으로 읽힌다.
-      const suffix = (kind: 'predicted' | 'scenario') => `(${csvBasisLabel(kind)})`;
+      const suffix = (kind: 'estimate' | 'predicted' | 'scenario') => `(${csvBasisLabel(kind)})`;
+      const congestionSuffix = isPredicted ? suffix('predicted') : isEstimate ? suffix('estimate') : '';
       const lines: string[] = [];
       lines.push('구분,항목,값,근거');
       // 파일로 나간 숫자는 화면 맥락을 잃는다 — 어느 날 기준인지 첫 줄에 박아 둔다.
@@ -815,28 +853,37 @@ function DashboardPage() {
       // 추정·예측이면 '현장 관측 아님' 과 근거까지 — 파일에는 배지가 없다.
       lines.push(`기준,혼잡 지표 기준일,${csvBasisCell(basis)},`);
       lines.push(
-        `KPI,${periodLabel} 평균 혼잡도(%),${cell(avgCongestion, (v) => `${(v.value * 100).toFixed(1)}${isPredicted ? suffix('predicted') : ''}`)},${basisCell(avgCongestion, congestionCsvKind)}`,
+        `KPI,${periodLabel} 평균 혼잡도(%),${cell(avgCongestion, (v) => `${(v.value * 100).toFixed(1)}${congestionSuffix}`)},${basisCell(avgCongestion, congestionCsvKind)}`,
       );
       // 시나리오 타일은 화면과 같은 값(시나리오 값)을 적고 근거를 '시나리오' 로 남긴다.
+      // 공동 판정 전(화면이 로딩 모양)이면 파일에도 숫자를 적지 않는다.
       lines.push(
-        acceptScenario
-          ? `KPI,AI 추천 수락률(%),${(acceptScenario.acceptance.rate * 100).toFixed(1)}${suffix('scenario')},${csvBasisLabel('scenario')}`
-          : `KPI,AI 추천 수락률(%),${cell(acceptRate, (v) => (v.value * 100).toFixed(1))},${basisCell(acceptRate, 'measured')}`,
+        acceptPending
+          ? 'KPI,AI 추천 수락률(%),로딩 중,'
+          : acceptScenario
+            ? `KPI,AI 추천 수락률(%),${(acceptScenario.acceptance.rate * 100).toFixed(1)}${suffix('scenario')},${csvBasisLabel('scenario')}`
+            : `KPI,AI 추천 수락률(%),${cell(acceptRate, (v) => (v.value * 100).toFixed(1))},${basisCell(acceptRate, 'measured')}`,
       );
       lines.push(
-        dauScenario
-          ? `KPI,활성 사용자(DAU),${dauScenario.dau}${suffix('scenario')},${csvBasisLabel('scenario')}`
-          : `KPI,활성 사용자(DAU),${cell(activeUsers, (v) => String(v))},${basisCell(activeUsers, 'measured')}`,
+        dauPending
+          ? 'KPI,활성 사용자(DAU),로딩 중,'
+          : dauScenario
+            ? `KPI,활성 사용자(DAU),${dauScenario.dau}${suffix('scenario')},${csvBasisLabel('scenario')}`
+            : `KPI,활성 사용자(DAU),${cell(activeUsers, (v) => String(v))},${basisCell(activeUsers, 'measured')}`,
       );
       lines.push(
         isPredicted
           ? `KPI,이상 혼잡 발생(예측 구간 수 — 시설×1시간),${cell(anomalyCount, (v) => `${v}${suffix('predicted')}`)},${basisCell(anomalyCount, 'predicted')}`
           : isEstimate
-            ? `KPI,이상 혼잡 발생(추정 구간 수 — 대표 관광지×10분),${cell(anomalyCount, (v) => String(v))},${basisCell(anomalyCount, 'estimate')}`
+            ? `KPI,이상 혼잡 발생(추정 구간 수 — 대표 관광지×10분),${cell(anomalyCount, (v) => `${v}${suffix('estimate')}`)},${basisCell(anomalyCount, 'estimate')}`
             : `KPI,이상 혼잡 발생(건),${cell(anomalyCount, (v) => String(v))},${basisCell(anomalyCount, 'measured')}`,
       );
       lines.push('');
-      lines.push(isEstimate ? '시설명,유형,시간(시),추정 혼잡도(%),근거' : isPredicted ? '시설명,유형,시간(시),예측 혼잡도(%),근거' : '시설명,유형,시간(시),혼잡도(%),근거');
+      // 히트맵 값 열 이름 — 행의 근거가 하나뿐이면 그 어휘로, 섞였으면 중립 이름(행마다 '근거' 칸이 말한다).
+      const rowKinds = new Set(heatmap.filter((c) => c.value != null).map((c) => c.basis ?? congestionCsvKind));
+      const onlyKind = rowKinds.size === 1 ? [...rowKinds][0] : null;
+      const valueHeader = onlyKind === 'estimate' ? '추정 혼잡도(%)' : onlyKind === 'predicted' ? '예측 혼잡도(%)' : '혼잡도(%)';
+      lines.push(`시설명,유형,시간(시),${valueHeader},근거`);
       for (const c of heatmap) {
         const name = String(c.facility).replace(/[",\n]/g, ' ');
         // value === null 은 그 시간대에 로그가 없다는 뜻 — 0 이 아니라 빈 칸으로 남긴다(근거도 비운다).
@@ -915,7 +962,8 @@ function DashboardPage() {
             </div>
           )}
 
-          <ModelTrustPanel />
+          {/* 깔때기는 추천 고리 공동 판정(loopBasis)을 따르고, 자기 창(지난 30일 노출)의 표본 수를 알려 준다. */}
+          <ModelTrustPanel loopBasis={loopBasis} onMeasuredSamples={setFunnelSamples} />
 
           {/* Action Bar (Export) — '24시간 모의 발생' 버튼은 D6 결정으로 걷어냈다. 합성 로그를
               congestion_logs 에 넣어 화면을 채우는 대신, 오늘의 추정(주차 실측 + 관광 통계)을
@@ -995,8 +1043,10 @@ function DashboardPage() {
                 <p className="text-xs text-hanok-muted mt-1">
                   오늘은 공영주차 실측과 관광 통계를 결합한 추정 지표를 표시합니다. 현장 관측이 들어오면 자동으로 실측으로 전환됩니다.
                 </p>
-                {/* 혼합 모드 — 추정 격자의 빈 자리(미래 시간·반경 밖 업종)를 예측으로 채웠다는 사실을 같은 배너에서 말한다. */}
-                {hasPredictedCells && <p className="text-xs text-violet-700 mt-1">{PREDICTED_MIXED_SENTENCE}</p>}
+                {/* 혼합 모드 — 추정 격자의 빈 자리(미래 시간·추정 대상이 아닌 업종)를 예측으로 채웠다는 사실을 같은 배너에서 말한다. */}
+                {hasPredictedCells && <p className="text-xs text-violet-700 mt-1">{mixedSentence}</p>}
+                {/* 오늘 현장 실측 1~4건 — 추정이 그려지는 동안에도 실측이 쌓이고 있다는 사실. */}
+                {fieldSampleNote && <p className="text-xs text-hanok-ink mt-1">{fieldSampleNote}</p>}
               </div>
             </div>
           )}
@@ -1009,7 +1059,7 @@ function DashboardPage() {
               <Info size={20} className="text-violet-700 flex-shrink-0 mt-0.5" />
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <p className="font-bold text-violet-700">{PREDICTED_BANNER_HEADLINE}</p>
+                  <p className="font-bold text-violet-700">{predictedHeadline}</p>
                   <span className="px-2.5 py-1 rounded-md text-xs font-black border border-dashed bg-violet-500/20 text-violet-800 border-violet-400/60">
                     {PREDICTED_BANNER_CHIP}
                   </span>
@@ -1017,6 +1067,8 @@ function DashboardPage() {
                 <p className="text-sm text-hanok-ink mt-1">{predictedLine}</p>
                 <p className="text-xs text-hanok-muted mt-1">{predictedMethod}</p>
                 <p className="text-xs text-hanok-muted mt-1">{PREDICTED_SWITCH_SENTENCE}</p>
+                {/* 오늘 현장 실측 1~4건 — 예측이 그려지는 동안에도 실측이 쌓이고 있다는 사실. */}
+                {fieldSampleNote && <p className="text-xs text-hanok-ink mt-1">{fieldSampleNote}</p>}
                 {/* 추정이 왜 비었는지(표본 수집 중 등) — 예측이 추정을 '대신' 하는 이유를 작은 글씨로. */}
                 {estimateMissing && <p className="text-xs text-hanok-muted mt-1">{estimateMissing}</p>}
               </div>
@@ -1138,9 +1190,10 @@ function DashboardPage() {
                       그린다. 실패/표본 없음에 0% 배지를 띄우면 '어제와 같다' 는 없는 사실을
                       만들어낸다. 예전에는 표본이 없어도 회색 0% 를 그리고 툴팁으로 얼버무렸다 —
                       툴팁은 아무도 읽지 않고, 배지가 있다는 것 자체가 '비교했다' 는 주장이다. */}
+                  {/* 예측은 전일과 비교하지 않는다(설계상 비교 기준이 없다) — '—' 배지를 그리지 않는다. */}
                   {avgCongestion.status === 'loading' ? (
                     <Skeleton className="h-6 w-12" />
-                  ) : avgCongestion.status === 'ok' ? (
+                  ) : avgCongestion.status === 'ok' && !isPredicted ? (
                     (() => {
                       const avg = avgCongestion.value as AvgCongestionValue;
                       const comparison = changeComparison(avg);
@@ -1186,7 +1239,7 @@ function DashboardPage() {
                       isEstimate
                         ? "오늘(KST) 대표 관광지의 10분 구간별 추정 혼잡도 평균입니다. 추정 혼잡도 = 0.7 × 주변 공영주차 점유율 + 0.3 × 관광공사 집중률. 비교 배지는 전일 '하루 전체' 추정 평균 대비입니다."
                         : isPredicted
-                        ? '오늘(KST) 업종 시간대 곡선 × 요일 계수로 계산한 예측 혼잡도의 0시~현재 시 평균입니다. 시설 정원 상위 12곳/업종. 전일 비교는 예측끼리 비교하지 않으므로 표시하지 않습니다.'
+                        ? '오늘(KST) 업종 시간대 곡선 × 요일 계수로 계산한 예측 혼잡도의 0시~현재 시 평균입니다. 예측끼리는 전일과 비교하지 않습니다.'
                         : isFallback
                         ? `${basis.dateKst}(KST) 수집된 혼잡 로그의 평균입니다. 현장 관측이 집계된 가장 최근 날짜 기준이며, 비교 배지는 그 전날 대비입니다.`
                         : "오늘(KST) 수집된 혼잡 로그의 평균 혼잡도입니다. 시설 정원 대비 실시간 인원 비율을 0~100%로 환산해 평균낸 값입니다. 비교 배지는 전일 '하루 전체' 평균 대비입니다."
@@ -1215,7 +1268,7 @@ function DashboardPage() {
                     </div>
                     {/* 배지를 못 그린 이유를 타일 안에서 말한다 — 배지 자리의 '—' 만으로는
                         '왜' 를 알 수 없고, 툴팁은 읽히지 않는다. */}
-                    {changeComparison(avgCongestion.value as AvgCongestionValue).kind === 'no-sample' && (
+                    {!isPredicted && changeComparison(avgCongestion.value as AvgCongestionValue).kind === 'no-sample' && (
                       <p className="text-[11px] text-hanok-muted mt-1">전일 비교 기준을 집계하는 중입니다</p>
                     )}
                     {/* 추정 값의 근거는 숫자 바로 아래 — 배지만으로는 '무엇에서' 를 말하지 못한다. */}
@@ -1225,12 +1278,15 @@ function DashboardPage() {
                     {isPredicted && predictedLine && (
                       <p className="text-[11px] text-violet-700/90 mt-1 leading-snug">{predictedLine}</p>
                     )}
+                    {fieldSampleNote && (
+                      <p className="text-[11px] text-hanok-ink mt-1 leading-snug">{fieldSampleNote}</p>
+                    )}
                   </>
                 )}
               </div>
             </div>
 
-            {/* 추천 수락률 — 창(지난 7일) 안의 추천이 5건 미만이면 시나리오 값(호박 점선 + 배지 + 근거 한 줄).
+            {/* 추천 수락률 — 추천 고리 공동 판정(loopBasis)이 시나리오면 시나리오 값(호박 점선 + 배지 + 근거 한 줄).
                 실측 1~4건이면 그 수를 부제에 적는다('실측 3건 수집 중'). 조회 실패는 그대로 '갱신 중'. */}
             <div className={`bg-hanok-panel p-6 rounded-2xl shadow-sm flex flex-col justify-between ${
               acceptScenario ? 'border-2 border-dashed border-amber-400/50' : 'border border-hanok-line'
@@ -1260,6 +1316,12 @@ function DashboardPage() {
                   </>
                 ) : acceptRate.status === 'failed' ? (
                   <MetricUnavailable hint="지표를 갱신하는 중입니다 — 잠시 후 자동으로 표시됩니다." />
+                ) : acceptPending ? (
+                  // 공동 판정 전 — 실측 몇 건을 배지 없이 잠깐 보였다가 시나리오로 바꾸지 않는다.
+                  <>
+                    <Skeleton className="h-9 w-24 mt-1" />
+                    <Skeleton className="h-3 w-32 mt-2" />
+                  </>
                 ) : acceptScenario ? (
                   // 시나리오 비율은 하루 종일 고정(건수만 오른다) — '총 N건 중 M건' 은 적지 않는다(측정한 건수가 아니다).
                   <>
@@ -1295,7 +1357,7 @@ function DashboardPage() {
               </div>
             </div>
 
-            {/* DAU — 오늘 피드백 행이 5건 미만이면 시나리오 값(수락률 타일과 같은 규칙). */}
+            {/* DAU — 추천 고리 공동 판정이 시나리오면 시나리오 값(수락률 타일과 같은 규칙). */}
             <div className={`bg-hanok-panel p-6 rounded-2xl shadow-sm flex flex-col justify-between ${
               dauScenario ? 'border-2 border-dashed border-amber-400/50' : 'border border-hanok-line'
             }`}>
@@ -1316,6 +1378,8 @@ function DashboardPage() {
                   <Skeleton className="h-9 w-20 mt-1" />
                 ) : activeUsers.status === 'failed' ? (
                   <MetricUnavailable hint="지표를 갱신하는 중입니다 — 잠시 후 자동으로 표시됩니다." />
+                ) : dauPending ? (
+                  <Skeleton className="h-9 w-20 mt-1" />
                 ) : dauScenario ? (
                   // 시나리오 건수는 시각 진행률을 곱한 값 — KST 0시 직후의 0명은 모델의 시작점이지 측정한 0이 아니다
                   // (배지가 그 사실을 말한다). 0 을 향해 굴리지는 않는다.
@@ -1443,7 +1507,7 @@ function DashboardPage() {
                 pendingFromHour={pendingHour}
                 predicted={
                   hasPredictedCells || isPredicted
-                    ? { badge: PREDICTED_BADGE, note: isPredicted ? (predictedLine ?? '') : PREDICTED_MIXED_SENTENCE }
+                    ? { badge: PREDICTED_BADGE, note: isPredicted ? (predictedLine ?? '') : mixedSentence }
                     : null
                 }
               />
@@ -1514,7 +1578,8 @@ function DashboardPage() {
           {/* 개입 폐루프 Row — 쿠폰 정책(②개입) + 분산 효과(③효과 정량화) */}
           <div className="grid grid-cols-3 gap-6">
             <CouponPolicyPanel />
-            <ImpactWidget />
+            {/* 분산 효과는 추천 고리 공동 판정(loopBasis)을 따르고, 자기 창(오늘 수락)의 표본 수를 알려 준다. */}
+            <ImpactWidget loopBasis={loopBasis} onMeasuredSamples={setImpactSamples} />
           </div>
 
           {/* Bottom Section */}
@@ -1622,23 +1687,24 @@ function DashboardPage() {
                     </div>
                   )}
                   {/* 예측 피크 (이후 시간대) — 격자의 예측 칸(현재 시 이후) 중 90% 를 넘는 시설별 최고 시간대.
-                      위 목록(지금까지 일어난/집계된 피크)과 구간이 겹치지 않는다. 시각은 KST 시, 칸은 1시간. */}
+                      위 목록(지금까지 일어난/집계된 피크)과 구간이 겹치지 않는다. 시각은 KST 시, 칸은 1시간.
+                      같은 업종·시각·값은 한 줄('음식점 12곳')로 묶는다 — 업종 패턴은 업종 단위 예측이다. */}
                   {showFuturePeaks && (
                     <div className="mt-2 pt-3 border-t border-dashed border-violet-400/40 flex flex-col gap-2">
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-xs font-bold text-violet-700">예측 피크 (이후 시간대)</span>
-                        <PredictedBadge title={predictedLine ?? PREDICTED_MIXED_SENTENCE} />
+                        <PredictedBadge title={predictedLine ?? mixedSentence} />
                       </div>
                       {futurePeaks.length === 0 ? (
                         <p className="text-xs text-hanok-muted px-1">이후 시간대에 90%를 넘는 예측 피크는 없습니다.</p>
                       ) : (
                         futurePeaks.map((peak) => (
                           <div
-                            key={`future-${peak.facility}-${peak.hour}`}
+                            key={`future-${peak.facilityType}-${peak.facility}-${peak.hour}`}
                             className="px-3 py-2 rounded-lg border border-dashed border-violet-400/50 bg-violet-500/5 text-xs text-violet-800 flex justify-between items-center gap-2"
                           >
                             <span className="font-semibold">
-                              {peak.facility} {String(peak.hour).padStart(2, '0')}시 예측
+                              {peakLabel(peak)} {String(peak.hour).padStart(2, '0')}시 예측
                             </span>
                             <span className="whitespace-nowrap">
                               예측 혼잡도: {(peak.value * 100).toFixed(0)}% · 구간: 1시간

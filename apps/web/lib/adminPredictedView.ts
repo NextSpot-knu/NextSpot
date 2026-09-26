@@ -10,6 +10,8 @@
 //   · '예측'   — 업종별 시간대 곡선 × 요일 계수 × (오늘 추정에서 뽑은 앵커). 상수는
 //                apps/api/app/services/spot/industry_baseline.py 의 _PREDICTED_* 를 **숫자 그대로**
 //                옮겼다(서버 카드의 'AI 예측' 과 같은 곡선 — 두 화면이 다른 예측을 말하지 않게).
+//                앵커가 없으면 서버 값과 정확히 같다. 앵커는 오늘 추정 격자에 섞인 예측 칸에만 붙는다
+//                (추정 행이 있는 시설은 그 시설의 추정에서, 없는 업종은 추정 전체에서 뽑는다).
 //   · '시나리오' — 모델 입력이 아예 없는 KPI(수락률·DAU·재배치·절감 분·깔때기). 단일 출처
 //                lib/demoFixtures.ts 의 하루 총량 × 시각 진행률(cumulativeDayShare) 이라 하루 동안
 //                결정적으로 올라간다(비율은 고정, 건수만 증가).
@@ -18,6 +20,9 @@
 // 비실측 근거(추정 > 예측 > 시나리오)를 **항상 배지와 함께** 보여 준다. 실측이 1~4건이면 그 수를
 // 부제에 적는다('실측 3건 수집 중') — 0건을 지어내지 않고, 4건을 실측으로 팔지도 않는다.
 // 5 는 서버(admin.py get_dashboard_today: 로그 5건 미만이면 hasLogs=false)와 같은 하한이다.
+// 단, 추천 고리 네 패널(수락률·DAU·분산 효과·깔때기)은 같은 사실(추천 → 수락 → 이동 → 평가)을 다른
+// 창으로 세므로 **함께** 전환한다(resolveLoopBasis) — 한 화면에 실측 '0건 수락' 과 시나리오 '179건
+// 수락' 이 나란히 서면 둘 중 하나는 거짓으로 읽힌다(2026-09-26 심사 시점 검증 반영).
 //
 // 이 모듈이 하지 않는 것: 서버 호출·DB 쓰기·React. 조회 실패는 여기까지 오지 않는다 — 실패는
 // 페이지가 '갱신 중' 으로 그린다. 예측은 **데이터의 부재**를 채우지 서버의 부재를 채우지 않는다.
@@ -41,6 +46,14 @@ export const HEATMAP_PLACE_CAP = 12;
 
 /** 히트맵 카테고리 탭 순서 — components/admin/DashboardCharts.tsx HEATMAP_CATEGORIES 의 id 미러. */
 export const HEATMAP_TYPES = ['restaurant', 'cafe', 'attraction', 'culture'] as const;
+
+/** 업종 이름(화면 문구) — DashboardCharts.tsx HEATMAP_CATEGORIES 의 name 미러. 예측 피크 묶음 라벨에 쓴다. */
+export const HEATMAP_TYPE_LABELS: Record<string, string> = {
+  restaurant: '음식점',
+  cafe: '카페',
+  attraction: '관광지',
+  culture: '문화시설',
+};
 
 /** 예측 '이상 혼잡' 임계치 — 실측·추정과 같은 90%. */
 export const PREDICTED_ANOMALY_THRESHOLD = 0.9;
@@ -95,13 +108,23 @@ export const PREDICTED_HOUR_SHAPE_DEFAULT: readonly number[] = [
 /** 요일 효과(KST, 월=0 … 일=6). 주말이 가장 붐비고 평일이 한산하다. */
 export const PREDICTED_WEEKDAY_FACTOR: readonly number[] = [0.70, 0.70, 0.72, 0.75, 0.85, 1.00, 0.98];
 
-/** 같은 업종 시설끼리 격자 행이 완전히 같지 않게 하는 결정적 시설별 폭(±10%).
- *  이름 해시로만 정해지므로 렌더마다·기기마다 같다. 곡선 자체(위 상수)는 건드리지 않는다. */
-export const PREDICTED_FACILITY_SPREAD = 0.1;
+// 시설별 폭(이름 해시 ±10%)은 두지 않는다(2026-09-26 검증 반영). 업종 패턴은 업종 단위의 예측이라
+// 같은 업종·같은 시각이면 같은 값이 맞다 — 이름 해시로 '포석정이 불국사보다 붐빈다' 는 순위를 만들면
+// 근거 없는 차이를 지어내는 것이고, 서버 'AI 예측' 과도 값이 갈라진다.
 
-/** 앵커(오늘 추정 ÷ 곡선) 허용 범위 — 추정이 한쪽으로 튀어도 예측이 곡선을 완전히 잃지 않게. */
+/** 앵커(오늘 추정 ÷ 곡선) 허용 범위 — 추정이 한쪽으로 튀어도 예측이 곡선을 완전히 잃지 않게.
+ *  상한은 1.2(2026-09-26 검증 반영, 이전 1.5) — 1.5 에서는 흔한 추정에서도 앵커가 상한에 붙어
+ *  예측 칸이 줄줄이 100% 로 몰렸다. */
 export const ANCHOR_MIN = 0.5;
-export const ANCHOR_MAX = 1.5;
+export const ANCHOR_MAX = 1.2;
+
+/** 앵커 계산에 넣는 시각의 조건 — 그 업종 곡선이 피크의 70% 이상인 시간만. 곡선이 0 근처인 밤·새벽에는
+ *  추정(주차 점유율에는 밤에도 바닥값이 있다)을 곡선으로 나눈 비가 수십 배로 튀어 평균을 끌어올린다. */
+export const ANCHOR_HOUR_MIN_SHAPE = 0.7;
+
+/** 예측 칸 값의 상한 — 예측은 '만석(100%)' 으로 읽히면 안 된다(측정한 포화가 아니다).
+ *  앵커가 없으면 곡선 최댓값이 0.85 라 이 상한은 서버 값과의 일치를 건드리지 않는다. */
+export const PREDICTED_LEVEL_MAX = 0.95;
 
 // ── 타입 ────────────────────────────────────────────────────────────────────
 
@@ -171,11 +194,16 @@ export interface PredictedAlert {
   hour: number;
 }
 
+/** 예측 피크 한 줄. 같은 업종·같은 시각·같은 값의 시설은 한 줄로 묶는다(placeCount) — 업종 패턴은 업종
+ *  단위 예측이라, 같은 숫자를 시설 이름만 바꿔 여섯 줄로 늘어놓으면 측정한 목록처럼 읽힌다. */
 export interface PredictedPeak {
+  /** 대표 시설 이름(묶음이면 이름순 첫 시설). 화면에는 peakLabel() 을 쓴다. */
   facility: string;
   facilityType: string;
   hour: number;
   value: number;
+  /** 이 줄로 묶인 시설 수(1 = 그 시설 하나). */
+  placeCount: number;
 }
 
 // ── 시각 ────────────────────────────────────────────────────────────────────
@@ -225,9 +253,16 @@ export function normalizeFacilityType(facilityType: string | null | undefined): 
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
 const round3 = (v: number) => Math.round(v * 1000) / 1000;
 
+/** 그 업종 곡선의 hour 시 값(피크 대비 비율, 0..1). */
+function hourShape(facilityType: string, kstHour: number): number {
+  const shape = PREDICTED_HOUR_SHAPE[normalizeFacilityType(facilityType)] ?? PREDICTED_HOUR_SHAPE_DEFAULT;
+  return shape[((Math.trunc(kstHour) % 24) + 24) % 24];
+}
+
 /**
- * 업종·KST 시각·요일 기반 예측 혼잡도(0..1) — get_predicted_baseline_congestion 과 같은 식에
- * 앵커(오늘 추정 ÷ 곡선 평균)를 곱한 것. anchor 를 주지 않으면 서버 값과 정확히 같다.
+ * 업종·KST 시각·요일 기반 예측 혼잡도(0..PREDICTED_LEVEL_MAX) — get_predicted_baseline_congestion 과
+ * 같은 식에 앵커(오늘 추정 ÷ 곡선 평균)를 곱한 것. anchor 를 주지 않으면 서버 값과 정확히 같다
+ * (곡선 최댓값 0.85 < 상한 0.95 라 상한이 걸리지 않는다).
  */
 export function predictedLevel({
   facilityType,
@@ -246,30 +281,20 @@ export function predictedLevel({
   const hour = ((Math.trunc(kstHour) % 24) + 24) % 24;
   const wd = ((Math.trunc(weekday) % 7) + 7) % 7;
   const level = peak * shape[hour] * PREDICTED_WEEKDAY_FACTOR[wd] * anchor;
-  return round3(clamp01(level));
+  return round3(Math.max(0, Math.min(PREDICTED_LEVEL_MAX, level)));
 }
 
-/** 시설 이름 → [1-spread, 1+spread] 의 결정적 배율(FNV-1a 32bit). 같은 이름은 언제나 같은 값. */
-export function facilitySpread(name: string, spread: number = PREDICTED_FACILITY_SPREAD): number {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < name.length; i += 1) {
-    h ^= name.charCodeAt(i);
-    h = Math.imul(h, 0x01000193) >>> 0;
-  }
-  const unit = (h % 10_000) / 10_000; // 0..1
-  return 1 - spread + 2 * spread * unit;
-}
-
-/** 시설 한 곳·한 시간의 예측 칸 값 — 곡선 × 앵커 × 시설별 폭. */
-function predictedCellValue(facility: string, facilityType: string, hour: number, weekday: number, anchor: number | undefined): number {
-  const base = predictedLevel({ facilityType, kstHour: hour, weekday, anchor: anchor ?? 1 });
-  return round3(clamp01(base * facilitySpread(facility)));
+/** 시설 한 곳·한 시간의 예측 칸 값 — 업종 곡선 × 요일 × 앵커(시설 이름은 값에 관여하지 않는다). */
+function predictedCellValue(facilityType: string, hour: number, weekday: number, anchor: number | undefined): number {
+  return predictedLevel({ facilityType, kstHour: hour, weekday, anchor: anchor ?? 1 });
 }
 
 /**
  * 오늘 추정(서버 estimated.heatmap)에서 예측 앵커를 뽑는다:
- *   mean(지나간 시간의 추정값) ÷ mean(같은 시설·같은 시간의 곡선값), [0.5, 1.5] 로 클램프.
- * 추정 값이 하나도 없으면 undefined(곡선 그대로 — 앵커를 지어내지 않는다).
+ *   mean(추정값) ÷ mean(같은 시설·같은 시간의 곡선값), [ANCHOR_MIN, ANCHOR_MAX] 로 클램프.
+ * 넣는 칸: 지나간 시간(현재 시 포함) 중 그 업종 곡선이 피크의 ANCHOR_HOUR_MIN_SHAPE 이상인 시간만 —
+ * 밤·새벽 칸을 넣으면 주차 점유율의 바닥값 때문에 비가 부풀어 앵커가 늘 상한에 붙는다.
+ * 그런 칸이 하나도 없으면(이른 아침·추정 없음) undefined(곡선 그대로 — 앵커를 지어내지 않는다).
  */
 export function anchorFromEstimate(estimateRows: readonly HeatmapCellInput[], now: Date | number): number | undefined {
   const { hour: nowHour, weekday } = kstParts(now);
@@ -278,6 +303,7 @@ export function anchorFromEstimate(estimateRows: readonly HeatmapCellInput[], no
   let n = 0;
   for (const row of estimateRows) {
     if (row.value === null || !Number.isFinite(row.value) || row.hour > nowHour) continue;
+    if (hourShape(row.facilityType, row.hour) < ANCHOR_HOUR_MIN_SHAPE) continue;
     estimateSum += row.value;
     curveSum += predictedLevel({ facilityType: row.facilityType, kstHour: row.hour, weekday });
     n += 1;
@@ -320,7 +346,12 @@ export function topFacilities(list: readonly FacilityLite[], cap: number = HEATM
  *   · 이미 값이 있는 칸은 절대 덮어쓰지 않는다(basis = rowsBasis).
  *   · 행이 있는 시설의 **아직 오지 않은 시간**(현재 시 이후) 빈 칸 → 예측.
  *     지나간 시간의 빈 칸은 그대로 둔다('수집 중' — 지나간 시간을 예측으로 메우면 관측 공백이 사라진다).
- *   · 서버 행에 **없는 업종**은 facilitiesByType 에서 상위 HEATMAP_PLACE_CAP 곳을 골라 0~23시 전부 예측.
+ *     추정 행이 있는 시설은 **그 시설의 추정**에서 앵커를 뽑는다(없으면 인자로 받은 전체 앵커) —
+ *     그래야 한산한 곳의 다음 시간이 추정의 흐름을 이어받고, 경계에서 갑자기 튀지 않는다.
+ *   · 서버 행에 **없는 업종**은 facilitiesByType 에서 상위 HEATMAP_PLACE_CAP 곳을 골라 채운다.
+ *     추정 격자·예측 단독이면 0~23시 전부(그 업종은 오늘 값이 원래 없다 — 추정도 비실측이다),
+ *     실측 격자면 **아직 오지 않은 시간만**(오늘 관측이 들어오는 화면에서 지나간 시간을 예측으로
+ *     채우면 관측 옆에 모델값이 같은 시각으로 선다).
  * rows 가 비어 있으면(예측 단독 모드) 네 업종 전부 예측으로 채운다.
  */
 export function fillHeatmapPredicted({
@@ -341,17 +372,32 @@ export function fillHeatmapPredicted({
   const out: PredictedHeatmapCell[] = [];
   const typesPresent = new Set<string>();
   const hoursByFacility = new Map<string, { facilityType: string; hours: Set<number> }>();
+  const isRow = (row: HeatmapCellInput | null | undefined): row is HeatmapCellInput =>
+    !!row && typeof row.facility === 'string' && Number.isInteger(row.hour);
+
+  // 시설별 앵커 — 추정 격자일 때만 그 시설의 추정에서 뽑는다(실측에서 앵커를 지어내지 않는다).
+  const rowsByFacility = new Map<string, HeatmapCellInput[]>();
+  for (const row of rows) {
+    if (!isRow(row)) continue;
+    const list = rowsByFacility.get(row.facility) ?? [];
+    list.push(row);
+    rowsByFacility.set(row.facility, list);
+  }
+  const anchorByFacility = new Map<string, number | undefined>();
+  for (const [facility, list] of rowsByFacility) {
+    anchorByFacility.set(facility, rowsBasis === 'estimate' ? (anchorFromEstimate(list, now) ?? anchor) : anchor);
+  }
 
   for (const row of rows) {
-    if (!row || typeof row.facility !== 'string' || !Number.isInteger(row.hour)) continue;
+    if (!isRow(row)) continue;
     const type = normalizeFacilityType(row.facilityType);
     typesPresent.add(type);
     const entry = hoursByFacility.get(row.facility) ?? { facilityType: row.facilityType, hours: new Set<number>() };
     hoursByFacility.set(row.facility, entry);
     if (row.value === null && row.hour > nowHour) {
-      // 아직 오지 않은 시간의 빈 칸 → 예측. 값이 있는 칸은 아래 else 로 간다(덮어쓰지 않는다).
+      // 아직 오지 않은 시간의 빈 칸 → 예측. 값이 있는 칸은 아래로 간다(덮어쓰지 않는다).
       entry.hours.add(row.hour);
-      out.push({ ...row, value: predictedCellValue(row.facility, row.facilityType, row.hour, weekday, anchor), basis: 'predicted' });
+      out.push({ ...row, value: predictedCellValue(row.facilityType, row.hour, weekday, anchorByFacility.get(row.facility)), basis: 'predicted' });
       continue;
     }
     entry.hours.add(row.hour);
@@ -361,16 +407,17 @@ export function fillHeatmapPredicted({
   for (const [facility, entry] of hoursByFacility) {
     for (let hour = nowHour + 1; hour < 24; hour += 1) {
       if (entry.hours.has(hour)) continue;
-      out.push({ facility, facilityType: entry.facilityType, hour, value: predictedCellValue(facility, entry.facilityType, hour, weekday, anchor), basis: 'predicted' });
+      out.push({ facility, facilityType: entry.facilityType, hour, value: predictedCellValue(entry.facilityType, hour, weekday, anchorByFacility.get(facility)), basis: 'predicted' });
     }
   }
-  // 서버 행에 없는 업종은 시설 목록에서 상위 N 곳을 골라 하루 전부 예측.
+  // 서버 행에 없는 업종은 시설 목록에서 상위 N 곳을 골라 예측(실측 격자면 아직 오지 않은 시간만).
+  const wholeTypeFrom = rowsBasis === 'measured' ? nowHour + 1 : 0;
   for (const type of HEATMAP_TYPES) {
     if (typesPresent.has(type)) continue;
     for (const f of topFacilities(facilitiesByType[type] ?? [])) {
       if (hoursByFacility.has(f.name)) continue;
-      for (let hour = 0; hour < 24; hour += 1) {
-        out.push({ facility: f.name, facilityType: type, hour, value: predictedCellValue(f.name, type, hour, weekday, anchor), basis: 'predicted' });
+      for (let hour = wholeTypeFrom; hour < 24; hour += 1) {
+        out.push({ facility: f.name, facilityType: type, hour, value: predictedCellValue(type, hour, weekday, anchor), basis: 'predicted' });
       }
     }
   }
@@ -382,7 +429,8 @@ export function fillHeatmapPredicted({
 const isPredictedCell = (c: HeatmapCellInput & { basis?: CellBasis }) => (c.basis ?? 'predicted') === 'predicted';
 
 /**
- * 예측 칸 중 임계치 이상인 피크 — 시설당 최고 한 칸, 값 내림차순 → 시각 오름차순 → 이름, 최대 limit.
+ * 예측 칸 중 임계치 이상인 피크 — 시설당 최고 한 칸을 고른 뒤 **같은 업종·같은 시각·같은 값**은 한 줄로
+ * 묶는다(placeCount). 값 내림차순 → 시각 오름차순 → 이름, 최대 limit 줄.
  * 서버가 이미 낸 추정·실측 알림과 겹치지 않도록 basis==='predicted' 칸만 본다.
  */
 export function predictedPeaks({
@@ -396,7 +444,7 @@ export function predictedPeaks({
   threshold?: number;
   limit?: number;
 }): PredictedPeak[] {
-  const best = new Map<string, PredictedPeak>();
+  const best = new Map<string, Omit<PredictedPeak, 'placeCount'>>();
   for (const c of rows) {
     if (!isPredictedCell(c) || c.value === null || c.value < threshold || c.hour < fromHour) continue;
     const prev = best.get(c.facility);
@@ -404,9 +452,27 @@ export function predictedPeaks({
       best.set(c.facility, { facility: c.facility, facilityType: c.facilityType, hour: c.hour, value: c.value });
     }
   }
-  return [...best.values()]
-    .sort((a, b) => b.value - a.value || a.hour - b.hour || a.facility.localeCompare(b.facility, 'ko'))
+  const groups = new Map<string, PredictedPeak>();
+  for (const p of best.values()) {
+    const key = `${normalizeFacilityType(p.facilityType)}|${p.hour}|${p.value}`;
+    const g = groups.get(key);
+    if (!g) {
+      groups.set(key, { ...p, placeCount: 1 });
+      continue;
+    }
+    g.placeCount += 1;
+    if (p.facility.localeCompare(g.facility, 'ko') < 0) g.facility = p.facility;
+  }
+  return [...groups.values()]
+    .sort((a, b) => b.value - a.value || a.hour - b.hour || peakLabel(a).localeCompare(peakLabel(b), 'ko'))
     .slice(0, Math.max(0, limit));
+}
+
+/** 피크 한 줄의 이름 — 시설 하나면 그 이름, 묶음이면 '음식점 12곳'. */
+export function peakLabel(peak: Pick<PredictedPeak, 'facility' | 'facilityType' | 'placeCount'>): string {
+  if (peak.placeCount <= 1) return peak.facility;
+  const type = HEATMAP_TYPE_LABELS[normalizeFacilityType(peak.facilityType)] ?? '시설';
+  return `${type} ${peak.placeCount.toLocaleString('ko-KR')}곳`;
 }
 
 /**
@@ -460,8 +526,8 @@ export function predictedDay({
   const summary = predictedDaySummary({ rows, now });
   if (summary.avgCongestion === null) return null;
   const anomalies: PredictedAlert[] = predictedPeaks({ rows, fromHour: 0 }).map((p) => ({
-    id: `predicted-${p.facility}-${p.hour}`,
-    facilityName: p.facility,
+    id: `predicted-${p.facilityType}-${p.hour}-${p.facility}`,
+    facilityName: peakLabel(p),
     timestamp: kstHourToIso(dateKst, p.hour),
     congestionLevel: p.value,
     durationMinutes: 60,
@@ -545,6 +611,43 @@ export function resolveKpiBasis(measuredCount: number | null | undefined): KpiBa
   return typeof measuredCount === 'number' && Number.isFinite(measuredCount) && measuredCount >= MIN_MEASURED_SAMPLES
     ? 'measured'
     : 'scenario';
+}
+
+/** 추천 고리 패널 하나의 실측 표본 — 창 안 실측 건수, 'failed'(조회 실패 — 화면은 '갱신 중'), 'loading'. */
+export type LoopSamples = number | 'failed' | 'loading';
+
+/**
+ * 추천 고리 네 패널(수락률 = 지난 7일 추천 · DAU = 오늘 피드백 · 분산 효과 = 오늘 수락 · 깔때기 = 지난
+ * 30일 노출)의 **공동** 판정. 넷은 같은 사실(추천 → 수락 → 이동 → 평가)을 다른 창으로 센다 — 한 패널은
+ * 실측 '5,000건 중 0건 수락' 인데 옆 패널이 시나리오 '179건 재배치(추천 수락)' 이면 둘 중 하나가 거짓으로
+ * 읽힌다. 그래서 시나리오는 **넷 모두** 5건 미만일 때만 쓴다.
+ *   · 'measured' — 한 패널이라도 실측 5건 이상, 또는 measuredElsewhere(같은 사실을 실측으로 말하는 카드 —
+ *                  오늘의 브리핑이 떠 있다). 5건 미만 패널도 실측 그대로(건수가 함께 보인다) 그린다.
+ *   · 'scenario' — 조회에 성공한 패널이 하나 이상이고 전부 5건 미만.
+ *   · null       — 아직 모른다(로딩 중인 패널이 있고, 5건 이상인 패널은 아직 없다). 화면은 로딩 모양.
+ * 실패한 패널은 판정에서 뺀다 — 그 자리는 '갱신 중' 이라 화면에 실측 숫자가 없다.
+ */
+export function resolveLoopBasis({
+  samples,
+  measuredElsewhere = false,
+}: {
+  samples: readonly LoopSamples[];
+  measuredElsewhere?: boolean;
+}): KpiBasis | null {
+  if (measuredElsewhere) return 'measured';
+  let loaded = 0;
+  let pending = false;
+  for (const s of samples) {
+    if (s === 'loading') {
+      pending = true;
+      continue;
+    }
+    if (typeof s !== 'number' || !Number.isFinite(s)) continue;
+    if (resolveKpiBasis(s) === 'measured') return 'measured';
+    loaded += 1;
+  }
+  if (pending) return null;
+  return loaded > 0 ? 'scenario' : 'measured';
 }
 
 /** 근거 어휘 → 배지 문구. */

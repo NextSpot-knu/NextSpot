@@ -16,6 +16,7 @@
 //      모양이 어긋난 응답이 실제로 온다. null 만이 아니라 **형**을 가드한다(어긋나면 추정을
 //      포기하고 기존 폴백으로 간다 — 화면 전체가 에러 경계로 떨어지지 않게).
 import {
+  ESTIMATED_LOG_SOURCES,
   basisDateBadge,
   basisPeriodLabel,
   congestionEmptyNotice,
@@ -30,8 +31,8 @@ import {
   type DashboardTodayResponse,
 } from './dashboardFallback';
 import {
-  HEATMAP_PLACE_CAP,
   KST_WEEKDAY_LABELS,
+  MIN_MEASURED_SAMPLES,
   PREDICTED_BADGE,
   type PredictedBasisInfo,
   type PredictedDay,
@@ -227,14 +228,25 @@ export const ESTIMATE_ANOMALY_UNIT = '혼잡도 90% 이상으로 추정된 (대�
 // 추정 배너와 같은 구조(제목 · 칩 · 근거 한 줄 · 산식 · 전환 문장). 문구는 PM 결정 그대로이며 화면은
 // 이 상수만 쓴다(같은 문장을 page.tsx 에 다시 적지 않는다 — 두 벌이면 한쪽만 고쳐진다).
 
-/** 예측 배너 제목. */
-export const PREDICTED_BANNER_HEADLINE = '아래 시설 혼잡 지표는 업종 시간대 패턴 + 관광공사 집중률 기반 예측치입니다';
+/** 예측 배너 제목(앵커 없음 — 예측 단독 모드의 기본). 예측 단독 모드에는 오늘 추정이 없으므로
+ *  관광공사 집중률·주차 실측은 이 값에 들어가지 않는다 — 들어가지 않은 입력을 제목에 적지 않는다. */
+export const PREDICTED_BANNER_HEADLINE = '아래 시설 혼잡 지표는 업종 시간대 패턴 기반 예측치입니다';
+/** 예측 배너 제목 — 오늘 추정 앵커가 실제로 곱해졌을 때만 그 입력을 적는다. */
+export function predictedBannerHeadline(info: Pick<PredictedBasisInfo, 'anchor'>): string {
+  return hasAnchor(info)
+    ? '아래 시설 혼잡 지표는 업종 시간대 패턴 × 오늘 추정(공영주차 실측 + 관광공사 집중률) 앵커 기반 예측치입니다'
+    : PREDICTED_BANNER_HEADLINE;
+}
 /** 예측 배너 칩. */
 export const PREDICTED_BANNER_CHIP = `${PREDICTED_BADGE} · 오늘 (KST)`;
 /** 예측 배너의 전환 문장 — 무엇이 쌓이면 무엇으로 바뀌는지. */
 export const PREDICTED_SWITCH_SENTENCE = '공영주차 실측이 쌓이면 추정으로, 현장 관측이 들어오면 실측으로 자동 전환됩니다';
-/** 혼합 모드 문장 — 추정은 있는데 미래 시간·주차 반경 밖 업종을 예측으로 채웠을 때(추정 배너 아래 한 줄). */
-export const PREDICTED_MIXED_SENTENCE = '아직 오지 않은 시간과 주차장 반경 밖 시설은 업종 패턴 기반 예측으로 채웠습니다(빗금 표시).';
+/** 혼합 모드 문장(추정 격자) — 추정은 있는데 미래 시간과 추정 대상이 아닌 업종을 예측으로 채웠을 때. */
+export const PREDICTED_MIXED_SENTENCE = '아직 오지 않은 시간과 추정 대상이 아닌 업종은 업종 패턴 기반 예측으로 채웠습니다(빗금 표시).';
+/** 혼합 모드 문장(오늘 실측 격자) — 실측 격자에는 미래 시간만 예측이 붙는다(주차 반경은 실측과 무관하다). */
+export const PREDICTED_MIXED_SENTENCE_MEASURED = '아직 오지 않은 시간은 업종 패턴 기반 예측으로 채웠습니다(빗금 표시).';
+
+const hasAnchor = (info: Pick<PredictedBasisInfo, 'anchor'>) => typeof info.anchor === 'number' && Number.isFinite(info.anchor);
 /** 예측 모드의 시설 혼잡 소제목(추정 모드의 '시설 혼잡 (추정 · 주차 실측 + 관광 통계)' 자리). */
 export const PREDICTED_HEADING = '시설 혼잡 (예측 · 업종 시간대 패턴)';
 /** 예측 이상 혼잡의 단위 — 실측 '건'·추정 '(장소 × 10분) 구간' 과 다른 척도라 숫자 옆에 적는다. */
@@ -252,12 +264,35 @@ export function predictedBasisLine(info: PredictedBasisInfo): string {
   return parts.join(' · ');
 }
 
-/** 예측 산식과 적용 범위 — 배너의 두 번째 줄. */
+/** 예측 산식과 적용 범위 — 배너의 두 번째 줄. 평균 구간은 0시부터 **현재 시**까지(elapsedHours = 현재 시 + 1).
+ *  시설을 어떤 규칙으로 골랐는지는 적지 않는다(선정 규칙은 화면 정보가 아니다 — 시설 수는 근거 한 줄에 있다). */
 export function predictedMethodNote(info: PredictedBasisInfo): string {
-  const formula = typeof info.anchor === 'number'
+  const formula = hasAnchor(info)
     ? '예측 혼잡도 = 업종 피크값 × 시각 곡선 × 요일 계수 × 오늘 추정 앵커'
     : '예측 혼잡도 = 업종 피크값 × 시각 곡선 × 요일 계수';
-  return `${formula} · 업종별 상위 ${HEATMAP_PLACE_CAP}곳(정원 순) × 1시간 단위 · ${info.elapsedHours}시까지의 평균`;
+  const lastHour = Math.max(0, info.elapsedHours - 1);
+  return `${formula} · 시설 × 1시간 단위 · 0~${lastHour}시 평균`;
+}
+
+/**
+ * 오늘 현장 실측이 1~4건일 때 혼잡 블록(추정·예측 배너와 평균 혼잡도 타일)에 붙는 한 줄.
+ * 서버는 5건 미만이면 hasLogs=false 로 보내므로 화면이 추정·예측을 그리는 동안에도 실측은 쌓이고 있다 —
+ * 그 수를 말하지 않으면 '실측이 하나도 없다' 로 읽힌다. 0건·모름·5건 이상·실패면 null.
+ * 파생 source(주차 파생 추정 등 ESTIMATED_LOG_SOURCES)는 현장 실측이 아니므로 세지 않는다.
+ */
+export function todayFieldSampleNote(res: DashboardTodayWithEstimate | null): string | null {
+  if (!res || res.failed || res.hasLogs) return null;
+  const total = typeof res.sampleCount === 'number' && Number.isFinite(res.sampleCount) ? res.sampleCount : null;
+  if (total === null) return null;
+  const composition = isRecord(res.sourceComposition) ? res.sourceComposition : null;
+  const derived = composition
+    ? Object.entries(composition)
+        .filter(([source, n]) => source in ESTIMATED_LOG_SOURCES && typeof n === 'number' && Number.isFinite(n))
+        .reduce((sum, [, n]) => sum + n, 0)
+    : 0;
+  const field = Math.max(0, Math.trunc(total - derived));
+  if (field < 1 || field >= MIN_MEASURED_SAMPLES) return null;
+  return `현장 실측 ${field}건 수집 중 · ${MIN_MEASURED_SAMPLES}건부터 실측 전환`;
 }
 
 /**
@@ -339,7 +374,8 @@ export function csvBasisCell(basis: DashboardBasis): string {
     return `오늘 (KST) — 공영주차 실측 + 관광 통계 기반 추정: ${estimateBasisLine(basis.info, basis.dateKst)}`;
   }
   if (basis.kind === 'predicted') {
-    return `오늘 (KST) — 업종 시간대 패턴 + 관광공사 집중률 기반 예측: ${predictedBasisLine(basis.info)}`;
+    const method = hasAnchor(basis.info) ? '업종 시간대 패턴 × 오늘 추정 앵커 기반 예측' : '업종 시간대 패턴 기반 예측';
+    return `오늘 (KST) — ${method}: ${predictedBasisLine(basis.info)}`;
   }
   if (basis.kind === 'fallback') return `${basis.dateKst} (KST) — 현장 관측 집계 기준일`;
   return '오늘 (KST)';

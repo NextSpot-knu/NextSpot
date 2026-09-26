@@ -6,7 +6,7 @@ import { adminApi } from '@/lib/admin-api';
 import { useCountUp } from '@/lib/useCountUp';
 import { describeGuardrailWarnings } from '@/lib/adminGuardrailWarnings';
 import { ESTIMATED_LOG_SOURCES } from '@/lib/dashboardFallback';
-import { SCENARIO_BADGE, basisSubline, resolveKpiBasis, scenarioKpis } from '@/lib/adminPredictedView';
+import { SCENARIO_BADGE, basisSubline, scenarioKpis, type KpiBasis, type LoopSamples } from '@/lib/adminPredictedView';
 
 // 서버가 보내는 영문 키를 화면 말로 바꾸는 사전. **매핑에 없는 키는 줄에서 뺀다** —
 // 원문 그대로 내보내면 `degraded_rules 12` 같은 내부 코드가 관제 화면에 그대로 찍힌다.
@@ -102,8 +102,17 @@ function AnimatedKpiValue({ value }: { value: string | number }) {
   return <>{pctMatch ? `${animated.toFixed(decimals)}%` : animated}</>;
 }
 
-export function ModelTrustPanel() {
+export function ModelTrustPanel({
+  loopBasis = 'measured',
+  onMeasuredSamples,
+}: {
+  /** 추천 고리 공동 판정(페이지의 resolveLoopBasis) — 'scenario' 일 때만 시나리오 깔때기. null = 판정 전. 기본은 실측. */
+  loopBasis?: KpiBasis | null;
+  /** 깔때기 창(지난 30일 노출)의 실측 표본 수를 페이지에 알린다(실패·모양 불일치면 'failed'). */
+  onMeasuredSamples?: (samples: LoopSamples) => void;
+} = {}) {
   const [data, setData] = useState<TrustResponse | null>(null);
+  const [failed, setFailed] = useState(false);
   // 응답 도착 시각(ms) — 시나리오 깔때기의 시각 입력. 렌더 중 시계를 읽지 않아 같은 응답은 같은 숫자다.
   const [loadedAt, setLoadedAt] = useState<number | null>(null);
   useEffect(() => {
@@ -113,9 +122,24 @@ export function ModelTrustPanel() {
         setData(value);
         setLoadedAt(Date.now());
       }
-    }).catch(() => { /* 헤더 상태 배지가 별도로 장애를 알린다. */ });
+    }).catch(() => {
+      // 헤더 상태 배지가 별도로 장애를 알린다. 여기서는 공동 판정에서 이 패널을 빼도록 표시만 한다.
+      if (active) setFailed(true);
+    });
     return () => { active = false; };
   }, []);
+  // 페이지에 깔때기 창의 표본 수를 알린다. 조회 실패·모양 불일치(아래에서 패널이 통째로 빠진다)는 'failed'.
+  useEffect(() => {
+    if (!onMeasuredSamples) return;
+    if (failed) {
+      onMeasuredSamples('failed');
+      return;
+    }
+    if (!data) return;
+    const exposures = data.funnel?.exposures;
+    const shapeOk = !!(data.funnel && data.guardrails && data.collection && data.top3_evidence);
+    onMeasuredSamples(shapeOk && typeof exposures === 'number' && Number.isFinite(exposures) ? exposures : 'failed');
+  }, [data, failed, onMeasuredSamples]);
   // `!data` 만 보면 부족하다. **응답이 오긴 왔는데 모양이 다른 경우**가 이 가드를 그대로
   // 통과해 아래 `data.guardrails.warnings` 에서 터졌고, 그러면 이 패널 하나가 아니라
   // **관리자 대시보드 전체가 에러 바운더리로 떨어졌다**(브라우저에서 재현: 화면에 남는 것은
@@ -142,14 +166,18 @@ export function ModelTrustPanel() {
   const estimatedObservations = Object.entries(data.collection.by_source)
     .filter(([key]) => key in ESTIMATED_LOG_SOURCES)
     .reduce((sum, [, value]) => sum + (value || 0), 0);
-  // 깔때기 전환(2026-09-22 PM 결정): 오늘 노출이 MIN_MEASURED_SAMPLES(5)건 미만이면 네 단계 타일을
-  // 시나리오 깔때기(lib/adminPredictedView.scenarioKpis — demoFixtures 하루 총량 × KST 진행률)로 채우고
-  // '시나리오' 배지를 단다. 0 을 향해 굴러가는 카운트업은 측정한 0 처럼 보이므로 그리지 않는다.
-  // 노출 5건부터는 아래 실측 타일이 그대로 돌아온다. Top 3 근거율 세 카드는 서버 비율 그대로다.
-  const funnelBasis = resolveKpiBasis(funnel.exposures);
-  const scenario = funnelBasis === 'scenario' && loadedAt !== null ? scenarioKpis(loadedAt) : null;
+  // 깔때기 전환(2026-09-22 PM 결정, 2026-09-26 공동 판정): 창은 **지난 30일 노출**(서버 model-trust 기본
+  // days=30)이다. 추천 고리 네 패널(수락률·DAU·분산 효과·깔때기)이 모두 실측 5건 미만일 때만(loopBasis ===
+  // 'scenario') 네 단계 타일을 시나리오 깔때기(lib/adminPredictedView.scenarioKpis — 도입 목표 패턴의 하루
+  // 총량 × KST 진행률)로 채우고 '시나리오' 배지를 단다. 하나라도 실측 5건 이상이면 실측 타일 그대로다 —
+  // 수락률 타일이 실측 '5,000건 중 0건' 인데 여기만 시나리오 길찾기 384건이면 두 숫자가 서로를 거짓으로 만든다.
+  // 판정 전(null)에는 숫자 자리를 '—' 로 둔다. Top 3 근거율 세 카드는 서버 비율 그대로다.
+  const pending = loopBasis === null;
+  const scenario = loopBasis === 'scenario' && loadedAt !== null ? scenarioKpis(loadedAt) : null;
   const scenarioLine = scenario ? basisSubline({ basis: 'scenario', measuredCount: funnel.exposures, unit: '건' }) : null;
-  const funnelCards = (scenario
+  const funnelCards = (pending
+    ? ([['추천 노출', '—'], ['길찾기', '—'], ['방문 확인', '—'], ['긍정 평가', '—']] as const)
+    : scenario
     ? ([
         ['추천 노출', scenario.funnel.offered], ['길찾기', scenario.funnel.navigated], ['방문 확인', scenario.funnel.arrived],
         ['긍정 평가', scenario.funnel.positive],
@@ -170,8 +198,9 @@ export function ModelTrustPanel() {
     ['Top 3 영업시간 근거율', `${(data.top3_evidence.operating_hours_rate * 100).toFixed(1)}%`],
     // 비율 지표는 표본이 쌓여 계산된 경우에만 카드로 표시한다.
   ] as const).filter(([, value]) => value !== '0.0%');
-  // ML 후보 학습 관문까지의 진행 — 관문 = 검증 관측 + 남은 수(서버 remaining_to_candidate). 0건이어도 그린다:
-  // '0' 은 여기서 측정한 행 수이고, 관문까지 얼마나 남았는지가 이 블록이 말할 사실이다.
+  // ML 후보 학습 관문까지의 진행 — 관문 = 검증 관측 + 남은 수(서버 remaining_to_candidate). 막대는 검증 관측이
+  // 1건 이상일 때만 그린다(2026-09-26 검증 반영) — 0% 빈 막대는 '멈춘 기능' 으로 읽힌다. 남은 건수는 바로 위
+  // 문장('검증 관측 N건이 더 쌓이면 …')이 이미 말한다.
   const trusted = Math.max(0, data.collection.trusted_observations || 0);
   const remaining = Math.max(0, data.collection.remaining_to_candidate || 0);
   const candidateGate = trusted + remaining;
@@ -246,7 +275,7 @@ export function ModelTrustPanel() {
           <p className="text-xs text-hanok-muted">활성 시설 <strong className="block text-lg text-hanok-ink">{data.collection.active_facilities}</strong></p>
         </div>
         {/* 후보 학습 관문 진행 막대 — 검증 관측 / (검증 관측 + 남은 수). 관문 크기는 서버가 정한다. */}
-        {candidateGate > 0 && (
+        {candidateGate > 0 && trusted > 0 && (
           <div className="mt-3" role="progressbar" aria-valuemin={0} aria-valuemax={candidateGate} aria-valuenow={trusted} aria-label="ML 후보 학습 관문 진행">
             <div className="flex items-center justify-between text-[11px] text-hanok-muted">
               <span>ML 후보 학습 관문</span>
