@@ -859,6 +859,8 @@ export default function MainPage() {
         rank: index + 1,
         preference: (spot?.preferencePercent ?? 0) / 100,
         travelMinutes: spot?.expectedTravel ?? 1,
+        // 줄·붐빔 비교는 같은 종류의 근거끼리만 한다(lib/spotComparison.ts) — 근거 종류를 함께 넘긴다.
+        scoringMode: spot?.scoringMode ?? facility.scoringMode,
         rankingWaitMinutes: spot?.rankingWaitTime,
         areaDemandPenaltyMinutes: spot?.areaDemandPenaltyMinutes,
         couponRate: facility.couponRate,

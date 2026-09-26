@@ -26,6 +26,7 @@ export default function RecommendationComparison({ recommendations }: { recommen
     preference: item.breakdown.preference ?? 0,
     travelMinutes: typeof item.breakdown.travelTime === 'number'
       ? item.breakdown.travelTime : displayWalkingMinutes(undefined, item.distanceM),
+    scoringMode: item.scoringMode,
     rankingWaitMinutes: item.breakdown.rankingWaitTime ?? item.breakdown.waitTime,
     areaDemandPenaltyMinutes: item.breakdown.areaDemandPenaltyMinutes,
     couponRate: item.facility.couponRate,
