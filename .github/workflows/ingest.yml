@@ -11,12 +11,37 @@
 #       + Variable GYEONGJU_FOOD_ENABLED=true (15114465 활용신청 승인 후)
 # TOURAPI_KEY 가 없으면 TourAPI 단계만 skip 한다. TOURAPI/LOCALDATA/KAKAO 키가 전부 없으면 checkout 도 하지 않는다
 # (무해 — 매일 실패 이메일 방지). 전체 시크릿·변수 목록: docs/DEPLOY_AND_ENV.md §4.
+#
+# 실패 대응(2026-09-24 도입, 09-26 범위 좁힘): 09-15·19·20·22 실패는 전부 첫 locationBasedList2 가 10초 만에
+# 타임아웃한 것이다. 같은 러너에서 곧이어 돈 경주 음식점 호출(같은 apis.data.go.kr)도 타임아웃했고, 몇 분 뒤
+# 새 러너의 재실행은 성공했다 — 스크립트·키·쿼터가 아니라 그 러너에서 apis.data.go.kr 로 가는 경로 문제다.
+#   1) 스크립트: 목록 호출을 일시 실패에 한해 최대 4회(약 2분) 재시도한다(ingest_tourapi.py).
+#   2) 그래도 목록 호출이 일시 오류면 스크립트가 exit 75 로 끝난다 — 상세 조회·DB 쓰기 전이다. 이때만
+#      retry 잡이 새 러너로 이 워크플로를 다시 띄운다(스케줄 실행에서 시작해 최대 2회). 그 밖의 실패(키·
+#      resultCode 오류, 상세 조회 뒤 Supabase 조회 실패로 적재 0행, 스텝 시간 초과, 보조 스텝 실패)는 다시
+#      돌리지 않는다 — 상세 조회(실행당 약 300콜, 09-20 실측 · DATA_UTILIZATION §9-2)를 두세 번 더 태우지 않게.
+#   3) 실패는 실패한 실행 자체로 드러낸다: 스케줄 실행의 실패 메일 + 실행 Summary 의 한 줄.
+#      공개 저장소라 이슈는 열지 않는다. 재시도 실행은 github-actions[bot] 이 띄운 것이라 사람 앞으로
+#      실패 메일이 가지 않을 수 있다 — 결과는 Actions 탭의 auto_retry=1·2 실행에서 본다.
+# 운영 주의:
+#   - 실패한 스케줄(또는 자동 재시도) 실행에 'Re-run jobs'·'Re-run failed jobs' 를 쓰지 않는다. 재실행은
+#     event_name=schedule(재시도 실행이면 auto_retry 값)을 그대로 물려받아 자동 재시도 사슬을 다시 건다.
+#     'Re-run failed jobs' 는 이전 시도의 잡 output(75)을 물려받기도 한다(actions/runner#2598).
+#     손으로 다시 돌릴 때는 Actions → TourAPI Ingest → Run workflow 에서 auto_retry 를 비워 둔다.
+#   - 아래 concurrency 그룹은 대기 실행을 하나만 둔다. 자동 재시도가 대기 중일 때 누가 Run workflow 를
+#     누르면 대기 중이던 재시도는 취소되고 수동 실행이 대신 돈다(수동 실행은 자동 재시도하지 않는다).
 name: TourAPI Ingest
 
 on:
   schedule:
     - cron: '0 19 * * *'
   workflow_dispatch:
+    inputs:
+      auto_retry:
+        description: '자동 재시도 회차 — 사람은 비워 둔다(스케줄 실패 시 retry 잡이 1·2 를 채운다)'
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: read
@@ -30,7 +55,12 @@ jobs:
   ingest:
     name: ingest (TourAPI → facilities)
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # 25분 = 준비(~2분) + TourAPI 스텝 상한 15분 + 경주 음식점 스텝 상한 5분 + 여유.
+    # 잡 timeout 에 걸리면 결과가 cancelled 라 실패 요약·retry 가 돌지 않으므로 스텝 상한 합보다 크게 둔다.
+    timeout-minutes: 25
+    # retry 잡이 읽는다 — 75(목록 호출 일시 오류, 상세 조회·DB 쓰기 전)일 때만 새 러너로 다시 돈다.
+    outputs:
+      tourapi_exit_code: ${{ steps.tourapi.outputs.exit_code }}
     env:
       TOURAPI_KEY_CONFIGURED: ${{ secrets.TOURAPI_KEY }}
       LOCALDATA_AUTH_KEY_CONFIGURED: ${{ secrets.LOCALDATA_AUTH_KEY }}
@@ -63,8 +93,19 @@ jobs:
 
       # --details: POI 당 상세(운영시간·배리어프리·개요) 호출 추가 — 상세 4콜/장소 × ~90곳 ≈ 360콜(일 쿼터 내).
       # --radius 3000: 2026-07-17 확장(황리단길 도보 회랑) — 기본 2000 으로 두면 일배치가 확장분 상세를 안 돈다.
-      - run: python scripts/ingest_tourapi.py --details --radius 3000
+      # 스텝 timeout — 잡 timeout(25분)에 걸리면 결과가 cancelled 라 실패 요약이 남지 않는다.
+      # 정상 소요는 2~3분이다. 상세 조회 중 망이 끊겨 건별 10초 타임아웃이 쌓여도 failure 로 끝나게 한다
+      # (시간 초과는 종료 코드가 없어 75 가 아니다 — 상세 조회 도중이라 자동 재시도하지 않는다).
+      # 종료 코드를 step output 으로 남긴다: 0 성공 · 75 목록 호출 일시 오류(재시도 대상) · 그 밖 실패.
+      - name: Ingest TourAPI POIs into facilities
+        id: tourapi
         if: ${{ env.TOURAPI_KEY_CONFIGURED != '' }}
+        timeout-minutes: 15
+        run: |
+          code=0
+          python scripts/ingest_tourapi.py --details --radius 3000 || code=$?
+          echo "exit_code=${code}" >> "$GITHUB_OUTPUT"
+          exit "${code}"
         env:
           TOURAPI_KEY: ${{ secrets.TOURAPI_KEY }}
           KAKAO_REST_API_KEY: ${{ secrets.KAKAO_REST_API_KEY }}
@@ -130,9 +171,14 @@ jobs:
       # !cancelled() — 앞선 TourAPI 적재 스텝이 간헐 실패(약 1/4)해도 독립 데이터원인 이 보강은 돌린다.
       - name: Enrich facilities with Gyeongju restaurant menus
         if: ${{ !cancelled() && env.GYEONGJU_FOOD_CONFIGURED != '' && vars.GYEONGJU_FOOD_ENABLED == 'true' }}
-        # 업스트림(15114465)이 0건을 주며 실패해 일배치 전체를 2일 연속 죽였다(2026-09-19·20 실측).
+        # 이 스텝의 '0건 수신' 실패(2026-09-20·21·22)는 데이터가 빈 게 아니라 같은 러너에서 apis.data.go.kr
+        # 연결이 10초 타임아웃된 것이다(로그 gyeongju_food_fetch_failed error= 공란, 같은 실행의 TourAPI 도 타임아웃).
+        # 연결되는 러너에서는 매번 108건을 받았다(09-20·21·23 실측).
+        # 그래서 서비스가 요청 타임아웃 25초 + 타임아웃·연결 끊김에 한해 5·15초 간격 재시도를 한다
+        # (gyeongju_restaurant_service.py). 최악 약 3분 — 스텝 상한 5분으로 잡 timeout 을 넘지 않게 한다.
         # 독립 보강 데이터라 실패해도 본 배치(TourAPI 동기화·신선도 배지)는 살아야 한다 → non-fatal.
         continue-on-error: true
+        timeout-minutes: 5
         run: python scripts/ingest_gyeongju_restaurants.py
         env:
           GYEONGJU_FOOD_API_BASE_URL: ${{ vars.GYEONGJU_FOOD_API_BASE_URL }}
@@ -142,3 +188,53 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           JWT_SECRET: ci-placeholder-jwt-secret
           ADMIN_API_TOKEN: ci-placeholder-admin-token
+
+      # 실패는 실패한 실행 자체(스케줄 실행의 실패 메일·Actions 탭)로 드러낸다 — 공개 저장소라 이슈는 열지 않는다.
+      # Summary 에 한 줄: 어디서 실패했고 새 러너 자동 재시도가 붙는지. checkout 전 실패여도 돌도록 작업 폴더는 루트.
+      - name: Failure summary
+        if: ${{ failure() }}
+        working-directory: .
+        env:
+          TOURAPI_EXIT: ${{ steps.tourapi.outputs.exit_code }}
+          TOURAPI_OUTCOME: ${{ steps.tourapi.outcome }}
+          RETRY_ELIGIBLE: ${{ github.event_name == 'schedule' || inputs.auto_retry == '1' }}
+        run: |
+          case "$TOURAPI_EXIT" in
+            75)
+              cause="TourAPI 목록 호출 일시 오류(exit 75) — 상세 조회·DB 쓰기 전에 멈춤"
+              if [ "$RETRY_ELIGIBLE" = "true" ]; then next="새 러너 자동 재시도 대상"; else next="자동 재시도 없음(수동 실행이거나 재시도 2회 소진)"; fi ;;
+            0)
+              cause="TourAPI 적재는 끝났고 뒤따른 보조 스텝이 실패"; next="자동 재시도 없음" ;;
+            "")
+              if [ "$TOURAPI_OUTCOME" = "skipped" ]; then cause="TourAPI 적재 스텝이 돌지 않음(앞 스텝 실패)"
+              else cause="TourAPI 적재 스텝이 종료 코드 없이 끝남(스텝 시간 초과 등)"; fi
+              next="자동 재시도 없음" ;;
+            *)
+              cause="TourAPI 적재 실패(exit ${TOURAPI_EXIT})"; next="자동 재시도 없음" ;;
+          esac
+          echo "**TourAPI 일배치 실패** — ${cause}. ${next}." >> "$GITHUB_STEP_SUMMARY"
+
+  # 실패한 러너는 몇 분간 apis.data.go.kr 에 닿지 못했다 — 같은 러너에서 버티지 말고 새 러너로 다시 돈다.
+  # TourAPI 스텝이 75 로 끝났을 때만 돈다: 목록 호출 일시 오류라 상세 조회·DB 쓰기 전이고, 다시 돌아도
+  # 목록 호출 몇 번만 더 쓴다. 상세 조회 뒤의 실패(적재 0행 등)는 재실행하면 약 300콜을 또 태우므로 제외.
+  # 스케줄 실행 → auto_retry=1 → auto_retry=2 까지(총 3회). 사람이 수동 실행한 것은 재시도하지 않는다.
+  # GITHUB_TOKEN 이 만든 이벤트는 새 실행을 만들지 않지만 workflow_dispatch 는 예외라 여기서 쓸 수 있다.
+  # 위 concurrency 그룹 때문에 새 실행은 이 실행이 끝난 뒤 시작한다(대기 실행은 하나뿐 — 헤더 '운영 주의').
+  retry-on-fresh-runner:
+    name: retry (새 러너에서 다시 실행)
+    needs: ingest
+    if: ${{ failure() && needs.ingest.outputs.tourapi_exit_code == '75' && (github.event_name == 'schedule' || inputs.auto_retry == '1') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Dispatch a fresh ingest run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          NEXT_ATTEMPT: ${{ github.event_name == 'schedule' && '1' || '2' }}
+        run: |
+          gh workflow run ingest.yml --ref "$GITHUB_REF_NAME" -f auto_retry="$NEXT_ATTEMPT"
+          echo "새 러너 재시도 ${NEXT_ATTEMPT}/2 를 예약했습니다." >> "$GITHUB_STEP_SUMMARY"

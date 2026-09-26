@@ -14,6 +14,13 @@
   기존 적재 흐름 뒤에 areaBasedSyncList2 로 지역 전체 showflag 를 조회해 facilities.contentid 와
   대조하고, 비표출(showflag='0')이면 is_active=false, 재표출(showflag='1')이면 true 로 복구한다.
   자세한 설계 근거는 아래 SYNC_AREA_CODE 주석 참고.
+
+종료 코드(ingest.yml 의 새 러너 재시도가 이 값을 본다):
+  0  적재 성공
+  75 목록 호출(locationBasedList2)이 재시도 후에도 일시 오류 — 상세 조회·DB 쓰기 전에 멈췄다(EX_TEMPFAIL).
+     이 경우에만 워크플로가 새 러너로 다시 돈다. 다시 돌아도 TourAPI 목록 호출 몇 번만 더 쓴다.
+  1  그 밖의 실패(키·resultCode 오류, 적재 0행, Supabase 조회 실패 등) — 다시 돌려도 같거나,
+     상세 조회를 이미 끝낸 뒤라 재실행하면 쿼터를 한 번 더 태운다. 자동 재시도 대상이 아니다.
 """
 
 import argparse
@@ -56,9 +63,9 @@ from app.services.tourapi.transform import (
     extract_intro_extra_features,
     extract_intro_phone_fallback,
 )
-# area_based_sync_list 도 패키지 __init__ 재노출 범위 밖(client.py 는 수정 금지 대상이라 __init__.py 도
-# 건드리지 않고 위 transform.py 함수들과 동일하게 서브모듈에서 직접 임포트).
-from app.services.tourapi.client import area_based_sync_list
+# area_based_sync_list·TourAPITransientError 도 패키지 __init__ 재노출 범위 밖이라
+# 위 transform.py 함수들과 동일하게 서브모듈에서 직접 임포트.
+from app.services.tourapi.client import TourAPITransientError, area_based_sync_list
 from app.services.batch.wikimedia import find_reusable_place_image
 from app.services.batch.kakao_coordinate_service import reconcile_row_coordinate
 
@@ -72,6 +79,35 @@ UPSERT_CHUNK = 100     # Supabase upsert 배치 크기
 
 TYPE_LABELS = {12: "관광지(12)", 14: "문화시설(14)", 39: "음식점(39)"}
 
+# 목록 호출(locationBasedList2·areaBasedSyncList2)의 일시 실패 재시도 간격(초).
+# 2026-09 일배치 실패는 전부 첫 locationBasedList2 가 10초 httpx 타임아웃(str 이 빈 문자열 — 로그상 `error=` 공란)으로
+# 죽은 것이었고, 목록은 재시도가 없어 한 번의 네트워크 끊김이 배치 전체를 죽였다. 4회 시도·최대 약 2분.
+# 상세 호출은 이미 건별 부분 실패를 허용하므로 재시도하지 않는다(쿼터·총 소요시간 보호).
+LIST_RETRY_DELAYS_S: tuple[float, ...] = (5.0, 15.0, 45.0)
+
+# 목록 호출이 위 재시도를 다 쓰고도 일시 오류일 때의 종료 코드(sysexits.h EX_TEMPFAIL).
+# ingest.yml 은 이 값일 때만 새 러너로 다시 돈다. run() 이 fetch_pois 경계에서만 이 값을 돌려주므로
+# 75 는 언제나 "상세 조회 전·DB 쓰기 전"을 뜻한다 — 상세 조회 뒤의 실패가 재실행으로 쿼터를 두세 배
+# 태우지 않게. (os.EX_TEMPFAIL 은 Windows 에 없어 상수로 둔다.)
+EXIT_TEMPFAIL = 75
+
+
+async def _list_call_with_retry(label: str, call):
+    """목록 호출을 일시 실패(TourAPITransientError)에 한해 LIST_RETRY_DELAYS_S 간격으로 재시도한다.
+
+    resultCode 오류(키·쿼터·파라미터)는 다시 불러도 같으므로 즉시 올린다.
+    `call` 은 매번 새 코루틴을 만드는 0-인자 함수다(코루틴은 한 번만 await 할 수 있다).
+    """
+    for attempt in range(len(LIST_RETRY_DELAYS_S) + 1):
+        try:
+            return await call()
+        except TourAPITransientError:
+            if attempt >= len(LIST_RETRY_DELAYS_S):
+                raise
+            delay = LIST_RETRY_DELAYS_S[attempt]
+            print(f"[retry] {label} 일시 실패 — {delay:g}초 후 재시도 ({attempt + 1}/{len(LIST_RETRY_DELAYS_S)})")
+            await asyncio.sleep(delay)
+
 
 async def fetch_pois(lat: float, lng: float, radius_m: int, limit: int) -> dict[int, list[dict]]:
     """contentTypeId 별로 반경 조회를 페이지네이션하며 원본 item 을 수집한다.
@@ -83,9 +119,12 @@ async def fetch_pois(lat: float, lng: float, radius_m: int, limit: int) -> dict[
         items: list[dict] = []
         page = 1
         while True:
-            payload = await location_based_list(
-                map_x=lng, map_y=lat, radius_m=radius_m,
-                content_type_id=ctid, page=page, rows=PAGE_ROWS,
+            payload = await _list_call_with_retry(
+                f"locationBasedList2(type={ctid}, page={page})",
+                lambda ctid=ctid, page=page: location_based_list(
+                    map_x=lng, map_y=lat, radius_m=radius_m,
+                    content_type_id=ctid, page=page, rows=PAGE_ROWS,
+                ),
             )
             page_items = parse_items(payload)
             items.extend(page_items)
@@ -280,8 +319,11 @@ async def fetch_showflag_map(
     showflag_by_id: dict[str, str] = {}
     page = 1
     while True:
-        payload = await area_based_sync_list(
-            area_code=area_code, sigungu_code=sigungu_code, page=page, rows=SYNC_PAGE_ROWS,
+        payload = await _list_call_with_retry(
+            f"areaBasedSyncList2(page={page})",
+            lambda page=page: area_based_sync_list(
+                area_code=area_code, sigungu_code=sigungu_code, page=page, rows=SYNC_PAGE_ROWS,
+            ),
         )
         items = parse_items(payload)
         if not items:
@@ -412,7 +454,13 @@ async def run_showflag_sync(written: int) -> dict:
 
 
 async def run(args: argparse.Namespace) -> int:
-    collected = await fetch_pois(args.lat, args.lng, args.radius, args.limit)
+    try:
+        collected = await fetch_pois(args.lat, args.lng, args.radius, args.limit)
+    except TourAPITransientError as e:
+        # 아직 상세 조회·DB 쓰기 전이다 — 새 러너 재실행이 싸고 안전한 유일한 지점.
+        # 이 아래에서 나는 일시 오류는 main() 의 일반 경로(exit 1)로 간다.
+        print(f"오류: {e} — 목록 호출이 재시도 후에도 일시 오류라 상세 조회 전에 멈춥니다(exit {EXIT_TEMPFAIL})")
+        return EXIT_TEMPFAIL
 
     # 변환 (순수 함수 transform_poi — 비정형 item 은 None 으로 스킵)
     rows_by_type: dict[int, list[dict]] = {}
@@ -517,7 +565,8 @@ def main() -> None:
     try:
         exit_code = asyncio.run(run(args))
     except (TourAPIError, RuntimeError) as e:
-        # TOURAPI_KEY 미설정/호출 실패 등 — 트레이스백 없이 원인만 명확히 출력
+        # TOURAPI_KEY 미설정/호출 실패 등 — 트레이스백 없이 원인만 명확히 출력.
+        # 여기로 온 TourAPITransientError 도 exit 1 이다 — 75 는 run() 의 목록 수집 경계에서만 나온다.
         print(f"오류: {e}")
         sys.exit(1)
     sys.exit(exit_code)

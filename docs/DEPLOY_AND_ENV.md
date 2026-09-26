@@ -13,7 +13,7 @@
 | 10분 주차 실측 수집 | Supabase pg_cron → `POST /api/v1/area-demand/snapshots/collect` | 자동 |
 | 10분 서울 검증 수집 | Supabase pg_cron → `POST /api/v1/engine-validation/seoul/collect` (마이그레이션 `20260920121000`) | 자동 — 사람이 예약 SQL 적용 후 |
 | 수집 중단 감시 | GitHub Actions `area-demand-alert.yml` → `GET /api/v1/admin/area-demand-reliability` | 매시 정각 (`main`에서만) |
-| TourAPI 적재 | GitHub Actions `ingest.yml` | 매일 KST 04:00 (`main`에서만) |
+| TourAPI 적재 | GitHub Actions `ingest.yml` | 매일 KST 04:00 (`main`에서만). 목록 호출이 일시 오류로 끝나면(exit 75, 상세 조회 전) 새 러너로 최대 2회 자동 재실행. 실패는 실패한 실행(스케줄 실패 메일·실행 Summary)으로 확인 — 다시 돌릴 때는 Re-run 대신 Run workflow(`auto_retry` 비움) |
 | 모델 학습 후보 | GitHub Actions `train-recommendation-model.yml` | 매주 월 03:00 KST (`main`에서만) |
 
 ## 1. Supabase
