@@ -671,7 +671,12 @@
     "evidenceEstimated": "推定 · 駐車場の実測に基づく · {time} 観測 · 半径{km}km",
     "evidenceEstimatedCalibrated": "推定 · 駐車場の実測に基づく（ソウル実測で補正） · {time} 観測 · 半径{km}km",
     "lastObserved": "最終観測 {time}",
-    "lastObservedLevel": "最終観測 {time} · {label}"
+    "lastObservedLevel": "最終観測 {time} · {label}",
+    "peek": {
+      "walk": "徒歩{n}分",
+      "expand": "おすすめを詳しく見る",
+      "collapse": "おすすめをコンパクト表示"
+    }
   },
   "report": {
     "trigger": "混雑を報告",

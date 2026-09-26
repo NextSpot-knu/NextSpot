@@ -671,7 +671,12 @@
     "evidenceEstimated": "Estimate · based on live parking · observed {time} · {km}km radius",
     "evidenceEstimatedCalibrated": "Estimate · based on live parking (calibrated on Seoul data) · observed {time} · {km}km radius",
     "lastObserved": "Last observed {time}",
-    "lastObservedLevel": "Last observed {time} · {label}"
+    "lastObservedLevel": "Last observed {time} · {label}",
+    "peek": {
+      "walk": "{n} min walk",
+      "expand": "See the full recommendation",
+      "collapse": "Show less"
+    }
   },
   "report": {
     "trigger": "Report crowding",

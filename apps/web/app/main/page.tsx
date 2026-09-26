@@ -3436,7 +3436,10 @@ export default function MainPage() {
 
       {showMobileTools && activeFilter !== '주차장' && (
         <div className="fixed inset-0 z-50 flex items-end bg-muk/35 md:hidden" onClick={() => setShowMobileTools(false)}>
-          <section className="w-full rounded-t-3xl bg-hanji px-4 pb-[calc(20px+env(safe-area-inset-bottom))] pt-3 shadow-2xl" onClick={(event) => event.stopPropagation()}>
+          {/* 아래 여백 = 하단 내비 높이(--tourist-nav-clearance) — 이 시트는 페이지 안쪽 쌓임 맥락이라 전역
+              하단 내비(z-40)가 위에 그려진다. 20px 이던 때는 음식 칩·축제·화장실 줄이 내비 밑에 깔려 눌리지 않았다.
+              짧은 화면에서는 시트 안에서 스크롤한다. */}
+          <section className="w-full max-h-[calc(100dvh-1rem)] overflow-y-auto overscroll-contain rounded-t-3xl bg-hanji px-4 pb-[calc(var(--tourist-nav-clearance)+env(safe-area-inset-bottom))] pt-3 shadow-2xl" onClick={(event) => event.stopPropagation()}>
             <div className="mb-4 flex items-center justify-between">
               <div><h2 className="font-bold text-muk">{t('map.mobileToolsTitle')}</h2><p className="text-xs text-muk-soft">{t('map.mobileToolsDesc')}</p></div>
               <button type="button" onClick={() => setShowMobileTools(false)} aria-label={t('common.close')} className="rounded-full border border-line bg-white p-2 text-muk"><X size={18} /></button>
@@ -3596,12 +3599,14 @@ export default function MainPage() {
               <span className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-gold/30 border-t-gold-deep" />
               {t('assume.recalculating', { label: recalcLabel })}
             </p>
+            {/* 휴대폰: 결과 카드가 짧은 미리보기로 뜨므로 스켈레톤도 그 높이만 쓴다(max-md:hidden) —
+                재계산 중에도 톱바가 가려지지 않는다. md 이상은 종전 그대로. */}
             <div className="mt-3 flex flex-col gap-2">
-              <div className="h-3 w-2/5 animate-pulse rounded-full bg-hanji-deep" />
+              <div className="h-3 w-2/5 animate-pulse rounded-full bg-hanji-deep max-md:hidden" />
               <div className="h-6 w-4/5 animate-pulse rounded-lg bg-hanji-deep" />
               <div className="h-3 w-3/5 animate-pulse rounded-full bg-hanji-deep" />
-              <div className="mt-1 h-16 w-full animate-pulse rounded-2xl bg-hanji-deep" />
-              <div className="mt-1 flex gap-2">
+              <div className="mt-1 h-16 w-full animate-pulse rounded-2xl bg-hanji-deep max-md:hidden" />
+              <div className="mt-1 flex gap-2 max-md:hidden">
                 <div className="h-10 flex-1 animate-pulse rounded-2xl bg-hanji-deep" />
                 <div className="h-10 flex-1 animate-pulse rounded-2xl bg-hanji-deep" />
               </div>
@@ -3778,6 +3783,8 @@ export default function MainPage() {
                 compareAnchorLevel={compareAnchorLevel}
                 assumedTimeLabel={assumedTimeLabel}
                 contextBadge={cardContextBadge}
+                // 휴대폰에서는 짧은 미리보기로 연다 — 지도와 톱바(검색·✨·칩·필터·편의)가 가려지지 않게.
+                mobilePeek
               />
               </div>
             </div>

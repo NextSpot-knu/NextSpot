@@ -1,4 +1,4 @@
-import { expect, test, type Page, type Route } from '@playwright/test';
+import { expect, test, type Locator, type Page, type Route } from '@playwright/test';
 import { stubExternalServices } from './support/stubs';
 
 // 심사위원 경로 회귀 테스트 ② — 메인 지도(/main)에서 손으로 눌러야만 드러나는 것들.
@@ -169,6 +169,37 @@ async function mockMain(page: Page, options: MainOptions = {}): Promise<void> {
   );
 }
 
+/**
+ * 휴대폰(<768px)에서 추천 카드는 짧은 미리보기(이름 · 도보 N분 · 혼잡 배지 · 도보 길안내)로 열린다.
+ * 비교 헤더처럼 전체 카드에만 있는 것을 보려면 먼저 펼친다 — 손잡이 버튼(접근 이름 '추천 자세히 보기').
+ */
+async function expandPeek(page: Page): Promise<void> {
+  await page.getByRole('button', { name: '추천 자세히 보기' }).click();
+  await expect(page.getByTestId('rec-card-peek')).toBeHidden();
+}
+
+/**
+ * 손가락이 정말 닿는가 — 요소 가운데 점에서 맨 위에 그려진 것이 그 요소(또는 그 자식)이고,
+ * 요소가 하단 내비 위에 있다. dispatchEvent 로 우회하지 않고 이 단언 뒤에 실제 click 을 한다.
+ */
+async function expectTappable(target: Locator): Promise<void> {
+  await target.scrollIntoViewIfNeeded();
+  const probe = await target.evaluate((el) => {
+    const box = el.getBoundingClientRect();
+    const hit = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
+    const nav = [...document.querySelectorAll('nav')]
+      .find((n) => n.getClientRects().length > 0 && getComputedStyle(n).position === 'fixed');
+    return {
+      reachable: !!hit && (hit === el || el.contains(hit)),
+      coveredBy: hit && !(hit === el || el.contains(hit)) ? (hit.textContent ?? '').trim().slice(0, 40) : null,
+      bottom: box.bottom,
+      navTop: nav ? nav.getBoundingClientRect().top : window.innerHeight,
+    };
+  });
+  expect(probe.reachable, `covered by: ${probe.coveredBy}`).toBe(true);
+  expect(probe.bottom).toBeLessThanOrEqual(probe.navTop);
+}
+
 /** 비교 헤더 한 줄의 모양. 근거 유무와 무관하게 이 모양은 항상 성립해야 한다. */
 const COMPARE_HEADER =
   /지금 .+ (혼잡|보통|여유|한산|인기) → 대신 .+ · 도보 \d+분 · (혼잡|보통|여유|한산|수집 중)/;
@@ -183,6 +214,7 @@ test('comparison header renders when the response carries evidence', async ({ pa
   await page.goto('/main');
 
   await expect(page.getByRole('heading', { name: '우직 쌈밥집' })).toBeVisible({ timeout: 25_000 });
+  await expandPeek(page); // 390px — 비교 헤더는 펼친 카드에 있다
   const header = page.getByText(COMPARE_HEADER).first();
   await expect(header).toBeVisible();
   // 근거가 있으면 기준 명소 이름과 등급 단어를 그대로 말한다(폴백 문구가 아니다).
@@ -197,6 +229,7 @@ test('comparison header still renders with no congestion estimate and no parking
   await page.goto('/main');
 
   await expect(page.getByRole('heading', { name: '우직 쌈밥집' })).toBeVisible({ timeout: 25_000 });
+  await expandPeek(page); // 390px — 비교 헤더는 펼친 카드에 있다
   const header = page.getByText(COMPARE_HEADER).first();
   await expect(header).toBeVisible();
   // 근거가 전부 없을 때의 폴백 문구(lib/compareHeader.ts 계약 ①·②).
@@ -269,10 +302,14 @@ test('festival chip lives in the 필터·편의 sheet at 390px', async ({ page }
   await page.goto('/main');
   await expect(page.getByRole('heading', { name: '우직 쌈밥집' })).toBeVisible({ timeout: 25_000 });
 
-  // 추천 카드가 390px 에서 '필터·편의' 버튼을 덮는 문제(카드 배치는 별도 결정 대기)를 우회해
-  // 시트를 연다 — 여기서 보려는 것은 '시트 안에 칩이 있는가' 이지 '버튼이 눌리는가' 가 아니다.
-  await page.getByRole('button', { name: '필터·편의' }).dispatchEvent('click');
-  await expect(page.getByRole('button', { name: /경주 축제·행사/ }).locator('visible=true')).toHaveCount(1);
+  // 카드는 짧은 미리보기로 떠 있으므로 '필터·편의' 버튼이 가려지지 않는다 — 실제로 눌러 연다.
+  const tools = page.getByRole('button', { name: '필터·편의' });
+  await expectTappable(tools);
+  await tools.click();
+  const festival = page.getByRole('button', { name: /경주 축제·행사/ }).locator('visible=true');
+  await expect(festival).toHaveCount(1);
+  // 시트 맨 아래 줄(축제·화장실)도 하단 내비에 깔리지 않고 손이 닿는다.
+  await expectTappable(festival);
 });
 
 test('assumed-time select is reachable at 390px', async ({ page }) => {
@@ -284,9 +321,13 @@ test('assumed-time select is reachable at 390px', async ({ page }) => {
   // 서비스 소개(guide.sigPredictBody)가 "상단 '가정 시간'에서 요일·시각을 고르면…" 이라고
   // 약속하는 컨트롤이다. 상단 줄이 모바일에서 숨는다면 '필터·편의' 시트에라도 있어야 한다.
   if ((await page.getByLabel('가정 시간').locator('visible=true').count()) === 0) {
-    await page.getByRole('button', { name: '필터·편의' }).dispatchEvent('click');
+    const tools = page.getByRole('button', { name: '필터·편의' });
+    await expectTappable(tools);
+    await tools.click();
   }
-  await expect(page.getByLabel('가정 시간').locator('visible=true')).toHaveCount(1);
+  const assumedTime = page.getByLabel('가정 시간').locator('visible=true');
+  await expect(assumedTime).toHaveCount(1);
+  await expectTappable(assumedTime);
 });
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -382,4 +423,152 @@ test.describe('festival panel (desktop toolbar)', () => {
     await expect(panel).toBeVisible();
     await expect(panel.getByText('현재 진행 중인 행사가 없어요')).toBeVisible();
   });
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// ⑤ 휴대폰 추천 카드 미리보기 — 카드가 지도와 톱바를 덮지 않는다(PM 2026-09-26).
+//   미리보기: 이름 · 도보 N분 · 혼잡 배지 · 도보 길안내. 누르거나 위로 밀면 전체 카드, 아래로 밀면 다시 미리보기.
+// ───────────────────────────────────────────────────────────────────────────
+
+/** 카드를 마우스로 끌어 민다(framer-motion drag 는 포인터 이벤트라 마우스로도 같은 경로를 탄다). */
+async function swipeCard(page: Page, dy: number): Promise<void> {
+  // 접힘·펼침 layout 애니메이션이 끝나 카드가 제자리에 선 뒤에 민다(사람도 그렇게 민다).
+  // 150ms 간격으로 잰 위치·높이가 **세 번 연달아** 같아야 멈춘 것으로 본다 — 곧바로 잇단 두 번 읽기는
+  // 상태가 바뀐 직후 애니메이션이 첫 프레임을 그리기 전이라 같게 나올 수 있다(그러면 옛 자리를 민다).
+  const card = page.getByTestId('recommendation-card');
+  let box: Awaited<ReturnType<Locator['boundingBox']>> = null;
+  let stableReads = 0;
+  await expect.poll(async () => {
+    const next = await card.boundingBox();
+    const same = !!box && !!next && Math.abs(next.y - box.y) < 0.5 && Math.abs(next.height - box.height) < 0.5;
+    stableReads = same ? stableReads + 1 : 0;
+    box = next;
+    return stableReads;
+  }, { intervals: [150] }).toBeGreaterThanOrEqual(3);
+  if (!box) throw new Error('recommendation card is not on screen');
+  const { x: left, y: top, width } = box;
+  // 손잡이 줄에서 시작한다 — 그 점이 정말 카드 위인지 먼저 확인한다(지도를 밀면 카드가 아니라 지도가 움직인다).
+  const x = left + width / 2;
+  const y = top + 14;
+  const onCard = await card.evaluate((el, [px, py]) => {
+    const hit = document.elementFromPoint(px, py);
+    return !!hit && el.contains(hit);
+  }, [x, y] as const);
+  expect(onCard, 'swipe must start on the recommendation card').toBe(true);
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  for (let step = 1; step <= 8; step += 1) await page.mouse.move(x, y + (dy * step) / 8);
+  await page.mouse.up();
+}
+
+async function stubWindowOpen(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    window.open = ((url?: string | URL) => {
+      (window as unknown as { __opened?: string }).__opened = String(url);
+      return window;
+    }) as typeof window.open;
+  });
+}
+
+test.describe('phone recommendation peek', () => {
+  test('opens as a peek; tap expands, swipe down returns, swipe up expands, then 도보 길안내 starts the walk', async ({ page }) => {
+    test.setTimeout(90_000);
+    await stubWindowOpen(page);
+    await mockMain(page, { evidence: true });
+    await page.goto('/main');
+
+    const peek = page.getByTestId('rec-card-peek');
+    await expect(peek).toBeVisible({ timeout: 25_000 });
+    // 미리보기에는 관광객이 지금 알아야 할 것만 — 이름 · 도보 N분 · 혼잡(전체 카드와 같은 배지 문구).
+    await expect(peek.getByRole('heading', { name: '우직 쌈밥집' })).toBeVisible();
+    await expect(peek).toContainText('도보 4분');
+    await expect(peek).toContainText('혼잡도: 한산');
+    await expect(peek.getByRole('button', { name: '여기로 길안내 시작' })).toBeVisible();
+    await expect(page.getByText(COMPARE_HEADER)).toHaveCount(0);
+
+    // 미리보기 줄을 누르면 전체 카드.
+    await peek.getByRole('heading', { name: '우직 쌈밥집' }).click();
+    await expect(peek).toBeHidden();
+    await expect(page.getByText(COMPARE_HEADER).first()).toBeVisible();
+    await expect(page.getByRole('button', { name: '추천 간단히 보기' })).toHaveAttribute('aria-expanded', 'true');
+
+    // 아래로 밀면 미리보기, 위로 밀면 다시 전체 카드.
+    await swipeCard(page, 160);
+    await expect(peek).toBeVisible();
+    await swipeCard(page, -160);
+    await expect(peek).toBeHidden();
+    await expect(page.getByText(COMPARE_HEADER).first()).toBeVisible();
+
+    // 전체 카드의 도보 길안내.
+    await page.getByRole('button', { name: '여기로 길안내 시작' }).click();
+    const active = await page.evaluate(() => JSON.parse(localStorage.getItem('nextspot_active_trip') ?? 'null'));
+    expect(active.facilityId).toBe('cand-restaurant');
+    expect(active.status).toBe('navigating');
+    expect(await page.evaluate(() => (window as unknown as { __opened?: string }).__opened)).toContain('map.kakao.com');
+  });
+
+  test('도보 길안내 in the peek works like the full card without expanding it', async ({ page }) => {
+    test.setTimeout(90_000);
+    await stubWindowOpen(page);
+    await mockMain(page, { evidence: true });
+    await page.goto('/main');
+
+    const peek = page.getByTestId('rec-card-peek');
+    await expect(peek).toBeVisible({ timeout: 25_000 });
+    const go = peek.getByRole('button', { name: '여기로 길안내 시작' });
+    await expectTappable(go);
+    await go.click();
+    const active = await page.evaluate(() => JSON.parse(localStorage.getItem('nextspot_active_trip') ?? 'null'));
+    expect(active.facilityId).toBe('cand-restaurant');
+    expect(active.status).toBe('navigating');
+    expect(active.navigationMode).toBe('walk');
+    expect(await page.evaluate(() => (window as unknown as { __opened?: string }).__opened)).toContain('map.kakao.com');
+    await expect(page.getByText(COMPARE_HEADER)).toHaveCount(0);
+  });
+
+  for (const viewport of [
+    { width: 360, height: 640 },
+    { width: 360, height: 740 },
+    { width: 390, height: 844 },
+    { width: 414, height: 896 },
+  ]) {
+    test(`search, ✨, chips and 필터·편의 stay tappable with the peek open at ${viewport.width}x${viewport.height}`, async ({ page }) => {
+      test.setTimeout(120_000);
+      await page.setViewportSize(viewport);
+      await mockMain(page, { events: [] });
+      await page.goto('/main');
+      await expect(page.getByTestId('rec-card-peek')).toBeVisible({ timeout: 25_000 });
+
+      const search = page.getByPlaceholder('장소·메뉴·분위기 검색');
+      const discovery = page.getByRole('button', { name: /경주가 처음이라면/ });
+      const cafe = page.getByRole('button', { name: '카페', exact: true });
+      const tools = page.getByRole('button', { name: '필터·편의' });
+      const go = page.getByTestId('rec-card-peek').getByRole('button', { name: '여기로 길안내 시작' });
+      for (const control of [search, discovery, page.getByRole('button', { name: '음식점', exact: true }), cafe, tools, go]) {
+        await expectTappable(control);
+      }
+
+      // 실제 클릭 — 검색창은 포커스를 받는다.
+      await search.click();
+      await expect(search).toBeFocused();
+
+      // 필터·편의 → 시트가 열리고, 닫으면 미리보기가 그대로다.
+      await tools.click();
+      const sheetTitle = page.getByRole('heading', { name: '필터와 여행 편의' });
+      await expect(sheetTitle).toBeVisible();
+      await page.locator('section').filter({ has: sheetTitle }).getByRole('button', { name: '닫기' }).click();
+      await expect(sheetTitle).toBeHidden();
+      await expect(page.getByTestId('rec-card-peek')).toBeVisible();
+
+      // 카테고리 칩 → 새 추천도 미리보기로 열린다.
+      await cafe.click();
+      await expect(page.getByTestId('rec-card-peek').getByRole('heading', { name: '우직 한옥카페' }))
+        .toBeVisible({ timeout: 25_000 });
+
+      // ✨ 경주가 처음이라면 → 테마 칩이 펼쳐진다.
+      await expectTappable(discovery);
+      await discovery.click();
+      await expect(page.getByRole('button', { name: /신라 핵심 산책/ })).toBeVisible();
+    });
+  }
 });

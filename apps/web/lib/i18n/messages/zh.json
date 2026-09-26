@@ -671,7 +671,12 @@
     "evidenceEstimated": "估算 · 基于停车场实测 · {time} 观测 · 半径{km}km",
     "evidenceEstimatedCalibrated": "估算 · 基于停车场实测（已用首尔实测校准） · {time} 观测 · 半径{km}km",
     "lastObserved": "最后观测 {time}",
-    "lastObservedLevel": "最后观测 {time} · {label}"
+    "lastObservedLevel": "最后观测 {time} · {label}",
+    "peek": {
+      "walk": "步行{n}分钟",
+      "expand": "查看完整推荐",
+      "collapse": "收起推荐"
+    }
   },
   "report": {
     "trigger": "上报拥挤",

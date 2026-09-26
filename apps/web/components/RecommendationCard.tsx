@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useId } from 'react';
+import { useState, useEffect, useId, useRef, type MouseEvent as ReactMouseEvent } from 'react';
 import { motion, PanInfo, AnimatePresence } from 'framer-motion';
 import { Bookmark, Check, Sparkles, Star, Phone, MapPin, Clock, ChevronUp, ChevronDown, Info, Globe, Utensils, RefreshCw } from 'lucide-react';
 import { apiClient, reportFacilityAvailability, type AvailabilityReportResult, type CongestionEstimate } from '@/lib/api-client';
@@ -19,6 +19,7 @@ import { resolveAnchorCrowd, resolveCandidateCrowd } from '@/lib/compareHeader';
 import { useBusyThreshold } from '@/components/shell/PublicSettingsProvider';
 import { creditedPhotoUrls, creditForDisplayedPhoto } from '@/lib/photoCredit';
 import { PhotoCreditLink } from '@/components/PhotoCreditLink';
+import { isPhoneViewportNow, usePhoneViewport } from '@/lib/usePhoneViewport';
 
 // facility prop 이 이 컴포넌트에서 실제로 읽는 필드만 구조적으로 명시한 타입.
 // 콜러 둘의 합집합: main(page)은 Facility(congestionLevel/currentCount: number|null,
@@ -144,6 +145,11 @@ interface RecommendationCardProps {
   assumedTimeLabel?: string | null;
   /** 테마 칩 맥락 배지 문구(예: '신라 핵심 산책 기준 대안'). */
   contextBadge?: string | null;
+  /**
+   * 휴대폰(<768px)에서 카드를 **짧은 미리보기**로 연다 — 이름 · 도보 N분 · 혼잡 배지 · 도보 길안내.
+   * 지도 위에 떠 있는 /main 카드만 켠다. 태블릿·데스크톱에서는 아무 영향이 없다.
+   */
+  mobilePeek?: boolean;
 }
 
 export function RecommendationCard({
@@ -194,6 +200,7 @@ export function RecommendationCard({
   compareAnchorLevel,
   assumedTimeLabel,
   contextBadge,
+  mobilePeek = false,
 }: RecommendationCardProps) {
   const { t, locale } = useI18n();
   // 운영자 '혼잡' 경계. 지금은 **새 추정 배지만** 이 값을 따른다 — 지도 점선 핀·코스 칩이 이미
@@ -204,7 +211,16 @@ export function RecommendationCard({
   // 뜨는 경로(저장 목록)가 있어 고정 문자열을 쓸 수 없고, useId 는 SSR/CSR 이 같은 값을 낸다.
   const detailsPanelId = `rec-card-details-${useId()}`;
   const [isExpanded, setIsExpanded] = useState(false);
-  const [isMinimized, setIsMinimized] = useState(false);
+  // 휴대폰 미리보기(mobilePeek) — 기존 '최소화' 상태를 그대로 쓰되, 휴대폰에서는 그 모습을 짧은
+  // 미리보기 줄로 그리고 **새 추천은 이 상태로 연다.** 카드가 톱바(검색·✨·칩·필터·편의)를 덮지 않게
+  // 하기 위해서다(PM 2026-09-26). 첫 렌더부터 미리보기여야 전체 카드가 잠깐 떴다 접히는 깜빡임이 없다.
+  const isPhone = usePhoneViewport();
+  const peekMode = mobilePeek && isPhone;
+  const [isMinimized, setIsMinimized] = useState(() => mobilePeek && isPhoneViewportNow());
+  // 미리보기에서 위로 끌어 올린 손가락이 '도보 길안내' 위에서 떨어져도 길안내가 시작되지 않게,
+  // 방금 끝난 드래그 뒤의 click 한 번은 무시한다(마우스 드래그는 click 을 그대로 발생시킨다).
+  const justDraggedRef = useRef(false);
+  const hoursPromptRef = useRef<HTMLDivElement>(null);
   const [confirmedAction, setConfirmedAction] = useState<'saved' | 'accepted' | null>(null);
   // SPOT 점수 설명 툴팁 — 터치/키보드에서도 열 수 있게 탭/포커스로 토글(데스크톱 hover 는 유지)
   const [showTooltip, setShowTooltip] = useState(false);
@@ -246,7 +262,6 @@ export function RecommendationCard({
   const [currentTime, setCurrentTime] = useState<Date | null>(null);
   useEffect(() => {
     setIsExpanded(false);
-    setIsMinimized(false);
     setConfirmedAction(null);
     setLocalReport(null);
     setHoursPromptOpen(false);
@@ -258,6 +273,21 @@ export function RecommendationCard({
     setLiveDetail(null);
     setLiveLoading(false);
   }, [title]);
+  // 휴대폰에서 영업 확인 질문이 뜨면 카드 안 스크롤 맨 아래(액션 버튼 바로 위)에 있어 보이지 않을 수
+  // 있다 — 질문을 화면 안으로 끌어온다. 태블릿·데스크톱은 종전 그대로(스크롤하지 않는다).
+  useEffect(() => {
+    if (!peekMode || isMinimized || !hoursPromptOpen) return;
+    hoursPromptRef.current?.scrollIntoView({ block: 'nearest' });
+  }, [peekMode, isMinimized, hoursPromptOpen]);
+  // 새 추천(title 변경)은 휴대폰이면 미리보기로, 그 밖에는 종전처럼 펼친 카드로 연다.
+  // 폭이 md 경계를 넘나들면(가로 회전 등) 그 폭의 기본 모습으로 돌아간다.
+  // (effect 가 아니라 렌더 중 조정 — 한 프레임이라도 이전 모습이 그려지지 않게.)
+  const minimizeResetKey = `${title}|${peekMode ? 'peek' : 'full'}`;
+  const [lastMinimizeResetKey, setLastMinimizeResetKey] = useState(minimizeResetKey);
+  if (lastMinimizeResetKey !== minimizeResetKey) {
+    setLastMinimizeResetKey(minimizeResetKey);
+    setIsMinimized(peekMode);
+  }
 
   // 주변 수요 '수집 중' 표시의 시한. 이 카드는 주변 수요를 스스로 부르지 않고 props 로 받기만 하므로
   // '아직 오는 중'인지 '서버가 줄 게 없었는지'를 구분할 수 없다 — 그래서 시간으로 끊는다.
@@ -436,6 +466,19 @@ export function RecommendationCard({
 
   const toggleExpand = () => {
     setIsExpanded(!isExpanded);
+  };
+
+  const handleDragStart = () => {
+    justDraggedRef.current = true;
+  };
+  const handleDragEndWithClickGuard = (event: MouseEvent | TouchEvent | PointerEvent, info: PanInfo) => {
+    handleDragEnd(event, info);
+    window.setTimeout(() => { justDraggedRef.current = false; }, 0);
+  };
+  // 미리보기 → 전체 카드. 드래그 직후의 click 은 무시한다(위 justDraggedRef 참조).
+  const openFromPeek = () => {
+    if (justDraggedRef.current) return;
+    setIsMinimized(false);
   };
 
   const hasSpotMetrics = spotScore !== undefined;
@@ -702,15 +745,91 @@ export function RecommendationCard({
     candidateCrowd: candidateCrowdGrade ? t(`congestion.${candidateCrowdGrade}`) : t('compare.collecting'),
   });
 
+  // 혼잡 배지(실측 → 점선 추정 → 주변 수요 → '수집 중') — 전체 카드의 배지 줄 맨 앞과 휴대폰 미리보기가
+  // 같은 요소를 쓴다. 두 곳이 서로 다른 말을 하지 않게 한 곳에서만 만든다.
+  const primaryCrowdBadge = shownCongestionLevel !== null ? (
+                <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold border ${
+                  shownCongestionLevel >= 0.75
+                    ? 'bg-terracotta/10 border-terracotta/30 text-terracotta'
+                    : shownCongestionLevel >= 0.5
+                    ? 'bg-gold/10 border-gold/30 text-gold-deep'
+                    : shownCongestionLevel >= 0.25
+                    ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-600'
+                    : 'bg-jade/10 border-jade/30 text-jade'
+                }`}>
+                  {t('card.congestion')}: {congestionLabel(shownCongestionLevel)}
+                </span>
+              ) : estimate ? (
+                // 추정 모드: **점선 테두리·옅은 바탕**. 실측 배지의 꽉 찬 등급색과 한눈에 달라야 한다 —
+                // 같은 모양이면 '추정' 글자를 읽지 않은 사람에게 실측으로 팔린다. 대기 분·잔여석은 없다
+                // (점유율→대기·인원 계수가 없어 만들면 지어낸 숫자다). 주변 수요 요약 배지는 같은
+                // 주차·관광 신호의 다른 표현이라 여기서는 이 배지로 대신한다(상세 패널은 그대로).
+                <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold border border-dashed bg-white/70 ${
+                  {
+                    busy: 'border-terracotta/60 text-terracotta',
+                    moderate: 'border-gold/60 text-gold-deep',
+                    relaxed: 'border-emerald-500/60 text-emerald-700',
+                    quiet: 'border-jade/60 text-jade',
+                  }[gradeKey(estimate.level, busyAt)]
+                }`}>
+                  {t('card.estimateLevel', { label: t(`congestion.${gradeKey(estimate.level, busyAt)}`) })}
+                </span>
+              ) : typeof areaDemandLevel === 'number' ? (
+                // 측정 대상이 다른 주차·관광 통계를 하나의 절대 혼잡률처럼 보이지 않게 근거 수로 요약한다.
+                <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold border ${
+                  areaDemandTourismEvidence
+                    ? 'bg-indigo-500/10 border-indigo-500/20 text-indigo-700'
+                    : areaDemandLevel >= 0.75
+                    ? 'bg-terracotta/10 border-terracotta/30 text-terracotta'
+                    : areaDemandLevel >= 0.5
+                    ? 'bg-gold/10 border-gold/30 text-gold-deep'
+                    : areaDemandLevel >= 0.25
+                    ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-600'
+                    : 'bg-jade/10 border-jade/30 text-jade'
+                }`}>
+                  {evidenceCount > 0
+                    ? t('recommend.areaEvidenceCount', { n: evidenceCount })
+                    : `${t('recommend.areaDemand')}: ${congestionLabel(areaDemandLevel)}`}
+                </span>
+              ) : (
+                // 실측·추정·주변 수요가 모두 없는 첫 카드 — 자리를 비우지 않고 상태를 말한다.
+                <span className="px-2 py-0.5 rounded-md text-[10px] font-bold border border-dashed border-line bg-white/70 text-muk-soft">
+                  {t('compare.congestionCollecting')}
+                </span>
+              );
+
+  // '도보 길안내'(또는 영업 확인 필요 시 '카카오맵에서 영업 확인') — 전체 카드와 휴대폰 미리보기가
+  // **같은 함수**를 부른다. 미리보기에서 영업 확인 질문을 띄우면 그 질문은 전체 카드에만 있으므로
+  // 카드를 펼치고 질문을 화면 안으로 끌어온다.
+  const handleAcceptClick = () => {
+    haptic('success');
+    if (needsHoursConfirmation && kakaoPlaceUrl) {
+      setHoursPromptOpen(true);
+      setHoursSubmitError(false);
+      if (peekMode && isMinimized) setIsMinimized(false);
+      window.open(kakaoPlaceUrl, '_blank', 'noopener,noreferrer');
+      return;
+    }
+    setConfirmedAction('accepted');
+    onAccept();
+  };
+  const handlePeekAcceptClick = (event: ReactMouseEvent) => {
+    event.stopPropagation();
+    if (justDraggedRef.current) return;
+    handleAcceptClick();
+  };
+
   return (
     <motion.div 
+      data-testid="recommendation-card"
       className={`w-full max-h-[calc(100dvh-var(--tourist-nav-clearance)-8rem)] bg-white/95 backdrop-blur-2xl border border-line rounded-3xl ${isMinimized ? 'p-3' : 'p-5'} toss-surface flex flex-col ${isMinimized ? 'gap-1' : 'gap-3'} select-none relative overflow-hidden`}
       initial={{ opacity: 0, y: 18, scale: 0.985 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       drag="y"
       dragConstraints={{ top: 0, bottom: 0 }}
       dragElastic={0.2}
-      onDragEnd={handleDragEnd}
+      onDragStart={handleDragStart}
+      onDragEnd={handleDragEndWithClickGuard}
       layout
       transition={sheetSpring}
     >
@@ -721,6 +840,27 @@ export function RecommendationCard({
           aria-hidden: 이 막대는 포커스를 받을 수 없고(순수 div), 드래그도 마우스·터치에만
           해당한다. 예전엔 안에 sr-only "Drag handle" 텍스트가 있어 스크린리더에는 조작할 수도
           없는 정체불명의 문구 하나로만 읽혔다. 토글은 아래 상세 펼치기 버튼 하나로 노출한다. */}
+      {peekMode ? (
+        // 휴대폰 미리보기: 손잡이가 곧 '펼치기/미리보기로 접기' 버튼이다(키보드·스크린리더도 쓸 수 있게
+        // 이름을 붙이고, 손가락이 닿기 쉽게 전폭 24px 높이로 잡는다). 위로 밀기·아래로 밀기는 카드 전체의 drag.
+        <button
+          type="button"
+          aria-label={t(isMinimized ? 'card.peek.expand' : 'card.peek.collapse')}
+          aria-expanded={!isMinimized}
+          onClick={() => {
+            if (justDraggedRef.current) return;
+            if (isMinimized) {
+              setIsMinimized(false);
+            } else {
+              setIsExpanded(false);
+              setIsMinimized(true);
+            }
+          }}
+          className="-mt-1.5 -mb-0.5 flex h-6 w-full shrink-0 cursor-pointer items-center justify-center rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+        >
+          <span aria-hidden="true" className="h-1.5 w-16 rounded-full bg-muk/20" />
+        </button>
+      ) : (
       <div
         aria-hidden="true"
         className="w-16 h-1.5 bg-muk/15 hover:bg-muk/25 rounded-full mx-auto mb-1 cursor-pointer flex items-center justify-center transition-colors"
@@ -729,11 +869,12 @@ export function RecommendationCard({
           else toggleExpand();
         }}
       />
+      )}
 
       {/* P2 — 비교 헤더. 카드 맨 위, **접힌 상태에서도** 보인다. 이 추천이 무슨 줄을 대신하는지가
           카드의 첫 문장이어야 한다("줄 서는 대신, 경주를 한 곳 더"). 근거 값이 비어도 사라지지 않는다 —
           단, 대신할 기준 명소 자체가 없는 화면(showCompare=false, 예: 저장 목록)에서는 아예 띄우지 않는다. */}
-      {showCompare && (
+      {showCompare && !(peekMode && isMinimized) && (
       <div className="rounded-2xl border border-terracotta/25 bg-gradient-to-r from-terracotta/10 via-gold/10 to-jade/10 px-3 py-2">
         <p className="text-[9px] font-extrabold uppercase tracking-wide text-terracotta">
           {t('compare.headerKicker')}
@@ -758,7 +899,42 @@ export function RecommendationCard({
       </div>
       )}
 
-      {isMinimized ? (
+      {isMinimized && peekMode ? (
+        // 휴대폰 미리보기 줄 — 관광객이 지금 알아야 할 것만: 어디(이름) · 얼마나(도보 N분) · 붐비나(혼잡 배지,
+        // 전체 카드와 같은 요소) · 바로 출발(도보 길안내, 전체 카드와 같은 동작). 줄을 누르면 전체 카드.
+        <div className="flex items-center gap-3 px-1 pb-0.5" data-testid="rec-card-peek">
+          <div className="min-w-0 flex-1 cursor-pointer" onClick={openFromPeek}>
+            <div className="flex items-center gap-1">
+              <h3 className="min-w-0 truncate font-serif text-base font-bold leading-tight tracking-tight text-muk">{title}</h3>
+              <ChevronUp size={14} className="shrink-0 text-gold-deep" aria-hidden />
+            </div>
+            <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+              <span className="whitespace-nowrap rounded-md border border-jade/30 bg-jade/10 px-2 py-0.5 text-[10px] font-bold text-jade">
+                {t('card.peek.walk', { n: displayedTravelMins })}
+              </span>
+              {facility && primaryCrowdBadge}
+              {closedToday && (
+                <span className="px-2 py-0.5 rounded-md text-[10px] font-bold border bg-terracotta/10 border-terracotta/30 text-terracotta">
+                  {t('card.closedToday')}
+                </span>
+              )}
+            </div>
+          </div>
+          <motion.button
+            type="button"
+            onClick={handlePeekAcceptClick}
+            whileTap={tapMotion}
+            transition={interactionSpring}
+            aria-label={t(needsHoursConfirmation && kakaoPlaceUrl ? 'card.checkHoursKakaoAria' : 'card.acceptAria')}
+            className="max-w-[46%] shrink-0 break-keep rounded-2xl bg-gradient-to-r from-gold to-terracotta px-4 py-3 text-xs font-bold leading-tight text-white shadow-[0_4px_14px_rgba(193,85,59,0.25)] transition-all active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+          >
+            <span className="inline-flex items-center justify-center gap-1.5">
+              {confirmedAction === 'accepted' && <Check size={14} aria-hidden />}
+              {t(needsHoursConfirmation && kakaoPlaceUrl ? 'card.checkHoursKakao' : 'card.accept')}
+            </span>
+          </motion.button>
+        </div>
+      ) : isMinimized ? (
         <div
           className="flex items-center justify-between px-2 pb-1 cursor-pointer"
           onClick={() => setIsMinimized(false)}
@@ -823,56 +999,7 @@ export function RecommendationCard({
               들쭉날쭉해지고, 심사 중에는 그게 '깨진 화면'으로 읽힌다. 대신 '수집 중'이라고 말한다. */}
           {facility && (
             <div className="flex flex-wrap items-center gap-1.5 mt-2">
-              {shownCongestionLevel !== null ? (
-                <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold border ${
-                  shownCongestionLevel >= 0.75
-                    ? 'bg-terracotta/10 border-terracotta/30 text-terracotta'
-                    : shownCongestionLevel >= 0.5
-                    ? 'bg-gold/10 border-gold/30 text-gold-deep'
-                    : shownCongestionLevel >= 0.25
-                    ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-600'
-                    : 'bg-jade/10 border-jade/30 text-jade'
-                }`}>
-                  {t('card.congestion')}: {congestionLabel(shownCongestionLevel)}
-                </span>
-              ) : estimate ? (
-                // 추정 모드: **점선 테두리·옅은 바탕**. 실측 배지의 꽉 찬 등급색과 한눈에 달라야 한다 —
-                // 같은 모양이면 '추정' 글자를 읽지 않은 사람에게 실측으로 팔린다. 대기 분·잔여석은 없다
-                // (점유율→대기·인원 계수가 없어 만들면 지어낸 숫자다). 주변 수요 요약 배지는 같은
-                // 주차·관광 신호의 다른 표현이라 여기서는 이 배지로 대신한다(상세 패널은 그대로).
-                <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold border border-dashed bg-white/70 ${
-                  {
-                    busy: 'border-terracotta/60 text-terracotta',
-                    moderate: 'border-gold/60 text-gold-deep',
-                    relaxed: 'border-emerald-500/60 text-emerald-700',
-                    quiet: 'border-jade/60 text-jade',
-                  }[gradeKey(estimate.level, busyAt)]
-                }`}>
-                  {t('card.estimateLevel', { label: t(`congestion.${gradeKey(estimate.level, busyAt)}`) })}
-                </span>
-              ) : typeof areaDemandLevel === 'number' ? (
-                // 측정 대상이 다른 주차·관광 통계를 하나의 절대 혼잡률처럼 보이지 않게 근거 수로 요약한다.
-                <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold border ${
-                  areaDemandTourismEvidence
-                    ? 'bg-indigo-500/10 border-indigo-500/20 text-indigo-700'
-                    : areaDemandLevel >= 0.75
-                    ? 'bg-terracotta/10 border-terracotta/30 text-terracotta'
-                    : areaDemandLevel >= 0.5
-                    ? 'bg-gold/10 border-gold/30 text-gold-deep'
-                    : areaDemandLevel >= 0.25
-                    ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-600'
-                    : 'bg-jade/10 border-jade/30 text-jade'
-                }`}>
-                  {evidenceCount > 0
-                    ? t('recommend.areaEvidenceCount', { n: evidenceCount })
-                    : `${t('recommend.areaDemand')}: ${congestionLabel(areaDemandLevel)}`}
-                </span>
-              ) : (
-                // 실측·추정·주변 수요가 모두 없는 첫 카드 — 자리를 비우지 않고 상태를 말한다.
-                <span className="px-2 py-0.5 rounded-md text-[10px] font-bold border border-dashed border-line bg-white/70 text-muk-soft">
-                  {t('compare.congestionCollecting')}
-                </span>
-              )}
+              {primaryCrowdBadge}
               {/* 가정 시각 — 이 배지들이 '지금'이 아니라 무슨 시각을 말하는지 바로 옆에서 밝힌다. */}
               {assumedTimeLabel && (
                 <span className="px-2 py-0.5 rounded-md text-[10px] font-bold border border-gold/40 bg-gold/15 text-gold-deep whitespace-nowrap">
@@ -1570,6 +1697,7 @@ export function RecommendationCard({
       <AnimatePresence>
         {hoursPromptOpen && (
           <motion.div
+            ref={hoursPromptRef}
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 8 }}
@@ -1628,17 +1756,7 @@ export function RecommendationCard({
             </motion.button>
           )}
           <motion.button
-            onClick={() => {
-              haptic('success');
-              if (needsHoursConfirmation && kakaoPlaceUrl) {
-                setHoursPromptOpen(true);
-                setHoursSubmitError(false);
-                window.open(kakaoPlaceUrl, '_blank', 'noopener,noreferrer');
-                return;
-              }
-              setConfirmedAction('accepted');
-              onAccept();
-            }}
+            onClick={handleAcceptClick}
             whileTap={tapMotion}
             transition={interactionSpring}
             aria-label={t(needsHoursConfirmation && kakaoPlaceUrl ? 'card.checkHoursKakaoAria' : 'card.acceptAria')}

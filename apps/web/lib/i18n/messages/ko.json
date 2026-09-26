@@ -671,7 +671,12 @@
     "evidenceEstimated": "추정 · 주차 실측 기반 · {time} 관측 · 반경 {km}km",
     "evidenceEstimatedCalibrated": "추정 · 주차 실측 기반(서울 실측 보정) · {time} 관측 · 반경 {km}km",
     "lastObserved": "마지막 관측 {time}",
-    "lastObservedLevel": "마지막 관측 {time} · {label}"
+    "lastObservedLevel": "마지막 관측 {time} · {label}",
+    "peek": {
+      "walk": "도보 {n}분",
+      "expand": "추천 자세히 보기",
+      "collapse": "추천 간단히 보기"
+    }
   },
   "report": {
     "trigger": "혼잡 제보",
