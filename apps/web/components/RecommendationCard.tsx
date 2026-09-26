@@ -21,6 +21,10 @@ import { creditedPhotoUrls, creditForDisplayedPhoto } from '@/lib/photoCredit';
 import { PhotoCreditLink } from '@/components/PhotoCreditLink';
 import { isPhoneViewportNow, usePhoneViewport } from '@/lib/usePhoneViewport';
 
+// 이만큼(세로 px) 이상 움직여야 '밀기' 로 보고 뒤따르는 click 을 무시한다. 이보다 작게 흔들린 터치는
+// 탭이다 — 브라우저가 click 을 보내면 그대로 받는다(handleDrag 주석 참조).
+const SWIPE_GUARD_PX = 12;
+
 // facility prop 이 이 컴포넌트에서 실제로 읽는 필드만 구조적으로 명시한 타입.
 // 콜러 둘의 합집합: main(page)은 Facility(congestionLevel/currentCount: number|null,
 // features: 인덱스시그니처 unknown)를, saved(page)는 {congestionLevel, capacity, currentCount}
@@ -218,7 +222,8 @@ export function RecommendationCard({
   const peekMode = mobilePeek && isPhone;
   const [isMinimized, setIsMinimized] = useState(() => mobilePeek && isPhoneViewportNow());
   // 미리보기에서 위로 끌어 올린 손가락이 '도보 길안내' 위에서 떨어져도 길안내가 시작되지 않게,
-  // 방금 끝난 드래그 뒤의 click 한 번은 무시한다(마우스 드래그는 click 을 그대로 발생시킨다).
+  // 방금 끝난 **밀기** 뒤의 click 한 번은 무시한다(마우스 드래그는 click 을 그대로 발생시킨다).
+  // 밀기로 보는 기준은 SWIPE_GUARD_PX 이상 움직였을 때다 — 아래 handleDrag 주석 참조.
   const justDraggedRef = useRef(false);
   const hoursPromptRef = useRef<HTMLDivElement>(null);
   const [confirmedAction, setConfirmedAction] = useState<'saved' | 'accepted' | null>(null);
@@ -468,8 +473,13 @@ export function RecommendationCard({
     setIsExpanded(!isExpanded);
   };
 
-  const handleDragStart = () => {
-    justDraggedRef.current = true;
+  // framer-motion 은 3px 만 움직여도 드래그를 시작하지만, 브라우저는 그보다 훨씬 많이 흔들린 터치도
+  // 탭(click)으로 인정한다. 드래그 시작만으로 click 을 막으면 손가락이 조금 흔들린 탭 — 휴대폰에서
+  // 흔한 탭 — 에 '도보 길안내'·미리보기 줄이 아무 반응을 하지 않는다. 그래서 정말 **민** 경우
+  // (세로로 SWIPE_GUARD_PX 이상)만 막는다. onDrag 는 손가락을 떼기 전에 불리므로 뒤따르는
+  // click 보다 먼저 표시가 선다. 해제는 종전처럼 드래그가 끝난 뒤(handleDragEndWithClickGuard)다.
+  const handleDrag = (_event: MouseEvent | TouchEvent | PointerEvent, info: PanInfo) => {
+    if (Math.abs(info.offset.y) >= SWIPE_GUARD_PX) justDraggedRef.current = true;
   };
   const handleDragEndWithClickGuard = (event: MouseEvent | TouchEvent | PointerEvent, info: PanInfo) => {
     handleDragEnd(event, info);
@@ -828,7 +838,7 @@ export function RecommendationCard({
       drag="y"
       dragConstraints={{ top: 0, bottom: 0 }}
       dragElastic={0.2}
-      onDragStart={handleDragStart}
+      onDrag={handleDrag}
       onDragEnd={handleDragEndWithClickGuard}
       layout
       transition={sheetSpring}

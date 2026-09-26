@@ -571,4 +571,83 @@ test.describe('phone recommendation peek', () => {
       await expect(page.getByRole('button', { name: /신라 핵심 산책/ })).toBeVisible();
     });
   }
+
+  // 진짜 손가락(터치)으로 누른다. CI 기본 프로젝트는 마우스뿐이라 이 묶음만 터치를 켠다.
+  // 사람의 탭은 몇 px 흔들린다 — framer-motion 은 3px 부터 '드래그' 로 보지만 브라우저는 그 탭에 click 을
+  // 그대로 보낸다. 그 click 을 버리면 휴대폰에서 도보 길안내가 가끔 아무 반응을 안 한다(검증 2026-09-26).
+  test.describe('with a real touchscreen', () => {
+    test.use({ hasTouch: true, isMobile: true });
+
+    /** 터치를 points 순서대로 움직였다가 뗀다(CDP — Playwright 의 tap 은 움직임을 줄 수 없다). */
+    async function touchPath(page: Page, points: Array<[number, number]>, stepDelayMs = 30): Promise<void> {
+      const cdp = await page.context().newCDPSession(page);
+      const [x0, y0] = points[0];
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: x0, y: y0 }] });
+      for (const [x, y] of points.slice(1)) {
+        await page.waitForTimeout(stepDelayMs);
+        await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y }] });
+      }
+      await page.waitForTimeout(stepDelayMs);
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+      await cdp.detach();
+    }
+
+    async function centerOf(target: Locator): Promise<[number, number]> {
+      const box = await target.boundingBox();
+      if (!box) throw new Error('target is not on screen');
+      return [box.x + box.width / 2, box.y + box.height / 2];
+    }
+
+    async function openPeek(page: Page): Promise<Locator> {
+      await stubWindowOpen(page);
+      await mockMain(page, { evidence: true });
+      await page.goto('/main');
+      const peek = page.getByTestId('rec-card-peek');
+      await expect(peek).toBeVisible({ timeout: 25_000 });
+      // 등장 애니메이션이 끝나 제자리에 선 뒤에 누른다(사람도 멈춘 버튼을 누른다) — swipeCard 와 같은 판정:
+      // 150ms 간격으로 잰 위치가 세 번 연달아 같아야 멈춘 것으로 본다.
+      let lastY: number | null = null;
+      let stableReads = 0;
+      await expect.poll(async () => {
+        const y = (await peek.boundingBox())?.y ?? null;
+        stableReads = y !== null && lastY !== null && Math.abs(y - lastY) < 0.5 ? stableReads + 1 : 0;
+        lastY = y;
+        return stableReads;
+      }, { intervals: [150] }).toBeGreaterThanOrEqual(3);
+      return peek;
+    }
+
+    test('a slightly shaky tap on the peek 도보 길안내 still starts the walk', async ({ page }) => {
+      test.setTimeout(90_000);
+      const peek = await openPeek(page);
+      const go = peek.getByRole('button', { name: '여기로 길안내 시작' });
+      await expectTappable(go);
+      const [x, y] = await centerOf(go);
+      // 6px 흔들린 탭 — 드래그 시작(3px)은 넘지만 밀기는 아니다.
+      await touchPath(page, [[x, y], [x + 2, y + 3], [x + 2, y + 6]]);
+      await expect.poll(() => page.evaluate(() =>
+        JSON.parse(localStorage.getItem('nextspot_active_trip') ?? 'null')?.status ?? null)).toBe('navigating');
+      expect(await page.evaluate(() => (window as unknown as { __opened?: string }).__opened)).toContain('map.kakao.com');
+    });
+
+    test('a slightly shaky tap on the peek title expands the card', async ({ page }) => {
+      test.setTimeout(90_000);
+      const peek = await openPeek(page);
+      const [x, y] = await centerOf(peek.getByRole('heading', { name: '우직 쌈밥집' }));
+      await touchPath(page, [[x, y], [x, y - 3], [x + 1, y - 6]]);
+      await expect(peek).toBeHidden();
+      await expect(page.getByText(COMPARE_HEADER).first()).toBeVisible();
+    });
+
+    test('a swipe up that starts on 도보 길안내 opens the card and does not start the walk', async ({ page }) => {
+      test.setTimeout(90_000);
+      const peek = await openPeek(page);
+      const [x, y] = await centerOf(peek.getByRole('button', { name: '여기로 길안내 시작' }));
+      await touchPath(page, [[x, y], [x, y - 20], [x, y - 45], [x, y - 70], [x, y - 90]], 16);
+      await expect(peek).toBeHidden();
+      await page.waitForTimeout(500);
+      expect(await page.evaluate(() => localStorage.getItem('nextspot_active_trip'))).toBeNull();
+      expect(await page.evaluate(() => (window as unknown as { __opened?: string }).__opened ?? null)).toBeNull();
+    });
+  });
 });
