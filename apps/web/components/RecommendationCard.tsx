@@ -15,7 +15,7 @@ import { areaDemandDisclosure } from '@/lib/areaDemandPresentation';
 import { useCountUp } from '@/lib/useCountUp';
 import { congestionDisplay, estimateRadiusKm, formatEstimateTime, formatLastObserved } from '@/lib/congestionEstimate';
 import { congestionKey as gradeKey } from '@/lib/congestionScale';
-import { resolveAnchorCrowd, resolveCandidateCrowd } from '@/lib/compareHeader';
+import { candidateAreaCrowdLevel, resolveAnchorCrowd, resolveCandidateCrowd } from '@/lib/compareHeader';
 import { useBusyThreshold } from '@/components/shell/PublicSettingsProvider';
 import { creditedPhotoUrls, creditForDisplayedPhoto } from '@/lib/photoCredit';
 import { PhotoCreditLink } from '@/components/PhotoCreditLink';
@@ -738,12 +738,19 @@ export function RecommendationCard({
     tourismRelativeIndex: areaDemandTourismEvidence?.relativeIndex,
     busyAt,
   });
-  // 후보 쪽 등급: 카드가 '지금'으로 칠한 실측 → 점선 추정 → (주차 단독일 때만) 주변 수요.
-  // 관광 상대지수가 섞인 종합값은 단일 혼잡률로 말하지 않는다(areaDemandPresentation 계약).
+  // 후보 쪽 등급: 카드가 '지금'으로 칠한 실측 → 점선 추정 → 주변 공영주차 수요.
+  // 관광 상대지수가 섞인 종합값은 단일 혼잡률로 말하지 않는다(areaDemandPresentation 계약) — 주차만이면
+  // 종합값(주차 + 근처 축제·날씨 보정), 관광 근거가 섞이면 **주차 실측·이력 값만으로** 말한다(기준 명소 쪽
+  // resolveAnchorCrowd 와 같은 규칙). 주차 근거가 없으면(관광 상대지수뿐) null → '수집 중'.
+  // 휴대폰 미리보기의 혼잡 배지도 이 값을 그대로 쓴다 — 펼치기 한 번 사이에 두 곳이 다른 말을 하지 않게.
   const candidateCrowdGrade = resolveCandidateCrowd({
     congestionLevel: shownCongestionLevel,
     estimateLevel: estimate?.level,
-    areaDemandLevel: demandDisclosure.showQualitativeLevel ? areaDemandLevel : null,
+    areaDemandLevel: candidateAreaCrowdLevel({
+      areaDemandLevel,
+      parking: areaDemandParkingEvidence,
+      tourism: areaDemandTourismEvidence,
+    }),
     busyAt,
   });
   const compareHeaderText = t('compare.header', {
@@ -809,14 +816,10 @@ export function RecommendationCard({
 
   // 휴대폰 미리보기의 혼잡 배지. 실측·추정·근거 없음은 위 배지를 그대로 쓴다. 주변 수요만 있을 때 위 배지는
   // '주변 수요 근거 N개'(근거 개수)라 미리보기의 유일한 혼잡 정보로는 붐빔 정도를 말하지 못한다 — 그래서
-  // 등급으로 말한다. 단위가 다른 주차·관광 종합값은 한 등급으로 말하지 않는다(areaDemandPresentation 계약):
-  // 주차만이면 비교 헤더와 같은 등급, 관광 근거가 섞이면 **주차 실측·이력 값만으로** 등급을 말하고,
-  // 주차 근거가 없으면(관광 상대지수뿐) 비교 헤더처럼 '수집 중' 으로 둔다.
+  // 등급으로 말한다 — 비교 헤더와 **같은 값**(candidateCrowdGrade, lib/compareHeader.ts candidateAreaCrowdLevel)이다:
+  // 주차만이면 종합값, 관광 근거가 섞이면 주차 실측·이력 값만, 주차 근거가 없으면(관광 상대지수뿐) '수집 중'.
   const peekAreaCrowdGrade = shownCongestionLevel === null && !estimate && typeof areaDemandLevel === 'number'
-    ? (candidateCrowdGrade
-      ?? (areaDemandParkingEvidence && Number.isFinite(areaDemandParkingEvidence.level)
-        ? gradeKey(Math.max(0, Math.min(1, areaDemandParkingEvidence.level)), busyAt)
-        : null))
+    ? candidateCrowdGrade
     : null;
   const peekCrowdBadge = shownCongestionLevel !== null || estimate || typeof areaDemandLevel !== 'number'
     ? primaryCrowdBadge

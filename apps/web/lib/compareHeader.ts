@@ -12,6 +12,11 @@
 //      나타났다 없어지면 카드 레이아웃이 매번 달라지고, 그게 심사 중 '깨진 화면'으로 읽힌다.
 //      따라서 이 모듈은 절대 null 을 반환하지 않고, 호출부가 폴백 문구를 고르게 한다.
 
+import {
+  areaDemandDisclosure,
+  type ParkingDemandEvidence,
+  type TourismDemandEvidence,
+} from './areaDemandPresentation';
 import { DEFAULT_BUSY_THRESHOLD, congestionKey, type CongestionKey } from './congestionScale';
 
 /** 기준 명소의 혼잡 등급을 무엇으로 말했는지. 화면이 근거를 밝힐 때 쓴다. */
@@ -73,12 +78,34 @@ export interface CandidateCrowdInput {
   /** 실측이 없을 때 카드가 점선 배지로 그리는 추정(0~1). */
   estimateLevel?: number | null;
   /**
-   * 주변 수요(0~1). **주차 실측만**으로 만들어졌을 때만 넘긴다 —
-   * 관광 상대지수가 섞인 종합값은 단일 혼잡률로 말하지 않는다는 것이
-   * lib/areaDemandPresentation.ts 의 계약이다.
+   * 주변 수요(0~1). **공영주차 근거만**으로 된 값만 넘긴다 — 관광 상대지수가 섞인 종합값은
+   * 단일 혼잡률로 말하지 않는다는 것이 lib/areaDemandPresentation.ts 의 계약이다.
+   * 카드에서는 candidateAreaCrowdLevel(...) 결과를 그대로 넘긴다.
    */
   areaDemandLevel?: number | null;
   busyAt?: number;
+}
+
+export interface CandidateAreaCrowdInput {
+  /** 서버 area_demand_level — 주차·관광·근처 축제·날씨를 합친 순위용 종합값(0~1). */
+  areaDemandLevel?: number | null;
+  parking?: ParkingDemandEvidence | null;
+  tourism?: TourismDemandEvidence | null;
+}
+
+/**
+ * 후보 주변의 붐빔을 **한 등급으로 말할 때** 쓸 값(0~1). 비교 헤더와 휴대폰 미리보기 배지가 함께 쓴다.
+ *  - 공영주차 근거만 있으면: 종합값(주차 + 근처 축제·날씨 보정) — 카드의 주변 수요 등급과 같다.
+ *  - 관광 상대지수가 섞였으면: **주차 실측·이력 값만**. 관광 지수는 명소마다 자기 최고 시기가 100 이라
+ *    붐빔 등급으로 말하지 않는다(기준 명소 쪽 resolveAnchorCrowd 도 주차 값을 관광 지수보다 먼저 쓴다).
+ *  - 주차 근거가 없으면(관광 지수·축제뿐) null — 호출부가 '수집 중'으로 말한다.
+ */
+export function candidateAreaCrowdLevel(input: CandidateAreaCrowdInput): number | null {
+  if (finite(input.areaDemandLevel) === null) return null;
+  if (areaDemandDisclosure(input.parking, input.tourism).showQualitativeLevel) {
+    return finite(input.areaDemandLevel);
+  }
+  return finite(input.parking?.level);
 }
 
 /** 후보(추천 장소) 쪽 혼잡 등급. 근거가 하나도 없으면 null — 호출부가 '수집 중'으로 말한다. */
