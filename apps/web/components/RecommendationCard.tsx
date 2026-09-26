@@ -808,6 +808,36 @@ export function RecommendationCard({
                 </span>
               );
 
+  // 휴대폰 미리보기의 혼잡 배지. 실측·추정·근거 없음은 위 배지를 그대로 쓴다. 주변 수요만 있을 때 위 배지는
+  // '주변 수요 근거 N개'(근거 개수)라 미리보기의 유일한 혼잡 정보로는 붐빔 정도를 말하지 못한다 — 그래서
+  // 등급으로 말한다. 단위가 다른 주차·관광 종합값은 한 등급으로 말하지 않는다(areaDemandPresentation 계약):
+  // 주차만이면 비교 헤더와 같은 등급, 관광 근거가 섞이면 **주차 실측·이력 값만으로** 등급을 말하고,
+  // 주차 근거가 없으면(관광 상대지수뿐) 비교 헤더처럼 '수집 중' 으로 둔다.
+  const peekAreaCrowdGrade = shownCongestionLevel === null && !estimate && typeof areaDemandLevel === 'number'
+    ? (candidateCrowdGrade
+      ?? (areaDemandParkingEvidence && Number.isFinite(areaDemandParkingEvidence.level)
+        ? gradeKey(Math.max(0, Math.min(1, areaDemandParkingEvidence.level)), busyAt)
+        : null))
+    : null;
+  const peekCrowdBadge = shownCongestionLevel !== null || estimate || typeof areaDemandLevel !== 'number'
+    ? primaryCrowdBadge
+    : peekAreaCrowdGrade ? (
+      <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold border ${
+        {
+          busy: 'bg-terracotta/10 border-terracotta/30 text-terracotta',
+          moderate: 'bg-gold/10 border-gold/30 text-gold-deep',
+          relaxed: 'bg-emerald-500/10 border-emerald-500/30 text-emerald-600',
+          quiet: 'bg-jade/10 border-jade/30 text-jade',
+        }[peekAreaCrowdGrade]
+      }`}>
+        {t('recommend.areaDemandForRanking')}: {t(`congestion.${peekAreaCrowdGrade}`)}
+      </span>
+    ) : (
+      <span className="px-2 py-0.5 rounded-md text-[10px] font-bold border border-dashed border-line bg-white/70 text-muk-soft">
+        {t('compare.congestionCollecting')}
+      </span>
+    );
+
   // '도보 길안내'(또는 영업 확인 필요 시 '카카오맵에서 영업 확인') — 전체 카드와 휴대폰 미리보기가
   // **같은 함수**를 부른다. 미리보기에서 영업 확인 질문을 띄우면 그 질문은 전체 카드에만 있으므로
   // 카드를 펼치고 질문을 화면 안으로 끌어온다.
@@ -922,7 +952,7 @@ export function RecommendationCard({
               <span className="whitespace-nowrap rounded-md border border-jade/30 bg-jade/10 px-2 py-0.5 text-[10px] font-bold text-jade">
                 {t('card.peek.walk', { n: displayedTravelMins })}
               </span>
-              {facility && primaryCrowdBadge}
+              {facility && peekCrowdBadge}
               {closedToday && (
                 <span className="px-2 py-0.5 rounded-md text-[10px] font-bold border bg-terracotta/10 border-terracotta/30 text-terracotta">
                   {t('card.closedToday')}
@@ -1351,7 +1381,7 @@ export function RecommendationCard({
           )}
           {demandDisclosure.showQualitativeLevel && areaDemandDistinguishable && areaDemandRank && areaDemandComparableCount && (
             <p className="mt-1 text-sky-800">
-              {t('recommend.areaDemandRank', {
+              {t(areaDemandRank === 1 ? 'recommend.areaDemandRankTop' : 'recommend.areaDemandRank', {
                 rank: areaDemandRank,
                 total: areaDemandComparableCount,
               })}

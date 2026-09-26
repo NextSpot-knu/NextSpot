@@ -787,6 +787,7 @@
     "areaDemandForecast": "実測履歴に基づく到着時予測",
     "areaDemandHint": "半径2km圏の移動需要から、到着時点のゆとりを予測します。",
     "areaDemandRank": "近くの{total}か所中、周辺が{rank}番目にすいています",
+    "areaDemandRankTop": "近くの{total}か所中、周辺がいちばんすいています",
     "areaDemandLower": "近くではすいている方",
     "delayedDemand": "{n}分後に出発すると周辺需要は{level}の予測",
     "arrivalAction": {

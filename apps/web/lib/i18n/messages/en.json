@@ -787,6 +787,7 @@
     "areaDemandForecast": "Arrival forecast from observed history",
     "areaDemandHint": "Real-time travel demand within a 2 km radius predicts how relaxed your arrival will be.",
     "areaDemandRank": "Calmest surroundings: #{rank} of {total} nearby places",
+    "areaDemandRankTop": "Calmest surroundings of {total} nearby places",
     "areaDemandLower": "on the calmer side nearby",
     "delayedDemand": "In {n} min, area demand is forecast to be {level}",
     "arrivalAction": {

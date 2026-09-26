@@ -787,6 +787,7 @@
     "areaDemandForecast": "基于实测历史的到达预测",
     "areaDemandHint": "以半径2公里内的实时移动需求，预测你到达时的宽松程度。",
     "areaDemandRank": "在附近{total}个地点中，周边清静程度排第{rank}",
+    "areaDemandRankTop": "在附近{total}个地点中，周边最清静",
     "areaDemandLower": "在附近属于较清静的",
     "delayedDemand": "{n}分钟后出发时周边需求预计为{level}",
     "arrivalAction": {
