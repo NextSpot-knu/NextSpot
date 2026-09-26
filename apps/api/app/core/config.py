@@ -142,6 +142,15 @@ class Settings(BaseSettings):
             return v
         raise ValueError(v)
 
+    @field_validator("SUPABASE_URL", "SUPABASE_ANON_KEY", "SUPABASE_SERVICE_ROLE_KEY")
+    @classmethod
+    def _strip_supabase_value(cls, v: str) -> str:
+        # 대시보드에 붙여 넣을 때 딸려 온 앞뒤 공백·줄바꿈을 걷는다. URL·JWT 에는 공백이 들어갈 수 없다.
+        # 이 값들은 매 요청 apikey·Authorization 헤더가 된다. HTTP/1.1(h11)은 줄바꿈이 섞인 헤더 값을
+        # 연결도 열기 전에 거부한다(LocalProtocolError "Illegal header value") — 2026-09-26 bd44110 배포 직후
+        # 운영의 service_role 키 끝 '\n' 때문에 service_role 호출이 전부 실패했다. HTTP/2 시절에는 드러나지 않았다.
+        return v.strip()
+
     @field_validator("JWT_SECRET")
     @classmethod
     def _nonempty_jwt_secret(cls, v: str) -> str:
