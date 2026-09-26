@@ -36,8 +36,9 @@ _jwks_lock = threading.RLock()
 _JWKS_TIMEOUT_SECONDS = 2.0
 _JWKS_RETRY_BACKOFF_SECONDS = 0.2
 
-# Supabase/PostgREST 의 기본 동기 클라이언트는 HTTP/2 풀을 오래 재사용한다. 저트래픽 운영 환경에서
-# upstream 이 먼저 끊은 idle 연결을 집으면 첫 요청만 RemoteProtocolError 로 실패한다.
+# 쉬는 Supabase 연결을 이 시간 넘게 들고 있지 않는다. 저트래픽 운영 환경에서 upstream 이 먼저 끊은
+# idle 연결을 집으면 첫 요청만 RemoteProtocolError 로 실패한다. httpcore 연결 풀과
+# _ExclusiveConnectionTransport 의 쉬는 전송 목록이 같은 값을 쓴다.
 _SUPABASE_KEEPALIVE_EXPIRY_SECONDS = 15.0
 
 
@@ -93,10 +94,13 @@ _STALE_RETRY_BACKOFF = (0.0, 0.1, 0.25)
 
 
 class _StaleConnectionRetryTransport(httpx.BaseTransport):
-    """stale HTTP/2 연결 오류만 새 풀 연결로 재시도한다.
+    """stale 연결 오류만 새 연결로 재시도한다.
 
-    Supabase 는 HTTP/2 연결을 주기적으로 GOAWAY 로 닫는다. 풀에 남아 있던 그 연결을
-    다시 쓰면 RemoteProtocolError(ConnectionTerminated)가 난다.
+    Supabase 는 쉬던 연결을 먼저 닫는다(HTTP/2 시절엔 GOAWAY, HTTP/1.1 에선 소켓 종료). 풀에 남아
+    있던 그 연결을 다시 쓰면 RemoteProtocolError 가 난다.
+
+    2026-09-26 부터 이 전송은 요청 하나가 혼자 빌린 연결 하나만 감싼다(_ExclusiveConnectionTransport).
+    그래서 아래의 풀 닫기도 그 연결에만 닿는다.
 
     예전에는 **정확히 한 번만** 재시도했는데, 풀에 죽은 연결이 여럿 남아 있으면 재시도도
     같은 상태의 연결을 집어 그대로 실패했다. 그러면 예외가 호출부까지 올라가고 —
@@ -142,6 +146,8 @@ class _StaleConnectionRetryTransport(httpx.BaseTransport):
                 # 프로덕션에서 실측한 실패 패턴이 2~3회씩 뭉쳐 나온 이유가 이것이다 —
                 # 재시도를 3회로 늘려도 셋 다 같은 연결이면 셋 다 실패한다.
                 # 풀을 닫아 다음 시도가 반드시 새 연결을 맺게 한다.
+                # (이 풀은 이 요청이 혼자 빌린 것이다. 모든 스레드가 풀 하나를 나눠 쓰던 2026-09-26 전에는
+                #  여기서 다른 요청의 소켓까지 닫혔다 — EBADF 는 운영 로그에서, 중복 POST 는 하니스에서 확인.)
                 try:
                     self._transport.close()
                 except Exception:  # 풀 정리 실패가 원래 오류를 가리지 않게
@@ -150,6 +156,93 @@ class _StaleConnectionRetryTransport(httpx.BaseTransport):
 
     def close(self) -> None:
         self._transport.close()
+
+
+def _close_quietly(transport: httpx.BaseTransport) -> None:
+    try:
+        transport.close()
+    except Exception:  # 정리 실패가 요청 처리를 막지 않게
+        pass
+
+
+# _ExclusiveConnectionTransport 가 쉬는 전송을 몇 개까지 들고 있을지. 이 앱이 Supabase 를 동시에 부를 수
+# 있는 스레드 수(기본 executor 16 + anyio 스레드풀 40 + 관리자 풀 4 + 무거운 풀 2 = 62)보다 크게 잡아,
+# 버스트가 끝날 때 연결을 버렸다가 다음 버스트에 다시 맺는 일이 없게 한다. 오래 쉰 전송은 개수와 무관하게
+# keepalive 만료 시각이 지나면 걷어 낸다(_checkout).
+_SUPABASE_MAX_IDLE_CONNECTIONS = 64
+
+
+class _ExclusiveConnectionTransport(httpx.BaseTransport):
+    """요청 하나가 연결 하나를 **혼자** 쓰게 한다 — 요청마다 전송을 빌려주고, 끝나면 돌려받는다.
+
+    왜(2026-09-26 운영 로그 + WSL 카오스 하니스 실측, 수치는 _create_client 주석):
+    예전에는 모든 스레드(asyncio.to_thread 16 · anyio 40 · 관리자 풀 4+2)가 HTTP/2 연결 하나를 나눠 썼다.
+    httpcore 의 동기 HTTP/2 는 스트림 번호 할당·HPACK 인코딩·프레임 쓰기를 스레드 사이에서 원자적으로
+    하지 않아, 동시에 요청을 시작하면 스트림 번호가 뒤바뀌거나 헤더 압축 표가 어긋나고 Supabase
+    (Cloudflare)가 연결째로 끊는다 — 운영 로그의 `ConnectionTerminated error_code:1`(PROTOCOL_ERROR)·
+    `error_code:9`(COMPRESSION_ERROR)가 이것이다. hpack 의 'deque mutated during iteration'(표를 검색하는
+    도중 다른 스레드가 표에 추가 — hpack 코드로 확인)과 Cloudflare 의 HTML 400(어긋난 헤더로 추정)도 같은
+    경합에서 나온다. 그 연결에 실려 있던 다른 요청까지 함께 죽어 by-type 추천이 503 이 됐다.
+
+    이제 요청은 쉬고 있는 전송(가장 최근에 돌려받은 것)을 빌리거나 새로 만들어 **끝날 때까지 혼자** 쓰고
+    돌려준다. 한 연결에는 언제나 요청이 하나뿐이라 위 경합이 원리적으로 없고, 재시도 전송이 stale 오류에
+    풀을 닫아도 닫히는 것은 이 요청의 연결뿐이다(공유 풀에서는 다른 스레드가 쓰던 연결까지 닫혀 EBADF·
+    중복 쓰기·타임아웃까지 멈춤이 났다). httpcore 비공개 내부는 건드리지 않는다. 스레드마다 연결을 붙이는
+    방식과 달리 스레드가 생기고 사라져도(anyio 워커는 10초 쉬면 끝난다) 따뜻한 연결을 이어 쓰고 연결이
+    새지 않는다. 연결 수는 그 순간의 동시 요청 수를 넘지 않는다.
+
+    factory 가 만드는 전송은 응답 본문을 끝까지 읽어서 돌려줘야 한다(_StaleConnectionRetryTransport 가
+    그렇게 한다) — 돌려받는 시점에 연결이 비어 있어야 다음 요청에 내줄 수 있다.
+    """
+
+    def __init__(
+        self,
+        factory: Callable[[], httpx.BaseTransport],
+        *,
+        keepalive_expiry: float,
+        max_idle: int,
+    ) -> None:
+        self._factory = factory
+        self._keepalive_expiry = keepalive_expiry
+        self._max_idle = max_idle
+        self._idle: list[tuple[float, httpx.BaseTransport]] = []  # (돌려받은 시각, 전송) — 뒤가 최신
+        self._lock = threading.Lock()
+        self._closed = False
+
+    def handle_request(self, request: httpx.Request) -> httpx.Response:
+        transport = self._checkout()
+        try:
+            return transport.handle_request(request)
+        finally:
+            self._checkin(transport)
+
+    def _checkout(self) -> httpx.BaseTransport:
+        now = time.monotonic()
+        expired: list[httpx.BaseTransport] = []
+        transport: httpx.BaseTransport | None = None
+        with self._lock:
+            # keepalive 가 지난 전송은 연결이 이미 만료됐다 — 오래된 것(앞)부터 걷어 낸다.
+            while self._idle and now - self._idle[0][0] > self._keepalive_expiry:
+                expired.append(self._idle.pop(0)[1])
+            if self._idle:
+                transport = self._idle.pop()[1]
+        for stale in expired:
+            _close_quietly(stale)
+        return transport if transport is not None else self._factory()
+
+    def _checkin(self, transport: httpx.BaseTransport) -> None:
+        with self._lock:
+            if not self._closed and len(self._idle) < self._max_idle:
+                self._idle.append((time.monotonic(), transport))
+                return
+        _close_quietly(transport)
+
+    def close(self) -> None:
+        with self._lock:
+            self._closed = True
+            idle, self._idle = self._idle, []
+        for _, transport in idle:
+            _close_quietly(transport)
 
 
 def _get_jwks_client() -> PyJWKClient:
@@ -184,17 +277,55 @@ def _create_client(url: str, key: str, *, role: str) -> Client:
     """Supabase 클라이언트 생성. 시크릿 부재/URL 형식오류 등으로 실패하면 원인을 구조화 로깅 후 재발생.
     (정상 시크릿 환경에선 동작 동일 — 진단 가능한 부팅 실패를 위한 래퍼.)"""
     try:
-        transport = _StaleConnectionRetryTransport(
-            httpx.HTTPTransport(
-                # ⚠️ http2=False 를 시도했다가 되돌렸다(2026-08-28).
-                # 동시 요청이 H2 연결 하나에 다중화되는 게 원인이라고 보고 HTTP/1.1 로 바꿨는데,
-                # 프로덕션에서 /courses/recommend 성공률이 40% → **0%** 로 떨어졌다.
-                # 가설이 틀렸거나, HTTP/1.1 에서는 연결 수립 비용이 커져 다른 한계에 먼저
-                # 부딪히는 것으로 보인다. 근거 없이 다시 바꾸지 말 것 — 바꾸려면 프로덕션에서
-                # 성공률을 재고 나서.
-                http2=True,
-                limits=httpx.Limits(keepalive_expiry=_SUPABASE_KEEPALIVE_EXPIRY_SECONDS),
+        # 인증서 묶음(certifi)은 한 번만 읽어 모든 연결이 나눠 쓴다. verify 를 주지 않으면 HTTPTransport 가
+        # 만들어질 때마다 SSLContext 를 새로 만들고(전송 하나당 약 0.7MB — 하니스 실측), 아래 전송은 동시
+        # 요청 수만큼 만들어진다.
+        ssl_context = httpx.create_ssl_context()
+
+        def new_connection() -> httpx.BaseTransport:
+            return _StaleConnectionRetryTransport(
+                httpx.HTTPTransport(
+                    # ⚠️ HTTP/1.1 이다 — 2026-08-28 에 되돌렸던 http2=False 를 2026-09-26 에 근거를 갖고 다시 켰다.
+                    #
+                    # 무엇이 문제였나(2026-09-26 운영 로그, KST 09:33·15:41·16:40 세 구간): by-type 추천 503 41건과
+                    # 관리자·impact·문의·랩 조회 500. 전부 Supabase 가 연결째로 끊은 ConnectionTerminated 였다
+                    # (error_code:1 PROTOCOL_ERROR 가 대부분, error_code:9 COMPRESSION_ERROR 일부, 정상 종료 0 은 0건).
+                    # HTTP/2 자체가 아니라 여러 스레드가 동기 HTTP/2 연결 하나를 나눠 쓴 것이 원인이다
+                    # (_ExclusiveConnectionTransport 독스트링). 이제 연결을 요청 하나가 혼자 쓰므로 HTTP/2 다중화로
+                    # 얻을 것이 없고, HTTP/1.1 이 두 가지를 더 막는다:
+                    #  · httpcore 는 쉬던 HTTP/1.1 연결을 내주기 전에 서버가 이미 닫았는지(소켓 readable) 보고 버린다.
+                    #    HTTP/2 에는 이 검사가 없어 서버가 먼저 닫은 연결을 집으면 한 번 실패 → 0.1초 쉬고 재시도했다
+                    #    (유휴 뒤 버스트 p50: 요청당 전용 HTTP/2 0.079초 → HTTP/1.1 0.047초).
+                    #  · 요청 도중 GOAWAY 가 오면 httpcore(HTTP/2)는 서버가 이미 처리한 요청까지 실패시켜 재시도가 같은
+                    #    POST 를 두 번 보낸다(요청당 전용 HTTP/2 로도 3,306건 중 2건). HTTP/1.1 에는 이 경로가 없다.
+                    #
+                    # 실측(WSL 루프백 카오스 서버 — 잦은 GOAWAY·유휴 끊김·TLS·운영 모양 부하, 변형끼리 같은 시드):
+                    # 이 구성은 모든 프로파일에서 실패 0 · 중복 POST 0 · 10초 넘는 요청 0(이 코드 그대로 8,870건).
+                    # 예전 구성(공유 HTTP/2 + 풀 통째 닫기)은 운영 증상을 모두 재현했다 — 서버 측 프로토콜·HPACK 위반
+                    # 67건, EBADF, 중복 POST, 30초 멈춤, 'deque mutated during iteration'. 운영 모양 부하(TLS)에서
+                    # RSS 52.6MB 대 52.4MB, 요청 p50 0.048초 대 0.071초.
+                    #
+                    # 2026-08-28 의 http2=False(/courses/recommend 성공률 40% → 0%, 8분 만에 되돌림)는 HTTP/1.1 탓보다
+                    # 그때 함께 있던 두 결함 탓으로 본다(확신도 중간 — 하니스는 실패 메커니즘을 재현했을 뿐 0% 라는
+                    # 크기까지 재현하지는 못했다): ① stale 오류마다 **공유 풀을 통째로 닫던 것** — HTTP/1.1 은 요청마다
+                    # 소켓이 따로라 동시에 돌던 모든 요청의 소켓이 닫힌다(EBADF·중복 POST·타임아웃까지 멈춤),
+                    # ② 응답 본문을 **재시도 밖에서** 읽던 것(같은 날 8348249 에서 고침 — 닫힌 소켓을 읽던 요청은 재시도
+                    # 없이 실패). 지금은 본문을 재시도 안에서 읽고, 풀 닫기는 이 요청이 빌린 연결에만 닿는다.
+                    # HTTP/1.1 자체는(그때의 연결 수 제한 40/20 포함) 소켓을 닫는 쪽이 없으면 0/5,760 실패였다.
+                    #
+                    # 운영에서 아직 재지 못한 것: Supabase·Cloudflare 의 HTTP/1.1 유휴 끊김 시각, 연결당 요청 수·동시
+                    # 연결 수 제한. 배포 뒤 Render 로그의 supabase_stale_connection_retry·recommend_by_type_failed·p95 를
+                    # 본다. HTTP/2 로 되돌리더라도 연결을 스레드끼리 나눠 쓰는 구조로는 돌아가지 말 것.
+                    http2=False,
+                    verify=ssl_context,
+                    limits=httpx.Limits(keepalive_expiry=_SUPABASE_KEEPALIVE_EXPIRY_SECONDS),
+                )
             )
+
+        transport = _ExclusiveConnectionTransport(
+            new_connection,
+            keepalive_expiry=_SUPABASE_KEEPALIVE_EXPIRY_SECONDS,
+            max_idle=_SUPABASE_MAX_IDLE_CONNECTIONS,
         )
         http_client = httpx.Client(
             transport=transport,
