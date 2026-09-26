@@ -3621,8 +3621,7 @@ export default function MainPage() {
         try {
           const targetType = selectedFacility.type;
           let rank = selectedFacility.apiRank;
-          let totalCandidates = selectedFacility.totalCandidates;
-          
+
           if (!rank) {
             const activeCandidates = expandGroups(facilities.filter(f => f.type === targetType))
               .filter((f) => (!voiceFilterIds || voiceFilterIds.has(f.id)) && !rejectedIds.has(f.id) && !savedIds.has(f.id));
@@ -3633,7 +3632,6 @@ export default function MainPage() {
 
             const rankIndex = activeScored.findIndex(f => f.id === selectedFacility.id);
             rank = rankIndex !== -1 ? rankIndex + 1 : undefined;
-            totalCandidates = activeScored.length;
           }
 
           const spot = selectedFacility.spot || calculateSPOT(selectedFacility);
@@ -3752,7 +3750,6 @@ export default function MainPage() {
                 facilityType={selectedFacility.type}
                 facility={selectedFacility}
                 rank={rank}
-                totalCandidates={totalCandidates}
                 mockHour={mockHour}
                 dataSource={{
                   source: selectedFacility.congestionSource === 'measured'

@@ -87,7 +87,6 @@ interface RecommendationCardProps {
   facilityType?: string;
   facility?: RecommendationCardFacility;
   rank?: number;
-  totalCandidates?: number;
   mockHour?: number | null;
   // A4: 행사 혼잡 보정 배지(explore/recommend 와 동일) — 백엔드 breakdown.eventBoost/eventTitle 그대로 전달.
   eventBoost?: number;
@@ -1006,7 +1005,7 @@ export function RecommendationCard({
               </span>
             )}
             {/* 후보 수('대안 N개 중')는 그리지 않는다 — 관광객에게는 후보 선정 규칙이 아니라
-                이 장소가 왜 좋은지가 필요하다(PM 2026-09-26). totalCandidates 는 호출부 호환용으로만 남는다. */}
+                이 장소가 왜 좋은지가 필요하다(PM 2026-09-26). */}
             <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold border whitespace-nowrap ${
               arrivalAction === 'choose_calmer'
                 ? 'bg-jade/10 border-jade/30 text-jade'
