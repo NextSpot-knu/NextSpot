@@ -27,6 +27,11 @@ async function stubBase(page: Page): Promise<void> {
 
 const BOARD_TYPES = ['restaurant', 'cafe', 'attraction', 'culture'] as const;
 
+// 대기 모델은 도착 시각(KST)의 시간대 곡선을 탄다 — 자정 무렵에 돌리면 모든 음식점 대기가 1~3분으로
+// 모여 '카드마다 갈린다'는 단언이 실행 시각에 따라 깨진다. 오늘 KST 12:30(점심)에 브라우저 시계를 고정하고
+// 응답의 관측 시각도 같은 순간으로 맞춰, 언제 돌려도 같은 화면을 본다.
+const BOARD_NOW = new Date(`${new Date(Date.now() + 9 * 3_600_000).toISOString().slice(0, 10)}T12:30:00+09:00`);
+
 /** 같은 유형 안에서 혼잡·좌석 규모·관광 기준지 거리를 모두 다르게 준다 — 이게 숫자를 가르는 실데이터다. */
 function boardRows(type: string) {
   const spread = [
@@ -61,7 +66,7 @@ function boardRows(type: string) {
     congestion_log_source: 'sensor',
     congestion_is_stale: false,
     congestion_is_current: true,
-    congestion_timestamp: new Date().toISOString(),
+    congestion_timestamp: BOARD_NOW.toISOString(),
     open_status_at_arrival: 'open_expected',
     scoring_mode: 'area_stats_rules',
     prediction_source: 'unavailable',
@@ -97,6 +102,7 @@ test('waiting board gives every card its own wait, grade and calm hour', async (
     });
   });
 
+  await page.clock.setFixedTime(BOARD_NOW);
   await page.goto('/waiting');
   await expect(page.getByRole('heading', { name: '음식점' })).toBeVisible({ timeout: 40_000 });
 
