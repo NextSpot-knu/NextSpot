@@ -164,7 +164,6 @@ export function RecommendationCard({
   facilityType,
   facility,
   rank,
-  totalCandidates,
   mockHour,
   eventBoost,
   eventTitle,
@@ -782,7 +781,7 @@ export function RecommendationCard({
             {rank ? (
               <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-gradient-to-r from-gold to-terracotta text-white text-[10px] font-black rounded-lg shadow-sm">
                 <Sparkles size={12} />
-                {t('card.rankBadge', { rank })}
+                {t(rank === 1 ? 'card.rankBadgeTop' : 'card.rankBadge', { rank })}
               </span>
             ) : (
               <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-gold/15 text-gold-deep text-[10px] font-bold rounded-lg">
@@ -790,9 +789,8 @@ export function RecommendationCard({
                 {t('card.aiRec')}
               </span>
             )}
-            {totalCandidates && rank && (
-              <span className="text-[10px] text-muk-soft font-medium">{t('card.ofCandidates', { n: totalCandidates })}</span>
-            )}
+            {/* 후보 수('대안 N개 중')는 그리지 않는다 — 관광객에게는 후보 선정 규칙이 아니라
+                이 장소가 왜 좋은지가 필요하다(PM 2026-09-26). totalCandidates 는 호출부 호환용으로만 남는다. */}
             <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold border whitespace-nowrap ${
               arrivalAction === 'choose_calmer'
                 ? 'bg-jade/10 border-jade/30 text-jade'

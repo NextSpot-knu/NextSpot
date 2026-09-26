@@ -23,13 +23,12 @@ export default function RecommendationComparison({ recommendations }: { recommen
   const comparisons = buildSpotComparisons(top.map((item, index) => ({
     id: item.recommendationId,
     rank: item.rank ?? index + 1,
-    spotScore: item.spotScore <= 1 ? item.spotScore * 100 : item.spotScore,
     preference: item.breakdown.preference ?? 0,
     travelMinutes: typeof item.breakdown.travelTime === 'number'
       ? item.breakdown.travelTime : displayWalkingMinutes(undefined, item.distanceM),
     rankingWaitMinutes: item.breakdown.rankingWaitTime ?? item.breakdown.waitTime,
     areaDemandPenaltyMinutes: item.breakdown.areaDemandPenaltyMinutes,
-    incentive: item.breakdown.incentive,
+    couponRate: item.facility.couponRate,
   })));
   const comparisonById = new Map(comparisons.map((comparison) => [comparison.id, comparison]));
   const canExplain = top.every((item) => !item.recommendationId.startsWith('mock-'));
@@ -76,7 +75,7 @@ export default function RecommendationComparison({ recommendations }: { recommen
         <h3 className="text-sm font-extrabold text-muk">{t('recommend.spotComparison.title')}</h3>
       </div>
       {comparisonCards}
-      <p className="mt-2 text-[10px] leading-relaxed text-muk-soft">{t('recommend.spotComparison.honesty')}</p>
+      <p className="mt-2 text-[10px] leading-relaxed text-muk-soft">{t('recommend.spotComparison.basis')}</p>
       <button type="button" onClick={() => { setOpen(true); track('recommendation_compared', { count: top.length }); }} className="toss-pressable mt-3 flex w-full items-center justify-center gap-2 rounded-xl border border-gold/30 bg-gold/10 py-2.5 text-xs font-bold text-gold-deep">
         <BarChart3 size={14} />{t('compare.open')}
       </button>
@@ -88,7 +87,7 @@ export default function RecommendationComparison({ recommendations }: { recommen
       <div className="mb-4 rounded-xl bg-jade/5 p-3">
         <p className="mb-2 text-xs font-extrabold text-muk">{t('recommend.spotComparison.title')}</p>
         {comparisonCards}
-        <p className="mt-2 text-[10px] leading-relaxed text-muk-soft">{t('recommend.spotComparison.honesty')}</p>
+        <p className="mt-2 text-[10px] leading-relaxed text-muk-soft">{t('recommend.spotComparison.basis')}</p>
       </div>
       <div className="overflow-x-auto"><table className="w-full min-w-[520px] text-xs text-center"><thead><tr><th className="text-left py-2">{t('compare.metric')}</th>{top.map((item) => <th key={item.recommendationId} className="px-2">{item.rank}. {item.facility.name}</th>)}</tr></thead><tbody className="divide-y divide-line">
         <Row label={t('compare.spot')} values={top.map((r) => `${Math.round(r.spotScore * 100)}`)} />

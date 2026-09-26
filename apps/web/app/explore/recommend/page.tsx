@@ -252,13 +252,12 @@ function RecommendContent() {
     const comparisons = buildSpotComparisons(recommendations.slice(0, 3).map((item, index) => ({
       id: item.recommendationId,
       rank: item.rank ?? index + 1,
-      spotScore: item.spotScore <= 1 ? item.spotScore * 100 : item.spotScore,
       preference: item.breakdown.preference ?? 0,
       travelMinutes: typeof item.breakdown.travelTime === 'number'
         ? item.breakdown.travelTime : displayWalkingMinutes(undefined, item.distanceM),
       rankingWaitMinutes: item.breakdown.rankingWaitTime ?? item.breakdown.waitTime,
       areaDemandPenaltyMinutes: item.breakdown.areaDemandPenaltyMinutes,
-      incentive: item.breakdown.incentive,
+      couponRate: item.facility.couponRate,
     })));
     return new Map(comparisons.map((comparison) => [
       comparison.id,
@@ -1574,9 +1573,9 @@ function RecommendContent() {
                           {t(`card.arrivalStatus.${arrivalDisplayStatus}`)}
                         </span>
                       )}
-                      {rec.rank && rec.totalCandidates && (
+                      {rec.rank && (
                         <span className="text-[10px] font-bold text-gold-deep bg-gold/10 border border-gold/30 px-2 py-0.5 rounded-md">
-                          {t("recommend.rankOfTotal", { total: rec.totalCandidates, rank: rec.rank })}
+                          {t(rec.rank === 1 ? "card.rankBadgeTop" : "card.rankBadge", { rank: rec.rank })}
                         </span>
                       )}
                       {/* 혼잡 3단계 근거 배지(CONGESTION_TRUST_SPEC): 실측 4단계 pill / AI 예측 / 준비 중.

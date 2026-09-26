@@ -846,8 +846,8 @@ export default function MainPage() {
     };
   }, []);
 
-  // 현재 살아 있는 SPOT 원점수순 Top 3를 1위와 비교한다. UI용 역할을 강제 배정하지 않고
-  // 실제 산식 입력(취향·순위 시간비용·인센티브)과 점수 차이만 문장으로 만든다.
+  // 현재 살아 있는 SPOT 순위 Top 3를 1위와 비교한다. UI용 역할을 강제 배정하지 않고
+  // 관광객이 체감하는 차이(취향 일치·도보 분·줄과 붐빔 전망·실제 쿠폰)만 문장으로 만든다.
   const spotComparisonById = useMemo(() => {
     const top = rankedFacilities
       .filter((facility) => !rejectedIds.has(facility.id) && !savedIds.has(facility.id))
@@ -857,12 +857,11 @@ export default function MainPage() {
       return {
         id: String(facility.id),
         rank: index + 1,
-        spotScore: spot?.score ?? 0,
         preference: (spot?.preferencePercent ?? 0) / 100,
         travelMinutes: spot?.expectedTravel ?? 1,
         rankingWaitMinutes: spot?.rankingWaitTime,
         areaDemandPenaltyMinutes: spot?.areaDemandPenaltyMinutes,
-        incentive: spot?.incentive,
+        couponRate: facility.couponRate,
       };
     }));
     return new Map(comparisons.map((comparison) => [
