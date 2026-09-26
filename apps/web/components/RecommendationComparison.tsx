@@ -29,6 +29,8 @@ export default function RecommendationComparison({ recommendations }: { recommen
     scoringMode: item.scoringMode,
     rankingWaitMinutes: item.breakdown.rankingWaitTime ?? item.breakdown.waitTime,
     areaDemandPenaltyMinutes: item.breakdown.areaDemandPenaltyMinutes,
+    areaDemandParkingEvidence: item.breakdown.areaDemandParkingEvidence,
+    areaDemandTourismEvidence: item.breakdown.areaDemandTourismEvidence,
     couponRate: item.facility.couponRate,
   })));
   const comparisonById = new Map(comparisons.map((comparison) => [comparison.id, comparison]));

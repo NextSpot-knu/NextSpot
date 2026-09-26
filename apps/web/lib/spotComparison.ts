@@ -1,3 +1,8 @@
+import {
+  areaDemandDisclosure,
+  type ParkingDemandEvidence,
+  type TourismDemandEvidence,
+} from './areaDemandPresentation';
 import { displayWalkingMinutes, type ScoringMode } from './recommender';
 
 export interface SpotComparisonCandidate {
@@ -16,6 +21,13 @@ export interface SpotComparisonCandidate {
   rankingWaitMinutes?: number | null;
   /** 주변 수요(주차·관광 통계)를 분 환산한 순위 가중. 실제 걸리는 시간이 아니다. */
   areaDemandPenaltyMinutes?: number | null;
+  /**
+   * 위 가중을 만든 두 근거(서버 area_demand_parking_evidence · area_demand_tourism_evidence 그대로).
+   * '주변 붐빔' 비교를 **말해도 되는지** 가 여기에 달려 있다 — 관광 상대지수는 명소마다 자기 최고 시기를
+   * 100 으로 본 값이라 두 장소끼리 비교할 수 없다(lib/areaDemandPresentation.ts 계약).
+   */
+  areaDemandParkingEvidence?: ParkingDemandEvidence | null;
+  areaDemandTourismEvidence?: TourismDemandEvidence | null;
   /** 제휴 할인율(0.10 = 10%). 시설에 걸린 실제 쿠폰일 때만 문구로 말한다. */
   couponRate?: number | null;
 }
@@ -23,7 +35,10 @@ export interface SpotComparisonCandidate {
 /**
  * 줄·붐빔 비교에 쓸 수 있는 근거의 종류.
  *  - venue: 그 장소 자체의 도착시점 혼잡(실측 measured_rules · 예측 model)에서 나온 대기 전망 → '줄·붐빔'.
- *  - area:  그 장소 **주변**의 수요(공영주차·관광 통계·행사)뿐(area_stats_rules) → '주변 붐빔'.
+ *  - area:  그 장소 **주변**의 수요뿐(area_stats_rules)이고, 그 수요가 **공영주차 근거만으로** 만들어졌을 때
+ *           → '주변 붐빔'. 카드가 주변 붐빔을 등급으로 말하는 규칙(areaDemandDisclosure.showQualitativeLevel)과 같다.
+ *           관광 상대지수가 섞였거나(명소마다 기준이 달라 장소끼리 비교 불가) 주차 근거가 없으면(관광 지수·축제뿐)
+ *           비교하지 않는다.
  * 근거가 없거나(degraded_rules) 모르면 null — 줄·붐빔을 말하지 않는다.
  * 종류가 다른 두 곳은 서로 비교하지 않는다 — 한쪽 숫자가 '근거 없음 = 0' 이거나 다른 대상을 잰 값이다.
  */
@@ -65,7 +80,13 @@ function crowdEvidenceOf(candidate: SpotComparisonCandidate): {
     // model 의 주차 가중은 섞지 않는다 — 여기서는 그 장소 자체의 줄·붐빔 전망만 비교한다.
     return { kind: 'venue', minutes: Math.max(0, candidate.rankingWaitMinutes) };
   }
-  if (mode === 'area_stats_rules' && isFiniteNumber(candidate.areaDemandPenaltyMinutes)) {
+  if (
+    mode === 'area_stats_rules'
+    && isFiniteNumber(candidate.areaDemandPenaltyMinutes)
+    && areaDemandDisclosure(candidate.areaDemandParkingEvidence, candidate.areaDemandTourismEvidence).showQualitativeLevel
+  ) {
+    // 주차 근거만 있을 때의 가중 = 주차 점유 × 8분 + (근처 축제) + (궂은 날 실내·야외 보정) — 카드가 '주변 붐빔'
+    // 등급으로 말하는 바로 그 수요와 같은 재료다. 관광 상대지수가 섞인 가중은 비교하지 않는다.
     return { kind: 'area', minutes: Math.max(0, candidate.areaDemandPenaltyMinutes) };
   }
   return { kind: null, minutes: null };

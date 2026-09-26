@@ -863,6 +863,8 @@ export default function MainPage() {
         scoringMode: spot?.scoringMode ?? facility.scoringMode,
         rankingWaitMinutes: spot?.rankingWaitTime,
         areaDemandPenaltyMinutes: spot?.areaDemandPenaltyMinutes,
+        areaDemandParkingEvidence: spot?.areaDemandParkingEvidence,
+        areaDemandTourismEvidence: spot?.areaDemandTourismEvidence,
         couponRate: facility.couponRate,
       };
     }));

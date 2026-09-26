@@ -258,6 +258,8 @@ function RecommendContent() {
       scoringMode: item.scoringMode,
       rankingWaitMinutes: item.breakdown.rankingWaitTime ?? item.breakdown.waitTime,
       areaDemandPenaltyMinutes: item.breakdown.areaDemandPenaltyMinutes,
+      areaDemandParkingEvidence: item.breakdown.areaDemandParkingEvidence,
+      areaDemandTourismEvidence: item.breakdown.areaDemandTourismEvidence,
       couponRate: item.facility.couponRate,
     })));
     return new Map(comparisons.map((comparison) => [
