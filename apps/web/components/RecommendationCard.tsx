@@ -724,6 +724,10 @@ export function RecommendationCard({
     : t('freshness.dayAgo', { n: areaFreshnessParts.value });
   const demandDisclosure = areaDemandDisclosure(areaDemandParkingEvidence, areaDemandTourismEvidence);
   const evidenceCount = demandDisclosure.evidenceCount;
+  // 제목 위 칩('주변이 덜 붐비는 곳'·'조금 뒤 가면 덜 붐빔')은 서버 arrival_action 을 말한다. 그 판정은 주변 수요
+  // 종합값으로 한 것이라, 관광 상대지수가 섞였거나 주차 근거가 없으면 붐빔 비교로 말하지 않는다 — 아래 근거
+  // 패널의 행동 문장(showQualitativeLevel 일 때만)과 같은 규칙이다. 그때는 기본 칩('취향·거리 맞춤')을 쓴다.
+  const chipArrivalAction = demandDisclosure.showQualitativeLevel ? arrivalAction : undefined;
 
   // ── P2 비교 헤더 ────────────────────────────────────────────────────────────
   // "지금 천마총(대릉원) 혼잡 → 대신 우직 · 도보 3분 · 여유"
@@ -1010,15 +1014,15 @@ export function RecommendationCard({
             {/* 후보 수('대안 N개 중')는 그리지 않는다 — 관광객에게는 후보 선정 규칙이 아니라
                 이 장소가 왜 좋은지가 필요하다(PM 2026-09-26). */}
             <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold border whitespace-nowrap ${
-              arrivalAction === 'choose_calmer'
+              chipArrivalAction === 'choose_calmer'
                 ? 'bg-jade/10 border-jade/30 text-jade'
-                : arrivalAction === 'wait_then_go'
+                : chipArrivalAction === 'wait_then_go'
                   ? 'bg-sky-500/10 border-sky-500/25 text-sky-700'
                   : 'bg-hanji-deep border-line text-muk-soft'
             }`}>
-              {t(arrivalAction === 'choose_calmer'
+              {t(chipArrivalAction === 'choose_calmer'
                 ? 'recommend.alternativeBasis.crowd'
-                : arrivalAction === 'wait_then_go'
+                : chipArrivalAction === 'wait_then_go'
                   ? 'recommend.alternativeBasis.timing'
                   : 'recommend.alternativeBasis.preference')}
             </span>
