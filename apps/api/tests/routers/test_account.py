@@ -212,6 +212,35 @@ def test_delete_account_tells_the_map_snapshot_only_on_success(client, monkeypat
     assert marks == ["availability"]
 
 
+def test_guest_merge_tells_the_map_snapshot_once_the_rpc_ran(client, monkeypatch):
+    """병합 RPC 는 게스트의 영업 상태 확인을 옮기거나 지우고 교차확인 등급을 다시 계산한다(2인 교차확인이
+    단건으로 내려가면 지도의 영업 근거가 사라진다) — 참조 스냅샷이 영업 근거를 다시 읽어야 한다."""
+    from app.services import reference_snapshot
+
+    marks: list[str] = []
+    monkeypatch.setattr(reference_snapshot, "mark_dirty", marks.append)
+    http, db = client
+    assert http.post("/api/v1/account/merge-guest", json={"guest_token": "guest"}).status_code == 200
+    assert marks == ["availability"]
+
+    # 응답 모양이 이상해도(500) RPC 는 이미 커밋됐다 — 알린다.
+    db.merge_payload = []
+    assert http.post("/api/v1/account/merge-guest", json={"guest_token": "guest"}).status_code == 500
+    assert marks == ["availability", "availability"]
+
+    # RPC 자체가 실패하면(롤백) 바뀐 것이 없다 — 알리지 않는다.
+    def _broken_rpc(_name, _params):
+        raise RuntimeError("connection reset")
+
+    monkeypatch.setattr(db, "rpc", _broken_rpc)
+    assert http.post("/api/v1/account/merge-guest", json={"guest_token": "guest"}).status_code == 500
+    assert marks == ["availability", "availability"]
+
+    # 같은 계정(병합 없음)은 RPC 를 부르지 않는다 — 알리지 않는다.
+    assert http.post("/api/v1/account/merge-guest", json={"guest_token": "target"}).status_code == 200
+    assert marks == ["availability", "availability"]
+
+
 # =========================================================================
 # /account/me 응답 키 — API 규약(snake_case) 유지
 # =========================================================================

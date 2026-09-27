@@ -40,6 +40,10 @@ def _merge(guest_uid: str, target_uid: str) -> MergeGuestResponse:
         "merge_guest_account_data",
         {"p_guest_user_id": guest_uid, "p_target_user_id": target_uid},
     ).execute()
+    # RPC 가 돌았다(= 커밋됐다) — 게스트의 영업 상태 확인을 옮기거나 겹치는 건을 지우고 교차확인
+    # (corroborating_count·evidence_tier)을 다시 계산한다. 지도의 영업 근거가 바뀔 수 있으니 참조 스냅샷에
+    # 알린다. 응답 모양이 이상해 아래에서 500 이 되더라도 DB 는 이미 바뀌었으므로 여기서 알린다.
+    reference_snapshot.mark_dirty("availability")
     payload = response.data or {}
     if not isinstance(payload, dict):
         raise RuntimeError("merge_guest_account_data returned an invalid payload")
