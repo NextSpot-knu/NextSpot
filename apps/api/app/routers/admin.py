@@ -20,6 +20,7 @@ from app.core.authz import ROLE_ADMIN, get_current_profile, require_role
 from app.core.executors import run_admin_io
 from app.core.supabase import fetch_all_rows, supabase_admin
 from app.services import briefing_service, congestion_estimator_service, estimated_report_service
+from app.services import reference_snapshot
 from app.core.admin_coalesce import coalesced_admin_view
 
 logger = structlog.get_logger()
@@ -129,6 +130,7 @@ async def create_facility(req: FacilityCreate):
         )
         if not res.data:
             raise HTTPException(status_code=500, detail="시설 등록에 실패했습니다.")
+        reference_snapshot.mark_dirty("facilities")  # 지도 참조 스냅샷에 알린다(app/services/reference_snapshot.py) — 다음 지도 요청이 방금 쓴 값을 본다.
         logger.info("admin_facility_created", facility_id=res.data[0].get("id"), name=req.name)
         return res.data[0]
     except HTTPException:
@@ -149,6 +151,7 @@ async def update_facility(facility_id: str, req: FacilityUpdate):
         )
         if not res.data:
             raise HTTPException(status_code=404, detail="해당 시설을 찾을 수 없습니다.")
+        reference_snapshot.mark_dirty("facilities")
         logger.info("admin_facility_updated", facility_id=facility_id, fields=list(fields))
         return res.data[0]
     except HTTPException:
@@ -166,6 +169,7 @@ async def delete_facility(facility_id: str):
         )
         if not res.data:
             raise HTTPException(status_code=404, detail="해당 시설을 찾을 수 없습니다.")
+        reference_snapshot.mark_dirty("facilities")
         logger.info("admin_facility_deleted", facility_id=facility_id)
         return {"success": True, "deleted_id": facility_id}
     except HTTPException:
@@ -244,6 +248,7 @@ async def override_congestion(facility_id: str, req: CongestionOverride):
         logger.error("admin_congestion_override_failed", facility_id=facility_id, error=str(e))
         raise HTTPException(status_code=500, detail="혼잡도 설정에 실패했습니다.")
 
+    reference_snapshot.mark_dirty("congestion")  # 지도 참조 스냅샷에 알린다(app/services/reference_snapshot.py) — 다음 지도 요청이 방금 쓴 값을 본다.
     logger.info("admin_congestion_override", facility_id=facility_id, level=req.level)
     return ins.data[0]
 

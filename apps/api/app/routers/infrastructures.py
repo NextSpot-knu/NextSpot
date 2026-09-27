@@ -789,6 +789,9 @@ async def simulate_peak(admin_claims: dict = Depends(require_role(ROLE_ADMIN))):
             res_insert = await asyncio.to_thread(supabase_admin.table("congestion_logs").insert(chunk).execute)
             inserted_count += len(res_insert.data or [])
             
+        # 모의 로그(source='simulated')는 최신 혼잡 RPC 가 걸러 지도에 나오지 않지만, 혼잡 로그를 쓰는
+        # 경로는 전부 알린다(필터가 바뀌어도 이 자리가 빠져 있지 않게). 조각 여러 개 뒤 한 번만.
+        reference_snapshot.mark_dirty("congestion")
         logger.info("simulate_peak_success", inserted_logs=inserted_count)
         return {"status": "success", "message": f"모의 피크타임 혼잡 로그 {inserted_count}개가 성공적으로 삽입되었습니다."}
         

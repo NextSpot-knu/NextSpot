@@ -28,7 +28,7 @@ from pydantic import BaseModel, Field
 
 from app.core.authz import ROLE_ADMIN, require_role
 from app.core.supabase import supabase_admin
-from app.services import kakao_place_search_service, llm_client, search_rewrite_service
+from app.services import kakao_place_search_service, llm_client, reference_snapshot, search_rewrite_service
 from app.services.tourapi import client as tourapi
 from app.services.tourapi.transform import (
     extract_detail_common,
@@ -503,6 +503,7 @@ async def approve_ingest_request(req: IngestApproveRequest):
     except Exception as e:
         logger.error("ingest_approve_facilities_write_failed", contentid=contentid, error=str(e))
         raise HTTPException(status_code=500, detail="시설 적재에 실패했습니다. 요청은 대기 상태로 유지됩니다.")
+    reference_snapshot.mark_dirty("facilities")  # 지도 참조 스냅샷에 알린다(app/services/reference_snapshot.py) — 다음 지도 요청이 방금 쓴 값을 본다.
 
     try:
         await asyncio.to_thread(

@@ -53,7 +53,7 @@ from app.core.authz import (
 )
 from app.core.config import settings
 from app.core.supabase import supabase_admin
-from app.services import merchant_briefing_service
+from app.services import merchant_briefing_service, reference_snapshot
 from app.services.merchant_boost import SEAT_LEVEL_CONGESTION, SEAT_STATUS_FRESH_MINUTES
 
 logger = structlog.get_logger()
@@ -315,6 +315,8 @@ async def create_timesale(req: TimesaleCreate, ctx: dict = Depends(merchant_cont
         # 마이그레이션 미적용 환경(테이블 부재)도 여기로 흡수된다 — 프런트는 일반 실패로 취급한다.
         logger.error("merchant_timesale_create_failed", facility_id=req.facility_id, error=str(e))
         raise HTTPException(status_code=500, detail="타임세일 발행에 실패했습니다.")
+    # 타임세일은 아직 지도 스냅샷에 없다(추천이 옮겨 오는 P3 에서 붙는다) — 알림 자리만 미리 둔다.
+    reference_snapshot.mark_dirty("timesales")
 
     logger.info(
         "merchant_timesale_created", facility_id=req.facility_id,
@@ -387,6 +389,7 @@ async def cancel_timesale(req: TimesaleCancel, ctx: dict = Depends(merchant_cont
         raise HTTPException(status_code=500, detail="타임세일 취소에 실패했습니다.")
     if not res.data:
         raise HTTPException(status_code=404, detail="해당 타임세일을 찾을 수 없습니다.")
+    reference_snapshot.mark_dirty("timesales")
     logger.info("merchant_timesale_canceled", timesale_id=req.id, facility_id=req.facility_id)
     return res.data[0]
 
@@ -545,6 +548,8 @@ async def update_seat_status(req: SeatStatusUpdate, ctx: dict = Depends(merchant
     except Exception as e:
         logger.error("merchant_seat_status_update_failed", facility_id=req.facility_id, error=str(e))
         raise HTTPException(status_code=500, detail="좌석 상태 갱신에 실패했습니다.")
+    # 좌석 상태는 facilities.features 안에 있다 — 지도 참조 스냅샷의 시설 베이스를 다시 읽게 한다.
+    reference_snapshot.mark_dirty("facilities")
 
     # ── 부수 효과(②): 시계열 관측 1행. 여기부터는 **어떤 실패도 500 이 아니다.**
     #
@@ -611,6 +616,7 @@ async def update_seat_status(req: SeatStatusUpdate, ctx: dict = Depends(merchant
                 # insert 결과가 비었는지는 보지 않는다 — PostgREST 의 returning 설정에 따라 정상
                 # 성공에도 빈 배열이 올 수 있어, 그걸 실패로 읽으면 매 방송마다 거짓 경보가 된다.
                 # 여기서 확실히 아는 실패는 '예외가 났다' 뿐이므로 그것만 False 로 보고한다.
+                reference_snapshot.mark_dirty("congestion")
                 observation_logged = True
                 observation_status = "logged"
                 # 방금 남겼으니 다음 기록 가능 시점은 정확히 한 간격 뒤다 — 화면이 카운트다운을

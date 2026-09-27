@@ -21,7 +21,7 @@ from app.core.response_cache import (
     round_location,
 )
 from app.core.supabase import supabase_admin as supabase_client, get_current_user
-from app.services import feedback_service
+from app.services import feedback_service, reference_snapshot
 from app.services.coupon_service import issue_coupon_if_partner
 from app.services.merchant_boost import apply_merchant_boosts, CONGESTION_OVERRIDE_KEY
 from app.services.facility_cache import get_facilities_cached
@@ -1625,6 +1625,10 @@ async def record_recommendation_outcome(
             raise HTTPException(status_code=409, detail="방문 결과 단계 순서가 올바르지 않습니다.")
         logger.error("recommendation_outcome_failed", recommendation_id=recommendation_id, error=message)
         raise HTTPException(status_code=500, detail="방문 결과 저장에 실패했습니다.")
+    if req.observed_congestion is not None:
+        # 체감 혼잡은 DB 트리거(project_outcome_congestion_log)가 congestion_logs 에 단건 관측으로
+        # 옮긴다 — 지도에 보이는 쓰기다.
+        reference_snapshot.mark_dirty("congestion")
     row = result.data
     if isinstance(row, list):
         row = row[0] if row else None

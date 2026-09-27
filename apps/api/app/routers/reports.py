@@ -34,6 +34,7 @@ from pydantic import BaseModel, Field
 # 이 문장이 **모든 authenticated 역할에 대해** 참이 된 시점과 그 전에 무엇이 열려 있었는지는
 # 이 파일 상단 독스트링의 '보안 배경' 을 볼 것(20260907090000 마이그레이션).
 from app.core.supabase import supabase_admin, get_current_user
+from app.services import reference_snapshot
 from app.services.coupon_service import issue_coupon_if_partner
 
 logger = structlog.get_logger()
@@ -197,6 +198,7 @@ async def report_availability(
             error=str(exc),
         )
         raise HTTPException(status_code=503, detail="영업 상태 저장에 실패했습니다.")
+    reference_snapshot.mark_dirty("availability")  # 지도 참조 스냅샷에 알린다(app/services/reference_snapshot.py) — 다음 지도 요청이 방금 쓴 값을 본다.
 
     payload = result.data or {}
     if isinstance(payload, list):
@@ -278,6 +280,7 @@ async def report_congestion(
         raise HTTPException(status_code=503, detail="혼잡 제보를 저장하지 못했어요. 잠시 후 다시 시도해 주세요.")
 
     _last_report_at[cooldown_key] = now_mono  # 성공 제보 후 쿨다운 시작
+    reference_snapshot.mark_dirty("congestion")  # 지도 참조 스냅샷에 알린다(app/services/reference_snapshot.py) — 다음 지도 요청이 방금 쓴 값을 본다.
     inserted = (ins.data or [{}])[0]
     logger.info("congestion_report_saved", facility_id=req.facility_id, level=level)
 

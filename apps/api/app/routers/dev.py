@@ -40,6 +40,7 @@ from app.core.authz import (
     require_role,
 )
 from app.core.supabase import supabase_admin
+from app.services import reference_snapshot
 # 증빙 삭제는 **core 의 한 함수**만 쓴다. 심사(여기)와 철회·교체(account.py)가 같은 약속을
 # 각자 구현하면 한쪽만 고쳐지는 날이 온다 — 실제로 이 파일이 한동안 사본을 들고 있었다.
 from app.core.verification_evidence import clear_verification_evidence
@@ -678,6 +679,7 @@ async def _create_facility_for_request(spec: NewFacilityInput, request_id: str) 
         raise HTTPException(
             status_code=503, detail="가게를 등록하지 못했습니다. 신청은 그대로 두었습니다."
         )
+    reference_snapshot.mark_dirty("facilities")  # 지도 참조 스냅샷에 알린다(app/services/reference_snapshot.py) — 다음 지도 요청이 방금 쓴 값을 본다.
     logger.info(
         "verification_facility_created",
         request_id=request_id, facility_id=facility_id, name=spec.name, type=spec.type,
