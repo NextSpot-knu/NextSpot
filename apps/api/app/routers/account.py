@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 from app.core.authz import get_current_profile
 from app.core.supabase import get_current_user, supabase_admin, verify_supabase_token
+from app.services import reference_snapshot
 from app.core.verification_evidence import clear_verification_evidence
 
 logger = structlog.get_logger()
@@ -838,6 +839,9 @@ async def delete_my_account(current_user: dict = Depends(get_current_user)):
     try:
         await asyncio.to_thread(supabase_admin.auth.admin.delete_user, user_id)
         logger.info("account_deleted", user_id=user_id)
+        # FK CASCADE 가 이 사용자의 영업 상태 확인(facility_availability_reports)을 지우고, 트리거가 남은
+        # 교차확인을 다시 계산한다 — 지도의 영업 근거가 바뀔 수 있다(참조 스냅샷에 알린다).
+        reference_snapshot.mark_dirty("availability")
         return DeleteAccountResponse(deleted=True)
     except Exception:
         logger.exception("account_delete_failed", user_id=user_id)

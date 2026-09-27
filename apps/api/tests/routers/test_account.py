@@ -197,6 +197,21 @@ def test_delete_account_failure_is_not_reported_as_success(client):
     assert db.auth_admin.deleted == []
 
 
+def test_delete_account_tells_the_map_snapshot_only_on_success(client, monkeypatch):
+    """CASCADE 가 이 사용자의 영업 상태 확인을 지운다 — 지도 참조 스냅샷이 영업 근거를 다시 읽어야 한다."""
+    from app.services import reference_snapshot
+
+    marks: list[str] = []
+    monkeypatch.setattr(reference_snapshot, "mark_dirty", marks.append)
+    http, db = client
+    assert http.delete("/api/v1/account/me").status_code == 200
+    assert marks == ["availability"]
+
+    db.auth_admin.error = RuntimeError("auth unavailable")
+    assert http.delete("/api/v1/account/me").status_code == 500
+    assert marks == ["availability"]
+
+
 # =========================================================================
 # /account/me 응답 키 — API 규약(snake_case) 유지
 # =========================================================================
