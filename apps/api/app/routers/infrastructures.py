@@ -538,12 +538,16 @@ async def get_infrastructures(
     # 스냅샷을 쓸 수 없으면 **오늘의 실시간 경로**로 답한다:
     #   · 한 번도 못 만들었다(부팅 직후 등) → 실시간(스냅샷이 503 을 새로 만들지 않는다).
     #   · 정상본이 너무 오래됐다 → 실시간을 먼저 시도하고, 그게 실패할 때만 오래된 바이트를 낸다.
-    logger.info("infrastructures_request", type=type)
     snapshot = await reference_snapshot.map_payload(
         reference_snapshot.MapKey.of(type, min_lat, max_lat, min_lng, max_lng)
     )
     if snapshot is not None and not snapshot.stale:
+        logger.info("infrastructures_request", type=type, served="snapshot", snapshot_age_s=snapshot.age_s)
         return _snapshot_response(request, snapshot)
+    logger.info(
+        "infrastructures_request", type=type, served="live",
+        reason="unavailable" if snapshot is None else "stale",  # unavailable = 꺼짐·준비 전·조립 실패
+    )
     try:
         return await _live_infrastructures(type, min_lat, max_lat, min_lng, max_lng)
     except HTTPException:
