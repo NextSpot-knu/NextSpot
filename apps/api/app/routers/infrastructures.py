@@ -312,12 +312,13 @@ async def fetch_active_facilities(client, select: str = "*", *, extra_filters=No
     return rows
 
 
-def attach_place_data_source(rows: list[dict], refs: list[dict]) -> None:
-    """시설 행에 place_data_source·data_updated_at 을 **제자리에서** 붙인다(카드의 출처 표기).
+def attach_place_data_source(rows: list[dict], refs: list[dict]) -> dict[str, dict]:
+    """시설 행에 place_data_source·data_updated_at 을 **제자리에서** 붙이고, 시설별로 고른 출처 행을 돌려준다.
 
     출처 표(facility_source_refs)에 행이 있으면 그 출처를 쓰고, 한 시설에 출처가 여럿이면 localdata 가
     이긴다(같은 출처끼리는 refs 순서 — 호출부가 id 로 정렬해 넘긴다). 없으면 TourAPI 적재분·Kakao 발굴분을
-    본문에서 추정한다. 지도(/infrastructures)의 실시간 경로와 참조 스냅샷이 이 함수 하나를 같이 쓴다.
+    본문에서 추정한다. 지도(/infrastructures)의 실시간 경로와 참조 스냅샷이 이 함수 하나를 같이 쓴다
+    (스냅샷은 돌려받은 {facility_id: 출처 행} 을 출처 표 장애 때 쓸 정상본으로 들고 있다).
     """
     ids = {str(row["id"]) for row in rows if row.get("id")}
     by_id: dict[str, dict] = {}
@@ -339,6 +340,7 @@ def attach_place_data_source(rows: list[dict], refs: list[dict]) -> None:
         elif features.get("source") == "kakao_discovery":
             row["place_data_source"] = "kakao"
             row["data_updated_at"] = features.get("discovery_updated_at") or row.get("updated_at")
+    return by_id
 
 
 # RPC 가 실패했을 때 시설별 limit(1) 조회로 대신해도 되는 최대 시설 수.
@@ -354,41 +356,74 @@ def attach_place_data_source(rows: list[dict], refs: list[dict]) -> None:
 _PER_FACILITY_FALLBACK_MAX_IDS = 5
 
 
+def _latest_congestion_chunks(facility_ids: list[str]) -> list[list[str]]:
+    # RPC 결과도 PostgREST 1000행 상한을 받는다. 결과는 시설당 최대 1행이라 id 를 RPC_CHUNK(1000)개씩 나누면
+    # 상한 안에서 전부 온다 — 한 번에 1,682개를 넘기면 로그가 있는 시설이 1000곳을 넘는 날 나머지가 조용히
+    # 혼잡 null 이 된다. 참조 스냅샷(_load_congestion)과 같은 크기라 두 경로가 어느 규모에서나 같은 값을 낸다.
+    size = reference_snapshot.RPC_CHUNK
+    return [facility_ids[start:start + size] for start in range(0, len(facility_ids), size)]
+
+
+def _latest_congestion_rows(chunk: list[str]) -> list[dict]:
+    res = supabase_client.rpc("latest_congestion_for_facilities", {"facility_ids": chunk}).execute()
+    return list(res.data or [])
+
+
+def _latest_congestion_rows_serial(facility_ids: list[str]) -> list[dict]:
+    """조각을 **차례로** — 첫 실패에서 멈춘다(재시도가 장애를 조각 수만큼 키우지 않게)."""
+    rows: list[dict] = []
+    for chunk in _latest_congestion_chunks(facility_ids):
+        rows.extend(_latest_congestion_rows(chunk))
+    return rows
+
+
+async def _latest_congestion_attempt(facility_ids: list[str], *, serial: bool) -> dict:
+    if serial:
+        rows = await asyncio.to_thread(_latest_congestion_rows_serial, facility_ids)
+    else:
+        parts = await asyncio.gather(*[
+            asyncio.to_thread(_latest_congestion_rows, chunk)
+            for chunk in _latest_congestion_chunks(facility_ids)
+        ])
+        rows = [row for part in parts for row in part]
+    return {str(row["facility_id"]): _congestion_info(row) for row in rows}
+
+
 async def fetch_latest_congestion_for_all(
     facility_ids: list[str], *, raise_on_error: bool = False
 ) -> dict:
     """시설별 최신 혼잡 로그 {facility_id: info}. 로그가 없는 시설은 키가 없다.
 
-    DB RPC(DISTINCT ON)로 N개 시설의 최신 로그를 한 번에 받는다. RPC 가 실패하면:
+    DB RPC(DISTINCT ON)로 시설 1000곳씩(조각은 동시에) 최신 로그를 받는다. RPC 가 실패하면:
       · 시설이 ``_PER_FACILITY_FALLBACK_MAX_IDS`` 곳 이하 → 종전 시설별 limit(1) 조회(증폭 없음).
-      · 그보다 많으면 **흩뿌리지 않는다.** ``raise_on_error`` 면 예외를 올리고, 아니면 로그를 남기고
-        ``{}``(= 혼잡 모름)를 돌려준다. 지도·추천·예측은 '근거 없음' 으로 그대로 동작한다.
-        안전 관제처럼 '빈 결과' 가 '경보 없음' 으로 읽히는 호출부는 raise_on_error=True 로 부른다
-        (빈 맵이면 화면이 '실측 표본 없음' 이라는 거짓 안심을 띄운다).
+      · 그보다 많으면 **흩뿌리지 않는다.** 같은 RPC 를 조각별로 **차례로 딱 한 번** 더 부른다(1,682곳이면
+        최대 2회 — 첫 실패에서 멈춘다). 09-26 ConnectionTerminated 같은 일시 오류는 여기서 회복한다(도입 전의
+        시설별 폴백이 주던 데이터를 1,682배 증폭 없이). 그래도 실패하면 ``raise_on_error`` 면 예외를 올리고,
+        아니면 로그를 남기고 ``{}``(= 혼잡 모름)를 돌려준다. 추천·예측은 '근거 없음' 으로 그대로 동작한다.
+        '빈 결과' 를 내보내면 안 되는 호출부 — 안전 관제('경보 없음' 거짓 안심), 지도 실시간 경로(혼잡 없는
+        지도를 200 으로 내보내 마지막 정상본·웹의 직접 읽기 폴백을 막는다) — 는 raise_on_error=True 로 부른다.
     """
     if not facility_ids:
         return {}
     try:
-        response = await asyncio.to_thread(
-            supabase_client.rpc(
-                "latest_congestion_for_facilities", {"facility_ids": facility_ids}
-            ).execute
-        )
-        result = {}
-        for row in response.data or []:
-            result[str(row["facility_id"])] = _congestion_info(row)
-        return result
+        return await _latest_congestion_attempt(facility_ids, serial=False)
     except Exception as e:
         if len(facility_ids) > _PER_FACILITY_FALLBACK_MAX_IDS:
-            logger.warning(
-                "latest_congestion_rpc_failed",
-                error=str(e),
-                facility_count=len(facility_ids),
-                raised=raise_on_error,
-            )
-            if raise_on_error:
-                raise
-            return {}
+            logger.warning("latest_congestion_rpc_retry", error=str(e), facility_count=len(facility_ids))
+            try:
+                result = await _latest_congestion_attempt(facility_ids, serial=True)
+            except Exception as retry_error:
+                logger.warning(
+                    "latest_congestion_rpc_failed",
+                    error=str(retry_error),
+                    facility_count=len(facility_ids),
+                    raised=raise_on_error,
+                )
+                if raise_on_error:
+                    raise
+                return {}
+            logger.info("latest_congestion_rpc_retry_recovered", facility_count=len(facility_ids))
+            return result
         logger.warning("latest_congestion_rpc_fallback", error=str(e), facility_count=len(facility_ids))
     results = await asyncio.gather(*[_fetch_latest_one(fid) for fid in facility_ids])
     return {fid: data for fid, data in results if data is not None}
@@ -467,7 +502,10 @@ async def _live_infrastructures(
     """실시간 경로 — 요청마다 Supabase 에서 시설·출처·최신 혼잡·영업 근거를 읽어 조립한다.
 
     참조 스냅샷이 아직 한 번도 만들어지지 않았거나(부팅 직후·Supabase 장애 중 부팅), 꺼져 있거나
-    (REFERENCE_SNAPSHOT_SERVE=legacy), 너무 오래됐을 때 쓰는 경로다. 동작은 스냅샷 도입 전과 같다.
+    (REFERENCE_SNAPSHOT_SERVE=legacy), 너무 오래됐을 때 쓰는 경로다. 동작은 스냅샷 도입 전과 같되, 최신 혼잡
+    RPC 가 (한 번의 재시도까지) 실패하면 혼잡 없는 지도를 200 으로 내지 않고 500 이다 — 라우터는 마지막 정상본을
+    내고, 정상본이 없으면 웹이 곧바로 Supabase 직접 읽기(혼잡 포함)로 돈다. 도입 전에는 시설별 폴백 1,682회가
+    ~14초 걸려 웹이 4초에 포기하고 같은 직접 읽기로 돌았다.
     """
     try:
         def _apply_filters(query):
@@ -491,7 +529,7 @@ async def _live_infrastructures(
 
         facility_ids = [f["id"] for f in facilities]
         congestion_map, availability_map = await asyncio.gather(
-            fetch_latest_congestion_for_all(facility_ids),
+            fetch_latest_congestion_for_all(facility_ids, raise_on_error=True),
             fetch_effective_availability_map(facility_ids),
         )
 

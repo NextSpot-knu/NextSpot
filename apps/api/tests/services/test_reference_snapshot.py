@@ -771,8 +771,8 @@ def test_keyset_pagination_reads_every_row_past_the_cap(monkeypatch, snapshot_mo
     base = rs.current_base()
     assert len(base.rows) == 2500
     assert all(r["place_data_source"] == "localdata" for r in base.rows)
-    # 최신 혼잡 RPC 는 500개씩 나눠 부른다(RPC 결과도 1000행 상한).
-    assert db.calls["rpc:latest_congestion_for_facilities"] == 5
+    # 최신 혼잡 RPC 는 1000개씩 나눠 부른다(RPC 결과도 1000행 상한 — 결과는 시설당 최대 1행).
+    assert db.calls["rpc:latest_congestion_for_facilities"] == 3
 
 
 # =============================================================================
