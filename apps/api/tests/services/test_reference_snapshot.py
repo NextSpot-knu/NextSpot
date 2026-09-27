@@ -468,6 +468,41 @@ def test_validity_flip_matches_the_live_path_at_the_same_instant(monkeypatch, sn
     assert snap[_fid(1)]["congestion"]["is_current"] == live["is_current"] is False
 
 
+def test_flips_are_punctual_even_while_the_loader_thread_is_stalled(monkeypatch, snapshot_mode):
+    """레드팀 B1: 적재가 Supabase 에 묶여 있어도(전용 스레드 정지) '지금' 판정은 제시각에 뒤집힌다."""
+    import threading
+
+    t0 = datetime(2026, 9, 27, 3, 0, tzinfo=timezone.utc)
+    clock = {"now": t0}
+    monkeypatch.setattr(rs, "_utcnow", lambda: clock["now"])
+    db = _flip_db(t0)
+    _install(monkeypatch, db)
+    asyncio.run(rs.refresh_once())
+
+    release = threading.Event()
+    original_rpc = db.rpc
+
+    def _stalled_rpc(name, params):
+        release.wait(5)
+        return original_rpc(name, params)
+
+    monkeypatch.setattr(db, "rpc", _stalled_rpc)
+
+    async def _scenario():
+        refresh = asyncio.create_task(rs._refresher.refresh_overlay())
+        await asyncio.sleep(0.05)                          # 적재 스레드가 RPC 에서 멈춰 있다
+        assert not refresh.done()
+        clock["now"] = t0 + timedelta(minutes=1, seconds=1)
+        started = time.monotonic()
+        payload = await rs.map_payload(rs.NO_FILTER)
+        assert time.monotonic() - started < 0.5            # 적재를 기다리지 않는다
+        assert _body(payload)[_fid(1)]["congestion"]["is_current"] is False
+        release.set()
+        await refresh
+
+    asyncio.run(_scenario())
+
+
 def test_concurrent_requests_at_a_flip_recompute_once(monkeypatch, snapshot_mode):
     t0 = datetime(2026, 9, 27, 3, 0, tzinfo=timezone.utc)
     clock = {"now": t0}
