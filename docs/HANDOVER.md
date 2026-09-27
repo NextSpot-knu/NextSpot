@@ -46,6 +46,7 @@
 
 외부 콘솔 접근이 필요해 코드로 못 하는 일. 끝나면 줄을 지우고 "최근 세션"에 한 줄 남긴다.
 
+- [ ] **공공 API 키 회전** — `TOURAPI_KEY`·`KMA_API_KEY`·`PARKING_API_KEY`·`GYEONGJU_FOOD_API_KEY`. httpx INFO 로그가 쿼리스트링째 전체 URL을 남겨 Render 로그 이력에 키가 있을 수 있다(09-28 `d9639c2` 로 차단). 새 키 발급 → Render·GitHub Secrets 갱신.
 - [ ] Render `nextspot-api` 환경변수 `SUPABASE_SERVICE_ROLE_KEY` 끝의 줄바꿈 지우기(09-27 발견 — 코드가 이미 걷으므로 급하지 않다. 저장하면 재배포된다).
 - [ ] **서울 수집이 0건이다 — 원인 확인**(2026-09-20 20:38 KST 기준 `seoul_citydata_snapshots` 0행).
       표는 생겼고 Render 배포·인증키도 들어갔으며 API 엔드포인트도 살아 있다(401 = 인증 필요, 404 아님).
@@ -189,6 +190,15 @@ from checks order by seq;
 ## 최근 세션
 
 최신이 위. 10개를 넘으면 가장 오래된 항목을 `archive/HANDOVER_LOG.md` 맨 위로 옮긴다.
+
+## 2026-09-28 — API 재설계 1단계: 참조 스냅샷으로 지도 4초 → 수 ms (P0a·P1, main 미반영)
+
+- 도구·브랜치: Claude Code(데스크톱 — 노트북 작업 392커밋 동기화 후) · 감사 워크플로(6영역 감사 → 설계 → 레드팀 2렌즈) + 구현 워크플로(구현 → 독립 리뷰 2렌즈 → 수정) / `perf/reference-snapshot`
+- 커밋: fd5af2d..9ae0657 (13건) + 이 기록. 계획·실측·단계 상태는 [`API_ARCHITECTURE_PLAN.md`](./API_ARCHITECTURE_PLAN.md)
+- 한 것: 지도 `/infrastructures` 가 요청마다 시설 2MB를 서울에서 다시 읽던 구조를 `services/reference_snapshot.py`(불변 스냅샷 + 미리 직렬화한 바이트 · ETag/304 · 시각 경계마다 재조립 · 마지막 정상본 · 건전성 검사 · 쓰기마다 mark_dirty)로 바꿨다. 스냅샷이 없으면 옛 경로(새 503 없음). P0a: RPC 실패 시 1,682 스레드 팬아웃 제거 · 시설 페이지네이션 id 정렬 · httpx URL 로그 차단.
+- 검증: api ruff + pytest 1841 · OpenAPI 스냅샷 동일 · check-docs · **실 DB 읽기 대조**(데스크톱): 3개 필터 모두 옛 경로와 JSON 동일(1,682곳·순서 동일), 스냅샷 3~13ms vs 옛 경로 1.2~1.5초, 304 동작, 요청당 힙 12~13MB → 3MB · 리뷰 13건 반영(11 수정, 2 부분 — 사유는 커밋 본문).
+- 다음·미결: main 반영 후 Render 로그 `served="snapshot"` 비율·`/health` 의 `reference_snapshot`·RSS 확인 → P2(주차 이력 행렬, −44~109MB) · P3(소비자 이전·보행 CSR·예측 표). 롤백은 Render env `REFERENCE_SNAPSHOT_SERVE=legacy`(재시작). 웹 경계 파라미터 이름 불일치(필터가 한 번도 안 걸림)는 화면 결정 대기.
+- 사람 작업: 공공 API 키 회전(아래 "사람 작업 대기").
 
 ## 2026-09-27 — TourAPI 일배치: 목록 재시도 · 일시 오류일 때만 새 러너 재실행 · 공개 이슈 알림 없음
 
@@ -356,15 +366,6 @@ from checks order by seq;
   최신 main CI에서 guide 포함 e2e는 통과했고, 전체 결과는 별도 변경의 web `congestionEstimate` 테스트와 API pytest 실패로 빨간불이다.
 - 다음·미결: 소개 화면 코드 작업은 없음.
 - 사람 작업: 최종 제출 전 실제 심사 기기에서 `/guide` 첫 화면을 한 번 눈으로 확인.
-
-## 2026-09-20b — 심사 체험을 연결하는 서비스 소개
-
-- 도구·브랜치: Codex / `feature/judge-guide` — `bf954d0` 원격 main을 새 클론으로 받아 작업.
-- 한 것: 왼쪽 아래 도움말 → 상태를 보존하는 소개 대화상자 + 공유 가능한 `/guide`. 경주 문제·같은 경험의 대안·SPOT 근거·데이터 활용·실행 흐름·지역 운영의 여섯 장면. ko/en/ja/zh, 모바일·야간 테마·키보드 접근 지원.
-- 보강: 취향→지도→코스 체험 순서, 코스 고정/재계획, 관측·추정·수집 중 구분, 권한이 필요한 콘솔 안내. 창업 신청서의 검증 가능한 계획을 바탕으로 여행 시간 문제·주민 기대효과·12주 실증·단계별 사업 모델·지역 대학 팀 역량을 간결하게 추가했다. 제휴·과금·도착·대기 절감·혼잡 완화는 계획과 실측 조건을 명시한다. 마무리 교차 검토로 목적지 선택 모형 근거·상인 타임세일 수요 유도·B2B 쿠폰 폐루프 근거·타 지역 확장 계획을 보강하고, 팀 표기를 '대구'로 바로잡고 죽은 키(futureTitle)·orphan .future CSS를 정리했다. 전체 기능 챕터 상단에 시그니처 6종 그리드(도착시점 예측·결합 산식·음성 비서·B2G 관제·학습 취향·배리어프리)를 추가해 구현된 독창성을 전면 배치했다.
-- 검증: Astra6 전략 검토 + Sol 코드 검토(포커스 복원·모바일 하단 여백 보완). web lint(기존 145 warnings, 0 errors)/typecheck/test(50파일)/build(39페이지), e2e 30건, API ruff/pytest 1,534건, 스키마 파리티·문서 검사 통과.
-- 다음·미결: `feature/judge-guide` 검토 후 main 반영. 기존 작업 폴더와 프로덕션은 변경하지 않음. 모바일 하단 여백은 `--tourist-nav-clearance`로 통일해 소개 진입 줄이 기존 버튼을 가리지 않게 함.
-- 사람 작업: 기존 심사 계정 로그인 확인 및 제출 양식에 소개 진입 방법 안내.
 
 ## 기록 규칙
 
