@@ -243,7 +243,13 @@ def cached_briefing(facility_id: str) -> Optional[dict]:
 
 def _cache_set(facility_id: str, result: dict) -> None:
     ttl = _CACHE_TTL_SECONDS if result.get("briefing") else _FAILURE_TTL_SECONDS
-    _cache[_cache_key(facility_id)] = (time.monotonic(), ttl, result)
+    key = _cache_key(facility_id)
+    # 지난 시간 버킷은 다시 읽히지 않는다(키에 시각이 들어 있다) — 쓸 때 같이 걷어 내지 않으면
+    # 가게 수 × 시간만큼 프로세스가 사는 내내 쌓인다.
+    bucket = key.rsplit(":", 1)[-1]
+    for stale in [k for k in _cache if not k.endswith(f":{bucket}")]:
+        _cache.pop(stale, None)
+    _cache[key] = (time.monotonic(), ttl, result)
 
 
 async def generate_briefing(facility_id: str, facility_type: str) -> dict:

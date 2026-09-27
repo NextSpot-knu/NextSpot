@@ -255,7 +255,11 @@ def _cache_set(result: dict) -> None:
     # 성공(채택)은 12분, 거부·실패는 1분 — 일시적 모델 오류가 관리자 세션 전체의
     # 장시간 기능 비활성으로 확대되지 않게 한다(2차 감사 P2).
     ttl = _CACHE_TTL_SECONDS if result.get("briefing") else _FAILURE_TTL_SECONDS
-    _cache[_kst_today()] = (time.monotonic(), ttl, result)
+    today = _kst_today()
+    # 지난 날짜 키는 다시 읽히지 않는다 — 쓸 때 걷어 내 하루 한 항목만 남긴다.
+    for stale in [k for k in _cache if k != today]:
+        _cache.pop(stale, None)
+    _cache[today] = (time.monotonic(), ttl, result)
 
 
 async def generate_briefing(today: dict, impact: dict) -> dict:
