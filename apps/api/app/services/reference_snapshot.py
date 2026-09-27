@@ -22,16 +22,19 @@
   · 부팅(B2): 한 번도 못 만들었으면 map_payload() 는 None — 라우터는 **오늘의 실시간 경로**로 답한다
     (스냅샷이 503 을 새로 만들지 않는다). 만들 때까지 재시도 간격은 15초 상한이고, 요청이 즉시 시도를
     한 번 깨울 수 있다(5초에 한 번).
-  · 정상본이 오래되면(오버레이 10분 · 베이스 3시간) 라우터는 실시간 경로를 먼저 시도하고 그게 실패할 때만
-    이 바이트를 낸다 — 어느 장애 모양에서도 도입 전보다 나빠지지 않게.
+  · 정상본이 오래되면(오버레이 10분 · 베이스 3시간 · 베이스 재적재가 실패 중인데 반영 못 한 시설 쓰기가 있거나
+    10분 넘게 확인 못 함) 라우터는 실시간 경로를 먼저 시도하고 그게 실패할 때만 이 바이트를 낸다 — 어느 장애
+    모양에서도 도입 전보다 나빠지지 않게. 출처 표만 못 읽으면 출처 표기는 정상본으로 채우고 시설 행은 반영한다.
   · 건전성 관문: 활성 시설 수가 정상본보다 20% 넘게 줄어든 베이스는 연속 두 번 같은 수가 나올 때까지 바꿔
     끼우지 않는다. 0곳짜리 베이스는 정상본이 있으면 받지 않는다(RLS·스키마 캐시 흔들림을 사실로 믿지 않는다).
   · 쓰기 직후: 프로세스 안의 쓰기(제보·관리자 혼잡 설정·좌석 방송·시설 CRUD…)는 mark_dirty() 로 알린다 →
-    1초 디바운스 뒤 해당 부분을 다시 읽는다. 그 사이 들어온 지도 요청은 최대 2초까지 그 갱신을 기다린다
-    — 도입 전의 '다음 지도 요청에 곧바로 반영' 을 지킨다.
+    1초 디바운스 뒤 해당 부분을 다시 읽는다(쓰기발 재적재는 탐침 없이). 그 사이 들어온 지도 요청은 최대
+    2.5초까지 그 갱신을 기다린다 — 도입 전의 '다음 지도 요청에 곧바로 반영' 을 지킨다. 쓰기발 베이스 재적재
+    끼리는 3초 간격을 둔다(연타가 연속 전량 재적재가 되지 않게).
 
 일부러 하지 않은 것(다음 단계)
-  · 추천·코스·예측·추정기 소비자 이전(P3), facility_cache.py · memory_guard 삭제(P3/P6). rows 는 P3 용이다.
+  · 추천·코스·예측·추정기 소비자 이전(P3), facility_cache.py · memory_guard 삭제(P3/P6). 원본 행은 P3 소비자가
+    옮겨 올 때 붙인다(지금은 들고 있지 않는다 — 약 4MB).
   · /congestion/estimates 는 이 스냅샷에서 파생되지 않는다(주차 스냅샷·관광 통계·보정 곡선은 추정기 자체 캐시가
     소유 — P2 에서 옮긴다). 그래서 그대로 둔다.
   · 다중 워커 일관성 — 이 앱은 uvicorn 워커 1개가 전제다. 프로세스 밖 쓰기(일배치·SQL 편집기)는 60초 탐침과
@@ -44,11 +47,12 @@ import asyncio
 import hashlib
 import json
 import math
+import queue
 import threading
 import time
 from collections import OrderedDict
-from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass, field
+from concurrent.futures import Executor, Future
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta, timezone
 from types import MappingProxyType
 from typing import Any, Mapping, NamedTuple
@@ -74,11 +78,17 @@ BACKOFF_MAX_S = 300.0               # 정상본이 있을 때
 BACKOFF_MAX_BEFORE_READY_S = 15.0   # 한 번도 못 만들었을 때(B2) — Supabase 가 돌아오면 15초 안에 따라잡는다
 KICK_MIN_INTERVAL_S = 5.0           # 준비 전 요청이 즉시 시도를 깨우는 최소 간격
 LOOP_ERROR_PAUSE_S = 5.0
+MIN_LOOP_SLEEP_S = 0.05             # 갱신 루프가 한 바퀴마다 최소한 쉬는 시간 — 상태 판정이 어긋나도 헛돌지 않게
+BASE_WRITE_RELOAD_MIN_GAP_S = 3.0   # 쓰기발 베이스 재적재 사이 최소 간격(좌석 방송 연타가 연속 전량 재적재가 되지 않게)
 
 # ── 신선도·쓰기 직후 ──────────────────────────────────────────────────────────
 OVERLAY_STALE_AFTER_S = 10 * 60.0   # 넘으면 라우터가 실시간 경로를 먼저 시도한다
 BASE_STALE_AFTER_S = 3 * 60 * 60.0
-DIRTY_WAIT_S = 2.0                  # 쓰기 직후 지도 요청이 그 갱신을 기다리는 상한(웹의 4초 경주 안)
+BASE_FAILING_STALE_AFTER_S = 10 * 60.0  # 베이스 재적재가 실패 중이고 이만큼 확인 못 했으면 실시간을 먼저 시도한다
+# 쓰기 직후 지도 요청이 그 갱신을 기다리는 상한. 웹의 4초 경주는 **응답 헤더까지**만 잰다(api-client 가 fetch 가
+# 풀리면 타이머를 끈다) — 2.5초 대기 + 오리건 왕복·조립으로 여유가 남는다. 2초는 오리건→서울 호출 5회짜리
+# 재적재(호출당 0.4초 이상)를 못 기다렸다(리뷰 재현). 탐침 생략·RPC 1000개 조각으로 호출 수도 줄였다.
+DIRTY_WAIT_S = 2.5
 DIRTY_WAIT_WINDOW_S = 15.0          # 이보다 오래된 미반영 쓰기는 기다리지 않는다(갱신이 막힌 것)
 SANITY_DROP_RATIO = 0.20
 
@@ -87,7 +97,7 @@ PAGE_SIZE = 1000                    # PostgREST 단일 응답 상한과 같다
 # RPC 결과도 1000행 상한이지만 결과는 시설당 최대 1행이다 — id 1000개씩이면 상한 안에서 전부 온다.
 # (500개씩이면 1,682곳에 직렬 4회, 1000개씩이면 2회.) 실시간 경로(fetch_latest_congestion_for_all)도 이 크기를 쓴다.
 RPC_CHUNK = 1000
-MAP_LRU_SIZE = 4                    # REGION 외 필터 조합(제3자·구 번들)
+MAP_LRU_SIZE = 2                    # REGION 외 필터 조합(제3자·구 번들) — 본문 하나가 최대 2MB 대라 적게 둔다
 
 # 지도가 쓰는 열만 읽는다(select * 는 created_at·coupon_rate 등 지도에 없는 열까지 매분 끌어온다).
 # InfrastructureItem 이 읽는 열 + 출처 추정용 updated_at. 라우터의 _infrastructure_item 과 짝이다.
@@ -95,7 +105,7 @@ BASE_COLUMNS = (
     "id,name,type,latitude,longitude,capacity,operating_hours,features,image_url,contentid,"
     "contenttypeid,gallery_images,address,phone,homepage,overview,barrier_free,is_active,updated_at"
 )
-_REF_COLUMNS = "id,facility_id,source,source_updated_at"
+_REF_COLUMNS = "id,facility_id,source,source_updated_at,updated_at"   # updated_at: 변경 탐침 서명용
 _AVAILABILITY_COLUMNS = "id,facility_id,status,evidence_tier,corroborating_count,reported_at,expires_at"
 _LATEST_CONGESTION_RPC = "latest_congestion_for_facilities"
 
@@ -117,9 +127,19 @@ def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _serve_mode() -> str:
+    """REFERENCE_SNAPSHOT_SERVE 의 실효 모드. **정확히 'snapshot' 일 때만** 스냅샷, 그 밖의 값은 전부 legacy.
+
+    되돌림 스위치는 장애 중에 손으로 친다 — 'off'·'false'·'0'·오타가 스냅샷을 켠 채로 두면 Render 재시작을
+    한 번 더 치러야 한다. 모르는 값은 도입 전 경로(안전한 쪽)로 떨어진다.
+    """
+    raw = getattr(settings, "REFERENCE_SNAPSHOT_SERVE", "snapshot")
+    return "snapshot" if str(raw).strip().lower() == "snapshot" else "legacy"
+
+
 def _serving() -> bool:
-    """REFERENCE_SNAPSHOT_SERVE=legacy 면 갱신 루프도 돌리지 않는다(메모리·DB 부하까지 원래대로)."""
-    return str(getattr(settings, "REFERENCE_SNAPSHOT_SERVE", "snapshot")).strip().lower() != "legacy"
+    """legacy 면 갱신 루프도 돌리지 않는다(메모리·DB 부하까지 원래대로)."""
+    return _serve_mode() == "snapshot"
 
 
 def _infra():
@@ -174,11 +194,14 @@ class _MapRow:
 @dataclass(frozen=True)
 class FacilityBase:
     version: str                    # 지도 조각 전체의 해시 — 내용이 같으면 판도 같다
-    rows: tuple[dict, ...]          # 활성 시설 행(출처 표기 부착, id 순). **읽기 전용** — P3 소비자용
-    ids: tuple[str, ...]
+    ids: tuple[str, ...]            # 활성 시설 id(id 순) — 오버레이가 이 id 로 최신 혼잡을 읽는다
     map_rows: tuple[_MapRow, ...]   # 검증을 통과한 행만(실패 행은 로그 후 제외)
     dropped: int
     loaded_at: float                # time.monotonic()
+    # 시설별로 고른 출처 표(facility_id → (source, source_updated_at)). None = 출처 표를 한 번도 못 읽었다.
+    # 출처 표만 읽기에 실패하면 이 정상본으로 출처 표기를 채우고 시설 행 변경은 그대로 반영한다.
+    source_refs: Mapping[str, tuple] | None = None
+    # 원본 행(약 4MB)은 들고 있지 않는다 — 지금 소비자는 지도 조각뿐이다(P3 소비자가 옮겨 올 때 붙인다).
 
 
 @dataclass(frozen=True)
@@ -255,7 +278,9 @@ def _map_row(row: dict) -> _MapRow:
     )
 
 
-def _build_base(rows: list[dict], loaded_at: float) -> FacilityBase:
+def _build_base(
+    rows: list[dict], loaded_at: float, source_refs: Mapping[str, tuple] | None = None
+) -> FacilityBase:
     map_rows: list[_MapRow] = []
     dropped = 0
     for row in rows:
@@ -277,11 +302,11 @@ def _build_base(rows: list[dict], loaded_at: float) -> FacilityBase:
         digest.update(r.tail)
     return FacilityBase(
         version=digest.hexdigest(),
-        rows=tuple(rows),
         ids=tuple(str(r["id"]) for r in rows if r.get("id")),
         map_rows=tuple(map_rows),
         dropped=dropped,
         loaded_at=loaded_at,
+        source_refs=source_refs,
     )
 
 
@@ -529,46 +554,96 @@ def _first_value(response, column: str):
 
 
 def _probe() -> tuple:
-    """베이스가 바뀌었는지 싸게 본다 — 시설·출처 표의 (행 수, 최신 updated_at). 둘 다 트리거가 갱신한다.
+    """베이스가 바뀌었는지 싸게 본다 — 활성 시설·출처 표의 (행 수, 최신 updated_at). 둘 다 트리거가 갱신한다.
 
     PostgREST 집계(max)는 Supabase 에서 기본으로 꺼져 있어 order=updated_at.desc&limit=1 로 읽는다.
-    놓치는 경우(긴 트랜잭션의 시작 시각 updated_at 등)는 30분 전량 재적재가 잡는다.
+    시설은 **활성 행만** 센다 — 지도가 읽는 집합과 같아야 전량 적재한 행에서 같은 서명(_data_signature)을
+    만들 수 있다(비활성 행의 변경은 지도에 보이지 않는다). 놓치는 경우(긴 트랜잭션의 시작 시각 updated_at 등)는
+    30분 전량 재적재가 잡는다.
     """
     signature: list = []
-    for table in ("facilities", "facility_source_refs"):
-        res = (
-            supabase_client.table(table)
-            .select("updated_at", count=CountMethod.exact)
-            .order("updated_at", desc=True)
-            .limit(1)
-            .execute()
-        )
+    for table, active_only in (("facilities", True), ("facility_source_refs", False)):
+        query = supabase_client.table(table).select("updated_at", count=CountMethod.exact)
+        if active_only:
+            query = query.eq("is_active", True)
+        res = query.order("updated_at", desc=True).limit(1).execute()
         signature += [getattr(res, "count", None), _first_value(res, "updated_at")]
     return tuple(signature)
 
 
-def _load_base(
-    prev_signature: tuple | None, force: bool
-) -> tuple[tuple | None, FacilityBase | None, BaseException | None]:
-    """(탐침 서명, 새 베이스 또는 None=다시 읽지 않음, 탐침 오류).
+def _latest_updated_at(rows: list[dict]) -> object:
+    """행들 가운데 가장 늦은 updated_at 의 **원문**(탐침이 돌려주는 값과 같은 문자열)."""
+    best_ts: datetime | None = None
+    best_raw: object = None
+    for row in rows:
+        raw = row.get("updated_at")
+        ts = _parse_ts(raw)
+        if ts is not None and (best_ts is None or ts > best_ts):
+            best_ts, best_raw = ts, raw
+    return best_raw
 
-    출처 표를 못 읽으면 실패로 올린다 — 출처 표기가 빠진 베이스로 정상본을 덮느니 정상본을 쓰는 편이 낫다.
-    탐침만 실패하면(권한·일시 오류) 전량 재적재를 **하지 않는다** — 매분 2MB 를 끌어오는 대신 30분 전량
-    재적재(force)가 잡는다. 첫 적재·쓰기 알림·30분 전량은 탐침 없이도 진행한다.
+
+def _data_signature(rows: list[dict], refs: list[dict]) -> tuple:
+    """방금 전량 읽은 행으로 만든 탐침 서명(_probe 와 같은 모양).
+
+    탐침 없이 읽은 적재(쓰기 알림·첫 적재·30분 전량)도 서명을 남겨야 다음 탐침이 같은 내용을 또 전량 읽지
+    않는다. 읽은 **뒤에** 바뀐 행은 다음 탐침에서 행 수나 최신 updated_at 이 달라져 잡힌다. 두 서명이 표기
+    차이로 어긋나도 대가는 전량 재적재 한 번이다(놓치는 쪽으로는 틀리지 않는다).
     """
-    probe_error: BaseException | None = None
-    try:
-        signature: tuple | None = _probe()
-    except Exception as exc:  # noqa: BLE001
-        signature, probe_error = None, exc
-    if not force and (signature is None or signature == prev_signature):
-        return (prev_signature if signature is None else signature), None, probe_error
+    return (len(rows), _latest_updated_at(rows), len(refs), _latest_updated_at(refs))
+
+
+def _load_base(
+    prev_signature: tuple | None,
+    force: bool,
+    prev_refs: Mapping[str, tuple] | None = None,
+) -> tuple[tuple | None, FacilityBase | None, BaseException | None, BaseException | None]:
+    """(탐침 서명, 새 베이스 또는 None=다시 읽지 않음, 탐침 오류, 출처 표 오류).
+
+    · force(첫 적재·쓰기 알림·30분 전량)면 탐침을 건너뛴다 — 쓰기 직후 재적재에서 서울 왕복 2회를 아낀다.
+      서명은 읽은 행에서 만든다(_data_signature).
+    · 탐침만 실패하면(권한·일시 오류) 전량 재적재를 **하지 않는다** — 매분 2MB 를 끌어오는 대신 30분 전량
+      재적재(force)가 잡는다.
+    · 출처 표만 못 읽으면 **정상본의 출처 표기**(prev_refs)로 채우고 시설 행은 새로 반영한다 — 실시간 경로도
+      이 오류를 삼키고 답하므로, 여기서 베이스 전체를 실패로 올리면 좌석 방송·시설 수정이 최대 3시간
+      멈춘다(리뷰 재현). 정상본이 없으면(첫 적재) 실시간 경로와 똑같이 출처 표기 없이 만든다. 서명은 None —
+      출처 표가 돌아오면 다음 탐침이 전량 다시 읽는다.
+    """
+    signature: tuple | None = None
+    if not force:
+        try:
+            signature = _probe()
+        except Exception as exc:  # noqa: BLE001
+            return prev_signature, None, exc, None
+        if signature == prev_signature:
+            return signature, None, None, None
     rows = _keyset_rows(
         supabase_client, "facilities", BASE_COLUMNS, filters=lambda q: q.eq("is_active", True)
     )
-    refs = _keyset_rows(supabase_client, "facility_source_refs", _REF_COLUMNS)
-    _infra().attach_place_data_source(rows, refs)
-    return signature, _build_base(rows, time.monotonic()), probe_error
+    refs_error: BaseException | None = None
+    try:
+        refs: list[dict] | None = _keyset_rows(supabase_client, "facility_source_refs", _REF_COLUMNS)
+    except Exception as exc:  # noqa: BLE001
+        refs, refs_error = None, exc
+    if refs is not None:
+        chosen = _infra().attach_place_data_source(rows, refs)
+        if force:
+            signature = _data_signature(rows, refs)
+    else:
+        signature = None
+        chosen = None
+        if prev_refs is not None:
+            carried = [
+                {"facility_id": fid, "source": source, "source_updated_at": updated}
+                for fid, (source, updated) in prev_refs.items()
+            ]
+            chosen = _infra().attach_place_data_source(rows, carried)
+    source_refs = None
+    if chosen is not None:
+        source_refs = MappingProxyType({
+            fid: (ref.get("source"), ref.get("source_updated_at")) for fid, ref in chosen.items()
+        })
+    return signature, _build_base(rows, time.monotonic(), source_refs), None, refs_error
 
 
 def _load_congestion(ids: tuple[str, ...]) -> Mapping[str, dict]:
@@ -643,6 +718,62 @@ def _load_overlay(
 # =============================================================================
 
 
+class _DaemonExecutor(Executor):
+    """적재 전용 **데몬** 스레드 1개짜리 실행기.
+
+    concurrent.futures.ThreadPoolExecutor 의 워커는 비데몬이고 인터프리터가 끝날 때 join 된다 — Supabase 호출
+    하나가 매달려 있으면(httpx 타임아웃 단계당 120초) lifespan 이 끝나도 프로세스가 그만큼 남는다(배포가 겹칠 때
+    옛 인스턴스가 늦게 빠진다 — 리뷰 재현: stop() 0초, 프로세스 종료 8초). 적재는 읽기 전용이라 종료 때
+    버려도 잃는 것이 없다. 작업은 넣은 순서대로 하나씩 돈다(단일 비행).
+    """
+
+    def __init__(self, name: str) -> None:
+        self._queue: queue.SimpleQueue = queue.SimpleQueue()
+        self._lock = threading.Lock()
+        self._closed = False
+        self._thread = threading.Thread(target=self._work, name=name, daemon=True)
+        self._thread.start()
+
+    def submit(self, fn, /, *args, **kwargs) -> Future:
+        with self._lock:
+            if self._closed:
+                raise RuntimeError("cannot schedule new futures after shutdown")
+            future: Future = Future()
+            self._queue.put((future, fn, args, kwargs))
+            return future
+
+    def _work(self) -> None:
+        while True:
+            item = self._queue.get()
+            if item is None:
+                return
+            future, fn, args, kwargs = item
+            if not future.set_running_or_notify_cancel():
+                continue
+            try:
+                result = fn(*args, **kwargs)
+            except BaseException as exc:  # noqa: BLE001 — 호출한 쪽(await)이 받는다
+                future.set_exception(exc)
+            else:
+                future.set_result(result)
+
+    def shutdown(self, wait: bool = True, *, cancel_futures: bool = False) -> None:
+        with self._lock:
+            if not self._closed:
+                self._closed = True
+                if cancel_futures:
+                    while True:
+                        try:
+                            item = self._queue.get_nowait()
+                        except queue.Empty:
+                            break
+                        if item is not None:
+                            item[0].cancel()
+                self._queue.put(None)
+        if wait and self._thread is not threading.current_thread():
+            self._thread.join()
+
+
 @dataclass
 class _Part:
     ok_at: float | None = None          # 마지막으로 정상 확인한 시각(monotonic)
@@ -667,24 +798,31 @@ class _Refresher:
         self._lock = threading.Lock()
         self._dirty_seq = {p: 0 for p in _PARTS}
         self._applied_seq = {p: 0 for p in _PARTS}
+        # 반영 안 된 알림 묶음의 첫 알림 시각(디바운스 기준)
         self._dirty_at: dict[str, float | None] = {p: None for p in _PARTS}
+        # 적재가 seq 를 잡은 뒤 들어온 첫 알림 시각 — 그 적재가 끝나면 다음 묶음의 디바운스 기준이 된다
+        self._marked_since_capture: dict[str, float | None] = {p: None for p in _PARTS}
         self._base_signature: tuple | None = None
         self._last_full_load: float | None = None
+        self._write_reload_at: float | None = None      # 마지막 쓰기발 베이스 재적재가 끝난 시각
+        self._refs_failures = 0                          # 출처 표만 연속으로 못 읽은 횟수(정상본으로 채우는 중)
         self._suspect_count: int | None = None
-        self._urgent = False
+        self._urgent = {p: False for p in _PARTS}       # 지도 요청이 이 부분의 쓰기 반영을 기다리는 중
         self._last_kick = -math.inf
         self._loop: asyncio.AbstractEventLoop | None = None
         self._task: asyncio.Task | None = None
         self._wake: asyncio.Event | None = None
         self._changed: asyncio.Event | None = None
         self._busy: asyncio.Lock | None = None
-        self._executor: ThreadPoolExecutor | None = None
+        self._executor: _DaemonExecutor | None = None
         self._started = False
 
     # ── 수명 ────────────────────────────────────────────────────────────────
     def start(self) -> None:
-        if not _serving():
-            logger.info("reference_snapshot_disabled", serve="legacy")
+        raw = getattr(settings, "REFERENCE_SNAPSHOT_SERVE", None)
+        mode = _serve_mode()
+        if mode != "snapshot":
+            logger.info("reference_snapshot_disabled", serve=mode, configured=repr(raw)[:40])
             return
         if self._task is not None and not self._task.done():
             return
@@ -697,7 +835,7 @@ class _Refresher:
             part.next_due = min(part.next_due, now)
         self._started = True
         self._task = self._loop.create_task(self._run(), name="reference-snapshot")
-        logger.info("reference_snapshot_started")
+        logger.info("reference_snapshot_started", serve=mode, configured=repr(raw)[:40])
 
     async def stop(self) -> None:
         self._started = False
@@ -729,10 +867,11 @@ class _Refresher:
         logger.error("reference_snapshot_refresher_restarted", error=repr(died)[:300])
         self._task = self._loop.create_task(self._run(), name="reference-snapshot")
 
-    def _executor_or_new(self) -> ThreadPoolExecutor:
+    def _executor_or_new(self) -> _DaemonExecutor:
         if self._executor is None:
-            # 전용 스레드 1개: 적재는 서로 겹치지 않고(단일 비행), 요청용 I/O 풀(16)을 잡아먹지 않는다.
-            self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="nextspot-ref")
+            # 전용 데몬 스레드 1개: 적재는 서로 겹치지 않고(단일 비행), 요청용 I/O 풀(16)을 잡아먹지 않으며,
+            # 매달린 적재가 프로세스 종료를 붙잡지 않는다.
+            self._executor = _DaemonExecutor("nextspot-ref")
         return self._executor
 
     async def _in_thread(self, fn, *args):
@@ -755,7 +894,7 @@ class _Refresher:
     async def _step(self) -> None:
         if self._due("base"):
             await self.refresh_base()
-        if self.base is not None and self._due("overlay"):
+        if self._due("overlay"):
             await self.refresh_overlay()
         await self._sleep()
 
@@ -763,16 +902,41 @@ class _Refresher:
         with self._lock:
             return self._dirty_seq[part] > self._applied_seq[part], self._dirty_at[part]
 
-    def _due(self, part: str) -> bool:
-        now = time.monotonic()
-        state = self.parts[part]
-        if now >= state.next_due:
-            return True
+    def _capture(self, part: str) -> tuple[int, bool]:
+        """적재 시작 — (지금까지의 알림 번호, 반영 안 된 알림이 있는지)를 한 번에 잡는다. 이 뒤의 알림은 다음 묶음이다."""
+        with self._lock:
+            self._marked_since_capture[part] = None
+            seq = self._dirty_seq[part]
+            return seq, seq > self._applied_seq[part]
+
+    def _write_due_at(self, part: str, now: float, *, urgent: bool | None = None) -> float | None:
+        """반영 안 된 쓰기가 이 부분을 다시 읽게 하는 시각. 없으면(알림 없음·실패 백오프·관문 대기) None.
+
+        _due(할 일 판정)와 _sleep(깰 시각)이 **이 한 함수**를 쓴다 — 둘이 어긋나면 루프가 할 일 없이 깨어
+        헛돈다(리뷰 재현: 베이스가 없을 때 혼잡 쓰기 한 번에 이벤트 루프가 CPU 100%).
+        """
+        if part == "overlay" and self.base is None:
+            return None     # 오버레이는 베이스가 있어야 읽는다 — 베이스가 먼저다
         pending, at = self._pending(part)
         # 실패 중(또는 관문 대기)이면 쓰기 알림도 백오프를 따른다(장애 중 쓰기마다 재적재를 두드리지 않게).
-        if pending and not state.blocked(now):
-            return self._urgent or at is None or now >= at + DEBOUNCE_S
-        return False
+        if not pending or self.parts[part].blocked(now):
+            return None
+        if urgent is None:
+            urgent = self._urgent[part]
+        due = now if (urgent or at is None) else at + DEBOUNCE_S
+        if part == "base" and self._write_reload_at is not None:
+            # 쓰기발 전량 재적재끼리는 최소 간격을 둔다 — 기다리는 요청이 있어도(연타 폭주의 상한).
+            due = max(due, self._write_reload_at + BASE_WRITE_RELOAD_MIN_GAP_S)
+        return due
+
+    def _due(self, part: str) -> bool:
+        if part == "overlay" and self.base is None:
+            return False
+        now = time.monotonic()
+        if now >= self.parts[part].next_due:
+            return True
+        due = self._write_due_at(part, now)
+        return due is not None and now >= due
 
     async def _sleep(self) -> None:
         now = time.monotonic()
@@ -780,12 +944,13 @@ class _Refresher:
         if self.base is not None:
             deadlines.append(self.parts["overlay"].next_due)
         for part in _PARTS:
-            pending, at = self._pending(part)
-            if pending and not self.parts[part].blocked(now):
-                deadlines.append(now if self._urgent else (at or now) + DEBOUNCE_S)
-        timeout = min(deadlines) - now
-        if timeout <= 0 or self._wake is None:
-            await asyncio.sleep(0)
+            due = self._write_due_at(part, now)
+            if due is not None:
+                deadlines.append(due)
+        # 바닥을 둔다: 어떤 상태 조합에서도 sleep(0) 헛돌기가 되지 않게(할 일이 있으면 50ms 늦을 뿐이다).
+        timeout = max(min(deadlines) - now, MIN_LOOP_SLEEP_S)
+        if self._wake is None:
+            await asyncio.sleep(timeout)
             return
         # 깨울 이유는 전부 상태(next_due·dirty)에 반영돼 있어 여기서 지워도 잃는 신호가 없다.
         self._wake.clear()
@@ -826,6 +991,10 @@ class _Refresher:
             self._applied_seq[part] = max(self._applied_seq[part], seq)
             if self._applied_seq[part] >= self._dirty_seq[part]:
                 self._dirty_at[part] = None
+            else:
+                # 적재 중에 들어온 알림이 남았다 — 디바운스는 그 묶음의 첫 알림부터 다시 잰다. 가장 오래된
+                # 알림 시각을 그대로 두면 다음 재적재가 곧바로 시작돼 연속 쓰기가 연속 전량 재적재가 된다.
+                self._dirty_at[part] = self._marked_since_capture[part] or self._dirty_at[part]
 
     def _fail(self, part: str, exc: BaseException) -> None:
         now = time.monotonic()
@@ -870,18 +1039,19 @@ class _Refresher:
 
     async def _refresh_base(self) -> None:
         started = time.monotonic()
-        pending, _ = self._pending("base")
-        with self._lock:
-            seq = self._dirty_seq["base"]
-        self._urgent = False
+        seq, pending = self._capture("base")
+        self._urgent["base"] = False
         force = (
             self.base is None
             or pending
             or self._last_full_load is None
             or started - self._last_full_load >= BASE_BACKSTOP_S
         )
+        prev_refs = self.base.source_refs if self.base is not None else None
         try:
-            signature, new, probe_error = await self._in_thread(_load_base, self._base_signature, force)
+            signature, new, probe_error, refs_error = await self._in_thread(
+                _load_base, self._base_signature, force, prev_refs
+            )
         except Exception as exc:  # noqa: BLE001
             self._fail("base", exc)
             return
@@ -901,6 +1071,8 @@ class _Refresher:
             self._ok("base", seq, BASE_PROBE_INTERVAL_S)
             return
         self._last_full_load = time.monotonic()
+        if pending:
+            self._write_reload_at = self._last_full_load
         if not self._passes_sanity_gate(new):
             # 정상본을 그대로 쓰고 SANITY_RETRY_S 뒤 다시 읽는다. 쓰기 알림이 있어도 앞당기지 않는다 —
             # 몇 초 사이 두 번 읽어 둘 다 흔들린 값이면 '연속 두 번 일치' 가 의미가 없다.
@@ -910,30 +1082,50 @@ class _Refresher:
             state.hold_until = time.monotonic() + hold
             state.next_due = state.hold_until
             return
-        if signature is not None:
-            self._base_signature = signature
-        if self.base is None or new.version != self.base.version:
+        # None(출처 표를 못 읽었다) 이면 다음으로 성공한 탐침이 전량 다시 읽는다.
+        self._base_signature = signature
+        old = self.base
+        if old is None or new.version != old.version:
             self.base = new
             self._rebuild_view()
-            # 활성 시설이 바뀌었을 수 있다 — 새 시설의 혼잡을 곧바로 읽는다.
-            self.parts["overlay"].next_due = time.monotonic()
+            if old is None or new.ids != old.ids:
+                # 활성 시설이 바뀌었다 — 새 시설의 혼잡을 곧바로 읽는다(좌석 방송처럼 행 내용만 바뀐
+                # 재적재마다 오버레이까지 다시 읽지 않는다).
+                self.parts["overlay"].next_due = time.monotonic()
             logger.info(
                 "reference_snapshot_base_swapped",
-                version=new.version[:12], active=len(new.rows), dropped=new.dropped,
+                version=new.version[:12], active=len(new.ids), dropped=new.dropped,
                 elapsed_ms=round((time.monotonic() - started) * 1000),
             )
+        elif new.source_refs is not old.source_refs:
+            # 지도 조각은 같다(조립본·ETag 유지) — 다음 출처 표 장애 때 쓸 정상본만 새것으로.
+            self.base = replace(old, source_refs=new.source_refs)
+        if refs_error is not None:
+            # 출처 표만 실패 — 시설 행은 반영했다(확인한 것은 확인한 것). 출처 표기는 정상본으로 채웠고,
+            # 탐침은 백오프 간격으로(출처 표가 돌아오면 서명이 달라 전량 다시 읽는다).
+            self._refs_failures += 1
+            retry_in = min(BACKOFF_MAX_S, BACKOFF_INITIAL_S * (2 ** (self._refs_failures - 1)))
+            self._ok("base", seq, retry_in)
+            self.parts["base"].last_error = f"refs:{type(refs_error).__name__}"
+            logger.warning(
+                "reference_snapshot_source_refs_failed",
+                error_type=type(refs_error).__name__, error=str(refs_error)[:300],
+                failures=self._refs_failures, carried=prev_refs is not None, retry_in_s=retry_in,
+            )
+            return
+        self._refs_failures = 0
         self._ok("base", seq, BASE_PROBE_INTERVAL_S)
 
     def _passes_sanity_gate(self, new: FacilityBase) -> bool:
         prev = self.base
-        count = len(new.rows)
+        count = len(new.ids)
         if prev is None:
             if count == 0:
                 # 첫 베이스가 0곳 — 준비된 척하지 않는다(실시간 경로가 계속 답한다).
                 logger.warning("reference_snapshot_sanity_gate_held", reason="empty_first_base")
                 return False
             return True
-        prev_count = len(prev.rows)
+        prev_count = len(prev.ids)
         if count == 0 and prev_count > 0:
             logger.error("reference_snapshot_sanity_gate_held", reason="empty_base", previous=prev_count)
             return False
@@ -956,9 +1148,8 @@ class _Refresher:
         base = self.base
         if base is None:
             return
-        with self._lock:
-            seq = self._dirty_seq["overlay"]
-        self._urgent = False
+        seq, _ = self._capture("overlay")
+        self._urgent["overlay"] = False
         started = time.monotonic()
         try:
             overlay, errors = await self._in_thread(_load_overlay, base.ids, self.overlay, _utcnow())
@@ -1012,6 +1203,8 @@ class _Refresher:
                     self._dirty_seq[part] += 1
                     if self._dirty_at[part] is None:
                         self._dirty_at[part] = now
+                    if self._marked_since_capture[part] is None:
+                        self._marked_since_capture[part] = now
             self._wake_up()
         except Exception as exc:  # noqa: BLE001 — 쓰기 요청이 이 알림 때문에 실패하면 안 된다
             logger.warning("reference_snapshot_mark_dirty_failed", kind=kind, error=str(exc)[:200])
@@ -1037,19 +1230,21 @@ class _Refresher:
         deadline = time.monotonic() + DIRTY_WAIT_S
         while True:
             now = time.monotonic()
-            waiting = False
+            if now >= deadline:
+                return
+            waiting: list[str] = []
             for part in _PARTS:
                 pending, at = self._pending(part)
-                if (
-                    pending
-                    and at is not None
-                    and now - at < DIRTY_WAIT_WINDOW_S
-                    and not self.parts[part].blocked(now)
-                ):
-                    waiting = True
-            if not waiting or now >= deadline:
+                if not pending or at is None or now - at >= DIRTY_WAIT_WINDOW_S:
+                    continue
+                # 실패 백오프·관문 대기·재적재 간격 때문에 기다려도 이 요청 안에 반영될 수 없으면 기다리지 않는다.
+                due = self._write_due_at(part, now, urgent=True)
+                if due is not None and due < deadline:
+                    waiting.append(part)
+            if not waiting:
                 return
-            self._urgent = True
+            for part in waiting:
+                self._urgent[part] = True
             if self._changed is None:
                 self._changed = asyncio.Event()
             changed = self._changed
@@ -1081,8 +1276,23 @@ class _Refresher:
             body=body.body,
             etag=body.etag,
             age_s=int(max(base_age, overlay_age)),
-            stale=base_age > BASE_STALE_AFTER_S or overlay_age > OVERLAY_STALE_AFTER_S,
+            stale=(
+                base_age > BASE_STALE_AFTER_S
+                or overlay_age > OVERLAY_STALE_AFTER_S
+                or self._base_stuck(base_age)
+            ),
         )
+
+    def _base_stuck(self, base_age: float) -> bool:
+        """베이스 재적재가 실패 중인데 반영 못 한 시설 쓰기가 있거나 10분 넘게 확인하지 못했다.
+
+        이 상태의 스냅샷은 방금 쓴 좌석 상태·시설 수정을 보여 주지 못한다(실패 백오프는 최대 5분). 라우터가
+        실시간 경로를 먼저 시도하게 한다 — 스냅샷만의 적재 실패(열 목록·페이지네이션)면 실시간은 성공하고,
+        실시간마저 실패하면 이 바이트가 마지막 정상본으로 나간다(도입 전보다 나빠지지 않게).
+        """
+        if self.parts["base"].failures <= 0:
+            return False
+        return self._pending("base")[0] or base_age > BASE_FAILING_STALE_AFTER_S
 
     def _age(self, part: str) -> float:
         ok_at = self.parts[part].ok_at
@@ -1100,14 +1310,15 @@ class _Refresher:
 
         base, overlay, view = self.base, self.overlay, self.view
         return {
-            "serve": "snapshot" if _serving() else "legacy",
+            "serve": _serve_mode(),
             "running": self._task is not None and not self._task.done(),
             "ready": view is not None,
             "base": {
                 **part("base"),
                 "version": base.version[:12] if base else None,
-                "active": len(base.rows) if base else None,
+                "active": len(base.ids) if base else None,
                 "dropped": base.dropped if base else None,
+                "refs_failures": self._refs_failures,
             },
             "overlay": {
                 **part("overlay"),
@@ -1155,7 +1366,7 @@ def health() -> dict:
 
 
 def current_base() -> FacilityBase | None:
-    """지금의 시설 베이스(P3 소비자용). rows 의 dict 는 공유 객체다 — 고치지 말고 복사해서 쓸 것."""
+    """지금의 시설 베이스(활성 id · 지도 조각 · 출처 표기 정상본). 불변 — 읽기만 할 것."""
     return _refresher.base
 
 

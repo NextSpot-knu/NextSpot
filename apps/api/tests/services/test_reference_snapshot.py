@@ -347,7 +347,7 @@ def test_region_body_is_built_eagerly_and_reused_without_per_request_work(monkey
     assert first.etag == second.etag
 
 
-def test_lru_keeps_at_most_four_other_filter_sets(monkeypatch, snapshot_mode):
+def test_lru_keeps_only_a_few_other_filter_sets(monkeypatch, snapshot_mode):
     _install(monkeypatch, _golden_db(datetime.now(timezone.utc)))
     asyncio.run(rs.refresh_once())
     for i in range(10):
@@ -676,19 +676,19 @@ def test_sanity_gate_holds_a_sudden_drop_until_two_loads_agree(monkeypatch, snap
     db = FakeDB(facilities)
     _install(monkeypatch, db)
     asyncio.run(rs.refresh_once())
-    assert len(rs.current_base().rows) == 100
+    assert len(rs.current_base().ids) == 100
 
     db.tables["facilities"] = facilities[:70]               # 30% 감소
     asyncio.run(rs._refresher.refresh_base())
-    assert len(rs.current_base().rows) == 100               # 한 번은 믿지 않는다
+    assert len(rs.current_base().ids) == 100               # 한 번은 믿지 않는다
     assert rs._refresher.parts["base"].hold_until > time.monotonic()
 
     asyncio.run(rs._refresher.refresh_base())               # 같은 수가 두 번 — 받아들인다
-    assert len(rs.current_base().rows) == 70
+    assert len(rs.current_base().ids) == 70
 
     db.tables["facilities"] = facilities[:65]               # 20% 안쪽 감소는 바로 받는다
     asyncio.run(rs._refresher.refresh_base())
-    assert len(rs.current_base().rows) == 65
+    assert len(rs.current_base().ids) == 65
 
 
 def test_sanity_gate_never_accepts_an_empty_base_over_a_good_one(monkeypatch, snapshot_mode):
@@ -698,7 +698,7 @@ def test_sanity_gate_never_accepts_an_empty_base_over_a_good_one(monkeypatch, sn
     db.tables["facilities"] = []
     for _ in range(3):
         asyncio.run(rs._refresher.refresh_base())
-    assert len(rs.current_base().rows) == 10
+    assert len(rs.current_base().ids) == 10
 
 
 def test_probe_skips_the_full_reload_when_nothing_changed(monkeypatch, snapshot_mode):
@@ -769,8 +769,10 @@ def test_keyset_pagination_reads_every_row_past_the_cap(monkeypatch, snapshot_mo
     _install(monkeypatch, db)
     asyncio.run(rs.refresh_once())
     base = rs.current_base()
-    assert len(base.rows) == 2500
-    assert all(r["place_data_source"] == "localdata" for r in base.rows)
+    assert len(base.ids) == 2500
+    body = json.loads(asyncio.run(rs.map_payload(rs.NO_FILTER)).body)
+    assert len(body) == 2500
+    assert all(r["place_data_source"] == "localdata" for r in body)
     # 최신 혼잡 RPC 는 1000개씩 나눠 부른다(RPC 결과도 1000행 상한 — 결과는 시설당 최대 1행).
     assert db.calls["rpc:latest_congestion_for_facilities"] == 3
 
@@ -863,8 +865,8 @@ def test_concurrent_requests_before_ready_trigger_a_single_build(monkeypatch, sn
             results = await asyncio.gather(*[rs.map_payload(rs.NO_FILTER) for _ in range(30)])
             assert all(r is None for r in results)            # 준비 전 → 모두 실시간 경로로
             await _wait_until(lambda: rs.health()["ready"])
-            # 탐침 1 + keyset 1페이지 = 시설 표 2회. 30개의 요청이 적재를 30번 부르지 않았다.
-            assert db.calls["facilities"] == 2
+            # 첫 적재는 탐침 없이 keyset 1페이지 = 시설 표 1회. 30개의 요청이 적재를 30번 부르지 않았다.
+            assert db.calls["facilities"] == 1
             assert db.calls["rpc:latest_congestion_for_facilities"] == 1
         finally:
             await rs.stop()
