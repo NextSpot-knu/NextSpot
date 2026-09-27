@@ -106,6 +106,15 @@ async def lifespan(_app: FastAPI):
     """
     executor = _install_bounded_executor(asyncio.get_running_loop())
     t0 = time.perf_counter()
+
+    # 0) 참조 스냅샷(지도 /infrastructures 의 시설·혼잡·영업 근거) 갱신 루프. 기다리지 않는다 — 첫 적재는
+    #    아래 예열과 겹쳐 백그라운드로 돌고, 그 전의 요청은 실시간 경로가 답한다(스냅샷이 503 을 만들지 않는다).
+    try:
+        from app.services import reference_snapshot
+        reference_snapshot.start()
+    except Exception as e:
+        _logger.warning("warmup_reference_snapshot_start_failed", error=str(e))
+
     try:
         # 비공개 Storage의 active 모델을 해시·스키마·품질 검증 후 적재하고 5분 폴링을 시작한다.
         # 검증된 모델이 없거나 다운로드가 실패해도 서버는 degraded_rules로 정상 기동한다.
@@ -179,6 +188,11 @@ async def lifespan(_app: FastAPI):
 
     # 종료 시 외부 커넥션 정리 — lazy 싱글턴 AsyncClient 가 닫힌 이벤트 루프에 남지 않게
     # (Codex 감사 P2-8). best-effort: 정리 실패가 종료를 막지 않는다.
+    try:
+        from app.services import reference_snapshot
+        await reference_snapshot.stop()
+    except Exception as e:
+        _logger.warning("shutdown_reference_snapshot_failed", error=str(e))
     try:
         from app.services import llm_client
         await llm_client.aclose()
@@ -272,11 +286,20 @@ app.include_router(dev.router)  # 개발자 콘솔 — 역할 임명·가게 소
 @app.get("/")
 @app.get("/health")
 async def health_check():
-    return {
+    body = {
         "status": "healthy",
         "project": settings.PROJECT_NAME,
         "environment": settings.ENV
     }
+    # 참조 스냅샷 상태(준비 여부·부분별 나이·실패 수·판 번호) — 메모리 읽기만 한다. 오류 원문은 싣지 않는다
+    # (공개 엔드포인트 — 예외 종류 이름만). 스냅샷이 준비 전이어도 헬스는 healthy 다: 그동안은 실시간 경로가
+    # 지도를 답한다. 이 칸을 읽다 실패해도 헬스체크 자체는 절대 실패시키지 않는다(Render 재시작 조건).
+    try:
+        from app.services import reference_snapshot
+        body["reference_snapshot"] = reference_snapshot.health()
+    except Exception:  # noqa: BLE001
+        pass
+    return body
 
 # 실제 추천 단일 진입점은 recommendations 라우터(POST /api/v1/recommendations)다.
 # (과거 /api/v1 네임스페이스에 있던 하드코딩 데모 목업 응답 및 JWT 데모용 auth-test 엔드포인트는

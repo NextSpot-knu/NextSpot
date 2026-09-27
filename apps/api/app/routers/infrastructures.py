@@ -3,14 +3,16 @@ import time
 from datetime import datetime, timedelta, timezone
 
 import structlog
-from fastapi import APIRouter, HTTPException, Depends, Query, Request
+from fastapi import APIRouter, HTTPException, Depends, Query, Request, Response
 from typing import Literal
 
 from pydantic import BaseModel
 # 읽기는 anon, congestion_logs 쓰기(simulate_peak)는 RLS 우회가 필요해 service_role 을 쓴다
 # (ingest 라우터와 동일 사유 — anon INSERT 는 RLS 로 거부됨).
 from app.core.authz import ROLE_ADMIN, require_role
+from app.core.http_cache import etag_response
 from app.core.supabase import supabase_client, supabase_admin, fetch_all_rows
+from app.services import reference_snapshot
 from app.services.availability_service import fetch_effective_availability_map
 from app.services.congestion_evidence import (
     estimate_for,
@@ -212,17 +214,7 @@ async def _fetch_latest_one(fid: str) -> tuple[str, dict | None]:
             .execute
         )
         if res.data:
-            row = res.data[0]
-            ts = row["timestamp"]
-            return fid, {
-                "level": row["congestion_level"],
-                "current_count": _exact_current_count(row),
-                "timestamp": ts,
-                "source": row.get("source"),
-                "evidence_tier": row.get("evidence_tier"),
-                "is_stale": _is_stale(ts),
-                "is_current": measurement_is_current(row.get("evidence_tier"), ts),
-            }
+            return fid, _congestion_info(res.data[0])
     except Exception as e:
         logger.warning("congestion_fetch_one_failed", facility_id=fid, error=str(e))
     return fid, None
@@ -234,6 +226,25 @@ def _exact_current_count(row: dict) -> int | None:
         return None
     value = row.get("current_count")
     return int(value) if value is not None else None
+
+
+def _congestion_info(row: dict, *, now: datetime | None = None) -> dict:
+    """최신 혼잡 로그 1행 → 지도·추천이 쓰는 info dict. ``now`` 는 판정 시각(기본 지금).
+
+    is_stale(24시간)·is_current(30분 × 신뢰등급)는 **시각에 따라 뒤집힌다.** 실시간 경로는 지금으로,
+    참조 스냅샷(app/services/reference_snapshot.py)은 요청 시각으로 같은 이 함수를 부른다 — 한 벌이어야
+    두 경로의 판정이 갈라지지 않는다.
+    """
+    ts = row["timestamp"]
+    return {
+        "level": row["congestion_level"],
+        "current_count": _exact_current_count(row),
+        "timestamp": ts,
+        "source": row.get("source"),
+        "evidence_tier": row.get("evidence_tier"),
+        "is_stale": _is_stale(ts, now=now),
+        "is_current": measurement_is_current(row.get("evidence_tier"), ts, now=now),
+    }
 
 
 def _is_missing_is_active_column(exc: Exception) -> bool:
@@ -316,18 +327,18 @@ def attach_place_data_source(rows: list[dict], refs: list[dict]) -> None:
             by_id[fid] = ref
     for row in rows:
         ref = by_id.get(str(row.get("id")))
+        # features 가 dict 가 아닌 오염 행 하나가 AttributeError 로 나머지 시설의 출처 표기까지 날리지 않게.
+        features = row.get("features")
+        features = features if isinstance(features, dict) else {}
         if ref:
             row["place_data_source"] = ref.get("source")
             row["data_updated_at"] = ref.get("source_updated_at")
         elif row.get("contentid"):
             row["place_data_source"] = "tourapi"
             row["data_updated_at"] = row.get("updated_at")
-        elif (row.get("features") or {}).get("source") == "kakao_discovery":
+        elif features.get("source") == "kakao_discovery":
             row["place_data_source"] = "kakao"
-            row["data_updated_at"] = (
-                (row.get("features") or {}).get("discovery_updated_at")
-                or row.get("updated_at")
-            )
+            row["data_updated_at"] = features.get("discovery_updated_at") or row.get("updated_at")
 
 
 # RPC 가 실패했을 때 시설별 limit(1) 조회로 대신해도 되는 최대 시설 수.
@@ -365,17 +376,7 @@ async def fetch_latest_congestion_for_all(
         )
         result = {}
         for row in response.data or []:
-            fid = str(row["facility_id"])
-            ts = row["timestamp"]
-            result[fid] = {
-                "level": row["congestion_level"],
-                "current_count": _exact_current_count(row),
-                "timestamp": ts,
-                "source": row.get("source"),
-                "evidence_tier": row.get("evidence_tier"),
-                "is_stale": _is_stale(ts),
-                "is_current": measurement_is_current(row.get("evidence_tier"), ts),
-            }
+            result[str(row["facility_id"])] = _congestion_info(row)
         return result
     except Exception as e:
         if len(facility_ids) > _PER_FACILITY_FALLBACK_MAX_IDS:
@@ -424,16 +425,50 @@ def _slim_features(features):
     return {k: v for k, v in features.items() if k not in _FEATURES_OMITTED_ON_MAP}
 
 
-@router.get("/infrastructures", response_model=list[InfrastructureItem])
-async def get_infrastructures(
-    type: str | None = None,
-    min_lat: float | None = None,
-    max_lat: float | None = None,
-    min_lng: float | None = None,
-    max_lng: float | None = None,
-):
-    logger.info("infrastructures_request", type=type)
-    # 추정(추정 모드)은 여기 싣지 않는다 — GET /congestion/estimates 주석 참조.
+def _infrastructure_item(
+    f: dict,
+    congestion: CongestionInfo | None,
+    availability_evidence: dict | AvailabilityEvidence | None,
+) -> InfrastructureItem:
+    """시설 행 1개 → 지도 응답 항목. 실시간 경로와 참조 스냅샷이 이 함수 하나로 같은 모양을 만든다."""
+    return InfrastructureItem(
+        id=f["id"],
+        name=f["name"],
+        type=f["type"],
+        latitude=f["latitude"],
+        longitude=f["longitude"],
+        capacity=f["capacity"],
+        operating_hours=f.get("operating_hours"),
+        features=_slim_features(f.get("features")),
+        congestion=congestion,
+        image_url=f.get("image_url"),
+        contentid=f.get("contentid"),
+        contenttypeid=f.get("contenttypeid"),
+        gallery_images=_clean_gallery_images(f.get("gallery_images")),
+        address=f.get("address"),
+        phone=f.get("phone"),
+        homepage=f.get("homepage"),
+        overview=f.get("overview"),
+        barrier_free=f.get("barrier_free"),
+        is_active=f.get("is_active"),
+        place_data_source=f.get("place_data_source"),
+        data_updated_at=f.get("data_updated_at"),
+        availability_evidence=availability_evidence,
+    )
+
+
+async def _live_infrastructures(
+    type: str | None,
+    min_lat: float | None,
+    max_lat: float | None,
+    min_lng: float | None,
+    max_lng: float | None,
+) -> list[InfrastructureItem]:
+    """실시간 경로 — 요청마다 Supabase 에서 시설·출처·최신 혼잡·영업 근거를 읽어 조립한다.
+
+    참조 스냅샷이 아직 한 번도 만들어지지 않았거나(부팅 직후·Supabase 장애 중 부팅), 꺼져 있거나
+    (REFERENCE_SNAPSHOT_SERVE=legacy), 너무 오래됐을 때 쓰는 경로다. 동작은 스냅샷 도입 전과 같다.
+    """
     try:
         def _apply_filters(query):
             if type:
@@ -464,30 +499,7 @@ async def get_infrastructures(
         for f in facilities:
             congestion_data = congestion_map.get(f["id"])
             congestion = CongestionInfo(**congestion_data) if congestion_data else None
-            result.append(InfrastructureItem(
-                id=f["id"],
-                name=f["name"],
-                type=f["type"],
-                latitude=f["latitude"],
-                longitude=f["longitude"],
-                capacity=f["capacity"],
-                operating_hours=f.get("operating_hours"),
-                features=_slim_features(f.get("features")),
-                congestion=congestion,
-                image_url=f.get("image_url"),
-                contentid=f.get("contentid"),
-                contenttypeid=f.get("contenttypeid"),
-                gallery_images=_clean_gallery_images(f.get("gallery_images")),
-                address=f.get("address"),
-                phone=f.get("phone"),
-                homepage=f.get("homepage"),
-                overview=f.get("overview"),
-                barrier_free=f.get("barrier_free"),
-                is_active=f.get("is_active"),
-                place_data_source=f.get("place_data_source"),
-                data_updated_at=f.get("data_updated_at"),
-                availability_evidence=availability_map.get(str(f["id"])),
-            ))
+            result.append(_infrastructure_item(f, congestion, availability_map.get(str(f["id"]))))
 
         logger.info("infrastructures_returned", count=len(result))
         return result
@@ -495,6 +507,51 @@ async def get_infrastructures(
         # 예외 원문은 서버 로그로만 — DB 오류/스택 문자열을 클라이언트에 노출하지 않는다.
         logger.error("infrastructures_fetch_error", error=str(e))
         raise HTTPException(status_code=500, detail="시설 데이터 조회에 실패했습니다.")
+
+
+def _snapshot_response(request: Request, snapshot: reference_snapshot.MapPayload) -> Response:
+    return etag_response(
+        request,
+        body=snapshot.body,
+        etag=snapshot.etag,
+        headers={"X-Snapshot-Age": str(snapshot.age_s)},
+    )
+
+
+@router.get("/infrastructures", response_model=list[InfrastructureItem])
+async def get_infrastructures(
+    request: Request,
+    type: str | None = None,
+    min_lat: float | None = None,
+    max_lat: float | None = None,
+    min_lng: float | None = None,
+    max_lng: float | None = None,
+):
+    # (독스트링을 두지 않는다 — FastAPI 가 OpenAPI description 으로 실어 계약 스냅샷이 바뀐다.)
+    #
+    # 지도용 활성 시설 목록(+ 최신 혼잡·영업 근거). 추정(추정 모드)은 싣지 않는다 — GET /congestion/estimates.
+    #
+    # 기본은 참조 스냅샷(app/services/reference_snapshot.py)이 미리 만든 바이트다 — Supabase 왕복 0회,
+    # ETag 가 같으면 304. 응답 JSON 은 실시간 경로와 같다. response_model 은 OpenAPI 계약용으로 그대로 둔다
+    # (Response 를 직접 돌려주면 FastAPI 는 그 바이트를 다시 검증하지 않는다 — 검증은 스냅샷이 행마다 미리 한다).
+    #
+    # 스냅샷을 쓸 수 없으면 **오늘의 실시간 경로**로 답한다:
+    #   · 한 번도 못 만들었다(부팅 직후 등) → 실시간(스냅샷이 503 을 새로 만들지 않는다).
+    #   · 정상본이 너무 오래됐다 → 실시간을 먼저 시도하고, 그게 실패할 때만 오래된 바이트를 낸다.
+    logger.info("infrastructures_request", type=type)
+    snapshot = await reference_snapshot.map_payload(
+        reference_snapshot.MapKey.of(type, min_lat, max_lat, min_lng, max_lng)
+    )
+    if snapshot is not None and not snapshot.stale:
+        return _snapshot_response(request, snapshot)
+    try:
+        return await _live_infrastructures(type, min_lat, max_lat, min_lng, max_lng)
+    except HTTPException:
+        if snapshot is None:
+            raise
+        # 실시간이 실패했다 — 오래됐어도 마지막 정상본이 500 보다 낫다(X-Snapshot-Age 로 나이를 밝힌다).
+        logger.warning("infrastructures_live_failed_serving_last_good", snapshot_age_s=snapshot.age_s)
+        return _snapshot_response(request, snapshot)
 
 
 # =============================================================================
