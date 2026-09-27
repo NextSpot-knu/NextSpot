@@ -628,7 +628,9 @@ def test_refresh_failures_keep_the_last_good_snapshot(monkeypatch, snapshot_mode
 
     db.fail = {"facilities", "rpc", "facility_availability_reports"}
     db.tables["facilities"] = []                  # 설령 읽혔어도 비어 있을 상황
-    asyncio.run(rs.refresh_once())
+    asyncio.run(rs.refresh_once())                # 탐침 실패(베이스는 다시 읽지 않는다) + 오버레이 실패
+    rs._refresher._last_full_load -= rs.BASE_BACKSTOP_S
+    asyncio.run(rs._refresher.refresh_base())     # 30분 전량 재적재도 실패
 
     after = asyncio.run(rs.map_payload(rs.NO_FILTER))
     assert after.etag == before.etag
@@ -713,6 +715,34 @@ def test_probe_skips_the_full_reload_when_nothing_changed(monkeypatch, snapshot_
     asyncio.run(rs._refresher.refresh_base())
     assert db.calls["facilities"] > loads + 2               # 탐침이 변화를 보고 전량 재적재
     assert _body(asyncio.run(rs.map_payload(rs.NO_FILTER)))[_fid(1)]["name"] == "바뀐 이름"
+
+
+def test_a_broken_probe_neither_blocks_the_first_build_nor_forces_minutely_reloads(monkeypatch, snapshot_mode):
+    """탐침(count + 최신 updated_at)만 실패하면: 첫 적재는 진행하고, 이후에는 매분 2MB 전량 재적재 대신
+    30분 전량 재적재를 기다린다. 확인 못 한 시간은 ok_at 에 쌓여 '오래됨' 판정으로 이어진다."""
+    db = _golden_db(datetime.now(timezone.utc))
+    _install(monkeypatch, db)
+
+    def _broken_probe():
+        raise RuntimeError("permission denied for column updated_at")
+
+    monkeypatch.setattr(rs, "_probe", _broken_probe)
+    asyncio.run(rs.refresh_once())
+    assert rs.health()["ready"] is True
+    ok_at = rs._refresher.parts["base"].ok_at
+    loads = db.calls["facilities"]
+
+    asyncio.run(rs._refresher.refresh_base())
+    base = rs.health()["base"]
+    assert db.calls["facilities"] == loads                  # 다시 읽지 않았다
+    assert base["failures"] == 0 and base["last_error"] == "probe:RuntimeError"
+    assert rs._refresher.parts["base"].ok_at == ok_at       # 확인하지 못한 시간은 나이로 쌓인다
+
+    rs._refresher._last_full_load -= rs.BASE_BACKSTOP_S     # 30분이 지났다 → 탐침 없이 전량
+    asyncio.run(rs._refresher.refresh_base())
+    assert db.calls["facilities"] > loads
+    assert rs._refresher.parts["base"].ok_at >= ok_at
+    assert rs.health()["base"]["failures"] == 0
 
 
 def test_invalid_rows_are_dropped_and_logged_instead_of_failing_the_map(monkeypatch, snapshot_mode):

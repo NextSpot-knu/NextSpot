@@ -545,18 +545,28 @@ def _probe() -> tuple:
     return tuple(signature)
 
 
-def _load_base(prev_signature: tuple | None, force: bool) -> tuple[tuple, FacilityBase | None]:
-    """(탐침 서명, 새 베이스 또는 None=바뀐 것 없음). 출처 표를 못 읽으면 실패로 올린다 — 출처 표기가
-    빠진 베이스로 정상본을 덮느니 정상본을 쓰는 편이 낫다."""
-    signature = _probe()
-    if not force and prev_signature is not None and signature == prev_signature:
-        return signature, None
+def _load_base(
+    prev_signature: tuple | None, force: bool
+) -> tuple[tuple | None, FacilityBase | None, BaseException | None]:
+    """(탐침 서명, 새 베이스 또는 None=다시 읽지 않음, 탐침 오류).
+
+    출처 표를 못 읽으면 실패로 올린다 — 출처 표기가 빠진 베이스로 정상본을 덮느니 정상본을 쓰는 편이 낫다.
+    탐침만 실패하면(권한·일시 오류) 전량 재적재를 **하지 않는다** — 매분 2MB 를 끌어오는 대신 30분 전량
+    재적재(force)가 잡는다. 첫 적재·쓰기 알림·30분 전량은 탐침 없이도 진행한다.
+    """
+    probe_error: BaseException | None = None
+    try:
+        signature: tuple | None = _probe()
+    except Exception as exc:  # noqa: BLE001
+        signature, probe_error = None, exc
+    if not force and (signature is None or signature == prev_signature):
+        return (prev_signature if signature is None else signature), None, probe_error
     rows = _keyset_rows(
         supabase_client, "facilities", BASE_COLUMNS, filters=lambda q: q.eq("is_active", True)
     )
     refs = _keyset_rows(supabase_client, "facility_source_refs", _REF_COLUMNS)
     _infra().attach_place_data_source(rows, refs)
-    return signature, _build_base(rows, time.monotonic())
+    return signature, _build_base(rows, time.monotonic()), probe_error
 
 
 def _load_congestion(ids: tuple[str, ...]) -> Mapping[str, dict]:
@@ -869,9 +879,20 @@ class _Refresher:
             or started - self._last_full_load >= BASE_BACKSTOP_S
         )
         try:
-            signature, new = await self._in_thread(_load_base, self._base_signature, force)
+            signature, new, probe_error = await self._in_thread(_load_base, self._base_signature, force)
         except Exception as exc:  # noqa: BLE001
             self._fail("base", exc)
+            return
+        if new is None and probe_error is not None:
+            # 탐침만 실패 — 확인하지 못했으니 ok_at 은 그대로(오래되면 라우터가 실시간을 먼저 시도한다),
+            # 실패 백오프도 걸지 않는다(베이스는 30분 전량 재적재가 따로 잡는다).
+            state = self.parts["base"]
+            state.last_error = f"probe:{type(probe_error).__name__}"
+            state.next_due = time.monotonic() + BASE_PROBE_INTERVAL_S
+            logger.warning(
+                "reference_snapshot_probe_failed",
+                error_type=type(probe_error).__name__, error=str(probe_error)[:300],
+            )
             return
         if new is None:                         # 탐침: 바뀐 것 없음
             self._base_signature = signature
@@ -887,7 +908,8 @@ class _Refresher:
             state.hold_until = time.monotonic() + hold
             state.next_due = state.hold_until
             return
-        self._base_signature = signature
+        if signature is not None:
+            self._base_signature = signature
         if self.base is None or new.version != self.base.version:
             self.base = new
             self._rebuild_view()
