@@ -101,8 +101,11 @@ async def category_preference_shares() -> CategorySharesResponse:
         return _cache[1]
 
     try:
+        # id 정렬 — offset 페이지 사이에 행이 옮겨져도(가입·온보딩 UPDATE) 한 사용자가 두 번 세이거나
+        # 빠지지 않게 페이지 경계를 고정한다.
         rows = await asyncio.to_thread(
-            fetch_all_rows, supabase_admin, "users", "preferred_categories"
+            fetch_all_rows, supabase_admin, "users", "preferred_categories",
+            apply_filters=lambda q: q.order("id"),
         )
     except Exception as e:
         # 실패를 '표본 0' 으로 흡수하지 않는다 — 그러면 화면이 카드를 조용히 숨기고,

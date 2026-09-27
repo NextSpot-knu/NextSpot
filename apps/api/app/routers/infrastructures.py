@@ -259,10 +259,19 @@ async def fetch_active_facilities(client, select: str = "*", *, extra_filters=No
     미적용, 42703) 필터 없이 재조회해 500 대신 전체 목록을 반환한다 — 폐업 감지가 아직 준비되지
     않았을 뿐 서비스 자체는 무중단이어야 한다(오탐보다 무필터 저하가 낫다는 원칙).
     """
+    # 페이지 경계 고정: fetch_all_rows 는 offset(range) 페이지를 **서로 다른 HTTP 요청**으로 받는다.
+    # 정렬이 없으면 PostgREST 는 순서를 보장하지 않아, 두 요청 사이에 행이 옮겨지면(좌석 방송·일배치
+    # upsert 같은 UPDATE) 한 시설은 두 번, 다른 시설은 0번 온다. 유일 키(id)로 전순서를 건다
+    # (admin.py model-trust · simulate_peak 와 같은 규칙).
     def _filters(query):
         if extra_filters is not None:
             query = extra_filters(query)
-        return query.eq("is_active", True)
+        return query.eq("is_active", True).order("id")
+
+    def _fallback_filters(query):
+        if extra_filters is not None:
+            query = extra_filters(query)
+        return query.order("id")
 
     try:
         rows = await asyncio.to_thread(
@@ -273,36 +282,52 @@ async def fetch_active_facilities(client, select: str = "*", *, extra_filters=No
             raise
         logger.warning("facilities_is_active_column_missing_fallback", select=select)
         rows = await asyncio.to_thread(
-            fetch_all_rows, client, "facilities", select, apply_filters=extra_filters
+            fetch_all_rows, client, "facilities", select, apply_filters=_fallback_filters
         )
     try:
-        ids = {str(row["id"]) for row in rows if row.get("id")}
+        # 출처 표는 **페이지네이션**한다. 단발 select 는 PostgREST 캡(1000행)에서 오류 없이 잘려,
+        # localdata 출처가 1000건을 넘는 날 임의의 일부 시설이 조용히 'tourapi'/'kakao' 로 되돌아간다.
+        # 정렬(id)은 페이지 경계 고정과 함께 아래 '시설당 여러 출처' 선택을 결정적으로 만든다.
         refs = await asyncio.to_thread(
-            lambda: client.table("facility_source_refs")
-            .select("facility_id,source,source_updated_at").execute()
+            fetch_all_rows,
+            client,
+            "facility_source_refs",
+            "facility_id,source,source_updated_at",
+            apply_filters=lambda q: q.order("id"),
         )
-        by_id: dict[str, dict] = {}
-        for ref in refs.data or []:
-            fid = str(ref.get("facility_id"))
-            if fid in ids and (fid not in by_id or ref.get("source") == "localdata"):
-                by_id[fid] = ref
-        for row in rows:
-            ref = by_id.get(str(row.get("id")))
-            if ref:
-                row["place_data_source"] = ref.get("source")
-                row["data_updated_at"] = ref.get("source_updated_at")
-            elif row.get("contentid"):
-                row["place_data_source"] = "tourapi"
-                row["data_updated_at"] = row.get("updated_at")
-            elif (row.get("features") or {}).get("source") == "kakao_discovery":
-                row["place_data_source"] = "kakao"
-                row["data_updated_at"] = (
-                    (row.get("features") or {}).get("discovery_updated_at")
-                    or row.get("updated_at")
-                )
+        attach_place_data_source(rows, refs)
     except Exception as e:
         logger.warning("facility_source_refs_unavailable", error=str(e))
     return rows
+
+
+def attach_place_data_source(rows: list[dict], refs: list[dict]) -> None:
+    """시설 행에 place_data_source·data_updated_at 을 **제자리에서** 붙인다(카드의 출처 표기).
+
+    출처 표(facility_source_refs)에 행이 있으면 그 출처를 쓰고, 한 시설에 출처가 여럿이면 localdata 가
+    이긴다(같은 출처끼리는 refs 순서 — 호출부가 id 로 정렬해 넘긴다). 없으면 TourAPI 적재분·Kakao 발굴분을
+    본문에서 추정한다. 지도(/infrastructures)의 실시간 경로와 참조 스냅샷이 이 함수 하나를 같이 쓴다.
+    """
+    ids = {str(row["id"]) for row in rows if row.get("id")}
+    by_id: dict[str, dict] = {}
+    for ref in refs or []:
+        fid = str(ref.get("facility_id"))
+        if fid in ids and (fid not in by_id or ref.get("source") == "localdata"):
+            by_id[fid] = ref
+    for row in rows:
+        ref = by_id.get(str(row.get("id")))
+        if ref:
+            row["place_data_source"] = ref.get("source")
+            row["data_updated_at"] = ref.get("source_updated_at")
+        elif row.get("contentid"):
+            row["place_data_source"] = "tourapi"
+            row["data_updated_at"] = row.get("updated_at")
+        elif (row.get("features") or {}).get("source") == "kakao_discovery":
+            row["place_data_source"] = "kakao"
+            row["data_updated_at"] = (
+                (row.get("features") or {}).get("discovery_updated_at")
+                or row.get("updated_at")
+            )
 
 
 # RPC 가 실패했을 때 시설별 limit(1) 조회로 대신해도 되는 최대 시설 수.

@@ -76,8 +76,10 @@ def _predict_next_hour(facility_type: str, current_level: float, now_dt: datetim
 
 async def _fetch_facilities() -> list[dict]:
     """전체 시설의 (id, name, type, 좌표)만 페이지네이션 조회(공용 fetch_all_rows 를 워커 스레드로 오프로드)."""
+    # id 정렬 — offset 페이지 사이에 행이 옮겨져도 시설이 중복·누락되지 않게(페이지 경계 고정).
     return await asyncio.to_thread(
-        fetch_all_rows, supabase_client, "facilities", "id, name, type, latitude, longitude"
+        fetch_all_rows, supabase_client, "facilities", "id, name, type, latitude, longitude",
+        apply_filters=lambda q: q.order("id"),
     )
 
 

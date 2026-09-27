@@ -126,8 +126,13 @@ def test_fetch_active_facilities_applies_is_active_filter():
             recorded.append((field, value))
             return self
 
+        def order(self, field, **_kw):
+            recorded.append(("order", field))
+            return self
+
     def fake_fetch_all_rows(client, table, select, apply_filters=None):
-        assert table == "facilities"
+        if table != "facilities":  # 출처 표(facility_source_refs)는 이 테스트의 관심사가 아니다
+            return []
         if apply_filters is not None:
             apply_filters(_Spy())
         return [{"id": "f1", "is_active": True}]
@@ -138,6 +143,8 @@ def test_fetch_active_facilities_applies_is_active_filter():
 
     assert result == [{"id": "f1", "is_active": True}]
     assert ("is_active", True) in recorded
+    # offset 페이지 경계 고정 — 유일 키(id) 정렬이 걸려야 페이지 사이에서 행이 중복·누락되지 않는다.
+    assert ("order", "id") in recorded
 
 
 def test_fetch_active_facilities_falls_back_when_column_missing():
@@ -145,6 +152,8 @@ def test_fetch_active_facilities_falls_back_when_column_missing():
     calls: list = []
 
     def fake_fetch_all_rows(client, table, select, apply_filters=None):
+        if table != "facilities":  # 출처 표 조회는 세지 않는다
+            return []
         calls.append(apply_filters)
         if len(calls) == 1:
             raise _missing_column_error()
