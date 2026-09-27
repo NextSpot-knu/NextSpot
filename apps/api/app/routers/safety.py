@@ -7,9 +7,10 @@
 을 얹어 관제 화면(app/admin/safety) 이 소비할 압축 JSON 을 만든다.
 
 - 가드: Supabase JWT + users.role='admin' — app/core/authz.py require_role 재사용.
-- DB 조회는 fetch_all_rows(전체 시설) + fetch_latest_congestion_for_all(시설별 최신 로그, 시설별
-  .limit(1) 병렬 조회 — infrastructures.py 재사용)로 구성한다. 별도 congestion_logs 집계 쿼리를
-  새로 짜지 않고 기존 검증된 경로를 그대로 탄다.
+- DB 조회는 fetch_all_rows(전체 시설, id 정렬) + fetch_latest_congestion_for_all(시설별 최신 로그를
+  RPC 한 번으로 — infrastructures.py 재사용)로 구성한다. 별도 congestion_logs 집계 쿼리를
+  새로 짜지 않고 기존 검증된 경로를 그대로 탄다. RPC 가 실패하면 빈 결과로 '경보 없음' 을 꾸미지
+  않고 500 으로 알린다(raise_on_error).
 - 존 롤업은 위경도를 소수점 셋째 자리로 반올림한 격자 키로 묶는다(위도 0.001˚ ≈ 111m, 경도는
   위도에 따라 다르지만 경주 위도(약 36˚)에서 ≈ 90m — '150m 격자'는 근사치이며 응답 메타
   zoneMethod='grid150m' 로 정직하게 표기한다. 과대포장 금지).
@@ -107,7 +108,9 @@ async def get_safety_status(
 
     facility_ids = [f["id"] for f in facilities]
     try:
-        congestion_map = await fetch_latest_congestion_for_all(facility_ids)
+        # raise_on_error: RPC 가 실패했을 때 빈 맵을 받으면 아래 분기가 '실측 표본 없음' 을 돌려준다 —
+        # 관제 화면에서는 그게 '경보 없음' 으로 읽히는 거짓 안심이다. 모르면 모른다고(500) 알린다.
+        congestion_map = await fetch_latest_congestion_for_all(facility_ids, raise_on_error=True)
     except Exception as e:
         logger.error("safety_status_congestion_failed", error=str(e))
         raise HTTPException(status_code=500, detail="혼잡 로그 조회에 실패했습니다.")

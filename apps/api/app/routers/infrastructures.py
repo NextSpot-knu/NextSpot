@@ -305,9 +305,31 @@ async def fetch_active_facilities(client, select: str = "*", *, extra_filters=No
     return rows
 
 
-async def fetch_latest_congestion_for_all(facility_ids: list[str]) -> dict:
-    # DB RPC(DISTINCT ON)로 N개 시설의 최신 로그를 한 번에 받는다. 미배포 환경이나 일시 오류는
-    # 기존 시설별 limit(1) 병렬 경로로 폴백해 기능·배포 순서 의존성을 없앤다.
+# RPC 가 실패했을 때 시설별 limit(1) 조회로 대신해도 되는 최대 시설 수.
+#
+# 예전에는 **몇 곳이든** 시설마다 스레드 하나씩 조회를 흩뿌렸다(asyncio.gather). 지도·예측 배치·안전
+# 관제는 전 시설(1,682곳)을 넘기므로, RPC 가 한 번 흔들리면(2026-09-26 ConnectionTerminated 같은 일시 오류)
+# 곧바로 1,682개의 to_thread 호출이 기본 executor(16스레드)를 가득 채웠다 — 감사 시뮬레이션에서 약 14초
+# 동안 그 프로세스의 **모든** Supabase 호출과 httpx DNS 조회가 줄을 섰다. 장애 한 번을 1,682배로 키우는
+# 재시도 폭풍과 같은 모양이다.
+#
+# 단건 호출부(골든아워 predict.py:333 · 사장님 브리핑 merchant_briefing_service)는 그런 증폭이 없고,
+# 종전처럼 한 번 더 물어볼 가치가 있다. 그래서 몇 곳 이하일 때만 폴백을 남긴다.
+_PER_FACILITY_FALLBACK_MAX_IDS = 5
+
+
+async def fetch_latest_congestion_for_all(
+    facility_ids: list[str], *, raise_on_error: bool = False
+) -> dict:
+    """시설별 최신 혼잡 로그 {facility_id: info}. 로그가 없는 시설은 키가 없다.
+
+    DB RPC(DISTINCT ON)로 N개 시설의 최신 로그를 한 번에 받는다. RPC 가 실패하면:
+      · 시설이 ``_PER_FACILITY_FALLBACK_MAX_IDS`` 곳 이하 → 종전 시설별 limit(1) 조회(증폭 없음).
+      · 그보다 많으면 **흩뿌리지 않는다.** ``raise_on_error`` 면 예외를 올리고, 아니면 로그를 남기고
+        ``{}``(= 혼잡 모름)를 돌려준다. 지도·추천·예측은 '근거 없음' 으로 그대로 동작한다.
+        안전 관제처럼 '빈 결과' 가 '경보 없음' 으로 읽히는 호출부는 raise_on_error=True 로 부른다
+        (빈 맵이면 화면이 '실측 표본 없음' 이라는 거짓 안심을 띄운다).
+    """
     if not facility_ids:
         return {}
     try:
@@ -331,6 +353,16 @@ async def fetch_latest_congestion_for_all(facility_ids: list[str]) -> dict:
             }
         return result
     except Exception as e:
+        if len(facility_ids) > _PER_FACILITY_FALLBACK_MAX_IDS:
+            logger.warning(
+                "latest_congestion_rpc_failed",
+                error=str(e),
+                facility_count=len(facility_ids),
+                raised=raise_on_error,
+            )
+            if raise_on_error:
+                raise
+            return {}
         logger.warning("latest_congestion_rpc_fallback", error=str(e), facility_count=len(facility_ids))
     results = await asyncio.gather(*[_fetch_latest_one(fid) for fid in facility_ids])
     return {fid: data for fid, data in results if data is not None}
