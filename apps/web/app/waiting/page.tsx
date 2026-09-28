@@ -49,9 +49,13 @@ import {
   displayedPhotoUrl,
   imageSourceOf,
   isWikimediaUrl,
+  photoCandidates,
   type PhotoCursor,
 } from "@/lib/photoCredit";
 import { PhotoCreditLink } from "@/components/PhotoCreditLink";
+// 사진이 없는 장소의 표지(경주 문양 + 유형 그림) — 사진 자리를 같은 크기로 채운다. 사진은 그 위로 서서히 드러난다.
+import { PlacePhotoFallback } from "@/components/PlacePhotoFallback";
+import { placeVisualsForRow, type PlaceVisual } from "@/lib/placeVisual";
 
 // 시설 종류 이모지 — course/page.tsx TYPE_OPTIONS 와 동일 매핑(레포 전역 관례 통일).
 const TYPE_EMOJI: Record<string, string> = {
@@ -124,42 +128,59 @@ interface Sector {
   rows: BoardRow[];
 }
 
-// TourAPI firstimage가 비어 있거나 원본 서버에서 만료·차단되어 로드에 실패하면
-// 같은 높이의 유형 아이콘 폴백으로 즉시 전환해 카드 상단이 빈 공간으로 남지 않게 한다.
+// 대표 카드의 사진 자리(고정 높이 112px). 아래에는 늘 장소 표지(PlacePhotoFallback)가 깔려 있고, 사진이 있으면
+// 그 위에 겹쳐 두었다가 **다 받은 뒤에** 서서히 드러낸다 — 받는 동안 빈 상자·깨진 그림 대신 표지가 보이고,
+// 사진이 없거나 후보가 다 깨지면 표지가 그대로 남는다. 카드 높이는 어느 경우에나 같다.
 // 몇 번째 후보를 띄울지는 부모가 정한다(photoCursors) — 출처 줄이 카드 버튼 밖에 있어서(<a> 는 <button>
 // 안에 둘 수 없다) 사진과 출처가 같은 렌더에서 같은 URL 로 그려지려면 보이는 사진을 부모가 알아야 한다.
 function WaitingCardImage({
   imageUrl,
   name,
-  type,
+  visual,
+  priority,
   onError,
-}: Pick<BoardRow, "name" | "type"> & {
+}: Pick<BoardRow, "name"> & {
   imageUrl: string | null;
+  visual: PlaceVisual;
+  // 첫 섹터의 대표 3장 — 첫 화면에 보이므로 먼저(eager·high) 받는다. 나머지는 화면에 들어올 때(lazy).
+  priority: boolean;
   onError: (failedUrl: string) => void;
 }) {
-  if (!imageUrl) {
-    return (
-      <div
-        className="h-28 w-full shrink-0 flex items-center justify-center bg-hanji-deep/70 border-b border-line text-2xl"
-        aria-hidden
-      >
-        {TYPE_EMOJI[type] ?? "📍"}
-      </div>
-    );
-  }
+  // 다 받은 사진의 URL. 불리언이 아니라 URL 로 둔다 — 후보가 바뀌면(깨진 사진 → 다음 후보) 새 사진은
+  // 받기 전까지 다시 투명하다(반쯤 받은 사진이 불투명하게 튀어나오지 않는다).
+  const [loadedUrl, setLoadedUrl] = useState<string | null>(null);
+  // 캐시에서 곧장 뜬 사진은 하이드레이션 전에 load 가 끝나 onLoad 를 놓칠 수 있다 — 붙는 순간 한 번 확인한다.
+  const markIfLoaded = useCallback(
+    (img: HTMLImageElement | null) => {
+      if (img && imageUrl && img.complete && img.naturalWidth > 0) setLoadedUrl(imageUrl);
+    },
+    [imageUrl],
+  );
+  const shown = imageUrl !== null && loadedUrl === imageUrl;
 
   return (
-    // TourAPI 원본 이미지 도메인이 다양하고 정적 export이므로 img를 직접 사용한다.
-    // key: URL 마다 새 엘리먼트 — 지나간 사진의 늦은 onError 가 새 사진을 건너뛰게 하지 않는다.
-    // eslint-disable-next-line @next/next/no-img-element
-    <img
-      key={imageUrl}
-      src={imageUrl}
-      alt={name}
-      loading="lazy"
-      onError={() => onError(imageUrl)}
-      className="w-full h-28 shrink-0 object-cover border-b border-line bg-hanji-deep/40"
-    />
+    <div className="relative h-28 w-full shrink-0 overflow-hidden border-b border-line">
+      <PlacePhotoFallback visual={visual} className="absolute inset-0" />
+      {imageUrl && (
+        // TourAPI 원본 이미지 도메인이 다양하고 정적 export이므로 img를 직접 사용한다.
+        // key: URL 마다 새 엘리먼트 — 지나간 사진의 늦은 onError 가 새 사진을 건너뛰게 하지 않는다.
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          key={imageUrl}
+          ref={markIfLoaded}
+          src={imageUrl}
+          alt={name}
+          loading={priority ? "eager" : "lazy"}
+          fetchPriority={priority ? "high" : "auto"}
+          decoding="async"
+          onLoad={() => setLoadedUrl(imageUrl)}
+          onError={() => onError(imageUrl)}
+          className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-300 motion-reduce:transition-none ${
+            shown ? "opacity-100" : "opacity-0"
+          }`}
+        />
+      )}
+    </div>
   );
 }
 
@@ -561,13 +582,7 @@ export default function WaitingBoardPage() {
           name: rec.facility.name,
           type: rec.facility.type,
           // 대표 사진(firstimage)부터 detailImage2 갤러리 순으로 시도한다. 동일 URL은 한 번만 로드한다.
-          imageUrls: Array.from(
-            new Set(
-              [rec.facility.imageUrl, ...(rec.facility.galleryImages ?? [])].filter(
-                (url): url is string => typeof url === "string" && url.trim().length > 0
-              )
-            )
-          ),
+          imageUrls: photoCandidates(rec.facility.imageUrl, rec.facility.galleryImages),
           // TourAPI 소개(비-ko 로케일이면 배치 번역 우선)를 우선하고, 없으면 실제 주소를 짧은 보조
           // 설명으로 사용한다. 둘 다 없을 때는 내용을 지어내지 않고 설명 영역을 숨긴다.
           summary: overviewText || rec.facility.address?.trim() || null,
@@ -780,7 +795,7 @@ export default function WaitingBoardPage() {
           <EmptyState />
         ) : (
           <div className="flex flex-col gap-6">
-            {sectors.map((sector) => {
+            {sectors.map((sector, sectorIdx) => {
               // 오늘 휴무 확정 시설은 대표 카드(topRows) 선정에서 아예 배제 — open 이 3곳 미만이어도
               // closed 로 자리를 채우지 않는다(rows 는 이미 closedToday 를 맨 뒤로 정렬해 뒀다).
               // 정렬 기준을 **화면이 실제로 보여주는 숫자**로 맞춘다. fetchBoard 의 1차 정렬은
@@ -826,6 +841,8 @@ export default function WaitingBoardPage() {
                     const rowMayCredit = topRows.some((row) =>
                       creditedPhotoUrls(row.imageUrls, { imageSource: row.imageSource }).some(isWikimediaUrl),
                     );
+                    // 사진 없는 카드의 표지 — 장소마다 정해진 문양이되, 한 줄 안에서는 같은 무늬가 겹치지 않게.
+                    const rowVisuals = placeVisualsForRow(topRows.map((row) => ({ id: row.facilityId, type: row.type })));
                     return topRows.map((row, idx) => {
                       const photoFeatures = { imageSource: row.imageSource };
                       // 출처 없는 Wikimedia 사진은 후보에서 빠진다(출처 없이 띄우지 않는다).
@@ -857,7 +874,8 @@ export default function WaitingBoardPage() {
                         <WaitingCardImage
                           imageUrl={photoUrl}
                           name={row.name}
-                          type={row.type}
+                          visual={rowVisuals[idx]}
+                          priority={sectorIdx === 0}
                           onError={(failedUrl) => skipBrokenPhoto(row.facilityId, photoUrls, failedUrl)}
                         />
                         <div className="flex flex-1 min-h-0 flex-col justify-between p-2">
