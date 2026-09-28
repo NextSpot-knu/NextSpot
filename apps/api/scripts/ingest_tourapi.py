@@ -265,7 +265,7 @@ def _uniform_key_chunks(rows: list[dict]) -> list[list[dict]]:
     ]
 
 
-def _write_payload(row: dict, *, exists: bool, keep_coordinates: bool = False) -> dict:
+def _write_payload(row: dict, *, keep_coordinates: bool = False) -> dict:
     """한 행을 facilities 에 보낼 모양으로 만든다 — 이 배치가 모르는 값은 보내지 않는다(기존 값 유지).
 
     - 값이 None 인 열은 뺀다. None 은 "이번에 얻지 못했다"이지 "비워라"가 아니다. 지금 None 이 되는 열은
@@ -277,8 +277,11 @@ def _write_payload(row: dict, *, exists: bool, keep_coordinates: bool = False) -
       address 에는 이런 "확인된 부재" 신호가 없다 — 주소는 목록 addr1 에서만 오고(detailCommon2 추출에 주소가
       없다) 빈 addr1 은 "TourAPI 에 없음"일 뿐 "장소에 주소가 없음"이 아니다. 기존 주소는 Kakao 보완 배치가
       채운 값일 수 있으므로 None 이면 계속 보내지 않는다.
-    - 이미 있는 contentid 면 capacity 를 뺀다. CAPACITY_DEFAULTS 는 TourAPI 에 없는 값을 채우는 합성 기본값이라
-      행을 처음 만들 때만 필요하고(capacity NOT NULL), 기존 행에 보내면 관리자가 고친 수용 인원을 매일 되돌린다.
+    - capacity 는 기존 행에도 보낸다 — transform 의 CAPACITY_DEFAULTS(타입별 합성 기본값)로 매일 밤 다시 쓴다.
+      PM 결정(2026-09-28): 10월 심사가 끝날 때까지 이 초기화를 유지한다(main 3cf5bf9 와 같은 동작). 심사위원이
+      공유 관리자 계정으로 수용 인원을 잘못 고쳐도 다음 날 데모가 기본값으로 돌아온다. capacity 는 INT NOT NULL
+      이라 None 이면 위 규칙대로 빠진다(NULL 을 보내지 않는다). 심사 후 과제: 관리자가 고친 값에 표시(예: 관리자
+      PATCH 가 features.capacity_source='admin')를 남기고 그 행만 건너뛴다.
     - keep_coordinates 면 latitude·longitude 를 뺀다. DB 좌표가 Kakao 로 검증된 값인데(features.coordinate_source
       ='kakao') 이번 실행에서 Kakao 매칭을 얻지 못한 행이다 — 모르는 값(TourAPI 원 좌표)이 검증된 값을 덮지 않게
       (upsert_facilities 가 판정한다).
@@ -290,7 +293,6 @@ def _write_payload(row: dict, *, exists: bool, keep_coordinates: bool = False) -
         for key, value in row.items()
         if not key.startswith("_")
         and (value is not None or (key == "image_url" and clear_image))
-        and not (exists and key == "capacity")
         and not (keep_coordinates and key in ("latitude", "longitude"))
     }
 
@@ -303,10 +305,10 @@ def upsert_facilities(rows: list[dict]) -> int:
     2차(폴백): 1차가 실패하면 아직 못 쓴 행만 — 신규는 INSERT, 기존은 행마다 UPDATE.
          실측(ingest.yml 로그 09-21~09-27): 운영 DB 에서 1차는 매번 42P10 으로 실패한다(부분 인덱스는
          ON CONFLICT(contentid) 의 추론 대상이 아니다). 그래서 **지금 실제로 도는 경로는 폴백**이다.
-         충돌 대상이 살아나더라도 기존 행 조각은 capacity 가 빠져 NOT NULL 에 걸릴 수 있는데(ON CONFLICT 는
-         제약 검사 뒤에 판정한다), 그때도 폴백이 남은 행만 이어 쓰므로 이미 쓴 신규 행을 다시 넣지 않는다.
+         충돌 대상이 살아난 뒤 1차가 중간 조각에서 실패하더라도 폴백은 남은 행만 이어 쓰므로 이미 쓴 행을
+         다시 넣지 않는다.
 
-    쓰는 값(_write_payload): 행에 있는 키만, None 은 빼고, capacity 는 신규 행에만. bulk 요청은 키 집합이 같은
+    쓰는 값(_write_payload): 행에 있는 키만, None 은 빼고(capacity 는 기존 행에도 기본값으로). bulk 요청은 키 집합이 같은
     행끼리만 묶는다(_uniform_key_chunks) — 섞이면 postgrest-py 가 없는 키를 NULL 로 채운다.
 
     features 병합(2026-07-17, P0 수정): 두 경로 모두 쓰기 전에 기존 features 와 {**기존, **신규}
@@ -349,12 +351,10 @@ def upsert_facilities(rows: list[dict]) -> int:
                 keep_coordinates.add(row["contentid"])
             row["features"] = {**prev, **(row.get("features") or {})}
 
-    # 기존/신규 판정도 위 전량 SELECT 를 재사용한다(추가 왕복 없음). 전량이 아니면 기존 행이 신규로
-    # 오판돼 capacity 가 다시 실린다 — 그래서 이 판정도 위 fail-closed 에 기댄다.
+    # 기존/신규 판정(폴백의 INSERT/UPDATE 나눔)도 위 전량 SELECT 를 재사용한다(추가 왕복 없음).
     existing_ids = set(existing_features)
     payloads = [
-        _write_payload(row, exists=row["contentid"] in existing_ids,
-                       keep_coordinates=row["contentid"] in keep_coordinates)
+        _write_payload(row, keep_coordinates=row["contentid"] in keep_coordinates)
         for row in rows
     ]
 

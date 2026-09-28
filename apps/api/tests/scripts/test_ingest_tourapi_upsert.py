@@ -300,11 +300,12 @@ async def test_row_whose_detail_calls_failed_sends_no_detail_keys_and_no_nulls(d
 
 
 # ---------------------------------------------------------------------------
-# (c) capacity 는 새 contentid 에만 — 관리자가 고친 수용 인원을 일배치가 되돌리지 않는다
+# (c) capacity 는 매일 밤 타입별 기본값으로 다시 쓴다 — PM 결정(2026-09-28): 10월 심사가 끝날 때까지
+#     일배치 초기화를 유지해 공유 관리자 계정의 실수 수정이 데모에 남지 않게 한다(main 3cf5bf9 와 같은 동작).
 # ---------------------------------------------------------------------------
 
 @pytest.mark.parametrize("upsert_error", [None, _NO_CONFLICT_TARGET], ids=["bulk_upsert", "fallback_42P10"])
-def test_capacity_is_sent_only_for_new_contentids(upsert_error):
+def test_capacity_is_sent_for_existing_and_new_contentids(upsert_error):
     existing = _poi("1", firstimage="http://img.example/1.jpg", addr1="경주시 1")
     new = _poi("2", firstimage="http://img.example/2.jpg", addr1="경주시 2")
     assert "capacity" in existing and "capacity" in new  # transform 은 그대로 둘 다 채운다
@@ -313,32 +314,49 @@ def test_capacity_is_sent_only_for_new_contentids(upsert_error):
     assert _upsert([existing, new], table) == 2
 
     sent = _sent(table)
-    assert "capacity" not in sent["1"]
+    assert sent["1"]["capacity"] == CAPACITY_DEFAULTS["attraction"]
     assert sent["2"]["capacity"] == CAPACITY_DEFAULTS["attraction"]
     if upsert_error is not None:  # 운영 경로: 신규는 INSERT, 기존은 행마다 UPDATE
         assert [r["contentid"] for req in table.bulk("insert") for r in req] == ["2"]
         assert [r["eq"] for r in table.requests if r["op"] == "update"] == [("contentid", "1")]
 
 
+@pytest.mark.parametrize("upsert_error", [None, _NO_CONFLICT_TARGET], ids=["bulk_upsert", "fallback_42P10"])
+def test_capacity_none_is_never_sent(upsert_error):
+    # capacity 는 INT NOT NULL 이다. 값을 얻지 못한 행(None)은 capacity 를 아예 보내지 않는다 — 기존 행은
+    # 그대로 남고, 어떤 경로도 capacity=NULL 을 싣지 않는다.
+    rows = [_base("1", capacity=None), _base("2", capacity=CAPACITY_DEFAULTS["attraction"])]
+    table = _FacilitiesTable(existing=[{"contentid": "1", "features": {}}, {"contentid": "2", "features": {}}],
+                             upsert_error=upsert_error)
+    assert _upsert(rows, table) == 2
+
+    sent = _sent(table)
+    assert "capacity" not in sent["1"]
+    assert sent["2"]["capacity"] == CAPACITY_DEFAULTS["attraction"]
+    assert not [p for p in sent.values() if "capacity" in p and p["capacity"] is None]
+    _assert_uniform(table.bulk("upsert") + table.bulk("insert"))
+
+
 def test_fallback_resumes_after_partial_upsert_without_reinserting_written_rows():
-    # 충돌 대상이 살아난 뒤의 모양: capacity 가 빠진 기존 행 조각은 NOT NULL(23502)로 거부된다
-    # (ON CONFLICT 판정 전에 제약을 검사한다). 폴백은 1차가 이미 쓴 신규 행을 다시 넣지 않는다.
+    # 1차 bulk upsert 가 첫 조각은 쓰고 둘째 조각에서 실패한 모양(키 집합이 달라 조각이 둘 — 둘째 조각은
+    # 문장 시간 초과 같은 조각 단위 오류). 폴백은 1차가 이미 쓴 신규 행을 다시 넣지 않는다.
     new = _poi("2", firstimage="http://img.example/2.jpg", addr1="경주시 2")
     existing = _poi("1", firstimage="http://img.example/1.jpg", addr1="경주시 1")
+    existing["overview"] = "개요1"  # 상세가 성공한 기존 행 — 신규 행과 다른 조각에 실린다
 
-    def not_null_on_missing_capacity(rows):
-        if any("capacity" not in r for r in rows):
-            return RuntimeError('null value in column "capacity" violates not-null constraint (23502)')
+    def fail_chunk_with_existing_row(rows):
+        if any(r["contentid"] == "1" for r in rows):
+            return RuntimeError("canceling statement due to statement timeout (57014)")
         return None
 
-    table = _FacilitiesTable(existing=[{"contentid": "1", "features": {}}], upsert_error=not_null_on_missing_capacity)
+    table = _FacilitiesTable(existing=[{"contentid": "1", "features": {}}], upsert_error=fail_chunk_with_existing_row)
     assert _upsert([new, existing], table) == 2
 
     assert [[r["contentid"] for r in req] for req in table.bulk("upsert")] == [["2"]]
     assert table.bulk("insert") == []
     updates = [r for r in table.requests if r["op"] == "update"]
     assert [r["eq"] for r in updates] == [("contentid", "1")]
-    assert "capacity" not in updates[0]["payload"]
+    assert updates[0]["payload"]["capacity"] == CAPACITY_DEFAULTS["attraction"]
 
 
 # ---------------------------------------------------------------------------
