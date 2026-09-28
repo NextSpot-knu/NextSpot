@@ -8,7 +8,19 @@
 
 from unittest.mock import patch
 
+import pytest
+
 import scripts.ingest_tourapi as ingest_tourapi
+from app.services.tourapi import CAPACITY_DEFAULTS, transform_poi
+from app.services.tourapi.client import TourAPIError
+
+# 운영 DB 에서 1차 bulk upsert 가 매번 받는 오류(ingest.yml 로그 09-21~27) — 이때 폴백이 실제 경로다.
+_NO_CONFLICT_TARGET = RuntimeError(
+    "{'message': 'there is no unique or exclusion constraint matching the ON CONFLICT specification', "
+    "'code': '42P10'}"
+)
+# 상세 조회(detailCommon2·Intro2·Info2·Image2)가 채우는 열.
+_DETAIL_KEYS = {"overview", "phone", "homepage", "operating_hours", "barrier_free", "gallery_images"}
 
 
 class _Result:
@@ -19,7 +31,8 @@ class _Result:
 class _FacilitiesTable:
     """facilities 대역 — 기존 행 SELECT(페이지네이션 흉내)와 쓰기 요청을 요청 단위로 기록한다."""
 
-    def __init__(self, existing=(), upsert_error: Exception | None = None):
+    def __init__(self, existing=(), upsert_error=None):
+        # upsert_error: 예외(모든 upsert 실패) 또는 rows → 예외|None 함수(조각별로 실패 여부 결정).
         self.existing = list(existing)
         self.upsert_error = upsert_error
         self.requests: list[dict] = []  # {"op", "rows"|"payload", "eq"}
@@ -72,7 +85,9 @@ class _FacilitiesTable:
             start, end = self._range or (0, len(self.existing) - 1)
             return _Result(self.existing[start:end + 1])
         if self._op == "upsert" and self.upsert_error is not None:
-            raise self.upsert_error
+            error = self.upsert_error(self._payload) if callable(self.upsert_error) else self.upsert_error
+            if error is not None:
+                raise error
         if self._op == "update":
             self.requests.append({"op": "update", "payload": self._payload, "eq": self._eq})
         else:
@@ -162,3 +177,176 @@ def test_fallback_insert_is_also_split_into_uniform_key_requests():
     inserts = table.bulk("insert")
     _assert_uniform(inserts)
     assert [[r["contentid"] for r in req] for req in inserts] == [["1", "3"], ["2"]]
+
+
+# ---------------------------------------------------------------------------
+# 상세 조회 대역 — enrich_row 를 실제로 돌려 "실패한 호출의 키가 행에 생기지 않는다"를 본다
+# ---------------------------------------------------------------------------
+
+def _ok(items: list[dict]) -> dict:
+    return {"response": {"header": {"resultCode": "0000", "resultMsg": "OK"},
+                         "body": {"items": {"item": items}, "totalCount": len(items)}}}
+
+
+class _Details:
+    """상세 4종 + Wikimedia 대역. fail[contentid] 에 든 호출은 TourAPIError 로 실패하고,
+    no_photo 에 든 contentid 는 대표 이미지·갤러리 없이 정상 응답한다."""
+
+    def __init__(self):
+        self.fail: dict[str, set[str]] = {}
+        self.no_photo: set[str] = set()
+        self.wikimedia_calls: list[str] = []
+
+    def _guard(self, endpoint: str, contentid: str) -> None:
+        if endpoint in self.fail.get(contentid, set()):
+            raise TourAPIError(f"{endpoint} 호출 실패")
+
+    async def common(self, contentid):
+        self._guard("common", contentid)
+        item = {"overview": "개요", "tel": "054-000-0000", "homepage": "https://place.example"}
+        if contentid not in self.no_photo:
+            item["firstimage"] = "http://img.example/common.jpg"
+        return _ok([item])
+
+    async def intro(self, contentid, ctid):
+        self._guard("intro", contentid)
+        return _ok([{"usetime": "09:00~18:00", "restdate": "월요일"}])
+
+    async def info(self, contentid, ctid):
+        self._guard("info", contentid)
+        return _ok([{"infoname": "장애인 편의", "infotext": "휠체어 대여"}])
+
+    async def image(self, contentid):
+        self._guard("image", contentid)
+        return _ok([] if contentid in self.no_photo else [{"originimgurl": "http://img.example/g1.jpg"}])
+
+    async def wikimedia(self, name, lat, lng):
+        self.wikimedia_calls.append(name)
+        return {"url": "https://commons.example/w.jpg", "source_url": "https://commons.example/page",
+                "license": "Public domain", "artist": "unknown"}
+
+
+ALL_DETAILS = {"common", "intro", "info", "image"}
+
+
+@pytest.fixture
+def details(monkeypatch):
+    fake = _Details()
+    monkeypatch.setattr(ingest_tourapi, "detail_common", fake.common)
+    monkeypatch.setattr(ingest_tourapi, "detail_intro", fake.intro)
+    monkeypatch.setattr(ingest_tourapi, "detail_info", fake.info)
+    monkeypatch.setattr(ingest_tourapi, "detail_image", fake.image)
+    monkeypatch.setattr(ingest_tourapi, "find_reusable_place_image", fake.wikimedia)
+    return fake
+
+
+def _poi(contentid: str, *, firstimage: str = "", addr1: str = "") -> dict:
+    """실제 transform_poi 로 만든 관광지 행. 목록 firstimage·addr1 이 빈 값이면 image_url·address 가 None."""
+    return transform_poi({"title": f"시설{contentid}", "contentid": contentid, "contenttypeid": 12,
+                          "mapx": "129.21", "mapy": "35.83", "firstimage": firstimage, "addr1": addr1})
+
+
+def _sent(table: _FacilitiesTable) -> dict[str, dict]:
+    """contentid → 그 행이 DB 로 실제 보낸 열(bulk 는 행 dict, UPDATE 는 payload — contentid 는 eq 필터)."""
+    sent: dict[str, dict] = {}
+    for req in table.requests:
+        if req["op"] == "update":
+            sent[req["eq"][1]] = req["payload"]
+        else:
+            for row in req["rows"]:
+                sent[row["contentid"]] = row
+    return sent
+
+
+# ---------------------------------------------------------------------------
+# (a) 상세 조회가 실패한 행은 그 키 없이, NULL 열 없이 보낸다
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("upsert_error", [None, _NO_CONFLICT_TARGET], ids=["bulk_upsert", "fallback_42P10"])
+async def test_row_whose_detail_calls_failed_sends_no_detail_keys_and_no_nulls(details, upsert_error):
+    ok, failed = _poi("1"), _poi("2")  # 둘 다 목록 firstimage·addr1 이 빈 값
+    details.fail["2"] = set(ALL_DETAILS)
+    for row in (ok, failed):
+        await ingest_tourapi.enrich_row(row)
+
+    assert _DETAIL_KEYS <= set(ok)
+    assert not _DETAIL_KEYS & set(failed)
+    # 사진 호출이 실패한 날엔 'TourAPI 사진 없음'을 모른다 — Wikimedia 대체 사진으로 갤러리를 덮지 않는다.
+    assert details.wikimedia_calls == []
+
+    table = _FacilitiesTable(
+        existing=[{"contentid": "1", "features": {}}, {"contentid": "2", "features": {"overview_i18n": {"en": "x"}}}],
+        upsert_error=upsert_error,
+    )
+    assert _upsert([ok, failed], table) == 2
+
+    sent = _sent(table)
+    assert not _DETAIL_KEYS & set(sent["2"]), "실패한 상세의 열이 요청에 실리면 기존 값이 NULL 로 덮인다"
+    assert "image_url" not in sent["2"] and "address" not in sent["2"]
+    assert [k for k, v in sent["2"].items() if v is None] == []
+    assert _DETAIL_KEYS <= set(sent["1"])  # 성공한 행은 그대로 갱신된다
+    _assert_uniform(table.bulk("upsert") + table.bulk("insert"))
+
+
+# ---------------------------------------------------------------------------
+# (c) capacity 는 새 contentid 에만 — 관리자가 고친 수용 인원을 일배치가 되돌리지 않는다
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("upsert_error", [None, _NO_CONFLICT_TARGET], ids=["bulk_upsert", "fallback_42P10"])
+def test_capacity_is_sent_only_for_new_contentids(upsert_error):
+    existing = _poi("1", firstimage="http://img.example/1.jpg", addr1="경주시 1")
+    new = _poi("2", firstimage="http://img.example/2.jpg", addr1="경주시 2")
+    assert "capacity" in existing and "capacity" in new  # transform 은 그대로 둘 다 채운다
+
+    table = _FacilitiesTable(existing=[{"contentid": "1", "features": {}}], upsert_error=upsert_error)
+    assert _upsert([existing, new], table) == 2
+
+    sent = _sent(table)
+    assert "capacity" not in sent["1"]
+    assert sent["2"]["capacity"] == CAPACITY_DEFAULTS["attraction"]
+    if upsert_error is not None:  # 운영 경로: 신규는 INSERT, 기존은 행마다 UPDATE
+        assert [r["contentid"] for req in table.bulk("insert") for r in req] == ["2"]
+        assert [r["eq"] for r in table.requests if r["op"] == "update"] == [("contentid", "1")]
+
+
+def test_fallback_resumes_after_partial_upsert_without_reinserting_written_rows():
+    # 충돌 대상이 살아난 뒤의 모양: capacity 가 빠진 기존 행 조각은 NOT NULL(23502)로 거부된다
+    # (ON CONFLICT 판정 전에 제약을 검사한다). 폴백은 1차가 이미 쓴 신규 행을 다시 넣지 않는다.
+    new = _poi("2", firstimage="http://img.example/2.jpg", addr1="경주시 2")
+    existing = _poi("1", firstimage="http://img.example/1.jpg", addr1="경주시 1")
+
+    def not_null_on_missing_capacity(rows):
+        if any("capacity" not in r for r in rows):
+            return RuntimeError('null value in column "capacity" violates not-null constraint (23502)')
+        return None
+
+    table = _FacilitiesTable(existing=[{"contentid": "1", "features": {}}], upsert_error=not_null_on_missing_capacity)
+    assert _upsert([new, existing], table) == 2
+
+    assert [[r["contentid"] for r in req] for req in table.bulk("upsert")] == [["2"]]
+    assert table.bulk("insert") == []
+    updates = [r for r in table.requests if r["op"] == "update"]
+    assert [r["eq"] for r in updates] == [("contentid", "1")]
+    assert "capacity" not in updates[0]["payload"]
+
+
+# ---------------------------------------------------------------------------
+# Wikimedia 대체 사진 — TourAPI 가 "사진 없음"이라고 답했을 때만
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_wikimedia_substitute_only_when_both_photo_calls_answered(details):
+    details.no_photo = {"3", "4", "5"}
+    details.fail["4"] = {"image"}   # 갤러리 호출 실패
+    details.fail["5"] = {"common"}  # 대표 이미지 호출 실패
+    answered, image_down, common_down = _poi("3"), _poi("4"), _poi("5")
+    for row in (answered, image_down, common_down):
+        await ingest_tourapi.enrich_row(row)
+
+    # 두 호출이 답했고 사진이 없다 → 기존처럼 Wikimedia 1장 + 출처.
+    assert answered["gallery_images"] == ["https://commons.example/w.jpg"]
+    assert answered["features"]["image_source"]["provider"] == "Wikimedia Commons"
+    # 하나라도 실패 → 대체 사진을 만들지 않는다(키가 없으니 DB 의 기존 갤러리가 남는다).
+    assert "gallery_images" not in image_down and "gallery_images" not in common_down
+    assert details.wikimedia_calls == ["시설3"]

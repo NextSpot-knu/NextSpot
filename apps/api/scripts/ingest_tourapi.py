@@ -148,9 +148,13 @@ async def enrich_row(row: dict) -> None:
 
     POI 1건당 3회 추가 호출이 발생하므로 기본은 꺼져 있다(쿼터 절약).
     개별 실패는 경고만 남기고 계속 진행(부분 실패 허용).
+
+    키는 값을 실제로 얻었을 때만 넣는다 — 호출이 실패했거나 빈 값이 오면 키가 없고, 없는 키는
+    facilities 에 쓰이지 않아 기존 값이 남는다(upsert_facilities). 빈 응답으로 기존 값을 지우는 경로는 없다.
     """
     contentid = row["contentid"]
     ctid = row["contenttypeid"]
+    common_answered = image_answered = False
     try:
         common_payload = await detail_common(contentid)
         common_items = parse_items(common_payload)
@@ -160,6 +164,7 @@ async def enrich_row(row: dict) -> None:
             if row.get("image_url"):
                 common.pop("image_url", None)
             row.update(common)
+        common_answered = True
     except (TourAPIError, RuntimeError) as e:
         print(f"[details] detailCommon2 실패 (contentid={contentid}): {e}")
     try:
@@ -192,11 +197,15 @@ async def enrich_row(row: dict) -> None:
         gallery = extract_gallery_images(parse_items(image_payload))
         if gallery:
             row["gallery_images"] = gallery
+        image_answered = True
     except (TourAPIError, RuntimeError) as e:
         print(f"[details] detailImage2 실패 (contentid={contentid}): {e}")
 
     # TourAPI 사진이 전혀 없는 관광지·문화시설만 보수적으로 Wikimedia 퍼블릭 도메인 폴백.
-    if ctid in {12, 14} and not row.get("image_url") and not row.get("gallery_images"):
+    # '사진이 없다'는 사진을 주는 두 호출(detailCommon2 대표 이미지 · detailImage2 갤러리)이 모두 답했을 때만
+    # 안다. 하나라도 실패한 날 대체 사진을 넣으면 DB 에 있던 TourAPI 갤러리(최대 5장)를 Wikimedia 1장으로 덮는다.
+    if (ctid in {12, 14} and common_answered and image_answered
+            and not row.get("image_url") and not row.get("gallery_images")):
         try:
             wikimedia = await find_reusable_place_image(
                 str(row["name"]), float(row["latitude"]), float(row["longitude"])
@@ -234,13 +243,35 @@ def _uniform_key_chunks(rows: list[dict]) -> list[list[dict]]:
     ]
 
 
+def _write_payload(row: dict, *, exists: bool) -> dict:
+    """한 행을 facilities 에 보낼 모양으로 만든다 — 이 배치가 모르는 값은 보내지 않는다(기존 값 유지).
+
+    - 값이 None 인 열은 뺀다. None 은 "이번에 얻지 못했다"이지 "비워라"가 아니다. 지금 None 이 되는 열은
+      image_url(목록 firstimage 도 상세 폴백도 없을 때)과 address(addr1 빈 값)뿐인데, 보내면 전날 상세 폴백이
+      채운 대표 이미지나 Kakao 보완 배치가 채운 주소를 NULL 로 지운다.
+    - 이미 있는 contentid 면 capacity 를 뺀다. CAPACITY_DEFAULTS 는 TourAPI 에 없는 값을 채우는 합성 기본값이라
+      행을 처음 만들 때만 필요하고(capacity NOT NULL), 기존 행에 보내면 관리자가 고친 수용 인원을 매일 되돌린다.
+    """
+    return {
+        key: value
+        for key, value in row.items()
+        if value is not None and not (exists and key == "capacity")
+    }
+
+
 def upsert_facilities(rows: list[dict]) -> int:
     """facilities 에 contentid 기준 upsert. 성공 행 수를 반환.
 
     1차: PostgREST upsert(on_conflict='contentid') — 부분 유니크 인덱스(uq_facilities_contentid,
          WHERE contentid IS NOT NULL) 를 충돌 대상으로 사용한다.
-    2차(폴백): supabase-py/PostgREST 버전에 따라 부분 인덱스 충돌 대상을 거부할 수 있어(오프라인
-         검증 불가), 실패 시 기존 contentid 를 SELECT 로 조회해 신규는 INSERT, 기존은 UPDATE 로 나눈다.
+    2차(폴백): 1차가 실패하면 아직 못 쓴 행만 — 신규는 INSERT, 기존은 행마다 UPDATE.
+         실측(ingest.yml 로그 09-21~09-27): 운영 DB 에서 1차는 매번 42P10 으로 실패한다(부분 인덱스는
+         ON CONFLICT(contentid) 의 추론 대상이 아니다). 그래서 **지금 실제로 도는 경로는 폴백**이다.
+         충돌 대상이 살아나더라도 기존 행 조각은 capacity 가 빠져 NOT NULL 에 걸릴 수 있는데(ON CONFLICT 는
+         제약 검사 뒤에 판정한다), 그때도 폴백이 남은 행만 이어 쓰므로 이미 쓴 신규 행을 다시 넣지 않는다.
+
+    쓰는 값(_write_payload): 행에 있는 키만, None 은 빼고, capacity 는 신규 행에만. bulk 요청은 키 집합이 같은
+    행끼리만 묶는다(_uniform_key_chunks) — 섞이면 postgrest-py 가 없는 키를 NULL 로 채운다.
 
     features 병합(2026-07-17, P0 수정): 두 경로 모두 쓰기 전에 기존 features 와 {**기존, **신규}
     병합한다. 통째 교체하면 이 배치 밖에서 축적된 키 — overview_i18n(번역 배치), image_source
@@ -274,23 +305,30 @@ def upsert_facilities(rows: list[dict]) -> int:
         if prev:
             row["features"] = {**prev, **(row.get("features") or {})}
 
+    # 기존/신규 판정도 위 전량 SELECT 를 재사용한다(추가 왕복 없음). 전량이 아니면 기존 행이 신규로
+    # 오판돼 capacity 가 다시 실린다 — 그래서 이 판정도 위 fail-closed 에 기댄다.
+    existing_ids = set(existing_features)
+    payloads = [_write_payload(row, exists=row["contentid"] in existing_ids) for row in rows]
+
     written = 0
+    chunks = _uniform_key_chunks(payloads)
+    done_chunks = 0
     try:
         # 조각마다 키 집합이 같아야 한다 — 섞이면 없는 키가 NULL 로 덮인다(_uniform_key_chunks).
-        for chunk in _uniform_key_chunks(rows):
+        for chunk in chunks:
             supabase_admin.table("facilities").upsert(chunk, on_conflict="contentid").execute()
             written += len(chunk)
+            done_chunks += 1
         return written
     except Exception as e:
         print(f"[upsert] on_conflict=contentid upsert 실패({e}) — SELECT 후 INSERT/UPDATE 폴백으로 전환")
 
-    # --- 폴백 경로: 기존 contentid 조회 → 신규 INSERT / 기존 UPDATE ---
-    # (contentid 집합은 위 features 병합용 SELECT 결과를 재사용 — 추가 왕복 없음)
-    written = 0
-    existing_ids = set(existing_features)
-
-    new_rows = [r for r in rows if r["contentid"] not in existing_ids]
-    update_rows = [r for r in rows if r["contentid"] in existing_ids]
+    # --- 폴백 경로: 1차가 아직 쓰지 못한 행만, 신규 INSERT / 기존 UPDATE ---
+    # 1차에서 이미 쓴 조각까지 다시 INSERT 하면 유니크 위반으로 실패 로그만 남고 written 이 틀어진다.
+    upserted_ids = {p["contentid"] for chunk in chunks[:done_chunks] for p in chunk}
+    remaining = [p for p in payloads if p["contentid"] not in upserted_ids]
+    new_rows = [p for p in remaining if p["contentid"] not in existing_ids]
+    update_rows = [p for p in remaining if p["contentid"] in existing_ids]
 
     # bulk insert 도 columns= 합집합을 보낸다 — 신규 행이라도 없는 키가 열 기본값 대신 NULL 이 된다.
     for chunk in _uniform_key_chunks(new_rows):
