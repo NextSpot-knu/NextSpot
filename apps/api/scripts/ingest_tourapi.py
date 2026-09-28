@@ -562,6 +562,22 @@ async def run_showflag_sync(written: int) -> dict:
     return summary
 
 
+def _append_step_summary(line: str) -> None:
+    """GitHub Actions 실행 Summary 에 한 줄 덧붙인다(GITHUB_STEP_SUMMARY 가 있을 때만, best-effort).
+
+    부분 실패(written < 전체)는 종료 코드를 바꾸지 않는다 — ingest.yml 의 재시도 사슬이 종료 코드를 본다.
+    대신 초록 실행에서도 몇 행이 빠졌는지 Summary 에서 바로 보이게 한다.
+    """
+    path = os.environ.get("GITHUB_STEP_SUMMARY")
+    if not path:
+        return
+    try:
+        with open(path, "a", encoding="utf-8") as summary:
+            summary.write(line + "\n")
+    except OSError as e:
+        print(f"[summary] GITHUB_STEP_SUMMARY 기록 실패(적재 결과에는 영향 없음): {e}")
+
+
 async def run(args: argparse.Namespace) -> int:
     try:
         collected = await fetch_pois(args.lat, args.lng, args.radius, args.limit)
@@ -627,6 +643,7 @@ async def run(args: argparse.Namespace) -> int:
 
     written = upsert_facilities(all_rows)
     print(f"\n적재 완료: {written}/{len(all_rows)}행 upsert (facilities, contentid 기준)")
+    _append_step_summary(f"- TourAPI 적재: written {written}/{len(all_rows)} (facilities)")
 
     # 동기화 마커 — GET /api/v1/freshness 가 마지막 TourAPI 적재 시각으로 읽는다(D5).
     # best-effort: app_events 마이그레이션 미적용 등으로 실패해도 적재 결과(종료코드)에는 영향 없음.

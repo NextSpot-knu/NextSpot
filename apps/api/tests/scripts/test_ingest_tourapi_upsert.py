@@ -452,3 +452,38 @@ def test_failed_insert_chunk_is_retried_row_by_row(capsys):
     out = capsys.readouterr().out
     assert "contentid=12" in out and "contentid=13" in out
 
+
+@pytest.mark.asyncio
+async def test_run_appends_written_summary_to_github_step_summary(monkeypatch, tmp_path):
+    # 부분 실패(2/3)가 Actions 실행 Summary 에 한 줄로 남는다. 종료 코드 규칙(written>0 → 0)은 그대로다.
+    async def fake_fetch(lat, lng, radius_m, limit):
+        return {12: [{"contentid": c} for c in ("1", "2", "3")]}
+
+    class _Events:
+        def table(self, name):
+            assert name == "app_events"
+            return self
+
+        def insert(self, payload):
+            return self
+
+        def execute(self):
+            return None
+
+    summary = tmp_path / "summary.md"
+    summary.write_text("# 앞 스텝\n", encoding="utf-8")
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary))
+    monkeypatch.delenv("KAKAO_REST_API_KEY", raising=False)
+    monkeypatch.setattr("app.core.supabase.supabase_admin", _Events())
+    monkeypatch.setattr(ingest_tourapi, "fetch_pois", fake_fetch)
+    monkeypatch.setattr(ingest_tourapi, "transform_poi", lambda item: _base(item["contentid"]))
+    monkeypatch.setattr(ingest_tourapi, "upsert_facilities", lambda rows: 2)
+    args = ingest_tourapi.argparse.Namespace(lat=35.83, lng=129.21, radius=3000, limit=0,
+                                             details=False, dry_run=False, sync=False)
+
+    assert await ingest_tourapi.run(args) == 0
+
+    text = summary.read_text(encoding="utf-8")
+    assert text.startswith("# 앞 스텝\n")  # 덮어쓰지 않고 덧붙인다
+    assert "written 2/3" in text
+    assert len(text.splitlines()) == 2
