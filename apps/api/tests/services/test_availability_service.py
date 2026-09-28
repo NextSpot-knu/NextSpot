@@ -78,13 +78,20 @@ class _FakeQuery:
         self._recorder = recorder
         self._rows_by_id = rows_by_id
         self._ids: list[str] = []
+        self._in_called = False
+        self._range: tuple[int, int] | None = None
 
     def select(self, *_args, **_kwargs):
         return self
 
     def in_(self, _column, ids):
         self._ids = list(ids)
+        self._in_called = True
         self._recorder.append(self._ids)
+        return self
+
+    def range(self, start, end):
+        self._range = (start, end)
         return self
 
     def eq(self, *_args, **_kwargs):
@@ -97,6 +104,11 @@ class _FakeQuery:
         return self
 
     def execute(self):
+        if not self._in_called:  # id 목록 없는 한 번 조회(P3a3) — 준비된 행 전부를 페이지 단위로
+            rows = list(self._rows_by_id.values())
+            if self._range is not None:
+                rows = rows[self._range[0]:self._range[1] + 1]
+            return type("Result", (), {"data": rows})()
         rows = [self._rows_by_id[i] for i in self._ids if i in self._rows_by_id]
         return type("Result", (), {"data": rows})()
 
@@ -109,6 +121,9 @@ async def test_availability_query_is_chunked_and_covers_every_id(monkeypatch):
     URL 이 수십 KB 가 되어 Supabase 앞단이 520 을 낼 때까지 ~9초를 소모했다. 그 결과
     except 가 {} 를 돌려주며 **영업 근거가 항상 비어 있었고**, 그 지연이 /courses/recommend 를
     프런트 타임아웃 밖으로 밀어냈다(2026-08-27). 이 테스트는 조각 크기 상한과 전체 커버리지를 잠근다.
+
+    P3a3(2026-09-29): 조각이 둘 이상이면 id 목록 없이 한 번(페이지 단위) 받고 요청 id 만 고른다 — URL 에 id 가
+    하나도 실리지 않는다. 조각 하나(코스 후보 풀)는 오늘의 in_ 조회 그대로다(test_availability_single_query.py).
     """
     now = datetime.now(timezone.utc)
     ids = [f"f{i}" for i in range(_AVAILABILITY_ID_CHUNK * 2 + 7)]
@@ -134,42 +149,29 @@ async def test_availability_query_is_chunked_and_covers_every_id(monkeypatch):
 
     evidence = await fetch_effective_availability_map(ids)
 
-    assert len(chunks) == 3
-    assert all(len(c) <= _AVAILABILITY_ID_CHUNK for c in chunks)
-    assert [i for c in chunks for i in c] == ids  # 빠짐/중복 없이 전부 조회
-    assert set(evidence) == {"f0", ids[-1]}
+    assert chunks == []  # URL 에 id 를 싣지 않는다(한 번 조회)
+    assert set(evidence) == {"f0", ids[-1]}  # 빠짐 없이 전부 고른다
 
 
 @pytest.mark.asyncio
-async def test_one_failing_chunk_does_not_discard_the_others(monkeypatch):
-    """조각 하나가 실패해도 나머지 근거는 살아남는다(무해 폴백)."""
-    now = datetime.now(timezone.utc)
+async def test_single_query_failure_empties_the_evidence_like_an_upstream_outage(monkeypatch):
+    """P3a3 에서 바뀐(공개·PM 수락) 실패 범위: 예전에는 실패한 조각의 id 만 근거가 비었지만, 이제 한 번 조회가
+    실패하면 이번 호출의 근거가 통째로 빈다 — 상류 전체가 실패했을 때 오늘도 그렇듯. 추천은 막히지 않는다."""
     ids = [f"f{i}" for i in range(_AVAILABILITY_ID_CHUNK + 1)]
-    good = {
-        "facility_id": "f0",
-        "status": "open",
-        "evidence_tier": "corroborated",
-        "corroborating_count": 2,
-        "reported_at": now.isoformat(),
-        "expires_at": (now + timedelta(minutes=10)).isoformat(),
-    }
-
     calls = {"n": 0}
 
-    class _FlakyQuery(_FakeQuery):
+    class _FailingQuery(_FakeQuery):
         def execute(self):
             calls["n"] += 1
-            if len(self._ids) == 1:  # 두 번째 조각(꼬리 1건)만 실패시킨다
-                raise RuntimeError("boom")
-            return super().execute()
+            raise RuntimeError("boom")
 
     class _FakeAdmin:
         def table(self, _name):
-            return _FlakyQuery([], {"f0": good})
+            return _FailingQuery([], {})
 
     monkeypatch.setattr(availability_service, "supabase_admin", _FakeAdmin())
 
     evidence = await fetch_effective_availability_map(ids)
 
-    assert calls["n"] == 2
-    assert set(evidence) == {"f0"}
+    assert calls["n"] == 1
+    assert evidence == {}
