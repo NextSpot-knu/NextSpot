@@ -184,6 +184,15 @@ async def lifespan(_app: FastAPI):
     _check_legacy_console_token()
 
     _logger.info("warmup_done", total_ms=round((time.perf_counter() - t0) * 1000))
+
+    # 5) 주차 이력 적재 루프(권역 수요 전망의 메모리 행렬) — AREA_DEMAND_SOURCE 가 rpc(기본)면 아무것도 하지 않는다.
+    #    예열이 끝난 **뒤에** 띄우고 기다리지 않는다. 첫 적재는 참조 스냅샷 준비까지 더 기다린다(부팅 CPU 를 나누지
+    #    않게). 준비 전의 전망 요청은 오늘의 RPC 경로가 답한다.
+    try:
+        from app.services import parking_history
+        parking_history.start()
+    except Exception as e:
+        _logger.warning("parking_history_start_failed", error_type=type(e).__name__)
     yield
 
     # 종료 시 외부 커넥션 정리 — lazy 싱글턴 AsyncClient 가 닫힌 이벤트 루프에 남지 않게
@@ -193,6 +202,11 @@ async def lifespan(_app: FastAPI):
         await reference_snapshot.stop()
     except Exception as e:
         _logger.warning("shutdown_reference_snapshot_failed", error=str(e))
+    try:
+        from app.services import parking_history
+        await parking_history.stop()
+    except Exception as e:
+        _logger.warning("shutdown_parking_history_failed", error_type=type(e).__name__)
     try:
         from app.services import llm_client
         await llm_client.aclose()
@@ -297,6 +311,12 @@ async def health_check():
     try:
         from app.services import reference_snapshot
         body["reference_snapshot"] = reference_snapshot.health()
+    except Exception:  # noqa: BLE001
+        pass
+    # 주차 이력(권역 수요 전망 행렬) 상태 — 정해진 정수·참거짓 칸만(오류 원문·좌표 없음). rpc 모드면 {"mode": "rpc"}.
+    try:
+        from app.services import parking_history
+        body["parking_history"] = parking_history.health()
     except Exception:  # noqa: BLE001
         pass
     return body

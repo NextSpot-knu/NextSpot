@@ -11,17 +11,22 @@
 
 행은 PostgREST 가 부모 스냅샷에 주차장 행을 끼워 돌려주는 모양(``area_demand_snapshot_lots``)이고, 같은 자료를
 aggregate_nearby_points 가 받는 (parents, lots) 모양으로도 준다. 돌려받은 자료를 고치지 말 것(lru_cache 로 공유한다).
+
+FakeParkingDB 는 적재 루프(app/services/parking_history.py)가 읽는 area_demand_snapshots 를 흉내 낸 PostgREST 대역이다.
 """
 
 from __future__ import annotations
 
+import copy
 import math
 import random
-from dataclasses import dataclass
+import threading
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from decimal import ROUND_HALF_UP, Decimal
 from functools import lru_cache
-from typing import Any
+from types import SimpleNamespace
+from typing import Any, Callable
 
 UTC = timezone.utc
 
@@ -154,3 +159,148 @@ def pg_round_distance(meters: float) -> float:
 def _sql_distance_pg(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
     """마이그레이션의 거리식을 Postgres 의 반올림까지 흉내 낸 대조본(기존 _sql_distance_m 은 최단 repr 기준)."""
     return pg_round_distance(haversine_raw_m(lat1, lng1, lat2, lng2))
+
+
+def db_row(bucket: datetime, observed: datetime, lots) -> dict[str, Any]:
+    """PostgREST 모양 행 하나 — lots 는 [(source_lot_id, 위도, 경도, total, available)]."""
+    return {
+        "bucket_at": _iso(bucket),
+        "observed_at": _iso(observed),
+        "area_demand_snapshot_lots": [
+            {"source_lot_id": lot_id, "latitude": lat, "longitude": lng,
+             "total_spaces": total, "available_spaces": available}
+            for lot_id, lat, lng, total, available in lots
+        ],
+    }
+
+
+def _ts(value: Any) -> datetime:
+    return datetime.fromisoformat(str(value))
+
+
+@dataclass
+class FakeRequest:
+    """execute() 한 번의 기록 — 적재 루프가 만든 쿼리 모양을 시험이 대조한다."""
+
+    select: str
+    count: Any
+    filters: list[tuple[str, str, Any]]
+    orders: list[tuple[str, bool]]
+    limit: int | None
+    thread: str
+    rows: int = 0
+
+    def filter(self, op: str, column: str) -> Any:
+        for f_op, f_column, value in self.filters:
+            if f_op == op and f_column == column:
+                return value
+        return None
+
+
+class _FakeQuery:
+    def __init__(self, db: "FakeParkingDB") -> None:
+        self.db = db
+        self.columns = "*"
+        self.count = None
+        self.filters: list[tuple[str, str, Any]] = []
+        self.orders: list[tuple[str, bool]] = []
+        self.lim: int | None = None
+
+    def select(self, columns="*", count=None):
+        self.columns, self.count = columns, count
+        return self
+
+    def eq(self, column, value):
+        self.filters.append(("eq", column, value))
+        return self
+
+    def gte(self, column, value):
+        self.filters.append(("gte", column, value))
+        return self
+
+    def gt(self, column, value):
+        self.filters.append(("gt", column, value))
+        return self
+
+    def order(self, column, desc=False):
+        self.orders.append((column, desc))
+        return self
+
+    def limit(self, size):
+        self.lim = size
+        return self
+
+    def _keep(self, row: dict[str, Any]) -> bool:
+        for op, column, value in self.filters:
+            if op == "eq":
+                if row.get(column, "gyeongju_its" if column == "source" else None) != value:
+                    return False
+            elif op == "gt" and self.db.ignore_keyset:
+                continue
+            else:
+                left, right = _ts(row[column]), _ts(value)
+                if (op == "gte" and not left >= right) or (op == "gt" and not left > right):
+                    return False
+        return True
+
+    def execute(self):
+        db = self.db
+        request = FakeRequest(self.columns, self.count, list(self.filters), list(self.orders), self.lim,
+                              threading.current_thread().name)
+        with db.lock:
+            db.requests.append(request)
+        if db.before is not None:
+            db.before(request)
+        if db.fail is not None and db.fail(request):
+            raise RuntimeError(db.fail_message)
+        with db.lock:
+            rows = [r for r in db.rows if self._keep(r)]
+        for column, desc in reversed(self.orders):
+            rows.sort(key=lambda r, c=column: _ts(r[c]), reverse=desc)
+        total = len(rows)
+        if self.lim is not None:
+            rows = rows[: self.lim]
+        wanted = [c for c in ("bucket_at", "observed_at", "area_demand_snapshot_lots")
+                  if c in self.columns]
+        data = [{c: copy.deepcopy(r[c]) for c in wanted if c in r} for r in rows]
+        request.rows = len(data)
+        if db.after is not None:
+            db.after(request)
+        return SimpleNamespace(data=data, count=total if self.count is not None else None)
+
+
+@dataclass
+class FakeParkingDB:
+    """area_demand_snapshots(+끼워 넣은 주차장 행)만 아는 PostgREST 대역. 스레드 안전(적재 스레드가 읽는다).
+
+    · fail(request) 가 참이면 그 요청은 RuntimeError(fail_message).
+    · before / after(request) — 결과를 만들기 전·후에 불린다(지연·막기 주입). after 는 읽은 뒤라, 거기서 막는 동안
+      더한 행은 그 요청 결과에 없다.
+    · ignore_keyset — bucket_at=gt 조건을 무시한다(keyset 이 전진하지 않는 서버 흉내).
+    """
+
+    rows: list[dict[str, Any]] = field(default_factory=list)
+    fail: Callable[[FakeRequest], bool] | None = None
+    fail_message: str = "area_demand_snapshots unavailable"
+    before: Callable[[FakeRequest], None] | None = None
+    after: Callable[[FakeRequest], None] | None = None
+    ignore_keyset: bool = False
+
+    def __post_init__(self) -> None:
+        self.rows = [dict(r) for r in self.rows]
+        self.lock = threading.Lock()
+        self.requests: list[FakeRequest] = []
+
+    def add(self, *rows: dict[str, Any]) -> None:
+        """다른 인스턴스(또는 수집)가 새 행을 쓴다 — 같은 버킷이면 통째로 바꾼다(DB 기록 함수와 같다)."""
+        with self.lock:
+            for row in rows:
+                self.rows = [r for r in self.rows if r["bucket_at"] != row["bucket_at"]] + [dict(row)]
+
+    def remove(self, bucket_at: str) -> None:
+        with self.lock:
+            self.rows = [r for r in self.rows if r["bucket_at"] != bucket_at]
+
+    def table(self, name: str) -> _FakeQuery:
+        assert name == "area_demand_snapshots", name
+        return _FakeQuery(self)
