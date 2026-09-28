@@ -254,7 +254,7 @@ def _uniform_key_chunks(rows: list[dict]) -> list[list[dict]]:
     ]
 
 
-def _write_payload(row: dict, *, exists: bool) -> dict:
+def _write_payload(row: dict, *, exists: bool, keep_coordinates: bool = False) -> dict:
     """한 행을 facilities 에 보낼 모양으로 만든다 — 이 배치가 모르는 값은 보내지 않는다(기존 값 유지).
 
     - 값이 None 인 열은 뺀다. None 은 "이번에 얻지 못했다"이지 "비워라"가 아니다. 지금 None 이 되는 열은
@@ -268,6 +268,9 @@ def _write_payload(row: dict, *, exists: bool) -> dict:
       채운 값일 수 있으므로 None 이면 계속 보내지 않는다.
     - 이미 있는 contentid 면 capacity 를 뺀다. CAPACITY_DEFAULTS 는 TourAPI 에 없는 값을 채우는 합성 기본값이라
       행을 처음 만들 때만 필요하고(capacity NOT NULL), 기존 행에 보내면 관리자가 고친 수용 인원을 매일 되돌린다.
+    - keep_coordinates 면 latitude·longitude 를 뺀다. DB 좌표가 Kakao 로 검증된 값인데(features.coordinate_source
+      ='kakao') 이번 실행에서 Kakao 매칭을 얻지 못한 행이다 — 모르는 값(TourAPI 원 좌표)이 검증된 값을 덮지 않게
+      (upsert_facilities 가 판정한다).
     - 밑줄로 시작하는 키(배치 안 판정 표시)는 보내지 않는다.
     """
     clear_image = bool(row.get(IMAGE_CONFIRMED_ABSENT)) and not row.get("image_url")
@@ -277,6 +280,7 @@ def _write_payload(row: dict, *, exists: bool) -> dict:
         if not key.startswith("_")
         and (value is not None or (key == "image_url" and clear_image))
         and not (exists and key == "capacity")
+        and not (keep_coordinates and key in ("latitude", "longitude"))
     }
 
 
@@ -321,15 +325,27 @@ def upsert_facilities(rows: list[dict]) -> int:
         for r in (existing_rows)
         if r.get("contentid")
     }
+    # Kakao 로 검증된 좌표 보존: 좌표의 정본은 Kakao 다(run 의 reconcile_row_coordinate). 이번 실행에서 매칭을
+    # 얻지 못한 행(타임아웃·동점 후보·키 미설정)은 TourAPI 원 좌표를 들고 있는데, 그대로 보내면 DB 의 Kakao
+    # 좌표가 되돌아가고 병합된 features 는 여전히 coordinate_source='kakao' 라고 말한다. 매칭 성공 여부는
+    # 병합 **전** 이번 행의 features 로 본다 — 성공했을 때만 reconcile 이 coordinate_source 를 넣는다.
+    keep_coordinates: set[str] = set()
     for row in rows:
         prev = existing_features.get(row.get("contentid"))
         if prev:
+            if (prev.get("coordinate_source") == "kakao"
+                    and (row.get("features") or {}).get("coordinate_source") != "kakao"):
+                keep_coordinates.add(row["contentid"])
             row["features"] = {**prev, **(row.get("features") or {})}
 
     # 기존/신규 판정도 위 전량 SELECT 를 재사용한다(추가 왕복 없음). 전량이 아니면 기존 행이 신규로
     # 오판돼 capacity 가 다시 실린다 — 그래서 이 판정도 위 fail-closed 에 기댄다.
     existing_ids = set(existing_features)
-    payloads = [_write_payload(row, exists=row["contentid"] in existing_ids) for row in rows]
+    payloads = [
+        _write_payload(row, exists=row["contentid"] in existing_ids,
+                       keep_coordinates=row["contentid"] in keep_coordinates)
+        for row in rows
+    ]
 
     written = 0
     chunks = _uniform_key_chunks(payloads)
@@ -567,7 +583,8 @@ async def run(args: argparse.Namespace) -> int:
             await enrich_row(row)
 
     # 지도 좌표의 최종 정본은 Kakao. 키 미설정 또는 이름+주소/근접성 엄격 매칭 실패 시
-    # TourAPI 좌표를 그대로 유지한다. 원 좌표는 features.tourapi_coordinates에 보존된다.
+    # 행은 TourAPI 좌표를 그대로 들고 간다. 원 좌표는 features.tourapi_coordinates에 보존된다.
+    # 단, DB 좌표가 이미 Kakao 로 검증된 기존 행이면 upsert_facilities 가 좌표를 보내지 않는다(검증값 유지).
     if os.getenv("KAKAO_REST_API_KEY"):
         matched = 0
         for row in all_rows:

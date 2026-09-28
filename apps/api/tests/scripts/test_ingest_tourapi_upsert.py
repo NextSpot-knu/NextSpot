@@ -386,3 +386,37 @@ async def test_image_url_is_cleared_only_when_tourapi_confirmed_no_main_image(de
     # 판정용 표시는 DB 로 가지 않는다.
     assert not [k for payload in sent.values() for k in payload if k.startswith("_")]
     _assert_uniform(table.bulk("upsert") + table.bulk("insert"))
+
+
+# ---------------------------------------------------------------------------
+# Kakao 로 검증된 좌표 — 이번 실행의 Kakao 매칭이 실패해도 TourAPI 원 좌표로 되돌리지 않는다(리뷰 #3)
+# ---------------------------------------------------------------------------
+
+_KAKAO_STORED = {"coordinate_source": "kakao", "kakao_place_id": "9",
+                 "tourapi_coordinates": {"latitude": 35.83, "longitude": 129.21}}
+
+
+@pytest.mark.parametrize("upsert_error", [None, _NO_CONFLICT_TARGET], ids=["bulk_upsert", "fallback_42P10"])
+def test_kakao_verified_coordinates_survive_a_failed_kakao_match(upsert_error):
+    # "1": DB 좌표는 Kakao 검증값, 오늘 Kakao 매칭 실패(타임아웃·동점 후보) → 행은 TourAPI 좌표 그대로.
+    # "2": DB 좌표는 Kakao 검증값, 오늘도 매칭 성공(reconcile_row_coordinate 가 좌표·features 를 고친 모양).
+    # "3": Kakao 로 검증된 적 없는 기존 행. "4": 새 행.
+    failed_today = _base("1")
+    matched_today = _base("2", latitude=35.8401, longitude=129.2101,
+                          features={"source": "tourapi", "coordinate_source": "kakao", "kakao_place_id": "9"})
+    never_verified, new = _base("3"), _base("4")
+    table = _FacilitiesTable(
+        existing=[{"contentid": "1", "features": dict(_KAKAO_STORED)},
+                  {"contentid": "2", "features": dict(_KAKAO_STORED)},
+                  {"contentid": "3", "features": {"source": "tourapi"}}],
+        upsert_error=upsert_error,
+    )
+    assert _upsert([failed_today, matched_today, never_verified, new], table) == 4
+
+    sent = _sent(table)
+    assert "latitude" not in sent["1"] and "longitude" not in sent["1"]
+    assert sent["1"]["features"]["coordinate_source"] == "kakao"  # 좌표와 출처 표시가 계속 맞는다
+    assert (sent["2"]["latitude"], sent["2"]["longitude"]) == (35.8401, 129.2101)
+    assert (sent["3"]["latitude"], sent["3"]["longitude"]) == (35.83, 129.21)
+    assert (sent["4"]["latitude"], sent["4"]["longitude"]) == (35.83, 129.21)
+    _assert_uniform(table.bulk("upsert") + table.bulk("insert"))
