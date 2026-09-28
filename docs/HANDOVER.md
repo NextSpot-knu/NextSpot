@@ -195,13 +195,14 @@ from checks order by seq;
 
 ## 2026-09-28d — API 재설계 P2a: 권역 수요 전망을 메모리 주차 이력 행렬로 (스위치 꺼진 채 — rpc)
 
-- 도구·브랜치: Claude Code(명세 → 레드팀 3렌즈 → 수정 → 단계별 구현 워크플로, 단계마다 시험·변이 검사) / `perf/parking-history`(3cf5bf9 위, 미푸시)
-- 커밋: dd6d5c8..(이 기록) (10건). 계획·전환 절차는 [`API_ARCHITECTURE_PLAN.md`](./API_ARCHITECTURE_PLAN.md) "P2a 전환 절차"
+- 도구·브랜치: Claude Code(명세 → 레드팀 3렌즈 → 수정 → 단계별 구현 워크플로, 단계마다 시험·변이 검사) / `perf/parking-history`(367514c 위로 rebase — 앱 코드는 rebase 전과 바이트 동일, 미푸시)
+- 커밋: 17c12e1..(이 기록) (24건 = 처음 10건(첫 기록 b72b812 포함) + 리뷰 수리 11건 + 수리 기록 + 2차 리뷰 수리 1건 + 이 갱신). 계획·전환 절차는 [`API_ARCHITECTURE_PLAN.md`](./API_ARCHITECTURE_PLAN.md) "P2a 전환 절차"
 - 한 것: `services/parking_history.py`(56일 로트×시간 행렬 · 전용 스레드 부팅 적재·5분 꼬리·수집 직후 다시 읽기·30분 대조 · `/health.parking_history`) + 전망 서비스의 행렬 커널(`%.15g` — 운영 RPC 와 비트 동일)·정확 좌표 메모·백테스트 계획 공유 +
   `AREA_DEMAND_SOURCE` 분기: `rpc`(기본 — 도입 전 경로 그대로, 스레드·DB 호출 없음) · `shadow`(답은 rpc, 요청 비교·자기 탐침으로 차이만 셈) · `matrix`(행렬로 답하고 못 하면 그 호출만 rpc, 폴백 뒤 격자 캐시 비움, `/waiting` 전용 차선). PM 결정(09-28): 꺼진 채 반영.
-- 검증: api ruff + pytest 1977 passed(3cf5bf9 1841) · OpenAPI 스냅샷 동일 · RPC 경로 원본 해시 고정(3cf5bf9 와 같음, 부르는 도우미 9개 포함) · check-docs. score.py·SPOT 가중치·마이그레이션·웹 무변경.
+- 검증: api ruff + pytest 2027 passed(rebase 뒤 HEAD, 2차 수리 포함) · OpenAPI 스냅샷·score.py 367514c 와 동일 · RPC 경로 원본 해시 고정(3cf5bf9 와 같음 — 367514c 의 전망 서비스는 3cf5bf9 와 같다, 부르는 도우미 9개 포함) · check-docs. score.py·SPOT 가중치·마이그레이션·웹 무변경.
 - 리뷰 수리(기록 뒤 커밋 11건): 부팅 파싱 메모리 9.4→3.4MB(열·칸 객체 공유) · 차선에서 기다린 행렬 호출은 새 세대로 · 실패한 꼬리 도중 kick 은 백오프 존중 ·
   shadow 게이트 표본은 비교를 끝낸 탐침만 + `failed == 0` · 탐침 하루 ≤288회 실제로 · 종료 때 final 요약 · 시험 보강(ulp/value 경계·KST 날짜 경계·최근 좌표 고리).
+  2차 리뷰 수리: 종료 때 아직 도는 shadow 비교(탐침·요청 비교)를 최대 3초 기다려 final 요약에 넣는다(shadow 모드만, 못 끝나면 `parking_history_shadow_drain_timeout`).
 - 다음·미결: go/no-go 측정(Render 모양 0.5 CPU/512MB, 운영 시설 좌표 읽기 1회 승인됨)은 아직 — `matrix` 전 필수. P2b(격자 캐시·RPC 경로 삭제, 수집 실시간 공급)는 `matrix` 24시간 무폴백 뒤. `_points_locks` 누수(기존)는 P2b 에서.
 - 사람 작업: main 반영 뒤 Render `AREA_DEMAND_SOURCE=shadow`(위 "사람 작업 대기").
 
