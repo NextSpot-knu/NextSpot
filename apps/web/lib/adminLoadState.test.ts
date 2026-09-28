@@ -147,6 +147,22 @@ async function main() {
     '고정 범위 range 호출이 남아 있다 — PostgREST 가 1000행에서 잘라 664곳이 사라진다',
   );
 
+  // 장소 관리 표: 이름순 1000행에서 잘리던 단일 조회 대신 (name,id) 전량 페이지 + 실제 활성/비활성 배지.
+  const facilityTableSrc = readFileSync(join(WEB, 'components', 'admin', 'FacilityTable.tsx'), 'utf8');
+  assert.match(facilityTableSrc, /fetchAdminFacilityRows\(/, '장소 관리 표가 전량 페이지 조회를 쓰지 않는다');
+  assert.match(facilityTableSrc, /비활성/, '장소 관리 표가 비활성 시설을 활성으로 그린다');
+  const facilityTableCode = facilityTableSrc.replace(/\/\/.*$/gm, '');
+  assert.doesNotMatch(facilityTableCode, /\.order\('name'/, '장소 관리 표에 1000행 캡에 잘리는 직접 조회가 남아 있다');
+
+  const facilityListSrc = readFileSync(join(WEB, 'lib', 'adminFacilityList.ts'), 'utf8');
+  assert.match(facilityListSrc, /fetchAllPages[<(]/, '장소 목록 헬퍼가 검증된 전량 페이지네이션을 쓰지 않는다');
+  assert.match(facilityListSrc, /\.order\('name'[\s\S]*?\.order\('id'/, '장소 목록이 (name, id) 전순서로 페이지를 넘기지 않는다');
+  assert.doesNotMatch(
+    facilityListSrc,
+    /\.(eq|is|filter|neq|not)\(\s*'is_active'/,
+    '관리 표가 비활성 시설을 걸러낸다 — 목록에 두고 비활성으로 보여야 한다',
+  );
+
   const settingsSrc = readFileSync(join(WEB, 'app', 'admin', 'settings', 'page.tsx'), 'utf8');
   assert.match(settingsSrc, /settingsSaveGuard\(/, '설정 화면이 저장 가드를 쓰지 않는다');
   assert.match(settingsSrc, /!saveGuard\.allowed/, '저장 핸들러가 실패 상태를 스스로 막지 않는다');

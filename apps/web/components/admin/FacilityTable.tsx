@@ -6,18 +6,14 @@ import { toast } from 'sonner';
 import { createPublicClient } from '@/lib/supabase';
 import { adminApi } from '@/lib/admin-api';
 import { REGION } from '@/lib/region';
+import { fetchAdminFacilityRows, type AdminFacilityRow } from '@/lib/adminFacilityList';
 
 // 읽기는 anon(RLS: anon_select_facilities 유지), 쓰기는 관리자 API(FastAPI service_role) 경유 —
 // anon 직접 쓰기는 RLS 로 거부되며, 과거엔 0행 갱신이 성공으로 표시되는 무음 실패였다(WS-A-6).
 const supabase = createPublicClient();
 
-interface FacilityData {
-  id: string;
-  name: string;
-  type: string;
-  capacity: number;
-  operating_hours?: Record<string, string>;
-}
+// is_active 는 '상태' 칸의 활성/비활성 배지에 쓴다. 비활성 시설도 목록에서 빼지 않는다.
+type FacilityData = AdminFacilityRow;
 
 // 시설 유형 목록(값=DB type, name=한글 라벨). 카테고리 탭·모달 select 가 공유한다.
 const CATEGORIES = [
@@ -34,6 +30,7 @@ export function FacilityTable() {
   const [loading, setLoading] = useState(true);
   const [selectedCategory, setSelectedCategory] = useState('restaurant');
   const [currentPage, setCurrentPage] = useState(1);
+  const [query, setQuery] = useState('');
   const itemsPerPage = 10;
 
   // 단일 모달 폼 상태 — 네이티브 prompt()/confirm()/alert() 연쇄를 대체(B2G 관제 데모 신뢰도).
@@ -50,13 +47,8 @@ export function FacilityTable() {
 
   const fetchFacilities = async () => {
     try {
-      const { data, error } = await supabase
-        .from('facilities')
-        .select('id, name, type, capacity, operating_hours')
-        .order('name', { ascending: true });
-
-      if (error) throw error;
-      setFacilities(data || []);
+      // PostgREST 는 한 응답을 1000행으로 자른다 — (name, id) 전순서로 페이지를 넘겨 전량을 받는다.
+      setFacilities(await fetchAdminFacilityRows(supabase));
     } catch (err) {
       console.error('Failed to fetch facilities in table:', err);
     } finally {
@@ -187,8 +179,9 @@ export function FacilityTable() {
     return '24시간';
   };
 
-  // Filtering
-  const filteredFacilities = facilities.filter(f => f.type === selectedCategory);
+  // Filtering — 카테고리 탭 + 이름 검색(부분 일치). 수백 쪽을 넘기지 않고 한 곳을 바로 찾는다.
+  const q = query.trim();
+  const filteredFacilities = facilities.filter(f => f.type === selectedCategory && (!q || f.name.includes(q)));
 
   // Pagination
   const totalItems = filteredFacilities.length;
@@ -212,24 +205,37 @@ export function FacilityTable() {
           </button>
         </div>
 
-        {/* Category Tabs */}
-        <div className="flex gap-2 p-4 border-b border-hanok-line bg-hanok-panel/50">
-          {categories.map((cat) => (
-            <button
-              key={cat.id}
-              onClick={() => {
-                setSelectedCategory(cat.id);
-                setCurrentPage(1);
-              }}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
-                selectedCategory === cat.id
-                  ? 'bg-gold/25 border-gold/50 text-gold-deep font-bold shadow-sm'
-                  : 'bg-hanok-card/80 border-hanok-line/80 text-hanok-muted hover:bg-hanok-card hover:text-hanok-ink'
-              }`}
-            >
-              {cat.name}
-            </button>
-          ))}
+        {/* Category Tabs + 이름 검색 — 폰에서는 검색창이 탭 아래 전체 폭, 넓은 화면에서는 오른쪽 */}
+        <div className="flex flex-col sm:flex-row sm:items-center gap-3 p-4 border-b border-hanok-line bg-hanok-panel/50">
+          <div className="flex flex-wrap gap-2">
+            {categories.map((cat) => (
+              <button
+                key={cat.id}
+                onClick={() => {
+                  setSelectedCategory(cat.id);
+                  setCurrentPage(1);
+                }}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
+                  selectedCategory === cat.id
+                    ? 'bg-gold/25 border-gold/50 text-gold-deep font-bold shadow-sm'
+                    : 'bg-hanok-card/80 border-hanok-line/80 text-hanok-muted hover:bg-hanok-card hover:text-hanok-ink'
+                }`}
+              >
+                {cat.name}
+              </button>
+            ))}
+          </div>
+          <input
+            type="search"
+            value={query}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setCurrentPage(1);
+            }}
+            placeholder="장소 이름 검색"
+            aria-label="장소 이름 검색"
+            className="w-full sm:w-64 sm:ml-auto px-3 py-2 bg-hanok-card border border-hanok-line rounded-lg text-sm text-hanok-ink placeholder-hanok-muted focus:outline-none focus:border-gold/60"
+          />
         </div>
 
         <div className="overflow-x-auto">
@@ -287,7 +293,11 @@ export function FacilityTable() {
                       <td className="p-4 whitespace-nowrap">
                         {/* inline-block + whitespace-nowrap: 배지 안의 두 글자가 칸 압박으로 쪼개지지 않게 한다.
                             (td 의 nowrap 만으로는 배지 내부 텍스트 줄바꿈을 막지 못하는 브라우저가 있다.) */}
-                        <span className="inline-block whitespace-nowrap px-2 py-1 bg-emerald-500/15 text-emerald-700 text-xs font-bold rounded-md">활성</span>
+                        {fac.is_active === false ? (
+                          <span className="inline-block whitespace-nowrap px-2 py-1 bg-hanok-card text-hanok-muted text-xs font-bold rounded-md">비활성</span>
+                        ) : (
+                          <span className="inline-block whitespace-nowrap px-2 py-1 bg-emerald-500/15 text-emerald-700 text-xs font-bold rounded-md">활성</span>
+                        )}
                       </td>
                       <td className="p-4 flex justify-end gap-2 whitespace-nowrap">
                         <button
@@ -313,7 +323,11 @@ export function FacilityTable() {
                           <div className="w-11 h-11 rounded-2xl bg-gold/10 border border-gold/30 flex items-center justify-center">
                             <Settings size={20} className="text-gold-deep" />
                           </div>
-                          <p className="text-sm font-semibold text-hanok-ink">이 유형의 장소를 불러오는 중입니다.</p>
+                          {q ? (
+                            <p className="text-sm font-semibold text-hanok-ink">&lsquo;{q}&rsquo; 이름의 장소가 이 유형에 없습니다.</p>
+                          ) : (
+                            <p className="text-sm font-semibold text-hanok-ink">이 유형의 장소를 불러오는 중입니다.</p>
+                          )}
                           <p className="text-xs text-hanok-muted">우측 상단 &lsquo;신규 장소 등록&rsquo; 버튼으로 새 장소를 바로 등록할 수도 있습니다.</p>
                         </div>
                       </td>
