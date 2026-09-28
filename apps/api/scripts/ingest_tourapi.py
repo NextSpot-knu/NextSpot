@@ -215,6 +215,13 @@ async def enrich_row(row: dict) -> None:
     except (TourAPIError, RuntimeError) as e:
         print(f"[details] detailImage2 실패 (contentid={contentid}): {e}")
 
+    # TourAPI 가 오늘 사진(대표 이미지 또는 갤러리)을 줬으면, 예전 밤에 Wikimedia 대체 사진과 함께 남은 출처
+    # (features.image_source)는 이 사진의 출처가 아니다. None 을 실어 보내 upsert_facilities 의 {**기존, **신규}
+    # 병합이 옛 출처를 덮게 한다(웹의 대기 보드는 null 을 없는 값과 똑같이 다뤄 출처 줄을 그리지 않는다).
+    # 사진 호출이 실패해 사진을 못 받은 날은 키를 넣지 않는다 — 기존 출처가 그대로 남는다.
+    if row.get("image_url") or row.get("gallery_images"):
+        row["features"] = {**row.get("features", {}), "image_source": None}
+
     # TourAPI 사진이 전혀 없는 관광지·문화시설만 보수적으로 Wikimedia 퍼블릭 도메인 폴백.
     # '사진이 없다'는 사진을 주는 두 호출(detailCommon2 대표 이미지 · detailImage2 갤러리)이 모두 답했을 때만
     # 안다 — detailCommon2 는 상세 항목까지 돌려줘야 한다(항목 0개는 대표 이미지에 대해 아무것도 말하지 않는다).

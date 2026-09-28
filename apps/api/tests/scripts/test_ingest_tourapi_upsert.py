@@ -202,6 +202,7 @@ class _Details:
         self.fail: dict[str, set[str]] = {}
         self.no_photo: set[str] = set()
         self.empty_common: set[str] = set()  # detailCommon2 가 정상 코드로 답했지만 항목이 0개
+        self.no_main: set[str] = set()       # 대표 이미지만 없고 갤러리는 있다
         self.wikimedia_calls: list[str] = []
 
     def _guard(self, endpoint: str, contentid: str) -> None:
@@ -213,7 +214,7 @@ class _Details:
         if contentid in self.empty_common:
             return _ok([])
         item = {"overview": "개요", "tel": "054-000-0000", "homepage": "https://place.example"}
-        if contentid not in self.no_photo:
+        if contentid not in self.no_photo and contentid not in self.no_main:
             item["firstimage"] = "http://img.example/common.jpg"
         return _ok([item])
 
@@ -417,6 +418,45 @@ async def test_empty_detail_common_reply_confirms_nothing(details, upsert_error)
     assert "image_url" not in sent["7"]
     assert "gallery_images" not in sent["7"]
     assert "image_source" not in sent["7"]["features"]
+
+
+# ---------------------------------------------------------------------------
+# Wikimedia 출처 — TourAPI 사진이 다시 생기면 옛 출처 줄을 걷어 낸다
+# ---------------------------------------------------------------------------
+
+_WIKIMEDIA_CREDIT = {"provider": "Wikimedia Commons", "source_url": "https://commons.example/page",
+                     "license": "CC BY-SA 4.0", "artist": "someone"}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("upsert_error", [None, _NO_CONFLICT_TARGET], ids=["bulk_upsert", "fallback_42P10"])
+async def test_stale_wikimedia_credit_is_removed_when_tourapi_supplies_a_photo(details, upsert_error):
+    # 셋 다 예전 밤에 Wikimedia 대체 사진을 받아 features.image_source 가 DB 에 남아 있다.
+    # "8": 오늘 목록 firstimage(대표 사진)가 생겼다. "9": 대표 사진은 없고 갤러리만 생겼다.
+    # "10": 오늘 사진 호출이 모두 실패 — 사진이 바뀌었는지 모르므로 출처도 그대로 둔다.
+    details.no_main = {"9"}
+    details.no_photo = {"10"}
+    details.fail["10"] = {"common", "image"}
+    rows = [_poi("8", firstimage="http://img.example/8.jpg"), _poi("9"), _poi("10")]
+    for row in rows:
+        await ingest_tourapi.enrich_row(row)
+    assert details.wikimedia_calls == []
+
+    table = _FacilitiesTable(
+        existing=[{"contentid": c, "features": {"source": "tourapi", "image_source": dict(_WIKIMEDIA_CREDIT)}}
+                  for c in ("8", "9", "10")],
+        upsert_error=upsert_error,
+    )
+    assert _upsert(rows, table) == 3
+
+    sent = _sent(table)
+    assert sent["8"]["image_url"] == "https://img.example/8.jpg"
+    assert sent["8"]["features"].get("image_source") is None
+    assert sent["9"]["gallery_images"] == ["https://img.example/g1.jpg"]
+    assert sent["9"]["features"].get("image_source") is None
+    assert sent["10"]["features"]["image_source"] == _WIKIMEDIA_CREDIT
+    assert "image_url" not in sent["10"] and "gallery_images" not in sent["10"]
+    _assert_uniform(table.bulk("upsert") + table.bulk("insert"))
 
 
 # ---------------------------------------------------------------------------
