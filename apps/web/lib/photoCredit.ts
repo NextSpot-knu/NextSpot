@@ -61,6 +61,24 @@ export function wikimediaCredit(features: Record<string, unknown> | null | undef
   };
 }
 
+/**
+ * 한 장소의 사진 후보 — 대표 사진(firstimage)부터 갤러리(detailImage2) 순. 빈 값·문자열 아닌 값은 빼고,
+ * 같은 URL 은 한 번만(처음 자리). URL 문자열 자체는 고치지 않는다(출처 판정·커서 키가 URL 그대로 쓴다).
+ */
+export function photoCandidates(
+  imageUrl: unknown,
+  galleryImages: unknown,
+): string[] {
+  const gallery: unknown[] = Array.isArray(galleryImages) ? galleryImages : [];
+  return Array.from(
+    new Set(
+      [imageUrl, ...gallery].filter(
+        (url): url is string => typeof url === 'string' && url.trim().length > 0,
+      ),
+    ),
+  );
+}
+
 /** 카드가 시도할 사진 후보 — 출처가 없는 Wikimedia 사진은 뺀다. 순서·중복 제거는 입력 그대로 따른다. */
 export function creditedPhotoUrls(
   urls: readonly string[],
