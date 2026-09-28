@@ -30,7 +30,7 @@ import {
 import { recToSpot } from "@/lib/recommender";
 import { congestionDisplay, parseCongestionEstimate } from "@/lib/congestionEstimate";
 // 보드의 세 숫자(예상 대기 · 혼잡 등급 · 한산해지는 시각)의 단일 소스.
-import { estimateWait, displayHour, compareWaitMinutes, showsCalmLine, heroWaitCandidate, type WaitEstimate } from "@/lib/waitEstimate";
+import { estimateWait, displayHour, showsCalmLine, heroWaitCandidate, type WaitEstimate } from "@/lib/waitEstimate";
 import { curveForBase, fetchAreaDemandCurve, mergeAreaCurve, type AreaDemandCurve } from "@/lib/areaDemandCurve";
 // 분으로 말할 근거가 없는 카드는 등급으로 말한다 — 등급 경계는 지도·카드와 같은 공용 판정을 쓴다.
 import { congestionKey } from "@/lib/congestionScale";
@@ -58,6 +58,8 @@ import { TrailingNoteText } from "@/components/TrailingNoteText";
 // 사진이 없는 장소의 표지(경주 문양 + 유형 그림) — 사진 자리를 같은 크기로 채운다. 사진은 그 위로 서서히 드러난다.
 import { PlacePhotoFallback } from "@/components/PlacePhotoFallback";
 import { placeVisualsForRow, type PlaceVisual } from "@/lib/placeVisual";
+// 섹터 줄 세우기 — 대기 짧은 순, 대기가 같을 때만 사진 있는 곳이 앞(PM 결정 2026-09-28).
+import { compareWaitThenPhoto } from "@/lib/boardOrder";
 
 // 시설 종류 이모지 — course/page.tsx TYPE_OPTIONS 와 동일 매핑(레포 전역 관례 통일).
 const TYPE_EMOJI: Record<string, string> = {
@@ -898,10 +900,19 @@ export default function WaitingBoardPage() {
               // 여기서 추정 대기로 다시 세우면 '1번이 가장 덜 기다린다'가 카드 숫자와 일치한다.
               // 분이 없는 카드는 0분이 아니라 **맨 뒤**다(compareWaitMinutes) — 근거가 없다고
               // 보드 1위에 서면 순위 배지 ①②③ 이 다시 거짓말을 한다.
+              // 대기가 **같은** 곳끼리만 띄울 사진이 있는 곳을 앞에 둔다(PM 결정 2026-09-28) — 사진이 더 짧은
+              // 대기를 앞지르지 않고, 보드에 오르는 장소도 그대로다. 그 밖의 동점은 원래 순서(안정 정렬).
+              const hasPhoto = (row: BoardRow) =>
+                creditedPhotoUrls(row.imageUrls, { imageSource: row.imageSource }).length > 0;
               const openRows = sector.rows
                 .filter((r) => !r.closedToday)
                 .slice()
-                .sort((a, b) => compareWaitMinutes(waitOf(a), waitOf(b)));
+                .sort((a, b) =>
+                  compareWaitThenPhoto(
+                    { wait: waitOf(a), hasPhoto: hasPhoto(a) },
+                    { wait: waitOf(b), hasPhoto: hasPhoto(b) },
+                  ),
+                );
               const closedRows = sector.rows.filter((r) => r.closedToday);
               const topRows = openRows.slice(0, TOP_CARD_COUNT);
               const restRows = [...openRows.slice(TOP_CARD_COUNT), ...closedRows];

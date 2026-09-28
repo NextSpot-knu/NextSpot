@@ -147,7 +147,10 @@ for (const input of [
 // 판정만 고치고 화면이 옛 렌더를 유지하는 사고를 막는다(이 저장소의 다른 가드와 같은 이유).
 {
   const page = readFileSync(join(WEB, 'app/waiting/page.tsx'), 'utf8').replace(/^\s*\/\/.*$/gm, '');
-  assert.match(page, /compareWaitMinutes\(/, '보드가 null 안전 정렬을 쓰지 않는다');
+  // 보드는 compareWaitThenPhoto(대기가 같을 때만 사진 우선)로 세운다 — 그 비교자가 null 안전 정렬을 먼저 쓴다.
+  const boardOrder = readFileSync(join(WEB, 'lib/boardOrder.ts'), 'utf8').replace(/^\s*\/\/.*$/gm, '');
+  assert.match(page, /compareWaitThenPhoto\(/, '보드가 대기 우선 비교자를 쓰지 않는다');
+  assert.match(boardOrder, /const byWait = compareWaitMinutes\(a\.wait, b\.wait\);\s*if \(byWait !== 0\) return byWait;/, '보드가 null 안전 정렬을 쓰지 않는다');
   assert.doesNotMatch(
     page,
     /waitOf\(a\)\.minutes\s*-\s*waitOf\(b\)\.minutes/,
