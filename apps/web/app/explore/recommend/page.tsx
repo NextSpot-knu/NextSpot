@@ -7,7 +7,7 @@ import { ErrorState } from "@/components/ErrorState";
 import NowChip from "@/components/NowChip";
 import { createPublicClient } from "@/lib/supabase";
 const supabase = createPublicClient();
-import { apiClient, getRecommendations, recommendByType, reportFacilityAvailability, submitFeedback, parsePreference, RecommendationResponse } from "@/lib/api-client";
+import { apiClient, getRecommendations, isRequestTimeout, recommendByType, reportFacilityAvailability, submitFeedback, parsePreference, RecommendationResponse } from "@/lib/api-client";
 import { displayWalkingMinutes, MAX_RECO_DISTANCE_M } from "@/lib/recommender"; // 빈 상태 문구의 반경(1.5km) — 하드코딩 대신 실제 컷오프 상수 사용
 import { classifyIntent, buildCardSpeech } from "@/lib/voice/voiceIntent";
 import { getArrivalOpenDisplayStatus, isClosedToday } from "@/lib/restDate";
@@ -92,6 +92,10 @@ function dispatchPrefLlmDebug(status: string | undefined): void {
 
 // 백엔드 /preferences/parse 의 구조화 코드 → 현재 로케일 요약문 조립.
 // 백엔드 summary 는 한국어 단일 폴백이라 표시는 프런트 t() 키로 만든다(4로케일 — 기획 P0-1 ②).
+// by-type 대안 폴백의 대기 상한. 이 폴백은 exclude_ids=[이 시설]·limit=5 라 미리 데워진 키와 겹치지 않는
+// 차가운 계산이다 — 다른 by-type 호출(waiting/page.tsx, api-client 의 데모 프리페치)과 같은 45초를 준다.
+const BY_TYPE_FALLBACK_TIMEOUT_MS = 45_000;
+
 const NL_CATEGORY_CODES = ["restaurant", "cafe", "attraction", "culture"];
 const NL_ATTR_KEYS: Record<string, string> = {
   tasty: "recommend.nlAttrTasty",
@@ -565,23 +569,41 @@ function RecommendContent() {
         // 서버가 큐잉으로 느려진 창(무료 플랜 과부하·콜드 스타트)에서는 첫 시도가 타임아웃으로
         // 떨어질 수 있다 — 에러 화면 대신 짧은 백오프 뒤 1회 조용히 재시도한다(로더 유지).
         // 사용자에게는 '조금 더 긴 로딩'으로만 보인다.
+        //
+        // 최후 폴백 — 같은 SPOT 엔진의 by-type 경로로 대안을 채운다(과부하 창에서도 응답 실측).
+        // 반환 타입이 동일(RecommendationResponse[])해 화면 로직 변경 없음. 원 시설은 제외한다.
+        const byTypeFallback = () =>
+          recommendByType(
+            originalFacility?.type ?? "restaurant",
+            { lat, lng },
+            [facilityId],
+            5,
+            loadTravelContext(),
+            undefined,
+            undefined,
+            BY_TYPE_FALLBACK_TIMEOUT_MS,
+          );
         let recommendationsList;
         try {
           recommendationsList = await getRecommendations(facilityId, { lat, lng }, loadTravelContext());
         } catch (firstErr) {
           if (cancelled) return;
-          console.warn("추천 1차 실패 — 2.5초 후 1회 재시도:", firstErr);
-          await new Promise((resolve) => setTimeout(resolve, 2500));
-          if (cancelled) return;
-          try {
-            recommendationsList = await getRecommendations(facilityId, { lat, lng }, loadTravelContext());
-          } catch (secondErr) {
+          if (isRequestTimeout(firstErr)) {
+            // 45초 타임아웃이면 서버는 아직 그 계산을 하고 있을 수 있다. 같은 개인화 POST 를 다시 보내면
+            // (캐시·단일 비행 없음, 기록 행도 한 번 더) 같은 계산이 두 번 돈다 — 바로 대안으로 간다.
+            console.warn("추천 시간 초과 — 같은 요청을 다시 보내지 않고 by-type 엔진 폴백:", firstErr);
+            recommendationsList = await byTypeFallback();
+          } else {
+            console.warn("추천 1차 실패 — 2.5초 후 1회 재시도:", firstErr);
+            await new Promise((resolve) => setTimeout(resolve, 2500));
             if (cancelled) return;
-            // 최후 폴백 — 같은 SPOT 엔진의 by-type 경로로 대안을 채운다(과부하 창에서도 응답 실측).
-            // 반환 타입이 동일(RecommendationResponse[])해 화면 로직 변경 없음. 원 시설은 제외한다.
-            console.warn("추천 2차 실패 — by-type 엔진 폴백:", secondErr);
-            const fallbackType = originalFacility?.type ?? "restaurant";
-            recommendationsList = await recommendByType(fallbackType, { lat, lng }, [facilityId], 5, loadTravelContext());
+            try {
+              recommendationsList = await getRecommendations(facilityId, { lat, lng }, loadTravelContext());
+            } catch (secondErr) {
+              if (cancelled) return;
+              console.warn("추천 2차 실패 — by-type 엔진 폴백:", secondErr);
+              recommendationsList = await byTypeFallback();
+            }
           }
         }
         if (cancelled) return;

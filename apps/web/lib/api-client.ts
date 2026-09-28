@@ -54,6 +54,22 @@ export class HttpError extends Error {
   }
 }
 
+/**
+ * 클라이언트 타임아웃으로 끊은 요청. 메시지는 예전 `new Error(...)` 와 같아서 메시지로 분류하는
+ * 소비자(errorMessage·kindFromMessage)는 그대로 동작한다. 호출부가 "서버가 아직 계산 중일 수 있다" 를
+ * 구분해야 할 때(같은 무거운 POST 를 다시 보내지 않기) isRequestTimeout 으로 가른다.
+ */
+export class RequestTimeoutError extends Error {
+  constructor() {
+    super("요청 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요.");
+    this.name = "RequestTimeoutError";
+  }
+}
+
+export function isRequestTimeout(err: unknown): boolean {
+  return err instanceof RequestTimeoutError;
+}
+
 /** 에러에 실린 HTTP 상태 코드(없으면 undefined). AuthError·ServiceUnavailableError 도 함께 잡는다. */
 export function httpStatus(err: unknown): number | undefined {
   if (typeof err === "object" && err !== null) {
@@ -227,9 +243,10 @@ async function request(path: string, options: RequestOptions = {}) {
   // --- 재시도: Render 공유 Cloudflare 의 Managed Challenge 는 버스트 요청을 엣지에서 막아
   // 브라우저에 네트워크/CORS 실패(fetch 거부)로 나타난다 — 요청이 서버에 도달조차 못 하므로
   // 짧은 백오프 뒤 다시 보내면 대개 통과하고, 서버 미도달이라 재시도가 안전하다(멱등성 무관).
-  // '응답을 받은' 경우는 대개 서버가 처리한 결과이므로 재시도하지 않는다. 단, 429(레이트리밋·엣지
-  // 챌린지)·503(일시적 미가용 — 재배포·의존성 과부하)은 요청이 처리되지 못한 신호라 재시도한다.
-  // 타임아웃·외부 취소는 의도된 중단이라 재시도하지 않는다. 재생 불가 본문(FormData 등)·noRetry 제외.
+  // 그래서 **응답 전 네트워크 실패만** 한 번 다시 보낸다. 응답을 받았으면 상태 코드가 무엇이든
+  // (429·503 포함) 다시 보내지 않는다 — 과부하·봇차단된 백엔드에 부하를 더해 리트라이 스톰이 되고,
+  // 그 스톰이 Cloudflare IP 차단을 불렀다(B4, 아래 break 주석과 같은 규칙).
+  // 타임아웃·외부 취소는 의도된 중단이라 다시 보내지 않는다. 재생 불가 본문(FormData 등)·noRetry 제외.
   const canRetry = !options.noRetry && !isRawBody;
   const maxAttempts = canRetry ? RETRY_BACKOFF_MS.length + 1 : 1;
 
@@ -259,7 +276,7 @@ async function request(path: string, options: RequestOptions = {}) {
       if (err instanceof DOMException && err.name === "AbortError") {
         // 타임아웃/외부 취소는 의도된 중단 — 재시도하지 않고 즉시 알린다.
         if (!timedOut && externalSignal?.aborted) throw err;
-        throw new Error("요청 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요.");
+        throw new RequestTimeoutError();
       }
       networkErr = err; // 네트워크/CORS 실패(엣지 챌린지 포함) — 서버 미도달.
     } finally {
