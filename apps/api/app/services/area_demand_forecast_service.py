@@ -14,11 +14,14 @@ from __future__ import annotations
 
 import asyncio
 import bisect
+import math
 import statistics
 import threading
 import time
 from array import array
 from bisect import bisect_left
+from collections import OrderedDict
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from functools import lru_cache
@@ -28,6 +31,7 @@ from typing import Any
 import structlog
 
 from app.core.supabase import fetch_all_rows, supabase_admin
+from app.services import parking_history
 from app.services.spot.travel import calculate_haversine_distance
 from app.services.travel_context import KST
 
@@ -238,6 +242,7 @@ def aggregate_nearby_points(
     하는 ``area_demand_points_near`` RPC 다(마이그레이션 20260904120000). 여기는
     (1) RPC 가 아직 없는 DB 를 위한 폴백, (2) RPC 가 같은 값을 내는지 잠그는 테스트의
     기준값 두 가지로만 남는다. 한쪽을 바꾸면 반드시 다른 쪽과 대조 테스트도 같이 바꿀 것.
+    ⚠️ 행렬 경로의 ``_aggregate_matrix`` (바로 아래)도 같은 식·같은 필터다 — 셋(이 함수·SQL·행렬)을 함께 바꾼다.
     """
     parent_times: dict[str, datetime] = {}
     for parent in parents:
@@ -278,6 +283,51 @@ def aggregate_nearby_points(
         if weight_total > 0 and count > 0
     ]
     return sorted(points, key=lambda point: point.observed_at)
+
+
+def _aggregate_matrix(
+    snapshot: parking_history.HistorySnapshot,
+    latitude: float,
+    longitude: float,
+    start: int,
+) -> tuple[tuple[int, ...], array, array, array]:
+    """aggregate_nearby_points 와 같은 식·같은 필터를 주차 이력 행렬 위에서 계산하고, 수준을 RPC 가 돌려주는 모양으로 맞춘다.
+
+    돌려주는 것: (반경 안 열 번호들, 남는 행 번호 'I', 수준 'd', 주차장 수 'H') — 행 ``start`` 부터(창 시작).
+    합산 순서는 열 순서((lot_id, 위도, 경도) 정렬)다 — aggregate_nearby_points 에 주차장을 그 순서로 넣은 것과
+    같은 연산·같은 피연산자·같은 순서라 비트 단위로 같다(RPC 의 SQL sum() 순서는 지정돼 있지 않다 — 스펙 §5.2).
+    ⚠️ 식을 바꾸면 aggregate_nearby_points · SQL(20260904120000) · 이 함수를 함께 바꾼다.
+    ⚠️ '%.15g': 운영 RPC 의 float8 수준은 PostgREST 응답에서 유효숫자 15자리로 온다(2026-09-28 실측 5111/5111×2,
+       tests/services/test_area_demand_forecast_service.py 의 'RPC 집계' 절 경고). 같은 비트를 내려고 같은 자리에서
+       자른다. PG 처럼 클램프한 뒤 자른다(_clamp 는 -0.0 을 내지 않는다). Supabase 의 float 출력 설정이 바뀌면
+       shadow 가 'ulp' 로 드러낸다.
+    """
+    near: list[tuple[int, float]] = []
+    for j, column in enumerate(snapshot.columns):
+        distance_m = calculate_haversine_distance(latitude, longitude, column.latitude, column.longitude)
+        if distance_m > _RADIUS_M:
+            continue
+        near.append((j, distance_m))
+    size = len(snapshot.observed)
+    weighted = [0.0] * size
+    weight_total = [0.0] * size
+    count = [0] * size
+    for j, distance_m in near:  # 열 순서 == (lot_id, 위도, 경도) 정렬
+        totals, avails = snapshot.total[j], snapshot.avail[j]
+        for i in range(start, size):
+            total = totals[i]
+            if total <= 0:  # 없음/무효 칸 == aggregate_nearby_points 의 `continue`
+                continue
+            available = avails[i]
+            occupancy = 1.0 - available / total
+            weight = min(total, 500) / (1.0 + distance_m / 500.0)
+            weighted[i] = weighted[i] + occupancy * weight
+            weight_total[i] = weight_total[i] + weight
+            count[i] += 1
+    keep = array("I", (i for i in range(start, size) if weight_total[i] > 0 and count[i] > 0))
+    levels = array("d", (float("%.15g" % _clamp(weighted[i] / weight_total[i])) for i in keep))
+    counts = array("H", (count[i] for i in keep))
+    return tuple(j for j, _ in near), keep, levels, counts
 
 
 def _is_weekend(value: datetime) -> bool:
@@ -1005,3 +1055,287 @@ def _cached_backtest(
         _quality_inflight.pop(key, None)
     done.set()
     return quality
+
+
+# ── 행렬 경로(P2a — app/services/parking_history.py 의 주차 이력 행렬) ─────────────────
+# 격자 캐시·RPC 경로(위)와 완전히 따로 둔 상태다. 위 함수들은 하나도 고치지 않았다.
+#
+# 무엇이 다른가: 시계열을 격자(round 3자리) 대신 **요청한 정확한 좌표**로 계산한다 — 같은 100m 격자 안의 두 장소가
+# 먼저 물은 장소의 시계열·품질을 나눠 받지 않는다(crit7). 비용은 메모로 묶는다.
+#
+# 메모 셋(모두 키에 세대 번호가 들어간다 — 세대는 프로세스 전체에서 늘어나기만 하므로 옛 내용을 돌려줄 수 없다):
+#   _NEAR_MEMO    (반경 안 열들, 세대, 창 시작) → _NearEntry(남는 행·주차장 수·색인)   — 조합이 같으면 좌표가 달라도 같다
+#   _SERIES_MEMO  (위도, 경도, 세대, 창 시작)   → (반경 안 열들, 수준 'd')
+#   _MQUALITY     (위도, 경도, 세대, 창 시작)   → 백테스트 품질 dict
+# 규칙: 락(_MEMO_LOCK) 하나가 셋과 진행 중 표를 함께 감싼다. 락은 dict 조작에만 잡고 계산 중에는 잡지 않는다.
+# 넘치면 가장 오래 안 쓴 것부터 popitem(last=False) — 순회·min() 을 하지 않는다. 더 새 세대를 보면 셋 다 비우고
+# 그 세대로 올라가고, 더 옛 세대의 넣기는 버린다(옛 세대로 읽는 호출은 계산만 하고 공유하지 않는다).
+# 남는 행·주차장 수는 반경 안 열 조합에만 달려 있다: total > 0 이면 거리(유한) 가중치가 늘 양수다. 그래서 좌표가
+# 유한할 때만 메모를 쓴다(NaN 좌표는 거리가 NaN 이라 같은 조합이어도 남는 행이 달라진다 — 메모 없이 계산한다).
+
+_NEAR_MEMO_MAX = 8  # 현실적으로 2~3 (주차장 4곳)
+_SERIES_MEMO_MAX = 128
+_MQUALITY_MAX = 512
+
+
+class _Memo:
+    """상한 있는 LRU 표 하나 + 그 표의 진행 중(single-flight) 표. 조작은 전부 _MEMO_LOCK 아래에서만."""
+
+    __slots__ = ("cap", "entries", "inflight")
+
+    def __init__(self, cap: int) -> None:
+        self.cap = cap
+        self.entries: OrderedDict[Any, Any] = OrderedDict()
+        self.inflight: dict[Any, threading.Event] = {}
+
+
+_MEMO_LOCK = threading.Lock()
+_NEAR_MEMO = _Memo(_NEAR_MEMO_MAX)
+_SERIES_MEMO = _Memo(_SERIES_MEMO_MAX)
+_MQUALITY = _Memo(_MQUALITY_MAX)
+_MEMOS = (_NEAR_MEMO, _SERIES_MEMO, _MQUALITY)
+_memo_generation = 0  # 지금까지 본 가장 높은 세대
+
+
+class _NearEntry:
+    """반경 안 열 조합 하나(세대·창 시작 고정)의 시각 쪽 몫 — 수준과 무관해 같은 조합의 좌표가 나눠 쓴다."""
+
+    __slots__ = ("keep", "counts", "index")
+
+    def __init__(self, keep: array, counts: array, index: _SeriesIndex | None) -> None:
+        self.keep = keep  # 'I' — 남는 행 번호(행렬 기준)
+        self.counts = counts  # 'H' — 행마다 반경 안 유효 주차장 수
+        self.index = index  # _SeriesIndex(시각만 본다) 또는 None
+
+
+class _PointsView(Sequence):
+    """행렬 한 좌표의 시계열을 AreaDemandPoint 의 **게으른** 수열로 보인다(점 객체를 미리 만들지 않는다).
+
+    ``_forecast_from_points`` · ``_SeriesIndex`` 는 고치지 않고 이것을 그대로 받는다(len·정수 첨자·조각·반복).
+    조각은 리스트를 돌려준다.
+    """
+
+    __slots__ = ("_observed", "_keep", "_levels", "_counts")
+
+    def __init__(self, observed: tuple[datetime, ...], keep: array, levels: array, counts: array) -> None:
+        self._observed = observed
+        self._keep = keep
+        self._levels = levels
+        self._counts = counts
+
+    def __len__(self) -> int:
+        return len(self._keep)
+
+    def __getitem__(self, position):  # type: ignore[override]
+        if isinstance(position, slice):
+            return [self[k] for k in range(*position.indices(len(self._keep)))]
+        return AreaDemandPoint(
+            self._observed[self._keep[position]], self._levels[position], self._counts[position]
+        )
+
+
+def _memo_adopt(generation: int) -> bool:
+    """(_MEMO_LOCK 아래에서) 더 새 세대면 메모·진행 중 표를 전부 비우고 올라간다. 지금 세대와 같으면 True."""
+    global _memo_generation
+    if generation > _memo_generation:
+        for memo in _MEMOS:
+            memo.entries.clear()
+            memo.inflight.clear()
+        _memo_generation = generation
+    return generation == _memo_generation
+
+
+def _memo_get(memo: _Memo, key: Any, generation: int) -> Any:
+    with _MEMO_LOCK:
+        if not _memo_adopt(generation):
+            return None
+        value = memo.entries.get(key)
+        if value is not None:
+            memo.entries.move_to_end(key)
+        return value
+
+
+def _memo_store(memo: _Memo, key: Any, generation: int, value: Any) -> None:
+    """(_MEMO_LOCK 아래에서) 넣고 상한을 지킨다. 옛 세대의 넣기는 버린다."""
+    if not _memo_adopt(generation):
+        return
+    memo.entries[key] = value
+    memo.entries.move_to_end(key)
+    while len(memo.entries) > memo.cap:
+        memo.entries.popitem(last=False)
+
+
+def _memo_put(memo: _Memo, key: Any, generation: int, value: Any) -> None:
+    with _MEMO_LOCK:
+        _memo_store(memo, key, generation, value)
+
+
+def _mflight(memo: _Memo, key: Any, generation: int, compute: Callable[[], Any]) -> Any:
+    """메모를 거친 single-flight — ``_cached_backtest`` 와 같은 모양(그 함수는 고치지 않는다).
+
+    같은 키를 동시에 빗나간 호출은 첫 호출의 계산을 기다렸다가 메모에서 받는다. 계산은 락 밖에서 돈다. 예외는 나눠
+    갖지 않는다: 계산이 실패하면 진행 중 표시만 지우고, 기다리던 쪽은 다음 바퀴에 직접 계산한다. 옛 세대로 부른
+    호출은 표에 끼지 않고 혼자 계산한다.
+    """
+    done: threading.Event | None = None
+    while True:
+        with _MEMO_LOCK:
+            if not _memo_adopt(generation):
+                break
+            value = memo.entries.get(key)
+            if value is not None:
+                memo.entries.move_to_end(key)
+                return value
+            running = memo.inflight.get(key)
+            if running is None:
+                done = threading.Event()
+                memo.inflight[key] = done
+                break
+        running.wait()
+
+    try:
+        value = compute()
+    except BaseException:
+        if done is not None:
+            with _MEMO_LOCK:
+                if memo.inflight.get(key) is done:
+                    del memo.inflight[key]
+            done.set()
+        raise
+    if done is not None:
+        with _MEMO_LOCK:
+            if memo.inflight.get(key) is done:
+                del memo.inflight[key]
+            _memo_store(memo, key, generation, value)
+        done.set()
+    return value
+
+
+def reset_matrix_memos() -> None:
+    """테스트 전용 — 행렬 경로 메모를 비운다(세대 기준도 0 으로)."""
+    global _memo_generation
+    with _MEMO_LOCK:
+        for memo in _MEMOS:
+            memo.entries.clear()
+            memo.inflight.clear()
+        _memo_generation = 0
+
+
+def _build_near_entry(observed: tuple[datetime, ...], keep: array, levels: array, counts: array) -> _NearEntry:
+    # 색인은 시각만 본다(수준은 점을 만들 때 자리만 채운다).
+    return _NearEntry(keep, counts, _SeriesIndex.build(_PointsView(observed, keep, levels, counts)))
+
+
+def _matrix_series(
+    snapshot: parking_history.HistorySnapshot,
+    latitude: float,
+    longitude: float,
+    start: int,
+) -> tuple[_PointsView, _NearEntry]:
+    """정확한 좌표의 시계열(게으른 수열)과 그 반경 안 열 조합의 몫. 순수 CPU(I/O 없음), 메모 경유."""
+    generation = snapshot.generation
+    memoize = math.isfinite(latitude) and math.isfinite(longitude)
+    series_key = (latitude, longitude, generation, start)
+    if memoize:
+        hit = _memo_get(_SERIES_MEMO, series_key, generation)
+        if hit is not None:
+            near_columns, levels = hit
+            entry = _memo_get(_NEAR_MEMO, (near_columns, generation, start), generation)
+            if entry is not None:
+                return _PointsView(snapshot.observed, entry.keep, levels, entry.counts), entry
+    near_columns, keep, levels, counts = _aggregate_matrix(snapshot, latitude, longitude, start)
+    if not memoize:
+        entry = _build_near_entry(snapshot.observed, keep, levels, counts)
+        return _PointsView(snapshot.observed, keep, levels, counts), entry
+    entry = _mflight(
+        _NEAR_MEMO, (near_columns, generation, start), generation,
+        lambda: _build_near_entry(snapshot.observed, keep, levels, counts),
+    )
+    _memo_put(_SERIES_MEMO, series_key, generation, (near_columns, levels))
+    return _PointsView(snapshot.observed, entry.keep, levels, entry.counts), entry
+
+
+def _matrix_quality_compute(view: _PointsView, near_entry: _NearEntry) -> dict[str, Any]:
+    """좌표 하나의 백테스트 품질 — RPC 경로와 같은 함수(``backtest_forecast_points``)를 같은 점들에 돌린다."""
+    return backtest_forecast_points(list(view))
+
+
+def _matrix_quality_for(
+    snapshot: parking_history.HistorySnapshot,
+    latitude: float,
+    longitude: float,
+    start: int,
+    view: _PointsView,
+    near_entry: _NearEntry,
+) -> dict[str, Any]:
+    if not (math.isfinite(latitude) and math.isfinite(longitude)):
+        return _matrix_quality_compute(view, near_entry)
+    return _mflight(
+        _MQUALITY, (latitude, longitude, snapshot.generation, start), snapshot.generation,
+        lambda: _matrix_quality_compute(view, near_entry),
+    )
+
+
+def _matrix_window_start(snapshot: parking_history.HistorySnapshot, now: datetime) -> int:
+    # RPC 경로의 p_since 와 같은 경계: (now − 56일), naive now 는 UTC 로 본다(_load_points_uncached 와 같다).
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    return parking_history.window_start(snapshot, now - timedelta(days=_LOOKBACK_DAYS))
+
+
+def _matrix_forecast(
+    snapshot: parking_history.HistorySnapshot,
+    latitude: float,
+    longitude: float,
+    arrival: datetime,
+    now: datetime,
+) -> dict[str, Any] | None:
+    """행렬로 계산한 이력 전망 — get_historical_area_demand_forecast(RPC 경로)의 계산을 줄 단위로 따른다. 순수 CPU."""
+    start = _matrix_window_start(snapshot, now)
+    points, near_entry = _matrix_series(snapshot, latitude, longitude, start)
+    forecast = _forecast_from_points(points, arrival, now, near_entry.index)
+    if forecast is None:
+        return None
+    quality = _matrix_quality_for(snapshot, latitude, longitude, start, points, near_entry)
+    usable = bool(
+        quality["sample_count"] >= 30
+        and quality["mae"] is not None
+        and quality["mae"] <= 0.15
+        and quality["improvement_rate"] is not None
+        and quality["improvement_rate"] >= 0.20
+    )
+    if not usable:
+        return None
+    forecast["validation"] = quality
+    return forecast
+
+
+def _matrix_quality(
+    snapshot: parking_history.HistorySnapshot,
+    latitude: float,
+    longitude: float,
+    now: datetime,
+) -> dict[str, Any]:
+    """행렬로 계산한 권역 품질 — get_area_demand_forecast_quality(RPC 경로)의 계산을 줄 단위로 따른다. 순수 CPU."""
+    start = _matrix_window_start(snapshot, now)
+    points, near_entry = _matrix_series(snapshot, latitude, longitude, start)
+    quality = _matrix_quality_for(snapshot, latitude, longitude, start, points, near_entry)
+    if not points:
+        return {
+            **quality, "usable": False, "point_count": 0,
+            "data_from": None, "data_to": None,
+        }
+    usable = bool(
+        quality["sample_count"] >= 30
+        and quality["mae"] is not None
+        and quality["mae"] <= 0.15
+        and quality["improvement_rate"] is not None
+        and quality["improvement_rate"] >= 0.20
+    )
+    return {
+        **quality,
+        "usable": usable,
+        "point_count": len(points),
+        "data_from": points[0].observed_at.isoformat(),
+        "data_to": points[-1].observed_at.isoformat(),
+    }

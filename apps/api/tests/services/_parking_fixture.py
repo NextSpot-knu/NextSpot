@@ -304,3 +304,108 @@ class FakeParkingDB:
     def table(self, name: str) -> _FakeQuery:
         assert name == "area_demand_snapshots", name
         return _FakeQuery(self)
+
+
+# ── Postgres 대조본(RPC area_demand_points_near, 마이그레이션 20260904120000) ─────────────────
+# tests/services/test_area_demand_forecast_service.py 의 _sql_payload · _sql_distance_m 은 기존 시험이 잠그고 있어
+# 그대로 두고, 여기에 운영 RPC 를 더 가깝게 흉내 낸 판을 따로 둔다: 거리는 Postgres 반올림(_sql_distance_pg),
+# 수준은 PostgREST 가 돌려주는 유효숫자 15자리(float('%.15g' % level)), 관측 시각은 to_char(... .US)||'+00:00'.
+
+
+def _sql_bounding_box_pg(latitude: float, longitude: float, radius_m: float) -> tuple[float, float, float, float]:
+    """마이그레이션의 경계 상자 — test_area_demand_forecast_service._sql_bounding_box 와 같은 식(복사본)."""
+    sigma = (radius_m + 1.0) / EARTH_M
+    lat_delta = math.degrees(sigma)
+    lat_min = max(-90.0, latitude - lat_delta)
+    lat_max = min(90.0, latitude + lat_delta)
+    far_lat = min(90.0, abs(latitude) + lat_delta)
+    cos_product = math.cos(math.radians(latitude)) * math.cos(math.radians(far_lat))
+    if cos_product <= 0.0:
+        lng_delta = 180.0
+    else:
+        lng_delta = math.degrees(
+            2.0 * math.asin(min(1.0, math.sin(sigma / 2.0) / math.sqrt(cos_product)))
+        )
+    if lng_delta >= 180.0 or longitude - lng_delta < -180.0 or longitude + lng_delta > 180.0:
+        return lat_min, lat_max, -180.0, 180.0
+    return lat_min, lat_max, longitude - lng_delta, longitude + lng_delta
+
+
+def _pg_observed(value: Any) -> str:
+    """to_char(observed_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US') || '+00:00' — µs 는 늘 6자리."""
+    return _ts(value).astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S.%f") + "+00:00"
+
+
+def _sql_payload_pg(
+    parents: Any,
+    lots: Any,
+    latitude: float,
+    longitude: float,
+    radius_m: float = 2_000.0,
+) -> dict[str, Any]:
+    """RPC 가 돌려줄 JSONB 응답의 대조본. 합산 순서는 ``lots`` 의 순서다(열 순서로 넘기면 운영 실측 순서와 같다).
+
+    DB CHECK 가 막아 실제로는 없는 무효 칸(숫자 아님·키 없음)은 SQL 이 볼 수 없으므로 건너뛴다.
+    """
+    lat_min, lat_max, lng_min, lng_max = _sql_bounding_box_pg(latitude, longitude, radius_m)
+    times = {str(parent["id"]): parent["observed_at"] for parent in parents}
+    grouped: dict[str, tuple[float, float, int]] = {}
+    for lot in lots:
+        snapshot_id = str(lot["snapshot_id"])
+        if snapshot_id not in times:
+            continue
+        try:
+            lot_lat, lot_lng = float(lot["latitude"]), float(lot["longitude"])
+            total, available = int(lot["total_spaces"]), int(lot["available_spaces"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if not lat_min <= lot_lat <= lat_max:
+            continue
+        if not lng_min <= lot_lng <= lng_max:
+            continue
+        if not (total > 0 and 0 <= available <= total):
+            continue
+        distance_m = _sql_distance_pg(latitude, longitude, lot_lat, lot_lng)
+        if distance_m > radius_m:
+            continue
+        occupancy = 1.0 - available / total
+        weight = min(total, 500) / (1.0 + distance_m / 500.0)
+        weighted, weight_total, count = grouped.get(snapshot_id, (0.0, 0.0, 0))
+        grouped[snapshot_id] = (weighted + occupancy * weight, weight_total + weight, count + 1)
+    points = sorted(
+        (
+            [times[snapshot_id], float("%.15g" % min(1.0, max(0.0, weighted / weight_total))), count]
+            for snapshot_id, (weighted, weight_total, count) in grouped.items()
+            if weight_total > 0 and count > 0
+        ),
+        key=lambda row: _ts(row[0]),
+    )
+    for row in points:
+        row[0] = _pg_observed(row[0])
+    return {"source": "gyeongju_its", "radius_m": radius_m, "point_count": len(points), "points": points}
+
+
+def lot_coordinates() -> tuple[tuple[float, float], ...]:
+    """고정 자료에 나오는 주차장 좌표 전부(옮긴 :92 포함)."""
+    return tuple((lat, lng) for _, lat, lng, _ in LOTS) + (MOVED_LOT_COORDS,)
+
+
+def _is_tie(latitude: float, longitude: float, tolerance_m: float = 1e-6) -> bool:
+    """어느 주차장까지의 반올림 전 거리가 .x5 경계에서 tolerance_m 안인가 — 파이썬·PG 반올림이 갈릴 수 있는 좌표(R11)."""
+    for lot_lat, lot_lng in lot_coordinates():
+        tenths = haversine_raw_m(latitude, longitude, lot_lat, lot_lng) * 10.0
+        if abs((tenths - math.floor(tenths)) - 0.5) < tolerance_m * 10.0:
+            return True
+    return False
+
+
+def north_of(lot_lat: float, lot_lng: float, target_m: float) -> tuple[float, float]:
+    """주차장에서 정북으로 반올림 전 거리가 target_m 인 좌표(위도 이분 탐색)."""
+    low, high = lot_lat, lot_lat + 0.05
+    for _ in range(200):
+        mid = (low + high) / 2.0
+        if haversine_raw_m(mid, lot_lng, lot_lat, lot_lng) < target_m:
+            low = mid
+        else:
+            high = mid
+    return high, lot_lng
