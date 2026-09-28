@@ -6,7 +6,12 @@ import { toast } from 'sonner';
 import { createPublicClient } from '@/lib/supabase';
 import { adminApi } from '@/lib/admin-api';
 import { REGION } from '@/lib/region';
-import { fetchAdminFacilityRows, type AdminFacilityRow } from '@/lib/adminFacilityList';
+import {
+  countNameMatchesByType,
+  fetchAdminFacilityRows,
+  filterAdminFacilities,
+  type AdminFacilityRow,
+} from '@/lib/adminFacilityList';
 
 // 읽기는 anon(RLS: anon_select_facilities 유지), 쓰기는 관리자 API(FastAPI service_role) 경유 —
 // anon 직접 쓰기는 RLS 로 거부되며, 과거엔 0행 갱신이 성공으로 표시되는 무음 실패였다(WS-A-6).
@@ -179,9 +184,14 @@ export function FacilityTable() {
     return '24시간';
   };
 
-  // Filtering — 카테고리 탭 + 이름 검색(부분 일치). 수백 쪽을 넘기지 않고 한 곳을 바로 찾는다.
+  // Filtering — 카테고리 탭 + 이름 검색(부분 일치, 대소문자·공백 무시). 수백 쪽을 넘기지 않고 한 곳을 바로 찾는다.
+  // 지금 탭에 없으면 다른 탭에 몇 곳 있는지 알려 준다(카페를 음식점 탭에서 찾는 경우).
   const q = query.trim();
-  const filteredFacilities = facilities.filter(f => f.type === selectedCategory && (!q || f.name.includes(q)));
+  const filteredFacilities = filterAdminFacilities(facilities, selectedCategory, q);
+  const matchCounts = q && filteredFacilities.length === 0 ? countNameMatchesByType(facilities, q) : {};
+  const otherTabMatches = categories
+    .map((cat) => ({ ...cat, count: matchCounts[cat.id] ?? 0 }))
+    .filter((cat) => cat.id !== selectedCategory && cat.count > 0);
 
   // Pagination
   const totalItems = filteredFacilities.length;
@@ -323,8 +333,27 @@ export function FacilityTable() {
                           <div className="w-11 h-11 rounded-2xl bg-gold/10 border border-gold/30 flex items-center justify-center">
                             <Settings size={20} className="text-gold-deep" />
                           </div>
-                          {q ? (
-                            <p className="text-sm font-semibold text-hanok-ink">&lsquo;{q}&rsquo; 이름의 장소가 이 유형에 없습니다.</p>
+                          {q && otherTabMatches.length > 0 ? (
+                            <>
+                              <p className="text-sm font-semibold text-hanok-ink">&lsquo;{q}&rsquo; 이름의 장소는 다른 유형에 있습니다.</p>
+                              <div className="flex flex-wrap justify-center gap-2">
+                                {otherTabMatches.map((cat) => (
+                                  <button
+                                    key={cat.id}
+                                    type="button"
+                                    onClick={() => {
+                                      setSelectedCategory(cat.id);
+                                      setCurrentPage(1);
+                                    }}
+                                    className="px-3 py-1.5 rounded-lg text-xs font-bold border bg-gold/15 border-gold/40 text-gold-deep hover:bg-gold/25 transition-colors"
+                                  >
+                                    {cat.name} 탭에 {cat.count}곳
+                                  </button>
+                                ))}
+                              </div>
+                            </>
+                          ) : q ? (
+                            <p className="text-sm font-semibold text-hanok-ink">&lsquo;{q}&rsquo; 이름의 장소를 찾지 못했습니다.</p>
                           ) : (
                             <p className="text-sm font-semibold text-hanok-ink">이 유형의 장소를 불러오는 중입니다.</p>
                           )}
