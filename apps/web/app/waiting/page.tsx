@@ -41,6 +41,9 @@ import NowChip from "@/components/NowChip";
 import LoadingReveal from "@/components/LoadingReveal";
 // T2: 휴무 원문(rest_date_raw) 파서 — 오늘 휴무 '확정'만 판정(모르면 null, 과판정 금지). 공용 단일 소스.
 import { isClosedToday } from "@/lib/restDate";
+// Wikimedia 사진(CC BY/BY-SA)은 출처와 함께만 — 출처 줄은 지금 보이는 사진이 Wikimedia 일 때만 붙는다.
+import { creditedPhotoUrls, creditForDisplayedPhoto, imageSourceOf } from "@/lib/photoCredit";
+import { PhotoCreditLink } from "@/components/PhotoCreditLink";
 
 // 시설 종류 이모지 — course/page.tsx TYPE_OPTIONS 와 동일 매핑(레포 전역 관례 통일).
 const TYPE_EMOJI: Record<string, string> = {
@@ -71,7 +74,8 @@ interface BoardRow {
   type: string;
   imageUrls: string[];
   summary: string | null;
-  imageSource: { provider?: string; sourceUrl?: string; license?: string; artist?: string } | null;
+  // features.imageSource(API camel) 또는 image_source(snake) 원본 — Wikimedia 대체 사진의 작가·라이선스·원문 링크.
+  imageSource: Record<string, unknown> | null;
   congestionLevel: number | null;
   // 매장 내부 혼잡이 없을 때도 공영주차·관광 근거로 대안성을 보여주는 주변 권역 수요.
   areaDemandLevel: number | null;
@@ -114,9 +118,22 @@ interface Sector {
 
 // TourAPI firstimage가 비어 있거나 원본 서버에서 만료·차단되어 로드에 실패하면
 // 같은 높이의 유형 아이콘 폴백으로 즉시 전환해 카드 상단이 빈 공간으로 남지 않게 한다.
-function WaitingCardImage({ imageUrls, name, type }: Pick<BoardRow, "imageUrls" | "name" | "type">) {
+// 출처 줄은 카드 버튼 밖에 있으므로(<a> 는 <button> 안에 둘 수 없다) 지금 띄운 사진을 부모에게 알린다 —
+// 대표 사진이 깨져 갤러리의 Wikimedia 사진으로 넘어갈 때 출처가 그 사진을 따라간다.
+function WaitingCardImage({
+  facilityId,
+  imageUrls,
+  name,
+  type,
+  onDisplayedUrl,
+}: Pick<BoardRow, "facilityId" | "imageUrls" | "name" | "type"> & {
+  onDisplayedUrl: (facilityId: string, url: string | null) => void;
+}) {
   const [imageIndex, setImageIndex] = useState(0);
   const imageUrl = imageUrls[imageIndex];
+  useEffect(() => {
+    onDisplayedUrl(facilityId, imageUrl ?? null);
+  }, [facilityId, imageUrl, onDisplayedUrl]);
 
   if (!imageUrl) {
     return (
@@ -316,6 +333,11 @@ export default function WaitingBoardPage() {
   //   · /area-demand/forecast : 앞으로 6시간 정시별 권역 주차 수요 전망(한산해지는 시각의 근거)
   // 둘 다 실패해도 보드는 내장 시간대 곡선으로 계속 세 숫자를 보여준다(빈칸 금지).
   const [estimateLevels, setEstimateLevels] = useState<Record<string, number>>({});
+  // 대표 카드마다 지금 보이는 사진 URL(null = 사진 없음·전부 실패) — 출처 줄이 이 사진을 따라간다.
+  const [displayedPhotos, setDisplayedPhotos] = useState<Record<string, string | null>>({});
+  const reportDisplayedPhoto = useCallback((facilityId: string, url: string | null) => {
+    setDisplayedPhotos((prev) => (prev[facilityId] === url ? prev : { ...prev, [facilityId]: url }));
+  }, []);
   const [areaCurve, setAreaCurve] = useState<AreaDemandCurve | null>(null);
 
   // 가정 시각 프리셋이 가리키는 절대 시각 — 대기·한산 시각 계산의 기준점.
@@ -517,12 +539,7 @@ export default function WaitingBoardPage() {
           // TourAPI 소개(비-ko 로케일이면 배치 번역 우선)를 우선하고, 없으면 실제 주소를 짧은 보조
           // 설명으로 사용한다. 둘 다 없을 때는 내용을 지어내지 않고 설명 영역을 숨긴다.
           summary: overviewText || rec.facility.address?.trim() || null,
-          imageSource: (() => {
-            const source = rec.facility.features?.imageSource;
-            return source && typeof source === "object"
-              ? source as BoardRow["imageSource"]
-              : null;
-          })(),
+          imageSource: imageSourceOf(rec.facility.features),
           // 카드·추천 목록과 **같은 판정**을 쓴다. 이 보드는 같은 RecommendItem 을 받으면서
           // 원시 congestionLevel 만 읽어, 추천 화면이 '추정 · 여유' 라고 말하는 시설을
           // '혼잡' 으로 그리고 있었다(2026-09-20 적대적 검토). 추정은 여기서 그리지 않고
@@ -768,7 +785,12 @@ export default function WaitingBoardPage() {
 
                   {/* 대표 카드 3장 — 도착 대기 짧은 순 상위 3곳, 세로로 긴 포트레이트 카드 */}
                   <div className="grid grid-cols-3 items-stretch gap-2">
-                    {topRows.map((row, idx) => (
+                    {topRows.map((row, idx) => {
+                      const photoFeatures = { imageSource: row.imageSource };
+                      // 출처 없는 Wikimedia 사진은 후보에서 빠진다(출처 없이 띄우지 않는다).
+                      const photoUrls = creditedPhotoUrls(row.imageUrls, photoFeatures);
+                      const photoCredit = creditForDisplayedPhoto(displayedPhotos[row.facilityId], photoFeatures);
+                      return (
                       <div key={row.facilityId} className="grid min-w-0 grid-rows-[1fr_auto]">
                       <button
                         type="button"
@@ -790,7 +812,14 @@ export default function WaitingBoardPage() {
                         >
                           {idx + 1}
                         </span>
-                        <WaitingCardImage imageUrls={row.imageUrls} name={row.name} type={row.type} />
+                        <WaitingCardImage
+                          key={photoUrls.join("|")}
+                          facilityId={row.facilityId}
+                          imageUrls={photoUrls}
+                          name={row.name}
+                          type={row.type}
+                          onDisplayedUrl={reportDisplayedPhoto}
+                        />
                         <div className="flex flex-1 min-h-0 flex-col justify-between p-2">
                           {/* 위 소개 블록은 공간이 모자라면 깔끔히 잘리고(overflow-hidden), 아래 대기
                               스탯 블록은 shrink-0 으로 항상 온전히 남는다 — 카드의 주인공은 '도착 시 대기'다. */}
@@ -816,21 +845,13 @@ export default function WaitingBoardPage() {
                           <WaitStats est={waitOf(row)} row={row} estimateLevel={estimateLevels[row.facilityId]} />
                         </div>
                       </button>
-                      <div className="min-h-4">
-                      {row.imageSource?.sourceUrl && (
-                        <a
-                          href={row.imageSource.sourceUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="mt-1 block truncate text-[8px] text-muk-soft underline underline-offset-2"
-                          title={`${row.imageSource.artist || row.imageSource.provider || "Wikimedia"} · ${row.imageSource.license || ""}`}
-                        >
-                          {row.imageSource.artist || row.imageSource.provider || "Wikimedia"} · {row.imageSource.license}
-                        </a>
-                      )}
+                      {/* 높이를 늘 확보해 둔다 — 출처 줄이 생기고 사라져도 카드 줄이 흔들리지 않는다. */}
+                      <div className="min-h-4 pt-0.5">
+                      {photoCredit && <PhotoCreditLink credit={photoCredit} />}
                       </div>
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
 
                   {/* 섹터 1위 골든타임 — 카드 밖 한 줄(컴팩트 카드 폭 안에 배지+알림 버튼이 안 들어감).

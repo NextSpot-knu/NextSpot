@@ -18,6 +18,7 @@ import { congestionKey as gradeKey } from '@/lib/congestionScale';
 import { resolveAnchorCrowd, resolveCandidateCrowd } from '@/lib/compareHeader';
 import { useBusyThreshold } from '@/components/shell/PublicSettingsProvider';
 import { creditedPhotoUrls, creditForDisplayedPhoto } from '@/lib/photoCredit';
+import { PhotoCreditLink } from '@/components/PhotoCreditLink';
 
 // facility prop 이 이 컴포넌트에서 실제로 읽는 필드만 구조적으로 명시한 타입.
 // 콜러 둘의 합집합: main(page)은 Facility(congestionLevel/currentCount: number|null,
@@ -1367,17 +1368,7 @@ export function RecommendationCard({
               className="w-full h-32 object-cover rounded-2xl border border-line"
             />
           )}
-          {cardImageUrl && cardImageCredit && (
-            <a
-              href={cardImageCredit.sourceUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="-mt-2 block truncate text-[9px] text-muk-soft underline underline-offset-2"
-              title={`${cardImageCredit.label} · ${cardImageCredit.license}`}
-            >
-              {cardImageCredit.label}{cardImageCredit.license ? ` · ${cardImageCredit.license}` : ''}
-            </a>
-          )}
+          {cardImageUrl && cardImageCredit && <PhotoCreditLink credit={cardImageCredit} className="-mt-2" />}
 
           {/* AI 추천 사유 (백엔드 템플릿, 있을 때만) */}
           {reason && (

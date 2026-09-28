@@ -28,12 +28,31 @@ function text(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
 }
 
-/** features 에 저장된 Wikimedia 출처. 원문 링크가 없으면 출처로 쓸 수 없어 null. */
-export function wikimediaCredit(features: Record<string, unknown> | null | undefined): PhotoCredit | null {
+/** 링크로 걸어도 되는 원문 주소 — http(s) 만. javascript:·data: 같은 주소는 출처 링크가 될 수 없다. */
+function safeHttpUrl(value: unknown): string {
+  const raw = text(value);
+  if (!raw) return '';
+  try {
+    const url = new URL(raw);
+    return url.protocol === 'https:' || url.protocol === 'http:' ? url.href : '';
+  } catch {
+    return '';
+  }
+}
+
+/** features 의 출처 원본(camel imageSource 또는 snake image_source). 객체가 아니면 null. */
+export function imageSourceOf(
+  features: Record<string, unknown> | null | undefined,
+): Record<string, unknown> | null {
   const raw = features?.imageSource ?? features?.image_source;
-  if (!raw || typeof raw !== 'object') return null;
-  const source = raw as Record<string, unknown>;
-  const sourceUrl = text(source.sourceUrl ?? source.source_url);
+  return raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, unknown>) : null;
+}
+
+/** features 에 저장된 Wikimedia 출처. 원문 링크(http/https)가 없으면 출처로 쓸 수 없어 null. */
+export function wikimediaCredit(features: Record<string, unknown> | null | undefined): PhotoCredit | null {
+  const source = imageSourceOf(features);
+  if (!source) return null;
+  const sourceUrl = safeHttpUrl(source.sourceUrl ?? source.source_url);
   if (!sourceUrl) return null;
   return {
     label: text(source.artist) || text(source.provider) || 'Wikimedia',

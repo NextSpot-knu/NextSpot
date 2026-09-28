@@ -26,6 +26,8 @@ import { congestionDisplay, estimateRadiusKm, formatEstimateTime, formatLastObse
 import { congestionKey } from "@/lib/congestionScale";
 import { useBusyThreshold } from "@/components/shell/PublicSettingsProvider";
 import { buildSpotComparisons, formatSpotComparison } from "@/lib/spotComparison";
+import { creditedPhotoUrls, creditForDisplayedPhoto } from "@/lib/photoCredit";
+import { PhotoCreditLink } from "@/components/PhotoCreditLink";
 
 // (window.kakao 타입은 types/kakao-maps.d.ts 가 전역으로 선언한다 — 파일마다 declare global 로
 //  중복 선언하던 `kakao: any` 를 걷어냈다.)
@@ -1410,6 +1412,9 @@ function RecommendContent() {
               // TourAPI 상세 소비(RecommendationCard 와 동일 관례) — features 내부 키는 keysToCamel 재귀
               // 변환(firstMenu)과 supabase 폴백 원본(first_menu) 두 표기를 모두 방어한다.
               const recFeatures = rec.facility.features as Record<string, unknown> | null | undefined;
+              // 대표 사진 — 출처 없는 Wikimedia 사진은 띄우지 않고, Wikimedia 사진이면 출처를 붙인다.
+              const photoUrl = creditedPhotoUrls(rec.facility.imageUrl ? [rec.facility.imageUrl] : [], recFeatures)[0];
+              const photoCredit = creditForDisplayedPhoto(photoUrl, recFeatures);
               const firstMenuRaw = (recFeatures?.firstMenu ?? recFeatures?.first_menu) as string | undefined;
               const firstMenuTokens = firstMenuRaw
                 ? firstMenuRaw.split(",").map((s) => s.trim()).filter(Boolean).slice(0, 2)
@@ -1467,15 +1472,22 @@ function RecommendContent() {
                   {/* 시설 사진 — TourAPI firstimage(이미 응답에 실려 옴). 정적 export 라 raw img 사용
                       (대기 보드 WaitingCardImage 와 동일 관례). 로드 실패 시 상태 없이 요소만 숨겨
                       레이아웃이 깨지지 않는다. */}
-                  {rec.facility.imageUrl && (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={rec.facility.imageUrl}
-                      alt={rec.facility.name}
-                      loading="lazy"
-                      onError={(e) => { e.currentTarget.style.display = 'none'; }}
-                      className="w-full h-36 object-cover rounded-xl border border-line mb-4"
-                    />
+                  {photoUrl && (
+                    // 사진과 출처를 한 상자로 — 사진이 깨지면 출처 줄도 같이 숨는다.
+                    <div className="mb-4">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={photoUrl}
+                        alt={rec.facility.name}
+                        loading="lazy"
+                        onError={(e) => {
+                          const box = e.currentTarget.parentElement;
+                          if (box) box.style.display = 'none';
+                        }}
+                        className="w-full h-36 object-cover rounded-xl border border-line"
+                      />
+                      {photoCredit && <PhotoCreditLink credit={photoCredit} className="mt-1" />}
+                    </div>
                   )}
                   {/* Top info row */}
                   <div className="flex justify-between items-start gap-3">
