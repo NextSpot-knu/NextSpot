@@ -755,3 +755,37 @@ def test_stop_emits_a_final_shadow_summary_with_the_boot_totals(monkeypatch, sha
 
     monkeypatch.setattr(ph, "_shadow_flush", _broken)
     asyncio.run(ph.stop())
+
+
+# ── 수리: shadow 요청이 최근 좌표 고리를 채운다('facility' 탐침 · distinct_facility_coords ≥ 20 게이트의 원천) ──────────
+
+
+@pytest.mark.asyncio
+async def test_shadow_requests_feed_the_recent_coordinate_ring_used_by_facility_probes(monkeypatch, shadow_env):
+    client = _since_rpc_client()
+    monkeypatch.setattr(forecast_svc, "supabase_admin", client)
+    monkeypatch.setattr(forecast_svc, "_shadow_utcnow", lambda: _P2_NOW)
+    snapshot = _patterned_snapshot()
+    _serve_from(snapshot)
+    # 한 격자(round 3자리) 안의 서로 다른 정확한 좌표 34개 — 첫 호출만 RPC, 나머지는 격자 캐시 적중이어도 고리에 든다.
+    coordinates = [(_P2_CENTER[0] + k * 1e-5, _P2_CENTER[1] - k * 1e-5) for k in range(34)]
+    assert len({forecast_svc._grid_key(*c) for c in coordinates}) == 1
+    for coordinate in coordinates:
+        await forecast_svc.get_historical_area_demand_forecast(*coordinate, _ARRIVAL, now=_P2_NOW)
+    await forecast_svc.get_historical_area_demand_forecast(*coordinates[5], _ARRIVAL, now=_P2_NOW)  # 다시 물으면 맨 앞으로
+    await _drain()
+    assert len(client.calls) == 1
+
+    ring = list(reversed(forecast_svc._recent_coords))  # 가장 최근 먼저
+    assert len(ring) == forecast_svc._RECENT_COORDS_MAX == 32
+    assert ring[0] == coordinates[5]
+    assert ring[1:] == [c for c in reversed(coordinates) if c != coordinates[5]][:31]  # 가장 오래된 2개는 밀려났다
+
+    # 자기 탐침: 고정 5종 다음은 이 요청 좌표들(가장 최근 먼저)이 'facility' 로.
+    calls_before = len(client.calls)
+    for _ in range(5 + 3):
+        forecast_svc._shadow_self_probe(snapshot)
+    probed = [(call["p_latitude"], call["p_longitude"]) for call in client.calls[calls_before:]]
+    assert probed[5:] == ring[:3]
+    counts = _total()
+    assert counts["probes_by_class"]["facility"] == 3 and counts["distinct_facility_coords"] == 3
