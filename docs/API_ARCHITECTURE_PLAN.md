@@ -35,7 +35,7 @@ FastAPI 워커 1개(Render 512MB/0.5CPU)
 |---|---|---|
 | **P0a** | 1,682 스레드 팬아웃 폴백 제거(RPC 실패 → 조각 재시도 1회) · 시설 페이지네이션 id 정렬 · 출처 표 전량 · httpx URL 로그 끄기(쿼리스트링 키 노출) · 브리핑 캐시 만료 | `perf/reference-snapshot` 완료 |
 | **P1** | 참조 스냅샷 + `/infrastructures` 사전 직렬화 바이트 · ETag/304 · `Cache-Control: private, no-cache` · `/health.reference_snapshot` · 롤백 env `REFERENCE_SNAPSHOT_SERVE`(`snapshot` 외 값이면 옛 경로) | 같은 브랜치 완료. 실 DB 읽기 대조: 3개 필터 모두 JSON 동일, 3~13ms(옛 경로 1.2~1.5초, 데스크톱) |
-| P0b | 웹: 숨은 탭 폴링 중지 · `/waiting` 곡선 순차 6회 → 병렬 · 폴백 1,000행 캡 수정. **데모 프리페치 삭제와 상태 코드 재시도는 하지 않는다**(레드팀 B4 · crit7) | 대기 |
+| P0b | 웹만(API 계약 불변): 관제 장소 표 (name,id) 전량 페이지·활성/비활성·이름 검색 · 지도 비상 경로 활성만·id 페이지·최신 혼잡 RPC·갤러리 사진 · `/waiting` 곡선을 서버 창 안으로 당긴 정시 6점(분 30 이후에도 6점 — 가장자리 정시를 창 안으로 당기면 분 해상도 전망이 같은 정시로 읽힌다)·선행 1회 후 동시 3·noRetry·기준 시각별 곡선 · 숨은 탭 관제 폴링 멈춤('알림 받기' 켜짐이면 유지)·안전 화면 첫 진입 중복 조회 제거 · 탭 복귀 `/account/me` 5분 생략(실패 뒤·심사 대기 제외) · 추천 타임아웃 뒤 같은 POST 재전송 대신 by-type 대안(45초). **데모 프리페치 삭제와 상태 코드 재시도는 하지 않는다**(레드팀 B4 · crit7) | `web/batch-0928` 완료(main 미반영) — 880b2e1..96e31ae 6건 |
 | P0c | 일배치가 상세 실패 행을 NULL로 덮는 문제 · area-demand-alert 가 API 메모리 상태에 묶인 거짓 경보 | `fix/ingest-keyset-upsert` 완료(main 미반영) — 키 집합별 bulk 쓰기 · capacity 는 PM 결정(09-28)으로 심사 전까지 매일 밤 기본값 초기화 유지(공유 관리자 계정의 실수 수정이 데모에 남지 않게 — 심사 후 관리자 수정분 `features.capacity_source='admin'` 표시·건너뛰기) · None 미전송 · 경보는 Supabase 스냅샷 표 직접 · 독립 리뷰 수정 6건(확인된 사진 부재만 지움 · Kakao 좌표 유지 · INSERT 행별 재시도 · 경보 견고화) + 2차 4건(항목 0개 응답은 확인 아님 · 옛 Wikimedia 출처 제거 · 경보 시크릿 글자 검사 · capacity 초기화 복원). 실측: 운영 1차 upsert 는 매일 42P10(부분 인덱스) → 폴백이 실제 경로 |
 | P2 | 주차 이력 = 로트×시간 uint16 행렬(~0.3MB)을 10분 수집이 덧붙임 → 격자 캐시 −44~109MB, 전망 3초 → ms | 대기 |
 | P3 | 모든 소비자가 스냅샷을 읽음 → 시설 캐시 4벌·deepcopy 삭제, 보행 그래프 CSR(빌드 시 굽기), 예측 표(요청 경로에서 sklearn 제거 −55MB) | 대기 |
@@ -57,5 +57,5 @@ FastAPI 워커 1개(Render 512MB/0.5CPU)
 
 ## 부수 발견 (이번 범위 밖)
 
-- 웹은 `minLat/maxLat/minLng/maxLng` 로 보내는데 API 파라미터는 `min_lat…` 이다 — **경계 필터가 한 번도 적용된 적이 없다**(항상 전체 1,682곳). 동작은 그대로 두었다. 고치면 응답이 줄지만 지도에 보이던 주변 장소가 빠질 수 있어 화면 결정이 먼저다.
+- ~~경계 필터가 한 번도 적용된 적이 없다~~ — **정정(2026-09-28, P0b 실측):** 웹의 `minLat…` 은 `apiClient` 의 `keysToSnake` 가 `min_lat…` 으로 바꿔 보내므로 경계 필터는 적용된다. 운영 `GET /infrastructures` 는 경계를 주면 674곳(0.34초), 없으면 1,682곳(0.77초)이다.
 - httpx INFO 로그가 쿼리스트링의 공공 API 키를 전체 URL째 남겼다(P0a에서 차단) — 기존 Render 로그 이력에는 남아 있을 수 있다(HANDOVER 사람 작업).
