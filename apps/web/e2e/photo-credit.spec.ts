@@ -176,6 +176,8 @@ test('main card: a TourAPI photo carries no Wikimedia credit', async ({ page }) 
 });
 
 test('waiting board: the credit follows the photo each card actually shows', async ({ page }) => {
+  // 이 파일에서 /waiting 을 처음 여는 시험 — 부하 걸린 머신의 첫 컴파일이 기본 30초를 넘긴다(재시도가 아니라 시간을 준다).
+  test.setTimeout(90_000);
   await mockFacilities(page, [
     { // 대표 사진(TourAPI)이 보인다 — 갤러리에 Wikimedia 가 있어도 출처를 붙이지 않는다.
       id: 'board-tour', name: '대표사진 식당', type: 'restaurant',
@@ -195,7 +197,7 @@ test('waiting board: the credit follows the photo each card actually shows', asy
   ]);
   await page.goto('/waiting');
   const card = (name: string) => page.locator('div.grid-rows-\\[1fr_auto\\]').filter({ hasText: name });
-  await expect(card('대체사진 식당')).toBeVisible({ timeout: 30_000 });
+  await expect(card('대체사진 식당')).toBeVisible({ timeout: 60_000 });
 
   // 대체 사진 카드: 대표 사진이 깨져 Wikimedia 사진으로 넘어가고, 그 출처가 붙는다.
   await expect(card('대체사진 식당').locator('img')).toHaveAttribute('src', WIKI_PHOTO);
