@@ -846,7 +846,8 @@ export default function WaitingBoardPage() {
                         </div>
                       </button>
                       {/* 높이를 늘 확보해 둔다 — 출처 줄이 생기고 사라져도 카드 줄이 흔들리지 않는다. */}
-                      <div className="min-h-4 pt-0.5">
+                      {/* min-w-0: 출처 줄의 글자 폭이 카드 열을 넓히지 않게(긴 작가 이름은 말줄임). */}
+                      <div className="min-h-4 min-w-0 pt-0.5">
                       {photoCredit && <PhotoCreditLink credit={photoCredit} />}
                       </div>
                       </div>

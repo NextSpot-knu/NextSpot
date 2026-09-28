@@ -12,7 +12,6 @@ export function PhotoCreditLink({ credit, className = '' }: { credit: PhotoCredi
       target="_blank"
       rel="noopener noreferrer"
       title={full}
-      data-testid="photo-credit"
       className={`flex h-[14px] min-w-0 max-w-full items-center overflow-hidden text-[10px] leading-[14px] text-muk-soft underline underline-offset-2 hover:text-muk ${className}`}
     >
       <span className="min-w-0 truncate">{credit.label}</span>
