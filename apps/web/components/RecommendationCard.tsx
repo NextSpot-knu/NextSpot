@@ -17,6 +17,7 @@ import { congestionDisplay, estimateRadiusKm, formatEstimateTime, formatLastObse
 import { congestionKey as gradeKey } from '@/lib/congestionScale';
 import { resolveAnchorCrowd, resolveCandidateCrowd } from '@/lib/compareHeader';
 import { useBusyThreshold } from '@/components/shell/PublicSettingsProvider';
+import { creditedPhotoUrls, creditForDisplayedPhoto } from '@/lib/photoCredit';
 
 // facility prop 이 이 컴포넌트에서 실제로 읽는 필드만 구조적으로 명시한 타입.
 // 콜러 둘의 합집합: main(page)은 Facility(congestionLevel/currentCount: number|null,
@@ -603,12 +604,16 @@ export function RecommendationCard({
 
   // 카드 사진 — 대표(firstimage) → detailImage2 갤러리 순 폴백(waiting WaitingCardImage 패턴 미러).
   // 원본 서버에서 만료·차단된 URL 이 섞여 있어 onError 시 다음 후보로 넘어가고, 전부 실패하면 숨긴다.
-  const cardImageUrls = Array.from(
-    new Set(
-      [liveDetail?.imageUrl, facility?.imageUrl, ...(facility?.galleryImages ?? [])].filter(
-        (url): url is string => typeof url === 'string' && url.trim().length > 0
+  // 갤러리의 Wikimedia 대체 사진(CC BY/BY-SA)은 출처가 있을 때만 후보가 되고, 뜨면 사진 아래에 출처를 붙인다.
+  const cardImageUrls = creditedPhotoUrls(
+    Array.from(
+      new Set(
+        [liveDetail?.imageUrl, facility?.imageUrl, ...(facility?.galleryImages ?? [])].filter(
+          (url): url is string => typeof url === 'string' && url.trim().length > 0
+        )
       )
-    )
+    ),
+    facility?.features,
   );
   const [cardImageIndex, setCardImageIndex] = useState(0);
   // 시설 전환뿐 아니라 같은 시설의 URL 목록이 갱신(비동기 보강)돼도 소진된 인덱스가 새 이미지를
@@ -616,6 +621,7 @@ export function RecommendationCard({
   const cardImageKey = `${facility?.id ?? ''}|${cardImageUrls.join('|')}`;
   useEffect(() => { setCardImageIndex(0); }, [cardImageKey]);
   const cardImageUrl = cardImageUrls[cardImageIndex];
+  const cardImageCredit = creditForDisplayedPhoto(cardImageUrl, facility?.features);
 
   // 머천트 랭킹 연동 2단계 — features 내부가 아니라 facility 최상위 필드지만, 백엔드 응답이 어떤
   // 경로(apiClient keysToCamel 미적용 폴백 등)로 오든 방어적으로 camel/snake 이중 표기를 읽는다.
@@ -1360,6 +1366,17 @@ export function RecommendationCard({
               onError={() => setCardImageIndex((current) => current + 1)}
               className="w-full h-32 object-cover rounded-2xl border border-line"
             />
+          )}
+          {cardImageUrl && cardImageCredit && (
+            <a
+              href={cardImageCredit.sourceUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="-mt-2 block truncate text-[9px] text-muk-soft underline underline-offset-2"
+              title={`${cardImageCredit.label} · ${cardImageCredit.license}`}
+            >
+              {cardImageCredit.label}{cardImageCredit.license ? ` · ${cardImageCredit.license}` : ''}
+            </a>
           )}
 
           {/* AI 추천 사유 (백엔드 템플릿, 있을 때만) */}
