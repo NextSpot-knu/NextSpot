@@ -50,7 +50,8 @@ import time
 from array import array
 from bisect import bisect_left
 from collections import deque
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Awaitable, Callable, Iterable, Mapping
+from concurrent.futures import Future
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, NamedTuple
@@ -96,6 +97,9 @@ SHADOW_PROBES_PER_DAY = 288
 SHADOW_PROBE_MIN_INTERVAL_S = 290.0
 _DAY_S = 86_400.0
 LOOP_ERROR_PAUSE_S = 5.0
+# 종료(stop) 때 shadow 마지막 요약 전에, 아직 도는 비교(자기 탐침·요청 비교)를 합쳐서 최대 이만큼 기다린다 — 그 결과가
+# final 줄에 들어가게. shadow 모드에서만 기다리고, 아무것도 돌지 않으면 곧바로 지나간다.
+SHADOW_DRAIN_TIMEOUT_S = 3.0
 MIN_LOOP_SLEEP_S = 0.05                 # 루프가 한 바퀴마다 최소한 쉬는 시간(판정이 어긋나도 헛돌지 않게)
 MODES = ("rpc", "shadow", "matrix")
 
@@ -417,6 +421,7 @@ _thread_sleep = time.sleep  # 쪽 재시도 사이 쉼(적재 스레드) — 시
 _health_extra: Callable[[], Mapping[str, Any]] | None = None
 _shadow_probe: Callable[[HistorySnapshot], None] | None = None
 _shadow_flush: Callable[[], None] | None = None
+_shadow_drain: Callable[[float], Awaitable[int]] | None = None
 
 
 def mode() -> str:
@@ -530,6 +535,7 @@ class _Loader:
         self._tail_requested = False                    # kick_tail — 진행 중인 적재가 성공해도 남는다(실패하면 버린다)
         self._last_kick = -math.inf
         self._probe_times: deque[float] = deque()       # 최근 24시간 자기 탐침을 시작한 시각(monotonic, ≤288개)
+        self._probe_future: Future | None = None        # 마지막 자기 탐침(적재 스레드) — stop 이 final 요약 전에 기다린다
         self._gate_done = False
         self._loop: asyncio.AbstractEventLoop | None = None
         self._task: asyncio.Task | None = None
@@ -799,7 +805,13 @@ class _Loader:
             return
         times.append(now)
         try:
-            await self._in_thread(self._call_probe, probe)
+            executor = self._executor
+            if executor is None:
+                raise RuntimeError("parking history loader is not running")
+            # run_in_executor 와 같지만 스레드 쪽 Future 를 남긴다: 루프 태스크가 취소돼도 탐침은 스레드에서 끝까지 돌므로,
+            # stop 이 그 끝을 (짧게) 기다린 뒤 final 요약을 남길 수 있게.
+            self._probe_future = executor.submit(self._call_probe, probe)
+            await asyncio.wrap_future(self._probe_future)
         except Exception as exc:  # noqa: BLE001
             logger.warning("parking_history_shadow_probe_failed", error_type=type(exc).__name__)
 
@@ -972,12 +984,37 @@ def start() -> None:
 
 async def stop() -> None:
     await _loader.stop()
+    if mode() == "shadow":
+        await _drain_shadow(SHADOW_DRAIN_TIMEOUT_S)
     flush = _shadow_flush
     if flush is not None:
         try:
             flush()  # shadow 숫자의 마지막 요약 한 줄 — 재시작 전 누적을 로그에 남긴다(다른 모드는 아무것도 안 한다)
         except Exception as exc:  # noqa: BLE001 — 종료를 막지 않는다
             logger.warning("parking_history_shadow_flush_failed", error_type=type(exc).__name__)
+
+
+async def _drain_shadow(timeout: float) -> None:
+    """(stop, shadow 모드) 아직 도는 자기 탐침과 요청 비교를 합쳐 최대 timeout 초 기다린다 — 그 숫자가 final 요약에 들어가게.
+    다 못 끝나면 남은 수를 한 줄 남기고 넘어간다(종료를 막거나 던지지 않는다)."""
+    try:
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout
+        pending = 0
+        probe = _loader._probe_future
+        if probe is not None and not probe.done():
+            waiter = asyncio.wrap_future(probe)
+            _, left = await asyncio.wait([waiter], timeout=timeout)
+            pending += len(left)
+            if waiter.done() and not waiter.cancelled():
+                waiter.exception()  # 탐침의 실패는 이미 탐침 쪽에서 셌다 — 여기서는 '가져가지 않은 예외' 경고만 막는다
+        drain = _shadow_drain
+        if drain is not None:
+            pending += await drain(max(0.0, deadline - loop.time()))
+        if pending:
+            logger.warning("parking_history_shadow_drain_timeout", pending=pending, timeout_s=timeout)
+    except Exception as exc:  # noqa: BLE001 — 종료를 막지 않는다
+        logger.warning("parking_history_shadow_drain_failed", error_type=type(exc).__name__)
 
 
 def current() -> HistorySnapshot | None:
@@ -1025,6 +1062,12 @@ def register_shadow_flush(fn: Callable[[], None]) -> None:
     """종료(stop) 때 한 번 부를 shadow 요약 기록 — 재시작 전 누적 숫자가 10분 창을 기다리다 사라지지 않게."""
     global _shadow_flush
     _shadow_flush = fn
+
+
+def register_shadow_drain(fn: Callable[[float], Awaitable[int]]) -> None:
+    """종료(stop) 때 final 요약 전에 부를 기다림 — 인자는 남은 초, 돌려주는 값은 그 안에 못 끝난 요청 비교 수."""
+    global _shadow_drain
+    _shadow_drain = fn
 
 
 def health() -> dict[str, Any]:

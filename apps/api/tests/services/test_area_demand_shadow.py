@@ -789,3 +789,124 @@ async def test_shadow_requests_feed_the_recent_coordinate_ring_used_by_facility_
     assert probed[5:] == ring[:3]
     counts = _total()
     assert counts["probes_by_class"]["facility"] == 3 and counts["distinct_facility_coords"] == 3
+
+
+# ── 수리: 종료 때 아직 도는 비교(자기 탐침·요청 비교)를 짧게 기다린 뒤 final 요약을 남긴다 ─────────────────────────
+
+
+def _loader_in_shadow(monkeypatch, probe) -> None:
+    """루프 태스크 없이 적재 스레드만 띄운 '시작된' 적재기 + 등록된 탐침(시험용)."""
+    monkeypatch.setattr(ph, "_shadow_probe", probe)
+    ph._loader._started = True
+    ph._loader._executor = ph.DaemonExecutor("nextspot-parking-test")
+    ph._loader.snapshot = _patterned_snapshot()
+
+
+@pytest.mark.asyncio
+async def test_stop_waits_for_an_in_flight_self_probe_before_the_final_summary(monkeypatch, shadow_env):
+    ph_logs = _RecordingLogger()
+    monkeypatch.setattr(ph, "logger", ph_logs)
+    forecast_svc._shadow_tick()  # 창을 연다
+    started, release = threading.Event(), threading.Event()
+
+    def slow_probe(snapshot):
+        started.set()
+        release.wait(5)
+        forecast_svc._shadow_count("compared", "rows")  # 종료 직전 탐침이 찾은 결함
+
+    _loader_in_shadow(monkeypatch, slow_probe)
+    ph._loader._task = asyncio.get_running_loop().create_task(ph._loader._run_shadow_probe())
+    assert await asyncio.to_thread(started.wait, 5)
+    threading.Timer(0.2, release.set).start()  # 탐침 RPC 가 아직 도는 중에 SIGTERM
+    t0 = time.monotonic()
+    await ph.stop()
+    assert time.monotonic() - t0 < ph.SHADOW_DRAIN_TIMEOUT_S
+
+    [final] = shadow_env.named("area_demand_shadow_summary")
+    assert final["final"] is True and final["total"]["rows"] == 1 and final["total"]["compared"] == 1
+    assert final["total"] == forecast_svc._shadow_total.as_log()
+    assert not ph_logs.named("parking_history_shadow_drain_timeout")
+
+
+@pytest.mark.asyncio
+async def test_stop_waits_for_in_flight_request_compares_before_the_final_summary(monkeypatch, shadow_env):
+    forecast_svc._shadow_tick()
+    release = threading.Event()
+
+    def slow_compare(origin, *args):
+        release.wait(5)
+        forecast_svc._shadow_count("compared", "value", "forecast_mismatch")
+        return "value"
+
+    monkeypatch.setattr(forecast_svc, "_shadow_compare", slow_compare)
+    for _ in range(2):
+        forecast_svc._shadow_request_inflight += 1
+        task = asyncio.get_running_loop().create_task(forecast_svc._shadow_request_compare())
+        forecast_svc._shadow_tasks.add(task)
+        task.add_done_callback(forecast_svc._shadow_tasks.discard)
+    await asyncio.sleep(0.05)
+    threading.Timer(0.2, release.set).start()
+    await ph.stop()
+
+    [final] = shadow_env.named("area_demand_shadow_summary")
+    assert final["total"]["value"] == 2 and final["total"]["forecast_mismatch"] == 2
+    assert not forecast_svc._shadow_tasks and forecast_svc._shadow_request_inflight == 0
+
+
+@pytest.mark.asyncio
+async def test_stop_gives_up_on_the_drain_after_the_bound_and_still_writes_the_final_summary(monkeypatch, shadow_env):
+    ph_logs = _RecordingLogger()
+    monkeypatch.setattr(ph, "logger", ph_logs)
+    monkeypatch.setattr(ph, "SHADOW_DRAIN_TIMEOUT_S", 0.3)
+    forecast_svc._shadow_tick()
+    started, release = threading.Event(), threading.Event()
+
+    def stuck_probe(snapshot):
+        started.set()
+        release.wait(10)
+
+    def stuck_compare(origin, *args):
+        release.wait(10)
+        return "skipped"
+
+    monkeypatch.setattr(forecast_svc, "_shadow_compare", stuck_compare)
+    _loader_in_shadow(monkeypatch, stuck_probe)
+    ph._loader._task = asyncio.get_running_loop().create_task(ph._loader._run_shadow_probe())
+    assert await asyncio.to_thread(started.wait, 5)
+    forecast_svc._shadow_request_inflight += 1
+    task = asyncio.get_running_loop().create_task(forecast_svc._shadow_request_compare())
+    forecast_svc._shadow_tasks.add(task)
+    task.add_done_callback(forecast_svc._shadow_tasks.discard)
+    await asyncio.sleep(0.05)
+    try:
+        t0 = time.monotonic()
+        await ph.stop()
+        elapsed = time.monotonic() - t0
+    finally:
+        release.set()
+    assert 0.25 <= elapsed < 2.0  # 두 기다림이 한 상한(0.3초)을 나눠 쓴다 — 더하지 않는다
+    [timeout] = ph_logs.named("parking_history_shadow_drain_timeout")
+    assert timeout["pending"] == 2
+    [final] = shadow_env.named("area_demand_shadow_summary")
+    assert final["final"] is True
+    await asyncio.wait_for(task, 5)
+
+
+@pytest.mark.parametrize("source", ["rpc", "matrix"])
+def test_stop_outside_shadow_does_not_wait_or_call_the_drain(monkeypatch, shadow_env, source):
+    calls: list[float] = []
+
+    async def spy(timeout):
+        calls.append(timeout)
+        return 0
+
+    monkeypatch.setattr(ph, "_shadow_drain", spy)
+    assert ph.register_shadow_drain is not None
+    _use_source(monkeypatch, source)
+    asyncio.run(ph.stop())
+    assert calls == []
+    assert not shadow_env.named("area_demand_shadow_summary")
+
+
+def test_the_forecast_service_registers_its_drain_at_import():
+    assert ph._shadow_drain is forecast_svc._shadow_drain

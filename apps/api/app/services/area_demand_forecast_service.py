@@ -1868,6 +1868,17 @@ def _shadow_flush() -> None:
     logger.info("area_demand_shadow_summary", **summary)
 
 
+async def _shadow_drain(timeout: float) -> int:
+    """(종료 때 한 번 — parking_history.stop, shadow 모드, final 요약 직전) 아직 도는 요청 비교를 최대 timeout 초 기다린다 →
+    그 안에 못 끝난 수. 비교 결과가 final 줄의 total 에 들어가게 한다(취소하지 않는다)."""
+    loop = asyncio.get_running_loop()
+    tasks = [task for task in _shadow_tasks if not task.done() and task.get_loop() is loop]
+    if not tasks:
+        return 0
+    _, pending = await asyncio.wait(tasks, timeout=max(0.0, timeout))
+    return len(pending)
+
+
 def _shadow_take(budget: str, limit: int) -> bool:
     """이 10분 창의 예산에서 하나를 쓴다. 남아 있지 않으면 False."""
     with _SHADOW_LOCK:
@@ -2315,3 +2326,4 @@ def reset_source_dispatch() -> None:
 parking_history.register_health_extra(_health_extra)
 parking_history.register_shadow_probe(_shadow_self_probe)
 parking_history.register_shadow_flush(_shadow_flush)
+parking_history.register_shadow_drain(_shadow_drain)
