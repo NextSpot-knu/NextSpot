@@ -519,7 +519,7 @@ class _Loader:
         self.last_error_type: str | None = None
         self.next_sync_due = 0.0                        # 준비 전엔 전량, 준비 후엔 꼬리
         self.next_reconcile_due = math.inf
-        self._tail_requested = False                    # kick_tail — 진행 중인 적재가 끝나도 지워지지 않는다
+        self._tail_requested = False                    # kick_tail — 진행 중인 적재가 성공해도 남는다(실패하면 버린다)
         self._last_kick = -math.inf
         self._gate_done = False
         self._loop: asyncio.AbstractEventLoop | None = None
@@ -694,6 +694,9 @@ class _Loader:
             self.failures += 1
             failures = self.failures
             cap = BACKOFF_MAX_S if self.ready else BACKOFF_MAX_BEFORE_READY_S
+            # 실패한 동기화가 도는 동안 들어온 kick 은 버린다 — 남겨 두면 곧바로 다시 읽어 백오프를 건너뛴다(kick 은
+            # 실패 백오프 중인 다음 시각을 앞당기지 않는다, 스펙 §3.3). 백오프 뒤의 꼬리가 그 행까지 읽는다.
+            self._tail_requested = False
         retry_in = min(cap, BACKOFF_INITIAL_S * BACKOFF_FACTOR ** min(failures - 1, 16))
         if track == "reconcile":
             self.next_reconcile_due = now + retry_in

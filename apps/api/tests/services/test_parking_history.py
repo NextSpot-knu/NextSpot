@@ -1512,3 +1512,52 @@ def test_boot_parse_memory_stays_within_the_spec_budget():
     scale = 8_064 / rows
     assert retained * scale <= 4.5e6, f"parsed rows retain {retained * scale / 1e6:.2f} MB at T=8064"
     assert peak * scale <= 6.0e6, f"boot parse+merge peaks at {peak * scale / 1e6:.2f} MB at T=8064"
+
+
+# ── 수리: 실패한 꼬리 도중에 들어온 kick 이 백오프를 건너뛰지 않는다(스펙 §3.3) ──────────────────────
+
+
+def test_kick_during_a_failing_tail_does_not_bypass_the_backoff(monkeypatch, loader_env):
+    db = loader_env.db
+    now0 = datetime(2026, 9, 20, 3, 0, tzinfo=UTC)
+    clock = _Clock(now0).install(monkeypatch)
+    db.rows = _rows_before(now0, 12)
+
+    async def scenario(loader):
+        await loader._step()  # 전량 적재 → 준비
+        assert loader.ready and loader.failures == 0
+
+        def kick_then_fail(request):
+            loader.kick_tail()  # 수집이 꼬리가 도는 중에 깨운다(그 순간엔 실패 0 — 받아들여진다)
+            return True
+
+        db.fail = kick_then_fail
+        clock.t = loader.next_sync_due
+        await loader._step()
+        assert loader.failures == 1 and not loader._tail_requested
+        retry_at = loader.next_sync_due
+        assert retry_at == clock.t + ph.BACKOFF_INITIAL_S
+        requests = len(db.requests)
+
+        db.fail = None
+        await loader._step()  # 백오프 안: 아무것도 읽지 않는다
+        assert len(db.requests) == requests
+
+        slept: list[float] = []
+        real_wait_for = asyncio.wait_for
+
+        async def spy_wait_for(awaitable, timeout):
+            slept.append(timeout)
+            return await real_wait_for(awaitable, 0)
+
+        monkeypatch.setattr(ph.asyncio, "wait_for", spy_wait_for)
+        await loader._sleep()  # 깰 시각은 백오프 끝이다(곧바로가 아니다)
+        assert slept and slept[0] == pytest.approx(retry_at - clock.t)
+        monkeypatch.setattr(ph.asyncio, "wait_for", real_wait_for)
+
+        clock.t = retry_at
+        await loader._step()  # 백오프가 끝나면 꼬리가 다시 돈다
+        assert len(db.requests) == requests + 1 and loader.failures == 0
+        return True
+
+    assert _drive(monkeypatch, scenario)
