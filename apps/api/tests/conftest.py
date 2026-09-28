@@ -26,6 +26,10 @@ os.environ.setdefault("UPSTAGE_API_KEY", "")
 # 돌리므로, 켜 두면 테스트마다 placeholder Supabase 로 적재를 시도하고 전용 스레드가 종료를 붙잡는다.
 # 기존 지도 테스트는 그대로 실시간 경로를 검증한다. 스냅샷 경로는 test_reference_snapshot.py 가 켜서 검증한다.
 os.environ.setdefault("REFERENCE_SNAPSHOT_SERVE", "legacy")
+# 권역 수요 전망 원본은 테스트에서 기본으로 rpc(도입 전 경로 — 주차 이력 적재 스레드가 돌지 않는다). 로컬 .env 에
+# shadow/matrix 가 있어도(env var 가 .env 보다 우선) 기존 테스트가 그 값에 좌우되지 않게 고정한다. 행렬 경로는 해당
+# 테스트가 켜서 검증한다.
+os.environ.setdefault("AREA_DEMAND_SOURCE", "rpc")
 
 
 @pytest.fixture(autouse=True)

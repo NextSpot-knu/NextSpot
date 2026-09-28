@@ -130,6 +130,12 @@ class Settings(BaseSettings):
     # (되돌림 스위치). ⚠️ Render 에서 env 를 바꾸면 서비스가 재시작된다 — 즉시가 아니라 '재배포 한 번' 이다.
     REFERENCE_SNAPSHOT_SERVE: str = "snapshot"
 
+    # 권역 수요 전망 원본(app/services/area_demand_forecast_service.py) — "rpc"(기본) | "shadow" | "matrix".
+    # rpc: 도입 전 경로 그대로(주차 이력 적재 스레드도 돌지 않는다). shadow: 응답은 rpc, 행렬로도 계산해 차이만 기록.
+    # matrix: 메모리 행렬로 답하고, 행렬이 준비 전·오래됨이면 rpc 로 답한다. 모르는 값은 rpc.
+    # ⚠️ Render 에서 env 를 바꾸면 재시작된다(즉시가 아니라 재기동 한 번, 1~2분).
+    AREA_DEMAND_SOURCE: str = "rpc"
+
     # CORS Settings
     # 기본값은 와일드카드(미설정 환경에서 프런트가 막히지 않도록). 운영에서는 실제 도메인을
     # 콤마로 지정하면 main.py 가 자동으로 엄격 모드(해당 오리진만 + credentials)로 전환한다.
