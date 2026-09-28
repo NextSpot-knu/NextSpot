@@ -14,7 +14,7 @@
 // "예측 서버 연결 안 됨" 빈 상태 + 재시도 버튼을 보여준다(course/page.tsx 의 ErrorState 와 동일 사상).
 // 정적 export(SSR) 안전: 브라우저 전용 API 는 쓰지 않는다(REGION 은 순수 상수).
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, ChevronRight } from "lucide-react";
 import {
@@ -35,6 +35,7 @@ import { curveForBase, fetchAreaDemandCurve, mergeAreaCurve, type AreaDemandCurv
 // 분으로 말할 근거가 없는 카드는 등급으로 말한다 — 등급 경계는 지도·카드와 같은 공용 판정을 쓴다.
 import { congestionKey } from "@/lib/congestionScale";
 import { REGION } from "@/lib/region";
+import { fitWholeLines } from "@/lib/wholeLines";
 import { useI18n, useT } from "@/lib/i18n/I18nProvider";
 import { GoldenHourBadge } from "@/components/GoldenHourBadge";
 import NowChip from "@/components/NowChip";
@@ -166,6 +167,62 @@ function WaitingCardImage({
       onError={() => onError(imageUrl)}
       className="w-full h-28 shrink-0 object-cover border-b border-line bg-hanji-deep/40"
     />
+  );
+}
+
+/**
+ * 대표 카드의 이름 · 공식 대표 메뉴 · 소개. 카드 높이에서 대기 스탯을 뺀 자리에 **온전한 줄만** 싣는다 —
+ * 남는 픽셀에서 자르면(overflow-hidden) 이름 둘째 줄이나 메뉴 줄이 가로로 반쯤 잘려 보였다.
+ * 줄 수는 렌더 뒤 실제 줄 높이로 정하고(fitWholeLines), 글 블록의 크기가 바뀌면 다시 정한다.
+ * 블록은 basis-0 로 자라기만 해서 글 양이 블록(과 카드) 높이를 바꾸지 않는다 — 다시 재도 되돌이 없다.
+ */
+function CardIntro({ name, menus, summary }: { name: string; menus: string[]; summary: string | null }) {
+  const blockRef = useRef<HTMLDivElement>(null);
+  const menuText = menus.length > 0 ? `🍽 ${menus.join(" · ")}` : null;
+  useLayoutEffect(() => {
+    const block = blockRef.current;
+    if (!block) return;
+    const fit = () => {
+      const paragraphs = Array.from(block.children) as HTMLElement[];
+      for (const p of paragraphs) {
+        p.style.removeProperty("display");
+        p.style.removeProperty("-webkit-line-clamp");
+      }
+      const measured = paragraphs.map((p) => {
+        const style = getComputedStyle(p);
+        const lineHeight = parseFloat(style.lineHeight);
+        return {
+          lineHeight,
+          lines: lineHeight > 0 ? Math.round(p.getBoundingClientRect().height / lineHeight) : 0,
+          gapBefore: parseFloat(style.marginTop) || 0,
+        };
+      });
+      const shown = fitWholeLines(block.clientHeight, measured);
+      paragraphs.forEach((p, i) => {
+        if (shown[i] === 0) p.style.display = "none";
+        else if (shown[i] < measured[i].lines) p.style.setProperty("-webkit-line-clamp", String(shown[i]));
+      });
+    };
+    fit();
+    const observer = new ResizeObserver(fit);
+    observer.observe(block);
+    return () => observer.disconnect();
+  }, [name, menuText, summary]);
+
+  return (
+    // 이름 한 줄(16.5px = text-xs × leading-snug)은 늘 남긴다: 영어·일본어는 스탯이 두 줄씩 접혀 이름이 0 까지
+    // 눌렸다. 그만큼 모자라면 카드가 조금 길어진다(min-h-72) — 대기 스탯과 근거 주석은 잘리지 않는다.
+    <div ref={blockRef} className="grow basis-0 min-h-[16.5px] overflow-hidden">
+      <p className="text-xs font-bold text-muk leading-snug line-clamp-2">{name}</p>
+      {/* 공식 대표 메뉴(TourAPI) — 있을 때만. 🍽 이모지는 TYPE_EMOJI 관례와 동일 톤. */}
+      {menuText && (
+        <p className="mt-0.5 text-[10px] font-bold text-gold-deep leading-snug line-clamp-2">{menuText}</p>
+      )}
+      {/* TourAPI 소개는 최대 2줄 — 길게 풀어 두면 카드의 주인공(아래 세 숫자)을 밀어내고 눈이 먼저 간다. */}
+      {summary && (
+        <p className="mt-1 text-[10px] leading-snug text-muk-soft break-words line-clamp-2">{summary}</p>
+      )}
+    </div>
   );
 }
 
@@ -866,7 +923,7 @@ export default function WaitingBoardPage() {
                       <button
                         type="button"
                         onClick={() => goToDetail(row.facilityId)}
-                        className={`group toss-pressable relative flex h-72 flex-col overflow-hidden text-left rounded-2xl border shadow-[0_2px_14px_rgba(43,35,32,0.06)] hover:shadow-[0_6px_20px_rgba(43,35,32,0.12)] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 ${
+                        className={`group toss-pressable relative flex min-h-72 flex-col overflow-hidden text-left rounded-2xl border shadow-[0_2px_14px_rgba(43,35,32,0.06)] hover:shadow-[0_6px_20px_rgba(43,35,32,0.12)] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 ${
                           idx === 0
                             ? "bg-gold/10 border-gold/40 hover:border-gold/60"
                             : "bg-white/90 border-line hover:border-gold/40 hover:bg-white"
@@ -890,28 +947,9 @@ export default function WaitingBoardPage() {
                           onError={(failedUrl) => skipBrokenPhoto(row.facilityId, photoUrls, failedUrl)}
                         />
                         <div className="flex flex-1 min-h-0 flex-col justify-between p-2">
-                          {/* 위 소개 블록은 공간이 모자라면 깔끔히 잘리고(overflow-hidden), 아래 대기
-                              스탯 블록은 shrink-0 으로 항상 온전히 남는다 — 카드의 주인공은 '도착 시 대기'다.
-                              단 이름 한 줄(16.5px = text-xs × leading-snug)은 남긴다: 영어·일본어는 스탯이 두 줄씩
-                              접혀 이름이 0 까지 눌렸다. 그때는 맨 아래 근거 주석 줄이 카드 가장자리에서 잘린다. */}
-                          <div className="min-h-[16.5px] overflow-hidden">
-                            <p className="text-xs font-bold text-muk leading-snug line-clamp-2">
-                              {row.name}
-                            </p>
-                            {/* 공식 대표 메뉴(TourAPI) — 있을 때만 한 줄. 🍽 이모지는 TYPE_EMOJI 관례와 동일 톤. */}
-                            {row.menus.length > 0 && (
-                              <p className="mt-0.5 text-[10px] font-bold text-gold-deep leading-snug line-clamp-2">
-                                🍽 {row.menus.join(" · ")}
-                              </p>
-                            )}
-                            {/* TourAPI 소개는 2줄로 자른다 — 길게 풀어 두면 카드의 주인공(아래 세 숫자)을
-                                밀어내고 눈이 먼저 가서, 보드를 훑는 목적 자체를 방해한다. */}
-                            {row.summary && (
-                              <p className="mt-1 text-[10px] leading-snug text-muk-soft break-words line-clamp-2">
-                                {row.summary}
-                              </p>
-                            )}
-                          </div>
+                          {/* 위 소개 블록은 남는 자리에 온전한 줄만 싣고, 아래 대기 스탯 블록은 shrink-0 으로
+                              항상 온전히 남는다 — 카드의 주인공은 '도착 시 대기'다. */}
+                          <CardIntro name={row.name} menus={row.menus} summary={row.summary} />
                           {/* 세 숫자 — 예상 대기 / 혼잡 등급 / 한산해지는 시각. 보드 제목이 약속한 것. */}
                           <WaitStats est={waitOf(row)} row={row} estimateLevel={estimateLevels[row.facilityId]} />
                         </div>
