@@ -181,8 +181,12 @@ def _count(counts: dict[str, int] | None, key: str) -> None:
         counts[key] = counts.get(key, 0) + 1
 
 
-def _parse_cell(lot: Any) -> tuple[LotColumn, int, int] | None:
-    """주차장 행 하나 → (열, total, available). aggregate_nearby_points(:254-262)가 건너뛰는 행은 None."""
+def _parse_cell(lot: Any, intern: dict[Any, Any] | None = None) -> tuple[LotColumn, int, int] | None:
+    """주차장 행 하나 → (열, total, available). aggregate_nearby_points(:254-262)가 건너뛰는 행은 None.
+
+    ``intern`` 이 있으면 같은 값의 열은 처음 만든 객체 하나를 돌려준다(적재 한 번 동안 — 칸마다 열 객체를 새로
+    만들면 전량 적재가 수만 개의 작은 객체를 들고 있게 된다).
+    """
     if not isinstance(lot, Mapping):
         return None
     try:
@@ -198,7 +202,10 @@ def _parse_cell(lot: Any) -> tuple[LotColumn, int, int] | None:
     if total > _INT32_MAX or not (math.isfinite(lot_lat) and math.isfinite(lot_lng)):
         return None
     lot_id = str(lot.get("source_lot_id") or "")
-    return LotColumn(lot_id, lot_lat, lot_lng), total, available
+    column = LotColumn(lot_id, lot_lat, lot_lng)
+    if intern is not None:
+        column = intern.setdefault(column, column)
+    return column, total, available
 
 
 def parse_page(
@@ -206,12 +213,15 @@ def parse_page(
     *,
     aware: Callable[[Any], datetime | None],
     counts: dict[str, int] | None = None,
+    intern: dict[Any, Any] | None = None,
 ) -> list[_Row]:
     """PostgREST 응답 한 쪽을 _Row 로 옮긴다. 순수 함수(I/O 없음).
 
     ``aware`` 는 전망 서비스의 ``_aware`` (문자열 → aware datetime, 실패하면 None)를 호출자가 넘긴다.
     시각을 못 읽는 행은 건너뛰고 ``counts["skipped_rows"]`` 에, 무효 칸은 ``counts["invalid_cells"]`` 에 센다.
     주차장 칸이 하나도 유효하지 않은 행도 행으로 남긴다(DB 행 수와 대조할 수 있게 — 시계열에서는 빠진다).
+    ``intern`` (적재 한 번에 하나)을 넘기면 같은 값의 열·(total, available) 칸은 객체 하나를 함께 쓴다 — 값은 같고
+    전량 적재가 들고 있는 파싱 결과가 절반 아래로 준다(열 객체·칸 튜플이 칸마다 새로 생기지 않게).
     """
     parsed: list[_Row] = []
     for row in rows:
@@ -229,14 +239,17 @@ def parse_page(
         observed_at = _as_utc(observed_at)
         cells: dict[LotColumn, tuple[int, int]] = {}
         for lot in lots:
-            cell = _parse_cell(lot)
+            cell = _parse_cell(lot, intern)
             if cell is None:
                 _count(counts, "invalid_cells")
                 continue
             column, total, available = cell
             if column in cells:  # (snapshot_id, source_lot_id) 가 PK 라 불가능 — 뒤의 것을 쓴다
                 _count(counts, "invalid_cells")
-            cells[column] = (total, available)
+            value = (total, available)
+            if intern is not None:
+                value = intern.setdefault(value, value)
+            cells[column] = value
         parsed.append(_Row(to_us(bucket_at), to_us(observed_at), observed_at, cells))
     return parsed
 
@@ -780,13 +793,14 @@ class _Loader:
         rows: list[_Row] = []
         stats = {"pages": 0, "page_retries": 0}
         counts: dict[str, int] = {}
+        intern: dict[Any, Any] = {}  # 이 읽기 동안만 — 열·칸 객체를 쪽 사이에서도 함께 쓴다
         after: str | None = None
         after_us: int | None = None
         while True:
             data, retries = _fetch_page(client, since_iso, after)
             stats["pages"] += 1
             stats["page_retries"] += retries
-            rows.extend(parse_page(data, aware=aware, counts=counts))
+            rows.extend(parse_page(data, aware=aware, counts=counts, intern=intern))
             if len(data) < PAGE_SIZE:
                 break
             cursor = _bucket_us_of(data[-1], aware)

@@ -1460,3 +1460,55 @@ def test_health_block_fields_and_no_error_text(monkeypatch, loader_env):
     response = client.get("/health")
     assert response.status_code == 200 and response.json()["status"] == "healthy"
     assert "parking_history" not in response.json()
+
+
+# ── 수리: 전량 적재의 파싱 메모리(스펙 §4 부팅 과도 ≈ 3MB, §9 M6 ≤ +6MB) ──────────────────────
+
+
+def test_boot_parse_shares_column_and_cell_objects_across_pages(loader_env):
+    db = loader_env.db
+    db.rows = fixture_56d().rows
+    now = START + timedelta(days=56, hours=1)
+    rows, stats = ph._Loader()._read_since(now - ph.LOOKBACK - ph.WINDOW_MARGIN)
+    assert stats["pages"] >= 8 and len(rows) > 7_000
+
+    columns: dict = {}
+    cells: dict = {}
+    for row in rows:
+        for column, cell in row.cells.items():
+            assert columns.setdefault(column, column) is column, "열 객체가 칸마다 새로 만들어졌다"
+            assert cells.setdefault(cell, cell) is cell, "(total, available) 튜플이 칸마다 새로 만들어졌다"
+    assert len(columns) >= 5  # 옮긴 주차장 포함 열 5개 — 전부 한 객체씩
+
+    # 값은 공유하지 않는 파싱과 같다(같은 스냅샷).
+    plain = ph.merge(None, _parse(fixture_56d().rows), now=now)
+    shared = ph.merge(None, rows, now=now)
+    assert shared.digest == plain.digest and shared.columns == plain.columns
+
+
+def test_boot_parse_memory_stays_within_the_spec_budget():
+    import gc
+    import tracemalloc
+
+    fixture_rows = fixture_56d().rows
+    pages = [json.dumps(fixture_rows[i:i + ph.PAGE_SIZE]) for i in range(0, len(fixture_rows), ph.PAGE_SIZE)]
+    now = START + timedelta(days=56, hours=1)
+    gc.collect()
+    tracemalloc.start()
+    try:
+        base = tracemalloc.get_traced_memory()[0]
+        parsed: list = []
+        intern: dict = {}
+        for page in pages:  # _read_since 와 같은 모양: 쪽마다 JSON 을 풀고 곧바로 파싱, 인턴 표는 적재 하나에 하나
+            parsed.extend(ph.parse_page(json.loads(page), aware=forecast_svc._aware, intern=intern))
+        retained = tracemalloc.get_traced_memory()[0] - base
+        snapshot = ph.merge(None, parsed, now=now)
+        peak = tracemalloc.get_traced_memory()[1] - base
+    finally:
+        tracemalloc.stop()
+    rows = len(parsed)
+    assert snapshot is not None and rows > 7_000
+    # 전체 창(T ≈ 8,064)으로 늘려 잡는다. 인턴 전: 들고 있는 파싱 결과 ≈ 9.4MB, 최고 ≈ 11.1MB(병합 포함).
+    scale = 8_064 / rows
+    assert retained * scale <= 4.5e6, f"parsed rows retain {retained * scale / 1e6:.2f} MB at T=8064"
+    assert peak * scale <= 6.0e6, f"boot parse+merge peaks at {peak * scale / 1e6:.2f} MB at T=8064"
