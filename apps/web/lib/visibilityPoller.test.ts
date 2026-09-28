@@ -150,6 +150,30 @@ async function main() {
     assert.equal(runs, 2);
   }
 
+  // 탭 복귀도 실행 중이면 건너뛴다: 숨은 탭('알림 받기')에서 느린 조회가 도는 중에 돌아와도 겹쳐 보내지 않는다
+  {
+    const f = fakeEnv();
+    let runs = 0;
+    let release: () => void = () => {};
+    startVisibilityPoller(
+      () => {
+        runs += 1;
+        return new Promise<void>((r) => { release = r; });
+      },
+      INTERVAL,
+      { keepWhileHidden: () => true },
+      f.env,
+    );
+    f.setHidden(true, 1 * S);
+    f.tickAt(30 * S); await flush();
+    assert.equal(runs, 1, '알림 켜짐 숨은 탭 틱이 돌지 않았다');
+    f.setHidden(false, 70 * S); await flush();
+    assert.equal(runs, 1, '이전 조회가 끝나기 전에 탭 복귀가 겹쳐 보냈다');
+    release(); await flush(); await flush();
+    f.tickAt(90 * S); await flush();
+    assert.equal(runs, 2, '조회가 끝난 뒤 다음 틱은 돌아야 한다');
+  }
+
   // stop: 타이머·구독 해제, 이후 틱은 무효
   {
     const f = fakeEnv();
@@ -190,6 +214,17 @@ async function main() {
   assert.match(safetySrc, /keepWhileHidden: \(\) => notifEnabledRef\.current/, "'알림 받기' 가 켜져 있을 때 숨은 탭 폴링을 유지하지 않는다");
   assert.match(safetySrc, /lastQueryKeyRef/, '안전 경보 첫 진입 중복 조회 방지가 빠졌다');
   assert.doesNotMatch(safetySrc, /setInterval\(/, '안전 경보에 가시성을 무시하는 타이머가 남아 있다');
+  // 이름만 남기고 비교를 지우면(무조건 fetchStatus(true)) 첫 진입마다 무거운 조회가 두 번 나간다 — 비교 자체를 본다.
+  assert.match(
+    safetySrc,
+    /if \(thresholdKey\(alertRef\.current, warnRef\.current\) !== lastQueryKeyRef\.current\) fetchStatus\(true\);/,
+    '임계값 디바운스가 마지막 조회와 같은 값이어도 다시 묻는다(첫 진입 중복 조회)',
+  );
+  assert.match(
+    safetySrc,
+    /lastQueryKeyRef\.current = thresholdKey\(alertRef\.current, warnRef\.current\);/,
+    '조회할 때 마지막 조회 값을 기록하지 않는다',
+  );
   const panelSrc = readFileSync(join(WEB, 'components', 'admin', 'AreaDemandReliabilityPanel.tsx'), 'utf8');
   assert.match(panelSrc, /usePolling\(/, '주차 수집 패널이 숨은 탭 폴링 멈춤을 쓰지 않는다');
   assert.doesNotMatch(panelSrc, /setInterval\(/, '주차 수집 패널에 가시성을 무시하는 타이머가 남아 있다');

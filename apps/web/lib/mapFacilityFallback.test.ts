@@ -119,6 +119,13 @@ async function main() {
   assert.match(mainSrc, /loadMapFacilitiesFromSupabase\(/, '/main 비상 경로가 활성·RPC 헬퍼를 쓰지 않는다');
   assert.match(mainSrc, /gallery_images/, '/main 비상 경로가 갤러리 사진을 매핑하지 않는다');
   assert.doesNotMatch(mainSrc, /from\(\s*["']congestion_logs["']\s*\)/, '/main 이 congestion_logs 를 직접 읽는다(1000행 캡에 시설이 빠진다)');
+  // 주석 속 '_clean_gallery_images' 가 위 검사를 통과시킨다 — 줄 주석을 걷어낸 뒤 매핑 자체를 본다.
+  const mainCode = mainSrc.replace(/\/\/.*$/gm, '');
+  assert.match(
+    mainCode,
+    /galleryImages:\s*cleanGalleryImages\(f\.gallery_images\)/,
+    '/main 비상 경로가 gallery_images 를 카드 사진 폴백(galleryImages)으로 매핑하지 않는다',
+  );
 
   console.log('map facility fallback tests passed');
 }
