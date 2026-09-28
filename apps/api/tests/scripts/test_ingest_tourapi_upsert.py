@@ -31,10 +31,12 @@ class _Result:
 class _FacilitiesTable:
     """facilities 대역 — 기존 행 SELECT(페이지네이션 흉내)와 쓰기 요청을 요청 단위로 기록한다."""
 
-    def __init__(self, existing=(), upsert_error=None):
+    def __init__(self, existing=(), upsert_error=None, insert_error=None):
         # upsert_error: 예외(모든 upsert 실패) 또는 rows → 예외|None 함수(조각별로 실패 여부 결정).
+        # insert_error: rows → 예외|None 함수(INSERT 요청별로 실패 여부 결정).
         self.existing = list(existing)
         self.upsert_error = upsert_error
+        self.insert_error = insert_error
         self.requests: list[dict] = []  # {"op", "rows"|"payload", "eq"}
         self._op = None
         self._payload = None
@@ -86,6 +88,10 @@ class _FacilitiesTable:
             return _Result(self.existing[start:end + 1])
         if self._op == "upsert" and self.upsert_error is not None:
             error = self.upsert_error(self._payload) if callable(self.upsert_error) else self.upsert_error
+            if error is not None:
+                raise error
+        if self._op == "insert" and self.insert_error is not None:
+            error = self.insert_error(self._payload)
             if error is not None:
                 raise error
         if self._op == "update":
@@ -420,3 +426,29 @@ def test_kakao_verified_coordinates_survive_a_failed_kakao_match(upsert_error):
     assert (sent["3"]["latitude"], sent["3"]["longitude"]) == (35.83, 129.21)
     assert (sent["4"]["latitude"], sent["4"]["longitude"]) == (35.83, 129.21)
     _assert_uniform(table.bulk("upsert") + table.bulk("insert"))
+
+
+# ---------------------------------------------------------------------------
+# 폴백 INSERT — 나쁜 행 하나가 같은 키 묶음의 새 장소(최대 100곳)를 막지 않는다(리뷰 #4)
+# ---------------------------------------------------------------------------
+
+def test_failed_insert_chunk_is_retried_row_by_row(capsys):
+    # "12"·"13": 이름 VARCHAR(255) 초과 같은 행 단위 거부. 같은 키 묶음의 "11"·"14" 는 들어가야 한다.
+    rows = [_base("10"), _base("11"), _base("12"), _base("13"), _base("14")]
+    bad = {"12", "13"}
+
+    def reject_bad_rows(sent_rows):
+        hit = sorted(r["contentid"] for r in sent_rows if r["contentid"] in bad)
+        return RuntimeError(f"value too long for type character varying(255) {hit}") if hit else None
+
+    table = _FacilitiesTable(existing=[{"contentid": "10", "features": {}}],
+                             upsert_error=_NO_CONFLICT_TARGET, insert_error=reject_bad_rows)
+
+    assert _upsert(rows, table) == 3  # UPDATE "10" + INSERT "11"·"14"
+
+    inserted = [r["contentid"] for req in table.bulk("insert") for r in req]
+    assert inserted == ["11", "14"]
+    assert [r["eq"] for r in table.requests if r["op"] == "update"] == [("contentid", "10")]
+    out = capsys.readouterr().out
+    assert "contentid=12" in out and "contentid=13" in out
+

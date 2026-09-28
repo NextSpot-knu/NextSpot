@@ -368,12 +368,25 @@ def upsert_facilities(rows: list[dict]) -> int:
     update_rows = [p for p in remaining if p["contentid"] in existing_ids]
 
     # bulk insert 도 columns= 합집합을 보낸다 — 신규 행이라도 없는 키가 열 기본값 대신 NULL 이 된다.
+    # 조각이 실패하면 그 행들을 하나씩 다시 넣는다 — 이름 길이·제약 위반 같은 나쁜 행 하나가 같은 키 묶음의
+    # 새 장소(최대 UPSERT_CHUNK 곳)를 매일 밤 함께 막지 않게. bulk INSERT 는 한 문장이라 실패하면 아무것도 쓰이지
+    # 않았고, 설령 응답만 잃었어도 contentid 유니크 인덱스가 중복 행을 막는다(그 행은 실패 로그로 남는다).
     for chunk in _uniform_key_chunks(new_rows):
         try:
             supabase_admin.table("facilities").insert(chunk).execute()
             written += len(chunk)
+            continue
         except Exception as e:
-            print(f"[upsert] INSERT 배치 실패({len(chunk)}건): {e}")
+            print(f"[upsert] INSERT 배치 실패({len(chunk)}건): {e} — 행마다 다시 시도")
+        if len(chunk) == 1:
+            print(f"[upsert] INSERT 실패 (contentid={chunk[0]['contentid']})")
+            continue
+        for row in chunk:
+            try:
+                supabase_admin.table("facilities").insert([row]).execute()
+                written += 1
+            except Exception as e:
+                print(f"[upsert] INSERT 실패 (contentid={row['contentid']}): {e}")
 
     for row in update_rows:
         try:
