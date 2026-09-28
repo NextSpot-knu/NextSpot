@@ -1,7 +1,5 @@
 // 대기 보드 사진 커서 — 보이는 사진과 그 출처가 같은 렌더에서 같은 값으로 정해진다.
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import {
   advancePhotoCursor,
   creditForDisplayedPhoto,
@@ -49,10 +47,7 @@ const exhausted = advancePhotoCursor(list1, cursor, WIKI);
 assert.equal(displayedPhotoUrl(list1, exhausted), null);
 assert.equal(creditForDisplayedPhoto(displayedPhotoUrl(list1, exhausted), FEATURES), null);
 
-// --- 대기 보드가 이 커서로 사진과 출처를 한 값에서 그린다 -------------------------------------
-const waiting = readFileSync(join(process.cwd(), 'app/waiting/page.tsx'), 'utf8');
-assert.match(waiting, /displayedPhotoUrl\(photoUrls, photoCursors\[row\.facilityId\]\)/, '보이는 사진을 렌더 중에 계산');
-assert.match(waiting, /creditForDisplayedPhoto\(photoUrl, photoFeatures\)/, '출처가 같은 값을 따른다');
-assert.doesNotMatch(waiting, /onDisplayedUrl/, '자식이 effect 로 알려 주는 한 커밋 늦은 경로가 없다');
+// 대기 보드가 이 커서로 사진과 출처를 한 값에서 그리는지는 화면에서 본다 — e2e/photo-credit.spec.ts
+// ('the credit follows the photo each card actually shows' · 'a credit that appears after a broken photo …').
 
 console.log('photoCursor tests passed');

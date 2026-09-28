@@ -30,6 +30,15 @@ function photoSvg(label: string, fill: string) {
 // 출처 줄 = Wikimedia Commons 원문 페이지로 가는 링크. 구현(클래스·testid)이 아니라 관광객이 보는 링크로 찾는다.
 const CREDIT_LINK = 'a[href^="https://commons.wikimedia.org/wiki/File:"]';
 
+/** 출처 링크 상자 폭 − 보이는 글자 폭(두 줄이면 긴 줄, 한 줄이면 조각의 합). 0 이면 누르는 자리가 글자만큼이다. */
+function tapBoxExtraWidth(a: Element): number {
+  const box = a.getBoundingClientRect().width;
+  const parts = Array.from(a.children).map((c) => c.getBoundingClientRect());
+  const stacked = parts.length > 1 && parts[1].top >= parts[0].bottom - 1;
+  const text = stacked ? Math.max(...parts.map((r) => r.width)) : parts.reduce((w, r) => w + r.width, 0);
+  return box - text;
+}
+
 async function stubPhotoHosts(page: Page): Promise<void> {
   await page.route('**://upload.wikimedia.org/**', (route) =>
     route.fulfill({ status: 200, contentType: 'image/svg+xml', body: photoSvg('Wikimedia photo', '#7a5c2e') }),
@@ -51,6 +60,8 @@ type FacilityFixture = {
   // TourAPI 적재분 식별자 — 있으면 상세에 '실시간 정보 새로고침' 과 ⓒ한국관광공사 TourAPI 표시가 뜬다.
   contentid?: string;
   contenttypeid?: number;
+  overview?: string;
+  address?: string;
 };
 
 function facilityRow(f: FacilityFixture, index: number) {
@@ -132,6 +143,8 @@ test('main card: a Wikimedia gallery photo is shown with its credit link', async
   await expect(link).toContainText('CC BY-SA 4.0');
   // 긴 작가 이름은 한 줄에서 말줄임 — 390px 에서 가로 넘침이 없다(글자 한 줄 + 누르는 자리, 24px 상자).
   expect((await link.boundingBox())?.height ?? 0).toBeLessThanOrEqual(24);
+  // 누르는 자리는 보이는 글자 폭만큼 — 줄 오른쪽 빈자리가 새 창 링크가 되지 않는다.
+  expect(await link.evaluate(tapBoxExtraWidth)).toBeLessThanOrEqual(1);
   await expect.poll(
     () => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth),
   ).toBeLessThanOrEqual(1);
@@ -211,7 +224,7 @@ test('waiting board: the credit follows the photo each card actually shows', asy
   ).toBeLessThanOrEqual(1);
 });
 
-test('main card: the ⓒ TourAPI chip never sits on top of a Wikimedia photo', async ({ page }) => {
+test('main card: the ⓒ TourAPI chip sits with the TourAPI text, apart from the Wikimedia photo', async ({ page }) => {
   test.setTimeout(90_000);
   // TourAPI 적재 관광지(contentid 있음)인데 사진은 적재 배치가 넣은 Wikimedia 대체 사진뿐인 경우.
   await mockFacilities(page, [{
@@ -219,6 +232,8 @@ test('main card: the ⓒ TourAPI chip never sits on top of a Wikimedia photo', a
     contentid: '126207', contenttypeid: 12,
     image_url: null, gallery_images: [WIKI_PHOTO],
     features: { image_source: credit('Bunhwangsa.jpg', 'Commons Photographer') },
+    overview: '분황사 모전석탑 앞 마당에 자리한 작은 쉼터.',
+    address: '경상북도 경주시 분황로 94-11',
   }]);
   await page.goto('/main');
   await expect(page.getByText('분황사 쉼터').first()).toBeVisible({ timeout: 20_000 });
@@ -234,18 +249,53 @@ test('main card: the ⓒ TourAPI chip never sits on top of a Wikimedia photo', a
   const chip = refresh.locator('xpath=following-sibling::span');
   await expect(chip).toHaveText('ⓒ한국관광공사 TourAPI');
 
-  // 읽는 순서와 보이는 순서 모두: 사진 → 사진의 출처 → ⓒ TourAPI 표시(개요·운영시간 쪽).
-  const chipFollowsCredit = await link.evaluate(
-    (a, chipEl) => Boolean(a.compareDocumentPosition(chipEl as Node) & Node.DOCUMENT_POSITION_FOLLOWING),
-    await chip.elementHandle(),
-  );
-  expect(chipFollowsCredit).toBe(true);
-  const [photoBox, linkBox, chipBox] = await Promise.all([photo.boundingBox(), link.boundingBox(), chip.boundingBox()]);
-  expect(photoBox && linkBox && chipBox).toBeTruthy();
-  expect(chipBox!.y).toBeGreaterThanOrEqual(photoBox!.y + photoBox!.height);
-  expect(chipBox!.y).toBeGreaterThanOrEqual(linkBox!.y + linkBox!.height);
-  // 출처 링크는 누르기 좋은 24px 상자, 글자는 사진 바로 아래.
+  // 상세의 차례: [사진 + 사진의 출처] → [💡 추천 사유] → [새로고침 · ⓒ TourAPI] → [개요] …
+  // ⓒ 표시 바로 아래가 그것이 가리키는 TourAPI 글이고, 사진의 출처와 ⓒ 표시 사이에는 사진이 아닌 글 블록이 있다.
+  const chipRow = refresh.locator('xpath=..');
+  await expect(chipRow.locator('xpath=..').getByText('ⓒ한국관광공사 TourAPI')).toHaveCount(1); // 상세 안에 한 번만
+  const afterChip = chipRow.locator('xpath=following-sibling::*[1]');
+  await expect(afterChip).toContainText('소개');
+  await expect(afterChip).toContainText('분황사 모전석탑 앞 마당에 자리한 작은 쉼터.');
+  const beforeChip = chipRow.locator('xpath=preceding-sibling::*[1]');
+  await expect(beforeChip).toContainText('💡');
+  await expect(beforeChip.locator('img')).toHaveCount(0);
+  await expect(beforeChip.locator(CREDIT_LINK)).toHaveCount(0);
+  const photoBlock = beforeChip.locator('xpath=preceding-sibling::*[1]');
+  await expect(photoBlock.locator(`img[src="${WIKI_PHOTO}"]`)).toHaveCount(1);
+  await expect(photoBlock.locator(CREDIT_LINK)).toHaveCount(1);
+
+  const [linkBox, reasonBox, chipBox] = await Promise.all([link.boundingBox(), beforeChip.boundingBox(), chip.boundingBox()]);
+  expect(linkBox && reasonBox && chipBox).toBeTruthy();
+  expect(reasonBox!.y).toBeGreaterThanOrEqual(linkBox!.y + linkBox!.height - 5); // 출처 상자 아래 5px 은 누르는 여백(-mb-[5px])
+  expect(chipBox!.y).toBeGreaterThanOrEqual(reasonBox!.y + reasonBox!.height);
+  // 출처 링크는 누르기 좋은 24px 상자, 폭은 보이는 글자만큼.
   expect(linkBox!.height).toBeGreaterThanOrEqual(24);
+  expect(await link.evaluate(tapBoxExtraWidth)).toBeLessThanOrEqual(1);
+});
+
+test('main card: without an overview the ⓒ TourAPI chip sits right above the address', async ({ page }) => {
+  test.setTimeout(90_000);
+  // TourAPI 사진·개요 없음 — ⓒ 표시는 주소(TourAPI) 바로 위, 사진 출처 줄은 없다.
+  await mockFacilities(page, [{
+    id: 'tour-no-overview', name: '황남 국밥', type: 'restaurant',
+    contentid: '2790001', contenttypeid: 39,
+    image_url: TOUR_PHOTO, gallery_images: null,
+    features: {},
+    address: '경상북도 경주시 포석로 1080',
+  }]);
+  await page.goto('/main');
+  await expect(page.getByText('황남 국밥').first()).toBeVisible({ timeout: 20_000 });
+  await page.getByRole('button', { name: '상세 정보 펼치기' }).click();
+
+  const refresh = page.getByRole('button', { name: '실시간 정보 새로고침' });
+  await refresh.scrollIntoViewIfNeeded();
+  await expect(refresh).toBeVisible();
+  await expect(refresh.locator('xpath=following-sibling::span')).toHaveText('ⓒ한국관광공사 TourAPI');
+  const afterChip = refresh.locator('xpath=../following-sibling::*[1]');
+  await expect(afterChip).toContainText('주소');
+  await expect(afterChip).toContainText('경상북도 경주시 포석로 1080');
+  await expect(refresh.locator('xpath=../preceding-sibling::*[1]')).toContainText('💡');
+  await expect(page.locator(CREDIT_LINK)).toHaveCount(0);
 });
 
 test('waiting board: the credit shows the artist on its own line and keeps clear of the card', async ({ page }) => {
@@ -272,4 +322,77 @@ test('waiting board: the credit shows the artist on its own line and keeps clear
   const [cardBox, linkBox] = await Promise.all([card.getByRole('button').first().boundingBox(), link.boundingBox()]);
   expect(linkBox!.y - (cardBox!.y + cardBox!.height)).toBeGreaterThanOrEqual(8);
   expect(linkBox!.height).toBeGreaterThanOrEqual(24);
+  // 누르는 자리는 두 줄 중 긴 줄의 폭만큼 — 카드 폭 전체가 링크가 되지 않는다.
+  expect(await link.evaluate(tapBoxExtraWidth)).toBeLessThanOrEqual(1);
+  expect(linkBox!.width).toBeLessThan(cardBox!.width - 8);
+});
+
+// 대기 보드 셀 = [카드 버튼, 출처 자리].
+const boardCell = (page: Page, name: string) => page.locator('div.grid-rows-\\[1fr_auto\\]').filter({ hasText: name });
+
+test('waiting board: a credit that appears after a broken photo does not move the content below', async ({ page }) => {
+  await mockFacilities(page, [
+    {
+      id: 'shift-fallback', name: '늦은출처 식당', type: 'restaurant',
+      image_url: TOUR_BROKEN, gallery_images: [WIKI_PHOTO],
+      features: { image_source: credit('Late.jpg', 'Late Artist', 'CC BY 4.0') },
+    },
+    {
+      id: 'shift-tour', name: '옆자리 식당', type: 'restaurant',
+      image_url: TOUR_PHOTO, gallery_images: null, features: {},
+    },
+  ]);
+  // 깨진 대표 사진의 404 를 붙잡아 둔다 — 그동안은 출처가 없고, 풀면 Wikimedia 사진과 출처가 뜬다.
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => { release = resolve; });
+  let markRequested!: () => void;
+  const brokenRequested = new Promise<void>((resolve) => { markRequested = resolve; });
+  await page.route('**/e2e_broken_image2_1.jpg', async (route) => {
+    markRequested();
+    await held;
+    await route.fulfill({ status: 404, contentType: 'text/plain', body: 'gone' });
+  });
+
+  await page.goto('/waiting');
+  const cell = boardCell(page, '늦은출처 식당');
+  await expect(cell).toBeVisible({ timeout: 30_000 });
+  await expect(cell.locator('img')).toHaveAttribute('src', TOUR_BROKEN);
+  await brokenRequested;
+  await expect(boardCell(page, '옆자리 식당')).toBeVisible();
+  await expect(page.locator(CREDIT_LINK)).toHaveCount(0);
+
+  // 카드 줄 바로 아래 내용(골든타임 자리 → 나머지 목록)의 위치를 카드 줄 기준으로 잰다.
+  const grid = page.locator('div.grid-cols-3.items-stretch').filter({ has: cell });
+  const below = grid.locator('xpath=following-sibling::*[1]');
+  const measure = async () => {
+    const [g, b] = await Promise.all([grid.boundingBox(), below.boundingBox()]);
+    return { belowFromTop: b!.y - g!.y, gridHeight: g!.height };
+  };
+  const before = await measure();
+
+  release();
+  await expect(cell.locator('img')).toHaveAttribute('src', WIKI_PHOTO);
+  const lateCredit = cell.locator(CREDIT_LINK);
+  await expect(lateCredit).toBeVisible();
+  await expect(lateCredit).toContainText('CC BY 4.0');
+
+  const after = await measure();
+  expect(Math.abs(after.belowFromTop - before.belowFromTop)).toBeLessThanOrEqual(1);
+  expect(Math.abs(after.gridHeight - before.gridHeight)).toBeLessThanOrEqual(1);
+});
+
+test('waiting board: a row with no Wikimedia photo keeps the 16px slot under its cards', async ({ page }) => {
+  await mockFacilities(page, [
+    { id: 'plain-a', name: '가게하나 식당', type: 'restaurant', image_url: TOUR_PHOTO, gallery_images: null, features: {} },
+    { id: 'plain-b', name: '가게둘 식당', type: 'restaurant', image_url: null, gallery_images: null, features: {} },
+  ]);
+  await page.goto('/waiting');
+  await expect(boardCell(page, '가게하나 식당')).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator(CREDIT_LINK)).toHaveCount(0);
+  // 프로덕션(367514c)의 대기 보드와 같은 자리: 카드 아래 16px(min-h-4).
+  for (const name of ['가게하나 식당', '가게둘 식당']) {
+    const c = boardCell(page, name);
+    const [cellBox, cardBox] = await Promise.all([c.boundingBox(), c.getByRole('button').first().boundingBox()]);
+    expect(Math.abs(cellBox!.y + cellBox!.height - (cardBox!.y + cardBox!.height) - 16)).toBeLessThanOrEqual(0.5);
+  }
 });
