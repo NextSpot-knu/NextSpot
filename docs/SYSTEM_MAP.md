@@ -638,7 +638,7 @@ system_settings
 | `ci.yml` | push / PR | web(lint→typecheck→test→build) · api(ruff→pytest) · schema · e2e(Chromium 390px, 4로케일) |
 | `ingest.yml` | 매일 04:00 KST | TourAPI POI 적재 (contentid upsert) |
 | `train-recommendation-model.yml` | 매주 월 03:00 KST | 모델 학습 → 게이트 검증 → 승격 |
-| `area-demand-alert.yml` | **매시 28분** | 주차 실측 수집이 멈췄는지 감시 — Supabase PostgREST 로 `area_demand_snapshots` 최신 행을 직접 읽는다(35분 넘게 오래되면 `stale`, 읽지 못하면 `api_unreachable` — 둘 다 실패). Supabase 시크릿이 없으면 예전처럼 `GET /admin/area-demand-reliability?hours=6` 의 `alert.state` |
+| `area-demand-alert.yml` | **매시 28분** 예약(GitHub 스케줄러 best-effort — 실측 3~6시간 간격) | 주차 실측 수집이 멈췄는지 감시 — Supabase PostgREST 로 `area_demand_snapshots` 최신 행을 직접 읽는다(35분 넘게 오래되면 `stale`, 읽지 못하면 `api_unreachable`, 200 인데 0행이면 `no_snapshot` — 모두 실패. 새 환경만 Variable `AREA_DEMAND_ALERT_ALLOW_EMPTY=true` 로 0행 통과). Supabase 시크릿이 없으면 예전처럼 `GET /admin/area-demand-reliability?hours=6` 의 `alert.state` |
 | `collect-area-demand.yml` | 수동 | 주차 실측 수집 수동 복구(정기 수집은 Supabase pg_cron 10분 주기) |
 | (워크플로 아님) Supabase pg_cron — **서울 실시간 도시데이터** | 10분(분 4·14·… 주 호출 / 9·19·… 버킷이 비었을 때만 보충) | `POST /api/v1/engine-validation/seoul/collect` 호출 → `seoul_citydata_snapshots` 적재. URL 은 Vault `nextspot_seoul_citydata_api_url`, 토큰은 경주 수집기와 같은 Vault 비밀을 **공유**한다(회전 한 번이면 둘 다 반영). 마이그레이션 `20260920121000` — 2026-09-20 기준 **적용 대기** |
 | `uptime.yml` | 수동 | 헬스체크(장애 진단용) |

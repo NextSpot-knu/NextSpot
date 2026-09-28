@@ -194,11 +194,18 @@ from checks order by seq;
 ## 2026-09-28b — P0c: TourAPI 일배치가 좋은 값을 덮지 않게 · 수집 경보를 스냅샷 표에서 (main 미반영)
 
 - 도구·브랜치: Claude Code(하위 에이전트) / `fix/ingest-keyset-upsert`
-- 커밋: 8a8f54f..d0bacd1 (3건) + 이 기록. 단계 표는 [`API_ARCHITECTURE_PLAN.md`](./API_ARCHITECTURE_PLAN.md) P0c
+- 커밋: 8a8f54f..d0bacd1 (3건) + 이 기록 + 독립 리뷰 수정 ca91cbe..af24be4 (6건, 각각 되돌릴 수 있게). 단계 표는 [`API_ARCHITECTURE_PLAN.md`](./API_ARCHITECTURE_PLAN.md) P0c
 - 한 것: 일배치 bulk 쓰기를 키 집합이 같은 행끼리만(합집합 columns 의 NULL 채움 차단) · capacity 는 새 contentid 에만(관리자 수정 유지) · None 열(image_url·address)은 보내지 않음 · 사진 상세가 실패한 날 Wikimedia 대체 사진 금지. area-demand-alert 는 Supabase `area_demand_snapshots` 최신 행을 직접 읽는다(stale·api_unreachable 구분, Supabase 시크릿이 없으면 옛 API 판정 그대로), 매시 28분.
 - 실측: 운영 일배치의 1차 bulk upsert 는 매일 42P10(부분 유니크 인덱스는 ON CONFLICT 대상이 못 된다)으로 실패하고 폴백(신규 INSERT·기존 행마다 UPDATE)이 실제 경로다 — '상세 NULL 덮기'는 운영에선 잠재였고, capacity·image_url·address 되돌리기는 실제였다.
-- 검증: api ruff + pytest 1850(새 9건, 수정 전 코드에서 전부 실패 확인) · actionlint + shellcheck · 스텁 PostgREST 13경우 · 운영 Supabase 읽기 1회(state=ok) · check-docs
-- 다음·미결: main 반영 때 위 "배포 상태"의 area-demand-alert 설명(매시 정각·skip 조건)과 "사람 작업 대기"의 `BACKEND_HEALTH_URL` 항목 갱신 · `routers/search.py` 적재 승인 단건 경로에도 같은 capacity·None 덮기(범위 밖) · 충돌 대상 정리는 RPC 단계에서.
+- 리뷰 수정(스크립트·워크플로만, `app/**`·capacity 규칙은 손대지 않음 — capacity 는 PM 결정 대기):
+  - 대표 사진: detailCommon2 가 답했고 목록·상세 firstimage 가 모두 비면 그날만 `image_url=NULL`(거둔 사진이 남거나 Wikimedia 출처 아래 옛 사진이 뜨지 않게). 호출 실패·미호출이면 기존 값 유지. address 는 '확인된 부재' 신호가 없어 계속 None 미전송.
+  - 좌표: 저장된 `features.coordinate_source='kakao'` 인 행은 그날 Kakao 매칭이 실패·동점이면 위경도를 보내지 않는다(검증 좌표 유지).
+  - 폴백 INSERT 조각이 실패하면 행마다 다시 넣고 실패 contentid 를 로그에 — 나쁜 행 하나가 새 장소 100곳을 막지 않게. `GITHUB_STEP_SUMMARY` 에 "written X/Y" 한 줄. 종료 코드 규칙(75 재시도 사슬)은 그대로.
+  - area-demand-alert: 끊긴 응답(IncompleteRead 등)도 재시도 후 `api_unreachable` 안내로(트레이스백 X) · Supabase 모드의 빈 결과는 `no_snapshot` 실패(새 환경만 Variable `AREA_DEMAND_ALERT_ALLOW_EMPTY=true`) · 오류 발췌에서 키·URL 가림 · 주석은 '매시 감지'를 약속하지 않음(스케줄러 best-effort, 실측 3~6시간 간격).
+- 검증: api ruff + pytest 1850(새 9건, 수정 전 코드에서 전부 실패 확인) · actionlint + shellcheck · 스텁 PostgREST 13경우 · 운영 Supabase 읽기 1회(state=ok) · check-docs. 리뷰 수정: pytest 새 6건(수정 전 스크립트에서 전부 실패) · 가짜 HTTP 서버로 경보 스크립트 원문 10경우(ok·stale·빈 결과·허용 변수·IncompleteRead·401·503×3, 로그·Summary 에 키·URL 없음 — 수정 전 원문은 5경우 실패) · actionlint 1.7.12
+- 다음·미결: main 반영 때 위 "배포 상태"의 area-demand-alert 설명(매시 정각·skip 조건)과 "사람 작업 대기"의 `BACKEND_HEALTH_URL` 항목 갱신 · 충돌 대상 정리는 RPC 단계에서 · main 반영 뒤 하루 동안 경보 실행 간격 확인.
+  - 관리자 승인 경로 `app/routers/search.py` `_upsert_facility` 는 이미 있는 contentid 에도 capacity 를 기본값으로, image_url·address 를 None 으로 되돌리고 features 를 통째로 바꾼다(`overview_i18n` 번역·Wikimedia 출처·Kakao 좌표 표시가 지워진다). 일배치와 같은 `_write_payload` + features 병합을 쓰거나 "이미 있음" 가드를 둘 것.
+  - 새 장소가 들어온 첫날 밤 사진 호출이 실패하면 Wikimedia 대체 사진을 건너뛴다 — 다음 날 밤 스스로 채워지므로 수용.
 - 사람 작업: 없음(Supabase 시크릿은 ingest 가 이미 쓰는 값)
 
 ## 2026-09-28 — API 재설계 1단계: 참조 스냅샷으로 지도 4초 → 수 ms (P0a·P1)

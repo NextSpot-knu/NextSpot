@@ -36,7 +36,7 @@ FastAPI 워커 1개(Render 512MB/0.5CPU)
 | **P0a** | 1,682 스레드 팬아웃 폴백 제거(RPC 실패 → 조각 재시도 1회) · 시설 페이지네이션 id 정렬 · 출처 표 전량 · httpx URL 로그 끄기(쿼리스트링 키 노출) · 브리핑 캐시 만료 | `perf/reference-snapshot` 완료 |
 | **P1** | 참조 스냅샷 + `/infrastructures` 사전 직렬화 바이트 · ETag/304 · `Cache-Control: private, no-cache` · `/health.reference_snapshot` · 롤백 env `REFERENCE_SNAPSHOT_SERVE`(`snapshot` 외 값이면 옛 경로) | 같은 브랜치 완료. 실 DB 읽기 대조: 3개 필터 모두 JSON 동일, 3~13ms(옛 경로 1.2~1.5초, 데스크톱) |
 | P0b | 웹: 숨은 탭 폴링 중지 · `/waiting` 곡선 순차 6회 → 병렬 · 폴백 1,000행 캡 수정. **데모 프리페치 삭제와 상태 코드 재시도는 하지 않는다**(레드팀 B4 · crit7) | 대기 |
-| P0c | 일배치가 상세 실패 행을 NULL로 덮는 문제 · area-demand-alert 가 API 메모리 상태에 묶인 거짓 경보 | `fix/ingest-keyset-upsert` 완료(main 미반영) — 키 집합별 bulk 쓰기 · capacity 신규만 · None 미전송 · 경보는 Supabase 스냅샷 표 직접. 실측: 운영 1차 upsert 는 매일 42P10(부분 인덱스) → 폴백이 실제 경로 |
+| P0c | 일배치가 상세 실패 행을 NULL로 덮는 문제 · area-demand-alert 가 API 메모리 상태에 묶인 거짓 경보 | `fix/ingest-keyset-upsert` 완료(main 미반영) — 키 집합별 bulk 쓰기 · capacity 신규만 · None 미전송 · 경보는 Supabase 스냅샷 표 직접 · 독립 리뷰 수정 6건(확인된 사진 부재만 지움 · Kakao 좌표 유지 · INSERT 행별 재시도 · 경보 견고화). 실측: 운영 1차 upsert 는 매일 42P10(부분 인덱스) → 폴백이 실제 경로 |
 | P2 | 주차 이력 = 로트×시간 uint16 행렬(~0.3MB)을 10분 수집이 덧붙임 → 격자 캐시 −44~109MB, 전망 3초 → ms | 대기 |
 | P3 | 모든 소비자가 스냅샷을 읽음 → 시설 캐시 4벌·deepcopy 삭제, 보행 그래프 CSR(빌드 시 굽기), 예측 표(요청 경로에서 sklearn 제거 −55MB) | 대기 |
 | P4 | 프로필 캐시 전역 락 → 사용자별 single-flight · 쓰기 멱등(클라이언트 uuid + on_conflict)으로 재시도 안전화. **JWKS는 적재 스레드에 올리지 않는다**(B6) | 대기 |
