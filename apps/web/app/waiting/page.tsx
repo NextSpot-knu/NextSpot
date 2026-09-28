@@ -124,6 +124,12 @@ interface Sector {
   rows: BoardRow[];
 }
 
+// 보드 조회 한 벌 — 4유형 순차 조회와 그 자동 재시도까지가 한 run 이다.
+interface BoardRun {
+  id: number;
+  controller: AbortController;
+}
+
 // TourAPI firstimage가 비어 있거나 원본 서버에서 만료·차단되어 로드에 실패하면
 // 같은 높이의 유형 아이콘 폴백으로 즉시 전환해 카드 상단이 빈 공간으로 남지 않게 한다.
 // 몇 번째 후보를 띄울지는 부모가 정한다(photoCursors) — 출처 줄이 카드 버튼 밖에 있어서(<a> 는 <button>
@@ -446,6 +452,10 @@ export default function WaitingBoardPage() {
   // (아래 fetch 이펙트보다 먼저 선언 — 같은 커밋에서 먼저 갱신된다.)
   const latestPresetRef = useRef(assumedPreset);
   useEffect(() => { latestPresetRef.current = assumedPreset; }, [assumedPreset]);
+  // 지금 살아 있는 보드 조회 한 벌(run). 새 조회가 시작되면 옛 run 은 버려진다 — 프리셋 값만 비교하면
+  // A→B→A 로 빨리 돌아왔을 때 처음 A 조회(예약된 0.5초·2.5초 자동 재시도 포함)가 다시 '최신'으로 보여
+  // 새 A 조회와 두 벌이 나란히 돈다. 버려진 run 의 가는 중 by-type 요청은 AbortController 로 끊는다.
+  const boardRunRef = useRef<BoardRun | null>(null);
 
   // 마운트 시 캐시 하이드레이션 — fetch 이펙트보다 먼저 선언되어 먼저 실행된다.
   useEffect(() => {
@@ -473,13 +483,33 @@ export default function WaitingBoardPage() {
     [router]
   );
 
-  const fetchBoard = useCallback(async () => {
-    const stale = () => latestPresetRef.current !== assumedPreset;
-    if (stale()) return; // 예약된 재시도가 돌 때 이미 다른 프리셋이면 — 새 프리셋의 조회가 따로 돈다
+  // continued: 같은 run 의 자동 재시도만 넘긴다. 없으면 새 run 을 열고 이전 run 을 끊는다.
+  const fetchBoard = useCallback(async (continued?: BoardRun) => {
+    let run = continued;
+    if (!run) {
+      boardRunRef.current?.controller.abort();
+      run = { id: (boardRunRef.current?.id ?? 0) + 1, controller: new AbortController() };
+      boardRunRef.current = run;
+    }
+    const thisRun = run;
+    const signal = thisRun.controller.signal;
+    // 끊긴 run(프리셋 변경·화면 떠남), 뒤에 시작된 run, 다른 프리셋 — 어느 것이든 이 run 은 더 묻지도 그리지도 않는다.
+    const stale = () =>
+      signal.aborted || boardRunRef.current !== thisRun || latestPresetRef.current !== assumedPreset;
+    if (stale()) return; // 예약된 재시도가 돌 때 이미 새 조회가 시작됐으면 — 그 조회가 따로 돈다
     // 화면에 같은 가정 시각의 결과가 이미 있으면 조용한 새로고침(로더 생략) — 스테일-우선.
+    // 다른 프리셋을 불러오던 로더가 떠 있을 수 있으니 여기서 내린다: 화면의 보드가 곧 이 프리셋의 보드다.
     const silentRefresh = hasRenderedResultsRef.current && renderedPresetRef.current === assumedPreset;
-    if (!silentRefresh) setLoading(true);
+    setLoading(!silentRefresh);
     setFailed(false);
+    const showFailed = () => {
+      setFailed(true);
+      setSectors(null);
+      setLoading(false);
+      // 화면에 보드가 없다 — 이 프리셋으로 다시 와도 빈 화면에서 조용히 기다리지 않고 로더부터 보여 준다.
+      hasRenderedResultsRef.current = false;
+      renderedPresetRef.current = null;
+    };
 
     // 4유형을 병렬 조회하되 allSettled 로 부분 실패를 흡수한다 — 일부만 살아 있어도 나머지 섹터는 채운다.
     // 전부 실패했을 때만 '백엔드 미가용'으로 판정(정직한 에러 상태 + 재시도).
@@ -492,7 +522,7 @@ export default function WaitingBoardPage() {
     for (const type of BOARD_TYPES) {
       if (stale()) return;
       try {
-        const value = await recommendByType(type, userLocation, [], PER_TYPE_LIMIT, undefined, undefined, undefined, 45000, assumedAtIsoForPreset(assumedPreset));
+        const value = await recommendByType(type, userLocation, [], PER_TYPE_LIMIT, undefined, undefined, signal, 45000, assumedAtIsoForPreset(assumedPreset));
         results.push({ status: "fulfilled", value });
       } catch (reason) {
         results.push({ status: "rejected", reason });
@@ -504,12 +534,13 @@ export default function WaitingBoardPage() {
     // 거의 통과한다(라이브 실측: 첫 호출만 503, 이후 전부 200). 섹터 하나가 비면 심사위원에겐
     // 구멍으로 보이므로 여기서 메운다.
     if (results.some((r) => r.status === "rejected")) {
+      if (stale()) return;
       await new Promise((resolve) => setTimeout(resolve, 2000));
       for (let i = 0; i < BOARD_TYPES.length; i++) {
         if (results[i].status !== "rejected") continue;
         if (stale()) return;
         try {
-          const value = await recommendByType(BOARD_TYPES[i], userLocation, [], PER_TYPE_LIMIT, undefined, undefined, undefined, 45000, assumedAtIsoForPreset(assumedPreset));
+          const value = await recommendByType(BOARD_TYPES[i], userLocation, [], PER_TYPE_LIMIT, undefined, undefined, signal, 45000, assumedAtIsoForPreset(assumedPreset));
           results[i] = { status: "fulfilled", value };
         } catch { /* 그대로 실패 유지 — 나머지 섹터로 보드는 뜬다 */ }
       }
@@ -626,13 +657,11 @@ export default function WaitingBoardPage() {
       if (allServiceUnavailable) {
         if (!serviceUnavailableRetriedRef.current) {
           serviceUnavailableRetriedRef.current = true;
-          setTimeout(() => { void fetchBoard(); }, 500);
+          setTimeout(() => { void fetchBoard(thisRun); }, 500);
           return; // loading 유지 — 503 자동 재시도는 1회로 제한
         }
         if (silentRefresh) { setLoading(false); return; } // 캐시 결과 유지 — 에러로 갈아치우지 않는다
-        setFailed(true);
-        setSectors(null);
-        setLoading(false);
+        showFailed();
         return;
       }
 
@@ -640,13 +669,11 @@ export default function WaitingBoardPage() {
       // (실측 재현). 유예 2.5초 후 자동 1회만 재시도 — 그래도 실패하면 정직한 에러+수동 재시도.
       if (!retriedRef.current) {
         retriedRef.current = true;
-        setTimeout(() => { void fetchBoard(); }, 2500);
+        setTimeout(() => { void fetchBoard(thisRun); }, 2500);
         return; // loading 유지(스켈레톤) — 유예는 유한(1회)이라 무한 스켈레톤 아님
       }
       if (silentRefresh) { setLoading(false); return; } // 캐시 결과 유지
-      setFailed(true);
-      setSectors(null);
-      setLoading(false);
+      showFailed();
       return;
     }
 
@@ -667,9 +694,11 @@ export default function WaitingBoardPage() {
 
   // 저장된 프리셋을 읽은 뒤에 조회한다(위 presetHydrated 주석) — 저장값이 토 14:00 이면 초기값 'now' 로
   // 4유형 순차 조회가 한 벌 더 나가 서버 부하가 두 배가 되고, 늦게 끝나면 토요일 배지 아래 오늘 보드가 그려졌다.
+  // 프리셋이 바뀌거나 화면을 떠나면 이 조회(run)를 버리고 가는 중인 요청을 끊는다.
   useEffect(() => {
     if (!presetHydrated) return;
-    fetchBoard();
+    void fetchBoard();
+    return () => boardRunRef.current?.controller.abort();
   }, [fetchBoard, presetHydrated]);
 
   // 히어로 요약 스탯 — 이미 상태에 있는 결과에서 '도착 시 대기'가 가장 짧은 값 하나만 뽑는다
@@ -775,7 +804,7 @@ export default function WaitingBoardPage() {
         {loading ? (
           <LoadingReveal variant="waiting" />
         ) : failed ? (
-          <ErrorState onRetry={fetchBoard} />
+          <ErrorState onRetry={() => { void fetchBoard(); }} />
         ) : !sectors || sectors.length === 0 ? (
           <EmptyState />
         ) : (
