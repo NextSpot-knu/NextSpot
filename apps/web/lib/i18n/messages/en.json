@@ -709,7 +709,7 @@
     "emptyBody": "Widen your filters to see more places nearby.",
     "fetchError": "We'll load this again shortly.",
     "subtitle": "Compare expected waits before you set off",
-    "dataAttribution": "Place info & photos: ⓒ Korea Tourism Organization TourAPI (except photos credited separately)"
+    "dataAttribution": "Place info & photos: ⓒ Korea Tourism Organization TourAPI (unless credited otherwise)"
   },
   "golden": {
     "badge": "Quiet today: {start}-{end}h",
@@ -884,7 +884,7 @@
     "nlSummaryCatsOnly": "Looking in {cats}",
     "nlNotApplied": "Couldn't make out a preference, so nothing was applied — try being more specific",
     "nlSaveFailed": "Understood your preference but couldn't save it — please try again shortly",
-    "dataAttribution": "Place info & photos: ⓒ Korea Tourism Organization TourAPI (except photos credited separately)"
+    "dataAttribution": "Place info & photos: ⓒ Korea Tourism Organization TourAPI (unless credited otherwise)"
   },
   "auth": {
     "callbackLoading": "Signing you in…",

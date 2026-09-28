@@ -709,7 +709,7 @@
     "emptyBody": "放宽筛选条件即可看到更多附近地点。",
     "fetchError": "稍后将重新加载。",
     "subtitle": "出发前先比较到达时的等待时间",
-    "dataAttribution": "地点信息·照片来源: ⓒ韩国旅游发展局 TourAPI（单独注明来源的照片除外）"
+    "dataAttribution": "地点信息·照片: ⓒ韩国旅游发展局 TourAPI（另有注明者除外）"
   },
   "golden": {
     "badge": "今日空闲: {start}~{end}点",
@@ -884,7 +884,7 @@
     "nlSummaryCatsOnly": "将在 {cats} 中查找",
     "nlNotApplied": "没能识别出偏好，因此未做应用 — 请说得更具体一些",
     "nlSaveFailed": "已理解你的偏好但未能保存 — 请稍后再试",
-    "dataAttribution": "地点信息·照片来源: ⓒ韩国旅游发展局 TourAPI（单独注明来源的照片除外）"
+    "dataAttribution": "地点信息·照片: ⓒ韩国旅游发展局 TourAPI（另有注明者除外）"
   },
   "auth": {
     "callbackLoading": "正在登录…",

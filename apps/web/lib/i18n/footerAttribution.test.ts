@@ -8,13 +8,14 @@ import ja from './messages/ja.json';
 import zh from './messages/zh.json';
 
 const LOCALES = { ko, en, ja, zh } as const;
-// 로케일별 '사진' 과 '따로 출처를 적은 사진 제외' 표현.
-const PHOTO_WORD: Record<keyof typeof LOCALES, RegExp> = { ko: /사진/, en: /photo/i, ja: /写真/, zh: /照片/ };
+// 로케일별 '사진' 과 '따로 출처를 적은 것 제외' 표현. 하단 줄은 390px 폰에서 두 줄 안에 들어가야 해서
+// '사진' 을 두 번 말하지 않는다(예전 영어 문구는 photos 를 되풀이해 세 줄로 접혔다).
+const PHOTO_WORD: Record<keyof typeof LOCALES, RegExp> = { ko: /사진/g, en: /photo/gi, ja: /写真/g, zh: /照片/g };
 const SCOPED: Record<keyof typeof LOCALES, RegExp> = {
-  ko: /출처를 따로 적은 사진 제외/,
-  en: /except photos credited separately/,
-  ja: /個別に出典を記した写真を除く/,
-  zh: /单独注明来源的照片除外/,
+  ko: /\(출처를 따로 적은 것 제외\)/,
+  en: /\(unless credited otherwise\)/,
+  ja: /（出典を別記したものを除く）/,
+  zh: /（另有注明者除外）/,
 };
 
 for (const [locale, messages] of Object.entries(LOCALES) as [keyof typeof LOCALES, typeof ko][]) {
@@ -22,9 +23,11 @@ for (const [locale, messages] of Object.entries(LOCALES) as [keyof typeof LOCALE
     const line = messages[screen].dataAttribution;
     assert.match(line, /ⓒ/, `${locale} ${screen}: ⓒ 표기`);
     assert.match(line, /TourAPI/, `${locale} ${screen}: TourAPI 표기`);
-    if (PHOTO_WORD[locale].test(line)) {
+    const photoMentions = line.match(PHOTO_WORD[locale])?.length ?? 0;
+    if (photoMentions > 0) {
       assert.match(line, SCOPED[locale], `${locale} ${screen}: 하단 ⓒ 줄이 출처를 따로 적은 Wikimedia 사진까지 덮는다`);
     }
+    assert.ok(photoMentions <= 1, `${locale} ${screen}: '사진' 을 되풀이한다 — 폰에서 줄이 늘어난다`);
   }
 }
 

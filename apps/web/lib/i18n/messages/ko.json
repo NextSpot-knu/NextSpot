@@ -709,7 +709,7 @@
     "emptyBody": "조건을 조금 넓히면 더 많은 장소를 보여드릴게요.",
     "fetchError": "잠시 후 다시 불러올게요.",
     "subtitle": "도착할 때 얼마나 기다릴지, 출발 전에 미리 비교하세요",
-    "dataAttribution": "장소 정보·사진 출처: ⓒ한국관광공사 TourAPI (출처를 따로 적은 사진 제외)"
+    "dataAttribution": "장소 정보·사진: ⓒ한국관광공사 TourAPI (출처를 따로 적은 것 제외)"
   },
   "golden": {
     "badge": "오늘 한산: {start}~{end}시",
@@ -884,7 +884,7 @@
     "nlSummaryCatsOnly": "{cats} 중에서 찾아볼게요",
     "nlNotApplied": "선호를 알아듣지 못해 반영하지 않았어요 — 조금 더 구체적으로 말씀해 주세요",
     "nlSaveFailed": "선호는 이해했는데 저장하지 못했어요 — 잠시 후 다시 시도해 주세요",
-    "dataAttribution": "장소 정보·사진 출처: ⓒ한국관광공사 TourAPI (출처를 따로 적은 사진 제외)"
+    "dataAttribution": "장소 정보·사진: ⓒ한국관광공사 TourAPI (출처를 따로 적은 것 제외)"
   },
   "auth": {
     "callbackLoading": "로그인 처리 중이에요…",
