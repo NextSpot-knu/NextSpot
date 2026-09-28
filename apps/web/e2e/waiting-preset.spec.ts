@@ -226,3 +226,37 @@ test('waiting board: a pending auto-retry of an abandoned run never starts a sec
   expect(nowCalls(calls)).toBe(8);
   expect(satCalls(calls)).toBe(1);
 });
+
+test('waiting board: an abandoned run whose last retry was cut off never draws or caches its board', async ({ page }) => {
+  await seedNowWithoutCache(page);
+  // 'now' 첫 패스의 마지막 유형(문화)이 500 → 2초 뒤 두 번째 패스가 문화를 다시 묻는다. 그 요청을 붙잡은 채
+  // 토요일로 바꾼다. 토요일도 붙잡아 두어, 버려진 'now' 조회가 끝까지 가도 가려 줄 새 보드가 없다 —
+  // 마지막 확인(루프 밖)만이 옛 보드를 막는다.
+  let releaseSat!: () => void;
+  const satHeld = new Promise<void>((resolve) => { releaseSat = resolve; });
+  let nowCultureSeen = 0;
+  const calls = await routeBoard(page, {
+    respond: async (call) => {
+      if (call.assumedAt !== null) { await satHeld; return; }
+      if (call.type !== 'culture') return;
+      nowCultureSeen += 1;
+      if (nowCultureSeen === 1) return 500;
+      await new Promise<void>(() => {}); // 두 번째 패스의 문화 요청 — 끊기기 전까지 답하지 않는다
+    },
+  });
+
+  await page.goto('/waiting');
+  await expect.poll(() => nowCultureSeen, { timeout: 30_000 }).toBe(2);
+  await presetSelect(page).selectOption('sat_afternoon');
+  await expect.poll(() => satCalls(calls)).toBe(1);
+
+  await page.waitForTimeout(1500);
+  await expect(page.getByText(NOW_PLACE)).toHaveCount(0);
+  await expect(loader(page)).toBeVisible();
+  expect(await cachedPresetOf(page)).toBeNull();
+
+  releaseSat();
+  await expect(page.getByText(SAT_PLACE).first()).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText(NOW_PLACE)).toHaveCount(0);
+  expect(await cachedPresetOf(page)).toBe('sat_afternoon');
+});
