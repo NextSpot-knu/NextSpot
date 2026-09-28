@@ -670,3 +670,43 @@ def test_probe_class_coverage_counts_only_finished_compares(monkeypatch, shadow_
     counts = _total()
     assert counts["probes_by_class"]["edge_out"] == 1 and counts["probes_by_class"]["facility"] == 1
     assert counts["distinct_facility_coords"] == 1
+
+
+# ── 수리: 수준만 다른 시계열의 ulp / value 경계(스펙 §5 — 0 < d ≤ 1e-12 → ulp, d > 1e-12 → value) ──────
+
+
+@pytest.mark.parametrize(
+    ("delta", "expected_kind"),
+    [(5e-13, "ulp"), (-5e-13, "ulp"), (2e-12, "value"), (-2e-12, "value"), (1e-6, "value")],
+)
+def test_level_only_difference_is_ulp_up_to_1e12_and_value_beyond(monkeypatch, shadow_env, delta, expected_kind):
+    snapshot = _patterned_snapshot()
+    view = _center_view(snapshot)
+    matrix_points = list(view)
+    position = len(matrix_points) // 2
+    assert 0 < position < len(matrix_points) - 1  # 안쪽 한 점 — 끝자락(edge)이 아니다
+    original = matrix_points[position]
+    shifted = original.level + delta
+    rpc_points = list(matrix_points)
+    rpc_points[position] = forecast_svc.AreaDemandPoint(original.observed_at, shifted, original.lot_count)
+    actual_diff = abs(shifted - original.level)
+    assert actual_diff != 0.0 and (actual_diff <= forecast_svc._SHADOW_ULP) == (expected_kind == "ulp")
+
+    arrival = _P2_NOW + timedelta(minutes=90)
+    kind = forecast_svc._shadow_compare(
+        "probe:center", *_P2_CENTER, arrival, _P2_NOW, rpc_points, snapshot, False, None,
+    )
+    assert kind == expected_kind
+    counts = _total()
+    assert counts["compared"] == 1 and counts[expected_kind] == 1
+    assert counts["equal"] == counts["edge"] == counts["rows"] == 0
+    _assert_consistent(counts)
+    [diff] = shadow_env.named("area_demand_shadow_diff")
+    assert diff["kind"] == expected_kind and diff["max_abs_level_diff"] == actual_diff
+    assert diff["first_diff_at"] is None and diff["trailing"] == 0 and diff["rpc_rows"] == diff["matrix_rows"]
+    if expected_kind == "value":
+        # value 는 게이트를 막는 결함이다: 전망 비교로 넘어가지 않고 경고 한 줄.
+        assert counts["forecast_compared"] == 0 and counts["forecast_skipped"] == 0
+        assert ("warning", "area_demand_shadow_diff") in [(lvl, name) for lvl, name, _ in shadow_env.events]
+    else:
+        assert counts["forecast_compared"] == 1
