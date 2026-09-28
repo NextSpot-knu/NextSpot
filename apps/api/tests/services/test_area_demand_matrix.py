@@ -9,6 +9,7 @@ from __future__ import annotations
 import random
 import sys
 import threading
+import time
 from array import array
 from datetime import datetime, timedelta, timezone
 from functools import lru_cache
@@ -440,3 +441,165 @@ def test_kernel_output_arrays_are_compact():
     assert levels.typecode == "d" and counts.typecode == "H"
     assert len(keep) == len(levels) == len(counts)
     assert list(keep) == sorted(keep) and keep[0] >= start
+
+
+# ── T20 · T25 — 반경 안 열 조합마다 한 벌인 백테스트 계획 ────────────────────────────────
+
+
+def _plan_backtest(points) -> dict:
+    """점 리스트에 대해 계획을 새로 짓고 그 위에서 백테스트 — 운영 경로와 같은 두 함수."""
+    plan = forecast_svc._build_backtest_plan([p.observed_at for p in points])
+    assert plan is not None
+    return forecast_svc._backtest_with_plan(plan, array("d", (p.level for p in points)))
+
+
+def _freshness_series(gap: timedelta, seed: int) -> tuple[list, int]:
+    """10분 간격 20일 시계열에서, 한 평가점 바로 앞의 관측이 정확히 ``gap`` 전이 되게 고친 것과 그 평가점 번호."""
+    rng = random.Random(seed)
+    base = datetime(2026, 8, 1, 0, 3, 17, 250_000, tzinfo=UTC)
+    times = [base + timedelta(minutes=10 * k) for k in range(20 * 144)]
+    # 평가점은 '마지막 − 28일' 이후 첫 점부터 2시간 간격 — 그 가운데 하나를 고른다.
+    eval_cutoff = times[-1] - timedelta(days=28)
+    first = next(k for k, t in enumerate(times) if t >= eval_cutoff)
+    target = times[first] + timedelta(hours=2 * 120)
+    kept = [t for t in times if not (target - gap <= t < target)]
+    kept.append(target - gap)
+    kept.sort()
+    levels = [float("%.15g" % rng.choice([rng.random(), round(rng.random(), 2)])) for _ in kept]
+    points = [forecast_svc.AreaDemandPoint(t, v, 2) for t, v in zip(kept, levels)]
+    return points, kept.index(target)
+
+
+def test_plan_backtest_bit_exact():
+    snapshot = _snapshot(_T23_NOW)
+    # (1) 다섯 좌표의 전체 시계열: 계획 == backtest_forecast_points. 예전 구현(정의)은 비용(좌표당 ~5초) 때문에 끝 1,500점
+    #     창에서 대조한다(전체 길이의 가운데 좌표는 T26 이 예전 구현과 대조한다).
+    for name in ("center", "second", "one_lot", "edge_1999_93"):
+        view, entry = _view(snapshot, *_COORDS[name], _T23_NOW)
+        points = list(view)
+        fast = backtest_forecast_points(points)
+        assert fast["sample_count"] > 0
+        assert repr(forecast_svc._backtest_with_plan(entry.plan, view._levels)) == repr(fast), name
+        assert repr(forecast_svc._matrix_quality_compute(view, entry)) == repr(fast), name
+        tail = points[-1_500:]
+        assert repr(_plan_backtest(tail)) == repr(backtest_forecast_points(tail)) == repr(
+            _backtest_forecast_points_reference(tail)), name
+    view_b, entry_b = _view(snapshot, *_B, _T23_NOW)
+    assert repr(forecast_svc._matrix_quality_compute(view_b, entry_b)) == repr(backtest_forecast_points(list(view_b)))
+
+    # (2) 무작위로 자른 30개 — 앞부분·가운데 창·성긴 표본. 표본 0개(sample_count == 0)인 경우도 나온다.
+    center_points = list(_view(snapshot, *_CENTER, _T23_NOW)[0])
+    rng = random.Random(20)
+    saw_empty = saw_nonempty = False
+    for k in range(30):
+        kind = k % 3
+        if kind == 0:
+            chosen = center_points[: rng.randrange(0, 1_500)]
+        elif kind == 1:
+            begin = rng.randrange(0, len(center_points) - 1_200)
+            chosen = center_points[begin: begin + rng.randrange(1, 1_200)]
+        else:
+            chosen = center_points[rng.randrange(0, 40)::rng.randrange(8, 60)]
+        expected = backtest_forecast_points(chosen)
+        assert repr(_plan_backtest(chosen)) == repr(expected) == repr(_backtest_forecast_points_reference(chosen)), k
+        saw_empty |= expected["sample_count"] == 0
+        saw_nonempty |= expected["sample_count"] > 0
+    assert saw_empty and saw_nonempty
+
+    # (3) 평가점의 최근 추세 신선도가 정확히 45분(포함)과 45분 + 1µs(제외)인 경계.
+    for gap in (timedelta(minutes=45), timedelta(minutes=45, microseconds=1)):
+        points, target = _freshness_series(gap, seed=gap.microseconds)
+        plan = forecast_svc._build_backtest_plan([p.observed_at for p in points])
+        evaluated = {index: trend_end for index, _, trend_end, _ in plan.evals}
+        assert target in evaluated
+        assert (evaluated[target] >= 0) is (gap == timedelta(minutes=45))
+        assert repr(_plan_backtest(points)) == repr(backtest_forecast_points(points)) == repr(
+            _backtest_forecast_points_reference(points))
+
+
+def test_plan_refuses_non_fixed_offset_timestamps_and_quality_falls_back():
+    from datetime import tzinfo
+
+    class _Seoul(tzinfo):  # timezone 이 아닌 tzinfo(zoneinfo 처럼) — 계획은 전제를 세울 수 없다
+        def utcoffset(self, dt):
+            return timedelta(hours=9)
+
+        def dst(self, dt):
+            return timedelta(0)
+
+    seoul = _Seoul()
+    points = [forecast_svc.AreaDemandPoint(datetime(2026, 8, 1, tzinfo=seoul) + timedelta(minutes=10 * k), 0.5, 1)
+              for k in range(20)]
+    assert forecast_svc._build_backtest_plan([p.observed_at for p in points]) is None
+
+    snapshot = _snapshot()
+    view, entry = _view(snapshot, *_CENTER, NOW_EDGE)
+    no_plan = forecast_svc._NearEntry(entry.keep, entry.counts, entry.index, None)
+    assert repr(forecast_svc._matrix_quality_compute(view, no_plan)) == repr(
+        forecast_svc._matrix_quality_compute(view, entry))
+
+
+def test_matrix_quality_single_flight(monkeypatch):
+    """같은 좌표의 품질을 8 스레드가 동시에 빗나가도 계획은 한 번 짓고, 계획 백테스트도 한 번만 돈다(:185-224 와 같은 모양)."""
+    snapshot = _snapshot(_T23_NOW)
+    real_build = forecast_svc._build_backtest_plan
+    real_backtest = forecast_svc._backtest_with_plan
+    builds: list[int] = []
+    backtests: list[int] = []
+    started = threading.Event()
+    release = threading.Event()
+
+    def _counting_build(observed):
+        builds.append(1)
+        return real_build(observed)
+
+    def _slow_backtest(plan, levels):
+        backtests.append(1)
+        started.set()
+        assert release.wait(10)
+        return real_backtest(plan, levels)
+
+    monkeypatch.setattr(forecast_svc, "_build_backtest_plan", _counting_build)
+    monkeypatch.setattr(forecast_svc, "_backtest_with_plan", _slow_backtest)
+    results: list = [None] * 8
+
+    def _run(slot: int) -> None:
+        results[slot] = forecast_svc._matrix_quality(snapshot, *_CENTER, _T23_NOW)
+
+    first = threading.Thread(target=_run, args=(0,))
+    first.start()
+    assert started.wait(30)
+    others = [threading.Thread(target=_run, args=(i,)) for i in range(1, 8)]
+    for thread in others:
+        thread.start()
+    time.sleep(0.3)
+    release.set()
+    for thread in [first, *others]:
+        thread.join(30)
+
+    assert len(builds) == 1, f"계획을 {len(builds)}번 지었다"
+    assert len(backtests) == 1, f"계획 백테스트가 {len(backtests)}번 돌았다"
+    assert all(result == results[0] for result in results)
+    assert not any(memo.inflight for memo in forecast_svc._MEMOS)
+    view, _ = _view(snapshot, *_CENTER, _T23_NOW)
+    expected = backtest_forecast_points(list(view))
+    assert {k: results[0][k] for k in expected} == expected
+
+
+def test_failed_plan_backtest_is_not_shared_and_the_next_caller_recomputes(monkeypatch):
+    snapshot = _snapshot(_T23_NOW)
+    real = forecast_svc._backtest_with_plan
+
+    def _boom(plan, levels):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(forecast_svc, "_backtest_with_plan", _boom)
+    with pytest.raises(RuntimeError):
+        forecast_svc._matrix_quality(snapshot, *_CENTER, _T23_NOW)
+    assert not forecast_svc._MQUALITY.entries and not forecast_svc._MQUALITY.inflight
+
+    monkeypatch.setattr(forecast_svc, "_backtest_with_plan", real)
+    quality = forecast_svc._matrix_quality(snapshot, *_CENTER, _T23_NOW)
+    view, _ = _view(snapshot, *_CENTER, _T23_NOW)
+    assert {k: quality[k] for k in ("sample_count", "mae", "baseline_mae", "improvement_rate")} == \
+        backtest_forecast_points(list(view))

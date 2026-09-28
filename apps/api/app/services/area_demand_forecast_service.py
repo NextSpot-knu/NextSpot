@@ -840,6 +840,8 @@ def backtest_forecast_points(points: list[AreaDemandPoint]) -> dict[str, Any]:
     - 단순 비교치(같은 요일군 중앙값)는 insort 로 유지하는 정렬 리스트에서 구한다. insort_right
       는 같은 값 사이에서 삽입 순서를 지키므로 ``sorted(same_slot)`` 과 원소 단위로 같다.
     - 부동소수 식(baseline·recent_adjustment·round)은 예전과 한 글자도 다르지 않다.
+    ⚠️ 행렬 경로의 ``_build_backtest_plan`` · ``_backtest_with_plan`` 이 이 함수와 ``_backtest_forecast_level`` 의 루프·식을
+    그대로 옮겨 쓴다 — 여기를 바꾸면 거기도 함께 바꾼다.
     tz 가 없는(naive) 시각, 고정 오프셋이 아닌 tzinfo, NaN 수준이 하나라도 있으면 예전 구현으로
     그대로 넘긴다(그 경우의 의미를 다시 증명하지 않기 위해). 운영 RPC 점은 늘 고정 오프셋·유한값이다.
     """
@@ -1100,12 +1102,141 @@ _memo_generation = 0  # 지금까지 본 가장 높은 세대
 class _NearEntry:
     """반경 안 열 조합 하나(세대·창 시작 고정)의 시각 쪽 몫 — 수준과 무관해 같은 조합의 좌표가 나눠 쓴다."""
 
-    __slots__ = ("keep", "counts", "index")
+    __slots__ = ("keep", "counts", "index", "plan")
 
-    def __init__(self, keep: array, counts: array, index: _SeriesIndex | None) -> None:
+    def __init__(
+        self,
+        keep: array,
+        counts: array,
+        index: _SeriesIndex | None,
+        plan: _BacktestPlan | None = None,
+    ) -> None:
         self.keep = keep  # 'I' — 남는 행 번호(행렬 기준)
         self.counts = counts  # 'H' — 행마다 반경 안 유효 주차장 수
         self.index = index  # _SeriesIndex(시각만 본다) 또는 None
+        self.plan = plan  # _BacktestPlan(시각만 본다) 또는 None(전제를 못 세우면)
+
+
+# ── 백테스트 계획(반경 안 열 조합마다 한 벌) ──────────────────────────────────────
+# backtest_forecast_points 는 수준(levels)을 ``levels[…]`` 로 **읽기만** 한다. 나머지 — 평가점(2시간 간격), 평가점마다의
+# 같은 요일군 ±30분 표본 위치와 그 표본이 _MIN_SAMPLES · _MIN_DISTINCT_DATES · _MIN_COVERAGE_DAYS 를 넘는지, 최근 추세
+# 구간의 끝(recent_end)과 45분 신선도 — 는 정렬된 observed_at 수열만의 함수다. 같은 조합의 좌표는 시각 수열이 같으므로
+# 그 몫을 한 번만 계산해 두고, 좌표마다는 수준으로 같은 루프만 다시 돈다(좌표당 58~94ms → 16~31ms, 스펙 §1.5).
+# ⚠️ 부동소수 식은 backtest_forecast_points · _backtest_forecast_level 에서 한 글자도 바꾸지 않고 옮겼다 — 저쪽을
+#    바꾸면 여기도 함께 바꾼다(tests/services/test_area_demand_matrix.py 의 비트 단위 시험이 잠근다).
+
+
+class _BacktestPlan:
+    """평가점마다 (행 번호, 표본 위치 'I' 또는 None(표본 부족), recent_end 또는 −1(추세 없음), 주말 여부)."""
+
+    __slots__ = ("weekend", "evals")
+
+    def __init__(self, weekend: list[bool], evals: list[tuple[int, array | None, int, bool]]) -> None:
+        self.weekend = weekend
+        self.evals = evals
+
+
+def _build_backtest_plan(observed: Sequence[datetime]) -> _BacktestPlan | None:
+    """정렬된 관측 시각 수열 → 계획. 고정 오프셋이 아닌 tzinfo 가 하나라도 있으면 None(원래 함수로 돌린다)."""
+    for value in observed:
+        if not isinstance(value.tzinfo, timezone):
+            return None
+    total = len(observed)
+    instants = [value.astimezone(timezone.utc) for value in observed]
+    weekend = [_is_weekend(value) for value in observed]
+    clock = [_clock_minutes(value) for value in observed]
+    local_dates = [value.astimezone(KST).date() for value in observed]
+    buckets: dict[tuple[bool, int], list[int]] = {}
+    for position in range(total):
+        buckets.setdefault((weekend[position], clock[position]), []).append(position)
+    window_offsets = range(-_TIME_WINDOW_MINUTES, _TIME_WINDOW_MINUTES + 1)
+    evals: list[tuple[int, array | None, int, bool]] = []
+    if not total:
+        return _BacktestPlan(weekend, evals)
+    eval_cutoff = observed[-1] - timedelta(days=28)
+    first_eval_index = next(
+        (index for index, value in enumerate(observed) if value >= eval_cutoff),
+        total,
+    )
+    last_eval_at: datetime | None = None
+    for index in range(first_eval_index, total):
+        actual_at = observed[index]
+        if last_eval_at is not None and actual_at - last_eval_at < timedelta(hours=2):
+            continue
+        last_eval_at = actual_at
+        # ── 아래는 _backtest_forecast_level 의 시각 쪽 판정 그대로 ──
+        cutoff = instants[index]
+        target_clock, target_weekend = clock[index], weekend[index]
+        eligible: list[int] = []
+        for offset in window_offsets:
+            bucket = buckets.get((target_weekend, (target_clock + offset) % (24 * 60)))
+            if not bucket:
+                continue
+            for position in bucket[: bisect.bisect_left(bucket, index)]:
+                if instants[position] < cutoff:
+                    eligible.append(position)
+        eligible.sort()
+        enough = not (
+            len(eligible) < _MIN_SAMPLES or len({local_dates[p] for p in eligible}) < _MIN_DISTINCT_DATES
+        )
+        if enough:
+            coverage_days = (
+                max(observed[p] for p in eligible)
+                - min(observed[p] for p in eligible)
+            ).total_seconds() / 86_400.0
+            enough = not coverage_days < _MIN_COVERAGE_DAYS
+        recent_end = bisect.bisect_left(instants, cutoff, 0, index)
+        trend_end = -1
+        if recent_end >= 9:
+            freshness = cutoff - instants[recent_end - 1]
+            if timedelta(0) <= freshness <= timedelta(minutes=45):
+                trend_end = recent_end
+        evals.append((index, array("I", eligible) if enough else None, trend_end, target_weekend))
+    return _BacktestPlan(weekend, evals)
+
+
+def _backtest_with_plan(plan: _BacktestPlan, levels: Sequence[float]) -> dict[str, Any]:
+    """backtest_forecast_points 와 같은 루프를 계획 위에서 돈다 — 같은 순서·같은 식이라 결과가 비트 단위로 같다."""
+    weekend = plan.weekend
+    same_slot_sorted: dict[bool, list[float]] = {True: [], False: []}
+    inserted = 0
+    predictions: list[tuple[float, float, float]] = []
+    for index, eligible, trend_end, target_weekend in plan.evals:
+        while inserted < index:
+            bisect.insort(same_slot_sorted[weekend[inserted]], levels[inserted])
+            inserted += 1
+        if eligible is None:
+            continue
+        # ── _backtest_forecast_level 의 수준 쪽 식 그대로 ──
+        baseline = statistics.median(levels[p] for p in eligible)
+        recent_adjustment = 0.0
+        if trend_end >= 0:
+            recent = statistics.median(levels[trend_end - 3:trend_end])
+            previous = statistics.median(levels[trend_end - 9:trend_end - 3])
+            horizon_minutes = max(0.0, 0.0 / 60.0)  # arrival == now (평가 시각)
+            decay = max(0.0, 1.0 - horizon_minutes / 180.0)
+            recent_adjustment = max(
+                -_MAX_RECENT_ADJUSTMENT,
+                min(_MAX_RECENT_ADJUSTMENT, (recent - previous) * decay),
+            )
+        level = round(_clamp(baseline + recent_adjustment), 4)
+        # ── backtest_forecast_points 의 나머지 그대로 ──
+        same_slot = same_slot_sorted[target_weekend]
+        if not same_slot:
+            continue
+        naive = statistics.median(same_slot)
+        predictions.append((float(level), levels[index], naive))
+    if not predictions:
+        return {"sample_count": 0, "mae": None, "baseline_mae": None, "improvement_rate": None}
+    mae = sum(abs(predicted - actual) for predicted, actual, _ in predictions) / len(predictions)
+    baseline_mae = sum(abs(naive - actual) for _, actual, naive in predictions) / len(predictions)
+    improvement = (baseline_mae - mae) / baseline_mae if baseline_mae > 0 else None
+    return {
+        "sample_count": len(predictions),
+        "mae": round(mae, 4),
+        "baseline_mae": round(baseline_mae, 4),
+        "improvement_rate": round(improvement, 4) if improvement is not None else None,
+    }
 
 
 class _PointsView(Sequence):
@@ -1222,8 +1353,12 @@ def reset_matrix_memos() -> None:
 
 
 def _build_near_entry(observed: tuple[datetime, ...], keep: array, levels: array, counts: array) -> _NearEntry:
-    # 색인은 시각만 본다(수준은 점을 만들 때 자리만 채운다).
-    return _NearEntry(keep, counts, _SeriesIndex.build(_PointsView(observed, keep, levels, counts)))
+    # 색인·백테스트 계획은 시각만 본다(수준은 점을 만들 때 자리만 채운다). 조합마다(세대·창 시작별) 한 번, single-flight.
+    return _NearEntry(
+        keep, counts,
+        _SeriesIndex.build(_PointsView(observed, keep, levels, counts)),
+        _build_backtest_plan([observed[i] for i in keep]),
+    )
 
 
 def _matrix_series(
@@ -1256,8 +1391,16 @@ def _matrix_series(
 
 
 def _matrix_quality_compute(view: _PointsView, near_entry: _NearEntry) -> dict[str, Any]:
-    """좌표 하나의 백테스트 품질 — RPC 경로와 같은 함수(``backtest_forecast_points``)를 같은 점들에 돌린다."""
-    return backtest_forecast_points(list(view))
+    """좌표 하나의 백테스트 품질 — 조합의 백테스트 계획 위에서 수준만 다시 돈다(backtest_forecast_points 와 비트 단위로 같다).
+
+    계획의 전제(고정 오프셋 tzinfo · 유한한 수준)를 못 세우면 backtest_forecast_points(list(view)) 로 돌린다 — 저장소가 둘 다
+    보장하므로 방어용이다.
+    """
+    plan = near_entry.plan
+    levels = view._levels
+    if plan is None or len(levels) != len(near_entry.keep) or not all(map(math.isfinite, levels)):
+        return backtest_forecast_points(list(view))
+    return _backtest_with_plan(plan, levels)
 
 
 def _matrix_quality_for(
