@@ -219,6 +219,10 @@ function RecommendContent() {
   // State
   const [userId, setUserId] = useState<string | null>(null);
   const [originalFacility, setOriginalFacility] = useState<OriginalFacility | null>(null);
+  // 원래 장소의 유형 — by-type 대안이 **호출하는 순간** 읽는다. 추천 effect 는 userId 가 오자마자
+  // (로컬 세션) 시작해 원래 장소(네트워크 왕복)보다 먼저 돈다. 클로저의 originalFacility 는 그때 null 이라
+  // 카페 화면의 대안이 음식점으로 채워졌다. 대안은 45초 타임아웃·재시도 뒤에 불리므로 그때는 이미 채워져 있다.
+  const originalTypeRef = useRef<string | null>(null);
   const [recommendations, setRecommendations] = useState<RecommendationResponse[]>([]);
   const spotComparisonById = useMemo(() => {
     const comparisons = buildSpotComparisons(recommendations.slice(0, 3).map((item, index) => ({
@@ -481,6 +485,7 @@ function RecommendContent() {
 
   // Load Original Facility Details
   useEffect(() => {
+    originalTypeRef.current = null;
     if (!facilityId) return;
 
     async function fetchOriginalFacility() {
@@ -519,6 +524,7 @@ function RecommendContent() {
           // 로그 0건이면 null 유지 — 0.0(실측 여유)으로 합성하지 않는다(CONGESTION_TRUST_SPEC).
           const level = latestLog ? latestLog.congestion_level : null;
 
+          originalTypeRef.current = originalData.type;
           setOriginalFacility({
             id: originalData.id,
             name: originalData.name,
@@ -572,9 +578,10 @@ function RecommendContent() {
         //
         // 최후 폴백 — 같은 SPOT 엔진의 by-type 경로로 대안을 채운다(과부하 창에서도 응답 실측).
         // 반환 타입이 동일(RecommendationResponse[])해 화면 로직 변경 없음. 원 시설은 제외한다.
+        // 유형은 클로저가 아니라 ref 에서 호출 시점에 읽는다(원래 장소가 effect 시작 뒤에 도착한다).
         const byTypeFallback = () =>
           recommendByType(
-            originalFacility?.type ?? "restaurant",
+            originalTypeRef.current ?? "restaurant",
             { lat, lng },
             [facilityId],
             5,

@@ -63,4 +63,13 @@ function callArgs(src: string, name: string): string[] {
   assert.ok(uses.length >= 2, `두 폴백 경로가 같은 byTypeFallback 을 써야 한다: ${uses.length}`);
 }
 
+// 배선 가드 — 대안의 유형은 호출 시점에 읽는다(클로저의 originalFacility 는 effect 시작 때 대개 null)
+{
+  const src = readFileSync(join(WEB, 'app', 'explore', 'recommend', 'page.tsx'), 'utf8');
+  const [call] = callArgs(src, 'recommendByType');
+  assert.match(call.trim(), /^originalTypeRef\.current \?\? "restaurant",/, 'by-type 대안이 호출 시점의 원래 장소 유형을 읽지 않는다');
+  assert.doesNotMatch(call, /originalFacility\?\.type/, 'by-type 대안이 effect 시작 때의(대개 null) originalFacility 를 읽는다');
+  assert.match(src, /originalTypeRef\.current = originalData\.type;/, '원래 장소를 받아도 대안 유형이 채워지지 않는다');
+}
+
 console.log('request timeout tests passed');
