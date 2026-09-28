@@ -18,16 +18,20 @@
 # (source=gyeongju_its · 10분 버킷 · 최신 observed_at 이 35분보다 오래면 멈춤 —
 #  apps/api/app/services/area_demand_reliability_service.py 의 _ALERT_DOWN_AFTER_MINUTES).
 #   ok               최신 스냅샷이 35분 안
-#   unknown          표가 비어 있음(갓 배포한 환경) — 경보 아님
+#   no_snapshot      200 인데 행이 0개 → 실패. 운영 표에는 8월부터 행이 있으므로 '비었다'는 신규 환경이 아니라
+#                    읽기가 어긋났다는 뜻이다 — service_role 이 아닌 키(RLS 가 켜져 있고 정책이 없어 오류 없이
+#                    0행), source·bucket_minutes 값 변경, 또는 표를 비운 사고.
+#   unknown          행이 0개인데 Repository Variable AREA_DEMAND_ALERT_ALLOW_EMPTY=true(갓 만든 환경) — 경보 아님
 #   stale            최신 스냅샷이 35분보다 오래됨 → 실패
-#   api_unreachable  Supabase 가 재시도 뒤에도 200 을 주지 않음 → 실패. 수집 멈춤과 다른 문제라 따로 말한다
-#                    (401 = 시크릿 값, 5xx·연결 실패 = Supabase 상태).
+#   api_unreachable  Supabase 가 재시도 뒤에도 200 을 주지 않음(본문이 중간에 끊긴 응답 포함) → 실패. 수집 멈춤과
+#                    다른 문제라 따로 말한다(401 = 시크릿 값, 5xx·연결 실패 = Supabase 상태).
 # API 판정에 있던 degraded(창 안 누락 버킷 20% 초과, 경고만·실패 아님)는 여기서 보지 않는다 — 관제 화면
 # (area-demand-reliability)에 그대로 있다.
 #
 # 필요한 설정:
 #   Actions Secret SUPABASE_URL · SUPABASE_SERVICE_ROLE_KEY — ingest.yml 이 이미 쓰는 값. 표에 RLS 가 켜져
-#                  있어 service_role 키로 읽는다(로그에서는 GitHub 이 가린다).
+#                  있어 service_role 키로 읽는다(로그에서는 GitHub 이 가린다 — 스크립트도 키·URL 을 출력하지 않는다).
+#   Repository Variable AREA_DEMAND_ALERT_ALLOW_EMPTY=true — 스냅샷이 아직 없는 새 환경에서만. 운영에는 두지 않는다.
 #   두 시크릿이 없으면 예전 방식(API 판정) 그대로 돈다:
 #     Repository Variable BACKEND_HEALTH_URL=https://<render-service>.onrender.com/health
 #     Actions Secret      SERVICE_API_TOKEN (없으면 ADMIN_API_TOKEN 을 그대로 쓴다)
@@ -67,8 +71,10 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          AREA_DEMAND_ALERT_ALLOW_EMPTY: ${{ vars.AREA_DEMAND_ALERT_ALLOW_EMPTY }}
         run: |
           python3 - <<'PY'
+          import http.client
           import json
           import os
           import sys
@@ -86,6 +92,8 @@ jobs:
           base = os.environ["SUPABASE_URL"].strip().rstrip("/")
           # 붙여 넣을 때 딸려 온 줄바꿈·공백은 헤더를 깨뜨린다(09-27 Render 키 사례) — 걷어 낸다.
           key = "".join(os.environ["SUPABASE_SERVICE_ROLE_KEY"].split())
+          # 빈 표를 통과시키는 것은 명시적으로 켠 새 환경뿐이다(위 머리말 no_snapshot).
+          allow_empty = os.environ.get("AREA_DEMAND_ALERT_ALLOW_EMPTY", "").strip().lower() == "true"
           query = urllib.parse.urlencode({
               "select": "bucket_at,observed_at",
               "source": f"eq.{SOURCE}",
@@ -109,11 +117,17 @@ jobs:
                       with urllib.request.urlopen(request, timeout=20) as response:
                           return response.status, response.read()
                   except urllib.error.HTTPError as error:
-                      status, body = error.code, error.read()
+                      try:
+                          body = error.read()
+                      except (OSError, http.client.HTTPException):
+                          body = b""  # 오류 본문은 안내용일 뿐 — 못 읽어도 상태 코드로 판정한다
+                      status = error.code
                       if error.code != 429 and error.code < 500:
                           break  # 401·403·404 는 다시 물어도 같다
-                  except OSError as error:  # URLError·타임아웃·연결 거부
-                      status, body = 0, str(error).encode()
+                  # URLError·타임아웃·연결 거부(OSError), 본문이 중간에 끊김(IncompleteRead 등 HTTPException —
+                  # OSError 가 아니다). 트레이스백으로 끝나지 않고 다시 묻는다.
+                  except (OSError, http.client.HTTPException) as error:
+                      status, body = 0, f"{type(error).__name__}: {error}".encode()
               return status, body
 
 
@@ -135,7 +149,7 @@ jobs:
                   state, reason = "api_unreachable", "invalid_body"
               else:
                   if bucket is None:
-                      state, reason = "unknown", "no_snapshot"
+                      state, reason = ("unknown", "no_snapshot") if allow_empty else ("no_snapshot", "empty_result")
                   elif age > DOWN_AFTER_MINUTES:
                       state, reason = "stale", "stale_snapshot"
                   else:
@@ -153,8 +167,16 @@ jobs:
           if state == "ok":
               print("수집 정상.")
           elif state == "unknown":
-              # 표가 비어 있는 갓 배포 환경. 경보가 아니다.
-              print("이력이 없어 판정하지 않습니다(신규 환경).")
+              # AREA_DEMAND_ALERT_ALLOW_EMPTY=true 로 켠 갓 배포 환경. 경보가 아니다.
+              print("이력이 없어 판정하지 않습니다(신규 환경 — AREA_DEMAND_ALERT_ALLOW_EMPTY=true).")
+          elif state == "no_snapshot":
+              print(f"::error::Supabase 는 답했지만 주차 실측 스냅샷이 한 건도 보이지 않습니다 (reason={reason}).")
+              print("운영 표에는 8월부터 행이 있으므로 수집보다 '읽기'를 먼저 의심하세요:")
+              print("  1) Actions Secret SUPABASE_SERVICE_ROLE_KEY 가 service_role 키인가 — anon 키면 RLS 때문에 오류 없이 0행이다.")
+              print(f"  2) 수집이 쓰는 source·bucket_minutes 가 이 확인의 값(source={SOURCE}, bucket_minutes={BUCKET_MINUTES})과 같은가.")
+              print("  3) Supabase SQL Editor: select count(*), max(observed_at) from area_demand_snapshots;")
+              print("스냅샷이 아직 없는 새 환경이면 Repository Variable AREA_DEMAND_ALERT_ALLOW_EMPTY=true 로 통과시킨다.")
+              sys.exit(1)
           elif state == "stale":
               print(f"::error::주차 실측 수집이 멈췄습니다 (reason={reason}, 최신 스냅샷 {age}분 전).")
               print("")
@@ -172,7 +194,12 @@ jobs:
               print(f"::error::Supabase 에서 스냅샷 표를 읽지 못했습니다 (reason={reason}) — 수집이 멈췄다는 뜻은 아닙니다.")
               print("401·403 이면 Actions Secret SUPABASE_URL·SUPABASE_SERVICE_ROLE_KEY 값을,")
               print("5xx·connection_failed 면 Supabase 프로젝트 상태(일시 정지·장애)를 확인하세요.")
-              print(f"응답 앞부분: {body[:200].decode('utf-8', 'replace')}")
+              # 키·주소는 로그에 남기지 않는다 — 응답이 되비추는 경우까지 걷어 낸다(GitHub 마스킹과 별개).
+              excerpt = body.decode("utf-8", "replace")
+              for secret in (key, base):
+                  if secret:
+                      excerpt = excerpt.replace(secret, "***")
+              print(f"응답 앞부분: {excerpt[:200]}")
               sys.exit(1)
           PY
 
