@@ -42,7 +42,14 @@ import LoadingReveal from "@/components/LoadingReveal";
 // T2: 휴무 원문(rest_date_raw) 파서 — 오늘 휴무 '확정'만 판정(모르면 null, 과판정 금지). 공용 단일 소스.
 import { isClosedToday } from "@/lib/restDate";
 // Wikimedia 사진(CC BY/BY-SA)은 출처와 함께만 — 출처 줄은 지금 보이는 사진이 Wikimedia 일 때만 붙는다.
-import { creditedPhotoUrls, creditForDisplayedPhoto, imageSourceOf } from "@/lib/photoCredit";
+import {
+  advancePhotoCursor,
+  creditedPhotoUrls,
+  creditForDisplayedPhoto,
+  displayedPhotoUrl,
+  imageSourceOf,
+  type PhotoCursor,
+} from "@/lib/photoCredit";
 import { PhotoCreditLink } from "@/components/PhotoCreditLink";
 
 // 시설 종류 이모지 — course/page.tsx TYPE_OPTIONS 와 동일 매핑(레포 전역 관례 통일).
@@ -118,23 +125,17 @@ interface Sector {
 
 // TourAPI firstimage가 비어 있거나 원본 서버에서 만료·차단되어 로드에 실패하면
 // 같은 높이의 유형 아이콘 폴백으로 즉시 전환해 카드 상단이 빈 공간으로 남지 않게 한다.
-// 출처 줄은 카드 버튼 밖에 있으므로(<a> 는 <button> 안에 둘 수 없다) 지금 띄운 사진을 부모에게 알린다 —
-// 대표 사진이 깨져 갤러리의 Wikimedia 사진으로 넘어갈 때 출처가 그 사진을 따라간다.
+// 몇 번째 후보를 띄울지는 부모가 정한다(photoCursors) — 출처 줄이 카드 버튼 밖에 있어서(<a> 는 <button>
+// 안에 둘 수 없다) 사진과 출처가 같은 렌더에서 같은 URL 로 그려지려면 보이는 사진을 부모가 알아야 한다.
 function WaitingCardImage({
-  facilityId,
-  imageUrls,
+  imageUrl,
   name,
   type,
-  onDisplayedUrl,
-}: Pick<BoardRow, "facilityId" | "imageUrls" | "name" | "type"> & {
-  onDisplayedUrl: (facilityId: string, url: string | null) => void;
+  onError,
+}: Pick<BoardRow, "name" | "type"> & {
+  imageUrl: string | null;
+  onError: (failedUrl: string) => void;
 }) {
-  const [imageIndex, setImageIndex] = useState(0);
-  const imageUrl = imageUrls[imageIndex];
-  useEffect(() => {
-    onDisplayedUrl(facilityId, imageUrl ?? null);
-  }, [facilityId, imageUrl, onDisplayedUrl]);
-
   if (!imageUrl) {
     return (
       <div
@@ -148,12 +149,14 @@ function WaitingCardImage({
 
   return (
     // TourAPI 원본 이미지 도메인이 다양하고 정적 export이므로 img를 직접 사용한다.
+    // key: URL 마다 새 엘리먼트 — 지나간 사진의 늦은 onError 가 새 사진을 건너뛰게 하지 않는다.
     // eslint-disable-next-line @next/next/no-img-element
     <img
+      key={imageUrl}
       src={imageUrl}
       alt={name}
       loading="lazy"
-      onError={() => setImageIndex((current) => current + 1)}
+      onError={() => onError(imageUrl)}
       className="w-full h-28 shrink-0 object-cover border-b border-line bg-hanji-deep/40"
     />
   );
@@ -333,10 +336,15 @@ export default function WaitingBoardPage() {
   //   · /area-demand/forecast : 앞으로 6시간 정시별 권역 주차 수요 전망(한산해지는 시각의 근거)
   // 둘 다 실패해도 보드는 내장 시간대 곡선으로 계속 세 숫자를 보여준다(빈칸 금지).
   const [estimateLevels, setEstimateLevels] = useState<Record<string, number>>({});
-  // 대표 카드마다 지금 보이는 사진 URL(null = 사진 없음·전부 실패) — 출처 줄이 이 사진을 따라간다.
-  const [displayedPhotos, setDisplayedPhotos] = useState<Record<string, string | null>>({});
-  const reportDisplayedPhoto = useCallback((facilityId: string, url: string | null) => {
-    setDisplayedPhotos((prev) => (prev[facilityId] === url ? prev : { ...prev, [facilityId]: url }));
+  // 대표 카드마다 몇 번째 사진 후보를 띄우는지(깨진 사진은 건너뛴다). 보이는 사진 URL 과 그 출처는
+  // 렌더 중에 이 커서에서 함께 계산한다 — 출처가 사진보다 한 커밋 늦게 따라오는 틈이 없다.
+  const [photoCursors, setPhotoCursors] = useState<Record<string, PhotoCursor>>({});
+  const skipBrokenPhoto = useCallback((facilityId: string, urls: readonly string[], failedUrl: string) => {
+    setPhotoCursors((prev) => {
+      const current = prev[facilityId];
+      const next = advancePhotoCursor(urls, current, failedUrl);
+      return next === current || !next ? prev : { ...prev, [facilityId]: next };
+    });
   }, []);
   const [areaCurve, setAreaCurve] = useState<AreaDemandCurve | null>(null);
 
@@ -789,7 +797,8 @@ export default function WaitingBoardPage() {
                       const photoFeatures = { imageSource: row.imageSource };
                       // 출처 없는 Wikimedia 사진은 후보에서 빠진다(출처 없이 띄우지 않는다).
                       const photoUrls = creditedPhotoUrls(row.imageUrls, photoFeatures);
-                      const photoCredit = creditForDisplayedPhoto(displayedPhotos[row.facilityId], photoFeatures);
+                      const photoUrl = displayedPhotoUrl(photoUrls, photoCursors[row.facilityId]);
+                      const photoCredit = creditForDisplayedPhoto(photoUrl, photoFeatures);
                       return (
                       <div key={row.facilityId} className="grid min-w-0 grid-rows-[1fr_auto]">
                       <button
@@ -813,12 +822,10 @@ export default function WaitingBoardPage() {
                           {idx + 1}
                         </span>
                         <WaitingCardImage
-                          key={photoUrls.join("|")}
-                          facilityId={row.facilityId}
-                          imageUrls={photoUrls}
+                          imageUrl={photoUrl}
                           name={row.name}
                           type={row.type}
-                          onDisplayedUrl={reportDisplayedPhoto}
+                          onError={(failedUrl) => skipBrokenPhoto(row.facilityId, photoUrls, failedUrl)}
                         />
                         <div className="flex flex-1 min-h-0 flex-col justify-between p-2">
                           {/* 위 소개 블록은 공간이 모자라면 깔끔히 잘리고(overflow-hidden), 아래 대기

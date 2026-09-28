@@ -104,13 +104,8 @@ assert.match(card, /<PhotoCreditLink /, 'RecommendationCard 가 공용 출처 �
 
 const waiting = read('app/waiting/page.tsx');
 assert.match(waiting, /creditedPhotoUrls\(row\.imageUrls/, '대기 보드가 출처 없는 Wikimedia 사진을 거른다');
-assert.match(
-  waiting,
-  /creditForDisplayedPhoto\(displayedPhotos\[row\.facilityId\]/,
-  '대기 보드 출처는 WaitingCardImage 가 지금 띄운 사진을 따라간다',
-);
+// 대기 보드 출처가 보이는 사진을 같은 렌더에서 따라가는지는 photoCursor.test.ts 가 본다.
 assert.doesNotMatch(waiting, /row\.imageSource\??\.sourceUrl/, '대기 보드가 보이는 사진과 무관하게 출처를 찍지 않는다');
-assert.match(waiting, /onDisplayedUrl=\{reportDisplayedPhoto\}/);
 
 const explore = read('app/explore/recommend/page.tsx');
 assert.match(explore, /creditedPhotoUrls\(/, '추천 목록이 출처 없는 Wikimedia 사진을 거른다');

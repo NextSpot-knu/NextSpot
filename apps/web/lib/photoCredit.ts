@@ -77,3 +77,41 @@ export function creditForDisplayedPhoto(
 ): PhotoCredit | null {
   return isWikimediaUrl(displayedUrl) ? wikimediaCredit(features) : null;
 }
+
+// --- 사진 후보 커서(대기 보드) -------------------------------------------------------------
+// 출처는 '지금 보이는 사진' 과 같은 렌더에서 같은 값으로 정해져야 한다. 자식이 effect 로 띄운 사진을
+// 알려 주면 한 커밋 늦어, 목록이 바뀐 직후 TourAPI 사진 아래에 이전 Wikimedia 출처가 한 프레임 남는다.
+// 그래서 몇 번째 후보가 깨졌는지를 부모가 들고, 보이는 사진 URL 을 렌더 중에 바로 계산한다.
+
+/** 어느 후보 목록에서 몇 번째 사진을 띄우는지. 목록이 바뀌면(listKey 가 다르면) 첫 후보부터 다시. */
+export interface PhotoCursor {
+  listKey: string;
+  index: number;
+}
+
+export function photoListKey(urls: readonly string[]): string {
+  return urls.join('|');
+}
+
+function cursorIndex(urls: readonly string[], cursor: PhotoCursor | undefined): number {
+  return cursor && cursor.listKey === photoListKey(urls) ? cursor.index : 0;
+}
+
+/** 지금 띄울 사진 — 후보를 다 써 버렸으면 null(유형 아이콘 자리표시). */
+export function displayedPhotoUrl(urls: readonly string[], cursor: PhotoCursor | undefined): string | null {
+  return urls[cursorIndex(urls, cursor)] ?? null;
+}
+
+/**
+ * failedUrl 이 지금 띄운 사진일 때만 다음 후보로 넘긴다 — 이미 지나간 사진의 늦은 onError 는 무시한다.
+ * 바뀔 게 없으면 받은 cursor 를 그대로 돌려준다(상태 갱신 생략용).
+ */
+export function advancePhotoCursor(
+  urls: readonly string[],
+  cursor: PhotoCursor | undefined,
+  failedUrl: string,
+): PhotoCursor | undefined {
+  const index = cursorIndex(urls, cursor);
+  if (urls[index] !== failedUrl) return cursor;
+  return { listKey: photoListKey(urls), index: index + 1 };
+}
