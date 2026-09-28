@@ -30,10 +30,17 @@ function photoSvg(label: string, fill: string) {
 // 출처 줄 = Wikimedia Commons 원문 페이지로 가는 링크. 구현(클래스·testid)이 아니라 관광객이 보는 링크로 찾는다.
 const CREDIT_LINK = 'a[href^="https://commons.wikimedia.org/wiki/File:"]';
 
-/** 출처 링크 상자 폭 − 보이는 글자 폭(두 줄이면 긴 줄, 한 줄이면 조각의 합). 0 이면 누르는 자리가 글자만큼이다. */
+/** 출처 링크 상자 폭 − 보이는 글자 폭(두 줄이면 긴 줄, 한 줄이면 조각의 합). 0 이면 누르는 자리가 글자만큼이다.
+ *  글자 폭은 조각 상자가 아니라 글자 자체(Range)로 잰다 — 두 줄 링크는 flex-col 이라 조각 상자가 링크 폭만큼
+ *  늘어나, 상자로 재면 링크가 아무리 넓어져도 차이가 0 이 된다. 말줄임(…)된 조각은 보이는 폭(상자)까지만 센다. */
 function tapBoxExtraWidth(a: Element): number {
   const box = a.getBoundingClientRect().width;
-  const parts = Array.from(a.children).map((c) => c.getBoundingClientRect());
+  const parts = Array.from(a.children).map((c) => {
+    const r = document.createRange();
+    r.selectNodeContents(c);
+    const shown = c.getBoundingClientRect();
+    return { top: shown.top, bottom: shown.bottom, width: Math.min(r.getBoundingClientRect().width, shown.width) };
+  });
   const stacked = parts.length > 1 && parts[1].top >= parts[0].bottom - 1;
   const text = stacked ? Math.max(...parts.map((r) => r.width)) : parts.reduce((w, r) => w + r.width, 0);
   return box - text;
@@ -298,6 +305,53 @@ test('main card: without an overview the ⓒ TourAPI chip sits right above the a
   await expect(page.locator(CREDIT_LINK)).toHaveCount(0);
 });
 
+test('main card: without an overview the ⓒ chip sits below the Kakao reviews row, right above the address', async ({ page }) => {
+  test.setTimeout(90_000);
+  // 폰에서는 카카오 장소 검색이 맞으면 '상세 리뷰 보기' 줄이 뜬다. 지도 SDK 는 계속 스텁하고(지도는 그리지 않음),
+  // 장소 검색(services.Places)만 이 장소 하나를 돌려주게 한다 — ⓒ 표시가 카카오 줄 위로 올라가면
+  // TourAPI 주소·운영시간과 떨어져 카카오 리뷰의 출처처럼 읽힌다.
+  await page.addInitScript(() => {
+    const services = {
+      Status: { OK: 'OK', ZERO_RESULT: 'ZERO_RESULT' },
+      SortBy: { DISTANCE: 'distance' },
+      Places: function Places(this: unknown) {
+        return {
+          keywordSearch: (title: string, cb: (data: unknown[], status: string) => void) => setTimeout(() => cb([{
+            id: '1790001', place_name: title, distance: '12',
+            road_address_name: '경북 경주시 포석로 1080', address_name: '경북 경주시 황남동 1',
+            phone: '', place_url: 'https://place.map.kakao.com/1790001',
+          }], 'OK'), 0),
+        };
+      },
+    };
+    (window as unknown as { kakao: unknown }).kakao = {
+      maps: { load: () => {}, LatLng: function LatLng() {}, services },
+    };
+  });
+  await mockFacilities(page, [{
+    id: 'tour-no-overview-kakao', name: '황남 국밥', type: 'restaurant',
+    contentid: '2790001', contenttypeid: 39,
+    image_url: TOUR_PHOTO, gallery_images: null,
+    features: {},
+    address: '경상북도 경주시 포석로 1080',
+  }]);
+  await page.goto('/main');
+  await expect(page.getByText('황남 국밥').first()).toBeVisible({ timeout: 20_000 });
+  await page.getByRole('button', { name: '상세 정보 펼치기' }).click();
+
+  const reviews = page.getByRole('link', { name: '상세 리뷰 보기 ↗' });
+  await reviews.scrollIntoViewIfNeeded();
+  await expect(reviews).toBeVisible();
+  const refresh = page.getByRole('button', { name: '실시간 정보 새로고침' });
+  await expect(refresh.locator('xpath=following-sibling::span')).toHaveText('ⓒ한국관광공사 TourAPI');
+  const chipRow = refresh.locator('xpath=..');
+  // 바로 위 = 카카오 리뷰 줄, 바로 아래 = 주소(TourAPI).
+  await expect(chipRow.locator('xpath=preceding-sibling::*[1]').getByRole('link', { name: '상세 리뷰 보기 ↗' })).toHaveCount(1);
+  const afterChip = chipRow.locator('xpath=following-sibling::*[1]');
+  await expect(afterChip).toContainText('주소');
+  await expect(afterChip).toContainText('경상북도 경주시 포석로 1080');
+});
+
 test('waiting board: the credit shows the artist on its own line and keeps clear of the card', async ({ page }) => {
   await mockFacilities(page, [{
     id: 'board-wiki', name: '월정교 식당', type: 'restaurant',
@@ -370,11 +424,39 @@ test('waiting board: a credit that appears after a broken photo does not move th
   };
   const before = await measure();
 
+  // 출처가 사진보다 늦게 붙는 틈을 잡는 탐침 — 자동 재시도 expect 는 자리 잡은 뒤만 본다.
+  // DOM 이 바뀔 때마다(MutationObserver) 그리고 매 프레임(rAF) 셀을 훑어, Wikimedia 사진이 보이는데
+  // 그 셀에 Commons 출처 링크가 없는 순간을 기록한다. 사진과 출처가 같은 커밋에 그려지면 0건이다.
+  await page.evaluate((creditSel) => {
+    const w = window as unknown as { __uncredited: string[]; __probeStop?: () => void };
+    w.__uncredited = [];
+    const scan = (when: string) => {
+      document.querySelectorAll('div.grid-rows-\\[1fr_auto\\]').forEach((c) => {
+        const img = c.querySelector('img');
+        if (img?.getAttribute('src')?.startsWith('https://upload.wikimedia.org/') && !c.querySelector(creditSel)) {
+          w.__uncredited.push(`${when}:${c.textContent?.slice(0, 20)}`);
+        }
+      });
+    };
+    const mo = new MutationObserver(() => scan('mutation'));
+    mo.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['src', 'href'] });
+    let raf = requestAnimationFrame(function tick() { scan('frame'); raf = requestAnimationFrame(tick); });
+    w.__probeStop = () => { mo.disconnect(); cancelAnimationFrame(raf); };
+  }, CREDIT_LINK);
+
   release();
   await expect(cell.locator('img')).toHaveAttribute('src', WIKI_PHOTO);
   const lateCredit = cell.locator(CREDIT_LINK);
   await expect(lateCredit).toBeVisible();
   await expect(lateCredit).toContainText('CC BY 4.0');
+  // 몇 프레임 더 지켜본 뒤 탐침을 걷는다 — 출처 없는 Wikimedia 사진이 한 번도 보이지 않았다.
+  await page.waitForTimeout(300);
+  const uncredited = await page.evaluate(() => {
+    const w = window as unknown as { __uncredited: string[]; __probeStop?: () => void };
+    w.__probeStop?.();
+    return w.__uncredited;
+  });
+  expect(uncredited).toEqual([]);
 
   const after = await measure();
   expect(Math.abs(after.belowFromTop - before.belowFromTop)).toBeLessThanOrEqual(1);
