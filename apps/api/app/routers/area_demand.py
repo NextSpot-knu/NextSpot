@@ -135,7 +135,7 @@ async def area_demand_forecast(
     arrival_at = arrival_at.astimezone(timezone.utc)
     if arrival_at < now + timedelta(minutes=30) or arrival_at > now + timedelta(hours=6):
         raise HTTPException(status_code=422, detail="arrival_at must be 30 minutes to 6 hours ahead")
-    forecast = await get_historical_area_demand_forecast(lat, lng, arrival_at, now=now)
+    forecast = await get_historical_area_demand_forecast(lat, lng, arrival_at, now=now, interactive=True)
     return AreaDemandForecastResponse(available=forecast is not None, forecast=forecast)
 
 

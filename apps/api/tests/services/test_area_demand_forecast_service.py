@@ -1,19 +1,37 @@
+import ast
+import asyncio
+import hashlib
+import inspect
 import math
 import random
+import threading
 import time
 from dataclasses import FrozenInstanceError
 from datetime import datetime, timedelta, timezone
 from decimal import ROUND_HALF_UP, Decimal
+from functools import lru_cache
 from types import SimpleNamespace
 
 import pytest
 
+from app.core.config import settings
 from app.services import area_demand_forecast_service as forecast_svc
+from app.services import parking_history as ph
 from app.services.area_demand_forecast_service import (
     AreaDemandPoint,
     aggregate_nearby_points,
     backtest_forecast_points,
     forecast_from_points,
+)
+from tests.services._parking_fixture import (
+    DAYS,
+    LOTS,
+    NOW_EDGE,
+    START,
+    _is_tie,
+    _SinceRpcClient,
+    north_of,
+    patterned_fixture,
 )
 
 
@@ -897,3 +915,494 @@ def test_series_index_is_only_kept_for_the_cached_list_and_dropped_with_it():
     assert key not in forecast_svc._series_indexes  # 덮어쓰면 함께 버린다
     forecast_svc.reset_points_cache()
     assert not forecast_svc._series_indexes
+
+
+# ══ 원본 분기(AREA_DEMAND_SOURCE) — 스펙 §8 T27-T32 ══════════════════════════════════════════════════════
+# rpc(기본)는 도입 전 경로 그대로여야 하고(T31 원본 고정), matrix 는 같은 좌표에 RPC 경로와 같은 값을 내야 한다(T27·T28).
+# 행렬이 답하지 못하면 그 호출만 RPC 경로로 답하고, 다시 답하기 시작하면 RPC 캐시를 비운다(T29). 두 차선(T32).
+
+_P2_END = START + timedelta(days=DAYS)  # 합성 자료의 마지막 버킷 다음(2026-09-28 00:00 UTC)
+_P2_NOW = _P2_END + timedelta(minutes=20, seconds=11, microseconds=5)  # 56일 경계가 자료 앞머리를 가른다
+_P2_CENTER = (35.8361, 129.2105)
+_P2_SECOND = (35.84317, 129.21871)
+_P2_FAR = (35.70, 129.0)
+
+
+class _RecordingLogger:
+    """structlog 대신 끼우는 기록기 — (level, event, fields)."""
+
+    def __init__(self) -> None:
+        self.events: list[tuple[str, str, dict]] = []
+
+    def __getattr__(self, level):
+        if level not in ("debug", "info", "warning", "error", "exception", "critical"):
+            raise AttributeError(level)
+
+        def emit(event, **fields):
+            self.events.append((level, event, fields))
+
+        return emit
+
+    def named(self, event: str) -> list[dict]:
+        return [fields for _, name, fields in self.events if name == event]
+
+
+@pytest.fixture
+def source_env(monkeypatch):
+    """분기 시험 — 기록 로거, 그리고 행렬 메모·분기 상태·적재 상태를 시험 앞뒤로 비운다."""
+    logs = _RecordingLogger()
+    monkeypatch.setattr(forecast_svc, "logger", logs)
+    forecast_svc.reset_matrix_memos()
+    forecast_svc.reset_source_dispatch()
+    ph.reset_for_tests()
+    yield logs
+    ph.reset_for_tests()
+    forecast_svc.reset_matrix_memos()
+    forecast_svc.reset_source_dispatch()
+
+
+def _use_source(monkeypatch, value: str) -> None:
+    monkeypatch.setattr(settings, "AREA_DEMAND_SOURCE", value)
+
+
+def _serve_from(snapshot) -> None:
+    """적재 루프 없이 저장소를 '준비됨 · 방금 동기화' 로 만든다(servable 이 이 스냅샷을 준다)."""
+    ph._loader.snapshot = snapshot
+    ph._loader.ready = True
+    ph._loader.last_ok_sync = ph._mono()
+
+
+@lru_cache(maxsize=2)
+def _patterned_snapshot(now: datetime = _P2_NOW):
+    """적재 루프의 전량 적재와 같은 병합 — 고치지 말 것(공유)."""
+    return ph.merge(None, ph.parse_page(patterned_fixture().rows, aware=forecast_svc._aware), now=now)
+
+
+def _since_rpc_client() -> _SinceRpcClient:
+    fixture = patterned_fixture()
+    return _SinceRpcClient(fixture.parents, fixture.lots)
+
+
+def _expected_since(now: datetime) -> str:
+    return (now - timedelta(days=56)).astimezone(timezone.utc).isoformat()
+
+
+class _NoIO:
+    """행렬이 답할 수 있을 때 DB 를 한 번도 부르지 않는지 — 부르면 실패."""
+
+    def __init__(self) -> None:
+        self.touched: list[str] = []
+
+    def rpc(self, *_args, **_kwargs):
+        self.touched.append("rpc")
+        raise AssertionError("matrix 모드가 RPC 를 불렀다")
+
+    def table(self, *_args, **_kwargs):
+        self.touched.append("table")
+        raise AssertionError("matrix 모드가 테이블을 읽었다")
+
+
+def _t27_draws() -> list[tuple[float, float, datetime, datetime]]:
+    """(위도, 경도, now, 도착) 20개 — 동점(.x5) 아닌 좌표, KST 자정·금→토를 건너는 도착, 56일 경계가 자료를 가르는 now."""
+    rng = random.Random(27)
+    coordinates = [_P2_CENTER, _P2_SECOND, (35.79, 129.13), north_of(LOTS[1][1], LOTS[1][2], 1999.93), _P2_FAR]
+    while len(coordinates) < 10:
+        latitude = _P2_CENTER[0] + rng.uniform(-0.012, 0.012)
+        longitude = _P2_CENTER[1] + rng.uniform(-0.015, 0.015)
+        if not _is_tie(latitude, longitude):
+            coordinates.append((latitude, longitude))
+    nows = (_P2_NOW, NOW_EDGE, NOW_EDGE + timedelta(days=2, hours=5, minutes=7, microseconds=3))
+    draws = []
+    for k in range(20):
+        latitude, longitude = coordinates[k % len(coordinates)]
+        now = nows[k % len(nows)]
+        day = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        special = {
+            3: day + timedelta(hours=14, minutes=55),  # 23:55 KST
+            4: day + timedelta(hours=15, minutes=5),  # 00:05 KST(다음 날)
+            8: datetime(2026, 10, 2, 14, 50, tzinfo=timezone.utc),  # 금 23:50 KST
+            9: datetime(2026, 10, 2, 15, 10, tzinfo=timezone.utc),  # 토 00:10 KST
+        }
+        arrival = special.get(k, now + timedelta(minutes=rng.uniform(30, 360)))
+        assert arrival > now
+        draws.append((latitude, longitude, now, arrival))
+    return draws
+
+
+# ── T27 ──────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_matrix_forecast_equals_rpc_path_for_the_same_coordinate(monkeypatch, source_env):
+    client = _since_rpc_client()
+    monkeypatch.setattr(forecast_svc, "supabase_admin", client)
+    snapshot = _patterned_snapshot()
+    real_matrix_forecast = forecast_svc._matrix_forecast
+    offloaded: list[tuple[float, float]] = []
+
+    def _spy(snap, latitude, longitude, arrival, now):
+        offloaded.append((latitude, longitude))
+        return real_matrix_forecast(snap, latitude, longitude, arrival, now)
+
+    monkeypatch.setattr(forecast_svc, "_matrix_forecast", _spy)
+    usable = 0
+    for latitude, longitude, now, arrival in _t27_draws():
+        assert not _is_tie(latitude, longitude)
+        forecast_svc.reset_points_cache()
+        forecast_svc._quality_cache.clear()
+        _use_source(monkeypatch, "rpc")
+        calls = len(client.calls)
+        expected = await forecast_svc.get_historical_area_demand_forecast(latitude, longitude, arrival, now=now)
+        assert len(client.calls) == calls + 1
+        assert client.calls[-1]["p_since"] == _expected_since(now)
+        assert (client.calls[-1]["p_latitude"], client.calls[-1]["p_longitude"]) == (latitude, longitude)
+
+        _use_source(monkeypatch, "matrix")
+        _serve_from(snapshot)
+        got = await forecast_svc.get_historical_area_demand_forecast(latitude, longitude, arrival, now=now)
+        offloaded_before = len(offloaded)
+        again = await forecast_svc.get_historical_area_demand_forecast(latitude, longitude, arrival, now=now)
+        assert len(client.calls) == calls + 1, "matrix 모드가 RPC 를 불렀다"
+        assert repr(got) == repr(expected), (latitude, longitude, now, arrival)
+        assert repr(again) == repr(expected)
+        if expected is not None:
+            usable += 1
+            # 메모가 모두 맞는 두 번째 호출은 스레드로 넘기지 않고 이벤트 루프에서 바로 답한다.
+            assert len(offloaded) == offloaded_before
+    assert usable >= 12, f"쓸 만한 전망이 {usable}/20 뿐이면 비교가 공허하다"
+    assert forecast_svc._fallback_served == 0
+    assert not source_env.named("area_demand_source_fallback")
+
+
+# ── T28 ──────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("now", (_P2_NOW, NOW_EDGE))
+async def test_matrix_quality_equals_rpc_quality(monkeypatch, source_env, now):
+    client = _since_rpc_client()
+    monkeypatch.setattr(forecast_svc, "supabase_admin", client)
+    snapshot = _patterned_snapshot()
+    for latitude, longitude in (_P2_CENTER, (35.79, 129.13), north_of(LOTS[1][1], LOTS[1][2], 2000.02), _P2_FAR):
+        forecast_svc.reset_points_cache()
+        forecast_svc._quality_cache.clear()
+        _use_source(monkeypatch, "rpc")
+        expected = await forecast_svc.get_area_demand_forecast_quality(latitude, longitude, now=now)
+        assert client.calls[-1]["p_since"] == _expected_since(now)
+        _use_source(monkeypatch, "matrix")
+        _serve_from(snapshot)
+        calls = len(client.calls)
+        got = await forecast_svc.get_area_demand_forecast_quality(latitude, longitude, now=now)
+        assert len(client.calls) == calls
+        assert repr(got) == repr(expected), (latitude, longitude)
+        assert {"point_count", "data_from", "data_to", "usable"} <= set(got)
+        if (latitude, longitude) == _P2_FAR:
+            assert got["point_count"] == 0 and got["data_from"] is None and got["usable"] is False
+        elif (latitude, longitude) == _P2_CENTER:
+            assert got["usable"] is True and got["point_count"] > 6_000
+
+
+# ── T29 ──────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_matrix_mode_falls_back_when_not_ready_then_clears_rpc_caches(monkeypatch, source_env):
+    logs = source_env
+    client = _since_rpc_client()
+    monkeypatch.setattr(forecast_svc, "supabase_admin", client)
+    latitude, longitude = _P2_CENTER
+    now, arrival = _P2_NOW, _P2_NOW + timedelta(minutes=90)
+
+    _use_source(monkeypatch, "rpc")
+    expected = await forecast_svc.get_historical_area_demand_forecast(latitude, longitude, arrival, now=now)
+    assert expected is not None
+    forecast_svc.reset_points_cache()
+    forecast_svc._quality_cache.clear()
+
+    # 1) 저장소가 비어 있다 → RPC 경로로 답한다(값은 rpc 모드와 같다).
+    _use_source(monkeypatch, "matrix")
+    got = await forecast_svc.get_historical_area_demand_forecast(latitude, longitude, arrival, now=now)
+    assert len(client.calls) == 2 and client.calls[-1]["p_since"] == _expected_since(now)
+    assert repr(got) == repr(expected)
+    assert [f["reason"] for f in logs.named("area_demand_source_fallback")] == ["not_ready"]
+    assert forecast_svc._fallback_served == 1
+    assert forecast_svc._health_extra()["fallback_served"] == 1
+    grid = forecast_svc._grid_key(latitude, longitude)
+    assert grid in forecast_svc._points_cache and grid in forecast_svc._series_indexes
+    assert len(forecast_svc._quality_cache) == 1
+    lock = forecast_svc._points_locks[grid]
+
+    # 2) 저장소가 준비됐다 → 행렬이 답하고, 그 첫 호출이 RPC 캐시를 비운다(_points_locks 는 그대로).
+    _serve_from(_patterned_snapshot())
+    served = await forecast_svc.get_historical_area_demand_forecast(latitude, longitude, arrival, now=now)
+    assert len(client.calls) == 2
+    assert repr(served) == repr(expected)
+    assert len(forecast_svc._points_cache) == len(forecast_svc._series_indexes) == len(forecast_svc._quality_cache) == 0
+    assert not forecast_svc._datetime_intern and not forecast_svc._level_intern
+    assert forecast_svc._points_locks[grid] is lock
+    assert logs.named("area_demand_rpc_caches_cleared") == [{"points_entries": 1, "quality_entries": 1}]
+    assert forecast_svc._fallback_served == 1
+
+    # 3) 폴백이 진행 중일 때 행렬이 다시 답해도 비우지 않는다 — 그 폴백이 끝나며 캐시를 채우므로, 끝난 뒤 첫 호출이 비운다.
+    release, entered = threading.Event(), threading.Event()
+
+    def _hold(_params):
+        entered.set()
+        assert release.wait(10)
+
+    client.before_execute = _hold
+    ph._loader.last_ok_sync = ph._mono() - (ph.SERVABLE_MAX_SYNC_AGE_S + 1)  # 오래됨 → 폴백
+    other = _P2_SECOND
+    pending = asyncio.create_task(
+        forecast_svc.get_historical_area_demand_forecast(*other, arrival, now=now)
+    )
+    assert await asyncio.to_thread(entered.wait, 10)
+    assert forecast_svc._rpc_fallback_inflight == 1
+    _serve_from(_patterned_snapshot())  # 동기화 회복
+    during = await forecast_svc.get_historical_area_demand_forecast(latitude, longitude, arrival, now=now)
+    assert repr(during) == repr(expected)
+    assert forecast_svc._rpc_caches_dirty is True
+    assert len(logs.named("area_demand_rpc_caches_cleared")) == 1
+    release.set()
+    fallback_value = await pending
+    assert forecast_svc._rpc_fallback_inflight == 0
+    other_grid = forecast_svc._grid_key(*other)
+    assert other_grid in forecast_svc._points_cache  # 끝난 폴백이 채웠다
+    after = await forecast_svc.get_historical_area_demand_forecast(*other, arrival, now=now)
+    assert repr(after) == repr(fallback_value)
+    assert not forecast_svc._points_cache and not forecast_svc._quality_cache
+    assert forecast_svc._rpc_caches_dirty is False
+    assert len(logs.named("area_demand_rpc_caches_cleared")) == 2
+    assert [f["reason"] for f in logs.named("area_demand_source_fallback")] == ["not_ready", "stale"]
+    assert forecast_svc._fallback_served == 2
+    assert len(client.calls) == 3
+
+
+def test_fallback_log_is_rate_limited_per_reason(source_env):
+    logs = source_env
+    for _ in range(5):
+        forecast_svc._log_fallback("not_ready")
+    forecast_svc._log_fallback("stale")
+    assert logs.named("area_demand_source_fallback") == [
+        {"reason": "not_ready", "suppressed": 0}, {"reason": "stale", "suppressed": 0},
+    ]
+    at, suppressed = forecast_svc._fallback_logged["not_ready"]
+    assert suppressed == 4
+    forecast_svc._fallback_logged["not_ready"] = (at - forecast_svc._FALLBACK_LOG_INTERVAL_S - 1, suppressed)
+    forecast_svc._log_fallback("not_ready")
+    assert logs.named("area_demand_source_fallback")[-1] == {"reason": "not_ready", "suppressed": 4}
+
+
+# ── T30 ──────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_matrix_mode_never_calls_rpc_when_servable(monkeypatch, source_env):
+    no_io = _NoIO()
+    monkeypatch.setattr(forecast_svc, "supabase_admin", no_io)
+    monkeypatch.setattr(forecast_svc, "fetch_all_rows", no_io.table)
+    _use_source(monkeypatch, "matrix")
+    snapshot = _patterned_snapshot()
+    _serve_from(snapshot)
+    now = _P2_NOW
+    forecast = await forecast_svc.get_historical_area_demand_forecast(
+        *_P2_CENTER, now + timedelta(minutes=45), now=now
+    )
+    assert forecast is not None and forecast["validation"]["sample_count"] >= 30
+    quality = await forecast_svc.get_area_demand_forecast_quality(*_P2_CENTER, now=now)
+    assert repr(quality) == repr(forecast_svc._matrix_quality(snapshot, *_P2_CENTER, now))
+    assert await forecast_svc.prefetch_area_demand_points([_P2_CENTER, _P2_SECOND, _P2_FAR], now=now) == 0
+    assert no_io.touched == []
+    assert not forecast_svc._points_cache and not forecast_svc._quality_cache
+    assert forecast_svc._fallback_served == 0 and not source_env.named("area_demand_source_fallback")
+    extra = forecast_svc._health_extra()
+    assert extra["memo"] == {"series": 1, "near": 1, "quality": 1} and extra["fallback_served"] == 0
+
+
+@pytest.mark.asyncio
+async def test_far_coordinate_returns_none_without_io(monkeypatch, source_env):
+    no_io = _NoIO()
+    monkeypatch.setattr(forecast_svc, "supabase_admin", no_io)
+    _use_source(monkeypatch, "matrix")
+    _serve_from(_patterned_snapshot())
+    now = _P2_NOW
+    assert await forecast_svc.get_historical_area_demand_forecast(*_P2_FAR, now + timedelta(hours=2), now=now) is None
+    quality = await forecast_svc.get_area_demand_forecast_quality(*_P2_FAR, now=now)
+    assert quality["point_count"] == 0 and quality["usable"] is False and quality["sample_count"] == 0
+    assert no_io.touched == [] and forecast_svc._fallback_served == 0
+
+
+@pytest.mark.asyncio
+async def test_matrix_failure_falls_back_to_rpc(monkeypatch, source_env):
+    logs = source_env
+    client = _since_rpc_client()
+    monkeypatch.setattr(forecast_svc, "supabase_admin", client)
+    now, arrival = _P2_NOW, _P2_NOW + timedelta(minutes=120)
+    _use_source(monkeypatch, "rpc")
+    expected = await forecast_svc.get_historical_area_demand_forecast(*_P2_CENTER, arrival, now=now)
+    expected_quality = await forecast_svc.get_area_demand_forecast_quality(*_P2_CENTER, now=now)
+    forecast_svc.reset_points_cache()
+    forecast_svc._quality_cache.clear()
+
+    def _boom(*_args, **_kwargs):
+        raise RuntimeError("kernel bug at 35.8361")
+
+    monkeypatch.setattr(forecast_svc, "_matrix_forecast", _boom)
+    monkeypatch.setattr(forecast_svc, "_matrix_quality", _boom)
+    _use_source(monkeypatch, "matrix")
+    _serve_from(_patterned_snapshot())
+    got = await forecast_svc.get_historical_area_demand_forecast(*_P2_CENTER, arrival, now=now)
+    got_quality = await forecast_svc.get_area_demand_forecast_quality(*_P2_CENTER, now=now)
+    assert repr(got) == repr(expected) and repr(got_quality) == repr(expected_quality)
+    failed = logs.named("area_demand_matrix_failed")
+    assert [(f["kind"], f["error_type"]) for f in failed] == [("forecast", "RuntimeError"), ("quality", "RuntimeError")]
+    assert [f["reason"] for f in logs.named("area_demand_source_fallback")] == ["matrix_failed"]
+    assert forecast_svc._fallback_served == 2
+    assert forecast_svc._rpc_caches_dirty is True
+
+
+@pytest.mark.asyncio
+async def test_prefetch_warms_the_rpc_path_only_when_matrix_cannot_answer(monkeypatch, source_env):
+    client = _since_rpc_client()
+    monkeypatch.setattr(forecast_svc, "supabase_admin", client)
+    _use_source(monkeypatch, "matrix")  # 저장소 비어 있음
+    now = _P2_NOW
+    filled = await forecast_svc.prefetch_area_demand_points([_P2_CENTER, _P2_SECOND], now=now)
+    assert filled == 2 and len(client.calls) == 2
+    assert all(call["p_since"] == _expected_since(now) for call in client.calls)
+    assert forecast_svc._fallback_served == 0  # 예열은 답이 아니다
+    assert [f["reason"] for f in source_env.named("area_demand_source_fallback")] == ["not_ready"]
+    assert forecast_svc._rpc_caches_dirty is True and forecast_svc._rpc_fallback_inflight == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("source", ("rpc", "off", "", " RPC "))
+async def test_non_matrix_modes_never_touch_the_matrix_path(monkeypatch, source_env, source):
+    """rpc(기본)·모르는 값은 도입 전 경로 그대로 — 행렬·적재·차선을 건드리지 않는다(shadow 는 shadow 시험이 본다)."""
+
+    def _forbidden(*_args, **_kwargs):
+        raise AssertionError("rpc 경로가 행렬 쪽을 건드렸다")
+
+    for name in ("servable", "ensure_running", "current"):
+        monkeypatch.setattr(ph, name, _forbidden)
+    for name in ("_serve_matrix_forecast", "_serve_matrix_quality", "_matrix_servable", "_lane", "_matrix_forecast"):
+        monkeypatch.setattr(forecast_svc, name, _forbidden)
+    client = _since_rpc_client()
+    monkeypatch.setattr(forecast_svc, "supabase_admin", client)
+    _use_source(monkeypatch, source)
+    now = _P2_NOW
+    forecast = await forecast_svc.get_historical_area_demand_forecast(
+        *_P2_CENTER, now + timedelta(minutes=60), now=now, interactive=True
+    )
+    quality = await forecast_svc.get_area_demand_forecast_quality(*_P2_CENTER, now=now)
+    filled = await forecast_svc.prefetch_area_demand_points([_P2_SECOND], now=now)
+    assert forecast is not None and quality["usable"] is True and filled == 1
+    assert len(client.calls) == 2  # 격자 캐시 그대로(같은 격자는 한 번)
+    assert forecast_svc._fallback_served == 0 and forecast_svc._lanes is None
+    assert source_env.events == [("info", "area_demand_prefetch", {"grids": 1, "requested": 1})]
+
+
+# ── T31 ──────────────────────────────────────────────────────────────────────
+# RPC 경로의 원본을 고정한다. P2b 에서 삭제; 바꾸려면 PM 승인.
+# 해시는 구현 시점에 계산해 박았다(sha256, 줄바꿈 '\n'). 모두 production main(3cf5bf9)의 같은 부분과도 같다:
+#   · 전체: inspect.getsource 의 정의 첫 줄부터 끝까지.
+#   · 독스트링 뒤: 독스트링에 lockstep 안내 한 줄만 더한 두 함수(aggregate_nearby_points · backtest_forecast_points).
+#   · _rpc_*: 정의 줄(시그니처) 뒤 전부 — 3cf5bf9 의 같은 이름 공개 함수 본문(독스트링 포함)과 같은 해시.
+
+_PINNED_ALL = {
+    "_load_points": "28aeb48c9165941e1879c50596e0700b4f4bf1b15a2822f2b800520f7d286466",
+    "_load_points_uncached": "6e873de61154ae2549277a6d412dffb5a9b2ee32c084f537d1516399085209dc",
+    "_fetch_points_via_rpc": "f5f2d6a31b9fc9f552772042f6b6f5c128ed2be3bfa0955c16ac115382cd49c2",
+    "_points_from_payload": "370a8911f52e6a4500c39c4393f529bcfbb65a919d6e8970de58fa750a07bd69",
+    "_load_raw_history": "6eb31842ca78879d7e5b2b2ab4cb3c79b43ee9d057a24c80f118c795755c4425",
+    "_cached_backtest": "d676cdddff4f93edb8979a2d1a23e6a41e11e9e51bd5dd629bf232e34a962dab",
+    "_backtest_forecast_level": "5db6416bd2e268efbf0fe0c0df4d3f1b5c596e910745137b043a1f7c5aba0f7f",
+    "_forecast_from_points": "c17bddbf4ed8c9fe3b0574b2bea1bd51c92f8ae9e220bcbca6c81ee28ea71308",
+    "_SeriesIndex": "5198e616d2cbc09e0edf9318bcb2633a97e12a0720fb0acb2a4aabaeb5738e1c",
+}
+_PINNED_AFTER_DOCSTRING = {
+    "aggregate_nearby_points": "2467f22fea1a9a428567d682ab2371b0fb809fbc2e151c4f2503bd1f11cdc153",
+    "backtest_forecast_points": "c021f4ade532bd178318f056b492ef1c223b76578ff33b4f40877a8360f4ee8b",
+}
+_PINNED_RPC_BODIES = {  # 3cf5bf9 의 get_historical_area_demand_forecast · get_area_demand_forecast_quality · prefetch_area_demand_points
+    "_rpc_get_historical_area_demand_forecast": "59ca496e21f23518cbfccbd87525ce4bb053ffdbad2e1ac25d570f9d29374e3f",
+    "_rpc_get_area_demand_forecast_quality": "9211236418904ab66eebf444daa7a2985dbf634e58d53eaab8463b709e4bf21c",
+    "_rpc_prefetch_area_demand_points": "6d56d23de4d9e47046af3b9d42a316c8ff3e10e17d094577f2afa3ee0e339c9f",
+}
+
+
+def _source_hash(obj, part: str) -> str:
+    source = inspect.getsource(obj)
+    node = ast.parse(source).body[0]
+    first = {"all": node.lineno, "body": node.body[0].lineno, "after_docstring": node.body[1].lineno}[part]
+    text = "\n".join(source.splitlines()[first - 1:node.end_lineno])
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def test_rpc_path_source_is_pinned():
+    changed = [name for name, digest in _PINNED_ALL.items()
+               if _source_hash(getattr(forecast_svc, name), "all") != digest]
+    changed += [name for name, digest in _PINNED_AFTER_DOCSTRING.items()
+                if _source_hash(getattr(forecast_svc, name), "after_docstring") != digest]
+    changed += [name for name, digest in _PINNED_RPC_BODIES.items()
+                if _source_hash(getattr(forecast_svc, name), "body") != digest]
+    assert not changed, f"RPC 경로 원본이 바뀌었다(P2b 전에는 PM 승인 없이 바꾸지 않는다): {changed}"
+    # 옮긴 본문의 시그니처도 도입 전 공개 함수와 같다(interactive 는 공개 분기에만 있다).
+    assert str(inspect.signature(forecast_svc._rpc_get_historical_area_demand_forecast)) == (
+        "(latitude: 'float', longitude: 'float', arrival: 'datetime', *, now: 'datetime | None' = None)"
+        " -> 'dict[str, Any] | None'"
+    )
+    assert str(inspect.signature(forecast_svc._rpc_get_area_demand_forecast_quality)) == (
+        "(latitude: 'float', longitude: 'float', *, now: 'datetime | None' = None) -> 'dict[str, Any]'"
+    )
+    assert str(inspect.signature(forecast_svc._rpc_prefetch_area_demand_points)) == (
+        "(coordinates: 'list[tuple[float, float]]', *, now: 'datetime | None' = None,"
+        " max_concurrency: 'int' = 6) -> 'int'"
+    )
+
+
+# ── T32 ──────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_interactive_lane_is_not_queued_behind_ranking(monkeypatch, source_env):
+    _use_source(monkeypatch, "matrix")
+    _serve_from(_patterned_snapshot())
+    interactive_coordinate = (35.8400, 129.2100)
+    active = {"ranking": 0, "interactive": 0}
+    peak = dict(active)
+    guard = threading.Lock()
+
+    def _slow(_snapshot, latitude, longitude, _arrival, _now):
+        lane = "interactive" if (latitude, longitude) == interactive_coordinate else "ranking"
+        with guard:
+            active[lane] += 1
+            peak[lane] = max(peak[lane], active[lane])
+        try:
+            time.sleep(0.3 if lane == "ranking" else 0.05)
+        finally:
+            with guard:
+                active[lane] -= 1
+        return None
+
+    monkeypatch.setattr(forecast_svc, "_matrix_forecast", _slow)
+    now = _P2_NOW
+    arrival = now + timedelta(minutes=60)
+    ranking = [
+        asyncio.create_task(forecast_svc.get_historical_area_demand_forecast(
+            35.83 + index * 1e-4, 129.21, arrival, now=now
+        ))
+        for index in range(36)
+    ]
+    await asyncio.sleep(0.05)  # 채점 차선이 찼다(2개 계산 중, 34개 대기)
+    started = time.perf_counter()
+    result = await forecast_svc.get_historical_area_demand_forecast(
+        *interactive_coordinate, arrival, now=now, interactive=True
+    )
+    elapsed = time.perf_counter() - started
+    assert result is None
+    assert elapsed < 1.0, f"대기 화면 호출이 채점 뒤에 줄 섰다: {elapsed:.2f}s"
+    assert not all(task.done() for task in ranking)
+    await asyncio.gather(*ranking)
+    assert peak == {"ranking": 2, "interactive": 1}
+    assert forecast_svc._fallback_served == 0

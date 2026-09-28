@@ -21,7 +21,7 @@ import time
 from array import array
 from bisect import bisect_left
 from collections import OrderedDict
-from collections.abc import Callable, Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from functools import lru_cache
@@ -697,7 +697,7 @@ async def _load_raw_history(now: datetime) -> tuple[list[dict[str, Any]], list[d
         return parents, lots
 
 
-async def prefetch_area_demand_points(
+async def _rpc_prefetch_area_demand_points(
     coordinates: list[tuple[float, float]],
     *,
     now: datetime | None = None,
@@ -743,7 +743,7 @@ async def prefetch_area_demand_points(
     return len(unique)
 
 
-async def get_historical_area_demand_forecast(
+async def _rpc_get_historical_area_demand_forecast(
     latitude: float,
     longitude: float,
     arrival: datetime,
@@ -789,7 +789,7 @@ async def get_historical_area_demand_forecast(
     return forecast
 
 
-async def get_area_demand_forecast_quality(
+async def _rpc_get_area_demand_forecast_quality(
     latitude: float,
     longitude: float,
     *,
@@ -1482,3 +1482,268 @@ def _matrix_quality(
         "data_from": points[0].observed_at.isoformat(),
         "data_to": points[-1].observed_at.isoformat(),
     }
+
+
+# ── 원본 분기(AREA_DEMAND_SOURCE — rpc | shadow | matrix) ─────────────────────────────────────────
+# 공개 함수 셋은 얇은 분기다. rpc(기본)면 if 하나 뒤에 위의 _rpc_* 를 그대로 부른다 — 그 본문은 도입 전 공개 함수의 본문을
+# 한 글자도 바꾸지 않고 옮긴 것이다(tests/services/test_area_demand_forecast_service.py 의 원본 고정 시험이 잠근다).
+# shadow 는 아직 rpc 와 같다(비교는 다음 단계). matrix 는 주차 이력 행렬로 답하고, 행렬이 준비 전·오래됨(15분)·기간 부족·
+# 열 64개 초과이거나 계산이 실패하면 **그 호출만** RPC 경로로 답한다 — 새 503 은 없다.
+#
+# RPC 캐시 비우기: 폴백이 한 번이라도 돌면 격자 캐시(_points_cache 등 — 격자 96개면 최대 ~100MB)가 다시 찬다. 행렬이 다시
+# 답하기 시작한 첫 호출에서 비운다 — 단 진행 중인 폴백이 없을 때만(끝나지 않은 폴백이 비운 뒤에 다시 채우지 않게).
+# _points_locks · _quality_inflight 는 건드리지 않는다(진행 중인 single-flight 를 가르지 않게).
+#
+# 두 차선: 사람이 화면에서 기다리는 호출(공개 /area-demand/forecast — /waiting 화면, 관리자 품질)은 interactive(동시 1),
+# 추천·코스 채점은 ranking(동시 2). 코스 하나가 후보 수십 곳을 한꺼번에 계산해도 대기 화면이 그 뒤에 줄 서지 않는다.
+# 메모가 모두 맞는 호출(≤0.5ms)은 차선을 거치지 않고 이벤트 루프에서 바로 답한다.
+
+_INTERACTIVE_LANE_SLOTS = 1
+_RANKING_LANE_SLOTS = 2
+_FALLBACK_LOG_INTERVAL_S = 60.0
+_lanes: tuple[asyncio.AbstractEventLoop, asyncio.Semaphore, asyncio.Semaphore] | None = None
+_rpc_caches_dirty = False  # matrix 모드의 폴백이 RPC 경로 캐시를 채웠을 수 있다
+_rpc_fallback_inflight = 0  # 지금 RPC 경로로 답하는 중인 matrix 모드 호출 수(이벤트 루프에서만 바뀐다)
+_fallback_served = 0  # matrix 모드에서 RPC 경로로 답한 전망·품질 호출 수(부팅 뒤 누적 — /health)
+_fallback_logged: dict[str, tuple[float, int]] = {}  # 사유 → (마지막 기록 monotonic, 그 뒤 눌러 둔 수)
+_MISS = object()
+
+
+def _lane(interactive: bool) -> asyncio.Semaphore:
+    """지금 이벤트 루프의 차선 세마포어. 루프가 바뀌면(시험은 루프가 시험마다 다르다) 새로 만든다."""
+    global _lanes
+    loop = asyncio.get_running_loop()
+    if _lanes is None or _lanes[0] is not loop:
+        _lanes = (loop, asyncio.Semaphore(_INTERACTIVE_LANE_SLOTS), asyncio.Semaphore(_RANKING_LANE_SLOTS))
+    return _lanes[1] if interactive else _lanes[2]
+
+
+def _matrix_since(now: datetime) -> datetime:
+    # RPC 경로의 p_since 와 같은 경계: (now − 56일), naive now 는 UTC 로 본다(_load_points_uncached 와 같다).
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    return now - timedelta(days=_LOOKBACK_DAYS)
+
+
+def _clear_rpc_caches() -> None:
+    """(이벤트 루프) RPC 경로의 격자 캐시·색인·인턴 표·품질 캐시를 비운다."""
+    global _rpc_caches_dirty
+    points_entries = len(_points_cache)
+    _points_cache.clear()
+    _series_indexes.clear()
+    _datetime_intern.clear()
+    _level_intern.clear()
+    with _quality_lock:
+        quality_entries = len(_quality_cache)
+        _quality_cache.clear()
+    _rpc_caches_dirty = False
+    logger.info("area_demand_rpc_caches_cleared", points_entries=points_entries, quality_entries=quality_entries)
+
+
+def _log_fallback(reason: str) -> None:
+    """사유마다 60초에 한 줄 — 그 사이의 폴백은 세어 두었다가 다음 줄의 suppressed 로 싣는다."""
+    now = time.monotonic()
+    last = _fallback_logged.get(reason)
+    if last is not None and now - last[0] < _FALLBACK_LOG_INTERVAL_S:
+        _fallback_logged[reason] = (last[0], last[1] + 1)
+        return
+    _fallback_logged[reason] = (now, 0)
+    logger.warning("area_demand_source_fallback", reason=reason, suppressed=0 if last is None else last[1])
+
+
+async def _answer_via_rpc(reason: str, call: Callable[[], Awaitable[Any]], *, served: bool = True) -> Any:
+    """matrix 모드에서 이 호출만 RPC 경로로 답한다. served=False 는 답이 아닌 호출(예열)이라 폴백 수에 넣지 않는다."""
+    global _fallback_served, _rpc_caches_dirty, _rpc_fallback_inflight
+    if served:
+        _fallback_served += 1
+    _log_fallback(reason)
+    _rpc_caches_dirty = True
+    _rpc_fallback_inflight += 1
+    try:
+        return await call()
+    finally:
+        _rpc_fallback_inflight -= 1
+
+
+def _matrix_servable(now: datetime) -> tuple[parking_history.HistorySnapshot | None, str]:
+    """(이벤트 루프) 행렬로 답해도 되는가. 되면 먼저, 밀린 RPC 캐시 비우기를 한다(진행 중인 폴백이 없을 때만)."""
+    snapshot, reason = parking_history.servable(_matrix_since(now))
+    if snapshot is not None and _rpc_caches_dirty and _rpc_fallback_inflight == 0:
+        _clear_rpc_caches()
+    return snapshot, reason
+
+
+def _matrix_forecast_from_memos(
+    snapshot: parking_history.HistorySnapshot,
+    latitude: float,
+    longitude: float,
+    arrival: datetime,
+    now: datetime,
+) -> Any:
+    """시계열·조합·품질 메모가 **모두** 맞으면 이벤트 루프에서 곧바로 전망을 낸다(색인 경유 ≤0.5ms). 하나라도 빗나가면
+    _MISS — 계산(수십 ms)은 차선의 스레드에서 _matrix_forecast 가 한다. 값은 _matrix_forecast 와 같다(같은 메모·같은 식)."""
+    if not (math.isfinite(latitude) and math.isfinite(longitude)):
+        return _MISS
+    start = _matrix_window_start(snapshot, now)
+    generation = snapshot.generation
+    key = (latitude, longitude, generation, start)
+    with _MEMO_LOCK:
+        if not _memo_adopt(generation):
+            return _MISS
+        series = _SERIES_MEMO.entries.get(key)
+        quality = _MQUALITY.entries.get(key)
+        if series is None or quality is None:
+            return _MISS
+        near_columns, levels = series
+        near_key = (near_columns, generation, start)
+        near_entry = _NEAR_MEMO.entries.get(near_key)
+        if near_entry is None or near_entry.index is None:
+            return _MISS
+        _SERIES_MEMO.entries.move_to_end(key)
+        _MQUALITY.entries.move_to_end(key)
+        _NEAR_MEMO.entries.move_to_end(near_key)
+    points = _PointsView(snapshot.observed, near_entry.keep, levels, near_entry.counts)
+    forecast = _forecast_from_points(points, arrival, now, near_entry.index)
+    if forecast is None:
+        return None
+    usable = bool(
+        quality["sample_count"] >= 30
+        and quality["mae"] is not None
+        and quality["mae"] <= 0.15
+        and quality["improvement_rate"] is not None
+        and quality["improvement_rate"] >= 0.20
+    )
+    if not usable:
+        return None
+    forecast["validation"] = quality
+    return forecast
+
+
+async def _serve_matrix_forecast(
+    latitude: float,
+    longitude: float,
+    arrival: datetime,
+    now: datetime,
+    interactive: bool,
+) -> dict[str, Any] | None:
+    reason = "matrix_failed"
+    try:
+        parking_history.ensure_running()
+        snapshot, reason = _matrix_servable(now)
+        if snapshot is not None:
+            forecast = _matrix_forecast_from_memos(snapshot, latitude, longitude, arrival, now)
+            if forecast is not _MISS:
+                return forecast
+            async with _lane(interactive):
+                return await asyncio.to_thread(_matrix_forecast, snapshot, latitude, longitude, arrival, now)
+    except Exception as exc:  # noqa: BLE001 — 행렬 쪽 어떤 실패도 이 호출을 RPC 경로로 넘길 뿐이다
+        logger.warning("area_demand_matrix_failed", kind="forecast", error_type=type(exc).__name__,
+                       error=str(exc)[:300])
+        reason = "matrix_failed"
+    return await _answer_via_rpc(
+        reason, lambda: _rpc_get_historical_area_demand_forecast(latitude, longitude, arrival, now=now)
+    )
+
+
+async def _serve_matrix_quality(latitude: float, longitude: float, now: datetime) -> dict[str, Any]:
+    reason = "matrix_failed"
+    try:
+        parking_history.ensure_running()
+        snapshot, reason = _matrix_servable(now)
+        if snapshot is not None:
+            async with _lane(True):
+                return await asyncio.to_thread(_matrix_quality, snapshot, latitude, longitude, now)
+    except Exception as exc:  # noqa: BLE001 — 위와 같다
+        logger.warning("area_demand_matrix_failed", kind="quality", error_type=type(exc).__name__,
+                       error=str(exc)[:300])
+        reason = "matrix_failed"
+    return await _answer_via_rpc(
+        reason, lambda: _rpc_get_area_demand_forecast_quality(latitude, longitude, now=now)
+    )
+
+
+async def get_historical_area_demand_forecast(
+    latitude: float,
+    longitude: float,
+    arrival: datetime,
+    *,
+    now: datetime | None = None,
+    interactive: bool = False,
+) -> dict[str, Any] | None:
+    """DB 오류나 부족한 표본은 숫자를 만들지 않고 ``None``으로 닫는다.
+
+    interactive=True 는 사람이 화면에서 기다리는 호출(공개 /area-demand/forecast)만 넘긴다 — matrix 모드에서 추천·코스
+    채점 차선 뒤에 줄 서지 않는다. rpc(기본)·shadow 에서는 쓰이지 않는다.
+    """
+    if parking_history.mode() == "matrix":
+        return await _serve_matrix_forecast(
+            latitude, longitude, arrival, now or datetime.now(timezone.utc), interactive
+        )
+    return await _rpc_get_historical_area_demand_forecast(latitude, longitude, arrival, now=now)
+
+
+async def get_area_demand_forecast_quality(
+    latitude: float,
+    longitude: float,
+    *,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """해당 권역의 시간 순서 백테스트와 현재 데이터 범위를 반환한다(관리자 — matrix 모드에서는 interactive 차선)."""
+    if parking_history.mode() == "matrix":
+        return await _serve_matrix_quality(latitude, longitude, now or datetime.now(timezone.utc))
+    return await _rpc_get_area_demand_forecast_quality(latitude, longitude, now=now)
+
+
+async def prefetch_area_demand_points(
+    coordinates: list[tuple[float, float]],
+    *,
+    now: datetime | None = None,
+    max_concurrency: int = 6,
+) -> int:
+    """후보들의 시계열을 격자 단위로 미리 받아 둔다(_rpc_prefetch_area_demand_points). 채운 격자 수를 돌려준다.
+
+    matrix 모드에서 행렬이 답할 수 있으면 받을 것이 없다 — 곧바로 0. 답할 수 없으면(부팅 직후 등) RPC 경로 그대로 예열한다.
+    """
+    if parking_history.mode() != "matrix":
+        return await _rpc_prefetch_area_demand_points(coordinates, now=now, max_concurrency=max_concurrency)
+    now = now or datetime.now(timezone.utc)
+    try:
+        parking_history.ensure_running()
+        snapshot, reason = _matrix_servable(now)
+    except Exception as exc:  # noqa: BLE001 — 예열은 최적화다(_rpc_prefetch_area_demand_points 독스트링)
+        logger.warning("area_demand_matrix_failed", kind="prefetch", error_type=type(exc).__name__,
+                       error=str(exc)[:300])
+        snapshot, reason = None, "matrix_failed"
+    if snapshot is not None:
+        return 0
+    return await _answer_via_rpc(
+        reason,
+        lambda: _rpc_prefetch_area_demand_points(coordinates, now=now, max_concurrency=max_concurrency),
+        served=False,
+    )
+
+
+def _health_extra() -> dict[str, Any]:
+    """/health.parking_history 에 더할 숫자 — 정수만(좌표·키·오류 원문 없음). 메모리만 읽는다."""
+    return {
+        "memo": {
+            "series": len(_SERIES_MEMO.entries),
+            "near": len(_NEAR_MEMO.entries),
+            "quality": len(_MQUALITY.entries),
+        },
+        "fallback_served": _fallback_served,
+    }
+
+
+def reset_source_dispatch() -> None:
+    """테스트 전용 — 분기 상태(폴백 수·기록 억제·캐시 더러움·진행 중 수·차선)를 비운다."""
+    global _lanes, _rpc_caches_dirty, _rpc_fallback_inflight, _fallback_served
+    _lanes = None
+    _rpc_caches_dirty = False
+    _rpc_fallback_inflight = 0
+    _fallback_served = 0
+    _fallback_logged.clear()
+
+
+# 주차 이력 모듈은 이 모듈을 import 하지 않는다(순환) — 대신 여기서 알려 둔다. 대입 하나뿐이다(스레드·I/O·로그 없음).
+parking_history.register_health_extra(_health_extra)

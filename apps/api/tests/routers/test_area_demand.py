@@ -184,3 +184,24 @@ def test_parking_lots_returns_official_positions_and_nullable_live_counts(monkey
     assert body["radius_m"] == 3000
     assert body["lots"][0]["available_spaces"] == 23
     assert body["lots"][0]["source"] == "gyeongju_its"
+
+
+def test_public_forecast_uses_the_interactive_lane(monkeypatch):
+    """/waiting 화면의 전망은 사람이 기다리는 호출이다 — matrix 모드에서 추천·코스 채점 차선 뒤에 줄 서지 않게 표시한다."""
+    from datetime import datetime, timedelta, timezone
+
+    seen: list[dict] = []
+
+    async def forecast(lat, lng, arrival_at, **kwargs):
+        seen.append({"lat": lat, "lng": lng, **kwargs})
+        return None
+
+    monkeypatch.setattr(area_demand, "get_historical_area_demand_forecast", forecast)
+    arrival = (datetime.now(timezone.utc) + timedelta(hours=2)).isoformat()
+    response = _client().get(
+        "/api/v1/area-demand/forecast", params={"arrival_at": arrival, "lat": 35.8361, "lng": 129.2105}
+    )
+    assert response.status_code == 200
+    assert response.json()["available"] is False and response.json()["forecast"] is None
+    assert len(seen) == 1 and seen[0]["interactive"] is True
+    assert (seen[0]["lat"], seen[0]["lng"]) == (35.8361, 129.2105) and "now" in seen[0]

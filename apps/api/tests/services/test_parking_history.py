@@ -547,6 +547,68 @@ def test_generation_is_process_global_and_strictly_increasing(monkeypatch, loade
     _drive(monkeypatch, scenario)
 
 
+# ── T12 ──────────────────────────────────────────────────────────────────────
+
+
+def _half_available(rows):
+    """같은 버킷·같은 관측 시각, 유효한 칸의 잔여면만 절반으로 — 전량 다시 읽기가 내용을 바꾸는 상황."""
+    changed = []
+    for row in rows:
+        lots = []
+        for lot in row["area_demand_snapshot_lots"]:
+            lot = dict(lot)
+            total, available = lot.get("total_spaces"), lot.get("available_spaces")
+            if type(total) is int and type(available) is int and 0 <= available <= total and total > 0:
+                lot["available_spaces"] = total // 2
+            lots.append(lot)
+        changed.append({**row, "area_demand_snapshot_lots": lots})
+    return changed
+
+
+def test_memo_hit_after_full_reload_reflects_reloaded_data(monkeypatch, loader_env):
+    db = loader_env.db
+    clock = _Clock(NOW_EDGE).install(monkeypatch)
+    db.rows = list(fixture_56d().rows)
+    monkeypatch.setattr(settings, "AREA_DEMAND_SOURCE", "matrix")
+    forecast_svc.reset_matrix_memos()
+    forecast_svc.reset_source_dispatch()
+    latitude, longitude = _CENTER
+
+    async def scenario(loader):
+        await loader._step()  # 부팅 전량 적재
+        before = loader.snapshot
+        now = clock.utcnow()
+        first = await forecast_svc.get_area_demand_forecast_quality(latitude, longitude, now=now)
+        assert await forecast_svc.get_area_demand_forecast_quality(latitude, longitude, now=now) is not None
+        start = ph.window_start(before, now - ph.LOOKBACK)
+        assert (latitude, longitude, before.generation, start) in forecast_svc._MQUALITY.entries  # 메모에 들었다
+
+        db.rows = _half_available(db.rows)
+        assert await loader._full("test")
+        reloaded = loader.snapshot
+        assert reloaded.generation > before.generation
+        assert [ph._cells_at(reloaded, i) for i in range(3)] != [ph._cells_at(before, i) for i in range(3)]
+        second = await forecast_svc.get_area_demand_forecast_quality(latitude, longitude, now=now)
+        view, _ = forecast_svc._matrix_series(reloaded, latitude, longitude, start)
+        # 옛 세대의 메모는 하나도 남지 않았다(세대가 키에 있고, 새 세대를 보면 다 비운다).
+        assert all(key[2] == reloaded.generation for key in forecast_svc._MQUALITY.entries)
+        assert all(key[2] == reloaded.generation for key in forecast_svc._SERIES_MEMO.entries)
+        forecast_svc.reset_matrix_memos()
+        fresh = forecast_svc._matrix_quality(reloaded, latitude, longitude, now)
+        fresh_view, _ = forecast_svc._matrix_series(reloaded, latitude, longitude, start)
+        return first, second, fresh, list(view), list(fresh_view)
+
+    try:
+        first, second, fresh, view, fresh_view = _drive(monkeypatch, scenario)
+    finally:
+        forecast_svc.reset_matrix_memos()
+        forecast_svc.reset_source_dispatch()
+    assert repr(second) == repr(fresh)
+    assert repr(view) == repr(fresh_view)
+    assert second != first and second["point_count"] == first["point_count"]
+    assert forecast_svc._fallback_served == 0
+
+
 # ── T7 ───────────────────────────────────────────────────────────────────────
 
 

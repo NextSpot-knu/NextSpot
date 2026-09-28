@@ -409,3 +409,91 @@ def north_of(lot_lat: float, lot_lng: float, target_m: float) -> tuple[float, fl
         else:
             high = mid
     return high, lot_lng
+
+
+# ── 요일·시각 모양이 있는 변형(권역 전망이 '쓸 만함' 을 넘도록) ─────────────────────────────────────
+# fixture_56d 의 잔여면은 균등 난수라 백테스트가 기준선보다 나을 수 없다(전망이 늘 None — 비교가 공허하다). 같은 행·같은
+# 경계 사례(옛 15분 행·누락·무효 칸·옮긴 주차장·경계 행)를 그대로 두고, **유효한 칸의 잔여면만** KST 시각·주말 모양 +
+# 작은 잡음으로 바꾼다. 무효 칸은 그대로 무효다.
+_KST = timezone(timedelta(hours=9))
+
+
+def _valid_cell(lot: dict[str, Any]) -> bool:
+    total, available = lot.get("total_spaces"), lot.get("available_spaces")
+    return (
+        type(total) is int and type(available) is int and total > 0 and 0 <= available <= total
+    )
+
+
+@lru_cache(maxsize=1)
+def patterned_fixture() -> ParkingFixture:
+    base = fixture_56d()
+    rng = random.Random(202609281)
+    rows: list[dict[str, Any]] = []
+    edge_row: dict[str, Any] | None = None
+    for row in base.rows:
+        local = _ts(row["observed_at"]).astimezone(_KST)
+        hour = local.hour + local.minute / 60.0
+        occupancy = 0.2 + 0.6 * max(0.0, math.cos((hour - 14.0) / 10.0 * math.pi))
+        occupancy += 0.1 if local.weekday() >= 5 else 0.0
+        lots = []
+        for lot in row["area_demand_snapshot_lots"]:
+            lot = dict(lot)
+            if _valid_cell(lot):
+                share = min(1.0, max(0.0, occupancy + rng.uniform(-0.04, 0.04)))
+                lot["available_spaces"] = round(lot["total_spaces"] * (1.0 - share))
+            lots.append(lot)
+        new_row = {**row, "area_demand_snapshot_lots": lots}
+        rows.append(new_row)
+        if row is base.edge_row:
+            edge_row = new_row
+    assert edge_row is not None
+    parents: list[dict[str, Any]] = []
+    flat_lots: list[dict[str, Any]] = []
+    for index, row in enumerate(rows):
+        snapshot_id = f"s{index}"
+        parents.append({"id": snapshot_id, "observed_at": row["observed_at"], "bucket_at": row["bucket_at"]})
+        for lot in row["area_demand_snapshot_lots"]:
+            flat_lots.append({"snapshot_id": snapshot_id, **lot})
+    return ParkingFixture(tuple(rows), tuple(parents), tuple(flat_lots), edge_row)
+
+
+class _SinceRpcClient:
+    """``supabase_admin.rpc('area_demand_points_near', params).execute()`` 대역 — 운영 RPC 를 흉내 낸다(스펙 §8).
+
+    · 부모를 ``observed_at >= p_since`` 로 **먼저** 거른 뒤 ``_sql_payload_pg`` 로 응답을 만든다(RPC 의 창과 같다).
+    · 주차장은 열 순서((source_lot_id, 위도, 경도) — 안정 정렬)로 합산한다(운영 실측 순서와 같다).
+    · 받은 ``p_since`` 를 전부 적어 둔다 — 시험이 (now − 56일).astimezone(UTC).isoformat() 과 같은지 본다.
+    · before_execute(params): 응답 직전에 부른다(막아 두기·실패 주입).
+    """
+
+    def __init__(self, parents: Any, lots: Any, *, before_execute: Callable[[dict], None] | None = None) -> None:
+        self.parents = tuple(parents)
+        self.lots = sorted(
+            lots, key=lambda lot: (str(lot["source_lot_id"]), float(lot["latitude"]), float(lot["longitude"]))
+        )
+        self.before_execute = before_execute
+        self.calls: list[dict[str, Any]] = []
+        self._lock = threading.Lock()
+
+    @property
+    def since_seen(self) -> list[str]:
+        return [call["p_since"] for call in self.calls]
+
+    def rpc(self, name: str, params: dict[str, Any]):
+        assert name == "area_demand_points_near", name
+        with self._lock:
+            self.calls.append(dict(params))
+        client = self
+
+        class _Query:
+            def execute(self):
+                if client.before_execute is not None:
+                    client.before_execute(params)
+                since = _ts(params["p_since"])
+                parents = [parent for parent in client.parents if _ts(parent["observed_at"]) >= since]
+                return SimpleNamespace(data=_sql_payload_pg(
+                    parents, client.lots, params["p_latitude"], params["p_longitude"], params["p_radius_m"],
+                ))
+
+        return _Query()
