@@ -48,6 +48,7 @@
 
 - [ ] **(P2a 가 main 에 들어간 뒤) Render `AREA_DEMAND_SOURCE=shadow`** → 24시간·재시작 1회 뒤 게이트와 go/no-go 측정 → `matrix`.
       순서·게이트·되돌림(`rpc`, 재시작 1~2분)·볼 것은 [`API_ARCHITECTURE_PLAN.md`](./API_ARCHITECTURE_PLAN.md) "P2a 전환 절차". 반영 전에는 할 일 없음.
+- [ ] **(P3 배치 A 가 main 에 들어간 뒤) `/api/v1/warmup` 한 번** — memo 는 부팅 사전 스냅이 없어 첫 예열 전까지는 오늘과 같은 속도다. Render 로그 `walking_graph_presnap` 확인. 되돌림 env `WALKING_ROUTE_KERNEL=legacy`(재시작) — 아래 2026-09-28e.
 - [ ] **공공 API 키 회전** — `TOURAPI_KEY`·`KMA_API_KEY`·`PARKING_API_KEY`·`GYEONGJU_FOOD_API_KEY`. httpx INFO 로그가 쿼리스트링째 전체 URL을 남겨 Render 로그 이력에 키가 있을 수 있다(09-28 `d9639c2` 로 차단). 새 키 발급 → Render·GitHub Secrets 갱신.
 - [ ] Render `nextspot-api` 환경변수 `SUPABASE_SERVICE_ROLE_KEY` 끝의 줄바꿈 지우기(09-27 발견 — 코드가 이미 걷으므로 급하지 않다. 저장하면 재배포된다).
 - [ ] **서울 수집이 0건이다 — 원인 확인**(2026-09-20 20:38 KST 기준 `seoul_citydata_snapshots` 0행).
@@ -193,6 +194,19 @@ from checks order by seq;
 
 최신이 위. 10개를 넘으면 가장 오래된 항목을 `archive/HANDOVER_LOG.md` 맨 위로 옮긴다.
 
+## 2026-09-28e — API 재설계 P3 배치 A: 보행 목적지 스냅 기억 · 시설 조회 왕복·복사 줄이기 (main 미반영)
+
+- 도구·브랜치: Claude Code(검증된 P3 명세 → 커밋별 구현 · 10ea2d4 원문과 동등성 대조) / `perf/p3a-0929`(10ea2d4 = release/0928 위, 미푸시)
+- 커밋: 4ab6eb7..(이 기록) (6건). 순서는 스냅 기억 → 사각형 먼저 복사 → prior 스레드 → 타임세일 한 번 → 영업 근거 한 번. 기존 테스트 계약을 바꾼 마지막 두 건은 끝에 두어 따로 뺄 수 있다(각각 `git revert` 가능).
+- 한 것: 보행 목적지 스냅을 그래프 객체에 기억 + 예열(`/warmup`) 때 시설 전체 사전 스냅(스위치 `WALKING_ROUTE_KERNEL` 기본 `memo`, `legacy` = 되돌림) ·
+  `fetch_all_facilities` 가 사각형으로 먼저 좁히고 남은 행만 깊은 복사 · 관광 prior 붙이기를 스레드로 · 타임세일(조각 둘 이상) 한 번 조회 · 영업 근거(조각 둘 이상) 한 번 조회.
+  손님이 받는 답은 같다. 공개된 차이는 영업 근거 둘(같은 마이크로초 동률은 id 순, 실패하면 그 호출의 근거가 통째로 빈다 — PM 수락).
+- 검증: api ruff + pytest 2071 passed · OpenAPI 스냅샷·score.py 10ea2d4 와 동일 · check-docs · 10ea2d4 원문 대조 불일치 0(경로 실제 시설 1,682곳 × 출발 50곳 = 84,100쌍 ·
+  시설 사각형 50개(실제 1,682행) · 타임세일 45가지 · 영업 근거 35가지 · prior 실제 1,682행). 기존 테스트 변경: 타임세일 조각 테스트는 단언 그대로 캡 폴백 경로를 타게 픽스처만,
+  영업 근거 조각 테스트 둘은 새 계약으로(조각 크기 → 'URL 에 id 없음', 한 조각 실패 → 통째로 빈다).
+- 다음·미결: 배치 B(csr 커널 + 커밋된 바이너리, 부팅 사전 스냅 — `main.py` 훅은 이미 있고 csr 전까지 꺼져 있다)는 09-30 18:00 KST 까지 증명될 때만. 서명 전 Render 모양(0.5 CPU/512MB) 컨테이너에서 by-type·추천 콜드/웜 재측정(명세 §8).
+- 사람 작업: main 반영 뒤 `/api/v1/warmup` 한 번 → Render 로그 `walking_graph_presnap`·`warmup_run_done` 확인, `merchant_boost_timesale_fetch_failed`·`availability_evidence_unavailable` 이 늘지 않는지. 되돌림은 env `WALKING_ROUTE_KERNEL=legacy`(재시작) 또는 커밋별 `git revert`.
+
 ## 2026-09-28d — API 재설계 P2a: 권역 수요 전망을 메모리 주차 이력 행렬로 (스위치 꺼진 채 — rpc)
 
 - 도구·브랜치: Claude Code(명세 → 레드팀 3렌즈 → 수정 → 단계별 구현 워크플로, 단계마다 시험·변이 검사) / `perf/parking-history`(367514c 위로 rebase — 앱 코드는 rebase 전과 바이트 동일, 미푸시)
@@ -320,48 +334,6 @@ from checks order by seq;
 - 다음·미결: 배포 후 Render Metrics 에서 관제 대시보드를 한 번 열어 RSS 가 되돌아오는지, 로그에 `admin_trust_slim_select_failed`
   가 없는지 확인. 예열(GitHub Actions `warmup.yml`)이 남기는 캐시 상한은 `0408bd7` 이 맡는다.
 - 사람 작업: Render 대시보드에서 배포 커밋이 `09edacb`+ 인지, `MALLOC_ARENA_MAX=2` 가 이미지 env 로 들어갔는지(Dockerfile) 확인.
-
-## 2026-09-21c — 통합: yunseong 데모 콘솔·비교 헤더·데이터 절 + 심사용 계정 안내 → main 승격 준비
-
-- 도구·브랜치: Claude Code(통합 병합 · 6렌즈 리뷰 워크플로 + 3렌즈 검증 워크플로 · 게이트 전체) / `feature/judge-demo-integration`
-  = `feature/judge-account-hint`(`9ec3894`·`73849a7`) + `origin/yunseong`(`c8c1b5f`…`71cfc38`, 4커밋) → main.
-- 커밋: `fafdd06`(병합 + 통합 수정) → 리뷰 반영 커밋(해시는 git log) + 이 기록.
-- 한 것: 두 갈래가 관문 화면과 4로케일 JSON 끝 블록에서 충돌(5파일) — import 두 줄 모두 유지, JSON 은 키 단위 3-way
-  병합(양쪽 변경 충돌 0). yunseong 이 가져온 것: `?demo=1` 읽기 전용 상인 콘솔·관제 대시보드(고정값, 서버 호출 없음),
-  추천 카드 "A 혼잡 → 대신 B" 비교 헤더와 반응하는 컨트롤, 소개 '데이터' 절(공사 API 를 어디에 썼는지 표), 대기 보드 대기 시간,
-  마이 성과 숫자, 브랜드 404. 통합 수정: 소개 e2e 가 '데이터' 접힘(`data-data-fold`)을 '계획'과 같은 단일 예외로 허용
-  (yunseong CI 의 service-guide 실패 원인) · 호출이 사라진 `guide.roleRequired·merchantCta·adminCta` 4로케일 삭제 ·
-  yunseong CI 의 api 실패(`test_warmup_recovers_when_the_task_cannot_be_scheduled`)는 main 의 warmup 수정이 빠진 옛 기준
-  때문이라 병합 후 통과.
-  **6렌즈 리뷰(54 에이전트) + 4 에이전트 수정 반영:** ① 데모 플래그가 `/admin/*` 전 경로의 게이트를 껐다 → `/admin/dashboard`
-  한 화면에만, 경로 바뀔 때 재판정, `/admin` 리다이렉트가 쿼리 보존 ② 소개에는 심사 계정 이메일 대신 두 관문 링크
-  (`/merchant`·`/admin/login`) — 계정 안내는 관문·로그인 화면이 맡는다 ③ 데모 화면에서 실제 로그인으로 가는 길
-  (`demo.realLogin`) + 관제 데모의 390px 대응(데모에서만 사이드바 숨김·반응형 그리드) + 상인 데모 뒤로가기 → 관문
-  ④ 마이페이지에 게스트·관광객용 '콘솔 미리보기' 카드(두 데모로) ⑤ 대기 보드: `CONGESTION_DATA.md` §2 대로 주차·관광 지수를
-  분(分)으로 바꾸지 않는다 — 대기 형태 근거(server·ranking·baseline·실측)만 분, 나머지는 주변 수요 등급, '대기 없음'은
-  server 근거만, 히어로 최단 대기에 추정 칩(`lib/waitEstimate.test.ts`·`areaDemandCurve.test.ts` 추가) ⑥ 추천 카드
-  비교 헤더·'수집 중' 패널을 `showCompare`(/main 만)로 게이팅, 재계산 비상 마감 3s→요청 타임아웃+2s(거짓 '같은 결과' 토스트
-  제거), 히트맵 주차 요청 실패 시 잠금 해제 ⑦ 문구: `wait.basis*`·`dataTab.screen*` 에서 내부 기제(가중치·엔진·검증값) 제거,
-  ja·zh 에 영어 그대로 들어온 약 80키 번역.
-  **2차 검증(3렌즈 리뷰 + 반박 검증, 21 에이전트, 확정 6건) 반영:** ⑧ 대기 보드 — 추정 0분은 히어로 '최단 대기'
-  후보에서 뺀다(`heroWaitCandidate`, 카드가 '여유'라고만 말하는 것과 같은 규칙) · 분이 없는 등급 카드의 '한산해지는
-  시각'은 권역 수요 곡선이 있을 때만(`showsCalmLine`; 내장 시간대 곡선만으로는 말하지 않는다) ⑨ 소개 안내문의 관문
-  링크를 문장 아래 줄로(문장과 한 줄로 이어 읽혔다) ⑩ 마이페이지 '콘솔 미리보기' 카드는 계정 판정이 끝난 뒤에만
-  ⑪ `/admin?demo=1` — 인덱스 리다이렉트가 데모 플래그를 통과(막으면 로그인으로 떨어졌다) ⑫ 마이 요약 카드 제목을
-  두 모드 '누적 임팩트'로 통일(aria·상세 화면과 같은 이름) ⑬ /main — 재계산 비상 마감을 테마 칩 요청(45s) 기준으로,
-  주차장 분기에서 예약된 토스트까지 걷기, 열지도 주차 잠금은 정리된 effect 가 풀지 않는다.
-  **⑭ 로그인 장애 실측(09-22 09:29~09:31 KST) 반영:** 심사 관리자 계정은 Supabase 로그인에 성공했는데(last_sign_in
-  00:29:39Z) 같은 시각 Render 인스턴스가 헬스체크 타임아웃으로 죽어 있어(Events: 9:31 failed → recovered; 앞선 24시간에
-  OOM 512MB 로 6회 재시작) `/account/me` 가 실패 → 관제 관문이 '로그인이 필요합니다'로 튕겼다. 서버에 닿지 못한 것은
-  세션 없음이 아니다: `lib/account.tsx` 가 `unreachable`(타임아웃·5xx)을 내보내고 자동 재시도를 1회 → 3회(2.5s·5s·8s)로,
-  `/admin/login`·`/merchant` 관문은 그때 '서버 연결을 확인하고 있어요 · 다시 시도'(`merchantGate.server*` 4로케일)를
-  보여 준다. 근본 원인(API 메모리)은 별도 브랜치 `fix/api-memory-512mb` 의 몫. 심사 상인 계정(openapi@naver.com)은
-  09-20 이후 로그인 기록이 없다 — 그 계정이 안 되면 Supabase 가 비밀번호 단계에서 거절한 것이라 시드 재실행
-  (`JUDGE_ACCOUNT_PASSWORD`)으로 맞춘다(실 DB 쓰기 — 사람 확인 후).
-- 검증: web `lint`(0 에러·155 경고, 전부 기존) · `typecheck` · `test`(54 파일, i18n 키 패리티 포함) · `build`(정적 export) · e2e 44 통과(390px·4로케일) · api `ruff`+`pytest` 1606 통과(병합 직후; 이후 api 무변경) · 스키마 parity(`build_reset.mjs`) · `check-docs` · 390px 스크린샷 ko(라이트)/en(다크): 로그인·`?next=` 로그인·상인 관문·관제 로그인·소개·두 데모·마이페이지 '콘솔 미리보기' 카드. 리뷰 2회: 6렌즈 54 에이전트 → 4 에이전트 수정 → 3렌즈 21 에이전트 반박 검증(확정 6·반박 4·저위험 4).
-- 다음·미결: 팀원 브랜치 `yunseong` 은 이 병합으로 main 에 들어가므로 이후 작업은 main 을 다시 당겨 시작한다. 리뷰에서 반박된 항목(권역 곡선 밖 시각의 전망 무시 · 업종 기준선 대기의 표기 · 상인 데모 헤더의 같은 목적지 두 컨트롤 · 관제 로그인의 한국어 고정 문구)은 이 변경 이전부터 있던 동작이라 손대지 않았다. 남은 것: 실제 관제 콘솔(데모 아닌 화면)의 390px 레이아웃 없음 · /saved 의 '수집 중' 배지 고정 · 소개를 열 때마다 신선도 조회 · 마이페이지 프로필 블록의 한국어 고정 문구('AI 취향 프로필'·'추천 엔진이 이해한…' — 4로케일 미적용, en 화면에서 그대로 보인다) · /mypage/impact 예시 값이 요약 카드와 별도 상수.
-- 사람 작업: `git push origin feature/judge-demo-integration:main`(fast-forward). 배포 후 시크릿 창에서 데모 두 화면
-  (`/merchant?demo=1`·`/admin/dashboard?demo=1`)과 두 계정 로그인 확인. 운영사무국에 추가 계정 통보.
 
 ## 기록 규칙
 
