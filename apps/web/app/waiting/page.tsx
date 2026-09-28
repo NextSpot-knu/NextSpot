@@ -862,8 +862,10 @@ export default function WaitingBoardPage() {
                         />
                         <div className="flex flex-1 min-h-0 flex-col justify-between p-2">
                           {/* 위 소개 블록은 공간이 모자라면 깔끔히 잘리고(overflow-hidden), 아래 대기
-                              스탯 블록은 shrink-0 으로 항상 온전히 남는다 — 카드의 주인공은 '도착 시 대기'다. */}
-                          <div className="min-h-0 overflow-hidden">
+                              스탯 블록은 shrink-0 으로 항상 온전히 남는다 — 카드의 주인공은 '도착 시 대기'다.
+                              단 이름 한 줄(16.5px = text-xs × leading-snug)은 남긴다: 영어·일본어는 스탯이 두 줄씩
+                              접혀 이름이 0 까지 눌렸다. 그때는 맨 아래 근거 주석 줄이 카드 가장자리에서 잘린다. */}
+                          <div className="min-h-[16.5px] overflow-hidden">
                             <p className="text-xs font-bold text-muk leading-snug line-clamp-2">
                               {row.name}
                             </p>
