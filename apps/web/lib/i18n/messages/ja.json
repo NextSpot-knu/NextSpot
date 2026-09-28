@@ -709,7 +709,7 @@
     "emptyBody": "条件を少し広げると、より多くの場所をご案内できます。",
     "fetchError": "しばらくしてからもう一度読み込みます。",
     "subtitle": "到着時にどれくらい待つか、出発前に比較しましょう",
-    "dataAttribution": "場所情報・写真 出典: ⓒ韓国観光公社 TourAPI"
+    "dataAttribution": "場所情報・写真 出典: ⓒ韓国観光公社 TourAPI（個別に出典を記した写真を除く）"
   },
   "golden": {
     "badge": "本日の閑散: {start}〜{end}時",
@@ -884,7 +884,7 @@
     "nlSummaryCatsOnly": "{cats} の中から探します",
     "nlNotApplied": "好みを聞き取れず反映しませんでした — もう少し具体的にお伝えください",
     "nlSaveFailed": "好みは理解しましたが保存できませんでした — しばらくしてからお試しください",
-    "dataAttribution": "場所情報・写真 出典: ⓒ韓国観光公社 TourAPI"
+    "dataAttribution": "場所情報・写真 出典: ⓒ韓国観光公社 TourAPI（個別に出典を記した写真を除く）"
   },
   "auth": {
     "callbackLoading": "ログイン処理中です…",
