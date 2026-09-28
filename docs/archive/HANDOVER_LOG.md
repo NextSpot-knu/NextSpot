@@ -1,4 +1,26 @@
 # HANDOVER 로그 (2026-06-30 ~ 2026-08-28) 
+## 2026-09-21b — 심사용 계정 안내: 로그인 화면과 두 콘솔 관문
+
+- 도구·브랜치: claude.ai 세션(패치 초안) → Claude Code(워크트리 적용 · 7렌즈 리뷰 워크플로 + Codex 교차 리뷰 · 검증 · 푸시) /
+  `feature/judge-account-hint` → main.
+- 커밋: `9ec3894` (기능 1건) + 이 기록.
+- 한 것: 제출 양식은 테스트 계정 도메인을 **하나만** 받는데 콘솔 계정은 둘이라(사장님 `openapi@naver.com`, 관제
+  `openapi@gmail.com`), 폼에 못 적은 쪽 콘솔은 심사위원이 들어올 방법이 없었다. `JudgeAccountHint`를 `/login`
+  (`?next=`가 콘솔이면 그 계정만 + 이메일 자동 입력, 없으면 두 계정을 역할과 함께), `/admin/login` 두 상태, `/merchant` 관문에 붙였다.
+  `/merchant`는 게스트(익명)·관리자 계정에 버튼이 하나도 없던 막다른 길이라 로그인 버튼도 넣었다(이미 로그인된 계정에는 '다른 계정으로 로그인').
+  서비스 소개(`/guide`)에는 넣지 않았다 — 소개는 관광객 문구만 두기로 한 09-20 결정을 따랐고, 소개의 콘솔 버튼이 곧장 관문으로 보내
+  거기서 안내가 보인다(넣으려면 `GuideContent.tsx`에 `<JudgeAccountHint />` 한 줄, 문구 키는 이미 있다).
+  계정↔역할 정본은 `seed_judge_accounts.py`이고 `lib/judgeAccounts.test.ts`가 어긋남을 잡는다. 비밀번호는 화면·번들에 두지 않는다.
+  리뷰 반영: 라벨 위·주소 아래 2줄 배치(ja 라벨이 고정폭을 넘쳤다) · '입력' 버튼을 `dd` 안으로(HTML 내용 모델) ·
+  가입 탭으로 바꾸면 미리 넣은 심사 이메일을 비움 · `auth-flows.spec.ts`에 심사 계정 안내·자동 입력 케이스 추가.
+- 검증: web lint 0 errors · typecheck · test 52파일(i18n 4로케일 패리티) · Turbopack `next build` 정적 프리렌더 · check-docs ·
+  Playwright e2e 전체 43개 중 42 통과 + `voice-controls.spec.ts:99` 1회 실패 후 단독 재실행 통과(`/main` 음성 테스트, 이 변경과 무관) ·
+  리뷰 반영 뒤 `auth-flows.spec.ts` 재실행 · 390px 스크린샷 10장(ko·en × `/login` 3상태·`/merchant`·`/admin/login`)으로
+  계정·자동 입력·가로 스크롤 없음 확인.
+- 다음·미결: 공용 `/login`(`?next=` 없음)에 두 계정을 보이는 것은 심사 기간의 의도적 선택 — 심사 뒤 관광객 화면에서 빼려면
+  `app/login/page.tsx`의 힌트 렌더를 `judgeConsole &&`로 묶는다. 심사 계정의 시설 삭제·설정 변경 차단(관리자 API)은 하지 않았다.
+- 사람 작업: 배포 후 시크릿 창에서 두 계정 로그인 → `/merchant`·`/admin/dashboard` 열림 확인. 운영사무국에 추가 계정 통보.
+
 ## 2026-09-21 — 제출일 전면 스윕: 출처표기·관제 라이트 테마·상용 UI·심사 대비
 
 - 도구·브랜치: Claude Code(메인 + 병렬 서브에이전트 다수 + 워크플로 2회) + Codex 병행 / `feature/judge-guide` → main (`706353a`…`6a7d653`+).
