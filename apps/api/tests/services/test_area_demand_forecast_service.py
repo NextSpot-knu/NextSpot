@@ -1361,6 +1361,42 @@ def test_rpc_path_source_is_pinned():
     )
 
 
+# T31 이 고정한 함수들이 부르는 도우미 — rpc 경로의 값·캐시가 이것들에도 달려 있다(행렬 경로·캐시 비우기가 _clamp ·
+# _aware · 인턴 표를 함께 쓴다). 해시는 production main(3cf5bf9)의 같은 정의(정의 첫 줄부터 끝까지)와 같다.
+_PINNED_RPC_HELPERS = {
+    "_grid_key": "16ffa51ae328905dff44569a1d82f7693e605b31b95a17b2ac98b3d09f5928a7",
+    "_series_index_for": "470b193c0bc6642a9fc2a938f1e9c829c66658ec77d18e44471205d7ff11a3bd",
+    "_points_cache_get": "3d96709a6b65e3b06704d739338040b5d0d74713fc5ddc4196ef6d1d99a6c217",
+    "_points_cache_put": "acca84539c4a48462b606f5e0147e351ed674e7eea285422071ffc2e5c5c7828",
+    "_intern_datetime": "9681224736065de3451a1f142afd3ea59807e5412c37cd16226685f87d549736",
+    "_intern_level": "e3b8a924bd2f18648187e3c81925c9ee13e7c0af4d238c1066447a01316b3619",
+    "_clamp": "739cf9a1c37010f75a3a679cc772b13751f899878c1303782dc231c1e8345cdb",
+    "_aware": "9b4c0dec6deabb604f5f41aa8fdef4caa1f41f7c9110273f1a36e947c3b3e8eb",
+    "_is_missing_points_rpc": "ca2d318ad2ffa08cc04a7c590ba56aa1cfbbd978b19121187f1409342354d65f",
+}
+
+
+def _definition_hash(obj) -> str:
+    # _source_hash(…, "all") 과 같은 식 — 그쪽은 본문 두 번째 문장을 미리 찾아 한 줄짜리 함수에서 멈춘다.
+    source = inspect.getsource(obj)
+    node = ast.parse(source).body[0]
+    text = "\n".join(source.splitlines()[node.lineno - 1:node.end_lineno])
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def test_rpc_path_helpers_are_pinned():
+    changed = [name for name, digest in _PINNED_RPC_HELPERS.items()
+               if _definition_hash(getattr(forecast_svc, name)) != digest]
+    assert not changed, f"RPC 경로가 부르는 도우미가 바뀌었다(P2b 전에는 PM 승인 없이 바꾸지 않는다): {changed}"
+    # 모듈 수준에서 한 번만 정의된다(뒤에서 같은 이름으로 덮어쓰면 getsource 는 옛 정의를 볼 수도 있다).
+    tree = ast.parse(inspect.getsource(forecast_svc))
+    defined = [node.name for node in tree.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))]
+    assigned = [target.id for node in tree.body if isinstance(node, ast.Assign)
+                for target in node.targets if isinstance(target, ast.Name)]
+    for name in _PINNED_RPC_HELPERS:
+        assert defined.count(name) == 1 and name not in assigned, name
+
+
 # ── T32 ──────────────────────────────────────────────────────────────────────
 
 
