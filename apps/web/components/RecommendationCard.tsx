@@ -1334,6 +1334,25 @@ export function RecommendationCard({
           >
             <div className="border-t border-line pt-3.5 space-y-3 text-xs text-muk-soft">
 
+          {/* 대표 사진(TourAPI firstimage→갤러리 폴백) — 실제 이미지가 있을 때만. 전부 로드 실패 시 숨겨 깨진 이미지를 노출하지 않는다.
+              상세의 맨 위에 둔다: 아래 'ⓒ한국관광공사 TourAPI' 표시가 사진 위에 얹히면 Wikimedia(CC) 사진에
+              공사 저작권 표시가 붙은 것처럼 읽힌다. 사진의 출처는 사진 바로 아래 줄(Wikimedia 일 때만)이 말한다. */}
+          {cardImageUrl && (
+            <div>
+              {/* TourAPI 이미지 원본은 도메인이 다양해 next/image 최적화 대상이 아님(정적 export) — img 사용 */}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                key={cardImageUrl} /* URL 마다 새 엘리먼트 — 직전 시설 이미지의 늦은 onError 가 새 카드의 인덱스를 밀어올리지 않게 */
+                src={cardImageUrl}
+                alt={title}
+                loading="lazy"
+                onError={() => setCardImageIndex((current) => current + 1)}
+                className="block w-full h-32 object-cover rounded-2xl border border-line"
+              />
+              {cardImageCredit && <PhotoCreditLink credit={cardImageCredit} className="mt-1" />}
+            </div>
+          )}
+
           {/* 실시간 정보 새로고침 — TourAPI(detailCommon2/Intro2) 라이브 조회로 아래 표시값(운영시간·개요·
               홈페이지·사진·전화)을 덧씌운다. contentid/contenttypeid 가 있는 TourAPI 적재분에만 노출하고,
               실패/미조회는 캐시된 값을 그대로 유지한다(에러 UI 없음 — 무해 폴백). */}
@@ -1348,27 +1367,12 @@ export function RecommendationCard({
                 <RefreshCw size={12} className={liveLoading ? 'animate-spin' : ''} aria-hidden />
                 {t('card.liveRefresh')}
               </button>
-              {/* 사진·개요·운영시간의 데이터 출처는 라이브 조회 전에도 표시한다. */}
+              {/* 개요·운영시간·전화의 데이터 출처는 라이브 조회 전에도 표시한다(사진 아래·본문 위 자리). */}
               <span className="rounded-full border border-jade/30 bg-jade/10 px-2 py-0.5 text-[10px] font-bold text-jade">
                 {liveDetail ? t('card.liveSource') : t('guide.sourceTour')}
               </span>
             </div>
           )}
-
-          {/* 대표 사진(TourAPI firstimage→갤러리 폴백) — 실제 이미지가 있을 때만. 전부 로드 실패 시 숨겨 깨진 이미지를 노출하지 않는다. */}
-          {cardImageUrl && (
-            /* TourAPI 이미지 원본은 도메인이 다양해 next/image 최적화 대상이 아님(정적 export) — img 사용 */
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              key={cardImageUrl} /* URL 마다 새 엘리먼트 — 직전 시설 이미지의 늦은 onError 가 새 카드의 인덱스를 밀어올리지 않게 */
-              src={cardImageUrl}
-              alt={title}
-              loading="lazy"
-              onError={() => setCardImageIndex((current) => current + 1)}
-              className="w-full h-32 object-cover rounded-2xl border border-line"
-            />
-          )}
-          {cardImageUrl && cardImageCredit && <PhotoCreditLink credit={cardImageCredit} className="-mt-2" />}
 
           {/* AI 추천 사유 (백엔드 템플릿, 있을 때만) */}
           {reason && (

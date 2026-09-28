@@ -48,6 +48,9 @@ type FacilityFixture = {
   image_url: string | null;
   gallery_images: string[] | null;
   features: Record<string, unknown>;
+  // TourAPI 적재분 식별자 — 있으면 상세에 '실시간 정보 새로고침' 과 ⓒ한국관광공사 TourAPI 표시가 뜬다.
+  contentid?: string;
+  contenttypeid?: number;
 };
 
 function facilityRow(f: FacilityFixture, index: number) {
@@ -206,4 +209,39 @@ test('waiting board: the credit follows the photo each card actually shows', asy
   await expect.poll(
     () => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth),
   ).toBeLessThanOrEqual(1);
+});
+
+test('main card: the ⓒ TourAPI chip never sits on top of a Wikimedia photo', async ({ page }) => {
+  test.setTimeout(90_000);
+  // TourAPI 적재 관광지(contentid 있음)인데 사진은 적재 배치가 넣은 Wikimedia 대체 사진뿐인 경우.
+  await mockFacilities(page, [{
+    id: 'wiki-tourapi', name: '분황사 쉼터', type: 'restaurant',
+    contentid: '126207', contenttypeid: 12,
+    image_url: null, gallery_images: [WIKI_PHOTO],
+    features: { image_source: credit('Bunhwangsa.jpg', 'Commons Photographer') },
+  }]);
+  await page.goto('/main');
+  await expect(page.getByText('분황사 쉼터').first()).toBeVisible({ timeout: 20_000 });
+  await page.getByRole('button', { name: '상세 정보 펼치기' }).click();
+
+  const photo = page.locator(`img[src="${WIKI_PHOTO}"]`);
+  await photo.scrollIntoViewIfNeeded();
+  await expect(photo).toBeVisible();
+  const link = page.locator(CREDIT_LINK);
+  await expect(link).toBeVisible();
+  const refresh = page.getByRole('button', { name: '실시간 정보 새로고침' });
+  await expect(refresh).toBeVisible();
+  const chip = refresh.locator('xpath=following-sibling::span');
+  await expect(chip).toHaveText('ⓒ한국관광공사 TourAPI');
+
+  // 읽는 순서와 보이는 순서 모두: 사진 → 사진의 출처 → ⓒ TourAPI 표시(개요·운영시간 쪽).
+  const chipFollowsCredit = await link.evaluate(
+    (a, chipEl) => Boolean(a.compareDocumentPosition(chipEl as Node) & Node.DOCUMENT_POSITION_FOLLOWING),
+    await chip.elementHandle(),
+  );
+  expect(chipFollowsCredit).toBe(true);
+  const [photoBox, linkBox, chipBox] = await Promise.all([photo.boundingBox(), link.boundingBox(), chip.boundingBox()]);
+  expect(photoBox && linkBox && chipBox).toBeTruthy();
+  expect(chipBox!.y).toBeGreaterThanOrEqual(photoBox!.y + photoBox!.height);
+  expect(chipBox!.y).toBeGreaterThanOrEqual(linkBox!.y + linkBox!.height);
 });
