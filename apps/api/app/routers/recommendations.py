@@ -237,7 +237,10 @@ async def _fetch_all_facilities_uncached(
             .select("tourist_attraction_name,concentration_rate,forecast_date")
             .eq("forecast_date", today).execute()
         )
-        _attach_tourism_area_priors(facilities, forecast_res.data or [])
+        # 붙이기(1,682곳 × 앵커 거리 계산, 데스크톱 ~54ms · Render ~0.2-0.4초)는 스레드에서 한다 — 180초마다의
+        # 재적재가 그동안 이벤트 루프(/health 포함)를 멈추지 않게. 이 행들은 방금 적재한 것이고 캐시는 _load()
+        # 가 돌아온 뒤에야 저장하므로, 스레드가 도는 동안 다른 코루틴이 이 행들을 볼 수 없다.
+        await asyncio.to_thread(_attach_tourism_area_priors, facilities, forecast_res.data or [])
     except Exception as e:
         logger.warning("tourapi_concentration_prior_unavailable", error=str(e))
     return facilities
