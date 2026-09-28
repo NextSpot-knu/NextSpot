@@ -146,6 +146,10 @@ async function main() {
       /is_active\s*!==?\s*false\s*&&|&&\s*\w+\.is_active\s*!==?\s*false|\.filter\([^)]*is_active/,
       '장소 관리 표가 비활성 시설을 화면에서 걸러낸다(crit8)',
     );
+    // 위 정규식은 `(f) => f.is_active` 같은 괄호 화살표 필터를 놓친다 — 표가 is_active 를 읽는 곳은
+    // '상태' 칸 배지 한 군데뿐이어야 한다(어떤 모양의 거름도 두 번째 읽기가 된다).
+    assert.deepEqual(tableCode.match(/\bis_active\b/g), ['is_active'], '장소 관리 표가 배지 밖에서 is_active 를 읽는다(crit8)');
+    assert.match(tableCode, /fac\.is_active === false \?/, '상태 칸이 비활성 배지를 그리지 않는다');
   }
 
   console.log('admin facility list tests passed');
