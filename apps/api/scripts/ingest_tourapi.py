@@ -213,6 +213,27 @@ async def enrich_row(row: dict) -> None:
             print(f"[details] Wikimedia 이미지 폴백 실패 (contentid={contentid}): {e}")
 
 
+def _uniform_key_chunks(rows: list[dict]) -> list[list[dict]]:
+    """rows 를 키 집합이 같은 행끼리 묶은 뒤 UPSERT_CHUNK 이하 조각으로 나눈다.
+
+    왜: postgrest-py(2.31 확인)의 bulk upsert·insert 는 `columns=` 를 **조각 안 모든 행의 키 합집합**으로
+    보내고(default_to_null=True), PostgREST 는 그 열 가운데 행에 없는 값을 NULL 로 채워 쓴다. 그래서
+    상세 조회가 실패해 overview 가 없는 행이 overview 가 있는 행과 같은 조각에 들어가면 overview=NULL 로
+    덮인다(phone·homepage·operating_hours·barrier_free·gallery_images 도 같다). 키 집합이 같은 행끼리만
+    보내면 합집합이 곧 각 행의 키라 빈칸 채우기가 생기지 않는다 — 행에 없는 열은 요청에 아예 없다.
+
+    묶음은 처음 나온 순서, 묶음 안은 입력 순서 그대로다. 조각 크기는 호출 시점의 UPSERT_CHUNK.
+    """
+    groups: dict[frozenset, list[dict]] = {}
+    for row in rows:
+        groups.setdefault(frozenset(row), []).append(row)
+    return [
+        group[i:i + UPSERT_CHUNK]
+        for group in groups.values()
+        for i in range(0, len(group), UPSERT_CHUNK)
+    ]
+
+
 def upsert_facilities(rows: list[dict]) -> int:
     """facilities 에 contentid 기준 upsert. 성공 행 수를 반환.
 
@@ -255,8 +276,8 @@ def upsert_facilities(rows: list[dict]) -> int:
 
     written = 0
     try:
-        for i in range(0, len(rows), UPSERT_CHUNK):
-            chunk = rows[i:i + UPSERT_CHUNK]
+        # 조각마다 키 집합이 같아야 한다 — 섞이면 없는 키가 NULL 로 덮인다(_uniform_key_chunks).
+        for chunk in _uniform_key_chunks(rows):
             supabase_admin.table("facilities").upsert(chunk, on_conflict="contentid").execute()
             written += len(chunk)
         return written
@@ -271,8 +292,8 @@ def upsert_facilities(rows: list[dict]) -> int:
     new_rows = [r for r in rows if r["contentid"] not in existing_ids]
     update_rows = [r for r in rows if r["contentid"] in existing_ids]
 
-    for i in range(0, len(new_rows), UPSERT_CHUNK):
-        chunk = new_rows[i:i + UPSERT_CHUNK]
+    # bulk insert 도 columns= 합집합을 보낸다 — 신규 행이라도 없는 키가 열 기본값 대신 NULL 이 된다.
+    for chunk in _uniform_key_chunks(new_rows):
         try:
             supabase_admin.table("facilities").insert(chunk).execute()
             written += len(chunk)
