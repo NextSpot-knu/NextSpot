@@ -78,6 +78,10 @@ for (const [locale, width] of CASES) {
       expect(visible, `${name}: 보이는 이름 높이`).toBeGreaterThanOrEqual(line - 0.5);
     }
 
+    // 웹 글꼴이 도착해 줄바꿈이 끝난 뒤 한 프레임을 넘겨 잰다 — 관광객이 보는 자리 잡힌 화면.
+    await page.evaluate(() => document.fonts.ready.then(() => new Promise<void>((resolve) => {
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+    })));
     // 카드 = [사진, 본문[글 블록, 대기 스탯[대기 숫자, …, 근거 주석]]].
     const report = await cards.evaluateAll((buttons) => buttons.map((button) => {
       const card = button.getBoundingClientRect();

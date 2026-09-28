@@ -204,9 +204,17 @@ function CardIntro({ name, menus, summary }: { name: string; menus: string[]; su
       });
     };
     fit();
+    // 블록(카드 폭·스탯 높이)뿐 아니라 각 줄 묶음도 지켜본다 — 웹 글꼴이 늦게 도착해 줄바꿈이 바뀌면 블록 크기는
+    // 그대로인데 메뉴가 한 줄에서 두 줄로 늘어 블록 밖으로 반쯤 나갔다. fit 은 같은 입력에 같은 결과라 되돌이가 없다.
     const observer = new ResizeObserver(fit);
     observer.observe(block);
-    return () => observer.disconnect();
+    for (const child of Array.from(block.children)) observer.observe(child);
+    let alive = true;
+    void document.fonts?.ready.then(() => { if (alive) fit(); });
+    return () => {
+      alive = false;
+      observer.disconnect();
+    };
   }, [name, menuText, summary]);
 
   return (
