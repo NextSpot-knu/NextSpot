@@ -478,6 +478,105 @@ async def test_stale_wikimedia_credit_is_removed_when_tourapi_supplies_a_photo(d
 
 
 # ---------------------------------------------------------------------------
+# Wikimedia 사진과 그 출처는 함께 남고 함께 사라진다 (PM 규칙 2026-09-28: CC BY/BY-SA 사진은 출처 없이
+# 저장·표시되지 않는다). 웹은 [image_url, ...gallery_images] 를 차례로 시도해 대표 사진이 깨지면 갤러리의
+# Wikimedia 사진을 띄운다 — 출처만 지우고 Wikimedia 갤러리를 남기면 그 사진이 출처 없이 뜬다.
+# ---------------------------------------------------------------------------
+
+_WIKIMEDIA_GALLERY = ["https://upload.example/wikimedia.jpg"]
+
+
+def _wikimedia_existing(*contentids: str) -> list[dict]:
+    return [{"contentid": c, "features": {"source": "tourapi", "image_source": dict(_WIKIMEDIA_CREDIT)}}
+            for c in contentids]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("upsert_error", [None, _NO_CONFLICT_TARGET], ids=["bulk_upsert", "fallback_42P10"])
+@pytest.mark.parametrize("gallery_reply", ["failed", "zero_items"])
+async def test_tourapi_main_photo_without_gallery_drops_wikimedia_photo_and_credit_together(
+        details, upsert_error, gallery_reply):
+    # 예전 밤의 Wikimedia 대체 사진(갤러리) + 출처가 DB 에 있다. 오늘 목록 firstimage 가 생겼지만 detailImage2 는
+    # 실패했거나(failed) 항목 0개로 답했다(zero_items) — 오늘 TourAPI 갤러리가 없다.
+    row = _poi("11", firstimage="http://img.example/11.jpg")
+    if gallery_reply == "failed":
+        details.fail["11"] = {"image"}
+    else:
+        details.no_photo = {"11"}  # detailCommon2 대표 이미지도 없지만 목록 firstimage 가 이긴다
+    await ingest_tourapi.enrich_row(row)
+    assert details.wikimedia_calls == []
+
+    table = _FacilitiesTable(existing=_wikimedia_existing("11"), upsert_error=upsert_error)
+    assert _upsert([row], table) == 1
+
+    sent = _sent(table)["11"]
+    assert sent["image_url"] == "https://img.example/11.jpg"
+    assert "image_source" in sent["features"] and sent["features"]["image_source"] is None
+    assert sent["gallery_images"] == [], "출처를 지우면 Wikimedia 갤러리도 함께 비워야 출처 없는 사진이 안 뜬다"
+    assert sent["features"]["source"] == "tourapi"  # 다른 축적 키는 그대로 병합된다
+    _assert_uniform(table.bulk("upsert") + table.bulk("insert"))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("upsert_error", [None, _NO_CONFLICT_TARGET], ids=["bulk_upsert", "fallback_42P10"])
+async def test_tourapi_gallery_replaces_wikimedia_gallery_and_credit(details, upsert_error):
+    # "12": 대표 사진 없이 갤러리만, "13": 대표 사진 + 갤러리 — 둘 다 오늘 TourAPI 갤러리가 Wikimedia 갤러리를 대신한다.
+    details.no_main = {"12"}
+    rows = [_poi("12"), _poi("13", firstimage="http://img.example/13.jpg")]
+    for row in rows:
+        await ingest_tourapi.enrich_row(row)
+
+    table = _FacilitiesTable(existing=_wikimedia_existing("12", "13"), upsert_error=upsert_error)
+    assert _upsert(rows, table) == 2
+
+    sent = _sent(table)
+    for cid in ("12", "13"):
+        assert sent[cid]["gallery_images"] == ["https://img.example/g1.jpg"]
+        assert "image_source" in sent[cid]["features"] and sent[cid]["features"]["image_source"] is None
+    _assert_uniform(table.bulk("upsert") + table.bulk("insert"))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("upsert_error", [None, _NO_CONFLICT_TARGET], ids=["bulk_upsert", "fallback_42P10"])
+async def test_no_tourapi_photo_this_run_keeps_wikimedia_photo_and_credit(details, upsert_error, monkeypatch):
+    # 오늘 TourAPI 사진을 하나도 얻지 못했다 — Wikimedia 사진도 출처도 건드리지 않는다(키를 보내지 않는다).
+    # "14": 두 사진 호출 모두 실패. "15": 두 호출 모두 답했고 사진 없음 + 오늘은 Wikimedia 검색도 빈손.
+    details.no_photo = {"14", "15"}
+    details.fail["14"] = {"common", "image"}
+
+    async def no_wikimedia(name, lat, lng):
+        return None
+
+    monkeypatch.setattr(ingest_tourapi, "find_reusable_place_image", no_wikimedia)
+    rows = [_poi("14"), _poi("15")]
+    for row in rows:
+        await ingest_tourapi.enrich_row(row)
+
+    table = _FacilitiesTable(existing=_wikimedia_existing("14", "15"), upsert_error=upsert_error)
+    assert _upsert(rows, table) == 2
+
+    sent = _sent(table)
+    for cid in ("14", "15"):
+        assert "gallery_images" not in sent[cid]
+        assert sent[cid]["features"]["image_source"] == _WIKIMEDIA_CREDIT
+    assert "image_url" not in sent["14"]
+
+
+@pytest.mark.parametrize("upsert_error", [None, _NO_CONFLICT_TARGET], ids=["bulk_upsert", "fallback_42P10"])
+def test_list_photo_without_details_run_also_retires_wikimedia_photo(upsert_error):
+    # --details 없이 돈 밤에도 목록 firstimage 는 TourAPI 대표 사진이다 — 같은 규칙으로 Wikimedia 를 걷어 낸다.
+    # 새 행(기존 features 없음)은 건드리지 않는다.
+    rows = [_poi("16", firstimage="http://img.example/16.jpg"), _poi("17", firstimage="http://img.example/17.jpg")]
+    table = _FacilitiesTable(existing=_wikimedia_existing("16"), upsert_error=upsert_error)
+    assert _upsert(rows, table) == 2
+
+    sent = _sent(table)
+    assert sent["16"]["gallery_images"] == [] and sent["16"]["features"]["image_source"] is None
+    assert "gallery_images" not in sent["17"] and "image_source" not in sent["17"]["features"]
+    _assert_uniform(table.bulk("upsert") + table.bulk("insert"))
+
+
+# ---------------------------------------------------------------------------
 # Kakao 로 검증된 좌표 — 이번 실행의 Kakao 매칭이 실패해도 TourAPI 원 좌표로 되돌리지 않는다(리뷰 #3)
 # ---------------------------------------------------------------------------
 

@@ -95,6 +95,8 @@ EXIT_TEMPFAIL = 75
 # 돌려줬고 목록 firstimage·상세 firstimage 가 모두 빈 값 — 항목 0개 응답은 확인이 아니다). _write_payload 는 이 표시가 있을 때만 image_url=None 을
 # 보내 DB 의 옛 사진을 지우고, 밑줄로 시작하는 키는 DB 로 보내지 않는다.
 IMAGE_CONFIRMED_ABSENT = "_image_confirmed_absent"
+# features.image_source 의 provider — 지금 이 출처를 쓰는 곳은 enrich_row 의 Wikimedia 대체 사진 하나뿐이다.
+WIKIMEDIA_PROVIDER = "Wikimedia Commons"
 
 
 async def _list_call_with_retry(label: str, call):
@@ -215,12 +217,8 @@ async def enrich_row(row: dict) -> None:
     except (TourAPIError, RuntimeError) as e:
         print(f"[details] detailImage2 실패 (contentid={contentid}): {e}")
 
-    # TourAPI 가 오늘 사진(대표 이미지 또는 갤러리)을 줬으면, 예전 밤에 Wikimedia 대체 사진과 함께 남은 출처
-    # (features.image_source)는 이 사진의 출처가 아니다. None 을 실어 보내 upsert_facilities 의 {**기존, **신규}
-    # 병합이 옛 출처를 덮게 한다(웹의 대기 보드는 null 을 없는 값과 똑같이 다뤄 출처 줄을 그리지 않는다).
-    # 사진 호출이 실패해 사진을 못 받은 날은 키를 넣지 않는다 — 기존 출처가 그대로 남는다.
-    if row.get("image_url") or row.get("gallery_images"):
-        row["features"] = {**row.get("features", {}), "image_source": None}
+    # 예전 밤의 Wikimedia 대체 사진·출처를 오늘 TourAPI 사진으로 걷어 내는 판정은 여기서 하지 않는다 — 기존
+    # features(옛 출처)를 아는 upsert_facilities 가 사진과 출처를 함께 지운다(_retire_superseded_wikimedia).
 
     # TourAPI 사진이 전혀 없는 관광지·문화시설만 보수적으로 Wikimedia 퍼블릭 도메인 폴백.
     # '사진이 없다'는 사진을 주는 두 호출(detailCommon2 대표 이미지 · detailImage2 갤러리)이 모두 답했을 때만
@@ -235,7 +233,7 @@ async def enrich_row(row: dict) -> None:
             if wikimedia:
                 row["gallery_images"] = [wikimedia["url"]]
                 row["features"] = {**row.get("features", {}), "image_source": {
-                    "provider": "Wikimedia Commons",
+                    "provider": WIKIMEDIA_PROVIDER,
                     "source_url": wikimedia["source_url"],
                     "license": wikimedia["license"],
                     "artist": wikimedia["artist"],
@@ -297,6 +295,38 @@ def _write_payload(row: dict, *, keep_coordinates: bool = False) -> dict:
     }
 
 
+def _is_wikimedia_credit(source) -> bool:
+    return isinstance(source, dict) and source.get("provider") == WIKIMEDIA_PROVIDER
+
+
+def _retire_superseded_wikimedia(row: dict, prev_features: dict) -> None:
+    """예전 밤의 Wikimedia 대체 사진과 그 출처를 **함께** 걷어 낸다 — 오늘 TourAPI 사진을 얻었을 때만(제자리 수정).
+
+    Wikimedia 대체 사진은 gallery_images 에만 들어가고 출처는 features.image_source 에 있다. 웹은
+    [image_url, ...gallery_images] 를 차례로 시도해 대표 사진이 깨지면 갤러리 사진을 띄우므로, 출처만 지우고
+    Wikimedia 갤러리를 남기면 CC BY/BY-SA 사진이 출처 없이 뜬다(PM 규칙 2026-09-28: 출처는 늘 보이는 사진과 맞는다).
+
+    - 옛 출처가 Wikimedia 가 아니면 할 일이 없다. 이번 행이 새 Wikimedia 대체 사진을 들고 왔으면(두 사진 호출이
+      '사진 없음'으로 답한 날) 갤러리와 출처가 이미 한 쌍으로 바뀐다.
+    - 오늘 TourAPI 대표 사진(image_url) 또는 비어 있지 않은 TourAPI 갤러리를 얻었으면 image_source=None 을 싣는다
+      ({**기존, **신규} 병합이 옛 출처를 덮는다 — 웹은 null 을 없는 값처럼 다룬다). TourAPI 갤러리가 없으면
+      gallery_images=[] 도 실어 출처 없는 Wikimedia 사진이 DB 에 남지 않게 한다.
+    - 오늘 TourAPI 사진을 하나도 얻지 못했으면(호출 실패·사진 없음) 아무것도 바꾸지 않는다 — 사진은 호출 실패로
+      지우지 않고, Wikimedia 사진과 출처는 그대로 한 쌍으로 남는다.
+    """
+    if not _is_wikimedia_credit(prev_features.get("image_source")):
+        return
+    own = row.get("features") or {}
+    if _is_wikimedia_credit(own.get("image_source")):
+        return
+    tourapi_gallery = bool(row.get("gallery_images"))
+    if not (row.get("image_url") or tourapi_gallery):
+        return
+    row["features"] = {**own, "image_source": None}
+    if not tourapi_gallery:
+        row["gallery_images"] = []
+
+
 def upsert_facilities(rows: list[dict]) -> int:
     """facilities 에 contentid 기준 upsert. 성공 행 수를 반환.
 
@@ -315,6 +345,7 @@ def upsert_facilities(rows: list[dict]) -> int:
     병합한다. 통째 교체하면 이 배치 밖에서 축적된 키 — overview_i18n(번역 배치), image_source
     (Wikimedia 라이선스) 등 — 가 일배치마다 소실된다(실측: 번역 67곳이 다음 cron 에 전멸할 뻔).
     transform/enrich 가 만드는 키는 신규 값이 이기고, 배치가 모르는 키는 보존된다.
+    병합 직전 _retire_superseded_wikimedia 가 오늘 TourAPI 사진이 대신한 옛 Wikimedia 사진·출처를 함께 걷어 낸다.
     """
     # DB 클라이언트는 여기서 지연 임포트 — --dry-run 경로에서 Supabase 연결을 만들지 않는다.
     from app.core.supabase import fetch_all_rows, supabase_admin
@@ -349,6 +380,8 @@ def upsert_facilities(rows: list[dict]) -> int:
             if (prev.get("coordinate_source") == "kakao"
                     and (row.get("features") or {}).get("coordinate_source") != "kakao"):
                 keep_coordinates.add(row["contentid"])
+            # 병합 전 — 이번 행의 features 에 새 Wikimedia 출처가 있는지 옛 출처와 구분해 봐야 한다.
+            _retire_superseded_wikimedia(row, prev)
             row["features"] = {**prev, **(row.get("features") or {})}
 
     # 기존/신규 판정(폴백의 INSERT/UPDATE 나눔)도 위 전량 SELECT 를 재사용한다(추가 왕복 없음).
