@@ -241,8 +241,10 @@ async def enrich_row(row: dict) -> None:
                     "license": wikimedia["license"],
                     "artist": wikimedia["artist"],
                 }}
-        except (httpx.HTTPError, KeyError, TypeError, ValueError) as e:
-            print(f"[details] Wikimedia 이미지 폴백 실패 (contentid={contentid}): {e}")
+        # 대체 사진은 선택 기능이다 — MediaWiki 의 이상 응답(StopIteration→RuntimeError, 빈 imageinfo→IndexError 등)이
+        # 밤 적재 전체를 멈추지 않게 어떤 예외든 이 행의 대체 사진만 건너뛴다.
+        except Exception as e:  # noqa: BLE001
+            print(f"[details] Wikimedia 이미지 폴백 실패 (contentid={contentid}): {type(e).__name__}: {e}")
 
 
 def _uniform_key_chunks(rows: list[dict]) -> list[list[dict]]:
@@ -306,7 +308,10 @@ def _is_wikimedia_url(url) -> bool:
     """Wikimedia 대체 사진 URL 인가 — find_reusable_place_image 는 upload.wikimedia.org 썸네일을 준다."""
     if not isinstance(url, str):
         return False
-    host = (urlparse(url.strip()).hostname or "").lower()
+    try:
+        host = (urlparse(url.strip()).hostname or "").lower()
+    except ValueError:  # 호스트에 [ ] 가 섞인 깨진 URL — 판정만 거짓으로, 적재는 멈추지 않는다.
+        return False
     return host == "wikimedia.org" or host.endswith(".wikimedia.org")
 
 

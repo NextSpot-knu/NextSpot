@@ -766,3 +766,28 @@ async def test_run_appends_written_summary_to_github_step_summary(monkeypatch, t
     assert text.startswith("# 앞 스텝\n")  # 덮어쓰지 않고 덧붙인다
     assert "written 2/3" in text
     assert len(text.splitlines()) == 2
+
+
+# ---------------------------------------------------------------------------
+# 대체 사진 조회·URL 판정의 이상 입력이 밤 적재 전체를 멈추지 않는다
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("error", [RuntimeError("coroutine raised StopIteration"), IndexError("list index out of range")],
+                         ids=["stopiteration", "empty_imageinfo"])
+async def test_unusual_wikimedia_reply_skips_only_the_substitute(details, monkeypatch, error):
+    async def broken_wikimedia(name, lat, lng):
+        raise error
+
+    monkeypatch.setattr(ingest_tourapi, "find_reusable_place_image", broken_wikimedia)
+    details.no_photo = {"3"}
+    row = _poi("3")
+    await ingest_tourapi.enrich_row(row)  # 예외가 새지 않는다
+
+    assert "gallery_images" not in row
+    assert "image_source" not in (row.get("features") or {})
+
+
+def test_malformed_url_is_not_wikimedia_and_does_not_raise():
+    assert ingest_tourapi._is_wikimedia_url("http://[tong.visitkorea.or.kr/a.jpg") is False
+    assert ingest_tourapi._is_wikimedia_url("https://upload.wikimedia.org/wikipedia/commons/thumb/w.jpg") is True
