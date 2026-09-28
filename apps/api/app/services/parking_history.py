@@ -49,6 +49,7 @@ import math
 import time
 from array import array
 from bisect import bisect_left
+from collections import deque
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -88,6 +89,12 @@ PAGE_RETRY_SLEEP_S = (2.0, 4.0)         # 쪽 재시도 사이 쉼(적재 스레
 BOOT_WAIT_REFERENCE_S = 30.0            # 첫 적재가 참조 스냅샷 준비를 기다리는 상한
 BOOT_POLL_S = 1.0
 KICK_TAIL_MIN_INTERVAL_S = 20.0
+# shadow 자기 탐침 상한 — 최근 24시간 288회(꼬리 주기 5분 기준) + 탐침 사이 최소 290초. kick 꼬리·대조 꼬리가 타이머 꼬리
+# 몇 초 뒤에 이어 와도 탐침 RPC 를 한 번 더 부르지 않는다(그 탐침은 다음 꼬리로 미뤄질 뿐이다). 간격만 300초로 두면
+# 수집 지연 요동(2~6초)에 탐침이 하루 ~210회로 줄어 종류별 표본(§5.3, 하루 ≥ 8)이 모자란다 — 그래서 간격 290초 + 24시간 개수.
+SHADOW_PROBES_PER_DAY = 288
+SHADOW_PROBE_MIN_INTERVAL_S = 290.0
+_DAY_S = 86_400.0
 LOOP_ERROR_PAUSE_S = 5.0
 MIN_LOOP_SLEEP_S = 0.05                 # 루프가 한 바퀴마다 최소한 쉬는 시간(판정이 어긋나도 헛돌지 않게)
 MODES = ("rpc", "shadow", "matrix")
@@ -521,6 +528,7 @@ class _Loader:
         self.next_reconcile_due = math.inf
         self._tail_requested = False                    # kick_tail — 진행 중인 적재가 성공해도 남는다(실패하면 버린다)
         self._last_kick = -math.inf
+        self._probe_times: deque[float] = deque()       # 최근 24시간 자기 탐침을 시작한 시각(monotonic, ≤288개)
         self._gate_done = False
         self._loop: asyncio.AbstractEventLoop | None = None
         self._task: asyncio.Task | None = None
@@ -777,10 +785,18 @@ class _Loader:
         await self._full("reconcile")
 
     async def _run_shadow_probe(self) -> None:
-        """shadow 모드: 꼬리가 성공할 때마다 자기 탐침 한 번(적재 스레드에서). 탐침의 실패는 적재 상태와 무관하다."""
+        """shadow 모드: 꼬리가 성공할 때마다 자기 탐침 한 번(적재 스레드에서) — 단 앞 탐침에서 290초 안이거나 최근 24시간에
+        이미 288회면 건너뛴다. 탐침의 실패는 적재 상태와 무관하다."""
         probe = _shadow_probe
         if probe is None or mode() != "shadow":
             return
+        now = _mono()
+        times = self._probe_times
+        while times and now - times[0] >= _DAY_S:
+            times.popleft()
+        if len(times) >= SHADOW_PROBES_PER_DAY or (times and now - times[-1] < SHADOW_PROBE_MIN_INTERVAL_S):
+            return
+        times.append(now)
         try:
             await self._in_thread(self._call_probe, probe)
         except Exception as exc:  # noqa: BLE001

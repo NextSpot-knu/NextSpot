@@ -1561,3 +1561,65 @@ def test_kick_during_a_failing_tail_does_not_bypass_the_backoff(monkeypatch, loa
         return True
 
     assert _drive(monkeypatch, scenario)
+
+
+# ── 수리: shadow 자기 탐침은 하루 ≤288회(꼬리 주기 간격) ─────────────────────────────────────────────
+
+
+@pytest.mark.parametrize("seed", [1, 2])
+def test_shadow_self_probes_stay_within_288_per_day(monkeypatch, loader_env, seed):
+    db = loader_env.db
+    now0 = datetime(2026, 9, 20, 3, 0, tzinfo=UTC)
+    clock = _Clock(now0).install(monkeypatch)
+    db.rows = _rows_before(now0, 12)
+    probes: list[float] = []
+    ph.register_shadow_probe(lambda snapshot: probes.append(clock.t))
+    rng = random.Random(seed)
+
+    async def scenario(loader):
+        await loader._step()  # 전량 적재(탐침 없음)
+        start = clock.t
+        next_collect = start + 600.0
+        next_kick = next_collect + rng.uniform(2.0, 6.0)  # 10분 수집 + ITS 응답 지연(요동)
+        while True:
+            reconcile_due = loader._reconcile_due_at()
+            timer = min(loader.next_sync_due, reconcile_due if reconcile_due is not None else math.inf)
+            if min(timer, next_kick) > start + 86_400:
+                break
+            if next_kick <= timer:
+                clock.t = next_kick
+                loader.kick_tail()
+                next_collect += 600.0
+                next_kick = next_collect + rng.uniform(2.0, 6.0)
+            else:
+                clock.t = timer
+            await loader._step()
+        return loader
+
+    loader = _drive(monkeypatch, scenario)
+    assert loader.failures == 0
+    gaps = [b - a for a, b in zip(probes, probes[1:])]
+    assert min(gaps) >= ph.SHADOW_PROBE_MIN_INTERVAL_S  # 몇 초 간격 쌍이 없다
+    assert 240 <= len(probes) <= ph.SHADOW_PROBES_PER_DAY == 288  # 표본(§5.3 — 종류마다 하루 ≥ 8)은 그대로
+
+
+def test_shadow_self_probes_are_capped_per_rolling_day(monkeypatch, loader_env):
+    now0 = datetime(2026, 9, 20, 3, 0, tzinfo=UTC)
+    clock = _Clock(now0).install(monkeypatch)
+    probes: list[float] = []
+    ph.register_shadow_probe(lambda snapshot: probes.append(clock.t))
+
+    async def scenario(loader):
+        loader.snapshot = ph.merge(None, _parse(_rows_before(now0, 3)), now=now0)
+        for _ in range(400):  # 꼬리마다 정확히 290초(간격 하한) — 개수 상한이 막는다
+            await loader._run_shadow_probe()
+            clock.t += ph.SHADOW_PROBE_MIN_INTERVAL_S
+        return loader
+
+    _drive(monkeypatch, scenario)
+    in_first_day = [t for t in probes if t - probes[0] < 86_400]
+    assert len(in_first_day) == 288
+    # 24시간이 지나면 가장 오래된 것부터 다시 자리가 난다.
+    assert any(t - probes[0] >= 86_400 for t in probes)
+    window = [sum(1 for u in probes if 0 <= t - u < 86_400) for t in probes]
+    assert max(window) <= 288
