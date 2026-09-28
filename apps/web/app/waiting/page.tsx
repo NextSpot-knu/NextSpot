@@ -31,7 +31,7 @@ import { recToSpot } from "@/lib/recommender";
 import { congestionDisplay, parseCongestionEstimate } from "@/lib/congestionEstimate";
 // 보드의 세 숫자(예상 대기 · 혼잡 등급 · 한산해지는 시각)의 단일 소스.
 import { estimateWait, displayHour, compareWaitMinutes, showsCalmLine, heroWaitCandidate, type WaitEstimate } from "@/lib/waitEstimate";
-import { curveForBase, fetchAreaDemandCurve, type AreaDemandCurve } from "@/lib/areaDemandCurve";
+import { curveForBase, fetchAreaDemandCurve, mergeAreaCurve, type AreaDemandCurve } from "@/lib/areaDemandCurve";
 // 분으로 말할 근거가 없는 카드는 등급으로 말한다 — 등급 경계는 지도·카드와 같은 공용 판정을 쓴다.
 import { congestionKey } from "@/lib/congestionScale";
 import { REGION } from "@/lib/region";
@@ -311,8 +311,12 @@ export default function WaitingBoardPage() {
   // 데모 '가정 시각' 프리셋 — /main·/course 와 localStorage 한 키로 공유하고 이벤트로 동기화한다.
   // 초기값은 'now'(SSR/정적 export 안전) → 마운트 후 저장값으로 맞춘다.
   const [assumedPreset, setAssumedPreset] = useState<string>("now");
+  // 저장된 프리셋을 읽었는지 — 권역 곡선 조회는 이것이 참이 된 뒤에 시작한다. 그 전에 시작하면 저장값이
+  // 먼 프리셋(토 14:00)이어도 초기값 'now' 로 오늘 곡선의 선행 요청이 한 번 나간다(취소가 늦으면 서버까지 간다).
+  const [presetHydrated, setPresetHydrated] = useState(false);
   useEffect(() => {
     setAssumedPreset(getStoredAssumedPreset());
+    setPresetHydrated(true);
     const sync = () => setAssumedPreset(getStoredAssumedPreset());
     window.addEventListener(ASSUMED_TIME_EVENT, sync);
     window.addEventListener("storage", sync);
@@ -390,6 +394,8 @@ export default function WaitingBoardPage() {
   }, []);
 
   useEffect(() => {
+    // 저장된 프리셋을 읽기 전의 'now' 로는 묻지 않는다(위 presetHydrated 주석).
+    if (!presetHydrated) return;
     let alive = true;
     const controller = new AbortController();
     void (async () => {
@@ -401,12 +407,10 @@ export default function WaitingBoardPage() {
       );
       if (!alive) return;
       // 빈 재조회가 같은 기준의 좋은 곡선을 지우지 않는다. 처음부터 빈 결과면 '알고 보니 없음' 으로 기록한다.
-      setAreaCurves((prev) =>
-        Object.keys(curve).length > 0 || !(baseKey in prev) ? { ...prev, [baseKey]: curve } : prev,
-      );
+      setAreaCurves((prev) => mergeAreaCurve(prev, baseKey, curve));
     })();
     return () => { alive = false; controller.abort(); };
-  }, [baseAtMs, baseKey]);
+  }, [baseAtMs, baseKey, presetHydrated]);
 
   // 카드 한 장의 세 숫자. 렌더 중 여러 번 불리므로 순수 계산만 한다(네트워크 없음).
   const waitOf = useCallback(

@@ -9,7 +9,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { apiClient } from './api-client';
-import { curveForBase, fetchAreaDemandCurve, forecastArrivalTimes } from './areaDemandCurve';
+import { curveForBase, fetchAreaDemandCurve, forecastArrivalTimes, mergeAreaCurve } from './areaDemandCurve';
 
 const WEB = join(dirname(fileURLToPath(import.meta.url)), '..');
 const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
@@ -212,6 +212,74 @@ async function main() {
     assert.equal(curveForBase(curves, '1790000000000'), null, '빈 곡선은 null');
     assert.equal(curveForBase(curves, 'now'), nowCurve);
     assert.equal(curveForBase({}, 'toString'), null);
+  }
+
+  // --- 선행이 전망을 못 돌려주면(실패·시간 초과·미가용) 나머지는 하나씩 ------------
+  // 선행이 캐시를 데우지 못했는데 3개를 동시에 보내면, 서버에서 각 요청이 차가운 백테스트를 기다리며
+  // 스레드를 하나씩 붙든다(관광객 Supabase 호출과 같은 스레드 풀).
+  for (const lead of ['throw', 'unavailable'] as const) {
+    let inFlight = 0;
+    let maxInFlight = 0;
+    let total = 0;
+    patch(async (_path, options) => {
+      total += 1;
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await tick();
+      inFlight -= 1;
+      if (hourOf(options) === 13) {
+        if (lead === 'throw') throw new Error('요청 시간이 초과되었습니다');
+        return { available: false, forecast: null };
+      }
+      return { available: true, forecast: { level: 0.4 } };
+    });
+    const curve = await fetchAreaDemandCurve(35.83, 129.21, BASE_AT, undefined, NOW);
+    assert.equal(maxInFlight, 1, `선행이 ${lead} 인데 나머지를 동시에 보냈다`);
+    assert.equal(total, 6, `선행이 ${lead} 여도 나머지 시각은 묻는다`);
+    assert.deepEqual(Object.keys(curve).map(Number).sort((a, b) => a - b), [14, 15, 16, 17, 18]);
+  }
+
+  // --- 선행이 전망을 돌려주면 그때만 3개 동시 ---------------------------------------
+  {
+    let inFlight = 0;
+    let maxInFlight = 0;
+    patch(async () => {
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await tick();
+      inFlight -= 1;
+      return { available: true, forecast: { level: 0.4 } };
+    });
+    await fetchAreaDemandCurve(35.83, 129.21, BASE_AT, undefined, NOW);
+    assert.equal(maxInFlight, 3, '데워진 뒤에는 3개가 함께 나가야 한다');
+  }
+
+  // --- mergeAreaCurve: 빈 재조회가 좋은 곡선을 지우지 않는다 ------------------------
+  {
+    const good = { 13: 0.4, 14: 0.5 };
+    const prev = { now: good, '1790000000000': { 15: 0.2 } };
+    assert.equal(mergeAreaCurve(prev, 'now', {}), prev, '빈 재조회가 같은 기준의 곡선을 지웠다');
+    assert.equal(curveForBase(mergeAreaCurve(prev, 'now', {}), 'now'), good);
+    const fresh = { 13: 0.1 };
+    const replaced = mergeAreaCurve(prev, 'now', fresh);
+    assert.equal(replaced.now, fresh, '새 곡선이 들어가지 않았다');
+    assert.equal(replaced['1790000000000'], prev['1790000000000'], '다른 기준의 곡선을 건드렸다');
+    assert.notEqual(replaced, prev, '상태 갱신은 새 객체여야 한다');
+    // 처음 보는 기준의 빈 결과는 '알고 보니 없음' 으로 기록하고, 오늘 곡선을 빌려 쓰지 않는다.
+    const empty = mergeAreaCurve(prev, '1791000000000', {});
+    assert.deepEqual(empty['1791000000000'], {});
+    assert.equal(curveForBase(empty, '1791000000000'), null, '다른 기준(오늘) 곡선이 새 기준에 쓰였다');
+    // 프로토타입 키는 '이미 있음' 이 아니다.
+    assert.deepEqual(mergeAreaCurve({}, 'toString', {}), { toString: {} });
+  }
+
+  // --- 화면 배선 가드 (병합·기준 격리·프리셋 읽은 뒤 조회) --------------------------
+  {
+    const src = readFileSync(join(WEB, 'app', 'waiting', 'page.tsx'), 'utf8');
+    assert.match(src, /const areaCurve = curveForBase\(areaCurves, baseKey\);/, '/waiting 이 지금 기준의 곡선만 쓰지 않는다');
+    assert.match(src, /setAreaCurves\(\(prev\) => mergeAreaCurve\(prev, baseKey, curve\)\)/, '/waiting 이 곡선 병합 헬퍼를 쓰지 않는다');
+    assert.doesNotMatch(src, /\{\s*\.\.\.prev,\s*\[baseKey\]:\s*curve\s*\}/, '/waiting 에 조건 없는 곡선 덮어쓰기가 있다');
+    assert.match(src, /if \(!presetHydrated\) return;/, '/waiting 이 저장된 프리셋을 읽기 전에 곡선을 묻는다');
   }
 
   // --- 화면 배선 가드 --------------------------------------------------------------

@@ -15,7 +15,8 @@
 // 호출 순서: 첫 시각 1개를 먼저 기다린 뒤(서버의 격자 캐시·백테스트 캐시를 데운다) 나머지를
 // 최대 3개 동시로 묻는다. 예전에는 동시 요청이 503 을 내서 순차로 불렀는데, 그 원인(공유 HTTP/2
 // 전송)은 bd44110 에서 고쳐졌다. 선행 1회가 없으면 차가운 동시 요청마다 서버 스레드가 백테스트를
-// 기다리며 묶인다.
+// 기다리며 묶인다. 같은 이유로 선행이 전망을 돌려주지 못했으면(시간 초과·오류·미가용 — 캐시가 데워졌다는
+// 증거가 없다) 나머지는 하나씩 묻는다.
 //
 // noRetry: 곡선은 부가 정보다. 전송 계층의 700ms 네트워크 재시도를 끄는 이유는 Cloudflare 가
 // 막은 묶음 요청이 3개의 동시 재시도로 되돌아오지 않게 하려는 것이다(B4).
@@ -78,6 +79,22 @@ export function curveForBase(curves: Record<string, AreaDemandCurve>, baseKey: s
 }
 
 /**
+ * 새로 받은 곡선을 기준 시각별 맵에 넣는다. 순수 함수 — 바뀔 것이 없으면 prev 를 그대로 돌려준다.
+ * - 빈 재조회(예: 프리셋을 바꿨다 돌아왔는데 전망 서버가 5xx)는 같은 기준의 좋은 곡선을 지우지 않는다.
+ * - 그 기준에 아직 아무것도 없으면 빈 곡선도 넣는다('알고 보니 없음' — 다시 묻지 않고 내장 곡선을 쓴다).
+ * - 다른 기준의 곡선은 건드리지 않는다.
+ */
+export function mergeAreaCurve(
+  prev: Record<string, AreaDemandCurve>,
+  baseKey: string,
+  curve: AreaDemandCurve,
+): Record<string, AreaDemandCurve> {
+  const known = Object.prototype.hasOwnProperty.call(prev, baseKey);
+  if (Object.keys(curve).length === 0 && known) return prev;
+  return { ...prev, [baseKey]: curve };
+}
+
+/**
  * 기준 시각(baseAt)부터 앞으로 6시간의 정시 권역 수요를 모은다.
  * 실패·미가용은 조용히 건너뛴다 — 부분만 채워진 곡선도 그대로 쓸모가 있다.
  */
@@ -92,7 +109,8 @@ export async function fetchAreaDemandCurve(
   const points = forecastArrivalTimes(baseAt, nowMs);
   if (points.length === 0 || signal?.aborted) return curve;
 
-  const fetchOne = async ({ hourKst, at }: ForecastArrival) => {
+  /** 전망 값을 받았으면(available=true) 참. 실패·미가용은 거짓 — 그 시각만 비워 두고 계속한다. */
+  const fetchOne = async ({ hourKst, at }: ForecastArrival): Promise<boolean> => {
     try {
       const data: ForecastResponse = await apiClient.get("/api/v1/area-demand/forecast", {
         params: { lat: String(lat), lng: String(lng), arrivalAt: at.toISOString() },
@@ -104,13 +122,17 @@ export async function fetchAreaDemandCurve(
       if (data?.available && typeof level === "number" && Number.isFinite(level)) {
         curve[hourKst] = Math.min(1, Math.max(0, level));
       }
+      return data?.available === true;
     } catch {
       /* 표본 부족·일시 장애 — 이 시각만 비워 두고 계속 진행한다 */
+      return false;
     }
   };
 
-  // 선행 1회: 서버 캐시를 데운다. 그 뒤 나머지를 최대 3개씩 동시에.
-  await fetchOne(points[0]);
+  // 선행 1회: 서버 캐시를 데운다. 선행이 전망을 돌려줬을 때만(캐시가 데워졌다는 증거) 나머지를 최대
+  // 3개씩 동시에 묻는다. 선행이 시간 초과·오류·미가용이면 서버가 아직 그 계산을 붙들고 있거나 캐시가
+  // 차갑다 — 동시 요청마다 스레드가 묶이므로 하나씩 묻는다(예전 순차 루프와 같은 부하).
+  const leadWarm = await fetchOne(points[0]);
   const rest = points.slice(1);
   let next = 0;
   const worker = async () => {
@@ -120,6 +142,7 @@ export async function fetchAreaDemandCurve(
       await fetchOne(point);
     }
   };
-  await Promise.all(Array.from({ length: Math.min(FAN_OUT, rest.length) }, worker));
+  const width = leadWarm ? Math.min(FAN_OUT, rest.length) : Math.min(1, rest.length);
+  await Promise.all(Array.from({ length: width }, worker));
   return curve;
 }
