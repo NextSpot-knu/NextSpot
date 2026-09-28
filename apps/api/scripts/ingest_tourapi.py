@@ -29,6 +29,7 @@ import json
 import os
 import sys
 from datetime import date, datetime, timedelta, timezone
+from urllib.parse import urlparse
 
 import httpx
 
@@ -224,6 +225,8 @@ async def enrich_row(row: dict) -> None:
     # '사진이 없다'는 사진을 주는 두 호출(detailCommon2 대표 이미지 · detailImage2 갤러리)이 모두 답했을 때만
     # 안다 — detailCommon2 는 상세 항목까지 돌려줘야 한다(항목 0개는 대표 이미지에 대해 아무것도 말하지 않는다).
     # 하나라도 모르는 날 대체 사진을 넣으면 DB 에 있던 TourAPI 사진(대표·갤러리 최대 5장)을 Wikimedia 로 덮는다.
+    # detailImage2 의 항목 0개 응답도 저장된 갤러리가 사라졌다고 확인해 주지 않는다 — 저장된 갤러리에 TourAPI
+    # 사진이 있으면 upsert_facilities(_retire_superseded_wikimedia)가 이 대체 사진과 출처를 버린다.
     if (ctid in {12, 14} and common_item_seen and image_answered
             and not row.get("image_url") and not row.get("gallery_images")):
         try:
@@ -299,32 +302,55 @@ def _is_wikimedia_credit(source) -> bool:
     return isinstance(source, dict) and source.get("provider") == WIKIMEDIA_PROVIDER
 
 
-def _retire_superseded_wikimedia(row: dict, prev_features: dict) -> None:
-    """예전 밤의 Wikimedia 대체 사진과 그 출처를 **함께** 걷어 낸다 — 오늘 TourAPI 사진을 얻었을 때만(제자리 수정).
+def _is_wikimedia_url(url) -> bool:
+    """Wikimedia 대체 사진 URL 인가 — find_reusable_place_image 는 upload.wikimedia.org 썸네일을 준다."""
+    if not isinstance(url, str):
+        return False
+    host = (urlparse(url.strip()).hostname or "").lower()
+    return host == "wikimedia.org" or host.endswith(".wikimedia.org")
+
+
+def _retire_superseded_wikimedia(row: dict, prev: dict) -> None:
+    """Wikimedia 사진과 그 출처를 **한 쌍으로** 맞춘다 — 저장된 행(prev: features·image_url·gallery_images)을 보고
+    이번 행을 제자리 수정한다. 이름은 역사적이다: 처음에는 '옛 Wikimedia 를 걷어 내기'만 했다.
 
     Wikimedia 대체 사진은 gallery_images 에만 들어가고 출처는 features.image_source 에 있다. 웹은
-    [image_url, ...gallery_images] 를 차례로 시도해 대표 사진이 깨지면 갤러리 사진을 띄우므로, 출처만 지우고
-    Wikimedia 갤러리를 남기면 CC BY/BY-SA 사진이 출처 없이 뜬다(PM 규칙 2026-09-28: 출처는 늘 보이는 사진과 맞는다).
+    [image_url, ...gallery_images] 를 차례로 시도해 대표 사진이 깨지면 갤러리 사진을 띄운다. PM 규칙(2026-09-28):
+    사진은 호출 실패로 지우지 않고, CC BY/BY-SA Wikimedia 사진은 출처 없이 저장·표시되지 않으며, 출처는 늘 보이는
+    사진과 맞는다.
 
-    - 옛 출처가 Wikimedia 가 아니면 할 일이 없다. 이번 행이 새 Wikimedia 대체 사진을 들고 왔으면(두 사진 호출이
-      '사진 없음'으로 답한 날) 갤러리와 출처가 이미 한 쌍으로 바뀐다.
-    - 오늘 TourAPI 대표 사진(image_url) 또는 비어 있지 않은 TourAPI 갤러리를 얻었으면 image_source=None 을 싣는다
-      ({**기존, **신규} 병합이 옛 출처를 덮는다 — 웹은 null 을 없는 값처럼 다룬다). TourAPI 갤러리가 없으면
-      gallery_images=[] 도 실어 출처 없는 Wikimedia 사진이 DB 에 남지 않게 한다.
-    - 오늘 TourAPI 사진을 하나도 얻지 못했으면(호출 실패·사진 없음) 아무것도 바꾸지 않는다 — 사진은 호출 실패로
-      지우지 않고, Wikimedia 사진과 출처는 그대로 한 쌍으로 남는다.
+    1. 이번 행이 새 Wikimedia 대체 사진을 들고 왔는데 저장된 갤러리에 TourAPI 사진이 있으면 대체를 버린다 —
+       detailImage2 의 항목 0개 응답은 '갤러리가 사라졌다'를 확인해 주지 않는다(detailCommon2 의 항목 0개와
+       같은 규칙). 저장된 TourAPI 갤러리가 남고, 대체 출처도 싣지 않는다. 저장된 TourAPI 갤러리가 없으면
+       대체 사진과 출처가 한 쌍으로 들어간다(아래는 할 일이 없다).
+    2. 옛 출처가 Wikimedia 가 아니면 여기서 끝난다.
+    3. 오늘 TourAPI 사진(대표 image_url 또는 TourAPI 갤러리)을 얻었으면 저장된 갤러리의 Wikimedia 사진만 뺀다.
+       TourAPI 갤러리 사진은 그대로 둔다 — gallery_images 는 바뀔 때만 싣고, 저장된 TourAPI 사진이 있는데 []
+       를 보내지 않는다. 오늘 TourAPI 사진이 없으면 Wikimedia 사진을 빼지 않는다(호출 실패로 지우지 않는다).
+    4. 이 쓰기 뒤에도 Wikimedia 사진이 남는지 본다. 남지 않으면 옛 출처는 TourAPI 사진 아래 뜨는 틀린 출처라
+       image_source=None 을 싣는다({**기존, **신규} 병합이 옛 출처를 덮는다 — 웹은 null 을 없는 값처럼 다룬다).
+       main 3cf5bf9 가 남긴 행(Wikimedia 갤러리가 나중에 TourAPI 갤러리로 바뀌었는데 출처는 그대로)이 이 경우다.
+       사진은 하나도 지우지 않는다.
     """
-    if not _is_wikimedia_credit(prev_features.get("image_source")):
-        return
     own = row.get("features") or {}
+    stored_gallery = [u for u in (prev.get("gallery_images") or []) if isinstance(u, str) and u]
     if _is_wikimedia_credit(own.get("image_source")):
+        if not [u for u in stored_gallery if not _is_wikimedia_url(u)]:
+            return
+        row.pop("gallery_images", None)
+        own = {k: v for k, v in own.items() if k != "image_source"}
+        row["features"] = own
+    if not _is_wikimedia_credit((prev.get("features") or {}).get("image_source")):
         return
-    tourapi_gallery = bool(row.get("gallery_images"))
-    if not (row.get("image_url") or tourapi_gallery):
-        return
-    row["features"] = {**own, "image_source": None}
-    if not tourapi_gallery:
-        row["gallery_images"] = []
+    # 이번 쓰기 뒤 DB 의 갤러리 — 행에 gallery_images 가 있으면 그 값(오늘 TourAPI 갤러리), 없으면 저장된 값.
+    gallery = row["gallery_images"] if row.get("gallery_images") is not None else stored_gallery
+    if row.get("image_url") or row.get("gallery_images"):
+        kept = [u for u in gallery if not _is_wikimedia_url(u)]
+        if kept != gallery:
+            row["gallery_images"] = kept
+            gallery = kept
+    if not [u for u in gallery if _is_wikimedia_url(u)]:
+        row["features"] = {**own, "image_source": None}
 
 
 def upsert_facilities(rows: list[dict]) -> int:
@@ -345,7 +371,8 @@ def upsert_facilities(rows: list[dict]) -> int:
     병합한다. 통째 교체하면 이 배치 밖에서 축적된 키 — overview_i18n(번역 배치), image_source
     (Wikimedia 라이선스) 등 — 가 일배치마다 소실된다(실측: 번역 67곳이 다음 cron 에 전멸할 뻔).
     transform/enrich 가 만드는 키는 신규 값이 이기고, 배치가 모르는 키는 보존된다.
-    병합 직전 _retire_superseded_wikimedia 가 오늘 TourAPI 사진이 대신한 옛 Wikimedia 사진·출처를 함께 걷어 낸다.
+    병합 직전 _retire_superseded_wikimedia 가 저장된 사진(image_url·gallery_images)과 견줘 Wikimedia 사진과 출처를
+    한 쌍으로 맞춘다 — 그래서 기존 행 SELECT 는 features 와 함께 두 사진 열도 읽는다(한 번, 약 90행).
     """
     # DB 클라이언트는 여기서 지연 임포트 — --dry-run 경로에서 Supabase 연결을 만들지 않는다.
     from app.core.supabase import fetch_all_rows, supabase_admin
@@ -357,17 +384,16 @@ def upsert_facilities(rows: list[dict]) -> int:
         existing_rows = fetch_all_rows(
             supabase_admin,
             "facilities",
-            "contentid, features",
+            "contentid, features, image_url, gallery_images",
             apply_filters=lambda q: q.not_.is_("contentid", "null").order("contentid"),
         )
     except Exception as e:  # noqa: BLE001
         # 기존 features 를 모르면 병합 불가 → 진행하면 번역 등 축적 키가 소실된다. fail-closed 중단.
         print(f"[upsert] 기존 features 조회 실패({e}) — features 소실 방지를 위해 upsert 를 중단합니다")
         return 0
+    existing_by_id: dict[str, dict] = {r["contentid"]: r for r in existing_rows if r.get("contentid")}
     existing_features: dict[str, dict] = {
-        r["contentid"]: (r.get("features") or {})
-        for r in (existing_rows)
-        if r.get("contentid")
+        cid: (r.get("features") or {}) for cid, r in existing_by_id.items()
     }
     # Kakao 로 검증된 좌표 보존: 좌표의 정본은 Kakao 다(run 의 reconcile_row_coordinate). 이번 실행에서 매칭을
     # 얻지 못한 행(타임아웃·동점 후보·키 미설정)은 TourAPI 원 좌표를 들고 있는데, 그대로 보내면 DB 의 Kakao
@@ -375,13 +401,14 @@ def upsert_facilities(rows: list[dict]) -> int:
     # 병합 **전** 이번 행의 features 로 본다 — 성공했을 때만 reconcile 이 coordinate_source 를 넣는다.
     keep_coordinates: set[str] = set()
     for row in rows:
-        prev = existing_features.get(row.get("contentid"))
-        if prev:
+        stored = existing_by_id.get(row.get("contentid"))
+        if stored is not None:
+            prev = existing_features[row["contentid"]]
             if (prev.get("coordinate_source") == "kakao"
                     and (row.get("features") or {}).get("coordinate_source") != "kakao"):
                 keep_coordinates.add(row["contentid"])
             # 병합 전 — 이번 행의 features 에 새 Wikimedia 출처가 있는지 옛 출처와 구분해 봐야 한다.
-            _retire_superseded_wikimedia(row, prev)
+            _retire_superseded_wikimedia(row, stored)
             row["features"] = {**prev, **(row.get("features") or {})}
 
     # 기존/신규 판정(폴백의 INSERT/UPDATE 나눔)도 위 전량 SELECT 를 재사용한다(추가 왕복 없음).

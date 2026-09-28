@@ -232,7 +232,7 @@ class _Details:
 
     async def wikimedia(self, name, lat, lng):
         self.wikimedia_calls.append(name)
-        return {"url": "https://commons.example/w.jpg", "source_url": "https://commons.example/page",
+        return {"url": "https://upload.wikimedia.org/wikipedia/commons/thumb/w.jpg", "source_url": "https://commons.example/page",
                 "license": "Public domain", "artist": "unknown"}
 
 
@@ -373,7 +373,7 @@ async def test_wikimedia_substitute_only_when_both_photo_calls_answered(details)
         await ingest_tourapi.enrich_row(row)
 
     # 두 호출이 답했고 사진이 없다 → 기존처럼 Wikimedia 1장 + 출처.
-    assert answered["gallery_images"] == ["https://commons.example/w.jpg"]
+    assert answered["gallery_images"] == ["https://upload.wikimedia.org/wikipedia/commons/thumb/w.jpg"]
     assert answered["features"]["image_source"]["provider"] == "Wikimedia Commons"
     # 하나라도 실패 → 대체 사진을 만들지 않는다(키가 없으니 DB 의 기존 갤러리가 남는다).
     assert "gallery_images" not in image_down and "gallery_images" not in common_down
@@ -406,7 +406,7 @@ async def test_image_url_is_cleared_only_when_tourapi_confirmed_no_main_image(de
 
     sent = _sent(table)
     assert "image_url" in sent["3"] and sent["3"]["image_url"] is None
-    assert sent["3"]["gallery_images"] == ["https://commons.example/w.jpg"]
+    assert sent["3"]["gallery_images"] == ["https://upload.wikimedia.org/wikipedia/commons/thumb/w.jpg"]
     assert sent["3"]["features"]["image_source"]["provider"] == "Wikimedia Commons"
     assert "image_url" in sent["4"] and sent["4"]["image_url"] is None
     assert "image_url" not in sent["5"]
@@ -461,7 +461,8 @@ async def test_stale_wikimedia_credit_is_removed_when_tourapi_supplies_a_photo(d
     assert details.wikimedia_calls == []
 
     table = _FacilitiesTable(
-        existing=[{"contentid": c, "features": {"source": "tourapi", "image_source": dict(_WIKIMEDIA_CREDIT)}}
+        existing=[{"contentid": c, "gallery_images": list(_WIKIMEDIA_GALLERY),
+                   "features": {"source": "tourapi", "image_source": dict(_WIKIMEDIA_CREDIT)}}
                   for c in ("8", "9", "10")],
         upsert_error=upsert_error,
     )
@@ -483,11 +484,12 @@ async def test_stale_wikimedia_credit_is_removed_when_tourapi_supplies_a_photo(d
 # Wikimedia 사진을 띄운다 — 출처만 지우고 Wikimedia 갤러리를 남기면 그 사진이 출처 없이 뜬다.
 # ---------------------------------------------------------------------------
 
-_WIKIMEDIA_GALLERY = ["https://upload.example/wikimedia.jpg"]
+_WIKIMEDIA_GALLERY = ["https://upload.wikimedia.org/wikipedia/commons/thumb/old.jpg"]
 
 
 def _wikimedia_existing(*contentids: str) -> list[dict]:
-    return [{"contentid": c, "features": {"source": "tourapi", "image_source": dict(_WIKIMEDIA_CREDIT)}}
+    return [{"contentid": c, "gallery_images": list(_WIKIMEDIA_GALLERY),
+             "features": {"source": "tourapi", "image_source": dict(_WIKIMEDIA_CREDIT)}}
             for c in contentids]
 
 
@@ -573,6 +575,101 @@ def test_list_photo_without_details_run_also_retires_wikimedia_photo(upsert_erro
     sent = _sent(table)
     assert sent["16"]["gallery_images"] == [] and sent["16"]["features"]["image_source"] is None
     assert "gallery_images" not in sent["17"] and "image_source" not in sent["17"]["features"]
+    _assert_uniform(table.bulk("upsert") + table.bulk("insert"))
+
+
+# ---------------------------------------------------------------------------
+# 저장된 TourAPI 갤러리는 detailImage2 가 실패하거나 항목 0개로 답한 날 지워지지도, Wikimedia 로 바뀌지도 않는다
+# (2026-09-28 3차 리뷰). main 3cf5bf9 는 image_source 를 지운 적이 없어, Wikimedia 대체를 한 번 받았다가 나중에
+# TourAPI 갤러리를 받은 행은 'TourAPI 갤러리 + 옛 Wikimedia 출처'로 남아 있다.
+# ---------------------------------------------------------------------------
+
+_TOURAPI_GALLERY = ["https://img.example/stored-g1.jpg", "https://img.example/stored-g2.jpg"]
+
+
+def _stale_credit_tourapi_gallery(contentid: str, *, image_url: str | None) -> dict:
+    return {"contentid": contentid, "image_url": image_url, "gallery_images": list(_TOURAPI_GALLERY),
+            "features": {"source": "tourapi", "image_source": dict(_WIKIMEDIA_CREDIT)}}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("upsert_error", [None, _NO_CONFLICT_TARGET], ids=["bulk_upsert", "fallback_42P10"])
+@pytest.mark.parametrize("gallery_reply", ["failed", "zero_items", "not_called"])
+async def test_stale_credit_retire_keeps_stored_tourapi_gallery(details, upsert_error, gallery_reply):
+    # "20": 저장된 대표 사진 있음, "21": 없음 — 둘 다 저장된 TourAPI 갤러리 + 옛 Wikimedia 출처.
+    # 오늘 목록 firstimage 는 있고 detailImage2 는 실패(failed)·항목 0개(zero_items)·호출 안 함(--details 없음).
+    rows = [_poi("20", firstimage="http://img.example/20.jpg"), _poi("21", firstimage="http://img.example/21.jpg")]
+    if gallery_reply != "not_called":
+        for row in rows:
+            cid = row["contentid"]
+            if gallery_reply == "failed":
+                details.fail[cid] = {"image"}
+            else:
+                details.no_photo.add(cid)
+            await ingest_tourapi.enrich_row(row)
+
+    table = _FacilitiesTable(
+        existing=[_stale_credit_tourapi_gallery("20", image_url="https://img.example/prev20.jpg"),
+                  _stale_credit_tourapi_gallery("21", image_url=None)],
+        upsert_error=upsert_error,
+    )
+    assert _upsert(rows, table) == 2
+
+    sent = _sent(table)
+    for cid in ("20", "21"):
+        assert "gallery_images" not in sent[cid], "저장된 TourAPI 갤러리를 [] 로 지우면 안 된다"
+        assert sent[cid]["image_url"] == f"https://img.example/{cid}.jpg"
+        # 남은 사진은 모두 TourAPI 다 — 옛 Wikimedia 출처가 그 아래 뜨지 않게 지운다(사진은 하나도 안 지운다).
+        assert "image_source" in sent[cid]["features"] and sent[cid]["features"]["image_source"] is None
+    _assert_uniform(table.bulk("upsert") + table.bulk("insert"))
+
+
+@pytest.mark.parametrize("upsert_error", [None, _NO_CONFLICT_TARGET], ids=["bulk_upsert", "fallback_42P10"])
+def test_retire_removes_only_wikimedia_entries_from_a_mixed_stored_gallery(upsert_error):
+    row = _poi("22", firstimage="http://img.example/22.jpg")
+    stored = {"contentid": "22", "gallery_images": [_TOURAPI_GALLERY[0], _WIKIMEDIA_GALLERY[0]],
+              "features": {"image_source": dict(_WIKIMEDIA_CREDIT)}}
+    table = _FacilitiesTable(existing=[stored], upsert_error=upsert_error)
+    assert _upsert([row], table) == 1
+
+    sent = _sent(table)["22"]
+    assert sent["gallery_images"] == [_TOURAPI_GALLERY[0]]
+    assert sent["features"]["image_source"] is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("upsert_error", [None, _NO_CONFLICT_TARGET], ids=["bulk_upsert", "fallback_42P10"])
+async def test_zero_item_gallery_reply_does_not_replace_stored_tourapi_gallery_with_wikimedia(details, upsert_error):
+    # 목록·detailCommon2 모두 대표 이미지 없음(확인된 부재 — image_url 은 지운다), detailImage2 는 항목 0개,
+    # Wikimedia 는 찾았다. "23": 저장된 TourAPI 대표·갤러리(출처 없음). "24": TourAPI 갤러리 + 옛 Wikimedia 출처.
+    # "25": 저장된 갤러리가 없다 — 이때만 Wikimedia 대체 사진이 출처와 한 쌍으로 들어간다.
+    details.no_photo = {"23", "24", "25"}
+    rows = [_poi("23"), _poi("24"), _poi("25")]
+    for row in rows:
+        await ingest_tourapi.enrich_row(row)
+    assert all(row["gallery_images"] == ["https://upload.wikimedia.org/wikipedia/commons/thumb/w.jpg"]
+               for row in rows)
+
+    table = _FacilitiesTable(
+        existing=[
+            {"contentid": "23", "image_url": "https://img.example/prev23.jpg",
+             "gallery_images": list(_TOURAPI_GALLERY), "features": {"source": "tourapi"}},
+            _stale_credit_tourapi_gallery("24", image_url=None),
+            {"contentid": "25", "image_url": "https://img.example/prev25.jpg", "gallery_images": None,
+             "features": {"source": "tourapi"}},
+        ],
+        upsert_error=upsert_error,
+    )
+    assert _upsert(rows, table) == 3
+
+    sent = _sent(table)
+    for cid in ("23", "24"):
+        assert "gallery_images" not in sent[cid], "항목 0개 응답으로 저장된 TourAPI 갤러리를 덮으면 안 된다"
+        assert "image_url" in sent[cid] and sent[cid]["image_url"] is None
+    assert "image_source" not in sent["23"]["features"]
+    assert sent["24"]["features"]["image_source"] is None
+    assert sent["25"]["gallery_images"] == ["https://upload.wikimedia.org/wikipedia/commons/thumb/w.jpg"]
+    assert sent["25"]["features"]["image_source"]["provider"] == "Wikimedia Commons"
     _assert_uniform(table.bulk("upsert") + table.bulk("insert"))
 
 
