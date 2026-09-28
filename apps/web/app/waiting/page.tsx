@@ -441,6 +441,11 @@ export default function WaitingBoardPage() {
   // 실패해도 에러 화면으로 갈아치우지 않는다. preset 이 바뀌면 로더를 다시 보여준다.
   const hasRenderedResultsRef = useRef(false);
   const renderedPresetRef = useRef<string | null>(null);
+  // 화면이 지금 가리키는 가정 시각. 조회 도중 프리셋이 바뀌면 옛 조회는 남은 유형을 묻지 않고 결과도 버린다 —
+  // 늦게 끝난 옛 조회가 새 배지 아래에 옛 시각의 보드를 그리거나 캐시에 옛 프리셋을 남기지 않게.
+  // (아래 fetch 이펙트보다 먼저 선언 — 같은 커밋에서 먼저 갱신된다.)
+  const latestPresetRef = useRef(assumedPreset);
+  useEffect(() => { latestPresetRef.current = assumedPreset; }, [assumedPreset]);
 
   // 마운트 시 캐시 하이드레이션 — fetch 이펙트보다 먼저 선언되어 먼저 실행된다.
   useEffect(() => {
@@ -469,6 +474,8 @@ export default function WaitingBoardPage() {
   );
 
   const fetchBoard = useCallback(async () => {
+    const stale = () => latestPresetRef.current !== assumedPreset;
+    if (stale()) return; // 예약된 재시도가 돌 때 이미 다른 프리셋이면 — 새 프리셋의 조회가 따로 돈다
     // 화면에 같은 가정 시각의 결과가 이미 있으면 조용한 새로고침(로더 생략) — 스테일-우선.
     const silentRefresh = hasRenderedResultsRef.current && renderedPresetRef.current === assumedPreset;
     if (!silentRefresh) setLoading(true);
@@ -483,6 +490,7 @@ export default function WaitingBoardPage() {
     // 재시작 직후 콜드 상태면 단건 처리도 20초를 넘겨(라이브 실측), 20s 는 서버 성공을 클라가 끊었다.
     const results: PromiseSettledResult<Awaited<ReturnType<typeof recommendByType>>>[] = [];
     for (const type of BOARD_TYPES) {
+      if (stale()) return;
       try {
         const value = await recommendByType(type, userLocation, [], PER_TYPE_LIMIT, undefined, undefined, undefined, 45000, assumedAtIsoForPreset(assumedPreset));
         results.push({ status: "fulfilled", value });
@@ -499,6 +507,7 @@ export default function WaitingBoardPage() {
       await new Promise((resolve) => setTimeout(resolve, 2000));
       for (let i = 0; i < BOARD_TYPES.length; i++) {
         if (results[i].status !== "rejected") continue;
+        if (stale()) return;
         try {
           const value = await recommendByType(BOARD_TYPES[i], userLocation, [], PER_TYPE_LIMIT, undefined, undefined, undefined, 45000, assumedAtIsoForPreset(assumedPreset));
           results[i] = { status: "fulfilled", value };
@@ -506,6 +515,7 @@ export default function WaitingBoardPage() {
       }
     }
 
+    if (stale()) return; // 다른 프리셋으로 바뀌었다 — 이 결과는 그리지도 캐시하지도 않는다
     const nextSectors: Sector[] = [];
     let anySucceeded = false;
 
@@ -655,9 +665,12 @@ export default function WaitingBoardPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [assumedPreset]);
 
+  // 저장된 프리셋을 읽은 뒤에 조회한다(위 presetHydrated 주석) — 저장값이 토 14:00 이면 초기값 'now' 로
+  // 4유형 순차 조회가 한 벌 더 나가 서버 부하가 두 배가 되고, 늦게 끝나면 토요일 배지 아래 오늘 보드가 그려졌다.
   useEffect(() => {
+    if (!presetHydrated) return;
     fetchBoard();
-  }, [fetchBoard]);
+  }, [fetchBoard, presetHydrated]);
 
   // 히어로 요약 스탯 — 이미 상태에 있는 결과에서 '도착 시 대기'가 가장 짧은 값 하나만 뽑는다
   // (오늘 휴무가 확정된 시설은 제외). 분이 없는 카드는 후보에서 빠진다 — 0분으로 치면
