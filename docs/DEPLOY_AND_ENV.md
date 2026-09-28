@@ -74,7 +74,7 @@
 | 부팅 필수 | `SUPABASE_URL` `SUPABASE_ANON_KEY` `JWT_SECRET` `ADMIN_API_TOKEN` |
 | 운영 필수(없으면 기능 결손) | `SUPABASE_SERVICE_ROLE_KEY`(쓰기 경로 전부) `ALLOWED_ORIGINS`(미지정 시 와일드카드) |
 | 선택 | `SERVICE_API_TOKEN`(토큰 회전용 — `render.yaml`에 없으니 대시보드에서 추가) `TOURAPI_KEY` `KMA_API_KEY` `PARKING_API_KEY` `GYEONGJU_FOOD_API_BASE_URL` `GYEONGJU_FOOD_API_KEY`(경주 메뉴별음식점 15114465 — 둘 다 없으면 보강 배치 no-op) `SEOUL_OPENDATA_KEY`(서울 검증 수집 — 없으면 그 수집만 503) `SEOUL_CITYDATA_TARGETS`(기본 `홍대 관광특구`, 콤마 구분) `KAKAO_REST_API_KEY` `UPSTAGE_API_KEY` `LLM_BASE_URL` `LLM_MODEL` `SEARCH_REWRITE_DAILY_BUDGET` |
-| 선택 — 전환 스위치 | `AREA_DEMAND_SOURCE`(권역 수요 전망 원본. 기본·미설정·모르는 값 = `rpc`(도입 전 경로 그대로 — 주차 이력 적재 스레드도 없음), `shadow` = 응답은 rpc·메모리 행렬 비교만 기록, `matrix` = 메모리 행렬로 답하고 준비 전·오래됨이면 rpc. 바꾸면 서비스 재시작 1~2분 — 되돌림도 `rpc` 로 다시 설정) |
+| 선택 — 전환 스위치 | `AREA_DEMAND_SOURCE`(권역 수요 전망 원본. 기본·미설정·모르는 값 = `rpc`(도입 전 경로 그대로 — 주차 이력 적재 스레드도 없음), `shadow` = 응답은 rpc·메모리 행렬 비교만 기록, `matrix` = 메모리 행렬로 답하고 준비 전·오래됨이면 rpc. 바꾸면 서비스 재시작 1~2분 — 되돌림도 `rpc` 로 다시 설정. 순서·게이트·볼 것: [`API_ARCHITECTURE_PLAN.md`](./API_ARCHITECTURE_PLAN.md) "P2a 전환 절차") |
 
 - `ALLOWED_ORIGINS`에 Vercel 도메인(콤마 구분)을 넣으면 **엄격 모드**(해당 오리진만 + credentials)로 전환된다. 미지정이면 와일드카드.
 - `ADMIN_API_TOKEN`은 `openssl rand -hex 32` 같은 강한 값. 절대 `NEXT_PUBLIC_*`로 프런트에 미러하지 않는다.

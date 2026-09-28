@@ -23,7 +23,8 @@ Supabase(서울) ── 유일한 영속 정본
    ▲ 버전 탐침 + keyset 적재(적재 스레드 1개)      ▲ 사용자 행만          ▲ 관리자 패널당 RPC 1회(P5)
 FastAPI 워커 1개(Render 512MB/0.5CPU)
  ├ 참조 평면  app/services/reference_snapshot.py — 공유 상태의 유일한 주인
- │   FacilityBase(활성 시설, by_id) · LiveOverlay(최신 혼잡·영업 근거) · [P2] ParkingHistory 행렬
+ │   FacilityBase(활성 시설, by_id) · LiveOverlay(최신 혼잡·영업 근거)
+ │   ([P2a] ParkingHistory 행렬은 같은 원칙으로 따로 — parking_history.py, 전용 스레드·실패 영역 분리)
  │   · [P3] 보행 그래프 CSR · 예측 표 — 실패 시 마지막 정상본, 원자적 교체, 쓰기마다 mark_dirty
  │   산출물: /infrastructures 바이트 + ETag(본문 해시), 시각 경계(is_current 30분·is_stale 24h·영업 만료)마다 재조립
  └ 요청 평면  snap = 스냅샷 한 번 → 지도는 바이트/304, 추천·코스는 메모리 위 순수 CPU(score.py 불변)
@@ -36,8 +37,9 @@ FastAPI 워커 1개(Render 512MB/0.5CPU)
 | **P0a** | 1,682 스레드 팬아웃 폴백 제거(RPC 실패 → 조각 재시도 1회) · 시설 페이지네이션 id 정렬 · 출처 표 전량 · httpx URL 로그 끄기(쿼리스트링 키 노출) · 브리핑 캐시 만료 | `perf/reference-snapshot` 완료 |
 | **P1** | 참조 스냅샷 + `/infrastructures` 사전 직렬화 바이트 · ETag/304 · `Cache-Control: private, no-cache` · `/health.reference_snapshot` · 롤백 env `REFERENCE_SNAPSHOT_SERVE`(`snapshot` 외 값이면 옛 경로) | 같은 브랜치 완료. 실 DB 읽기 대조: 3개 필터 모두 JSON 동일, 3~13ms(옛 경로 1.2~1.5초, 데스크톱) |
 | P0b | 웹만(API 계약 불변): 관제 장소 표 (name,id) 전량 페이지·활성/비활성·이름 검색 · 지도 비상 경로 활성만·id 페이지·최신 혼잡 RPC·갤러리 사진 · `/waiting` 곡선을 서버 창 안으로 당긴 정시 6점(분 30 이후에도 6점 — 가장자리 정시를 창 안으로 당기면 분 해상도 전망이 같은 정시로 읽힌다)·선행 1회 후 동시 3·noRetry·기준 시각별 곡선 · 숨은 탭 관제 폴링 멈춤('알림 받기' 켜짐이면 유지)·안전 화면 첫 진입 중복 조회 제거 · 탭 복귀 `/account/me` 5분 생략(실패 뒤·심사 대기 제외) · 추천 타임아웃 뒤 같은 POST 재전송 대신 by-type 대안(45초). **데모 프리페치 삭제와 상태 코드 재시도는 하지 않는다**(레드팀 B4 · crit7) | `web/batch-0928` 완료(main 미반영) — 880b2e1..96e31ae 6건 |
-| P0c | 일배치가 상세 실패 행을 NULL로 덮는 문제 · area-demand-alert 가 API 메모리 상태에 묶인 거짓 경보 | `fix/ingest-keyset-upsert` 완료(main 미반영) — 키 집합별 bulk 쓰기 · capacity 는 PM 결정(09-28)으로 심사 전까지 매일 밤 기본값 초기화 유지(공유 관리자 계정의 실수 수정이 데모에 남지 않게 — 심사 후 관리자 수정분 `features.capacity_source='admin'` 표시·건너뛰기) · None 미전송 · 경보는 Supabase 스냅샷 표 직접 · 독립 리뷰 수정 6건(확인된 사진 부재만 지움 · Kakao 좌표 유지 · INSERT 행별 재시도 · 경보 견고화) + 2차 4건(항목 0개 응답은 확인 아님 · 옛 Wikimedia 출처 제거 · 경보 시크릿 글자 검사 · capacity 초기화 복원). 실측: 운영 1차 upsert 는 매일 42P10(부분 인덱스) → 폴백이 실제 경로 |
-| P2 | 주차 이력 = 로트×시간 uint16 행렬(~0.3MB)을 10분 수집이 덧붙임 → 격자 캐시 −44~109MB, 전망 3초 → ms | 대기 |
+| P0c | 일배치가 상세 실패 행을 NULL로 덮는 문제 · area-demand-alert 가 API 메모리 상태에 묶인 거짓 경보 | **main 반영 367514c(09-28)** — `fix/ingest-keyset-upsert` — 키 집합별 bulk 쓰기 · capacity 는 PM 결정(09-28)으로 심사 전까지 매일 밤 기본값 초기화 유지(공유 관리자 계정의 실수 수정이 데모에 남지 않게 — 심사 후 관리자 수정분 `features.capacity_source='admin'` 표시·건너뛰기) · None 미전송 · 경보는 Supabase 스냅샷 표 직접 · 독립 리뷰 수정 6건(확인된 사진 부재만 지움 · Kakao 좌표 유지 · INSERT 행별 재시도 · 경보 견고화) + 2차 4건(항목 0개 응답은 확인 아님 · 옛 Wikimedia 출처 제거 · 경보 시크릿 글자 검사 · capacity 초기화 복원). 실측: 운영 1차 upsert 는 매일 42P10(부분 인덱스) → 폴백이 실제 경로 |
+| **P2a** | 주차 이력 = 로트×시간 행렬(~0.8MB, `services/parking_history.py` — 전용 스레드가 DB에서 56일 적재 · 5분 꼬리 · 수집 직후 다시 읽기 · 30분 대조) → 권역 수요 전망을 **요청한 정확한 좌표**로 메모리에서(운영 RPC 와 비트 동일한 `%.15g` 커널), 격자 캐시 −40~105MB, 전망 3초 → ms. 스위치 `AREA_DEMAND_SOURCE`(기본 `rpc` = 도입 전 그대로) | `perf/parking-history` 완료 — **꺼진 채(rpc) 반영**(PM 09-28). 전환은 아래 "P2a 전환 절차" |
+| P2b | 격자 캐시·RPC 경로·예열 호출부 삭제, 수집이 행렬에 실시간 값 직접 공급 — `matrix` 24시간 무폴백(부팅 제외) 뒤에만 | 대기 |
 | P3 | 모든 소비자가 스냅샷을 읽음 → 시설 캐시 4벌·deepcopy 삭제, 보행 그래프 CSR(빌드 시 굽기), 예측 표(요청 경로에서 sklearn 제거 −55MB) | 대기 |
 | P4 | 프로필 캐시 전역 락 → 사용자별 single-flight · 쓰기 멱등(클라이언트 uuid + on_conflict)으로 재시도 안전화. **JWKS는 적재 스레드에 올리지 않는다**(B6) | 대기 |
 | P5 | 관리자·상인·dev 집계를 Postgres RPC로(마이그레이션 = SQL Editor 사람 작업, 코드는 RPC 없으면 옛 경로) | 대기 |
@@ -54,6 +56,34 @@ FastAPI 워커 1개(Render 512MB/0.5CPU)
 - **B5** Vercel·Render 는 같은 main 푸시로 배포되지만 Render 가 늦다 — 새 엔드포인트에 의존하는 웹 변경은 API 배포 확인 뒤 별도 푸시.
 - **B6** 인증 키(JWKS) 갱신은 참조 적재와 다른 실패 영역에 둔다.
 - 스냅샷 교체 전 건전성 검사: 활성 수가 20% 넘게 줄면 두 번 연속 같을 때만 교체(P1 구현).
+
+## P2a 전환 절차 (PM — Render 콘솔)
+
+`AREA_DEMAND_SOURCE` 는 Render env 다. 바꾸면 서비스가 **재시작**한다(1~2분, 즉시가 아니다). 데이터·스키마는 건드리지 않는다.
+
+1. **main 반영(기본 `rpc`)** — 배포만으로는 손님 쪽이 아무것도 바뀌지 않는다(적재 스레드·추가 DB 호출 없음). `/health.parking_history` = `{"mode":"rpc"}`.
+2. **`shadow` 로 설정.** 답은 여전히 오늘 경로 그대로이고, 메모리 행렬로도 계산해 차이만 센다. 1분쯤 뒤 `/health.parking_history`:
+   `ready: true` · `rows` ≈ 5,100(56일 창이 차면 ~8,064) · `lots: 4` · `failures: 0` · 그 뒤로 `last_sync_age_s` < 300.
+   비용: 스레드 1개·+2~6MB, 꼬리 읽기 5분마다·대조 30분마다·재시작마다 6쪽 적재, 자기 탐침 RPC 하루 ≤288회.
+3. **24시간 이상, 재시작 1회 포함**으로 둔다. 숫자는 재시작마다 0부터라 재시작 직전 값을 적어 두고 합산한다. 게이트
+   (`/health.parking_history.shadow` 와 10분마다 한 줄인 로그 `area_demand_shadow_summary`):
+   - `rows == 0` · `value == 0` · `forecast_mismatch == 0` · `probe_failed` ≤ `probes` 의 5%
+   - `edge` ≤ `compared` 의 2% — 넘으면 꼬리 동기화가 밀리는 것이니 올리지 말고 조사
+   - 표본: `compared` ≥ 200 · `forecast_compared` ≥ 100 · 요약 로그 `probes_by_class` 의 center·edge_in·edge_out·one_lot 각 ≥ 8, far ≥ 5 · `distinct_facility_coords` ≥ 20
+   - `ulp`·`repr_only` 는 허용(기록만). `served_grid_quality_differs` > 0 은 예상값이다 — 오늘 경로가 같은 100m 격자의 다른 장소 품질을 주는 횟수(행렬 결함 아님)
+4. **go/no-go 측정**(Render 모양 컨테이너 0.5 CPU·512MB, 저장소 밖 스크립트 — 운영 시설 좌표 읽기 1회 승인됨): 콜드 코스(36곳)·유형별(24곳)에서
+   행렬 CPU ≤ 오늘 경로 CPU 이고 벽시계도 ≤ · 코스와 동시에 `/waiting` 전망 p95 ≤ 2초(웹 타임아웃 8초) · 이벤트 루프 멈춤 ≤ 20ms ·
+   RSS 행렬+메모 ≤ +13MB, 폴백으로 격자 캐시가 찬 뒤 비우면 +5MB 안 · 부팅 적재 일시 ≤ +6MB, 참조 스냅샷 준비 시각 불변. 하나라도 실패하면 `shadow` 유지 + 보고.
+5. **둘 다 통과 → `matrix`.** 확인: `fallback_served` 가 부팅 직후 몇 건 뒤로 멈춘다 · 로그 `area_demand_source_fallback` 사유가 부팅 30~60초의
+   `not_ready` 뿐 · Render 메모리 그래프 24시간 · `/area-demand/forecast` 응답 시간.
+
+- **되돌림**: 언제든 `AREA_DEMAND_SOURCE=rpc` — 재시작 한 번(1~2분).
+- **로그에서 볼 것**: `parking_history_loaded`(부팅 적재 rows·pages·elapsed_ms) · `parking_history_synced` · `parking_history_sync_failed`(백오프로 묶임) ·
+  `parking_history_reconcile_mismatch` · `parking_history_loop_error` · `area_demand_shadow_diff`(10분에 ≤5줄 — kind 가 rows·value·forecast 면 결함 후보) ·
+  `area_demand_shadow_failed` · `area_demand_shadow_probe_failed`. `/health` 에는 정수·모드·예외 종류 이름만 싣는다(오류 원문·좌표 없음).
+- **`matrix` 에서 손님이 느낄 것**: `/waiting` 전망이 빨라진다(콜드 ~3초 → 0.5초 미만 예상) · 같은 100m 격자 안 두 장소가 각자 자기 값을 받는다(근소하게 비기던
+  후보의 순위가 바뀔 수 있다, SPOT 식·가중치는 그대로) · 새 10분 수집이 몇 초 안에 반영된다 · 재시작 직후 30~60초와 동기화 15분 초과 동안은 그 호출만 오늘 경로로
+  답한다(값이 잠깐 오늘 경로 값으로 바뀌었다 돌아올 수 있다) · Supabase 장애 때 15분 동안은 메모리로 계속 답한다.
 
 ## 부수 발견 (이번 범위 밖)
 

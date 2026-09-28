@@ -166,6 +166,11 @@ Render 무료 티어(0.1 CPU)의 콜드 비용을 첫 사용자에게 전가하�
 - **워커 스레드 오프로드** — 동기 sklearn 추론을 `asyncio.to_thread`로 이벤트 루프 밖에서
 - **stale connection 재시도** — `_StaleConnectionRetryTransport`가 keepalive 만료 500을 1회 재시도
 - **프런트 타임아웃** — Supabase 6초 / API 10초. 초과 시 무한 로딩 대신 폴백 UI
+- **권역 수요 전망 원본 스위치** — `AREA_DEMAND_SOURCE`(기본 `rpc`): `area_demand_forecast_service` 가 좌표마다 DB RPC
+  `area_demand_points_near`(격자 캐시)로 계산한다. `shadow`·`matrix` 면 `parking_history.py` 가 `area_demand_snapshots` 56일을
+  메모리 행렬로 들고(전용 스레드 `nextspot-parking` — 부팅 적재·5분 꼬리·수집 직후 다시 읽기·30분 대조) 정확한 좌표로 계산한다.
+  `shadow` 는 답은 RPC 그대로·차이만 세고, `matrix` 는 행렬로 답하되 준비 전·오래됨이면 그 호출만 RPC. 상태는 `/health.parking_history`,
+  전환 절차는 [`API_ARCHITECTURE_PLAN.md`](./API_ARCHITECTURE_PLAN.md) "P2a 전환 절차"
 
 ---
 
@@ -608,7 +613,7 @@ users ──┬── user_preference_vectors   (8차원, 수락 +10% / 거절 �
         ├── facility_owners                 (승인 결과 = 가게 소유권)
         └── role_audit_log                  (역할·소유권·심사 이력)
 
-area_demand_snapshots ─── area_demand_snapshot_lots   (경주 ITS 주차 10분 실측)
+area_demand_snapshots ─── area_demand_snapshot_lots   (경주 ITS 주차 10분 실측 — AREA_DEMAND_SOURCE≠rpc 면 API 메모리 행렬로도 적재)
 seoul_citydata_snapshots  (서울 실시간 도시데이터 10분 — 실측 인파 정답 + 같은 버킷의 우리 추정 level_est.
                            검증 전용, congestion_logs 와 분리. 마이그레이션 20260920120000)
 model_registry ──── Storage: recommendation-models (private)

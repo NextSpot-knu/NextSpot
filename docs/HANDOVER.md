@@ -46,6 +46,8 @@
 
 외부 콘솔 접근이 필요해 코드로 못 하는 일. 끝나면 줄을 지우고 "최근 세션"에 한 줄 남긴다.
 
+- [ ] **(P2a 가 main 에 들어간 뒤) Render `AREA_DEMAND_SOURCE=shadow`** → 24시간·재시작 1회 뒤 게이트와 go/no-go 측정 → `matrix`.
+      순서·게이트·되돌림(`rpc`, 재시작 1~2분)·볼 것은 [`API_ARCHITECTURE_PLAN.md`](./API_ARCHITECTURE_PLAN.md) "P2a 전환 절차". 반영 전에는 할 일 없음.
 - [ ] **공공 API 키 회전** — `TOURAPI_KEY`·`KMA_API_KEY`·`PARKING_API_KEY`·`GYEONGJU_FOOD_API_KEY`. httpx INFO 로그가 쿼리스트링째 전체 URL을 남겨 Render 로그 이력에 키가 있을 수 있다(09-28 `d9639c2` 로 차단). 새 키 발급 → Render·GitHub Secrets 갱신.
 - [ ] Render `nextspot-api` 환경변수 `SUPABASE_SERVICE_ROLE_KEY` 끝의 줄바꿈 지우기(09-27 발견 — 코드가 이미 걷으므로 급하지 않다. 저장하면 재배포된다).
 - [ ] **서울 수집이 0건이다 — 원인 확인**(2026-09-20 20:38 KST 기준 `seoul_citydata_snapshots` 0행).
@@ -191,6 +193,16 @@ from checks order by seq;
 
 최신이 위. 10개를 넘으면 가장 오래된 항목을 `archive/HANDOVER_LOG.md` 맨 위로 옮긴다.
 
+## 2026-09-28d — API 재설계 P2a: 권역 수요 전망을 메모리 주차 이력 행렬로 (스위치 꺼진 채 — rpc)
+
+- 도구·브랜치: Claude Code(명세 → 레드팀 3렌즈 → 수정 → 단계별 구현 워크플로, 단계마다 시험·변이 검사) / `perf/parking-history`(3cf5bf9 위, 미푸시)
+- 커밋: dd6d5c8..(이 기록) (10건). 계획·전환 절차는 [`API_ARCHITECTURE_PLAN.md`](./API_ARCHITECTURE_PLAN.md) "P2a 전환 절차"
+- 한 것: `services/parking_history.py`(56일 로트×시간 행렬 · 전용 스레드 부팅 적재·5분 꼬리·수집 직후 다시 읽기·30분 대조 · `/health.parking_history`) + 전망 서비스의 행렬 커널(`%.15g` — 운영 RPC 와 비트 동일)·정확 좌표 메모·백테스트 계획 공유 +
+  `AREA_DEMAND_SOURCE` 분기: `rpc`(기본 — 도입 전 경로 그대로, 스레드·DB 호출 없음) · `shadow`(답은 rpc, 요청 비교·자기 탐침으로 차이만 셈) · `matrix`(행렬로 답하고 못 하면 그 호출만 rpc, 폴백 뒤 격자 캐시 비움, `/waiting` 전용 차선). PM 결정(09-28): 꺼진 채 반영.
+- 검증: api ruff + pytest 1958 passed(3cf5bf9 1841) · OpenAPI 스냅샷 동일 · RPC 경로 원본 해시 고정(3cf5bf9 와 같음) · check-docs. score.py·SPOT 가중치·마이그레이션·웹 무변경.
+- 다음·미결: go/no-go 측정(Render 모양 0.5 CPU/512MB, 운영 시설 좌표 읽기 1회 승인됨)은 아직 — `matrix` 전 필수. P2b(격자 캐시·RPC 경로 삭제, 수집 실시간 공급)는 `matrix` 24시간 무폴백 뒤. `_points_locks` 누수(기존)는 P2b 에서.
+- 사람 작업: main 반영 뒤 Render `AREA_DEMAND_SOURCE=shadow`(위 "사람 작업 대기").
+
 ## 2026-09-28c — P0b: 웹만 — 관제 장소 표 전량 · 지도 비상 경로 활성만 · /waiting 곡선 6점 · 숨은 탭 폴링 멈춤 (main 미반영)
 
 - 도구·브랜치: Claude Code(하위 에이전트) / `web/batch-0928`(main `367514c` + 사진 출처 `40db900..bd2663b` 위)
@@ -202,7 +214,7 @@ from checks order by seq;
 - 다음·미결: main 반영은 C1~C7 한 번에, 심사 시간 밖(웹만 바뀌어도 Render 가 재배포·캐시 초기화) → 폰 스모크(스펙 §9.4). 관제 대시보드는 390px 에서 사이드바 256px + `grid-cols-3` 라 장소 표 카드가 약 39px 로 눌린다 — 이번 이전부터의 문제로 범위 밖, 폰으로 관제를 여는 심사 대비는 별도 결정. 위 2026-09-28 항목의 "웹 경계 파라미터 이름 불일치"는 틀렸다(경계 필터는 적용된다 — 계획 문서에서 정정).
 - 사람 작업: 없음
 
-## 2026-09-28b — P0c: TourAPI 일배치가 좋은 값을 덮지 않게 · 수집 경보를 스냅샷 표에서 (main 미반영)
+## 2026-09-28b — P0c: TourAPI 일배치가 좋은 값을 덮지 않게 · 수집 경보를 스냅샷 표에서 (main 반영 367514c)
 
 - 도구·브랜치: Claude Code(하위 에이전트) / `fix/ingest-keyset-upsert`
 - 커밋: 8a8f54f..d0bacd1 (3건) + 이 기록 + 독립 리뷰 수정 ca91cbe..af24be4 (6건, 각각 되돌릴 수 있게) + 2차 리뷰 수정 ed76621..1f70c50 (4건) + 이 갱신. 단계 표는 [`API_ARCHITECTURE_PLAN.md`](./API_ARCHITECTURE_PLAN.md) P0c
