@@ -31,7 +31,7 @@ import { recToSpot } from "@/lib/recommender";
 import { congestionDisplay, parseCongestionEstimate } from "@/lib/congestionEstimate";
 // 보드의 세 숫자(예상 대기 · 혼잡 등급 · 한산해지는 시각)의 단일 소스.
 import { estimateWait, displayHour, compareWaitMinutes, showsCalmLine, heroWaitCandidate, type WaitEstimate } from "@/lib/waitEstimate";
-import { fetchAreaDemandCurve, type AreaDemandCurve } from "@/lib/areaDemandCurve";
+import { curveForBase, fetchAreaDemandCurve, type AreaDemandCurve } from "@/lib/areaDemandCurve";
 // 분으로 말할 근거가 없는 카드는 등급으로 말한다 — 등급 경계는 지도·카드와 같은 공용 판정을 쓴다.
 import { congestionKey } from "@/lib/congestionScale";
 import { REGION } from "@/lib/region";
@@ -347,7 +347,10 @@ export default function WaitingBoardPage() {
       return next === current || !next ? prev : { ...prev, [facilityId]: next };
     });
   }, []);
-  const [areaCurve, setAreaCurve] = useState<AreaDemandCurve | null>(null);
+  // 권역 수요 곡선은 **기준 시각별로** 따로 둔다(키: 'now' 또는 프리셋 시각 ms). 하나만 두면 프리셋을
+  // 바꿨을 때 새 곡선이 비어 있는 동안 오늘 곡선이 남아 토요일 카드에 오늘의 '한산해지는 시각'이 붙었다.
+  // 이미 받은 기준으로 돌아가면 다시 받지 않은 채 바로 그 곡선을 쓴다(깜빡임 없음).
+  const [areaCurves, setAreaCurves] = useState<Record<string, AreaDemandCurve>>({});
 
   // 가정 시각 프리셋이 가리키는 절대 시각 — 대기·한산 시각 계산의 기준점.
   // 'now' 면 현재. 프리셋이 바뀌면 곡선도 그 시각 기준으로 다시 받는다.
@@ -364,6 +367,8 @@ export default function WaitingBoardPage() {
     return () => clearInterval(id);
   }, []);
   const effectiveBaseMs = baseAtMs ?? nowMs;
+  const baseKey = baseAtMs === null ? 'now' : String(baseAtMs);
+  const areaCurve = curveForBase(areaCurves, baseKey);
 
   useEffect(() => {
     let alive = true;
@@ -394,10 +399,14 @@ export default function WaitingBoardPage() {
         baseAtMs ? new Date(baseAtMs) : new Date(),
         controller.signal,
       );
-      if (alive && Object.keys(curve).length > 0) setAreaCurve(curve);
+      if (!alive) return;
+      // 빈 재조회가 같은 기준의 좋은 곡선을 지우지 않는다. 처음부터 빈 결과면 '알고 보니 없음' 으로 기록한다.
+      setAreaCurves((prev) =>
+        Object.keys(curve).length > 0 || !(baseKey in prev) ? { ...prev, [baseKey]: curve } : prev,
+      );
     })();
     return () => { alive = false; controller.abort(); };
-  }, [baseAtMs]);
+  }, [baseAtMs, baseKey]);
 
   // 카드 한 장의 세 숫자. 렌더 중 여러 번 불리므로 순수 계산만 한다(네트워크 없음).
   const waitOf = useCallback(
