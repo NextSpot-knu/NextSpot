@@ -48,6 +48,7 @@ import {
   creditForDisplayedPhoto,
   displayedPhotoUrl,
   imageSourceOf,
+  isWikimediaUrl,
   type PhotoCursor,
 } from "@/lib/photoCredit";
 import { PhotoCreditLink } from "@/components/PhotoCreditLink";
@@ -793,7 +794,13 @@ export default function WaitingBoardPage() {
 
                   {/* 대표 카드 3장 — 도착 대기 짧은 순 상위 3곳, 세로로 긴 포트레이트 카드 */}
                   <div className="grid grid-cols-3 items-stretch gap-2">
-                    {topRows.map((row, idx) => {
+                    {(() => {
+                    // 이 줄의 카드 중 하나라도 Wikimedia 사진을 띄울 수 있으면 출처 두 줄 자리를 처음부터
+                    // 잡아 둔다 — 대표 사진이 깨져 출처가 나중에 생겨도 아래 내용이 밀리지 않는다.
+                    const rowMayCredit = topRows.some((row) =>
+                      creditedPhotoUrls(row.imageUrls, { imageSource: row.imageSource }).some(isWikimediaUrl),
+                    );
+                    return topRows.map((row, idx) => {
                       const photoFeatures = { imageSource: row.imageSource };
                       // 출처 없는 Wikimedia 사진은 후보에서 빠진다(출처 없이 띄우지 않는다).
                       const photoUrls = creditedPhotoUrls(row.imageUrls, photoFeatures);
@@ -852,14 +859,17 @@ export default function WaitingBoardPage() {
                           <WaitStats est={waitOf(row)} row={row} estimateLevel={estimateLevels[row.facilityId]} />
                         </div>
                       </button>
-                      {/* 높이를 늘 확보해 둔다 — 출처 줄이 생기고 사라져도 카드 줄이 흔들리지 않는다. */}
-                      {/* min-w-0: 출처 줄의 글자 폭이 카드 열을 넓히지 않게(긴 작가 이름은 말줄임). */}
-                      <div className="min-h-4 min-w-0 pt-0.5">
-                      {photoCredit && <PhotoCreditLink credit={photoCredit} />}
+                      {/* 높이를 늘 확보해 둔다 — 출처 줄이 생기고 사라져도 카드 줄이 흔들리지 않는다.
+                          min-w-0: 출처 줄의 글자 폭이 카드 열을 넓히지 않게(긴 작가 이름은 말줄임).
+                          pt-2: 카드 아래 가장자리를 누르려던 엄지가 출처 링크(새 창)로 새지 않게 띄운다.
+                          카드 폭이 좁아 작가 이름과 라이선스를 두 줄로 나눈다 — 이름이 한 줄을 다 쓴다. */}
+                      <div className={`min-w-0 ${rowMayCredit ? "min-h-9 pt-2" : "min-h-4 pt-0.5"}`}>
+                      {photoCredit && <PhotoCreditLink credit={photoCredit} stacked />}
                       </div>
                       </div>
                       );
-                    })}
+                    });
+                    })()}
                   </div>
 
                   {/* 섹터 1위 골든타임 — 카드 밖 한 줄(컴팩트 카드 폭 안에 배지+알림 버튼이 안 들어감).

@@ -130,8 +130,8 @@ test('main card: a Wikimedia gallery photo is shown with its credit link', async
   await expect(link).toHaveAttribute('target', '_blank');
   await expect(link).toHaveAttribute('rel', 'noopener noreferrer');
   await expect(link).toContainText('CC BY-SA 4.0');
-  // 긴 작가 이름은 한 줄에서 말줄임 — 390px 에서 가로 넘침이 없다.
-  expect((await link.boundingBox())?.height ?? 0).toBeLessThanOrEqual(16);
+  // 긴 작가 이름은 한 줄에서 말줄임 — 390px 에서 가로 넘침이 없다(글자 한 줄 + 누르는 자리, 24px 상자).
+  expect((await link.boundingBox())?.height ?? 0).toBeLessThanOrEqual(24);
   await expect.poll(
     () => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth),
   ).toBeLessThanOrEqual(1);
@@ -205,7 +205,7 @@ test('waiting board: the credit follows the photo each card actually shows', asy
     ['대표사진 식당', '대체사진 식당', '출처없음 식당'].map(async (name) => (await card(name).getByRole('button').first().boundingBox())?.width ?? 0),
   );
   expect(Math.max(...widths) - Math.min(...widths)).toBeLessThanOrEqual(1);
-  expect((await fallbackCredit.boundingBox())?.height ?? 0).toBeLessThanOrEqual(16);
+  expect((await fallbackCredit.boundingBox())?.height ?? 0).toBeLessThanOrEqual(28); // 이름 한 줄 + 라이선스 한 줄
   await expect.poll(
     () => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth),
   ).toBeLessThanOrEqual(1);
@@ -244,4 +244,32 @@ test('main card: the ⓒ TourAPI chip never sits on top of a Wikimedia photo', a
   expect(photoBox && linkBox && chipBox).toBeTruthy();
   expect(chipBox!.y).toBeGreaterThanOrEqual(photoBox!.y + photoBox!.height);
   expect(chipBox!.y).toBeGreaterThanOrEqual(linkBox!.y + linkBox!.height);
+  // 출처 링크는 누르기 좋은 24px 상자, 글자는 사진 바로 아래.
+  expect(linkBox!.height).toBeGreaterThanOrEqual(24);
+});
+
+test('waiting board: the credit shows the artist on its own line and keeps clear of the card', async ({ page }) => {
+  await mockFacilities(page, [{
+    id: 'board-wiki', name: '월정교 식당', type: 'restaurant',
+    image_url: null, gallery_images: [WIKI_PHOTO],
+    features: { image_source: credit('Woljeonggyo.jpg', 'Kang Byeong Kee', 'CC BY-SA 4.0') },
+  }]);
+  await page.goto('/waiting');
+  const card = page.locator('div.grid-rows-\\[1fr_auto\\]').filter({ hasText: '월정교 식당' });
+  await expect(card).toBeVisible({ timeout: 30_000 });
+  const link = card.locator(CREDIT_LINK);
+  await expect(link).toBeVisible();
+  const [name, license] = [link.locator('span').nth(0), link.locator('span').nth(1)];
+  await expect(name).toHaveText('Kang Byeong Kee');
+  await expect(license).toHaveText('CC BY-SA 4.0');
+
+  // 작가 이름이 좁은 카드 폭 안에서 잘리지 않고, 라이선스는 다음 줄.
+  expect(await name.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+  const [nameBox, licenseBox] = await Promise.all([name.boundingBox(), license.boundingBox()]);
+  expect(licenseBox!.y).toBeGreaterThanOrEqual(nameBox!.y + nameBox!.height - 1);
+
+  // 카드 아래 가장자리와 출처 링크 사이에 틈(8px 이상) — 카드를 누르려던 엄지가 새 창 링크로 새지 않는다.
+  const [cardBox, linkBox] = await Promise.all([card.getByRole('button').first().boundingBox(), link.boundingBox()]);
+  expect(linkBox!.y - (cardBox!.y + cardBox!.height)).toBeGreaterThanOrEqual(8);
+  expect(linkBox!.height).toBeGreaterThanOrEqual(24);
 });

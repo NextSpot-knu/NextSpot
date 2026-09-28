@@ -1486,7 +1486,7 @@ function RecommendContent() {
                         }}
                         className="w-full h-36 object-cover rounded-xl border border-line"
                       />
-                      {photoCredit && <PhotoCreditLink credit={photoCredit} className="mt-1" />}
+                      {photoCredit && <PhotoCreditLink credit={photoCredit} className="-mt-px -mb-[5px]" />}
                     </div>
                   )}
                   {/* Top info row */}

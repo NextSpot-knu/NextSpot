@@ -1349,7 +1349,8 @@ export function RecommendationCard({
                 onError={() => setCardImageIndex((current) => current + 1)}
                 className="block w-full h-32 object-cover rounded-2xl border border-line"
               />
-              {cardImageCredit && <PhotoCreditLink credit={cardImageCredit} className="mt-1" />}
+              {/* 누르는 자리 24px 중 글자 줄만 사진 4px 아래에 보이게 — 위 -1px·아래 -5px. */}
+              {cardImageCredit && <PhotoCreditLink credit={cardImageCredit} className="-mt-px -mb-[5px]" />}
             </div>
           )}
 
