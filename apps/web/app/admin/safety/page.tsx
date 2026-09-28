@@ -8,6 +8,7 @@ import {
 import { AdminSidebar } from '@/components/AdminSidebar';
 import { adminApi } from '@/lib/admin-api';
 import { errorMessage } from '@/lib/errors';
+import { usePolling } from '@/lib/usePolling';
 
 // 인파 밀집 안전 경보(B2G 관제) — GET /api/v1/admin/safety/status (apps/api/app/routers/safety.py) 미러.
 //
@@ -77,6 +78,11 @@ interface SafetyStatusResponse {
 }
 
 type NotifPermission = 'default' | 'granted' | 'denied' | 'unsupported';
+
+/** 조회 쿼리의 임계값 한 쌍(슬라이더 %) → 비교용 키. fetchStatus 의 쿼리 문자열과 같은 반올림. */
+function thresholdKey(alertPct: number, warnPct: number): string {
+  return `${(alertPct / 100).toFixed(2)}|${(warnPct / 100).toFixed(2)}`;
+}
 
 function pct(v: number): string {
   return `${Math.round(v * 100)}%`;
@@ -213,11 +219,16 @@ export default function SafetyPage() {
     }
   }, []);
 
+  // 마지막으로 조회를 시작한 임계값 쌍. 슬라이더 디바운스가 같은 값으로 다시 묻지 않게 한다 —
+  // 마운트 직후 디바운스 effect 가 첫 조회와 같은 값으로 무거운 조회를 한 번 더 보내던 것을 막는다.
+  const lastQueryKeyRef = useRef<string | null>(null);
+
   const fetchStatus = useCallback(async (isSilent = false) => {
+    const alertQ = (alertRef.current / 100).toFixed(2);
+    const warnQ = (warnRef.current / 100).toFixed(2);
+    lastQueryKeyRef.current = thresholdKey(alertRef.current, warnRef.current);
     if (!isSilent) setLoading(true);
     try {
-      const alertQ = (alertRef.current / 100).toFixed(2);
-      const warnQ = (warnRef.current / 100).toFixed(2);
       const res: SafetyStatusResponse = await adminApi.get(
         `/api/v1/admin/safety/status?threshold=${alertQ}&warn=${warnQ}`,
       );
@@ -238,16 +249,16 @@ export default function SafetyPage() {
     }
   }, [fireAlertNotification]);
 
-  // 최초 로드 + 30초 자동 새로고침(cleanup 필수)
-  useEffect(() => {
-    fetchStatus();
-    const id = setInterval(() => fetchStatus(true), REFRESH_INTERVAL_MS);
-    return () => clearInterval(id);
-  }, [fetchStatus]);
+  // 최초 로드 + 30초 자동 새로고침. 숨은 탭에서는 멈추고(돌아와서 30초가 지났으면 한 번 새로 고침),
+  // '알림 받기' 가 켜져 있으면 숨은 탭에서도 계속 돈다 — 경보 증가 알림은 그 폴링이 감지한다.
+  useEffect(() => { fetchStatus(); }, [fetchStatus]);
+  usePolling(() => fetchStatus(true), REFRESH_INTERVAL_MS, { keepWhileHidden: () => notifEnabledRef.current });
 
-  // 임계값 슬라이더 변경 → 디바운스 후 재조회(쿼리 파라미터로 전달)
+  // 임계값 슬라이더 변경 → 디바운스 후 재조회(쿼리 파라미터로 전달). 마지막 조회와 같은 값이면 묻지 않는다.
   useEffect(() => {
-    const t = setTimeout(() => { fetchStatus(true); }, 400);
+    const t = setTimeout(() => {
+      if (thresholdKey(alertRef.current, warnRef.current) !== lastQueryKeyRef.current) fetchStatus(true);
+    }, 400);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [alertPct, warnPct]);

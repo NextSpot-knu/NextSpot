@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { AlertTriangle, CarFront, RefreshCw } from 'lucide-react';
 import { adminApi } from '@/lib/admin-api';
+import { usePolling } from '@/lib/usePolling';
 
 interface ReliabilityResponse {
   source: string;
@@ -59,11 +60,9 @@ export function AreaDemandReliabilityPanel() {
     }
   }, []);
 
-  useEffect(() => {
-    void refresh();
-    const timer = window.setInterval(() => void refresh(), 60_000);
-    return () => window.clearInterval(timer);
-  }, [refresh]);
+  // 첫 조회 + 60초 자동 새로고침. 숨은 탭에서는 멈추고, 돌아왔을 때 60초가 지났으면 한 번 새로 고친다.
+  useEffect(() => { void refresh(); }, [refresh]);
+  usePolling(refresh, 60_000);
 
   const latest = data?.latest;
   const unhealthy = error || !latest || latest.freshness_state !== 'fresh' || !latest.lot_details_complete;
