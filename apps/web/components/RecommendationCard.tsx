@@ -566,6 +566,26 @@ export function RecommendationCard({
       setLiveLoading(false);
     }
   };
+  // 실시간 정보 새로고침 + 데이터 출처 — TourAPI(detailCommon2/Intro2) 라이브 조회로 아래 표시값(운영시간·개요·
+  // 홈페이지·사진·전화)을 덧씌운다. contentid/contenttypeid 가 있는 TourAPI 적재분에만 노출하고,
+  // 실패/미조회는 캐시된 값을 그대로 유지한다(에러 UI 없음 — 무해 폴백).
+  // 출처 칩은 라이브 조회 전에도 보이고, 상세에서 개요(없으면 주소·전화·운영시간) 바로 위에 한 번만 그린다.
+  const liveSourceRow = canLiveRefresh ? (
+    <div className="flex items-center gap-2">
+      <button
+        type="button"
+        onClick={handleLiveRefresh}
+        disabled={liveLoading}
+        className="inline-flex items-center gap-1 text-[11px] font-bold text-gold-deep underline decoration-dotted underline-offset-2 hover:text-gold disabled:opacity-50"
+      >
+        <RefreshCw size={12} className={liveLoading ? 'animate-spin' : ''} aria-hidden />
+        {t('card.liveRefresh')}
+      </button>
+      <span className="rounded-full border border-jade/30 bg-jade/10 px-2 py-0.5 text-[10px] font-bold text-jade">
+        {liveDetail ? t('card.liveSource') : t('guide.sourceTour')}
+      </span>
+    </div>
+  ) : null;
 
   // TourAPI 상세(A2) — 시설 정규 컬럼(facility.address/phone) 우선, 카카오 Places 검색값은 폴백으로 강등.
   // 둘 다 없으면 렌더하지 않는다('지어내지 않기'). phone/homepage/운영시간은 실시간 조회값이 있으면 우선.
@@ -1335,8 +1355,9 @@ export function RecommendationCard({
             <div className="border-t border-line pt-3.5 space-y-3 text-xs text-muk-soft">
 
           {/* 대표 사진(TourAPI firstimage→갤러리 폴백) — 실제 이미지가 있을 때만. 전부 로드 실패 시 숨겨 깨진 이미지를 노출하지 않는다.
-              상세의 맨 위에 둔다: 아래 'ⓒ한국관광공사 TourAPI' 표시가 사진 위에 얹히면 Wikimedia(CC) 사진에
-              공사 저작권 표시가 붙은 것처럼 읽힌다. 사진의 출처는 사진 바로 아래 줄(Wikimedia 일 때만)이 말한다. */}
+              상세의 맨 위에 둔다. 사진의 출처는 사진 바로 아래 줄(Wikimedia 일 때만)이 말하고, 'ⓒ한국관광공사 TourAPI'
+              표시는 사진과 떨어진 글 쪽(💡 사유 아래, 개요·주소·운영시간 바로 위)에 둔다 — 사진 곁에 두면 Wikimedia(CC)
+              사진에 붙은 두 번째 저작권 표시로 읽힌다. */}
           {cardImageUrl && (
             <div>
               {/* TourAPI 이미지 원본은 도메인이 다양해 next/image 최적화 대상이 아님(정적 export) — img 사용 */}
@@ -1354,33 +1375,15 @@ export function RecommendationCard({
             </div>
           )}
 
-          {/* 실시간 정보 새로고침 — TourAPI(detailCommon2/Intro2) 라이브 조회로 아래 표시값(운영시간·개요·
-              홈페이지·사진·전화)을 덧씌운다. contentid/contenttypeid 가 있는 TourAPI 적재분에만 노출하고,
-              실패/미조회는 캐시된 값을 그대로 유지한다(에러 UI 없음 — 무해 폴백). */}
-          {canLiveRefresh && (
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={handleLiveRefresh}
-                disabled={liveLoading}
-                className="inline-flex items-center gap-1 text-[11px] font-bold text-gold-deep underline decoration-dotted underline-offset-2 hover:text-gold disabled:opacity-50"
-              >
-                <RefreshCw size={12} className={liveLoading ? 'animate-spin' : ''} aria-hidden />
-                {t('card.liveRefresh')}
-              </button>
-              {/* 개요·운영시간·전화의 데이터 출처는 라이브 조회 전에도 표시한다(사진 아래·본문 위 자리). */}
-              <span className="rounded-full border border-jade/30 bg-jade/10 px-2 py-0.5 text-[10px] font-bold text-jade">
-                {liveDetail ? t('card.liveSource') : t('guide.sourceTour')}
-              </span>
-            </div>
-          )}
-
           {/* AI 추천 사유 (백엔드 템플릿, 있을 때만) */}
           {reason && (
             <p className="text-[13px] leading-relaxed text-muk bg-gold/10 border border-gold/25 rounded-2xl px-3.5 py-2.5">
               💡 {reason}
             </p>
           )}
+
+          {/* ⓒ TourAPI 표시는 그것이 가리키는 글(개요) 바로 위 — 개요가 없으면 주소·전화·운영시간 바로 위(아래). */}
+          {displayOverview && liveSourceRow}
 
           {/* 소개(TourAPI overview, 비-ko 로케일이면 배치 번역 우선) — 장소 판단에 충분하도록 6줄까지 표시. */}
           {displayOverview && (
@@ -1418,6 +1421,9 @@ export function RecommendationCard({
               )}
             </div>
           )}
+
+          {/* 개요가 없는 장소: ⓒ TourAPI 표시가 주소·전화·운영시간 바로 위(위의 카카오 별점 줄이 아니라). */}
+          {!displayOverview && liveSourceRow}
 
           {/* Address — 실제 주소가 있을 때만(TourAPI 컬럼 우선, 카카오 Places 검색값 폴백) */}
           {displayAddress && (

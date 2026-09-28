@@ -8,6 +8,8 @@ import type { PhotoCredit } from '@/lib/photoCredit';
 //   누르는 자리를 더해 24px 상자다(WCAG 2.5.8) — 호출부가 음수 여백으로 보이는 간격을 맞춘다.
 // - stacked(두 줄): 좁은 카드(대기 보드 3열)용 — 작가 이름이 한 줄을 다 쓰고 라이선스는 다음 줄. 28px.
 // 줄 높이가 고정이라 이름 길이로 카드 높이가 흔들리지 않는다.
+// w-fit(+base 의 max-w-full): 누르는 자리는 보이는 글자 폭만큼 — 줄 오른쪽 빈자리를 누르거나 카드를 끌려다
+// 새 창(Commons)이 열리지 않게. 블록 flex 라 인라인 줄 상자(글자 기준선) 때문에 높이가 늘지 않는다.
 export function PhotoCreditLink({
   credit,
   stacked = false,
@@ -26,7 +28,7 @@ export function PhotoCreditLink({
         target="_blank"
         rel="noopener noreferrer"
         title={full}
-        className={`flex min-h-6 flex-col ${base} ${className}`}
+        className={`flex min-h-6 w-fit flex-col ${base} ${className}`}
       >
         <span className="block min-w-0 truncate">{credit.label}</span>
         {credit.license && <span className="block min-w-0 truncate">{credit.license}</span>}
@@ -39,7 +41,7 @@ export function PhotoCreditLink({
       target="_blank"
       rel="noopener noreferrer"
       title={full}
-      className={`flex h-6 items-center py-[5px] ${base} ${className}`}
+      className={`flex h-6 w-fit items-center py-[5px] ${base} ${className}`}
     >
       <span className="min-w-0 truncate">{credit.label}</span>
       {credit.license && <span className="shrink-0 whitespace-pre">{` · ${credit.license}`}</span>}
