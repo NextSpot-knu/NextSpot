@@ -211,3 +211,48 @@ async def test_bbox_call_deep_copies_only_the_survivors(monkeypatch):
     )
     assert 0 < len(rows) < len(cached)
     assert copied_list_sizes == [len(rows)]
+
+
+def _edge_rows(center_lat: float, center_lng: float, radius_m: float) -> tuple[list[dict], set[str], set[str]]:
+    """사각형 **경계 위** 행(포함돼야 한다)과 경계에서 float 한 칸 바깥 행(빠져야 한다).
+
+    경계값은 10ea2d4 의 사각형 식(위도 111,320m/도, 경도는 중심 위도의 cos 로 보정)을 그대로 적은 것이다 —
+    무작위 좌표는 경계에 정확히 떨어지지 않아, 비교를 <= 에서 < 로 바꿔도 위 동등성 테스트가 통과했다.
+    """
+    lat_delta = radius_m / 111_320.0
+    lng_delta = radius_m / max(1.0, 111_320.0 * math.cos(math.radians(center_lat)))
+    lo_lat, hi_lat = center_lat - lat_delta, center_lat + lat_delta
+    lo_lng, hi_lng = center_lng - lng_delta, center_lng + lng_delta
+    inside = {
+        "in-s": (lo_lat, center_lng), "in-n": (hi_lat, center_lng),
+        "in-w": (center_lat, lo_lng), "in-e": (center_lat, hi_lng),
+        "in-sw": (lo_lat, lo_lng), "in-ne": (hi_lat, hi_lng),
+        "in-n-str": (repr(hi_lat), center_lng),  # 문자열 좌표도 float() 로 같은 경계 판정
+    }
+    outside = {
+        "out-s": (math.nextafter(lo_lat, -math.inf), center_lng),
+        "out-n": (math.nextafter(hi_lat, math.inf), center_lng),
+        "out-w": (center_lat, math.nextafter(lo_lng, -math.inf)),
+        "out-e": (center_lat, math.nextafter(hi_lng, math.inf)),
+    }
+    rows = [
+        {"id": fid, "name": fid, "latitude": lat, "longitude": lng, "features": {"edge": True}}
+        for fid, (lat, lng) in {**inside, **outside}.items()
+    ]
+    return rows, set(inside), set(outside)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("radius_m", [1000.0, 2000.0])
+@pytest.mark.parametrize("copy_rows", [True, False])
+async def test_rows_exactly_on_the_rectangle_edge_are_kept(monkeypatch, radius_m, copy_rows):
+    edge, inside, outside = _edge_rows(_CENTER[0], _CENTER[1], radius_m)
+    cached = await _prime(monkeypatch, _fixture_rows() + edge)
+    rows = await recommendations.fetch_all_facilities(
+        center_lat=_CENTER[0], center_lng=_CENTER[1], radius_m=radius_m,
+        with_availability=False, copy_rows=copy_rows,
+    )
+    ids = {f["id"] for f in rows}
+    assert inside <= ids
+    assert not (outside & ids)
+    assert rows == _old_path(cached, _CENTER[0], _CENTER[1], radius_m)
