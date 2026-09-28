@@ -31,8 +31,6 @@ import sys
 from datetime import date, datetime, timedelta, timezone
 from urllib.parse import urlparse
 
-import httpx
-
 # Add parent directory of this script's directory to sys.path (train.py 와 동일 컨벤션)
 current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(current_dir)
