@@ -83,6 +83,12 @@
   --nextspot-dan-red: #b5322e;
   --nextspot-sunset-1: #e8895a;
   --nextspot-sunset-2: #c15b7a;
+  /* 사진 없는 장소의 표지 색(components/PlacePhotoFallback.tsx) — 기와 청회색 · 쪽빛 · 화강석 회색.
+     대기 등급 색(terracotta 혼잡 · gold 보통 · jade 여유)과 겹치지 않게 고른다(lib/placeVisual.test.ts). */
+  --nextspot-tile-slate: #5b6878;
+  --nextspot-tile-indigo: #465a8c;
+  --nextspot-tile-stone: #77736c;
+  --nextspot-tile-mix: 13%;
   color-scheme: light;
 }
 
@@ -169,6 +175,11 @@ html.nextspot-dark {
   --nextspot-dan-red: #df665f;
   --nextspot-sunset-1: #c66f4e;
   --nextspot-sunset-2: #a95070;
+  /* 야간 표지 — 밝은 선·조금 더 진한 섞음. 카드 바탕(#292119)과 구분되는 판이 되게 한다(검은 구멍 금지). */
+  --nextspot-tile-slate: #a3b1c2;
+  --nextspot-tile-indigo: #9aabdb;
+  --nextspot-tile-stone: #bcb5a9;
+  --nextspot-tile-mix: 24%;
   color-scheme: dark;
 }
 
@@ -205,6 +216,15 @@ html.nextspot-dark select {
    변환한다. NextSpot SVG 마커(data URI)와 사용자 위치 마커는 아래 필터 대상이 아니다. */
 html.nextspot-dark .nextspot-map img:not([src^="data:"]) {
   filter: invert(88%) hue-rotate(180deg) brightness(72%) contrast(112%) saturate(72%);
+}
+
+/* 사진 없는 장소의 표지 판 — --tile 은 컴포넌트가 장소마다 정한다(lib/placeVisual.ts). 문양 선은 currentColor. */
+.place-tile {
+  color: var(--tile);
+  background-color: color-mix(in srgb, var(--tile) var(--nextspot-tile-mix), var(--nextspot-hanji-deep));
+  background-image:
+    radial-gradient(circle at 50% 50%, color-mix(in srgb, var(--nextspot-hanji) 45%, transparent) 0, transparent 58%),
+    linear-gradient(160deg, color-mix(in srgb, var(--tile) 12%, transparent), transparent 72%);
 }
 
 body,
