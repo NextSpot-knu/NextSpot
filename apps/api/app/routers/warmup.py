@@ -130,6 +130,25 @@ def _nearest_coordinates(facilities: list[dict], limit: int) -> list[tuple[float
     return [coord for _, coord in scored[:limit]]
 
 
+def _presnap_points(facilities: list[dict]) -> list[tuple[float, float]]:
+    """보행 그래프 사전 스냅에 넘길 시설 좌표 — 추천이 경로를 물을 때 쓰는 키와 같은 `(float(lat), float(lng))`.
+
+    _nearest_coordinates 와 같은 이유로 None·숫자가 아닌 값·inf/NaN 행은 조용히 뺀다(이 목록은 gather 전에
+    동기로 만들어진다 — 한 행이 예외를 내면 예열 단계가 하나도 돌지 않는다). 빠진 행은 요청 때 스냅될 뿐이다."""
+    points: list[tuple[float, float]] = []
+    for facility in facilities:
+        lat, lng = facility.get("latitude"), facility.get("longitude")
+        if lat is None or lng is None:
+            continue
+        try:
+            lat, lng = float(lat), float(lng)
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(lat) and math.isfinite(lng):
+            points.append((lat, lng))
+    return points
+
+
 async def _warm_all() -> None:
     """공유 캐시를 채운다. 하나가 실패해도 나머지는 계속한다."""
     # import 를 함수 안에 두는 이유: 이 라우터가 추천·코스 서비스 그래프를 부팅 시점에
@@ -159,9 +178,12 @@ async def _warm_all() -> None:
     # 2) 나머지 상류는 서로 독립이라 함께 돌린다. 하나가 느려도 다른 것을 막지 않는다.
     #    보행 그래프(gzip JSON 언피클)는 CPU 작업이라 워커 스레드로 밀어낸다 —
     #    이벤트 루프에서 돌리면 예열이 헬스체크를 굶기는 자충수가 된다.
+    #    그래프를 올린 김에 시설 전체의 목적지 스냅도 미리 해 둔다(요청과 같은 float 키) — 예열 뒤 첫
+    #    by-type·추천·코스가 스냅 비용을 물지 않는다. 두 번째 예열부터는 전부 메모 적중이라 수 ms.
     coords = _nearest_coordinates(facilities, _AREA_DEMAND_PREFETCH_LIMIT)
+    presnap_points = _presnap_points(facilities)
     await asyncio.gather(
-        _step("walking_graph", asyncio.to_thread(travel_service._load_graph)),
+        _step("walking_graph", asyncio.to_thread(travel_service.prewarm_destinations, presnap_points)),
         _step("estimates", load_current_estimates()),
         _step("parking", get_nearby_parking_lots(_DEMO_CENTER_LAT, _DEMO_CENTER_LNG, radius_m=3_000)),
         _step("festival", get_event_congestion_boost(_DEMO_CENTER_LAT, _DEMO_CENTER_LNG, now)),

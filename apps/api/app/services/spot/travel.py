@@ -5,9 +5,15 @@ import heapq
 import json
 import math
 import threading
+import time
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+import structlog
+
+logger = structlog.get_logger()
 
 WALKING_SPEED_M_PER_MIN = 66.67
 FALLBACK_ROUTE_FACTOR = 1.18
@@ -18,6 +24,9 @@ _graph_cache: dict[str, Any] | None | bool = False
 # 그래프 적재(15.9MB, 수 초)를 스레드 여럿이 동시에 시작하지 않게 — 콜드 스타트에 추천·코스가 겹치면
 # 각자 적재해 메모리가 두 배로 튀었다. 적재가 끝난 뒤의 조회는 잠금 없이 읽는다(아래 빠른 경로).
 _graph_lock = threading.Lock()
+# 목적지 스냅 메모 상한. 시설 1,682곳이면 ~0.25MB, 상한에 차도 ~1.2MB 이고, 넘으면 통째로 비운다.
+_SNAP_MEMO_MAX = 8192
+_MISS = object()
 
 
 @dataclass(frozen=True)
@@ -111,6 +120,66 @@ def _nearest_node(
     return nearest
 
 
+def _route_kernel() -> str:
+    """WALKING_ROUTE_KERNEL 의 실효 값. 앞뒤 공백·대소문자는 무시하고, 'legacy' 만 도입 전 코드 그대로,
+    그 밖의 값은 전부 memo(csr 는 아직 없다 — 배치 B 에서 받는다).
+
+    설정은 여기서 늦게 읽는다 — 거리 함수만 쓰는 배치·스크립트가 이 모듈을 import 할 때 앱 설정(필수 시크릿)을
+    끌고 오지 않게 한다."""
+    from app.core.config import settings
+
+    value = str(getattr(settings, "WALKING_ROUTE_KERNEL", "memo")).strip().lower()
+    return "legacy" if value == "legacy" else "memo"
+
+
+def _snap_memo_of(graph: dict[str, Any]) -> dict:
+    """그래프 객체에 붙은 목적지 스냅 메모. 모듈 전역이 아니라 **그래프에** 달려 있으므로 새로 적재·주입·
+    교체된 그래프는 언제나 빈 메모로 시작한다(비울 곳이 따로 없다). setdefault — 두 스레드가 동시에 만들어도
+    같은 dict 하나로 끝난다."""
+    memo = graph.get("_snap_memo")
+    if memo is None:
+        memo = graph.setdefault("_snap_memo", {})
+    return memo
+
+
+def _snap_destination(graph: dict[str, Any], latitude: float, longitude: float) -> tuple[int, float] | None:
+    """`_nearest_node` 의 메모. 그래프는 프로세스 동안 바뀌지 않으니 적중 값이 낡을 수 없고, 저장하는 값은
+    같은 키로 계산한 `_nearest_node` 의 반환 그대로다(None 포함). 경합은 GIL 아래 dict get/set 이라
+    최악이어도 두 스레드가 같은 튜플을 한 번씩 계산할 뿐이다."""
+    memo = _snap_memo_of(graph)
+    key = (latitude, longitude)
+    hit = memo.get(key, _MISS)
+    if hit is not _MISS:
+        return hit
+    snap = _nearest_node(graph["coordinates"], graph["spatial_index"], latitude, longitude)
+    if len(memo) >= _SNAP_MEMO_MAX:
+        memo.clear()
+    memo[key] = snap
+    return snap
+
+
+def prewarm_destinations(points: Iterable[tuple[float, float]]) -> int:
+    """시설 좌표를 미리 스냅해 둔다(동기 — 워커 스레드에서 부른다). 예열 뒤 첫 by-type·추천·코스가 스냅
+    비용(Render 기준 호출마다 ~0.7-1.5초)을 물지 않게 한다. 키는 요청이 쓰는 것과 같은 `(float(lat), float(lng))`.
+    그래프가 없거나 legacy 면 아무것도 하지 않고 0."""
+    graph = _load_graph()
+    kernel = _route_kernel()
+    if not graph or kernel == "legacy":
+        return 0
+    started = time.perf_counter()
+    count = 0
+    for latitude, longitude in points:
+        _snap_destination(graph, latitude, longitude)
+        count += 1
+    logger.info(
+        "walking_graph_presnap",
+        count=count,
+        elapsed_ms=round((time.perf_counter() - started) * 1000),
+        kernel=kernel,
+    )
+    return count
+
+
 def _dijkstra(
     adjacency: dict[int, list[tuple[int, float]]], start: int, targets: set[int]
 ) -> dict[int, float]:
@@ -159,10 +228,17 @@ def _walking_routes_sync(
     start_snap = _nearest_node(coordinates, spatial_index, start_lat, start_lng)
     if start_snap is None or start_snap[1] > MAX_GRAPH_SNAP_M:
         return fallbacks
-    destination_snaps = [
-        _nearest_node(coordinates, spatial_index, latitude, longitude)
-        for latitude, longitude in destinations
-    ]
+    # 출발점 스냅은 메모하지 않는다(사용자 위치는 끝이 없고 호출마다 하나뿐). 목적지는 시설 좌표라 되풀이된다.
+    if _route_kernel() == "legacy":
+        destination_snaps = [
+            _nearest_node(coordinates, spatial_index, latitude, longitude)
+            for latitude, longitude in destinations
+        ]
+    else:
+        destination_snaps = [
+            _snap_destination(graph, latitude, longitude)
+            for latitude, longitude in destinations
+        ]
     valid_targets = {
         snap[0] for snap in destination_snaps if snap is not None and snap[1] <= MAX_GRAPH_SNAP_M
     }

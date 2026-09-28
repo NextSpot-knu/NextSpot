@@ -89,6 +89,39 @@ def _check_legacy_console_token() -> None:
         )
 
 
+# 부팅 사전 스냅 태스크를 살려 두는 강한 참조(놓으면 GC 가 실행 중인 태스크를 거둬 갈 수 있다).
+_boot_tasks: set[asyncio.Task] = set()
+
+
+def _start_boot_presnap(facilities: list[dict]) -> asyncio.Task | None:
+    """보행 경로 커널이 csr 일 때만 시설 전체의 목적지 스냅을 부팅 때 스레드에서 미리 한다(기다리지 않는다).
+
+    memo(기본)·legacy 에서는 아무것도 하지 않는다 — dict 그래프 적재의 27MB 피크가 다른 부팅 적재와 겹치면
+    안 되므로(OOM 이력) memo 는 예열(/warmup)에 맡긴다. csr 커널은 배치 B 에서 들어오며, 그 전까지 이 훅은
+    켜질 일이 없다(travel._route_kernel 이 csr 을 돌려주지 않는다). 실패는 경고 한 줄로 삼킨다.
+    """
+    from app.services.spot import travel
+
+    if travel._route_kernel() != "csr":
+        return None
+    from app.routers.warmup import _presnap_points
+
+    points = _presnap_points(facilities)
+
+    async def _run() -> None:
+        try:
+            await asyncio.to_thread(travel.prewarm_destinations, points)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:  # noqa: BLE001 — 사전 스냅은 최적화다. 부팅·요청을 막지 않는다.
+            _logger.warning("walking_graph_boot_presnap_failed", error_type=type(e).__name__, error=str(e))
+
+    task = asyncio.create_task(_run(), name="walking-graph-presnap")
+    _boot_tasks.add(task)
+    task.add_done_callback(_boot_tasks.discard)
+    return task
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     """부팅 시 무거운 lazy 초기화를 미리 끝낸다(첫 사용자 요청이 그 비용을 물지 않게).
@@ -146,6 +179,12 @@ async def lifespan(_app: FastAPI):
         _logger.info("warmup_facilities_ready", count=len(prefilled))
     except Exception as e:
         _logger.warning("warmup_facilities_failed", error=str(e))
+    else:
+        # 3-1) csr 커널이면 목적지 사전 스냅을 스레드로 띄운다(기다리지 않는다). memo·legacy 는 아무것도 안 한다.
+        try:
+            _start_boot_presnap(prefilled)
+        except Exception as e:
+            _logger.warning("walking_graph_boot_presnap_failed", error_type=type(e).__name__, error=str(e))
 
     try:
         # 3-2) 추정 모드 캐시 프리필 — 지도·추천의 첫 요청이 추정 계산(콜드 1~3초)을 물지 않게.

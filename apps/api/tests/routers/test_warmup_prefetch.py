@@ -135,3 +135,112 @@ async def test_warm_all_prefetches_only_the_nearest_facilities():
     assert len(coords) == warmup_router._AREA_DEMAND_PREFETCH_LIMIT == 24
     # 가장 가까운 24개(오프셋 0~23)가, 가까운 순서 그대로 넘어가야 한다.
     assert coords == [(_LAT + off * 0.001, _LNG) for off in range(24)]
+
+
+# =========================================================================
+# 3. 보행 그래프 사전 스냅(P3a1) — walking_graph 단계가 시설 좌표를 미리 스냅한다
+# =========================================================================
+
+def test_presnap_points_use_the_request_keys_and_skip_bad_rows():
+    facilities = [
+        _f(_LAT, _LNG),
+        _f("35.84", "129.21"),          # 문자열 좌표 — 요청도 float() 로 같은 키를 만든다
+        _f(None, _LNG),
+        {"id": "no-coords"},
+        _f("경주시 어딘가", _LNG),
+        _f(float("nan"), _LNG),
+        _f(_LAT, float("inf")),
+    ]
+
+    assert warmup_router._presnap_points(facilities) == [(_LAT, _LNG), (35.84, 129.21)]
+
+
+@pytest.mark.asyncio
+async def test_warmup_step_prewarms():
+    """walking_graph 단계는 그래프를 올리는 데서 그치지 않고 시설 전체의 좌표를 사전 스냅에 넘긴다(가까운 24개가 아니라 전부)."""
+    offsets = list(range(40))
+    facilities = [_f(_LAT + off * 0.001, _LNG) for off in offsets] + [_f(None, _LNG)]
+    captured: dict = {}
+
+    async def _fake_facilities(**_kwargs):
+        return facilities
+
+    def _fake_prewarm(points):
+        captured["points"] = list(points)
+        return len(captured["points"])
+
+    with patch("app.routers.recommendations.fetch_all_facilities", new=_fake_facilities), \
+         patch("app.services.congestion_evidence.load_current_estimates", new=AsyncMock(return_value=None)), \
+         patch("app.services.area_demand_forecast_service.prefetch_area_demand_points", new=AsyncMock(return_value=None)), \
+         patch("app.services.event_boost.get_event_congestion_boost", new=AsyncMock(return_value=None)), \
+         patch("app.services.parking_demand_service.get_nearby_parking_lots", new=AsyncMock(return_value=None)), \
+         patch("app.services.weather_service.get_gyeongju_weather", new=AsyncMock(return_value=None)), \
+         patch("app.services.spot.travel.prewarm_destinations", new=_fake_prewarm):
+        await warmup_router._warm_all()
+
+    assert captured["points"] == [(float(f["latitude"]), float(f["longitude"])) for f in facilities[:40]]
+
+
+# =========================================================================
+# 4. 부팅 사전 스냅 — csr 커널에서만(배치 B). memo·legacy 는 부팅에서 그래프를 올리지 않는다
+# =========================================================================
+
+def _quiet_lifespan(monkeypatch, facilities):
+    """lifespan 의 예열이 네트워크로 나가지 않게(test_parking_history._quiet_warmup 과 같은 틀)."""
+    from app.core import supabase as supabase_module
+    from app.routers import recommendations
+    from app.services import event_boost, parking_demand_service, predict_service, weather_service
+
+    async def _none(*_args, **_kwargs):
+        return None
+
+    async def _no_lots(*_args, **_kwargs):
+        return {"lots": [], "source": "test"}
+
+    async def _facilities(*_args, **_kwargs):
+        return facilities
+
+    class _NoJwks:
+        def get_jwk_set(self):
+            raise RuntimeError("offline")
+
+    monkeypatch.setattr(predict_service, "start_model_manager", _none)
+    monkeypatch.setattr(predict_service, "stop_model_manager", _none)
+    monkeypatch.setattr(predict_service, "get_model_info", lambda: {"trained": False})
+    monkeypatch.setattr(supabase_module, "_get_jwks_client", lambda: _NoJwks())
+    monkeypatch.setattr(recommendations, "fetch_all_facilities", _facilities)
+    monkeypatch.setattr(parking_demand_service, "get_nearby_parking_lots", _no_lots)
+    monkeypatch.setattr(weather_service, "get_gyeongju_weather", _none)
+    monkeypatch.setattr(event_boost, "get_event_congestion_boost", _none)
+
+
+@pytest.mark.parametrize(("kernel", "expect_presnap"), [("csr", True), ("memo", False), ("legacy", False)])
+def test_boot_presnap_only_in_csr(monkeypatch, kernel, expect_presnap):
+    import threading
+
+    from fastapi.testclient import TestClient
+
+    from app import main
+    from app.services.spot import travel
+
+    facilities = [_f(_LAT, _LNG), _f(_LAT + 0.001, _LNG), _f(None, _LNG)]
+    _quiet_lifespan(monkeypatch, facilities)
+    monkeypatch.setattr(travel, "_route_kernel", lambda: kernel)
+    calls: list[list] = []
+    done = threading.Event()
+
+    def _fake_prewarm(points):
+        calls.append(list(points))
+        done.set()
+        return len(calls[-1])
+
+    monkeypatch.setattr(travel, "prewarm_destinations", _fake_prewarm)
+
+    with TestClient(main.app) as client:
+        assert client.get("/health").status_code == 200
+        done.wait(timeout=5 if expect_presnap else 0.2)
+
+    if expect_presnap:
+        assert calls == [[(_LAT, _LNG), (_LAT + 0.001, _LNG)]]
+    else:
+        assert calls == []

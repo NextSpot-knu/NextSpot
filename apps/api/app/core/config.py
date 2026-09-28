@@ -136,6 +136,12 @@ class Settings(BaseSettings):
     # ⚠️ Render 에서 env 를 바꾸면 재시작된다(즉시가 아니라 재기동 한 번, 1~2분).
     AREA_DEMAND_SOURCE: str = "rpc"
 
+    # 보행 경로 계산 커널(app/services/spot/travel.py) — "memo"(기본) | "legacy".
+    # memo: 목적지 스냅(가장 가까운 보행망 노드)을 그래프 객체에 기억하고 예열 때 시설 전체를 미리 스냅한다 —
+    # 같은 함수의 기억값이라 경로·분·거리는 legacy 와 비트까지 같다. legacy: 도입 전 코드 그대로(되돌림 스위치).
+    # 모르는 값은 memo. ⚠️ Render 에서 env 를 바꾸면 재시작된다(즉시가 아니라 재기동 한 번, 1~2분).
+    WALKING_ROUTE_KERNEL: str = "memo"
+
     # CORS Settings
     # 기본값은 와일드카드(미설정 환경에서 프런트가 막히지 않도록). 운영에서는 실제 도메인을
     # 콤마로 지정하면 main.py 가 자동으로 엄격 모드(해당 오리진만 + credentials)로 전환한다.
