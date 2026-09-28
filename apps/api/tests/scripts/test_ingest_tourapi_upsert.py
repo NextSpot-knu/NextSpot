@@ -350,3 +350,39 @@ async def test_wikimedia_substitute_only_when_both_photo_calls_answered(details)
     # 하나라도 실패 → 대체 사진을 만들지 않는다(키가 없으니 DB 의 기존 갤러리가 남는다).
     assert "gallery_images" not in image_down and "gallery_images" not in common_down
     assert details.wikimedia_calls == ["시설3"]
+
+
+# ---------------------------------------------------------------------------
+# 대표 이미지 — TourAPI 가 "없다"고 확인한 날에만 지운다(리뷰 #1·#10)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("upsert_error", [None, _NO_CONFLICT_TARGET], ids=["bulk_upsert", "fallback_42P10"])
+async def test_image_url_is_cleared_only_when_tourapi_confirmed_no_main_image(details, upsert_error):
+    # "3": 목록·detailCommon2 모두 대표 이미지 없음 + 두 사진 호출 모두 답함 → Wikimedia 대체.
+    #      DB 에 남은 옛 TourAPI 사진이 Wikimedia 출처 아래 뜨지 않게 image_url 을 지운다.
+    # "4": 사진 없음이지만 갤러리 호출만 실패 → detailCommon2 는 답했다 → 대표 이미지는 확인된 부재.
+    # "5": detailCommon2 실패 → 대표 이미지가 있는지 모른다 → 키를 보내지 않는다(기존 값 유지).
+    # "6": 목록에는 사진이 있다 → 그 값을 그대로 쓴다.
+    details.no_photo = {"3", "4", "5"}
+    details.fail["4"] = {"image"}
+    details.fail["5"] = {"common"}
+    rows = [_poi("3"), _poi("4"), _poi("5"), _poi("6", firstimage="http://img.example/6.jpg")]
+    for row in rows:
+        await ingest_tourapi.enrich_row(row)
+
+    table = _FacilitiesTable(
+        existing=[{"contentid": c, "features": {}} for c in ("3", "4", "5", "6")], upsert_error=upsert_error,
+    )
+    assert _upsert(rows, table) == 4
+
+    sent = _sent(table)
+    assert "image_url" in sent["3"] and sent["3"]["image_url"] is None
+    assert sent["3"]["gallery_images"] == ["https://commons.example/w.jpg"]
+    assert sent["3"]["features"]["image_source"]["provider"] == "Wikimedia Commons"
+    assert "image_url" in sent["4"] and sent["4"]["image_url"] is None
+    assert "image_url" not in sent["5"]
+    assert sent["6"]["image_url"] == "https://img.example/6.jpg"
+    # 판정용 표시는 DB 로 가지 않는다.
+    assert not [k for payload in sent.values() for k in payload if k.startswith("_")]
+    _assert_uniform(table.bulk("upsert") + table.bulk("insert"))

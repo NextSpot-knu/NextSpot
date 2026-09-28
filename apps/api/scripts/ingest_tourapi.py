@@ -91,6 +91,11 @@ LIST_RETRY_DELAYS_S: tuple[float, ...] = (5.0, 15.0, 45.0)
 # 태우지 않게. (os.EX_TEMPFAIL 은 Windows 에 없어 상수로 둔다.)
 EXIT_TEMPFAIL = 75
 
+# enrich_row 가 행에 남기는 판정 표시 — "TourAPI 가 대표 이미지가 없다고 답했다"(detailCommon2 가 답했고
+# 목록 firstimage·상세 firstimage 가 모두 빈 값). _write_payload 는 이 표시가 있을 때만 image_url=None 을
+# 보내 DB 의 옛 사진을 지우고, 밑줄로 시작하는 키는 DB 로 보내지 않는다.
+IMAGE_CONFIRMED_ABSENT = "_image_confirmed_absent"
+
 
 async def _list_call_with_retry(label: str, call):
     """목록 호출을 일시 실패(TourAPITransientError)에 한해 LIST_RETRY_DELAYS_S 간격으로 재시도한다.
@@ -150,7 +155,8 @@ async def enrich_row(row: dict) -> None:
     개별 실패는 경고만 남기고 계속 진행(부분 실패 허용).
 
     키는 값을 실제로 얻었을 때만 넣는다 — 호출이 실패했거나 빈 값이 오면 키가 없고, 없는 키는
-    facilities 에 쓰이지 않아 기존 값이 남는다(upsert_facilities). 빈 응답으로 기존 값을 지우는 경로는 없다.
+    facilities 에 쓰이지 않아 기존 값이 남는다(upsert_facilities). 빈 응답으로 기존 값을 지우는 경로는
+    대표 이미지 하나뿐이다 — detailCommon2 가 답했는데 목록·상세 firstimage 가 모두 비었을 때(IMAGE_CONFIRMED_ABSENT).
     """
     contentid = row["contentid"]
     ctid = row["contenttypeid"]
@@ -167,6 +173,11 @@ async def enrich_row(row: dict) -> None:
         common_answered = True
     except (TourAPIError, RuntimeError) as e:
         print(f"[details] detailCommon2 실패 (contentid={contentid}): {e}")
+    # 대표 이미지는 목록 firstimage 가 먼저, detailCommon2 firstimage 가 폴백이다. detailCommon2 가 답했는데도
+    # 둘 다 비었으면 TourAPI 가 사진을 거둔 것이다 — 그날만 image_url 을 지운다(_write_payload). 호출이 실패한
+    # 날은 모르는 것이므로 표시하지 않아 DB 의 기존 사진이 남는다.
+    if common_answered and not row.get("image_url"):
+        row[IMAGE_CONFIRMED_ABSENT] = True
     try:
         intro_payload = await detail_intro(contentid, ctid)
         intro_items = parse_items(intro_payload)
@@ -249,13 +260,23 @@ def _write_payload(row: dict, *, exists: bool) -> dict:
     - 값이 None 인 열은 뺀다. None 은 "이번에 얻지 못했다"이지 "비워라"가 아니다. 지금 None 이 되는 열은
       image_url(목록 firstimage 도 상세 폴백도 없을 때)과 address(addr1 빈 값)뿐인데, 보내면 전날 상세 폴백이
       채운 대표 이미지나 Kakao 보완 배치가 채운 주소를 NULL 로 지운다.
+    - 예외 하나: image_url 은 TourAPI 가 "대표 이미지 없음"을 확인해 준 날(IMAGE_CONFIRMED_ABSENT — detailCommon2
+      가 답했고 목록·상세 firstimage 가 모두 빈 값)에는 None 을 보내 지운다. 거둔 사진이 DB 에 영원히 남거나,
+      Wikimedia 대체 사진(두 사진 호출이 모두 답한 날에만 생긴다)의 출처 아래 옛 TourAPI 사진이 뜨지 않게.
+      address 에는 이런 "확인된 부재" 신호가 없다 — 주소는 목록 addr1 에서만 오고(detailCommon2 추출에 주소가
+      없다) 빈 addr1 은 "TourAPI 에 없음"일 뿐 "장소에 주소가 없음"이 아니다. 기존 주소는 Kakao 보완 배치가
+      채운 값일 수 있으므로 None 이면 계속 보내지 않는다.
     - 이미 있는 contentid 면 capacity 를 뺀다. CAPACITY_DEFAULTS 는 TourAPI 에 없는 값을 채우는 합성 기본값이라
       행을 처음 만들 때만 필요하고(capacity NOT NULL), 기존 행에 보내면 관리자가 고친 수용 인원을 매일 되돌린다.
+    - 밑줄로 시작하는 키(배치 안 판정 표시)는 보내지 않는다.
     """
+    clear_image = bool(row.get(IMAGE_CONFIRMED_ABSENT)) and not row.get("image_url")
     return {
         key: value
         for key, value in row.items()
-        if value is not None and not (exists and key == "capacity")
+        if not key.startswith("_")
+        and (value is not None or (key == "image_url" and clear_image))
+        and not (exists and key == "capacity")
     }
 
 
