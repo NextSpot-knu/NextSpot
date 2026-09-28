@@ -497,7 +497,9 @@ async def test_shadow_never_delays_or_fails_the_response(monkeypatch, shadow_env
     _grid_forget(_P2_CENTER)
     started = time.perf_counter()
     got = await forecast_svc.get_historical_area_demand_forecast(*_P2_CENTER, _ARRIVAL, now=_P2_NOW)
-    assert time.perf_counter() - started < 2.0 and repr(got) == repr(expected)
+    # 비교를 기다리지 않았다는 증거는 다음 줄(게이트가 닫힌 채 진행 중 1 · 태스크 1)이다. 시간 상한은 비교를 기다린 경우
+    # (gate.wait 10초)만 가르도록 넉넉히 — 바쁜 CI 에서 요청 계산(대역 RPC + 순수 파이썬 전망, 한가할 때 ~0.5초)이 흔들리지 않게.
+    assert time.perf_counter() - started < 8.0 and repr(got) == repr(expected)
     assert forecast_svc._shadow_request_inflight == 1 and len(forecast_svc._shadow_tasks) == 1
     await forecast_svc.get_historical_area_demand_forecast(*_P2_SECOND, _ARRIVAL, now=_P2_NOW)
     assert _total()["skipped_busy"] == 1
