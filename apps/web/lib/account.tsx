@@ -28,7 +28,9 @@ import { createPublicClient } from '@/lib/supabase';
 import {
   parseAccount,
   resolveRefreshFailure,
+  shouldRefreshAccountOnAuthEvent,
   type Account,
+  type AccountCheck,
   type AccountState,
 } from './accountRoles';
 
@@ -71,16 +73,28 @@ export function AccountProvider({ children }: { children: ReactNode }) {
   // 인스턴스 재시작(수십 초)을 넘기려는 것이지 계속 두드리려는 게 아니다 — 그 뒤로는 화면의 '다시 시도'가 맡는다.
   const retriesRef = useRef(0);
   const [unreachable, setUnreachable] = useState(false);
+  // 직전 **성공** 조회의 요약. 탭 복귀 SIGNED_IN 에서 다시 물을지 판정한다(shouldRefreshAccountOnAuthEvent).
+  // 어떤 실패든 지운다 — 서버 재시작 중 실패한 뒤의 탭 복귀가 복구 기회로 남아야 한다.
+  const lastCheckRef = useRef<AccountCheck | null>(null);
 
   const refresh = useCallback(async function run(): Promise<void> {
     const gen = ++genRef.current;
     try {
       const data = await apiClient.get('/api/v1/account/me');
       if (gen !== genRef.current) return;
+      const parsed = parseAccount(data);
+      lastCheckRef.current = {
+        userId: parsed.id,
+        isAnonymous: parsed.isAnonymous,
+        pendingVerification: parsed.pendingVerification,
+        at: Date.now(),
+      };
       retriesRef.current = 0;
       setUnreachable(false);
-      setState({ account: parseAccount(data), status: 'ready' });
+      setState({ account: parsed, status: 'ready' });
     } catch (err) {
+      // 세대 검사보다 먼저 지운다 — 구세대 실패가 새 성공 기록을 지워도 재조회 한 번이면 된다(안전한 쪽).
+      lastCheckRef.current = null;
       if (gen !== genRef.current) return;
       const authFailure = isAuthError(err);
       // 401(세션 없음)은 장애가 아니라 '아직 로그인 전' 이다 — 게스트로 취급한다.
@@ -111,12 +125,17 @@ export function AccountProvider({ children }: { children: ReactNode }) {
     // TOKEN_REFRESHED 는 주석이 말하는 '토큰 갱신' 인데 정작 목록에 빠져 있었다. 넣어 두면
     // 조회가 실패한 채로 남았을 때 스스로 회복할 기회가 한 번 더 생긴다(위 1회 재시도 다음).
     const supabase = createPublicClient();
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+    //
+    // 단 auth-js 는 숨었다 다시 보일 때마다 바뀌지 않은 세션으로 SIGNED_IN 을 낸다 — 직전 성공 5분 안의
+    // 같은 사용자면 그 SIGNED_IN 만 건너뛴다(심사 대기·직전 실패·계정 전환은 다시 묻는다).
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_OUT') lastCheckRef.current = null;
       if (
-        event === 'SIGNED_IN' ||
-        event === 'SIGNED_OUT' ||
-        event === 'USER_UPDATED' ||
-        event === 'TOKEN_REFRESHED'
+        (event === 'SIGNED_IN' ||
+          event === 'SIGNED_OUT' ||
+          event === 'USER_UPDATED' ||
+          event === 'TOKEN_REFRESHED') &&
+        shouldRefreshAccountOnAuthEvent(event, session?.user, lastCheckRef.current, Date.now())
       ) {
         void refresh();
       }

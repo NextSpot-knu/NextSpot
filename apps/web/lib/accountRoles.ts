@@ -205,3 +205,49 @@ export function isRoleRequestPending(
   }
   return accountPendingVerification;
 }
+
+// ── 탭 복귀 재조회 ────────────────────────────────────────────────────────────
+/**
+ * 탭 복귀 SIGNED_IN 에 재조회를 건너뛸 수 있는, 직전 **성공** 조회의 최대 나이.
+ * 이 창 안에서 관리자가 요청 없이 직접 준 역할은 5분 뒤 또는 새로고침 때 보인다(2026-09-28 PM 승인).
+ */
+export const ACCOUNT_RECHECK_MIN_AGE_MS = 5 * 60_000;
+
+/** 직전 성공한 /account/me 조회의 요약. 실패하면 호출부가 null 로 지운다. */
+export interface AccountCheck {
+  userId: string;
+  isAnonymous: boolean;
+  pendingVerification: boolean;
+  at: number;
+}
+
+/** supabase 세션의 user 중 판정에 쓰는 두 필드. */
+export interface AuthSessionUserLike {
+  id?: string;
+  is_anonymous?: boolean;
+}
+
+/**
+ * 인증 이벤트에 /account/me 를 다시 부를지.
+ *
+ * 왜: auth-js 는 숨었다 다시 보일 때마다 **바뀌지 않은 세션으로** SIGNED_IN 을 낸다. 그래서
+ * 앱을 오갈 때마다(길찾기로 카카오맵 열기, 폰 잠금 해제) 인증된 API 호출이 하나씩 나갔다.
+ *
+ * 건너뛰는 경우는 하나뿐이다 — SIGNED_IN 이고, 직전 조회가 **성공**했고, 같은 사용자·같은 익명
+ * 여부이고, 심사 대기 중인 역할 요청이 없고, 그 성공이 5분 안(시계 역행 제외)일 때. 나머지는 전부
+ * 다시 묻는다: 로그아웃·토큰 갱신·사용자 수정, 직전 실패(서버 재시작 중 복구 경로), 계정 전환.
+ */
+export function shouldRefreshAccountOnAuthEvent(
+  event: string,
+  sessionUser: AuthSessionUserLike | null | undefined,
+  last: AccountCheck | null,
+  now: number,
+): boolean {
+  if (event !== 'SIGNED_IN') return true;
+  if (!last) return true;
+  if (!sessionUser || sessionUser.id !== last.userId) return true;
+  if (sessionUser.is_anonymous !== undefined && sessionUser.is_anonymous !== last.isAnonymous) return true;
+  if (last.pendingVerification) return true;
+  const age = now - last.at;
+  return !(age >= 0 && age < ACCOUNT_RECHECK_MIN_AGE_MS);
+}

@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   isRoleRequestPending,
   canEnterAdminConsole,
@@ -11,7 +14,10 @@ import {
   resolveRefreshFailure,
   roleRequestEntryState,
   VALID_ROLES,
+  ACCOUNT_RECHECK_MIN_AGE_MS,
+  shouldRefreshAccountOnAuthEvent,
   type Account,
+  type AccountCheck,
   type AccountRole,
 } from './accountRoles';
 import { keysToCamel, keysToSnake } from './caseTransform';
@@ -317,3 +323,49 @@ console.log('parseAccount contract tests passed');
 }
 
 console.log('isRoleRequestPending tests passed');
+
+// ── 탭 복귀 SIGNED_IN 재조회 ──────────────────────────────────────────────────
+// auth-js 는 숨었다 보일 때마다 같은 세션으로 SIGNED_IN 을 낸다 — 앱을 오갈 때마다 /account/me 가
+// 나가던 것을, 직전 **성공** 5분 안의 같은 사용자일 때만 건너뛴다. 실패 뒤·심사 대기·계정 전환은 다시 묻는다.
+{
+  const uid = '00000000-0000-4000-8000-0000000000aa';
+  const now = 1_800_000_000_000;
+  const ok: AccountCheck = { userId: uid, isAnonymous: false, pendingVerification: false, at: now - 60_000 };
+  const user = { id: uid, is_anonymous: false };
+
+  // 건너뛴다: 같은 사용자·같은 익명 여부·대기 없음·60초 전 성공
+  assert.equal(shouldRefreshAccountOnAuthEvent('SIGNED_IN', user, ok, now), false, '탭 복귀마다 계정을 다시 조회한다');
+  assert.equal(shouldRefreshAccountOnAuthEvent('SIGNED_IN', { id: uid }, ok, now), false, 'is_anonymous 가 없는 세션은 비교하지 않는다');
+
+  // 언제나 다시 묻는다
+  for (const ev of ['TOKEN_REFRESHED', 'USER_UPDATED', 'SIGNED_OUT']) {
+    assert.equal(shouldRefreshAccountOnAuthEvent(ev, user, ok, now), true, `${ev} 를 건너뛰었다`);
+  }
+  assert.equal(shouldRefreshAccountOnAuthEvent('SIGNED_IN', user, null, now), true, '직전 조회가 실패했는데 복귀 재조회를 건너뛰었다');
+  assert.equal(
+    shouldRefreshAccountOnAuthEvent('SIGNED_IN', user, { ...ok, at: now - ACCOUNT_RECHECK_MIN_AGE_MS - 1 }, now),
+    true,
+    '5분이 지난 성공에 기댔다',
+  );
+  assert.equal(
+    shouldRefreshAccountOnAuthEvent('SIGNED_IN', user, { ...ok, at: now - ACCOUNT_RECHECK_MIN_AGE_MS }, now),
+    true,
+  );
+  assert.equal(shouldRefreshAccountOnAuthEvent('SIGNED_IN', { id: 'other-user', is_anonymous: false }, ok, now), true, '계정 전환을 놓쳤다');
+  assert.equal(shouldRefreshAccountOnAuthEvent('SIGNED_IN', { id: uid, is_anonymous: true }, ok, now), true, '익명 ↔ 회원 전환을 놓쳤다');
+  assert.equal(shouldRefreshAccountOnAuthEvent('SIGNED_IN', user, { ...ok, pendingVerification: true }, now), true, '심사 대기 중에 승인 결과를 놓친다');
+  assert.equal(shouldRefreshAccountOnAuthEvent('SIGNED_IN', undefined, ok, now), true);
+  assert.equal(shouldRefreshAccountOnAuthEvent('SIGNED_IN', null, ok, now), true);
+  assert.equal(shouldRefreshAccountOnAuthEvent('SIGNED_IN', user, { ...ok, at: now + 1_000 }, now), true, '시계가 거꾸로 가면 믿지 않는다');
+
+  // 배선 가드: 실패하면 세대 검사보다 **먼저** 기록을 지운다(구세대 실패도 지운다 — 안전한 쪽).
+  const accountSrc = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'account.tsx'), 'utf8');
+  assert.match(accountSrc, /shouldRefreshAccountOnAuthEvent\(/, 'AccountProvider 가 탭 복귀 판정을 쓰지 않는다');
+  assert.match(
+    accountSrc,
+    /catch \(err\) \{\s*(?:\/\/[^\n]*\n\s*)*lastCheckRef\.current = null;[\s\S]*?if \(gen !== genRef\.current\) return;/,
+    '조회 실패 뒤에도 직전 성공 기록이 남는다 — 서버 재시작 뒤 탭 복귀가 복구 기회를 잃는다',
+  );
+}
+
+console.log('shouldRefreshAccountOnAuthEvent tests passed');
