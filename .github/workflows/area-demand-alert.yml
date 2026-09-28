@@ -8,19 +8,39 @@
 # 그래서 '스케줄러가 돌았는가' 가 아니라 **새 스냅샷이 실제로 쌓였는가** 를 본다.
 # 그 신호 하나면 원인이 무엇이든(토큰 불일치·Render 다운·cron 해제·Supabase 정지) 잡힌다.
 #
-# 실패하면 GitHub 이 워크플로 실패 알림을 보낸다 — 별도 알림 인프라를 두지 않는 이유다.
+# 실패하면 GitHub 이 워크플로 실패 알림(메일)을 보낸다 — 그것이 알림의 전부다. 공개 저장소라 이슈는
+# 열지 않는다(실패 내용이 누구에게나 보인다).
 #
-# 필요한 설정(둘 다 이미 수집 워크플로가 쓰던 값):
-#   Repository Variable BACKEND_HEALTH_URL=https://<render-service>.onrender.com/health
-#   Actions Secret      SERVICE_API_TOKEN (없으면 ADMIN_API_TOKEN 을 그대로 쓴다)
-# 미설정이면 조용히 skip 한다 — 설정이 없다고 매시간 실패 메일을 보내면 그것부터 무시하게 된다.
+# 어디서 보나(2026-09-28 변경): **데이터 평면**. Supabase PostgREST 로 area_demand_snapshots 의 최신 행
+# 하나를 직접 읽는다. 예전에는 API(`/admin/area-demand-reliability`)에 물었는데, 그 답은 API 메모리 상태에
+# 묶여 있었다 — 512MB 인스턴스가 부하를 내려놓는 503 한 번이 JSON 파싱 오류가 되어 '수집 멈춤' 거짓 경보가
+# 났다(09-26 16:21). 수집이 쌓였는지는 스냅샷 표가 가장 잘 안다. 판정 기준은 API 와 같다
+# (source=gyeongju_its · 10분 버킷 · 최신 observed_at 이 35분보다 오래면 멈춤 —
+#  apps/api/app/services/area_demand_reliability_service.py 의 _ALERT_DOWN_AFTER_MINUTES).
+#   ok               최신 스냅샷이 35분 안
+#   unknown          표가 비어 있음(갓 배포한 환경) — 경보 아님
+#   stale            최신 스냅샷이 35분보다 오래됨 → 실패
+#   api_unreachable  Supabase 가 재시도 뒤에도 200 을 주지 않음 → 실패. 수집 멈춤과 다른 문제라 따로 말한다
+#                    (401 = 시크릿 값, 5xx·연결 실패 = Supabase 상태).
+# API 판정에 있던 degraded(창 안 누락 버킷 20% 초과, 경고만·실패 아님)는 여기서 보지 않는다 — 관제 화면
+# (area-demand-reliability)에 그대로 있다.
+#
+# 필요한 설정:
+#   Actions Secret SUPABASE_URL · SUPABASE_SERVICE_ROLE_KEY — ingest.yml 이 이미 쓰는 값. 표에 RLS 가 켜져
+#                  있어 service_role 키로 읽는다(로그에서는 GitHub 이 가린다).
+#   두 시크릿이 없으면 예전 방식(API 판정) 그대로 돈다:
+#     Repository Variable BACKEND_HEALTH_URL=https://<render-service>.onrender.com/health
+#     Actions Secret      SERVICE_API_TOKEN (없으면 ADMIN_API_TOKEN 을 그대로 쓴다)
+#   그것마저 없으면 skip 한다 — 설정이 없다고 매시간 실패 메일을 보내면 그것부터 무시하게 된다.
 name: Area Demand Collection Alert
 
 on:
   schedule:
-    # 매시 정각. 수집은 10분 주기라, 한 시간 안에 한 번도 못 쌓였으면 확실히 문제다.
+    # 매시 28분. 수집은 10분 주기라, 한 시간 안에 한 번도 못 쌓였으면 확실히 문제다.
+    # 정각(:00)은 GitHub 예약 실행이 가장 몰려 늦거나 빠지는 시각이라 피한다. 28분은 pg_cron 주 호출(:x3)과
+    # 보충 호출(:x6)이 끝난 뒤라 직전 버킷이 이미 들어와 있을 시각이다(20260824130000 마이그레이션).
     # (schedule 은 기본 브랜치에서만 발화한다.)
-    - cron: "0 * * * *"
+    - cron: "28 * * * *"
   workflow_dispatch:
 
 permissions:
@@ -36,15 +56,133 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
+      # 값이 아니라 '둘 다 있는가'만 잡 전체에 둔다 — 키 자체는 Supabase 를 읽는 스텝에만 넘긴다.
+      SUPABASE_CONFIGURED: ${{ secrets.SUPABASE_URL != '' && secrets.SUPABASE_SERVICE_ROLE_KEY != '' }}
       BACKEND_HEALTH_URL: ${{ vars.BACKEND_HEALTH_URL }}
       SERVICE_TOKEN: ${{ secrets.SERVICE_API_TOKEN || secrets.ADMIN_API_TOKEN }}
     steps:
-      - name: Skip (설정 없음)
-        if: ${{ env.BACKEND_HEALTH_URL == '' || env.SERVICE_TOKEN == '' }}
-        run: echo "BACKEND_HEALTH_URL 또는 SERVICE_API_TOKEN 이 없어 확인을 건너뜁니다."
+      - name: Check snapshot freshness (Supabase)
+        if: ${{ env.SUPABASE_CONFIGURED == 'true' }}
+        shell: bash
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import sys
+          import time
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+          from datetime import datetime, timezone
 
-      - name: Check collection health
-        if: ${{ env.BACKEND_HEALTH_URL != '' && env.SERVICE_TOKEN != '' }}
+          # app/services/area_demand_reliability_service.py 와 같은 기준 — 두 판정이 갈리지 않게.
+          SOURCE = "gyeongju_its"
+          BUCKET_MINUTES = 10
+          DOWN_AFTER_MINUTES = 35  # _ALERT_DOWN_AFTER_MINUTES
+
+          base = os.environ["SUPABASE_URL"].strip().rstrip("/")
+          # 붙여 넣을 때 딸려 온 줄바꿈·공백은 헤더를 깨뜨린다(09-27 Render 키 사례) — 걷어 낸다.
+          key = "".join(os.environ["SUPABASE_SERVICE_ROLE_KEY"].split())
+          query = urllib.parse.urlencode({
+              "select": "bucket_at,observed_at",
+              "source": f"eq.{SOURCE}",
+              "bucket_minutes": f"eq.{BUCKET_MINUTES}",
+              "order": "bucket_at.desc",
+              "limit": "1",
+          })
+          request = urllib.request.Request(
+              f"{base}/rest/v1/area_demand_snapshots?{query}",
+              headers={"apikey": key, "Authorization": f"Bearer {key}", "Accept": "application/json"},
+          )
+
+
+          def fetch():
+              """(HTTP 상태, 본문). 연결 실패는 상태 0. 429·5xx·연결 실패만 15초 간격으로 3회까지 묻는다."""
+              status, body = 0, b""
+              for attempt in range(3):
+                  if attempt:
+                      time.sleep(15)
+                  try:
+                      with urllib.request.urlopen(request, timeout=20) as response:
+                          return response.status, response.read()
+                  except urllib.error.HTTPError as error:
+                      status, body = error.code, error.read()
+                      if error.code != 429 and error.code < 500:
+                          break  # 401·403·404 는 다시 물어도 같다
+                  except OSError as error:  # URLError·타임아웃·연결 거부
+                      status, body = 0, str(error).encode()
+              return status, body
+
+
+          status, body = fetch()
+          now = datetime.now(timezone.utc)
+          age = bucket = None
+          if status != 200:
+              # 본문은 200 일 때만 읽는다 — 오류 응답을 스냅샷으로 해석하지 않는다.
+              state, reason = "api_unreachable", (f"http_{status}" if status else "connection_failed")
+          else:
+              try:
+                  rows = json.loads(body)
+                  if rows:
+                      latest = rows[0]
+                      bucket = latest["bucket_at"]
+                      observed = datetime.fromisoformat(latest["observed_at"].replace("Z", "+00:00"))
+                      age = round((now - observed).total_seconds() / 60, 1)
+              except (ValueError, KeyError, TypeError, AttributeError):
+                  state, reason = "api_unreachable", "invalid_body"
+              else:
+                  if bucket is None:
+                      state, reason = "unknown", "no_snapshot"
+                  elif age > DOWN_AFTER_MINUTES:
+                      state, reason = "stale", "stale_snapshot"
+                  else:
+                      state, reason = "ok", "-"
+
+          print(f"state={state} reason={reason} age_minutes={age} bucket_at={bucket}")
+          summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+          if summary_path:
+              with open(summary_path, "a", encoding="utf-8") as summary:
+                  summary.write(
+                      f"### 주차 실측 수집 상태: `{state}` (Supabase 직접 확인)\n\n"
+                      f"- 사유: `{reason}`\n- 최신 스냅샷 경과: `{age}`분\n- 최신 버킷: `{bucket}`\n"
+                  )
+
+          if state == "ok":
+              print("수집 정상.")
+          elif state == "unknown":
+              # 표가 비어 있는 갓 배포 환경. 경보가 아니다.
+              print("이력이 없어 판정하지 않습니다(신규 환경).")
+          elif state == "stale":
+              print(f"::error::주차 실측 수집이 멈췄습니다 (reason={reason}, 최신 스냅샷 {age}분 전).")
+              print("")
+              print("확인 순서 — Supabase SQL Editor:")
+              print("  1) select id, status_code, left(coalesce(error_msg, content), 200), created")
+              print("       from net._http_response order by created desc limit 10;")
+              print("     → 401 이면 Vault 토큰이 Render 의 SERVICE_API_TOKEN/ADMIN_API_TOKEN 과 다르다.")
+              print("  2) select jobname, active from cron.job where jobname like 'nextspot-area-demand%';")
+              print("     → active=false 면 예약이 풀린 것이다.")
+              print("")
+              print("토큰 재설정:")
+              print("  select public.configure_area_demand_collection('<수집 URL>', '<현재 토큰>');")
+              sys.exit(1)
+          else:
+              print(f"::error::Supabase 에서 스냅샷 표를 읽지 못했습니다 (reason={reason}) — 수집이 멈췄다는 뜻은 아닙니다.")
+              print("401·403 이면 Actions Secret SUPABASE_URL·SUPABASE_SERVICE_ROLE_KEY 값을,")
+              print("5xx·connection_failed 면 Supabase 프로젝트 상태(일시 정지·장애)를 확인하세요.")
+              print(f"응답 앞부분: {body[:200].decode('utf-8', 'replace')}")
+              sys.exit(1)
+          PY
+
+      # 아래 둘은 Supabase 시크릿이 없을 때의 예전 방식(API 판정) 그대로다.
+      - name: Skip (설정 없음)
+        if: ${{ env.SUPABASE_CONFIGURED != 'true' && (env.BACKEND_HEALTH_URL == '' || env.SERVICE_TOKEN == '') }}
+        run: echo "Supabase 시크릿도, BACKEND_HEALTH_URL·SERVICE_API_TOKEN 도 없어 확인을 건너뜁니다."
+
+      - name: Check collection health (API)
+        if: ${{ env.SUPABASE_CONFIGURED != 'true' && env.BACKEND_HEALTH_URL != '' && env.SERVICE_TOKEN != '' }}
         shell: bash
         run: |
           set -euo pipefail

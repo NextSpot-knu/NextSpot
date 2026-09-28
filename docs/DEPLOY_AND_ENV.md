@@ -12,7 +12,7 @@
 | DB · Auth · Storage | Supabase 팀 프로젝트 | 마이그레이션은 사람이 적용 |
 | 10분 주차 실측 수집 | Supabase pg_cron → `POST /api/v1/area-demand/snapshots/collect` | 자동 |
 | 10분 서울 검증 수집 | Supabase pg_cron → `POST /api/v1/engine-validation/seoul/collect` (마이그레이션 `20260920121000`) | 자동 — 사람이 예약 SQL 적용 후 |
-| 수집 중단 감시 | GitHub Actions `area-demand-alert.yml` → `GET /api/v1/admin/area-demand-reliability` | 매시 정각 (`main`에서만) |
+| 수집 중단 감시 | GitHub Actions `area-demand-alert.yml` → Supabase PostgREST `area_demand_snapshots` 최신 행(Supabase 시크릿이 없으면 예전처럼 `GET /api/v1/admin/area-demand-reliability`) | 매시 28분 (`main`에서만) |
 | TourAPI 적재 | GitHub Actions `ingest.yml` | 매일 KST 04:00 (`main`에서만). 목록 호출이 일시 오류로 끝나면(exit 75, 상세 조회 전) 새 러너로 최대 2회 자동 재실행. 실패는 실패한 실행(스케줄 실패 메일·실행 Summary)으로 확인 — 다시 돌릴 때는 Re-run 대신 Run workflow(`auto_retry` 비움) |
 | 모델 학습 후보 | GitHub Actions `train-recommendation-model.yml` | 매주 월 03:00 KST (`main`에서만) |
 
@@ -101,13 +101,13 @@
 
 | 종류 | 이름 | 쓰는 워크플로 |
 |---|---|---|
-| Secret | `SUPABASE_URL` `SUPABASE_ANON_KEY` `SUPABASE_SERVICE_ROLE_KEY` | ingest · train |
+| Secret | `SUPABASE_URL` `SUPABASE_ANON_KEY` `SUPABASE_SERVICE_ROLE_KEY` | ingest · train · area-demand-alert(`SUPABASE_URL`·`SUPABASE_SERVICE_ROLE_KEY` — 스냅샷 표 직접 확인) |
 | Secret | `JWT_SECRET` `ADMIN_API_TOKEN` | train(부팅 검증 — 없으면 실패. ingest는 플레이스홀더로 대체) |
 | Secret | `TOURAPI_KEY` | ingest(없으면 TourAPI 단계 skip) |
 | Secret | `KAKAO_REST_API_KEY` | ingest(Kakao 장소 보완 · 좌표 대조) |
 | Secret | `LOCALDATA_AUTH_KEY` (선택) | ingest(공공 인허가 변경분 동기화) |
-| Secret | `SERVICE_API_TOKEN` (선택) | collect-area-demand · area-demand-alert(없으면 `ADMIN_API_TOKEN`) |
-| Variable | `BACKEND_HEALTH_URL` | uptime · collect-area-demand · area-demand-alert |
+| Secret | `SERVICE_API_TOKEN` (선택) | collect-area-demand · area-demand-alert(Supabase 시크릿이 없을 때만. 없으면 `ADMIN_API_TOKEN`) |
+| Variable | `BACKEND_HEALTH_URL` | uptime · collect-area-demand · area-demand-alert(Supabase 시크릿이 없을 때만) |
 | Variable | `AREA_DEMAND_COLLECTION_ENABLED=true` | collect-area-demand |
 | Secret | `GYEONGJU_FOOD_API_KEY` (선택) | ingest(경주 메뉴별음식점 보강 — `GYEONGJU_FOOD_ENABLED=true` 일 때만) |
 | Variable | `KAKAO_PLACE_DISCOVERY_ENABLED` `TOURAPI_INSIGHTS_ENABLED` `TOURAPI_RELATED_ENABLED` `GYEONGJU_FOOD_ENABLED` `GYEONGJU_FOOD_API_BASE_URL` (선택) | ingest의 게이트된 단계 |
