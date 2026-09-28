@@ -603,3 +603,44 @@ def test_failed_plan_backtest_is_not_shared_and_the_next_caller_recomputes(monke
     view, _ = _view(snapshot, *_CENTER, _T23_NOW)
     assert {k: quality[k] for k in ("sample_count", "mae", "baseline_mae", "improvement_rate")} == \
         backtest_forecast_points(list(view))
+
+
+# ── 수리: 계획의 '서로 다른 날짜 수' 는 KST 로 센다 — 날짜 경계(09:00 KST = UTC 자정, 00:00 KST)를 건너는 성긴 시계열 ──────
+
+
+def _date_boundary_series(first_minute: int) -> list:
+    """같은 시각대 표본이 한 KST 날짜 경계를 걸치게 day 0 · day 7 에만 4개씩(first_minute 부터 10분 간격, KST 기준),
+    다른 시각대(20:00 KST) 채움 15일, day 14 의 평가 대상 한 점."""
+    kst = timedelta(hours=9)
+    base = datetime(2026, 8, 3, tzinfo=UTC) - kst  # 2026-08-03 00:00 KST(월)
+    times = []
+    for day in (0, 7):
+        for step in range(4):
+            times.append(base + timedelta(days=day, minutes=first_minute + 10 * step))
+    for day in range(15):
+        times.append(base + timedelta(days=day, hours=20))
+    times.append(base + timedelta(days=14, minutes=first_minute + 20))
+    times = sorted(set(times))
+    levels = [0.3 + 0.01 * (k % 7) for k in range(len(times))]
+    return [forecast_svc.AreaDemandPoint(t, v, 1) for t, v in zip(times, levels)]
+
+
+@pytest.mark.parametrize("first_minute", [8 * 60 + 40, 23 * 60 + 40])  # 08:40~09:10 KST(UTC 자정) · 23:40~00:10 KST
+def test_plan_counts_distinct_dates_in_kst_across_date_boundaries(first_minute):
+    import inspect
+
+    points = _date_boundary_series(first_minute)
+    expected = backtest_forecast_points(points)
+    assert repr(_plan_backtest(points)) == repr(expected) == repr(_backtest_forecast_points_reference(points))
+    assert expected["sample_count"] > 0
+
+    if first_minute == 8 * 60 + 40:
+        # 이 시계열은 날짜를 UTC 로 세는 계획(변이 M05)을 가른다 — 표본 2개 KST 날짜가 UTC 로는 4개라 문턱(3)을 넘는다.
+        source = inspect.getsource(forecast_svc._build_backtest_plan)
+        mutated = source.replace("value.astimezone(KST).date()", "value.date()")
+        assert mutated != source, "계획의 KST 날짜 계산 줄이 바뀌었다 — 이 변이 대조를 새 코드에 맞출 것"
+        namespace = dict(vars(forecast_svc))
+        exec(mutated, namespace)  # noqa: S102 — 시험 안에서 변이 하나를 만들어 이 시계열이 가르는지 본다
+        utc_plan = namespace["_build_backtest_plan"]([p.observed_at for p in points])
+        utc_result = forecast_svc._backtest_with_plan(utc_plan, array("d", (p.level for p in points)))
+        assert repr(utc_result) != repr(expected)
