@@ -48,7 +48,7 @@
 
 - [ ] **(P2a 가 main 에 들어간 뒤) Render `AREA_DEMAND_SOURCE=shadow`** → 24시간·재시작 1회 뒤 게이트와 go/no-go 측정 → `matrix`.
       순서·게이트·되돌림(`rpc`, 재시작 1~2분)·볼 것은 [`API_ARCHITECTURE_PLAN.md`](./API_ARCHITECTURE_PLAN.md) "P2a 전환 절차". 반영 전에는 할 일 없음.
-- [ ] **(P3 배치 A 가 main 에 들어간 뒤) `/api/v1/warmup` 한 번** — memo 는 부팅 사전 스냅이 없어 첫 예열 전까지는 오늘과 같은 속도다. Render 로그 `walking_graph_presnap` 확인. 되돌림 env `WALKING_ROUTE_KERNEL=legacy`(재시작) — 아래 2026-09-28e.
+- [ ] **(P3 배치 A 가 main 에 들어간 뒤) `/api/v1/warmup` 한 번** — memo 는 부팅 사전 스냅이 없어 첫 예열 전까지는 오늘과 같은 속도다. Render 로그 `walking_graph_presnap` 확인. 되돌림 env `WALKING_ROUTE_KERNEL=legacy`(재시작) — 아래 2026-09-28e. 반영 전 PM 확인 둘: 영업 근거 한 번 조회의 실패 범위가 `/infrastructures` 실시간 지도에도 적용됨 · 기존 테스트 두 곳 변경(같은 항목).
 - [ ] **공공 API 키 회전** — `TOURAPI_KEY`·`KMA_API_KEY`·`PARKING_API_KEY`·`GYEONGJU_FOOD_API_KEY`. httpx INFO 로그가 쿼리스트링째 전체 URL을 남겨 Render 로그 이력에 키가 있을 수 있다(09-28 `d9639c2` 로 차단). 새 키 발급 → Render·GitHub Secrets 갱신.
 - [ ] Render `nextspot-api` 환경변수 `SUPABASE_SERVICE_ROLE_KEY` 끝의 줄바꿈 지우기(09-27 발견 — 코드가 이미 걷으므로 급하지 않다. 저장하면 재배포된다).
 - [ ] **서울 수집이 0건이다 — 원인 확인**(2026-09-20 20:38 KST 기준 `seoul_citydata_snapshots` 0행).
@@ -197,15 +197,19 @@ from checks order by seq;
 ## 2026-09-28e — API 재설계 P3 배치 A: 보행 목적지 스냅 기억 · 시설 조회 왕복·복사 줄이기 (main 미반영)
 
 - 도구·브랜치: Claude Code(검증된 P3 명세 → 커밋별 구현 · 10ea2d4 원문과 동등성 대조) / `perf/p3a-0929`(10ea2d4 = release/0928 위, 미푸시)
-- 커밋: 4ab6eb7..(이 기록) (6건). 순서는 스냅 기억 → 사각형 먼저 복사 → prior 스레드 → 타임세일 한 번 → 영업 근거 한 번. 기존 테스트 계약을 바꾼 마지막 두 건은 끝에 두어 따로 뺄 수 있다(각각 `git revert` 가능).
+- 커밋: 4ab6eb7..(이 기록) (6건 + 리뷰 수리 3건 — 경계 테스트 둘·이 공개 보강). 순서는 스냅 기억 → 사각형 먼저 복사 → prior 스레드 → 타임세일 한 번 → 영업 근거 한 번. 기존 테스트 계약을 바꾼 마지막 두 건은 끝에 두어 따로 뺄 수 있다(각각 `git revert` 가능).
 - 한 것: 보행 목적지 스냅을 그래프 객체에 기억 + 예열(`/warmup`) 때 시설 전체 사전 스냅(스위치 `WALKING_ROUTE_KERNEL` 기본 `memo`, `legacy` = 되돌림) ·
   `fetch_all_facilities` 가 사각형으로 먼저 좁히고 남은 행만 깊은 복사 · 관광 prior 붙이기를 스레드로 · 타임세일(조각 둘 이상) 한 번 조회 · 영업 근거(조각 둘 이상) 한 번 조회.
   손님이 받는 답은 같다. 공개된 차이는 영업 근거 둘(같은 마이크로초 동률은 id 순, 실패하면 그 호출의 근거가 통째로 빈다 — PM 수락).
-- 검증: api ruff + pytest 2071 passed · OpenAPI 스냅샷·score.py 10ea2d4 와 동일 · check-docs · 10ea2d4 원문 대조 불일치 0(경로 실제 시설 1,682곳 × 출발 50곳 = 84,100쌍 ·
+  한 번 조회를 타는 곳(id 150개 초과): 메인 추천·by-type·부팅 예열 **그리고 `/infrastructures` 실시간 지도 경로**(참조 스냅샷 준비 전·낡음·`REFERENCE_SNAPSHOT_SERVE=legacy` 때,
+  활성 시설 전체 ~1,682곳) — 명세 §4.3·611eb13 메시지에는 지도가 빠져 있었다. 실패 범위 차이는 지도에도 같다(그 요청의 근거가 통째로 빈다).
+- 검증: api ruff + pytest 2077 passed(리뷰 수리 뒤) · OpenAPI 스냅샷·score.py 10ea2d4 와 동일 · check-docs · 10ea2d4 원문 대조 불일치 0(경로 실제 시설 1,682곳 × 출발 50곳 = 84,100쌍 ·
   시설 사각형 50개(실제 1,682행) · 타임세일 45가지 · 영업 근거 35가지 · prior 실제 1,682행). 기존 테스트 변경: 타임세일 조각 테스트는 단언 그대로 캡 폴백 경로를 타게 픽스처만,
   영업 근거 조각 테스트 둘은 새 계약으로(조각 크기 → 'URL 에 id 없음', 한 조각 실패 → 통째로 빈다).
+  **이 두 곳은 '기존 테스트 단언 불변' 규칙의 예외라 PM 확인 필요**(611eb13 `test_availability_service.py` 단언 교체 · 7ee6821 `test_merchant_boost.py` 픽스처만).
+  리뷰 수리로 새 테스트만 더했다: 타임세일 정확히 1000행(PostgREST 캡) 응답 → 조각 폴백 · 시설 사각형 경계 위 포함/한 칸 바깥 제외(변이 `>=`→`>`·`<=`→`<` 잡힘).
 - 다음·미결: 배치 B(csr 커널 + 커밋된 바이너리, 부팅 사전 스냅 — `main.py` 훅은 이미 있고 csr 전까지 꺼져 있다)는 09-30 18:00 KST 까지 증명될 때만. 서명 전 Render 모양(0.5 CPU/512MB) 컨테이너에서 by-type·추천 콜드/웜 재측정(명세 §8).
-- 사람 작업: main 반영 뒤 `/api/v1/warmup` 한 번 → Render 로그 `walking_graph_presnap`·`warmup_run_done` 확인, `merchant_boost_timesale_fetch_failed`·`availability_evidence_unavailable` 이 늘지 않는지. 되돌림은 env `WALKING_ROUTE_KERNEL=legacy`(재시작) 또는 커밋별 `git revert`.
+- 사람 작업: main 반영 뒤 `/api/v1/warmup` 한 번 → Render 로그 `walking_graph_presnap`·`warmup_run_done` 확인, `merchant_boost_timesale_fetch_failed`·`availability_evidence_unavailable`(추천·by-type·**지도 요청 포함**)이 늘지 않는지. 되돌림은 env `WALKING_ROUTE_KERNEL=legacy`(재시작) 또는 커밋별 `git revert`.
 
 ## 2026-09-28d — API 재설계 P2a: 권역 수요 전망을 메모리 주차 이력 행렬로 (스위치 꺼진 채 — rpc)
 
