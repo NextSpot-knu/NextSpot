@@ -1573,6 +1573,21 @@ def _matrix_servable(now: datetime) -> tuple[parking_history.HistorySnapshot | N
     return snapshot, reason
 
 
+def _newest_servable(
+    snapshot: parking_history.HistorySnapshot, now: datetime
+) -> parking_history.HistorySnapshot:
+    """(이벤트 루프, 차선을 잡은 직후) 기다리는 동안 새 세대가 들어왔으면 그것으로 계산한다. 순수 읽기(O(1)).
+
+    메모는 가장 새 세대만 든다(_memo_adopt). 코스 채점처럼 후보 수십 곳이 차선 앞에서 옛 스냅샷을 쥐고 기다리다 꼬리
+    병합이 세대를 올리면, 옛 세대 호출은 single-flight·메모 없이 조합(색인·백테스트 계획)을 저마다 다시 짓는다. 저장소가
+    지금 답해도 된다는 스냅샷은 어느 것이든 값이 맞으므로 더 새 것을 쓴다. 새 것이 답할 수 없으면(오래됨 등) 쥔 것 그대로.
+    """
+    latest, _ = parking_history.servable(_matrix_since(now))
+    if latest is not None and latest.generation > snapshot.generation:
+        return latest
+    return snapshot
+
+
 def _matrix_forecast_from_memos(
     snapshot: parking_history.HistorySnapshot,
     latitude: float,
@@ -1635,6 +1650,7 @@ async def _serve_matrix_forecast(
             if forecast is not _MISS:
                 return forecast
             async with _lane(interactive):
+                snapshot = _newest_servable(snapshot, now)
                 return await asyncio.to_thread(_matrix_forecast, snapshot, latitude, longitude, arrival, now)
     except Exception as exc:  # noqa: BLE001 — 행렬 쪽 어떤 실패도 이 호출을 RPC 경로로 넘길 뿐이다
         logger.warning("area_demand_matrix_failed", kind="forecast", error_type=type(exc).__name__,
@@ -1652,6 +1668,7 @@ async def _serve_matrix_quality(latitude: float, longitude: float, now: datetime
         snapshot, reason = _matrix_servable(now)
         if snapshot is not None:
             async with _lane(True):
+                snapshot = _newest_servable(snapshot, now)
                 return await asyncio.to_thread(_matrix_quality, snapshot, latitude, longitude, now)
     except Exception as exc:  # noqa: BLE001 — 위와 같다
         logger.warning("area_demand_matrix_failed", kind="quality", error_type=type(exc).__name__,

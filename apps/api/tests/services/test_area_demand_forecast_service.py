@@ -1442,3 +1442,59 @@ async def test_interactive_lane_is_not_queued_behind_ranking(monkeypatch, source
     await asyncio.gather(*ranking)
     assert peak == {"ranking": 2, "interactive": 1}
     assert forecast_svc._fallback_served == 0
+
+
+# ── 수리: 차선에서 기다린 호출은 그사이 들어온 새 세대로 계산한다(옛 세대로 조합을 저마다 다시 짓지 않게) ─────────
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["forecast", "quality"])
+async def test_calls_queued_on_a_lane_use_the_generation_that_arrived_meanwhile(monkeypatch, source_env, kind):
+    _use_source(monkeypatch, "matrix")
+    old = _patterned_snapshot()
+    new = ph.merge(None, ph.parse_page(patterned_fixture().rows, aware=forecast_svc._aware), now=_P2_NOW)
+    assert new.generation > old.generation and new.digest == old.digest  # 같은 내용, 더 새 세대
+    now = _P2_NOW
+    arrival = now + timedelta(minutes=90)
+    coordinates = [(35.8360 + index * 1e-5, 129.2105) for index in range(12)]  # 한 조합(반경 안 열이 같다)
+
+    def _call(latitude, longitude, *, interactive=False):
+        if kind == "forecast":
+            return forecast_svc.get_historical_area_demand_forecast(
+                latitude, longitude, arrival, now=now, interactive=interactive)
+        return forecast_svc.get_area_demand_forecast_quality(latitude, longitude, now=now)
+
+    opener_expected = forecast_svc._matrix_forecast(new, *_P2_CENTER, arrival, now)
+    expected = {}
+    for latitude, longitude in coordinates:
+        if kind == "forecast":
+            expected[(latitude, longitude)] = forecast_svc._matrix_forecast(new, latitude, longitude, arrival, now)
+        else:
+            expected[(latitude, longitude)] = forecast_svc._matrix_quality(new, latitude, longitude, now)
+    forecast_svc.reset_matrix_memos()
+
+    builds: list[int] = []
+    real_build = forecast_svc._build_near_entry
+
+    def _slow_build(*args):
+        builds.append(1)
+        time.sleep(0.2)  # 첫 계산들이 도는 동안 새 세대가 들어오고 다른 호출이 그 세대를 연다
+        return real_build(*args)
+
+    monkeypatch.setattr(forecast_svc, "_build_near_entry", _slow_build)
+    _serve_from(old)
+    # 품질은 interactive 차선(동시 1), 전망은 ranking 차선(동시 2) — 어느 쪽이든 나머지는 옛 스냅샷을 쥐고 줄 선다.
+    queued = [asyncio.create_task(_call(*coordinate)) for coordinate in coordinates]
+    await asyncio.sleep(0.05)
+    _serve_from(new)  # 꼬리 병합이 세대를 올렸다
+    # 새 세대를 여는 호출(메모가 새 세대로 넘어간다) — 줄 선 호출들과 다른, 비어 있는 차선의 전망.
+    opener = await forecast_svc.get_historical_area_demand_forecast(
+        *_P2_CENTER, arrival, now=now, interactive=kind == "forecast")
+    results = await asyncio.gather(*queued)
+
+    assert repr(opener) == repr(opener_expected)
+    for coordinate, result in zip(coordinates, results):
+        assert repr(result) == repr(expected[coordinate])
+    # 옛 세대 계산(차선을 먼저 잡은 것들 — single-flight 가 끊겨 많아야 2) + 새 세대 1. 고치기 전에는 기다린 호출마다 1.
+    assert len(builds) <= 3, f"조합을 {len(builds)}번 지었다"
+    assert forecast_svc._fallback_served == 0
