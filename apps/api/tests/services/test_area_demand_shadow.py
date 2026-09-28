@@ -710,3 +710,46 @@ def test_level_only_difference_is_ulp_up_to_1e12_and_value_beyond(monkeypatch, s
         assert ("warning", "area_demand_shadow_diff") in [(lvl, name) for lvl, name, _ in shadow_env.events]
     else:
         assert counts["forecast_compared"] == 1
+
+
+# ── 수리: 종료 때 shadow 누적을 마지막 요약 한 줄로 남긴다(재시작을 넘는 게이트 합산) ────────────────────────
+
+
+def test_stop_emits_a_final_shadow_summary_with_the_boot_totals(monkeypatch, shadow_env):
+    client = _since_rpc_client()
+    monkeypatch.setattr(forecast_svc, "supabase_admin", client)
+    monkeypatch.setattr(forecast_svc, "_shadow_utcnow", lambda: _P2_NOW)
+    clock = {"t": 5_000.0}
+    monkeypatch.setattr(forecast_svc, "_shadow_mono", lambda: clock["t"])
+    assert ph._shadow_flush is forecast_svc._shadow_flush  # import 때 등록된다
+    snapshot = _patterned_snapshot()
+
+    asyncio.run(ph.stop())  # 창을 연 적이 없으면 아무것도 남기지 않는다
+    assert not shadow_env.named("area_demand_shadow_summary")
+
+    forecast_svc._shadow_self_probe(snapshot)  # 창을 연다(비교 1)
+    clock["t"] += 300.0
+    forecast_svc._shadow_count("compared", "rows")  # 창이 닫히기 전의 결함 — 10분 요약으로는 나오지 않는다
+    for _ in range(forecast_svc._SHADOW_DIFF_BUDGET):
+        forecast_svc._shadow_take("diff", forecast_svc._SHADOW_DIFF_BUDGET)  # 차이 줄 예산도 다 썼다
+    assert not shadow_env.named("area_demand_shadow_summary")
+
+    asyncio.run(ph.stop())  # 재시작(배포·env 변경)
+    [final] = shadow_env.named("area_demand_shadow_summary")
+    assert final["final"] is True and final["window_s"] == 300
+    assert final["total"]["rows"] == 1 and final["total"]["compared"] == 2 and final["total"]["probes"] == 1
+    assert final["total"] == forecast_svc._shadow_total.as_log() and final["window"]["rows"] == 1
+    assert set(final["total"]) >= _SPEC_SHADOW_KEYS | {"probes_by_class", "failed"}
+
+    # shadow 가 아닌 모드에서는 아무것도 남기지 않고, 기록이 실패해도 종료는 막히지 않는다.
+    for source in ("rpc", "matrix"):
+        _use_source(monkeypatch, source)
+        asyncio.run(ph.stop())
+    assert len(shadow_env.named("area_demand_shadow_summary")) == 1
+    _use_source(monkeypatch, "shadow")
+
+    def _broken():
+        raise RuntimeError("flush bug")
+
+    monkeypatch.setattr(ph, "_shadow_flush", _broken)
+    asyncio.run(ph.stop())

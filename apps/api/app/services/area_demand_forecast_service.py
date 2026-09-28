@@ -1848,6 +1848,26 @@ def _shadow_tick() -> None:
     _shadow_emit_summary(summary)
 
 
+def _shadow_flush() -> None:
+    """(종료 때 한 번 — parking_history.stop) 부팅 뒤 누적을 마지막 요약 한 줄로 남긴다(final=True).
+
+    요약은 10분 창이 닫힐 때만 나오므로, 재시작(배포·env 변경)이 오면 마지막 창의 숫자가 로그에 없다. 게이트는 재시작을 넘어
+    누적을 합산하므로 종료 직전 total 을 여기서 남긴다. shadow 모드가 아니거나 창을 연 적이 없으면 아무것도 하지 않는다.
+    """
+    if parking_history.mode() != "shadow":
+        return
+    with _SHADOW_LOCK:
+        if _shadow_window_started is None:
+            return
+        summary = {
+            "window_s": round(max(0.0, _shadow_mono() - _shadow_window_started)),
+            "window": _shadow_window.as_log(),
+            "total": _shadow_total.as_log(),
+            "final": True,
+        }
+    logger.info("area_demand_shadow_summary", **summary)
+
+
 def _shadow_take(budget: str, limit: int) -> bool:
     """이 10분 창의 예산에서 하나를 쓴다. 남아 있지 않으면 False."""
     with _SHADOW_LOCK:
@@ -2294,3 +2314,4 @@ def reset_source_dispatch() -> None:
 # 주차 이력 모듈은 이 모듈을 import 하지 않는다(순환) — 대신 여기서 알려 둔다. 대입뿐이다(스레드·I/O·로그 없음).
 parking_history.register_health_extra(_health_extra)
 parking_history.register_shadow_probe(_shadow_self_probe)
+parking_history.register_shadow_flush(_shadow_flush)

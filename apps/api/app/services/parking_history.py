@@ -416,6 +416,7 @@ _thread_sleep = time.sleep  # 쪽 재시도 사이 쉼(적재 스레드) — 시
 # 전망 서비스가 import 될 때 알려 온다(이 모듈은 전망 서비스를 import 하지 않는다).
 _health_extra: Callable[[], Mapping[str, Any]] | None = None
 _shadow_probe: Callable[[HistorySnapshot], None] | None = None
+_shadow_flush: Callable[[], None] | None = None
 
 
 def mode() -> str:
@@ -971,6 +972,12 @@ def start() -> None:
 
 async def stop() -> None:
     await _loader.stop()
+    flush = _shadow_flush
+    if flush is not None:
+        try:
+            flush()  # shadow 숫자의 마지막 요약 한 줄 — 재시작 전 누적을 로그에 남긴다(다른 모드는 아무것도 안 한다)
+        except Exception as exc:  # noqa: BLE001 — 종료를 막지 않는다
+            logger.warning("parking_history_shadow_flush_failed", error_type=type(exc).__name__)
 
 
 def current() -> HistorySnapshot | None:
@@ -1012,6 +1019,12 @@ def register_shadow_probe(fn: Callable[[HistorySnapshot], None]) -> None:
     """shadow 자기 탐침. 꼬리 동기화가 성공할 때마다 적재 스레드에서 그 시점의 스냅샷으로 한 번 부른다."""
     global _shadow_probe
     _shadow_probe = fn
+
+
+def register_shadow_flush(fn: Callable[[], None]) -> None:
+    """종료(stop) 때 한 번 부를 shadow 요약 기록 — 재시작 전 누적 숫자가 10분 창을 기다리다 사라지지 않게."""
+    global _shadow_flush
+    _shadow_flush = fn
 
 
 def health() -> dict[str, Any]:

@@ -65,7 +65,8 @@ FastAPI 워커 1개(Render 512MB/0.5CPU)
 2. **`shadow` 로 설정.** 답은 여전히 오늘 경로 그대로이고, 메모리 행렬로도 계산해 차이만 센다. 1분쯤 뒤 `/health.parking_history`:
    `ready: true` · `rows` ≈ 5,100(56일 창이 차면 ~8,064) · `lots: 4` · `failures: 0` · 그 뒤로 `last_sync_age_s` < 300.
    비용: 스레드 1개·+2~6MB, 꼬리 읽기 5분마다·대조 30분마다·재시작마다 6쪽 적재, 자기 탐침 RPC 하루 ≤288회.
-3. **24시간 이상, 재시작 1회 포함**으로 둔다. 숫자는 재시작마다 0부터라 재시작 직전 값을 적어 두고 합산한다. 게이트
+3. **24시간 이상, 재시작 1회 포함**으로 둔다. 숫자는 재시작마다 0부터라 재시작 전 누적을 합산한다 — 재시작 전 값은 종료 때 남는
+   마지막 `area_demand_shadow_summary`(`final: true`)의 `total` 이다(재시작 순간에 `/health` 를 볼 필요 없다). 게이트
    (`/health.parking_history.shadow` 와 10분마다 한 줄인 로그 `area_demand_shadow_summary`):
    - `rows == 0` · `value == 0` · `forecast_mismatch == 0` · `probe_failed` ≤ `probes` 의 5% · 요약 로그 `total` 의 `failed == 0`
      (shadow 쪽 비교가 던진 수 — `/health` 에는 없다)
