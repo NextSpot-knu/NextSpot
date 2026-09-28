@@ -57,6 +57,8 @@ async def apply_merchant_boosts(client, facilities: list[dict]) -> list[dict]:
 # in.(...) 한 조각에 실을 id 수. availability_service._AVAILABILITY_ID_CHUNK 와 같은 값이다
 # (같은 PostgREST URL 길이 한계를 상대한다).
 _TIMESALE_ID_CHUNK = 150
+# PostgREST 단일 응답 행수 캡. id 없는 한 번 조회가 여기에 닿으면 잘렸을 수 있어 조각 방식으로 되돌아간다.
+_TIMESALE_PAGE_CAP = 1000
 
 
 async def _apply_timesale_boost(client, facilities: list[dict]) -> list[dict]:
@@ -86,17 +88,49 @@ async def _apply_timesale_boost(client, facilities: list[dict]) -> list[dict]:
             .execute()
         )
 
-    rows: list[dict] = []
-    try:
-        # 순차로 돈다. 동시 요청을 늘리면 Supabase 커넥션이 끊겨 503 이 나는 것을 이미 겪었다
-        # (courses 간헐 실패, 2026-08-28). 조각이 몇 개 안 되므로 순차로 충분하다.
-        for chunk in chunks:
-            res = await asyncio.to_thread(_fetch, chunk)
-            rows.extend(res.data or [])
-    except Exception as e:
-        # 테이블 미존재(마이그레이션 미적용)/네트워크 오류 등 — 무해 폴백(원본 그대로).
-        logger.warning("merchant_boost_timesale_fetch_failed", error=str(e), candidates=len(ids))
-        return facilities
+    def _fetch_all_active():
+        # _fetch 와 같은 활성 조건·컬럼, id 목록(in_)만 없다.
+        return (
+            client.table("merchant_timesales")
+            .select("facility_id, rate, starts_at, ends_at, canceled_at")
+            .is_("canceled_at", "null")
+            .lte("starts_at", now_iso)
+            .gte("ends_at", now_iso)
+            .execute()
+        )
+
+    rows: list[dict] | None = None
+    if len(chunks) > 1:
+        # 조각이 둘 이상이면(메인 추천 ≤391곳, 식당·카페 by-type) 순차 왕복 2~3번 대신 **id 목록 없이 한 번**
+        # 지금 활성인 타임세일 전부를 받고 요청 id 로 거른다(활성 타임세일은 손에 꼽는다). in_ 은 순수 필터라
+        # 아래 id 거르기가 정확히 대신하고, 최댓값 환산(엄격한 >)은 행 순서와 무관하다 — 결과가 같다.
+        # 조각 하나(코스 후보 풀·관광지·쿠폰 발급)는 오늘의 쿼리 그대로 탄다.
+        try:
+            res = await asyncio.to_thread(_fetch_all_active)
+        except Exception as e:
+            # 조각 방식에서 한 조각이 실패했을 때와 같다 — 부스트 없이 원본 그대로.
+            logger.warning("merchant_boost_timesale_fetch_failed", error=str(e), candidates=len(ids))
+            return facilities
+        data = res.data or []
+        if len(data) >= _TIMESALE_PAGE_CAP:
+            # PostgREST 응답 행수 캡에 닿았다 — 잘렸을 수 있으니 이번 호출만 조각 방식으로 되돌아간다(안전망).
+            logger.warning("merchant_boost_timesale_single_query_capped", rows=len(data), candidates=len(ids))
+        else:
+            idset = {str(i) for i in ids}
+            rows = [r for r in data if str(r.get("facility_id")) in idset]
+
+    if rows is None:
+        rows = []
+        try:
+            # 순차로 돈다. 동시 요청을 늘리면 Supabase 커넥션이 끊겨 503 이 나는 것을 이미 겪었다
+            # (courses 간헐 실패, 2026-08-28). 조각이 몇 개 안 되므로 순차로 충분하다.
+            for chunk in chunks:
+                res = await asyncio.to_thread(_fetch, chunk)
+                rows.extend(res.data or [])
+        except Exception as e:
+            # 테이블 미존재(마이그레이션 미적용)/네트워크 오류 등 — 무해 폴백(원본 그대로).
+            logger.warning("merchant_boost_timesale_fetch_failed", error=str(e), candidates=len(ids))
+            return facilities
 
     # facility_id → 활성 타임세일 중 최댓값 rate(동시 다건이면 가장 후한 할인만 의미 있음).
     max_rate_by_id: dict[str, float] = {}

@@ -172,6 +172,15 @@ async def test_timesale_ids_are_chunked_for_the_url_limit():
         "starts_at": _iso(now - timedelta(minutes=1)), "ends_at": _iso(now + timedelta(minutes=59)),
         "canceled_at": None,
     }]
+    # P3a3(2026-09-29): 조각이 둘 이상이면 먼저 id 목록 없이 활성 타임세일을 한 번에 받고, 그 응답이 PostgREST
+    # 행수 캡(1000)에 닿았을 때만 이 조각 경로로 되돌아간다. 그래서 후보 밖 시설의 활성 세일 1,000건을 깔아
+    # 조각 경로를 타게 한다 — 아래 단언은 그 경로의 URL 길이 계약을 그대로 잠근다(한 번 조회 경로는 in_ 이
+    # 없어 URL 에 id 가 실리지 않는다 — tests/services/test_merchant_boost_single_query.py).
+    rows += [{
+        "facility_id": f"other-{k}", "rate": 0.1,
+        "starts_at": _iso(now - timedelta(minutes=1)), "ends_at": _iso(now + timedelta(minutes=59)),
+        "canceled_at": None,
+    } for k in range(1000)]
     client = _FakeTimesaleClient(rows)
     out = await apply_merchant_boosts(client, facilities)
 
