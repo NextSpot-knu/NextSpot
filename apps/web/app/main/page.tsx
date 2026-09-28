@@ -9,6 +9,7 @@ import { createPublicClient } from '@/lib/supabase';
 import { getMarkerSvg } from '@/lib/map/markerSvg';
 import { scoreFacility, compareSpot, displayWalkingMinutes, rankFacilities, rankFacilitiesDegraded, recToSpot, haversineMeters, cuisineMatch, filterReachable, type Spot } from '@/lib/recommender';
 import { REGION, isWithinRegion } from '@/lib/region';
+import { cleanGalleryImages, loadMapFacilitiesFromSupabase } from '@/lib/mapFacilityFallback';
 import { getRecommendations, recommendByType, rejectRecommendation, voiceTurn, apiClient, getCongestionEstimates, type CongestionEstimate, ASSUMED_TIME_PRESETS, ASSUMED_TIME_EVENT, assumedAtIsoForPreset, getStoredAssumedPreset, setStoredAssumedPreset, prefetchDemoHotPaths } from '@/lib/api-client';
 import {
   displayableEstimate,
@@ -74,15 +75,6 @@ interface FacilityFeatures {
 }
 
 // Supabase congestion_logs 행(이 페이지가 select 하는 컬럼만).
-interface CongestionLog {
-  facility_id: string;
-  congestion_level: number;
-  current_count: number;
-  timestamp: string;
-  source: string;
-  evidence_tier: 'synthetic' | 'single_report' | 'corroborated' | 'verified';
-}
-
 // loadFacilities 의 mapped 형태가 원본. spot/reason/apiRank/totalCandidates 는
 // 추천 파이프라인(백엔드 by-type·rankFacilities·랭킹 effect)이 이후에 덧붙이는 선택 필드.
 interface FacilityRecord {
@@ -648,45 +640,14 @@ export default function MainPage() {
         console.warn("시설 로드(백엔드 /infrastructures) 실패 — supabase 폴백:", apiErr);
       }
 
-      // 2순위 폴백: anon supabase 직접 조회. 독립적인 두 쿼리를 병렬(Promise.all)로 — 직렬 await 제거.
+      // 2순위 폴백: anon supabase 직접 조회 — 활성 시설만 id 순서 페이지로, 혼잡은 서버와 같은
+      // 시설별 최신 RPC(lib/mapFacilityFallback.ts). 시설 조회 실패는 throw → 아래 catch 가 안내한다.
+      // RPC 만 실패하면 지도는 그대로 그리고 혼잡만 '데이터 없음' 으로 둔다.
       try {
-        const [facRes, logRes] = await Promise.all([
-          supabase
-            .from("facilities")
-            .select("id, name, type, latitude, longitude, capacity, operating_hours, features, address, image_url, phone, homepage, overview, barrier_free, contentid, contenttypeid")
-            .gte("latitude", REGION.bounds.minLat)
-            .lte("latitude", REGION.bounds.maxLat)
-            .gte("longitude", REGION.bounds.minLng)
-            .lte("longitude", REGION.bounds.maxLng)
-            .limit(2000),
-          supabase
-            .from("congestion_logs")
-            .select("facility_id, congestion_level, current_count, timestamp, source, evidence_tier")
-            .in("evidence_tier", ["single_report", "corroborated", "verified"])
-            .order("timestamp", { ascending: false })
-            .limit(3000),
-        ]);
+        const { rows, latestBy } = await loadMapFacilitiesFromSupabase(supabase, REGION.bounds);
 
-        if (facRes.error) {
-          console.warn("Failed to load facilities:", facRes.error);
-          setFacilitiesLoadError(!cached?.length); // 캐시도 없을 때만 빈 지도 대신 재시도 안내
-          setIsLoadingFacilities(false);
-          return;
-        }
-        if (logRes.error) console.warn("Failed to load congestion logs:", logRes.error);
-
-        const latestLogsMap: Record<string, CongestionLog | undefined> = {};
-        const logs = logRes.data;
-        if (logs && logs.length > 0) {
-          for (const log of logs) {
-            if (!latestLogsMap[log.facility_id]) {
-              latestLogsMap[log.facility_id] = log;
-            }
-          }
-        }
-
-        const mapped = (facRes.data || []).map((f: any) => {
-          const latestLog = latestLogsMap[f.id];
+        const mapped = rows.map((f: any) => {
+          const latestLog = latestBy[f.id];
           // 혼잡 로그가 없는 시설은 값을 합성(id 해시)하지 않고 null 로 둔다 —
           // 마커/카드가 '데이터 없음'(회색·—) 상태로 표시하도록 소비측에서 null 을 처리한다.
           const baseCongestion = latestLog ? latestLog.congestion_level : null;
@@ -702,6 +663,8 @@ export default function MainPage() {
             // TourAPI 상세(A2) — snake→camel 매핑. 1순위 API 경로와 동일한 필드 집합 유지.
             operatingHours: f.operating_hours ?? null,
             imageUrl: f.image_url ?? null,
+            // detailImage2 — 카드 사진 폴백용. API 의 _clean_gallery_images 처럼 빈 문자열을 걸러 내고, 비면 null.
+            galleryImages: cleanGalleryImages(f.gallery_images),
             address: f.address ?? null,
             phone: f.phone ?? null,
             homepage: f.homepage ?? null,
