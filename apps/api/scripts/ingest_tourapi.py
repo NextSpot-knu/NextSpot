@@ -91,8 +91,8 @@ LIST_RETRY_DELAYS_S: tuple[float, ...] = (5.0, 15.0, 45.0)
 # 태우지 않게. (os.EX_TEMPFAIL 은 Windows 에 없어 상수로 둔다.)
 EXIT_TEMPFAIL = 75
 
-# enrich_row 가 행에 남기는 판정 표시 — "TourAPI 가 대표 이미지가 없다고 답했다"(detailCommon2 가 답했고
-# 목록 firstimage·상세 firstimage 가 모두 빈 값). _write_payload 는 이 표시가 있을 때만 image_url=None 을
+# enrich_row 가 행에 남기는 판정 표시 — "TourAPI 가 대표 이미지가 없다고 답했다"(detailCommon2 가 상세 항목을
+# 돌려줬고 목록 firstimage·상세 firstimage 가 모두 빈 값 — 항목 0개 응답은 확인이 아니다). _write_payload 는 이 표시가 있을 때만 image_url=None 을
 # 보내 DB 의 옛 사진을 지우고, 밑줄로 시작하는 키는 DB 로 보내지 않는다.
 IMAGE_CONFIRMED_ABSENT = "_image_confirmed_absent"
 
@@ -156,11 +156,14 @@ async def enrich_row(row: dict) -> None:
 
     키는 값을 실제로 얻었을 때만 넣는다 — 호출이 실패했거나 빈 값이 오면 키가 없고, 없는 키는
     facilities 에 쓰이지 않아 기존 값이 남는다(upsert_facilities). 빈 응답으로 기존 값을 지우는 경로는
-    대표 이미지 하나뿐이다 — detailCommon2 가 답했는데 목록·상세 firstimage 가 모두 비었을 때(IMAGE_CONFIRMED_ABSENT).
+    대표 이미지 하나뿐이다 — detailCommon2 가 상세 항목을 돌려줬는데 목록·상세 firstimage 가 모두 비었을 때
+    (IMAGE_CONFIRMED_ABSENT).
     """
     contentid = row["contentid"]
     ctid = row["contenttypeid"]
-    common_answered = image_answered = False
+    # common_item_seen: detailCommon2 가 상세 항목을 실제로 돌려줬다. 정상 코드(0000)에 항목 0개인 응답은
+    # 아무것도 확인해 주지 않는다 — 대표 이미지가 없다는 판정·Wikimedia 대체의 근거가 되지 못한다.
+    common_item_seen = image_answered = False
     try:
         common_payload = await detail_common(contentid)
         common_items = parse_items(common_payload)
@@ -170,13 +173,13 @@ async def enrich_row(row: dict) -> None:
             if row.get("image_url"):
                 common.pop("image_url", None)
             row.update(common)
-        common_answered = True
+            common_item_seen = True
     except (TourAPIError, RuntimeError) as e:
         print(f"[details] detailCommon2 실패 (contentid={contentid}): {e}")
-    # 대표 이미지는 목록 firstimage 가 먼저, detailCommon2 firstimage 가 폴백이다. detailCommon2 가 답했는데도
-    # 둘 다 비었으면 TourAPI 가 사진을 거둔 것이다 — 그날만 image_url 을 지운다(_write_payload). 호출이 실패한
-    # 날은 모르는 것이므로 표시하지 않아 DB 의 기존 사진이 남는다.
-    if common_answered and not row.get("image_url"):
+    # 대표 이미지는 목록 firstimage 가 먼저, detailCommon2 firstimage 가 폴백이다. detailCommon2 가 상세 항목을
+    # 돌려줬는데도 둘 다 비었으면 TourAPI 가 사진을 거둔 것이다 — 그날만 image_url 을 지운다(_write_payload).
+    # 호출이 실패했거나 항목 없이 답한 날은 모르는 것이므로 표시하지 않아 DB 의 기존 사진이 남는다.
+    if common_item_seen and not row.get("image_url"):
         row[IMAGE_CONFIRMED_ABSENT] = True
     try:
         intro_payload = await detail_intro(contentid, ctid)
@@ -214,8 +217,9 @@ async def enrich_row(row: dict) -> None:
 
     # TourAPI 사진이 전혀 없는 관광지·문화시설만 보수적으로 Wikimedia 퍼블릭 도메인 폴백.
     # '사진이 없다'는 사진을 주는 두 호출(detailCommon2 대표 이미지 · detailImage2 갤러리)이 모두 답했을 때만
-    # 안다. 하나라도 실패한 날 대체 사진을 넣으면 DB 에 있던 TourAPI 갤러리(최대 5장)를 Wikimedia 1장으로 덮는다.
-    if (ctid in {12, 14} and common_answered and image_answered
+    # 안다 — detailCommon2 는 상세 항목까지 돌려줘야 한다(항목 0개는 대표 이미지에 대해 아무것도 말하지 않는다).
+    # 하나라도 모르는 날 대체 사진을 넣으면 DB 에 있던 TourAPI 사진(대표·갤러리 최대 5장)을 Wikimedia 로 덮는다.
+    if (ctid in {12, 14} and common_item_seen and image_answered
             and not row.get("image_url") and not row.get("gallery_images")):
         try:
             wikimedia = await find_reusable_place_image(
@@ -261,7 +265,7 @@ def _write_payload(row: dict, *, exists: bool, keep_coordinates: bool = False) -
       image_url(목록 firstimage 도 상세 폴백도 없을 때)과 address(addr1 빈 값)뿐인데, 보내면 전날 상세 폴백이
       채운 대표 이미지나 Kakao 보완 배치가 채운 주소를 NULL 로 지운다.
     - 예외 하나: image_url 은 TourAPI 가 "대표 이미지 없음"을 확인해 준 날(IMAGE_CONFIRMED_ABSENT — detailCommon2
-      가 답했고 목록·상세 firstimage 가 모두 빈 값)에는 None 을 보내 지운다. 거둔 사진이 DB 에 영원히 남거나,
+      가 상세 항목을 돌려줬고 목록·상세 firstimage 가 모두 빈 값)에는 None 을 보내 지운다. 거둔 사진이 DB 에 영원히 남거나,
       Wikimedia 대체 사진(두 사진 호출이 모두 답한 날에만 생긴다)의 출처 아래 옛 TourAPI 사진이 뜨지 않게.
       address 에는 이런 "확인된 부재" 신호가 없다 — 주소는 목록 addr1 에서만 오고(detailCommon2 추출에 주소가
       없다) 빈 addr1 은 "TourAPI 에 없음"일 뿐 "장소에 주소가 없음"이 아니다. 기존 주소는 Kakao 보완 배치가

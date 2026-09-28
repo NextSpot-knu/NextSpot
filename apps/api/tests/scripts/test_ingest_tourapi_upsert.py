@@ -201,6 +201,7 @@ class _Details:
     def __init__(self):
         self.fail: dict[str, set[str]] = {}
         self.no_photo: set[str] = set()
+        self.empty_common: set[str] = set()  # detailCommon2 가 정상 코드로 답했지만 항목이 0개
         self.wikimedia_calls: list[str] = []
 
     def _guard(self, endpoint: str, contentid: str) -> None:
@@ -209,6 +210,8 @@ class _Details:
 
     async def common(self, contentid):
         self._guard("common", contentid)
+        if contentid in self.empty_common:
+            return _ok([])
         item = {"overview": "개요", "tel": "054-000-0000", "homepage": "https://place.example"}
         if contentid not in self.no_photo:
             item["firstimage"] = "http://img.example/common.jpg"
@@ -392,6 +395,28 @@ async def test_image_url_is_cleared_only_when_tourapi_confirmed_no_main_image(de
     # 판정용 표시는 DB 로 가지 않는다.
     assert not [k for payload in sent.values() for k in payload if k.startswith("_")]
     _assert_uniform(table.bulk("upsert") + table.bulk("insert"))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("upsert_error", [None, _NO_CONFLICT_TARGET], ids=["bulk_upsert", "fallback_42P10"])
+async def test_empty_detail_common_reply_confirms_nothing(details, upsert_error):
+    # detailCommon2 가 정상 코드(0000)로 답했지만 항목이 0개 — 상세 항목의 firstimage 를 본 적이 없으니
+    # "대표 이미지 없음"이 확인된 것이 아니다. DB 의 좋은 사진을 지우지 않고, Wikimedia 로 바꾸지도 않는다.
+    details.no_photo = {"7"}
+    details.empty_common = {"7"}
+    row = _poi("7")
+    await ingest_tourapi.enrich_row(row)
+
+    assert details.wikimedia_calls == []
+    assert "gallery_images" not in row
+
+    table = _FacilitiesTable(existing=[{"contentid": "7", "features": {}}], upsert_error=upsert_error)
+    assert _upsert([row], table) == 1
+
+    sent = _sent(table)
+    assert "image_url" not in sent["7"]
+    assert "gallery_images" not in sent["7"]
+    assert "image_source" not in sent["7"]["features"]
 
 
 # ---------------------------------------------------------------------------
