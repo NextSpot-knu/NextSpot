@@ -50,13 +50,15 @@ class _Query:
         self._client.queries.append(self._record)
         if self._client.fail:
             raise RuntimeError("upstream 503")
-        return type("Result", (), {"data": list(self._rows)})()
+        # PostgREST 처럼 한 응답은 최대 max_rows 행에서 잘린다(프로덕션 기본 1000).
+        return type("Result", (), {"data": list(self._rows)[: self._client.max_rows]})()
 
 
 class _Client:
-    def __init__(self, rows, *, fail=False):
+    def __init__(self, rows, *, fail=False, max_rows=1000):
         self.rows = rows
         self.fail = fail
+        self.max_rows = max_rows
         self.queries: list[dict] = []
 
     def table(self, name):
@@ -158,3 +160,48 @@ async def test_failure_drops_boost_like_today():
     assert len(client.queries) == 1
     assert [f["coupon_rate"] for f in out] == [f["coupon_rate"] for f in facilities]
     assert all("timesale_rate" not in f for f in out)
+
+
+def _filler_active(n: int) -> list[dict]:
+    """후보 밖 시설의 활성 타임세일 n건 — 행 순서상 후보의 행보다 **앞에** 놓아, 1000행 캡에서 잘리면 후보 행이 빠지게."""
+    now = datetime.now(timezone.utc)
+    hour = timedelta(hours=1)
+    return [
+        _row(f"88888888-0000-0000-0000-{i:012d}", 0.2, start=now - hour, end=now + hour) for i in range(n)
+    ]
+
+
+@pytest.mark.asyncio
+async def test_a_response_of_exactly_1000_rows_is_treated_as_truncated(monkeypatch):
+    """PostgREST 가 자른 응답은 정확히 1000행이다 — 그걸 '완결' 로 보면 1000행 뒤의 후보 부스트가 조용히 빠진다."""
+    facilities, rows = _scenario(400)
+    rows = _filler_active(1000) + rows  # 활성 1,009건 → 한 번 조회는 1000행(전부 후보 밖)에서 잘린다
+
+    new_client = _Client(rows)
+    new = await apply_merchant_boosts(new_client, facilities)
+
+    monkeypatch.setattr(merchant_boost, "_TIMESALE_PAGE_CAP", 0)
+    old = await apply_merchant_boosts(_Client(rows), facilities)
+
+    assert [q["in_"] for q in new_client.queries] == [None, 150, 150, 100]
+    assert new == old
+    by_id = {f["id"]: f for f in new}
+    assert by_id[facilities[3]["id"]]["timesale_rate"] == 0.3
+    assert by_id[facilities[399]["id"]]["timesale_rate"] == 0.4
+    assert by_id[facilities[200]["id"]]["timesale_rate"] == 0.35
+
+
+@pytest.mark.asyncio
+async def test_a_response_of_999_rows_is_complete_and_stays_one_query(monkeypatch):
+    facilities, rows = _scenario(400)
+    rows = _filler_active(990) + rows  # 활성 999건 → 잘리지 않은 완결 응답
+
+    new_client = _Client(rows)
+    new = await apply_merchant_boosts(new_client, facilities)
+
+    monkeypatch.setattr(merchant_boost, "_TIMESALE_PAGE_CAP", 0)
+    old = await apply_merchant_boosts(_Client(rows), facilities)
+
+    assert new_client.queries == [{"in_": None}]
+    assert new == old
+    assert {f["id"]: f.get("timesale_rate") for f in new}[facilities[399]["id"]] == 0.4
