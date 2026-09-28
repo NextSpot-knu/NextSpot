@@ -12,8 +12,12 @@ import asyncio
 from datetime import datetime
 from typing import Any
 
+import structlog
+
 from app.core.supabase import supabase_admin
 from app.services.parking_demand_service import fetch_current_gyeongju_parking_snapshot
+
+logger = structlog.get_logger()
 
 
 class SnapshotPersistenceError(RuntimeError):
@@ -87,11 +91,24 @@ def _persist_snapshot(observation: dict[str, Any]) -> dict[str, Any]:
 
 
 async def collect_area_demand_snapshot() -> dict[str, Any]:
-    """현재 ITS 관측치를 조회한 뒤 Supabase에 멱등 저장한다."""
+    """현재 ITS 관측치를 조회한 뒤 Supabase에 멱등 저장한다.
+
+    새 행이 저장되면(stored) 주차 이력 적재 루프에 꼬리 동기화를 곧바로 한 번 부탁한다 — 권위 있는 DB 행을
+    다시 읽을 뿐 로컬 병합은 없다. 부탁은 막지도 던지지도 않고, 실패해도 수집 응답(pg_cron 90초)은 그대로다.
+    rpc 모드(기본)에서는 적재 루프가 없어 아무 일도 하지 않는다.
+    """
     observation = await fetch_current_gyeongju_parking_snapshot()
     try:
-        return await asyncio.to_thread(_persist_snapshot, observation)
+        persisted = await asyncio.to_thread(_persist_snapshot, observation)
     except SnapshotPersistenceError:
         raise
     except Exception as exc:
         raise SnapshotPersistenceError("snapshot_persistence_failed") from exc
+    if persisted.get("stored"):
+        try:
+            from app.services import parking_history
+
+            parking_history.kick_tail()  # 권위 있는 DB 행을 곧바로 다시 읽는다(로컬 병합 없음) — 절대 던지거나 막지 않는다
+        except Exception as exc:  # noqa: BLE001 — 수집 응답(pg_cron 90초)은 이 알림 때문에 실패하지 않는다
+            logger.warning("parking_history_kick_failed", error_type=type(exc).__name__)
+    return persisted

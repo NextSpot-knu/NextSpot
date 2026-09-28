@@ -122,3 +122,110 @@ def test_persist_snapshot_rejects_non_factual_or_incomplete_observation(monkeypa
         snapshots._persist_snapshot(observation)
 
     assert fake.calls == []
+
+
+# ── 수집 직후 주차 이력 꼬리 동기화 깨우기(스펙 §3.5 — T41 · T42) ────────────────────────────
+
+
+class _StoredSupabase(FakeSupabase):
+    """record_area_demand_snapshot 이 stored 를 이 값으로 돌려준다(False = 더 옛 관측이라 저장 안 됨)."""
+
+    def __init__(self, stored):
+        super().__init__()
+        self.stored = stored
+
+    def rpc(self, name, params):
+        owner = self
+
+        class _Call(FakeRpc):
+            def execute(inner):
+                result = FakeRpc.execute(inner)
+                result.data["stored"] = owner.stored
+                return result
+
+        return _Call(self, name, params)
+
+
+class _Logs:
+    def __init__(self):
+        self.events = []
+
+    def warning(self, event, **fields):
+        self.events.append((event, fields))
+
+
+def _collect_env(monkeypatch, stored):
+    async def _observe():
+        return _observation()
+
+    monkeypatch.setattr(snapshots, "fetch_current_gyeongju_parking_snapshot", _observe)
+    fake = _StoredSupabase(stored)
+    monkeypatch.setattr(snapshots, "supabase_admin", fake)
+    return fake
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stored", [True, False])
+async def test_collect_kicks_parking_tail_only_when_stored(monkeypatch, stored):
+    from app.services import parking_history
+
+    kicks = []
+    monkeypatch.setattr(parking_history, "kick_tail", lambda: kicks.append(1))
+    fake = _collect_env(monkeypatch, stored)
+
+    result = await snapshots.collect_area_demand_snapshot()
+
+    assert len(fake.calls) == 1 and result["stored"] is stored
+    assert kicks == ([1] if stored else [])
+
+
+@pytest.mark.asyncio
+async def test_collect_does_not_kick_when_persistence_fails(monkeypatch):
+    from app.services import parking_history
+
+    kicks = []
+    monkeypatch.setattr(parking_history, "kick_tail", lambda: kicks.append(1))
+    _collect_env(monkeypatch, True)
+
+    def _down(_observation):
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(snapshots, "_persist_snapshot", _down)
+    with pytest.raises(snapshots.SnapshotPersistenceError, match="snapshot_persistence_failed"):
+        await snapshots.collect_area_demand_snapshot()
+    assert kicks == []
+
+
+@pytest.mark.asyncio
+async def test_collect_kick_reaches_the_real_loader_flag(monkeypatch):
+    """실제 kick_tail — rpc(기본)면 적재 루프가 없어 아무 일도 없고, 시작·준비된 적재 루프에는 꼬리 요청이 선다."""
+    from app.services import parking_history as ph
+
+    _collect_env(monkeypatch, True)
+    ph.reset_for_tests()
+    try:
+        await snapshots.collect_area_demand_snapshot()
+        assert ph._loader._tail_requested is False and ph._loader._task is None  # rpc: 시작 전이라 무시
+        ph._loader._started, ph._loader.ready = True, True
+        await snapshots.collect_area_demand_snapshot()
+        assert ph._loader._tail_requested is True
+    finally:
+        ph.reset_for_tests()
+
+
+@pytest.mark.asyncio
+async def test_collect_succeeds_when_kick_raises(monkeypatch):
+    from app.services import parking_history
+
+    def _boom():
+        raise RuntimeError("kick bug at 35.83612")
+
+    monkeypatch.setattr(parking_history, "kick_tail", _boom)
+    logs = _Logs()
+    monkeypatch.setattr(snapshots, "logger", logs)
+    _collect_env(monkeypatch, True)
+
+    result = await snapshots.collect_area_demand_snapshot()
+
+    assert result["stored"] is True and result["snapshot_id"] == "snapshot-1"
+    assert logs.events == [("parking_history_kick_failed", {"error_type": "RuntimeError"})]
