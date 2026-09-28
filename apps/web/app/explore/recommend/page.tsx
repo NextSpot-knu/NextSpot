@@ -26,7 +26,14 @@ import { congestionDisplay, estimateRadiusKm, formatEstimateTime, formatLastObse
 import { congestionKey } from "@/lib/congestionScale";
 import { useBusyThreshold } from "@/components/shell/PublicSettingsProvider";
 import { buildSpotComparisons, formatSpotComparison } from "@/lib/spotComparison";
-import { creditedPhotoUrls, creditForDisplayedPhoto } from "@/lib/photoCredit";
+import {
+  advancePhotoCursor,
+  creditedPhotoUrls,
+  creditForDisplayedPhoto,
+  displayedPhotoUrl,
+  photoCandidates,
+  type PhotoCursor,
+} from "@/lib/photoCredit";
 import { PhotoCreditLink } from "@/components/PhotoCreditLink";
 import { TrailingNoteText } from "@/components/TrailingNoteText";
 
@@ -225,6 +232,16 @@ function RecommendContent() {
   // 카페 화면의 대안이 음식점으로 채워졌다. 대안은 45초 타임아웃·재시도 뒤에 불리므로 그때는 이미 채워져 있다.
   const originalTypeRef = useRef<string | null>(null);
   const [recommendations, setRecommendations] = useState<RecommendationResponse[]>([]);
+  // 추천 카드마다 몇 번째 사진 후보를 띄우는지(깨진 사진은 건너뛴다 — 대기 보드와 같은 커서). 카드는 목록 map 안에서
+  // 그려져 카드별 useState 를 둘 수 없어 추천 id 로 묶는다. 보이는 사진과 그 출처는 렌더 중 이 커서에서 함께 정한다.
+  const [photoCursors, setPhotoCursors] = useState<Record<string, PhotoCursor>>({});
+  const skipBrokenPhoto = (recommendationId: string, urls: readonly string[], failedUrl: string) => {
+    setPhotoCursors((prev) => {
+      const current = prev[recommendationId];
+      const next = advancePhotoCursor(urls, current, failedUrl);
+      return next === current || !next ? prev : { ...prev, [recommendationId]: next };
+    });
+  };
   const spotComparisonById = useMemo(() => {
     const comparisons = buildSpotComparisons(recommendations.slice(0, 3).map((item, index) => ({
       id: item.recommendationId,
@@ -1442,8 +1459,10 @@ function RecommendContent() {
               // TourAPI 상세 소비(RecommendationCard 와 동일 관례) — features 내부 키는 keysToCamel 재귀
               // 변환(firstMenu)과 supabase 폴백 원본(first_menu) 두 표기를 모두 방어한다.
               const recFeatures = rec.facility.features as Record<string, unknown> | null | undefined;
-              // 대표 사진 — 출처 없는 Wikimedia 사진은 띄우지 않고, Wikimedia 사진이면 출처를 붙인다.
-              const photoUrl = creditedPhotoUrls(rec.facility.imageUrl ? [rec.facility.imageUrl] : [], recFeatures)[0];
+              // 사진 — 대표 사진부터 갤러리 순으로, 깨지면 다음 후보. 출처 없는 Wikimedia 사진은 후보에서 빠지고,
+              // 출처는 지금 보이는 사진이 Wikimedia 일 때만 붙는다. 후보를 다 쓰면 사진 상자 자체가 없다(기존과 같다).
+              const photoUrls = creditedPhotoUrls(photoCandidates(rec.facility.imageUrl, rec.facility.galleryImages), recFeatures);
+              const photoUrl = displayedPhotoUrl(photoUrls, photoCursors[rec.recommendationId]);
               const photoCredit = creditForDisplayedPhoto(photoUrl, recFeatures);
               const firstMenuRaw = (recFeatures?.firstMenu ?? recFeatures?.first_menu) as string | undefined;
               const firstMenuTokens = firstMenuRaw
@@ -1499,21 +1518,20 @@ function RecommendContent() {
                   >
                     {idx + 1}
                   </span>
-                  {/* 시설 사진 — TourAPI firstimage(이미 응답에 실려 옴). 정적 export 라 raw img 사용
-                      (대기 보드 WaitingCardImage 와 동일 관례). 로드 실패 시 상태 없이 요소만 숨겨
-                      레이아웃이 깨지지 않는다. */}
+                  {/* 시설 사진 — TourAPI firstimage·갤러리(이미 응답에 실려 옴). 정적 export 라 raw img 사용
+                      (대기 보드 WaitingCardImage 와 동일 관례). 로드에 실패하면 다음 후보로 넘어가고,
+                      다 실패하면 사진 상자(출처 줄 포함)가 통째로 빠진다. */}
                   {photoUrl && (
-                    // 사진과 출처를 한 상자로 — 사진이 깨지면 출처 줄도 같이 숨는다.
+                    // 사진과 출처를 한 상자로 — 출처는 이 상자의 사진에만 붙는다.
                     <div className="mb-4">
+                      {/* key: URL 마다 새 엘리먼트 — 지나간 사진의 늦은 onError 가 새 사진을 건너뛰게 하지 않는다. */}
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
+                        key={photoUrl}
                         src={photoUrl}
                         alt={rec.facility.name}
                         loading="lazy"
-                        onError={(e) => {
-                          const box = e.currentTarget.parentElement;
-                          if (box) box.style.display = 'none';
-                        }}
+                        onError={() => skipBrokenPhoto(rec.recommendationId, photoUrls, photoUrl)}
                         className="w-full h-36 object-cover rounded-xl border border-line"
                       />
                       {photoCredit && <PhotoCreditLink credit={photoCredit} className="-mt-px -mb-[5px]" />}
