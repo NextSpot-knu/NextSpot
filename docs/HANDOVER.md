@@ -191,6 +191,16 @@ from checks order by seq;
 
 최신이 위. 10개를 넘으면 가장 오래된 항목을 `archive/HANDOVER_LOG.md` 맨 위로 옮긴다.
 
+## 2026-09-28b — P0c: TourAPI 일배치가 좋은 값을 덮지 않게 · 수집 경보를 스냅샷 표에서 (main 미반영)
+
+- 도구·브랜치: Claude Code(하위 에이전트) / `fix/ingest-keyset-upsert`
+- 커밋: 8a8f54f..d0bacd1 (3건) + 이 기록. 단계 표는 [`API_ARCHITECTURE_PLAN.md`](./API_ARCHITECTURE_PLAN.md) P0c
+- 한 것: 일배치 bulk 쓰기를 키 집합이 같은 행끼리만(합집합 columns 의 NULL 채움 차단) · capacity 는 새 contentid 에만(관리자 수정 유지) · None 열(image_url·address)은 보내지 않음 · 사진 상세가 실패한 날 Wikimedia 대체 사진 금지. area-demand-alert 는 Supabase `area_demand_snapshots` 최신 행을 직접 읽는다(stale·api_unreachable 구분, Supabase 시크릿이 없으면 옛 API 판정 그대로), 매시 28분.
+- 실측: 운영 일배치의 1차 bulk upsert 는 매일 42P10(부분 유니크 인덱스는 ON CONFLICT 대상이 못 된다)으로 실패하고 폴백(신규 INSERT·기존 행마다 UPDATE)이 실제 경로다 — '상세 NULL 덮기'는 운영에선 잠재였고, capacity·image_url·address 되돌리기는 실제였다.
+- 검증: api ruff + pytest 1850(새 9건, 수정 전 코드에서 전부 실패 확인) · actionlint + shellcheck · 스텁 PostgREST 13경우 · 운영 Supabase 읽기 1회(state=ok) · check-docs
+- 다음·미결: main 반영 때 위 "배포 상태"의 area-demand-alert 설명(매시 정각·skip 조건)과 "사람 작업 대기"의 `BACKEND_HEALTH_URL` 항목 갱신 · `routers/search.py` 적재 승인 단건 경로에도 같은 capacity·None 덮기(범위 밖) · 충돌 대상 정리는 RPC 단계에서.
+- 사람 작업: 없음(Supabase 시크릿은 ingest 가 이미 쓰는 값)
+
 ## 2026-09-28 — API 재설계 1단계: 참조 스냅샷으로 지도 4초 → 수 ms (P0a·P1)
 
 - 도구·브랜치: Claude Code(데스크톱 — 노트북 작업 392커밋 동기화 후) · 감사 워크플로(6영역 감사 → 설계 → 레드팀 2렌즈) + 구현 워크플로(구현 → 독립 리뷰 2렌즈 → 수정) / `perf/reference-snapshot`
@@ -354,18 +364,6 @@ from checks order by seq;
 - 검증: web lint(0 errors)/typecheck/test 50파일/build 전 페이지 프리렌더, api ruff/pytest 1,606건. 배포 후 랜딩·/waiting·/main·관제 로그인 브라우저 확인.
 - 다음·미결: 컴플라이언스 감사 결과와 제출 붙여넣기 블록은 팀 로컬 제출 문서에 정리(심사계정 로그인 실증·기능설명서 지정 양식·폼 지역특화 체크가 사람 필수 항목).
 - 사람 작업: 심사계정 2종 브라우저 로그인 확인, 콘텐츠랩 제출(16:00 전), data.go.kr 보조 API 2종 승인 확인 후 폼 기재 여부 결정.
-
-## 2026-09-20c — 대기 문제와 해결만 남긴 서비스 소개
-
-- 도구·브랜치: Codex / `feature/judge-guide` → main (`a3b8a6b`).
-- 한 것: `/guide`의 추상적인 취향 서사와 점수·데이터·사업·전체 기능 등 6개 설명 장을 제거했다. 첫 화면은
-  “줄 서는 대신, 경주를 한 곳 더”를 중심으로 긴 줄·밀리는 일정·포기하는 장소라는 관광객 문제와,
-  도착 시점 혼잡 비교→비슷한 경험의 가까운 대안→바로 가는 코스라는 해결만 보여 준다. ko/en/ja/zh를 함께 반영했다.
-- 검증: web typecheck · i18n 키/4로케일 파리티 · 정적 build 39페이지 · guide Playwright 7건
-  (4로케일, 320/390/1440px, 키보드·테마) 통과. Vercel `/guide` 응답에서 새 문제·해결 문구와 이전 문구 부재를 확인했다.
-  최신 main CI에서 guide 포함 e2e는 통과했고, 전체 결과는 별도 변경의 web `congestionEstimate` 테스트와 API pytest 실패로 빨간불이다.
-- 다음·미결: 소개 화면 코드 작업은 없음.
-- 사람 작업: 최종 제출 전 실제 심사 기기에서 `/guide` 첫 화면을 한 번 눈으로 확인.
 
 ## 기록 규칙
 
