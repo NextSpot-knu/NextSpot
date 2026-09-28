@@ -1487,7 +1487,7 @@ def _matrix_quality(
 # ── 원본 분기(AREA_DEMAND_SOURCE — rpc | shadow | matrix) ─────────────────────────────────────────
 # 공개 함수 셋은 얇은 분기다. rpc(기본)면 if 하나 뒤에 위의 _rpc_* 를 그대로 부른다 — 그 본문은 도입 전 공개 함수의 본문을
 # 한 글자도 바꾸지 않고 옮긴 것이다(tests/services/test_area_demand_forecast_service.py 의 원본 고정 시험이 잠근다).
-# shadow 는 아직 rpc 와 같다(비교는 다음 단계). matrix 는 주차 이력 행렬로 답하고, 행렬이 준비 전·오래됨(15분)·기간 부족·
+# shadow 는 rpc 와 같은 값을 답하고 행렬과의 차이만 센다(아래 shadow 절). matrix 는 주차 이력 행렬로 답하고, 행렬이 준비 전·오래됨(15분)·기간 부족·
 # 열 64개 초과이거나 계산이 실패하면 **그 호출만** RPC 경로로 답한다 — 새 503 은 없다.
 #
 # RPC 캐시 비우기: 폴백이 한 번이라도 돌면 격자 캐시(_points_cache 등 — 격자 96개면 최대 ~100MB)가 다시 찬다. 행렬이 다시
@@ -1675,10 +1675,13 @@ async def get_historical_area_demand_forecast(
     interactive=True 는 사람이 화면에서 기다리는 호출(공개 /area-demand/forecast)만 넘긴다 — matrix 모드에서 추천·코스
     채점 차선 뒤에 줄 서지 않는다. rpc(기본)·shadow 에서는 쓰이지 않는다.
     """
-    if parking_history.mode() == "matrix":
+    source = parking_history.mode()
+    if source == "matrix":
         return await _serve_matrix_forecast(
             latitude, longitude, arrival, now or datetime.now(timezone.utc), interactive
         )
+    if source == "shadow":
+        return await _serve_shadow_forecast(latitude, longitude, arrival, now or datetime.now(timezone.utc))
     return await _rpc_get_historical_area_demand_forecast(latitude, longitude, arrival, now=now)
 
 
@@ -1723,9 +1726,517 @@ async def prefetch_area_demand_points(
     )
 
 
+# ── shadow(AREA_DEMAND_SOURCE=shadow) — 답은 RPC 경로 그대로, 행렬로도 계산해 차이만 센다 ──────────────────────────────
+# 손님에게 나가는 값은 한 글자도 바뀌지 않는다: 요청 경로는 RPC 경로의 답을 그대로 돌려주고, 비교는 그 뒤에 스레드에서 돈다(응답은
+# 비교를 기다리지 않는다). 비교 쪽의 어떤 예외도 세고 기록할 뿐이다. 승격(shadow → matrix) 판단 기준은 스펙 §5.3.
+#
+# 비교 재료는 두 곳이다.
+#   · 요청 경로 — 이 호출이 **직접** RPC 로 받아 격자 캐시에 넣은 시계열만 쓴다(fetched_here). 캐시 적중이거나 다른 호출이 받는
+#     중인 격자는 어느 정확한 좌표의 시계열인지 알 수 없어 비교하지 않는다(_load_points 에 갈고리를 달지 않는다 — 원본 고정).
+#   · 자기 탐침 — 적재 스레드가 꼬리 동기화에 성공할 때마다 한 번(하루 ≤288), 고정 좌표(중심·반경 경계 안/밖·주차장 하나·먼 곳)와
+#     최근 요청 좌표를 돌아가며 RPC 를 한 번 읽어 비교한다. 병합도 그 스레드에서만 일어나므로 탐침의 스냅샷이 곧 그때의 저장소다.
+# 판정(스펙 §3.4(f)): equal · ulp(≤1e-12 — PG 합산 순서·float 표기) · edge(끝자락 — 저장소가 최신 버킷을 아직 못 받았거나
+# :06 재시도·비교 중 병합) · rows(안쪽 행 차이 — 진짜 결함) · value(>1e-12). 시계열이 equal/ulp 이고 끝자락 차이가 없으면 전망·품질도
+# 비교한다. 기준은 캐시를 거치지 않는 backtest_forecast_points(R) 이다 — 격자 품질 캐시는 같은 격자의 다른 좌표 품질을 줄 수 있다(crit7).
+# 예산(10분 창): 요청 비교 ≤10(동시 1), 전망 비교 ≤12, 차이 기록 ≤5. 창이 닫히면 요약 한 줄(비교 또는 적재 꼬리 단계가 낸다).
+
+_SHADOW_WINDOW_S = 600.0
+_SHADOW_REQUEST_BUDGET = 10
+_SHADOW_REQUEST_INFLIGHT_MAX = 1
+_SHADOW_FORECAST_BUDGET = 12
+_SHADOW_DIFF_BUDGET = 5
+_SHADOW_ULP = 1e-12
+_RECENT_COORDS_MAX = 32  # 최근 요청의 정확한 좌표(중복 없음, 메모리에만)
+_PROBE_RECENT_MAX = 24
+_PROBE_FACILITY_SEEN_MAX = 4096  # distinct_facility_coords 를 세는 집합의 상한
+_PROBE_CENTER = (35.8361, 129.2105)
+_PROBE_FAR = (35.70, 129.0)
+_PROBE_ARRIVAL_AFTER = timedelta(minutes=90)
+_PROBE_TIE_CLEARANCE_M = 0.01  # 탐침 좌표는 모든 열까지의 반올림 전 거리가 .x5 경계에서 이만큼 떨어져야 한다(R11)
+_PROBE_FIXED = ("center", "edge_in", "edge_out", "one_lot", "far")
+# /health.parking_history.shadow — 정수만(스펙 §7.3). 요약 로그는 여기에 건너뜀·실패 수·종류별 탐침 수를 더 싣는다.
+_SHADOW_HEALTH_KEYS = (
+    "compared", "equal", "ulp", "edge", "rows", "value", "forecast_compared", "forecast_mismatch", "repr_only",
+    "served_grid_quality_differs", "probes", "probe_failed", "distinct_facility_coords",
+)
+_SHADOW_COUNTERS = _SHADOW_HEALTH_KEYS[:-1] + (
+    "skipped_budget", "skipped_busy", "skipped_not_servable", "forecast_skipped", "failed",
+)
+
+
+class _ShadowStats:
+    """shadow 숫자 한 벌(부팅 뒤 누적 또는 10분 창 하나). 조작은 _SHADOW_LOCK 아래에서만."""
+
+    __slots__ = ("counts", "by_class", "facility")
+
+    def __init__(self) -> None:
+        self.counts = dict.fromkeys(_SHADOW_COUNTERS, 0)
+        self.by_class = dict.fromkeys(_PROBE_FIXED + ("facility",), 0)  # RPC 를 읽어 비교까지 간 탐침 수
+        self.facility: set[tuple[float, float]] = set()
+
+    def as_log(self) -> dict[str, Any]:
+        return {
+            **self.counts,
+            "probes_by_class": dict(self.by_class),
+            "distinct_facility_coords": len(self.facility),
+        }
+
+
+_SHADOW_LOCK = threading.Lock()  # 이벤트 루프(요청)·기본 풀(요청 비교)·적재 스레드(탐침)가 함께 쓴다
+_shadow_total = _ShadowStats()
+_shadow_window = _ShadowStats()
+_shadow_window_started: float | None = None
+_shadow_budget = {"request": 0, "forecast": 0, "diff": 0}
+_shadow_request_inflight = 0  # 이벤트 루프에서만 바뀐다
+_shadow_tasks: set[asyncio.Task] = set()  # 요청 비교 태스크의 강한 참조(끝나면 빠진다)
+_recent_coords: OrderedDict[tuple[float, float], None] = OrderedDict()
+_probe_position = 0
+
+
+def _shadow_mono() -> float:
+    """shadow 10분 창의 시계. 시험이 바꿔 끼운다."""
+    return time.monotonic()
+
+
+def _shadow_utcnow() -> datetime:
+    """자기 탐침의 now. 시험이 바꿔 끼운다."""
+    return datetime.now(timezone.utc)
+
+
+def _shadow_roll_locked(now: float) -> dict[str, Any] | None:
+    """(_SHADOW_LOCK 아래) 창이 닫혔으면 요약을 떼어 내고 새 창을 연다. 첫 호출은 창만 연다."""
+    global _shadow_window, _shadow_window_started
+    if _shadow_window_started is None:
+        _shadow_window_started = now
+        return None
+    elapsed = now - _shadow_window_started
+    if elapsed < _SHADOW_WINDOW_S:
+        return None
+    summary = {"window_s": round(elapsed), "window": _shadow_window.as_log(), "total": _shadow_total.as_log()}
+    _shadow_window = _ShadowStats()
+    _shadow_window_started = now
+    for name in _shadow_budget:
+        _shadow_budget[name] = 0
+    return summary
+
+
+def _shadow_emit_summary(summary: dict[str, Any] | None) -> None:
+    if summary is not None:
+        logger.info("area_demand_shadow_summary", **summary)
+
+
+def _shadow_tick() -> None:
+    with _SHADOW_LOCK:
+        summary = _shadow_roll_locked(_shadow_mono())
+    _shadow_emit_summary(summary)
+
+
+def _shadow_take(budget: str, limit: int) -> bool:
+    """이 10분 창의 예산에서 하나를 쓴다. 남아 있지 않으면 False."""
+    with _SHADOW_LOCK:
+        summary = _shadow_roll_locked(_shadow_mono())
+        allowed = _shadow_budget[budget] < limit
+        if allowed:
+            _shadow_budget[budget] += 1
+    _shadow_emit_summary(summary)
+    return allowed
+
+
+def _shadow_count(*names: str) -> None:
+    with _SHADOW_LOCK:
+        for stats in (_shadow_total, _shadow_window):
+            for name in names:
+                stats.counts[name] += 1
+
+
+def _shadow_failed(origin: str, exc: BaseException) -> None:
+    """shadow 쪽 실패 — 세고, 차이 기록 예산 안에서만 한 줄(오류 원문은 내부 로그에만, /health 에는 수만)."""
+    _shadow_count("failed")
+    if _shadow_take("diff", _SHADOW_DIFF_BUDGET):
+        logger.warning("area_demand_shadow_failed", origin=origin, error_type=type(exc).__name__, error=str(exc)[:300])
+
+
+def _shadow_health() -> dict[str, int]:
+    with _SHADOW_LOCK:
+        body = {name: _shadow_total.counts[name] for name in _SHADOW_HEALTH_KEYS[:-1]}
+        body["distinct_facility_coords"] = len(_shadow_total.facility)
+    return body
+
+
+def _norm(value: Any) -> Any:
+    """값으로 비교하려고 -0.0 을 0.0 으로(모든 float x → x + 0.0). dict·list·tuple 을 따라 내려가며 사본을 만든다."""
+    if isinstance(value, float):
+        return value + 0.0
+    if isinstance(value, dict):
+        return {key: _norm(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_norm(item) for item in value]
+    return value
+
+
+def _remember_coordinate(latitude: float, longitude: float) -> None:
+    """(이벤트 루프) 최근 요청 좌표 고리 — 자기 탐침이 'facility' 로 돌아가며 쓴다. 메모리에만, 최대 32개."""
+    if not (math.isfinite(latitude) and math.isfinite(longitude)):
+        return
+    key = (float(latitude), float(longitude))
+    with _SHADOW_LOCK:
+        _recent_coords[key] = None
+        _recent_coords.move_to_end(key)
+        while len(_recent_coords) > _RECENT_COORDS_MAX:
+            _recent_coords.popitem(last=False)
+
+
+def _will_fetch_here(key: tuple[float, float]) -> bool:
+    """(이벤트 루프, 순수 읽기 — 무엇도 바꾸지 않는다) 이 호출이 곧 _load_points_uncached 를 **직접** 부를 것인가.
+
+    _load_points 는 이 판정 뒤 await 없이 곧바로 같은 캐시를 보고, 비어 있으면 격자 락을 잡는다. 경합 없는 asyncio.Lock 획득은
+    양보하지 않으므로, '신선한 캐시 없음 + 락이 없거나 비어 있고 기다리는 쪽도 없음' 이면 바로 이 호출이 받는다. 기다리는 쪽이 있으면
+    (예: 앞선 보유자가 실패하고 막 풀었다) 그쪽이 먼저 받으므로 False. 락의 대기열(_waiters, CPython 3.11 내부)을 볼 수 없으면
+    추측하지 않고 False — 요청 비교만 줄고 자기 탐침은 그대로다(R10).
+    """
+    hit = _points_cache.get(key)
+    if hit is not None and time.monotonic() - hit[0] < _POINTS_CACHE_TTL_SECONDS:
+        return False
+    lock = _points_locks.get(key)
+    if lock is None:
+        return True
+    if not hasattr(lock, "_waiters"):
+        return False
+    return not lock.locked() and not lock._waiters
+
+
+async def _serve_shadow_forecast(
+    latitude: float,
+    longitude: float,
+    arrival: datetime,
+    now: datetime,
+) -> dict[str, Any] | None:
+    """shadow 모드의 전망: RPC 경로로 답한다(값 그대로). 이 호출이 시계열을 직접 받았으면 행렬과의 비교를 뒤에 띄운다."""
+    key: tuple[float, float] | None = None
+    before = None
+    started = 0.0
+    try:
+        # ── 여기서 RPC 호출까지 await 없음: fetched_here 판정이 _load_points 의 판단과 같은 순간을 본다 ──
+        parking_history.ensure_running()
+        _remember_coordinate(latitude, longitude)
+        grid = _grid_key(latitude, longitude)
+        if _will_fetch_here(grid):
+            key = grid
+        before = parking_history.current()  # g0 — RPC 가 DB 를 읽기 전의 저장소
+        started = time.monotonic()
+    except Exception as exc:  # noqa: BLE001 — shadow 는 답을 절대 바꾸거나 막지 않는다
+        key = None
+        _shadow_failed("request", exc)
+    served = await _rpc_get_historical_area_demand_forecast(latitude, longitude, arrival, now=now)
+    if key is not None:
+        try:
+            _shadow_after_fetch(latitude, longitude, arrival, now, key, before, started, served)
+        except Exception as exc:  # noqa: BLE001
+            _shadow_failed("request", exc)
+    return served
+
+
+def _shadow_after_fetch(
+    latitude: float,
+    longitude: float,
+    arrival: datetime,
+    now: datetime,
+    key: tuple[float, float],
+    before: parking_history.HistorySnapshot | None,
+    started: float,
+    served: dict[str, Any] | None,
+) -> None:
+    """(이벤트 루프) 이 호출이 넣은 격자 캐시 항목이 있으면 예산 안에서 비교 태스크를 띄운다(기다리지 않는다)."""
+    global _shadow_request_inflight
+    entry = _points_cache.get(key)
+    if entry is None or entry[0] < started:
+        return  # RPC 가 실패했다(답은 None) — 비교할 시계열이 없다
+    if before is None:
+        _shadow_count("skipped_not_servable")
+        return
+    latest = parking_history.current()
+    generation_changed = latest is None or latest.generation != before.generation
+    if _shadow_request_inflight >= _SHADOW_REQUEST_INFLIGHT_MAX:
+        _shadow_count("skipped_busy")
+        return
+    if not _shadow_take("request", _SHADOW_REQUEST_BUDGET):
+        _shadow_count("skipped_budget")
+        return
+    _shadow_request_inflight += 1
+    task = asyncio.get_running_loop().create_task(_shadow_request_compare(
+        latitude, longitude, arrival, now, entry[1], before, generation_changed, _norm(served),
+    ))
+    _shadow_tasks.add(task)
+    task.add_done_callback(_shadow_tasks.discard)
+
+
+async def _shadow_request_compare(*args: Any) -> None:
+    global _shadow_request_inflight
+    try:
+        await asyncio.to_thread(_shadow_compare, "request", *args)
+    except Exception as exc:  # noqa: BLE001
+        _shadow_failed("request", exc)
+    finally:
+        _shadow_request_inflight = max(0, _shadow_request_inflight - 1)
+
+
+def _shadow_reference(
+    points: list[AreaDemandPoint], arrival: datetime, now: datetime
+) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    """RPC 시계열만으로 낸 기준 (품질, 전망) — 캐시 없음. 전망은 RPC 경로의 계산(색인·격자 품질 캐시 없이)과 usable 기준 그대로."""
+    quality = backtest_forecast_points(points)
+    forecast = _forecast_from_points(points, arrival, now, None)
+    if forecast is None:
+        return quality, None
+    usable = bool(
+        quality["sample_count"] >= 30
+        and quality["mae"] is not None
+        and quality["mae"] <= 0.15
+        and quality["improvement_rate"] is not None
+        and quality["improvement_rate"] >= 0.20
+    )
+    if not usable:
+        return quality, None
+    forecast["validation"] = quality
+    return quality, forecast
+
+
+def _shadow_compare(
+    origin: str,
+    latitude: float,
+    longitude: float,
+    arrival: datetime,
+    now: datetime,
+    rpc_points: Sequence[AreaDemandPoint],
+    before: parking_history.HistorySnapshot | None,
+    generation_changed: bool,
+    served: Any,
+) -> str:
+    """RPC 시계열 R 과 스냅샷 before(g0)의 행렬 시계열 M 을 비교해 센다 → 판정 이름('skipped' 면 세지 않음).
+
+    작업 스레드 또는 적재 스레드에서 돈다. servable()·kick·ensure_running 을 부르지 않는다. served 는 요청 경로가 실제로 돌려준 값
+    (_norm 사본), 탐침이면 None.
+    """
+    _shadow_tick()
+    since = _matrix_since(now)
+    if (
+        before is None
+        or parking_history.to_us(since) < before.floor_us
+        or len(before.columns) > parking_history.MAX_COLUMNS
+    ):
+        _shadow_count("skipped_not_servable")
+        return "skipped"
+    start = parking_history.window_start(before, since)
+    matrix_points, _ = _matrix_series(before, latitude, longitude, start)
+    r_len, m_len = len(rpc_points), len(matrix_points)
+    # 공통 지평까지만 본다: 한쪽에만 있는 맨 끝(저장소가 아직 못 받은 버킷 등)은 trailing 으로 따로 센다.
+    r_cut, m_cut = r_len, m_len
+    if r_len and m_len:
+        horizon = min(rpc_points[-1].observed_at, matrix_points[-1].observed_at)
+        r_cut = bisect.bisect_right(rpc_points, horizon, key=attrgetter("observed_at"))
+        m_cut = bisect.bisect_right(matrix_points, horizon, key=attrgetter("observed_at"))
+    trailing = (r_len - r_cut) + (m_len - m_cut)
+    first_diff: int | None = None
+    max_diff = 0.0
+    for position in range(min(r_cut, m_cut)):
+        rpc_point, matrix_point = rpc_points[position], matrix_points[position]
+        if rpc_point.observed_at != matrix_point.observed_at or rpc_point.lot_count != matrix_point.lot_count:
+            first_diff = position
+            break
+        max_diff = max(max_diff, abs(rpc_point.level - matrix_point.level))
+    if first_diff is None and r_cut != m_cut:
+        first_diff = min(r_cut, m_cut)
+    if r_len == 0 and m_len == 0:
+        kind = "equal"
+    elif r_cut == 0 or m_cut == 0:
+        kind = "edge" if generation_changed else "rows"
+    elif first_diff is not None:
+        # 마지막 공유 자리에서만 갈렸다(:06 재시도가 최신 버킷을 바꿈) 또는 비교 중 병합 → 끝자락. 그보다 안쪽이면 구멍(B3 결함).
+        kind = "edge" if generation_changed or first_diff >= min(r_cut, m_cut) - 1 else "rows"
+    elif max_diff == 0.0:
+        kind = "equal" if trailing == 0 else "edge"
+    elif max_diff <= _SHADOW_ULP:
+        kind = "ulp"
+    else:
+        kind = "value"
+
+    check: dict[str, Any] | None = None
+    if kind in ("equal", "ulp") and trailing == 0:
+        if _shadow_take("forecast", _SHADOW_FORECAST_BUDGET):
+            reference_quality, reference = _shadow_reference(list(rpc_points), arrival, now)
+            matrix_start = _matrix_window_start(before, now)
+            view, near_entry = _matrix_series(before, latitude, longitude, matrix_start)
+            matrix_quality = _matrix_quality_for(before, latitude, longitude, matrix_start, view, near_entry)
+            matrix_forecast = _matrix_forecast(before, latitude, longitude, arrival, now)
+            check = {
+                "ok": (_norm(reference_quality) == _norm(matrix_quality)
+                       and _norm(reference) == _norm(matrix_forecast)),
+                "repr_differs": repr((reference_quality, reference)) != repr((matrix_quality, matrix_forecast)),
+                "served_differs": origin == "request" and served != _norm(reference),
+                "reference": reference, "reference_quality": reference_quality,
+                "matrix": matrix_forecast, "matrix_quality": matrix_quality,
+            }
+        else:
+            _shadow_count("forecast_skipped")
+
+    counted = ["compared", kind]
+    if check is not None:
+        counted.append("forecast_compared")
+        if not check["ok"]:
+            counted.append("forecast_mismatch")
+        elif check["repr_differs"]:
+            counted.append("repr_only")
+        if check["served_differs"]:
+            counted.append("served_grid_quality_differs")
+    _shadow_count(*counted)
+
+    event_kind = "forecast" if check is not None and not check["ok"] else (None if kind == "equal" else kind)
+    if event_kind is not None and _shadow_take("diff", _SHADOW_DIFF_BUDGET):
+        at = None
+        if first_diff is not None:
+            at = (rpc_points[first_diff] if first_diff < r_cut else matrix_points[first_diff]).observed_at.isoformat()
+        reference = check["reference"] if check is not None else None
+        matrix_forecast = check["matrix"] if check is not None else None
+        log = logger.info if event_kind in ("edge", "ulp") else logger.warning
+        log(
+            "area_demand_shadow_diff",
+            origin=origin, kind=event_kind, lat3=round(latitude, 3), lng3=round(longitude, 3),
+            rpc_rows=r_len, matrix_rows=m_len, trailing=trailing, first_diff_at=at,
+            max_abs_level_diff=max_diff, gen_changed=generation_changed,
+            ref_level=reference["level"] if reference else None,
+            matrix_level=matrix_forecast["level"] if matrix_forecast else None,
+            ref_usable=None if check is None else reference is not None,
+            matrix_usable=None if check is None else matrix_forecast is not None,
+            ref_quality=check["reference_quality"] if check is not None else None,
+            matrix_quality=check["matrix_quality"] if check is not None else None,
+            generation=before.generation,
+        )
+    return kind
+
+
+# ── 자기 탐침(적재 스레드) ──────────────────────────────────────────────────────────────────────────
+
+
+def _raw_distance_m(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
+    """calculate_haversine_distance(spot/travel.py) 의 반올림 전 값 — 같은 식·같은 순서. 탐침 좌표를 고르는 데만 쓴다."""
+    r_lat1, r_lng1, r_lat2, r_lng2 = map(math.radians, [lat1, lng1, lat2, lng2])
+    d_lat = r_lat2 - r_lat1
+    d_lng = r_lng2 - r_lng1
+    a = math.sin(d_lat / 2)**2 + math.cos(r_lat1) * math.cos(r_lat2) * math.sin(d_lng / 2)**2
+    return 6371000 * (2 * math.asin(min(1.0, math.sqrt(a))))
+
+
+def _clear_of_ties(latitude: float, longitude: float, columns: Sequence[parking_history.LotColumn]) -> bool:
+    for column in columns:
+        tenths = _raw_distance_m(latitude, longitude, column.latitude, column.longitude) * 10.0
+        if abs((tenths - math.floor(tenths)) - 0.5) < _PROBE_TIE_CLEARANCE_M * 10.0:
+            return False
+    return True
+
+
+def _north_of_column(column: parking_history.LotColumn, meters: float) -> tuple[float, float]:
+    """열에서 정북으로 반올림 전 거리가 meters 인 좌표(위도 이분 탐색)."""
+    low, high = column.latitude, column.latitude + 0.05
+    for _ in range(100):
+        middle = (low + high) / 2.0
+        if _raw_distance_m(middle, column.longitude, column.latitude, column.longitude) < meters:
+            low = middle
+        else:
+            high = middle
+    return high, column.longitude
+
+
+def _clear_point_north(
+    column: parking_history.LotColumn, meters: float, columns: Sequence[parking_history.LotColumn]
+) -> tuple[float, float] | None:
+    # 같은 반올림 칸 안에서 조금씩 옮겨 가며, 모든 열까지의 거리가 .x5 경계에서 0.01m 이상 떨어진 첫 좌표.
+    for nudge in (0.0, -0.02, 0.02, -0.03, 0.03):
+        point = _north_of_column(column, meters + nudge)
+        if _clear_of_ties(*point, columns):
+            return point
+    return None
+
+
+@lru_cache(maxsize=4)
+def _probe_fixed_targets(
+    columns: tuple[parking_history.LotColumn, ...],
+) -> tuple[tuple[str, tuple[float, float]], ...]:
+    """열 구성에서 정하는 고정 탐침 좌표: 중심, 반경 경계 안(반올림 2000.0 m)·밖(2000.1 m — 중심에서 가장 가까운 열의 정북),
+    주차장 하나(다른 열에서 가장 먼 열의 정북 300 m), 먼 곳. 열이 없으면 중심·먼 곳만."""
+    targets: list[tuple[str, tuple[float, float]]] = [("center", _PROBE_CENTER)]
+    if columns:
+        nearest = min(columns, key=lambda c: _raw_distance_m(*_PROBE_CENTER, c.latitude, c.longitude))
+        for probe_class, meters in (("edge_in", 2000.0), ("edge_out", 2000.1)):
+            point = _clear_point_north(nearest, meters, columns)
+            if point is not None:
+                targets.append((probe_class, point))
+        lonely = max(columns, key=lambda c: min(
+            (_raw_distance_m(c.latitude, c.longitude, o.latitude, o.longitude) for o in columns if o != c),
+            default=math.inf,
+        ))
+        point = _clear_point_north(lonely, 300.0, columns)
+        if point is not None:
+            targets.append(("one_lot", point))
+    targets.append(("far", _PROBE_FAR))
+    return tuple(targets)
+
+
+def _next_probe_target(snapshot: parking_history.HistorySnapshot) -> tuple[str, tuple[float, float]]:
+    """돌림 순서 [center, edge_in, edge_out, one_lot, far] + 최근 요청 좌표 24개(facility)에서 다음 하나."""
+    global _probe_position
+    fixed = _probe_fixed_targets(tuple(snapshot.columns))
+    with _SHADOW_LOCK:
+        recent = list(reversed(_recent_coords))[:_PROBE_RECENT_MAX]
+        cycle = list(fixed) + [("facility", coordinate) for coordinate in recent]
+        target = cycle[_probe_position % len(cycle)]
+        _probe_position += 1
+    return target
+
+
+def _shadow_self_probe(snapshot: parking_history.HistorySnapshot) -> str | None:
+    """(적재 스레드, 꼬리 동기화 성공 뒤 한 번) 다음 탐침 좌표를 RPC 로 한 번 읽어 그 스냅샷과 비교한다 → 판정 이름.
+
+    RPC 인자는 _fetch_points_via_rpc 와 같다(그 함수는 이벤트 루프용이라 여기서 부르지 않는다). 실패는 probe_failed 로 셀 뿐 적재
+    상태와 무관하다. probes 는 시도 수, probes_by_class 는 RPC 를 읽어 비교까지 간 수다."""
+    if parking_history.mode() != "shadow":
+        return None
+    _shadow_tick()
+    probe_class, (latitude, longitude) = _next_probe_target(snapshot)
+    now = _shadow_utcnow()
+    _shadow_count("probes")
+    try:
+        since = (now - timedelta(days=_LOOKBACK_DAYS)).astimezone(timezone.utc).isoformat()
+        response = supabase_admin.rpc(_POINTS_RPC, {
+            "p_latitude": float(latitude),
+            "p_longitude": float(longitude),
+            "p_since": since,
+            "p_radius_m": _RADIUS_M,
+            "p_source": _SOURCE,
+        }).execute()
+        rpc_points = _points_from_payload(getattr(response, "data", None))
+    except Exception as exc:  # noqa: BLE001
+        _shadow_count("probe_failed")
+        logger.warning("area_demand_shadow_probe_failed", probe_class=probe_class,
+                       error_type=type(exc).__name__, error=str(exc)[:300])
+        return None
+    with _SHADOW_LOCK:
+        for stats in (_shadow_total, _shadow_window):
+            stats.by_class[probe_class] += 1
+            if probe_class == "facility" and len(stats.facility) < _PROBE_FACILITY_SEEN_MAX:
+                stats.facility.add((latitude, longitude))
+    try:
+        return _shadow_compare(
+            f"probe:{probe_class}", latitude, longitude, now + _PROBE_ARRIVAL_AFTER, now,
+            rpc_points, snapshot, False, None,
+        )
+    except Exception as exc:  # noqa: BLE001
+        _shadow_failed(f"probe:{probe_class}", exc)
+        return None
+
+
 def _health_extra() -> dict[str, Any]:
-    """/health.parking_history 에 더할 숫자 — 정수만(좌표·키·오류 원문 없음). 메모리만 읽는다."""
-    return {
+    """/health.parking_history 에 더할 숫자 — 정수만(좌표·키·오류 원문 없음). 메모리만 읽는다. shadow 칸은 shadow 모드에서만."""
+    body: dict[str, Any] = {
         "memo": {
             "series": len(_SERIES_MEMO.entries),
             "near": len(_NEAR_MEMO.entries),
@@ -1733,17 +2244,33 @@ def _health_extra() -> dict[str, Any]:
         },
         "fallback_served": _fallback_served,
     }
+    if parking_history.mode() == "shadow":
+        body["shadow"] = _shadow_health()
+    return body
 
 
 def reset_source_dispatch() -> None:
-    """테스트 전용 — 분기 상태(폴백 수·기록 억제·캐시 더러움·진행 중 수·차선)를 비운다."""
+    """테스트 전용 — 분기 상태(폴백 수·기록 억제·캐시 더러움·진행 중 수·차선)와 shadow 숫자·창·예산·최근 좌표를 비운다."""
     global _lanes, _rpc_caches_dirty, _rpc_fallback_inflight, _fallback_served
+    global _shadow_total, _shadow_window, _shadow_window_started, _shadow_request_inflight, _probe_position
     _lanes = None
     _rpc_caches_dirty = False
     _rpc_fallback_inflight = 0
     _fallback_served = 0
     _fallback_logged.clear()
+    with _SHADOW_LOCK:
+        _shadow_total = _ShadowStats()
+        _shadow_window = _ShadowStats()
+        _shadow_window_started = None
+        for name in _shadow_budget:
+            _shadow_budget[name] = 0
+        _recent_coords.clear()
+        _probe_position = 0
+    _shadow_request_inflight = 0
+    _shadow_tasks.clear()
+    _probe_fixed_targets.cache_clear()
 
 
-# 주차 이력 모듈은 이 모듈을 import 하지 않는다(순환) — 대신 여기서 알려 둔다. 대입 하나뿐이다(스레드·I/O·로그 없음).
+# 주차 이력 모듈은 이 모듈을 import 하지 않는다(순환) — 대신 여기서 알려 둔다. 대입뿐이다(스레드·I/O·로그 없음).
 parking_history.register_health_extra(_health_extra)
+parking_history.register_shadow_probe(_shadow_self_probe)
