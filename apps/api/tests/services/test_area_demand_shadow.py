@@ -630,3 +630,43 @@ async def test_rpc_mode_never_touches_shadow(monkeypatch, shadow_env):
     assert not forecast_svc._shadow_tasks and not forecast_svc._recent_coords
     assert forecast_svc._shadow_window_started is None
     assert shadow_env.events == []
+
+
+# ── 수리: 게이트의 종류별 표본은 비교를 끝낸 탐침만 센다 ──────────────────────────────────────────
+
+
+def test_probe_class_coverage_counts_only_finished_compares(monkeypatch, shadow_env):
+    client = _since_rpc_client()
+    monkeypatch.setattr(forecast_svc, "supabase_admin", client)
+    monkeypatch.setattr(forecast_svc, "_shadow_utcnow", lambda: _P2_NOW)
+    snapshot = _patterned_snapshot()
+    recent = _recent_coordinates(1)
+    forecast_svc._remember_coordinate(*recent[0])
+    real = forecast_svc._shadow_compare
+
+    # 행렬 쪽이 edge_out·facility 에서만 던지고, one_lot 은 비교를 건너뛴다('skipped').
+    def _partly_broken(origin, *args):
+        if origin in ("probe:edge_out", "probe:facility"):
+            raise RuntimeError("matrix bug")
+        if origin == "probe:one_lot":
+            return "skipped"
+        return real(origin, *args)
+
+    monkeypatch.setattr(forecast_svc, "_shadow_compare", _partly_broken)
+    results = [forecast_svc._shadow_self_probe(snapshot) for _ in range(6 * 3)]
+    assert results.count(None) == 6 and results.count("skipped") == 3
+    counts = _total()
+    assert counts["probes"] == 18 and counts["probe_failed"] == 0 and counts["failed"] == 6
+    assert counts["probes_by_class"] == {"center": 3, "edge_in": 3, "edge_out": 0, "one_lot": 0, "far": 3,
+                                         "facility": 0}
+    assert counts["distinct_facility_coords"] == 0 and forecast_svc._shadow_health()["distinct_facility_coords"] == 0
+    window = forecast_svc._shadow_window.as_log()
+    assert window["probes_by_class"] == counts["probes_by_class"]
+
+    # 고쳐지면 같은 좌표가 곧바로 표본이 된다.
+    monkeypatch.setattr(forecast_svc, "_shadow_compare", real)
+    for _ in range(6):
+        forecast_svc._shadow_self_probe(snapshot)
+    counts = _total()
+    assert counts["probes_by_class"]["edge_out"] == 1 and counts["probes_by_class"]["facility"] == 1
+    assert counts["distinct_facility_coords"] == 1

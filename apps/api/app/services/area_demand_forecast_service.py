@@ -1771,7 +1771,7 @@ class _ShadowStats:
 
     def __init__(self) -> None:
         self.counts = dict.fromkeys(_SHADOW_COUNTERS, 0)
-        self.by_class = dict.fromkeys(_PROBE_FIXED + ("facility",), 0)  # RPC 를 읽어 비교까지 간 탐침 수
+        self.by_class = dict.fromkeys(_PROBE_FIXED + ("facility",), 0)  # 비교를 끝낸 탐침 수(던짐·skipped 제외)
         self.facility: set[tuple[float, float]] = set()
 
     def as_log(self) -> dict[str, Any]:
@@ -2197,7 +2197,8 @@ def _shadow_self_probe(snapshot: parking_history.HistorySnapshot) -> str | None:
     """(적재 스레드, 꼬리 동기화 성공 뒤 한 번) 다음 탐침 좌표를 RPC 로 한 번 읽어 그 스냅샷과 비교한다 → 판정 이름.
 
     RPC 인자는 _fetch_points_via_rpc 와 같다(그 함수는 이벤트 루프용이라 여기서 부르지 않는다). 실패는 probe_failed 로 셀 뿐 적재
-    상태와 무관하다. probes 는 시도 수, probes_by_class 는 RPC 를 읽어 비교까지 간 수다."""
+    상태와 무관하다. probes 는 시도 수, probes_by_class·distinct_facility_coords 는 비교를 **끝낸** 수다 — 비교가 던지거나
+    건너뛴('skipped') 탐침은 표본으로 치지 않는다(그 종류가 한 번도 비교되지 않았는데 게이트의 표본 수를 채우지 않게)."""
     if parking_history.mode() != "shadow":
         return None
     _shadow_tick()
@@ -2219,19 +2220,21 @@ def _shadow_self_probe(snapshot: parking_history.HistorySnapshot) -> str | None:
         logger.warning("area_demand_shadow_probe_failed", probe_class=probe_class,
                        error_type=type(exc).__name__, error=str(exc)[:300])
         return None
-    with _SHADOW_LOCK:
-        for stats in (_shadow_total, _shadow_window):
-            stats.by_class[probe_class] += 1
-            if probe_class == "facility" and len(stats.facility) < _PROBE_FACILITY_SEEN_MAX:
-                stats.facility.add((latitude, longitude))
     try:
-        return _shadow_compare(
+        kind = _shadow_compare(
             f"probe:{probe_class}", latitude, longitude, now + _PROBE_ARRIVAL_AFTER, now,
             rpc_points, snapshot, False, None,
         )
     except Exception as exc:  # noqa: BLE001
         _shadow_failed(f"probe:{probe_class}", exc)
         return None
+    if kind != "skipped":
+        with _SHADOW_LOCK:
+            for stats in (_shadow_total, _shadow_window):
+                stats.by_class[probe_class] += 1
+                if probe_class == "facility" and len(stats.facility) < _PROBE_FACILITY_SEEN_MAX:
+                    stats.facility.add((latitude, longitude))
+    return kind
 
 
 def _health_extra() -> dict[str, Any]:

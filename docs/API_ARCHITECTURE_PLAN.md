@@ -67,9 +67,11 @@ FastAPI 워커 1개(Render 512MB/0.5CPU)
    비용: 스레드 1개·+2~6MB, 꼬리 읽기 5분마다·대조 30분마다·재시작마다 6쪽 적재, 자기 탐침 RPC 하루 ≤288회.
 3. **24시간 이상, 재시작 1회 포함**으로 둔다. 숫자는 재시작마다 0부터라 재시작 직전 값을 적어 두고 합산한다. 게이트
    (`/health.parking_history.shadow` 와 10분마다 한 줄인 로그 `area_demand_shadow_summary`):
-   - `rows == 0` · `value == 0` · `forecast_mismatch == 0` · `probe_failed` ≤ `probes` 의 5%
+   - `rows == 0` · `value == 0` · `forecast_mismatch == 0` · `probe_failed` ≤ `probes` 의 5% · 요약 로그 `total` 의 `failed == 0`
+     (shadow 쪽 비교가 던진 수 — `/health` 에는 없다)
    - `edge` ≤ `compared` 의 2% — 넘으면 꼬리 동기화가 밀리는 것이니 올리지 말고 조사
    - 표본: `compared` ≥ 200 · `forecast_compared` ≥ 100 · 요약 로그 `probes_by_class` 의 center·edge_in·edge_out·one_lot 각 ≥ 8, far ≥ 5 · `distinct_facility_coords` ≥ 20
+     (`probes_by_class`·`distinct_facility_coords` 는 비교를 끝낸 탐침만 센다 — 던지거나 건너뛴 탐침은 표본이 아니다)
    - `ulp`·`repr_only` 는 허용(기록만). `served_grid_quality_differs` > 0 은 예상값이다 — 오늘 경로가 같은 100m 격자의 다른 장소 품질을 주는 횟수(행렬 결함 아님)
 4. **go/no-go 측정**(Render 모양 컨테이너 0.5 CPU·512MB, 저장소 밖 스크립트 — 운영 시설 좌표 읽기 1회 승인됨): 콜드 코스(36곳)·유형별(24곳)에서
    행렬 CPU ≤ 오늘 경로 CPU 이고 벽시계도 ≤ · 코스와 동시에 `/waiting` 전망 p95 ≤ 2초(웹 타임아웃 8초) · 이벤트 루프 멈춤 ≤ 20ms ·
