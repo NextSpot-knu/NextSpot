@@ -424,18 +424,20 @@ test('waiting board: a credit that appears after a broken photo does not move th
   };
   const before = await measure();
 
-  // 출처가 사진보다 늦게 붙는 틈을 잡는 탐침 — 자동 재시도 expect 는 자리 잡은 뒤만 본다.
-  // DOM 이 바뀔 때마다(MutationObserver) 그리고 매 프레임(rAF) 셀을 훑어, Wikimedia 사진이 보이는데
-  // 그 셀에 Commons 출처 링크가 없는 순간을 기록한다. 사진과 출처가 같은 커밋에 그려지면 0건이다.
+  // 사진과 출처가 어긋나는 틈을 잡는 탐침 — 자동 재시도 expect 는 자리 잡은 뒤만 본다.
+  // DOM 이 바뀔 때마다(MutationObserver) 그리고 매 프레임(rAF) 셀을 훑어, 두 방향을 다 기록한다:
+  //  · Wikimedia 사진이 보이는데 그 셀에 Commons 출처 링크가 없는 순간(출처가 사진보다 늦음)
+  //  · 출처 링크가 있는데 보이는 사진이 Wikimedia 가 아닌(깨진 대표 사진·아이콘) 순간(출처가 사진보다 이름)
+  // 사진과 출처가 같은 커밋에 그려지면 0건이다.
   await page.evaluate((creditSel) => {
     const w = window as unknown as { __uncredited: string[]; __probeStop?: () => void };
     w.__uncredited = [];
     const scan = (when: string) => {
       document.querySelectorAll('div.grid-rows-\\[1fr_auto\\]').forEach((c) => {
-        const img = c.querySelector('img');
-        if (img?.getAttribute('src')?.startsWith('https://upload.wikimedia.org/') && !c.querySelector(creditSel)) {
-          w.__uncredited.push(`${when}:${c.textContent?.slice(0, 20)}`);
-        }
+        const wikiShown = !!c.querySelector('img')?.getAttribute('src')?.startsWith('https://upload.wikimedia.org/');
+        const credited = !!c.querySelector(creditSel);
+        if (wikiShown && !credited) w.__uncredited.push(`${when}:no-credit:${c.textContent?.slice(0, 20)}`);
+        if (credited && !wikiShown) w.__uncredited.push(`${when}:wrong-photo:${c.textContent?.slice(0, 20)}`);
       });
     };
     const mo = new MutationObserver(() => scan('mutation'));
