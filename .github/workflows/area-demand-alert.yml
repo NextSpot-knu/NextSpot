@@ -24,7 +24,9 @@
 #   unknown          행이 0개인데 Repository Variable AREA_DEMAND_ALERT_ALLOW_EMPTY=true(갓 만든 환경) — 경보 아님
 #   stale            최신 스냅샷이 35분보다 오래됨 → 실패
 #   api_unreachable  Supabase 가 재시도 뒤에도 200 을 주지 않음(본문이 중간에 끊긴 응답 포함) → 실패. 수집 멈춤과
-#                    다른 문제라 따로 말한다(401 = 시크릿 값, 5xx·연결 실패 = Supabase 상태).
+#                    다른 문제라 따로 말한다(401 = 시크릿 값, 5xx·연결 실패 = Supabase 상태). 시크릿에 HTTP 로 보낼 수
+#                    없는 글자(붙여 넣을 때 딸려 온 U+200B 등)가 있으면 요청 전에 invalid_key_chars·invalid_url_chars 로
+#                    멈춘다 — 로그에는 그 글자의 위치와 코드포인트만 남는다.
 # API 판정에 있던 degraded(창 안 누락 버킷 20% 초과, 경고만·실패 아님)는 여기서 보지 않는다 — 관제 화면
 # (area-demand-reliability)에 그대로 있다.
 #
@@ -95,6 +97,17 @@ jobs:
           base = os.environ["SUPABASE_URL"].strip().rstrip("/")
           # 붙여 넣을 때 딸려 온 줄바꿈·공백은 헤더를 깨뜨린다(09-27 Render 키 사례) — 걷어 낸다.
           key = "".join(os.environ["SUPABASE_SERVICE_ROLE_KEY"].split())
+          # 공백을 걷어도 남는 보이지 않는 글자(U+200B 폭 없는 공백 등)는 헤더에 실리지 않아 http.client 가
+          # UnicodeEncodeError·ValueError 트레이스백으로 죽는다 — 판정 줄도 Summary 도 없이. 요청 전에 걸러
+          # api_unreachable 로 알린다. 키·주소 값은 출력하지 않고, 문제 글자의 위치와 코드포인트만 말한다.
+          # Supabase 키(sb_secret_…·JWT)와 프로젝트 주소는 인쇄 가능한 ASCII(U+0021~U+007E)만 쓴다.
+          invalid = None
+          for secret_name, value, bad_reason in (("SUPABASE_SERVICE_ROLE_KEY", key, "invalid_key_chars"),
+                                                 ("SUPABASE_URL", base, "invalid_url_chars")):
+              bad = next(((i, ord(c)) for i, c in enumerate(value) if not "!" <= c <= "~"), None)
+              if bad is not None:
+                  invalid = (secret_name, bad_reason, bad[0] + 1, bad[1])
+                  break
           # 빈 표를 통과시키는 것은 명시적으로 켠 새 환경뿐이다(위 머리말 no_snapshot).
           allow_empty = os.environ.get("AREA_DEMAND_ALERT_ALLOW_EMPTY", "").strip().lower() == "true"
           query = urllib.parse.urlencode({
@@ -134,10 +147,13 @@ jobs:
               return status, body
 
 
-          status, body = fetch()
+          status, body = (0, b"") if invalid else fetch()
           now = datetime.now(timezone.utc)
           age = bucket = None
-          if status != 200:
+          if invalid:
+              # 요청을 보내지 않았다 — 키·주소를 헤더·요청 줄에 실을 수 없다.
+              state, reason = "api_unreachable", invalid[1]
+          elif status != 200:
               # 본문은 200 일 때만 읽는다 — 오류 응답을 스냅샷으로 해석하지 않는다.
               state, reason = "api_unreachable", (f"http_{status}" if status else "connection_failed")
           else:
@@ -195,6 +211,12 @@ jobs:
               sys.exit(1)
           else:
               print(f"::error::Supabase 에서 스냅샷 표를 읽지 못했습니다 (reason={reason}) — 수집이 멈췄다는 뜻은 아닙니다.")
+              if invalid:
+                  secret_name, _, position, code_point = invalid
+                  print(f"Actions Secret {secret_name} 의 {position}번째 글자(공백을 걷은 값 기준)가 U+{code_point:04X} 라 "
+                        "HTTP 요청에 실을 수 없어 요청을 보내지 않았습니다.")
+                  print("붙여 넣을 때 딸려 온 보이지 않는 글자(U+200B 폭 없는 공백 등)일 수 있습니다 — 시크릿 값을 다시 붙여 넣으세요.")
+                  sys.exit(1)
               print("401·403 이면 Actions Secret SUPABASE_URL·SUPABASE_SERVICE_ROLE_KEY 값을,")
               print("5xx·connection_failed 면 Supabase 프로젝트 상태(일시 정지·장애)를 확인하세요.")
               # 키·주소는 로그에 남기지 않는다 — 응답이 되비추는 경우까지 걷어 낸다(GitHub 마스킹과 별개).
