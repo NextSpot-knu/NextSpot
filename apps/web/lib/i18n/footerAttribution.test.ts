@@ -10,6 +10,7 @@ import zh from './messages/zh.json';
 const LOCALES = { ko, en, ja, zh } as const;
 // 로케일별 '사진' 과 '따로 출처를 적은 것 제외' 표현. 하단 줄은 390px 폰에서 두 줄 안에 들어가야 해서
 // '사진' 을 두 번 말하지 않는다(예전 영어 문구는 photos 를 되풀이해 세 줄로 접혔다).
+// 여기서는 문구만 본다 — 실제 줄 수(360·390px, 네 언어)는 e2e/mobile-locales.spec.ts 가 잰다.
 const PHOTO_WORD: Record<keyof typeof LOCALES, RegExp> = { ko: /사진/g, en: /photo/gi, ja: /写真/g, zh: /照片/g };
 const SCOPED: Record<keyof typeof LOCALES, RegExp> = {
   ko: /\(출처를 따로 적은 것 제외\)/,

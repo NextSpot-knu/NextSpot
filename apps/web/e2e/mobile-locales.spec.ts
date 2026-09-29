@@ -46,3 +46,36 @@ test('manual dark theme is restored before the tourist screen renders', async ({
   await expect(page.getByRole('radio', { name: '다크' })).toHaveAttribute('aria-checked', 'true');
   await expect(page.locator('body')).toHaveCSS('color-scheme', 'dark');
 });
+
+// 대기 보드 하단 ⓒ TourAPI 줄은 폰에서 두 줄 안 — 길어지면 출처 각주가 아니라 본문처럼 읽힌다.
+for (const locale of locales) {
+  for (const width of [360, 390]) {
+    test(`${locale} waiting board data credit fits in two lines at ${width}px`, async ({ page }) => {
+      test.setTimeout(90_000); // 첫 /waiting 컴파일(Windows dev server) 여유 — 재시도가 아니라 시간
+      await page.setViewportSize({ width, height: 844 });
+      await page.addInitScript((value) => {
+        localStorage.setItem('nextspot_onboarding_done', '1');
+        localStorage.setItem('nextspot_locale', value);
+      }, locale);
+      await page.route('**/api/v1/**', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }));
+      await page.goto('/waiting');
+      const credit = page.locator('main p', { hasText: 'TourAPI' }).last();
+      await expect(credit).toBeVisible({ timeout: 60_000 });
+      // 언어가 적용되고 웹 글꼴이 도착해 줄바꿈이 끝난 뒤에 잰다.
+      if (locale !== 'ko') await expect(credit).not.toContainText('장소 정보');
+      await page.evaluate(() => document.fonts.ready);
+      const lines = await credit.evaluate((el) => {
+        const style = getComputedStyle(el);
+        const box = el.getBoundingClientRect();
+        const content = box.height - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom)
+          - parseFloat(style.borderTopWidth) - parseFloat(style.borderBottomWidth);
+        return content / parseFloat(style.lineHeight);
+      });
+      expect(lines, `${locale} ${width}px: 하단 출처 줄 수`).toBeLessThanOrEqual(2.05);
+      // 줄이 바뀐다면 괄호 앞에서만 — 덧붙임 '(출처를 따로 적은 것 제외)' 가 두 줄로 갈라지지 않는다.
+      const note = credit.locator('span.whitespace-nowrap');
+      await expect(note).toHaveCount(1);
+      expect(await note.evaluate((el) => el.getClientRects().length), `${locale} ${width}px: 괄호 덧붙임 한 줄`).toBe(1);
+    });
+  }
+}

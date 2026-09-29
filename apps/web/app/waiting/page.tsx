@@ -53,6 +53,7 @@ import {
   type PhotoCursor,
 } from "@/lib/photoCredit";
 import { PhotoCreditLink } from "@/components/PhotoCreditLink";
+import { TrailingNoteText } from "@/components/TrailingNoteText";
 
 // 시설 종류 이모지 — course/page.tsx TYPE_OPTIONS 와 동일 매핑(레포 전역 관례 통일).
 const TYPE_EMOJI: Record<string, string> = {
@@ -1030,7 +1031,7 @@ export default function WaitingBoardPage() {
           </div>
         )}
         <p className="mt-6 border-t border-line pt-4 text-center text-[11px] leading-relaxed text-muk-soft">
-          {t("waiting.dataAttribution")}
+          <TrailingNoteText text={t("waiting.dataAttribution")} />
         </p>
       </div>
     </main>

@@ -28,6 +28,7 @@ import { useBusyThreshold } from "@/components/shell/PublicSettingsProvider";
 import { buildSpotComparisons, formatSpotComparison } from "@/lib/spotComparison";
 import { creditedPhotoUrls, creditForDisplayedPhoto } from "@/lib/photoCredit";
 import { PhotoCreditLink } from "@/components/PhotoCreditLink";
+import { TrailingNoteText } from "@/components/TrailingNoteText";
 
 // (window.kakao 타입은 types/kakao-maps.d.ts 가 전역으로 선언한다 — 파일마다 declare global 로
 //  중복 선언하던 `kakao: any` 를 걷어냈다.)
@@ -1962,7 +1963,7 @@ function RecommendContent() {
         )}
 
         <p className="border-t border-line pt-4 text-center text-[11px] leading-relaxed text-muk-soft">
-          {t("recommend.dataAttribution")}
+          <TrailingNoteText text={t("recommend.dataAttribution")} />
         </p>
       </div>
 
