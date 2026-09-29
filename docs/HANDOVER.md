@@ -50,6 +50,7 @@
 - [ ] **Render `AREA_DEMAND_SOURCE=shadow`** (P2a 는 09-29 새벽 main 반영 — 지금 `rpc`) → 24시간·재시작 1회 뒤 게이트와 go/no-go 측정 → `matrix`.
       순서·게이트·되돌림(`rpc`, 재시작 1~2분)·볼 것은 [`API_ARCHITECTURE_PLAN.md`](./API_ARCHITECTURE_PLAN.md) "P2a 전환 절차".
 - [ ] **P3 배치 A Render 로그 확인**(09-29 `f0f440b` 로 반영) — 예열은 Keep-Warm 워크플로가 이미 부른다(반영 뒤 06:53Z·10:36Z 실행). Render 로그에서 `walking_graph_presnap`·`warmup_run_done` 이 보이는지, `merchant_boost_timesale_fetch_failed`·`availability_evidence_unavailable`(추천·by-type·지도)이 늘지 않았는지. 되돌림 env `WALKING_ROUTE_KERNEL=legacy`(재시작) — 아래 2026-09-28e. 반영 전 PM 확인으로 적었던 두 가지(영업 근거 한 번 조회의 실패 범위가 `/infrastructures` 지도에도 적용 · 기존 테스트 두 곳 변경)는 이미 운영에 있다.
+- [ ] **(P3 배치 B 가 main 에 들어간 뒤) Render `WALKING_ROUTE_KERNEL=csr`** — 재시작 1~2분. 로그 `walking_graph_csr_loaded origin=bin`(적재 수십 ms)·`walking_graph_presnap kernel=csr`(시설 ~1,684곳) 확인, Render Metrics 메모리가 전보다 ~20MB 낮은지. 되돌림 `memo`(재시작). 아래 2026-09-29c.
 - [ ] **폰 스모크(390px)** — 09-29 반영분(P0b 웹·사진 출처 · 대기 보드 27건): `/waiting` 4로케일(사진 없는 장소 표지·야간 18시 이후 색·줄 단위 자르기) · `/explore/recommend` 사진 대체 · 관제 장소 표 검색. 실시 기록이 없다.
 - [ ] **공공 API 키 회전** — `TOURAPI_KEY`·`KMA_API_KEY`·`PARKING_API_KEY`·`GYEONGJU_FOOD_API_KEY`. httpx INFO 로그가 쿼리스트링째 전체 URL을 남겨 Render 로그 이력에 키가 있을 수 있다(09-28 `d9639c2` 로 차단). 새 키 발급 → Render·GitHub Secrets 갱신.
 - [ ] Render `nextspot-api` 환경변수 `SUPABASE_SERVICE_ROLE_KEY` 끝의 줄바꿈 지우기(09-27 발견 — 코드가 이미 걷으므로 급하지 않다. 저장하면 재배포된다).
@@ -195,6 +196,18 @@ from checks order by seq;
 
 최신이 위. 10개를 넘으면 가장 오래된 항목을 `archive/HANDOVER_LOG.md` 맨 위로 옮긴다.
 
+## 2026-09-29c — API 재설계 P3 배치 B: 보행 경로 csr 커널 (스위치 꺼진 채 — memo, main 미반영)
+
+- 도구·브랜치: Claude Code(데스크톱) · 독립 리뷰 워크플로(동등성·운영 2렌즈 → 반박 검증, 4에이전트) / `perf/p3b-csr-0929`(`docs/handover-0929-sync` 위)
+- 커밋: b6181be..(이 기록) (구현 1 · 리뷰 수리 1 · 이 기록)
+- 한 것: `services/spot/walking_csr.py`(순수 — 표준 `array` CSR, numpy/scipy 없음. 원본 순서 노드 번호·같은 공간 칸과 칸 안 순서·같은 엄격한 비교·정수 미터·무방향 연결 요소로 다른 요소 목적지를 미리 뺌) + 커밋된 `app/data/gyeongju_walking_graph.csr.bin`(1.07MB, `build_walking_graph.py --emit-csr`, 머리에 원본·본문 sha256) + `WALKING_ROUTE_KERNEL=csr`(기본 memo 그대로).
+  이진이 원본과 안 맞거나 깨졌으면 원본 JSON 에서 만들고, 그것도 안 되면 memo 경로. csr 에서는 dict 그래프를 올리지 않고 부팅 훅(`main._start_boot_presnap`, 이미 있던 것)이 시설 목적지를 미리 스냅한다. csr 을 못 읽으면 예열은 0(dict 그래프를 부팅에 올리지 않음).
+- 검증: api ruff + pytest 2100 · legacy 와 repr 까지 같음 — 데스크톱 36,000쌍·스냅 불일치 0, 리뷰 퍼즈(합성 ~4,900 질의 묶음·실제 스냅 20,000·쌍 ~4,700) 불일치 0 · 변이 3종과 리뷰 수리 시험 5건은 고치기 전 코드에서 실패 ·
+  Render 모양(WSL systemd scope CPUQuota 50%·MemoryMax 512M, py3.12, 2회): 그래프 적재 뒤 RSS +29.4~29.8MB → **+5.5MB**, 적재 96~124ms → 20~23ms, 목적지 300곳 웜 호출 41 → 25ms.
+- 다음·미결: P3 의 나머지(소비자가 스냅샷 읽기 · 예측 표)는 대기. `/health` 에 커널 칸은 없다 — 켠 뒤 로그 `walking_graph_csr_loaded origin=bin`·`walking_graph_presnap kernel=csr` 로 본다(`origin=json`·`walking_graph_csr_load_failed`·`walking_graph_presnap_skipped` 가 보이면 되돌린다).
+  시험 한 줄 변경: `test_walking_graph.py` 의 `("csr", "memo")` 는 배치 B 를 기다리던 자리라 `("csr", "csr")` 로.
+- 사람 작업: main 반영 뒤 Render `WALKING_ROUTE_KERNEL=csr`("사람 작업 대기")
+
 ## 2026-09-29b — 데스크톱: 노트북 124커밋 동기화 · 전수 점검(5영역 리뷰 → 반박 검증) · 문서 어긋남 정리
 
 - 도구·브랜치: Claude Code(데스크톱) · 리뷰 워크플로(5영역 리뷰 → 영역별 반박 검증, 9에이전트, 읽기 전용) / `docs/handover-0929-sync`(main `f0f440b` 위)
@@ -313,18 +326,6 @@ from checks order by seq;
   area-demand-alert 가 API 503 한 번에 JSON 파싱 오류로 거짓 경보(09-26 16:21).
 - 배포 직후 회귀·즉시 수정: 운영 `SUPABASE_SERVICE_ROLE_KEY` 끝의 줄바꿈을 HTTP/1.1(h11)이 헤더로 거부해 service_role 호출이 전부 실패
   (20:23~ KST, predict 갱신·서울 적재·영업 근거 조회) → `config.py` 가 Supabase URL·키 앞뒤 공백을 걷는다(회귀 테스트 14건, 수정 전 코드에서 14건 실패).
-- 사람 작업: 없음
-
-## 2026-09-26b — 관제 대시보드 추정·예측·시나리오 모드 main 반영
-
-- 도구·브랜치: Claude Code / `feature/admin-predicted-mode-v2`(633487c 를 8033719 위로 충돌 없이 옮김 + 검증 수정 3건) → main
-- 커밋: 990b315..c2f97ad (4건) + 이 기록
-- 한 것: 실측이 5건 미만인 관제 패널이 빈 칸 대신 라벨 붙은 값(추정·예측·시나리오)을 보인다(09-22 PM 결정). 검증에서 고친 것 — 예측 앵커가
-  상한에 붙어 100%로 보이던 문제, 추천 고리 4패널(수락률·DAU·재배치·깔때기)을 **함께** 전환(시나리오 재배치와 실측 수락률 0% 모순 제거 — PM 09-26 승인),
-  비활성 시드 제외(`is_active`), 예측 전용 문구의 관광공사 근거 오기, 툴팁의 내부 파일명, 신선도 배지의 추가 무거운 관리자 호출(8→7) 제거.
-- 검증: web lint(0 에러)/typecheck/test 56/build 39 · e2e 44 · check-docs · 오프라인 렌더 하네스 14상태(스크린샷) · 독립 리뷰 3렌즈 재검증 통과
-- 다음·미결: 자료가 얇을 때 브리핑이 늦게 오면 추천 고리 4패널이 몇 초간 시나리오였다가 실측으로 바뀜(운영은 실측 5건 이상이라 해당 없음) ·
-  관제 콘솔 390px 사용 불가(기존과 동일) · 쿠폰 패널이 비활성 시드를 보임(기존과 동일).
 - 사람 작업: 없음
 
 ## 기록 규칙
