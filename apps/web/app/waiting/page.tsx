@@ -368,7 +368,9 @@ function WaitStats({ est, row, estimateLevel }: { est: WaitEstimate; row: BoardR
             : t("wait.calmAt", { h: est.calmHour })}
         </p>
       )}
-      <p className="text-[9px] leading-snug text-muk-soft line-clamp-2">
+      {/* 줄 수를 자르지 않는다 — 영어는 좁은 카드에서 세 줄로 접혀, 두 줄에서 자르면 숫자를 받치는 근거
+          ('… measured data')가 통째로 사라졌다. 늘어난 만큼은 위 소개 블록이 온전한 줄로 양보한다(min-h-72). */}
+      <p className="text-[9px] leading-snug text-muk-soft break-words">
         {/* 근거가 하나도 없는 카드에는 근거 문구를 붙이지 않는다 — 위 한 줄이 '수집 중'이라고
             말해 놓고 옆에서 무슨 근거라고 하면 한 카드가 두 말을 한다. */}
         {t("wait.arrivalBasis", { h: displayHour(est.arrivalHour) })}

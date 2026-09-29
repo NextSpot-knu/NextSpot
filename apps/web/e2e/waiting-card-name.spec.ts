@@ -131,6 +131,9 @@ for (const [locale, width] of CASES) {
         waitVisible: within(headline, card) && headline.scrollHeight <= headline.clientHeight + 1,
         waitText: headline.textContent ?? '',
         footnoteVisible: within(footnote, card),
+        // 근거 주석은 줄 수를 자르지 않는다 — 두 줄에서 자르면 영어 '… measured data' 가 통째로 사라졌다.
+        footnoteWhole: getComputedStyle(footnote).getPropertyValue('-webkit-line-clamp') === 'none'
+          && footnote.scrollHeight <= footnote.clientHeight + 1,
       };
     }));
     for (const [i, card] of report.entries()) {
@@ -149,6 +152,7 @@ for (const [locale, width] of CASES) {
       expect(card.waitText.trim().length, `card ${i + 1}: 대기 숫자`).toBeGreaterThan(0);
       expect(card.waitVisible, `card ${i + 1}: 대기 숫자 "${card.waitText}" 가 온전히 보임`).toBe(true);
       expect(card.footnoteVisible, `card ${i + 1}: 근거 주석이 카드 안에 온전히 보임`).toBe(true);
+      expect(card.footnoteWhole, `card ${i + 1}: 근거 주석이 줄 수로 잘리지 않음`).toBe(true);
     }
     // 긴 메뉴를 가진 첫 카드: 한국어·중국어 390px 에는 이름과 메뉴 한 줄 이상이 들어갈 자리가 있다(실측 — 메뉴 두 줄).
     if ((locale === 'ko' || locale === 'zh') && width === 390) {
