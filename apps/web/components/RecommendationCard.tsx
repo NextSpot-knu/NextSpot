@@ -625,7 +625,7 @@ export function RecommendationCard({
 
   // 카드 사진 — 대표(firstimage) → detailImage2 갤러리 순 폴백(waiting WaitingCardImage 패턴 미러).
   // 원본 서버에서 만료·차단된 URL 이 섞여 있어 onError 시 다음 후보로 넘어가고, 전부 실패하면 숨긴다.
-  // 갤러리의 Wikimedia 대체 사진(CC BY/BY-SA)은 출처가 있을 때만 후보가 되고, 뜨면 사진 아래에 출처를 붙인다.
+  // 갤러리의 Wikimedia 대체 사진(CC BY/BY-SA)·경주시 사진은 출처가 있을 때만 후보가 되고, 뜨면 사진 아래에 출처를 붙인다.
   const cardImageUrls = creditedPhotoUrls(
     Array.from(
       new Set(
@@ -643,6 +643,10 @@ export function RecommendationCard({
   useEffect(() => { setCardImageIndex(0); }, [cardImageKey]);
   const cardImageUrl = cardImageUrls[cardImageIndex];
   const cardImageCredit = creditForDisplayedPhoto(cardImageUrl, facility?.features);
+  // 다 받은 사진 URL — 출처 줄은 그 사진이 **보일 때만** 드러난다(받는 중에는 자리만 잡고 숨긴다: 사진이 뜰 때
+  // 아래 글이 밀리지 않게). URL 로 비교하므로 다음 후보로 넘어가면 새 사진을 받을 때까지 다시 숨는다.
+  const [loadedCardImageUrl, setLoadedCardImageUrl] = useState<string | null>(null);
+  const cardImageLoaded = cardImageUrl !== undefined && loadedCardImageUrl === cardImageUrl;
 
   // 머천트 랭킹 연동 2단계 — features 내부가 아니라 facility 최상위 필드지만, 백엔드 응답이 어떤
   // 경로(apiClient keysToCamel 미적용 폴백 등)로 오든 방어적으로 camel/snake 이중 표기를 읽는다.
@@ -1364,14 +1368,19 @@ export function RecommendationCard({
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 key={cardImageUrl} /* URL 마다 새 엘리먼트 — 직전 시설 이미지의 늦은 onError 가 새 카드의 인덱스를 밀어올리지 않게 */
+                /* 캐시에서 곧장 뜬 사진은 onLoad 를 놓칠 수 있다 — 붙는 순간 한 번 확인한다. */
+                ref={(img) => { if (img?.complete && img.naturalWidth > 0) setLoadedCardImageUrl(cardImageUrl); }}
                 src={cardImageUrl}
                 alt={title}
                 loading="lazy"
+                onLoad={() => setLoadedCardImageUrl(cardImageUrl)}
                 onError={() => setCardImageIndex((current) => current + 1)}
                 className="block w-full h-32 object-cover rounded-2xl border border-line"
               />
               {/* 누르는 자리 24px 중 글자 줄만 사진 4px 아래에 보이게 — 위 -1px·아래 -5px. */}
-              {cardImageCredit && <PhotoCreditLink credit={cardImageCredit} className="-mt-px -mb-[5px]" />}
+              {cardImageCredit && (
+                <PhotoCreditLink credit={cardImageCredit} className={`-mt-px -mb-[5px] ${cardImageLoaded ? '' : 'invisible'}`} />
+              )}
             </div>
           )}
 
