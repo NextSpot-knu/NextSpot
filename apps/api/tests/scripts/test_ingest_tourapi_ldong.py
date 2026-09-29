@@ -6,7 +6,8 @@
 #   B. 신분류 FD05 → 카페(cat3 공란일 때) · 사진 공공누리 유형 적재
 #   C. 새 행 가드 — 같은 가게가 이미 Kakao 보완 행으로 있으면(지점 표시만 달라도) 넣지 않는다 ·
 #      법정동 목록에만 나온 사진 없는 새 행은 넣지 않는다
-#   D. 사람이 뺀 contentid(황리단길 생활문화센터 · 옛 신라고분정보센터 3442528)는 넣지도, showflag 로 다시 켜지도 않는다
+#   D. 사람이 뺀 contentid(황리단길 생활문화센터 · 옛 신라고분정보센터 3442528 · PM 결정 대기 관광지 4곳)는 넣지도,
+#      showflag 로 다시 켜지도 않는다
 #   E. showflag 동기화도 법정동 목록을 합친다
 
 import argparse
@@ -357,6 +358,22 @@ async def test_old_silla_tomb_record_stays_out_even_when_the_guard_lookup_fails(
     rec = _run_env(monkeypatch, collected, guard_error=RuntimeError("supabase 503"))
     assert await ingest_tourapi.run(_args(details=False)) == 0
     assert rec.upserted == ["3453492"]
+
+
+@pytest.mark.asyncio
+async def test_attractions_awaiting_a_pm_decision_are_held_before_the_first_night(monkeypatch):
+    # 2026-09-29 리뷰: 제외 목록은 새로 넣기만 막고 이미 들어간 행을 끄지 않는다 — 첫 밤 뒤에 한 줄 더해도 카드는 남는다.
+    # 그래서 PM 결정 전인 곳(사진 있음 · 법정동 목록에만 나옴 · DB 에 없음)은 첫 밤 전에 막아 둔다.
+    held = {"2658227": "경주 황리단길", "3417731": "경주 비단벌레 전동차", "3494364": "경주 깁 모어 막걸리",
+            "3367497": "미추왕릉"}
+    for contentid in held:
+        assert "PM 결정 대기" in ingest_tourapi.EXCLUDED_CONTENTIDS[contentid]
+    collected = {12: [_ldong(_item(cid, 12, title=title, firstimage=_PHOTO)) for cid, title in held.items()]
+                 + [_ldong(_item("126207", 12, title="경주 첨성대", lat=35.8347, lng=129.2190, firstimage=_PHOTO))]}
+    rec = _run_env(monkeypatch, collected, guard_facilities=[])
+    assert await ingest_tourapi.run(_args()) == 0
+    assert rec.upserted == ["126207"]
+    assert rec.enriched == ["126207"]  # 상세 조회(쿼터)도 쓰지 않는다
 
 
 @pytest.mark.asyncio
