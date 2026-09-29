@@ -35,6 +35,7 @@ import { curveForBase, fetchAreaDemandCurve, mergeAreaCurve, type AreaDemandCurv
 // 분으로 말할 근거가 없는 카드는 등급으로 말한다 — 등급 경계는 지도·카드와 같은 공용 판정을 쓴다.
 import { REGION } from "@/lib/region";
 import { fitWholeLines } from "@/lib/wholeLines";
+import { countKey } from "@/lib/i18n/count";
 import { useI18n, useT } from "@/lib/i18n/I18nProvider";
 import { GoldenHourBadge } from "@/components/GoldenHourBadge";
 import NowChip from "@/components/NowChip";
@@ -963,7 +964,7 @@ export default function WaitingBoardPage() {
                       {t(`category.${sector.type}`)}
                     </h2>
                     <span className="ml-auto rounded-full bg-hanji-deep px-2.5 py-1 text-[11px] font-bold text-muk-soft tabular-nums">
-                      {t("waiting.sectorCount", { n: sector.rows.length })}
+                      {t(countKey("waiting.sectorCount", sector.rows.length), { n: sector.rows.length })}
                     </span>
                   </div>
 

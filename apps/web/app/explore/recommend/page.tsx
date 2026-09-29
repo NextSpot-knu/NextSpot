@@ -13,6 +13,7 @@ import { classifyIntent, buildCardSpeech } from "@/lib/voice/voiceIntent";
 import { getArrivalOpenDisplayStatus, isClosedToday } from "@/lib/restDate";
 import { REGION, isWithinRegion } from "@/lib/region";
 import { toast } from "sonner";
+import { countKey } from "@/lib/i18n/count";
 import { useI18n, useT } from "@/lib/i18n/I18nProvider";
 import { ShareButton } from "@/components/ShareButton";
 import { CongestionReportButton } from "@/components/CongestionReportButton";
@@ -1420,7 +1421,7 @@ function RecommendContent() {
             <h3 className="text-[15px] font-bold text-muk leading-tight">{t("recommend.altListTitle")}</h3>
             {!loadingRecommendations && recommendations.length > 0 && (
               <span className="ml-auto rounded-full bg-hanji-deep px-2.5 py-1 text-[11px] font-bold text-muk-soft tabular-nums">
-                {t("waiting.sectorCount", { n: recommendations.length })}
+                {t(countKey("waiting.sectorCount", recommendations.length), { n: recommendations.length })}
               </span>
             )}
           </div>
