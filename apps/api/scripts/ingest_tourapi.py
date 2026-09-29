@@ -117,6 +117,12 @@ EXCLUDED_CONTENTIDS: dict[str, str] = {
 # 첫 밤에 같은 가게 카드가 두 장 뜬다. 가드에 걸린 곳은 로그에 남고, 사람이 그 행에 contentid 를 넣으면 다음 밤부터
 # 그 행이 TourAPI 사진·운영시간을 받는다(docs/HANDOVER.md "사람 작업 대기").
 DUPLICATE_GUARD_MAX_M = 80.0
+# 관광지(새 행 type='attraction')는 가게가 아니라 넓은 터라 같은 곳의 두 좌표가 멀다 — 2026-09-29 운영 대조: TourAPI
+# '경주 교촌마을'(128676) ↔ 시드 행 '경주 교촌마을'(f4000000-…-0002, Kakao 검증 좌표) 221m. 80m 로는 카드가 두 장이 된다.
+# 대신 다른 TourAPI 레코드(contentid 가 있는 행)와는 이름이 같을 때만(정규화·지점 표시 뗀 이름) 같은 곳으로 본다 —
+# '분황사'(317503) ↔ '분황사 청보리밭'(2774279, 40m)처럼 한쪽 이름이 다른 쪽을 품는 이웃 명소는 TourAPI 가 이미 다른
+# 곳으로 나눈 것이다. 시드·Kakao 행(contentid 없음)과는 음식점과 같은 이름 규칙(품음 포함)을 쓴다.
+ATTRACTION_DUPLICATE_GUARD_MAX_M = 300.0
 _FOOD_TYPES = frozenset({"restaurant", "cafe"})
 # 가게 이름 끝의 지점 표시('본점'·'경주본점'·'황리단길점'·'2호점' 등). 가드는 이것을 뗀 이름으로도 한 번 더 견준다 —
 # 2026-09-29 리뷰: '교리김밥 본점'(TourAPI) ↔ '교리김밥 경주본점'(Kakao, 같은 주소 0m)은 어느 쪽도 다른 쪽을 품지 않아
@@ -367,12 +373,19 @@ def _same_place_name(name: str, other: str) -> bool:
     return len(shorter) >= 3 and shorter in longer
 
 
+def _same_record_name(name: str, other: str) -> bool:
+    """관광지 새 행 ↔ 다른 TourAPI 레코드의 이름 판정 — 정규화 이름이나 지점 표시를 뗀 이름이 같을 때만(품음은 보지 않는다)."""
+    return name == other or _core_name(name) == _core_name(other)
+
+
 def find_probable_duplicates(rows: list[dict], facilities: list[dict]) -> dict[str, dict]:
     """새 contentid 행 가운데 같은 가게가 이미 다른 행으로 있는 것 → {contentid: 그 시설 요약}(순수 함수).
 
     facilities 는 DB 전량(id·name·type·latitude·longitude·contentid·is_active). DB 에 이미 있는 contentid 는 평소처럼
     갱신되므로 보지 않는다. 판정: 같은 부류(음식점·카페 / 그 밖), 살아 있는 행(is_active 가 false 가 아님), 이름이
     같은 가게로 보임(_same_place_name — 둘 다 2글자 이상), 거리 DUPLICATE_GUARD_MAX_M 이하. 가장 가까운 시설을 돌려준다.
+    관광지 새 행은 거리 ATTRACTION_DUPLICATE_GUARD_MAX_M 까지 보고, 다른 TourAPI 레코드와는 같은 이름일 때만 겹친다
+    (_same_record_name — 위 상수 주석). 요약의 manual 은 겹친 행이 TourAPI 레코드가 아닌(시드·Kakao) 행인지다.
     """
     known = {str(f.get("contentid")) for f in facilities if f.get("contentid") not in (None, "")}
     pool = []
@@ -393,16 +406,23 @@ def find_probable_duplicates(rows: list[dict], facilities: list[dict]) -> dict[s
         if contentid in known or len(name) < 2:
             continue
         food = row.get("type") in _FOOD_TYPES
+        attraction = row.get("type") == "attraction"
+        max_m = ATTRACTION_DUPLICATE_GUARD_MAX_M if attraction else DUPLICATE_GUARD_MAX_M
         best, best_distance = None, float("inf")
         for facility, f_name, f_lat, f_lng, f_food in pool:
-            if f_food != food or not _same_place_name(name, f_name):
+            if f_food != food:
+                continue
+            record = facility.get("contentid") not in (None, "")
+            same = _same_record_name(name, f_name) if attraction and record else _same_place_name(name, f_name)
+            if not same:
                 continue
             distance = calculate_haversine_distance(float(row["latitude"]), float(row["longitude"]), f_lat, f_lng)
-            if distance <= DUPLICATE_GUARD_MAX_M and distance < best_distance:
+            if distance <= max_m and distance < best_distance:
                 best, best_distance = facility, distance
         if best is not None:
             duplicates[contentid] = {"id": best.get("id"), "name": best.get("name"),
-                                     "contentid": best.get("contentid"), "distance_m": best_distance}
+                                     "contentid": best.get("contentid"), "distance_m": best_distance,
+                                     "manual": best.get("contentid") in (None, "")}
     return duplicates
 
 
@@ -448,8 +468,10 @@ def probable_duplicate_contentids(rows: list[dict], ldong_only: set[str]) -> set
     duplicates = find_probable_duplicates(rows, facilities)
     for contentid, hit in sorted(duplicates.items()):
         name = next((r.get("name") for r in rows if str(r.get("contentid")) == contentid), "")
+        kind = "시드·Kakao 행 — 이을지 PM 결정" if hit.get("manual") else "다른 TourAPI 레코드"
         print(f"[dedupe] 새 행 넣지 않음: {name}(contentid={contentid}) ≈ 기존 {hit['name']}"
-              f"(id={hit['id']}, contentid={hit['contentid']}, {hit['distance_m']:.0f}m) — 이으려면 그 행에 contentid 를 넣는다")
+              f"(id={hit['id']}, contentid={hit['contentid']}, {hit['distance_m']:.0f}m, {kind})"
+              " — 이으려면 그 행에 contentid 를 넣는다")
     photo_less = photo_less_new_ldong_contentids(rows, facilities, ldong_only) - set(duplicates)
     for contentid in sorted(photo_less):
         name = next((r.get("name") for r in rows if str(r.get("contentid")) == contentid), "")

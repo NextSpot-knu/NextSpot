@@ -276,6 +276,43 @@ def test_branch_suffix_does_not_hide_the_same_shop():
     assert duplicates["2932986"]["id"] == "d30b8c1a"
 
 
+def test_attraction_guard_reaches_wide_sites_but_not_neighbouring_tourapi_records():
+    # 2026-09-29 운영 대조(관광지 법정동 사각지대 26곳). 관광지는 넓은 터라 같은 곳의 두 좌표가 80m 보다 멀 수 있다.
+    kyochon = _facility("f4000000-0000-0000-0000-000000000002", "경주 교촌마을", type_="culture",
+                        lat=35.8296, lng=129.2156)                                   # 시드 행(Kakao 검증 좌표)
+    woljeong = _facility("f3000000-0000-0000-0000-000000000004", "월정교", type_="attraction",
+                         lat=35.8316, lng=129.2167)
+    barley = _facility("88005625", "분황사 청보리밭", type_="attraction", contentid="2774279",
+                       lat=35.8398, lng=129.2338)                                    # 다른 TourAPI 레코드
+    choi = _facility("f4000000-0000-0000-0000-000000000003", "경주 최부자댁", type_="culture",
+                     lat=35.8302, lng=129.2161, is_active=False)                     # 꺼진 시드(검증 안 된 데모)
+    wolseong_record = _facility("35ae8de0", "경주 월성", type_="attraction", contentid="9990001",
+                                lat=35.8300, lng=129.2250)
+    rows = [
+        _row("128676", "경주 교촌마을", type_="attraction", lat=35.8291, lng=129.2133),  # 약 220m — 시드 행과 같은 곳
+        _row("2603509", "월정교", type_="attraction", lat=35.8316, lng=129.2167),
+        _row("317503", "분황사", type_="attraction", lat=35.8401, lng=129.2336),        # 약 40m — 이웃 명소, 넣는다
+        _row("2614343", "경주 최부자댁", type_="attraction", lat=35.8297, lng=129.2160),  # 꺼진 시드와만 겹친다 — 넣는다
+        _row("9990002", "경주 월성", type_="attraction", lat=35.8310, lng=129.2250),     # 다른 레코드와 같은 이름 111m — 겹친다
+        _row("9990003", "경주교촌마을", type_="attraction", lat=35.8340, lng=129.2156),   # 약 490m — 너무 멀다
+    ]
+    duplicates = ingest_tourapi.find_probable_duplicates(rows, [kyochon, woljeong, barley, choi, wolseong_record])
+    assert set(duplicates) == {"128676", "2603509", "9990002"}
+    assert duplicates["128676"]["id"] == "f4000000-0000-0000-0000-000000000002"
+    assert 150 < duplicates["128676"]["distance_m"] <= ingest_tourapi.ATTRACTION_DUPLICATE_GUARD_MAX_M
+    assert duplicates["128676"]["manual"] is True and duplicates["2603509"]["manual"] is True
+    assert duplicates["9990002"]["manual"] is False
+
+
+def test_wider_attraction_reach_does_not_change_the_shop_and_culture_guard():
+    # 음식점·문화시설 새 행은 승인된 80m·품음 규칙 그대로다.
+    facilities = [_facility("kakao-a", "동양백반", lat=35.8372),                                  # 약 110m
+                  _facility("rec-b", "황룡사 역사문화관 별관", type_="culture", contentid="9990010")]  # 다른 레코드, 품음
+    rows = [_row("9000020", "동양백반"),
+            _row("9000021", "황룡사 역사문화관", type_="culture")]
+    assert set(ingest_tourapi.find_probable_duplicates(rows, facilities)) == {"9000021"}
+
+
 @pytest.mark.parametrize(("name", "core"), [
     ("교리김밥본점", "교리김밥"),
     ("교리김밥경주본점", "교리김밥"),
