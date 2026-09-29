@@ -94,20 +94,39 @@ for (const [locale, width] of CASES) {
         return r.top >= box.top - 0.5 && r.bottom <= box.bottom + 0.5 && r.left >= box.left - 0.5 && r.right <= box.right + 0.5;
       };
       // 보이는 글 줄마다: 블록 안에 통째로 들어가고, 높이가 줄 높이의 정수배(줄 단위로만 잘림).
-      const paragraphs = Array.from(intro.children).filter((p) => getComputedStyle(p).display !== 'none').map((p) => {
+      // 숨기거나 줄인 글은 원래(자르지 않은) 줄 수도 잰다 — 잠깐 인라인 자르기를 풀고 재서 같은 작업 안에서 되돌린다.
+      const paragraphs = (Array.from(intro.children) as HTMLElement[]).map((p) => {
+        const style = getComputedStyle(p);
+        const line = parseFloat(style.lineHeight);
+        const hidden = style.display === 'none';
         const r = p.getBoundingClientRect();
-        const line = parseFloat(getComputedStyle(p).lineHeight);
         const lines = r.height / line;
+        const saved = p.getAttribute('style');
+        p.style.removeProperty('display');
+        p.style.removeProperty('-webkit-line-clamp');
+        const natural = Math.round(p.getBoundingClientRect().height / line);
+        if (saved === null) p.removeAttribute('style');
+        else p.setAttribute('style', saved);
         return {
           text: (p.textContent ?? '').slice(0, 16),
-          inside: within(p, clip),
-          wholeLines: Math.abs(lines - Math.round(lines)) < 0.05 && Math.round(lines) >= 1,
+          hidden,
+          shown: hidden ? 0 : Math.round(lines),
+          natural,
+          line,
+          gapBefore: parseFloat(style.marginTop) || 0,
+          bottom: r.bottom,
+          inside: hidden || within(p, clip),
+          wholeLines: hidden || (Math.abs(lines - Math.round(lines)) < 0.05 && Math.round(lines) >= 1),
         };
       });
+      // 글 블록 아래에 남은 빈 높이 — 마지막으로 보이는 줄의 아래부터 블록 아래까지.
+      const lastShown = [...paragraphs].reverse().find((p) => !p.hidden);
+      const free = clip.bottom - (lastShown ? lastShown.bottom : clip.top);
       const headline = stats.firstElementChild as HTMLElement;
       const footnote = stats.lastElementChild as HTMLElement;
       return {
         paragraphs,
+        free,
         // 대기 숫자: 카드 안에 온전히, 글자가 상자 밖으로 넘치지 않는다.
         waitVisible: within(headline, card) && headline.scrollHeight <= headline.clientHeight + 1,
         waitText: headline.textContent ?? '',
@@ -119,9 +138,23 @@ for (const [locale, width] of CASES) {
         expect(p.inside, `card ${i + 1} "${p.text}": 글 블록 밖으로 반쯤 나간 줄`).toBe(true);
         expect(p.wholeLines, `card ${i + 1} "${p.text}": 줄 단위로 잘리지 않음`).toBe(true);
       }
+      // 덜 싣지도 않는다: 처음으로 잘리거나 숨은 글의 다음 한 줄(숨었다면 그 위 여백까지)은 남은 빈 높이에 들어가지 않는다.
+      // 자리가 남는데 메뉴·소개를 숨기거나 이름을 한 줄로 줄이면 관광객 카드가 괜히 덜 알려 준다.
+      const firstCut = card.paragraphs.findIndex((p) => p.shown < p.natural);
+      if (firstCut >= 0) {
+        const p = card.paragraphs[firstCut];
+        const need = p.line + (p.shown === 0 && firstCut > 0 ? p.gapBefore : 0);
+        expect(card.free, `card ${i + 1} "${p.text}": ${p.shown}/${p.natural}줄인데 빈 높이 ${card.free.toFixed(1)}px 에 한 줄(${need}px)이 더 들어간다`).toBeLessThan(need);
+      }
       expect(card.waitText.trim().length, `card ${i + 1}: 대기 숫자`).toBeGreaterThan(0);
       expect(card.waitVisible, `card ${i + 1}: 대기 숫자 "${card.waitText}" 가 온전히 보임`).toBe(true);
       expect(card.footnoteVisible, `card ${i + 1}: 근거 주석이 카드 안에 온전히 보임`).toBe(true);
+    }
+    // 긴 메뉴를 가진 첫 카드: 한국어·중국어 390px 에는 이름과 메뉴 한 줄 이상이 들어갈 자리가 있다(실측 — 메뉴 두 줄).
+    if ((locale === 'ko' || locale === 'zh') && width === 390) {
+      const [name, menu] = report[0].paragraphs;
+      expect(name.shown, 'card 1: 이름 전부').toBe(name.natural);
+      expect(menu.shown, 'card 1: 대표 메뉴가 적어도 한 줄').toBeGreaterThanOrEqual(1);
     }
   });
 }
