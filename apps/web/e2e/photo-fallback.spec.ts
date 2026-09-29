@@ -248,7 +248,8 @@ test('waiting board: a slow photo keeps the tile visible until it arrives, then 
   const { releaseSlow } = await mockBoard(page, [
     { id: 'slow-1', name: '느린사진 식당', type: 'restaurant', image_url: TOUR_SLOW, wait: 5 },
   ]);
-  await page.goto('/waiting');
+  // 붙잡힌 사진은 첫 섹터의 먼저 받는(eager) 사진이라 window load 를 막는다 — load 를 기다리지 않는다.
+  await page.goto('/waiting', { waitUntil: 'domcontentloaded' });
   const c = cell(page, '느린사진 식당');
   await expect(c).toBeVisible({ timeout: 30_000 });
   const img = c.locator('img');
@@ -398,7 +399,15 @@ test('explore: a broken first image falls back to the gallery, and a Wikimedia g
       } },
     },
     { id: 'exp-none', name: '사진없음 식당', image_url: TOUR_BROKEN, gallery_images: null, features: {} },
-  ].map((p, i) => recommendation({ ...p, type: 'restaurant' }, i + 1, 3));
+    // 대표 사진(TourAPI)이 잘 뜨는 곳 — 갤러리에 출처 있는 Wikimedia 후보가 있어도 보이는 사진의 출처가 아니다.
+    {
+      id: 'exp-tour-ok', name: '대표사진 식당', image_url: TOUR_PHOTO, gallery_images: [WIKI_PHOTO],
+      features: { image_source: {
+        provider: 'Wikimedia Commons', source_url: 'https://commons.wikimedia.org/wiki/File:Cheomseongdae.jpg',
+        license: 'CC BY-SA 4.0', artist: 'Commons Photographer',
+      } },
+    },
+  ].map((p, i, all) => recommendation({ ...p, type: 'restaurant' }, i + 1, all.length));
   await page.route('**/api/v1/**', async (route) => {
     const url = route.request().url();
     if (url.endsWith('/api/v1/recommendations')) {
@@ -408,19 +417,20 @@ test('explore: a broken first image falls back to the gallery, and a Wikimedia g
   });
 
   await page.goto('/explore/recommend?facilityId=origin-r&lat=35.838&lng=129.209');
-  await expect(page.locator('section.space-y-4 h4')).toHaveText(['갤러리 식당', '위키 식당', '사진없음 식당'], { timeout: 30_000 });
+  await expect(page.locator('section.space-y-4 h4')).toHaveText(['갤러리 식당', '위키 식당', '사진없음 식당', '대표사진 식당'], { timeout: 30_000 });
   const card = (name: string) => page.locator('section.space-y-4 > div').filter({ has: page.locator('h4', { hasText: name }) });
 
   // 대표 사진이 깨지면 갤러리 사진으로 — 출처는 없다(TourAPI 사진).
+  // 카드를 스크롤한다 — <img> 는 사진이 바뀔 때(key=URL) 새로 붙으므로 옛 노드를 잡으면 'not attached' 로 흔들린다.
+  await card('갤러리 식당').scrollIntoViewIfNeeded();
   const galleryImg = card('갤러리 식당').locator('img');
-  await galleryImg.scrollIntoViewIfNeeded();
   await expect(galleryImg).toHaveAttribute('src', TOUR_PHOTO_2);
   await expect.poll(() => galleryImg.evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0)).toBe(true);
   await expect(card('갤러리 식당').locator(CREDIT_LINK)).toHaveCount(0);
 
   // Wikimedia 갤러리 사진이 뜨면 그 사진 아래에 출처.
+  await card('위키 식당').scrollIntoViewIfNeeded();
   const wikiImg = card('위키 식당').locator('img');
-  await wikiImg.scrollIntoViewIfNeeded();
   await expect(wikiImg).toHaveAttribute('src', WIKI_PHOTO);
   const credit = card('위키 식당').locator(CREDIT_LINK);
   await expect(credit).toBeVisible();
@@ -430,5 +440,12 @@ test('explore: a broken first image falls back to the gallery, and a Wikimedia g
   // 후보가 다 깨지면 사진 상자가 없다(오늘과 같은 모습).
   await card('사진없음 식당').scrollIntoViewIfNeeded();
   await expect(card('사진없음 식당').locator('img')).toHaveCount(0);
+
+  // TourAPI 대표 사진이 보이는 카드에는 갤러리의 Wikimedia 출처가 붙지 않는다(출처는 보이는 사진의 것만).
+  await card('대표사진 식당').scrollIntoViewIfNeeded();
+  const tourImg = card('대표사진 식당').locator('img');
+  await expect(tourImg).toHaveAttribute('src', TOUR_PHOTO);
+  await expect.poll(() => tourImg.evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0)).toBe(true);
+  await expect(card('대표사진 식당').locator(CREDIT_LINK)).toHaveCount(0);
   await expect(page.locator(CREDIT_LINK)).toHaveCount(1);
 });
