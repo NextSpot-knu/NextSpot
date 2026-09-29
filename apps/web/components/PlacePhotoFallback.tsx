@@ -1,5 +1,5 @@
 import type { CSSProperties } from 'react';
-import { Coffee, Landmark, MapPin, Palette, UtensilsCrossed, type LucideIcon } from 'lucide-react';
+import { Coffee, Landmark, MapPin, Mountain, UtensilsCrossed, type LucideIcon } from 'lucide-react';
 import { PLACE_TONE_VAR, type PlaceGlyph, type PlaceMotif, type PlaceVisual } from '@/lib/placeVisual';
 
 // 사진이 없는 장소의 표지 — 사진 자리를 같은 크기로 채우는 경주 문양 판 + 가운데 유형 그림.
@@ -10,11 +10,13 @@ import { PLACE_TONE_VAR, type PlaceGlyph, type PlaceMotif, type PlaceVisual } fr
 // - 장식이다(aria-hidden) — 카드의 이름은 카드 본문이 말한다. 글자·i18n 문구 없음.
 // - 색은 --tile(장소마다) · 판 바탕은 globals.css 의 .place-tile(야간 값은 html.nextspot-dark 가 바꾼다).
 
+// 섹터 머리의 기호와 같은 말을 한다: 문화시설(🏛) = 기둥 건물, 관광지 = 산·능(경주의 능선·고분·산사).
+// 팔레트는 쓰지 않는다 — 고분정보센터 같은 곳에 붙으면 화실·공방으로 읽힌다.
 const GLYPH_ICON: Record<PlaceGlyph, LucideIcon> = {
   restaurant: UtensilsCrossed,
   cafe: Coffee,
-  attraction: Landmark,
-  culture: Palette,
+  attraction: Mountain,
+  culture: Landmark,
   default: MapPin,
 };
 
@@ -125,8 +127,9 @@ export function PlacePhotoFallback({
           vectorEffect="non-scaling-stroke"
         />
       </svg>
-      {/* ② 유형 그림 — 둥근 받침 위(야간에도 받침 테두리가 판과 갈린다). */}
-      <span className="absolute left-1/2 top-[40%] flex h-11 w-11 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-hanji/90 ring-1 ring-current/40 shadow-[0_2px_10px_rgba(43,35,32,0.12)]">
+      {/* ② 유형 그림 — 둥근 받침 위(야간에도 받침 테두리가 판과 갈린다). 세로 54%: 왼쪽 위의 순위 배지(28px)와
+          320px 화면(카드 폭 ~80px)에서도 4px 넘게 떨어진다 — 40% 에서는 360px 부터 배지와 닿았다. */}
+      <span className="absolute left-1/2 top-[54%] flex h-11 w-11 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-hanji/90 ring-1 ring-current/40 shadow-[0_2px_10px_rgba(43,35,32,0.12)]">
         <Icon size={20} strokeWidth={1.8} data-tile-glyph />
       </span>
     </div>
