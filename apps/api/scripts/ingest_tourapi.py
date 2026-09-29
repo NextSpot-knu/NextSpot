@@ -4,9 +4,9 @@
 수집해 Supabase `facilities` 테이블에 contentid 기준으로 upsert 한다.
 (경로/부트스트랩은 scripts/train.py 컨벤션.)
 
-문화시설·음식점은 법정동 코드 목록(areaBasedList2 lDongRegnCd=47·lDongSignguCd=130)도 받아 같은 반경 안의 것을
-contentid 로 합친다 — 구 지역코드가 빈 레코드(경주 음식점·문화시설 243건 중 127건, 2026-09-29 실측)는
-locationBasedList2 에 나오지 않는다. 새 행은 같은 가게가 이미 다른 행(Kakao 보완 등)으로 있으면 넣지 않는다
+세 타입 모두 법정동 코드 목록(areaBasedList2 lDongRegnCd=47·lDongSignguCd=130)도 받아 같은 반경 안의 것을
+contentid 로 합친다 — 구 지역코드가 빈 레코드(경주 음식점·문화시설 243건 중 127건, 3km 안 관광지 26곳 —
+2026-09-29 실측)는 locationBasedList2 에 나오지 않는다. 새 행은 같은 가게가 이미 다른 행(Kakao 보완 등)으로 있으면 넣지 않는다
 (중복 가드 — 이어 붙이기는 사람이 contentid 를 넣어서 한다, docs/HANDOVER.md).
 
 사용 예:
@@ -90,12 +90,12 @@ TYPE_LABELS = {12: "관광지(12)", 14: "문화시설(14)", 39: "음식점(39)"}
 
 # 법정동 코드 목록(areaBasedList2 lDongRegnCd·lDongSignguCd). 2026-09-29 실측: 경주 음식점·문화시설 243건 중 127건은 구
 # areacode/sigungucode 가 빈 값이라 locationBasedList2 에 아예 나오지 않는다(신라고분정보센터 새 레코드·카페 13곳 등).
-# 법정동 목록을 반경(같은 --radius) 안으로 거른 뒤 contentid 로 합친다. 관광지(12)도 같은 사각지대가 있지만
-# (3km 안 26곳 — 첨성대·대릉원 일원·월정교 등) 승인 범위(음식점·문화시설) 밖이라 넣지 않는다(결정 대기).
+# 법정동 목록을 반경(같은 --radius) 안으로 거른 뒤 contentid 로 합친다. 관광지(12)도 같은 사각지대라 합친다(PM 승인
+# 2026-09-29 — 3km 안 26곳: 첨성대·대릉원 일원·분황사 등. 시드 행 월정교·교촌마을과 겹치는 곳은 새 행 가드가 막는다).
 LDONG_REGN_CD = 47      # 경상북도(법정동)
 LDONG_SIGNGU_CD = 130   # 경주시(법정동)
-LDONG_CONTENT_TYPE_IDS: tuple[int, ...] = (14, 39)
-LDONG_PAGE_ROWS = 1000  # 경주 음식점 211·문화시설 32건(실측) — 한 페이지
+LDONG_CONTENT_TYPE_IDS: tuple[int, ...] = (12, 14, 39)
+LDONG_PAGE_ROWS = 1000  # 경주 음식점 211·문화시설 32·관광지 203건(실측) — 한 페이지
 # 원본 item 에 붙이는 표시 — run() 이 '법정동 목록에만 나온 곳'을 안다(transform_poi 는 모르는 키를 버린다).
 LDONG_ONLY_MARK = "_nextspot_ldong_only"
 
@@ -221,7 +221,7 @@ async def _merge_ldong_items(
 async def fetch_pois(lat: float, lng: float, radius_m: int, limit: int) -> dict[int, list[dict]]:
     """contentTypeId 별로 반경 조회를 페이지네이션하며 원본 item 을 수집한다.
 
-    문화시설·음식점(LDONG_CONTENT_TYPE_IDS)은 법정동 목록의 반경 안 항목을 contentid 로 합친다(_merge_ldong_items).
+    LDONG_CONTENT_TYPE_IDS(관광지·문화시설·음식점)는 법정동 목록의 반경 안 항목을 contentid 로 합친다(_merge_ldong_items).
     limit > 0 이면 타입별 최대 limit 건까지만 수집(쿼터 절약용).
     """
     collected: dict[int, list[dict]] = {}
@@ -766,7 +766,8 @@ async def fetch_showflag_map(
 
 async def fetch_gyeongju_showflags() -> dict[str, str]:
     """구 지역코드(35/2)와 법정동 코드(47/130) showflag 를 합친다 — 법정동 목록으로 들어온 행(구 코드가 빈 레코드)도
-    폐업·표출중단을 감지하게(2026-09-29 실측 525건 → 753건). 둘 다 있는 contentid 는 구 코드 값(도입 전 동작)을 쓴다.
+    폐업·표출중단을 감지하게(2026-09-29 실측 525건 → 753건). contentTypeId 를 주지 않으므로 관광지(12)도 함께 온다.
+    둘 다 있는 contentid 는 구 코드 값(도입 전 동작)을 쓴다.
     법정동 조회가 실패하면 구 코드 결과만 쓴다(구 코드 실패는 도입 전처럼 올린다).
     """
     showflags = await fetch_showflag_map()
