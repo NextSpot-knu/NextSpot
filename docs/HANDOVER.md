@@ -46,6 +46,49 @@
 
 외부 콘솔 접근이 필요해 코드로 못 하는 일. 끝나면 줄을 지우고 "최근 세션"에 한 줄 남긴다.
 
+- [ ] **(오늘 밤 — 지금 운영 코드에서도 안전) 신라고분정보센터 카드에 실사진** — TourAPI 새 레코드 3532127 의 공공누리 1유형 사진 20장을
+      운영 행 `70231629`(아직 옛 contentid 3442528)의 `gallery_images` 에 넣는다. `image_url` 에 넣지 않는다 — 매일 밤 적재가 3442528 의
+      '대표 사진 없음'을 확인하고 `image_url` 을 지운다(갤러리는 TourAPI 가 사진을 줄 때만 덮는다). SQL Editor:
+      ```sql
+      update public.facilities
+         set gallery_images = (select jsonb_agg(format('https://tong.visitkorea.or.kr/cms/resource/%s/%s_image2_1.jpg',
+                                                       lpad((n % 100)::text, 2, '0'), n) order by n)
+                                 from generate_series(3532081, 3532100) as n)
+       where id = '70231629-3666-45b1-b701-2c37bfe62d5c' and contentid = '3442528';
+      select jsonb_array_length(gallery_images), gallery_images->>0 from public.facilities where id = '70231629-3666-45b1-b701-2c37bfe62d5c';
+      ```
+- [ ] **(`feat/real-photos-ingest` 가 main 에 들어간 뒤, 다음 04:00 적재 전) 실사진 DB 정리** — 순서 무관(새 적재의 중복 가드가 늦어도 중복 카드를 막는다).
+      ① 신라고분정보센터를 3532127 로: `update public.facilities set contentid = '3532127' where id = '70231629-3666-45b1-b701-2c37bfe62d5c' and contentid = '3442528';`
+      (옛 3442528 은 이름·32m 가드에 걸려 새 행이 되지 않는다.) ② Kakao 행 6곳을 TourAPI 레코드에 잇기(다음 밤 TourAPI 사진·운영시간을 받는다):
+      ```sql
+      update public.facilities f set contentid = v.cid, contenttypeid = 39
+        from (values ('f1847615-43c8-40f8-8121-88f3e5821d56'::uuid, '2839014'),  -- 료미
+                     ('0691289a-148c-4acc-af4a-ff39c8499574'::uuid, '2904048'),  -- 신라제면 경주황리단길점
+                     ('528ec40e-b547-4a42-8bbc-cf3d4defbe40'::uuid, '2989036'),  -- 경주대릉빵
+                     ('d276e585-3464-4ac2-a83c-888a8c80d257'::uuid, '2907335'),  -- 늘곰탕
+                     ('4e02d74c-16f5-4d5a-aaa5-b127a1068a43'::uuid, '2904191'),  -- 양지식당
+                     ('d8da8528-10f1-4460-bcaa-2c0915881e70'::uuid, '2902488')   -- 황남밀면
+             ) as v(id, cid)
+       where f.id = v.id and f.contentid is null;
+      ```
+      (선택 — 가드가 찾은 사진 있는 같은 가게, PM 확인 후 같은 모양으로: 스테이550 경주점 `84f94145-e879-405d-a57d-c93cf478a5e9`→2903989 ·
+      훌림목 `fd01f6bf-09b5-4066-97be-9139e46ad8ef`→2902567 · 올리브 `982c2c3b-6e05-40bc-b424-231a2dba9077`→2904334 · 프롬상록
+      `d71be8d4-bf3b-4a2e-97b4-0f1c2a6bbb9a`→2903779 · 1894사랑채 `1804451a-9545-4d4b-9733-4c6681277dd6`→2902799 · 물방아삼계탕 경주본점
+      `c9f6a2ea-af17-489d-b764-92f776c14b15`→132984.) ③ 중복 Kakao 행 숨기기 — 표시가 있어야 밤 적재가 다시 켜지 않는다(`features.manual_hidden`).
+      대구갈비 본점(`7effe6b1…`, 북정로 5)은 [백년가게]진가네대구갈비(`43adadcf…`, 2m)와 같은 가게인지 **확인된 경우에만** 목록에 넣는다:
+      ```sql
+      update public.facilities
+         set is_active = false,
+             features = coalesce(features, '{}'::jsonb) || jsonb_build_object('manual_hidden',
+                        jsonb_build_object('reason', 'TourAPI 행과 같은 가게 — 중복 카드', 'decided', '2026-09-29'))
+       where id in ('c3857ec8-092f-419a-8ea3-aade4eb12d5d',   -- 백년손님(Kakao) = TourAPI 2906690
+                    '0a2aa7ae-93dd-445b-b3a2-8f7cf2e738f3');  -- 이재원의과자공방(Kakao) = TourAPI 2840291 이재원과자공방
+      --           , '7effe6b1-c2ce-4f6f-8552-8d081b145fb6'   -- 대구갈비 본점(Kakao) — 진가네 확인 시에만
+      ```
+      ④ 황리단길 생활문화센터(3451999)는 운영 DB 에 행이 없다(09-29 읽기 확인) — 코드가 적재하지 않으므로 SQL 불필요. 행이 보이면 ③ 과 같은 표시로 숨긴다.
+- [ ] **경주시 공공저작물 담당에 사진 사용 확인 메일 1통**(054-779-6791, 10월 심사 전) — 「메뉴별음식점」 API(data.go.kr 15114465, 이용허락범위 제한 없음)의
+      대표 사진을 관광 안내 웹 카드에 출처('사진: 경주시')를 붙여 보여 준다는 내용. 시 사진 다운로드 사이트(공익·개인 이용 한정)는 쓰지 않는다.
+
 - [ ] **(P2a 가 main 에 들어간 뒤) Render `AREA_DEMAND_SOURCE=shadow`** → 24시간·재시작 1회 뒤 게이트와 go/no-go 측정 → `matrix`.
       순서·게이트·되돌림(`rpc`, 재시작 1~2분)·볼 것은 [`API_ARCHITECTURE_PLAN.md`](./API_ARCHITECTURE_PLAN.md) "P2a 전환 절차". 반영 전에는 할 일 없음.
 - [ ] **공공 API 키 회전** — `TOURAPI_KEY`·`KMA_API_KEY`·`PARKING_API_KEY`·`GYEONGJU_FOOD_API_KEY`. httpx INFO 로그가 쿼리스트링째 전체 URL을 남겨 Render 로그 이력에 키가 있을 수 있다(09-28 `d9639c2` 로 차단). 새 키 발급 → Render·GitHub Secrets 갱신.
@@ -193,6 +236,18 @@ from checks order by seq;
 
 최신이 위. 10개를 넘으면 가장 오래된 항목을 `archive/HANDOVER_LOG.md` 맨 위로 옮긴다.
 
+## 2026-09-29 — 실사진 적재: 경주시 음식점 사진 · TourAPI 법정동 목록 · 숨김 표시 (main 미반영)
+
+- 도구·브랜치: Claude Code(하위 에이전트) / `feat/real-photos-ingest`(release/0928 `10ea2d4` 위, 미푸시). 스크립트·API 서비스만 — 웹·라우터·score.py 무변경
+- 커밋: dfba50c..(이 기록) (3건 + 이 기록). 조사·근거: PM 승인 2026-09-29 00:35(경주시 사진·법정동 목록·DB 정리)
+- 한 것: ① 경주시 「메뉴별음식점」 대표 사진을 **사진이 하나도 없는** 매칭 행에만 `gallery_images` + 출처 `features.city_photo`(url·provider '경주시'·source_url·license)로, TourAPI 사진이 오면 둘 다 뺀다(`services/batch/city_photo.py`, Wikimedia 의 `image_source` 와 분리). 운영 스냅샷 대조: 매칭 49곳 중 39곳이 사진을 얻는다.
+  ② TourAPI 문화시설·음식점을 법정동 목록(47/130)으로도 받아 같은 반경 안을 합침 · FD05→카페 · 공공누리 유형 적재 · 새 행 중복 가드(80m·이름) · 황리단길 생활문화센터(3451999) 제외 · showflag 도 법정동 합침. 첫 밤 대조: 새 행 19곳(국립경주박물관·오아르미술관·시골쌈밥 등), 가드로 넘김 29곳(Kakao 행과 같은 가게).
+  ③ `features.manual_hidden` 이 있으면 Kakao 보완·showflag·LOCALDATA 가 다시 켜지 않는다(Kakao 배치는 매칭 행마다 is_active 를 새로 써서 PM 의 숨김을 다음 밤 되돌렸을 것).
+- 검증: api ruff + pytest 2319 passed(기준 2027 + 새 292, 조합 불변식 239건 포함) · check-docs. 새 테스트는 10ea2d4 코드에서 실패 확인(회귀 가드 1건 — 사진 없는 밤 유지 — 제외). 실측(읽기 전용): 운영 facilities 1,703행 · TourAPI 4콜(법정동 showflag 753건 vs 구 525건, 관광지 3km 사각지대 26곳).
+- 다음·미결: **웹 출처 변경과 같은 배치로 main 에 올린다** — 웹이 `features.city_photo.url == 보이는 사진` 일 때 '사진: 경주시'를 붙이기 전에 이 적재가 돌면 출처 없는 사진이 뜬다. 적재 쿼터: 새 행·연결 약 25곳 × 상세 4콜 ≈ +100콜/밤. 사진은 1600px·최대 815KB(경주시 서버에 작은 크기 없음). 반도식당(16~20시)·07~08시 Kakao 분식은 여전히 사진 없음.
+  결정 대기: 관광지(12)도 같은 사각지대 — 3km 안 26곳(첨성대·대릉원 일원·월정교·교촌마을·분황사 등)이 TourAPI 행으로 없다. `LDONG_CONTENT_TYPE_IDS` 에 12 를 넣으면 들어오지만 비활성 시드·교촌마을 시드 행과 겹쳐 PM 결정 필요.
+- 사람 작업: 위 "사람 작업 대기" 3건(오늘 밤 SQL · main 반영 뒤 DB 정리 · 경주시 확인 메일).
+
 ## 2026-09-28d — API 재설계 P2a: 권역 수요 전망을 메모리 주차 이력 행렬로 (스위치 꺼진 채 — rpc)
 
 - 도구·브랜치: Claude Code(명세 → 레드팀 3렌즈 → 수정 → 단계별 구현 워크플로, 단계마다 시험·변이 검사) / `perf/parking-history`(367514c 위로 rebase — 앱 코드는 rebase 전과 바이트 동일, 미푸시)
@@ -320,48 +375,6 @@ from checks order by seq;
 - 다음·미결: 배포 후 Render Metrics 에서 관제 대시보드를 한 번 열어 RSS 가 되돌아오는지, 로그에 `admin_trust_slim_select_failed`
   가 없는지 확인. 예열(GitHub Actions `warmup.yml`)이 남기는 캐시 상한은 `0408bd7` 이 맡는다.
 - 사람 작업: Render 대시보드에서 배포 커밋이 `09edacb`+ 인지, `MALLOC_ARENA_MAX=2` 가 이미지 env 로 들어갔는지(Dockerfile) 확인.
-
-## 2026-09-21c — 통합: yunseong 데모 콘솔·비교 헤더·데이터 절 + 심사용 계정 안내 → main 승격 준비
-
-- 도구·브랜치: Claude Code(통합 병합 · 6렌즈 리뷰 워크플로 + 3렌즈 검증 워크플로 · 게이트 전체) / `feature/judge-demo-integration`
-  = `feature/judge-account-hint`(`9ec3894`·`73849a7`) + `origin/yunseong`(`c8c1b5f`…`71cfc38`, 4커밋) → main.
-- 커밋: `fafdd06`(병합 + 통합 수정) → 리뷰 반영 커밋(해시는 git log) + 이 기록.
-- 한 것: 두 갈래가 관문 화면과 4로케일 JSON 끝 블록에서 충돌(5파일) — import 두 줄 모두 유지, JSON 은 키 단위 3-way
-  병합(양쪽 변경 충돌 0). yunseong 이 가져온 것: `?demo=1` 읽기 전용 상인 콘솔·관제 대시보드(고정값, 서버 호출 없음),
-  추천 카드 "A 혼잡 → 대신 B" 비교 헤더와 반응하는 컨트롤, 소개 '데이터' 절(공사 API 를 어디에 썼는지 표), 대기 보드 대기 시간,
-  마이 성과 숫자, 브랜드 404. 통합 수정: 소개 e2e 가 '데이터' 접힘(`data-data-fold`)을 '계획'과 같은 단일 예외로 허용
-  (yunseong CI 의 service-guide 실패 원인) · 호출이 사라진 `guide.roleRequired·merchantCta·adminCta` 4로케일 삭제 ·
-  yunseong CI 의 api 실패(`test_warmup_recovers_when_the_task_cannot_be_scheduled`)는 main 의 warmup 수정이 빠진 옛 기준
-  때문이라 병합 후 통과.
-  **6렌즈 리뷰(54 에이전트) + 4 에이전트 수정 반영:** ① 데모 플래그가 `/admin/*` 전 경로의 게이트를 껐다 → `/admin/dashboard`
-  한 화면에만, 경로 바뀔 때 재판정, `/admin` 리다이렉트가 쿼리 보존 ② 소개에는 심사 계정 이메일 대신 두 관문 링크
-  (`/merchant`·`/admin/login`) — 계정 안내는 관문·로그인 화면이 맡는다 ③ 데모 화면에서 실제 로그인으로 가는 길
-  (`demo.realLogin`) + 관제 데모의 390px 대응(데모에서만 사이드바 숨김·반응형 그리드) + 상인 데모 뒤로가기 → 관문
-  ④ 마이페이지에 게스트·관광객용 '콘솔 미리보기' 카드(두 데모로) ⑤ 대기 보드: `CONGESTION_DATA.md` §2 대로 주차·관광 지수를
-  분(分)으로 바꾸지 않는다 — 대기 형태 근거(server·ranking·baseline·실측)만 분, 나머지는 주변 수요 등급, '대기 없음'은
-  server 근거만, 히어로 최단 대기에 추정 칩(`lib/waitEstimate.test.ts`·`areaDemandCurve.test.ts` 추가) ⑥ 추천 카드
-  비교 헤더·'수집 중' 패널을 `showCompare`(/main 만)로 게이팅, 재계산 비상 마감 3s→요청 타임아웃+2s(거짓 '같은 결과' 토스트
-  제거), 히트맵 주차 요청 실패 시 잠금 해제 ⑦ 문구: `wait.basis*`·`dataTab.screen*` 에서 내부 기제(가중치·엔진·검증값) 제거,
-  ja·zh 에 영어 그대로 들어온 약 80키 번역.
-  **2차 검증(3렌즈 리뷰 + 반박 검증, 21 에이전트, 확정 6건) 반영:** ⑧ 대기 보드 — 추정 0분은 히어로 '최단 대기'
-  후보에서 뺀다(`heroWaitCandidate`, 카드가 '여유'라고만 말하는 것과 같은 규칙) · 분이 없는 등급 카드의 '한산해지는
-  시각'은 권역 수요 곡선이 있을 때만(`showsCalmLine`; 내장 시간대 곡선만으로는 말하지 않는다) ⑨ 소개 안내문의 관문
-  링크를 문장 아래 줄로(문장과 한 줄로 이어 읽혔다) ⑩ 마이페이지 '콘솔 미리보기' 카드는 계정 판정이 끝난 뒤에만
-  ⑪ `/admin?demo=1` — 인덱스 리다이렉트가 데모 플래그를 통과(막으면 로그인으로 떨어졌다) ⑫ 마이 요약 카드 제목을
-  두 모드 '누적 임팩트'로 통일(aria·상세 화면과 같은 이름) ⑬ /main — 재계산 비상 마감을 테마 칩 요청(45s) 기준으로,
-  주차장 분기에서 예약된 토스트까지 걷기, 열지도 주차 잠금은 정리된 effect 가 풀지 않는다.
-  **⑭ 로그인 장애 실측(09-22 09:29~09:31 KST) 반영:** 심사 관리자 계정은 Supabase 로그인에 성공했는데(last_sign_in
-  00:29:39Z) 같은 시각 Render 인스턴스가 헬스체크 타임아웃으로 죽어 있어(Events: 9:31 failed → recovered; 앞선 24시간에
-  OOM 512MB 로 6회 재시작) `/account/me` 가 실패 → 관제 관문이 '로그인이 필요합니다'로 튕겼다. 서버에 닿지 못한 것은
-  세션 없음이 아니다: `lib/account.tsx` 가 `unreachable`(타임아웃·5xx)을 내보내고 자동 재시도를 1회 → 3회(2.5s·5s·8s)로,
-  `/admin/login`·`/merchant` 관문은 그때 '서버 연결을 확인하고 있어요 · 다시 시도'(`merchantGate.server*` 4로케일)를
-  보여 준다. 근본 원인(API 메모리)은 별도 브랜치 `fix/api-memory-512mb` 의 몫. 심사 상인 계정(openapi@naver.com)은
-  09-20 이후 로그인 기록이 없다 — 그 계정이 안 되면 Supabase 가 비밀번호 단계에서 거절한 것이라 시드 재실행
-  (`JUDGE_ACCOUNT_PASSWORD`)으로 맞춘다(실 DB 쓰기 — 사람 확인 후).
-- 검증: web `lint`(0 에러·155 경고, 전부 기존) · `typecheck` · `test`(54 파일, i18n 키 패리티 포함) · `build`(정적 export) · e2e 44 통과(390px·4로케일) · api `ruff`+`pytest` 1606 통과(병합 직후; 이후 api 무변경) · 스키마 parity(`build_reset.mjs`) · `check-docs` · 390px 스크린샷 ko(라이트)/en(다크): 로그인·`?next=` 로그인·상인 관문·관제 로그인·소개·두 데모·마이페이지 '콘솔 미리보기' 카드. 리뷰 2회: 6렌즈 54 에이전트 → 4 에이전트 수정 → 3렌즈 21 에이전트 반박 검증(확정 6·반박 4·저위험 4).
-- 다음·미결: 팀원 브랜치 `yunseong` 은 이 병합으로 main 에 들어가므로 이후 작업은 main 을 다시 당겨 시작한다. 리뷰에서 반박된 항목(권역 곡선 밖 시각의 전망 무시 · 업종 기준선 대기의 표기 · 상인 데모 헤더의 같은 목적지 두 컨트롤 · 관제 로그인의 한국어 고정 문구)은 이 변경 이전부터 있던 동작이라 손대지 않았다. 남은 것: 실제 관제 콘솔(데모 아닌 화면)의 390px 레이아웃 없음 · /saved 의 '수집 중' 배지 고정 · 소개를 열 때마다 신선도 조회 · 마이페이지 프로필 블록의 한국어 고정 문구('AI 취향 프로필'·'추천 엔진이 이해한…' — 4로케일 미적용, en 화면에서 그대로 보인다) · /mypage/impact 예시 값이 요약 카드와 별도 상수.
-- 사람 작업: `git push origin feature/judge-demo-integration:main`(fast-forward). 배포 후 시크릿 창에서 데모 두 화면
-  (`/merchant?demo=1`·`/admin/dashboard?demo=1`)과 두 계정 로그인 확인. 운영사무국에 추가 계정 통보.
 
 ## 기록 규칙
 
