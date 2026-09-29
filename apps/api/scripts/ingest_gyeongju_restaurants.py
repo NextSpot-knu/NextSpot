@@ -10,6 +10,13 @@ TourAPI 가 쌓은 키(first_menu·parking·cat3·번역 등)를 덮어쓰지 �
 매칭 안 되면 **skip**(신규 삽입하지 않는다 — 좌표/식별자 신뢰 문제). 키/URL 미설정이면
 로그만 남기고 정상 종료(무해). app_events 에 event='gyeongju_food_sync' 기록.
 
+사진(PM 승인 2026-09-29): 매칭 행에 사진이 **하나도 없을 때만**(image_url 비었고 gallery_images 비었을 때)
+경주시 대표 사진(CON_IMGFILENAME)을 gallery_images 에 넣고 출처를 features.city_photo 에 함께 둔다.
+TourAPI 등 다른 사진이 있는 행은 덮지 않고, 다른 사진이 생긴 행에서는 경주시 사진과 출처를 함께 뺀다.
+규칙 정본: app/services/batch/city_photo.py. image_url 열은 이 배치가 쓰지 않는다.
+사람이 숨긴 행(is_active=false)은 매칭하지 않는다 — 같은 가게의 살아 있는 행(예: 중복 정리 뒤 남은 TourAPI 행)이
+사진·메뉴를 받게.
+
 사용 예:
   python scripts/ingest_gyeongju_restaurants.py --dry-run   # DB 미기록, 매칭/보강 계획만 출력
   python scripts/ingest_gyeongju_restaurants.py             # 매칭 행 features 보강 upsert
@@ -35,6 +42,7 @@ from dotenv import load_dotenv  # noqa: E402
 load_dotenv(os.path.join(parent_dir, ".env"))
 
 from app.core.config import settings  # noqa: E402
+from app.services.batch.city_photo import CITY_PHOTO_KEY, plan_city_photo  # noqa: E402
 from app.services.gyeongju_restaurant_service import get_gyeongju_restaurants  # noqa: E402
 from app.services.spot.travel import calculate_haversine_distance  # noqa: E402
 
@@ -45,6 +53,8 @@ _FOOD_TYPES = {"restaurant", "cafe"}
 _EXACT_NAME_MAX_M = 200.0
 _CONTAINS_NAME_MAX_M = 80.0
 UPSERT_CHUNK = 100
+# 이 배치가 쓰는 사진 열 — 바꿀 때만 update 에 싣는다(읽은 값을 되쓰지 않는다). image_url 은 아예 쓰지 않는다.
+_PHOTO_COLUMNS = ("image_url", "gallery_images")
 
 
 def _normalize_name(value: Any) -> str:
@@ -79,6 +89,8 @@ def match_facility(
     for facility in facilities:
         if not _is_food_facility(facility):
             continue
+        if facility.get("is_active") is False:
+            continue  # 숨긴 행(폐업·중복 정리)에는 메뉴·사진을 붙이지 않는다.
         f_lat = facility.get("latitude")
         f_lng = facility.get("longitude")
         if f_lat is None or f_lng is None:
@@ -159,9 +171,18 @@ def build_actions(
             continue
         used_ids.add(facility_id)
 
-        payload: dict[str, Any] = {
-            "features": merge_features(facility.get("features"), restaurant, now_iso),
-        }
+        features = merge_features(facility.get("features"), restaurant, now_iso)
+        photo_changes, photo_status = plan_city_photo(
+            facility,
+            restaurant.get("image_url"),
+            caption=restaurant.get("image_caption"),
+            con_uid=restaurant.get("con_uid"),
+        )
+        if CITY_PHOTO_KEY in photo_changes:
+            features[CITY_PHOTO_KEY] = photo_changes[CITY_PHOTO_KEY]
+        payload: dict[str, Any] = {"features": features}
+        if "gallery_images" in photo_changes:
+            payload["gallery_images"] = photo_changes["gallery_images"]
         # 기존 컬럼은 비어 있을 때만 채운다(스키마 변경 없이, 기존 값 보존).
         if restaurant.get("hours") and not (facility.get("operating_hours") or {}):
             hours_payload: dict[str, Any] = {"open": restaurant["hours"], "source": "gyeongju_food"}
@@ -171,13 +192,18 @@ def build_actions(
         if restaurant.get("homepage") and not facility.get("homepage"):
             payload["homepage"] = restaurant["homepage"]
 
-        update_rows.append({**facility, **payload})
+        update_row = {**facility, **payload}
+        for column in _PHOTO_COLUMNS:
+            if column not in payload:
+                update_row.pop(column, None)
+        update_rows.append(update_row)
         actions.append({
             "name": restaurant.get("name"),
             "status": "matched",
             "facility_id": facility_id,
             "facility_name": facility.get("name"),
             "fields": sorted(payload.keys()),
+            "photo": photo_status,
         })
     return update_rows, actions
 
@@ -204,12 +230,18 @@ async def run(*, apply: bool) -> dict[str, Any]:
     facilities = fetch_all_rows(
         supabase_admin,
         "facilities",
-        "id, name, address, latitude, longitude, contenttypeid, type, homepage, operating_hours, features, is_active",
+        "id, name, address, latitude, longitude, contenttypeid, type, homepage, operating_hours, features, is_active,"
+        " image_url, gallery_images",
     )
     now_iso = datetime.now(timezone.utc).isoformat()
     update_rows, actions = build_actions(restaurants, facilities, now_iso)
     matched = sum(1 for action in actions if action["status"] == "matched")
     print(f"[match] 음식점 시설 {sum(1 for f in facilities if _is_food_facility(f))}곳 중 매칭 {matched}건")
+    photo_counts: dict[str, int] = {}
+    for action in actions:
+        if action.get("photo"):
+            photo_counts[action["photo"]] = photo_counts.get(action["photo"], 0) + 1
+    print(f"[photo] 경주시 사진 {json.dumps(photo_counts, ensure_ascii=False, sort_keys=True)}")
 
     updated = 0
     if apply and update_rows:
@@ -234,6 +266,9 @@ async def run(*, apply: bool) -> dict[str, Any]:
         "matched": matched,
         "updated": updated,
         "unmatched": len(restaurants) - matched,
+        "city_photo_added": photo_counts.get("city_photo_added", 0),
+        "city_photo_retired": photo_counts.get("city_photo_retired", 0)
+        + photo_counts.get("city_photo_credit_dropped", 0),
     }
 
     if apply:

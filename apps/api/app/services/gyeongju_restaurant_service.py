@@ -3,7 +3,8 @@
 경주 문화관광 메뉴별음식점을 제공하는 REST/JSON API를 페이지네이션 호출해 정규화한 dict
 리스트로 반환한다. 반환 계약(항목 1건):
   {con_uid, name, address, menu(대표메뉴), hours(영업시간), closed(휴무일),
-   parking(주차 안내 bool|str|None), amenities(편의시설), homepage, lat, lng}
+   parking(주차 안내 bool|str|None), amenities(편의시설), homepage, lat, lng,
+   image_url(대표 사진 — https·경주시 호스트만, 아니면 None), image_caption(사진 설명 SRC_TITLE)}
 
 확정된 스펙(팀 실측):
   GET {BASE_URL}/getMenuRstrt   (BASE_URL 예: https://apis.data.go.kr/5050000/menuRstrtService)
@@ -29,6 +30,7 @@ import json
 import re
 import time
 from typing import Any
+from urllib.parse import urlparse
 from xml.etree import ElementTree
 
 import httpx
@@ -68,6 +70,10 @@ _SUMMARY_LABELS = {
     "주차": "parking",
     "편의시설": "amenities",
 }
+# CON_IMGFILENAME(대표 사진)를 받아 줄 호스트 — 경주시 누리집만. 다른 호스트·http 전용 주소는 쓰지 않는다
+# (출처를 '경주시'로 붙이므로 경주시가 올린 사진이어야 하고, https 페이지에서 섞인 콘텐츠로 막히지 않아야 한다).
+_CITY_IMAGE_ORIGIN = "https://www.gyeongju.go.kr"
+_CITY_IMAGE_HOSTS = {"www.gyeongju.go.kr", "gyeongju.go.kr"}
 _BR_RE = re.compile(r"<br\s*/?>", re.IGNORECASE)
 _LABEL_RE = re.compile(r"^\s*([^:：]+?)\s*[:：]\s*(.*)$")
 
@@ -112,6 +118,27 @@ def _parking(value: str | None) -> bool | str | None:
         return True
     if text.casefold() in _PARKING_FALSE:
         return False
+    return text
+
+
+def city_image_url(value: Any) -> str | None:
+    """CON_IMGFILENAME → 쓸 수 있는 https 사진 주소(경주시 호스트만). 상대 경로(/upload/...)는 누리집 주소를 붙이고,
+    http:// 는 https:// 로 올린다. 그 밖(다른 호스트·깨진 주소·빈 값)은 None."""
+    text = _text(value)
+    if not text:
+        return None
+    if text.startswith("/") and not text.startswith("//"):
+        text = _CITY_IMAGE_ORIGIN + text
+    elif text.startswith("http://"):
+        text = "https://" + text[len("http://"):]
+    try:
+        parsed = urlparse(text)
+    except ValueError:
+        return None
+    if parsed.scheme != "https" or (parsed.hostname or "").lower() not in _CITY_IMAGE_HOSTS:
+        return None
+    if not parsed.path or parsed.path == "/":
+        return None
     return text
 
 
@@ -170,6 +197,9 @@ def normalize_restaurant(row: Any) -> dict[str, Any] | None:
         "amenities": summary["amenities"],
         "lat": lat,
         "lng": lng,
+        # 대표 사진 — 배치(ingest_gyeongju_restaurants)가 사진이 전혀 없는 매칭 행에만 출처와 함께 쓴다.
+        "image_url": city_image_url(row.get("CON_IMGFILENAME")),
+        "image_caption": _text(row.get("SRC_TITLE")),
     }
 
 
