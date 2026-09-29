@@ -147,10 +147,13 @@ for (const input of [
 // 판정만 고치고 화면이 옛 렌더를 유지하는 사고를 막는다(이 저장소의 다른 가드와 같은 이유).
 {
   const page = readFileSync(join(WEB, 'app/waiting/page.tsx'), 'utf8').replace(/^\s*\/\/.*$/gm, '');
-  // 보드는 compareWaitThenPhoto(대기가 같을 때만 사진 우선)로 세운다 — 그 비교자가 null 안전 정렬을 먼저 쓴다.
+  // 보드는 orderByWaitThenPhoto(같은 대기를 보여 줄 때만 사진 우선)로 세운다 — 먼저 null 안전 정렬로 분을 세운다.
   const boardOrder = readFileSync(join(WEB, 'lib/boardOrder.ts'), 'utf8').replace(/^\s*\/\/.*$/gm, '');
-  assert.match(page, /compareWaitThenPhoto\(/, '보드가 대기 우선 비교자를 쓰지 않는다');
-  assert.match(boardOrder, /const byWait = compareWaitMinutes\(a\.wait, b\.wait\);\s*if \(byWait !== 0\) return byWait;/, '보드가 null 안전 정렬을 쓰지 않는다');
+  assert.match(page, /orderByWaitThenPhoto\(/, '보드가 대기 우선 줄 세우기를 쓰지 않는다');
+  assert.match(boardOrder, /keyed\.sort\(\(a, b\) => compareWaitMinutes\(a\.key\.wait, b\.key\.wait\)\);/, '보드가 null 안전 정렬을 쓰지 않는다');
+  // 카드 한 줄의 문구와 동점 판정이 같은 판정(waitHeadlineOf)을 쓴다.
+  assert.match(page, /waitHeadlineKey\(headlineOf\(/, '동점 판정이 카드 문구와 다른 값을 본다');
+  assert.match(page, /const h = headlineOf\(est, row, estimateLevel\);/, '카드 문구가 waitHeadlineOf 를 거치지 않는다');
   assert.doesNotMatch(
     page,
     /waitOf\(a\)\.minutes\s*-\s*waitOf\(b\)\.minutes/,
@@ -161,7 +164,8 @@ for (const input of [
     /minutes\s*<=\s*0\s*\?\s*t\("wait\.noWait"\)/,
     "'대기 없음'을 추정 카드에도 찍는 렌더가 남아 있다",
   );
-  assert.match(page, /basis === "server" \? t\("wait\.noWait"\)/, "'대기 없음'이 server 근거로 제한되지 않았다");
+  assert.match(boardOrder, /basis === 'server' \? \{ kind: 'noWait' \}/, "'대기 없음'이 server 근거로 제한되지 않았다");
+  assert.match(page, /case "noWait":\s*return t\("wait\.noWait"\);/, "'대기 없음' 문구가 noWait 판정에만 붙지 않는다");
   assert.match(page, /bestWait\.estimated && \(/, '히어로 최단 대기에 추정 라벨이 빠졌다');
   assert.match(page, /!heroWaitCandidate\(est\)/, '히어로 후보 선별이 heroWaitCandidate 를 거치지 않는다');
   assert.equal((page.match(/showsCalmLine\(est\) && \(/g) ?? []).length, 2, "'한산해지는 시각' 두 렌더가 showsCalmLine 을 거치지 않는다");
