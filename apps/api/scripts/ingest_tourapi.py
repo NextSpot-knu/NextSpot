@@ -32,6 +32,7 @@ import argparse
 import asyncio
 import json
 import os
+import re
 import sys
 from datetime import date, datetime, timedelta, timezone
 from urllib.parse import urlparse
@@ -102,6 +103,12 @@ LDONG_ONLY_MARK = "_nextspot_ldong_only"
 EXCLUDED_CONTENTIDS: dict[str, str] = {
     "3451999": "황리단길 생활문화센터 — TourAPI 에 운영시간이 없어 밤·새벽에도 '지금 열린 문화시설'로 뜬다"
                "(PM 2026-09-29 제외 결정)",
+    # 옛 레코드는 대표 사진이 없고 구 지역코드라 반경 목록(locationBasedList2)에 계속 나온다. 새 레코드 3532127 로
+    # 통합(PM_STEPS 3단계 C — 행 70231629 의 contentid 를 바꾼다)한 뒤에는 이름·거리 가드만 이 옛 레코드를 막는데,
+    # 가드의 DB 조회가 한 번 실패하면(반경 목록 행이라 법정동 폴백으로도 안 빠진다) 사진 없는 두 번째
+    # 신라고분정보센터 카드가 영구히 들어온다. 그래서 목록에서 아예 뺀다. 통합 전에는 행 70231629 가 이 번호라
+    # 밤 적재가 그 행을 갱신하지 않는다(오늘 밤 SQL 로 넣은 갤러리 사진은 그대로 남는다).
+    "3442528": "신라고분정보센터 옛 레코드 — 새 레코드 3532127 로 통합(같은 곳, PM 2026-09-29)",
 }
 
 # 새 행 중복 가드: 같은 부류(음식점·카페 / 그 밖)이고 정규화 이름이 같거나 한쪽이 다른 쪽을 품고(2글자 이상)
@@ -111,6 +118,10 @@ EXCLUDED_CONTENTIDS: dict[str, str] = {
 # 그 행이 TourAPI 사진·운영시간을 받는다(docs/HANDOVER.md "사람 작업 대기").
 DUPLICATE_GUARD_MAX_M = 80.0
 _FOOD_TYPES = frozenset({"restaurant", "cafe"})
+# 가게 이름 끝의 지점 표시('본점'·'경주본점'·'황리단길점'·'2호점' 등). 가드는 이것을 뗀 이름으로도 한 번 더 견준다 —
+# 2026-09-29 리뷰: '교리김밥 본점'(TourAPI) ↔ '교리김밥 경주본점'(Kakao, 같은 주소 0m)은 어느 쪽도 다른 쪽을 품지 않아
+# 가드를 지나쳤다. 뗀 이름끼리는 같을 때, 또는 짧은 쪽이 3글자 이상일 때만 품음을 본다(2글자 '카페' 같은 오탐 방지).
+_BRANCH_SUFFIX = re.compile(r"(?:경주|황리단길|황남|보문|불국사)*(?:본점|직영점|\d+호점|점)$")
 
 # 목록 호출(locationBasedList2·areaBasedSyncList2)의 일시 실패 재시도 간격(초).
 # 2026-09 일배치 실패는 전부 첫 locationBasedList2 가 10초 httpx 타임아웃(str 이 빈 문자열 — 로그상 `error=` 공란)으로
@@ -338,12 +349,30 @@ def _normalize_name(value) -> str:
     return "".join(str(value or "").split()).casefold()
 
 
+def _core_name(normalized: str) -> str:
+    """정규화 이름에서 끝의 지점 표시(_BRANCH_SUFFIX)를 뗀다. 떼고 2글자 미만이면 원래 이름."""
+    core = _BRANCH_SUFFIX.sub("", normalized)
+    return core if len(core) >= 2 else normalized
+
+
+def _same_place_name(name: str, other: str) -> bool:
+    """가드의 이름 판정 — 정규화 이름이 같거나 한쪽이 다른 쪽을 품거나, 지점 표시를 뗀 이름이 같거나
+    (짧은 쪽이 3글자 이상일 때) 한쪽이 다른 쪽을 품는다."""
+    if name == other or name in other or other in name:
+        return True
+    core, other_core = _core_name(name), _core_name(other)
+    if core == other_core:
+        return True
+    shorter, longer = sorted((core, other_core), key=len)
+    return len(shorter) >= 3 and shorter in longer
+
+
 def find_probable_duplicates(rows: list[dict], facilities: list[dict]) -> dict[str, dict]:
     """새 contentid 행 가운데 같은 가게가 이미 다른 행으로 있는 것 → {contentid: 그 시설 요약}(순수 함수).
 
     facilities 는 DB 전량(id·name·type·latitude·longitude·contentid·is_active). DB 에 이미 있는 contentid 는 평소처럼
-    갱신되므로 보지 않는다. 판정: 같은 부류(음식점·카페 / 그 밖), 살아 있는 행(is_active 가 false 가 아님), 정규화 이름이
-    같거나 한쪽이 다른 쪽을 품음(둘 다 2글자 이상), 거리 DUPLICATE_GUARD_MAX_M 이하. 가장 가까운 시설을 돌려준다.
+    갱신되므로 보지 않는다. 판정: 같은 부류(음식점·카페 / 그 밖), 살아 있는 행(is_active 가 false 가 아님), 이름이
+    같은 가게로 보임(_same_place_name — 둘 다 2글자 이상), 거리 DUPLICATE_GUARD_MAX_M 이하. 가장 가까운 시설을 돌려준다.
     """
     known = {str(f.get("contentid")) for f in facilities if f.get("contentid") not in (None, "")}
     pool = []
@@ -366,7 +395,7 @@ def find_probable_duplicates(rows: list[dict], facilities: list[dict]) -> dict[s
         food = row.get("type") in _FOOD_TYPES
         best, best_distance = None, float("inf")
         for facility, f_name, f_lat, f_lng, f_food in pool:
-            if f_food != food or not (name == f_name or name in f_name or f_name in name):
+            if f_food != food or not _same_place_name(name, f_name):
                 continue
             distance = calculate_haversine_distance(float(row["latitude"]), float(row["longitude"]), f_lat, f_lng)
             if distance <= DUPLICATE_GUARD_MAX_M and distance < best_distance:
@@ -390,9 +419,27 @@ def _load_guard_facilities() -> list[dict]:
     )
 
 
+def photo_less_new_ldong_contentids(rows: list[dict], facilities: list[dict], ldong_only: set[str]) -> set[str]:
+    """법정동 목록에만 나온 **새** 행(DB 에 없는 contentid) 가운데 목록 대표 사진(firstimage → image_url)이 없는 것(순수 함수).
+
+    PM 승인 범위(2026-09-29)는 '사진이 있는 새 장소'다. 사진 없는 새 카드(예: 경주문화원 130030 — 문화시설 칸이
+    승인한 3장을 넘어 4장이 되고 그중 한 장이 사진 없음)는 넣지 않는다. 이미 DB 에 있는 행(사람이 contentid 를
+    이은 Kakao 행 포함)은 사진이 없어도 평소처럼 갱신한다. 반경 목록 행은 도입 전 동작 그대로 둔다.
+    """
+    known = {str(f.get("contentid")) for f in facilities if f.get("contentid") not in (None, "")}
+    return {
+        str(row.get("contentid")) for row in rows
+        if str(row.get("contentid")) in ldong_only
+        and str(row.get("contentid")) not in known
+        and not str(row.get("image_url") or "").strip()
+    }
+
+
 def probable_duplicate_contentids(rows: list[dict], ldong_only: set[str]) -> set[str]:
-    """오늘 넣지 않을 새 행의 contentid. 기존 시설 조회가 실패하면 법정동 목록에만 나온 곳을 전부 뺀다
-    (중복을 가릴 수 없으면 도입 전 동작 — 반경 목록만 — 으로 돌아간다)."""
+    """오늘 넣지 않을 새 행의 contentid — 같은 가게가 이미 있는 행(find_probable_duplicates)과 법정동 목록에만 나온
+    사진 없는 새 행(photo_less_new_ldong_contentids). 기존 시설 조회가 실패하면 법정동 목록에만 나온 곳을 전부 뺀다
+    (중복을 가릴 수 없으면 도입 전 동작 — 반경 목록만 — 으로 돌아간다. 반경 목록의 옛 신라고분정보센터 3442528 은
+    EXCLUDED_CONTENTIDS 가 따로 막는다)."""
     try:
         facilities = _load_guard_facilities()
     except Exception as e:  # noqa: BLE001 — 가드 조회 실패가 적재 전체를 멈추지 않게.
@@ -403,7 +450,11 @@ def probable_duplicate_contentids(rows: list[dict], ldong_only: set[str]) -> set
         name = next((r.get("name") for r in rows if str(r.get("contentid")) == contentid), "")
         print(f"[dedupe] 새 행 넣지 않음: {name}(contentid={contentid}) ≈ 기존 {hit['name']}"
               f"(id={hit['id']}, contentid={hit['contentid']}, {hit['distance_m']:.0f}m) — 이으려면 그 행에 contentid 를 넣는다")
-    return set(duplicates)
+    photo_less = photo_less_new_ldong_contentids(rows, facilities, ldong_only) - set(duplicates)
+    for contentid in sorted(photo_less):
+        name = next((r.get("name") for r in rows if str(r.get("contentid")) == contentid), "")
+        print(f"[dedupe] 사진 없는 새 행 넣지 않음: {name}(contentid={contentid}) — 법정동 목록 대표 사진 없음")
+    return set(duplicates) | photo_less
 
 
 def _uniform_key_chunks(rows: list[dict]) -> list[list[dict]]:
@@ -877,7 +928,8 @@ async def run(args: argparse.Namespace) -> int:
     if excluded:
         print(f"[transform] 사람 결정으로 적재하지 않는 contentid {excluded}건(EXCLUDED_CONTENTIDS)")
 
-    # 새 행 중복 가드 — 상세 조회(쿼터) 전에 거른다. --dry-run 은 DB 를 읽지 않으므로 가드 없이 출력한다.
+    # 새 행 가드(중복 · 법정동 목록의 사진 없는 새 행) — 상세 조회(쿼터) 전에 거른다.
+    # --dry-run 은 DB 를 읽지 않으므로 가드 없이 출력한다.
     if not args.dry_run:
         drop = probable_duplicate_contentids(
             [row for rows in rows_by_type.values() for row in rows], ldong_only,
@@ -887,7 +939,7 @@ async def run(args: argparse.Namespace) -> int:
                 ctid: [row for row in rows if row["contentid"] not in drop]
                 for ctid, rows in rows_by_type.items()
             }
-            print(f"[dedupe] 같은 가게가 이미 있어 새로 넣지 않은 행: {len(drop)}건")
+            print(f"[dedupe] 같은 가게가 이미 있거나 사진이 없어 새로 넣지 않은 행: {len(drop)}건")
 
     all_rows = [row for rows in rows_by_type.values() for row in rows]
 

@@ -4,8 +4,9 @@
 # 구 지역코드 목록(35/2)에 나오지 않는다. areaBasedList2(lDongRegnCd=47·lDongSignguCd=130)는 전부 준다.
 #   A. 목록 합치기 — 같은 반경 안만, contentid 중복 없이, 문화시설·음식점만, 실패하면 반경 목록만
 #   B. 신분류 FD05 → 카페(cat3 공란일 때) · 사진 공공누리 유형 적재
-#   C. 새 행 중복 가드 — 같은 가게가 이미 Kakao 보완 행으로 있으면 넣지 않는다
-#   D. 사람이 뺀 contentid(황리단길 생활문화센터)는 넣지도, showflag 로 다시 켜지도 않는다
+#   C. 새 행 가드 — 같은 가게가 이미 Kakao 보완 행으로 있으면(지점 표시만 달라도) 넣지 않는다 ·
+#      법정동 목록에만 나온 사진 없는 새 행은 넣지 않는다
+#   D. 사람이 뺀 contentid(황리단길 생활문화센터 · 옛 신라고분정보센터 3442528)는 넣지도, showflag 로 다시 켜지도 않는다
 #   E. showflag 동기화도 법정동 목록을 합친다
 
 import argparse
@@ -238,28 +239,88 @@ def _ldong(item):
     return {**item, ingest_tourapi.LDONG_ONLY_MARK: True}
 
 
+_PHOTO = "http://tong.visitkorea.or.kr/cms/resource/1_image2_1.jpg"
+
+
 @pytest.mark.asyncio
 async def test_run_skips_duplicates_and_excluded_before_detail_calls(monkeypatch):
     collected = {
-        14: [_item("3442528", 14, title="신라고분정보센터"),
+        14: [_item("3453492", 14, title="경주중앙도서관"),
+             _item("3442528", 14, title="신라고분정보센터"),
              _ldong(_item("3451999", 14, title="황리단길 생활문화센터")),
-             _ldong(_item("3486762", 14, title="오아르미술관"))],
-        39: [_ldong(_item("2907353", 39, title="동양백반 경주황리단길 본점")),
-             _ldong(_item("2904007", 39, title="시골쌈밥", lat=35.8340))],
+             _ldong(_item("3486762", 14, title="오아르미술관", firstimage=_PHOTO))],
+        39: [_ldong(_item("2907353", 39, title="동양백반 경주황리단길 본점", firstimage=_PHOTO)),
+             _ldong(_item("2904007", 39, title="시골쌈밥", lat=35.8340, firstimage=_PHOTO))],
     }
-    facilities = [_facility("70231629", "신라고분정보센터", type_="culture", contentid="3442528"),
+    facilities = [_facility("library", "경주중앙도서관", type_="culture", contentid="3453492"),
+                  _facility("70231629", "신라고분정보센터", type_="culture", contentid="3532127"),
                   _facility("kakao-dongyang", "동양백반")]
     rec = _run_env(monkeypatch, collected, guard_facilities=facilities)
 
     assert await ingest_tourapi.run(_args()) == 0
-    expected = ["3442528", "3486762", "2904007"]
+    expected = ["3453492", "3486762", "2904007"]
     assert rec.upserted == expected
     assert rec.enriched == expected  # 가드·제외는 상세 조회(쿼터) 전에 걸린다
 
 
+def test_branch_suffix_does_not_hide_the_same_shop():
+    # 2026-09-29 리뷰: 같은 주소(탑리3길 2) 0m — 지점 표시만 다르다.
+    facilities = [_facility("d30b8c1a", "교리김밥 경주본점"),
+                  _facility("kakao-cafe", "카페 마르쉐", type_="cafe"),
+                  _facility("kakao-bread", "황남빵", type_="cafe")]
+    rows = [_row("2932986", "교리김밥 본점"),
+            _row("9000010", "카페 경주", type_="cafe"),       # 뗀 이름이 2글자('카페') — 품음으로 보지 않는다
+            _row("9000011", "황남밀면 경주황리단길점", type_="cafe")]  # 뗀 이름 '황남밀면' ≠ '황남빵'
+    duplicates = ingest_tourapi.find_probable_duplicates(rows, facilities)
+    assert set(duplicates) == {"2932986"}
+    assert duplicates["2932986"]["id"] == "d30b8c1a"
+
+
+@pytest.mark.parametrize(("name", "core"), [
+    ("교리김밥본점", "교리김밥"),
+    ("교리김밥경주본점", "교리김밥"),
+    ("신라제면경주황리단길점", "신라제면"),
+    ("천년애황남점", "천년애"),
+    ("스테이550경주점", "스테이550"),
+    ("엽기떡볶이2호점", "엽기떡볶이"),
+    ("경주점", "경주점"),          # 떼면 빈 이름 — 그대로 둔다
+    ("동양백반", "동양백반"),
+])
+def test_core_name_strips_only_the_branch_suffix(name, core):
+    assert ingest_tourapi._core_name(name) == core
+
+
+@pytest.mark.asyncio
+async def test_photo_less_new_ldong_rows_are_not_inserted(monkeypatch):
+    # PM 승인 범위는 '사진이 있는 새 장소' — 경주문화원(130030)처럼 사진 없는 새 카드는 넣지 않는다.
+    collected = {
+        14: [_ldong(_item("130030", 14, title="경주문화원")),                                   # 새 · 사진 없음 → 뺀다
+             _ldong(_item("3486762", 14, title="오아르미술관", firstimage=_PHOTO))],             # 새 · 사진 있음 → 넣는다
+        39: [_ldong(_item("2839014", 39, title="료미")),                                         # 이미 이은 행 → 갱신
+             _item("2736687", 39, title="도솔마을")],                                            # 반경 목록 → 도입 전 그대로
+    }
+    facilities = [_facility("f1847615", "료미", contentid="2839014", lat=35.8400)]
+    rec = _run_env(monkeypatch, collected, guard_facilities=facilities)
+    assert await ingest_tourapi.run(_args()) == 0
+    assert rec.upserted == ["3486762", "2839014", "2736687"]
+    assert "130030" not in rec.enriched  # 상세 조회(쿼터) 전에 걸린다
+
+
+@pytest.mark.asyncio
+async def test_old_silla_tomb_record_stays_out_even_when_the_guard_lookup_fails(monkeypatch):
+    # 통합(행 70231629 → 3532127) 뒤 옛 3442528 은 반경 목록에 계속 나온다. 가드 조회가 실패하면 법정동 폴백으로는
+    # 안 빠지므로, 제외 목록이 결정적으로 막아야 두 번째 신라고분정보센터 카드가 생기지 않는다.
+    assert "3442528" in ingest_tourapi.EXCLUDED_CONTENTIDS
+    collected = {14: [_item("3442528", 14, title="신라고분정보센터"), _item("3453492", 14, title="경주중앙도서관")]}
+    rec = _run_env(monkeypatch, collected, guard_error=RuntimeError("supabase 503"))
+    assert await ingest_tourapi.run(_args(details=False)) == 0
+    assert rec.upserted == ["3453492"]
+
+
 @pytest.mark.asyncio
 async def test_guard_lookup_failure_drops_only_ldong_only_rows(monkeypatch):
-    collected = {39: [_item("2736687", 39, title="도솔마을"), _ldong(_item("2904007", 39, title="시골쌈밥"))]}
+    collected = {39: [_item("2736687", 39, title="도솔마을"),
+                      _ldong(_item("2904007", 39, title="시골쌈밥", firstimage=_PHOTO))]}
     rec = _run_env(monkeypatch, collected, guard_error=RuntimeError("supabase down"))
     assert await ingest_tourapi.run(_args(details=False)) == 0
     assert rec.upserted == ["2736687"]  # 가릴 수 없으면 도입 전 동작(반경 목록만)
