@@ -33,7 +33,6 @@ import { congestionDisplay, parseCongestionEstimate } from "@/lib/congestionEsti
 import { estimateWait, displayHour, showsCalmLine, heroWaitCandidate, type WaitEstimate } from "@/lib/waitEstimate";
 import { curveForBase, fetchAreaDemandCurve, mergeAreaCurve, type AreaDemandCurve } from "@/lib/areaDemandCurve";
 // 분으로 말할 근거가 없는 카드는 등급으로 말한다 — 등급 경계는 지도·카드와 같은 공용 판정을 쓴다.
-import { congestionKey } from "@/lib/congestionScale";
 import { REGION } from "@/lib/region";
 import { useI18n, useT } from "@/lib/i18n/I18nProvider";
 import { GoldenHourBadge } from "@/components/GoldenHourBadge";
@@ -57,7 +56,7 @@ import { PhotoCreditLink } from "@/components/PhotoCreditLink";
 import { PlacePhotoFallback } from "@/components/PlacePhotoFallback";
 import { placeVisualsForRow, type PlaceVisual } from "@/lib/placeVisual";
 // 섹터 줄 세우기 — 대기 짧은 순, 대기가 같을 때만 사진 있는 곳이 앞(PM 결정 2026-09-28).
-import { compareWaitThenPhoto } from "@/lib/boardOrder";
+import { orderByWaitThenPhoto, waitHeadlineKey, waitHeadlineOf, type WaitHeadline } from "@/lib/boardOrder";
 
 // 시설 종류 이모지 — course/page.tsx TYPE_OPTIONS 와 동일 매핑(레포 전역 관례 통일).
 const TYPE_EMOJI: Record<string, string> = {
@@ -211,10 +210,20 @@ function basisKey(basis: WaitEstimate["basis"]): string {
   }
 }
 
+/** 카드 한 장이 가진 대기 근거(시설 추정 · 권역 수요 · 관광 상대지수) — 문구와 줄 세우기가 같은 값을 본다. */
+function headlineOf(est: WaitEstimate, row: BoardRow, estimateLevel: number | undefined): WaitHeadline {
+  return waitHeadlineOf(est, {
+    estimateLevel,
+    areaDemandLevel: row.areaDemandLevel,
+    tourismRelativeIndex: row.areaDemandTourismEvidence?.relativeIndex ?? null,
+  });
+}
+
 /**
  * 카드의 주인공 한 줄. 분으로 말할 근거가 있으면 분을, 없으면 그 근거가 **실제로 아는 것**
- * (시설 추정 혼잡 · 주변 권역 수요 등급 · 관광 상대지수)을 그대로 말한다.
- * 주변 주차·관광 상대지수를 '대기 N분'으로 바꾸지 않는다(docs/CONGESTION_DATA.md §2 원칙 3·4).
+ * (시설 추정 혼잡 · 주변 권역 수요 등급 · 관광 상대지수)을 그대로 말한다(무엇을 말할지는 lib/boardOrder
+ * waitHeadlineOf — 보드의 동점 판정도 같은 결과를 쓴다). 주변 주차·관광 상대지수를 '대기 N분'으로 바꾸지 않는다
+ * (docs/CONGESTION_DATA.md §2 원칙 3·4).
  */
 function waitHeadline(
   est: WaitEstimate,
@@ -222,23 +231,25 @@ function waitHeadline(
   estimateLevel: number | undefined,
   t: (key: string, vars?: Record<string, string | number>) => string,
 ): string {
-  if (est.minutes !== null) {
-    if (est.minutes > 0) return t("wait.minutes", { n: est.minutes });
+  const h = headlineOf(est, row, estimateLevel);
+  switch (h.kind) {
+    case "minutes":
+      return t("wait.minutes", { n: h.n });
     // '대기 없음'은 검증 예측(server)에만 허용한다 — 추정으로 0분을 단언하지 않는다(원칙 6).
-    return est.basis === "server" ? t("wait.noWait") : t("wait.grade.relaxed");
+    case "noWait":
+      return t("wait.noWait");
+    case "relaxed":
+      return t("wait.grade.relaxed");
+    case "estimate":
+      return t("card.estimateLevel", { label: t(`congestion.${h.level}`) });
+    case "area":
+      return `${t("recommend.areaDemand")}: ${t(`congestion.${h.level}`)}`;
+    case "tourism":
+      return t("recommend.tourismEvidenceIndex", { n: h.n });
+    default:
+      // 아무 근거도 없을 때 — 0분을 만들지 않고 '수집 중'이라고 둔다.
+      return t("waiting.waitUnavailable");
   }
-  if (est.basis === "estimate" && typeof estimateLevel === "number") {
-    return t("card.estimateLevel", { label: t(`congestion.${congestionKey(estimateLevel)}`) });
-  }
-  if (est.basis === "area" && row.areaDemandLevel !== null) {
-    return `${t("recommend.areaDemand")}: ${t(`congestion.${congestionKey(row.areaDemandLevel)}`)}`;
-  }
-  const relativeIndex = row.areaDemandTourismEvidence?.relativeIndex;
-  if (est.basis === "tourism" && typeof relativeIndex === "number") {
-    return t("recommend.tourismEvidenceIndex", { n: Math.round(relativeIndex) });
-  }
-  // 아무 근거도 없을 때 — 0분을 만들지 않고 '수집 중'이라고 둔다.
-  return t("waiting.waitUnavailable");
 }
 
 /** 대표 카드의 세 숫자 블록 — ① 예상 대기 ② 혼잡 등급 ③ 한산해지는 시각. */
@@ -805,19 +816,20 @@ export default function WaitingBoardPage() {
               // 여기서 추정 대기로 다시 세우면 '1번이 가장 덜 기다린다'가 카드 숫자와 일치한다.
               // 분이 없는 카드는 0분이 아니라 **맨 뒤**다(compareWaitMinutes) — 근거가 없다고
               // 보드 1위에 서면 순위 배지 ①②③ 이 다시 거짓말을 한다.
-              // 대기가 **같은** 곳끼리만 띄울 사진이 있는 곳을 앞에 둔다(PM 결정 2026-09-28) — 사진이 더 짧은
-              // 대기를 앞지르지 않고, 보드에 오르는 장소도 그대로다. 그 밖의 동점은 원래 순서(안정 정렬).
-              const hasPhoto = (row: BoardRow) =>
-                creditedPhotoUrls(row.imageUrls, { imageSource: row.imageSource }).length > 0;
-              const openRows = sector.rows
-                .filter((r) => !r.closedToday)
-                .slice()
-                .sort((a, b) =>
-                  compareWaitThenPhoto(
-                    { wait: waitOf(a), hasPhoto: hasPhoto(a) },
-                    { wait: waitOf(b), hasPhoto: hasPhoto(b) },
-                  ),
-                );
+              // 카드가 **같은 대기를 보여 줄 때만**(같은 분, 또는 분이 없으면 같은 근거·같은 등급) 띄울 사진이 있는
+              // 곳을 앞에 둔다(PM 결정 2026-09-28) — 사진이 더 짧은/더 한산한 대기를 앞지르지 않고, 다른 말을 하는
+              // 카드를 건너뛰지도 않는다. 보드에 오르는 장소도 그대로다. 그 밖의 동점은 원래 순서(lib/boardOrder).
+              const openRows = orderByWaitThenPhoto(
+                sector.rows.filter((r) => !r.closedToday),
+                (row) => {
+                  const wait = waitOf(row);
+                  return {
+                    wait,
+                    headlineKey: waitHeadlineKey(headlineOf(wait, row, estimateLevels[row.facilityId])),
+                    hasPhoto: creditedPhotoUrls(row.imageUrls, { imageSource: row.imageSource }).length > 0,
+                  };
+                },
+              );
               const closedRows = sector.rows.filter((r) => r.closedToday);
               const topRows = openRows.slice(0, TOP_CARD_COUNT);
               const restRows = [...openRows.slice(TOP_CARD_COUNT), ...closedRows];

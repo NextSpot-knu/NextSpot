@@ -77,7 +77,12 @@ function recommendation(p: Place, rank: number, total: number) {
 async function mockBoard(
   page: Page,
   places: Place[],
-  options: { locale?: 'ko' | 'en'; theme?: 'light' | 'dark' } = {},
+  options: {
+    locale?: 'ko' | 'en';
+    theme?: 'light' | 'dark';
+    /** 시설별 혼잡 추정(0~1) — 분이 없는 카드가 '추정 혼잡도: 여유/혼잡' 으로 말하게 한다. */
+    estimates?: Record<string, number>;
+  } = {},
 ) {
   const hosts = await stubPhotoHosts(page);
   await page.addInitScript(({ locale, theme }) => {
@@ -94,6 +99,13 @@ async function mockBoard(
         status: 200, contentType: 'application/json',
         body: JSON.stringify(matches.map((p, i) => recommendation(p, i + 1, matches.length))),
       });
+    }
+    if (pathname.endsWith('/api/v1/congestion/estimates') && options.estimates) {
+      const observedAt = new Date().toISOString();
+      const estimates = Object.fromEntries(
+        Object.entries(options.estimates).map(([id, level]) => [id, { source: 'estimated', level, observed_at: observedAt }]),
+      );
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ available: true, estimates }) });
     }
     return route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
   });
@@ -278,6 +290,26 @@ test('waiting board: among equal waits the place with a photo comes first, never
   const rest = page.locator('main section.fractal-glass').first().locator('div.flex-col.gap-2 > button p.truncate');
   await expect(rest).toHaveText(['십분 무사진', '십오분 사진']);
   await expect(page.locator(CREDIT_LINK)).toHaveCount(0);
+});
+
+test('waiting board: without minutes, a photo only moves ahead of a card showing the same estimate', async ({ page }) => {
+  // 프로덕션 모양 — 서버 대기가 없어 모든 카드가 분 없이 '추정 혼잡: 한산/혼잡' 으로 말한다.
+  await mockBoard(page, [
+    { id: 'estquietnone', name: '고요한 식당', type: 'restaurant' },
+    { id: 'estbusyphoto', name: '붐비는 식당', type: 'restaurant', image_url: TOUR_PHOTO },
+    { id: 'estquietphoto', name: '조용한 식당', type: 'restaurant', image_url: TOUR_PHOTO_2 },
+    { id: 'estcafenone', name: '고요한 카페', type: 'cafe' },
+    { id: 'estcafephoto', name: '조용한 카페', type: 'cafe', image_url: TOUR_PHOTO },
+  ], { estimates: { estquietnone: 0.1, estbusyphoto: 0.9, estquietphoto: 0.1, estcafenone: 0.1, estcafephoto: 0.1 } });
+  await page.goto('/waiting', { waitUntil: 'domcontentloaded' });
+  const busyCard = cell(page, '붐비는 식당');
+  await expect(busyCard).toBeVisible({ timeout: 30_000 });
+  await expect(busyCard).toContainText('혼잡');
+  await expect(cell(page, '고요한 식당')).toContainText('한산');
+  // '혼잡' 사진 카드는 '한산' 사진 없는 카드를 앞지르지 않고, '한산' 사진 카드도 '혼잡' 카드를 건너뛰지 않는다.
+  expect(await topCardNames(page, 0)).toEqual(['고요한 식당', '붐비는 식당', '조용한 식당']);
+  // 같은 '한산' 끼리는 사진이 앞.
+  expect(await topCardNames(page, 1)).toEqual(['조용한 카페', '고요한 카페']);
 });
 
 test('waiting board (dark, after 18:00): the tile is a visible panel, not a dark hole', async ({ page }) => {
