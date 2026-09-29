@@ -46,16 +46,16 @@
 
 외부 콘솔 접근이 필요해 코드로 못 하는 일. 끝나면 줄을 지우고 "최근 세션"에 한 줄 남긴다.
 
-- [ ] **(오늘 밤 — 지금 운영 코드에서도 안전) 신라고분정보센터 카드에 실사진** — TourAPI 새 레코드 3532127 의 공공누리 1유형 사진 20장을
-      운영 행 `70231629`(아직 옛 contentid 3442528)의 `gallery_images` 에 넣는다. `image_url` 에 넣지 않는다 — 매일 밤 적재가 3442528 의
-      '대표 사진 없음'을 확인하고 `image_url` 을 지운다(갤러리는 TourAPI 가 사진을 줄 때만 덮는다). SQL Editor:
+- [ ] **(오늘 밤 — 지금 운영 코드에서도 안전) 신라고분정보센터 카드에 실사진** — TourAPI 새 레코드 3532127 의 공공누리 1유형 사진 23장(대표 3532080 +
+      detailImage2 22장, 09-29 재조회·전부 내려받기 확인)을 운영 행 `70231629`(아직 옛 contentid 3442528)의 `gallery_images` 에만 넣는다. `image_url` 에
+      넣지 않는다 — 매일 밤 적재가 3442528 의 '대표 사진 없음'을 확인하고 `image_url` 을 지운다(갤러리는 그대로 — release/0928·이 브랜치 코드 모두 대조). SQL Editor:
       ```sql
       update public.facilities
          set gallery_images = (select jsonb_agg(format('https://tong.visitkorea.or.kr/cms/resource/%s/%s_image2_1.jpg',
                                                        lpad((n % 100)::text, 2, '0'), n) order by n)
-                                 from generate_series(3532081, 3532100) as n)
-       where id = '70231629-3666-45b1-b701-2c37bfe62d5c' and contentid = '3442528';
-      select jsonb_array_length(gallery_images), gallery_images->>0 from public.facilities where id = '70231629-3666-45b1-b701-2c37bfe62d5c';
+                                 from generate_series(3532080, 3532102) as n)
+       where id = '70231629-3666-45b1-b701-2c37bfe62d5c' and name = '신라고분정보센터' and contentid = '3442528' and gallery_images = '[]'::jsonb;
+      select jsonb_array_length(gallery_images), gallery_images->>0 from public.facilities where id = '70231629-3666-45b1-b701-2c37bfe62d5c';  -- 23, …/3532080_image2_1.jpg
       ```
 - [ ] **(`feat/real-photos-ingest` 가 main 에 들어간 뒤, 다음 04:00 적재 전) 실사진 DB 정리** — 순서 무관(새 적재의 중복 가드가 늦어도 중복 카드를 막는다).
       ① 신라고분정보센터를 3532127 로: `update public.facilities set contentid = '3532127' where id = '70231629-3666-45b1-b701-2c37bfe62d5c' and contentid = '3442528';`
@@ -75,15 +75,16 @@
       훌림목 `fd01f6bf-09b5-4066-97be-9139e46ad8ef`→2902567 · 올리브 `982c2c3b-6e05-40bc-b424-231a2dba9077`→2904334 · 프롬상록
       `d71be8d4-bf3b-4a2e-97b4-0f1c2a6bbb9a`→2903779 · 1894사랑채 `1804451a-9545-4d4b-9733-4c6681277dd6`→2902799 · 물방아삼계탕 경주본점
       `c9f6a2ea-af17-489d-b764-92f776c14b15`→132984.) ③ 중복 Kakao 행 숨기기 — 표시가 있어야 밤 적재가 다시 켜지 않는다(`features.manual_hidden`).
-      대구갈비 본점(`7effe6b1…`, 북정로 5)은 [백년가게]진가네대구갈비(`43adadcf…`, 2m)와 같은 가게인지 **확인된 경우에만** 목록에 넣는다:
+      대구갈비 본점(`7effe6b1…`)은 진가네대구갈비(`43adadcf…`)와 주소(북정로 5)·전화(054-772-1384)·영업시간이 같다(09-29 TourAPI 대조 — 확인됨).
+      백년손님은 주소가 다르다(TourAPI 포석로1050번길 32 ↔ Kakao 첨성로99번길 20, 78m) — 카카오맵에서 같은 가게로 보일 때만 넣는다:
       ```sql
       update public.facilities
          set is_active = false,
              features = coalesce(features, '{}'::jsonb) || jsonb_build_object('manual_hidden',
                         jsonb_build_object('reason', 'TourAPI 행과 같은 가게 — 중복 카드', 'decided', '2026-09-29'))
-       where id in ('c3857ec8-092f-419a-8ea3-aade4eb12d5d',   -- 백년손님(Kakao) = TourAPI 2906690
-                    '0a2aa7ae-93dd-445b-b3a2-8f7cf2e738f3');  -- 이재원의과자공방(Kakao) = TourAPI 2840291 이재원과자공방
-      --           , '7effe6b1-c2ce-4f6f-8552-8d081b145fb6'   -- 대구갈비 본점(Kakao) — 진가네 확인 시에만
+       where id in ('0a2aa7ae-93dd-445b-b3a2-8f7cf2e738f3',   -- 이재원의과자공방(Kakao) = TourAPI 2840291 이재원과자공방
+                    '7effe6b1-c2ce-4f6f-8552-8d081b145fb6',   -- 대구갈비 본점(Kakao) = TourAPI 403845 진가네대구갈비
+                    'c3857ec8-092f-419a-8ea3-aade4eb12d5d');  -- 백년손님(Kakao) = TourAPI 2906690 — 위 확인 뒤에만(아니면 이 줄을 빼고 앞 줄 끝을 ');' 로)
       ```
       ④ 황리단길 생활문화센터(3451999)는 운영 DB 에 행이 없다(09-29 읽기 확인) — 코드가 적재하지 않으므로 SQL 불필요. 행이 보이면 ③ 과 같은 표시로 숨긴다.
 - [ ] **경주시 공공저작물 담당에 사진 사용 확인 메일 1통**(054-779-6791, 10월 심사 전) — 「메뉴별음식점」 API(data.go.kr 15114465, 이용허락범위 제한 없음)의
@@ -244,6 +245,7 @@ from checks order by seq;
   ② TourAPI 문화시설·음식점을 법정동 목록(47/130)으로도 받아 같은 반경 안을 합침 · FD05→카페 · 공공누리 유형 적재 · 새 행 중복 가드(80m·이름) · 황리단길 생활문화센터(3451999) 제외 · showflag 도 법정동 합침. 첫 밤 대조: 새 행 19곳(국립경주박물관·오아르미술관·시골쌈밥 등), 가드로 넘김 29곳(Kakao 행과 같은 가게).
   ③ `features.manual_hidden` 이 있으면 Kakao 보완·showflag·LOCALDATA 가 다시 켜지 않는다(Kakao 배치는 매칭 행마다 is_active 를 새로 써서 PM 의 숨김을 다음 밤 되돌렸을 것).
 - 검증: api ruff + pytest 2319 passed(기준 2027 + 새 292, 조합 불변식 239건 포함) · check-docs. 새 테스트는 10ea2d4 코드에서 실패 확인(회귀 가드 1건 — 사진 없는 밤 유지 — 제외). 실측(읽기 전용): 운영 facilities 1,703행 · TourAPI 4콜(법정동 showflag 753건 vs 구 525건, 관광지 3km 사각지대 26곳).
+  PM SQL(오늘 밤 사진 23장 · 반영 뒤 연결·숨김·통합 · 되돌림)은 운영 스냅샷을 넣은 로컬 Postgres(PGlite)에서 실행·재실행·되돌림을 검증했고, 두 코드(release/0928·이 브랜치)의 적재 판정 함수로 04:00 이후 상태를 대조했다(TourAPI 읽기 +9콜: 3532127 사진 22장+대표 1장 전부 Type1, 대구갈비 본점=진가네 확인, 3532127 운영시간 09:00~18:00·휴관 1/1·설·추석 — 옛 레코드의 '공휴일 휴관'보다 넓다).
 - 다음·미결: **웹 출처 변경과 같은 배치로 main 에 올린다** — 웹이 `features.city_photo.url == 보이는 사진` 일 때 '사진: 경주시'를 붙이기 전에 이 적재가 돌면 출처 없는 사진이 뜬다. 적재 쿼터: 새 행·연결 약 25곳 × 상세 4콜 ≈ +100콜/밤. 사진은 1600px·최대 815KB(경주시 서버에 작은 크기 없음). 반도식당(16~20시)·07~08시 Kakao 분식은 여전히 사진 없음.
   결정 대기: 관광지(12)도 같은 사각지대 — 3km 안 26곳(첨성대·대릉원 일원·월정교·교촌마을·분황사 등)이 TourAPI 행으로 없다. `LDONG_CONTENT_TYPE_IDS` 에 12 를 넣으면 들어오지만 비활성 시드·교촌마을 시드 행과 겹쳐 PM 결정 필요.
 - 사람 작업: 위 "사람 작업 대기" 3건(오늘 밤 SQL · main 반영 뒤 DB 정리 · 경주시 확인 메일).
