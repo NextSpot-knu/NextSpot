@@ -202,6 +202,32 @@ test('waiting board: three photo-less cards show three different designed tiles,
   for (const name of names) await expect(tileOf(cell(page, name))).toHaveAttribute('aria-hidden', 'true');
 });
 
+for (const width of [320, 360]) {
+  test(`waiting board (${width}px): the type glyph stays clear of the rank badge`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 800 });
+    await mockBoard(page, [
+      { id: 'narrow-1', name: '좁은폭 카페', type: 'cafe' },
+      { id: 'narrow-2', name: '좁은폭 식당', type: 'restaurant' },
+      { id: 'narrow-3', name: '좁은폭 문화', type: 'culture' },
+    ]);
+    await page.goto('/waiting');
+    for (const name of ['좁은폭 카페', '좁은폭 식당', '좁은폭 문화']) {
+      const c = cell(page, name);
+      await expect(c).toBeVisible({ timeout: 30_000 });
+      const [badge, disc] = await Promise.all([
+        c.locator('button > span.left-1\\.5').boundingBox(),
+        tileOf(c).locator('[data-tile-glyph]').locator('xpath=..').boundingBox(),
+      ]);
+      // 두 원 사이의 틈 = 중심 거리 − 두 반지름(받침의 1px 테두리 포함). 4px 이상 떨어져야 '붙은' 모습이 아니다.
+      const center = (b: { x: number; y: number; width: number; height: number }) => [b.x + b.width / 2, b.y + b.height / 2];
+      const [bx, by] = center(badge!);
+      const [dx, dy] = center(disc!);
+      const gap = Math.hypot(dx - bx, dy - by) - badge!.width / 2 - (disc!.width / 2 + 1);
+      expect(gap, `${name}: 배지와 그림 받침 사이`).toBeGreaterThanOrEqual(4);
+    }
+  });
+}
+
 test('waiting board: a mixed row keeps equal card heights, fades the photo in and falls back to the tile when a photo fails', async ({ page }) => {
   await mockBoard(page, [
     { id: 'mix-photo', name: '사진있는 식당', type: 'restaurant', image_url: TOUR_PHOTO, wait: 5 },
