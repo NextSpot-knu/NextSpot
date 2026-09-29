@@ -1,8 +1,11 @@
 import type { PhotoCredit } from '@/lib/photoCredit';
+import { useT } from '@/lib/i18n/I18nProvider';
 
-// 사진 아래 출처 — '작가 · 라이선스' 가 원문(Wikimedia Commons 파일 페이지)으로 이어진다.
-// 보이는 사진이 Wikimedia 일 때만 그린다(판정은 lib/photoCredit.ts creditForDisplayedPhoto).
-// 문구는 데이터라 i18n 키가 없다.
+// 사진 아래 출처. 판정(보이는 사진에 붙일 출처가 무엇인지)은 lib/photoCredit.ts creditForDisplayedPhoto 한 곳 —
+// 이 컴포넌트는 그 결과를 그리기만 한다.
+// - Wikimedia: '작가 · 라이선스' 가 원문(Commons 파일 페이지)으로 이어진다. 문구는 데이터라 i18n 키가 없다.
+// - 경주시: '사진: 경주시' 한 줄(i18n common.cityPhotoCredit) — 사진 출처일 뿐, 운영 주체 표기가 아니다.
+//   원문 주소가 있으면 경주시 관광 누리집으로 이어지고, 없으면 글자만.
 //
 // - 기본(한 줄): 긴 작가 이름은 말줄임되고 라이선스는 끝까지 남는다. 글자 줄은 14px 이지만 위아래 5px 씩
 //   누르는 자리를 더해 24px 상자다(WCAG 2.5.8) — 호출부가 음수 여백으로 보이는 간격을 맞춘다.
@@ -19,8 +22,28 @@ export function PhotoCreditLink({
   stacked?: boolean;
   className?: string;
 }) {
+  const t = useT();
+  const text = 'min-w-0 max-w-full overflow-hidden text-[10px] leading-[14px] text-muk-soft';
+  const base = `${text} underline underline-offset-2 hover:text-muk`;
+  if (credit.kind === 'city') {
+    // 한 줄이면 충분하다(좁은 대기 보드 카드에서도) — stacked 는 쓰지 않는다.
+    const label = t('common.cityPhotoCredit');
+    const line = <span className="min-w-0 truncate">{label}</span>;
+    return credit.sourceUrl ? (
+      <a
+        href={credit.sourceUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        title={label}
+        className={`flex h-6 w-fit items-center py-[5px] ${base} ${className}`}
+      >
+        {line}
+      </a>
+    ) : (
+      <p className={`flex h-6 w-fit items-center py-[5px] ${text} ${className}`}>{line}</p>
+    );
+  }
   const full = credit.license ? `${credit.label} · ${credit.license}` : credit.label;
-  const base = 'min-w-0 max-w-full overflow-hidden text-[10px] leading-[14px] text-muk-soft underline underline-offset-2 hover:text-muk';
   if (stacked) {
     return (
       <a
