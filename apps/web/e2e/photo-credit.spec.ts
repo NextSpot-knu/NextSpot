@@ -355,6 +355,7 @@ test('main card: without an overview the ⓒ chip sits below the Kakao reviews r
 });
 
 test('waiting board: the credit shows the artist on its own line and keeps clear of the card', async ({ page }) => {
+  test.setTimeout(90_000); // 첫 /waiting 컴파일(Windows dev server) 여유 — 재시도가 아니라 시간
   await mockFacilities(page, [{
     id: 'board-wiki', name: '월정교 식당', type: 'restaurant',
     image_url: null, gallery_images: [WIKI_PHOTO],
@@ -387,6 +388,7 @@ test('waiting board: the credit shows the artist on its own line and keeps clear
 const boardCell = (page: Page, name: string) => page.locator('div.grid-rows-\\[1fr_auto\\]').filter({ hasText: name });
 
 test('waiting board: a credit that appears after a broken photo does not move the content below', async ({ page }) => {
+  test.setTimeout(90_000); // 첫 /waiting 컴파일(Windows dev server) 여유 — 재시도가 아니라 시간
   await mockFacilities(page, [
     {
       id: 'shift-fallback', name: '늦은출처 식당', type: 'restaurant',
@@ -468,6 +470,7 @@ test('waiting board: a credit that appears after a broken photo does not move th
 });
 
 test('waiting board: a row with no Wikimedia photo keeps the 16px slot under its cards', async ({ page }) => {
+  test.setTimeout(90_000); // 첫 /waiting 컴파일(Windows dev server) 여유 — 재시도가 아니라 시간
   await mockFacilities(page, [
     { id: 'plain-a', name: '가게하나 식당', type: 'restaurant', image_url: TOUR_PHOTO, gallery_images: null, features: {} },
     { id: 'plain-b', name: '가게둘 식당', type: 'restaurant', image_url: null, gallery_images: null, features: {} },
