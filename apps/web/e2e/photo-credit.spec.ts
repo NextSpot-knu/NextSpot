@@ -424,22 +424,27 @@ test('waiting board: a credit that appears after a broken photo does not move th
   };
   const before = await measure();
 
-  // 출처가 사진보다 늦게 붙는 틈을 잡는 탐침 — 자동 재시도 expect 는 자리 잡은 뒤만 본다.
-  // DOM 이 바뀔 때마다(MutationObserver) 그리고 매 프레임(rAF) 셀을 훑어, Wikimedia 사진이 보이는데
-  // 그 셀에 Commons 출처 링크가 없는 순간을 기록한다. 사진과 출처가 같은 커밋에 그려지면 0건이다.
+  // 출처와 사진이 어긋나는 틈을 잡는 탐침 — 자동 재시도 expect 는 자리 잡은 뒤만 본다.
+  // DOM 이 바뀔 때마다(MutationObserver) 그리고 매 프레임(rAF) 셀을 훑어 두 가지를 기록한다.
+  //   ① 보이는(opacity-0 이 아닌) Wikimedia 사진인데 그 셀에 Commons 출처 링크가 없다.
+  //   ② 출처 링크가 있는데 그 셀의 Wikimedia 사진이 아직 안 보인다(받는 중 — 장소 표지 아래에 출처가 붙은 모습).
+  // 사진이 드러나는 것과 출처가 같은 커밋에 그려지면 둘 다 0건이다.
   await page.evaluate((creditSel) => {
     const w = window as unknown as { __uncredited: string[]; __probeStop?: () => void };
     w.__uncredited = [];
     const scan = (when: string) => {
       document.querySelectorAll('div.grid-rows-\\[1fr_auto\\]').forEach((c) => {
         const img = c.querySelector('img');
-        if (img?.getAttribute('src')?.startsWith('https://upload.wikimedia.org/') && !c.querySelector(creditSel)) {
-          w.__uncredited.push(`${when}:${c.textContent?.slice(0, 20)}`);
-        }
+        const isWiki = !!img?.getAttribute('src')?.startsWith('https://upload.wikimedia.org/');
+        const visible = !!img && !img.classList.contains('opacity-0');
+        const hasCredit = !!c.querySelector(creditSel);
+        const label = `${when}:${c.textContent?.slice(0, 20)}`;
+        if (isWiki && visible && !hasCredit) w.__uncredited.push(`photo-without-credit/${label}`);
+        if (hasCredit && !(isWiki && visible)) w.__uncredited.push(`credit-without-photo/${label}`);
       });
     };
     const mo = new MutationObserver(() => scan('mutation'));
-    mo.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['src', 'href'] });
+    mo.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['src', 'href', 'class'] });
     let raf = requestAnimationFrame(function tick() { scan('frame'); raf = requestAnimationFrame(tick); });
     w.__probeStop = () => { mo.disconnect(); cancelAnimationFrame(raf); };
   }, CREDIT_LINK);
