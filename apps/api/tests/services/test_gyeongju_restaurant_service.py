@@ -25,6 +25,9 @@ def _item(**overrides):
         "CON_LONGITUDE": "129.2105",
         "CON_HOMEPAGE": "https://example.com",
         "CON_SUMMARY": _SUMMARY,
+        # 실측(2026-09-29, 111행 전부): 대표 사진은 경주시 누리집 https 절대 주소, 설명은 SRC_TITLE.
+        "CON_IMGFILENAME": "https://www.gyeongju.go.kr/upload/content/thumb/20200506/151E08F0791D483C8A2F46AD8BD06FEE.jpg",
+        "SRC_TITLE": "황남밀면 메뉴(비빔밀면)",
     }
     base.update(overrides)
     return base
@@ -95,7 +98,37 @@ def test_normalize_restaurant_maps_con_fields_and_summary():
         "amenities": "현금/카드결제, 화장실, 무선인터넷, 단체석, 포장가능",
         "lat": 35.8361,
         "lng": 129.2105,
+        "image_url": "https://www.gyeongju.go.kr/upload/content/thumb/20200506/151E08F0791D483C8A2F46AD8BD06FEE.jpg",
+        "image_caption": "황남밀면 메뉴(비빔밀면)",
     }
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("https://www.gyeongju.go.kr/upload/content/thumb/a.jpg", "https://www.gyeongju.go.kr/upload/content/thumb/a.jpg"),
+        # http 는 https 로 올린다(https 화면의 섞인 콘텐츠 차단 방지).
+        ("http://www.gyeongju.go.kr/upload/content/thumb/a.jpg", "https://www.gyeongju.go.kr/upload/content/thumb/a.jpg"),
+        # 상대 경로(CON_CONTENT 의 ckuploads 모양)는 누리집 주소를 붙인다.
+        ("/upload/ckuploads/2020/a.jpg", "https://www.gyeongju.go.kr/upload/ckuploads/2020/a.jpg"),
+        # 출처를 '경주시'로 붙이므로 경주시 호스트가 아니면 쓰지 않는다.
+        ("https://example.com/a.jpg", None),
+        ("https://www.gyeongju.go.kr.evil.example/a.jpg", None),
+        ("//www.gyeongju.go.kr/a.jpg", None),
+        ("javascript:alert(1)", None),
+        ("https://www.gyeongju.go.kr/", None),
+        ("", None),
+        (None, None),
+    ],
+)
+def test_city_image_url_accepts_only_https_city_photos(raw, expected):
+    assert svc.city_image_url(raw) == expected
+
+
+def test_normalize_restaurant_without_photo_has_no_image():
+    row = svc.normalize_restaurant(_item(CON_IMGFILENAME="", SRC_TITLE=None))
+    assert row["image_url"] is None
+    assert row["image_caption"] is None
 
 
 def test_normalize_restaurant_requires_name_and_coordinates():

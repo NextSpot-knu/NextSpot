@@ -66,6 +66,7 @@ from app.services.tourapi.transform import (
 # 위 transform.py 함수들과 동일하게 서브모듈에서 직접 임포트.
 from app.services.tourapi.client import TourAPITransientError, area_based_sync_list
 from app.services.batch.wikimedia import find_reusable_place_image
+from app.services.batch.city_photo import retire_superseded_city_photo
 from app.services.batch.kakao_coordinate_service import reconcile_row_coordinate
 
 # 경주 황리단길 기준좌표 (docs/archive/NEXTSPOT_PIVOT.md — 초기 서비스 지역)
@@ -376,6 +377,7 @@ def upsert_facilities(rows: list[dict]) -> int:
     transform/enrich 가 만드는 키는 신규 값이 이기고, 배치가 모르는 키는 보존된다.
     병합 직전 _retire_superseded_wikimedia 가 저장된 사진(image_url·gallery_images)과 견줘 Wikimedia 사진과 출처를
     한 쌍으로 맞춘다 — 그래서 기존 행 SELECT 는 features 와 함께 두 사진 열도 읽는다(한 번, 약 90행).
+    경주시 음식점 사진(features.city_photo)도 같은 자리에서 retire_superseded_city_photo 가 맞춘다.
     """
     # DB 클라이언트는 여기서 지연 임포트 — --dry-run 경로에서 Supabase 연결을 만들지 않는다.
     from app.core.supabase import fetch_all_rows, supabase_admin
@@ -412,6 +414,9 @@ def upsert_facilities(rows: list[dict]) -> int:
                 keep_coordinates.add(row["contentid"])
             # 병합 전 — 이번 행의 features 에 새 Wikimedia 출처가 있는지 옛 출처와 구분해 봐야 한다.
             _retire_superseded_wikimedia(row, stored)
+            # 경주시 음식점 사진(features.city_photo)도 같은 한 쌍 규칙 — 오늘 TourAPI 사진이 생긴 행이면 사진과 출처를
+            # 함께 뺀다(PM 이 Kakao 행에 contentid 를 이어 준 첫 밤이 이 경우다). 규칙 정본: services/batch/city_photo.py.
+            retire_superseded_city_photo(row, stored, image_cleared=bool(row.get(IMAGE_CONFIRMED_ABSENT)))
             row["features"] = {**prev, **(row.get("features") or {})}
 
     # 기존/신규 판정(폴백의 INSERT/UPDATE 나눔)도 위 전량 SELECT 를 재사용한다(추가 왕복 없음).

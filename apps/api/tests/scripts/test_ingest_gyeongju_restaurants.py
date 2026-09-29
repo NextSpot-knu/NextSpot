@@ -1,3 +1,5 @@
+import pytest
+
 from scripts.ingest_gyeongju_restaurants import (
     build_actions,
     match_facility,
@@ -126,3 +128,141 @@ def test_build_actions_skips_duplicate_facility_match():
     update_rows, actions = build_actions(restaurants, [_facility()], _NOW)
     assert len(update_rows) == 1
     assert [a["status"] for a in actions] == ["matched", "skipped_duplicate_match"]
+
+
+# ---------------------------------------------------------------------------
+# 경주시 사진(PM 승인 2026-09-29) — 사진이 하나도 없는 행에만, 출처와 한 쌍으로
+# ---------------------------------------------------------------------------
+
+_CITY_URL = "https://www.gyeongju.go.kr/upload/content/thumb/20200506/151E08F0791D483C8A2F46AD8BD06FEE.jpg"
+_CITY_URL_NEW = "https://www.gyeongju.go.kr/upload/content/thumb/20260101/NEW.jpg"
+_TOUR_URL = "https://tong.visitkorea.or.kr/cms/resource/88/2902488_image2_1.jpg"
+
+
+def _photo_restaurant(**overrides):
+    return _restaurant(image_url=_CITY_URL, image_caption="황남밀면 메뉴(비빔밀면)", **overrides)
+
+
+def _stored_credit(url=_CITY_URL):
+    return {"url": url, "provider": "경주시", "source_url": "https://www.gyeongju.go.kr/tour/",
+            "license": "공공데이터포털 15114465 경주시_경주문화관광_메뉴별음식점 · 이용허락범위 제한 없음"}
+
+
+def test_city_photo_fills_only_a_photo_less_row_with_its_credit():
+    facility = _facility(image_url=None, gallery_images=[])
+    update_rows, actions = build_actions([_photo_restaurant()], [facility], _NOW)
+
+    row = update_rows[0]
+    assert row["gallery_images"] == [_CITY_URL]
+    credit = row["features"]["city_photo"]
+    assert credit["url"] == _CITY_URL
+    assert credit["provider"] == "경주시"
+    assert credit["source_url"] == "https://www.gyeongju.go.kr/tour/"
+    assert credit["caption"] == "황남밀면 메뉴(비빔밀면)"
+    assert credit["con_uid"] == 101
+    # Wikimedia 출처 키와 섞지 않는다(웹·TourAPI 배치가 image_source 를 Wikimedia 로 읽는다).
+    assert "image_source" not in row["features"]
+    # 대표 사진 열은 이 배치가 쓰지 않는다(TourAPI 몫 — 매일 밤 TourAPI 가 다시 쓴다).
+    assert "image_url" not in row
+    assert actions[0]["photo"] == "city_photo_added"
+
+
+@pytest.mark.parametrize(
+    "photo_columns",
+    [
+        {"image_url": _TOUR_URL, "gallery_images": []},
+        {"image_url": None, "gallery_images": [_TOUR_URL]},
+        {"image_url": _TOUR_URL, "gallery_images": [_TOUR_URL]},
+    ],
+    ids=["main_photo", "gallery_photo", "both"],
+)
+def test_city_photo_never_overwrites_an_existing_photo(photo_columns):
+    facility = _facility(**photo_columns)
+    update_rows, actions = build_actions([_photo_restaurant()], [facility], _NOW)
+
+    row = update_rows[0]
+    assert "gallery_images" not in row, "읽은 갤러리를 되쓰거나 바꾸지 않는다"
+    assert "image_url" not in row
+    assert "city_photo" not in row["features"]
+    assert actions[0]["photo"] == "has_photo"
+
+
+def test_city_photo_is_retired_with_its_credit_when_a_tourapi_photo_arrives():
+    # PM 이 Kakao 행에 contentid 를 이어 준 뒤 TourAPI 가 대표 사진을 채웠다 — 경주시 사진과 출처를 함께 뺀다.
+    facility = _facility(image_url=_TOUR_URL, gallery_images=[_CITY_URL],
+                         features={"city_photo": _stored_credit()})
+    update_rows, actions = build_actions([_photo_restaurant()], [facility], _NOW)
+
+    row = update_rows[0]
+    assert row["gallery_images"] == []
+    assert row["features"]["city_photo"] is None
+    assert actions[0]["photo"] == "city_photo_retired"
+
+
+def test_city_photo_is_retired_when_the_gallery_gains_another_photo():
+    facility = _facility(image_url=None, gallery_images=[_TOUR_URL, _CITY_URL],
+                         features={"city_photo": _stored_credit()})
+    row = build_actions([_photo_restaurant()], [facility], _NOW)[0][0]
+    assert row["gallery_images"] == [_TOUR_URL]
+    assert row["features"]["city_photo"] is None
+
+
+def test_credit_without_its_photo_is_dropped():
+    # 누가 갤러리를 비웠다 — 출처만 남기지 않는다(오늘 사진을 다시 넣지도 않는다: 다음 밤 빈 행 규칙으로 들어간다).
+    facility = _facility(image_url=None, gallery_images=[], features={"city_photo": _stored_credit()})
+    update_rows, actions = build_actions([_photo_restaurant()], [facility], _NOW)
+    row = update_rows[0]
+    assert row["features"]["city_photo"] is None
+    assert "gallery_images" not in row
+    assert actions[0]["photo"] == "city_photo_credit_dropped"
+
+
+def test_stored_city_photo_is_kept_when_the_api_has_no_photo_today():
+    # 호출 결과에 사진이 없는 날은 저장된 사진·출처를 그대로 둔다(호출 사정으로 지우지 않는다).
+    facility = _facility(image_url=None, gallery_images=[_CITY_URL], features={"city_photo": _stored_credit()})
+    update_rows, actions = build_actions([_restaurant()], [facility], _NOW)
+    row = update_rows[0]
+    assert "gallery_images" not in row
+    assert row["features"]["city_photo"] == _stored_credit()
+    assert actions[0]["photo"] == "city_photo_kept"
+
+
+def test_changed_city_photo_replaces_photo_and_credit_together():
+    facility = _facility(image_url=None, gallery_images=[_CITY_URL], features={"city_photo": _stored_credit()})
+    row = build_actions([_restaurant(image_url=_CITY_URL_NEW)], [facility], _NOW)[0][0]
+    assert row["gallery_images"] == [_CITY_URL_NEW]
+    assert row["features"]["city_photo"]["url"] == _CITY_URL_NEW
+
+
+def test_hidden_row_is_not_matched_so_the_live_duplicate_gets_the_photo():
+    # 대구갈비 본점(Kakao, 숨김) 과 진가네대구갈비(TourAPI, 사진 없음)가 2m 거리 — 숨긴 행은 매칭하지 않는다.
+    hidden = _facility(id="kakao-dup", name="대구갈비 본점", is_active=False, image_url=None, gallery_images=[])
+    live = _facility(id="tour-row", name="[백년가게]진가네대구갈비", latitude=35.83611, is_active=True,
+                     image_url=None, gallery_images=[])
+    update_rows, actions = build_actions([_photo_restaurant(name="대구갈비")], [hidden, live], _NOW)
+    assert [r["id"] for r in update_rows] == ["tour-row"]
+    assert update_rows[0]["gallery_images"] == [_CITY_URL]
+
+
+def test_run_selects_photo_columns(monkeypatch):
+    # 사진 판정에 image_url·gallery_images 가 필요하다 — SELECT 에서 빠지면 '사진 없음'으로 잘못 보고 덮는다.
+    import asyncio
+
+    import scripts.ingest_gyeongju_restaurants as mod
+
+    captured = {}
+
+    def fake_fetch_all_rows(_client, table, columns, **_kwargs):
+        captured["columns"] = columns
+        return []
+
+    async def fake_restaurants(**_kwargs):
+        return [_photo_restaurant()]
+
+    monkeypatch.setattr(mod.settings, "GYEONGJU_FOOD_API_BASE_URL", "https://example.com")
+    monkeypatch.setattr(mod.settings, "GYEONGJU_FOOD_API_KEY", "k")
+    monkeypatch.setattr(mod, "get_gyeongju_restaurants", fake_restaurants)
+    monkeypatch.setattr("app.core.supabase.fetch_all_rows", fake_fetch_all_rows)
+    asyncio.run(mod.run(apply=False))
+    columns = {c.strip() for c in captured["columns"].split(",")}
+    assert {"image_url", "gallery_images", "is_active", "features"} <= columns

@@ -791,3 +791,82 @@ async def test_unusual_wikimedia_reply_skips_only_the_substitute(details, monkey
 def test_malformed_url_is_not_wikimedia_and_does_not_raise():
     assert ingest_tourapi._is_wikimedia_url("http://[tong.visitkorea.or.kr/a.jpg") is False
     assert ingest_tourapi._is_wikimedia_url("https://upload.wikimedia.org/wikipedia/commons/thumb/w.jpg") is True
+
+
+# ---------------------------------------------------------------------------
+# 경주시 음식점 사진(features.city_photo) — TourAPI 사진이 생긴 밤에 사진과 출처를 함께 걷는다(PM 승인 2026-09-29)
+# ---------------------------------------------------------------------------
+
+_CITY_URL = "https://www.gyeongju.go.kr/upload/content/thumb/20200506/151E08F0791D483C8A2F46AD8BD06FEE.jpg"
+_CITY_CREDIT = {"url": _CITY_URL, "provider": "경주시", "source_url": "https://www.gyeongju.go.kr/tour/",
+                "license": "공공데이터포털 15114465 경주시_경주문화관광_메뉴별음식점 · 이용허락범위 제한 없음"}
+
+
+def _food_poi(contentid: str, *, firstimage: str = "") -> dict:
+    return transform_poi({"title": f"식당{contentid}", "contentid": contentid, "contenttypeid": 39,
+                          "cat3": "A05020100", "mapx": "129.21", "mapy": "35.83", "firstimage": firstimage})
+
+
+def _city_photo_row(contentid: str) -> dict:
+    """PM 이 contentid 를 이어 준 Kakao 행 — 사진이 없어 경주시 사진과 출처를 받아 둔 상태."""
+    return {"contentid": contentid, "image_url": None, "gallery_images": [_CITY_URL],
+            "features": {"source": "kakao_discovery", "city_photo": dict(_CITY_CREDIT)}}
+
+
+@pytest.mark.parametrize("upsert_error", [None, _NO_CONFLICT_TARGET], ids=["bulk_upsert", "fallback_42P10"])
+def test_tourapi_main_photo_retires_city_photo_and_credit_together(upsert_error):
+    row = _food_poi("2902488", firstimage="http://tong.visitkorea.or.kr/cms/resource/88/2902488_image2_1.jpg")
+    table = _FacilitiesTable(existing=[_city_photo_row("2902488")], upsert_error=upsert_error)
+    assert _upsert([row], table) == 1
+
+    sent = _sent(table)["2902488"]
+    assert sent["image_url"].startswith("https://tong.visitkorea.or.kr/")
+    assert sent["gallery_images"] == [], "경주시 사진을 갤러리에서 뺀다"
+    assert "city_photo" in sent["features"] and sent["features"]["city_photo"] is None
+    _assert_uniform(table.bulk("upsert") + table.bulk("insert"))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("upsert_error", [None, _NO_CONFLICT_TARGET], ids=["bulk_upsert", "fallback_42P10"])
+async def test_tourapi_gallery_replaces_city_photo_and_drops_credit(details, upsert_error):
+    details.no_main.add("2904191")  # 대표 사진은 없고 갤러리만 있다
+    row = _food_poi("2904191")
+    await ingest_tourapi.enrich_row(row)
+    table = _FacilitiesTable(existing=[_city_photo_row("2904191")], upsert_error=upsert_error)
+    assert _upsert([row], table) == 1
+
+    sent = _sent(table)["2904191"]
+    assert sent["gallery_images"] == ["https://img.example/g1.jpg"]
+    assert sent["features"]["city_photo"] is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("upsert_error", [None, _NO_CONFLICT_TARGET], ids=["bulk_upsert", "fallback_42P10"])
+@pytest.mark.parametrize("photo_reply", ["no_photo", "failed"])
+async def test_no_tourapi_photo_keeps_city_photo_and_credit(details, upsert_error, photo_reply):
+    # TourAPI 가 사진이 없다고 답했거나(대표 사진 NULL 확인) 사진 호출이 실패한 밤 — 경주시 사진·출처는 그대로.
+    if photo_reply == "no_photo":
+        details.no_photo.add("2904510")
+    else:
+        details.fail["2904510"] = {"common", "image"}
+    row = _food_poi("2904510")
+    await ingest_tourapi.enrich_row(row)
+    table = _FacilitiesTable(existing=[_city_photo_row("2904510")], upsert_error=upsert_error)
+    assert _upsert([row], table) == 1
+
+    sent = _sent(table)["2904510"]
+    assert "gallery_images" not in sent
+    assert sent["features"]["city_photo"] == _CITY_CREDIT
+    assert details.wikimedia_calls == []  # 음식점(39)에는 Wikimedia 대체가 없다
+
+
+@pytest.mark.parametrize("upsert_error", [None, _NO_CONFLICT_TARGET], ids=["bulk_upsert", "fallback_42P10"])
+def test_city_credit_without_its_photo_is_dropped_by_tourapi_run(upsert_error):
+    stored = _city_photo_row("2839014")
+    stored["gallery_images"] = []
+    table = _FacilitiesTable(existing=[stored], upsert_error=upsert_error)
+    assert _upsert([_food_poi("2839014")], table) == 1
+
+    sent = _sent(table)["2839014"]
+    assert sent["features"]["city_photo"] is None
+    assert "gallery_images" not in sent
