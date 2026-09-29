@@ -7,6 +7,7 @@ import type { PlaceCategory } from "./travelContext";
 import type { VoiceAppCommand } from "./voice/voiceCommands";
 import type { Locale } from "./i18n/config";
 import { ensureAnonymousSession } from "./anonymousSession";
+import { uniqueSyntheticRecommendationIds } from "./recommendationIds";
 const supabase = createPublicClient();
 
 // 인증 필요(HTTP 401)를 서버 장애·기타 오류와 구분하기 위한 전용 에러 타입.
@@ -692,7 +693,7 @@ export async function getRecommendations(
     }
   }
   dispatchReasonSourceDebug(res);
-  return res;
+  return uniqueSyntheticRecommendationIds(res);
 }
 
 /**
@@ -876,7 +877,7 @@ export async function recommendByType(
     assumedAt: assumedAt ?? null,
   }, { signal, timeoutMs });
   dispatchReasonSourceDebug(res);
-  return res;
+  return uniqueSyntheticRecommendationIds(res);
 }
 
 // --- 자연어 선호 입력 (키워드 파싱 → 추천 반영) ---
