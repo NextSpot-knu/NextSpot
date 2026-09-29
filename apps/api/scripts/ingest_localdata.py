@@ -28,6 +28,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 load_dotenv(ROOT / ".env")
 
+from app.services.batch.facility_visibility import is_manually_hidden  # noqa: E402
 from app.services.batch.localdata import find_duplicate, normalize_record  # noqa: E402
 
 
@@ -167,6 +168,22 @@ def build_actions(raw_by_service: dict[str, list[dict]], facilities: list[dict],
     return actions, quarantined
 
 
+def keep_manually_hidden(actions: list[dict], facilities: list[dict]) -> int:
+    """사람이 숨긴 시설(features.manual_hidden)에 매칭된 영업 근거는 그 시설을 다시 켜지 않게 한다(제자리 수정).
+
+    apply_localdata_sync RPC 는 영업('01') 근거가 오면 기존 시설을 is_active=true 로 되돌린다. 중복 카드 정리처럼 사람이
+    숨긴 행이 다음 LOCALDATA 변경분에 다시 켜지지 않게, 그 action 의 is_active 를 false 로 바꿔 보낸다(RPC 는 이미 꺼진
+    행을 한 번 더 끈다). 출처 기록(source_status)은 그대로다. 바꾼 건수를 돌려준다.
+    """
+    hidden_ids = {str(f.get("id")) for f in facilities if is_manually_hidden(f.get("features"))}
+    changed = 0
+    for action in actions:
+        if action.get("is_active") and str(action.get("facility_id")) in hidden_ids:
+            action["is_active"] = False
+            changed += 1
+    return changed
+
+
 async def run(args: argparse.Namespace) -> dict:
     if args.mode == "delta" and args.apply:
         require_recent_delta_checkpoint()
@@ -191,6 +208,7 @@ async def run(args: argparse.Namespace) -> dict:
 
     facilities, refs = load_db_context()
     actions, quarantined = build_actions(raw_by_service, facilities, refs)
+    keep_manually_hidden(actions, facilities)
     report = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "mode": args.mode,

@@ -23,6 +23,7 @@ sys.path.insert(0, str(ROOT))
 
 from app.core.config import settings  # noqa: E402
 from app.core.supabase import fetch_all_rows, supabase_admin  # noqa: E402
+from app.services.batch.facility_visibility import is_manually_hidden  # noqa: E402
 from app.services.spot.travel import calculate_haversine_distance  # noqa: E402
 
 CENTER_LAT = 35.8361
@@ -182,6 +183,14 @@ def select_candidates(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return sorted(selected, key=lambda row: (row["type"], row["best_rank"], row["name"]))
 
 
+def _is_eligible(existing_row: dict[str, Any] | None, candidate: dict[str, Any]) -> bool:
+    """이 후보 행을 켜 둘지. 구내식당·장례식장 식당은 끄고, 사람이 숨긴 기존 행(features.manual_hidden — 중복 카드 정리
+    등)은 검색에 다시 잡혀도 켜지 않는다(이 배치는 매칭 행마다 is_active 를 새로 쓴다)."""
+    if any(term in candidate["category_name"] for term in EXCLUDED_CATEGORY_TERMS):
+        return False
+    return not (existing_row and is_manually_hidden(existing_row.get("features")))
+
+
 def _merge_features(existing: dict[str, Any] | None, candidate: dict[str, Any]) -> dict[str, Any]:
     features = dict((existing or {}).get("features") or {})
     category_tokens = [
@@ -273,9 +282,7 @@ async def run(*, apply: bool, report_path: Path) -> dict[str, Any]:
         if not apply:
             continue
         if existing_row:
-            eligible = not any(
-                term in candidate["category_name"] for term in EXCLUDED_CATEGORY_TERMS
-            )
+            eligible = _is_eligible(existing_row, candidate)
             payload = {
                 "latitude": candidate["latitude"],
                 "longitude": candidate["longitude"],
@@ -293,9 +300,7 @@ async def run(*, apply: bool, report_path: Path) -> dict[str, Any]:
                 update_row.pop("kakao_place_id", None)
             update_payloads.append(update_row)
         else:
-            eligible = not any(
-                term in candidate["category_name"] for term in EXCLUDED_CATEGORY_TERMS
-            )
+            eligible = _is_eligible(None, candidate)
             insert_payload = {
                 "name": candidate["name"],
                 "type": candidate["type"],

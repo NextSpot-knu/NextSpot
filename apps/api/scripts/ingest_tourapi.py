@@ -73,6 +73,7 @@ from app.services.tourapi.transform import (
 from app.services.tourapi.client import TourAPITransientError, area_based_sync_list
 from app.services.batch.wikimedia import find_reusable_place_image
 from app.services.batch.city_photo import retire_superseded_city_photo
+from app.services.batch.facility_visibility import is_manually_hidden
 from app.services.batch.kakao_coordinate_service import reconcile_row_coordinate
 from app.services.spot.travel import calculate_haversine_distance
 
@@ -778,8 +779,8 @@ def sync_showflags(showflag_by_id: dict[str, str]) -> dict:
                     print(f"[sync] is_active=false 갱신 실패 (contentid={contentid}): {e}")
         elif showflag == "1":
             if prior_active is False:  # 신규 재표출 복구
-                if str(contentid) in EXCLUDED_CONTENTIDS:  # 사람이 뺀 곳 — 표출 중이어도 켜지 않는다.
-                    summary["reactivation_deferred"] += 1
+                if str(contentid) in EXCLUDED_CONTENTIDS or is_manually_hidden(row.get("features")):
+                    summary["reactivation_deferred"] += 1  # 사람이 뺀·숨긴 곳 — 표출 중이어도 켜지 않는다.
                     continue
                 if str(row.get("id")) in inactive_localdata_ids:
                     summary["reactivation_deferred"] += 1
