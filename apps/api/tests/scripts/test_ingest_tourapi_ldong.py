@@ -310,6 +310,53 @@ def test_attraction_guard_reaches_wide_sites_but_not_neighbouring_tourapi_record
     assert duplicates["9990002"]["manual"] is False
 
 
+def test_neighbouring_attractions_whose_names_overlap_are_reported_not_dropped():
+    # 2026-09-29 리뷰(첫 밤 운영 대조): 가드는 다른 TourAPI 레코드와 같은 이름일 때만 막고, 새 행끼리는 견주지 않는다.
+    # 한 곳에 카드 두 장으로 보일 수 있는 쌍은 넣되 사람이 고르도록 드러낸다.
+    facilities = [
+        _facility("cheonma", "천마총(대릉원)", type_="attraction", contentid="126214", lat=35.8384, lng=129.2115),
+        _facility("barley", "분황사 청보리밭", type_="attraction", contentid="2774279", lat=35.8398, lng=129.2338),
+        _facility("far", "분황사 템플스테이", type_="attraction", contentid="9990020", lat=35.8450, lng=129.2338),  # 약 580m
+        _facility("seed", "금장대 전망", type_="attraction", lat=35.8570, lng=129.2020),     # 시드 행 — 가드 몫
+        _facility("off", "대릉원 돌담길", type_="attraction", contentid="9990021", lat=35.8384, lng=129.2116,
+                  is_active=False),
+        _facility("food", "분황사 앞 식당", contentid="9990022", lat=35.8401, lng=129.2336),
+    ]
+    rows = [
+        _row("1492402", "경주 대릉원 일원", type_="attraction", lat=35.8384, lng=129.2138),   # 약 208m
+        _row("2756715", "금장대", type_="attraction", lat=35.8570, lng=129.2020),
+        _row("2781625", "금장대 수변공원", type_="attraction", lat=35.8560, lng=129.2046),    # 새 행끼리 약 260m
+        _row("317503", "분황사", type_="attraction", lat=35.8401, lng=129.2336),             # 약 40m
+        _row("126207", "경주 첨성대", type_="attraction", lat=35.8347, lng=129.2190),        # 겹치는 이름 없음
+        _row("9000030", "대릉원", type_="culture", lat=35.8384, lng=129.2115),              # 관광지 아님
+    ]
+    pairs = ingest_tourapi.find_attraction_overlaps(rows, facilities)
+    got = [(p["contentid"], p["other_contentid"], p["other_new"]) for p in pairs]
+    assert got == [("1492402", "126214", False), ("2756715", "2781625", True), ("317503", "2774279", False)]
+    assert all(p["distance_m"] <= ingest_tourapi.ATTRACTION_DUPLICATE_GUARD_MAX_M for p in pairs)
+    # 판정에는 끼지 않는다 — 가드는 이 쌍을 그대로 넣는다(시드 행과의 겹침은 가드 몫이라 여기서 뺀다).
+    records = [f for f in facilities if f["id"] != "seed"]
+    assert ingest_tourapi.find_probable_duplicates([r for r in rows if r["type"] == "attraction"], records) == {}
+
+
+@pytest.mark.asyncio
+async def test_run_inserts_overlapping_neighbours_and_logs_them_for_the_pm(monkeypatch, capsys):
+    collected = {12: [
+        _ldong(_item("2756715", 12, title="금장대", lat=35.8570, lng=129.2020, firstimage=_PHOTO)),
+        _ldong(_item("2781625", 12, title="금장대 수변공원", lat=35.8560, lng=129.2046, firstimage=_PHOTO)),
+        _ldong(_item("1492402", 12, title="경주 대릉원 일원", lat=35.8384, lng=129.2138, firstimage=_PHOTO)),
+    ]}
+    facilities = [_facility("cheonma", "천마총(대릉원)", type_="attraction", contentid="126214",
+                            lat=35.8384, lng=129.2115)]
+    rec = _run_env(monkeypatch, collected, guard_facilities=facilities)
+    assert await ingest_tourapi.run(_args(details=False)) == 0
+    assert rec.upserted == ["2756715", "2781625", "1492402"]
+    out = capsys.readouterr().out
+    assert out.count("이름이 겹치는 이웃 관광지") == 2
+    assert "경주 대릉원 일원(contentid=1492402) ↔ 천마총(대릉원)(contentid=126214, 기존 카드)" in out
+    assert "금장대(contentid=2756715) ↔ 금장대 수변공원(contentid=2781625, 새 행)" in out
+
+
 def test_wider_attraction_reach_does_not_change_the_shop_and_culture_guard():
     # 음식점·문화시설 새 행은 승인된 80m·품음 규칙 그대로다.
     facilities = [_facility("kakao-a", "동양백반", lat=35.8372),                                  # 약 110m

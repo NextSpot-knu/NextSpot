@@ -435,6 +435,62 @@ def find_probable_duplicates(rows: list[dict], facilities: list[dict]) -> dict[s
     return duplicates
 
 
+_PLACE_PREFIX = re.compile(r"^경주")
+_PLACE_SUFFIX = re.compile(r"일원$")
+
+
+def _place_key(normalized: str) -> str:
+    """이웃 관광지 대조용 이름 — 정규화 이름에서 앞의 '경주'와 끝의 '일원'을 뗀다('경주대릉원일원' → '대릉원')."""
+    key = _PLACE_SUFFIX.sub("", _PLACE_PREFIX.sub("", normalized))
+    return key if len(key) >= 2 else normalized
+
+
+def find_attraction_overlaps(rows: list[dict], facilities: list[dict]) -> list[dict]:
+    """오늘 넣는 관광지 새 행 가운데, 한쪽 이름이 다른 쪽을 품는 관광지가 ATTRACTION_DUPLICATE_GUARD_MAX_M 안에 있는 쌍(순수 함수).
+
+    가드는 다른 TourAPI 레코드와는 같은 이름일 때만 막는다(분황사 ↔ 분황사 청보리밭은 TourAPI 가 나눈 이웃 명소). 그래도
+    한 곳에 카드가 두 장으로 보일 수 있는 쌍은 넣되 로그로 남겨 사람이 고른다 — 2026-09-29 리뷰: 새 '경주 대릉원 일원' ↔
+    기존 '천마총(대릉원)' 204m, 새 '금장대' ↔ 새 '금장대 수변공원' 265m(새 행끼리는 가드가 서로 견주지 않는다).
+    rows 는 가드를 지난(넣을) 행, facilities 는 DB 전량. 상대는 다른 새 관광지 행과 살아 있는 TourAPI 레코드(시드·Kakao 행은
+    가드가 품음까지 이미 본다). 음식점·카페는 보지 않는다. 결과는 새 행 contentid 순, 새 행끼리의 쌍은 한 번만.
+    """
+    known = {str(f.get("contentid")) for f in facilities if f.get("contentid") not in (None, "")}
+    new = []
+    for row in rows:
+        contentid = str(row.get("contentid"))
+        if row.get("type") != "attraction" or contentid in known:
+            continue
+        try:
+            lat, lng = float(row["latitude"]), float(row["longitude"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        new.append((contentid, row.get("name"), _place_key(_normalize_name(row.get("name"))), lat, lng))
+    others = [(c, n, k, a, b, True) for c, n, k, a, b in new]
+    for facility in facilities:
+        if (facility.get("is_active") is False or facility.get("contentid") in (None, "")
+                or facility.get("type") in _FOOD_TYPES):
+            continue
+        try:
+            f_lat, f_lng = float(facility["latitude"]), float(facility["longitude"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        others.append((str(facility.get("contentid")), facility.get("name"),
+                       _place_key(_normalize_name(facility.get("name"))), f_lat, f_lng, False))
+    pairs: list[dict] = []
+    for contentid, name, key, lat, lng in sorted(new, key=lambda n: n[0]):
+        for o_cid, o_name, o_key, o_lat, o_lng, o_new in others:
+            if o_cid == contentid or (o_new and o_cid < contentid):
+                continue
+            shorter, longer = sorted((key, o_key), key=len)
+            if len(shorter) < 2 or shorter not in longer:
+                continue
+            distance = calculate_haversine_distance(lat, lng, o_lat, o_lng)
+            if distance <= ATTRACTION_DUPLICATE_GUARD_MAX_M:
+                pairs.append({"contentid": contentid, "name": name, "other_contentid": o_cid, "other_name": o_name,
+                              "other_new": o_new, "distance_m": distance})
+    return pairs
+
+
 def _load_guard_facilities() -> list[dict]:
     # DB 클라이언트는 여기서 지연 임포트 — --dry-run 경로에서 Supabase 연결을 만들지 않는다.
     from app.core.supabase import fetch_all_rows, supabase_admin
@@ -485,7 +541,13 @@ def probable_duplicate_contentids(rows: list[dict], ldong_only: set[str]) -> set
     for contentid in sorted(photo_less):
         name = next((r.get("name") for r in rows if str(r.get("contentid")) == contentid), "")
         print(f"[dedupe] 사진 없는 새 행 넣지 않음: {name}(contentid={contentid}) — 법정동 목록 대표 사진 없음")
-    return set(duplicates) | photo_less
+    drop = set(duplicates) | photo_less
+    kept = [row for row in rows if str(row.get("contentid")) not in drop]
+    for pair in find_attraction_overlaps(kept, facilities):
+        other = "새 행" if pair["other_new"] else "기존 카드"
+        print(f"[dedupe] 이름이 겹치는 이웃 관광지(둘 다 뜸 — 하나만 둘지 PM 확인): {pair['name']}(contentid={pair['contentid']})"
+              f" ↔ {pair['other_name']}(contentid={pair['other_contentid']}, {other}) {pair['distance_m']:.0f}m")
+    return drop
 
 
 def _uniform_key_chunks(rows: list[dict]) -> list[list[dict]]:
