@@ -140,32 +140,36 @@ interface BoardRun {
 // 대표 카드의 사진 자리(고정 높이 112px). 아래에는 늘 장소 표지(PlacePhotoFallback)가 깔려 있고, 사진이 있으면
 // 그 위에 겹쳐 두었다가 **다 받은 뒤에** 서서히 드러낸다 — 받는 동안 빈 상자·깨진 그림 대신 표지가 보이고,
 // 사진이 없거나 후보가 다 깨지면 표지가 그대로 남는다. 카드 높이는 어느 경우에나 같다.
-// 몇 번째 후보를 띄울지는 부모가 정한다(photoCursors) — 출처 줄이 카드 버튼 밖에 있어서(<a> 는 <button>
-// 안에 둘 수 없다) 사진과 출처가 같은 렌더에서 같은 URL 로 그려지려면 보이는 사진을 부모가 알아야 한다.
+// 몇 번째 후보를 띄울지(photoCursors)와 그 사진을 다 받았는지(loadedPhotos)는 부모가 안다 — 출처 줄이 카드 버튼
+// 밖에 있어서(<a> 는 <button> 안에 둘 수 없다) 사진과 출처가 **같은 렌더에서 같은 URL 로** 나타나려면 둘 다
+// 부모가 쥐고 있어야 한다. 그래서 출처는 사진이 드러나는 바로 그 커밋에 붙는다(표지 아래 출처 금지).
 function WaitingCardImage({
   imageUrl,
   name,
   visual,
   priority,
+  loaded,
+  onLoaded,
   onError,
 }: Pick<BoardRow, "name"> & {
   imageUrl: string | null;
   visual: PlaceVisual;
   // 첫 섹터의 대표 3장 — 첫 화면에 보이므로 먼저(eager·high) 받는다. 나머지는 화면에 들어올 때(lazy).
   priority: boolean;
+  // 부모가 기억하는 '이 URL 을 다 받았다'. 불리언이지만 부모는 URL 로 비교한다 — 후보가 바뀌면(깨진 사진 →
+  // 다음 후보) 새 사진은 받기 전까지 다시 투명하다(반쯤 받은 사진이 불투명하게 튀어나오지 않는다).
+  loaded: boolean;
+  onLoaded: (loadedUrl: string) => void;
   onError: (failedUrl: string) => void;
 }) {
-  // 다 받은 사진의 URL. 불리언이 아니라 URL 로 둔다 — 후보가 바뀌면(깨진 사진 → 다음 후보) 새 사진은
-  // 받기 전까지 다시 투명하다(반쯤 받은 사진이 불투명하게 튀어나오지 않는다).
-  const [loadedUrl, setLoadedUrl] = useState<string | null>(null);
   // 캐시에서 곧장 뜬 사진은 하이드레이션 전에 load 가 끝나 onLoad 를 놓칠 수 있다 — 붙는 순간 한 번 확인한다.
   const markIfLoaded = useCallback(
     (img: HTMLImageElement | null) => {
-      if (img && imageUrl && img.complete && img.naturalWidth > 0) setLoadedUrl(imageUrl);
+      if (img && imageUrl && img.complete && img.naturalWidth > 0) onLoaded(imageUrl);
     },
-    [imageUrl],
+    [imageUrl, onLoaded],
   );
-  const shown = imageUrl !== null && loadedUrl === imageUrl;
+  const shown = imageUrl !== null && loaded;
 
   return (
     <div className="relative h-28 w-full shrink-0 overflow-hidden border-b border-line">
@@ -182,7 +186,7 @@ function WaitingCardImage({
           loading={priority ? "eager" : "lazy"}
           fetchPriority={priority ? "high" : "auto"}
           decoding="async"
-          onLoad={() => setLoadedUrl(imageUrl)}
+          onLoad={() => onLoaded(imageUrl)}
           onError={() => onError(imageUrl)}
           className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-300 motion-reduce:transition-none ${
             shown ? "opacity-100" : "opacity-0"
@@ -450,6 +454,12 @@ export default function WaitingBoardPage() {
   // 대표 카드마다 몇 번째 사진 후보를 띄우는지(깨진 사진은 건너뛴다). 보이는 사진 URL 과 그 출처는
   // 렌더 중에 이 커서에서 함께 계산한다 — 출처가 사진보다 한 커밋 늦게 따라오는 틈이 없다.
   const [photoCursors, setPhotoCursors] = useState<Record<string, PhotoCursor>>({});
+  // 대표 카드마다 **다 받은** 사진 URL. 사진이 드러나는 것(불투명)과 그 출처 줄이 이 값 하나로 함께 켜진다 —
+  // 받는 중이거나 멈춘 Wikimedia 사진의 출처가 장소 표지 아래에 먼저 붙지 않는다.
+  const [loadedPhotos, setLoadedPhotos] = useState<Record<string, string>>({});
+  const markPhotoLoaded = useCallback((facilityId: string, url: string) => {
+    setLoadedPhotos((prev) => (prev[facilityId] === url ? prev : { ...prev, [facilityId]: url }));
+  }, []);
   const skipBrokenPhoto = useCallback((facilityId: string, urls: readonly string[], failedUrl: string) => {
     setPhotoCursors((prev) => {
       const current = prev[facilityId];
@@ -966,7 +976,9 @@ export default function WaitingBoardPage() {
                       // 출처 없는 Wikimedia 사진은 후보에서 빠진다(출처 없이 띄우지 않는다).
                       const photoUrls = creditedPhotoUrls(row.imageUrls, photoFeatures);
                       const photoUrl = displayedPhotoUrl(photoUrls, photoCursors[row.facilityId]);
-                      const photoCredit = creditForDisplayedPhoto(photoUrl, photoFeatures);
+                      const photoLoaded = photoUrl !== null && loadedPhotos[row.facilityId] === photoUrl;
+                      // 출처는 그 사진이 **보일 때만** — 받는 동안은 표지가 보이므로 출처도 없다(자리는 rowMayCredit 가 잡아 둔다).
+                      const photoCredit = photoLoaded ? creditForDisplayedPhoto(photoUrl, photoFeatures) : null;
                       return (
                       <div key={row.facilityId} className="grid min-w-0 grid-rows-[1fr_auto]">
                       <button
@@ -994,6 +1006,8 @@ export default function WaitingBoardPage() {
                           name={row.name}
                           visual={rowVisuals[idx]}
                           priority={sectorIdx === 0}
+                          loaded={photoLoaded}
+                          onLoaded={(url) => markPhotoLoaded(row.facilityId, url)}
                           onError={(failedUrl) => skipBrokenPhoto(row.facilityId, photoUrls, failedUrl)}
                         />
                         <div className="flex flex-1 min-h-0 flex-col justify-between p-2">

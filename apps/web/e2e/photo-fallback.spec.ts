@@ -18,6 +18,7 @@ const TOUR_PHOTO_2 = 'https://tong.visitkorea.or.kr/cms/resource/04/e2e_ok_galle
 const TOUR_BROKEN = 'https://tong.visitkorea.or.kr/cms/resource/02/e2e_broken_image2_1.jpg';
 const TOUR_SLOW = 'https://tong.visitkorea.or.kr/cms/resource/03/e2e_slow_image2_1.jpg';
 const WIKI_PHOTO = 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Cheomseongdae.jpg/640px-Cheomseongdae.jpg';
+const SLOW_WIKI_PHOTO = 'https://upload.wikimedia.org/wikipedia/commons/thumb/c/cd/Slow_wiki.jpg/640px-Slow_wiki.jpg';
 const CREDIT_LINK = 'a[href^="https://commons.wikimedia.org/wiki/File:"]';
 
 function photoSvg(label: string, fill: string) {
@@ -257,6 +258,41 @@ test('waiting board: a slow photo keeps the tile visible until it arrives, then 
   await expect(tileOf(c).locator('[data-tile-glyph]')).toBeVisible();
   releaseSlow();
   await expect(img).toHaveCSS('opacity', '1');
+});
+
+test('waiting board: a Wikimedia credit appears only once its photo is showing, never under the tile', async ({ page }) => {
+  await mockBoard(page, [
+    {
+      id: 'slow-wiki', name: '첨성대', type: 'restaurant', image_url: null, gallery_images: [SLOW_WIKI_PHOTO], wait: 5,
+      features: { image_source: {
+        provider: 'Wikimedia Commons', source_url: 'https://commons.wikimedia.org/wiki/File:Slow.jpg',
+        license: 'CC BY-SA 4.0', artist: 'Slow Photographer',
+      } },
+    },
+  ]);
+  let releaseWiki!: () => void;
+  const wikiGate = new Promise<void>((resolve) => { releaseWiki = resolve; });
+  await page.route('**/*Slow_wiki*', async (route) => {
+    await wikiGate;
+    await route.fulfill({ status: 200, contentType: 'image/svg+xml', body: photoSvg('Wikimedia photo', '#7a5c2e') });
+  });
+  await page.goto('/waiting', { waitUntil: 'domcontentloaded' });
+  const c = cell(page, '첨성대');
+  await expect(c).toBeVisible({ timeout: 30_000 });
+  const img = c.locator('img');
+  await expect(img).toHaveAttribute('src', SLOW_WIKI_PHOTO);
+  // 받는 동안: 표지가 보이고, 표지 아래에 사진 작가의 출처가 붙지 않는다(그 자리는 비워 둔 채 높이만 잡는다).
+  await expect(img).toHaveCSS('opacity', '0');
+  await expect(tileOf(c).locator('[data-tile-glyph]')).toBeVisible();
+  await page.waitForTimeout(500);
+  await expect(c.locator(CREDIT_LINK)).toHaveCount(0);
+  const slotBefore = (await c.boundingBox())!.height;
+  releaseWiki();
+  // 사진이 드러나면 그 아래에 출처 — 카드 높이는 그대로.
+  await expect(img).toHaveCSS('opacity', '1');
+  await expect(c.locator(CREDIT_LINK)).toBeVisible();
+  await expect(c.locator(CREDIT_LINK)).toContainText('CC BY-SA 4.0');
+  expect(Math.abs((await c.boundingBox())!.height - slotBefore)).toBeLessThanOrEqual(0.5);
 });
 
 test('waiting board: the first sector loads its top photos eagerly, later sectors lazily', async ({ page }) => {
