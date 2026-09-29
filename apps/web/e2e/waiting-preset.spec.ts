@@ -215,7 +215,17 @@ async function controlBoardTimers(page: Page): Promise<{ pause: () => Promise<vo
   return {
     pause: async () => {
       seen = { 2000: await count(2000), 2500: await count(2500) };
-      await page.clock.pauseAt((await page.evaluate(() => Date.now())) + 10);
+      // 설치된 시계는 멈추기 전까지 흐른다 — 부하 걸린 머신에서는 시각을 읽고 pauseAt 이 닿기까지 10ms 넘게 흘러
+      // 'Cannot fast-forward to the past' 로 실패했다(전체 e2e 실측). 여유를 두고, 그래도 지나쳤으면 새 시각으로 다시.
+      for (let attempt = 0; ; attempt++) {
+        const at = (await page.evaluate(() => Date.now())) + 100;
+        try {
+          await page.clock.pauseAt(at);
+          return;
+        } catch (error) {
+          if (attempt >= 4 || !String(error).includes('fast-forward to the past')) throw error;
+        }
+      }
     },
     // pause 뒤에 새로 걸린 그 지연의 타이머가 생길 때까지 — 멈춘 시계라 아직 돌지 않았다.
     waitForTimer: async (ms: number) => {
