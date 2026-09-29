@@ -19,18 +19,20 @@ const LONG_FEATURES = {
 };
 const LONG_OVERVIEW = '황리단길에서 1987년부터 소뼈 국물을 우려 온 국밥집으로, 동네 사람과 여행객 모두에게 사랑받는 곳입니다.';
 
-function item(id: string, name: string, rank: number, level: number, long = false) {
+function item(id: string, name: string, rank: number, level: number | null, long = false, extra: { type?: string; wait?: number } = {}) {
   const facility = {
-    id, name, type: 'restaurant', latitude: 35.8363 + rank * 0.0006, longitude: 129.2107,
+    id, name, type: extra.type ?? 'restaurant', latitude: 35.8363 + rank * 0.0006, longitude: 129.2107,
     capacity: 30, congestion: level, image_url: null, gallery_images: null, features: long ? LONG_FEATURES : {},
     overview: long ? LONG_OVERVIEW : '황리단길 국밥집', operating_hours: { open: '00:00~23:59', closed: '연중무휴' },
   };
   return {
     recommendation_id: `rec-${id}`, facility, spot_score: 0.8 - rank * 0.01,
-    breakdown: { preference: 0.8, wait_time: null, travel_time: rank + 3, incentive: 0 },
+    breakdown: { preference: 0.8, wait_time: extra.wait ?? null, travel_time: rank + 3, incentive: 0 },
     distance_m: 190 + rank * 60, reason: '테스트 추천', reason_source: 'template',
-    congestion_level: level, congestion_source: 'measured', congestion_log_source: 'user_report',
-    congestion_is_stale: false, congestion_timestamp: new Date().toISOString(), rank: rank + 1, total_candidates: 3,
+    congestion_level: level, congestion_source: level === null ? 'none' : 'measured',
+    congestion_log_source: level === null ? null : 'user_report',
+    congestion_is_stale: level === null ? null : false, congestion_timestamp: level === null ? null : new Date().toISOString(),
+    rank: rank + 1, total_candidates: 3,
     open_status_at_arrival: 'open_expected', information_confidence: 'verified', eligibility_tier: 'verified_open_route',
     place_data_source: 'tourapi', data_updated_at: null,
     scoring_mode: 'degraded_rules', model_version: null, prediction_source: 'unavailable',
@@ -160,5 +162,96 @@ for (const [locale, width] of CASES) {
       expect(name.shown, 'card 1: 이름 전부').toBe(name.natural);
       expect(menu.shown, 'card 1: 대표 메뉴가 적어도 한 줄').toBeGreaterThanOrEqual(1);
     }
+  });
+}
+
+// 서버 실측 대기(분)가 있는 카드와 아무 근거도 없는 카드. 영어 근거 주석('Arriving 13:00 · Based on measured data')은
+// 예전에 두 줄에서 잘려 'Prediction from…' 만 남았다 — 숫자를 받치는 말이 보이지 않았다. 한국어 골드 박스는
+// '예상 대기 약 10 / 분'·'대기 정보 수집 / 중'처럼 숫자와 단위가 갈라져 잘린 글처럼 보였다.
+// 문화시설처럼 한 곳뿐인 섹터의 개수 칩은 영어로 '1 spot'(예전 '1 spots').
+const SERVER_PLACES = [
+  item('s1', '분황사 쉼터', 0, null, false, { wait: 10 }),
+  item('s2', '황남 국밥', 1, null, false, { wait: 15 }),
+  item('s3', '월정교 식당', 2, null, false, { wait: 20 }),
+];
+const LONE_CULTURE = [item('c1', '신라고분정보센터', 0, null, false, { type: 'culture' })];
+const BASIS_SERVER = { ko: '실측 기반 예측', en: 'Based on measured data', ja: '実測に基づく予測', zh: '基于实测的预测' } as const;
+const SINGLE_COUNT = { ko: '1곳', en: '1 spot', ja: '1か所', zh: '1处' } as const;
+
+for (const [locale, width] of CASES) {
+  test(`waiting board (${locale}, ${width}px): basis note stays whole, wait headline keeps number with unit, one-place count`, async ({ page }) => {
+    test.setTimeout(90_000); // 첫 /waiting 컴파일(Windows dev server) 여유 — 재시도가 아니라 시간
+    await page.setViewportSize({ width, height: 844 });
+    await page.addInitScript((l) => {
+      localStorage.setItem('nextspot_onboarding_done', '1');
+      localStorage.setItem('nextspot_locale', l);
+    }, locale);
+    await page.route('**/api/v1/**', (route) => {
+      const pathname = new URL(route.request().url()).pathname;
+      if (pathname.endsWith('/api/v1/recommendations/by-type')) {
+        const type = String((route.request().postDataJSON() as { facility_type?: string }).facility_type ?? '');
+        const body = type === 'restaurant' ? SERVER_PLACES : type === 'culture' ? LONE_CULTURE : [];
+        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
+      }
+      return route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
+    });
+    await page.goto('/waiting');
+    const cards = page.locator('div.grid-rows-\\[1fr_auto\\] > button');
+    await expect(cards).toHaveCount(4, { timeout: 60_000 });
+    // 그 언어 사전이 붙은 뒤(비-ko 첫 렌더의 한국어가 아니라)의 근거 주석을 잰다.
+    await expect(cards.filter({ hasText: BASIS_SERVER[locale] })).toHaveCount(3);
+    await page.evaluate(() => document.fonts.ready.then(() => new Promise<void>((resolve) => {
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+    })));
+
+    const report = await cards.evaluateAll((buttons) => buttons.map((button) => {
+      const card = button.getBoundingClientRect();
+      const stats = (button.lastElementChild as HTMLElement).lastElementChild as HTMLElement;
+      const headline = stats.firstElementChild as HTMLElement;
+      const footnote = stats.lastElementChild as HTMLElement;
+      const f = footnote.getBoundingClientRect();
+      const line = parseFloat(getComputedStyle(footnote).lineHeight);
+      // 골드 박스 글의 줄바꿈 자리 — 새 줄 첫 글자의 바로 앞 글자를 모은다.
+      const text = headline.textContent ?? '';
+      const node = headline.firstChild;
+      const breaksBefore: string[] = [];
+      if (node && node.nodeType === Node.TEXT_NODE) {
+        let prevTop: number | null = null;
+        for (let i = 0; i < text.length; i++) {
+          if (text[i] === ' ') continue;
+          const range = document.createRange();
+          range.setStart(node, i);
+          range.setEnd(node, i + 1);
+          const rect = range.getClientRects()[0];
+          if (!rect) continue;
+          if (prevTop !== null && rect.top > prevTop + 2) breaksBefore.push(text[i - 1] ?? '');
+          prevTop = rect.top;
+        }
+      }
+      return {
+        headline: text,
+        breaksBefore,
+        footnote: footnote.textContent ?? '',
+        footnoteLines: Math.round(f.height / line),
+        footnoteWhole: getComputedStyle(footnote).getPropertyValue('-webkit-line-clamp') === 'none'
+          && footnote.scrollHeight <= footnote.clientHeight + 1
+          && f.top >= card.top - 0.5 && f.bottom <= card.bottom + 0.5,
+      };
+    }));
+    for (const [i, card] of report.slice(0, 3).entries()) {
+      expect(card.footnote, `card ${i + 1}: 근거 주석 전문`).toContain(BASIS_SERVER[locale]);
+      expect(card.footnoteWhole, `card ${i + 1}: 근거 주석 "${card.footnote}" 이 잘리지 않고 카드 안에`).toBe(true);
+      // 짧게 고친 영어 문구는 390px 폰에서 다른 언어처럼 두 줄(360px 는 세 줄 — 잘리지 않고 글 블록이 양보한다).
+      if (locale === 'en' && width === 390) expect(card.footnoteLines, `card ${i + 1}: "${card.footnote}" 줄 수`).toBeLessThanOrEqual(2);
+    }
+    if (locale === 'ko') {
+      for (const card of report) {
+        for (const before of card.breaksBefore) {
+          expect(before, `"${card.headline}": 한국어 대기 문구는 띄어쓰기에서만 접힌다`).toBe(' ');
+        }
+      }
+    }
+    const cultureSection = page.locator('main section.fractal-glass').filter({ has: page.getByText('신라고분정보센터') });
+    await expect(cultureSection.locator('span.ml-auto')).toHaveText(SINGLE_COUNT[locale]);
   });
 }
