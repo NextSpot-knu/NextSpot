@@ -1,4 +1,18 @@
 # HANDOVER 로그 (2026-06-30 ~ 2026-08-28) 
+## 2026-09-25 — API OOM 대응 승격: 관제 대시보드 동시 조회 상한·메모리 반환 + 09-24 OOM 수정
+
+- 도구·브랜치: Claude Code(원인 조사 워크플로 5렌즈 + 수정 검증 워크플로 4렌즈) / `fix/api-oom-admin-gate` = `ec127ee` +
+  `0408bd7`·`c3e700d`(09-24 OOM 수정, 미배포였음) + `09edacb`·`0ce394d`(관제 대시보드 게이트) → main.
+- 한 것: Render `nextspot-api`(512MB 단일 인스턴스)가 09-21 이후 8회 OOM 재시작 — 운영은 OOM 수정이 없는 `6a7d653` API 였다.
+  09-25 18:15 KST 는 관제 대시보드가 무거운 관리자 GET 7개를 한꺼번에 쏜 순간(예열이 계단식으로 남긴 ~335MB 위, 09-22 09:40 도
+  같은 패턴), 나머지는 예열 직후·예열 타임아웃 직후. `09edacb`: 무거운 관리자 GET 을 동시 2개로 묶는 ASGI 게이트 + 끝날 때마다
+  gc·`malloc_trim(0)`(예열 끝에도) · model-trust 는 스냅샷 통째 대신 읽는 칸만 JSON 경로로(거부 시 통째 조회로 물러섬).
+- 검증: api `ruff` + `pytest` 1644 통과 · 리뷰 3렌즈(ship, 비차단 지적 1건 `0ce394d` 로 반영) · Linux 전후 RSS(합성 운영 규모,
+  관리자 GET 7개 동시): 피크 main 369~375MB → 165~172MB, 예열 뒤 208MB 고정 → 139MB 로 반환, JSON 경로 거부 폴백 시 256MB.
+- 다음·미결: 배포 후 Render Metrics 에서 관제 대시보드를 한 번 열어 RSS 가 되돌아오는지, 로그에 `admin_trust_slim_select_failed`
+  가 없는지 확인. 예열(GitHub Actions `warmup.yml`)이 남기는 캐시 상한은 `0408bd7` 이 맡는다.
+- 사람 작업: Render 대시보드에서 배포 커밋이 `09edacb`+ 인지, `MALLOC_ARENA_MAX=2` 가 이미지 env 로 들어갔는지(Dockerfile) 확인.
+
 ## 2026-09-21c — 통합: yunseong 데모 콘솔·비교 헤더·데이터 절 + 심사용 계정 안내 → main 승격 준비
 
 - 도구·브랜치: Claude Code(통합 병합 · 6렌즈 리뷰 워크플로 + 3렌즈 검증 워크플로 · 게이트 전체) / `feature/judge-demo-integration`
