@@ -45,7 +45,7 @@ def no_retry_sleep(monkeypatch):
 @pytest.mark.asyncio
 async def test_fetch_pois_adds_ldong_only_records_inside_the_radius(monkeypatch, no_retry_sleep):
     location = {
-        12: [_item("12001", 12)],
+        12: [_item("12001", 12, title="동궁과 월지")],
         14: [_item("3442528", 14, title="신라고분정보센터")],
         39: [_item("2736687", 39, title="도솔마을")],
     }
@@ -58,6 +58,10 @@ async def test_fetch_pois_adds_ldong_only_records_inside_the_radius(monkeypatch,
         ],
         39: [_item("2902488", 39, title="황남밀면"), _item("2902488", 39, title="황남밀면"),  # 같은 목록 안 중복
              _item("bad", 39, lat=None)],                                                      # 좌표 없음 — 버린다
+        12: [_item("12001", 12, title="동궁과 월지"),                                          # 반경 목록에도 있음
+             _item("126207", 12, title="경주 첨성대", lat=35.8347, lng=129.2190),             # 구 코드가 빈 관광지
+             _item("2756715", 12, title="금장대", lat=35.8560, lng=129.1950),                 # 약 2.6km — 반경 안
+             _item("9999002", 12, title="불국사", lat=35.7900, lng=129.3320)],                # 반경 밖 — 버린다
     }
     ldong_calls: list[dict] = []
 
@@ -74,13 +78,14 @@ async def test_fetch_pois_adds_ldong_only_records_inside_the_radius(monkeypatch,
 
     assert [i["contentid"] for i in collected[14]] == ["3442528", "3532127", "3486762"]
     assert [i["contentid"] for i in collected[39]] == ["2736687", "2902488"]
-    assert [i["contentid"] for i in collected[12]] == ["12001"]  # 관광지는 승인 범위 밖 — 법정동 목록을 부르지 않는다
-    assert sorted(c["content_type_id"] for c in ldong_calls) == [14, 39]
+    # 관광지(12)도 같은 사각지대 — PM 승인 2026-09-29 로 합친다.
+    assert [i["contentid"] for i in collected[12]] == ["12001", "126207", "2756715"]
+    assert sorted(c["content_type_id"] for c in ldong_calls) == [12, 14, 39]
     for call in ldong_calls:
         assert call["ldong_regn_cd"] == 47 and call["ldong_signgu_cd"] == 130
     # 법정동 목록에서만 온 항목에만 표시가 붙는다(가드 실패 때 이것만 뺀다).
     marked = {i["contentid"] for items in collected.values() for i in items if i.get(ingest_tourapi.LDONG_ONLY_MARK)}
-    assert marked == {"3532127", "3486762", "2902488"}
+    assert marked == {"3532127", "3486762", "2902488", "126207", "2756715"}
 
 
 @pytest.mark.asyncio
@@ -364,6 +369,82 @@ async def test_guard_lookup_failure_drops_only_ldong_only_rows(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_first_night_attractions_from_the_ldong_list_through_stubbed_http(monkeypatch, capsys):
+    # 2026-09-29 운영 대조의 모양 그대로(HTTP 만 가짜): 관광지 반경 목록에는 이미 DB 에 있는 곳만 있고, 첨성대·분황사·
+    # 교촌마을·월정교·불곡 마애여래좌상은 법정동 목록에만 나온다.
+    lists = {
+        ("locationBasedList2", "12"): [_item("125556", 12, title="동궁과 월지", lat=35.8348, lng=129.2265,
+                                             firstimage=_PHOTO)],
+        ("locationBasedList2", "14"): [],
+        ("locationBasedList2", "39"): [],
+        ("areaBasedList2", "12"): [
+            _item("125556", 12, title="동궁과 월지", lat=35.8348, lng=129.2265, firstimage=_PHOTO),
+            _item("126207", 12, title="경주 첨성대", lat=35.8347, lng=129.2190, firstimage=_PHOTO),
+            _item("317503", 12, title="분황사", lat=35.8401, lng=129.2336, firstimage=_PHOTO),
+            _item("128676", 12, title="경주 교촌마을", lat=35.8291, lng=129.2133, firstimage=_PHOTO),
+            _item("2603509", 12, title="월정교", lat=35.8316, lng=129.2167, firstimage=_PHOTO),
+            _item("250261", 12, title="경주 남산 불곡 마애여래좌상", lat=35.8190, lng=129.2350),  # 사진 없음
+            _item("126208", 12, title="불국사", lat=35.7900, lng=129.3320, firstimage=_PHOTO),     # 반경 밖
+        ],
+        ("areaBasedList2", "14"): [],
+        ("areaBasedList2", "39"): [],
+    }
+    requests: list[tuple[str, str]] = []
+
+    def handler(request):
+        endpoint = request.url.path.rsplit("/", 1)[-1]
+        key = (endpoint, request.url.params.get("contentTypeId"))
+        requests.append(key)
+        return httpx.Response(200, json=_ok(lists[key]))
+
+    monkeypatch.setattr(tourapi_client.settings, "TOURAPI_KEY", "test-key")
+    monkeypatch.setattr(tourapi_client, "_list_cache", {})
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    monkeypatch.setattr(tourapi_client, "_get_client", lambda: client)
+
+    facilities = [
+        _facility("dongung", "동궁과 월지", type_="attraction", contentid="125556", lat=35.8348, lng=129.2265),
+        _facility("f4000000-0000-0000-0000-000000000002", "경주 교촌마을", type_="culture", lat=35.8296, lng=129.2156),
+        _facility("f3000000-0000-0000-0000-000000000004", "월정교", type_="attraction", lat=35.8316, lng=129.2167),
+        _facility("f3000000-0000-0000-0000-000000000002", "첨성대", type_="attraction", lat=35.8347, lng=129.2189,
+                  is_active=False),                                              # 꺼진 검증 안 된 데모 시드
+        _facility("88005625", "분황사 청보리밭", type_="attraction", contentid="2774279", lat=35.8398, lng=129.2338),
+    ]
+    rec = _Recorder()
+
+    def fake_upsert(rows):
+        rec.upserted.extend((r["contentid"], r["type"], bool(r.get("image_url"))) for r in rows)
+        return len(rows)
+
+    monkeypatch.setattr(ingest_tourapi, "upsert_facilities", fake_upsert)
+    monkeypatch.setattr(ingest_tourapi, "_load_guard_facilities", lambda: facilities)
+    monkeypatch.setattr("app.core.supabase.supabase_admin", _NullEvents())
+    monkeypatch.delenv("KAKAO_REST_API_KEY", raising=False)
+
+    assert await ingest_tourapi.run(_args(details=False)) == 0
+    assert ("areaBasedList2", "12") in requests
+    assert rec.upserted == [("125556", "attraction", True), ("126207", "attraction", True),
+                            ("317503", "attraction", True)]
+    out = capsys.readouterr().out
+    # 시드 행과 겹친 곳은 넣지 않고 PM 연결 결정 대상으로 남긴다.
+    assert "경주 교촌마을(contentid=128676)" in out and "f4000000-0000-0000-0000-000000000002" in out
+    assert "월정교(contentid=2603509)" in out and "f3000000-0000-0000-0000-000000000004" in out
+    assert out.count("시드·Kakao 행 — 이을지 PM 결정") == 2
+    assert "사진 없는 새 행 넣지 않음: 경주 남산 불곡 마애여래좌상(contentid=250261)" in out
+
+
+class _NullEvents:
+    def table(self, name):
+        return self
+
+    def insert(self, payload):
+        return self
+
+    def execute(self):
+        return None
+
+
+@pytest.mark.asyncio
 async def test_dry_run_does_not_read_the_database_for_the_guard(monkeypatch):
     collected = {39: [_ldong(_item("2904007", 39, title="시골쌈밥"))]}
     rec = _run_env(monkeypatch, collected, guard_error=AssertionError("dry-run 이 DB 를 읽었다"))
@@ -392,6 +473,25 @@ async def test_gyeongju_showflags_union_legacy_and_ldong(monkeypatch, no_retry_s
     ldong_call = next(c for c in calls if c.get("ldong_regn_cd"))
     assert ldong_call["ldong_regn_cd"] == 47 and ldong_call["ldong_signgu_cd"] == 130
     assert ldong_call["area_code"] is None and ldong_call["sigungu_code"] is None
+
+
+@pytest.mark.asyncio
+async def test_showflag_lists_are_not_limited_by_content_type(monkeypatch, no_retry_sleep):
+    # 관광지(12)도 법정동 목록으로 들어오므로 showflag 두 목록 모두 타입을 거르지 않아야 관광지 폐업·비표출도 잡힌다.
+    seen: list[httpx.Request] = []
+
+    def handler(request):
+        seen.append(request)
+        items = [{"contentid": "126207", "contenttypeid": "12", "showflag": "0"}] if "lDongRegnCd" in request.url.params \
+            else [{"contentid": "2736687", "contenttypeid": "39", "showflag": "1"}]
+        return httpx.Response(200, json=_ok(items))
+
+    monkeypatch.setattr(tourapi_client.settings, "TOURAPI_KEY", "test-key")
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    monkeypatch.setattr(tourapi_client, "_get_client", lambda: client)
+    assert await ingest_tourapi.fetch_gyeongju_showflags() == {"126207": "0", "2736687": "1"}
+    assert len(seen) == 2
+    assert all("contentTypeId" not in request.url.params for request in seen)
 
 
 @pytest.mark.asyncio
