@@ -187,7 +187,8 @@
     "linkCopied": "Link copied",
     "shareCourse": "Check out this tailored Gyeongju route · NextSpot",
     "back": "Back",
-    "shareFailed": "Couldn't share — copy the link below instead"
+    "shareFailed": "Couldn't share — copy the link below instead",
+    "cityPhotoCredit": "Photo: Gyeongju City"
   },
   "nav": {
     "home": "Home",

@@ -1,5 +1,7 @@
 // 경주시 사진 출처 — features.city_photo.url 과 같은 사진이 보일 때만 '사진: 경주시', 짝 없는 경주시 사진은 띄우지 않는다.
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import {
   cityPhotoCredit,
   cityPhotoOf,
@@ -100,5 +102,16 @@ const slimSnake = photoCreditFeatures(BOTH);
 assert.equal(creditForDisplayedPhoto(CITY, slimSnake)?.kind, 'city');
 assert.equal(creditForDisplayedPhoto(WIKI, slimSnake)?.kind, 'wikimedia');
 assert.deepEqual(photoCreditFeatures(null), { imageSource: null, cityPhoto: null });
+
+// --- 출처 줄 글자: 4로케일 한 키, 공용 출처 줄이 그 키로 그린다 ------------------------------
+const read = (path: string) => readFileSync(join(process.cwd(), path), 'utf8');
+const LINE = { ko: '사진: 경주시', en: 'Photo: Gyeongju City', ja: '写真: 慶州市', zh: '照片：庆州市' } as const;
+for (const [locale, expected] of Object.entries(LINE)) {
+  const messages = JSON.parse(read(`lib/i18n/messages/${locale}.json`)) as { common: Record<string, string> };
+  assert.equal(messages.common.cityPhotoCredit, expected, `${locale} common.cityPhotoCredit`);
+}
+const link = read('components/PhotoCreditLink.tsx');
+assert.match(link, /t\('common\.cityPhotoCredit'\)/, '경주시 출처 줄은 i18n 키로 그린다');
+assert.match(link, /credit\.kind === 'city'/);
 
 console.log('cityPhotoCredit tests passed');
