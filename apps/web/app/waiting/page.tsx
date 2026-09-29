@@ -330,13 +330,17 @@ function waitHeadline(
 
 /** 대표 카드의 세 숫자 블록 — ① 예상 대기 ② 혼잡 등급 ③ 한산해지는 시각. */
 function WaitStats({ est, row, estimateLevel }: { est: WaitEstimate; row: BoardRow; estimateLevel?: number }) {
-  const t = useT();
+  const { t, locale } = useI18n();
   const headline = waitHeadline(est, row, estimateLevel, t);
   return (
     <div className="shrink-0 space-y-1 mt-1.5">
       {/* ① 예상 대기 — 카드의 주인공. 골드 박스로 가장 크게 세운다.
           분으로 말할 근거가 없는 카드는 여기에 등급·지수가 그대로 들어온다(waitHeadline). */}
-      <p className="rounded-lg border border-gold/30 bg-gold/10 px-2 py-1 text-xs font-extrabold text-gold-deep leading-snug tabular-nums">
+      {/* 한국어는 띄어쓰기에서만 접는다(break-keep) — 좁은 카드에서 '예상 대기 약 10 / 분'·'수집 / 중'처럼
+          숫자와 단위가 갈라져 잘린 글처럼 보였다. 일본어·중국어는 띄어쓰기가 없어 글자 사이 줄바꿈을 그대로 둔다. */}
+      <p className={`rounded-lg border border-gold/30 bg-gold/10 px-2 py-1 text-xs font-extrabold text-gold-deep leading-snug tabular-nums break-words ${
+        locale === "ko" ? "break-keep" : ""
+      }`}>
         {headline}
       </p>
       <div className="flex flex-wrap items-center gap-1">
