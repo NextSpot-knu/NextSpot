@@ -96,7 +96,11 @@ async def test_fetch_pois_retries_transient_failure_then_succeeds(monkeypatch, n
             raise TourAPITransientError("timeout")
         return _ok_payload([{"contentid": str(len(calls))}])
 
+    async def empty_ldong(**kwargs):
+        return _ok_payload([])
+
     monkeypatch.setattr(ingest_tourapi, "location_based_list", flaky_list)
+    monkeypatch.setattr(ingest_tourapi, "area_based_list", empty_ldong)
     collected = await ingest_tourapi.fetch_pois(35.8, 129.2, 3000, limit=0)
 
     assert all(len(items) == 1 for items in collected.values())

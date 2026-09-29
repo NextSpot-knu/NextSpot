@@ -4,6 +4,11 @@
 수집해 Supabase `facilities` 테이블에 contentid 기준으로 upsert 한다.
 (경로/부트스트랩은 scripts/train.py 컨벤션.)
 
+문화시설·음식점은 법정동 코드 목록(areaBasedList2 lDongRegnCd=47·lDongSignguCd=130)도 받아 같은 반경 안의 것을
+contentid 로 합친다 — 구 지역코드가 빈 레코드(경주 음식점·문화시설 243건 중 127건, 2026-09-29 실측)는
+locationBasedList2 에 나오지 않는다. 새 행은 같은 가게가 이미 다른 행(Kakao 보완 등)으로 있으면 넣지 않는다
+(중복 가드 — 이어 붙이기는 사람이 contentid 를 넣어서 한다, docs/HANDOVER.md).
+
 사용 예:
   python scripts/ingest_tourapi.py --dry-run              # DB 미기록, 변환 결과만 출력
   python scripts/ingest_tourapi.py                        # 황리단길 반경 2km 적재
@@ -44,6 +49,7 @@ load_dotenv(os.path.join(parent_dir, ".env"))
 from app.services.tourapi import (
     CONTENT_TYPE_IDS,
     TourAPIError,
+    area_based_list,
     detail_common,
     detail_info,
     detail_image,
@@ -68,6 +74,7 @@ from app.services.tourapi.client import TourAPITransientError, area_based_sync_l
 from app.services.batch.wikimedia import find_reusable_place_image
 from app.services.batch.city_photo import retire_superseded_city_photo
 from app.services.batch.kakao_coordinate_service import reconcile_row_coordinate
+from app.services.spot.travel import calculate_haversine_distance
 
 # 경주 황리단길 기준좌표 (docs/archive/NEXTSPOT_PIVOT.md — 초기 서비스 지역)
 DEFAULT_LAT = 35.8361
@@ -78,6 +85,31 @@ PAGE_ROWS = 100        # locationBasedList2 페이지당 조회 건수
 UPSERT_CHUNK = 100     # Supabase upsert 배치 크기
 
 TYPE_LABELS = {12: "관광지(12)", 14: "문화시설(14)", 39: "음식점(39)"}
+
+# 법정동 코드 목록(areaBasedList2 lDongRegnCd·lDongSignguCd). 2026-09-29 실측: 경주 음식점·문화시설 243건 중 127건은 구
+# areacode/sigungucode 가 빈 값이라 locationBasedList2 에 아예 나오지 않는다(신라고분정보센터 새 레코드·카페 13곳 등).
+# 법정동 목록을 반경(같은 --radius) 안으로 거른 뒤 contentid 로 합친다. 관광지(12)도 같은 사각지대가 있지만
+# (3km 안 26곳 — 첨성대·대릉원 일원·월정교 등) 승인 범위(음식점·문화시설) 밖이라 넣지 않는다(결정 대기).
+LDONG_REGN_CD = 47      # 경상북도(법정동)
+LDONG_SIGNGU_CD = 130   # 경주시(법정동)
+LDONG_CONTENT_TYPE_IDS: tuple[int, ...] = (14, 39)
+LDONG_PAGE_ROWS = 1000  # 경주 음식점 211·문화시설 32건(실측) — 한 페이지
+# 원본 item 에 붙이는 표시 — run() 이 '법정동 목록에만 나온 곳'을 안다(transform_poi 는 모르는 키를 버린다).
+LDONG_ONLY_MARK = "_nextspot_ldong_only"
+
+# 적재하지 않는 contentid(사람 결정 — 이유를 함께 적는다). 행이 이미 있으면 showflag 동기화도 다시 켜지 않는다.
+EXCLUDED_CONTENTIDS: dict[str, str] = {
+    "3451999": "황리단길 생활문화센터 — TourAPI 에 운영시간이 없어 밤·새벽에도 '지금 열린 문화시설'로 뜬다"
+               "(PM 2026-09-29 제외 결정)",
+}
+
+# 새 행 중복 가드: 같은 부류(음식점·카페 / 그 밖)이고 정규화 이름이 같거나 한쪽이 다른 쪽을 품고(2글자 이상)
+# 80m 안에 살아 있는 시설이 있으면 새 TourAPI 행을 넣지 않는다. 2026-09-29 운영 대조: 법정동 목록에만 나오는 3km 안
+# 음식점 39곳 중 26곳이 이미 Kakao 보완 행(예: 동양백반 ↔ 동양백반 경주황리단길 본점 11m)이라, 가드 없이 넣으면
+# 첫 밤에 같은 가게 카드가 두 장 뜬다. 가드에 걸린 곳은 로그에 남고, 사람이 그 행에 contentid 를 넣으면 다음 밤부터
+# 그 행이 TourAPI 사진·운영시간을 받는다(docs/HANDOVER.md "사람 작업 대기").
+DUPLICATE_GUARD_MAX_M = 80.0
+_FOOD_TYPES = frozenset({"restaurant", "cafe"})
 
 # 목록 호출(locationBasedList2·areaBasedSyncList2)의 일시 실패 재시도 간격(초).
 # 2026-09 일배치 실패는 전부 첫 locationBasedList2 가 10초 httpx 타임아웃(str 이 빈 문자열 — 로그상 `error=` 공란)으로
@@ -116,9 +148,62 @@ async def _list_call_with_retry(label: str, call):
             await asyncio.sleep(delay)
 
 
+async def fetch_ldong_items(ctid: int) -> list[dict]:
+    """법정동 코드(경북 47·경주 130) areaBasedList2 목록 전량. 일시 실패는 목록 호출과 같은 규칙으로 재시도한다."""
+    items: list[dict] = []
+    page = 1
+    while True:
+        payload = await _list_call_with_retry(
+            f"areaBasedList2(lDong, type={ctid}, page={page})",
+            lambda ctid=ctid, page=page: area_based_list(
+                content_type_id=ctid, page=page, rows=LDONG_PAGE_ROWS,
+                ldong_regn_cd=LDONG_REGN_CD, ldong_signgu_cd=LDONG_SIGNGU_CD,
+            ),
+        )
+        page_items = parse_items(payload)
+        items.extend(page_items)
+        if not page_items or len(items) >= parse_total_count(payload) or len(page_items) < LDONG_PAGE_ROWS:
+            return items
+        page += 1
+
+
+async def _merge_ldong_items(
+    items: list[dict], ctid: int, lat: float, lng: float, radius_m: int,
+) -> list[dict]:
+    """반경 목록(items)에 법정동 목록 가운데 반경 안·아직 없는 contentid 만 덧붙인다(반경 목록 쪽이 이긴다).
+
+    법정동 목록은 보탬이다 — 실패하면(재시도 뒤 일시 오류 포함) 경고만 남기고 반경 목록만 쓴다. 이미 있는 행은
+    지워지지 않고 그날 갱신만 빠진다. 종료 코드 75(새 러너 재실행)는 여전히 반경 목록 실패에서만 나온다.
+    """
+    label = TYPE_LABELS.get(ctid, ctid)
+    try:
+        ldong_items = await fetch_ldong_items(ctid)
+    except RuntimeError as e:  # TourAPIError(재시도 뒤 일시 오류 포함)와 키 미설정 RuntimeError.
+        print(f"[fetch] {label}: 법정동 목록 실패 — 반경 목록만 씁니다: {e}")
+        return items
+    seen = {str(item.get("contentid")) for item in items if item.get("contentid") not in (None, "")}
+    added = 0
+    for item in ldong_items:
+        contentid = item.get("contentid")
+        if contentid in (None, "") or str(contentid) in seen:
+            continue
+        try:
+            distance = calculate_haversine_distance(lat, lng, float(item["mapy"]), float(item["mapx"]))
+        except (KeyError, TypeError, ValueError):
+            continue
+        if distance > radius_m:
+            continue
+        seen.add(str(contentid))
+        items.append({**item, LDONG_ONLY_MARK: True})  # 원본(목록 캐시)은 건드리지 않는다
+        added += 1
+    print(f"[fetch] {label}: 법정동 목록 {len(ldong_items)}건 중 반경 안 새 contentid {added}건 추가")
+    return items
+
+
 async def fetch_pois(lat: float, lng: float, radius_m: int, limit: int) -> dict[int, list[dict]]:
     """contentTypeId 별로 반경 조회를 페이지네이션하며 원본 item 을 수집한다.
 
+    문화시설·음식점(LDONG_CONTENT_TYPE_IDS)은 법정동 목록의 반경 안 항목을 contentid 로 합친다(_merge_ldong_items).
     limit > 0 이면 타입별 최대 limit 건까지만 수집(쿼터 절약용).
     """
     collected: dict[int, list[dict]] = {}
@@ -141,6 +226,8 @@ async def fetch_pois(lat: float, lng: float, radius_m: int, limit: int) -> dict[
             if limit and len(items) >= limit:
                 break
             page += 1
+        if ctid in LDONG_CONTENT_TYPE_IDS:
+            items = await _merge_ldong_items(items, ctid, lat, lng, radius_m)
         if limit:
             items = items[:limit]
         collected[ctid] = items
@@ -244,6 +331,78 @@ async def enrich_row(row: dict) -> None:
         # 밤 적재 전체를 멈추지 않게 어떤 예외든 이 행의 대체 사진만 건너뛴다.
         except Exception as e:  # noqa: BLE001
             print(f"[details] Wikimedia 이미지 폴백 실패 (contentid={contentid}): {type(e).__name__}: {e}")
+
+
+def _normalize_name(value) -> str:
+    return "".join(str(value or "").split()).casefold()
+
+
+def find_probable_duplicates(rows: list[dict], facilities: list[dict]) -> dict[str, dict]:
+    """새 contentid 행 가운데 같은 가게가 이미 다른 행으로 있는 것 → {contentid: 그 시설 요약}(순수 함수).
+
+    facilities 는 DB 전량(id·name·type·latitude·longitude·contentid·is_active). DB 에 이미 있는 contentid 는 평소처럼
+    갱신되므로 보지 않는다. 판정: 같은 부류(음식점·카페 / 그 밖), 살아 있는 행(is_active 가 false 가 아님), 정규화 이름이
+    같거나 한쪽이 다른 쪽을 품음(둘 다 2글자 이상), 거리 DUPLICATE_GUARD_MAX_M 이하. 가장 가까운 시설을 돌려준다.
+    """
+    known = {str(f.get("contentid")) for f in facilities if f.get("contentid") not in (None, "")}
+    pool = []
+    for facility in facilities:
+        if facility.get("is_active") is False:
+            continue
+        name = _normalize_name(facility.get("name"))
+        try:
+            f_lat, f_lng = float(facility["latitude"]), float(facility["longitude"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if len(name) >= 2:
+            pool.append((facility, name, f_lat, f_lng, facility.get("type") in _FOOD_TYPES))
+    duplicates: dict[str, dict] = {}
+    for row in rows:
+        contentid = str(row.get("contentid"))
+        name = _normalize_name(row.get("name"))
+        if contentid in known or len(name) < 2:
+            continue
+        food = row.get("type") in _FOOD_TYPES
+        best, best_distance = None, float("inf")
+        for facility, f_name, f_lat, f_lng, f_food in pool:
+            if f_food != food or not (name == f_name or name in f_name or f_name in name):
+                continue
+            distance = calculate_haversine_distance(float(row["latitude"]), float(row["longitude"]), f_lat, f_lng)
+            if distance <= DUPLICATE_GUARD_MAX_M and distance < best_distance:
+                best, best_distance = facility, distance
+        if best is not None:
+            duplicates[contentid] = {"id": best.get("id"), "name": best.get("name"),
+                                     "contentid": best.get("contentid"), "distance_m": best_distance}
+    return duplicates
+
+
+def _load_guard_facilities() -> list[dict]:
+    # DB 클라이언트는 여기서 지연 임포트 — --dry-run 경로에서 Supabase 연결을 만들지 않는다.
+    from app.core.supabase import fetch_all_rows, supabase_admin
+
+    # 전량이어야 한다 — 잘리면 빠진 시설과 겹치는 새 행이 중복으로 들어간다.
+    return fetch_all_rows(
+        supabase_admin,
+        "facilities",
+        "id, name, type, latitude, longitude, contentid, is_active",
+        apply_filters=lambda q: q.order("id"),
+    )
+
+
+def probable_duplicate_contentids(rows: list[dict], ldong_only: set[str]) -> set[str]:
+    """오늘 넣지 않을 새 행의 contentid. 기존 시설 조회가 실패하면 법정동 목록에만 나온 곳을 전부 뺀다
+    (중복을 가릴 수 없으면 도입 전 동작 — 반경 목록만 — 으로 돌아간다)."""
+    try:
+        facilities = _load_guard_facilities()
+    except Exception as e:  # noqa: BLE001 — 가드 조회 실패가 적재 전체를 멈추지 않게.
+        print(f"[dedupe] 기존 시설 조회 실패({type(e).__name__}) — 법정동 목록에만 나온 {len(ldong_only)}곳은 오늘 넣지 않습니다")
+        return set(ldong_only)
+    duplicates = find_probable_duplicates(rows, facilities)
+    for contentid, hit in sorted(duplicates.items()):
+        name = next((r.get("name") for r in rows if str(r.get("contentid")) == contentid), "")
+        print(f"[dedupe] 새 행 넣지 않음: {name}(contentid={contentid}) ≈ 기존 {hit['name']}"
+              f"(id={hit['id']}, contentid={hit['contentid']}, {hit['distance_m']:.0f}m) — 이으려면 그 행에 contentid 를 넣는다")
+    return set(duplicates)
 
 
 def _uniform_key_chunks(rows: list[dict]) -> list[list[dict]]:
@@ -498,19 +657,23 @@ SYNC_PAGE_ROWS = 100
 
 
 async def fetch_showflag_map(
-    area_code: int = SYNC_AREA_CODE, sigungu_code: int = SYNC_SIGUNGU_CODE,
+    area_code: int | None = SYNC_AREA_CODE, sigungu_code: int | None = SYNC_SIGUNGU_CODE,
+    *, ldong_regn_cd: int | None = None, ldong_signgu_cd: int | None = None,
 ) -> dict[str, str]:
     """지역 전체 areaBasedSyncList2 를 페이지네이션 수집해 {contentid: showflag} 로 반환한다.
 
     modifiedtime 은 실측 무동작이라 쓰지 않는다(위 모듈 주석 참고) — 매 실행 지역 전체를 받는다.
+    기본은 구 지역코드(35/2). 법정동 코드로 부르려면 area_code=None 과 ldong_* 를 준다.
     """
     showflag_by_id: dict[str, str] = {}
     page = 1
+    region = f"lDong={ldong_regn_cd}/{ldong_signgu_cd}" if ldong_regn_cd else f"area={area_code}/{sigungu_code}"
     while True:
         payload = await _list_call_with_retry(
-            f"areaBasedSyncList2(page={page})",
+            f"areaBasedSyncList2({region}, page={page})",
             lambda page=page: area_based_sync_list(
                 area_code=area_code, sigungu_code=sigungu_code, page=page, rows=SYNC_PAGE_ROWS,
+                ldong_regn_cd=ldong_regn_cd, ldong_signgu_cd=ldong_signgu_cd,
             ),
         )
         items = parse_items(payload)
@@ -525,6 +688,24 @@ async def fetch_showflag_map(
             break
         page += 1
     return showflag_by_id
+
+
+async def fetch_gyeongju_showflags() -> dict[str, str]:
+    """구 지역코드(35/2)와 법정동 코드(47/130) showflag 를 합친다 — 법정동 목록으로 들어온 행(구 코드가 빈 레코드)도
+    폐업·표출중단을 감지하게(2026-09-29 실측 525건 → 753건). 둘 다 있는 contentid 는 구 코드 값(도입 전 동작)을 쓴다.
+    법정동 조회가 실패하면 구 코드 결과만 쓴다(구 코드 실패는 도입 전처럼 올린다).
+    """
+    showflags = await fetch_showflag_map()
+    try:
+        ldong = await fetch_showflag_map(
+            area_code=None, sigungu_code=None, ldong_regn_cd=LDONG_REGN_CD, ldong_signgu_cd=LDONG_SIGNGU_CD,
+        )
+    except RuntimeError as e:  # TourAPIError(일시 오류 포함)·키 미설정 — 구 코드 결과는 이미 얻었다.
+        print(f"[sync] 법정동 showflag 조회 실패 — 구 지역코드 결과만 씁니다: {e}")
+        return showflags
+    added = sum(1 for contentid in ldong if contentid not in showflags)
+    print(f"[sync] showflag: 구 지역코드 {len(showflags)}건 + 법정동에만 있는 {added}건")
+    return {**ldong, **showflags}
 
 
 def _temporary_closure_active(features: dict | None, today: date | None = None) -> bool:
@@ -597,6 +778,9 @@ def sync_showflags(showflag_by_id: dict[str, str]) -> dict:
                     print(f"[sync] is_active=false 갱신 실패 (contentid={contentid}): {e}")
         elif showflag == "1":
             if prior_active is False:  # 신규 재표출 복구
+                if str(contentid) in EXCLUDED_CONTENTIDS:  # 사람이 뺀 곳 — 표출 중이어도 켜지 않는다.
+                    summary["reactivation_deferred"] += 1
+                    continue
                 if str(row.get("id")) in inactive_localdata_ids:
                     summary["reactivation_deferred"] += 1
                     continue
@@ -618,7 +802,7 @@ def sync_showflags(showflag_by_id: dict[str, str]) -> dict:
 
 async def run_showflag_sync(written: int) -> dict:
     """폐업/표출중단 동기화 배치 1회 실행 + app_events 기록(best-effort, 결과에 상관없이 예외를 던지지 않는다)."""
-    showflag_by_id = await fetch_showflag_map()
+    showflag_by_id = await fetch_gyeongju_showflags()
     summary = sync_showflags(showflag_by_id)
 
     try:
@@ -669,7 +853,9 @@ async def run(args: argparse.Namespace) -> int:
     # 변환 (순수 함수 transform_poi — 비정형 item 은 None 으로 스킵)
     rows_by_type: dict[int, list[dict]] = {}
     skipped = 0
+    excluded = 0
     seen_contentids: set[str] = set()
+    ldong_only: set[str] = set()
     for ctid, items in collected.items():
         rows: list[dict] = []
         for item in items:
@@ -680,8 +866,27 @@ async def run(args: argparse.Namespace) -> int:
             if row["contentid"] in seen_contentids:  # 같은 배치 내 중복 contentid 방지
                 continue
             seen_contentids.add(row["contentid"])
+            if row["contentid"] in EXCLUDED_CONTENTIDS:
+                excluded += 1
+                continue
+            if isinstance(item, dict) and item.get(LDONG_ONLY_MARK):
+                ldong_only.add(row["contentid"])
             rows.append(row)
         rows_by_type[ctid] = rows
+    if excluded:
+        print(f"[transform] 사람 결정으로 적재하지 않는 contentid {excluded}건(EXCLUDED_CONTENTIDS)")
+
+    # 새 행 중복 가드 — 상세 조회(쿼터) 전에 거른다. --dry-run 은 DB 를 읽지 않으므로 가드 없이 출력한다.
+    if not args.dry_run:
+        drop = probable_duplicate_contentids(
+            [row for rows in rows_by_type.values() for row in rows], ldong_only,
+        )
+        if drop:
+            rows_by_type = {
+                ctid: [row for row in rows if row["contentid"] not in drop]
+                for ctid, rows in rows_by_type.items()
+            }
+            print(f"[dedupe] 같은 가게가 이미 있어 새로 넣지 않은 행: {len(drop)}건")
 
     all_rows = [row for rows in rows_by_type.values() for row in rows]
 
