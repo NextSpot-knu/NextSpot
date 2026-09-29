@@ -35,7 +35,8 @@ SPOT(Smart Place Optimization for Tourism) 점수로 분산·재배치하는 AI 
 - `supabase/migrations/` — 스키마 정본. `scripts/build_reset.mjs`가 `RESET_AND_SETUP.sql`을 생성한다.
 - `scripts/` — 저장소 도구(node). `apps/api/scripts/` — 적재·학습처럼 `app`을 import하는 파이썬 스크립트.
 - `.github/workflows/` — `ci`(게이트) · `ingest`(매일 KST 04:00 TourAPI 적재) ·
-  `train-recommendation-model`(매주 월 03:00 KST 후보 학습) · `collect-area-demand`·`uptime`(수동 복구용).
+  `train-recommendation-model`(매주 월 03:00 KST 후보 학습) · `area-demand-alert`(수집 신선도 경보) · `warmup`(API Keep-Warm) ·
+  `collect-area-demand`·`uptime`(수동 복구용).
 - 배포: web = Vercel(main push 자동, 루트 `vercel.json`이 워크스페이스 빌드 — 대시보드 Root Directory 설정 없음),
   api = Render Blueprint(`render.yaml`, `/health`), DB·Auth·Storage = Supabase, 10분 주차 실측 수집 = Supabase pg_cron.
 

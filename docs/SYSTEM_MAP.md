@@ -81,7 +81,7 @@ NextSpot/
 │   ├── migrations/             # 스키마 정본 (타임스탬프 순)
 │   └── RESET_AND_SETUP.sql     # scripts/build_reset.mjs 가 마이그레이션에서 자동 생성
 ├── scripts/                    # build_reset.mjs · check-i18n-keys.mjs · check-docs.mjs · run-web-tests.mjs
-├── .github/workflows/          # ci · ingest · train-recommendation-model · area-demand-alert
+├── .github/workflows/          # ci · ingest · train-recommendation-model · area-demand-alert · warmup
 │                               # + 수동: collect-area-demand · uptime
 └── docs/                       # 운영 문서 · contest/ · archive/ (색인 docs/README.md)
 ```
@@ -646,11 +646,16 @@ system_settings
 | `area-demand-alert.yml` | **매시 28분** 예약(GitHub 스케줄러 best-effort — 실측 3~6시간 간격) | 주차 실측 수집이 멈췄는지 감시 — Supabase PostgREST 로 `area_demand_snapshots` 최신 행을 직접 읽는다(35분 넘게 오래되면 `stale`, 읽지 못하면 `api_unreachable`, 200 인데 0행이면 `no_snapshot` — 모두 실패. 새 환경만 Variable `AREA_DEMAND_ALERT_ALLOW_EMPTY=true` 로 0행 통과). Supabase 시크릿이 없으면 예전처럼 `GET /admin/area-demand-reliability?hours=6` 의 `alert.state` |
 | `collect-area-demand.yml` | 수동 | 주차 실측 수집 수동 복구(정기 수집은 Supabase pg_cron 10분 주기) |
 | (워크플로 아님) Supabase pg_cron — **서울 실시간 도시데이터** | 10분(분 4·14·… 주 호출 / 9·19·… 버킷이 비었을 때만 보충) | `POST /api/v1/engine-validation/seoul/collect` 호출 → `seoul_citydata_snapshots` 적재. URL 은 Vault `nextspot_seoul_citydata_api_url`, 토큰은 경주 수집기와 같은 Vault 비밀을 **공유**한다(회전 한 번이면 둘 다 반영). 마이그레이션 `20260920121000` — 2026-09-20 기준 **적용 대기** |
+| `warmup.yml` (API Keep-Warm) | 10분 예약(best-effort — 실측 몇 시간 간격) | `/api/v1/warmup`(무인증 캐시 예열 — P3 배치 A 의 보행 목적지 사전 스냅 포함)·`/health` 호출 |
 | `uptime.yml` | 수동 | 헬스체크(장애 진단용) |
 
 **왜 감시 워크플로가 따로 있나** — 정기 수집은 pg_cron 이 `net.http_post` 로 **발사 후 잊는** 구조라
 API 가 401 을 주든 500 을 주든 `cron.job_run_details` 에는 succeeded 로 남는다. 그래서
 '스케줄러가 돌았는가'가 아니라 **새 스냅샷이 실제로 쌓였는가** 하나만 본다(2026-09-06, `d303d80`).
+
+기본 판정(Supabase 모드, 2026-09-28~): `ok`(최신 행 35분 안) 통과 · `stale`·`no_snapshot`·`api_unreachable` 은 **실패** ·
+`unknown` 은 0행이면서 Variable `AREA_DEMAND_ALERT_ALLOW_EMPTY=true` 일 때만 통과(새 환경용). 아래 표는 Supabase 시크릿이 없을 때의
+예전 API 판정(`/admin/area-demand-reliability` 의 `alert.state`)이다.
 
 | `alert.state` | 조건 | 워크플로 |
 |---|---|---|
@@ -659,7 +664,7 @@ API 가 401 을 주든 500 을 주든 `cron.job_run_details` 에는 succeeded �
 | `down` | 최신 스냅샷이 35분 초과로 낡음 | **exit 1** — GitHub 실패 알림 + 확인 순서를 로그에 찍는다 |
 | `unknown` | 이력 전무(갓 배포된 환경) | 통과 — 경보가 아니다 |
 
-`BACKEND_HEALTH_URL`·`SERVICE_API_TOKEN` 이 없으면 **조용히 skip** 한다 — 설정이 없다고 매시간
+Supabase 시크릿(`SUPABASE_URL`·`SUPABASE_SERVICE_ROLE_KEY`)도 `BACKEND_HEALTH_URL` 도 없으면 **조용히 skip** 한다 — 설정이 없다고 매시간
 실패 메일을 보내면 그것부터 무시하게 되기 때문이다. 같은 지표를 관제 대시보드의
 `AreaDemandReliabilityPanel`(`?hours=24`)이 사람 눈으로도 보여 준다(§5.3).
 

@@ -1,4 +1,40 @@
 # HANDOVER 로그 (2026-06-30 ~ 2026-08-28) 
+## 2026-09-26 — 관제 콘솔 튕김·서버 멈춤·닫힌 HTTP/2 연결 재시도 (운영 긴급 수정 3건)
+
+- 도구·브랜치: Claude Code / `fix/supabase-h2-closed-retry`(`0ae42b8`) + `fix/admin-gate-no-bounce`(`d257f98`→`5f8e4b9`) +
+  `fix/walking-routes-off-event-loop`(`4d21383`) → main. Render `4d21383` Live · Vercel 번들에 새 게이트 확인(09-26 02:0x KST).
+- 한 것: ① 01:21 KST 관제 콘솔 '튕김→재접속' — 코스 계산 23초 동안 /account/me 가 프런트 10초 타임아웃, `admin/layout.tsx` 가
+  그 실패를 권한 없음으로 읽어 로그인으로 보냈다 → `lib/adminGate.ts`(부정 판정일 때만 이동, 닿지 못함은 콘솔 유지/다시 시도).
+  ② 멈춤의 근원: `spot/travel.py` 가 28,832노드 Dijkstra 를 **이벤트 루프 위에서** 돌렸다 → `asyncio.to_thread`(결과 동일).
+  ③ 09-21 이후 50회+ `SEND_HEADERS in state ConnectionState.CLOSED` 실패(추천·계정·관제) → 해당 LocalProtocolError 만 stale 재시도.
+- 검증: api ruff+pytest 1649 · web lint(0 에러)/typecheck/test 55/build 39 · CI(5f8e4b9) 4잡 green · 새 회귀 테스트 3종은 수정 전 코드에서 실패 확인.
+- 추가 배포 `b3eefef`(02:52 KST 가동): PostgREST 응답 json.loads 파싱(`core/postgrest_json.py`) · 관리자 무거운 조회 RSS 사전점검(5초 1회 반환,
+  400MB 이상이면 그 조회만 503) · 관리자 집계 동시 중복 합류(저장 없음) · OpenAPI 계약 스냅샷 테스트. Linux 실측 기동 132→113MB, 관리자 버스트 CPU 절반.
+  배포 확인: Render Live · 파서 설치 경고 0 · 공개 GET 4종 200 · 오류 0.
+- 추가 배포(모두 CI green·Render Live·배포 후 오류 0): `0bfc485` pyproj 지연 적재(기동 -15MB) · `353f831` /health async +
+  GIL 전환 1ms(스레드풀 포화 시 헬스체크 재시작 방지) · `6b80f50` 권역 수요 백테스트 정확·색인 재작성 + 캐시 잠금·single-flight
+  (관광객 CPU 87~96% 원인, Linux 0.5 CPU: 대기 보드 61→5.7초·코스 44→1.7초·흐름 86→9초, 골든 응답 486/486 바이트 동일,
+  동시 제거 경쟁 503 수정) + glibc mmap/trim 문턱 128KB(-5MB). 운영 실트래픽에서의 속도는 아직 미관측.
+- 다음·미결: 재시도 전송의 풀 전체 닫기(중복 POST·Linux 최대 120초 멈춤) — V4 패치는 독립 리뷰 차단(쓰기 실패 증가·httpcore 내부 의존),
+  httpx/httpcore 고정·업그레이드와 함께 심사 뒤 재검토 · 모르는 kid JWKS 재조회 제한 보류(키 교체와 겹치면 401) ·
+  구조 개편 G0~G3(라우터 계층 위반 9건 제거, 시제품 1684 통과) 심사 영향 작업 뒤 · 보행망 CSR(-23.5MB)·권역 수요 GridSeries(-74MB) ·
+  /account/me 401 시 세션 갱신 1회 재시도(운영 401 0건).
+- 사람 작업: 심사 계정 두 개로 로그인 → 관제 대시보드·상인 콘솔 진입 확인(비밀번호 입력은 사람만).
+
+## 2026-09-25 — API OOM 대응 승격: 관제 대시보드 동시 조회 상한·메모리 반환 + 09-24 OOM 수정
+
+- 도구·브랜치: Claude Code(원인 조사 워크플로 5렌즈 + 수정 검증 워크플로 4렌즈) / `fix/api-oom-admin-gate` = `ec127ee` +
+  `0408bd7`·`c3e700d`(09-24 OOM 수정, 미배포였음) + `09edacb`·`0ce394d`(관제 대시보드 게이트) → main.
+- 한 것: Render `nextspot-api`(512MB 단일 인스턴스)가 09-21 이후 8회 OOM 재시작 — 운영은 OOM 수정이 없는 `6a7d653` API 였다.
+  09-25 18:15 KST 는 관제 대시보드가 무거운 관리자 GET 7개를 한꺼번에 쏜 순간(예열이 계단식으로 남긴 ~335MB 위, 09-22 09:40 도
+  같은 패턴), 나머지는 예열 직후·예열 타임아웃 직후. `09edacb`: 무거운 관리자 GET 을 동시 2개로 묶는 ASGI 게이트 + 끝날 때마다
+  gc·`malloc_trim(0)`(예열 끝에도) · model-trust 는 스냅샷 통째 대신 읽는 칸만 JSON 경로로(거부 시 통째 조회로 물러섬).
+- 검증: api `ruff` + `pytest` 1644 통과 · 리뷰 3렌즈(ship, 비차단 지적 1건 `0ce394d` 로 반영) · Linux 전후 RSS(합성 운영 규모,
+  관리자 GET 7개 동시): 피크 main 369~375MB → 165~172MB, 예열 뒤 208MB 고정 → 139MB 로 반환, JSON 경로 거부 폴백 시 256MB.
+- 다음·미결: 배포 후 Render Metrics 에서 관제 대시보드를 한 번 열어 RSS 가 되돌아오는지, 로그에 `admin_trust_slim_select_failed`
+  가 없는지 확인. 예열(GitHub Actions `warmup.yml`)이 남기는 캐시 상한은 `0408bd7` 이 맡는다.
+- 사람 작업: Render 대시보드에서 배포 커밋이 `09edacb`+ 인지, `MALLOC_ARENA_MAX=2` 가 이미지 env 로 들어갔는지(Dockerfile) 확인.
+
 ## 2026-09-21c — 통합: yunseong 데모 콘솔·비교 헤더·데이터 절 + 심사용 계정 안내 → main 승격 준비
 
 - 도구·브랜치: Claude Code(통합 병합 · 6렌즈 리뷰 워크플로 + 3렌즈 검증 워크플로 · 게이트 전체) / `feature/judge-demo-integration`
