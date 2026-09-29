@@ -702,7 +702,7 @@
     "brand": "NextSpot 대기 보드",
     "title": "지금 출발하면?",
     "arrivalWait": "도착 시 대기 {n}분",
-    "waitUnavailable": "대기 정보 수집 중",
+    "waitUnavailable": "대기 정보 수집\u00a0중",
     "heroBestWait": "도착 시 최단 대기 {n}분",
     "sectorCount": "{n}곳",
     "sectorCountOne": "{n}곳",

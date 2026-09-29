@@ -167,7 +167,7 @@ for (const [locale, width] of CASES) {
 
 // 서버 실측 대기(분)가 있는 카드와 아무 근거도 없는 카드. 영어 근거 주석('Arriving 13:00 · Based on measured data')은
 // 예전에 두 줄에서 잘려 'Prediction from…' 만 남았다 — 숫자를 받치는 말이 보이지 않았다. 한국어 골드 박스는
-// '예상 대기 약 10 / 분'·'대기 정보 수집 / 중'처럼 숫자와 단위가 갈라져 잘린 글처럼 보였다.
+// '예상 대기 약 10 / 분'·'대기 정보 수집 / 중'처럼 숫자와 단위가 갈라지거나 한 글자만 넘어가 잘린 글처럼 보였다.
 // 문화시설처럼 한 곳뿐인 섹터의 개수 칩은 영어로 '1 spot'(예전 '1 spots').
 const SERVER_PLACES = [
   item('s1', '분황사 쉼터', 0, null, false, { wait: 10 }),
@@ -215,6 +215,7 @@ for (const [locale, width] of CASES) {
       const text = headline.textContent ?? '';
       const node = headline.firstChild;
       const breaksBefore: string[] = [];
+      let lastLineStart = 0;
       if (node && node.nodeType === Node.TEXT_NODE) {
         let prevTop: number | null = null;
         for (let i = 0; i < text.length; i++) {
@@ -224,13 +225,17 @@ for (const [locale, width] of CASES) {
           range.setEnd(node, i + 1);
           const rect = range.getClientRects()[0];
           if (!rect) continue;
-          if (prevTop !== null && rect.top > prevTop + 2) breaksBefore.push(text[i - 1] ?? '');
+          if (prevTop !== null && rect.top > prevTop + 2) {
+            breaksBefore.push(text[i - 1] ?? '');
+            lastLineStart = i;
+          }
           prevTop = rect.top;
         }
       }
       return {
         headline: text,
         breaksBefore,
+        lastLine: text.slice(lastLineStart),
         footnote: footnote.textContent ?? '',
         footnoteLines: Math.round(f.height / line),
         footnoteWhole: getComputedStyle(footnote).getPropertyValue('-webkit-line-clamp') === 'none'
@@ -249,6 +254,8 @@ for (const [locale, width] of CASES) {
         for (const before of card.breaksBefore) {
           expect(before, `"${card.headline}": 한국어 대기 문구는 띄어쓰기에서만 접힌다`).toBe(' ');
         }
+        // 띄어쓰기에서 접혀도 '수집 / 중' 처럼 한 글자만 다음 줄로 가면 잘린 글처럼 읽힌다.
+        expect(card.lastLine.replace(/\s/g, '').length, `"${card.headline}": 마지막 줄 "${card.lastLine}"`).toBeGreaterThan(1);
       }
     }
     const cultureSection = page.locator('main section.fractal-glass').filter({ has: page.getByText('신라고분정보센터') });
