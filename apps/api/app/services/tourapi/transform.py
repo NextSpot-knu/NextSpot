@@ -11,6 +11,9 @@ CONTENT_TYPE_IDS = (12, 14, 39)
 
 # TourAPI 소분류: A05020900 = 카페/전통찻집 (음식점 39 중 카페 판별 기준)
 CAT3_CAFE = "A05020900"
+# TourAPI 신분류체계 중분류 FD05 = 카페/전통찻집. 2023년 이후 등록분은 cat1~3(구 분류)이 빈 값이라
+# (2026-09-29 실측: 법정동 목록에만 나오는 경주 카페 13곳 전부 cat3 공란 + FD05) cat3 가 비었을 때만 이것으로 본다.
+LCLS2_CAFE = "FD05"
 
 # TourAPI 에는 수용인원(capacity) 정보가 없다 — SPOT 산식/데모용 합성 기본값(타입별 추정치).
 CAPACITY_DEFAULTS = {
@@ -83,10 +86,13 @@ def upgrade_image_scheme(url: Optional[str]) -> Optional[str]:
     return url
 
 
-def map_facility_type(content_type_id: int, cat3: Optional[str] = None) -> str:
+def map_facility_type(
+    content_type_id: int, cat3: Optional[str] = None, lcls_systm2: Optional[str] = None,
+) -> str:
     """contentTypeId → NextSpot canonical 타입(restaurant/cafe/attraction/culture).
 
-    12→attraction, 14→culture, 39→(cat3 가 카페/전통찻집이면 cafe, 아니면 restaurant).
+    12→attraction, 14→culture, 39→(cat3 가 카페/전통찻집이면 cafe, cat3 가 비었고 신분류 lclsSystm2 가
+    FD05(카페/전통찻집)면 cafe, 아니면 restaurant). cat3 가 있으면 cat3 가 이긴다(기존 분류 유지).
     """
     ctid = int(content_type_id)
     if ctid == 12:
@@ -94,7 +100,9 @@ def map_facility_type(content_type_id: int, cat3: Optional[str] = None) -> str:
     if ctid == 14:
         return "culture"
     if ctid == 39:
-        return "cafe" if cat3 == CAT3_CAFE else "restaurant"
+        if cat3:
+            return "cafe" if cat3 == CAT3_CAFE else "restaurant"
+        return "cafe" if lcls_systm2 == LCLS2_CAFE else "restaurant"
     raise ValueError(f"지원하지 않는 contentTypeId 입니다: {content_type_id} (지원: {CONTENT_TYPE_IDS})")
 
 
@@ -116,9 +124,10 @@ def transform_poi(item: Any) -> Optional[dict]:
     if not name or contentid in (None, ""):
         return None
 
+    lcls_systm2 = item.get("lclsSystm2") or item.get("lclssystm2")
     try:
         contenttypeid = int(item.get("contenttypeid"))
-        facility_type = map_facility_type(contenttypeid, item.get("cat3") or None)
+        facility_type = map_facility_type(contenttypeid, item.get("cat3") or None, lcls_systm2 or None)
     except (TypeError, ValueError):
         return None
 
@@ -140,8 +149,11 @@ def transform_poi(item: Any) -> Optional[dict]:
             "cat3": item.get("cat3"),
             # TourAPI 신분류체계. 응답에 존재할 때만 이후 세부 취향 재랭킹에 사용한다.
             "lcls_systm1": item.get("lclsSystm1") or item.get("lclssystm1"),
-            "lcls_systm2": item.get("lclsSystm2") or item.get("lclssystm2"),
+            "lcls_systm2": lcls_systm2,
             "lcls_systm3": item.get("lclsSystm3") or item.get("lclssystm3"),
+            # 목록 대표 사진(firstimage)의 공공누리 유형(Type1 출처표시 · Type3 출처표시+변경금지 등). 사진이 없으면
+            # 빈 값이 온다. 화면 표기(유형별 출처)를 나중에 붙일 수 있게 적재만 해 둔다.
+            "firstimage_cpyrht_div_cd": str(item.get("cpyrhtDivCd") or "").strip() or None,
         },
     }
 

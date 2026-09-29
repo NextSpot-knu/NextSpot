@@ -2,7 +2,7 @@
 
 공모전 필수 데이터 소스(docs/archive/NEXTSPOT_PIVOT.md §3). 담당 범위:
   - locationBasedList2 : 좌표 반경 POI 조회 (황리단길 후보군)
-  - areaBasedList2     : 지역코드 기반 POI 목록
+  - areaBasedList2     : 지역코드 기반 POI 목록 (구 areaCode 또는 법정동 lDongRegnCd/lDongSignguCd)
   - detailCommon2 / detailIntro2 / detailInfo2 : 상세(운영시간·무장애 등)
   - searchFestival2    : 행사/축제 (혼잡 예측 외부 변수)
 
@@ -202,16 +202,25 @@ async def location_based_list(
 
 
 async def area_based_list(
-    area_code: int,
+    area_code: Optional[int] = None,
     sigungu_code: Optional[int] = None,
     content_type_id: Optional[int] = None,
     page: int = 1,
     rows: int = 100,
+    *,
+    ldong_regn_cd: Optional[int] = None,
+    ldong_signgu_cd: Optional[int] = None,
 ) -> dict:
-    """areaBasedList2 — 지역코드(경북=35, 경주 시군구=2) 기반 POI 목록."""
+    """areaBasedList2 — 지역 기반 POI 목록. 구 지역코드(경북=35, 경주=2) 또는 법정동 코드(경북=47, 경주=130).
+
+    ⚠️ 2026-09-29 실측: 경주 음식점·문화시설 243건 중 127건은 구 areacode/sigungucode 가 빈 값이라 구 지역코드
+    조회와 locationBasedList2 에 **나오지 않는다**. 법정동 코드(lDongRegnCd=47&lDongSignguCd=130)로 불러야 전부 온다.
+    """
     return await _get_cached("areaBasedList2", {
         "areaCode": area_code,
         "sigunguCode": sigungu_code,
+        "lDongRegnCd": ldong_regn_cd,
+        "lDongSignguCd": ldong_signgu_cd,
         "contentTypeId": content_type_id,
         "pageNo": page,
         "numOfRows": rows,
@@ -219,22 +228,28 @@ async def area_based_list(
 
 
 async def area_based_sync_list(
-    area_code: int,
+    area_code: Optional[int] = None,
     sigungu_code: Optional[int] = None,
     content_type_id: Optional[int] = None,
     modified_time: Optional[str] = None,
     page: int = 1,
     rows: int = 100,
+    *,
+    ldong_regn_cd: Optional[int] = None,
+    ldong_signgu_cd: Optional[int] = None,
 ) -> dict:
     """areaBasedSyncList2 — 변경분 동기화 목록(표출여부 showflag 포함).
 
     폐업/비표출(showflag) 감지용 일배치 전용이라 캐시하지 않는다(항상 최신 변경분).
     modified_time 은 YYYYMMDD — 해당 일자 이후 변경분만. 실제 수용 파라미터는
     응답 실측으로 확정할 것(문서·실서버 간 차이 전례 있음).
+    법정동 코드도 받는다(2026-09-29 실측: 47/130 → 753건, 구 35/2 → 525건 — 구 코드가 빈 레코드가 빠진다).
     """
     return await _get("areaBasedSyncList2", {
         "areaCode": area_code,
         "sigunguCode": sigungu_code,
+        "lDongRegnCd": ldong_regn_cd,
+        "lDongSignguCd": ldong_signgu_cd,
         "contentTypeId": content_type_id,
         "modifiedtime": modified_time,
         "pageNo": page,
