@@ -150,7 +150,7 @@ def _stored_credit(url=_CITY_URL):
 
 def test_city_photo_fills_only_a_photo_less_row_with_its_credit():
     facility = _facility(image_url=None, gallery_images=[])
-    update_rows, actions = build_actions([_photo_restaurant()], [facility], _NOW)
+    update_rows, actions = build_actions([_photo_restaurant()], [facility], _NOW, city_photo_enabled=True)
 
     row = update_rows[0]
     assert row["gallery_images"] == [_CITY_URL]
@@ -229,7 +229,7 @@ def test_stored_city_photo_is_kept_when_the_api_has_no_photo_today():
 
 def test_changed_city_photo_replaces_photo_and_credit_together():
     facility = _facility(image_url=None, gallery_images=[_CITY_URL], features={"city_photo": _stored_credit()})
-    row = build_actions([_restaurant(image_url=_CITY_URL_NEW)], [facility], _NOW)[0][0]
+    row = build_actions([_restaurant(image_url=_CITY_URL_NEW)], [facility], _NOW, city_photo_enabled=True)[0][0]
     assert row["gallery_images"] == [_CITY_URL_NEW]
     assert row["features"]["city_photo"]["url"] == _CITY_URL_NEW
 
@@ -239,7 +239,8 @@ def test_hidden_row_is_not_matched_so_the_live_duplicate_gets_the_photo():
     hidden = _facility(id="kakao-dup", name="대구갈비 본점", is_active=False, image_url=None, gallery_images=[])
     live = _facility(id="tour-row", name="[백년가게]진가네대구갈비", latitude=35.83611, is_active=True,
                      image_url=None, gallery_images=[])
-    update_rows, actions = build_actions([_photo_restaurant(name="대구갈비")], [hidden, live], _NOW)
+    update_rows, actions = build_actions([_photo_restaurant(name="대구갈비")], [hidden, live], _NOW,
+                                         city_photo_enabled=True)
     assert [r["id"] for r in update_rows] == ["tour-row"]
     assert update_rows[0]["gallery_images"] == [_CITY_URL]
 
@@ -266,3 +267,49 @@ def test_run_selects_photo_columns(monkeypatch):
     asyncio.run(mod.run(apply=False))
     columns = {c.strip() for c in captured["columns"].split(",")}
     assert {"image_url", "gallery_images", "is_active", "features"} <= columns
+
+
+# ---------------------------------------------------------------------------
+# 스위치(GYEONGJU_CITY_PHOTO_ENABLED) — 웹 출처가 배포되기 전에는 사진을 넣지 않는다
+# ---------------------------------------------------------------------------
+
+def test_city_photo_switch_off_adds_and_refreshes_nothing():
+    # 기본은 꺼짐 — 운영 웹이 '사진: 경주시' 출처를 그리기 전에 사진만 뜨지 않게.
+    empty = _facility(id="empty", image_url=None, gallery_images=[])
+    update_rows, actions = build_actions([_photo_restaurant()], [empty], _NOW)
+    assert "gallery_images" not in update_rows[0]
+    assert "city_photo" not in update_rows[0]["features"]
+    assert actions[0]["photo"] == "city_photo_off"
+    assert update_rows[0]["features"]["menu"] == "밀면, 연탄불고기"  # 메뉴 보강은 그대로
+
+    stored = _facility(image_url=None, gallery_images=[_CITY_URL], features={"city_photo": _stored_credit()})
+    row = build_actions([_restaurant(image_url=_CITY_URL_NEW)], [stored], _NOW)[0][0]
+    assert "gallery_images" not in row
+    assert row["features"]["city_photo"] == _stored_credit()
+
+
+@pytest.mark.parametrize(
+    ("photo_columns", "status"),
+    [
+        ({"image_url": _TOUR_URL, "gallery_images": [_CITY_URL]}, "city_photo_retired"),
+        ({"image_url": None, "gallery_images": []}, "city_photo_credit_dropped"),
+    ],
+    ids=["tourapi_photo_arrived", "credit_without_photo"],
+)
+def test_city_photo_switch_off_still_retires_photo_and_credit_together(photo_columns, status):
+    facility = _facility(features={"city_photo": _stored_credit()}, **photo_columns)
+    update_rows, actions = build_actions([_photo_restaurant()], [facility], _NOW)
+    assert update_rows[0]["features"]["city_photo"] is None
+    assert actions[0]["photo"] == status
+
+
+@pytest.mark.parametrize(("value", "expected"), [(None, False), ("", False), ("false", False), ("1", False),
+                                                 ("true", True), (" TRUE ", True)])
+def test_city_photo_switch_reads_the_env(monkeypatch, value, expected):
+    import scripts.ingest_gyeongju_restaurants as mod
+
+    if value is None:
+        monkeypatch.delenv(mod.CITY_PHOTO_ENABLED_ENV, raising=False)
+    else:
+        monkeypatch.setenv(mod.CITY_PHOTO_ENABLED_ENV, value)
+    assert mod.city_photo_enabled() is expected

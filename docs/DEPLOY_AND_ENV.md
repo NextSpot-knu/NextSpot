@@ -113,6 +113,7 @@
 | Variable | `AREA_DEMAND_ALERT_ALLOW_EMPTY=true` (새 환경만) | area-demand-alert(스냅샷 표가 비어도 통과 — 운영에는 두지 않는다) |
 | Secret | `GYEONGJU_FOOD_API_KEY` (선택) | ingest(경주 메뉴별음식점 보강 — `GYEONGJU_FOOD_ENABLED=true` 일 때만) |
 | Variable | `KAKAO_PLACE_DISCOVERY_ENABLED` `TOURAPI_INSIGHTS_ENABLED` `TOURAPI_RELATED_ENABLED` `GYEONGJU_FOOD_ENABLED` `GYEONGJU_FOOD_API_BASE_URL` (선택) | ingest의 게이트된 단계 |
+| Variable | `GYEONGJU_CITY_PHOTO_ENABLED=true` (선택) | ingest(경주 음식점 보강이 사진 없는 음식점에 경주시 사진을 넣는다 — 웹의 '사진: 경주시' 출처가 배포된 뒤에만 켠다. 꺼져 있어도 걷기는 한다) |
 
 `schedule`은 `main`에서만 발화한다. 다른 브랜치에서는 Actions 탭 → Run workflow.
 

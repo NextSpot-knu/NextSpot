@@ -14,6 +14,8 @@ TourAPI 가 쌓은 키(first_menu·parking·cat3·번역 등)를 덮어쓰지 �
 경주시 대표 사진(CON_IMGFILENAME)을 gallery_images 에 넣고 출처를 features.city_photo 에 함께 둔다.
 TourAPI 등 다른 사진이 있는 행은 덮지 않고, 다른 사진이 생긴 행에서는 경주시 사진과 출처를 함께 뺀다.
 규칙 정본: app/services/batch/city_photo.py. image_url 열은 이 배치가 쓰지 않는다.
+넣기·바꾸기는 env GYEONGJU_CITY_PHOTO_ENABLED=true 일 때만 한다(기본 꺼짐 — 웹의 '사진: 경주시' 출처가 배포된 뒤 켠다).
+걷기는 스위치와 상관없이 늘 한다.
 사람이 숨긴 행(is_active=false)은 매칭하지 않는다 — 같은 가게의 살아 있는 행(예: 중복 정리 뒤 남은 TourAPI 행)이
 사진·메뉴를 받게.
 
@@ -55,6 +57,12 @@ _CONTAINS_NAME_MAX_M = 80.0
 UPSERT_CHUNK = 100
 # 이 배치가 쓰는 사진 열 — 바꿀 때만 update 에 싣는다(읽은 값을 되쓰지 않는다). image_url 은 아예 쓰지 않는다.
 _PHOTO_COLUMNS = ("image_url", "gallery_images")
+# 경주시 사진 넣기 스위치(GitHub Actions 변수 → ingest.yml env). 'true' 일 때만 사진을 새로 넣거나 바꾼다.
+# 왜: 웹이 '사진: 경주시' 출처를 그리기 전에 사진부터 들어가면, 운영 웹(photoCredit.ts — Wikimedia 만 안다)은 그 사진을
+# 출처 없이 띄운다(09-29 리뷰 시뮬레이션: 첫 밤 39곳). 웹 출처 변경이 배포된 것을 확인한 뒤에 켠다(docs/HANDOVER.md).
+# 꺼져 있어도 걷기(TourAPI 사진이 온 행에서 경주시 사진과 출처를 함께 빼기)와 출처만 남은 행 정리는 한다.
+CITY_PHOTO_ENABLED_ENV = "GYEONGJU_CITY_PHOTO_ENABLED"
+_CITY_PHOTO_WRITE_STATUSES = frozenset({"city_photo_added", "city_photo_refreshed"})
 
 
 def _normalize_name(value: Any) -> str:
@@ -146,12 +154,23 @@ def merge_features(
     return features
 
 
+def city_photo_enabled() -> bool:
+    """경주시 사진 넣기 스위치(env CITY_PHOTO_ENABLED_ENV == 'true'). 기본은 꺼짐."""
+    return os.getenv(CITY_PHOTO_ENABLED_ENV, "").strip().lower() == "true"
+
+
 def build_actions(
-    restaurants: list[dict[str, Any]], facilities: list[dict[str, Any]], now_iso: str
+    restaurants: list[dict[str, Any]],
+    facilities: list[dict[str, Any]],
+    now_iso: str,
+    *,
+    city_photo_enabled: bool = False,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """매칭 결과로 (upsert 할 update_row 목록, 감사용 action 목록)을 만든다(순수 함수).
 
     같은 시설이 여러 음식점 행에 매칭되면 첫 매칭만 반영한다(중복 upsert 방지).
+    city_photo_enabled 가 거짓이면 경주시 사진을 새로 넣거나 바꾸지 않는다(_CITY_PHOTO_WRITE_STATUSES) — 걷기와
+    출처만 남은 행 정리는 스위치와 상관없이 한다(한 쌍 규칙은 늘 지킨다).
     """
     update_rows: list[dict[str, Any]] = []
     actions: list[dict[str, Any]] = []
@@ -178,6 +197,8 @@ def build_actions(
             caption=restaurant.get("image_caption"),
             con_uid=restaurant.get("con_uid"),
         )
+        if not city_photo_enabled and photo_status in _CITY_PHOTO_WRITE_STATUSES:
+            photo_changes, photo_status = {}, "city_photo_off"
         if CITY_PHOTO_KEY in photo_changes:
             features[CITY_PHOTO_KEY] = photo_changes[CITY_PHOTO_KEY]
         payload: dict[str, Any] = {"features": features}
@@ -234,7 +255,9 @@ async def run(*, apply: bool) -> dict[str, Any]:
         " image_url, gallery_images",
     )
     now_iso = datetime.now(timezone.utc).isoformat()
-    update_rows, actions = build_actions(restaurants, facilities, now_iso)
+    photos_on = city_photo_enabled()
+    print(f"[photo] 경주시 사진 넣기 {'켜짐' if photos_on else f'꺼짐({CITY_PHOTO_ENABLED_ENV} != true) — 걷기만 한다'}")
+    update_rows, actions = build_actions(restaurants, facilities, now_iso, city_photo_enabled=photos_on)
     matched = sum(1 for action in actions if action["status"] == "matched")
     print(f"[match] 음식점 시설 {sum(1 for f in facilities if _is_food_facility(f))}곳 중 매칭 {matched}건")
     photo_counts: dict[str, int] = {}
@@ -266,6 +289,7 @@ async def run(*, apply: bool) -> dict[str, Any]:
         "matched": matched,
         "updated": updated,
         "unmatched": len(restaurants) - matched,
+        "city_photo_enabled": photos_on,
         "city_photo_added": photo_counts.get("city_photo_added", 0),
         "city_photo_retired": photo_counts.get("city_photo_retired", 0)
         + photo_counts.get("city_photo_credit_dropped", 0),
