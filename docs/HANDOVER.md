@@ -6,7 +6,7 @@
 
 ## 배포 상태
 
-- **main = 프로덕션.** main push가 Vercel(web)·Render(api)를 자동 배포한다. 마지막 반영은 2026-09-29 오후 `f0f440b`(= `release/0930`, CI green 15:44 KST) — API 재설계 P3 배치 A(아래 2026-09-28e) · 대기 보드 웹 27건(아래 2026-09-29). Vercel 은 이 번들을 낸다(09-29 23시, i18n 청크 해시가 로컬 빌드와 같음 — 데스크톱 확인). Render 배포 커밋은 `/health` 로는 안 보인다(`reference_snapshot` ready·1,684곳, `parking_history.mode=rpc`). 그 전 2026-09-29 새벽 야간 배치 — API 재설계 P2a(주차 이력 행렬 · 스위치 `AREA_DEMAND_SOURCE` 기본 `rpc` = 손님 쪽 동작 불변, 아래 2026-09-28d) · Wikimedia 사진 출처 줄·ⓒ 표시 자리 · P0b 웹 7건(아래 2026-09-28c). 그 전 2026-09-28 P0c 일배치·수집 경보(`367514c`, 아래 2026-09-28b). 그 전 같은 날 API 참조 스냅샷 P0a·P1(`fd5af2d`..`4d56afa`, 아래 2026-09-28 — 사용자가 직접 푸시, Render 가동 확인: `/health.reference_snapshot` ready·1,682곳, 지도 TTFB 0.24~0.54초·304 동작). 그 전 2026-09-27 TourAPI 일배치 재시도(`58c8bfc`). 그 전 같은 날 Supabase 키 공백 정리(아래 2026-09-26c 끝). 그 전 2026-09-26 Supabase 연결 격리(`bd44110`, 아래 2026-09-26c). 그 전 같은 날 관제 대시보드 추정·예측·시나리오 모드(`990b315`..`c2f97ad`, 아래 2026-09-26b). 그 전 같은 날 운영 긴급 수정·메모리·관광객 CPU(`0ae42b8`..`6b80f50`, 아래 2026-09-26). 그 전 2026-09-25 API OOM 대응(`0408bd7`..`0ce394d`). 그 전 2026-09-22 `ec127ee`, 09-21 —
+- **main = 프로덕션.** main push가 Vercel(web)·Render(api)를 자동 배포한다. 마지막 반영은 2026-09-30 01:24 KST `dd2afc9`(사용자 푸시, `f0f440b` 위 fast-forward) — 추천 카드 합성 id 수정 `afa4ec0`(아래 2026-09-29b) · P3 배치 B csr 커널(스위치 꺼진 채 memo — API 동작 불변, 아래 2026-09-29c) · 문서. CI green(4잡, e2e 포함 01:28 KST) · Vercel 번들에 `afa4ec0` 확인 · Render `/health` 새 프로세스(참조 스냅샷 ready·1,684곳, `parking_history` rpc) — 데스크톱 확인 09-30 01:30. 그 전 2026-09-29 오후 `f0f440b`(= `release/0930`, CI green 15:44 KST) — API 재설계 P3 배치 A(아래 2026-09-28e) · 대기 보드 웹 27건(아래 2026-09-29). Vercel 은 이 번들을 낸다(09-29 23시, i18n 청크 해시가 로컬 빌드와 같음 — 데스크톱 확인). Render 배포 커밋은 `/health` 로는 안 보인다(`reference_snapshot` ready·1,684곳, `parking_history.mode=rpc`). 그 전 2026-09-29 새벽 야간 배치 — API 재설계 P2a(주차 이력 행렬 · 스위치 `AREA_DEMAND_SOURCE` 기본 `rpc` = 손님 쪽 동작 불변, 아래 2026-09-28d) · Wikimedia 사진 출처 줄·ⓒ 표시 자리 · P0b 웹 7건(아래 2026-09-28c). 그 전 2026-09-28 P0c 일배치·수집 경보(`367514c`, 아래 2026-09-28b). 그 전 같은 날 API 참조 스냅샷 P0a·P1(`fd5af2d`..`4d56afa`, 아래 2026-09-28 — 사용자가 직접 푸시, Render 가동 확인: `/health.reference_snapshot` ready·1,682곳, 지도 TTFB 0.24~0.54초·304 동작). 그 전 2026-09-27 TourAPI 일배치 재시도(`58c8bfc`). 그 전 같은 날 Supabase 키 공백 정리(아래 2026-09-26c 끝). 그 전 2026-09-26 Supabase 연결 격리(`bd44110`, 아래 2026-09-26c). 그 전 같은 날 관제 대시보드 추정·예측·시나리오 모드(`990b315`..`c2f97ad`, 아래 2026-09-26b). 그 전 같은 날 운영 긴급 수정·메모리·관광객 CPU(`0ae42b8`..`6b80f50`, 아래 2026-09-26). 그 전 2026-09-25 API OOM 대응(`0408bd7`..`0ce394d`). 그 전 2026-09-22 `ec127ee`, 09-21 —
   `fafdd06`+(심사용 계정 안내 + yunseong 데모 콘솔·비교 헤더·데이터 절 통합, 아래 `2026-09-21b`·`c`; 그전 `374254c`·소개 개편
   `a3b8a6b` 포함). `/guide`는 줄·혼잡으로 잃는 여행 시간과 주변 대안·이동 코스라는
   문제·해결 한 화면만 남겼다. Vercel 응답에서 새 제목·문제 카드·해결 카드가 있고 이전 취향 서사와 기술 설명은 없는 것을 확인했다.
@@ -50,7 +50,7 @@
 - [ ] **Render `AREA_DEMAND_SOURCE=shadow`** (P2a 는 09-29 새벽 main 반영 — 지금 `rpc`) → 24시간·재시작 1회 뒤 게이트와 go/no-go 측정 → `matrix`.
       순서·게이트·되돌림(`rpc`, 재시작 1~2분)·볼 것은 [`API_ARCHITECTURE_PLAN.md`](./API_ARCHITECTURE_PLAN.md) "P2a 전환 절차".
 - [ ] **P3 배치 A Render 로그 확인**(09-29 `f0f440b` 로 반영) — 예열은 Keep-Warm 워크플로가 이미 부른다(반영 뒤 06:53Z·10:36Z 실행). Render 로그에서 `walking_graph_presnap`·`warmup_run_done` 이 보이는지, `merchant_boost_timesale_fetch_failed`·`availability_evidence_unavailable`(추천·by-type·지도)이 늘지 않았는지. 되돌림 env `WALKING_ROUTE_KERNEL=legacy`(재시작) — 아래 2026-09-28e. 반영 전 PM 확인으로 적었던 두 가지(영업 근거 한 번 조회의 실패 범위가 `/infrastructures` 지도에도 적용 · 기존 테스트 두 곳 변경)는 이미 운영에 있다.
-- [ ] **(P3 배치 B 가 main 에 들어간 뒤) Render `WALKING_ROUTE_KERNEL=csr`** — 재시작 1~2분. 로그 `walking_graph_csr_loaded origin=bin`(적재 수십 ms)·`walking_graph_presnap kernel=csr`(시설 ~1,684곳) 확인, Render Metrics 메모리가 전보다 ~20MB 낮은지. 되돌림 `memo`(재시작). 아래 2026-09-29c.
+- [ ] **Render `WALKING_ROUTE_KERNEL=csr`**(P3 배치 B 는 09-30 `dd2afc9` 로 main 반영 — 지금 memo) — 재시작 1~2분. 로그 `walking_graph_csr_loaded origin=bin`(적재 수십 ms)·`walking_graph_presnap kernel=csr`(시설 ~1,684곳) 확인, Render Metrics 메모리가 전보다 ~20MB 낮은지. 되돌림 `memo`(재시작). 아래 2026-09-29c.
 - [ ] **폰 스모크(390px)** — 09-29 반영분(P0b 웹·사진 출처 · 대기 보드 27건): `/waiting` 4로케일(사진 없는 장소 표지·야간 18시 이후 색·줄 단위 자르기) · `/explore/recommend` 사진 대체 · 관제 장소 표 검색. 실시 기록이 없다.
 - [ ] **공공 API 키 회전** — `TOURAPI_KEY`·`KMA_API_KEY`·`PARKING_API_KEY`·`GYEONGJU_FOOD_API_KEY`. httpx INFO 로그가 쿼리스트링째 전체 URL을 남겨 Render 로그 이력에 키가 있을 수 있다(09-28 `d9639c2` 로 차단). 새 키 발급 → Render·GitHub Secrets 갱신.
 - [ ] Render `nextspot-api` 환경변수 `SUPABASE_SERVICE_ROLE_KEY` 끝의 줄바꿈 지우기(09-27 발견 — 코드가 이미 걷으므로 급하지 않다. 저장하면 재배포된다).
@@ -196,7 +196,7 @@ from checks order by seq;
 
 최신이 위. 10개를 넘으면 가장 오래된 항목을 `archive/HANDOVER_LOG.md` 맨 위로 옮긴다.
 
-## 2026-09-29c — API 재설계 P3 배치 B: 보행 경로 csr 커널 (스위치 꺼진 채 — memo, main 미반영)
+## 2026-09-29c — API 재설계 P3 배치 B: 보행 경로 csr 커널 (스위치 꺼진 채 — memo, 09-30 `dd2afc9` 로 main 반영)
 
 - 도구·브랜치: Claude Code(데스크톱) · 독립 리뷰 워크플로(동등성·운영 2렌즈 → 반박 검증, 4에이전트) / `perf/p3b-csr-0929`(`docs/handover-0929-sync` 위)
 - 커밋: b6181be..(이 기록) (구현 1 · 리뷰 수리 1 · 이 기록)
@@ -210,7 +210,7 @@ from checks order by seq;
 
 ## 2026-09-29b — 데스크톱: 노트북 124커밋 동기화 · 전수 점검(5영역 리뷰 → 반박 검증) · 문서 어긋남 정리
 
-- 도구·브랜치: Claude Code(데스크톱) · 리뷰 워크플로(5영역 리뷰 → 영역별 반박 검증, 9에이전트, 읽기 전용) / `docs/handover-0929-sync`(main `f0f440b` 위)
+- 도구·브랜치: Claude Code(데스크톱) · 리뷰 워크플로(5영역 리뷰 → 영역별 반박 검증, 9에이전트, 읽기 전용) / `docs/handover-0929-sync`(main `f0f440b` 위) → main(09-30 `dd2afc9`, 사용자 푸시)
 - 커밋: afa4ec0 (수정 1건) + 이 기록
 - 한 것: 3cf5bf9..f0f440b(124커밋) 동기화 → 게이트 재실행 → 운영 확인(Vercel 번들 = f0f440b · CI green · `/health` 참조 스냅샷 ready·`parking_history` rpc · 경보가 Supabase 단계로 실제 판정 · Keep-Warm 이 반영 뒤 `/warmup` 호출) → 5영역 리뷰. P2a(rpc 는 스레드·DB 호출 없이 불변)·P3a 는 결함 없음, 확인 2건·가능성 1건(09-28b 다음·미결).
   고친 것: 저장 실패로 같은 합성 id(`mock-rec-id`)가 여러 추천 카드에 오면 카드마다 다른 id(`lib/recommendationIds.ts`) — 사진 커서가 서로를 되돌리며 깜빡이던 것·카드 하나 지우면 합성 id 카드가 다 사라지던 것.
@@ -283,7 +283,7 @@ from checks order by seq;
   - 좌표: 저장된 `features.coordinate_source='kakao'` 인 행은 그날 Kakao 매칭이 실패·동점이면 위경도를 보내지 않는다(검증 좌표 유지).
   - 폴백 INSERT 조각이 실패하면 행마다 다시 넣고 실패 contentid 를 로그에 — 나쁜 행 하나가 새 장소 100곳을 막지 않게. `GITHUB_STEP_SUMMARY` 에 "written X/Y" 한 줄. 종료 코드 규칙(75 재시도 사슬)은 그대로.
   - area-demand-alert: 끊긴 응답(IncompleteRead 등)도 재시도 후 `api_unreachable` 안내로(트레이스백 X) · Supabase 모드의 빈 결과는 `no_snapshot` 실패(새 환경만 Variable `AREA_DEMAND_ALERT_ALLOW_EMPTY=true`) · 오류 발췌에서 키·URL 가림 · 주석은 '매시 감지'를 약속하지 않음(스케줄러 best-effort, 실측 3~6시간 간격).
-  - 2차: 항목 0개인 detailCommon2 응답은 '사진 없음' 확인이 아니다(image_url 을 지우지도, Wikimedia 로 바꾸지도 않음 — ca91cbe 회귀) · TourAPI 사진(대표 또는 갤러리)이 다시 생기면 저장된 갤러리에서 Wikimedia 사진만 빼고 출처를 `features.image_source=null` 로 걷어 낸다 — 기존 행 SELECT 가 `image_url, gallery_images` 도 읽어 저장된 TourAPI 갤러리는 남기고(`[]` 를 보내지 않는다), Wikimedia 사진이 남지 않은 옛 출처(main 이 남긴 'TourAPI 갤러리 + 옛 출처' 행)는 사진을 건드리지 않고 지운다. detailImage2 항목 0개 응답으로 저장된 TourAPI 갤러리를 Wikimedia 로 덮지 않는다(3차 리뷰). 웹 추천 카드(/main·/saved)가 Wikimedia 사진에 출처 줄을 붙이지 않는 기존 문제는 웹 게이트·화면 확인을 위해 별도 브랜치 `fix/card-photo-credit` 로 분리했다(main 미반영) · 경보 시크릿에 U+200B 같은 글자가 있으면 요청 전 `api_unreachable`(`invalid_key_chars`·`invalid_url_chars`, 위치·코드포인트만 출력).
+  - 2차: 항목 0개인 detailCommon2 응답은 '사진 없음' 확인이 아니다(image_url 을 지우지도, Wikimedia 로 바꾸지도 않음 — ca91cbe 회귀) · TourAPI 사진(대표 또는 갤러리)이 다시 생기면 저장된 갤러리에서 Wikimedia 사진만 빼고 출처를 `features.image_source=null` 로 걷어 낸다 — 기존 행 SELECT 가 `image_url, gallery_images` 도 읽어 저장된 TourAPI 갤러리는 남기고(`[]` 를 보내지 않는다), Wikimedia 사진이 남지 않은 옛 출처(main 이 남긴 'TourAPI 갤러리 + 옛 출처' 행)는 사진을 건드리지 않고 지운다. detailImage2 항목 0개 응답으로 저장된 TourAPI 갤러리를 Wikimedia 로 덮지 않는다(3차 리뷰). 웹 추천 카드(/main·/saved)가 Wikimedia 사진에 출처 줄을 붙이지 않는 기존 문제는 웹 게이트·화면 확인을 위해 별도 브랜치 `fix/card-photo-credit` 로 분리했다(`40db900`, 09-29 새벽 야간 배치로 main 반영) · 경보 시크릿에 U+200B 같은 글자가 있으면 요청 전 `api_unreachable`(`invalid_key_chars`·`invalid_url_chars`, 위치·코드포인트만 출력).
 - 검증: api ruff + pytest 1850(새 9건, 수정 전 코드에서 전부 실패 확인) · actionlint + shellcheck · 스텁 PostgREST 13경우 · 운영 Supabase 읽기 1회(state=ok) · check-docs. 리뷰 수정: pytest 새 6건(수정 전 스크립트에서 전부 실패) · 가짜 HTTP 서버로 경보 스크립트 원문 10경우(ok·stale·빈 결과·허용 변수·IncompleteRead·401·503×3, 로그·Summary 에 키·URL 없음 — 수정 전 원문은 5경우 실패) · actionlint 1.7.12. 2차: pytest 1862(새 6건 — R1·R2 는 수정 전 코드에서 실패, capacity 단언 2건은 PM 결정에 맞춰 뒤집음) · 경보 하네스 12/12(U+200B 키·주소 2경우 추가, 수정 전 원문은 둘 다 실패) · actionlint
 - 다음·미결: (09-29 데스크톱) "배포 상태"·"사람 작업 대기"의 경보 설명 갱신함 · 반영 뒤 실제 실행 간격 3~7시간(Supabase 단계로 판정) · 충돌 대상 정리는 RPC 단계에서 — 그때 Kakao 좌표를 지키는 행이 위경도 키를 빼고 보내는 것(`_write_payload`)을 저장된 값으로 채워 보내게 바꿀 것: INSERT … ON CONFLICT 는 충돌 판정 전에 NOT NULL 을 검사해 그 조각 전체가 23502 로 폴백에 떨어진다(오늘은 1차 upsert 가 42P10 으로 먼저 실패해 영향 없음, 가짜 표는 NOT NULL 을 검사하지 않아 시험이 못 잡는다).
   - 3차 6002c82: Wikimedia 조회의 이상 응답·깨진 갤러리 URL 은 그 행의 대체 사진만 건너뛰고 밤 적재는 계속 · `tests/scripts/conftest.py` 가 `GITHUB_STEP_SUMMARY` 를 비워 시험이 CI Summary 에 가짜 적재 줄을 남기지 않는다.
