@@ -42,15 +42,15 @@ import NowChip from "@/components/NowChip";
 import LoadingReveal from "@/components/LoadingReveal";
 // T2: 휴무 원문(rest_date_raw) 파서 — 오늘 휴무 '확정'만 판정(모르면 null, 과판정 금지). 공용 단일 소스.
 import { isClosedToday } from "@/lib/restDate";
-// Wikimedia 사진(CC BY/BY-SA)은 출처와 함께만 — 출처 줄은 지금 보이는 사진이 Wikimedia 일 때만 붙는다.
+// Wikimedia(CC BY/BY-SA)·경주시 사진은 출처와 함께만 — 출처 줄은 지금 보이는 사진이 그 사진일 때만 붙는다.
 import {
   advancePhotoCursor,
   creditedPhotoUrls,
   creditForDisplayedPhoto,
   displayedPhotoUrl,
-  imageSourceOf,
-  isWikimediaUrl,
+  mayShowPhotoCredit,
   photoCandidates,
+  photoCreditFeatures,
   type PhotoCursor,
 } from "@/lib/photoCredit";
 import { PhotoCreditLink } from "@/components/PhotoCreditLink";
@@ -84,6 +84,11 @@ const PER_TYPE_LIMIT = 8;
 const BOARD_CACHE_KEY = "nextspot_waiting_board_v2";
 const BOARD_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
+/** 대기 보드 행의 출처 판정용 features — lib/photoCredit 가 camel 두 키(imageSource·cityPhoto)를 읽는다. */
+function rowPhotoFeatures(row: Pick<BoardRow, "imageSource" | "cityPhoto">): Record<string, unknown> {
+  return { imageSource: row.imageSource, cityPhoto: row.cityPhoto ?? null };
+}
+
 interface BoardRow {
   facilityId: string;
   name: string;
@@ -92,6 +97,9 @@ interface BoardRow {
   summary: string | null;
   // features.imageSource(API camel) 또는 image_source(snake) 원본 — Wikimedia 대체 사진의 작가·라이선스·원문 링크.
   imageSource: Record<string, unknown> | null;
+  // features.cityPhoto(camel) 또는 city_photo(snake) 원본 — 경주시 사진의 짝 URL·원문 링크.
+  // 옛 캐시 행에는 없다(undefined) — 그때는 경주시 사진을 띄우지 않는다(출처 없이 보이지 않게).
+  cityPhoto?: Record<string, unknown> | null;
   congestionLevel: number | null;
   // 매장 내부 혼잡이 없을 때도 공영주차·관광 근거로 대안성을 보여주는 주변 권역 수요.
   areaDemandLevel: number | null;
@@ -713,7 +721,7 @@ export default function WaitingBoardPage() {
           // TourAPI 소개(비-ko 로케일이면 배치 번역 우선)를 우선하고, 없으면 실제 주소를 짧은 보조
           // 설명으로 사용한다. 둘 다 없을 때는 내용을 지어내지 않고 설명 영역을 숨긴다.
           summary: overviewText || rec.facility.address?.trim() || null,
-          imageSource: imageSourceOf(rec.facility.features),
+          ...photoCreditFeatures(rec.facility.features),
           // 카드·추천 목록과 **같은 판정**을 쓴다. 이 보드는 같은 RecommendItem 을 받으면서
           // 원시 congestionLevel 만 읽어, 추천 화면이 '추정 · 여유' 라고 말하는 시설을
           // '혼잡' 으로 그리고 있었다(2026-09-20 적대적 검토). 추정은 여기서 그리지 않고
@@ -938,7 +946,7 @@ export default function WaitingBoardPage() {
                   return {
                     wait,
                     headlineKey: waitHeadlineKey(headlineOf(wait, row, estimateLevels[row.facilityId])),
-                    hasPhoto: creditedPhotoUrls(row.imageUrls, { imageSource: row.imageSource }).length > 0,
+                    hasPhoto: creditedPhotoUrls(row.imageUrls, rowPhotoFeatures(row)).length > 0,
                   };
                 },
               );
@@ -971,16 +979,17 @@ export default function WaitingBoardPage() {
                   {/* 대표 카드 3장 — 도착 대기 짧은 순 상위 3곳, 세로로 긴 포트레이트 카드 */}
                   <div className="grid grid-cols-3 items-stretch gap-2">
                     {(() => {
-                    // 이 줄의 카드 중 하나라도 Wikimedia 사진을 띄울 수 있으면 출처 두 줄 자리를 처음부터
-                    // 잡아 둔다 — 대표 사진이 깨져 출처가 나중에 생겨도 아래 내용이 밀리지 않는다.
-                    const rowMayCredit = topRows.some((row) =>
-                      creditedPhotoUrls(row.imageUrls, { imageSource: row.imageSource }).some(isWikimediaUrl),
-                    );
+                    // 이 줄의 카드 중 하나라도 출처가 붙는 사진(Wikimedia·경주시)을 띄울 수 있으면 출처 자리를
+                    // 처음부터 잡아 둔다 — 대표 사진이 깨져 출처가 나중에 생겨도 아래 내용이 밀리지 않는다.
+                    const rowMayCredit = topRows.some((row) => {
+                      const features = rowPhotoFeatures(row);
+                      return mayShowPhotoCredit(creditedPhotoUrls(row.imageUrls, features), features);
+                    });
                     // 사진 없는 카드의 표지 — 장소마다 정해진 문양이되, 한 줄 안에서는 같은 무늬가 겹치지 않게.
                     const rowVisuals = placeVisualsForRow(topRows.map((row) => ({ id: row.facilityId, type: row.type })));
                     return topRows.map((row, idx) => {
-                      const photoFeatures = { imageSource: row.imageSource };
-                      // 출처 없는 Wikimedia 사진은 후보에서 빠진다(출처 없이 띄우지 않는다).
+                      const photoFeatures = rowPhotoFeatures(row);
+                      // 출처 없는 Wikimedia 사진·짝 없는 경주시 사진은 후보에서 빠진다(출처 없이 띄우지 않는다).
                       const photoUrls = creditedPhotoUrls(row.imageUrls, photoFeatures);
                       const photoUrl = displayedPhotoUrl(photoUrls, photoCursors[row.facilityId]);
                       const photoLoaded = photoUrl !== null && loadedPhotos[row.facilityId] === photoUrl;
@@ -1029,7 +1038,7 @@ export default function WaitingBoardPage() {
                           min-w-0: 출처 줄의 글자 폭이 카드 열을 넓히지 않게(긴 작가 이름은 말줄임).
                           pt-2: 카드 아래 가장자리를 누르려던 엄지가 출처 링크(새 창)로 새지 않게 띄운다.
                           카드 폭이 좁아 작가 이름과 라이선스를 두 줄로 나눈다 — 이름이 한 줄을 다 쓴다.
-                          Wikimedia 후보가 없는 줄은 출처가 생길 수 없다 — 프로덕션 보드와 같은 16px 자리 그대로. */}
+                          출처가 붙는 후보(Wikimedia·경주시)가 없는 줄은 출처가 생길 수 없다 — 프로덕션 보드와 같은 16px 자리. */}
                       <div className={`min-w-0 ${rowMayCredit ? "min-h-9 pt-2" : "min-h-4"}`}>
                       {photoCredit && <PhotoCreditLink credit={photoCredit} stacked />}
                       </div>

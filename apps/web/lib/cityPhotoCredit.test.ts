@@ -114,4 +114,21 @@ const link = read('components/PhotoCreditLink.tsx');
 assert.match(link, /t\('common\.cityPhotoCredit'\)/, '경주시 출처 줄은 i18n 키로 그린다');
 assert.match(link, /credit\.kind === 'city'/);
 
+// --- 사진이 뜨는 관광객 화면 4곳이 같은 판정을 쓰고, 출처는 사진이 드러난 뒤에만 -------------------
+// /waiting 대표 카드: 행이 두 출처 원본(imageSource·cityPhoto)을 들고 다닌다.
+const waiting = read('app/waiting/page.tsx');
+assert.match(waiting, /\.\.\.photoCreditFeatures\(rec\.facility\.features\)/, '대기 보드 행이 경주시 출처를 싣는다');
+assert.match(waiting, /creditedPhotoUrls\(row\.imageUrls, rowPhotoFeatures\(row\)\)/, '줄 세우기의 사진 유무도 같은 후보');
+assert.match(waiting, /const photoFeatures = rowPhotoFeatures\(row\);/);
+assert.match(waiting, /mayShowPhotoCredit\(/, '출처 자리 예약은 Wikimedia·경주시 둘 다');
+assert.match(waiting, /photoLoaded \? creditForDisplayedPhoto\(photoUrl, photoFeatures\) : null/);
+// /main 상세 시트 · /saved(RecommendationCard): 다 받은 사진일 때만 출처가 보인다.
+const card = read('components/RecommendationCard.tsx');
+assert.match(card, /onLoad=\{\(\) => setLoadedCardImageUrl\(cardImageUrl\)\}/);
+assert.match(card, /cardImageLoaded \? '' : 'invisible'/, 'RecommendationCard 출처는 사진이 보인 뒤에만');
+// /explore/recommend 추천 카드.
+const explore = read('app/explore/recommend/page.tsx');
+assert.match(explore, /onLoad=\{\(\) => markPhotoLoaded\(rec\.recommendationId, photoUrl\)\}/);
+assert.match(explore, /photoLoaded \? "" : "invisible"/, '추천 목록 출처는 사진이 보인 뒤에만');
+
 console.log('cityPhotoCredit tests passed');

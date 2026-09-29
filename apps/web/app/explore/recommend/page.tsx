@@ -236,6 +236,11 @@ function RecommendContent() {
   // 추천 카드마다 몇 번째 사진 후보를 띄우는지(깨진 사진은 건너뛴다 — 대기 보드와 같은 커서). 카드는 목록 map 안에서
   // 그려져 카드별 useState 를 둘 수 없어 추천 id 로 묶는다. 보이는 사진과 그 출처는 렌더 중 이 커서에서 함께 정한다.
   const [photoCursors, setPhotoCursors] = useState<Record<string, PhotoCursor>>({});
+  // 추천 카드마다 **다 받은** 사진 URL — 출처 줄은 그 사진이 보일 때만 드러난다(받는 중에는 자리만 잡고 숨긴다).
+  const [loadedPhotos, setLoadedPhotos] = useState<Record<string, string>>({});
+  const markPhotoLoaded = (recommendationId: string, url: string) => {
+    setLoadedPhotos((prev) => (prev[recommendationId] === url ? prev : { ...prev, [recommendationId]: url }));
+  };
   const skipBrokenPhoto = (recommendationId: string, urls: readonly string[], failedUrl: string) => {
     setPhotoCursors((prev) => {
       const current = prev[recommendationId];
@@ -1460,11 +1465,13 @@ function RecommendContent() {
               // TourAPI 상세 소비(RecommendationCard 와 동일 관례) — features 내부 키는 keysToCamel 재귀
               // 변환(firstMenu)과 supabase 폴백 원본(first_menu) 두 표기를 모두 방어한다.
               const recFeatures = rec.facility.features as Record<string, unknown> | null | undefined;
-              // 사진 — 대표 사진부터 갤러리 순으로, 깨지면 다음 후보. 출처 없는 Wikimedia 사진은 후보에서 빠지고,
-              // 출처는 지금 보이는 사진이 Wikimedia 일 때만 붙는다. 후보를 다 쓰면 사진 상자 자체가 없다(기존과 같다).
+              // 사진 — 대표 사진부터 갤러리 순으로, 깨지면 다음 후보. 출처 없는 Wikimedia 사진·짝 없는 경주시 사진은
+              // 후보에서 빠지고, 출처는 지금 보이는 사진이 그 사진일 때만(그리고 다 받은 뒤에만) 드러난다.
+              // 후보를 다 쓰면 사진 상자 자체가 없다(기존과 같다).
               const photoUrls = creditedPhotoUrls(photoCandidates(rec.facility.imageUrl, rec.facility.galleryImages), recFeatures);
               const photoUrl = displayedPhotoUrl(photoUrls, photoCursors[rec.recommendationId]);
               const photoCredit = creditForDisplayedPhoto(photoUrl, recFeatures);
+              const photoLoaded = photoUrl !== null && loadedPhotos[rec.recommendationId] === photoUrl;
               const firstMenuRaw = (recFeatures?.firstMenu ?? recFeatures?.first_menu) as string | undefined;
               const firstMenuTokens = firstMenuRaw
                 ? firstMenuRaw.split(",").map((s) => s.trim()).filter(Boolean).slice(0, 2)
@@ -1529,13 +1536,18 @@ function RecommendContent() {
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
                         key={photoUrl}
+                        // 캐시에서 곧장 뜬 사진은 onLoad 를 놓칠 수 있다 — 붙는 순간 한 번 확인한다.
+                        ref={(img) => { if (img?.complete && img.naturalWidth > 0) markPhotoLoaded(rec.recommendationId, photoUrl); }}
                         src={photoUrl}
                         alt={rec.facility.name}
                         loading="lazy"
+                        onLoad={() => markPhotoLoaded(rec.recommendationId, photoUrl)}
                         onError={() => skipBrokenPhoto(rec.recommendationId, photoUrls, photoUrl)}
                         className="w-full h-36 object-cover rounded-xl border border-line"
                       />
-                      {photoCredit && <PhotoCreditLink credit={photoCredit} className="-mt-px -mb-[5px]" />}
+                      {photoCredit && (
+                        <PhotoCreditLink credit={photoCredit} className={`-mt-px -mb-[5px] ${photoLoaded ? "" : "invisible"}`} />
+                      )}
                     </div>
                   )}
                   {/* Top info row */}
