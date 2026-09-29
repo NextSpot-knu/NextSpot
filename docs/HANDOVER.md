@@ -196,6 +196,15 @@ from checks order by seq;
 
 최신이 위. 10개를 넘으면 가장 오래된 항목을 `archive/HANDOVER_LOG.md` 맨 위로 옮긴다.
 
+## 2026-09-30 — 진행 중: "아직 느리다" — 대기 보드·추천·코스 요청 경로 정밀 최적화 (조사 단계, 코드 변경 없음)
+
+- 도구·브랜치: Claude Code(데스크톱) / `docs/switches-0930`(main `e8cfb33` 위, 문서만)
+- 커밋: 4fd6a00 + 이 기록
+- 한 것: 사용자 지시(09-30 01:4x) — "Render 에 부하를 더하지 말고, 제한된 자원 안에서 정밀하게 최적화". 운영 공개 GET 실측(데스크톱 → Render, 한 번씩만): `/health` p50 0.25초(한국↔오리건 왕복이 바닥) · `/infrastructures` 0.26~0.57초(유휴 뒤 첫 요청 3.3초 1회 — 시각 경계 재조립 의심, 미확인) · `/congestion/estimates` 0.27~1.5초 · `/area-demand/forecast` 0.26~1.19초.
+  무거운 화면은 인증 POST(쓰기 포함)라 운영에서 재지 않는다. 구조 발견: `/waiting` 은 by-type 4유형(각 8곳)을 **순차 4요청**으로 부른다(waiting/page.tsx — 동시 요청 503 이력 때문) — 요청마다 한국↔오리건 왕복·사용자 조회·같은 출발점 보행 탐색·근거 조회·저장이 되풀이된다.
+- 다음: 로컬 하니스(실 DB 읽기만 — httpx 층에서 GET·읽기 RPC(`latest_congestion_for_facilities`·`area_demand_points_near`)만 통과, 나머지 쓰기·외부 LLM/카카오 호출은 가짜 응답, 인증은 dependency_overrides) + py-spy(설치됨)로 by-type(4유형·새 사용자)·보드 4연속·`/recommendations`·`/courses/plan` 의 CPU 핫스팟·DB 왕복 수를 잰다 → 오리건↔서울 왕복(~130ms)×왕복 수 + CPU 로 Render 시간을 추정 → 후보: 보드 한 요청(4유형을 한 번의 후보·경로·근거 계산으로) · 요청당 DB 왕복 줄이기 · 핫스팟 제거. 설계는 레드팀 뒤, 결과가 같음을 시험으로 잠근 다음 구현.
+- 사람 작업: 없음(shadow 게이트는 10-01 01:37 KST 이후)
+
 ## 2026-09-29c — API 재설계 P3 배치 B: 보행 경로 csr 커널 (스위치 꺼진 채 — memo, 09-30 `dd2afc9` 로 main 반영)
 
 - 도구·브랜치: Claude Code(데스크톱) · 독립 리뷰 워크플로(동등성·운영 2렌즈 → 반박 검증, 4에이전트) / `perf/p3b-csr-0929`(`docs/handover-0929-sync` 위)
@@ -309,23 +318,6 @@ from checks order by seq;
 - 검증: api ruff+pytest · yaml.safe_load · actionlint+shellcheck · 독립 리뷰(종료 코드 전달·스텁 서버로 75/1 재현).
 - 다음·미결: 04:00 실패 메일이 와도 옆에 auto_retry 실행이 초록이면 데이터는 갱신된 것 — **Re-run 금지**(재시도 사슬을 다시 건다), 필요하면 Run workflow(auto_retry 비움).
   상세 조회가 실패한 행은 bulk upsert 가 상세 컬럼을 NULL 로 덮는 기존 문제(main 에도 있음) — 후속.
-- 사람 작업: 없음
-
-## 2026-09-26c — Supabase 연결을 요청마다 혼자 쓰게 (by-type 추천 503 세 구간의 근원)
-
-- 도구·브랜치: Claude Code / `fix/supabase-connection-isolation` → main
-- 커밋: bd44110 (1건) + 이 기록
-- 한 것: 09-26 KST 09:33·15:41·16:40 세 구간에 by-type 추천 503 41건과 관리자·impact·문의·랩 500. 전부 Supabase 가 연결째 끊은
-  `ConnectionTerminated error_code:1/9`(정상 종료 0 은 0건) + EBADF 1건 — 여러 스레드가 동기 HTTP/2 연결 하나를 나눠 써 스트림 번호·HPACK 이
-  어긋난 것(hpack `deque mutated during iteration` 도 같은 경합). `core/supabase.py` 가 요청마다 연결을 혼자 빌려 쓰게(`_ExclusiveConnectionTransport`),
-  HTTP/1.1 로 바꿨다. 재시도 규칙은 그대로, 풀 닫기는 그 요청의 연결에만 닿는다. 08-28 의 http2=False 실패는 당시 풀 통째 닫기 + 재시도 밖 본문 읽기 탓으로 본다.
-- 검증: api ruff+pytest 1713 · 새 회귀 테스트 17건(수정 전 코드에서 7건 실패 확인) · WSL 카오스 하니스 45,471요청 — 예전 구성 실패 584·중복 POST 1,381·
-  EBADF 2,486, 새 구성 전부 0 · 소크 게이트 회귀 없음 · 독립 리뷰 2렌즈(동시성·실행) 통과. RSS 운영 모양 부하 동일(62연결 동시 +6.5MB).
-- 다음·미결: 배포 뒤 Render 로그의 `supabase_stale_connection_retry`·`recommend_by_type_failed`·p95·메모리 확인 · 쓰기 요청이 서버 처리 뒤 끊기면
-  재시도가 한 번 더 보내는 기존 경로(심사 뒤 멱등 키/재시도 범위 축소) · `availability_service` 가 예외를 문자열만 남김(traceback 없음) ·
-  area-demand-alert 가 API 503 한 번에 JSON 파싱 오류로 거짓 경보(09-26 16:21).
-- 배포 직후 회귀·즉시 수정: 운영 `SUPABASE_SERVICE_ROLE_KEY` 끝의 줄바꿈을 HTTP/1.1(h11)이 헤더로 거부해 service_role 호출이 전부 실패
-  (20:23~ KST, predict 갱신·서울 적재·영업 근거 조회) → `config.py` 가 Supabase URL·키 앞뒤 공백을 걷는다(회귀 테스트 14건, 수정 전 코드에서 14건 실패).
 - 사람 작업: 없음
 
 ## 기록 규칙
