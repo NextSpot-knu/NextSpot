@@ -97,8 +97,9 @@ def _start_boot_presnap(facilities: list[dict]) -> asyncio.Task | None:
     """보행 경로 커널이 csr 일 때만 시설 전체의 목적지 스냅을 부팅 때 스레드에서 미리 한다(기다리지 않는다).
 
     memo(기본)·legacy 에서는 아무것도 하지 않는다 — dict 그래프 적재의 27MB 피크가 다른 부팅 적재와 겹치면
-    안 되므로(OOM 이력) memo 는 예열(/warmup)에 맡긴다. csr 커널은 배치 B 에서 들어오며, 그 전까지 이 훅은
-    켜질 일이 없다(travel._route_kernel 이 csr 을 돌려주지 않는다). 실패는 경고 한 줄로 삼킨다.
+    안 되므로(OOM 이력) memo 는 예열(/warmup)에 맡긴다. csr(P3 배치 B)은 커밋된 압축 그래프를 읽어(피크 ~3MB)
+    시설 목적지를 미리 스냅한다. csr 을 못 읽으면 prewarm_destinations 가 0 을 돌려주고 dict 그래프를 올리지
+    않는다(그때 요청은 memo 경로). 실패는 경고 한 줄로 삼킨다.
     """
     from app.services.spot import travel
 

@@ -334,3 +334,71 @@ def test_boot_presnap_runs_only_for_csr(monkeypatch):
     assert calls == []
     assert asyncio.run(run("csr")) is not None
     assert calls == [2]
+
+
+# ---------------------------------------------------------------- 깨진 이진·실패 경로(리뷰 반영)
+
+
+def test_payload_bit_flip_is_rejected(real_csr):
+    """머리·크기·원본 해시가 맞아도 본문이 한 비트 어긋나면 받지 않는다 — 깨진 가중치로 조용히 다른 경로를 내지 않게."""
+    data = bytearray(walking_csr.to_bytes(real_csr))
+    data[-1] ^= 0x01  # 마지막 간선 가중치
+    with pytest.raises(ValueError, match="checksum"):
+        walking_csr.from_bytes(bytes(data), real_csr.source_sha256)
+
+
+def test_corrupt_payload_bin_falls_back_to_json_with_legacy_answer(tmp_path, monkeypatch):
+    graph_path = tmp_path / "walking.json.gz"
+    _write_graph(graph_path, _TINY)
+    monkeypatch.setattr(travel, "_GRAPH_PATH", graph_path)
+    good = walking_csr.to_bytes(walking_csr.build_from_raw(_TINY, walking_csr.source_digest(graph_path.read_bytes())))
+    bad = bytearray(good)
+    bad[-8:-6] = (900).to_bytes(2, "little")  # 가중치 4개(uint16)가 맨 끝 — 첫 간선(1→2, 경로 위)을 900m 로
+    travel._csr_path().write_bytes(bytes(bad))
+    monkeypatch.setattr(settings, "WALKING_ROUTE_KERNEL", "csr")
+    route = travel._walking_routes_sync(35.8360, 129.2100, [(35.8370, 129.2110)])[0]
+    assert route.source == "osm_pedestrian" and route.distance_m == pytest.approx(220, abs=3)
+
+
+def test_any_exception_from_the_bin_rebuilds_from_json(tmp_path, monkeypatch):
+    """from_bytes 가 ValueError 밖의 예외(예: inf 좌표의 OverflowError)를 올려도 요청이 500 이 되지 않는다."""
+    graph_path = tmp_path / "walking.json.gz"
+    _write_graph(graph_path, _TINY)
+    monkeypatch.setattr(travel, "_GRAPH_PATH", graph_path)
+    travel._csr_path().write_bytes(b"anything")
+
+    def boom(*_args, **_kwargs):
+        raise OverflowError("cannot convert float infinity to integer")
+
+    monkeypatch.setattr(walking_csr, "from_bytes", boom)
+    monkeypatch.setattr(settings, "WALKING_ROUTE_KERNEL", "csr")
+    route = travel._walking_routes_sync(35.8360, 129.2100, [(35.8370, 129.2110)])[0]
+    assert route.source == "osm_pedestrian" and route.distance_m == pytest.approx(220, abs=3)
+    assert isinstance(travel._csr_cache, walking_csr.CsrGraph)
+
+
+def test_any_exception_while_building_leaves_csr_off_and_memo_answers(tmp_path, monkeypatch):
+    graph_path = tmp_path / "walking.json.gz"
+    _write_graph(graph_path, _TINY)
+    monkeypatch.setattr(travel, "_GRAPH_PATH", graph_path)
+
+    def boom(*_args, **_kwargs):
+        raise OverflowError("boom")
+
+    monkeypatch.setattr(walking_csr, "build_from_raw", boom)
+    monkeypatch.setattr(settings, "WALKING_ROUTE_KERNEL", "csr")
+    route = travel._walking_routes_sync(35.8360, 129.2100, [(35.8370, 129.2110)])[0]
+    assert travel._csr_cache is None
+    assert route.source == "osm_pedestrian" and route.distance_m == pytest.approx(220, abs=3)
+    assert isinstance(travel._graph_cache, dict)  # 요청이 memo 경로(dict 그래프)로 답했다
+
+
+def test_prewarm_does_not_load_the_dict_graph_when_csr_is_unavailable(tmp_path, monkeypatch):
+    """부팅 훅이 csr 실패를 dict 그래프 적재(피크 27MB)로 바꾸지 않는다 — memo 처럼 부팅 때는 아무것도 올리지 않는다."""
+    graph_path = tmp_path / "walking.json.gz"
+    _write_graph(graph_path, {**_TINY, "edges": [[1, 2, 100.5], [2, 1, 100.5]]})  # dict 는 받고 csr 은 거절
+    monkeypatch.setattr(travel, "_GRAPH_PATH", graph_path)
+    monkeypatch.setattr(settings, "WALKING_ROUTE_KERNEL", "csr")
+    assert travel.prewarm_destinations([(35.8370, 129.2110)]) == 0
+    assert travel._csr_cache is None
+    assert travel._graph_cache is False

@@ -4,7 +4,6 @@ import gzip
 import heapq
 import json
 import math
-import struct
 import threading
 import time
 from collections.abc import Iterable
@@ -165,7 +164,7 @@ def _load_csr_locked() -> walking_csr.CsrGraph | None:
         origin = "bin"
         try:
             graph = walking_csr.from_bytes(_csr_path().read_bytes(), digest)
-        except (OSError, ValueError, struct.error) as exc:
+        except Exception as exc:  # noqa: BLE001 — 이진이 어떻게 깨졌든(OverflowError 포함) 원본에서 다시 만든다
             logger.warning(
                 "walking_graph_csr_bin_unusable", error_type=type(exc).__name__, error=str(exc)[:200]
             )
@@ -181,7 +180,7 @@ def _load_csr_locked() -> walking_csr.CsrGraph | None:
             edges=len(graph.indices),
             elapsed_ms=round((time.perf_counter() - started) * 1000),
         )
-    except (OSError, ValueError, KeyError, TypeError, EOFError, struct.error, json.JSONDecodeError) as exc:
+    except Exception as exc:  # noqa: BLE001 — csr 을 못 쓰면 None 으로 굳히고 요청은 memo 경로(dict 그래프)로 돈다
         _csr_cache = None
         logger.warning("walking_graph_csr_load_failed", error_type=type(exc).__name__, error=str(exc)[:200])
     return _csr_cache if isinstance(_csr_cache, walking_csr.CsrGraph) else None
@@ -230,10 +229,15 @@ def _snap_destination(graph: dict[str, Any], latitude: float, longitude: float) 
 def prewarm_destinations(points: Iterable[tuple[float, float]]) -> int:
     """시설 좌표를 미리 스냅해 둔다(동기 — 워커 스레드에서 부른다). 예열 뒤 첫 by-type·추천·코스가 스냅
     비용(Render 기준 호출마다 ~0.7-1.5초)을 물지 않게 한다. 키는 요청이 쓰는 것과 같은 `(float(lat), float(lng))`.
-    그래프가 없거나 legacy 면 아무것도 하지 않고 0. csr 은 압축 그래프의 메모를 채운다(읽기 실패면 memo 처럼)."""
+    그래프가 없거나 legacy 면 아무것도 하지 않고 0. csr 은 압축 그래프의 메모를 채운다. csr 을 못 읽었으면 0 —
+    예열 때문에 dict 그래프(적재 피크 27MB)를 올리지 않는다(부팅 훅에서 불리면 다른 부팅 적재와 겹친다, OOM 이력).
+    그때 요청은 memo 경로로 돌며 목적지를 그 자리에서 스냅해 기억한다(P3a 이전 첫 요청과 같은 속도)."""
     kernel = _route_kernel()
-    csr = _load_csr() if kernel == "csr" else None
-    if csr is not None:
+    if kernel == "csr":
+        csr = _load_csr()
+        if csr is None:
+            logger.warning("walking_graph_presnap_skipped", kernel=kernel, reason="csr_unavailable")
+            return 0
         started = time.perf_counter()
         count = 0
         for latitude, longitude in points:

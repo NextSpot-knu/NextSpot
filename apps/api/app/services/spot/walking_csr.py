@@ -14,7 +14,8 @@ dict 그래프(travel._load_graph_locked)는 노드 28,832개를 파이썬 dict�
   찾지 못해 추정 경로로 떨어지므로, 미리 빼도 결과가 같고 탐색은 목적지를 다 찾는 순간 멈춘다.
 
 이진 파일(``gyeongju_walking_graph.csr.bin``)은 원본 JSON 에서 ``scripts/build_walking_graph.py --emit-csr`` 로
-만들어 커밋한다. 머리에 원본 .json.gz 바이트의 sha256 을 적어 두고, 적재 쪽은 원본과 다르면 이 파일을 쓰지 않는다.
+만들어 커밋한다. 머리에 원본 .json.gz 바이트의 sha256 과 본문(배열들) 바이트의 sha256 을 적어 두고, 적재 쪽은
+원본과 다르거나 본문이 한 비트라도 어긋나면 이 파일을 쓰지 않는다(깨진 가중치로 조용히 다른 경로를 내지 않게).
 CI(``tests/services/test_walking_csr.py``)가 커밋된 파일 = 원본에서 새로 만든 바이트 인지 확인한다.
 """
 from __future__ import annotations
@@ -32,9 +33,9 @@ from typing import Any
 SPATIAL_CELL_DEGREES = 0.002  # travel._SPATIAL_CELL_DEGREES 와 같아야 한다(시험이 잠근다)
 
 MAGIC = b"NSWG"
-FORMAT_VERSION = 1
-# magic(4) · version(u32) · 노드 수(u32) · 간선 수(u32) · 원본 sha256(32)
-_HEADER = struct.Struct("<4sIII32s")
+FORMAT_VERSION = 2
+# magic(4) · version(u32) · 노드 수(u32) · 간선 수(u32) · 원본 sha256(32) · 본문 sha256(32)
+_HEADER = struct.Struct("<4sIII32s32s")
 
 
 @dataclass(eq=False)
@@ -172,16 +173,18 @@ def to_bytes(graph: CsrGraph) -> bytes:
     _check_itemsizes()
     node_count = graph.node_count
     edge_count = len(graph.indices)
-    parts = [
-        _HEADER.pack(MAGIC, FORMAT_VERSION, node_count, edge_count, graph.source_sha256),
+    payload = b"".join([
         _le(graph.lat),
         _le(graph.lng),
         _le(graph.indptr),
         _le(graph.indices),
         _le(graph.component),
         _le(graph.weights),  # 2바이트 배열은 맨 끝 — 앞의 4·8바이트 배열 정렬을 흩뜨리지 않는다
-    ]
-    return b"".join(parts)
+    ])
+    header = _HEADER.pack(
+        MAGIC, FORMAT_VERSION, node_count, edge_count, graph.source_sha256, hashlib.sha256(payload).digest()
+    )
+    return header + payload
 
 
 def from_bytes(data: bytes, expected_source_sha256: bytes | None = None) -> CsrGraph:
@@ -189,7 +192,7 @@ def from_bytes(data: bytes, expected_source_sha256: bytes | None = None) -> CsrG
     _check_itemsizes()
     if len(data) < _HEADER.size:
         raise ValueError("csr file too short")
-    magic, version, node_count, edge_count, source = _HEADER.unpack_from(data, 0)
+    magic, version, node_count, edge_count, source, payload_sha256 = _HEADER.unpack_from(data, 0)
     if magic != MAGIC or version != FORMAT_VERSION:
         raise ValueError("csr file magic/version mismatch")
     if expected_source_sha256 is not None and source != expected_source_sha256:
@@ -205,6 +208,8 @@ def from_bytes(data: bytes, expected_source_sha256: bytes | None = None) -> CsrG
     expected = _HEADER.size + sum(array(code).itemsize * count for code, count in sizes)
     if len(data) != expected:
         raise ValueError(f"csr file size {len(data)} != expected {expected}")
+    if hashlib.sha256(memoryview(data)[_HEADER.size:]).digest() != payload_sha256:
+        raise ValueError("csr payload checksum mismatch")
     offset = _HEADER.size
     arrays: list[array] = []
     for code, count in sizes:
