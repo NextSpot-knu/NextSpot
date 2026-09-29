@@ -11,5 +11,6 @@
 *.pptx binary
 *.gz binary
 *.pkl binary
+*.bin binary
 *.woff binary
 *.woff2 binary

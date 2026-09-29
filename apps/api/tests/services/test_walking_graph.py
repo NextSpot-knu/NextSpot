@@ -179,7 +179,7 @@ def test_route_search_does_not_block_the_event_loop_in_each_kernel(kernel, monke
 @pytest.mark.parametrize(
     ("value", "expected"),
     [("memo", "memo"), ("legacy", "legacy"), (" Legacy ", "legacy"), ("", "memo"), ("unknown", "memo"),
-     ("csr", "memo")],  # csr 커널은 배치 B 에서 들어온다 — 그 전까지는 모르는 값과 같다.
+     ("csr", "csr"), (" CSR ", "csr")],  # 배치 B 에서 csr 커널이 들어왔다(시험은 test_walking_csr.py).
 )
 def test_route_kernel_values(monkeypatch, value, expected):
     monkeypatch.setattr(settings, "WALKING_ROUTE_KERNEL", value)

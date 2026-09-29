@@ -136,9 +136,11 @@ class Settings(BaseSettings):
     # ⚠️ Render 에서 env 를 바꾸면 재시작된다(즉시가 아니라 재기동 한 번, 1~2분).
     AREA_DEMAND_SOURCE: str = "rpc"
 
-    # 보행 경로 계산 커널(app/services/spot/travel.py) — "memo"(기본) | "legacy".
+    # 보행 경로 계산 커널(app/services/spot/travel.py) — "memo"(기본) | "legacy" | "csr".
     # memo: 목적지 스냅(가장 가까운 보행망 노드)을 그래프 객체에 기억하고 예열 때 시설 전체를 미리 스냅한다 —
     # 같은 함수의 기억값이라 경로·분·거리는 legacy 와 비트까지 같다. legacy: 도입 전 코드 그대로(되돌림 스위치).
+    # csr: 압축 그래프(spot/walking_csr.py · 커밋된 app/data/*.csr.bin)로 같은 답 — dict 그래프(살아 있는 16.7MB,
+    # 적재 피크 27MB)를 올리지 않고 ~1.7MB, 부팅 때 시설 목적지를 미리 스냅한다(main._start_boot_presnap).
     # 모르는 값은 memo. ⚠️ Render 에서 env 를 바꾸면 재시작된다(즉시가 아니라 재기동 한 번, 1~2분).
     WALKING_ROUTE_KERNEL: str = "memo"
 

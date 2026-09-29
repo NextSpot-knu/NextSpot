@@ -2,6 +2,10 @@
 
 생성물은 ODbL 1.0의 OpenStreetMap 데이터 파생물이다. 앱 실행 중 외부 라우팅 API를 호출하지
 않으므로 추천 지연과 API 키가 늘지 않는다. 데이터 갱신은 이 스크립트를 다시 실행해 검토한다.
+
+그래프를 새로 받으면 옆에 압축 그래프(`*.csr.bin`, WALKING_ROUTE_KERNEL=csr 가 읽는다)도 함께 쓴다.
+원본은 그대로 두고 압축 그래프만 다시 만들려면 `--emit-csr`(네트워크 없음). 둘 다 커밋한다 —
+`tests/services/test_walking_csr.py` 가 커밋된 이진 = 원본에서 새로 만든 바이트인지 확인한다.
 """
 
 from __future__ import annotations
@@ -13,8 +17,12 @@ import math
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+import sys
 
 import httpx
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from app.services.spot import walking_csr  # noqa: E402 — 순수 모듈(설정·시크릿 없음)
 
 DEFAULT_BBOX = (35.80, 129.17, 35.88, 129.25)
 DEFAULT_ENDPOINT = "https://overpass-api.de/api/interpreter"
@@ -75,6 +83,22 @@ def build_graph(elements: list[dict[str, Any]], bbox: tuple[float, float, float,
     }
 
 
+def csr_path_for(source: Path) -> Path:
+    name = source.name
+    stem = name[: -len(".json.gz")] if name.endswith(".json.gz") else name
+    return source.with_name(stem + ".csr.bin")
+
+
+def emit_csr(source: Path) -> Path:
+    """원본 .json.gz 바이트에서 압축 그래프를 만들어 옆에 쓴다(결정적 — 같은 원본이면 같은 바이트)."""
+    data = source.read_bytes()
+    raw = json.loads(gzip.decompress(data).decode("utf-8"))
+    graph = walking_csr.build_from_raw(raw, walking_csr.source_digest(data))
+    target = csr_path_for(source)
+    target.write_bytes(walking_csr.to_bytes(graph))
+    return target
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -83,7 +107,15 @@ def main() -> None:
         default=Path(__file__).resolve().parents[1] / "app/data/gyeongju_walking_graph.json.gz",
     )
     parser.add_argument("--endpoint", default=DEFAULT_ENDPOINT)
+    parser.add_argument(
+        "--emit-csr", action="store_true",
+        help="Overpass 를 부르지 않고 --output 의 원본에서 압축 그래프(.csr.bin)만 다시 만든다",
+    )
     args = parser.parse_args()
+    if args.emit_csr:
+        target = emit_csr(args.output)
+        print(json.dumps({"output": str(target), "bytes": target.stat().st_size}, ensure_ascii=False))
+        return
     south, west, north, east = DEFAULT_BBOX
     query = (
         "[out:json][timeout:180];"
@@ -102,8 +134,10 @@ def main() -> None:
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with gzip.open(args.output, "wt", encoding="utf-8", compresslevel=9) as target:
         json.dump(graph, target, ensure_ascii=False, separators=(",", ":"))
+    csr_target = emit_csr(args.output)
     print(json.dumps({
         "output": str(args.output),
+        "csr": str(csr_target),
         "nodes": len(graph["nodes"]),
         "edges": len(graph["edges"]),
         "ways": graph["metadata"]["way_count"],
