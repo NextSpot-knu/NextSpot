@@ -32,10 +32,10 @@ assert.equal(isWikimediaUrl(null), false);
 
 // --- 출처 읽기: API(camel)·Supabase 직접 읽기(snake) 둘 다 --------------------------------
 assert.deepEqual(wikimediaCredit(CAMEL), {
-  label: 'Someone', license: 'CC BY-SA 4.0', sourceUrl: 'https://commons.wikimedia.org/wiki/File:Bulguksa.jpg',
+  kind: 'wikimedia', label: 'Someone', license: 'CC BY-SA 4.0', sourceUrl: 'https://commons.wikimedia.org/wiki/File:Bulguksa.jpg',
 });
 assert.deepEqual(wikimediaCredit(SNAKE), {
-  label: 'Wikimedia Commons', license: 'CC BY 4.0', sourceUrl: 'https://commons.wikimedia.org/wiki/File:Bulguksa.jpg',
+  kind: 'wikimedia', label: 'Wikimedia Commons', license: 'CC BY 4.0', sourceUrl: 'https://commons.wikimedia.org/wiki/File:Bulguksa.jpg',
 });
 assert.equal(wikimediaCredit({ imageSource: null }), null); // 적재 배치가 걷어 낸 출처(null)
 assert.equal(wikimediaCredit({ imageSource: { provider: 'Wikimedia Commons' } }), null); // 링크 없음
