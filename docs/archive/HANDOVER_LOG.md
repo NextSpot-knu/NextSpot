@@ -1,4 +1,21 @@
 # HANDOVER 로그 (2026-06-30 ~ 2026-08-28) 
+## 2026-09-26c — Supabase 연결을 요청마다 혼자 쓰게 (by-type 추천 503 세 구간의 근원)
+
+- 도구·브랜치: Claude Code / `fix/supabase-connection-isolation` → main
+- 커밋: bd44110 (1건) + 이 기록
+- 한 것: 09-26 KST 09:33·15:41·16:40 세 구간에 by-type 추천 503 41건과 관리자·impact·문의·랩 500. 전부 Supabase 가 연결째 끊은
+  `ConnectionTerminated error_code:1/9`(정상 종료 0 은 0건) + EBADF 1건 — 여러 스레드가 동기 HTTP/2 연결 하나를 나눠 써 스트림 번호·HPACK 이
+  어긋난 것(hpack `deque mutated during iteration` 도 같은 경합). `core/supabase.py` 가 요청마다 연결을 혼자 빌려 쓰게(`_ExclusiveConnectionTransport`),
+  HTTP/1.1 로 바꿨다. 재시도 규칙은 그대로, 풀 닫기는 그 요청의 연결에만 닿는다. 08-28 의 http2=False 실패는 당시 풀 통째 닫기 + 재시도 밖 본문 읽기 탓으로 본다.
+- 검증: api ruff+pytest 1713 · 새 회귀 테스트 17건(수정 전 코드에서 7건 실패 확인) · WSL 카오스 하니스 45,471요청 — 예전 구성 실패 584·중복 POST 1,381·
+  EBADF 2,486, 새 구성 전부 0 · 소크 게이트 회귀 없음 · 독립 리뷰 2렌즈(동시성·실행) 통과. RSS 운영 모양 부하 동일(62연결 동시 +6.5MB).
+- 다음·미결: 배포 뒤 Render 로그의 `supabase_stale_connection_retry`·`recommend_by_type_failed`·p95·메모리 확인 · 쓰기 요청이 서버 처리 뒤 끊기면
+  재시도가 한 번 더 보내는 기존 경로(심사 뒤 멱등 키/재시도 범위 축소) · `availability_service` 가 예외를 문자열만 남김(traceback 없음) ·
+  area-demand-alert 가 API 503 한 번에 JSON 파싱 오류로 거짓 경보(09-26 16:21).
+- 배포 직후 회귀·즉시 수정: 운영 `SUPABASE_SERVICE_ROLE_KEY` 끝의 줄바꿈을 HTTP/1.1(h11)이 헤더로 거부해 service_role 호출이 전부 실패
+  (20:23~ KST, predict 갱신·서울 적재·영업 근거 조회) → `config.py` 가 Supabase URL·키 앞뒤 공백을 걷는다(회귀 테스트 14건, 수정 전 코드에서 14건 실패).
+- 사람 작업: 없음
+
 ## 2026-09-26b — 관제 대시보드 추정·예측·시나리오 모드 main 반영
 
 - 도구·브랜치: Claude Code / `feature/admin-predicted-mode-v2`(633487c 를 8033719 위로 충돌 없이 옮김 + 검증 수정 3건) → main
