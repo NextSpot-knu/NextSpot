@@ -407,7 +407,8 @@ test('waiting board: a credit that appears after a broken photo does not move th
     await route.fulfill({ status: 404, contentType: 'text/plain', body: 'gone' });
   });
 
-  await page.goto('/waiting');
+  // 붙잡힌 사진은 첫 섹터의 먼저 받는(eager) 사진이라 window load 를 막는다 — load 를 기다리지 않는다.
+  await page.goto('/waiting', { waitUntil: 'domcontentloaded' });
   const cell = boardCell(page, '늦은출처 식당');
   await expect(cell).toBeVisible({ timeout: 30_000 });
   await expect(cell.locator('img')).toHaveAttribute('src', TOUR_BROKEN);
