@@ -9,6 +9,8 @@
 # 선택 Repository Variable: TOURAPI_RELATED_ENABLED=true (연관관광지 별도 상품 승인 후)
 # 선택: 경주 메뉴별음식점 보강 — Secret GYEONGJU_FOOD_API_KEY + Variable GYEONGJU_FOOD_API_BASE_URL
 #       + Variable GYEONGJU_FOOD_ENABLED=true (15114465 활용신청 승인 후)
+#       + Variable GYEONGJU_CITY_PHOTO_ENABLED=true (사진 없는 음식점에 경주시 사진 — 웹의 '사진: 경주시' 출처가
+#         배포된 뒤에만 켠다. 꺼져 있으면 사진을 새로 넣지 않고, TourAPI 사진이 온 행의 경주시 사진·출처 걷기만 한다)
 # TOURAPI_KEY 가 없으면 TourAPI 단계만 skip 한다. TOURAPI/LOCALDATA/KAKAO 키가 전부 없으면 checkout 도 하지 않는다
 # (무해 — 매일 실패 이메일 방지). 전체 시크릿·변수 목록: docs/DEPLOY_AND_ENV.md §4.
 #
@@ -183,6 +185,7 @@ jobs:
         env:
           GYEONGJU_FOOD_API_BASE_URL: ${{ vars.GYEONGJU_FOOD_API_BASE_URL }}
           GYEONGJU_FOOD_API_KEY: ${{ secrets.GYEONGJU_FOOD_API_KEY }}
+          GYEONGJU_CITY_PHOTO_ENABLED: ${{ vars.GYEONGJU_CITY_PHOTO_ENABLED }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
