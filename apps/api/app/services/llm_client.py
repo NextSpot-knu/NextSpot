@@ -6,6 +6,7 @@
 
 설계 원칙 — 무해 폴백(이 저장소의 LLM 재도입 조건):
   - UPSTAGE_API_KEY 미설정 → is_enabled() False, 호출은 네트워크 없이 즉시 None.
+  - 전역 일일 예산(LLM_DAILY_BUDGET) 소진 → 네트워크 없이 즉시 None(비활성과 같은 결과).
   - 타임아웃(기본 3초)·HTTP 오류·JSON 파싱 실패 → 전부 None. 호출자는 None 이면 기존
     결정적 경로(키워드 분류기·템플릿)를 그대로 쓴다 — LLM 장애가 기능 장애로 승격되지 않는다.
   - 예외 원문·응답 본문은 서버 로그에만 남긴다(인증키·발화 원문 노출 방지).
@@ -18,6 +19,7 @@ LLM 은 항상 '보조'다. 주 경로를 LLM 으로 바꾸는 변경은 이 원
 """
 
 import json
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 import httpx
@@ -46,6 +48,56 @@ def _get_client() -> httpx.AsyncClient:
 def is_enabled() -> bool:
     """키가 설정돼 있을 때만 True — 호출자는 False 면 LLM 경로 자체를 건너뛴다."""
     return bool((settings.UPSTAGE_API_KEY or "").strip())
+
+
+# --- 전역 일일 LLM 예산(settings.LLM_DAILY_BUDGET) — 모든 호출자의 마지막 비용 안전판 ----------------
+# 경로별 IP 리밋(search 재작성·음성·travel-context·preferences)이 1차 방어이고, 이 카운터는 그 리밋이
+# 우회되거나(XFF 위조·다수 IP) 공유 키로 오판돼도 하루 호출 수를 묶는다. 소진은 '실패'가 아니라
+# '비활성'과 같은 결과(None)라 호출자 계약(무해 폴백)이 그대로 성립한다.
+# 단일 인스턴스 인메모리(search_rewrite_service.consume_budget 와 같은 전제) — 재기동 시 리셋.
+_KST = timezone(timedelta(hours=9))
+_budget_day: Optional[str] = None
+_budget_used: int = 0
+_budget_exhausted_logged_day: Optional[str] = None
+
+
+def _today_kst() -> str:
+    return datetime.now(_KST).date().isoformat()
+
+
+def _roll_budget_day() -> None:
+    global _budget_day, _budget_used
+    today = _today_kst()
+    if _budget_day != today:
+        _budget_day = today
+        _budget_used = 0
+
+
+def budget_available() -> bool:
+    """오늘 예산이 남았는지 **소비 없이** 본다 — 호출자가 'gated' 상태를 정직하게 보고할 때 쓴다."""
+    if settings.LLM_DAILY_BUDGET <= 0:
+        return False
+    _roll_budget_day()
+    return _budget_used < settings.LLM_DAILY_BUDGET
+
+
+def _consume_budget() -> bool:
+    """예산 1회 소비 시도 — 남았으면 True(1 차감), 소진이면 False(그날 첫 소진만 로그 1줄)."""
+    global _budget_used, _budget_exhausted_logged_day
+    if not budget_available():
+        if _budget_exhausted_logged_day != _budget_day:
+            _budget_exhausted_logged_day = _budget_day
+            logger.warning("llm_daily_budget_exhausted", cap=settings.LLM_DAILY_BUDGET)
+        return False
+    _budget_used += 1
+    return True
+
+
+def reset_budget_for_tests() -> None:
+    global _budget_day, _budget_used, _budget_exhausted_logged_day
+    _budget_day = None
+    _budget_used = 0
+    _budget_exhausted_logged_day = None
 
 
 async def aclose() -> None:
@@ -89,6 +141,8 @@ async def chat_text(
     """1턴 chat completion — 성공 시 응답 텍스트, 실패(비활성/타임아웃/오류) 시 None."""
     if not is_enabled():
         return None
+    if not _consume_budget():
+        return None  # 전역 일일 예산 소진 — 네트워크 없이 비활성과 같은 None(호출자 결정적 폴백)
     try:
         response = await _get_client().post(
             "/chat/completions",

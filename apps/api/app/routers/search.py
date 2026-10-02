@@ -18,7 +18,6 @@ admin_ingest_requests 테이블이 아직 없는 환경(마이그레이션 미�
 503 + 안내 메시지로 흡수한다(_ingest_table_error).
 """
 import asyncio
-import time
 from datetime import datetime, timezone
 from typing import Literal, Optional
 
@@ -27,6 +26,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from app.core.authz import ROLE_ADMIN, require_role
+# 리미터는 app/core/rate_limit.py 로 옮겼다(LLM 경로 재사용) — 이 모듈 안의 호출부·테스트는 옛 이름 그대로.
+from app.core.rate_limit import check_rate_limit as _check_rate_limit
+from app.core.rate_limit import client_ip as _client_ip
+from app.core.rate_limit import rate_limit_or_429 as _rate_limit_or_429
 from app.core.supabase import supabase_admin
 from app.services import kakao_place_search_service, llm_client, reference_snapshot, search_rewrite_service
 from app.services.tourapi import client as tourapi
@@ -58,7 +61,6 @@ _SEARCH_ROWS = 5  # 폴백 결과 상위 5개(기획 스펙)
 # --- 인메모리 IP 레이트리밋(분당 N회, 슬라이딩 윈도우) — tracking.py 의 IP 쿨다운 패턴을
 #     "고정 쿨다운" 대신 "윈도우당 횟수 제한"으로 확장한 버전. 단일 인스턴스 데모 기준
 #     (reports.py/tracking.py 와 동일 전제 — 다중 인스턴스는 공유 저장소로 승격 필요).
-_RATE_LIMIT_WINDOW_SEC = 60.0
 # 키워드 폴백은 사람이 이름을 바꿔 가며 다시 치는 화면이라 5회는 금방 닿았다(429 면 목록이 조용히 빈다).
 # 결과가 있는 검색어는 24h 캐시가 흡수하므로 12회로 올려도 TourAPI 호출은 크게 늘지 않는다.
 _SEARCH_RATE_LIMIT = 12
@@ -71,48 +73,6 @@ _search_hits: dict[str, list[float]] = {}
 _place_search_hits: dict[str, list[float]] = {}
 _ingest_hits: dict[str, list[float]] = {}
 _rewrite_hits: dict[str, list[float]] = {}
-
-
-def _client_ip(request: Request) -> str:
-    """레이트리밋 키용 클라이언트 IP.
-
-    ⚠️ XFF 의 '첫 값'은 클라이언트가 위조 가능하다(프록시는 뒤에 append) — 요청마다 다른
-    가짜 첫 값으로 분당 제한을 무한 우회할 수 있다. 신뢰 프록시(Render 엣지)가 마지막에
-    덧붙인 값이 실제 피어이므로 **마지막 항목**을 쓴다(recommendations._voice_client_ip 미러,
-    §-14 백로그 'XFF 첫 값' 정리). 프록시 없는 로컬은 소켓 피어.
-    """
-    xff = request.headers.get("x-forwarded-for")
-    if xff:
-        parts = [p.strip() for p in xff.split(",") if p.strip()]
-        if parts:
-            return parts[-1]
-    return request.client.host if request.client else "unknown"
-
-
-def _check_rate_limit(store: dict[str, list[float]], ip: str, limit: int) -> Optional[int]:
-    """분당 limit회 슬라이딩 윈도우 레이트리밋.
-
-    통과 시 None, 초과 시 재시도까지 남은 초(Retry-After 헤더용, 최소 1)를 반환한다.
-    초과 요청의 타임스탬프는 기록하지 않는다(연속 초과 요청으로 윈도우가 계속 밀리는 것 방지).
-    """
-    now = time.monotonic()
-    hits = [t for t in store.get(ip, []) if now - t < _RATE_LIMIT_WINDOW_SEC]
-    if len(hits) >= limit:
-        store[ip] = hits
-        return max(1, int(_RATE_LIMIT_WINDOW_SEC - (now - hits[0])))
-    hits.append(now)
-    store[ip] = hits
-    return None
-
-
-def _rate_limit_or_429(store: dict[str, list[float]], ip: str, limit: int, message: str) -> None:
-    retry_after = _check_rate_limit(store, ip, limit)
-    if retry_after is not None:
-        raise HTTPException(
-            status_code=429,
-            detail=message,
-            headers={"Retry-After": str(retry_after)},
-        )
 
 
 # --- admin_ingest_requests 테이블 부재(마이그레이션 미적용) 안내 폴백 ---------------------------
