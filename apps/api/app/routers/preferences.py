@@ -13,6 +13,15 @@ POST /api/v1/preferences/parse
 
 DB 쓰기는 전부 실패해도 추천 자체는 막지 않도록 best-effort(예외 격리)로 처리한다.
 
+게스트(Supabase 익명 세션)도 이 경로를 쓴다 — 추천 화면(explore/recommend)의 '말로 취향 입력'은 로그인 없이
+익명 세션으로 부른다. 그래서 is_anonymous 를 막지 않고 IP 리밋으로 묶는다(HANDOVER 보안 진단 '상', 2026-10-02):
+  - 요청 리밋(분당 `_PARSE_RATE_LIMIT`, 키 = core.rate_limit.client_ip — search 와 같은 키) — 초과는 429 +
+    Retry-After. 요청마다 users 행 쓰기가 최대 3번이라 LLM 이 없어도 묶는다. 웹은 429 를 재시도하지 않고
+    화면 안 키워드 폴백으로 칩을 채운다(explore/recommend handleNlAnalyze catch).
+  - LLM 리밋(분당 `_LLM_RATE_LIMIT`) — 키워드 전량 미스로 LLM 백스톱을 부를 때만 소비. 초과는 429 가 아니라
+    llm_status="gated" + 키워드 빈 결과(applied=False → '아래에서 골라 주세요' 안내, 저장 0건).
+익명 JWT 는 무료로 새로 받을 수 있어 user_id 키는 우회가 쉽다 — 그래서 키는 IP 다.
+
 ⚠️ 선호를 하나도 인식하지 못한 턴은 **아무것도 쓰지 않는다**(applied=False).
 빈 파싱 결과로도 벡터를 저장하면 build_preference_vector([], []) 가 '전 카테고리 평균'이라
 사용자가 그동안 피드백으로 쌓은 학습이 말 한마디에 기본값으로 초기화된다. 실패를 '없음과 같은
@@ -22,16 +31,22 @@ DB 쓰기는 전부 실패해도 추천 자체는 막지 않도록 best-effort(�
 import asyncio
 
 import structlog
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
 
 # 자기 자신의 users 행 갱신이지만 RLS 영향 없이 안정 동작하도록 service_role 클라이언트를 사용
+from app.core.rate_limit import check_rate_limit, client_ip, rate_limit_or_429
 from app.core.supabase import supabase_admin, get_current_user
 from app.services.preference_vector_service import preference_vector_service
 from app.services.preference_nlp_service import parse_preference
 
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1/preferences", tags=["preferences"])
+
+_PARSE_RATE_LIMIT = 20
+_LLM_RATE_LIMIT = 5
+_parse_hits: dict[str, list[float]] = {}
+_llm_hits: dict[str, list[float]] = {}
 
 
 class ParsePreferenceRequest(BaseModel):
@@ -50,7 +65,7 @@ class ParsePreferenceResponse(BaseModel):
     is_fallback: bool       # True=키워드/폴백 경로, False=LLM 백스톱이 실제 기여(프런트 토스트 분기)
     vector_updated: bool    # Supabase 선호 벡터 반영 성공 여부
     categories_saved: bool  # users.preferred_categories 저장 성공 여부
-    llm_status: str         # 개발 디버그용(음성 경로와 동일 명명): keyword|llm|llm_failed|disabled
+    llm_status: str         # 개발 디버그용(음성 경로와 동일 명명): keyword|llm|llm_failed|disabled|gated
     # 아래 두 필드는 기존 봉투에 **추가만** 한 것이라 구버전 프런트는 무시해도 무해하다.
     applied: bool = True    # 선호가 실제로 저장됐는지. False 면 사용자 데이터는 한 글자도 안 바뀌었다.
     reason: str | None = None  # applied=False 사유 코드(REASON_* 상수)
@@ -59,10 +74,19 @@ class ParsePreferenceResponse(BaseModel):
 @router.post("/parse", response_model=ParsePreferenceResponse)
 async def parse_and_apply_preference(
     req: ParsePreferenceRequest,
+    request: Request,
     current_user: dict = Depends(get_current_user),
 ):
     user_id = current_user["id"]
-    parsed = await parse_preference(req.text)
+    ip = client_ip(request)
+    rate_limit_or_429(
+        _parse_hits, ip, _PARSE_RATE_LIMIT,
+        "요청이 많아 잠시 후 다시 시도해 주세요.",
+    )
+    parsed = await parse_preference(
+        req.text,
+        llm_gate=lambda: check_rate_limit(_llm_hits, ip, _LLM_RATE_LIMIT) is None,
+    )
 
     # 0) 인식 실패 조기 반환 — 카테고리·속성이 **둘 다** 비면 저장 경로에 진입하지 않는다.
     #    (여기서 계속 진행하면 전 카테고리 평균 벡터가 학습된 벡터를 덮어쓰고, preference_note 에도
