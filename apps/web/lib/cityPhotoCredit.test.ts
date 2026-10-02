@@ -113,6 +113,13 @@ for (const [locale, expected] of Object.entries(LINE)) {
 const link = read('components/PhotoCreditLink.tsx');
 assert.match(link, /t\('common\.cityPhotoCredit'\)/, '경주시 출처 줄은 i18n 키로 그린다');
 assert.match(link, /credit\.kind === 'city'/);
+// 경주시 줄은 그 사진의 유일한 출처 — 말줄임 없이 접히고, 대기 보드(stacked)에서는 Wikimedia stacked 와 같은 위쪽 정렬 상자.
+const cityBranch = link.slice(link.indexOf("credit.kind === 'city'"), link.indexOf('const full ='));
+assert.ok(cityBranch.length > 0, '경주시 분기를 찾는다');
+assert.doesNotMatch(cityBranch, /truncate/, '경주시 출처 줄은 말줄임하지 않는다');
+assert.doesNotMatch(cityBranch, /(?<![\w-])h-6\b/,'경주시 출처 줄은 고정 높이가 아니다(접히면 자란다)');
+assert.match(cityBranch, /whitespace-normal break-keep/);
+assert.match(cityBranch, /stacked \? 'flex min-h-6 w-fit flex-col'/, 'stacked 경주시 줄은 Wikimedia stacked 와 같은 상자');
 
 // --- 사진이 뜨는 관광객 화면 4곳이 같은 판정을 쓰고, 출처는 사진이 드러난 뒤에만 -------------------
 // /waiting 대표 카드: 행이 두 출처 원본(imageSource·cityPhoto)을 들고 다닌다.
