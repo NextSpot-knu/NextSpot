@@ -235,6 +235,61 @@ for (const locale of ['ko', 'en'] as const) {
   });
 }
 
+/** 글자가 상자 안에 다 보이는가(말줄임·잘림 없음) — 줄 글자 span 의 scrollWidth ≤ clientWidth. */
+const textFits = (line: Locator) =>
+  line.evaluate((el) => el.scrollWidth <= el.clientWidth && el.scrollHeight <= el.clientHeight + 1);
+
+test('waiting board (en, 320px): the city line is never cut off on the narrowest phones', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 800 });
+  const photos = await mockPlaces(page, [
+    { id: 'narrow-city', name: '경주시사진 식당', image_url: null, gallery_images: [CITY_PHOTO], features: { city_photo: cityCredit() } },
+    { id: 'narrow-tour', name: '대표사진 식당', image_url: TOUR_PHOTO, gallery_images: null, features: {} },
+    { id: 'narrow-plain', name: '표지 식당', image_url: null, gallery_images: null, features: {} },
+  ], 'en');
+  photos.release();
+  await page.goto('/waiting', { waitUntil: 'domcontentloaded' });
+  const cell = page.locator('div.grid-rows-\\[1fr_auto\\]').filter({ hasText: '경주시사진 식당' });
+  const line = cell.getByText(LINE.en, { exact: true });
+  await expect(line).toBeVisible({ timeout: 30_000 });
+  // 말줄임 없이 전부 보인다(폭이 모자라면 낱말 단위로 접힌다) — 출처 자리(min-h-9 pt-2) 안에 담긴다.
+  await expect.poll(() => textFits(line)).toBe(true);
+  const [lineBox, slotBox] = await Promise.all([
+    cell.getByRole('link', { name: LINE.en }).boundingBox(),
+    cell.locator(':scope > div').last().boundingBox(),
+  ]);
+  expect(lineBox!.y + lineBox!.height).toBeLessThanOrEqual(slotBox!.y + slotBox!.height + 1);
+  await expect.poll(() => noHorizontalScroll(page)).toBeLessThanOrEqual(1);
+});
+
+test('waiting board: a city line lines up with the Wikimedia credit under the next card', async ({ page }) => {
+  const WIKI_PHOTO = 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Seokguram.jpg/1200px-Seokguram.jpg';
+  const photos = await mockPlaces(page, [
+    { id: 'align-city', name: '경주시사진 식당', image_url: null, gallery_images: [CITY_PHOTO], features: { city_photo: cityCredit() } },
+    {
+      id: 'align-wiki', name: '위키사진 식당', image_url: null, gallery_images: [WIKI_PHOTO],
+      features: {
+        image_source: {
+          provider: 'Wikimedia Commons', source_url: 'https://commons.wikimedia.org/wiki/File:Seokguram.jpg',
+          license: 'CC BY-SA 4.0', artist: 'Very Long Artist Name For Alignment',
+        },
+      },
+    },
+  ], 'ko');
+  await page.route('**://upload.wikimedia.org/**', (route) =>
+    route.fulfill({ status: 200, contentType: 'image/svg+xml', body: photoSvg('Wikimedia photo', '#7a5c2e') }),
+  );
+  photos.release();
+  await page.goto('/waiting', { waitUntil: 'domcontentloaded' });
+  const cell = (name: string) => page.locator('div.grid-rows-\\[1fr_auto\\]').filter({ hasText: name });
+  const cityLine = cell('경주시사진 식당').getByText(LINE.ko, { exact: true });
+  const wikiLink = cell('위키사진 식당').locator('a[href^="https://commons.wikimedia.org/"]');
+  await expect(cityLine).toBeVisible({ timeout: 30_000 });
+  await expect(wikiLink).toBeVisible();
+  // 두 카드는 같은 줄 — 출처 첫 줄의 글자 위치가 같은 높이다.
+  const [cityBox, wikiBox] = await Promise.all([cityLine.boundingBox(), wikiLink.locator('span').first().boundingBox()]);
+  expect(Math.abs(cityBox!.y - wikiBox!.y)).toBeLessThanOrEqual(1);
+});
+
 test('explore: a city gallery photo shows its source line after it is visible; a TourAPI photo shows none', async ({ page }) => {
   const photos = await mockPlaces(page, [
     { id: 'exp-city', name: '경주시사진 식당', image_url: null, gallery_images: [CITY_PHOTO], features: { city_photo: cityCredit() } },

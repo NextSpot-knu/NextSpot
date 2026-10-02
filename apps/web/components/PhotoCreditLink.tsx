@@ -10,7 +10,7 @@ import { useT } from '@/lib/i18n/I18nProvider';
 // - 기본(한 줄): 긴 작가 이름은 말줄임되고 라이선스는 끝까지 남는다. 글자 줄은 14px 이지만 위아래 5px 씩
 //   누르는 자리를 더해 24px 상자다(WCAG 2.5.8) — 호출부가 음수 여백으로 보이는 간격을 맞춘다.
 // - stacked(두 줄): 좁은 카드(대기 보드 3열)용 — 작가 이름이 한 줄을 다 쓰고 라이선스는 다음 줄. 28px.
-// 줄 높이가 고정이라 이름 길이로 카드 높이가 흔들리지 않는다.
+// 줄 높이가 고정이라 이름 길이로 카드 높이가 흔들리지 않는다(경주시 줄은 예외 — 잘리지 않고 접힌다).
 // w-fit(+base 의 max-w-full): 누르는 자리는 보이는 글자 폭만큼 — 줄 오른쪽 빈자리를 누르거나 카드를 끌려다
 // 새 창(Commons)이 열리지 않게. 블록 flex 라 인라인 줄 상자(글자 기준선) 때문에 높이가 늘지 않는다.
 export function PhotoCreditLink({
@@ -26,21 +26,25 @@ export function PhotoCreditLink({
   const text = 'min-w-0 max-w-full overflow-hidden text-[10px] leading-[14px] text-muk-soft';
   const base = `${text} underline underline-offset-2 hover:text-muk`;
   if (credit.kind === 'city') {
-    // 한 줄이면 충분하다(좁은 대기 보드 카드에서도) — stacked 는 쓰지 않는다.
+    // 이 줄이 경주시 사진의 유일한 출처라 말줄임하지 않는다 — 폭이 모자라면(320px 폰의 대기 보드 카드, 영어)
+    // 낱말 단위로 다음 줄로 접힌다(대기 보드 출처 자리 min-h-9 pt-2 는 14px 두 줄을 담는다).
+    // stacked(대기 보드): 옆 카드의 Wikimedia 출처(stacked)와 같은 위쪽 정렬 상자 — 두 출처 줄의 첫 줄 높이가 맞는다.
+    // 기본: 한 줄이면 24px 상자(위아래 5px 누르는 자리), 접히면 그만큼 자란다.
     const label = t('common.cityPhotoCredit');
-    const line = <span className="min-w-0 truncate">{label}</span>;
+    const box = stacked ? 'flex min-h-6 w-fit flex-col' : 'flex min-h-6 w-fit items-center py-[5px]';
+    const line = <span className="block min-w-0 whitespace-normal break-keep wrap-break-word">{label}</span>;
     return credit.sourceUrl ? (
       <a
         href={credit.sourceUrl}
         target="_blank"
         rel="noopener noreferrer"
         title={label}
-        className={`flex h-6 w-fit items-center py-[5px] ${base} ${className}`}
+        className={`${box} ${base} ${className}`}
       >
         {line}
       </a>
     ) : (
-      <p className={`flex h-6 w-fit items-center py-[5px] ${text} ${className}`}>{line}</p>
+      <p className={`${box} ${text} ${className}`}>{line}</p>
     );
   }
   const full = credit.license ? `${credit.label} · ${credit.license}` : credit.label;
