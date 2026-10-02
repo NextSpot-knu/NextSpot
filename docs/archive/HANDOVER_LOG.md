@@ -1,4 +1,15 @@
 # HANDOVER 로그 (2026-06-30 ~ 2026-08-28) 
+## 2026-09-27 — TourAPI 일배치: 목록 재시도 · 일시 오류일 때만 새 러너 재실행 · 공개 이슈 알림 없음
+
+- 도구·브랜치: Claude Code / `fix/ingest-reliability-v3`(09-24 `fix/ingest-reliability-v2` 를 main 위로 옮기고 리뷰 반영, 한 커밋) → main
+- 커밋: 58c8bfc (1건) + 이 기록
+- 한 것: 09-15·19·20·22 일배치 실패는 일부 러너에서 apis.data.go.kr 첫 호출이 10초 안에 안 닿은 것. 목록 호출 4회 재시도, 그래도 일시 오류면
+  exit 75 → 그때만 새 러너 재실행(최대 2회, 상세 조회·DB 쓰기 전에만 75). 다른 실패는 재실행 없이 exit 1(쿼터 3배 방지). 실패 이슈는 열지 않는다(공개 저장소 — PM 결정).
+- 검증: api ruff+pytest · yaml.safe_load · actionlint+shellcheck · 독립 리뷰(종료 코드 전달·스텁 서버로 75/1 재현).
+- 다음·미결: 04:00 실패 메일이 와도 옆에 auto_retry 실행이 초록이면 데이터는 갱신된 것 — **Re-run 금지**(재시도 사슬을 다시 건다), 필요하면 Run workflow(auto_retry 비움).
+  상세 조회가 실패한 행은 bulk upsert 가 상세 컬럼을 NULL 로 덮는 기존 문제(main 에도 있음) — 후속.
+- 사람 작업: 없음
+
 ## 2026-09-26c — Supabase 연결을 요청마다 혼자 쓰게 (by-type 추천 503 세 구간의 근원)
 
 - 도구·브랜치: Claude Code / `fix/supabase-connection-isolation` → main

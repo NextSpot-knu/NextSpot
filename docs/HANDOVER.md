@@ -51,6 +51,45 @@
       순서·게이트·되돌림(`rpc`, 재시작 1~2분)·볼 것은 [`API_ARCHITECTURE_PLAN.md`](./API_ARCHITECTURE_PLAN.md) "P2a 전환 절차".
 - [ ] **P3 배치 A Render 로그 확인**(09-29 `f0f440b` 로 반영) — 예열은 Keep-Warm 워크플로가 이미 부른다(반영 뒤 06:53Z·10:36Z 실행). Render 로그에서 `walking_graph_presnap`·`warmup_run_done` 이 보이는지, `merchant_boost_timesale_fetch_failed`·`availability_evidence_unavailable`(추천·by-type·지도)이 늘지 않았는지. 되돌림 env `WALKING_ROUTE_KERNEL=legacy`(재시작) — 아래 2026-09-28e. 반영 전 PM 확인으로 적었던 두 가지(영업 근거 한 번 조회의 실패 범위가 `/infrastructures` 지도에도 적용 · 기존 테스트 두 곳 변경)는 이미 운영에 있다.
 - [ ] **P3 배치 B csr 로그 확인** — Render `WALKING_ROUTE_KERNEL=csr` 는 **2026-09-30 01:37 KST 설정**(shadow 와 같은 저장·재시작). `/health` 에는 커널 칸이 없어 로그로만 본다. 로그 `walking_graph_csr_loaded origin=bin`(적재 수십 ms)·`walking_graph_presnap kernel=csr`(시설 ~1,684곳) 확인, Render Metrics 메모리가 전보다 ~20MB 낮은지. 되돌림 `memo`(재시작). 아래 2026-09-29c.
+- [ ] **(`release/1002` 가 main 에 들어간 뒤, 다음 04:00 적재 전) 실사진 DB 정리** — 순서 무관(새 적재의 중복 가드가 늦어도 중복 카드를 막는다).
+      ① 신라고분정보센터를 3532127 로: `update public.facilities set contentid = '3532127' where id = '70231629-3666-45b1-b701-2c37bfe62d5c' and contentid = '3442528';`
+      (옛 3442528 은 적재 제외 목록에 있어 새 행이 되지 않는다 — ① 전까지는 밤 적재가 이 행을 갱신하지 않는다.) ② Kakao 행 6곳을 TourAPI 레코드에 잇기(다음 밤 TourAPI 사진·운영시간을 받는다):
+      ```sql
+      update public.facilities f set contentid = v.cid, contenttypeid = 39
+        from (values ('f1847615-43c8-40f8-8121-88f3e5821d56'::uuid, '2839014'),  -- 료미
+                     ('0691289a-148c-4acc-af4a-ff39c8499574'::uuid, '2904048'),  -- 신라제면 경주황리단길점
+                     ('528ec40e-b547-4a42-8bbc-cf3d4defbe40'::uuid, '2989036'),  -- 경주대릉빵
+                     ('d276e585-3464-4ac2-a83c-888a8c80d257'::uuid, '2907335'),  -- 늘곰탕
+                     ('4e02d74c-16f5-4d5a-aaa5-b127a1068a43'::uuid, '2904191'),  -- 양지식당
+                     ('d8da8528-10f1-4460-bcaa-2c0915881e70'::uuid, '2902488')   -- 황남밀면
+             ) as v(id, cid)
+       where f.id = v.id and f.contentid is null;
+      ```
+      (선택 — 가드가 찾은 사진 있는 같은 가게, PM 확인 후 같은 모양으로: 스테이550 경주점 `84f94145-e879-405d-a57d-c93cf478a5e9`→2903989 ·
+      훌림목 `fd01f6bf-09b5-4066-97be-9139e46ad8ef`→2902567 · 올리브 `982c2c3b-6e05-40bc-b424-231a2dba9077`→2904334 · 프롬상록
+      `d71be8d4-bf3b-4a2e-97b4-0f1c2a6bbb9a`→2903779 · 1894사랑채 `1804451a-9545-4d4b-9733-4c6681277dd6`→2902799 · 물방아삼계탕 경주본점
+      `c9f6a2ea-af17-489d-b764-92f776c14b15`→132984.) ③ 중복 Kakao 행 숨기기 — 표시가 있어야 밤 적재가 다시 켜지 않는다(`features.manual_hidden`).
+      대구갈비 본점(`7effe6b1…`)은 진가네대구갈비(`43adadcf…`)와 주소(북정로 5)·전화(054-772-1384)·영업시간이 같다(09-29 TourAPI 대조 — 확인됨).
+      백년손님은 주소가 다르다(TourAPI 포석로1050번길 32 ↔ Kakao 첨성로99번길 20, 78m) — 카카오맵에서 같은 가게로 보일 때만 넣는다:
+      ```sql
+      update public.facilities
+         set is_active = false,
+             features = coalesce(features, '{}'::jsonb) || jsonb_build_object('manual_hidden',
+                        jsonb_build_object('reason', 'TourAPI 행과 같은 가게 — 중복 카드', 'decided', '2026-09-29'))
+       where id in ('0a2aa7ae-93dd-445b-b3a2-8f7cf2e738f3',   -- 이재원의과자공방(Kakao) = TourAPI 2840291 이재원과자공방
+                    '7effe6b1-c2ce-4f6f-8552-8d081b145fb6',   -- 대구갈비 본점(Kakao) = TourAPI 403845 진가네대구갈비
+                    'c3857ec8-092f-419a-8ea3-aade4eb12d5d');  -- 백년손님(Kakao) = TourAPI 2906690 — 위 확인 뒤에만(아니면 이 줄을 빼고 앞 줄 끝을 ');' 로)
+      ```
+      ④ 황리단길 생활문화센터(3451999)는 운영 DB 에 행이 없다(09-29 읽기 확인) — 코드가 적재하지 않으므로 SQL 불필요. 행이 보이면 ③ 과 같은 표시로 숨긴다.
+      ⑤ **웹의 '사진: 경주시' 출처가 운영에 뜬 것을 확인한 뒤에만** GitHub → Settings → Variables 에 `GYEONGJU_CITY_PHOTO_ENABLED=true`(기본 꺼짐 — 그 전에는 경주시 사진을 넣지 않는다).
+      ⑥ (선택 · 추천) 시드 관광지 두 카드에 TourAPI 사진 잇기 — 새 코드는 같은 곳이라 새 카드로 넣지 않는다. 같은 행(혼잡 기록 유지)이 다음 밤부터 사진·소개·운영시간을 받는다.
+      교촌마을은 종류가 문화시설 → 관광지, 운영시간이 '상시 개방'으로 바뀐다(월정교는 수용 인원 400 → 300). 스냅샷 기반 되돌림 SQL 과 함께 PM_STEPS "관광지 두 곳 잇기"(6·7번 파일):
+      `update public.facilities set contentid = v.cid, contenttypeid = 12 from (values ('f3000000-0000-0000-0000-000000000004'::uuid, '월정교', '2603509'), ('f4000000-0000-0000-0000-000000000002'::uuid, '경주 교촌마을', '128676')) as v(id, name, cid) where facilities.id = v.id and facilities.name = v.name and facilities.contentid is null;`
+      ⑦ (선택 · **main 반영 전에** 결정하면 코드 한 줄) 관광지 보류 4곳을 넣을지 · 카드 두 장 5쌍 정리(위 09-29 항목 ⓐ·ⓑ — 추천: 대릉원 일원·금장대 수변공원·흥무로 벚꽃길은 넣지 않기, 월성이랑 숨기기). 새 카드 빼기는 반영 전이면 `EXCLUDED_CONTENTIDS` 한 줄.
+      기존 카드 숨기기·반영 뒤 결정은 첫 04:00 적재 뒤 SQL(PM_STEPS "관광지 결정 대기" 8번 파일은 쌍마다 한 줄 고르고 남길 카드가 없으면 멈춘다): `update public.facilities set is_active = false, features = coalesce(features, '{}'::jsonb) || jsonb_build_object('manual_hidden', jsonb_build_object('reason', '한 곳에 카드 두 장 — PM 결정', 'decided', '2026-09-29', 'tag', 'attraction-overlap-0929', 'was_active', is_active)) where contentid in ('<숨길 contentid>') and not coalesce(features ? 'manual_hidden', false);`
+      되돌림(9번 파일): `update public.facilities set is_active = coalesce((features -> 'manual_hidden' ->> 'was_active')::boolean, true), features = features - 'manual_hidden' where features -> 'manual_hidden' ->> 'tag' = 'attraction-overlap-0929';`
+- [ ] **경주시 공공저작물 담당에 사진 사용 확인 메일 1통**(054-779-6791, 10월 심사 전) — 「메뉴별음식점」 API(data.go.kr 15114465, 이용허락범위 제한 없음)의
+      대표 사진을 관광 안내 웹 카드에 출처('사진: 경주시')를 붙여 보여 준다는 내용. 시 사진 다운로드 사이트(공익·개인 이용 한정)는 쓰지 않는다.
 - [ ] **폰 스모크(390px)** — 09-29 반영분(P0b 웹·사진 출처 · 대기 보드 27건): `/waiting` 4로케일(사진 없는 장소 표지·야간 18시 이후 색·줄 단위 자르기) · `/explore/recommend` 사진 대체 · 관제 장소 표 검색. 실시 기록이 없다.
 - [ ] **공공 API 키 회전** — `TOURAPI_KEY`·`KMA_API_KEY`·`PARKING_API_KEY`·`GYEONGJU_FOOD_API_KEY`. httpx INFO 로그가 쿼리스트링째 전체 URL을 남겨 Render 로그 이력에 키가 있을 수 있다(09-28 `d9639c2` 로 차단). 새 키 발급 → Render·GitHub Secrets 갱신.
 - [ ] Render `nextspot-api` 환경변수 `SUPABASE_SERVICE_ROLE_KEY` 끝의 줄바꿈 지우기(09-27 발견 — 코드가 이미 걷으므로 급하지 않다. 저장하면 재배포된다).
@@ -196,6 +235,17 @@ from checks order by seq;
 
 최신이 위. 10개를 넘으면 가장 오래된 항목을 `archive/HANDOVER_LOG.md` 맨 위로 옮긴다.
 
+## 2026-10-02 — 실사진 적재(경주시 사진 · 법정동 목록 · 관광지 17곳) + 웹 '사진: 경주시' 출처 → `release/1002`
+
+- 도구·브랜치: Claude Code(노트북) · 리뷰 워크플로(웹·적재 2렌즈 → 반박 검증) / `release/1002`(main `e8cfb33` 위 — 09-29 노트북에만 있던 `feat/real-photos-ingest`·`web/city-credit` 를 10-02 원격에 올리고 코드 커밋만 옮김, 그쪽 HANDOVER 커밋 5건은 이 항목으로 합침) + 데스크톱 `docs/switches-0930` 2건
+- 커밋: 526ff09..1a47316(적재 9건) · e5f3d41..14b65b5(웹 5건) · 001d358·dd92462(데스크톱 기록) · 이 기록
+- 한 것: ① 경주시 「메뉴별음식점」 대표 사진을 사진이 하나도 없는 매칭 행에만 `gallery_images` + 출처 `features.city_photo` 로(TourAPI 사진이 오면 둘 다 뺀다) — **변수 `GYEONGJU_CITY_PHOTO_ENABLED` 기본 꺼짐**. ② TourAPI 음식점·문화시설·관광지를 법정동 목록으로도 받아 사각지대를 메움(새 행 중복 가드 80m·관광지 300m, 보류 4곳 `EXCLUDED_CONTENTIDS`, 이름 겹치는 이웃 관광지 쌍은 적재 로그). ③ `features.manual_hidden` 행을 밤 적재가 다시 켜지 않는다. ④ 웹: 경주시 사진이 **보인 뒤에만** '사진: 경주시'(4로케일, 관광객 화면 4곳), 짝 없는 경주시 사진은 띄우지 않음 · 320px 영어에서 말줄임 대신 접기 · 대기 보드에서 옆 카드 Wikimedia 출처와 첫 줄 높이 맞춤(`14b65b5` — 09-29 리뷰 2건, 각 3표 확인).
+  첫 밤 예상(09-29 대조 + 10-02 리뷰 재현): 새 행 약 31곳(관광지 17 · 문화시설 7 · 음식점 7, 전부 사진) · 적재 쿼터 약 +100콜/밤.
+- 검증: api ruff + pytest 2419 · 스키마 파리티 · check-docs · web lint 0 errors(경고 153)·typecheck·test 71파일·build · e2e 108 passed(3100, 재시도 0) · `14b65b5` 의 새 e2e 2건은 고치기 전 컴포넌트에서 실패 · 독립 리뷰: 웹 0건, 적재 minor 2건(2표 확인 — 아래).
+- 다음·미결: **반영 전 PM 결정** — ⓐ 한 곳에 카드 두 장: 대릉원 일원 1492402(천마총 204m · 경주역사유적지구 61m) · 금장대 수변공원 2781625 · 흥무로 벚꽃길 2756694 는 넣지 않기, 월성이랑 숨기기를 추천(반영 전이면 `EXCLUDED_CONTENTIDS` 한 줄씩). ⓑ 리뷰가 찾은 같은 자리 새 행 — 가드가 새 행끼리·음식점↔비음식점을 견주지 않는다: 플레이스 씨 3036159(Kakao 플레이스씨 한식당 6m, 같은 가게) · 경주쪽샘유적발굴관 3036287(쪽샘지구 3032585 와 같은 주소 0m) — 둘 다 보류 추천, 국립경주박물관 ↔ 신라천년서고(186m, 다른 건물)는 넣기.
+  알아 둘 것: 가드는 숨긴(비활성) 행을 견주지 않는다 — 사람 작업 ③(Kakao 중복 숨기고 TourAPI 행이 대신 들어오게)은 이 동작에 기댄다. 거꾸로 **폐업으로 Kakao 행을 숨길 때는 같은 가게의 TourAPI contentid 를 `EXCLUDED_CONTENTIDS` 에도** 넣어야 다음 밤 새 카드로 돌아오지 않는다(운영 숨김 행 0개 — 지금은 해당 없음).
+- 사람 작업: main 반영 뒤 실사진 DB 정리(①~⑦) · 경주시 확인 메일 · 웹 출처가 운영에 뜬 뒤 변수 켜기("사람 작업 대기"). 09-29 의 "오늘 밤 신라고분정보센터 사진 23장" 은 PM 이 09-29 16:00 에 적용했다(빠짐).
+
 ## 2026-09-30 — 진행 중: "아직 느리다" — 대기 보드·추천·코스 요청 경로 정밀 최적화 (조사 단계, 코드 변경 없음)
 
 - 도구·브랜치: Claude Code(데스크톱) / `docs/switches-0930`(main `e8cfb33` 위, 문서만)
@@ -308,17 +358,6 @@ from checks order by seq;
 - 검증: api ruff + pytest 1841 · OpenAPI 스냅샷 동일 · check-docs · **실 DB 읽기 대조**(데스크톱): 3개 필터 모두 옛 경로와 JSON 동일(1,682곳·순서 동일), 스냅샷 3~13ms vs 옛 경로 1.2~1.5초, 304 동작, 요청당 힙 12~13MB → 3MB · 리뷰 13건 반영(11 수정, 2 부분 — 사유는 커밋 본문).
 - 다음·미결: main 반영 후 Render 로그 `served="snapshot"` 비율·`/health` 의 `reference_snapshot`·RSS 확인 → P2(주차 이력 행렬, −44~109MB) · P3(소비자 이전·보행 CSR·예측 표). 롤백은 Render env `REFERENCE_SNAPSHOT_SERVE=legacy`(재시작). 웹 경계 파라미터 이름 불일치(필터가 한 번도 안 걸림)는 화면 결정 대기.
 - 사람 작업: 공공 API 키 회전(아래 "사람 작업 대기").
-
-## 2026-09-27 — TourAPI 일배치: 목록 재시도 · 일시 오류일 때만 새 러너 재실행 · 공개 이슈 알림 없음
-
-- 도구·브랜치: Claude Code / `fix/ingest-reliability-v3`(09-24 `fix/ingest-reliability-v2` 를 main 위로 옮기고 리뷰 반영, 한 커밋) → main
-- 커밋: 58c8bfc (1건) + 이 기록
-- 한 것: 09-15·19·20·22 일배치 실패는 일부 러너에서 apis.data.go.kr 첫 호출이 10초 안에 안 닿은 것. 목록 호출 4회 재시도, 그래도 일시 오류면
-  exit 75 → 그때만 새 러너 재실행(최대 2회, 상세 조회·DB 쓰기 전에만 75). 다른 실패는 재실행 없이 exit 1(쿼터 3배 방지). 실패 이슈는 열지 않는다(공개 저장소 — PM 결정).
-- 검증: api ruff+pytest · yaml.safe_load · actionlint+shellcheck · 독립 리뷰(종료 코드 전달·스텁 서버로 75/1 재현).
-- 다음·미결: 04:00 실패 메일이 와도 옆에 auto_retry 실행이 초록이면 데이터는 갱신된 것 — **Re-run 금지**(재시도 사슬을 다시 건다), 필요하면 Run workflow(auto_retry 비움).
-  상세 조회가 실패한 행은 bulk upsert 가 상세 컬럼을 NULL 로 덮는 기존 문제(main 에도 있음) — 후속.
-- 사람 작업: 없음
 
 ## 기록 규칙
 
