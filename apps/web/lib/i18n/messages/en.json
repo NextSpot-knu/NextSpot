@@ -1034,6 +1034,7 @@
     "parsing": "Reviewing...",
     "manualHint": "Review the interpreted conditions or select them manually.",
     "noContext": "No supported condition was found. Try phrasing it differently.",
+    "pickBelow": "Pick your conditions below.",
     "confirmContext": "Recommend with these",
     "walkChip": "Within {n} min on foot",
     "availableChip": "{n} min remaining",

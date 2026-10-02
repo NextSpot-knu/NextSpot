@@ -909,7 +909,7 @@ export interface ParsePreferenceResult {
   isFallback: boolean;   // 키워드·LLM 모두 기여하지 못해 폴백했는지 (LLM 실기여 시 false)
   vectorUpdated: boolean;
   categoriesSaved: boolean;
-  llmStatus?: "keyword" | "llm" | "llm_failed" | "disabled";
+  llmStatus?: "keyword" | "llm" | "llm_failed" | "gated" | "disabled";
   // 서버가 **실제로 반영했는가.** 2xx 만 보고 '반영했어요' 라고 말하면 안 된다 —
   // 아무 선호도 못 알아들었을 때 서버는 아무것도 쓰지 않고 200 을 돌려준다(그렇게 고쳤다.
   // 예전에는 빈 결과로 학습된 벡터를 전 카테고리 평균으로 덮어썼다).
@@ -928,7 +928,7 @@ export async function parsePreference(text: string): Promise<ParsePreferenceResu
 
 export interface ParseTravelContextResult {
   context: Partial<TravelContext>;
-  llmStatus: "keyword" | "llm" | "llm_failed" | "disabled";
+  llmStatus: "keyword" | "llm" | "llm_failed" | "gated" | "disabled";
   requiresConfirmation: true;
 }
 
