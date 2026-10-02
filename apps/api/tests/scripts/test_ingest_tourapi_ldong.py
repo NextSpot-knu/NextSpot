@@ -343,18 +343,18 @@ def test_neighbouring_attractions_whose_names_overlap_are_reported_not_dropped()
 async def test_run_inserts_overlapping_neighbours_and_logs_them_for_the_pm(monkeypatch, capsys):
     collected = {12: [
         _ldong(_item("2756715", 12, title="금장대", lat=35.8570, lng=129.2020, firstimage=_PHOTO)),
-        _ldong(_item("2781625", 12, title="금장대 수변공원", lat=35.8560, lng=129.2046, firstimage=_PHOTO)),
-        _ldong(_item("1492402", 12, title="경주 대릉원 일원", lat=35.8384, lng=129.2138, firstimage=_PHOTO)),
-    ]}
+        _ldong(_item("9990031", 12, title="금장대 수변공원", lat=35.8560, lng=129.2046, firstimage=_PHOTO)),
+        _ldong(_item("9990032", 12, title="경주 대릉원 일원", lat=35.8384, lng=129.2138, firstimage=_PHOTO)),
+    ]}  # 실제 1492402·2781625 는 보류(EXCLUDED_CONTENTIDS, 10-02) — 로그 동작만 보려고 가짜 번호
     facilities = [_facility("cheonma", "천마총(대릉원)", type_="attraction", contentid="126214",
                             lat=35.8384, lng=129.2115)]
     rec = _run_env(monkeypatch, collected, guard_facilities=facilities)
     assert await ingest_tourapi.run(_args(details=False)) == 0
-    assert rec.upserted == ["2756715", "2781625", "1492402"]
+    assert rec.upserted == ["2756715", "9990031", "9990032"]
     out = capsys.readouterr().out
     assert out.count("이름이 겹치는 이웃 관광지") == 2
-    assert "경주 대릉원 일원(contentid=1492402) ↔ 천마총(대릉원)(contentid=126214, 기존 카드)" in out
-    assert "금장대(contentid=2756715) ↔ 금장대 수변공원(contentid=2781625, 새 행)" in out
+    assert "경주 대릉원 일원(contentid=9990032) ↔ 천마총(대릉원)(contentid=126214, 기존 카드)" in out
+    assert "금장대(contentid=2756715) ↔ 금장대 수변공원(contentid=9990031, 새 행)" in out
 
 
 def test_wider_attraction_reach_does_not_change_the_shop_and_culture_guard():
@@ -421,6 +421,23 @@ async def test_attractions_awaiting_a_pm_decision_are_held_before_the_first_nigh
     assert await ingest_tourapi.run(_args()) == 0
     assert rec.upserted == ["126207"]
     assert rec.enriched == ["126207"]  # 상세 조회(쿼터)도 쓰지 않는다
+
+
+@pytest.mark.asyncio
+async def test_second_cards_for_one_place_are_held_before_the_first_night(monkeypatch):
+    # 2026-10-02 리뷰: 가드는 새 행끼리·음식점↔그 밖을 견주지 않는다 — 같은 곳 두 번째 카드가 될 다섯 곳은 목록이 막는다.
+    held = {("1492402", 12): "경주 대릉원 일원", ("2781625", 12): "금장대 수변공원", ("2756694", 12): "흥무로 벚꽃길",
+            ("3036159", 14): "플레이스 씨", ("3036287", 14): "경주쪽샘유적발굴관"}
+    for (contentid, _), _title in held.items():
+        assert "보류 2026-10-02" in ingest_tourapi.EXCLUDED_CONTENTIDS[contentid]
+    collected: dict[int, list] = {12: [], 14: []}
+    for (cid, ctype), title in held.items():
+        collected[ctype].append(_ldong(_item(cid, ctype, title=title, firstimage=_PHOTO)))
+    collected[12].append(_ldong(_item("3032585", 12, title="쪽샘지구", lat=35.8330, lng=129.2160, firstimage=_PHOTO)))
+    rec = _run_env(monkeypatch, collected, guard_facilities=[])
+    assert await ingest_tourapi.run(_args()) == 0
+    assert rec.upserted == ["3032585"]
+    assert rec.enriched == ["3032585"]  # 상세 조회(쿼터)도 쓰지 않는다
 
 
 @pytest.mark.asyncio
