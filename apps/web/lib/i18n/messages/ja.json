@@ -1006,6 +1006,7 @@
     "parsing": "確認中...",
     "manualHint": "解析された条件を確認するか、直接選択してください。",
     "noContext": "対応する条件が見つかりません。表現を変えてください。",
+    "pickBelow": "下から条件を選んでください。",
     "confirmContext": "この条件で再推薦",
     "walkChip": "徒歩{n}分以内",
     "availableChip": "残り{n}分",

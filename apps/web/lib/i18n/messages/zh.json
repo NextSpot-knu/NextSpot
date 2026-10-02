@@ -1006,6 +1006,7 @@
     "parsing": "检查中...",
     "manualHint": "请确认解析出的条件，或手动选择。",
     "noContext": "未找到支持的条件，请换种说法。",
+    "pickBelow": "请在下方直接选择条件。",
     "confirmContext": "按这些条件推荐",
     "walkChip": "步行{n}分钟内",
     "availableChip": "剩余{n}分钟",
