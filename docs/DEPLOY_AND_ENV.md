@@ -32,6 +32,8 @@
   **Redirect URLs** = `https://nextspot-nu.vercel.app/auth/callback`, `http://localhost:3000/auth/callback`
   (OAuth와 비밀번호 재설정 메일이 같은 콜백을 쓴다. `/auth/reset-password`는 내부 이동이라 등록 불필요).
 - **Allow anonymous sign-ins = ON** — 게스트 세션이 이걸 쓴다. 꺼지면 수락·쿠폰·코스·제보가 401 폴백 상태가 된다.
+- **Rate Limits → anonymous users = 300/h per IP**(기본 30, 2026-10-06 사용자 상향). 첫 방문·시크릿 창마다 익명 로그인 1회를 쓰므로,
+  같은 사무실 IP 의 심사위원 몇 명이 30을 넘기면 그 IP 의 `/waiting` 이 한 시간 가까이 빈 화면이 된다(10-02 실측 — 6분에 약 18회로 429).
 - Providers: Google(동의 화면 게시 필요), Kakao(비즈 앱 전환 전까지 `account_email` 스코프 오류 — `HANDOVER.md` 사람 작업).
 
 ### 1-3. Storage (비공개 버킷 2개)
