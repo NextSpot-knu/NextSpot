@@ -323,8 +323,61 @@ test('the stop reason is written in the screen language, not the Korean server s
   await expect(page.locator('html')).toHaveAttribute('lang', 'en');
   await page.locator('button[aria-controls="course-reason-cafe-1"]').click();
   const reason = page.locator('#course-reason-cafe-1');
-  await expect(reason).toContainText('Stop 1: 고요한 찻집 — arriving at');
+  // 왜 골랐는지를 말한다 — 순서·이름·도착 시각은 칩이 이미 말한다(리뷰: 칩을 되풀이하던 'Stop 1: … arriving at').
+  await expect(reason).toContainText('Picked for your taste, walking time and perks.');
+  await expect(reason).toContainText('Crowd level when you arrive: Relaxed');
+  await expect(reason).not.toContainText('Stop 1');
   await expect(reason).not.toContainText('고정 추천 사유');
+});
+
+test('ko stop reason says why, and adds the time-dispersal benefit when the server found one', async ({ page }) => {
+  await stubCoursePlan(page, {
+    respondWith: () => {
+      const plan = buildPlan({});
+      // 서버(courses.py _build_stop_reason)가 도착 때 지금보다 한산해진다고 판단한 정류지.
+      plan.stops[1].reason = '2번째 코스 첨성대 뜰: 약 24분 뒤 도착하면 예상 혼잡도 35%(여유) 수준이에요. 지금보다 약 30%p 여유로워질 시간대예요.';
+      return plan;
+    },
+  });
+  await page.goto('/course');
+  await expectStops(page, ['고요한 찻집', '첨성대 뜰']);
+  await page.locator('button[aria-controls="course-reason-cafe-1"]').click();
+  await page.locator('button[aria-controls="course-reason-att-1"]').click();
+  const first = page.locator('#course-reason-cafe-1');
+  const second = page.locator('#course-reason-att-1');
+  await expect(first).toContainText('취향·걷는 시간·혜택을 함께 따져 고른 곳이에요.');
+  await expect(first).not.toContainText('덜 붐빌 시간대');
+  await expect(second).toContainText('도착할 때 지금보다 덜 붐빌 시간대예요.');
+  // 순서·시각 되풀이도, '1번째' 같은 어색한 서수도, % 도 없다.
+  for (const reason of [first, second]) {
+    await expect(reason).not.toContainText(/번째|도착 예정이에요|\d+%/);
+  }
+});
+
+test('an assumed-time course prints clock times from that time, not from now', async ({ page }) => {
+  // 지금은 수 12:30 KST, 가정 시간은 토 14:00 — 도착 오프셋 12·24분은 14:12·14:24 다(12:42·12:54 가 아니다).
+  await page.clock.setFixedTime(new Date('2026-10-07T03:30:00Z'));
+  await page.addInitScript(() => localStorage.setItem('nextspot_assumed_at', 'sat_afternoon'));
+  await stubCoursePlan(page);
+  await page.goto('/course');
+  await expectStops(page, ['고요한 찻집', '첨성대 뜰']);
+  const stepper = page.getByRole('list', { name: '코스 순서 미리보기' });
+  await expect(stepper).toContainText('14:12 도착');
+  await expect(stepper).toContainText('14:24 도착');
+  await expect(page.getByText('마지막 장소 14:24 도착')).toBeVisible();
+  await expect(page.locator('main')).not.toContainText(/12:42 도착|12:54 도착/);
+});
+
+test('desktop stepper: the first stop sits next to its connector, with no empty gap', async ({ page }) => {
+  await page.setViewportSize({ width: 1536, height: 730 });
+  await stubCoursePlan(page);
+  await page.goto('/course');
+  await expectStops(page, ['고요한 찻집', '첨성대 뜰']);
+  const items = page.getByRole('list', { name: '코스 순서 미리보기' }).locator(':scope > li');
+  const [first, second] = await Promise.all([items.nth(0).boundingBox(), items.nth(1).boundingBox()]);
+  // 첫 칸은 자기 정류지 폭(7rem)만 — 예전에는 flex-1 로 늘어나 첫 정류지 오른쪽에 연결선 없는 빈자리가 ~90px 생겼다.
+  expect(first!.width).toBeLessThanOrEqual(7 * 16 + 1);
+  expect(second!.x - (first!.x + first!.width)).toBeLessThanOrEqual(1);
 });
 
 test('빈 코스에서 다음 선택을 안내한다', async ({ page }) => {

@@ -6,7 +6,7 @@
 // 이 페이지는 세션/위치를 얻어 호출하고, 결과를 지도 위 번호 마커 + 시트 목록으로 그린다.
 // 정적 export(SSR) 안전: 모든 브라우저 API 접근은 useEffect/핸들러 내부에 둔다.
 
-import { useState, useEffect, useCallback, useMemo, useRef, Suspense } from "react";
+import { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef, Suspense } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Reorder } from "framer-motion";
@@ -42,6 +42,7 @@ import NowChip from "@/components/NowChip";
 import LoadingReveal from "@/components/LoadingReveal";
 import { encodeStops, parseShareParam } from "@/lib/courseShare";
 import { describeReplan } from "@/lib/coursePlanDiff";
+import { stopCalmerOnArrival } from "@/lib/courseStopReason";
 import { loadTravelContext } from "@/lib/travelContext";
 import { recordActiveTrip } from "@/lib/visits";
 import { track } from "@/lib/analytics";
@@ -189,18 +190,26 @@ function stopEstimate(s: { predictedCongestion: number | null; congestionEstimat
   return displayableEstimate({ congestionLevel: s.predictedCongestion, congestionEstimate: s.congestionEstimate });
 }
 
+// 코스의 기준 시각(ms) — 가정 시간(예: 토 14:00)으로 짠 코스의 도착 오프셋은 그 시각에서 센 분이다
+// (서버 courses.py: now = assumedAt). null 이면 지금. 헤더·스텝퍼·정류지·시간표가 같은 기준으로 'HH:MM 도착' 을 쓴다 —
+// 예전에는 지금(12:30)에 더해 '토 14:00' 코스가 '12:36 도착' 이라고 말했다.
+const CourseBaseContext = createContext<number | null>(null);
+function useCourseBaseMs(): number | null {
+  return useContext(CourseBaseContext);
+}
+
 // 도착 오프셋(분) → 예상 시각(HH:MM, 24h) — 헤드라인 보조텍스트/시간행에서 공용으로 재사용.
-function hhmm(offsetMin: number): string {
-  const clock = new Date(Date.now() + offsetMin * 60_000);
+function hhmm(offsetMin: number, baseMs: number | null): string {
+  const clock = new Date((baseMs ?? Date.now()) + offsetMin * 60_000);
   const hh = clock.getHours().toString().padStart(2, "0");
   const mm = clock.getMinutes().toString().padStart(2, "0");
   return `${hh}:${mm}`;
 }
 
 // 도착 오프셋(분) → 사람 친화 표기 + 예상 시각(HH:MM).
-function arrivalText(offsetMin: number, t: TFunc): string {
-  if (offsetMin < 8) return `${t("course.arrivalNow")} · ${hhmm(offsetMin)}`;
-  return `${t("course.arrivalAfter", { min: Math.round(offsetMin) })} · ${hhmm(offsetMin)}`;
+function arrivalText(offsetMin: number, t: TFunc, baseMs: number | null): string {
+  if (offsetMin < 8) return `${t("course.arrivalNow")} · ${hhmm(offsetMin, baseMs)}`;
+  return `${t("course.arrivalAfter", { min: Math.round(offsetMin) })} · ${hhmm(offsetMin, baseMs)}`;
 }
 
 function CourseContent() {
@@ -771,7 +780,12 @@ function CourseContent() {
     return `${window.location.origin}/course?s=${encodeURIComponent(encoded)}&ref=share`;
   }, [activeStops, isShareMode, shareParam]);
 
+  // 도착 시각의 기준 — 가정 시간 코스는 그 시각부터, 공유 코스는 지금부터(오프셋을 공유 뒤 경과 분으로 이미 보정했다).
+  const planAssumedIso = isShareMode ? null : assumedAtIsoForPreset(assumedPreset);
+  const courseBaseMs = planAssumedIso ? Date.parse(planAssumedIso) : null;
+
   return (
+    <CourseBaseContext.Provider value={courseBaseMs}>
     <main className="min-h-screen bg-hanji text-muk relative overflow-hidden">
       {/* 배경 노을·금빛 광원 — 지도가 자리를 채우므로 평소엔 가려지고, 지도 폴백(unavailable) 시에만 은은히 비친다. */}
       <div className="absolute top-[-20%] left-[-10%] w-[520px] h-[520px] rounded-full bg-sunset-1/10 blur-[120px] pointer-events-none" />
@@ -851,7 +865,7 @@ function CourseContent() {
                     {activeStops.length > 0 && lastStop && (
                       <span className="inline-flex items-center gap-1.5 rounded-xl border border-gold/40 bg-gold/15 px-3 py-2 text-[13px] font-black text-gold-deep tabular-nums shadow-[0_2px_10px_rgba(193,154,62,0.16)]">
                         <span aria-hidden>🕒</span>
-                        {t('course.headlineEta', { time: hhmm(lastStop.arrivalOffsetMin) })}
+                        {t('course.headlineEta', { time: hhmm(lastStop.arrivalOffsetMin, courseBaseMs) })}
                       </span>
                     )}
                     {!isShareMode && (
@@ -979,6 +993,7 @@ function CourseContent() {
         </div>
       )}
     </main>
+    </CourseBaseContext.Provider>
   );
 }
 
@@ -1018,6 +1033,7 @@ function SharedBanner({ elapsedMin = 0 }: { elapsedMin?: number }) {
 // 첫 정류지만 강조(gold 채움 + 굵은 라벨)하고 이후는 회색으로 낮춘다.
 function CourseStepper({ stops }: { stops: CourseStop[] }) {
   const t = useT();
+  const baseMs = useCourseBaseMs();
   return (
     <ol
       className="flex items-start w-full rounded-2xl border border-line/60 bg-white px-2 py-3.5 shadow-[0_1px_2px_rgba(43,35,32,0.04)]"
@@ -1026,8 +1042,14 @@ function CourseStepper({ stops }: { stops: CourseStop[] }) {
       {stops.map((stop, idx) => {
         const isFirst = idx === 0;
         return (
-          // 정류지 1개면 li 가 flex-1 로 전체 폭을 차지해 좌측에 쏠린다 → 가운데 정렬로 보정.
-          <li key={stop.facility.id} className={`flex items-start flex-1 min-w-0 ${stops.length === 1 ? "justify-center" : ""}`}>
+          // 연결선을 가진 칸(둘째부터)만 늘어난다 — 첫 칸까지 flex-1 이면 첫 정류지 오른쪽에 연결선 없는 빈자리가 생겨
+          // 간격이 한쪽으로 쏠렸다. 정류지 1개면 그 칸이 전체 폭을 차지하고 가운데 정렬.
+          <li
+            key={stop.facility.id}
+            className={`flex items-start min-w-0 ${
+              idx > 0 ? "flex-1" : stops.length === 1 ? "flex-1 justify-center" : "flex-none"
+            }`}
+          >
             {/* 연결선은 금빛으로 — 지도 위 점선 경로·번호 마커와 같은 강조색 하나로 통일한다. */}
             {idx > 0 && (
               <span
@@ -1061,7 +1083,7 @@ function CourseStepper({ stops }: { stops: CourseStop[] }) {
                   isFirst ? "bg-gold/15 text-gold-deep" : "bg-hanji-deep text-muk-soft"
                 }`}
               >
-                {t('course.stepperOffset', { time: hhmm(stop.arrivalOffsetMin) })}
+                {t('course.stepperOffset', { time: hhmm(stop.arrivalOffsetMin, baseMs) })}
               </span>
             </div>
           </li>
@@ -1229,6 +1251,7 @@ const DWELL_LAST_MIN = 45;
 function CourseGantt({ stops }: { stops: CourseStop[] }) {
   const t = useT();
   const busyAt = useBusyThreshold();
+  const baseMs = useCourseBaseMs();
   const segments = stops.map((s, i) => {
     const start = Math.max(0, s.arrivalOffsetMin);
     const rawEnd = i < stops.length - 1 ? stops[i + 1].arrivalOffsetMin : s.arrivalOffsetMin + DWELL_LAST_MIN;
@@ -1239,7 +1262,8 @@ function CourseGantt({ stops }: { stops: CourseStop[] }) {
   // 시간 눈금 5개(균등) — 지금 기준 실제 시각(HH:MM)으로 표기.
   const ticks = Array.from({ length: 5 }, (_, i) => {
     const min = (total * i) / 4;
-    return { pct: (min / total) * 100, label: i === 0 ? t("course.ganttNow") : hhmm(min) };
+    // 가정 시간 코스는 첫 눈금도 그 시각('지금' 이 아니다).
+    return { pct: (min / total) * 100, label: i === 0 && baseMs === null ? t("course.ganttNow") : hhmm(min, baseMs) };
   });
 
   return (
@@ -1282,7 +1306,7 @@ function CourseGantt({ stops }: { stops: CourseStop[] }) {
                   {s.order}. {typeEmoji(s.facility.type)} {s.facility.name}
                 </span>
                 <span className="shrink-0 text-[10px] text-muk-soft tabular-nums">
-                  🕒 {arrivalText(s.arrivalOffsetMin, t)}
+                  🕒 {arrivalText(s.arrivalOffsetMin, t, baseMs)}
                 </span>
               </div>
               {/* 시간축 트랙 + 막대 */}
@@ -1294,7 +1318,7 @@ function CourseGantt({ stops }: { stops: CourseStop[] }) {
                 <div
                   className={`absolute top-1 bottom-1 rounded-md border flex items-center px-2 min-w-[2.5rem] ${cong.cls}`}
                   style={{ left: `${leftPct}%`, width: `calc(${widthPct}% - 2px)` }}
-                  title={`${s.facility.name} · ${arrivalText(s.arrivalOffsetMin, t)}`}
+                  title={`${s.facility.name} · ${arrivalText(s.arrivalOffsetMin, t, baseMs)}`}
                 >
                   <span className="text-[10px] font-bold tabular-nums truncate">
                     {/* 등급만(I58) — 지도·카드 어디에도 붐빔을 %로 말하지 않는다. */}
@@ -1526,6 +1550,7 @@ function StopRow({
 }) {
   const t = useT();
   const busyAt = useBusyThreshold();
+  const baseMs = useCourseBaseMs();
   const [open, setOpen] = useState(false);
   const [altsOpen, setAltsOpen] = useState(false);
   // '더보기' — 자동차 길안내 · 다른 곳 N · 이 자리 고정은 한 번 더 눌러야 보인다(I58). 앞면에는 '추천 이유' 와 '길안내' 둘만.
@@ -1548,10 +1573,12 @@ function StopRow({
     ? displayWalkingMinutes(stop.travelMinutes)
     : null;
   // 추천 이유 — 이 화면의 언어로 만든다(I58). 서버 문장(stop.reason)은 한국어 한 벌이라 다른 언어에서 한국어가 나왔다.
-  // 도착 시점 붐빔은 모델 예측이 있을 때만 말한다(추정은 '도착 때' 가 아니라 '지금' 이다 — 아래 근거 줄이 따로 말한다).
+  // 순서·이름·도착 시각은 칩이 이미 말한다 — 여기서는 왜 골랐는지(취향·걷는 시간·혜택), 도착 때 붐빔(모델 예측이 있을 때만;
+  // 추정은 '도착 때' 가 아니라 '지금' 이다 — 아래 근거 줄이 따로 말한다), 그리고 서버가 시간 분산 효과를 말했으면 그 이유.
   const reasonText = [
-    t('course.stopReason', { order: stop.order, name: stop.facility.name, time: hhmm(stop.arrivalOffsetMin) }),
+    t('course.stopWhy'),
     cong ? t('course.stopReasonCrowd', { label: t(`congestion.${cong.key}`) }) : null,
+    stopCalmerOnArrival(stop.reason) ? t('course.stopCalmer') : null,
   ].filter(Boolean).join(' ');
   const startNavigation = (mode: 'walk' | 'car') => {
     const walkMinutes = stop.travelMinutes ?? stop.arrivalOffsetMin;
@@ -1609,7 +1636,7 @@ function StopRow({
               <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
                 <span className="inline-flex items-center gap-1 rounded-full bg-hanji-deep px-2 py-1 text-[12px] font-bold text-muk tabular-nums">
                   <span aria-hidden>🕒</span>
-                  {t('course.stepperOffset', { time: hhmm(stop.arrivalOffsetMin) })}
+                  {t('course.stepperOffset', { time: hhmm(stop.arrivalOffsetMin, baseMs) })}
                 </span>
                 {walkMinutes !== null && (
                   <span className="inline-flex items-center gap-1 rounded-full border border-jade/30 bg-jade/10 px-2 py-1 text-[12px] font-bold text-jade tabular-nums">
@@ -1761,7 +1788,7 @@ function StopRow({
                     <div className="min-w-0 flex-1">
                       <p className="text-[12px] font-bold text-muk truncate">{alt.facility.name}</p>
                       <p className="text-[10px] text-muk-soft tabular-nums">
-                        🕒 {arrivalText(alt.arrivalOffsetMin, t)}
+                        🕒 {arrivalText(alt.arrivalOffsetMin, t, baseMs)}
                         {altCong && (
                           <> · {t(`congestion.${altCong.key}`)}</>
                         )}
