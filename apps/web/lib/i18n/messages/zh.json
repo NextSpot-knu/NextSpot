@@ -1409,5 +1409,37 @@
     "backToMap": "返回地图",
     "exploreCourse": "查看分流路线",
     "brandLine": "NextSpot · 庆州皇理团路拥挤分流指南"
+  },
+  "taste": {
+    "title": "AI口味档案",
+    "badgeLearned": "实时学习中",
+    "badgeOnboarding": "基于你最初的选择",
+    "subtitle": "根据你选过的地点看出的旅行口味",
+    "axis": {
+      "restaurant": "餐厅",
+      "cafe": "咖啡馆",
+      "attraction": "景点",
+      "culture": "文化设施",
+      "taste": "口味·评分",
+      "mood": "出片",
+      "access": "无障碍",
+      "quiet": "清静"
+    },
+    "tag": {
+      "restaurant": "#美食探店",
+      "cafe": "#咖啡巡游",
+      "attraction": "#热门景点",
+      "culture": "#文化艺术",
+      "taste": "#口碑美味",
+      "mood": "#出片打卡",
+      "access": "#无障碍旅行",
+      "quiet": "#清静去处"
+    },
+    "tooltipLabel": "偏好强度",
+    "radarName": "口味档案",
+    "setupCta": "设置偏好，即可生成专属于你的档案",
+    "learnHint": "使用导航或点“不感兴趣”，都会立即更新这份档案。",
+    "detailsToggle": "详情",
+    "detailsBody": "接受推荐（+10%）或点“不感兴趣”（−5%）会立即调整8个口味维度。"
   }
 }

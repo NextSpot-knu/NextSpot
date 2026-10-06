@@ -1409,5 +1409,37 @@
     "openMerchantDesc": "가게 성과·타임세일·좌석 상태 관리",
     "openAdmin": "관제 대시보드 열기",
     "openAdminDesc": "실시간 혼잡도 · 안전 경보 · 통계 리포트 · 문의 관리"
+  },
+  "taste": {
+    "title": "AI 취향 프로필",
+    "badgeLearned": "실시간 학습 반영",
+    "badgeOnboarding": "처음 고른 취향 반영",
+    "subtitle": "지금까지 고른 장소로 본 내 여행 취향",
+    "axis": {
+      "restaurant": "음식점",
+      "cafe": "카페",
+      "attraction": "관광지",
+      "culture": "문화시설",
+      "taste": "맛·평점",
+      "mood": "감성·인스타",
+      "access": "접근성",
+      "quiet": "한적함"
+    },
+    "tag": {
+      "restaurant": "#맛집탐방",
+      "cafe": "#카페투어",
+      "attraction": "#관광명소",
+      "culture": "#문화예술",
+      "taste": "#맛·평점",
+      "mood": "#감성인스타",
+      "access": "#무장애여행",
+      "quiet": "#한적함"
+    },
+    "tooltipLabel": "선호 강도",
+    "radarName": "취향 프로필",
+    "setupCta": "선호를 설정하면 나만의 프로필이 만들어져요",
+    "learnHint": "길안내를 받거나 '관심 없어요'를 누르면 이 프로필에 바로 반영돼요.",
+    "detailsToggle": "자세히",
+    "detailsBody": "길안내(수락)는 +10%, 관심 없어요(거절)는 −5%만큼 8가지 취향 축이 바로 조정돼요."
   }
 }

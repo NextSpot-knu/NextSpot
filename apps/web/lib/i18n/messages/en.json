@@ -1409,5 +1409,37 @@
     "backToMap": "Back to the map",
     "exploreCourse": "See dispersal courses",
     "brandLine": "NextSpot · Crowd dispersal guide for Gyeongju Hwangnidan-gil"
+  },
+  "taste": {
+    "title": "AI taste profile",
+    "badgeLearned": "Learns as you go",
+    "badgeOnboarding": "From your first picks",
+    "subtitle": "Your travel taste, based on the places you've picked",
+    "axis": {
+      "restaurant": "Restaurants",
+      "cafe": "Cafés",
+      "attraction": "Sights",
+      "culture": "Culture",
+      "taste": "Ratings",
+      "mood": "Photo spots",
+      "access": "Access",
+      "quiet": "Quiet"
+    },
+    "tag": {
+      "restaurant": "#Foodie",
+      "cafe": "#CafeHopping",
+      "attraction": "#Sightseeing",
+      "culture": "#ArtsAndCulture",
+      "taste": "#TopRated",
+      "mood": "#Photogenic",
+      "access": "#AccessibleTravel",
+      "quiet": "#QuietSpots"
+    },
+    "tooltipLabel": "Preference strength",
+    "radarName": "Taste profile",
+    "setupCta": "Set your preferences to build your own profile",
+    "learnHint": "Taking directions or tapping “Not interested” updates this profile right away.",
+    "detailsToggle": "Details",
+    "detailsBody": "Accepting a pick (+10%) or tapping “Not interested” (−5%) adjusts all 8 taste axes right away."
   }
 }

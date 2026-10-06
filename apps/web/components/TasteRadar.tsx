@@ -2,19 +2,20 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { Fingerprint, ThumbsUp, ThumbsDown, ArrowRight } from 'lucide-react';
+import { Fingerprint, ThumbsUp, ThumbsDown, ArrowRight, ChevronDown } from 'lucide-react';
 import {
   RadarChart, Radar, PolarGrid, PolarAngleAxis, Tooltip, ResponsiveContainer,
 } from 'recharts';
 import { apiClient } from '@/lib/api-client';
 import { loadTravelContext } from '@/lib/travelContext';
+import { useT } from '@/lib/i18n/I18nProvider';
 
 // 8차원 선호 벡터의 차원 정의 — apps/api/app/services/spot/preference.py 와 1:1 대응
 // dim0-3: 카테고리(음식점/카페/관광지/문화시설) / dim4: 맛·평점 / dim5: 감성·인스타 / dim6: 접근성·무장애 / dim7: 한적함
-const DIMENSION_LABELS = ['음식점', '카페', '관광지', '문화시설', '맛·평점', '감성·인스타', '접근성', '한적함'];
-
-// 상위 성향 태그용 한국어 라벨 (차원 인덱스 순서 동일)
-const DIMENSION_TAGS = ['#맛집탐방', '#카페투어', '#관광명소', '#문화예술', '#맛·평점', '#감성인스타', '#무장애여행', '#한적함'];
+// 화면 글자는 4로케일 사전(taste.axis.* · taste.tag.*)에서 — 예전에는 한국어 배열이라 en/ja/zh 에서도 한국어였다(I55).
+const DIMENSION_IDS = ['restaurant', 'cafe', 'attraction', 'culture', 'taste', 'mood', 'access', 'quiet'] as const;
+const AXIS_KEYS = DIMENSION_IDS.map((id) => `taste.axis.${id}`);
+const TAG_KEYS = DIMENSION_IDS.map((id) => `taste.tag.${id}`);
 
 // ⚠️ 표시 전용 폴백 상수: 백엔드 preference.py CATEGORY_VECTORS 를 그대로 재현.
 // SPOT 점수 산정은 백엔드가 단일 소스이며, 이 값은 무세션(데모) 상태에서
@@ -63,7 +64,10 @@ interface TasteState {
 }
 
 export default function TasteRadar() {
+  const t = useT();
   const [taste, setTaste] = useState<TasteState | null>(null);
+  // '자세히' — 수락 +10% · 거절 −5% 와 8가지 축(기능설명서 2-⑤)은 원할 때만. 앞면은 관광객 말 한 줄.
+  const [detailsOpen, setDetailsOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -92,12 +96,12 @@ export default function TasteRadar() {
   }, []);
 
   return (
-    <div className="bg-white border border-line rounded-3xl p-6 shadow-[0_2px_14px_rgba(43,35,32,0.06)] mb-4">
+    <div data-testid="taste-radar" className="bg-white border border-line rounded-3xl p-6 shadow-[0_2px_14px_rgba(43,35,32,0.06)] mb-4">
       {/* 섹션 헤더 + 벡터 출처 배지 */}
       <div className="flex items-center justify-between mb-1">
         <h3 className="text-sm font-bold text-gold-deep tracking-wider flex items-center gap-2">
           <Fingerprint size={16} />
-          <span>AI 취향 프로필</span>
+          <span>{t('taste.title')}</span>
         </h3>
         {taste && taste.source !== 'default' && (
           <span className={`text-[10px] font-semibold px-2.5 py-1 rounded-full border ${
@@ -105,11 +109,11 @@ export default function TasteRadar() {
               ? 'bg-gold/15 border-gold/30 text-gold-deep'
               : 'bg-hanji-deep border-line text-muk-soft'
           }`}>
-            {taste.source === 'learned' ? '실시간 학습 반영' : '온보딩 선호 반영 중'}
+            {taste.source === 'learned' ? t('taste.badgeLearned') : t('taste.badgeOnboarding')}
           </span>
         )}
       </div>
-      <p className="text-xs text-muk-soft mb-2">추천 엔진이 이해한 나의 여행 성향 8차원</p>
+      <p className="text-xs text-muk-soft mb-2">{t('taste.subtitle')}</p>
 
       {!taste ? (
         <div className="flex justify-center py-10">
@@ -121,8 +125,8 @@ export default function TasteRadar() {
           <div className="h-[240px] w-full">
             <ResponsiveContainer width="100%" height="100%">
               <RadarChart
-                data={DIMENSION_LABELS.map((label, i) => ({
-                  label,
+                data={AXIS_KEYS.map((key, i) => ({
+                  label: t(key),
                   value: Math.round(Math.max(0, Math.min(1, taste.vector[i] ?? 0)) * 100),
                 }))}
                 outerRadius="72%"
@@ -130,7 +134,7 @@ export default function TasteRadar() {
                 <PolarGrid stroke="rgba(43,35,32,0.12)" />
                 <PolarAngleAxis dataKey="label" tick={{ fill: '#6b5d4f', fontSize: 11 }} />
                 <Tooltip
-                  formatter={(value) => [`${value} / 100`, '선호 강도']}
+                  formatter={(value) => [`${value} / 100`, t('taste.tooltipLabel')]}
                   contentStyle={{
                     borderRadius: '8px',
                     backgroundColor: '#ffffff',
@@ -140,7 +144,7 @@ export default function TasteRadar() {
                   }}
                 />
                 <Radar
-                  name="취향 프로필"
+                  name={t('taste.radarName')}
                   dataKey="value"
                   stroke="#c19a3e"
                   strokeWidth={2}
@@ -158,7 +162,7 @@ export default function TasteRadar() {
               className="mt-3 flex items-center justify-between px-4 py-3 rounded-xl bg-gold/15 border border-gold/30 hover:bg-gold/25 transition-colors"
             >
               <span className="text-sm text-muk font-medium break-keep">
-                선호를 설정하면 나만의 프로필이 만들어져요
+                {t('taste.setupCta')}
               </span>
               <ArrowRight size={16} className="text-gold-deep shrink-0 ml-2" />
             </Link>
@@ -174,28 +178,44 @@ export default function TasteRadar() {
                     key={idx}
                     className="px-3 py-1.5 rounded-full bg-jade/15 border border-jade/30 text-jade text-xs font-semibold"
                   >
-                    {DIMENSION_TAGS[idx]}
+                    {t(TAG_KEYS[idx])}
                   </span>
                 ))}
             </div>
           )}
 
-          {/* 피드백 학습 루프 설명 (수락 +10% / 거절 −5% 벡터 보정) */}
+          {/* 피드백이 프로필에 반영된다는 한 줄(관광객 말) + '자세히' 뒤의 수락 +10% / 거절 −5% · 8가지 축(I55).
+              '벡터'·'8차원' 같은 엔진 말은 앞면에 쓰지 않는다. */}
           <div className="mt-4 px-4 py-3 rounded-xl bg-hanji border border-line">
-            <div className="flex items-center justify-center gap-4 text-xs mb-1.5">
-              <span className="flex items-center gap-1.5 text-jade">
-                <ThumbsUp size={13} />
-                <span className="font-semibold">수락 +10%</span>
-              </span>
-              <span className="text-muk-soft">·</span>
-              <span className="flex items-center gap-1.5 text-terracotta">
-                <ThumbsDown size={13} />
-                <span className="font-semibold">거절 −5%</span>
-              </span>
+            <p className="text-[12px] text-muk-soft text-center leading-relaxed break-keep">{t('taste.learnHint')}</p>
+            <div className="mt-1 flex justify-center">
+              <button
+                type="button"
+                onClick={() => setDetailsOpen((v) => !v)}
+                aria-expanded={detailsOpen}
+                aria-controls="taste-details"
+                className="toss-pressable inline-flex min-h-11 items-center gap-1 rounded-full px-3 text-[12px] font-bold text-gold-deep hover:bg-gold/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+              >
+                {t('taste.detailsToggle')}
+                <ChevronDown size={13} className={`transition-transform ${detailsOpen ? 'rotate-180' : ''}`} aria-hidden />
+              </button>
             </div>
-            <p className="text-[11px] text-muk-soft text-center leading-relaxed break-keep">
-              추천에 남긴 피드백이 벡터를 보정해, 쓰면 쓸수록 추천이 나에게 맞춰져요.
-            </p>
+            {detailsOpen && (
+              <div id="taste-details" className="mt-1 space-y-1.5">
+                <div className="flex items-center justify-center gap-4 text-xs">
+                  <span className="flex items-center gap-1.5 text-jade">
+                    <ThumbsUp size={13} />
+                    <span className="font-semibold">+10%</span>
+                  </span>
+                  <span className="text-muk-soft">·</span>
+                  <span className="flex items-center gap-1.5 text-terracotta">
+                    <ThumbsDown size={13} />
+                    <span className="font-semibold">−5%</span>
+                  </span>
+                </div>
+                <p className="text-[11px] text-muk-soft text-center leading-relaxed break-keep">{t('taste.detailsBody')}</p>
+              </div>
+            )}
           </div>
         </>
       )}

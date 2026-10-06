@@ -198,3 +198,40 @@ test('ja mypage role-request card names the operations dashboard, not 管制', a
   await expect(entry).toContainText('運営ダッシュボード');
   await expect(page.locator('body')).not.toContainText('管制');
 });
+
+// AI 취향 프로필(기능 2-⑤ 8축 레이더) — 4개 언어로, 엔진 말('벡터'·'8차원') 없이(2026-10-06 감사 I55).
+// 수락 +10% · 거절 −5% 는 '자세히' 뒤에서 그대로 확인할 수 있다.
+async function stubRadar(page: Page, locale: 'ko' | 'en') {
+  await page.addInitScript((l) => localStorage.setItem('nextspot_locale', l), locale);
+  await stubApis(page, { role: 'tourist', is_anonymous: true }, ZERO_IMPACT);
+  await page.route('**/api/v1/users/me/vector', (route) => route.fulfill({
+    status: 200, contentType: 'application/json', body: JSON.stringify({ vector: [0.62, 0.48, 0.71, 0.35, 0.4, 0.55, 0.2, 0.3] }),
+  }));
+}
+
+test('en: the taste radar speaks English end to end', async ({ page }) => {
+  test.setTimeout(90_000);
+  await stubRadar(page, 'en');
+  await page.goto('/mypage');
+  const radar = page.getByTestId('taste-radar');
+  await expect(radar).toContainText('AI taste profile', { timeout: 30_000 });
+  await expect(page.locator('html')).toHaveAttribute('lang', 'en');
+  await expect(radar.locator('.recharts-wrapper')).toBeVisible();
+  await expect(radar).toContainText('Restaurants');
+  await expect(radar).toContainText('#Sightseeing');
+  expect(await radar.innerText()).not.toMatch(/[가-힣]/);
+});
+
+test('ko: the radar face has no engine words; +10% and −5% sit behind 자세히', async ({ page }) => {
+  test.setTimeout(90_000);
+  await stubRadar(page, 'ko');
+  await page.goto('/mypage');
+  const radar = page.getByTestId('taste-radar');
+  await expect(radar).toContainText('AI 취향 프로필', { timeout: 30_000 });
+  await expect(radar.locator('.recharts-wrapper')).toBeVisible();
+  await expect(radar).not.toContainText(/벡터|8차원|추천 엔진/);
+  await expect(radar).not.toContainText('+10%');
+  await radar.getByRole('button', { name: '자세히' }).click();
+  await expect(radar).toContainText('+10%');
+  await expect(radar).toContainText('−5%');
+});

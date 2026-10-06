@@ -1409,5 +1409,37 @@
     "backToMap": "地図に戻る",
     "exploreCourse": "分散コースを見る",
     "brandLine": "NextSpot · 慶州・皇理団通りの混雑分散ガイド"
+  },
+  "taste": {
+    "title": "AI好みプロフィール",
+    "badgeLearned": "リアルタイムで学習",
+    "badgeOnboarding": "最初に選んだ好みを反映",
+    "subtitle": "これまで選んだ場所から見た、あなたの旅の好み",
+    "axis": {
+      "restaurant": "飲食店",
+      "cafe": "カフェ",
+      "attraction": "観光地",
+      "culture": "文化施設",
+      "taste": "味・評価",
+      "mood": "映え",
+      "access": "アクセス",
+      "quiet": "静けさ"
+    },
+    "tag": {
+      "restaurant": "#グルメ",
+      "cafe": "#カフェ巡り",
+      "attraction": "#名所めぐり",
+      "culture": "#文化芸術",
+      "taste": "#評判の味",
+      "mood": "#映えスポット",
+      "access": "#バリアフリー旅",
+      "quiet": "#静かな場所"
+    },
+    "tooltipLabel": "好みの強さ",
+    "radarName": "好みプロフィール",
+    "setupCta": "好みを設定すると、あなただけのプロフィールができます",
+    "learnHint": "道案内を選んだり「興味なし」を押したりすると、このプロフィールにすぐ反映されます。",
+    "detailsToggle": "詳しく",
+    "detailsBody": "受け入れ（+10%）や「興味なし」（−5%）で、8つの好みの軸がすぐに調整されます。"
   }
 }
