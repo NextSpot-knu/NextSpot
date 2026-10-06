@@ -618,6 +618,13 @@ test('the phone voice control on /explore/recommend sits above the tab bar', asy
   }));
   expect(offsets.nav).toBeGreaterThan(0);
   expect(offsets.bottom).toBeGreaterThan(offsets.nav);
+  // 화면 전환 애니메이션이 transform 을 남기지 않으니(A11/I66) 실제 자리도 화면 안·탭 바 위다.
+  // 360px·스크롤까지 포함한 위치 계약 전체는 e2e/fixed-overlays.spec.ts.
+  await expect(control).toBeVisible();
+  const box = (await control.boundingBox())!;
+  const nav = (await page.locator('nav[aria-label="주요 내비게이션"]:visible').boundingBox())!;
+  expect(box.y).toBeGreaterThanOrEqual(0);
+  expect(box.y + box.height).toBeLessThanOrEqual(nav.y + 0.5);
 });
 
 const OUT_OF_REGION: Record<A12Locale, string> = {

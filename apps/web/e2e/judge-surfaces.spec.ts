@@ -128,42 +128,43 @@ test('waiting board gives every card its own wait, grade and calm hour', async (
 });
 
 // ───────────────────────────────────────────────────────────────────────────
-// ⑥ 임팩트 — 401 이어도 숫자 + '예시 값' 배지. 에러·빈 화면 금지.
+// ⑥ 임팩트 — 401 이어도 에러·빈 화면 금지. 예시 숫자도 내지 않는다(PM 4.19a — '나의' 숫자가 아닌 값을
+//    게스트에게 보이지 않는다. 09-21 '예시 값' 배지 결정을 뒤집음). 상세 화면은 '지도에서 시작' 시작 상태.
 // ───────────────────────────────────────────────────────────────────────────
 
-const SAMPLE_BADGE = '예시 값';
+const SAMPLE_NUMBERS = /예시 값|312|1,240|참여 점포|분산 유도/;
 
-async function stubImpact401(page: Page): Promise<void> {
+async function stubImpact401(page: Page): Promise<{ impactCalls: () => number }> {
   await stubBase(page);
-  await page.route('**/api/v1/impact/summary', (route) =>
-    route.fulfill({ status: 401, contentType: 'application/json', body: '{"detail":"unauthorized"}' }),
-  );
+  let impactCalls = 0;
+  await page.route('**/api/v1/impact/summary', (route) => {
+    impactCalls += 1;
+    return route.fulfill({ status: 401, contentType: 'application/json', body: '{"detail":"unauthorized"}' });
+  });
+  return { impactCalls: () => impactCalls };
 }
 
-test('mypage impact card shows sample numbers with the badge when the API returns 401', async ({ page }) => {
+test('mypage impact card shows no sample numbers and no error when the API returns 401', async ({ page }) => {
   test.setTimeout(120_000);
-  await stubImpact401(page);
+  const api = await stubImpact401(page);
   await page.goto('/mypage');
 
-  const badge = page.getByText(SAMPLE_BADGE).first();
-  // 401 첫 실패는 2.5초 유예 뒤 1회 자동 재시도 — 그 뒤에 예시 값으로 확정된다.
-  await expect(badge).toBeVisible({ timeout: 40_000 });
-  await expect(page.getByText(/분산 유도 [\d,]+건/)).toBeVisible();
-  await expect(page.getByText(/절약된 대기 [\d,]+분/)).toBeVisible();
-  await expect(page.getByText(/참여 점포 [\d,]+곳/)).toBeVisible();
+  // 401 첫 실패는 2.5초 유예 뒤 1회 자동 재시도 — 재시도까지 끝난 화면을 본다(예전에는 이때 예시 값이 떴다).
+  await expect.poll(api.impactCalls, { timeout: 40_000 }).toBeGreaterThan(1);
+  await page.waitForTimeout(1_000);
+  await expect(page.locator('body')).not.toContainText(SAMPLE_NUMBERS);
   // 에러·빈 상태 문구가 보이면 안 된다.
   await expect(page.getByText('여행 기록을 다시 불러올게요')).toHaveCount(0);
   await expect(page.getByText('여행 임팩트가 여기에 쌓입니다')).toHaveCount(0);
 });
 
-test('mypage impact detail shows sample numbers with the badge when the API returns 401', async ({ page }) => {
+test('mypage impact detail shows the start state, not sample numbers, when the API returns 401', async ({ page }) => {
   test.setTimeout(120_000);
   await stubImpact401(page);
   await page.goto('/mypage/impact');
 
-  await expect(page.getByText(SAMPLE_BADGE).first()).toBeVisible({ timeout: 40_000 });
-  await expect(page.getByText('누적 임팩트')).toBeVisible();
-  await expect(page.getByText(/분산 유도 [\d,]+건/)).toBeVisible();
+  await expect(page.getByRole('button', { name: '지도에서 시작' })).toBeVisible({ timeout: 40_000 });
+  await expect(page.locator('body')).not.toContainText(SAMPLE_NUMBERS);
   await expect(page.getByText('여행 기록을 다시 불러올게요')).toHaveCount(0);
   await expect(page.getByText('여행 임팩트가 여기에 쌓입니다')).toHaveCount(0);
 });
@@ -190,7 +191,7 @@ test('an unknown route renders the branded 404 with a link back to the map', asy
 // ───────────────────────────────────────────────────────────────────────────
 
 const FRESHNESS_FALLBACK =
-  '한국관광공사 TourAPI 관광정보는 매일 04:00(KST)에 일괄 적재하고, 상세·이미지 응답은 24시간 캐시로 제공합니다.';
+  '한국관광공사 TourAPI 관광정보는 매일 04:00(KST)에 일괄 적재하고, 장소 상세·축제·키워드 검색은 요청할 때 불러옵니다.';
 
 test('guide data fold carries the source table and falls back when freshness fails', async ({ page }) => {
   test.setTimeout(90_000);
@@ -217,7 +218,7 @@ test('guide data fold carries the source table and falls back when freshness fai
   await expect(table.getByText('한국관광공사 TourAPI').first()).toBeVisible();
   await expect(table.getByText('searchFestival2')).toBeVisible();
   await expect(table.getByText('getVilageFcst')).toBeVisible();
-  await expect(table.getByRole('row')).toHaveCount(10); // 헤더 1 + 출처 9
+  await expect(table.getByRole('row')).toHaveCount(11); // 헤더 1 + 출처 10(키워드 검색 searchKeyword2 행 추가)
 
   // 신선도 실패 → 시각을 지어내지 않고 정적 문장으로 내려앉는다.
   await expect(fold.getByText(FRESHNESS_FALLBACK)).toBeVisible();

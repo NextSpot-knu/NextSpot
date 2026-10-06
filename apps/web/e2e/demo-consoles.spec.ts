@@ -5,7 +5,8 @@ import { stubExternalServices } from './support/stubs';
 //
 // 계약(lib/demoFixtures.ts 머리말):
 //   1. 두 콘솔은 로그인·역할 판정 없이 열린다.
-//   2. 화면에는 항상 '데모 데이터로 보는 중' 배지가 떠 있다.
+//   2. 화면에는 항상 데모 표시가 있다 — 사장님 콘솔은 머리글의 '예시 화면' 칩 하나(계획 A9),
+//      관제 대시보드는 '데모 데이터로 보는 중' 배지.
 //   3. **데모는 백엔드를 부르지 않는다** — 조회도, 쓰기도. 쓰기 버튼은 토스트만 띄운다.
 //
 // (3) 은 화면만 봐서는 증명되지 않으므로 page.on('request') 로 실제로 나간 요청을 세고,
@@ -42,6 +43,15 @@ async function stubDemoConsole(page: Page): Promise<void> {
 }
 
 const DEMO_BADGE = '데모 데이터로 보는 중';
+/** 사장님 콘솔 데모의 표시 — 머리글 칩 하나(떠 있는 배지는 없다). */
+const MERCHANT_DEMO_CHIP = '예시 화면';
+
+async function expectOneMerchantDemoChip(page: Page): Promise<void> {
+  const chip = page.getByText(MERCHANT_DEMO_CHIP, { exact: true });
+  await expect(chip).toBeVisible({ timeout: 20_000 });
+  await expect(chip).toHaveCount(1);
+}
+
 const NO_SAVE_TOAST = '데모에서는 저장되지 않아요';
 
 /** 데모가 절대 부르면 안 되는 경로. */
@@ -59,8 +69,8 @@ test('merchant demo console renders fixtures without login and never calls the m
   await stubDemoConsole(page);
   await page.goto('/merchant?demo=1');
 
-  // 배지 — 스크롤해도 사라지지 않는 고정 배지(components/DemoBadge.tsx).
-  await expect(page.getByText(DEMO_BADGE)).toBeVisible({ timeout: 20_000 });
+  // 데모 표시 — 고정 머리글의 '예시 화면' 칩 하나.
+  await expectOneMerchantDemoChip(page);
 
   // 고정값 4종(lib/demoFixtures.ts DEMO_MERCHANT_TODAY = 184/41/23/17).
   await expect(page.getByText('184회', { exact: true })).toBeVisible();
@@ -69,7 +79,7 @@ test('merchant demo console renders fixtures without login and never calls the m
   await expect(page.getByText('17건', { exact: true })).toBeVisible();
 
   // 데모 가게 이름과 데모 브리핑이 실제로 렌더된다(게이트 문구가 아니라 콘솔 본문).
-  await expect(page.getByText('황리단길 한옥카페 (데모)').first()).toBeVisible();
+  await expect(page.getByText('황리단길 한옥카페', { exact: true })).toBeVisible();
   await expect(page.getByText(/오늘 15~16시에 예상 혼잡이 91%까지/)).toBeVisible();
 
   expect(writeConsoleCalls(calls)).toEqual([]);
@@ -80,7 +90,7 @@ test('merchant demo write buttons only toast and issue no request', async ({ pag
   const calls = recordApiCalls(page);
   await stubDemoConsole(page);
   await page.goto('/merchant?demo=1');
-  await expect(page.getByText(DEMO_BADGE)).toBeVisible({ timeout: 20_000 });
+  await expectOneMerchantDemoChip(page);
 
   // ③ 타임세일 — 진행 중인 데모 세일을 '취소 → 종료' 까지 눌러 본다(쓰기 경로의 끝).
   await page.getByRole('button', { name: '20% 할인 타임세일 취소' }).click();
@@ -109,7 +119,7 @@ test('merchant gate offers the demo link when the visitor is not a merchant', as
   await expect(demoEntry).toBeVisible({ timeout: 20_000 });
   await demoEntry.click();
   await expect(page).toHaveURL(/\/merchant\?demo=1$/);
-  await expect(page.getByText(DEMO_BADGE)).toBeVisible();
+  await expectOneMerchantDemoChip(page);
 });
 
 // ───────────────────────────────────────────────────────────────────────────
