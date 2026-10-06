@@ -426,6 +426,10 @@ test('waiting board: the first section shows while the rest are on their way', a
   await expect(boardOf(page)).toHaveAttribute('aria-busy', 'false', { timeout: 10_000 });
   await expect(page.locator('.ns-skel')).toHaveCount(0);
   expect(await cachedPresetOf(page)).toBe('now');
+  // 카드는 보여 줄 수 있는 것만 약속한다 — 도착 시각은 분까지, 근거가 없는 카드에 '수집 중' 머리줄은 없다.
+  await expect(page.getByText(/\d{2}:\d{2} 도착 예측/).first()).toBeVisible();
+  await expect(page.getByText('대기 정보 수집')).toHaveCount(0);
+  await expect(page.getByText('근거가 없는')).toHaveCount(0);
 });
 
 test('waiting board: a failed earlier type never lets a later section jump above it', async ({ page }) => {

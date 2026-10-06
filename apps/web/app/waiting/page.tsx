@@ -31,7 +31,7 @@ import {
 import { recToSpot } from "@/lib/recommender";
 import { congestionDisplay, parseCongestionEstimate } from "@/lib/congestionEstimate";
 // 보드의 세 숫자(예상 대기 · 혼잡 등급 · 한산해지는 시각)의 단일 소스.
-import { estimateWait, displayHour, showsCalmLine, heroWaitCandidate, type WaitEstimate } from "@/lib/waitEstimate";
+import { estimateWait, displayArrivalTime, showsCalmLine, calmAfterClose, heroWaitCandidate, type WaitEstimate } from "@/lib/waitEstimate";
 import { curveForBase, fetchAreaDemandCurve, mergeAreaCurve, type AreaDemandCurve } from "@/lib/areaDemandCurve";
 // 분으로 말할 근거가 없는 카드는 등급으로 말한다 — 등급 경계는 지도·카드와 같은 공용 판정을 쓴다.
 import { REGION } from "@/lib/region";
@@ -133,6 +133,9 @@ interface BoardRow {
   closedToday: boolean;
   // TourAPI 대표·취급 메뉴를 합친 실제 메뉴(최대 5개).
   menus: string[];
+  // 영업시간 원본({open, closed} 등) — 문 닫은 뒤의 '한산해지는 시각'을 걸러 낸다.
+  // 옛 캐시 행에는 없다(undefined) — 그때는 한산 줄을 그대로 둔다(닫았다고 확정할 때만 지운다).
+  operatingHours?: Record<string, unknown> | null;
 }
 
 // 섹터 = 한 시설 유형의 대기 짧은 순 정렬 목록. rows 가 비면 섹터 자체를 렌더하지 않는다.
@@ -309,14 +312,14 @@ function headlineOf(est: WaitEstimate, row: BoardRow, estimateLevel: number | un
  * 카드의 주인공 한 줄. 분으로 말할 근거가 있으면 분을, 없으면 그 근거가 **실제로 아는 것**
  * (시설 추정 혼잡 · 주변 권역 수요 등급 · 관광 상대지수)을 그대로 말한다(무엇을 말할지는 lib/boardOrder
  * waitHeadlineOf — 보드의 동점 판정도 같은 결과를 쓴다). 주변 주차·관광 상대지수를 '대기 N분'으로 바꾸지 않는다
- * (docs/CONGESTION_DATA.md §2 원칙 3·4).
+ * (docs/CONGESTION_DATA.md §2 원칙 3·4). 아무 근거도 없으면 null — 그 카드는 머리줄을 세우지 않는다.
  */
 function waitHeadline(
   est: WaitEstimate,
   row: BoardRow,
   estimateLevel: number | undefined,
   t: (key: string, vars?: Record<string, string | number>) => string,
-): string {
+): string | null {
   const h = headlineOf(est, row, estimateLevel);
   switch (h.kind) {
     case "minutes":
@@ -333,8 +336,8 @@ function waitHeadline(
     case "tourism":
       return t("recommend.tourismEvidenceIndex", { n: h.n });
     default:
-      // 아무 근거도 없을 때 — 0분을 만들지 않고 '수집 중'이라고 둔다.
-      return t("waiting.waitUnavailable");
+      // 아무 근거도 없을 때 — 0분을 만들지 않고, '수집 중' 같은 빈 약속도 세우지 않는다(카드는 이름·도착 시각만).
+      return null;
   }
 }
 
@@ -346,13 +349,15 @@ function WaitStats({ est, row, estimateLevel }: { est: WaitEstimate; row: BoardR
     <div className="shrink-0 space-y-1 mt-1.5">
       {/* ① 예상 대기 — 카드의 주인공. 골드 박스로 가장 크게 세운다.
           분으로 말할 근거가 없는 카드는 여기에 등급·지수가 그대로 들어온다(waitHeadline). */}
-      {/* 한국어는 띄어쓰기에서만 접는다(break-keep) — 좁은 카드에서 '예상 대기 약 10 / 분'·'수집 / 중'처럼
+      {/* 한국어는 띄어쓰기에서만 접는다(break-keep) — 좁은 카드에서 '예상 대기 약 10 / 분'처럼
           숫자와 단위가 갈라져 잘린 글처럼 보였다. 일본어·중국어는 띄어쓰기가 없어 글자 사이 줄바꿈을 그대로 둔다. */}
-      <p className={`rounded-lg border border-gold/30 bg-gold/10 px-2 py-1 text-xs font-extrabold text-gold-deep leading-snug tabular-nums break-words ${
-        locale === "ko" ? "break-keep" : ""
-      }`}>
-        {headline}
-      </p>
+      {headline !== null && (
+        <p className={`rounded-lg border border-gold/30 bg-gold/10 px-2 py-1 text-xs font-extrabold text-gold-deep leading-snug tabular-nums break-words ${
+          locale === "ko" ? "break-keep" : ""
+        }`}>
+          {headline}
+        </p>
+      )}
       <div className="flex flex-wrap items-center gap-1">
         {/* ② 혼잡 등급 — 분이 있을 때만 붙인다. 분이 없으면 대기 등급도 말할 수 없고,
             0분이면 위 골드 박스가 이미 같은 말('대기 없음'·'여유')을 하고 있다. */}
@@ -374,8 +379,8 @@ function WaitStats({ est, row, estimateLevel }: { est: WaitEstimate; row: BoardR
       </div>
       {/* ③ 한산해지는 시각 — 분이 있는 카드는 8시간 안에 없으면 '지금이 가장 한산'. 분이 없는 카드는
           권역 수요 곡선에서 실제로 찾은 시각이 있을 때만 쓴다(showsCalmLine): 내장 시간대 곡선만으로
-          한산하다고 말할 수는 없다. */}
-      {showsCalmLine(est) && (
+          한산하다고 말할 수는 없다. 그 시각에 문을 닫은 것이 확실하면 쓰지 않는다(calmAfterClose). */}
+      {!calmAfterClose(est, row.operatingHours) && showsCalmLine(est) && (
         <p className="text-[10px] font-bold leading-snug text-jade">
           {est.calmHour === null
             ? t("wait.calmNow")
@@ -385,9 +390,9 @@ function WaitStats({ est, row, estimateLevel }: { est: WaitEstimate; row: BoardR
       {/* 줄 수를 자르지 않는다 — 영어는 좁은 카드에서 세 줄로 접혀, 두 줄에서 자르면 숫자를 받치는 근거
           ('… measured data')가 통째로 사라졌다. 늘어난 만큼은 위 소개 블록이 온전한 줄로 양보한다(min-h-72). */}
       <p className="text-[9px] leading-snug text-muk-soft break-words">
-        {/* 근거가 하나도 없는 카드에는 근거 문구를 붙이지 않는다 — 위 한 줄이 '수집 중'이라고
-            말해 놓고 옆에서 무슨 근거라고 하면 한 카드가 두 말을 한다. */}
-        {t("wait.arrivalBasis", { h: displayHour(est.arrivalHour) })}
+        {/* 근거가 하나도 없는 카드에는 근거 문구를 붙이지 않는다 — 말한 숫자가 없는데 무슨 근거라고 하면
+            한 카드가 두 말을 한다. 도착 시각은 분까지(옆의 '현재 HH:MM 기준'과 같은 해상도). */}
+        {t("wait.arrivalBasis", { time: displayArrivalTime(est.arrivalHour) })}
         {est.basis !== "default" && ` · ${t(basisKey(est.basis))}`}
       </p>
     </div>
@@ -400,15 +405,17 @@ function WaitRowChips({ est, row, estimateLevel }: { est: WaitEstimate; row: Boa
   const headline = waitHeadline(est, row, estimateLevel, t);
   return (
     <div className="flex flex-wrap items-center gap-1.5 mt-1">
-      <span className="text-[11px] font-bold px-2 py-1 rounded-md bg-gold/10 border border-gold/25 text-gold-deep whitespace-nowrap tabular-nums">
-        {headline}
-      </span>
+      {headline !== null && (
+        <span className="text-[11px] font-bold px-2 py-1 rounded-md bg-gold/10 border border-gold/25 text-gold-deep whitespace-nowrap tabular-nums">
+          {headline}
+        </span>
+      )}
       {est.grade !== null && est.minutes !== null && est.minutes > 0 && (
         <span className={`text-[11px] font-bold px-2 py-1 rounded-md border whitespace-nowrap ${gradeBadgeClass(est.grade)}`}>
           {t(`wait.grade.${est.grade}`)}
         </span>
       )}
-      {showsCalmLine(est) && (
+      {!calmAfterClose(est, row.operatingHours) && showsCalmLine(est) && (
         <span className="text-[11px] font-bold text-jade whitespace-nowrap">
           {est.calmHour === null ? t("wait.calmNow") : t("wait.calmAt", { h: est.calmHour })}
         </span>
@@ -504,6 +511,7 @@ function buildSector(type: string, recs: RecommendationResponse[], currentLocale
       // 휴무 '확정'(true)만 표시 — 모름(null)/영업 확정(false)은 평소처럼 취급(정직성: 과판정 금지).
       closedToday: isClosedToday(restDateRaw) === true,
       menus,
+      operatingHours: rec.facility.operatingHours ?? null,
     };
   });
   // 대기 짧은 순 정렬은 그대로 유지하되, 오늘 휴무 확정 시설은 항상 맨 뒤로 보낸다
@@ -593,11 +601,12 @@ export default function WaitingBoardPage() {
 
   // 'now' 프리셋의 기준 시각은 **상태로 고정**한다. 렌더 중 new Date() 를 부르면 정적 export 의
   // 프리렌더 HTML 과 하이드레이션 결과가 갈리고, 리렌더마다 숫자가 미세하게 흔들린다.
-  // 5분마다 한 번만 갱신 — 대기 추정의 시간 해상도(정시 곡선)에는 충분하다.
+  // 30초마다 갱신 — 카드가 도착 시각을 분까지 말하므로(HH:MM 도착 예측) 옆의 NowChip(30초)과 같은 박자로 간다.
+  // 5분 간격이면 '현재 12:14 기준' 옆에 '12:13 도착 예측'처럼 출발보다 이른 도착이 설 수 있었다.
   const [nowMs, setNowMs] = useState<number | null>(null);
   useEffect(() => {
     setNowMs(Date.now());
-    const id = setInterval(() => setNowMs(Date.now()), 5 * 60 * 1000);
+    const id = setInterval(() => setNowMs(Date.now()), 30 * 1000);
     return () => clearInterval(id);
   }, []);
   const effectiveBaseMs = baseAtMs ?? nowMs;

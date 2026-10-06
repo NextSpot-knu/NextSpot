@@ -20,6 +20,8 @@
 // 검증 MAE 0.049)과 유형별 시간대 곡선으로 고르는 **상대적** 판단이라 분 변환에 해당하지 않는다.
 // 다만 근거가 하나도 없는 카드(basis 'default')에는 그것도 말하지 않는다.
 
+import { getArrivalOpenStatus } from "./restDate";
+
 /** 혼잡 등급 — 화면 라벨은 i18n `wait.grade*` 가 담당한다. */
 export type WaitGrade = "relaxed" | "moderate" | "busy";
 
@@ -72,6 +74,8 @@ export interface WaitEstimate {
   estimated: boolean;
   /** 한산해지는 시각(KST 0~23 정시). 이미 가장 한산하거나 근거가 없으면 null. */
   calmHour: number | null;
+  /** calmHour 가 가리키는 실제 시각(도착 뒤 처음 오는 그 정시 — 자정을 넘기면 다음 날). 영업시간 대조용. */
+  calmAt: Date | null;
   /** 도착 예정 KST 시(소수 — 이동 시간이 반영돼 시설마다 갈린다). */
   arrivalHour: number;
   basis: WaitBasis;
@@ -134,11 +138,18 @@ const finite = (n: unknown): number | null =>
   typeof n === "number" && Number.isFinite(n) ? n : null;
 
 const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
+const HOUR_MS = 60 * 60 * 1000;
+const DAY_MS = 24 * HOUR_MS;
 
 /** 주어진 시각의 KST 시(소수 — 13:30 이면 13.5). */
 export function kstHourOf(at: Date): number {
   const kst = new Date(at.getTime() + KST_OFFSET_MS);
   return kst.getUTCHours() + kst.getUTCMinutes() / 60;
+}
+
+/** 주어진 시각이 속한 KST 날짜의 00:00(UTC ms). */
+function kstDayStartMs(at: Date): number {
+  return Math.floor((at.getTime() + KST_OFFSET_MS) / DAY_MS) * DAY_MS - KST_OFFSET_MS;
 }
 
 function curveFor(type: string): readonly number[] {
@@ -278,6 +289,7 @@ export function estimateWait(input: WaitEstimateInput): WaitEstimate {
   // 시간대 곡선만으로는 이 장소가 몇 시에 한산해지는지 알 수 없다(§2 원칙 6). 근거가 하나도 없는
   // 카드(basis 'default')도 같은 이유로 말하지 않는다. 화면에 그 줄을 그릴지는 showsCalmLine 이 판정한다.
   let calmHour: number | null = null;
+  let calmAt: Date | null = null;
   const scaleMinutes = minutes ?? modeledNow;
   const calmEvidence = minutes !== null || (basis !== "default" && anchor !== null);
   if (calmEvidence && scaleMinutes > 3) {
@@ -286,6 +298,8 @@ export function estimateWait(input: WaitEstimateInput): WaitEstimate {
       const h = Math.floor(arrivalHour) + step;
       if (waitAt(h) <= target) {
         calmHour = ((h % 24) + 24) % 24;
+        // h 는 기준일 0시부터 센 시(24 이상이면 다음 날) — 요일·휴무일까지 그날로 맞는다.
+        calmAt = new Date(kstDayStartMs(baseAt) + h * HOUR_MS);
         break;
       }
     }
@@ -296,6 +310,7 @@ export function estimateWait(input: WaitEstimateInput): WaitEstimate {
     grade: minutes === null ? null : gradeFor(minutes, peak),
     estimated: minutes === null ? false : supplied ? supplied.estimated : true,
     calmHour,
+    calmAt,
     arrivalHour: ((arrivalHour % 24) + 24) % 24,
     basis: supplied ? supplied.basis : basis,
   };
@@ -314,6 +329,14 @@ export function showsCalmLine(est: WaitEstimate): boolean {
 }
 
 /**
+ * 한산해지는 그 시각에 문을 닫은 것이 **확실한가**. 닫힌 곳이 '20시 이후 한산'이라고 말하면 거짓 안내다
+ * (라이브: 09:30~17:30 인 경주 최부자댁에 '20시 이후 한산'). 영업시간이 없거나 못 읽으면 false — 줄을 지우지 않는다.
+ */
+export function calmAfterClose(est: WaitEstimate, operatingHours: Record<string, unknown> | null | undefined): boolean {
+  return est.calmAt !== null && getArrivalOpenStatus(operatingHours, est.calmAt) === "closed_confirmed";
+}
+
+/**
  * 히어로 '도착 시 최단 대기 N분' 후보가 될 수 있는가. 카드의 waitHeadline 과 같은 규칙이다 —
  * 추정 0분은 '여유'로만 말하고 분으로 단언하지 않는다(§2 원칙 6). 0분을 분으로 말하는 것은 server 근거뿐.
  * 히어로는 최솟값을 고르므로, 이 규칙이 없으면 추정 0분이 거의 항상 히어로를 차지한다.
@@ -329,7 +352,11 @@ export function compareWaitMinutes(a: WaitEstimate, b: WaitEstimate): number {
   return a.minutes - b.minutes;
 }
 
-/** 도착 시각(KST) 표시용 — "14시" 형태의 정수 시. */
-export function displayHour(hour: number): number {
-  return ((Math.round(hour) % 24) + 24) % 24;
+/**
+ * 도착 시각(KST) 표시용 "HH:MM" — 가장 가까운 분으로 반올림한다(12.33 → "12:20"). 정수 시로 뭉개면
+ * 옆의 '현재 12:14 기준' 칩과 '도착 12시'가 나란히 서서 도착이 출발보다 이른 것처럼 읽혔다.
+ */
+export function displayArrivalTime(hour: number): string {
+  const total = ((Math.round(hour * 60) % 1440) + 1440) % 1440;
+  return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
 }

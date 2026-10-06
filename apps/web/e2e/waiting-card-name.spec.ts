@@ -165,9 +165,10 @@ for (const [locale, width] of CASES) {
   });
 }
 
-// 서버 실측 대기(분)가 있는 카드와 아무 근거도 없는 카드. 영어 근거 주석('Arriving 13:00 · Based on measured data')은
+// 서버 실측 대기(분)가 있는 카드와 아무 근거도 없는 카드. 영어 근거 주석('Arriving 13:05 · Based on measured data')은
 // 예전에 두 줄에서 잘려 'Prediction from…' 만 남았다 — 숫자를 받치는 말이 보이지 않았다. 한국어 골드 박스는
-// '예상 대기 약 10 / 분'·'대기 정보 수집 / 중'처럼 숫자와 단위가 갈라지거나 한 글자만 넘어가 잘린 글처럼 보였다.
+// '예상 대기 약 10 / 분'처럼 숫자와 단위가 갈라지거나 한 글자만 넘어가 잘린 글처럼 보였다. 근거가 없는 카드는
+// 골드 박스(예전 '대기 정보 수집 중')를 아예 세우지 않는다 — 카드가 보여 줄 수 없는 것을 약속하지 않는다.
 // 문화시설처럼 한 곳뿐인 섹터의 개수 칩은 영어로 '1 spot'(예전 '1 spots').
 const SERVER_PLACES = [
   item('s1', '분황사 쉼터', 0, null, false, { wait: 10 }),
@@ -207,13 +208,15 @@ for (const [locale, width] of CASES) {
     const report = await cards.evaluateAll((buttons) => buttons.map((button) => {
       const card = button.getBoundingClientRect();
       const stats = (button.lastElementChild as HTMLElement).lastElementChild as HTMLElement;
-      const headline = stats.firstElementChild as HTMLElement;
+      // 골드 박스는 대기 스탯의 첫 줄(<p>)이다. 근거가 없는 카드에는 없다 — 그때 첫 자식은 배지 줄(<div>).
+      const first = stats.firstElementChild as HTMLElement;
+      const headline = first.tagName === 'P' ? first : null;
       const footnote = stats.lastElementChild as HTMLElement;
       const f = footnote.getBoundingClientRect();
       const line = parseFloat(getComputedStyle(footnote).lineHeight);
       // 골드 박스 글의 줄바꿈 자리 — 새 줄 첫 글자의 바로 앞 글자를 모은다.
-      const text = headline.textContent ?? '';
-      const node = headline.firstChild;
+      const text = headline?.textContent ?? '';
+      const node = headline?.firstChild;
       const breaksBefore: string[] = [];
       let lastLineStart = 0;
       if (node && node.nodeType === Node.TEXT_NODE) {
@@ -233,7 +236,7 @@ for (const [locale, width] of CASES) {
         }
       }
       return {
-        headline: text,
+        headline: headline ? text : null,
         breaksBefore,
         lastLine: text.slice(lastLineStart),
         footnote: footnote.textContent ?? '',
@@ -244,17 +247,21 @@ for (const [locale, width] of CASES) {
       };
     }));
     for (const [i, card] of report.slice(0, 3).entries()) {
+      expect(card.headline, `card ${i + 1}: 분이 있는 카드의 골드 박스`).not.toBeNull();
       expect(card.footnote, `card ${i + 1}: 근거 주석 전문`).toContain(BASIS_SERVER[locale]);
       expect(card.footnoteWhole, `card ${i + 1}: 근거 주석 "${card.footnote}" 이 잘리지 않고 카드 안에`).toBe(true);
       // 짧게 고친 영어 문구는 390px 폰에서 다른 언어처럼 두 줄(360px 는 세 줄 — 잘리지 않고 글 블록이 양보한다).
       if (locale === 'en' && width === 390) expect(card.footnoteLines, `card ${i + 1}: "${card.footnote}" 줄 수`).toBeLessThanOrEqual(2);
     }
+    // 근거가 하나도 없는 문화시설 카드 — '수집 중' 같은 머리줄 없이 이름·도착 시각만.
+    expect(report[3].headline, 'card 4: 근거 없는 카드에 골드 박스').toBeNull();
     if (locale === 'ko') {
       for (const card of report) {
+        if (card.headline === null) continue;
         for (const before of card.breaksBefore) {
           expect(before, `"${card.headline}": 한국어 대기 문구는 띄어쓰기에서만 접힌다`).toBe(' ');
         }
-        // 띄어쓰기에서 접혀도 '수집 / 중' 처럼 한 글자만 다음 줄로 가면 잘린 글처럼 읽힌다.
+        // 띄어쓰기에서 접혀도 '약 10 / 분' 처럼 한 글자만 다음 줄로 가면 잘린 글처럼 읽힌다.
         expect(card.lastLine.replace(/\s/g, '').length, `"${card.headline}": 마지막 줄 "${card.lastLine}"`).toBeGreaterThan(1);
       }
     }
