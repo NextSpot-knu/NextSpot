@@ -29,6 +29,9 @@ import {
   type RecommendationResponse,
 } from "@/lib/api-client";
 import { recToSpot } from "@/lib/recommender";
+// 익명 세션 — 거절(IP 한도 429) 뒤에는 창마다 한 번만 다시 묻고, 성공하면 보드를 스스로 다시 채운다(I22).
+import { ensureAnonymousSession } from "@/lib/anonymousSession";
+import { createPublicClient } from "@/lib/supabase";
 import { congestionDisplay, parseCongestionEstimate } from "@/lib/congestionEstimate";
 // 보드의 세 숫자(예상 대기 · 혼잡 등급 · 한산해지는 시각)의 단일 소스.
 import { estimateWait, displayArrivalTime, showsCalmLine, calmAfterClose, heroWaitCandidate, arrivalHourOf, boardWaitBaseMs, type WaitEstimate } from "@/lib/waitEstimate";
@@ -681,6 +684,9 @@ export default function WaitingBoardPage() {
 
   // 세션 부트스트랩 유예 자동 재시도 1회 플래그(아래 fetchBoard 참조)
   const retriedRef = useRef(false);
+  // 화면이 지금 실패 상태인가 — 익명 세션이 늦게 생겼을 때(SIGNED_IN) 보드를 스스로 다시 채울지 고른다(I22).
+  // auth-js 는 탭으로 돌아올 때마다 SIGNED_IN 을 다시 내므로, 실패 화면일 때만 다시 부른다(무거운 4건을 아낀다).
+  const failedRef = useRef(false);
   // JWKS 등 서버 일시 장애(503)는 짧은 backoff 뒤 1회만 별도 재시도한다.
   const serviceUnavailableRetriedRef = useRef(false);
   // 스테일-우선: 화면에 결과가 이미 있으면(캐시 또는 직전 성공) 이후 조회는 조용히 돌고,
@@ -744,8 +750,10 @@ export default function WaitingBoardPage() {
     const silentRefresh = hasRenderedResultsRef.current && renderedPresetRef.current === assumedPreset;
     setLoading(!silentRefresh);
     setFailed(false);
+    failedRef.current = false;
     const showFailed = () => {
       setFailed(true);
+      failedRef.current = true;
       setSectors(null);
       setPartialBoard(null);
       setLoading(false);
@@ -761,6 +769,22 @@ export default function WaitingBoardPage() {
     // 성공하므로 보드가 안정적으로 채워지고, 재시도 스톰으로 백엔드를 무너뜨리지 않는다. 프리미엄
     // 로딩 화면이 그 사이를 덮는다. 마지막 인자(45s)는 이 호출 전용 타임아웃 — 0.5CPU/512MB 인스턴스가
     // 재시작 직후 콜드 상태면 단건 처리도 20초를 넘겨(라이브 실측), 20s 는 서버 성공을 클라가 끊었다.
+    // 익명 세션부터 확인한다(I22). 세션이 없으면 4유형 × 2패스가 전부 인증 실패라, 예전에는 그 8건이 각각 익명
+    // 가입을 다시 보내 한 번 방문에 14~17건이 나갔다. 없으면 보드 요청을 보내지 않고 다음 가입 창 뒤에 한 번만
+    // 다시 묻는다(로더 유지). 그래도 없으면 실패 화면 — 가입이 나중에 성공하면 아래 SIGNED_IN 구독이 다시 채운다.
+    const session = await ensureAnonymousSession();
+    if (stale()) return;
+    if (!session) {
+      if (!retriedRef.current) {
+        retriedRef.current = true;
+        setTimeout(() => { void fetchBoard(thisRun); }, Math.max(2500, ensureAnonymousSession.retryInMs()));
+        return;
+      }
+      if (silentRefresh) { setPartialBoard(null); setLoading(false); return; } // 캐시 결과 유지
+      showFailed();
+      return;
+    }
+
     const results: PromiseSettledResult<Awaited<ReturnType<typeof recommendByType>>>[] = [];
     for (const type of BOARD_TYPES) {
       if (stale()) return;
@@ -862,6 +886,19 @@ export default function WaitingBoardPage() {
     void fetchBoard();
     return () => boardRunRef.current?.controller.abort();
   }, [fetchBoard, presetHydrated]);
+
+  // 자가 회복(I22): 익명 세션이 나중에 생기면(SessionBootstrap 이 다음 창에 다시 물어 성공) 실패 화면의 보드를
+  // 스스로 다시 채운다 — '다시 시도'를 누르거나 새로고침하지 않아도 된다. 실패 화면일 때만(failedRef).
+  const fetchBoardRef = useRef(fetchBoard);
+  useEffect(() => { fetchBoardRef.current = fetchBoard; }, [fetchBoard]);
+  useEffect(() => {
+    const { data } = createPublicClient().auth.onAuthStateChange((event, session) => {
+      if (event !== "SIGNED_IN" || !session || !failedRef.current) return;
+      retriedRef.current = false;
+      setTimeout(() => { void fetchBoardRef.current(); }, 0);
+    });
+    return () => data.subscription.unsubscribe();
+  }, []);
 
   // 히어로 요약 스탯 — 이미 상태에 있는 결과에서 '도착 시 대기'가 가장 짧은 값 하나만 뽑는다
   // (오늘 휴무가 확정된 시설은 제외). 분이 없는 카드는 후보에서 빠진다 — 0분으로 치면
@@ -976,7 +1013,7 @@ export default function WaitingBoardPage() {
         {loading && !partialSectors?.length ? (
           <LoadingReveal variant="waiting" />
         ) : failed ? (
-          <ErrorState onRetry={() => { void fetchBoard(); }} />
+          <ErrorState onRetry={() => { ensureAnonymousSession.resetBackoff(); void fetchBoard(); }} />
         ) : !shownSectors || shownSectors.length === 0 ? (
           <EmptyState />
         ) : (
