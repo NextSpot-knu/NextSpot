@@ -274,7 +274,7 @@ function LoginForm() {
           <button
             type="submit"
             disabled={busy}
-            className="mt-2 py-3.5 rounded-xl bg-gold hover:bg-gold-deep disabled:opacity-50 text-white font-bold transition-colors"
+            className="mt-2 py-3.5 rounded-xl cta-primary disabled:opacity-50 font-bold transition-[filter]"
           >
             {t(mode === 'login' ? 'login.submitLogin' : 'login.submitSignup')}
           </button>

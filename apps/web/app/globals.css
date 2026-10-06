@@ -93,6 +93,10 @@
   --nextspot-tile-indigo: #465a8c;
   --nextspot-tile-stone: #77736c;
   --nextspot-tile-mix: 13%;
+  /* 주요 버튼(도보 길안내 · 시작하기 · 로그인 · 바로 시작) — 흰 글자가 그라데이션 전 구간에서 4.5:1 이상(I86).
+     금(#c19a3e)·금 진(#a37f2a) 위 흰 글자는 3.7:1 이라 기준에 못 미쳤다. lib/contrast.test.ts 가 잠근다. */
+  --nextspot-cta-from: #8a6a1c;
+  --nextspot-cta-to: #a8462f;
   color-scheme: light;
 }
 
@@ -193,6 +197,9 @@ html.nextspot-dark {
   --nextspot-tile-indigo: #9aabdb;
   --nextspot-tile-stone: #bcb5a9;
   --nextspot-tile-mix: 24%;
+  /* 야간에도 주요 버튼은 흰 글자 4.5:1 이상 — 금 토큰(야간에 밝아진다)을 그대로 쓰지 않고 따로 둔다. */
+  --nextspot-cta-from: #8a6a1c;
+  --nextspot-cta-to: #a8462f;
   color-scheme: dark;
 }
 
@@ -230,6 +237,22 @@ html.nextspot-dark select {
    변환한다. NextSpot SVG 마커(data URI)와 사용자 위치 마커는 아래 필터 대상이 아니다. */
 html.nextspot-dark .nextspot-map img:not([src^="data:"]) {
   filter: invert(88%) hue-rotate(180deg) brightness(72%) contrast(112%) saturate(72%);
+}
+
+/* /main 라이트 지도 타일은 채도를 낮춘다(계획 B3) — 등급색 핀(한산·여유·보통·혼잡)이 알록달록한 기본 지도에 묻히지 않게.
+   대상은 /main 지도(.nextspot-main-map)의 Kakao 타일 이미지뿐이다(위 야간 규칙과 같은 선택자): 우리 핀은 data: URI 라
+   빠지고, 사용자 위치 점은 아래 .user-loc-marker 가 필터를 끈다. 코스·추천 화면의 작은 지도는 그대로. */
+html:not(.nextspot-dark) .nextspot-main-map img:not([src^="data:"]) {
+  filter: saturate(55%) brightness(103%);
+}
+
+/* 주요 버튼 한 가지 모양 — 흰 글자 + 금→주칠 그라데이션(토큰은 :root · html.nextspot-dark). */
+.cta-primary {
+  background-image: linear-gradient(90deg, var(--nextspot-cta-from), var(--nextspot-cta-to));
+  color: #fff;
+}
+.cta-primary:hover:not(:disabled) {
+  filter: brightness(1.06);
 }
 
 /* 사진 없는 장소의 표지 판 — --tile 은 컴포넌트가 장소마다 정한다(lib/placeVisual.ts). 문양 선은 currentColor. */

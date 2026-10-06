@@ -342,8 +342,7 @@
     "justNow": "just now",
     "minAgo": "{n} min ago",
     "hourAgo": "{n} hr ago",
-    "dayAgo": "{n} days ago",
-    "tourapiSync": "ⓒ Korea Tourism Organization TourAPI synced · {rel}"
+    "dayAgo": "{n} days ago"
   },
   "cuisine": {
     "korean": "Korean",
@@ -358,7 +357,6 @@
   },
   "map": {
     "heatmap": "Heatmap",
-    "now": "Now",
     "forecast": "AI forecast",
     "barrierFree": "Barrier-free",
     "barrierFreeSwitched": "♿ Showing barrier-free spots: {category} ({n})",
@@ -378,10 +376,6 @@
     "searchKakaoRoute": "Directions in Kakao Map",
     "searchKakaoPlace": "Kakao Map",
     "placesInBuilding": "{count} places in this building",
-    "forecastBadge": "AI forecast · +{h}h",
-    "sliderAria": "Select forecast time — up to 3 hours ahead",
-    "sliderValueNow": "Now (live)",
-    "sliderValueAhead": "Forecast +{h}h",
     "loadingRec": "Loading recommended places...",
     "pickingFirst": "Finding a calmer spot nearby…",
     "loadErrorTitle": "Couldn’t load place data",
@@ -423,6 +417,10 @@
     "mobileToolsTitle": "Filters and travel tools",
     "mobileToolsDesc": "Keep the map clear and open tools when needed",
     "foodFilters": "Food type",
+    "menuSelect": "🍽 Menu",
+    "menuAll": "🍽 All menus",
+    "menuSetupHint": "🍽 Menu: {cuisine} (your first pick)",
+    "menuAria": "Choose a menu",
     "voiceSearchUnsupported": "Voice search isn't available in this browser",
     "unsupported": "Unsupported",
     "tourApiTitle": "Gyeongju places found",
@@ -694,6 +692,7 @@
     "lastObservedLevel": "Last observed {time} · {label}",
     "peek": {
       "walk": "{n} min walk",
+      "spot": "SPOT {n}",
       "expand": "See the full recommendation",
       "collapse": "Show less"
     },
@@ -1007,7 +1006,6 @@
     "benefitOpen": "Open when you arrive",
     "benefitTaste": "{pct}% match for you",
     "contextBadge": "Alternatives for {label}",
-    "heatLegendTitle": "Crowd map",
     "festivalEmpty": "No events are running right now",
     "showOnMap": "Show on map"
   },
@@ -1450,5 +1448,23 @@
     "reasonCalm": "It’s fairly calm right now.",
     "appliedWalk": "Re-picked within a {n}-min walk",
     "appliedIndoor": "Re-picked indoor places"
+  },
+  "forecast": {
+    "title": "🔮 Crowd forecast",
+    "name": "Crowd forecast",
+    "now": "Now",
+    "ahead": "+{h} hr",
+    "otherTimes": "Other times",
+    "badgeArea": "🔮 Forecast · +{h} hr · this area: {level} · estimate",
+    "badgeModel": "🔮 Forecast · +{h} hr · {level}",
+    "legendNow": "Crowd now",
+    "legendAhead": "Crowd in +{h} hr · estimate",
+    "legendPick": "Pick",
+    "areaNow": "This area now: {level} · estimate",
+    "loading": "Loading the forecast"
+  },
+  "credit": {
+    "tourapi": "Source: ⓒ Korea Tourism Organization TourAPI",
+    "tourapiSynced": "Source: ⓒ Korea Tourism Organization TourAPI · synced {rel}"
   }
 }

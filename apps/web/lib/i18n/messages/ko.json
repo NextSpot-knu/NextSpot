@@ -336,8 +336,7 @@
     "justNow": "방금 전",
     "minAgo": "{n}분 전",
     "hourAgo": "{n}시간 전",
-    "dayAgo": "{n}일 전",
-    "tourapiSync": "ⓒ한국관광공사 TourAPI 동기화 · {rel}"
+    "dayAgo": "{n}일 전"
   },
   "cuisine": {
     "korean": "한식",
@@ -352,7 +351,6 @@
   },
   "map": {
     "heatmap": "히트맵",
-    "now": "지금",
     "forecast": "AI 예측",
     "barrierFree": "무장애",
     "barrierFreeSwitched": "♿ 무장애 확인된 {category} {n}곳을 보여드려요",
@@ -372,10 +370,6 @@
     "searchKakaoRoute": "카카오맵 길찾기",
     "searchKakaoPlace": "카카오맵",
     "placesInBuilding": "이 건물의 장소 {count}곳",
-    "forecastBadge": "AI 예측 · +{h}시간 후",
-    "sliderAria": "예측 시점 선택 — 지금부터 최대 3시간 후",
-    "sliderValueNow": "지금(실측)",
-    "sliderValueAhead": "{h}시간 후 예측",
     "loadingRec": "추천 장소를 불러오는 중...",
     "pickingFirst": "지금 덜 붐비는 가까운 곳을 고르고 있어요…",
     "loadErrorTitle": "장소 정보를 불러오지 못했어요",
@@ -417,6 +411,10 @@
     "mobileToolsTitle": "필터와 여행 편의",
     "mobileToolsDesc": "필요한 기능만 골라 지도를 넓게 보세요",
     "foodFilters": "음식 종류",
+    "menuSelect": "🍽 메뉴",
+    "menuAll": "🍽 메뉴 전체",
+    "menuSetupHint": "🍽 메뉴: {cuisine} (처음 고른 취향)",
+    "menuAria": "메뉴 고르기",
     "voiceSearchUnsupported": "이 브라우저에서는 음성 검색을 쓸 수 없어요",
     "unsupported": "미지원",
     "tourApiTitle": "경주 장소 검색 결과",
@@ -688,6 +686,7 @@
     "lastObservedLevel": "마지막 관측 {time} · {label}",
     "peek": {
       "walk": "도보 {n}분",
+      "spot": "SPOT {n}점",
       "expand": "추천 자세히 보기",
       "collapse": "추천 간단히 보기"
     },
@@ -1001,7 +1000,6 @@
     "benefitOpen": "도착 시 영업",
     "benefitTaste": "취향 {pct}% 일치",
     "contextBadge": "{label} 기준 대안",
-    "heatLegendTitle": "혼잡 지도",
     "festivalEmpty": "현재 진행 중인 행사가 없어요",
     "showOnMap": "지도에서 보기"
   },
@@ -1450,5 +1448,23 @@
     "reasonCalm": "지금 여유로운 편이에요.",
     "appliedWalk": "도보 {n}분 이내로 다시 골랐어요",
     "appliedIndoor": "실내 장소로 다시 골랐어요"
+  },
+  "forecast": {
+    "title": "🔮 혼잡 예측",
+    "name": "혼잡 예측",
+    "now": "지금",
+    "ahead": "+{h}시간 후",
+    "otherTimes": "다른 시간",
+    "badgeArea": "🔮 +{h}시간 후 예측 · 이 일대 {level} · 추정",
+    "badgeModel": "🔮 +{h}시간 후 예측 · {level}",
+    "legendNow": "지금 혼잡",
+    "legendAhead": "+{h}시간 후 혼잡 · 추정",
+    "legendPick": "추천",
+    "areaNow": "지금 이 일대 {level} · 추정",
+    "loading": "예측을 불러오는 중"
+  },
+  "credit": {
+    "tourapi": "출처: ⓒ한국관광공사 TourAPI",
+    "tourapiSynced": "출처: ⓒ한국관광공사 TourAPI · {rel} 동기화"
   }
 }

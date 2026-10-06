@@ -112,7 +112,7 @@ export default function SetupPage() {
             type="button"
             disabled={saving}
             onClick={() => finish(context)}
-            className="toss-pressable flex min-h-[52px] w-full items-center justify-center rounded-2xl bg-gold text-base font-bold text-white shadow-[0_8px_20px_rgba(193,154,62,0.30)] transition-colors hover:bg-gold-deep focus:outline-none focus-visible:ring-2 focus-visible:ring-gold-deep focus-visible:ring-offset-2 focus-visible:ring-offset-hanji disabled:opacity-60 disabled:hover:bg-gold"
+            className="toss-pressable flex min-h-[52px] w-full items-center justify-center rounded-2xl cta-primary text-base font-bold shadow-[0_8px_20px_rgba(168,70,47,0.28)] transition-[filter] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold-deep focus-visible:ring-offset-2 focus-visible:ring-offset-hanji disabled:opacity-60"
           >
             {saving ? t('setup.saving') : t('setup.start')}
           </button>

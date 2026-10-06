@@ -204,6 +204,8 @@ interface RecommendationCardProps {
   peekRequest?: number;
   /** 데스크톱(md+)에서 카드가 오른쪽 열의 높이를 채운다(/main 패널). 푸터는 열 바닥에 붙고 안쪽만 스크롤한다. */
   desktopFill?: boolean;
+  /** 휴대폰 미리보기(true) ↔ 펼친 카드(false)가 바뀔 때 — /main 은 펼친 동안 혼잡 예측 줄을 감춘다(계획 B3). */
+  onPeekChange?: (peek: boolean) => void;
 }
 
 export function RecommendationCard({
@@ -260,6 +262,7 @@ export function RecommendationCard({
   voiceSlot,
   peekRequest,
   desktopFill = false,
+  onPeekChange,
 }: RecommendationCardProps) {
   const { t, locale } = useI18n();
   // 운영자 '혼잡' 경계. 지금은 **새 추정 배지만** 이 값을 따른다 — 지도 점선 핀·코스 칩이 이미
@@ -281,6 +284,9 @@ export function RecommendationCard({
   const isPhone = usePhoneViewport();
   const peekMode = mobilePeek && isPhone;
   const [isMinimized, setIsMinimized] = useState(() => mobilePeek && isPhoneViewportNow());
+  // 부모에 미리보기 여부를 알린다 — 휴대폰이 아니면(미리보기가 없으면) 언제나 false.
+  const peekShown = peekMode && isMinimized;
+  useEffect(() => { onPeekChange?.(peekShown); }, [peekShown, onPeekChange]);
   // 미리보기에서 위로 끌어 올린 손가락이 '도보 길안내' 위에서 떨어져도 길안내가 시작되지 않게,
   // 방금 끝난 **밀기** 뒤의 click 한 번은 무시한다(마우스 드래그는 click 을 그대로 발생시킨다).
   // 밀기로 보는 기준은 SWIPE_GUARD_PX 이상 움직였을 때다 — 아래 handleDrag 주석 참조.
@@ -951,8 +957,14 @@ export function RecommendationCard({
     ...crowdChipRule,
     valueLineSaysCrowd: showCompare && compareHeaderText !== null,
   });
-  // 휴대폰 미리보기에는 가치 문장이 없다 — 화살표가 말하던 붐빔을 미리보기 칩이 대신 말한다(같은 규칙, 반복 조건만 뺀다).
-  const crowdChipOnPeek = !!crowdChipData && showFaceCrowdChip({ ...crowdChipRule, valueLineSaysCrowd: false });
+  // 휴대폰 미리보기도 가치 문장을 먼저 말한다(계획 B3) — 그래서 칩 규칙도 얼굴과 같다(화살표가 붐빔을 말하면 칩은 뺀다).
+  const crowdChipOnPeek = crowdChipOnFace;
+  // 미리보기의 가치 문장 — 화살표면 그대로, 혜택형이면 이름(아래 줄에 있다)을 뺀 혜택만.
+  const peekValueText = compareHeaderText ?? [
+    t('compare.benefitWalk', { walk: displayedTravelMins }),
+    ...(displayedOpenStatus === 'open_expected' ? [t('compare.benefitOpen')] : []),
+    ...(tastePct !== null ? [t('compare.benefitTaste', { pct: tastePct })] : []),
+  ].join(' · ');
   const crowdChip = (compact: boolean) => crowdChipData ? (
     compact ? (
       <span className={`rounded-md border px-2 py-0.5 text-[10px] font-bold ${crowdChipData.dashed ? 'border-dashed bg-white/70' : ''} ${
@@ -1060,7 +1072,7 @@ export function RecommendationCard({
   return (
     <motion.div
       data-testid="recommendation-card"
-      className={`w-full ${desktopFill ? 'md:h-full md:max-h-full' : ''} max-h-[calc(100dvh-var(--tourist-nav-clearance)-8rem)] bg-white/95 backdrop-blur-2xl border border-line rounded-3xl ${isMinimized ? 'p-3' : 'px-4 pb-3 pt-2 md:px-5'} toss-surface flex flex-col ${isMinimized ? 'gap-1' : 'gap-2'} select-none relative overflow-hidden`}
+      className={`w-full ${desktopFill ? 'md:h-full md:max-h-full' : ''} max-h-[calc(100dvh-var(--tourist-nav-clearance)-10rem)] bg-white/95 backdrop-blur-2xl border border-line rounded-3xl ${isMinimized ? 'p-3' : 'px-4 pb-3 pt-2 md:px-5'} toss-surface flex flex-col ${isMinimized ? 'gap-1' : 'gap-2'} select-none relative overflow-hidden`}
       initial={{ opacity: 0, y: 18, scale: 0.985 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       drag="y"
@@ -1117,12 +1129,28 @@ export function RecommendationCard({
       )}
 
       {isMinimized && peekMode ? (
-        // 휴대폰 미리보기 줄 — 관광객이 지금 알아야 할 것만: 어디(이름) · 얼마나(도보 N분) · 붐비나(혼잡 배지,
-        // 전체 카드와 같은 규칙) · 바로 출발(도보 길안내, 전체 카드와 같은 동작). 줄을 누르면 전체 카드.
-        <div className="flex items-center gap-3 px-1 pb-0.5" data-testid="rec-card-peek">
+        // 휴대폰 미리보기 — 관광객이 지금 알아야 할 것만: 가치 문장(2줄, 키 낮은 화면 1줄) · 이름 + SPOT 점수 · 도보 N분 ·
+        // 붐비나(얼굴과 같은 규칙 — 화살표가 이미 말하면 빼고) · 바로 출발(도보 길안내, 전체 카드와 같은 동작). 혜택형
+        // 문장은 이름이 아래 줄에 있으므로 이름을 뺀다(계획 B3). 줄을 누르면 전체 카드.
+        <div className="flex flex-col gap-1.5 px-1 pb-0.5" data-testid="rec-card-peek">
+          {showCompare && peekValueText && (
+            <p
+              data-testid="peek-value"
+              onClick={openFromPeek}
+              className="line-clamp-2 cursor-pointer break-keep text-[14px] font-extrabold leading-snug text-muk short:line-clamp-1"
+            >
+              {peekValueText}
+            </p>
+          )}
+          <div className="flex items-center gap-3">
           <div className="min-w-0 flex-1 cursor-pointer" onClick={openFromPeek}>
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-1.5">
               <h3 className="min-w-0 truncate font-serif text-base font-bold leading-tight tracking-tight text-muk">{title}</h3>
+              {hasSpotMetrics && (
+                <span className="shrink-0 whitespace-nowrap rounded-md border border-gold/40 bg-gold/10 px-1.5 py-0.5 text-[10px] font-extrabold text-gold-deep" data-testid="peek-spot">
+                  {t('card.peek.spot', { n: Math.round(spotScore || 0) })}
+                </span>
+              )}
               <ChevronUp size={14} className="shrink-0 text-gold-deep" aria-hidden />
             </div>
             <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
@@ -1143,13 +1171,14 @@ export function RecommendationCard({
             whileTap={tapMotion}
             transition={interactionSpring}
             aria-label={t('card.acceptAria')}
-            className="max-w-[46%] shrink-0 break-keep rounded-2xl bg-gradient-to-r from-gold to-terracotta px-4 py-3 text-xs font-bold leading-tight text-white shadow-[0_4px_14px_rgba(193,85,59,0.25)] transition-all active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+            className="max-w-[46%] shrink-0 break-keep rounded-2xl cta-primary px-4 py-3 text-xs font-bold leading-tight shadow-[0_4px_14px_rgba(168,70,47,0.28)] transition-all active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
           >
             <span className="inline-flex items-center justify-center gap-1.5">
               {confirmedAction === 'accepted' && <Check size={14} aria-hidden />}
               {t('card.accept')}
             </span>
           </motion.button>
+          </div>
         </div>
       ) : isMinimized ? (
         <div
@@ -1286,7 +1315,7 @@ export function RecommendationCard({
             <span
               data-testid="card-rank"
               className={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-[11px] font-black ${
-                rankIsListed ? 'bg-gradient-to-r from-gold to-terracotta text-white shadow-sm' : 'bg-gold/15 text-gold-deep'
+                rankIsListed ? 'cta-primary shadow-sm' : 'bg-gold/15 text-gold-deep'
               }`}
             >
               <Sparkles size={12} aria-hidden />
@@ -1954,7 +1983,7 @@ export function RecommendationCard({
             whileTap={tapMotion}
             transition={interactionSpring}
             aria-label={t('card.acceptAria')}
-            className="flex-1 bg-gradient-to-r from-gold to-terracotta hover:from-gold-deep hover:to-terracotta text-white font-bold py-2.5 rounded-2xl transition-all active:scale-95 text-xs shadow-[0_4px_14px_rgba(193,85,59,0.25)] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+            className="flex-1 cta-primary font-bold py-2.5 rounded-2xl transition-all active:scale-95 text-xs shadow-[0_4px_14px_rgba(168,70,47,0.28)] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
           >
             <span className="inline-flex items-center justify-center gap-1.5">
               {confirmedAction === 'accepted' && <Check size={14} aria-hidden />}

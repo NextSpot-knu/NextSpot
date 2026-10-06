@@ -1,12 +1,14 @@
 'use client';
 
-import { useEffect, useRef, useState, useMemo, type CSSProperties } from 'react';
+import { useEffect, useReducer, useRef, useState, useMemo, type CSSProperties } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import dynamic from 'next/dynamic';
+import Image from 'next/image';
 import { Search, Mic, X, Utensils, MapPin, Building2, Coffee, Car, ChevronDown, ChevronUp, SlidersHorizontal, Clock3 } from 'lucide-react';
 import { createPublicClient } from '@/lib/supabase';
-import { getMarkerSvg } from '@/lib/map/markerSvg';
+import { isPaintableMeasurement, pinDisplay, pinSvg } from '@/lib/map/markerSvg';
+import { centerTargetFor, type BandInsets } from '@/lib/map/visibleBand';
 import { scoreFacility, compareSpot, displayWalkingMinutes, rankFacilities, rankFacilitiesDegraded, recToSpot, haversineMeters, filterReachable, isBarFacility, type Spot } from '@/lib/recommender';
 import { REGION, isWithinRegion } from '@/lib/region';
 import { cleanGalleryImages, loadMapFacilitiesFromSupabase } from '@/lib/mapFacilityFallback';
@@ -18,10 +20,21 @@ import {
   parseCongestionEstimate,
   revalidateIsCurrent,
 } from '@/lib/congestionEstimate';
+import { sessionAreaDemandCurve } from '@/lib/areaDemandCurve';
+import { isPredictModelTrained } from '@/lib/predictModel';
+import {
+  STRIP_NOW,
+  clampForecastHours,
+  forecastHeadlineLevel,
+  relativeAssumedAtIso,
+  resolveStripForecast,
+  stripHours,
+  stripReducer,
+  type ForecastHours,
+  type ModelPredictions,
+} from '@/lib/forecastStrip';
 // 히트맵 blob 의 색·크기 규칙(마커/배지 임계와 일관) 공용 헬퍼 — 중복 정의 금지, 그대로 재사용.
 import { getHeatGradient, getHeatRadius } from '@/lib/map/heatmap';
-// D5: TourAPI 동기화 신선도 상대시간 — lib/freshness 단일 소스 재사용(중복 정의 금지).
-import { relativeParts } from '@/lib/freshness';
 import { useVoiceAssistant } from '@/lib/voice/useVoiceAssistant';
 import { useSpeechSearch } from '@/lib/voice/useSpeechSearch';
 import { speechLangFor } from '@/lib/voice/speechLocale';
@@ -41,7 +54,7 @@ import { loadSavedLocal, syncSaved, saveBookmark, type SavedRecord } from '@/lib
 import { useI18n } from '@/lib/i18n/I18nProvider';
 // T2: 휴무 원문 파서(오늘 휴무 확정만 배제) + 가능/불가능 텍스트 파서(주차·반려동물 필터) — 공용 단일 소스.
 import { getArrivalOpenStatus, isClosedToday, isRecommendationOpen, parseAvailability } from '@/lib/restDate';
-import { chipCandidates, EMPTY_TRAVEL_CONTEXT, loadTravelContext, matchesTravelContext, relaxWalkLimit, saveTravelContext, type PlaceCategory, type TravelContext, CUISINE_INTENT } from '@/lib/travelContext';
+import { chipCandidates, EMPTY_TRAVEL_CONTEXT, loadTravelContext, matchesTravelContext, relaxWalkLimit, saveTravelContext, type CuisinePreference, type PlaceCategory, type TravelContext, CUISINE_INTENT } from '@/lib/travelContext';
 import { buildVoiceCommandTransition, type VoiceAppCommand } from '@/lib/voice/voiceCommands';
 import { facilityMatchesSearch } from '@/lib/placeSearch';
 import { congestionKey } from '@/lib/congestionScale';
@@ -49,6 +62,8 @@ import { useBusyThreshold } from '@/components/shell/PublicSettingsProvider';
 import { errorMessage } from '@/lib/errors';
 import NextSpotMascot from '@/components/NextSpotMascot';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
+import { SourceCredit } from '@/components/SourceCredit';
+import ForecastTimeStrip from '@/components/main/ForecastTimeStrip';
 import { buildSpotComparisons, formatSpotComparison } from '@/lib/spotComparison';
 import { anchorNowLevel, candidateAreaCrowdLevel, chooseCompareHeadline, resolveAnchorCrowd, resolveCandidateCrowd } from '@/lib/compareHeader';
 import { cardTimes } from '@/lib/cardTimes';
@@ -191,6 +206,19 @@ const RECALC_EMERGENCY_MS = Math.max(RECOMMENDATION_TIMEOUT_MS, THEME_RECOMMENDA
 const LAB_HINT_KEY = 'nextspot_lab_hint_shown';
 const LAB_HINT_MAX_SHOWS = 2;
 
+// 온보딩 음식 취향 → 문구 키 · 음식 칩(카페·디저트는 음식점 칩이 아니다).
+const SETUP_FOOD_KEY: Record<CuisinePreference, string> = {
+  '한식': 'setup.foodKorean',
+  '분식·국밥': 'setup.foodSnack',
+  '양식': 'setup.foodWestern',
+  '카페·디저트': 'setup.foodDessert',
+};
+const SETUP_CUISINE_CHIP: Partial<Record<CuisinePreference, string>> = {
+  '한식': 'korean',
+  '분식·국밥': 'bunsik',
+  '양식': 'western',
+};
+
 // 경주 밖 위치를 황리단길로 바꿨다는 안내 — 세션에 한 번만(위치가 다시 잡힐 때마다 반복하지 않는다).
 const OUT_OF_REGION_NOTICE_KEY = 'nextspot_out_of_region_notice';
 
@@ -329,8 +357,8 @@ const PROFILE_TOAST_KEY = 'nextspot_profile_toast_shown';
 export default function MainPage() {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const topBarRef = useRef<HTMLDivElement>(null); // 상단 검색·칩 오버레이 — 초기 중심 보정에서 높이를 잰다
-  // 데스크톱 톱바 오른쪽 열(카테고리·음식·레이어 줄) — 제안 카드를 그 아래 끝에 둔다. 줄 수가 칩·언어·폭에 따라
-  // 바뀌어 고정 top-24 이면 셋째 줄 끝의 'ⓒ한국관광공사 TourAPI 동기화' 칩을 덮었다(10-06 실측).
+  // 데스크톱 툴바 판(카테고리 · 지도 레이어 · 출처 칩 두 줄) — 추천 열(카드 · 제안 카드)을 그 아래 끝에 둔다. 판 높이는
+  // 언어·폭에 따라 바뀌어 고정 top 이면 출처 칩을 덮었다(10-06 실측) — 재서 --panel-top 으로 넘긴다.
   const chipColumnRef = useRef<HTMLDivElement>(null);
   const [toolbarClearPx, setToolbarClearPx] = useState<number | null>(null);
   useEffect(() => {
@@ -343,6 +371,31 @@ export default function MainPage() {
     observer.observe(column);
     return () => observer.disconnect();
   }, []);
+  // 언어·시계 묶음(데스크톱 오른쪽 위) — 그 폭만큼 툴바 첫 줄을 비운다(둘째 줄은 그 밑까지 쓴다).
+  const topClusterRef = useRef<HTMLDivElement>(null);
+  const [topClusterPx, setTopClusterPx] = useState<number | null>(null);
+  useEffect(() => {
+    const cluster = topClusterRef.current;
+    if (!cluster || typeof ResizeObserver === 'undefined') return;
+    const measure = () => setTopClusterPx(Math.round(cluster.getBoundingClientRect().width));
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(cluster);
+    return () => observer.disconnect();
+  }, []);
+  // 지도 띠 계산용 — 검색 줄(검색창 + 날씨·첫 방문 줄), 혼잡 예측 줄, 휴대폰 카드 열.
+  const searchRowRef = useRef<HTMLDivElement>(null);
+  const stripRef = useRef<HTMLDivElement>(null);
+  const [recPanelEl, setRecPanelEl] = useState<HTMLDivElement | null>(null);
+  const [recPanelHeight, setRecPanelHeight] = useState(0);
+  useEffect(() => {
+    if (!recPanelEl || typeof ResizeObserver === 'undefined') return;
+    const measure = () => setRecPanelHeight(Math.round(recPanelEl.getBoundingClientRect().height));
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(recPanelEl);
+    return () => observer.disconnect();
+  }, [recPanelEl]);
   const mapInstanceRef = useRef<kakao.maps.Map | null>(null);
   const markersRef = useRef<kakao.maps.Marker[]>([]);
   const searchMatchLabelsRef = useRef<kakao.maps.CustomOverlay[]>([]);
@@ -423,6 +476,17 @@ export default function MainPage() {
   // 마지막으로 피드를 확인한 시각. 5분마다 바뀌어 지도 파생값을 다시 계산하게 한다 — 그래야
   // 오래 열어 둔 탭에서 60분 지난 점선 핀이 남지 않는다(값이 안 바뀌어도 만료는 다시 판정한다).
   const [estimateClock, setEstimateClock] = useState(() => Date.now());
+  // 지금 이 일대(경주 시내) 추정 혼잡 — 추정 피드 값들의 가운데값. 칠한 핀이 없을 때 시간 줄이 칩 하나로 말한다(계획 B3).
+  const areaNowLevel = useMemo(() => {
+    const at = new Date(estimateClock);
+    const levels = Object.values(estimateById)
+      .map((raw) => parseCongestionEstimate(raw, at)?.level)
+      .filter((level): level is number => typeof level === 'number')
+      .sort((a, b) => a - b);
+    if (levels.length === 0) return null;
+    const mid = Math.floor(levels.length / 2);
+    return levels.length % 2 ? levels[mid] : (levels[mid - 1] + levels[mid]) / 2;
+  }, [estimateById, estimateClock]);
   // 음성 선호 필터(예: '양식 먹고 싶어'→양식 식당 id들). null이면 필터 없음.
   // 백엔드 분류기가 실시간으로 추천 풀을 좁혀 그 안에서 SPOT로 재랭킹한다.
   // state = 카드/핸들러 렌더용, ref = 추천 effect가 dep 없이 최신값을 읽기 위함(필터 변경 시 더블셋 방지).
@@ -494,14 +558,24 @@ export default function MainPage() {
   // 🐾 반려동물 동반 필터 on/off — 켜지면 features.chk_pet 이 '가능'으로 파싱되는 시설만. 둘 다 배리어프리와 동일 패턴(AND 조합 가능).
   const [showParkingFilter, setShowParkingFilter] = useState(false);
   const [showPetFilter, setShowPetFilter] = useState(false);
-  // 예측 타임슬라이더 상태 — 0=지금(실측), 1~3=+N시간 후 AI 예측. predictionMap 은 시설별 예측 혼잡도.
-  const [hoursAhead, setHoursAhead] = useState(0);
-  const [predictionMap, setPredictionMap] = useState<Record<string, { level: number; anchored: boolean }> | null>(null);
-  const [predictionLoading, setPredictionLoading] = useState(false);
-  // 슬라이더 썸 위치(0~3) — 드래그 중엔 이 값만 즉시 갱신하고, 놓을 때(onPointerUp/onKeyUp) handleTimeShift 로
-  // 커밋한다(드래그 스텝마다 예측 호출이 폭주하지 않도록). 예측 성공/실패로 hoursAhead 가 바뀌면 썸을 재동기화.
-  const [sliderPos, setSliderPos] = useState(0);
-  useEffect(() => { setSliderPos(hoursAhead); }, [hoursAhead]);
+  // '🔮 혼잡 예측' 시간 줄(계획 B3) — 지금 · +1 · +2 · +3시간. 이 화면의 상태로만 산다(저장·공유하지 않는다 —
+  // lib/forecastStrip.ts 머리말). cardHours 는 고른 칸(받는 중 포함): 카드는 고르는 즉시 그 시각 기준으로 다시 고른다.
+  const [strip, dispatchStrip] = useReducer(stripReducer, STRIP_NOW);
+  const cardHours = stripHours(strip);
+  const stripForecast = strip.status === 'forecast' ? strip.forecast : null;
+  const forecastMode = stripForecast !== null;
+  // 휴대폰 카드가 미리보기인가(펼치면 시간 줄을 감춘다 — 펼친 카드가 검색창 아래까지 올라온다).
+  const [cardPeek, setCardPeek] = useState(true);
+  // 지도에 등급이 칠해진 핀 수(마커 effect 가 센다) — 범례를 보일지 정한다.
+  const [gradedPinCount, setGradedPinCount] = useState(0);
+  // 창 폭 — 데스크톱 추천 패널이 가리는 폭(시간 줄 자리 · 지도 띠)을 다시 잰다.
+  const [viewportWidth, setViewportWidth] = useState(0);
+  useEffect(() => {
+    const update = () => setViewportWidth(window.innerWidth);
+    update();
+    window.addEventListener('resize', update);
+    return () => window.removeEventListener('resize', update);
+  }, []);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -941,6 +1015,16 @@ export default function MainPage() {
     ]));
   }, [rankedFacilities, rejectedIds, savedIds, t]);
 
+  // 지도 핀의 순위(서버 상위 추천 1~5위, 관심 없음·저장 제외) — 금색 고리 + 숫자(계획 B3).
+  const pinRankById = useMemo(() => {
+    const ranks = new Map<string, number>();
+    (rankedFacilities as Facility[])
+      .filter((f) => !rejectedIds.has(f.id) && !savedIds.has(f.id))
+      .slice(0, 5)
+      .forEach((f, index) => ranks.set(String(f.id), index + 1));
+    return ranks;
+  }, [rankedFacilities, rejectedIds, savedIds]);
+
   // Load user profile & current location
   useEffect(() => {
     async function loadUser() {
@@ -1249,10 +1333,41 @@ export default function MainPage() {
     setNoRecommendation(false);
   };
 
-  // 지도 중심을 '실제 가시영역'의 한가운데로 보정한다 — 전체 화면 기준으로 중심을 잡으면
-  // 상단 검색·칩 바(오버레이)와 PC 우측 카드 패널(370px + right-4)에 눌려 현재 위치 점이
-  // 가려진 영역의 중앙, 즉 시각적으로는 오른쪽 위로 치우친 자리에 놓인다. 카드 패널 폭은
-  // 아직 카드가 뜨기 전이어도 곧 그 자리를 차지하므로 처음부터 비워 두고 잡는다.
+  // 지도에서 실제로 보이는 띠(계획 B3 · lib/map/visibleBand.ts) — 위는 검색 줄·칩 줄(데스크톱은 툴바), 오른쪽은 데스크톱
+  // 추천 패널, 아래는 혼잡 예측 줄과(휴대폰) 카드 미리보기·하단 탭. 카드 패널 폭은 카드가 뜨기 전이어도 곧 그 자리를
+  // 차지하므로 처음부터 비워 둔다. 고른 핀·첫 화면의 내 위치는 이 띠의 가운데로 간다.
+  const mapInsets = (): BandInsets => {
+    const container = mapContainerRef.current;
+    if (!container || typeof window === 'undefined') return { top: 0, right: 0, bottom: 0, left: 0 };
+    const box = container.getBoundingClientRect();
+    const bottomOf = (el: Element | null | undefined) => {
+      const r = el?.getBoundingClientRect();
+      return r && r.height > 0 ? r.bottom : null;
+    };
+    const topOf = (el: Element | null | undefined) => {
+      const r = el?.getBoundingClientRect();
+      return r && r.height > 0 ? r.top : null;
+    };
+    const headerBottom = Math.max(box.top, bottomOf(searchRowRef.current) ?? box.top, bottomOf(chipColumnRef.current) ?? box.top);
+    const phone = window.innerWidth < 768;
+    let bottomEdge = box.bottom;
+    const stripTop = topOf(stripRef.current);
+    if (stripTop !== null) bottomEdge = Math.min(bottomEdge, stripTop);
+    if (phone) {
+      const nav = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--tourist-nav-clearance')) || 0;
+      bottomEdge = Math.min(bottomEdge, box.bottom - nav);
+      const panelTop = topOf(recPanelEl);
+      if (panelTop !== null) bottomEdge = Math.min(bottomEdge, panelTop);
+    }
+    return {
+      top: Math.max(0, headerBottom - box.top + 8),
+      right: desktopPanelReservePx(),
+      bottom: Math.max(0, box.bottom - bottomEdge + 8),
+      left: 0,
+    };
+  };
+
+  // 지도 중심을 그 띠의 가운데로 맞춘다 — 첫 진입·위치 이동. 투영이 실패해도 지도는 반드시 그 자리로 간다.
   const centerOnFreeArea = (lat: number, lng: number) => {
     const map = mapInstanceRef.current;
     if (!map || typeof window === 'undefined' || !window.kakao) return;
@@ -1261,21 +1376,16 @@ export default function MainPage() {
     try {
       map.setCenter(latlng);
       const proj = map.getProjection();
-      const pt = proj.containerPointFromCoords(latlng); // 화면 정중앙의 컨테이너 좌표
-      const topH = topBarRef.current?.getBoundingClientRect().height ?? 0;
-      const rightW = desktopPanelReservePx();
-      if (topH === 0 && rightW === 0) return;
-      // 가시영역 중앙에 latlng 이 놓이려면 중심을 (우측 가림폭/2, -상단 가림높이/2)만큼 옮긴다.
-      const target = proj.coordsFromContainerPoint(
-        new window.kakao.maps.Point(pt.x + Math.round(rightW / 2), pt.y - Math.round(topH / 2))
-      );
-      map.setCenter(target);
+      const pt = proj.containerPointFromCoords(latlng);
+      const container = mapContainerRef.current;
+      const target = centerTargetFor(pt, container?.clientWidth ?? 0, container?.clientHeight ?? 0, mapInsets());
+      map.setCenter(proj.coordsFromContainerPoint(new window.kakao.maps.Point(target.x, target.y)));
     } catch {
       map.setCenter(latlng); // 투영 실패 — 무보정 중심이라도 반드시 이동한다
     }
   };
 
-  // 선택 마커가 하단 카드에 가리지 않도록 지도 위쪽 가시영역으로 패닝(지도 중심을 마커보다 아래로 둔다).
+  // 고른 장소를 보이는 띠의 가운데로 옮긴다(카드·톱바·예측 줄에 가리지 않게).
   const panToVisible = (lat: number, lng: number) => {
     const map = mapInstanceRef.current;
     if (!map || typeof window === 'undefined' || !window.kakao) return;
@@ -1285,11 +1395,9 @@ export default function MainPage() {
     try {
       const proj = map.getProjection();
       const pt = proj.containerPointFromCoords(latlng);
-      const h = mapContainerRef.current?.clientHeight || 0;
-      const target = proj.coordsFromContainerPoint(
-        new window.kakao.maps.Point(pt.x, pt.y + Math.round(h * 0.22))
-      );
-      map.panTo(target);
+      const container = mapContainerRef.current;
+      const target = centerTargetFor(pt, container?.clientWidth ?? 0, container?.clientHeight ?? 0, mapInsets());
+      map.panTo(proj.coordsFromContainerPoint(new window.kakao.maps.Point(target.x, target.y)));
     } catch {
       map.panTo(latlng);
     }
@@ -1385,7 +1493,9 @@ export default function MainPage() {
       return facilityMatchesSearch(f, q);
     });
     const scored = filtered.map(f => ({ ...f, spot: calculateSPOT(f) }));
-    scored.sort(compareFacilities);
+    // 서버 상위 추천(순위 핀)을 먼저 — 밀집도 상한(7곳)과 간격 규칙에서 추천한 곳이 빠지지 않게(계획 B3).
+    const rankOf = (f: Facility) => pinRankById.get(String(f.id)) ?? 99;
+    scored.sort((a, b) => rankOf(a) - rankOf(b) || compareFacilities(a, b));
     const map = mapInstanceRef.current;
     if (!map || !window.kakao?.maps) return scored.slice(0, q ? 12 : 7);
     try {
@@ -1417,9 +1527,18 @@ export default function MainPage() {
         if (members.length === 1) return members[0];
         const levels = members.map((item) => item.congestionLevel)
           .filter((value): value is number => typeof value === 'number');
+        // 핀에 칠할 값은 지금(24시간 안쪽) 잰 구성원 중 가장 붐비는 곳의 것 — 그 값의 관측 시각과 함께 싣는다.
+        const paintNow = new Date();
+        const painted = members
+          .filter((item) => isPaintableMeasurement({ level: item.congestionLevel, observedAt: item.congestionTimestamp ?? item.lastUpdated, source: item.congestionSource ?? item.source }, paintNow))
+          .sort((a, b) => (b.congestionLevel ?? 0) - (a.congestionLevel ?? 0))[0];
+        const memberRanks = members.map((item) => pinRankById.get(String(item.id))).filter((rank): rank is number => typeof rank === 'number');
         return {
           ...members[0],
           id: `building:${members.map((item) => item.id).sort().join(',')}`,
+          pinLevel: painted ? painted.congestionLevel : null,
+          pinObservedAt: painted ? (painted.congestionTimestamp ?? painted.lastUpdated ?? null) : null,
+          pinRank: memberRanks.length > 0 ? Math.min(...memberRanks) : null,
           name: t('map.placesInBuilding', { count: members.length }),
           // 평균점을 만들지 않고 출처가 있는 대표 레코드의 실제 좌표를 유지한다.
           latitude: members[0].latitude,
@@ -1464,25 +1583,11 @@ export default function MainPage() {
     }
   };
 
-  // 예측 모드 여부 — 예측 데이터 수신 성공 시에만 true(실패 시 '지금' 모드 유지 → 지도가 깨지지 않음).
-  const isForecast = hoursAhead > 0 && predictionMap !== null;
-
-  // 예측 정직화(⑤): 배지에 anchored 소비. 하나라도 실측 앵커가 없으면(anchored false) 배지에 '추정' 꼬리표.
-  const forecastAnchored = !isForecast || !predictionMap
-    ? true
-    : Object.values(predictionMap).every((p) => p.anchored);
-
-  // 마커/히트맵 소스: '지금'은 실측 facilities 그대로, 예측 모드에선 congestionLevel 만 예측값으로 치환한
-  // 파생 목록. 원본 facilities 는 불변 → '지금'으로 복귀 시 즉시 실측 표시, 추천/카드 로직에 영향 없음.
-  // (예측 대상은 실 시설. 그룹/데모 합성 시설은 predictionMap 에 없어 그대로 유지된다.)
+  // 마커/히트맵 소스: 지도 시설 그대로(실측). 예측(+N시간)은 이 목록을 바꾸지 않는다 — 핀이 pinDisplay 로 따로
+  // 칠한다(계획 B3). 원본 facilities 는 불변 → 추천/카드 로직에 영향 없음.
   const markerFacilities = useMemo(() => {
     if (activeFilter === '주차장') return parkingLots;
-    const src = (!isForecast || !predictionMap)
-      ? facilities
-      : facilities.map((f) => {
-          const pred = predictionMap[f.id];
-          return pred ? { ...f, congestionLevel: pred.level } : f;
-        });
+    const src = facilities;
     // ♿ 배리어프리 필터: 켜지면 barrier_free 가 명시적 true 인 시설만 남긴다(TourAPI 적재분은 정규 컬럼
     // barrierFree, 수동 시드는 features.barrier_free — 둘 다 확인). 마커·히트맵 공용 소스에서
     // 한 번만 걸러 두 레이어가 항상 동일 집합을 그린다.
@@ -1506,34 +1611,58 @@ export default function MainPage() {
     if (showParkingFilter) out = out.filter((f) => parseAvailability(f?.features?.parking as string | null | undefined) === true);
     if (showPetFilter) out = out.filter((f) => parseAvailability((f?.features?.chk_pet ?? f?.features?.chkPet) as string | null | undefined) === true);
     return out;
-  }, [activeFilter, facilities, parkingLots, predictionMap, isForecast, showBarrierFree, showParkingFilter, showPetFilter, estimateById, estimateClock]);
+  }, [activeFilter, facilities, parkingLots, showBarrierFree, showParkingFilter, showPetFilter, estimateById, estimateClock]);
 
-  // 타임슬라이더 전환: 지금(0)=실측 복귀, +N시간=백엔드 배치 예측으로 마커·히트맵 재채색.
-  // 실패 시 예측을 적용하지 않고 '지금' 모드를 유지(토스트 안내) — 회귀 없이 안전.
-  const handleTimeShift = async (n: number) => {
-    if (n === hoursAhead || predictionLoading) return;
-    if (n === 0) {
-      setHoursAhead(0);
-      setPredictionMap(null); // 실측 표시 복귀
-      return;
-    }
-    setPredictionLoading(true);
-    try {
+  // '🔮 혼잡 예측' 칸 고르기(계획 B3 · I01). +N: 예측(모델 → 세션 권역 곡선)을 받는 동안 카드는 곧바로 지금+N시간
+  // 기준으로 다시 고른다(cardHours). 예측이 없으면 알림 한 줄과 함께 지금으로 돌아간다(카드도 지금 기준으로 돌아온다).
+  // 요일 프리셋이 걸려 있었으면 푼다 — 줄은 한 번에 하나의 시각만 말한다.
+  const stripRequestRef = useRef<number>(0);
+  const selectForecastHours = (value: number) => {
+    const hours = clampForecastHours(value);
+    const presetActive = assumedPreset !== 'now';
+    if (hours === cardHours && !presetActive) return;
+    const prevTop = selectedFacility?.id != null ? String(selectedFacility.id) : null;
+    if (presetActive) setStoredAssumedPreset('now');
+    dispatchStrip({ type: 'select', hours });
+    stripRequestRef.current = hours;
+    startRecalc(hours === 0 ? t('forecast.now') : t('forecast.ahead', { h: hours }), prevTop);
+    if (hours === 0) return;
+    const requested: ForecastHours = hours;
+    void resolveStripForecast(requested, {
+      modelTrained: () => isPredictModelTrained(),
       // 주의: predict 라우터는 /api/v1 이 아닌 /predict 프리픽스(main.py) 아래에 있다.
-      // apiClient 가 body 를 snake_case(hours_ahead)로, 응답을 camelCase 로 변환한다.
-      const res = await apiClient.post('/predict/batch', { hoursAhead: n });
-      const map: Record<string, { level: number; anchored: boolean }> = {};
-      for (const p of res?.predictions ?? []) {
-        map[p.facilityId] = { level: p.predictedCongestion, anchored: p.anchored !== false };
+      batch: async (h) => {
+        const res = await apiClient.post('/predict/batch', { hoursAhead: h });
+        const predictions: ModelPredictions = {};
+        for (const p of res?.predictions ?? []) {
+          if (typeof p?.predictedCongestion === 'number') {
+            predictions[String(p.facilityId)] = { level: p.predictedCongestion, anchored: p.anchored !== false };
+          }
+        }
+        return predictions;
+      },
+      areaCurve: () => sessionAreaDemandCurve(),
+    }, Date.now()).then((forecast) => {
+      dispatchStrip({ type: 'resolved', hours: requested, forecast });
+      if (!forecast && stripRequestRef.current === requested) {
+        // 지금으로 돌아간다 — 그 사이 '…기준으로 다시 계산했어요' 가 예약돼 있으면 거두고 이 한 줄만 말한다.
+        stripRequestRef.current = 0;
+        abandonRecalc();
+        showToast(t('map.predictFail'));
       }
-      setPredictionMap(map);
-      setHoursAhead(n);
-    } catch (err) {
-      console.warn('혼잡 예측 조회 실패 — 실측(지금) 모드를 유지합니다.', err);
-      showToast(t('map.predictFail'));
-    } finally {
-      setPredictionLoading(false);
-    }
+    });
+  };
+
+  // '다른 시간 ▾' — 요일 프리셋(/waiting·/course 와 나누는 값). 상대 시각(+N)은 비운다.
+  const selectAssumedPreset = (id: string) => {
+    if (id === assumedPreset && strip.status === 'now') return;
+    startRecalc(
+      t(ASSUMED_TIME_PRESETS.find((p) => p.id === id)?.labelKey ?? 'timeSim.now'),
+      selectedFacility?.id != null ? String(selectedFacility.id) : null,
+    );
+    stripRequestRef.current = 0;
+    dispatchStrip({ type: 'reset' });
+    setStoredAssumedPreset(id);
   };
 
   // AI 추천 동기화: 실 DB 시설은 백엔드(/recommendations/by-type) 랭킹 + 서버 사유(템플릿 + LLM 다듬기),
@@ -1794,8 +1923,9 @@ export default function MainPage() {
                 recommendationController.signal,
                 // 재계산 스켈레톤의 비상 종료(RECALC_EMERGENCY_MS)가 이 값을 기준으로 잡힌다.
                 RECOMMENDATION_TIMEOUT_MS,
-                // 데모 '가정 시각'(있으면). null 이면 서버 현재 시각 = 기존 동작.
-                assumedAtIsoForPreset(assumedPreset),
+                // 가정 시각 — 혼잡 예측 +N시간이면 지금+N시간(이 화면의 상태로만), 아니면 요일 프리셋(있으면).
+                // 둘 다 없으면 null = 서버 현재 시각(기존 동작).
+                cardHours > 0 ? relativeAssumedAtIso(Date.now(), cardHours) : assumedAtIsoForPreset(assumedPreset),
               );
               let recs = await requestByType(rankContext);
               // 서버는 실제 걷는 길로 도보 제한을 잰다 — 직선거리로는 남았어도 0곳일 수 있다. 그때 한 번만 넓힌다.
@@ -1883,6 +2013,9 @@ export default function MainPage() {
           setNoOpenTodayOnly(false); // 랭킹 0건 — 휴무 소진과 구분
           setNoRecommendation(true); // (b) 랭킹 결과 0건 → 빈 상태 안내
           finishRecalc(null);
+          // ♿ 가 켜져 있는데 서버가 이 칩에 0곳을 줬다(클라이언트는 셌다) — 빈 지도로 두지 않고 클라이언트 0곳일 때처럼
+          // 무장애 핀으로 지도를 맞춘다(제안 카드가 '지도에 N곳' 을 말한다).
+          if (rankContext.requiredAttributes.includes('accessible')) fitBarrierFreePins(targetType as PlaceCategory);
           maybeSwitchFirstView(targetType as PlaceCategory);
           return;
         }
@@ -1923,7 +2056,7 @@ export default function MainPage() {
     // voiceFilterIds 는 dep로 두지 않는다(필터 변경은 onFilter가 직접 처리; effect는 ref로 최신값 읽음 → 더블셋/경합 방지).
     // rejectedIds, savedIds 도 dep에서 제외하여 거절/저장 시 불필요한 백엔드 API 재호출(점수/순위 리셋 현상)을 방지.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [facilities, activeFilter, userLocation, preferredCategories, mockHour, travelContext, activeDiscovery, assumedPreset]);
+  }, [facilities, activeFilter, userLocation, preferredCategories, mockHour, travelContext, activeDiscovery, assumedPreset, cardHours]);
 
   // Action Button Handlers
   const handleAccept = (fac: Facility, navigationMode: 'walk' | 'car' = 'walk') => {
@@ -2204,7 +2337,7 @@ export default function MainPage() {
       ? expandGroups(facilities).find((f) =>
           (activeDiscovery ? f?.id === activeDiscovery.anchorId : false) || f?.name === anchorName)
       : undefined;
-    const anchorLevel: number | null = anchorFacility && assumedPreset === 'now'
+    const anchorLevel: number | null = anchorFacility && assumedPreset === 'now' && cardHours === 0
       ? anchorNowLevel({
           congestionLevel: anchorFacility.congestionLevel,
           congestionSource: anchorFacility.congestionSource ?? null,
@@ -2626,19 +2759,19 @@ export default function MainPage() {
     searchMatchLabelsRef.current.forEach((label) => label.setMap(null));
     searchMatchLabelsRef.current = [];
 
-    // 그릴 시설이 없으면 정리만 하고 종료(마커 잔상 방지 — 이전엔 length===0 조기 return 이 정리보다 앞서 있었음).
-    if (markerFacilities.length === 0) return;
+    // 그릴 시설이 없어도 아래로 내려간다 — 빈 목록이면 핀 0개 · 칠한 핀 0개로 끝난다(마커 잔상 · 낡은 범례 방지).
 
     // 표시 시설 선택(카테고리 필터 + 이름 검색 + 줌 밀집도 상한)을 computeDisplayFacilities 로 통일.
     // markerFacilities 는 '지금'=실측, 예측 모드=예측 혼잡도가 반영된 파생 목록 → 마커가 자동 재채색된다.
     const displayFacilities = computeDisplayFacilities(markerFacilities);
 
-    // 마커 크기: 평소엔 작게, 선택 시엔 확대(뒤쪽 펄스/이펙트 없이 크기만 키움). 화면 폭에 따라 반응형.
-    const isNarrow = typeof window !== 'undefined' && window.innerWidth < 640;
-    const baseW = isNarrow ? 28 : 34;
-    const baseH = isNarrow ? 36 : 44;
-    const selW = isNarrow ? 40 : 50;
-    const selH = isNarrow ? 52 : 64;
+    // 핀 모양은 lib/map/markerSvg.pinDisplay 한 곳에서 정한다(계획 B3): 24시간 안쪽 실측만 등급색으로 꽉 찬 핀,
+    // 나머지는 옅은 빈 핀, 서버 상위 추천은 금색 고리 + 순위. 예측(+N시간) 중이면 순위 핀이 그 시각의 이 일대(또는
+    // 장소별 모델) 예측 등급을 흰 점선 고리로. 추정(주차+관광 통계)은 핀을 칠하지 않는다(PM 4.3).
+    const isNarrow = typeof window !== 'undefined' && window.innerWidth < 768;
+    const dark = typeof document !== 'undefined' && document.documentElement.classList.contains('nextspot-dark');
+    const paintNow = new Date();
+    let graded = 0;
 
     const newMarkers = displayFacilities.map((f) => {
       // 관광 POI는 모두 핀 마커(바닥 앵커).
@@ -2647,14 +2780,30 @@ export default function MainPage() {
         ? activeGroupId === f.id
         : ((f.type === 'parking' && selectedParkingLot?.id === f.id)
           || (!!selectedFacility && f.id === selectedFacility.id));
-      const w = isSel ? selW : baseW;
-      const h = isSel ? selH : baseH;
-      // 마커는 **실측 혼잡만** 칠한다. 추정치는 마커 디자인을 건드리지 않고 상세 패널에서만
-      // 말한다 — 지도 핀은 이 서비스의 얼굴이라 근거 등급마다 모양을 늘리지 않는다(사용자 결정).
+      const rank = f.isGroup ? (f.pinRank ?? null) : (pinRankById.get(String(f.id)) ?? null);
+      const forecastLevel = !stripForecast
+        ? null
+        : stripForecast.basis === 'model'
+          ? (stripForecast.predictions[String(f.id)]?.level ?? null)
+          : rank ? stripForecast.level : null;
+      const display = pinDisplay({
+        type: f.type,
+        level: f.type === 'parking' ? (f.live ? f.congestionLevel : null) : f.isGroup ? f.pinLevel : f.congestionLevel,
+        observedAt: f.type === 'parking' ? f.observedAt : f.isGroup ? f.pinObservedAt : (f.congestionTimestamp ?? f.lastUpdated),
+        source: f.congestionSource ?? f.source,
+        rank,
+        forecastMode,
+        forecastLevel,
+        selected: isSel,
+        phone: isNarrow,
+        busyAt,
+        now: paintNow,
+      });
+      if (display.style === 'filled') graded += 1;
       const markerImage = new kakao.maps.MarkerImage(
-        getMarkerSvg(f.type, f.congestionLevel, f.features, isSel, busyAt),
-        new kakao.maps.Size(w, h),
-        { offset: new kakao.maps.Point(w / 2, h) }
+        pinSvg(display, f.type, { selected: isSel, dark }),
+        new kakao.maps.Size(display.width, display.height),
+        { offset: new kakao.maps.Point(display.width / 2, display.height) }
       );
 
       const marker = new kakao.maps.Marker({
@@ -2662,7 +2811,7 @@ export default function MainPage() {
         image: markerImage,
         title: f.name,
       });
-      marker.setZIndex(isSel ? 100 : 1); // 선택된 마커를 위로
+      marker.setZIndex(display.zIndex); // 선택 > 순위 > 등급 > 빈 핀
 
       kakao.maps.event.addListener(marker, "click", () => {
         if (activeOverlayRef.current) {
@@ -2748,13 +2897,12 @@ export default function MainPage() {
     });
 
     markersRef.current = newMarkers;
-    // selectedFacility 변경 시에도 재렌더해 선택 마커만 진한 색으로 갱신(기존 마커는 effect 시작부에서 정리)
-    // markerFacilities 를 dep 으로 둬 예측(hoursAhead) 전환 시에도 마커가 예측 혼잡도로 재채색된다.
-    // busyAt: 운영자 혼잡 경계는 부팅 뒤 비동기로 도착한다. dep 에 없으면 마커가 기본 경계로
-
-    // 칠해진 채 남아 배지와 색이 어긋난다.
-
-  }, [markerFacilities, activeFilter, mapLoaded, selectedFacility?.id, selectedParkingLot?.id, activeGroupId, mapLevel, mapViewportVersion, searchQuery, busyAt, isForecast]);
+    setGradedPinCount((count) => (count === graded ? count : graded));
+    // selectedFacility 변경 시에도 다시 그려 선택 핀만 크게(기존 마커는 effect 시작부에서 정리).
+    // stripForecast: 예측(+N시간)을 받거나 지우면 순위 핀이 다시 칠해진다. pinRankById: 추천 목록이 바뀌면 고리가 옮겨 간다.
+    // busyAt: 운영자 혼잡 경계는 부팅 뒤 비동기로 도착한다. dep 에 없으면 마커가 기본 경계로 칠해진 채 남아 배지와 색이 어긋난다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [markerFacilities, activeFilter, mapLoaded, selectedFacility?.id, selectedParkingLot?.id, activeGroupId, mapLevel, mapViewportVersion, searchQuery, busyAt, stripForecast, pinRankById]);
 
   // 히트맵 레이어 (실 카카오맵) — 혼잡 핀과 별개의 CustomOverlay blob(CongestionMap 에서 이식).
   // showHeatmap 이 켜졌을 때만, 마커와 '동일한 표시 시설 집합'(computeDisplayFacilities)에
@@ -2771,14 +2919,12 @@ export default function MainPage() {
 
     if (!showHeatmap) return;
 
-    // 열지도에 칠할 점(= 혼잡을 말할 **실측 근거가 있는** 좌표)을 모은다.
-    // 히트맵은 실측 전용이라는 선은 그대로다(사용자 결정 2026-09-20, lib/congestionEstimate.test.ts
-    // 가 이 블록을 지킨다). 달라진 것은 '실측을 어디서 더 찾느냐'뿐이다:
-    //   1) 지도에 뜬 시설의 실측/예측 혼잡도(기존)
-    //   2) 지금 카드가 비교 중인 추천 후보들 — 지도 필터 밖이어도 같은 화면이 말하는 장소다
-    //   3) 후보 주변의 **공영주차 실측** 수요(live) — 사람이 아니라 구역의 사실이라 면으로 읽힌다
-    //   4) 경주시 ITS 공영주차장 실시간 잔여면 — 도심 전역에 흩어진 실측 좌표
-    //   5) 테마 대표 랜드마크(앵커) — 우리가 '대신 가자'고 말하는 바로 그 줄의 위치
+    // 열지도에 칠할 점(= 혼잡을 말할 **실측 근거가 있는** 좌표)만 모은다(사용자 결정 2026-09-20 — 실측 전용,
+    // lib/congestionEstimate.test.ts 가 이 블록을 지킨다). 계획 B3: 장소 점은 24시간 안쪽에 잰 곳만(핀과 같은 선),
+    // 공영주차장은 경주시 ITS 실시간 잔여면 그 자리에만 — 주변 주차 수요를 추천 장소 좌표에 옮겨 칠하던 점은 뺐다
+    // (그 장소를 잰 값이 아니다).
+    //   1) 지도에 뜬 시설의 실측   2) 지금 카드가 비교 중인 추천 후보의 실측
+    //   3) 경주시 ITS 공영주차장 실시간 잔여면   4) 테마 대표 랜드마크(앵커)의 실측
     const heatPoints = new Map<string, { lat: number; lng: number; level: number }>();
     const addHeatPoint = (id: unknown, lat: unknown, lng: unknown, level: unknown) => {
       const key = String(id ?? '');
@@ -2787,17 +2933,20 @@ export default function MainPage() {
       if (typeof level !== 'number' || !Number.isFinite(level)) return;
       heatPoints.set(key, { lat, lng, level: Math.max(0, Math.min(1, level)) });
     };
+    const heatNow = new Date();
+    const measuredLevel = (f: Facility | null | undefined): number | null => (
+      f && isPaintableMeasurement({ level: f.congestionLevel, observedAt: f.congestionTimestamp ?? f.lastUpdated, source: f.congestionSource ?? f.source }, heatNow)
+        ? f.congestionLevel
+        : null
+    );
 
     const displayFacilities = computeDisplayFacilities(markerFacilities)
       .flatMap((f) => (f.isGroup && Array.isArray(f.subFacilities)) ? f.subFacilities : [f]);
     displayFacilities.forEach((f) => {
-      addHeatPoint(f.id, f.latitude, f.longitude, f.congestionLevel);
+      addHeatPoint(f.id, f.latitude, f.longitude, f.type === 'parking' ? (f.live ? f.congestionLevel : null) : measuredLevel(f));
     });
     (rankedFacilities as Facility[]).forEach((f) => {
-      const parking = f?.spot?.areaDemandParkingEvidence;
-      addHeatPoint(f?.id, f?.latitude, f?.longitude,
-        typeof f?.congestionLevel === 'number' ? f.congestionLevel
-          : parking?.mode === 'live' ? parking.level : undefined);
+      addHeatPoint(f?.id, f?.latitude, f?.longitude, measuredLevel(f));
     });
     heatParkingLots.forEach((lot) => {
       addHeatPoint(`parking-${lot.id}`, lot.latitude, lot.longitude, lot.occupancy);
@@ -2805,7 +2954,7 @@ export default function MainPage() {
     DISCOVERY_THEMES.forEach((theme) => {
       const anchor = findDiscoveryAnchor(expandGroups(facilities), theme) as Facility | null;
       if (!anchor) return;
-      addHeatPoint(anchor.id, anchor.latitude, anchor.longitude, anchor.congestionLevel);
+      addHeatPoint(anchor.id, anchor.latitude, anchor.longitude, measuredLevel(anchor));
     });
 
     const overlays = [...heatPoints.values()].map((point) => {
@@ -2878,6 +3027,15 @@ export default function MainPage() {
   // 음식점 카테고리에서만 노출. TourAPI POI 는 cat3 매핑, 시드는 음식 태그/공식 메뉴/상호명으로 매칭된다.
   // 칩 목록과 후보 풀은 음성과 같은 것을 쓴다(lib/voice/voiceCandidates) — 말해도 누른 것과 같은 결과(I09).
   const cuisineChips = CUISINE_CHIPS;
+  // 온보딩에서 고른 음식(있으면) — 데스크톱 🍽 메뉴 ▾ 의 안내 문구와 휴대폰 시트의 칩 고리(계획 B3 · A12 I39).
+  // 고른 것만 알려 준다(거르지 않는다) — 그 취향은 이미 추천의 취향 일치율에 들어가 있다.
+  const setupCuisine = travelContext.cuisine;
+  const setupCuisineHint = setupCuisine ? t('map.menuSetupHint', { cuisine: t(SETUP_FOOD_KEY[setupCuisine]) }) : null;
+  const setupCuisineChipId = setupCuisine ? SETUP_CUISINE_CHIP[setupCuisine] ?? null : null;
+  // 툴바 둘째 줄 칩(히트맵·♿·🅿·🐾) — 불투명 바탕, 켜지면 청록.
+  const layerChipClass = (on: boolean) => `flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 text-[13px] font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 ${
+    on ? 'border-jade bg-jade/15 text-muk' : 'border-line bg-white text-muk-soft hover:border-jade/60 hover:text-muk'
+  }`;
 
   // 칩 적용 — 칩 탭과 음성 음식 요청이 같은 길: 매칭 id 집합 → applyVoiceFilter(마커·추천 풀 공통 필터)
   // + cuisineIntent(선호%를 음식 매칭도로 재산정) + 필터 내 SPOT #1 즉시 선택. 목록 순위도 그 풀로 바꾼다
@@ -3053,11 +3211,12 @@ export default function MainPage() {
     }
     const bounds = new window.kakao.maps.LatLngBounds();
     pins.forEach((f) => bounds.extend(new window.kakao.maps.LatLng(f.latitude, f.longitude)));
-    // 톱바·우측 카드 자리만큼 비우고 맞춘다(centerOnFreeArea 와 같은 가림 폭). 지도 높이의 절반은 넘지 않게.
+    // 보이는 띠(톱바·추천 패널·예측 줄·미리보기를 뺀 곳) 안에 맞춘다 — panToVisible 과 같은 가림 폭. 지도 높이의 절반은 넘지 않게.
     const h = mapContainerRef.current?.clientHeight || 0;
-    const top = Math.min(topBarRef.current?.getBoundingClientRect().height ?? 0, Math.round(h * 0.5));
-    const right = desktopPanelReservePx() || 24;
-    try { map.setBounds(bounds, top + 24, right, 120, 24); } catch { /* 투영 실패 — 지도는 그대로 둔다 */ }
+    const insets = mapInsets();
+    const top = Math.min(insets.top, Math.round(h * 0.5));
+    const bottom = Math.min(insets.bottom, Math.round(h * 0.4));
+    try { map.setBounds(bounds, top + 16, (insets.right || 8) + 16, bottom + 16, 24); } catch { /* 투영 실패 — 지도는 그대로 둔다 */ }
   };
   const onBarrierFreeChip = () => {
     toggleBarrierFree();
@@ -3349,72 +3508,113 @@ export default function MainPage() {
     return false;
   };
 
+  // ── 🔮 혼잡 예측 줄에 넘길 값(계획 B3) ─────────────────────────────────────────────
+  const stripPresets = ASSUMED_TIME_PRESETS.filter((p) => p.id !== 'now').map((p) => ({ id: p.id, label: t(p.labelKey) }));
+  const activeStripType = CATEGORY_FILTERS.find(({ id }) => id === activeFilter)?.type ?? null;
+  const stripBadge = (() => {
+    if (!stripForecast) return null;
+    const level = forecastHeadlineLevel(
+      stripForecast,
+      activeStripType ? facilities.filter((f) => f.type === activeStripType).map((f) => String(f.id)) : undefined,
+    );
+    if (level === null) return null;
+    const grade = congestionKey(level, busyAt);
+    const levelText = t(`congestion.${grade}`);
+    const text = stripForecast.basis === 'area'
+      ? t('forecast.badgeArea', { h: stripForecast.hours, level: levelText })
+      : `${t('forecast.badgeModel', { h: stripForecast.hours, level: levelText })}${stripForecast.anchored ? '' : ` · ${t('map.forecastEstimateTag')}`}`;
+    return { text, grade };
+  })();
+  // 범례 — 등급이 칠해진 핀이 화면에 있거나, 히트맵·예측이 켜져 있을 때만. 아니면 '지금 이 일대 … · 추정' 칩 하나(추정 피드).
+  const showStripLegend = forecastMode || showHeatmap || gradedPinCount > 0;
+  const stripLegend = showStripLegend
+    ? { title: stripForecast ? t('forecast.legendAhead', { h: stripForecast.hours }) : t('forecast.legendNow'), dashed: forecastMode }
+    : null;
+  const stripAreaChip = !showStripLegend && areaNowLevel !== null
+    ? t('forecast.areaNow', { level: t(`congestion.${congestionKey(areaNowLevel, busyAt)}`) })
+    : null;
+  const phoneCardExpanded = isPhone && !!selectedFacility && !recalcLabel && !cardPeek;
+  const showStrip = activeFilter !== '주차장' && !isLoadingFacilities && !facilitiesLoadError && facilities.length > 0 && !phoneCardExpanded;
+
   return (
     <div className="relative w-full h-[100dvh] overflow-hidden flex flex-col">
 
-      {/* PC 에선 시계 왼쪽 최상단 가로 배치 — 이전 위치(md:top-20 우측)는 우측 도킹 추천 패널
-          (md:top-24)의 상단 47px 과 겹쳐 음성 오브·배지를 가렸다(실측 확인). y≈20~56 는 시계 행이라
-          패널(96px~)·칩 행(120px~)과 전혀 겹치지 않는다. 모바일 배치는 그대로. */}
-      <div className="absolute left-3 top-[calc(env(safe-area-inset-top)+0.5rem)] z-30 flex max-w-[220px] flex-col items-start gap-1.5 md:left-auto md:right-[178px] md:top-5 md:max-w-none md:flex-row-reverse md:items-center">
-        <LanguageSwitcher className="pointer-events-auto" />
-        <span className="rounded-full border border-line bg-white/90 px-2.5 py-1 text-[10px] font-semibold leading-tight text-muk-soft shadow-[0_2px_10px_rgba(43,35,32,0.08)] backdrop-blur-md">
-          {t('guide.sourceTour')}
-        </span>
-      </div>
-
-      {/* 지도는 주간에는 원본 Kakao 타일, 야간에는 전역 테마의 저휘도 필터를 사용한다. */}
+      {/* 지도는 주간에는 채도를 낮춘 Kakao 타일(핀 색이 묻히지 않게), 야간에는 전역 테마의 저휘도 필터를 쓴다. */}
       <div
         ref={mapContainerRef}
-        className={`nextspot-map w-full h-full absolute inset-0 z-0${mapUnavailable ? ' bg-gradient-to-b from-hanji-deep/70 via-hanji-deep/40 to-hanji' : ''}`}
+        className={`nextspot-map nextspot-main-map w-full h-full absolute inset-0 z-0${mapUnavailable ? ' bg-gradient-to-b from-hanji-deep/70 via-hanji-deep/40 to-hanji' : ''}`}
       />
 
-      {/* 장소 카드와 분리된 경주 현지 시계. 모바일 검색바 위 안전영역, 데스크톱 우측 상단에 고정한다. */}
-      {clockLabels && (
-        <div
-          aria-label={`${clockLabels.date} ${clockLabels.time} KST`}
-          className="pointer-events-none absolute right-3 top-[calc(env(safe-area-inset-top)+0.5rem)] z-30 flex items-center gap-2 rounded-2xl border border-white/70 bg-white/[0.88] px-3 py-2 text-right shadow-[0_3px_16px_rgba(43,35,32,0.12)] backdrop-blur-md md:right-5 md:top-5"
-        >
-          <Clock3 size={16} className="shrink-0 text-gold" aria-hidden />
-          <div className="leading-none">
-            <p className="whitespace-nowrap text-[10px] font-semibold text-muk-soft">{clockLabels.date}</p>
-            <p className="mt-1 whitespace-nowrap text-[13px] font-extrabold tracking-tight text-muk">
-              <span className="mr-1 text-[9px] font-bold tracking-wider text-gold-deep">KST</span>
-              {clockLabels.time}
-            </p>
-          </div>
+      {/* 언어 · 시계(계획 B3 — 오른쪽 위, 불투명). 휴대폰은 언어(+출처)가 왼쪽 위, 시계가 오른쪽 위. 데스크톱은 둘이 오른쪽
+          위에 나란히 서고, 툴바 첫 줄이 이 묶음의 폭만큼 비운다(topClusterPx). */}
+      <div
+        ref={topClusterRef}
+        className="pointer-events-none absolute inset-x-3 top-[calc(env(safe-area-inset-top)+0.5rem)] z-30 flex items-start justify-between gap-2 md:inset-x-auto md:right-5 md:top-5 md:items-center md:justify-end"
+      >
+        <div className="flex max-w-[220px] flex-col items-start gap-1 md:max-w-none">
+          <LanguageSwitcher className="pointer-events-auto" />
+          {/* 휴대폰 출처 — 데스크톱은 툴바 둘째 줄 끝의 출처 칩 하나(P8). */}
+          <SourceCredit compact className="md:hidden" />
         </div>
-      )}
+        {/* 장소 카드와 분리된 경주 현지 시계 — 영업 여부·도착 시각의 기준(KST). */}
+        {clockLabels && (
+          <div
+            aria-label={`${clockLabels.date} ${clockLabels.time} KST`}
+            className="flex items-center gap-2 rounded-2xl border border-line bg-white px-3 py-2 text-right shadow-[0_3px_16px_rgba(43,35,32,0.12)] md:py-1"
+          >
+            <Clock3 size={16} className="shrink-0 text-gold" aria-hidden />
+            <div className="leading-none">
+              <p className="whitespace-nowrap text-[10px] font-semibold text-muk-soft">{clockLabels.date}</p>
+              <p className="mt-1 whitespace-nowrap text-[13px] font-extrabold tracking-tight text-muk">
+                <span className="mr-1 text-[9px] font-bold tracking-wider text-gold-deep">KST</span>
+                {clockLabels.time}
+              </p>
+            </div>
+          </div>
+        )}
+      </div>
 
-      {/* Top Layer: Search & Filters — 다크 오버레이 그라디언트 제거(플로팅 패널 자체 배경으로 가독성 확보) */}
-      <div ref={topBarRef} className="absolute top-0 w-full z-20 pt-24 md:pt-5 pb-4 px-4 md:pr-[190px] flex flex-col gap-2 md:gap-4 pointer-events-none">
+      {/* Top Layer: Search & Filters — 판마다 불투명 바탕(지도가 글자 뒤로 비치지 않게). 휴대폰 머리는 280px 안(계획 B3):
+          검색 · 날씨/첫 방문 한 줄 · '필터·편의' 가 맨 앞인 칩 한 줄. 키 낮은 휴대폰은 날씨/첫 방문을 검색 줄 옆에 붙인다. */}
+      <div ref={topBarRef} className="absolute top-0 w-full z-20 pt-[calc(env(safe-area-inset-top)+4.25rem)] md:pt-5 pb-4 px-4 flex flex-col gap-2 md:gap-4 pointer-events-none">
 
         {/* 지도 SDK 로드 실패(8초 타임아웃) 안내 칩 — 검색/배리어프리 빈 상태 칩과 동일 스타일 재사용.
             추천 카드 등 나머지 UI 는 지도 유무와 무관하게 계속 동작한다. */}
         {mapUnavailable && (
           <div className="flex justify-center pointer-events-auto">
-            <span className="inline-block text-muk text-xs bg-white/90 border border-line rounded-full px-3 py-1 shadow-[0_2px_14px_rgba(43,35,32,0.06)]">
+            <span className="inline-block text-muk text-xs bg-white border border-line rounded-full px-3 py-1 shadow-[0_2px_14px_rgba(43,35,32,0.06)]">
               {t('map.loadFailed')}
             </span>
           </div>
         )}
 
-        {/* PC(md+)는 구글맵스식 톱바 — 컴팩트 검색바(≈1/4폭)를 왼쪽에, 카테고리 칩·지도 레이어
-            컨트롤을 그 오른쪽에 나란히 배치한다. 모바일은 기존 세로 스택 그대로. */}
-        <div className="flex flex-col gap-4 md:flex-row md:items-start md:gap-4">
+        {/* PC(md+)는 구글맵스식 톱바 — 왼쪽 열(정체성 한 줄 · 검색 · 날씨/첫 방문)과 오른쪽 툴바 판(두 줄)을 나란히.
+            모바일은 세로 스택. */}
+        <div className="flex flex-col gap-2 md:flex-row md:items-start md:gap-4">
 
-        {/* 왼쪽 열: 검색바 + 검색 상태 안내 */}
-        <div className="flex flex-col gap-2 md:w-1/4 md:min-w-[300px] md:max-w-[400px] md:shrink-0">
+        {/* 왼쪽 열: 정체성 한 줄 + 검색 줄 + 검색 결과 */}
+        <div className="flex flex-col gap-2 md:w-[22%] md:min-w-[290px] md:max-w-[400px] md:shrink-0">
+
+        {/* 정체성 한 줄(데스크톱) — 워드마크 + '줄 서는 대신, 경주를 한 곳 더.'(landing.tagline). */}
+        <div className="pointer-events-auto hidden w-fit max-w-full items-center gap-2 rounded-full border border-line bg-white px-3 py-1 shadow-[0_2px_10px_rgba(43,35,32,0.08)] md:flex" data-testid="identity-line">
+          <Image src="/nextspot-logo.png" alt="NextSpot" width={505} height={109} className="nextspot-logo-light h-4 w-auto shrink-0" />
+          <Image src="/nextspot-logo-dark.png" alt="NextSpot" width={505} height={109} className="nextspot-logo-dark h-4 w-auto shrink-0" />
+          <span className="min-w-0 text-[12px] font-bold leading-tight text-muk">{t('landing.tagline')}</span>
+        </div>
+
+        {/* 검색 줄 — 검색창 + 날씨/첫 방문 알약 줄. 키 낮은 휴대폰(높이 720 미만)은 알약을 검색창 옆에 붙인다. */}
+        <div ref={searchRowRef} className="flex flex-col gap-2 short:max-md:flex-row short:max-md:items-center">
 
         {/* Search Bar — (c) 로컬 시설명 검색(마커 필터). 음성 검색(Mic)은 브라우저 STT 로 받아쓰기 → 검색어 주입.
             (Web Speech 미지원 브라우저에선 '준비 중' 비활성으로 graceful 폴백.) */}
-        <div className="flex items-center bg-white/90 backdrop-blur rounded-full px-4 py-3 md:py-2.5 border border-line shadow-[0_2px_14px_rgba(43,35,32,0.06)] pointer-events-auto">
+        <div className="flex min-w-0 items-center bg-white rounded-full px-4 py-2.5 short:max-md:flex-1 short:max-md:px-3 short:max-md:py-2 border border-line shadow-[0_2px_14px_rgba(43,35,32,0.06)] pointer-events-auto">
           <Search size={20} className="text-muk-soft mr-3" />
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder={t('map.searchPlaceholder')}
-            className="flex-1 bg-transparent text-muk outline-none placeholder:text-muk-soft text-sm"
+            className="min-w-0 flex-1 bg-transparent text-muk outline-none placeholder:text-muk-soft text-sm"
           />
           {searchQuery ? (
             <button
@@ -3446,8 +3646,45 @@ export default function MainPage() {
               )}
             </button>
           ) : null}
-          <NextSpotMascot className="ml-3 w-9" />
+          <NextSpotMascot className="ml-3 w-9 short:max-md:hidden" />
         </div>
+
+        {/* 날씨 · 첫 방문(✨) 알약 한 줄 — 검색 중에는 감춘다(언마운트하지 않아 날씨를 다시 부르지 않는다). */}
+        <div className={searchActive ? 'hidden' : 'flex items-center gap-2 short:max-md:shrink-0'}>
+          <WeatherChip
+            indoorRequired={travelContext.requiredAttributes.includes('indoor')}
+            onIndoorRequiredChange={(required) => {
+              const requiredAttributes = required
+                ? [...new Set([...travelContext.requiredAttributes, 'indoor' as const])]
+                : travelContext.requiredAttributes.filter((attribute) => attribute !== 'indoor');
+              const next = { ...travelContext, requiredAttributes };
+              setTravelContext(next);
+              saveTravelContext(next);
+              track('context_applied', {
+                categories: next.categories,
+                max_walk_minutes: next.maxWalkMinutes ?? null,
+                available_minutes: next.availableMinutes ?? null,
+                required_attributes: next.requiredAttributes,
+                exclude_visited: next.excludeVisited,
+              });
+            }}
+          />
+          {!isLoadingFacilities && facilities.length > 0 && !activeDiscovery && (
+            <button
+              type="button"
+              onClick={() => setShowDiscoveryThemes((open) => !open)}
+              aria-expanded={showDiscoveryThemes}
+              title={t('discovery.entryHint')}
+              aria-label={t('discovery.entry')}
+              className="toss-pressable pointer-events-auto flex h-8 min-w-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-gold/40 bg-white px-3 text-[12px] font-extrabold text-muk shadow-[0_2px_10px_rgba(43,35,32,0.08)] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+            >
+              <span aria-hidden className="text-[14px] leading-none">✨</span>
+              <span className="truncate short:max-md:sr-only">{t('discovery.entry')}</span>
+              <ChevronDown size={14} className={`shrink-0 text-gold-deep transition-transform ${showDiscoveryThemes ? 'rotate-180' : ''}`} aria-hidden />
+            </button>
+          )}
+        </div>
+        </div>{/* /검색 줄 */}
 
         {/* 검색 결과는 검색창 바로 아래 — 날씨·첫 방문 카드 밑으로 밀리면 찾은 줄이 검색과 떨어져 보인다. */}
         {/* (c) 검색 결과 없음 안내 — 입력값은 있으나 현재 카테고리에 일치 장소가 없을 때.
@@ -3604,45 +3841,6 @@ export default function MainPage() {
           </div>
         )}
 
-        {/* 검색 중에는 날씨 카드를 감춘다 — 언마운트하지 않아 날씨를 다시 부르지 않는다. */}
-        <div className={searchActive ? 'hidden' : 'contents'}>
-        <WeatherChip
-          indoorRequired={travelContext.requiredAttributes.includes('indoor')}
-          onIndoorRequiredChange={(required) => {
-            const requiredAttributes = required
-              ? [...new Set([...travelContext.requiredAttributes, 'indoor' as const])]
-              : travelContext.requiredAttributes.filter((attribute) => attribute !== 'indoor');
-            const next = { ...travelContext, requiredAttributes };
-            setTravelContext(next);
-            saveTravelContext(next);
-            track('context_applied', {
-              categories: next.categories,
-              max_walk_minutes: next.maxWalkMinutes ?? null,
-              available_minutes: next.availableMinutes ?? null,
-              required_attributes: next.requiredAttributes,
-              exclude_visited: next.excludeVisited,
-            });
-          }}
-        />
-        </div>
-
-        {!isLoadingFacilities && facilities.length > 0 && !activeDiscovery && !showDiscoveryThemes && !searchActive && (
-          <button
-            type="button"
-            onClick={() => setShowDiscoveryThemes(true)}
-            className="toss-pressable pointer-events-auto flex w-full items-center justify-between gap-3 rounded-2xl border border-gold/30 bg-white/95 px-4 py-3 text-left shadow-[0_4px_18px_rgba(43,35,32,0.09)] backdrop-blur"
-          >
-            <span className="flex min-w-0 items-center gap-3">
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gold/15 text-lg" aria-hidden>✨</span>
-              <span className="min-w-0">
-                <span className="block text-sm font-extrabold text-muk">{t('discovery.entry')}</span>
-                <span className="mt-0.5 block truncate text-[11px] text-muk-soft">{t('discovery.entryHint')}</span>
-              </span>
-            </span>
-            <ChevronDown size={17} className="shrink-0 text-gold-deep" aria-hidden />
-          </button>
-        )}
-
         {!isLoadingFacilities && facilities.length > 0 && showDiscoveryThemes && !activeDiscovery && !searchActive && (
           <section className="pointer-events-auto rounded-3xl border border-gold/30 bg-white/95 p-4 shadow-[0_8px_28px_rgba(43,35,32,0.13)] backdrop-blur">
             <div className="flex items-start justify-between gap-3">
@@ -3763,13 +3961,26 @@ export default function MainPage() {
 
         </div>{/* /왼쪽 열(검색) */}
 
-        {/* 오른쪽 열(모바일은 아래): 카테고리 칩 + 지도 레이어 컨트롤 */}
-        <div ref={chipColumnRef} className="flex flex-col gap-2 md:flex-1 md:min-w-0 md:gap-2.5">
-
-        {/* Filter Chips — PC 에선 스크롤 대신 줄바꿈(구글맵스 칩 행 관례).
-            왼쪽 금색 띠 = '무엇을 찾을지' 그룹(이 행 + 아래 음식분류 행). 아래 레이어/조건 행은
-            청록 띠로 구분한다 — 칩이 전부 비활성이어도 두 행의 의미가 다르다는 게 보이게. */}
-        <div className="flex gap-2 overflow-x-auto no-scrollbar pointer-events-auto md:flex-wrap md:overflow-visible md:border-l-2 md:border-gold/70 md:pl-2.5">
+        {/* 오른쪽 열(모바일은 아래): 불투명 툴바 판 두 줄(계획 B3 · I37/P8). 1줄 = 카테고리(+ 음식점이면 🍽 메뉴 ▾),
+            2줄 = 지도 레이어 · 편의 칩 + 출처 칩 하나. 줄은 넘쳐도 접히지 않는다 — 칩 무리는 가로로 밀리고 출처 칩은 늘 보인다.
+            언어·시계 묶음이 첫 줄 오른쪽 끝에 떠 있으므로 첫 줄만 그 폭(--cluster-w)을 비운다. 휴대폰은 칩 한 줄. */}
+        <div
+          ref={chipColumnRef}
+          data-testid="map-toolbar"
+          className="flex flex-col gap-2 md:pointer-events-auto md:min-w-0 md:flex-1 md:gap-1 md:rounded-2xl md:border md:border-line md:bg-hanji md:p-1 md:shadow-[0_4px_18px_rgba(43,35,32,0.12)]"
+          style={{ '--cluster-w': `${(topClusterPx ?? 288) + 12}px` } as CSSProperties}
+        >
+        <div data-testid="toolbar-row-1" className="pointer-events-auto flex items-center gap-2 overflow-x-auto no-scrollbar md:gap-1.5 md:pr-[var(--cluster-w)]">
+          {/* 휴대폰: 필터·편의가 칩 줄 맨 앞(히트맵·♿·🅿·음식 종류·축제·화장실은 시트 안). */}
+          {activeFilter !== '주차장' && (
+            <button
+              type="button"
+              onClick={() => setShowMobileTools(true)}
+              className="toss-pressable flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-line bg-white px-3 text-[13px] font-bold text-muk shadow-[0_2px_10px_rgba(43,35,32,0.08)] short:max-md:h-[34px] md:hidden"
+            >
+              <SlidersHorizontal size={14} aria-hidden /> {t('map.mobileTools')}
+            </button>
+          )}
           {filters.map((filter) => {
             const Icon = filter.icon;
             const isActive = activeFilter === filter.id;
@@ -3777,260 +3988,99 @@ export default function MainPage() {
               <button
                 key={filter.id}
                 onClick={() => selectCategory(filter.id)}
-                className={`toss-pressable flex shrink-0 items-center whitespace-nowrap rounded-full border px-3.5 py-2 fractal-glass shadow-[0_2px_14px_rgba(43,35,32,0.06)] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 sm:px-4 sm:py-2 ${
+                aria-pressed={isActive}
+                className={`toss-pressable flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3.5 text-[13px] font-semibold shadow-[0_2px_10px_rgba(43,35,32,0.06)] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 short:max-md:h-[34px] md:h-8 md:px-3 md:shadow-none ${
                   isActive
-                    ? 'bg-gold/15 border-gold text-muk'
-                    : 'bg-white/80 border-gold/30 text-muk-soft hover:bg-white hover:border-gold/60 hover:text-muk'
+                    ? 'border-muk bg-muk text-hanji'
+                    : 'border-line bg-white text-muk-soft hover:border-gold/60 hover:text-muk'
                 }`}
               >
-                <Icon size={15} className={`mr-1.5 sm:mr-2 ${isActive ? 'text-gold' : 'text-gold/55'}`} />
-                <span className="text-[13px] font-medium sm:text-sm">{t(`category.${filter.key}`)}</span>
+                <Icon size={15} aria-hidden className={isActive ? 'text-hanji' : 'text-gold-deep'} />
+                <span>{t(`category.${filter.key}`)}</span>
               </button>
             );
           })}
+          {/* 데스크톱 음식 종류 — 칩 줄 대신 🍽 메뉴 ▾ 하나(음식점에서만). 온보딩에서 고른 음식이 있으면 그 취향을 알려 준다
+              (추천의 취향 일치율이 이미 그 음식을 본다 — 고르기 전에는 거르지 않는다). 칩과 같은 길(selectCuisineChip). */}
+          {activeFilter === '음식점' && (
+            <label className="hidden h-8 shrink-0 items-center rounded-full border border-line bg-white pl-3 pr-2 focus-within:ring-2 focus-within:ring-gold/60 md:flex">
+              <select
+                aria-label={t('map.menuAria')}
+                value={cuisineChip ?? ''}
+                onChange={(event) => selectCuisineChip(cuisineChips.find((chip) => chip.id === event.target.value) ?? null)}
+                className="max-w-[13rem] cursor-pointer truncate bg-transparent text-[13px] font-bold text-muk outline-none"
+              >
+                <option value="">{cuisineChip ? t('map.menuAll') : setupCuisineHint ?? t('map.menuSelect')}</option>
+                {cuisineChips.map((chip) => (
+                  <option key={chip.id} value={chip.id}>{chip.emoji} {t(`cuisine.${chip.id}`)}</option>
+                ))}
+              </select>
+            </label>
+          )}
         </div>
 
-        {activeFilter !== '주차장' && <button
-          type="button"
-          onClick={() => setShowMobileTools(true)}
-          className="toss-pressable flex w-fit items-center gap-1.5 rounded-full border border-line bg-white/90 px-3 py-1.5 text-xs font-semibold text-muk shadow-[0_2px_12px_rgba(43,35,32,0.08)] pointer-events-auto md:hidden"
-        >
-          <SlidersHorizontal size={14} /> {t('map.mobileTools')}
-        </button>}
+        {/* 2줄(데스크톱): 🔥 히트맵 · ♿ 무장애 · 🅿 주차 · (🐾) · 🏮 축제 · 🚻 화장실 · 🍃 지금 한산, 그리고 출처 칩 하나. */}
+        <div data-testid="toolbar-row-2" className="pointer-events-auto hidden items-center gap-2 md:flex">
+          {/* 축제·화장실·지금 한산 칩은 각자 컴포넌트의 크기를 갖고 있다 — 이 줄에서는 같은 높이(32px)로 맞춘다. */}
+          <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto no-scrollbar [&>button]:h-8 [&>button]:py-0 [&>button]:px-3 [&>button]:text-[13px]">
+          {activeFilter !== '주차장' && (
+            <>
+              <button
+                type="button"
+                onClick={() => setShowHeatmap((prev) => !prev)}
+                aria-pressed={showHeatmap}
+                className={layerChipClass(showHeatmap)}
+              >
+                🔥 {t('map.heatmap')}
+              </button>
 
-        {/* 세부 음식분류 칩(치킨/피자·양식/국밥 등) — 음식점 카테고리에서만. 재탭 시 해제. */}
-        {/* 칩에 fractal-glass 가 반드시 있어야 한다 — 어두운 지도 위에 뜨는 요소라
-            blur 가 없으면 bg-white/85 사이로 지도가 그대로 비쳐 글자가 안 읽힌다.
-            1행 업종 칩은 처음부터 달고 있었고 이 줄만 빠져 있었다(2026-08-28 수정). */}
-        {activeFilter === '음식점' && (
-          <div className="hidden gap-2 overflow-x-auto no-scrollbar pointer-events-auto md:flex md:flex-wrap md:overflow-visible md:border-l-2 md:border-gold/70 md:pl-2.5">
-            {cuisineChips.map((chip) => {
-              const on = cuisineChip === chip.id;
-              return (
-                <button
-                  key={chip.id}
-                  type="button"
-                  onClick={() => selectCuisineChip(chip)}
-                  aria-pressed={on}
-                  className={`toss-pressable flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border px-2.5 py-1 text-[11px] font-semibold fractal-glass shadow-[0_1px_8px_rgba(43,35,32,0.05)] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 sm:px-3 sm:py-1.5 sm:text-xs ${
-                    on
-                      ? 'bg-gold/15 border-gold text-gold-deep'
-                      : 'bg-white/85 border-gold/30 text-muk-soft hover:bg-white hover:border-gold/60 hover:text-muk'
-                  }`}
-                >
-                  <span aria-hidden>{chip.emoji}</span>
-                  {t(`cuisine.${chip.id}`)}
+              {/* ♿ 무장애 — 확인된 곳이 한 칩에도 없으면 숨긴다(🐾 와 같은 규칙). 켜져 있는 동안은 끌 수 있게 남긴다. */}
+              {(barrierFreeAnywhere || showBarrierFree) && (
+                <button type="button" onClick={onBarrierFreeChip} aria-pressed={showBarrierFree} className={layerChipClass(showBarrierFree)}>
+                  ♿ {t('map.barrierFree')}
                 </button>
-              );
-            })}
+              )}
+
+              {/* 🅿 주차 가능 — features.parking 이 '가능' 으로 읽히는 곳만 지도에(배리어프리와 AND). */}
+              <button type="button" onClick={() => setShowParkingFilter((prev) => !prev)} aria-pressed={showParkingFilter} className={layerChipClass(showParkingFilter)}>
+                🅿 {t('map.filterParking')}
+              </button>
+
+              {/* 🐾 반려동물 동반 — 적재 데이터에 chk_pet 값이 하나도 없으면 늘 빈 지도라 숨긴다(값이 생기면 자동 노출). */}
+              {facilities.some((f: any) => parseAvailability((f?.features?.chk_pet ?? f?.features?.chkPet) as string | null | undefined) !== null) && (
+                <button type="button" onClick={() => setShowPetFilter((prev) => !prev)} aria-pressed={showPetFilter} className={layerChipClass(showPetFilter)}>
+                  🐾 {t('map.filterPet')}
+                </button>
+              )}
+
+              {/* 🏮 경주 축제 — TourAPI 실시간 축제/행사(GET /api/v1/events). 0건·백엔드 다운이면 스스로 숨는다. */}
+              <FestivalBanner onFocus={focusFestivalOnMap} location={userLocation} className="max-w-[16rem]" />
+
+              {/* 인근 공중화장실. 외부 키/호출 실패 시 칩이 스스로 숨는다. */}
+              <RestroomChip location={userLocation} />
+
+              {/* 🍃 지금 한산 — 지금 여유로운 곳 TOP3. 0곳이면 칩 자체를 숨긴다. */}
+              <TodayCalmSpots
+                facilities={facilities}
+                userLocation={userLocation}
+                onFocus={(f) => {
+                  const full = facilities.find((x) => x.id === f.id) || f;
+                  setActiveGroupId(null);
+                  if (selectFacilityWithHoursGuard(full)
+                    && mapInstanceRef.current && typeof full.latitude === 'number') {
+                    panToVisible(full.latitude, full.longitude);
+                  }
+                }}
+              />
+            </>
+          )}
           </div>
-        )}
+          {/* 출처 칩 하나 — 'ⓒ한국관광공사 TourAPI · N시간 전 동기화'. 시각을 모르면 출처만(지어내지 않는다). */}
+          <SourceCredit syncedAt={tourapiSyncAt} className="max-w-[17rem] shrink-0" />
+        </div>
 
-        {/* 지도 레이어 컨트롤 — 🔥 히트맵 토글 + 예측 타임슬라이더(지금·+1h·+2h·+3h).
-            CongestionMap 의 두 기능을 정본 지도에 통합. 예측 모드는 정직성 배지로 실측과 구분한다.
-            (하단은 추천 카드/탭바가 차지하므로, 항상 보이고 충돌 없는 상단 컨트롤 영역에 배치.) */}
-        {activeFilter !== '주차장' && <div className="hidden flex-wrap items-center gap-2 pointer-events-auto md:flex md:border-l-2 md:border-jade/70 md:pl-2.5">
-          {/* 히트맵 토글 */}
-          <button
-            type="button"
-            onClick={() => setShowHeatmap((prev) => !prev)}
-            aria-pressed={showHeatmap}
-            className={`flex shrink-0 items-center gap-2 rounded-full border px-3.5 py-2 text-[13px] font-medium transition-all fractal-glass shadow-[0_2px_14px_rgba(43,35,32,0.06)] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 sm:px-4 sm:py-2 sm:text-sm ${
-              showHeatmap
-                ? 'bg-jade/15 border-jade text-muk'
-                : 'bg-white/80 border-jade/30 text-muk-soft hover:bg-white hover:border-jade/60 hover:text-muk'
-            }`}
-          >
-            <span className={`w-2 h-2 rounded-full ${showHeatmap ? 'bg-terracotta animate-pulse' : 'bg-jade/45'}`} />
-            🔥 {t('map.heatmap')}
-          </button>
-
-          {/* ♿ 무장애 토글 — 켜지면 features.barrier_free 시설만 지도에 표시(무장애 여행 동선용).
-              확인된 곳이 한 칩에도 없으면 숨긴다(🐾 와 같은 규칙). 켜져 있는 동안은 끌 수 있게 남긴다. */}
-          {(barrierFreeAnywhere || showBarrierFree) && (
-          <button
-            type="button"
-            onClick={onBarrierFreeChip}
-            aria-pressed={showBarrierFree}
-            className={`flex shrink-0 items-center gap-2 rounded-full border px-3.5 py-2 text-[13px] font-medium transition-all fractal-glass shadow-[0_2px_14px_rgba(43,35,32,0.06)] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 sm:px-4 sm:py-2 sm:text-sm ${
-              showBarrierFree
-                ? 'bg-jade/15 border-jade text-muk'
-                : 'bg-white/80 border-jade/30 text-muk-soft hover:bg-white hover:border-jade/60 hover:text-muk'
-            }`}
-          >
-            <span className={`w-2 h-2 rounded-full ${showBarrierFree ? 'bg-jade animate-pulse' : 'bg-jade/45'}`} />
-            ♿ {t('map.barrierFree')}
-          </button>
-          )}
-
-          {/* 🅿 주차 가능 필터 — 켜지면 features.parking 이 '가능'으로 파싱되는 시설만 지도에 표시. 배리어프리와 동일 패턴(AND 조합). */}
-          <button
-            type="button"
-            onClick={() => setShowParkingFilter((prev) => !prev)}
-            aria-pressed={showParkingFilter}
-            className={`flex shrink-0 items-center gap-2 rounded-full border px-3.5 py-2 text-[13px] font-medium transition-all fractal-glass shadow-[0_2px_14px_rgba(43,35,32,0.06)] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 sm:px-4 sm:py-2 sm:text-sm ${
-              showParkingFilter
-                ? 'bg-jade/15 border-jade text-muk'
-                : 'bg-white/80 border-jade/30 text-muk-soft hover:bg-white hover:border-jade/60 hover:text-muk'
-            }`}
-          >
-            <span className={`w-2 h-2 rounded-full ${showParkingFilter ? 'bg-jade animate-pulse' : 'bg-jade/45'}`} />
-            🅿 {t('map.filterParking')}
-          </button>
-
-          {/* 🐾 반려동물 동반 필터 — 켜지면 features.chk_pet 이 '가능'으로 파싱되는 시설만 지도에 표시. 배리어프리와 동일 패턴(AND 조합).
-              커버리지 게이트: 현재 적재 데이터에 chk_pet 값이 하나도 없으면(실측 0/85) 항상 빈 지도가 되는
-              칩이라 숨긴다 — TourAPI 재적재로 값이 생기는 즉시 자동 노출. */}
-          {facilities.some((f: any) => parseAvailability((f?.features?.chk_pet ?? f?.features?.chkPet) as string | null | undefined) !== null) && (
-          <button
-            type="button"
-            onClick={() => setShowPetFilter((prev) => !prev)}
-            aria-pressed={showPetFilter}
-            className={`flex shrink-0 items-center gap-2 rounded-full border px-3.5 py-2 text-[13px] font-medium transition-all fractal-glass shadow-[0_2px_14px_rgba(43,35,32,0.06)] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 sm:px-4 sm:py-2 sm:text-sm ${
-              showPetFilter
-                ? 'bg-jade/15 border-jade text-muk'
-                : 'bg-white/80 border-jade/30 text-muk-soft hover:bg-white hover:border-jade/60 hover:text-muk'
-            }`}
-          >
-            <span className={`w-2 h-2 rounded-full ${showPetFilter ? 'bg-jade animate-pulse' : 'bg-jade/45'}`} />
-            🐾 {t('map.filterPet')}
-          </button>
-          )}
-
-          {/* 🏮 경주 축제 칩 — TourAPI 실시간 축제/행사(GET /api/v1/events). 0건·백엔드 다운이면 스스로 숨는다.
-              축제 선택 시 지도에 핀(구체 주소) 또는 색상 영역(동·일원 등 넓은 지역)으로 표시. */}
-          <FestivalBanner onFocus={focusFestivalOnMap} location={userLocation} />
-
-          {/* 인근 공중화장실. 외부 키/호출 실패 시 칩이 스스로 숨는다. */}
-          <RestroomChip location={userLocation} />
-
-          {/* 🍃 지금 한산 — 현재 여유로운 곳 TOP3(level<0.3, 취향 우선). 탭 시 시트 닫고 해당 시설 선택+패닝.
-              0곳이면 칩 자체를 숨긴다. onFocus 에서 전체 facility 를 id 로 되찾아 카드가 온전한 정보를 갖게 한다. */}
-          <TodayCalmSpots
-            facilities={facilities}
-            userLocation={userLocation}
-            onFocus={(f) => {
-              const full = facilities.find((x) => x.id === f.id) || f;
-              setActiveGroupId(null);
-              if (selectFacilityWithHoursGuard(full)
-                && mapInstanceRef.current && typeof full.latitude === 'number') {
-                panToVisible(full.latitude, full.longitude);
-              }
-            }}
-          />
-
-          {/* 데모: 가정 시간 시뮬레이터 — 심야에도 낮 시각을 가정해 실제 추천을 보여준다(/waiting·/course 공유).
-              항상 노출(개발용 시간 모킹 패널과 달리 심사위원이 직접 쓴다). */}
-          <label
-            data-focus-target="forecast"
-            className={`flex shrink-0 items-center gap-1.5 rounded-full border border-line bg-white/80 px-3 py-1.5 text-[13px] font-medium fractal-glass shadow-[0_2px_14px_rgba(43,35,32,0.06)] sm:text-sm ${focusRing === 'forecast' ? 'ring-4 ring-gold ring-offset-2 ring-offset-hanji' : ''}`}
-          >
-            <span aria-hidden>🕒</span>
-            <select
-              value={assumedPreset}
-              onChange={(e) => {
-                const id = e.target.value;
-                // 스켈레톤을 먼저 깔고(= 1초 안의 눈에 보이는 반응) 그 다음 재요청을 트리거한다.
-                startRecalc(
-                  t(ASSUMED_TIME_PRESETS.find((p) => p.id === id)?.labelKey ?? 'timeSim.now'),
-                  selectedFacility?.id != null ? String(selectedFacility.id) : null,
-                );
-                setStoredAssumedPreset(id);
-              }}
-              aria-label={t('timeSim.label')}
-              className="bg-transparent font-semibold text-muk focus:outline-none cursor-pointer"
-            >
-              {ASSUMED_TIME_PRESETS.map((p) => (
-                <option key={p.id} value={p.id}>{t(p.labelKey)}</option>
-              ))}
-            </select>
-          </label>
-          {assumedPreset !== "now" && (
-            <span className="shrink-0 inline-flex items-center rounded-full bg-gold/15 border border-gold/40 px-2.5 py-1 text-[11px] font-bold text-gold-deep whitespace-nowrap">
-              {t('timeSim.badge', { label: t(ASSUMED_TIME_PRESETS.find((p) => p.id === assumedPreset)?.labelKey ?? 'timeSim.now') })}
-            </span>
-          )}
-
-          {/* 예측 정직성 배지 — 실측(Live)과 혼동 방지. anchored false 면 '추정' 꼬리표로 실측 앵커 부재를 알린다. */}
-          {isForecast && (
-            <span className="shrink-0 px-3 py-1 rounded-full text-[11px] font-bold bg-jade border border-jade/50 text-white shadow-[0_2px_10px_rgba(43,35,32,0.12)] whitespace-nowrap">
-              🔮 {t('map.forecastBadge', { h: hoursAhead })}{!forecastAnchored ? ` · ${t('map.forecastEstimateTag')}` : ''}
-            </span>
-          )}
-
-          {/* 예측 타임슬라이더(바) — 지금(0)~+3h 를 하나의 슬라이더로. 드래그 중엔 썸만 이동하고
-              놓을 때(onPointerUp/onKeyUp) 예측을 커밋한다(스텝마다 /predict/batch 호출 폭주 방지). */}
-          {selectedFacility?.scoringMode === 'model' && <div
-            className={`flex shrink-0 items-center gap-3 rounded-full border py-1.5 pl-3.5 pr-4 fractal-glass bg-white/80 shadow-[0_2px_14px_rgba(43,35,32,0.06)] transition-colors ${
-              isForecast ? 'border-jade/50' : 'border-line'
-            } ${predictionLoading ? 'opacity-60' : ''}`}
-          >
-            <span
-              className={`shrink-0 w-9 text-center text-xs font-bold tabular-nums ${
-                sliderPos === 0 ? 'text-gold-deep' : 'text-jade'
-              }`}
-            >
-              {sliderPos === 0 ? t('map.now') : `+${sliderPos}h`}
-            </span>
-            <input
-              type="range"
-              min={0}
-              max={3}
-              step={1}
-              value={sliderPos}
-              disabled={predictionLoading}
-              aria-label={t('map.sliderAria')}
-              aria-valuetext={sliderPos === 0 ? t('map.sliderValueNow') : t('map.sliderValueAhead', { h: sliderPos })}
-              onChange={(e) => setSliderPos(Number(e.target.value))}
-              onPointerUp={() => handleTimeShift(sliderPos)}
-              onKeyUp={() => handleTimeShift(sliderPos)}
-              className={`w-24 cursor-pointer disabled:cursor-wait sm:w-32 ${isForecast ? 'accent-jade' : 'accent-gold'}`}
-            />
-            <span className="shrink-0 text-[10px] font-medium text-muk-soft">+3h</span>
-          </div>}
-
-          {/* D5: TourAPI 동기화 신선도 + 출처 표기 — 동기화 시각을 모르면 시각을 지어내지 않고
-              출처 표기만 남긴다(공모전 규정: 공사 데이터가 흐르는 화면에는 ⓒ 텍스트가 항상 보인다). */}
-          {(() => {
-            const parts = tourapiSyncAt ? relativeParts(tourapiSyncAt) : null;
-            const label = parts
-              ? t('freshness.tourapiSync', {
-                  rel:
-                    parts.unit === 'now' ? t('freshness.justNow')
-                    : parts.unit === 'min' ? t('freshness.minAgo', { n: parts.value })
-                    : parts.unit === 'hour' ? t('freshness.hourAgo', { n: parts.value })
-                    : t('freshness.dayAgo', { n: parts.value }),
-                })
-              : t('guide.sourceTour'); // 시각 미상 — 출처만 표기(위장 없음)
-            return (
-              <span className="shrink-0 px-2.5 py-1 rounded-full text-[10px] font-medium bg-white/70 border border-line text-muk-soft whitespace-nowrap pointer-events-none">
-                🛰️ {label}
-              </span>
-            );
-          })()}
-        </div>}
-
-        </div>{/* /오른쪽 열(칩·컨트롤) */}
+        </div>{/* /오른쪽 열(툴바) */}
         </div>{/* /구글맵스식 톱바 행 */}
-
-        {/* 🔥 히트맵 범례 — 토글이 켜져 있는 동안에만. 색이 무엇을 뜻하는지 말하지 않는 열지도는
-            '알록달록한 얼룩'이다. 색·경계는 마커/배지와 같은 congestionKey 를 쓴다. */}
-        {showHeatmap && activeFilter !== '주차장' && (
-          <div className="pointer-events-none flex w-fit flex-wrap items-center gap-2 rounded-2xl border border-line bg-white/90 px-3 py-1.5 shadow-[0_2px_12px_rgba(43,35,32,0.10)] backdrop-blur">
-            <span className="text-[11px] font-extrabold text-muk">🔥 {t('compare.heatLegendTitle')}</span>
-            {([
-              { key: 'quiet', color: 'rgb(59,130,246)' },
-              { key: 'relaxed', color: 'rgb(16,185,129)' },
-              { key: 'moderate', color: 'rgb(245,158,11)' },
-              { key: 'busy', color: 'rgb(239,68,68)' },
-            ] as const).map((item) => (
-              <span key={item.key} className="flex items-center gap-1 text-[10px] font-bold text-muk-soft">
-                <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: item.color }} aria-hidden />
-                {t(`congestion.${item.key}`)}
-              </span>
-            ))}
-          </div>
-        )}
       </div>
 
       {showMobileTools && activeFilter !== '주차장' && (
@@ -4048,7 +4098,7 @@ export default function MainPage() {
             </div>
             {activeFilter === '음식점' && (
               <div className="mt-4"><p className="mb-2 text-xs font-bold text-muk-soft">{t('map.foodFilters')}</p><div className="flex gap-2 overflow-x-auto no-scrollbar">{cuisineChips.map((chip) => (
-                <button key={chip.id} type="button" onClick={() => selectCuisineChip(chip)} aria-pressed={cuisineChip === chip.id} className={`shrink-0 rounded-full border px-3 py-1.5 text-xs font-semibold ${cuisineChip === chip.id ? 'border-gold bg-gold/15 text-gold-deep' : 'border-gold/25 bg-white text-muk-soft'}`}><span aria-hidden>{chip.emoji}</span> {t(`cuisine.${chip.id}`)}</button>
+                <button key={chip.id} type="button" onClick={() => selectCuisineChip(chip)} aria-pressed={cuisineChip === chip.id} className={`shrink-0 rounded-full border px-3 py-1.5 text-xs font-semibold ${cuisineChip === chip.id ? 'border-gold bg-gold/15 text-gold-deep' : 'border-line bg-white text-muk'} ${cuisineChip !== chip.id && setupCuisineChipId === chip.id ? 'ring-2 ring-gold/70 ring-offset-1 ring-offset-hanji' : ''}`}><span aria-hidden>{chip.emoji}</span> {t(`cuisine.${chip.id}`)}</button>
               ))}</div></div>
             )}
             <div className="mt-4 flex flex-wrap gap-2"><FestivalBanner onFocus={focusFestivalOnMap} location={userLocation} /><RestroomChip location={userLocation} /></div>
@@ -4179,6 +4229,7 @@ export default function MainPage() {
           // pointer-events-none(열): 카드·알약·제안 카드만 auto — 빈 열 자리를 누르면 지도가 받는다.
           // 음성이 켜져 있는 동안은 자막 막대가 시계 위로 오도록 열을 한 층 올린다.
           <div
+            ref={setRecPanelEl}
             data-testid="rec-panel"
             className={`rec-panel absolute ${voice.active ? 'z-40' : 'z-20'} px-4 bottom-[calc(var(--tourist-nav-clearance)+env(safe-area-inset-bottom))] w-full md:bottom-4 md:top-[var(--panel-top,6rem)] ${DESKTOP_PANEL_CLASS} md:flex md:flex-col md:gap-2 pointer-events-none`}
             style={panelStyle}
@@ -4246,9 +4297,12 @@ export default function MainPage() {
                 const spotComparisonReason = comparison && listRank !== null && comparison.rank === listRank
                   ? comparison.text
                   : undefined;
-                const assumedTimeLabel = assumedPreset !== 'now'
-                  ? t(ASSUMED_TIME_PRESETS.find((p) => p.id === assumedPreset)?.labelKey ?? 'timeSim.now')
-                  : null;
+                // 카드 첫 상자의 '🕒 … 기준' — 혼잡 예측 +N시간이면 '+N시간 후', 요일 프리셋이면 그 라벨.
+                const assumedTimeLabel = cardHours > 0
+                  ? t('forecast.ahead', { h: cardHours })
+                  : assumedPreset !== 'now'
+                    ? t(ASSUMED_TIME_PRESETS.find((p) => p.id === assumedPreset)?.labelKey ?? 'timeSim.now')
+                    : null;
                 const cardContextBadge = activeDiscovery
                   ? t('compare.contextBadge', { label: t(`discovery.theme.${activeDiscovery.themeId}`) })
                   : null;
@@ -4341,6 +4395,7 @@ export default function MainPage() {
                     voiceSlot={isPhone ? pill ?? undefined : undefined}
                     peekRequest={peekRequest}
                     desktopFill
+                    onPeekChange={setCardPeek}
                   />
                   </div>
                 );
@@ -4411,6 +4466,33 @@ export default function MainPage() {
           </div>
         );
       })()}
+
+      {/* 🔮 혼잡 예측 줄(계획 B3) — 데스크톱: 지도 빈 자리(오른쪽 추천 패널 왼쪽) 아래 가운데, Kakao 로고(왼쪽 아래)보다 위.
+          휴대폰: 카드 미리보기 바로 위 한 줄(카드 열 높이를 재서 그 위에 선다). 펼친 휴대폰 카드 위에서는 감춘다. */}
+      {showStrip && (
+        <div
+          className="pointer-events-none absolute inset-x-4 z-20 flex justify-center bottom-[calc(var(--tourist-nav-clearance)+env(safe-area-inset-bottom)+var(--strip-dock))] md:left-4 md:right-[var(--strip-right)] md:bottom-8"
+          style={{
+            '--strip-dock': `${(recPanelEl ? recPanelHeight : 0) + 8}px`,
+            '--strip-right': `${desktopPanelReservePx(viewportWidth) + 16}px`,
+          } as CSSProperties}
+        >
+          <div ref={stripRef} className="w-full md:max-w-[640px]">
+            <ForecastTimeStrip
+              hours={cardHours}
+              loading={strip.status === 'loading'}
+              presetId={assumedPreset}
+              presets={stripPresets}
+              onSelectHours={selectForecastHours}
+              onSelectPreset={selectAssumedPreset}
+              badge={stripBadge}
+              legend={stripLegend}
+              areaChip={stripAreaChip}
+              ringed={focusRing === 'forecast'}
+            />
+          </div>
+        </div>
+      )}
 
       {/* Test Mock Sidebar (Right Side) — 개발/QA 전용 데모 컨트롤(위치·시간 모킹).
           실제 관광객에게 내부 도구가 노출되지 않도록 NEXT_PUBLIC_DEMO_CONTROLS==='1' 일 때만 렌더.

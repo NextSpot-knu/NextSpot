@@ -342,8 +342,7 @@
     "justNow": "たった今",
     "minAgo": "{n}分前",
     "hourAgo": "{n}時間前",
-    "dayAgo": "{n}日前",
-    "tourapiSync": "ⓒ韓国観光公社 TourAPI同期 · {rel}"
+    "dayAgo": "{n}日前"
   },
   "cuisine": {
     "korean": "韓食",
@@ -358,7 +357,6 @@
   },
   "map": {
     "heatmap": "ヒートマップ",
-    "now": "現在",
     "forecast": "AI予測",
     "barrierFree": "バリアフリー",
     "barrierFreeSwitched": "♿ バリアフリー確認済みの{category}を{n}か所表示します",
@@ -378,10 +376,6 @@
     "searchKakaoRoute": "カカオマップで経路案内",
     "searchKakaoPlace": "カカオマップ",
     "placesInBuilding": "この建物の{count}か所",
-    "forecastBadge": "AI予測 · {h}時間後",
-    "sliderAria": "予測時点を選択 — 最大3時間後まで",
-    "sliderValueNow": "現在（実測）",
-    "sliderValueAhead": "{h}時間後の予測",
     "loadingRec": "おすすめの場所を読み込み中...",
     "pickingFirst": "近くの空いているスポットを選んでいます…",
     "loadErrorTitle": "場所の情報を読み込めませんでした",
@@ -423,6 +417,10 @@
     "mobileToolsTitle": "フィルターと旅行便利機能",
     "mobileToolsDesc": "必要な機能だけ開いて地図を広く見られます",
     "foodFilters": "料理の種類",
+    "menuSelect": "🍽 メニュー",
+    "menuAll": "🍽 すべてのメニュー",
+    "menuSetupHint": "🍽 メニュー: {cuisine}（最初に選んだ好み）",
+    "menuAria": "メニューを選ぶ",
     "voiceSearchUnsupported": "このブラウザでは音声検索を使えません",
     "unsupported": "非対応",
     "tourApiTitle": "慶州のスポット 検索結果",
@@ -694,6 +692,7 @@
     "lastObservedLevel": "最終観測 {time} · {label}",
     "peek": {
       "walk": "徒歩{n}分",
+      "spot": "SPOT {n}点",
       "expand": "おすすめを詳しく見る",
       "collapse": "おすすめをコンパクト表示"
     },
@@ -1007,7 +1006,6 @@
     "benefitOpen": "到着時に営業中",
     "benefitTaste": "好み一致{pct}%",
     "contextBadge": "{label}を基準にした代案",
-    "heatLegendTitle": "混雑マップ",
     "festivalEmpty": "現在開催中のイベントはありません",
     "showOnMap": "地図で見る"
   },
@@ -1450,5 +1448,23 @@
     "reasonCalm": "今は比較的空いています。",
     "appliedWalk": "徒歩{n}分以内で選び直しました",
     "appliedIndoor": "屋内スポットで選び直しました"
+  },
+  "forecast": {
+    "title": "🔮 混雑予測",
+    "name": "混雑予測",
+    "now": "今",
+    "ahead": "+{h}時間後",
+    "otherTimes": "ほかの時間",
+    "badgeArea": "🔮 +{h}時間後の予測 · この一帯は{level} · 推定",
+    "badgeModel": "🔮 +{h}時間後の予測 · {level}",
+    "legendNow": "今の混雑",
+    "legendAhead": "+{h}時間後の混雑 · 推定",
+    "legendPick": "おすすめ",
+    "areaNow": "今この一帯は{level} · 推定",
+    "loading": "予測を読み込み中"
+  },
+  "credit": {
+    "tourapi": "出典: ⓒ韓国観光公社 TourAPI",
+    "tourapiSynced": "出典: ⓒ韓国観光公社 TourAPI · {rel}同期"
   }
 }
