@@ -432,6 +432,7 @@
     "menuAria": "메뉴",
     "bellAria": "알림",
     "guestName": "게스트 탐험가",
+    "roleTraveler": "경주 여행자",
     "editProfile": "프로필 수정",
     "statSaved": "저장",
     "statVisited": "방문",
@@ -494,7 +495,7 @@
     "termsBody": "혼잡도·대기시간·추천 정보는 참고용이며, 서비스 이용으로 발생한 결과에 대해 법적 책임을 지지 않습니다.",
     "contactTitle": "문의",
     "contactBody": "개인정보나 데이터 삭제 관련 문의는 마이페이지의 고객지원을 통해 남겨주세요.",
-    "footer": "최종 업데이트 · 2026 관광데이터 활용 공모전 출품 버전"
+    "footer": "최종 업데이트 · {date}"
   },
   "course": {
     "backToMap": "지도 보기",
@@ -752,17 +753,14 @@
     "shareCopyFail": "복사에 실패했어요",
     "errorTitle": "여행 기록을 다시 불러올게요",
     "errorBody": "잠시만 기다려 주세요.",
-    "emptyTitle": "여행 임팩트가 여기에 쌓입니다",
-    "emptyBody": "지도에서 추천을 받아보세요",
-    "emptyCta": "지도 보러 가기",
-    "summaryTitle": "누적 임팩트",
-    "summaryDispersals": "분산 유도 {n}건",
-    "summarySavedWait": "절약된 대기 {n}분",
-    "summaryStores": "참여 점포 {n}곳",
-    "summaryAria": "누적 임팩트 상세 보기",
-    "sampleBadge": "예시 값",
-    "summaryRealNote": "내 여행 기록에서 집계한 실제 값이에요. 참여 점포 수만 예시입니다.",
-    "summarySampleNote": "여행 기록이 쌓이면 내 실제 집계로 바뀌어요."
+    "emptyTitle": "첫 대안으로 이동하면 아낀 시간이 여기에 쌓여요",
+    "emptyBody": "붐비는 곳 대신 추천받은 곳으로 출발해 보세요.",
+    "emptyCta": "지도에서 시작",
+    "summaryTitle": "나의 여행 임팩트",
+    "summaryDispersals": "대안으로 이동 {n}번",
+    "summarySavedWait": "아낀 대기 {n}분",
+    "summaryAria": "나의 여행 임팩트 자세히 보기",
+    "summaryRealNote": "내 여행 기록으로 집계했어요."
   },
   "recommend": {
     "shareText": "{name}을(를) 경주 대안 장소로 확인해보세요 · NextSpot",

@@ -432,6 +432,7 @@
     "menuAria": "菜单",
     "bellAria": "通知",
     "guestName": "访客探索者",
+    "roleTraveler": "庆州旅行者",
     "editProfile": "编辑资料",
     "statSaved": "收藏",
     "statVisited": "已访问",
@@ -494,7 +495,7 @@
     "termsBody": "拥挤度、等待时间与推荐信息仅供参考。对于因使用本服务产生的结果，我们不承担法律责任。",
     "contactTitle": "联系我们",
     "contactBody": "关于个人信息或数据删除的咨询，请通过我的页面的客户支持提交。",
-    "footer": "最后更新 · 2026 旅游数据应用大赛参赛版"
+    "footer": "最后更新 · {date}"
   },
   "course": {
     "backToMap": "查看地图",
@@ -752,17 +753,14 @@
     "shareCopyFail": "复制失败",
     "errorTitle": "正在重新加载旅行记录",
     "errorBody": "请稍候片刻。",
-    "emptyTitle": "旅行影响力将在此累积",
-    "emptyBody": "去地图看看推荐吧",
-    "emptyCta": "前往地图",
-    "summaryTitle": "累计影响力",
-    "summaryDispersals": "分流引导{n}次",
-    "summarySavedWait": "节省等待{n}分钟",
-    "summaryStores": "参与商户{n}家",
-    "summaryAria": "查看累计影响力详情",
-    "sampleBadge": "示例数值",
-    "summaryRealNote": "根据您自己的旅行记录汇总的真实数值，仅参与商户数为示例值。",
-    "summarySampleNote": "随着旅行记录累积，这里会变成你的真实统计。"
+    "emptyTitle": "前往第一个替代地点后，节省的时间会累积在这里",
+    "emptyBody": "不去拥挤的地方，换个推荐地点出发吧。",
+    "emptyCta": "从地图开始",
+    "summaryTitle": "我的旅行影响力",
+    "summaryDispersals": "改去替代地点{n}次",
+    "summarySavedWait": "少等{n}分钟",
+    "summaryAria": "查看我的旅行影响力详情",
+    "summaryRealNote": "根据你的旅行记录统计。"
   },
   "recommend": {
     "shareText": "看看庆州备选地点{name} · NextSpot",

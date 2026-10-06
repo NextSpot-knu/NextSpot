@@ -432,6 +432,7 @@
     "menuAria": "Menu",
     "bellAria": "Notifications",
     "guestName": "Guest Explorer",
+    "roleTraveler": "Gyeongju traveler",
     "editProfile": "Edit profile",
     "statSaved": "Saved",
     "statVisited": "Visited",
@@ -494,7 +495,7 @@
     "termsBody": "Congestion, wait times and recommendations are for reference only. We accept no legal liability for outcomes of using the service.",
     "contactTitle": "Contact",
     "contactBody": "For questions about your data or its deletion, please reach out through Support on the My page.",
-    "footer": "Last updated · 2026 Tourism Data Utilization Contest edition"
+    "footer": "Last updated · {date}"
   },
   "course": {
     "backToMap": "View map",
@@ -752,17 +753,14 @@
     "shareCopyFail": "Copy failed",
     "errorTitle": "Loading your travel record again",
     "errorBody": "This will just take a moment.",
-    "emptyTitle": "Your travel impact builds here",
-    "emptyBody": "Get a recommendation on the map to start",
-    "emptyCta": "Go to map",
-    "summaryTitle": "Cumulative impact",
-    "summaryDispersals": "{n} redirects",
-    "summarySavedWait": "{n} min saved",
-    "summaryStores": "{n} partner stores",
-    "summaryAria": "View cumulative impact details",
-    "sampleBadge": "Sample values",
-    "summaryRealNote": "Aggregated from your own trips. Only the partner store count is a sample value.",
-    "summarySampleNote": "As your trips add up, these become your real totals."
+    "emptyTitle": "Head to your first alternative and the time you save adds up here",
+    "emptyBody": "Pick a recommended spot instead of a crowded one to get started.",
+    "emptyCta": "Start on the map",
+    "summaryTitle": "My trip impact",
+    "summaryDispersals": "{n} trips to calmer spots",
+    "summarySavedWait": "{n} min of waiting saved",
+    "summaryAria": "View my trip impact details",
+    "summaryRealNote": "Counted from your own trips."
   },
   "recommend": {
     "shareText": "Check out {name} as a Gyeongju alternative · NextSpot",

@@ -432,6 +432,7 @@
     "menuAria": "メニュー",
     "bellAria": "通知",
     "guestName": "ゲスト探検家",
+    "roleTraveler": "慶州の旅行者",
     "editProfile": "プロフィール編集",
     "statSaved": "保存",
     "statVisited": "訪問",
@@ -494,7 +495,7 @@
     "termsBody": "混雑度・待ち時間・おすすめ情報は参考用です。サービス利用により生じた結果について法的責任を負いません。",
     "contactTitle": "お問い合わせ",
     "contactBody": "個人情報やデータ削除に関するお問い合わせは、マイページのカスタマーサポートからお寄せください。",
-    "footer": "最終更新 · 2026観光データ活用コンテスト出品版"
+    "footer": "最終更新 · {date}"
   },
   "course": {
     "backToMap": "地図を見る",
@@ -752,17 +753,14 @@
     "shareCopyFail": "コピーに失敗しました",
     "errorTitle": "旅の記録を再読み込みします",
     "errorBody": "少々お待ちください。",
-    "emptyTitle": "旅のインパクトがここに蓄積されます",
-    "emptyBody": "地図でおすすめを受けてみましょう",
-    "emptyCta": "地図を見る",
-    "summaryTitle": "累計インパクト",
-    "summaryDispersals": "分散誘導{n}件",
-    "summarySavedWait": "待ち時間短縮{n}分",
-    "summaryStores": "参加店舗{n}店",
-    "summaryAria": "累計インパクトの詳細を見る",
-    "sampleBadge": "サンプル値",
-    "summaryRealNote": "ご自身の旅の記録から集計した実際の値です。参加店舗数のみサンプル値です。",
-    "summarySampleNote": "旅の記録がたまると、あなたの実際の集計に切り替わります。"
+    "emptyTitle": "最初の代わりの場所へ向かうと、短縮した時間がここに貯まります",
+    "emptyBody": "混んでいる場所の代わりに、おすすめの場所へ出発してみましょう。",
+    "emptyCta": "地図から始める",
+    "summaryTitle": "わたしの旅のインパクト",
+    "summaryDispersals": "代わりの場所へ{n}回",
+    "summarySavedWait": "待ち時間{n}分短縮",
+    "summaryAria": "わたしの旅のインパクトの詳細を見る",
+    "summaryRealNote": "あなたの旅の記録から集計しました。"
   },
   "recommend": {
     "shareText": "慶州の候補スポット「{name}」をチェック · NextSpot",

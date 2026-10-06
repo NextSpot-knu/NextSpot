@@ -19,28 +19,18 @@ interface ImpactSummary {
   waitSavedMinutes: number;
 }
 
-// 예시 값 — /mypage 최상단 요약 카드(components/ImpactSummaryCard.tsx)·관제 데모 콘솔과 같은 숫자다.
-// 두 화면이 서로 다른 성과를 말하면 어느 쪽도 믿을 수 없다. 값을 바꾸면 세 곳을 함께 바꿀 것.
-const SAMPLE_SUMMARY: ImpactSummary = {
-  accepted: 312,
-  congestionAvoided: 268,
-  couponsIssued: 196,
-  couponsUsed: 138,
-  waitSavedMinutes: 1240,
-};
-/** 참여 점포 수 — 임팩트 API 계약(ImpactSummaryResponse 5필드)에 없는 항목이라 언제나 예시 값이다. */
-const SAMPLE_PARTICIPATING_STORES = 14;
+// 숫자는 천 단위 구분(1,240분) — 요약 카드·타일·공유 문구가 같은 모양이어야 한다.
+const fmt = (n: number) => n.toLocaleString();
 
 export default function ImpactPage() {
   const router = useRouter();
   const t = useT();
   const [summary, setSummary] = useState<ImpactSummary | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  // 예시 값 모드 — 비로그인(401)·서버 미가용·신규 사용자(전부 0)일 때 켜진다.
-  // 화면은 빈손 대신 예시 숫자를 보여주되 '실증 준비 중 · 예시 값' 배지를 항상 함께 띄운다.
-  // (종전에는 여기서 에러/빈 화면으로 떨어져, /mypage 의 '여행 임팩트' 항목이 사실상 아무것도
-  //  열지 못했다 — 2026-09-21 라이브 실측.)
-  const [isSample, setIsSample] = useState(false);
+  // 시작 상태 — 비로그인(401)·서버 미가용·신규 사용자(전부 0)일 때 켜진다. 숫자 대신 '첫 대안으로 이동하면
+  // 아낀 시간이 여기에 쌓여요' 와 지도로 가는 버튼을 보여 준다. 예전에는 관제 데모의 예시 숫자를
+  // '나의 경주 여행 임팩트' 로 보여 주고 공유까지 열어 뒀다 — 지어낸 기록으로 읽혔다(2026-10-06 감사 I18).
+  const [isEmpty, setIsEmpty] = useState(false);
 
   // 임팩트 요약 조회 — 마운트 effect 와 에러 상태의 '다시 시도' 버튼이 함께 재사용한다.
   // api-client 의 요청 타임아웃(10초)이 무한 스켈레톤을 막아준다(coupons 페이지와 동일 패턴).
@@ -57,17 +47,17 @@ export default function ImpactPage() {
         couponsUsed: Number(data?.couponsUsed) || 0,
         waitSavedMinutes: Number(data?.waitSavedMinutes) || 0,
       };
-      // 신규 사용자(전부 0)는 보여 줄 성과가 없다 — 빈 화면 대신 예시 값 + 배지.
+      // 신규 사용자(전부 0)는 보여 줄 성과가 없다 — 시작 상태로.
       const empty =
         next.accepted === 0 &&
         next.congestionAvoided === 0 &&
         next.couponsIssued === 0 &&
         next.waitSavedMinutes === 0;
-      setIsSample(empty);
-      setSummary(empty ? SAMPLE_SUMMARY : next);
+      setIsEmpty(empty);
+      setSummary(empty ? null : next);
       setIsLoading(false);
     } catch (err) {
-      // 인증 필요(401)든 서버 미가용이든 결과는 같다: 예시 값 + '실증 준비 중' 배지.
+      // 인증 필요(401)든 서버 미가용이든 결과는 같다: 시작 상태(숫자를 지어내지 않는다).
       // 단 첫 실패는 익명 세션 부트스트랩(SessionBootstrap) 완료 전 레이스일 수 있어(실측 재현)
       // 2.5초 유예 후 자동 1회만 재시도 — 유한 재시도라 무한 스켈레톤 아님.
       console.warn('Failed to fetch impact summary', err);
@@ -76,8 +66,8 @@ export default function ImpactPage() {
         setTimeout(() => { void fetchSummary(); }, 2500);
         return; // isLoading 유지(스켈레톤)
       }
-      setIsSample(true);
-      setSummary(SAMPLE_SUMMARY);
+      setIsEmpty(true);
+      setSummary(null);
       setIsLoading(false);
     }
   }, []);
@@ -91,9 +81,9 @@ export default function ImpactPage() {
   const handleShare = useCallback(async () => {
     if (!summary) return;
     const shareText = t('impact.shareText', {
-      accepted: String(summary.accepted),
-      congestionAvoided: String(summary.congestionAvoided),
-      couponsIssued: String(summary.couponsIssued),
+      accepted: fmt(summary.accepted),
+      congestionAvoided: fmt(summary.congestionAvoided),
+      couponsIssued: fmt(summary.couponsIssued),
     });
     const shareUrl = typeof window !== 'undefined' ? window.location.origin : 'https://nextspot.app';
 
@@ -149,29 +139,39 @@ export default function ImpactPage() {
               <div className="h-4 bg-hanji-deep w-1/2 rounded-md mx-auto" />
             </div>
           </div>
+        ) : isEmpty ? (
+          // 시작 상태 — 숫자·공유 없이, 첫 대안으로 이동할 곳(지도)으로 바로 보낸다.
+          <div className="flex flex-col items-center mt-2 md:max-w-md md:mx-auto md:w-full animate-fade-in">
+            <div className="w-full bg-white border border-gold/30 rounded-3xl p-8 flex flex-col items-center text-center shadow-[0_8px_32px_rgba(43,35,32,0.10)]">
+              <div className="w-14 h-14 rounded-2xl bg-gold/15 flex items-center justify-center mb-5">
+                <Sparkles size={26} className="text-gold-deep" aria-hidden="true" />
+              </div>
+              <h2 className="text-xl font-bold font-serif text-muk leading-snug">{t('impact.emptyTitle')}</h2>
+              <p className="mt-2 text-sm text-muk-soft leading-relaxed">{t('impact.emptyBody')}</p>
+              <button
+                type="button"
+                onClick={() => router.push('/main')}
+                className="mt-6 w-full flex items-center justify-center gap-2 py-4 rounded-2xl bg-gold hover:bg-gold-deep text-white font-semibold transition-colors"
+              >
+                <Compass size={18} aria-hidden="true" />
+                <span>{t('impact.emptyCta')}</span>
+              </button>
+            </div>
+          </div>
         ) : summary ? (
           // 공유 카드 — 지표 타일은 백엔드가 실제로 준 것만(방문 타일 없음 — 위 인터페이스 주석 참고).
           <div className="flex flex-col items-center mt-2 md:max-w-md md:mx-auto md:w-full animate-fade-in">
-            {/* 헤드라인 3종 — /mypage 최상단 카드가 보여준 바로 그 세 숫자의 상세다.
+            {/* 헤드라인 2종 — /mypage 최상단 카드가 보여준 바로 그 두 숫자의 상세다.
                 (요약 카드를 탭해서 온 사람이 같은 숫자를 다시 만나야 '상세로 들어왔다'가 성립한다.) */}
             <div className="mb-4 w-full rounded-3xl border border-gold/35 bg-gradient-to-r from-gold/15 via-hanji to-jade/10 p-5 shadow-[0_2px_14px_rgba(43,35,32,0.06)]">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="inline-flex items-center gap-1.5 text-[13px] font-bold text-muk">
-                  <Sparkles size={16} className="text-gold-deep" aria-hidden="true" />
-                  {t('impact.summaryTitle')}
-                </span>
-                {/* 예시 값임을 숨기지 않는다 — 배지가 없으면 실집계로 오인된다. */}
-                {isSample && (
-                  <span className="rounded-full border border-terracotta/30 bg-terracotta/10 px-2 py-0.5 text-[10px] font-bold text-terracotta">
-                    {t('impact.sampleBadge')}
-                  </span>
-                )}
-              </div>
-              <div className="mt-3 grid grid-cols-3 gap-2">
+              <span className="inline-flex items-center gap-1.5 text-[13px] font-bold text-muk">
+                <Sparkles size={16} className="text-gold-deep" aria-hidden="true" />
+                {t('impact.summaryTitle')}
+              </span>
+              <div className="mt-3 grid grid-cols-2 gap-2">
                 {[
-                  t('impact.summaryDispersals', { n: summary.accepted.toLocaleString() }),
-                  t('impact.summarySavedWait', { n: summary.waitSavedMinutes.toLocaleString() }),
-                  t('impact.summaryStores', { n: SAMPLE_PARTICIPATING_STORES.toLocaleString() }),
+                  t('impact.summaryDispersals', { n: fmt(summary.accepted) }),
+                  t('impact.summarySavedWait', { n: fmt(summary.waitSavedMinutes) }),
                 ].map((text) => (
                   <span
                     key={text}
@@ -181,9 +181,7 @@ export default function ImpactPage() {
                   </span>
                 ))}
               </div>
-              <p className="mt-2 text-[11px] leading-relaxed text-muk-soft">
-                {isSample ? t('impact.summarySampleNote') : t('impact.summaryRealNote')}
-              </p>
+              <p className="mt-2 text-[11px] leading-relaxed text-muk-soft">{t('impact.summaryRealNote')}</p>
             </div>
             <div className="relative w-full bg-white border border-gold/30 rounded-3xl p-8 shadow-[0_8px_32px_rgba(43,35,32,0.10)] overflow-hidden">
               {/* 은은한 금빛 광원 */}
@@ -212,7 +210,7 @@ export default function ImpactPage() {
                   <div className="min-w-0 w-full flex flex-col items-center gap-1.5 bg-hanji rounded-2xl border border-line p-4">
                     <Compass size={20} className="text-terracotta" aria-hidden="true" />
                     <span className="w-full min-w-0 text-xl font-bold text-muk break-words text-center">
-                      {t('impact.tileAcceptedValue', { n: String(summary.accepted) })}
+                      {t('impact.tileAcceptedValue', { n: fmt(summary.accepted) })}
                     </span>
                     <span className="w-full min-w-0 text-[11px] text-muk-soft font-medium text-center break-words">
                       {t('impact.metricAccepted')}
@@ -221,7 +219,7 @@ export default function ImpactPage() {
                   <div className="min-w-0 w-full flex flex-col items-center gap-1.5 bg-hanji rounded-2xl border border-line p-4">
                     <Wind size={20} className="text-jade" aria-hidden="true" />
                     <span className="w-full min-w-0 text-xl font-bold text-muk break-words text-center">
-                      {t('impact.tileCongestionAvoidedValue', { n: String(summary.congestionAvoided) })}
+                      {t('impact.tileCongestionAvoidedValue', { n: fmt(summary.congestionAvoided) })}
                     </span>
                     <span className="w-full min-w-0 text-[11px] text-muk-soft font-medium text-center break-words">
                       {t('impact.metricCongestionAvoided')}
@@ -230,19 +228,19 @@ export default function ImpactPage() {
                   <div className="min-w-0 w-full flex flex-col items-center gap-1.5 bg-hanji rounded-2xl border border-line p-4">
                     <Ticket size={20} className="text-gold-deep" aria-hidden="true" />
                     <span className="w-full min-w-0 text-xl font-bold text-muk break-words text-center">
-                      {t('impact.tileCouponsIssuedValue', { n: String(summary.couponsIssued) })}
+                      {t('impact.tileCouponsIssuedValue', { n: fmt(summary.couponsIssued) })}
                     </span>
                     <span className="w-full min-w-0 text-[11px] text-muk-soft font-medium text-center break-words">
                       {t('impact.metricCouponsIssued')}
                       {summary.couponsUsed > 0 && (
-                        <> · {t('impact.metricCouponsUsedInline', { n: String(summary.couponsUsed) })}</>
+                        <> · {t('impact.metricCouponsUsedInline', { n: fmt(summary.couponsUsed) })}</>
                       )}
                     </span>
                   </div>
                   <div className="min-w-0 w-full flex flex-col items-center gap-1.5 bg-hanji rounded-2xl border border-line p-4">
                     <Clock size={20} className="text-muk-soft" aria-hidden="true" />
                     <span className="w-full min-w-0 text-xl font-bold text-muk break-words text-center">
-                      {t('impact.tileWaitSavedValue', { n: String(summary.waitSavedMinutes) })}
+                      {t('impact.tileWaitSavedValue', { n: fmt(summary.waitSavedMinutes) })}
                     </span>
                     <span className="w-full min-w-0 text-[11px] text-muk-soft font-medium text-center break-words">
                       {t('impact.metricWaitSaved')}
