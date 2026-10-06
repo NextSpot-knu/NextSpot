@@ -32,6 +32,7 @@ import { congestionDisplay, parseCongestionEstimate } from "@/lib/congestionEsti
 // 보드의 세 숫자(예상 대기 · 혼잡 등급 · 한산해지는 시각)의 단일 소스.
 import { estimateWait, displayHour, showsCalmLine, heroWaitCandidate, type WaitEstimate } from "@/lib/waitEstimate";
 import { curveForBase, fetchAreaDemandCurve, mergeAreaCurve, type AreaDemandCurve } from "@/lib/areaDemandCurve";
+import { areaDemandDisclosure } from "@/lib/areaDemandPresentation";
 // 분으로 말할 근거가 없는 카드는 등급으로 말한다 — 등급 경계는 지도·카드와 같은 공용 판정을 쓴다.
 import { REGION } from "@/lib/region";
 import { fitWholeLines } from "@/lib/wholeLines";
@@ -1077,8 +1078,12 @@ export default function WaitingBoardPage() {
                             {/* 컴팩트 행도 대표 카드와 **같은 세 숫자**를 같은 순서로 보여준다 —
                                 보드를 아래로 훑을 때 읽는 규칙이 중간에 바뀌지 않게. */}
                             <WaitRowChips est={waitOf(row)} row={row} estimateLevel={estimateLevels[row.facilityId]} />
-                            {/* 출발 시점 제안이 있는 경우에만 표시한다. */}
-                            {row.arrivalAction && row.arrivalAction !== "no_clear_advantage" && (
+                            {/* 출발 시점 제안이 있는 경우에만 표시한다. 추천 카드와 같은 규칙 — 주변 수요에 관광 지수가
+                                섞였으면(장소마다 자기 최고치 기준이라 서로 비교할 수 없다) '덜 붐빈다'고 말하지 않는다. */}
+                            {row.arrivalAction &&
+                              row.arrivalAction !== "no_clear_advantage" &&
+                              areaDemandDisclosure(row.areaDemandParkingEvidence, row.areaDemandTourismEvidence)
+                                .showQualitativeLevel && (
                               <p className="mt-1 text-[11px] font-bold text-sky-800">
                                 {t(`recommend.arrivalAction.${row.arrivalAction}`, {
                                   n: row.recommendedDepartureDelayMinutes ?? 30,

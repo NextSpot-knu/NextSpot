@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { CUISINES, CUISINE_INTENT, EMPTY_TRAVEL_CONTEXT, isIndoorEligible, matchesTravelContext, type TravelContext } from './travelContext';
+import { CUISINES, CUISINE_INTENT, EMPTY_TRAVEL_CONTEXT, chipCandidates, chipRankingContext, isIndoorEligible, matchesTravelContext, relaxWalkLimit, type TravelContext } from './travelContext';
 
 const origin = { lat: 35.84, lng: 129.21 };
 const distance = (_lat1: number, _lng1: number, lat2: number, _lng2: number) => lat2;
@@ -72,3 +72,43 @@ console.log('travelContext cuisine tests passed');
 }
 
 console.log('travelContext empty-context tests passed');
+
+// --- 칩 안에서는 온보딩 카테고리가 다른 칩을 막지 않는다 · 도보 제한은 한 번만 넓힌다 ----------------
+// 온보딩에서 음식점+카페를 고른 사람이 관광지 칩을 누르면, 칩이 이미 유형을 정했다. 그때 저장된
+// categories 를 그대로 걸면 관광지는 늘 0곳이 되고 '추천할 곳이 없어요' 가 지도 위 관광지 핀 옆에 뜬다.
+{
+  const onboarding = context({ categories: ['restaurant', 'cafe'] });
+  const attraction = { ...base, type: 'attraction' };
+  assert.equal(matchesTravelContext(attraction, onboarding, origin, distance), false, '전제: 저장된 조건 그대로면 막힌다');
+  assert.deepEqual(chipRankingContext(onboarding).categories, []);
+  assert.equal(matchesTravelContext(attraction, chipRankingContext(onboarding), origin, distance), true);
+  // 다른 조건은 그대로 남는다 — 칩은 유형만 정한다.
+  const withAttrs = context({ categories: ['cafe'], requiredAttributes: ['accessible'], maxWalkMinutes: 10 });
+  assert.deepEqual(chipRankingContext(withAttrs).requiredAttributes, ['accessible']);
+  assert.equal(chipRankingContext(withAttrs).maxWalkMinutes, 10);
+
+  // 도보 제한을 고르지 않았으면 넓힐 것이 없다(서버·클라 모두 이미 기본 20분).
+  assert.equal(relaxWalkLimit(context({})), null);
+  const relaxed = relaxWalkLimit(context({ maxWalkMinutes: 10 }));
+  assert.ok(relaxed);
+  assert.equal(relaxed.maxWalkMinutes, undefined);
+  assert.equal('maxWalkMinutes' in relaxed, false, '키가 남으면 서버에 max_walk_minutes:null 로 실려 간다');
+
+  const matcher = (ctx: TravelContext) => (item: typeof base) => matchesTravelContext(item, ctx, origin, distance);
+  // 10분(667m) 안에 아무것도 없고 700m 에 하나 — 엄격하면 0곳, 한 번 넓히면 그 한 곳.
+  const far = [{ ...base, id: 'far', latitude: 700 }];
+  const widened = chipCandidates(far, context({ categories: ['cafe'], maxWalkMinutes: 10 }), matcher);
+  assert.deepEqual(widened.items.map((item) => item.id), ['far']);
+  assert.equal(widened.context.maxWalkMinutes, undefined);
+  assert.deepEqual(widened.context.categories, []);
+  // 엄격한 조건으로 하나라도 있으면 넓히지 않는다.
+  const near = [{ ...base, id: 'near', latitude: 500 }, ...far];
+  const strict = chipCandidates(near, context({ maxWalkMinutes: 10 }), matcher);
+  assert.deepEqual(strict.items.map((item) => item.id), ['near']);
+  assert.equal(strict.context.maxWalkMinutes, 10);
+  // 도보 제한이 없는데 비었으면 그대로 0곳 — 더 넓힐 조건이 없다.
+  const none = chipCandidates([{ ...base, latitude: 5000 }], context({}), matcher);
+  assert.deepEqual(none.items, []);
+}
+
+console.log('travelContext chip ranking tests passed');

@@ -34,11 +34,11 @@ const recommendations = [
 }));
 
 const firstReportCta = {
-  // card.noData 값이 '데이터 없음'류 → '수집 중'류로 바뀜(부정적 배지 제거, 2026-09-21 1a81240).
-  ko: '수집 중 · 혼잡 제보',
-  en: 'Collecting · Report crowding',
-  ja: '収集中 · 混雑を報告',
-  zh: '收集中 · 上报拥挤',
+  // 현장 정보가 없는 곳의 제보 알약 — '수집 중' 빈 상태 대신 관광객에게 묻는다(report.triggerFirst, 계획 A3).
+  ko: '지금 붐비나요? 알려 주세요',
+  en: 'Busy now? Tell us',
+  ja: '今混んでいますか？教えてください',
+  zh: '现在拥挤吗？告诉我们',
 } as const;
 
 const areaDemandLabel = {

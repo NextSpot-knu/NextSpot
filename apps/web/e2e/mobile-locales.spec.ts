@@ -16,6 +16,25 @@ for (const locale of locales) {
   });
 }
 
+// 하단 탭 '분산 코스'(띄어 쓴 한 글자 더 긴 이름)가 가장 좁은 폰에서도 제 칸 안에 한 줄로 들어간다.
+test('ko bottom-nav label 분산 코스 fits its tab at 360px', async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 640 });
+  await page.addInitScript(() => localStorage.setItem('nextspot_onboarding_done', '1'));
+  await page.route('**/api/v1/**', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }));
+  await page.goto('/saved');
+  // 데스크톱 레일도 같은 이름의 nav 라 DOM 에 둘이다 — 보이는(접근성 트리에 있는) 휴대폰 탭만 잡는다.
+  const tab = page.getByRole('button', { name: '분산 코스', exact: true });
+  await expect(tab).toBeVisible({ timeout: 30_000 });
+  const fit = await tab.evaluate((button) => {
+    const label = button.querySelector('span') as HTMLElement;
+    const b = button.getBoundingClientRect();
+    const l = label.getBoundingClientRect();
+    return { inside: l.left >= b.left - 0.5 && l.right <= b.right + 0.5, lines: label.getClientRects().length };
+  });
+  expect(fit.inside).toBe(true);
+  expect(fit.lines).toBe(1);
+});
+
 test('external Kakao navigation is fixed and does not leave the test page', async ({ page }) => {
   await page.addInitScript(() => {
     const trip = {

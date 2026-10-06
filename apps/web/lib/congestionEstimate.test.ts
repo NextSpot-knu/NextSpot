@@ -11,6 +11,7 @@ import { join } from 'node:path';
 
 import {
   ESTIMATE_MAX_AGE_MS,
+  LAST_OBSERVED_MAX_AGE_MS,
   congestionDisplay,
   displayableEstimate,
   estimateRadiusKm,
@@ -147,7 +148,8 @@ const raw = {
   assert.equal(predicted.mode, 'predicted');
   assert.equal(predicted.level, 0.6);
 
-  // 핵심 경우: 낡은 실측 + 신선한 추정 → 추정이 '지금', 관측은 맥락으로 남는다(지우지 않는다).
+  // 한 달 된 관측 + 신선한 추정 → 추정이 '지금'. 한 달 전 관측은 '마지막 관측' 으로도 남지 않는다
+  // (24시간 한도 — 46일 전 "마지막 관측 8/21 02:05 · 혼잡" 이 실제로 카드에 떴다, 2026-10-06).
   const superseded = congestionDisplay(
     { congestionLevel: 0.92, congestionSource: 'measured', congestionIsCurrent: false, congestionTimestamp: observedAt, congestionEstimate: raw },
     NOW,
@@ -155,17 +157,62 @@ const raw = {
   assert.equal(superseded.mode, 'estimated');
   assert.equal(superseded.level, null, '추정이 이겼는데 실측 숫자가 지금 값으로 남았다');
   assert.equal(superseded.estimate?.level, 0.44);
-  assert.equal(superseded.lastObserved?.level, 0.92, '관측이 화면에서 사라졌다');
-  assert.equal(superseded.lastObserved?.observedAt, observedAt);
+  assert.equal(superseded.lastObserved, null, '한 달 전 관측이 "마지막 관측" 으로 남았다');
 
-  // 낡은 실측인데 추정이 없으면 그대로 칠하되 '언제 본 값인지' 는 말한다.
+  // 한 달 된 관측인데 추정이 없으면 — 그 등급을 지금 값처럼 칠하지 않는다.
   const noAlternative = congestionDisplay(
     { congestionLevel: 0.92, congestionSource: 'measured', congestionIsCurrent: false, congestionTimestamp: observedAt },
     NOW,
   );
-  assert.equal(noAlternative.mode, 'measured');
-  assert.equal(noAlternative.level, 0.92);
-  assert.equal(noAlternative.lastObserved?.observedAt, observedAt);
+  assert.equal(noAlternative.mode, 'none', '한 달 전 등급을 그대로 칠했다');
+  assert.equal(noAlternative.level, null);
+  assert.equal(noAlternative.lastObserved, null);
+
+  // 24시간 안쪽(2시간 전)은 종전 그대로 — 추정이 '지금', 관측은 맥락으로 남는다.
+  const twoHoursAgo = new Date(NOW.getTime() - 2 * 60 * 60_000).toISOString();
+  const recentSuperseded = congestionDisplay(
+    { congestionLevel: 0.92, congestionSource: 'measured', congestionIsCurrent: false, congestionTimestamp: twoHoursAgo, congestionEstimate: raw },
+    NOW,
+  );
+  assert.equal(recentSuperseded.mode, 'estimated');
+  assert.equal(recentSuperseded.lastObserved?.level, 0.92, '2시간 전 관측이 화면에서 사라졌다');
+  assert.equal(recentSuperseded.lastObserved?.observedAt, twoHoursAgo);
+  // 추정이 없으면 그대로 칠하되 '언제 본 값인지' 는 말한다.
+  const recentNoAlternative = congestionDisplay(
+    { congestionLevel: 0.92, congestionSource: 'measured', congestionIsCurrent: false, congestionTimestamp: twoHoursAgo },
+    NOW,
+  );
+  assert.equal(recentNoAlternative.mode, 'measured');
+  assert.equal(recentNoAlternative.level, 0.92);
+  assert.equal(recentNoAlternative.lastObserved?.observedAt, twoHoursAgo);
+
+  // 경계: 정확히 24시간은 남고, 24시간 1분은 빠진다.
+  const exactly24h = new Date(NOW.getTime() - LAST_OBSERVED_MAX_AGE_MS).toISOString();
+  const over24h = new Date(NOW.getTime() - LAST_OBSERVED_MAX_AGE_MS - 60_000).toISOString();
+  const at24h = congestionDisplay(
+    { congestionLevel: 0.6, congestionSource: 'measured', congestionIsCurrent: false, congestionTimestamp: exactly24h },
+    NOW,
+  );
+  assert.equal(at24h.mode, 'measured');
+  assert.equal(at24h.lastObserved?.observedAt, exactly24h);
+  const past24h = congestionDisplay(
+    { congestionLevel: 0.6, congestionSource: 'measured', congestionIsCurrent: false, congestionTimestamp: over24h },
+    NOW,
+  );
+  assert.equal(past24h.mode, 'none');
+  assert.equal(past24h.lastObserved, null);
+
+  // '지금이 아니다' 인데 관측 시각을 모르면 언제 본 값인지 말할 수 없다 — 남기지 않는다.
+  const untimed = congestionDisplay(
+    { congestionLevel: 0.6, congestionSource: 'measured', congestionIsCurrent: false, congestionTimestamp: null, congestionEstimate: raw },
+    NOW,
+  );
+  assert.equal(untimed.mode, 'estimated');
+  assert.equal(untimed.lastObserved, null);
+  assert.equal(
+    congestionDisplay({ congestionLevel: 0.6, congestionSource: 'measured', congestionIsCurrent: false }, NOW).mode,
+    'none',
+  );
 
   // 근거가 하나도 없으면 'none' — 0 을 지어내지 않는다.
   const nothing = congestionDisplay({ congestionLevel: null, congestionSource: 'none' }, NOW);
@@ -173,12 +220,13 @@ const raw = {
   assert.equal(nothing.level, null);
   assert.equal(nothing.lastObserved, null);
 
-  // 구 서버(판정 필드 없음)는 종전 그대로 — 실측이 이기고 '마지막 관측' 도 없다.
+  // 구 서버(판정 필드 없음)는 종전 그대로 — 한 달 된 실측이라도 이기고 '마지막 관측' 도 없다.
   const legacy = congestionDisplay(
     { congestionLevel: 0.92, congestionSource: 'measured', congestionTimestamp: observedAt, congestionEstimate: raw },
     NOW,
   );
   assert.equal(legacy.mode, 'measured');
+  assert.equal(legacy.level, 0.92);
   assert.equal(legacy.lastObserved, null);
 }
 

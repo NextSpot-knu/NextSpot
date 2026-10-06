@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useId } from 'react';
+import { useState, useEffect, useId, useRef, type MouseEvent as ReactMouseEvent } from 'react';
 import { motion, PanInfo, AnimatePresence } from 'framer-motion';
 import { Bookmark, Check, Sparkles, Star, Phone, MapPin, Clock, ChevronUp, ChevronDown, Info, Globe, Utensils, RefreshCw } from 'lucide-react';
 import { apiClient, reportFacilityAvailability, type AvailabilityReportResult, type CongestionEstimate } from '@/lib/api-client';
@@ -9,16 +9,30 @@ import { GoldenHourBadge } from '@/components/GoldenHourBadge';
 import { relativeParts } from '@/lib/freshness';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 import { getArrivalOpenDisplayStatus, getArrivalOpenStatus, isClosedToday } from '@/lib/restDate';
-import { displayWalkingMinutes } from '@/lib/recommender';
+import { cardTimes } from '@/lib/cardTimes';
+import { telHref } from '@/lib/phoneLink';
+import { hoursLines } from '@/lib/hoursLines';
+import { isPredictModelTrained } from '@/lib/predictModel';
 import { haptic, interactionSpring, sheetSpring, tapMotion } from '@/lib/motion';
 import { areaDemandDisclosure } from '@/lib/areaDemandPresentation';
 import { useCountUp } from '@/lib/useCountUp';
-import { congestionDisplay, estimateRadiusKm, formatEstimateTime, formatLastObserved } from '@/lib/congestionEstimate';
+import { congestionDisplay, formatEstimateTime, formatLastObserved } from '@/lib/congestionEstimate';
 import { congestionKey as gradeKey } from '@/lib/congestionScale';
-import { resolveAnchorCrowd, resolveCandidateCrowd } from '@/lib/compareHeader';
+import {
+  candidateAreaCrowdLevel,
+  chooseCompareHeadline,
+  resolveAnchorCrowd,
+  resolveCandidateCrowd,
+  tasteBenefitPercent,
+} from '@/lib/compareHeader';
 import { useBusyThreshold } from '@/components/shell/PublicSettingsProvider';
 import { creditedPhotoUrls, creditForDisplayedPhoto } from '@/lib/photoCredit';
 import { PhotoCreditLink } from '@/components/PhotoCreditLink';
+import { isPhoneViewportNow, usePhoneViewport } from '@/lib/usePhoneViewport';
+
+// 이만큼(세로 px) 이상 움직여야 '밀기' 로 보고 뒤따르는 click 을 무시한다. 이보다 작게 흔들린 터치는
+// 탭이다 — 브라우저가 click 을 보내면 그대로 받는다(handleDrag 주석 참조).
+const SWIPE_GUARD_PX = 12;
 
 // facility prop 이 이 컴포넌트에서 실제로 읽는 필드만 구조적으로 명시한 타입.
 // 콜러 둘의 합집합: main(page)은 Facility(congestionLevel/currentCount: number|null,
@@ -78,11 +92,11 @@ interface RecommendationCardProps {
   expectedWait?: number;
   expectedTravel?: number;
   travelSource?: 'osm_pedestrian' | 'estimated';
+  /** 순위 입력(도보 + 혼잡 대기). 화면의 시간 숫자는 보이는 칩의 합으로만 그린다(lib/cardTimes.ts) — 쓰지 않는다. */
   timeToService?: number;
   facilityType?: string;
   facility?: RecommendationCardFacility;
   rank?: number;
-  totalCandidates?: number;
   mockHour?: number | null;
   // A4: 행사 혼잡 보정 배지(explore/recommend 와 동일) — 백엔드 breakdown.eventBoost/eventTitle 그대로 전달.
   eventBoost?: number;
@@ -128,22 +142,37 @@ interface RecommendationCardProps {
   congestionEstimate?: CongestionEstimate | null;
   // ── P2 비교 헤더("지금 A 혼잡 → 대신 B") ────────────────────────────────────
   /**
-   * 비교 헤더와 '주변 수요' 자리를 띄울지. **기준 명소(A)가 있는 화면에서만 켠다.**
+   * 카드 첫 줄(비교 헤더·혜택 문장)을 띄울지. **기준 명소(A)가 있는 화면에서만 켠다.**
    * /main 은 지도에서 고른 명소가 A 라서 "A 대신 B" 가 성립하지만, 저장 목록(/saved)은
-   * 사용자가 직접 고른 한 곳을 열어 보는 화면이라 대신할 A 가 없고 주변 수요도 요청하지
-   * 않는다 — 켜 두면 '인기 명소 대신…' 이라는 빈 문장과 끝나지 않는 '수집 중'만 남는다.
+   * 사용자가 직접 고른 한 곳을 열어 보는 화면이라 대신할 A 가 없고 주변 수요도 요청하지 않는다.
    */
   showCompare?: boolean;
+  /**
+   * 💡 사유 문장의 '대신' 판 — "{A} 대신 {B} 어떠세요? 걸어서 N분이에요." 카드 첫 줄이 화살표 비교일 때만
+   * reason 대신 쓴다(chooseCompareHeadline 이 고른다). 그래서 지구 기록이나 덜 붐비지 않는 곳을 '대신' 으로
+   * 부르지 않고, 첫 줄과 사유가 서로 다른 말을 하지 않는다.
+   */
+  insteadReason?: string | null;
   // 기준 명소 이름. 미지정이면 areaDemandTourismEvidence.referenceName(= 카드가 이미
   // "…기준 · 후보와 184m" 로 쓰고 있는 그 값)을 쓴다. 테마 칩이 켜지면 그 테마의 대표
   // 랜드마크로 덮어쓴다.
   compareAnchorName?: string | null;
+  /**
+   * 기준 명소와 이 장소 사이 거리(m). 100m 안쪽이면 같은 자리라 화살표 비교를 하지 않는다.
+   * compareAnchorName 을 넘기지 않으면 관광 근거의 distanceM 을 쓴다. 모르면 null.
+   */
+  compareAnchorDistanceM?: number | null;
   /** 기준 명소 자체의 혼잡 추정(0~1). 있으면 등급 문구의 1순위 근거가 된다. */
   compareAnchorLevel?: number | null;
   /** '가정 시각' 프리셋 라벨(예: '토 14:00'). 지금(실시간)이면 넘기지 않는다. */
   assumedTimeLabel?: string | null;
   /** 테마 칩 맥락 배지 문구(예: '신라 핵심 산책 기준 대안'). */
   contextBadge?: string | null;
+  /**
+   * 휴대폰(<768px)에서 카드를 **짧은 미리보기**로 연다 — 이름 · 도보 N분 · 혼잡 배지 · 도보 길안내.
+   * 지도 위에 떠 있는 /main 카드만 켠다. 태블릿·데스크톱에서는 아무 영향이 없다.
+   */
+  mobilePeek?: boolean;
 }
 
 export function RecommendationCard({
@@ -160,11 +189,9 @@ export function RecommendationCard({
   expectedWait,
   expectedTravel,
   travelSource,
-  timeToService,
   facilityType,
   facility,
   rank,
-  totalCandidates,
   mockHour,
   eventBoost,
   eventTitle,
@@ -191,10 +218,13 @@ export function RecommendationCard({
   scoringMode,
   congestionEstimate,
   showCompare = false,
+  insteadReason,
   compareAnchorName,
+  compareAnchorDistanceM,
   compareAnchorLevel,
   assumedTimeLabel,
   contextBadge,
+  mobilePeek = false,
 }: RecommendationCardProps) {
   const { t, locale } = useI18n();
   // 운영자 '혼잡' 경계. 지금은 **새 추정 배지만** 이 값을 따른다 — 지도 점선 핀·코스 칩이 이미
@@ -205,7 +235,17 @@ export function RecommendationCard({
   // 뜨는 경로(저장 목록)가 있어 고정 문자열을 쓸 수 없고, useId 는 SSR/CSR 이 같은 값을 낸다.
   const detailsPanelId = `rec-card-details-${useId()}`;
   const [isExpanded, setIsExpanded] = useState(false);
-  const [isMinimized, setIsMinimized] = useState(false);
+  // 휴대폰 미리보기(mobilePeek) — 기존 '최소화' 상태를 그대로 쓰되, 휴대폰에서는 그 모습을 짧은
+  // 미리보기 줄로 그리고 **새 추천은 이 상태로 연다.** 카드가 톱바(검색·✨·칩·필터·편의)를 덮지 않게
+  // 하기 위해서다(PM 2026-09-26). 첫 렌더부터 미리보기여야 전체 카드가 잠깐 떴다 접히는 깜빡임이 없다.
+  const isPhone = usePhoneViewport();
+  const peekMode = mobilePeek && isPhone;
+  const [isMinimized, setIsMinimized] = useState(() => mobilePeek && isPhoneViewportNow());
+  // 미리보기에서 위로 끌어 올린 손가락이 '도보 길안내' 위에서 떨어져도 길안내가 시작되지 않게,
+  // 방금 끝난 **밀기** 뒤의 click 한 번은 무시한다(마우스 드래그는 click 을 그대로 발생시킨다).
+  // 밀기로 보는 기준은 SWIPE_GUARD_PX 이상 움직였을 때다 — 아래 handleDrag 주석 참조.
+  const justDraggedRef = useRef(false);
+  const hoursPromptRef = useRef<HTMLDivElement>(null);
   const [confirmedAction, setConfirmedAction] = useState<'saved' | 'accepted' | null>(null);
   // SPOT 점수 설명 툴팁 — 터치/키보드에서도 열 수 있게 탭/포커스로 토글(데스크톱 hover 는 유지)
   const [showTooltip, setShowTooltip] = useState(false);
@@ -247,7 +287,6 @@ export function RecommendationCard({
   const [currentTime, setCurrentTime] = useState<Date | null>(null);
   useEffect(() => {
     setIsExpanded(false);
-    setIsMinimized(false);
     setConfirmedAction(null);
     setLocalReport(null);
     setHoursPromptOpen(false);
@@ -259,20 +298,21 @@ export function RecommendationCard({
     setLiveDetail(null);
     setLiveLoading(false);
   }, [title]);
-
-  // 주변 수요 '수집 중' 표시의 시한. 이 카드는 주변 수요를 스스로 부르지 않고 props 로 받기만 하므로
-  // '아직 오는 중'인지 '서버가 줄 게 없었는지'를 구분할 수 없다 — 그래서 시간으로 끊는다.
-  // 8초: 따뜻한 응답이면 이미 도착하고도 남는 시간이고, 넘기면 회전을 멈춘다. 값이 뒤늦게 오면
-  // 이 블록 자체가 실제 주변 수요 패널로 바뀌므로 짧게 잡아도 잃는 정보가 없다.
-  // 끝나지 않는 스피너는 '수집 중'이 아니라 '고장'으로 읽힌다 — 그래서 자리는 남기되 회전만 멈추고
-  // "근거가 도착하면 여기에 표시된다"는 설명을 남긴다(카드 높이는 그대로).
-  const [demandCollectingExpired, setDemandCollectingExpired] = useState(false);
+  // 휴대폰에서 영업 확인 질문이 뜨면 카드 안 스크롤 맨 아래(액션 버튼 바로 위)에 있어 보이지 않을 수
+  // 있다 — 질문을 화면 안으로 끌어온다. 태블릿·데스크톱은 종전 그대로(스크롤하지 않는다).
   useEffect(() => {
-    setDemandCollectingExpired(false);
-    if (typeof areaDemandLevel === 'number') return;
-    const timer = setTimeout(() => setDemandCollectingExpired(true), 8_000);
-    return () => clearTimeout(timer);
-  }, [title, areaDemandLevel]);
+    if (!peekMode || isMinimized || !hoursPromptOpen) return;
+    hoursPromptRef.current?.scrollIntoView({ block: 'nearest' });
+  }, [peekMode, isMinimized, hoursPromptOpen]);
+  // 새 추천(title 변경)은 휴대폰이면 미리보기로, 그 밖에는 종전처럼 펼친 카드로 연다.
+  // 폭이 md 경계를 넘나들면(가로 회전 등) 그 폭의 기본 모습으로 돌아간다.
+  // (effect 가 아니라 렌더 중 조정 — 한 프레임이라도 이전 모습이 그려지지 않게.)
+  const minimizeResetKey = `${title}|${peekMode ? 'peek' : 'full'}`;
+  const [lastMinimizeResetKey, setLastMinimizeResetKey] = useState(minimizeResetKey);
+  if (lastMinimizeResetKey !== minimizeResetKey) {
+    setLastMinimizeResetKey(minimizeResetKey);
+    setIsMinimized(peekMode);
+  }
 
   const displayCongestionLevel = localReport?.level ?? facility?.congestionLevel;
   const displayCongestionSource = localReport ? 'measured' : congestionSource;
@@ -281,7 +321,8 @@ export function RecommendationCard({
   // 사용자가 방금 남긴 로컬 제보는 무조건 이긴다(본인이 눈으로 본 값이고, 서버 판정이 붙기 전이다).
   // 그 밖에는 서버가 내려준 congestionIsCurrent 를 그대로 따른다: true/미제공이면 종전처럼 실측·
   // 예측이 추정을 덮고, false(30분이 지난·단건 관측)면 신선한 추정이 '지금' 자리를 가져가고 그
-  // 관측은 아래 '마지막 관측 HH:MM' 으로 남는다. 관측을 화면에서 지우지는 않는다.
+  // 관측은 아래 '마지막 관측 HH:MM' 으로 남는다 — 24시간 안쪽일 때만(lib/congestionEstimate.ts).
+  // 관측 시각은 혼잡 관측 시각만 쓴다. 시설 기록의 갱신 시각(dataUpdatedAt 등)은 혼잡을 본 때가 아니다.
   const display = congestionDisplay(
     localReport
       ? { congestionLevel: displayCongestionLevel, congestionSource: 'measured' }
@@ -289,7 +330,7 @@ export function RecommendationCard({
           congestionLevel: displayCongestionLevel,
           congestionSource: displayCongestionSource,
           congestionIsCurrent,
-          congestionTimestamp: congestionTimestamp ?? dataSource?.lastUpdated ?? null,
+          congestionTimestamp: congestionTimestamp ?? null,
           congestionEstimate,
         },
   );
@@ -394,12 +435,17 @@ export function RecommendationCard({
   }, [title, facility]);
 
   // 펼쳐졌을 때만 '최적 방문 시각'(오늘 24시간 예측)을 지연 로드한다 — 접힌 카드까지 백엔드를 때리지 않게.
+  // 예측 모델이 학습돼 있을 때만 부른다(세션당 한 번 묻는다, lib/predictModel.ts) — 미학습이면 /predict/day 는
+  // 언제나 503 이라, 펼칠 때마다 실패 요청만 쌓였다.
   const dayFacilityType = facilityType || facility?.type;
   useEffect(() => {
     if (!isExpanded || !dayFacilityType) return;
     let active = true;
-    apiClient
-      .get(`/predict/day?facilityType=${encodeURIComponent(dayFacilityType)}`)
+    isPredictModelTrained()
+      .then((trained) => {
+        if (!trained || !active) return null;
+        return apiClient.get(`/predict/day?facilityType=${encodeURIComponent(dayFacilityType)}`);
+      })
       .then((res) => {
         // 24개 시간 값이 온전할 때만 반영(방어적) — 아니면 조용히 숨김 유지
         if (active && res?.hours?.length === 24) setDayPred(res);
@@ -439,13 +485,32 @@ export function RecommendationCard({
     setIsExpanded(!isExpanded);
   };
 
+  // framer-motion 은 3px 만 움직여도 드래그를 시작하지만, 브라우저는 그보다 훨씬 많이 흔들린 터치도
+  // 탭(click)으로 인정한다. 드래그 시작만으로 click 을 막으면 손가락이 조금 흔들린 탭 — 휴대폰에서
+  // 흔한 탭 — 에 '도보 길안내'·미리보기 줄이 아무 반응을 하지 않는다. 그래서 정말 **민** 경우
+  // (세로로 SWIPE_GUARD_PX 이상)만 막는다. onDrag 는 손가락을 떼기 전에 불리므로 뒤따르는
+  // click 보다 먼저 표시가 선다. 해제는 종전처럼 드래그가 끝난 뒤(handleDragEndWithClickGuard)다.
+  const handleDrag = (_event: MouseEvent | TouchEvent | PointerEvent, info: PanInfo) => {
+    if (Math.abs(info.offset.y) >= SWIPE_GUARD_PX) justDraggedRef.current = true;
+  };
+  const handleDragEndWithClickGuard = (event: MouseEvent | TouchEvent | PointerEvent, info: PanInfo) => {
+    handleDragEnd(event, info);
+    window.setTimeout(() => { justDraggedRef.current = false; }, 0);
+  };
+  // 미리보기 → 전체 카드. 드래그 직후의 click 은 무시한다(위 justDraggedRef 참조).
+  const openFromPeek = () => {
+    if (justDraggedRef.current) return;
+    setIsMinimized(false);
+  };
+
   const hasSpotMetrics = spotScore !== undefined;
 
-  const travelMins = expectedTravel || 0;
-  const displayedTravelMins = displayWalkingMinutes(travelMins);
-  const waitMins = expectedWait ?? null;
-  
-  const arrivalTime = currentTime ? new Date(currentTime.getTime() + travelMins * 60000) : null;
+  // 큰 숫자 · 칩 · 출발→도착 타임라인이 같은 분을 쓴다(lib/cardTimes.ts) — 큰 숫자는 언제나 보이는 칩의 합이고,
+  // 도착 시각은 출발 + 도보 칩 분이다. timeToService 는 순위 입력일 뿐 화면에는 쓰지 않는다.
+  const times = cardTimes(expectedTravel, expectedWait, currentTime);
+  const displayedTravelMins = times.walkMin;
+  const waitMins = times.waitMin;
+  const arrivalTime = times.arrival;
   const availabilityEvidence = localAvailability ?? facility?.availabilityEvidence;
   const localObservedStatus = localAvailability
     ? (localAvailability.status === 'open' ? 'open_expected' : 'closed_confirmed')
@@ -456,8 +521,13 @@ export function RecommendationCard({
     && new Date(availabilityEvidence.expiresAt).getTime() > arrivalTime.getTime()
     ? (availabilityEvidence.status === 'open' ? 'open_expected' : 'closed_confirmed')
     : undefined;
-  const resolvedOpenStatus = localObservedStatus ?? corroboratedStatus ?? openStatusAtArrival
-    ?? (arrivalTime ? getArrivalOpenStatus(facility?.operatingHours, arrivalTime) : undefined);
+  const parsedOpenStatus = arrivalTime ? getArrivalOpenStatus(facility?.operatingHours, arrivalTime) : undefined;
+  // 서버가 '미확인' 이라고 한 곳도 웹 파서가 운영시간 문구('상시 개방' · '~24:00')를 읽어 냈으면 그 판정을 쓴다 —
+  // 서버 쪽 같은 파서 보강은 순위를 바꾸므로 심사 뒤로 미뤘다(계획 4.21). 화면의 영업 표시만 바로잡는다.
+  const serverOpenStatus = openStatusAtArrival === 'needs_confirmation' && parsedOpenStatus === 'open_expected'
+    ? parsedOpenStatus
+    : openStatusAtArrival;
+  const resolvedOpenStatus = localObservedStatus ?? corroboratedStatus ?? serverOpenStatus ?? parsedOpenStatus;
   const displayedOpenStatus = resolvedOpenStatus && arrivalTime
     ? getArrivalOpenDisplayStatus(resolvedOpenStatus, facilityType, arrivalTime)
     : resolvedOpenStatus;
@@ -506,9 +576,7 @@ export function RecommendationCard({
       setHoursSubmitting(false);
     }
   };
-  const serviceTime = arrivalTime && waitMins !== null
-    ? new Date(arrivalTime.getTime() + waitMins * 60000)
-    : null;
+  const serviceTime = times.service;
 
   const formatTime = (date: Date | null) => {
     if (!date) return '';
@@ -591,6 +659,8 @@ export function RecommendationCard({
   // 둘 다 없으면 렌더하지 않는다('지어내지 않기'). phone/homepage/운영시간은 실시간 조회값이 있으면 우선.
   const displayAddress = facility?.address || placeInfo?.address;
   const displayPhone = liveDetail?.phone || facility?.phone || placeInfo?.phone;
+  // 전화 걸기 링크 — 첫 번호만('054-…, 010-…' · '054-772-3843~4'), 숫자가 없으면 글자로만(lib/phoneLink.ts).
+  const phoneHref = telHref(displayPhone);
   // TourAPI homepage 원문은 순수 URL 또는 <a href="..."> HTML 조각일 수 있어 첫 http(s) URL 만 방어적으로 추출.
   // 추출 실패 시 링크를 만들지 않는다(깨진 링크 미노출).
   const homepageSource = liveDetail?.homepage ?? facility?.homepage;
@@ -599,6 +669,9 @@ export function RecommendationCard({
     : null;
   // 운영시간/휴무일도 실시간 조회값 우선(형태 동일 — {open, closed}).
   const displayOperatingHours = liveDetail?.operatingHours ?? facility?.operatingHours;
+  // 운영시간·휴무일 원문 → 철·문·요일마다 한 줄(lib/hoursLines.ts — '<br>' 이 글자로 보이지 않게).
+  const openHourLines = typeof displayOperatingHours?.open === 'string' ? hoursLines(displayOperatingHours.open) : [];
+  const closedDayLines = typeof displayOperatingHours?.closed === 'string' ? hoursLines(displayOperatingHours.closed) : [];
   const homepageHost = (() => {
     if (!homepageUrl) return null;
     try { return new URL(homepageUrl).hostname; } catch { return homepageUrl; }
@@ -673,159 +746,80 @@ export function RecommendationCard({
     : t('freshness.dayAgo', { n: areaFreshnessParts.value });
   const demandDisclosure = areaDemandDisclosure(areaDemandParkingEvidence, areaDemandTourismEvidence);
   const evidenceCount = demandDisclosure.evidenceCount;
+  // 제목 위 칩('주변이 덜 붐비는 곳'·'조금 뒤 가면 덜 붐빔')은 서버 arrival_action 을 말한다. 그 판정은 주변 수요
+  // 종합값으로 한 것이라, 관광 상대지수가 섞였거나 주차 근거가 없으면 붐빔 비교로 말하지 않는다 — 아래 근거
+  // 패널의 행동 문장(showQualitativeLevel 일 때만)과 같은 규칙이다. 그때는 기본 칩('취향·거리 맞춤')을 쓴다.
+  const chipArrivalAction = demandDisclosure.showQualitativeLevel ? arrivalAction : undefined;
 
-  // ── P2 비교 헤더 ────────────────────────────────────────────────────────────
-  // "지금 천마총(대릉원) 혼잡 → 대신 우직 · 도보 3분 · 여유"
+  // ── P2 비교 헤더(카드 첫 줄 · 가치 문장) ───────────────────────────────────────
+  // 화살표 "지금 천마총(대릉원) 혼잡 → 대신 우직 · 도보 3분 · 여유" 는 정말 덜 붐비는 다른 곳일 때만,
+  // 아니면 혜택 문장 "우직 · 도보 3분 · 도착 시 영업 · 취향 80% 일치"(chooseCompareHeadline).
   // 재료는 전부 이미 카드에 있는 값이다(새 호출 없음). 근거가 하나도 없어도 문장은 만들어진다 —
   // 이 줄이 사라지면 접힌 카드가 매번 다른 높이로 뜨고, 서비스의 약속도 함께 사라진다.
   const compareAnchorLabelName = compareAnchorName
     ?? areaDemandTourismEvidence?.referenceName
     ?? null;
+  const compareAnchorDistance = compareAnchorName != null
+    ? compareAnchorDistanceM ?? null
+    : areaDemandTourismEvidence?.distanceM ?? null;
   const anchorCrowd = resolveAnchorCrowd({
     estimateLevel: compareAnchorLevel,
     parkingLevel: areaDemandParkingEvidence?.level,
     tourismRelativeIndex: areaDemandTourismEvidence?.relativeIndex,
     busyAt,
   });
-  // 후보 쪽 등급: 카드가 '지금'으로 칠한 실측 → 점선 추정 → (주차 단독일 때만) 주변 수요.
-  // 관광 상대지수가 섞인 종합값은 단일 혼잡률로 말하지 않는다(areaDemandPresentation 계약).
+  // 후보 쪽 등급: 카드가 '지금'으로 칠한 실측 → 점선 추정 → 주변 공영주차 수요.
+  // 관광 상대지수가 섞인 종합값은 단일 혼잡률로 말하지 않는다(areaDemandPresentation 계약) — 주차만이면
+  // 종합값(주차 + 근처 축제·날씨 보정), 관광 근거가 섞이면 **주차 실측·이력 값만으로** 말한다(기준 명소 쪽
+  // resolveAnchorCrowd 와 같은 규칙). 주차 근거가 없으면(관광 상대지수뿐) null → 비교하지 않는다.
+  // 휴대폰 미리보기의 혼잡 배지도 이 값을 그대로 쓴다 — 펼치기 한 번 사이에 두 곳이 다른 말을 하지 않게.
   const candidateCrowdGrade = resolveCandidateCrowd({
     congestionLevel: shownCongestionLevel,
     estimateLevel: estimate?.level,
-    areaDemandLevel: demandDisclosure.showQualitativeLevel ? areaDemandLevel : null,
+    areaDemandLevel: candidateAreaCrowdLevel({
+      areaDemandLevel,
+      parking: areaDemandParkingEvidence,
+      tourism: areaDemandTourismEvidence,
+    }),
     busyAt,
   });
-  const compareHeaderText = t('compare.header', {
-    anchor: compareAnchorLabelName ?? t('compare.anchorFallback'),
-    anchorCrowd: anchorCrowd.grade ? t(`congestion.${anchorCrowd.grade}`) : t('compare.crowdPopular'),
-    candidate: title,
-    walk: displayedTravelMins,
-    candidateCrowd: candidateCrowdGrade ? t(`congestion.${candidateCrowdGrade}`) : t('compare.collecting'),
+  const compareHeadline = chooseCompareHeadline({
+    anchorName: compareAnchorLabelName,
+    anchorDistanceM: compareAnchorDistance,
+    candidateName: title,
+    anchorGrade: anchorCrowd.grade,
+    // 관광 상대지수로 정한 등급이면 화살표를 쓰지 않는다 — '지금' 도, 다른 곳과 견줄 값도 아니다.
+    anchorBasis: anchorCrowd.basis,
+    candidateGrade: candidateCrowdGrade,
   });
+  // 혜택 문장의 '취향 N% 일치' — 문턱(50%) 아래면 그 조각을 뺀다(가장 큰 줄이 추천한 곳을 깎지 않게).
+  const tastePct = tasteBenefitPercent(preferencePercent);
+  // 화살표 문장 — chooseCompareHeadline 이 'compare' 면 기준 명소와 두 등급이 모두 있다.
+  const compareHeaderText = compareHeadline.kind === 'compare' && compareAnchorLabelName && anchorCrowd.grade && candidateCrowdGrade
+    ? t('compare.header', {
+        anchor: compareAnchorLabelName,
+        anchorCrowd: t(`congestion.${anchorCrowd.grade}`),
+        candidate: title,
+        walk: displayedTravelMins,
+        candidateCrowd: t(`congestion.${candidateCrowdGrade}`),
+      })
+    : null;
+  const compareKicker = t(compareHeadline.kind === 'benefit' && compareHeadline.candidateIsAnchor
+    ? 'compare.nearbyKicker'
+    : 'compare.headerKicker');
+  // 💡 사유도 첫 줄과 같은 판정을 따른다 — 화살표가 참일 때만 "{A} 대신 {B} 어떠세요?".
+  const shownReason = compareHeadline.kind === 'compare' && insteadReason ? insteadReason : reason;
 
-  return (
-    <motion.div 
-      className={`w-full max-h-[calc(100dvh-var(--tourist-nav-clearance)-8rem)] bg-white/95 backdrop-blur-2xl border border-line rounded-3xl ${isMinimized ? 'p-3' : 'p-5'} toss-surface flex flex-col ${isMinimized ? 'gap-1' : 'gap-3'} select-none relative overflow-hidden`}
-      initial={{ opacity: 0, y: 18, scale: 0.985 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      drag="y"
-      dragConstraints={{ top: 0, bottom: 0 }}
-      dragElastic={0.2}
-      onDragEnd={handleDragEnd}
-      layout
-      transition={sheetSpring}
-    >
-      {/* 상단 장식 라인 — 콜드 블루 글로우를 신라금 웜 그라디언트로 */}
-      <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-gold/50 to-transparent" />
-
-      {/* Swipe/Drag Handle Bar — 포인터 전용 어포던스다.
-          aria-hidden: 이 막대는 포커스를 받을 수 없고(순수 div), 드래그도 마우스·터치에만
-          해당한다. 예전엔 안에 sr-only "Drag handle" 텍스트가 있어 스크린리더에는 조작할 수도
-          없는 정체불명의 문구 하나로만 읽혔다. 토글은 아래 상세 펼치기 버튼 하나로 노출한다. */}
-      <div
-        aria-hidden="true"
-        className="w-16 h-1.5 bg-muk/15 hover:bg-muk/25 rounded-full mx-auto mb-1 cursor-pointer flex items-center justify-center transition-colors"
-        onClick={() => {
-          if (isMinimized) setIsMinimized(false);
-          else toggleExpand();
-        }}
-      />
-
-      {/* P2 — 비교 헤더. 카드 맨 위, **접힌 상태에서도** 보인다. 이 추천이 무슨 줄을 대신하는지가
-          카드의 첫 문장이어야 한다("줄 서는 대신, 경주를 한 곳 더"). 근거 값이 비어도 사라지지 않는다 —
-          단, 대신할 기준 명소 자체가 없는 화면(showCompare=false, 예: 저장 목록)에서는 아예 띄우지 않는다. */}
-      {showCompare && (
-      <div className="rounded-2xl border border-terracotta/25 bg-gradient-to-r from-terracotta/10 via-gold/10 to-jade/10 px-3 py-2">
-        <p className="text-[9px] font-extrabold uppercase tracking-wide text-terracotta">
-          {t('compare.headerKicker')}
-        </p>
-        <p className="mt-0.5 break-keep text-[12px] font-extrabold leading-snug text-muk">
-          {compareHeaderText}
-        </p>
-        {(assumedTimeLabel || contextBadge) && (
-          <div className="mt-1.5 flex flex-wrap items-center gap-1">
-            {assumedTimeLabel && (
-              <span className="rounded-full border border-gold/40 bg-gold/15 px-2 py-0.5 text-[10px] font-bold text-gold-deep">
-                🕒 {t('assume.basisBadge', { label: assumedTimeLabel })}
-              </span>
-            )}
-            {contextBadge && (
-              <span className="rounded-full border border-jade/40 bg-jade/10 px-2 py-0.5 text-[10px] font-bold text-jade">
-                ✨ {contextBadge}
-              </span>
-            )}
-          </div>
-        )}
-      </div>
-      )}
-
-      {isMinimized ? (
-        <div
-          className="flex items-center justify-between px-2 pb-1 cursor-pointer"
-          onClick={() => setIsMinimized(false)}
-        >
-           <span className="text-sm font-bold text-muk truncate max-w-[200px]">{title}</span>
-           <span className="text-[10px] text-terracotta font-bold bg-gold/10 px-2 py-0.5 rounded-full border border-gold/25 whitespace-nowrap">
-             {t('card.open')} <ChevronUp size={12} className="inline mb-0.5" />
-           </span>
-        </div>
-      ) : (
-        <>
-          {/* 짧은 뷰포트에서 하단 액션 버튼이 잘리던 문제(루트 overflow-hidden + 외부 스크롤) 해결 —
-              루트에 뷰포트 기반 max-h 를 걸고, 버튼 위 콘텐츠만 이 래퍼 안에서 스크롤한다.
-              버튼·안내 행은 래퍼 밖(핀 고정)이라 카드가 아무리 길어도 항상 보인다. */}
-          <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain no-scrollbar flex flex-col gap-3">
-          {/* Top Header Row — 클릭 시 상세(구체적 장소) 펼침/접기 */}
-      <div className="flex justify-between items-start gap-3 cursor-pointer" onClick={toggleExpand}>
-        <div className="flex-1">
-          <div className="flex items-center gap-2 mb-1.5">
-            {rank ? (
-              <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-gradient-to-r from-gold to-terracotta text-white text-[10px] font-black rounded-lg shadow-sm">
-                <Sparkles size={12} />
-                {t('card.rankBadge', { rank })}
-              </span>
-            ) : (
-              <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-gold/15 text-gold-deep text-[10px] font-bold rounded-lg">
-                <Sparkles size={12} />
-                {t('card.aiRec')}
-              </span>
-            )}
-            {totalCandidates && rank && (
-              <span className="text-[10px] text-muk-soft font-medium">{t('card.ofCandidates', { n: totalCandidates })}</span>
-            )}
-            <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold border whitespace-nowrap ${
-              arrivalAction === 'choose_calmer'
-                ? 'bg-jade/10 border-jade/30 text-jade'
-                : arrivalAction === 'wait_then_go'
-                  ? 'bg-sky-500/10 border-sky-500/25 text-sky-700'
-                  : 'bg-hanji-deep border-line text-muk-soft'
-            }`}>
-              {t(arrivalAction === 'choose_calmer'
-                ? 'recommend.alternativeBasis.crowd'
-                : arrivalAction === 'wait_then_go'
-                  ? 'recommend.alternativeBasis.timing'
-                  : 'recommend.alternativeBasis.preference')}
-            </span>
-          </div>
-          <h3 className="text-xl font-serif font-bold text-muk tracking-tight leading-tight">{title}</h3>
-          {spotComparisonReason && (
-            <div className="mt-2 rounded-xl border border-jade/20 bg-jade/5 px-3 py-2">
-              <p className="text-[9px] font-extrabold uppercase tracking-wide text-jade">
-                {t('recommend.spotComparison.current')}
-              </p>
-              <p className="mt-0.5 text-[11px] font-semibold leading-snug text-muk">
-                {spotComparisonReason}
-              </p>
-            </div>
-          )}
-          
-          {/* Status Pills — 펼쳐도(상세 표시 중에도) 혼잡도·잔여석은 항상 표시.
-              혼잡 로그가 없는 시설(congestionLevel=null)은 합성값 대신 회색 '데이터 없음'으로 표기. */}
-          {/* 근거가 하나도 없어도 이 줄은 남긴다 — 첫 카드에만 배지가 통째로 빠지면 카드 높이가
-              들쭉날쭉해지고, 심사 중에는 그게 '깨진 화면'으로 읽힌다. 대신 '수집 중'이라고 말한다. */}
-          {facility && (
-            <div className="flex flex-wrap items-center gap-1.5 mt-2">
-              {shownCongestionLevel !== null ? (
+  // 주변 수요만 있을 때 배지가 말할 붐빔 등급 — 비교 헤더와 **같은 값**(candidateCrowdGrade, lib/compareHeader.ts
+  // candidateAreaCrowdLevel): 주차만이면 종합값, 관광 근거가 섞이면 주차 실측·이력 값만, 주차 근거가 없으면(관광
+  // 상대지수뿐) 배지 없음. 근거 개수('주변 수요 근거 N개')는 순위 근거라 '상세 정보 펼치기' 뒤의 근거 상자만 말한다.
+  const areaCrowdGrade = shownCongestionLevel === null && !estimate && typeof areaDemandLevel === 'number'
+    ? candidateCrowdGrade
+    : null;
+  // 혼잡 배지(실측 → 점선 추정 → 주변 붐빔 등급) — 전체 카드의 배지 줄 맨 앞과 휴대폰 미리보기가
+  // 같은 요소를 쓴다. 미리보기를 펼쳐도 같은 자리가 같은 말을 하게 한 곳에서만 만든다. 근거가 하나도 없으면
+  // 배지를 그리지 않는다 — '수집 중' 같은 빈 자리 표시는 관광객에게 아무것도 알려 주지 않는다.
+  const crowdBadge = shownCongestionLevel !== null ? (
                 <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold border ${
                   shownCongestionLevel >= 0.75
                     ? 'bg-terracotta/10 border-terracotta/30 text-terracotta'
@@ -852,29 +846,234 @@ export function RecommendationCard({
                 }`}>
                   {t('card.estimateLevel', { label: t(`congestion.${gradeKey(estimate.level, busyAt)}`) })}
                 </span>
-              ) : typeof areaDemandLevel === 'number' ? (
-                // 측정 대상이 다른 주차·관광 통계를 하나의 절대 혼잡률처럼 보이지 않게 근거 수로 요약한다.
+              ) : areaCrowdGrade ? (
                 <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold border ${
-                  areaDemandTourismEvidence
-                    ? 'bg-indigo-500/10 border-indigo-500/20 text-indigo-700'
-                    : areaDemandLevel >= 0.75
-                    ? 'bg-terracotta/10 border-terracotta/30 text-terracotta'
-                    : areaDemandLevel >= 0.5
-                    ? 'bg-gold/10 border-gold/30 text-gold-deep'
-                    : areaDemandLevel >= 0.25
-                    ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-600'
-                    : 'bg-jade/10 border-jade/30 text-jade'
+                  {
+                    busy: 'bg-terracotta/10 border-terracotta/30 text-terracotta',
+                    moderate: 'bg-gold/10 border-gold/30 text-gold-deep',
+                    relaxed: 'bg-emerald-500/10 border-emerald-500/30 text-emerald-600',
+                    quiet: 'bg-jade/10 border-jade/30 text-jade',
+                  }[areaCrowdGrade]
                 }`}>
-                  {evidenceCount > 0
-                    ? t('recommend.areaEvidenceCount', { n: evidenceCount })
-                    : `${t('recommend.areaDemand')}: ${congestionLabel(areaDemandLevel)}`}
+                  {t('recommend.areaDemandForRanking')}: {t(`congestion.${areaCrowdGrade}`)}
                 </span>
-              ) : (
-                // 실측·추정·주변 수요가 모두 없는 첫 카드 — 자리를 비우지 않고 상태를 말한다.
-                <span className="px-2 py-0.5 rounded-md text-[10px] font-bold border border-dashed border-line bg-white/70 text-muk-soft">
-                  {t('compare.congestionCollecting')}
+              ) : null;
+
+  // '도보 길안내' — 전체 카드와 휴대폰 미리보기가 **같은 함수**를 부른다. 이름은 언제나 '도보 길안내' 이고,
+  // 영업시간을 모르는 음식점·카페면 누를 때 카카오맵 영업시간을 먼저 열고 '영업 중인지' 를 묻는다.
+  // 미리보기에서 그 질문을 띄우면 질문은 전체 카드에만 있으므로 카드를 펼치고 질문을 화면 안으로 끌어온다.
+  const handleAcceptClick = () => {
+    haptic('success');
+    if (needsHoursConfirmation && kakaoPlaceUrl) {
+      setHoursPromptOpen(true);
+      setHoursSubmitError(false);
+      if (peekMode && isMinimized) setIsMinimized(false);
+      window.open(kakaoPlaceUrl, '_blank', 'noopener,noreferrer');
+      return;
+    }
+    setConfirmedAction('accepted');
+    onAccept();
+  };
+  const handlePeekAcceptClick = (event: ReactMouseEvent) => {
+    event.stopPropagation();
+    if (justDraggedRef.current) return;
+    handleAcceptClick();
+  };
+
+  return (
+    <motion.div 
+      data-testid="recommendation-card"
+      className={`w-full max-h-[calc(100dvh-var(--tourist-nav-clearance)-8rem)] bg-white/95 backdrop-blur-2xl border border-line rounded-3xl ${isMinimized ? 'p-3' : 'p-5'} toss-surface flex flex-col ${isMinimized ? 'gap-1' : 'gap-3'} select-none relative overflow-hidden`}
+      initial={{ opacity: 0, y: 18, scale: 0.985 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      drag="y"
+      dragConstraints={{ top: 0, bottom: 0 }}
+      dragElastic={0.2}
+      onDrag={handleDrag}
+      onDragEnd={handleDragEndWithClickGuard}
+      layout
+      transition={sheetSpring}
+    >
+      {/* 상단 장식 라인 — 콜드 블루 글로우를 신라금 웜 그라디언트로 */}
+      <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-gold/50 to-transparent" />
+
+      {/* Swipe/Drag Handle Bar — 포인터 전용 어포던스다.
+          aria-hidden: 이 막대는 포커스를 받을 수 없고(순수 div), 드래그도 마우스·터치에만
+          해당한다. 예전엔 안에 sr-only "Drag handle" 텍스트가 있어 스크린리더에는 조작할 수도
+          없는 정체불명의 문구 하나로만 읽혔다. 토글은 아래 상세 펼치기 버튼 하나로 노출한다. */}
+      {peekMode ? (
+        // 휴대폰 미리보기: 손잡이가 곧 '펼치기/미리보기로 접기' 버튼이다(키보드·스크린리더도 쓸 수 있게
+        // 이름을 붙이고, 손가락이 닿기 쉽게 전폭 24px 높이로 잡는다). 위로 밀기·아래로 밀기는 카드 전체의 drag.
+        <button
+          type="button"
+          aria-label={t(isMinimized ? 'card.peek.expand' : 'card.peek.collapse')}
+          aria-expanded={!isMinimized}
+          onClick={() => {
+            if (justDraggedRef.current) return;
+            if (isMinimized) {
+              setIsMinimized(false);
+            } else {
+              setIsExpanded(false);
+              setIsMinimized(true);
+            }
+          }}
+          className="-mt-1.5 -mb-0.5 flex h-6 w-full shrink-0 cursor-pointer items-center justify-center rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+        >
+          <span aria-hidden="true" className="h-1.5 w-16 rounded-full bg-muk/20" />
+        </button>
+      ) : (
+      <div
+        aria-hidden="true"
+        className="w-16 h-1.5 bg-muk/15 hover:bg-muk/25 rounded-full mx-auto mb-1 cursor-pointer flex items-center justify-center transition-colors"
+        onClick={() => {
+          if (isMinimized) setIsMinimized(false);
+          else toggleExpand();
+        }}
+      />
+      )}
+
+      {/* P2 — 비교 헤더. 카드 맨 위, **접힌 상태에서도** 보인다. 이 추천이 무슨 줄을 대신하는지가
+          카드의 첫 문장이어야 한다("줄 서는 대신, 경주를 한 곳 더"). 근거 값이 비어도 사라지지 않는다 —
+          단, 대신할 기준 명소 자체가 없는 화면(showCompare=false, 예: 저장 목록)에서는 아예 띄우지 않는다. */}
+      {showCompare && !(peekMode && isMinimized) && (
+      <div className="rounded-2xl border border-terracotta/25 bg-gradient-to-r from-terracotta/10 via-gold/10 to-jade/10 px-3 py-2">
+        <p className="text-[12px] font-bold text-terracotta">
+          {compareKicker}
+        </p>
+        {/* 카드에서 가장 큰 글씨 — 이 추천이 관광객에게 무엇을 주는지가 첫 문장이다. */}
+        {compareHeaderText ? (
+          <p className="mt-0.5 break-keep text-[16px] md:text-[17px] font-extrabold leading-snug text-muk">
+            {compareHeaderText}
+          </p>
+        ) : (
+          <p className="mt-0.5 break-keep text-[16px] md:text-[17px] font-extrabold leading-snug text-muk">
+            {title}
+            {' · '}
+            <span className="inline-block rounded-full bg-jade/15 px-2 text-jade">
+              {t('compare.benefitWalk', { walk: displayedTravelMins })}
+            </span>
+            {displayedOpenStatus === 'open_expected' && <>{' · '}{t('compare.benefitOpen')}</>}
+            {tastePct !== null && <>{' · '}{t('compare.benefitTaste', { pct: tastePct })}</>}
+          </p>
+        )}
+        {(assumedTimeLabel || contextBadge) && (
+          <div className="mt-1.5 flex flex-wrap items-center gap-1">
+            {assumedTimeLabel && (
+              <span className="rounded-full border border-gold/40 bg-gold/15 px-2 py-0.5 text-[10px] font-bold text-gold-deep">
+                🕒 {t('assume.basisBadge', { label: assumedTimeLabel })}
+              </span>
+            )}
+            {contextBadge && (
+              <span className="rounded-full border border-jade/40 bg-jade/10 px-2 py-0.5 text-[10px] font-bold text-jade">
+                ✨ {contextBadge}
+              </span>
+            )}
+          </div>
+        )}
+      </div>
+      )}
+
+      {isMinimized && peekMode ? (
+        // 휴대폰 미리보기 줄 — 관광객이 지금 알아야 할 것만: 어디(이름) · 얼마나(도보 N분) · 붐비나(혼잡 배지,
+        // 전체 카드와 같은 요소) · 바로 출발(도보 길안내, 전체 카드와 같은 동작). 줄을 누르면 전체 카드.
+        <div className="flex items-center gap-3 px-1 pb-0.5" data-testid="rec-card-peek">
+          <div className="min-w-0 flex-1 cursor-pointer" onClick={openFromPeek}>
+            <div className="flex items-center gap-1">
+              <h3 className="min-w-0 truncate font-serif text-base font-bold leading-tight tracking-tight text-muk">{title}</h3>
+              <ChevronUp size={14} className="shrink-0 text-gold-deep" aria-hidden />
+            </div>
+            <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+              <span className="whitespace-nowrap rounded-md border border-jade/30 bg-jade/10 px-2 py-0.5 text-[10px] font-bold text-jade">
+                {t('card.peek.walk', { n: displayedTravelMins })}
+              </span>
+              {facility && crowdBadge}
+              {closedToday && (
+                <span className="px-2 py-0.5 rounded-md text-[10px] font-bold border bg-terracotta/10 border-terracotta/30 text-terracotta">
+                  {t('card.closedToday')}
                 </span>
               )}
+            </div>
+          </div>
+          <motion.button
+            type="button"
+            onClick={handlePeekAcceptClick}
+            whileTap={tapMotion}
+            transition={interactionSpring}
+            aria-label={t('card.acceptAria')}
+            className="max-w-[46%] shrink-0 break-keep rounded-2xl bg-gradient-to-r from-gold to-terracotta px-4 py-3 text-xs font-bold leading-tight text-white shadow-[0_4px_14px_rgba(193,85,59,0.25)] transition-all active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+          >
+            <span className="inline-flex items-center justify-center gap-1.5">
+              {confirmedAction === 'accepted' && <Check size={14} aria-hidden />}
+              {t('card.accept')}
+            </span>
+          </motion.button>
+        </div>
+      ) : isMinimized ? (
+        <div
+          className="flex items-center justify-between px-2 pb-1 cursor-pointer"
+          onClick={() => setIsMinimized(false)}
+        >
+           <span className="text-sm font-bold text-muk truncate max-w-[200px]">{title}</span>
+           <span className="text-[10px] text-terracotta font-bold bg-gold/10 px-2 py-0.5 rounded-full border border-gold/25 whitespace-nowrap">
+             {t('card.open')} <ChevronUp size={12} className="inline mb-0.5" />
+           </span>
+        </div>
+      ) : (
+        <>
+          {/* 짧은 뷰포트에서 하단 액션 버튼이 잘리던 문제(루트 overflow-hidden + 외부 스크롤) 해결 —
+              루트에 뷰포트 기반 max-h 를 걸고, 버튼 위 콘텐츠만 이 래퍼 안에서 스크롤한다.
+              버튼·안내 행은 래퍼 밖(핀 고정)이라 카드가 아무리 길어도 항상 보인다. */}
+          <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain no-scrollbar flex flex-col gap-3">
+          {/* Top Header Row — 클릭 시 상세(구체적 장소) 펼침/접기 */}
+      <div className="flex justify-between items-start gap-3 cursor-pointer" onClick={toggleExpand}>
+        <div className="flex-1">
+          <div className="flex items-center gap-2 mb-1.5">
+            {rank ? (
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-gradient-to-r from-gold to-terracotta text-white text-[10px] font-black rounded-lg shadow-sm">
+                <Sparkles size={12} />
+                {t(rank === 1 ? 'card.rankBadgeTop' : 'card.rankBadge', { rank })}
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-gold/15 text-gold-deep text-[10px] font-bold rounded-lg">
+                <Sparkles size={12} />
+                {t('card.aiRec')}
+              </span>
+            )}
+            {/* 후보 수('대안 N개 중')는 그리지 않는다 — 관광객에게는 후보 선정 규칙이 아니라
+                이 장소가 왜 좋은지가 필요하다(PM 2026-09-26). */}
+            <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold border whitespace-nowrap ${
+              chipArrivalAction === 'choose_calmer'
+                ? 'bg-jade/10 border-jade/30 text-jade'
+                : chipArrivalAction === 'wait_then_go'
+                  ? 'bg-sky-500/10 border-sky-500/25 text-sky-700'
+                  : 'bg-hanji-deep border-line text-muk-soft'
+            }`}>
+              {t(chipArrivalAction === 'choose_calmer'
+                ? 'recommend.alternativeBasis.crowd'
+                : chipArrivalAction === 'wait_then_go'
+                  ? 'recommend.alternativeBasis.timing'
+                  : 'recommend.alternativeBasis.preference')}
+            </span>
+          </div>
+          <h3 className="text-xl font-serif font-bold text-muk tracking-tight leading-tight">{title}</h3>
+          {spotComparisonReason && (
+            <div className="mt-2 rounded-xl border border-jade/20 bg-jade/5 px-3 py-2">
+              <p className="text-[9px] font-extrabold uppercase tracking-wide text-jade">
+                {t('recommend.spotComparison.current')}
+              </p>
+              <p className="mt-0.5 text-[11px] font-semibold leading-snug text-muk">
+                {spotComparisonReason}
+              </p>
+            </div>
+          )}
+          
+          {/* Status Pills — 펼쳐도(상세 표시 중에도) 혼잡도·잔여석은 항상 표시.
+              혼잡 로그가 없는 시설(congestionLevel=null)은 합성값 대신 회색 '데이터 없음'으로 표기. */}
+          {/* 근거가 하나도 없어도 이 줄은 남긴다 — 첫 카드에만 배지가 통째로 빠지면 카드 높이가
+              들쭉날쭉해지고, 심사 중에는 그게 '깨진 화면'으로 읽힌다. 근거가 없으면 혼잡 배지만 빠진다. */}
+          {facility && (
+            <div className="flex flex-wrap items-center gap-1.5 mt-2">
+              {crowdBadge}
               {/* 가정 시각 — 이 배지들이 '지금'이 아니라 무슨 시각을 말하는지 바로 옆에서 밝힌다. */}
               {assumedTimeLabel && (
                 <span className="px-2 py-0.5 rounded-md text-[10px] font-bold border border-gold/40 bg-gold/15 text-gold-deep whitespace-nowrap">
@@ -895,15 +1094,10 @@ export function RecommendationCard({
                   {t(`card.congestionSource.${displayCongestionSource}`)}
                 </span>
               ) : estimate ? (
-                // 근거를 스스로 밝힌다: 무엇에서(주차 실측)·언제(관측 시각, KST)·어디까지(반경).
-                // 서울 실측 보정이 실제로 적용된 값이면 같은 칩 안에서 한 마디만 더 붙인다 —
-                // 새 배지를 만들지 않는다(보정은 추정의 성질이지 별개의 근거가 아니다).
-                // 백엔드가 주는 calibrationBasis 는 한국어 문장이라 쓰지 않는다(4로케일 불가).
+                // 근거를 스스로 밝힌다: 무엇에서(경주 공영주차 실측)·언제(관측 시각, KST).
+                // 보정 여부·반경은 관광객이 고르는 데 쓰지 않는 내부 사정이라 말하지 않는다.
                 <span className="px-2 py-0.5 rounded-md text-[10px] font-medium border border-dashed border-line bg-transparent text-muk-soft">
-                  {t(estimate.calibrated ? 'card.evidenceEstimatedCalibrated' : 'card.evidenceEstimated', {
-                    time: formatEstimateTime(estimate.observedAt) ?? '—',
-                    km: estimateRadiusKm(estimate.radiusM),
-                  })}
+                  {t('card.evidenceEstimated', { time: formatEstimateTime(estimate.observedAt) ?? '—' })}
                 </span>
               ) : null}
               {/* '지금' 자격을 잃은 관측을 **지우지 않고** 맥락으로 남긴다.
@@ -928,7 +1122,9 @@ export function RecommendationCard({
                   {t('card.closedToday')}
                 </span>
               )}
-              {displayedOpenStatus && (
+              {/* '영업시간 미확인' 은 그리지 않는다 — 모른다는 사실은 관광객이 고르는 데 쓸 정보가 아니다
+                  (음식점·카페면 '도보 길안내' 가 출발 전에 카카오맵 영업시간을 먼저 보여 준다). */}
+              {displayedOpenStatus && displayedOpenStatus !== 'needs_confirmation' && (
                 <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold border ${
                   displayedOpenStatus === 'open_expected'
                     ? 'bg-jade/10 border-jade/30 text-jade'
@@ -1001,6 +1197,9 @@ export function RecommendationCard({
             // 여기서 'n일 전 기준' 을 또 쓰면 (a) 같은 말이 두 번이고 (b) 지금 칠해진 값(추정)이
             // n일 전 값이라고 읽힌다. 한 화면이 두 말을 하지 않게 이 줄은 비운다.
             if (lastObserved) return null;
+            // 이 줄은 칠한 실측·예측 등급이 언제 값인지를 말한다 — 칠한 등급이 없으면(추정·없음, 24시간이
+            // 넘어 버린 관측 포함) 말할 대상이 없다.
+            if (shownCongestionLevel === null) return null;
             if (!displayDataSource) return null;
             if (displayDataSource.isStale) {
               return <p className="text-[10px] text-muk-soft/60 mt-2">{t('card.freshStale')}</p>;
@@ -1029,13 +1228,13 @@ export function RecommendationCard({
               })}
             </p>
           )}
-          {displayedOpenStatus && arrivalTime && expectedTravel !== undefined && expectedWait !== undefined && (
+          {displayedOpenStatus && arrivalTime && expectedTravel !== undefined && waitMins !== null && (
             <p className="mt-2 inline-flex flex-wrap items-center gap-x-1.5 rounded-lg border border-jade/20 bg-jade/5 px-2.5 py-1.5 text-[11px] font-semibold text-muk">
               <Clock size={12} className="text-jade" aria-hidden />
               {t('card.arrivalSummary', {
                 time: formatTime(arrivalTime),
-                walk: displayWalkingMinutes(expectedTravel),
-                wait: Math.round(expectedWait ?? 0),
+                walk: displayedTravelMins,
+                wait: waitMins,
               })}
             </p>
           )}
@@ -1099,17 +1298,19 @@ export function RecommendationCard({
                   <div className="absolute top-0 right-0 p-2 opacity-20">
                     <Clock size={24} className="text-gold" />
                   </div>
-                  <span className="text-muk-soft text-[10px] font-semibold mb-1">{t('card.totalTime')}</span>
+                  {/* 보여 줄 대기가 있으면 '총 소요 시간 = 대기 + 이동', 없으면 '도보 시간' 하나 — 같은 분을 두 번 쓰지 않는다. */}
+                  <span className="text-muk-soft text-[10px] font-semibold mb-1">{t(waitMins !== null ? 'card.totalTime' : 'card.walkTime')}</span>
                   <div className="flex items-baseline gap-1 mb-1.5">
-                    {/* 분 단위 표시는 정수로 — 0.6분 같은 소수는 아래 '이동 1분' 칩과 어긋나 보인다(계산값은 그대로). */}
-                    <span className="text-2xl font-black text-muk">{timeToService !== undefined ? Math.max(1, Math.round(timeToService)) : timeToService}</span>
+                    <span className="text-2xl font-black text-muk">{times.totalMin}</span>
                     <span className="text-xs text-muk-soft font-medium">{t('card.minute')}</span>
                   </div>
-                  <div className="flex items-center gap-2 text-[10px] text-muk-soft font-medium">
-                    {expectedWait !== undefined && <span className="bg-gold/15 px-1.5 py-0.5 rounded text-gold-deep whitespace-nowrap">{t('card.wait', { n: expectedWait })}</span>}
-                    {expectedWait !== undefined && <span className="text-muk-soft/60">+</span>}
-                    <span className="bg-jade/15 px-1.5 py-0.5 rounded text-jade whitespace-nowrap">{t('card.travel', { n: displayedTravelMins })}</span>
-                  </div>
+                  {waitMins !== null && (
+                    <div className="flex items-center gap-2 text-[10px] text-muk-soft font-medium">
+                      <span className="bg-gold/15 px-1.5 py-0.5 rounded text-gold-deep whitespace-nowrap">{t('card.wait', { n: waitMins })}</span>
+                      <span className="text-muk-soft/60">+</span>
+                      <span className="bg-jade/15 px-1.5 py-0.5 rounded text-jade whitespace-nowrap">{t('card.travel', { n: displayedTravelMins })}</span>
+                    </div>
+                  )}
                   {travelSource && (
                     <span className="mt-1 text-[9px] font-semibold text-muk-soft">
                       {t(travelSource === 'osm_pedestrian' ? 'card.travelRoute' : 'card.travelEstimate')}
@@ -1173,135 +1374,6 @@ export function RecommendationCard({
                 </div>
               )}
             </div>
-        </div>
-      )}
-
-      {/* A4: 행사 혼잡 보정 배지 — 도착시점 인근 진행 중 축제로 예측이 가중됐을 때만 노출(투명성).
-          explore/recommend 카드와 동일 시각·문구. */}
-      {(eventBoost ?? 0) > 0 && (
-        <p className="text-[11px] leading-snug text-terracotta bg-terracotta/10 border border-terracotta/20 rounded-xl px-3 py-2">
-          🎪 {t('recommend.festivalAdjusted', {
-            title: eventTitle ?? '',
-            pct: Math.round((eventBoost ?? 0) * 100),
-          })}
-        </p>
-      )}
-
-      {typeof areaDemandLevel === 'number' && (
-        <div className="text-[11px] leading-snug text-sky-800 bg-sky-500/10 border border-sky-500/20 rounded-xl px-3 py-2">
-          <div className="flex items-center justify-between gap-2">
-            <span className="font-bold">
-              {areaDemandTourismEvidence
-                ? t('recommend.areaEvidenceCount', { n: evidenceCount })
-                : areaDemandParkingEvidence
-                  ? `${t(areaDemandParkingEvidence.mode === 'forecast'
-                    ? 'recommend.parkingEvidenceForecast'
-                    : 'recommend.parkingEvidenceLive')}: ${congestionLabel(areaDemandParkingEvidence.level)}`
-                  : `${t('recommend.areaDemand')}: ${congestionLabel(areaDemandLevel)}`}
-            </span>
-            {demandDisclosure.showQualitativeLevel && <span className="text-[10px] text-sky-700">
-              {t(areaDemandMode === 'live'
-                ? 'recommend.areaDemandLive'
-                : areaDemandMode === 'forecast'
-                  ? 'recommend.areaDemandForecast'
-                  : 'recommend.areaDemandStats')}
-            </span>}
-          </div>
-          {demandDisclosure.showQualitativeLevel && arrivalAction && (
-            <p className="mt-1.5 font-extrabold text-sky-900">
-              {t(`recommend.arrivalAction.${arrivalAction}`, {
-                n: recommendedDepartureDelayMinutes ?? 30,
-              })}
-            </p>
-          )}
-          {demandDisclosure.showQualitativeLevel && areaDemandDistinguishable && areaDemandRank && areaDemandComparableCount && (
-            <p className="mt-1 text-sky-800">
-              {t('recommend.areaDemandRank', {
-                rank: areaDemandRank,
-                total: areaDemandComparableCount,
-              })}
-              {typeof areaDemandDeltaVsMedian === 'number' && areaDemandDeltaVsMedian <= -0.08
-                ? ` · ${t('recommend.areaDemandLower', { n: Math.round(Math.abs(areaDemandDeltaVsMedian) * 100) })}`
-                : ''}
-            </p>
-          )}
-          {demandDisclosure.showQualitativeLevel && arrivalAction === 'wait_then_go' && typeof delayedAreaDemandLevel === 'number' && (
-            <p className="mt-1 text-sky-800">
-              {t('recommend.delayedDemand', {
-                n: recommendedDepartureDelayMinutes ?? 30,
-                level: congestionLabel(delayedAreaDemandLevel),
-              })}
-            </p>
-          )}
-          {areaDemandTourismEvidence && (
-            <p className="mt-1 text-sky-800/80">{t('recommend.areaDemandCompositeHint')}</p>
-          )}
-          {areaDemandParkingEvidence && (
-            <div className="mt-2 rounded-lg border border-sky-500/20 bg-white/55 px-2.5 py-2">
-              <p className="font-bold text-sky-900">
-                {t(areaDemandParkingEvidence.mode === 'live'
-                  ? 'recommend.parkingEvidenceLive'
-                  : 'recommend.parkingEvidenceForecast')}: {congestionLabel(areaDemandParkingEvidence.level)}
-              </p>
-              <p className="mt-0.5 text-[10px] text-sky-700">
-                {typeof areaDemandParkingEvidence.radiusM === 'number'
-                  ? t('recommend.parkingEvidenceRadius', { n: areaDemandParkingEvidence.radiusM.toLocaleString() })
-                  : t('recommend.parkingEvidenceArea')}
-                {areaFreshness ? ` · ${areaFreshness}` : ''}
-              </p>
-            </div>
-          )}
-          {areaDemandTourismEvidence && (
-            <div className="mt-2 rounded-lg border border-indigo-500/20 bg-white/55 px-2.5 py-2 text-indigo-900">
-              <p className="font-bold">
-                {typeof areaDemandTourismEvidence.relativeIndex === 'number'
-                  ? t('recommend.tourismEvidenceIndex', { n: Math.round(areaDemandTourismEvidence.relativeIndex) })
-                  : t('recommend.tourismEvidenceTitle')}
-              </p>
-              <p className="mt-0.5 text-[10px] text-indigo-700">
-                {t('recommend.tourismEvidenceBasis', {
-                  name: areaDemandTourismEvidence.referenceName ?? t('recommend.tourismReferenceUnknown'),
-                  distance: typeof areaDemandTourismEvidence.distanceM === 'number'
-                    ? Math.round(areaDemandTourismEvidence.distanceM).toLocaleString()
-                    : '-',
-                  date: areaDemandTourismEvidence.forecastDate ?? '-',
-                })}
-              </p>
-              <p className="mt-1 text-[10px] text-indigo-700/90">
-                {t('recommend.tourismEvidenceDisclaimer')}
-              </p>
-            </div>
-          )}
-          {!!areaDemandSources?.some((source) => source === 'festival' || source === 'weather') && (
-            <p className="mt-1 text-[10px] text-sky-700">
-              {areaDemandSources
-                .filter((source) => source !== 'parking' && source !== 'parking_history' && source !== 'tourism')
-                .map((source) => t(`recommend.areaSource.${source}`)).join(' · ')}
-            </p>
-          )}
-          {areaDemandConfidence && areaDemandConfidence !== 'none' && (
-            <p className="mt-1 text-[10px] text-sky-700">
-              {t(`recommend.areaConfidence.${areaDemandConfidence}`)}
-            </p>
-          )}
-        </div>
-      )}
-      {/* 같은 자리, 값이 아직 없을 때. 로드 직후 첫 카드만 이 블록이 통째로 빠져 카드 모양이
-          한 번 바뀌던 문제를 막는다 — 섹션은 항상 있고, 모르면 '수집 중'이라고 말한다.
-          주변 수요를 아예 요청하지 않는 화면(showCompare=false)에서는 이 자리도 두지 않는다.
-          회전 표시는 시한부다(demandCollectingExpired) — 끝나지 않는 스피너는 고장으로 읽힌다. */}
-      {showCompare && typeof areaDemandLevel !== 'number' && (
-        <div className="text-[11px] leading-snug text-sky-800 bg-sky-500/10 border border-sky-500/20 rounded-xl px-3 py-2">
-          <div className="flex items-center justify-between gap-2">
-            <span className="font-bold">{t('recommend.areaDemandForRanking')}</span>
-            {!demandCollectingExpired && (
-              <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-sky-700">
-                <span className="inline-block h-2.5 w-2.5 animate-spin rounded-full border-2 border-sky-500/30 border-t-sky-600" />
-                {t('compare.collecting')}
-              </span>
-            )}
-          </div>
-          <p className="mt-1.5 text-sky-800/80">{t('compare.demandCollectingHint')}</p>
         </div>
       )}
 
@@ -1384,10 +1456,123 @@ export function RecommendationCard({
             </div>
           )}
 
-          {/* AI 추천 사유 (백엔드 템플릿, 있을 때만) */}
-          {reason && (
+          {/* 추천 사유 — 관광객이 얻는 것(걷는 시간·대기)만. 첫 줄이 화살표 비교일 때만 '대신' 문장을 쓴다. */}
+          {shownReason && (
             <p className="text-[13px] leading-relaxed text-muk bg-gold/10 border border-gold/25 rounded-2xl px-3.5 py-2.5">
-              💡 {reason}
+              💡 {shownReason}
+            </p>
+          )}
+
+          {/* 주변 붐빔 근거(공영주차 실측 · 관광 수요 전망) — 접힌 카드에는 두지 않는다. 관광객이 고르는 데는
+              첫 줄과 혼잡 배지면 충분하고, 근거를 보고 싶은 사람은 '상세 정보 펼치기' 로 연다. */}
+          {typeof areaDemandLevel === 'number' && (
+            <div className="text-[11px] leading-snug text-sky-800 bg-sky-500/10 border border-sky-500/20 rounded-xl px-3 py-2">
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-bold">
+                  {areaDemandTourismEvidence
+                    ? t('recommend.areaEvidenceCount', { n: evidenceCount })
+                    : areaDemandParkingEvidence
+                      ? `${t(areaDemandParkingEvidence.mode === 'forecast'
+                        ? 'recommend.parkingEvidenceForecast'
+                        : 'recommend.parkingEvidenceLive')}: ${congestionLabel(areaDemandParkingEvidence.level)}`
+                      : `${t('recommend.areaDemand')}: ${congestionLabel(areaDemandLevel)}`}
+                </span>
+                {demandDisclosure.showQualitativeLevel && <span className="text-[10px] text-sky-700">
+                  {t(areaDemandMode === 'live'
+                    ? 'recommend.areaDemandLive'
+                    : areaDemandMode === 'forecast'
+                      ? 'recommend.areaDemandForecast'
+                      : 'recommend.areaDemandStats')}
+                </span>}
+              </div>
+              {demandDisclosure.showQualitativeLevel && arrivalAction && (
+                <p className="mt-1.5 font-extrabold text-sky-900">
+                  {t(`recommend.arrivalAction.${arrivalAction}`, {
+                    n: recommendedDepartureDelayMinutes ?? 30,
+                  })}
+                </p>
+              )}
+              {demandDisclosure.showQualitativeLevel && areaDemandDistinguishable && areaDemandRank && areaDemandComparableCount && (
+                <p className="mt-1 text-sky-800">
+                  {t(areaDemandRank === 1 ? 'recommend.areaDemandRankTop' : 'recommend.areaDemandRank', {
+                    rank: areaDemandRank,
+                    total: areaDemandComparableCount,
+                  })}
+                  {typeof areaDemandDeltaVsMedian === 'number' && areaDemandDeltaVsMedian <= -0.08
+                    ? ` · ${t('recommend.areaDemandLower', { n: Math.round(Math.abs(areaDemandDeltaVsMedian) * 100) })}`
+                    : ''}
+                </p>
+              )}
+              {demandDisclosure.showQualitativeLevel && arrivalAction === 'wait_then_go' && typeof delayedAreaDemandLevel === 'number' && (
+                <p className="mt-1 text-sky-800">
+                  {t('recommend.delayedDemand', {
+                    n: recommendedDepartureDelayMinutes ?? 30,
+                    level: congestionLabel(delayedAreaDemandLevel),
+                  })}
+                </p>
+              )}
+              {areaDemandTourismEvidence && (
+                <p className="mt-1 text-sky-800/80">{t('recommend.areaDemandCompositeHint')}</p>
+              )}
+              {areaDemandParkingEvidence && (
+                <div className="mt-2 rounded-lg border border-sky-500/20 bg-white/55 px-2.5 py-2">
+                  <p className="font-bold text-sky-900">
+                    {t(areaDemandParkingEvidence.mode === 'live'
+                      ? 'recommend.parkingEvidenceLive'
+                      : 'recommend.parkingEvidenceForecast')}: {congestionLabel(areaDemandParkingEvidence.level)}
+                  </p>
+                  <p className="mt-0.5 text-[10px] text-sky-700">
+                    {typeof areaDemandParkingEvidence.radiusM === 'number'
+                      ? t('recommend.parkingEvidenceRadius', { n: areaDemandParkingEvidence.radiusM.toLocaleString() })
+                      : t('recommend.parkingEvidenceArea')}
+                    {areaFreshness ? ` · ${areaFreshness}` : ''}
+                  </p>
+                </div>
+              )}
+              {areaDemandTourismEvidence && (
+                <div className="mt-2 rounded-lg border border-indigo-500/20 bg-white/55 px-2.5 py-2 text-indigo-900">
+                  <p className="font-bold">
+                    {typeof areaDemandTourismEvidence.relativeIndex === 'number'
+                      ? t('recommend.tourismEvidenceIndex', { n: Math.round(areaDemandTourismEvidence.relativeIndex) })
+                      : t('recommend.tourismEvidenceTitle')}
+                  </p>
+                  <p className="mt-0.5 text-[10px] text-indigo-700">
+                    {t('recommend.tourismEvidenceBasis', {
+                      name: areaDemandTourismEvidence.referenceName ?? t('recommend.tourismReferenceUnknown'),
+                      distance: typeof areaDemandTourismEvidence.distanceM === 'number'
+                        ? Math.round(areaDemandTourismEvidence.distanceM).toLocaleString()
+                        : '-',
+                      date: areaDemandTourismEvidence.forecastDate ?? '-',
+                    })}
+                  </p>
+                  <p className="mt-1 text-[10px] text-indigo-700/90">
+                    {t('recommend.tourismEvidenceDisclaimer')}
+                  </p>
+                </div>
+              )}
+              {!!areaDemandSources?.some((source) => source === 'festival' || source === 'weather') && (
+                <p className="mt-1 text-[10px] text-sky-700">
+                  {areaDemandSources
+                    .filter((source) => source !== 'parking' && source !== 'parking_history' && source !== 'tourism')
+                    .map((source) => t(`recommend.areaSource.${source}`)).join(' · ')}
+                </p>
+              )}
+              {areaDemandConfidence && areaDemandConfidence !== 'none' && (
+                <p className="mt-1 text-[10px] text-sky-700">
+                  {t(`recommend.areaConfidence.${areaDemandConfidence}`)}
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* A4: 행사 혼잡 보정 — 도착시점 인근 진행 중 축제로 예측이 가중됐을 때만. '주변 수요 +N%p 보정' 은 순위
+              근거라 접힌 카드에는 두지 않고 위 주변 붐빔 근거 옆에 둔다. explore/recommend 카드와 같은 문구. */}
+          {(eventBoost ?? 0) > 0 && (
+            <p className="text-[11px] leading-snug text-terracotta bg-terracotta/10 border border-terracotta/20 rounded-xl px-3 py-2">
+              🎪 {t('recommend.festivalAdjusted', {
+                title: eventTitle ?? '',
+                pct: Math.round((eventBoost ?? 0) * 100),
+              })}
             </p>
           )}
 
@@ -1445,13 +1630,19 @@ export function RecommendationCard({
             </div>
           )}
 
-          {/* Phone — 실제 전화번호가 있을 때만(TourAPI 컬럼 우선, 카카오 Places 검색값 폴백) */}
+          {/* Phone — 실제 전화번호가 있을 때만(TourAPI 컬럼 우선, 카카오 Places 검색값 폴백). 누르면 바로 건다. */}
           {displayPhone && (
             <div className="flex items-start gap-2">
               <Phone size={14} className="text-muk-soft mt-0.5 flex-shrink-0" />
               <div>
                 <span className="text-muk-soft block text-[10px] font-bold">{t('card.phone')}</span>
-                <span className="text-muk">{displayPhone}</span>
+                {phoneHref ? (
+                  <a href={phoneHref} className="text-gold-deep hover:text-gold underline font-bold tracking-tight">
+                    {displayPhone}
+                  </a>
+                ) : (
+                  <span className="text-muk">{displayPhone}</span>
+                )}
               </div>
             </div>
           )}
@@ -1495,27 +1686,32 @@ export function RecommendationCard({
 
           {/* Operating Hours — 실제 영업시간이 있을 때만. 인제스트는 {open: 영업시간, closed: 휴무일} 저장 —
               open 만으로 표시한다(레거시 close/weekday 키는 있으면 덧붙임). */}
-          {displayOperatingHours?.open && (
+          {openHourLines.length > 0 && (
             <div className="flex items-start gap-2">
               <Clock size={14} className="text-muk-soft mt-0.5 flex-shrink-0" />
               <div>
                 <span className="text-muk-soft block text-[10px] font-bold">{t('card.hours')}</span>
-                <span className="text-muk">
-                  {displayOperatingHours.open}
-                  {displayOperatingHours.close && ` ~ ${displayOperatingHours.close}`}
-                  {displayOperatingHours.weekday && ` (${displayOperatingHours.weekday})`}
-                </span>
+                {/* 철·문·요일마다 한 줄(원문의 '<br>' 은 줄바꿈으로). 옛 시드의 close/weekday 는 마지막 줄 뒤에. */}
+                {openHourLines.map((line, index) => (
+                  <span key={`${index}-${line}`} className="block text-muk">
+                    {line}
+                    {index === openHourLines.length - 1 && displayOperatingHours?.close && ` ~ ${displayOperatingHours.close}`}
+                    {index === openHourLines.length - 1 && displayOperatingHours?.weekday && ` (${displayOperatingHours.weekday})`}
+                  </span>
+                ))}
               </div>
             </div>
           )}
 
           {/* 휴무일 — closed 가 있을 때만 별도 라인(운영시간과 키 의미가 다름: closed=휴무일 텍스트) */}
-          {displayOperatingHours?.closed && (
+          {closedDayLines.length > 0 && (
             <div className="flex items-start gap-2">
               <Clock size={14} className="text-muk-soft mt-0.5 flex-shrink-0" />
               <div>
                 <span className="text-muk-soft block text-[10px] font-bold">{t('card.closedDays')}</span>
-                <span className="text-muk">{displayOperatingHours.closed}</span>
+                {closedDayLines.map((line, index) => (
+                  <span key={`${index}-${line}`} className="block text-muk">{line}</span>
+                ))}
               </div>
             </div>
           )}
@@ -1572,6 +1768,7 @@ export function RecommendationCard({
       <AnimatePresence>
         {hoursPromptOpen && (
           <motion.div
+            ref={hoursPromptRef}
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 8 }}
@@ -1630,25 +1827,15 @@ export function RecommendationCard({
             </motion.button>
           )}
           <motion.button
-            onClick={() => {
-              haptic('success');
-              if (needsHoursConfirmation && kakaoPlaceUrl) {
-                setHoursPromptOpen(true);
-                setHoursSubmitError(false);
-                window.open(kakaoPlaceUrl, '_blank', 'noopener,noreferrer');
-                return;
-              }
-              setConfirmedAction('accepted');
-              onAccept();
-            }}
+            onClick={handleAcceptClick}
             whileTap={tapMotion}
             transition={interactionSpring}
-            aria-label={t(needsHoursConfirmation && kakaoPlaceUrl ? 'card.checkHoursKakaoAria' : 'card.acceptAria')}
+            aria-label={t('card.acceptAria')}
             className="flex-1 bg-gradient-to-r from-gold to-terracotta hover:from-gold-deep hover:to-terracotta text-white font-bold py-3 rounded-2xl transition-all active:scale-95 text-xs shadow-[0_4px_14px_rgba(193,85,59,0.25)] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
           >
             <span className="inline-flex items-center justify-center gap-1.5">
               {confirmedAction === 'accepted' && <Check size={14} aria-hidden />}
-              {t(needsHoursConfirmation && kakaoPlaceUrl ? 'card.checkHoursKakao' : 'card.accept')}
+              {t('card.accept')}
             </span>
           </motion.button>
         </div>
@@ -1659,7 +1846,7 @@ export function RecommendationCard({
         )}
         {onDrive && !(needsHoursConfirmation && kakaoPlaceUrl) && (
           <button type="button" onClick={onDrive} className="mt-2 w-full rounded-xl border border-line bg-white py-2 text-[11px] font-bold text-muk-soft hover:border-gold/40 hover:text-gold-deep">
-            {t('card.drive')} <span className="font-medium">· {t('card.driveBasisHint')}</span>
+            {t('card.drive')}
           </button>
         )}
         {facility?.id && (

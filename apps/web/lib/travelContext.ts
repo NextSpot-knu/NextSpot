@@ -82,6 +82,35 @@ export function matchesTravelContext(facility: {
   return true;
 }
 
+/** 카테고리 칩 하나 안에서 쓰는 조건. 칩이 이미 유형을 정했으므로 저장된 categories 는 비운다 —
+ *  온보딩 카테고리는 처음 켜질 칩을 고를 뿐, 다른 칩을 '추천할 곳 0곳' 으로 막지 않는다. */
+export function chipRankingContext(context: TravelContext): TravelContext {
+  return { ...context, categories: [] };
+}
+
+/** 도보 제한이 칩을 비웠을 때 한 번만 넓혀 볼 조건(서버 기본 20분 반경으로 돌아간다).
+ *  도보 제한을 고르지 않았으면 넓힐 것이 없어 null. 키 자체를 빼야 서버에 null 로 실려 가지 않는다. */
+export function relaxWalkLimit(context: TravelContext): TravelContext | null {
+  if (context.maxWalkMinutes === undefined) return null;
+  const { maxWalkMinutes: _dropped, ...rest } = context;
+  return rest;
+}
+
+/** 칩 하나의 후보와 그때 쓴 조건 — 엄격한 조건으로 0곳이고 도보 제한이 있으면 그것만 풀어 한 번 더 본다.
+ *  카드는 실제 도보 분을 그대로 말하므로(예: '도보 12분') 넓힌 사실을 따로 알리지 않는다. */
+export function chipCandidates<T>(
+  items: T[],
+  context: TravelContext,
+  matcher: (context: TravelContext) => (item: T) => boolean,
+): { context: TravelContext; items: T[] } {
+  const strict = chipRankingContext(context);
+  const strictItems = items.filter(matcher(strict));
+  const relaxed = strictItems.length === 0 ? relaxWalkLimit(strict) : null;
+  return relaxed
+    ? { context: relaxed, items: items.filter(matcher(relaxed)) }
+    : { context: strict, items: strictItems };
+}
+
 export function loadTravelContext(): TravelContext {
   if (typeof window === 'undefined') return EMPTY_TRAVEL_CONTEXT;
   try {

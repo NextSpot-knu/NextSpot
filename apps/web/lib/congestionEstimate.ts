@@ -26,6 +26,14 @@ import type { CongestionEstimate } from './api-client';
 /** 백엔드 parking_derived_congestion_service.MAX_SNAPSHOT_AGE 와 같은 선(60분). */
 export const ESTIMATE_MAX_AGE_MS = 60 * 60 * 1000;
 
+/**
+ * '지금' 자격을 잃은 관측을 화면에 남겨 두는 한도(24시간). 백엔드가 관측을 낡았다고 보는 선
+ * (infrastructures._STALE_AFTER_HOURS)과 같다. 이보다 오래된 관측은 '마지막 관측'으로도, 그대로
+ * 칠한 등급으로도 보이지 않는다 — 46일 전 "마지막 관측 8/21 02:05 · 혼잡"은 지금 경주를 고르는
+ * 데 아무 도움이 안 되고, 카드가 낡은 데이터로 말한다는 인상만 남긴다(심사 시뮬레이션 2026-10-06).
+ */
+export const LAST_OBSERVED_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
 // 미래 시각 허용 폭. 서버·기기 시계가 몇 분 어긋나는 건 흔하다 — 그걸로 추정을 지우지는 않되,
 // 한참 미래(=파싱 오류나 잘못된 값)는 '지금' 이라고 믿지 않는다.
 const FUTURE_SKEW_MS = 5 * 60 * 1000;
@@ -117,11 +125,20 @@ export interface CongestionDisplay {
   /** mode === 'estimated' 일 때의 검증된 추정. */
   estimate: CongestionEstimate | null;
   /**
-   * '지금' 자격을 잃은 실측 관측. **지우지 않는다** — 추정에 자리를 내줬든(mode='estimated'),
+   * '지금' 자격을 잃은 실측 관측(24시간 안쪽만). 추정에 자리를 내줬든(mode='estimated'),
    * 대신할 추정이 없어 그대로 칠하든(mode='measured' + stale) 언제 본 값인지는 말해 준다.
-   * 화면은 이걸 'card.lastObserved'("마지막 관측 HH:MM")로 그린다.
+   * 화면은 이걸 'card.lastObserved'("마지막 관측 HH:MM")로 그린다. 24시간이 넘은(또는 시각을
+   * 모르는) 관측은 여기에도, 칠한 등급에도 남지 않는다(LAST_OBSERVED_MAX_AGE_MS).
    */
   lastObserved: { level: number | null; observedAt: string | null } | null;
+}
+
+/** 관측 시각이 24시간 안쪽인가. 시각이 없거나 읽을 수 없으면 아니다(언제 본 값인지 말할 수 없다). */
+function observedWithinMaxAge(observedAt: string | null | undefined, now: Date): boolean {
+  if (!observedAt) return false;
+  const ms = new Date(observedAt).getTime();
+  if (Number.isNaN(ms)) return false;
+  return now.getTime() - ms <= LAST_OBSERVED_MAX_AGE_MS;
 }
 
 /**
@@ -134,8 +151,11 @@ export interface CongestionDisplay {
  * 네 가지 경우가 전부다:
  *  · 신선·신뢰 실측(사장님 좌석 확인 포함) → 'measured'. 추정은 그리지 않는다.
  *  · 학습 모델 예측 → 'predicted'. 그 숫자가 순위를 만들었으므로 화면도 그 숫자다.
- *  · 근거 없음 **또는 낡은·단건 실측** + 신선한 추정 → 'estimated' + lastObserved(있으면).
- *  · 아무것도 없음 → 'none'(+ 낡은 실측만 있으면 'measured' + lastObserved).
+ *  · 근거 없음 **또는 낡은·단건 실측** + 신선한 추정 → 'estimated' + lastObserved(24시간 안쪽이면).
+ *  · 아무것도 없음 → 'none'(+ 24시간 안쪽의 낡은 실측만 있으면 'measured' + lastObserved).
+ *
+ * 서버가 '지금이 아니다' 라고 한 관측이 24시간을 넘었으면(시각을 모르면 포함) 그 관측은 없는 것으로
+ * 본다 — 칠하지도, '마지막 관측' 으로 남기지도 않는다. 판정 필드가 없는 구 서버 응답은 종전 그대로다.
  */
 export function congestionDisplay(
   input: CongestionDisplayInput,
@@ -147,17 +167,18 @@ export function congestionDisplay(
       : null;
   const measured = level !== null || input.congestionSource === 'measured';
   // 실측이 '지금' 자격을 잃었을 때만 마지막 관측 칸을 만든다(예측에는 관측 시각이 없다).
+  const notCurrent =
+    input.congestionIsCurrent === false && input.congestionSource !== 'predicted' && measured;
+  const tooOld = notCurrent && !observedWithinMaxAge(input.congestionTimestamp, now);
   const lastObserved =
-    input.congestionIsCurrent === false && input.congestionSource !== 'predicted' && measured
-      ? { level, observedAt: input.congestionTimestamp ?? null }
-      : null;
+    notCurrent && !tooOld ? { level, observedAt: input.congestionTimestamp ?? null } : null;
 
   const estimate = displayableEstimate(input, now);
   if (estimate) return { mode: 'estimated', level: null, estimate, lastObserved };
   if (input.congestionSource === 'predicted' && level !== null) {
     return { mode: 'predicted', level, estimate: null, lastObserved: null };
   }
-  if (level !== null) return { mode: 'measured', level, estimate: null, lastObserved };
+  if (level !== null && !tooOld) return { mode: 'measured', level, estimate: null, lastObserved };
   return { mode: 'none', level: null, estimate: null, lastObserved };
 }
 

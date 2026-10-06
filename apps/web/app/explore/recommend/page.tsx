@@ -23,7 +23,7 @@ import { openDrivingDirections, openWalkingDirections } from "@/lib/navigation";
 import { track } from "@/lib/analytics";
 import { loadTravelContext } from "@/lib/travelContext";
 import { relativeParts } from "@/lib/freshness";
-import { congestionDisplay, estimateRadiusKm, formatEstimateTime, formatLastObserved } from "@/lib/congestionEstimate";
+import { congestionDisplay, formatEstimateTime, formatLastObserved } from "@/lib/congestionEstimate";
 import { congestionKey } from "@/lib/congestionScale";
 import { useBusyThreshold } from "@/components/shell/PublicSettingsProvider";
 import { buildSpotComparisons, formatSpotComparison } from "@/lib/spotComparison";
@@ -51,10 +51,8 @@ function buildFallbackReason(
   congestionLevel: number | null = null,
 ): string {
   const walk = displayWalkingMinutes(undefined, distanceM);
-  // 혼잡(>=0.75)이면 추천하지 않고 혼잡·대기를 솔직히 알린다.
-  if (congestionLevel !== null && congestionLevel >= 0.75) {
-    return t('recommend.fallbackBusy', { name, walk, pct: Math.round(congestionLevel * 100) });
-  }
+  // 추천 카드의 사유는 추천한 곳을 스스로 깎지 않는다 — '붐빌 수 있어요 · 혼잡도 N%' 대신, 현장 혼잡 정보가
+  // 있다는 사실만 말한다(붐빔 자체는 같은 카드의 혼잡 배지가 말한다).
   // 혼잡 근거가 없으면 '여유'라는 혼잡 주장을 지어내지 않는다(CONGESTION_TRUST_SPEC).
   if (congestionLevel === null) {
     return waitMin === null
@@ -252,13 +250,15 @@ function RecommendContent() {
     const comparisons = buildSpotComparisons(recommendations.slice(0, 3).map((item, index) => ({
       id: item.recommendationId,
       rank: item.rank ?? index + 1,
-      spotScore: item.spotScore <= 1 ? item.spotScore * 100 : item.spotScore,
       preference: item.breakdown.preference ?? 0,
       travelMinutes: typeof item.breakdown.travelTime === 'number'
         ? item.breakdown.travelTime : displayWalkingMinutes(undefined, item.distanceM),
+      scoringMode: item.scoringMode,
       rankingWaitMinutes: item.breakdown.rankingWaitTime ?? item.breakdown.waitTime,
       areaDemandPenaltyMinutes: item.breakdown.areaDemandPenaltyMinutes,
-      incentive: item.breakdown.incentive,
+      areaDemandParkingEvidence: item.breakdown.areaDemandParkingEvidence,
+      areaDemandTourismEvidence: item.breakdown.areaDemandTourismEvidence,
+      couponRate: item.facility.couponRate,
     })));
     return new Map(comparisons.map((comparison) => [
       comparison.id,
@@ -280,6 +280,10 @@ function RecommendContent() {
   // facilityId 부재를 판정한다(I18nProvider 마운트-후-스왑 패턴과 동일 — CongestionAlertToggle 참고).
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
+  // 고를 장소가 없으면 빈 화면 대신 지도로 — 뒤로 가기에 이 빈 주소가 남지 않게 replace 로 보낸다.
+  useEffect(() => {
+    if (mounted && !facilityId) router.replace("/main");
+  }, [mounted, facilityId, router]);
 
   // Onboarding Modal State (Cold Start)
   const [showOnboarding, setShowOnboarding] = useState(false);
@@ -1283,29 +1287,9 @@ function RecommendContent() {
   ];
 
   // facilityId 없이 마운트가 끝났다면(깨진 공유 링크·URL 직접 입력) 데이터 로드 이펙트가 전부
-  // `if (!facilityId) return;` 로 빠져 영구 스켈레톤에 갇힌다 — 대신 안내 빈 상태 + 지도로 돌아가는 CTA 를 보여준다.
-  // /explore/map 은 /main 으로 리다이렉트되는 구 경로일 뿐이라, 헤더의 "지도 보기"(위 backToMap)와 동일하게 /main 으로 보낸다.
+  // `if (!facilityId) return;` 로 빠진다 — 위 effect 가 /main 으로 보내는 동안 빈 한지 바탕만 둔다.
   if (mounted && !facilityId) {
-    return (
-      <main className="min-h-screen bg-hanji text-muk p-4 md:p-8 flex flex-col items-center justify-center relative overflow-hidden">
-        <div className="absolute top-[-20%] left-[-10%] w-[600px] h-[600px] rounded-full bg-sunset-1/10 blur-[120px] pointer-events-none" />
-        <div className="absolute bottom-[-10%] right-[-10%] w-[600px] h-[600px] rounded-full bg-gold/10 blur-[120px] pointer-events-none" />
-        <div className="bg-white p-8 rounded-2xl border border-line toss-surface flex flex-col items-center text-center w-full max-w-[320px] relative z-10">
-          <div className="w-16 h-16 rounded-full bg-gradient-to-b from-gold/20 to-gold/10 border border-line flex items-center justify-center mb-6 text-2xl">
-            🧭
-          </div>
-          <h2 className="text-lg font-serif font-bold text-muk mb-2">{t("recommend.noFacilityTitle")}</h2>
-          <p className="text-muk-soft text-sm leading-relaxed mb-6 px-1">{t("recommend.noFacilityDesc")}</p>
-          <button
-            type="button"
-            onClick={() => router.push("/main")}
-            className="toss-pressable min-h-11 w-full flex items-center justify-center py-2.5 bg-gradient-to-r from-gold to-terracotta text-white rounded-xl font-bold text-xs transition-opacity duration-300 hover:opacity-90 shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
-          >
-            {t("recommend.backToMap")}
-          </button>
-        </div>
-      </main>
-    );
+    return <main className="min-h-screen bg-hanji" />;
   }
 
   return (
@@ -1479,7 +1463,8 @@ function RecommendContent() {
               // 오늘 휴무 — 보수 파서 확정(true)일 때만 배지(과판정 금지 원칙).
               const closedToday =
                 isClosedToday((recFeatures?.restDateRaw ?? recFeatures?.rest_date_raw) as string | undefined) === true;
-              const freshness = relativeParts(rec.congestionTimestamp ?? rec.dataUpdatedAt);
+              // 혼잡을 본 시각만 — dataUpdatedAt(시설 기록 갱신 시각)은 "N일 전 기준" 이 될 수 없다.
+              const freshness = relativeParts(rec.congestionTimestamp);
               // 무엇을 '지금' 으로 칠할지 — 추천 카드·코스와 **같은 함수**로 정한다
               // (lib/congestionEstimate.ts congestionDisplay). 이 화면이 따로 판정하지 않는다.
               // 추정은 '지금' 자격이 있는 실측·예측이 없을 때만 — 대기 분·인원은 만들지 않는다.
@@ -1563,7 +1548,8 @@ function RecommendContent() {
                           {t("card.closedToday")}
                         </span>
                       )}
-                      {arrivalDisplayStatus && (
+                      {/* '영업시간 미확인' 은 그리지 않는다 — 음식점·카페면 '도보 길안내' 가 카카오맵 영업시간을 먼저 보여 준다. */}
+                      {arrivalDisplayStatus && arrivalDisplayStatus !== "needs_confirmation" && (
                         <span className={`text-[10px] font-bold border px-2 py-0.5 rounded-md ${
                           arrivalDisplayStatus === "open_expected"
                             ? "text-jade bg-jade/10 border-jade/30"
@@ -1574,9 +1560,9 @@ function RecommendContent() {
                           {t(`card.arrivalStatus.${arrivalDisplayStatus}`)}
                         </span>
                       )}
-                      {rec.rank && rec.totalCandidates && (
+                      {rec.rank && (
                         <span className="text-[10px] font-bold text-gold-deep bg-gold/10 border border-gold/30 px-2 py-0.5 rounded-md">
-                          {t("recommend.rankOfTotal", { total: rec.totalCandidates, rank: rec.rank })}
+                          {t(rec.rank === 1 ? "card.rankBadgeTop" : "card.rankBadge", { rank: rec.rank })}
                         </span>
                       )}
                       {/* 혼잡 3단계 근거 배지(CONGESTION_TRUST_SPEC): 실측 4단계 pill / AI 예측 / 준비 중.
@@ -1616,11 +1602,7 @@ function RecommendContent() {
                             {t("card.estimateLevel", { label: t(`congestion.${estimateKey}`) })}
                           </span>
                           <span className="text-[10px] font-medium px-2 py-0.5 rounded-md border border-dashed border-line text-muk-soft">
-                            {/* 보정이 실제로 적용된 값이면 같은 칩 안에서 한 마디만 더 — 새 배지는 만들지 않는다. */}
-                            {t(estimate.calibrated ? "card.evidenceEstimatedCalibrated" : "card.evidenceEstimated", {
-                              time: formatEstimateTime(estimate.observedAt) ?? "—",
-                              km: estimateRadiusKm(estimate.radiusM),
-                            })}
+                            {t("card.evidenceEstimated", { time: formatEstimateTime(estimate.observedAt) ?? "—" })}
                           </span>
                         </>
                       ) : display.mode === "none" && (
@@ -1643,8 +1625,9 @@ function RecommendContent() {
                         </span>
                       )}
                       {/* 24시간 배지는 '마지막 관측' 칩이 없을 때만 — 같은 말을 두 번 하지 않는다
-                          (구 서버 응답처럼 '지금' 판정이 없을 때 남는 경로다). */}
-                      {rec.congestionSource === "measured" && rec.congestionIsStale && !lastObserved && (
+                          (구 서버 응답처럼 '지금' 판정이 없을 때 남는 경로다). 그 낡은 값을 실제로
+                          칠했을 때만 — 24시간이 넘어 칠하지 않은 관측은 말하지 않는다. */}
+                      {display.mode === "measured" && rec.congestionIsStale && !lastObserved && (
                         <span className="text-[10px] font-medium px-2 py-0.5 rounded-md border bg-hanji-deep border-line text-muk-soft/70">
                           {t("card.freshStale")}
                         </span>
@@ -1659,8 +1642,8 @@ function RecommendContent() {
                         {rec.facility.name}
                       </h4>
                       {/* lastObserved 가 있으면 위 칩이 이미 '언제' 를 말했다 — 'n일 전 기준' 을 또 쓰면
-                          지금 칠해진 값(추정)이 n일 전 값으로 읽힌다. */}
-                      {rec.congestionSource !== 'none' && freshnessText && !lastObserved && (
+                          지금 칠해진 값(추정)이 n일 전 값으로 읽힌다. 칠한 실측·예측 등급이 없으면 말할 대상도 없다. */}
+                      {shownLevel !== null && freshnessText && !lastObserved && (
                         <p className="mt-1 text-[10px] text-muk-soft">
                           {rec.congestionLogSource === 'user_report'
                             ? t('card.freshReport', { rel: freshnessText })
@@ -1891,7 +1874,7 @@ function RecommendContent() {
                       onClick={() => requestAccept(rec, 'car')}
                       className="toss-pressable min-h-11 w-full flex items-center justify-center rounded-xl border border-line bg-white py-2 text-[11px] font-bold text-muk-soft hover:border-gold/40 hover:text-gold-deep focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
                     >
-                      {t('card.drive')} · <span className="font-medium">{t('card.driveBasisHint')}</span>
+                      {t('card.drive')}
                     </button>
                   </div>
 
@@ -2001,8 +1984,8 @@ function RecommendContent() {
       {/* ── 음성 비서 오버레이 (음성 컨시어지) ── */}
       {!loadingRecommendations && recommendations.length > 0 && ttsSupported && !showOnboarding && (
         <div
-          className="fixed right-4 z-40 flex flex-col items-end gap-2 select-none"
-          style={{ bottom: "calc(env(safe-area-inset-bottom, 0px) + 1.25rem)" }}
+          data-testid="recommend-voice-control"
+          className="fixed right-4 z-40 flex flex-col items-end gap-2 select-none bottom-[calc(var(--tourist-nav-clearance)+env(safe-area-inset-bottom)+0.75rem)] md:bottom-[calc(env(safe-area-inset-bottom)+1.25rem)]"
         >
           {/* 자막 / 안내 pill (스크린리더 라이브 영역) */}
           {assistantActive && (
