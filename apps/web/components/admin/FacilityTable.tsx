@@ -4,7 +4,8 @@ import { useState, useEffect } from 'react';
 import { Settings, Plus, Edit2, Trash2, X, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
 import { toast } from 'sonner';
 import { createPublicClient } from '@/lib/supabase';
-import { adminApi } from '@/lib/admin-api';
+import { adminApi, adminApiStatus } from '@/lib/admin-api';
+import { judgeBlockedMessage } from '@/lib/adminJudgeGuard';
 import { REGION } from '@/lib/region';
 import {
   countNameMatchesByType,
@@ -164,7 +165,8 @@ export function FacilityTable() {
             })
             .catch((err: unknown) => {
               console.error('Failed to delete facility:', err);
-              toast.error('삭제를 잠시 후 다시 시도해 주세요.');
+              // 심사용 계정이라 막힌 삭제(403)는 재시도 안내 대신 그 이유를 적는다.
+              toast.error(judgeBlockedMessage(adminApiStatus(err), 'deleteFacility') ?? '삭제를 잠시 후 다시 시도해 주세요.');
             });
         },
       },

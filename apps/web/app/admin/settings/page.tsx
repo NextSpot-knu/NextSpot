@@ -7,7 +7,8 @@ import {
 } from 'lucide-react';
 import { AdminSidebar } from '@/components/AdminSidebar';
 import { createPublicClient } from '@/lib/supabase';
-import { adminApi } from '@/lib/admin-api';
+import { adminApi, adminApiStatus } from '@/lib/admin-api';
+import { judgeBlockedMessage } from '@/lib/adminJudgeGuard';
 import { errorMessage } from '@/lib/errors';
 import { countLabel, settingsSaveGuard, type LoadStatus, type SettingsLoad } from '@/lib/adminLoadState';
 
@@ -130,8 +131,12 @@ export default function SettingsPage() {
       setSettingsLoad({ status: 'ok' });
     } catch (e) {
       // 원인 상세(권한·연결·서버 응답)는 콘솔에만 남긴다 — 화면에는 다음 행동만 적는다.
+      // 심사용 계정이라 막힌 저장(403)은 다시 눌러도 안 되므로 재시도 대신 그 이유를 적는다.
       console.warn('설정 저장 실패:', e);
-      setSaveMsg({ type: 'err', text: '저장에 실패했습니다. 잠시 후 다시 시도해 주세요.' });
+      setSaveMsg({
+        type: 'err',
+        text: judgeBlockedMessage(adminApiStatus(e), 'settings') ?? '저장에 실패했습니다. 잠시 후 다시 시도해 주세요.',
+      });
     } finally {
       setSaving(false);
       setTimeout(() => setSaveMsg(null), 4000);
