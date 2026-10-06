@@ -13,6 +13,8 @@ import { expandPeek } from './support/recCard';
 
 const LOCALES: E2eLocale[] = ['ko', 'en', 'ja', 'zh'];
 const SEOUL = /서울|Seoul|ソウル|首尔/;
+/** '영업시간 미확인' 칩(card.arrivalStatus.needs_confirmation) — 어느 화면에도 그리지 않는다(계획 A4). */
+const HOURS_UNVERIFIED = /영업시간 미확인|Hours unverified|営業時間未確認|营业时间未确认/;
 /** 추정 근거 칩(card.evidenceEstimated)의 '경주 공영주차' 부분 — 칩이 떠 있어야 '서울 없음' 이 의미가 있다. */
 const GYEONGJU_PARKING: Record<E2eLocale, string> = {
   ko: '경주 공영주차 실측 기반',
@@ -216,11 +218,13 @@ for (const locale of LOCALES) {
     await expectNoSeoul(page);
   });
 
-  test(`${locale}: no Seoul wording on /course`, async ({ page }) => {
+  test(`${locale}: no Seoul wording on /course, and no 'hours unverified' chip on its stop`, async ({ page }) => {
     test.setTimeout(90_000);
     await openCourse(page, locale);
     await expect(page.locator('main')).toContainText(GYEONGJU_PARKING[locale]);
     await expectNoSeoul(page);
+    // 정류지는 서버가 영업시간 '미확인' 이라고 준 곳이다(계획 A4) — 그 사실을 칩으로 말하지 않는다.
+    expect(await page.locator('main').innerText()).not.toMatch(HOURS_UNVERIFIED);
   });
 }
 
