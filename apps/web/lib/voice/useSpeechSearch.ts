@@ -1,6 +1,6 @@
 // 지도 검색바 음성 받아쓰기(STT) 훅 — 마이크 탭 → 한 발화(단발)를 텍스트로 받아 검색어에 넣는다.
 // 음성 비서(useVoiceAssistant)와 달리 TTS·대화·의도분류가 없다: 받아쓰기만 담당해 기존 마커 필터
-// (searchQuery)를 그대로 재사용한다. 지도 오브(VoiceAssistantOrb)와는 별개의 컨트롤.
+// (searchQuery)를 그대로 재사용한다. 음성 비서 알약(VoiceSlot)과는 별개의 컨트롤.
 //
 // 정적 export(SSR) 안전: 모든 Web Speech 접근은 이펙트/이벤트 콜백 내부 + typeof window 가드.
 // 폴백 우선: 미지원 브라우저는 supported=false → 호출부가 마이크를 '준비 중' 비활성으로 유지(크래시 없음).
@@ -26,7 +26,10 @@ export interface SpeechSearch {
  */
 export function useSpeechSearch(
   onTranscript: (text: string) => void,
-  onError?: (kind: 'denied' | 'failed') => void
+  onError?: (kind: 'denied' | 'failed') => void,
+  // 화면 언어로 받아쓴다(계획 B5 · I21 — en 화면에서 영어로 말하면 영어로). 기본 ko-KR(예전 동작).
+  // onStart: 듣기를 시작할 때 — 음성 비서를 끄는 데 쓴다(두 마이크가 동시에 듣지 않게, 계획 B2 · I84).
+  options?: { lang?: string; onStart?: () => void },
 ): SpeechSearch {
   const [supported, setSupported] = useState(false);
   const [listening, setListening] = useState(false);
@@ -37,6 +40,8 @@ export function useSpeechSearch(
   onTranscriptRef.current = onTranscript;
   const onErrorRef = useRef(onError); // onTranscriptRef 와 동일 패턴 — 콜백이 매 렌더 최신 클로저를 유지
   onErrorRef.current = onError;
+  const optionsRef = useRef(options);
+  optionsRef.current = options;
 
   const setListeningBoth = (v: boolean) => { listeningRef.current = v; setListening(v); };
 
@@ -64,8 +69,9 @@ export function useSpeechSearch(
     if (!SR) { setSupported(false); return; } // 미지원 → 조용히 비활성 유지
     try { recRef.current?.abort?.(); } catch { /* noop */ }
     try {
+      optionsRef.current?.onStart?.();
       const rec = new SR();
-      rec.lang = "ko-KR";
+      rec.lang = optionsRef.current?.lang || "ko-KR";
       rec.interimResults = false; // 단발 받아쓰기 — 최종 문장만 검색어로 반영
       rec.continuous = false;
       rec.maxAlternatives = 1;

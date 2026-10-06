@@ -28,7 +28,7 @@
 - **SPOT 점수:** 산정은 백엔드(`apps/api/app/services/spot/`)가 단일 소스. 클라이언트에서 재구현하지 말 것.
   `lib/recommender.ts`는 데모/폴백용 미러로 아직 실사용 중 — 가중치는 `shared-types`의 SPOT_WEIGHTS만 참조,
   하드코딩 금지(단계적 제거 대상, docs/archive/IMPROVEMENT_PLAN.md WS-D 참조).
-- **음성비서:** 공용 훅 `lib/voice/useVoiceAssistant.ts` + `components/VoiceAssistantOrb.tsx`를 사용. 페이지 인라인 재구현 금지.
+- **음성비서:** 공용 훅 `lib/voice/useVoiceAssistant.ts` + `components/VoiceSlot.tsx`(알약 `VoicePill` · 자막 `VoiceCaptionBar`)를 사용. 페이지 인라인 재구현 금지.
 - **폴더 규칙:** `lib/`는 camelCase 파일, 도메인이 뚜렷하면 하위 폴더(`voice/` `map/` `merchant/` `i18n/`). `components/`는
   PascalCase, 한 화면 전용이면 `components/<화면>/`(`main/`), 앱 셸·PWA·프로바이더는 `components/shell/`, 관제는 `components/admin/`.
   참조가 30개 넘는 허브(`lib/api-client.ts` `lib/supabase.ts` `lib/i18n/`)는 자리를 옮기지 않는다 — 새 파일만 규칙을 따른다.

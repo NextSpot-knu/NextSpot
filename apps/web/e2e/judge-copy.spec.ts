@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { stubExternalServices } from './support/stubs';
 import { stubMain, type E2eLocale } from './support/mainStubs';
-import { expandPeek } from './support/recCard';
+import { expandPeek, openWhyPanel } from './support/recCard';
 
 // 심사위원이 보는 카드 문구가 참인가 — 계획 A2(가치 문장·낡은 데이터·서울 표기) · A3(접힌 카드의 내부 사정·빈 자리).
 //   · 카드 첫 줄의 화살표("지금 A → 대신 B")는 B 가 정말 덜 붐비는 **다른** 곳일 때만이다.
@@ -124,7 +124,8 @@ for (const viewport of [{ width: 1536, height: 730 }, { width: 390, height: 844 
     await expect(line).toBeVisible();
     await expect(line).toContainText('도착 시 영업');
     await expect(line).toContainText('취향 51% 일치');
-    await expect(card).not.toContainText('→');
+    // 가치 문장에 화살표가 없다(얼굴의 '출발 → 도착' 시간 줄은 비교가 아니다 — 계획 B2).
+  await expect(card.getByTestId('value-box')).not.toContainText('→');
     await expect(card).not.toContainText('대신 경주 첨성대');
   });
 }
@@ -210,6 +211,8 @@ for (const locale of LOCALES) {
     test.setTimeout(90_000);
     await page.setViewportSize({ width: 1536, height: 730 });
     await openMain(page, locale);
+    // 근거 도장은 '추천 근거 자세히' 안에 있다(계획 B2 — 얼굴에는 기계 말이 없다). 연 상태에서 카드 전체를 본다.
+    await openWhyPanel(page, locale);
     await expect(page.getByTestId('recommendation-card')).toContainText(GYEONGJU_PARKING[locale]);
     await expectNoSeoul(page);
   });
@@ -301,7 +304,9 @@ for (const locale of LOCALES) {
 }
 
 // ───────────────────────────────────────────────────────────────────────────
-// 주변 수요 근거만 있는 카드 — 배지는 근거 개수가 아니라 붐빔 등급이고, 미리보기와 펼친 카드가 같은 말을 한다.
+// 주변 수요 근거만 있는 카드 — 배지는 근거 개수가 아니라 붐빔 등급이다.
+// 계획 B2: 주변 공영주차로 만든 지역 추정은 근처가 모두 같은 등급을 받는다 — 접힌 얼굴·미리보기에 두면 대안이
+// 피하려던 곳과 똑같이 붐벼 보인다. 그래서 등급은 '추천 근거 자세히' 안에만 있다(얼굴 칩은 실측 · 정말 덜 붐빌 때).
 // ───────────────────────────────────────────────────────────────────────────
 
 /** 혼잡 추정 없이 주변 공영주차(0.84) + 관광 근거만 — 예전 전체 카드 배지는 '주변 수요 근거 2개' 였다. */
@@ -333,20 +338,25 @@ for (const locale of LOCALES) {
     await page.setViewportSize({ width: 1536, height: 730 });
     await openAreaOnly(page, locale);
     const card = page.getByTestId('recommendation-card');
-    await expect(card.getByText(AREA_GRADE[locale], { exact: true })).toBeVisible();
+    await expect(card.getByText(AREA_GRADE[locale], { exact: true })).toHaveCount(0);
     expect(await card.innerText()).not.toMatch(MACHINERY[locale]);
+    await openWhyPanel(page, locale);
+    await expect(card.getByText(AREA_GRADE[locale], { exact: true })).toBeVisible();
   });
 }
 
-test('390px: the peek and the expanded card show the same nearby crowd badge', async ({ page }) => {
+test('390px: the peek and the expanded face agree — the nearby grade waits behind 추천 근거 자세히', async ({ page }) => {
   test.setTimeout(90_000);
   await page.setViewportSize({ width: 390, height: 844 });
   await openAreaOnly(page, 'ko');
-  await expect(page.getByTestId('rec-card-peek').getByText(AREA_GRADE.ko, { exact: true })).toBeVisible();
+  await expect(page.getByTestId('rec-card-peek').getByText(AREA_GRADE.ko, { exact: true })).toHaveCount(0);
   await expandPeek(page);
   const card = page.getByTestId('recommendation-card');
-  await expect(card.getByText(AREA_GRADE.ko, { exact: true })).toBeVisible();
+  await expect(card.getByText(AREA_GRADE.ko, { exact: true })).toHaveCount(0);
   await expect(card.getByText(/주변 수요 근거 \d+개/)).toHaveCount(0);
+  // 근거 패널(원자료 묶음의 제목은 근거 개수)은 '추천 근거 자세히' 안에서만 — 거기서 배지는 붐빔 등급이다.
+  await openWhyPanel(page);
+  await expect(card.getByText(AREA_GRADE.ko, { exact: true })).toBeVisible();
 });
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -410,7 +420,8 @@ test('a 46-day-old anchor log never becomes "지금 대릉원 혼잡 →"', asyn
   await openWithAnchor(page, daereungwon({ level: 0.92, ageMs: 46 * DAY_MS, isCurrent: false }), '대릉원');
   const card = page.getByTestId('recommendation-card');
   await expect(card.locator('p').filter({ hasText: /^우직 · 도보 \d+분/ }).first()).toBeVisible();
-  await expect(card).not.toContainText('→');
+  // 가치 문장에 화살표가 없다(얼굴의 '출발 → 도착' 시간 줄은 비교가 아니다 — 계획 B2).
+  await expect(card.getByTestId('value-box')).not.toContainText('→');
 });
 
 test('an anchor known only by its tourism index gets no arrow', async ({ page }) => {
@@ -419,13 +430,14 @@ test('an anchor known only by its tourism index gets no arrow', async ({ page })
   await openWithAnchor(page, null, '분황사');
   const card = page.getByTestId('recommendation-card');
   await expect(card.locator('p').filter({ hasText: /^우직 · 도보 \d+분/ }).first()).toBeVisible();
-  await expect(card).not.toContainText('→');
+  // 가치 문장에 화살표가 없다(얼굴의 '출발 → 도착' 시간 줄은 비교가 아니다 — 계획 B2).
+  await expect(card.getByTestId('value-box')).not.toContainText('→');
 });
 
 test('a calm pick next to a landmark that is busy right now keeps the arrow', async ({ page }) => {
   test.setTimeout(90_000);
   await openWithAnchor(page, daereungwon({ level: 0.92, ageMs: 5 * 60_000, isCurrent: true }), '대릉원');
-  await expect(page.getByTestId('recommendation-card')).toContainText('지금 대릉원 혼잡 → 대신 우직');
+  await expect(page.getByTestId('recommendation-card').getByTestId('value-box')).toContainText('대릉원 혼잡 → 우직 여유');
 });
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -464,10 +476,13 @@ test('the nearby-crowd evidence sits behind 상세 정보 펼치기', async ({ p
   await expect(card).not.toContainText('공영주차 실측 수요');
   await expect(card).not.toContainText('축제 인근');
   await page.getByRole('button', { name: '상세 정보 펼치기' }).click();
-  await expect(card).toContainText('공영주차 실측 수요');
-  await expect(card).toContainText('「신라문화제」 축제 인근 — 주변 수요 +12%p 보정');
   // 💡 사유는 관광객이 얻는 것(걷는 시간)이다 — 근거 원자료 문장이 아니다.
   await expect(card).toContainText('💡 경주 첨성대까지 걸어서 1분이에요.');
+  // 근거 원자료는 상세 안에서도 한 번 더 — '추천 근거 자세히' 를 눌러야 보인다(계획 B2).
+  await expect(card).not.toContainText('공영주차 실측 수요');
+  await card.getByTestId('why-toggle').click();
+  await expect(card).toContainText('공영주차 실측 수요');
+  await expect(card).toContainText('「신라문화제」 축제 인근 — 주변 수요 +12%p 보정');
   // 자동차 길안내 버튼은 그 말만 한다.
   await expect(card.getByRole('button', { name: '자동차 길안내', exact: true })).toBeVisible();
 });

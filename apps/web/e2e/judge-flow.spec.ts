@@ -192,9 +192,10 @@ async function expectTappable(target: Locator): Promise<void> {
   expect(probe.bottom).toBeLessThanOrEqual(probe.navTop);
 }
 
-/** 화살표 비교 한 줄의 모양 — 두 곳 모두 실제 등급 단어로만 말한다('인기'·'수집 중' 같은 대체어 없음). */
+/** 화살표 비교 한 줄의 모양 — 두 곳 모두 실제 등급 단어로만 말한다('인기'·'수집 중' 같은 대체어 없음).
+ *  계획 B2 가치 문장: '대릉원 혼잡 → 우직 쌈밥집 한산 · 도보 5분'(예전 '지금 … → 대신 … · 도보 N분 · 한산'). */
 const COMPARE_HEADER =
-  /지금 .+ (혼잡|보통|여유|한산) → 대신 .+ · 도보 \d+분 · (혼잡|보통|여유|한산)/;
+  /.+ (혼잡|보통|여유|한산) → .+ (혼잡|보통|여유|한산) · 도보 \d+분/;
 
 // ───────────────────────────────────────────────────────────────────────────
 // ② 카드 첫 줄 — 근거가 있든 없든 사라지지 않고, 언제나 참이다(lib/compareHeader.ts chooseCompareHeadline).
@@ -210,8 +211,7 @@ test('comparison header renders when the response carries evidence', async ({ pa
   const header = page.getByText(COMPARE_HEADER).first();
   await expect(header).toBeVisible();
   // 대릉원(주변 공영주차 혼잡, 184m) → 우직 쌈밥집(실측 한산): 정말 덜 붐비는 다른 곳이라 화살표가 참이다.
-  await expect(header).toContainText('지금 대릉원 혼잡 → 대신 우직 쌈밥집');
-  await expect(header).toContainText('한산');
+  await expect(header).toContainText('대릉원 혼잡 → 우직 쌈밥집 한산');
   await expect(page.getByText('줄 서는 대신', { exact: true })).toBeVisible();
 });
 
@@ -229,7 +229,8 @@ test('with no congestion estimate and no parking evidence the first line is the 
   await expect(line).toContainText('도착 시 영업');
   await expect(line).toContainText(/취향 \d+% 일치/);
   await expect(page.getByText(COMPARE_HEADER)).toHaveCount(0);
-  await expect(card).not.toContainText('→');
+  // 가치 문장에 화살표가 없다(얼굴의 '출발 → 도착' 한 줄은 시간 줄이라 따로 둔다 — 계획 B2).
+  await expect(card.getByTestId('value-box')).not.toContainText('→');
   await expect(card).not.toContainText('인기 명소');
   // 근거가 없다고 빈 자리('혼잡 추정 · 수집 중' · '주변 붐빔 · 수집 중' · '수집 중 · 혼잡 제보')를 그리지 않는다.
   await expect(card).not.toContainText('수집 중');

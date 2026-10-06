@@ -392,3 +392,59 @@ html.nextspot-dark .nextspot-logo-dark { display: block; }
   -webkit-backdrop-filter: blur(8px);
   backdrop-filter: blur(8px);
 }
+
+/* ─────────────────────────────────────────────────────────────
+   /main 추천 카드 · 음성 비서(계획 B2). 카드 전용 클래스라 다른 화면에 번지지 않는다.
+   이 규칙들은 Tailwind 레이어 밖이라 같은 속성의 유틸리티보다 이긴다 — 높이는 여기서만 정한다.
+   ───────────────────────────────────────────────────────────── */
+
+/* 사진 띠 — 접힌 카드에서 바로 보이는 112px. 데스크톱 패널이 짧으면(1366×650 같은 키 낮은 노트북) 아래
+   컨테이너 질의가 줄인다 — '상세 정보 펼치기' 가 첫 화면에서 바닥 버튼에 가리지 않게(I31). */
+.rec-photo { height: 112px; }
+
+/* 데스크톱 패널 열(md+) — 높이가 정해진 열이라 그 높이로 카드 안을 맞춘다. */
+@media (min-width: 768px) {
+  .rec-panel { container-type: size; container-name: recpanel; }
+}
+@container recpanel (max-height: 600px) { .rec-photo { height: 80px; } }
+@container recpanel (max-height: 540px) { .rec-photo { height: 56px; } }
+@container recpanel (max-height: 480px) { .rec-photo { height: 40px; } }
+
+/* 카드 안쪽 스크롤 — 휴대폰은 막대를 숨기고, 데스크톱은 얇은 금빛 막대로 더 있는 내용을 알린다. */
+.rec-scroll { scrollbar-width: none; -ms-overflow-style: none; }
+.rec-scroll::-webkit-scrollbar { display: none; }
+@media (min-width: 768px) {
+  .rec-scroll { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--nextspot-gold) 75%, transparent) transparent; }
+  .rec-scroll::-webkit-scrollbar { display: block; width: 6px; }
+  .rec-scroll::-webkit-scrollbar-thumb { border-radius: 9999px; background: color-mix(in srgb, var(--nextspot-gold) 75%, transparent); }
+}
+
+/* 스크롤 영역 위·아래 가장자리 흐림 — 카드 바탕색에서 투명으로(야간은 야간 카드 바탕). */
+.rec-fade-top { background: linear-gradient(to bottom, rgb(255 255 255 / 0.95), rgb(255 255 255 / 0)); }
+.rec-fade-bottom { background: linear-gradient(to top, rgb(255 255 255 / 0.95), rgb(255 255 255 / 0)); }
+html.nextspot-dark .rec-fade-top { background: linear-gradient(to bottom, rgb(41 33 25 / 0.95), rgb(41 33 25 / 0)); }
+html.nextspot-dark .rec-fade-bottom { background: linear-gradient(to top, rgb(41 33 25 / 0.95), rgb(41 33 25 / 0)); }
+
+/* '여유' 등급 칩 — 초록. 야간에는 밝은 초록 글자(어두운 카드 위에서 읽히게). */
+.benefit-relaxed {
+  border-color: rgb(16 185 129 / 0.35);
+  background-color: rgb(16 185 129 / 0.10);
+  color: #047857;
+}
+html.nextspot-dark .benefit-relaxed { color: #6ee7b7; }
+
+/* 실시간 정보 새로고침 뒤 새로 받아 온 줄을 1.5초 반짝인다(I47). */
+@keyframes live-flash {
+  0% {
+    background-color: color-mix(in srgb, var(--nextspot-gold) 26%, transparent);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--nextspot-jade) 60%, transparent);
+  }
+  100% {
+    background-color: transparent;
+    box-shadow: 0 0 0 2px transparent;
+  }
+}
+.live-flash {
+  border-radius: 0.75rem;
+  animation: live-flash 1.5s ease-out;
+}

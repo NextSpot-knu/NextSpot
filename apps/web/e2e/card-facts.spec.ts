@@ -100,6 +100,14 @@ async function toggleDetails(page: Page): Promise<void> {
   await expect(card.getByRole('button', { name: '상세 정보 접기' })).toBeVisible();
 }
 
+/** 상세 → '추천 근거 자세히'(계획 B2) — 시간 타일 · 출발/도착 타임라인 · 하루 혼잡 곡선은 여기 안에 있다. */
+async function openWhy(page: Page): Promise<void> {
+  const card = page.getByTestId('recommendation-card');
+  await toggleDetails(page);
+  await card.getByTestId('why-toggle').click();
+  await expect(card.getByTestId('why-panel')).toBeVisible();
+}
+
 // ───────────────────────────────────────────────────────────────────────────
 // /predict/day — 학습되지 않은 모델에는 묻지 않는다.
 // ───────────────────────────────────────────────────────────────────────────
@@ -123,7 +131,7 @@ test('a trained model still gets its /predict/day curve (the gate is not just cl
   test.setTimeout(90_000);
   const counts = await stubPredict(page, true);
   await openMain(page);
-  await toggleDetails(page);
+  await openWhy(page);
   await expect(page.getByTestId('recommendation-card')).toContainText('가장 한산한 시간 · 오후 3시', { timeout: 10_000 });
   expect(counts.day).toBe(1);
 });
@@ -141,6 +149,10 @@ test('with no wait the tile reads 도보 시간 and agrees with the walk chip an
   test.setTimeout(90_000);
   await openMain(page, { travelTime: 2.4 }); // 2.4분 → 칩 3분(예전 큰 숫자는 반올림 2분이었다)
   const card = page.getByTestId('recommendation-card');
+  // 얼굴의 '출발 → 도착' 도 같은 3분이다.
+  const [faceDepart = '', faceArrive = ''] = (await card.getByTestId('arrival-line').innerText()).match(/(\d{2}:\d{2})/g) ?? [];
+  expect((minutesOf(faceArrive) - minutesOf(faceDepart) + 1440) % 1440).toBe(3);
+  await openWhy(page);
   const tile = card.getByText('도보 시간', { exact: true }).locator('xpath=..');
   await expect(tile).toContainText('3분');
   await expect(card.getByText('총 소요 시간', { exact: true })).toHaveCount(0);
@@ -155,7 +167,8 @@ test('a verified wait reads the same minutes in the 💡 reason, the chip and th
   await openMain(page, { modelWait: 2.3, travelTime: 4 }); // 2.3분 → 올림 3분(예전 💡 는 반올림 2분이었다)
   const card = page.getByTestId('recommendation-card');
   await expect(card.getByText('대기 3분', { exact: true }).first()).toBeVisible();
-  await expect(card).toContainText('도보 4분 · 대기 3분');
+  // 얼굴은 가치 문장(도보 4분) + 대기 칩(대기 3분) — 예전 '도보 4분 · 대기 3분' 요약 줄은 같은 말의 세 번째 반복이었다(계획 B2).
+  await expect(card.getByTestId('value-box')).toContainText('도보 4분');
   await toggleDetails(page);
   await expect(card).toContainText('예상 대기 3분이에요');
   await expect(card).not.toContainText('대기 2분');
@@ -170,7 +183,8 @@ test("an open-air sight with '상시 개방' reads 도착 시 영업 예상", as
   // 서버 파서는 아직 '상시 개방' 을 모른다(순위가 바뀌는 서버 보강은 심사 뒤) — 카드가 운영시간 문구로 바로잡는다.
   await openMain(page, { name: '경주 계림', operatingHours: { open: '상시 개방' }, openStatus: 'needs_confirmation' });
   const card = page.getByTestId('recommendation-card');
-  await expect(card.getByText('도착 시 영업 예상', { exact: true })).toBeVisible();
+  // 계획 B2: 화살표가 없는 카드는 가치 문장이 '도착 시 영업' 을 한 번 말한다(같은 말을 칩으로 되풀이하지 않는다).
+  await expect(card.getByTestId('value-box')).toContainText('도착 시 영업');
   await expect(card).not.toContainText(/영업시간 미확인/);
 });
 
