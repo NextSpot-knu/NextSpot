@@ -222,6 +222,24 @@ test('en: the taste radar speaks English end to end', async ({ page }) => {
   expect(await radar.innerText()).not.toMatch(/[가-힣]/);
 });
 
+// 어두운 테마(18~06시 자동) — 축 글자·격자가 밝은 테마 색으로 박혀 있으면 어두운 카드에서 거의 안 보인다.
+test('dark: the radar axis labels and grid follow the theme colours', async ({ page }) => {
+  test.setTimeout(90_000);
+  await page.addInitScript(() => localStorage.setItem('nextspot_theme', 'dark'));
+  await stubRadar(page, 'ko');
+  await page.goto('/mypage');
+  const radar = page.getByTestId('taste-radar');
+  await expect(radar.locator('.recharts-polar-angle-axis-tick text').first()).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator('html')).toHaveClass(/nextspot-dark/);
+  const colours = await radar.evaluate((el) => {
+    const text = el.querySelector('.recharts-polar-angle-axis-tick text');
+    const grid = el.querySelector('.recharts-polar-grid-concentric-polygon, .recharts-polar-grid-angle line');
+    return { fill: text ? getComputedStyle(text).fill : null, stroke: grid ? getComputedStyle(grid).stroke : null };
+  });
+  expect(colours.fill, '축 글자가 어두운 테마의 보조 글자색이 아니다').toBe('rgb(196, 180, 159)');
+  expect(colours.stroke, '격자가 어두운 테마의 선 색이 아니다').toBe('rgb(73, 58, 44)');
+});
+
 test('ko: the radar face has no engine words; +10% and −5% sit behind 자세히', async ({ page }) => {
   test.setTimeout(90_000);
   await stubRadar(page, 'ko');

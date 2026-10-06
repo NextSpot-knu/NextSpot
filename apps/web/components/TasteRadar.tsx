@@ -131,8 +131,9 @@ export default function TasteRadar() {
                 }))}
                 outerRadius="72%"
               >
-                <PolarGrid stroke="rgba(43,35,32,0.12)" />
-                <PolarAngleAxis dataKey="label" tick={{ fill: '#6b5d4f', fontSize: 11 }} />
+                {/* 축 글자·격자는 테마 토큰으로 — 하드코딩한 밝은 테마 색은 어두운 카드(18~06시 자동)에서 거의 안 보였다. */}
+                <PolarGrid stroke="var(--nextspot-line)" />
+                <PolarAngleAxis dataKey="label" tick={{ fill: 'var(--nextspot-muk-soft)', fontSize: 11, style: { fill: 'var(--nextspot-muk-soft)' } }} />
                 <Tooltip
                   formatter={(value) => [`${value} / 100`, t('taste.tooltipLabel')]}
                   contentStyle={{
