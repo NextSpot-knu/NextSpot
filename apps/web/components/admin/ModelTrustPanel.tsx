@@ -264,8 +264,8 @@ export function ModelTrustPanel({
           <p className="flex items-center gap-1.5 text-xs font-bold text-hanok-ink"><Database size={14} className="text-gold-deep" />실데이터 수집 현황</p>
           <p className="text-[11px] text-hanok-muted">
             {remaining > 0
-              ? `현장 확인 ${remaining}건이 더 쌓이면 학습 모델 준비를 시작합니다`
-              : '학습 모델 준비를 시작할 만큼 현장 확인이 모였습니다'}
+              ? `검증·상호확인 ${remaining}건이 더 쌓이면 학습 모델 준비를 시작합니다`
+              : '학습 모델 준비를 시작할 만큼 검증·상호확인이 모였습니다'}
           </p>
         </div>
         <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-4">
@@ -279,7 +279,7 @@ export function ModelTrustPanel({
           <div className="mt-3" role="progressbar" aria-valuemin={0} aria-valuemax={candidateGate} aria-valuenow={trusted} aria-label="학습 모델 준비">
             <div className="flex items-center justify-between text-[11px] text-hanok-muted">
               <span>학습 모델 준비</span>
-              <span>현장 확인 {trusted} / {candidateGate}건 · {Math.round(gateProgress * 100)}%</span>
+              <span>검증·상호확인 {trusted} / {candidateGate}건 · {Math.round(gateProgress * 100)}%</span>
             </div>
             <div className="mt-1 h-2 w-full overflow-hidden rounded-full bg-hanok-line">
               <div className="h-full rounded-full bg-gold transition-all" style={{ width: `${Math.round(gateProgress * 100)}%` }} />

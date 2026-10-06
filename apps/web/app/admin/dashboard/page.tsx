@@ -31,7 +31,6 @@ import {
   ESTIMATE_ANOMALY_UNIT,
   ESTIMATE_BADGE,
   PREDICTED_ANOMALY_UNIT,
-  PREDICTED_BANNER_CHIP,
   PREDICTED_HEADING,
   PREDICTED_MIXED_SENTENCE,
   PREDICTED_MIXED_SENTENCE_MEASURED,
@@ -1004,21 +1003,10 @@ function DashboardPage() {
             </div>
           )}
 
-          {/* 표본 절단 경고 — 서버가 상한에서 자른 사실을 화면이 말한다.
-              서버(/admin/metrics·/metrics/trend)는 truncated 를 실어 보내고 있었는데 화면이
-              읽지 않았다. 잘린 수치는 **기간 전체의 값이 아니다** — 특히 수락률처럼 비율로
-              보이는 숫자는 잘려도 그럴듯해 보여서, 화면이 말해 주지 않으면 알 방법이 없다. */}
-          {(metricsTruncated || distribution?.truncated) && (
-            <div>
-              <span className="inline-flex items-center rounded-full border border-hanok-line bg-hanok-card px-3 py-1 text-xs font-semibold text-hanok-muted">
-                최신 구간 기준
-              </span>
-            </div>
-          )}
-
           {/* ───────── 폐루프 ① 실시간 관제 ───────── */}
           {/* ① 부제는 이 구역이 무엇으로 보는지(데이터 원천)를 말하고, 출처 표기는 따로 한 줄로 단다.
-              내보내기(CSV)는 ① 제목 줄 오른쪽 — 따로 한 줄을 차지하면 KPI 네 개가 첫 화면 밖으로 밀린다.
+              내보내기(CSV)와 표본 절단 칩은 ① 제목 줄 오른쪽 — 따로 한 줄을 차지하면 KPI 네 개가 첫 화면 밖으로
+              밀린다(1366×650 에서 두 줄 브리핑 + 칩 한 줄이면 KPI 숫자가 첫 화면 아래였다).
               ('24시간 모의 발생' 버튼은 D6 결정으로 걷어냈다. 합성 로그를 congestion_logs 에 넣어 화면을 채우는
               대신, 오늘의 추정(주차 실측 + 관광 통계)을 '추정' 라벨과 함께 그린다. 백엔드 simulate-peak 은 남아 있다.) */}
           <div className="flex items-center justify-between gap-4">
@@ -1031,13 +1019,24 @@ function DashboardPage() {
                 color="blue"
               />
             </div>
-            <button
-              type="button"
-              onClick={handleExportCsv}
-              className="flex flex-shrink-0 items-center gap-2 px-4 py-2 bg-hanok-ink/90 hover:bg-hanok-ink text-hanok-card font-semibold rounded-lg shadow-sm transition-colors text-sm cursor-pointer"
-            >
-              <Download size={16} /> 데이터 내보내기 (CSV)
-            </button>
+            <div className="flex flex-shrink-0 items-center gap-3">
+              {/* 표본 절단 경고 — 서버가 상한에서 자른 사실을 화면이 말한다.
+                  서버(/admin/metrics·/metrics/trend)는 truncated 를 실어 보내고 있었는데 화면이
+                  읽지 않았다. 잘린 수치는 **기간 전체의 값이 아니다** — 특히 수락률처럼 비율로
+                  보이는 숫자는 잘려도 그럴듯해 보여서, 화면이 말해 주지 않으면 알 방법이 없다. */}
+              {(metricsTruncated || distribution?.truncated) && (
+                <span className="inline-flex items-center rounded-full border border-hanok-line bg-hanok-card px-3 py-1 text-xs font-semibold text-hanok-muted">
+                  최신 구간 기준
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={handleExportCsv}
+                className="flex items-center gap-2 px-4 py-2 bg-hanok-ink/90 hover:bg-hanok-ink text-hanok-card font-semibold rounded-lg shadow-sm transition-colors text-sm cursor-pointer"
+              >
+                <Download size={16} /> 데이터 내보내기 (CSV)
+              </button>
+            </div>
           </div>
 
           {/* 추정 모드 배너 — 아래 KPI·히트맵·이상 알림이 **전부** 추정치로 바뀐다는 사실을 이 구역
@@ -1071,21 +1070,24 @@ function DashboardPage() {
 
           {/* 예측 모드 배너(2026-09-22) — 오늘 실측도 추정도 없을 때 아래 KPI·히트맵·이상 알림이 **전부** 업종
               시간대 패턴 기반 예측치로 바뀐다는 사실을 추정 배너와 같은 자리·같은 구조(한 줄 + '산식 보기')로
-              세운다. 근거 한 줄(요일 계수·시설 수·앵커)과 산식, 무엇이 쌓이면 무엇으로 바뀌는지는 펼친 쪽에 둔다. */}
+              세운다. 칩·문장 모양도 추정 배너와 같다('예측 · 오늘' + 해요체 한 줄) — 두 모드가 첫 화면 같은 자리에서
+              다른 말투로 보이지 않게. 제목 문장(앵커 여부)·근거 한 줄(요일 계수·시설 수·앵커)과 산식, 무엇이 쌓이면
+              무엇으로 바뀌는지는 펼친 쪽에 둔다. */}
           {isPredicted && (
             <details className="group rounded-2xl border border-violet-400/50 bg-violet-500/10 px-4 py-3">
               <summary className="flex cursor-pointer list-none items-center gap-2 [&::-webkit-details-marker]:hidden">
                 <Info size={18} className="text-violet-700 flex-shrink-0" />
                 <span className="px-2.5 py-0.5 rounded-md text-xs font-black border bg-violet-500/20 text-violet-800 border-violet-400/60 whitespace-nowrap">
-                  {PREDICTED_BANNER_CHIP}
+                  {PREDICTED_BADGE} · 오늘
                 </span>
-                <span className="min-w-0 truncate text-sm font-bold text-violet-700">{predictedHeadline}</span>
+                <span className="min-w-0 truncate text-sm font-bold text-violet-700">오늘 시설 혼잡은 업종 시간대 패턴으로 예측했어요</span>
                 <span className="ml-auto flex flex-shrink-0 items-center gap-1 text-xs font-semibold text-violet-700">
                   산식 보기 <ChevronDown size={14} className="transition-transform group-open:rotate-180" />
                 </span>
               </summary>
               <div className="mt-2 pl-7">
-                <p className="text-sm text-hanok-ink">{predictedLine}</p>
+                <p className="text-sm font-semibold text-violet-700">{predictedHeadline}</p>
+                <p className="text-sm text-hanok-ink mt-1">{predictedLine}</p>
                 <p className="text-xs text-hanok-muted mt-1">{predictedMethod}</p>
                 <p className="text-xs text-hanok-muted mt-1">{PREDICTED_SWITCH_SENTENCE}</p>
                 {/* 오늘 현장 실측 1~4건 — 예측이 그려지는 동안에도 실측이 쌓이고 있다는 사실. */}
@@ -1177,10 +1179,12 @@ function DashboardPage() {
           )}
 
           {/* KPI Cards (Server Rendered) — 기능설명서의 네 지표(평균 혼잡도·추천 수락률·활성 사용자·이상 혼잡).
-              관제 화면을 연 첫 화면에 들어와야 한다(1536×730 기준 — e2e/admin-dashboard-first-screen.spec.ts). */}
+              관제 화면을 연 첫 화면에 들어와야 한다(1536×730·1366×650 기준 — e2e/admin-dashboard-first-screen.spec.ts).
+              타일 내용은 위로 붙인다(justify-between 없음) — 네 숫자가 같은 높이에 선다. 아래로 붙이면 근거 줄이 짧은
+              타일(DAU)의 숫자가 가장 긴 타일 바닥까지 밀려 1366×650 에서 첫 화면 밖이었다. */}
           <div id="dashboard-kpis" className="grid grid-cols-4 gap-6">
             {/* 오늘 평균 혼잡도 — 추정/예측이면 점선 테두리 + 배지 + 근거 한 줄(실측과 같은 모양이 아니다). */}
-            <div className={`bg-hanok-panel p-6 rounded-2xl shadow-sm flex flex-col justify-between ${
+            <div className={`bg-hanok-panel p-6 rounded-2xl shadow-sm flex flex-col ${
               isEstimate
                 ? 'border-2 border-dashed border-sky-400/50'
                 : isPredicted
@@ -1294,7 +1298,7 @@ function DashboardPage() {
 
             {/* 추천 수락률 — 추천 고리 공동 판정(loopBasis)이 시나리오면 시나리오 값(호박 점선 + 배지 + 근거 한 줄).
                 실측 1~4건이면 그 수를 부제에 적는다('실측 3건 수집 중'). 조회 실패는 그대로 '갱신 중'. */}
-            <div className={`bg-hanok-panel p-6 rounded-2xl shadow-sm flex flex-col justify-between ${
+            <div className={`bg-hanok-panel p-6 rounded-2xl shadow-sm flex flex-col ${
               acceptScenario ? 'border-2 border-dashed border-amber-400/50' : 'border border-hanok-line'
             }`}>
               <div className="flex justify-between items-start mb-4">
@@ -1364,7 +1368,7 @@ function DashboardPage() {
             </div>
 
             {/* DAU — 추천 고리 공동 판정이 시나리오면 시나리오 값(수락률 타일과 같은 규칙). */}
-            <div className={`bg-hanok-panel p-6 rounded-2xl shadow-sm flex flex-col justify-between ${
+            <div className={`bg-hanok-panel p-6 rounded-2xl shadow-sm flex flex-col ${
               dauScenario ? 'border-2 border-dashed border-amber-400/50' : 'border border-hanok-line'
             }`}>
               <div className="flex justify-between items-start mb-4">
@@ -1417,7 +1421,7 @@ function DashboardPage() {
 
             {/* 이상 혼잡 알림 건수 — 추정이면 단위가 다르다('로그 1행' 이 아니라 '대표 관광지 × 10분 구간').
                 같은 '건' 으로 적으면 실측 건수와 같은 척도로 읽히므로 단위를 숫자 옆에 적는다. */}
-            <div className={`bg-hanok-panel p-6 rounded-2xl shadow-sm flex flex-col justify-between ${
+            <div className={`bg-hanok-panel p-6 rounded-2xl shadow-sm flex flex-col ${
               isEstimate
                 ? 'border-2 border-dashed border-sky-400/50'
                 : isPredicted

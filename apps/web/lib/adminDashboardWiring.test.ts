@@ -154,6 +154,21 @@ const estimateView = stripComments(read('lib/adminEstimateView.ts'));
   assert.match(estimateBlock, /오늘 시설 혼잡은 공영주차 실측과 관광공사 통계로 추정했어요/, '추정 배너의 한 줄 문장이 없다');
   const predictedBlock = detailsAround('{predictedMethod}');
   assert.ok(predictedBlock.includes('{PREDICTED_SWITCH_SENTENCE}'), '예측 전환 문장이 산식 보기 안에 없다');
+  // 예측 배너도 추정 배너와 같은 모양(칩 '예측 · 오늘' + 해요체 한 줄) — 두 모드가 첫 화면 같은 자리에서
+  // 칩 형식·말투가 갈리지 않게. 앵커를 적는 긴 제목 문장({predictedHeadline})은 펼친 쪽에 둔다.
+  const predictedSummary = predictedBlock.slice(0, predictedBlock.indexOf('</summary>'));
+  assert.match(predictedSummary, /\{PREDICTED_BADGE\} · 오늘\s*</, "예측 배너 칩이 추정 배너와 같은 '예측 · 오늘' 이 아니다");
+  assert.match(predictedSummary, /오늘 시설 혼잡은 업종 시간대 패턴으로 예측했어요/, '예측 배너의 한 줄 문장이 없다');
+  assert.ok(!predictedSummary.includes('{predictedHeadline}') && predictedBlock.includes('{predictedHeadline}'), '예측 배너 제목 문장이 산식 보기 안에 있지 않다');
+  const estimateSummary = estimateBlock.slice(0, estimateBlock.indexOf('</summary>'));
+  assert.match(estimateSummary, /\{ESTIMATE_BADGE\} · 오늘\s*</, "추정 배너 칩이 '추정 · 오늘' 이 아니다");
+
+  // 표본 절단 칩('최신 구간 기준')은 ① 제목 줄 안(내보내기 버튼 옆)에 있다 — 따로 한 줄을 차지하면
+  // 1366×650 에서 두 줄 브리핑과 겹친 날 KPI 숫자가 첫 화면 밖으로 밀린다(e2e 1366×650 케이스).
+  const stepOne = page.indexOf('badge="①"');
+  const chip = page.indexOf('최신 구간 기준');
+  assert.equal(page.split('최신 구간 기준').length - 1, 1, '표본 절단 칩이 두 번 그려진다');
+  assert.ok(stepOne >= 0 && chip > stepOne && chip < page.indexOf('데이터 내보내기 (CSV)'), '표본 절단 칩이 ① 제목 줄(내보내기 버튼 옆)에 있지 않다');
 
   // ① 부제는 데이터 원천을 말하고, 출처 표기는 따로 한 줄이다(부제 안에 섞지 않는다).
   const stepOneTag = page.slice(page.lastIndexOf('<StepBanner', page.indexOf('badge="①"')), page.indexOf('/>', page.indexOf('badge="①"')));

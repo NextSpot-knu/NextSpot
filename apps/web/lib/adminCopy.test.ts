@@ -4,9 +4,12 @@
 // 잠그는 사실(2026-10-06 심사 화면 점검):
 //   (1) 사이드바 메뉴는 한국어다('Dashboard'·'Simulator'·'(Support)' 가 섞여 있었다). 'SPOT' 은 서비스 고유 용어라 허용.
 //   (2) '엔진 검증' 은 심사 기간에 메뉴에서 감춘다(PM 결정 4.14) — 화면은 URL 로 그대로 열린다.
-//   (3) 문의·설정·쿠폰·신뢰도·시뮬레이터 화면에 영어 라벨·개발 용어(W_pref·가드레일·다봉 …)가 없다.
+//   (3) 문의·설정·쿠폰·신뢰도·시뮬레이터·대시보드·장소 관리 표에 영어 라벨·개발 용어(W_pref·가드레일·다봉·(CRUD) …)가 없다.
+//       시뮬레이터의 혜택 축은 SPOT 인센티브 항 그대로 '혜택·혼잡 분산'(쿠폰 강도 + 혼잡 분산)이고,
+//       추천 신뢰도 패널은 검증 관측 수를 아래 격자와 같은 이름('검증·상호확인')으로 부른다.
 //   (4) 안전 경보의 두 슬라이더는 같은 0–100 눈금이다(같은 % 가 두 트랙에서 같은 자리에 선다).
 //   (5) 서버가 403 으로 쓰기를 거절하면 서버가 준 사유 문장이 그대로 보인다(설정 저장·장소 삭제).
+//       설정 폼은 저장돼 있는 값으로 되돌아간다(거절된 값이 남으면 사유 문장이 사라진 뒤 저장된 것처럼 보인다).
 //       계정 판정은 서버가 한다 — 화면은 이메일을 보고 미리 막지 않는다.
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -47,15 +50,29 @@ const stripComments = (s: string) => s.replace(/^\s*\/\/.*$/gm, '').replace(/\{?
     'components/admin/CouponPolicyPanel.tsx',
     'components/admin/ModelTrustPanel.tsx',
     'components/admin/SPOTSimulator.tsx',
+    'components/admin/FacilityTable.tsx',
+    'app/admin/dashboard/page.tsx',
   ];
   const FORBIDDEN =
-    /\(Support\)|Help & Support|W_pref|W_time|W_inc|다봉|w3 |가드레일|ML 후보|Total:|New:|'NEW'|>NEW<|IN PROGRESS|RESOLVED|\(General\)|Congestion Threshold|\(Red\)|\(Override\)|Preference, Time Cost/;
+    /\(Support\)|Help & Support|W_pref|W_time|W_inc|다봉|w3 |가드레일|ML 후보|Total:|New:|'NEW'|>NEW<|IN PROGRESS|RESOLVED|\(General\)|Congestion Threshold|\(Red\)|\(Override\)|Preference, Time Cost|\(CRUD\)/;
   for (const file of FILES) {
     const hit = stripComments(read(file)).match(FORBIDDEN);
     assert.equal(hit, null, `${file} 화면 문구에 영어 라벨·개발 용어가 남아 있다: ${hit?.[0]}`);
   }
   // 장소 관리 화면 제목이 메뉴 이름과 같다(메뉴 '장소 관리' → 화면 '관광지 모니터링' 이던 불일치).
   assert.match(read('app/admin/infrastructure/page.tsx'), />장소 관리<\/h2>/, '장소 관리 화면 제목이 메뉴 이름과 다르다');
+  // 시뮬레이터 혜택 축 = SPOT 인센티브 항(쿠폰 강도 + 혼잡 분산, score.py W3) — '쿠폰' 만 말하면 이 축의 모의 값
+  // (한산 보너스)과도, 서비스의 핵심 가치(혼잡 분산)와도 어긋난다.
+  const simulator = stripComments(read('components/admin/SPOTSimulator.tsx'));
+  assert.match(simulator, /label="혜택·혼잡 분산"/, "시뮬레이터 혜택 축 이름에 '혼잡 분산' 이 없다");
+  assert.doesNotMatch(simulator, /혜택\(쿠폰\)|쿠폰을 건 곳이 앞서/, '시뮬레이터가 혜택 축을 쿠폰만으로 설명한다');
+  // 추천 신뢰도 패널 — trusted_observations 는 한 이름(격자의 '검증·상호확인')으로만 부른다.
+  // '현장 확인' 이라 부르면 바로 아래 '전체 현장 관측'(다른 숫자)과 짝지어 읽혀 숫자가 안 맞아 보인다.
+  const trust = stripComments(read('components/admin/ModelTrustPanel.tsx'));
+  assert.match(trust, /검증·상호확인 <strong[^>]*>\{data\.collection\.trusted_observations\}/, '격자의 검증 관측 이름이 바뀌었다 — 아래 문장들과 함께 바꿀 것');
+  assert.match(trust, /`검증·상호확인 \$\{remaining\}건이 더 쌓이면/, '학습 관문 문장이 검증 관측을 격자와 다른 이름으로 부른다');
+  assert.match(trust, /<span>검증·상호확인 \{trusted\} \/ \{candidateGate\}건/, '학습 관문 진행 막대가 검증 관측을 격자와 다른 이름으로 부른다');
+  assert.doesNotMatch(trust, /현장 확인/, "'현장 확인' 은 격자의 '전체 현장 관측' 과 섞여 읽힌다");
   // 설정 부제가 없는 기능(추천 알고리즘 파라미터)을 약속하지 않는다.
   assert.doesNotMatch(read('app/admin/settings/page.tsx'), /AI 추천 알고리즘의 세부 파라미터/, '설정 부제가 화면에 없는 컨트롤을 약속한다');
 }
@@ -92,7 +109,15 @@ const stripComments = (s: string) => s.replace(/^\s*\/\/.*$/gm, '').replace(/\{?
   assert.match(api, /response\.status,\s*typeof errorData\?\.detail === 'string'/, '관리자 API 가 서버 detail 을 에러에 싣지 않는다');
 
   const settings = stripComments(read('app/admin/settings/page.tsx'));
-  assert.match(settings, /text: adminApiForbiddenDetail\(e\) \?\? '저장에 실패했습니다/, '설정 저장 실패가 서버의 거절 사유를 보이지 않는다');
+  assert.match(settings, /const denied = adminApiForbiddenDetail\(e\);[\s\S]*text: denied \?\? '저장에 실패했습니다/, '설정 저장 실패가 서버의 거절 사유를 보이지 않는다');
+  // 거절되면 폼을 저장돼 있는 값(마지막 조회·저장 성공)으로 되돌린다 — 세 값 모두.
+  const restore = settings.match(/if \(denied\) \{([\s\S]*?)\}/);
+  assert.ok(restore, '설정 저장이 거절돼도 폼이 저장된 값으로 돌아가지 않는다');
+  for (const setter of ['setIsMaintenance', 'setNotice', 'setThreshold']) {
+    assert.ok(restore[1].includes(`${setter}(storedRef.current.`), `거절 뒤 ${setter} 가 저장된 값으로 돌아가지 않는다`);
+  }
+  // 저장된 값은 조회 성공과 저장 성공 두 곳에서만 바뀐다(거절·실패에서는 안 바뀐다).
+  assert.equal(settings.split('storedRef.current =').length - 1, 2, '저장된 값(storedRef)이 조회·저장 성공 밖에서 바뀐다');
   const table = stripComments(read('components/admin/FacilityTable.tsx'));
   assert.match(table, /toast\.error\(adminApiForbiddenDetail\(err\) \?\? '삭제를/, '장소 삭제 실패가 서버의 거절 사유를 보이지 않는다');
   // 계정 판정은 서버 몫 — 화면이 이메일로 미리 막으면 서버 가드와 갈라진다.

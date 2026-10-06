@@ -115,7 +115,7 @@ export default function SPOTSimulator() {
         let analysis = "추천할 곳과 아닌 곳의 점수 차이가 뚜렷합니다.";
         if (wp > 0.6) analysis = "취향 가중치가 너무 높아 취향이 맞는 곳에만 점수가 몰립니다.";
         if (wt > 0.6) analysis = "이동 시간 가중치가 너무 높아 가까운 곳만 추천됩니다.";
-        if (wi > 0.5) analysis = "혜택 가중치가 높아 쿠폰을 건 곳이 앞서기 쉽습니다.";
+        if (wi > 0.5) analysis = "혜택 가중치가 높아 쿠폰이 있거나 지금 덜 붐비는 곳이 앞서기 쉽습니다.";
 
         return { chartData: bins, analysisText: analysis };
     }, [weights, mockFacilities]);
@@ -147,7 +147,7 @@ export default function SPOTSimulator() {
                         onChange={(v) => handleWeightChange('time', v)}
                     />
                     <SyncControl
-                        label="혜택(쿠폰)"
+                        label="혜택·혼잡 분산"
                         value={weights.inc}
                         colorClass="text-green-700 bg-green-500/10 border-green-500/30"
                         accentClass="accent-green-600"

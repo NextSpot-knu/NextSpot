@@ -1,14 +1,16 @@
 import { expect, test, type Page, type Route } from '@playwright/test';
 import { stubExternalServices } from './support/stubs';
 
-// 관제 대시보드를 **데스크톱 노트북(1536×730 — 1536×864 화면에서 브라우저 크롬을 뺀 높이)** 으로 여는 심사 동선.
+// 관제 대시보드를 **데스크톱 노트북(1536×730 — 1536×864 화면에서 브라우저 크롬을 뺀 높이 · 1366×650 — 1366×768)**
+// 으로 여는 심사 동선.
 //
 // 잠그는 것:
 //   · 첫 화면에 기능설명서의 KPI 네 개(평균 혼잡도·추천 수락률·활성 사용자·이상 혼잡)가 스크롤 없이 다 들어온다.
-//     가장 키가 큰 실제 조합(추정 모드 + 오늘의 브리핑)으로 잰다.
+//     가장 키가 큰 실제 조합(추정 모드 + 오늘의 브리핑, 1366 에서는 두 줄 브리핑 + 표본 절단 칩)으로 잰다.
 //   · 산식은 '산식 보기' 를 열어야 보이고, 추천 신뢰도 패널은 맨 아래에 그대로 보인다.
 //   · 사이드바는 한국어이고 '엔진 검증' 은 메뉴에 없다(화면은 URL 로 열린다).
 //   · 심사용 계정의 쓰기를 서버가 403 으로 거절하면 서버의 사유 문장이 그대로 보인다(설정 저장·장소 삭제).
+//     설정 폼은 저장돼 있는 값으로 돌아간다.
 //
 // 실계정·실서버는 쓰지 않는다. 관리자 판정(/account/me)과 관리자 API·Supabase REST 는 전부 스텁이다.
 
@@ -81,6 +83,9 @@ const MODEL_TRUST = {
 
 const BRIEFING =
   '오늘 경주 주요 관광지의 추정 혼잡도는 오후 1시 무렵 가장 높았고, 대릉원 일원에서 90%를 넘는 구간이 4번 있었습니다. 수락된 추천 10건이 덜 붐비는 곳으로 방문을 나눴습니다.';
+// 1366 폭에서 두 줄로 접히는 브리핑(라이브 AI 브리핑은 이 정도 길이가 흔하다).
+const BRIEFING_LONG =
+  '오늘 경주 주요 관광지의 추정 혼잡도는 오후 1시 무렵 가장 높았고, 대릉원 일원에서 90%를 넘는 구간이 4번 있었습니다. 수락된 추천 10건이 덜 붐비는 곳으로 방문을 나눴고, 황리단길 북쪽 골목과 교촌마을 쪽은 오후 내내 여유 있는 편이었습니다.';
 
 function json(route: Route, status: number, body: unknown, headers: Record<string, string> = {}) {
   return route.fulfill({ status, contentType: 'application/json', headers, body: JSON.stringify(body) });
@@ -135,12 +140,12 @@ async function stubAdminConsole(page: Page): Promise<void> {
   });
 }
 
-async function openDashboard(page: Page): Promise<void> {
+async function openDashboard(page: Page, briefing = BRIEFING): Promise<void> {
   await page.goto('/admin/dashboard');
   await expect(page.locator('#dashboard-kpis')).toBeVisible({ timeout: 30_000 });
   // 첫 로드 동기화 스트립이 걷히고(KPI 네 개 도착), 브리핑·관광정보 수까지 그려진 '가장 키 큰' 첫 화면을 잰다.
   await expect(page.getByText('실시간 관제 데이터 동기화 중')).toBeHidden({ timeout: 30_000 });
-  await expect(page.getByText(BRIEFING)).toBeVisible();
+  await expect(page.getByText(briefing)).toBeVisible();
   await expect(page.getByText(/경주 관광정보 1,669곳 · 경주 ITS 공영주차\(10분마다\)로/)).toBeVisible();
 }
 
@@ -187,6 +192,35 @@ test('1536×730 — 첫 화면에 KPI 네 개, 산식은 접혀 있고 추천 �
   await expect(page.locator('main')).not.toContainText('서울');
 });
 
+test('1366×650 — 두 줄 브리핑과 표본 절단 칩이 함께 떠도 KPI 숫자 네 개가 첫 화면에 들어온다', async ({ page }) => {
+  // 1366×768 노트북(계획 3.2 예산 화면). 서버가 지표 표본을 상한에서 잘랐다(truncated) — '최신 구간 기준' 칩이 뜬다.
+  // 칩이 따로 한 줄을 차지하던 때는 이 조합에서 KPI 격자 아래 끝이 736px 로 숫자가 첫 화면 밖이었다.
+  await page.route(/\/api\/v1\/admin\/metrics\?days=8/, (route) => json(route, 200, { ...METRICS, truncated: true }));
+  await page.route('**/api/v1/admin/dashboard/briefing**', (route) => json(route, 200, { briefing: BRIEFING_LONG, llmStatus: 'llm' }));
+  await page.setViewportSize({ width: 1366, height: 650 });
+  await openDashboard(page, BRIEFING_LONG);
+  await expect(page.getByText('최신 구간 기준', { exact: true })).toBeVisible();
+  // 가장 키 큰 조합을 재는지 확인 — 이 폭에서 브리핑은 두 줄이다(한 줄로 줄면 이 검사가 약해진다).
+  const briefingBox = await page.getByText(BRIEFING_LONG).boundingBox();
+  expect(briefingBox!.height, '브리핑이 두 줄 이상이 아니다 — 최악 조합을 재지 못한다').toBeGreaterThan(30);
+
+  // KPI 값(제목 바로 아래 숫자) 네 개 — 격자 전체가 아니라 숫자가 첫 화면 안에 있어야 한다.
+  const values = page.locator('#dashboard-kpis h3 + div');
+  await expect(values).toHaveCount(4);
+  const tops: number[] = [];
+  for (let i = 0; i < 4; i++) {
+    await expect(values.nth(i)).toHaveText(/\d/);
+    const box = await values.nth(i).boundingBox();
+    expect(box, `KPI 값 ${i + 1}`).not.toBeNull();
+    tops.push(box!.y);
+    const bottom = box!.y + box!.height;
+    console.log(`KPI value ${i + 1} bottom at 1366×650: ${Math.round(bottom)}px`);
+    expect(bottom, `KPI 값 ${i + 1} 아래 끝(px) — 스크롤 없이 첫 화면에 들어와야 한다`).toBeLessThan(650);
+  }
+  // 네 숫자는 한 줄에 선다 — 근거 줄이 짧은 타일의 숫자만 아래로 밀려 첫 화면 끝에 걸리지 않게.
+  expect(Math.max(...tops) - Math.min(...tops), 'KPI 숫자 네 개의 높이가 서로 다르다').toBeLessThan(2);
+});
+
 test('사이드바는 한국어 메뉴이고 엔진 검증은 메뉴에 없다', async ({ page }) => {
   await page.setViewportSize({ width: 1536, height: 730 });
   await openDashboard(page);
@@ -205,9 +239,15 @@ test('심사용 계정 — 설정 저장을 서버가 거절하면 서버의 사
   await page.goto('/admin/settings');
   const save = page.getByRole('button', { name: '변경사항 저장' });
   await expect(save).toBeEnabled({ timeout: 30_000 });
+  // 공지를 바꿔 저장을 누른다 — 서버가 거절하면 화면은 저장된 값(빈 공지)으로 돌아와야 한다.
+  // 바꾼 값이 남아 있으면 사유 문장이 4초 뒤 사라진 다음 '저장된 것처럼' 보인다.
+  const noticeInput = page.getByPlaceholder('사용자 앱 상단에 표시할 공지 문구');
+  await expect(noticeInput).toHaveValue('');
+  await noticeInput.fill('심사 중 바꿔 본 공지');
   await save.click();
   await expect(page.getByText(SETTINGS_DENIED)).toBeVisible();
   await expect(page.getByText('저장에 실패했습니다. 잠시 후 다시 시도해 주세요.')).toHaveCount(0);
+  await expect(noticeInput).toHaveValue('');
 });
 
 test('심사용 계정 — 장소 삭제를 서버가 거절하면 서버의 사유 문장이 보인다', async ({ page }) => {

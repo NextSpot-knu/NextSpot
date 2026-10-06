@@ -206,7 +206,7 @@ export function FacilityTable() {
         <div className="p-6 border-b border-hanok-line flex justify-between items-center bg-hanok-card/30">
           <div className="flex items-center gap-2">
             <Settings className="text-hanok-muted" size={20} />
-            <h3 className="text-lg font-bold text-hanok-ink">장소 관리 (CRUD)</h3>
+            <h3 className="text-lg font-bold text-hanok-ink">장소 관리</h3>
           </div>
           <button
             onClick={openCreateModal}
