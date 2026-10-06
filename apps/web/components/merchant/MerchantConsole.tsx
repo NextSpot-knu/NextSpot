@@ -12,6 +12,7 @@
 // 모바일 우선 · 한지(라이트) 팔레트. 각 섹션은 독립적으로 로딩/에러를 관리한다 — 백엔드 신규
 // 엔드포인트(/api/v1/merchant/*)가 아직 배포되지 않았거나 마이그레이션 미적용이어도, 다른 섹션은
 // 정상 동작하고 실패한 섹션만 "우아한 폴백"(재시도 버튼)으로 저하된다(무한 스켈레톤 금지).
+// ① 예상 혼잡만은 예외로 실패해도 같은 업종의 요일·시간대 패턴 곡선으로 그린다(항상 보인다).
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
@@ -60,28 +61,33 @@ import {
   clearSeatStatus,
   fetchFacilityCongestionForecast,
   fetchMerchantBriefing,
-  forecastHonestNote,
+  forecastNote,
+  patternForecastPoints,
+  timesaleConfirmPreview,
   timesalePublishNotice,
+  timesaleRateHint,
   hasTimesaleOverlapNotice,
   MerchantApiError,
-  MerchantForecastUnavailableError,
+  TIMESALE_RATE_OPTIONS,
+  type FacilityForecast,
   type MerchantStats,
   type MerchantTimesale,
   type SeatLevel,
-  type HourlyCongestionPoint,
 } from '@/lib/merchant/api';
+import { bestQuietHour, quietHourCopy } from '@/lib/merchant/forecastInsight';
+import { PREDICTED_BADGE } from '@/lib/adminPredictedView';
 
 import { useT } from '@/lib/i18n/I18nProvider';
-import { DemoBadge, useDemoToast } from '@/components/DemoBadge';
+import { useDemoToast } from '@/components/DemoBadge';
 import {
   DEMO_MERCHANT_FACILITY,
-  DEMO_MERCHANT_FORECAST,
   DEMO_MERCHANT_SEAT,
   DEMO_MERCHANT_SEAT_BY_HOUR,
   DEMO_MERCHANT_STATS,
   DEMO_MERCHANT_TODAY,
   DEMO_MERCHANT_WEEKLY,
   demoActiveTimesale,
+  demoMerchantForecast,
 } from '@/lib/demoFixtures';
 
 const TYPE_LABEL: Record<string, string> = {
@@ -144,11 +150,11 @@ export function MerchantConsole({ demo = false }: { demo?: boolean }) {
   }
 
   return (
-    <div className={`min-h-screen w-full bg-hanji font-sans pb-16 ${demo ? 'pt-11' : ''}`}>
-      {demo && <DemoBadge />}
+    <div className="min-h-screen w-full bg-hanji font-sans pb-16">
       {/* 콘솔 톱바 — 흰 서페이스 위에 가게 이름을 주인공으로 세운다(종류는 금색 칩).
-          좌우 조작은 모두 44px 급 버튼으로 — 스크린샷·고령 사용자 모두에서 '전문 도구' 로 읽히게. */}
-      <header className={`sticky ${demo ? 'top-11' : 'top-0'} z-10 bg-white/95 backdrop-blur border-b border-line px-3 py-2.5 flex flex-col gap-2`}>
+          좌우 조작은 모두 44px 급 버튼으로 — 스크린샷·고령 사용자 모두에서 '전문 도구' 로 읽히게.
+          데모 표시는 떠다니는 배지 대신 이 톱바 안의 '예시 화면' 칩 하나다(sticky 라 스크롤해도 남는다). */}
+      <header className="sticky top-0 z-10 bg-white/95 backdrop-blur border-b border-line px-3 py-2.5 flex flex-col gap-2">
         <div className="flex items-center justify-between gap-2">
           {/* 데모에서도 목적지는 콘솔 홈(/merchant) 이다 — 게이트에 로그인·데모·심사 계정 안내가 모여 있다.
               앱으로 나가는 길은 오른쪽 '나가기' 가 따로 맡는다. */}
@@ -161,9 +167,16 @@ export function MerchantConsole({ demo = false }: { demo?: boolean }) {
           </button>
           <div className="min-w-0 text-center">
             <p className="truncate text-[15px] font-bold font-serif text-muk">{facility.name}</p>
-            <p className="mt-0.5 inline-block rounded-full border border-gold/30 bg-gold/10 px-2 py-px text-[13px] font-semibold leading-5 text-gold-deep">
-              {TYPE_LABEL[facility.type] || facility.type}
-            </p>
+            <div className="mt-0.5 flex items-center justify-center gap-1.5">
+              <span className="rounded-full border border-gold/30 bg-gold/10 px-2 py-px text-[13px] font-semibold leading-5 text-gold-deep">
+                {TYPE_LABEL[facility.type] || facility.type}
+              </span>
+              {demo && (
+                <span className="rounded-full border border-muk/20 bg-muk px-2 py-px text-[13px] font-bold leading-5 text-hanji">
+                  {t('demo.badgeShort')}
+                </span>
+              )}
+            </div>
           </div>
           {/* 오른쪽은 '가게 변경'(콘솔 안에서 대상 바꾸기)과 '나가기'(콘솔 밖으로) 둘이다.
               여기 나가기가 없던 동안 대시보드에서 앱으로 돌아갈 길은 게이트를 한 번 거치는
@@ -201,10 +214,14 @@ export function MerchantConsole({ demo = false }: { demo?: boolean }) {
         {/* key=시설 id — 가게가 바뀌면 카드 상태(이전 가게 브리핑)를 통째로 리셋한다 */}
         <BriefingCard key={facility.id} facilityId={facility.id} demo={demo} />
         {demo && <DemoTodaySummary />}
-        <ForecastSection facilityId={facility.id} demo={demo} />
+        <ForecastSection facilityId={facility.id} facilityType={facility.type} demo={demo} />
         <StatsSection facilityId={facility.id} demo={demo} />
         {demo && <DemoWeeklyTrend />}
-        <TimesaleSection facilityId={facility.id} demo={demo} />
+        <TimesaleSection
+          facilityId={facility.id}
+          demo={demo}
+          demoCouponRate={demo ? DEMO_MERCHANT_FACILITY.couponRate : null}
+        />
         <SeatStatusSection facilityId={facility.id} demo={demo} />
       </main>
     </div>
@@ -216,24 +233,35 @@ export function MerchantConsole({ demo = false }: { demo?: boolean }) {
 // =========================================================================
 
 function SectionCard({
+  id,
   badge,
   title,
+  tag,
   honestNote,
   children,
 }: {
+  /** 콘솔 안 다른 곳에서 이 섹션으로 스크롤해 올 때의 앵커(예: ① 콜아웃 → ③). */
+  id?: string;
   badge: string;
   title: string;
+  /** 제목 옆 작은 칩(예: ① 의 '예측'). */
+  tag?: string;
   honestNote?: string;
   children: React.ReactNode;
 }) {
   return (
-    <section className="toss-surface bg-white border border-line rounded-3xl p-5">
+    <section id={id} className="toss-surface bg-white border border-line rounded-3xl p-5 scroll-mt-28">
       <div className="flex items-center justify-between flex-wrap gap-2 mb-2">
         <div className="flex items-center gap-2">
           <span className="flex-shrink-0 px-2.5 py-0.5 rounded-full text-[13px] font-bold border bg-gold/15 text-gold-deep border-gold/30">
             {badge}
           </span>
           <h2 className="text-[17px] font-bold font-serif text-muk">{title}</h2>
+          {tag && (
+            <span className="flex-shrink-0 rounded-full border border-violet-400/50 bg-violet-500/10 px-2 py-px text-[13px] font-bold text-violet-700">
+              {tag}
+            </span>
+          )}
         </div>
       </div>
       {honestNote && <p className="text-[13px] text-muk-soft mb-3 leading-relaxed">{honestNote}</p>}
@@ -301,86 +329,91 @@ function BriefingCard({ facilityId, demo = false }: { facilityId: string; demo?:
         <h2 className="text-[17px] font-bold font-serif text-muk">오늘의 실행 브리핑</h2>
       </div>
       <p className="text-[15px] text-muk leading-relaxed">{text}</p>
-      <p className="text-[13px] text-muk-soft mt-2 leading-relaxed">
-        문구 속 시간대·수치는 서버가 계산한 예측값입니다. 타임세일 발행 여부는 사장님이 결정하세요.
-      </p>
     </section>
   );
 }
 
 // =========================================================================
-// ① 시간대별 예상 혼잡 — POST /predict/batch 를 hours_ahead 0..8 로 호출해 내 시설만 뽑아 시계열화.
+// ① 시간대별 예상 혼잡 — 앞으로 6시간 곡선. 학습된 모델이 있으면 POST /predict/batch(hours_ahead 0..6)
+// 에서 내 시설만 뽑고, 아니면 같은 업종의 요일·시간대 패턴이다(lib/merchant/api.ts 참조).
+// 어느 쪽이든 섹션은 **항상** 그려진다 — 어떤 실패도 패턴 곡선으로 내려앉는다(재시도 상자 없음).
 // ⚠️ 이 값은 '혼잡도 예측'이다. 방문객 수·유입 인원·매출이 아니다 — 라벨을 그렇게 읽히게 쓰지 말 것.
 // =========================================================================
 
-function ForecastSection({ facilityId, demo = false }: { facilityId: string; demo?: boolean }) {
-  const [state, setState] = useState<AsyncState>('loading');
-  const [points, setPoints] = useState<HourlyCongestionPoint[]>([]);
-  const [errorMessage, setErrorMessage] = useState('');
-  // 다시 눌러도 소용없는 실패(모델 미학습)인지 — 서버가 준 사유를 그대로 들고 있는다.
-  const [permanentFailure, setPermanentFailure] = useState<{ modelState: string | null } | null>(null);
-
-  const load = useCallback(async () => {
-    // 데모: 고정 곡선을 즉시 그린다(예측 API 호출 없음).
-    if (demo) {
-      setPoints(DEMO_MERCHANT_FORECAST);
-      setPermanentFailure(null);
-      setState('ready');
-      return;
-    }
-    setState('loading');
-    try {
-      const data = await fetchFacilityCongestionForecast(facilityId, 6);
-      setPoints(data);
-      setPermanentFailure(null);
-      setState('ready');
-    } catch (e) {
-      setErrorMessage(e instanceof MerchantApiError ? e.message : '예측 데이터를 다시 불러올게요.');
-      // MerchantApiError.retryable=false 는 '서버가 사유까지 확정해 준 영구 실패' 다.
-      setPermanentFailure(
-        e instanceof MerchantForecastUnavailableError
-          ? { modelState: e.modelState }
-          : e instanceof MerchantApiError && !e.retryable
-            ? { modelState: null }
-            : null
-      );
-      setPoints([]);
-      setState('error');
-    }
-  }, [facilityId, demo]);
+function ForecastSection({
+  facilityId,
+  facilityType,
+  demo = false,
+}: {
+  facilityId: string;
+  facilityType: string;
+  demo?: boolean;
+}) {
+  // 데모: 고정 하루 흐름에서 지금부터 6시간을 즉시 그린다(예측 API 호출 없음).
+  const [forecast, setForecast] = useState<FacilityForecast | null>(() =>
+    demo ? { points: demoMerchantForecast(), basis: 'model' } : null
+  );
 
   useEffect(() => {
-    load();
-  }, [load]);
+    if (demo) return;
+    let alive = true;
+    fetchFacilityCongestionForecast(facilityId, facilityType, 6)
+      // 계약상 거부하지 않지만, 혹시 던져도 ① 은 비지 않는다.
+      .catch((): FacilityForecast => ({ points: patternForecastPoints(facilityType, 6), basis: 'pattern' }))
+      .then((data) => {
+        if (alive) setForecast(data);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [facilityId, facilityType, demo]);
 
+  const points = forecast?.points ?? [];
   const chartData = points.map((p) => ({
-    label: p.hoursAhead === 0 ? '지금' : `+${p.hoursAhead}시간`,
-    hourLabel: `${p.hour}시`,
+    label: p.hoursAhead === 0 ? '지금' : `${p.hour}시`,
+    hourLabel: p.hoursAhead === 0 ? `지금(${p.hour}시)` : `${p.hour}시`,
     congestion: Math.round(p.congestion * 100),
   }));
-  const hasAnchored = points.some((p) => p.anchored);
-  // 곡선을 실제로 그릴 때만 '무엇을 보여주는지' 를 말한다(없는 폴백을 약속하지 않는다).
-  const curveShown = state === 'ready' && chartData.length > 0;
-
-  // 모델이 아직 학습되지 않아 다시 시도해도 같은 결과인 영구 실패는 섹션 자체를 렌더하지
-  // 않는다(BriefingCard 의 '값이 없으면 렌더하지 않는다' 패턴과 동일 — 준비되지 않은 상태를
-  // 설명하는 대신, 이미 준비된 다른 섹션들만 보여준다).
-  if (state === 'error' && permanentFailure) return null;
+  // 곡선을 실제로 그릴 때만 '무엇을 보여주는지' 를 말한다.
+  const curveShown = chartData.length > 0;
+  const quiet = bestQuietHour(points);
+  const quietCopy = quiet ? quietHourCopy(quiet) : null;
 
   return (
     <SectionCard
       badge="① 예상 혼잡"
       title="시간대별 예상 혼잡"
-      honestNote={forecastHonestNote({ curveShown, anchored: hasAnchored })}
+      tag={PREDICTED_BADGE}
+      honestNote={forecastNote({
+        curveShown,
+        basis: forecast?.basis ?? 'pattern',
+        anchored: points.some((p) => p.anchored),
+      })}
     >
-      {state === 'loading' && <SkeletonBlock heightClass="h-48" />}
-      {state === 'error' && !permanentFailure && <ErrorFallback message={errorMessage} onRetry={load} />}
-      {state === 'ready' && chartData.length > 0 && (
+      {!forecast && <SkeletonBlock heightClass="h-48" />}
+      {/* 곡선에서 '그래서 언제?' 를 바로 읽어 준다 — 영업 시간대에 뚜렷이 한가한 때가 있을 때만. */}
+      {quietCopy && (
+        <div className="mb-3 flex flex-col gap-1 rounded-2xl border border-gold/40 bg-gold/10 px-4 py-3">
+          <p className="text-[17px] font-bold text-muk">{quietCopy.title}</p>
+          <p className="text-[13px] leading-relaxed text-muk-soft">{quietCopy.body}</p>
+          <button
+            type="button"
+            onClick={() =>
+              document.getElementById('merchant-timesale')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+            }
+            className="toss-pressable mt-1 flex min-h-11 items-center gap-1.5 self-start rounded-xl border border-gold/50 bg-white px-3.5 text-[15px] font-bold text-gold-deep transition-colors hover:bg-gold/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+          >
+            <Zap size={15} aria-hidden="true" /> 타임세일 열기
+          </button>
+        </div>
+      )}
+      {curveShown && (
         <div className="h-48 w-full">
           <ResponsiveContainer width="100%" height="100%">
             {/* 색은 globals.css 토큰(var)만 쓴다 — hex 를 여기 다시 박으면 팔레트 조정 시 이 차트만 뒤처진다.
-                축 글자는 13px — 고령 사용자 최소 가독 크기를 차트에도 동일 적용. */}
-            <LineChart data={chartData} margin={{ top: 5, right: 12, bottom: 0, left: -8 }}>
+                축 글자는 13px — 고령 사용자 최소 가독 크기를 차트에도 동일 적용.
+                Y축 폭 52 · 왼쪽 여백 0 — 더 좁으면 맨 위 눈금 '100%' 가 '00%' 로 잘린다. */}
+            <LineChart data={chartData} margin={{ top: 5, right: 12, bottom: 0, left: 0 }}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--nextspot-line)" />
               <XAxis
                 dataKey="label"
@@ -394,10 +427,10 @@ function ForecastSection({ facilityId, demo = false }: { facilityId: string; dem
                 tick={{ fill: 'var(--nextspot-muk-soft)', fontSize: 13 }}
                 domain={[0, 100]}
                 tickFormatter={(v) => `${v}%`}
-                width={42}
+                width={52}
               />
               <Tooltip
-                formatter={(value: unknown) => [`${value}%`, '예측 혼잡도']}
+                formatter={(value: unknown) => [`${value}%`, '예상 혼잡도']}
                 labelFormatter={(_label, payload) => (payload?.[0]?.payload?.hourLabel ?? '')}
                 contentStyle={{
                   borderRadius: '10px',
@@ -512,10 +545,6 @@ function StatsSection({ facilityId, demo = false }: { facilityId: string; demo?:
           <p className="text-[13px] text-muk-soft leading-relaxed px-1">
             &lsquo;추천 제안&rsquo;은 우리 가게가 손님 추천 목록에 오른 횟수입니다.
           </p>
-          <div className="flex items-start gap-2 px-3 py-2.5 rounded-xl bg-hanji border border-line text-[13px] text-muk-soft leading-relaxed">
-            <Eye size={14} className="flex-shrink-0 mt-0.5" aria-hidden="true" />
-            <span>{stats.visit_confirmations_note}</span>
-          </div>
         </div>
       )}
     </SectionCard>
@@ -552,7 +581,7 @@ function StatTile({
 // ③ 셀프 타임세일 — POST /timesale · GET /timesale · POST /timesale/cancel
 // =========================================================================
 
-const RATE_OPTIONS = [0.15, 0.2, 0.3] as const;
+const RATE_OPTIONS = TIMESALE_RATE_OPTIONS;
 const DURATION_OPTIONS = [
   { minutes: 60, label: '1시간' },
   { minutes: 120, label: '2시간' },
@@ -573,7 +602,16 @@ function formatRemaining(ms: number): string {
   return `${seconds}초 남음`;
 }
 
-function TimesaleSection({ facilityId, demo = false }: { facilityId: string; demo?: boolean }) {
+function TimesaleSection({
+  facilityId,
+  demo = false,
+  demoCouponRate = null,
+}: {
+  facilityId: string;
+  demo?: boolean;
+  /** 데모 가게의 기본 쿠폰율(데모는 조회하지 않는다). */
+  demoCouponRate?: number | null;
+}) {
   const demoToast = useDemoToast();
   const [state, setState] = useState<AsyncState>('loading');
   const [sales, setSales] = useState<MerchantTimesale[]>([]);
@@ -595,6 +633,33 @@ function TimesaleSection({ facilityId, demo = false }: { facilityId: string; dem
   // 서버가 알려준 '실제 적용 할인율' 안내. 토스트는 몇 초 뒤 사라지는데 이건 사장님이 방금
   // 넣은 값과 실제 적용값이 다르다는 사실이라, 화면에도 남겨 둔다(다음 선택 때 사라진다).
   const [effectiveNote, setEffectiveNote] = useState<string | null>(null);
+  // 우리 가게 기본 쿠폰율 — 고른 할인율이 이보다 높아야 추천·배지에 더해진다. 모르면 null(안내 생략).
+  const [baseCouponRate, setBaseCouponRate] = useState<number | null>(demo ? demoCouponRate : null);
+
+  // 기본 쿠폰율은 facilities 공개 컬럼이라 anon 으로 한 번 읽는다(④ 좌석 섹션과 같은 경로).
+  // 실패하면 조용히 null — 조건 안내만 생략되고 발행은 그대로 된다.
+  useEffect(() => {
+    if (demo) return;
+    let alive = true;
+    createPublicClient()
+      .from('facilities')
+      .select('coupon_rate')
+      .eq('id', facilityId)
+      .maybeSingle()
+      .then(
+        ({ data }) => {
+          const rate = (data as { coupon_rate?: unknown } | null)?.coupon_rate;
+          if (alive && typeof rate === 'number') setBaseCouponRate(rate);
+        },
+        () => {
+          /* 조회 실패 — 안내 생략 */
+        }
+      );
+    return () => {
+      alive = false;
+    };
+  }, [facilityId, demo]);
+  const rateHint = selectedRate === null ? null : timesaleRateHint(baseCouponRate, selectedRate);
 
   const load = useCallback(async () => {
     // 데모: 진행 중인 20% 타임세일 하나를 고정으로 보여 준다(목록 API 호출 없음).
@@ -629,6 +694,10 @@ function TimesaleSection({ facilityId, demo = false }: { facilityId: string; dem
     () => sales.filter((s) => !s.canceled_at && new Date(s.ends_at).getTime() > now),
     [sales, now]
   );
+  // 확인 단계의 배지 미리보기 — 진행 중인 세일이 더 높으면 손님은 그 값을 본다.
+  const confirmPreview = publishConfirm
+    ? timesaleConfirmPreview(baseCouponRate, publishConfirm.rate, activeSales.map((s) => s.rate))
+    : null;
 
   const openPublishConfirm = () => {
     if (selectedRate === null || selectedDuration === null) return;
@@ -657,7 +726,7 @@ function TimesaleSection({ facilityId, demo = false }: { facilityId: string; dem
       // 응답에는 '지금 실제로 적용되는 할인율' 안내가 함께 온다 — 활성 세일이 겹치면 추천에는
       // 최댓값만 반영되므로, 방금 넣은 값이 적용되지 않을 수 있다는 사실을 사장님께 전한다.
       const created = await createTimesale(facilityId, rate as 0.15 | 0.2 | 0.3, minutes as 60 | 120 | 180);
-      const notice = timesalePublishNotice(created);
+      const notice = timesalePublishNotice(created, baseCouponRate);
       const overlapped = hasTimesaleOverlapNotice(created);
       setSelectedRate(null);
       setSelectedDuration(null);
@@ -706,8 +775,9 @@ function TimesaleSection({ facilityId, demo = false }: { facilityId: string; dem
   return (
     <SectionCard
       badge="③ 셀프 타임세일"
+      id="merchant-timesale"
       title="지금 할인, 지금 발행"
-      honestNote="발행 즉시 추천 랭킹 인센티브에 반영됩니다(할인율이 기본 쿠폰율보다 높을 때). 손님께 보여드릴 할인 안내로도 함께 활용해주세요."
+      honestNote="발행하면 바로 손님 추천에서 우리 가게가 더 잘 보여요. 할인 중에는 추천 카드에 할인 배지가 붙어요."
     >
       {state === 'loading' && <SkeletonBlock heightClass="h-20" />}
       {state === 'error' && <ErrorFallback message={errorMessage} onRetry={load} />}
@@ -787,6 +857,13 @@ function TimesaleSection({ facilityId, demo = false }: { facilityId: string; dem
                 </button>
               ))}
             </div>
+            {/* 고른 할인율이 기본 쿠폰율에 묻힐 때만 — 그 밖에는 조건을 되풀이하지 않는다.
+                확인 단계가 열려 있으면 그쪽이 같은 사실을 말하므로 여기서는 감춘다(한 화면에 한 번). */}
+            {rateHint && !publishConfirm && (
+              <p className="mb-3 rounded-xl border border-line bg-hanji px-3 py-2.5 text-[13px] leading-relaxed text-muk">
+                {rateHint}
+              </p>
+            )}
             <p className="text-[13px] font-semibold text-muk-soft mb-2" id="timesale-duration-label">
               지속 시간
             </p>
@@ -829,7 +906,19 @@ function TimesaleSection({ facilityId, demo = false }: { facilityId: string; dem
                   <span className="font-bold">{formatClock(publishConfirm.endsAtMs)}</span>.
                 </p>
                 <p className="text-[13px] text-muk-soft leading-relaxed">
-                  할인율이 기본 쿠폰율보다 높으면 추천 랭킹 인센티브에 반영됩니다. 이대로 발행할까요?
+                  {confirmPreview &&
+                    (confirmPreview.kind === 'baseCoupon' ? (
+                      confirmPreview.text
+                    ) : (
+                      <>
+                        {confirmPreview.ongoing ? '손님 추천 카드에는 지금 진행 중인' : '손님 추천 카드에'}{' '}
+                        <span className="whitespace-nowrap rounded-md border border-gold/60 bg-gold/25 px-1.5 py-px font-black text-gold-deep">
+                          ⚡ 타임세일 {Math.round(confirmPreview.rate * 100)}%
+                        </span>{' '}
+                        {confirmPreview.ongoing ? '배지가 그대로 붙어요.' : '배지가 붙어요.'}
+                      </>
+                    ))}{' '}
+                  이대로 발행할까요?
                 </p>
                 <div className="grid grid-cols-2 gap-2">
                   <button
@@ -886,16 +975,6 @@ const SEAT_LABEL: Record<SeatLevel, string> = { low: '여유', mid: '보통', fu
 // 이보다 오래된 방송은 추천에서 무시되므로 콘솔도 '만료됨'으로 표시한다(방송 중으로 오해 금지).
 const SEAT_FRESH_MINUTES = 30;
 
-// 서버가 좌석 방송 응답에 싣는 관측 기록 판정.
-// lib/merchant/api.ts 의 SeatStatusResult 에는 아직 이 두 키가 없어(그 파일은 이번 변경 범위
-// 밖이다) 여기서 좁혀 읽는다. 구 서버는 보내지 않으므로 전부 optional 로 두고, 없으면 안내
-// 자체를 띄우지 않는다(모르는 것을 아는 척하지 않는다).
-type SeatObservationStatus = 'logged' | 'failed' | 'throttled' | 'unchanged' | 'not_applicable';
-type SeatObservationFields = {
-  observation_status?: SeatObservationStatus | null;
-  next_observation_in_seconds?: number | null;
-};
-
 function SeatStatusSection({ facilityId, demo = false }: { facilityId: string; demo?: boolean }) {
   const t = useT();
   const demoToast = useDemoToast();
@@ -905,15 +984,6 @@ function SeatStatusSection({ facilityId, demo = false }: { facilityId: string; d
   const [submitting, setSubmitting] = useState<SeatLevel | null>(null);
   const [clearing, setClearing] = useState(false);
   const [submitError, setSubmitError] = useState('');
-  // 이번 세션에서 방송한 결과의 관측 기록 상태. 페이지를 새로 열면 알 수 없다 — 서버에 조회
-  // 경로가 없으므로 지어내지 않고 감춘다(방송 직후에만 보여준다).
-  //
-  // minutes 는 **서버가 응답에 실어 준 '남은 시간'** 이다(절대 시각이 아니다). 서버 시각을 받아
-  // 단말 시계와 빼면 시계가 어긋난 사장님에게 있지도 않은 대기 시간이 보인다. 여기서는 서버가
-  // 준 남은 시간에서, 아래 broadcast.minutesAgo(이미 계산해 둔 '방송 이후 흐른 시간')만 뺀다.
-  const [observation, setObservation] = useState<
-    { status: SeatObservationStatus; minutes: number | null } | null
-  >(null);
   const [now, setNow] = useState(() => Date.now());
 
   const load = useCallback(async () => {
@@ -956,7 +1026,6 @@ function SeatStatusSection({ facilityId, demo = false }: { facilityId: string; d
 
   // 만료 카운트다운 — 방송값이 있을 때만 30초 간격으로 갱신한다.
   // (now 가 과거로 뒤처져 있어도 minutesAgo 가 0 으로 클램프되어 '방금 방송'으로 보이고, 30초 안에 보정된다.)
-  // 관측 기록 카운트다운(observation.nextAt)도 같은 틱을 쓴다 — 타이머를 하나 더 두지 않는다.
   const updatedAt = current?.updated_at ?? null;
   useEffect(() => {
     if (!updatedAt) return;
@@ -974,22 +1043,9 @@ function SeatStatusSection({ facilityId, demo = false }: { facilityId: string; d
     setSubmitError('');
     try {
       const res = await updateSeatStatus(facilityId, level);
-      const extra = res as typeof res & SeatObservationFields;
+      // 서버는 이 방송을 시계열 관측으로도 남겼는지(observation_status)를 함께 보내지만, 그건 내부
+      // 모델 학습 사정이라 사장님 화면에는 옮기지 않는다(2026-10-06 — 학습 반영 안내 줄 삭제).
       setCurrent({ level: res.level, updated_at: res.updated_at });
-      // 관측 기록 판정(기록됨/건너뜀) + 다음 기록까지 남은 시간. 구 서버는 이 키를 보내지
-      // 않으므로 그때는 안내를 띄우지 않는다. 방송(주 효과)은 이 판정과 무관하게 항상 성공이므로,
-      // 기록되지 않은 경우를 실패처럼 보여주지 않는다 — 기록됐을 때만 부가 안내를 더한다.
-      const observationStatus = extra.observation_status ?? null;
-      const nextInSeconds = extra.next_observation_in_seconds;
-      setObservation(
-        observationStatus && observationStatus !== 'not_applicable' && observationStatus !== 'failed'
-          ? {
-              status: observationStatus,
-              // 초 → 분(올림). 서버가 초로 주는 값을 화면 단위로만 바꾼다.
-              minutes: typeof nextInSeconds === 'number' ? Math.ceil(nextInSeconds / 60) : null,
-            }
-          : null
-      );
       toast.success(`좌석 상태를 '${SEAT_LABEL[level]}'(으)로 방송했습니다.`, {
         description: `${SEAT_FRESH_MINUTES}분 동안 추천 혼잡도에 반영됩니다.`,
       });
@@ -1009,8 +1065,6 @@ function SeatStatusSection({ facilityId, demo = false }: { facilityId: string; d
     }
     setClearing(true);
     setSubmitError('');
-    // 해제하면 방송 자체가 없어지므로 관측 기록 안내도 함께 내린다(남아 있으면 거짓 안내가 된다).
-    setObservation(null);
     try {
       await clearSeatStatus(facilityId);
       setCurrent(null);
@@ -1041,13 +1095,6 @@ function SeatStatusSection({ facilityId, demo = false }: { facilityId: string; d
 
   // 추천에 실제로 반영 중인 레벨만 '선택됨'으로 칠한다(만료값을 선택된 것처럼 보이게 하지 않는다).
   const activeLevel = broadcast?.fresh ? (current?.level ?? null) : null;
-
-  // 관측 기록 안내 한 줄. 방송(주 효과)은 이 판정과 무관하게 항상 성공이므로, 학습용 시계열
-  // 관측으로 남았을 때만 부가 안내를 더한다 — 건너뛴 경우(직전과 같은 상태 등)는 실패가
-  // 아니라 정상적인 생략이라 아무것도 보여주지 않는다.
-  const observationLine = useMemo(() => {
-    return observation?.status === 'logged' ? '이번 방송이 예측 학습에도 반영됐어요' : '';
-  }, [observation]);
 
   return (
     <SectionCard
@@ -1097,11 +1144,6 @@ function SeatStatusSection({ facilityId, demo = false }: { facilityId: string; d
                   `${broadcast.minutesAgo}분 전 방송 · 다시 누르면 30분간 재반영됩니다`}
                 {current && !broadcast && '지금 다시 방송하시면 30분 동안 추천에 반영됩니다.'}
               </p>
-              {observationLine && (
-                <p className="text-[13px] text-muk-soft/90" aria-live="polite">
-                  {observationLine}
-                </p>
-              )}
             </div>
             {current && (
               <button
@@ -1170,7 +1212,8 @@ function SeatStatusSection({ facilityId, demo = false }: { facilityId: string; d
 
 // =========================================================================
 // 데모 전용 카드 — 실제 콘솔에는 아직 없는 두 장(오늘 요약 · 주간 추이).
-// 고정값(lib/demoFixtures.ts)만 읽고 어떤 네트워크 호출도 하지 않는다.
+// 고정값(lib/demoFixtures.ts)만 읽고 어떤 네트워크 호출도 하지 않는다. 데모 표시는 톱바의
+// '예시 화면' 칩 하나라, 이 카드 배지는 기간('오늘' · '최근 7일')을 말한다.
 // =========================================================================
 
 function DemoTodaySummary() {
@@ -1182,7 +1225,7 @@ function DemoTodaySummary() {
     { label: t('demo.arrivals'), value: DEMO_MERCHANT_TODAY.arrivals, unit: t('demo.unitCases'), icon: <CircleCheck size={16} /> },
   ];
   return (
-    <SectionCard badge={t('demo.badgeShort')} title={t('demo.todayTitle')} honestNote={t('demo.todayNote')}>
+    <SectionCard badge={t('demo.todayBadge')} title={t('demo.todayTitle')} honestNote={t('demo.todayNote')}>
       <div className="grid grid-cols-2 gap-3">
         {tiles.map((tile) => (
           <StatTile
@@ -1200,10 +1243,10 @@ function DemoTodaySummary() {
 function DemoWeeklyTrend() {
   const t = useT();
   return (
-    <SectionCard badge={t('demo.badgeShort')} title={t('demo.weeklyTitle')} honestNote={t('demo.weeklyNote')}>
+    <SectionCard badge={t('demo.weeklyBadge')} title={t('demo.weeklyTitle')} honestNote={t('demo.weeklyNote')}>
       <div className="h-52 w-full">
         <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={DEMO_MERCHANT_WEEKLY} margin={{ top: 5, right: 12, bottom: 0, left: -12 }}>
+          <LineChart data={DEMO_MERCHANT_WEEKLY} margin={{ top: 5, right: 12, bottom: 0, left: 0 }}>
             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--nextspot-line)" />
             <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{ fill: 'var(--nextspot-muk-soft)', fontSize: 13 }} />
             <YAxis axisLine={false} tickLine={false} tick={{ fill: 'var(--nextspot-muk-soft)', fontSize: 13 }} width={42} />

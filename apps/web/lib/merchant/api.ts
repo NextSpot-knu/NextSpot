@@ -2,12 +2,15 @@
 // 정적 export 앱이라 모든 호출은 클라이언트에서 직접 FastAPI 를 부른다(서버 액션/route handler 없음).
 
 import { createPublicClient } from "@/lib/supabase";
+import { kstParts, predictedLevel } from "@/lib/adminPredictedView";
 
 const BASE_URL = process.env.NEXT_PUBLIC_FASTAPI_URL || "http://localhost:8000";
 // 무응답 백엔드에 무한 대기하지 않도록 타임아웃 — 각 섹션이 스켈레톤에 영원히 갇히지 않게 한다.
 // (/predict/batch 는 전체 시설 순회 + 행사 보정을 포함해 콜드 캐시일 때 1~2초대가 걸릴 수 있고,
 //  예측 섹션은 이 호출을 여러 hours_ahead 값으로 동시에 여러 번 보낸다 — 넉넉히 12초로 잡는다.)
 const REQUEST_TIMEOUT_MS = 12000;
+// model-info 는 가벼운 메타 조회다. 4초 안에 답이 없으면 기다리지 않고 업종 패턴으로 ① 을 그린다.
+const MODEL_INFO_TIMEOUT_MS = 4000;
 
 /** 서버가 알려준 실패 사유의 기계 판독용 코드. 화면이 문구를 고르는 근거다. */
 export type MerchantErrorReason = "unknown" | "model_not_trained";
@@ -34,20 +37,13 @@ export class MerchantApiError extends Error {
   }
 }
 
-/** 예측 모델이 아직 학습되지 않아 예측 섹션을 제공할 수 없을 때 던진다(영구 실패). */
-export class MerchantForecastUnavailableError extends MerchantApiError {
-  /** 서버 /predict/model-info 의 fallback_state 원문(예: "degraded_rules"). 모르면 null. */
-  readonly modelState: string | null;
-  constructor(message: string, status: number | undefined, modelState: string | null) {
-    super(message, status, { retryable: false, reason: "model_not_trained" });
-    this.name = "MerchantForecastUnavailableError";
-    this.modelState = modelState;
-  }
-}
-
-async function timeoutFetch(input: string, init?: RequestInit): Promise<Response> {
+async function timeoutFetch(
+  input: string,
+  init?: RequestInit,
+  timeoutMs: number = REQUEST_TIMEOUT_MS
+): Promise<Response> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     return await fetch(input, { ...init, signal: controller.signal });
   } finally {
@@ -137,19 +133,63 @@ export interface MerchantTimesaleCreated extends MerchantTimesale {
 }
 
 /** 기본 안내 — 겹치는 세일이 없어 방금 발행한 할인율이 그대로 적용될 때 쓴다. */
-const TIMESALE_DEFAULT_NOTICE =
-  "할인율이 기본 쿠폰율보다 높으면 추천 랭킹 인센티브에 반영됩니다.";
+const TIMESALE_DEFAULT_NOTICE = "지금부터 손님 추천 카드에 할인 배지가 붙어요.";
+
+const pct = (rate: number) => `${Math.round(rate * 100)}%`;
+
+/** 콘솔이 고를 수 있는 할인율 — createTimesale 의 rate 타입과 같은 값. */
+export const TIMESALE_RATE_OPTIONS = [0.15, 0.2, 0.3] as const;
+
+/** 기본 쿠폰율이 고른 할인율 이상이면 그 사실 한 문장, 아니면 null.
+ *  그 경우 타임세일은 추천에도 배지에도 더해지지 않는다(merchant_boost: effective = max(coupon_rate,
+ *  타임세일), 배지는 타임세일 > coupon_rate 일 때만). 쿠폰율을 모르면(null) 지어내지 않는다. */
+function baseCouponLine(baseCouponRate: number | null | undefined, rate: number): string | null {
+  if (typeof baseCouponRate !== "number" || baseCouponRate <= 0 || baseCouponRate < rate) return null;
+  return `우리 가게 기본 쿠폰이 ${pct(baseCouponRate)}라 ${pct(rate)} 타임세일은 추천 순위에 더해지지 않아요.`;
+}
+
+/** 할인율 버튼 아래 안내 — 그 할인율이 기본 쿠폰율에 묻힐 때만 문장을 준다(아니면 null).
+ *  예전에는 '기본 쿠폰율보다 높으면 반영' 조건을 머리말·확인·토스트에서 매번 반복했다. */
+export function timesaleRateHint(baseCouponRate: number | null | undefined, rate: number): string | null {
+  const line = baseCouponLine(baseCouponRate, rate);
+  if (!line) return null;
+  // 고를 수 있는 더 높은 할인율이 있을 때만 그쪽을 권한다.
+  const higherExists = TIMESALE_RATE_OPTIONS.some((r) => r > (baseCouponRate as number));
+  return higherExists ? `${line} 더 높은 할인율을 골라 보세요.` : line;
+}
+
+/** 발행 확인 단계가 말할 것 — 손님 추천 카드에 실제로 붙을 배지, 또는 붙지 않는 이유 한 줄.
+ *  확인 단계는 '이대로 발행할까요?' 로 끝나므로 다른 할인율을 권하지 않는다(권유는 버튼 아래 힌트 몫).
+ *  배지는 활성 세일 중 최댓값이다(merchant_boost) — 30% 세일이 진행 중이면 15% 를 골라도 손님은 30% 를 본다. */
+export type TimesaleConfirmPreview =
+  | { kind: "baseCoupon"; text: string }
+  | { kind: "badge"; rate: number; ongoing: boolean };
+
+export function timesaleConfirmPreview(
+  baseCouponRate: number | null | undefined,
+  rate: number,
+  activeRates: readonly number[] = []
+): TimesaleConfirmPreview {
+  const line = baseCouponLine(baseCouponRate, rate);
+  if (line) return { kind: "baseCoupon", text: line };
+  const shown = Math.max(rate, ...activeRates);
+  return { kind: "badge", rate: shown, ongoing: shown > rate };
+}
 
 /** 발행 직후 사장님에게 보여줄 설명 문구.
  *
  * 서버가 '실제 적용 할인율' 안내를 실어 보냈으면 **그것을 우선한다.** 예전에는 서버가 이
  * 문장을 만들어 보내는데도 프런트가 응답에서 읽지 않아, 30% 세일이 진행 중인데 15% 를 발행한
  * 사장님이 "15% 발행 완료" 만 보고 자기 값이 적용된다고 믿었다.
+ * 기본 쿠폰율을 알고 그 값이 방금 발행한 할인율 이상이면, '배지가 붙어요' 대신 그 사실을 말한다.
  */
-export function timesalePublishNotice(created: MerchantTimesaleCreated | null | undefined): string {
+export function timesalePublishNotice(
+  created: MerchantTimesaleCreated | null | undefined,
+  baseCouponRate?: number | null
+): string {
   const note = created?.effective_timesale_note;
   if (typeof note === "string" && note.trim()) return note;
-  return TIMESALE_DEFAULT_NOTICE;
+  return (created && baseCouponLine(baseCouponRate, created.rate)) || TIMESALE_DEFAULT_NOTICE;
 }
 
 /** 서버가 준 안내가 있는가(있으면 화면에 오래 남겨야 한다 — 토스트만으로는 놓치기 쉽다). */
@@ -297,46 +337,42 @@ async function predictBatch(hoursAhead: number): Promise<PredictBatchResponse> {
   return res.json();
 }
 
-/** GET /predict/model-info 의 일부 — 예측 실패가 '영구' 인지 판정하는 데만 쓴다. */
+/** GET /predict/model-info 의 일부 — ① 예상 혼잡을 서버 예측으로 그릴지 정하는 데만 쓴다. */
 interface PredictModelInfo {
   trained: boolean;
-  /** 미학습 시 서버가 쓰는 폴백 이름(예: "degraded_rules"). 없으면 null. */
-  fallbackState: string | null;
 }
 
 /** 모델 학습 여부를 서버에 직접 묻는다. 못 물어봤으면 null(=판정 불가, 지어내지 않는다). */
-async function fetchPredictModelInfo(): Promise<PredictModelInfo | null> {
+async function requestPredictModelInfo(): Promise<PredictModelInfo | null> {
   try {
-    const res = await timeoutFetch(`${BASE_URL}/predict/model-info`);
+    const res = await timeoutFetch(`${BASE_URL}/predict/model-info`, undefined, MODEL_INFO_TIMEOUT_MS);
     if (!res.ok) return null;
     const body = await res.json();
     if (typeof body?.trained !== "boolean") return null;
-    return {
-      trained: body.trained,
-      fallbackState: typeof body.fallback_state === "string" ? body.fallback_state : null,
-    };
+    return { trained: body.trained };
   } catch {
     return null;
   }
 }
 
-/** 예측 실패의 성격을 서버에 되물어 확정한다.
- *
- * /predict/batch 는 모델 미학습이면 **항상** 503 을 준다(배포 환경의 상시 상태다). 그런데
- * 503 에는 일시적인 것도 있어("이 시점의 혼잡 예측을 낼 수 없습니다") 상태 코드만으로는
- * 구분되지 않는다. 한국어 detail 문자열을 매칭하는 건 서버 문구가 바뀌면 조용히 깨지므로,
- * 권위 있는 출처(model-info)에 한 번 더 물어 trained=false 일 때만 '영구 실패' 로 승격한다.
- * 이 추가 요청은 **실패 경로에서만** 나간다 — 정상 경로의 왕복 수는 그대로다.
- */
-async function classifyForecastFailure(error: unknown): Promise<MerchantApiError> {
-  const base =
-    error instanceof MerchantApiError
-      ? error
-      : new MerchantApiError("예측 데이터를 불러오지 못했습니다.");
-  if (base.status !== 503) return base;
-  const info = await fetchPredictModelInfo();
-  if (!info || info.trained) return base;
-  return new MerchantForecastUnavailableError(base.message, base.status, info.fallbackState);
+// 한 탭 안에서는 모델 상태를 한 번만 묻는다 — 콘솔을 다시 열거나 가게를 바꿔도 답은 같다.
+// 답을 못 받았으면(null) 기억하지 않는다 — 다음 진입에서 다시 묻는다.
+let modelInfoMemo: Promise<PredictModelInfo | null> | null = null;
+
+function fetchPredictModelInfo(): Promise<PredictModelInfo | null> {
+  if (!modelInfoMemo) {
+    const pending = requestPredictModelInfo();
+    modelInfoMemo = pending;
+    void pending.then((info) => {
+      if (!info && modelInfoMemo === pending) modelInfoMemo = null;
+    });
+  }
+  return modelInfoMemo;
+}
+
+/** 테스트 전용 — 기억한 모델 상태를 비운다(케이스마다 model-info 호출 수를 정확히 세려고). */
+export function resetPredictModelInfoMemo(): void {
+  modelInfoMemo = null;
 }
 
 export interface HourlyCongestionPoint {
@@ -348,20 +384,60 @@ export interface HourlyCongestionPoint {
   anchored: boolean;
 }
 
-// 지금(+0h)부터 maxHoursAhead 시간 뒤까지, 이 시설 하나의 예측 혼잡도만 뽑아 시계열로 만든다.
-// /predict/batch 는 전체 시설을 반환하므로(시설별 필터 파라미터 없음) hours_ahead 값별로 호출한 뒤
-// facility_id 로 걸러낸다 — score.py/predict.py 를 건드리지 않고 기존 엔드포인트만 재사용.
+/** ① 곡선의 출처. 'model' = 서버 예측(/predict/batch), 'pattern' = 같은 업종의 요일·시간대 흐름. */
+export type ForecastBasis = "model" | "pattern";
+
+export interface FacilityForecast {
+  points: HourlyCongestionPoint[];
+  basis: ForecastBasis;
+}
+
+/** 같은 업종 가게들의 요일·시간대 흐름으로 본 지금부터 maxHoursAhead 시간 뒤까지의 곡선.
+ *  lib/adminPredictedView.ts 의 predictedLevel 은 서버 industry_baseline 의 숫자 그대로라, 관제 대시보드의
+ *  '예측' 칸과 같은 값이다(두 화면이 다른 예측을 말하지 않는다). 네트워크를 쓰지 않는다. */
+export function patternForecastPoints(
+  facilityType: string,
+  maxHoursAhead = 6,
+  now: number = Date.now()
+): HourlyCongestionPoint[] {
+  return Array.from({ length: maxHoursAhead + 1 }, (_, hoursAhead) => {
+    const { hour, weekday } = kstParts(now + hoursAhead * 3600 * 1000);
+    return {
+      hoursAhead,
+      hour,
+      congestion: predictedLevel({ facilityType, kstHour: hour, weekday }),
+      anchored: false,
+    };
+  });
+}
+
+// 지금(+0h)부터 maxHoursAhead 시간 뒤까지, 이 시설 하나의 예상 혼잡 곡선. **항상** 곡선을 돌려준다.
+//
+// 먼저 model-info 로 학습 여부를 한 번 묻는다. 모델이 학습돼 있을 때만 /predict/batch 를 hours_ahead
+// 값별로 불러 facility_id 로 걸러낸다(batch 는 전체 시설을 반환한다 — 시설별 필터 파라미터 없음).
+// 미학습이면 batch 는 언제나 503 이라(배포 환경의 상시 상태) 부르지 않고 업종 패턴으로 그린다 —
+// 예전에는 503 일곱 번 + model-info 한 번 뒤에 ① 섹션을 통째로 숨겼다. 어떤 실패(model-info
+// 무응답·batch 오류·응답에 우리 가게 없음)도 같은 패턴 곡선으로 내려앉아 '다시 시도' 상자가 없다.
 export async function fetchFacilityCongestionForecast(
   facilityId: string,
-  maxHoursAhead = 6
-): Promise<HourlyCongestionPoint[]> {
+  facilityType: string,
+  maxHoursAhead = 6,
+  now: number = Date.now()
+): Promise<FacilityForecast> {
+  const pattern = (): FacilityForecast => ({
+    points: patternForecastPoints(facilityType, maxHoursAhead, now),
+    basis: "pattern",
+  });
+
+  const info = await fetchPredictModelInfo();
+  if (!info?.trained) return pattern();
+
   const hoursAheadList = Array.from({ length: maxHoursAhead + 1 }, (_, i) => i);
   let responses: PredictBatchResponse[];
   try {
     responses = await Promise.all(hoursAheadList.map((h) => predictBatch(h)));
-  } catch (e) {
-    // 실패를 일반 오류로 뭉개지 않는다 — 사유를 확정해 화면이 '재시도' 를 권할지 결정하게 한다.
-    throw await classifyForecastFailure(e);
+  } catch {
+    return pattern();
   }
 
   const points: HourlyCongestionPoint[] = [];
@@ -377,23 +453,24 @@ export async function fetchFacilityCongestionForecast(
       anchored: item.anchored,
     });
   }
-  return points;
+  return points.length > 0 ? { points, basis: "model" } : pattern();
 }
 
 // --- 예측 섹션 안내 문구 ---------------------------------------------------
-// 화면이 **실제로 무엇을 보여주고 있는지**만 말한다. 예전에는 곡선을 하나도 못 그린 상태
-// (예측 실패·내 시설이 응답에 없음)에서도 "최근 실측 혼잡 로그가 없어 유형 평균 곡선을
-// 보여드립니다" 라고 적혀 있었다 — 있지도 않은 폴백을 제공하는 것처럼 말한 셈이다.
+// 화면이 **실제로 무엇을 보여주고 있는지**만 말한다(곡선의 출처가 다르면 문장도 다르다).
+// 사장님 화면이라 '앵커링'·'실측' 같은 내부 용어는 쓰지 않는다.
 // 문구 선택이 렌더 조건과 어긋나지 않게 순수 함수로 묶어 두고 테스트로 잠근다.
 
-const FORECAST_BASE_NOTE = "앞으로 6시간 동안 우리 가게가 얼마나 붐빌지 예측한 혼잡도 곡선입니다.";
-
-export function forecastHonestNote(opts: { curveShown: boolean; anchored: boolean }): string {
-  if (!opts.curveShown) {
-    // 곡선이 없을 때는 '지금 무엇을 보여주고 있다' 는 추가 약속은 하지 않는다(기본 설명만 남긴다).
-    return FORECAST_BASE_NOTE;
+export function forecastNote(opts: {
+  curveShown: boolean;
+  basis: ForecastBasis;
+  anchored: boolean;
+}): string {
+  if (!opts.curveShown) return "앞으로 6시간 동안 우리 가게가 얼마나 붐빌지 보여 드려요.";
+  if (opts.basis === "pattern") {
+    return "같은 업종 가게들의 요일·시간대 흐름으로 본 앞으로 6시간 예상이에요.";
   }
   return opts.anchored
-    ? `${FORECAST_BASE_NOTE} 우리 가게의 최근 실측 혼잡도에 앵커링된 시간대 곡선입니다.`
-    : `${FORECAST_BASE_NOTE} 시설 유형 기준의 예측 곡선입니다. 좌석 상태를 방송하시면 우리 가게 실측값이 곡선에 반영됩니다.`;
+    ? "우리 가게 최근 혼잡을 반영한 앞으로 6시간 예상이에요."
+    : "같은 업종 가게들의 시간대 흐름으로 본 앞으로 6시간 예상이에요.";
 }

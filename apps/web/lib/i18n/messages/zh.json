@@ -1315,7 +1315,9 @@
   },
   "demo": {
     "badge": "正在查看演示数据",
-    "badgeShort": "演示数据",
+    "badgeShort": "示例页面",
+    "todayBadge": "今日",
+    "weeklyBadge": "近7天",
     "badgeNote": "无需登录即可查看的示例页面",
     "noSave": "演示模式不会保存",
     "enter": "查看演示",
