@@ -126,4 +126,14 @@ const stripComments = (s: string) => s.replace(/^\s*\/\/.*$/gm, '').replace(/\{?
   }
 }
 
+// ── (7) 장소 관리 — 가짜 발송 없음 · 빈 추이 카드 없음 · '관측 대기' 벽 없음(I72) ─────────────────────────────
+{
+  const infra = stripComments(read('app/admin/infrastructure/page.tsx'));
+  assert.doesNotMatch(infra, /분산 안내 발송|오늘 혼잡도를 수집하는 중입니다/, '장소 관리에 가짜 발송·빈 추이 문구가 남아 있다');
+  assert.match(infra, /facilityCongestionFrom\(/, '장소 관리가 관광객 지도와 같은 추정을 쓰지 않는다');
+  assert.match(infra, /getCongestionEstimates\(/, '장소 관리가 추정 피드를 받지 않는다');
+  assert.match(infra, /staleObservationLine\(/, '오래된 관측이 날짜 없이 현재 상태로 그려진다');
+  assert.doesNotMatch(stripComments(read('lib/adminMetricState.ts')), /'관측 대기'/, "'관측 대기' 라벨이 돌아왔다");
+}
+
 console.log('adminCopy.test.ts OK');

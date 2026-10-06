@@ -10,6 +10,9 @@ import {
   GAP_SHADING_NOTE, findGaps, formatGapLabel, isMissingValue, longestGap, summarizeSeries,
 } from '@/lib/adminSeriesGaps';
 import type { CellBasis } from '@/lib/adminPredictedView';
+import { heatmapCellClass, heatmapLegend } from '@/lib/adminHeatmapScale';
+import { useBusyThreshold } from '@/components/shell/PublicSettingsProvider';
+import { scenarioDayLabels } from '@/lib/adminScenarioLabels';
 
 // ── 로컬 타입 정의 ──────────────────────────────────────────────────────────
 // 히트맵 셀 (value: null = 데이터 없음 센티넬 — 실측 0.00 과 구분)
@@ -61,6 +64,9 @@ export function DashboardCharts({ distribution, mode = 'demo' }: { distribution:
   // 데이터가 비면 recharts 는 축만 그리고 선이 없어 '빈 화면'처럼 보인다 → 빈 상태 가드로 안내 문구 표시.
   const hasData = Array.isArray(distribution) && distribution.length > 0;
   const live = mode === 'live';
+  // 시나리오(도입 목표 패턴)는 실제 날짜 축에 그리지 않는다 — 9/7…10/6 위의 합성 곡선은 실측 추이로 읽혔다(I20).
+  // 축은 '1일차 … 30일차' 이고 제목도 시나리오임을 말한다.
+  const chartRows = live || !hasData ? distribution : scenarioDayLabels(distribution);
 
   // ── 미관측 구간 판정 ──────────────────────────────────────────────────────
   // 판정은 lib/adminSeriesGaps.ts 한 곳에서만 한다 — 성과 리포트(app/admin/report/page.tsx)와
@@ -86,7 +92,7 @@ export function DashboardCharts({ distribution, mode = 'demo' }: { distribution:
           <span className="flex-shrink-0 px-2 py-0.5 rounded-full text-[11px] font-bold border bg-emerald-500/15 text-emerald-700 border-emerald-500/30">
             ③ 분산 효과
           </span>
-          <h3 className="text-lg font-bold text-hanok-ink">최근 30일 관광 수요 분산 효과 분석</h3>
+          <h3 className="text-lg font-bold text-hanok-ink">{live ? '최근 30일 관광 수요 분산 효과 분석' : '도입 30일 분산 효과 시나리오'}</h3>
         </div>
         {/* 실측 집계인지 시나리오인지 라벨로 가른다 — 실측이면 집계 출처를, 시나리오면 목표 패턴임을 밝힌다. */}
         {live ? (
@@ -109,7 +115,7 @@ export function DashboardCharts({ distribution, mode = 'demo' }: { distribution:
       <div className="h-[300px] w-full">
         {hasData ? (
           <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={distribution} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
+            <LineChart data={chartRows} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={HANOK.grid} />
 
               {/* 미관측 구간 음영 — 선을 끊기만 하면 '그날은 0% 였다' 로 읽힌다.
@@ -284,13 +290,10 @@ export function DashboardHeatmap({
   // 0시 ~ 23시 순서대로 표시
   const hours = Array.from({length: 24}, (_, i) => i);
   
-  const getHeatmapColor = (value: number | null) => {
-    if (value == null) return 'bg-hanok-card'; // 데이터 없음(실측 0%와 구분)
-    if (value < 0.3) return 'bg-emerald-100';  // 0(여유)도 여기로 — 더 이상 '데이터 없음'과 섞이지 않음
-    if (value < 0.6) return 'bg-emerald-400';
-    if (value < 0.8) return 'bg-amber-400';
-    return 'bg-rose-500';
-  };
+  // 관광객 지도와 같은 등급·경계·색(PM 4.26) — 운영자 '혼잡' 경계도 지도와 같이 따른다(lib/adminHeatmapScale.ts).
+  // 값이 없는 칸은 등급이 아니다: 빈 칸(한지 카드색)으로 두고 범례에도 적지 않는다.
+  const busyAt = useBusyThreshold();
+  const getHeatmapColor = (value: number | null) => heatmapCellClass(value, busyAt) ?? 'bg-hanok-card';
 
   // 셀 자체를 돌려준다(값 + 근거). 셀이 없으면 undefined → 값 null 로 읽는다(데이터 없음 센티넬과 같은 뜻).
   // 실측 0.00 은 0 그대로 남는다.
@@ -314,9 +317,9 @@ export function DashboardHeatmap({
     // 예측 단독 격자는 보라 점선(추정과 다른 어휘는 다른 색). 혼합 격자는 서버 칸의 근거를 따른다.
     <div className={`bg-hanok-panel p-6 rounded-2xl shadow-sm col-span-4 flex flex-col justify-between overflow-x-auto min-h-[500px] ${
       estimate
-        ? 'border-2 border-dashed border-sky-400/50'
+        ? 'border-2 border-sky-400/50'
         : predictedOnly
-          ? 'border-2 border-dashed border-violet-400/50'
+          ? 'border-2 border-violet-400/50'
           : 'border border-hanok-line'
     }`}>
       <div>
@@ -428,7 +431,7 @@ export function DashboardHeatmap({
                           pending
                             ? `${fac} ${h}시: 아직 오지 않은 시간`
                             : val == null
-                              ? `${fac} ${h}시: 수집 중`
+                              ? `${fac} ${h}시`
                               : `${fac} ${h}시: ${cellLabel(basis)}${(val * 100).toFixed(0)}%`
                         }
                         style={hatched ? PREDICTED_HATCH : undefined}
@@ -468,18 +471,16 @@ export function DashboardHeatmap({
             )}
             {predicted && (
               <div className="flex items-center gap-1 font-semibold text-violet-700">
-                <div className="w-4 h-4 rounded-sm bg-amber-400" style={PREDICTED_HATCH}></div>
+                <div className="w-4 h-4 rounded-sm bg-amber-500" style={PREDICTED_HATCH}></div>
                 {predicted.badge} (업종 시간대 패턴 · 빗금)
               </div>
             )}
             {pendingFromHour !== null && (
               <div className="flex items-center gap-1"><div className="w-4 h-4 rounded-sm border border-dashed border-hanok-line"></div>아직 오지 않은 시간</div>
             )}
-            <div className="flex items-center gap-1"><div className="w-4 h-4 rounded-sm bg-hanok-card border border-hanok-line"></div>수집 중</div>
-            <div className="flex items-center gap-1"><div className="w-4 h-4 rounded-sm bg-emerald-100"></div>여유 (0~30%)</div>
-            <div className="flex items-center gap-1"><div className="w-4 h-4 rounded-sm bg-emerald-400"></div>보통 (30~60%)</div>
-            <div className="flex items-center gap-1"><div className="w-4 h-4 rounded-sm bg-amber-400"></div>혼잡 (60~80%)</div>
-            <div className="flex items-center gap-1"><div className="w-4 h-4 rounded-sm bg-rose-500"></div>매우 혼잡 (80%~)</div>
+            {heatmapLegend(busyAt).map((grade) => (
+              <div key={grade.key} className="flex items-center gap-1"><div className={`w-4 h-4 rounded-sm ${grade.className}`}></div>{grade.label}</div>
+            ))}
           </div>
         </div>
         )}

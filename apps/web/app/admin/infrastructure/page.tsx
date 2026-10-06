@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Building2, Search, Bell, Utensils, MapPin,
   ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ChevronDown, ChevronUp,
@@ -14,11 +14,15 @@ import { adminApi } from '@/lib/admin-api';
 import { errorMessage } from '@/lib/errors';
 import {
   chunk,
+  facilityCongestionFrom,
   facilityStatusKey,
   facilityStatusLabel,
   observedLevel,
+  staleObservationLine,
   type FacilityCongestion,
 } from '@/lib/adminMetricState';
+import { getCongestionEstimates } from '@/lib/api-client';
+import { parseCongestionEstimate } from '@/lib/congestionEstimate';
 import { countLabel, emptyOrFailedText, type LoadStatus } from '@/lib/adminLoadState';
 import {
   demandPressure,
@@ -118,6 +122,30 @@ export default function InfrastructurePage() {
   const [categoryShares, setCategoryShares] = useState<CategoryShares | null>(null);
 
   const supabase = createPublicClient();
+
+  // 관광객 지도와 같은 추정 피드(/congestion/estimates, 공개 · 서버 5분 캐시)를 이 화면에서 한 번만 받는다.
+  // 현장 관측이 없거나 오래된 시설은 이 추정을 '· 추정' 라벨과 함께 보인다(I72). 실패하면 조용히 빈 맵 —
+  // 화면은 예전처럼 관측만으로 그린다.
+  const estimatesRef = useRef<Promise<Map<string, number>> | null>(null);
+  const loadEstimates = useCallback((): Promise<Map<string, number>> => {
+    if (!estimatesRef.current) {
+      estimatesRef.current = getCongestionEstimates({ timeoutMs: 8000 })
+        .then((res) => {
+          const out = new Map<string, number>();
+          const now = new Date();
+          for (const [id, raw] of Object.entries(res?.estimates ?? {})) {
+            const est = parseCongestionEstimate(raw, now);
+            if (est) out.set(String(id), est.level);
+          }
+          return out;
+        })
+        .catch((err) => {
+          console.warn('혼잡 추정 피드 로드 실패(관측만으로 표시):', err);
+          return new Map<string, number>();
+        });
+    }
+    return estimatesRef.current;
+  }, []);
 
   const fetchIngestRequests = useCallback(async () => {
     setIngestStatus('loading');
@@ -224,7 +252,7 @@ export default function InfrastructurePage() {
   const fetchFacilities = useCallback(async (isSilent = false) => {
     if (!isSilent) setLoading(true);
     try {
-      const facilityRows = await fetchAllFacilities();
+      const [facilityRows, estimates] = await Promise.all([fetchAllFacilities(), loadEstimates()]);
       const ids = facilityRows.map((f) => String(f.id));
 
       // 혼잡 조회는 시설 목록과 **별개 실패 경로**다. 여기서 실패해도 시설 목록 자체는
@@ -245,14 +273,18 @@ export default function InfrastructurePage() {
         culture: '문화시설',
       };
 
+      const now = Date.now();
       const mappedInfras: Infrastructure[] = facilityRows.map((f) => {
         const latestLog = latest ? latest.get(String(f.id)) ?? null : null;
-        const congestion: FacilityCongestion =
-          latest === null
-            ? { kind: 'unavailable' }      // 혼잡 조회 자체가 실패 — '한산' 이 아니다
-            : latestLog && latestLog.congestion_level != null
-              ? { kind: 'observed', level: latestLog.congestion_level }
-              : { kind: 'none' };          // 조회는 됐고, 이 시설엔 아직 관측이 없다
+        // 조회 실패는 '한산' 이 아니다(unavailable). 24시간 안의 관측이면 그 값, 아니면 관광객 지도와 같은 추정,
+        // 그것도 없으면 오래된 관측(날짜와 함께 따로)이나 '없음' 이다 — lib/adminMetricState.facilityCongestionFrom.
+        const congestion: FacilityCongestion = facilityCongestionFrom({
+          failed: latest === null,
+          observedLevel: latestLog?.congestion_level ?? null,
+          observedAt: latestLog?.timestamp ?? null,
+          estimateLevel: estimates.get(String(f.id)) ?? null,
+          now,
+        });
         // 인원 수는 CCTV 계수일 때만 실측이다(제보/관리자 개입은 정원×비율 추정값).
         const currentCount = latestLog?.source === 'traffic_cctv' ? latestLog.current_count : null;
         return {
@@ -280,7 +312,7 @@ export default function InfrastructurePage() {
     } finally {
       if (!isSilent) setLoading(false);
     }
-  }, [fetchAllFacilities, fetchLatestCongestion]);
+  }, [fetchAllFacilities, fetchLatestCongestion, loadEstimates]);
 
   const fetchChartData = useCallback(async (facilityId: string) => {
     try {
@@ -414,14 +446,6 @@ export default function InfrastructurePage() {
     setCurrentPage(1);
     setSelectedInfra(infra);
     setNotifOpen(false);
-  };
-
-  // 관리자 액션: 근처 유저에게 분산 안내 발송 — 개입 스토리 데모 확인 토스트(실발송 연동 전, 데모 시뮬레이션).
-  const handleDispatch = () => {
-    if (!selectedInfra) return;
-    toast.success('분산 안내 발송 완료', {
-      description: `'${selectedInfra.name}' 인근 유저에게 대안 장소 안내를 전송했습니다.`,
-    });
   };
 
   return (
@@ -687,12 +711,15 @@ export default function InfrastructurePage() {
                     </div>
                     <div className="text-sm text-hanok-muted flex justify-between mt-3">
                       <span>수용 현황: {infra.capacity}</span>
-                      {/* 혼잡 등급이 없는 시설은 '한산' 이 아니라 그 사실을 글자로 적는다. */}
-                      {infra.congestion.kind !== 'observed' && (
-                        <span className={infra.congestion.kind === 'unavailable' ? 'text-amber-700' : ''}>
+                      {/* 현장 관측이 아닌 상태는 글자로 적는다 — 추정은 관광객 지도와 같은 값('보통 · 추정'), 조회 실패는
+                          '혼잡도 갱신 중'. 지금 상태를 모르면(관측·추정 없음) 아무것도 적지 않는다('관측 대기' 벽 금지). */}
+                      {infra.congestion.kind === 'estimated' ? (
+                        <span className="rounded-full border border-sky-400/50 bg-sky-500/10 px-2 py-px text-xs font-bold text-sky-700">
                           {facilityStatusLabel(infra.congestion)}
                         </span>
-                      )}
+                      ) : infra.congestion.kind === 'unavailable' ? (
+                        <span className="text-amber-700">{facilityStatusLabel(infra.congestion)}</span>
+                      ) : null}
                     </div>
                   </div>
                 ))
@@ -767,18 +794,32 @@ export default function InfrastructurePage() {
                     <h2 className="text-3xl font-black text-hanok-ink">{selectedInfra.name}</h2>
                   </div>
                   <div className="flex flex-col items-end">
-                    <div className="text-sm font-semibold text-hanok-muted mb-1">현재 상태</div>
-                    <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-hanok-card border border-hanok-line">
-                      <div className={`w-3 h-3 rounded-full ${getStatusColor(selectedInfra.congestion)}`} />
-                      {/* 관측이 없거나 조회에 실패했을 때 '한산' 으로 단정하던 자리 — 사실대로 적는다. */}
-                      <span className={`text-sm font-bold ${selectedInfra.congestion.kind === 'observed' ? 'text-hanok-ink' : 'text-hanok-muted'}`}>
-                        {facilityStatusLabel(selectedInfra.congestion)}
-                      </span>
-                    </div>
-                    {selectedInfra.congestion.kind === 'observed' && (
+                    {/* 현재 상태 = 24시간 안의 현장 관측 또는 관광객 지도와 같은 추정. 그보다 오래된 관측은 '현재 상태' 가
+                        아니다 — 날짜를 붙여 아래 한 줄로만 적는다(I72). 둘 다 없으면 상태 칸을 그리지 않는다. */}
+                    {facilityStatusLabel(selectedInfra.congestion) && (
+                      <>
+                        <div className="text-sm font-semibold text-hanok-muted mb-1">현재 상태</div>
+                        <div className={`flex items-center gap-2 px-3 py-1 rounded-full border ${
+                          selectedInfra.congestion.kind === 'estimated' ? 'bg-sky-500/10 border-sky-400/50' : 'bg-hanok-card border-hanok-line'
+                        }`}>
+                          <div className={`w-3 h-3 rounded-full ${getStatusColor(selectedInfra.congestion)}`} />
+                          <span className={`text-sm font-bold ${
+                            selectedInfra.congestion.kind === 'observed'
+                              ? 'text-hanok-ink'
+                              : selectedInfra.congestion.kind === 'estimated' ? 'text-sky-700' : 'text-hanok-muted'
+                          }`}>
+                            {facilityStatusLabel(selectedInfra.congestion)}
+                          </span>
+                        </div>
+                      </>
+                    )}
+                    {(selectedInfra.congestion.kind === 'observed' || selectedInfra.congestion.kind === 'estimated') && (
                       <div className="text-xs text-hanok-muted mt-1 tabular-nums">
-                        최신 혼잡도 {Math.round(selectedInfra.congestion.level * 100)}%
+                        {selectedInfra.congestion.kind === 'estimated' ? '추정 혼잡도' : '최신 혼잡도'} {Math.round(selectedInfra.congestion.level * 100)}%
                       </div>
+                    )}
+                    {staleObservationLine(selectedInfra.congestion) && (
+                      <div className="text-xs text-hanok-muted mt-1 tabular-nums">{staleObservationLine(selectedInfra.congestion)}</div>
                     )}
                   </div>
                 </div>
@@ -823,7 +864,8 @@ export default function InfrastructurePage() {
                   );
                 })()}
 
-                {/* Time Series Chart */}
+                {/* Time Series Chart — 오늘 기록이 없으면(조회 실패가 아니면) 카드를 그리지 않는다(빈 카드 금지, I72). */}
+                {(chartError || chartData.length > 0) && (
                 <div className="bg-hanok-panel p-6 rounded-2xl border border-hanok-line shadow-sm flex flex-col h-[300px]">
                   <h3 className="text-lg font-bold text-hanok-ink mb-4 flex items-center gap-2">
                     <Clock size={20} className="text-hanok-muted" />
@@ -835,10 +877,6 @@ export default function InfrastructurePage() {
                         <AlertTriangle className="text-amber-600" size={20} />
                         <p className="text-sm font-semibold text-amber-800">혼잡도 추이를 갱신하는 중입니다</p>
                         <p className="text-xs text-hanok-muted">잠시 후 자동으로 표시됩니다.</p>
-                      </div>
-                    ) : chartData.length === 0 ? (
-                      <div className="flex items-center justify-center h-full text-hanok-muted">
-                        오늘 혼잡도를 수집하는 중입니다.
                       </div>
                     ) : (
                       <ResponsiveContainer width="100%" height="100%">
@@ -855,6 +893,7 @@ export default function InfrastructurePage() {
                     )}
                   </div>
                 </div>
+                )}
 
                 {/* Admin Actions */}
                 <div className="bg-hanok-panel p-6 rounded-2xl border border-hanok-line shadow-sm flex flex-col gap-4">
@@ -862,20 +901,13 @@ export default function InfrastructurePage() {
                     <AlertTriangle size={20} className="text-amber-500" />
                     관리자 액션
                   </h3>
-                  <div className="flex gap-4">
-                    <button
-                      onClick={handleOverride}
-                      className="flex-1 bg-hanok-card border border-hanok-line hover:bg-hanok-line text-hanok-ink font-semibold py-3 rounded-xl transition-colors"
-                    >
-                      혼잡도 직접 입력
-                    </button>
-                    <button
-                      onClick={handleDispatch}
-                      className="flex-1 bg-gold hover:bg-gold-deep text-white font-semibold py-3 rounded-xl transition-colors shadow-sm shadow-gold/30"
-                    >
-                      근처 유저에게 분산 안내 발송
-                    </button>
-                  </div>
+                  {/* (예전 '근처 유저에게 분산 안내 발송' 자리 — 실제로 보내는 경로가 없는 가짜 완료 토스트라 걷어냈다, I72.) */}
+                  <button
+                    onClick={handleOverride}
+                    className="w-full bg-hanok-card border border-hanok-line hover:bg-hanok-line text-hanok-ink font-semibold py-3 rounded-xl transition-colors"
+                  >
+                    혼잡도 직접 입력
+                  </button>
                 </div>
 
               </div>

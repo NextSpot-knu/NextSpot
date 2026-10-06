@@ -12,8 +12,8 @@ import { DashboardCharts, DashboardHeatmap } from '@/components/admin/DashboardC
 import { FacilityTable } from '@/components/admin/FacilityTable';
 import { CouponPolicyPanel } from '@/components/admin/CouponPolicyPanel';
 import { ImpactWidget } from '@/components/admin/ImpactWidget';
-import { ModelAccuracyBadge } from '@/components/admin/ModelAccuracyBadge';
 import { ModelTrustPanel } from '@/components/admin/ModelTrustPanel';
+import { StepNav } from '@/components/admin/StepNav';
 import { AreaDemandReliabilityPanel } from '@/components/admin/AreaDemandReliabilityPanel';
 import { DataFreshnessBadge } from '@/components/admin/DataFreshnessBadge';
 
@@ -76,6 +76,7 @@ import {
   type PredictedHeatmapCell,
 } from '@/lib/adminPredictedView';
 import { createPublicClient } from '@/lib/supabase';
+import { hasMeasuredTrend } from '@/lib/adminTrendThreshold';
 import { useCountUp } from '@/lib/useCountUp';
 import { AdminDemoDashboard } from '@/components/admin/DemoDashboard';
 import { isDemoParam } from '@/lib/demoFixtures';
@@ -384,13 +385,16 @@ function buildDemoDistribution() {
 
 // 폐루프 내러티브 스텝 헤더(①실시간 관제 → ②정책 개입 → ③분산 효과) — 심사위원이 흐름을 즉시 읽도록.
 // credit 은 부제 아래 따로 한 줄(출처 표기) — 부제 문장 안에 섞으면 기관이 이 화면을 운영하는 것처럼 읽힌다.
+// id 는 상단 단계 바(StepNav)가 이 단계로 옮겨 올 때의 앵커다 — scroll-mt 는 붙어 있는 단계 바 높이만큼 비운다.
 function StepBanner({
+  id,
   badge,
   title,
   subtitle,
   credit,
   color,
 }: {
+  id?: string;
   badge: string;
   title: string;
   subtitle: string;
@@ -403,7 +407,7 @@ function StepBanner({
     emerald: 'bg-emerald-500/15 text-emerald-700 border-emerald-500/30',
   };
   return (
-    <div className="flex items-center gap-3">
+    <div id={id} className="flex items-center gap-3 scroll-mt-20">
       <span
         className={`flex-shrink-0 w-9 h-9 flex items-center justify-center rounded-full text-base font-black border ${palette[color]}`}
       >
@@ -417,6 +421,9 @@ function StepBanner({
     </div>
   );
 }
+
+// KPI 숫자 — 32px(P9 · I17). 네 타일이 같은 줄 높이(leading-9)라 숫자가 한 줄에 선다.
+const KPI_NUMBER = 'text-[32px] leading-9 font-black';
 
 // KPI 근거/기준 툴팁 — info 아이콘 hover 시 노출(간단 CSS 툴팁, 카드 우측 정렬로 좌측으로 펼침).
 function InfoTip({ text }: { text: string }) {
@@ -589,7 +596,8 @@ async function fetchTrend(): Promise<{ mode: 'live' | 'demo'; rows: any[]; trunc
     const t = await withColdStartRetry(() => adminApi.get('/api/v1/admin/metrics/trend?days=30'));
     const daily: any[] = t?.daily || [];
     const liveDays = daily.filter((d) => d.samples > 0).length;
-    if (liveDays >= 3) {
+    // 문턱(3일)은 성과 리포트와 같은 값이다(lib/adminTrendThreshold.ts) — 두 화면이 같은 응답을 다르게 읽지 않게.
+    if (hasMeasuredTrend(liveDays)) {
       const rows = daily.map((d) => {
         const [, m, dd] = String(d.date).split('-');
         return {
@@ -638,7 +646,7 @@ function DashboardPage() {
   const [metricsAt, setMetricsAt] = useState<number | null>(null);
   // 예측 행이 될 시설(업종별 상위 12곳). null = 아직 없음/실패 → 예측 없이 기존 폴백.
   const [facilities, setFacilities] = useState<FacilityLite[] | null>(null);
-  // 추천 고리의 두 위젯(분산 효과 = 오늘 수락, 깔때기 = 지난 30일 노출)이 알려 주는 자기 창의 실측 표본 수.
+  // 추천 고리의 두 위젯(분산 효과 = 최근 30일 수락, 깔때기 = 지난 30일 노출)이 알려 주는 자기 창의 실측 표본 수.
   // 수락률·DAU 와 함께 공동 판정(resolveLoopBasis)에 들어간다 — 한 화면에 실측과 시나리오가 섞이지 않게.
   const [impactSamples, setImpactSamples] = useState<LoopSamples>('loading');
   const [funnelSamples, setFunnelSamples] = useState<LoopSamples>('loading');
@@ -825,6 +833,8 @@ function DashboardPage() {
     measuredElsewhere: briefing !== null,
   });
   const loopScenario = loopBasis === 'scenario' ? scenario : null;
+  // 최근 30일 분산 효과가 0 건이고 추천 고리가 실측으로 판정되면 위젯은 스스로 숨는다 — 쿠폰 정책 카드가 줄을 다 쓴다.
+  const impactHidden = impactSamples === 0 && loopBasis === 'measured';
   const acceptShown = acceptRate.status === 'ok' || acceptRate.status === 'empty';
   const dauShown = activeUsers.status === 'ok' || activeUsers.status === 'empty';
   const acceptScenario = acceptShown ? loopScenario : null;
@@ -941,8 +951,8 @@ function DashboardPage() {
         <header className="lg:h-20 bg-hanok-panel border-b border-hanok-line flex flex-wrap lg:flex-nowrap items-center justify-between gap-2 lg:gap-0 px-4 py-3 lg:px-8 lg:py-0 flex-shrink-0">
           <div className="flex max-lg:flex-wrap items-center gap-2 lg:gap-4">
             <h2 className="text-xl font-bold text-hanok-ink">경주 관광 혼잡 종합 대시보드</h2>
-            <ModelAccuracyBadge />
-            {/* 오늘 혼잡 지표의 근거(실측/추정/예측)를 상단에서도 한 번 더 말한다. */}
+            {/* (예전 '예측모델 상태' 칩 자리 — 엔진 내부 상태라 첫 줄에서 뺐다. 추천 신뢰도 패널이 맨 아래에서 말한다.)
+                오늘 혼잡 지표의 근거(실측/추정/예측)를 상단에서도 한 번 더 말한다. */}
             <DataFreshnessBadge congestionBasis={congestionBasisKind} />
           </div>
           <div className="flex items-center gap-6">
@@ -964,8 +974,12 @@ function DashboardPage() {
         </header>
 
         {/* Dashboard Content (Scrollable) */}
-        <div className="flex-1 p-4 lg:p-8 overflow-y-auto flex flex-col gap-6 lg:gap-8">
+        <div className="flex-1 px-4 pb-4 lg:px-8 lg:pb-8 overflow-y-auto flex flex-col gap-6">
           <style>{DASH_LOADER_STYLES}</style>
+
+          {/* 단계 바(P9) — 스크롤해도 위에 붙어 있다. ①②③ 이 어디 있는지 늘 보이고, 누르면 그 단계로 간다.
+              바가 본문 위쪽 여백 자리를 쓰므로(위 여백 0) 첫 화면의 KPI 높이는 그대로다. */}
+          <StepNav className="sticky top-0 z-20 -mx-4 border-b border-hanok-line bg-hanok/95 px-4 py-2 backdrop-blur lg:-mx-8 lg:px-8" />
 
           {/* 첫 로드 동기화 스트립 — 지표 도착 전의 '빈 화면'을 '일부러 준비 중'으로 바꾼다.
               비선형 진행 바(초반 급가속 후 94%에서 크롤)는 LoadingReveal 과 같은 지각 곡선. */}
@@ -1012,6 +1026,7 @@ function DashboardPage() {
           <div className="flex items-center justify-between gap-4">
             <div className="min-w-0">
               <StepBanner
+                id="step-monitor"
                 badge="①"
                 title="실시간 관제"
                 subtitle={`경주 관광정보 ${tourInfoCount !== null ? `${tourInfoCount.toLocaleString('ko-KR')}곳 ` : ''}· 경주 ITS 공영주차(10분마다)로 지금 경주의 혼잡을 봅니다`}
@@ -1184,15 +1199,15 @@ function DashboardPage() {
               타일(DAU)의 숫자가 가장 긴 타일 바닥까지 밀려 1366×650 에서 첫 화면 밖이었다. */}
           <div id="dashboard-kpis" className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6">
             {/* 오늘 평균 혼잡도 — 추정/예측이면 점선 테두리 + 배지 + 근거 한 줄(실측과 같은 모양이 아니다). */}
-            <div className={`bg-hanok-panel p-6 rounded-2xl shadow-sm flex flex-col ${
+            <div className={`bg-hanok-panel p-5 rounded-2xl shadow-sm flex flex-col ${
               isEstimate
-                ? 'border-2 border-dashed border-sky-400/50'
+                ? 'border-2 border-sky-400/50'
                 : isPredicted
-                  ? 'border-2 border-dashed border-violet-400/50'
+                  ? 'border-2 border-violet-400/50'
                   : 'border border-hanok-line'
             }`}>
-              <div className="flex justify-between items-start mb-4">
-                <div className="p-3 bg-gold/10 rounded-xl text-gold-deep">
+              <div className="flex justify-between items-start mb-3">
+                <div className="p-2.5 bg-gold/10 rounded-xl text-gold-deep">
                   <Activity size={24} />
                 </div>
                 <div className="flex items-center gap-2">
@@ -1213,7 +1228,7 @@ function DashboardPage() {
                         return (
                           <span
                             title="전일 비교 기준을 집계하는 중입니다 — 기준이 준비되면 변화율을 표시합니다."
-                            className="px-2 py-1 text-xs font-bold rounded-full cursor-help bg-hanok-card text-hanok-muted border border-dashed border-hanok-line"
+                            className="px-2 py-1 text-xs font-bold rounded-full cursor-help bg-hanok-card text-hanok-muted border border-hanok-line"
                           >
                             —
                           </span>
@@ -1242,8 +1257,8 @@ function DashboardPage() {
                       );
                     })()
                   ) : null}
-                  {isEstimate && <EstimateBadge title={estimateLine ?? undefined} />}
-                  {isPredicted && <PredictedBadge title={predictedLine ?? undefined} />}
+                  {isEstimate && <EstimateBadge title={[estimateLine, fieldSampleNote].filter(Boolean).join(' · ') || undefined} />}
+                  {isPredicted && <PredictedBadge title={[predictedLine, fieldSampleNote].filter(Boolean).join(' · ') || undefined} />}
                   <InfoTip
                     text={
                       isEstimate
@@ -1268,7 +1283,7 @@ function DashboardPage() {
                   <MetricNoSample hint="현장 관측이 누적되는 대로 실측 지표로 표시됩니다." />
                 ) : (
                   <>
-                    <div className="text-3xl font-black text-hanok-ink">
+                    <div className={`${KPI_NUMBER} text-hanok-ink`}>
                       {/* 표시만 카운트업 — 목표·소수 자리는 기존 (value*100).toFixed(1) 그대로 */}
                       <CountUpNumber
                         value={avgCongestion.value.value * 100}
@@ -1276,21 +1291,8 @@ function DashboardPage() {
                         format={(n) => `${n.toFixed(1)}%`}
                       />
                     </div>
-                    {/* 배지를 못 그린 이유를 타일 안에서 말한다 — 배지 자리의 '—' 만으로는
-                        '왜' 를 알 수 없고, 툴팁은 읽히지 않는다. */}
-                    {!isPredicted && changeComparison(avgCongestion.value as AvgCongestionValue).kind === 'no-sample' && (
-                      <p className="text-[11px] text-hanok-muted mt-1">전일 비교 기준을 집계하는 중입니다</p>
-                    )}
-                    {/* 추정 값의 근거는 숫자 바로 아래 — 배지만으로는 '무엇에서' 를 말하지 못한다. */}
-                    {isEstimate && estimateLine && (
-                      <p className="text-[11px] text-sky-700/90 mt-1 leading-snug">{estimateLine}</p>
-                    )}
-                    {isPredicted && predictedLine && (
-                      <p className="text-[11px] text-violet-700/90 mt-1 leading-snug">{predictedLine}</p>
-                    )}
-                    {fieldSampleNote && (
-                      <p className="text-[11px] text-hanok-ink mt-1 leading-snug">{fieldSampleNote}</p>
-                    )}
+                    {/* 근거 문장(무엇에서·몇 곳·언제)은 숫자 아래 11px 줄 대신 '추정'·'예측' 배지의 툴팁과
+                        위 배너의 '산식 보기' 가 말한다 — 첫 화면에서 네 숫자가 같은 높이로 읽히게(I17). */}
                   </>
                 )}
               </div>
@@ -1298,11 +1300,11 @@ function DashboardPage() {
 
             {/* 추천 수락률 — 추천 고리 공동 판정(loopBasis)이 시나리오면 시나리오 값(호박 점선 + 배지 + 근거 한 줄).
                 실측 1~4건이면 그 수를 부제에 적는다('실측 3건 수집 중'). 조회 실패는 그대로 '갱신 중'. */}
-            <div className={`bg-hanok-panel p-6 rounded-2xl shadow-sm flex flex-col ${
-              acceptScenario ? 'border-2 border-dashed border-amber-400/50' : 'border border-hanok-line'
+            <div className={`bg-hanok-panel p-5 rounded-2xl shadow-sm flex flex-col ${
+              acceptScenario ? 'border-2 border-amber-400/50' : 'border border-hanok-line'
             }`}>
-              <div className="flex justify-between items-start mb-4">
-                <div className="p-3 bg-jade/10 rounded-xl text-jade">
+              <div className="flex justify-between items-start mb-3">
+                <div className="p-2.5 bg-jade/10 rounded-xl text-jade">
                   <TrendingUp size={24} />
                 </div>
                 <div className="flex items-center gap-2">
@@ -1335,7 +1337,7 @@ function DashboardPage() {
                 ) : acceptScenario ? (
                   // 시나리오 비율은 하루 종일 고정(건수만 오른다) — '총 N건 중 M건' 은 적지 않는다(측정한 건수가 아니다).
                   <>
-                    <div className="text-3xl font-black text-hanok-ink">
+                    <div className={`${KPI_NUMBER} text-hanok-ink`}>
                       {acceptScenario.acceptance.rate > 0 ? (
                         <CountUpNumber
                           value={acceptScenario.acceptance.rate * 100}
@@ -1346,15 +1348,13 @@ function DashboardPage() {
                         `${(acceptScenario.acceptance.rate * 100).toFixed(1)}%`
                       )}
                     </div>
-                    <p className="text-[11px] text-amber-800/90 mt-1 leading-snug">
-                      {basisSubline({ basis: 'scenario', measuredCount: acceptMeasuredCount, unit: '건' })}
-                    </p>
                   </>
                 ) : acceptRate.status === 'empty' ? (
-                  <MetricNoSample hint="추천 기록이 누적되는 대로 수락률을 표시합니다." />
+                  // 지난 7일 추천이 0건 — 비율 대신 제시 건수를 그대로 적는다('—' 만 두면 고장으로 읽힌다).
+                  <div className="text-2xl leading-9 font-black text-hanok-ink">추천 제시 0건</div>
                 ) : (
                   <>
-                    <div className="text-3xl font-black text-hanok-ink">
+                    <div className={`${KPI_NUMBER} text-hanok-ink`}>
                       <CountUpNumber
                         value={acceptRate.value.value * 100}
                         decimals={1}
@@ -1368,11 +1368,11 @@ function DashboardPage() {
             </div>
 
             {/* DAU — 추천 고리 공동 판정이 시나리오면 시나리오 값(수락률 타일과 같은 규칙). */}
-            <div className={`bg-hanok-panel p-6 rounded-2xl shadow-sm flex flex-col ${
-              dauScenario ? 'border-2 border-dashed border-amber-400/50' : 'border border-hanok-line'
+            <div className={`bg-hanok-panel p-5 rounded-2xl shadow-sm flex flex-col ${
+              dauScenario ? 'border-2 border-amber-400/50' : 'border border-hanok-line'
             }`}>
-              <div className="flex justify-between items-start mb-4">
-                <div className="p-3 bg-emerald-500/10 rounded-xl text-emerald-600">
+              <div className="flex justify-between items-start mb-3">
+                <div className="p-2.5 bg-emerald-500/10 rounded-xl text-emerald-600">
                   <Users size={24} />
                 </div>
                 <div className="flex items-center gap-2">
@@ -1394,22 +1394,19 @@ function DashboardPage() {
                   // 시나리오 건수는 시각 진행률을 곱한 값 — KST 0시 직후의 0명은 모델의 시작점이지 측정한 0이 아니다
                   // (배지가 그 사실을 말한다). 0 을 향해 굴리지는 않는다.
                   <>
-                    <div className="text-3xl font-black text-hanok-ink">
+                    <div className={`${KPI_NUMBER} text-hanok-ink`}>
                       {dauScenario.dau > 0 ? (
                         <CountUpNumber value={dauScenario.dau} format={(n) => `${n.toLocaleString()}명`} />
                       ) : (
                         `${dauScenario.dau.toLocaleString()}명`
                       )}
                     </div>
-                    <p className="text-[11px] text-amber-800/90 mt-1 leading-snug">
-                      {basisSubline({ basis: 'scenario', measuredCount: dauMeasuredCount, unit: '건' })}
-                    </p>
                   </>
                 ) : activeUsers.status === 'empty' ? (
                   <MetricNoSample hint="오늘(KST) 이용 기록이 들어오는 대로 표시됩니다." />
                 ) : (
                   // 0명은 실측값이다(조회 성공 + 오늘 피드백 0건) — 실패와 다른 모양으로 그대로 보여준다.
-                  <div className="text-3xl font-black text-hanok-ink">
+                  <div className={`${KPI_NUMBER} text-hanok-ink`}>
                     <CountUpNumber
                       value={activeUsers.value}
                       format={(n) => `${n.toLocaleString()}명`}
@@ -1421,20 +1418,20 @@ function DashboardPage() {
 
             {/* 이상 혼잡 알림 건수 — 추정이면 단위가 다르다('로그 1행' 이 아니라 '대표 관광지 × 10분 구간').
                 같은 '건' 으로 적으면 실측 건수와 같은 척도로 읽히므로 단위를 숫자 옆에 적는다. */}
-            <div className={`bg-hanok-panel p-6 rounded-2xl shadow-sm flex flex-col ${
+            <div className={`bg-hanok-panel p-5 rounded-2xl shadow-sm flex flex-col ${
               isEstimate
-                ? 'border-2 border-dashed border-sky-400/50'
+                ? 'border-2 border-sky-400/50'
                 : isPredicted
-                  ? 'border-2 border-dashed border-violet-400/50'
+                  ? 'border-2 border-violet-400/50'
                   : 'border border-hanok-line'
             }`}>
-              <div className="flex justify-between items-start mb-4">
-                <div className="p-3 bg-rose-500/10 rounded-xl text-rose-700">
+              <div className="flex justify-between items-start mb-3">
+                <div className="p-2.5 bg-rose-500/10 rounded-xl text-rose-700">
                   <AlertTriangle size={24} />
                 </div>
                 <div className="flex items-center gap-2">
-                  {isEstimate && <EstimateBadge title={estimateLine ?? undefined} />}
-                  {isPredicted && <PredictedBadge title={predictedLine ?? undefined} />}
+                  {isEstimate && <EstimateBadge title={[ESTIMATE_ANOMALY_UNIT, estimateLine].filter(Boolean).join(' · ')} />}
+                  {isPredicted && <PredictedBadge title={[PREDICTED_ANOMALY_UNIT, predictedLine].filter(Boolean).join(' · ')} />}
                   <InfoTip
                     text={
                       isEstimate
@@ -1459,19 +1456,18 @@ function DashboardPage() {
                 ) : isEstimate ? (
                   // 추정 구간 수 — '건' 이 아니라 '구간' 이다(위 주석).
                   <>
-                    <div className="text-3xl font-black text-rose-700">
+                    <div className={`${KPI_NUMBER} text-rose-700`}>
                       <CountUpNumber
                         value={anomalyCount.value}
                         format={(n) => `${n.toLocaleString('ko-KR')}구간`}
                       />
                     </div>
-                    <p className="text-[11px] text-sky-700/90 mt-1 leading-snug">{ESTIMATE_ANOMALY_UNIT}</p>
                   </>
                 ) : isPredicted ? (
                   // 예측 구간 수 — '(시설 × 1시간)' 구간이라 실측 '건'·추정 '10분 구간' 과 또 다른 척도다.
                   // 0구간도 배지와 함께 그대로 적는다(예측이 임계치 아래였다는 뜻 — 측정한 0 이 아니다).
                   <>
-                    <div className="text-3xl font-black text-rose-700">
+                    <div className={`${KPI_NUMBER} text-rose-700`}>
                       {anomalyCount.value > 0 ? (
                         <CountUpNumber
                           value={anomalyCount.value}
@@ -1481,11 +1477,10 @@ function DashboardPage() {
                         `${anomalyCount.value.toLocaleString('ko-KR')}구간`
                       )}
                     </div>
-                    <p className="text-[11px] text-violet-700/90 mt-1 leading-snug">{PREDICTED_ANOMALY_UNIT}</p>
                   </>
                 ) : (
                   // 0건은 실측값이다(로그가 있고 임계치 초과가 없었다).
-                  <div className="text-3xl font-black text-rose-700">
+                  <div className={`${KPI_NUMBER} text-rose-700`}>
                     <CountUpNumber value={anomalyCount.value} format={(n) => `${n}건`} />
                   </div>
                 )}
@@ -1549,60 +1544,58 @@ function DashboardPage() {
               </span>
             )}
           </div>
-          {/* 30일 분산 효과 추이 — 비전공 심사 동선(F-패턴) 최적화: 가장 자기설명적인 차트를
-              KPI·히트맵 바로 아래로 올렸다. 내부 신뢰도 패널은 아래로 내림. */}
-          <div className="grid grid-cols-4 gap-6">
-            {distribution !== null
-              ? <DashboardCharts distribution={distribution.rows} mode={distribution.mode} />
-              : <ChartGhost />}
-          </div>
-
-          {/* 수요 수집 신뢰도 — ① 실시간 관제 구역 안(주차 실측과 같은 구역, wiring 테스트 계약),
-              단 차트 아래로 내려 심사 동선(F-패턴)에서 큰 그림이 먼저 읽히게 한다. */}
+          {/* 수요 수집 신뢰도 — 공영주차 실측 소제목 바로 아래(같은 지표의 원천과 수집 상태를 한자리에서).
+              ① 실시간 관제 구역 안에 둔다(wiring 테스트 계약). */}
           <AreaDemandReliabilityPanel />
 
           {/* (예전 '주차 실측 기반 추정 적재' 버튼 자리 — D6 결정으로 걷어냈다. 수동으로 적재한
               parking_derived 행은 이제 서버가 읽을 때 계산하는 추정(estimated)과 **이중 집계**가 된다.
               백엔드 엔드포인트는 남아 있다.) */}
 
-          {/* ───────── 폐루프 ② 정책 개입 · ③ 분산 효과 ───────── (아래 행의 두 컬럼에 각각 정렬) */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-6">
-            <div className="lg:col-span-2">
-              <StepBanner
-                badge="②"
-                title="정책 개입"
-                subtitle="쿠폰 인센티브로 분산 목적지의 추천 순위를 조정합니다"
-                color="amber"
-              />
-            </div>
-            <div className="lg:col-span-1">
-              <StepBanner
-                badge="③"
-                title="분산 효과"
-                subtitle="개입이 덜어낸 혼잡을 정량화합니다"
-                color="emerald"
-              />
-            </div>
-          </div>
+          {/* ───────── 폐루프 ② 정책 개입 ─────────
+              기능설명서 ⑤ 의 순서대로 ① 관제 → ② 개입 → ③ 효과로 읽힌다(예전에는 30일 차트가 ① 안에 있어 ① → ③ → ② 였다). */}
+          <StepBanner
+            id="step-policy"
+            badge="②"
+            title="정책 개입"
+            subtitle="쿠폰 인센티브로 분산 목적지의 추천 순위를 조정합니다"
+            color="amber"
+          />
 
-          {/* 개입 폐루프 Row — 쿠폰 정책(②개입) + 분산 효과(③효과 정량화) */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-6">
+          {/* 쿠폰 정책(② 개입) + 최근 30일 분산 효과. 30일 동안 덜어낸 혼잡이 0 이면 분산 효과 카드는 숨고
+              쿠폰 정책이 줄을 다 쓴다('0분 · 0건' 카드를 세우지 않는다). */}
+          <div className={`grid grid-cols-1 gap-4 lg:gap-6 ${impactHidden ? 'lg:grid-cols-2' : 'lg:grid-cols-3'}`}>
             <CouponPolicyPanel />
-            {/* 분산 효과는 추천 고리 공동 판정(loopBasis)을 따르고, 자기 창(오늘 수락)의 표본 수를 알려 준다. */}
+            {/* 분산 효과는 추천 고리 공동 판정(loopBasis)을 따르고, 자기 창(최근 30일 수락)의 표본 수를 알려 준다. */}
             <ImpactWidget loopBasis={loopBasis} onMeasuredSamples={setImpactSamples} />
           </div>
 
-          {/* Bottom Section */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-6">
+          {/* ───────── 폐루프 ③ 분산 효과 ───────── 30일 추이(실측이 3일 미만이면 '1일차…30일차' 도입 시나리오). */}
+          <StepBanner
+            id="step-effect"
+            badge="③"
+            title="분산 효과"
+            subtitle="개입이 덜어낸 혼잡을 30일 추이로 봅니다"
+            color="emerald"
+          />
+          <div className="grid grid-cols-4 gap-6">
+            {distribution !== null
+              ? <DashboardCharts distribution={distribution.rows} mode={distribution.mode} />
+              : <ChartGhost />}
+          </div>
+
+          {/* Bottom Section — 장소 관리 표는 1800px 미만에서 전폭(관리 열이 가로 스크롤 뒤로 숨지 않게, I70),
+              이상 혼잡 알림은 그 아래로 쌓는다. */}
+          <div className="grid grid-cols-1 gap-4 lg:gap-6 min-[1800px]:grid-cols-3">
             {/* Facility Table (Client Component) */}
             <FacilityTable />
 
             {/* Anomaly Alerts List (Server Rendered) */}
             <div className={`bg-hanok-panel rounded-2xl shadow-sm overflow-hidden flex flex-col ${
               isEstimate
-                ? 'border-2 border-dashed border-sky-400/50'
+                ? 'border-2 border-sky-400/50'
                 : isPredicted
-                  ? 'border-2 border-dashed border-violet-400/50'
+                  ? 'border-2 border-violet-400/50'
                   : 'border border-hanok-line'
             }`}>
               <div className="p-6 border-b border-hanok-line flex items-center gap-2 flex-wrap bg-hanok-card/30">
@@ -1638,13 +1631,13 @@ function DashboardPage() {
                   )}
                   {/* 추정 알림도 목록 위에 한 줄로 무엇인지 말한다 — 항목 모양만으로는 실측 알림과 같아 보인다. */}
                   {isEstimate && listedAnomalies.length > 0 && (
-                    <p className="text-xs text-sky-700 border border-dashed border-sky-400/50 bg-sky-500/10 rounded-lg px-3 py-2 leading-snug">
+                    <p className="text-xs text-sky-700 border border-sky-400/50 bg-sky-500/10 rounded-lg px-3 py-2 leading-snug">
                       아래 {listedAnomalies.length}곳은 추정 혼잡도가 90%를 넘은 장소(장소별 최고 구간)입니다. {estimateLine}
                     </p>
                   )}
                   {/* 예측 알림(예측 단독 모드)도 같은 규칙 — 무엇으로 계산했는지를 목록 위에서 말한다. */}
                   {isPredicted && listedAnomalies.length > 0 && (
-                    <p className="text-xs text-violet-700 border border-dashed border-violet-400/50 bg-violet-500/10 rounded-lg px-3 py-2 leading-snug">
+                    <p className="text-xs text-violet-700 border border-violet-400/50 bg-violet-500/10 rounded-lg px-3 py-2 leading-snug">
                       아래 {listedAnomalies.length}곳은 예측 혼잡도가 90%를 넘는 시설(시설별 최고 시간대)입니다. {predictedLine}
                     </p>
                   )}
@@ -1653,9 +1646,9 @@ function DashboardPage() {
                       key={alert.id}
                       className={`p-4 rounded-xl bg-rose-500/10 flex flex-col gap-2 relative overflow-hidden ${
                         isEstimate
-                          ? 'border border-dashed border-sky-400/50'
+                          ? 'border border-sky-400/50'
                           : isPredicted
-                            ? 'border border-dashed border-violet-400/50'
+                            ? 'border border-violet-400/50'
                             : 'border border-rose-500/15'
                       }`}
                     >
@@ -1700,7 +1693,7 @@ function DashboardPage() {
                       위 목록(지금까지 일어난/집계된 피크)과 구간이 겹치지 않는다. 시각은 KST 시, 칸은 1시간.
                       같은 업종·시각·값은 한 줄('음식점 12곳')로 묶는다 — 업종 패턴은 업종 단위 예측이다. */}
                   {showFuturePeaks && (
-                    <div className="mt-2 pt-3 border-t border-dashed border-violet-400/40 flex flex-col gap-2">
+                    <div className="mt-2 pt-3 border-t border-violet-400/40 flex flex-col gap-2">
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-xs font-bold text-violet-700">예측 피크 (이후 시간대)</span>
                         <PredictedBadge title={predictedLine ?? mixedSentence} />
@@ -1711,7 +1704,7 @@ function DashboardPage() {
                         futurePeaks.map((peak) => (
                           <div
                             key={`future-${peak.facilityType}-${peak.facility}-${peak.hour}`}
-                            className="px-3 py-2 rounded-lg border border-dashed border-violet-400/50 bg-violet-500/5 text-xs text-violet-800 flex justify-between items-center gap-2"
+                            className="px-3 py-2 rounded-lg border border-violet-400/50 bg-violet-500/5 text-xs text-violet-800 flex justify-between items-center gap-2"
                           >
                             <span className="font-semibold">
                               {peakLabel(peak)} {String(peak.hour).padStart(2, '0')}시 예측

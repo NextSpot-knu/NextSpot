@@ -130,31 +130,16 @@ export function DataFreshnessBadge({
   // 스트림 이름을 명시하고, 48시간보다 오래된 제보는 '31일 전' 같은 상대시간 대신 짧은 날짜로
   // 표기한다(정확한 시각은 툴팁 유지 — 사실 은폐 아님, 과대 표기 제거).
   // stale 판정은 응답 도착 시 상태(congestionStale)로 굳혔다 — 렌더는 시계를 읽지 않는다.
-  const congestionLabel = (d: Date) =>
-    congestionStale ? `${d.getMonth() + 1}/${d.getDate()}` : formatRelativeKo(d);
-  const congestionBadge = failed ? (
-    <span
-      title="최신 현장 제보를 가져오지 못했습니다 — 조회를 다시 시도합니다."
-      className="flex items-center gap-1.5 px-2.5 py-1 bg-hanok-card border border-hanok-line text-hanok-muted rounded-full text-xs font-bold"
-    >
-      <Clock size={14} />
-      현장 제보 수집 중
-    </span>
-  ) : !latest ? (
-    <span
-      title="데이터 신선도 확인 중 — 최신 현장 제보 조회 대기"
-      className="flex items-center gap-1.5 px-2.5 py-1 bg-hanok-card border border-hanok-line text-hanok-muted rounded-full text-xs font-bold"
-    >
-      <Clock size={14} />
-      신선도 확인 중
-    </span>
-  ) : (
+  //
+  // 2026-10-07(I17): 48시간보다 오래된 제보 칩('현장 제보 9/27')과 조회 중·실패 칩은 그리지 않는다. 관제 첫 줄에서
+  // 오래된 날짜·'수집 중' 이 신선도를 대표하던 문제다 — 최근 이틀 안의 제보가 있을 때만 그 시각을 보인다.
+  const congestionBadge = failed || !latest || congestionStale ? null : (
     <span
       title={`최신 현장 혼잡 제보 시각: ${latest.toLocaleString()}`}
       className="flex items-center gap-1.5 px-2.5 py-1 bg-hanok-card border border-hanok-line text-hanok-muted rounded-full text-xs font-bold"
     >
       <Clock size={14} />
-      현장 제보 {congestionLabel(latest)}
+      현장 제보 {formatRelativeKo(latest)}
     </span>
   );
 

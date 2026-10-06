@@ -37,6 +37,7 @@ import {
 } from '@/lib/adminEstimatedSeries';
 import { apiClient } from '@/lib/api-client';
 import { formatRelativeKo } from '@/lib/freshness';
+import { hasMeasuredTrend } from '@/lib/adminTrendThreshold';
 
 const REPORT_DAYS = 30;
 
@@ -217,13 +218,14 @@ export default function AdminReportPage() {
   }, [trend]);
 
   // ── 30일 **추정** 추이 ────────────────────────────────────────────────
-  // 실측이 이기는 규칙은 여기서 끝낸다: 실측 표본일이 1일이라도 있으면 추정 계열을 만들지 않는다.
+  // 실측이 이기는 규칙은 여기서 끝낸다: 실측 표본일이 문턱(3일, 대시보드와 같은 값) 이상이면 추정 계열을 만들지 않는다.
   // (절반은 실측 · 절반은 추정인 한 줄을 그리면 그 선이 무엇인지 아무도 말할 수 없다.)
+  // 문턱이 1일이던 때는 좌석 방송 한 번·수동 입력 한 번이 30일 추정 추이와 총평을 통째로 걷어냈다(I73).
   const estimatedSeries: EstimatedSeries | null = useMemo(
     () => readEstimatedSeries(estimateRaw),
     [estimateRaw],
   );
-  const measuredHasSamples = (kpi?.sampleDays ?? 0) > 0;
+  const measuredHasSamples = hasMeasuredTrend(kpi?.sampleDays);
   const estimateForChart = !measuredHasSamples && estimatedSeries && estimatedSeries.observedDays > 0
     ? estimatedSeries
     : null;
@@ -248,7 +250,7 @@ export default function AdminReportPage() {
     if (!kpi) return '총평을 집계하는 중입니다.';
 
     const sentences: string[] = [];
-    if (kpi.sampleDays === 0) {
+    if (!hasMeasuredTrend(kpi.sampleDays)) {
       sentences.push('최근 30일 분산 정책 운영 결과를 공영주차 실측(경주 ITS)과 관광 통계 기반 추정 지표로 집계했습니다.');
       // 값 앞의 '(추정)' 과 뒤의 산출일수를 같은 문장 안에 두어, 한 문장만 인용돼도 오해가 없게 한다.
       if (estimateSummary && estimateSummary.avgCongestion !== null) {
@@ -300,7 +302,7 @@ export default function AdminReportPage() {
     ? null
     : freshness
       ? (freshness.lastTourapiSync
-        ? `ⓒ한국관광공사 동기화 ${formatRelativeKo(freshness.lastTourapiSync)} · 기준 ${new Date(freshness.lastTourapiSync).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })} (${freshness.source === 'estimate' ? '적재 시각 추정' : '동기화 마커 실측'})`
+        ? `ⓒ한국관광공사 관광정보 · ${formatRelativeKo(freshness.lastTourapiSync)} 동기화 (${new Date(freshness.lastTourapiSync).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })})`
         : 'ⓒ한국관광공사 동기화 확인 중')
       : undefined; // undefined = 아직 로딩 중
 
