@@ -27,6 +27,11 @@ import {
   setStoredAssumedPreset,
 } from "@/lib/api-client";
 import { displayableEstimate, formatEstimateTime } from "@/lib/congestionEstimate";
+import { displayWalkingMinutes } from "@/lib/recommender";
+// 정류지 56px 사진(TourAPI) — 없거나 깨지면 장소 표지(I38).
+import { isCityPhotoUrl, isWikimediaUrl, photoCandidates } from "@/lib/photoCredit";
+import { PlacePhotoFallback } from "@/components/PlacePhotoFallback";
+import { placeVisual } from "@/lib/placeVisual";
 import { REGION, isWithinRegion } from "@/lib/region";
 import { toast } from "sonner";
 import { useT } from "@/lib/i18n/I18nProvider";
@@ -59,10 +64,15 @@ interface CourseStop {
     longitude: number;
     capacity?: number;
     currentCount?: number;
+    // 서버는 시설 행 전체(select *)를 싣는다 — 사진 필드가 함께 온다(courses.py scored_facility). 공유 링크 복원 행에는 없다.
+    imageUrl?: string | null;
+    galleryImages?: string[] | null;
+    features?: Record<string, unknown> | null;
   };
   arrivalOffsetMin: number;
   predictedCongestion: number | null;
   spotScore: number;
+  // 서버가 만든 한국어 문장 — 화면에는 쓰지 않는다(StopRow 가 이 화면의 언어로 이유를 만든다, I58).
   reason: string;
   openStatusAtArrival?: 'open_expected' | 'closing_soon' | 'closed_confirmed' | 'needs_confirmation';
   travelMinutes?: number | null;
@@ -151,9 +161,9 @@ function typeEmoji(type: string): string {
   return TYPE_OPTIONS.find((o) => o.id === type)?.emoji ?? "📍";
 }
 
-// 스텝퍼 라벨용 — 긴 시설명을 고정폭 칸에 맞게 자른다.
-function truncate(s: string, n: number): string {
-  return s.length > n ? `${s.slice(0, n)}…` : s;
+/** 작은 사진에는 출처 줄을 달 자리가 없다 — 출처를 따로 적어야 하는 Wikimedia·경주시 사진은 빼고 TourAPI 사진만. */
+function uncreditedPhotoUrls(urls: readonly string[]): string[] {
+  return urls.filter((u) => !isWikimediaUrl(u) && !isCityPhotoUrl(u));
 }
 
 // 혼잡 키/색 — 백엔드 _congestion_label 임계값과 통일(라벨은 congestion 네임스페이스로 번역).
@@ -235,6 +245,8 @@ function CourseContent() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [needsAuth, setNeedsAuth] = useState(false);
+  // '코스 직접 짜기'(P13) — 정류지가 먼저, 순서·종류를 고르는 판은 이 버튼 뒤. 고른 것이 있으면 열린 채로 보인다.
+  const [builderOpen, setBuilderOpen] = useState(false);
   // 결과 뷰: 'cards'(정보 행 목록, 기본) | 'gantt'(시간축 간트차트)
   const [viewMode, setViewMode] = useState<"cards" | "gantt">("cards");
   // 최초 로드 완료 여부 — 전면 스켈레톤은 '첫 로드'에만 쓴다. 이후 재조회(칩 탭·드래그·위치 갱신)는
@@ -885,19 +897,6 @@ function CourseContent() {
                 </button>
               )}
 
-              {/* 순서 지정 피커 — 공유 모드(읽기 전용)에서는 숨김(간섭 방지). */}
-              {!isShareMode && (
-                <OrderPicker
-                  sequence={sequence}
-                  onAdd={addToSequence}
-                  onRemove={removeFromSequence}
-                  onReorder={(next) => { markUserReplan(); setSequence(next); }}
-                  onReset={() => { markUserReplan(); setSequence([]); setPins({}); }}
-                  selectedTypes={selectedTypes}
-                  onToggleType={toggleType}
-                />
-              )}
-
               {/* 결과 — 공유 모드는 needsAuth 대상이 아니므로(새 추천 호출 자체가 없음) 그 앞단에서 갈린다.
                   인라인 갱신: 재조회 중에는 이전 결과를 유지한 채 흐리게만 표시(전면 스켈레톤 금지 —
                   순서 피커/지도가 언마운트되지 않아 드래그·조작이 끊기지 않는다). */}
@@ -932,6 +931,41 @@ function CourseContent() {
                   </div>
                 )}
               </div>
+
+              {/* 코스 직접 짜기(P13) — 정류지가 먼저 보이고, 순서·종류 고르기는 이 버튼 뒤에 있다.
+                  공유 모드(읽기 전용)에서는 숨김(간섭 방지). 이미 고른 순서·종류가 있으면 열린 채로 둔다. */}
+              {!isShareMode && (
+                <div className="space-y-3">
+                  <button
+                    type="button"
+                    onClick={() => setBuilderOpen((v) => !v)}
+                    aria-expanded={builderOpen || sequence.length > 0 || selectedTypes.length > 0}
+                    aria-controls="course-builder"
+                    className="toss-pressable inline-flex min-h-11 items-center gap-1.5 rounded-full border border-line bg-white px-4 text-[13px] font-bold text-muk hover:border-gold/45 hover:text-gold-deep focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+                  >
+                    <span aria-hidden>🧭</span>
+                    {t('course.builderToggle')}
+                    <ChevronDown
+                      size={14}
+                      className={`transition-transform ${builderOpen || sequence.length > 0 || selectedTypes.length > 0 ? "rotate-180" : ""}`}
+                      aria-hidden
+                    />
+                  </button>
+                  {(builderOpen || sequence.length > 0 || selectedTypes.length > 0) && (
+                    <div id="course-builder">
+                      <OrderPicker
+                        sequence={sequence}
+                        onAdd={addToSequence}
+                        onRemove={removeFromSequence}
+                        onReorder={(next) => { markUserReplan(); setSequence(next); }}
+                        onReset={() => { markUserReplan(); setSequence([]); setPins({}); }}
+                        selectedTypes={selectedTypes}
+                        onToggleType={toggleType}
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
 
               <p className="border-t border-line pt-4 text-center text-[11px] leading-relaxed text-muk-soft">
                 {t('course.dataAttribution')}
@@ -997,7 +1031,7 @@ function CourseStepper({ stops }: { stops: CourseStop[] }) {
                 aria-hidden
               />
             )}
-            <div className="flex flex-col items-center gap-1.5 w-[4.25rem] shrink-0 min-w-0">
+            <div className="flex flex-col items-center gap-1.5 w-[5.5rem] md:w-[7rem] shrink-0 min-w-0">
               <span
                 className={`flex items-center justify-center w-10 h-10 rounded-full text-base shrink-0 transition-colors ${
                   isFirst
@@ -1008,20 +1042,22 @@ function CourseStepper({ stops }: { stops: CourseStop[] }) {
               >
                 {typeEmoji(stop.facility.type)}
               </span>
+              {/* 이름은 두 줄까지 온전히(I58) — 예전에는 6글자에서 잘라 '경주대게닭강…' 처럼 어느 곳인지 알 수 없었다. */}
               <span
-                className={`text-[10px] leading-tight max-w-full truncate text-center ${
+                className={`max-w-full text-center text-[12px] leading-tight break-words line-clamp-2 ${
                   isFirst ? "font-extrabold text-muk" : "font-semibold text-muk-soft"
                 }`}
                 title={stop.facility.name}
               >
-                {truncate(stop.facility.name, 6)}
+                {stop.facility.name}
               </span>
+              {/* 도착 시각(시계) — '+42분' 처럼 앞 정류지로부터의 분이 아니라 '12:59 도착'. */}
               <span
-                className={`rounded-full px-1.5 py-0.5 text-[9px] font-bold tabular-nums leading-none ${
+                className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold tabular-nums leading-none whitespace-nowrap ${
                   isFirst ? "bg-gold/15 text-gold-deep" : "bg-hanji-deep text-muk-soft"
                 }`}
               >
-                {t('course.stepperOffset', { min: Math.round(stop.arrivalOffsetMin) })}
+                {t('course.stepperOffset', { time: hhmm(stop.arrivalOffsetMin) })}
               </span>
             </div>
           </li>
@@ -1122,7 +1158,11 @@ function OrderPicker({
           문제(UX): 라벨로 두 그룹의 의도를 구분한다(위=순서 담기, 아래=종류만 선택·순서 자동). */}
       {sequence.length === 0 && (
         <div className="pt-3 mt-1 border-t border-line/70 space-y-2">
-          <p className="text-[11px] font-semibold text-muk-soft leading-relaxed">{t('course.typeFilterLabel')}</p>
+          {/* 종류만 고르면 순서는 서버가 짠다 — 위 '순서대로 담기' 와 모양이 같은 칩이라 제목으로 구분한다(I58). */}
+          <div>
+            <h2 className="text-[14px] font-bold text-muk leading-tight">{t('course.pickTitle')}</h2>
+            <p className="text-[11px] font-semibold text-muk-soft leading-relaxed mt-0.5">{t('course.typeFilterLabel')}</p>
+          </div>
           <div className="flex flex-wrap gap-2">
           {TYPE_OPTIONS.map((opt) => {
             const on = selectedTypes.includes(opt.id);
@@ -1252,11 +1292,12 @@ function CourseGantt({ stops }: { stops: CourseStop[] }) {
                   style={{ left: `${leftPct}%`, width: `calc(${widthPct}% - 2px)` }}
                   title={`${s.facility.name} · ${arrivalText(s.arrivalOffsetMin, t)}`}
                 >
-                  <span className="text-[10px] font-bold tabular-nums">
+                  <span className="text-[10px] font-bold tabular-nums truncate">
+                    {/* 등급만(I58) — 지도·카드 어디에도 붐빔을 %로 말하지 않는다. */}
                     {s.predictedCongestion != null
-                      ? `${Math.round(s.predictedCongestion * 100)}%`
+                      ? t(`congestion.${cong.key}`)
                       : est
-                        ? `${t('course.estimateShort')} ${Math.round(est.level * 100)}%`
+                        ? `${t('course.estimateShort')} ${t(`congestion.${cong.key}`)}`
                         : '—'}
                   </span>
                 </div>
@@ -1483,14 +1524,31 @@ function StopRow({
   const busyAt = useBusyThreshold();
   const [open, setOpen] = useState(false);
   const [altsOpen, setAltsOpen] = useState(false);
+  // '더보기' — 자동차 길안내 · 다른 곳 N · 이 자리 고정은 한 번 더 눌러야 보인다(I58). 앞면에는 '추천 이유' 와 '길안내' 둘만.
+  const [moreOpen, setMoreOpen] = useState(false);
+  // 56px 사진 — 몇 번째 후보를 띄우는지(깨지면 다음, 다 깨지면 장소 표지만 남는다).
+  const [photoIdx, setPhotoIdx] = useState(0);
   const alternatives = stop.alternatives ?? [];
   // 재계획 조작은 공유 모드(읽기 전용)에도, 자리 번호를 모를 때도 그리지 않는다.
   const canReplan = !readOnly && slotIdx !== undefined && slotIdx >= 0;
   const altsId = `course-alts-${stop.facility.id}`;
+  const moreId = `course-more-${stop.facility.id}`;
   const cong = stop.predictedCongestion == null ? null : congestion(stop.predictedCongestion, busyAt);
   const est = cong ? null : stopEstimate(stop);
   const estCong = est ? congestion(est.level, busyAt) : null;
   const reasonId = `course-reason-${stop.facility.id}`;
+  // 출처 줄을 달 자리가 없는 작은 사진이라 TourAPI 사진만(이 화면 아래 'ⓒ한국관광공사 TourAPI' 가 덮는다).
+  const photoUrls = uncreditedPhotoUrls(photoCandidates(stop.facility.imageUrl, stop.facility.galleryImages));
+  const photoUrl = photoUrls[photoIdx] ?? null;
+  const walkMinutes = typeof stop.travelMinutes === "number" && Number.isFinite(stop.travelMinutes)
+    ? displayWalkingMinutes(stop.travelMinutes)
+    : null;
+  // 추천 이유 — 이 화면의 언어로 만든다(I58). 서버 문장(stop.reason)은 한국어 한 벌이라 다른 언어에서 한국어가 나왔다.
+  // 도착 시점 붐빔은 모델 예측이 있을 때만 말한다(추정은 '도착 때' 가 아니라 '지금' 이다 — 아래 근거 줄이 따로 말한다).
+  const reasonText = [
+    t('course.stopReason', { order: stop.order, name: stop.facility.name, time: hhmm(stop.arrivalOffsetMin) }),
+    cong ? t('course.stopReasonCrowd', { label: t(`congestion.${cong.key}`) }) : null,
+  ].filter(Boolean).join(' ');
   const startNavigation = (mode: 'walk' | 'car') => {
     const walkMinutes = stop.travelMinutes ?? stop.arrivalOffsetMin;
     recordActiveTrip(stop.facility, {
@@ -1526,57 +1584,78 @@ function StopRow({
           {stop.order}
         </span>
         <div className="min-w-0 flex-1">
-          <div className="flex items-start justify-between gap-2">
-            <h3 className="min-w-0 flex items-center gap-1.5 text-[15px] md:text-base font-bold text-muk leading-snug">
-              <span
-                className="shrink-0 inline-flex items-center justify-center w-5 h-5 rounded-md bg-hanji-deep text-[11px]"
-                aria-hidden
-              >
-                {typeEmoji(stop.facility.type)}
-              </span>
-              <span className="truncate">{stop.facility.name}</span>
-              {pinned && (
-                <span className="shrink-0 px-1.5 py-0.5 rounded-full bg-gold/15 border border-gold/30 text-[9px] font-bold text-gold-deep">
-                  📌 {t('course.pinnedBadge')}
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0 flex-1">
+              <h3 className="min-w-0 flex items-start gap-1.5 text-[15px] md:text-base font-bold text-muk leading-snug">
+                <span
+                  className="mt-0.5 shrink-0 inline-flex items-center justify-center w-5 h-5 rounded-md bg-hanji-deep text-[11px]"
+                  aria-hidden
+                >
+                  {typeEmoji(stop.facility.type)}
                 </span>
+                <span className="min-w-0 break-words line-clamp-2">{stop.facility.name}</span>
+                {pinned && (
+                  <span className="mt-0.5 shrink-0 px-1.5 py-0.5 rounded-full bg-gold/15 border border-gold/30 text-[9px] font-bold text-gold-deep">
+                    📌 {t('course.pinnedBadge')}
+                  </span>
+                )}
+              </h3>
+
+              {/* 혜택 칩 — 도착 시각 · 걷는 시간 · 붐빔 등급(색으로, % 없이) · 도착 시 영업. 아는 것만. */}
+              <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                <span className="inline-flex items-center gap-1 rounded-full bg-hanji-deep px-2 py-1 text-[12px] font-bold text-muk tabular-nums">
+                  <span aria-hidden>🕒</span>
+                  {t('course.stepperOffset', { time: hhmm(stop.arrivalOffsetMin) })}
+                </span>
+                {walkMinutes !== null && (
+                  <span className="inline-flex items-center gap-1 rounded-full border border-jade/30 bg-jade/10 px-2 py-1 text-[12px] font-bold text-jade tabular-nums">
+                    <span aria-hidden>🚶</span>
+                    {t('compare.benefitWalk', { walk: walkMinutes })}
+                  </span>
+                )}
+                {cong && (
+                  <span className={`inline-flex items-center rounded-full border px-2 py-1 text-[12px] font-bold ${cong.cls}`}>
+                    {t(`congestion.${cong.key}`)}
+                  </span>
+                )}
+                {/* 추정: 점선 테두리·옅은 바탕. 도착 시각 예측이 아니라 '관측 시각의 지금' 값이다. */}
+                {est && estCong && (
+                  <span className={`inline-flex items-center rounded-full border border-dashed bg-white/70 px-2 py-1 text-[12px] font-bold ${estCong.cls.split(' ').filter((c) => c.startsWith('text-') || c.startsWith('border-')).join(' ')}`}>
+                    {t('course.estimateChip', { label: t(`congestion.${estCong.key}`) })}
+                  </span>
+                )}
+                {/* '영업시간 미확인' 은 그리지 않는다 — 모른다는 사실은 고르는 데 쓸 정보가 아니다. */}
+                {stop.openStatusAtArrival && stop.openStatusAtArrival !== 'needs_confirmation' && (
+                  <span className={`inline-flex items-center rounded-full border px-2 py-1 text-[12px] font-bold ${
+                    stop.openStatusAtArrival === 'open_expected'
+                      ? 'border-jade/30 bg-jade/10 text-jade'
+                      : 'border-terracotta/30 bg-terracotta/10 text-terracotta'
+                  }`}>
+                    {t(`card.arrivalStatus.${stop.openStatusAtArrival}`)}
+                  </span>
+                )}
+              </div>
+            </div>
+            {/* 56px 사진 — 없거나 깨지면 장소 표지(I38). */}
+            <span className="relative h-14 w-14 shrink-0 overflow-hidden rounded-xl border border-line" aria-hidden>
+              <PlacePhotoFallback visual={placeVisual(stop.facility.id, stop.facility.type)} className="absolute inset-0" />
+              {photoUrl && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  key={photoUrl}
+                  src={photoUrl}
+                  alt=""
+                  loading="lazy"
+                  decoding="async"
+                  onError={() => setPhotoIdx((i) => i + 1)}
+                  className="absolute inset-0 h-full w-full object-cover"
+                />
               )}
-            </h3>
-            {cong && stop.predictedCongestion != null && <span className={`shrink-0 mt-0.5 px-2 py-1 rounded-full text-[10px] font-bold border tabular-nums ${cong.cls}`}>
-              {t(`congestion.${cong.key}`)} {Math.round(stop.predictedCongestion * 100)}%
-            </span>}
-            {/* 추정: 점선 테두리·옅은 바탕. 도착 시각 예측이 아니라 '관측 시각의 지금' 값이다. */}
-            {est && estCong && <span className={`shrink-0 mt-0.5 px-2 py-1 rounded-full text-[10px] font-bold border border-dashed bg-white/70 tabular-nums ${estCong.cls.split(' ').filter((c) => c.startsWith('text-') || c.startsWith('border-')).join(' ')}`}>
-              {t('course.estimateChip', { label: t(`congestion.${estCong.key}`), pct: Math.round(est.level * 100) })}
-            </span>}
-          </div>
-          {est && (
-            <p className="mt-1 text-[10px] leading-relaxed text-muk-soft">
-              {t('card.evidenceEstimated', { time: formatEstimateTime(est.observedAt) ?? '—' })}
-            </p>
-          )}
-
-          {/* 시간·점수·도착시점 영업 — 같은 알약 문법으로 통일해 한 줄에 흐르게 한다. */}
-          <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
-            <span className="inline-flex items-center gap-1 rounded-full bg-hanji-deep px-2 py-1 text-[11px] font-semibold text-muk-soft tabular-nums">
-              <span aria-hidden>🕒</span>
-              {arrivalText(stop.arrivalOffsetMin, t)}
             </span>
-            {!readOnly && (
-              <span className="inline-flex items-center rounded-full border border-line bg-white px-2 py-1 text-[11px] font-semibold text-muk-soft tabular-nums">
-                {t('course.spotScore', { score: Math.round(stop.spotScore * 100) })}
-              </span>
-            )}
-            {/* '영업시간 미확인' 은 그리지 않는다 — 모른다는 사실은 고르는 데 쓸 정보가 아니다. */}
-            {stop.openStatusAtArrival && stop.openStatusAtArrival !== 'needs_confirmation' && (
-              <span className="inline-flex items-center rounded-full bg-hanji-deep px-2 py-1 text-[11px] font-semibold text-muk-soft">
-                {t(`card.arrivalStatus.${stop.openStatusAtArrival}`)}
-              </span>
-            )}
           </div>
 
-          {/* 이유 토글(왼쪽) + 길안내 버튼(오른쪽, ml-auto 로 항상 우측 정렬). 길안내는 새 탭으로 열리는
-              순수 링크라 이유 토글과 클릭이 겹칠 일이 없지만, 혹시 모를 이벤트 버블링까지 stopPropagation 으로 차단.
-              길안내는 이 행의 주 행동이라 금빛 그라데이션으로 단 하나만 눈에 띄게 하고, 자동차는 조용한 보조로 둔다. */}
+          {/* 이유 토글(왼쪽) + 길안내 버튼(오른쪽, ml-auto 로 항상 우측 정렬). 길안내는 이 행의 주 행동이라 금빛 그라데이션
+              하나만 눈에 띄게 하고, 나머지 조작(자동차 · 다른 곳 · 이 자리 고정)은 '더보기' 뒤에 둔다. */}
           <div className="flex flex-wrap items-center gap-2 mt-2">
             {!readOnly && (
               <button
@@ -1592,6 +1671,16 @@ function StopRow({
             )}
             <button
               type="button"
+              onClick={() => setMoreOpen((v) => !v)}
+              aria-expanded={moreOpen}
+              aria-controls={moreId}
+              className="toss-pressable inline-flex min-h-11 items-center gap-1 rounded-full px-2 text-[12px] font-bold text-muk-soft hover:bg-hanji-deep hover:text-muk focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+            >
+              {t('course.moreActions')}
+              <ChevronDown size={13} className={`transition-transform ${moreOpen ? "rotate-180" : ""}`} aria-hidden />
+            </button>
+            <button
+              type="button"
               onClick={(e) => { e.stopPropagation(); startNavigation('walk'); }}
               aria-label={t('course.directionsAria', { name: stop.facility.name })}
               className="toss-pressable ml-auto shrink-0 inline-flex min-h-11 items-center gap-1.5 px-4 rounded-full bg-gradient-to-r from-gold to-terracotta text-[12px] font-bold text-white shadow-[0_4px_14px_rgba(193,85,59,0.25)] hover:from-gold-deep hover:to-terracotta focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
@@ -1599,25 +1688,34 @@ function StopRow({
               <Navigation size={13} aria-hidden />
               {t('course.directions')}
             </button>
-            <button
-              type="button"
-              onClick={(e) => { e.stopPropagation(); startNavigation('car'); }}
-              aria-label={t('course.drivingAria', { name: stop.facility.name })}
-              className="toss-pressable shrink-0 inline-flex min-h-11 items-center px-3 rounded-full border border-line bg-white text-[11px] font-bold text-muk-soft hover:border-gold/40 hover:text-gold-deep focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
-            >
-              {t('course.driving')}
-            </button>
           </div>
 
+          {/* 추천 이유 — 이 화면의 언어로 만든 한 줄 + (있으면) 추정 근거 · SPOT 점수. 원할 때만. */}
           {!readOnly && open && (
-            <p id={reasonId} className="mt-2 text-xs text-muk leading-relaxed bg-hanji-deep/60 border-l-2 border-gold/45 rounded-r-xl rounded-l-sm px-3 py-2.5">
-              {stop.reason}
-            </p>
+            <div id={reasonId} className="mt-2 space-y-1.5 text-xs text-muk leading-relaxed bg-hanji-deep/60 border-l-2 border-gold/45 rounded-r-xl rounded-l-sm px-3 py-2.5">
+              <p>{reasonText}</p>
+              {est && (
+                <p className="text-[10px] leading-relaxed text-muk-soft">
+                  {t('card.evidenceEstimated', { time: formatEstimateTime(est.observedAt) ?? '—' })}
+                </p>
+              )}
+              <span className="inline-flex items-center rounded-full border border-line bg-white px-2 py-0.5 text-[11px] font-semibold text-muk-soft tabular-nums">
+                {t('course.spotScore', { score: Math.round(stop.spotScore * 100) })}
+              </span>
+            </div>
           )}
 
-          {canReplan && (alternatives.length > 0 || pinned) && (
-            <div className="flex flex-wrap items-center gap-2 mt-2">
-              {alternatives.length > 0 && (
+          {moreOpen && (
+            <div id={moreId} className="flex flex-wrap items-center gap-2 mt-2">
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); startNavigation('car'); }}
+                aria-label={t('course.drivingAria', { name: stop.facility.name })}
+                className="toss-pressable shrink-0 inline-flex min-h-11 items-center px-3 rounded-full border border-line bg-white text-[11px] font-bold text-muk-soft hover:border-gold/40 hover:text-gold-deep focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+              >
+                {t('course.driving')}
+              </button>
+              {canReplan && alternatives.length > 0 && (
                 <button
                   type="button"
                   onClick={() => setAltsOpen((v) => !v)}
@@ -1629,24 +1727,26 @@ function StopRow({
                   <ChevronDown size={12} className={`transition-transform ${altsOpen ? 'rotate-180' : ''}`} aria-hidden />
                 </button>
               )}
-              <button
-                type="button"
-                onClick={() => onTogglePin?.(slotIdx as number, stop.facility.id)}
-                aria-pressed={pinned}
-                className={`toss-pressable inline-flex min-h-11 items-center gap-1 px-3.5 rounded-full border text-[11px] font-bold focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 ${
-                  pinned
-                    ? 'border-gold bg-gold/15 text-gold-deep shadow-[0_2px_10px_rgba(193,154,62,0.18)]'
-                    : 'border-line bg-white text-muk-soft hover:border-gold/40 hover:text-gold-deep'
-                }`}
-              >
-                📌 {pinned ? t('course.pinOff') : t('course.pinOn')}
-              </button>
+              {canReplan && (
+                <button
+                  type="button"
+                  onClick={() => onTogglePin?.(slotIdx as number, stop.facility.id)}
+                  aria-pressed={pinned}
+                  className={`toss-pressable inline-flex min-h-11 items-center gap-1 px-3.5 rounded-full border text-[11px] font-bold focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 ${
+                    pinned
+                      ? 'border-gold bg-gold/15 text-gold-deep shadow-[0_2px_10px_rgba(193,154,62,0.18)]'
+                      : 'border-line bg-white text-muk-soft hover:border-gold/40 hover:text-gold-deep'
+                  }`}
+                >
+                  📌 {pinned ? t('course.pinOff') : t('course.pinOn')}
+                </button>
+              )}
             </div>
           )}
 
           {/* 대안 목록. 서버가 그 자리의 실제 출발점·누적 도착 시각에서 이미 채점해 둔 값이라
               도착 시각·예상 혼잡을 그대로 보여 준다(따로 계산하거나 지어내지 않는다). */}
-          {canReplan && altsOpen && alternatives.length > 0 && (
+          {canReplan && moreOpen && altsOpen && alternatives.length > 0 && (
             <div id={altsId} className="mt-2.5 rounded-2xl border border-line bg-hanji-deep/40 divide-y divide-line/70 overflow-hidden">
               {alternatives.map((alt) => {
                 const altCong = alt.predictedCongestion == null ? null : congestion(alt.predictedCongestion, busyAt);
@@ -1658,11 +1758,11 @@ function StopRow({
                       <p className="text-[12px] font-bold text-muk truncate">{alt.facility.name}</p>
                       <p className="text-[10px] text-muk-soft tabular-nums">
                         🕒 {arrivalText(alt.arrivalOffsetMin, t)}
-                        {altCong && alt.predictedCongestion != null && (
-                          <> · {t(`congestion.${altCong.key}`)} {Math.round(alt.predictedCongestion * 100)}%</>
+                        {altCong && (
+                          <> · {t(`congestion.${altCong.key}`)}</>
                         )}
                         {altEst && (
-                          <> · {t('course.estimateChip', { label: t(`congestion.${congestionKey(altEst.level, busyAt)}`), pct: Math.round(altEst.level * 100) })}</>
+                          <> · {t('course.estimateChip', { label: t(`congestion.${congestionKey(altEst.level, busyAt)}`) })}</>
                         )}
                       </p>
                     </div>
@@ -1754,8 +1854,8 @@ function EmptyState({ outcomes = [] }: { outcomes?: SlotOutcome[] }) {
 }
 
 
-// 인증 필요(401) 상태 — 관광객 로그인이 없어 코스 추천 API 가 401 을 준다.
-// '다시 시도'는 결코 성공하지 못하므로, 지도에서 추천을 받도록 정직하게 유도한다.
+// 세션이 아직 없을 때(401) — 로그인 벽이 아니라 지도로 가는 안내다. 익명 세션이 생기면(I22 자가 회복)
+// SIGNED_IN 으로 실제 id 가 잡혀 코스가 이 카드를 스스로 바꾼다.
 function AuthState() {
   const t = useT();
   return (
