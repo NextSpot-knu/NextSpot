@@ -520,7 +520,7 @@ test.describe('phone recommendation peek', () => {
       await page.goto('/main');
       await expect(page.getByTestId('rec-card-peek')).toBeVisible({ timeout: 25_000 });
 
-      const search = page.getByPlaceholder('장소·메뉴·분위기 검색');
+      const search = page.getByPlaceholder('경주 장소·메뉴·분위기 검색');
       const discovery = page.getByRole('button', { name: /경주가 처음이라면/ });
       const cafe = page.getByRole('button', { name: '카페', exact: true });
       const tools = page.getByRole('button', { name: '필터·편의' });

@@ -2969,6 +2969,162 @@ export default function MainPage() {
           <NextSpotMascot className="ml-3 w-9" />
         </div>
 
+        {/* 검색 결과는 검색창 바로 아래 — 날씨·첫 방문 카드 밑으로 밀리면 찾은 줄이 검색과 떨어져 보인다. */}
+        {/* (c) 검색 결과 없음 안내 — 입력값은 있으나 현재 카테고리에 일치 장소가 없을 때.
+            관광공사 폴백이 아직 답하지 않았거나 무언가 찾아냈다면 띄우지 않는다 — 바로 아래에
+            결과 블록이 뜨는데 그 위에 '검색 결과 없음' 이 함께 있으면 서로 반대되는 말이 된다. */}
+        {searchActive && searchMatchCount === 0 && !liveSearchLoading && liveSearchItems.length === 0
+          && !tourApiLoading && tourApiItems.length === 0 && (
+          <div className="pointer-events-auto px-2 -mt-1">
+            <span className="inline-block text-muk text-xs bg-white/90 border border-line rounded-full px-3 py-1 shadow-[0_2px_14px_rgba(43,35,32,0.06)]">
+              {/* 관광공사 자료까지 물어본 뒤라면 그 사실을 밝힌다(어디까지 찾아봤는지가 정보다). */}
+              {tourApiAsked ? t('map.searchNoResultAnywhere', { q: searchQuery.trim() }) : t('map.searchNoResult', { q: searchQuery.trim() })}
+            </span>
+          </div>
+        )}
+
+        {/* 등록 여부와 무관한 Kakao 시설 검색. 결과의 좌표와 주소는 같은 장소 ID에서 온다. */}
+        {searchActive && (liveSearchLoading || liveSearchItems.length > 0) && (
+          <div data-testid="place-search-results" className="pointer-events-auto rounded-2xl bg-white/95 backdrop-blur border border-line shadow-[0_2px_14px_rgba(43,35,32,0.06)] overflow-hidden">
+            <div className="px-3 py-2 border-b border-line/70">
+              <p className="text-xs font-semibold text-muk flex items-center gap-1.5">
+                <Search size={12} className="text-gold" />
+                {t('map.placeSearchTitle')}
+              </p>
+              <p className="mt-0.5 text-[10px] leading-snug text-muk-soft">{t('map.placeSearchSource')}</p>
+            </div>
+            {liveSearchLoading ? (
+              // 제목이 바로 위에 있다 — '검색 결과…' 를 한 번 더 말하지 않고 도는 표시만 둔다.
+              <div aria-busy="true" className="px-3 py-3 flex items-center gap-2 text-xs text-muk-soft">
+                <span className="inline-block w-3 h-3 rounded-full border-2 border-gold/40 border-t-gold animate-spin" />
+              </div>
+            ) : (
+              <ul className="max-h-64 overflow-y-auto divide-y divide-line/60">
+                {liveSearchItems.map((item) => {
+                  return (
+                    <li key={item.placeId} className="px-3 py-2.5 flex items-center gap-2">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium text-muk truncate">{item.name}</p>
+                        {item.address && <p className="text-[11px] text-muk-soft truncate">{item.address}</p>}
+                        <span className="inline-block mt-1 text-[10px] font-medium text-muk-soft bg-line/60 rounded-full px-2 py-0.5">
+                          {item.categoryName || t('map.placeSearchResult')}
+                        </span>
+                      </div>
+                      <div className="flex shrink-0 flex-col items-end gap-1">
+                        <button
+                          type="button"
+                          onClick={() => focusPlaceSearchResult(item)}
+                          title={t('map.placeSearchView')}
+                          className="shrink-0 text-[11px] font-semibold rounded-full px-2.5 py-1.5 border text-gold border-gold/50 hover:bg-gold/10 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+                        >
+                          {t('map.placeSearchView')}
+                        </button>
+                        {item.placeUrl && (
+                          <a
+                            href={item.placeUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="px-1 text-[10px] font-semibold text-muk-soft underline-offset-2 hover:text-muk hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+                          >
+                            {t('map.searchKakaoPlace')}
+                          </a>
+                        )}
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+        )}
+
+        {/* 관광공사(TourAPI) 키워드 폴백 — 우리 데이터에도 Kakao 에도 없을 때만.
+            출처를 헤더에 못 박아 위 두 목록과 섞이지 않게 한다. 여기 줄들은 아직 우리 DB 에 없는 장소라
+            상세 카드가 없다 — 사진·임시 지도 핀·카카오맵 길찾기를 주고, '다음 배치 추가 요청' 으로
+            관리자 승인 큐에 넣는다. */}
+        {searchActive && (tourApiLoading || tourApiItems.length > 0) && (
+          <div data-testid="tourapi-search-results" className="pointer-events-auto rounded-2xl bg-white/95 backdrop-blur border border-jade/40 shadow-[0_2px_14px_rgba(43,35,32,0.06)] overflow-hidden">
+            <div className="px-3 py-2 border-b border-line/70">
+              <p className="text-xs font-semibold text-muk flex items-center gap-1.5">
+                <Search size={12} className="text-jade" />
+                {t('map.tourApiTitle')}
+              </p>
+              <p className="mt-0.5 text-[10px] leading-snug text-muk-soft">{t('map.tourApiSource')}</p>
+            </div>
+            {tourApiLoading ? (
+              // 제목이 바로 위에 있다 — '검색 결과…' 를 한 번 더 말하지 않고 도는 표시만 둔다.
+              <div aria-busy="true" className="px-3 py-3 flex items-center gap-2 text-xs text-muk-soft">
+                <span className="inline-block w-3 h-3 rounded-full border-2 border-jade/40 border-t-jade animate-spin" />
+              </div>
+            ) : (
+              <ul className="max-h-64 overflow-y-auto divide-y divide-line/60">
+                {tourApiItems.map((item) => {
+                  const requested = ingestRequested.has(item.contentid);
+                  const pending = ingestPendingId === item.contentid;
+                  // 좌표가 있으면 임시 지도 핀과 카카오맵 길찾기를 바로 준다 — 아직 우리 DB 에 없어도 갈 수는 있다.
+                  const lat = typeof item.mapy === 'number' && Number.isFinite(item.mapy) ? item.mapy : null;
+                  const lng = typeof item.mapx === 'number' && Number.isFinite(item.mapx) ? item.mapx : null;
+                  return (
+                    <li key={item.contentid} className="px-3 py-2.5 flex items-start gap-3">
+                      {item.firstimage && (
+                        // TourAPI 대표 사진(도메인이 다양해 next/image 최적화 대상이 아님 — 정적 export). 깨지면 자리를 접는다.
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={item.firstimage}
+                          alt=""
+                          loading="lazy"
+                          onError={(event) => { event.currentTarget.style.display = 'none'; }}
+                          className="h-12 w-12 shrink-0 rounded-xl border border-line object-cover"
+                        />
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium text-muk truncate">{item.title}</p>
+                        {item.addr1 && <p className="text-[11px] text-muk-soft truncate">{item.addr1}</p>}
+                        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                          {lat !== null && lng !== null && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => focusPlaceSearchResult({
+                                  placeId: item.contentid, name: item.title, latitude: lat, longitude: lng, address: item.addr1 ?? '',
+                                })}
+                                className="text-[11px] font-bold rounded-full px-2.5 py-1.5 bg-jade text-white hover:bg-jade/90 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-jade/60"
+                              >
+                                {t('map.placeSearchView')}
+                              </button>
+                              <a
+                                href={`https://map.kakao.com/link/to/${encodeURIComponent(item.title)},${lat},${lng}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-[11px] font-semibold rounded-full px-2.5 py-1.5 border text-jade border-jade/50 hover:bg-jade/10 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-jade/60"
+                              >
+                                {t('map.searchKakaoRoute')}
+                              </a>
+                            </>
+                          )}
+                          {/* 접수된 뒤에는 버튼을 '접수됨' 으로 잠근다 — 같은 줄을 다시 눌러도
+                              백엔드가 조용히 무시하므로(contentid UNIQUE) 눌리는 버튼을 남겨 두면
+                              아무 일도 일어나지 않는 조작을 주는 셈이다. 갈 길(위 두 버튼)이 먼저라 작은 보조 버튼이다. */}
+                          <button
+                            type="button"
+                            onClick={() => requestIngest(item)}
+                            disabled={requested || pending}
+                            className="px-1 py-1 text-[10px] font-semibold text-muk-soft underline-offset-2 hover:text-jade hover:underline transition-colors disabled:opacity-60 disabled:no-underline disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-jade/60"
+                          >
+                            {requested ? t('map.ingestRequested') : pending ? `${t('map.ingestRequest')}…` : t('map.ingestRequest')}
+                          </button>
+                        </div>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+        )}
+
+        {/* 검색 중에는 날씨 카드를 감춘다 — 언마운트하지 않아 날씨를 다시 부르지 않는다. */}
+        <div className={searchActive ? 'hidden' : 'contents'}>
         <WeatherChip
           indoorRequired={travelContext.requiredAttributes.includes('indoor')}
           onIndoorRequiredChange={(required) => {
@@ -2987,8 +3143,9 @@ export default function MainPage() {
             });
           }}
         />
+        </div>
 
-        {!isLoadingFacilities && facilities.length > 0 && !activeDiscovery && !showDiscoveryThemes && (
+        {!isLoadingFacilities && facilities.length > 0 && !activeDiscovery && !showDiscoveryThemes && !searchActive && (
           <button
             type="button"
             onClick={() => setShowDiscoveryThemes(true)}
@@ -3005,7 +3162,7 @@ export default function MainPage() {
           </button>
         )}
 
-        {!isLoadingFacilities && facilities.length > 0 && showDiscoveryThemes && !activeDiscovery && (
+        {!isLoadingFacilities && facilities.length > 0 && showDiscoveryThemes && !activeDiscovery && !searchActive && (
           <section className="pointer-events-auto rounded-3xl border border-gold/30 bg-white/95 p-4 shadow-[0_8px_28px_rgba(43,35,32,0.13)] backdrop-blur">
             <div className="flex items-start justify-between gap-3">
               <div>
@@ -3103,106 +3260,6 @@ export default function MainPage() {
               </div>
             ) : null}
           </section>
-        )}
-
-        {/* (c) 검색 결과 없음 안내 — 입력값은 있으나 현재 카테고리에 일치 장소가 없을 때.
-            관광공사 폴백이 아직 답하지 않았거나 무언가 찾아냈다면 띄우지 않는다 — 바로 아래에
-            결과 블록이 뜨는데 그 위에 '검색 결과 없음' 이 함께 있으면 서로 반대되는 말이 된다. */}
-        {searchActive && searchMatchCount === 0 && !liveSearchLoading && liveSearchItems.length === 0
-          && !tourApiLoading && tourApiItems.length === 0 && (
-          <div className="pointer-events-auto px-2 -mt-1">
-            <span className="inline-block text-muk text-xs bg-white/90 border border-line rounded-full px-3 py-1 shadow-[0_2px_14px_rgba(43,35,32,0.06)]">
-              {/* 관광공사 자료까지 물어본 뒤라면 그 사실을 밝힌다(어디까지 찾아봤는지가 정보다). */}
-              {tourApiAsked ? t('map.searchNoResultAnywhere', { q: searchQuery.trim() }) : t('map.searchNoResult', { q: searchQuery.trim() })}
-            </span>
-          </div>
-        )}
-
-        {/* 등록 여부와 무관한 Kakao 시설 검색. 결과의 좌표와 주소는 같은 장소 ID에서 온다. */}
-        {searchActive && (liveSearchLoading || liveSearchItems.length > 0) && (
-          <div className="pointer-events-auto rounded-2xl bg-white/95 backdrop-blur border border-line shadow-[0_2px_14px_rgba(43,35,32,0.06)] overflow-hidden">
-            <div className="px-3 py-2 text-xs font-semibold text-muk border-b border-line/70 flex items-center gap-1.5">
-              <Search size={12} className="text-gold" />
-              {t('map.placeSearchTitle')}
-            </div>
-            {liveSearchLoading ? (
-              <div className="px-3 py-3 flex items-center gap-2 text-xs text-muk-soft">
-                <span className="inline-block w-3 h-3 rounded-full border-2 border-gold/40 border-t-gold animate-spin" />
-                {t('map.placeSearchTitle')}…
-              </div>
-            ) : (
-              <ul className="max-h-64 overflow-y-auto divide-y divide-line/60">
-                {liveSearchItems.map((item) => {
-                  return (
-                    <li key={item.placeId} className="px-3 py-2.5 flex items-center gap-2">
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm font-medium text-muk truncate">{item.name}</p>
-                        {item.address && <p className="text-[11px] text-muk-soft truncate">{item.address}</p>}
-                        <span className="inline-block mt-1 text-[10px] font-medium text-muk-soft bg-line/60 rounded-full px-2 py-0.5">
-                          {item.categoryName || t('map.placeSearchResult')}
-                        </span>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => focusPlaceSearchResult(item)}
-                        title={t('map.placeSearchView')}
-                        className="shrink-0 text-[11px] font-semibold rounded-full px-2.5 py-1.5 border text-gold border-gold/50 hover:bg-gold/10 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
-                      >
-                        {t('map.placeSearchView')}
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </div>
-        )}
-
-        {/* 관광공사(TourAPI) 키워드 폴백 — 우리 데이터에도 Kakao 에도 없을 때만.
-            출처를 헤더에 못 박아 위 두 목록과 섞이지 않게 한다. 여기 줄들은 아직 우리 DB 에
-            없는 장소라 지도 마커·상세 카드가 없다 — 대신 '추가 요청' 으로 관리자 승인 큐에 넣는다. */}
-        {searchActive && (tourApiLoading || tourApiItems.length > 0) && (
-          <div className="pointer-events-auto rounded-2xl bg-white/95 backdrop-blur border border-jade/40 shadow-[0_2px_14px_rgba(43,35,32,0.06)] overflow-hidden">
-            <div className="px-3 py-2 border-b border-line/70">
-              <p className="text-xs font-semibold text-muk flex items-center gap-1.5">
-                <Search size={12} className="text-jade" />
-                {t('map.tourApiTitle')}
-              </p>
-              <p className="mt-0.5 text-[10px] leading-snug text-muk-soft">{t('map.tourApiSource')}</p>
-            </div>
-            {tourApiLoading ? (
-              <div className="px-3 py-3 flex items-center gap-2 text-xs text-muk-soft">
-                <span className="inline-block w-3 h-3 rounded-full border-2 border-jade/40 border-t-jade animate-spin" />
-                {t('map.tourApiTitle')}…
-              </div>
-            ) : (
-              <ul className="max-h-64 overflow-y-auto divide-y divide-line/60">
-                {tourApiItems.map((item) => {
-                  const requested = ingestRequested.has(item.contentid);
-                  const pending = ingestPendingId === item.contentid;
-                  return (
-                    <li key={item.contentid} className="px-3 py-2.5 flex items-center gap-2">
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm font-medium text-muk truncate">{item.title}</p>
-                        {item.addr1 && <p className="text-[11px] text-muk-soft truncate">{item.addr1}</p>}
-                      </div>
-                      {/* 접수된 뒤에는 버튼을 '접수됨' 으로 잠근다 — 같은 줄을 다시 눌러도
-                          백엔드가 조용히 무시하므로(contentid UNIQUE) 눌리는 버튼을 남겨 두면
-                          아무 일도 일어나지 않는 조작을 주는 셈이다. */}
-                      <button
-                        type="button"
-                        onClick={() => requestIngest(item)}
-                        disabled={requested || pending}
-                        className="shrink-0 text-[11px] font-semibold rounded-full px-2.5 py-1.5 border text-jade border-jade/50 hover:bg-jade/10 transition-colors disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-jade/60"
-                      >
-                        {requested ? t('map.ingestRequested') : pending ? `${t('map.ingestRequest')}…` : t('map.ingestRequest')}
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </div>
         )}
 
         {/* 🅿 주차 필터 결과 없음 안내 — 배리어프리·검색과 동일 톤(신규 i18n 키 없이 searchNoResult 재사용). */}
