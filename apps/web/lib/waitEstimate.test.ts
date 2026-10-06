@@ -5,6 +5,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
+  arrivalHourOf,
+  boardWaitBaseMs,
   calmAfterClose,
   compareWaitMinutes,
   displayArrivalTime,
@@ -261,6 +263,39 @@ for (const input of [
   assert.match(page, /!silentRefresh && !stale\(\) && results\.every\(\(r\) => r\.status === "fulfilled"\)/, '부분 섹션의 앞부분 규칙이 없다');
   // 히어로 최단 대기는 화면에 보이는 섹션에서만 — 로더 뒤의 옛 프리셋 보드에서 뽑지 않는다.
   assert.match(page, /const bestWait = [\s\S]*?for \(const sector of shownSectors\)/, '히어로 최단 대기가 보이는 섹션을 보지 않는다');
+
+  // 대기·순서는 5분 박자의 기준 시각으로, 도착 시각 글자만 30초 시계로 — 30초마다 카드가 자리를 바꾸지 않게(10-06 리뷰).
+  assert.match(page, /const waitBaseMs = baseAtMs \?\? \(nowMs === null \? null : boardWaitBaseMs\(nowMs\)\);/, '대기 기준 시각이 5분 박자가 아니다');
+  assert.match(page, /baseAt: new Date\(waitBaseMs \?\? Date\.now\(\)\)/, 'estimateWait 가 30초 시계로 대기를 다시 센다');
+  assert.match(page, /arrivalHour: arrivalHourOf\(new Date\(effectiveBaseMs \?\? Date\.now\(\)\), row\.expectedTravel\)/, '도착 시각 글자가 30초 시계를 따르지 않는다');
+  // 머리글의 '언제 한산해지는지' 약속은 보이는 카드에 한산 줄이 있을 때만.
+  assert.match(page, /showsAnyCalmLine \? t\("waiting\.subtitle"\) : t\("waiting\.subtitleArrival"\)/, "머리글이 카드에 없는 '한산해지는 시각'을 약속한다");
+  assert.match(page, /showsAnyCalmLine \? t\("wait\.legend"\) : t\("wait\.legendArrival"\)/, "범례가 카드에 없는 '한산해지는 시각'을 약속한다");
+  for (const locale of ['ko', 'en', 'ja', 'zh'] as const) {
+    const m = JSON.parse(readFileSync(join(WEB, `lib/i18n/messages/${locale}.json`), 'utf8')) as {
+      waiting: Record<string, string>; wait: Record<string, string>;
+    };
+    for (const text of [m.waiting.subtitleArrival, m.wait.legendArrival]) {
+      assert.doesNotMatch(text, /한산|calm|空い|すいて|清静|空闲/i, `${locale}: 한산 시각 없는 머리글이 한산을 말한다 — ${text}`);
+    }
+  }
+}
+
+// --- 5분 박자 기준 시각 · 도착 시각 -------------------------------------------------------
+{
+  const at = (iso: string) => new Date(iso).getTime();
+  // 같은 5분 칸 안에서는 기준 시각이 움직이지 않는다 — 그 사이 대기·순서가 그대로다.
+  assert.equal(boardWaitBaseMs(at('2026-09-21T03:00:00Z')), at('2026-09-21T03:00:00Z'));
+  assert.equal(boardWaitBaseMs(at('2026-09-21T03:04:59Z')), at('2026-09-21T03:00:00Z'));
+  assert.equal(boardWaitBaseMs(at('2026-09-21T03:05:00Z')), at('2026-09-21T03:05:00Z'));
+  const tick = (iso: string) => estimateWait({ ...base, travelMinutes: 7, capacity: 40, baseAt: new Date(boardWaitBaseMs(at(iso))) });
+  assert.deepEqual(tick('2026-09-21T03:00:10Z'), tick('2026-09-21T03:04:40Z'), '같은 5분 칸에서 대기가 바뀐다');
+  // 도착 시각은 estimateWait 와 같은 식(기준 + 이동 분, 24시 넘으면 다음 날 시각).
+  for (const [iso, travel] of [['2026-09-21T03:00:30Z', 7], ['2026-09-21T14:55:00Z', 12], ['2026-09-21T03:00:00Z', null]] as const) {
+    const baseAt = new Date(iso);
+    assert.equal(arrivalHourOf(baseAt, travel), estimateWait({ ...base, baseAt, travelMinutes: travel }).arrivalHour, `${iso} +${travel}`);
+  }
+  assert.equal(displayArrivalTime(arrivalHourOf(new Date('2026-09-21T14:55:00Z'), 12)), '00:07');
 }
 
 console.log('waitEstimate tests passed');

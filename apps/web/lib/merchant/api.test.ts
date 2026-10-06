@@ -486,7 +486,7 @@ async function main() {
     '조건 문장이 발행할 때마다 무조건 반복된다',
   );
   assert.equal(
-    (dashboardSrc.match(/t\('demo\.badgeShort'\)/g) ?? []).length,
+    (dashboardSrc.match(/t\('demo\.sampleChip'\)/g) ?? []).length,
     1,
     "'예시 화면' 칩은 머리글에 한 개여야 한다(데모 카드 배지는 오늘/최근 7일)",
   );

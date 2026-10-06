@@ -31,7 +31,7 @@ import {
 import { recToSpot } from "@/lib/recommender";
 import { congestionDisplay, parseCongestionEstimate } from "@/lib/congestionEstimate";
 // 보드의 세 숫자(예상 대기 · 혼잡 등급 · 한산해지는 시각)의 단일 소스.
-import { estimateWait, displayArrivalTime, showsCalmLine, calmAfterClose, heroWaitCandidate, type WaitEstimate } from "@/lib/waitEstimate";
+import { estimateWait, displayArrivalTime, showsCalmLine, calmAfterClose, heroWaitCandidate, arrivalHourOf, boardWaitBaseMs, type WaitEstimate } from "@/lib/waitEstimate";
 import { curveForBase, fetchAreaDemandCurve, mergeAreaCurve, type AreaDemandCurve } from "@/lib/areaDemandCurve";
 import { areaDemandDisclosure } from "@/lib/areaDemandPresentation";
 // 분으로 말할 근거가 없는 카드는 등급으로 말한다 — 등급 경계는 지도·카드와 같은 공용 판정을 쓴다.
@@ -613,6 +613,8 @@ export default function WaitingBoardPage() {
     return () => clearInterval(id);
   }, []);
   const effectiveBaseMs = baseAtMs ?? nowMs;
+  // 대기·순서·한산 시각은 5분 박자로만 다시 센다(boardWaitBaseMs) — 도착 시각 글자만 위 30초 시계를 따른다.
+  const waitBaseMs = baseAtMs ?? (nowMs === null ? null : boardWaitBaseMs(nowMs));
   const baseKey = baseAtMs === null ? 'now' : String(baseAtMs);
   const areaCurve = curveForBase(areaCurves, baseKey);
 
@@ -656,8 +658,8 @@ export default function WaitingBoardPage() {
 
   // 카드 한 장의 세 숫자. 렌더 중 여러 번 불리므로 순수 계산만 한다(네트워크 없음).
   const waitOf = useCallback(
-    (row: BoardRow): WaitEstimate =>
-      estimateWait({
+    (row: BoardRow): WaitEstimate => ({
+      ...estimateWait({
         facilityType: row.type,
         serverWaitMinutes: row.expectedWait,
         rankingWaitMinutes: row.rankingWait,
@@ -669,10 +671,12 @@ export default function WaitingBoardPage() {
         tourismRelativeIndex: row.areaDemandTourismEvidence?.relativeIndex ?? null,
         tourismDistanceM: row.areaDemandTourismEvidence?.distanceM ?? null,
         travelMinutes: row.expectedTravel,
-        baseAt: new Date(effectiveBaseMs ?? Date.now()),
+        baseAt: new Date(waitBaseMs ?? Date.now()),
         areaCurve,
       }),
-    [estimateLevels, areaCurve, effectiveBaseMs],
+      arrivalHour: arrivalHourOf(new Date(effectiveBaseMs ?? Date.now()), row.expectedTravel),
+    }),
+    [estimateLevels, areaCurve, waitBaseMs, effectiveBaseMs],
   );
 
   // 세션 부트스트랩 유예 자동 재시도 1회 플래그(아래 fetchBoard 참조)
@@ -883,6 +887,12 @@ export default function WaitingBoardPage() {
     }
     return best;
   })();
+  // 머리글이 '언제 한산해지는지'를 약속하는 것은 보이는 카드 중 하나라도 그 줄을 그릴 때만(카드와 같은 판정) —
+  // 밤처럼 어느 카드에도 한산 시각이 없으면 도착 때의 붐빔만 말한다.
+  const showsAnyCalmLine = (shownSectors ?? []).some((sector) => sector.rows.some((row) => {
+    const est = waitOf(row);
+    return !calmAfterClose(est, row.operatingHours) && showsCalmLine(est);
+  }));
 
   return (
     <main className="min-h-screen bg-hanji text-muk p-4 md:p-8 max-md:pb-[calc(var(--tourist-nav-clearance)+env(safe-area-inset-bottom))] relative overflow-hidden">
@@ -917,11 +927,11 @@ export default function WaitingBoardPage() {
             </h1>
             {/* 두 키를 '·'로 이어 붙이면 한 문장이 아니라 두 조각으로 읽힌다 — 보드의 목적을 한 줄로 말한다. */}
             <p className="text-[13px] md:text-sm text-muk-soft leading-relaxed">
-              {t("waiting.subtitle")}
+              {showsAnyCalmLine ? t("waiting.subtitle") : t("waiting.subtitleArrival")}
             </p>
             {/* 카드가 무엇을 보여주는지 한 줄로 먼저 말한다 — 판단 근거를 숨기지 않는 것이 이 보드의 계약. */}
             <p className="text-[11px] text-muk-soft/90 leading-relaxed">
-              {t("wait.legend")}
+              {showsAnyCalmLine ? t("wait.legend") : t("wait.legendArrival")}
             </p>
           </div>
 

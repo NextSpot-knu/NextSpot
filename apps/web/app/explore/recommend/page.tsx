@@ -8,7 +8,7 @@ import NowChip from "@/components/NowChip";
 import { createPublicClient } from "@/lib/supabase";
 const supabase = createPublicClient();
 import { apiClient, getRecommendations, isRequestTimeout, recommendByType, reportFacilityAvailability, submitFeedback, parsePreference, RecommendationResponse } from "@/lib/api-client";
-import { displayWalkingMinutes, MAX_RECO_DISTANCE_M } from "@/lib/recommender"; // 빈 상태 문구의 반경(1.5km) — 하드코딩 대신 실제 컷오프 상수 사용
+import { displayWalkingMinutes } from "@/lib/recommender";
 import { classifyIntent, buildCardSpeech } from "@/lib/voice/voiceIntent";
 import { getArrivalOpenDisplayStatus, isClosedToday } from "@/lib/restDate";
 import { REGION, isWithinRegion } from "@/lib/region";
@@ -272,6 +272,8 @@ function RecommendContent() {
   // 로 수렴해서, 백엔드가 죽어도 화면에는 "1.5km 내에 갈 곳이 없어요" 가 떴다 —
   // 사실이 아닌 문장이고, 사용자는 앱이 아니라 자기 위치를 의심하게 된다.
   const [loadFailed, setLoadFailed] = useState(false);
+  // 조회는 끝났고 실패도 아닌데 대안이 0곳 — 머리글이 '모았어요' 를 말하지 않고, 빈 상자 대신 지도로 가는 버튼 하나.
+  const noAlternatives = !loadingRecommendations && !loadFailed && recommendations.length === 0;
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [mapLoaded, setMapLoaded] = useState(false);
 
@@ -619,6 +621,7 @@ function RecommendContent() {
             BY_TYPE_FALLBACK_TIMEOUT_MS,
           );
         let recommendationsList;
+        let triedByType = false;
         try {
           recommendationsList = await getRecommendations(facilityId, { lat, lng }, loadTravelContext());
         } catch (firstErr) {
@@ -627,6 +630,7 @@ function RecommendContent() {
             // 45초 타임아웃이면 서버는 아직 그 계산을 하고 있을 수 있다. 같은 개인화 POST 를 다시 보내면
             // (캐시·단일 비행 없음, 기록 행도 한 번 더) 같은 계산이 두 번 돈다 — 바로 대안으로 간다.
             console.warn("추천 시간 초과 — 같은 요청을 다시 보내지 않고 by-type 엔진 폴백:", firstErr);
+            triedByType = true;
             recommendationsList = await byTypeFallback();
           } else {
             console.warn("추천 1차 실패 — 2.5초 후 1회 재시도:", firstErr);
@@ -637,11 +641,22 @@ function RecommendContent() {
             } catch (secondErr) {
               if (cancelled) return;
               console.warn("추천 2차 실패 — by-type 엔진 폴백:", secondErr);
+              triedByType = true;
               recommendationsList = await byTypeFallback();
             }
           }
         }
         if (cancelled) return;
+        // 개인화 추천이 비어 오면(밤에 이 장소 주변이 다 닫혔을 때 등) 같은 유형 대안을 by-type 엔진으로 한 번만
+        // 더 찾는다 — 대기 보드에서 눌러 들어온 화면이 빈 목록으로 끝나지 않게. 이 조회가 실패하면 빈 결과 그대로.
+        if (recommendationsList.length === 0 && !triedByType) {
+          try {
+            recommendationsList = await byTypeFallback();
+          } catch (fallbackErr) {
+            console.warn("빈 추천 뒤 by-type 대안 조회 실패 — 빈 결과로 둔다:", fallbackErr);
+          }
+          if (cancelled) return;
+        }
         setRecommendations(recommendationsList);
         setLoadFailed(false);
       } catch (err) {
@@ -1358,11 +1373,14 @@ function RecommendContent() {
                         {t("card.congestionPreparing")}
                       </span>
                     </div>
+                    {/* '…모았어요'·'아래에서 비교해 보세요' 는 대안이 실제로 왔을 때만 — 오기 전이나 비었을 때는 이름만. */}
                     <h2 className="text-xl md:text-2xl font-serif font-bold text-muk tracking-tight mt-2.5 leading-snug">
                       <span>{originalFacility.name}</span>
-                      {t("recommend.unknownSuffix")}
+                      {recommendations.length > 0 && t("recommend.unknownSuffix")}
                     </h2>
-                    <p className="text-xs text-muk-soft mt-1.5 leading-relaxed">{t("recommend.unknownHint")}</p>
+                    {recommendations.length > 0 && (
+                      <p className="text-xs text-muk-soft mt-1.5 leading-relaxed">{t("recommend.unknownHint")}</p>
+                    )}
                   </div>
                 );
               }
@@ -1381,10 +1399,13 @@ function RecommendContent() {
                     <span className={crowded ? "text-terracotta" : "text-jade"}>{originalFacility.name}</span>
                     {crowded ? t("recommend.congestedSuffix") : t("recommend.calmSuffix")}
                   </h2>
-                  <p className="text-xs text-muk-soft mt-1.5 leading-relaxed">
-                    {t("recommend.waitUnavailable")}
-                  </p>
-                  {!crowded && (
+                  {/* '대안을 골라 드려요'·'다른 스팟도 함께' 는 대안이 없다고 끝난 화면에서는 말하지 않는다. */}
+                  {!noAlternatives && (
+                    <p className="text-xs text-muk-soft mt-1.5 leading-relaxed">
+                      {t("recommend.waitUnavailable")}
+                    </p>
+                  )}
+                  {!crowded && !noAlternatives && (
                     <p className="text-xs text-muk-soft mt-1 leading-relaxed">{t("recommend.calmHint")}</p>
                   )}
                 </div>
@@ -1399,8 +1420,8 @@ function RecommendContent() {
 
         {/* 2. Alternative Recommendation Cards List */}
         <section className="space-y-4">
-          {/* 섹션 헤더 — /waiting 섹터 헤더와 같은 문법(이모지 칩 + 제목 + 개수 pill). */}
-          <div className="flex items-center gap-2">
+          {/* 섹션 헤더 — /waiting 섹터 헤더와 같은 문법(이모지 칩 + 제목 + 개수 pill). 대안이 없으면 제목도 없다. */}
+          {!noAlternatives && <div className="flex items-center gap-2">
             <span
               className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gold/10 border border-gold/25 text-base"
               aria-hidden
@@ -1413,7 +1434,7 @@ function RecommendContent() {
                 {t(countKey("waiting.sectorCount", recommendations.length), { n: recommendations.length })}
               </span>
             )}
-          </div>
+          </div>}
 
           {loadingRecommendations ? (
             // Skeleton Loader
@@ -1935,19 +1956,15 @@ function RecommendContent() {
             // 실패는 '없음' 이 아니다 — 다시 시도할 길을 준다.
             <ErrorState message={t("recommend.loadFailed")} onRetry={() => window.location.reload()} />
           ) : (
-            // 빈 상태 — 사과가 아니라 다음 행동으로의 초대(지도에서 다른 출발점 고르기).
-            <div className="bg-white p-8 rounded-2xl border border-line toss-surface text-center space-y-3">
-              <div className="text-4xl" aria-hidden>🧭</div>
-              <p className="text-[15px] font-bold text-muk">{t("recommend.emptyTitle")}</p>
-              <p className="text-[13px] text-muk-soft leading-relaxed">
-                {t("recommend.noAlternatives", { km: MAX_RECO_DISTANCE_M / 1000 })}
-              </p>
+            // 대안 0곳 — '없어요' 상자 대신 다음 행동 하나(지도에서 다른 곳 고르기). 머리글도 결과를 약속하지 않는다.
+            <div className="flex justify-center">
               <button
                 type="button"
                 onClick={() => { quietAssistant(); router.push("/main"); }}
                 className="toss-pressable inline-flex min-h-11 items-center gap-1.5 px-5 rounded-full bg-gradient-to-r from-gold to-terracotta text-white text-[13px] font-bold shadow-[0_4px_14px_rgba(193,85,59,0.25)] hover:from-gold-deep hover:to-terracotta focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
               >
-                {t("recommend.backToMap")}
+                <span aria-hidden>🧭</span>
+                {t("recommend.exploreMap")}
               </button>
             </div>
           )}

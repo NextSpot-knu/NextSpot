@@ -173,7 +173,7 @@ export function MerchantConsole({ demo = false }: { demo?: boolean }) {
               </span>
               {demo && (
                 <span className="rounded-full border border-muk/20 bg-muk px-2 py-px text-[13px] font-bold leading-5 text-hanji">
-                  {t('demo.badgeShort')}
+                  {t('demo.sampleChip')}
                 </span>
               )}
             </div>

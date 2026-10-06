@@ -917,9 +917,15 @@ export function RecommendationCard({
               setIsMinimized(true);
             }
           }}
-          className="-mt-1.5 -mb-0.5 flex h-6 w-full shrink-0 cursor-pointer items-center justify-center rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+          className="-mt-1.5 -mb-0.5 flex min-h-6 w-full shrink-0 cursor-pointer flex-col items-center justify-center gap-0.5 rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
         >
           <span aria-hidden="true" className="h-1.5 w-16 rounded-full bg-muk/20" />
+          {/* 미리보기에서는 손잡이가 무엇을 하는지 글자로도 말한다 — 회색 막대만으로는 펼쳐진다는 걸 모른다(10-06 리뷰). */}
+          {isMinimized && (
+            <span aria-hidden="true" className="text-[11px] font-bold leading-4 text-gold-deep">
+              {t('card.peek.expand')}
+            </span>
+          )}
         </button>
       ) : (
       <div

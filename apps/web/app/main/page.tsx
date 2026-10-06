@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState, useMemo } from 'react';
+import { useEffect, useRef, useState, useMemo, type CSSProperties } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import dynamic from 'next/dynamic';
@@ -315,6 +315,20 @@ function isBarFacility(f: Facility): boolean {
 export default function MainPage() {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const topBarRef = useRef<HTMLDivElement>(null); // 상단 검색·칩 오버레이 — 초기 중심 보정에서 높이를 잰다
+  // 데스크톱 톱바 오른쪽 열(카테고리·음식·레이어 줄) — 제안 카드를 그 아래 끝에 둔다. 줄 수가 칩·언어·폭에 따라
+  // 바뀌어 고정 top-24 이면 셋째 줄 끝의 'ⓒ한국관광공사 TourAPI 동기화' 칩을 덮었다(10-06 실측).
+  const chipColumnRef = useRef<HTMLDivElement>(null);
+  const [toolbarClearPx, setToolbarClearPx] = useState<number | null>(null);
+  useEffect(() => {
+    const column = chipColumnRef.current;
+    const bar = topBarRef.current;
+    if (!column || !bar || typeof ResizeObserver === 'undefined') return;
+    const measure = () => setToolbarClearPx(Math.round(column.getBoundingClientRect().bottom - bar.getBoundingClientRect().top) + 12);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(column);
+    return () => observer.disconnect();
+  }, []);
   const mapInstanceRef = useRef<kakao.maps.Map | null>(null);
   const markersRef = useRef<kakao.maps.Marker[]>([]);
   const searchMatchLabelsRef = useRef<kakao.maps.CustomOverlay[]>([]);
@@ -2699,17 +2713,64 @@ export default function MainPage() {
     return counts;
   }, [facilities]);
   const barrierFreeAnywhere = Object.values(barrierFreeByType).some((count) => count > 0);
+  // ♿ 를 켰을 때 칩마다 **카드에 오를 수 있는** 무장애 장소 수 — 추천 effect·제안 카드와 같은 조건(chipCandidates).
+  // 핀 수(위)로만 고르면 핀은 있지만 걸어갈 거리 밖인 칩에 머물러 카드도 제안도 없는 빈 지도가 됐다(10-06 실측).
+  const barrierFreeCandidatesByType = useMemo(() => {
+    const accessible = travelContext.requiredAttributes.includes('accessible')
+      ? travelContext
+      : { ...travelContext, requiredAttributes: [...travelContext.requiredAttributes, 'accessible' as const] };
+    const counts: Record<PlaceCategory, number> = { restaurant: 0, cafe: 0, attraction: 0, culture: 0 };
+    for (const { type } of CATEGORY_FILTERS) {
+      counts[type] = chipCandidates(
+        facilities.filter((f) => f.type === type && !(type === 'restaurant' && isBarFacility(f))),
+        accessible,
+        (context) => (f: Facility) => matchesTravelContext(f, context, userLocation, haversineMeters),
+      ).items.length;
+    }
+    return counts;
+  }, [facilities, travelContext, userLocation]);
+  // 무장애 확인 핀(이 유형)을 지도 한 화면에 모은다 — 카드에 오를 곳이 없어도 어디에 있는지는 보여 준다.
+  const fitBarrierFreePins = (type: PlaceCategory) => {
+    const map = mapInstanceRef.current;
+    if (!map || typeof window === 'undefined' || !window.kakao) return;
+    const pins = facilities.filter((f) => f.type === type
+      && (f?.barrierFree ?? f?.barrier_free ?? f?.features?.barrier_free) === true
+      && Number.isFinite(f.latitude) && Number.isFinite(f.longitude));
+    if (pins.length === 0) return;
+    if (pins.length === 1) {
+      centerOnFreeArea(pins[0].latitude, pins[0].longitude);
+      return;
+    }
+    const bounds = new window.kakao.maps.LatLngBounds();
+    pins.forEach((f) => bounds.extend(new window.kakao.maps.LatLng(f.latitude, f.longitude)));
+    // 톱바·우측 카드 자리만큼 비우고 맞춘다(centerOnFreeArea 와 같은 가림 폭). 지도 높이의 절반은 넘지 않게.
+    const h = mapContainerRef.current?.clientHeight || 0;
+    const top = Math.min(topBarRef.current?.getBoundingClientRect().height ?? 0, Math.round(h * 0.5));
+    const right = window.matchMedia('(min-width: 768px)').matches ? 386 : 24;
+    try { map.setBounds(bounds, top + 24, right, 120, 24); } catch { /* 투영 실패 — 지도는 그대로 둔다 */ }
+  };
   const onBarrierFreeChip = () => {
     toggleBarrierFree();
-    // 켜는 순간 지금 칩에 무장애 확인 장소가 없으면 빈 지도로 두지 않고 가장 많은 칩으로 옮긴다.
-    const currentType = CATEGORY_FILTERS.find(({ id }) => id === activeFilter)?.type;
-    if (showBarrierFree || !currentType || barrierFreeByType[currentType] > 0) return;
+    // 켜는 순간 지금 칩에 카드에 오를 무장애 장소가 없으면 빈 지도로 두지 않고 가장 많은 칩으로 옮긴다.
+    const current = CATEGORY_FILTERS.find(({ id }) => id === activeFilter);
+    if (showBarrierFree || !current || barrierFreeCandidatesByType[current.type] > 0) return;
     const best = CATEGORY_FILTERS
-      .map((filter) => ({ ...filter, count: barrierFreeByType[filter.type] }))
+      .map((filter) => ({ ...filter, count: barrierFreeCandidatesByType[filter.type] }))
       .sort((a, b) => b.count - a.count)[0];
-    if (best.count === 0) return;
-    selectCategory(best.id);
-    showToast(t('map.barrierFreeSwitched', { category: t(`category.${best.type}`), n: best.count }));
+    if (best.count > 0) {
+      selectCategory(best.id);
+      showToast(t('map.barrierFreeSwitched', { category: t(`category.${best.type}`), n: best.count }));
+      return;
+    }
+    // 어느 칩에도 카드에 오를 곳이 없다(전부 걸어갈 거리 밖 등) — 무장애 핀이 있는 칩에서 그 핀들로 지도를
+    // 맞춘다. 카드 자리에는 제안 카드가 '지도에 N곳' 을 말한다(아래 category-suggestion).
+    const pinFilter = barrierFreeByType[current.type] > 0
+      ? current
+      : CATEGORY_FILTERS
+        .map((filter) => ({ ...filter, count: barrierFreeByType[filter.type] }))
+        .sort((a, b) => b.count - a.count)[0];
+    if (pinFilter.id !== activeFilter) selectCategory(pinFilter.id);
+    fitBarrierFreePins(pinFilter.type);
   };
 
   // 칩에 추천할 곳이 없을 때 대신 보여 줄 다른 칩과 그 후보 수 — 추천 effect 와 같은 조건(chipCandidates).
@@ -2728,6 +2789,15 @@ export default function MainPage() {
       }))
       .filter(({ count }) => count > 0);
   }, [noRecommendation, activeFilter, facilities, travelContext, userLocation]);
+  // ♿ 가 켜졌는데 고를 칩이 없을 때(카드에 오를 무장애 장소가 어디에도 없음) — 빈 칸 대신 무장애 핀을 가리킨다.
+  // 지금 칩에 핀이 있으면 그 수와 '지도에서 보기', 없으면 핀이 있는 다른 칩.
+  const activeCategoryType = CATEGORY_FILTERS.find(({ id }) => id === activeFilter)?.type ?? null;
+  const barrierFreePinsHere = showBarrierFree && activeCategoryType ? barrierFreeByType[activeCategoryType] : 0;
+  const barrierFreePinChips = showBarrierFree && suggestedCategories.length === 0 && barrierFreePinsHere === 0
+    ? CATEGORY_FILTERS
+      .filter(({ id, type }) => id !== activeFilter && barrierFreeByType[type] > 0)
+      .map((filter) => ({ ...filter, count: barrierFreeByType[filter.type] }))
+    : [];
 
   // Kakao 시설명 검색 — 등록 여부와 현재 카테고리에 관계없이 지점·작은 점포까지 찾는다.
   useEffect(() => {
@@ -3308,7 +3378,7 @@ export default function MainPage() {
         </div>{/* /왼쪽 열(검색) */}
 
         {/* 오른쪽 열(모바일은 아래): 카테고리 칩 + 지도 레이어 컨트롤 */}
-        <div className="flex flex-col gap-2 md:flex-1 md:min-w-0 md:gap-2.5">
+        <div ref={chipColumnRef} className="flex flex-col gap-2 md:flex-1 md:min-w-0 md:gap-2.5">
 
         {/* Filter Chips — PC 에선 스크롤 대신 줄바꿈(구글맵스 칩 행 관례).
             왼쪽 금색 띠 = '무엇을 찾을지' 그룹(이 행 + 아래 음식분류 행). 아래 레이어/조건 행은
@@ -3904,11 +3974,15 @@ export default function MainPage() {
       })()}
 
       {/* (b) 현재 칩에 추천할 곳이 없으면 '없어요' 대신 지금 후보가 있는 다른 칩을 바로 고르게 한다.
-          ♿ 가 켜져 있으면 무장애 확인 장소가 있는 칩만 나온다(같은 조건으로 센다). 고를 칩이 하나도 없으면
-          카드 자체를 그리지 않는다. 재계산 중에는 띄우지 않는다 — 스켈레톤과 같은 자리라 두 패널이 겹친다. */}
+          ♿ 가 켜져 있으면 무장애 확인 장소가 있는 칩만 나온다(같은 조건으로 센다). 그런 칩이 없으면 무장애 핀을
+          가리킨다(barrierFreePinsHere · barrierFreePinChips). 고를 것이 하나도 없으면 카드 자체를 그리지 않는다.
+          재계산 중에는 띄우지 않는다 — 스켈레톤과 같은 자리라 두 패널이 겹친다. */}
       {!isLoadingFacilities && !facilitiesLoadError && facilities.length > 0 && !selectedFacility && noRecommendation && !recalcLabel
-        && (suggestedCategories.length > 0 || noOpenTodayOnly) && (
-        <div className="absolute z-20 px-4 bottom-[calc(var(--tourist-nav-clearance)+env(safe-area-inset-bottom))] w-full md:bottom-auto md:top-24 md:left-auto md:right-4 md:w-[370px] md:px-0">
+        && (suggestedCategories.length > 0 || noOpenTodayOnly || barrierFreePinsHere > 0 || barrierFreePinChips.length > 0) && (
+        <div
+          className="absolute z-20 px-4 bottom-[calc(var(--tourist-nav-clearance)+env(safe-area-inset-bottom))] w-full md:bottom-auto md:top-[var(--toolbar-clear,6rem)] md:left-auto md:right-4 md:w-[370px] md:px-0"
+          style={toolbarClearPx === null ? undefined : ({ '--toolbar-clear': `${toolbarClearPx}px` } as CSSProperties)}
+        >
           <div data-testid="category-suggestion" className="bg-white border border-line rounded-2xl px-5 py-4 shadow-[0_2px_14px_rgba(43,35,32,0.06)] flex flex-col items-center gap-2 text-center">
             <NextSpotMascot className="w-12" />
             {/* '다른 곳을 보여드릴게요' 는 아래에 고를 칩이 있을 때만 — 버튼 없이 약속만 남기지 않는다. */}
@@ -3934,6 +4008,35 @@ export default function MainPage() {
                   </button>
                 ))}
               </div>
+            )}
+            {suggestedCategories.length === 0 && barrierFreePinsHere > 0 && activeCategoryType && (
+              <>
+                <p className="text-muk text-sm font-semibold">{t('map.barrierFreeOnMap', { n: barrierFreePinsHere })}</p>
+                <button
+                  type="button"
+                  onClick={() => fitBarrierFreePins(activeCategoryType)}
+                  className="toss-pressable mt-1 rounded-full border border-gold/50 bg-gold/10 px-3.5 py-2 text-xs font-bold text-muk hover:bg-gold/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+                >
+                  {t('map.placeSearchView')}
+                </button>
+              </>
+            )}
+            {barrierFreePinChips.length > 0 && (
+              <>
+                <p className="text-muk text-sm font-semibold">{t('map.barrierFreeElsewhere')}</p>
+                <div className="mt-1 flex flex-wrap justify-center gap-2">
+                  {barrierFreePinChips.map(({ id, type, count }) => (
+                    <button
+                      key={id}
+                      type="button"
+                      onClick={() => { selectCategory(id); fitBarrierFreePins(type); }}
+                      className="toss-pressable rounded-full border border-gold/50 bg-gold/10 px-3.5 py-2 text-xs font-bold text-muk hover:bg-gold/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+                    >
+                      {t('map.suggestButton', { category: t(`category.${type}`), n: count })}
+                    </button>
+                  ))}
+                </div>
+              </>
             )}
           </div>
         </div>

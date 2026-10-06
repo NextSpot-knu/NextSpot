@@ -138,7 +138,7 @@ for (const viewport of [{ width: 1536, height: 730 }, { width: 390, height: 844 
     expect(box!.y).toBeGreaterThanOrEqual(bar!.y + bar!.height);
 
     // 출처 줄과 제목.
-    await expect(block).toContainText('경주 관광지 검색 결과');
+    await expect(block).toContainText('경주 장소 검색 결과');
     await expect(block.getByText(TOUR_SOURCE.ko, { exact: true })).toBeVisible();
     await expect(block).not.toContainText('바로 안내해 드릴 수 있어요');
 

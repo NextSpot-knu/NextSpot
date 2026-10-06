@@ -156,6 +156,49 @@ test('♿ switches to the category that has barrier-free places, and an empty ch
   await expect(cardHeading(page, '대릉원 산책길')).toBeVisible({ timeout: 25_000 });
 });
 
+// 10-06 실측: 관광지에 무장애 핀은 있지만(원자료 3곳) 카드에 오를 곳이 없었다 — 카드도 제안도 토스트도 없는 빈 지도.
+// 핀 수가 아니라 카드에 오를 수로 칩을 고르고, 그래도 어디에도 없으면 핀 수와 '지도에서 보기' 를 말한다.
+test('♿ with barrier-free pins only beyond walking range moves to their category and says where they are', async ({ page }) => {
+  test.setTimeout(120_000);
+  await page.setViewportSize({ width: 1536, height: 730 });
+  const places: Place[] = [
+    { id: 'r1', name: '황남 쌈밥', type: 'restaurant', meters: 200 },
+    { id: 'a1', name: '먼 무장애 정원', type: 'attraction', meters: 3_000, barrierFree: true }, // 도보 20분(1,333m) 밖
+  ];
+  await openMain(page, places);
+  await expect(cardHeading(page, '황남 쌈밥')).toBeVisible({ timeout: 25_000 });
+
+  await page.getByRole('button', { name: '♿ 무장애' }).click();
+  const suggestion = page.getByTestId('category-suggestion');
+  await expect(suggestion).toBeVisible({ timeout: 25_000 });
+  await expect(suggestion).toContainText('♿ 무장애 확인 장소 1곳이 지도에 있어요');
+  await expect(suggestion.getByRole('button', { name: '지도에서 보기' })).toBeVisible();
+  await expect(page.getByTestId('recommendation-card')).toHaveCount(0);
+  await expect(page.getByText(/없어요/)).toHaveCount(0);
+});
+
+test('♿ whose category the server leaves empty still shows where the barrier-free places are', async ({ page }) => {
+  test.setTimeout(120_000);
+  await page.setViewportSize({ width: 1536, height: 730 });
+  const places: Place[] = [
+    { id: 'r1', name: '황남 쌈밥', type: 'restaurant', meters: 200 },
+    { id: 'a1', name: '대릉원 산책길', type: 'attraction', meters: 400, barrierFree: true },
+  ];
+  // 서버는 지금 관광지를 하나도 추천하지 않는다(밤·영업 판정 등) — 다른 칩에도 무장애 후보가 없다.
+  await openMain(page, places, {
+    respond: (body) => (body.facility_type === 'attraction' ? [] : places.filter((place) => place.type === body.facility_type)),
+  });
+  await expect(cardHeading(page, '황남 쌈밥')).toBeVisible({ timeout: 25_000 });
+
+  await page.getByRole('button', { name: '♿ 무장애' }).click();
+  await expect(page.getByText('♿ 무장애 확인된 관광지 1곳을 보여드려요')).toBeVisible();
+  const suggestion = page.getByTestId('category-suggestion');
+  await expect(suggestion).toBeVisible({ timeout: 25_000 });
+  await expect(suggestion).toContainText('♿ 무장애 확인 장소 1곳이 지도에 있어요');
+  await expect(suggestion.getByRole('button', { name: '지도에서 보기' })).toBeVisible();
+  await expect(page.getByText(/없어요/)).toHaveCount(0);
+});
+
 for (const viewport of [{ width: 1536, height: 730 }, { width: 390, height: 844 }]) {
   test(`♿ is not offered when no place has verified barrier-free access (${viewport.width}px)`, async ({ page }) => {
     test.setTimeout(90_000);

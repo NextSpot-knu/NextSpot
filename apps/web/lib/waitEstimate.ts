@@ -147,6 +147,23 @@ export function kstHourOf(at: Date): number {
   return kst.getUTCHours() + kst.getUTCMinutes() / 60;
 }
 
+/** 보드가 대기·순서를 다시 세는 박자. 도착 시각 글자는 화면의 30초 시계를 따로 따른다(app/waiting). */
+export const BOARD_WAIT_TICK_MS = 5 * 60 * 1000;
+
+/**
+ * 대기·순서 계산의 기준 시각 — 5분 단위로 내린다. 30초마다 다시 세면 모델 분이 비슷한 카드가 읽는 도중에
+ * 자리를 바꾸고, 1위가 바뀔 때마다 골든타임 조회가 다시 나간다.
+ */
+export function boardWaitBaseMs(nowMs: number): number {
+  return Math.floor(nowMs / BOARD_WAIT_TICK_MS) * BOARD_WAIT_TICK_MS;
+}
+
+/** 도착 시각(KST 시, 0 이상 24 미만) — 기준 시각 + 이동 분. estimateWait 의 arrivalHour 와 같은 식. */
+export function arrivalHourOf(baseAt: Date, travelMinutes: number | null | undefined): number {
+  const hour = kstHourOf(baseAt) + Math.max(0, finite(travelMinutes) ?? 0) / 60;
+  return ((hour % 24) + 24) % 24;
+}
+
 /** 주어진 시각이 속한 KST 날짜의 00:00(UTC ms). */
 function kstDayStartMs(at: Date): number {
   return Math.floor((at.getTime() + KST_OFFSET_MS) / DAY_MS) * DAY_MS - KST_OFFSET_MS;

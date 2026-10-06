@@ -65,3 +65,58 @@ test('카페에서 추천이 실패하면 대안도 카페로 묻는다', async 
     expect(body.exclude_ids).toEqual(['origin-cafe']);
   }
 });
+
+// 10-06 실측(밤): 대기 보드에서 누른 장소의 개인화 추천이 [] — 머리글은 '… 주변의 지금 좋은 선택을 모았어요' 인데
+// 아래는 '주변 다른 곳에서 다시 찾아볼까요? 반경을 넓히면 …' 빈 상자였다. 비면 같은 유형 대안을 한 번 더 찾고,
+// 그래도 없으면 머리글이 결과를 약속하지 않고 빈 상자 대신 지도로 가는 버튼 하나만 둔다.
+async function stubEmptyPersonalised(page: import('@playwright/test').Page, byType: unknown[]) {
+  await page.addInitScript(() => localStorage.setItem('nextspot_onboarding_done', '1'));
+  await page.route('**/rest/v1/**', async (route) => {
+    if (route.request().url().includes('/facilities')) {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+        id: 'origin-cafe', name: '황리단길 카페', type: 'cafe', features: {}, congestion_logs: [],
+      }) });
+      return;
+    }
+    await route.fulfill({ status: 200, headers: { 'content-range': '0-0/1' }, body: '[]' });
+  });
+  const byTypeBodies: Array<Record<string, unknown>> = [];
+  await page.route('**/api/v1/**', async (route) => {
+    const url = route.request().url();
+    if (url.endsWith('/api/v1/recommendations/by-type')) {
+      byTypeBodies.push(route.request().postDataJSON() as Record<string, unknown>);
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(byType) });
+    } else if (url.endsWith('/api/v1/recommendations')) {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
+    } else {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
+    }
+  });
+  return byTypeBodies;
+}
+
+test('an empty personalised answer is filled once with same-type alternatives', async ({ page }) => {
+  test.setTimeout(60_000);
+  const byTypeBodies = await stubEmptyPersonalised(page, alternatives);
+  await page.goto('/explore/recommend?facilityId=origin-cafe&lat=35.838&lng=129.209');
+
+  await expect(page.locator('section.space-y-4 h4')).toHaveText(['고요한 찻집', '박물관 카페'], { timeout: 30_000 });
+  await expect(page.getByText('황리단길 카페 주변의 지금 좋은 선택을 모았어요')).toBeVisible();
+  expect(byTypeBodies).toHaveLength(1);
+  expect(byTypeBodies[0].facility_type).toBe('cafe');
+  expect(byTypeBodies[0].exclude_ids).toEqual(['origin-cafe']);
+});
+
+test('no alternatives at all: no promise in the header and no empty box, one way to the map', async ({ page }) => {
+  test.setTimeout(60_000);
+  await stubEmptyPersonalised(page, []);
+  await page.goto('/explore/recommend?facilityId=origin-cafe&lat=35.838&lng=129.209');
+
+  const toMap = page.getByRole('button', { name: '지도에서 다른 곳 둘러보기' });
+  await expect(toMap).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole('heading', { name: '황리단길 카페', exact: true })).toBeVisible();
+  await expect(page.getByText(/모았어요|다시 찾아볼까요|반경을 넓히면|아래에서 바로 비교/)).toHaveCount(0);
+  await expect(page.getByText('실시간 추천 대안')).toHaveCount(0);
+  await toMap.click();
+  await expect(page).toHaveURL(/\/main/);
+});
