@@ -334,8 +334,17 @@ function RecommendContent() {
   const [hoursSubmitError, setHoursSubmitError] = useState(false);
 
   // Coordinates used for recommendations
-  const [lat, setLat] = useState<number>(REGION.center.lat);
-  const [lng, setLng] = useState<number>(REGION.center.lng);
+  // 주소에 좌표가 있으면(대기 보드에서 누른 장소 — I25) 처음부터 그 값으로 시작한다. 경주 중심으로 시작해 아래
+  // effect 가 바꾸기를 기다리면, 세션이 먼저 준비된 렌더에서 경주 중심 기준 개인화 추천 POST 가 한 번 더 나갔다
+  // (무거운 Render 호출 + 버려지는 추천 기록 — 통합 10-07 e2e 가 잡았다).
+  const [lat, setLat] = useState<number>(() => {
+    const value = paramLat && paramLng ? parseFloat(paramLat) : NaN;
+    return Number.isFinite(value) ? value : REGION.center.lat;
+  });
+  const [lng, setLng] = useState<number>(() => {
+    const value = paramLat && paramLng ? parseFloat(paramLng) : NaN;
+    return Number.isFinite(value) ? value : REGION.center.lng;
+  });
 
   // ── 음성 비서(음성 컨시어지) 상태 ──
   // 백엔드가 만든 추천 사유를 한국어 TTS로 읽어주고(speechSynthesis), 사용자의 음성 응답을
