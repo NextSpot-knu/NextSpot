@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { expandPeek } from './support/recCard';
 import { stubExternalServices } from './support/stubs';
 
 // 한국어 줄바꿈(2026-10-06 감사 I61)과 로그인 화면 언어 칩 겹침(I65).
@@ -186,10 +187,12 @@ test('/main with a recommendation card has no horizontal overflow at 360px in Ko
   await stubByType(page);
   await page.goto('/main');
   await expect(page.getByText(LONG_NAMES[0]).first()).toBeVisible({ timeout: 60_000 });
-  await expectNoHorizontalOverflow(page, '/main (접힌 카드)');
-  // 펼친 상세(메뉴·주소·사유)도 같은 폭 안에 있다.
+  await expectNoHorizontalOverflow(page, '/main (미리보기 카드)');
+  // 폰 카드는 짧은 미리보기로 열린다 — 전체 카드로 펼친 뒤, 펼친 상세(메뉴·주소·사유)까지 같은 폭 안에 있다.
+  await expandPeek(page);
+  await expectNoHorizontalOverflow(page, '/main (전체 카드)');
   await page.getByRole('button', { name: '상세 정보 펼치기' }).first().click();
-  await expectNoHorizontalOverflow(page, '/main (펼친 카드)');
+  await expectNoHorizontalOverflow(page, '/main (펼친 상세)');
 });
 
 test('/waiting with long place names has no horizontal overflow at 360px in Korean', async ({ page }) => {
