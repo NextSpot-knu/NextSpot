@@ -233,6 +233,22 @@ for (const input of [
   // 도착 시각은 분까지 — 정수 시('도착 12시 기준')로 뭉개지 않는다.
   assert.match(page, /t\("wait\.arrivalBasis", \{ time: displayArrivalTime\(est\.arrivalHour\) \}\)/, '도착 시각이 분 단위가 아니다');
   assert.doesNotMatch(page, /displayHour\(/, '정수 시 도착 표기가 남아 있다');
+  // 근거가 하나도 없는 카드(basis 'default')는 머리줄·등급·한산 줄이 모두 없다 — 주석만 남는데 그것이
+  // '도착 예측'(zh '按12:20到达预测')이면 보여 주지 않는 예측을 약속한다. 그 카드는 도착 시각만 말한다.
+  assert.match(
+    page,
+    /est\.basis === "default"\s*\?\s*t\("wait\.arrivalOnly", \{ time: displayArrivalTime\(est\.arrivalHour\) \}\)/,
+    '근거 없는 카드의 주석이 도착 시각만 말하지 않는다',
+  );
+  for (const locale of ['ko', 'en', 'ja', 'zh'] as const) {
+    const wait = (JSON.parse(readFileSync(join(WEB, `lib/i18n/messages/${locale}.json`), 'utf8')) as {
+      wait: Record<string, string>;
+    }).wait;
+    assert.ok(wait.arrivalOnly?.includes('{time}'), `${locale}: wait.arrivalOnly 에 도착 시각이 없다`);
+    assert.doesNotMatch(wait.arrivalOnly, /예측|predict|forecast|予測|预测|預測/i, `${locale}: 근거 없는 카드가 예측을 약속한다`);
+  }
+  // 골든타임 배지는 뜨자마자 GET /predict/golden-hour 를 보낸다 — 다 찬 보드에서만 달아야 순차 by-type 조회와 겹치지 않는다.
+  assert.match(page, /\{!loading && topRows\[0\] && \(\s*<div className="mt-2">\s*<GoldenHourBadge /, '골든타임 조회가 부분 섹션에서 by-type 조회와 겹친다');
   // 근거가 하나도 없는 카드에 '대기 정보 수집 중' 머리줄을 세우지 않는다.
   assert.doesNotMatch(page, /waiting\.waitUnavailable/, "'대기 정보 수집 중' 머리줄이 남아 있다");
 

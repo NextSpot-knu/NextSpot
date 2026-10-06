@@ -178,6 +178,10 @@ const SERVER_PLACES = [
 const LONE_CULTURE = [item('c1', '신라고분정보센터', 0, null, false, { type: 'culture' })];
 const BASIS_SERVER = { ko: '실측 기반 예측', en: 'Based on measured data', ja: '実測に基づく予測', zh: '基于实测的预测' } as const;
 const SINGLE_COUNT = { ko: '1곳', en: '1 spot', ja: '1か所', zh: '1处' } as const;
+// 근거가 없는 카드는 보여 주는 예측이 없다 — 주석은 도착 시각만(zh '按13:05到达预测'처럼 없는 예측을 약속하지 않는다).
+const ARRIVAL_ONLY = {
+  ko: /^\d{2}:\d{2} 도착$/, en: /^Arriving \d{2}:\d{2}$/, ja: /^\d{2}:\d{2}到着$/, zh: /^\d{2}:\d{2}到达$/,
+} as const;
 
 for (const [locale, width] of CASES) {
   test(`waiting board (${locale}, ${width}px): basis note stays whole, wait headline keeps number with unit, one-place count`, async ({ page }) => {
@@ -255,6 +259,7 @@ for (const [locale, width] of CASES) {
     }
     // 근거가 하나도 없는 문화시설 카드 — '수집 중' 같은 머리줄 없이 이름·도착 시각만.
     expect(report[3].headline, 'card 4: 근거 없는 카드에 골드 박스').toBeNull();
+    expect(report[3].footnote, 'card 4: 근거 없는 카드의 주석은 도착 시각만').toMatch(ARRIVAL_ONLY[locale]);
     if (locale === 'ko') {
       for (const card of report) {
         if (card.headline === null) continue;

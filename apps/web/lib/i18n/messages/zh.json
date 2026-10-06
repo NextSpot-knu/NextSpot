@@ -1371,6 +1371,7 @@
     "calmAt": "{h}点后较清静",
     "calmNow": "现在最清静",
     "arrivalBasis": "按{time}到达预测",
+    "arrivalOnly": "{time}到达",
     "legend": "每张卡片显示到达时的拥挤程度和变空闲的时间。",
     "basisServer": "基于实测的预测",
     "basisRanking": "按业态与时段估算",

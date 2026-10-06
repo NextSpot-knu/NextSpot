@@ -1371,6 +1371,7 @@
     "calmAt": "Calmer after {h}:00",
     "calmNow": "Calmest right now",
     "arrivalBasis": "Arriving {time}",
+    "arrivalOnly": "Arriving {time}",
     "legend": "Each card shows how busy it will be when you arrive and when it gets calmer.",
     "basisServer": "Based on measured data",
     "basisRanking": "Estimate by venue type and hour",

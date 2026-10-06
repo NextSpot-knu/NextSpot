@@ -427,9 +427,45 @@ test('waiting board: the first section shows while the rest are on their way', a
   await expect(page.locator('.ns-skel')).toHaveCount(0);
   expect(await cachedPresetOf(page)).toBe('now');
   // 카드는 보여 줄 수 있는 것만 약속한다 — 도착 시각은 분까지, 근거가 없는 카드에 '수집 중' 머리줄은 없다.
-  await expect(page.getByText(/\d{2}:\d{2} 도착 예측/).first()).toBeVisible();
+  // 이 장소는 근거가 하나도 없다 — 보여 주는 예측이 없으니 주석도 '도착 예측'이 아니라 도착 시각만.
+  await expect(page.getByText(/^\d{2}:\d{2} 도착$/).first()).toBeVisible();
+  await expect(page.getByText('도착 예측')).toHaveCount(0);
   await expect(page.getByText('대기 정보 수집')).toHaveCount(0);
   await expect(page.getByText('근거가 없는')).toHaveCount(0);
+});
+
+test('waiting board: golden-hour lookups wait for the full board, not each early section', async ({ page }) => {
+  test.setTimeout(90_000); // 첫 /waiting 컴파일(Windows dev server) 여유 — 재시도가 아니라 시간
+  await seedNowWithoutCache(page);
+  // 섹터 1위의 골든타임 배지는 뜨자마자 GET /predict/golden-hour 를 보낸다. 먼저 보인 섹션에 배지를 달면 그 조회가
+  // 아직 하나씩 도는 by-type 조회와 겹친다 — 0.5CPU 서버라 보드 요청을 일부러 순차로 보내는 이유가 무너진다.
+  const goldenCalls: string[] = [];
+  await page.route('**/predict/golden-hour**', (route) => {
+    goldenCalls.push(route.request().url());
+    return route.fulfill({ status: 200, contentType: 'application/json', body: '{"available":false}' });
+  });
+  // 음식점·카페는 바로 답하고, 그 뒤의 관광지는 서버에서 붙잡는다 — 두 섹션이 먼저 보인다.
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => { release = resolve; });
+  const calls = await routeBoard(page, {
+    cafePlace: CAFE_PLACE,
+    respond: async (call) => { if (call.type === 'attraction') await held; },
+  });
+
+  await page.goto('/waiting');
+  await expect(page.getByText(CAFE_PLACE).first()).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText(NOW_PLACE).first()).toBeVisible();
+  await expect.poll(() => calls.some((c) => c.type === 'attraction')).toBe(true);
+  await expect(boardOf(page)).toHaveAttribute('aria-busy', 'true');
+  await page.waitForTimeout(1000); // 먼저 보인 섹션에 배지가 달렸다면 조회가 도착할 틈
+  expect(goldenCalls, '보드가 다 차기 전의 골든타임 조회').toEqual([]);
+
+  release();
+  await boardComplete(page);
+  // 다 찬 보드의 섹터 1위(음식점·카페)마다 조회한다. 개발 서버는 React StrictMode 라 이펙트가 두 번 돌아 같은 곳을
+  // 두 번 묻는다(프로덕션 빌드는 한 번) — 그래서 요청 수가 아니라 물은 장소를 본다.
+  await expect.poll(() => [...new Set(goldenCalls.map((url) => new URL(url).searchParams.get('facilityId')))].sort())
+    .toEqual([`f-${CAFE_PLACE}`, `f-${NOW_PLACE}`].sort());
 });
 
 test('waiting board: a failed earlier type never lets a later section jump above it', async ({ page }) => {

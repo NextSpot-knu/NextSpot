@@ -390,10 +390,12 @@ function WaitStats({ est, row, estimateLevel }: { est: WaitEstimate; row: BoardR
       {/* 줄 수를 자르지 않는다 — 영어는 좁은 카드에서 세 줄로 접혀, 두 줄에서 자르면 숫자를 받치는 근거
           ('… measured data')가 통째로 사라졌다. 늘어난 만큼은 위 소개 블록이 온전한 줄로 양보한다(min-h-72). */}
       <p className="text-[9px] leading-snug text-muk-soft break-words">
-        {/* 근거가 하나도 없는 카드에는 근거 문구를 붙이지 않는다 — 말한 숫자가 없는데 무슨 근거라고 하면
-            한 카드가 두 말을 한다. 도착 시각은 분까지(옆의 '현재 HH:MM 기준'과 같은 해상도). */}
-        {t("wait.arrivalBasis", { time: displayArrivalTime(est.arrivalHour) })}
-        {est.basis !== "default" && ` · ${t(basisKey(est.basis))}`}
+        {/* 근거가 하나도 없는 카드(basis 'default')는 예측을 보여 주지 않는다 — 도착 시각만 말하고('12:20 도착')
+            근거 문구도 붙이지 않는다. 보여 준 숫자가 없는데 '도착 예측'·근거를 말하면 없는 예측을 약속한다
+            (zh '按12:20到达预测'). 도착 시각은 분까지(옆의 '현재 HH:MM 기준'과 같은 해상도). */}
+        {est.basis === "default"
+          ? t("wait.arrivalOnly", { time: displayArrivalTime(est.arrivalHour) })
+          : `${t("wait.arrivalBasis", { time: displayArrivalTime(est.arrivalHour) })} · ${t(basisKey(est.basis))}`}
       </p>
     </div>
   );
@@ -1089,8 +1091,10 @@ export default function WaitingBoardPage() {
                   </div>
 
                   {/* 섹터 1위 골든타임 — 카드 밖 한 줄(컴팩트 카드 폭 안에 배지+알림 버튼이 안 들어감).
-                      available:false/실패면 GoldenHourBadge 자체가 조용히 숨는다. */}
-                  {topRows[0] && (
+                      available:false/실패면 GoldenHourBadge 자체가 조용히 숨는다.
+                      다 찬 보드에서만 단다 — 배지는 뜨자마자 GET /predict/golden-hour 를 보낸다. 부분 섹션에 달면
+                      아직 하나씩 도는 by-type 조회와 겹친다(0.5CPU 서버라 일부러 순차로 보내는 중). */}
+                  {!loading && topRows[0] && (
                     <div className="mt-2">
                       <GoldenHourBadge facilityId={topRows[0].facilityId} />
                     </div>

@@ -1371,6 +1371,7 @@
     "calmAt": "{h}시 이후 한산",
     "calmNow": "지금이 가장 한산",
     "arrivalBasis": "{time} 도착 예측",
+    "arrivalOnly": "{time} 도착",
     "legend": "카드마다 도착할 때의 붐빔과 한산해지는 시각을 보여드려요.",
     "basisServer": "실측 기반 예측",
     "basisRanking": "업종·시간대 기준 추정",

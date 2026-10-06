@@ -1371,6 +1371,7 @@
     "calmAt": "{h}時以降は空いています",
     "calmNow": "今が一番空いています",
     "arrivalBasis": "{time}到着の予測",
+    "arrivalOnly": "{time}到着",
     "legend": "カードごとに、到着時の混み具合とすいてくる時刻をお見せします。",
     "basisServer": "実測に基づく予測",
     "basisRanking": "業種・時間帯による推定",
