@@ -202,7 +202,7 @@ export function FacilityTable() {
 
   return (
     <>
-      <div className="bg-hanok-panel rounded-2xl border border-hanok-line shadow-sm overflow-hidden col-span-2">
+      <div className="bg-hanok-panel rounded-2xl border border-hanok-line shadow-sm overflow-hidden lg:col-span-2">
         <div className="p-6 border-b border-hanok-line flex justify-between items-center bg-hanok-card/30">
           <div className="flex items-center gap-2">
             <Settings className="text-hanok-muted" size={20} />

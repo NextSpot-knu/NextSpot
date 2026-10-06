@@ -1402,5 +1402,10 @@
     "backToMap": "Back to the map",
     "exploreCourse": "See dispersal courses",
     "brandLine": "NextSpot · Crowd dispersal guide for Gyeongju Hwangnidan-gil"
+  },
+  "adminShell": {
+    "openMenu": "Open dashboard menu",
+    "closeMenu": "Close dashboard menu",
+    "menuTitle": "Dashboard menu"
   }
 }

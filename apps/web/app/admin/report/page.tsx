@@ -305,7 +305,7 @@ export default function AdminReportPage() {
       : undefined; // undefined = 아직 로딩 중
 
   return (
-    <div className="flex h-screen bg-hanok text-hanok-ink font-sans overflow-hidden print:h-auto print:overflow-visible print:bg-white">
+    <div className="flex flex-col lg:flex-row h-screen bg-hanok text-hanok-ink font-sans overflow-hidden print:h-auto print:overflow-visible print:bg-white">
       {/* Tailwind 유틸리티로 표현 불가능한 인쇄 규칙만 별도 지정한다(@page·print-color-adjust·recharts SVG 폭). */}
       <style>{`
         @page { size: A4; margin: 14mm; }
@@ -327,7 +327,7 @@ export default function AdminReportPage() {
 
       <main className="flex-1 flex flex-col h-full overflow-hidden print:h-auto print:overflow-visible">
         {/* 상단 컨트롤바 — 인쇄 시 숨김 */}
-        <header className="print:hidden h-20 bg-hanok-panel border-b border-hanok-line flex items-center justify-between px-8 flex-shrink-0">
+        <header className="print:hidden lg:h-20 bg-hanok-panel border-b border-hanok-line flex flex-wrap lg:flex-nowrap items-center justify-between gap-2 lg:gap-0 px-4 py-3 lg:px-8 lg:py-0 flex-shrink-0">
           <div className="flex items-center gap-3">
             <BarChart3 className="text-gold-deep" size={22} />
             <h2 className="text-xl font-bold text-hanok-ink">분산정책 성과 리포트</h2>
@@ -349,7 +349,7 @@ export default function AdminReportPage() {
         </header>
 
         {/* 리포트 본문 — 화면에서도 인쇄물과 동일한 흰 A4 용지로 미리보기한다 */}
-        <div className="flex-1 overflow-y-auto print:overflow-visible print:h-auto bg-hanok-line/20 print:bg-white p-6 print:p-0 flex justify-center">
+        <div className="flex-1 overflow-y-auto print:overflow-visible print:h-auto bg-hanok-line/20 print:bg-white p-3 lg:p-6 print:p-0 flex justify-center">
           {/* self-start 가 없으면 종이가 첫 화면 높이까지만 하얗다.
               이 div 는 세로 스크롤이 걸린 **가로 플렉스 컨테이너**라 교차축이 세로이고,
               기본 align-items: stretch 가 종이의 높이를 '플렉스 라인의 높이 = 스크롤 컨테이너의
@@ -362,7 +362,7 @@ export default function AdminReportPage() {
               min-h-full 은 반대쪽을 막는다: 내용이 짧은 상태(로딩·데이터 없음)에서 종이가
               쪼그라들어 반쪽짜리 카드로 보이지 않게 최소 한 화면은 유지한다. 인쇄에서는
               부모 높이가 auto 라 이 백분율이 풀려 저절로 무효가 된다. */}
-          <div className="report-paper self-start min-h-full w-full max-w-[210mm] bg-white text-black shadow-xl print:shadow-none rounded-lg print:rounded-none p-10 print:p-0 flex flex-col gap-8">
+          <div className="report-paper self-start min-h-full w-full max-w-[210mm] bg-white text-black shadow-xl print:shadow-none rounded-lg print:rounded-none p-5 lg:p-10 print:p-0 flex flex-col gap-8">
 
             {/* 표지 헤더 */}
             <section className="break-inside-avoid border-b-2 border-black pb-6">

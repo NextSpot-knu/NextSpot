@@ -1402,5 +1402,10 @@
     "backToMap": "地図に戻る",
     "exploreCourse": "分散コースを見る",
     "brandLine": "NextSpot · 慶州・皇理団通りの混雑分散ガイド"
+  },
+  "adminShell": {
+    "openMenu": "運営メニューを開く",
+    "closeMenu": "運営メニューを閉じる",
+    "menuTitle": "運営メニュー"
   }
 }

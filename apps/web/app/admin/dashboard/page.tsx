@@ -930,7 +930,7 @@ function DashboardPage() {
   };
 
   return (
-    <div className="flex h-screen bg-hanok text-hanok-ink font-sans overflow-hidden">
+    <div className="flex flex-col lg:flex-row h-screen bg-hanok text-hanok-ink font-sans overflow-hidden">
 
       {/* Sidebar */}
       <AdminSidebar />
@@ -938,8 +938,8 @@ function DashboardPage() {
       {/* Main Content */}
       <main className="flex-1 flex flex-col h-full overflow-hidden">
         {/* Top Header */}
-        <header className="h-20 bg-hanok-panel border-b border-hanok-line flex items-center justify-between px-8 flex-shrink-0">
-          <div className="flex items-center gap-4">
+        <header className="lg:h-20 bg-hanok-panel border-b border-hanok-line flex flex-wrap lg:flex-nowrap items-center justify-between gap-2 lg:gap-0 px-4 py-3 lg:px-8 lg:py-0 flex-shrink-0">
+          <div className="flex max-lg:flex-wrap items-center gap-2 lg:gap-4">
             <h2 className="text-xl font-bold text-hanok-ink">경주 관광 혼잡 종합 대시보드</h2>
             <ModelAccuracyBadge />
             {/* 오늘 혼잡 지표의 근거(실측/추정/예측)를 상단에서도 한 번 더 말한다. */}
@@ -964,7 +964,7 @@ function DashboardPage() {
         </header>
 
         {/* Dashboard Content (Scrollable) */}
-        <div className="flex-1 p-8 overflow-y-auto flex flex-col gap-8">
+        <div className="flex-1 p-4 lg:p-8 overflow-y-auto flex flex-col gap-6 lg:gap-8">
           <style>{DASH_LOADER_STYLES}</style>
 
           {/* 첫 로드 동기화 스트립 — 지표 도착 전의 '빈 화면'을 '일부러 준비 중'으로 바꾼다.
@@ -1182,7 +1182,7 @@ function DashboardPage() {
               관제 화면을 연 첫 화면에 들어와야 한다(1536×730·1366×650 기준 — e2e/admin-dashboard-first-screen.spec.ts).
               타일 내용은 위로 붙인다(justify-between 없음) — 네 숫자가 같은 높이에 선다. 아래로 붙이면 근거 줄이 짧은
               타일(DAU)의 숫자가 가장 긴 타일 바닥까지 밀려 1366×650 에서 첫 화면 밖이었다. */}
-          <div id="dashboard-kpis" className="grid grid-cols-4 gap-6">
+          <div id="dashboard-kpis" className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6">
             {/* 오늘 평균 혼잡도 — 추정/예측이면 점선 테두리 + 배지 + 근거 한 줄(실측과 같은 모양이 아니다). */}
             <div className={`bg-hanok-panel p-6 rounded-2xl shadow-sm flex flex-col ${
               isEstimate
@@ -1566,8 +1566,8 @@ function DashboardPage() {
               백엔드 엔드포인트는 남아 있다.) */}
 
           {/* ───────── 폐루프 ② 정책 개입 · ③ 분산 효과 ───────── (아래 행의 두 컬럼에 각각 정렬) */}
-          <div className="grid grid-cols-3 gap-6">
-            <div className="col-span-2">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-6">
+            <div className="lg:col-span-2">
               <StepBanner
                 badge="②"
                 title="정책 개입"
@@ -1575,7 +1575,7 @@ function DashboardPage() {
                 color="amber"
               />
             </div>
-            <div className="col-span-1">
+            <div className="lg:col-span-1">
               <StepBanner
                 badge="③"
                 title="분산 효과"
@@ -1586,14 +1586,14 @@ function DashboardPage() {
           </div>
 
           {/* 개입 폐루프 Row — 쿠폰 정책(②개입) + 분산 효과(③효과 정량화) */}
-          <div className="grid grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-6">
             <CouponPolicyPanel />
             {/* 분산 효과는 추천 고리 공동 판정(loopBasis)을 따르고, 자기 창(오늘 수락)의 표본 수를 알려 준다. */}
             <ImpactWidget loopBasis={loopBasis} onMeasuredSamples={setImpactSamples} />
           </div>
 
           {/* Bottom Section */}
-          <div className="grid grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 lg:gap-6">
             {/* Facility Table (Client Component) */}
             <FacilityTable />
 

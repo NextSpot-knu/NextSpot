@@ -1402,5 +1402,10 @@
     "backToMap": "返回地图",
     "exploreCourse": "查看分流路线",
     "brandLine": "NextSpot · 庆州皇理团路拥挤分流指南"
+  },
+  "adminShell": {
+    "openMenu": "打开运营菜单",
+    "closeMenu": "关闭运营菜单",
+    "menuTitle": "运营菜单"
   }
 }

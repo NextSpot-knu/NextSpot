@@ -154,8 +154,8 @@ export function CouponPolicyPanel() {
   );
 
   return (
-    <div className="bg-hanok-panel rounded-2xl border border-hanok-line shadow-sm overflow-hidden col-span-2 flex flex-col">
-      <div className="p-6 border-b border-hanok-line bg-hanok-card/30 flex justify-between items-center">
+    <div className="bg-hanok-panel rounded-2xl border border-hanok-line shadow-sm overflow-hidden lg:col-span-2 flex flex-col">
+      <div className="p-4 lg:p-6 border-b border-hanok-line bg-hanok-card/30 flex max-lg:flex-col max-lg:items-stretch max-lg:gap-3 justify-between items-center">
         <div>
           <div className="flex items-center gap-2">
             <Ticket className="text-amber-600" size={20} />
@@ -180,12 +180,12 @@ export function CouponPolicyPanel() {
             value={search}
             onChange={e => setSearch(e.target.value)}
             placeholder="시설명 검색"
-            className="pl-8 pr-3 py-1.5 bg-hanok-card text-hanok-ink placeholder-hanok-muted rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-amber-500 w-40"
+            className="pl-8 pr-3 py-1.5 bg-hanok-card text-hanok-ink placeholder-hanok-muted rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-amber-500 w-full lg:w-40"
           />
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto max-h-96">
+      <div className="flex-1 overflow-y-auto overflow-x-auto max-h-96">
         {loading ? (
           <div className="p-8 text-center text-hanok-muted text-sm">데이터 로딩 중...</div>
         ) : loadError ? (
@@ -193,7 +193,7 @@ export function CouponPolicyPanel() {
             목록을 갱신하는 중입니다.
           </div>
         ) : (
-          <table className="w-full text-left border-collapse">
+          <table className="w-full max-lg:min-w-[600px] text-left border-collapse">
             <thead className="sticky top-0 bg-hanok-panel z-10">
               <tr className="text-hanok-muted text-xs border-b border-hanok-line">
                 <th className="px-4 py-3 font-semibold">시설명</th>

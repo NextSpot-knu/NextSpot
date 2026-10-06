@@ -302,12 +302,12 @@ export default function SafetyPage() {
   const cardZones = [...alertZones, ...warnZones];
 
   return (
-    <div className="flex h-screen bg-hanok text-hanok-ink font-sans overflow-hidden">
+    <div className="flex flex-col lg:flex-row h-screen bg-hanok text-hanok-ink font-sans overflow-hidden">
       <AdminSidebar />
 
       <main className="flex-1 flex flex-col h-full overflow-hidden">
         {/* Header */}
-        <header className="h-20 bg-hanok-panel border-b border-hanok-line flex items-center justify-between px-8 flex-shrink-0">
+        <header className="lg:h-20 bg-hanok-panel border-b border-hanok-line flex flex-wrap lg:flex-nowrap items-center justify-between gap-2 lg:gap-0 px-4 py-3 lg:px-8 lg:py-0 flex-shrink-0">
           <div>
             <h2 className="text-xl font-bold text-hanok-ink flex items-center gap-2">
               <AlertTriangle size={20} className="text-terracotta" />
@@ -315,7 +315,7 @@ export default function SafetyPage() {
             </h2>
             <p className="text-xs text-hanok-muted mt-0.5">골목(존) 단위 조기경보 — B2G 관제</p>
           </div>
-          <div className="flex items-center gap-4">
+          <div className="flex max-lg:flex-wrap items-center gap-x-4 gap-y-2">
             <div className="flex items-center gap-1.5 text-xs text-hanok-muted">
               <Clock size={14} />
               마지막 갱신: {data ? fmtKstTime(data.generatedAt) : '—'}
@@ -325,7 +325,7 @@ export default function SafetyPage() {
                 onClick={requestNotifPermission}
                 disabled={notifPermission === 'denied'}
                 title={notifPermission === 'denied' ? '브라우저 알림 권한이 차단되어 있습니다.' : '경보 증가 시 브라우저 알림 받기'}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap border transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
                   notifEnabled
                     ? 'bg-gold/15 border-gold text-gold-deep'
                     : 'bg-hanok-card border-hanok-line text-hanok-muted hover:border-gold'
@@ -338,7 +338,7 @@ export default function SafetyPage() {
             <button
               onClick={() => fetchStatus(false)}
               disabled={loading}
-              className="flex items-center gap-2 px-3 py-1.5 bg-hanok-card border border-hanok-line hover:bg-hanok-line text-hanok-ink text-xs font-semibold rounded-lg transition-colors disabled:opacity-60"
+              className="flex items-center gap-2 px-3 py-1.5 bg-hanok-card border border-hanok-line hover:bg-hanok-line text-hanok-ink text-xs font-semibold whitespace-nowrap rounded-lg transition-colors disabled:opacity-60"
             >
               <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
               새로고침
@@ -346,7 +346,7 @@ export default function SafetyPage() {
           </div>
         </header>
 
-        <div className="flex-1 overflow-y-auto p-8">
+        <div className="flex-1 overflow-y-auto p-4 lg:p-8">
           <div className="max-w-5xl mx-auto flex flex-col gap-6 pb-16">
 
             {/* 정직성 라벨 */}

@@ -211,22 +211,22 @@ export default function SupportPage() {
   );
 
   return (
-    <div className="flex h-screen bg-hanok text-hanok-ink font-sans overflow-hidden">
+    <div className="flex flex-col lg:flex-row h-screen bg-hanok text-hanok-ink font-sans overflow-hidden">
       <AdminSidebar />
 
       <main className="flex-1 flex flex-col h-full overflow-hidden">
         {/* Top Header */}
-        <header className="h-20 bg-hanok-panel border-b border-hanok-line flex items-center justify-between px-8 flex-shrink-0">
+        <header className="lg:h-20 bg-hanok-panel border-b border-hanok-line flex flex-wrap lg:flex-nowrap items-center justify-between gap-2 lg:gap-0 px-4 py-3 lg:px-8 lg:py-0 flex-shrink-0">
           <h2 className="text-xl font-bold text-hanok-ink">문의 관리</h2>
-          <div className="flex items-center gap-6">
-            <div className="relative">
+          <div className="flex w-full lg:w-auto items-center gap-4 lg:gap-6">
+            <div className="relative flex-1 lg:flex-none">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-hanok-muted" size={18} />
               <input
                 type="text"
                 placeholder="문의 검색 (이름·제목·내용)"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10 pr-4 py-2 bg-hanok-card text-hanok-ink placeholder-hanok-muted rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gold w-64"
+                className="pl-10 pr-4 py-2 bg-hanok-card text-hanok-ink placeholder-hanok-muted rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gold w-full lg:w-64"
               />
             </div>
             <button className="relative text-hanok-muted hover:text-hanok-ink">
@@ -236,10 +236,11 @@ export default function SupportPage() {
         </header>
 
         {/* Inbox Layout */}
-        <div className="flex-1 flex overflow-hidden">
+        {/* 휴대폰 폭(lg 미만)에서는 목록 위 · 상세 아래로 쌓고 이 영역 전체가 세로로 스크롤한다. */}
+        <div className="flex-1 min-h-0 flex flex-col lg:flex-row overflow-y-auto lg:overflow-hidden">
           
           {/* Ticket List (Inbox) */}
-          <div className="w-1/3 bg-hanok-panel border-r border-hanok-line flex flex-col h-full">
+          <div className="w-full lg:w-1/3 bg-hanok-panel border-b lg:border-b-0 lg:border-r border-hanok-line flex flex-col flex-shrink-0 lg:flex-shrink lg:h-full">
             {/* 건수는 조회에 성공했을 때만 숫자다. 실패하면 숫자 대신 '조회 실패' 를 낸다 —
                 실패한 0 은 '0건' 이라는 사실이 아니라 '몇 건인지 모른다' 이기 때문이다. */}
             <div className="p-4 border-b border-hanok-line flex gap-4">
@@ -259,7 +260,7 @@ export default function SupportPage() {
                 </div>
               </div>
             )}
-            <div className="flex-1 overflow-y-auto">
+            <div className="max-lg:flex-none max-h-72 lg:max-h-none flex-1 overflow-y-auto">
               {loadStatus === 'loading' ? (
                 <div className="flex items-center justify-center p-8">
                   <div className="w-6 h-6 border-2 border-gold border-t-transparent rounded-full animate-spin"></div>
@@ -305,15 +306,15 @@ export default function SupportPage() {
           </div>
 
           {/* Ticket Detail & Reply */}
-          <div className="flex-1 bg-hanok flex flex-col overflow-hidden">
+          <div className="flex-1 bg-hanok flex flex-col lg:overflow-hidden">
             {selectedTicket ? (
-              <div className="flex flex-col h-full max-w-4xl mx-auto w-full p-8">
+              <div className="flex flex-col max-lg:h-auto h-full max-w-4xl mx-auto w-full p-4 lg:p-8">
 
                 {/* Detail Header */}
-                <div className="bg-hanok-panel p-6 rounded-t-2xl border border-hanok-line shadow-sm mb-4">
-                  <div className="flex justify-between items-start mb-4">
+                <div className="bg-hanok-panel p-4 lg:p-6 rounded-t-2xl border border-hanok-line shadow-sm mb-4">
+                  <div className="flex max-lg:flex-col max-lg:gap-2 justify-between items-start mb-4">
                     <div>
-                      <div className="flex items-center gap-2 mb-2">
+                      <div className="flex flex-wrap items-center gap-2 mb-2">
                         {getStatusBadge(selectedTicket.status)}
                         <span className="text-xs font-semibold px-2 py-0.5 bg-hanok-card text-hanok-muted rounded">
                           {selectedTicket.type}
@@ -322,9 +323,9 @@ export default function SupportPage() {
                           문의번호 {selectedTicket.id.slice(0, 8).toUpperCase()}
                         </span>
                       </div>
-                      <h2 className="text-2xl font-bold text-hanok-ink">{selectedTicket.title}</h2>
+                      <h2 className="text-xl lg:text-2xl font-bold text-hanok-ink">{selectedTicket.title}</h2>
                     </div>
-                    <div className="text-right">
+                    <div className="lg:text-right">
                       <div className="font-semibold text-hanok-ink">{selectedTicket.user}</div>
                       <div className="text-sm text-hanok-muted">{selectedTicket.time}</div>
                     </div>
@@ -335,7 +336,7 @@ export default function SupportPage() {
                 </div>
 
                 {/* Reply Section */}
-                <div className="bg-hanok-panel p-6 rounded-b-2xl border border-hanok-line shadow-sm flex-1 flex flex-col">
+                <div className="bg-hanok-panel p-4 lg:p-6 rounded-b-2xl border border-hanok-line shadow-sm flex-1 flex flex-col">
                   <h3 className="font-bold text-hanok-ink mb-4">답변</h3>
 
                   {/* 이미 답한 티켓은 저장된 답변과 그 시각을 보여준다. '답했다' 를 화면이
@@ -382,12 +383,12 @@ export default function SupportPage() {
                         </p>
                       )}
                       <textarea
-                        className="flex-1 w-full bg-hanok border border-hanok-line text-hanok-ink rounded-xl p-4 resize-none focus:outline-none focus:ring-2 focus:ring-gold mb-4"
+                        className="flex-1 w-full max-lg:flex-none max-lg:h-40 bg-hanok border border-hanok-line text-hanok-ink rounded-xl p-4 resize-none focus:outline-none focus:ring-2 focus:ring-gold mb-4"
                         placeholder={selectedTicket.replyBody ? '답변을 새로 쓰면 기존 답변을 덮어씁니다' : '문의자에게 보낼 답변을 작성하세요'}
                         value={replyText}
                         onChange={(e) => setReplyText(e.target.value)}
                       ></textarea>
-                      <div className="flex justify-between items-center gap-4">
+                      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 lg:gap-4">
                         <div className="text-sm text-hanok-muted">
                           {replyText.trim()
                             ? <>답변을 저장하고 상태를 <span className="font-bold text-emerald-700">답변 완료</span>로 바꿉니다. 문의자는 <span className="font-semibold text-hanok-ink">마이페이지 &gt; 내 문의</span>에서 봅니다.</>
@@ -398,7 +399,7 @@ export default function SupportPage() {
                         <button
                           onClick={handleReply}
                           disabled={isSending}
-                          className="flex items-center gap-2 px-6 py-2.5 bg-gold hover:bg-gold-deep disabled:bg-gold-deep disabled:cursor-not-allowed text-white font-bold rounded-xl transition-colors shadow-sm flex-shrink-0"
+                          className="flex items-center justify-center gap-2 px-6 py-2.5 bg-gold hover:bg-gold-deep disabled:bg-gold-deep disabled:cursor-not-allowed text-white font-bold rounded-xl transition-colors shadow-sm flex-shrink-0"
                         >
                           {isSending ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
                           {isSending ? '저장 중…' : replyText.trim() ? '답변 저장 후 완료' : '처리 완료로 표시'}

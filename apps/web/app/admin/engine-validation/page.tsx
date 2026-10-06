@@ -104,11 +104,11 @@ export default function EngineValidationPage() {
   const omitted = place?.omitted_metrics?.length ? place.omitted_metrics : summary?.omitted_metrics ?? [];
 
   return (
-    <div className="flex h-screen bg-hanok text-hanok-ink font-sans overflow-hidden">
+    <div className="flex flex-col lg:flex-row h-screen bg-hanok text-hanok-ink font-sans overflow-hidden">
       <AdminSidebar />
 
       <main className="flex-1 flex flex-col h-full min-h-0 overflow-hidden">
-        <header className="h-20 bg-hanok-panel border-b border-hanok-line flex items-center justify-between px-8 flex-shrink-0">
+        <header className="lg:h-20 bg-hanok-panel border-b border-hanok-line flex flex-wrap lg:flex-nowrap items-center justify-between gap-2 lg:gap-0 px-4 py-3 lg:px-8 lg:py-0 flex-shrink-0">
           <h2 className="text-xl font-bold text-hanok-ink flex items-center gap-2">
             <FlaskConical size={22} className="text-gold-deep" />
             엔진 검증 — 서울 실시간 도시데이터
@@ -116,7 +116,7 @@ export default function EngineValidationPage() {
           <span className="text-xs text-hanok-muted hidden md:block">{SEOUL_ATTRIBUTION}</span>
         </header>
 
-        <div className="flex-1 min-h-0 p-8 overflow-y-auto pb-20 space-y-6">
+        <div className="flex-1 min-h-0 p-4 lg:p-8 overflow-y-auto pb-20 space-y-6">
           {/* 컨트롤: 대상지 · 기간 · 새로고침 */}
           <div className="flex flex-wrap justify-between items-center gap-3 bg-hanok-panel p-4 rounded-2xl border border-hanok-line shadow-sm">
             <div className="flex flex-wrap items-center gap-2">
@@ -137,7 +137,7 @@ export default function EngineValidationPage() {
                       key={key}
                       onClick={() => setSelectedPlace(key)}
                       aria-pressed={active}
-                      className={`px-3 py-1.5 rounded-lg text-sm font-semibold border transition-colors ${
+                      className={`px-3 py-1.5 rounded-lg text-sm font-semibold whitespace-nowrap border transition-colors ${
                         active ? 'bg-gold/10 text-gold-deep border-gold/40' : 'bg-hanok-card text-hanok-muted border-hanok-line hover:text-hanok-ink'
                       }`}
                     >
@@ -147,14 +147,14 @@ export default function EngineValidationPage() {
                 })
               )}
             </div>
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-semibold text-hanok-muted mr-1">기간</span>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs font-semibold text-hanok-muted mr-1 whitespace-nowrap">기간</span>
               {WINDOW_OPTIONS.map((option) => (
                 <button
                   key={option}
                   onClick={() => changeDays(option)}
                   aria-pressed={option === days}
-                  className={`px-3 py-1.5 rounded-lg text-sm font-semibold border transition-colors ${
+                  className={`px-3 py-1.5 rounded-lg text-sm font-semibold whitespace-nowrap border transition-colors ${
                     option === days ? 'bg-gold/10 text-gold-deep border-gold/40' : 'bg-hanok-card text-hanok-muted border-hanok-line hover:text-hanok-ink'
                   }`}
                 >
@@ -164,7 +164,7 @@ export default function EngineValidationPage() {
               <button
                 onClick={reload}
                 disabled={load.status === 'loading'}
-                className="ml-2 inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-semibold border bg-hanok-card text-hanok-ink border-hanok-line hover:text-gold-deep disabled:opacity-50"
+                className="ml-2 inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-semibold whitespace-nowrap border bg-hanok-card text-hanok-ink border-hanok-line hover:text-gold-deep disabled:opacity-50"
               >
                 <RefreshCw size={14} className={load.status === 'loading' ? 'animate-spin' : ''} /> 새로고침
               </button>

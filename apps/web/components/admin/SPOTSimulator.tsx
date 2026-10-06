@@ -131,7 +131,7 @@ export default function SPOTSimulator() {
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                 {/* 왼쪽 패널: 슬라이더 및 입력 필드 컨트롤 */}
-                <div className="flex flex-col gap-6 lg:col-span-1 border-r border-hanok-line pr-6">
+                <div className="flex flex-col gap-6 lg:col-span-1 lg:border-r border-hanok-line lg:pr-6">
                     <SyncControl
                         label="취향 일치"
                         value={weights.pref}

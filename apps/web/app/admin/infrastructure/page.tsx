@@ -425,16 +425,16 @@ export default function InfrastructurePage() {
   };
 
   return (
-    <div className="flex h-screen bg-hanok text-hanok-ink font-sans overflow-hidden">
+    <div className="flex flex-col lg:flex-row h-screen bg-hanok text-hanok-ink font-sans overflow-hidden">
       <AdminSidebar />
 
       <main className="flex-1 flex flex-col h-full overflow-hidden">
         {/* Top Header */}
-        <header className="h-20 bg-hanok-panel border-b border-hanok-line flex items-center justify-between px-8 flex-shrink-0">
+        <header className="lg:h-20 bg-hanok-panel border-b border-hanok-line flex flex-wrap lg:flex-nowrap items-center justify-between gap-2 lg:gap-0 px-4 py-3 lg:px-8 lg:py-0 flex-shrink-0">
           <h2 className="text-xl font-bold text-hanok-ink">장소 관리</h2>
-          <div className="flex items-center gap-6">
+          <div className="flex w-full lg:w-auto items-center gap-4 lg:gap-6">
             {/* 검색: 로드된 시설을 이름/유형으로 클라이언트 필터 */}
-            <div className="relative">
+            <div className="relative flex-1 lg:flex-none">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-hanok-muted" size={18} />
               <input
                 type="text"
@@ -442,7 +442,7 @@ export default function InfrastructurePage() {
                 onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }}
                 placeholder="장소 검색 (이름·유형)"
                 title="이름 또는 유형으로 검색"
-                className="pl-10 pr-8 py-2 bg-hanok-card text-hanok-ink placeholder-hanok-muted rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gold w-64"
+                className="pl-10 pr-8 py-2 bg-hanok-card text-hanok-ink placeholder-hanok-muted rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gold w-full lg:w-64"
               />
               {searchQuery && (
                 <button
@@ -486,7 +486,7 @@ export default function InfrastructurePage() {
                     tabIndex={-1}
                     onClick={() => setNotifOpen(false)}
                   />
-                  <div className="absolute right-0 mt-3 w-80 max-h-96 overflow-y-auto z-40 bg-hanok-panel border border-hanok-line rounded-xl shadow-xl">
+                  <div className="absolute right-0 mt-3 w-80 max-w-[calc(100vw-2rem)] max-h-96 overflow-y-auto z-40 bg-hanok-panel border border-hanok-line rounded-xl shadow-xl">
                     <div className="px-4 py-3 border-b border-hanok-line flex items-center justify-between sticky top-0 bg-hanok-panel">
                       <span className="font-bold text-hanok-ink text-sm flex items-center gap-2">
                         <AlertTriangle size={16} className="text-terracotta" />
@@ -539,7 +539,7 @@ export default function InfrastructurePage() {
         <div className="flex-shrink-0 border-b border-hanok-line bg-hanok-panel">
           <button
             onClick={() => setIngestRequestsOpen(o => !o)}
-            className="w-full px-8 py-3 flex items-center justify-between text-left hover:bg-hanok-card transition-colors"
+            className="w-full px-4 lg:px-8 py-3 flex items-center justify-between text-left hover:bg-hanok-card transition-colors"
           >
             <span className="flex items-center gap-2 text-sm font-semibold text-hanok-ink">
               <Inbox size={16} className={ingestStatus === 'failed' ? 'text-rose-600' : 'text-gold-deep'} />
@@ -555,7 +555,7 @@ export default function InfrastructurePage() {
             )}
           </button>
           {ingestRequestsOpen && (
-            <div className="px-8 pb-4">
+            <div className="px-4 lg:px-8 pb-4">
               {ingestStatus === 'failed' ? (
                 <div className="flex items-start gap-2 bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 my-2">
                   <AlertTriangle size={14} className="text-amber-600 flex-shrink-0 mt-0.5" />
@@ -605,10 +605,10 @@ export default function InfrastructurePage() {
         </div>
 
         {/* Layout: Master-Detail */}
-        <div className="flex-1 flex overflow-hidden">
+        <div className="flex-1 min-h-0 flex flex-col lg:flex-row overflow-y-auto lg:overflow-hidden">
           
           {/* Master List */}
-          <div className="w-1/3 bg-hanok-panel border-r border-hanok-line flex flex-col h-full">
+          <div className="w-full lg:w-1/3 bg-hanok-panel border-b lg:border-b-0 lg:border-r border-hanok-line flex flex-col flex-shrink-0 lg:flex-shrink lg:h-full">
             <div className="p-4 border-b border-hanok-line">
               <div className="flex gap-2 overflow-x-auto no-scrollbar pb-2">
                 {['음식점', '카페', '관광지', '문화시설'].map(filter => (
@@ -635,7 +635,7 @@ export default function InfrastructurePage() {
                 최신 혼잡도를 갱신하는 중입니다 — 갱신이 끝나면 아래 목록에 자동으로 표시됩니다.
               </div>
             )}
-            <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-3">
+            <div className="max-lg:flex-none max-h-80 lg:max-h-none flex-1 overflow-y-auto p-4 flex flex-col gap-3">
               {loading ? (
                 <div className="flex flex-col items-center justify-center h-48 text-hanok-muted">
                   <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gold mb-4" />
@@ -746,7 +746,7 @@ export default function InfrastructurePage() {
           </div>
 
           {/* Detail Panel */}
-          <div className="flex-1 bg-hanok p-8 overflow-y-auto">
+          <div className="flex-1 bg-hanok p-4 lg:p-8 lg:overflow-y-auto">
             {loading && !selectedInfra ? (
               <div className="flex flex-col items-center justify-center h-full text-hanok-muted">
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gold mb-4" />
