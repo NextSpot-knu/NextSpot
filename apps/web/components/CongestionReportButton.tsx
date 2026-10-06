@@ -152,7 +152,8 @@ export function CongestionReportButton({ facility, onReported, isFirst = false, 
         } ${className}`}
       >
         <Users size={14} />
-        {isFirst ? `${t('card.noData')} · ${t('report.trigger')}` : t('report.trigger')}
+        {/* 현장 정보가 아직 없는 곳 — '수집 중' 이라는 빈 상태 대신 관광객이 할 수 있는 일을 묻는다. */}
+        {isFirst ? t('report.triggerFirst') : t('report.trigger')}
       </button>
 
       {/* 토스트 — 성공(청록)/에러(주칠). 부모 토스트를 안 쓸 때의 내장 폴백. body 로 포털. */}

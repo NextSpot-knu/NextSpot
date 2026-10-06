@@ -231,7 +231,8 @@ test('with no congestion estimate and no parking evidence the first line is the 
   await expect(page.getByText(COMPARE_HEADER)).toHaveCount(0);
   await expect(card).not.toContainText('→');
   await expect(card).not.toContainText('인기 명소');
-  await expect(line).not.toContainText('수집 중');
+  // 근거가 없다고 빈 자리('혼잡 추정 · 수집 중' · '주변 붐빔 · 수집 중' · '수집 중 · 혼잡 제보')를 그리지 않는다.
+  await expect(card).not.toContainText('수집 중');
 });
 
 // ───────────────────────────────────────────────────────────────────────────

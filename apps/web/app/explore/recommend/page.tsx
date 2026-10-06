@@ -51,10 +51,8 @@ function buildFallbackReason(
   congestionLevel: number | null = null,
 ): string {
   const walk = displayWalkingMinutes(undefined, distanceM);
-  // 혼잡(>=0.75)이면 추천하지 않고 혼잡·대기를 솔직히 알린다.
-  if (congestionLevel !== null && congestionLevel >= 0.75) {
-    return t('recommend.fallbackBusy', { name, walk, pct: Math.round(congestionLevel * 100) });
-  }
+  // 추천 카드의 사유는 추천한 곳을 스스로 깎지 않는다 — '붐빌 수 있어요 · 혼잡도 N%' 대신, 현장 혼잡 정보가
+  // 있다는 사실만 말한다(붐빔 자체는 같은 카드의 혼잡 배지가 말한다).
   // 혼잡 근거가 없으면 '여유'라는 혼잡 주장을 지어내지 않는다(CONGESTION_TRUST_SPEC).
   if (congestionLevel === null) {
     return waitMin === null
@@ -1891,7 +1889,7 @@ function RecommendContent() {
                       onClick={() => requestAccept(rec, 'car')}
                       className="toss-pressable min-h-11 w-full flex items-center justify-center rounded-xl border border-line bg-white py-2 text-[11px] font-bold text-muk-soft hover:border-gold/40 hover:text-gold-deep focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
                     >
-                      {t('card.drive')} · <span className="font-medium">{t('card.driveBasisHint')}</span>
+                      {t('card.drive')}
                     </button>
                   </div>
 

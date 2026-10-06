@@ -3,11 +3,13 @@ import { stubExternalServices } from './support/stubs';
 import { stubMain, type E2eLocale } from './support/mainStubs';
 import { expandPeek } from './support/recCard';
 
-// 심사위원이 보는 카드 문구가 참인가 — 계획 A2(가치 문장·낡은 데이터·서울 표기).
+// 심사위원이 보는 카드 문구가 참인가 — 계획 A2(가치 문장·낡은 데이터·서울 표기) · A3(접힌 카드의 내부 사정·빈 자리).
 //   · 카드 첫 줄의 화살표("지금 A → 대신 B")는 B 가 정말 덜 붐비는 **다른** 곳일 때만이다.
 //     추천된 곳이 기준 명소 자신이면 '지금 가까운 추천' 머리표와 혜택 문장으로 말한다.
 //   · 경주 관광객 화면(/main · /explore/recommend · /course)에 서울 이야기가 없다 — 추정이 서울 실측으로
 //     보정된 값이어도 근거 칩은 '경주 공영주차 실측' 만 말한다.
+//   · 접힌 카드(1536 · 390, 4로케일)에 순위 산식·근거 원자료('상대지수'·'후보와 0m')·'수집 중' 같은 빈 자리
+//     표시가 없다. 근거는 '상세 정보 펼치기' 뒤에 있다.
 
 const LOCALES: E2eLocale[] = ['ko', 'en', 'ja', 'zh'];
 const SEOUL = /서울|Seoul|ソウル|首尔/;
@@ -221,3 +223,84 @@ for (const locale of LOCALES) {
     await expectNoSeoul(page);
   });
 }
+
+// ───────────────────────────────────────────────────────────────────────────
+// 접힌 카드에는 관광객이 얻는 것만 — 내부 사정·빈 자리 표시 없음(1536 · 390, 4로케일).
+// ───────────────────────────────────────────────────────────────────────────
+
+/** 예전 접힌 카드에 있던 문구들(로케일별). 하나라도 보이면 실패다. */
+const MACHINERY: Record<E2eLocale, RegExp> = {
+  ko: /수집 중|혼잡 추정 · 수집 중|대안 비교용|근거가 도착하면|SPOT 점수는 도보|사용자 패턴|상대지수|후보와|수준입니다/,
+  en: /[Cc]ollecting|once it arrives|SPOT score uses walking|Based on your patterns|relative index|from this option/,
+  ja: /収集中|届くとここに表示|SPOTスコアは徒歩基準|利用パターン|相対指数|候補から/,
+  zh: /收集中|到达后会显示在这里|SPOT评分按步行计算|基于用户习惯|相对指数|距候选/,
+};
+
+/** 첫 방문 장소의 제보 알약 — '수집 중 · 혼잡 제보' 대신 관광객에게 묻는다. */
+const REPORT_FIRST: Record<E2eLocale, string> = {
+  ko: '지금 붐비나요? 알려 주세요',
+  en: 'Busy now? Tell us',
+  ja: '今混んでいますか？教えてください',
+  zh: '现在拥挤吗？告诉我们',
+};
+
+/** 근거가 하나도 없는 추천 — 예전에는 '혼잡 추정 · 수집 중' 칩과 '주변 붐빔 · 수집 중' 자리가 떴다. */
+function bareRec(type: string) {
+  return {
+    ...selfAnchorRec(type),
+    facility: mapFacility('cand-bare', '우직 쌈밥집', type),
+    recommendation_id: 'rec-bare',
+    congestion_estimate: null,
+    breakdown: { preference: 0.7, wait_time: null, travel_time: 5, incentive: 0 },
+  };
+}
+
+async function collapsedCardText(page: Page, viewportWidth: number, locale: E2eLocale): Promise<string> {
+  // 휴대폰은 미리보기로 뜬다 — 전체 카드(상세는 접힌 채)를 펼쳐서 본다.
+  if (viewportWidth < 768) await expandPeek(page, locale);
+  const card = page.getByTestId('recommendation-card');
+  await expect(card).toContainText(REPORT_FIRST[locale]);
+  return card.innerText();
+}
+
+for (const locale of LOCALES) {
+  for (const viewport of [{ width: 1536, height: 730 }, { width: 390, height: 844 }]) {
+    test(`${locale} ${viewport.width}px: the collapsed card shows no ranking machinery or placeholders`, async ({ page }) => {
+      test.setTimeout(90_000);
+      await page.setViewportSize(viewport);
+      await openMain(page, locale);
+      const text = await collapsedCardText(page, viewport.width, locale);
+      expect(text).not.toMatch(MACHINERY[locale]);
+      expect(text).not.toMatch(SEOUL);
+    });
+  }
+
+  test(`${locale}: a card with no crowd evidence shows no placeholder chip or box`, async ({ page }) => {
+    test.setTimeout(90_000);
+    await page.setViewportSize({ width: 1536, height: 730 });
+    await stubMain(page, {
+      locale,
+      facilities: [mapFacility('cand-bare', '우직 쌈밥집', 'restaurant')],
+      byType: (type) => [bareRec(type)],
+    });
+    await page.goto('/main');
+    await expect(page.getByTestId('recommendation-card')).toBeVisible({ timeout: 25_000 });
+    const text = await collapsedCardText(page, 1536, locale);
+    expect(text).not.toMatch(MACHINERY[locale]);
+  });
+}
+
+test('the nearby-crowd evidence sits behind 상세 정보 펼치기', async ({ page }) => {
+  test.setTimeout(90_000);
+  await openMain(page, 'ko');
+  const card = page.getByTestId('recommendation-card');
+  // 390px: 미리보기 → 전체 카드 → 상세. 접힌 전체 카드에는 근거 원자료가 없다.
+  await expandPeek(page);
+  await expect(card).not.toContainText('공영주차 실측 수요');
+  await page.getByRole('button', { name: '상세 정보 펼치기' }).click();
+  await expect(card).toContainText('공영주차 실측 수요');
+  // 💡 사유는 관광객이 얻는 것(걷는 시간)이다 — 근거 원자료 문장이 아니다.
+  await expect(card).toContainText('💡 경주 첨성대까지 걸어서 1분이에요.');
+  // 자동차 길안내 버튼은 그 말만 한다.
+  await expect(card.getByRole('button', { name: '자동차 길안내', exact: true })).toBeVisible();
+});

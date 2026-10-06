@@ -3650,34 +3650,16 @@ export default function MainPage() {
           const verifiedWait = selectedFacility.scoringMode === 'model' && selectedFacility.congestionSource !== 'none'
             ? Math.round(spot.expectedWait)
             : null;
-          const tourismEvidenceReason = spot.areaDemandTourismEvidence
-            ? `${typeof spot.areaDemandTourismEvidence.relativeIndex === 'number'
-                ? t('recommend.tourismEvidenceIndex', { n: Math.round(spot.areaDemandTourismEvidence.relativeIndex) })
-                : t('recommend.tourismEvidenceTitle')}. ${t('recommend.tourismEvidenceBasis', {
-                  name: spot.areaDemandTourismEvidence.referenceName ?? t('recommend.tourismReferenceUnknown'),
-                  distance: typeof spot.areaDemandTourismEvidence.distanceM === 'number'
-                    ? Math.round(spot.areaDemandTourismEvidence.distanceM).toLocaleString() : '-',
-                  date: spot.areaDemandTourismEvidence.forecastDate ?? '-',
-                })}. ${selectedFacility.name} · ${t('card.travel', { n: walk })}`
+          // 💡 사유는 관광객이 얻는 것만 말한다(걷는 시간·검증된 대기). 관광 상대지수·주변 수요 등급 같은 근거
+          // 덩어리로 문장을 만들지 않는다 — 그건 '상세' 의 주변 붐빔 근거가 말한다. '붐빌 수 있어요' 문장도
+          // 추천 카드에는 쓰지 않는다(추천한 곳을 스스로 깎는 말이다).
+          const reason = verifiedWait !== null
+            ? t('recommend.fallbackWithWait', { name: selectedFacility.name, walk, wait: verifiedWait })
+            : t('recommend.fallbackTravelOnly', { name: selectedFacility.name, walk });
+          // "{A} 대신 {B} 어떠세요?" — 카드가 첫 줄을 화살표 비교로 그릴 때만 쓴다(같은 판정, 카드 안 chooseCompareHeadline).
+          const insteadReason = verifiedWait === null && compareAnchorName
+            ? t('recommend.reasonInstead', { anchor: compareAnchorName, name: selectedFacility.name, walk })
             : null;
-          const areaDemandReason = tourismEvidenceReason ?? (typeof spot.areaDemandLevel === 'number'
-            ? `${t('recommend.areaDemand')}: ${t(`congestion.${
-                congestionKey(spot.areaDemandLevel, busyAt)
-              }`)} · ${t(spot.areaDemandMode === 'live'
-                ? 'recommend.areaDemandLive'
-                : spot.areaDemandMode === 'forecast'
-                  ? 'recommend.areaDemandForecast'
-                  : 'recommend.areaDemandStats')}. ${selectedFacility.name} · ${t('card.travel', { n: walk })}`
-            : null);
-          // 사유 문장도 배지와 같은 판정을 쓴다 — congestionIsCurrent === false 인 값으로
-          // "현재 혼잡도 92%로 붐빌 수 있어요" 를 적으면 바로 위 '추정 · 여유' 배지와 모순된다.
-          const reason = typeof selectedFacility.congestionLevel === 'number'
-            && selectedFacility.congestionIsCurrent !== false
-            && selectedFacility.congestionLevel >= busyAt
-            ? t('recommend.fallbackBusy', { name: selectedFacility.name, walk, pct: Math.round(selectedFacility.congestionLevel * 100) })
-            : verifiedWait !== null
-              ? t('recommend.fallbackWithWait', { name: selectedFacility.name, walk, wait: verifiedWait })
-              : areaDemandReason ?? t('recommend.fallbackTravelOnly', { name: selectedFacility.name, walk });
           // 추천 카드 배치 — 모바일: 하단 전폭 시트. PC(md+): 우측 세로 도킹 패널(구글맵스 상세 패널 관례).
           // 전폭 하단 카드가 데스크톱에서 과하게 커 보이는 문제를 해결한다. 상단 톱바(검색·칩) 아래
           // (top-24)부터 하단(bottom-6)까지 세로로 앉히고, 펼침으로 길어지면 패널 내부에서 스크롤한다.
@@ -3704,6 +3686,7 @@ export default function MainPage() {
               <RecommendationCard
                 title={selectedFacility.name}
                 reason={reason}
+                insteadReason={insteadReason}
                 spotComparisonReason={spotComparisonById.get(String(selectedFacility.id))}
                 onAccept={() => handleAccept(selectedFacility)}
                 onDrive={() => handleAccept(selectedFacility, 'car')}

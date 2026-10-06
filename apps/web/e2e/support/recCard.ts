@@ -5,8 +5,13 @@ import { expect, type Page } from '@playwright/test';
 // card.peek.expand, 상세 토글은 card.detailsExpand 다(라벨은 바꾸지 않는다).
 // 미리보기가 없으면 실패한다: 390px e2e 에서 미리보기가 사라진 것 자체가 회귀다.
 
-const PEEK_EXPAND = { ko: '추천 자세히 보기', en: 'See the full recommendation' } as const;
-const DETAILS_EXPAND = { ko: '상세 정보 펼치기', en: 'Show details' } as const;
+const PEEK_EXPAND = {
+  ko: '추천 자세히 보기',
+  en: 'See the full recommendation',
+  ja: 'おすすめを詳しく見る',
+  zh: '查看完整推荐',
+} as const;
+const DETAILS_EXPAND = { ko: '상세 정보 펼치기', en: 'Show details', ja: '詳細を開く', zh: '展开详情' } as const;
 export type RecCardLocale = keyof typeof PEEK_EXPAND;
 
 /** 미리보기 → 전체 카드. */
