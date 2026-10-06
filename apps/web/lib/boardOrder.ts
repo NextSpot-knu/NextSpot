@@ -1,4 +1,5 @@
-// 대기 보드 섹터 안의 줄 세우기 — 예상 대기가 짧은 순. 카드가 **같은 대기를 보여 줄 때만** 사진이 있는 곳을 앞에 둔다.
+// 대기 보드 섹터 안의 줄 세우기 — 예상 대기가 짧은 순(분이 없는 카드끼리는 한산한 등급 순, PM 결정 2026-10-06 4.20).
+// 카드가 **같은 대기를 보여 줄 때만** 사진이 있는 곳을 앞에 둔다.
 //
 // PM 결정(2026-09-28): 사진은 동점일 때만 순서를 가른다. 사진이 있다고 더 짧은 대기보다 앞설 수 없고,
 // 어떤 장소가 보드에 오르는지(후보)와 SPOT 순위·점수는 바뀌지 않는다.
@@ -79,14 +80,36 @@ export interface BoardOrderKey {
   hasPhoto: boolean;
 }
 
+const CALM_RANK: Record<CongestionKey, number> = { quiet: 0, relaxed: 1, moderate: 2, busy: 3 };
+
 /**
- * 대기 짧은 순(분이 없는 곳은 뒤, 그 안은 원래 순서)으로 세운 뒤, 바로 붙어 있는 같은 대기 한 줄 묶음 안에서만
- * 사진 있는 곳을 앞으로 모은다. 입력 배열은 건드리지 않는다. 같은 입력이면 같은 결과(결정적).
+ * 분이 없는 카드의 차례(작을수록 앞) — 한산 → 여유 → 보통 → 혼잡 → 관광 인기도 → 근거 없음.
+ * PM 결정(2026-10-06 4.20): 예전에는 분이 없는 카드끼리 서버 순서 그대로라 '혼잡' 카드가 '여유' 카드보다
+ * 대표 3장에 먼저 올랐다. 관광 인기도는 장소마다 자기 최고치 기준이라 등급과 견줄 수 없어 등급 뒤에 둔다.
+ */
+export function calmRankOf(headlineKey: string): number {
+  const [kind, value] = headlineKey.split(':');
+  if ((kind === 'estimate' || kind === 'area') && value in CALM_RANK) return CALM_RANK[value as CongestionKey];
+  if (kind === 'tourism') return 4;
+  return 5;
+}
+
+/** 분 짧은 순, 둘 다 분이 없으면 한산한 등급 순. 그 밖의 동점은 0(원래 순서). */
+function compareBoardKeys(a: BoardOrderKey, b: BoardOrderKey): number {
+  const byWait = compareWaitMinutes(a.wait, b.wait);
+  if (byWait !== 0) return byWait;
+  if (a.wait.minutes === null && b.wait.minutes === null) return calmRankOf(a.headlineKey) - calmRankOf(b.headlineKey);
+  return 0;
+}
+
+/**
+ * 대기 짧은 순(분이 없는 곳은 뒤, 그 안은 한산한 등급 순, 같은 등급은 원래 순서)으로 세운 뒤, 바로 붙어 있는
+ * 같은 대기 한 줄 묶음 안에서만 사진 있는 곳을 앞으로 모은다. 입력 배열은 건드리지 않는다. 같은 입력이면 같은 결과(결정적).
  */
 export function orderByWaitThenPhoto<T>(rows: readonly T[], keyOf: (row: T) => BoardOrderKey): T[] {
   const keyed = rows.map((row) => ({ row, key: keyOf(row) }));
-  // Array.prototype.sort 는 안정 정렬 — 같은 분·분 없음끼리는 원래 순서.
-  keyed.sort((a, b) => compareWaitMinutes(a.key.wait, b.key.wait));
+  // Array.prototype.sort 는 안정 정렬 — 같은 분·같은 등급끼리는 원래 순서.
+  keyed.sort((a, b) => compareBoardKeys(a.key, b.key));
   const out: T[] = [];
   let i = 0;
   while (i < keyed.length) {
@@ -104,4 +127,31 @@ export function orderByWaitThenPhoto<T>(rows: readonly T[], keyOf: (row: T) => B
     i = j;
   }
   return out;
+}
+
+/** 카드끼리 이보다 덜 차이 나면 같은 붐빔으로 본다 — 백엔드 area_demand_decision_service._DISTINGUISHABLE_SPREAD 와 같은 값. */
+export const UNIFORM_CROWD_SPREAD = 0.08;
+
+export interface BoardCrowdSpread {
+  /** 분이 없는 카드들이 사실상 같은 붐빔을 말하는가. */
+  uniform: boolean;
+  /** uniform 일 때 그 한 등급(평균의 등급). 아니면 null. */
+  grade: CongestionKey | null;
+}
+
+/**
+ * 보드가 한 등급인가(2026-10-06 감사 I03). 추정·주변 수요는 공영주차 몇 곳으로 만든 권역 값이라 낮에는 보드 전체가
+ * '혼잡', 밤에는 '보통' 한 가지가 되기 쉽다 — 그때 카드마다 '추정 혼잡: 혼잡' 을 23번 쓰지 않고 이 일대 등급을 한 번만
+ * 말한다. 3곳 이상이고, 모두 같은 등급이거나 가장 큰 값과 작은 값의 차이가 UNIFORM_CROWD_SPREAD 미만일 때만.
+ * 보드 순서와 무관하다(화면 문구만 바뀐다). 다 찬 보드에만 쓴다 — 도착 중인 섹션으로 판정하면 섹션이 올 때마다 뒤집힌다.
+ */
+export function boardCrowdSpread(levels: readonly number[]): BoardCrowdSpread {
+  const known = levels.filter((l) => Number.isFinite(l));
+  if (known.length < 3) return { uniform: false, grade: null };
+  const min = Math.min(...known);
+  const max = Math.max(...known);
+  const sameGrade = new Set(known.map((l) => congestionKey(l))).size === 1;
+  if (!sameGrade && max - min >= UNIFORM_CROWD_SPREAD) return { uniform: false, grade: null };
+  const mean = known.reduce((sum, l) => sum + l, 0) / known.length;
+  return { uniform: true, grade: sameGrade ? congestionKey(known[0]) : congestionKey(mean) };
 }

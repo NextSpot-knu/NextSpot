@@ -721,11 +721,14 @@
     "heroBestWait": "到达时最短等待{n}分钟",
     "sectorCount": "{n}处",
     "sectorCountOne": "{n}处",
-    "emptyTitle": "没有可显示的地点",
-    "emptyBody": "放宽筛选条件即可看到更多附近地点。",
+    "emptyTitle": "在地图上马上挑选现在可去的地方",
+    "emptyBody": "更改上方的时间，即可比较其他时段。",
+    "emptyCta": "在地图上挑选",
+    "seeInstead": "看看替代去处",
     "fetchError": "稍后将重新加载。",
     "subtitle": "出发前比一比：到达时有多拥挤、何时变空闲",
     "subtitleArrival": "出发前比一比：到达时有多拥挤",
+    "subtitleUniform": "一眼看清这一带的拥挤程度，再从近处开始挑选",
     "dataAttribution": "地点信息·照片: ⓒ韩国旅游发展局 TourAPI（另有注明者除外）"
   },
   "golden": {
@@ -1373,7 +1376,7 @@
     "previewAdmin": "运营仪表盘"
   },
   "wait": {
-    "minutes": "预计等待约{n}分钟",
+    "minutes": "预计等待 约{n}分钟",
     "noWait": "无需等待",
     "grade": {
       "relaxed": "宽松",
@@ -1387,6 +1390,9 @@
     "arrivalOnly": "{time}到达",
     "legend": "每张卡片显示到达时的拥挤程度和变空闲的时间。",
     "legendArrival": "每张卡片显示到达时的拥挤程度。",
+    "legendUniform": "每张卡片显示步行所需时间。",
+    "areaNow": "庆州市中心此刻：{label} · 估算",
+    "walk": "步行{n}分钟",
     "basisServer": "基于实测的预测",
     "basisRanking": "按业态与时段估算",
     "basisBaseline": "业态基准线",

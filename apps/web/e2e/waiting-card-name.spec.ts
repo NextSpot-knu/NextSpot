@@ -84,12 +84,12 @@ for (const [locale, width] of CASES) {
     await page.evaluate(() => document.fonts.ready.then(() => new Promise<void>((resolve) => {
       requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
     })));
-    // 카드 = [사진, 본문[글 블록, 대기 스탯[대기 숫자, …, 근거 주석]]].
+    // 카드 = [사진, 본문[글 블록, 대기 스탯[대기 숫자, …, 근거 주석]], '대신 갈 곳 보기'].
     const report = await cards.evaluateAll((buttons) => buttons.map((button) => {
       const card = button.getBoundingClientRect();
-      const body = button.lastElementChild as HTMLElement;
+      const body = button.querySelector('[data-card-body]') as HTMLElement;
       const intro = body.firstElementChild as HTMLElement;
-      const stats = body.lastElementChild as HTMLElement;
+      const stats = body.querySelector('[data-wait-stats]') as HTMLElement;
       const clip = intro.getBoundingClientRect();
       const within = (el: Element, box: DOMRect) => {
         const r = el.getBoundingClientRect();
@@ -211,38 +211,47 @@ for (const [locale, width] of CASES) {
 
     const report = await cards.evaluateAll((buttons) => buttons.map((button) => {
       const card = button.getBoundingClientRect();
-      const stats = (button.lastElementChild as HTMLElement).lastElementChild as HTMLElement;
-      // 골드 박스는 대기 스탯의 첫 줄(<p>)이다. 근거가 없는 카드에는 없다 — 그때 첫 자식은 배지 줄(<div>).
+      const stats = button.querySelector('[data-wait-stats]') as HTMLElement;
+      // 대기 박스는 대기 스탯의 첫 줄(<p>)이다. 근거가 없는 카드에는 없다 — 그때 첫 자식은 배지 줄(<div>).
       const first = stats.firstElementChild as HTMLElement;
       const headline = first.tagName === 'P' ? first : null;
       const footnote = stats.lastElementChild as HTMLElement;
       const f = footnote.getBoundingClientRect();
       const line = parseFloat(getComputedStyle(footnote).lineHeight);
-      // 골드 박스 글의 줄바꿈 자리 — 새 줄 첫 글자의 바로 앞 글자를 모은다.
-      const text = headline?.textContent ?? '';
-      const node = headline?.firstChild;
-      const breaksBefore: string[] = [];
-      let lastLineStart = 0;
-      if (node && node.nodeType === Node.TEXT_NODE) {
-        let prevTop: number | null = null;
-        for (let i = 0; i < text.length; i++) {
-          if (text[i] === ' ') continue;
-          const range = document.createRange();
-          range.setStart(node, i);
-          range.setEnd(node, i + 1);
-          const rect = range.getClientRects()[0];
-          if (!rect) continue;
-          if (prevTop !== null && rect.top > prevTop + 2) {
-            breaksBefore.push(text[i - 1] ?? '');
-            lastLineStart = i;
-          }
-          prevTop = rect.top;
+      // 대기 박스 글의 줄바꿈 자리 — 새 줄 첫 글자의 바로 앞 글자를 모은다. 한국어가 아닌 머리줄은 값이 한 덩어리
+      // <span> 이라(I52/I53) 텍스트 노드가 여럿이다 — 전부 차례로 훑는다.
+      const chars: { node: Node; at: number; ch: string }[] = [];
+      if (headline) {
+        const walker = document.createTreeWalker(headline, NodeFilter.SHOW_TEXT);
+        for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+          const s = n.textContent ?? '';
+          for (let i = 0; i < s.length; i++) chars.push({ node: n, at: i, ch: s[i] });
         }
       }
+      const text = chars.map((c) => c.ch).join('');
+      const breaksBefore: string[] = [];
+      let lastLineStart = 0;
+      let prevTop: number | null = null;
+      for (let k = 0; k < chars.length; k++) {
+        if (chars[k].ch === ' ') continue;
+        const range = document.createRange();
+        range.setStart(chars[k].node, chars[k].at);
+        range.setEnd(chars[k].node, chars[k].at + 1);
+        const rect = range.getClientRects()[0];
+        if (!rect) continue;
+        if (prevTop !== null && rect.top > prevTop + 2) {
+          breaksBefore.push(chars[k - 1]?.ch ?? '');
+          lastLineStart = k;
+        }
+        prevTop = rect.top;
+      }
+      const value = headline?.querySelector('span.whitespace-nowrap') ?? null;
       return {
         headline: headline ? text : null,
         breaksBefore,
         lastLine: text.slice(lastLineStart),
+        // 값 덩어리(예: '約10分')가 두 줄로 갈라졌는가.
+        valueSplit: value ? value.getClientRects().length > 1 : false,
         footnote: footnote.textContent ?? '',
         footnoteLines: Math.round(f.height / line),
         footnoteWhole: getComputedStyle(footnote).getPropertyValue('-webkit-line-clamp') === 'none'
@@ -267,6 +276,14 @@ for (const [locale, width] of CASES) {
           expect(before, `"${card.headline}": 한국어 대기 문구는 띄어쓰기에서만 접힌다`).toBe(' ');
         }
         // 띄어쓰기에서 접혀도 '약 10 / 분' 처럼 한 글자만 다음 줄로 가면 잘린 글처럼 읽힌다.
+        expect(card.lastLine.replace(/\s/g, '').length, `"${card.headline}": 마지막 줄 "${card.lastLine}"`).toBeGreaterThan(1);
+      }
+    }
+    // 일본어·중국어: 값('約10分')은 한 덩어리로, 마지막 줄에 글자 하나만 남지 않는다(I52/I53).
+    if (locale === 'ja' || locale === 'zh') {
+      for (const card of report) {
+        if (card.headline === null) continue;
+        expect(card.valueSplit, `"${card.headline}": 값이 두 줄로 갈라졌다`).toBe(false);
         expect(card.lastLine.replace(/\s/g, '').length, `"${card.headline}": 마지막 줄 "${card.lastLine}"`).toBeGreaterThan(1);
       }
     }

@@ -369,8 +369,9 @@ test('waiting board: without minutes, a photo only moves ahead of a card showing
   await expect(busyCard).toBeVisible({ timeout: 30_000 });
   await expect(busyCard).toContainText('혼잡');
   await expect(cell(page, '고요한 식당')).toContainText('한산');
-  // '혼잡' 사진 카드는 '한산' 사진 없는 카드를 앞지르지 않고, '한산' 사진 카드도 '혼잡' 카드를 건너뛰지 않는다.
-  expect(await topCardNames(page, 0)).toEqual(['고요한 식당', '붐비는 식당', '조용한 식당']);
+  // 분이 없는 카드는 한산한 등급이 먼저(PM 결정 2026-10-06 4.20) — '한산' 두 장이 '혼잡' 카드 앞으로 모이고,
+  // 같은 '한산' 끼리만 사진이 앞. '혼잡' 사진 카드는 '한산' 사진 없는 카드를 앞지르지 않는다.
+  expect(await topCardNames(page, 0)).toEqual(['조용한 식당', '고요한 식당', '붐비는 식당']);
   // 같은 '한산' 끼리는 사진이 앞.
   expect(await topCardNames(page, 1)).toEqual(['조용한 카페', '고요한 카페']);
 });
