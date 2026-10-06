@@ -105,3 +105,54 @@ test('the recommend voice control stays in the viewport while the page scrolls',
   await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
   await expect.poll(inViewport).toBe(true);
 });
+
+// 음성 버튼이 화면에 고정된 뒤로는 폰 하단 탭(z-40)과 같은 자리에 오면 그 위를 덮는다 — 실제로 '마이' 탭과
+// 콘솔 입구가 음성 버튼에 가려 눌리지 않았다(2026-10-06 리뷰). 버튼은 탭 바 위에서 끝나고, 탭과 콘솔 입구는
+// 그 자리를 누르면 탭 바가 받는다.
+for (const viewport of [{ width: 390, height: 844 }, { width: 360, height: 640 }]) {
+  test(`the recommend voice control sits above the phone tab bar at ${viewport.width}x${viewport.height}`, async ({ page }) => {
+    test.setTimeout(120_000);
+    await page.setViewportSize(viewport);
+    await page.addInitScript(() => localStorage.setItem('nextspot_onboarding_done', '1'));
+    await stubRecommend(page);
+    await page.goto('/explore/recommend?facilityId=origin-cafe&lat=35.838&lng=129.209');
+    await page.addStyleTag({ content: 'nextjs-portal { display: none !important; }' });
+
+    const voice = page.getByRole('button', { name: 'AI 음성 추천 듣기' });
+    await expect(voice).toBeVisible({ timeout: 60_000 });
+    const nav = page.locator('nav[aria-label="주요 내비게이션"]:visible');
+    await expect(nav).toBeVisible();
+    // 음성 버튼 묶음(버튼 + 라벨 알약) 전체가 탭 바 위에서 끝난다.
+    const voiceGroup = voice.locator('xpath=ancestor::div[contains(@class, "fixed")][1]');
+    const groupBox = (await voiceGroup.boundingBox())!;
+    const navBox = (await nav.boundingBox())!;
+    expect(groupBox.y + groupBox.height, '음성 버튼이 하단 탭 바와 겹친다').toBeLessThanOrEqual(navBox.y + 0.5);
+
+    for (const target of [
+      nav.getByRole('button', { name: '마이' }),
+      nav.getByRole('link', { name: '관제 대시보드', exact: true }),
+      nav.getByRole('link', { name: '사장님 콘솔', exact: true }),
+    ]) {
+      await expect(target).toBeVisible();
+      expect(await pointerTarget(target), '하단 탭·콘솔 입구를 음성 버튼이 덮고 있다').toBe('ok');
+    }
+    // 끝까지 내려도 같다(고정 요소라 스크롤과 무관해야 한다).
+    await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+    expect(await pointerTarget(nav.getByRole('button', { name: '마이' }))).toBe('ok');
+  });
+}
+
+test('the recommend voice control keeps its desktop corner next to the rail', async ({ page }) => {
+  test.setTimeout(120_000);
+  await page.setViewportSize({ width: 1536, height: 730 });
+  await page.addInitScript(() => localStorage.setItem('nextspot_onboarding_done', '1'));
+  await stubRecommend(page);
+  await page.goto('/explore/recommend?facilityId=origin-cafe&lat=35.838&lng=129.209');
+
+  const voice = page.getByRole('button', { name: 'AI 음성 추천 듣기' });
+  await expect(voice).toBeVisible({ timeout: 60_000 });
+  const group = (await voice.locator('xpath=ancestor::div[contains(@class, "fixed")][1]').boundingBox())!;
+  // 데스크톱에는 하단 탭이 없다 — 오른쪽 아래 모서리(바닥에서 1.25rem)에 그대로 둔다.
+  expect(Math.abs(730 - (group.y + group.height) - 20), '데스크톱 음성 버튼이 바닥 모서리에서 떠 있다').toBeLessThan(2);
+  expect(1536 - (group.x + group.width)).toBeLessThan(24);
+});
