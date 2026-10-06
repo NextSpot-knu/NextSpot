@@ -207,7 +207,9 @@ for (const input of [
   // 보드는 orderByWaitThenPhoto(같은 대기를 보여 줄 때만 사진 우선)로 세운다 — 먼저 null 안전 정렬로 분을 세운다.
   const boardOrder = readFileSync(join(WEB, 'lib/boardOrder.ts'), 'utf8').replace(/^\s*\/\/.*$/gm, '');
   assert.match(page, /orderByWaitThenPhoto\(/, '보드가 대기 우선 줄 세우기를 쓰지 않는다');
-  assert.match(boardOrder, /keyed\.sort\(\(a, b\) => compareWaitMinutes\(a\.key\.wait, b\.key\.wait\)\);/, '보드가 null 안전 정렬을 쓰지 않는다');
+  // 분이 없는 카드끼리는 한산한 등급 순(PM 결정 2026-10-06 4.20) — 비교자는 여전히 null 안전 분 비교가 먼저다.
+  assert.match(boardOrder, /keyed\.sort\(\(a, b\) => compareBoardKeys\(a\.key, b\.key\)\);/, '보드가 분·등급 비교자를 쓰지 않는다');
+  assert.match(boardOrder, /function compareBoardKeys[\s\S]*?const byWait = compareWaitMinutes\(a\.wait, b\.wait\);\s*if \(byWait !== 0\) return byWait;/, '보드가 null 안전 정렬을 쓰지 않는다');
   // 카드 한 줄의 문구와 동점 판정이 같은 판정(waitHeadlineOf)을 쓴다.
   assert.match(page, /waitHeadlineKey\(headlineOf\(/, '동점 판정이 카드 문구와 다른 값을 본다');
   assert.match(page, /const h = headlineOf\(est, row, estimateLevel\);/, '카드 문구가 waitHeadlineOf 를 거치지 않는다');
@@ -239,7 +241,8 @@ for (const input of [
   // '도착 예측'(zh '按12:20到达预测')이면 보여 주지 않는 예측을 약속한다. 그 카드는 도착 시각만 말한다.
   assert.match(
     page,
-    /est\.basis === "default"\s*\?\s*t\("wait\.arrivalOnly", \{ time: displayArrivalTime\(est\.arrivalHour\) \}\)/,
+    // 보드 전체가 한 등급이라 걷는 시간을 보여 주는 카드(display.walk, I03)도 예측을 말하지 않는다 — 같은 주석.
+    /est\.basis === "default"(?: \|\| display\.walk)?\s*\?\s*t\("wait\.arrivalOnly", \{ time: displayArrivalTime\(est\.arrivalHour\) \}\)/,
     '근거 없는 카드의 주석이 도착 시각만 말하지 않는다',
   );
   for (const locale of ['ko', 'en', 'ja', 'zh'] as const) {
