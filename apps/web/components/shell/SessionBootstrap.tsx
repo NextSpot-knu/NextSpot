@@ -45,10 +45,45 @@ export default function SessionBootstrap() {
       }
     };
 
+    // 자가 회복(2026-10-06 감사 I22): 익명 로그인이 거절되면(IP 한도 429 등) 예전에는 마운트 때 한 번으로
+    // 끝이었다 — 한도가 풀려도 /waiting·/course·/explore/recommend 는 새로고침 전까지 실패 화면에 머물렀다.
+    // 거절 뒤에는 다음 창(lib/anonymousSession BACKOFF_MS)에 맞춰 한 번 더 묻는다. 성공하면 supabase-js 가
+    // SIGNED_IN 을 내고, 각 화면의 기존 auth 리스너가 실제 id 로 다시 불러온다. 숨긴 탭에서는 묻지 않는다.
+    let healTimer: ReturnType<typeof setTimeout> | null = null;
+    let waitingForVisible = false;
+    const onVisible = () => {
+      if (document.visibilityState !== "visible" || !waitingForVisible) return;
+      waitingForVisible = false;
+      document.removeEventListener("visibilitychange", onVisible);
+      void heal();
+    };
+    const armHeal = () => {
+      if (cancelled || healTimer !== null || waitingForVisible) return;
+      healTimer = setTimeout(() => {
+        healTimer = null;
+        if (document.visibilityState === "hidden") {
+          waitingForVisible = true;
+          document.addEventListener("visibilitychange", onVisible);
+          return;
+        }
+        void heal();
+      }, Math.max(1000, ensureAnonymousSession.retryInMs()));
+    };
+    const heal = async () => {
+      if (cancelled) return;
+      const session = await ensureAnonymousSession();
+      if (cancelled) return;
+      if (!session) armHeal();
+    };
+    const ensureThenSync = async () => {
+      const session = await ensureAnonymousSession();
+      await syncForSession(session);
+      if (!session) armHeal();
+    };
+
     (async () => {
       try {
-        const session = await ensureAnonymousSession();
-        await syncForSession(session);
+        await ensureThenSync();
       } catch (err) {
         // 네트워크 오류/설정 부재 등 예외 — 앱을 막지 않고 조용히 폴백.
         console.warn(
@@ -61,7 +96,7 @@ export default function SessionBootstrap() {
     // 같은 SPA 실행 중 이메일 계정 전환·로그아웃이 일어나도 최신 uid로 즉시 재동기화한다.
     const { data: authSubscription } = createPublicClient().auth.onAuthStateChange((event, session) => {
       if (event === 'SIGNED_OUT') {
-        setTimeout(() => { void ensureAnonymousSession().then(syncForSession); }, 0);
+        setTimeout(() => { void ensureThenSync(); }, 0);
       } else if (event === 'SIGNED_IN' || event === 'USER_UPDATED') {
         setTimeout(() => { void syncForSession(session); }, 0);
       }
@@ -69,6 +104,8 @@ export default function SessionBootstrap() {
 
     return () => {
       cancelled = true;
+      if (healTimer !== null) clearTimeout(healTimer);
+      document.removeEventListener("visibilitychange", onVisible);
       authSubscription.subscription.unsubscribe();
     };
   }, []);

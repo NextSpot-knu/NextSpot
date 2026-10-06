@@ -48,6 +48,14 @@ const areaDemandLabel = {
   zh: '周边需求: 一般',
 } as const;
 
+/** 카드마다의 '추천 근거 자세히'(card.whyToggle) — 주변 수요 근거는 그 뒤에 있다(계획 B5/P11). */
+const whyToggle = {
+  ko: '추천 근거 자세히',
+  en: 'See why we picked it',
+  ja: 'おすすめの根拠を見る',
+  zh: '查看推荐依据',
+} as const;
+
 const zeroWaitCopy = {
   ko: '예상 대기 0분',
   en: 'estimated 0-minute wait',
@@ -161,6 +169,11 @@ for (const locale of ['ko', 'en', 'ja', 'zh'] as const) {
     await expect(page.locator('section.space-y-4 h4')).toHaveCount(3);
     await expect(page.locator('html')).toHaveAttribute('lang', locale);
     await expect(page.locator('button').filter({ hasText: firstReportCta[locale] })).toHaveCount(3);
+    // 주변 수요 근거는 카드 앞면이 아니라 '추천 근거 자세히' 뒤에 있다 — 펼치기 전에는 없고, 펼치면 카드마다 하나.
+    await expect(page.getByText(areaDemandLabel[locale], { exact: true })).toHaveCount(0);
+    const toggles = page.getByRole('button', { name: whyToggle[locale] });
+    await expect(toggles).toHaveCount(3);
+    for (let i = 0; i < 3; i++) await toggles.nth(i).click();
     await expect(page.getByText(areaDemandLabel[locale], { exact: true })).toHaveCount(3);
     await expect(page.getByText(zeroWaitCopy[locale], { exact: false })).toHaveCount(0);
     if (locale !== 'ko') {
@@ -180,6 +193,9 @@ test('SPOT order is stable, comparison falls back, and navigation persists', asy
   // SPOT 산식 설명에도 "SPOT 91점"이 함께 나타나므로, 점수 배지 자체를 정확 일치로 확인한다.
   await expect(page.getByText('91점', { exact: true })).toBeVisible();
 
+  // Top 3 비교는 목록 아래 '순서 자세히' 뒤에 있다(계획 B5/P11).
+  await expect(page.getByRole('button', { name: '상위 추천 비교하기' })).toHaveCount(0);
+  await page.getByRole('button', { name: '순서 자세히' }).click();
   await page.getByRole('button', { name: '상위 추천 비교하기' }).click();
   await page.getByRole('button', { name: /왜 1위인가요/ }).click();
   await expect(page.getByText('설명을 다시 불러올게요 — 위의 수치는 그대로 보실 수 있어요.')).toBeVisible();

@@ -1,6 +1,8 @@
 // 대기 보드 줄 세우기 — 대기가 짧은 순. 사진은 카드가 같은 대기를 보여 줄 때만 앞선다(PM 결정 2026-09-28).
 import assert from 'node:assert/strict';
 import {
+  boardCrowdSpread,
+  calmRankOf,
   orderByWaitThenPhoto,
   waitHeadlineKey,
   waitHeadlineOf,
@@ -93,15 +95,36 @@ assert.deepEqual(order([row('A', est(null, 'estimate'), false, quiet), row('B', 
 ]);
 // 둘 다 '수집 중' 이면 같은 말 — 사진이 앞.
 assert.deepEqual(order([row('A', est(null), false), row('B', est(null), true)]), ['B', 'A']);
-// 같은 말이라도 사이에 다른 말 카드가 있으면 건너뛰지 않는다(여유·혼잡·여유(사진) → 그대로).
+// 분이 없는 카드는 한산한 등급이 먼저다(PM 결정 2026-10-06 4.20) — 여유·혼잡·여유(사진) 는 여유 두 장이 앞으로
+// 모이고, 같은 '여유' 끼리는 사진이 앞. (예전에는 서버 순서 그대로라 혼잡 카드가 여유 카드 사이에 끼었다.)
 assert.deepEqual(
   order([
     row('A', est(null, 'estimate'), false, quiet),
     row('B', est(null, 'estimate'), false, busy),
     row('C', est(null, 'estimate'), true, quiet),
   ]),
-  ['A', 'B', 'C'],
+  ['C', 'A', 'B'],
 );
+// 서버가 혼잡을 먼저 줘도 한산 → 여유 → 보통 → 혼잡 → 관광 인기도 → 근거 없음.
+assert.deepEqual(
+  order([
+    row('none', est(null), true),
+    row('tour', est(null, 'tourism'), false, { tourismRelativeIndex: 20 }),
+    row('busy', est(null, 'area'), false, { areaDemandLevel: 0.9 }),
+    row('mod', est(null, 'estimate'), false, { estimateLevel: 0.6 }),
+    row('rel', est(null, 'area'), false, { areaDemandLevel: 0.3 }),
+    row('quiet', est(null, 'estimate'), false, { estimateLevel: 0.1 }),
+  ]),
+  ['quiet', 'rel', 'mod', 'busy', 'tour', 'none'],
+);
+// 분이 있는 카드는 여전히 맨 앞, 분 순서 그대로 — 등급 순서는 분이 없는 카드끼리만.
+assert.deepEqual(
+  order([row('busyNoMin', est(null, 'estimate'), false, busy), row('ten', est(10), false), row('quietNoMin', est(null, 'estimate'), false, quiet)]),
+  ['ten', 'quietNoMin', 'busyNoMin'],
+);
+assert.equal(calmRankOf('estimate:quiet'), 0);
+assert.equal(calmRankOf('area:busy'), 3);
+assert.ok(calmRankOf('tourism:40') < calmRankOf('unavailable'));
 // 관광 상대지수: 같은 반올림 값만 동점.
 assert.deepEqual(
   order([row('A', est(null, 'tourism'), false, { tourismRelativeIndex: 40.2 }), row('B', est(null, 'tourism'), true, { tourismRelativeIndex: 39.8 })]),
@@ -137,7 +160,9 @@ for (let trial = 0; trial < 800; trial++) {
     return row(String(i), w, rand() < 0.4, { estimateLevel: lvl, areaDemandLevel: lvl, tourismRelativeIndex: lvl * 100 });
   });
   const sorted = orderByWaitThenPhoto(rows, keyOf);
-  const waitOnly = rows.slice().sort((a, b) => rank(a.wait.minutes) - rank(b.wait.minutes));
+  // 사진 없이 세운 기준 줄: 분 짧은 순, 분이 없으면 한산한 등급 순(그 안은 원래 순서).
+  const calm = (r: Row) => (r.wait.minutes === null ? calmRankOf(keyOf(r).headlineKey) : 0);
+  const waitOnly = rows.slice().sort((a, b) => rank(a.wait.minutes) - rank(b.wait.minutes) || calm(a) - calm(b));
   // 1) 분의 줄은 대기만으로 세운 것과 같다 — 사진 때문에 더 긴 대기가 앞서지 않는다. 보드에 오르는 곳도 그대로.
   assert.deepEqual(sorted.map((r) => rank(r.wait.minutes)), waitOnly.map((r) => rank(r.wait.minutes)), `trial ${trial}`);
   assert.deepEqual(sorted.map((r) => r.id).sort(), rows.map((r) => r.id).sort());
@@ -157,5 +182,22 @@ for (let trial = 0; trial < 800; trial++) {
     }
   }
 }
+
+// --- 보드 전체가 한 등급인가(2026-10-06 감사 I03) -----------------------------------------------
+// 주변 주차 1곳으로 만든 추정이라 보드의 카드가 거의 다 같은 등급이다 — 그때는 등급을 한 번만 말한다.
+assert.deepEqual(boardCrowdSpread(Array.from({ length: 23 }, (_, i) => 0.76 + (i % 5) * 0.04)), { uniform: true, grade: 'busy' });
+assert.deepEqual(boardCrowdSpread([0.1, 0.9, 0.5]), { uniform: false, grade: null }, '카드끼리 다르면 등급을 카드마다');
+assert.deepEqual(boardCrowdSpread([0.74, 0.76, 0.75]), { uniform: true, grade: 'busy' }, '경계를 걸친 0.08 미만 차이는 한 등급');
+assert.deepEqual(boardCrowdSpread([0.26, 0.4, 0.49]), { uniform: true, grade: 'relaxed' }, '모두 같은 등급');
+assert.deepEqual(boardCrowdSpread([0.9, 0.9]), { uniform: false, grade: null }, '3곳 미만은 판단하지 않는다');
+assert.deepEqual(boardCrowdSpread([]), { uniform: false, grade: null });
+assert.deepEqual(boardCrowdSpread([0.5, Number.NaN, 0.52, 0.55]), { uniform: true, grade: 'moderate' }, '숫자가 아닌 값은 뺀다');
+// 운영자 '혼잡' 경계(busyAt)를 따른다 — 0.65 부터 혼잡이면 0.7 보드는 '혼잡' 한 줄(기본 0.75 눈금이면 '보통').
+assert.deepEqual(boardCrowdSpread([0.7, 0.7, 0.71]), { uniform: true, grade: 'moderate' });
+assert.deepEqual(boardCrowdSpread([0.7, 0.7, 0.71], 0.65), { uniform: true, grade: 'busy' }, '한 줄이 운영자 경계를 무시한다');
+// 카드 머리줄도 같은 경계 — 한 줄과 카드, 대안 화면이 같은 등급을 말한다.
+assert.deepEqual(waitHeadlineOf(est(null, 'estimate'), { estimateLevel: 0.7 }), { kind: 'estimate', level: 'moderate' });
+assert.deepEqual(waitHeadlineOf(est(null, 'estimate'), { estimateLevel: 0.7 }, 0.65), { kind: 'estimate', level: 'busy' });
+assert.deepEqual(waitHeadlineOf(est(null, 'area'), { areaDemandLevel: 0.7 }, 0.65), { kind: 'area', level: 'busy' });
 
 console.log('boardOrder: ok');

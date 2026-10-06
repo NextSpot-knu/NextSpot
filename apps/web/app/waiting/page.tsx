@@ -15,6 +15,7 @@
 // 정적 export(SSR) 안전: 브라우저 전용 API 는 쓰지 않는다(REGION 은 순수 상수).
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, ChevronRight } from "lucide-react";
 import {
@@ -28,7 +29,13 @@ import {
   setStoredAssumedPreset,
   type RecommendationResponse,
 } from "@/lib/api-client";
-import { recToSpot } from "@/lib/recommender";
+import { displayWalkingMinutes, recToSpot } from "@/lib/recommender";
+// 익명 세션 — 거절(IP 한도 429) 뒤에는 창마다 한 번만 다시 묻고, 성공하면 보드를 스스로 다시 채운다(I22).
+import { ensureAnonymousSession } from "@/lib/anonymousSession";
+import { createPublicClient } from "@/lib/supabase";
+import type { CongestionKey } from "@/lib/congestionScale";
+// 카드를 누르면 그 장소 둘레의 같은 종류 대안(I25) — 좌표·종류를 넘긴다.
+import { buildRecommendHref } from "@/lib/recommendOrigin";
 import { congestionDisplay, parseCongestionEstimate } from "@/lib/congestionEstimate";
 // 보드의 세 숫자(예상 대기 · 혼잡 등급 · 한산해지는 시각)의 단일 소스.
 import { estimateWait, displayArrivalTime, showsCalmLine, calmAfterClose, heroWaitCandidate, arrivalHourOf, boardWaitBaseMs, type WaitEstimate } from "@/lib/waitEstimate";
@@ -50,6 +57,8 @@ import {
   creditedPhotoUrls,
   creditForDisplayedPhoto,
   displayedPhotoUrl,
+  isCityPhotoUrl,
+  isWikimediaUrl,
   mayShowPhotoCredit,
   photoCandidates,
   photoCreditFeatures,
@@ -59,9 +68,12 @@ import { PhotoCreditLink } from "@/components/PhotoCreditLink";
 import { TrailingNoteText } from "@/components/TrailingNoteText";
 // 사진이 없는 장소의 표지(경주 문양 + 유형 그림) — 사진 자리를 같은 크기로 채운다. 사진은 그 위로 서서히 드러난다.
 import { PlacePhotoFallback } from "@/components/PlacePhotoFallback";
-import { placeVisualsForRow, type PlaceVisual } from "@/lib/placeVisual";
+import { placeVisual, placeVisualsForRow, type PlaceVisual } from "@/lib/placeVisual";
 // 섹터 줄 세우기 — 대기 짧은 순, 대기가 같을 때만 사진 있는 곳이 앞(PM 결정 2026-09-28).
-import { orderByWaitThenPhoto, waitHeadlineKey, waitHeadlineOf, type WaitHeadline } from "@/lib/boardOrder";
+import { boardCrowdSpread, orderByWaitThenPhoto, waitHeadlineKey, waitHeadlineOf, type WaitHeadline } from "@/lib/boardOrder";
+import { splitHeadlineValue } from "@/lib/headlineSplit";
+// '혼잡' 경계는 운영자 설정(지도·대안·코스와 같은 눈금) — 이 보드만 0.75 로 등급을 매기면 같은 곳이 화면마다 다른 등급이 된다.
+import { useBusyThreshold } from "@/components/shell/PublicSettingsProvider";
 
 // 시설 종류 이모지 — course/page.tsx TYPE_OPTIONS 와 동일 매핑(레포 전역 관례 통일).
 const TYPE_EMOJI: Record<string, string> = {
@@ -86,6 +98,12 @@ const PER_TYPE_LIMIT = 8;
 const BOARD_CACHE_KEY = "nextspot_waiting_board_v2";
 const BOARD_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
+/** 작은 사진(48px)에는 출처 줄을 달 자리가 없다 — 출처를 따로 적어야 하는 Wikimedia·경주시 사진은 빼고 TourAPI 사진만
+ *  쓴다(이 화면 머리의 'ⓒ한국관광공사 TourAPI' 가 덮는다). 순서는 그대로. */
+function uncreditedPhotoUrls(urls: readonly string[]): string[] {
+  return urls.filter((u) => !isWikimediaUrl(u) && !isCityPhotoUrl(u));
+}
+
 /** 대기 보드 행의 출처 판정용 features — lib/photoCredit 가 camel 두 키(imageSource·cityPhoto)를 읽는다. */
 function rowPhotoFeatures(row: Pick<BoardRow, "imageSource" | "cityPhoto">): Record<string, unknown> {
   return { imageSource: row.imageSource, cityPhoto: row.cityPhoto ?? null };
@@ -95,6 +113,9 @@ interface BoardRow {
   facilityId: string;
   name: string;
   type: string;
+  // 카드를 누르면 이 좌표 둘레의 대안을 묻는다(I25). 옛 캐시 행에는 없다 — 그때는 지역 중심.
+  latitude?: number | null;
+  longitude?: number | null;
   imageUrls: string[];
   summary: string | null;
   // features.imageSource(API camel) 또는 image_source(snake) 원본 — Wikimedia 대체 사진의 작가·라이선스·원문 링크.
@@ -186,7 +207,7 @@ function WaitingCardImage({
   const shown = imageUrl !== null && loaded;
 
   return (
-    <div className="relative h-28 w-full shrink-0 overflow-hidden border-b border-line">
+    <div className="relative h-28 lg:h-32 w-full shrink-0 overflow-hidden border-b border-line">
       <PlacePhotoFallback visual={visual} className="absolute inset-0" />
       {imageUrl && (
         // TourAPI 원본 이미지 도메인이 다양하고 정적 export이므로 img를 직접 사용한다.
@@ -260,7 +281,7 @@ function CardIntro({ name, menus, summary }: { name: string; menus: string[]; su
 
   return (
     // 이름 한 줄(16.5px = text-xs × leading-snug)은 늘 남긴다: 영어·일본어는 스탯이 두 줄씩 접혀 이름이 0 까지
-    // 눌렸다. 그만큼 모자라면 카드가 조금 길어진다(min-h-72) — 대기 스탯과 근거 주석은 잘리지 않는다.
+    // 눌렸다. 그만큼 모자라면 카드가 조금 길어진다(min-h-[316px]) — 대기 스탯과 근거 주석은 잘리지 않는다.
     <div ref={blockRef} className="grow basis-0 min-h-[16.5px] overflow-hidden">
       <p className="text-xs font-bold text-muk leading-snug line-clamp-2">{name}</p>
       {/* 공식 대표 메뉴(TourAPI) — 있을 때만. 🍽 이모지는 TYPE_EMOJI 관례와 동일 톤. */}
@@ -286,6 +307,44 @@ const gradeBadgeClass = (grade: NonNullable<WaitEstimate["grade"]>) =>
     ? "bg-gold/10 border-gold/30 text-gold-deep"
     : "bg-jade/12 border-jade/30 text-jade";
 
+/** 붐빔 등급(한산·여유·보통·혼잡) → 위와 같은 팔레트. 한산·여유는 jade 하나로 묶는다. */
+const crowdKeyTone = (key: CongestionKey) =>
+  key === "busy" ? gradeBadgeClass("busy") : key === "moderate" ? gradeBadgeClass("moderate") : gradeBadgeClass("relaxed");
+
+/** 이 일대 등급 한 줄(보드가 한 등급일 때)의 점 색. */
+const crowdKeyDot = (key: CongestionKey) =>
+  key === "busy" ? "bg-terracotta" : key === "moderate" ? "bg-gold" : "bg-jade";
+
+/**
+ * 카드 주인공 한 줄의 색(2026-10-06 감사 I64). 예전에는 '추정 혼잡: 보통' 과 '추정 혼잡: 혼잡' 이 같은 금색이라
+ * 한눈에 가를 수 없었다 — 등급마다 jade·gold·terracotta 로 칠하고, 추정(분 없이 등급만 · 추정 분)은 점선 테두리.
+ * 걷는 시간(보드 전체가 한 등급일 때 등급 대신 보여 준다)은 이 장소의 장점이라 jade 실선.
+ */
+function headlineTone(h: WaitHeadline, est: WaitEstimate, walk: boolean): string {
+  if (walk) return "bg-jade/10 border-jade/30 text-jade";
+  switch (h.kind) {
+    case "minutes":
+      return `${gradeBadgeClass(est.grade ?? "moderate")}${est.estimated ? " border-dashed" : ""}`;
+    case "noWait":
+    case "relaxed":
+      return gradeBadgeClass("relaxed");
+    case "estimate":
+    case "area":
+      return `${crowdKeyTone(h.level)} border-dashed`;
+    default:
+      return "bg-gold/10 border-gold/30 border-dashed text-gold-deep";
+  }
+}
+
+/** 카드 한 장을 보드 전체 맥락에서 어떻게 그릴지 — 다 찬 보드가 한 등급일 때만 바뀐다(I03). */
+interface CardDisplay {
+  /** 등급 대신 '도보 N분'(보드 전체가 같은 등급이라 등급은 위 한 줄이 말한다). */
+  walk: boolean;
+  /** 모든 카드가 같은 '{h}시 이후 한산' 이라 위 한 줄로 옮겼다 — 카드에서는 지운다. */
+  hideCalm: boolean;
+}
+const PLAIN_DISPLAY: CardDisplay = { walk: false, hideCalm: false };
+
 // 근거 한 줄 — 이 카드의 숫자가 무엇에서 나왔는지. 새 배지를 만들지 않고 작은 회색 글씨로만 둔다.
 function basisKey(basis: WaitEstimate["basis"]): string {
   switch (basis) {
@@ -301,12 +360,12 @@ function basisKey(basis: WaitEstimate["basis"]): string {
 }
 
 /** 카드 한 장이 가진 대기 근거(시설 추정 · 권역 수요 · 관광 상대지수) — 문구와 줄 세우기가 같은 값을 본다. */
-function headlineOf(est: WaitEstimate, row: BoardRow, estimateLevel: number | undefined): WaitHeadline {
+function headlineOf(est: WaitEstimate, row: BoardRow, estimateLevel: number | undefined, busyAt: number): WaitHeadline {
   return waitHeadlineOf(est, {
     estimateLevel,
     areaDemandLevel: row.areaDemandLevel,
     tourismRelativeIndex: row.areaDemandTourismEvidence?.relativeIndex ?? null,
-  });
+  }, busyAt);
 }
 
 /**
@@ -314,14 +373,15 @@ function headlineOf(est: WaitEstimate, row: BoardRow, estimateLevel: number | un
  * (시설 추정 혼잡 · 주변 권역 수요 등급 · 관광 상대지수)을 그대로 말한다(무엇을 말할지는 lib/boardOrder
  * waitHeadlineOf — 보드의 동점 판정도 같은 결과를 쓴다). 주변 주차·관광 상대지수를 '대기 N분'으로 바꾸지 않는다
  * (docs/CONGESTION_DATA.md §2 원칙 3·4). 아무 근거도 없으면 null — 그 카드는 머리줄을 세우지 않는다.
+ * walk: 보드 전체가 같은 추정 등급이면(I03) 등급 대신 걷는 시간 — 등급은 보드 위 한 줄이 한 번만 말한다.
  */
 function waitHeadline(
-  est: WaitEstimate,
+  h: WaitHeadline,
   row: BoardRow,
-  estimateLevel: number | undefined,
+  walk: boolean,
   t: (key: string, vars?: Record<string, string | number>) => string,
 ): string | null {
-  const h = headlineOf(est, row, estimateLevel);
+  if (walk) return t("wait.walk", { n: displayWalkingMinutes(row.expectedTravel) });
   switch (h.kind) {
     case "minutes":
       return t("wait.minutes", { n: h.n });
@@ -342,26 +402,51 @@ function waitHeadline(
   }
 }
 
-/** 대표 카드의 세 숫자 블록 — ① 예상 대기 ② 혼잡 등급 ③ 한산해지는 시각. */
-function WaitStats({ est, row, estimateLevel }: { est: WaitEstimate; row: BoardRow; estimateLevel?: number }) {
-  const { t, locale } = useI18n();
-  const headline = waitHeadline(est, row, estimateLevel, t);
+/**
+ * 한국어가 아닌 머리줄은 값(쌍점 뒤 '普通'·'Moderate', 또는 숫자+단위 '約10分'·'约10分钟'·'10 min')을 한 덩어리로 둔다(I52/I53) —
+ * 좁은 카드에서 '推定混雑: 普 / 通' 처럼 값 한가운데서 접혔다. 한국어는 break-keep 이 띄어쓰기에서만 접는다.
+ * 값 찾기는 lib/headlineSplit — 중국어·일본어는 공백 없이 '约12分钟' 만 묶는다.
+ */
+function HeadlineText({ text, locale }: { text: string; locale: string }) {
+  if (locale === "ko") return <>{text}</>;
+  const parts = splitHeadlineValue(text);
+  if (!parts || !parts[1]) return <>{text}</>;
   return (
-    <div className="shrink-0 space-y-1 mt-1.5">
-      {/* ① 예상 대기 — 카드의 주인공. 골드 박스로 가장 크게 세운다.
+    <>
+      {parts[0]}
+      <span className="whitespace-nowrap">{parts[1]}</span>
+      {parts[2]}
+    </>
+  );
+}
+
+/** 대표 카드의 세 숫자 블록 — ① 예상 대기 ② 혼잡 등급 ③ 한산해지는 시각. */
+function WaitStats({
+  est,
+  row,
+  estimateLevel,
+  display = PLAIN_DISPLAY,
+}: { est: WaitEstimate; row: BoardRow; estimateLevel?: number; display?: CardDisplay }) {
+  const { t, locale } = useI18n();
+  const busyAt = useBusyThreshold();
+  const h = headlineOf(est, row, estimateLevel, busyAt);
+  const headline = waitHeadline(h, row, display.walk, t);
+  return (
+    <div data-wait-stats className="shrink-0 space-y-1 mt-1.5">
+      {/* ① 예상 대기 — 카드의 주인공. 등급 색 박스로 가장 크게 세운다.
           분으로 말할 근거가 없는 카드는 여기에 등급·지수가 그대로 들어온다(waitHeadline). */}
       {/* 한국어는 띄어쓰기에서만 접는다(break-keep) — 좁은 카드에서 '예상 대기 약 10 / 분'처럼
-          숫자와 단위가 갈라져 잘린 글처럼 보였다. 일본어·중국어는 띄어쓰기가 없어 글자 사이 줄바꿈을 그대로 둔다. */}
+          숫자와 단위가 갈라져 잘린 글처럼 보였다. 다른 언어는 값 덩어리만 묶는다(HeadlineText). */}
       {headline !== null && (
-        <p className={`rounded-lg border border-gold/30 bg-gold/10 px-2 py-1 text-xs font-extrabold text-gold-deep leading-snug tabular-nums break-words ${
+        <p className={`rounded-lg border px-2 py-1 text-xs lg:text-[13px] font-extrabold leading-snug tabular-nums break-words ${headlineTone(h, est, display.walk)} ${
           locale === "ko" ? "break-keep" : ""
         }`}>
-          {headline}
+          <HeadlineText text={headline} locale={locale} />
         </p>
       )}
       <div className="flex flex-wrap items-center gap-1">
         {/* ② 혼잡 등급 — 분이 있을 때만 붙인다. 분이 없으면 대기 등급도 말할 수 없고,
-            0분이면 위 골드 박스가 이미 같은 말('대기 없음'·'여유')을 하고 있다. */}
+            0분이면 위 박스가 이미 같은 말('대기 없음'·'여유')을 하고 있다. */}
         {est.grade !== null && est.minutes !== null && est.minutes > 0 && (
           <span className={`inline-block text-[10px] font-bold px-1.5 py-0.5 rounded-md border whitespace-nowrap ${gradeBadgeClass(est.grade)}`}>
             {t(`wait.grade.${est.grade}`)}
@@ -380,8 +465,9 @@ function WaitStats({ est, row, estimateLevel }: { est: WaitEstimate; row: BoardR
       </div>
       {/* ③ 한산해지는 시각 — 분이 있는 카드는 8시간 안에 없으면 '지금이 가장 한산'. 분이 없는 카드는
           권역 수요 곡선에서 실제로 찾은 시각이 있을 때만 쓴다(showsCalmLine): 내장 시간대 곡선만으로
-          한산하다고 말할 수는 없다. 그 시각에 문을 닫은 것이 확실하면 쓰지 않는다(calmAfterClose). */}
-      {!calmAfterClose(est, row.operatingHours) && showsCalmLine(est) && (
+          한산하다고 말할 수는 없다. 그 시각에 문을 닫은 것이 확실하면 쓰지 않는다(calmAfterClose).
+          모든 카드가 같은 시각이면 보드 위 한 줄로 옮겨 카드에서는 지운다(display.hideCalm). */}
+      {!display.hideCalm && !calmAfterClose(est, row.operatingHours) && showsCalmLine(est) && (
         <p className="text-[10px] font-bold leading-snug text-jade">
           {est.calmHour === null
             ? t("wait.calmNow")
@@ -389,12 +475,13 @@ function WaitStats({ est, row, estimateLevel }: { est: WaitEstimate; row: BoardR
         </p>
       )}
       {/* 줄 수를 자르지 않는다 — 영어는 좁은 카드에서 세 줄로 접혀, 두 줄에서 자르면 숫자를 받치는 근거
-          ('… measured data')가 통째로 사라졌다. 늘어난 만큼은 위 소개 블록이 온전한 줄로 양보한다(min-h-72). */}
-      <p className="text-[9px] leading-snug text-muk-soft break-words">
+          ('… measured data')가 통째로 사라졌다. 늘어난 만큼은 위 소개 블록이 온전한 줄로 양보한다(min-h-[316px]). */}
+      <p className="text-[9px] lg:text-[10px] leading-snug text-muk-soft break-words">
         {/* 근거가 하나도 없는 카드(basis 'default')는 예측을 보여 주지 않는다 — 도착 시각만 말하고('12:20 도착')
             근거 문구도 붙이지 않는다. 보여 준 숫자가 없는데 '도착 예측'·근거를 말하면 없는 예측을 약속한다
-            (zh '按12:20到达预测'). 도착 시각은 분까지(옆의 '현재 HH:MM 기준'과 같은 해상도). */}
-        {est.basis === "default"
+            (zh '按12:20到达预测'). 도착 시각은 분까지(옆의 '현재 HH:MM 기준'과 같은 해상도).
+            걷는 시간만 보여 주는 카드(display.walk)도 예측을 말하지 않는다 — 등급은 보드 위 한 줄에 있다. */}
+        {est.basis === "default" || display.walk
           ? t("wait.arrivalOnly", { time: displayArrivalTime(est.arrivalHour) })
           : `${t("wait.arrivalBasis", { time: displayArrivalTime(est.arrivalHour) })} · ${t(basisKey(est.basis))}`}
       </p>
@@ -403,13 +490,20 @@ function WaitStats({ est, row, estimateLevel }: { est: WaitEstimate; row: BoardR
 }
 
 /** 컴팩트 행의 세 숫자 — 같은 값을 칩 한 줄로 압축한다. */
-function WaitRowChips({ est, row, estimateLevel }: { est: WaitEstimate; row: BoardRow; estimateLevel?: number }) {
+function WaitRowChips({
+  est,
+  row,
+  estimateLevel,
+  display = PLAIN_DISPLAY,
+}: { est: WaitEstimate; row: BoardRow; estimateLevel?: number; display?: CardDisplay }) {
   const t = useT();
-  const headline = waitHeadline(est, row, estimateLevel, t);
+  const busyAt = useBusyThreshold();
+  const h = headlineOf(est, row, estimateLevel, busyAt);
+  const headline = waitHeadline(h, row, display.walk, t);
   return (
     <div className="flex flex-wrap items-center gap-1.5 mt-1">
       {headline !== null && (
-        <span className="text-[11px] font-bold px-2 py-1 rounded-md bg-gold/10 border border-gold/25 text-gold-deep whitespace-nowrap tabular-nums">
+        <span className={`text-[11px] font-bold px-2 py-1 rounded-md border whitespace-nowrap tabular-nums ${headlineTone(h, est, display.walk)}`}>
           {headline}
         </span>
       )}
@@ -418,7 +512,7 @@ function WaitRowChips({ est, row, estimateLevel }: { est: WaitEstimate; row: Boa
           {t(`wait.grade.${est.grade}`)}
         </span>
       )}
-      {!calmAfterClose(est, row.operatingHours) && showsCalmLine(est) && (
+      {!display.hideCalm && !calmAfterClose(est, row.operatingHours) && showsCalmLine(est) && (
         <span className="text-[11px] font-bold text-jade whitespace-nowrap">
           {est.calmHour === null ? t("wait.calmNow") : t("wait.calmAt", { h: est.calmHour })}
         </span>
@@ -478,6 +572,8 @@ function buildSector(type: string, recs: RecommendationResponse[], currentLocale
       facilityId: rec.facility.id,
       name: rec.facility.name,
       type: rec.facility.type,
+      latitude: typeof rec.facility.latitude === "number" ? rec.facility.latitude : null,
+      longitude: typeof rec.facility.longitude === "number" ? rec.facility.longitude : null,
       // 대표 사진(firstimage)부터 detailImage2 갤러리 순으로 시도한다. 동일 URL은 한 번만 로드한다.
       imageUrls: photoCandidates(rec.facility.imageUrl, rec.facility.galleryImages),
       // TourAPI 소개(비-ko 로케일이면 배치 번역 우선)를 우선하고, 없으면 실제 주소를 짧은 보조
@@ -534,6 +630,7 @@ function buildSector(type: string, recs: RecommendationResponse[], currentLocale
 export default function WaitingBoardPage() {
   const router = useRouter();
   const { t, locale } = useI18n();
+  const busyAt = useBusyThreshold();
 
   const [sectors, setSectors] = useState<Sector[] | null>(null);
   const [loading, setLoading] = useState(true);
@@ -681,6 +778,9 @@ export default function WaitingBoardPage() {
 
   // 세션 부트스트랩 유예 자동 재시도 1회 플래그(아래 fetchBoard 참조)
   const retriedRef = useRef(false);
+  // 화면이 지금 실패 상태인가 — 익명 세션이 늦게 생겼을 때(SIGNED_IN) 보드를 스스로 다시 채울지 고른다(I22).
+  // auth-js 는 탭으로 돌아올 때마다 SIGNED_IN 을 다시 내므로, 실패 화면일 때만 다시 부른다(무거운 4건을 아낀다).
+  const failedRef = useRef(false);
   // JWKS 등 서버 일시 장애(503)는 짧은 backoff 뒤 1회만 별도 재시도한다.
   const serviceUnavailableRetriedRef = useRef(false);
   // 스테일-우선: 화면에 결과가 이미 있으면(캐시 또는 직전 성공) 이후 조회는 조용히 돌고,
@@ -713,13 +813,12 @@ export default function WaitingBoardPage() {
     } catch { /* 캐시 손상·저장소 차단 — 평소 로딩 경로 그대로 */ }
   }, []);
 
+  // 누른 장소의 좌표·종류로 대안을 묻는다(I25) — 그 장소 둘레의 같은 종류를, 그 장소에서 걷는 시간으로.
+  // 예전에는 어느 카드든 지역 중심 좌표만 넘겨 첨성대를 눌러도 피자집을 눌러도 같은 대안이 나왔다.
   const goToDetail = useCallback(
-    (facilityId: string) => {
-      router.push(
-        `/explore/recommend?facilityId=${encodeURIComponent(facilityId)}&lat=${userLocation.lat}&lng=${userLocation.lng}`
-      );
+    (row: BoardRow) => {
+      router.push(buildRecommendHref(row));
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [router]
   );
 
@@ -744,8 +843,10 @@ export default function WaitingBoardPage() {
     const silentRefresh = hasRenderedResultsRef.current && renderedPresetRef.current === assumedPreset;
     setLoading(!silentRefresh);
     setFailed(false);
+    failedRef.current = false;
     const showFailed = () => {
       setFailed(true);
+      failedRef.current = true;
       setSectors(null);
       setPartialBoard(null);
       setLoading(false);
@@ -761,6 +862,25 @@ export default function WaitingBoardPage() {
     // 성공하므로 보드가 안정적으로 채워지고, 재시도 스톰으로 백엔드를 무너뜨리지 않는다. 프리미엄
     // 로딩 화면이 그 사이를 덮는다. 마지막 인자(45s)는 이 호출 전용 타임아웃 — 0.5CPU/512MB 인스턴스가
     // 재시작 직후 콜드 상태면 단건 처리도 20초를 넘겨(라이브 실측), 20s 는 서버 성공을 클라가 끊었다.
+    // 익명 세션부터 확인한다(I22). 세션이 없으면 4유형 × 2패스가 전부 인증 실패라, 예전에는 그 8건이 각각 익명
+    // 가입을 다시 보내 한 번 방문에 14~17건이 나갔다. 없으면 보드 요청을 보내지 않고 다음 가입 창 뒤에 한 번만
+    // 다시 묻는다(로더 유지). 그래도 없으면 실패 화면 — 가입이 나중에 성공하면 아래 SIGNED_IN 구독이 다시 채운다.
+    const session = await ensureAnonymousSession();
+    if (stale()) return;
+    if (!session) {
+      if (!retriedRef.current) {
+        retriedRef.current = true;
+        // 다음 가입 창까지 기다리되 5초를 넘기지 않는다 — 앞서 여러 번 거절된 탭은 창이 2~5분이라, 그동안 다시 시도할
+        // 버튼도 없이 로더만 돌았다. 5초 뒤에도 없으면 실패 카드('다시 시도')로 내려가고, 가입이 나중에 성공하면
+        // 아래 SIGNED_IN 구독이 보드를 스스로 채운다.
+        setTimeout(() => { void fetchBoard(thisRun); }, Math.min(5000, Math.max(2500, ensureAnonymousSession.retryInMs())));
+        return;
+      }
+      if (silentRefresh) { setPartialBoard(null); setLoading(false); return; } // 캐시 결과 유지
+      showFailed();
+      return;
+    }
+
     const results: PromiseSettledResult<Awaited<ReturnType<typeof recommendByType>>>[] = [];
     for (const type of BOARD_TYPES) {
       if (stale()) return;
@@ -863,6 +983,19 @@ export default function WaitingBoardPage() {
     return () => boardRunRef.current?.controller.abort();
   }, [fetchBoard, presetHydrated]);
 
+  // 자가 회복(I22): 익명 세션이 나중에 생기면(SessionBootstrap 이 다음 창에 다시 물어 성공) 실패 화면의 보드를
+  // 스스로 다시 채운다 — '다시 시도'를 누르거나 새로고침하지 않아도 된다. 실패 화면일 때만(failedRef).
+  const fetchBoardRef = useRef(fetchBoard);
+  useEffect(() => { fetchBoardRef.current = fetchBoard; }, [fetchBoard]);
+  useEffect(() => {
+    const { data } = createPublicClient().auth.onAuthStateChange((event, session) => {
+      if (event !== "SIGNED_IN" || !session || !failedRef.current) return;
+      retriedRef.current = false;
+      setTimeout(() => { void fetchBoardRef.current(); }, 0);
+    });
+    return () => data.subscription.unsubscribe();
+  }, []);
+
   // 히어로 요약 스탯 — 이미 상태에 있는 결과에서 '도착 시 대기'가 가장 짧은 값 하나만 뽑는다
   // (오늘 휴무가 확정된 시설은 제외). 분이 없는 카드는 후보에서 빠진다 — 0분으로 치면
   // 아무것도 모르는 곳이 '최단 대기'가 된다. 추정 0분도 빠진다(heroWaitCandidate) — 카드는 그것을
@@ -894,13 +1027,45 @@ export default function WaitingBoardPage() {
     return !calmAfterClose(est, row.operatingHours) && showsCalmLine(est);
   }));
 
+  // ── 보드 전체가 한 등급인가(2026-10-06 감사 I03) ──────────────────────────────────────────────
+  // 추정·주변 수요는 공영주차 몇 곳으로 만든 권역 값이라, 낮에는 거의 모든 카드가 '추정 혼잡: 혼잡' 을 똑같이 말했다.
+  // 그때는 등급을 보드 위 한 줄로 한 번만 말하고, 그 카드들은 걷는 시간을 보여 준다. 판정은 **다 찬 보드**에서만 한다 —
+  // 도착 중인 섹션으로 판정하면 섹션이 올 때마다 카드 문구가 뒤집힌다. 줄 세우기는 그대로다(같은 waitHeadlineKey).
+  const committedSectors = loading ? null : sectors;
+  const uniformRows = new Set<string>();
+  const uniformLevels: number[] = [];
+  const uniformCalmHours: (number | null)[] = [];
+  for (const sector of committedSectors ?? []) {
+    for (const row of sector.rows) {
+      if (row.closedToday) continue;
+      const est = waitOf(row);
+      const h = headlineOf(est, row, estimateLevels[row.facilityId], busyAt);
+      const level = h.kind === "estimate" ? estimateLevels[row.facilityId] : h.kind === "area" ? row.areaDemandLevel : null;
+      if (typeof level !== "number") continue;
+      uniformRows.add(row.facilityId);
+      uniformLevels.push(level);
+      uniformCalmHours.push(!calmAfterClose(est, row.operatingHours) && showsCalmLine(est) ? est.calmHour : null);
+    }
+  }
+  const crowdSpread = boardCrowdSpread(uniformLevels, busyAt);
+  // 모든 카드가 같은 '{h}시 이후 한산' 을 말하면 그 한 줄도 위로 옮긴다.
+  const sharedCalmHour =
+    crowdSpread.uniform && uniformCalmHours.length > 0 && uniformCalmHours.every((h) => h !== null && h === uniformCalmHours[0])
+      ? uniformCalmHours[0]
+      : null;
+  const displayOf = (row: BoardRow): CardDisplay => {
+    if (!crowdSpread.uniform || !uniformRows.has(row.facilityId)) return PLAIN_DISPLAY;
+    return { walk: true, hideCalm: sharedCalmHour !== null };
+  };
+
   return (
     <main className="min-h-screen bg-hanji text-muk p-4 md:p-8 max-md:pb-[calc(var(--tourist-nav-clearance)+env(safe-area-inset-bottom))] relative overflow-hidden">
       {/* 배경 은은한 노을·금빛 광원 — course/explore 페이지와 동일 톤. */}
       <div className="absolute top-[-20%] left-[-10%] w-[520px] h-[520px] rounded-full bg-sunset-1/10 blur-[120px] pointer-events-none" />
       <div className="absolute bottom-[-10%] right-[-10%] w-[520px] h-[520px] rounded-full bg-gold/10 blur-[120px] pointer-events-none" />
 
-      <div className="w-full max-w-md md:max-w-2xl mx-auto space-y-5 relative z-10">
+      {/* 데스크톱은 넓게(max-w-5xl) — 한 줄에 한 섹터, 대표 카드 3장이 사진과 함께 한눈에 들어온다. */}
+      <div className="w-full max-w-md md:max-w-2xl lg:max-w-5xl mx-auto space-y-5 relative z-10">
         {/* 상단 바 — 뒤로가기(44px 터치)만 별도 행으로 분리해 아래 히어로 카드가 시선의 출발점이 되게 한다. */}
         <button
           type="button"
@@ -921,23 +1086,30 @@ export default function WaitingBoardPage() {
             </span>
             <NowChip />
           </div>
+          {/* 데스크톱은 제목 묶음과 스탯 줄을 한 줄에 — 머리글이 낮아져 첫 화면에 카드의 대기 줄까지 들어온다. */}
+          <div className="space-y-3 lg:flex lg:items-end lg:justify-between lg:gap-6 lg:space-y-0">
           <div className="space-y-1.5">
             <h1 className="text-[22px] md:text-[28px] font-serif font-black text-muk leading-[1.15] tracking-tight">
               {t("waiting.title")}
             </h1>
             {/* 두 키를 '·'로 이어 붙이면 한 문장이 아니라 두 조각으로 읽힌다 — 보드의 목적을 한 줄로 말한다. */}
+            {/* 머리글은 카드가 실제로 보여 주는 것만 약속한다 — 보드가 한 등급이면 카드는 걷는 시간을 보여 준다. */}
             <p className="text-[13px] md:text-sm text-muk-soft leading-relaxed">
-              {showsAnyCalmLine ? t("waiting.subtitle") : t("waiting.subtitleArrival")}
+              {crowdSpread.uniform
+                ? t("waiting.subtitleUniform")
+                : showsAnyCalmLine ? t("waiting.subtitle") : t("waiting.subtitleArrival")}
             </p>
             {/* 카드가 무엇을 보여주는지 한 줄로 먼저 말한다 — 판단 근거를 숨기지 않는 것이 이 보드의 계약. */}
             <p className="text-[11px] text-muk-soft/90 leading-relaxed">
-              {showsAnyCalmLine ? t("wait.legend") : t("wait.legendArrival")}
+              {crowdSpread.uniform
+                ? t("wait.legendUniform")
+                : showsAnyCalmLine ? t("wait.legend") : t("wait.legendArrival")}
             </p>
           </div>
 
           {/* 스탯 스트립 — 보드 최단 대기(골드 박스)와 가정 시간 컨트롤을 한 줄에 묶는다.
               데모: 가정 시간 시뮬레이터 — 심야에도 낮 시각을 가정해 실제 결과를 보여준다(/main·/course 공유). */}
-          <div className="flex flex-wrap items-center gap-2 pt-0.5">
+          <div className="flex flex-wrap items-center gap-2 pt-0.5 lg:shrink-0 lg:justify-end">
             {bestWait !== null && (
               <span className="inline-flex items-center gap-1.5 rounded-xl border border-gold/40 bg-gold/15 px-3 py-2 text-[13px] font-black text-gold-deep tabular-nums shadow-[0_2px_10px_rgba(193,154,62,0.16)]">
                 <span aria-hidden>⏱️</span>
@@ -970,13 +1142,36 @@ export default function WaitingBoardPage() {
               </span>
             )}
           </div>
+          </div>
         </section>
+
+        {/* 데이터 출처 — 머리글 바로 아래(긴 보드의 맨 끝이면 아무도 못 본다). */}
+        <p className="-mt-2 px-1 text-[11px] leading-relaxed text-muk-soft">
+          <TrailingNoteText text={t("waiting.dataAttribution")} />
+        </p>
+
+        {/* 보드 전체가 한 등급이면 그 등급을 여기서 한 번만 말한다(I03) — 카드에는 걷는 시간이 남는다. */}
+        {crowdSpread.uniform && crowdSpread.grade && (
+          <p data-testid="waiting-area-line" className="flex items-center gap-2 px-1 text-sm font-bold text-muk">
+            <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${crowdKeyDot(crowdSpread.grade)}`} aria-hidden />
+            <span>
+              {/* 가정 시간(예: 토 14:00)으로 본 보드는 '지금' 이라고 말하지 않는다 — 그 시각 기준 한 줄. */}
+              {assumedPreset === "now"
+                ? t("wait.areaNow", { label: t(`congestion.${crowdSpread.grade}`) })
+                : t("wait.areaAt", {
+                    time: t(ASSUMED_TIME_PRESETS.find((p) => p.id === assumedPreset)?.labelKey ?? "timeSim.now"),
+                    label: t(`congestion.${crowdSpread.grade}`),
+                  })}
+              {sharedCalmHour !== null && ` · ${t("wait.calmAt", { h: sharedCalmHour })}`}
+            </span>
+          </p>
+        )}
 
         {/* 본문 — 로더는 첫 섹션이 도착할 때까지만. 그 뒤로는 도착한 섹션 + 아직 오는 자리 한 판(자리표시). */}
         {loading && !partialSectors?.length ? (
           <LoadingReveal variant="waiting" />
         ) : failed ? (
-          <ErrorState onRetry={() => { void fetchBoard(); }} />
+          <ErrorState onRetry={() => { ensureAnonymousSession.resetBackoff(); void fetchBoard(); }} />
         ) : !shownSectors || shownSectors.length === 0 ? (
           <EmptyState />
         ) : (
@@ -998,7 +1193,7 @@ export default function WaitingBoardPage() {
                   const wait = waitOf(row);
                   return {
                     wait,
-                    headlineKey: waitHeadlineKey(headlineOf(wait, row, estimateLevels[row.facilityId])),
+                    headlineKey: waitHeadlineKey(headlineOf(wait, row, estimateLevels[row.facilityId], busyAt)),
                     hasPhoto: creditedPhotoUrls(row.imageUrls, rowPhotoFeatures(row)).length > 0,
                   };
                 },
@@ -1052,8 +1247,8 @@ export default function WaitingBoardPage() {
                       <div key={row.facilityId} className="grid min-w-0 grid-rows-[1fr_auto]">
                       <button
                         type="button"
-                        onClick={() => goToDetail(row.facilityId)}
-                        className={`group toss-pressable relative flex min-h-72 flex-col overflow-hidden text-left rounded-2xl border shadow-[0_2px_14px_rgba(43,35,32,0.06)] hover:shadow-[0_6px_20px_rgba(43,35,32,0.12)] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 ${
+                        onClick={() => goToDetail(row)}
+                        className={`group toss-pressable relative flex min-h-[316px] lg:min-h-[19rem] flex-col overflow-hidden text-left rounded-2xl border shadow-[0_2px_14px_rgba(43,35,32,0.06)] hover:shadow-[0_6px_20px_rgba(43,35,32,0.12)] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 ${
                           idx === 0
                             ? "bg-gold/10 border-gold/40 hover:border-gold/60"
                             : "bg-white/90 border-line hover:border-gold/40 hover:bg-white"
@@ -1079,13 +1274,18 @@ export default function WaitingBoardPage() {
                           onLoaded={(url) => markPhotoLoaded(row.facilityId, url)}
                           onError={(failedUrl) => skipBrokenPhoto(row.facilityId, photoUrls, failedUrl)}
                         />
-                        <div className="flex flex-1 min-h-0 flex-col justify-between p-2">
+                        <div data-card-body className="flex flex-1 min-h-0 flex-col justify-between p-2 lg:p-3">
                           {/* 위 소개 블록은 남는 자리에 온전한 줄만 싣고, 아래 대기 스탯 블록은 shrink-0 으로
                               항상 온전히 남는다 — 카드의 주인공은 '도착 시 대기'다. */}
                           <CardIntro name={row.name} menus={row.menus} summary={row.summary} />
                           {/* 세 숫자 — 예상 대기 / 혼잡 등급 / 한산해지는 시각. 보드 제목이 약속한 것. */}
-                          <WaitStats est={waitOf(row)} row={row} estimateLevel={estimateLevels[row.facilityId]} />
+                          <WaitStats est={waitOf(row)} row={row} estimateLevel={estimateLevels[row.facilityId]} display={displayOf(row)} />
                         </div>
+                        {/* 카드를 누르면 무엇이 열리는지 글로 말한다 — 이 장소 둘레의 같은 종류 대안(P12). */}
+                        <span className="flex shrink-0 items-center justify-center gap-0.5 border-t border-line/70 px-1 py-1.5 text-[11px] lg:text-[13px] font-bold leading-tight text-gold-deep text-center group-hover:text-terracotta">
+                          {t("waiting.seeInstead")}
+                          <ChevronRight size={13} className="shrink-0" aria-hidden />
+                        </span>
                       </button>
                       {/* 높이를 늘 확보해 둔다 — 출처 줄이 생기고 사라져도 카드 줄이 흔들리지 않는다.
                           min-w-0: 출처 줄의 글자 폭이 카드 열을 넓히지 않게(긴 작가 이름은 말줄임).
@@ -1114,24 +1314,38 @@ export default function WaitingBoardPage() {
                   {/* 나머지 리스트 — 이름·대기·혼잡 컴팩트 행 줄줄이 */}
                   {restRows.length > 0 && (
                     <div className="flex flex-col gap-2 mt-2.5">
-                      {restRows.map((row) => (
+                      {restRows.map((row) => {
+                        // 48px 사진 — 출처 표기가 필요 없는 TourAPI 사진만(이 화면 머리의 ⓒ한국관광공사 TourAPI 가 덮는다).
+                        // 없거나 깨지면 장소 표지(I38). 대표 카드와 같은 커서·로드 상태를 쓴다.
+                        const thumbUrls = uncreditedPhotoUrls(row.imageUrls);
+                        const thumbUrl = displayedPhotoUrl(thumbUrls, photoCursors[row.facilityId]);
+                        return (
                         <button
                           key={row.facilityId}
                           type="button"
-                          onClick={() => goToDetail(row.facilityId)}
+                          onClick={() => goToDetail(row)}
                           className="group toss-pressable text-left w-full min-h-11 bg-white/90 border border-line rounded-2xl px-3.5 py-3 flex items-center gap-3 shadow-[0_2px_14px_rgba(43,35,32,0.06)] hover:border-gold/40 hover:bg-white hover:shadow-[0_4px_16px_rgba(43,35,32,0.1)] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
                         >
-                          <span
-                            className="w-9 h-9 shrink-0 rounded-full bg-gold/10 border border-gold/25 flex items-center justify-center text-base"
-                            aria-hidden
-                          >
-                            {TYPE_EMOJI[row.type] ?? "📍"}
+                          <span className="relative h-12 w-12 shrink-0 overflow-hidden rounded-xl border border-line" aria-hidden>
+                            <PlacePhotoFallback visual={placeVisual(row.facilityId, row.type)} className="absolute inset-0" />
+                            {thumbUrl && (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img
+                                key={thumbUrl}
+                                src={thumbUrl}
+                                alt=""
+                                loading="lazy"
+                                decoding="async"
+                                onError={() => skipBrokenPhoto(row.facilityId, thumbUrls, thumbUrl)}
+                                className="absolute inset-0 h-full w-full object-cover"
+                              />
+                            )}
                           </span>
                           <div className="flex-1 min-w-0">
                             <p className="text-[15px] font-bold text-muk leading-snug truncate">{row.name}</p>
                             {/* 컴팩트 행도 대표 카드와 **같은 세 숫자**를 같은 순서로 보여준다 —
                                 보드를 아래로 훑을 때 읽는 규칙이 중간에 바뀌지 않게. */}
-                            <WaitRowChips est={waitOf(row)} row={row} estimateLevel={estimateLevels[row.facilityId]} />
+                            <WaitRowChips est={waitOf(row)} row={row} estimateLevel={estimateLevels[row.facilityId]} display={displayOf(row)} />
                             {/* 출발 시점 제안이 있는 경우에만 표시한다. 추천 카드와 같은 규칙 — 주변 수요에 관광 지수가
                                 섞였으면(장소마다 자기 최고치 기준이라 서로 비교할 수 없다) '덜 붐빈다'고 말하지 않는다. */}
                             {row.arrivalAction &&
@@ -1152,7 +1366,8 @@ export default function WaitingBoardPage() {
                             aria-hidden
                           />
                         </button>
-                      ))}
+                        );
+                      })}
                     </div>
                   )}
                 </section>
@@ -1162,21 +1377,25 @@ export default function WaitingBoardPage() {
             {loading && <WaitingSectorSkeleton />}
           </div>
         )}
-        <p className="mt-6 border-t border-line pt-4 text-center text-[11px] leading-relaxed text-muk-soft">
-          <TrailingNoteText text={t("waiting.dataAttribution")} />
-        </p>
       </div>
     </main>
   );
 }
 
+// 보드에 올릴 곳이 하나도 없을 때(밤·가정 시간) — '없어요' 대신 바로 할 수 있는 다음 행동 하나(지도에서 고르기).
 function EmptyState() {
   const t = useT();
   return (
-    <div className="bg-white rounded-2xl border border-line shadow-[0_2px_14px_rgba(43,35,32,0.06)] p-8 text-center space-y-2">
-      <div className="text-4xl">🗺️</div>
+    <div className="bg-white rounded-2xl border border-line shadow-[0_2px_14px_rgba(43,35,32,0.06)] p-8 text-center space-y-3">
+      <div className="text-4xl" aria-hidden>🗺️</div>
       <p className="text-[15px] font-bold text-muk">{t("waiting.emptyTitle")}</p>
       <p className="text-[13px] text-muk-soft leading-relaxed">{t("waiting.emptyBody")}</p>
+      <Link
+        href="/main"
+        className="toss-pressable inline-flex min-h-11 items-center gap-1.5 px-5 rounded-full bg-gradient-to-r from-gold to-terracotta text-white text-[13px] font-bold shadow-[0_4px_14px_rgba(193,85,59,0.25)] hover:from-gold-deep hover:to-terracotta focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+      >
+        {t("waiting.emptyCta")}
+      </Link>
     </div>
   );
 }

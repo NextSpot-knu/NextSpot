@@ -141,8 +141,8 @@ export function prefetchDemoHotPaths(): void {
   // 세션당 1회만 — 매 /main 진입마다 무거운 엔진 호출 5개(유형 4 + 코스 1)를 다시 쏘면
   // 무료 플랜 단일 인스턴스가 큐잉으로 밀린다(14:36 과부하 실측). 프리셋이 바뀌면
   // 각 화면의 정상 경로가 어차피 새로 계산한다.
+  const KEY = 'nextspot_prefetch_done_v1';
   try {
-    const KEY = 'nextspot_prefetch_done_v1';
     if (window.sessionStorage.getItem(KEY) === '1') return;
     window.sessionStorage.setItem(KEY, '1');
   } catch { /* 저장소 차단 — 가드 없이 진행(기존 동작) */ }
@@ -150,6 +150,12 @@ export function prefetchDemoHotPaths(): void {
     try {
       const session = await ensureAnonymousSession();
       const userId = session?.user?.id;
+      // 세션이 없으면(익명 로그인 거절·대기 창) 보드 4건을 보내 봐야 전부 인증 실패다 — 보내지 않고,
+      // 세션이 회복된 뒤 /main 에 다시 오면 미리 데울 수 있게 '이번 세션은 했다' 표시를 지운다(I22).
+      if (!userId) {
+        try { window.sessionStorage.removeItem(KEY); } catch { /* 저장소 차단 — 무시 */ }
+        return;
+      }
       const assumedAt = assumedAtIsoForPreset(getStoredAssumedPreset());
       const loc = { lat: REGION.center.lat, lng: REGION.center.lng };
       // /waiting 보드 미러 — BOARD_TYPES · PER_TYPE_LIMIT(8) · 45s 타임아웃 동일.

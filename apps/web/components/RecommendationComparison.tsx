@@ -95,11 +95,14 @@ export default function RecommendationComparison({ recommendations }: { recommen
       <div className="overflow-x-auto"><table className="w-full min-w-[520px] text-xs text-center"><thead><tr><th className="text-left py-2">{t('compare.metric')}</th>{top.map((item) => <th key={item.recommendationId} className="px-2">{item.rank}. {item.facility.name}</th>)}</tr></thead><tbody className="divide-y divide-line">
         <Row label={t('compare.spot')} values={top.map((r) => `${Math.round(r.spotScore * 100)}`)} />
         <Row label={t('compare.preference')} values={top.map((r) => `${Math.round((r.breakdown.preference ?? 0) * 100)}%`)} />
-        <Row label={t('compare.walkWait')} values={top.map((r) =>
-          r.breakdown.waitTime == null
-            ? `${displayWalkingMinutes(r.breakdown.travelTime, r.distanceM)}m · ${t('card.noData')}`
-            : `${displayWalkingMinutes(r.breakdown.travelTime, r.distanceM)}m · ${Math.round(r.breakdown.waitTime)}m`
-        )} />
+        {/* 분은 '분' 으로 쓴다(I74) — 'm' 은 옆 칸의 미터와 같은 글자라 '3m' 가 3미터로 읽혔다. 대기 분이 없으면
+            '수집 중' 같은 빈 상태 문구 대신 걷는 시간만. */}
+        <Row label={t('compare.walkWait')} values={top.map((r) => {
+          const walk = t('recommend.minutesValue', { n: displayWalkingMinutes(r.breakdown.travelTime, r.distanceM) });
+          return r.breakdown.waitTime == null
+            ? walk
+            : `${walk} · ${t('recommend.minutesValue', { n: Math.round(r.breakdown.waitTime) })}`;
+        })} />
         {/* 카드와 **같은 판정**으로 그린다. 원시 congestionLevel 을 그대로 쓰면 같은 화면에서
             카드는 '추정 · 여유' 인데 이 표는 '92%' 라고 말한다(2026-09-20 적대적 검토).
             추정은 퍼센트로 팔지 않는다 — 등급 라벨을 '추정' 머리표와 함께 쓴다. */}
@@ -108,7 +111,7 @@ export default function RecommendationComparison({ recommendations }: { recommen
           if (display.mode === 'estimated' && display.estimate) {
             return t('card.estimateLevel', { label: t(`congestion.${congestionKey(display.estimate.level, busyAt)}`) });
           }
-          return display.level == null ? t('card.noData') : `${Math.round(display.level * 100)}%`;
+          return display.level == null ? '—' : `${Math.round(display.level * 100)}%`;
         })} />
         {/* 영업시간을 모르면 '—' — '미확인'·'수집 중' 같은 빈 상태 문구를 표에 쓰지 않는다. */}
         <Row label={t('compare.openStatus')} values={top.map((r) => r.openStatusAtArrival && r.openStatusAtArrival !== 'needs_confirmation' ? t(`card.arrivalStatus.${r.openStatusAtArrival}`) : '—')} />

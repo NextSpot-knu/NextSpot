@@ -369,8 +369,9 @@ test('waiting board: without minutes, a photo only moves ahead of a card showing
   await expect(busyCard).toBeVisible({ timeout: 30_000 });
   await expect(busyCard).toContainText('혼잡');
   await expect(cell(page, '고요한 식당')).toContainText('한산');
-  // '혼잡' 사진 카드는 '한산' 사진 없는 카드를 앞지르지 않고, '한산' 사진 카드도 '혼잡' 카드를 건너뛰지 않는다.
-  expect(await topCardNames(page, 0)).toEqual(['고요한 식당', '붐비는 식당', '조용한 식당']);
+  // 분이 없는 카드는 한산한 등급이 먼저(PM 결정 2026-10-06 4.20) — '한산' 두 장이 '혼잡' 카드 앞으로 모이고,
+  // 같은 '한산' 끼리만 사진이 앞. '혼잡' 사진 카드는 '한산' 사진 없는 카드를 앞지르지 않는다.
+  expect(await topCardNames(page, 0)).toEqual(['조용한 식당', '고요한 식당', '붐비는 식당']);
   // 같은 '한산' 끼리는 사진이 앞.
   expect(await topCardNames(page, 1)).toEqual(['조용한 카페', '고요한 카페']);
 });
@@ -463,9 +464,10 @@ test('explore: a broken first image falls back to the gallery, and a Wikimedia g
   await expect(credit).toHaveAttribute('href', 'https://commons.wikimedia.org/wiki/File:Cheomseongdae.jpg');
   await expect(credit).toContainText('CC BY-SA 4.0');
 
-  // 후보가 다 깨지면 사진 상자가 없다(오늘과 같은 모습).
+  // 후보가 다 깨지면 사진 대신 장소 표지가 같은 자리를 채운다(I38) — 깨진 그림도, 높이가 다른 카드도 없다.
   await card('사진없음 식당').scrollIntoViewIfNeeded();
   await expect(card('사진없음 식당').locator('img')).toHaveCount(0);
+  await expect(card('사진없음 식당').locator('[data-photo-fallback]')).toBeVisible();
 
   // TourAPI 대표 사진이 보이는 카드에는 갤러리의 Wikimedia 출처가 붙지 않는다(출처는 보이는 사진의 것만).
   await card('대표사진 식당').scrollIntoViewIfNeeded();

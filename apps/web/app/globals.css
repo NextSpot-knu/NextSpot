@@ -162,6 +162,53 @@ html:lang(ko) body {
   overflow-wrap: break-word;
 }
 
+/* 일본어·중국어 조판(2026-10-06 감사 I52/I53) — 한국어 규칙과 한국어 글꼴만 쓰면 가나·간체가 남는 글꼴로 섞여
+   (제목은 명조 가나, 본문은 고딕) 들쭉날쭉했고, 중국어 전각 쉼표가 반각 폭으로 찍혔다. 각 언어의 시스템 글꼴을 앞에 두고
+   (내려받지 않는다 — Windows·macOS·iOS·Android 에 다 있다), 한글 장소명은 뒤의 Freesentation 이 받는다.
+   ko 는 그대로다. 레이어 밖 규칙이라 Tailwind 의 font-sans/font-serif 유틸보다 앞선다. */
+html:lang(ja),
+html:lang(ja) :is(body, .font-sans, .font-serif) {
+  font-family: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", "Noto Sans CJK JP", Meiryo, "Yu Gothic UI", 'Freesentation', var(--font-noto-sans-kr), system-ui, sans-serif;
+}
+html:lang(zh),
+html:lang(zh) :is(body, .font-sans, .font-serif) {
+  font-family: "PingFang SC", "Noto Sans SC", "Noto Sans CJK SC", "Microsoft YaHei UI", "Microsoft YaHei", 'Freesentation', var(--font-noto-sans-kr), system-ui, sans-serif;
+}
+/* 금칙(줄 머리에 '、' '。' '，' 가 홀로 오지 않게) — 엄격하게. break-keep(한국어용 낱말 단위)은 띄어쓰기가 없는
+   일본어·중국어에서 줄을 끊을 자리를 없애 칸 밖으로 밀거나 엉뚱한 곳에서 잘랐다 — 그 언어의 규칙으로 되돌린다.
+   일본어는 지원 브라우저(Chrome·Edge)에서 어절 단위로 접는다(auto-phrase, 모르면 normal 그대로). */
+html:is(:lang(ja), :lang(zh)) body {
+  line-break: strict;
+}
+html:is(:lang(ja), :lang(zh)) .break-keep {
+  word-break: normal;
+  line-break: strict;
+}
+html:lang(ja) .break-keep {
+  word-break: auto-phrase;
+}
+/* 안내 화면 큰 제목(components/guide — CSS 모듈이라 클래스 이름 조각으로 고른다). 한국어 크기(최대 74px)·자간(-.065em)
+   그대로면 일본어 둘째 줄 '慶州をもう一か所。'(9자)·중국어 '多看一处庆州。'(7자)가 칸보다 넓어 '。' 가 홀로 넘어가고
+   글자가 겹쳤다. 칸 폭(cqi)에 맞춰 줄이면 쓴 그대로 두 줄이 된다. 영어는 단어가 붙지 않게 자간만 푼다. */
+html:is(:lang(ja), :lang(zh)) [class*="heroCopy"] {
+  container-type: inline-size;
+}
+html:is(:lang(ja), :lang(zh)) [class*="heroTitle"] {
+  letter-spacing: 0;
+  word-break: normal;
+  line-break: strict;
+  overflow-wrap: normal;
+}
+html:lang(ja) [class*="heroTitle"] {
+  font-size: min(74px, 10cqi);
+}
+html:lang(zh) [class*="heroTitle"] {
+  font-size: min(74px, 13cqi);
+}
+html:lang(en) [class*="heroTitle"] {
+  letter-spacing: -0.02em;
+}
+
 /* Five primary tabs plus a 36px help row on mobile. Shared by sheets and page padding. */
 @media (max-width: 767px) {
   :root { --tourist-nav-clearance: 116px; }

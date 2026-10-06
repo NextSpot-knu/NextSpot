@@ -160,6 +160,18 @@ function stopHeadings(page: Page) {
   return page.getByRole('heading', { level: 3 });
 }
 
+/** '코스 직접 짜기'(P13) — 정류지가 먼저 보이고, 순서·종류를 고르는 판은 이 버튼 뒤에 있다. */
+async function openBuilder(page: Page) {
+  const toggle = page.getByRole('button', { name: '코스 직접 짜기' });
+  if ((await toggle.getAttribute('aria-expanded')) !== 'true') await toggle.click();
+}
+
+/** 정류지의 '더보기'(I58) — 자동차 · 다른 곳 N · 이 자리 고정은 그 뒤에 있다. */
+async function openMore(page: Page, facilityId: string) {
+  const more = page.locator(`button[aria-controls="course-more-${facilityId}"]`);
+  if ((await more.getAttribute('aria-expanded')) !== 'true') await more.click();
+}
+
 /** 그 정류지의 대안 토글.
  *
  * 이름('다른 곳 2')으로 잡으면 **누른 뒤에 놓친다** — 라벨이 '접기' 로 바뀌는 순간 그 버튼은
@@ -198,6 +210,7 @@ test('순서를 직접 짜면 그 순서가 요청에 실리고 정류지도 그
   await page.goto('/course');
   await expectStops(page, ['고요한 찻집', '첨성대 뜰']);
 
+  await openBuilder(page);
   await page.getByRole('button', { name: '관광지 코스에 추가' }).click();
   await page.getByRole('button', { name: '카페 코스에 추가' }).click();
 
@@ -214,6 +227,7 @@ test('대안 토글이 차점 후보를 펼치고 라벨이 접기로 바뀐다'
   await page.goto('/course');
   await expectStops(page, ['고요한 찻집', '첨성대 뜰']);
 
+  await openMore(page, 'cafe-1');
   const toggle = altsToggle(page, 'cafe-1');
   await expect(toggle).toHaveText('다른 곳 2');
   await expect(toggle).toHaveAttribute('aria-expanded', 'false');
@@ -232,6 +246,7 @@ test("'여기로 바꾸기' 는 그 자리에 고정을 꽂아 다시 요청하�
   await page.goto('/course');
   await expectStops(page, ['고요한 찻집', '첨성대 뜰']);
 
+  await openMore(page, 'cafe-1');
   await altsToggle(page, 'cafe-1').click();
   await page.getByRole('button', { name: '황남 커피(으)로 바꾸기' }).click();
 
@@ -251,8 +266,12 @@ test('재계획이 도착하기 전에는 고정·대안 조작을 그리지 않
 
   const pinButtons = page.getByRole('button', { name: /이 자리 고정/ });
   const altToggles = page.locator('button[aria-controls^="course-alts-"]');
+  // 고정·대안 조작은 정류지마다 '더보기' 뒤에 있다(I58).
+  await openMore(page, 'cafe-1');
+  await openMore(page, 'att-1');
   await expect(pinButtons).toHaveCount(2);
 
+  await openBuilder(page);
   await page.getByRole('button', { name: '카페 코스에 추가' }).click();
 
   // 여기서 누른 고정은 slotKeys.indexOf(옛 키) === -1 이라 조용히 걸러진다. 눌러도 아무 일도
@@ -263,6 +282,102 @@ test('재계획이 도착하기 전에는 고정·대안 조작을 그리지 않
   // 새 계획이 오면 다시 그린다 — 조작이 영영 사라지는 것이 아니라 그 창 동안만 없다.
   await expectStops(page, ['고요한 찻집']);
   await expect(pinButtons).toHaveCount(1);
+});
+
+// ── 정류지가 먼저, 읽기 쉬운 시간표(P13 · I58) ─────────────────────────────────────────────────────
+test('stops come first: the builder waits behind one button, names stay whole, times are clock times, no %', async ({ page }) => {
+  await stubCoursePlan(page);
+  await page.goto('/course');
+  await expectStops(page, ['고요한 찻집', '첨성대 뜰']);
+
+  // 첫 화면에는 종류 칩이 없다 — '코스 직접 짜기' 한 버튼 뒤에.
+  await expect(page.getByRole('button', { name: /코스에 추가$/ })).toHaveCount(0);
+  const builder = page.getByRole('button', { name: '코스 직접 짜기' });
+  await expect(builder).toHaveAttribute('aria-expanded', 'false');
+  // 정류지 목록이 그 버튼보다 위에 있다.
+  const [firstStop, builderBox] = await Promise.all([page.getByRole('heading', { level: 3 }).first().boundingBox(), builder.boundingBox()]);
+  expect(firstStop!.y).toBeLessThan(builderBox!.y);
+  await builder.click();
+  await expect(page.getByRole('button', { name: /코스에 추가$/ })).toHaveCount(4);
+  await expect(page.getByRole('heading', { level: 2, name: '어떤 곳을 넣을까요?' })).toBeVisible();
+
+  // 스텝퍼: 이름 전체, '+42분' 대신 '12:59 도착'. 탭 이름은 '시간표'.
+  const stepper = page.getByRole('list', { name: '코스 순서 미리보기' });
+  await expect(stepper).toContainText('고요한 찻집');
+  await expect(stepper).not.toContainText('…');
+  expect(await stepper.innerText()).not.toMatch(/\+\d+분/);
+  await expect(stepper.getByText(/^\d{2}:\d{2} 도착$/)).toHaveCount(2);
+  await expect(page.getByRole('tab', { name: '시간표' })).toBeVisible();
+  await expect(page.getByText(/간트/)).toHaveCount(0);
+  // 붐빔은 등급만 — 정류지 칩·대안 줄에 % 가 없다.
+  await expect(page.locator('main')).not.toContainText(/\d+%/);
+  // 헤더: 마지막 정류지 도착 시각.
+  await expect(page.getByText(/마지막 장소 \d{2}:\d{2} 도착/)).toBeVisible();
+});
+
+test('the stop reason is written in the screen language, not the Korean server sentence', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('nextspot_locale', 'en'));
+  await stubCoursePlan(page);
+  await page.goto('/course');
+  await expect(page.getByRole('heading', { level: 3 })).toHaveCount(2, { timeout: 30_000 });
+  await expect(page.locator('html')).toHaveAttribute('lang', 'en');
+  await page.locator('button[aria-controls="course-reason-cafe-1"]').click();
+  const reason = page.locator('#course-reason-cafe-1');
+  // 왜 골랐는지를 말한다 — 순서·이름·도착 시각은 칩이 이미 말한다(리뷰: 칩을 되풀이하던 'Stop 1: … arriving at').
+  await expect(reason).toContainText('Picked for your taste, walking time and perks.');
+  await expect(reason).toContainText('Crowd level when you arrive: Relaxed');
+  await expect(reason).not.toContainText('Stop 1');
+  await expect(reason).not.toContainText('고정 추천 사유');
+});
+
+test('ko stop reason says why, and adds the time-dispersal benefit when the server found one', async ({ page }) => {
+  await stubCoursePlan(page, {
+    respondWith: () => {
+      const plan = buildPlan({});
+      // 서버(courses.py _build_stop_reason)가 도착 때 지금보다 한산해진다고 판단한 정류지.
+      plan.stops[1].reason = '2번째 코스 첨성대 뜰: 약 24분 뒤 도착하면 예상 혼잡도 35%(여유) 수준이에요. 지금보다 약 30%p 여유로워질 시간대예요.';
+      return plan;
+    },
+  });
+  await page.goto('/course');
+  await expectStops(page, ['고요한 찻집', '첨성대 뜰']);
+  await page.locator('button[aria-controls="course-reason-cafe-1"]').click();
+  await page.locator('button[aria-controls="course-reason-att-1"]').click();
+  const first = page.locator('#course-reason-cafe-1');
+  const second = page.locator('#course-reason-att-1');
+  await expect(first).toContainText('취향·걷는 시간·혜택을 함께 따져 고른 곳이에요.');
+  await expect(first).not.toContainText('덜 붐빌 시간대');
+  await expect(second).toContainText('도착할 때 지금보다 덜 붐빌 시간대예요.');
+  // 순서·시각 되풀이도, '1번째' 같은 어색한 서수도, % 도 없다.
+  for (const reason of [first, second]) {
+    await expect(reason).not.toContainText(/번째|도착 예정이에요|\d+%/);
+  }
+});
+
+test('an assumed-time course prints clock times from that time, not from now', async ({ page }) => {
+  // 지금은 수 12:30 KST, 가정 시간은 토 14:00 — 도착 오프셋 12·24분은 14:12·14:24 다(12:42·12:54 가 아니다).
+  await page.clock.setFixedTime(new Date('2026-10-07T03:30:00Z'));
+  await page.addInitScript(() => localStorage.setItem('nextspot_assumed_at', 'sat_afternoon'));
+  await stubCoursePlan(page);
+  await page.goto('/course');
+  await expectStops(page, ['고요한 찻집', '첨성대 뜰']);
+  const stepper = page.getByRole('list', { name: '코스 순서 미리보기' });
+  await expect(stepper).toContainText('14:12 도착');
+  await expect(stepper).toContainText('14:24 도착');
+  await expect(page.getByText('마지막 장소 14:24 도착')).toBeVisible();
+  await expect(page.locator('main')).not.toContainText(/12:42 도착|12:54 도착/);
+});
+
+test('desktop stepper: the first stop sits next to its connector, with no empty gap', async ({ page }) => {
+  await page.setViewportSize({ width: 1536, height: 730 });
+  await stubCoursePlan(page);
+  await page.goto('/course');
+  await expectStops(page, ['고요한 찻집', '첨성대 뜰']);
+  const items = page.getByRole('list', { name: '코스 순서 미리보기' }).locator(':scope > li');
+  const [first, second] = await Promise.all([items.nth(0).boundingBox(), items.nth(1).boundingBox()]);
+  // 첫 칸은 자기 정류지 폭(7rem)만 — 예전에는 flex-1 로 늘어나 첫 정류지 오른쪽에 연결선 없는 빈자리가 ~90px 생겼다.
+  expect(first!.width).toBeLessThanOrEqual(7 * 16 + 1);
+  expect(second!.x - (first!.x + first!.width)).toBeLessThanOrEqual(1);
 });
 
 test('빈 코스에서 다음 선택을 안내한다', async ({ page }) => {

@@ -183,7 +183,8 @@ export default function CourseMap({ stops, userLocation }: CourseMapProps) {
     if (path.length > 0) {
       map.setBounds(bounds, 80, 40, 40, 40);
       // 정류지 1곳이 사용자 위치와 수십 m 거리면 bounds 가 손톱만해져 지나치게 확대된다 → 레벨 하한.
-      if (map.getLevel() < 3) map.setLevel(3);
+      // 하한 4(약 100m 축척, I58) — 3(약 50m)에서는 번호 핀이 바탕 지도의 가게 이름 위에 겹쳐 앉았다.
+      if (map.getLevel() < 4) map.setLevel(4);
     } else {
       map.setCenter(userPos);
       map.setLevel(6);
@@ -234,7 +235,7 @@ export default function CourseMap({ stops, userLocation }: CourseMapProps) {
   return (
     <div
       ref={containerRef}
-      className={`nextspot-map h-[38dvh] md:h-[42dvh] w-full ${ready ? '' : 'bg-hanji-deep animate-pulse'}`}
+      className={`nextspot-map h-[38dvh] md:h-[42dvh] lg:h-[30dvh] w-full ${ready ? '' : 'bg-hanji-deep animate-pulse'}`}
       aria-hidden={!ready}
     />
   );
