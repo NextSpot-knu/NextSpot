@@ -135,11 +135,12 @@ test('demo ① follows the real clock; the confirm step previews the live 20% ba
   await expect(forecast.getByText('21시가 가장 한가할 것 같아요')).toBeVisible();
 
   // 데모 가게에는 20% 세일이 진행 중이다(기본 쿠폰 10%). 15% 를 골라도 손님 카드의 배지는 20% 그대로다.
-  await expect(page.getByText('20% 할인 중')).toBeVisible();
+  await expect(page.getByText('⚡ 20% 타임세일 진행 중')).toBeVisible();
   await page.getByRole('group', { name: '할인율' }).getByRole('button', { name: '15%' }).click();
   await page.getByRole('group', { name: '지속 시간' }).getByRole('button', { name: '1시간' }).click();
   await page.getByRole('button', { name: '타임세일 발행' }).click();
-  await expect(page.getByText('⚡ 타임세일 20%')).toBeVisible();
+  // 진행 중 배너에도 같은 배지 미리보기가 있다(B4) — 확인 상자 안의 것을 본다.
+  await expect(page.getByTestId('timesale-confirm').getByText('⚡ 타임세일 20%')).toBeVisible();
   await expect(page.getByText(/손님 추천 카드에는 지금 진행 중인/)).toBeVisible();
   await expect(page.getByText('⚡ 타임세일 15%')).toHaveCount(0);
 });
@@ -223,6 +224,195 @@ test('real merchant console draws ① from the weekday/hour pattern without any 
 
   // 30% + 1시간 → 확인 단계는 손님이 보게 될 배지를 미리 보여 준다(쓰기 전 단계 — 발행은 누르지 않는다).
   await page.getByRole('button', { name: '타임세일 발행' }).click();
-  await expect(page.getByText('⚡ 타임세일 30%')).toBeVisible();
+  await expect(page.getByTestId('timesale-confirm').getByText('⚡ 타임세일 30%')).toBeVisible();
   await expect(page.getByText(/할인율이 기본 쿠폰율보다 높으면/)).toHaveCount(0);
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// B4(2026-10-07) — 두 열 · 휴대폰 바로 가기 · 진행 중 배너 · 성적표 · 고른 칩 · 토스트 자리
+// ───────────────────────────────────────────────────────────────────────────
+
+const ZERO_STATS = {
+  facility_id: 'f-e2e',
+  since: '',
+  window_days: 7,
+  coupons_issued: 0,
+  coupons_used: 0,
+  congestion_reports: 0,
+  recommendations_exposed: 0,
+  recommendations_accepted: 0,
+  visit_confirmations: null,
+  visit_confirmations_note: '',
+};
+
+/** 실계정 사장님 콘솔(심사 가게 모양) — 진행 중인 20% 타임세일 하나, 기본 쿠폰 5%. */
+async function openRealConsole(
+  page: Page,
+  { stats = {}, activeSale = true }: { stats?: Partial<typeof ZERO_STATS>; activeSale?: boolean } = {},
+): Promise<void> {
+  await stubConsoleNetwork(page, 'merchant');
+  await page.route('**/api/v1/merchant/briefing**', (route) => json(route, 200, { briefing: null, llm_status: 'skipped' }));
+  await page.route('**/api/v1/merchant/stats**', (route) => json(route, 200, { ...ZERO_STATS, ...stats }));
+  const now = Date.now();
+  await page.route('**/api/v1/merchant/timesale**', (route) =>
+    json(
+      route,
+      200,
+      activeSale
+        ? [{
+            id: 'ts-e2e', facility_id: 'f-e2e', rate: 0.2, canceled_at: null,
+            starts_at: new Date(now - 20 * 60_000).toISOString(),
+            ends_at: new Date(now + 84 * 60_000).toISOString(),
+            created_at: new Date(now - 20 * 60_000).toISOString(),
+          }]
+        : [],
+    ),
+  );
+  await page.route('**/rest/v1/facilities**', (route) => json(route, 200, [{ coupon_rate: 0.05, features: null }]));
+  await page.addInitScript(() => {
+    localStorage.setItem(
+      'nextspot_merchant_facility',
+      JSON.stringify({ id: 'f-e2e', name: '경주 테스트 식당', type: 'restaurant', couponRate: 0 }),
+    );
+  });
+  await page.goto('/merchant/dashboard');
+  await expect(page.locator('section', { hasText: '① 예상 혼잡' })).toBeVisible({ timeout: 20_000 });
+}
+
+for (const mode of ['demo', 'real'] as const) {
+  test(`1536×730 (${mode}) — ③ 타임세일과 ④ 좌석 방송 머리가 첫 화면에 있고, 머리글은 로고와 '사장님 콘솔'`, async ({ page }) => {
+    test.setTimeout(90_000);
+    await page.setViewportSize({ width: 1536, height: 730 });
+    await page.clock.setFixedTime(KST_13);
+    if (mode === 'demo') {
+      await stubConsoleNetwork(page, 'guest');
+      await page.goto('/merchant?demo=1');
+    } else {
+      await openRealConsole(page);
+    }
+    const timesale = page.getByRole('heading', { name: '지금 할인, 지금 발행' });
+    const seat = page.getByRole('heading', { name: '지금 우리 가게 상태' });
+    await expect(timesale).toBeVisible({ timeout: 20_000 });
+    for (const heading of [timesale, seat]) {
+      const box = await heading.boundingBox();
+      expect(box, '섹션 머리 상자').not.toBeNull();
+      console.log(`${mode} section heading bottom at 1536×730: ${Math.round(box!.y + box!.height)}px`);
+      expect(box!.y + box!.height, '③④ 머리가 스크롤 없이 첫 화면에 있어야 한다').toBeLessThan(730);
+    }
+    // 두 행동 버튼도 스크롤 없이 첫 화면 안이다(③ 발행 · ④ 여유/보통/만석).
+    await expect(page.getByRole('button', { name: '타임세일 발행', exact: true })).toBeInViewport({ ratio: 1 });
+    const seatGroup = page.getByRole('group', { name: '좌석 상태 방송' });
+    const seatBox = await seatGroup.boundingBox();
+    console.log(`${mode} seat buttons top/bottom at 1536×730: ${Math.round(seatBox!.y)} / ${Math.round(seatBox!.y + seatBox!.height)}px`);
+    await expect(seatGroup).toBeInViewport({ ratio: 1 });
+    // 넓은 화면 머리글 — NextSpot 로고 + '사장님 콘솔'.
+    const header = page.locator('header').first();
+    await expect(header.getByRole('img', { name: 'NextSpot' })).toBeVisible();
+    await expect(header.getByText('사장님 콘솔', { exact: true })).toBeVisible();
+    // 휴대폰 하단 바는 넓은 화면에 없다.
+    await expect(page.getByRole('navigation', { name: '사장님 바로 가기' })).toBeHidden();
+  });
+}
+
+test('390×844 — 하단 바로 가기 바가 ③ 타임세일·④ 좌석 방송으로 데려간다', async ({ page }) => {
+  test.setTimeout(90_000);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await stubConsoleNetwork(page, 'guest');
+  await page.clock.setFixedTime(KST_13);
+  await page.goto('/merchant?demo=1');
+  const bar = page.getByRole('navigation', { name: '사장님 바로 가기' });
+  await expect(bar).toBeVisible({ timeout: 20_000 });
+  const barBox = await bar.boundingBox();
+  expect(barBox!.y + barBox!.height, '바로 가기 바가 화면 아래에 붙어 있다').toBeGreaterThan(830);
+  // 첫 화면에서는 ③④ 가 아래쪽에 있다 — 바가 그 사실을 먼저 보여 준다.
+  await expect(page.getByRole('heading', { name: '지금 우리 가게 상태' })).not.toBeInViewport();
+  await bar.getByRole('button', { name: '🪑 좌석 상태 방송' }).click();
+  await expect(page.getByRole('heading', { name: '지금 우리 가게 상태' })).toBeInViewport();
+  await bar.getByRole('button', { name: '⚡ 타임세일 발행' }).click();
+  await expect(page.getByRole('heading', { name: '지금 할인, 지금 발행' })).toBeInViewport();
+  // 바가 마지막 카드를 가리지 않는다(본문 아래 여백).
+  await page.evaluate(() => window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'instant' }));
+  await page.waitForTimeout(300);
+  const lastCard = page.locator('section', { hasText: '④ 좌석 상태 방송' });
+  const cardBox = await lastCard.boundingBox();
+  const bar2 = await bar.boundingBox();
+  expect(cardBox!.y + cardBox!.height, '마지막 카드가 바로 가기 바 아래에 깔린다').toBeLessThanOrEqual(bar2!.y + 1);
+});
+
+test('진행 중인 타임세일 — 추천 반영 중 · 손님 카드 배지 미리보기 · 손님 화면에서 보기(/main?place=)', async ({ page }) => {
+  test.setTimeout(90_000);
+  await page.setViewportSize({ width: 1536, height: 730 });
+  await openRealConsole(page, { stats: { recommendations_exposed: 3120, recommendations_accepted: 1 } });
+  const banner = page.getByTestId('timesale-active');
+  await expect(banner).toBeVisible();
+  await expect(banner).toContainText('⚡ 20% 타임세일 진행 중');
+  await expect(banner).toContainText(/남음/);
+  await expect(banner.getByText('추천 반영 중')).toBeVisible();
+  await expect(banner.getByText('⚡ 타임세일 20%')).toBeVisible();
+  const link = banner.getByRole('link', { name: /손님 화면에서 보기/ });
+  await expect(link).toBeVisible();
+  await expect(link).toHaveAttribute('href', '/main?place=f-e2e');
+});
+
+test('데모 가게는 실제 지도에 없으니 손님 화면 링크를 두지 않는다(배지 미리보기는 있다)', async ({ page }) => {
+  test.setTimeout(90_000);
+  await page.setViewportSize({ width: 1536, height: 730 });
+  await stubConsoleNetwork(page, 'guest');
+  await page.goto('/merchant?demo=1');
+  const banner = page.getByTestId('timesale-active');
+  await expect(banner).toBeVisible({ timeout: 20_000 });
+  await expect(banner.getByText('추천 반영 중')).toBeVisible();
+  await expect(banner.getByRole('link', { name: /손님 화면에서 보기/ })).toHaveCount(0);
+});
+
+test('성적표 — 0 타일 없이 노출이 맨 앞, 쿠폰을 안 줬으면 첫 타임세일 안내(PM 4.18)', async ({ page }) => {
+  test.setTimeout(90_000);
+  await page.setViewportSize({ width: 1536, height: 730 });
+  await openRealConsole(page, { stats: { recommendations_exposed: 3120, recommendations_accepted: 1 }, activeSale: false });
+  const card = page.locator('section', { hasText: '② 성적표' });
+  await expect(card.getByText('손님 추천에 노출', { exact: true })).toBeVisible();
+  await expect(card.getByText('3,120회', { exact: true })).toBeVisible();
+  await expect(card.getByText('길안내 시작', { exact: true })).toBeVisible();
+  await expect(card.getByText(/0 \/ 0/)).toHaveCount(0);
+  await expect(card.getByText(/1 \/ 3120|추천 수락|추천 제안/)).toHaveCount(0);
+  await expect(card.getByText('혼잡 제보', { exact: true })).toHaveCount(0);
+  await expect(card.getByText(/첫 타임세일을 열어 보세요/)).toBeVisible();
+  // 노출이 길안내보다 앞(맨 앞 타일).
+  const exposed = await card.getByText('손님 추천에 노출', { exact: true }).boundingBox();
+  const guide = await card.getByText('길안내 시작', { exact: true }).boundingBox();
+  expect(exposed!.y).toBeLessThan(guide!.y);
+});
+
+test('발행 버튼 — 두 가지를 고르기 전에는 이유 한 줄, 고른 칩은 꽉 찬 먹색', async ({ page }) => {
+  test.setTimeout(90_000);
+  await page.setViewportSize({ width: 1536, height: 730 });
+  await stubConsoleNetwork(page, 'guest');
+  await page.goto('/merchant?demo=1');
+  const publish = page.getByRole('button', { name: '타임세일 발행', exact: true });
+  const hint = page.getByText('할인율과 시간을 고르면 발행할 수 있어요');
+  await expect(publish).toBeDisabled({ timeout: 20_000 });
+  await expect(hint).toBeVisible();
+  const rate = page.getByRole('group', { name: '할인율' }).getByRole('button', { name: '20%' });
+  await rate.click();
+  await expect(rate).toHaveAttribute('aria-pressed', 'true');
+  await expect(rate).toHaveClass(/bg-muk/);
+  await expect(publish).toBeDisabled();
+  await page.getByRole('group', { name: '지속 시간' }).getByRole('button', { name: '2시간' }).click();
+  await expect(publish).toBeEnabled();
+  await expect(hint).toHaveCount(0);
+});
+
+test('390×844 — 콘솔 토스트는 위 가운데에 떠서 좌석 버튼을 덮지 않는다', async ({ page }) => {
+  test.setTimeout(90_000);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await stubConsoleNetwork(page, 'guest');
+  await page.goto('/merchant?demo=1');
+  const seats = page.getByRole('group', { name: '좌석 상태 방송' });
+  await seats.getByRole('button', { name: '여유' }).click({ timeout: 20_000 });
+  const toast = page.getByText('데모에서는 저장되지 않아요').first();
+  await expect(toast).toBeVisible();
+  const [toastBox, seatBox] = [await toast.boundingBox(), await seats.boundingBox()];
+  expect(toastBox!.y, '토스트가 화면 위쪽이 아니다').toBeLessThan(844 / 2);
+  const overlaps = toastBox!.y < seatBox!.y + seatBox!.height && seatBox!.y < toastBox!.y + toastBox!.height;
+  expect(overlaps, '토스트가 좌석 버튼을 덮는다').toBe(false);
 });

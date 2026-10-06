@@ -491,6 +491,30 @@ async function main() {
     "'예시 화면' 칩은 머리글에 한 개여야 한다(데모 카드 배지는 오늘/최근 7일)",
   );
 
+  // B4(2026-10-07): 두 열·휴대폰 바로 가기·진행 중 배너·성적표·토스트 위치·고른 칩·남은 I08 문구.
+  assert.match(dashboardSrc, /lg:grid-cols-2/, '넓은 화면 두 열 배치가 없다(③④ 가 첫 화면 밖으로 밀린다)');
+  assert.match(dashboardSrc, /data-testid="merchant-actions"[\s\S]{0,200}lg:sticky/, '③④ 열이 화면에 붙어 있지 않다');
+  assert.match(dashboardSrc, /⚡ 타임세일 발행[\s\S]*🪑 좌석 상태 방송/, '휴대폰 하단 바로 가기(⚡ 타임세일 발행 · 🪑 좌석 상태 방송)가 없다');
+  assert.match(dashboardSrc, /id="merchant-seat"/, '바로 가기가 ④ 로 갈 앵커가 없다');
+  assert.match(dashboardSrc, /타임세일 진행 중/, '진행 중 배너가 없다');
+  assert.match(dashboardSrc, /추천 반영 중/, "진행 중 세일에 '추천 반영 중' 이 없다");
+  assert.match(dashboardSrc, /href=\{`\/main\?place=\$\{encodeURIComponent\(facilityId\)\}`\}/, "'손님 화면에서 보기' 가 /main?place= 로 가지 않는다");
+  assert.match(dashboardSrc, /손님 화면에서 보기/);
+  assert.match(dashboardSrc, /scorecardTiles\(stats\)/, '성적표가 0 타일을 숨기는 판정(scorecard.ts)을 쓰지 않는다');
+  assert.doesNotMatch(dashboardSrc, /추천 수락'|label="추천 수락"|추천 제안/, "성적표에 '추천 수락 a / b' 비율·'추천 제안' 설명이 남아 있다");
+  assert.match(dashboardSrc, /position: 'top-center'/, '콘솔 토스트가 위 가운데로 가지 않는다(좌석 버튼을 덮는다)');
+  assert.doesNotMatch(dashboardSrc, /useDemoToast\(\)/, '데모 토스트가 아래 가운데(공용 위치)로 뜬다');
+  assert.match(dashboardSrc, /SELECTED_CHIP = 'border-muk bg-muk text-hanji'/, '고른 칩이 꽉 찬 먹색이 아니다');
+  assert.match(dashboardSrc, /할인율과 시간을 고르면 발행할 수 있어요/, '발행 버튼이 왜 비활성인지 말하지 않는다');
+  // 남은 I08 문구 — 내부 사정 대신 손님에게 보이는 결과로 말한다.
+  assert.doesNotMatch(
+    dashboardSrc,
+    /추천 인센티브 반영도|추천 랭킹 인센티브|사장님 확인값|예측값으로 돌아갑니다|예측 혼잡도가 쓰입니다|\(으\)로 방송/,
+    '사장님 콘솔에 내부 용어(인센티브·확인값·예측값)나 조사 꼬리표가 남아 있다',
+  );
+  assert.match(dashboardSrc, /손님 추천 카드의 할인 배지도 함께 내려가요/, '타임세일 취소 안내가 바뀌지 않았다');
+  assert.match(dashboardSrc, /누르면 \$\{SEAT_FRESH_MINUTES\}분 동안 손님 추천에 지금 우리 가게 상황이 반영돼요/, '좌석 방송 안내가 바뀌지 않았다');
+
   // ① 차트의 Y축 — 폭이 좁으면 맨 위 눈금 '100%' 가 '00%' 로 잘린다(2026-10-06 감사).
   const forecastAxis = (dashboardSrc.match(/<YAxis\b[\s\S]*?\/>/g) ?? []).find((block) =>
     block.includes('domain={[0, 100]}'),

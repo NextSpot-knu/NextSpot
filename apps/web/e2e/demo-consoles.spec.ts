@@ -80,7 +80,8 @@ test('merchant demo console renders fixtures without login and never calls the m
 
   // 데모 가게 이름과 데모 브리핑이 실제로 렌더된다(게이트 문구가 아니라 콘솔 본문).
   await expect(page.getByText('황리단길 한옥카페', { exact: true })).toBeVisible();
-  await expect(page.getByText(/오늘 15~16시에 예상 혼잡이 91%까지/)).toBeVisible();
+  // 브리핑은 시계와 무관한 시제다(16시가 지나도 '올라갑니다' 가 아니다).
+  await expect(page.getByText(/오늘은 15~16시가 가장 붐비는 시간대예요/)).toBeVisible();
 
   expect(writeConsoleCalls(calls)).toEqual([]);
 });
@@ -105,7 +106,7 @@ test('merchant demo write buttons only toast and issue no request', async ({ pag
   await expect(page.getByText(NO_SAVE_TOAST).first()).toBeVisible();
 
   // 세일은 여전히 진행 중이고 좌석 방송도 그대로다 — 데모는 상태를 바꾸지 않는다.
-  await expect(page.getByText('20% 할인 중')).toBeVisible();
+  await expect(page.getByText('⚡ 20% 타임세일 진행 중')).toBeVisible();
 
   expect(writeConsoleCalls(calls)).toEqual([]);
 });
