@@ -33,7 +33,7 @@ import { loadSavedLocal, syncSaved, saveBookmark, type SavedRecord } from '@/lib
 import { useI18n } from '@/lib/i18n/I18nProvider';
 // T2: 휴무 원문 파서(오늘 휴무 확정만 배제) + 가능/불가능 텍스트 파서(주차·반려동물 필터) — 공용 단일 소스.
 import { getArrivalOpenStatus, isClosedToday, isRecommendationOpen, parseAvailability } from '@/lib/restDate';
-import { loadTravelContext, matchesTravelContext, saveTravelContext, type PlaceCategory, CUISINE_INTENT } from '@/lib/travelContext';
+import { chipCandidates, loadTravelContext, matchesTravelContext, relaxWalkLimit, saveTravelContext, type PlaceCategory, CUISINE_INTENT } from '@/lib/travelContext';
 import { buildVoiceCommandTransition, type VoiceAppCommand } from '@/lib/voice/voiceCommands';
 import { facilityMatchesSearch } from '@/lib/placeSearch';
 import { congestionKey } from '@/lib/congestionScale';
@@ -176,6 +176,14 @@ const RECALC_EMERGENCY_MS = Math.max(RECOMMENDATION_TIMEOUT_MS, THEME_RECOMMENDA
 
 const LAB_HINT_KEY = 'nextspot_lab_hint_shown';
 const LAB_HINT_MAX_SHOWS = 2;
+
+// 추천을 내는 칩 4종(주차장 제외) — 화면 id 와 시설 유형.
+const CATEGORY_FILTERS: { id: string; type: PlaceCategory }[] = [
+  { id: '음식점', type: 'restaurant' },
+  { id: '카페', type: 'cafe' },
+  { id: '관광지', type: 'attraction' },
+  { id: '문화시설', type: 'culture' },
+];
 
 // localStorage 'nextspot_saved_facilities' 항목 — handlePutOff 가 저장하는 형태(읽기는 id만 사용).
 interface SavedBookmark {
@@ -1588,9 +1596,12 @@ export default function MainPage() {
     const targetType = filterMap[activeFilter];
 
     const typeOk = (f: Facility) => f.type === targetType && !(targetType === 'restaurant' && isBarFacility(f)); // 식당 추천에서 술집 제외
-    const contextEligible = facilities.filter((f) =>
-      typeOk(f)
-      && matchesTravelContext(f, travelContext, userLocation, haversineMeters)
+    // 칩이 유형을 정했으므로 온보딩 카테고리로 다른 칩을 막지 않는다. 도보 제한이 칩을 비우면 한 번만
+    // 넓힌다 — 카드가 실제 도보 분을 말한다. 서버에도 같은 조건(rankContext)을 보낸다.
+    const { context: rankContext, items: contextEligible } = chipCandidates(
+      facilities.filter(typeOk),
+      travelContext,
+      (context) => (f: Facility) => matchesTravelContext(f, context, userLocation, haversineMeters),
     );
     let candidates = contextEligible.filter(f => !rejectedIds.has(f.id) && !savedIds.has(f.id));
     if (candidates.length === 0) {
@@ -1659,12 +1670,12 @@ export default function MainPage() {
           if (liveMode && realCands.length > 0) {
             try {
               // 백엔드에는 rejectedIds와 savedIds를 제외하고 요청
-              const recs = await recommendByType(
+              const requestByType = (context: typeof rankContext) => recommendByType(
                 targetType,
                 userLocation,
                 [...rejectedIds, ...savedIds],
                 5,
-                travelContext,
+                context,
                 cuisineIntentRef.current,
                 recommendationController.signal,
                 // 재계산 스켈레톤의 비상 종료(RECALC_EMERGENCY_MS)가 이 값을 기준으로 잡힌다.
@@ -1672,6 +1683,10 @@ export default function MainPage() {
                 // 데모 '가정 시각'(있으면). null 이면 서버 현재 시각 = 기존 동작.
                 assumedAtIsoForPreset(assumedPreset),
               );
+              let recs = await requestByType(rankContext);
+              // 서버는 실제 걷는 길로 도보 제한을 잰다 — 직선거리로는 남았어도 0곳일 수 있다. 그때 한 번만 넓힌다.
+              const relaxedContext = recs.length === 0 ? relaxWalkLimit(rankContext) : null;
+              if (relaxedContext) recs = await requestByType(relaxedContext);
               const byId = new Map(realCands.map(f => [f.id, f]));
               realRanked = recs
                 .filter(r => byId.has(r.facility.id))
@@ -2549,6 +2564,29 @@ export default function MainPage() {
     { id: '주차장', key: 'parking', icon: Car },
   ];
 
+  // 카테고리 칩 전환 — 칩 탭 · ♿ 자동 전환 · 다른 칩 제안 카드가 같은 길을 탄다.
+  const selectCategory = (filterId: string) => {
+    setActiveDiscovery(null);
+    setDiscoveryLoading(false);
+    setActiveFilter(filterId);
+    setActiveGroupId(null);
+    setSelectedParkingLot(null);
+    if (filterId === '주차장') setShowHeatmap(false);
+    applyVoiceFilter(null); // 카테고리 전환 시 음성 선호 필터(예: 양식) 해제(ref+state)
+    setCuisineChip(null);   // 세부분류 칩도 함께 해제(음식점 외 카테고리로 새지 않게)
+    cuisineIntentRef.current = null;
+    // 필터(섹션) 전환 시 열려있던 모둠 팝업도 닫기
+    if (activeOverlayRef.current) {
+      activeOverlayRef.current.setMap(null);
+      activeOverlayRef.current = null;
+    }
+    if (typeof window !== 'undefined') {
+      // 저장소가 막힌 환경에서 여기서 throw 하면 필터 전환 클릭이 통째로 예외로 끝난다
+      // (지도 초기화와 같은 부류 — 위 initMap 주석 참조). 기억 못 하는 건 감수한다.
+      try { sessionStorage.setItem('nextspot_active_filter', filterId); } catch { /* 저장소 차단 */ }
+    }
+  };
+
   // 세부 음식분류 칩 — kw 는 lib/recommender.cuisineMatch 의 의도 키워드(라벨은 i18n cuisine.*).
   // 음식점 카테고리에서만 노출. TourAPI POI 는 cat3 매핑, 시드는 cuisine_tags/상호명으로 매칭된다.
   const cuisineChips = [
@@ -2624,6 +2662,48 @@ export default function MainPage() {
       petMatchCount: showPetFilter ? pet : 0,
     };
   }, [facilities, parkingLots, activeFilter, searchQuery, searchActive, showBarrierFree, showParkingFilter, showPetFilter]);
+
+  // ♿ 무장애 확인 장소 수(유형별, 지도 핀과 같은 판정) — 넷 다 0이면 칩을 숨기고(🐾 와 같은 규칙),
+  // 켜는 순간 지금 칩이 0곳이면 가장 많은 칩으로 옮긴다.
+  const barrierFreeByType = useMemo(() => {
+    const counts: Record<PlaceCategory, number> = { restaurant: 0, cafe: 0, attraction: 0, culture: 0 };
+    for (const f of facilities) {
+      if (f.type in counts && (f?.barrierFree ?? f?.barrier_free ?? f?.features?.barrier_free) === true) {
+        counts[f.type as PlaceCategory] += 1;
+      }
+    }
+    return counts;
+  }, [facilities]);
+  const barrierFreeAnywhere = Object.values(barrierFreeByType).some((count) => count > 0);
+  const onBarrierFreeChip = () => {
+    toggleBarrierFree();
+    // 켜는 순간 지금 칩에 무장애 확인 장소가 없으면 빈 지도로 두지 않고 가장 많은 칩으로 옮긴다.
+    const currentType = CATEGORY_FILTERS.find(({ id }) => id === activeFilter)?.type;
+    if (showBarrierFree || !currentType || barrierFreeByType[currentType] > 0) return;
+    const best = CATEGORY_FILTERS
+      .map((filter) => ({ ...filter, count: barrierFreeByType[filter.type] }))
+      .sort((a, b) => b.count - a.count)[0];
+    if (best.count === 0) return;
+    selectCategory(best.id);
+    showToast(t('map.barrierFreeSwitched', { category: t(`category.${best.type}`), n: best.count }));
+  };
+
+  // 칩에 추천할 곳이 없을 때 대신 보여 줄 다른 칩과 그 후보 수 — 추천 effect 와 같은 조건(chipCandidates).
+  const suggestedCategories = useMemo(() => {
+    if (!noRecommendation) return [];
+    return CATEGORY_FILTERS
+      .filter(({ id }) => id !== activeFilter)
+      .map(({ id, type }) => ({
+        id,
+        type,
+        count: chipCandidates(
+          facilities.filter((f) => f.type === type && !(type === 'restaurant' && isBarFacility(f))),
+          travelContext,
+          (context) => (f: Facility) => matchesTravelContext(f, context, userLocation, haversineMeters),
+        ).items.length,
+      }))
+      .filter(({ count }) => count > 0);
+  }, [noRecommendation, activeFilter, facilities, travelContext, userLocation]);
 
   // Kakao 시설명 검색 — 등록 여부와 현재 카테고리에 관계없이 지점·작은 점포까지 찾는다.
   useEffect(() => {
@@ -3125,15 +3205,6 @@ export default function MainPage() {
           </div>
         )}
 
-        {/* ♿ 배리어프리 필터 결과 없음 안내 — 검색 빈 상태와 동일 톤(검색 안내가 우선일 땐 중복 표시하지 않음) */}
-        {showBarrierFree && barrierFreeMatchCount === 0 && !(searchActive && searchMatchCount === 0) && (
-          <div className="pointer-events-auto px-2 -mt-1">
-            <span className="inline-block text-muk text-xs bg-white/90 border border-line rounded-full px-3 py-1 shadow-[0_2px_14px_rgba(43,35,32,0.06)]">
-              ♿ {t('map.barrierFreeNone')}
-            </span>
-          </div>
-        )}
-
         {/* 🅿 주차 필터 결과 없음 안내 — 배리어프리·검색과 동일 톤(신규 i18n 키 없이 searchNoResult 재사용). */}
         {showParkingFilter && parkingMatchCount === 0 && !(searchActive && searchMatchCount === 0) && !(showBarrierFree && barrierFreeMatchCount === 0) && (
           <div className="pointer-events-auto px-2 -mt-1">
@@ -3167,27 +3238,7 @@ export default function MainPage() {
             return (
               <button
                 key={filter.id}
-                onClick={() => {
-                  setActiveDiscovery(null);
-                  setDiscoveryLoading(false);
-                  setActiveFilter(filter.id);
-                  setActiveGroupId(null);
-                  setSelectedParkingLot(null);
-                  if (filter.id === '주차장') setShowHeatmap(false);
-                  applyVoiceFilter(null); // 카테고리 전환 시 음성 선호 필터(예: 양식) 해제(ref+state)
-                  setCuisineChip(null);   // 세부분류 칩도 함께 해제(음식점 외 카테고리로 새지 않게)
-                  cuisineIntentRef.current = null;
-                  // 필터(섹션) 전환 시 열려있던 모둠 팝업도 닫기
-                  if (activeOverlayRef.current) {
-                    activeOverlayRef.current.setMap(null);
-                    activeOverlayRef.current = null;
-                  }
-                  if (typeof window !== 'undefined') {
-                    // 저장소가 막힌 환경에서 여기서 throw 하면 필터 전환 클릭이 통째로 예외로 끝난다
-                    // (지도 초기화와 같은 부류 — 위 initMap 주석 참조). 기억 못 하는 건 감수한다.
-                    try { sessionStorage.setItem('nextspot_active_filter', filter.id); } catch { /* 저장소 차단 */ }
-                  }
-                }}
+                onClick={() => selectCategory(filter.id)}
                 className={`toss-pressable flex shrink-0 items-center whitespace-nowrap rounded-full border px-3.5 py-2 fractal-glass shadow-[0_2px_14px_rgba(43,35,32,0.06)] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 sm:px-4 sm:py-2 ${
                   isActive
                     ? 'bg-gold/15 border-gold text-muk'
@@ -3256,10 +3307,12 @@ export default function MainPage() {
             🔥 {t('map.heatmap')}
           </button>
 
-          {/* ♿ 배리어프리 토글 — 켜지면 features.barrier_free 시설만 지도에 표시(무장애 여행 동선용) */}
+          {/* ♿ 무장애 토글 — 켜지면 features.barrier_free 시설만 지도에 표시(무장애 여행 동선용).
+              확인된 곳이 한 칩에도 없으면 숨긴다(🐾 와 같은 규칙). 켜져 있는 동안은 끌 수 있게 남긴다. */}
+          {(barrierFreeAnywhere || showBarrierFree) && (
           <button
             type="button"
-            onClick={toggleBarrierFree}
+            onClick={onBarrierFreeChip}
             aria-pressed={showBarrierFree}
             className={`flex shrink-0 items-center gap-2 rounded-full border px-3.5 py-2 text-[13px] font-medium transition-all fractal-glass shadow-[0_2px_14px_rgba(43,35,32,0.06)] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 sm:px-4 sm:py-2 sm:text-sm ${
               showBarrierFree
@@ -3270,6 +3323,7 @@ export default function MainPage() {
             <span className={`w-2 h-2 rounded-full ${showBarrierFree ? 'bg-jade animate-pulse' : 'bg-jade/45'}`} />
             ♿ {t('map.barrierFree')}
           </button>
+          )}
 
           {/* 🅿 주차 가능 필터 — 켜지면 features.parking 이 '가능'으로 파싱되는 시설만 지도에 표시. 배리어프리와 동일 패턴(AND 조합). */}
           <button
@@ -3448,7 +3502,7 @@ export default function MainPage() {
             <div className="grid grid-cols-2 gap-2">
               {/* 이 패널은 지도를 덮는 모달이라, 여기서 히트맵을 켜면 바뀐 지도를 볼 수 없다 — 함께 닫는다. */}
               <button type="button" onClick={() => { setShowHeatmap((value) => !value); setShowMobileTools(false); }} aria-pressed={showHeatmap} className={`rounded-xl border px-3 py-3 text-sm font-semibold ${showHeatmap ? 'border-jade bg-jade/15' : 'border-jade/30 bg-white'}`}>🔥 {t('map.heatmap')}</button>
-              <button type="button" onClick={toggleBarrierFree} aria-pressed={showBarrierFree} className={`rounded-xl border px-3 py-3 text-sm font-semibold ${showBarrierFree ? 'border-jade bg-jade/15' : 'border-jade/30 bg-white'}`}>♿ {t('map.barrierFree')}</button>
+              {(barrierFreeAnywhere || showBarrierFree) && <button type="button" onClick={onBarrierFreeChip} aria-pressed={showBarrierFree} className={`rounded-xl border px-3 py-3 text-sm font-semibold ${showBarrierFree ? 'border-jade bg-jade/15' : 'border-jade/30 bg-white'}`}>♿ {t('map.barrierFree')}</button>}
               <button type="button" onClick={() => setShowParkingFilter((value) => !value)} aria-pressed={showParkingFilter} className={`rounded-xl border px-3 py-3 text-sm font-semibold ${showParkingFilter ? 'border-jade bg-jade/15' : 'border-jade/30 bg-white'}`}>🅿 {t('map.filterParking')}</button>
             </div>
             {activeFilter === '음식점' && (
@@ -3764,17 +3818,35 @@ export default function MainPage() {
         }
       })()}
 
-      {/* (b) 현재 카테고리 추천 후보 0건 — 카드가 조용히 사라지는 대신 안내 표시 */}
-      {/* 재계산 중에는 띄우지 않는다 — 스켈레톤과 같은 자리라 두 패널이 겹친다. */}
-      {!isLoadingFacilities && !facilitiesLoadError && facilities.length > 0 && !selectedFacility && noRecommendation && !recalcLabel && (
+      {/* (b) 현재 칩에 추천할 곳이 없으면 '없어요' 대신 지금 후보가 있는 다른 칩을 바로 고르게 한다.
+          ♿ 가 켜져 있으면 무장애 확인 장소가 있는 칩만 나온다(같은 조건으로 센다). 고를 칩이 하나도 없으면
+          카드 자체를 그리지 않는다. 재계산 중에는 띄우지 않는다 — 스켈레톤과 같은 자리라 두 패널이 겹친다. */}
+      {!isLoadingFacilities && !facilitiesLoadError && facilities.length > 0 && !selectedFacility && noRecommendation && !recalcLabel
+        && (suggestedCategories.length > 0 || noOpenTodayOnly) && (
         <div className="absolute z-20 px-4 bottom-[calc(var(--tourist-nav-clearance)+env(safe-area-inset-bottom))] w-full md:bottom-auto md:top-24 md:left-auto md:right-4 md:w-[370px] md:px-0">
-          <div className="bg-white border border-line rounded-2xl px-5 py-4 shadow-[0_2px_14px_rgba(43,35,32,0.06)] flex flex-col items-center gap-1.5 text-center">
+          <div data-testid="category-suggestion" className="bg-white border border-line rounded-2xl px-5 py-4 shadow-[0_2px_14px_rgba(43,35,32,0.06)] flex flex-col items-center gap-2 text-center">
             <NextSpotMascot className="w-12" />
-            <p className="text-muk text-sm font-semibold">{t('map.noRecTitle')}</p>
-            {/* 소진 원인이 '전부 오늘 휴무'면 문구를 구분 — 데이터 부족/엔진 실패로 오해하지 않게(정직성). */}
-            <p className="text-muk-soft text-xs leading-relaxed">
-              {t(noOpenTodayOnly ? 'map.noRecClosedBody' : 'map.noRecBody')}
+            <p className="text-muk text-sm font-semibold">
+              {showBarrierFree ? t('map.barrierFreeElsewhere') : t('map.suggestTitle')}
             </p>
+            {/* 소진 원인이 '전부 오늘 휴무'면 그 사실을 말한다 — 데이터 부족/엔진 실패로 오해하지 않게. */}
+            {noOpenTodayOnly && (
+              <p className="text-muk-soft text-xs leading-relaxed">{t('map.noRecClosedBody')}</p>
+            )}
+            {suggestedCategories.length > 0 && (
+              <div className="mt-1 flex flex-wrap justify-center gap-2">
+                {suggestedCategories.map(({ id, type, count }) => (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => selectCategory(id)}
+                    className="toss-pressable rounded-full border border-gold/50 bg-gold/10 px-3.5 py-2 text-xs font-bold text-muk hover:bg-gold/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+                  >
+                    {t('map.suggestButton', { category: t(`category.${type}`), n: count })}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}
