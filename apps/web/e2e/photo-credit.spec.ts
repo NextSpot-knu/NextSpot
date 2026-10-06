@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { stubExternalServices } from './support/stubs';
+import { openCardDetails } from './support/recCard';
 
 // Wikimedia 사진(CC BY/BY-SA)은 출처와 함께만 보이고, 출처는 그 사진 아래에만 붙는다(PM 규칙 2026-09-28).
 // 적재 배치는 Wikimedia 대체 사진을 gallery_images 에만 넣고 출처를 features.image_source 에 둔다 —
@@ -136,7 +137,7 @@ test('main card: a Wikimedia gallery photo is shown with its credit link', async
   }]);
   await page.goto('/main');
   await expect(page.getByText('석굴암 쉼터').first()).toBeVisible({ timeout: 20_000 });
-  await page.getByRole('button', { name: '상세 정보 펼치기' }).click();
+  await openCardDetails(page); // 390px — 미리보기를 펼친 뒤 상세를 연다
 
   const photo = page.locator(`img[src="${WIKI_PHOTO}"]`);
   await photo.scrollIntoViewIfNeeded(); // loading="lazy" — 화면에 들어와야 받는다
@@ -166,7 +167,7 @@ test('main card: a TourAPI photo carries no Wikimedia credit', async ({ page }) 
   }]);
   await page.goto('/main');
   await expect(page.getByText('황남 한식당').first()).toBeVisible({ timeout: 20_000 });
-  await page.getByRole('button', { name: '상세 정보 펼치기' }).click();
+  await openCardDetails(page); // 390px — 미리보기를 펼친 뒤 상세를 연다
 
   const photo = page.locator(`img[src="${TOUR_PHOTO}"]`);
   await photo.scrollIntoViewIfNeeded(); // loading="lazy" — 화면에 들어와야 받는다
@@ -246,7 +247,7 @@ test('main card: the ⓒ TourAPI chip sits with the TourAPI text, apart from the
   }]);
   await page.goto('/main');
   await expect(page.getByText('분황사 쉼터').first()).toBeVisible({ timeout: 20_000 });
-  await page.getByRole('button', { name: '상세 정보 펼치기' }).click();
+  await openCardDetails(page); // 390px — 미리보기를 펼친 뒤 상세를 연다
 
   const photo = page.locator(`img[src="${WIKI_PHOTO}"]`);
   await photo.scrollIntoViewIfNeeded();
@@ -294,7 +295,7 @@ test('main card: without an overview the ⓒ TourAPI chip sits right above the a
   }]);
   await page.goto('/main');
   await expect(page.getByText('황남 국밥').first()).toBeVisible({ timeout: 20_000 });
-  await page.getByRole('button', { name: '상세 정보 펼치기' }).click();
+  await openCardDetails(page); // 390px — 미리보기를 펼친 뒤 상세를 연다
 
   const refresh = page.getByRole('button', { name: '실시간 정보 새로고침' });
   await refresh.scrollIntoViewIfNeeded();
@@ -339,7 +340,7 @@ test('main card: without an overview the ⓒ chip sits below the Kakao reviews r
   }]);
   await page.goto('/main');
   await expect(page.getByText('황남 국밥').first()).toBeVisible({ timeout: 20_000 });
-  await page.getByRole('button', { name: '상세 정보 펼치기' }).click();
+  await openCardDetails(page); // 390px — 미리보기를 펼친 뒤 상세를 연다
 
   const reviews = page.getByRole('link', { name: '상세 리뷰 보기 ↗' });
   await reviews.scrollIntoViewIfNeeded();

@@ -1,5 +1,6 @@
 import { expect, test, type Locator, type Page, type Route } from '@playwright/test';
 import { stubExternalServices } from './support/stubs';
+import { expandPeek } from './support/recCard';
 
 // 심사위원 경로 회귀 테스트 ② — 메인 지도(/main)에서 손으로 눌러야만 드러나는 것들.
 //   · 비교 헤더("지금 A … → 대신 B · 도보 N분 · 등급")가 **근거가 하나도 없어도** 사라지지 않는가
@@ -166,15 +167,6 @@ async function mockMain(page: Page, options: MainOptions = {}): Promise<void> {
       ),
     }),
   );
-}
-
-/**
- * 휴대폰(<768px)에서 추천 카드는 짧은 미리보기(이름 · 도보 N분 · 혼잡 배지 · 도보 길안내)로 열린다.
- * 비교 헤더처럼 전체 카드에만 있는 것을 보려면 먼저 펼친다 — 손잡이 버튼(접근 이름 '추천 자세히 보기').
- */
-async function expandPeek(page: Page): Promise<void> {
-  await page.getByRole('button', { name: '추천 자세히 보기' }).click();
-  await expect(page.getByTestId('rec-card-peek')).toBeHidden();
 }
 
 /**

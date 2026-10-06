@@ -1,5 +1,6 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { stubExternalServices } from './support/stubs';
+import { openCardDetails } from './support/recCard';
 
 // 경주시 사진은 '사진: 경주시' 줄과 함께만 보인다(PM 규칙 2026-09-29).
 // 적재 배치는 사진 없는 음식점에만 경주시 사진을 gallery_images 에 넣고, 출처를 features.city_photo 에 둔다
@@ -17,7 +18,6 @@ const CITY_OTHER = 'https://www.gyeongju.go.kr/upload/content/thumb/20240101/e2e
 const TOUR_PHOTO = 'https://tong.visitkorea.or.kr/cms/resource/01/e2e_ok_image2_1.jpg';
 const CITY_SOURCE = 'https://www.gyeongju.go.kr/tour/';
 const LINE = { ko: '사진: 경주시', en: 'Photo: Gyeongju City' } as const;
-const DETAILS = { ko: '상세 정보 펼치기', en: 'Show details' } as const;
 type Locale = keyof typeof LINE;
 
 /** 적재 배치가 쓰는 모양 그대로(snake_case — API 응답을 apiClient 가 camel 로 바꾼다). */
@@ -143,7 +143,7 @@ for (const locale of ['ko', 'en'] as const) {
     }], locale);
     await page.goto('/main');
     await expect(page.getByText('황남 칼국수').first()).toBeVisible({ timeout: 20_000 });
-    await page.getByRole('button', { name: DETAILS[locale] }).click();
+    await openCardDetails(page, locale); // 390px — 미리보기를 펼친 뒤 상세를 연다
 
     const photo = page.locator(`img[src="${CITY_PHOTO}"]`);
     await photo.scrollIntoViewIfNeeded(); // loading="lazy" — 화면에 들어와야 받는다
@@ -177,7 +177,7 @@ for (const locale of ['ko', 'en'] as const) {
     photos.release();
     await page.goto('/main');
     await expect(page.getByText('교동 한정식').first()).toBeVisible({ timeout: 20_000 });
-    await page.getByRole('button', { name: DETAILS[locale] }).click();
+    await openCardDetails(page, locale); // 390px — 미리보기를 펼친 뒤 상세를 연다
 
     const photo = page.locator(`img[src="${TOUR_PHOTO}"]`);
     await photo.scrollIntoViewIfNeeded();
