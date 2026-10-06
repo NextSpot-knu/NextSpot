@@ -236,7 +236,7 @@ const skeletonOf = (page: Page) => page.getByText(/기준으로 다시 계산 �
 
 test.describe('recalculation feedback (desktop toolbar)', () => {
   // 🕒 가정 시간 셀렉트는 `hidden … md:flex` 툴바 안에 있어 모바일 폭에서는 렌더되지 않는다.
-  // 기능 자체를 검증하기 위해 데스크톱 폭으로 연다(모바일 노출 여부는 아래 별도 테스트).
+  // 기능 자체를 검증하기 위해 데스크톱 폭으로 연다(휴대폰 시간 조작은 지도 위 '혼잡 예측' 줄 쪽 e2e 가 잠근다).
   test.use({ viewport: { width: 1280, height: 900 } });
 
   test('assumed-time select shows a skeleton, swaps the card and toasts', async ({ page }) => {
