@@ -28,21 +28,36 @@ export function countUpFrame(from: number, to: number, progress: number, decimal
 }
 
 /**
+ * 새 목표값을 받았을 때 굴릴지(roll) 바로 바꿀지(jump). 순수 함수 — useCountUp.test.ts 가 검증한다.
+ * - 처음 유한한 값이 오면 언제나 0 에서 굴린다(새 카드가 '방금 계산됐다' 고 보이게).
+ * - rollOnChange=false 면 그 뒤의 갱신은 바로 바꾼다 — 서버가 같은 장소를 확인해 숫자만 고칠 때 카드가
+ *   다시 굴러 올라가면 화면이 바뀌는 것처럼 보인다(계획 B2 · I34).
+ */
+export function countUpPlan(input: { hasShownValue: boolean; rollOnChange: boolean }): 'roll' | 'jump' {
+  if (!input.hasShownValue) return 'roll';
+  return input.rollOnChange ? 'roll' : 'jump';
+}
+
+/**
  * target 을 향해 굴러가는 표시값을 돌려준다.
  * - target 이 처음 유한한 수가 되는 순간 0→target 으로 1회 굴린다.
  * - target 이 실제로 바뀌면 **직전 표시값**에서 새 값으로 다시 굴린다(중간에 바뀌어도 이어짐).
+ *   rollOnChange: false 면 굴리지 않고 바로 바꾼다 — 첫 등장만 굴린다(countUpPlan).
  * - target 이 유한하지 않으면(NaN 등) 아무것도 하지 않는다 — 직전 표시값 유지.
  */
 export function useCountUp(
   target: number,
-  opts?: { durationMs?: number; decimals?: number },
+  opts?: { durationMs?: number; decimals?: number; rollOnChange?: boolean },
 ): number {
   const durationMs = opts?.durationMs ?? 900;
   const decimals = opts?.decimals ?? 0;
+  const rollOnChange = opts?.rollOnChange ?? true;
   const [display, setDisplay] = useState(0);
   // setState 비동기 반영과 무관하게 "지금 화면에 있는 값"을 즉시 읽기 위한 ref —
   // target 이 애니메이션 도중 바뀌면 여기서부터 이어 굴린다.
   const displayRef = useRef(0);
+  // 유한한 값을 한 번이라도 보여 줬는가 — rollOnChange=false 의 '첫 등장만 굴린다' 판정(countUpPlan).
+  const shownRef = useRef(false);
 
   useEffect(() => {
     // 유한한 실제 값이 오기 전에는 시작하지 않는다(로딩 중 undefined→NaN 전달 관례).
@@ -54,7 +69,9 @@ export function useCountUp(
       typeof window.requestAnimationFrame !== 'function' ||
       (typeof window.matchMedia === 'function' &&
         window.matchMedia('(prefers-reduced-motion: reduce)').matches);
-    if (reduce) {
+    const plan = countUpPlan({ hasShownValue: shownRef.current, rollOnChange });
+    shownRef.current = true;
+    if (reduce || plan === 'jump') {
       displayRef.current = target;
       setDisplay(target);
       return;
@@ -72,7 +89,7 @@ export function useCountUp(
     };
     raf = window.requestAnimationFrame(tick);
     return () => window.cancelAnimationFrame(raf);
-  }, [target, durationMs, decimals]);
+  }, [target, durationMs, decimals, rollOnChange]);
 
   return display;
 }

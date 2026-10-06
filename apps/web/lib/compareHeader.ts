@@ -222,3 +222,29 @@ export function tasteBenefitPercent(preferencePercent: number | null | undefined
     ? preferencePercent
     : null;
 }
+
+// ── 접힌 카드 얼굴의 혼잡 칩 ─────────────────────────────────────────────────────────────────────
+//
+// 계획 B2 5번: 얼굴의 칩은 가치 문장이 이미 한 말을 되풀이하지 않는다. 혼잡 칩은 (a) 지금 잰 값이 있거나
+// (b) 이 후보가 기준 명소보다 **정말** 덜 붐빌 때만 얼굴에 둔다. 주변 공영주차로 만든 지역 추정은 근처 장소가
+// 모두 같은 등급을 받는다 — 얼굴에 두면 '대안' 이 피하려던 곳과 똑같이 붐벼 보인다(그 근거는 '추천 근거 자세히' 안).
+
+export interface FaceCrowdChipInput {
+  /** 가치 문장이 이미 두 곳의 붐빔을 말하는가(화살표 문장). 그러면 칩은 같은 말의 반복이다. */
+  valueLineSaysCrowd: boolean;
+  /** 카드가 '지금' 실측으로 칠한 값이 있는가(서버가 '지금' 이라 한 관측 · 방금 남긴 제보). */
+  measuredNow: boolean;
+  anchorGrade: CongestionKey | null;
+  /** anchorGrade 를 무엇으로 정했는지. 관광 상대지수면 '덜 붐빈다' 를 말하지 않는다(화살표와 같은 규칙). */
+  anchorBasis?: AnchorCrowdBasis;
+  candidateGrade: CongestionKey | null;
+}
+
+export function showFaceCrowdChip(input: FaceCrowdChipInput): boolean {
+  if (input.valueLineSaysCrowd) return false;
+  if (input.measuredNow) return true;
+  return input.anchorBasis !== 'tourism'
+    && input.anchorGrade !== null
+    && input.candidateGrade !== null
+    && GRADE_ORDER[input.candidateGrade] < GRADE_ORDER[input.anchorGrade];
+}

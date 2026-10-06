@@ -6,6 +6,7 @@ import {
   chooseCompareHeadline,
   resolveAnchorCrowd,
   resolveCandidateCrowd,
+  showFaceCrowdChip,
   tasteBenefitPercent,
 } from './compareHeader';
 
@@ -204,5 +205,18 @@ assert.equal(tasteBenefitPercent(49), null);
 assert.equal(tasteBenefitPercent(12), null);
 assert.equal(tasteBenefitPercent(72.5), null);
 assert.equal(tasteBenefitPercent(undefined), null);
+
+// ── 접힌 카드 얼굴의 혼잡 칩(계획 B2 5번) ─────────────────────────────────────────────────────────
+// 화살표 문장이 이미 붐빔을 말하면 칩은 반복이라 없다.
+assert.equal(showFaceCrowdChip({ valueLineSaysCrowd: true, measuredNow: true, anchorGrade: 'busy', candidateGrade: 'quiet' }), false);
+// 지금 잰 값은 보인다.
+assert.equal(showFaceCrowdChip({ valueLineSaysCrowd: false, measuredNow: true, anchorGrade: null, candidateGrade: 'quiet' }), true);
+// 지역 추정이 기준 명소와 같은 등급이면 얼굴에 없다(자기 자리 추천 · 같은 지역).
+assert.equal(showFaceCrowdChip({ valueLineSaysCrowd: false, measuredNow: false, anchorGrade: 'busy', candidateGrade: 'busy' }), false);
+assert.equal(showFaceCrowdChip({ valueLineSaysCrowd: false, measuredNow: false, anchorGrade: null, candidateGrade: 'busy' }), false);
+// 정말 덜 붐비면 보인다(예: 기준 명소가 지구 기록이라 화살표는 못 쓰지만 등급은 낮다).
+assert.equal(showFaceCrowdChip({ valueLineSaysCrowd: false, measuredNow: false, anchorGrade: 'busy', anchorBasis: 'parking', candidateGrade: 'relaxed' }), true);
+// 기준 명소 등급이 관광 상대지수에서 왔으면 '덜 붐빈다' 를 말하지 않는다.
+assert.equal(showFaceCrowdChip({ valueLineSaysCrowd: false, measuredNow: false, anchorGrade: 'busy', anchorBasis: 'tourism', candidateGrade: 'quiet' }), false);
 
 console.log('compare header tests passed');

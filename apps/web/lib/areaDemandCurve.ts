@@ -22,6 +22,7 @@
 // 막은 묶음 요청이 3개의 동시 재시도로 되돌아오지 않게 하려는 것이다(B4).
 
 import { apiClient } from "@/lib/api-client";
+import { REGION } from "@/lib/region";
 
 /** KST 정시(0~23) → 권역 수요(0~1). 표본이 없는 시각은 아예 키가 없다. */
 export type AreaDemandCurve = Record<number, number>;
@@ -145,4 +146,39 @@ export async function fetchAreaDemandCurve(
   const width = leadWarm ? Math.min(FAN_OUT, rest.length) : Math.min(1, rest.length);
   await Promise.all(Array.from({ length: width }, worker));
   return curve;
+}
+
+// ── 세션 공용 권역 곡선(교차 레인 계약 3 · 계획 3.2 예산) ─────────────────────────────────────────
+//
+// /main 의 혼잡 예측 시간 줄(B3)과 /waiting 이 **같은 곡선**을 쓴다: 경주 중심(REGION.center) 기준 '지금' 곡선을
+// 한 세션(탭)에 한 번만 묻고 모듈 안에 들고 있는다. 심사 한 번의 차가운 여정에서 Render 호출을 12회 안에 두려는
+// 예산이다. 기준 정시(KST)가 바뀌면 새로 묻는다(다른 시각의 곡선을 쓰지 않는다 — curveForBase 와 같은 원칙).
+// 실패하거나 빈 곡선이면 담아 두지 않는다 — 다음에 다시 묻는다(서버가 깨어난 뒤 곡선이 생길 수 있다).
+// 이 함수의 모양(인자·반환)은 다른 레인이 가져다 쓴다 — 바꾸지 말고 옵션을 더한다.
+
+type CurveFetcher = typeof fetchAreaDemandCurve;
+const sessionCurves = new Map<string, Promise<AreaDemandCurve>>();
+
+/** 지금 정시 기준 경주 중심 권역 곡선 — 같은 정시 안에서는 요청 한 번을 공유한다. */
+export function sessionAreaDemandCurve(nowMs: number = Date.now(), fetcher: CurveFetcher = fetchAreaDemandCurve): Promise<AreaDemandCurve> {
+  const key = String(Math.floor(nowMs / HOUR_MS));
+  const cached = sessionCurves.get(key);
+  if (cached) return cached;
+  const pending = fetcher(REGION.center.lat, REGION.center.lng, new Date(nowMs), undefined, nowMs).then(
+    (curve) => {
+      if (Object.keys(curve).length === 0) sessionCurves.delete(key);
+      return curve;
+    },
+    (error: unknown) => {
+      sessionCurves.delete(key);
+      throw error;
+    },
+  );
+  sessionCurves.set(key, pending);
+  return pending;
+}
+
+/** 테스트 전용 — 모듈 캐시를 비운다. */
+export function resetSessionAreaDemandCurve(): void {
+  sessionCurves.clear();
 }

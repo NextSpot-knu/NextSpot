@@ -68,6 +68,43 @@ for (const [phrase, expected] of cases) {
   console.log(`${ok2 ? "PASS" : "FAIL"}  buildCardSpeech(no reason) -> ${s2}`);
 }
 
-const total = cases.length + 3;
+// 화면 언어별 명령어(계획 B5 · I21) — ko 는 기본값 그대로, en/ja/zh 는 그 언어의 말로.
+const localeCases: [string, string, VoiceIntent][] = [
+  ["en", "yes please", "accept"],
+  ["en", "next", "next"],
+  ["en", "no thanks", "next"],
+  ["en", "not good", "negative"],
+  ["en", "I don't want to go", "negative"],
+  ["en", "tell me more", "detail"],
+  ["en", "stop", "cancel"],
+  ["en", "none of these", "rejectAll"],
+  ["en", "go", "accept"],
+  ["en", "no go", "next"],
+  ["en", "good morning", "unknown"],
+  ["ja", "はい", "accept"],
+  ["ja", "はい、お願いします", "accept"],
+  ["ja", "次", "next"],
+  ["ja", "つぎ", "next"],
+  ["ja", "いいえ", "next"],
+  ["ja", "詳しく", "detail"],
+  ["ja", "やめて", "cancel"],
+  ["zh", "好的。", "accept"],
+  ["zh", "下一个", "next"],
+  ["zh", "不好", "negative"],
+  ["zh", "不错", "unknown"],
+  ["zh", "详细", "detail"],
+  ["zh", "停止", "cancel"],
+  // ko 를 명시해도 예전 그대로.
+  ["ko", "응 가자", "accept"],
+  ["ko", "다음", "next"],
+];
+for (const [locale, phrase, expected] of localeCases) {
+  const got = classifyIntent([phrase], locale);
+  const ok = got === expected;
+  if (!ok) fail++;
+  console.log(`${ok ? "PASS" : "FAIL"}  [${locale}] "${phrase}" -> ${got}${ok ? "" : ` (expected ${expected})`}`);
+}
+
+const total = cases.length + 3 + localeCases.length;
 console.log(`\n${total - fail}/${total} passed`);
 if (fail) process.exit(1);

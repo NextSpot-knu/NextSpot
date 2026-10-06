@@ -127,7 +127,10 @@ export interface ScoreOpts {
 // ── 이 모듈이 실제로 '읽는' 필드만 담은 최소 구조 타입 ──
 // 호출측(main/page.tsx 의 로컬 Facility 등)의 더 풍부한 타입이 구조적으로 만족한다.
 // congestionLevel 은 혼잡 로그가 없으면 null(합성값 금지)이므로 null 을 그대로 반영.
-interface ScorableFeatures {
+export interface ScorableFeatures {
+  // apiClient(keysToCamel)를 거친 응답은 features 안까지 camelCase(cuisineTags)다. Supabase 직접 읽기 폴백은
+  // snake_case(cuisine_tags) 그대로 — 둘 다 읽는다(facilityCuisineTokens).
+  cuisineTags?: string[] | string | null;
   cuisine_tags?: string[] | string | null;
   cuisine?: string[] | string | null;
   barrier_free?: unknown; // truthy 여부만 본다(JSONB 혼합 타입)
@@ -136,7 +139,7 @@ interface ScorableFeatures {
   [key: string]: unknown; // 그 외 features JSONB 키 통과
 }
 
-interface ScorableFacility {
+export interface ScorableFacility {
   name?: string | null;
   type: string; // CATEGORY_VECTORS·기본 처리시간의 인덱스 키
   latitude?: number;
@@ -178,7 +181,10 @@ const CUISINE_INTENT_MAP: { keys: string[]; tags: string[] }[] = [
   { keys: ["한식", "백반", "가정식", "집밥", "한정식"], tags: ["한식", "한정식"] },
   { keys: ["채식", "비건", "샐러드"], tags: ["채식"] },
 ];
-const _BAR_TAGS_FE = ["술집", "호프", "오뎅바", "실내포장마차", "일본식주점", "호프,요리주점"];
+// 술집으로 적재된 '음식점' 을 가리는 태그. /main 의 음식점 추천 후보·음성 후보와 음식 의도 매칭(cuisineMatch)이
+// 같은 목록을 쓴다 — 예전에는 /main 에 '포차·선술집' 이 더 든 사본이 따로 있었다.
+export const BAR_TAGS: readonly string[] = ["술집", "호프", "오뎅바", "실내포장마차", "일본식주점", "호프,요리주점", "포차", "선술집"];
+const _BAR_TAGS_FE = BAR_TAGS;
 const _HANSIK_SPECIFIC = ["육류,고기", "국밥", "순대", "찌개,전골", "갈비", "곱창,막창", "족발,보쌈", "국수", "칼국수", "닭요리", "해물,생선", "한식", "한정식"];
 
 // TourAPI 소분류(cat3) → cuisine 토큰. 실 TourAPI POI(69곳)는 cuisine_tags 가 없고 cat3 만 있으므로
@@ -191,11 +197,34 @@ const _CAT3_CUISINE: Record<string, string> = {
   A05020700: "이색음식점",
 };
 
-function _facilityCuisineTokens(facility: ScorableFacility | null | undefined): string[] {
-  const raw = facility?.features?.cuisine_tags ?? facility?.features?.cuisine ?? facility?.cuisine;
+/**
+ * 시설의 음식 종류 토큰 — cuisine_tags(+cat3 매핑). camelCase(cuisineTags)·snake_case 를 모두 읽는다.
+ * 예전에는 cuisine_tags 만 읽어서 apiClient 를 거친 /main 시설(cuisineTags)은 전부 '태그 없음' 이었다 —
+ * 그래서 술집이 음식점 후보에 남고, 🍕 칩은 메뉴·상호명으로만 맞췄다(계획 B2 · I09).
+ */
+export function facilityCuisineTokens(facility: ScorableFacility | null | undefined): string[] {
+  const features = facility?.features;
+  const raw = features?.cuisineTags ?? features?.cuisine_tags ?? features?.cuisine ?? facility?.cuisine;
   const tags = Array.isArray(raw) ? raw.map((x) => String(x)) : typeof raw === "string" ? [raw] : [];
-  const cat3 = facility?.features?.cat3;
+  const cat3 = features?.cat3;
   if (typeof cat3 === "string" && _CAT3_CUISINE[cat3]) tags.push(_CAT3_CUISINE[cat3]);
+  return tags;
+}
+const _facilityCuisineTokens = facilityCuisineTokens;
+
+/** 술집 태그가 붙은 시설인가 — 음식점 추천·음성 후보에서 뺀다(지도 핀으로는 그대로 보인다). */
+export function isBarFacility(facility: ScorableFacility | null | undefined): boolean {
+  return facilityCuisineTokens(facility).some((tag) => BAR_TAGS.includes(tag));
+}
+
+/** 말·칩 키워드 → 음식 태그 집합(CUISINE_INTENT_MAP). 알아듣지 못하면 빈 집합. */
+export function cuisineIntentTags(text: string | null | undefined): Set<string> {
+  const it = String(text ?? "").toLowerCase();
+  const tags = new Set<string>();
+  if (!it) return tags;
+  for (const grp of CUISINE_INTENT_MAP) {
+    if (grp.keys.some((k) => it.includes(k.toLowerCase()))) grp.tags.forEach((t) => tags.add(t));
+  }
   return tags;
 }
 
