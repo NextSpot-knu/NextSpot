@@ -18,6 +18,7 @@ import {
   type TourismDemandEvidence,
 } from './areaDemandPresentation';
 import { DEFAULT_BUSY_THRESHOLD, congestionKey, type CongestionKey } from './congestionScale';
+import { congestionDisplay, type CongestionDisplayInput } from './congestionEstimate';
 
 /** 기준 명소의 혼잡 등급을 무엇으로 말했는지. 화면이 근거를 밝힐 때 쓴다. */
 export type AnchorCrowdBasis = 'estimate' | 'parking' | 'tourism' | 'none';
@@ -72,6 +73,17 @@ export function resolveAnchorCrowd(input: AnchorCrowdInput): AnchorCrowd {
   return { grade: null, basis: 'none' };
 }
 
+/**
+ * 기준 명소 시설 자체의 '지금' 혼잡(0~1) — resolveAnchorCrowd 의 1순위 근거(estimateLevel)로 넘길 값.
+ * 카드가 후보를 칠할 때와 **같은 규칙**(congestionDisplay)을 거친다: 서버가 '지금이 아니다' 라고 한 24시간
+ * 넘은(또는 시각 모를) 관측은 버리고, 추정은 60분 안쪽만 쓴다. 지도 시설 목록의 원시 congestionLevel 을
+ * 그대로 읽으면 46일 전 관측 0.92 가 '지금 대릉원 혼잡' 이 된다(검토 2026-10-06).
+ */
+export function anchorNowLevel(input: CongestionDisplayInput, now: Date = new Date()): number | null {
+  const display = congestionDisplay(input, now);
+  return display.level ?? display.estimate?.level ?? null;
+}
+
 export interface CandidateCrowdInput {
   /** 카드가 '지금'으로 칠한 실측·예측 혼잡도(0~1). */
   congestionLevel?: number | null;
@@ -122,8 +134,10 @@ export function resolveCandidateCrowd(input: CandidateCrowdInput): CongestionKey
 // "지금 A 혼잡 → 대신 B" 는 **B 가 정말 A 보다 덜 붐빌 때만** 참이다. 예전 헤더는 언제나 화살표를
 // 그려서 "지금 경주 첨성대 혼잡 → 대신 경주 첨성대"(자기 자신과 비교) · "지금 인기 명소 인기 → …"
 // (근거 없음) · 혼잡 → 혼잡(같은 지역 추정이라 등급이 같다)처럼 서비스의 약속을 첫 줄에서 스스로
-// 깨뜨렸다(심사 시뮬레이션 2026-10-06). 그래서 화살표는 아래 네 조건이 **모두** 맞을 때만 쓰고,
+// 깨뜨렸다(심사 시뮬레이션 2026-10-06). 그래서 화살표는 아래 조건이 **모두** 맞을 때만 쓰고,
 // 아니면 관광객이 얻는 것(이름 · 도보 N분 · 도착 시 영업 · 취향 N% 일치)을 말한다.
+// 기준 명소의 등급이 관광 상대지수에서 왔으면(basis 'tourism') 비교하지 않는다 — 그 지수는 명소마다 자기 최고
+// 시기를 100 으로 본 날짜별 값이라 '지금' 도 아니고 다른 곳과 견줄 수도 없다(후보 쪽 candidateAreaCrowdLevel 과 같은 규칙).
 
 /** 지구·일원 같은 넓은 구역 기록 — '대신 피할 한 곳'으로 부를 수 없다. */
 const DISTRICT_ANCHOR = /(사적지대|관광단지|유적지구|지구|일원|일대|권역)$/;
@@ -136,12 +150,21 @@ function normalizePlaceName(name: string): string {
   return name.replace(/\s+/g, '').replace(/^경주/, '');
 }
 
+/** 같은 곳의 다른 표기 — 정규화한 이름과, 괄호 속 별칭('천마총(대릉원)' → '천마총' · '대릉원'). */
+function placeNameKeys(name: string): string[] {
+  const key = normalizePlaceName(name);
+  const alias = key.match(/^(.+?)\((.+)\)$/);
+  return (alias ? [key, normalizePlaceName(alias[1]), normalizePlaceName(alias[2])] : [key]).filter(Boolean);
+}
+
 export interface CompareHeadlineInput {
   anchorName?: string | null;
   /** 기준 명소와 후보 사이 거리(m). 모르면 null — 거리 조건은 통과로 본다. */
   anchorDistanceM?: number | null;
   candidateName: string;
   anchorGrade: CongestionKey | null;
+  /** anchorGrade 를 무엇으로 정했는지(resolveAnchorCrowd). 'tourism' 이면 비교하지 않는다. */
+  anchorBasis?: AnchorCrowdBasis;
   candidateGrade: CongestionKey | null;
 }
 
@@ -154,27 +177,48 @@ export type CompareHeadline =
 export function chooseCompareHeadline(input: CompareHeadlineInput): CompareHeadline {
   const anchor = input.anchorName?.trim() ?? '';
   const distance = finite(input.anchorDistanceM);
+  const anchorKeys = placeNameKeys(anchor);
+  const candidateKeys = placeNameKeys(input.candidateName);
   const anchorKey = normalizePlaceName(anchor);
   const candidateKey = normalizePlaceName(input.candidateName);
-  // 같은 곳: 이름이 같거나 한쪽이 다른 쪽을 품는다('대릉원' ⊂ '천마총(대릉원)'), 또는 거리가 0 —
-  // 관광 근거가 그 장소 자신의 기록과 맞물리면 서버가 거리 0 으로 준다.
-  const candidateIsAnchor = !!anchor && (
-    anchorKey === candidateKey
-    || anchorKey.includes(candidateKey)
-    || candidateKey.includes(anchorKey)
+  // '경주' 처럼 정규화하면 빈 이름이 되는 기록은 기준 명소가 아니다(빈 문자열은 모든 이름에 들어 있다).
+  const hasAnchor = anchorKey !== '';
+  const farApart = distance !== null && distance >= MIN_ANCHOR_DISTANCE_M;
+  // 같은 곳: 이름(또는 괄호 속 별칭)이 같다, 또는 거리가 0 — 관광 근거가 그 장소 자신의 기록과 맞물리면
+  // 서버가 거리 0 으로 준다. 한쪽 이름이 다른 쪽을 품는 것('첨성대' ⊂ '첨성대 한정식')은 거리를 모르거나
+  // 100m 안쪽일 때만 같은 곳으로 본다 — 300m 떨어진 '첨성대 한정식' 은 첨성대가 아니다.
+  const candidateIsAnchor = hasAnchor && (
+    anchorKeys.some((key) => candidateKeys.includes(key))
+    || (!farApart && candidateKey !== '' && (anchorKey.includes(candidateKey) || candidateKey.includes(anchorKey)))
     || (distance !== null && distance < 1)
   );
   const calmer = input.anchorGrade !== null
     && input.candidateGrade !== null
     && GRADE_ORDER[input.candidateGrade] < GRADE_ORDER[input.anchorGrade];
   if (
-    anchor
+    hasAnchor
     && !DISTRICT_ANCHOR.test(anchor)
     && !candidateIsAnchor
     && (distance === null || distance >= MIN_ANCHOR_DISTANCE_M)
+    && input.anchorBasis !== 'tourism'
     && calmer
   ) {
     return { kind: 'compare' };
   }
   return { kind: 'benefit', candidateIsAnchor };
+}
+
+/**
+ * 혜택 문장의 '취향 N% 일치' 는 이 값 이상일 때만 붙인다. 칩이 온보딩 밖 유형도 고르게 된 뒤(A5) 서로 무관한
+ * 메뉴는 12~18% 가 나와, 카드에서 가장 큰 줄이 "취향 12% 일치" 처럼 추천한 곳을 스스로 깎는 말이 됐다.
+ */
+export const TASTE_BENEFIT_MIN_PERCENT = 50;
+
+/** 혜택 문장에 붙일 취향 일치율(정수 %). 정수가 아니거나 문턱 아래면 null — 그 조각을 빼고 말한다. */
+export function tasteBenefitPercent(preferencePercent: number | null | undefined): number | null {
+  return typeof preferencePercent === 'number'
+    && Number.isInteger(preferencePercent)
+    && preferencePercent >= TASTE_BENEFIT_MIN_PERCENT
+    ? preferencePercent
+    : null;
 }

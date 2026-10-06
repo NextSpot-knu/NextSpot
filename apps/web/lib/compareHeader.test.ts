@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict';
 
-import { candidateAreaCrowdLevel, chooseCompareHeadline, resolveCandidateCrowd } from './compareHeader';
+import {
+  anchorNowLevel,
+  candidateAreaCrowdLevel,
+  chooseCompareHeadline,
+  resolveAnchorCrowd,
+  resolveCandidateCrowd,
+  tasteBenefitPercent,
+} from './compareHeader';
 
 const parking = (level: number) => ({ level, mode: 'live' as const, observedAt: '2026-09-27T03:20:00+00:00', radiusM: 500 });
 const tourism = (relativeIndex: number) => ({ referenceName: '대릉원', distanceM: 180, forecastDate: '2026-09-27', relativeIndex });
@@ -113,5 +120,89 @@ assert.deepEqual(
   chooseCompareHeadline({ anchorName: '대릉원', anchorDistanceM: 100, candidateName: '우직', anchorGrade: 'busy', candidateGrade: 'moderate' }),
   { kind: 'compare' },
 );
+
+// ── 같은 곳 판정: 이름을 품는 다른 가게 · 빈 이름 (검토 2026-10-06) ──────────────────────────────
+// 300m 떨어진 '첨성대 한정식' 은 첨성대가 아니다 — 정말 덜 붐비면 화살표가 참이다.
+assert.deepEqual(
+  chooseCompareHeadline({ anchorName: '첨성대', anchorDistanceM: 300, candidateName: '첨성대 한정식', anchorGrade: 'busy', candidateGrade: 'quiet' }),
+  { kind: 'compare' },
+);
+// 거리를 모르거나 100m 안쪽이면 이름을 품는 것도 같은 자리로 본다.
+assert.deepEqual(
+  chooseCompareHeadline({ anchorName: '첨성대', anchorDistanceM: null, candidateName: '첨성대 한정식', anchorGrade: 'busy', candidateGrade: 'quiet' }),
+  benefit(true),
+);
+assert.deepEqual(
+  chooseCompareHeadline({ anchorName: '첨성대', anchorDistanceM: 60, candidateName: '첨성대 한정식', anchorGrade: 'busy', candidateGrade: 'quiet' }),
+  benefit(true),
+);
+// 괄호 속 별칭은 거리와 상관없이 같은 곳이다('천마총(대릉원)' ↔ '대릉원', 위 (c)).
+assert.deepEqual(
+  chooseCompareHeadline({ anchorName: '대릉원', anchorDistanceM: 350, candidateName: '천마총(대릉원)', anchorGrade: 'busy', candidateGrade: 'quiet' }),
+  benefit(true),
+);
+// '경주' 는 정규화하면 빈 이름 — 모든 후보를 '자기 자신' 으로 만들지 않고, 기준 명소가 없는 것으로 본다.
+assert.deepEqual(
+  chooseCompareHeadline({ anchorName: '경주', anchorDistanceM: 400, candidateName: '우직', anchorGrade: 'busy', candidateGrade: 'quiet' }),
+  benefit(false),
+);
+
+// ── 기준 명소 등급의 근거: 관광 상대지수로는 비교하지 않는다 ──────────────────────────────────────
+// 관광 지수 86 은 '혼잡' 으로 읽히지만, 명소 자신의 최고 시기 대비 날짜별 값이라 '지금' 도, 다른 곳과 견줄 값도 아니다.
+const tourismAnchor = resolveAnchorCrowd({ estimateLevel: null, parkingLevel: null, tourismRelativeIndex: 86 });
+assert.deepEqual(tourismAnchor, { grade: 'busy', basis: 'tourism' });
+assert.deepEqual(
+  chooseCompareHeadline({ anchorName: '대릉원', anchorDistanceM: 400, candidateName: '우직', anchorGrade: tourismAnchor.grade, anchorBasis: tourismAnchor.basis, candidateGrade: 'relaxed' }),
+  benefit(false),
+);
+// 주차 실측·추정 근거면 그대로 비교한다.
+for (const basis of ['parking', 'estimate'] as const) {
+  assert.deepEqual(
+    chooseCompareHeadline({ anchorName: '대릉원', anchorDistanceM: 400, candidateName: '우직', anchorGrade: 'busy', anchorBasis: basis, candidateGrade: 'relaxed' }),
+    { kind: 'compare' },
+    basis,
+  );
+}
+
+// ── 기준 명소 시설의 '지금' 혼잡 — 카드와 같은 규칙(congestionDisplay) ───────────────────────────────
+const NOW = new Date('2026-10-06T03:00:00Z');
+const minutesAgo = (n: number) => new Date(NOW.getTime() - n * 60_000).toISOString();
+const freshEstimate = (level: number, ageMin = 5) => ({
+  level, source: 'estimated', observedAt: minutesAgo(ageMin), parkingLevel: level, tourismLevel: null,
+  lotCount: 1, nearestLotM: 300, radiusM: 2000,
+});
+// 46일 전 관측(서버: 지금 아님)은 등급이 되지 않는다 — '지금 대릉원 혼잡' 의 원인이었다.
+assert.equal(
+  anchorNowLevel({ congestionLevel: 0.92, congestionIsCurrent: false, congestionTimestamp: minutesAgo(46 * 24 * 60) }, NOW),
+  null,
+);
+// 시각을 모르는 '지금 아님' 관측도 같다.
+assert.equal(anchorNowLevel({ congestionLevel: 0.92, congestionIsCurrent: false, congestionTimestamp: null }, NOW), null);
+// 낡은 관측 대신 신선한 추정이 있으면 그 추정.
+assert.equal(
+  anchorNowLevel({
+    congestionLevel: 0.92, congestionIsCurrent: false, congestionTimestamp: minutesAgo(46 * 24 * 60),
+    congestionEstimate: freshEstimate(0.4),
+  }, NOW),
+  0.4,
+);
+// 60분이 넘은 추정은 쓰지 않는다.
+assert.equal(anchorNowLevel({ congestionLevel: null, congestionEstimate: freshEstimate(0.9, 90) }, NOW), null);
+assert.equal(anchorNowLevel({ congestionLevel: null, congestionEstimate: freshEstimate(0.9) }, NOW), 0.9);
+// 서버가 '지금' 이라고 한 실측은 그대로(추정보다 먼저).
+assert.equal(
+  anchorNowLevel({ congestionLevel: 0.8, congestionIsCurrent: true, congestionTimestamp: minutesAgo(10), congestionEstimate: freshEstimate(0.3) }, NOW),
+  0.8,
+);
+// 근거가 하나도 없으면 null — 카드가 주차 실측 → 관광 지수 순으로 내려간다.
+assert.equal(anchorNowLevel({}, NOW), null);
+
+// ── 혜택 문장의 취향 조각은 문턱(50%) 이상일 때만 ───────────────────────────────────────────────
+assert.equal(tasteBenefitPercent(80), 80);
+assert.equal(tasteBenefitPercent(50), 50);
+assert.equal(tasteBenefitPercent(49), null);
+assert.equal(tasteBenefitPercent(12), null);
+assert.equal(tasteBenefitPercent(72.5), null);
+assert.equal(tasteBenefitPercent(undefined), null);
 
 console.log('compare header tests passed');

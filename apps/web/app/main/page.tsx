@@ -42,6 +42,8 @@ import { errorMessage } from '@/lib/errors';
 import NextSpotMascot from '@/components/NextSpotMascot';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { buildSpotComparisons, formatSpotComparison } from '@/lib/spotComparison';
+import { anchorNowLevel } from '@/lib/compareHeader';
+import { cardTimes } from '@/lib/cardTimes';
 import {
   DISCOVERY_THEMES,
   findDiscoveryAnchor,
@@ -2007,7 +2009,9 @@ export default function MainPage() {
       return next;
     });
 
-    showToast(t('map.rejectToast'));
+    // '다른 곳을 보여드릴게요' 는 정말 다음 장소가 뜰 때만. 남은 곳이 없으면 카드가 닫히는 것(과 고를 칩이 있으면
+    // 제안 카드)이 답이다 — 지키지 못할 약속도, '없어요' 같은 빈 말도 하지 않는다.
+    if (nextCandidates.length > 0) showToast(t('map.rejectToast'));
     maybeShowLabHint();
   };
 
@@ -3124,12 +3128,13 @@ export default function MainPage() {
                           )}
                           {/* 접수된 뒤에는 버튼을 '접수됨' 으로 잠근다 — 같은 줄을 다시 눌러도
                               백엔드가 조용히 무시하므로(contentid UNIQUE) 눌리는 버튼을 남겨 두면
-                              아무 일도 일어나지 않는 조작을 주는 셈이다. 갈 길(위 두 버튼)이 먼저라 작은 보조 버튼이다. */}
+                              아무 일도 일어나지 않는 조작을 주는 셈이다. 갈 길(위 두 버튼)이 먼저라 보조 버튼이지만,
+                              기능설명서가 이름으로 부르는 단계라 옆 버튼과 같은 알약 모양으로 찾을 수 있게 둔다. */}
                           <button
                             type="button"
                             onClick={() => requestIngest(item)}
                             disabled={requested || pending}
-                            className="px-1 py-1 text-[10px] font-semibold text-muk-soft underline-offset-2 hover:text-jade hover:underline transition-colors disabled:opacity-60 disabled:no-underline disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-jade/60"
+                            className="rounded-full border border-line px-2.5 py-1.5 text-[11px] font-semibold text-muk-soft hover:border-jade/50 hover:text-jade transition-colors disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:border-line disabled:hover:text-muk-soft focus:outline-none focus-visible:ring-2 focus-visible:ring-jade/60"
                           >
                             {requested ? t('map.ingestRequested') : pending ? `${t('map.ingestRequest')}…` : t('map.ingestRequest')}
                           </button>
@@ -3740,20 +3745,25 @@ export default function MainPage() {
           const compareAnchorName: string | null = activeDiscovery?.anchorName
             ?? spot.areaDemandTourismEvidence?.referenceName
             ?? null;
-          // 그 명소 자체의 혼잡 추정(1순위 근거). 시설 목록에서 이름·id 로 되찾아 추정 피드 값을 읽는다.
-          // 못 찾으면 null — 카드가 주차 실측 → 관광 상대지수 순으로 내려간다(지어내지 않는다).
+          // 그 명소 자체의 '지금' 혼잡(1순위 근거). 시설 목록에서 이름·id 로 되찾아, 후보 카드와 같은 규칙
+          // (congestionDisplay: 24시간 넘은 '지금 아님' 관측은 버리고 추정은 60분 안쪽만)으로 읽는다.
+          // 못 찾거나 쓸 값이 없으면 null — 카드가 주차 실측 → 관광 상대지수 순으로 내려간다(지어내지 않는다).
           const compareAnchorFacility = compareAnchorName
             ? expandGroups(facilities).find((f) =>
                 (activeDiscovery ? f?.id === activeDiscovery.anchorId : false) || f?.name === compareAnchorName)
             : undefined;
-          const compareAnchorEstimate = compareAnchorFacility
-            ? ((estimateById[compareAnchorFacility.id] as CongestionEstimate | undefined)
-                ?? compareAnchorFacility.congestionEstimate
-                ?? null)
+          const compareAnchorLevel: number | null = compareAnchorFacility
+            ? anchorNowLevel({
+                congestionLevel: compareAnchorFacility.congestionLevel,
+                congestionSource: compareAnchorFacility.congestionSource ?? null,
+                congestionIsCurrent: compareAnchorFacility.congestionIsCurrent,
+                // 지도 시설의 lastUpdated 는 혼잡 로그 시각이다(loadFacilities) — 아래 카드의 congestionTimestamp 와 같은 값.
+                congestionTimestamp: compareAnchorFacility.congestionTimestamp ?? compareAnchorFacility.lastUpdated,
+                congestionEstimate: (estimateById[compareAnchorFacility.id] as CongestionEstimate | undefined)
+                  ?? compareAnchorFacility.congestionEstimate
+                  ?? null,
+              })
             : null;
-          const compareAnchorLevel: number | null =
-            (typeof compareAnchorEstimate?.level === 'number' ? compareAnchorEstimate.level : null)
-            ?? (typeof compareAnchorFacility?.congestionLevel === 'number' ? compareAnchorFacility.congestionLevel : null);
           // 기준 명소까지 거리 — 100m 안쪽(같은 자리)이면 카드가 "A → 대신 B" 화살표를 쓰지 않는다.
           // 관광 근거면 서버가 준 거리, 테마 랜드마크면 두 좌표 사이 거리, 모르면 null.
           const compareAnchorDistanceM: number | null = activeDiscovery?.anchorName
@@ -3774,8 +3784,10 @@ export default function MainPage() {
             : null;
           // 서버 사유는 한국어 템플릿이므로 화면에서는 구조화된 사실로 현재 로케일 문장을 조립한다.
           const walk = displayWalkingMinutes(spot.expectedTravel);
+          // 대기 분은 카드의 칩·타일·도착 요약과 같은 규칙(lib/cardTimes.ts, 올림)으로 — 2.3분이 💡 에서는 2분,
+          // 칩에서는 3분이 되어 한 카드가 두 말을 하지 않게.
           const verifiedWait = selectedFacility.scoringMode === 'model' && selectedFacility.congestionSource !== 'none'
-            ? Math.round(spot.expectedWait)
+            ? cardTimes(spot.expectedTravel, spot.expectedWait, null).waitMin
             : null;
           // 💡 사유는 관광객이 얻는 것만 말한다(걷는 시간·검증된 대기). 관광 상대지수·주변 수요 등급 같은 근거
           // 덩어리로 문장을 만들지 않는다 — 그건 '상세' 의 주변 붐빔 근거가 말한다. '붐빌 수 있어요' 문장도
@@ -3899,9 +3911,12 @@ export default function MainPage() {
         <div className="absolute z-20 px-4 bottom-[calc(var(--tourist-nav-clearance)+env(safe-area-inset-bottom))] w-full md:bottom-auto md:top-24 md:left-auto md:right-4 md:w-[370px] md:px-0">
           <div data-testid="category-suggestion" className="bg-white border border-line rounded-2xl px-5 py-4 shadow-[0_2px_14px_rgba(43,35,32,0.06)] flex flex-col items-center gap-2 text-center">
             <NextSpotMascot className="w-12" />
-            <p className="text-muk text-sm font-semibold">
-              {showBarrierFree ? t('map.barrierFreeElsewhere') : t('map.suggestTitle')}
-            </p>
+            {/* '다른 곳을 보여드릴게요' 는 아래에 고를 칩이 있을 때만 — 버튼 없이 약속만 남기지 않는다. */}
+            {suggestedCategories.length > 0 && (
+              <p className="text-muk text-sm font-semibold">
+                {showBarrierFree ? t('map.barrierFreeElsewhere') : t('map.suggestTitle')}
+              </p>
+            )}
             {/* 소진 원인이 '전부 오늘 휴무'면 그 사실을 말한다 — 데이터 부족/엔진 실패로 오해하지 않게. */}
             {noOpenTodayOnly && (
               <p className="text-muk-soft text-xs leading-relaxed">{t('map.noRecClosedBody')}</p>

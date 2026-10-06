@@ -10,6 +10,7 @@ import { relativeParts } from '@/lib/freshness';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 import { getArrivalOpenDisplayStatus, getArrivalOpenStatus, isClosedToday } from '@/lib/restDate';
 import { cardTimes } from '@/lib/cardTimes';
+import { telHref } from '@/lib/phoneLink';
 import { hoursLines } from '@/lib/hoursLines';
 import { isPredictModelTrained } from '@/lib/predictModel';
 import { haptic, interactionSpring, sheetSpring, tapMotion } from '@/lib/motion';
@@ -17,7 +18,13 @@ import { areaDemandDisclosure } from '@/lib/areaDemandPresentation';
 import { useCountUp } from '@/lib/useCountUp';
 import { congestionDisplay, formatEstimateTime, formatLastObserved } from '@/lib/congestionEstimate';
 import { congestionKey as gradeKey } from '@/lib/congestionScale';
-import { candidateAreaCrowdLevel, chooseCompareHeadline, resolveAnchorCrowd, resolveCandidateCrowd } from '@/lib/compareHeader';
+import {
+  candidateAreaCrowdLevel,
+  chooseCompareHeadline,
+  resolveAnchorCrowd,
+  resolveCandidateCrowd,
+  tasteBenefitPercent,
+} from '@/lib/compareHeader';
 import { useBusyThreshold } from '@/components/shell/PublicSettingsProvider';
 import { creditedPhotoUrls, creditForDisplayedPhoto } from '@/lib/photoCredit';
 import { PhotoCreditLink } from '@/components/PhotoCreditLink';
@@ -652,9 +659,8 @@ export function RecommendationCard({
   // 둘 다 없으면 렌더하지 않는다('지어내지 않기'). phone/homepage/운영시간은 실시간 조회값이 있으면 우선.
   const displayAddress = facility?.address || placeInfo?.address;
   const displayPhone = liveDetail?.phone || facility?.phone || placeInfo?.phone;
-  // 전화 걸기 링크 — 여러 번호가 붙어 있으면('054-…, 010-…') 첫 번호만, 숫자와 + 만 남긴다. 숫자가 없으면 글자로만.
-  const phoneDigits = displayPhone ? String(displayPhone).split(/[,/]|\s{2,}/)[0].replace(/[^\d+]/g, '') : '';
-  const phoneHref = phoneDigits.length >= 3 ? `tel:${phoneDigits}` : null;
+  // 전화 걸기 링크 — 첫 번호만('054-…, 010-…' · '054-772-3843~4'), 숫자가 없으면 글자로만(lib/phoneLink.ts).
+  const phoneHref = telHref(displayPhone);
   // TourAPI homepage 원문은 순수 URL 또는 <a href="..."> HTML 조각일 수 있어 첫 http(s) URL 만 방어적으로 추출.
   // 추출 실패 시 링크를 만들지 않는다(깨진 링크 미노출).
   const homepageSource = liveDetail?.homepage ?? facility?.homepage;
@@ -782,8 +788,12 @@ export function RecommendationCard({
     anchorDistanceM: compareAnchorDistance,
     candidateName: title,
     anchorGrade: anchorCrowd.grade,
+    // 관광 상대지수로 정한 등급이면 화살표를 쓰지 않는다 — '지금' 도, 다른 곳과 견줄 값도 아니다.
+    anchorBasis: anchorCrowd.basis,
     candidateGrade: candidateCrowdGrade,
   });
+  // 혜택 문장의 '취향 N% 일치' — 문턱(50%) 아래면 그 조각을 뺀다(가장 큰 줄이 추천한 곳을 깎지 않게).
+  const tastePct = tasteBenefitPercent(preferencePercent);
   // 화살표 문장 — chooseCompareHeadline 이 'compare' 면 기준 명소와 두 등급이 모두 있다.
   const compareHeaderText = compareHeadline.kind === 'compare' && compareAnchorLabelName && anchorCrowd.grade && candidateCrowdGrade
     ? t('compare.header', {
@@ -800,10 +810,16 @@ export function RecommendationCard({
   // 💡 사유도 첫 줄과 같은 판정을 따른다 — 화살표가 참일 때만 "{A} 대신 {B} 어떠세요?".
   const shownReason = compareHeadline.kind === 'compare' && insteadReason ? insteadReason : reason;
 
-  // 혼잡 배지(실측 → 점선 추정 → 주변 수요) — 전체 카드의 배지 줄 맨 앞과 휴대폰 미리보기가
-  // 같은 요소를 쓴다. 두 곳이 서로 다른 말을 하지 않게 한 곳에서만 만든다. 근거가 하나도 없으면
+  // 주변 수요만 있을 때 배지가 말할 붐빔 등급 — 비교 헤더와 **같은 값**(candidateCrowdGrade, lib/compareHeader.ts
+  // candidateAreaCrowdLevel): 주차만이면 종합값, 관광 근거가 섞이면 주차 실측·이력 값만, 주차 근거가 없으면(관광
+  // 상대지수뿐) 배지 없음. 근거 개수('주변 수요 근거 N개')는 순위 근거라 '상세 정보 펼치기' 뒤의 근거 상자만 말한다.
+  const areaCrowdGrade = shownCongestionLevel === null && !estimate && typeof areaDemandLevel === 'number'
+    ? candidateCrowdGrade
+    : null;
+  // 혼잡 배지(실측 → 점선 추정 → 주변 붐빔 등급) — 전체 카드의 배지 줄 맨 앞과 휴대폰 미리보기가
+  // 같은 요소를 쓴다. 미리보기를 펼쳐도 같은 자리가 같은 말을 하게 한 곳에서만 만든다. 근거가 하나도 없으면
   // 배지를 그리지 않는다 — '수집 중' 같은 빈 자리 표시는 관광객에게 아무것도 알려 주지 않는다.
-  const primaryCrowdBadge = shownCongestionLevel !== null ? (
+  const crowdBadge = shownCongestionLevel !== null ? (
                 <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold border ${
                   shownCongestionLevel >= 0.75
                     ? 'bg-terracotta/10 border-terracotta/30 text-terracotta'
@@ -830,46 +846,18 @@ export function RecommendationCard({
                 }`}>
                   {t('card.estimateLevel', { label: t(`congestion.${gradeKey(estimate.level, busyAt)}`) })}
                 </span>
-              ) : typeof areaDemandLevel === 'number' ? (
-                // 측정 대상이 다른 주차·관광 통계를 하나의 절대 혼잡률처럼 보이지 않게 근거 수로 요약한다.
+              ) : areaCrowdGrade ? (
                 <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold border ${
-                  areaDemandTourismEvidence
-                    ? 'bg-indigo-500/10 border-indigo-500/20 text-indigo-700'
-                    : areaDemandLevel >= 0.75
-                    ? 'bg-terracotta/10 border-terracotta/30 text-terracotta'
-                    : areaDemandLevel >= 0.5
-                    ? 'bg-gold/10 border-gold/30 text-gold-deep'
-                    : areaDemandLevel >= 0.25
-                    ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-600'
-                    : 'bg-jade/10 border-jade/30 text-jade'
+                  {
+                    busy: 'bg-terracotta/10 border-terracotta/30 text-terracotta',
+                    moderate: 'bg-gold/10 border-gold/30 text-gold-deep',
+                    relaxed: 'bg-emerald-500/10 border-emerald-500/30 text-emerald-600',
+                    quiet: 'bg-jade/10 border-jade/30 text-jade',
+                  }[areaCrowdGrade]
                 }`}>
-                  {evidenceCount > 0
-                    ? t('recommend.areaEvidenceCount', { n: evidenceCount })
-                    : `${t('recommend.areaDemand')}: ${congestionLabel(areaDemandLevel)}`}
+                  {t('recommend.areaDemandForRanking')}: {t(`congestion.${areaCrowdGrade}`)}
                 </span>
               ) : null;
-
-  // 휴대폰 미리보기의 혼잡 배지. 실측·추정·근거 없음은 위 배지를 그대로 쓴다. 주변 수요만 있을 때 위 배지는
-  // '주변 수요 근거 N개'(근거 개수)라 미리보기의 유일한 혼잡 정보로는 붐빔 정도를 말하지 못한다 — 그래서
-  // 등급으로 말한다 — 비교 헤더와 **같은 값**(candidateCrowdGrade, lib/compareHeader.ts candidateAreaCrowdLevel)이다:
-  // 주차만이면 종합값, 관광 근거가 섞이면 주차 실측·이력 값만, 주차 근거가 없으면(관광 상대지수뿐) 배지 없음.
-  const peekAreaCrowdGrade = shownCongestionLevel === null && !estimate && typeof areaDemandLevel === 'number'
-    ? candidateCrowdGrade
-    : null;
-  const peekCrowdBadge = shownCongestionLevel !== null || estimate || typeof areaDemandLevel !== 'number'
-    ? primaryCrowdBadge
-    : peekAreaCrowdGrade ? (
-      <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold border ${
-        {
-          busy: 'bg-terracotta/10 border-terracotta/30 text-terracotta',
-          moderate: 'bg-gold/10 border-gold/30 text-gold-deep',
-          relaxed: 'bg-emerald-500/10 border-emerald-500/30 text-emerald-600',
-          quiet: 'bg-jade/10 border-jade/30 text-jade',
-        }[peekAreaCrowdGrade]
-      }`}>
-        {t('recommend.areaDemandForRanking')}: {t(`congestion.${peekAreaCrowdGrade}`)}
-      </span>
-    ) : null;
 
   // '도보 길안내' — 전체 카드와 휴대폰 미리보기가 **같은 함수**를 부른다. 이름은 언제나 '도보 길안내' 이고,
   // 영업시간을 모르는 음식점·카페면 누를 때 카카오맵 영업시간을 먼저 열고 '영업 중인지' 를 묻는다.
@@ -965,9 +953,7 @@ export function RecommendationCard({
               {t('compare.benefitWalk', { walk: displayedTravelMins })}
             </span>
             {displayedOpenStatus === 'open_expected' && <>{' · '}{t('compare.benefitOpen')}</>}
-            {typeof preferencePercent === 'number' && Number.isInteger(preferencePercent) && (
-              <>{' · '}{t('compare.benefitTaste', { pct: preferencePercent })}</>
-            )}
+            {tastePct !== null && <>{' · '}{t('compare.benefitTaste', { pct: tastePct })}</>}
           </p>
         )}
         {(assumedTimeLabel || contextBadge) && (
@@ -1000,7 +986,7 @@ export function RecommendationCard({
               <span className="whitespace-nowrap rounded-md border border-jade/30 bg-jade/10 px-2 py-0.5 text-[10px] font-bold text-jade">
                 {t('card.peek.walk', { n: displayedTravelMins })}
               </span>
-              {facility && peekCrowdBadge}
+              {facility && crowdBadge}
               {closedToday && (
                 <span className="px-2 py-0.5 rounded-md text-[10px] font-bold border bg-terracotta/10 border-terracotta/30 text-terracotta">
                   {t('card.closedToday')}
@@ -1087,7 +1073,7 @@ export function RecommendationCard({
               들쭉날쭉해지고, 심사 중에는 그게 '깨진 화면'으로 읽힌다. 근거가 없으면 혼잡 배지만 빠진다. */}
           {facility && (
             <div className="flex flex-wrap items-center gap-1.5 mt-2">
-              {primaryCrowdBadge}
+              {crowdBadge}
               {/* 가정 시각 — 이 배지들이 '지금'이 아니라 무슨 시각을 말하는지 바로 옆에서 밝힌다. */}
               {assumedTimeLabel && (
                 <span className="px-2 py-0.5 rounded-md text-[10px] font-bold border border-gold/40 bg-gold/15 text-gold-deep whitespace-nowrap">
@@ -1391,18 +1377,6 @@ export function RecommendationCard({
         </div>
       )}
 
-      {/* A4: 행사 혼잡 보정 배지 — 도착시점 인근 진행 중 축제로 예측이 가중됐을 때만 노출(투명성).
-          explore/recommend 카드와 동일 시각·문구. */}
-      {(eventBoost ?? 0) > 0 && (
-        <p className="text-[11px] leading-snug text-terracotta bg-terracotta/10 border border-terracotta/20 rounded-xl px-3 py-2">
-          🎪 {t('recommend.festivalAdjusted', {
-            title: eventTitle ?? '',
-            pct: Math.round((eventBoost ?? 0) * 100),
-          })}
-        </p>
-      )}
-
-
       {/* 상세 펼치기/접기 — **키보드·스크린리더가 상세에 닿는 유일한 경로**.
           그동안 toggleExpand 는 순수 <div onClick>(드래그 핸들·헤더·SPOT 지표 그리드)과
           framer-motion 드래그 제스처로만 도달했다. 마우스·터치는 카드 어디를 눌러도 열렸지만
@@ -1589,6 +1563,17 @@ export function RecommendationCard({
                 </p>
               )}
             </div>
+          )}
+
+          {/* A4: 행사 혼잡 보정 — 도착시점 인근 진행 중 축제로 예측이 가중됐을 때만. '주변 수요 +N%p 보정' 은 순위
+              근거라 접힌 카드에는 두지 않고 위 주변 붐빔 근거 옆에 둔다. explore/recommend 카드와 같은 문구. */}
+          {(eventBoost ?? 0) > 0 && (
+            <p className="text-[11px] leading-snug text-terracotta bg-terracotta/10 border border-terracotta/20 rounded-xl px-3 py-2">
+              🎪 {t('recommend.festivalAdjusted', {
+                title: eventTitle ?? '',
+                pct: Math.round((eventBoost ?? 0) * 100),
+              })}
+            </p>
           )}
 
           {/* ⓒ TourAPI 표시는 그것이 가리키는 글(개요) 바로 위 — 개요가 없으면 주소·전화·운영시간 바로 위(아래). */}

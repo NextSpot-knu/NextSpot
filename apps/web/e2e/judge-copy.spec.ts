@@ -89,6 +89,9 @@ function selfAnchorRec(type: string) {
         forecast_date: '2026-10-06',
         relative_index: 86,
       },
+      // 근처 축제 보정 — '주변 수요 +12%p 보정' 은 순위 근거라 접힌 카드에 없어야 한다(상세 안에만).
+      event_boost: 0.12,
+      event_title: '신라문화제',
     },
   };
 }
@@ -232,12 +235,15 @@ for (const locale of LOCALES) {
 // 접힌 카드에는 관광객이 얻는 것만 — 내부 사정·빈 자리 표시 없음(1536 · 390, 4로케일).
 // ───────────────────────────────────────────────────────────────────────────
 
-/** 예전 접힌 카드에 있던 문구들(로케일별). 하나라도 보이면 실패다. */
+/**
+ * 예전 접힌 카드에 있던 문구들(로케일별). 하나라도 보이면 실패다. 근거 개수('주변 수요 근거 N개')와 축제 보정
+ * ('주변 수요 +12%p 보정')도 순위 근거다 — 접힌 카드의 배지는 붐빔 등급만 말한다.
+ */
 const MACHINERY: Record<E2eLocale, RegExp> = {
-  ko: /수집 중|혼잡 추정 · 수집 중|대안 비교용|근거가 도착하면|SPOT 점수는 도보|사용자 패턴|상대지수|후보와|수준입니다/,
-  en: /[Cc]ollecting|once it arrives|SPOT score uses walking|Based on your patterns|relative index|from this option/,
-  ja: /収集中|届くとここに表示|SPOTスコアは徒歩基準|利用パターン|相対指数|候補から/,
-  zh: /收集中|到达后会显示在这里|SPOT评分按步行计算|基于用户习惯|相对指数|距候选/,
+  ko: /수집 중|혼잡 추정 · 수집 중|대안 비교용|근거가 도착하면|SPOT 점수는 도보|사용자 패턴|상대지수|후보와|수준입니다|주변 수요 근거|\+\d+%p/,
+  en: /[Cc]ollecting|once it arrives|SPOT score uses walking|Based on your patterns|relative index|from this option|area-demand signals|\+\d+%p/,
+  ja: /収集中|届くとここに表示|SPOTスコアは徒歩基準|利用パターン|相対指数|候補から|周辺需要の根拠|\+\d+%p/,
+  zh: /收集中|到达后会显示在这里|SPOT评分按步行计算|基于用户习惯|相对指数|距候选|周边需求依据|\+\d+%p/,
 };
 
 /** 첫 방문 장소의 제보 알약 — '수집 중 · 혼잡 제보' 대신 관광객에게 묻는다. */
@@ -294,6 +300,161 @@ for (const locale of LOCALES) {
   });
 }
 
+// ───────────────────────────────────────────────────────────────────────────
+// 주변 수요 근거만 있는 카드 — 배지는 근거 개수가 아니라 붐빔 등급이고, 미리보기와 펼친 카드가 같은 말을 한다.
+// ───────────────────────────────────────────────────────────────────────────
+
+/** 혼잡 추정 없이 주변 공영주차(0.84) + 관광 근거만 — 예전 전체 카드 배지는 '주변 수요 근거 2개' 였다. */
+function areaOnlyRec(type: string) {
+  return { ...selfAnchorRec(type), congestion_estimate: null };
+}
+
+/** recommend.areaDemandForRanking + congestion.busy — 주차 0.84 는 '혼잡'. */
+const AREA_GRADE: Record<E2eLocale, string> = {
+  ko: '주변 붐빔: 혼잡',
+  en: 'Crowds nearby: Busy',
+  ja: '周辺の混雑: 混雑',
+  zh: '周边拥挤度: 拥挤',
+};
+
+async function openAreaOnly(page: Page, locale: E2eLocale): Promise<void> {
+  await stubMain(page, {
+    locale,
+    facilities: [mapFacility('cand-self', '경주 첨성대', 'restaurant')],
+    byType: (type) => [areaOnlyRec(type)],
+  });
+  await page.goto('/main');
+  await expect(page.getByTestId('recommendation-card')).toBeVisible({ timeout: 25_000 });
+}
+
+for (const locale of LOCALES) {
+  test(`${locale}: an area-demand-only card says the nearby crowd grade, not an evidence count`, async ({ page }) => {
+    test.setTimeout(90_000);
+    await page.setViewportSize({ width: 1536, height: 730 });
+    await openAreaOnly(page, locale);
+    const card = page.getByTestId('recommendation-card');
+    await expect(card.getByText(AREA_GRADE[locale], { exact: true })).toBeVisible();
+    expect(await card.innerText()).not.toMatch(MACHINERY[locale]);
+  });
+}
+
+test('390px: the peek and the expanded card show the same nearby crowd badge', async ({ page }) => {
+  test.setTimeout(90_000);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openAreaOnly(page, 'ko');
+  await expect(page.getByTestId('rec-card-peek').getByText(AREA_GRADE.ko, { exact: true })).toBeVisible();
+  await expandPeek(page);
+  const card = page.getByTestId('recommendation-card');
+  await expect(card.getByText(AREA_GRADE.ko, { exact: true })).toBeVisible();
+  await expect(card.getByText(/주변 수요 근거 \d+개/)).toHaveCount(0);
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// 화살표의 '지금 A 혼잡' 은 A 의 '지금' 근거로만 — 46일 전 관측이나 관광 상대지수로 말하지 않는다.
+// ───────────────────────────────────────────────────────────────────────────
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** 지도 시설 '대릉원' — 혼잡 로그 하나를 든다(시각·서버의 '지금' 판정은 경우마다 다르다). */
+function daereungwon(congestion: { level: number; ageMs: number; isCurrent: boolean }) {
+  return {
+    ...mapFacility('anchor-drw', '대릉원', 'attraction', 2),
+    congestion: {
+      level: congestion.level,
+      current_count: null,
+      timestamp: new Date(Date.now() - congestion.ageMs).toISOString(),
+      source: 'user_report',
+      is_stale: congestion.ageMs > DAY_MS,
+      is_current: congestion.isCurrent,
+    },
+  };
+}
+
+/** 추천 '우직' — 신선한 추정 0.3(여유), 주차 근거 없음, 관광 근거는 400m 떨어진 기준 명소(지수 86). */
+function calmerRec(type: string, referenceName: string) {
+  return {
+    ...selfAnchorRec(type),
+    facility: mapFacility('cand-calm', '우직', type, 1),
+    recommendation_id: 'rec-calm',
+    congestion_estimate: calibratedEstimate(0.3),
+    breakdown: {
+      preference: 0.8,
+      wait_time: null,
+      travel_time: 5,
+      incentive: 0,
+      area_demand_level: 0.7,
+      area_demand_mode: 'stats',
+      area_demand_sources: ['tourism'],
+      area_demand_tourism_evidence: {
+        reference_name: referenceName,
+        distance_m: 400,
+        forecast_date: '2026-10-06',
+        relative_index: 86,
+      },
+    },
+  };
+}
+
+async function openWithAnchor(page: Page, anchor: unknown | null, referenceName: string): Promise<void> {
+  await page.setViewportSize({ width: 1536, height: 730 });
+  await stubMain(page, {
+    facilities: [mapFacility('cand-calm', '우직', 'restaurant', 1), ...(anchor ? [anchor] : [])],
+    byType: (type) => [calmerRec(type, referenceName)],
+  });
+  await page.goto('/main');
+  await expect(page.getByTestId('recommendation-card')).toBeVisible({ timeout: 25_000 });
+}
+
+test('a 46-day-old anchor log never becomes "지금 대릉원 혼잡 →"', async ({ page }) => {
+  test.setTimeout(90_000);
+  await openWithAnchor(page, daereungwon({ level: 0.92, ageMs: 46 * DAY_MS, isCurrent: false }), '대릉원');
+  const card = page.getByTestId('recommendation-card');
+  await expect(card.locator('p').filter({ hasText: /^우직 · 도보 \d+분/ }).first()).toBeVisible();
+  await expect(card).not.toContainText('→');
+});
+
+test('an anchor known only by its tourism index gets no arrow', async ({ page }) => {
+  test.setTimeout(90_000);
+  // 기준 명소가 지도 시설에 없고 주차 근거도 없다 — 남은 근거는 관광 상대지수 86 뿐이다.
+  await openWithAnchor(page, null, '분황사');
+  const card = page.getByTestId('recommendation-card');
+  await expect(card.locator('p').filter({ hasText: /^우직 · 도보 \d+분/ }).first()).toBeVisible();
+  await expect(card).not.toContainText('→');
+});
+
+test('a calm pick next to a landmark that is busy right now keeps the arrow', async ({ page }) => {
+  test.setTimeout(90_000);
+  await openWithAnchor(page, daereungwon({ level: 0.92, ageMs: 5 * 60_000, isCurrent: true }), '대릉원');
+  await expect(page.getByTestId('recommendation-card')).toContainText('지금 대릉원 혼잡 → 대신 우직');
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// 가장 큰 줄은 추천한 곳을 깎지 않는다 — 취향 일치가 낮으면 그 조각을 뺀다.
+// ───────────────────────────────────────────────────────────────────────────
+
+for (const locale of ['ko', 'en'] as const) {
+  test(`${locale}: a low taste match is left out of the value line`, async ({ page }) => {
+    test.setTimeout(90_000);
+    await page.setViewportSize({ width: 1536, height: 730 });
+    const lowTaste = (type: string) => {
+      const rec = bareRec(type);
+      return { ...rec, breakdown: { ...rec.breakdown, preference: 0.12 } };
+    };
+    await stubMain(page, {
+      locale,
+      facilities: [mapFacility('cand-bare', '우직 쌈밥집', 'restaurant')],
+      byType: (type) => [lowTaste(type)],
+    });
+    await page.goto('/main');
+    const card = page.getByTestId('recommendation-card');
+    await expect(card).toBeVisible({ timeout: 25_000 });
+    const line = card.locator('p').filter({ hasText: locale === 'ko' ? /^우직 쌈밥집 · 도보 \d+분/ : /^우직 쌈밥집 · \d+ min walk/ }).first();
+    await expect(line).toBeVisible();
+    await expect(line).not.toContainText(locale === 'ko' ? '취향' : 'match for you');
+    await expect(line).not.toContainText('12%');
+  });
+}
+
 test('the nearby-crowd evidence sits behind 상세 정보 펼치기', async ({ page }) => {
   test.setTimeout(90_000);
   await openMain(page, 'ko');
@@ -301,8 +462,10 @@ test('the nearby-crowd evidence sits behind 상세 정보 펼치기', async ({ p
   // 390px: 미리보기 → 전체 카드 → 상세. 접힌 전체 카드에는 근거 원자료가 없다.
   await expandPeek(page);
   await expect(card).not.toContainText('공영주차 실측 수요');
+  await expect(card).not.toContainText('축제 인근');
   await page.getByRole('button', { name: '상세 정보 펼치기' }).click();
   await expect(card).toContainText('공영주차 실측 수요');
+  await expect(card).toContainText('「신라문화제」 축제 인근 — 주변 수요 +12%p 보정');
   // 💡 사유는 관광객이 얻는 것(걷는 시간)이다 — 근거 원자료 문장이 아니다.
   await expect(card).toContainText('💡 경주 첨성대까지 걸어서 1분이에요.');
   // 자동차 길안내 버튼은 그 말만 한다.
@@ -349,6 +512,31 @@ for (const locale of A12_LOCALES) {
     expect(await page.locator('body').innerText()).not.toMatch(/폐기|저장 탭에 저장|정확해집니다|Dismissed|more accurate/);
   });
 }
+
+test('관심 없어요 on the last open place promises nothing it cannot show', async ({ page }) => {
+  test.setTimeout(90_000);
+  await page.setViewportSize({ width: 1536, height: 730 });
+  // 음식점 두 곳 모두 오늘 휴무 확정이고, 다른 칩에는 장소가 없다 — 거절하면 보여 줄 다음 곳이 없다.
+  const closedEveryDay = { rest_date_raw: '매주 월·화·수·목·금·토·일요일' };
+  const first = { ...mapFacility('cand-closed-1', '황남 쌈밥', 'restaurant'), features: closedEveryDay };
+  const second = { ...mapFacility('cand-closed-2', '고요한 국밥', 'restaurant', 1), features: closedEveryDay };
+  await stubMain(page, {
+    facilities: [first, second],
+    byType: (type) => (type === 'restaurant' ? [{ ...bareRec(type), facility: first, recommendation_id: 'rec-closed-1' }] : []),
+  });
+  await page.goto('/main');
+  const card = page.getByTestId('recommendation-card');
+  await expect(card).toBeVisible({ timeout: 25_000 });
+
+  await card.getByRole('button', { name: CARD_BUTTONS.ko.reject }).click();
+  const suggestion = page.getByTestId('category-suggestion');
+  await expect(suggestion).toBeVisible();
+  // 고를 칩이 없으니 '다른 곳을 바로 보여드릴게요' 제목도, '다른 곳을 보여드릴게요' 토스트도 없다 — 휴무 사실만.
+  await expect(suggestion).toContainText('지금 조건에 맞는 곳이 모두 오늘 휴무예요');
+  await expect(suggestion).not.toContainText('근처의 다른 곳을 바로 보여드릴게요');
+  await expect(suggestion.getByRole('button')).toHaveCount(0);
+  await expect(page.getByText(REJECT_TOAST.ko, { exact: true })).toHaveCount(0);
+});
 
 const PARKING_EYEBROW: Record<A12Locale, string> = { ko: '공영주차장 · 출처: 경주시', en: 'Public parking · Source: Gyeongju City' };
 const PARKING_LIVE: Record<A12Locale, string> = { ko: '현재 12면 여유 · 총 40면', en: '12 spaces available now · 40 total' };

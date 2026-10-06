@@ -793,7 +793,7 @@
       "go_now": "现在出发较合适",
       "wait_then_go": "建议{n}分钟后出发",
       "choose_calmer": "比附近其他地点周边更清静",
-      "no_clear_advantage": "按您的偏好和步行距离挑选"
+      "no_clear_advantage": "按你的口味和步行距离挑选"
     },
     "areaConfidence": {
       "high": "近期实测数据",

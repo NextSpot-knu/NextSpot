@@ -162,8 +162,15 @@ for (const viewport of [{ width: 1536, height: 730 }, { width: 390, height: 844 
       .toContain('골굴사(경주)');
     expect(await page.evaluate(() => (window as unknown as KakaoFakeWindow).__kakaoFake.labels())).toContain('골굴사(경주)');
 
-    // 다음 배치 추가 요청 — 보조 버튼, 누르면 접수됨으로 잠긴다.
+    // 다음 배치 추가 요청 — 보조 버튼, 누르면 접수됨으로 잠긴다. 기능설명서가 이름으로 부르는 단계라 깨알 글씨가
+    // 아니라 옆 버튼과 같은 알약(테두리 · 11px 이상)으로 보인다.
     const ingest = block.getByRole('button', { name: INGEST.ko });
+    const look = await ingest.evaluate((el) => {
+      const style = getComputedStyle(el);
+      return { fontSize: parseFloat(style.fontSize), border: parseFloat(style.borderTopWidth) };
+    });
+    expect(look.fontSize).toBeGreaterThanOrEqual(11);
+    expect(look.border).toBeGreaterThan(0);
     await ingest.click();
     await expect(block.getByRole('button', { name: '요청 접수됨' })).toBeDisabled();
     expect(counts.ingest).toBe(1);

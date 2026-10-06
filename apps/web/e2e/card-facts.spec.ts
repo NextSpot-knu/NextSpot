@@ -21,6 +21,8 @@ interface RecOptions {
   travelTime?: number;
   phone?: string | null;
   features?: Record<string, unknown>;
+  /** 학습 모델 점수 + 지금 실측(검증된 대기 분이 화면에 뜨는 경우). */
+  modelWait?: number;
 }
 
 function rec(type: string, options: RecOptions = {}) {
@@ -45,14 +47,14 @@ function rec(type: string, options: RecOptions = {}) {
     total_candidates: 1,
     reason: `${facility.name} 고정 추천 사유`,
     reason_source: 'template',
-    congestion_level: null,
-    congestion_source: 'none',
-    congestion_is_current: null,
-    congestion_timestamp: null,
+    congestion_level: options.modelWait === undefined ? null : 0.4,
+    congestion_source: options.modelWait === undefined ? 'none' : 'measured',
+    congestion_is_current: options.modelWait === undefined ? null : true,
+    congestion_timestamp: options.modelWait === undefined ? null : new Date(Date.now() - 5 * 60_000).toISOString(),
     open_status_at_arrival: options.openStatus === undefined ? 'open_expected' : options.openStatus,
-    scoring_mode: 'degraded_rules',
+    scoring_mode: options.modelWait === undefined ? 'degraded_rules' : 'model',
     prediction_source: 'unavailable',
-    breakdown: { preference: 0.7, wait_time: null, travel_time: options.travelTime ?? 4, incentive: 0 },
+    breakdown: { preference: 0.7, wait_time: options.modelWait ?? null, travel_time: options.travelTime ?? 4, incentive: 0 },
   };
 }
 
@@ -146,6 +148,17 @@ test('with no wait the tile reads 도보 시간 and agrees with the walk chip an
   const depart = await card.getByText('출발', { exact: true }).locator('xpath=preceding-sibling::span[1]').innerText();
   const arrive = await card.getByText('도착', { exact: true }).locator('xpath=preceding-sibling::span[1]').innerText();
   expect((minutesOf(arrive) - minutesOf(depart) + 1440) % 1440).toBe(3);
+});
+
+test('a verified wait reads the same minutes in the 💡 reason, the chip and the arrival summary', async ({ page }) => {
+  test.setTimeout(90_000);
+  await openMain(page, { modelWait: 2.3, travelTime: 4 }); // 2.3분 → 올림 3분(예전 💡 는 반올림 2분이었다)
+  const card = page.getByTestId('recommendation-card');
+  await expect(card.getByText('대기 3분', { exact: true }).first()).toBeVisible();
+  await expect(card).toContainText('도보 4분 · 대기 3분');
+  await toggleDetails(page);
+  await expect(card).toContainText('예상 대기 3분이에요');
+  await expect(card).not.toContainText('대기 2분');
 });
 
 // ───────────────────────────────────────────────────────────────────────────
