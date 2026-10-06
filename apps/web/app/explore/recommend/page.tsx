@@ -26,7 +26,7 @@ import { relativeParts } from "@/lib/freshness";
 import { congestionDisplay, formatEstimateTime, formatLastObserved, parseCongestionEstimate } from "@/lib/congestionEstimate";
 import { congestionKey, type CongestionKey } from "@/lib/congestionScale";
 // 대기 보드에서 눌러 온 장소 둘레의 같은 종류 대안(I25), 한국어 조사, '원래 장소보다 덜 붐빌 때만' 칩 규칙.
-import { candidateTypesFor, isStrictlyCalmer, withTopicJosa } from "@/lib/recommendOrigin";
+import { candidateTypesFor, currentOriginLevel, isStrictlyCalmer, withTopicJosa } from "@/lib/recommendOrigin";
 import { boardCrowdSpread } from "@/lib/boardOrder";
 // 사진이 없는 카드도 같은 높이의 장소 표지로 시작한다(I38).
 import { PlacePhotoFallback } from "@/components/PlacePhotoFallback";
@@ -566,11 +566,9 @@ function RecommendContent() {
         }
 
         if (originalData) {
-          const latestLog = originalData.congestion_logs?.find((log: { source?: string; evidence_tier?: string }) =>
-            log.source !== 'seed' && log.source !== 'simulated' && log.evidence_tier !== 'synthetic'
-          );
+          // '지금' 자격이 있는 관측(신뢰 등급 · 30분 이내)만 — 낡은 관측은 null 로 두고 아래 추정 피드가 '추정' 표시와 함께 말한다.
           // 로그 0건이면 null 유지 — 0.0(실측 여유)으로 합성하지 않는다(CONGESTION_TRUST_SPEC).
-          const level = latestLog ? latestLog.congestion_level : null;
+          const level = currentOriginLevel(originalData.congestion_logs);
 
           originalTypeRef.current = originalData.type;
           setOriginalFacility({
@@ -1386,6 +1384,7 @@ function RecommendContent() {
     recommendations
       .map((rec) => congestionDisplay(rec).estimate?.level)
       .filter((level): level is number => typeof level === "number"),
+    busyAt,
   );
 
   return (
@@ -1549,6 +1548,12 @@ function RecommendContent() {
               const whyOpen = Boolean(whyOpenById[rec.recommendationId]);
               const whyId = `recommend-why-${rec.recommendationId}`;
               const measuredKey = display.mode === "measured" && shownLevel !== null ? congestionKey(shownLevel, busyAt) : null;
+              const predictedKey = display.mode === "predicted" && shownLevel !== null ? congestionKey(shownLevel, busyAt) : null;
+              // 실측·예측 칩도 추정 칩과 같은 규칙 — 앞면에는 원래 장소보다 확실히 덜 붐빌 때만, 나머지는 '추천 근거 자세히' 뒤에.
+              const measuredOnFace = measuredKey !== null && isStrictlyCalmer(measuredKey, originGrade?.key ?? null);
+              const predictedOnFace = predictedKey !== null && isStrictlyCalmer(predictedKey, originGrade?.key ?? null);
+              // 실제 대기 분(검증 근거)이 있으면 앞면 혜택 칩 — 추정이 '지금' 자리를 가져갔으면 그 분은 낡은 관측에서 나온 값이라 쓰지 않는다.
+              const waitOnFace = display.mode !== "none" && !estimate && hasWait;
 
               return (
                 <div
@@ -1662,21 +1667,22 @@ function RecommendContent() {
                         {t(`card.arrivalStatus.${arrivalDisplayStatus}`)}
                       </span>
                     )}
-                    {/* 이 장소를 지금 실제로 본 붐빔(실측) — '지금' 자격이 있을 때만, 등급색으로. */}
-                    {measuredKey && (
-                      <span className={`inline-flex h-8 items-center rounded-full border px-3 text-[14px] font-bold whitespace-nowrap ${
-                        measuredKey === "busy"
-                          ? "bg-terracotta/10 border-terracotta/30 text-terracotta"
-                          : measuredKey === "moderate"
-                            ? "bg-gold/10 border-gold/30 text-gold-deep"
-                            : "bg-jade/10 border-jade/30 text-jade"
-                      }`}>
+                    {/* 예상 대기(검증 근거가 있을 때만) — 기능설명서 F2③ 의 '예상 대기'. */}
+                    {waitOnFace && (
+                      <span data-testid="alt-wait-chip" className="inline-flex h-8 items-center gap-1 rounded-full border border-gold/30 bg-gold/10 px-3 text-[14px] font-bold text-gold-deep whitespace-nowrap tabular-nums">
+                        <span aria-hidden>⏱</span>
+                        {t("recommend.expectedWait")} {t("recommend.minutesValue", { n: waitTime })}
+                      </span>
+                    )}
+                    {/* 이 장소를 지금 실제로 본 붐빔(실측) — '지금' 자격이 있고 원래 장소보다 확실히 덜할 때만(그래서 등급은 덜 붐비는 쪽뿐이다). */}
+                    {measuredKey && measuredOnFace && (
+                      <span className="inline-flex h-8 items-center rounded-full border px-3 text-[14px] font-bold whitespace-nowrap bg-jade/10 border-jade/30 text-jade">
                         {t("card.congestion")}: {t(`congestion.${measuredKey}`)}
                       </span>
                     )}
-                    {display.mode === "predicted" && shownLevel !== null && (
-                      <span className="inline-flex h-8 items-center rounded-full border px-3 text-[14px] font-bold whitespace-nowrap bg-gold/10 border-gold/30 text-gold-deep">
-                        {t("map.forecast")} · {t(`congestion.${congestionKey(shownLevel, busyAt)}`)}
+                    {predictedKey && predictedOnFace && (
+                      <span className="inline-flex h-8 items-center rounded-full border px-3 text-[14px] font-bold whitespace-nowrap bg-jade/10 border-jade/30 text-jade">
+                        {t("map.forecast")} · {t(`congestion.${predictedKey}`)}
                       </span>
                     )}
                     {estimate && estimateKey && estimateOnFace && (
@@ -1716,8 +1722,9 @@ function RecommendContent() {
                     </div>
                   )}
 
-                  {/* 주 행동 두 개를 한 줄에 — 도보 길안내(주) · 자동차 길안내(보조). */}
-                  <div className="grid grid-cols-2 gap-2">
+                  {/* 주 행동 두 개를 한 줄에 — 도보 길안내(주) · 자동차 길안내(보조).
+                      폰에서는 오른쪽에 화면 고정 음성 버튼(+ 이름표) 자리를 비워 둔다(max-md:pr-16) — 첫 카드의 버튼을 덮지 않게. */}
+                  <div className="grid grid-cols-2 gap-2 max-md:pr-16">
                     <button
                       type="button"
                       onClick={() => requestAccept(rec)}
@@ -1734,8 +1741,8 @@ function RecommendContent() {
                     </button>
                   </div>
 
-                  {/* 보조 행동 한 줄 — 👍/👎(추천 품질 신호) · 혼잡 제보 · 공유. */}
-                  <div className="flex flex-wrap items-center gap-1.5">
+                  {/* 보조 행동 한 줄 — 👍/👎(추천 품질 신호) · 혼잡 제보 · 공유. 폰에서는 음성 버튼 자리를 비운다(위와 같은 폭). */}
+                  <div className="flex flex-wrap items-center gap-1.5 max-md:pr-16">
                     {feedbackVotes[rec.recommendationId] ? (
                       <span className="inline-flex min-h-11 items-center px-1 text-[11px] font-semibold text-jade">
                         {feedbackVotes[rec.recommendationId] === "up" ? "👍" : "👎"} {t("recommend.feedbackApplied")}
@@ -1845,8 +1852,26 @@ function RecommendContent() {
                   )}
 
                   {/* 혼잡 근거 칩 — 추정(점선) · 관측 시각 · 낡은 관측. 앞면에는 등급만(원래 장소보다 덜할 때) 남는다. */}
-                  {(estimate || lastObserved || display.mode === "none" || (display.mode === "measured" && rec.congestionIsStale)) && (
+                  {(estimate || lastObserved || display.mode === "none" || (display.mode === "measured" && rec.congestionIsStale)
+                    || (measuredKey && !measuredOnFace) || (predictedKey && !predictedOnFace)) && (
                     <div className="flex flex-wrap items-center gap-1.5">
+                      {/* 앞면에 올리지 않은 실측·예측 등급(원래 장소보다 덜하지 않을 때) — 원할 때만 여기서. */}
+                      {measuredKey && !measuredOnFace && (
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${
+                          measuredKey === "busy"
+                            ? "bg-terracotta/10 border-terracotta/30 text-terracotta"
+                            : measuredKey === "moderate"
+                              ? "bg-gold/10 border-gold/30 text-gold-deep"
+                              : "bg-jade/10 border-jade/30 text-jade"
+                        }`}>
+                          {t("card.congestion")}: {t(`congestion.${measuredKey}`)}
+                        </span>
+                      )}
+                      {predictedKey && !predictedOnFace && (
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-md border bg-gold/10 border-gold/30 text-gold-deep">
+                          {t("map.forecast")} · {t(`congestion.${predictedKey}`)}
+                        </span>
+                      )}
                       {estimate && estimateKey ? (
                         <>
                           {/* 점선·옅은 바탕 — 실측 칩의 꽉 찬 등급색과 한눈에 달라야 한다. */}
@@ -2017,11 +2042,13 @@ function RecommendContent() {
               );
             })
           ) : loadFailed ? (
-            // 실패는 '없음' 이 아니다 — 다시 시도할 길을 준다.
-            <ErrorState message={t("recommend.loadFailed")} onRetry={() => window.location.reload()} />
+            // 실패는 '없음' 이 아니다 — 다시 시도할 길을 준다. 데스크톱 두 칸 격자에서는 두 칸을 다 쓴다.
+            <div className="lg:col-span-2">
+              <ErrorState message={t("recommend.loadFailed")} onRetry={() => window.location.reload()} />
+            </div>
           ) : (
             // 대안 0곳 — '없어요' 상자 대신 바로 할 수 있는 다음 행동(지도에서 다른 곳 고르기). 머리글도 결과를 약속하지 않는다.
-            <div className="flex flex-col items-center gap-3 rounded-2xl border border-line bg-white px-5 py-6 text-center toss-surface">
+            <div data-testid="recommend-empty-next" className="lg:col-span-2 flex flex-col items-center gap-3 rounded-2xl border border-line bg-white px-5 py-6 text-center toss-surface">
               <p className="text-[15px] font-bold text-muk">{t("recommend.emptyNext")}</p>
               <button
                 type="button"
@@ -2184,8 +2211,9 @@ function RecommendContent() {
             </button>
           </div>
 
+          {/* 폰에서는 이름표를 버튼 폭 근처(4.75rem)에서 접는다 — 카드 행동 줄이 비워 둔 오른쪽 자리(pr-16) 안에 머문다. */}
           {!assistantActive && (
-            <span className="text-[10px] text-muk bg-white/90 border border-line rounded-full px-2.5 py-1 animate-pulse shadow-sm">
+            <span className="text-[10px] text-muk bg-white/90 border border-line rounded-full px-2.5 py-1 animate-pulse shadow-sm max-md:max-w-[4.75rem] max-md:rounded-xl max-md:px-2 max-md:text-center max-md:leading-tight">
               🔊 {t("recommend.listenCta")}
             </span>
           )}

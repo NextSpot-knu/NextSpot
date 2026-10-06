@@ -6,6 +6,7 @@
 
 import { REGION } from './region';
 import type { CongestionKey } from './congestionScale';
+import { measurementIsCurrentFallback } from './congestionEstimate';
 
 export type PlaceKind = 'restaurant' | 'cafe' | 'attraction' | 'culture';
 
@@ -32,7 +33,11 @@ export interface RecommendOriginRow {
   longitude?: number | null;
 }
 
-/** 대기 보드 카드 → 대안 화면 주소. 좌표가 둘 다 숫자일 때만 그 좌표, 아니면 지역 중심. */
+/**
+ * 대기 보드 카드 → 대안 화면 주소. 좌표가 둘 다 숫자일 때만 그 좌표, 아니면 지역 중심.
+ * 'from=waiting' 은 좌표가 있을 때만 붙인다 — 그 표시가 머리글을 '{장소}에서 걸어서 갈 수 있는 곳' 으로 바꾸는데,
+ * 옛 캐시 행(좌표 없음)은 지역 중심에서 잰 걷는 시간이라 그 장소에서 걷는다고 말할 수 없다.
+ */
 export function buildRecommendHref(row: RecommendOriginRow): string {
   const hasCoords =
     typeof row.latitude === 'number' && Number.isFinite(row.latitude)
@@ -44,9 +49,34 @@ export function buildRecommendHref(row: RecommendOriginRow): string {
     lat: String(lat),
     lng: String(lng),
     type: row.type,
-    from: 'waiting',
   });
+  if (hasCoords) params.set('from', 'waiting');
   return `/explore/recommend?${params.toString()}`;
+}
+
+/** 원래 장소의 congestion_logs 한 줄(최신순으로 온다). */
+export interface OriginCongestionLog {
+  congestion_level?: number | null;
+  timestamp?: string | null;
+  source?: string | null;
+  evidence_tier?: string | null;
+}
+
+/**
+ * 원래 장소의 **지금** 실측 혼잡도. '지금' 자격(신뢰 등급 · 30분 이내 — 백엔드 measurement_is_current 의 미러)이
+ * 있는 시드·합성 아닌 관측만 쓰고, 없으면 null(그때 화면은 추정 피드에서 '추정' 표시와 함께 읽는다).
+ * 46일 된 관측을 '지금 여유로운 편이에요' 로 말하면, 방금 보드가 '추정 혼잡' 이라고 한 곳과 다른 말을 한다.
+ */
+export function currentOriginLevel(
+  logs: readonly OriginCongestionLog[] | null | undefined,
+  now: Date = new Date(),
+): number | null {
+  const log = (logs ?? []).find((l) =>
+    l.source !== 'seed' && l.source !== 'simulated' && l.evidence_tier !== 'synthetic'
+    && typeof l.congestion_level === 'number' && Number.isFinite(l.congestion_level)
+    && measurementIsCurrentFallback(l.evidence_tier, l.timestamp, now),
+  );
+  return log ? (log.congestion_level as number) : null;
 }
 
 const HANGUL_FIRST = 0xac00;
