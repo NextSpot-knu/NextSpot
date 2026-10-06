@@ -3440,10 +3440,7 @@ export default function MainPage() {
 
       {showMobileTools && activeFilter !== '주차장' && (
         <div className="fixed inset-0 z-50 flex items-end bg-muk/35 md:hidden" onClick={() => setShowMobileTools(false)}>
-          {/* 아래 여백 = 하단 내비 높이(--tourist-nav-clearance) — 이 시트는 페이지 안쪽 쌓임 맥락이라 전역
-              하단 내비(z-40)가 위에 그려진다. 20px 이던 때는 음식 칩·축제·화장실 줄이 내비 밑에 깔려 눌리지 않았다.
-              짧은 화면에서는 시트 안에서 스크롤한다. */}
-          <section className="w-full max-h-[calc(100dvh-1rem)] overflow-y-auto overscroll-contain rounded-t-3xl bg-hanji px-4 pb-[calc(var(--tourist-nav-clearance)+env(safe-area-inset-bottom))] pt-3 shadow-2xl" onClick={(event) => event.stopPropagation()}>
+          <section className="w-full rounded-t-3xl bg-hanji px-4 pb-[calc(20px+env(safe-area-inset-bottom))] pt-3 shadow-2xl" onClick={(event) => event.stopPropagation()}>
             <div className="mb-4 flex items-center justify-between">
               <div><h2 className="font-bold text-muk">{t('map.mobileToolsTitle')}</h2><p className="text-xs text-muk-soft">{t('map.mobileToolsDesc')}</p></div>
               <button type="button" onClick={() => setShowMobileTools(false)} aria-label={t('common.close')} className="rounded-full border border-line bg-white p-2 text-muk"><X size={18} /></button>

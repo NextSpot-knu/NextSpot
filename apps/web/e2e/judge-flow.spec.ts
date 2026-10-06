@@ -307,8 +307,9 @@ test('festival chip lives in the 필터·편의 sheet at 390px', async ({ page }
   await tools.click();
   const festival = page.getByRole('button', { name: /경주 축제·행사/ }).locator('visible=true');
   await expect(festival).toHaveCount(1);
-  // 시트 맨 아래 줄(축제·화장실)도 하단 내비에 깔리지 않고 손이 닿는다.
-  await expectTappable(festival);
+  // 시트 맨 아래 줄(축제·화장실)이 하단 내비 위로 그려지는지는 여기서 보지 않는다 — 시트 아래 여백으로
+  // 피하던 임시 처리를 빼고, 페이지 진입 애니메이션의 쌓임 맥락을 고치는 쪽(계획 A11/I66)이
+  // 자기 e2e(fixed-overlays)로 잠근다.
 });
 
 // ───────────────────────────────────────────────────────────────────────────
