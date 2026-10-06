@@ -602,7 +602,7 @@
   "card": {
     "reject": "Not interested",
     "putOff": "Save for later",
-    "accept": "Walking directions",
+    "accept": "Walk there",
     "drive": "Driving directions",
     "whyToggle": "See why we picked it",
     "rejectAria": "Not interested, recommend another place",
@@ -683,7 +683,7 @@
     },
     "evidenceNone": "No congestion evidence",
     "spotTooltipEvidenceOrder": "Places with verified congestion evidence come first.",
-    "estimateLevel": "Estimated crowd: {label}",
+    "estimateLevel": "Est. crowd: {label}",
     "evidenceEstimated": "Estimate · from live Gyeongju public parking · observed {time}",
     "lastObserved": "Last observed {time}",
     "lastObservedLevel": "Last observed {time} · {label}",
