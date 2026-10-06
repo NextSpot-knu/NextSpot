@@ -234,7 +234,11 @@ test('waiting board: the credit follows the photo each card actually shows', asy
   ).toBeLessThanOrEqual(1);
 });
 
-test('main card: the ⓒ TourAPI chip sits with the TourAPI text, apart from the Wikimedia photo', async ({ page }) => {
+// 계획 B2 — 카드 얼굴의 차례: [가치 문장] → [사진 + 사진의 출처] → [실시간 정보 새로고침 · 출처: ⓒ한국관광공사 TourAPI]
+// → [이름 · SPOT] … 그리고 상세 안에 TourAPI 글(소개 · 주소 · 운영시간). 예전에는 새로고침 줄이 상세 안 💡 사유 아래에
+// 있었다(심사위원이 상세를 펼치기 전에는 기능설명서 F3 ② 를 볼 수 없었다).
+
+test('main card: the Wikimedia photo keeps its own credit and the TourAPI line sits apart, under it', async ({ page }) => {
   test.setTimeout(90_000);
   // TourAPI 적재 관광지(contentid 있음)인데 사진은 적재 배치가 넣은 Wikimedia 대체 사진뿐인 경우.
   await mockFacilities(page, [{
@@ -248,44 +252,35 @@ test('main card: the ⓒ TourAPI chip sits with the TourAPI text, apart from the
   await page.goto('/main');
   await expect(page.getByText('분황사 쉼터').first()).toBeVisible({ timeout: 20_000 });
   await openCardDetails(page); // 390px — 미리보기를 펼친 뒤 상세를 연다
+  const card = page.getByTestId('recommendation-card');
 
-  const photo = page.locator(`img[src="${WIKI_PHOTO}"]`);
-  await photo.scrollIntoViewIfNeeded();
-  await expect(photo).toBeVisible();
-  const link = page.locator(CREDIT_LINK);
+  const photoBlock = card.getByTestId('card-photo');
+  await photoBlock.scrollIntoViewIfNeeded();
+  await expect(photoBlock.locator(`img[src="${WIKI_PHOTO}"]`)).toBeVisible();
+  // Wikimedia 사진 위에는 관광공사 표시가 없다 — 사진의 출처는 바로 아래 작가 링크다.
+  await expect(photoBlock).not.toContainText('ⓒ한국관광공사');
+  const link = card.locator(CREDIT_LINK);
   await expect(link).toBeVisible();
-  const refresh = page.getByRole('button', { name: '실시간 정보 새로고침' });
-  await expect(refresh).toBeVisible();
-  const chip = refresh.locator('xpath=following-sibling::span');
-  await expect(chip).toHaveText('ⓒ한국관광공사 TourAPI');
+  const row = card.getByTestId('live-refresh-row');
+  await expect(row.getByRole('button', { name: '실시간 정보 새로고침' })).toBeVisible();
+  await expect(row).toContainText('출처: ⓒ한국관광공사 TourAPI');
+  await expect(card.getByText('출처: ⓒ한국관광공사 TourAPI', { exact: true })).toHaveCount(1); // 카드 안에 한 번만
+  await expect(row.locator(CREDIT_LINK)).toHaveCount(0);
 
-  // 상세의 차례: [사진 + 사진의 출처] → [💡 추천 사유] → [새로고침 · ⓒ TourAPI] → [개요] …
-  // ⓒ 표시 바로 아래가 그것이 가리키는 TourAPI 글이고, 사진의 출처와 ⓒ 표시 사이에는 사진이 아닌 글 블록이 있다.
-  const chipRow = refresh.locator('xpath=..');
-  await expect(chipRow.locator('xpath=..').getByText('ⓒ한국관광공사 TourAPI')).toHaveCount(1); // 상세 안에 한 번만
-  const afterChip = chipRow.locator('xpath=following-sibling::*[1]');
-  await expect(afterChip).toContainText('소개');
-  await expect(afterChip).toContainText('분황사 모전석탑 앞 마당에 자리한 작은 쉼터.');
-  const beforeChip = chipRow.locator('xpath=preceding-sibling::*[1]');
-  await expect(beforeChip).toContainText('💡');
-  await expect(beforeChip.locator('img')).toHaveCount(0);
-  await expect(beforeChip.locator(CREDIT_LINK)).toHaveCount(0);
-  const photoBlock = beforeChip.locator('xpath=preceding-sibling::*[1]');
-  await expect(photoBlock.locator(`img[src="${WIKI_PHOTO}"]`)).toHaveCount(1);
-  await expect(photoBlock.locator(CREDIT_LINK)).toHaveCount(1);
-
-  const [linkBox, reasonBox, chipBox] = await Promise.all([link.boundingBox(), beforeChip.boundingBox(), chip.boundingBox()]);
-  expect(linkBox && reasonBox && chipBox).toBeTruthy();
-  expect(reasonBox!.y).toBeGreaterThanOrEqual(linkBox!.y + linkBox!.height - 5); // 출처 상자 아래 5px 은 누르는 여백(-mb-[5px])
-  expect(chipBox!.y).toBeGreaterThanOrEqual(reasonBox!.y + reasonBox!.height);
+  const [photoBox, linkBox, rowBox] = await Promise.all([photoBlock.boundingBox(), link.boundingBox(), row.boundingBox()]);
+  expect(photoBox && linkBox && rowBox).toBeTruthy();
+  expect(linkBox!.y).toBeGreaterThanOrEqual(photoBox!.y + photoBox!.height - 1);
+  expect(rowBox!.y).toBeGreaterThanOrEqual(linkBox!.y + linkBox!.height - 5); // 출처 상자 아래 5px 은 누르는 여백(-mb-[5px])
   // 출처 링크는 누르기 좋은 24px 상자, 폭은 보이는 글자만큼.
   expect(linkBox!.height).toBeGreaterThanOrEqual(24);
   expect(await link.evaluate(tapBoxExtraWidth)).toBeLessThanOrEqual(1);
+  // TourAPI 글은 상세 안에.
+  await expect(card).toContainText('분황사 모전석탑 앞 마당에 자리한 작은 쉼터.');
 });
 
-test('main card: without an overview the ⓒ TourAPI chip sits right above the address', async ({ page }) => {
+test('main card: a TourAPI photo carries ⓒ한국관광공사 and the refresh line follows right under it', async ({ page }) => {
   test.setTimeout(90_000);
-  // TourAPI 사진·개요 없음 — ⓒ 표시는 주소(TourAPI) 바로 위, 사진 출처 줄은 없다.
+  // TourAPI 사진 · 개요 없음 — 사진 위 ⓒ 표시, 바로 아래 새로고침 줄, 주소는 상세 안. 작가 링크는 없다.
   await mockFacilities(page, [{
     id: 'tour-no-overview', name: '황남 국밥', type: 'restaurant',
     contentid: '2790001', contenttypeid: 39,
@@ -296,23 +291,24 @@ test('main card: without an overview the ⓒ TourAPI chip sits right above the a
   await page.goto('/main');
   await expect(page.getByText('황남 국밥').first()).toBeVisible({ timeout: 20_000 });
   await openCardDetails(page); // 390px — 미리보기를 펼친 뒤 상세를 연다
+  const card = page.getByTestId('recommendation-card');
 
-  const refresh = page.getByRole('button', { name: '실시간 정보 새로고침' });
-  await refresh.scrollIntoViewIfNeeded();
-  await expect(refresh).toBeVisible();
-  await expect(refresh.locator('xpath=following-sibling::span')).toHaveText('ⓒ한국관광공사 TourAPI');
-  const afterChip = refresh.locator('xpath=../following-sibling::*[1]');
-  await expect(afterChip).toContainText('주소');
-  await expect(afterChip).toContainText('경상북도 경주시 포석로 1080');
-  await expect(refresh.locator('xpath=../preceding-sibling::*[1]')).toContainText('💡');
-  await expect(page.locator(CREDIT_LINK)).toHaveCount(0);
+  const photoBlock = card.getByTestId('card-photo');
+  await photoBlock.scrollIntoViewIfNeeded();
+  await expect(photoBlock.getByText('ⓒ한국관광공사', { exact: true })).toBeVisible();
+  const row = card.getByTestId('live-refresh-row');
+  await expect(row).toContainText('출처: ⓒ한국관광공사 TourAPI');
+  // 사진 블록 바로 다음 형제가 새로고침 줄이다(사이에 다른 글 블록이 없다).
+  await expect(row.locator('xpath=preceding-sibling::*[1]').getByTestId('card-photo')).toHaveCount(1);
+  await expect(card.locator(CREDIT_LINK)).toHaveCount(0);
+  await expect(card).toContainText('경상북도 경주시 포석로 1080');
 });
 
-test('main card: without an overview the ⓒ chip sits below the Kakao reviews row, right above the address', async ({ page }) => {
+test('main card: the TourAPI line stays on the face, apart from the Kakao reviews row in details', async ({ page }) => {
   test.setTimeout(90_000);
   // 폰에서는 카카오 장소 검색이 맞으면 '상세 리뷰 보기' 줄이 뜬다. 지도 SDK 는 계속 스텁하고(지도는 그리지 않음),
-  // 장소 검색(services.Places)만 이 장소 하나를 돌려주게 한다 — ⓒ 표시가 카카오 줄 위로 올라가면
-  // TourAPI 주소·운영시간과 떨어져 카카오 리뷰의 출처처럼 읽힌다.
+  // 장소 검색(services.Places)만 이 장소 하나를 돌려주게 한다 — ⓒ TourAPI 표시가 카카오 줄 옆에 붙으면
+  // 카카오 리뷰의 출처처럼 읽힌다.
   await page.addInitScript(() => {
     const services = {
       Status: { OK: 'OK', ZERO_RESULT: 'ZERO_RESULT' },
@@ -341,18 +337,19 @@ test('main card: without an overview the ⓒ chip sits below the Kakao reviews r
   await page.goto('/main');
   await expect(page.getByText('황남 국밥').first()).toBeVisible({ timeout: 20_000 });
   await openCardDetails(page); // 390px — 미리보기를 펼친 뒤 상세를 연다
+  const card = page.getByTestId('recommendation-card');
 
-  const reviews = page.getByRole('link', { name: '상세 리뷰 보기 ↗' });
+  const reviews = card.getByRole('link', { name: '상세 리뷰 보기 ↗' });
   await reviews.scrollIntoViewIfNeeded();
   await expect(reviews).toBeVisible();
-  const refresh = page.getByRole('button', { name: '실시간 정보 새로고침' });
-  await expect(refresh.locator('xpath=following-sibling::span')).toHaveText('ⓒ한국관광공사 TourAPI');
-  const chipRow = refresh.locator('xpath=..');
-  // 바로 위 = 카카오 리뷰 줄, 바로 아래 = 주소(TourAPI).
-  await expect(chipRow.locator('xpath=preceding-sibling::*[1]').getByRole('link', { name: '상세 리뷰 보기 ↗' })).toHaveCount(1);
-  const afterChip = chipRow.locator('xpath=following-sibling::*[1]');
-  await expect(afterChip).toContainText('주소');
-  await expect(afterChip).toContainText('경상북도 경주시 포석로 1080');
+  const row = card.getByTestId('live-refresh-row');
+  await expect(row).toContainText('출처: ⓒ한국관광공사 TourAPI');
+  await expect(row.getByRole('link', { name: '상세 리뷰 보기 ↗' })).toHaveCount(0);
+  await expect(reviews.locator('xpath=..').getByText('출처: ⓒ한국관광공사 TourAPI')).toHaveCount(0);
+  const [rowBox, reviewsBox] = await Promise.all([row.boundingBox(), reviews.boundingBox()]);
+  expect(rowBox && reviewsBox).toBeTruthy();
+  expect(reviewsBox!.y).toBeGreaterThan(rowBox!.y + rowBox!.height);
+  await expect(card).toContainText('경상북도 경주시 포석로 1080');
 });
 
 test('waiting board: the credit shows the artist on its own line and keeps clear of the card', async ({ page }) => {

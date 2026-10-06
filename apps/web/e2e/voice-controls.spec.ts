@@ -33,7 +33,11 @@ async function mockMainWithSpeech(page: Page) {
     (window as any).SpeechRecognition = MockRecognition;
     Object.defineProperty(window, 'speechSynthesis', { value: {
       getVoices: () => [], cancel: () => {},
-      speak: (utterance: MockUtterance) => setTimeout(() => utterance.onend?.(), 0),
+      speak: (utterance: MockUtterance) => {
+        const w = window as unknown as { __spoken?: string[] };
+        (w.__spoken ??= []).push(utterance.text);
+        setTimeout(() => utterance.onend?.(), 0);
+      },
       onvoiceschanged: null,
     } });
   });
@@ -107,7 +111,10 @@ test('voice controls apply category and retain the prior card when no candidate 
     .toEqual(['cafe']);
 
   await issueVoiceCommand(page, '문화시설 보여줘', false);
-  await expect(page.getByText('음성 선호에 맞는 추천을 찾지 못했어요.')).toBeVisible();
+  // 맞는 곳이 없으면 비서가 지금 추천을 이어 간다고 말한다 — 부정 토스트('…찾지 못했어요')는 겹쳐 띄우지 않는다(계획 문구 규칙 · 리뷰 10-07).
+  await expect.poll(() => page.evaluate(() => ((window as unknown as { __spoken?: string[] }).__spoken ?? []).join(' '))).toContain('지금 추천을 그대로 이어갈게요.');
+  await expect(page.getByText('음성 선호에 맞는 추천을 찾지 못했어요.')).toHaveCount(0);
+  await expect(page.getByText('다른 메뉴나 장소를 말씀해 보세요')).toHaveCount(0);
   await expect(page.getByText('실내 카페').first()).toBeVisible();
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem('nextspot_setup_prefs') ?? '{}').categories))
     .toEqual(['cafe']);

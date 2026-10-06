@@ -177,7 +177,9 @@ test('♿ with barrier-free pins only beyond walking range moves to their catego
   await expect(page.getByText(/없어요/)).toHaveCount(0);
 });
 
-test('♿ whose category the server leaves empty still shows where the barrier-free places are', async ({ page }) => {
+// 계획 B2: 서버가 200 [] 을 주면 즉시 계산한 카드를 바로 띄운다 — 무장애 확인 장소가 걸어서 갈 거리에 있으면 그곳이 카드다
+// (예전에는 '지도에 있어요' 제안 카드만 떴다).
+test('♿ whose category the server leaves empty still opens the barrier-free place as a card', async ({ page }) => {
   test.setTimeout(120_000);
   await page.setViewportSize({ width: 1536, height: 730 });
   const places: Place[] = [
@@ -192,11 +194,11 @@ test('♿ whose category the server leaves empty still shows where the barrier-f
 
   await page.getByRole('button', { name: '♿ 무장애' }).click();
   await expect(page.getByText('♿ 무장애 확인된 관광지 1곳을 보여드려요')).toBeVisible();
-  const suggestion = page.getByTestId('category-suggestion');
-  await expect(suggestion).toBeVisible({ timeout: 25_000 });
-  await expect(suggestion).toContainText('♿ 무장애 확인 장소 1곳이 지도에 있어요');
-  await expect(suggestion.getByRole('button', { name: '지도에서 보기' })).toBeVisible();
-  await expect(page.getByText(/없어요/)).toHaveCount(0);
+  await expect(cardHeading(page, '대릉원 산책길')).toBeVisible({ timeout: 25_000 });
+  await expect(page.getByTestId('recommendation-card').getByRole('button', { name: '무장애 조건 해제' })).toBeVisible();
+  await expect(page.getByTestId('category-suggestion')).toHaveCount(0);
+  // 카드의 '관심 없어요' 버튼 말고는 '없어요' 가 없다.
+  await expect(page.getByText(/(?<!관심 )없어요/)).toHaveCount(0);
 });
 
 for (const viewport of [{ width: 1536, height: 730 }, { width: 390, height: 844 }]) {

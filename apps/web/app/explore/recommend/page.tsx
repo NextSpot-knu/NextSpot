@@ -9,7 +9,9 @@ import { createPublicClient } from "@/lib/supabase";
 const supabase = createPublicClient();
 import { apiClient, getRecommendations, isRequestTimeout, recommendByType, reportFacilityAvailability, submitFeedback, parsePreference, RecommendationResponse } from "@/lib/api-client";
 import { displayWalkingMinutes } from "@/lib/recommender";
-import { classifyIntent, buildCardSpeech } from "@/lib/voice/voiceIntent";
+import { classifyIntent } from "@/lib/voice/voiceIntent";
+import { pickVoice, speechLangFor } from "@/lib/voice/speechLocale";
+import { buildRankedCardSentence } from "@/lib/voice/voiceReason";
 import { getArrivalOpenDisplayStatus, isClosedToday } from "@/lib/restDate";
 import { REGION, isWithinRegion } from "@/lib/region";
 import { toast } from "sonner";
@@ -684,7 +686,7 @@ function RecommendContent() {
     }
     try {
       const rec = new SR();
-      rec.lang = "ko-KR";
+      rec.lang = speechLang;
       rec.interimResults = false;
       rec.maxAlternatives = 1;
       rec.onresult = (e: SpeechRecognitionEvent) => {
@@ -985,14 +987,8 @@ function RecommendContent() {
 
   // ───────────────────────── 음성 비서 헬퍼 ─────────────────────────
   // (forward 참조는 모두 이벤트/타이머에서 실행되므로 런타임에 안전 — 컴포넌트 본문이 끝난 뒤 호출됨)
-  const pickKoVoice = () => {
-    const vs = voicesRef.current || [];
-    return (
-      vs.find((v) => v.lang === "ko-KR") ||
-      vs.find((v) => (v.lang || "").toLowerCase().startsWith("ko")) ||
-      null
-    );
-  };
+  // 고른 언어로 말하고 듣는다(계획 B5 I21) — 영어 화면에서 한국어 목소리가 영어 문장을 읽던 문제.
+  const speechLang = speechLangFor(locale);
 
   // 한 문장 발화. 상태 전이는 호출자가 관리. onEnd는 정상/오류/미지원/음소거 모두에서 호출(흐름 보장).
   const speak = (text: string, onEnd?: () => void) => {
@@ -1003,10 +999,10 @@ function RecommendContent() {
     try {
       window.speechSynthesis.cancel(); // 이전 큐 비움(중복/겹침 발화 방지)
       const u = new SpeechSynthesisUtterance(text.slice(0, 300));
-      u.lang = "ko-KR";
+      u.lang = speechLang;
       u.rate = 1.05;
       u.pitch = 1.0;
-      const v = pickKoVoice();
+      const v = pickVoice(voicesRef.current || [], speechLang);
       if (v) u.voice = v;
       u.onend = () => onEnd?.();
       u.onerror = () => onEnd?.();
@@ -1090,7 +1086,7 @@ function RecommendContent() {
       setSpokenCaption(msg);
       speak(msg, then);
     };
-    const intent = classifyIntent(alts);
+    const intent = classifyIntent(alts, locale);
     switch (intent) {
       case "cancel":
         finishAssistant(t("recommend.voiceEnd"));
@@ -1148,7 +1144,7 @@ function RecommendContent() {
     try { assistantRecRef.current?.abort?.(); } catch { /* noop */ }
     try {
       const rec = new SR();
-      rec.lang = "ko-KR";
+      rec.lang = speechLang;
       rec.interimResults = true; // 부분 인식 자막
       rec.continuous = false;
       rec.maxAlternatives = 3; // 키워드 매칭 폭 확대(하나라도 매칭되면 채택)
@@ -1223,7 +1219,9 @@ function RecommendContent() {
         assertableCongestionLevel(rec),
       );
     const reasonText = locale === 'ko' && rec.reason ? rec.reason : localizedFallback;
-    const sentence = buildCardSpeech(rec.facility.name, reasonText, index);
+    const reasonTrimmed = (reasonText || "").slice(0, 200).trim();
+    // 이유가 이미 이름을 말하면(서버 '… 추천: …' · 현지어 '{name} is a 3-min walk away') 이름을 다시 읽지 않는다.
+    const sentence = buildRankedCardSentence(t, index + 1, rec.facility.name, reasonTrimmed);
     setVoice("speaking");
     setSpokenCaption(sentence); // 발화 텍스트를 자막으로(청각 정보 시각 동시 제공 + 추천 사유 가시화)
     speak(sentence, () => scheduleListen());

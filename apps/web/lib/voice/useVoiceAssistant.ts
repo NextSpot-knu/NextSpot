@@ -8,6 +8,7 @@
 // 폴백 우선: TTS/STT 미지원·마이크 거부 시 graceful(데모 무중단).
 import { useEffect, useRef, useState } from "react";
 import type { VoiceAppCommand } from './voiceCommands';
+import { pickVoice } from './speechLocale';
 
 // TTS 는 브라우저 내장 speechSynthesis 만 사용한다.
 // (대회용 Google Cloud Text-to-Speech 연동은 제거됨 — 로컬 전용·외부 의존성 0.)
@@ -26,7 +27,50 @@ export interface VoiceTurn {
   command?: VoiceAppCommand | null;
 }
 
+/** 비서가 스스로 말하는 문장들 — 화면 언어로(계획 B5 · I21). 기본값은 예전 한국어 문장이다. */
+export interface VoiceMessages {
+  reprompt: string;
+  acceptAck: string;
+  end: string;
+  similar: string;
+  noMatch: string;
+  applied: string;
+  keepGoing: string;
+  /** 무응답 두 번 뒤 닫을 때의 인사(계획 B2 · I09 — 말없이 꺼지지 않는다). */
+  closing: string;
+  /** 카드 없이 켰을 때 첫 질문. */
+  greet: string;
+}
+
+export const DEFAULT_VOICE_MESSAGES: VoiceMessages = {
+  reprompt: "수락하려면 '응', 넘기려면 '다음'이라고 말해 주세요.",
+  acceptAck: "알겠어요, 여기로 안내할게요!",
+  end: "음성 안내를 마칠게요.",
+  similar: "비슷한 곳이 있어요. 안내해드릴까요?",
+  noMatch: "다른 메뉴도 말씀해 주시면 바로 찾아드릴게요.",
+  applied: "요청한 조건을 적용했어요.",
+  keepGoing: "지금 추천을 그대로 이어갈게요.",
+  closing: "필요하실 때 다시 불러 주세요.",
+  greet: "무엇을 찾아 드릴까요? 예: “카페 보여줘”",
+};
+
+/** 카드 하나를 읽는 기본 문장 — 이유가 이미 이름을 말하면 이름을 다시 붙이지 않는다(계획 B2 · I46). */
+function defaultCardSentence(name: string, reason: string): string {
+  if (!reason) return `${name}. 여기로 안내할까요?`;
+  return reason.includes(name) ? `${reason} 여기로 안내할까요?` : `${name}. ${reason} 여기로 안내할까요?`;
+}
+
 export interface VoiceAssistantOptions<T> {
+  /** TTS·STT 언어(BCP-47). 기본 ko-KR — lib/voice/speechLocale.speechLangFor(locale). */
+  lang?: string;
+  /** 비서가 말하는 문장(일부만 줘도 된다 — 나머지는 한국어 기본값). */
+  messages?: Partial<VoiceMessages>;
+  /** 카드 하나를 읽는 문장. 기본은 '{이름}. {이유} 여기로 안내할까요?'(이름 한 번). */
+  cardSentence?: (name: string, reason: string) => string;
+  /** 서버가 만든 응답 문장(spoken)을 그대로 읽을지. 서버는 한국어만 말하므로 다른 언어 화면은 false. 기본 true. */
+  useServerSpoken?: boolean;
+  /** 세션을 켤 때 — 다른 마이크(지도 검색)를 끄는 데 쓴다(두 마이크가 동시에 듣지 않게, 계획 B2 · I84). */
+  onSessionStart?: () => void;
   getName: (item: T) => string;
   getReason: (item: T) => string;
   /** 자세히 안내 문장(없으면 reason 재발화) */
@@ -41,8 +85,8 @@ export interface VoiceAssistantOptions<T> {
   onFilter?: (matchIds: string[], spoken?: string) => void;
   /** 검증된 앱 명령을 실행. 후보 없음이면 false를 반환해 현재 상태와 카드를 유지한다. */
   onCommand?: (command: VoiceAppCommand) => boolean;
-  /** 사용자 발화를 백엔드로 해석(미제공 시 unknown 처리). 카드 정보로 후보를 만들어 백엔드 호출. */
-  interpret?: (utterance: string, item: T) => Promise<VoiceTurn>;
+  /** 사용자 발화를 백엔드로 해석(미제공 시 unknown 처리). 카드 정보로 후보를 만들어 백엔드 호출. 카드 없이 켠 세션은 item=null. */
+  interpret?: (utterance: string, item: T | null) => Promise<VoiceTurn>;
 }
 
 export interface VoiceAssistant<T> {
@@ -52,7 +96,7 @@ export interface VoiceAssistant<T> {
   caption: string;
   ttsSupported: boolean;
   sttSupported: boolean;
-  /** 오브 탭: 비활성이면 시작(제스처 게이트), 발화중이면 바지인, 그 외 정지 */
+  /** 알약 탭: 꺼져 있으면 시작(제스처 게이트), 켜져 있으면 어떤 상태든 정지('음성 안내 정지' 라는 이름 그대로) */
   onOrbClick: () => void;
   /** 카드가 새로 떴을 때 부모가 호출(null이면 카드 사라짐 → 정지). 잠금 해제 상태면 자동 발화. */
   notifyItem: (item: T | null) => void;
@@ -84,7 +128,7 @@ export function useVoiceAssistant<T>(opts: VoiceAssistantOptions<T>): VoiceAssis
   // 유사 대안 제안(2턴): 직전 턴의 suggestionId. 다음 턴 accept 를 이 후보 select 로 처리하고,
   // 어떤 액션이든 1턴 소비 후 반드시 클리어한다(오래된 제안이 엉뚱한 턴에 발동하는 것 방지).
   const pendingSuggestionRef = useRef<string | null>(null);
-  const koVoiceWarnedRef = useRef(false);
+  const voiceWarnedRef = useRef(false);
   const speakSeqRef = useRef(0); // 발화 시퀀스 — 취소/대체 시 이전 발화의 onEnd 체인 무효화
 
   const setVoiceState = (s: VoiceState) => { stateRef.current = s; setVoiceStateRaw(s); };
@@ -121,24 +165,12 @@ export function useVoiceAssistant<T>(opts: VoiceAssistantOptions<T>): VoiceAssis
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // 한국어 보이스 중 '가장 자연스러운' 것을 점수화해 고른다.
-  // Edge의 "Microsoft …(Natural)" / Chrome의 "Google …" / WaveNet 등 neural 보이스가
-  // OS 기본 보이스보다 훨씬 자연스럽다. (localService=false = 클라우드 보이스, 대개 고품질)
-  const pickKoVoice = () => {
-    const ko = (voicesRef.current || []).filter((v) => /^ko(-|_|$)/i.test(v.lang || ""));
-    if (!ko.length) return null;
-    const score = (v: SpeechSynthesisVoice) => {
-      const n = (v.name || "").toLowerCase();
-      let s = 0;
-      if (/natural|neural|online/.test(n)) s += 5; // Edge Azure neural(최고 품질)
-      if (/google/.test(n)) s += 3; // Chrome Google 보이스
-      if (/wavenet|studio|chirp/.test(n)) s += 3; // Google Cloud 계열
-      if (v.localService === false) s += 2; // 클라우드 보이스 우대
-      if (v.lang === "ko-KR") s += 1;
-      return s;
-    };
-    return ko.slice().sort((a, b) => score(b) - score(a))[0];
-  };
+  // 지금 언어의 보이스 중 '가장 자연스러운' 것(lib/voice/speechLocale.pickVoice — Natural/Google/클라우드 우대).
+  const lang = () => optsRef.current.lang || "ko-KR";
+  const msg = (key: keyof VoiceMessages) => optsRef.current.messages?.[key] ?? DEFAULT_VOICE_MESSAGES[key];
+  // 서버 문장(한국어)을 읽어도 되는 화면인가. 아니면 위 msg 의 화면 언어 문장으로 대신한다.
+  const serverSpoken = (spoken: string | null | undefined) =>
+    optsRef.current.useServerSpoken === false ? null : (spoken || null);
 
   // 진행 중 발화 정리(Cloud 오디오 + 브라우저 합성). seq 증가로 in-flight fetch/콜백 무효화.
   const cancelSpeech = () => {
@@ -152,12 +184,12 @@ export function useVoiceAssistant<T>(opts: VoiceAssistantOptions<T>): VoiceAssis
     try {
       window.speechSynthesis.cancel();
       const u = new SpeechSynthesisUtterance(text.slice(0, 300));
-      u.lang = "ko-KR"; u.rate = 1.05; u.pitch = 1.0;
-      const v = pickKoVoice();
+      u.lang = lang(); u.rate = 1.05; u.pitch = 1.0;
+      const v = pickVoice(voicesRef.current, lang());
       if (v) u.voice = v;
-      else if (!koVoiceWarnedRef.current && voicesRef.current.length) {
-        koVoiceWarnedRef.current = true;
-        console.warn("[voice] 한국어 TTS 보이스를 찾지 못해 시스템 기본 보이스로 발화합니다.");
+      else if (!voiceWarnedRef.current && voicesRef.current.length) {
+        voiceWarnedRef.current = true;
+        console.warn(`[voice] ${lang()} TTS 보이스를 찾지 못해 시스템 기본 보이스로 발화합니다.`);
       }
       u.onend = () => { if (seq === speakSeqRef.current) onEnd?.(); };
       u.onerror = () => { if (seq === speakSeqRef.current) onEnd?.(); };
@@ -221,11 +253,12 @@ export function useVoiceAssistant<T>(opts: VoiceAssistantOptions<T>): VoiceAssis
     if (stateRef.current === "idle") return;
     if (repromptRef.current < 1) {
       repromptRef.current += 1;
-      const msg = "수락하려면 '응', 넘기려면 '다음'이라고 말해 주세요.";
-      setVoiceState("speaking"); setCaption(msg);
-      speak(msg, () => scheduleListen());
+      const text = msg("reprompt");
+      setVoiceState("speaking"); setCaption(text);
+      speak(text, () => scheduleListen());
     } else {
-      finish(); // 무응답 반복 → 조용히 종료(카드는 유지, 오브로 재개 가능)
+      // 무응답 반복 → 인사하고 닫는다(말없이 꺼지면 고장으로 보인다). 카드는 그대로, 알약으로 다시 부른다.
+      finish(msg("closing"));
     }
   };
 
@@ -233,8 +266,8 @@ export function useVoiceAssistant<T>(opts: VoiceAssistantOptions<T>): VoiceAssis
   // 훅 안에 하드코딩 키워드 분류는 두지 않는다 — interpret 미제공/실패 시 'unknown'으로 재질문(엉뚱한 동작 방지).
   const handleIntent = async (alts: string[]) => {
     if (stateRef.current === "idle") return;
+    // 카드 없이 켠 세션도 명령·음식 요청은 받는다(item=null). 수락·다음·자세히는 카드가 있어야 뜻이 있다.
     const item = itemRef.current;
-    if (!item) { finish(); return; }
     setVoiceState("thinking");
     repromptRef.current = 0;
     const o = optsRef.current;
@@ -248,6 +281,9 @@ export function useVoiceAssistant<T>(opts: VoiceAssistantOptions<T>): VoiceAssis
     }
     if ((stateRef.current as VoiceState) === "idle") return; // 해석 대기(await) 중 취소/정지됐으면 중단
     if (itemRef.current !== item) return; // 해석 중 카드가 바뀌었으면(새 카드 narrate 중) 이 턴 폐기(stale)
+    const spokenText = serverSpoken(turn.spoken);
+    const needsItem = ["accept", "next", "reject", "negative", "details"].includes((turn.action || "").toLowerCase());
+    if (!item && needsItem && !pendingSuggestionRef.current) { reprompt(); return; }
 
     // 유사 대안 제안은 정확히 1턴만 유효 — 어떤 액션이든 여기서 소비(클리어)하고,
     // 이번 턴이 새 제안(filter 0건 + suggestionId)이면 아래 filter 분기가 다시 채운다.
@@ -258,64 +294,68 @@ export function useVoiceAssistant<T>(opts: VoiceAssistantOptions<T>): VoiceAssis
     switch (action) {
       case "stop":
       case "cancel":
-        finish(turn.spoken || "음성 안내를 마칠게요.");
+        finish(spokenText || msg("end"));
         break;
       case "accept": {
         // 직전 턴에 "대신 ○○로 안내해드릴까요?" 제안이 있었으면, 이 accept 는 현재 카드 수락이
         // 아니라 그 제안 후보의 선택이다 — select 경로 재사용(onSelect가 카드를 바꾸면 notifyItem이 narrate).
         if (pendingSuggestion && o.onSelect) {
           try { recRef.current?.abort?.(); } catch { /* noop */ }
-          o.onSelect(pendingSuggestion, turn.spoken || undefined);
+          o.onSelect(pendingSuggestion, spokenText || undefined);
           break;
         }
-        const msg = turn.spoken || "알겠어요, 여기로 안내할게요!";
-        setVoiceState("speaking"); setCaption(msg);
-        speak(msg, () => { o.onAccept(item); finish(); });
+        const text = spokenText || msg("acceptAck");
+        setVoiceState("speaking"); setCaption(text);
+        speak(text, () => { if (item) o.onAccept(item); finish(); });
         break;
       }
       case "select":
         // 백엔드가 선호에 맞는 시설을 골랐다. onSelect가 카드를 바꾸면(또는 spoken을 사유로 갱신)
         // notifyItem이 새 카드를 narrate. 별도 발화 안 함(이중 방지).
         try { recRef.current?.abort?.(); } catch { /* noop */ }
-        if (turn.targetId && o.onSelect) o.onSelect(turn.targetId, turn.spoken || undefined);
-        else o.onNext(item);
+        if (turn.targetId && o.onSelect) o.onSelect(turn.targetId, spokenText || undefined);
+        else if (item) o.onNext(item);
+        else reprompt();
         break;
       case "filter":
         // 백엔드가 선호로 후보를 좁혔다(예: 양식→양식 식당들). onFilter가 추천 풀을 실시간 필터링→재추천하면
         // notifyItem이 새 #1을 narrate. 별도 발화 안 함(이중 방지).
         try { recRef.current?.abort?.(); } catch { /* noop */ }
         if (turn.matchIds && turn.matchIds.length && o.onFilter) {
-          o.onFilter(turn.matchIds, turn.spoken || undefined);
+          o.onFilter(turn.matchIds, spokenText || undefined);
         } else if (turn.suggestionId) {
           // 매치 0건 + 유사 대안 제안: 백엔드 spoken("대신 ○○…안내해드릴까요?")을 읽고 답을 기다린다.
           // 다음 턴 accept 가 이 후보 select 로 이어진다(기존 0건 흐름과 동일한 상태 전이 — 카드 유지 + listen 재개).
           pendingSuggestionRef.current = turn.suggestionId;
-          const msg = turn.spoken || "비슷한 곳이 있어요. 안내해드릴까요?";
-          setVoiceState("speaking"); setCaption(msg);
-          speak(msg, () => scheduleListen());
+          const text = spokenText || msg("similar");
+          setVoiceState("speaking"); setCaption(text);
+          speak(text, () => scheduleListen());
         } else {
           // 의미상 맞는 후보가 없으면 무관한 다음 순위를 추천하지 않고 현재 카드를 유지한다.
-          // "찾아볼게요"는 검색 전 진행 멘트이므로 0건 결과에서 재사용하면 검색이 계속되는 것처럼 보인다.
-          const msg = "다른 메뉴를 말씀해 주시면 바로 찾아드릴게요.";
-          setVoiceState("speaking"); setCaption(msg);
-          speak(msg, () => scheduleListen());
+          // '없어요' 대신 다음에 할 일을 말한다(계획 B2 · I09 — 부정적인 빈 응답 금지).
+          const text = msg("noMatch");
+          setVoiceState("speaking"); setCaption(text);
+          speak(text, () => scheduleListen());
         }
         break;
       case "command": {
         try { recRef.current?.abort?.(); } catch { /* noop */ }
         const applied = turn.command && o.onCommand ? o.onCommand(turn.command) : false;
-        if (applied) finish(turn.spoken || "요청한 조건을 적용했어요.");
+        if (applied) finish(spokenText || msg("applied"));
         else {
-          const msg = "지금 추천을 그대로 이어갈게요.";
-          setVoiceState("speaking"); setCaption(msg);
-          speak(msg, () => scheduleListen());
+          const text = msg("keepGoing");
+          setVoiceState("speaking"); setCaption(text);
+          speak(text, () => scheduleListen());
         }
         break;
       }
       case "details": {
-        const msg = turn.spoken || (o.getDetail && o.getDetail(item)) || `${o.getName(item)} 정보를 다시 안내할게요. 여기로 안내할까요?`;
-        setVoiceState("speaking"); setCaption(msg);
-        speak(msg, () => scheduleListen());
+        if (!item) { reprompt(); break; }
+        const text = spokenText
+          || (o.getDetail && o.getDetail(item))
+          || (o.cardSentence ?? defaultCardSentence)(o.getName(item), "");
+        setVoiceState("speaking"); setCaption(text);
+        speak(text, () => scheduleListen());
         break;
       }
       case "next":
@@ -323,10 +363,10 @@ export function useVoiceAssistant<T>(opts: VoiceAssistantOptions<T>): VoiceAssis
       case "negative":
         // 다음 카드로. notifyItem이 새 카드를 narrate(이중 발화 방지 — spoken 별도 발화 안 함).
         try { recRef.current?.abort?.(); } catch { /* noop */ }
-        o.onNext(item);
+        if (item) o.onNext(item);
         break;
       default: // unknown
-        if (turn.spoken) { setVoiceState("speaking"); setCaption(turn.spoken); speak(turn.spoken, () => scheduleListen()); }
+        if (spokenText) { setVoiceState("speaking"); setCaption(spokenText); speak(spokenText, () => scheduleListen()); }
         else reprompt();
     }
   };
@@ -346,7 +386,7 @@ export function useVoiceAssistant<T>(opts: VoiceAssistantOptions<T>): VoiceAssis
     try { recRef.current?.abort?.(); } catch { /* noop */ }
     try {
       const rec = new SR();
-      rec.lang = "ko-KR";
+      rec.lang = lang();
       rec.interimResults = true;
       rec.continuous = false;
       rec.maxAlternatives = 3;
@@ -402,38 +442,48 @@ export function useVoiceAssistant<T>(opts: VoiceAssistantOptions<T>): VoiceAssis
     const o = optsRef.current;
     const reason = (o.getReason(item) || "").slice(0, 220).trim();
     const name = o.getName(item);
-    const sentence = reason ? `${name}. ${reason} 여기로 안내할까요?` : `${name}. 여기로 안내할까요?`;
+    // 이름은 한 번만 — 이유 문장이 이미 이름을 말하면 앞에 다시 붙이지 않는다(계획 B2 · I46).
+    const sentence = (o.cardSentence ?? defaultCardSentence)(name, reason);
     setVoiceState("speaking");
     setCaption(sentence);
     speak(sentence, () => scheduleListen());
   };
 
+  // 카드 없이 켠 세션 — 무엇을 찾을지 먼저 묻고 듣는다(♿·밤처럼 카드가 없는 화면에서도 비서가 죽은 버튼이 아니다).
+  const greet = () => {
+    const text = msg("greet");
+    setVoiceState("speaking");
+    setCaption(text);
+    speak(text, () => scheduleListen());
+  };
+
   // 부모가 카드 변경 시 호출. 잠금 해제 + 음소거 아님 + 활성일 때만 자동 발화.
   const notifyItem = (item: T | null) => {
+    const hadItem = itemRef.current !== null;
     itemRef.current = item;
     if (!item) {
-      if (stateRef.current !== "idle") finish(); // 카드 사라짐 → 종료
+      // 보던 카드가 사라졌으면 종료. 카드 없이 시작한 세션(인사 → 듣기)은 이어간다.
+      if (hadItem && stateRef.current !== "idle") finish();
       return;
     }
-    if (!activeRef.current) return; // 세션 비활성: 대기(오브 표시만)
+    if (!activeRef.current) return; // 세션 비활성: 대기(알약 표시만)
     speakItem(item);
   };
 
   // 제스처 게이트: onClick 콜백 동기 스택에서 첫 발화 → 자동재생 정책 통과.
+  // 켜져 있을 때 누르면 어떤 상태든 멈춘다 — 이름이 '음성 안내 정지' 인데 말하는 중에 누르면 듣기로 넘어가던
+  // 동작은 고장처럼 보였다(계획 B2 · I84).
   const onOrbClick = () => {
     if (typeof window === "undefined") return;
-    if (!active) {
-      const item = itemRef.current;
-      if (!item || !("speechSynthesis" in window)) return;
+    if (!activeRef.current) {
+      if (!("speechSynthesis" in window)) return;
+      optsRef.current.onSessionStart?.();
       setActiveBoth(true);
       repromptRef.current = 0;
       try { const w = new SpeechSynthesisUtterance(" "); w.volume = 0; window.speechSynthesis.speak(w); } catch { /* noop */ }
-      speakItem(item);
-      return;
-    }
-    if (stateRef.current === "speaking") { // 바지인
-      if ("speechSynthesis" in window) window.speechSynthesis.cancel();
-      startListening();
+      const item = itemRef.current;
+      if (item) speakItem(item);
+      else greet();
       return;
     }
     stop();

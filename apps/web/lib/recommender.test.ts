@@ -13,7 +13,11 @@ import {
   EVIDENCE_TIER_BY_SCORING_MODE,
   WEAKEST_EVIDENCE_TIER,
   compareSpot,
+  cuisineIntentTags,
+  cuisineMatch,
   evidenceTier,
+  facilityCuisineTokens,
+  isBarFacility,
   rankFacilities,
   rankFacilitiesDegraded,
   recToSpot,
@@ -130,3 +134,26 @@ assert.equal(recToSpot(rec).scoringMode, 'area_stats_rules');
 }
 
 console.log('recommender evidence-tier tests passed');
+
+// --- 음식 종류 태그: camelCase(cuisineTags) 도 읽는다(계획 B2 · I09) -------------------
+// apiClient 는 features 안까지 camelCase 로 바꾼다. 예전에는 cuisine_tags 만 읽어 /main 의 모든 시설이 '태그 없음' 이었다.
+{
+  const western = { type: 'restaurant', name: '이사부피자', features: { cuisineTags: ['양식', '피자'] } };
+  assert.deepEqual(facilityCuisineTokens(western), ['양식', '피자']);
+  assert.equal(cuisineMatch(western, '양식 먹고 싶어'), 0.95, 'camelCase 태그 정확 일치');
+  assert.equal(cuisineMatch({ type: 'restaurant', name: 'X', features: { cuisine_tags: ['양식'] } }, '양식'), 0.95, 'snake_case 도 그대로');
+  const bar = { type: 'restaurant', name: '동주', features: { cuisineTags: ['술집'] } };
+  assert.equal(cuisineMatch(bar, '양식'), 0.12, 'camelCase 술집은 음식 의도에 거의 안 맞는다');
+  assert.equal(isBarFacility(bar), true);
+  assert.equal(isBarFacility({ type: 'restaurant', features: { cuisine_tags: '포차' } }), true, '포차·선술집도 술집');
+  assert.equal(isBarFacility(western), false);
+  assert.equal(isBarFacility({ type: 'restaurant', features: null }), false);
+  // cat3 매핑은 그대로.
+  assert.deepEqual(facilityCuisineTokens({ type: 'restaurant', features: { cat3: 'A05020200' } }), ['양식']);
+  // 의도 키워드 → 태그.
+  assert.deepEqual([...cuisineIntentTags('양식 먹고 싶어')].sort(), ['양식', '피자', '햄버거'].sort());
+  assert.equal(cuisineIntentTags('').size, 0);
+  assert.equal(cuisineIntentTags('아무거나').size, 0);
+}
+
+console.log('recommender cuisine-tag tests passed');

@@ -1,7 +1,7 @@
 // 카운트업 보간 수학 — RAF 없이 순수 함수만 검증한다(훅 자체는 브라우저 전용).
 // 핵심 계약: 최종값을 **절대 넘지 않는다**(정직성 — 실제 값 너머로 튀는 순간 지어낸 숫자다).
 import assert from 'node:assert/strict';
-import { countUpFrame, easeOutCubic } from './useCountUp';
+import { countUpFrame, countUpPlan, easeOutCubic } from './useCountUp';
 
 // --- easeOutCubic 경계 ---------------------------------------------------------
 assert.equal(easeOutCubic(0), 0, '시작은 0');
@@ -42,3 +42,9 @@ assert.equal(countUpFrame(0, 55, 1, -2), 55, '음수 decimals 는 0으로');
 assert.ok(countUpFrame(0, 100, 0.3) > 0, '중간 진행률에서 표시값이 전진');
 
 console.log('useCountUp.test.ts OK');
+
+// --- rollOnChange:false — 첫 등장만 굴리고, 같은 카드의 숫자 갱신은 바로 바꾼다(계획 B2 · I34) ---------
+assert.equal(countUpPlan({ hasShownValue: false, rollOnChange: false }), 'roll', '새 카드는 한 번 굴린다');
+assert.equal(countUpPlan({ hasShownValue: true, rollOnChange: false }), 'jump', '서버 확인 갱신은 다시 굴리지 않는다');
+assert.equal(countUpPlan({ hasShownValue: false, rollOnChange: true }), 'roll');
+assert.equal(countUpPlan({ hasShownValue: true, rollOnChange: true }), 'roll', '기본값은 예전처럼 직전 값에서 굴린다');

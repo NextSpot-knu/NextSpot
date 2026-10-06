@@ -1,6 +1,9 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+// 지금 경주 날씨 — 알약 하나(계획 B3: 날씨·첫 방문은 모든 폭에서 알약 두 개짜리 한 줄). 누르면 6시간 예보와
+// '실내만' 조건이 알약 아래에 떠서 펼쳐진다(아래 줄을 밀지 않는다). 키 낮은 휴대폰(높이 720 미만)에서는 검색줄 옆에
+// 서므로 '지금 경주' 를 빼고 아이콘 · 기온만 보인다(접근 이름은 그대로).
+import { useEffect, useRef, useState } from 'react';
 import { ChevronDown, ChevronUp, Umbrella } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { useT } from '@/lib/i18n/I18nProvider';
@@ -25,6 +28,18 @@ export default function WeatherChip({ indoorRequired, onIndoorRequiredChange }: 
   const t = useT();
   const [data, setData] = useState<WeatherResponse | null>(null);
   const [expanded, setExpanded] = useState(false);
+  const boxRef = useRef<HTMLDivElement>(null);
+  // 펼친 판을 화면 안으로 — 알약 왼쪽 끝에 붙이되, 화면 오른쪽(16px 여백)을 넘으면 그만큼 왼쪽으로 민다. 키 낮은 휴대폰은
+  // 알약이 검색창 오른쪽 옆에 서서 288px 판이 화면 밖으로 잘렸다(리뷰 10-07 — 6시간 예보 중 4칸만 보였다).
+  const [popoverLeft, setPopoverLeft] = useState(0);
+  const toggle = () => {
+    if (!expanded && boxRef.current) {
+      const left = boxRef.current.getBoundingClientRect().left;
+      const width = Math.min(288, window.innerWidth - 32);
+      setPopoverLeft(Math.max(16 - left, Math.min(0, window.innerWidth - 16 - (left + width))));
+    }
+    setExpanded((value) => !value);
+  };
 
   useEffect(() => {
     let active = true;
@@ -32,21 +47,42 @@ export default function WeatherChip({ indoorRequired, onIndoorRequiredChange }: 
     return () => { active = false; };
   }, []);
 
+  // 펼친 예보는 바깥을 누르면 닫는다(지도 위에 떠 있는 판이라 그대로 두면 지도를 가린다).
+  useEffect(() => {
+    if (!expanded) return;
+    const close = (event: PointerEvent) => {
+      if (boxRef.current && !boxRef.current.contains(event.target as Node)) setExpanded(false);
+    };
+    window.addEventListener('pointerdown', close);
+    return () => window.removeEventListener('pointerdown', close);
+  }, [expanded]);
+
   if (!data?.current || data.source !== 'kma') return null;
   const now = data.current;
+  const full = t('weather.gyeongjuNow', { n: Math.round(now.temperatureC) });
+  const summary = data.indoorRecommended
+    ? t('weather.riskSummary', { n: now.precipitationProbability })
+    : t('weather.calmSummary', { n: now.precipitationProbability });
   return (
-    <section className={`pointer-events-auto overflow-hidden rounded-2xl border bg-white/95 backdrop-blur shadow-[0_2px_14px_rgba(43,35,32,0.08)] ${data.indoorRecommended ? 'border-gold/60' : 'border-line'}`}>
-      <button type="button" onClick={() => setExpanded((value) => !value)} aria-expanded={expanded} className="flex w-full items-center gap-3 px-3.5 py-3 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-gold/60">
-        <span className="text-2xl" aria-hidden>{iconOf(now)}</span>
-        <span className="min-w-0 flex-1">
-          <span className="block text-sm font-bold text-muk">{t('weather.gyeongjuNow', { n: Math.round(now.temperatureC) })}</span>
-          <span className="block truncate text-[11px] text-muk-soft">{data.indoorRecommended ? t('weather.riskSummary', { n: now.precipitationProbability }) : t('weather.calmSummary', { n: now.precipitationProbability })}</span>
-        </span>
-        {expanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+    <div ref={boxRef} className="pointer-events-auto relative shrink-0">
+      <button
+        type="button"
+        onClick={toggle}
+        aria-expanded={expanded}
+        aria-label={`${full} · ${summary}`}
+        title={summary}
+        className={`flex h-8 items-center gap-1.5 whitespace-nowrap rounded-full border bg-white px-3 text-[12px] font-bold text-muk shadow-[0_2px_10px_rgba(43,35,32,0.08)] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 ${data.indoorRecommended ? 'border-gold/60' : 'border-line'}`}
+      >
+        <span aria-hidden className="text-[15px] leading-none">{iconOf(now)}</span>
+        <span className="short:max-md:hidden">{full}</span>
+        <span aria-hidden className="hidden short:max-md:inline">{Math.round(now.temperatureC)}℃</span>
+        {data.indoorRecommended && <Umbrella size={13} aria-hidden className="text-gold-deep" />}
+        {expanded ? <ChevronUp size={14} aria-hidden /> : <ChevronDown size={14} aria-hidden />}
       </button>
       {expanded && (
-        <div className="border-t border-line/70 px-3.5 pb-3 pt-2.5">
-          <div className="grid grid-cols-6 gap-1" aria-label={t('weather.sixHour')}>
+        <section style={{ left: popoverLeft }} className="absolute top-full z-30 mt-2 w-72 max-w-[calc(100vw-2rem)] rounded-2xl border border-line bg-white px-3.5 pb-3 pt-2.5 shadow-[0_10px_30px_rgba(43,35,32,0.18)]">
+          <p className="text-[12px] font-semibold text-muk">{summary}</p>
+          <div className="mt-2 grid grid-cols-6 gap-1" aria-label={t('weather.sixHour')}>
             {data.forecasts.slice(0, 6).map((forecast) => (
               <div key={forecast.at} className="text-center text-[10px] text-muk-soft">
                 <div>{hourOf(forecast.at)}</div><div className="my-0.5 text-base" aria-hidden>{iconOf(forecast)}</div><div className="font-semibold text-muk">{Math.round(forecast.temperatureC)}°</div>
@@ -59,8 +95,8 @@ export default function WeatherChip({ indoorRequired, onIndoorRequiredChange }: 
               <Umbrella size={14} />{t('setup.indoorOnly')}
             </button>
           )}
-        </div>
+        </section>
       )}
-    </section>
+    </div>
   );
 }

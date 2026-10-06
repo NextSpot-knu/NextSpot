@@ -24,7 +24,7 @@ import {
   parseCongestionEstimate,
   revalidateIsCurrent,
 } from './congestionEstimate';
-import { getMarkerSvg } from './map/markerSvg';
+import { getMarkerSvg, pinDisplay, pinSvg } from './map/markerSvg';
 import { rankFacilities, scoreFacility } from './recommender';
 
 const WEB = process.cwd();
@@ -282,16 +282,20 @@ const raw = {
 }
 
 // --- 4) 마커는 추정을 그리지 않는다 --------------------------------------------
-// 지도 핀은 **실측 혼잡만** 칠한다(사용자 결정 2026-09-20 — 근거 등급마다 핀 모양을 늘리지 않는다).
-// 추정은 시설 상세·추천 카드에서 '추정' 배지로만 말한다.
+// 지도 핀은 **실측 혼잡만** 칠한다(사용자 결정 2026-09-20 · PM 4.3 — 근거 등급마다 핀 모양을 늘리지 않는다).
+// 추정은 시설 상세·추천 카드에서 '추정' 배지로만 말한다. 계획 B3: 근거 없는 핀은 회색이 아니라 옅은 빈 핀이다.
 {
   const decode = (uri: string) => decodeURIComponent(uri.replace(/^data:image\/svg\+xml;charset=utf-8,/, ''));
-  const measured = decode(getMarkerSvg('cafe', 0.44, null, false, 0.75));
-  const none = decode(getMarkerSvg('cafe', null, null, false, 0.75));
+  const now = new Date();
+  const measured = decode(pinSvg(pinDisplay({ type: 'cafe', level: 0.44, observedAt: now.toISOString(), busyAt: 0.75, now }), 'cafe'));
+  const none = decode(pinSvg(pinDisplay({ type: 'cafe', level: null, busyAt: 0.75, now }), 'cafe'));
 
   assert.doesNotMatch(measured, /stroke-dasharray/, '실측 마커가 점선으로 바뀌었다');
-  assert.match(none, /#4b5563/, '근거 없음은 종전처럼 회색이어야 한다');
+  assert.match(none, /data-pin="hollow"/, '근거 없음은 옅은 빈 핀이어야 한다');
+  assert.doesNotMatch(none, /#4b5563/, '근거 없음이 회색 핀으로 돌아왔다');
   assert.notEqual(measured, none, '실측과 근거 없음이 같은 마커다');
+  // pinDisplay 에는 추정을 넣을 자리가 없다 — 예측 모드의 forecastLevel 은 예측(+N시간) 전용이다.
+  assert.equal(getMarkerSvg('cafe', null, null, false, 0.75), pinSvg(pinDisplay({ type: 'cafe', level: null, now }), 'cafe'));
 }
 
 // --- 5) 배선: 추정이 관측 필드로 새지 않는가 ------------------------------------
@@ -303,7 +307,8 @@ const raw = {
   assert.doesNotMatch(main, /currentCount:\s*[^,\n]*[Ee]stimate/, '추정으로 인원을 만든다');
   assert.doesNotMatch(main, /congestion:\s*x\.congestionEstimate/, '음성 후보가 추정을 관측처럼 보낸다');
   // 지도 핀은 실측 전용이다(사용자 결정 2026-09-20 — 마커 디자인은 종전 그대로 둔다).
-  assert.doesNotMatch(main, /getMarkerSvg\([^)]*[Ee]stimate/, '마커가 추정으로 다시 칠해진다');
+  assert.doesNotMatch(main, /pinDisplay\(\{[^}]*[Ee]stimate/, '마커가 추정으로 다시 칠해진다');
+  assert.match(main, /pinDisplay\(\{/, '지도 핀이 pinDisplay 를 거치지 않는다');
 
   // 추정은 별도 피드에서 받고, 24시간 시설 캐시(loadFacilities → saveFacilityCache)에는 넣지 않는다.
   assert.match(main, /getCongestionEstimates\(/, '지도가 추정 피드를 받지 않는다');
