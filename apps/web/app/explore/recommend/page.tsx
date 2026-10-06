@@ -2,12 +2,12 @@
 
 import React, { useState, useEffect, useRef, useMemo, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, ChevronDown } from "lucide-react";
 import { ErrorState } from "@/components/ErrorState";
 import NowChip from "@/components/NowChip";
 import { createPublicClient } from "@/lib/supabase";
 const supabase = createPublicClient();
-import { apiClient, getRecommendations, isRequestTimeout, recommendByType, reportFacilityAvailability, submitFeedback, parsePreference, RecommendationResponse } from "@/lib/api-client";
+import { apiClient, getCongestionEstimates, getRecommendations, isRequestTimeout, recommendByType, reportFacilityAvailability, submitFeedback, parsePreference, RecommendationResponse } from "@/lib/api-client";
 import { displayWalkingMinutes } from "@/lib/recommender";
 import { classifyIntent, buildCardSpeech } from "@/lib/voice/voiceIntent";
 import { getArrivalOpenDisplayStatus, isClosedToday } from "@/lib/restDate";
@@ -23,8 +23,14 @@ import { openDrivingDirections, openWalkingDirections } from "@/lib/navigation";
 import { track } from "@/lib/analytics";
 import { loadTravelContext } from "@/lib/travelContext";
 import { relativeParts } from "@/lib/freshness";
-import { congestionDisplay, formatEstimateTime, formatLastObserved } from "@/lib/congestionEstimate";
-import { congestionKey } from "@/lib/congestionScale";
+import { congestionDisplay, formatEstimateTime, formatLastObserved, parseCongestionEstimate } from "@/lib/congestionEstimate";
+import { congestionKey, type CongestionKey } from "@/lib/congestionScale";
+// 대기 보드에서 눌러 온 장소 둘레의 같은 종류 대안(I25), 한국어 조사, '원래 장소보다 덜 붐빌 때만' 칩 규칙.
+import { candidateTypesFor, isStrictlyCalmer, withTopicJosa } from "@/lib/recommendOrigin";
+import { boardCrowdSpread } from "@/lib/boardOrder";
+// 사진이 없는 카드도 같은 높이의 장소 표지로 시작한다(I38).
+import { PlacePhotoFallback } from "@/components/PlacePhotoFallback";
+import { placeVisual } from "@/lib/placeVisual";
 import { useBusyThreshold } from "@/components/shell/PublicSettingsProvider";
 import { buildSpotComparisons, formatSpotComparison } from "@/lib/spotComparison";
 import {
@@ -222,6 +228,10 @@ function RecommendContent() {
   const facilityId = searchParams.get("facilityId") || "";
   const paramLat = searchParams.get("lat");
   const paramLng = searchParams.get("lng");
+  // 대기 보드에서 눌러 왔으면(I25) 그 장소의 종류와 출처가 함께 온다 — 같은 종류의 대안을 그 장소 둘레에서 찾는다.
+  const originTypeParam = searchParams.get("type");
+  const fromWaiting = searchParams.get("from") === "waiting";
+  const candidateTypes = useMemo(() => candidateTypesFor(originTypeParam), [originTypeParam]);
 
   // State
   const [userId, setUserId] = useState<string | null>(null);
@@ -276,6 +286,13 @@ function RecommendContent() {
   const noAlternatives = !loadingRecommendations && !loadFailed && recommendations.length === 0;
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [mapLoaded, setMapLoaded] = useState(false);
+  // 카드마다 '추천 근거 자세히'를 펼쳤는가 — 순위 이유·근거 원자료는 관광객이 원할 때만(card.whyToggle).
+  const [whyOpenById, setWhyOpenById] = useState<Record<string, boolean>>({});
+  // 목록 아래 '순서 자세히'(Top 3 비교·표).
+  const [orderDetailsOpen, setOrderDetailsOpen] = useState(false);
+  // 원래 장소의 지금 추정 붐빔(0~1) — 실측 로그가 없을 때만 /congestion/estimates 에서 한 번 읽는다(I25).
+  // 어느 장소의 값인지 함께 둔다 — 다른 장소로 넘어가면 옛 값을 쓰지 않는다.
+  const [originEstimate, setOriginEstimate] = useState<{ id: string; level: number } | null>(null);
 
   // facilityId 없이 진입(깨진 공유 링크·URL 직접 입력) 가드 — 정적 export(SSR)에서는 서버 렌더 시점에
   // searchParams 가 비어 보일 수 있으므로, 마운트 확정 전에는 항상 스켈레톤을 유지하고 마운트 후에만
@@ -575,6 +592,41 @@ function RecommendContent() {
     fetchOriginalFacility();
   }, [facilityId]);
 
+  // 원래 장소에 실측 로그가 없으면 대기 보드와 같은 추정 피드에서 그 장소의 지금 등급을 읽는다(I25) —
+  // 보드가 방금 '혼잡' 이라고 보여 준 곳을 이 화면이 '모름' 으로 말하지 않게. 실패하면 알약을 그리지 않는다.
+  const needsOriginEstimate = !loadingOriginal && originalFacility !== null && originalFacility.congestionLevel === null;
+  useEffect(() => {
+    if (!facilityId || !needsOriginEstimate) return;
+    let alive = true;
+    const controller = new AbortController();
+    void (async () => {
+      try {
+        const feed = await getCongestionEstimates({ timeoutMs: 8000, signal: controller.signal });
+        if (!alive || !feed?.available) return;
+        const parsed = parseCongestionEstimate(feed.estimates?.[facilityId]);
+        if (parsed) setOriginEstimate({ id: facilityId, level: parsed.level });
+      } catch { /* 추정 피드 없음 — 알약 없이 제목만 */ }
+    })();
+    return () => { alive = false; controller.abort(); };
+  }, [facilityId, needsOriginEstimate]);
+  const originEstimateLevel = needsOriginEstimate && originEstimate?.id === facilityId ? originEstimate.level : null;
+  const originGrade: { key: CongestionKey; estimated: boolean } | null =
+    originalFacility?.congestionLevel != null
+      ? { key: congestionKey(originalFacility.congestionLevel, busyAt), estimated: false }
+      : originEstimateLevel !== null
+        ? { key: congestionKey(originEstimateLevel, busyAt), estimated: true }
+        : null;
+
+  // 대안 조회 한 곳(I25) — 대기 보드에서 왔으면 같은 종류부터 묻고, 비면 종류 없이 한 번 더 묻는다.
+  // 모든 호출 경로(첫 조회·선호 반영·온보딩·다른 대안 보기)가 이 함수를 쓴다.
+  const fetchAlternatives = async (): Promise<RecommendationResponse[]> => {
+    if (candidateTypes.length > 0) {
+      const typed = await getRecommendations(facilityId, { lat, lng }, loadTravelContext(), { candidateTypes });
+      if (typed.length > 0) return typed;
+    }
+    return getRecommendations(facilityId, { lat, lng }, loadTravelContext());
+  };
+
   // Check Cold Start & Fetch Recommendations
   useEffect(() => {
     if (!userId || !facilityId) return;
@@ -611,7 +663,7 @@ function RecommendContent() {
         // 유형은 클로저가 아니라 ref 에서 호출 시점에 읽는다(원래 장소가 effect 시작 뒤에 도착한다).
         const byTypeFallback = () =>
           recommendByType(
-            originalTypeRef.current ?? "restaurant",
+            originalTypeRef.current ?? originTypeParam ?? "restaurant",
             { lat, lng },
             [facilityId],
             5,
@@ -623,7 +675,7 @@ function RecommendContent() {
         let recommendationsList;
         let triedByType = false;
         try {
-          recommendationsList = await getRecommendations(facilityId, { lat, lng }, loadTravelContext());
+          recommendationsList = await fetchAlternatives();
         } catch (firstErr) {
           if (cancelled) return;
           if (isRequestTimeout(firstErr)) {
@@ -637,7 +689,7 @@ function RecommendContent() {
             await new Promise((resolve) => setTimeout(resolve, 2500));
             if (cancelled) return;
             try {
-              recommendationsList = await getRecommendations(facilityId, { lat, lng }, loadTravelContext());
+              recommendationsList = await fetchAlternatives();
             } catch (secondErr) {
               if (cancelled) return;
               console.warn("추천 2차 실패 — by-type 엔진 폴백:", secondErr);
@@ -673,6 +725,8 @@ function RecommendContent() {
     checkHistoryAndFetch();
     return () => { cancelled = true; };
     // originalFacility 를 deps 에 넣지 않음: 매번 새 객체로 세팅돼 추천을 이중 fetch 시키던 경합의 원인이었다.
+    // fetchAlternatives 는 렌더마다 새 함수지만 읽는 값(facilityId·lat·lng·종류)은 deps 와 같다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId, facilityId, lat, lng]);
 
   // 음성 입력 시작 (Web Speech API). 미지원 브라우저는 텍스트 입력으로 폴백.
@@ -777,7 +831,7 @@ function RecommendContent() {
     setShowOnboarding(false);
     setLoadingRecommendations(true);
     try {
-      const list = await getRecommendations(facilityId, { lat, lng }, loadTravelContext());
+      const list = await fetchAlternatives();
       setRecommendations(list);
       setLoadFailed(false);
     } catch (err) {
@@ -819,7 +873,7 @@ function RecommendContent() {
       // 2. Fetch recommendations — 선호 벡터가 없으면 FastAPI가 방금 갱신한 users.preferred_categories 로
       // 카테고리 평균 벡터를 생성해 Supabase에 저장한 뒤 추천을 계산한다(로컬 연산, 외부 벡터 DB 없음).
       setLoadingRecommendations(true);
-      const recommendationsList = await getRecommendations(facilityId, { lat, lng }, loadTravelContext());
+      const recommendationsList = await fetchAlternatives();
       setRecommendations(recommendationsList);
       setLoadFailed(false);
     } catch (err) {
@@ -966,7 +1020,7 @@ function RecommendContent() {
 
       // 2. 새 추천 시도. 실패해도 전체 흐름을 깨지 않고 빈 추천(빈 상태 UI)으로 처리한다(실데이터 전용).
       try {
-        const fresh = await getRecommendations(facilityId, { lat, lng }, loadTravelContext());
+        const fresh = await fetchAlternatives();
         setRecommendations(fresh);
         setLoadFailed(false);
       } catch (e) {
@@ -1307,15 +1361,42 @@ function RecommendContent() {
     return <main className="min-h-screen bg-hanji" />;
   }
 
+  // ── 머리글 한 덩어리(P11) ──────────────────────────────────────────────────────────────────
+  // 예전에는 히어로 카드 · 원래 장소 카드 · '실시간 추천 대안 (최대 5개)' 세 머리가 쌓여 첫 화면에 대안 사진이 없었다.
+  // 이제 제목 한 줄이 무엇을 보여 주는지 말한다 — 대기 보드에서 왔으면 '{장소}에서 걸어서 갈 수 있는 곳'(그 장소에서
+  // 걷는 시간이다), 아니면 '{장소} 대신 갈 만한 N곳'. 대안이 없으면 결과를 약속하지 않고 이름만.
+  const originName = originalFacility?.name ?? null;
+  const headerTitle = !originName
+    ? t("recommend.heroTitle")
+    : noAlternatives
+      ? originName
+      : fromWaiting
+        ? t("recommend.headerFrom", { name: originName })
+        : !loadingRecommendations && recommendations.length > 0
+          ? t(countKey("recommend.headerInstead", recommendations.length), { name: originName, n: recommendations.length })
+          : t("recommend.headerInsteadPending", { name: originName });
+  // 원래 장소의 붐빔 알약 — 붐비면 terracotta, 한산·여유면 jade. 보통·모름이면 그리지 않는다(제목이 이미 이름을 말한다).
+  // 한국어 조사는 받침으로 고른다('경주 첨성대는' · '국립경주박물관은') — '은(는)' 을 화면에 쓰지 않는다.
+  const originSubject = originName ? (locale === "ko" ? withTopicJosa(originName) : originName) : "";
+  const originPillTone =
+    originGrade?.key === "busy" ? "busy" : originGrade?.key === "quiet" || originGrade?.key === "relaxed" ? "calm" : null;
+  // 대안들의 추정 붐빔이 한 등급이면(I03) 머리 아래 한 줄로 한 번만 — 원래 장소 알약이 이미 같은 말을 하면 생략.
+  const altSpread = boardCrowdSpread(
+    recommendations
+      .map((rec) => congestionDisplay(rec).estimate?.level)
+      .filter((level): level is number => typeof level === "number"),
+  );
+
   return (
     <main className="min-h-screen bg-hanji text-muk p-4 md:p-8 max-md:pb-[calc(var(--tourist-nav-clearance)+env(safe-area-inset-bottom))] flex flex-col justify-between items-center relative overflow-hidden">
       {/* 배경 은은한 노을·금빛 광원 (콜드 blue/purple 글로우 대체) */}
       <div className="absolute top-[-20%] left-[-10%] w-[600px] h-[600px] rounded-full bg-sunset-1/10 blur-[120px] pointer-events-none" />
       <div className="absolute bottom-[-10%] right-[-10%] w-[600px] h-[600px] rounded-full bg-gold/10 blur-[120px] pointer-events-none" />
 
-      <div className="w-full max-w-md md:max-w-2xl space-y-6 relative z-10 flex-1 py-4">
-        {/* 상단 바 — 뒤로가기(44px 터치)만 별도 행으로 분리해 아래 히어로 카드가 시선의 출발점이 되게 한다
-            (/waiting 상단 바와 동일 문법). 브랜드명은 히어로 카드의 칩으로 승격. */}
+      {/* 데스크톱(≥1024)은 넓게 — 대안 카드를 두 줄로 나란히 놓는다. */}
+      <div className="w-full max-w-md md:max-w-2xl lg:max-w-5xl space-y-5 relative z-10 flex-1 py-4">
+        {/* 상단 바 — 뒤로가기(44px 터치)만 별도 행으로 분리해 아래 머리글이 시선의 출발점이 되게 한다
+            (/waiting 상단 바와 동일 문법). */}
         <button
           type="button"
           onClick={() => { quietAssistant(); router.push("/main"); }}
@@ -1325,134 +1406,82 @@ function RecommendContent() {
           <ArrowLeft size={18} />
         </button>
 
-        {/* 히어로 요약 카드 — /course·/waiting 헤더 블록과 같은 문법(브랜드 칩 → 큰 헤드라인 →
-            한 줄 가치 → 골드 스탯). 스탯은 현재 추천 개수를 보여준다. */}
-        <section className="rounded-2xl border border-line/70 bg-hanji-deep/45 p-4 md:p-5 space-y-3">
+        {/* 머리글 한 덩어리 — 브랜드 칩 → 제목 한 줄 → 원래 장소의 붐빔 알약 → 한 줄 가치. */}
+        <section className="rounded-2xl border border-line/70 bg-hanji-deep/45 p-4 md:p-5 space-y-2.5">
           <div className="flex flex-wrap items-center gap-2">
             <span className="inline-flex items-center w-fit px-2.5 py-1 rounded-full bg-gold/15 border border-gold/30 text-[11px] font-bold text-gold-deep">
               {t("recommend.headerBrand")}
             </span>
             <NowChip />
           </div>
-          <div className="space-y-1.5">
-            <h1 className="text-[22px] md:text-[28px] font-serif font-black text-muk leading-[1.15] tracking-tight">
-              {t("recommend.heroTitle")}
-            </h1>
-            <p className="text-[13px] md:text-sm text-muk-soft leading-relaxed">
-              {t("recommend.heroDesc")}
-            </p>
-          </div>
-          {!loadingRecommendations && recommendations.length > 0 && (
-            <div className="flex flex-wrap items-center gap-2 pt-0.5">
-              <span className="inline-flex items-center gap-1.5 rounded-xl border border-gold/40 bg-gold/15 px-3 py-2 text-[13px] font-black text-gold-deep tabular-nums shadow-[0_2px_10px_rgba(193,154,62,0.16)]">
-                <span aria-hidden>🧭</span>
-                {t("recommend.heroCount", { n: recommendations.length })}
-              </span>
-            </div>
-          )}
-        </section>
-
-        {/* 1. Original Facility Card */}
-        <section>
           {loadingOriginal ? (
-            <div className="bg-white p-6 rounded-2xl border border-line toss-surface animate-pulse flex flex-col gap-3">
-              <div className="h-4 bg-hanji-deep w-2/3 rounded-md" />
-              <div className="h-3 bg-hanji-deep w-1/2 rounded-md" />
+            <div className="space-y-2 animate-pulse" aria-hidden>
+              <div className="h-7 w-3/4 rounded-md bg-hanji-deep" />
+              <div className="h-4 w-1/2 rounded-md bg-hanji-deep" />
             </div>
-          ) : originalFacility ? (
-            (() => {
-              // 정직성: 헤드라인은 실측 혼잡도를 따른다 — 이전엔 진입 경로와 무관하게 '혼잡합니다'
-              // 템플릿을 고정 출력해 대기 보드('한산·대기 1분')와 모순된 안내가 나갔다(사용자 신고 버그).
-              // 로그 0건(congestionLevel=null)은 '여유'로도 팔지 않는다 — 중립 카드(CONGESTION_TRUST_SPEC).
-              if (originalFacility.congestionLevel === null) {
-                return (
-                  <div className="bg-white p-6 rounded-2xl border border-line toss-surface relative overflow-hidden">
-                    <div className="flex items-center gap-2">
-                      <span className="w-2 h-2 rounded-full bg-muk-soft/40" />
-                      <span className="text-[10px] text-muk-soft font-bold tracking-wider">
-                        {t("card.congestionPreparing")}
-                      </span>
-                    </div>
-                    {/* '…모았어요'·'아래에서 비교해 보세요' 는 대안이 실제로 왔을 때만 — 오기 전이나 비었을 때는 이름만. */}
-                    <h2 className="text-xl md:text-2xl font-serif font-bold text-muk tracking-tight mt-2.5 leading-snug">
-                      <span>{originalFacility.name}</span>
-                      {recommendations.length > 0 && t("recommend.unknownSuffix")}
-                    </h2>
-                    {recommendations.length > 0 && (
-                      <p className="text-xs text-muk-soft mt-1.5 leading-relaxed">{t("recommend.unknownHint")}</p>
-                    )}
-                  </div>
-                );
-              }
-              const crowded = originalFacility.congestionLevel >= 0.6;
-              return (
-                <div className={`bg-white p-6 rounded-2xl border ${crowded ? "border-terracotta/25" : "border-jade/25"} toss-surface relative overflow-hidden`}>
-                  <div className={`absolute top-0 right-0 w-24 h-24 ${crowded ? "bg-terracotta/10" : "bg-jade/10"} rounded-full blur-2xl pointer-events-none`} />
-                  <div className="flex items-center gap-2">
-                    <span className={`w-2 h-2 rounded-full ${crowded ? "bg-terracotta animate-pulse" : "bg-jade"}`} />
-                    <span className={`text-[10px] ${crowded ? "text-terracotta" : "text-jade"} font-bold tracking-wider`}>
-                      {crowded ? t("recommend.detourNeeded") : t("recommend.calmBadge")}
-                    </span>
-                  </div>
-                  <h2 className="text-xl md:text-2xl font-serif font-bold text-muk tracking-tight mt-2.5 leading-snug">
-                    {t("recommend.congestedPrefix")}
-                    <span className={crowded ? "text-terracotta" : "text-jade"}>{originalFacility.name}</span>
-                    {crowded ? t("recommend.congestedSuffix") : t("recommend.calmSuffix")}
-                  </h2>
-                  {/* '대안을 골라 드려요'·'다른 스팟도 함께' 는 대안이 없다고 끝난 화면에서는 말하지 않는다. */}
-                  {!noAlternatives && (
-                    <p className="text-xs text-muk-soft mt-1.5 leading-relaxed">
-                      {t("recommend.waitUnavailable")}
-                    </p>
-                  )}
-                  {!crowded && !noAlternatives && (
-                    <p className="text-xs text-muk-soft mt-1 leading-relaxed">{t("recommend.calmHint")}</p>
-                  )}
-                </div>
-              );
-            })()
           ) : (
-            <div className="bg-white p-5 rounded-2xl border border-line toss-surface text-center text-xs text-muk-soft">
-              {t("recommend.facilityLoadError")}
-            </div>
+            <h1 className="text-[22px] md:text-[28px] font-serif font-black text-muk leading-[1.2] tracking-tight break-words">
+              {headerTitle}
+            </h1>
+          )}
+          {originName && originPillTone && (
+            <p
+              data-testid="recommend-origin-pill"
+              className={`inline-flex flex-wrap items-center gap-1.5 rounded-full border px-3 py-1 text-[13px] font-bold ${
+                originPillTone === "busy"
+                  ? "border-terracotta/30 bg-terracotta/10 text-terracotta"
+                  : "border-jade/30 bg-jade/10 text-jade"
+              }`}
+            >
+              <span
+                className={`h-2 w-2 shrink-0 rounded-full ${originPillTone === "busy" ? "bg-terracotta animate-pulse" : "bg-jade"}`}
+                aria-hidden
+              />
+              {t(originPillTone === "busy" ? "recommend.originBusy" : "recommend.originCalm", { subject: originSubject })}
+              {originGrade?.estimated && <span className="font-semibold opacity-80">· {t("wait.estimatedTag")}</span>}
+            </p>
+          )}
+          {!noAlternatives && (
+            <p className="text-[13px] md:text-sm text-muk-soft leading-relaxed">{t("recommend.heroDesc")}</p>
           )}
         </section>
 
-        {/* 2. Alternative Recommendation Cards List */}
-        <section className="space-y-4">
-          {/* 섹션 헤더 — /waiting 섹터 헤더와 같은 문법(이모지 칩 + 제목 + 개수 pill). 대안이 없으면 제목도 없다. */}
-          {!noAlternatives && <div className="flex items-center gap-2">
-            <span
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gold/10 border border-gold/25 text-base"
-              aria-hidden
-            >
-              ✨
-            </span>
-            <h3 className="text-[15px] font-bold text-muk leading-tight">{t("recommend.altListTitle")}</h3>
-            {!loadingRecommendations && recommendations.length > 0 && (
-              <span className="ml-auto rounded-full bg-hanji-deep px-2.5 py-1 text-[11px] font-bold text-muk-soft tabular-nums">
-                {t(countKey("waiting.sectorCount", recommendations.length), { n: recommendations.length })}
-              </span>
-            )}
-          </div>}
+        {/* 데이터 출처 — 머리글 바로 아래(긴 목록의 맨 끝이면 아무도 못 본다). */}
+        <p className="-mt-2 px-1 text-[11px] leading-relaxed text-muk-soft">
+          <TrailingNoteText text={t("recommend.dataAttribution")} />
+        </p>
 
+        {/* 대안들이 모두 같은 추정 등급이면 그 등급을 한 번만(I03) — 카드에는 걷는 시간·영업·취향이 남는다. */}
+        {!originPillTone && altSpread.uniform && altSpread.grade && !loadingRecommendations && recommendations.length > 0 && (
+          <p data-testid="recommend-area-line" className="flex items-center gap-2 px-1 text-sm font-bold text-muk">
+            <span
+              className={`h-2.5 w-2.5 shrink-0 rounded-full ${
+                altSpread.grade === "busy" ? "bg-terracotta" : altSpread.grade === "moderate" ? "bg-gold" : "bg-jade"
+              }`}
+              aria-hidden
+            />
+            {t("wait.areaNow", { label: t(`congestion.${altSpread.grade}`) })}
+          </p>
+        )}
+
+        {/* 대안 카드 목록 — 사진(없으면 장소 표지) → 이름 → 혜택 칩 → [도보 길안내][자동차 길안내] → [👍][👎][혼잡 제보][공유].
+            순위 근거·주변 수요·추정 근거는 카드마다 '추천 근거 자세히' 뒤에(card.whyToggle). */}
+        <section className="space-y-4 lg:grid lg:grid-cols-2 lg:items-start lg:gap-4 lg:space-y-0">
           {loadingRecommendations ? (
             // Skeleton Loader
             [1, 2, 3].map((idx) => (
               <div key={idx} className="bg-white p-5 rounded-2xl border border-line toss-surface animate-pulse flex flex-col gap-3">
-                <div className="flex justify-between items-center">
-                  <div className="h-4 bg-hanji-deep w-1/3 rounded-md" />
-                  <div className="h-4 bg-hanji-deep w-16 rounded-full" />
+                <div className="h-36 bg-hanji-deep/60 rounded-xl w-full" />
+                <div className="h-5 bg-hanji-deep w-2/3 rounded-md" />
+                <div className="flex gap-2">
+                  <div className="h-7 bg-hanji-deep w-20 rounded-full" />
+                  <div className="h-7 bg-hanji-deep w-24 rounded-full" />
                 </div>
-                <div className="h-24 bg-hanji-deep/60 rounded-xl w-full" />
-                <div className="h-3 bg-hanji-deep w-2/3 rounded-md" />
-                <div className="h-10 bg-hanji-deep w-full rounded-xl mt-1" />
+                <div className="h-11 bg-hanji-deep w-full rounded-xl mt-1" />
               </div>
             ))
           ) : recommendations.length > 0 ? (
-            <>
-            <RecommendationComparison recommendations={recommendations} />
-            {recommendations.map((rec, idx) => {
+            recommendations.map((rec, idx) => {
               // 대기 분은 정수 표시(12.3분 → 12분), 값이 없으면 칸 자체를 그리지 않는다("--분" 금지).
               const rawWait = rec.breakdown?.waitTime;
               const hasWait = typeof rawWait === "number";
@@ -1466,13 +1495,14 @@ function RecommendContent() {
                   )
                 : null;
               const preferencePct = Math.round((rec.breakdown?.preference || 0) * 100);
+              const couponPct = Math.round(Math.max(0, Math.min(1, rec.facility.couponRate ?? 0)) * 100);
               const isVoiceActive = assistantActive && idx === activeRecIndex; // 음성 비서가 지금 안내 중인 카드
               // TourAPI 상세 소비(RecommendationCard 와 동일 관례) — features 내부 키는 keysToCamel 재귀
               // 변환(firstMenu)과 supabase 폴백 원본(first_menu) 두 표기를 모두 방어한다.
               const recFeatures = rec.facility.features as Record<string, unknown> | null | undefined;
               // 사진 — 대표 사진부터 갤러리 순으로, 깨지면 다음 후보. 출처 없는 Wikimedia 사진·짝 없는 경주시 사진은
               // 후보에서 빠지고, 출처는 지금 보이는 사진이 그 사진일 때만(그리고 다 받은 뒤에만) 드러난다.
-              // 후보를 다 쓰면 사진 상자 자체가 없다(기존과 같다).
+              // 후보가 없거나 다 깨지면 장소 표지가 그 자리를 그대로 채운다(I38) — 카드 높이가 들쭉날쭉하지 않다.
               const photoUrls = creditedPhotoUrls(photoCandidates(rec.facility.imageUrl, rec.facility.galleryImages), recFeatures);
               const photoUrl = displayedPhotoUrl(photoUrls, photoCursors[rec.recommendationId]);
               const photoCredit = creditForDisplayedPhoto(photoUrl, recFeatures);
@@ -1497,6 +1527,8 @@ function RecommendContent() {
                 display.mode === 'measured' || display.mode === 'predicted' ? display.level : null;
               // 등급은 운영자 '혼잡' 경계(busyAt)로 — 지도 점선 핀·코스 칩과 같은 말을 해야 한다.
               const estimateKey = estimate ? congestionKey(estimate.level, busyAt) : null;
+              // 카드 앞면의 추정 붐빔 칩은 원래 장소보다 **확실히 덜 붐빌 때만**(I25) — 같은 등급을 칩으로 되풀이하지 않는다.
+              const estimateOnFace = estimateKey !== null && isStrictlyCalmer(estimateKey, originGrade?.key ?? null);
               const freshnessText = freshness
                 ? freshness.unit === 'now' ? t('freshness.justNow')
                   : freshness.unit === 'min' ? t('freshness.minAgo', { n: freshness.value })
@@ -1510,16 +1542,21 @@ function RecommendContent() {
                 rec.distanceM,
                 assertableCongestionLevel(rec),   // 배지와 같은 판정(위 helper 주석 참조)
               );
+              // 서버 사유는 한국어 한 벌뿐이다 — 다른 언어에서는 그 언어로 만든 문장만 쓴다.
               const displayReason = locale === 'ko' && rec.reason ? rec.reason : localizedReason;
               const spotComparison = spotComparisonById.get(rec.recommendationId);
+              const whyOpen = Boolean(whyOpenById[rec.recommendationId]);
+              const whyId = `recommend-why-${rec.recommendationId}`;
+              const measuredKey = display.mode === "measured" && shownLevel !== null ? congestionKey(shownLevel, busyAt) : null;
 
               return (
                 <div
                   key={rec.recommendationId}
-                  className={`relative bg-white p-5 rounded-2xl border transition-all duration-300 toss-surface ${
+                  data-testid="alt-card"
+                  className={`relative flex flex-col gap-3 bg-white p-4 md:p-5 rounded-2xl border transition-all duration-300 toss-surface ${
                     isVoiceActive
                       ? "border-gold ring-2 ring-gold/40 scale-[1.02]"
-                      : "border-line hover:border-gold/40 hover:scale-[1.01]"
+                      : "border-line hover:border-gold/40"
                   }`}
                 >
                   {/* 순위 배지 — /course 정류지 번호·/waiting 순위 배지와 같은 문법
@@ -1532,92 +1569,291 @@ function RecommendContent() {
                   >
                     {idx + 1}
                   </span>
-                  {/* 시설 사진 — TourAPI firstimage·갤러리(이미 응답에 실려 옴). 정적 export 라 raw img 사용
-                      (대기 보드 WaitingCardImage 와 동일 관례). 로드에 실패하면 다음 후보로 넘어가고,
-                      다 실패하면 사진 상자(출처 줄 포함)가 통째로 빠진다. */}
-                  {photoUrl && (
-                    // 사진과 출처를 한 상자로 — 출처는 이 상자의 사진에만 붙는다.
-                    <div className="mb-4">
-                      {/* key: URL 마다 새 엘리먼트 — 지나간 사진의 늦은 onError 가 새 사진을 건너뛰게 하지 않는다. */}
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        key={photoUrl}
-                        // 캐시에서 곧장 뜬 사진은 onLoad 를 놓칠 수 있다 — 붙는 순간 한 번 확인한다.
-                        ref={(img) => { if (img?.complete && img.naturalWidth > 0) markPhotoLoaded(rec.recommendationId, photoUrl); }}
-                        src={photoUrl}
-                        alt={rec.facility.name}
-                        loading="lazy"
-                        onLoad={() => markPhotoLoaded(rec.recommendationId, photoUrl)}
-                        onError={() => skipBrokenPhoto(rec.recommendationId, photoUrls, photoUrl)}
-                        className="w-full h-36 object-cover rounded-xl border border-line"
-                      />
-                      {photoCredit && (
-                        <PhotoCreditLink credit={photoCredit} className={`-mt-px -mb-[5px] ${photoLoaded ? "" : "invisible"}`} />
+                  {/* 사진 — TourAPI firstimage·갤러리. 아래에 늘 장소 표지(PlacePhotoFallback)가 깔려 있고 사진은 다 받은 뒤
+                      그 위로 드러난다. 정적 export 라 raw img(대기 보드 WaitingCardImage 와 동일 관례). */}
+                  <div>
+                    <div className="relative h-36 md:h-40 overflow-hidden rounded-xl border border-line">
+                      <PlacePhotoFallback visual={placeVisual(rec.facility.id, rec.facility.type)} className="absolute inset-0" />
+                      {photoUrl && (
+                        // key: URL 마다 새 엘리먼트 — 지나간 사진의 늦은 onError 가 새 사진을 건너뛰게 하지 않는다.
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          key={photoUrl}
+                          // 캐시에서 곧장 뜬 사진은 onLoad 를 놓칠 수 있다 — 붙는 순간 한 번 확인한다.
+                          ref={(img) => { if (img?.complete && img.naturalWidth > 0) markPhotoLoaded(rec.recommendationId, photoUrl); }}
+                          src={photoUrl}
+                          alt={rec.facility.name}
+                          loading="lazy"
+                          onLoad={() => markPhotoLoaded(rec.recommendationId, photoUrl)}
+                          onError={() => skipBrokenPhoto(rec.recommendationId, photoUrls, photoUrl)}
+                          className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-300 motion-reduce:transition-none ${
+                            photoLoaded ? "opacity-100" : "opacity-0"
+                          }`}
+                        />
                       )}
                     </div>
-                  )}
-                  {/* Top info row */}
+                    {photoCredit && (
+                      <PhotoCreditLink credit={photoCredit} className={`-mt-px -mb-[5px] ${photoLoaded ? "" : "invisible"}`} />
+                    )}
+                  </div>
+
+                  {/* 이름 줄 — 종류·순위 칩, 이름(22px), 대표 메뉴. 오른쪽에 SPOT 점수. */}
                   <div className="flex justify-between items-start gap-3">
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-1.5">
-                      <span className="text-[10px] font-bold text-jade bg-jade/10 border border-jade/30 px-2 py-0.5 rounded-md">
-                        {getTypeName(rec.facility.type)}
+                        <span className="text-[10px] font-bold text-jade bg-jade/10 border border-jade/30 px-2 py-0.5 rounded-md">
+                          {getTypeName(rec.facility.type)}
+                        </span>
+                        {rec.rank && (
+                          <span className="text-[10px] font-bold text-gold-deep bg-gold/10 border border-gold/30 px-2 py-0.5 rounded-md whitespace-nowrap">
+                            {t(rec.rank === 1 ? "card.rankBadgeTop" : "card.rankBadge", { rank: rec.rank })}
+                          </span>
+                        )}
+                        {/* 오늘 휴무 배지 — RecommendationCard(/main)와 동일 톤(terracotta), 확정 시에만. */}
+                        {closedToday && (
+                          <span className="text-[10px] font-bold text-terracotta bg-terracotta/10 border border-terracotta/30 px-2 py-0.5 rounded-md">
+                            {t("card.closedToday")}
+                          </span>
+                        )}
+                        {isVoiceActive && voiceState !== "idle" && (
+                          <span className="text-[10px] font-bold text-jade bg-jade/10 border border-jade/30 px-2 py-0.5 rounded-md inline-flex items-center gap-1 align-middle">
+                            {voiceState === "speaking" ? t("recommend.stateSpeaking") : voiceState === "listening" ? t("recommend.stateListening") : t("recommend.stateThinking")}
+                          </span>
+                        )}
+                      </div>
+                      <h4 className="text-[22px] font-extrabold text-muk tracking-tight mt-1.5 leading-snug break-words">
+                        {rec.facility.name}
+                      </h4>
+                      {/* 공식 대표 메뉴(TourAPI first_menu) — 있을 때만, 앞 2개('지어내지 않기'). */}
+                      {firstMenuTokens.length > 0 && (
+                        <p className="mt-1 text-[12px] text-muk-soft">
+                          <span className="font-bold text-gold-deep">{t("card.signatureMenu")}</span>
+                          {" · "}
+                          {firstMenuTokens.join(" · ")}
+                        </p>
+                      )}
+                    </div>
+                    {/* SPOT 점수 — 골드 스탯 박스 문법(/course 도착 ETA 스탯과 동일 톤). */}
+                    <div className="flex shrink-0 flex-col items-center justify-center rounded-xl border border-gold/40 bg-gold/15 px-3 py-2 text-center shadow-[0_2px_10px_rgba(193,154,62,0.16)]">
+                      <span className="text-[9px] font-bold uppercase tracking-wide text-muk-soft whitespace-nowrap">{t("recommend.spotIndex")}</span>
+                      <span className="text-base font-extrabold text-gold-deep leading-none mt-1 tabular-nums">
+                        {Math.round(rec.spotScore <= 1.0 ? rec.spotScore * 100 : rec.spotScore)}{t("card.pointSuffix")}
                       </span>
-                      {/* 오늘 휴무 배지 — RecommendationCard(/main)와 동일 톤(terracotta), 확정 시에만. */}
-                      {closedToday && (
-                        <span className="text-[10px] font-bold text-terracotta bg-terracotta/10 border border-terracotta/30 px-2 py-0.5 rounded-md">
-                          {t("card.closedToday")}
-                        </span>
-                      )}
-                      {/* '영업시간 미확인' 은 그리지 않는다 — 음식점·카페면 '도보 길안내' 가 카카오맵 영업시간을 먼저 보여 준다. */}
-                      {arrivalDisplayStatus && arrivalDisplayStatus !== "needs_confirmation" && (
-                        <span className={`text-[10px] font-bold border px-2 py-0.5 rounded-md ${
-                          arrivalDisplayStatus === "open_expected"
-                            ? "text-jade bg-jade/10 border-jade/30"
-                            : arrivalDisplayStatus === "closing_soon" || arrivalDisplayStatus === "likely_closed_unknown"
-                              ? "text-terracotta bg-terracotta/10 border-terracotta/30"
-                              : "text-muk-soft bg-hanji-deep border-line"
-                        }`}>
-                          {t(`card.arrivalStatus.${arrivalDisplayStatus}`)}
-                        </span>
-                      )}
-                      {rec.rank && (
-                        <span className="text-[10px] font-bold text-gold-deep bg-gold/10 border border-gold/30 px-2 py-0.5 rounded-md">
-                          {t(rec.rank === 1 ? "card.rankBadgeTop" : "card.rankBadge", { rank: rec.rank })}
-                        </span>
-                      )}
-                      {/* 혼잡 3단계 근거 배지(CONGESTION_TRUST_SPEC): 실측 4단계 pill / AI 예측 / 준비 중.
-                          색·임계는 RecommendationCard 혼잡 pill 과 동일 규약(0.75/0.5/0.25). */}
-                      {display.mode === "measured" && shownLevel !== null && (
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${
-                          shownLevel >= 0.75
-                            ? "bg-terracotta/10 border-terracotta/30 text-terracotta"
-                            : shownLevel >= 0.5
+                    </div>
+                  </div>
+
+                  {/* 혜택 칩 — 관광객이 얻는 것만: 걷는 시간 · 도착 시 영업 · 덜 붐빔(원래 장소보다 확실히 덜할 때만) ·
+                      취향 일치율 · 할인. 순위 산식·근거 원자료는 아래 '추천 근거 자세히' 뒤에 있다. */}
+                  <div className="flex flex-wrap items-center gap-1.5" data-testid="alt-benefits">
+                    <span className="inline-flex h-8 items-center gap-1 rounded-full border border-jade/30 bg-jade/10 px-3 text-[14px] font-bold text-jade whitespace-nowrap">
+                      <span aria-hidden>🚶</span>
+                      {t("compare.benefitWalk", { walk: travelTime })}
+                    </span>
+                    {/* '영업시간 미확인' 은 그리지 않는다 — 음식점·카페면 '도보 길안내' 가 카카오맵 영업시간을 먼저 보여 준다. */}
+                    {arrivalDisplayStatus && arrivalDisplayStatus !== "needs_confirmation" && (
+                      <span className={`inline-flex h-8 items-center rounded-full border px-3 text-[14px] font-bold whitespace-nowrap ${
+                        arrivalDisplayStatus === "open_expected"
+                          ? "text-jade bg-jade/10 border-jade/30"
+                          : arrivalDisplayStatus === "closing_soon" || arrivalDisplayStatus === "likely_closed_unknown"
+                            ? "text-terracotta bg-terracotta/10 border-terracotta/30"
+                            : "text-muk-soft bg-hanji-deep border-line"
+                      }`}>
+                        {t(`card.arrivalStatus.${arrivalDisplayStatus}`)}
+                      </span>
+                    )}
+                    {/* 이 장소를 지금 실제로 본 붐빔(실측) — '지금' 자격이 있을 때만, 등급색으로. */}
+                    {measuredKey && (
+                      <span className={`inline-flex h-8 items-center rounded-full border px-3 text-[14px] font-bold whitespace-nowrap ${
+                        measuredKey === "busy"
+                          ? "bg-terracotta/10 border-terracotta/30 text-terracotta"
+                          : measuredKey === "moderate"
                             ? "bg-gold/10 border-gold/30 text-gold-deep"
-                            : shownLevel >= 0.25
-                            ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-600"
                             : "bg-jade/10 border-jade/30 text-jade"
-                        }`}>
-                          {t("card.congestion")}: {t(`congestion.${
-                            shownLevel >= 0.75 ? "busy" : shownLevel >= 0.5 ? "moderate" : shownLevel >= 0.25 ? "relaxed" : "quiet"
-                          }`)}
-                        </span>
-                      )}
-                      {display.mode === "predicted" && shownLevel !== null && (
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-md border bg-sky-500/10 border-sky-500/30 text-sky-700">
-                          {t("map.forecast")} · {Math.round(shownLevel * 100)}%
-                        </span>
-                      )}
+                      }`}>
+                        {t("card.congestion")}: {t(`congestion.${measuredKey}`)}
+                      </span>
+                    )}
+                    {display.mode === "predicted" && shownLevel !== null && (
+                      <span className="inline-flex h-8 items-center rounded-full border px-3 text-[14px] font-bold whitespace-nowrap bg-gold/10 border-gold/30 text-gold-deep">
+                        {t("map.forecast")} · {t(`congestion.${congestionKey(shownLevel, busyAt)}`)}
+                      </span>
+                    )}
+                    {estimate && estimateKey && estimateOnFace && (
+                      <span className={`inline-flex h-8 items-center rounded-full border border-dashed px-3 text-[14px] font-bold whitespace-nowrap ${
+                        estimateKey === "moderate" ? "border-gold/60 text-gold-deep" : "border-jade/60 text-jade"
+                      }`}>
+                        {t("card.estimateLevel", { label: t(`congestion.${estimateKey}`) })}
+                      </span>
+                    )}
+                    <span className="inline-flex h-8 items-center rounded-full border border-gold/30 bg-gold/10 px-3 text-[14px] font-bold text-gold-deep whitespace-nowrap tabular-nums">
+                      {t("recommend.prefMatch")} {preferencePct}%
+                    </span>
+                    {couponPct >= 1 && (
+                      <span className="inline-flex h-8 items-center rounded-full border border-terracotta/30 bg-terracotta/10 px-3 text-[14px] font-bold text-terracotta whitespace-nowrap">
+                        ⚡ {t("recommend.spotComparison.coupon", { n: couponPct })}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* CTA button */}
+                  {hoursPrompt?.recommendationId === rec.recommendationId && (
+                    <div className="rounded-2xl border border-gold/30 bg-gold/10 p-3" role="group" aria-label={t('card.hoursCheckQuestion')}>
+                      <p className="text-xs font-extrabold text-muk">{t('card.hoursCheckQuestion')}</p>
+                      <p className="mt-1 text-[11px] leading-relaxed text-muk-soft">{t('card.hoursCheckPrivacy')}</p>
+                      <div className="mt-3 grid grid-cols-3 gap-2">
+                        <button type="button" disabled={hoursSubmitting} onClick={() => void submitHoursStatus(rec, 'open')} className="toss-pressable min-h-11 rounded-xl bg-jade px-2 py-2 text-[11px] font-bold text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 disabled:opacity-50">
+                          {t('card.hoursOpen')}
+                        </button>
+                        <button type="button" disabled={hoursSubmitting} onClick={() => void submitHoursStatus(rec, 'closed')} className="toss-pressable min-h-11 rounded-xl bg-terracotta px-2 py-2 text-[11px] font-bold text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 disabled:opacity-50">
+                          {t('card.hoursClosed')}
+                        </button>
+                        <button type="button" disabled={hoursSubmitting} onClick={() => { setHoursPrompt(null); setHoursSubmitError(false); }} className="toss-pressable min-h-11 rounded-xl border border-line bg-white px-2 py-2 text-[11px] font-bold text-muk-soft focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 disabled:opacity-50">
+                          {t('card.hoursUnsure')}
+                        </button>
+                      </div>
+                      {hoursSubmitError && <p className="mt-2 text-[10px] font-semibold text-terracotta">{t('card.hoursReportFailed')}</p>}
+                    </div>
+                  )}
+
+                  {/* 주 행동 두 개를 한 줄에 — 도보 길안내(주) · 자동차 길안내(보조). */}
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => requestAccept(rec)}
+                      className="toss-pressable min-h-11 flex items-center justify-center px-2 py-2.5 bg-gradient-to-r from-gold to-terracotta text-white rounded-xl font-bold text-[13px] leading-tight transition-opacity duration-300 hover:opacity-90 shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+                    >
+                      {t("card.accept")}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => requestAccept(rec, 'car')}
+                      className="toss-pressable min-h-11 flex items-center justify-center rounded-xl border border-line bg-white px-2 py-2 text-[12px] font-bold leading-tight text-muk-soft hover:border-gold/40 hover:text-gold-deep focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+                    >
+                      {t('card.drive')}
+                    </button>
+                  </div>
+
+                  {/* 보조 행동 한 줄 — 👍/👎(추천 품질 신호) · 혼잡 제보 · 공유. */}
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {feedbackVotes[rec.recommendationId] ? (
+                      <span className="inline-flex min-h-11 items-center px-1 text-[11px] font-semibold text-jade">
+                        {feedbackVotes[rec.recommendationId] === "up" ? "👍" : "👎"} {t("recommend.feedbackApplied")}
+                      </span>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => handleSatisfactionFeedback(rec, "up")}
+                          aria-label={t("recommend.feedbackUpAria")}
+                          className="toss-pressable min-h-11 px-2.5 rounded-lg text-[11px] font-semibold border bg-hanji-deep border-line text-muk-soft hover:border-jade/50 hover:text-jade focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+                        >
+                          👍 {t("recommend.like")}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleSatisfactionFeedback(rec, "down")}
+                          aria-label={t("recommend.feedbackDownAria")}
+                          className="toss-pressable min-h-11 px-2.5 rounded-lg text-[11px] font-semibold border bg-hanji-deep border-line text-muk-soft hover:border-terracotta/50 hover:text-terracotta focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+                        >
+                          👎 {t("recommend.dislike")}
+                        </button>
+                      </>
+                    )}
+                    {/* 현장 혼잡 수집 — 제보 직후에는 서버 재조회 없이 이 카드만 실측 상태로 갱신해 사용자의 행동 결과를 보여준다. */}
+                    <CongestionReportButton
+                      facility={{ id: rec.facility.id, name: rec.facility.name }}
+                      isFirst={rec.congestionSource === 'none'}
+                      className="min-h-11"
+                      onReported={(level) => {
+                        const congestionLevel = level === '한산' ? 0.2 : level === '보통' ? 0.5 : 0.8;
+                        const congestionTimestamp = new Date().toISOString();
+                        setRecommendations((current) => current.map((item) => (
+                          item.recommendationId === rec.recommendationId
+                            ? {
+                                ...item,
+                                congestionLevel,
+                                congestionSource: 'measured',
+                                congestionTimestamp,
+                                congestionLogSource: 'user_report',
+                                congestionIsStale: false,
+                                // **반드시 함께 덮어써야 한다.** 서버가 내려준 congestionIsCurrent 가
+                                // false(낡은 관측)인 채로 남으면, 방금 사용자가 눈으로 보고 남긴 제보가
+                                // '마지막 관측 14:37' 로 밀려나고 추정이 '지금' 자리를 차지한다.
+                                // 사용자가 지금 본 것보다 새로운 근거는 없다.
+                                congestionIsCurrent: true,
+                              }
+                            : item
+                        )));
+                      }}
+                    />
+                    {/* 공유 — 지금 한산한 이 장소를 퍼뜨려 자연 유입을 만든다. 링크는 같은 페이지(원 시설/좌표)로
+                        돌아오되 ref=share 를 붙여 위 계측 useEffect 가 방문을 집계한다. */}
+                    <ShareButton
+                      title={t("common.appName")}
+                      text={rec.facility.name}
+                      shareText={t("recommend.shareText", { name: rec.facility.name })}
+                      url={
+                        typeof window !== "undefined"
+                          ? `${window.location.origin}/explore/recommend?facilityId=${encodeURIComponent(facilityId)}&lat=${lat}&lng=${lng}&ref=share`
+                          : undefined
+                      }
+                      className="min-h-11"
+                    />
+                  </div>
+
+                  {/* 추천 근거 — 순위 이유 · 서버 사유 · 축제 · 추정·관측 근거 · 주변 수요 · 위치 · 수치. 관광객이 원할 때만. */}
+                  <button
+                    type="button"
+                    onClick={() => setWhyOpenById((prev) => ({ ...prev, [rec.recommendationId]: !prev[rec.recommendationId] }))}
+                    aria-expanded={whyOpen}
+                    aria-controls={whyId}
+                    className="toss-pressable inline-flex min-h-11 w-fit items-center gap-1 rounded-full px-2 text-[12px] font-bold text-gold-deep hover:bg-gold/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+                  >
+                    {t("card.whyToggle")}
+                    <ChevronDown size={13} className={`transition-transform ${whyOpen ? "rotate-180" : ""}`} aria-hidden />
+                  </button>
+                  {whyOpen && (
+                  <div id={whyId} className="flex flex-col gap-3 rounded-xl border border-line bg-hanji-deep/40 p-3">
+
+                  {spotComparison && (
+                    <div className="rounded-xl border border-jade/20 bg-jade/5 px-3 py-2.5">
+                      <p className="text-[9px] font-extrabold uppercase tracking-wide text-jade">
+                        {t('recommend.spotComparison.current')}
+                      </p>
+                      <p className="mt-0.5 text-[11px] font-semibold leading-snug text-muk">
+                        {spotComparison}
+                      </p>
+                    </div>
+                  )}
+
+                  {/* 백엔드 템플릿 추천 사유 (있을 때만 노출) */}
+                  {displayReason && (
+                    <p className="text-[11px] leading-snug text-muk bg-gold/10 border border-gold/20 rounded-xl px-3 py-2">
+                      💡 {displayReason}
+                    </p>
+                  )}
+
+                  {/* A4: 행사 혼잡 보정 배지 — 도착시점 인근 진행 중 축제로 예측이 가중됐을 때만 노출(투명성) */}
+                  {(rec.breakdown?.eventBoost ?? 0) > 0 && (
+                    <p className="text-[11px] leading-snug text-terracotta bg-terracotta/10 border border-terracotta/20 rounded-xl px-3 py-2">
+                      🎪 {t("recommend.festivalAdjusted", {
+                        title: rec.breakdown?.eventTitle ?? "",
+                        pct: Math.round((rec.breakdown?.eventBoost ?? 0) * 100),
+                      })}
+                    </p>
+                  )}
+
+                  {/* 혼잡 근거 칩 — 추정(점선) · 관측 시각 · 낡은 관측. 앞면에는 등급만(원래 장소보다 덜할 때) 남는다. */}
+                  {(estimate || lastObserved || display.mode === "none" || (display.mode === "measured" && rec.congestionIsStale)) && (
+                    <div className="flex flex-wrap items-center gap-1.5">
                       {estimate && estimateKey ? (
                         <>
-                          {/* 점선·옅은 바탕 — 위 실측 pill 의 꽉 찬 등급색과 한눈에 달라야 한다. */}
+                          {/* 점선·옅은 바탕 — 실측 칩의 꽉 찬 등급색과 한눈에 달라야 한다. */}
                           <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md border border-dashed bg-white/70 ${
                             estimateKey === "busy"
                               ? "border-terracotta/60 text-terracotta"
                               : estimateKey === "moderate"
                               ? "border-gold/60 text-gold-deep"
-                              : estimateKey === "relaxed"
-                              ? "border-emerald-500/60 text-emerald-700"
                               : "border-jade/60 text-jade"
                           }`}>
                             {t("card.estimateLevel", { label: t(`congestion.${estimateKey}`) })}
@@ -1645,85 +1881,28 @@ function RecommendContent() {
                               })}
                         </span>
                       )}
-                      {/* 24시간 배지는 '마지막 관측' 칩이 없을 때만 — 같은 말을 두 번 하지 않는다
-                          (구 서버 응답처럼 '지금' 판정이 없을 때 남는 경로다). 그 낡은 값을 실제로
-                          칠했을 때만 — 24시간이 넘어 칠하지 않은 관측은 말하지 않는다. */}
+                      {/* 24시간 배지는 '마지막 관측' 칩이 없을 때만 — 같은 말을 두 번 하지 않는다. */}
                       {display.mode === "measured" && rec.congestionIsStale && !lastObserved && (
                         <span className="text-[10px] font-medium px-2 py-0.5 rounded-md border bg-hanji-deep border-line text-muk-soft/70">
                           {t("card.freshStale")}
                         </span>
                       )}
-                      {isVoiceActive && voiceState !== "idle" && (
-                        <span className="text-[10px] font-bold text-jade bg-jade/10 border border-jade/30 px-2 py-0.5 rounded-md inline-flex items-center gap-1 align-middle">
-                          {voiceState === "speaking" ? t("recommend.stateSpeaking") : voiceState === "listening" ? t("recommend.stateListening") : t("recommend.stateThinking")}
-                        </span>
-                      )}
-                      </div>
-                      <h4 className="text-lg md:text-xl font-extrabold text-muk tracking-tight mt-2 leading-snug break-words">
-                        {rec.facility.name}
-                      </h4>
-                      {/* lastObserved 가 있으면 위 칩이 이미 '언제' 를 말했다 — 'n일 전 기준' 을 또 쓰면
-                          지금 칠해진 값(추정)이 n일 전 값으로 읽힌다. 칠한 실측·예측 등급이 없으면 말할 대상도 없다. */}
-                      {shownLevel !== null && freshnessText && !lastObserved && (
-                        <p className="mt-1 text-[10px] text-muk-soft">
-                          {rec.congestionLogSource === 'user_report'
-                            ? t('card.freshReport', { rel: freshnessText })
-                            : t('card.freshLive', { rel: freshnessText })}
-                        </p>
-                      )}
-                      {rec.placeDataSource === 'localdata' && (
-                        <p className="mt-1 text-[10px] text-muk-soft">
-                          {t('card.publicLicenseSource', {
-                            date: rec.dataUpdatedAt
-                              ? new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(new Date(rec.dataUpdatedAt))
-                              : t('card.sourceDateUnknown'),
-                          })}
-                        </p>
-                      )}
-                      {/* 공식 대표 메뉴(TourAPI first_menu) — 있을 때만, 앞 2개('지어내지 않기'). */}
-                      {firstMenuTokens.length > 0 && (
-                        <p className="mt-1 text-[11px] text-muk-soft">
-                          <span className="font-bold text-gold-deep">{t("card.signatureMenu")}</span>
-                          {" · "}
-                          {firstMenuTokens.join(" · ")}
-                        </p>
-                      )}
-                    </div>
-                    {/* SPOT 지수 — 골드 스탯 박스 문법(/course 도착 ETA 스탯과 동일 톤)으로 카드의 핵심 숫자를 세운다. */}
-                    <div className="flex shrink-0 flex-col items-center justify-center rounded-xl border border-gold/40 bg-gold/15 px-3 py-2 text-center shadow-[0_2px_10px_rgba(193,154,62,0.16)]">
-                      <span className="text-[9px] font-bold uppercase tracking-wide text-muk-soft whitespace-nowrap">{t("recommend.spotIndex")}</span>
-                      <span className="text-base font-extrabold text-gold-deep leading-none mt-1 tabular-nums">
-                        {Math.round(rec.spotScore <= 1.0 ? rec.spotScore * 100 : rec.spotScore)}{t("card.pointSuffix")}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="mt-4 flex flex-col gap-3">
-
-                  {spotComparison && (
-                    <div className="rounded-xl border border-jade/20 bg-jade/5 px-3 py-2.5">
-                      <p className="text-[9px] font-extrabold uppercase tracking-wide text-jade">
-                        {t('recommend.spotComparison.current')}
-                      </p>
-                      <p className="mt-0.5 text-[11px] font-semibold leading-snug text-muk">
-                        {spotComparison}
-                      </p>
                     </div>
                   )}
-
-                  {/* 백엔드 템플릿 추천 사유 (있을 때만 노출) */}
-                  {displayReason && (
-                    <p className="text-[11px] leading-snug text-muk bg-gold/10 border border-gold/20 rounded-xl px-3 py-2">
-                      💡 {displayReason}
+                  {/* lastObserved 가 있으면 위 칩이 이미 '언제' 를 말했다 — 'n일 전 기준' 을 또 쓰지 않는다. */}
+                  {shownLevel !== null && freshnessText && !lastObserved && (
+                    <p className="text-[10px] text-muk-soft">
+                      {rec.congestionLogSource === 'user_report'
+                        ? t('card.freshReport', { rel: freshnessText })
+                        : t('card.freshLive', { rel: freshnessText })}
                     </p>
                   )}
-
-                  {/* A4: 행사 혼잡 보정 배지 — 도착시점 인근 진행 중 축제로 예측이 가중됐을 때만 노출(투명성) */}
-                  {(rec.breakdown?.eventBoost ?? 0) > 0 && (
-                    <p className="text-[11px] leading-snug text-terracotta bg-terracotta/10 border border-terracotta/20 rounded-xl px-3 py-2">
-                      🎪 {t("recommend.festivalAdjusted", {
-                        title: rec.breakdown?.eventTitle ?? "",
-                        pct: Math.round((rec.breakdown?.eventBoost ?? 0) * 100),
+                  {rec.placeDataSource === 'localdata' && (
+                    <p className="text-[10px] text-muk-soft">
+                      {t('card.publicLicenseSource', {
+                        date: rec.dataUpdatedAt
+                          ? new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(new Date(rec.dataUpdatedAt))
+                          : t('card.sourceDateUnknown'),
                       })}
                     </p>
                   )}
@@ -1816,8 +1995,7 @@ function RecommendContent() {
                       <span className="font-bold text-jade tabular-nums">{preferencePct}%</span>
                     </div>
                     {/* 추정이 '지금' 자리를 가져갔으면 대기 칸은 그리지 않는다 — 그 대기 분은
-                        낡은 관측에서 나온 값이라, 추정 배지 옆에 두면 두 시점이 한 줄에 섞인다.
-                        (추정 자체는 대기 분을 만들지 않는다 — 점유율→대기 계수가 없다.) */}
+                        낡은 관측에서 나온 값이라, 추정 배지 옆에 두면 두 시점이 한 줄에 섞인다. */}
                     {display.mode !== 'none' && !estimate && hasWait && <div className="text-center border-l border-r border-line">
                       <span className="text-muk-soft block text-[10px]">{t("recommend.expectedWait")}</span>
                       <span className="font-bold text-gold-deep tabular-nums">{t("recommend.minutesValue", { n: waitTime })}</span>
@@ -1832,132 +2010,18 @@ function RecommendContent() {
                       <span className="font-bold text-jade tabular-nums">{t("recommend.walkValue", { n: travelTime, dist: Math.round(rec.distanceM) })}</span>
                     </div>
                   </div>
-
-                  {/* 만족도 피드백 (👍/👎) — 선호 벡터를 보정해 다음 추천에 반영 */}
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-[10px] text-muk-soft">{t("recommend.feedbackQuestion")}</span>
-                    {feedbackVotes[rec.recommendationId] ? (
-                      <span className="text-[10px] font-semibold text-jade">
-                        {feedbackVotes[rec.recommendationId] === "up" ? "👍" : "👎"} {t("recommend.feedbackApplied")}
-                      </span>
-                    ) : (
-                      <div className="flex items-center gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => handleSatisfactionFeedback(rec, "up")}
-                          aria-label={t("recommend.feedbackUpAria")}
-                          className="toss-pressable min-h-11 px-2.5 rounded-lg text-[11px] font-semibold border bg-hanji-deep border-line text-muk-soft hover:border-jade/50 hover:text-jade focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
-                        >
-                          👍 {t("recommend.like")}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleSatisfactionFeedback(rec, "down")}
-                          aria-label={t("recommend.feedbackDownAria")}
-                          className="toss-pressable min-h-11 px-2.5 rounded-lg text-[11px] font-semibold border bg-hanji-deep border-line text-muk-soft hover:border-terracotta/50 hover:text-terracotta focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
-                        >
-                          👎 {t("recommend.dislike")}
-                        </button>
-                      </div>
-                    )}
                   </div>
-
-                  {/* CTA button */}
-                  {hoursPrompt?.recommendationId === rec.recommendationId && (
-                    <div className="rounded-2xl border border-gold/30 bg-gold/10 p-3" role="group" aria-label={t('card.hoursCheckQuestion')}>
-                      <p className="text-xs font-extrabold text-muk">{t('card.hoursCheckQuestion')}</p>
-                      <p className="mt-1 text-[11px] leading-relaxed text-muk-soft">{t('card.hoursCheckPrivacy')}</p>
-                      <div className="mt-3 grid grid-cols-3 gap-2">
-                        <button type="button" disabled={hoursSubmitting} onClick={() => void submitHoursStatus(rec, 'open')} className="toss-pressable min-h-11 rounded-xl bg-jade px-2 py-2 text-[11px] font-bold text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 disabled:opacity-50">
-                          {t('card.hoursOpen')}
-                        </button>
-                        <button type="button" disabled={hoursSubmitting} onClick={() => void submitHoursStatus(rec, 'closed')} className="toss-pressable min-h-11 rounded-xl bg-terracotta px-2 py-2 text-[11px] font-bold text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 disabled:opacity-50">
-                          {t('card.hoursClosed')}
-                        </button>
-                        <button type="button" disabled={hoursSubmitting} onClick={() => { setHoursPrompt(null); setHoursSubmitError(false); }} className="toss-pressable min-h-11 rounded-xl border border-line bg-white px-2 py-2 text-[11px] font-bold text-muk-soft focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 disabled:opacity-50">
-                          {t('card.hoursUnsure')}
-                        </button>
-                      </div>
-                      {hoursSubmitError && <p className="mt-2 text-[10px] font-semibold text-terracotta">{t('card.hoursReportFailed')}</p>}
-                    </div>
                   )}
-
-                  <div className="flex flex-col gap-2">
-                    <button
-                      type="button"
-                      onClick={() => requestAccept(rec)}
-                      className="toss-pressable min-h-11 w-full flex items-center justify-center py-2.5 bg-gradient-to-r from-gold to-terracotta text-white rounded-xl font-bold text-xs transition-opacity duration-300 hover:opacity-90 shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
-                    >
-                      {t("card.accept")}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => requestAccept(rec, 'car')}
-                      className="toss-pressable min-h-11 w-full flex items-center justify-center rounded-xl border border-line bg-white py-2 text-[11px] font-bold text-muk-soft hover:border-gold/40 hover:text-gold-deep focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
-                    >
-                      {t('card.drive')}
-                    </button>
-                  </div>
-
-                  <div className="flex flex-col gap-2">
-                    {/* 현장 혼잡 수집 — 정보가 없는 장소일수록 CTA를 강조한다. 제보 직후에는
-                        서버 재조회 없이 이 카드만 실측 상태로 갱신해 사용자의 행동 결과를 보여준다. */}
-                    <div className="flex justify-center">
-                      <CongestionReportButton
-                        facility={{ id: rec.facility.id, name: rec.facility.name }}
-                        isFirst={rec.congestionSource === 'none'}
-                        className="w-full justify-center"
-                        onReported={(level) => {
-                          const congestionLevel = level === '한산' ? 0.2 : level === '보통' ? 0.5 : 0.8;
-                          const congestionTimestamp = new Date().toISOString();
-                          setRecommendations((current) => current.map((item) => (
-                            item.recommendationId === rec.recommendationId
-                              ? {
-                                  ...item,
-                                  congestionLevel,
-                                  congestionSource: 'measured',
-                                  congestionTimestamp,
-                                  congestionLogSource: 'user_report',
-                                  congestionIsStale: false,
-                                  // **반드시 함께 덮어써야 한다.** 서버가 내려준 congestionIsCurrent 가
-                                  // false(낡은 관측)인 채로 남으면, 방금 사용자가 눈으로 보고 남긴 제보가
-                                  // '마지막 관측 14:37' 로 밀려나고 추정이 '지금' 자리를 차지한다.
-                                  // 사용자가 지금 본 것보다 새로운 근거는 없다.
-                                  congestionIsCurrent: true,
-                                }
-                              : item
-                          )));
-                        }}
-                      />
-                    </div>
-
-                    {/* 공유 — 지금 한산한 이 장소를 퍼뜨려 자연 유입을 만든다. 링크는 같은 페이지(원 시설/좌표)로
-                        돌아오되 ref=share 를 붙여 위 계측 useEffect 가 방문을 집계한다. */}
-                    <div className="flex justify-center">
-                      <ShareButton
-                        title={t("common.appName")}
-                        text={rec.facility.name}
-                        shareText={t("recommend.shareText", { name: rec.facility.name })}
-                        url={
-                          typeof window !== "undefined"
-                            ? `${window.location.origin}/explore/recommend?facilityId=${encodeURIComponent(facilityId)}&lat=${lat}&lng=${lng}&ref=share`
-                            : undefined
-                        }
-                        className="w-full justify-center"
-                      />
-                    </div>
-                  </div>
-                  </div>
                 </div>
               );
-            })}
-            </>
+            })
           ) : loadFailed ? (
             // 실패는 '없음' 이 아니다 — 다시 시도할 길을 준다.
             <ErrorState message={t("recommend.loadFailed")} onRetry={() => window.location.reload()} />
           ) : (
-            // 대안 0곳 — '없어요' 상자 대신 다음 행동 하나(지도에서 다른 곳 고르기). 머리글도 결과를 약속하지 않는다.
-            <div className="flex justify-center">
+            // 대안 0곳 — '없어요' 상자 대신 바로 할 수 있는 다음 행동(지도에서 다른 곳 고르기). 머리글도 결과를 약속하지 않는다.
+            <div className="flex flex-col items-center gap-3 rounded-2xl border border-line bg-white px-5 py-6 text-center toss-surface">
+              <p className="text-[15px] font-bold text-muk">{t("recommend.emptyNext")}</p>
               <button
                 type="button"
                 onClick={() => { quietAssistant(); router.push("/main"); }}
@@ -1972,7 +2036,7 @@ function RecommendContent() {
 
         {/* 3. Refresh Action Button */}
         {recommendations.length > 0 && (
-          <div className="pt-2">
+          <div className="pt-1">
             <button
               type="button"
               onClick={handleRejectAllAndRefresh}
@@ -1993,9 +2057,26 @@ function RecommendContent() {
           </div>
         )}
 
-        <p className="border-t border-line pt-4 text-center text-[11px] leading-relaxed text-muk-soft">
-          <TrailingNoteText text={t("recommend.dataAttribution")} />
-        </p>
+        {/* 순서 근거(Top 3 비교·표) — 목록 아래, 원할 때만(P11). 예전에는 목록 위에서 산식 표가 첫 화면을 차지했다. */}
+        {!loadingRecommendations && recommendations.length >= 2 && (
+          <div className="space-y-3">
+            <button
+              type="button"
+              onClick={() => setOrderDetailsOpen((open) => !open)}
+              aria-expanded={orderDetailsOpen}
+              aria-controls="recommend-order-details"
+              className="toss-pressable inline-flex min-h-11 items-center gap-1 rounded-full px-2 text-[12px] font-bold text-muk-soft hover:bg-hanji-deep hover:text-muk focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+            >
+              {t("recommend.orderDetails")}
+              <ChevronDown size={13} className={`transition-transform ${orderDetailsOpen ? "rotate-180" : ""}`} aria-hidden />
+            </button>
+            {orderDetailsOpen && (
+              <div id="recommend-order-details">
+                <RecommendationComparison recommendations={recommendations} />
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* ── 음성 비서 오버레이 (음성 컨시어지) ──

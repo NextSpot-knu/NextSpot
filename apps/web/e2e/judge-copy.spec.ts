@@ -217,6 +217,8 @@ for (const locale of LOCALES) {
   test(`${locale}: no Seoul wording on /explore/recommend`, async ({ page }) => {
     test.setTimeout(90_000);
     await openRecommend(page, locale);
+    // 추정 근거 칩은 카드의 '추천 근거 자세히' 뒤에 있다(계획 B5/P11) — 펼친 뒤에 본다.
+    await page.locator('[data-testid="alt-card"] button[aria-expanded]').first().click();
     await expect(page.locator('section.space-y-4')).toContainText(GYEONGJU_PARKING[locale]);
     await expectNoSeoul(page);
   });
