@@ -53,15 +53,15 @@ export function AdminSidebar({ demo = false }: { demo?: boolean } = {}) {
       : []),
   ].filter((item) => !HIDDEN_FROM_MENU.has(item.path));
 
-  // 휴대폰 폭(lg 미만)에서 여는 메뉴 서랍. 경로가 바뀌면 닫는다(서랍 안 링크로 이동한 경우).
-  const [drawerOpen, setDrawerOpen] = useState(false);
-  useEffect(() => {
-    setDrawerOpen(false);
-  }, [pathname]);
+  // 휴대폰 폭(lg 미만)에서 여는 메뉴 서랍. 연 경로를 기억해 두고 그 경로에 있는 동안만 열려 있다 —
+  // 서랍 안 링크로 다른 화면에 가면 저절로 닫힌다(경로 변화를 이펙트로 쫓아 setState 하지 않는다).
+  const [openedAt, setOpenedAt] = useState<string | null>(null);
+  const drawerOpen = openedAt !== null && openedAt === pathname;
+  const setDrawerOpen = (open: boolean) => setOpenedAt(open ? pathname : null);
   useEffect(() => {
     if (!drawerOpen) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setDrawerOpen(false);
+      if (e.key === 'Escape') setOpenedAt(null);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
