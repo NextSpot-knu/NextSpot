@@ -1,22 +1,30 @@
 'use client';
 
+import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { Home, Bookmark, Timer, Route, User } from 'lucide-react';
+import { Home, Bookmark, Timer, Route, User, Store, Landmark } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useT } from '@/lib/i18n/I18nProvider';
 import NextSpotMascot from '@/components/NextSpotMascot';
 import { GuideButton } from '@/components/guide/GuideProvider';
 import { haptic, interactionSpring, tapMotion } from '@/lib/motion';
+import { useAccount } from '@/lib/account';
+import { consoleLinks } from '@/lib/consoleLinks';
 
 // 관광객 앱 주 내비게이션 — 반응형:
 //  · 데스크톱(md+): 왼쪽 세로 레일(인플로우 flex 자식 → 콘텐츠 폭을 차지).
 //  · 모바일(<md): 기존 하단 가로 바(fixed 오버레이 → 페이지는 pb-[120px] 로 클리어런스 확보).
 // 숨김 경로에서는 null 을 반환하므로 레이아웃 flex-row 에서 레일이 사라지면 콘텐츠가 전체폭을 차지한다.
+//
+// 콘솔 입구(사장님 콘솔 · 관제 대시보드)도 여기 둔다 — 기능 5 를 찾는 심사위원이 관광객 화면 어디서든
+// 한 번에 들어가게(2026-10-06 감사 I14). 탭이 아니라 링크다: 5탭 폭은 그대로 두고, 레일은 구분선 아래,
+// 폰은 하단 바 위 안내 줄의 오른쪽에 작게. 목적지는 역할로 갈린다(lib/consoleLinks.ts — 역할 없으면 데모).
 export default function BottomNav() {
   const pathname = usePathname();
   const router = useRouter();
   const t = useT();
+  const { account } = useAccount();
 
   // 빠른 UI 반응을 위한 낙관적 탭 상태
   const [optimisticTab, setOptimisticTab] = useState<string | null>(null);
@@ -52,6 +60,12 @@ export default function BottomNav() {
   const activeTab = getActiveTab();
   const activeIndex = tabs.findIndex(t => t.id === activeTab);
 
+  const links = consoleLinks(account);
+  const consoles = [
+    { id: 'merchant', icon: Store, label: t('nav.merchantConsole'), shortLabel: t('nav.merchantShort'), href: links.merchant },
+    { id: 'admin', icon: Landmark, label: t('nav.adminDashboard'), shortLabel: t('nav.adminShort'), href: links.admin },
+  ];
+
   const handleTabClick = (tab: { id: string; path: string }) => {
     if (tab.id === activeTab) return;
 
@@ -65,20 +79,23 @@ export default function BottomNav() {
 
   return (
     <>
-      {/* ── 데스크톱: 왼쪽 세로 레일 (인플로우) ── */}
+      {/* ── 데스크톱: 왼쪽 세로 레일 (인플로우) ──
+          키 낮은 창(short: 높이 720px 미만)에서는 칸을 64→56px 로 줄여 콘솔 입구·서비스 소개까지 스크롤 없이 들어간다
+          (1366×650 실측 기준 — 줄이지 않으면 서비스 소개가 화면 밖으로 밀린다). */}
       <nav
         aria-label="주요 내비게이션"
-        className="hidden md:flex shrink-0 w-[76px] sticky top-0 h-screen z-40 bg-white/90 backdrop-blur-xl border-r border-line shadow-[2px_0_14px_rgba(43,35,32,0.06)] flex-col items-center py-6"
+        className="hidden md:flex shrink-0 w-[76px] sticky top-0 h-screen z-40 bg-white/90 backdrop-blur-xl border-r border-line shadow-[2px_0_14px_rgba(43,35,32,0.06)] flex-col items-center py-6 short:py-4"
       >
         {/* 데스크톱 레일에서도 브랜드가 한눈에 기억되도록 여행 길잡이 얼굴을 사용한다. */}
-        <NextSpotMascot className="mb-8 w-11" />
+        <NextSpotMascot className="mb-8 w-11 short:mb-4" />
 
-        <div className="relative flex flex-col items-center gap-2">
+        {/* --rail-step = 탭 높이 + 간격. 인디케이터가 같은 값으로 움직여야 짧은 창에서도 탭에 맞는다. */}
+        <div className="relative flex flex-col items-center gap-2 [--rail-step:4.5rem] short:gap-1 short:[--rail-step:3.75rem]">
           {/* 활성 탭 세로 슬라이딩 인디케이터 */}
           <motion.div
             aria-hidden
-            className="absolute left-0 w-16 h-16 bg-gold/15 rounded-2xl pointer-events-none"
-            animate={{ top: `calc(${activeIndex} * 4.5rem)` }}
+            className="absolute left-0 w-16 h-16 short:h-14 bg-gold/15 rounded-2xl pointer-events-none"
+            animate={{ top: `calc(${activeIndex} * var(--rail-step))` }}
             transition={interactionSpring}
           />
           {tabs.map((tab) => {
@@ -91,7 +108,7 @@ export default function BottomNav() {
                 whileTap={tapMotion}
                 transition={interactionSpring}
                 aria-current={isActive ? 'page' : undefined}
-                className={`relative z-10 flex flex-col items-center justify-center gap-1 transition-colors w-16 h-16 rounded-2xl ${
+                className={`relative z-10 flex flex-col items-center justify-center gap-1 transition-colors w-16 h-16 short:h-14 rounded-2xl ${
                   isActive ? 'text-gold-deep' : 'text-muk-soft hover:text-muk'
                 }`}
               >
@@ -106,7 +123,28 @@ export default function BottomNav() {
             );
           })}
         </div>
-        <GuideButton className="mt-auto min-h-16 w-16 flex-col py-2" />
+
+        {/* 콘솔 입구 — 관광객 탭과 구분선으로 나눈다. 라벨은 공백에서 두 줄로(ko 는 전역 keep-all).
+            ja 처럼 공백 없는 라벨은 글자 사이에서 꺾이는데, line-break:strict 로 'ュ' 같은 작은 가나가 줄 머리에 오지 않게 한다. */}
+        <div aria-hidden className="my-2 h-px w-10 bg-line short:my-1.5" />
+        <div className="flex flex-col items-center gap-2 short:gap-1">
+          {consoles.map((item) => {
+            const Icon = item.icon;
+            return (
+              <Link
+                key={item.id}
+                href={item.href}
+                prefetch={false}
+                data-console-entry={item.id}
+                className="flex w-16 h-16 short:h-14 flex-col items-center justify-center gap-1 rounded-2xl text-muk-soft transition-colors hover:bg-gold/10 hover:text-muk focus-visible:outline-2 focus-visible:outline-gold-deep"
+              >
+                <Icon size={22} aria-hidden />
+                <span className="text-[11px] font-medium leading-tight text-center [line-break:strict]">{item.label}</span>
+              </Link>
+            );
+          })}
+        </div>
+        <GuideButton className="mt-auto min-h-16 w-16 flex-col py-2 short:min-h-14 short:py-1.5" />
       </nav>
 
       {/* ── 모바일: 하단 가로 바 (fixed 오버레이) ── */}
@@ -114,8 +152,26 @@ export default function BottomNav() {
         aria-label="주요 내비게이션"
         className="md:hidden fixed bottom-0 left-0 w-full z-40 bg-white/90 backdrop-blur-xl border-t border-line shadow-[0_-2px_14px_rgba(43,35,32,0.06)] px-6 py-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))]"
       >
-        <div className="mb-1 flex h-8 items-center border-b border-line pb-1">
-          <GuideButton compact className="min-h-8 px-1" />
+        {/* 안내 줄 — 왼쪽 서비스 소개, 오른쪽 콘솔 입구 두 개(12px). 줄 높이는 그대로라 페이지 하단 여백이 바뀌지 않는다. */}
+        <div className="mb-1 flex h-8 items-center justify-between gap-1 border-b border-line pb-1">
+          <GuideButton compact className="min-h-8 shrink-0 px-1" />
+          <div className="flex min-w-0 items-center gap-1">
+            {consoles.map((item) => {
+              const Icon = item.icon;
+              return (
+                <Link
+                  key={item.id}
+                  href={item.href}
+                  prefetch={false}
+                  data-console-entry={item.id}
+                  className="inline-flex min-h-8 items-center gap-1 whitespace-nowrap rounded-lg px-1.5 text-xs font-medium text-muk-soft transition-colors hover:bg-gold/10 hover:text-muk focus-visible:outline-2 focus-visible:outline-gold-deep"
+                >
+                  <Icon size={14} aria-hidden />
+                  {item.shortLabel}
+                </Link>
+              );
+            })}
+          </div>
         </div>
         <div className="relative flex justify-around items-center w-full">
           {/* 활성 탭 가로 슬라이딩 인디케이터 — 탭 수 기반 일반화(중심 = (idx+0.5)/N). */}

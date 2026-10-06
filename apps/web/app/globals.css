@@ -1,5 +1,9 @@
 @import "tailwindcss";
 
+/* 키 낮은 데스크톱 창(브라우저 안쪽 높이 720px 미만 — 1366×768 노트북 등). 왼쪽 레일이 콘솔 입구까지
+   스크롤 없이 보이도록 칸을 줄이는 데 쓴다(components/shell/BottomNav.tsx). */
+@custom-variant short (@media (max-height: 719.98px));
+
 /* Freesentation — 전역 통일 서체(OFL 라이선스, Noonnu 배포·jsDelivr CDN 호스팅).
    런타임 로드라 정적 export 빌드에는 영향 없음. 본문/제목/버튼/카드 등 모든 텍스트가
    이 하나의 서체를 쓰도록 --font-sans/--font-serif 토큰에서 최우선으로 참조한다(아래 @theme). */

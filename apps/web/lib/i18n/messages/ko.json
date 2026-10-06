@@ -195,7 +195,15 @@
     "saved": "저장",
     "waiting": "지금 출발하면?",
     "course": "분산코스",
-    "mypage": "마이"
+    "mypage": "마이",
+    "merchantConsole": "사장님 콘솔",
+    "adminDashboard": "관제 대시보드",
+    "merchantShort": "사장님 콘솔",
+    "adminShort": "관제 대시보드"
+  },
+  "console": {
+    "openMerchant": "사장님 콘솔 열기",
+    "openMerchantDesc": "가게 성과·타임세일·좌석 상태 관리"
   },
   "landing": {
     "tagline": "줄 서는 대신, 경주를 한 곳 더.",
@@ -1168,9 +1176,9 @@
   "merchantGate": {
     "title": "내 가게 대시보드",
     "subtitle": "NextSpot 사장님 콘솔",
+    "guestTitle": "사장님 계정으로 로그인",
+    "guestDesc": "가게 성과·타임세일·좌석 상태를 바로 관리해요. 계정 없이 먼저 둘러봐도 좋아요.",
     "leave": "나가기",
-    "needLoginTitle": "로그인이 필요해요",
-    "needLoginDesc": "사장님 콘솔은 계정으로 들어가요.",
     "notMerchantTitle": "사업자 계정이 아니에요",
     "notMerchantDesc": "가게를 등록하면 성과·타임세일·좌석 상태를 관리할 수 있어요.",
     "noStoreTitle": "확인을 기다리고 있어요",
@@ -1296,7 +1304,7 @@
     "freshFallback": "한국관광공사 TourAPI 관광정보는 매일 04:00(KST)에 일괄 적재하고, 상세·이미지 응답은 24시간 캐시로 제공합니다.",
     "note": "공공데이터는 공공누리 이용조건에 따라 출처를 표시해 사용하며, 각 화면의 카드·푸터에도 출처를 함께 표기합니다.",
     "footerHint": "데이터 출처 자세히 보기",
-    "merchantCta": "상인 콘솔 데모 보기",
+    "merchantCta": "사장님 콘솔 데모 보기",
     "adminCta": "관제 대시보드 데모 보기",
     "roleNote": "실제 운영은 권한 계정으로 로그인합니다",
     "seoulBadge": "검증",

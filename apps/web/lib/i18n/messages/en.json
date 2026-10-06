@@ -172,7 +172,7 @@
     "example": "Feature flow illustration",
     "toc": "Guide contents",
     "consoleLoginMerchant": "Merchant console sign-in",
-    "consoleLoginAdmin": "Admin dashboard sign-in"
+    "consoleLoginAdmin": "Operations dashboard sign-in"
   },
   "common": {
     "appName": "NextSpot",
@@ -195,7 +195,15 @@
     "saved": "Saved",
     "waiting": "Go now?",
     "course": "Course",
-    "mypage": "My"
+    "mypage": "My",
+    "merchantConsole": "Merchant console",
+    "adminDashboard": "Operations dashboard",
+    "merchantShort": "Merchant",
+    "adminShort": "Dashboard"
+  },
+  "console": {
+    "openMerchant": "Open merchant console",
+    "openMerchantDesc": "Results, time sales and seat status for your store"
   },
   "landing": {
     "tagline": "Skip the queue, see one more side of Gyeongju.",
@@ -1168,9 +1176,9 @@
   "merchantGate": {
     "title": "My store dashboard",
     "subtitle": "NextSpot merchant console",
+    "guestTitle": "Sign in with your store account",
+    "guestDesc": "Manage results, time sales and seats right away, or look around first without an account.",
     "leave": "Leave",
-    "needLoginTitle": "Sign in required",
-    "needLoginDesc": "The merchant console needs an account.",
     "notMerchantTitle": "Not a business account",
     "notMerchantDesc": "Register your store to manage performance, flash sales and seat status.",
     "noStoreTitle": "Waiting for verification",
@@ -1236,7 +1244,7 @@
   "judgeAccount": {
     "title": "Contest judge accounts",
     "merchant": "Merchant console",
-    "admin": "Admin dashboard",
+    "admin": "Operations dashboard",
     "password": "Use the test-account password set by the contest.",
     "fill": "Fill in",
     "fillAria": "Fill in {email}",
@@ -1356,9 +1364,9 @@
     "seatFull": "Full",
     "realLogin": "Sign in with a real account",
     "previewTitle": "Console preview",
-    "previewDesc": "Browse the merchant console and the admin dashboard with sample data",
+    "previewDesc": "Browse the merchant console and the operations dashboard with sample data",
     "previewMerchant": "Merchant console",
-    "previewAdmin": "Admin dashboard"
+    "previewAdmin": "Operations dashboard"
   },
   "wait": {
     "minutes": "About {n} min wait",

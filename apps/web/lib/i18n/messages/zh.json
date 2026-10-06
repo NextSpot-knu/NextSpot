@@ -172,7 +172,7 @@
     "example": "功能流程示例",
     "toc": "介绍目录",
     "consoleLoginMerchant": "商家控制台登录",
-    "consoleLoginAdmin": "管理仪表盘登录"
+    "consoleLoginAdmin": "运营仪表盘登录"
   },
   "common": {
     "appName": "NextSpot",
@@ -195,7 +195,15 @@
     "saved": "收藏",
     "waiting": "现在出发?",
     "course": "路线",
-    "mypage": "我的"
+    "mypage": "我的",
+    "merchantConsole": "商家控制台",
+    "adminDashboard": "运营仪表盘",
+    "merchantShort": "商家",
+    "adminShort": "运营"
+  },
+  "console": {
+    "openMerchant": "打开商家控制台",
+    "openMerchantDesc": "管理店铺业绩、限时优惠和座位状态"
   },
   "landing": {
     "tagline": "少排一次队，多看一处庆州。",
@@ -1168,9 +1176,9 @@
   "merchantGate": {
     "title": "我的店铺看板",
     "subtitle": "NextSpot 商家控制台",
+    "guestTitle": "使用商家账号登录",
+    "guestDesc": "可立即管理业绩、限时优惠和座位状态，也可以先免登录看看。",
     "leave": "退出",
-    "needLoginTitle": "需要登录",
-    "needLoginDesc": "商家控制台需要使用账号登录。",
     "notMerchantTitle": "不是商家账号",
     "notMerchantDesc": "登记店铺后即可管理成效、限时优惠和座位状态。",
     "noStoreTitle": "正在等待核实",
@@ -1236,7 +1244,7 @@
   "judgeAccount": {
     "title": "比赛评审专用账号",
     "merchant": "商家控制台",
-    "admin": "管理仪表盘",
+    "admin": "运营仪表盘",
     "password": "密码为比赛指定的测试账号密码。",
     "fill": "填入",
     "fillAria": "填入 {email}",
@@ -1297,7 +1305,7 @@
     "note": "公共数据依据 KOGL（公共数据开放许可）的使用条件标注来源后使用，各页面的卡片与页脚也一并标注来源。",
     "footerHint": "查看数据来源详情",
     "merchantCta": "查看商家控制台演示",
-    "adminCta": "查看管理仪表盘演示",
+    "adminCta": "查看运营仪表盘演示",
     "roleNote": "实际运营需使用具备权限的账号登录",
     "seoulBadge": "验证",
     "seoulTitle": "正用首尔实测数据验证推荐引擎",
@@ -1356,9 +1364,9 @@
     "seatFull": "满座",
     "realLogin": "使用真实账号登录",
     "previewTitle": "控制台预览",
-    "previewDesc": "使用示例数据浏览商家控制台与管理仪表盘",
+    "previewDesc": "使用示例数据浏览商家控制台与运营仪表盘",
     "previewMerchant": "商家控制台",
-    "previewAdmin": "管理仪表盘"
+    "previewAdmin": "运营仪表盘"
   },
   "wait": {
     "minutes": "预计等待约{n}分钟",

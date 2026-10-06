@@ -172,7 +172,7 @@
     "example": "機能の流れの例",
     "toc": "紹介の目次",
     "consoleLoginMerchant": "オーナーコンソールにログイン",
-    "consoleLoginAdmin": "管制ダッシュボードにログイン"
+    "consoleLoginAdmin": "運営ダッシュボードにログイン"
   },
   "common": {
     "appName": "NextSpot",
@@ -195,7 +195,15 @@
     "saved": "保存",
     "waiting": "今出発なら？",
     "course": "コース",
-    "mypage": "マイ"
+    "mypage": "マイ",
+    "merchantConsole": "オーナーコンソール",
+    "adminDashboard": "運営ダッシュボード",
+    "merchantShort": "オーナー",
+    "adminShort": "運営"
+  },
+  "console": {
+    "openMerchant": "オーナーコンソールを開く",
+    "openMerchantDesc": "お店の実績・タイムセール・席の状況を管理"
   },
   "landing": {
     "tagline": "並ぶ代わりに、慶州をもう一か所。",
@@ -1168,9 +1176,9 @@
   "merchantGate": {
     "title": "マイ店舗ダッシュボード",
     "subtitle": "NextSpot オーナーコンソール",
+    "guestTitle": "店舗アカウントでログイン",
+    "guestDesc": "実績・タイムセール・席の状況をすぐ管理できます。アカウントなしで先に見て回ることもできます。",
     "leave": "閉じる",
-    "needLoginTitle": "ログインが必要です",
-    "needLoginDesc": "オーナーコンソールはアカウントで入ります。",
     "notMerchantTitle": "事業者アカウントではありません",
     "notMerchantDesc": "店舗を登録すると成果・タイムセール・座席状況を管理できます。",
     "noStoreTitle": "確認をお待ちください",
@@ -1236,7 +1244,7 @@
   "judgeAccount": {
     "title": "コンテスト審査用アカウント",
     "merchant": "オーナーコンソール",
-    "admin": "管制ダッシュボード",
+    "admin": "運営ダッシュボード",
     "password": "パスワードはコンテスト指定のテストアカウント用パスワードです。",
     "fill": "自動入力",
     "fillAria": "{email} を入力",
@@ -1297,7 +1305,7 @@
     "note": "公共データは公共ヌリ（KOGL）の利用条件に従って出典を表示して利用し、各画面のカード・フッターにも出典を併記しています。",
     "footerHint": "データ出典を詳しく見る",
     "merchantCta": "オーナーコンソールのデモを見る",
-    "adminCta": "管制ダッシュボードのデモを見る",
+    "adminCta": "運営ダッシュボードのデモを見る",
     "roleNote": "実際の運用は権限のあるアカウントでログインします",
     "seoulBadge": "検証",
     "seoulTitle": "ソウルの実測データでおすすめエンジンを検証中",
@@ -1356,9 +1364,9 @@
     "seatFull": "満席",
     "realLogin": "実際のアカウントでログイン",
     "previewTitle": "コンソールのプレビュー",
-    "previewDesc": "オーナーコンソールと管制ダッシュボードをサンプルデータで見てみましょう",
+    "previewDesc": "オーナーコンソールと運営ダッシュボードをサンプルデータで見てみましょう",
     "previewMerchant": "オーナーコンソール",
-    "previewAdmin": "管制ダッシュボード"
+    "previewAdmin": "運営ダッシュボード"
   },
   "wait": {
     "minutes": "予想待ち時間 約{n}分",
