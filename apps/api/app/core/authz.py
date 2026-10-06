@@ -262,6 +262,29 @@ def require_role(*allowed: str):
     return _guard
 
 
+# 공모전 심사용 관리자 계정 — 심사위원 여러 명이 실서비스에서 함께 쓴다(scripts/seed_judge_accounts.py ADMIN_EMAIL).
+JUDGE_ADMIN_EMAIL = "openapi@gmail.com"
+
+
+def is_judge_admin(profile: dict) -> bool:
+    """심사용 관리자 계정인가 — 인증된 토큰의 이메일로 판정한다(대소문자·앞뒤 공백 무시)."""
+    return str(profile.get("email") or "").strip().lower() == JUDGE_ADMIN_EMAIL
+
+
+def forbid_judge_admin(detail: str):
+    """심사용 관리자 계정이면 403(detail) 으로 막는 의존성. 역할 가드는 라우터 dependencies 로 먼저 돈다.
+
+    한 계정을 여러 심사위원이 쓰므로, 한 명이 바꾼 전역 설정·지운 장소는 뒤에 오는 모두에게 그대로 남고
+    되돌릴 화면도 없다. 그런 쓰기에만 걸고, 시연 경로(쿠폰 정책 슬라이더 등)는 열어 둔다.
+    """
+    async def _guard(profile: dict = Depends(get_current_profile)) -> None:
+        if is_judge_admin(profile):
+            logger.info("judge_admin_write_blocked", user_id=profile["id"])
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=detail)
+
+    return _guard
+
+
 def owns_facility(profile: dict, facility_id: str) -> bool:
     """이 사용자가 해당 가게를 다룰 수 있는가.
 

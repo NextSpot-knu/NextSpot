@@ -30,6 +30,7 @@ from typing import Optional
 import structlog
 
 from app.services import llm_client
+from app.services.card_minutes import wait_minutes, walk_minutes
 
 logger = structlog.get_logger()
 
@@ -68,10 +69,13 @@ def _build_template(ctx: dict) -> str:
         cand_cong = None
 
     parts = []
+    # 분은 카드(웹)와 같은 규칙으로 정수화한다(card_minutes) — 다르면 같은 카드에 두 숫자가 뜬다.
+    # 이 문장이 글자로 찍히는 곳은 /explore/recommend 카드(ko)이고, 그 카드의 대기 칸은
+    # max(1, Math.round(대기)) 라서 대기에도 최소 1분을 건다.
     if isinstance(travel, (int, float)):
-        parts.append(f"도보 {round(travel)}분")
+        parts.append(f"도보 {walk_minutes(travel)}분")
     if isinstance(wait, (int, float)):
-        parts.append(f"예상 대기 {round(wait)}분")
+        parts.append(f"예상 대기 {max(1, wait_minutes(wait))}분")
     if isinstance(cand_cong, (int, float)):
         if cong_source == "predicted":
             parts.append(f"예상 혼잡도 {round(cand_cong * 100)}% (AI 예측)")
