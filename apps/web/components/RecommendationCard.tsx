@@ -26,7 +26,7 @@ import {
   resolveAnchorCrowd,
   resolveCandidateCrowd,
   showFaceCrowdChip,
-  tasteBenefitPercent,
+  faceTastePercent,
 } from '@/lib/compareHeader';
 import { cardRankLabel, cardRankText } from '@/lib/cardRank';
 import { LIVE_FLASH_MS, LIVE_REFRESH_COOLDOWN_MS, refreshedFields, type LiveField } from '@/lib/liveDetailDiff';
@@ -105,6 +105,8 @@ interface RecommendationCardProps {
   onPutOff?: () => void;
   spotScore?: number;
   preferencePercent?: number;
+  /** 함께 보이는 후보들의 취향 일치율 — 모두 같은 숫자면 앞면 · 미리보기에서 말하지 않는다(faceTastePercent). */
+  tastePeers?: readonly (number | null | undefined)[];
   expectedWait?: number;
   expectedTravel?: number;
   travelSource?: 'osm_pedestrian' | 'estimated';
@@ -227,6 +229,7 @@ export function RecommendationCard({
   onPutOff,
   spotScore,
   preferencePercent,
+  tastePeers,
   expectedWait,
   expectedTravel,
   travelSource,
@@ -941,8 +944,9 @@ export function RecommendationCard({
     anchorBasis: anchorCrowd.basis,
     candidateGrade: candidateCrowdGrade,
   });
-  // 혜택 문장의 '취향 N% 일치' — 문턱(50%) 아래면 그 조각을 뺀다(가장 큰 줄이 추천한 곳을 깎지 않게).
-  const tastePct = tasteBenefitPercent(preferencePercent);
+  // 혜택 문장의 '취향 N% 일치' — 그 숫자가 장소를 가를 때만(60% 이상 · 후보마다 다를 때, 리뷰 10-07). 아니면 그 조각을 뺀다
+  // (가장 큰 줄이 추천한 곳을 깎지 않고, 모든 카드에 같은 숫자를 붙이지 않게). 숫자는 SPOT 점수 상자에 남는다.
+  const tastePct = faceTastePercent(preferencePercent, tastePeers);
   // 화살표 문장 — chooseCompareHeadline 이 'compare' 면 기준 명소와 두 등급이 모두 있다. '지금' 이라는 말은 없다
   // (가정 시각이면 상자 안의 '🕒 … 기준' 알약이 시각을 말한다).
   const compareHeaderText = compareHeadline.kind === 'compare' && compareAnchorLabelName && anchorCrowd.grade && candidateCrowdGrade
@@ -955,7 +959,9 @@ export function RecommendationCard({
       })
     : null;
   const compareKicker = t(compareHeadline.kind === 'benefit' && compareHeadline.candidateIsAnchor
-    ? (assumedTimeLabel ? 'compare.nearbyKickerAt' : 'compare.nearbyKicker')
+    // 가정 시각(+N시간 · 요일)에는 '가까운' 이라고 하지 않는다 — 다시 매긴 카드가 걸어서 16분이어도 '가까운 추천' 이라
+    // 했다(리뷰 10-07). 그 시각을 위한 추천이라는 말만 하고, 어느 시각인지는 아래 '🕒 … 기준' 알약이 말한다.
+    ? (assumedTimeLabel ? 'compare.atTimeKicker' : 'compare.nearbyKicker')
     : 'compare.headerKicker');
   // 💡 사유도 첫 줄과 같은 판정을 따른다 — 화살표가 참일 때만 "{A} 대신 {B} 어떠세요?".
   const shownReason = compareHeadline.kind === 'compare' && insteadReason ? insteadReason : reason;
@@ -1143,12 +1149,11 @@ export function RecommendationCard({
             className={`flex min-h-6 min-w-0 flex-1 shrink cursor-pointer flex-col justify-center gap-0.5 rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 ${voiceSlot ? 'items-start pl-1' : 'items-center'}`}
           >
             <span aria-hidden="true" className={`h-1.5 w-16 rounded-full bg-muk/20 ${voiceSlot ? 'self-center' : ''}`} />
-            {/* 미리보기에서는 손잡이가 무엇을 하는지 글자로도 말한다 — 회색 막대만으로는 펼쳐진다는 걸 모른다(10-06 리뷰). */}
-            {isMinimized && (
-              <span aria-hidden="true" className="text-[11px] font-bold leading-4 text-gold-deep">
-                {t('card.peek.expand')}
-              </span>
-            )}
+            {/* 손잡이가 무엇을 하는지 글자로도 말한다 — 회색 막대만으로는 펼쳐진다는 걸 모른다(10-06 리뷰). 펼친 뒤에도
+                '추천 간단히 보기' 를 보여 준다(리뷰 10-07: 펼친 카드가 카테고리 칩·필터·편의를 덮는데 돌아가는 길이 막대뿐이었다). */}
+            <span aria-hidden="true" className="text-[11px] font-bold leading-4 text-gold-deep">
+              {t(isMinimized ? 'card.peek.expand' : 'card.peek.collapse')}
+            </span>
           </button>
           {voiceSlot && isMinimized && <div className="shrink-0 pt-1">{voiceSlot}</div>}
         </div>
@@ -1174,6 +1179,13 @@ export function RecommendationCard({
               onClick={openFromPeek}
               className="line-clamp-2 cursor-pointer break-keep text-[14px] font-extrabold leading-snug text-muk short:line-clamp-1"
             >
+              {/* 가정 시각으로 다시 매긴 카드는 미리보기에서도 어느 시각 기준인지 먼저 말한다(리뷰 10-07 — 휴대폰 미리보기에는
+                  '+2시간 후' 단서가 없었다). 펼친 카드의 '🕒 … 기준' 알약과 같은 라벨. */}
+              {assumedTimeLabel && (
+                <span data-testid="peek-time" className="mr-1.5 inline-flex rounded-full border border-gold/40 bg-gold/15 px-1.5 py-px align-[1px] text-[11px] font-bold text-gold-deep">
+                  🕒 {assumedTimeLabel}
+                </span>
+              )}
               {peekValueText}
             </p>
           )}

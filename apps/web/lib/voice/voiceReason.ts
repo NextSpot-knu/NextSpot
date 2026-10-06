@@ -4,11 +4,11 @@
 // 이름을 두 번 읽고 딱딱한 서버 문장을 읽었다. '다음' 으로 넘어간 카드는 이름만 읽었다. 기능설명서는 비서가
 // '장소와 이유' 를 읽는다고 적고 있다. 이제 모든 카드가 같은 재료(카드가 이미 보여 주는 값)로 짧은 이유를 말한다:
 //   · 이름은 한 번, '수준입니다' 없이 "걸어서 N분"
-//   · 취향 일치율은 카드의 가치 문장과 같은 문턱(50% 이상)일 때만
+//   · 취향 일치율은 카드의 가치 문장과 같은 규칙일 때만(faceTastePercent — 60% 이상이고 후보마다 다를 때, 리뷰 10-07)
 //   · '대신' 은 카드 첫 줄이 화살표일 때만(chooseCompareHeadline — 지구 기록·덜 붐비지 않는 곳을 '대신' 으로 부르지 않는다)
 //   · "지금 여유로운 편이에요" 는 그 장소의 등급이 한산·여유일 때만
 
-import { tasteBenefitPercent } from '../compareHeader';
+import { faceTastePercent } from '../compareHeader';
 import type { CongestionKey } from '../congestionScale';
 
 export type VoiceTranslator = (key: string, vars?: Record<string, string | number>) => string;
@@ -19,6 +19,8 @@ export interface VoiceReasonInput {
   walkMin: number;
   /** 카드의 취향 일치율(정수 %). 문턱 아래·정수가 아니면 말하지 않는다. */
   preferencePercent?: number | null;
+  /** 함께 보이는 후보들의 취향 일치율 — 모두 같은 숫자면 장소를 가르지 못하니 말하지 않는다(카드 앞면과 같은 규칙). */
+  tastePeers?: readonly (number | null | undefined)[];
   /** 카드 첫 줄이 화살표 비교일 때의 기준 명소 이름. 아니면 null — '대신' 을 말하지 않는다. */
   insteadOf?: string | null;
   /** 그 장소 자신의 혼잡 등급(실측·추정). 한산·여유일 때만 덧붙인다. */
@@ -27,7 +29,7 @@ export interface VoiceReasonInput {
 
 export function buildVoiceReason(t: VoiceTranslator, input: VoiceReasonInput): string {
   const walk = Math.max(1, Math.round(input.walkMin));
-  const pct = tasteBenefitPercent(input.preferencePercent ?? null);
+  const pct = faceTastePercent(input.preferencePercent ?? null, input.tastePeers);
   const anchor = input.insteadOf?.trim() || null;
   const base = anchor
     ? t(pct !== null ? 'voice.reasonInsteadTaste' : 'voice.reasonInstead', { anchor, name: input.name, walk, pct: pct ?? '' })

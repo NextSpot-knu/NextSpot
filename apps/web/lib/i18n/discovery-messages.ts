@@ -24,7 +24,7 @@ export const DISCOVERY_MESSAGES: Record<Locale, Record<string, string>> = {
     'discovery.theme.gyochon_walk': '교촌·월정교 산책',
   },
   en: {
-    'discovery.entry': 'New to Gyeongju?',
+    'discovery.entry': 'New here?',
     'discovery.entryHint': 'Find better-timed alternatives with a similar experience',
     'discovery.title': 'What kind of Gyeongju do you want to experience?',
     'discovery.subtitle': 'Famous places are reference points. SPOT compares alternatives that work better now.',

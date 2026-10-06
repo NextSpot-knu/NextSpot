@@ -348,6 +348,10 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 360, height: 640 }
         const overlap = b.x < c.x + c.width && b.x + b.width > c.x && b.y < c.y + c.height && b.y + b.height > c.y;
         expect(overlap, `음성 버튼이 '${(await buttons.nth(i).innerText()).trim()}' 를 덮는다(scroll ${scroll})`).toBe(false);
       }
+      // 카드 전체(사진 · SPOT 배지 포함)가 버튼 왼쪽에서 끝난다 — 목록이 버튼 자리를 비워 둔다(리뷰 10-07: SPOT 배지를 덮었다).
+      for (const box of await page.getByTestId('alt-card').evaluateAll((els) => els.map((e) => e.getBoundingClientRect().right))) {
+        expect(box, `카드 오른쪽 끝이 음성 버튼 밑으로 들어간다(scroll ${scroll})`).toBeLessThanOrEqual(c.x);
+      }
     }
   });
 }

@@ -581,6 +581,33 @@ for (const theme of ['light', 'dark'] as const) {
   });
 }
 
+test('1536x730: the voice caption sits beside the card and never covers the value line it reads out', async ({ page }) => {
+  test.setTimeout(90_000);
+  await page.setViewportSize({ width: 1536, height: 730 });
+  await openMain(page, { speech: true });
+  await expect(card(page).getByTestId('value-box')).toBeVisible({ timeout: 25_000 });
+  await page.getByTestId('voice-slot').getByRole('button', { name: 'AI 음성 추천 듣기' }).click();
+  const caption = page.getByTestId('voice-caption');
+  await expect(caption).toBeVisible();
+  // 리뷰 10-07: 자막이 열 맨 위에 겹쳐 지금 읽어 주는 가치 문장(카드 맨 위)을 덮고 '일치' 한 낱말만 남았다.
+  const [c, v, pill] = await Promise.all([
+    caption.boundingBox(),
+    card(page).getByTestId('value-box').boundingBox(),
+    page.getByTestId('voice-slot').boundingBox(),
+  ]);
+  const apart = (a: typeof c, b: typeof c) => !!a && !!b && (a.x + a.width <= b.x || b.x + b.width <= a.x || a.y + a.height <= b.y || b.y + b.height <= a.y);
+  expect(apart(c, v), 'caption covers the value box').toBe(true);
+  expect(apart(c, pill), 'caption covers the voice pill').toBe(true);
+  expect(c!.x).toBeGreaterThanOrEqual(76); // 왼쪽 레일 밖, 지도 위
+  expect(c!.y + c!.height).toBeLessThanOrEqual(730);
+  const onTop = await caption.evaluate((el) => {
+    const b = el.getBoundingClientRect();
+    const hit = document.elementFromPoint(b.x + b.width / 2, b.y + 12);
+    return !!hit && el.contains(hit);
+  });
+  expect(onTop).toBe(true);
+});
+
 // ───────────────────────────────────────────────────────────────────────────
 // 휴대폰 — 카드 안 알약, 가로 넘침 없음(라이트·다크)
 // ───────────────────────────────────────────────────────────────────────────

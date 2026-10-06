@@ -12,7 +12,7 @@ import { centerTargetFor, type BandInsets } from '@/lib/map/visibleBand';
 import { scoreFacility, compareSpot, displayWalkingMinutes, rankFacilities, rankFacilitiesDegraded, recToSpot, haversineMeters, filterReachable, isBarFacility, type Spot } from '@/lib/recommender';
 import { REGION, isWithinRegion } from '@/lib/region';
 import { cleanGalleryImages, loadMapFacilitiesFromSupabase } from '@/lib/mapFacilityFallback';
-import { getRecommendations, recommendByType, rejectRecommendation, voiceTurn, apiClient, getCongestionEstimates, type CongestionEstimate, ASSUMED_TIME_PRESETS, ASSUMED_TIME_EVENT, assumedAtIsoForPreset, getStoredAssumedPreset, setStoredAssumedPreset, prefetchDemoHotPaths } from '@/lib/api-client';
+import { getRecommendations, recommendByType, rejectRecommendation, voiceTurn, apiClient, loadSharedCongestionEstimates, type CongestionEstimate, ASSUMED_TIME_PRESETS, ASSUMED_TIME_EVENT, assumedAtIsoForPreset, getStoredAssumedPreset, setStoredAssumedPreset, prefetchDemoHotPaths } from '@/lib/api-client';
 import {
   displayableEstimate,
   estimatesFromFeed,
@@ -21,6 +21,8 @@ import {
   revalidateIsCurrent,
 } from '@/lib/congestionEstimate';
 import { sessionAreaDemandAt } from '@/lib/areaDemandCurve';
+import { areaNowLevel as areaNowLevelOf } from '@/lib/areaNow';
+import { markTasteFeedback } from '@/lib/tasteBadge';
 import { isPredictModelTrained } from '@/lib/predictModel';
 import {
   STRIP_NOW,
@@ -479,17 +481,6 @@ export default function MainPage() {
   // 마지막으로 피드를 확인한 시각. 5분마다 바뀌어 지도 파생값을 다시 계산하게 한다 — 그래야
   // 오래 열어 둔 탭에서 60분 지난 점선 핀이 남지 않는다(값이 안 바뀌어도 만료는 다시 판정한다).
   const [estimateClock, setEstimateClock] = useState(() => Date.now());
-  // 지금 이 일대(경주 시내) 추정 혼잡 — 추정 피드 값들의 가운데값. 칠한 핀이 없을 때 시간 줄이 칩 하나로 말한다(계획 B3).
-  const areaNowLevel = useMemo(() => {
-    const at = new Date(estimateClock);
-    const levels = Object.values(estimateById)
-      .map((raw) => parseCongestionEstimate(raw, at)?.level)
-      .filter((level): level is number => typeof level === 'number')
-      .sort((a, b) => a - b);
-    if (levels.length === 0) return null;
-    const mid = Math.floor(levels.length / 2);
-    return levels.length % 2 ? levels[mid] : (levels[mid - 1] + levels[mid]) / 2;
-  }, [estimateById, estimateClock]);
   // 음성 선호 필터(예: '양식 먹고 싶어'→양식 식당 id들). null이면 필터 없음.
   // 백엔드 분류기가 실시간으로 추천 풀을 좁혀 그 안에서 SPOT로 재랭킹한다.
   // state = 카드/핸들러 렌더용, ref = 추천 effect가 dep 없이 최신값을 읽기 위함(필터 변경 시 더블셋 방지).
@@ -901,8 +892,9 @@ export default function MainPage() {
       const controller = new AbortController();
       inflight = controller;
       try {
-        const feed = await getCongestionEstimates({ timeoutMs: 8000, signal: controller.signal });
-        if (active) setEstimateById(estimatesFromFeed(feed));
+        // 대기 보드 · 대안 화면과 같은 피드 스냅숏(세션 공용 4분, lib/areaNow.ts) — 화면마다 다른 시각의 등급을 말하지 않게.
+        const feed = await loadSharedCongestionEstimates();
+        if (active && !controller.signal.aborted) setEstimateById(estimatesFromFeed(feed));
       } catch {
         // 404(구 서버)·타임아웃·네트워크 — '추정 없음' 과 같다. 직전 값은 만료 판정에 맡긴다.
       } finally {
@@ -980,6 +972,12 @@ export default function MainPage() {
   // 서버 응답 캐시(단일비행)를 데운다. 메인 스레드가 한가해진 뒤(requestIdleCallback, 폴백 4s)
   // 한 번만 발사 — 이후 탭 진입 첫 요청이 캐시 히트로 즉시 뜬다. 실패는 전부 조용히 무시된다.
   useEffect(() => {
+    // 사장님 콘솔의 '손님 화면에서 보기'(/main?place=, 새 탭)는 데우지 않는다 — 새 탭은 noopener 라 세션 표시
+    // (sessionStorage)를 물려받지 못해, 그 탭마다 무거운 추천 4건 + 코스 1건을 사장님 계정으로 다시 보냈다(리뷰 10-07).
+    // 그 탭은 가게 한 곳을 보여 주는 증명 화면이라 대기 보드·코스로 이어질 일이 드물다.
+    try {
+      if (new URLSearchParams(window.location.search).has('place')) return;
+    } catch { /* 주소 읽기 실패 — 평소대로 데운다 */ }
     let cancelled = false;
     let idleId: number | undefined;
     const fire = () => { if (!cancelled) prefetchDemoHotPaths(); };
@@ -1025,6 +1023,14 @@ export default function MainPage() {
       { rank: comparison.rank, text: formatSpotComparison(t, comparison) },
     ]));
   }, [rankedFacilities, rejectedIds, savedIds, t]);
+
+  // 함께 보이는 상위 추천(최대 5곳)의 취향 일치율 — 모두 같은 숫자면 카드 앞면 · 미리보기 · 음성이 그 숫자를 말하지 않는다
+  // (lib/compareHeader.faceTastePercent, 리뷰 10-07: 게스트는 모든 카드가 '취향 51% 일치' 였다).
+  const tastePeers = useMemo(() => (rankedFacilities as Facility[])
+    .filter((f) => !rejectedIds.has(f.id) && !savedIds.has(f.id))
+    .slice(0, 5)
+    .map((f) => (f.spot as Spot | undefined)?.preferencePercent ?? null),
+  [rankedFacilities, rejectedIds, savedIds]);
 
   // 지도 핀의 순위(서버 상위 추천 1~5위, 관심 없음·저장 제외) — 금색 고리 + 숫자(계획 B3).
   const pinRankById = useMemo(() => {
@@ -1306,6 +1312,20 @@ export default function MainPage() {
   // 모음 안에서 '가장 최적의 개별 장소'를 추천한다(지도 마커는 그대로 모음으로 유지).
   const expandGroups = (list: Facility[]) =>
     list.flatMap((f) => (f.isGroup && Array.isArray(f.subFacilities)) ? f.subFacilities : [f]);
+
+  // 지금 이 일대(경주 시내 중심) 추정 혼잡 — 칠한 핀이 없을 때 시간 줄이 칩 하나로 말한다(계획 B3).
+  // 대기 보드 · 대안 화면의 한 줄과 같은 규칙(lib/areaNow.ts): 시내 중심 반경 1.5km 장소들의 가운데값. 예전에는 경주 전역
+  // (외곽 포함)의 가운데값이라 같은 몇 분 안에 이 칩은 '여유', 대안 화면은 '보통' 이라고 말했다(리뷰 10-07).
+  const areaNowLevel = useMemo(() => {
+    const at = new Date(estimateClock);
+    const places: { latitude: number; longitude: number; level: number }[] = [];
+    for (const f of expandGroups(facilities)) {
+      const level = parseCongestionEstimate(estimateById[f.id], at)?.level;
+      if (typeof level !== 'number') continue;
+      places.push({ latitude: Number(f.latitude), longitude: Number(f.longitude), level });
+    }
+    return areaNowLevelOf(places);
+  }, [estimateById, estimateClock, facilities]);
 
   const activateDiscoveryTheme = (theme: DiscoveryTheme) => {
     const anchor = findDiscoveryAnchor(expandGroups(facilities), theme);
@@ -2146,6 +2166,8 @@ export default function MainPage() {
   // '취향 프로필에 반영했어요 · 보기' — 도보 길안내·관심 없어요가 마이페이지 취향 프로필로 이어진다는 것을 한 번
   // 보여 준다(계획 B2 · F2 ⑤). 한 세션에 한 번만 — 누를 때마다 알림이 쌓이지 않게. 띄웠으면 true.
   const showProfileToast = (): boolean => {
+    // 마이페이지 레이더가 '실시간 학습 반영' 을 말해도 되는 순간(lib/tasteBadge) — 알림을 띄우든 아니든 남긴다.
+    markTasteFeedback();
     try {
       if (sessionStorage.getItem(PROFILE_TOAST_KEY) === '1') return false;
       sessionStorage.setItem(PROFILE_TOAST_KEY, '1');
@@ -2460,6 +2482,7 @@ export default function MainPage() {
       name: f.name,
       walkMin: displayWalkingMinutes(spot.expectedTravel),
       preferencePercent: spot.preferencePercent,
+      tastePeers,
       insteadOf: headline.kind === 'compare' ? anchorName : null,
       crowdGrade: shifted ? null : ownGrade,
     });
@@ -4354,8 +4377,9 @@ export default function MainPage() {
             {pill && <div data-testid="voice-slot" className="hidden h-11 shrink-0 items-center justify-end md:flex">{pill}</div>}
             {/* 휴대폰: 카드가 있으면 카드 오른쪽 위(카드가 그린다), 없으면 이 열 오른쪽 위. */}
             {pill && !showCard && <div className="mb-2 flex justify-end md:hidden">{pill}</div>}
-            {/* 자막 막대 — 떠 있는 막대라 아래 내용을 밀지 않는다(I27). 데스크톱은 열 맨 위(알약·카드 위쪽)에 겹치고,
-                휴대폰은 카드 바로 위(화면 아래쪽 — 시계에 가리지 않는다). */}
+            {/* 자막 막대 — 떠 있는 막대라 아래 내용을 밀지 않는다(I27). 휴대폰은 카드 바로 위(화면 아래쪽 — 시계에 가리지
+                않는다). 넓은 데스크톱(≥1024)은 카드 왼쪽 지도 위 — 리뷰 10-07: 열 맨 위에 겹치면 지금 읽어 주는 바로 그 가치
+                문장(카드 맨 위)을 덮었다. 좁은 데스크톱(768~1023)은 왼쪽에 자리가 없어 종전처럼 열 맨 위. */}
             {voice.active && (
               <VoiceCaptionBar
                 voiceState={voice.voiceState}
@@ -4364,7 +4388,7 @@ export default function MainPage() {
                 sttSupported={voice.sttSupported}
                 hint={t('recommend.voiceHint')}
                 onStop={voice.stop}
-                className="absolute inset-x-4 bottom-full z-10 mb-2 md:inset-x-0 md:bottom-auto md:top-0 md:mb-0"
+                className="absolute inset-x-4 bottom-full z-10 mb-2 md:inset-x-0 md:bottom-auto md:top-0 md:mb-0 lg:left-auto lg:right-full lg:mr-3 lg:w-[22rem]"
               />
             )}
 
@@ -4451,6 +4475,7 @@ export default function MainPage() {
                     onPutOff={() => handlePutOff(selectedFacility)}
                     spotScore={spot.score}
                     preferencePercent={spot.preferencePercent}
+                    tastePeers={tastePeers}
                     expectedWait={selectedFacility.scoringMode === 'model' && selectedFacility.congestionSource !== 'none' ? spot.expectedWait : undefined}
                     expectedTravel={spot.expectedTravel}
                     travelSource={spot.travelSource}

@@ -48,6 +48,10 @@ const count = (text: string, part: string) => text.split(part).length - 1;
   assert.ok(!buildVoiceReason(ko, { name: "계림", walkMin: 5, crowdGrade: "busy" }).includes("여유"), "혼잡이면 여유를 말하지 않는다");
   assert.ok(!buildVoiceReason(ko, { name: "계림", walkMin: 5, crowdGrade: "moderate" }).includes("여유"));
   assert.ok(!buildVoiceReason(ko, { name: "계림", walkMin: 5, crowdGrade: null }).includes("여유"));
+  // 모든 후보가 같은 취향 숫자(게스트의 51%)면 말하지 않는다 — 카드 앞면과 같은 규칙(리뷰 10-07).
+  assert.ok(!buildVoiceReason(ko, { name: "계림", walkMin: 5, preferencePercent: 51 }).includes("취향"));
+  assert.ok(!buildVoiceReason(ko, { name: "계림", walkMin: 5, preferencePercent: 85, tastePeers: [85, 85, 85] }).includes("취향"));
+  assert.match(buildVoiceReason(ko, { name: "계림", walkMin: 5, preferencePercent: 85, tastePeers: [85, 70, 64] }), /85%/);
 }
 
 // 다른 언어 — 한글이 섞이지 않는다(장소 이름 제외).

@@ -105,6 +105,13 @@ export async function fetchAreaDemandCurve(
   baseAt: Date = new Date(),
   signal?: AbortSignal,
   nowMs: number = Date.now(),
+  options: {
+    /**
+     * 한 정시의 값을 얻는 다른 길(세션 공용 점 캐시) — 주면 GET 대신 이것을 부른다. 값(0~1) · null(표본 부족) ·
+     * throw(전송 실패) 는 GET 과 같은 뜻이다. 세션 곡선이 시간 줄이 이미 받은 정시를 다시 묻지 않게 쓴다.
+     */
+    pointLevel?: (arrival: ForecastArrival) => Promise<number | null>;
+  } = {},
 ): Promise<AreaDemandCurve> {
   const curve: AreaDemandCurve = {};
   const points = forecastArrivalTimes(baseAt, nowMs);
@@ -112,6 +119,15 @@ export async function fetchAreaDemandCurve(
 
   /** 전망 값을 받았으면(available=true) 참. 실패·미가용은 거짓 — 그 시각만 비워 두고 계속한다. */
   const fetchOne = async ({ hourKst, at }: ForecastArrival): Promise<boolean> => {
+    if (options.pointLevel) {
+      try {
+        const level = await options.pointLevel({ hourKst, at });
+        if (typeof level === "number" && Number.isFinite(level)) curve[hourKst] = Math.min(1, Math.max(0, level));
+        return level !== null;
+      } catch {
+        return false;
+      }
+    }
     try {
       const data: ForecastResponse = await apiClient.get("/api/v1/area-demand/forecast", {
         params: { lat: String(lat), lng: String(lng), arrivalAt: at.toISOString() },
@@ -156,13 +172,28 @@ export async function fetchAreaDemandCurve(
 // 실패하거나 빈 곡선이면 담아 두지 않는다 — 다음에 다시 묻는다(서버가 깨어난 뒤 곡선이 생길 수 있다).
 // 이 함수의 모양(인자·반환)은 다른 레인이 가져다 쓴다 — 바꾸지 말고 옵션을 더한다.
 
-type CurveFetcher = typeof fetchAreaDemandCurve;
+type CurveFetcher = (lat: number, lng: number, baseAt?: Date, signal?: AbortSignal, nowMs?: number) => Promise<AreaDemandCurve>;
 const sessionCurves = new Map<string, Promise<AreaDemandCurve>>();
 /** 다 받은 세션 곡선 — 시간 줄이 기다리지 않고 꺼내 쓴다(받는 중인 곡선은 기다리지 않는다). */
 const sessionCurveValues = new Map<string, AreaDemandCurve>();
 
+/**
+ * 세션 곡선의 기본 수집기 — 정시마다 세션 공용 점 캐시(sessionPoints, 아래 시간 줄과 같은 캐시)를 거친다(리뷰 10-07).
+ * 계획의 심사 여정은 /main 에서 +2시간 후를 **먼저** 누르고 /waiting 을 연다. 예전에는 시간 줄이 이미 받은 정시를
+ * /waiting 의 6점 곡선이 다시 물어 GET 이 겹쳤다(시간 줄 → /waiting 방향으로는 나눠 쓰지 못했다). 이제 양쪽 다 정시
+ * 하나하나를 같은 캐시에서 꺼낸다 — 어느 쪽을 먼저 열어도 같은 정시는 세션에서 한 번만 묻는다.
+ */
+export function sessionCurveFetcher(fetchPoint?: PointFetcher): CurveFetcher {
+  return (lat, lng, baseAt, signal, nowMs = Date.now()) => {
+    const sessionKey = String(Math.floor(nowMs / HOUR_MS));
+    return fetchAreaDemandCurve(lat, lng, baseAt, signal, nowMs, {
+      pointLevel: (arrival) => sessionPoint(sessionKey, arrival, fetchPoint ?? fetchAreaDemandPoint),
+    });
+  };
+}
+
 /** 지금 정시 기준 경주 중심 권역 곡선 — 같은 정시 안에서는 요청 한 번을 공유한다. */
-export function sessionAreaDemandCurve(nowMs: number = Date.now(), fetcher: CurveFetcher = fetchAreaDemandCurve): Promise<AreaDemandCurve> {
+export function sessionAreaDemandCurve(nowMs: number = Date.now(), fetcher: CurveFetcher = sessionCurveFetcher()): Promise<AreaDemandCurve> {
   const key = String(Math.floor(nowMs / HOUR_MS));
   const cached = sessionCurves.get(key);
   if (cached) return cached;
@@ -192,6 +223,20 @@ export function sessionAreaDemandCurve(nowMs: number = Date.now(), fetcher: Curv
 
 type PointFetcher = (lat: number, lng: number, at: Date) => Promise<number | null>;
 const sessionPoints = new Map<string, Promise<number | null>>();
+
+/** 세션 정시 · KST 정시마다 한 번만 묻는 경주 중심 한 시각 값. 전송 실패는 담아 두지 않는다(다음에 다시 묻는다). */
+function sessionPoint(sessionKey: string, point: ForecastArrival, fetchPoint: PointFetcher): Promise<number | null> {
+  const key = `${sessionKey}:${point.hourKst}`;
+  let pending = sessionPoints.get(key);
+  if (!pending) {
+    pending = fetchPoint(REGION.center.lat, REGION.center.lng, point.at).catch((error: unknown) => {
+      sessionPoints.delete(key);
+      throw error;
+    });
+    sessionPoints.set(key, pending);
+  }
+  return pending;
+}
 
 /**
  * 지금 + hoursAhead 에 가장 가까운 정시(shift 만큼 옮긴 정시)와 서버 창 안으로 당긴 도착 시각. 순수 함수.
@@ -234,16 +279,7 @@ export async function sessionAreaDemandAt(
     if (!point) continue;
     const known = full?.[point.hourKst];
     if (typeof known === "number") return { [point.hourKst]: known };
-    const key = `${sessionKey}:${point.hourKst}`;
-    let pending = sessionPoints.get(key);
-    if (!pending) {
-      pending = fetchPoint(REGION.center.lat, REGION.center.lng, point.at).catch((error: unknown) => {
-        sessionPoints.delete(key);
-        throw error;
-      });
-      sessionPoints.set(key, pending);
-    }
-    const level = await pending;
+    const level = await sessionPoint(sessionKey, point, fetchPoint);
     if (level !== null) return { [point.hourKst]: level };
   }
   return {};

@@ -18,7 +18,8 @@ function curve(startHour: number, values: number[]): HourlyCongestionPoint[] {
   }));
 }
 
-// 영업 시간대 안에서 가장 낮은 점을 고른다 — 새벽 3시가 더 낮아도 그 시간은 고르지 않는다.
+// 새벽 3시를 '그때 타임세일' 로 고르지 않는다 — 그리고 차트의 최저점이 새벽이면 영업 시간대의 다른 점을 '가장 한가한
+// 시간' 이라 부르지도 않는다(리뷰 10-07: 콜아웃이 바로 아래 차트와 어긋났다). 그때는 콜아웃이 없다.
 {
   const points = curve(22, [0.5, 0.3, 0.1, 0.05, 0.02, 0.01, 0.01]); // 22,23,0,1,2,3,4시
   assert.equal(bestQuietHour(points), null, '영업 시간대(10~21시) 점이 하나뿐이면 고를 수 없다');
@@ -28,9 +29,17 @@ function curve(startHour: number, values: number[]): HourlyCongestionPoint[] {
     { hoursAhead: 1, hour: 21, congestion: 0.4, anchored: false },
     { hoursAhead: 2, hour: 3, congestion: 0.02, anchored: false },
   ];
-  const best = bestQuietHour(mixed);
-  assert.ok(best, '20·21시만으로도 차이가 충분하면 콜아웃이 나와야 한다');
-  assert.equal(best.hour, 21, '03시(영업 시간 밖)를 골랐다');
+  assert.equal(bestQuietHour(mixed), null, '차트의 최저(03시)는 영업 시간 밖 — 21시를 가장 한가하다고 부르면 차트와 어긋난다');
+
+  // 리뷰 10-07 화면: 06:50 의 오르기만 하는 아침 곡선(지금 6% → 10시 33% → 12시 55%). 예전에는 '10시가 가장 한가할 것 같아요'.
+  const morning = curve(6, [0.06, 0.1, 0.16, 0.24, 0.33, 0.44, 0.55]); // 6..12시
+  assert.equal(bestQuietHour(morning), null, '오르는 아침 곡선에서 10시를 가장 한가하다고 했다');
+
+  // 영업 시간대 안의 최저가 차트 전체의 최저이면 그대로 고른다.
+  const lateMorning = curve(8, [0.5, 0.45, 0.2, 0.3, 0.5, 0.7, 0.8]); // 8..14시, 최저 10시
+  const best = bestQuietHour(lateMorning);
+  assert.ok(best);
+  assert.equal(best.hour, 10);
   assert.equal(best.isNow, false);
 }
 

@@ -419,7 +419,8 @@ test('waiting board: a credit that appears after a broken photo does not move th
   await expect(page.locator(CREDIT_LINK)).toHaveCount(0);
 
   // 카드 줄 바로 아래 내용(골든타임 자리 → 나머지 목록)의 위치를 카드 줄 기준으로 잰다.
-  const grid = page.locator('div.grid-cols-3.items-stretch').filter({ has: cell });
+  // 대표 카드 줄 — 칸 수는 카드 수·폭마다 다르다(폰 두 칸 · 1~2곳 섹션은 그 수만큼, 리뷰 10-07)라 클래스가 아니라 testid 로 찾는다.
+  const grid = page.getByTestId('waiting-top-cards').filter({ has: cell });
   const below = grid.locator('xpath=following-sibling::*[1]');
   const measure = async () => {
     const [g, b] = await Promise.all([grid.boundingBox(), below.boundingBox()]);

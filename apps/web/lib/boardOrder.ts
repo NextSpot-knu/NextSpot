@@ -137,17 +137,34 @@ export function orderByWaitThenPhoto<T>(rows: readonly T[], keyOf: (row: T) => B
 /** 카드끼리 이보다 덜 차이 나면 같은 붐빔으로 본다 — 백엔드 area_demand_decision_service._DISTINGUISHABLE_SPREAD 와 같은 값. */
 export const UNIFORM_CROWD_SPREAD = 0.08;
 
+/**
+ * 이만큼(80%) 넘는 카드가 같은 등급이면 보드를 한 등급으로 본다(리뷰 10-07). 예전에는 '모두 같은 등급' 일 때만이라
+ * 새벽 보드 24장 중 23장이 '추정 혼잡: 보통' 이고 한 곳만 '여유' 여도 한 장 때문에 23번을 그대로 되풀이했다.
+ */
+export const UNIFORM_CROWD_MAJORITY = 0.8;
+
 export interface BoardCrowdSpread {
   /** 분이 없는 카드들이 사실상 같은 붐빔을 말하는가. */
   uniform: boolean;
-  /** uniform 일 때 그 한 등급(평균의 등급). 아니면 null. */
+  /** uniform 일 때 그 한 등급(가운데값의 등급). 아니면 null. */
   grade: CongestionKey | null;
+}
+
+/** 가운데값(중앙값). 빈 배열은 null. 이 일대 '지금' 등급을 말하는 모든 화면이 같은 규칙을 쓴다(lib/areaNow.ts). */
+export function medianLevel(levels: readonly number[]): number | null {
+  const known = levels.filter((l) => Number.isFinite(l)).slice().sort((a, b) => a - b);
+  if (known.length === 0) return null;
+  const mid = Math.floor(known.length / 2);
+  return known.length % 2 ? known[mid] : (known[mid - 1] + known[mid]) / 2;
 }
 
 /**
  * 보드가 한 등급인가(2026-10-06 감사 I03). 추정·주변 수요는 공영주차 몇 곳으로 만든 권역 값이라 낮에는 보드 전체가
  * '혼잡', 밤에는 '보통' 한 가지가 되기 쉽다 — 그때 카드마다 '추정 혼잡: 혼잡' 을 23번 쓰지 않고 이 일대 등급을 한 번만
- * 말한다. 3곳 이상이고, 모두 같은 등급이거나 가장 큰 값과 작은 값의 차이가 UNIFORM_CROWD_SPREAD 미만일 때만.
+ * 말한다. 3곳 이상이고, 다음 중 하나일 때:
+ *   · 카드의 80% 이상이 같은 등급(그 등급이 한 줄 — 나머지는 자기 등급을 카드에 남긴다, boardCrowdMembers),
+ *   · 가장 큰 값과 작은 값의 차이가 UNIFORM_CROWD_SPREAD 미만(경계를 걸친 같은 붐빔 — 모든 카드가 한 줄을 따른다).
+ * 한 줄의 등급은 가운데값의 등급이다 — 과반이 한 등급 안에 있으면 가운데값도 그 안에 있어서 다수 등급과 같다.
  * 보드 순서와 무관하다(화면 문구만 바뀐다). 다 찬 보드에만 쓴다 — 도착 중인 섹션으로 판정하면 섹션이 올 때마다 뒤집힌다.
  * busyAt: 운영자 '혼잡' 경계 — 카드 머리줄(waitHeadlineOf)·대안 화면의 알약·칩과 같은 눈금이어야 한 줄과 카드가 같은 말을 한다.
  */
@@ -159,8 +176,29 @@ export function boardCrowdSpread(
   if (known.length < 3) return { uniform: false, grade: null };
   const min = Math.min(...known);
   const max = Math.max(...known);
-  const sameGrade = new Set(known.map((l) => congestionKey(l, busyAt))).size === 1;
-  if (!sameGrade && max - min >= UNIFORM_CROWD_SPREAD) return { uniform: false, grade: null };
-  const mean = known.reduce((sum, l) => sum + l, 0) / known.length;
-  return { uniform: true, grade: sameGrade ? congestionKey(known[0], busyAt) : congestionKey(mean, busyAt) };
+  const counts = new Map<CongestionKey, number>();
+  for (const l of known) {
+    const key = congestionKey(l, busyAt);
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  const top = Math.max(...counts.values());
+  const majority = top / known.length >= UNIFORM_CROWD_MAJORITY;
+  if (!majority && max - min >= UNIFORM_CROWD_SPREAD) return { uniform: false, grade: null };
+  return { uniform: true, grade: congestionKey(medianLevel(known) as number, busyAt) };
+}
+
+/**
+ * 한 줄이 대신 말해 주는 카드인가 — levels 와 같은 순서의 참/거짓. 한 등급 보드가 아니면 모두 거짓.
+ * 차이가 아주 작은 보드(UNIFORM_CROWD_SPREAD 미만)는 모든 카드가, 다수결 보드는 그 등급의 카드만 한 줄을 따른다 —
+ * 다른 등급의 카드(예: 23장 '보통' 사이의 '여유' 한 장)는 자기 등급을 그대로 보여 준다. 그 칩이 곧 '여기는 덜 붐벼요' 다.
+ */
+export function boardCrowdMembers(
+  levels: readonly number[],
+  busyAt: number = DEFAULT_BUSY_THRESHOLD,
+): boolean[] {
+  const spread = boardCrowdSpread(levels, busyAt);
+  if (!spread.uniform) return levels.map(() => false);
+  const known = levels.filter((l) => Number.isFinite(l));
+  const tight = Math.max(...known) - Math.min(...known) < UNIFORM_CROWD_SPREAD;
+  return levels.map((l) => Number.isFinite(l) && (tight || congestionKey(l, busyAt) === spread.grade));
 }

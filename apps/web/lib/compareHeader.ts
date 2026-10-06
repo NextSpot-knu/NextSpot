@@ -223,6 +223,28 @@ export function tasteBenefitPercent(preferencePercent: number | null | undefined
     : null;
 }
 
+/**
+ * 앞면(가치 문장 · 미리보기 · 음성 이유 · 대안 카드 칩)에서 취향 일치율을 말하는 문턱(리뷰 10-07). 처음 고른 취향만 있는
+ * 게스트는 음식점·관광지·대안 다섯 곳 모두 '취향 51% 일치' 처럼 같은 숫자가 나와 개인화가 꾸민 숫자처럼 보였다.
+ */
+export const TASTE_FACE_MIN_PERCENT = 60;
+
+/**
+ * 앞면에 말할 취향 일치율 — 그 숫자가 장소를 가를 때만. ① 60% 이상이고 ② 함께 보이는 후보들(peers, 자신 포함)이 모두
+ * 같은 숫자가 아닐 때. 아니면 null — 그 조각을 빼고 말한다('취향이 안 맞아요' 같은 말을 대신 하지 않는다).
+ * 숫자 자체는 SPOT 점수 상자('내 취향 · N% 일치')와 근거 안에 그대로 남는다.
+ */
+export function faceTastePercent(
+  preferencePercent: number | null | undefined,
+  peers: readonly (number | null | undefined)[] = [],
+): number | null {
+  const pct = tasteBenefitPercent(preferencePercent);
+  if (pct === null || pct < TASTE_FACE_MIN_PERCENT) return null;
+  const known = peers.filter((p): p is number => typeof p === 'number' && Number.isFinite(p)).map((p) => Math.round(p));
+  if (known.length >= 2 && known.every((p) => p === pct)) return null;
+  return pct;
+}
+
 // ── 접힌 카드 얼굴의 혼잡 칩 ─────────────────────────────────────────────────────────────────────
 //
 // 계획 B2 5번: 얼굴의 칩은 가치 문장이 이미 한 말을 되풀이하지 않는다. 혼잡 칩은 (a) 지금 잰 값이 있거나

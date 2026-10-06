@@ -1714,7 +1714,7 @@ function StopRow({
               type="button"
               onClick={(e) => { e.stopPropagation(); startNavigation('walk'); }}
               aria-label={t('course.directionsAria', { name: stop.facility.name })}
-              className="toss-pressable ml-auto shrink-0 inline-flex min-h-11 items-center gap-1.5 px-4 rounded-full bg-gradient-to-r from-gold to-terracotta text-[12px] font-bold text-white shadow-[0_4px_14px_rgba(193,85,59,0.25)] hover:from-gold-deep hover:to-terracotta focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+              className="toss-pressable ml-auto shrink-0 inline-flex min-h-11 items-center gap-1.5 px-4 rounded-full cta-primary text-[12px] font-bold shadow-[0_4px_14px_rgba(168,70,47,0.28)] transition-[filter] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
             >
               <Navigation size={13} aria-hidden />
               {t('course.directions')}
@@ -1896,7 +1896,7 @@ function AuthState() {
       <p className="text-xs text-muk-soft leading-relaxed">{t('course.authBody')}</p>
       <Link
         href="/main"
-        className="toss-pressable inline-flex min-h-11 items-center gap-1.5 px-5 rounded-full bg-gradient-to-r from-gold to-terracotta text-white text-[13px] font-bold shadow-[0_4px_14px_rgba(193,85,59,0.25)] hover:from-gold-deep hover:to-terracotta focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+        className="toss-pressable inline-flex min-h-11 items-center gap-1.5 px-5 rounded-full cta-primary text-[13px] font-bold shadow-[0_4px_14px_rgba(168,70,47,0.28)] transition-[filter] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
       >
         {t('course.authCta')}
       </Link>

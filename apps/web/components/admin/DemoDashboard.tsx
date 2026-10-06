@@ -15,6 +15,7 @@
 // 평균 혼잡도 · AI 추천 수락률 · 활성 사용자 · 이상 혼잡). 데모 표시는 머리글의 '예시 화면' 칩 하나다
 // (떠다니는 '데모 데이터로 보는 중' 배지와 카드마다 붙던 칩을 걷어냈다 — 사장님 콘솔 데모와 같은 규칙).
 
+import { useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { Activity, AlertTriangle, ArrowRight, Bell, Compass, Download, LogIn, Sparkles, Store, Timer, TrendingUp, Users } from 'lucide-react';
 import {
@@ -74,6 +75,20 @@ export function AdminDemoDashboard() {
   const heatValues = heatmap.map((cell) => cell.value).filter((v): v is number => typeof v === 'number');
   const avgCongestion = heatValues.length > 0 ? heatValues.reduce((sum, v) => sum + v, 0) / heatValues.length : 0;
   const acceptanceRate = scenarioKpis(0).acceptanceRate;
+  // 휴대폰: 붙어 있는 머리글의 높이를 재어 단계 바를 그 바로 아래에 붙인다(리뷰 10-07 — 데모 단계 바는 넓은 화면에서만 붙어
+  // 있어 휴대폰에서는 스크롤과 함께 사라졌다. 실제 대시보드는 모든 폭에서 붙어 있다). 머리글은 칩·링크 줄바꿈으로 높이가 바뀐다.
+  const mainRef = useRef<HTMLElement>(null);
+  const headerRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const header = headerRef.current;
+    const main = mainRef.current;
+    if (!header || !main || typeof ResizeObserver === 'undefined') return;
+    const sync = () => main.style.setProperty('--demo-header-h', `${Math.round(header.getBoundingClientRect().height)}px`);
+    sync();
+    const observer = new ResizeObserver(sync);
+    observer.observe(header);
+    return () => observer.disconnect();
+  }, []);
 
   return (
     // 모바일(심사 링크가 바로 여는 폭)에서는 사이드바가 접히고 문서 스크롤을 쓴다.
@@ -81,9 +96,9 @@ export function AdminDemoDashboard() {
     <div className="flex min-h-screen bg-hanok font-sans text-hanok-ink lg:h-screen lg:overflow-hidden">
       <AdminSidebar demo />
 
-      <main className="flex min-w-0 flex-1 flex-col lg:h-full lg:overflow-hidden">
+      <main ref={mainRef} className="flex min-w-0 flex-1 flex-col lg:h-full lg:overflow-hidden">
         {/* 데모 표시는 이 머리글의 '예시 화면' 칩 하나 — 휴대폰에서는 머리글이 붙어 있어 스크롤해도 남는다. */}
-        <header className="sticky top-0 z-20 flex flex-shrink-0 flex-col gap-2 border-b border-hanok-line bg-hanok-panel px-4 pb-3 pt-3 lg:static lg:h-20 lg:flex-row lg:items-center lg:justify-between lg:gap-0 lg:px-8 lg:py-0">
+        <header ref={headerRef} className="sticky top-0 z-20 flex flex-shrink-0 flex-col gap-2 border-b border-hanok-line bg-hanok-panel px-4 pb-3 pt-3 lg:static lg:h-20 lg:flex-row lg:items-center lg:justify-between lg:gap-0 lg:px-8 lg:py-0">
           <div className="flex min-w-0 items-center gap-2 lg:gap-3">
             <h2 className="truncate text-base font-bold text-hanok-ink lg:text-xl">경주 관광 혼잡 종합 대시보드</h2>
             <span className="flex-shrink-0 rounded-full border border-muk/20 bg-muk px-2.5 py-0.5 text-[12px] font-bold text-hanji">
@@ -119,8 +134,9 @@ export function AdminDemoDashboard() {
         </header>
 
         <div className="flex flex-1 flex-col gap-6 px-4 pb-4 pt-4 lg:overflow-y-auto lg:px-8 lg:pb-8 lg:pt-0">
-          {/* 단계 바 — 실제 대시보드와 같은 바. 넓은 화면에서는 본문 위에 붙어 있다. */}
-          <StepNav className="-mx-4 border-b border-hanok-line bg-hanok/95 px-4 py-2 backdrop-blur lg:sticky lg:top-0 lg:z-20 lg:-mx-8 lg:px-8" />
+          {/* 단계 바 — 실제 대시보드와 같은 바. 모든 폭에서 붙어 있다: 휴대폰은 붙은 머리글 바로 아래(--demo-header-h),
+              넓은 화면은 본문 스크롤 상자 맨 위. */}
+          <StepNav className="sticky top-[var(--demo-header-h,0px)] z-10 -mx-4 border-b border-hanok-line bg-hanok/95 px-4 py-2 backdrop-blur lg:top-0 lg:z-20 lg:-mx-8 lg:px-8" />
 
           {/* 정책 브리핑 */}
           <div className="flex items-start gap-3 rounded-2xl border border-gold/30 bg-hanok-panel p-5 shadow-sm">
@@ -247,13 +263,14 @@ export function AdminDemoDashboard() {
                 <span className="text-xs text-hanok-muted">{t('demo.alternativesNote')}</span>
               </div>
               <div className="overflow-x-auto p-4">
-                <table className="w-full min-w-[520px] text-sm">
+                {/* 휴대폰(<640)은 제안 · 이동 칸을 접고 전환율을 남긴다 — 520px 표가 390 폭에서 이동·전환율을 잘라 냈다(리뷰 10-07). */}
+                <table className="w-full text-sm sm:min-w-[520px]">
                   <thead>
                     <tr className="text-left text-xs font-semibold text-hanok-muted">
                       <th className="px-3 py-2">{t('demo.altFrom')}</th>
                       <th className="px-3 py-2">{t('demo.altTo')}</th>
-                      <th className="px-3 py-2 text-right">{t('demo.altOffered')}</th>
-                      <th className="px-3 py-2 text-right">{t('demo.altMoved')}</th>
+                      <th className="hidden px-3 py-2 text-right sm:table-cell">{t('demo.altOffered')}</th>
+                      <th className="hidden px-3 py-2 text-right sm:table-cell">{t('demo.altMoved')}</th>
                       <th className="px-3 py-2 text-right">{t('demo.altRate')}</th>
                     </tr>
                   </thead>
@@ -264,8 +281,8 @@ export function AdminDemoDashboard() {
                         <tr key={row.from} className="border-t border-hanok-line/70">
                           <td className="whitespace-nowrap px-3 py-3 font-semibold text-hanok-ink">{row.from}</td>
                           <td className="whitespace-nowrap px-3 py-3 text-hanok-muted">{row.to}</td>
-                          <td className="px-3 py-3 text-right tabular-nums text-hanok-muted">{row.offered.toLocaleString()}</td>
-                          <td className="px-3 py-3 text-right tabular-nums text-hanok-muted">{row.moved.toLocaleString()}</td>
+                          <td className="hidden px-3 py-3 text-right tabular-nums text-hanok-muted sm:table-cell">{row.offered.toLocaleString()}</td>
+                          <td className="hidden px-3 py-3 text-right tabular-nums text-hanok-muted sm:table-cell">{row.moved.toLocaleString()}</td>
                           <td className="px-3 py-3 text-right">
                             <span className="inline-flex items-center gap-2">
                               <span className="hidden h-1.5 w-20 overflow-hidden rounded-full bg-hanok-line sm:block">
@@ -441,9 +458,9 @@ function StepBanner({
     emerald: 'bg-emerald-500/15 text-emerald-700 border-emerald-500/30',
   };
   return (
-    // 휴대폰 데모는 문서 스크롤 + 붙어 있는 머리글(약 90px)이라 단계 바로 옮겨 올 때 그만큼 더 비운다(scroll-mt-28).
-    // 넓은 화면은 본문 스크롤 상자 안의 붙은 단계 바(약 45px)만 비우면 된다.
-    <div id={id} className="flex scroll-mt-28 items-center gap-3 lg:scroll-mt-20">
+    // 휴대폰 데모는 문서 스크롤 + 붙어 있는 머리글(--demo-header-h, 약 90px)과 그 아래 붙은 단계 바(약 45px)라, 단계 바로
+    // 옮겨 올 때 둘을 합한 만큼 비운다. 넓은 화면은 본문 스크롤 상자 안의 붙은 단계 바(약 45px)만 비우면 된다.
+    <div id={id} className="flex scroll-mt-[calc(var(--demo-header-h,90px)+3.5rem)] items-center gap-3 lg:scroll-mt-20">
       <span className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full border text-base font-black ${palette[tone]}`}>
         {badge}
       </span>

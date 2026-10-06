@@ -21,7 +21,7 @@ import { ArrowLeft, ChevronRight } from "lucide-react";
 import {
   isServiceUnavailable,
   recommendByType,
-  getCongestionEstimates,
+  loadSharedCongestionEstimates,
   ASSUMED_TIME_PRESETS,
   ASSUMED_TIME_EVENT,
   assumedAtIsoForPreset,
@@ -70,7 +70,7 @@ import { TrailingNoteText } from "@/components/TrailingNoteText";
 import { PlacePhotoFallback } from "@/components/PlacePhotoFallback";
 import { placeVisual, placeVisualsForRow, type PlaceVisual } from "@/lib/placeVisual";
 // 섹터 줄 세우기 — 대기 짧은 순, 대기가 같을 때만 사진 있는 곳이 앞(PM 결정 2026-09-28).
-import { boardCrowdSpread, orderByWaitThenPhoto, waitHeadlineKey, waitHeadlineOf, type WaitHeadline } from "@/lib/boardOrder";
+import { boardCrowdMembers, boardCrowdSpread, orderByWaitThenPhoto, waitHeadlineKey, waitHeadlineOf, type WaitHeadline } from "@/lib/boardOrder";
 import { splitHeadlineValue } from "@/lib/headlineSplit";
 // '혼잡' 경계는 운영자 설정(지도·대안·코스와 같은 눈금) — 이 보드만 0.75 로 등급을 매기면 같은 곳이 화면마다 다른 등급이 된다.
 import { useBusyThreshold } from "@/components/shell/PublicSettingsProvider";
@@ -717,10 +717,10 @@ export default function WaitingBoardPage() {
 
   useEffect(() => {
     let alive = true;
-    const controller = new AbortController();
     void (async () => {
       try {
-        const feed = await getCongestionEstimates({ timeoutMs: 8000, signal: controller.signal });
+        // 지도 · 대안 화면과 같은 피드 스냅숏(세션 공용, lib/areaNow.ts) — /main 에서 방금 받았으면 GET 을 다시 보내지 않는다.
+        const feed = await loadSharedCongestionEstimates();
         if (!alive || !feed?.available) return;
         const next: Record<string, number> = {};
         // 신선도(60분)·모양 검증은 공용 파서에 맡긴다 — 낡은 추정으로 '지금'을 말하지 않는다.
@@ -731,7 +731,7 @@ export default function WaitingBoardPage() {
         setEstimateLevels(next);
       } catch { /* 추정 피드 없음 — 아래 폴백(권역 수요·상대지수)으로 계산한다 */ }
     })();
-    return () => { alive = false; controller.abort(); };
+    return () => { alive = false; };
   }, []);
 
   useEffect(() => {
@@ -1030,10 +1030,12 @@ export default function WaitingBoardPage() {
   // 추정·주변 수요는 공영주차 몇 곳으로 만든 권역 값이라, 낮에는 거의 모든 카드가 '추정 혼잡: 혼잡' 을 똑같이 말했다.
   // 그때는 등급을 보드 위 한 줄로 한 번만 말하고, 그 카드들은 걷는 시간을 보여 준다. 판정은 **다 찬 보드**에서만 한다 —
   // 도착 중인 섹션으로 판정하면 섹션이 올 때마다 카드 문구가 뒤집힌다. 줄 세우기는 그대로다(같은 waitHeadlineKey).
+  // 다수결(리뷰 10-07): 카드의 80% 이상이 같은 등급이면 그 등급을 한 줄로 말하고, 다른 등급의 카드만 자기 등급을 남긴다
+  // (23장 '보통' 사이의 '여유' 한 장이 곧 '여기는 덜 붐벼요' 다 — lib/boardOrder.boardCrowdMembers).
   const committedSectors = loading ? null : sectors;
-  const uniformRows = new Set<string>();
+  const gradedRows: string[] = [];
   const uniformLevels: number[] = [];
-  const uniformCalmHours: (number | null)[] = [];
+  const gradedCalmHours: (number | null)[] = [];
   for (const sector of committedSectors ?? []) {
     for (const row of sector.rows) {
       if (row.closedToday) continue;
@@ -1041,13 +1043,16 @@ export default function WaitingBoardPage() {
       const h = headlineOf(est, row, estimateLevels[row.facilityId], busyAt);
       const level = h.kind === "estimate" ? estimateLevels[row.facilityId] : h.kind === "area" ? row.areaDemandLevel : null;
       if (typeof level !== "number") continue;
-      uniformRows.add(row.facilityId);
+      gradedRows.push(row.facilityId);
       uniformLevels.push(level);
-      uniformCalmHours.push(!calmAfterClose(est, row.operatingHours) && showsCalmLine(est) ? est.calmHour : null);
+      gradedCalmHours.push(!calmAfterClose(est, row.operatingHours) && showsCalmLine(est) ? est.calmHour : null);
     }
   }
   const crowdSpread = boardCrowdSpread(uniformLevels, busyAt);
-  // 모든 카드가 같은 '{h}시 이후 한산' 을 말하면 그 한 줄도 위로 옮긴다.
+  const crowdMembers = boardCrowdMembers(uniformLevels, busyAt);
+  const uniformRows = new Set(gradedRows.filter((_, i) => crowdMembers[i]));
+  const uniformCalmHours = gradedCalmHours.filter((_, i) => crowdMembers[i]);
+  // 한 줄을 따르는 카드가 모두 같은 '{h}시 이후 한산' 을 말하면 그 한 줄도 위로 옮긴다.
   const sharedCalmHour =
     crowdSpread.uniform && uniformCalmHours.length > 0 && uniformCalmHours.every((h) => h !== null && h === uniformCalmHours[0])
       ? uniformCalmHours[0]
@@ -1223,8 +1228,11 @@ export default function WaitingBoardPage() {
                     </span>
                   </div>
 
-                  {/* 대표 카드 3장 — 도착 대기 짧은 순 상위 3곳, 세로로 긴 포트레이트 카드 */}
-                  <div className="grid grid-cols-3 items-stretch gap-2">
+                  {/* 대표 카드 3장 — 도착 대기 짧은 순 상위 3곳, 세로로 긴 포트레이트 카드.
+                      폰(<640)은 두 칸 — 세 칸(약 104px)이면 이름·주소가 글자마다 꺾였다(리뷰 10-07). 셋째 카드는 다음 줄 왼쪽 칸
+                      (카드 폭은 모두 같다 — 출처 줄이 열을 넓히지 않는다는 계약). 1~2곳뿐인 섹션은 그 수만큼의 칸으로 폭을 다 쓴다
+                      (한 장이 1/3 만 차고 2/3 가 비지 않게). */}
+                  <div data-testid="waiting-top-cards" className={`grid ${topRows.length >= 3 ? "grid-cols-2 sm:grid-cols-3" : topRows.length === 2 ? "grid-cols-2" : "grid-cols-1"} items-stretch gap-2`}>
                     {(() => {
                     // 이 줄의 카드 중 하나라도 출처가 붙는 사진(Wikimedia·경주시)을 띄울 수 있으면 출처 자리를
                     // 처음부터 잡아 둔다 — 대표 사진이 깨져 출처가 나중에 생겨도 아래 내용이 밀리지 않는다.
@@ -1391,7 +1399,7 @@ function EmptyState() {
       <p className="text-[13px] text-muk-soft leading-relaxed">{t("waiting.emptyBody")}</p>
       <Link
         href="/main"
-        className="toss-pressable inline-flex min-h-11 items-center gap-1.5 px-5 rounded-full bg-gradient-to-r from-gold to-terracotta text-white text-[13px] font-bold shadow-[0_4px_14px_rgba(193,85,59,0.25)] hover:from-gold-deep hover:to-terracotta focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+        className="toss-pressable inline-flex min-h-11 items-center gap-1.5 px-5 rounded-full cta-primary text-[13px] font-bold shadow-[0_4px_14px_rgba(168,70,47,0.28)] transition-[filter] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
       >
         {t("waiting.emptyCta")}
       </Link>
@@ -1408,7 +1416,7 @@ function ErrorState({ onRetry }: { onRetry: () => void }) {
       {/* 재시도 = 이 화면의 유일한 주 행동 — /course 와 동일한 금빛 그라데이션 CTA 문법으로 세운다. */}
       <button
         onClick={onRetry}
-        className="toss-pressable inline-flex min-h-11 items-center gap-1.5 px-5 rounded-full bg-gradient-to-r from-gold to-terracotta text-white text-[13px] font-bold shadow-[0_4px_14px_rgba(193,85,59,0.25)] hover:from-gold-deep hover:to-terracotta focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+        className="toss-pressable inline-flex min-h-11 items-center gap-1.5 px-5 rounded-full cta-primary text-[13px] font-bold shadow-[0_4px_14px_rgba(168,70,47,0.28)] transition-[filter] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
       >
         {t("common.retry")}
       </button>

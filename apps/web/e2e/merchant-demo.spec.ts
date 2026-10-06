@@ -1,5 +1,3 @@
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { expect, test, type Page, type Route } from '@playwright/test';
 import { stubExternalServices } from './support/stubs';
 import { stubMain } from './support/mainStubs';
@@ -360,11 +358,9 @@ test('진행 중인 타임세일 — 추천 반영 중 · 손님 카드 배지 �
   await expect(link).toHaveAttribute('rel', /noopener/);
 });
 
-// 계획 B4 — '손님 화면에서 보기' 는 /main 에서 그 가게를 '선택한 장소' 카드로 연다. /main 의 ?place= 처리는 core2 레인(B2·B3)
-// 몫이라, 그 처리가 이 브랜치에 들어온 뒤에만 돈다(app/main/page.tsx 가 'place' 쿼리를 읽지 않으면 건너뛴다 — 합친 뒤 자동으로 켜진다).
-const MAIN_READS_PLACE = /\.get\(\s*['"]place['"]\s*\)/.test(readFileSync(join(__dirname, '../app/main/page.tsx'), 'utf8'));
+// 계획 B4 — '손님 화면에서 보기' 는 /main 에서 그 가게를 '선택한 장소' 카드로 연다(교차 레인 계약 2). 레인이 합쳐진 뒤로는
+// 늘 돈다 — 예전의 소스 정규식 건너뛰기는 ?place 읽는 방식만 바꿔도 이 유일한 끝-끝 검사를 조용히 꺼 버렸다(리뷰 10-07).
 test('손님 화면에서 보기 — /main?place= 가 그 가게를 선택한 장소 카드로 연다', async ({ page }) => {
-  test.skip(!MAIN_READS_PLACE, '/main 의 ?place= 처리(core2 레인)가 아직 이 브랜치에 없다');
   test.setTimeout(120_000);
   await page.setViewportSize({ width: 1536, height: 730 });
   await openRealConsole(page);
@@ -389,11 +385,22 @@ test('손님 화면에서 보기 — /main?place= 가 그 가게를 선택한 �
       breakdown: { preference: 0.7, wait_time: null, travel_time: 4, incentive: 0 },
     }],
   });
+  // 새 탭(noopener)은 세션 표시를 물려받지 못한다 — 예전에는 이 탭이 무거운 세션 프리페치(추천 4 + 코스 1)를 사장님 계정으로
+  // 다시 보냈다(리뷰 10-07). 증명 탭은 데우지 않는다.
+  const heavy: string[] = [];
+  tab.on('request', (request) => {
+    const path = new URL(request.url()).pathname;
+    if (request.method() === 'POST' && /\/api\/v1\/(courses\/plan|recommendations\/by-type)$/.test(path)) heavy.push(path);
+  });
   await tab.goto(href!);
   const card = tab.getByTestId('recommendation-card');
   await expect(card).toBeVisible({ timeout: 25_000 });
   await expect(card).toContainText('경주 테스트 식당');
   await expect(card).toContainText('선택한 장소');
+  await tab.waitForTimeout(8_000); // 프리페치는 마운트 4초 뒤 + 한가할 때(최대 3초)
+  expect(heavy.filter((p) => p.endsWith('/courses/plan')), heavy.join(', ')).toEqual([]);
+  // 칩 하나(음식점)의 추천만 — 대기 보드 4유형을 미리 묻지 않는다.
+  expect(heavy.filter((p) => p.endsWith('/by-type')).length, heavy.join(', ')).toBeLessThanOrEqual(3);
 });
 
 test('데모 가게는 실제 지도에 없으니 손님 화면 링크를 두지 않는다(배지 미리보기는 있다)', async ({ page }) => {

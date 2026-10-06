@@ -86,6 +86,8 @@ interface OpenOptions {
   batch?: { facility_id: string; predicted_congestion: number; anchored: boolean }[];
   /** 이번 세션에 고른 칩(있으면 '밤의 첫 화면' 자동 전환을 하지 않는다). */
   activeFilter?: string;
+  /** 라이브와 같은 둘째 줄 — 진행 중 축제 한 건 · 근처 화장실 12곳(없으면 두 칩이 스스로 숨는다). */
+  liveRow2?: boolean;
 }
 
 async function openMain(page: Page, options: OpenOptions = {}): Promise<Calls> {
@@ -127,6 +129,20 @@ async function openMain(page: Page, options: OpenOptions = {}): Promise<Calls> {
   await page.route('**/api/v1/freshness**', (route) => route.fulfill({
     status: 200, contentType: 'application/json', body: JSON.stringify({ last_tourapi_sync: new Date(Date.now() - 2 * 3600_000).toISOString() }),
   }));
+  if (options.liveRow2) {
+    const day = (offset: number) => new Date(Date.now() + offset * 86_400_000).toISOString().slice(0, 10);
+    await page.route('**/api/v1/events**', (route) => route.fulfill({
+      status: 200, contentType: 'application/json', body: JSON.stringify({ source: 'tourapi', events: [{
+        contentId: 'fest-1', title: '2026 경주 국가유산 야행 · 신라문화제', startDate: day(-3), endDate: day(17),
+        address: '경상북도 경주시 첨성로 140', eventPlace: '첨성대 일원', latitude: LAT, longitude: LNG, tel: null, isOngoing: true, imageUrl: null,
+      }] }),
+    }));
+    await page.route('**/api/v1/restrooms**', (route) => route.fulfill({
+      status: 200, contentType: 'application/json', body: JSON.stringify({ restrooms: Array.from({ length: 12 }, (_, i) => ({
+        id: `wc-${i}`, name: `공중화장실 ${i + 1}`, address: '경북 경주시', latitude: LAT, longitude: LNG, distance_m: 120 + i * 40, place_url: '',
+      })) }),
+    }));
+  }
   await page.addInitScript(({ theme, prefs, activeFilter, skipPrefetch }) => {
     if (skipPrefetch) sessionStorage.setItem('nextspot_prefetch_done_v1', '1');
     localStorage.setItem('nextspot_theme', theme);
@@ -389,9 +405,12 @@ for (const viewport of [{ width: 1366, height: 650 }, { width: 1536, height: 730
     test(`${viewport.width}x${viewport.height} ${locale}: the toolbar is two opaque rows with one credit chip`, async ({ page }) => {
       test.setTimeout(90_000);
       await page.setViewportSize(viewport);
-      await openMain(page, { locale, prefs: { version: 2, categories: ['restaurant'], cuisine: '한식', requiredAttributes: [], excludeVisited: false, visitedFacilityIds: [] } });
+      // 라이브 둘째 줄(리뷰 10-07) — 축제 · 화장실 칩까지 선 상태로 잰다. 예전 스텁은 /api/v1/** 를 '{}' 로 닫아 두 칩이 숨은 채였다.
+      await openMain(page, { locale, liveRow2: true, prefs: { version: 2, categories: ['restaurant'], cuisine: '한식', requiredAttributes: [], excludeVisited: false, visitedFacilityIds: [] } });
       const toolbar = page.getByTestId('map-toolbar');
       await expect(toolbar).toBeVisible({ timeout: 25_000 });
+      await expect(page.getByTestId('toolbar-row-2').locator('button', { hasText: '🏮' }).first()).toBeVisible({ timeout: 20_000 });
+      await expect(page.getByTestId('toolbar-row-2').locator('button', { hasText: /12/ }).first()).toBeVisible();
       const rows = await toolbar.evaluate((el) => {
         // 칩 · 셀렉트 · 출처 칩의 세로 가운데를 모아 12px 넘게 떨어지면 다른 줄로 센다(높이가 조금 다른 칩도 같은 줄).
         const centers: number[] = [];
@@ -427,6 +446,20 @@ for (const viewport of [{ width: 1366, height: 650 }, { width: 1536, height: 730
         if (cluster) expect(overlaps(item, cluster), 'a chip sits under the clock').toBe(false);
         if (language) expect(overlaps(item, language), 'a chip sits under the language picker').toBe(false);
       }
+      // 둘째 줄은 가로로 넘치면 숨은 스크롤이 된다 — 끝의 칩(🚻 화장실 · 지금 한산)이 잘려 보이지 않으면 안 된다.
+      const row2 = await page.getByTestId('toolbar-row-2').evaluate((row) => {
+        const scroller = row.firstElementChild as HTMLElement;
+        const sb = scroller.getBoundingClientRect();
+        return {
+          overflow: scroller.scrollWidth - scroller.clientWidth,
+          clipped: Array.from(scroller.children)
+            .map((el) => ({ text: (el.textContent ?? '').trim(), r: el.getBoundingClientRect() }))
+            .filter(({ r }) => r.width > 0 && (r.right > sb.right + 1 || r.left < sb.left - 1))
+            .map(({ text }) => text),
+        };
+      });
+      expect(row2.clipped, 'chips clipped in row 2').toEqual([]);
+      expect(row2.overflow, 'row 2 scrolls sideways').toBeLessThanOrEqual(1);
       // 출처 칩 하나 — 동기화 시각과 함께, 언어·시계와 겹치지 않는다. 예전 두 번째 출처 알약은 없다.
       const credits = page.getByTestId('source-credit').locator('visible=true');
       await expect(credits).toHaveCount(1);
@@ -753,6 +786,25 @@ test('1024x768: toolbar chips never slide under the language picker and clock', 
     expect(overlaps(chip, lang), `chip at x=${chip.x} under the language picker`).toBe(false);
   }
 });
+
+// 리뷰 10-07(ja · zh D2 화면): 휴대폰 +2시간 후에서 짧은 배지 옆 칸이 좁아 '+1時間後+2時間後' 가 칸을 넘쳐 겹쳤다.
+for (const locale of ['ja', 'zh'] as const) {
+  for (const viewport of [{ width: 390, height: 844 }, { width: 360, height: 640 }]) {
+    test(`${locale} ${viewport.width}x${viewport.height}: in forecast mode the track labels still fit their cells`, async ({ page }) => {
+      test.setTimeout(90_000);
+      await page.setViewportSize(viewport);
+      await openMain(page, { locale });
+      await expect(page.getByTestId('rec-card-peek')).toBeVisible({ timeout: 25_000 });
+      await track(page).locator('[data-stop="2"]').click();
+      await expect(strip(page).getByTestId('forecast-badge-short')).toBeVisible({ timeout: 20_000 });
+      await page.waitForTimeout(400);
+      const cells = await track(page).evaluate((el) => (Array.from(el.querySelectorAll('[data-stop]')) as HTMLElement[])
+        .map((cell) => cell.scrollWidth - cell.getBoundingClientRect().width));
+      expect(Math.max(...cells), 'track labels overflow their cells').toBeLessThanOrEqual(1);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
+    });
+  }
+}
 
 test('820x1180: the time strip labels fit their cells', async ({ page }) => {
   test.setTimeout(90_000);

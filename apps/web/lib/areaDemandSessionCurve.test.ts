@@ -6,6 +6,7 @@ import {
   resetSessionAreaDemandCurve,
   sessionAreaDemandAt,
   sessionAreaDemandCurve,
+  sessionCurveFetcher,
   type AreaDemandCurve,
 } from "./areaDemandCurve";
 import { areaLevelAt } from "./forecastStrip";
@@ -86,6 +87,21 @@ async function main() {
     assert.equal(asked.length, 1);
     pointFail = false;
     assert.deepEqual(await sessionAreaDemandAt(1, t0, fetchPoint), { 13: 0.35 }, "실패 뒤에는 다시 묻는다");
+
+    // 반대 방향(리뷰 10-07) — 계획의 여정은 /main 에서 +2시간 후를 먼저 누르고 /waiting 을 연다. 시간 줄이 이미 받은 정시는
+    // /waiting 의 6점 곡선이 다시 묻지 않는다(같은 정시 캐시). 12:10 의 곡선은 13…18시 — +2(14시)는 이미 있다.
+    resetSessionAreaDemandCurve();
+    asked.length = 0;
+    delete levels["2026-10-07T05:00:00.000Z"];
+    await sessionAreaDemandAt(2, t0, fetchPoint);
+    assert.equal(asked.length, 1);
+    const shared = await sessionAreaDemandCurve(t0, sessionCurveFetcher(fetchPoint));
+    assert.deepEqual(Object.keys(shared).map(Number).sort((x, y) => x - y), [13, 14, 15, 16, 17, 18]);
+    assert.equal(asked.length, 6, "6점 곡선은 14시를 다시 묻지 않는다(1 + 5)");
+    assert.equal(asked.filter((a) => a.at === "2026-10-07T05:00:00.000Z").length, 1, "14:00 은 세션에서 한 번");
+    // 곡선이 받은 정시는 시간 줄도 다시 묻지 않는다(+3 = 15시).
+    await sessionAreaDemandAt(3, t0, fetchPoint);
+    assert.equal(asked.length, 6);
 
     // 같은 세션의 6점 곡선을 이미 다 받았으면(/waiting 을 먼저 열었다) 새로 묻지 않는다.
     resetSessionAreaDemandCurve();

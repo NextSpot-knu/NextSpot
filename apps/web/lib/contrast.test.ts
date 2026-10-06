@@ -56,4 +56,13 @@ const WEB = process.cwd();
   assert.doesNotMatch(landing, /from-gold to-terracotta[^"`]*text-white/, "랜딩에 옛 금→주칠(대비 미달) 버튼이 남아 있다");
 }
 
+// 5) 배선 — 같은 '도보 길안내' 와 빈 화면의 다음 행동 버튼(대안 목록 · 대기 보드 · 분산 코스)도 같은 한 가지 스타일
+//    (리뷰 10-07: /main 카드는 cta-primary 인데 /explore/recommend 카드의 '도보 길안내' 는 옛 금→주칠 3.7:1 이었다).
+for (const page of ["app/explore/recommend/page.tsx", "app/waiting/page.tsx", "app/course/page.tsx"]) {
+  const source = readFileSync(join(WEB, page), "utf8");
+  assert.ok(source.includes("cta-primary"), `${page} 의 주 버튼이 cta-primary 를 쓰지 않는다`);
+  assert.doesNotMatch(source, /from-gold to-terracotta[^"`]*text-white/, `${page} 에 옛 금→주칠(대비 미달) 버튼이 남아 있다`);
+  assert.doesNotMatch(source, /from-gold to-terracotta text-\[\d+px\] font-bold text-white/, `${page} 에 옛 금→주칠(대비 미달) 버튼이 남아 있다`);
+}
+
 console.log("contrast tests passed");

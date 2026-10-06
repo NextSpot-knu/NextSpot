@@ -8,6 +8,7 @@ import {
   resolveCandidateCrowd,
   showFaceCrowdChip,
   tasteBenefitPercent,
+  faceTastePercent,
 } from './compareHeader';
 
 const parking = (level: number) => ({ level, mode: 'live' as const, observedAt: '2026-09-27T03:20:00+00:00', radiusM: 500 });
@@ -205,6 +206,17 @@ assert.equal(tasteBenefitPercent(49), null);
 assert.equal(tasteBenefitPercent(12), null);
 assert.equal(tasteBenefitPercent(72.5), null);
 assert.equal(tasteBenefitPercent(undefined), null);
+
+// ── 앞면의 취향 조각은 장소를 가를 때만(리뷰 10-07) ─────────────────────────────────────────────
+// 처음 고른 취향만 있는 게스트는 모든 카드가 '취향 51% 일치' — 같은 숫자는 개인화를 꾸민 숫자처럼 보인다.
+assert.equal(faceTastePercent(51), null, '60% 아래는 앞면에서 말하지 않는다');
+assert.equal(faceTastePercent(51, [51, 51, 51, 51, 51]), null);
+assert.equal(faceTastePercent(80), 80);
+assert.equal(faceTastePercent(80, [80, 64, 72]), 80, '후보마다 다르면 말한다');
+assert.equal(faceTastePercent(85, [85, 85, 85]), null, '모든 후보가 같은 숫자면 장소를 가르지 못한다');
+assert.equal(faceTastePercent(85, [85]), 85, '비교할 후보가 하나뿐이면 문턱만 본다');
+assert.equal(faceTastePercent(60, [60, null, undefined, 70]), 60);
+assert.equal(faceTastePercent(72.5, [70, 80]), null, '정수가 아니면 말하지 않는다(문턱 함수와 같다)');
 
 // ── 접힌 카드 얼굴의 혼잡 칩(계획 B2 5번) ─────────────────────────────────────────────────────────
 // 화살표 문장이 이미 붐빔을 말하면 칩은 반복이라 없다.

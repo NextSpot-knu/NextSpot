@@ -9,6 +9,7 @@ import {
 import { apiClient } from '@/lib/api-client';
 import { loadTravelContext } from '@/lib/travelContext';
 import { useT } from '@/lib/i18n/I18nProvider';
+import { hasTasteFeedback, tasteBadge } from '@/lib/tasteBadge';
 
 // 8차원 선호 벡터의 차원 정의 — apps/api/app/services/spot/preference.py 와 1:1 대응
 // dim0-3: 카테고리(음식점/카페/관광지/문화시설) / dim4: 맛·평점 / dim5: 감성·인스타 / dim6: 접근성·무장애 / dim7: 한적함
@@ -95,6 +96,10 @@ export default function TasteRadar() {
     return () => { cancelled = true; };
   }, []);
 
+  const badge = taste
+    ? tasteBadge(taste.source, taste.vector, { uniform: UNIFORM_VECTOR, onboarding: deriveOnboardingVector() }, hasTasteFeedback())
+    : null;
+
   return (
     <div data-testid="taste-radar" className="bg-white border border-line rounded-3xl p-6 shadow-[0_2px_14px_rgba(43,35,32,0.06)] mb-4">
       {/* 섹션 헤더 + 벡터 출처 배지 */}
@@ -103,13 +108,14 @@ export default function TasteRadar() {
           <Fingerprint size={16} />
           <span>{t('taste.title')}</span>
         </h3>
-        {taste && taste.source !== 'default' && (
+        {/* '실시간 학습 반영' 은 벡터가 정말 움직인 뒤에만(lib/tasteBadge — 새 게스트에게 붙던 리뷰 10-07 지적). */}
+        {badge && (
           <span className={`text-[10px] font-semibold px-2.5 py-1 rounded-full border ${
-            taste.source === 'learned'
+            badge === 'learned'
               ? 'bg-gold/15 border-gold/30 text-gold-deep'
               : 'bg-hanji-deep border-line text-muk-soft'
           }`}>
-            {taste.source === 'learned' ? t('taste.badgeLearned') : t('taste.badgeOnboarding')}
+            {badge === 'learned' ? t('taste.badgeLearned') : t('taste.badgeOnboarding')}
           </span>
         )}
       </div>

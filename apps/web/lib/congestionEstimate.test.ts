@@ -311,7 +311,8 @@ const raw = {
   assert.match(main, /pinDisplay\(\{/, '지도 핀이 pinDisplay 를 거치지 않는다');
 
   // 추정은 별도 피드에서 받고, 24시간 시설 캐시(loadFacilities → saveFacilityCache)에는 넣지 않는다.
-  assert.match(main, /getCongestionEstimates\(/, '지도가 추정 피드를 받지 않는다');
+  // 관광객 화면은 세션 공용 스냅숏(loadSharedCongestionEstimates — 같은 GET 을 4분 동안 나눠 쓴다, 리뷰 10-07)으로 받는다.
+  assert.match(main, /loadSharedCongestionEstimates\(/, '지도가 추정 피드를 받지 않는다');
   assert.match(main, /setInterval\([\s\S]{0,60}?5 \* 60 \* 1000\)/, '추정 피드를 5분마다 다시 받지 않는다(만료 재판정 없음)');
   const loadStart = main.indexOf('async function loadFacilities()');
   const loadEnd = main.indexOf('loadFacilities();', loadStart);

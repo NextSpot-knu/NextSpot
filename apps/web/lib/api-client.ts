@@ -8,6 +8,7 @@ import type { VoiceAppCommand } from "./voice/voiceCommands";
 import type { Locale } from "./i18n/config";
 import { ensureAnonymousSession } from "./anonymousSession";
 import { uniqueSyntheticRecommendationIds } from "./recommendationIds";
+import { ttlPromiseCache } from "./ttlPromiseCache";
 const supabase = createPublicClient();
 
 // 인증 필요(HTTP 401)를 서버 장애·기타 오류와 구분하기 위한 전용 에러 타입.
@@ -497,6 +498,19 @@ export async function getCongestionEstimates(
     signal: options?.signal,
   });
 }
+
+/**
+ * 관광객 화면(/main · /waiting · /explore/recommend)이 나눠 쓰는 추정 피드 — 탭(세션)에서 4분 동안 한 번만 묻는다(리뷰 10-07).
+ * ① 같은 스냅숏: 화면마다 따로 받으면 몇 분 차이로 '이 일대' 등급이 화면마다 갈릴 수 있다(lib/areaNow.ts).
+ * ② 호출 예산: 심사 한 번의 여정(/main → /waiting → /explore)에서 같은 GET 을 세 번 보내지 않는다(계획 3.2).
+ * 서버도 5분 캐시라 4분 안의 재사용은 값을 바꾸지 않는다. /main 의 5분 주기 재조회는 수명이 지나 새로 묻는다.
+ * 실패는 담아 두지 않는다(ttlPromiseCache) — 다음 화면이 다시 묻는다. 여러 화면이 같은 요청을 나누므로 abort 신호는
+ * 받지 않는다(화면을 떠나면 호출부가 결과를 버린다).
+ */
+export const loadSharedCongestionEstimates: () => Promise<CongestionEstimatesResponse> = ttlPromiseCache(
+  () => getCongestionEstimates({ timeoutMs: 8000 }),
+  4 * 60 * 1000,
+);
 
 export interface RecommendationResponse {
   recommendationId: string;

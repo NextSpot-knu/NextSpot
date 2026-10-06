@@ -1,5 +1,5 @@
 import type { CSSProperties } from 'react';
-import { Coffee, Landmark, MapPin, Mountain, UtensilsCrossed, type LucideIcon } from 'lucide-react';
+import { Coffee, Landmark, MapPin, Mountain, Utensils, type LucideIcon } from 'lucide-react';
 import { PLACE_TONE_VAR, type PlaceGlyph, type PlaceMotif, type PlaceVisual } from '@/lib/placeVisual';
 
 // 사진이 없는 장소의 표지 — 사진 자리를 같은 크기로 채우는 경주 문양 판 + 가운데 유형 그림.
@@ -12,8 +12,9 @@ import { PLACE_TONE_VAR, type PlaceGlyph, type PlaceMotif, type PlaceVisual } fr
 
 // 섹터 머리의 기호와 같은 말을 한다: 문화시설(🏛) = 기둥 건물, 관광지 = 산·능(경주의 능선·고분·산사).
 // 팔레트는 쓰지 않는다 — 고분정보센터 같은 곳에 붙으면 화실·공방으로 읽힌다.
+// 음식점은 나란한 수저(Utensils) — X 자로 엇갈린 수저(UtensilsCrossed)는 한눈에 '음식 없음·영업 끝' 으로 읽혔다(리뷰 10-07).
 const GLYPH_ICON: Record<PlaceGlyph, LucideIcon> = {
-  restaurant: UtensilsCrossed,
+  restaurant: Utensils,
   cafe: Coffee,
   attraction: Mountain,
   culture: Landmark,

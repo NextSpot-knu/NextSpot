@@ -75,7 +75,7 @@ function selfAnchorRec(type: string) {
     scoring_mode: 'area_stats_rules',
     prediction_source: 'unavailable',
     breakdown: {
-      preference: 0.51,
+      preference: 0.81,
       wait_time: null,
       travel_time: 1,
       incentive: 0,
@@ -123,7 +123,7 @@ for (const viewport of [{ width: 1536, height: 730 }, { width: 390, height: 844 
     const line = card.locator('p').filter({ hasText: /^경주 첨성대 · 도보 \d+분/ }).first();
     await expect(line).toBeVisible();
     await expect(line).toContainText('도착 시 영업');
-    await expect(line).toContainText('취향 51% 일치');
+    await expect(line).toContainText('취향 81% 일치');
     // 가치 문장에 화살표가 없다(얼굴의 '출발 → 도착' 시간 줄은 비교가 아니다 — 계획 B2).
   await expect(card.getByTestId('value-box')).not.toContainText('→');
     await expect(card).not.toContainText('대신 경주 첨성대');
@@ -448,13 +448,14 @@ test('a calm pick next to a landmark that is busy right now keeps the arrow', as
 // 가장 큰 줄은 추천한 곳을 깎지 않는다 — 취향 일치가 낮으면 그 조각을 뺀다.
 // ───────────────────────────────────────────────────────────────────────────
 
-for (const locale of ['ko', 'en'] as const) {
-  test(`${locale}: a low taste match is left out of the value line`, async ({ page }) => {
+// 리뷰 10-07: 처음 고른 취향만 있는 게스트는 모든 카드가 '취향 51% 일치' 였다 — 장소를 가르지 못하는 숫자도 뺀다(60% 미만).
+for (const [locale, preference] of [['ko', 0.12], ['en', 0.12], ['ko', 0.51]] as const) {
+  test(`${locale}: a low taste match (${Math.round(preference * 100)}%) is left out of the value line`, async ({ page }) => {
     test.setTimeout(90_000);
     await page.setViewportSize({ width: 1536, height: 730 });
     const lowTaste = (type: string) => {
       const rec = bareRec(type);
-      return { ...rec, breakdown: { ...rec.breakdown, preference: 0.12 } };
+      return { ...rec, breakdown: { ...rec.breakdown, preference } };
     };
     await stubMain(page, {
       locale,
@@ -467,7 +468,7 @@ for (const locale of ['ko', 'en'] as const) {
     const line = card.locator('p').filter({ hasText: locale === 'ko' ? /^우직 쌈밥집 · 도보 \d+분/ : /^우직 쌈밥집 · \d+ min walk/ }).first();
     await expect(line).toBeVisible();
     await expect(line).not.toContainText(locale === 'ko' ? '취향' : 'match for you');
-    await expect(line).not.toContainText('12%');
+    await expect(line).not.toContainText(`${Math.round(preference * 100)}%`);
   });
 }
 

@@ -7,7 +7,7 @@ import { ErrorState } from "@/components/ErrorState";
 import NowChip from "@/components/NowChip";
 import { createPublicClient } from "@/lib/supabase";
 const supabase = createPublicClient();
-import { apiClient, getCongestionEstimates, getRecommendations, isRequestTimeout, recommendByType, reportFacilityAvailability, submitFeedback, parsePreference, RecommendationResponse } from "@/lib/api-client";
+import { apiClient, loadSharedCongestionEstimates, getRecommendations, isRequestTimeout, recommendByType, reportFacilityAvailability, submitFeedback, parsePreference, RecommendationResponse } from "@/lib/api-client";
 import { displayWalkingMinutes } from "@/lib/recommender";
 import { classifyIntent } from "@/lib/voice/voiceIntent";
 import { pickVoice, speechLangFor } from "@/lib/voice/speechLocale";
@@ -30,6 +30,8 @@ import { congestionKey, type CongestionKey } from "@/lib/congestionScale";
 // 대기 보드에서 눌러 온 장소 둘레의 같은 종류 대안(I25), 한국어 조사, '원래 장소보다 덜 붐빌 때만' 칩 규칙.
 import { candidateTypesFor, currentOriginLevel, isStrictlyCalmer, withTopicJosa } from "@/lib/recommendOrigin";
 import { boardCrowdSpread } from "@/lib/boardOrder";
+import { faceTastePercent } from "@/lib/compareHeader";
+import { markTasteFeedback } from "@/lib/tasteBadge";
 // 사진이 없는 카드도 같은 높이의 장소 표지로 시작한다(I38).
 import { PlacePhotoFallback } from "@/components/PlacePhotoFallback";
 import { placeVisual } from "@/lib/placeVisual";
@@ -608,16 +610,16 @@ function RecommendContent() {
   useEffect(() => {
     if (!facilityId || !needsOriginEstimate) return;
     let alive = true;
-    const controller = new AbortController();
     void (async () => {
       try {
-        const feed = await getCongestionEstimates({ timeoutMs: 8000, signal: controller.signal });
+        // 대기 보드 · 지도와 같은 피드 스냅숏(세션 공용) — 화면마다 다른 시각의 값을 말하지 않게, GET 도 한 번만.
+        const feed = await loadSharedCongestionEstimates();
         if (!alive || !feed?.available) return;
         const parsed = parseCongestionEstimate(feed.estimates?.[facilityId]);
         if (parsed) setOriginEstimate({ id: facilityId, level: parsed.level });
       } catch { /* 추정 피드 없음 — 알약 없이 제목만 */ }
     })();
-    return () => { alive = false; controller.abort(); };
+    return () => { alive = false; };
   }, [facilityId, needsOriginEstimate]);
   const originEstimateLevel = needsOriginEstimate && originEstimate?.id === facilityId ? originEstimate.level : null;
   const originGrade: { key: CongestionKey; estimated: boolean } | null =
@@ -919,6 +921,7 @@ function RecommendContent() {
       openDrivingDirections(rec.facility);
     }
     try {
+      markTasteFeedback(); // 마이페이지 레이더의 '실시간 학습 반영' 조건(lib/tasteBadge)
       await submitFeedback(rec.recommendationId, "accepted_visit_intent");
     } catch (err) {
       console.warn("Error submitting accepted feedback:", err);
@@ -995,6 +998,7 @@ function RecommendContent() {
     );
     if (isSyntheticRecommendationId(rec.recommendationId)) return; // 데모/합성 추천은 서버에 기록 없음
     try {
+      markTasteFeedback();
       await submitFeedback(rec.recommendationId, vote === "up" ? "helpful" : "not_helpful");
     } catch (err) {
       console.warn("만족도 피드백 전송 실패(데모 동작에는 영향 없음):", err);
@@ -1387,6 +1391,8 @@ function RecommendContent() {
   const originPillTone =
     originGrade?.key === "busy" ? "busy" : originGrade?.key === "quiet" || originGrade?.key === "relaxed" ? "calm" : null;
   // 대안들의 추정 붐빔이 한 등급이면(I03) 머리 아래 한 줄로 한 번만 — 원래 장소 알약이 이미 같은 말을 하면 생략.
+  // 대안들의 취향 일치율 — 모두 같은 숫자면 앞면 칩에서 말하지 않는다(faceTastePercent).
+  const tastePeers = recommendations.map((rec) => Math.round((rec.breakdown?.preference || 0) * 100));
   const altSpread = boardCrowdSpread(
     recommendations
       .map((rec) => congestionDisplay(rec).estimate?.level)
@@ -1473,7 +1479,9 @@ function RecommendContent() {
 
         {/* 대안 카드 목록 — 사진(없으면 장소 표지) → 이름 → 혜택 칩 → [도보 길안내][자동차 길안내] → [👍][👎][혼잡 제보][공유].
             순위 근거·주변 수요·추정 근거는 카드마다 '추천 근거 자세히' 뒤에(card.whyToggle). */}
-        <section className="space-y-4 lg:grid lg:grid-cols-2 lg:items-start lg:gap-4 lg:space-y-0">
+        {/* 폰: 목록 오른쪽에 화면 고정 🎙 버튼(48px) 자리를 비워 둔다(max-md:pr-14) — 스크롤하며 지나가는 카드의 SPOT 배지·사진을
+            버튼이 덮지 않게(리뷰 10-07: 옛 오브가 4번째 카드의 'SPOT 점수' 를 덮었다). 카드 안 행동 줄의 따로 비운 자리는 이제 필요 없다. */}
+        <section className="space-y-4 max-md:pr-14 lg:grid lg:grid-cols-2 lg:items-start lg:gap-4 lg:space-y-0">
           {loadingRecommendations ? (
             // Skeleton Loader
             [1, 2, 3].map((idx) => (
@@ -1502,6 +1510,9 @@ function RecommendContent() {
                   )
                 : null;
               const preferencePct = Math.round((rec.breakdown?.preference || 0) * 100);
+              // 앞면 칩은 그 숫자가 대안들을 가를 때만(60% 이상 · 모두 같은 숫자가 아닐 때 — 지도 카드와 같은 규칙, 리뷰 10-07).
+              // 숫자는 아래 '추천 근거 자세히' 의 취향 일치율 칸에 그대로 남는다.
+              const faceTaste = faceTastePercent(preferencePct, tastePeers);
               const couponPct = Math.round(Math.max(0, Math.min(1, rec.facility.couponRate ?? 0)) * 100);
               const isVoiceActive = assistantActive && idx === activeRecIndex; // 음성 비서가 지금 안내 중인 카드
               // TourAPI 상세 소비(RecommendationCard 와 동일 관례) — features 내부 키는 keysToCamel 재귀
@@ -1699,9 +1710,11 @@ function RecommendContent() {
                         {t("card.estimateLevel", { label: t(`congestion.${estimateKey}`) })}
                       </span>
                     )}
-                    <span className="inline-flex h-8 items-center rounded-full border border-gold/30 bg-gold/10 px-3 text-[14px] font-bold text-gold-deep whitespace-nowrap tabular-nums">
-                      {t("recommend.prefMatch")} {preferencePct}%
-                    </span>
+                    {faceTaste !== null && (
+                      <span className="inline-flex h-8 items-center rounded-full border border-gold/30 bg-gold/10 px-3 text-[14px] font-bold text-gold-deep whitespace-nowrap tabular-nums">
+                        {t("recommend.prefMatch")} {faceTaste}%
+                      </span>
+                    )}
                     {couponPct >= 1 && (
                       <span className="inline-flex h-8 items-center rounded-full border border-terracotta/30 bg-terracotta/10 px-3 text-[14px] font-bold text-terracotta whitespace-nowrap">
                         ⚡ {t("recommend.spotComparison.coupon", { n: couponPct })}
@@ -1729,13 +1742,12 @@ function RecommendContent() {
                     </div>
                   )}
 
-                  {/* 주 행동 두 개를 한 줄에 — 도보 길안내(주) · 자동차 길안내(보조).
-                      폰에서는 오른쪽에 화면 고정 음성 버튼(+ 이름표) 자리를 비워 둔다(max-md:pr-16) — 첫 카드의 버튼을 덮지 않게. */}
-                  <div className="grid grid-cols-2 gap-2 max-md:pr-16">
+                  {/* 주 행동 두 개를 한 줄에 — 도보 길안내(주) · 자동차 길안내(보조). 폰의 음성 버튼 자리는 목록이 비워 둔다. */}
+                  <div className="grid grid-cols-2 gap-2">
                     <button
                       type="button"
                       onClick={() => requestAccept(rec)}
-                      className="toss-pressable min-h-11 flex items-center justify-center px-2 py-2.5 bg-gradient-to-r from-gold to-terracotta text-white rounded-xl font-bold text-[13px] leading-tight transition-opacity duration-300 hover:opacity-90 shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+                      className="toss-pressable min-h-11 flex items-center justify-center px-2 py-2.5 cta-primary rounded-xl font-bold text-[13px] leading-tight transition-[filter] shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
                     >
                       {t("card.accept")}
                     </button>
@@ -1748,8 +1760,8 @@ function RecommendContent() {
                     </button>
                   </div>
 
-                  {/* 보조 행동 한 줄 — 👍/👎(추천 품질 신호) · 혼잡 제보 · 공유. 폰에서는 음성 버튼 자리를 비운다(위와 같은 폭). */}
-                  <div className="flex flex-wrap items-center gap-1.5 max-md:pr-16">
+                  {/* 보조 행동 한 줄 — 👍/👎(추천 품질 신호) · 혼잡 제보 · 공유. */}
+                  <div className="flex flex-wrap items-center gap-1.5">
                     {feedbackVotes[rec.recommendationId] ? (
                       <span className="inline-flex min-h-11 items-center px-1 text-[11px] font-semibold text-jade">
                         {feedbackVotes[rec.recommendationId] === "up" ? "👍" : "👎"} {t("recommend.feedbackApplied")}
@@ -2060,7 +2072,7 @@ function RecommendContent() {
               <button
                 type="button"
                 onClick={() => { quietAssistant(); router.push("/main"); }}
-                className="toss-pressable inline-flex min-h-11 items-center gap-1.5 px-5 rounded-full bg-gradient-to-r from-gold to-terracotta text-white text-[13px] font-bold shadow-[0_4px_14px_rgba(193,85,59,0.25)] hover:from-gold-deep hover:to-terracotta focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+                className="toss-pressable inline-flex min-h-11 items-center gap-1.5 px-5 rounded-full cta-primary text-[13px] font-bold shadow-[0_4px_14px_rgba(168,70,47,0.28)] transition-[filter] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
               >
                 <span aria-hidden>🧭</span>
                 {t("recommend.exploreMap")}
@@ -2168,62 +2180,32 @@ function RecommendContent() {
                 {assistantMuted ? "🔇" : "🔈"}
               </button>
             )}
+            {/* 지도 카드와 같은 '🎙 AI 음성 비서' 알약(리뷰 10-07 — 여기만 옛 옅은 스피커 원 + 'AI 음성 추천 듣기' 꼬리표였다).
+                데스크톱은 글자가 있는 먹빛 알약(목록 오른쪽 여백 안), 폰은 같은 먹빛의 둥근 🎙 하나 — 목록이 비워 둔 오른쪽
+                자리(max-md:pr-14) 안에 머물러 지나가는 카드의 SPOT 배지·사진을 덮지 않는다. 접근 이름은 그대로. */}
             <button
               type="button"
               onClick={onOrbClick}
               aria-label={assistantActive ? t("recommend.stopAria") : t("recommend.listenCta")}
-              className={`relative w-14 h-14 overflow-hidden rounded-full flex items-center justify-center text-xl shadow-sm transition-all active:scale-95 border focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 ${
-                voiceState === "listening"
-                  ? "bg-jade/15 border-jade/60"
-                  : voiceState === "speaking"
-                  ? "bg-gold/15 border-gold/60"
-                  : voiceState === "thinking"
-                  ? "bg-terracotta/15 border-terracotta/60"
-                  : "bg-gradient-to-br from-gold/25 to-terracotta/25 border-line"
-              }`}
+              aria-pressed={assistantActive}
+              data-voice-state={voiceState}
+              className={`toss-pressable inline-flex h-12 w-12 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-full bg-muk text-hanji shadow-[0_4px_14px_rgba(43,35,32,0.22)] transition-transform active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/70 md:h-9 md:w-auto md:px-3.5 ${assistantActive ? "max-md:ring-2 max-md:ring-gold" : ""}`}
             >
-              {!assistantActive && (
-                <span className="absolute inset-0 rounded-full border border-gold/40 animate-ping" />
-              )}
-              {!assistantActive ? (
-                <span>🔊</span>
-              ) : voiceState === "speaking" ? (
-                <span className="flex items-end gap-0.5 h-5">
-                  {[0, 1, 2, 3].map((i) => (
+              <span aria-hidden className="text-lg md:text-[13px]">🎙</span>
+              <span className="hidden text-[13px] font-extrabold md:inline">{t("voice.pill")}</span>
+              {assistantActive && (
+                <span aria-hidden className="flex h-3 items-end gap-0.5 max-md:hidden">
+                  {[0, 1, 2].map((i) => (
                     <span
                       key={i}
-                      className="w-1 bg-gold-deep rounded-full animate-pulse"
-                      style={{ height: `${8 + (i % 2) * 8}px`, animationDelay: `${i * 120}ms` }}
+                      className={`w-0.5 rounded-full ${voiceState === "listening" ? "bg-jade" : "bg-gold"} ${voiceState === "speaking" || voiceState === "listening" ? "animate-pulse" : ""}`}
+                      style={{ height: `${6 + (i % 2) * 5}px`, animationDelay: `${i * 120}ms` }}
                     />
                   ))}
                 </span>
-              ) : voiceState === "listening" ? (
-                <span className="relative flex items-center justify-center">
-                  <span className="absolute w-9 h-9 rounded-full bg-jade/25 animate-ping" />
-                  <span className="flex gap-1">
-                    {[0, 1, 2].map((i) => (
-                      <span
-                        key={i}
-                        className="w-1.5 h-1.5 rounded-full bg-jade animate-bounce"
-                        style={{ animationDelay: `${i * 150}ms` }}
-                      />
-                    ))}
-                  </span>
-                </span>
-              ) : voiceState === "thinking" ? (
-                <span className="w-5 h-5 border-2 border-terracotta border-t-transparent rounded-full animate-spin" />
-              ) : (
-                <span>🔊</span>
               )}
             </button>
           </div>
-
-          {/* 폰에서는 이름표를 버튼 폭 근처(4.75rem)에서 접는다 — 카드 행동 줄이 비워 둔 오른쪽 자리(pr-16) 안에 머문다. */}
-          {!assistantActive && (
-            <span className="text-[10px] text-muk bg-white/90 border border-line rounded-full px-2.5 py-1 animate-pulse shadow-sm max-md:max-w-[4.75rem] max-md:rounded-xl max-md:px-2 max-md:text-center max-md:leading-tight">
-              🔊 {t("recommend.listenCta")}
-            </span>
-          )}
         </div>
       )}
 
@@ -2330,7 +2312,7 @@ function RecommendContent() {
               type="button"
               onClick={handleOnboardingSubmit}
               disabled={selectedOnboardingCats.length < 3 || isOnboardingSubmitting}
-              className="toss-pressable min-h-11 w-full flex items-center justify-center py-3 bg-gradient-to-r from-gold to-terracotta text-white rounded-xl font-bold text-xs transition-opacity duration-300 hover:opacity-90 shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 disabled:opacity-50"
+              className="toss-pressable min-h-11 w-full flex items-center justify-center py-3 cta-primary rounded-xl font-bold text-xs transition-[filter] shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 disabled:opacity-50"
             >
               {isOnboardingSubmitting ? t("recommend.savingSettings") : t("recommend.selectDone", { n: selectedOnboardingCats.length })}
             </button>

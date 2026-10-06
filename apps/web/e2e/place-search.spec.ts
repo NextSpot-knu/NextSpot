@@ -93,7 +93,8 @@ async function openMain(page: Page, locale: E2eLocale, stubs: SearchStubs) {
 
 const PLACEHOLDER: Record<E2eLocale, string> = {
   ko: '경주 장소·메뉴·분위기 검색',
-  en: 'Search Gyeongju places, menus or vibes',
+  // en 은 데스크톱 검색 칸(1536)에서 잘리지 않는 길이로(리뷰 10-07: 'Search Gyeongju places, r…' 로 잘렸다).
+  en: 'Search Gyeongju places',
   ja: '慶州の施設・メニュー・雰囲気を検索',
   zh: '搜索庆州的地点、菜单或氛围',
 };

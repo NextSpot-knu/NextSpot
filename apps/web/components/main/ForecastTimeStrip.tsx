@@ -80,6 +80,9 @@ export default function ForecastTimeStrip({
   // 칠할 칸 — 끄는 중이면 손가락 밑 칸, 아니면 고른 칸. 요일 프리셋이 걸려 있으면 비운다.
   const shown: ForecastHours | null = dragStop ?? (presetActive ? null : hours);
   const label = (h: number) => (h === 0 ? t('forecast.now') : t('forecast.ahead', { h }));
+  // 휴대폰 칸(약 46px)에 들어가는 짧은 이름 — 일·중은 '後/后' 를 뺀다(리뷰 10-07 화면: '+1時間後+2時間後' 가 칸을 넘쳐 겹쳤다).
+  // 한국어·영어는 원래 이름이 들어가 짧은 이름이 같다 — 그때는 한 덩어리만 그린다(글자로 찾는 시험이 둘을 만나지 않게).
+  const shortLabel = (h: number) => (h === 0 ? t('forecast.now') : t('forecast.aheadShort', { h }));
 
   const stopAt = (clientX: number): ForecastHours => {
     const rect = trackRef.current?.getBoundingClientRect();
@@ -198,7 +201,12 @@ export default function ForecastTimeStrip({
               {loading && shown === h && h > 0 && (
                 <span aria-hidden className="inline-block h-2.5 w-2.5 animate-spin rounded-full border-[1.5px] border-hanji/40 border-t-hanji" />
               )}
-              {label(h)}
+              {shortLabel(h) === label(h) ? label(h) : (
+                <>
+                  <span className="max-md:hidden">{label(h)}</span>
+                  <span className="md:hidden">{shortLabel(h)}</span>
+                </>
+              )}
             </span>
           ))}
         </div>

@@ -1003,7 +1003,7 @@
     },
     "headerKicker": "줄 서는 대신",
     "nearbyKicker": "지금 가까운 추천",
-    "nearbyKickerAt": "가까운 추천",
+    "atTimeKicker": "이 시간대 추천",
     "arrowLine": "{anchor} {anchorCrowd} → {candidate} {candidateCrowd} · 도보 {walk}분",
     "benefitWalk": "도보 {walk}분",
     "benefitOpen": "도착 시 영업",
@@ -1470,6 +1470,7 @@
     "name": "혼잡 예측",
     "now": "지금",
     "ahead": "+{h}시간 후",
+    "aheadShort": "+{h}시간 후",
     "basis": "+{h}시간 후 기준",
     "otherTimes": "다른 시간",
     "badgeArea": "🔮 +{h}시간 후 예측 · 이 일대 {level} · 추정",
@@ -1528,7 +1529,7 @@
       "culture": "문화시설",
       "taste": "맛·평점",
       "mood": "감성·인스타",
-      "access": "접근성",
+      "access": "무장애",
       "quiet": "한적함"
     },
     "tag": {

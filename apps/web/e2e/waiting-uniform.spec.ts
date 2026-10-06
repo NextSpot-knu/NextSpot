@@ -136,6 +136,8 @@ test('when grades differ, each card keeps its grade in its own colour and calm c
   levels[idOf('restaurant', 0)] = 0.9; // 서버 1위가 혼잡
   levels[idOf('restaurant', 1)] = 0.6;
   levels[idOf('restaurant', 2)] = 0.1; // 서버 3위가 한산
+  // 보드의 80% 이상이 한 등급이면 한 줄로 말한다(다수결, 리뷰 10-07) — 이 보드는 정말 갈리게(보통 7/10 = 70%).
+  levels[idOf('cafe', 0)] = 0.3;
   await routeBoard(page, levels);
   await page.goto('/waiting');
   await expect(board(page)).toHaveAttribute('aria-busy', 'false', { timeout: 60_000 });
@@ -151,6 +153,25 @@ test('when grades differ, each card keeps its grade in its own colour and calm c
   await expect(quiet).toHaveClass(/text-jade/);
   await expect(busy).toHaveClass(/text-terracotta/);
   await expect(busy).toHaveClass(/border-dashed/);
+});
+
+test('a board where most cards share one grade says it once and keeps the calmer card grade on that card', async ({ page }) => {
+  test.setTimeout(90_000);
+  // 리뷰 10-07: 새벽 보드 24장 중 23장 '보통' + 1장 '여유' 가 '추정 혼잡: 보통' 을 23번 되풀이했다(모두 같은 등급일 때만 한 줄).
+  const levels = Object.fromEntries(allIds().map((id) => [id, 0.55]));
+  levels[idOf('attraction', 1)] = 0.3; // 경주 계림만 여유
+  await routeBoard(page, levels);
+  await page.goto('/waiting');
+  await expect(board(page)).toHaveAttribute('aria-busy', 'false', { timeout: 60_000 });
+
+  await expect(areaLine(page)).toHaveCount(1);
+  await expect(areaLine(page)).toContainText('지금 경주 시내 중심 보통 · 추정');
+  // 다수 등급('보통')은 카드에서 빠지고 걷는 시간이 남는다. 다른 등급의 한 장은 자기 등급을 그대로 — 덜 붐비는 곳의 신호.
+  await expect(cards(page).filter({ hasText: '추정 혼잡: 보통' })).toHaveCount(0);
+  const calm = cards(page).filter({ hasText: '경주 계림' });
+  await expect(calm.locator('[data-wait-stats] > p').first()).toHaveText('추정 혼잡: 여유');
+  await expect(cards(page).filter({ hasText: '추정 혼잡' })).toHaveCount(1);
+  await expect(cards(page).filter({ hasText: '황남 국밥' })).toContainText('도보 3분');
 });
 
 test('tapping a card asks for alternatives around that place, of the same kind', async ({ page }) => {

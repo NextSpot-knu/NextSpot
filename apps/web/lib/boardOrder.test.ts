@@ -1,8 +1,10 @@
 // 대기 보드 줄 세우기 — 대기가 짧은 순. 사진은 카드가 같은 대기를 보여 줄 때만 앞선다(PM 결정 2026-09-28).
 import assert from 'node:assert/strict';
 import {
+  boardCrowdMembers,
   boardCrowdSpread,
   calmRankOf,
+  medianLevel,
   orderByWaitThenPhoto,
   waitHeadlineKey,
   waitHeadlineOf,
@@ -199,5 +201,31 @@ assert.deepEqual(boardCrowdSpread([0.7, 0.7, 0.71], 0.65), { uniform: true, grad
 assert.deepEqual(waitHeadlineOf(est(null, 'estimate'), { estimateLevel: 0.7 }), { kind: 'estimate', level: 'moderate' });
 assert.deepEqual(waitHeadlineOf(est(null, 'estimate'), { estimateLevel: 0.7 }, 0.65), { kind: 'estimate', level: 'busy' });
 assert.deepEqual(waitHeadlineOf(est(null, 'area'), { areaDemandLevel: 0.7 }, 0.65), { kind: 'area', level: 'busy' });
+
+// 다수결(리뷰 10-07) — 새벽 보드 24장 중 23장이 '보통' 이고 한 곳만 '여유' 면 한 줄로 '보통' 을 말한다.
+// 예전 규칙(모두 같은 등급)은 한 장 때문에 '추정 혼잡: 보통' 을 23번 되풀이했다.
+{
+  const night = [...Array.from({ length: 23 }, (_, i) => 0.5 + (i % 4) * 0.05), 0.3];
+  assert.deepEqual(boardCrowdSpread(night), { uniform: true, grade: 'moderate' }, '23장 보통 + 1장 여유 = 한 줄 보통');
+  const members = boardCrowdMembers(night);
+  assert.equal(members.filter(Boolean).length, 23, '보통 카드는 한 줄을 따른다(걷는 시간)');
+  assert.equal(members[23], false, '여유 카드는 자기 등급을 카드에 남긴다 — 그것이 덜 붐비는 곳이라는 신호');
+}
+// 80% 문턱 — 5장 중 4장(80%)은 한 줄, 10장 중 7장(70%)은 카드마다.
+assert.deepEqual(boardCrowdSpread([0.5, 0.55, 0.6, 0.52, 0.1]), { uniform: true, grade: 'moderate' });
+assert.deepEqual(
+  boardCrowdSpread([0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.9, 0.1, 0.2]),
+  { uniform: false, grade: null },
+  '70% 는 다수결이 아니다',
+);
+// 차이가 아주 작은 보드(경계를 걸친 같은 붐빔)는 모든 카드가 한 줄을 따른다.
+assert.deepEqual(boardCrowdMembers([0.74, 0.76, 0.75]), [true, true, true]);
+assert.deepEqual(boardCrowdMembers([0.1, 0.9, 0.5]), [false, false, false], '한 등급 보드가 아니면 아무도 따르지 않는다');
+assert.deepEqual(boardCrowdMembers([0.5, Number.NaN, 0.52, 0.55]), [true, false, true, true], '숫자가 아닌 값은 따르지 않는다');
+// 가운데값 — 이 일대 등급을 말하는 화면들이 같은 규칙을 쓴다.
+assert.equal(medianLevel([0.3, 0.1, 0.2]), 0.2);
+assert.equal(medianLevel([0.1, 0.4, 0.2, 0.3]), 0.25);
+assert.equal(medianLevel([]), null);
+assert.equal(medianLevel([Number.NaN]), null);
 
 console.log('boardOrder: ok');

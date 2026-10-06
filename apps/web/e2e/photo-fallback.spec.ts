@@ -363,7 +363,10 @@ test('waiting board: without minutes, a photo only moves ahead of a card showing
     { id: 'estquietphoto', name: '조용한 식당', type: 'restaurant', image_url: TOUR_PHOTO_2 },
     { id: 'estcafenone', name: '고요한 카페', type: 'cafe' },
     { id: 'estcafephoto', name: '조용한 카페', type: 'cafe', image_url: TOUR_PHOTO },
-  ], { estimates: { estquietnone: 0.1, estbusyphoto: 0.9, estquietphoto: 0.1, estcafenone: 0.1, estcafephoto: 0.1 } });
+    // 보드의 80% 이상이 한 등급이면 그 등급은 보드 위 한 줄로 가고 카드에는 걷는 시간이 남는다(다수결, 리뷰 10-07) —
+    // 이 시험은 카드마다 등급을 말하는 보드라서 등급을 갈라 둔다(한산 4/6).
+    { id: 'estattrmid', name: '보통 명소', type: 'attraction' },
+  ], { estimates: { estquietnone: 0.1, estbusyphoto: 0.9, estquietphoto: 0.1, estcafenone: 0.1, estcafephoto: 0.1, estattrmid: 0.6 } });
   await page.goto('/waiting', { waitUntil: 'domcontentloaded' });
   const busyCard = cell(page, '붐비는 식당');
   await expect(busyCard).toBeVisible({ timeout: 30_000 });
