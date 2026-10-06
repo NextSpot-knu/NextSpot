@@ -8,6 +8,11 @@ import { useAccount, canEnterDevConsole } from '@/lib/account';
 import { useDemoToast } from '@/components/DemoBadge';
 import { useT } from '@/lib/i18n/I18nProvider';
 
+// 심사 기간에는 메뉴에서 감추는 화면(PM 결정 4.14). '엔진 검증' 은 서울 데이터로 엔진을 대 보는 화면이라
+// 경주 관제의 메뉴에 서 있으면 첫인상이 서울이 된다. 화면 자체는 /admin/engine-validation 으로 그대로
+// 열린다(질의응답용 · 대시보드 맨 아래 링크). 심사가 끝나면 이 집합에서 빼기만 하면 메뉴로 돌아온다.
+const HIDDEN_FROM_MENU = new Set<string>(['/admin/engine-validation']);
+
 // demo=true 는 `/admin/dashboard?demo=1`(로그인 없는 읽기 전용 데모) 전용이다. 메뉴는 그대로
 // 보이되 **어디로도 이동하지 않는다** — 데모에는 세션이 없어서 다른 관제 화면은 전부 로그인
 // 게이트로 튕기고, 심사위원에게는 그게 '고장' 으로 읽힌다.
@@ -27,16 +32,16 @@ export function AdminSidebar({ demo = false }: { demo?: boolean } = {}) {
   };
 
   const menuItems = [
-    { name: 'Dashboard', path: '/admin/dashboard', icon: LayoutDashboard },
+    { name: '관제 대시보드', path: '/admin/dashboard', icon: LayoutDashboard },
     { name: '장소 관리', path: '/admin/infrastructure', icon: Building2 },
-    { name: 'Simulator', path: '/admin/simulator', icon: Sparkles },
+    { name: 'SPOT 시뮬레이터', path: '/admin/simulator', icon: Sparkles },
     { name: '통계 리포트', path: '/admin/reports', icon: BarChart3 },
     { name: '안전 경보', path: '/admin/safety', icon: ShieldAlert },
     { name: '성과 리포트', path: '/admin/report', icon: Printer },
     // 혼잡 추정기를 서울 실측과 대조한 성적표(CONGESTION_ENGINE_PLAN §5.4 A). 표본이 없어도 들어가서
-    // '수집 시작 전' 을 확인할 수 있어야 하므로 조건 없이 보인다.
+    // '수집 시작 전' 을 확인할 수 있어야 하므로 조건 없이 보인다(심사 기간에만 위 HIDDEN_FROM_MENU 가 감춘다).
     { name: '엔진 검증', path: '/admin/engine-validation', icon: FlaskConical },
-    { name: '문의 관리 (Support)', path: '/admin/support', icon: HelpCircle },
+    { name: '문의 관리', path: '/admin/support', icon: HelpCircle },
     { name: '시스템 설정', path: '/admin/settings', icon: Settings },
     // 개발자 콘솔은 팀 전용이라 developer 에게만 보인다 — 관제 화면(정부기관 관계자)에는
     // 역할 임명 같은 운영 도구를 노출하지 않는다.
@@ -45,7 +50,7 @@ export function AdminSidebar({ demo = false }: { demo?: boolean } = {}) {
     ...(canEnterDevConsole(account) && process.env.NODE_ENV !== 'production'
       ? [{ name: '개발자 콘솔', path: '/dev', icon: UserCog }]
       : []),
-  ];
+  ].filter((item) => !HIDDEN_FROM_MENU.has(item.path));
 
   return (
     // 데모는 모바일(심사 링크가 바로 여는 화면)에서 사이드바를 접는다 — 390px 에서 w-64 가

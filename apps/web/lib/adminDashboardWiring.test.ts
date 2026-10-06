@@ -123,4 +123,45 @@ const estimateView = stripComments(read('lib/adminEstimateView.ts'));
   assert.doesNotMatch(page, /SimulatePeakButton|ParkingDerivedEstimateButton/, '걷어낸 모의 발생/수동 추정 적재 버튼이 돌아왔다');
 }
 
+// ── (5) 첫 화면은 기능설명서의 KPI 네 개 — 엔진 내부 수치는 맨 아래(2026-10-06 심사 동선) ──
+// 심사위원은 관제 화면을 열자마자 '평균 혼잡도·추천 수락률·활성 사용자·이상 혼잡' 을 찾는다.
+// 예전 첫 화면은 추천 신뢰도 패널(깔때기 0건·학습 관문)과 산식 박스가 차지해 KPI 가 한 화면 아래였다.
+{
+  const kpis = page.indexOf('id="dashboard-kpis"');
+  const trust = page.indexOf('<ModelTrustPanel');
+  assert.ok(kpis >= 0, 'KPI 격자 앵커(id="dashboard-kpis")가 없다');
+  assert.ok(trust > kpis, '추천 신뢰도 패널이 KPI 격자보다 위에 있다 — 첫 화면이 다시 엔진 내부 수치가 된다');
+  assert.equal(page.split('<ModelTrustPanel').length - 1, 1, '추천 신뢰도 패널이 두 번 그려진다');
+  // 맨 아래로 내렸을 뿐 감추지 않는다(기능설명서 '모델 신뢰 패널') — 접힌 상자 안에 넣지 않는다.
+  assert.ok(trust > page.indexOf('<FacilityTable'), '추천 신뢰도 패널이 페이지 맨 아래(장소 관리 표 다음)에 있지 않다');
+  const openBefore = page.lastIndexOf('<details', trust);
+  assert.ok(openBefore < 0 || page.lastIndexOf('</details>', trust) > openBefore, '추천 신뢰도 패널이 접힌 <details> 안에 들어갔다');
+
+  // 추정·예측 배너는 한 줄 — 근거 문장·산식·전환 문장은 '산식 보기' 를 열어야 보인다.
+  const detailsAround = (token: string) => {
+    const at = page.indexOf(token);
+    assert.ok(at >= 0, `${token} 을 그리지 않는다`);
+    assert.equal(page.split(token).length - 1, 1, `${token} 이 배너 밖에서도 그려진다`);
+    const open = page.lastIndexOf('<details', at);
+    const close = page.indexOf('</details>', at);
+    assert.ok(open >= 0 && close > at && page.lastIndexOf('</details>', at) < open, `${token} 이 <details> 안에 있지 않다 — 산식이 첫 화면에 펼쳐진다`);
+    const block = page.slice(open, close);
+    assert.match(block, /<summary[\s\S]*산식 보기[\s\S]*<\/summary>/, `${token} 을 여는 요약 줄에 '산식 보기' 가 없다`);
+    return block;
+  };
+  const estimateBlock = detailsAround('{estimateMethod}');
+  assert.ok(estimateBlock.includes('{estimateLine}'), '추정 근거 문장({estimateLine})이 산식 보기 안에 없다');
+  assert.match(estimateBlock, /오늘 시설 혼잡은 공영주차 실측과 관광공사 통계로 추정했어요/, '추정 배너의 한 줄 문장이 없다');
+  const predictedBlock = detailsAround('{predictedMethod}');
+  assert.ok(predictedBlock.includes('{PREDICTED_SWITCH_SENTENCE}'), '예측 전환 문장이 산식 보기 안에 없다');
+
+  // ① 부제는 데이터 원천을 말하고, 출처 표기는 따로 한 줄이다(부제 안에 섞지 않는다).
+  const stepOneTag = page.slice(page.lastIndexOf('<StepBanner', page.indexOf('badge="①"')), page.indexOf('/>', page.indexOf('badge="①"')));
+  assert.match(stepOneTag, /경주 관광정보 .*경주 ITS 공영주차\(10분마다\)로 지금 경주의 혼잡을 봅니다/, '① 부제가 데이터 원천을 말하지 않는다');
+  assert.match(stepOneTag, /credit="출처: ⓒ한국관광공사"/, '① 아래 출처 한 줄이 없다');
+  // 서울 데이터는 경주 관제의 첫인상이 아니다 — 검증 화면 링크는 맨 아래, 서울 문구 없이.
+  assert.doesNotMatch(page, /서울/, '대시보드 화면 문구에 서울이 남아 있다');
+  assert.ok(page.indexOf('href="/admin/engine-validation"') > trust, '엔진 검증 링크가 추천 신뢰도 패널과 함께 맨 아래에 있지 않다');
+}
+
 console.log('adminDashboardWiring.test.ts OK');

@@ -196,10 +196,10 @@ export default function SupportPage() {
   // (bg-{hue}-500/10 + border-{hue}-500/30 + text-{hue}-700 — 관제 공통 패턴).
   const getStatusBadge = (status: string) => {
     switch(status) {
-      case 'new': return <span className="px-2 py-1 bg-red-500/10 border border-red-500/30 text-red-700 text-xs font-bold rounded-md">NEW</span>;
-      case 'in_progress': return <span className="px-2 py-1 bg-amber-500/10 border border-amber-500/30 text-amber-700 text-xs font-bold rounded-md">IN PROGRESS</span>;
-      case 'resolved': return <span className="px-2 py-1 bg-emerald-500/10 border border-emerald-500/30 text-emerald-700 text-xs font-bold rounded-md">RESOLVED</span>;
-      default: return <span className="px-2 py-1 bg-hanok-card border border-hanok-line text-hanok-ink text-xs font-bold rounded-md">NEW</span>;
+      case 'new': return <span className="px-2 py-1 bg-red-500/10 border border-red-500/30 text-red-700 text-xs font-bold rounded-md">새 문의</span>;
+      case 'in_progress': return <span className="px-2 py-1 bg-amber-500/10 border border-amber-500/30 text-amber-700 text-xs font-bold rounded-md">처리 중</span>;
+      case 'resolved': return <span className="px-2 py-1 bg-emerald-500/10 border border-emerald-500/30 text-emerald-700 text-xs font-bold rounded-md">답변 완료</span>;
+      default: return <span className="px-2 py-1 bg-hanok-card border border-hanok-line text-hanok-ink text-xs font-bold rounded-md">새 문의</span>;
     }
   };
 
@@ -217,7 +217,7 @@ export default function SupportPage() {
       <main className="flex-1 flex flex-col h-full overflow-hidden">
         {/* Top Header */}
         <header className="h-20 bg-hanok-panel border-b border-hanok-line flex items-center justify-between px-8 flex-shrink-0">
-          <h2 className="text-xl font-bold text-hanok-ink">문의 관리 (Help & Support)</h2>
+          <h2 className="text-xl font-bold text-hanok-ink">문의 관리</h2>
           <div className="flex items-center gap-6">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-hanok-muted" size={18} />
@@ -244,10 +244,10 @@ export default function SupportPage() {
                 실패한 0 은 '0건' 이라는 사실이 아니라 '몇 건인지 모른다' 이기 때문이다. */}
             <div className="p-4 border-b border-hanok-line flex gap-4">
               <div className="flex items-center gap-2 text-hanok-muted font-semibold text-sm">
-                <FileText size={16} /> Total: {countLabel(loadStatus, filteredTickets.length)}
+                <FileText size={16} /> 전체 {countLabel(loadStatus, filteredTickets.length)}
               </div>
               <div className={`flex items-center gap-2 font-semibold text-sm ${loadStatus === 'failed' ? 'text-hanok-muted' : 'text-red-700'}`}>
-                <MessageSquare size={16} /> New: {countLabel(loadStatus, filteredTickets.filter(t => t.status === 'new').length)}
+                <MessageSquare size={16} /> 새 문의 {countLabel(loadStatus, filteredTickets.filter(t => t.status === 'new').length)}
               </div>
             </div>
             {loadStatus === 'failed' && (
@@ -390,8 +390,8 @@ export default function SupportPage() {
                       <div className="flex justify-between items-center gap-4">
                         <div className="text-sm text-hanok-muted">
                           {replyText.trim()
-                            ? <>답변을 저장하고 상태를 <span className="font-bold text-emerald-700">RESOLVED</span>로 바꿉니다. 문의자는 <span className="font-semibold text-hanok-ink">마이페이지 &gt; 내 문의</span>에서 봅니다.</>
-                            : <>답변 없이 상태만 <span className="font-bold text-emerald-700">RESOLVED</span>로 바꿉니다.</>}
+                            ? <>답변을 저장하고 상태를 <span className="font-bold text-emerald-700">답변 완료</span>로 바꿉니다. 문의자는 <span className="font-semibold text-hanok-ink">마이페이지 &gt; 내 문의</span>에서 봅니다.</>
+                            : <>답변 없이 상태만 <span className="font-bold text-emerald-700">답변 완료</span>로 바꿉니다.</>}
                         </div>
                         {/* `disabled={!replyText.trim()}` 를 걸지 않는다 — 답변 없이 닫아야 하는
                             문의(스팸·중복)가 실제로 있고, 그때 억지로 글을 쓰게 만들 이유가 없다. */}

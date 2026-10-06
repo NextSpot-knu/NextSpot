@@ -282,11 +282,16 @@ export default function SafetyPage() {
   };
 
   // 슬라이더 상호 제약: 주의 임계값은 항상 경보 임계값보다 낮게 유지(역전 방지, 백엔드도 방어적으로 스왑함)
-  const handleAlertChange = (v: number) => {
+  // 두 슬라이더는 같은 0–100 눈금을 쓴다 — 예전에는 각자의 min/max 가 상대 값을 따라 움직여서, 같은 %가
+  // 두 트랙에서 다른 자리에 섰다(경보 85% 손잡이가 주의 70% 보다 왼쪽에 서기도 했다). 경보는 1% 이상,
+  // 주의는 99% 이하로 잘라 둘 사이에 항상 한 칸이 남게 한다.
+  const handleAlertChange = (raw: number) => {
+    const v = Math.max(1, raw);
     setAlertPct(v);
     if (warnPct >= v) setWarnPct(Math.max(0, v - 1));
   };
-  const handleWarnChange = (v: number) => {
+  const handleWarnChange = (raw: number) => {
+    const v = Math.min(99, raw);
     setWarnPct(v);
     if (v >= alertPct) setAlertPct(Math.min(100, v + 1));
   };
@@ -379,7 +384,7 @@ export default function SafetyPage() {
                   </div>
                   <input
                     type="range"
-                    min={warnPct + 1}
+                    min={0}
                     max={100}
                     value={alertPct}
                     onChange={(e) => handleAlertChange(Number(e.target.value))}
@@ -394,7 +399,7 @@ export default function SafetyPage() {
                   <input
                     type="range"
                     min={0}
-                    max={alertPct - 1}
+                    max={100}
                     value={warnPct}
                     onChange={(e) => handleWarnChange(Number(e.target.value))}
                     className="w-full h-2 bg-hanok-line rounded-lg appearance-none cursor-pointer accent-amber-500"

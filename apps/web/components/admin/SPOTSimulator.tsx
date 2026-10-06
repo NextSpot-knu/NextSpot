@@ -112,10 +112,10 @@ export default function SPOTSimulator() {
         });
 
         // 상태 요약 텍스트 분석
-        let analysis = "현재 이상적인 다봉 분포가 형성되어 있습니다. 저점(무관한 시설)과 고점(추천 시설)이 명확히 구분됩니다.";
-        if (wp > 0.6) analysis = "선호도 가중치가 과도하게 높습니다. 취향 일치 여부에만 의존하는 양극화(U자 분포)가 심화됩니다.";
-        if (wt > 0.6) analysis = "시간 비용 패널티가 너무 가혹합니다. 점수 전체가 왼쪽으로 깎여나가 근거리 시설만 강제 추천됩니다.";
-        if (wi > 0.5) analysis = "인센티브 가중치가 높아 원본 시설의 혼잡도에 의존하는 경향이 짙어집니다.";
+        let analysis = "추천할 곳과 아닌 곳의 점수 차이가 뚜렷합니다.";
+        if (wp > 0.6) analysis = "취향 가중치가 너무 높아 취향이 맞는 곳에만 점수가 몰립니다.";
+        if (wt > 0.6) analysis = "이동 시간 가중치가 너무 높아 가까운 곳만 추천됩니다.";
+        if (wi > 0.5) analysis = "혜택 가중치가 높아 쿠폰을 건 곳이 앞서기 쉽습니다.";
 
         return { chartData: bins, analysisText: analysis };
     }, [weights, mockFacilities]);
@@ -133,21 +133,21 @@ export default function SPOTSimulator() {
                 {/* 왼쪽 패널: 슬라이더 및 입력 필드 컨트롤 */}
                 <div className="flex flex-col gap-6 lg:col-span-1 border-r border-hanok-line pr-6">
                     <SyncControl
-                        label="선호도 일치율 (W_pref)"
+                        label="취향 일치"
                         value={weights.pref}
                         colorClass="text-gold-deep bg-gold/10 border-gold/30"
                         accentClass="accent-gold"
                         onChange={(v) => handleWeightChange('pref', v)}
                     />
                     <SyncControl
-                        label="시간비용 패널티 (W_time)"
+                        label="이동·대기 시간"
                         value={weights.time}
                         colorClass="text-red-700 bg-red-500/10 border-red-500/30"
                         accentClass="accent-red-600"
                         onChange={(v) => handleWeightChange('time', v)}
                     />
                     <SyncControl
-                        label="혼잡 분산 보너스 (W_inc)"
+                        label="혜택(쿠폰)"
                         value={weights.inc}
                         colorClass="text-green-700 bg-green-500/10 border-green-500/30"
                         accentClass="accent-green-600"

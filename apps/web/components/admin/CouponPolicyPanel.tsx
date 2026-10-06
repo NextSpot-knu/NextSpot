@@ -159,7 +159,7 @@ export function CouponPolicyPanel() {
         <div>
           <div className="flex items-center gap-2">
             <Ticket className="text-amber-600" size={20} />
-            <h3 className="text-lg font-bold text-hanok-ink">쿠폰 정책 개입 (w3 인센티브)</h3>
+            <h3 className="text-lg font-bold text-hanok-ink">쿠폰 정책 개입</h3>
           </div>
           <p className="text-xs text-hanok-muted mt-1">
             제휴 할인율을 조정하면 즉시 저장되어 사용자 앱의 추천 순위에 실시간 반영됩니다 — 분산
@@ -199,7 +199,7 @@ export function CouponPolicyPanel() {
                 <th className="px-4 py-3 font-semibold">시설명</th>
                 <th className="px-4 py-3 font-semibold w-24">유형</th>
                 <th className="px-4 py-3 font-semibold w-64">할인율 (0–{MAX_RATE_PERCENT}%)</th>
-                <th className="px-4 py-3 font-semibold w-32 text-right">SPOT 점수 기여</th>
+                <th className="px-4 py-3 font-semibold w-32 text-right">추천 가산점</th>
               </tr>
             </thead>
             <tbody className="text-sm">

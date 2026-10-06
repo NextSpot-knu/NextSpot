@@ -14,11 +14,11 @@ const SCORING_MODE_LABELS: Record<string, string> = {
   spot: '모델 채점',
   model: '모델 채점',
   ml: '모델 채점',
-  degraded_rules: '3축 규칙 채점',
-  rules: '3축 규칙 채점',
-  rule_based: '3축 규칙 채점',
-  fallback: '3축 규칙 채점',
-  heuristic: '3축 규칙 채점',
+  degraded_rules: '취향·이동시간·혜택 기준',
+  rules: '취향·이동시간·혜택 기준',
+  rule_based: '취향·이동시간·혜택 기준',
+  fallback: '취향·이동시간·혜택 기준',
+  heuristic: '취향·이동시간·혜택 기준',
 };
 
 const FACILITY_TYPE_LABELS: Record<string, string> = {
@@ -229,7 +229,7 @@ export function ModelTrustPanel({
           {scenarioLine && <p className="mt-1 text-[11px] text-amber-800/90">{scenarioLine}</p>}
         </div>
         <span className={`rounded-full border px-2.5 py-1 text-xs font-bold ${alerts.length ? 'border-rose-500/30 bg-rose-500/10 text-rose-700' : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700'}`}>
-          {alerts.length ? `점검 항목 ${alerts.length}건` : '가드레일 정상'}
+          {alerts.length ? `점검 항목 ${alerts.length}건` : '추천 품질 점검 정상'}
         </span>
       </div>
       {/* 절단 경고는 **숫자 바로 위**에 둔다. 같은 사실이 아래 경고 목록에도
@@ -264,8 +264,8 @@ export function ModelTrustPanel({
           <p className="flex items-center gap-1.5 text-xs font-bold text-hanok-ink"><Database size={14} className="text-gold-deep" />실데이터 수집 현황</p>
           <p className="text-[11px] text-hanok-muted">
             {remaining > 0
-              ? `검증 관측 ${remaining}건이 더 쌓이면 후보 자동 생성이 시작됩니다`
-              : '후보 자동 생성 관문에 도달했습니다'}
+              ? `현장 확인 ${remaining}건이 더 쌓이면 학습 모델 준비를 시작합니다`
+              : '학습 모델 준비를 시작할 만큼 현장 확인이 모였습니다'}
           </p>
         </div>
         <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-4">
@@ -276,10 +276,10 @@ export function ModelTrustPanel({
         </div>
         {/* 후보 학습 관문 진행 막대 — 검증 관측 / (검증 관측 + 남은 수). 관문 크기는 서버가 정한다. */}
         {candidateGate > 0 && trusted > 0 && (
-          <div className="mt-3" role="progressbar" aria-valuemin={0} aria-valuemax={candidateGate} aria-valuenow={trusted} aria-label="ML 후보 학습 관문 진행">
+          <div className="mt-3" role="progressbar" aria-valuemin={0} aria-valuemax={candidateGate} aria-valuenow={trusted} aria-label="학습 모델 준비">
             <div className="flex items-center justify-between text-[11px] text-hanok-muted">
-              <span>ML 후보 학습 관문</span>
-              <span>검증 관측 {trusted} / {candidateGate}건 · {Math.round(gateProgress * 100)}%</span>
+              <span>학습 모델 준비</span>
+              <span>현장 확인 {trusted} / {candidateGate}건 · {Math.round(gateProgress * 100)}%</span>
             </div>
             <div className="mt-1 h-2 w-full overflow-hidden rounded-full bg-hanok-line">
               <div className="h-full rounded-full bg-gold transition-all" style={{ width: `${Math.round(gateProgress * 100)}%` }} />
@@ -298,7 +298,7 @@ export function ModelTrustPanel({
           </p>
         )}
         <p className="mt-1 text-[11px] text-hanok-muted">
-          채점 모드 · {labeledCounts(data.guardrails.scoring_modes, SCORING_MODE_LABELS, (value) => `${value}건`) || '집계 중'}
+          추천 방식 · {labeledCounts(data.guardrails.scoring_modes, SCORING_MODE_LABELS, (value) => `${value}건`) || '집계 중'}
           {' · '}도보 제한 위반 {data.guardrails.walk_limit_violations}건
         </p>
         {(data.collection.facility_gaps ?? []).length > 0 && <p className="mt-1 text-[11px] text-hanok-muted">다음 수집 우선 대상 · {data.collection.facility_gaps.slice(0, 6).map((item) => item.name).join(' · ')}</p>}

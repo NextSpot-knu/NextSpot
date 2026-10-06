@@ -170,7 +170,7 @@ export default function SettingsPage() {
             <div className="flex justify-between items-end">
               <div>
                 <h3 className="text-2xl font-bold text-hanok-ink mb-2">환경 설정</h3>
-                <p className="text-hanok-muted">앱 서비스의 상태 및 AI 추천 알고리즘의 세부 파라미터를 조정합니다.</p>
+                <p className="text-hanok-muted">서비스 점검 안내·상단 공지·혼잡 등급 경계를 설정합니다.</p>
               </div>
               <div className="flex items-center gap-3">
                 {saveMsg && (
@@ -218,7 +218,7 @@ export default function SettingsPage() {
             <section className="bg-hanok-panel rounded-2xl border border-hanok-line shadow-sm overflow-hidden">
               <div className="p-5 border-b border-hanok-line bg-hanok-card/30 flex items-center gap-2">
                 <SettingsIcon size={20} className="text-hanok-muted" />
-                <h4 className="font-bold text-hanok-ink">일반 설정 (General)</h4>
+                <h4 className="font-bold text-hanok-ink">일반 설정</h4>
               </div>
               <div className="p-6 flex flex-col gap-6">
 
@@ -278,9 +278,9 @@ export default function SettingsPage() {
                 <div>
                   <div className="flex justify-between items-end mb-2">
                     <div>
-                      <h5 className="font-bold text-hanok-ink mb-1">혼잡 등급 경계 (Congestion Threshold)</h5>
+                      <h5 className="font-bold text-hanok-ink mb-1">혼잡 등급 경계</h5>
                       <p className="text-sm text-hanok-muted">
-                        인프라 수용량 대비 몇 %부터 &apos;혼잡(Red)&apos;으로 표시할지 정합니다.
+                        인프라 수용량 대비 몇 %부터 &apos;혼잡(빨강)&apos;으로 표시할지 정합니다.
                         여유·보통 등급 경계는 기본값을 그대로 유지합니다.
                       </p>
                     </div>
