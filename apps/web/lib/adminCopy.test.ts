@@ -126,6 +126,20 @@ const stripComments = (s: string) => s.replace(/^\s*\/\/.*$/gm, '').replace(/\{?
   }
 }
 
+// ── (6) 관제 데모 — 데모 표시는 머리글 칩 하나, KPI 는 기능설명서 ④ 의 네 지표(2026-10-07 B4) ──────────────
+{
+  const demo = stripComments(read('components/admin/DemoDashboard.tsx'));
+  assert.doesNotMatch(demo, /<DemoBadge/, "관제 데모에 떠다니는 '데모 데이터로 보는 중' 배지가 남아 있다");
+  assert.equal((demo.match(/t\('demo\.sampleChip'\)/g) ?? []).length, 1, "관제 데모의 '예시 화면' 칩은 머리글에 한 개여야 한다");
+  assert.doesNotMatch(demo, /demo\.badgeShort|dateBadge=/, '관제 데모 카드마다 데모 칩이 다시 붙었다');
+  for (const key of ['kpiAvgCongestion', 'kpiAcceptance', 'kpiDau', 'kpiAnomaly']) {
+    assert.match(demo, new RegExp(`t\\('demo\\.${key}'\\)`), `관제 데모 KPI 에 기능설명서 지표(${key})가 없다`);
+  }
+  assert.match(demo, /scenarioKpis\(/, '관제 데모 수락률이 실제 대시보드 시나리오 값과 다른 출처다');
+  assert.doesNotMatch(demo, /demo\.kpiConversion|demo\.kpiStores/, '관제 데모 KPI 가 기능설명서와 다른 지표(대안 전환율·참여 점포)다');
+  assert.match(demo, /<StepNav/, '관제 데모에 단계 바가 없다(실제 대시보드와 같은 순서)');
+}
+
 // ── (7) 장소 관리 — 가짜 발송 없음 · 빈 추이 카드 없음 · '관측 대기' 벽 없음(I72) ─────────────────────────────
 {
   const infra = stripComments(read('app/admin/infrastructure/page.tsx'));

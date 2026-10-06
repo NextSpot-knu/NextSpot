@@ -10,9 +10,13 @@
 //
 // ⚠️ 이 파일에는 fetch·supabase·adminApi 호출이 하나도 없다(그게 이 화면의 계약이다).
 //    쓰기처럼 보이는 버튼(정책 조정·CSV)은 눌리되 "데모에서는 저장되지 않아요" 토스트만 띄운다.
+//
+// 2026-10-07(B4): 실제 대시보드와 같은 순서·같은 단계 바(① 관제 · ② 개입 · ③ 효과)·같은 KPI 네 개(기능설명서 ④ —
+// 평균 혼잡도 · AI 추천 수락률 · 활성 사용자 · 이상 혼잡). 데모 표시는 머리글의 '예시 화면' 칩 하나다
+// (떠다니는 '데모 데이터로 보는 중' 배지와 카드마다 붙던 칩을 걷어냈다 — 사장님 콘솔 데모와 같은 규칙).
 
 import Link from 'next/link';
-import { Activity, AlertTriangle, ArrowRight, Bell, Compass, Download, LogIn, Sparkles, Store, Timer, TrendingUp } from 'lucide-react';
+import { Activity, AlertTriangle, ArrowRight, Bell, Compass, Download, LogIn, Sparkles, Store, Timer, TrendingUp, Users } from 'lucide-react';
 import {
   CartesianGrid,
   Legend,
@@ -26,17 +30,20 @@ import {
 } from 'recharts';
 import { AdminSidebar } from '@/components/AdminSidebar';
 import { DashboardCharts, DashboardHeatmap } from '@/components/admin/DashboardCharts';
-import { DemoBadge, useDemoToast } from '@/components/DemoBadge';
+import { useDemoToast } from '@/components/DemoBadge';
+import { StepNav } from '@/components/admin/StepNav';
 import { useT } from '@/lib/i18n/I18nProvider';
 import {
   DEMO_ADMIN_ALTERNATIVES,
   DEMO_ADMIN_HOTSPOT_TREND,
   DEMO_ADMIN_KPI,
+  DEMO_ADMIN_SCENARIO_DAY,
   DEMO_ADMIN_STORES,
   demoAdminAnomalies,
   demoAdminDistribution,
   demoAdminHeatmap,
 } from '@/lib/demoFixtures';
+import { scenarioKpis } from '@/lib/adminPredictedView';
 
 // recharts 는 stroke 를 SVG 속성으로 내보내므로 토큰(var)이 아니라 값이 필요하다
 // (components/admin/DashboardCharts.tsx 가 같은 이유로 같은 방식으로 미러링한다).
@@ -62,21 +69,25 @@ export function AdminDemoDashboard() {
   const heatmap = demoAdminHeatmap();
   const anomalies = demoAdminAnomalies();
   const distribution = demoAdminDistribution();
+  // KPI 네 개 — 실제 대시보드·기능설명서 ④ 와 같은 지표. 평균 혼잡도는 아래 히트맵 칸의 평균이고, 수락률은
+  // 실제 대시보드의 시나리오 모드와 같은 값(대안 제안 1,013건 중 이동 384건)이라 두 화면이 같은 숫자를 말한다.
+  const heatValues = heatmap.map((cell) => cell.value).filter((v): v is number => typeof v === 'number');
+  const avgCongestion = heatValues.length > 0 ? heatValues.reduce((sum, v) => sum + v, 0) / heatValues.length : 0;
+  const acceptanceRate = scenarioKpis(0).acceptanceRate;
 
   return (
     // 모바일(심사 링크가 바로 여는 폭)에서는 사이드바가 접히고 문서 스크롤을 쓴다.
     // 데스크톱(lg~)은 기존 관제 레이아웃 그대로 — 화면 높이 고정 + 본문만 스크롤.
     <div className="flex min-h-screen bg-hanok font-sans text-hanok-ink lg:h-screen lg:overflow-hidden">
-      <DemoBadge />
       <AdminSidebar demo />
 
       <main className="flex min-w-0 flex-1 flex-col lg:h-full lg:overflow-hidden">
-        {/* pt-11 은 고정 데모 배지가 앉는 자리다(사장님 콘솔과 같은 값). 데스크톱은 기존 pt-8 유지. */}
-        <header className="sticky top-0 z-20 flex flex-shrink-0 flex-col gap-2 border-b border-hanok-line bg-hanok-panel px-4 pb-3 pt-11 lg:static lg:h-20 lg:flex-row lg:items-center lg:justify-between lg:gap-0 lg:px-8 lg:pb-0 lg:pt-8">
+        {/* 데모 표시는 이 머리글의 '예시 화면' 칩 하나 — 휴대폰에서는 머리글이 붙어 있어 스크롤해도 남는다. */}
+        <header className="sticky top-0 z-20 flex flex-shrink-0 flex-col gap-2 border-b border-hanok-line bg-hanok-panel px-4 pb-3 pt-3 lg:static lg:h-20 lg:flex-row lg:items-center lg:justify-between lg:gap-0 lg:px-8 lg:py-0">
           <div className="flex min-w-0 items-center gap-2 lg:gap-3">
             <h2 className="truncate text-base font-bold text-hanok-ink lg:text-xl">경주 관광 혼잡 종합 대시보드</h2>
-            <span className="flex-shrink-0 rounded-full border border-gold/40 bg-gold/15 px-2.5 py-0.5 text-[11px] font-black text-gold-deep">
-              {t('demo.badgeShort')}
+            <span className="flex-shrink-0 rounded-full border border-muk/20 bg-muk px-2.5 py-0.5 text-[12px] font-bold text-hanji">
+              {t('demo.sampleChip')}
             </span>
           </div>
           {/* 사이드바가 접히는 폭에서도 나가는 길 두 개는 남는다 — 관광객 앱 · 실제 계정 로그인. */}
@@ -107,7 +118,9 @@ export function AdminDemoDashboard() {
           </div>
         </header>
 
-        <div className="flex flex-1 flex-col gap-6 p-4 lg:gap-8 lg:overflow-y-auto lg:p-8">
+        <div className="flex flex-1 flex-col gap-6 px-4 pb-4 pt-4 lg:overflow-y-auto lg:px-8 lg:pb-8 lg:pt-0">
+          {/* 단계 바 — 실제 대시보드와 같은 바. 넓은 화면에서는 본문 위에 붙어 있다. */}
+          <StepNav className="-mx-4 border-b border-hanok-line bg-hanok/95 px-4 py-2 backdrop-blur lg:sticky lg:top-0 lg:z-20 lg:-mx-8 lg:px-8" />
           {/* 내보내기 — 데모에서는 파일을 만들지 않는다(무엇이 나갔는지 추적되지 않는 파일을 만들지 않기 위해). */}
           <div className="flex items-center justify-end gap-4">
             <button
@@ -135,40 +148,40 @@ export function AdminDemoDashboard() {
             </div>
           </div>
 
-          {/* KPI 4종 */}
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:gap-6 xl:grid-cols-4">
+          {/* ① 실시간 관제 */}
+          <StepBanner id="step-monitor" badge="①" title="실시간 관제" subtitle={t('demo.step1Sub')} tone="gold" />
+
+          {/* KPI 4종 — 기능설명서 ④ 와 실제 대시보드의 네 지표(평균 혼잡도 · AI 추천 수락률 · 활성 사용자 · 이상 혼잡). */}
+          <div id="demo-kpis" className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:gap-6 xl:grid-cols-4">
             <KpiTile
-              icon={<ArrowRight size={24} />}
+              icon={<Activity size={24} />}
               tone="gold"
-              label={t('demo.kpiDispersals')}
-              value={`${DEMO_ADMIN_KPI.dispersals.toLocaleString()}${t('demo.unitCases')}`}
-              note={t('demo.kpiDispersalsNote')}
-            />
-            <KpiTile
-              icon={<Timer size={24} />}
-              tone="jade"
-              label={t('demo.kpiSavedWait')}
-              value={`${DEMO_ADMIN_KPI.savedWaitMinutes.toLocaleString()}${t('demo.unitMinutes')}`}
-              note={t('demo.kpiSavedWaitNote')}
-            />
-            <KpiTile
-              icon={<Store size={24} />}
-              tone="emerald"
-              label={t('demo.kpiStores')}
-              value={`${DEMO_ADMIN_KPI.participatingStores}${t('demo.unitStores')}`}
-              note={t('demo.kpiStoresNote')}
+              label={t('demo.kpiAvgCongestion')}
+              value={`${(avgCongestion * 100).toFixed(1)}%`}
+              note={t('demo.kpiAvgCongestionNote')}
             />
             <KpiTile
               icon={<TrendingUp size={24} />}
+              tone="jade"
+              label={t('demo.kpiAcceptance')}
+              value={`${(acceptanceRate * 100).toFixed(1)}%`}
+              note={t('demo.kpiAcceptanceNote')}
+            />
+            <KpiTile
+              icon={<Users size={24} />}
+              tone="emerald"
+              label={t('demo.kpiDau')}
+              value={`${DEMO_ADMIN_SCENARIO_DAY.dailyActiveUsers.toLocaleString()}${t('demo.unitPeople')}`}
+              note={t('demo.kpiDauNote')}
+            />
+            <KpiTile
+              icon={<AlertTriangle size={24} />}
               tone="rose"
-              label={t('demo.kpiConversion')}
-              value={`${(DEMO_ADMIN_KPI.alternativeConversion * 100).toFixed(1)}%`}
-              note={t('demo.kpiConversionNote')}
+              label={t('demo.kpiAnomaly')}
+              value={`${anomalies.length.toLocaleString()}${t('demo.unitCases')}`}
+              note={t('demo.kpiAnomalyNote')}
             />
           </div>
-
-          {/* ① 실시간 관제 */}
-          <StepBanner badge="①" title="실시간 관제" subtitle={t('demo.step1Sub')} tone="gold" />
 
           <div className="rounded-2xl border border-hanok-line bg-hanok-panel p-4 shadow-sm lg:p-6">
             <div className="mb-4 flex flex-wrap items-center gap-2">
@@ -218,11 +231,11 @@ export function AdminDemoDashboard() {
               grid-cols-4 를 유지하는 이유: 자식이 col-span-4 라서(그 파일은 여기 소유가 아니다)
               열을 줄이면 암시적 열이 생겨 폭이 터진다. 한 칸짜리 span-4 는 어느 폭에서도 100% 다. */}
           <div className="grid grid-cols-4 gap-4 lg:gap-6">
-            <DashboardHeatmap heatmapData={heatmap} dateBadge={t('demo.badgeShort')} />
+            <DashboardHeatmap heatmapData={heatmap} />
           </div>
 
           {/* ② 정책 개입 */}
-          <StepBanner badge="②" title="정책 개입" subtitle={t('demo.step2Sub')} tone="amber" />
+          <StepBanner id="step-policy" badge="②" title="정책 개입" subtitle={t('demo.step2Sub')} tone="amber" />
 
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-3 lg:gap-6">
             {/* 대안 전환율 */}
@@ -318,7 +331,24 @@ export function AdminDemoDashboard() {
           </div>
 
           {/* ③ 분산 효과 — 실제 대시보드와 같은 차트 컴포넌트에 고정값을 넣는다. */}
-          <StepBanner badge="③" title="분산 효과" subtitle={t('demo.step3Sub')} tone="emerald" />
+          <StepBanner id="step-effect" badge="③" title="분산 효과" subtitle={t('demo.step3Sub')} tone="emerald" />
+          {/* 오늘 분산 유도 · 절약한 대기 — KPI 줄에서 이 단계로 옮겼다(개입이 만든 결과다). */}
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:gap-6">
+            <KpiTile
+              icon={<ArrowRight size={24} />}
+              tone="gold"
+              label={t('demo.kpiDispersals')}
+              value={`${DEMO_ADMIN_KPI.dispersals.toLocaleString()}${t('demo.unitCases')}`}
+              note={t('demo.kpiDispersalsNote')}
+            />
+            <KpiTile
+              icon={<Timer size={24} />}
+              tone="jade"
+              label={t('demo.kpiSavedWait')}
+              value={`${DEMO_ADMIN_KPI.savedWaitMinutes.toLocaleString()}${t('demo.unitMinutes')}`}
+              note={t('demo.kpiSavedWaitNote')}
+            />
+          </div>
           {/* 히트맵과 같은 이유로 grid-cols-4 유지(자식이 col-span-4). */}
           <div className="grid grid-cols-4 gap-4 lg:gap-6">
             <DashboardCharts distribution={distribution} mode="demo" />
@@ -330,9 +360,6 @@ export function AdminDemoDashboard() {
               <div className="flex flex-wrap items-center gap-2 border-b border-hanok-line bg-hanok-card/30 p-4 lg:p-6">
                 <AlertTriangle className="text-rose-700" size={20} />
                 <h3 className="text-lg font-bold text-hanok-ink">{t('demo.anomalyTitle')}</h3>
-                <span className="rounded-md border border-gold/40 bg-gold/15 px-2 py-0.5 text-[11px] font-black text-gold-deep">
-                  {t('demo.badgeShort')}
-                </span>
               </div>
               <div className="grid grid-cols-1 gap-3 p-4 sm:grid-cols-2 lg:grid-cols-3">
                 {anomalies.map((alert) => (
@@ -385,7 +412,7 @@ function KpiTile({
       </div>
       <div>
         <h3 className="mb-1 text-sm font-semibold text-hanok-muted">{label}</h3>
-        <div className="text-3xl font-black text-hanok-ink">{value}</div>
+        <div className="text-[32px] font-black leading-9 text-hanok-ink">{value}</div>
         <p className="mt-1 text-[11px] leading-snug text-hanok-muted">{note}</p>
       </div>
     </div>
@@ -394,11 +421,13 @@ function KpiTile({
 
 // 폐루프 내러티브 스텝 헤더 — 실제 대시보드의 StepBanner 와 같은 모양(그 함수는 export 되지 않는다).
 function StepBanner({
+  id,
   badge,
   title,
   subtitle,
   tone,
 }: {
+  id?: string;
   badge: string;
   title: string;
   subtitle: string;
@@ -410,7 +439,7 @@ function StepBanner({
     emerald: 'bg-emerald-500/15 text-emerald-700 border-emerald-500/30',
   };
   return (
-    <div className="flex items-center gap-3">
+    <div id={id} className="flex scroll-mt-20 items-center gap-3">
       <span className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full border text-base font-black ${palette[tone]}`}>
         {badge}
       </span>
