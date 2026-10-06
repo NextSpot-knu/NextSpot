@@ -259,7 +259,7 @@
     "heroDesc": "每个收藏地点都会显示现在出发的预计到达时间。",
     "heroCount": "已收藏 {n} 处",
     "emptyTitle": "把喜欢的地点收藏在这里吧",
-    "emptyBody": "在庆州皇理团街收藏喜欢的地点，就会出现在这里。",
+    "emptyBody": "收藏的地点会显示在这里。",
     "browseMap": "浏览地图",
     "clearAll": "全部清除",
     "filterAll": "全部",

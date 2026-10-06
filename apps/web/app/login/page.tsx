@@ -182,7 +182,9 @@ function LoginForm() {
   };
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-[100dvh] bg-gradient-to-b from-hanji via-hanji-deep to-sunset-1/20 px-6 relative">
+    // pt-[4.5rem]: 오른쪽 위 언어 칩(absolute top-4)이 제목과 겹치지 않게 내용 시작점을 칩 아래로 둔다.
+    // 세로 가운데 정렬이라 폰에서 심사용 계정 안내까지 길어지면 내용이 위로 밀려 칩 밑에 깔렸다(I65).
+    <div className="flex flex-col items-center justify-center min-h-[100dvh] bg-gradient-to-b from-hanji via-hanji-deep to-sunset-1/20 px-6 pt-[4.5rem] pb-10 relative">
       <div className="absolute top-4 right-4 z-20">
         <LanguageSwitcher />
       </div>
