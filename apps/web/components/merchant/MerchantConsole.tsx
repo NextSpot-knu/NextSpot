@@ -15,6 +15,7 @@
 // ① 예상 혼잡만은 예외로 실패해도 같은 업종의 요일·시간대 패턴 곡선으로 그린다(항상 보인다).
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
   Loader2,
@@ -22,7 +23,6 @@ import {
   ChevronLeft,
   Ticket,
   MessageCircleWarning,
-  ThumbsUp,
   Eye,
   Zap,
   Timer,
@@ -33,6 +33,8 @@ import {
   PowerOff,
   LogIn,
   LogOut,
+  Navigation,
+  ExternalLink,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -75,10 +77,10 @@ import {
   type SeatLevel,
 } from '@/lib/merchant/api';
 import { bestQuietHour, quietHourCopy } from '@/lib/merchant/forecastInsight';
+import { TIMESALE_PROMPT, scorecardIsEmpty, scorecardTiles, type ScorecardTileKey } from '@/lib/merchant/scorecard';
 import { PREDICTED_BADGE } from '@/lib/adminPredictedView';
 
 import { useT } from '@/lib/i18n/I18nProvider';
-import { useDemoToast } from '@/components/DemoBadge';
 import {
   DEMO_MERCHANT_FACILITY,
   DEMO_MERCHANT_SEAT,
@@ -99,6 +101,45 @@ const TYPE_LABEL: Record<string, string> = {
 
 type AsyncState = 'loading' | 'ready' | 'error';
 
+// 콘솔 토스트는 화면 위 가운데에 띄운다 — 전역 토스터(아래 가운데)는 ④ 좌석 버튼과 휴대폰 하단 바로 가기
+// 바를 4초 동안 덮었다(방금 누른 버튼의 결과가 그 버튼을 가린다).
+const TOAST_TOP = { position: 'top-center' } as const;
+
+/** 데모의 쓰기 버튼 안내 — 공용 데모 토스트와 같은 문구, 콘솔 토스트와 같은 자리. */
+function useConsoleDemoToast() {
+  const t = useT();
+  return () => {
+    toast(t('demo.noSave'), TOAST_TOP);
+  };
+}
+
+/** 콘솔 안의 다른 섹션(③ 타임세일 · ④ 좌석)으로 데려간다.
+ *  넓은 화면에서는 ③④ 가 오른쪽 열에 이미 보이므로 화면을 크게 움직이지 않고(nearest) 잠깐 금색 테를 둘러 알려 준다.
+ *  테는 인라인 outline 이다 — Tailwind ring(box-shadow) 은 레이어 밖의 .toss-surface 그림자에 져서 그려지지 않았고,
+ *  바깥쪽 테는 오른쪽 열의 스크롤 상자에 잘린다(그래서 넓은 화면에서 '타임세일 열기' 가 아무 일도 안 하는 버튼이었다).
+ *  키보드·화면낭독기 사용자를 위해 그 섹션의 첫 선택 버튼(③ 15% · ④ 여유)으로 초점도 옮긴다(스크롤은 위에서 이미 했다). */
+const SECTION_FLASH_MS = 1400;
+const sectionFlashTimers = new Map<string, number>();
+function goToSection(id: string) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const wide = typeof window !== 'undefined' && window.matchMedia('(min-width: 1024px)').matches;
+  el.scrollIntoView({ behavior: 'smooth', block: wide ? 'nearest' : 'start' });
+  el.style.outline = '2px solid var(--nextspot-gold)';
+  el.style.outlineOffset = '-2px';
+  // 연달아 누르면 앞 타이머가 새 테를 일찍 지우지 않게 하나만 남긴다.
+  window.clearTimeout(sectionFlashTimers.get(id));
+  sectionFlashTimers.set(
+    id,
+    window.setTimeout(() => {
+      el.style.outline = '';
+      el.style.outlineOffset = '';
+      sectionFlashTimers.delete(id);
+    }, SECTION_FLASH_MS),
+  );
+  el.querySelector<HTMLButtonElement>('button[aria-pressed]')?.focus({ preventScroll: true });
+}
+
 export function MerchantConsole({ demo = false }: { demo?: boolean }) {
   const router = useRouter();
   const t = useT();
@@ -106,6 +147,9 @@ export function MerchantConsole({ demo = false }: { demo?: boolean }) {
   const [mounted, setMounted] = useState(false);
   // 데모는 고를 가게가 없다 — 고정 가게로 바로 시작한다(로컬 저장소도 읽지 않는다).
   const [facility, setFacility] = useState<MerchantFacility | null>(demo ? DEMO_MERCHANT_FACILITY : null);
+  // ③ 에 진행 중인 타임세일이 있는가 — ② 성적표의 '타임세일을 열어 보세요' 가 진행 중 배너 옆에 서지 않게 ③ 이 알려 준다.
+  // null = 아직 모름(불러오는 중·실패) — 그동안 ② 는 그 줄을 감춘다.
+  const [saleActive, setSaleActive] = useState<boolean | null>(null);
 
   useEffect(() => {
     setMounted(true);
@@ -153,18 +197,28 @@ export function MerchantConsole({ demo = false }: { demo?: boolean }) {
     <div className="min-h-screen w-full bg-hanji font-sans pb-16">
       {/* 콘솔 톱바 — 흰 서페이스 위에 가게 이름을 주인공으로 세운다(종류는 금색 칩).
           좌우 조작은 모두 44px 급 버튼으로 — 스크린샷·고령 사용자 모두에서 '전문 도구' 로 읽히게.
-          데모 표시는 떠다니는 배지 대신 이 톱바 안의 '예시 화면' 칩 하나다(sticky 라 스크롤해도 남는다). */}
-      <header className="sticky top-0 z-10 bg-white/95 backdrop-blur border-b border-line px-3 py-2.5 flex flex-col gap-2">
+          데모 표시는 떠다니는 배지 대신 이 톱바 안의 '예시 화면' 칩 하나다(sticky 라 스크롤해도 남는다).
+          넓은 화면에서는 왼쪽에 NextSpot 로고와 '사장님 콘솔' 을 세워 어느 화면인지부터 읽히게 한다(I40). */}
+      <header className="sticky top-0 z-10 bg-white/95 backdrop-blur border-b border-line px-3 py-2.5">
+        <div className="mx-auto flex max-w-6xl flex-col gap-2">
         <div className="flex items-center justify-between gap-2">
           {/* 데모에서도 목적지는 콘솔 홈(/merchant) 이다 — 게이트에 로그인·데모·심사 계정 안내가 모여 있다.
               앱으로 나가는 길은 오른쪽 '나가기' 가 따로 맡는다. */}
-          <button
-            onClick={() => router.push('/merchant')}
-            aria-label="사장님 콘솔 홈으로"
-            className="toss-pressable flex min-h-11 min-w-11 items-center justify-center rounded-xl border border-line bg-white text-muk-soft hover:bg-hanji hover:text-muk transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
-          >
-            <ChevronLeft size={20} aria-hidden="true" />
-          </button>
+          <div className="flex flex-shrink-0 items-center gap-2.5">
+            <button
+              onClick={() => router.push('/merchant')}
+              aria-label="사장님 콘솔 홈으로"
+              className="toss-pressable flex min-h-11 min-w-11 items-center justify-center rounded-xl border border-line bg-white text-muk-soft hover:bg-hanji hover:text-muk transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+            >
+              <ChevronLeft size={20} aria-hidden="true" />
+            </button>
+            {/* 휴대폰 폭에서는 가게 이름이 눌리지 않게 감춘다(그 폭의 순서·모양은 그대로). */}
+            <span className="hidden items-end gap-2 sm:flex">
+              {/* eslint-disable-next-line @next/next/no-img-element -- 정적 export, public 자산 직접 참조 */}
+              <img src="/nextspot-logo.png" alt="NextSpot" className="h-6 w-auto" />
+              <span className="pb-px text-[15px] font-bold leading-none text-muk">사장님 콘솔</span>
+            </span>
+          </div>
           <div className="min-w-0 text-center">
             <p className="truncate text-[15px] font-bold font-serif text-muk">{facility.name}</p>
             <div className="mt-0.5 flex items-center justify-center gap-1.5">
@@ -183,6 +237,15 @@ export function MerchantConsole({ demo = false }: { demo?: boolean }) {
               것뿐이었다 — 하단 내비도 /merchant 경로에서는 숨겨진다(BottomNav 의 allowlist).
               목적지를 못박는 이유는 게이트의 leave 주석 참조(히스토리 back 은 못 나간다). */}
           <div className="flex flex-shrink-0 items-center gap-1.5">
+            {/* 넓은 화면에서는 실제 계정으로 넘어가는 길도 이 줄에 둔다 — 톱바를 한 줄로 유지해 ③④ 가 첫 화면에 들어오게. */}
+            {demo && (
+              <button
+                onClick={() => router.push('/merchant')}
+                className="toss-pressable hidden min-h-11 items-center gap-1.5 rounded-xl border border-gold/40 bg-gold/10 px-3 text-[13px] font-semibold text-gold-deep hover:bg-gold/20 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 lg:flex"
+              >
+                <LogIn size={14} aria-hidden="true" /> {t('demo.realLogin')}
+              </button>
+            )}
             {/* 데모에는 고를 다른 가게가 없다 — 버튼 자체를 감춘다(눌러도 할 일이 없는 버튼을 두지 않는다). */}
             {!demo && <button
               onClick={handleChangeFacility}
@@ -199,31 +262,69 @@ export function MerchantConsole({ demo = false }: { demo?: boolean }) {
             </button>
           </div>
         </div>
-        {/* 데모에서 실제 계정으로 넘어가는 길 — 위 줄에 끼워 넣으면 390px 에서 가게 이름이 눌린다. */}
+        {/* 데모에서 실제 계정으로 넘어가는 길 — 위 줄에 끼워 넣으면 390px 에서 가게 이름이 눌린다(넓은 화면은 위 줄). */}
         {demo && (
           <button
             onClick={() => router.push('/merchant')}
-            className="toss-pressable flex min-h-10 w-full items-center justify-center gap-1.5 rounded-xl border border-gold/40 bg-gold/10 px-3 text-[13px] font-semibold text-gold-deep hover:bg-gold/20 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+            className="toss-pressable flex min-h-10 w-full items-center justify-center gap-1.5 rounded-xl border border-gold/40 bg-gold/10 px-3 text-[13px] font-semibold text-gold-deep hover:bg-gold/20 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 lg:hidden"
           >
             <LogIn size={14} aria-hidden="true" /> {t('demo.realLogin')}
           </button>
         )}
+        </div>
       </header>
 
-      <main className="max-w-2xl mx-auto px-4 py-6 flex flex-col gap-5">
-        {/* key=시설 id — 가게가 바뀌면 카드 상태(이전 가게 브리핑)를 통째로 리셋한다 */}
-        <BriefingCard key={facility.id} facilityId={facility.id} demo={demo} />
-        {demo && <DemoTodaySummary />}
-        <ForecastSection facilityId={facility.id} facilityType={facility.type} demo={demo} />
-        <StatsSection facilityId={facility.id} demo={demo} />
-        {demo && <DemoWeeklyTrend />}
-        <TimesaleSection
-          facilityId={facility.id}
-          demo={demo}
-          demoCouponRate={demo ? DEMO_MERCHANT_FACILITY.couponRate : null}
-        />
-        <SeatStatusSection facilityId={facility.id} demo={demo} />
+      {/* 1024px 이상은 두 열 — 왼쪽은 읽을 것(브리핑·① 예상 혼잡·② 성적표), 오른쪽은 할 일(③ 타임세일·④ 좌석 방송).
+          예전에는 640px 한 줄이라 심사위원이 눌러 볼 ③④ 가 세 화면 아래였다(PE10). 오른쪽 열은 화면에 붙어 있고,
+          화면보다 길면 그 열만 스크롤한다 — 왼쪽을 읽는 동안에도 두 행동이 늘 보인다.
+          휴대폰 순서는 그대로이고, 대신 아래쪽에 ③④ 로 바로 가는 고정 바가 있다.
+          오른쪽 열의 스크롤 상자는 좌우·아래로 그림자 자리(-mx-4 px-4 · pb-8)를 둔다 — 상자 가장자리에 붙어 있으면
+          카드 그림자가 상자에 잘려 ③ 과 ④ 사이에 각진 띠가 생겼다(왼쪽 열 카드와 그림자 모양이 달랐다). */}
+      <main className="mx-auto max-w-2xl px-4 py-6 pb-28 lg:grid lg:max-w-6xl lg:grid-cols-2 lg:items-start lg:gap-5 lg:pb-6 lg:pt-4">
+        <div className="flex flex-col gap-5">
+          {/* key=시설 id — 가게가 바뀌면 카드 상태(이전 가게 브리핑)를 통째로 리셋한다 */}
+          <BriefingCard key={facility.id} facilityId={facility.id} demo={demo} />
+          {demo && <DemoTodaySummary />}
+          <ForecastSection facilityId={facility.id} facilityType={facility.type} demo={demo} />
+          <StatsSection facilityId={facility.id} demo={demo} saleActive={saleActive} />
+          {demo && <DemoWeeklyTrend />}
+        </div>
+        <div
+          data-testid="merchant-actions"
+          className="mt-5 flex flex-col gap-5 lg:sticky lg:top-[4.75rem] lg:-mx-4 lg:mt-0 lg:max-h-[calc(100dvh-5.5rem)] lg:overflow-y-auto lg:px-4 lg:pb-8"
+        >
+          <TimesaleSection
+            facilityId={facility.id}
+            demo={demo}
+            demoCouponRate={demo ? DEMO_MERCHANT_FACILITY.couponRate : null}
+            onActiveChange={setSaleActive}
+          />
+          <SeatStatusSection facilityId={facility.id} demo={demo} />
+        </div>
       </main>
+
+      {/* 휴대폰 하단 바로 가기 — ③④ 는 화면 아래쪽에 있어서, 들어오자마자 두 행동이 있다는 걸 먼저 보여 준다(P10). */}
+      <nav
+        aria-label="사장님 바로 가기"
+        className="fixed inset-x-0 bottom-0 z-20 border-t border-line bg-white/95 px-3 pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] backdrop-blur lg:hidden"
+      >
+        <div className="mx-auto grid max-w-2xl grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={() => goToSection('merchant-timesale')}
+            className="toss-pressable flex min-h-12 items-center justify-center gap-1.5 rounded-xl bg-gradient-to-r from-gold-deep to-terracotta px-3 text-[15px] font-bold text-white shadow-md shadow-terracotta/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+          >
+            ⚡ 타임세일 발행
+          </button>
+          <button
+            type="button"
+            onClick={() => goToSection('merchant-seat')}
+            className="toss-pressable flex min-h-12 items-center justify-center gap-1.5 rounded-xl border-2 border-muk bg-white px-3 text-[15px] font-bold text-muk focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+          >
+            🪑 좌석 상태 방송
+          </button>
+        </div>
+      </nav>
     </div>
   );
 }
@@ -250,7 +351,7 @@ function SectionCard({
   children: React.ReactNode;
 }) {
   return (
-    <section id={id} className="toss-surface bg-white border border-line rounded-3xl p-5 scroll-mt-28">
+    <section id={id} className="toss-surface bg-white border border-line rounded-3xl p-5 lg:p-4 scroll-mt-28">
       <div className="flex items-center justify-between flex-wrap gap-2 mb-2">
         <div className="flex items-center gap-2">
           <span className="flex-shrink-0 px-2.5 py-0.5 rounded-full text-[13px] font-bold border bg-gold/15 text-gold-deep border-gold/30">
@@ -398,9 +499,7 @@ function ForecastSection({
           <p className="text-[13px] leading-relaxed text-muk-soft">{quietCopy.body}</p>
           <button
             type="button"
-            onClick={() =>
-              document.getElementById('merchant-timesale')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-            }
+            onClick={() => goToSection('merchant-timesale')}
             className="toss-pressable mt-1 flex min-h-11 items-center gap-1.5 self-start rounded-xl border border-gold/50 bg-white px-3.5 text-[15px] font-bold text-gold-deep transition-colors hover:bg-gold/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
           >
             <Zap size={15} aria-hidden="true" /> 타임세일 열기
@@ -459,7 +558,16 @@ function ForecastSection({
 // ② 성적표 — GET /api/v1/merchant/stats (최근 7일)
 // =========================================================================
 
-function StatsSection({ facilityId, demo = false }: { facilityId: string; demo?: boolean }) {
+function StatsSection({
+  facilityId,
+  demo = false,
+  saleActive = null,
+}: {
+  facilityId: string;
+  demo?: boolean;
+  /** ③ 에 진행 중인 타임세일이 있는가(null = 모름). 있거나 모르면 '타임세일을 열어 보세요' 를 감춘다. */
+  saleActive?: boolean | null;
+}) {
   const [state, setState] = useState<AsyncState>('loading');
   const [stats, setStats] = useState<MerchantStats | null>(null);
   const [errorMessage, setErrorMessage] = useState('');
@@ -487,14 +595,9 @@ function StatsSection({ facilityId, demo = false }: { facilityId: string; demo?:
   }, [load]);
 
   // 모든 항목이 0 이면 숫자 타일 대신 '아직 기록 없음 + 다음 행동'을 보여준다 — 0 만 늘어놓으면
-  // 사장님이 "고장났나?" 로 읽는다(감사 P1).
-  const isEmpty =
-    !!stats &&
-    stats.coupons_issued === 0 &&
-    stats.coupons_used === 0 &&
-    stats.congestion_reports === 0 &&
-    stats.recommendations_exposed === 0 &&
-    stats.recommendations_accepted === 0;
+  // 사장님이 "고장났나?" 로 읽는다(감사 P1). 0 이 아닌 숫자만 타일로 세운다(lib/merchant/scorecard.ts, PM 4.18).
+  const isEmpty = !!stats && scorecardIsEmpty(stats);
+  const card = stats ? scorecardTiles(stats, { saleActive }) : null;
 
   return (
     <SectionCard badge="② 성적표" title={`최근 ${stats?.window_days ?? 7}일 활동`}>
@@ -505,62 +608,68 @@ function StatsSection({ facilityId, demo = false }: { facilityId: string; demo?:
           <div className="px-3 py-4 rounded-xl bg-hanji border border-line">
             <p className="text-[15px] font-bold text-muk mb-1">우리 가게 성적표가 여기에 쌓입니다</p>
             <p className="text-[13px] text-muk-soft leading-relaxed">
-              쿠폰 사용·혼잡 제보·추천 수락이 최근 {stats.window_days}일 기준으로 집계됩니다. 아래 두 가지를
-              시작하면 바로 숫자가 올라가요.
+              손님 추천 노출·길안내·쿠폰 사용이 최근 {stats.window_days}일 기준으로 쌓여요. 아래 두 가지부터
+              시작해 보세요.
             </p>
           </div>
           <div className="px-3 py-3 rounded-xl bg-hanji border border-line">
-            <p className="text-[13px] font-bold text-muk mb-1.5">이렇게 시작해보세요</p>
+            <p className="text-[13px] font-bold text-muk mb-1.5">이렇게 시작해 보세요</p>
             <ul className="text-[13px] text-muk-soft leading-relaxed list-disc pl-4 flex flex-col gap-1">
-              <li>③ 셀프 타임세일을 발행하면 추천 랭킹 인센티브에 반영됩니다.</li>
-              <li>④ 좌석 상태를 방송하면 30분 동안 추천 혼잡도에 사장님 확인값이 쓰입니다.</li>
+              <li>③ 타임세일을 열면 손님 추천에서 우리 가게가 더 잘 보여요.</li>
+              <li>④ 좌석 상태를 알리면 30분 동안 손님 추천에 지금 우리 가게 상황이 반영돼요.</li>
             </ul>
           </div>
         </div>
       )}
-      {state === 'ready' && stats && !isEmpty && (
+      {state === 'ready' && card && !isEmpty && (
         <div className="flex flex-col gap-3">
           <div className="grid grid-cols-2 gap-3">
-            <StatTile
-              icon={<Ticket size={16} />}
-              label="쿠폰 사용"
-              value={`${stats.coupons_used} / ${stats.coupons_issued}`}
-              sub={`사용 ${stats.coupons_used} / 발급 ${stats.coupons_issued}`}
-            />
-            <StatTile
-              icon={<ThumbsUp size={16} />}
-              label="추천 수락"
-              value={`${stats.recommendations_accepted} / ${stats.recommendations_exposed}`}
-              sub={`수락 ${stats.recommendations_accepted} / 제안 ${stats.recommendations_exposed}`}
-            />
-            <div className="col-span-2">
-              <StatTile
-                icon={<MessageCircleWarning size={16} />}
-                label="혼잡 제보"
-                value={stats.congestion_reports}
-                sub="손님이 보내주신 혼잡 제보 건수"
-              />
-            </div>
+            {card.tiles.map((tile) => (
+              <div key={tile.key} className={tile.hero || tile.wide ? 'col-span-2' : undefined}>
+                <StatTile icon={STAT_ICONS[tile.key]} label={tile.label} value={tile.value} sub={tile.sub} hero={tile.hero} />
+              </div>
+            ))}
           </div>
-          <p className="text-[13px] text-muk-soft leading-relaxed px-1">
-            &lsquo;추천 제안&rsquo;은 우리 가게가 손님 추천 목록에 오른 횟수입니다.
-          </p>
+          {/* 쿠폰을 한 번도 안 줬으면 '0 / 0' 타일 대신 다음 행동 한 줄 — 진행 중인 세일이 없을 때만(scorecard.ts). */}
+          {card.showTimesalePrompt && (
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-gold/40 bg-gold/10 px-3.5 py-3">
+              <p className="min-w-0 flex-1 text-[13px] leading-relaxed text-muk">{TIMESALE_PROMPT}</p>
+              <button
+                type="button"
+                onClick={() => goToSection('merchant-timesale')}
+                className="toss-pressable flex min-h-10 items-center gap-1.5 rounded-xl border border-gold/50 bg-white px-3 text-[13px] font-bold text-gold-deep transition-colors hover:bg-gold/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+              >
+                <Zap size={14} aria-hidden="true" /> 타임세일 열기
+              </button>
+            </div>
+          )}
         </div>
       )}
     </SectionCard>
   );
 }
 
+const STAT_ICONS: Record<ScorecardTileKey, React.ReactNode> = {
+  exposed: <Eye size={16} />,
+  accepted: <Navigation size={16} />,
+  coupons: <Ticket size={16} />,
+  reports: <MessageCircleWarning size={16} />,
+  arrivals: <CircleCheck size={16} />,
+};
+
 function StatTile({
   icon,
   label,
   value,
   sub,
+  hero = false,
 }: {
   icon: React.ReactNode;
   label: string;
   value: number | string;
   sub?: string;
+  /** 두 칸을 쓰는 맨 앞 타일 — 숫자를 한 단계 크게. */
+  hero?: boolean;
 }) {
   return (
     <div className="flex flex-col gap-1 px-3.5 py-3.5 rounded-2xl bg-hanji border border-line">
@@ -571,7 +680,7 @@ function StatTile({
         </span>
         <span className="text-[13px] font-semibold text-muk-soft">{label}</span>
       </div>
-      <span className="text-2xl font-bold tabular-nums text-muk">{value}</span>
+      <span className={`${hero ? 'text-3xl' : 'text-2xl'} font-bold tabular-nums text-muk`}>{value}</span>
       {sub && <span className="text-[13px] text-muk-soft">{sub}</span>}
     </div>
   );
@@ -582,6 +691,13 @@ function StatTile({
 // =========================================================================
 
 const RATE_OPTIONS = TIMESALE_RATE_OPTIONS;
+// 고른 칩은 꽉 찬 먹색 — 예전의 옅은 금색은 고르지 않은 굵은 검정 칩보다 오히려 약해 보였다(PH10, /setup 과 같은 규칙).
+const SELECTED_CHIP = 'border-muk bg-muk text-hanji';
+const SelectedMark = () => (
+  <span aria-hidden="true" className="mr-1">
+    ✓
+  </span>
+);
 const DURATION_OPTIONS = [
   { minutes: 60, label: '1시간' },
   { minutes: 120, label: '2시간' },
@@ -606,13 +722,16 @@ function TimesaleSection({
   facilityId,
   demo = false,
   demoCouponRate = null,
+  onActiveChange,
 }: {
   facilityId: string;
   demo?: boolean;
   /** 데모 가게의 기본 쿠폰율(데모는 조회하지 않는다). */
   demoCouponRate?: number | null;
+  /** 진행 중인 세일이 있는지(true/false) · 목록을 못 불러왔는지(null)를 콘솔에 알린다(② 성적표 프롬프트 판정용). */
+  onActiveChange?: (active: boolean | null) => void;
 }) {
-  const demoToast = useDemoToast();
+  const demoToast = useConsoleDemoToast();
   const [state, setState] = useState<AsyncState>('loading');
   const [sales, setSales] = useState<MerchantTimesale[]>([]);
   const [errorMessage, setErrorMessage] = useState('');
@@ -660,6 +779,7 @@ function TimesaleSection({
     };
   }, [facilityId, demo]);
   const rateHint = selectedRate === null ? null : timesaleRateHint(baseCouponRate, selectedRate);
+  const canPublish = selectedRate !== null && selectedDuration !== null;
 
   const load = useCallback(async () => {
     // 데모: 진행 중인 20% 타임세일 하나를 고정으로 보여 준다(목록 API 호출 없음).
@@ -694,6 +814,12 @@ function TimesaleSection({
     () => sales.filter((s) => !s.canceled_at && new Date(s.ends_at).getTime() > now),
     [sales, now]
   );
+  // 발행·취소·만료로 진행 중 여부가 바뀌면 콘솔에 알린다. 다시 불러오는 동안(loading)은 마지막 값을 그대로 둔다.
+  const hasActiveSale = activeSales.length > 0;
+  useEffect(() => {
+    if (state === 'ready') onActiveChange?.(hasActiveSale);
+    else if (state === 'error') onActiveChange?.(null);
+  }, [state, hasActiveSale, onActiveChange]);
   // 확인 단계의 배지 미리보기 — 진행 중인 세일이 더 높으면 손님은 그 값을 본다.
   const confirmPreview = publishConfirm
     ? timesaleConfirmPreview(baseCouponRate, publishConfirm.rate, activeSales.map((s) => s.rate))
@@ -734,6 +860,7 @@ function TimesaleSection({
       setEffectiveNote(overlapped ? notice : null);
       await load();
       toast.success(`${Math.round(rate * 100)}% 타임세일을 발행했습니다.`, {
+        ...TOAST_TOP,
         description: notice,
         // 중복 안내는 한 줄 더 길고 더 중요하다 — 기본 시간보다 오래 띄운다.
         duration: overlapped ? 10000 : undefined,
@@ -741,7 +868,7 @@ function TimesaleSection({
     } catch (e) {
       const message = e instanceof MerchantApiError ? e.message : '타임세일 발행에 실패했습니다.';
       setPublishError(message);
-      toast.error(message);
+      toast.error(message, TOAST_TOP);
     } finally {
       setPublishing(false);
     }
@@ -762,11 +889,11 @@ function TimesaleSection({
       // 세일 하나가 사라지면 '실제 적용 할인율' 안내는 더 이상 사실이 아니다 — 같이 지운다.
       setEffectiveNote(null);
       await load();
-      toast.success('타임세일을 취소했습니다.', { description: '추천 인센티브 반영도 함께 해제됩니다.' });
+      toast.success('타임세일을 취소했습니다.', { ...TOAST_TOP, description: '손님 추천 카드의 할인 배지도 함께 내려가요.' });
     } catch (e) {
       const message = e instanceof MerchantApiError ? e.message : '타임세일 취소에 실패했습니다.';
       setPublishError(message);
-      toast.error(message);
+      toast.error(message, TOAST_TOP);
     } finally {
       setCancelingId(null);
     }
@@ -785,20 +912,49 @@ function TimesaleSection({
         <div className="flex flex-col gap-4">
           {activeSales.length > 0 && (
             <div className="flex flex-col gap-2">
+              {/* 진행 중 배너 — '발행했다' 가 아니라 '지금 손님 추천에 붙어 있다' 를 보여 준다(PH10·I68).
+                  손님 카드에 실제로 붙는 배지 모양 그대로의 미리보기와, 그 카드를 직접 열어 보는 길까지. */}
               {activeSales.map((sale) => (
                 <div
                   key={sale.id}
-                  className="flex items-center justify-between px-3.5 py-3 rounded-2xl bg-gold/10 border border-gold/30"
+                  data-testid="timesale-active"
+                  className="flex flex-wrap items-start justify-between gap-2 px-3.5 py-3 rounded-2xl bg-terracotta/10 border border-terracotta/30"
                 >
-                  <div className="flex items-center gap-2.5">
-                    <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-gold/15 text-gold-deep">
+                  <div className="flex min-w-0 items-start gap-2.5">
+                    <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-terracotta/15 text-terracotta">
                       <Zap size={16} aria-hidden="true" />
                     </span>
-                    <div>
-                      <p className="text-[15px] font-bold text-muk">{Math.round(sale.rate * 100)}% 할인 중</p>
-                      <p className="text-[13px] text-muk-soft flex items-center gap-1 tabular-nums">
-                        <Timer size={12} aria-hidden="true" /> {formatRemaining(new Date(sale.ends_at).getTime() - now)}
+                    <div className="min-w-0">
+                      {/* 390px 에서 '진행 / 중' 으로 끊기지 않게 '타임세일 진행 중' 은 한 덩어리, 남은 시간은 sm 미만에서 다음 줄. */}
+                      <p className="text-[18px] font-bold leading-snug text-muk">
+                        ⚡ {Math.round(sale.rate * 100)}% <span className="whitespace-nowrap">타임세일 진행 중</span>
+                        <span className="block whitespace-nowrap font-semibold text-muk-soft tabular-nums sm:inline">
+                          <span className="hidden sm:inline">{' · '}</span>
+                          <Timer size={13} className="inline -mt-0.5" aria-hidden="true" /> {formatRemaining(new Date(sale.ends_at).getTime() - now)}
+                        </span>
                       </p>
+                      <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[13px] font-bold border bg-gold/15 text-gold-deep border-gold/30">
+                          <span className="h-1.5 w-1.5 rounded-full bg-gold-deep animate-pulse" aria-hidden="true" />
+                          추천 반영 중
+                        </span>
+                        <span className="whitespace-nowrap rounded-md border border-gold/60 bg-gold/25 px-1.5 py-px text-[13px] font-black text-gold-deep">
+                          ⚡ 타임세일 {Math.round(sale.rate * 100)}%
+                        </span>
+                        {/* 손님 화면 — 이 가게를 '선택한 장소' 카드로 연다(/main?place=). 데모 가게는 실제 지도에 없어서 감춘다.
+                            새 탭으로 연다 — 사장님은 콘솔을 그대로 둔 채 손님 카드를 확인하고 돌아온다(아이콘도 '새 창' 이다). */}
+                        {!demo && (
+                          <Link
+                            href={`/main?place=${encodeURIComponent(facilityId)}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex min-h-8 items-center gap-1 rounded-lg px-1.5 text-[13px] font-bold text-terracotta underline underline-offset-2 hover:text-muk focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+                          >
+                            손님 화면에서 보기 <ExternalLink size={12} aria-hidden="true" />
+                            <span className="sr-only">(새 탭)</span>
+                          </Link>
+                        )}
+                      </div>
                     </div>
                   </div>
                   {cancelConfirmId === sale.id ? (
@@ -836,26 +992,56 @@ function TimesaleSection({
           )}
 
           <div>
-            <p className="text-[13px] font-semibold text-muk-soft mb-2" id="timesale-rate-label">
-              할인율
-            </p>
-            <div className="grid grid-cols-3 gap-2 mb-3" role="group" aria-labelledby="timesale-rate-label">
-              {RATE_OPTIONS.map((rate) => (
-                <button
-                  key={rate}
-                  onClick={() => {
-                    setSelectedRate(rate);
-                    setPublishConfirm(null);
-                    setEffectiveNote(null);
-                  }}
-                  aria-pressed={selectedRate === rate}
-                  className={`toss-pressable min-h-11 py-2.5 rounded-xl border-2 text-base font-bold tabular-nums transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 ${
-                    selectedRate === rate ? 'border-gold bg-gold/10 text-gold-deep' : 'border-line bg-white text-muk hover:bg-hanji'
-                  }`}
-                >
-                  {Math.round(rate * 100)}%
-                </button>
-              ))}
+            {/* 넓은 화면(오른쪽 열)에서는 할인율·지속 시간을 나란히 — ③ 이 짧아야 ④ 까지 첫 화면에 들어온다. */}
+            <div className="lg:grid lg:grid-cols-2 lg:gap-3">
+              <div>
+                <p className="text-[13px] font-semibold text-muk-soft mb-2" id="timesale-rate-label">
+                  할인율
+                </p>
+                <div className="grid grid-cols-3 gap-2 mb-3" role="group" aria-labelledby="timesale-rate-label">
+                  {RATE_OPTIONS.map((rate) => (
+                    <button
+                      key={rate}
+                      onClick={() => {
+                        setSelectedRate(rate);
+                        setPublishConfirm(null);
+                        setEffectiveNote(null);
+                      }}
+                      aria-pressed={selectedRate === rate}
+                      className={`toss-pressable min-h-11 py-2.5 rounded-xl border-2 text-base font-bold tabular-nums transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 ${
+                        selectedRate === rate ? SELECTED_CHIP : 'border-line bg-white text-muk hover:bg-hanji'
+                      }`}
+                    >
+                      {selectedRate === rate && <SelectedMark />}
+                      {Math.round(rate * 100)}%
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <p className="text-[13px] font-semibold text-muk-soft mb-2" id="timesale-duration-label">
+                  지속 시간
+                </p>
+                <div className="grid grid-cols-3 gap-2 mb-3" role="group" aria-labelledby="timesale-duration-label">
+                  {DURATION_OPTIONS.map((opt) => (
+                    <button
+                      key={opt.minutes}
+                      onClick={() => {
+                        setSelectedDuration(opt.minutes);
+                        setPublishConfirm(null);
+                        setEffectiveNote(null);
+                      }}
+                      aria-pressed={selectedDuration === opt.minutes}
+                      className={`toss-pressable min-h-11 py-2.5 rounded-xl border-2 text-base font-bold tabular-nums transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 ${
+                        selectedDuration === opt.minutes ? SELECTED_CHIP : 'border-line bg-white text-muk hover:bg-hanji'
+                      }`}
+                    >
+                      {selectedDuration === opt.minutes && <SelectedMark />}
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
             {/* 고른 할인율이 기본 쿠폰율에 묻힐 때만 — 그 밖에는 조건을 되풀이하지 않는다.
                 확인 단계가 열려 있으면 그쪽이 같은 사실을 말하므로 여기서는 감춘다(한 화면에 한 번). */}
@@ -864,27 +1050,6 @@ function TimesaleSection({
                 {rateHint}
               </p>
             )}
-            <p className="text-[13px] font-semibold text-muk-soft mb-2" id="timesale-duration-label">
-              지속 시간
-            </p>
-            <div className="grid grid-cols-3 gap-2 mb-3" role="group" aria-labelledby="timesale-duration-label">
-              {DURATION_OPTIONS.map((opt) => (
-                <button
-                  key={opt.minutes}
-                  onClick={() => {
-                    setSelectedDuration(opt.minutes);
-                    setPublishConfirm(null);
-                    setEffectiveNote(null);
-                  }}
-                  aria-pressed={selectedDuration === opt.minutes}
-                  className={`toss-pressable min-h-11 py-2.5 rounded-xl border-2 text-base font-bold tabular-nums transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 ${
-                    selectedDuration === opt.minutes ? 'border-gold bg-gold/10 text-gold-deep' : 'border-line bg-white text-muk hover:bg-hanji'
-                  }`}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
 
             {publishError && <p className="text-[13px] text-terracotta mb-2">{publishError}</p>}
 
@@ -899,7 +1064,7 @@ function TimesaleSection({
 
             {publishConfirm ? (
               // 발행 전 확인 — 무거운 모달 없이 인라인 단계로(레포에 shadcn 없음).
-              <div className="flex flex-col gap-2.5 px-3 py-3 rounded-xl border border-gold/40 bg-gold/10">
+              <div data-testid="timesale-confirm" className="flex flex-col gap-2.5 px-3 py-3 rounded-xl border border-gold/40 bg-gold/10">
                 <p className="text-[15px] text-muk leading-relaxed">
                   <span className="font-bold">{Math.round(publishConfirm.rate * 100)}% 할인</span>을 지금부터{' '}
                   <span className="font-bold">{publishConfirm.label}</span> 동안 발행합니다. 종료 예정{' '}
@@ -931,7 +1096,7 @@ function TimesaleSection({
                   <button
                     onClick={handlePublish}
                     disabled={publishing}
-                    className="toss-pressable min-h-11 py-2.5 rounded-xl font-bold text-sm text-white bg-gradient-to-r from-gold to-terracotta shadow-md shadow-terracotta/20 hover:opacity-90 transition-opacity disabled:opacity-40 flex items-center justify-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+                    className="toss-pressable min-h-11 py-2.5 rounded-xl font-bold text-sm text-white bg-gradient-to-r from-gold-deep to-terracotta shadow-md shadow-terracotta/20 hover:opacity-90 transition-opacity disabled:opacity-40 flex items-center justify-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
                   >
                     {publishing ? (
                       <Loader2 size={15} className="animate-spin" aria-hidden="true" />
@@ -943,14 +1108,28 @@ function TimesaleSection({
                 </div>
               </div>
             ) : (
-              <button
-                disabled={selectedRate === null || selectedDuration === null}
-                onClick={openPublishConfirm}
-                className="toss-pressable min-h-12 w-full py-3 rounded-xl font-bold text-[15px] text-white bg-gradient-to-r from-gold to-terracotta shadow-md shadow-terracotta/20 hover:opacity-90 transition-opacity disabled:opacity-40 disabled:pointer-events-none flex items-center justify-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
-              >
-                <Zap size={15} aria-hidden="true" />
-                타임세일 발행
-              </button>
+              <>
+                {/* 두 가지를 다 고르기 전에는 테두리만 있는 버튼 + 무엇을 고르면 되는지 한 줄.
+                    예전에는 흐린 그라데이션이라 '고장난 버튼' 처럼 보였다(PH10). */}
+                <button
+                  disabled={!canPublish}
+                  onClick={openPublishConfirm}
+                  aria-describedby={canPublish ? undefined : 'timesale-publish-hint'}
+                  className={`toss-pressable min-h-12 w-full py-3 rounded-xl font-bold text-[15px] transition-opacity flex items-center justify-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 ${
+                    canPublish
+                      ? 'text-white bg-gradient-to-r from-gold-deep to-terracotta shadow-md shadow-terracotta/20 hover:opacity-90'
+                      : 'border-2 border-line bg-white text-muk-soft cursor-not-allowed'
+                  }`}
+                >
+                  <Zap size={15} aria-hidden="true" />
+                  타임세일 발행
+                </button>
+                {!canPublish && (
+                  <p id="timesale-publish-hint" className="mt-2 text-center text-[13px] text-muk-soft">
+                    할인율과 시간을 고르면 발행할 수 있어요
+                  </p>
+                )}
+              </>
             )}
           </div>
         </div>
@@ -970,6 +1149,8 @@ const SEAT_OPTIONS: { level: SeatLevel; label: string; icon: React.ReactNode }[]
 ];
 
 const SEAT_LABEL: Record<SeatLevel, string> = { low: '여유', mid: '보통', full: '만석' };
+// 토스트 문장의 조사 — '(으)로' 를 그대로 보이지 않는다(여유로 · 보통으로 · 만석으로).
+const SEAT_JOSA_RO: Record<SeatLevel, string> = { low: '로', mid: '으로', full: '으로' };
 
 // 추천 반영 유효 창(분) — 백엔드 merchant_boost.SEAT_STATUS_FRESH_MINUTES 와 동일해야 한다.
 // 이보다 오래된 방송은 추천에서 무시되므로 콘솔도 '만료됨'으로 표시한다(방송 중으로 오해 금지).
@@ -977,7 +1158,7 @@ const SEAT_FRESH_MINUTES = 30;
 
 function SeatStatusSection({ facilityId, demo = false }: { facilityId: string; demo?: boolean }) {
   const t = useT();
-  const demoToast = useDemoToast();
+  const demoToast = useConsoleDemoToast();
   const [state, setState] = useState<AsyncState>('loading');
   const [current, setCurrent] = useState<{ level: SeatLevel; updated_at: string } | null>(null);
   const [errorMessage, setErrorMessage] = useState('');
@@ -1046,13 +1227,12 @@ function SeatStatusSection({ facilityId, demo = false }: { facilityId: string; d
       // 서버는 이 방송을 시계열 관측으로도 남겼는지(observation_status)를 함께 보내지만, 그건 내부
       // 모델 학습 사정이라 사장님 화면에는 옮기지 않는다(2026-10-06 — 학습 반영 안내 줄 삭제).
       setCurrent({ level: res.level, updated_at: res.updated_at });
-      toast.success(`좌석 상태를 '${SEAT_LABEL[level]}'(으)로 방송했습니다.`, {
-        description: `${SEAT_FRESH_MINUTES}분 동안 추천 혼잡도에 반영됩니다.`,
-      });
+      // 제목만 — 30분 동안 반영된다는 사실은 섹션 안내와 상태 줄이 이미 말한다(같은 말 세 번 금지).
+      toast.success(`좌석 상태를 '${SEAT_LABEL[level]}'${SEAT_JOSA_RO[level]} 알렸어요.`, TOAST_TOP);
     } catch (e) {
       const message = e instanceof MerchantApiError ? e.message : '좌석 상태 갱신에 실패했습니다.';
       setSubmitError(message);
-      toast.error(message);
+      toast.error(message, TOAST_TOP);
     } finally {
       setSubmitting(null);
     }
@@ -1068,11 +1248,11 @@ function SeatStatusSection({ facilityId, demo = false }: { facilityId: string; d
     try {
       await clearSeatStatus(facilityId);
       setCurrent(null);
-      toast.success('좌석 상태 방송을 껐습니다.', { description: '추천에는 다시 예측 혼잡도가 쓰입니다.' });
+      toast.success('좌석 상태 방송을 껐습니다.', TOAST_TOP);
     } catch (e) {
       const message = e instanceof MerchantApiError ? e.message : '좌석 상태 방송을 끄지 못했습니다.';
       setSubmitError(message);
-      toast.error(message);
+      toast.error(message, TOAST_TOP);
     } finally {
       setClearing(false);
     }
@@ -1099,8 +1279,9 @@ function SeatStatusSection({ facilityId, demo = false }: { facilityId: string; d
   return (
     <SectionCard
       badge="④ 좌석 상태 방송"
+      id="merchant-seat"
       title="지금 우리 가게 상태"
-      honestNote={`방송하면 ${SEAT_FRESH_MINUTES}분 동안 추천 혼잡도에 사장님 확인값으로 반영되고, 그 뒤에는 자동으로 만료되어 예측값으로 돌아갑니다. 손님께 보여드릴 현재 상태 안내로도 함께 활용해주세요.`}
+      honestNote={`누르면 ${SEAT_FRESH_MINUTES}분 동안 손님 추천에 지금 우리 가게 상황이 반영돼요.`}
     >
       {state === 'loading' && <SkeletonBlock heightClass="h-20" />}
       {state === 'error' && <ErrorFallback message={errorMessage} onRetry={load} />}
@@ -1168,8 +1349,8 @@ function SeatStatusSection({ facilityId, demo = false }: { facilityId: string; d
                 onClick={() => handleBroadcast(opt.level)}
                 disabled={submitting !== null || clearing}
                 aria-pressed={activeLevel === opt.level}
-                className={`toss-pressable flex min-h-[72px] flex-col items-center justify-center gap-1.5 py-3 rounded-xl border-2 text-[15px] font-bold transition-colors disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 ${
-                  activeLevel === opt.level ? 'border-gold bg-gold/10 text-gold-deep' : 'border-line bg-white text-muk hover:bg-hanji'
+                className={`toss-pressable flex min-h-[72px] lg:min-h-[60px] flex-col items-center justify-center gap-1.5 py-3 lg:py-2 rounded-xl border-2 text-[15px] font-bold transition-colors disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 ${
+                  activeLevel === opt.level ? SELECTED_CHIP : 'border-line bg-white text-muk hover:bg-hanji'
                 }`}
               >
                 {submitting === opt.level ? (
@@ -1220,7 +1401,7 @@ function DemoTodaySummary() {
   const t = useT();
   const tiles: { label: string; value: number; unit: string; icon: React.ReactNode }[] = [
     { label: t('demo.exposures'), value: DEMO_MERCHANT_TODAY.exposures, unit: t('demo.unitTimes'), icon: <Eye size={16} /> },
-    { label: t('demo.accepted'), value: DEMO_MERCHANT_TODAY.accepted, unit: t('demo.unitCases'), icon: <ThumbsUp size={16} /> },
+    { label: t('demo.accepted'), value: DEMO_MERCHANT_TODAY.accepted, unit: t('demo.unitCases'), icon: <Navigation size={16} /> },
     { label: t('demo.couponsUsed'), value: DEMO_MERCHANT_TODAY.couponsUsed, unit: t('demo.unitCases'), icon: <Ticket size={16} /> },
     { label: t('demo.arrivals'), value: DEMO_MERCHANT_TODAY.arrivals, unit: t('demo.unitCases'), icon: <CircleCheck size={16} /> },
   ];

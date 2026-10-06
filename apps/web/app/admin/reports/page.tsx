@@ -486,12 +486,17 @@ export default function ReportsPage() {
   };
 
   return (
-    <div className="flex h-screen bg-hanok text-hanok-ink font-sans overflow-hidden">
-      <AdminSidebar />
+    <div className="flex flex-col lg:flex-row h-screen bg-hanok text-hanok-ink font-sans overflow-hidden print:h-auto print:overflow-visible print:bg-white">
+      {/* 인쇄('PDF로 저장')는 리포트만 — A4 한 장 폭, 사이드바·머리글·버튼 없이(I69). 성과 리포트(/admin/report)와 같은 규칙이다. */}
+      {/* recharts 래퍼 폭은 CSS 로 덮지 않는다 — ResponsiveContainer 가 인쇄 전환 때 스스로 다시 잰다(report/page.tsx 주석). */}
+      <style>{'@page { size: A4; margin: 14mm; }'}</style>
+      <div className="contents print:hidden">
+        <AdminSidebar />
+      </div>
 
-      <main className="flex-1 flex flex-col h-full min-h-0 overflow-hidden">
+      <main className="flex-1 flex flex-col h-full min-h-0 overflow-hidden print:h-auto print:overflow-visible print:bg-white">
         {/* Top Header */}
-        <header className="h-20 bg-hanok-panel border-b border-hanok-line flex items-center justify-between px-8 flex-shrink-0">
+        <header className="print:hidden lg:h-20 bg-hanok-panel border-b border-hanok-line flex flex-wrap lg:flex-nowrap items-center justify-between gap-2 lg:gap-0 px-4 py-3 lg:px-8 lg:py-0 flex-shrink-0">
           <h2 className="text-xl font-bold text-hanok-ink">통계 리포트</h2>
           <div className="flex items-center gap-6">
             <button className="relative text-hanok-muted hover:text-hanok-ink">
@@ -501,11 +506,19 @@ export default function ReportsPage() {
         </header>
 
         {/* Dashboard Content */}
-        <div className="flex-1 min-h-0 p-8 overflow-y-auto pb-20 space-y-8">
+        <div className="flex-1 min-h-0 p-4 lg:p-8 overflow-y-auto pb-20 space-y-6 lg:space-y-8 print:h-auto print:overflow-visible print:p-0 print:pb-0">
+
+          {/* 인쇄 표지 한 줄 — 화면의 머리글('통계 리포트')과 기간 막대는 인쇄에서 빠지므로(print:hidden), 이 줄이 없으면
+              저장한 PDF 가 제목·기간·출처 없이 첫 차트부터 시작했다. 화면에는 보이지 않는다. */}
+          <div className="hidden print:block break-inside-avoid border-b-2 border-black pb-3">
+            <h1 className="text-xl font-black text-black">NextSpot 통계 리포트</h1>
+            <p className="mt-1 text-sm font-semibold text-gray-700">기간: {rangeLabel}</p>
+            <p className="mt-0.5 text-xs text-gray-600">출처: ⓒ한국관광공사 · 경주 ITS 공영주차</p>
+          </div>
 
           {/* Controllers & Actions */}
-          <div className="flex justify-between items-center bg-hanok-panel p-4 rounded-2xl border border-hanok-line shadow-sm flex-shrink-0">
-            <div className="flex items-center gap-3">
+          <div className="print:hidden flex max-lg:flex-col max-lg:items-stretch max-lg:gap-3 justify-between items-center bg-hanok-panel p-4 rounded-2xl border border-hanok-line shadow-sm flex-shrink-0">
+            <div className="flex max-lg:flex-wrap items-center gap-3">
               <div className="flex items-center gap-2 px-4 py-2 bg-hanok-card rounded-lg border border-hanok-line">
                 <CalendarIcon size={18} className="text-hanok-muted" />
                 <span className="text-sm font-semibold text-hanok-ink">{rangeLabel}</span>
@@ -528,7 +541,7 @@ export default function ReportsPage() {
                   (차트·표 옆 배지와 중복이지만, 어느 쪽을 먼저 보든 놓치지 않게). */}
               {estimateInUse && <EstimateBadge label="추정 지표로 표시 중" />}
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex max-lg:flex-wrap items-center gap-3">
               <button
                 onClick={handleExcel}
                 className="flex items-center gap-2 px-4 py-2 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-700 border border-emerald-500/30 font-semibold rounded-lg transition-colors text-sm"
@@ -539,7 +552,8 @@ export default function ReportsPage() {
                 onClick={handlePdf}
                 className="flex items-center gap-2 px-4 py-2 bg-rose-500/10 hover:bg-rose-500/20 text-rose-700 border border-rose-500/30 font-semibold rounded-lg transition-colors text-sm"
               >
-                <Download size={16} /> PDF 다운로드
+                {/* 인쇄 창을 여는 버튼이라 '다운로드' 가 아니라 '저장' 이다(대상: PDF로 저장). */}
+                <Download size={16} /> PDF로 저장
               </button>
             </div>
           </div>
@@ -590,9 +604,9 @@ export default function ReportsPage() {
           )}
 
           {/* Charts Row */}
-          <div className="grid grid-cols-2 gap-6 min-h-[350px] flex-shrink-0">
+          <div className="grid grid-cols-1 lg:grid-cols-2 print:grid-cols-1 gap-4 lg:gap-6 min-h-[350px] flex-shrink-0">
             {/* Bar Chart */}
-            <div className="bg-hanok-panel p-6 rounded-2xl border border-hanok-line shadow-sm flex flex-col">
+            <div className="bg-hanok-panel p-6 rounded-2xl border border-hanok-line shadow-sm flex flex-col break-inside-avoid">
               <div className="flex items-center gap-2 mb-6">
                 <BarChart2 className="text-gold-deep" size={20} />
                 <h3 className="text-lg font-bold text-hanok-ink">
@@ -690,7 +704,7 @@ export default function ReportsPage() {
             </div>
 
             {/* Area Chart */}
-            <div className="bg-hanok-panel p-6 rounded-2xl border border-hanok-line shadow-sm flex flex-col">
+            <div className="bg-hanok-panel p-6 rounded-2xl border border-hanok-line shadow-sm flex flex-col break-inside-avoid">
               <div className="flex items-center gap-2 mb-6">
                 <TrendingUp className="text-jade" size={20} />
                 <h3 className="text-lg font-bold text-hanok-ink">AI 추천 알고리즘 수락 트렌드</h3>
@@ -762,7 +776,7 @@ export default function ReportsPage() {
           </div>
 
           {/* Data Table */}
-          <div className="bg-hanok-panel rounded-2xl border border-hanok-line shadow-sm overflow-hidden flex-shrink-0">
+          <div className="bg-hanok-panel rounded-2xl border border-hanok-line shadow-sm overflow-hidden flex-shrink-0 break-inside-avoid">
             <div className="p-6 border-b border-hanok-line flex items-center gap-2">
               <PieChartIcon className="text-hanok-muted" size={20} />
               <h3 className="text-lg font-bold text-hanok-ink">
@@ -771,7 +785,7 @@ export default function ReportsPage() {
               {estimateInUse && <EstimateBadge />}
             </div>
             <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
+              <table className="w-full max-lg:min-w-[560px] text-left border-collapse">
                 <thead>
                   <tr className="bg-hanok text-hanok-muted text-sm border-b border-hanok-line">
                     <th className="p-4 font-semibold">카테고리</th>

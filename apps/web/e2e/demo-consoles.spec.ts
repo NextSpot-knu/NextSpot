@@ -5,8 +5,8 @@ import { stubExternalServices } from './support/stubs';
 //
 // 계약(lib/demoFixtures.ts 머리말):
 //   1. 두 콘솔은 로그인·역할 판정 없이 열린다.
-//   2. 화면에는 항상 데모 표시가 있다 — 사장님 콘솔은 머리글의 '예시 화면' 칩 하나(계획 A9),
-//      관제 대시보드는 '데모 데이터로 보는 중' 배지.
+//   2. 화면에는 항상 데모 표시가 있다 — 두 콘솔 모두 머리글의 '예시 화면' 칩 하나(계획 A9 · B4).
+//      떠다니는 '데모 데이터로 보는 중' 배지는 없다(2026-10-07 B4 — 관제 데모도 칩 하나로).
 //   3. **데모는 백엔드를 부르지 않는다** — 조회도, 쓰기도. 쓰기 버튼은 토스트만 띄운다.
 //
 // (3) 은 화면만 봐서는 증명되지 않으므로 page.on('request') 로 실제로 나간 요청을 세고,
@@ -42,15 +42,18 @@ async function stubDemoConsole(page: Page): Promise<void> {
   );
 }
 
-const DEMO_BADGE = '데모 데이터로 보는 중';
-/** 사장님 콘솔 데모의 표시 — 머리글 칩 하나(떠 있는 배지는 없다). */
-const MERCHANT_DEMO_CHIP = '예시 화면';
+/** 예전 관제 데모의 떠다니는 배지 문구 — 이제 어느 데모에도 없어야 한다. */
+const OLD_FLOATING_BADGE = '데모 데이터로 보는 중';
+/** 데모의 표시 — 두 콘솔 모두 머리글 칩 하나(떠 있는 배지는 없다). */
+const DEMO_CHIP = '예시 화면';
 
-async function expectOneMerchantDemoChip(page: Page): Promise<void> {
-  const chip = page.getByText(MERCHANT_DEMO_CHIP, { exact: true });
+async function expectOneDemoChip(page: Page): Promise<void> {
+  const chip = page.getByText(DEMO_CHIP, { exact: true });
   await expect(chip).toBeVisible({ timeout: 20_000 });
   await expect(chip).toHaveCount(1);
+  await expect(page.getByText(OLD_FLOATING_BADGE)).toHaveCount(0);
 }
+const expectOneMerchantDemoChip = expectOneDemoChip;
 
 const NO_SAVE_TOAST = '데모에서는 저장되지 않아요';
 
@@ -80,7 +83,8 @@ test('merchant demo console renders fixtures without login and never calls the m
 
   // 데모 가게 이름과 데모 브리핑이 실제로 렌더된다(게이트 문구가 아니라 콘솔 본문).
   await expect(page.getByText('황리단길 한옥카페', { exact: true })).toBeVisible();
-  await expect(page.getByText(/오늘 15~16시에 예상 혼잡이 91%까지/)).toBeVisible();
+  // 브리핑은 시계와 무관한 시제다(16시가 지나도 '올라갑니다' 가 아니다).
+  await expect(page.getByText(/오늘은 15~16시가 가장 붐비는 시간대예요/)).toBeVisible();
 
   expect(writeConsoleCalls(calls)).toEqual([]);
 });
@@ -105,7 +109,7 @@ test('merchant demo write buttons only toast and issue no request', async ({ pag
   await expect(page.getByText(NO_SAVE_TOAST).first()).toBeVisible();
 
   // 세일은 여전히 진행 중이고 좌석 방송도 그대로다 — 데모는 상태를 바꾸지 않는다.
-  await expect(page.getByText('20% 할인 중')).toBeVisible();
+  await expect(page.getByText('⚡ 20% 타임세일 진행 중')).toBeVisible();
 
   expect(writeConsoleCalls(calls)).toEqual([]);
 });
@@ -136,18 +140,30 @@ test.describe('admin demo dashboard', () => {
     await stubDemoConsole(page);
     await page.goto('/admin/dashboard?demo=1');
 
-    await expect(page.getByText(DEMO_BADGE)).toBeVisible({ timeout: 20_000 });
+    await expectOneDemoChip(page);
 
-    // DEMO_ADMIN_KPI = 312 분산 / 1,240분 / 14곳 / 38.4%
+    // KPI 네 개는 기능설명서 ④ · 실제 대시보드와 같은 지표다(평균 혼잡도 · AI 추천 수락률 · 활성 사용자 · 이상 혼잡).
+    // 수락률은 실제 대시보드 시나리오 값과 같다(1,013건 중 384건 = 37.9%).
+    const kpis = page.locator('#demo-kpis');
+    for (const title of ['오늘 평균 혼잡도', 'AI 추천 수락률', '활성 사용자 수 (DAU)', '이상 혼잡 발생']) {
+      await expect(kpis.getByText(title, { exact: true })).toBeVisible();
+    }
+    await expect(kpis.getByText('37.9%', { exact: true })).toBeVisible();
+    await expect(kpis.getByText('468명', { exact: true })).toBeVisible();
+    await expect(kpis.getByText('3건', { exact: true })).toBeVisible();
+    await expect(kpis.getByText(/^\d{2}\.\d%$/).first()).toBeVisible();
+    // 오늘 분산 유도 · 절약한 대기는 ③ 분산 효과로 옮겼다. 기능설명서에 없는 '참여 점포'·'대안 전환율' KPI 는 없다.
     await expect(page.getByText('312건', { exact: true })).toBeVisible();
     await expect(page.getByText('1,240분', { exact: true })).toBeVisible();
-    await expect(page.getByText('14곳', { exact: true })).toBeVisible();
-    await expect(page.getByText('38.4%', { exact: true })).toBeVisible();
+    await expect(page.getByText('14곳', { exact: true })).toHaveCount(0);
+    await expect(page.getByText('38.4%', { exact: true })).toHaveCount(0);
+    // 실제 대시보드와 같은 단계 바.
+    await expect(page.getByRole('navigation', { name: '관제 단계' })).toBeVisible();
 
     // 게이트(app/admin/layout.tsx)를 통과해 본문이 그려졌는지 — '권한 확인 중' 로더가 남으면 실패.
     await expect(page.getByText('권한 확인 중…')).toHaveCount(0);
     await expect(page.getByRole('heading', { name: '경주 관광 혼잡 종합 대시보드' })).toBeVisible();
-    await expect(page.getByText(/오늘 14~16시 황리단길·대릉원 구간이/)).toBeVisible();
+    await expect(page.getByText(/오늘 황리단길·대릉원 구간은 14~16시가 가장 붐비는 시간대/)).toBeVisible();
 
     expect(writeConsoleCalls(calls)).toEqual([]);
   });
@@ -157,7 +173,7 @@ test.describe('admin demo dashboard', () => {
     const calls = recordApiCalls(page);
     await stubDemoConsole(page);
     await page.goto('/admin/dashboard?demo=1');
-    await expect(page.getByText(DEMO_BADGE)).toBeVisible({ timeout: 20_000 });
+    await expectOneDemoChip(page);
 
     await page.getByRole('button', { name: /데이터 내보내기 \(CSV\)/ }).click();
     await expect(page.getByText(NO_SAVE_TOAST).first()).toBeVisible();
@@ -184,6 +200,6 @@ test.describe('admin demo dashboard', () => {
     await expect(demoEntry).toBeVisible({ timeout: 20_000 });
     await demoEntry.click();
     await expect(page).toHaveURL(/\/admin\/dashboard\?demo=1$/);
-    await expect(page.getByText(DEMO_BADGE)).toBeVisible();
+    await expectOneDemoChip(page);
   });
 });

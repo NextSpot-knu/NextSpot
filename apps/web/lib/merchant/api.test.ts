@@ -491,6 +491,42 @@ async function main() {
     "'예시 화면' 칩은 머리글에 한 개여야 한다(데모 카드 배지는 오늘/최근 7일)",
   );
 
+  // B4(2026-10-07): 두 열·휴대폰 바로 가기·진행 중 배너·성적표·토스트 위치·고른 칩·남은 I08 문구.
+  assert.match(dashboardSrc, /lg:grid-cols-2/, '넓은 화면 두 열 배치가 없다(③④ 가 첫 화면 밖으로 밀린다)');
+  assert.match(dashboardSrc, /data-testid="merchant-actions"[\s\S]{0,200}lg:sticky/, '③④ 열이 화면에 붙어 있지 않다');
+  assert.match(dashboardSrc, /⚡ 타임세일 발행[\s\S]*🪑 좌석 상태 방송/, '휴대폰 하단 바로 가기(⚡ 타임세일 발행 · 🪑 좌석 상태 방송)가 없다');
+  assert.match(dashboardSrc, /id="merchant-seat"/, '바로 가기가 ④ 로 갈 앵커가 없다');
+  assert.match(dashboardSrc, /타임세일 진행 중/, '진행 중 배너가 없다');
+  assert.match(dashboardSrc, /추천 반영 중/, "진행 중 세일에 '추천 반영 중' 이 없다");
+  assert.match(dashboardSrc, /href=\{`\/main\?place=\$\{encodeURIComponent\(facilityId\)\}`\}/, "'손님 화면에서 보기' 가 /main?place= 로 가지 않는다");
+  assert.match(dashboardSrc, /손님 화면에서 보기/);
+  assert.match(dashboardSrc, /scorecardTiles\(stats, \{ saleActive \}\)/, '성적표가 0 타일을 숨기는 판정(scorecard.ts)을 진행 중 세일 여부와 함께 쓰지 않는다');
+  // 리뷰(10-07): ③ 이 진행 중 세일 여부를 콘솔에 알리고, 콘솔이 그것을 ② 에 넘긴다(세일 옆 '타임세일을 열어 보세요' 금지).
+  assert.match(dashboardSrc, /onActiveChange=\{setSaleActive\}/, '③ 의 진행 중 세일 여부가 콘솔로 올라오지 않는다');
+  assert.match(dashboardSrc, /<StatsSection[^>]*saleActive=\{saleActive\}/, '② 성적표가 진행 중 세일 여부를 받지 않는다');
+  assert.match(dashboardSrc, /tile\.hero \|\| tile\.wide \? 'col-span-2'/, '외톨이 성적표 타일이 두 칸을 쓰지 않는다');
+  // 리뷰(10-07): '타임세일 열기' 의 표시는 인라인 outline(안쪽) — ring(box-shadow)은 .toss-surface 에 지고 오른쪽 열에 잘린다.
+  const goTo = dashboardSrc.slice(dashboardSrc.indexOf('function goToSection('), dashboardSrc.indexOf('export function MerchantConsole('));
+  assert.match(goTo, /el\.style\.outline = '2px solid var\(--nextspot-gold\)'/, "'타임세일 열기' 가 넓은 화면에서 보이는 표시를 남기지 않는다");
+  assert.match(goTo, /el\.style\.outlineOffset = '-2px'/, '섹션 테가 오른쪽 열 스크롤 상자에 잘린다');
+  assert.doesNotMatch(goTo, /ring-2|ring-gold/, '섹션 테를 ring(box-shadow)으로 그린다 — .toss-surface 그림자에 져서 보이지 않는다');
+  assert.match(goTo, /button\[aria-pressed\]'\)\?\.focus\(\{ preventScroll: true \}\)/, '섹션으로 옮긴 뒤 초점이 따라가지 않는다');
+  // 손님 화면 링크는 새 탭(콘솔을 떠나지 않는다).
+  assert.match(dashboardSrc, /href=\{`\/main\?place=[^`]*`\}\s*target="_blank"\s*rel="noopener noreferrer"/, "'손님 화면에서 보기' 가 콘솔 탭을 떠난다");
+  assert.doesNotMatch(dashboardSrc, /추천 수락'|label="추천 수락"|추천 제안/, "성적표에 '추천 수락 a / b' 비율·'추천 제안' 설명이 남아 있다");
+  assert.match(dashboardSrc, /position: 'top-center'/, '콘솔 토스트가 위 가운데로 가지 않는다(좌석 버튼을 덮는다)');
+  assert.doesNotMatch(dashboardSrc, /useDemoToast\(\)/, '데모 토스트가 아래 가운데(공용 위치)로 뜬다');
+  assert.match(dashboardSrc, /SELECTED_CHIP = 'border-muk bg-muk text-hanji'/, '고른 칩이 꽉 찬 먹색이 아니다');
+  assert.match(dashboardSrc, /할인율과 시간을 고르면 발행할 수 있어요/, '발행 버튼이 왜 비활성인지 말하지 않는다');
+  // 남은 I08 문구 — 내부 사정 대신 손님에게 보이는 결과로 말한다.
+  assert.doesNotMatch(
+    dashboardSrc,
+    /추천 인센티브 반영도|추천 랭킹 인센티브|사장님 확인값|예측값으로 돌아갑니다|예측 혼잡도가 쓰입니다|\(으\)로 방송/,
+    '사장님 콘솔에 내부 용어(인센티브·확인값·예측값)나 조사 꼬리표가 남아 있다',
+  );
+  assert.match(dashboardSrc, /손님 추천 카드의 할인 배지도 함께 내려가요/, '타임세일 취소 안내가 바뀌지 않았다');
+  assert.match(dashboardSrc, /누르면 \$\{SEAT_FRESH_MINUTES\}분 동안 손님 추천에 지금 우리 가게 상황이 반영돼요/, '좌석 방송 안내가 바뀌지 않았다');
+
   // ① 차트의 Y축 — 폭이 좁으면 맨 위 눈금 '100%' 가 '00%' 로 잘린다(2026-10-06 감사).
   const forecastAxis = (dashboardSrc.match(/<YAxis\b[\s\S]*?\/>/g) ?? []).find((block) =>
     block.includes('domain={[0, 100]}'),

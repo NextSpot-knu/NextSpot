@@ -126,4 +126,46 @@ const stripComments = (s: string) => s.replace(/^\s*\/\/.*$/gm, '').replace(/\{?
   }
 }
 
+// ── (6) 관제 데모 — 데모 표시는 머리글 칩 하나, KPI 는 기능설명서 ④ 의 네 지표(2026-10-07 B4) ──────────────
+{
+  const demo = stripComments(read('components/admin/DemoDashboard.tsx'));
+  assert.doesNotMatch(demo, /<DemoBadge/, "관제 데모에 떠다니는 '데모 데이터로 보는 중' 배지가 남아 있다");
+  assert.equal((demo.match(/t\('demo\.sampleChip'\)/g) ?? []).length, 1, "관제 데모의 '예시 화면' 칩은 머리글에 한 개여야 한다");
+  assert.doesNotMatch(demo, /demo\.badgeShort|dateBadge=/, '관제 데모 카드마다 데모 칩이 다시 붙었다');
+  for (const key of ['kpiAvgCongestion', 'kpiAcceptance', 'kpiDau', 'kpiAnomaly']) {
+    assert.match(demo, new RegExp(`t\\('demo\\.${key}'\\)`), `관제 데모 KPI 에 기능설명서 지표(${key})가 없다`);
+  }
+  assert.match(demo, /scenarioKpis\(/, '관제 데모 수락률이 실제 대시보드 시나리오 값과 다른 출처다');
+  assert.doesNotMatch(demo, /demo\.kpiConversion|demo\.kpiStores/, '관제 데모 KPI 가 기능설명서와 다른 지표(대안 전환율·참여 점포)다');
+  assert.match(demo, /<StepNav/, '관제 데모에 단계 바가 없다(실제 대시보드와 같은 순서)');
+  // 리뷰(10-07): KPI 설명은 실제 대시보드와 같은 정의다. 수락률은 '생성된 AI 대안 추천 중 수락한 비율'(PM 결정 15 의
+  // '응답한 관광객 중' 재정의는 하지 않았다), 이상 혼잡은 시간 구간이 아니라 알림이 난 곳(데모 값은 장소 세 곳)이다.
+  for (const locale of ['ko', 'en', 'ja', 'zh']) {
+    const m = JSON.parse(read(`lib/i18n/messages/${locale}.json`)) as { demo: Record<string, string> };
+    assert.doesNotMatch(m.demo.kpiAcceptanceNote, /응답|respond|応答|回应/i, `${locale}: 데모 수락률 설명이 실제 대시보드와 다른 정의다`);
+    assert.doesNotMatch(m.demo.kpiAnomalyNote, /구간|time slot|時間帯|时段/i, `${locale}: 데모 이상 혼잡 설명이 장소가 아니라 시간 구간을 센다고 한다`);
+  }
+  const ko = JSON.parse(read('lib/i18n/messages/ko.json')) as { demo: Record<string, string> };
+  assert.match(ko.demo.kpiAcceptanceNote, /AI 대안 추천 중 관광객이 수락한 비율/);
+  // 사장님 데모는 한 화면에서 같은 행동을 한 낱말로 — 실제 성적표의 '길안내 시작' 과 같다('추천 수락' 금지).
+  assert.equal(ko.demo.accepted, '길안내 시작');
+  assert.doesNotMatch(ko.demo.merchantBriefingText, /수락/, "사장님 데모 브리핑이 '수락' 과 '길안내 시작' 을 섞어 쓴다");
+}
+
+// ── (7) 장소 관리 — 가짜 발송 없음 · 빈 추이 카드 없음 · '관측 대기' 벽 없음(I72) ─────────────────────────────
+{
+  const infra = stripComments(read('app/admin/infrastructure/page.tsx'));
+  assert.doesNotMatch(infra, /분산 안내 발송|오늘 혼잡도를 수집하는 중입니다/, '장소 관리에 가짜 발송·빈 추이 문구가 남아 있다');
+  assert.match(infra, /facilityCongestionFrom\(/, '장소 관리가 관광객 지도와 같은 추정을 쓰지 않는다');
+  assert.match(infra, /getCongestionEstimates\(/, '장소 관리가 추정 피드를 받지 않는다');
+  assert.match(infra, /staleObservationLine\(/, '오래된 관측이 날짜 없이 현재 상태로 그려진다');
+  assert.doesNotMatch(stripComments(read('lib/adminMetricState.ts')), /'관측 대기'/, "'관측 대기' 라벨이 돌아왔다");
+  // 리뷰(10-07): 상태 점은 관제 히트맵·관광객 지도와 같은 색·경계(PM 4.26) — 같은 '혼잡' 이 화면마다 다른 색이면 안 된다.
+  assert.match(infra, /HEATMAP_GRADE_CLASS\[key\]/, '장소 관리 상태 점이 히트맵과 다른 색표를 쓴다');
+  assert.match(infra, /facilityStatusKey\(c, busyAt\)/, "장소 관리 상태 점이 운영자 '혼잡' 경계를 따르지 않는다");
+  assert.doesNotMatch(infra, /bg-orange-500|case 'blue': return 'bg-gold'/, "장소 관리에 옛 색표(한산 금색 · 혼잡 주황)가 남아 있다");
+  // 추정 피드는 5분만 나눠 쓰고 실패는 담아 두지 않는다(첫 응답을 화면 수명 내내 붙들지 않는다).
+  assert.match(infra, /ttlPromiseCache\(fetchEstimateLevels, ESTIMATES_TTL_MS\)/, '장소 관리 추정 피드가 수명 없는 캐시다');
+}
+
 console.log('adminCopy.test.ts OK');

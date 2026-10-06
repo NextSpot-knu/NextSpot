@@ -179,4 +179,74 @@ const estimateView = stripComments(read('lib/adminEstimateView.ts'));
   assert.ok(page.indexOf('href="/admin/engine-validation"') > trust, '엔진 검증 링크가 추천 신뢰도 패널과 함께 맨 아래에 있지 않다');
 }
 
+// ── (6) 기능설명서 순서 ①→②→③ · 단계 바 · KPI 32px · 실선 테두리 · 관리 열 고정(2026-10-07 B4) ──────────
+// 예전 순서는 ① → (30일 차트 = ③) → ② → ③ 이었고, 주차 소제목이 신뢰도 패널이 아니라 30일 차트 위에 있어
+// 차트가 주차 데이터처럼 읽혔다(I17 · I20). 점선 카드 테두리는 디버그 선처럼 보였다.
+{
+  const at = (token: string) => {
+    const i = page.indexOf(token);
+    assert.ok(i >= 0, `${token} 을 찾지 못했다`);
+    return i;
+  };
+  const stepOne = at('badge="①"');
+  const kpis = at('id="dashboard-kpis"');
+  const heatmapAt = at('<DashboardHeatmap');
+  const parkingHeading = at('공영주차 실측 (경주 ITS');
+  const reliability = at('<AreaDemandReliabilityPanel />');
+  const stepTwo = at('badge="②"');
+  const coupon = at('<CouponPolicyPanel');
+  const impact = at('<ImpactWidget');
+  const stepThree = at('badge="③"');
+  const charts = at('<DashboardCharts');
+  const tableAt = at('<FacilityTable');
+  const trust = at('<ModelTrustPanel');
+  const order = [stepOne, kpis, heatmapAt, parkingHeading, reliability, stepTwo, coupon, impact, stepThree, charts, tableAt, trust];
+  for (let i = 1; i < order.length; i++) {
+    assert.ok(order[i] > order[i - 1], `대시보드 순서가 I17 과 다르다(${i}번째 항목이 앞 항목보다 위에 있다)`);
+  }
+  assert.equal(page.split('<DashboardCharts').length - 1, 1, '30일 차트가 두 번 그려진다');
+
+  // 단계 바 — KPI 보다 위(본문 맨 위)에 있고, 세 단계 배너가 바가 찾는 id 를 단다.
+  assert.ok(at('<StepNav') < kpis, '단계 바가 KPI 아래에 있다');
+  for (const id of ['step-monitor', 'step-policy', 'step-effect']) {
+    assert.match(page, new RegExp(`id="${id}"`), `단계 배너에 ${id} 앵커가 없다 — 단계 바가 옮겨 갈 곳이 없다`);
+  }
+  const stepNav = stripComments(read('components/admin/StepNav.tsx'));
+  assert.match(stepNav, /'① ?'|badge: '①'/);
+  assert.match(stepNav, /실시간 관제[\s\S]*정책 개입[\s\S]*분산 효과/, '단계 바 이름이 ① 실시간 관제 · ② 정책 개입 · ③ 분산 효과 가 아니다');
+
+  // 엔진 내부 상태 칩은 첫 줄에서 뺀다.
+  assert.doesNotMatch(page, /<ModelAccuracyBadge/, "머리글에 '예측모델 상태' 칩이 돌아왔다");
+
+  // KPI 숫자 32px, KPI~히트맵 사이에 점선 카드 테두리 없음, 숫자 아래 11px 근거 줄 없음.
+  assert.match(page, /const KPI_NUMBER = 'text-\[32px\]/, 'KPI 숫자가 32px 이 아니다');
+  const kpiBlock = page.slice(kpis, heatmapAt);
+  assert.doesNotMatch(kpiBlock, /border-dashed/, 'KPI 카드에 점선 테두리가 남아 있다');
+  assert.doesNotMatch(kpiBlock, /text-\[11px\][^"]*mt-1 leading-snug/, 'KPI 숫자 아래 근거 줄이 남아 있다(배지 툴팁으로 옮길 것)');
+  assert.doesNotMatch(kpiBlock, /<MetricNoSample hint="추천 기록이/, "추천이 0건일 때 수락률 타일이 '—' 로 그려진다");
+  assert.match(kpiBlock, /추천 제시 0건/, '추천이 0건일 때 수락률 타일이 제시 건수를 말하지 않는다');
+
+  // 장소 관리 표 — 1800px 미만에서는 전폭(관리 열이 가로 스크롤 뒤로 숨지 않게), 관리 열은 오른쪽 고정 + 글자 버튼.
+  const bottomGrid = page.slice(page.lastIndexOf('<div className="grid', tableAt), tableAt);
+  assert.match(bottomGrid, /min-\[1800px\]:grid-cols-3/, '장소 관리 표 줄이 1800px 미만에서도 3칸으로 눌린다');
+  assert.doesNotMatch(bottomGrid, / lg:grid-cols-3/, '장소 관리 표 줄이 lg 에서 3칸이다');
+  assert.match(table, /<th className="sticky right-0[^"]*">관리<\/th>/, "'관리' 열 머리가 오른쪽에 고정되지 않는다");
+  assert.match(table, /<td className="sticky right-0/, "'관리' 열 칸이 오른쪽에 고정되지 않는다");
+  assert.match(table, /<Edit2[^>]*\/> 수정/, "수정 버튼에 '수정' 글자가 없다");
+  assert.match(table, /<Trash2[^>]*\/> 삭제/, "삭제 버튼에 '삭제' 글자가 없다");
+  assert.match(table, /min-\[1800px\]:col-span-2/, '장소 관리 카드가 넓은 화면의 2칸을 쓰지 않는다');
+
+  // 분산 효과 — 최근 30일 창, 0건이면 카드 없이(쿠폰 정책이 줄을 다 쓴다).
+  const impactSrc = stripComments(read('components/admin/ImpactWidget.tsx'));
+  assert.match(impactSrc, /IMPACT_WINDOW_DAYS = 30/, '분산 효과 창이 30일이 아니다');
+  assert.match(impactSrc, /relocationsMeasured === 0 && loopBasis === 'measured'\) return null/, '0건 분산 효과 카드가 그려진다');
+  assert.match(page, /const impactHidden = impactSamples === 0 && loopBasis === 'measured'/, '분산 효과가 숨을 때 쿠폰 정책이 줄을 다 쓰지 않는다');
+  // 리뷰(10-07): 시나리오 숫자는 '오늘' 값이지만 실측 표본은 30일 수락이다 — 실측 건수·전환 조건에는 30일 창을 붙이고,
+  // '실측 5건이 쌓이면 … (KST 오늘 기준)' 처럼 틀린 창으로 전환 조건을 말하지 않는다.
+  assert.doesNotMatch(impactSrc, /실측으로 전환됩니다 \(KST 오늘 기준\)/, '분산 효과 시나리오가 전환 조건을 오늘 창으로 말한다');
+  assert.match(impactSrc, /최근 \$\{IMPACT_WINDOW_DAYS\}일 실측 \$\{MIN_MEASURED_SAMPLES\}건이 쌓이면/, '전환 조건에 30일 창이 없다');
+  assert.match(impactSrc, /최근 \$\{IMPACT_WINDOW_DAYS\}일 실측 \$\{relocationsMeasured\}건 수집 중/, "'실측 N건 수집 중' 에 30일 창이 없다");
+  assert.match(impactSrc, /unit: `건\(최근 \$\{IMPACT_WINDOW_DAYS\}일\)`/, '시나리오 근거 줄의 실측 건수에 30일 창이 없다');
+}
+
 console.log('adminDashboardWiring.test.ts OK');

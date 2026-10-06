@@ -617,7 +617,7 @@ export function resolveKpiBasis(measuredCount: number | null | undefined): KpiBa
 export type LoopSamples = number | 'failed' | 'loading';
 
 /**
- * 추천 고리 네 패널(수락률 = 지난 7일 추천 · DAU = 오늘 피드백 · 분산 효과 = 오늘 수락 · 깔때기 = 지난
+ * 추천 고리 네 패널(수락률 = 지난 7일 추천 · DAU = 오늘 피드백 · 분산 효과 = 최근 30일 수락 · 깔때기 = 지난
  * 30일 노출)의 **공동** 판정. 넷은 같은 사실(추천 → 수락 → 이동 → 평가)을 다른 창으로 센다 — 한 패널은
  * 실측 '5,000건 중 0건 수락' 인데 옆 패널이 시나리오 '179건 재배치(추천 수락)' 이면 둘 중 하나가 거짓으로
  * 읽힌다. 그래서 시나리오는 **넷 모두** 5건 미만일 때만 쓴다.

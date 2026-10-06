@@ -262,3 +262,66 @@ test('심사용 계정 — 장소 삭제를 서버가 거절하면 서버의 사
   // 거절됐으니 표에서 지워지지 않는다.
   await expect(row).toBeVisible();
 });
+
+// ───────────────────────────────────────────────────────────────────────────
+// B4(2026-10-07) — 단계 바 · ①→②→③ 순서 · 시나리오 축 · 지도와 같은 히트맵 척도 · 관리 열
+// ───────────────────────────────────────────────────────────────────────────
+
+test('1536×730 — 단계 바가 위에 붙어 있고, 누르면 ② 정책 개입 · ③ 분산 효과로 옮겨 간다', async ({ page }) => {
+  await page.setViewportSize({ width: 1536, height: 730 });
+  await openDashboard(page);
+  const nav = page.getByRole('navigation', { name: '관제 단계' });
+  await expect(nav).toBeVisible();
+  const navBox = await nav.boundingBox();
+  expect(navBox!.y, '단계 바가 첫 화면 맨 위(머리글 바로 아래)에 있다').toBeLessThan(130);
+  const steps = ['① 실시간 관제', '② 정책 개입', '③ 분산 효과'];
+  for (const label of steps) await expect(nav.getByRole('button', { name: label })).toBeVisible();
+  await expect(nav.getByRole('button', { name: '① 실시간 관제' })).toHaveAttribute('aria-current', 'step');
+
+  for (const [label, id] of [['② 정책 개입', 'step-policy'], ['③ 분산 효과', 'step-effect']] as const) {
+    await nav.getByRole('button', { name: label }).click();
+    const target = page.locator(`#${id}`);
+    await expect(target).toBeInViewport();
+    // 단계 배너가 붙어 있는 바 밑에 깔리지 않는다.
+    await expect.poll(async () => (await target.boundingBox())!.y).toBeGreaterThanOrEqual(navBox!.y + navBox!.height - 1);
+    await expect(nav).toBeInViewport();
+    await expect(nav.getByRole('button', { name: label })).toHaveAttribute('aria-current', 'step');
+  }
+
+  // ② 아래에는 쿠폰 정책, ③ 아래에는 30일 차트 — 실측이 3일 미만이면 실제 날짜가 아닌 '1일차…30일차' 시나리오.
+  const policyTop = (await page.locator('#step-policy').boundingBox())!.y;
+  const coupon = page.getByText('쿠폰 정책 개입', { exact: true }).first();
+  expect((await coupon.boundingBox())!.y).toBeGreaterThan(policyTop);
+  const scenarioTitle = page.getByRole('heading', { name: '도입 30일 분산 효과 시나리오' });
+  await expect(scenarioTitle).toBeVisible();
+  expect((await scenarioTitle.boundingBox())!.y).toBeGreaterThan((await page.locator('#step-effect').boundingBox())!.y);
+  await expect(page.locator('text.recharts-cartesian-axis-tick-value', { hasText: /^1일차$/ }).first()).toBeVisible();
+  await expect(page.locator('text.recharts-cartesian-axis-tick-value', { hasText: /^\d{1,2}\/\d{1,2}$/ })).toHaveCount(0);
+});
+
+test('1536×730 — 머리글에 엔진 상태 칩이 없고, 히트맵은 관광객 지도와 같은 네 등급이다(수집 중 범례 없음)', async ({ page }) => {
+  await page.setViewportSize({ width: 1536, height: 730 });
+  await openDashboard(page);
+  await expect(page.locator('header').getByText(/예측모델|3축 엔진/)).toHaveCount(0);
+  const heatmap = page.locator('#congestion-heatmap');
+  await heatmap.scrollIntoViewIfNeeded();
+  for (const label of ['한산 (0~25%)', '여유 (25~50%)', '보통 (50~75%)', '혼잡 (75%~)']) {
+    await expect(heatmap.getByText(label, { exact: true })).toBeVisible();
+  }
+  await expect(heatmap.getByText(/매우 혼잡|수집 중/)).toHaveCount(0);
+});
+
+for (const width of [1366, 1536]) {
+  test(`${width}px — 장소 관리 표의 수정·삭제가 가로 스크롤 없이 화면 안에 있다`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 730 });
+    await openDashboard(page);
+    const row = page.locator('tr').filter({ hasText: '교리김밥' }).filter({ has: page.getByRole('button', { name: '교리김밥 삭제' }) });
+    await row.scrollIntoViewIfNeeded();
+    const del = row.getByRole('button', { name: '교리김밥 삭제' });
+    await expect(del).toBeVisible();
+    await expect(del).toHaveText(/삭제/);
+    await expect(row.getByRole('button', { name: '교리김밥 수정' })).toHaveText(/수정/);
+    const box = await del.boundingBox();
+    expect(box!.x + box!.width, '삭제 버튼이 화면 오른쪽 밖에 있다').toBeLessThanOrEqual(width);
+  });
+}

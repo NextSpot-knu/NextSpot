@@ -166,12 +166,12 @@ export default function SettingsPage() {
   };
 
   return (
-    <div className="flex h-screen bg-hanok text-hanok-ink font-sans overflow-hidden">
+    <div className="flex flex-col lg:flex-row h-screen bg-hanok text-hanok-ink font-sans overflow-hidden">
       <AdminSidebar />
 
       <main className="flex-1 flex flex-col h-full overflow-hidden">
         {/* Top Header */}
-        <header className="h-20 bg-hanok-panel border-b border-hanok-line flex items-center justify-between px-8 flex-shrink-0">
+        <header className="lg:h-20 bg-hanok-panel border-b border-hanok-line flex flex-wrap lg:flex-nowrap items-center justify-between gap-2 lg:gap-0 px-4 py-3 lg:px-8 lg:py-0 flex-shrink-0">
           <h2 className="text-xl font-bold text-hanok-ink">시스템 설정</h2>
           <div className="flex items-center gap-6">
             <button className="relative text-hanok-muted hover:text-hanok-ink">
@@ -181,16 +181,16 @@ export default function SettingsPage() {
         </header>
 
         {/* Settings Content */}
-        <div className="flex-1 p-8 overflow-y-auto">
+        <div className="flex-1 p-4 lg:p-8 overflow-y-auto">
           <div className="max-w-4xl mx-auto flex flex-col gap-8 pb-20">
 
             {/* Header Area */}
-            <div className="flex justify-between items-end">
+            <div className="flex max-lg:flex-col max-lg:items-start max-lg:gap-4 justify-between items-end">
               <div>
                 <h3 className="text-2xl font-bold text-hanok-ink mb-2">환경 설정</h3>
                 <p className="text-hanok-muted">서비스 점검 안내·상단 공지·혼잡 등급 경계를 설정합니다.</p>
               </div>
-              <div className="flex items-center gap-3">
+              <div className="flex max-lg:flex-wrap items-center gap-3">
                 {saveMsg && (
                   <span className={`flex items-center gap-1.5 text-sm font-semibold ${saveMsg.type === 'ok' ? 'text-emerald-700' : 'text-rose-700'}`}>
                     {saveMsg.type === 'ok' ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}

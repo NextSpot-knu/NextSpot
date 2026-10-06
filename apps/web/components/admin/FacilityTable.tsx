@@ -202,7 +202,7 @@ export function FacilityTable() {
 
   return (
     <>
-      <div className="bg-hanok-panel rounded-2xl border border-hanok-line shadow-sm overflow-hidden col-span-2">
+      <div className="bg-hanok-panel rounded-2xl border border-hanok-line shadow-sm overflow-hidden min-[1800px]:col-span-2">
         <div className="p-6 border-b border-hanok-line flex justify-between items-center bg-hanok-card/30">
           <div className="flex items-center gap-2">
             <Settings className="text-hanok-muted" size={20} />
@@ -286,12 +286,13 @@ export function FacilityTable() {
                     <th className="p-4 font-semibold whitespace-nowrap">수용 인원</th>
                     <th className="p-4 font-semibold">운영 시간</th>
                     <th className="p-4 font-semibold whitespace-nowrap">상태</th>
-                    <th className="p-4 font-semibold text-right whitespace-nowrap">관리</th>
+                    {/* 관리 열은 오른쪽에 붙여 둔다 — 표가 가로로 밀려도 수정·삭제가 화면 밖으로 나가지 않는다(I70). */}
+                    <th className="sticky right-0 z-[1] bg-hanok-panel p-4 font-semibold text-right whitespace-nowrap shadow-[-8px_0_8px_-8px_rgba(37,29,21,0.18)]">관리</th>
                   </tr>
                 </thead>
                 <tbody className="text-sm">
                   {paginatedFacilities.map((fac) => (
-                    <tr key={fac.id} className="border-b border-hanok-line hover:bg-hanok-card transition-colors">
+                    <tr key={fac.id} className="group border-b border-hanok-line hover:bg-hanok-card transition-colors">
                       <td className="p-4 font-bold text-hanok-ink">{fac.name}</td>
                       <td className="p-4 whitespace-nowrap">
                         <span className="inline-block whitespace-nowrap px-2 py-1 bg-hanok-card text-hanok-muted rounded-md text-xs font-semibold uppercase">
@@ -310,19 +311,23 @@ export function FacilityTable() {
                           <span className="inline-block whitespace-nowrap px-2 py-1 bg-emerald-500/15 text-emerald-700 text-xs font-bold rounded-md">활성</span>
                         )}
                       </td>
-                      <td className="p-4 flex justify-end gap-2 whitespace-nowrap">
-                        <button
-                          onClick={() => openEditModal(fac)}
-                          className="p-1.5 text-hanok-muted hover:text-gold-deep transition-colors bg-hanok-panel border border-hanok-line rounded-md"
-                        >
-                          <Edit2 size={16} />
-                        </button>
-                        <button
-                          onClick={() => handleDelete(fac.id, fac.name)}
-                          className="p-1.5 text-hanok-muted hover:text-rose-600 transition-colors bg-hanok-panel border border-hanok-line rounded-md"
-                        >
-                          <Trash2 size={16} />
-                        </button>
+                      <td className="sticky right-0 z-[1] bg-hanok-panel p-4 whitespace-nowrap shadow-[-8px_0_8px_-8px_rgba(37,29,21,0.18)] transition-colors group-hover:bg-hanok-card">
+                        <div className="flex justify-end gap-2">
+                          <button
+                            onClick={() => openEditModal(fac)}
+                            aria-label={`${fac.name} 수정`}
+                            className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-hanok-muted hover:text-gold-deep transition-colors bg-hanok-panel border border-hanok-line rounded-md"
+                          >
+                            <Edit2 size={14} aria-hidden="true" /> 수정
+                          </button>
+                          <button
+                            onClick={() => handleDelete(fac.id, fac.name)}
+                            aria-label={`${fac.name} 삭제`}
+                            className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-hanok-muted hover:text-rose-600 transition-colors bg-hanok-panel border border-hanok-line rounded-md"
+                          >
+                            <Trash2 size={14} aria-hidden="true" /> 삭제
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
