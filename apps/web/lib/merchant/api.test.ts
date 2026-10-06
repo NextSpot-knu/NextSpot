@@ -500,7 +500,19 @@ async function main() {
   assert.match(dashboardSrc, /추천 반영 중/, "진행 중 세일에 '추천 반영 중' 이 없다");
   assert.match(dashboardSrc, /href=\{`\/main\?place=\$\{encodeURIComponent\(facilityId\)\}`\}/, "'손님 화면에서 보기' 가 /main?place= 로 가지 않는다");
   assert.match(dashboardSrc, /손님 화면에서 보기/);
-  assert.match(dashboardSrc, /scorecardTiles\(stats\)/, '성적표가 0 타일을 숨기는 판정(scorecard.ts)을 쓰지 않는다');
+  assert.match(dashboardSrc, /scorecardTiles\(stats, \{ saleActive \}\)/, '성적표가 0 타일을 숨기는 판정(scorecard.ts)을 진행 중 세일 여부와 함께 쓰지 않는다');
+  // 리뷰(10-07): ③ 이 진행 중 세일 여부를 콘솔에 알리고, 콘솔이 그것을 ② 에 넘긴다(세일 옆 '타임세일을 열어 보세요' 금지).
+  assert.match(dashboardSrc, /onActiveChange=\{setSaleActive\}/, '③ 의 진행 중 세일 여부가 콘솔로 올라오지 않는다');
+  assert.match(dashboardSrc, /<StatsSection[^>]*saleActive=\{saleActive\}/, '② 성적표가 진행 중 세일 여부를 받지 않는다');
+  assert.match(dashboardSrc, /tile\.hero \|\| tile\.wide \? 'col-span-2'/, '외톨이 성적표 타일이 두 칸을 쓰지 않는다');
+  // 리뷰(10-07): '타임세일 열기' 의 표시는 인라인 outline(안쪽) — ring(box-shadow)은 .toss-surface 에 지고 오른쪽 열에 잘린다.
+  const goTo = dashboardSrc.slice(dashboardSrc.indexOf('function goToSection('), dashboardSrc.indexOf('export function MerchantConsole('));
+  assert.match(goTo, /el\.style\.outline = '2px solid var\(--nextspot-gold\)'/, "'타임세일 열기' 가 넓은 화면에서 보이는 표시를 남기지 않는다");
+  assert.match(goTo, /el\.style\.outlineOffset = '-2px'/, '섹션 테가 오른쪽 열 스크롤 상자에 잘린다');
+  assert.doesNotMatch(goTo, /ring-2|ring-gold/, '섹션 테를 ring(box-shadow)으로 그린다 — .toss-surface 그림자에 져서 보이지 않는다');
+  assert.match(goTo, /button\[aria-pressed\]'\)\?\.focus\(\{ preventScroll: true \}\)/, '섹션으로 옮긴 뒤 초점이 따라가지 않는다');
+  // 손님 화면 링크는 새 탭(콘솔을 떠나지 않는다).
+  assert.match(dashboardSrc, /href=\{`\/main\?place=[^`]*`\}\s*target="_blank"\s*rel="noopener noreferrer"/, "'손님 화면에서 보기' 가 콘솔 탭을 떠난다");
   assert.doesNotMatch(dashboardSrc, /추천 수락'|label="추천 수락"|추천 제안/, "성적표에 '추천 수락 a / b' 비율·'추천 제안' 설명이 남아 있다");
   assert.match(dashboardSrc, /position: 'top-center'/, '콘솔 토스트가 위 가운데로 가지 않는다(좌석 버튼을 덮는다)');
   assert.doesNotMatch(dashboardSrc, /useDemoToast\(\)/, '데모 토스트가 아래 가운데(공용 위치)로 뜬다');

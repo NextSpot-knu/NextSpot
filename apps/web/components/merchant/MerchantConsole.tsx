@@ -23,7 +23,6 @@ import {
   ChevronLeft,
   Ticket,
   MessageCircleWarning,
-  ThumbsUp,
   Eye,
   Zap,
   Timer,
@@ -78,7 +77,7 @@ import {
   type SeatLevel,
 } from '@/lib/merchant/api';
 import { bestQuietHour, quietHourCopy } from '@/lib/merchant/forecastInsight';
-import { FIRST_TIMESALE_PROMPT, scorecardIsEmpty, scorecardTiles, type ScorecardTileKey } from '@/lib/merchant/scorecard';
+import { TIMESALE_PROMPT, scorecardIsEmpty, scorecardTiles, type ScorecardTileKey } from '@/lib/merchant/scorecard';
 import { PREDICTED_BADGE } from '@/lib/adminPredictedView';
 
 import { useT } from '@/lib/i18n/I18nProvider';
@@ -115,14 +114,30 @@ function useConsoleDemoToast() {
 }
 
 /** 콘솔 안의 다른 섹션(③ 타임세일 · ④ 좌석)으로 데려간다.
- *  넓은 화면에서는 ③④ 가 오른쪽 열에 이미 보이므로 화면을 크게 움직이지 않고(nearest) 잠깐 테를 둘러 알려 준다. */
+ *  넓은 화면에서는 ③④ 가 오른쪽 열에 이미 보이므로 화면을 크게 움직이지 않고(nearest) 잠깐 금색 테를 둘러 알려 준다.
+ *  테는 인라인 outline 이다 — Tailwind ring(box-shadow) 은 레이어 밖의 .toss-surface 그림자에 져서 그려지지 않았고,
+ *  바깥쪽 테는 오른쪽 열의 스크롤 상자에 잘린다(그래서 넓은 화면에서 '타임세일 열기' 가 아무 일도 안 하는 버튼이었다).
+ *  키보드·화면낭독기 사용자를 위해 그 섹션의 첫 선택 버튼(③ 15% · ④ 여유)으로 초점도 옮긴다(스크롤은 위에서 이미 했다). */
+const SECTION_FLASH_MS = 1400;
+const sectionFlashTimers = new Map<string, number>();
 function goToSection(id: string) {
   const el = document.getElementById(id);
   if (!el) return;
   const wide = typeof window !== 'undefined' && window.matchMedia('(min-width: 1024px)').matches;
   el.scrollIntoView({ behavior: 'smooth', block: wide ? 'nearest' : 'start' });
-  el.classList.add('ring-2', 'ring-gold');
-  window.setTimeout(() => el.classList.remove('ring-2', 'ring-gold'), 1400);
+  el.style.outline = '2px solid var(--nextspot-gold)';
+  el.style.outlineOffset = '-2px';
+  // 연달아 누르면 앞 타이머가 새 테를 일찍 지우지 않게 하나만 남긴다.
+  window.clearTimeout(sectionFlashTimers.get(id));
+  sectionFlashTimers.set(
+    id,
+    window.setTimeout(() => {
+      el.style.outline = '';
+      el.style.outlineOffset = '';
+      sectionFlashTimers.delete(id);
+    }, SECTION_FLASH_MS),
+  );
+  el.querySelector<HTMLButtonElement>('button[aria-pressed]')?.focus({ preventScroll: true });
 }
 
 export function MerchantConsole({ demo = false }: { demo?: boolean }) {
@@ -132,6 +147,9 @@ export function MerchantConsole({ demo = false }: { demo?: boolean }) {
   const [mounted, setMounted] = useState(false);
   // 데모는 고를 가게가 없다 — 고정 가게로 바로 시작한다(로컬 저장소도 읽지 않는다).
   const [facility, setFacility] = useState<MerchantFacility | null>(demo ? DEMO_MERCHANT_FACILITY : null);
+  // ③ 에 진행 중인 타임세일이 있는가 — ② 성적표의 '타임세일을 열어 보세요' 가 진행 중 배너 옆에 서지 않게 ③ 이 알려 준다.
+  // null = 아직 모름(불러오는 중·실패) — 그동안 ② 는 그 줄을 감춘다.
+  const [saleActive, setSaleActive] = useState<boolean | null>(null);
 
   useEffect(() => {
     setMounted(true);
@@ -259,24 +277,27 @@ export function MerchantConsole({ demo = false }: { demo?: boolean }) {
       {/* 1024px 이상은 두 열 — 왼쪽은 읽을 것(브리핑·① 예상 혼잡·② 성적표), 오른쪽은 할 일(③ 타임세일·④ 좌석 방송).
           예전에는 640px 한 줄이라 심사위원이 눌러 볼 ③④ 가 세 화면 아래였다(PE10). 오른쪽 열은 화면에 붙어 있고,
           화면보다 길면 그 열만 스크롤한다 — 왼쪽을 읽는 동안에도 두 행동이 늘 보인다.
-          휴대폰 순서는 그대로이고, 대신 아래쪽에 ③④ 로 바로 가는 고정 바가 있다. */}
+          휴대폰 순서는 그대로이고, 대신 아래쪽에 ③④ 로 바로 가는 고정 바가 있다.
+          오른쪽 열의 스크롤 상자는 좌우·아래로 그림자 자리(-mx-4 px-4 · pb-8)를 둔다 — 상자 가장자리에 붙어 있으면
+          카드 그림자가 상자에 잘려 ③ 과 ④ 사이에 각진 띠가 생겼다(왼쪽 열 카드와 그림자 모양이 달랐다). */}
       <main className="mx-auto max-w-2xl px-4 py-6 pb-28 lg:grid lg:max-w-6xl lg:grid-cols-2 lg:items-start lg:gap-5 lg:pb-6 lg:pt-4">
         <div className="flex flex-col gap-5">
           {/* key=시설 id — 가게가 바뀌면 카드 상태(이전 가게 브리핑)를 통째로 리셋한다 */}
           <BriefingCard key={facility.id} facilityId={facility.id} demo={demo} />
           {demo && <DemoTodaySummary />}
           <ForecastSection facilityId={facility.id} facilityType={facility.type} demo={demo} />
-          <StatsSection facilityId={facility.id} demo={demo} />
+          <StatsSection facilityId={facility.id} demo={demo} saleActive={saleActive} />
           {demo && <DemoWeeklyTrend />}
         </div>
         <div
           data-testid="merchant-actions"
-          className="mt-5 flex flex-col gap-5 lg:sticky lg:top-[4.75rem] lg:mt-0 lg:max-h-[calc(100dvh-5.5rem)] lg:overflow-y-auto lg:rounded-3xl"
+          className="mt-5 flex flex-col gap-5 lg:sticky lg:top-[4.75rem] lg:-mx-4 lg:mt-0 lg:max-h-[calc(100dvh-5.5rem)] lg:overflow-y-auto lg:px-4 lg:pb-8"
         >
           <TimesaleSection
             facilityId={facility.id}
             demo={demo}
             demoCouponRate={demo ? DEMO_MERCHANT_FACILITY.couponRate : null}
+            onActiveChange={setSaleActive}
           />
           <SeatStatusSection facilityId={facility.id} demo={demo} />
         </div>
@@ -537,7 +558,16 @@ function ForecastSection({
 // ② 성적표 — GET /api/v1/merchant/stats (최근 7일)
 // =========================================================================
 
-function StatsSection({ facilityId, demo = false }: { facilityId: string; demo?: boolean }) {
+function StatsSection({
+  facilityId,
+  demo = false,
+  saleActive = null,
+}: {
+  facilityId: string;
+  demo?: boolean;
+  /** ③ 에 진행 중인 타임세일이 있는가(null = 모름). 있거나 모르면 '타임세일을 열어 보세요' 를 감춘다. */
+  saleActive?: boolean | null;
+}) {
   const [state, setState] = useState<AsyncState>('loading');
   const [stats, setStats] = useState<MerchantStats | null>(null);
   const [errorMessage, setErrorMessage] = useState('');
@@ -567,7 +597,7 @@ function StatsSection({ facilityId, demo = false }: { facilityId: string; demo?:
   // 모든 항목이 0 이면 숫자 타일 대신 '아직 기록 없음 + 다음 행동'을 보여준다 — 0 만 늘어놓으면
   // 사장님이 "고장났나?" 로 읽는다(감사 P1). 0 이 아닌 숫자만 타일로 세운다(lib/merchant/scorecard.ts, PM 4.18).
   const isEmpty = !!stats && scorecardIsEmpty(stats);
-  const card = stats ? scorecardTiles(stats) : null;
+  const card = stats ? scorecardTiles(stats, { saleActive }) : null;
 
   return (
     <SectionCard badge="② 성적표" title={`최근 ${stats?.window_days ?? 7}일 활동`}>
@@ -595,15 +625,15 @@ function StatsSection({ facilityId, demo = false }: { facilityId: string; demo?:
         <div className="flex flex-col gap-3">
           <div className="grid grid-cols-2 gap-3">
             {card.tiles.map((tile) => (
-              <div key={tile.key} className={tile.hero ? 'col-span-2' : undefined}>
+              <div key={tile.key} className={tile.hero || tile.wide ? 'col-span-2' : undefined}>
                 <StatTile icon={STAT_ICONS[tile.key]} label={tile.label} value={tile.value} sub={tile.sub} hero={tile.hero} />
               </div>
             ))}
           </div>
-          {/* 쿠폰을 한 번도 안 줬으면 '0 / 0' 타일 대신 다음 행동 한 줄. */}
-          {card.showFirstTimesalePrompt && (
+          {/* 쿠폰을 한 번도 안 줬으면 '0 / 0' 타일 대신 다음 행동 한 줄 — 진행 중인 세일이 없을 때만(scorecard.ts). */}
+          {card.showTimesalePrompt && (
             <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-gold/40 bg-gold/10 px-3.5 py-3">
-              <p className="min-w-0 flex-1 text-[13px] leading-relaxed text-muk">{FIRST_TIMESALE_PROMPT}</p>
+              <p className="min-w-0 flex-1 text-[13px] leading-relaxed text-muk">{TIMESALE_PROMPT}</p>
               <button
                 type="button"
                 onClick={() => goToSection('merchant-timesale')}
@@ -692,11 +722,14 @@ function TimesaleSection({
   facilityId,
   demo = false,
   demoCouponRate = null,
+  onActiveChange,
 }: {
   facilityId: string;
   demo?: boolean;
   /** 데모 가게의 기본 쿠폰율(데모는 조회하지 않는다). */
   demoCouponRate?: number | null;
+  /** 진행 중인 세일이 있는지(true/false) · 목록을 못 불러왔는지(null)를 콘솔에 알린다(② 성적표 프롬프트 판정용). */
+  onActiveChange?: (active: boolean | null) => void;
 }) {
   const demoToast = useConsoleDemoToast();
   const [state, setState] = useState<AsyncState>('loading');
@@ -781,6 +814,12 @@ function TimesaleSection({
     () => sales.filter((s) => !s.canceled_at && new Date(s.ends_at).getTime() > now),
     [sales, now]
   );
+  // 발행·취소·만료로 진행 중 여부가 바뀌면 콘솔에 알린다. 다시 불러오는 동안(loading)은 마지막 값을 그대로 둔다.
+  const hasActiveSale = activeSales.length > 0;
+  useEffect(() => {
+    if (state === 'ready') onActiveChange?.(hasActiveSale);
+    else if (state === 'error') onActiveChange?.(null);
+  }, [state, hasActiveSale, onActiveChange]);
   // 확인 단계의 배지 미리보기 — 진행 중인 세일이 더 높으면 손님은 그 값을 본다.
   const confirmPreview = publishConfirm
     ? timesaleConfirmPreview(baseCouponRate, publishConfirm.rate, activeSales.map((s) => s.rate))
@@ -886,10 +925,11 @@ function TimesaleSection({
                       <Zap size={16} aria-hidden="true" />
                     </span>
                     <div className="min-w-0">
+                      {/* 390px 에서 '진행 / 중' 으로 끊기지 않게 '타임세일 진행 중' 은 한 덩어리, 남은 시간은 sm 미만에서 다음 줄. */}
                       <p className="text-[18px] font-bold leading-snug text-muk">
-                        ⚡ {Math.round(sale.rate * 100)}% 타임세일 진행 중
-                        <span className="whitespace-nowrap font-semibold text-muk-soft tabular-nums">
-                          {' · '}
+                        ⚡ {Math.round(sale.rate * 100)}% <span className="whitespace-nowrap">타임세일 진행 중</span>
+                        <span className="block whitespace-nowrap font-semibold text-muk-soft tabular-nums sm:inline">
+                          <span className="hidden sm:inline">{' · '}</span>
                           <Timer size={13} className="inline -mt-0.5" aria-hidden="true" /> {formatRemaining(new Date(sale.ends_at).getTime() - now)}
                         </span>
                       </p>
@@ -901,13 +941,17 @@ function TimesaleSection({
                         <span className="whitespace-nowrap rounded-md border border-gold/60 bg-gold/25 px-1.5 py-px text-[13px] font-black text-gold-deep">
                           ⚡ 타임세일 {Math.round(sale.rate * 100)}%
                         </span>
-                        {/* 손님 화면 — 이 가게를 '선택한 장소' 카드로 연다(/main?place=). 데모 가게는 실제 지도에 없어서 감춘다. */}
+                        {/* 손님 화면 — 이 가게를 '선택한 장소' 카드로 연다(/main?place=). 데모 가게는 실제 지도에 없어서 감춘다.
+                            새 탭으로 연다 — 사장님은 콘솔을 그대로 둔 채 손님 카드를 확인하고 돌아온다(아이콘도 '새 창' 이다). */}
                         {!demo && (
                           <Link
                             href={`/main?place=${encodeURIComponent(facilityId)}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
                             className="inline-flex min-h-8 items-center gap-1 rounded-lg px-1.5 text-[13px] font-bold text-terracotta underline underline-offset-2 hover:text-muk focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
                           >
                             손님 화면에서 보기 <ExternalLink size={12} aria-hidden="true" />
+                            <span className="sr-only">(새 탭)</span>
                           </Link>
                         )}
                       </div>
@@ -1357,7 +1401,7 @@ function DemoTodaySummary() {
   const t = useT();
   const tiles: { label: string; value: number; unit: string; icon: React.ReactNode }[] = [
     { label: t('demo.exposures'), value: DEMO_MERCHANT_TODAY.exposures, unit: t('demo.unitTimes'), icon: <Eye size={16} /> },
-    { label: t('demo.accepted'), value: DEMO_MERCHANT_TODAY.accepted, unit: t('demo.unitCases'), icon: <ThumbsUp size={16} /> },
+    { label: t('demo.accepted'), value: DEMO_MERCHANT_TODAY.accepted, unit: t('demo.unitCases'), icon: <Navigation size={16} /> },
     { label: t('demo.couponsUsed'), value: DEMO_MERCHANT_TODAY.couponsUsed, unit: t('demo.unitCases'), icon: <Ticket size={16} /> },
     { label: t('demo.arrivals'), value: DEMO_MERCHANT_TODAY.arrivals, unit: t('demo.unitCases'), icon: <CircleCheck size={16} /> },
   ];
