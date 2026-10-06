@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   Building2, Search, Bell, Utensils, MapPin,
   ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ChevronDown, ChevronUp,
@@ -23,6 +23,9 @@ import {
 } from '@/lib/adminMetricState';
 import { getCongestionEstimates } from '@/lib/api-client';
 import { parseCongestionEstimate } from '@/lib/congestionEstimate';
+import { ttlPromiseCache } from '@/lib/ttlPromiseCache';
+import { HEATMAP_GRADE_CLASS } from '@/lib/adminHeatmapScale';
+import { useBusyThreshold } from '@/components/shell/PublicSettingsProvider';
 import { countLabel, emptyOrFailedText, type LoadStatus } from '@/lib/adminLoadState';
 import {
   demandPressure,
@@ -89,6 +92,21 @@ interface IngestRequest {
   created_at: string;
 }
 
+/** 추정 피드 결과를 나눠 쓰는 시간 — 서버(/congestion/estimates) 캐시와 같은 5분. */
+const ESTIMATES_TTL_MS = 5 * 60_000;
+
+/** 시설 id → 추정 혼잡도(0..1). 조회 실패는 거부로 넘긴다(캐시가 담아 두지 않게 — 호출부가 빈 맵으로 바꾼다). */
+async function fetchEstimateLevels(): Promise<Map<string, number>> {
+  const res = await getCongestionEstimates({ timeoutMs: 8000 });
+  const out = new Map<string, number>();
+  const now = new Date();
+  for (const [id, raw] of Object.entries(res?.estimates ?? {})) {
+    const est = parseCongestionEstimate(raw, now);
+    if (est) out.set(String(id), est.level);
+  }
+  return out;
+}
+
 export default function InfrastructurePage() {
   const [facilities, setFacilities] = useState<Infrastructure[]>([]);
   const [selectedInfra, setSelectedInfra] = useState<Infrastructure | null>(null);
@@ -123,29 +141,19 @@ export default function InfrastructurePage() {
 
   const supabase = createPublicClient();
 
-  // 관광객 지도와 같은 추정 피드(/congestion/estimates, 공개 · 서버 5분 캐시)를 이 화면에서 한 번만 받는다.
-  // 현장 관측이 없거나 오래된 시설은 이 추정을 '· 추정' 라벨과 함께 보인다(I72). 실패하면 조용히 빈 맵 —
-  // 화면은 예전처럼 관측만으로 그린다.
-  const estimatesRef = useRef<Promise<Map<string, number>> | null>(null);
-  const loadEstimates = useCallback((): Promise<Map<string, number>> => {
-    if (!estimatesRef.current) {
-      estimatesRef.current = getCongestionEstimates({ timeoutMs: 8000 })
-        .then((res) => {
-          const out = new Map<string, number>();
-          const now = new Date();
-          for (const [id, raw] of Object.entries(res?.estimates ?? {})) {
-            const est = parseCongestionEstimate(raw, now);
-            if (est) out.set(String(id), est.level);
-          }
-          return out;
-        })
-        .catch((err) => {
-          console.warn('혼잡 추정 피드 로드 실패(관측만으로 표시):', err);
-          return new Map<string, number>();
-        });
-    }
-    return estimatesRef.current;
-  }, []);
+  // 관광객 지도와 같은 추정 피드(/congestion/estimates, 공개 · 서버 5분 캐시)를 시설 목록 조회와 함께 쓴다.
+  // 현장 관측이 없거나 오래된 시설은 이 추정을 '· 추정' 라벨과 함께 보인다(I72). 받은 결과는 서버 캐시와 같은 5분만
+  // 나눠 쓰고(조용한 목록 갱신이 새 관측에 옛 추정을 짝짓지 않게), 실패는 담아 두지 않아 다음 갱신이 다시 묻는다.
+  // 실패한 회차는 조용히 빈 맵 — 그 회차만 예전처럼 관측만으로 그린다.
+  const [estimateLevels] = useState(() => ttlPromiseCache(fetchEstimateLevels, ESTIMATES_TTL_MS));
+  const loadEstimates = useCallback(
+    (): Promise<Map<string, number>> =>
+      estimateLevels().catch((err) => {
+        console.warn('혼잡 추정 피드 로드 실패(관측만으로 표시):', err);
+        return new Map<string, number>();
+      }),
+    [estimateLevels],
+  );
 
   const fetchIngestRequests = useCallback(async () => {
     setIngestStatus('loading');
@@ -399,15 +407,12 @@ export default function InfrastructurePage() {
   };
 
   // 상태 점 색. unknown(관측 없음/조회 실패)은 혼잡 등급 색을 쓰지 않고 회색 테두리만 둔다 —
-  // 색이 같으면 '측정된 한산' 과 구분이 안 된다.
+  // 색이 같으면 '측정된 한산' 과 구분이 안 된다. 등급 색·경계는 관광객 지도·관제 히트맵과 같다(PM 4.26 —
+  // 한산 파랑 · 여유 초록 · 보통 호박 · 혼잡 빨강, '혼잡' 은 운영자 경계부터).
+  const busyAt = useBusyThreshold();
   const getStatusColor = (c: FacilityCongestion) => {
-    switch (facilityStatusKey(c)) {
-      case 'orange': return 'bg-orange-500';
-      case 'yellow': return 'bg-amber-500';
-      case 'green': return 'bg-emerald-500';
-      case 'blue': return 'bg-gold';
-      default: return 'bg-transparent border border-dashed border-hanok-muted';
-    }
+    const key = facilityStatusKey(c, busyAt);
+    return key === 'unknown' ? 'bg-transparent border border-dashed border-hanok-muted' : HEATMAP_GRADE_CLASS[key];
   };
 
   // 관리자 액션: 수동 혼잡도 설정(Override) — 모달을 열어 레벨 선택. 현재 혼잡도를 슬라이더 초기값으로.
@@ -705,7 +710,7 @@ export default function InfrastructurePage() {
                         <h3 className="font-bold text-hanok-ink">{infra.name}</h3>
                       </div>
                       <div
-                        title={facilityStatusLabel(infra.congestion)}
+                        title={facilityStatusLabel(infra.congestion, busyAt)}
                         className={`w-3 h-3 rounded-full ${getStatusColor(infra.congestion)} mt-1`}
                       />
                     </div>
@@ -715,10 +720,10 @@ export default function InfrastructurePage() {
                           '혼잡도 갱신 중'. 지금 상태를 모르면(관측·추정 없음) 아무것도 적지 않는다('관측 대기' 벽 금지). */}
                       {infra.congestion.kind === 'estimated' ? (
                         <span className="rounded-full border border-sky-400/50 bg-sky-500/10 px-2 py-px text-xs font-bold text-sky-700">
-                          {facilityStatusLabel(infra.congestion)}
+                          {facilityStatusLabel(infra.congestion, busyAt)}
                         </span>
                       ) : infra.congestion.kind === 'unavailable' ? (
-                        <span className="text-amber-700">{facilityStatusLabel(infra.congestion)}</span>
+                        <span className="text-amber-700">{facilityStatusLabel(infra.congestion, busyAt)}</span>
                       ) : null}
                     </div>
                   </div>
@@ -796,7 +801,7 @@ export default function InfrastructurePage() {
                   <div className="flex flex-col items-end">
                     {/* 현재 상태 = 24시간 안의 현장 관측 또는 관광객 지도와 같은 추정. 그보다 오래된 관측은 '현재 상태' 가
                         아니다 — 날짜를 붙여 아래 한 줄로만 적는다(I72). 둘 다 없으면 상태 칸을 그리지 않는다. */}
-                    {facilityStatusLabel(selectedInfra.congestion) && (
+                    {facilityStatusLabel(selectedInfra.congestion, busyAt) && (
                       <>
                         <div className="text-sm font-semibold text-hanok-muted mb-1">현재 상태</div>
                         <div className={`flex items-center gap-2 px-3 py-1 rounded-full border ${
@@ -808,7 +813,7 @@ export default function InfrastructurePage() {
                               ? 'text-hanok-ink'
                               : selectedInfra.congestion.kind === 'estimated' ? 'text-sky-700' : 'text-hanok-muted'
                           }`}>
-                            {facilityStatusLabel(selectedInfra.congestion)}
+                            {facilityStatusLabel(selectedInfra.congestion, busyAt)}
                           </span>
                         </div>
                       </>
@@ -818,8 +823,8 @@ export default function InfrastructurePage() {
                         {selectedInfra.congestion.kind === 'estimated' ? '추정 혼잡도' : '최신 혼잡도'} {Math.round(selectedInfra.congestion.level * 100)}%
                       </div>
                     )}
-                    {staleObservationLine(selectedInfra.congestion) && (
-                      <div className="text-xs text-hanok-muted mt-1 tabular-nums">{staleObservationLine(selectedInfra.congestion)}</div>
+                    {staleObservationLine(selectedInfra.congestion, busyAt) && (
+                      <div className="text-xs text-hanok-muted mt-1 tabular-nums">{staleObservationLine(selectedInfra.congestion, busyAt)}</div>
                     )}
                   </div>
                 </div>

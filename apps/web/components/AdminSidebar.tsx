@@ -55,9 +55,12 @@ export function AdminSidebar({ demo = false }: { demo?: boolean } = {}) {
 
   // 휴대폰 폭(lg 미만)에서 여는 메뉴 서랍. 연 경로를 기억해 두고 그 경로에 있는 동안만 열려 있다 —
   // 서랍 안 링크로 다른 화면에 가면 저절로 닫힌다(경로 변화를 이펙트로 쫓아 setState 하지 않는다).
+  // 지금 화면의 링크(예: 대시보드에서 '관제 대시보드')는 경로가 바뀌지 않으므로 링크를 누를 때도 닫는다 —
+  // 그러지 않으면 서랍이 그대로 남아 누른 것이 아무 일도 안 한 것처럼 보였다.
   const [openedAt, setOpenedAt] = useState<string | null>(null);
   const drawerOpen = openedAt !== null && openedAt === pathname;
   const setDrawerOpen = (open: boolean) => setOpenedAt(open ? pathname : null);
+  const closeDrawer = () => setOpenedAt(null);
   useEffect(() => {
     if (!drawerOpen) return;
     const onKey = (e: KeyboardEvent) => {
@@ -93,7 +96,13 @@ export function AdminSidebar({ demo = false }: { demo?: boolean } = {}) {
       );
     }
     return (
-      <Link key={item.path} href={item.path} className={className} aria-current={isActive ? 'page' : undefined}>
+      <Link
+        key={item.path}
+        href={item.path}
+        onClick={closeDrawer}
+        className={className}
+        aria-current={isActive ? 'page' : undefined}
+      >
         <Icon size={20} />
         {item.name}
       </Link>
@@ -104,6 +113,7 @@ export function AdminSidebar({ demo = false }: { demo?: boolean } = {}) {
     <>
       <Link
         href="/main"
+        onClick={closeDrawer}
         className="w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-hanok-muted hover:bg-hanok-card hover:text-hanok-ink transition-colors"
       >
         <Compass size={20} />
@@ -113,6 +123,7 @@ export function AdminSidebar({ demo = false }: { demo?: boolean } = {}) {
         // 데모에는 버릴 세션이 없다 — 로그아웃 대신 로그인 게이트로 보낸다(심사 계정 안내가 거기 있다).
         <Link
           href="/admin/login"
+          onClick={closeDrawer}
           className="w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium text-hanok-muted hover:bg-hanok-card hover:text-hanok-ink transition-colors"
         >
           <LogIn size={20} />

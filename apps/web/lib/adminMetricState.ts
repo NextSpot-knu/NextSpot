@@ -7,6 +7,9 @@
 // 이 저장소의 원칙: 실패와 '해당 없음' 과 '실측 0' 은 서로 다른 사실이므로 절대
 // 같은 값(특히 0)으로 뭉개지 않는다.
 
+import { congestionKey, DEFAULT_BUSY_THRESHOLD, type CongestionKey } from './congestionScale';
+import { HEATMAP_GRADE_LABEL } from './adminHeatmapScale';
+
 /** 지표 하나의 표시 상태. 네 상태는 화면에서 서로 다른 모양이어야 한다. */
 export type AdminMetric<T> =
   | { status: 'loading' }
@@ -132,45 +135,34 @@ export function facilityCongestionFrom(input: {
   return { kind: 'none' };
 }
 
-export type FacilityStatusKey = 'orange' | 'yellow' | 'green' | 'blue' | 'unknown';
-
-function gradeKey(level: number): Exclude<FacilityStatusKey, 'unknown'> {
-  if (level >= 0.75) return 'orange';
-  if (level >= 0.5) return 'yellow';
-  if (level >= 0.25) return 'green';
-  return 'blue';
-}
-
-const GRADE_LABEL: Record<Exclude<FacilityStatusKey, 'unknown'>, string> = {
-  orange: '혼잡',
-  yellow: '보통',
-  green: '여유',
-  blue: '한산',
-};
+// 등급은 관광객 지도·관제 히트맵과 같은 congestionKey(운영자 '혼잡' 경계 포함) · 같은 이름(lib/adminHeatmapScale)이다
+// (PM 결정 4.26). 예전에는 0.75 고정 경계에 '한산 = 금색 · 혼잡 = 주황' 이라, 같은 '혼잡' 이 대시보드 히트맵(빨강)과
+// 장소 관리(주황)에서 다른 색·다른 경계였다.
+export type FacilityStatusKey = CongestionKey | 'unknown';
 
 /** 상태 점 색 키. 지금 상태를 모르면(관측·추정 없음, 오래된 관측뿐, 조회 실패) 어떤 혼잡 등급에도 넣지 않는다. */
-export function facilityStatusKey(c: FacilityCongestion): FacilityStatusKey {
+export function facilityStatusKey(c: FacilityCongestion, busyAt: number = DEFAULT_BUSY_THRESHOLD): FacilityStatusKey {
   if (c.kind !== 'observed' && c.kind !== 'estimated') return 'unknown';
-  return gradeKey(c.level);
+  return congestionKey(c.level, busyAt);
 }
 
 /** 사람이 읽는 상태 라벨. 추정은 '· 추정' 을 붙이고, 지금 상태를 모르면 빈 문자열(라벨 없음)이다.
  *  조회 실패만 '혼잡도 갱신 중' 이라고 적는다. */
-export function facilityStatusLabel(c: FacilityCongestion): string {
+export function facilityStatusLabel(c: FacilityCongestion, busyAt: number = DEFAULT_BUSY_THRESHOLD): string {
   if (c.kind === 'unavailable') return '혼잡도 갱신 중';
-  if (c.kind === 'observed') return GRADE_LABEL[gradeKey(c.level)];
-  if (c.kind === 'estimated') return `${GRADE_LABEL[gradeKey(c.level)]} · 추정`;
+  if (c.kind === 'observed') return HEATMAP_GRADE_LABEL[congestionKey(c.level, busyAt)];
+  if (c.kind === 'estimated') return `${HEATMAP_GRADE_LABEL[congestionKey(c.level, busyAt)]} · 추정`;
   return '';
 }
 
 /** 지난 관측 한 줄('9/27 14:05 관측 혼잡 82%', KST) — 현재 상태가 아닌 관측을 날짜와 함께 적는다. 없으면 null. */
-export function staleObservationLine(c: FacilityCongestion): string | null {
+export function staleObservationLine(c: FacilityCongestion, busyAt: number = DEFAULT_BUSY_THRESHOLD): string | null {
   const prev = c.kind === 'stale' ? c.previous : c.kind === 'estimated' ? c.previous ?? null : null;
   if (!prev) return null;
   const k = new Date(new Date(prev.observedAt).getTime() + 9 * 60 * 60 * 1000);
   const hh = String(k.getUTCHours()).padStart(2, '0');
   const mm = String(k.getUTCMinutes()).padStart(2, '0');
-  return `${k.getUTCMonth() + 1}/${k.getUTCDate()} ${hh}:${mm} 관측 ${GRADE_LABEL[gradeKey(prev.level)]} ${Math.round(prev.level * 100)}%`;
+  return `${k.getUTCMonth() + 1}/${k.getUTCDate()} ${hh}:${mm} 관측 ${HEATMAP_GRADE_LABEL[congestionKey(prev.level, busyAt)]} ${Math.round(prev.level * 100)}%`;
 }
 
 /** 지금 관측된 혼잡도만 숫자로 돌려준다(추정·오래된 관측·미관측·실패는 null — 0 으로 대체하지 않는다). */

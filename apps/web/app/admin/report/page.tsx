@@ -480,9 +480,10 @@ export default function AdminReportPage() {
                 계열 구분은 색 + 선 패턴 2중이고, 툴팁이 없는 인쇄에서도 값을 읽을 수 있게
                 평균선·최고점 라벨·하단 요약 캡션을 함께 낸다.
 
-                혼잡 추이는 실측 표본이 **0일일 때만** 추정 계열로 채운다(서버 일괄 경로:
-                GET /admin/reports/estimated). 실측이 하루라도 있으면 추정은 아예 만들지 않는다 —
+                혼잡 추이는 실측 표본일이 **문턱(3일, lib/adminTrendThreshold) 미만일 때** 추정 계열로 채운다(서버 일괄 경로:
+                GET /admin/reports/estimated). 문턱을 넘으면 추정은 아예 만들지 않는다 —
                 절반은 실측·절반은 추정인 한 줄은 그 선이 무엇인지 아무도 말할 수 없기 때문이다.
+                차트·총평·'참고: 30일 추정 요약' 이 같은 문턱을 쓴다(실측 1~2일에 총평은 추정, 차트는 실측 점 한두 개이던 어긋남 — I73).
                 추정 계열은 색·선 패턴·범례·캡션이 전부 다르고 근거 문장을 달고 나간다. */}
             <TrendLineChart
               title="30일 일평균 혼잡도 추이"
@@ -514,7 +515,7 @@ export default function AdminReportPage() {
               emptyMessage="추천 수락률 추이를 수집 중입니다."
             />
 
-            {/* 참고: 30일 **추정** 요약 — 실측 표본이 0일일 때만 낸다.
+            {/* 참고: 30일 **추정** 요약 — 실측 표본일이 문턱(3일) 미만일 때만 낸다.
                 위 KPI 표(실측)와 절대 섞지 않으려고 별도 상자·별도 제목·(추정) 표기를 쓴다.
                 인원 수 칸이 없는 이유를 여기서 말한다 — 추정치에는 인원 수가 없고, 0 으로
                 채우면 없는 관측을 만들어 내는 것이다. */}
@@ -598,7 +599,7 @@ function TrendLineChart({
   loading: boolean;
   error: boolean;
   emptyMessage: string;
-  /** 실측 표본이 0일일 때만 그릴 **추정** 계열. null 이면 지금까지와 똑같이 '데이터 없음' 패널이 나온다. */
+  /** 실측 표본일이 문턱(3일) 미만일 때 그릴 **추정** 계열(부모가 hasMeasuredTrend 로 정한다). null 이면 실측 계열이나 '데이터 없음' 패널이다. */
   estimate?: { rows: ChartRow[]; seriesName: string; basisLine: string; methodNote: string } | null;
   /** 추정도 못 그린 이유(있으면 빈 패널 안에 덧붙인다 — 말하지 않으면 '고장' 으로 읽힌다). */
   unavailableNote?: string | null;
@@ -606,9 +607,10 @@ function TrendLineChart({
   // 결측 판정은 lib/adminSeriesGaps.ts 한 곳에서만 한다 — 대시보드 차트와 같은 판정을 써야
   // 같은 데이터가 두 화면에서 다른 이야기를 하지 않는다(그 파일 머리말 참조).
   const measured = summarizeSeries(data, (row) => row[dataKey]);
-  // **실측이 이긴다.** 실측 관측일이 1일이라도 있으면 추정은 그리지 않는다 — 한 선 안에
-  // 두 출처를 섞으면 그 선이 무엇인지 아무도 말할 수 없다.
-  const showEstimate = !loading && !error && measured.observed === 0 && estimate !== null;
+  // **실측이 이긴다** — 단 실측 관측일이 문턱(3일, 대시보드·총평과 같은 hasMeasuredTrend)을 넘었을 때.
+  // 한두 날은 추이가 아니다(심사위원의 좌석 방송 한 번으로도 생긴다). 그때도 '0일일 때만' 으로 따로 판정하면
+  // 총평은 추정을 말하는데 차트는 '실측' 점 한두 개를 그렸다(I73). 한 선 안에 두 출처를 섞지는 않는다.
+  const showEstimate = !loading && !error && estimate !== null && !hasMeasuredTrend(measured.observed);
   const activeData = showEstimate ? estimate.rows : data;
   const activeName = showEstimate ? estimate.seriesName : seriesName;
   const activeColor = showEstimate ? CHART_COLOR.estimate : color;

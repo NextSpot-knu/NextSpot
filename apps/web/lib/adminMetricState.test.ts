@@ -59,14 +59,20 @@ assert.deepEqual(changeBadge(3), { text: '+3%', tone: 'increase' });
 assert.deepEqual(changeBadge(0), { text: '0%', tone: 'flat' });
 assert.deepEqual(changeBadge(Number.NaN), { text: '—', tone: 'flat' });
 
-// ── 시설 혼잡 상태: 미관측/실패가 '한산'(blue)으로 새지 않는다 ────────────────
-assert.equal(facilityStatusKey({ kind: 'observed', level: 0.9 }), 'orange');
-assert.equal(facilityStatusKey({ kind: 'observed', level: 0.75 }), 'orange');
-assert.equal(facilityStatusKey({ kind: 'observed', level: 0.5 }), 'yellow');
-assert.equal(facilityStatusKey({ kind: 'observed', level: 0.25 }), 'green');
-assert.equal(facilityStatusKey({ kind: 'observed', level: 0 }), 'blue');
+// ── 시설 혼잡 상태: 미관측/실패가 '한산'(quiet)으로 새지 않는다 ────────────────
+// 등급 키는 관광객 지도·관제 히트맵과 같은 congestionKey 다(PM 4.26 — 2026-10-07 리뷰로 장소 관리도 같은 척도).
+assert.equal(facilityStatusKey({ kind: 'observed', level: 0.9 }), 'busy');
+assert.equal(facilityStatusKey({ kind: 'observed', level: 0.75 }), 'busy');
+assert.equal(facilityStatusKey({ kind: 'observed', level: 0.5 }), 'moderate');
+assert.equal(facilityStatusKey({ kind: 'observed', level: 0.25 }), 'relaxed');
+assert.equal(facilityStatusKey({ kind: 'observed', level: 0 }), 'quiet');
 assert.equal(facilityStatusKey({ kind: 'none' }), 'unknown');
 assert.equal(facilityStatusKey({ kind: 'unavailable' }), 'unknown');
+// 운영자 '혼잡' 경계를 따른다(지도·히트맵과 같은 경계) — 60% 로 내리면 62% 는 '보통' 이 아니라 '혼잡' 이다.
+assert.equal(facilityStatusKey({ kind: 'observed', level: 0.62 }), 'moderate');
+assert.equal(facilityStatusKey({ kind: 'observed', level: 0.62 }, 0.6), 'busy');
+assert.equal(facilityStatusLabel({ kind: 'estimated', level: 0.62 }, 0.6), '혼잡 · 추정');
+assert.equal(facilityStatusLabel({ kind: 'observed', level: 0.62 }, 0.6), '혼잡');
 
 assert.equal(facilityStatusLabel({ kind: 'observed', level: 0 }), '한산');
 // 2026-10-07(I72): 관측도 추정도 없으면 라벨을 달지 않는다('관측 대기' 가 목록 전체를 덮었다). 조회 실패만 말한다.
@@ -89,7 +95,7 @@ assert.equal(observedLevel({ kind: 'unavailable' }), null);
   const old = facilityCongestionFrom({ failed: false, observedLevel: 0.82, observedAt: '2026-09-27T05:05:00Z', estimateLevel: 0.6, now: NOW });
   assert.equal(old.kind, 'estimated');
   assert.equal(facilityStatusLabel(old), '보통 · 추정');
-  assert.equal(facilityStatusKey(old), 'yellow');
+  assert.equal(facilityStatusKey(old), 'moderate');
   assert.equal(observedLevel(old), null, '추정은 관측값이 아니다(이상 알림·수동 입력 초기값에 쓰지 않는다)');
   assert.equal(staleObservationLine(old), '9/27 14:05 관측 혼잡 82%');
   // 오래된 관측만 있으면 현재 상태 없음 — 라벨·등급 없이 지난 관측 한 줄만.

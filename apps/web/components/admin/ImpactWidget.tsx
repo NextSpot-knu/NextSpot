@@ -101,7 +101,10 @@ export function ImpactWidget({
   // 시나리오 숫자만 굴린다(실측 렌더는 그대로). NaN 이면 훅이 아무것도 하지 않는다.
   const scenarioSaved = useCountUp(scenario ? scenario.savedWaitMinutes : Number.NaN);
   const scenarioRelocations = useCountUp(scenario ? scenario.relocations : Number.NaN);
-  const scenarioLine = scenario ? basisSubline({ basis: 'scenario', measuredCount: relocationsMeasured, unit: '건' }) : null;
+  // 시나리오 숫자는 '오늘' 값이지만 실측 표본은 최근 30일 수락이다 — 실측 건수에는 늘 그 창을 붙인다(한 카드에 두 창을 섞어 읽히지 않게).
+  const scenarioLine = scenario
+    ? basisSubline({ basis: 'scenario', measuredCount: relocationsMeasured, unit: `건(최근 ${IMPACT_WINDOW_DAYS}일)` })
+    : null;
 
   // 30일 동안 덜어낸 혼잡이 0 건(실측) — '0분 · 0건' 카드를 세우지 않는다. 페이지는 같은 판정(impactSamples === 0)으로
   // 쿠폰 정책 카드에 줄을 다 준다.
@@ -127,7 +130,7 @@ export function ImpactWidget({
         </div>
         <p className="text-xs text-hanok-muted mt-1">
           {scenario
-            ? `도입 목표 패턴 기준 — 실측 ${MIN_MEASURED_SAMPLES}건이 쌓이면 실측으로 전환됩니다 (KST 오늘 기준)`
+            ? `도입 목표 패턴의 오늘(KST) 값 — 최근 ${IMPACT_WINDOW_DAYS}일 실측 ${MIN_MEASURED_SAMPLES}건이 쌓이면 실측으로 전환됩니다`
             : `수락된 추천이 덜어낸 혼잡 (최근 ${IMPACT_WINDOW_DAYS}일)`}
         </p>
         {scenarioLine && <p className="text-[11px] text-amber-800/90 mt-1">{scenarioLine}</p>}
@@ -187,7 +190,7 @@ export function ImpactWidget({
           <p className="text-[11px] text-amber-800/90">
             {SCENARIO_FOOTNOTE}
             {relocationsMeasured !== null && relocationsMeasured >= 1 && relocationsMeasured < MIN_MEASURED_SAMPLES
-              ? ` · 실측 ${relocationsMeasured}건 수집 중`
+              ? ` · 최근 ${IMPACT_WINDOW_DAYS}일 실측 ${relocationsMeasured}건 수집 중`
               : ''}
           </p>
         ) : (

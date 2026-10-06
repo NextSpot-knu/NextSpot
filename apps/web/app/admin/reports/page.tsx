@@ -508,6 +508,14 @@ export default function ReportsPage() {
         {/* Dashboard Content */}
         <div className="flex-1 min-h-0 p-4 lg:p-8 overflow-y-auto pb-20 space-y-6 lg:space-y-8 print:h-auto print:overflow-visible print:p-0 print:pb-0">
 
+          {/* 인쇄 표지 한 줄 — 화면의 머리글('통계 리포트')과 기간 막대는 인쇄에서 빠지므로(print:hidden), 이 줄이 없으면
+              저장한 PDF 가 제목·기간·출처 없이 첫 차트부터 시작했다. 화면에는 보이지 않는다. */}
+          <div className="hidden print:block break-inside-avoid border-b-2 border-black pb-3">
+            <h1 className="text-xl font-black text-black">NextSpot 통계 리포트</h1>
+            <p className="mt-1 text-sm font-semibold text-gray-700">기간: {rangeLabel}</p>
+            <p className="mt-0.5 text-xs text-gray-600">출처: ⓒ한국관광공사 · 경주 ITS 공영주차</p>
+          </div>
+
           {/* Controllers & Actions */}
           <div className="print:hidden flex max-lg:flex-col max-lg:items-stretch max-lg:gap-3 justify-between items-center bg-hanok-panel p-4 rounded-2xl border border-hanok-line shadow-sm flex-shrink-0">
             <div className="flex max-lg:flex-wrap items-center gap-3">

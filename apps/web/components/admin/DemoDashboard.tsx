@@ -121,16 +121,6 @@ export function AdminDemoDashboard() {
         <div className="flex flex-1 flex-col gap-6 px-4 pb-4 pt-4 lg:overflow-y-auto lg:px-8 lg:pb-8 lg:pt-0">
           {/* 단계 바 — 실제 대시보드와 같은 바. 넓은 화면에서는 본문 위에 붙어 있다. */}
           <StepNav className="-mx-4 border-b border-hanok-line bg-hanok/95 px-4 py-2 backdrop-blur lg:sticky lg:top-0 lg:z-20 lg:-mx-8 lg:px-8" />
-          {/* 내보내기 — 데모에서는 파일을 만들지 않는다(무엇이 나갔는지 추적되지 않는 파일을 만들지 않기 위해). */}
-          <div className="flex items-center justify-end gap-4">
-            <button
-              type="button"
-              onClick={demoToast}
-              className="flex cursor-pointer items-center gap-2 rounded-lg bg-hanok-ink/90 px-4 py-2 text-sm font-semibold text-hanok-card shadow-sm transition-colors hover:bg-hanok-ink"
-            >
-              <Download size={16} /> 데이터 내보내기 (CSV)
-            </button>
-          </div>
 
           {/* 정책 브리핑 */}
           <div className="flex items-start gap-3 rounded-2xl border border-gold/30 bg-hanok-panel p-5 shadow-sm">
@@ -148,8 +138,20 @@ export function AdminDemoDashboard() {
             </div>
           </div>
 
-          {/* ① 실시간 관제 */}
-          <StepBanner id="step-monitor" badge="①" title="실시간 관제" subtitle={t('demo.step1Sub')} tone="gold" />
+          {/* ① 실시간 관제 — 내보내기(CSV)는 실제 대시보드처럼 이 제목 줄 오른쪽이다(따로 한 줄을 차지하면 브리핑 위에 빈 띠가 생겼다).
+              데모에서는 파일을 만들지 않는다(무엇이 나갔는지 추적되지 않는 파일을 만들지 않기 위해). */}
+          <div className="flex items-center justify-between gap-4">
+            <div className="min-w-0">
+              <StepBanner id="step-monitor" badge="①" title="실시간 관제" subtitle={t('demo.step1Sub')} tone="gold" />
+            </div>
+            <button
+              type="button"
+              onClick={demoToast}
+              className="flex flex-shrink-0 cursor-pointer items-center gap-2 rounded-lg bg-hanok-ink/90 px-4 py-2 text-sm font-semibold text-hanok-card shadow-sm transition-colors hover:bg-hanok-ink"
+            >
+              <Download size={16} /> 데이터 내보내기 (CSV)
+            </button>
+          </div>
 
           {/* KPI 4종 — 기능설명서 ④ 와 실제 대시보드의 네 지표(평균 혼잡도 · AI 추천 수락률 · 활성 사용자 · 이상 혼잡). */}
           <div id="demo-kpis" className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:gap-6 xl:grid-cols-4">
@@ -439,7 +441,9 @@ function StepBanner({
     emerald: 'bg-emerald-500/15 text-emerald-700 border-emerald-500/30',
   };
   return (
-    <div id={id} className="flex scroll-mt-20 items-center gap-3">
+    // 휴대폰 데모는 문서 스크롤 + 붙어 있는 머리글(약 90px)이라 단계 바로 옮겨 올 때 그만큼 더 비운다(scroll-mt-28).
+    // 넓은 화면은 본문 스크롤 상자 안의 붙은 단계 바(약 45px)만 비우면 된다.
+    <div id={id} className="flex scroll-mt-28 items-center gap-3 lg:scroll-mt-20">
       <span className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full border text-base font-black ${palette[tone]}`}>
         {badge}
       </span>

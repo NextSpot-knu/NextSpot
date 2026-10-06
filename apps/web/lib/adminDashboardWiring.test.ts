@@ -241,6 +241,12 @@ const estimateView = stripComments(read('lib/adminEstimateView.ts'));
   assert.match(impactSrc, /IMPACT_WINDOW_DAYS = 30/, '분산 효과 창이 30일이 아니다');
   assert.match(impactSrc, /relocationsMeasured === 0 && loopBasis === 'measured'\) return null/, '0건 분산 효과 카드가 그려진다');
   assert.match(page, /const impactHidden = impactSamples === 0 && loopBasis === 'measured'/, '분산 효과가 숨을 때 쿠폰 정책이 줄을 다 쓰지 않는다');
+  // 리뷰(10-07): 시나리오 숫자는 '오늘' 값이지만 실측 표본은 30일 수락이다 — 실측 건수·전환 조건에는 30일 창을 붙이고,
+  // '실측 5건이 쌓이면 … (KST 오늘 기준)' 처럼 틀린 창으로 전환 조건을 말하지 않는다.
+  assert.doesNotMatch(impactSrc, /실측으로 전환됩니다 \(KST 오늘 기준\)/, '분산 효과 시나리오가 전환 조건을 오늘 창으로 말한다');
+  assert.match(impactSrc, /최근 \$\{IMPACT_WINDOW_DAYS\}일 실측 \$\{MIN_MEASURED_SAMPLES\}건이 쌓이면/, '전환 조건에 30일 창이 없다');
+  assert.match(impactSrc, /최근 \$\{IMPACT_WINDOW_DAYS\}일 실측 \$\{relocationsMeasured\}건 수집 중/, "'실측 N건 수집 중' 에 30일 창이 없다");
+  assert.match(impactSrc, /unit: `건\(최근 \$\{IMPACT_WINDOW_DAYS\}일\)`/, '시나리오 근거 줄의 실측 건수에 30일 창이 없다');
 }
 
 console.log('adminDashboardWiring.test.ts OK');

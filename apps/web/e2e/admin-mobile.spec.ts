@@ -243,3 +243,80 @@ test('390px — 접힌 메뉴에서 다른 관제 화면으로 이동하고, 관
   await expect(page).toHaveURL(/\/admin\/support/);
   await expect(page.getByRole('dialog', { name: '관제 메뉴' })).toBeHidden();
 });
+
+// 리뷰(10-07) — 지금 화면의 링크(대시보드에서 '관제 대시보드')는 경로가 바뀌지 않는다. 서랍이 그대로 남으면 누른 것이
+// 아무 일도 안 한 것처럼 보였다 — 누르면 닫힌다.
+test('390px — 서랍에서 지금 화면의 링크를 누르면 서랍이 닫힌다', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openAdmin(page, '/admin/dashboard');
+  await page.getByRole('button', { name: '관제 메뉴 열기' }).click();
+  const drawer = page.getByRole('dialog', { name: '관제 메뉴' });
+  await expect(drawer).toBeVisible();
+  await drawer.locator('a[href="/admin/dashboard"]').click();
+  await expect(page.getByRole('dialog', { name: '관제 메뉴' })).toBeHidden();
+  await expect(page).toHaveURL(/\/admin\/dashboard$/);
+});
+
+// 리뷰(10-07) — 휴대폰 실제 대시보드 머리글은 두 줄(제목 + 알림 / 근거 칩)이다. 알림·AD 가 셋째 줄을 따로 차지해
+// 단계 바 위가 약 190px 였다.
+test('390px — 실제 대시보드 머리글은 알림을 제목 줄에 두고 두 줄 안이다', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openAdmin(page, '/admin/dashboard');
+  const header = page.locator('main header').first();
+  const title = header.getByRole('heading', { name: '경주 관광 혼잡 종합 대시보드' });
+  await expect(title).toBeVisible();
+  const [headerBox, titleBox] = [await header.boundingBox(), await title.boundingBox()];
+  // 머리글의 오른쪽 묶음(알림) — 근거 칩 안의 버튼과 헷갈리지 않게 머리글 바로 아래 마지막 칸으로 찾는다.
+  const bell = await header.locator(':scope > div').last().boundingBox();
+  console.log(`dashboard header at 390: ${Math.round(headerBox!.height)}px tall`);
+  // 알림 버튼이 제목과 같은 줄에 있다(따로 한 줄을 차지하지 않는다).
+  expect(bell!.y, '알림이 제목 아래 줄로 내려갔다').toBeLessThan(titleBox!.y + titleBox!.height);
+  expect(headerBox!.height, '머리글이 두 줄을 넘는다').toBeLessThanOrEqual(110);
+  // 단계 바가 그만큼 위로 올라온다(상단 바 56px + 머리글).
+  const steps = await page.getByRole('navigation', { name: '관제 단계' }).boundingBox();
+  expect(steps!.y, '단계 바가 머리글 아래로 밀려 있다').toBeLessThanOrEqual(56 + 110 + 2);
+});
+
+// 리뷰(10-07) — 휴대폰 관제 데모(관제 대시보드 바로 가기의 게스트 길)는 문서 스크롤 + 붙어 있는 머리글이다.
+// 단계 바를 누르면 그 단계 제목이 머리글 아래에 보여야 한다(예전 scroll-mt 80px 는 머리글 약 90px 에 '② 정책 개입' 이 깔렸다).
+for (const viewport of [{ width: 390, height: 844 }, { width: 360, height: 640 }]) {
+  test(`${viewport.width}px — 관제 데모의 단계 바는 각 단계 제목을 머리글 아래에 데려온다`, async ({ page }) => {
+    test.setTimeout(90_000);
+    await page.setViewportSize(viewport);
+    await page.goto('/admin/dashboard?demo=1');
+    const header = page.locator('main header').first();
+    await expect(header.getByText('예시 화면', { exact: true })).toBeVisible({ timeout: 30_000 });
+    for (const [label, id] of [['② 정책 개입', 'step-policy'], ['③ 분산 효과', 'step-effect'], ['① 실시간 관제', 'step-monitor']] as const) {
+      await page.getByRole('navigation', { name: '관제 단계' }).getByRole('button', { name: label }).click();
+      // 부드러운 스크롤이 멈출 때까지 기다린다.
+      let last = -1;
+      await expect.poll(async () => {
+        const y = await page.evaluate(() => window.scrollY);
+        const settled = y === last;
+        last = y;
+        return settled;
+      }, { intervals: [150, 150, 150, 300, 300, 500] }).toBe(true);
+      const headerBottom = (await header.boundingBox())!.y + (await header.boundingBox())!.height;
+      const target = await page.locator(`#${id}`).boundingBox();
+      const atBottom = await page.evaluate(() => window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 4);
+      console.log(`${viewport.width}px ${label}: header bottom ${Math.round(headerBottom)} · target top ${Math.round(target!.y)}${atBottom ? ' (page bottom)' : ''}`);
+      expect(target!.y, `${label} 제목이 머리글 밑에 깔린다`).toBeGreaterThanOrEqual(headerBottom);
+      if (!atBottom) expect(target!.y, `${label} 로 옮겨 오지 않았다`).toBeLessThanOrEqual(headerBottom + 60);
+    }
+  });
+}
+
+// 리뷰(10-07) — 관제 데모의 CSV 버튼은 실제 대시보드처럼 ① 제목 줄 오른쪽이다(따로 한 줄이면 브리핑 위에 빈 띠가 생겼다).
+test('1280px — 관제 데모의 CSV 버튼은 ① 실시간 관제 제목과 같은 줄이다', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto('/admin/dashboard?demo=1');
+  const csv = page.getByRole('button', { name: /데이터 내보내기 \(CSV\)/ });
+  await expect(csv).toBeVisible({ timeout: 30_000 });
+  const step = page.locator('#step-monitor');
+  const [csvBox, stepBox] = [await csv.boundingBox(), await step.boundingBox()];
+  const overlap = Math.min(csvBox!.y + csvBox!.height, stepBox!.y + stepBox!.height) - Math.max(csvBox!.y, stepBox!.y);
+  expect(overlap, 'CSV 버튼이 ① 제목 줄과 다른 줄이다').toBeGreaterThan(0);
+  // 브리핑이 ① 줄보다 위(실제 대시보드와 같은 순서).
+  const briefing = await page.getByText('오늘의 정책 브리핑').boundingBox();
+  expect(briefing!.y).toBeLessThan(stepBox!.y);
+});

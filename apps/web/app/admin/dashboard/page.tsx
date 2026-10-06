@@ -947,15 +947,16 @@ function DashboardPage() {
 
       {/* Main Content */}
       <main className="flex-1 flex flex-col h-full overflow-hidden">
-        {/* Top Header */}
-        <header className="lg:h-20 bg-hanok-panel border-b border-hanok-line flex flex-wrap lg:flex-nowrap items-center justify-between gap-2 lg:gap-0 px-4 py-3 lg:px-8 lg:py-0 flex-shrink-0">
-          <div className="flex max-lg:flex-wrap items-center gap-2 lg:gap-4">
+        {/* Top Header — 휴대폰 폭에서는 두 줄(제목 + 알림 / 근거 칩)이다. 예전에는 알림·AD 가 셋째 줄을 따로 차지해
+            단계 바 위가 약 190px 였다. 알림은 제목 줄 오른쪽에 두고, AD 표시는 넓은 화면에서만 그린다. */}
+        <header className="lg:h-20 bg-hanok-panel border-b border-hanok-line flex items-start lg:items-center justify-between gap-3 lg:gap-0 px-4 py-3 lg:px-8 lg:py-0 flex-shrink-0">
+          <div className="flex min-w-0 max-lg:flex-wrap items-center gap-2 lg:gap-4">
             <h2 className="text-xl font-bold text-hanok-ink">경주 관광 혼잡 종합 대시보드</h2>
             {/* (예전 '예측모델 상태' 칩 자리 — 엔진 내부 상태라 첫 줄에서 뺐다. 추천 신뢰도 패널이 맨 아래에서 말한다.)
                 오늘 혼잡 지표의 근거(실측/추정/예측)를 상단에서도 한 번 더 말한다. */}
             <DataFreshnessBadge congestionBasis={congestionBasisKind} />
           </div>
-          <div className="flex items-center gap-6">
+          <div className="flex flex-shrink-0 items-center gap-6 max-lg:pt-0.5">
             <button className="relative text-hanok-muted hover:text-hanok-ink">
               <Bell size={24} />
               {/* 이상 건수를 못 가져온 경우에도 점을 찍되 색을 달리한다 — 점이 없으면 '이상 없음' 으로 읽힌다.
@@ -967,7 +968,7 @@ function DashboardPage() {
                 <span title="이상 혼잡 건수를 갱신하는 중입니다" className="absolute top-1 right-1 w-2.5 h-2.5 bg-amber-400 rounded-full border-2 border-hanok-line"></span>
               )}
             </button>
-            <div className="w-10 h-10 rounded-full bg-gold/15 border border-gold/30 flex items-center justify-center font-bold text-gold-deep">
+            <div className="hidden lg:flex w-10 h-10 rounded-full bg-gold/15 border border-gold/30 items-center justify-center font-bold text-gold-deep">
               AD
             </div>
           </div>
