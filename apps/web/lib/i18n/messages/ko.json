@@ -287,7 +287,12 @@
     "about": "행사 소개",
     "showMore": "더보기",
     "showLess": "접기",
-    "aiSummary": "AI 요약"
+    "aiSummary": "AI 요약",
+    "bannerLabel": "지금 경주 축제",
+    "bannerUntil": "{date}까지",
+    "bannerMore": "외 {n}건",
+    "bannerCredit": "출처: ⓒ한국관광공사",
+    "bannerAria": "진행 중인 경주 축제 {title} 자세히 보기"
   },
   "weather": {
     "gyeongjuNow": "지금 경주 {n}℃",
@@ -1000,7 +1005,6 @@
     "benefitOpen": "도착 시 영업",
     "benefitTaste": "취향 {pct}% 일치",
     "contextBadge": "{label} 기준 대안",
-    "festivalEmpty": "현재 진행 중인 행사가 없어요",
     "showOnMap": "지도에서 보기"
   },
   "trip": {
@@ -1469,5 +1473,31 @@
   "credit": {
     "tourapi": "출처: ⓒ한국관광공사 TourAPI",
     "tourapiSynced": "출처: ⓒ한국관광공사 TourAPI · {rel} 동기화"
+  },
+  "featureMap": {
+    "title": "이렇게 써 보세요",
+    "hint": "누르면 그 화면으로 바로 가요",
+    "forecast": {
+      "label": "혼잡 예측 지도",
+      "desc": "지금부터 3시간 뒤까지 이 일대 붐빔을 미리 봐요"
+    },
+    "card": {
+      "label": "대안 추천 카드",
+      "desc": "붐비는 곳 대신 걸어서 닿는 다른 선택"
+    },
+    "live": {
+      "label": "실시간 관광정보",
+      "desc": "운영시간·사진·소개를 그 자리에서 최신으로"
+    },
+    "voice": {
+      "label": "AI 음성 비서",
+      "desc": "말로 묻고, 추천과 이유를 들어요"
+    },
+    "console": {
+      "label": "가게 타임세일 · 지역 관제",
+      "desc": "가게는 할인을 열고, 지역은 붐빔을 나눠요"
+    },
+    "dataLine": "경주 관광지·음식점 1,600여 곳, 공영주차 실시간, 날씨 예보로 골라 드려요",
+    "dataMore": "데이터 출처 자세히"
   }
 }

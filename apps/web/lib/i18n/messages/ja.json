@@ -293,7 +293,12 @@
     "about": "イベント紹介",
     "showMore": "もっと見る",
     "showLess": "閉じる",
-    "aiSummary": "AI要約"
+    "aiSummary": "AI要約",
+    "bannerLabel": "開催中の慶州の祭り",
+    "bannerUntil": "{date}まで",
+    "bannerMore": "ほか{n}件",
+    "bannerCredit": "出典: ⓒ韓国観光公社",
+    "bannerAria": "開催中の慶州の祭り「{title}」の詳細を見る"
   },
   "weather": {
     "gyeongjuNow": "現在の慶州 {n}℃",
@@ -1006,7 +1011,6 @@
     "benefitOpen": "到着時に営業中",
     "benefitTaste": "好み一致{pct}%",
     "contextBadge": "{label}を基準にした代案",
-    "festivalEmpty": "現在開催中のイベントはありません",
     "showOnMap": "地図で見る"
   },
   "trip": {
@@ -1469,5 +1473,31 @@
   "credit": {
     "tourapi": "出典: ⓒ韓国観光公社 TourAPI",
     "tourapiSynced": "出典: ⓒ韓国観光公社 TourAPI · {rel}同期"
+  },
+  "featureMap": {
+    "title": "こんなふうに使ってみてください",
+    "hint": "押すとその画面へすぐ移動します",
+    "forecast": {
+      "label": "混雑予測マップ",
+      "desc": "今から3時間後までのこの一帯の混み具合を先取り"
+    },
+    "card": {
+      "label": "代わりのおすすめ",
+      "desc": "混雑を避けて、歩いて行ける別の選択肢"
+    },
+    "live": {
+      "label": "リアルタイム観光情報",
+      "desc": "営業時間・写真・紹介をその場で最新に"
+    },
+    "voice": {
+      "label": "AI音声アシスタント",
+      "desc": "声でたずねると、おすすめと理由を読み上げます"
+    },
+    "console": {
+      "label": "お店のタイムセール · 地域の運営",
+      "desc": "お店は割引を出し、地域は混雑を分散します"
+    },
+    "dataLine": "慶州の観光地・飲食店1,600か所以上、公営駐車場のリアルタイム情報、天気予報から選んでお届けします",
+    "dataMore": "データ出典の詳細"
   }
 }

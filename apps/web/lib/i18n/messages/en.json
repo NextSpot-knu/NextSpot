@@ -293,7 +293,12 @@
     "about": "About this event",
     "showMore": "Show more",
     "showLess": "Show less",
-    "aiSummary": "AI summary"
+    "aiSummary": "AI summary",
+    "bannerLabel": "On now in Gyeongju",
+    "bannerUntil": "until {date}",
+    "bannerMore": "+{n} more",
+    "bannerCredit": "Source: ⓒ Korea Tourism Organization",
+    "bannerAria": "See details of {title}, on now in Gyeongju"
   },
   "weather": {
     "gyeongjuNow": "Gyeongju now {n}°C",
@@ -1006,7 +1011,6 @@
     "benefitOpen": "Open when you arrive",
     "benefitTaste": "{pct}% match for you",
     "contextBadge": "Alternatives for {label}",
-    "festivalEmpty": "No events are running right now",
     "showOnMap": "Show on map"
   },
   "trip": {
@@ -1469,5 +1473,31 @@
   "credit": {
     "tourapi": "Source: ⓒ Korea Tourism Organization TourAPI",
     "tourapiSynced": "Source: ⓒ Korea Tourism Organization TourAPI · synced {rel}"
+  },
+  "featureMap": {
+    "title": "Try it like this",
+    "hint": "Pick one to go straight there",
+    "forecast": {
+      "label": "Crowd forecast map",
+      "desc": "See how busy this area gets, now to 3 hours ahead"
+    },
+    "card": {
+      "label": "Alternative pick",
+      "desc": "Skip the crowd — a good pick a short walk away"
+    },
+    "live": {
+      "label": "Live tourist info",
+      "desc": "The latest hours, photos and details, right there"
+    },
+    "voice": {
+      "label": "AI voice assistant",
+      "desc": "Ask by voice and hear the pick and why"
+    },
+    "console": {
+      "label": "Store time sales · Area operations",
+      "desc": "Shops run time sales, and crowds spread across the area"
+    },
+    "dataLine": "Picked for you from 1,600+ Gyeongju sights and restaurants, live public parking and the weather forecast",
+    "dataMore": "Data sources in detail"
   }
 }

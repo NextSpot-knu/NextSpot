@@ -293,7 +293,12 @@
     "about": "活动介绍",
     "showMore": "查看更多",
     "showLess": "收起",
-    "aiSummary": "AI 摘要"
+    "aiSummary": "AI 摘要",
+    "bannerLabel": "庆州节庆进行中",
+    "bannerUntil": "至{date}",
+    "bannerMore": "另有{n}项",
+    "bannerCredit": "来源：ⓒ韩国旅游发展局",
+    "bannerAria": "查看庆州正在举办的“{title}”详情"
   },
   "weather": {
     "gyeongjuNow": "庆州当前 {n}℃",
@@ -1006,7 +1011,6 @@
     "benefitOpen": "到达时营业中",
     "benefitTaste": "口味匹配{pct}%",
     "contextBadge": "以{label}为基准的备选",
-    "festivalEmpty": "目前没有正在举行的活动",
     "showOnMap": "在地图上查看"
   },
   "trip": {
@@ -1469,5 +1473,31 @@
   "credit": {
     "tourapi": "来源：ⓒ韩国旅游发展局 TourAPI",
     "tourapiSynced": "来源：ⓒ韩国旅游发展局 TourAPI · {rel}同步"
+  },
+  "featureMap": {
+    "title": "可以这样用",
+    "hint": "点一下即可直接打开",
+    "forecast": {
+      "label": "拥挤预测地图",
+      "desc": "预览这一带现在到3小时后的拥挤程度"
+    },
+    "card": {
+      "label": "替代推荐",
+      "desc": "避开人潮，步行可达的好去处"
+    },
+    "live": {
+      "label": "实时旅游信息",
+      "desc": "当场更新营业时间、照片和介绍"
+    },
+    "voice": {
+      "label": "AI语音助手",
+      "desc": "用语音提问，听推荐和理由"
+    },
+    "console": {
+      "label": "商家限时优惠 · 区域运营",
+      "desc": "商家开启优惠，区域分散人潮"
+    },
+    "dataLine": "从庆州1,600多处景点与餐厅、实时公共停车信息和天气预报中为你挑选",
+    "dataMore": "数据来源详情"
   }
 }
