@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import { AdminSidebar } from '@/components/AdminSidebar';
 import { createPublicClient } from '@/lib/supabase';
-import { adminApi } from '@/lib/admin-api';
+import { adminApi, adminApiForbiddenDetail } from '@/lib/admin-api';
 import { errorMessage } from '@/lib/errors';
 import { countLabel, settingsSaveGuard, type LoadStatus, type SettingsLoad } from '@/lib/adminLoadState';
 
@@ -129,9 +129,10 @@ export default function SettingsPage() {
       // 저장에 성공했다면 서버에 우리가 보낸 값이 실제로 들어 있다 — 이제 화면 값은 서버 값이다.
       setSettingsLoad({ status: 'ok' });
     } catch (e) {
-      // 원인 상세(권한·연결·서버 응답)는 콘솔에만 남긴다 — 화면에는 다음 행동만 적는다.
+      // 원인 상세(연결·서버 응답)는 콘솔에만 남긴다 — 화면에는 다음 행동만 적는다. 단 서버가 이 계정의
+      // 저장을 거절한 경우(403)는 서버가 준 사유 문장을 그대로 보인다(재시도로 풀리지 않는다).
       console.warn('설정 저장 실패:', e);
-      setSaveMsg({ type: 'err', text: '저장에 실패했습니다. 잠시 후 다시 시도해 주세요.' });
+      setSaveMsg({ type: 'err', text: adminApiForbiddenDetail(e) ?? '저장에 실패했습니다. 잠시 후 다시 시도해 주세요.' });
     } finally {
       setSaving(false);
       setTimeout(() => setSaveMsg(null), 4000);

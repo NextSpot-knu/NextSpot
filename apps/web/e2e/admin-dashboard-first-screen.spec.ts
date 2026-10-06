@@ -8,12 +8,16 @@ import { stubExternalServices } from './support/stubs';
 //     가장 키가 큰 실제 조합(추정 모드 + 오늘의 브리핑)으로 잰다.
 //   · 산식은 '산식 보기' 를 열어야 보이고, 추천 신뢰도 패널은 맨 아래에 그대로 보인다.
 //   · 사이드바는 한국어이고 '엔진 검증' 은 메뉴에 없다(화면은 URL 로 열린다).
+//   · 심사용 계정의 쓰기를 서버가 403 으로 거절하면 서버의 사유 문장이 그대로 보인다(설정 저장·장소 삭제).
 //
 // 실계정·실서버는 쓰지 않는다. 관리자 판정(/account/me)과 관리자 API·Supabase REST 는 전부 스텁이다.
 
 const NOW = Date.now();
 const iso = (minutesAgo: number) => new Date(NOW - minutesAgo * 60_000).toISOString();
 const todayKst = new Date(NOW + 9 * 3_600_000).toISOString().slice(0, 10);
+
+const SETTINGS_DENIED = '심사용 계정에서는 전체 설정을 바꿀 수 없어요.';
+const DELETE_DENIED = '심사용 계정에서는 장소를 삭제할 수 없어요.';
 
 const FACILITIES = [
   { id: '2001', name: '교리김밥', type: 'restaurant', capacity: 46, operating_hours: '10:00~21:00', is_active: true, coupon_rate: 0.1 },
@@ -104,6 +108,7 @@ async function stubAdminConsole(page: Page): Promise<void> {
 
   await page.route('**/api/v1/**', (route) => {
     const url = route.request().url();
+    const method = route.request().method();
     if (url.includes('/account/me')) {
       return json(route, 200, {
         id: '00000000-0000-4000-8000-0000000000ad',
@@ -119,6 +124,12 @@ async function stubAdminConsole(page: Page): Promise<void> {
     if (url.includes('/admin/metrics/trend')) return json(route, 200, { daily: [], truncated: false });
     if (url.includes('/admin/metrics')) return json(route, 200, METRICS);
     if (url.includes('/admin/model-trust')) return json(route, 200, MODEL_TRUST);
+    if (url.includes('/admin/settings')) {
+      // 서버(심사용 계정 가드)가 전체 설정 저장을 거절한다.
+      if (method === 'PUT') return json(route, 403, { detail: SETTINGS_DENIED });
+      return json(route, 200, { maintenance_mode: false, notice_text: '', congestion_threshold: 80, coldstart_weight: 50 });
+    }
+    if (url.includes('/admin/facilities/') && method === 'DELETE') return json(route, 403, { detail: DELETE_DENIED });
     // 나머지 관리자 API 는 '아직 없음' 으로 닫는다 — 해당 카드는 실패 상태를 그리고, 첫 화면 검사는 그대로 성립한다.
     return json(route, 404, { detail: 'not stubbed' });
   });
@@ -187,4 +198,27 @@ test('사이드바는 한국어 메뉴이고 엔진 검증은 메뉴에 없다',
   await expect(nav.locator('a[href="/admin/engine-validation"]')).toHaveCount(0);
   const navText = (await nav.innerText()).replace(/SPOT/g, '');
   expect(navText, '메뉴에 영어가 남아 있다').not.toMatch(/[A-Za-z]/);
+});
+
+test('심사용 계정 — 설정 저장을 서버가 거절하면 서버의 사유 문장이 보인다', async ({ page }) => {
+  await page.setViewportSize({ width: 1536, height: 730 });
+  await page.goto('/admin/settings');
+  const save = page.getByRole('button', { name: '변경사항 저장' });
+  await expect(save).toBeEnabled({ timeout: 30_000 });
+  await save.click();
+  await expect(page.getByText(SETTINGS_DENIED)).toBeVisible();
+  await expect(page.getByText('저장에 실패했습니다. 잠시 후 다시 시도해 주세요.')).toHaveCount(0);
+});
+
+test('심사용 계정 — 장소 삭제를 서버가 거절하면 서버의 사유 문장이 보인다', async ({ page }) => {
+  await page.setViewportSize({ width: 1536, height: 730 });
+  await openDashboard(page);
+  // 장소 관리 표의 행(수정·삭제 버튼이 있는 행) — 쿠폰 정책 표에도 같은 이름의 행이 있다.
+  const row = page.locator('tr').filter({ hasText: '교리김밥' }).filter({ has: page.locator('button') });
+  await row.scrollIntoViewIfNeeded();
+  await row.locator('button').last().click();
+  await page.getByRole('button', { name: '삭제', exact: true }).click();
+  await expect(page.getByText(DELETE_DENIED)).toBeVisible();
+  // 거절됐으니 표에서 지워지지 않는다.
+  await expect(row).toBeVisible();
 });

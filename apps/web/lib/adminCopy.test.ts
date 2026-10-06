@@ -6,9 +6,12 @@
 //   (2) '엔진 검증' 은 심사 기간에 메뉴에서 감춘다(PM 결정 4.14) — 화면은 URL 로 그대로 열린다.
 //   (3) 문의·설정·쿠폰·신뢰도·시뮬레이터 화면에 영어 라벨·개발 용어(W_pref·가드레일·다봉 …)가 없다.
 //   (4) 안전 경보의 두 슬라이더는 같은 0–100 눈금이다(같은 % 가 두 트랙에서 같은 자리에 선다).
+//   (5) 서버가 403 으로 쓰기를 거절하면 서버가 준 사유 문장이 그대로 보인다(설정 저장·장소 삭제).
+//       계정 판정은 서버가 한다 — 화면은 이메일을 보고 미리 막지 않는다.
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { AdminApiError, adminApiForbiddenDetail } from './admin-api';
 
 const WEB = process.cwd(); // 러너가 cwd 를 apps/web 으로 고정한다
 const read = (p: string) => readFileSync(join(WEB, p), 'utf8');
@@ -68,6 +71,34 @@ const stripComments = (s: string) => s.replace(/^\s*\/\/.*$/gm, '').replace(/\{?
   // 같은 눈금에서도 주의 < 경보 는 유지된다(경보 ≥ 1, 주의 ≤ 99).
   assert.match(safety, /Math\.max\(1, raw\)/, '경보 임계값 하한(1%)이 없다 — 주의가 설 자리가 없어진다');
   assert.match(safety, /Math\.min\(99, raw\)/, '주의 임계값 상한(99%)이 없다');
+}
+
+// ── (5) 서버가 거절한 쓰기는 서버의 사유 문장으로 ─────────────────────────────
+{
+  const SETTINGS_DETAIL = '심사용 계정에서는 전체 설정을 바꿀 수 없어요.';
+  const DELETE_DETAIL = '심사용 계정에서는 장소를 삭제할 수 없어요.';
+  const generic = '관제 데이터를 다시 불러오는 중입니다. 잠시 후 자동으로 표시됩니다.';
+  assert.equal(adminApiForbiddenDetail(new AdminApiError(generic, 'http', 403, SETTINGS_DETAIL)), SETTINGS_DETAIL);
+  assert.equal(adminApiForbiddenDetail(new AdminApiError(generic, 'http', 403, DELETE_DETAIL)), DELETE_DETAIL);
+  // 403 이 아니면 원문을 내지 않는다(5xx 원문은 콘솔 전용 — 검수 안 된 서버 문장이 화면에 나가지 않게).
+  assert.equal(adminApiForbiddenDetail(new AdminApiError(generic, 'http', 500, '시스템 설정 저장에 실패했습니다.')), null);
+  assert.equal(adminApiForbiddenDetail(new AdminApiError(generic, 'http', 403)), null, '사유가 없는 403 은 기존 안내로 물러난다');
+  assert.equal(adminApiForbiddenDetail(new AdminApiError(generic, 'timeout')), null);
+  assert.equal(adminApiForbiddenDetail(Object.assign(new Error('x'), { status: 403, detail: SETTINGS_DETAIL })), null, '관리자 API 가 아닌 에러의 detail 은 믿지 않는다');
+  // 사유 문장은 message 에 섞지 않는다 — message 를 그대로 그리는 다른 화면은 지금처럼 일반 문구만 본다.
+  assert.equal(new AdminApiError(generic, 'http', 403, SETTINGS_DETAIL).message, generic);
+
+  const api = stripComments(read('lib/admin-api.ts'));
+  assert.match(api, /response\.status,\s*typeof errorData\?\.detail === 'string'/, '관리자 API 가 서버 detail 을 에러에 싣지 않는다');
+
+  const settings = stripComments(read('app/admin/settings/page.tsx'));
+  assert.match(settings, /text: adminApiForbiddenDetail\(e\) \?\? '저장에 실패했습니다/, '설정 저장 실패가 서버의 거절 사유를 보이지 않는다');
+  const table = stripComments(read('components/admin/FacilityTable.tsx'));
+  assert.match(table, /toast\.error\(adminApiForbiddenDetail\(err\) \?\? '삭제를/, '장소 삭제 실패가 서버의 거절 사유를 보이지 않는다');
+  // 계정 판정은 서버 몫 — 화면이 이메일로 미리 막으면 서버 가드와 갈라진다.
+  for (const [name, src] of [['settings/page.tsx', settings], ['FacilityTable.tsx', table]] as const) {
+    assert.doesNotMatch(src, /openapi@|JUDGE_ACCOUNTS|judgeAccounts/, `${name} 가 클라이언트에서 계정 이메일로 판정한다`);
+  }
 }
 
 console.log('adminCopy.test.ts OK');
