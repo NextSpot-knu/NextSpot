@@ -4,7 +4,6 @@ import { stubExternalServices } from './support/stubs';
 // 심사위원 경로 회귀 테스트 ② — 메인 지도(/main)에서 손으로 눌러야만 드러나는 것들.
 //   · 비교 헤더("지금 A … → 대신 B · 도보 N분 · 등급")가 **근거가 하나도 없어도** 사라지지 않는가
 //   · 🕒 가정 시간 셀렉트와 ✨ 경주 테마 칩이 스켈레톤 → 카드 교체 → 토스트로 응답하는가
-//   · 🕒 가정 시간이 휴대폰 폭(390px)에서도 손에 닿는가('필터·편의' 시트)
 //   · 🏮 축제 패널이 열리고, 바깥을 누르면 닫히는가
 //
 // 모든 네트워크는 스텁이다. 카탈-올을 먼저 등록하고 구체 경로를 나중에 등록한다
@@ -310,24 +309,6 @@ test('festival chip lives in the 필터·편의 sheet at 390px', async ({ page }
   await expect(festival).toHaveCount(1);
   // 시트 맨 아래 줄(축제·화장실)도 하단 내비에 깔리지 않고 손이 닿는다.
   await expectTappable(festival);
-});
-
-test('assumed-time select is reachable at 390px', async ({ page }) => {
-  test.setTimeout(90_000);
-  await mockMain(page, { events: [] });
-  await page.goto('/main');
-  await expect(page.getByRole('heading', { name: '우직 쌈밥집' })).toBeVisible({ timeout: 25_000 });
-
-  // 서비스 소개(guide.sigPredictBody)가 "상단 '가정 시간'에서 요일·시각을 고르면…" 이라고
-  // 약속하는 컨트롤이다. 상단 줄이 모바일에서 숨는다면 '필터·편의' 시트에라도 있어야 한다.
-  if ((await page.getByLabel('가정 시간').locator('visible=true').count()) === 0) {
-    const tools = page.getByRole('button', { name: '필터·편의' });
-    await expectTappable(tools);
-    await tools.click();
-  }
-  const assumedTime = page.getByLabel('가정 시간').locator('visible=true');
-  await expect(assumedTime).toHaveCount(1);
-  await expectTappable(assumedTime);
 });
 
 // ───────────────────────────────────────────────────────────────────────────

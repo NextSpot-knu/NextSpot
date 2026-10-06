@@ -3448,32 +3448,6 @@ export default function MainPage() {
               <div><h2 className="font-bold text-muk">{t('map.mobileToolsTitle')}</h2><p className="text-xs text-muk-soft">{t('map.mobileToolsDesc')}</p></div>
               <button type="button" onClick={() => setShowMobileTools(false)} aria-label={t('common.close')} className="rounded-full border border-line bg-white p-2 text-muk"><X size={18} /></button>
             </div>
-            {/* 가정 시간 — 톱바의 같은 컨트롤은 `md:flex` 라 **휴대폰에서는 아예 렌더되지 않는다.**
-                소개 문구가 "상단 '가정 시간'에서 요일·시각을 고르면 …" 이라고 약속하는데 심사위원이
-                휴대폰으로 열면 그 컨트롤이 없었다(e2e 가 잡았다). 여기에 같은 것을 둔다. */}
-            <label className="mb-4 flex items-center gap-2 rounded-xl border border-gold/30 bg-white px-3 py-3 text-sm font-semibold text-muk">
-              <span aria-hidden>🕒</span>
-              <span className="shrink-0 text-xs font-bold text-muk-soft">{t('timeSim.label')}</span>
-              <select
-                value={assumedPreset}
-                onChange={(event) => {
-                  const id = event.target.value;
-                  startRecalc(
-                    t(ASSUMED_TIME_PRESETS.find((preset) => preset.id === id)?.labelKey ?? 'timeSim.now'),
-                    selectedFacility?.id != null ? String(selectedFacility.id) : null,
-                  );
-                  setStoredAssumedPreset(id);
-                  setShowMobileTools(false);  // 바뀐 추천을 바로 보게 패널을 닫는다(히트맵과 같은 이유).
-                }}
-                aria-label={t('timeSim.label')}
-                className="ml-auto bg-transparent font-semibold text-muk focus:outline-none cursor-pointer"
-              >
-                {ASSUMED_TIME_PRESETS.map((preset) => (
-                  <option key={preset.id} value={preset.id}>{t(preset.labelKey)}</option>
-                ))}
-              </select>
-            </label>
-
             <div className="grid grid-cols-2 gap-2">
               {/* 이 패널은 지도를 덮는 모달이라, 여기서 히트맵을 켜면 바뀐 지도를 볼 수 없다 — 함께 닫는다. */}
               <button type="button" onClick={() => { setShowHeatmap((value) => !value); setShowMobileTools(false); }} aria-pressed={showHeatmap} className={`rounded-xl border px-3 py-3 text-sm font-semibold ${showHeatmap ? 'border-jade bg-jade/15' : 'border-jade/30 bg-white'}`}>🔥 {t('map.heatmap')}</button>
