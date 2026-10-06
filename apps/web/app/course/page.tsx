@@ -821,6 +821,8 @@ function CourseContent() {
                   </span>
                   <NowChip />
                 </div>
+                {/* 데스크톱은 제목 묶음과 스탯 줄을 한 줄에 — 머리가 낮아져 첫 화면에 스텝퍼·첫 정류지가 들어온다(P13). */}
+                <div className="space-y-3 lg:flex lg:items-end lg:justify-between lg:gap-6 lg:space-y-0">
                 {activeStops.length > 0 && lastStop ? (
                   <div className="space-y-1.5">
                     <h1 className="text-[22px] md:text-[28px] font-serif font-black text-muk leading-[1.15] tracking-tight">
@@ -845,7 +847,7 @@ function CourseContent() {
                     데모: 가정 시간 시뮬레이터 — 심야에도 낮 시각을 가정해 실제 코스를 보여준다(/main·/waiting 공유).
                     공유 모드는 읽기 전용이라 컨트롤을 노출하지 않는다(재조회 없음). */}
                 {(!isShareMode || (activeStops.length > 0 && lastStop)) && (
-                  <div className="flex flex-wrap items-center gap-2 pt-0.5">
+                  <div className="flex flex-wrap items-center gap-2 pt-0.5 lg:shrink-0 lg:justify-end">
                     {activeStops.length > 0 && lastStop && (
                       <span className="inline-flex items-center gap-1.5 rounded-xl border border-gold/40 bg-gold/15 px-3 py-2 text-[13px] font-black text-gold-deep tabular-nums shadow-[0_2px_10px_rgba(193,154,62,0.16)]">
                         <span aria-hidden>🕒</span>
@@ -877,6 +879,7 @@ function CourseContent() {
                     )}
                   </div>
                 )}
+                </div>
               </section>
 
               {/* 가로 스텝퍼 — 정류지가 있을 때만 */}
@@ -1796,7 +1799,7 @@ function CourseSkeleton({ mode }: { mode: "course" | "shared" }) {
   return (
     <div className="relative z-10" aria-hidden>
       {/* 지도 자리 */}
-      <div className="h-[38dvh] md:h-[42dvh] w-full bg-hanji-deep animate-pulse" />
+      <div className="h-[38dvh] md:h-[42dvh] lg:h-[30dvh] w-full bg-hanji-deep animate-pulse" />
 
       {/* 시트 자리 */}
       <div className="relative -mt-6 rounded-t-3xl bg-white shadow-[0_-8px_30px_rgba(43,35,32,0.12)]">

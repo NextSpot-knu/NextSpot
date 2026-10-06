@@ -235,7 +235,7 @@ export default function CourseMap({ stops, userLocation }: CourseMapProps) {
   return (
     <div
       ref={containerRef}
-      className={`nextspot-map h-[38dvh] md:h-[42dvh] w-full ${ready ? '' : 'bg-hanji-deep animate-pulse'}`}
+      className={`nextspot-map h-[38dvh] md:h-[42dvh] lg:h-[30dvh] w-full ${ready ? '' : 'bg-hanji-deep animate-pulse'}`}
       aria-hidden={!ready}
     />
   );
