@@ -73,8 +73,14 @@ interface OpenOptions {
   prefs?: Record<string, unknown>;
   facilities?: Row[];
   byType?: (type: string) => unknown[];
+  /** 추천 요청 본문으로 답을 정한다(♿ · assumed_at 에 따라 다른 목록) — 있으면 byType 대신. */
+  byTypeFor?: (body: Record<string, unknown>) => unknown[];
   /** 권역 전망: 'ok'(수요 0.35 = 여유) · 'fail'(503). */
   forecast?: 'ok' | 'fail';
+  /** 'ok' 일 때 돌려줄 수요(기본 0.35 = 여유). */
+  forecastLevel?: number;
+  /** 세션 프리페치(무거운 추천 4 + 코스 1)를 이미 한 것으로 둔다 — 호출 수를 셀 때. */
+  skipPrefetch?: boolean;
   modelTrained?: boolean;
   /** /predict/batch 가 이 장소별 예측을 돌려준다(없으면 503). */
   batch?: { facility_id: string; predicted_congestion: number; anchored: boolean }[];
@@ -97,14 +103,16 @@ async function openMain(page: Page, options: OpenOptions = {}): Promise<Calls> {
   await page.route('**/api/v1/recommendations/by-type', async (route: Route) => {
     const body = route.request().postDataJSON() as { facility_type?: string; assumed_at?: string | null };
     calls.byType.push({ assumedAt: body.assumed_at ?? null, at: Date.now() });
-    const items = (options.byType ?? ((type: string) => (type === 'attraction' ? ATTRACTION_RECS() : [])))(String(body.facility_type ?? ''));
+    const items = options.byTypeFor
+      ? options.byTypeFor(body as Record<string, unknown>)
+      : (options.byType ?? ((type: string) => (type === 'attraction' ? ATTRACTION_RECS() : [])))(String(body.facility_type ?? ''));
     return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(items) });
   });
   await page.route('**/api/v1/area-demand/forecast**', (route) => {
     calls.forecast += 1;
     return options.forecast === 'fail'
       ? route.fulfill({ status: 503, contentType: 'application/json', body: '{"detail":"e2e"}' })
-      : route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ available: true, forecast: { level: 0.35 } }) });
+      : route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ available: true, forecast: { level: options.forecastLevel ?? 0.35 } }) });
   });
   await page.route('**/predict/model-info', (route) => {
     calls.modelInfo += 1;
@@ -119,7 +127,8 @@ async function openMain(page: Page, options: OpenOptions = {}): Promise<Calls> {
   await page.route('**/api/v1/freshness**', (route) => route.fulfill({
     status: 200, contentType: 'application/json', body: JSON.stringify({ last_tourapi_sync: new Date(Date.now() - 2 * 3600_000).toISOString() }),
   }));
-  await page.addInitScript(({ theme, prefs, activeFilter }) => {
+  await page.addInitScript(({ theme, prefs, activeFilter, skipPrefetch }) => {
+    if (skipPrefetch) sessionStorage.setItem('nextspot_prefetch_done_v1', '1');
     localStorage.setItem('nextspot_theme', theme);
     localStorage.setItem('nextspot_setup_prefs', JSON.stringify(prefs));
     if (!sessionStorage.getItem('e2e_seeded')) {
@@ -129,6 +138,7 @@ async function openMain(page: Page, options: OpenOptions = {}): Promise<Calls> {
     if (activeFilter) sessionStorage.setItem('nextspot_active_filter', activeFilter);
   }, {
     activeFilter: options.activeFilter ?? null,
+    skipPrefetch: !!options.skipPrefetch,
     theme: options.theme ?? 'light',
     prefs: options.prefs ?? { version: 2, categories: ['attraction'], requiredAttributes: [], excludeVisited: false, visitedFacilityIds: [] },
   });
@@ -216,6 +226,8 @@ test('+2시간 후 (click): badge says 예측, the card re-ranks for now+2h, and
   await expect(track(page)).toHaveAttribute('aria-valuenow', '2');
   await expect(card(page).getByTestId('value-box')).toContainText('+2시간 후 기준', { timeout: 20_000 });
   await expect(strip(page).getByTestId('forecast-legend')).toContainText('+2시간 후 혼잡 · 추정');
+  // 범례의 '추천' 은 예측 중의 순위 핀 모양(번호 원 + 점선)이다 — 지금 모드의 금색 고리가 아니다(리뷰 10-07).
+  await expect(strip(page).getByTestId('forecast-legend-pick').locator('[data-swatch="rank-dashed"]')).toHaveCount(1);
   await expect.poll(() => calls.byType.length).toBeGreaterThan(before);
   const last = calls.byType.at(-1)!;
   expectHoursAhead(last.assumedAt, last.at, 2);
@@ -503,6 +515,18 @@ test('360x640: the clear map band between the header and the strip is at least 1
   await expectOnTop(strip(page), { width: 360, height: 640 });
   const band = (await box(strip(page))).y - await headerBottom(page);
   expect(band, `clear map band ${band}px`).toBeGreaterThanOrEqual(180);
+  // 기능 1 의 시연 상태(+2시간 후)에서도 띠가 남는다 — 배지는 줄 안의 짧은 배지, 범례 줄은 키 낮은 화면에서 감춘다(리뷰 10-07).
+  await track(page).getByText('+2시간 후', { exact: true }).click();
+  await expect(strip(page).getByTestId('forecast-badge-short')).toBeVisible({ timeout: 20_000 });
+  await expect(strip(page).getByTestId('forecast-badge-short')).toContainText('🔮 여유 예측');
+  await expect(strip(page).getByTestId('forecast-badge')).toBeHidden();
+  await expect(strip(page).getByTestId('forecast-legend')).toBeHidden();
+  await page.waitForTimeout(600);
+  const forecastBand = (await box(strip(page))).y - await headerBottom(page);
+  expect(forecastBand, `clear map band in forecast mode ${forecastBand}px`).toBeGreaterThanOrEqual(180);
+  const cells = await track(page).evaluate((el) => (Array.from(el.querySelectorAll('[data-stop]')) as HTMLElement[])
+    .map((cell) => cell.scrollWidth - cell.getBoundingClientRect().width));
+  expect(Math.max(...cells), 'track labels fit their cells').toBeLessThanOrEqual(1);
   // 첫 방문(✨)은 키 낮은 화면에서도 누를 수 있다(검색 줄 옆 아이콘).
   await expectOnTop(page.getByRole('button', { name: /경주가 처음이라면/ }), { width: 360, height: 640 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
@@ -582,4 +606,193 @@ test('contract: ?focus=forecast turns the heatmap on and rings the forecast stri
   await expect(strip(page)).toHaveClass(/ring-gold/, { timeout: 25_000 });
   await expect(page.getByRole('button', { name: /히트맵/ }).first()).toHaveAttribute('aria-pressed', 'true');
   await expect(strip(page).getByTestId('forecast-legend')).toBeVisible();
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// 8) 리뷰 10-07 — 직접 고른 카드도 다시 매기기에는 비킨다 · 예측 시각의 카드 = 지도 핀 · 호출 예산 · 좁은 창 · 휴대폰 날씨
+// ───────────────────────────────────────────────────────────────────────────
+
+const BARRIER_FREE = new Set(['att-gyerim', 'att-3', 'att-4']);
+
+test('a tapped pin gives way to ♿: the card re-ranks to a barrier-free place and never says 같은 추천', async ({ page }) => {
+  test.setTimeout(90_000);
+  await page.setViewportSize({ width: 1536, height: 730 });
+  const facilities = [...ATTRACTIONS.map((row) => ({ ...row, barrier_free: BARRIER_FREE.has(row.id) })), DAEREUNGWON];
+  await openMain(page, {
+    facilities,
+    byTypeFor: (body) => {
+      const accessible = JSON.stringify(body).includes('accessible');
+      const rows = facilities.filter((row) => row.type === 'attraction' && row.id !== 'anchor-drw' && row.id !== 'att-old'
+        && (!accessible || BARRIER_FREE.has(row.id)));
+      return rows.map((row, i) => rec(row as Row, i + 1));
+    },
+  });
+  await expect(card(page).getByRole('heading', { name: '경주 계림' })).toBeVisible({ timeout: 25_000 });
+  await expect.poll(() => page.evaluate(() => (window as unknown as KakaoFakeWindow).__kakaoFake.markers())).toContain('경주 향교');
+  await page.evaluate(() => (window as unknown as KakaoFakeWindow).__kakaoFake.click('경주 향교'));
+  await expect(card(page).getByRole('heading', { name: '경주 향교' })).toBeVisible();
+
+  await page.getByTestId('toolbar-row-2').getByRole('button', { name: /♿/ }).click();
+  await expect(card(page).getByRole('heading', { name: '경주 계림' })).toBeVisible({ timeout: 20_000 });
+  await expect(card(page).getByTestId('card-conditions')).toContainText('♿ 무장애');
+  await expect(card(page).getByTestId('card-rank')).toHaveText('베스트 추천');
+  await page.waitForTimeout(800);
+  await expect(page.getByText('이 시간대에도 같은 추천이 유효해요')).toHaveCount(0);
+});
+
+test('a tapped pin gives way to +2시간 후: the card shows that time\'s best pick, not 같은 추천', async ({ page }) => {
+  test.setTimeout(90_000);
+  await page.setViewportSize({ width: 1536, height: 730 });
+  await openMain(page, {
+    byTypeFor: (body) => (body.assumed_at
+      // +2시간 후의 1위는 지금과 다른 곳이다.
+      ? [{ ...rec(ATTRACTIONS[4], 1), spot_score: 0.95 }, rec(ATTRACTIONS[0], 2), rec(ATTRACTIONS[1], 3)]
+      : ATTRACTION_RECS()),
+  });
+  await expect(card(page).getByRole('heading', { name: '경주 계림' })).toBeVisible({ timeout: 25_000 });
+  await expect.poll(() => page.evaluate(() => (window as unknown as KakaoFakeWindow).__kakaoFake.markers())).toContain('경주 향교');
+  await page.evaluate(() => (window as unknown as KakaoFakeWindow).__kakaoFake.click('경주 향교'));
+  await expect(card(page).getByRole('heading', { name: '경주 향교' })).toBeVisible();
+
+  await track(page).getByText('+2시간 후', { exact: true }).click();
+  await expect(card(page).getByRole('heading', { name: '첨성대 꽃밭' })).toBeVisible({ timeout: 20_000 });
+  await expect(card(page).getByTestId('card-rank')).toHaveText('베스트 추천');
+  await expect(card(page).getByTestId('value-box')).toContainText('+2시간 후 기준');
+  await page.waitForTimeout(800);
+  await expect(page.getByText('이 시간대에도 같은 추천이 유효해요')).toHaveCount(0);
+});
+
+test('+2시간 후: the card says the same grade as its ranked pin and no current-clock arrival time', async ({ page }) => {
+  test.setTimeout(90_000);
+  await page.setViewportSize({ width: 1536, height: 730 });
+  // 기준 명소 쪽에 주차 근거(혼잡)가 있어 첫 줄이 화살표다 — 후보 쪽 등급 단어가 첫 줄에 나온다.
+  const withParking = (row: Row, rank: number) => {
+    const base = rec(row, rank);
+    return { ...base, breakdown: { ...base.breakdown, area_demand_parking_evidence: { level: 0.9, mode: 'live', observed_at: new Date().toISOString(), radius_m: 500 } } };
+  };
+  await openMain(page, { byType: (type) => (type === 'attraction' ? ATTRACTIONS.slice(0, 5).map((row, i) => withParking(row, i + 1)) : []) });
+  const value = card(page).getByTestId('value-box');
+  // 지금: 경주 계림의 지금 잰 값(0.2 = 한산).
+  await expect(value).toContainText('대릉원 혼잡 → 경주 계림 한산', { timeout: 25_000 });
+  await expect(card(page).getByTestId('arrival-line')).toBeVisible();
+
+  await track(page).getByText('+2시간 후', { exact: true }).click();
+  await expect(strip(page).getByTestId('forecast-badge')).toContainText('이 일대 여유', { timeout: 20_000 });
+  // +2시간 후: 카드도 순위 핀과 같은 이 일대 예측(0.35 = 여유) — 지금의 '한산' 을 그 시각의 값처럼 말하지 않는다.
+  await expect(value).toContainText('대릉원 혼잡 → 경주 계림 여유');
+  await expect(value).not.toContainText('한산');
+  await expect(value).toContainText('+2시간 후 기준');
+  const pin = await page.evaluate(() => (window as unknown as KakaoFakeWindow).__kakaoFake.pins().find((p: FakePin) => p.title === '경주 계림')!);
+  const svg = decodeURIComponent(pin.src);
+  expect(svg).toContain('data-pin="filled-dashed"');
+  expect(svg, 'the pin is painted 여유 (emerald)').toMatch(/#047857|#059669/);
+  // 출발 → 도착은 지금 시각으로 센 값이라 '+2시간 후 기준' 카드에는 두지 않는다.
+  await expect(card(page).getByTestId('arrival-line')).toHaveCount(0);
+});
+
+test('en: the +N pill reads "Forecast for +2 hr"', async ({ page }) => {
+  test.setTimeout(90_000);
+  await page.setViewportSize({ width: 1536, height: 730 });
+  await openMain(page, { locale: 'en' });
+  await expect(card(page)).toBeVisible({ timeout: 25_000 });
+  await track(page).getByText('+2 hr', { exact: true }).click();
+  await expect(card(page).getByTestId('value-box')).toContainText('Forecast for +2 hr', { timeout: 20_000 });
+  await expect(card(page).getByTestId('value-box')).not.toContainText('Based on +2');
+});
+
+test('call budget: +2시간 후 costs at most 3 Render calls with one area forecast GET, and each hour is asked once', async ({ page }) => {
+  test.setTimeout(120_000);
+  await page.setViewportSize({ width: 1536, height: 730 });
+  const render: string[] = [];
+  page.on('request', (request) => {
+    const url = new URL(request.url());
+    if (/^\/(api\/v1|predict)\//.test(url.pathname)) render.push(`${request.method()} ${url.pathname}`);
+  });
+  const calls = await openMain(page, { skipPrefetch: true, forecastLevel: 0.1 });
+  await expect(card(page)).toBeVisible({ timeout: 25_000 });
+  await page.waitForTimeout(2500);
+  const atLoad = render.length;
+
+  await track(page).getByText('+2시간 후', { exact: true }).click();
+  const badge = strip(page).getByTestId('forecast-badge');
+  await expect(badge).toContainText('+2시간 후 예측 · 이 일대 한산', { timeout: 20_000 });
+  await page.waitForTimeout(1500);
+  const plusTwo = render.slice(atLoad);
+  expect(plusTwo.length, plusTwo.join(', ')).toBeLessThanOrEqual(3);
+  expect(calls.forecast).toBe(1);
+  // 한산 = 핀 · 범례와 같은 파랑(옥색은 범례에서 '여유' 로 읽힌다).
+  await expect(badge).toHaveClass(/benefit-quiet/);
+
+  const before = render.length;
+  await track(page).getByText('+3시간 후', { exact: true }).click();
+  await expect(badge).toContainText('+3시간 후 예측', { timeout: 20_000 });
+  await page.waitForTimeout(1500);
+  expect(calls.forecast).toBe(2);
+  expect(render.slice(before).length, render.slice(before).join(', ')).toBeLessThanOrEqual(2);
+
+  await track(page).getByText('+2시간 후', { exact: true }).click();
+  await expect(badge).toContainText('+2시간 후 예측', { timeout: 20_000 });
+  await page.waitForTimeout(1200);
+  expect(calls.forecast, 'the same hour is not asked again in this session').toBe(2);
+});
+
+test('1024x768: toolbar chips never slide under the language picker and clock', async ({ page }) => {
+  test.setTimeout(90_000);
+  await page.setViewportSize({ width: 1024, height: 768 });
+  await openMain(page, { activeFilter: '음식점' });
+  await expect(page.getByTestId('toolbar-row-1')).toBeVisible({ timeout: 25_000 });
+  await page.waitForTimeout(800);
+  const cluster = await box(page.locator('[aria-label$="KST"]'));
+  const lang = await box(page.getByRole('combobox').first());
+  const chips = await page.getByTestId('toolbar-row-1').evaluate((row) => (Array.from(row.querySelectorAll('button, label')) as HTMLElement[])
+    .map((el) => el.getBoundingClientRect()).filter((r) => r.width > 0)
+    .map((r) => ({ x: r.x, y: r.y, width: r.width, height: r.height })));
+  expect(chips.length).toBeGreaterThan(4);
+  for (const chip of chips) {
+    expect(overlaps(chip, cluster), `chip at x=${chip.x} under the clock`).toBe(false);
+    expect(overlaps(chip, lang), `chip at x=${chip.x} under the language picker`).toBe(false);
+  }
+});
+
+test('820x1180: the time strip labels fit their cells', async ({ page }) => {
+  test.setTimeout(90_000);
+  await page.setViewportSize({ width: 820, height: 1180 });
+  await openMain(page);
+  await expect(card(page)).toBeVisible({ timeout: 25_000 });
+  for (const stop of ['지금', '+1시간 후', '+2시간 후', '+3시간 후']) await expect(track(page).getByText(stop, { exact: true })).toBeVisible();
+  const cells = await track(page).evaluate((el) => (Array.from(el.querySelectorAll('[data-stop]')) as HTMLElement[])
+    .map((cell) => cell.scrollWidth - cell.getBoundingClientRect().width));
+  expect(Math.max(...cells), 'labels overflow their cells').toBeLessThanOrEqual(1);
+});
+
+test('360x640: the weather forecast opens fully on screen', async ({ page }) => {
+  test.setTimeout(90_000);
+  await page.setViewportSize({ width: 360, height: 640 });
+  const at = new Date().toISOString();
+  const hour = { at, temperatureC: 18, sky: 1, precipitationType: 0, precipitationProbability: 10, windSpeedMps: 1 };
+  await openMain(page);
+  // stubMain 의 /api/v1/** 빈 답보다 나중에 건다(나중에 건 라우트가 이긴다) — 그리고 날씨를 다시 받게 새로 연다.
+  await page.route('**/api/v1/weather**', (route) => route.fulfill({
+    status: 200, contentType: 'application/json',
+    body: JSON.stringify({ source: 'kma', current: hour, forecasts: [0, 1, 2, 3, 4, 5].map((h) => ({ ...hour, at: new Date(Date.now() + h * 3600_000).toISOString() })), indoor_recommended: false }),
+  }));
+  await page.reload();
+  await expect(page.getByTestId('rec-card-peek')).toBeVisible({ timeout: 25_000 });
+  const pill = page.getByRole('button', { name: /지금 경주/ });
+  await expect(pill).toBeVisible({ timeout: 15_000 });
+  await pill.click();
+  const forecast = page.getByLabel('향후 6시간 예보');
+  await expect(forecast).toBeVisible();
+  const panel = forecast.locator('xpath=..');
+  const panelBox = await box(panel);
+  expect(panelBox.x).toBeGreaterThanOrEqual(0);
+  expect(panelBox.x + panelBox.width).toBeLessThanOrEqual(360);
+});
+
+test('en: a desktop with no location says so in English', async ({ page }) => {
+  test.setTimeout(90_000);
+  await page.setViewportSize({ width: 1536, height: 730 });
+  await openMain(page, { locale: 'en' });
+  await expect(page.getByText('Couldn’t determine your location, so we’re guiding from central Gyeongju.')).toBeVisible({ timeout: 25_000 });
+  await expect(page.getByText('위치를 확인할 수 없어 경주 중심을 기준으로 안내해요.')).toHaveCount(0);
 });
