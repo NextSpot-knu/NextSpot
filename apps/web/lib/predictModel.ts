@@ -5,8 +5,9 @@
 // 실패 요청이 하나씩 쌓였고(심사 시뮬레이션 2026-10-06 콘솔 503), 무료 플랜 API 에 쓸모없는 부하만 됐다.
 // 학습 여부는 모델이 바뀌어야 바뀌므로 한 번 물으면 충분하다.
 //
-// 판정 함수는 lib/merchant/api.ts 의 fetchPredictModelInfo 를 옮겨 온 것이다(사장님 콘솔이 같은 질문을
-// 한다). 그 파일은 사장님 콘솔 담당이 이 모듈로 옮겨 쓸 수 있게 그대로 둔다.
+// 요청·판정 함수(fetchPredictModelInfo)는 사장님 콘솔 ① 예상 혼잡(lib/merchant/api.ts)도 같이 쓴다.
+// 기억 규칙은 화면마다 다르다 — 카드는 아래 isPredictModelTrained(세션 저장), 콘솔은 탭 안에서만 기억하고
+// 답을 못 받았으면 다시 묻는다.
 
 const BASE_URL = process.env.NEXT_PUBLIC_FASTAPI_URL || 'http://localhost:8000';
 /** model-info 는 가벼운 메타 응답이다 — 4초를 넘기면 학습 안 됨으로 본다(예측 막대를 그리지 않을 뿐). */

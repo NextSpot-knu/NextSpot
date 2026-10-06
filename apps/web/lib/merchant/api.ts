@@ -3,14 +3,14 @@
 
 import { createPublicClient } from "@/lib/supabase";
 import { kstParts, predictedLevel } from "@/lib/adminPredictedView";
+// model-info 요청·판정(4초 타임아웃)은 추천 카드와 같은 함수를 쓴다. 탭 안 기억 규칙만 콘솔 쪽(아래)에 있다.
+import { fetchPredictModelInfo as requestPredictModelInfo, type PredictModelInfo } from "@/lib/predictModel";
 
 const BASE_URL = process.env.NEXT_PUBLIC_FASTAPI_URL || "http://localhost:8000";
 // 무응답 백엔드에 무한 대기하지 않도록 타임아웃 — 각 섹션이 스켈레톤에 영원히 갇히지 않게 한다.
 // (/predict/batch 는 전체 시설 순회 + 행사 보정을 포함해 콜드 캐시일 때 1~2초대가 걸릴 수 있고,
 //  예측 섹션은 이 호출을 여러 hours_ahead 값으로 동시에 여러 번 보낸다 — 넉넉히 12초로 잡는다.)
 const REQUEST_TIMEOUT_MS = 12000;
-// model-info 는 가벼운 메타 조회다. 4초 안에 답이 없으면 기다리지 않고 업종 패턴으로 ① 을 그린다.
-const MODEL_INFO_TIMEOUT_MS = 4000;
 
 /** 서버가 알려준 실패 사유의 기계 판독용 코드. 화면이 문구를 고르는 근거다. */
 export type MerchantErrorReason = "unknown" | "model_not_trained";
@@ -337,24 +337,7 @@ async function predictBatch(hoursAhead: number): Promise<PredictBatchResponse> {
   return res.json();
 }
 
-/** GET /predict/model-info 의 일부 — ① 예상 혼잡을 서버 예측으로 그릴지 정하는 데만 쓴다. */
-interface PredictModelInfo {
-  trained: boolean;
-}
-
-/** 모델 학습 여부를 서버에 직접 묻는다. 못 물어봤으면 null(=판정 불가, 지어내지 않는다). */
-async function requestPredictModelInfo(): Promise<PredictModelInfo | null> {
-  try {
-    const res = await timeoutFetch(`${BASE_URL}/predict/model-info`, undefined, MODEL_INFO_TIMEOUT_MS);
-    if (!res.ok) return null;
-    const body = await res.json();
-    if (typeof body?.trained !== "boolean") return null;
-    return { trained: body.trained };
-  } catch {
-    return null;
-  }
-}
-
+// model-info 는 가벼운 메타 조회다 — 4초 안에 답이 없으면(null) 기다리지 않고 업종 패턴으로 ① 을 그린다.
 // 한 탭 안에서는 모델 상태를 한 번만 묻는다 — 콘솔을 다시 열거나 가게를 바꿔도 답은 같다.
 // 답을 못 받았으면(null) 기억하지 않는다 — 다음 진입에서 다시 묻는다.
 let modelInfoMemo: Promise<PredictModelInfo | null> | null = null;
