@@ -418,6 +418,20 @@ for (const locale of A12_LOCALES) {
   });
 }
 
+test('the phone voice control on /explore/recommend sits above the tab bar', async ({ page }) => {
+  test.setTimeout(90_000);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openRecommend(page, 'ko');
+  const control = page.getByTestId('recommend-voice-control');
+  await expect(control).toBeAttached({ timeout: 20_000 });
+  const offsets = await control.evaluate((el) => ({
+    bottom: parseFloat(getComputedStyle(el).bottom),
+    nav: parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--tourist-nav-clearance')),
+  }));
+  expect(offsets.nav).toBeGreaterThan(0);
+  expect(offsets.bottom).toBeGreaterThan(offsets.nav);
+});
+
 const OUT_OF_REGION: Record<A12Locale, string> = {
   ko: '지금은 경주 밖에 계셔서 황리단길에서 출발하는 기준으로 보여드려요',
   en: 'You\'re outside Gyeongju, so we\'re showing walks from Hwangnidan-gil',

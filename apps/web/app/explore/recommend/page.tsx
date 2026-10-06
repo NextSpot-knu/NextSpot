@@ -1984,8 +1984,8 @@ function RecommendContent() {
       {/* ── 음성 비서 오버레이 (음성 컨시어지) ── */}
       {!loadingRecommendations && recommendations.length > 0 && ttsSupported && !showOnboarding && (
         <div
-          className="fixed right-4 z-40 flex flex-col items-end gap-2 select-none"
-          style={{ bottom: "calc(env(safe-area-inset-bottom, 0px) + 1.25rem)" }}
+          data-testid="recommend-voice-control"
+          className="fixed right-4 z-40 flex flex-col items-end gap-2 select-none bottom-[calc(var(--tourist-nav-clearance)+env(safe-area-inset-bottom)+0.75rem)] md:bottom-[calc(env(safe-area-inset-bottom)+1.25rem)]"
         >
           {/* 자막 / 안내 pill (스크린리더 라이브 영역) */}
           {assistantActive && (
