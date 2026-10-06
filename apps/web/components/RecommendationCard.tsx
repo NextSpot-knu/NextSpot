@@ -9,7 +9,9 @@ import { GoldenHourBadge } from '@/components/GoldenHourBadge';
 import { relativeParts } from '@/lib/freshness';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 import { getArrivalOpenDisplayStatus, getArrivalOpenStatus, isClosedToday } from '@/lib/restDate';
-import { displayWalkingMinutes } from '@/lib/recommender';
+import { cardTimes } from '@/lib/cardTimes';
+import { hoursLines } from '@/lib/hoursLines';
+import { isPredictModelTrained } from '@/lib/predictModel';
 import { haptic, interactionSpring, sheetSpring, tapMotion } from '@/lib/motion';
 import { areaDemandDisclosure } from '@/lib/areaDemandPresentation';
 import { useCountUp } from '@/lib/useCountUp';
@@ -83,6 +85,7 @@ interface RecommendationCardProps {
   expectedWait?: number;
   expectedTravel?: number;
   travelSource?: 'osm_pedestrian' | 'estimated';
+  /** 순위 입력(도보 + 혼잡 대기). 화면의 시간 숫자는 보이는 칩의 합으로만 그린다(lib/cardTimes.ts) — 쓰지 않는다. */
   timeToService?: number;
   facilityType?: string;
   facility?: RecommendationCardFacility;
@@ -179,7 +182,6 @@ export function RecommendationCard({
   expectedWait,
   expectedTravel,
   travelSource,
-  timeToService,
   facilityType,
   facility,
   rank,
@@ -426,12 +428,17 @@ export function RecommendationCard({
   }, [title, facility]);
 
   // 펼쳐졌을 때만 '최적 방문 시각'(오늘 24시간 예측)을 지연 로드한다 — 접힌 카드까지 백엔드를 때리지 않게.
+  // 예측 모델이 학습돼 있을 때만 부른다(세션당 한 번 묻는다, lib/predictModel.ts) — 미학습이면 /predict/day 는
+  // 언제나 503 이라, 펼칠 때마다 실패 요청만 쌓였다.
   const dayFacilityType = facilityType || facility?.type;
   useEffect(() => {
     if (!isExpanded || !dayFacilityType) return;
     let active = true;
-    apiClient
-      .get(`/predict/day?facilityType=${encodeURIComponent(dayFacilityType)}`)
+    isPredictModelTrained()
+      .then((trained) => {
+        if (!trained || !active) return null;
+        return apiClient.get(`/predict/day?facilityType=${encodeURIComponent(dayFacilityType)}`);
+      })
       .then((res) => {
         // 24개 시간 값이 온전할 때만 반영(방어적) — 아니면 조용히 숨김 유지
         if (active && res?.hours?.length === 24) setDayPred(res);
@@ -491,11 +498,12 @@ export function RecommendationCard({
 
   const hasSpotMetrics = spotScore !== undefined;
 
-  const travelMins = expectedTravel || 0;
-  const displayedTravelMins = displayWalkingMinutes(travelMins);
-  const waitMins = expectedWait ?? null;
-  
-  const arrivalTime = currentTime ? new Date(currentTime.getTime() + travelMins * 60000) : null;
+  // 큰 숫자 · 칩 · 출발→도착 타임라인이 같은 분을 쓴다(lib/cardTimes.ts) — 큰 숫자는 언제나 보이는 칩의 합이고,
+  // 도착 시각은 출발 + 도보 칩 분이다. timeToService 는 순위 입력일 뿐 화면에는 쓰지 않는다.
+  const times = cardTimes(expectedTravel, expectedWait, currentTime);
+  const displayedTravelMins = times.walkMin;
+  const waitMins = times.waitMin;
+  const arrivalTime = times.arrival;
   const availabilityEvidence = localAvailability ?? facility?.availabilityEvidence;
   const localObservedStatus = localAvailability
     ? (localAvailability.status === 'open' ? 'open_expected' : 'closed_confirmed')
@@ -506,8 +514,13 @@ export function RecommendationCard({
     && new Date(availabilityEvidence.expiresAt).getTime() > arrivalTime.getTime()
     ? (availabilityEvidence.status === 'open' ? 'open_expected' : 'closed_confirmed')
     : undefined;
-  const resolvedOpenStatus = localObservedStatus ?? corroboratedStatus ?? openStatusAtArrival
-    ?? (arrivalTime ? getArrivalOpenStatus(facility?.operatingHours, arrivalTime) : undefined);
+  const parsedOpenStatus = arrivalTime ? getArrivalOpenStatus(facility?.operatingHours, arrivalTime) : undefined;
+  // 서버가 '미확인' 이라고 한 곳도 웹 파서가 운영시간 문구('상시 개방' · '~24:00')를 읽어 냈으면 그 판정을 쓴다 —
+  // 서버 쪽 같은 파서 보강은 순위를 바꾸므로 심사 뒤로 미뤘다(계획 4.21). 화면의 영업 표시만 바로잡는다.
+  const serverOpenStatus = openStatusAtArrival === 'needs_confirmation' && parsedOpenStatus === 'open_expected'
+    ? parsedOpenStatus
+    : openStatusAtArrival;
+  const resolvedOpenStatus = localObservedStatus ?? corroboratedStatus ?? serverOpenStatus ?? parsedOpenStatus;
   const displayedOpenStatus = resolvedOpenStatus && arrivalTime
     ? getArrivalOpenDisplayStatus(resolvedOpenStatus, facilityType, arrivalTime)
     : resolvedOpenStatus;
@@ -556,9 +569,7 @@ export function RecommendationCard({
       setHoursSubmitting(false);
     }
   };
-  const serviceTime = arrivalTime && waitMins !== null
-    ? new Date(arrivalTime.getTime() + waitMins * 60000)
-    : null;
+  const serviceTime = times.service;
 
   const formatTime = (date: Date | null) => {
     if (!date) return '';
@@ -641,6 +652,9 @@ export function RecommendationCard({
   // 둘 다 없으면 렌더하지 않는다('지어내지 않기'). phone/homepage/운영시간은 실시간 조회값이 있으면 우선.
   const displayAddress = facility?.address || placeInfo?.address;
   const displayPhone = liveDetail?.phone || facility?.phone || placeInfo?.phone;
+  // 전화 걸기 링크 — 여러 번호가 붙어 있으면('054-…, 010-…') 첫 번호만, 숫자와 + 만 남긴다. 숫자가 없으면 글자로만.
+  const phoneDigits = displayPhone ? String(displayPhone).split(/[,/]|\s{2,}/)[0].replace(/[^\d+]/g, '') : '';
+  const phoneHref = phoneDigits.length >= 3 ? `tel:${phoneDigits}` : null;
   // TourAPI homepage 원문은 순수 URL 또는 <a href="..."> HTML 조각일 수 있어 첫 http(s) URL 만 방어적으로 추출.
   // 추출 실패 시 링크를 만들지 않는다(깨진 링크 미노출).
   const homepageSource = liveDetail?.homepage ?? facility?.homepage;
@@ -649,6 +663,9 @@ export function RecommendationCard({
     : null;
   // 운영시간/휴무일도 실시간 조회값 우선(형태 동일 — {open, closed}).
   const displayOperatingHours = liveDetail?.operatingHours ?? facility?.operatingHours;
+  // 운영시간·휴무일 원문 → 철·문·요일마다 한 줄(lib/hoursLines.ts — '<br>' 이 글자로 보이지 않게).
+  const openHourLines = typeof displayOperatingHours?.open === 'string' ? hoursLines(displayOperatingHours.open) : [];
+  const closedDayLines = typeof displayOperatingHours?.closed === 'string' ? hoursLines(displayOperatingHours.closed) : [];
   const homepageHost = (() => {
     if (!homepageUrl) return null;
     try { return new URL(homepageUrl).hostname; } catch { return homepageUrl; }
@@ -854,9 +871,9 @@ export function RecommendationCard({
       </span>
     ) : null;
 
-  // '도보 길안내'(또는 영업 확인 필요 시 '카카오맵에서 영업 확인') — 전체 카드와 휴대폰 미리보기가
-  // **같은 함수**를 부른다. 미리보기에서 영업 확인 질문을 띄우면 그 질문은 전체 카드에만 있으므로
-  // 카드를 펼치고 질문을 화면 안으로 끌어온다.
+  // '도보 길안내' — 전체 카드와 휴대폰 미리보기가 **같은 함수**를 부른다. 이름은 언제나 '도보 길안내' 이고,
+  // 영업시간을 모르는 음식점·카페면 누를 때 카카오맵 영업시간을 먼저 열고 '영업 중인지' 를 묻는다.
+  // 미리보기에서 그 질문을 띄우면 질문은 전체 카드에만 있으므로 카드를 펼치고 질문을 화면 안으로 끌어온다.
   const handleAcceptClick = () => {
     haptic('success');
     if (needsHoursConfirmation && kakaoPlaceUrl) {
@@ -996,12 +1013,12 @@ export function RecommendationCard({
             onClick={handlePeekAcceptClick}
             whileTap={tapMotion}
             transition={interactionSpring}
-            aria-label={t(needsHoursConfirmation && kakaoPlaceUrl ? 'card.checkHoursKakaoAria' : 'card.acceptAria')}
+            aria-label={t('card.acceptAria')}
             className="max-w-[46%] shrink-0 break-keep rounded-2xl bg-gradient-to-r from-gold to-terracotta px-4 py-3 text-xs font-bold leading-tight text-white shadow-[0_4px_14px_rgba(193,85,59,0.25)] transition-all active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
           >
             <span className="inline-flex items-center justify-center gap-1.5">
               {confirmedAction === 'accepted' && <Check size={14} aria-hidden />}
-              {t(needsHoursConfirmation && kakaoPlaceUrl ? 'card.checkHoursKakao' : 'card.accept')}
+              {t('card.accept')}
             </span>
           </motion.button>
         </div>
@@ -1119,7 +1136,9 @@ export function RecommendationCard({
                   {t('card.closedToday')}
                 </span>
               )}
-              {displayedOpenStatus && (
+              {/* '영업시간 미확인' 은 그리지 않는다 — 모른다는 사실은 관광객이 고르는 데 쓸 정보가 아니다
+                  (음식점·카페면 '도보 길안내' 가 출발 전에 카카오맵 영업시간을 먼저 보여 준다). */}
+              {displayedOpenStatus && displayedOpenStatus !== 'needs_confirmation' && (
                 <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold border ${
                   displayedOpenStatus === 'open_expected'
                     ? 'bg-jade/10 border-jade/30 text-jade'
@@ -1223,13 +1242,13 @@ export function RecommendationCard({
               })}
             </p>
           )}
-          {displayedOpenStatus && arrivalTime && expectedTravel !== undefined && expectedWait !== undefined && (
+          {displayedOpenStatus && arrivalTime && expectedTravel !== undefined && waitMins !== null && (
             <p className="mt-2 inline-flex flex-wrap items-center gap-x-1.5 rounded-lg border border-jade/20 bg-jade/5 px-2.5 py-1.5 text-[11px] font-semibold text-muk">
               <Clock size={12} className="text-jade" aria-hidden />
               {t('card.arrivalSummary', {
                 time: formatTime(arrivalTime),
-                walk: displayWalkingMinutes(expectedTravel),
-                wait: Math.round(expectedWait ?? 0),
+                walk: displayedTravelMins,
+                wait: waitMins,
               })}
             </p>
           )}
@@ -1293,17 +1312,19 @@ export function RecommendationCard({
                   <div className="absolute top-0 right-0 p-2 opacity-20">
                     <Clock size={24} className="text-gold" />
                   </div>
-                  <span className="text-muk-soft text-[10px] font-semibold mb-1">{t('card.totalTime')}</span>
+                  {/* 보여 줄 대기가 있으면 '총 소요 시간 = 대기 + 이동', 없으면 '도보 시간' 하나 — 같은 분을 두 번 쓰지 않는다. */}
+                  <span className="text-muk-soft text-[10px] font-semibold mb-1">{t(waitMins !== null ? 'card.totalTime' : 'card.walkTime')}</span>
                   <div className="flex items-baseline gap-1 mb-1.5">
-                    {/* 분 단위 표시는 정수로 — 0.6분 같은 소수는 아래 '이동 1분' 칩과 어긋나 보인다(계산값은 그대로). */}
-                    <span className="text-2xl font-black text-muk">{timeToService !== undefined ? Math.max(1, Math.round(timeToService)) : timeToService}</span>
+                    <span className="text-2xl font-black text-muk">{times.totalMin}</span>
                     <span className="text-xs text-muk-soft font-medium">{t('card.minute')}</span>
                   </div>
-                  <div className="flex items-center gap-2 text-[10px] text-muk-soft font-medium">
-                    {expectedWait !== undefined && <span className="bg-gold/15 px-1.5 py-0.5 rounded text-gold-deep whitespace-nowrap">{t('card.wait', { n: expectedWait })}</span>}
-                    {expectedWait !== undefined && <span className="text-muk-soft/60">+</span>}
-                    <span className="bg-jade/15 px-1.5 py-0.5 rounded text-jade whitespace-nowrap">{t('card.travel', { n: displayedTravelMins })}</span>
-                  </div>
+                  {waitMins !== null && (
+                    <div className="flex items-center gap-2 text-[10px] text-muk-soft font-medium">
+                      <span className="bg-gold/15 px-1.5 py-0.5 rounded text-gold-deep whitespace-nowrap">{t('card.wait', { n: waitMins })}</span>
+                      <span className="text-muk-soft/60">+</span>
+                      <span className="bg-jade/15 px-1.5 py-0.5 rounded text-jade whitespace-nowrap">{t('card.travel', { n: displayedTravelMins })}</span>
+                    </div>
+                  )}
                   {travelSource && (
                     <span className="mt-1 text-[9px] font-semibold text-muk-soft">
                       {t(travelSource === 'osm_pedestrian' ? 'card.travelRoute' : 'card.travelEstimate')}
@@ -1624,13 +1645,19 @@ export function RecommendationCard({
             </div>
           )}
 
-          {/* Phone — 실제 전화번호가 있을 때만(TourAPI 컬럼 우선, 카카오 Places 검색값 폴백) */}
+          {/* Phone — 실제 전화번호가 있을 때만(TourAPI 컬럼 우선, 카카오 Places 검색값 폴백). 누르면 바로 건다. */}
           {displayPhone && (
             <div className="flex items-start gap-2">
               <Phone size={14} className="text-muk-soft mt-0.5 flex-shrink-0" />
               <div>
                 <span className="text-muk-soft block text-[10px] font-bold">{t('card.phone')}</span>
-                <span className="text-muk">{displayPhone}</span>
+                {phoneHref ? (
+                  <a href={phoneHref} className="text-gold-deep hover:text-gold underline font-bold tracking-tight">
+                    {displayPhone}
+                  </a>
+                ) : (
+                  <span className="text-muk">{displayPhone}</span>
+                )}
               </div>
             </div>
           )}
@@ -1674,27 +1701,32 @@ export function RecommendationCard({
 
           {/* Operating Hours — 실제 영업시간이 있을 때만. 인제스트는 {open: 영업시간, closed: 휴무일} 저장 —
               open 만으로 표시한다(레거시 close/weekday 키는 있으면 덧붙임). */}
-          {displayOperatingHours?.open && (
+          {openHourLines.length > 0 && (
             <div className="flex items-start gap-2">
               <Clock size={14} className="text-muk-soft mt-0.5 flex-shrink-0" />
               <div>
                 <span className="text-muk-soft block text-[10px] font-bold">{t('card.hours')}</span>
-                <span className="text-muk">
-                  {displayOperatingHours.open}
-                  {displayOperatingHours.close && ` ~ ${displayOperatingHours.close}`}
-                  {displayOperatingHours.weekday && ` (${displayOperatingHours.weekday})`}
-                </span>
+                {/* 철·문·요일마다 한 줄(원문의 '<br>' 은 줄바꿈으로). 옛 시드의 close/weekday 는 마지막 줄 뒤에. */}
+                {openHourLines.map((line, index) => (
+                  <span key={`${index}-${line}`} className="block text-muk">
+                    {line}
+                    {index === openHourLines.length - 1 && displayOperatingHours?.close && ` ~ ${displayOperatingHours.close}`}
+                    {index === openHourLines.length - 1 && displayOperatingHours?.weekday && ` (${displayOperatingHours.weekday})`}
+                  </span>
+                ))}
               </div>
             </div>
           )}
 
           {/* 휴무일 — closed 가 있을 때만 별도 라인(운영시간과 키 의미가 다름: closed=휴무일 텍스트) */}
-          {displayOperatingHours?.closed && (
+          {closedDayLines.length > 0 && (
             <div className="flex items-start gap-2">
               <Clock size={14} className="text-muk-soft mt-0.5 flex-shrink-0" />
               <div>
                 <span className="text-muk-soft block text-[10px] font-bold">{t('card.closedDays')}</span>
-                <span className="text-muk">{displayOperatingHours.closed}</span>
+                {closedDayLines.map((line, index) => (
+                  <span key={`${index}-${line}`} className="block text-muk">{line}</span>
+                ))}
               </div>
             </div>
           )}
@@ -1813,12 +1845,12 @@ export function RecommendationCard({
             onClick={handleAcceptClick}
             whileTap={tapMotion}
             transition={interactionSpring}
-            aria-label={t(needsHoursConfirmation && kakaoPlaceUrl ? 'card.checkHoursKakaoAria' : 'card.acceptAria')}
+            aria-label={t('card.acceptAria')}
             className="flex-1 bg-gradient-to-r from-gold to-terracotta hover:from-gold-deep hover:to-terracotta text-white font-bold py-3 rounded-2xl transition-all active:scale-95 text-xs shadow-[0_4px_14px_rgba(193,85,59,0.25)] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
           >
             <span className="inline-flex items-center justify-center gap-1.5">
               {confirmedAction === 'accepted' && <Check size={14} aria-hidden />}
-              {t(needsHoursConfirmation && kakaoPlaceUrl ? 'card.checkHoursKakao' : 'card.accept')}
+              {t('card.accept')}
             </span>
           </motion.button>
         </div>

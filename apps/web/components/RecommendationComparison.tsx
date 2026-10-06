@@ -110,7 +110,8 @@ export default function RecommendationComparison({ recommendations }: { recommen
           }
           return display.level == null ? t('card.noData') : `${Math.round(display.level * 100)}%`;
         })} />
-        <Row label={t('compare.openStatus')} values={top.map((r) => r.openStatusAtArrival ? t(`card.arrivalStatus.${r.openStatusAtArrival}`) : t('card.noData'))} />
+        {/* 영업시간을 모르면 '—' — '미확인'·'수집 중' 같은 빈 상태 문구를 표에 쓰지 않는다. */}
+        <Row label={t('compare.openStatus')} values={top.map((r) => r.openStatusAtArrival && r.openStatusAtArrival !== 'needs_confirmation' ? t(`card.arrivalStatus.${r.openStatusAtArrival}`) : '—')} />
         <Row label={t('compare.coupon')} values={top.map((r) => r.facility.couponRate ? `${Math.round(r.facility.couponRate * 100)}%` : '—')} />
       </tbody></table></div>
       {canExplain && <div className="flex flex-wrap gap-2 mt-4">{(['why_first', 'difference', 'family_check'] as const).map((q) => <button key={q} type="button" disabled={busy} onClick={() => void ask(q)} className="rounded-full border border-jade/30 bg-jade/10 px-3 py-1.5 text-xs font-bold text-jade"><Sparkles size={12} className="inline mr-1" />{t(`compare.question.${q}`)}</button>)}</div>}

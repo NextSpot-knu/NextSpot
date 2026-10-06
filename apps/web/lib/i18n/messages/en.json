@@ -590,9 +590,7 @@
     "rejectAria": "Not interested, recommend another place",
     "putOffAria": "Save this place to view later",
     "acceptAria": "Start navigation here",
-    "checkHoursKakao": "Check hours on Kakao Map",
-    "checkHoursKakaoAria": "Check this place's latest hours on Kakao Map",
-    "checkHoursKakaoHint": "Confirm the latest hours, then start directions directly in Kakao Map.",
+    "checkHoursKakaoHint": "Before you set off, we'll show the opening hours on Kakao Map.",
     "likelyClosedReason": "Expected arrival {time} · late at night, we recommend checking hours before you go.",
     "open": "Open",
     "rankBadge": "Pick #{rank}",
@@ -614,6 +612,7 @@
     "pointSuffix": "pt",
     "match": "match",
     "totalTime": "Total time",
+    "walkTime": "Walking time",
     "minute": "min",
     "wait": "Wait {n} min",
     "signatureMenu": "Signature menu",
@@ -662,7 +661,7 @@
       "closing_soon": "Closing soon after arrival",
       "closed_confirmed": "Confirmed closed on arrival",
       "needs_confirmation": "Hours unverified · check before leaving",
-      "likely_closed_unknown": "Hours unverified · likely closed now"
+      "likely_closed_unknown": "Late hour · check it's open before you go"
     },
     "evidenceNone": "No congestion evidence",
     "spotTooltipEvidenceOrder": "Places with verified congestion evidence come first.",

@@ -1566,7 +1566,8 @@ function StopRow({
                 {t('course.spotScore', { score: Math.round(stop.spotScore * 100) })}
               </span>
             )}
-            {stop.openStatusAtArrival && (
+            {/* '영업시간 미확인' 은 그리지 않는다 — 모른다는 사실은 고르는 데 쓸 정보가 아니다. */}
+            {stop.openStatusAtArrival && stop.openStatusAtArrival !== 'needs_confirmation' && (
               <span className="inline-flex items-center rounded-full bg-hanji-deep px-2 py-1 text-[11px] font-semibold text-muk-soft">
                 {t(`card.arrivalStatus.${stop.openStatusAtArrival}`)}
               </span>

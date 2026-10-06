@@ -590,9 +590,7 @@
     "rejectAria": "このおすすめに興味なし、別の場所を提案",
     "putOffAria": "この場所を後で見る一覧に保存",
     "acceptAria": "ここへの案内を開始",
-    "checkHoursKakao": "Kakao Mapで営業時間を確認",
-    "checkHoursKakaoAria": "Kakao Mapでこの場所の最新営業時間を確認",
-    "checkHoursKakaoHint": "最新の営業時間を確認してから、Kakao Mapですぐに経路案内を開始できます。",
+    "checkHoursKakaoHint": "出発前に、まずKakao Mapで営業時間をお見せします。",
     "likelyClosedReason": "到着予定 {time}・深夜は出発前に営業確認をおすすめします。",
     "open": "開く",
     "rankBadge": "{rank}番目のおすすめ",
@@ -614,6 +612,7 @@
     "pointSuffix": "点",
     "match": "一致",
     "totalTime": "合計所要時間",
+    "walkTime": "徒歩時間",
     "minute": "分",
     "wait": "待ち{n}分",
     "signatureMenu": "代表メニュー",
@@ -662,7 +661,7 @@
       "closing_soon": "到着後まもなく閉店",
       "closed_confirmed": "到着時は休業確認済み",
       "needs_confirmation": "営業時間未確認・出発前に確認",
-      "likely_closed_unknown": "営業時間未確認・現在閉店の可能性が高い"
+      "likely_closed_unknown": "遅い時間 · 出発前に営業を確認"
     },
     "evidenceNone": "混雑の根拠なし",
     "spotTooltipEvidenceOrder": "確認された混雑根拠のある場所を優先して表示します。",

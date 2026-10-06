@@ -1564,7 +1564,8 @@ function RecommendContent() {
                           {t("card.closedToday")}
                         </span>
                       )}
-                      {arrivalDisplayStatus && (
+                      {/* '영업시간 미확인' 은 그리지 않는다 — 음식점·카페면 '도보 길안내' 가 카카오맵 영업시간을 먼저 보여 준다. */}
+                      {arrivalDisplayStatus && arrivalDisplayStatus !== "needs_confirmation" && (
                         <span className={`text-[10px] font-bold border px-2 py-0.5 rounded-md ${
                           arrivalDisplayStatus === "open_expected"
                             ? "text-jade bg-jade/10 border-jade/30"

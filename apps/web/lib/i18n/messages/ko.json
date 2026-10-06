@@ -590,9 +590,7 @@
     "rejectAria": "이 추천에 관심 없음, 다른 장소 추천받기",
     "putOffAria": "이 장소를 나중에 볼 목록에 저장",
     "acceptAria": "여기로 길안내 시작",
-    "checkHoursKakao": "카카오맵에서 영업 확인",
-    "checkHoursKakaoAria": "카카오맵에서 이 장소의 최신 영업정보 확인",
-    "checkHoursKakaoHint": "최신 영업시간을 확인한 뒤 카카오맵에서 바로 길안내를 시작할 수 있어요.",
+    "checkHoursKakaoHint": "출발 전에 카카오맵에서 영업시간을 먼저 보여 드려요.",
     "likelyClosedReason": "도착 예상 {time} · 심야에는 출발 전 영업 확인을 권해드려요.",
     "open": "열기",
     "rankBadge": "{rank}번째 추천",
@@ -614,6 +612,7 @@
     "pointSuffix": "점",
     "match": "일치",
     "totalTime": "총 소요 시간",
+    "walkTime": "도보 시간",
     "minute": "분",
     "wait": "대기 {n}분",
     "signatureMenu": "대표 메뉴",
@@ -662,7 +661,7 @@
       "closing_soon": "도착 후 마감 임박",
       "closed_confirmed": "도착 시 휴무 확인",
       "needs_confirmation": "영업시간 미확인 · 출발 전 확인",
-      "likely_closed_unknown": "영업시간 미확인 · 현재 닫혀 있을 가능성 높음"
+      "likely_closed_unknown": "늦은 시간 · 출발 전 영업 확인"
     },
     "evidenceNone": "혼잡 근거 없음",
     "spotTooltipEvidenceOrder": "확인된 혼잡 근거가 있는 곳을 먼저 보여드려요.",

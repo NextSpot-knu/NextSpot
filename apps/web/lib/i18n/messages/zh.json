@@ -590,9 +590,7 @@
     "rejectAria": "不感兴趣，推荐其他地点",
     "putOffAria": "将此地点保存到稍后查看",
     "acceptAria": "开始导航到这里",
-    "checkHoursKakao": "在Kakao地图确认营业时间",
-    "checkHoursKakaoAria": "在Kakao地图查看该地点的最新营业时间",
-    "checkHoursKakaoHint": "确认最新营业时间后，可直接在Kakao地图开始导航。",
+    "checkHoursKakaoHint": "出发前，我们会先在Kakao地图为您显示营业时间。",
     "likelyClosedReason": "预计 {time} 抵达 · 深夜出行前建议先确认营业时间。",
     "open": "展开",
     "rankBadge": "第{rank}个推荐",
@@ -614,6 +612,7 @@
     "pointSuffix": "分",
     "match": "匹配",
     "totalTime": "总耗时",
+    "walkTime": "步行时间",
     "minute": "分钟",
     "wait": "等待{n}分钟",
     "signatureMenu": "招牌菜",
@@ -662,7 +661,7 @@
       "closing_soon": "抵达后即将打烊",
       "closed_confirmed": "确认抵达时休息",
       "needs_confirmation": "营业时间未确认 · 出发前请核实",
-      "likely_closed_unknown": "营业时间未确认 · 当前很可能已打烊"
+      "likely_closed_unknown": "时间较晚 · 出发前请确认营业"
     },
     "evidenceNone": "无拥挤依据",
     "spotTooltipEvidenceOrder": "优先显示拥挤依据已核实的地点。",

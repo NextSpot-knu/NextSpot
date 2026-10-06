@@ -64,6 +64,11 @@ export type ArrivalOpenDisplayStatus = ArrivalOpenStatus | "likely_closed_unknow
 
 type OperatingHours = Record<string, unknown> | null | undefined;
 
+// 하루 종일 열려 있는 곳 — '상시 개방'·'상시개방'·'24시간'·'연중 개방'(경주 계림·월성·황룡사지·석빙고 같은
+// 야외 유적, 도심 관광지 33곳 중 14곳). 시각 범위가 없어 '영업시간 미확인' 으로 떨어지던 문구다.
+// 문자열 **전체**가 이 말일 때만 인정한다 — '점포 별로 상이함'·'시설별로 상이함' 같은 문장은 그대로 미확인.
+const ALWAYS_OPEN = /^(상시\s*(개방|운영)?|24\s*시간(\s*(개방|운영|영업))?|연중\s*(무휴\s*)?개방)$/;
+
 function kstParts(at: Date): { weekday: number; minutes: number } {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone: "Asia/Seoul",
@@ -105,7 +110,9 @@ export function getArrivalOpenStatus(hours: OperatingHours, arrival: Date = new 
   }
   const dayKey = weekday >= 1 && weekday <= 5 ? "weekday" : "weekend";
   const raw = String(source[dayKey] ?? source.open ?? "");
-  const ranges = [...raw.matchAll(/((?:[01]?\d|2[0-3]):[0-5]\d)\s*(?:~|-|–|—)\s*((?:[01]?\d|2[0-3]):[0-5]\d)/g)];
+  if (ALWAYS_OPEN.test(raw.replace(/<br\s*\/?>/gi, " ").trim())) return "open_expected";
+  // 닫는 시각 24:00(자정)도 받는다 — '10:00~24:00' 은 자정까지 영업이다(분으로 1440).
+  const ranges = [...raw.matchAll(/((?:[01]?\d|2[0-3]):[0-5]\d)\s*(?:~|-|–|—)\s*((?:[01]?\d|2[0-3]):[0-5]\d|24:00)/g)];
   if (ranges.length === 0) return "needs_confirmation";
   for (const match of ranges) {
     const toMinutes = (text: string) => Number(text.slice(0, text.indexOf(":"))) * 60 + Number(text.slice(text.indexOf(":") + 1));
