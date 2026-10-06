@@ -74,6 +74,7 @@ function DevConsoleEntry() {
 /** 관제 대시보드 진입 카드 — admin·developer 에게만 렌더된다(그 외에는 아무것도 그리지 않는다). */
 function AdminConsoleEntry() {
   const router = useRouter();
+  const t = useT();
   const { account } = useAccount();
   if (!canEnterAdminConsole(account)) return null;
   return (
@@ -86,10 +87,10 @@ function AdminConsoleEntry() {
     >
       <span className="min-w-0">
         <span className="flex items-center gap-2 font-bold text-muk">
-          <ShieldCheck size={17} className="text-gold-deep" /> 관제 대시보드
+          <ShieldCheck size={17} className="text-gold-deep" /> {t('console.openAdmin')}
         </span>
         <span className="mt-0.5 block text-xs text-muk-soft">
-          실시간 혼잡도 · 안전 경보 · 통계 리포트 · 문의 관리
+          {t('console.openAdminDesc')}
         </span>
       </span>
       <ChevronRight size={18} className="shrink-0 text-muk-soft" />

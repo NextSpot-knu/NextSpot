@@ -202,7 +202,9 @@
   },
   "console": {
     "openMerchant": "사장님 콘솔 열기",
-    "openMerchantDesc": "가게 성과·타임세일·좌석 상태 관리"
+    "openMerchantDesc": "가게 성과·타임세일·좌석 상태 관리",
+    "openAdmin": "관제 대시보드 열기",
+    "openAdminDesc": "실시간 혼잡도 · 안전 경보 · 통계 리포트 · 문의 관리"
   },
   "landing": {
     "tagline": "줄 서는 대신, 경주를 한 곳 더.",

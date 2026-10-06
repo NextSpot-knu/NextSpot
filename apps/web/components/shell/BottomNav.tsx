@@ -124,8 +124,9 @@ export default function BottomNav() {
           })}
         </div>
 
-        {/* 콘솔 입구 — 관광객 탭과 구분선으로 나눈다. 라벨은 공백에서 두 줄로(ko 는 전역 keep-all).
-            ja 처럼 공백 없는 라벨은 글자 사이에서 꺾이는데, line-break:strict 로 'ュ' 같은 작은 가나가 줄 머리에 오지 않게 한다. */}
+        {/* 콘솔 입구 — 관광객 탭과 구분선으로 나눈다. 라벨은 낱말 사이에서만 두 줄로 접는다(keep-all).
+            ja 는 띄어쓰기가 없어 사전에 폭 없는 공백(U+200B)으로 낱말 경계를 둔다('オーナー|コンソール'·'運営|ダッシュボード').
+            'ダッシュボード' 는 일곱 자라 칸(64px)보다 길다 — 라벨만 레일 폭(76px)까지 쓰고 ja 는 10px 로 한 줄에 넣는다. */}
         <div aria-hidden className="my-2 h-px w-10 bg-line short:my-1.5" />
         <div className="flex flex-col items-center gap-2 short:gap-1">
           {consoles.map((item) => {
@@ -139,7 +140,7 @@ export default function BottomNav() {
                 className="flex w-16 h-16 short:h-14 flex-col items-center justify-center gap-1 rounded-2xl text-muk-soft transition-colors hover:bg-gold/10 hover:text-muk focus-visible:outline-2 focus-visible:outline-gold-deep"
               >
                 <Icon size={22} aria-hidden />
-                <span className="text-[11px] font-medium leading-tight text-center [line-break:strict]">{item.label}</span>
+                <span className="-mx-1.5 w-[calc(100%+0.75rem)] text-[11px] font-medium leading-tight text-center [word-break:keep-all] [&:lang(ja)]:text-[10px]">{item.label}</span>
               </Link>
             );
           })}

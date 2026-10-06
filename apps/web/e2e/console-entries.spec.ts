@@ -101,6 +101,72 @@ test('rail entries follow the account role and open the console', async ({ page 
   await expect(page).toHaveURL(/\/admin\/dashboard\?demo=1$/, { timeout: 30_000 });
 });
 
+// 레일 라벨은 낱말 사이에서만 두 줄로 접힌다. 일본어는 띄어쓰기가 없어 'オーナーコ / ンソール'·'運営ダッ / シュボード'
+// 처럼 낱말 한가운데서 꺾였다(2026-10-06 리뷰) — 낱말마다 모든 글자가 한 줄에 있고, 글자가 레일 밖으로 나가지 않는지 본다.
+const railLabels = [
+  { code: 'ko', merchant: '사장님 콘솔', admin: '관제 대시보드' },
+  { code: 'en', merchant: 'Merchant console', admin: 'Operations dashboard' },
+  { code: 'ja', merchant: 'オーナーコンソール', admin: '運営ダッシュボード' },
+  { code: 'zh', merchant: '商家控制台', admin: '运营仪表盘' },
+] as const;
+
+for (const locale of railLabels) {
+  for (const viewport of [{ width: 1536, height: 730 }, { width: 1366, height: 650 }]) {
+    test(`${locale.code} rail console labels break only between words at ${viewport.width}x${viewport.height}`, async ({ page }) => {
+      test.setTimeout(90_000);
+      await stubApis(page);
+      await page.setViewportSize(viewport);
+      await page.addInitScript((code) => localStorage.setItem('nextspot_locale', code), locale.code);
+      await page.goto('/saved');
+      await expect(page.locator('html')).toHaveAttribute('lang', locale.code, { timeout: 30_000 });
+
+      const rail = tabNav(page);
+      const railBox = await box(rail);
+      for (const id of ['merchant', 'admin'] as const) {
+        const entry = rail.locator(`a[data-console-entry="${id}"]`);
+        // 보이는 글자는 용어집 그대로(낱말 경계 표시인 폭 없는 공백은 빼고 비교한다).
+        await expect.poll(() => entry.innerText().then((s) => s.replace(/\u200b/g, '').replace(/\s+/g, ' ').trim())).toBe(locale[id]);
+        const report = await entry.locator('span').evaluate((span) => {
+          const node = span.firstChild;
+          if (!node || node.nodeType !== Node.TEXT_NODE) return { textNode: false, words: [], left: 0, right: 0 };
+          const text = node.textContent ?? '';
+          // 낱말 = 공백·폭 없는 공백으로 나뉜 덩어리(원문 기준 — 줄 끝 공백은 폭이 0 이라 글자 상자로는 못 나눈다).
+          // 낱말마다 모든 글자가 같은 줄에 있어야 한다.
+          const words: { word: string; tops: number[] }[] = [];
+          const lefts: number[] = [];
+          const rights: number[] = [];
+          let current: { word: string; tops: number[] } | null = null;
+          for (let i = 0; i < text.length; i++) {
+            if (/[\s\u200b]/.test(text[i])) { current = null; continue; }
+            if (!current) { current = { word: '', tops: [] }; words.push(current); }
+            current.word += text[i];
+            const range = document.createRange();
+            range.setStart(node, i);
+            range.setEnd(node, i + 1);
+            const rect = range.getClientRects()[0];
+            if (!rect || rect.width === 0) continue;
+            current.tops.push(Math.round(rect.top));
+            lefts.push(rect.left);
+            rights.push(rect.right);
+          }
+          return {
+            textNode: true,
+            words: words.map((w) => ({ word: w.word, lines: new Set(w.tops).size })),
+            left: Math.min(...lefts),
+            right: Math.max(...rights),
+          };
+        });
+        expect(report.textNode, `${locale.code} ${id}: 라벨이 글자 하나짜리 텍스트 노드가 아니다`).toBe(true);
+        for (const w of report.words) {
+          expect(w.lines, `${locale.code}: '${w.word}' 이 낱말 한가운데서 줄을 바꿨다`).toBe(1);
+        }
+        expect(report.left, `${locale.code} ${id}: 라벨 글자가 레일 왼쪽 밖으로 나갔다`).toBeGreaterThanOrEqual(railBox.x - 0.5);
+        expect(report.right, `${locale.code} ${id}: 라벨 글자가 레일 오른쪽 밖으로 나갔다`).toBeLessThanOrEqual(railBox.x + railBox.width + 0.5);
+      }
+    });
+  }
+}
+
 // ── 폰 안내 줄 ──────────────────────────────────────────────────────────────
 
 const phoneLabels = [

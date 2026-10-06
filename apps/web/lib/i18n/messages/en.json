@@ -202,7 +202,9 @@
   },
   "console": {
     "openMerchant": "Open merchant console",
-    "openMerchantDesc": "Results, time sales and seat status for your store"
+    "openMerchantDesc": "Results, time sales and seat status for your store",
+    "openAdmin": "Open operations dashboard",
+    "openAdminDesc": "Live crowds, safety alerts, reports and inquiries"
   },
   "landing": {
     "tagline": "Skip the queue, see one more side of Gyeongju.",
@@ -1102,7 +1104,7 @@
     "needAccount": "Please create an account first",
     "submitFailed": "Request failed. Please try again shortly.",
     "roleRequestEntry": "Request an account role change",
-    "roleRequestEntryDesc": "Ask for merchant (store owner) or admin (city dashboard) access",
+    "roleRequestEntryDesc": "Ask for merchant (store owner) or admin (operations dashboard) access",
     "roleRequestPendingEntry": "Role change under review",
     "roleRequestPendingEntryDesc": "Our team is checking your request — tap to see its status",
     "roleRequestTitle": "Request an account role change",
@@ -1110,13 +1112,13 @@
     "roleMerchant": "Merchant",
     "roleMerchantDesc": "Manage seats and time sales for my store",
     "roleAdmin": "Admin",
-    "roleAdminDesc": "View the regional congestion dashboard",
+    "roleAdminDesc": "View regional crowds on the operations dashboard",
     "adminDesc": "We verify your organization first, then grant access. Someone will contact you.",
     "orgName": "Organization / department",
     "orgNameHint": "e.g. Gyeongju City Hall, Tourism Division",
     "adminApprovedTitle": "Admin access granted",
-    "adminApprovedDesc": "You can now open the control dashboard.",
-    "goAdminConsole": "Open control dashboard",
+    "adminApprovedDesc": "You can now open the operations dashboard.",
+    "goAdminConsole": "Open operations dashboard",
     "roleSubmit": "Submit request",
     "requestStatusTitle": "Request progress",
     "stepReceived": "Received",

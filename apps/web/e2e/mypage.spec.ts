@@ -160,3 +160,41 @@ test('mypage merchant card is translated and opens the console', async ({ page }
   await card.click();
   await expect(page).toHaveURL(/\/merchant$/, { timeout: 30_000 });
 });
+
+// 관제 대시보드 카드도 사장님 카드처럼 번역된다 — 예전에는 영어·일본어·중국어 화면 첫 줄에 한국어
+// '관제 대시보드 · 실시간 혼잡도 …' 가 그대로 떴다(2026-10-06 리뷰). 이름은 용어집(운영 대시보드)을 따른다.
+const ADMIN_CARD = {
+  ko: { title: '관제 대시보드 열기', desc: '실시간 혼잡도 · 안전 경보 · 통계 리포트 · 문의 관리' },
+  en: { title: 'Open operations dashboard', desc: 'Live crowds, safety alerts, reports and inquiries' },
+  ja: { title: '運営ダッシュボードを開く', desc: 'リアルタイム混雑・安全アラート・統計レポート・お問い合わせ管理' },
+  zh: { title: '打开运营仪表盘', desc: '实时拥挤度、安全警报、统计报告、咨询管理' },
+} as const;
+
+for (const [locale, card] of Object.entries(ADMIN_CARD) as [keyof typeof ADMIN_CARD, (typeof ADMIN_CARD)[keyof typeof ADMIN_CARD]][]) {
+  test(`${locale} mypage admin card is translated and opens the dashboard`, async ({ page }) => {
+    test.setTimeout(90_000);
+    await stubApis(page, { role: 'admin', is_anonymous: false }, ZERO_IMPACT);
+    await page.addInitScript((code) => localStorage.setItem('nextspot_locale', code), locale);
+    await page.goto('/mypage');
+
+    const entry = page.getByRole('button', { name: new RegExp(card.title) });
+    await expect(entry).toBeVisible({ timeout: 30_000 });
+    await expect(entry).toContainText(card.desc);
+    if (locale !== 'ko') await expect(page.locator('main')).not.toContainText(/관제|실시간 혼잡도/);
+    await entry.click();
+    await expect(page).toHaveURL(/\/admin\/dashboard$/, { timeout: 30_000 });
+  });
+}
+
+// 일본어 관광객 화면에는 '管制' 를 쓰지 않는다(용어집 3.3) — 로그인한 계정이 보는 역할 변경 카드도 같다.
+test('ja mypage role-request card names the operations dashboard, not 管制', async ({ page }) => {
+  test.setTimeout(90_000);
+  await stubApis(page, { role: 'tourist', is_anonymous: false }, ZERO_IMPACT);
+  await page.addInitScript(() => localStorage.setItem('nextspot_locale', 'ja'));
+  await page.goto('/mypage');
+
+  const entry = page.getByRole('button', { name: /アカウント権限の変更申請/ });
+  await expect(entry).toBeVisible({ timeout: 30_000 });
+  await expect(entry).toContainText('運営ダッシュボード');
+  await expect(page.locator('body')).not.toContainText('管制');
+});
