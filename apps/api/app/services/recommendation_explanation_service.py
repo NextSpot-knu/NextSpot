@@ -3,6 +3,7 @@ import json
 import re
 
 from app.services import llm_client
+from app.services.card_minutes import wait_minutes, walk_minutes
 
 QUESTION_CODES = {"why_first", "difference", "family_check"}
 LOCALES = {"ko", "en", "ja", "zh"}
@@ -28,9 +29,10 @@ def build_template(question: str, snapshots: list[dict], locale: str = "ko") -> 
     name = str(primary.get("facility_name") or fallback_names[locale])
     score = round(float(primary.get("spot_score") or 0) * 100)
     breakdown = primary.get("breakdown") or {}
-    walk = round(float(breakdown.get("travel_time") or 0))
+    # 분은 바로 위 Top 3 비교 표(RecommendationComparison.tsx '도보·대기' 줄)와 같은 규칙으로(card_minutes).
+    walk = walk_minutes(float(breakdown.get("travel_time") or 0))
     wait_raw = breakdown.get("wait_time")
-    wait = round(float(wait_raw)) if isinstance(wait_raw, (int, float)) else None
+    wait = wait_minutes(float(wait_raw)) if isinstance(wait_raw, (int, float)) else None
     if question == "difference" and len(snapshots) > 1:
         other = snapshots[1]
         other_name = str(other.get("facility_name") or other_fallbacks[locale])

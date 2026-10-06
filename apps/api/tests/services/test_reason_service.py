@@ -84,19 +84,32 @@ def test_build_template_none_keeps_available_fact_summary_with_stray_value():
     assert text == "카페능 추천: 도보 5분, 예상 대기 10분 수준입니다."
 
 
-def test_build_template_rounds_travel_and_wait_up():
-    # 카드(웹)는 도보·대기를 올림으로 보여 준다 — 사유 문장이 round 를 쓰면 같은 카드에
-    # "도보 2분"(사유)과 "도보 3분"(칩)이 함께 뜬다. 0.5 짝수 반올림(round(2.5)=2)도 같은 함정이다.
-    ctx = {**_CTX, "travel_time": 2.2, "predicted_wait": 0.4}
-    assert _build_template(ctx) == "카페능 추천: 도보 3분, 예상 대기 1분, 혼잡도 30% 수준으로 여유가 있습니다."
-    ctx = {**_CTX, "travel_time": 2.5, "predicted_wait": 9.5}
-    assert _build_template(ctx) == "카페능 추천: 도보 3분, 예상 대기 10분, 혼잡도 30% 수준으로 여유가 있습니다."
+def _minutes(travel, wait) -> str:
+    return _build_template({**_CTX, "travel_time": travel, "predicted_wait": wait})
+
+
+def test_build_template_walk_matches_card_walk_chip():
+    # 카드(웹 displayWalkingMinutes)는 도보를 올림·최소 1분으로 보여 준다 — round 면 같은 카드에
+    # "도보 2분"(사유)과 "도보 3분"(칩)이 함께 뜬다. 0분 경로도 칩은 1분이다.
+    assert _minutes(2.2, 10) == "카페능 추천: 도보 3분, 예상 대기 10분, 혼잡도 30% 수준으로 여유가 있습니다."
+    assert _minutes(0, 10) == "카페능 추천: 도보 1분, 예상 대기 10분, 혼잡도 30% 수준으로 여유가 있습니다."
+    assert _minutes(0.3, 10) == "카페능 추천: 도보 1분, 예상 대기 10분, 혼잡도 30% 수준으로 여유가 있습니다."
+
+
+def test_build_template_wait_matches_card_wait_chip():
+    # /explore/recommend 카드의 대기 칸은 max(1, Math.round(대기)) 다. 올림을 쓰면 9.2분이 칩 '9분' 옆에서
+    # '예상 대기 10분' 이 되고, 파이썬 round 를 쓰면 2.5분이 칩 '3분' 옆에서 '2분' 이 된다.
+    assert _minutes(5, 9.2) == "카페능 추천: 도보 5분, 예상 대기 9분, 혼잡도 30% 수준으로 여유가 있습니다."
+    assert _minutes(5, 2.5) == "카페능 추천: 도보 5분, 예상 대기 3분, 혼잡도 30% 수준으로 여유가 있습니다."
+    assert _minutes(5, 9.5) == "카페능 추천: 도보 5분, 예상 대기 10분, 혼잡도 30% 수준으로 여유가 있습니다."
+    # 칩이 0분을 1분으로 보여 주므로 사유도 같다.
+    assert _minutes(5, 0) == "카페능 추천: 도보 5분, 예상 대기 1분, 혼잡도 30% 수준으로 여유가 있습니다."
+    assert _minutes(5, 0.4) == "카페능 추천: 도보 5분, 예상 대기 1분, 혼잡도 30% 수준으로 여유가 있습니다."
 
 
 def test_build_template_whole_minutes_stay_unchanged():
-    # 정수 분은 올림해도 그대로다(기존 출력 회귀 0) — 0분도 0분.
-    ctx = {**_CTX, "travel_time": 4.0, "predicted_wait": 0}
-    assert _build_template(ctx) == "카페능 추천: 도보 4분, 예상 대기 0분, 혼잡도 30% 수준으로 여유가 있습니다."
+    # 1분 이상 정수 분은 그대로다(기존 출력 회귀 0).
+    assert _minutes(4.0, 7) == "카페능 추천: 도보 4분, 예상 대기 7분, 혼잡도 30% 수준으로 여유가 있습니다."
 
 
 def test_build_template_measured_unchanged_without_source_key():

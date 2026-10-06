@@ -23,7 +23,6 @@ LLM 다듬기 설계 원칙(무해 폴백 — llm_client.py 계약과 동일):
     dict 캐시, monotonic 시각 기준 TTL).
 """
 
-import math
 import re
 import time
 from typing import Optional
@@ -31,6 +30,7 @@ from typing import Optional
 import structlog
 
 from app.services import llm_client
+from app.services.card_minutes import wait_minutes, walk_minutes
 
 logger = structlog.get_logger()
 
@@ -69,11 +69,13 @@ def _build_template(ctx: dict) -> str:
         cand_cong = None
 
     parts = []
-    # 분은 올림한다 — 카드(웹)의 도보·대기 칩과 같은 규칙이어야 같은 카드에 두 숫자가 뜨지 않는다.
+    # 분은 카드(웹)와 같은 규칙으로 정수화한다(card_minutes) — 다르면 같은 카드에 두 숫자가 뜬다.
+    # 이 문장이 글자로 찍히는 곳은 /explore/recommend 카드(ko)이고, 그 카드의 대기 칸은
+    # max(1, Math.round(대기)) 라서 대기에도 최소 1분을 건다.
     if isinstance(travel, (int, float)):
-        parts.append(f"도보 {math.ceil(travel)}분")
+        parts.append(f"도보 {walk_minutes(travel)}분")
     if isinstance(wait, (int, float)):
-        parts.append(f"예상 대기 {math.ceil(wait)}분")
+        parts.append(f"예상 대기 {max(1, wait_minutes(wait))}분")
     if isinstance(cand_cong, (int, float)):
         if cong_source == "predicted":
             parts.append(f"예상 혼잡도 {round(cand_cong * 100)}% (AI 예측)")
