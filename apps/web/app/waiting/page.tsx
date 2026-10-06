@@ -26,6 +26,7 @@ import {
   assumedAtIsoForPreset,
   getStoredAssumedPreset,
   setStoredAssumedPreset,
+  type RecommendationResponse,
 } from "@/lib/api-client";
 import { recToSpot } from "@/lib/recommender";
 import { congestionDisplay, parseCongestionEstimate } from "@/lib/congestionEstimate";
@@ -39,7 +40,7 @@ import { countKey } from "@/lib/i18n/count";
 import { useI18n, useT } from "@/lib/i18n/I18nProvider";
 import { GoldenHourBadge } from "@/components/GoldenHourBadge";
 import NowChip from "@/components/NowChip";
-import LoadingReveal from "@/components/LoadingReveal";
+import LoadingReveal, { WaitingSectorSkeleton } from "@/components/LoadingReveal";
 // T2: 휴무 원문(rest_date_raw) 파서 — 오늘 휴무 '확정'만 판정(모르면 null, 과판정 금지). 공용 단일 소스.
 import { isClosedToday } from "@/lib/restDate";
 // Wikimedia(CC BY/BY-SA)·경주시 사진은 출처와 함께만 — 출처 줄은 지금 보이는 사진이 그 사진일 때만 붙는다.
@@ -425,6 +426,100 @@ function WaitRowChips({ est, row, estimateLevel }: { est: WaitEstimate; row: Boa
   );
 }
 
+/**
+ * 한 유형의 by-type 응답 → 보드 섹터 한 판. 응답이 빈 유형은 null(섹터 자체를 숨긴다 — PM 지시).
+ * 도착하는 대로 그리는 부분 보드와 마지막 커밋이 **같은 함수**로 만든다 — 같은 섹터는 같은 내용·같은 key 라
+ * 마지막 커밋에서 카드가 다시 그려지지 않는다(이미 받은 사진도 그대로).
+ */
+function buildSector(type: string, recs: RecommendationResponse[], currentLocale: string): Sector | null {
+  const rows: BoardRow[] = recs.map((rec) => {
+    const spot = recToSpot(rec);
+    // apiClient 응답 변환(keysToCamel)이 features 내부 키까지 재귀적으로 camelCase 로 바꾸므로
+    // (rest_date_raw → restDateRaw) 두 표기를 모두 확인한다(main/page.tsx의 barrierFree 방어 패턴과 동일).
+    const restDateRaw = (rec.facility.features?.rest_date_raw ?? rec.facility.features?.restDateRaw) as
+      | string
+      | null
+      | undefined;
+    // 공식 대표·취급 메뉴를 합쳐 최대 5개. 없는 메뉴는 지어내지 않는다.
+    const firstMenuRaw = (rec.facility.features?.first_menu ?? rec.facility.features?.firstMenu) as
+      | string
+      | null
+      | undefined;
+    const treatMenuRaw = (rec.facility.features?.treat_menu ?? rec.facility.features?.treatMenu) as
+      | string
+      | null
+      | undefined;
+    const menus = Array.from(new Set(
+      [firstMenuRaw, treatMenuRaw]
+        .filter((value): value is string => typeof value === "string")
+        .flatMap((value) => value.split(/[,/\n·]+/).map((item) => item.trim()).filter(Boolean))
+    )).slice(0, 5);
+    // 소개(overview) 다국어 — 배치 번역(apps/api/scripts/translate_overviews.py)이
+    // features.overview_i18n = {en, ja, zh} 에 저장(스키마 변경 없음). RecommendationCard 와 동일하게
+    // camelCase(overviewI18n)·원본 snake_case(overview_i18n) 두 표기를 모두 지원한다.
+    // 로케일이 ko 면 항상 원문만 쓴다(번역 유무와 무관 — 기존 동작 불변).
+    const overviewI18n = (rec.facility.features?.overviewI18n ?? rec.facility.features?.overview_i18n) as
+      | Record<string, string>
+      | null
+      | undefined;
+    const translatedOverview = currentLocale !== "ko" ? overviewI18n?.[currentLocale] : undefined;
+    const overviewText = (translatedOverview || rec.facility.overview)?.trim();
+    return {
+      facilityId: rec.facility.id,
+      name: rec.facility.name,
+      type: rec.facility.type,
+      // 대표 사진(firstimage)부터 detailImage2 갤러리 순으로 시도한다. 동일 URL은 한 번만 로드한다.
+      imageUrls: photoCandidates(rec.facility.imageUrl, rec.facility.galleryImages),
+      // TourAPI 소개(비-ko 로케일이면 배치 번역 우선)를 우선하고, 없으면 실제 주소를 짧은 보조
+      // 설명으로 사용한다. 둘 다 없을 때는 내용을 지어내지 않고 설명 영역을 숨긴다.
+      summary: overviewText || rec.facility.address?.trim() || null,
+      ...photoCreditFeatures(rec.facility.features),
+      // 카드·추천 목록과 **같은 판정**을 쓴다. 이 보드는 같은 RecommendItem 을 받으면서
+      // 원시 congestionLevel 만 읽어, 추천 화면이 '추정 · 여유' 라고 말하는 시설을
+      // '혼잡' 으로 그리고 있었다(2026-09-20 적대적 검토). 추정은 여기서 그리지 않고
+      // (이 보드는 대기 예측 화면이라 추정 어휘가 없다) '근거 없음' 으로 둔다.
+      congestionLevel: (() => {
+        const display = congestionDisplay(rec);
+        return display.mode === "measured" || display.mode === "predicted" ? display.level : null;
+      })(),
+      areaDemandLevel: typeof spot.areaDemandLevel === "number" ? spot.areaDemandLevel : null,
+      areaDemandMode: spot.areaDemandMode ?? null,
+      areaDemandRadiusM: typeof spot.areaDemandRadiusM === "number" ? spot.areaDemandRadiusM : null,
+      areaDemandParkingEvidence: spot.areaDemandParkingEvidence ?? null,
+      areaDemandTourismEvidence: spot.areaDemandTourismEvidence ?? null,
+      arrivalAction: spot.arrivalAction ?? null,
+      recommendedDepartureDelayMinutes: spot.recommendedDepartureDelayMinutes ?? null,
+      expectedWait:
+        typeof rec.breakdown?.waitTime === "number" ? rec.breakdown.waitTime : null,
+      rankingWait:
+        typeof rec.breakdown?.rankingWaitTime === "number" ? rec.breakdown.rankingWaitTime : null,
+      // 구 서버 응답에는 없는 키라 TS 계약에 없다 — 있으면 쓰고, 없으면 조용히 null.
+      baselineWait: (() => {
+        const b = rec.breakdown as Record<string, unknown> | undefined;
+        const raw = b?.industryBaselineWaitTime ?? b?.industry_baseline_wait_time;
+        return typeof raw === "number" && Number.isFinite(raw) ? raw : null;
+      })(),
+      capacity: typeof rec.facility.capacity === "number" ? rec.facility.capacity : null,
+      expectedTravel: spot.expectedTravel,
+      // 휴무 '확정'(true)만 표시 — 모름(null)/영업 확정(false)은 평소처럼 취급(정직성: 과판정 금지).
+      closedToday: isClosedToday(restDateRaw) === true,
+      menus,
+    };
+  });
+  // 대기 짧은 순 정렬은 그대로 유지하되, 오늘 휴무 확정 시설은 항상 맨 뒤로 보낸다
+  // (대표 카드가 rows 앞쪽 3개를 그대로 슬라이스하지 않도록 아래에서 open/closed 를 명시적으로 분리한다).
+  rows.sort((a, b) => {
+    if (a.closedToday !== b.closedToday) return a.closedToday ? 1 : -1;
+    if (a.expectedWait === null && b.expectedWait === null) return 0;
+    if (a.expectedWait === null) return 1;
+    if (b.expectedWait === null) return -1;
+    return a.expectedWait - b.expectedWait;
+  });
+
+  // 응답이 빈 유형은 섹터 자체를 숨긴다(PM 지시).
+  return rows.length > 0 ? { type, rows } : null;
+}
+
 export default function WaitingBoardPage() {
   const router = useRouter();
   const { t, locale } = useI18n();
@@ -432,6 +527,10 @@ export default function WaitingBoardPage() {
   const [sectors, setSectors] = useState<Sector[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
+  // 보드가 다 차기 전에 먼저 도착한 섹션들(I36) — 로딩 중에만 그린다. 어느 프리셋의 조각인지 함께 둔다:
+  // 프리셋을 바꾼 직후 한 렌더 동안 옛 프리셋의 조각이 새 배지 아래 보이지 않게. 캐시·'화면의 프리셋'은
+  // 이 조각으로 바뀌지 않는다(다 찬 보드만이 '그 프리셋의 보드'다).
+  const [partialBoard, setPartialBoard] = useState<{ preset: string; sectors: Sector[] } | null>(null);
 
   // 데모 '가정 시각' 프리셋 — /main·/course 와 localStorage 한 키로 공유하고 이벤트로 동기화한다.
   // 초기값은 'now'(SSR/정적 export 안전) → 마운트 후 저장값으로 맞춘다.
@@ -622,6 +721,8 @@ export default function WaitingBoardPage() {
     const stale = () =>
       signal.aborted || boardRunRef.current !== thisRun || latestPresetRef.current !== assumedPreset;
     if (stale()) return; // 예약된 재시도가 돌 때 이미 새 조회가 시작됐으면 — 그 조회가 따로 돈다
+    // 이전 run 의 부분 섹션은 버린다 — 이 run 이 처음부터 다시 채운다.
+    setPartialBoard(null);
     // 화면에 같은 가정 시각의 결과가 이미 있으면 조용한 새로고침(로더 생략) — 스테일-우선.
     // 다른 프리셋을 불러오던 로더가 떠 있을 수 있으니 여기서 내린다: 화면의 보드가 곧 이 프리셋의 보드다.
     const silentRefresh = hasRenderedResultsRef.current && renderedPresetRef.current === assumedPreset;
@@ -630,6 +731,7 @@ export default function WaitingBoardPage() {
     const showFailed = () => {
       setFailed(true);
       setSectors(null);
+      setPartialBoard(null);
       setLoading(false);
       // 화면에 보드가 없다 — 이 프리셋으로 다시 와도 빈 화면에서 조용히 기다리지 않고 로더부터 보여 준다.
       hasRenderedResultsRef.current = false;
@@ -651,6 +753,15 @@ export default function WaitingBoardPage() {
         results.push({ status: "fulfilled", value });
       } catch (reason) {
         results.push({ status: "rejected", reason });
+      }
+      // 섹션은 도착하는 대로 그린다(첫 섹션 ~2초, 예전엔 4유형이 다 올 때까지 6~8초 로더). 요청은 그대로 하나씩이다.
+      // 앞 유형이 하나라도 실패했으면 뒤 섹션은 마지막 커밋까지 기다린다 — 두 번째 패스에서 앞 유형이 채워질 때
+      // 이미 보이는 섹션 위로 끼어들지 않게. 조용한 새로고침은 화면의 보드를 그대로 두므로 여기서 그리지 않는다.
+      if (!silentRefresh && !stale() && results.every((r) => r.status === "fulfilled")) {
+        const shown = results
+          .map((r, i) => (r.status === "fulfilled" ? buildSector(BOARD_TYPES[i], r.value, localeRef.current) : null))
+          .filter((sector): sector is Sector => sector !== null);
+        if (shown.length > 0) setPartialBoard({ preset: assumedPreset, sectors: shown });
       }
     }
 
@@ -678,94 +789,8 @@ export default function WaitingBoardPage() {
     results.forEach((r, i) => {
       if (r.status !== "fulfilled") return;
       anySucceeded = true;
-
-      const rows: BoardRow[] = r.value.map((rec) => {
-        const spot = recToSpot(rec);
-        // apiClient 응답 변환(keysToCamel)이 features 내부 키까지 재귀적으로 camelCase 로 바꾸므로
-        // (rest_date_raw → restDateRaw) 두 표기를 모두 확인한다(main/page.tsx의 barrierFree 방어 패턴과 동일).
-        const restDateRaw = (rec.facility.features?.rest_date_raw ?? rec.facility.features?.restDateRaw) as
-          | string
-          | null
-          | undefined;
-        // 공식 대표·취급 메뉴를 합쳐 최대 5개. 없는 메뉴는 지어내지 않는다.
-        const firstMenuRaw = (rec.facility.features?.first_menu ?? rec.facility.features?.firstMenu) as
-          | string
-          | null
-          | undefined;
-        const treatMenuRaw = (rec.facility.features?.treat_menu ?? rec.facility.features?.treatMenu) as
-          | string
-          | null
-          | undefined;
-        const menus = Array.from(new Set(
-          [firstMenuRaw, treatMenuRaw]
-            .filter((value): value is string => typeof value === "string")
-            .flatMap((value) => value.split(/[,/\n·]+/).map((item) => item.trim()).filter(Boolean))
-        )).slice(0, 5);
-        // 소개(overview) 다국어 — 배치 번역(apps/api/scripts/translate_overviews.py)이
-        // features.overview_i18n = {en, ja, zh} 에 저장(스키마 변경 없음). RecommendationCard 와 동일하게
-        // camelCase(overviewI18n)·원본 snake_case(overview_i18n) 두 표기를 모두 지원한다.
-        // 로케일이 ko 면 항상 원문만 쓴다(번역 유무와 무관 — 기존 동작 불변).
-        const overviewI18n = (rec.facility.features?.overviewI18n ?? rec.facility.features?.overview_i18n) as
-          | Record<string, string>
-          | null
-          | undefined;
-        const currentLocale = localeRef.current;
-        const translatedOverview = currentLocale !== "ko" ? overviewI18n?.[currentLocale] : undefined;
-        const overviewText = (translatedOverview || rec.facility.overview)?.trim();
-        return {
-          facilityId: rec.facility.id,
-          name: rec.facility.name,
-          type: rec.facility.type,
-          // 대표 사진(firstimage)부터 detailImage2 갤러리 순으로 시도한다. 동일 URL은 한 번만 로드한다.
-          imageUrls: photoCandidates(rec.facility.imageUrl, rec.facility.galleryImages),
-          // TourAPI 소개(비-ko 로케일이면 배치 번역 우선)를 우선하고, 없으면 실제 주소를 짧은 보조
-          // 설명으로 사용한다. 둘 다 없을 때는 내용을 지어내지 않고 설명 영역을 숨긴다.
-          summary: overviewText || rec.facility.address?.trim() || null,
-          ...photoCreditFeatures(rec.facility.features),
-          // 카드·추천 목록과 **같은 판정**을 쓴다. 이 보드는 같은 RecommendItem 을 받으면서
-          // 원시 congestionLevel 만 읽어, 추천 화면이 '추정 · 여유' 라고 말하는 시설을
-          // '혼잡' 으로 그리고 있었다(2026-09-20 적대적 검토). 추정은 여기서 그리지 않고
-          // (이 보드는 대기 예측 화면이라 추정 어휘가 없다) '근거 없음' 으로 둔다.
-          congestionLevel: (() => {
-            const display = congestionDisplay(rec);
-            return display.mode === "measured" || display.mode === "predicted" ? display.level : null;
-          })(),
-          areaDemandLevel: typeof spot.areaDemandLevel === "number" ? spot.areaDemandLevel : null,
-          areaDemandMode: spot.areaDemandMode ?? null,
-          areaDemandRadiusM: typeof spot.areaDemandRadiusM === "number" ? spot.areaDemandRadiusM : null,
-          areaDemandParkingEvidence: spot.areaDemandParkingEvidence ?? null,
-          areaDemandTourismEvidence: spot.areaDemandTourismEvidence ?? null,
-          arrivalAction: spot.arrivalAction ?? null,
-          recommendedDepartureDelayMinutes: spot.recommendedDepartureDelayMinutes ?? null,
-          expectedWait:
-            typeof rec.breakdown?.waitTime === "number" ? rec.breakdown.waitTime : null,
-          rankingWait:
-            typeof rec.breakdown?.rankingWaitTime === "number" ? rec.breakdown.rankingWaitTime : null,
-          // 구 서버 응답에는 없는 키라 TS 계약에 없다 — 있으면 쓰고, 없으면 조용히 null.
-          baselineWait: (() => {
-            const b = rec.breakdown as Record<string, unknown> | undefined;
-            const raw = b?.industryBaselineWaitTime ?? b?.industry_baseline_wait_time;
-            return typeof raw === "number" && Number.isFinite(raw) ? raw : null;
-          })(),
-          capacity: typeof rec.facility.capacity === "number" ? rec.facility.capacity : null,
-          expectedTravel: spot.expectedTravel,
-          // 휴무 '확정'(true)만 표시 — 모름(null)/영업 확정(false)은 평소처럼 취급(정직성: 과판정 금지).
-          closedToday: isClosedToday(restDateRaw) === true,
-          menus,
-        };
-      });
-      // 대기 짧은 순 정렬은 그대로 유지하되, 오늘 휴무 확정 시설은 항상 맨 뒤로 보낸다
-      // (대표 카드가 rows 앞쪽 3개를 그대로 슬라이스하지 않도록 아래에서 open/closed 를 명시적으로 분리한다).
-      rows.sort((a, b) => {
-        if (a.closedToday !== b.closedToday) return a.closedToday ? 1 : -1;
-        if (a.expectedWait === null && b.expectedWait === null) return 0;
-        if (a.expectedWait === null) return 1;
-        if (b.expectedWait === null) return -1;
-        return a.expectedWait - b.expectedWait;
-      });
-
-      // 응답이 빈 유형은 섹터 자체를 숨긴다(PM 지시).
-      if (rows.length > 0) nextSectors.push({ type: BOARD_TYPES[i], rows });
+      const sector = buildSector(BOARD_TYPES[i], r.value, localeRef.current);
+      if (sector) nextSectors.push(sector);
     });
 
     if (!anySucceeded) {
@@ -779,7 +804,7 @@ export default function WaitingBoardPage() {
           setTimeout(() => { void fetchBoard(thisRun); }, 500);
           return; // loading 유지 — 503 자동 재시도는 1회로 제한
         }
-        if (silentRefresh) { setLoading(false); return; } // 캐시 결과 유지 — 에러로 갈아치우지 않는다
+        if (silentRefresh) { setPartialBoard(null); setLoading(false); return; } // 캐시 결과 유지 — 에러로 갈아치우지 않는다
         showFailed();
         return;
       }
@@ -791,12 +816,14 @@ export default function WaitingBoardPage() {
         setTimeout(() => { void fetchBoard(thisRun); }, 2500);
         return; // loading 유지(스켈레톤) — 유예는 유한(1회)이라 무한 스켈레톤 아님
       }
-      if (silentRefresh) { setLoading(false); return; } // 캐시 결과 유지
+      if (silentRefresh) { setPartialBoard(null); setLoading(false); return; } // 캐시 결과 유지
       showFailed();
       return;
     }
 
+    // 마지막 커밋 — 보드가 다 찼다. 부분 섹션은 같은 렌더에서 내려간다(같은 key 라 카드는 그대로 남는다).
     setSectors(nextSectors);
+    setPartialBoard(null);
     setLoading(false);
     hasRenderedResultsRef.current = true;
     renderedPresetRef.current = assumedPreset;
@@ -825,10 +852,14 @@ export default function WaitingBoardPage() {
   // 아무것도 모르는 곳이 '최단 대기'가 된다. 추정 0분도 빠진다(heroWaitCandidate) — 카드는 그것을
   // '여유'라고만 말하는데 히어로가 '0분'이라 단언하면 같은 값이 두 말을 한다. 추정값이 이기면 카드와
   // 똑같이 '추정'을 함께 단다.
+  // 화면에 보이는 섹션만 본다: 로딩 중에는 이 프리셋의 부분 섹션(없으면 로더 — 칩도 없다), 다 찬 뒤에는 보드.
+  // 로더 뒤에 남은 옛 프리셋 보드의 최단 대기가 새 배지 옆에 서지 않는다. 섹션이 늘수록 칩은 내려가기만 한다.
+  const partialSectors = partialBoard?.preset === assumedPreset ? partialBoard.sectors : null;
+  const shownSectors = loading ? partialSectors : sectors;
   const bestWait = (() => {
-    if (!sectors) return null;
+    if (!shownSectors) return null;
     let best: { minutes: number; estimated: boolean } | null = null;
-    for (const sector of sectors) {
+    for (const sector of shownSectors) {
       for (const row of sector.rows) {
         if (row.closedToday) continue;
         const est = waitOf(row);
@@ -919,16 +950,16 @@ export default function WaitingBoardPage() {
           </div>
         </section>
 
-        {/* 본문 */}
-        {loading ? (
+        {/* 본문 — 로더는 첫 섹션이 도착할 때까지만. 그 뒤로는 도착한 섹션 + 아직 오는 자리 한 판(자리표시). */}
+        {loading && !partialSectors?.length ? (
           <LoadingReveal variant="waiting" />
         ) : failed ? (
           <ErrorState onRetry={() => { void fetchBoard(); }} />
-        ) : !sectors || sectors.length === 0 ? (
+        ) : !shownSectors || shownSectors.length === 0 ? (
           <EmptyState />
         ) : (
-          <div className="flex flex-col gap-6">
-            {sectors.map((sector, sectorIdx) => {
+          <div className="flex flex-col gap-6" aria-busy={loading}>
+            {shownSectors.map((sector, sectorIdx) => {
               // 오늘 휴무 확정 시설은 대표 카드(topRows) 선정에서 아예 배제 — open 이 3곳 미만이어도
               // closed 로 자리를 채우지 않는다(rows 는 이미 closedToday 를 맨 뒤로 정렬해 뒀다).
               // 정렬 기준을 **화면이 실제로 보여주는 숫자**로 맞춘다. fetchBoard 의 1차 정렬은
@@ -1099,6 +1130,8 @@ export default function WaitingBoardPage() {
                 </section>
               );
             })}
+            {/* 아직 오는 섹션 자리 — 글자 없는 시머 한 판. 새 섹션은 늘 이 자리(맨 아래)에 붙는다. */}
+            {loading && <WaitingSectorSkeleton />}
           </div>
         )}
         <p className="mt-6 border-t border-line pt-4 text-center text-[11px] leading-relaxed text-muk-soft">

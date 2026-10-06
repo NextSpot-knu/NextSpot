@@ -11,15 +11,15 @@ test.beforeEach(async ({ page }) => stubExternalServices(page));
 const NOW_PLACE = '지금기준 식당';
 const SAT_PLACE = '토요일기준 식당';
 
-function item(name: string) {
+function item(name: string, extra: { type?: string; wait?: number } = {}) {
   const facility = {
-    id: `f-${name}`, name, type: 'restaurant', latitude: 35.8363, longitude: 129.2107,
+    id: `f-${name}`, name, type: extra.type ?? 'restaurant', latitude: 35.8363, longitude: 129.2107,
     capacity: 30, congestion: null, image_url: null, gallery_images: null, features: {},
     operating_hours: { open: '00:00~23:59', closed: '연중무휴' },
   };
   return {
     recommendation_id: `rec-${name}`, facility, spot_score: 0.8,
-    breakdown: { preference: 0.8, wait_time: null, travel_time: 1, incentive: 0 },
+    breakdown: { preference: 0.8, wait_time: extra.wait ?? null, travel_time: 1, incentive: 0 },
     distance_m: 90, reason: '테스트 추천', reason_source: 'template',
     congestion_level: null, congestion_source: 'none', congestion_log_source: null,
     congestion_is_stale: null, congestion_timestamp: null, rank: 1, total_candidates: 1,
@@ -33,8 +33,14 @@ type ByTypeCall = { type: string; assumedAt: string | null };
 /** 몇 번째 by-type 요청인지(0부터)와 그 요청을 보고, 응답 전에 기다리거나 다른 상태 코드를 고른다. */
 type Respond = (call: ByTypeCall, index: number) => Promise<number | void> | number | void;
 
-/** by-type 를 기록하고, 음식점만 가정 시각에 맞는 장소 하나를 돌려준다. holdNow 면 'now'(assumed_at=null) 응답을 붙잡는다. */
-async function routeBoard(page: Page, opts: { holdNow?: Promise<void>; respond?: Respond } = {}): Promise<ByTypeCall[]> {
+/**
+ * by-type 를 기록하고, 음식점만 가정 시각에 맞는 장소 하나를 돌려준다. holdNow 면 'now'(assumed_at=null) 응답을 붙잡는다.
+ * cafePlace 를 주면 카페도 그 이름의 장소 하나를, waitMinutes 를 주면 음식점이 서버 검증 대기(분)를 함께 돌려준다.
+ */
+async function routeBoard(
+  page: Page,
+  opts: { holdNow?: Promise<void>; respond?: Respond; cafePlace?: string; waitMinutes?: number } = {},
+): Promise<ByTypeCall[]> {
   const calls: ByTypeCall[] = [];
   await page.route('**/api/v1/**', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
@@ -49,7 +55,12 @@ async function routeBoard(page: Page, opts: { holdNow?: Promise<void>; respond?:
       await route.fulfill({ status, contentType: 'application/json', body: '{"detail":"e2e"}' }).catch(() => {});
       return;
     }
-    const items = call.type === 'restaurant' ? [item(call.assumedAt === null ? NOW_PLACE : SAT_PLACE)] : [];
+    const items =
+      call.type === 'restaurant'
+        ? [item(call.assumedAt === null ? NOW_PLACE : SAT_PLACE, { wait: opts.waitMinutes })]
+        : call.type === 'cafe' && opts.cafePlace
+        ? [item(opts.cafePlace, { type: 'cafe' })]
+        : [];
     await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(items) }).catch(() => {});
   });
   return calls;
@@ -86,6 +97,10 @@ const cachedPresetOf = (page: Page) => page.evaluate(() => {
   try { return (JSON.parse(localStorage.getItem('nextspot_waiting_board_v2') ?? '{}') as { preset?: string }).preset ?? null; }
   catch { return null; }
 });
+// 섹션은 도착하는 대로 보인다(I36) — 첫 카드가 보여도 나머지 유형은 아직 묻는 중일 수 있다. 요청 수·캐시를
+// 세는 검사는 보드가 다 찬 뒤(aria-busy=false)에 한다.
+const boardOf = (page: Page) => page.locator('main [aria-busy]');
+const boardComplete = (page: Page) => expect(boardOf(page)).toHaveAttribute('aria-busy', 'false', { timeout: 10_000 });
 
 test('waiting board: a stored far preset never sends a "now" board request first', async ({ page }) => {
   test.setTimeout(90_000); // 첫 /waiting 컴파일(Windows dev server) 여유 — 재시도가 아니라 시간
@@ -281,6 +296,7 @@ test('waiting board: an abandoned run sleeping before its second pass never asks
   await page.clock.resume();
   releaseNow();
   await expect(page.getByText(NOW_PLACE).first()).toBeVisible({ timeout: 30_000 });
+  await boardComplete(page);
   // 'now' 는 버려진 run 의 첫 패스 4건 + 새 run 의 4건뿐.
   expect(nowCalls(calls)).toBe(8);
   expect(satCalls(calls)).toBe(1);
@@ -340,6 +356,7 @@ for (const back of [true, false]) {
     const place = back ? NOW_PLACE : SAT_PLACE;
     await expect(page.getByText(place).first()).toBeVisible({ timeout: 30_000 });
     await expect(page.getByText(back ? SAT_PLACE : NOW_PLACE)).toHaveCount(0);
+    await boardComplete(page);
     expect(await cachedPresetOf(page)).toBe(back ? 'now' : 'sat_afternoon');
     // 'now' 는 버려진 run 의 8건 + (돌아왔다면) 새 run 의 4건뿐.
     expect(nowCalls(calls)).toBe(back ? 12 : 8);
@@ -378,5 +395,125 @@ test('waiting board: an abandoned run whose last retry was cut off never draws o
   releaseSat();
   await expect(page.getByText(SAT_PLACE).first()).toBeVisible({ timeout: 30_000 });
   await expect(page.getByText(NOW_PLACE)).toHaveCount(0);
+  await boardComplete(page);
   expect(await cachedPresetOf(page)).toBe('sat_afternoon');
+});
+
+// ── 섹션은 도착하는 대로(I36) ───────────────────────────────────────────────────
+// 4유형은 여전히 한 번에 하나씩 묻는다(동시 요청은 0.5CPU 서버가 503). 다만 앞 유형이 모두 도착했으면 그 섹션은
+// 마지막 유형을 기다리지 않고 바로 그린다. 로딩 상태·'화면의 프리셋'·캐시는 보드가 다 찼을 때만 바뀐다.
+const CAFE_PLACE = '지금기준 카페';
+const sectionSkeleton = (page: Page) => page.locator('main [aria-busy] .ns-skel');
+
+test('waiting board: the first section shows while the rest are on their way', async ({ page }) => {
+  test.setTimeout(90_000); // 첫 /waiting 컴파일(Windows dev server) 여유 — 재시도가 아니라 시간
+  await seedNowWithoutCache(page);
+  // 음식점 뒤의 유형(카페·관광지·문화)은 서버에서 붙잡는다.
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => { release = resolve; });
+  const calls = await routeBoard(page, { respond: async (call) => { if (call.type !== 'restaurant') await held; } });
+
+  await page.goto('/waiting');
+  await expect.poll(() => nowCalls(calls), { timeout: 30_000 }).toBeGreaterThan(1);
+  await expect(page.getByText(NOW_PLACE).first()).toBeVisible({ timeout: 10_000 });
+  // 로더는 내려가고, 아직 오는 섹션 자리에는 글자 없는 자리표시 한 판. 보드는 아직 '불러오는 중'이고 캐시도 없다.
+  await expect(loader(page)).toHaveCount(0);
+  await expect(boardOf(page)).toHaveAttribute('aria-busy', 'true');
+  await expect(sectionSkeleton(page).first()).toBeVisible();
+  expect(await page.evaluate(() => localStorage.getItem('nextspot_waiting_board_v2'))).toBeNull();
+
+  release();
+  await expect(boardOf(page)).toHaveAttribute('aria-busy', 'false', { timeout: 10_000 });
+  await expect(page.locator('.ns-skel')).toHaveCount(0);
+  expect(await cachedPresetOf(page)).toBe('now');
+});
+
+test('waiting board: a failed earlier type never lets a later section jump above it', async ({ page }) => {
+  test.setTimeout(90_000); // 첫 /waiting 컴파일(Windows dev server) 여유 — 재시도가 아니라 시간
+  await seedNowWithoutCache(page);
+  // 음식점 첫 요청은 500 → 카페는 바로 답하지만, 2초 뒤 두 번째 패스의 음식점은 붙잡는다.
+  let restaurantSeen = 0;
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => { release = resolve; });
+  const calls = await routeBoard(page, {
+    cafePlace: CAFE_PLACE,
+    respond: async (call) => {
+      if (call.type !== 'restaurant') return;
+      restaurantSeen += 1;
+      if (restaurantSeen === 1) return 500;
+      await held;
+    },
+  });
+
+  await page.goto('/waiting');
+  await expect.poll(() => restaurantSeen, { timeout: 60_000 }).toBe(2);
+  expect(calls.some((c) => c.type === 'cafe')).toBe(true);
+  // 카페는 이미 도착했지만 음식점 자리가 비어 있는 동안에는 그리지 않는다 — 뒤에 음식점이 그 위로 끼어들게 된다.
+  await expect(loader(page)).toBeVisible();
+  await expect(page.getByText(CAFE_PLACE)).toHaveCount(0);
+
+  release();
+  await expect(page.getByText(CAFE_PLACE).first()).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByText(NOW_PLACE).first()).toBeVisible();
+  const [restaurantAt, cafeAt] = await page.evaluate(
+    ([a, b]) => [document.body.innerText.indexOf(a), document.body.innerText.indexOf(b)],
+    [NOW_PLACE, CAFE_PLACE],
+  );
+  expect(restaurantAt).toBeGreaterThanOrEqual(0);
+  expect(restaurantAt, '음식점 섹션이 카페 섹션 위에').toBeLessThan(cafeAt);
+});
+
+test('waiting board: a partial board of another preset never shows under the one on screen', async ({ page }) => {
+  test.setTimeout(90_000); // 첫 /waiting 컴파일(Windows dev server) 여유 — 재시도가 아니라 시간
+  await seedNowWithoutCache(page);
+  // 첫 'now' 보드는 그대로 끝낸다. 그 뒤로는 카페 요청을 붙잡는다 — 토요일 보드는 음식점까지만 온다.
+  let holding = false;
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => { release = resolve; });
+  const calls = await routeBoard(page, { respond: async (call) => { if (holding && call.type === 'cafe') await held; } });
+
+  await page.goto('/waiting');
+  await expect(page.getByText(NOW_PLACE).first()).toBeVisible({ timeout: 30_000 });
+  await expect.poll(() => nowCalls(calls), { timeout: 10_000 }).toBe(4);
+  await expect.poll(() => cachedPresetOf(page)).toBe('now');
+  holding = true;
+
+  await presetSelect(page).selectOption('sat_afternoon');
+  await expect(page.getByText(SAT_PLACE).first()).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByText(NOW_PLACE)).toHaveCount(0);
+
+  // 토요일이 반쯤 온 채로 원래 보던 'now' 로 돌아간다 — 'now' 의 다 찬 보드가 보이고, 토요일 조각은 섞이지 않는다.
+  await presetSelect(page).selectOption('now');
+  await expect(page.getByText(NOW_PLACE).first()).toBeVisible({ timeout: 2_000 });
+  await expect(page.getByText(SAT_PLACE)).toHaveCount(0);
+
+  release();
+  await page.waitForTimeout(1000);
+  await expect(page.getByText(SAT_PLACE)).toHaveCount(0);
+  expect(await cachedPresetOf(page)).toBe('now');
+});
+
+test('waiting board: no stale shortest-wait chip while a new preset is loading', async ({ page }) => {
+  test.setTimeout(90_000); // 첫 /waiting 컴파일(Windows dev server) 여유 — 재시도가 아니라 시간
+  await seedNowWithoutCache(page);
+  let holding = false;
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => { release = resolve; });
+  // 음식점이 서버 검증 대기 12분을 돌려준다 — 히어로 '도착 시 최단 대기' 칩이 뜬다.
+  const calls = await routeBoard(page, { waitMinutes: 12, respond: async () => { if (holding) await held; } });
+  const chip = page.getByText(/도착 시 최단 대기/);
+
+  await page.goto('/waiting');
+  await expect(chip).toBeVisible({ timeout: 30_000 });
+  await expect.poll(() => cachedPresetOf(page), { timeout: 10_000 }).toBe('now');
+  holding = true;
+
+  // 토요일 조회가 전부 붙잡힌 동안(로더) 'now' 보드의 최단 대기가 토요일 배지 옆에 남지 않는다.
+  await presetSelect(page).selectOption('sat_afternoon');
+  await expect.poll(() => satCalls(calls)).toBeGreaterThan(0);
+  await expect(loader(page)).toBeVisible();
+  await expect(chip).toHaveCount(0);
+
+  release();
+  await expect(page.getByText(SAT_PLACE).first()).toBeVisible({ timeout: 30_000 });
 });

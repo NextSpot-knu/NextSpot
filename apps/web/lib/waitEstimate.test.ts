@@ -169,6 +169,16 @@ for (const input of [
   assert.match(page, /bestWait\.estimated && \(/, '히어로 최단 대기에 추정 라벨이 빠졌다');
   assert.match(page, /!heroWaitCandidate\(est\)/, '히어로 후보 선별이 heroWaitCandidate 를 거치지 않는다');
   assert.equal((page.match(/showsCalmLine\(est\) && \(/g) ?? []).length, 2, "'한산해지는 시각' 두 렌더가 showsCalmLine 을 거치지 않는다");
+
+  // 섹션은 도착하는 대로(I36) — 그러나 '이 프리셋의 보드'(캐시)는 다 찼을 때 한 번만 남긴다.
+  const cacheWrites = page.match(/localStorage\.setItem\(\s*BOARD_CACHE_KEY/g) ?? [];
+  assert.equal(cacheWrites.length, 1, '보드 캐시를 쓰는 자리가 하나가 아니다');
+  const finalCommit = page.indexOf('setSectors(nextSectors)');
+  assert.ok(finalCommit >= 0 && finalCommit < page.search(/localStorage\.setItem\(\s*BOARD_CACHE_KEY/), '캐시가 마지막 커밋 전에 쓰인다');
+  // 앞 유형이 하나라도 실패했으면 뒤 섹션은 마지막 커밋까지 기다린다(먼저 보인 섹션 위로 끼어들지 않게).
+  assert.match(page, /!silentRefresh && !stale\(\) && results\.every\(\(r\) => r\.status === "fulfilled"\)/, '부분 섹션의 앞부분 규칙이 없다');
+  // 히어로 최단 대기는 화면에 보이는 섹션에서만 — 로더 뒤의 옛 프리셋 보드에서 뽑지 않는다.
+  assert.match(page, /const bestWait = [\s\S]*?for \(const sector of shownSectors\)/, '히어로 최단 대기가 보이는 섹션을 보지 않는다');
 }
 
 console.log('waitEstimate tests passed');
