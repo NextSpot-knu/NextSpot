@@ -245,7 +245,7 @@ function CourseContent() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [needsAuth, setNeedsAuth] = useState(false);
-  // '코스 직접 짜기'(P13) — 정류지가 먼저, 순서·종류를 고르는 판은 이 버튼 뒤. 고른 것이 있으면 열린 채로 보인다.
+  // '코스 직접 짜기'(P13) — 정류지가 먼저, 순서·종류를 고르는 판은 이 버튼 뒤(처음에는 닫혀 있다).
   const [builderOpen, setBuilderOpen] = useState(false);
   // 결과 뷰: 'cards'(정보 행 목록, 기본) | 'gantt'(시간축 간트차트)
   const [viewMode, setViewMode] = useState<"cards" | "gantt">("cards");
@@ -933,13 +933,14 @@ function CourseContent() {
               </div>
 
               {/* 코스 직접 짜기(P13) — 정류지가 먼저 보이고, 순서·종류 고르기는 이 버튼 뒤에 있다.
-                  공유 모드(읽기 전용)에서는 숨김(간섭 방지). 이미 고른 순서·종류가 있으면 열린 채로 둔다. */}
+                  공유 모드(읽기 전용)에서는 숨김(간섭 방지). 순서·종류는 이 화면 안에서만 살아 있어(새로 열면 비어 있다)
+                  버튼 하나로 열고 닫는다 — 닫아도 고른 순서·종류는 그대로 요청에 실린다. */}
               {!isShareMode && (
                 <div className="space-y-3">
                   <button
                     type="button"
                     onClick={() => setBuilderOpen((v) => !v)}
-                    aria-expanded={builderOpen || sequence.length > 0 || selectedTypes.length > 0}
+                    aria-expanded={builderOpen}
                     aria-controls="course-builder"
                     className="toss-pressable inline-flex min-h-11 items-center gap-1.5 rounded-full border border-line bg-white px-4 text-[13px] font-bold text-muk hover:border-gold/45 hover:text-gold-deep focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
                   >
@@ -947,11 +948,11 @@ function CourseContent() {
                     {t('course.builderToggle')}
                     <ChevronDown
                       size={14}
-                      className={`transition-transform ${builderOpen || sequence.length > 0 || selectedTypes.length > 0 ? "rotate-180" : ""}`}
+                      className={`transition-transform ${builderOpen ? "rotate-180" : ""}`}
                       aria-hidden
                     />
                   </button>
-                  {(builderOpen || sequence.length > 0 || selectedTypes.length > 0) && (
+                  {builderOpen && (
                     <div id="course-builder">
                       <OrderPicker
                         sequence={sequence}
