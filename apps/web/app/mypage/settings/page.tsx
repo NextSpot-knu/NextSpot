@@ -169,7 +169,7 @@ export default function SettingsPage() {
           <CongestionAlertToggle />
         </section>
 
-        {/* 비즈니스 계정 — 사장님 전용 게이트(/merchant)로 이동. 역할이 있는 계정에만 노출. */}
+        {/* 사장님 콘솔 — 사장님 전용 게이트(/merchant)로 이동. 역할이 있는 계정에만 노출(마이페이지 카드와 같은 문구). */}
         {canEnterMerchantConsole(account) && <button
           type="button"
           onClick={() => router.push('/merchant')}
@@ -181,8 +181,8 @@ export default function SettingsPage() {
                 <Store size={20} className="text-gold-deep" />
               </div>
               <div className="min-w-0">
-                <h2 className="font-bold text-muk">비즈니스 계정으로 전환</h2>
-                <p className="text-xs text-muk-soft">NextSpot 사장님 콘솔로 이동합니다</p>
+                <h2 className="font-bold text-muk">{t('console.openMerchant')}</h2>
+                <p className="text-xs text-muk-soft">{t('console.openMerchantDesc')}</p>
               </div>
             </div>
             <ChevronRight size={20} className="shrink-0 text-gold-deep transition-transform group-hover:translate-x-0.5" />

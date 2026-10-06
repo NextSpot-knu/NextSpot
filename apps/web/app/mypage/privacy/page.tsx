@@ -4,6 +4,9 @@ import { useRouter } from 'next/navigation';
 import { ChevronLeft, FileText, HardDrive, ShieldCheck, Scale, Mail } from 'lucide-react';
 import { useT } from '@/lib/i18n/I18nProvider';
 
+// 이 안내문을 마지막으로 고친 날 — 문구를 바꾸면 함께 바꾼다(푸터 '최종 업데이트 · {date}').
+const PRIVACY_UPDATED_AT = '2026-10-06';
+
 export default function PrivacyPage() {
   const router = useRouter();
   const t = useT();
@@ -61,7 +64,7 @@ export default function PrivacyPage() {
 
         {/* 푸터 */}
         <p className="text-xs text-muk-soft/80 text-center px-4 py-2">
-          {t('privacy.footer')}
+          {t('privacy.footer', { date: PRIVACY_UPDATED_AT })}
         </p>
       </main>
 

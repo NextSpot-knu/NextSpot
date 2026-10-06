@@ -98,29 +98,32 @@ function MerchantGatePage() {
     );
   }
 
-  // 1) 세션 없음 → 로그인으로.
-  if (!account) {
+  // 1) 세션 없음·게스트(익명 세션) → 로그인으로. '바로 시작'으로 들어온 심사위원은 익명 세션(role tourist)이라
+  //    예전에는 아래 '사업자 계정이 아니에요'로 떨어졌다 — 콘솔이 없는 것처럼 읽혔다(2026-10-06 감사 I14).
+  //    로그인과 데모를 나란히 두고, 그 아래에 심사용 계정을 안내한다.
+  if (!account || account.isAnonymous) {
     return (
       <Shell onLeave={leave}>
         <Card
           icon={<ShieldAlert size={22} className="text-gold-deep" />}
-          title={t('merchantGate.needLoginTitle')}
-          desc={t('merchantGate.needLoginDesc')}
+          title={t('merchantGate.guestTitle')}
+          desc={t('merchantGate.guestDesc')}
           action={{
-            label: t('landing.ctaLogin'),
+            label: t('login.submitLogin'),
             onClick: () => router.push('/login?next=/merchant'),
           }}
           secondary={{ label: t('demo.enter'), onClick: () => router.push('/merchant?demo=1') }}
+          sideBySide
         />
         <JudgeAccountHint only="merchant" className="mt-4" />
       </Shell>
     );
   }
 
-  // 2) 일반 유저·관리자 → 진입 불가. **관리자도 tourist 와 동일하게 취급한다**
+  // 2) 가입한 관광객·관리자 → 진입 불가. **관리자도 tourist 와 동일하게 취급한다**
   //    (관제 대시보드와 사장님 콘솔은 완전히 분리 — '관리자 열람 모드' 예외를 두지 않는다).
   if (!canEnterMerchantConsole(account)) {
-    const canApply = !account.isAnonymous && account.role === 'tourist';
+    const canApply = account.role === 'tourist';
     return (
       <Shell onLeave={leave}>
         <Card
@@ -134,10 +137,9 @@ function MerchantGatePage() {
                   onClick: () => router.push('/account/business'),
                 }
               : {
-                  // 게스트(익명 세션)와 관리자 계정은 신청 대상이 아니라 버튼이 없었고, 이 화면이 막다른
-                  // 길이었다. '바로 시작'으로 들어온 심사위원이 정확히 이 경로다 — 로그인으로 보낸다.
-                  // 이미 로그인한 관리자 계정에게 '로그인'은 세션이 끊긴 것처럼 읽혀 '다른 계정으로'라고 쓴다.
-                  label: account.isAnonymous ? t('login.submitLogin') : t('judgeAccount.switchAccount'),
+                  // 관리자 계정은 신청 대상이 아니라 버튼이 없었고, 이 화면이 막다른 길이었다 — 로그인으로 보낸다.
+                  // 이미 로그인한 계정에게 '로그인'은 세션이 끊긴 것처럼 읽혀 '다른 계정으로'라고 쓴다.
+                  label: t('judgeAccount.switchAccount'),
                   onClick: () => router.push('/login?next=/merchant'),
                 }
           }
@@ -458,6 +460,7 @@ function Card({
   desc,
   action,
   secondary,
+  sideBySide = false,
 }: {
   icon: React.ReactNode;
   title: string;
@@ -465,7 +468,27 @@ function Card({
   action?: { label: string; onClick: () => void };
   /** 보조 행동(테두리 버튼) — 지금은 '데모로 둘러보기' 가 여기 들어간다. */
   secondary?: { label: string; onClick: () => void };
+  /** 두 버튼을 한 줄에 나란히 — 둘 다 같은 무게의 선택지일 때(로그인 / 데모). */
+  sideBySide?: boolean;
 }) {
+  const actionButton = action && (
+    <button
+      type="button"
+      onClick={action.onClick}
+      className={`toss-pressable flex min-h-12 w-full items-center justify-center rounded-xl bg-gradient-to-r from-gold to-terracotta px-3 text-[15px] font-bold text-white shadow-md shadow-terracotta/20 transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 ${sideBySide ? '' : 'mt-5'}`}
+    >
+      {action.label}
+    </button>
+  );
+  const secondaryButton = secondary && (
+    <button
+      type="button"
+      onClick={secondary.onClick}
+      className={`toss-pressable flex min-h-12 w-full items-center justify-center rounded-xl border border-line bg-white px-3 text-[15px] font-bold text-muk transition-colors hover:bg-hanji focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 ${sideBySide ? '' : 'mt-2.5'}`}
+    >
+      {secondary.label}
+    </button>
+  );
   return (
     <div className="toss-surface rounded-3xl border border-line bg-white p-7 text-center">
       {/* 아이콘을 원판 위에 올려 상태(안내·대기)가 한눈에 잡히게 한다 — 고령 사용자 가독 우선. */}
@@ -474,23 +497,16 @@ function Card({
       </div>
       <p className="text-lg font-bold text-muk">{title}</p>
       <p className="mt-1.5 text-sm leading-relaxed text-muk-soft">{desc}</p>
-      {action && (
-        <button
-          type="button"
-          onClick={action.onClick}
-          className="toss-pressable mt-5 flex min-h-12 w-full items-center justify-center rounded-xl bg-gradient-to-r from-gold to-terracotta text-[15px] font-bold text-white shadow-md shadow-terracotta/20 transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
-        >
-          {action.label}
-        </button>
-      )}
-      {secondary && (
-        <button
-          type="button"
-          onClick={secondary.onClick}
-          className="toss-pressable mt-2.5 flex min-h-12 w-full items-center justify-center rounded-xl border border-line bg-white text-[15px] font-bold text-muk transition-colors hover:bg-hanji focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
-        >
-          {secondary.label}
-        </button>
+      {sideBySide ? (
+        <div className="mt-5 grid grid-cols-2 gap-2.5">
+          {actionButton}
+          {secondaryButton}
+        </div>
+      ) : (
+        <>
+          {actionButton}
+          {secondaryButton}
+        </>
       )}
     </div>
   );

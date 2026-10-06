@@ -1,5 +1,9 @@
 @import "tailwindcss";
 
+/* 키 낮은 데스크톱 창(브라우저 안쪽 높이 720px 미만 — 1366×768 노트북 등). 왼쪽 레일이 콘솔 입구까지
+   스크롤 없이 보이도록 칸을 줄이는 데 쓴다(components/shell/BottomNav.tsx). */
+@custom-variant short (@media (max-height: 719.98px));
+
 /* Freesentation — 전역 통일 서체(OFL 라이선스, Noonnu 배포·jsDelivr CDN 호스팅).
    런타임 로드라 정적 export 빌드에는 영향 없음. 본문/제목/버튼/카드 등 모든 텍스트가
    이 하나의 서체를 쓰도록 --font-sans/--font-serif 토큰에서 최우선으로 참조한다(아래 @theme). */
@@ -143,6 +147,15 @@ body {
   /* Fixed assistant pulses and decorative glows may paint beyond the viewport
      during animation; clip only the page axis while preserving inner x-scroll areas. */
   overflow-x: clip;
+}
+
+/* 한국어는 낱말(띄어쓰기) 단위로만 줄을 바꾼다 — 브라우저 기본값은 음절 사이에서도 끊어 '모입 / 니다',
+   '치 / 즈갈비카츠정식' 처럼 글자 하나가 줄에 홀로 남았다. 칸보다 긴 낱말만 예외로 끊는다(break-word).
+   anywhere 가 아닌 이유: anywhere 는 최소 폭 계산까지 바꿔 'TourAPI'·'1,240분'·심사용 이메일이
+   좁은 칸에서 글자 단위로 쪼개진다. ja·zh·en 은 언어 규칙 그대로 둔다(lang 은 I18nProvider 가 바꾼다). */
+html:lang(ko) body {
+  word-break: keep-all;
+  overflow-wrap: break-word;
 }
 
 /* Five primary tabs plus a 36px help row on mobile. Shared by sheets and page padding. */
@@ -302,6 +315,9 @@ html.nextspot-dark .nextspot-logo-dark { display: block; }
   animation: fade-in-up 1s ease-out forwards;
 }
 
+/* 화면 전환 — 끝나면 transform 을 **남기지 않는다**(forwards 없음, 끝 프레임 none).
+   translateY(0) 이라도 transform 이 남아 있으면 그 상자가 position:fixed 자식의 기준이 되어, 시트·음성 버튼
+   같은 고정 요소가 화면이 아니라 페이지 상자에 붙고 하단 탭 아래로 깔렸다(필터·편의 시트가 잘리던 원인). */
 @keyframes page-enter {
   0% {
     opacity: 0;
@@ -309,12 +325,12 @@ html.nextspot-dark .nextspot-logo-dark { display: block; }
   }
   100% {
     opacity: 1;
-    transform: translateY(0);
+    transform: none;
   }
 }
 
 .animate-page-enter {
-  animation: page-enter 0.25s cubic-bezier(0.2, 0, 0, 1) forwards;
+  animation: page-enter 0.25s cubic-bezier(0.2, 0, 0, 1);
 }
 
 @keyframes slide-up {

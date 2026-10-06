@@ -132,7 +132,7 @@ export default function AdminLoginPage() {
             <>
               <p className="font-bold text-hanok-ink">로그인이 필요합니다</p>
               <p className="mt-1.5 text-xs leading-relaxed text-hanok-muted">
-                관제 대시보드는 NextSpot 계정으로 들어옵니다. 별도 관리자 비밀번호는 없습니다.
+                관제 대시보드는 NextSpot 계정으로 들어옵니다.
               </p>
               <JudgeAccountHint only="admin" tone="console" className="mt-4" />
               <button

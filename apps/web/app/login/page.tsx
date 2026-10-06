@@ -85,7 +85,8 @@ function LoginForm() {
   };
 
   // 인증 성공 후: 세션 uid 로 이전(게스트) 로컬 데이터를 격리하고 이 계정의 저장 목록을 복원한 뒤 이동.
-  const afterAuth = async (dest: string) => {
+  // loginEmail 은 로그인 탭에서만 넘긴다 — 심사용 사장님 계정이면 콘솔로 보낸다(lib/postLoginDest).
+  const afterAuth = async (dest: string, loginEmail: string | null = null) => {
     try {
       const {
         data: { user },
@@ -95,10 +96,10 @@ function LoginForm() {
     } catch {
       /* 무시 — 이동은 계속 */
     }
-    // 목적지가 명시되지 않았으면 역할을 보고 정한다(admin → 관제 대시보드).
+    // 목적지가 명시되지 않았으면 계정·역할을 보고 정한다(심사용 사장님 → 콘솔, admin → 관제 대시보드).
     // replace 인 이유: push 로 보내면 **뒤로가기가 로그인 폼으로 돌아온다**. 이미 로그인된
     // 상태로 빈 로그인 화면을 다시 보면 "로그인이 안 된 건가" 로 읽힌다(/auth/callback 도 replace).
-    router.replace(await resolvePostLoginDest(hasNext ? dest : null, dest));
+    router.replace(await resolvePostLoginDest(hasNext ? dest : null, dest, loginEmail));
   };
 
   // SNS 계속하기 — 이 화면은 '로그인하러 온' 곳이므로 signInOAuth(계정 전환)를 **바로** 쓴다.
@@ -148,7 +149,7 @@ function LoginForm() {
           setBusy(false);
           return;
         }
-        await afterAuth(loginDest);
+        await afterAuth(loginDest, email.trim());
       } else {
         const { error, reason, needsConfirmation } = await signUpWithEmail(email.trim(), password, nickname);
         if (error) {
@@ -181,7 +182,9 @@ function LoginForm() {
   };
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-[100dvh] bg-gradient-to-b from-hanji via-hanji-deep to-sunset-1/20 px-6 relative">
+    // pt-[4.5rem]: 오른쪽 위 언어 칩(absolute top-4)이 제목과 겹치지 않게 내용 시작점을 칩 아래로 둔다.
+    // 세로 가운데 정렬이라 폰에서 심사용 계정 안내까지 길어지면 내용이 위로 밀려 칩 밑에 깔렸다(I65).
+    <div className="flex flex-col items-center justify-center min-h-[100dvh] bg-gradient-to-b from-hanji via-hanji-deep to-sunset-1/20 px-6 pt-[4.5rem] pb-10 relative">
       <div className="absolute top-4 right-4 z-20">
         <LanguageSwitcher />
       </div>

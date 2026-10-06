@@ -112,6 +112,23 @@ test('?next= 로 요청된 목적지가 로그인 뒤에 지켜진다', async ({
   await expect(page).toHaveURL(/\/saved/, { timeout: 20_000 });
 });
 
+test('심사용 사장님 계정은 ?next= 없이 로그인해도 사장님 콘솔로 간다', async ({ page }) => {
+  // 기능 5 를 보러 온 심사위원이 /main 에 떨어지면 콘솔이 없는 것처럼 읽힌다(2026-10-06 감사 I14).
+  // 다른 사장님 계정은 계획서 §9-5 대로 /main 이다(lib/postLoginDest.test.ts). 응답은 전부 스텁이다.
+  await stubOurApi(page, { role: 'merchant' });
+  await interceptAuth(page, passwordGrant, {
+    status: 200,
+    body: { ...memberSession(), user: { ...MEMBER_USER, email: 'openapi@naver.com' } },
+  });
+
+  await page.goto('/login');
+  await page.getByPlaceholder('이메일').fill('openapi@naver.com');
+  await page.getByPlaceholder('비밀번호').fill(FAKE_PASSWORD);
+  await submitButton(page).click();
+
+  await expect(page).toHaveURL(/\/merchant$/, { timeout: 20_000 });
+});
+
 // ── 심사용 계정 안내 ─────────────────────────────────────────────────────────
 // 제출 양식에는 테스트 계정이 하나만 들어가는데 콘솔 계정은 둘이라, 콘솔 관문에서 넘어온 로그인은
 // 그 콘솔 계정만 보여주고 이메일 칸에 미리 넣는다. 정본은 lib/judgeAccounts.ts ↔ seed_judge_accounts.py.

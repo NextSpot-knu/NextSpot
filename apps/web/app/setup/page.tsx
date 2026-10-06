@@ -105,14 +105,18 @@ export default function SetupPage() {
             <Toggle active={context.excludeVisited} onClick={() => setContext((current) => ({ ...current, excludeVisited: !current.excludeVisited }))} label={t('setup.excludeVisited')} />
           </div>
         </Section>
-        <button
-          type="button"
-          disabled={saving}
-          onClick={() => finish(context)}
-          className="toss-pressable mt-4 flex min-h-[52px] w-full items-center justify-center rounded-2xl bg-gold text-base font-bold text-white shadow-[0_8px_20px_rgba(193,154,62,0.30)] transition-colors hover:bg-gold-deep focus:outline-none focus-visible:ring-2 focus-visible:ring-gold-deep focus-visible:ring-offset-2 focus-visible:ring-offset-hanji disabled:opacity-60 disabled:hover:bg-gold"
-        >
-          {saving ? t('setup.saving') : t('setup.start')}
-        </button>
+        {/* 시작하기 — 화면 아래에 붙어 늘 보인다. 다섯 질문이 한 화면을 넘겨 버튼이 접힘 아래로 밀리면
+            '어디서 시작하지?' 로 멈췄다(2026-10-06 감사 PE06, 1536×730 실측). 위쪽 그라데이션으로 내용과 겹침을 덮는다. */}
+        <div className="sticky bottom-0 z-10 -mx-5 mt-4 bg-gradient-to-t from-hanji from-70% to-hanji/0 px-5 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-5">
+          <button
+            type="button"
+            disabled={saving}
+            onClick={() => finish(context)}
+            className="toss-pressable flex min-h-[52px] w-full items-center justify-center rounded-2xl bg-gold text-base font-bold text-white shadow-[0_8px_20px_rgba(193,154,62,0.30)] transition-colors hover:bg-gold-deep focus:outline-none focus-visible:ring-2 focus-visible:ring-gold-deep focus-visible:ring-offset-2 focus-visible:ring-offset-hanji disabled:opacity-60 disabled:hover:bg-gold"
+          >
+            {saving ? t('setup.saving') : t('setup.start')}
+          </button>
+        </div>
       </div>
     </main>
   );
@@ -138,15 +142,17 @@ function Section({ step, title, children }: { step: number; title: string; child
   );
 }
 
+// 고른 칩은 먹색으로 꽉 채우고 ✓ 를 붙인다 — 연한 금빛 테두리는 고르지 않은 칩보다 오히려 옅게 읽혔다(PH10).
 function Chip({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
   return (
     <button
       type="button"
       aria-pressed={active}
       onClick={onClick}
-      className={`toss-pressable min-h-11 rounded-2xl border px-3 py-3 text-sm font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 ${active ? 'border-gold bg-gold/15 text-gold-deep shadow-[0_2px_10px_rgba(193,154,62,0.18)]' : 'border-line bg-white text-muk-soft hover:bg-hanji-deep hover:text-muk'}`}
+      className={`toss-pressable inline-flex min-h-11 items-center justify-center gap-1.5 rounded-2xl border px-3 py-3 text-sm font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 ${active ? 'border-muk bg-muk text-hanji shadow-[0_2px_10px_rgba(43,35,32,0.18)]' : 'border-line bg-white text-muk-soft hover:bg-hanji-deep hover:text-muk'}`}
     >
-      {children}
+      {active && <Check size={15} strokeWidth={3} className="shrink-0" aria-hidden />}
+      <span>{children}</span>
     </button>
   );
 }

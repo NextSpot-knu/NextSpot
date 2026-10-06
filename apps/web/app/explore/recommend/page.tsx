@@ -1981,7 +1981,8 @@ function RecommendContent() {
         </p>
       </div>
 
-      {/* ── 음성 비서 오버레이 (음성 컨시어지) ── */}
+      {/* ── 음성 비서 오버레이 (음성 컨시어지) ──
+          폰에서는 하단 탭 바(같은 z-40) 위에 띄운다 — 화면 고정이라 탭 바 자리에 두면 '마이' 탭과 콘솔 입구를 덮는다. */}
       {!loadingRecommendations && recommendations.length > 0 && ttsSupported && !showOnboarding && (
         <div
           data-testid="recommend-voice-control"

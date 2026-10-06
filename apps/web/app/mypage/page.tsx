@@ -24,6 +24,8 @@ import {
 // 역할 변경 카드의 3상태 판정 — 순수 모듈에서 직접 가져온다(lib/account.tsx 는 React 컨텍스트를
 // 얹은 재수출 계층일 뿐이고, 이 함수는 그 계층 없이도 테스트되는 쪽에 산다. postLoginDest 와 동일).
 import { roleRequestEntryState } from '@/lib/accountRoles';
+// 콘솔 카드의 목적지 — 레일·폰 줄과 같은 규칙(역할 없으면 데모).
+import { consoleLinks } from '@/lib/consoleLinks';
 import { apiClient, isAuthError, fetchLabPendingCount } from '@/lib/api-client';
 import { getVisitCount } from '@/lib/visits';
 // '내 문의' 배지의 읽음 판정 — 이 기기 기준(그 한계는 seen.ts 주석에 적어 뒀다).
@@ -33,7 +35,7 @@ const TasteRadar = dynamic(() => import('@/components/TasteRadar'), { ssr: false
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { CongestionAlertToggle } from '@/components/CongestionAlertToggle';
 import { AccountSection } from '@/components/AccountSection';
-// 최상단 누적 임팩트 카드 — 분산 유도 / 절약된 대기 / 참여 점포. 탭하면 임팩트 상세로.
+// 최상단 나의 여행 임팩트 카드 — 실제 기록이 있을 때만 그린다. 탭하면 임팩트 상세로.
 import ImpactSummaryCard from '@/components/ImpactSummaryCard';
 import { useT } from '@/lib/i18n/I18nProvider';
 
@@ -72,6 +74,7 @@ function DevConsoleEntry() {
 /** 관제 대시보드 진입 카드 — admin·developer 에게만 렌더된다(그 외에는 아무것도 그리지 않는다). */
 function AdminConsoleEntry() {
   const router = useRouter();
+  const t = useT();
   const { account } = useAccount();
   if (!canEnterAdminConsole(account)) return null;
   return (
@@ -80,14 +83,14 @@ function AdminConsoleEntry() {
       // `/admin` 이 아니라 `/admin/dashboard` 다 — `/admin` 은 정적 export 때문에 남겨 둔
       // 클라이언트 리다이렉트 껍데기라, 거쳐 가면 뒤로 가기에 빈 칸이 하나 낀다.
       onClick={() => router.push('/admin/dashboard')}
-      className="mb-4 flex w-full items-center justify-between gap-3 rounded-3xl border border-gold/30 bg-gold/5 p-5 text-left toss-pressable hover:bg-gold/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+      className="flex w-full items-center justify-between gap-3 rounded-3xl border border-gold/30 bg-gold/5 p-5 text-left toss-pressable hover:bg-gold/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
     >
       <span className="min-w-0">
         <span className="flex items-center gap-2 font-bold text-muk">
-          <ShieldCheck size={17} className="text-gold-deep" /> 관제 대시보드
+          <ShieldCheck size={17} className="text-gold-deep" /> {t('console.openAdmin')}
         </span>
         <span className="mt-0.5 block text-xs text-muk-soft">
-          실시간 혼잡도 · 안전 경보 · 통계 리포트 · 문의 관리
+          {t('console.openAdminDesc')}
         </span>
       </span>
       <ChevronRight size={18} className="shrink-0 text-muk-soft" />
@@ -100,21 +103,20 @@ function AdminConsoleEntry() {
 function ConsolePreviewEntry() {
   const router = useRouter();
   const t = useT();
-  const { account, status } = useAccount();
-  // 계정 판정이 끝나기 전에는 그리지 않는다 — 사장님·관리자에게 예시 카드가 잠깐 보였다 사라지면 안 된다.
-  if (status === 'loading' || canEnterMerchantConsole(account) || canEnterAdminConsole(account)) return null;
+  const { account } = useAccount();
+  const links = consoleLinks(account);
   const buttonClass = 'toss-pressable flex min-h-11 items-center justify-center gap-1.5 rounded-xl border border-gold/40 bg-white px-3 text-sm font-bold text-gold-deep hover:bg-hanji-deep focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60';
   return (
-    <div className="mb-4 rounded-3xl border border-gold/30 bg-gold/5 p-5">
+    <div className="rounded-3xl border border-gold/30 bg-gold/5 p-5">
       <p className="flex items-center gap-2 font-bold text-muk">
         <Eye size={17} className="text-gold-deep" /> {t('demo.previewTitle')}
       </p>
       <p className="mt-0.5 text-xs text-muk-soft">{t('demo.previewDesc')}</p>
       <div className="mt-3 grid grid-cols-2 gap-2">
-        <button type="button" onClick={() => router.push('/merchant?demo=1')} className={buttonClass}>
+        <button type="button" onClick={() => router.push(links.merchant)} className={buttonClass}>
           <Store size={16} /> {t('demo.previewMerchant')}
         </button>
-        <button type="button" onClick={() => router.push('/admin/dashboard?demo=1')} className={buttonClass}>
+        <button type="button" onClick={() => router.push(links.admin)} className={buttonClass}>
           <ShieldCheck size={16} /> {t('demo.previewAdmin')}
         </button>
       </div>
@@ -122,10 +124,56 @@ function ConsolePreviewEntry() {
   );
 }
 
+/** 사장님 콘솔 진입 카드 — 사업자·개발자에게만 렌더된다(그 외에는 아무것도 그리지 않는다). */
+function MerchantConsoleEntry() {
+  const router = useRouter();
+  const t = useT();
+  const { account } = useAccount();
+  if (!canEnterMerchantConsole(account)) return null;
+  return (
+    <button
+      type="button"
+      onClick={() => router.push('/merchant')}
+      className="group w-full rounded-3xl border border-gold/35 bg-gradient-to-r from-gold/15 via-hanji to-terracotta/10 p-5 text-left shadow-[0_2px_14px_rgba(43,35,32,0.06)] toss-pressable hover:border-gold/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+    >
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex min-w-0 items-center gap-4">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gold/15 text-gold-deep">
+            <Store size={22} />
+          </div>
+          <div className="min-w-0">
+            <p className="font-bold text-muk">{t('console.openMerchant')}</p>
+            <p className="mt-0.5 text-xs text-muk-soft">{t('console.openMerchantDesc')}</p>
+          </div>
+        </div>
+        <ChevronRight size={20} className="shrink-0 text-gold-deep transition-transform group-hover:translate-x-0.5" />
+      </div>
+    </button>
+  );
+}
+
+/**
+ * 콘솔 카드 묶음 — 프로필 바로 아래(2026-10-06 감사 I14: 예전에는 메뉴·로그아웃 근처 맨 아래라 기능 5 의 입구를
+ * 아무도 못 찾았다). 역할이 있으면 실제 콘솔 카드, 없으면(게스트·관광객) 두 콘솔의 미리보기 하나.
+ * 계정 판정이 끝나기 전에는 그리지 않는다 — 사장님·관리자에게 예시 카드가 잠깐 보였다 사라지면 안 된다.
+ */
+function ConsoleEntries() {
+  const { account, status } = useAccount();
+  if (status === 'loading') return null;
+  if (!canEnterMerchantConsole(account) && !canEnterAdminConsole(account)) return <ConsolePreviewEntry />;
+  return (
+    <div className="flex flex-col gap-3">
+      <MerchantConsoleEntry />
+      <AdminConsoleEntry />
+    </div>
+  );
+}
+
 interface UserProfile {
   name: string;
   email: string;
-  role: string;
+  /** 익명이 아닌 계정으로 로그인했는가(세션 기준). 게스트에게는 로그아웃을 보이지 않는다. */
+  isMember: boolean;
   routes: number;
   saved: number;
   rating: number;
@@ -230,9 +278,11 @@ export default function MyPage() {
         let displayEmail = '';
         let avatar: string | null = null;
         let hasRemoteName = false;
+        let isMember = false;
         try {
           const supabase = createPublicClient();
           const { data: { user } } = await supabase.auth.getUser();
+          isMember = deriveAuthState(user).status === 'linked';
           if (user?.email) {
             displayEmail = user.email;
             // 이메일 앞부분(@ 이전)을 표시 이름으로 사용
@@ -291,7 +341,7 @@ export default function MyPage() {
         setProfile({
           name: displayName,
           email: displayEmail,
-          role: 'Explorer',
+          isMember,
           routes: 0,
           saved: savedCount,
           rating: 0,
@@ -402,8 +452,8 @@ export default function MyPage() {
 
       {/* Main Content Area */}
       <main className="flex-1 flex flex-col relative z-10 px-6 overflow-y-auto pb-[calc(var(--tourist-nav-clearance)+env(safe-area-inset-bottom))] md:pb-6 no-scrollbar">
-        {/* 맨 위 — 서비스가 만들어 낸 누적 성과. 프로필 로딩과 무관하게 즉시 자리를 잡는다
-            (프로필 조회가 느려도 심사위원이 가장 먼저 보는 숫자가 비어 있지 않게). */}
+        {/* 맨 위 — 내 여행 기록이 실제로 쌓였을 때만 나의 임팩트 한 줄을 보여 준다(기록이 없으면 그리지 않는다 —
+            예시 숫자를 '나의' 성과처럼 보이던 것을 걷어냈다, 2026-10-06 PM 결정 4.19a). */}
         <div className="mt-4 md:max-w-4xl md:mx-auto md:w-full">
           <ImpactSummaryCard />
         </div>
@@ -455,7 +505,7 @@ export default function MyPage() {
                   )}
 
                   <div className="px-4 py-1 rounded-full bg-gold/15 border border-gold/30 text-gold-deep text-xs font-semibold mb-6">
-                    {profile.role}
+                    {t('mypage.roleTraveler')}
                   </div>
 
                   <button
@@ -513,6 +563,9 @@ export default function MyPage() {
                     </span>
                   </button>
                 )}
+
+                {/* 콘솔 입구 — 프로필 바로 아래(기능 5). 게스트에게는 두 콘솔 미리보기, 역할 계정에는 실제 콘솔. */}
+                <ConsoleEntries />
               </div>
 
               {/* 오른쪽 열 — AI 취향 프로필(8차원 선호 벡터 레이더). 과거 개발자용 float 배열 카드는 제거. */}
@@ -612,41 +665,8 @@ export default function MyPage() {
               })()}
             </div>
 
-            {/* 사장님 콘솔 진입점 — **사업자·개발자에게만** 보인다.
-                일반 유저에게는 대신 '가게 등록 요청' 링크를 보여, 남의 가게를 고를 수 있는
-                예전 동선(전체 시설 피커)을 원천 차단한다. 위치는 로그아웃 바로 위 유지
-                (관광객 동선에서 멀리, 계정 관련 액션끼리 묶는다). */}
-            {canEnterMerchantConsole(account) && <button
-              type="button"
-              onClick={() => router.push('/merchant')}
-              className="group w-full mb-4 rounded-3xl border border-gold/35 bg-gradient-to-r from-gold/15 via-hanji to-terracotta/10 p-5 text-left shadow-[0_2px_14px_rgba(43,35,32,0.06)] toss-pressable hover:border-gold/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
-            >
-              <div className="flex items-center justify-between gap-4">
-                <div className="flex min-w-0 items-center gap-4">
-                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gold/15 text-gold-deep">
-                    <Store size={22} />
-                  </div>
-                  <div className="min-w-0">
-                    <p className="font-bold text-muk">비즈니스 계정으로 전환</p>
-                    <p className="mt-0.5 text-xs text-muk-soft">가게 성과·타임세일·좌석 상태를 관리하는 사장님 콘솔</p>
-                  </div>
-                </div>
-                <ChevronRight size={20} className="shrink-0 text-gold-deep transition-transform group-hover:translate-x-0.5" />
-              </div>
-            </button>}
-
-            {/* 관제 대시보드 진입 — 사장님 콘솔 바로 아래에 둔다.
-                관리자는 로그인 직후 /admin/dashboard 로 떨어지지만(lib/postLoginDest), 한 번
-                마이페이지로 나오면 되돌아갈 길이 주소창밖에 없었다.
-                자리를 여기로 잡은 이유: /account/business 가 사업자·관리자를 한 쌍으로 다루는
-                (승인되면 각각 /merchant · /admin/dashboard 로 보낸다) 두 '승인으로 열리는 콘솔'이라,
-                역할 변경 신청 카드 바로 위에 붙여 계정·권한 블록으로 묶는다.
-                developer 는 위쪽 개발자 콘솔 카드까지 셋을 함께 보는데, 팀 전용 도구(위)와
-                승인형 콘솔(여기) 구분이 그대로 보여 순서가 어색하지 않다. */}
-            <AdminConsoleEntry />
-
-            {/* 콘솔 미리보기 — 권한 카드가 없는 게스트·관광객에게만 보인다(위 두 카드와 같은 자리). */}
-            <ConsolePreviewEntry />
+            {/* 사장님 콘솔·관제 대시보드 카드는 프로필 바로 아래(ConsoleEntries)로 옮겼다 — 관리자는 로그인 직후
+                /admin/dashboard 로 떨어지지만(lib/postLoginDest), 마이페이지로 나오면 그 카드가 되돌아갈 길이다. */}
 
             {/* 계정 역할 변경 신청 — 사업자·관리자 권한을 요청하는 유일한 자기 신청 경로다.
                 예전에는 tourist 에게만 작은 밑줄 링크 하나였다. 사장님이 관리자 권한을
@@ -689,15 +709,18 @@ export default function MyPage() {
               </button>
             )}
 
-            {/* Sign Out Button */}
-            <button
-              type="button"
-              onClick={handleSignOut}
-              className="w-full flex items-center justify-center gap-2 py-4 rounded-2xl border border-line bg-transparent text-muk-soft font-semibold toss-pressable hover:bg-hanji-deep focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 mb-4"
-            >
-              <LogOut size={18} className="text-terracotta" />
-              <span className="text-terracotta">{t('mypage.signOut')}</span>
-            </button>
+            {/* 로그아웃 — 로그인한 계정에만. 게스트(익명 세션)에게는 나갈 계정이 없다(눌러도 기기 데이터만 지워진다).
+                세션(supabase)과 계정 컨텍스트 중 하나라도 '정회원'이라고 하면 보인다 — 서버가 흔들려도 숨지 않게. */}
+            {(profile.isMember || (account !== null && !account.isAnonymous)) && (
+              <button
+                type="button"
+                onClick={handleSignOut}
+                className="w-full flex items-center justify-center gap-2 py-4 rounded-2xl border border-line bg-transparent text-muk-soft font-semibold toss-pressable hover:bg-hanji-deep focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 mb-4"
+              >
+                <LogOut size={18} className="text-terracotta" />
+                <span className="text-terracotta">{t('mypage.signOut')}</span>
+              </button>
+            )}
 
             {/* 보조 링크 — 개인정보·고객지원은 메인 메뉴에서 분리해 작게 배치 */}
             <div className="flex items-center justify-center gap-3 text-xs text-muk-soft pb-2">

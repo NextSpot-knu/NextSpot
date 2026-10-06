@@ -134,7 +134,6 @@
     "teamBody": "추천 서비스를 직접 구현해 수상으로 검증한 개발·기획 멤버와 실서비스 UX·마케팅 경험이 있는 디자이너가 함께하는 대구 지역 대학 기반 팀입니다. 경주 현장을 주기적으로 오가며 검증할 수 있는 거리에서 제품 기획, AI·백엔드, 지역 협력, UX·마케팅을 팀 안에서 잇습니다.",
     "futureBody": "경주에서 분산 효과가 검증되면, 비슷한 쏠림을 겪는 다른 지역에도 장소·보행·수요 데이터를 갖춰 같은 구조로 확장할 계획입니다.",
     "validationTitle": "추정을 검증하는 과정도 공개합니다.",
-    "validationBody": "관리자 엔진 검증 화면에서 서울 공개데이터를 이용한 별도 검증의 표본·판정 상태를 확인할 수 있습니다.",
     "validationLink": "엔진 검증 보기 · 관리자 로그인",
     "featuresTitle": "필요한 기능, 바로 찾아보세요.",
     "signatureTitle": "여행에서 바로 느끼는 차이",
@@ -195,7 +194,11 @@
     "saved": "저장",
     "waiting": "지금 출발하면?",
     "course": "분산 코스",
-    "mypage": "마이"
+    "mypage": "마이",
+    "merchantConsole": "사장님 콘솔",
+    "adminDashboard": "관제 대시보드",
+    "merchantShort": "사장님 콘솔",
+    "adminShort": "관제 대시보드"
   },
   "landing": {
     "tagline": "줄 서는 대신, 경주를 한 곳 더.",
@@ -251,7 +254,7 @@
     "heroDesc": "저장한 장소마다 지금 출발 기준 도착 시각을 함께 보여드려요.",
     "heroCount": "저장 {n}곳",
     "emptyTitle": "마음에 든 장소를 여기에 모아보세요",
-    "emptyBody": "경주 황리단길에서 마음에 든 장소를 저장하면 여기에 모여요.",
+    "emptyBody": "마음에 든 장소를 저장하면 여기에 모여요.",
     "browseMap": "지도 둘러보기",
     "clearAll": "전체 초기화",
     "filterAll": "전체",
@@ -447,7 +450,8 @@
     "savedBannerZero": "지금부터 아낀 시간이 쌓입니다",
     "savedValueZero": "NextSpot으로 한산한 곳을 찾을수록 기다림이 줄어들어요",
     "editNameFailed": "프로필을 저장하지 못했습니다. 다시 시도해 주세요.",
-    "menuInquiries": "내 문의"
+    "menuInquiries": "내 문의",
+    "roleTraveler": "경주 여행자"
   },
   "settings": {
     "title": "설정",
@@ -489,7 +493,7 @@
     "termsBody": "혼잡도·대기시간·추천 정보는 참고용이며, 서비스 이용으로 발생한 결과에 대해 법적 책임을 지지 않습니다.",
     "contactTitle": "문의",
     "contactBody": "개인정보나 데이터 삭제 관련 문의는 마이페이지의 고객지원을 통해 남겨주세요.",
-    "footer": "최종 업데이트 · 2026 관광데이터 활용 공모전 출품 버전"
+    "footer": "최종 업데이트 · {date}"
   },
   "course": {
     "backToMap": "지도 보기",
@@ -749,17 +753,14 @@
     "shareCopyFail": "복사에 실패했어요",
     "errorTitle": "여행 기록을 다시 불러올게요",
     "errorBody": "잠시만 기다려 주세요.",
-    "emptyTitle": "여행 임팩트가 여기에 쌓입니다",
-    "emptyBody": "지도에서 추천을 받아보세요",
-    "emptyCta": "지도 보러 가기",
-    "summaryTitle": "누적 임팩트",
-    "summaryDispersals": "분산 유도 {n}건",
-    "summarySavedWait": "절약된 대기 {n}분",
-    "summaryStores": "참여 점포 {n}곳",
-    "summaryAria": "누적 임팩트 상세 보기",
-    "sampleBadge": "예시 값",
-    "summaryRealNote": "내 여행 기록에서 집계한 실제 값이에요. 참여 점포 수만 예시입니다.",
-    "summarySampleNote": "여행 기록이 쌓이면 내 실제 집계로 바뀌어요."
+    "emptyTitle": "첫 대안으로 이동하면 아낀 시간이 여기에 쌓여요",
+    "emptyBody": "붐비는 곳 대신 추천받은 곳으로 출발해 보세요.",
+    "emptyCta": "지도에서 시작",
+    "summaryTitle": "나의 여행 임팩트",
+    "summaryDispersals": "대안으로 이동 {n}번",
+    "summarySavedWait": "아낀 대기 {n}분",
+    "summaryAria": "나의 여행 임팩트 자세히 보기",
+    "summaryRealNote": "내 여행 기록으로 집계했어요."
   },
   "recommend": {
     "shareText": "{name}을(를) 경주 대안 장소로 확인해보세요 · NextSpot",
@@ -1171,8 +1172,6 @@
     "title": "내 가게 대시보드",
     "subtitle": "NextSpot 사장님 콘솔",
     "leave": "나가기",
-    "needLoginTitle": "로그인이 필요해요",
-    "needLoginDesc": "사장님 콘솔은 계정으로 들어가요.",
     "notMerchantTitle": "사업자 계정이 아니에요",
     "notMerchantDesc": "가게를 등록하면 성과·타임세일·좌석 상태를 관리할 수 있어요.",
     "noStoreTitle": "확인을 기다리고 있어요",
@@ -1187,7 +1186,9 @@
     "developerCount": "{count}곳",
     "developerEmpty": "다른 이름이나 종류로 찾아보세요",
     "serverTitle": "서버 연결을 확인하고 있어요",
-    "serverDesc": "서버가 잠시 응답하지 않아 계정을 확인하지 못했어요. 잠시 후 다시 시도해 주세요."
+    "serverDesc": "서버가 잠시 응답하지 않아 계정을 확인하지 못했어요. 잠시 후 다시 시도해 주세요.",
+    "guestTitle": "사장님 계정으로 로그인",
+    "guestDesc": "가게 성과·타임세일·좌석 상태를 바로 관리해요. 계정 없이 먼저 둘러봐도 좋아요."
   },
   "support": {
     "title": "고객지원",
@@ -1270,7 +1271,7 @@
     "apiDetail": "공통·소개 상세 정보",
     "apiImage": "관광 이미지",
     "apiFestival": "축제·행사 정보",
-    "apiConcentration": "관광지 집중률(상대지수)·연관 관광지",
+    "apiConcentration": "관광지 집중률(상대지수)",
     "apiWeather": "단기예보(동네예보)",
     "apiParking": "공영주차장 현황·실시간 주차면",
     "apiOsm": "보행 경로 네트워크",
@@ -1286,7 +1287,7 @@
     "screenKakao": "지도 렌더링·화장실 목록",
     "cycleDaily": "일 1회 (04:00 KST)",
     "cycleWeather": "3시간 발표 · 30분 캐시",
-    "cycleParking": "5분",
+    "cycleParking": "10분",
     "cycleStatic": "사전 구축 · 배포 시 갱신",
     "cycleLive": "요청 시 실시간",
     "freshTitle": "지금 이 화면의 데이터 신선도",
@@ -1295,15 +1296,16 @@
     "freshSourceEstimate": "적재 시각 추정값",
     "freshWritten": "{n}건 갱신",
     "freshLoading": "동기화 시각을 확인하는 중입니다…",
-    "freshFallback": "한국관광공사 TourAPI 관광정보는 매일 04:00(KST)에 일괄 적재하고, 상세·이미지 응답은 24시간 캐시로 제공합니다.",
+    "freshFallback": "한국관광공사 TourAPI 관광정보는 매일 04:00(KST)에 일괄 적재하고, 장소 상세·축제·키워드 검색은 요청할 때 불러옵니다.",
     "note": "공공데이터는 공공누리 이용조건에 따라 출처를 표시해 사용하며, 각 화면의 카드·푸터에도 출처를 함께 표기합니다.",
     "footerHint": "데이터 출처 자세히 보기",
-    "merchantCta": "상인 콘솔 데모 보기",
+    "merchantCta": "사장님 콘솔 데모 보기",
     "adminCta": "관제 대시보드 데모 보기",
     "roleNote": "실제 운영은 권한 계정으로 로그인합니다",
-    "seoulBadge": "검증",
-    "seoulTitle": "서울 실측 데이터로 추천 엔진 검증 중",
-    "seoulBody": "서울 실시간 도시데이터(서울특별시·공공누리 제1유형)로 홍대·연남동·합정역·명동·동대문 5곳을 10분 주기로 수집해, 경주에서 쓰는 혼잡 추정 엔진을 실측값과 대조하며 검증하고 있습니다."
+    "apiKeyword": "키워드 검색",
+    "screenKeyword": "장소 검색 결과",
+    "cycleDailyLive": "일 1회 (04:00 KST) + 요청 시 실시간",
+    "cycleOnRequest": "요청 시 조회"
   },
   "demo": {
     "badge": "데모 데이터로 보는 중",
@@ -1391,5 +1393,11 @@
     "backToMap": "지도로 돌아가기",
     "exploreCourse": "분산 코스 보기",
     "brandLine": "NextSpot · 경주 황리단길 혼잡 분산 안내"
+  },
+  "console": {
+    "openMerchant": "사장님 콘솔 열기",
+    "openMerchantDesc": "가게 성과·타임세일·좌석 상태 관리",
+    "openAdmin": "관제 대시보드 열기",
+    "openAdminDesc": "실시간 혼잡도 · 안전 경보 · 통계 리포트 · 문의 관리"
   }
 }
