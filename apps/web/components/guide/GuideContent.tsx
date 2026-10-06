@@ -117,13 +117,14 @@ export default function GuideContent({ onNavigate }: { onNavigate?: () => void }
               {t('dataTab.adminCta')}<ArrowRight size={16} aria-hidden />
             </Link>
           </div>
-          {/* 콘솔 버튼은 데모로 바로 가므로, 실제 계정으로 들어갈 길은 관문(/merchant · /admin/login)으로 잇는다 —
+          {/* 콘솔 버튼은 데모로 바로 가므로, 실제 계정으로 들어갈 길을 따로 잇는다 — 사장님 콘솔은 로그인 화면으로 곧장
+              (?next=/merchant 라 심사용 사장님 계정이 이메일 칸에 미리 들어간다), 관제는 관문(/admin/login)으로.
               계정 안내는 그 관문과 로그인 화면이 맡는다(components/JudgeAccountHint.tsx). 소개 본문에는 심사 문구를 두지 않는다. */}
           <p className={styles.note}>
             {t('dataTab.roleNote')}
             {/* 링크는 문장 아래 줄에 — 같은 줄에 이어 붙이면 문장과 링크가 한 문장처럼 읽힌다. */}
             <span className={styles.noteLinks}>
-              <Link href="/merchant" prefetch={false} onClick={onNavigate} className={styles.noteLink}>
+              <Link href="/login?next=/merchant" prefetch={false} onClick={onNavigate} className={styles.noteLink}>
                 {t('guide.consoleLoginMerchant')}
               </Link>
               {' · '}
@@ -183,16 +184,8 @@ export default function GuideContent({ onNavigate }: { onNavigate?: () => void }
               ))}
             </ul>
             <p className={styles.future}>{t('guide.futureBody')}</p>
-
-            {/* 추정 엔진의 정확도를 '계획'이 아니라 '지금 돌아가는 일'로 보여주는 카드.
-                서울 검증 현황 API(GET /engine-validation/seoul/status)는 관리자 인증이 필요해
-                여기서 호출하지 않는다 — 수집 대상·주기는 고정 사실이라 정적 문장으로 적는다
-                (app/services/seoul_citydata_service.py · docs/CONGESTION_ENGINE_PLAN.md §5.1). */}
-            <div className={styles.seoulCard}>
-              <span className={styles.seoulBadge}>{t('dataTab.seoulBadge')}</span>
-              <h3>{t('dataTab.seoulTitle')}</h3>
-              <p className={styles.cardBody}>{t('dataTab.seoulBody')}</p>
-            </div>
+            {/* 서울 실측 검증 카드는 뺐다 — 경주 서비스 소개에 서울 데이터가 보이면 경주를 서울 기준으로 맞춘 것처럼
+                읽혔다(2026-10-06 감사 I07). 검증 화면은 관제 콘솔 URL(/admin/engine-validation)에 그대로 있다. */}
           </div>
         </section>
       </details>

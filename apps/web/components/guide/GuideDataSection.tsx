@@ -8,14 +8,17 @@
 //
 // 표의 오퍼레이션 이름은 **코드에 실제로 있는 것만** 적는다(번역하지 않는 고유명사라 여기 상수로 둔다):
 //   apps/api/app/services/tourapi/client.py   — locationBasedList2 / areaBasedList2 / detailCommon2 /
-//                                               detailIntro2 / detailImage2 / searchFestival2
-//   apps/api/app/services/tourapi/insights.py — tatsCnctrRatedList(TatsCnctrRateService) /
-//                                               areaBasedList1(TarRlteTarService1)
+//                                               detailIntro2 / detailImage2 / searchFestival2 / searchKeyword2
+//   apps/api/app/services/tourapi/insights.py — tatsCnctrRatedList(TatsCnctrRateService)
+//     (연관 관광지 areaBasedList1 은 적재가 꺼져 있어(ingest.yml · vars.TOURAPI_RELATED_ENABLED) 표에 적지 않는다)
 //   apps/api/app/services/weather_service.py  — getVilageFcst(VilageFcstInfoService_2.0)
 //   apps/api/app/services/parking_demand_service.py — PrkSttusInfo / PrkRealtimeInfo
 //   apps/api/scripts/build_walking_graph.py   — Overpass API(OpenStreetMap)
 //   apps/api/app/services/kakao_place_search_service.py — /v2/local/search/keyword.json
-// 갱신 주기는 .github/workflows/ingest.yml(매일 19:00 UTC = 04:00 KST)과 각 서비스의 캐시 TTL 근거.
+// 갱신 주기 근거: TourAPI 일괄 적재는 .github/workflows/ingest.yml(매일 19:00 UTC = 04:00 KST),
+// 장소 상세는 그에 더해 /infrastructures/live-detail 이 요청 때마다 실시간으로 다시 부른다(캐시 없음),
+// 축제(events.py)·키워드 검색(search.py)은 요청 시 조회, 공영주차 수집은 pg_cron 10분 주기
+// (supabase/migrations/20260824130000 — 서비스 안의 5분 캐시가 아니라 수집 주기를 적는다).
 
 import { useEffect, useRef, useState } from 'react';
 import { ChevronDown, Database } from 'lucide-react';
@@ -27,10 +30,11 @@ import styles from './guide.module.css';
 
 const rows = [
   { org: 'orgTour', api: 'apiLocation', ops: 'locationBasedList2 · areaBasedList2', screen: 'screenLocation', cycle: 'cycleDaily' },
-  { org: 'orgTour', api: 'apiDetail', ops: 'detailCommon2 · detailIntro2', screen: 'screenDetail', cycle: 'cycleDaily' },
+  { org: 'orgTour', api: 'apiDetail', ops: 'detailCommon2 · detailIntro2', screen: 'screenDetail', cycle: 'cycleDailyLive' },
   { org: 'orgTour', api: 'apiImage', ops: 'detailImage2', screen: 'screenImage', cycle: 'cycleDaily' },
-  { org: 'orgTour', api: 'apiFestival', ops: 'searchFestival2', screen: 'screenFestival', cycle: 'cycleDaily' },
-  { org: 'orgLab', api: 'apiConcentration', ops: 'tatsCnctrRatedList · areaBasedList1', screen: 'screenConcentration', cycle: 'cycleDaily' },
+  { org: 'orgTour', api: 'apiFestival', ops: 'searchFestival2', screen: 'screenFestival', cycle: 'cycleOnRequest' },
+  { org: 'orgTour', api: 'apiKeyword', ops: 'searchKeyword2', screen: 'screenKeyword', cycle: 'cycleOnRequest' },
+  { org: 'orgLab', api: 'apiConcentration', ops: 'tatsCnctrRatedList', screen: 'screenConcentration', cycle: 'cycleDaily' },
   { org: 'orgKma', api: 'apiWeather', ops: 'getVilageFcst', screen: 'screenWeather', cycle: 'cycleWeather' },
   { org: 'orgParking', api: 'apiParking', ops: 'PrkSttusInfo · PrkRealtimeInfo', screen: 'screenParking', cycle: 'cycleParking' },
   { org: 'orgOsm', api: 'apiOsm', ops: 'Overpass API', screen: 'screenOsm', cycle: 'cycleStatic' },

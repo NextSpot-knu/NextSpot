@@ -97,3 +97,36 @@ test('desktop and small mobile guide remain readable in both themes', async ({ p
     await page.screenshot({ path: testInfo.outputPath(`guide-${scenario.width}-${scenario.theme}.png`), fullPage: scenario.width === 390 });
   }
 });
+
+// 데이터 절의 표는 제출한 기능설명서·코드와 같은 말을 해야 한다(2026-10-06 감사 I43):
+// 장소 상세는 일 1회 적재 + 요청 시 실시간, 축제·키워드 검색은 요청 시 조회, 공영주차 수집은 10분,
+// 꺼져 있는 연관 관광지(areaBasedList1)는 적지 않는다. 신선도 조회가 실패하면(여기서는 503) 폴백 문장이 보인다.
+for (const locale of [
+  { code: 'ko', parking: '10분', detail: '일 1회 (04:00 KST) + 요청 시 실시간', fallback: '장소 상세·축제·키워드 검색은 요청할 때 불러옵니다', banned: /연관 관광지|areaBasedList1|24시간 캐시/ },
+  { code: 'en', parking: '10 minutes', detail: 'Daily (04:00 KST) + live per request', fallback: 'place details, festivals and keyword search are fetched on request', banned: /related attractions|areaBasedList1|24-hour cache|KTO/ },
+] as const) {
+  test(`${locale.code} guide data table matches the live data paths`, async ({ page }) => {
+    await page.addInitScript(code => localStorage.setItem('nextspot_locale', code), locale.code);
+    await page.goto('/guide');
+    const fold = page.locator('details[data-data-fold]');
+    await fold.locator('summary').click();
+    await expect(fold).toHaveAttribute('open', '');
+    const table = fold.getByRole('table');
+    await expect(table).toBeVisible();
+    await expect(table.getByRole('row')).toHaveCount(11); // 헤더 1 + 출처 10(키워드 검색 행 추가)
+    await expect(table.getByText('searchKeyword2')).toBeVisible();
+    await expect(table.getByText(locale.parking, { exact: true })).toBeVisible();
+    await expect(table.getByText(locale.detail, { exact: true })).toBeVisible();
+    await expect(fold).toContainText(locale.fallback);
+    await expect(fold).not.toContainText(locale.banned);
+  });
+}
+
+test('guide console links: merchant sign-in goes straight to the login form, the Seoul card is gone', async ({ page }) => {
+  await page.goto('/guide');
+  await expect(page.getByRole('link', { name: '사장님 콘솔 로그인' })).toHaveAttribute('href', '/login?next=/merchant');
+  await expect(page.getByRole('link', { name: '사장님 콘솔 데모 보기' })).toHaveAttribute('href', '/merchant?demo=1');
+  await page.locator('details[data-plan-fold] summary').click();
+  await expect(page.locator('details[data-plan-fold]')).toHaveAttribute('open', '');
+  await expect(page.locator('body')).not.toContainText(/서울 실측|서울 실시간/);
+});
