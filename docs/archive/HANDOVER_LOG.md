@@ -1,4 +1,13 @@
 # HANDOVER 로그 (2026-06-30 ~ 2026-08-28) 
+## 2026-09-28 — API 재설계 1단계: 참조 스냅샷으로 지도 4초 → 수 ms (P0a·P1)
+
+- 도구·브랜치: Claude Code(데스크톱 — 노트북 작업 392커밋 동기화 후) · 감사 워크플로(6영역 감사 → 설계 → 레드팀 2렌즈) + 구현 워크플로(구현 → 독립 리뷰 2렌즈 → 수정) / `perf/reference-snapshot`
+- 커밋: fd5af2d..9ae0657 (13건) + 이 기록. 계획·실측·단계 상태는 [`API_ARCHITECTURE_PLAN.md`](../API_ARCHITECTURE_PLAN.md)
+- 한 것: 지도 `/infrastructures` 가 요청마다 시설 2MB를 서울에서 다시 읽던 구조를 `services/reference_snapshot.py`(불변 스냅샷 + 미리 직렬화한 바이트 · ETag/304 · 시각 경계마다 재조립 · 마지막 정상본 · 건전성 검사 · 쓰기마다 mark_dirty)로 바꿨다. 스냅샷이 없으면 옛 경로(새 503 없음). P0a: RPC 실패 시 1,682 스레드 팬아웃 제거 · 시설 페이지네이션 id 정렬 · httpx URL 로그 차단.
+- 검증: api ruff + pytest 1841 · OpenAPI 스냅샷 동일 · check-docs · **실 DB 읽기 대조**(데스크톱): 3개 필터 모두 옛 경로와 JSON 동일(1,682곳·순서 동일), 스냅샷 3~13ms vs 옛 경로 1.2~1.5초, 304 동작, 요청당 힙 12~13MB → 3MB · 리뷰 13건 반영(11 수정, 2 부분 — 사유는 커밋 본문).
+- 다음·미결: main 반영 후 Render 로그 `served="snapshot"` 비율·`/health` 의 `reference_snapshot`·RSS 확인 → P2(주차 이력 행렬, −44~109MB) · P3(소비자 이전·보행 CSR·예측 표). 롤백은 Render env `REFERENCE_SNAPSHOT_SERVE=legacy`(재시작). 웹 경계 파라미터 이름 불일치(필터가 한 번도 안 걸림)는 화면 결정 대기.
+- 사람 작업: 공공 API 키 회전(아래 "사람 작업 대기").
+
 ## 2026-09-27 — TourAPI 일배치: 목록 재시도 · 일시 오류일 때만 새 러너 재실행 · 공개 이슈 알림 없음
 
 - 도구·브랜치: Claude Code / `fix/ingest-reliability-v3`(09-24 `fix/ingest-reliability-v2` 를 main 위로 옮기고 리뷰 반영, 한 커밋) → main

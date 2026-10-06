@@ -6,7 +6,7 @@
 
 ## 배포 상태
 
-- **main = 프로덕션.** main push가 Vercel(web)·Render(api)를 자동 배포한다. 마지막 반영은 2026-09-30 01:24 KST `dd2afc9`(사용자 푸시, `f0f440b` 위 fast-forward) — 추천 카드 합성 id 수정 `afa4ec0`(아래 2026-09-29b) · P3 배치 B csr 커널(스위치 꺼진 채 memo — API 동작 불변, 아래 2026-09-29c) · 문서. CI green(4잡, e2e 포함 01:28 KST) · Vercel 번들에 `afa4ec0` 확인 · Render `/health` 새 프로세스(참조 스냅샷 ready·1,684곳, `parking_history` rpc) — 데스크톱 확인 09-30 01:30. 그 전 2026-09-29 오후 `f0f440b`(= `release/0930`, CI green 15:44 KST) — API 재설계 P3 배치 A(아래 2026-09-28e) · 대기 보드 웹 27건(아래 2026-09-29). Vercel 은 이 번들을 낸다(09-29 23시, i18n 청크 해시가 로컬 빌드와 같음 — 데스크톱 확인). Render 배포 커밋은 `/health` 로는 안 보인다(`reference_snapshot` ready·1,684곳, `parking_history.mode=rpc`). 그 전 2026-09-29 새벽 야간 배치 — API 재설계 P2a(주차 이력 행렬 · 스위치 `AREA_DEMAND_SOURCE` 기본 `rpc` = 손님 쪽 동작 불변, 아래 2026-09-28d) · Wikimedia 사진 출처 줄·ⓒ 표시 자리 · P0b 웹 7건(아래 2026-09-28c). 그 전 2026-09-28 P0c 일배치·수집 경보(`367514c`, 아래 2026-09-28b). 그 전 같은 날 API 참조 스냅샷 P0a·P1(`fd5af2d`..`4d56afa`, 아래 2026-09-28 — 사용자가 직접 푸시, Render 가동 확인: `/health.reference_snapshot` ready·1,682곳, 지도 TTFB 0.24~0.54초·304 동작). 그 전 2026-09-27 TourAPI 일배치 재시도(`58c8bfc`). 그 전 같은 날 Supabase 키 공백 정리(아래 2026-09-26c 끝). 그 전 2026-09-26 Supabase 연결 격리(`bd44110`, 아래 2026-09-26c). 그 전 같은 날 관제 대시보드 추정·예측·시나리오 모드(`990b315`..`c2f97ad`, 아래 2026-09-26b). 그 전 같은 날 운영 긴급 수정·메모리·관광객 CPU(`0ae42b8`..`6b80f50`, 아래 2026-09-26). 그 전 2026-09-25 API OOM 대응(`0408bd7`..`0ce394d`). 그 전 2026-09-22 `ec127ee`, 09-21 —
+- **main = 프로덕션.** main push가 Vercel(web)·Render(api)를 자동 배포한다. **2026-10-06: main 을 `fix/judge-view-1006`(심사 화면 정리, 아래 2026-10-06)으로 옮기는 중 — 푸시 시각·CI·Vercel/Render 확인은 메인 세션이 배포 뒤 이 자리에 적는다.** 그 전 origin/main 은 `0be9872`(10-02 `release/1002`, 아래 2026-10-02 — 이 줄에 배포 확인 기록 없음). 그 전 확인된 반영은 2026-09-30 01:24 KST `dd2afc9`(사용자 푸시, `f0f440b` 위 fast-forward) — 추천 카드 합성 id 수정 `afa4ec0`(아래 2026-09-29b) · P3 배치 B csr 커널(스위치 꺼진 채 memo — API 동작 불변, 아래 2026-09-29c) · 문서. CI green(4잡, e2e 포함 01:28 KST) · Vercel 번들에 `afa4ec0` 확인 · Render `/health` 새 프로세스(참조 스냅샷 ready·1,684곳, `parking_history` rpc) — 데스크톱 확인 09-30 01:30. 그 전 2026-09-29 오후 `f0f440b`(= `release/0930`, CI green 15:44 KST) — API 재설계 P3 배치 A(아래 2026-09-28e) · 대기 보드 웹 27건(아래 2026-09-29). Vercel 은 이 번들을 낸다(09-29 23시, i18n 청크 해시가 로컬 빌드와 같음 — 데스크톱 확인). Render 배포 커밋은 `/health` 로는 안 보인다(`reference_snapshot` ready·1,684곳, `parking_history.mode=rpc`). 그 전 2026-09-29 새벽 야간 배치 — API 재설계 P2a(주차 이력 행렬 · 스위치 `AREA_DEMAND_SOURCE` 기본 `rpc` = 손님 쪽 동작 불변, 아래 2026-09-28d) · Wikimedia 사진 출처 줄·ⓒ 표시 자리 · P0b 웹 7건(아래 2026-09-28c). 그 전 2026-09-28 P0c 일배치·수집 경보(`367514c`, 아래 2026-09-28b). 그 전 같은 날 API 참조 스냅샷 P0a·P1(`fd5af2d`..`4d56afa`, 아래 2026-09-28 — 사용자가 직접 푸시, Render 가동 확인: `/health.reference_snapshot` ready·1,682곳, 지도 TTFB 0.24~0.54초·304 동작). 그 전 2026-09-27 TourAPI 일배치 재시도(`58c8bfc`). 그 전 같은 날 Supabase 키 공백 정리(아래 2026-09-26c 끝). 그 전 2026-09-26 Supabase 연결 격리(`bd44110`, 아래 2026-09-26c). 그 전 같은 날 관제 대시보드 추정·예측·시나리오 모드(`990b315`..`c2f97ad`, 아래 2026-09-26b). 그 전 같은 날 운영 긴급 수정·메모리·관광객 CPU(`0ae42b8`..`6b80f50`, 아래 2026-09-26). 그 전 2026-09-25 API OOM 대응(`0408bd7`..`0ce394d`). 그 전 2026-09-22 `ec127ee`, 09-21 —
   `fafdd06`+(심사용 계정 안내 + yunseong 데모 콘솔·비교 헤더·데이터 절 통합, 아래 `2026-09-21b`·`c`; 그전 `374254c`·소개 개편
   `a3b8a6b` 포함). `/guide`는 줄·혼잡으로 잃는 여행 시간과 주변 대안·이동 코스라는
   문제·해결 한 화면만 남겼다. Vercel 응답에서 새 제목·문제 카드·해결 카드가 있고 이전 취향 서사와 기술 설명은 없는 것을 확인했다.
@@ -47,6 +47,7 @@
 
 외부 콘솔 접근이 필요해 코드로 못 하는 일. 끝나면 줄을 지우고 "최근 세션"에 한 줄 남긴다.
 
+- [ ] **심사 대비 배치 D(아래 2026-10-06) — D1 먼저**: D1 Supabase → Authentication → Rate Limits → 익명 로그인 **300/h per IP**(시크릿 창 `/waiting` 한 번으로 확인, `DEPLOY_AND_ENV.md` 에도 적기) · D2 화면 서명(B0 미리보기·SPOT 문구 — 4로케일·라이트/다크·390/1536) · D3 심사 가게(이풍녀 구로쌈밥·맥심가옥) `coupon_rate` < 15% 와 `system_settings`(점검 꺼짐·공지 빔) 읽기 확인 — 심사 예상 주 아침마다 · D4 월정교 시드 연결만(PM_STEPS 6·7) · D5 반려동물 API 활용신청(🐾 원할 때) · D6 배포 뒤 `openapi@naver.com`·`openapi@gmail.com` 로그인 첫 화면 확인 · D7(선택) 심사일 전날 밤 API Keep-Warm 수동 1회.
 - [ ] **P2a shadow 게이트** — Render `AREA_DEMAND_SOURCE=shadow` 는 **2026-09-30 01:37 KST 가동**(사용자 설정, `/health`: ready·rows 5,352·lots 4·failures 0·동기화 31초). **10-01 01:37 이후**(재시작 1회 포함) 게이트와 go/no-go 측정 → `matrix`.
       순서·게이트·되돌림(`rpc`, 재시작 1~2분)·볼 것은 [`API_ARCHITECTURE_PLAN.md`](./API_ARCHITECTURE_PLAN.md) "P2a 전환 절차".
 - [ ] **P3 배치 A Render 로그 확인**(09-29 `f0f440b` 로 반영) — 예열은 Keep-Warm 워크플로가 이미 부른다(반영 뒤 06:53Z·10:36Z 실행). Render 로그에서 `walking_graph_presnap`·`warmup_run_done` 이 보이는지, `merchant_boost_timesale_fetch_failed`·`availability_evidence_unavailable`(추천·by-type·지도)이 늘지 않았는지. 되돌림 env `WALKING_ROUTE_KERNEL=legacy`(재시작) — 아래 2026-09-28e. 반영 전 PM 확인으로 적었던 두 가지(영업 근거 한 번 조회의 실패 범위가 `/infrastructures` 지도에도 적용 · 기존 테스트 두 곳 변경)는 이미 운영에 있다.
@@ -235,6 +236,19 @@ from checks order by seq;
 
 최신이 위. 10개를 넘으면 가장 오래된 항목을 `archive/HANDOVER_LOG.md` 맨 위로 옮긴다.
 
+## 2026-10-06 — 심사 화면 "더 쉽게 눈에 띄게": 심사위원 시점 감사 → B0 + 배치 A + C1 통합 → `fix/judge-view-1006`
+
+- 도구·브랜치: Claude Code(데스크톱) · 감사 워크플로(심사위원 시점으로 기능설명서 §5 다섯 기능을 1536×730·390 에서 실측 → 계획 → 레드팀) + 레인 6개 병렬 구현(레인마다 독립 리뷰 → 수정) + 통합 / `fix/judge-view-1006`(origin/main `0be9872` 위에 `jv/core`·`jv/waiting`·`jv/nav`·`jv/merchant`·`jv/admin`·`jv/api` 를 이 순서로 `--no-ff` 병합 — 레인 커밋 47건)
+- 커밋: 4de5a73..6f01510 (병합 6건 + 통합 후속 5건) + 이 기록
+- 감사: 데스크톱 심사위원은 카드 첫 줄이 스스로를 부정하고("지금 첨성대 혼잡 → 대신 첨성대"), 카드 표면에 내부 산식·"서울 실측 보정"·46일 전 관측이 보이며, 사장님 콘솔·관제 대시보드 입구가 없고, 실계정 사장님 콘솔에 ① 예상 혼잡이 없다. 계획은 28개 결정의 권장안을 따른다(15번 수락률 재정의 제외).
+- 한 것(레인별): **core** B0 폰 카드 미리보기·관광객 말 SPOT 근거 + A2 첫 줄은 정말 덜 붐비는 *다른* 곳일 때만 화살표(아니면 '도보 N분 · 도착 시 영업 · 취향 N% 일치')·24시간 넘은 관측 숨김·서울 표기 제거 + A3 근거 원자료는 '상세 정보 펼치기' 뒤 + A4 시간 칸=칩의 합·'상시 개방'=영업·'영업시간 미확인' 칩 없음·시간 줄 나눔·전화 `tel:`·미학습이면 /predict/day 안 부름 + A5 카테고리 칩·♿ 막다른 길 없음 + A7 검색 결과를 검색창 바로 아래에 출처와 함께 + A12 토스트·주차 출처·SPOT 점수·분산 코스·경주 밖 안내. **waiting** A8 대기 보드 첫 섹션부터 그리기·문구. **nav** A1 레일·폰 줄 콘솔 입구, 심사용 사장님 로그인 → /merchant, 게스트 /merchant 로그인 카드 · A6 /setup 시작하기 고정 · A11 화면 전환 transform 제거(시트·고정 요소가 화면 기준)·한국어 낱말 줄바꿈·로그인 언어 칩 · A12 마이페이지 예시 숫자 제거·서비스 소개 데이터 표. **merchant** A9 ① 예상 혼잡 항상(미학습이면 업종 요일·시간대 '예측')·한가한 시간 → 타임세일·개발자 문구와 데모 배지 정리. **admin** A10 첫 화면 KPI 4개·추천 신뢰도 맨 아래·'산식 보기'·한국어 메뉴·엔진 검증 메뉴 숨김·403 사유 표시. **api** C1 키워드 검색 법정동 47/130 + 경주 후필터 + 0건 미캐시 + 분당 12회 · 추천 사유 분 표기를 웹 규칙과 같게 · 심사용 관리자(`openapi@gmail.com`) 전체 설정 저장·장소 삭제 403.
+- 통합: 충돌 2곳 — 추천 화면 음성 버튼 위치(같은 수정 두 벌 → core 쪽 하나), 관제 403 사유(admin 의 서버 detail 표시로 합치고 api 의 웹 사본 모듈 삭제). model-info 요청 함수 하나로 · 죽은 서울 키·스타일 삭제 · 병합 뒤 e2e 5개 스펙을 바뀐 계약에 맞춤(typesetting 은 폰 미리보기를 먼저 펼치게) · 시연 대본·Q&A·데이터 활용 문서 갱신.
+- 동작 변화(PM 확인용): `openapi@naver.com` 로그인(next 없음) → /merchant · 모든 관광객 화면에 콘솔 입구 2개 · 게스트 /mypage 예시 숫자·로그아웃 없음(09-21 결정 뒤집음, PM 4.19a) · 24시간 넘은 관측은 어디에도 안 보임(09-20 '관측은 남긴다' 뒤집음, /waiting 순서가 바뀔 수 있음) · 카드 큰 숫자 +1분 가능 · 한국어 전역 keep-all · 관제 메뉴에서 엔진 검증 숨김(URL 은 열림) · 키워드 검색 분당 12회·0건 미캐시(TourAPI 호출 조금 늘 수 있음) · 사장님 콘솔 model-info 1회가 실패 batch 7회를 대신함.
+- 검증: web lint 0 errors(경고 152)·typecheck·test 81파일·build 39쪽 · e2e 전체 282건(3300, 워커 2) 281 통과 · 1 실패는 진짜 실패(typesetting 이 미리보기 뒤 버튼을 기다림)라 고친 뒤 그 스펙 15/15 · api ruff + pytest 2478 · check-docs · RESET_AND_SETUP 재생성 무변경.
+- 다음·미결: **미룬 것** — 배치 B1~B5(랜딩·카드 재배치·지도 시간 띠·콘솔 레이아웃·/waiting·/explore·/course), 순위를 바꾸는 API(I28 개방형 관광지 등급·I09 서버 카테고리 게이트·I01/I06 장소별 예측·I33 — 심사 뒤), 15번 수락률 재정의(안 함). **PM 서명 대기** — B0 화면(D2), 화살표 다섯째 조건(관광 지수만으로 정한 기준지 등급이면 화살표 없음)·'취향 N% 일치' 50% 하한, en '{time} 도착' 문구('Arriving {time}'). **심사 뒤** — 엔진 검증 메뉴 되살리기(`AdminSidebar.tsx` `HIDDEN_FROM_MENU`), 서버 `visit_confirmations_note` 빼기.
+  **배포 순서·되돌림**: 웹은 Vercel 승격 전 현재 프로덕션 배포 id 를 적어 두고, 되돌림은 그 id 로 Vercel instant rollback(또는 `0be9872..` 범위의 커밋을 최신부터 차례로 `git revert` — 병합 6건은 `-m 1` — 해 푸시. 통합 후속 커밋이 병합 내용에 기대므로 병합만 골라 되돌리지 않는다). API(C1)는 KST 밤에 — 배포 전 Render "이전 배포"를 적어 두고 되돌림은 그 배포 재배포. 배포 뒤 `/health`·메모리, `GET /api/v1/search/keyword?q=골굴사` 가 contentid 127693 을 주는지, 1536×730·390 라이브 스모크(F1~F5, ⓒ한국관광공사 출처 4화면, 심사 계정 2개 첫 화면). `60d80ad`(사유 올림)는 `599a7a2`(웹 규칙 그대로)와 함께만 나간다 — 같은 레인이라 이 브랜치에서는 늘 함께다.
+- 사람 작업: 배치 D(D1 Supabase 익명 로그인 300/h 를 **가장 먼저**) — "사람 작업 대기" 맨 위.
+
 ## 2026-10-02 — 실사진 적재(경주시 사진 · 법정동 목록 · 관광지 17곳) + 웹 '사진: 경주시' 출처 → `release/1002`
 
 - 도구·브랜치: Claude Code(노트북) · 리뷰 워크플로(웹·적재 2렌즈 → 반박 검증) / `release/1002`(main `e8cfb33` 위 — 09-29 노트북에만 있던 `feat/real-photos-ingest`·`web/city-credit` 를 10-02 원격에 올리고 코드 커밋만 옮김, 그쪽 HANDOVER 커밋 5건은 이 항목으로 합침) + 데스크톱 `docs/switches-0930` 2건
@@ -349,15 +363,6 @@ from checks order by seq;
   - 관리자 승인 경로 `app/routers/search.py` `_upsert_facility` 는 이미 있는 contentid 에도 capacity 를 기본값으로, image_url·address 를 None 으로 되돌리고 features 를 통째로 바꾼다(`overview_i18n` 번역·Wikimedia 출처·Kakao 좌표 표시가 지워진다). 일배치와 같은 `_write_payload` + features 병합을 쓰거나 "이미 있음" 가드를 둘 것.
   - 새 장소가 들어온 첫날 밤 사진 호출이 실패하면 Wikimedia 대체 사진을 건너뛴다 — 다음 날 밤 스스로 채워지므로 수용.
 - 사람 작업: 없음(Supabase 시크릿은 ingest 가 이미 쓰는 값)
-
-## 2026-09-28 — API 재설계 1단계: 참조 스냅샷으로 지도 4초 → 수 ms (P0a·P1)
-
-- 도구·브랜치: Claude Code(데스크톱 — 노트북 작업 392커밋 동기화 후) · 감사 워크플로(6영역 감사 → 설계 → 레드팀 2렌즈) + 구현 워크플로(구현 → 독립 리뷰 2렌즈 → 수정) / `perf/reference-snapshot`
-- 커밋: fd5af2d..9ae0657 (13건) + 이 기록. 계획·실측·단계 상태는 [`API_ARCHITECTURE_PLAN.md`](./API_ARCHITECTURE_PLAN.md)
-- 한 것: 지도 `/infrastructures` 가 요청마다 시설 2MB를 서울에서 다시 읽던 구조를 `services/reference_snapshot.py`(불변 스냅샷 + 미리 직렬화한 바이트 · ETag/304 · 시각 경계마다 재조립 · 마지막 정상본 · 건전성 검사 · 쓰기마다 mark_dirty)로 바꿨다. 스냅샷이 없으면 옛 경로(새 503 없음). P0a: RPC 실패 시 1,682 스레드 팬아웃 제거 · 시설 페이지네이션 id 정렬 · httpx URL 로그 차단.
-- 검증: api ruff + pytest 1841 · OpenAPI 스냅샷 동일 · check-docs · **실 DB 읽기 대조**(데스크톱): 3개 필터 모두 옛 경로와 JSON 동일(1,682곳·순서 동일), 스냅샷 3~13ms vs 옛 경로 1.2~1.5초, 304 동작, 요청당 힙 12~13MB → 3MB · 리뷰 13건 반영(11 수정, 2 부분 — 사유는 커밋 본문).
-- 다음·미결: main 반영 후 Render 로그 `served="snapshot"` 비율·`/health` 의 `reference_snapshot`·RSS 확인 → P2(주차 이력 행렬, −44~109MB) · P3(소비자 이전·보행 CSR·예측 표). 롤백은 Render env `REFERENCE_SNAPSHOT_SERVE=legacy`(재시작). 웹 경계 파라미터 이름 불일치(필터가 한 번도 안 걸림)는 화면 결정 대기.
-- 사람 작업: 공공 API 키 회전(아래 "사람 작업 대기").
 
 ## 기록 규칙
 
