@@ -1305,7 +1305,9 @@
   },
   "demo": {
     "badge": "Viewing demo data",
-    "badgeShort": "Demo data",
+    "badgeShort": "Sample screen",
+    "todayBadge": "Today",
+    "weeklyBadge": "Last 7 days",
     "badgeNote": "A sample screen you can open without signing in",
     "noSave": "Nothing is saved in the demo",
     "enter": "Take a demo tour",

@@ -1305,7 +1305,9 @@
   },
   "demo": {
     "badge": "デモデータを表示中",
-    "badgeShort": "デモデータ",
+    "badgeShort": "サンプル画面",
+    "todayBadge": "今日",
+    "weeklyBadge": "直近7日",
     "badgeNote": "ログインなしで見られるサンプル画面です",
     "noSave": "デモでは保存されません",
     "enter": "デモを見る",
