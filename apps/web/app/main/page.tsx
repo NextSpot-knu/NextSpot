@@ -177,6 +177,9 @@ const RECALC_EMERGENCY_MS = Math.max(RECOMMENDATION_TIMEOUT_MS, THEME_RECOMMENDA
 const LAB_HINT_KEY = 'nextspot_lab_hint_shown';
 const LAB_HINT_MAX_SHOWS = 2;
 
+// 경주 밖 위치를 황리단길로 바꿨다는 안내 — 세션에 한 번만(위치가 다시 잡힐 때마다 반복하지 않는다).
+const OUT_OF_REGION_NOTICE_KEY = 'nextspot_out_of_region_notice';
+
 // 추천을 내는 칩 4종(주차장 제외) — 화면 id 와 시설 유형.
 const CATEGORY_FILTERS: { id: string; type: PlaceCategory }[] = [
   { id: '음식점', type: 'restaurant' },
@@ -409,6 +412,7 @@ export default function MainPage() {
     };
   }, []);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [outOfRegionNotice, setOutOfRegionNotice] = useState(false);
   const [travelContext, setTravelContext] = useState(loadTravelContext);
   const [showMobileTools, setShowMobileTools] = useState(false);
   const [showDiscoveryThemes, setShowDiscoveryThemes] = useState(false);
@@ -910,6 +914,13 @@ export default function MainPage() {
             lat = REGION.center.lat;
             lng = REGION.center.lng;
             console.log(`User is outside ${REGION.name}. Mocking location to region center:`, lat, lng);
+            // 도보 N분이 어디서 잰 값인지 모르면 '내 위치' 의 거리로 읽힌다 — 세션에 한 번만 알린다.
+            let noticed = false;
+            try {
+              noticed = sessionStorage.getItem(OUT_OF_REGION_NOTICE_KEY) === '1';
+              sessionStorage.setItem(OUT_OF_REGION_NOTICE_KEY, '1');
+            } catch { /* 저장소 차단 — 이번 한 번은 알린다 */ }
+            if (!noticed) setOutOfRegionNotice(true);
           }
 
           setUserLocation({ lat, lng });
@@ -923,6 +934,15 @@ export default function MainPage() {
       );
     }
   }, []);
+
+  // 경주 밖 안내 — 위치 콜백은 마운트 때의 t(첫 렌더는 늘 ko)를 쥐고 있어 거기서 문장을 만들면 en 화면에
+  // 한국어가 뜬다. 여기서 지금 로케일로 만들고, 토스트가 떠 있는 동안 언어가 바뀌면 그 언어로 다시 띄운다.
+  useEffect(() => {
+    if (!outOfRegionNotice) return;
+    showToast(t('map.outOfRegionStart'));
+    const timer = setTimeout(() => setOutOfRegionNotice(false), 3000);
+    return () => clearTimeout(timer);
+  }, [outOfRegionNotice, t]);
 
   // 주차장 탭은 장소 DB가 아니라 경주시 ITS의 공식 위치·실시간 잔여면을 직접 사용한다.
   useEffect(() => {
@@ -1816,7 +1836,7 @@ export default function MainPage() {
     else if (fac.type === "cafe") greeting = t('map.greetingCafe');
     else if (fac.type === "attraction" || fac.type === "culture") greeting = t('map.greetingView');
 
-    showToast(`${greeting}${t('map.greetingSuffix')}`);
+    showToast(greeting);
 
     if (navigationMode === 'walk') {
       showToast(t('trip.selectWalking'));
@@ -1911,7 +1931,7 @@ export default function MainPage() {
       console.warn("Failed to save bookmark:", e);
     }
 
-    showToast(t('map.savedToast', { name: fac.name }));
+    showToast(t('map.savedToast'));
   };
 
   const handleReject = (fac: Facility) => {
@@ -1987,7 +2007,7 @@ export default function MainPage() {
       return next;
     });
 
-    showToast(t('map.rejectToast', { name: fac.name }));
+    showToast(t('map.rejectToast'));
     maybeShowLabHint();
   };
 
@@ -3641,7 +3661,7 @@ export default function MainPage() {
           <div className="pointer-events-auto rounded-3xl border border-line bg-white/95 p-5 shadow-[0_8px_30px_rgba(43,35,32,0.16)] backdrop-blur">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <p className="text-[10px] font-bold text-sky-700">{t('map.parkingOfficial')}</p>
+                <p className="text-[10px] font-bold text-sky-700">{t('map.parkingEyebrow')}</p>
                 <h3 className="mt-1 text-lg font-bold text-muk">{selectedParkingLot.name}</h3>
                 <p className="mt-1 text-xs text-muk-soft">
                   {t('map.parkingDistance', { n: Math.ceil(selectedParkingLot.distanceM).toLocaleString() })}
@@ -3651,16 +3671,12 @@ export default function MainPage() {
                 <X size={18} />
               </button>
             </div>
-            {selectedParkingLot.live && selectedParkingLot.availableSpaces !== null && selectedParkingLot.totalSpaces !== null ? (
+            {/* 잔여면 실시간 값이 있을 때만 상자를 그린다 — 없다는 사실은 관광객에게 할 일을 주지 않는다. */}
+            {selectedParkingLot.live && selectedParkingLot.availableSpaces !== null && selectedParkingLot.totalSpaces !== null && (
               <div className="mt-4 rounded-2xl border border-jade/25 bg-jade/10 px-4 py-3">
                 <p className="text-sm font-extrabold text-jade">
                   {t('map.parkingLiveSpaces', { available: selectedParkingLot.availableSpaces, total: selectedParkingLot.totalSpaces })}
                 </p>
-                <p className="mt-1 text-[10px] text-muk-soft">{t('map.parkingLiveNotice')}</p>
-              </div>
-            ) : (
-              <div className="mt-4 rounded-2xl border border-line bg-hanji-deep px-4 py-3 text-xs font-semibold text-muk-soft">
-                {t('map.parkingNoLive')}
               </div>
             )}
             <button type="button" onClick={() => openDrivingDirections(selectedParkingLot)} className="toss-pressable mt-4 flex w-full items-center justify-center gap-2 rounded-2xl bg-muk px-4 py-3 text-sm font-bold text-white">

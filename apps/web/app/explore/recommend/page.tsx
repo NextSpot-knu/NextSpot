@@ -280,6 +280,10 @@ function RecommendContent() {
   // facilityId 부재를 판정한다(I18nProvider 마운트-후-스왑 패턴과 동일 — CongestionAlertToggle 참고).
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
+  // 고를 장소가 없으면 빈 화면 대신 지도로 — 뒤로 가기에 이 빈 주소가 남지 않게 replace 로 보낸다.
+  useEffect(() => {
+    if (mounted && !facilityId) router.replace("/main");
+  }, [mounted, facilityId, router]);
 
   // Onboarding Modal State (Cold Start)
   const [showOnboarding, setShowOnboarding] = useState(false);
@@ -1283,29 +1287,9 @@ function RecommendContent() {
   ];
 
   // facilityId 없이 마운트가 끝났다면(깨진 공유 링크·URL 직접 입력) 데이터 로드 이펙트가 전부
-  // `if (!facilityId) return;` 로 빠져 영구 스켈레톤에 갇힌다 — 대신 안내 빈 상태 + 지도로 돌아가는 CTA 를 보여준다.
-  // /explore/map 은 /main 으로 리다이렉트되는 구 경로일 뿐이라, 헤더의 "지도 보기"(위 backToMap)와 동일하게 /main 으로 보낸다.
+  // `if (!facilityId) return;` 로 빠진다 — 위 effect 가 /main 으로 보내는 동안 빈 한지 바탕만 둔다.
   if (mounted && !facilityId) {
-    return (
-      <main className="min-h-screen bg-hanji text-muk p-4 md:p-8 flex flex-col items-center justify-center relative overflow-hidden">
-        <div className="absolute top-[-20%] left-[-10%] w-[600px] h-[600px] rounded-full bg-sunset-1/10 blur-[120px] pointer-events-none" />
-        <div className="absolute bottom-[-10%] right-[-10%] w-[600px] h-[600px] rounded-full bg-gold/10 blur-[120px] pointer-events-none" />
-        <div className="bg-white p-8 rounded-2xl border border-line toss-surface flex flex-col items-center text-center w-full max-w-[320px] relative z-10">
-          <div className="w-16 h-16 rounded-full bg-gradient-to-b from-gold/20 to-gold/10 border border-line flex items-center justify-center mb-6 text-2xl">
-            🧭
-          </div>
-          <h2 className="text-lg font-serif font-bold text-muk mb-2">{t("recommend.noFacilityTitle")}</h2>
-          <p className="text-muk-soft text-sm leading-relaxed mb-6 px-1">{t("recommend.noFacilityDesc")}</p>
-          <button
-            type="button"
-            onClick={() => router.push("/main")}
-            className="toss-pressable min-h-11 w-full flex items-center justify-center py-2.5 bg-gradient-to-r from-gold to-terracotta text-white rounded-xl font-bold text-xs transition-opacity duration-300 hover:opacity-90 shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
-          >
-            {t("recommend.backToMap")}
-          </button>
-        </div>
-      </main>
-    );
+    return <main className="min-h-screen bg-hanji" />;
   }
 
   return (

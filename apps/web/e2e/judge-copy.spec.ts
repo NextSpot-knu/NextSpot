@@ -308,3 +308,139 @@ test('the nearby-crowd evidence sits behind 상세 정보 펼치기', async ({ p
   // 자동차 길안내 버튼은 그 말만 한다.
   await expect(card.getByRole('button', { name: '자동차 길안내', exact: true })).toBeVisible();
 });
+
+// ───────────────────────────────────────────────────────────────────────────
+// 계획 A12 — 관광객 화면 문구 규칙(토스트 · 주차장 카드 · 빈 주소 · 이름 통일 · 경주 밖 위치 안내).
+// ───────────────────────────────────────────────────────────────────────────
+
+const A12_LOCALES = ['ko', 'en'] as const;
+type A12Locale = (typeof A12_LOCALES)[number];
+
+const REJECT_TOAST: Record<A12Locale, string> = { ko: '알겠어요, 다른 곳을 보여드릴게요', en: 'Got it — here\'s another place' };
+const SAVE_TOAST: Record<A12Locale, string> = { ko: '나중에 볼 곳에 담았어요', en: 'Saved for later' };
+const CARD_BUTTONS: Record<A12Locale, { reject: string; putOff: string }> = {
+  ko: { reject: '이 추천에 관심 없음, 다른 장소 추천받기', putOff: '이 장소를 나중에 볼 목록에 저장' },
+  en: { reject: 'Not interested, recommend another place', putOff: 'Save this place to view later' },
+};
+
+for (const locale of A12_LOCALES) {
+  test(`${locale}: 관심 없어요 / 나중에 볼게요 toasts are short and friendly`, async ({ page }) => {
+    test.setTimeout(90_000);
+    await page.setViewportSize({ width: 1536, height: 730 });
+    const second = mapFacility('cand-second', '우직 쌈밥집', 'restaurant', 1);
+    const third = mapFacility('cand-third', '고요한 국밥', 'restaurant', 2);
+    await stubMain(page, {
+      locale,
+      facilities: [mapFacility('cand-self', '경주 첨성대', 'restaurant'), second, third],
+      byType: (type) => [
+        selfAnchorRec(type),
+        { ...bareRec(type), facility: second, recommendation_id: 'rec-2', rank: 2 },
+        { ...bareRec(type), facility: third, recommendation_id: 'rec-3', rank: 3 },
+      ],
+    });
+    await page.goto('/main');
+    const card = page.getByTestId('recommendation-card');
+    await expect(card).toBeVisible({ timeout: 25_000 });
+
+    await card.getByRole('button', { name: CARD_BUTTONS[locale].reject }).click();
+    await expect(page.getByText(REJECT_TOAST[locale], { exact: true })).toBeVisible();
+    await card.getByRole('button', { name: CARD_BUTTONS[locale].putOff }).click();
+    await expect(page.getByText(SAVE_TOAST[locale], { exact: true })).toBeVisible();
+    expect(await page.locator('body').innerText()).not.toMatch(/폐기|저장 탭에 저장|정확해집니다|Dismissed|more accurate/);
+  });
+}
+
+const PARKING_EYEBROW: Record<A12Locale, string> = { ko: '공영주차장 · 출처: 경주시', en: 'Public parking · Source: Gyeongju City' };
+const PARKING_LIVE: Record<A12Locale, string> = { ko: '현재 12면 여유 · 총 40면', en: '12 spaces available now · 40 total' };
+
+function parkingLot(live: boolean) {
+  return {
+    id: 'p1', name: '황남 공영주차장', latitude: LAT, longitude: LNG, distance_m: 180,
+    total_spaces: live ? 40 : null, available_spaces: live ? 12 : null, occupancy: live ? 0.7 : null,
+    live, observed_at: live ? new Date().toISOString() : null, source: 'its',
+  };
+}
+
+for (const locale of A12_LOCALES) {
+  for (const live of [true, false]) {
+    test(`${locale}: the parking card credits the city and never says what it lacks (${live ? 'live count' : 'no live count'})`, async ({ page }) => {
+      test.setTimeout(90_000);
+      await page.setViewportSize({ width: 1536, height: 730 });
+      await stubMain(page, {
+        locale,
+        facilities: [mapFacility('cand-self', '경주 첨성대', 'restaurant')],
+        byType: (type) => [selfAnchorRec(type)],
+      });
+      await page.route('**/api/v1/area-demand/parking-lots**', (route) =>
+        route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ lots: [parkingLot(live)] }) }),
+      );
+      await page.goto('/main');
+      await expect(page.getByTestId('recommendation-card')).toBeVisible({ timeout: 25_000 });
+      await page.getByRole('button', { name: locale === 'ko' ? '주차장' : 'Parking', exact: true }).click();
+
+      // 첫 주차장이 바로 카드로 열린다 — 이름 바로 위 줄이 출처다.
+      const heading = page.getByRole('heading', { name: '황남 공영주차장' });
+      await expect(heading).toBeVisible({ timeout: 20_000 });
+      const card = page.locator('div.rounded-3xl').filter({ has: heading });
+      await expect(card.getByText(PARKING_EYEBROW[locale], { exact: true })).toBeVisible();
+      expect(await card.innerText()).not.toMatch(/공식|Official|입차|enter and leave|잔여면 정보는 없어요|availability is unavailable/);
+      if (live) await expect(card).toContainText(PARKING_LIVE[locale]);
+      else await expect(card).not.toContainText(locale === 'ko' ? '면 여유' : 'spaces available');
+    });
+  }
+}
+
+test('a bare /explore/recommend URL goes straight to the map', async ({ page }) => {
+  test.setTimeout(90_000);
+  await stubMain(page, {
+    facilities: [mapFacility('cand-self', '경주 첨성대', 'restaurant')],
+    byType: (type) => [selfAnchorRec(type)],
+  });
+  await page.goto('/explore/recommend');
+  await expect(page).toHaveURL(/\/main$/, { timeout: 30_000 });
+  await expect(page.getByText('선택된 장소가 없어요')).toHaveCount(0);
+});
+
+const RECOMMEND_TERMS: Record<A12Locale, { spot: string; taste: string; old: RegExp }> = {
+  ko: { spot: 'SPOT 점수', taste: '취향 일치율', old: /SPOT 지수|선호 일치율/ },
+  en: { spot: 'SPOT score', taste: 'Taste match', old: /SPOT index|Preference match/i },
+};
+
+for (const locale of A12_LOCALES) {
+  test(`${locale}: /explore/recommend uses the same SPOT and taste names as the map card`, async ({ page }) => {
+    test.setTimeout(90_000);
+    await openRecommend(page, locale);
+    const list = page.locator('section.space-y-4');
+    await expect(list).toContainText(RECOMMEND_TERMS[locale].taste);
+    // SPOT 라벨은 대문자 변환(uppercase) 스타일이라 innerText 를 대문자로 맞춰 본다.
+    expect((await list.innerText()).toUpperCase()).toContain(RECOMMEND_TERMS[locale].spot.toUpperCase());
+    expect(await page.locator('body').innerText()).not.toMatch(RECOMMEND_TERMS[locale].old);
+  });
+}
+
+const OUT_OF_REGION: Record<A12Locale, string> = {
+  ko: '지금은 경주 밖에 계셔서 황리단길에서 출발하는 기준으로 보여드려요',
+  en: 'You\'re outside Gyeongju, so we\'re showing walks from Hwangnidan-gil',
+};
+
+for (const locale of A12_LOCALES) {
+  test(`${locale}: a visitor outside Gyeongju is told once that walks start from 황리단길`, async ({ page, context }) => {
+    test.setTimeout(120_000);
+    await page.setViewportSize({ width: 1536, height: 730 });
+    await context.grantPermissions(['geolocation']);
+    await context.setGeolocation({ latitude: 37.5665, longitude: 126.978 }); // 서울 시청
+    await stubMain(page, {
+      locale,
+      facilities: [mapFacility('cand-self', '경주 첨성대', 'restaurant')],
+      byType: (type) => [selfAnchorRec(type)],
+    });
+    await page.goto('/main');
+    await expect(page.getByText(OUT_OF_REGION[locale], { exact: true })).toBeVisible({ timeout: 25_000 });
+
+    // 같은 세션에서 다시 열면 또 말하지 않는다.
+    await page.reload();
+    await expect(page.getByTestId('recommendation-card')).toBeVisible({ timeout: 25_000 });
+    await page.waitForTimeout(1500);
+    await expect(page.getByText(OUT_OF_REGION[locale], { exact: true })).toHaveCount(0);
+  });
+}
