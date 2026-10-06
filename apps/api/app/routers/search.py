@@ -7,7 +7,7 @@
 detailCommon2/Intro2 를 조회해 단건 인제스트한다(scripts/ingest_tourapi.py 의 upsert 패턴 재사용).
 
 엔드포인트:
-  - GET  /api/v1/search/keyword            : 무인증, IP 당 분당 5회. TourAPI 실패/키 없음 → 무해 폴백.
+  - GET  /api/v1/search/keyword            : 무인증, IP 당 분당 12회. TourAPI 실패/키 없음 → 무해 폴백.
                                              정상 응답인데 0건이면 LLM 질의 재작성 폴백(P1-3,
                                              SOLAR_LLM_EXPANSION — 재작성 전용 리밋·일일 예산 캡).
   - POST /api/v1/search/ingest-request     : 무인증, IP 당 분당 3회. contentid 중복은 조용히 무시.
@@ -42,11 +42,16 @@ from app.services.tourapi.transform import (
 logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1/search", tags=["search"])
 
-# areaBasedList2/searchKeyword2 지역 필터 — legacy areaCode(경북=35)·sigunguCode(경주=2)
-# (docs/contest/DATA_UTILIZATION.md 실측표). searchFestival2 만 예외적으로 법정동 코드를 쓴다
-# (client.py search_festival 도크·events.py 참고) — 이 라우터는 legacy 코드가 맞는 엔드포인트만 쓴다.
-_AREA_CODE_GYEONGBUK = 35
-_SIGUNGU_CODE_GYEONGJU = 2
+# searchKeyword2 지역 필터 — 법정동 lDongRegnCd(경북=47)·lDongSignguCd(경주=130).
+# 2026-10-06 실측(골굴사 127693): 구 areaCode=35/sigunguCode=2 → 0건, 법정동 47/130 → 1건, 필터 없음 → 1건.
+# 구 areacode/sigungucode 가 빈 레코드는 구 코드로 안 나온다(client.py area_based_list 도크의 127/243건과 같은 원인).
+_LDONG_REGN_GYEONGBUK = 47
+_LDONG_SIGNGU_GYEONGJU = 130
+
+# 법정동 필터가 조용히 무시돼도(searchFestival2 의 areaCode 전례) 경주 밖 장소가 섞이지 않게 거는 안전망.
+# 주소가 있으면 주소로만 판정한다 — 이 사각형은 포항 남부·울산 북부와 겹치므로 좌표는 주소가 없을 때만 쓴다.
+_GYEONGJU_LNG_RANGE = (128.95, 129.55)
+_GYEONGJU_LAT_RANGE = (35.65, 36.05)
 
 _SEARCH_ROWS = 5  # 폴백 결과 상위 5개(기획 스펙)
 
@@ -54,10 +59,12 @@ _SEARCH_ROWS = 5  # 폴백 결과 상위 5개(기획 스펙)
 #     "고정 쿨다운" 대신 "윈도우당 횟수 제한"으로 확장한 버전. 단일 인스턴스 데모 기준
 #     (reports.py/tracking.py 와 동일 전제 — 다중 인스턴스는 공유 저장소로 승격 필요).
 _RATE_LIMIT_WINDOW_SEC = 60.0
-_SEARCH_RATE_LIMIT = 5
+# 키워드 폴백은 사람이 이름을 바꿔 가며 다시 치는 화면이라 5회는 금방 닿았다(429 면 목록이 조용히 빈다).
+# 결과가 있는 검색어는 24h 캐시가 흡수하므로 12회로 올려도 TourAPI 호출은 크게 늘지 않는다.
+_SEARCH_RATE_LIMIT = 12
 _PLACE_SEARCH_RATE_LIMIT = 20
 _INGEST_RATE_LIMIT = 3
-# P1-3: LLM 재작성 전용 리밋 — 기존 검색 5/min 과 **별도**로 더 촘촘하게(무인증 유료 호출 방어).
+# P1-3: LLM 재작성 전용 리밋 — 기존 검색 12/min 과 **별도**로 더 촘촘하게(무인증 유료 호출 방어).
 # 초과 시 429 로 승격하지 않고 LLM 만 건너뛴다(검색 응답 자체는 현행 빈 결과 그대로 — 무해 불변).
 _REWRITE_RATE_LIMIT = 2
 _search_hits: dict[str, list[float]] = {}
@@ -210,31 +217,58 @@ def transform_keyword_item(item: dict) -> Optional[KeywordSearchItem]:
     )
 
 
-async def _rewrite_search_one(term: str) -> list[KeywordSearchItem]:
-    """재작성어 1개 재검색 — 실패는 빈 리스트(무해). 지역 고정·변환은 원 검색과 동일 규율.
+def _is_gyeongju_item(item: KeywordSearchItem) -> bool:
+    """경주 장소인가 — 주소가 있으면 주소('경주')로만, 없으면 좌표가 경주 사각형 안인지로 판정한다."""
+    if item.addr1:
+        return "경주" in item.addr1
+    if item.mapx is None or item.mapy is None:
+        return False
+    return (
+        _GYEONGJU_LNG_RANGE[0] <= item.mapx <= _GYEONGJU_LNG_RANGE[1]
+        and _GYEONGJU_LAT_RANGE[0] <= item.mapy <= _GYEONGJU_LAT_RANGE[1]
+    )
 
-    tourapi.search_keyword 는 키워드별 24h 캐시(_get_cached)를 그대로 타므로 재작성 결과도
-    원 검색과 동일한 캐시 규율을 받는다(§6). 결과는 transform_keyword_item 재통과 —
+
+def _gyeongju_items(raw_items: list[dict]) -> list[KeywordSearchItem]:
+    """searchKeyword2 item 목록 → 변환 + 경주 안전망 필터. 원 검색·재작성 재검색이 같은 규칙을 쓴다."""
+    items = [it for it in (transform_keyword_item(i) for i in raw_items) if it is not None]
+    kept = [it for it in items if _is_gyeongju_item(it)]
+    if len(kept) < len(items):
+        # 법정동 필터가 먹지 않았다는 신호다 — 질의 원문 없이 건수만 남긴다.
+        logger.info("search_keyword_outside_gyeongju_dropped", dropped=len(items) - len(kept))
+    return kept
+
+
+async def _search_gyeongju(keyword: str) -> list[dict]:
+    """경주(법정동 47/130)로 고정한 searchKeyword2 → raw item 목록. 예외는 호출부가 처리한다."""
+    payload = await tourapi.search_keyword(
+        keyword,
+        rows=_SEARCH_ROWS,
+        ldong_regn_cd=_LDONG_REGN_GYEONGBUK,
+        ldong_signgu_cd=_LDONG_SIGNGU_GYEONGJU,
+    )
+    return tourapi.parse_items(payload)
+
+
+async def _rewrite_search_one(term: str) -> list[KeywordSearchItem]:
+    """재작성어 1개 재검색 — 실패는 빈 리스트(무해). 지역 고정·변환·경주 필터는 원 검색과 동일 규율.
+
+    tourapi.search_keyword 는 키워드별 24h 캐시(_get_cached, 0건은 저장 안 함)를 그대로 타므로
+    재작성 결과도 원 검색과 동일한 캐시 규율을 받는다(§6). 결과는 transform_keyword_item 재통과 —
     LLM 은 검색어만 만들 뿐 좌표·contentid·레코드를 만들 수 없다.
     """
     try:
-        payload = await tourapi.search_keyword(
-            term,
-            area_code=_AREA_CODE_GYEONGBUK,
-            sigungu_code=_SIGUNGU_CODE_GYEONGJU,
-            rows=_SEARCH_ROWS,
-        )
-        raw_items = tourapi.parse_items(payload)
+        raw_items = await _search_gyeongju(term)
     except Exception as e:
         logger.warning("search_rewrite_research_failed", term_length=len(term), error=str(e))
         return []
-    return [it for it in (transform_keyword_item(i) for i in raw_items) if it is not None]
+    return _gyeongju_items(raw_items)
 
 
 async def _rewrite_fallback(keyword: str, ip: str) -> tuple[list[KeywordSearchItem], str]:
     """0건 **정상 응답** 위에서만 호출되는 LLM 질의 재작성 폴백(P1-3) — (병합 items, llm_status).
 
-    게이트 순서: is_enabled → IP 재작성 전용 분당 리밋(기존 5/min 검색 리밋과 별도)
+    게이트 순서: is_enabled → IP 재작성 전용 분당 리밋(기존 12/min 검색 리밋과 별도)
     → 전역 일일 예산 캡(consume_budget). 어느 게이트든 막히면 LLM 미호출·빈 결과
     (429 승격 없음 — 신규 실패→에러 승격 경로 0). 재검색은 gather 병렬로 꼬리 지연을
     단일 TourAPI 호출 수준으로 묶고(§6), 재작성어별 결과는 contentid 중복 제거 후 병합한다.
@@ -269,8 +303,9 @@ async def search_keyword_endpoint(
 ):
     """지도 검색 0건일 때만 프런트가 호출하는 TourAPI 키워드 폴백. 상위 5건만 반환한다.
 
-    무인증 + IP 당 분당 5회 제한. TOURAPI_KEY 미설정/호출 실패는 500 이 아니라
+    무인증 + IP 당 분당 12회 제한. TOURAPI_KEY 미설정/호출 실패는 500 이 아니라
     {items: [], source: 'unavailable'} 무해 폴백(events.py 축제 라우터와 동일 관례).
+    경주(법정동 코드)로 검색하고, 경주 밖 장소는 주소·좌표로 한 번 더 거른다.
     정상 응답(source='tourapi')인데 0건이면 LLM 질의 재작성 폴백(P1-3)을 한 번 시도한다 —
     원 질의 우선 검색은 무개입, unavailable 위에는 LLM 을 쌓지 않는다.
     """
@@ -282,19 +317,13 @@ async def search_keyword_endpoint(
 
     keyword = q.strip()
     try:
-        payload = await tourapi.search_keyword(
-            keyword,
-            area_code=_AREA_CODE_GYEONGBUK,
-            sigungu_code=_SIGUNGU_CODE_GYEONGJU,
-            rows=_SEARCH_ROWS,
-        )
-        raw_items = tourapi.parse_items(payload)
+        raw_items = await _search_gyeongju(keyword)
     except Exception as e:  # RuntimeError(키 미설정)·TourAPIError 모두 무해 폴백
         # 질의 원문은 로그 금지(길이만) — P1-3 하드닝에 맞춰 기존 로그도 통일.
         logger.warning("search_keyword_failed", q_length=len(keyword), error=str(e))
         return KeywordSearchResponse(items=[], source="unavailable")
 
-    items = [it for it in (transform_keyword_item(i) for i in raw_items) if it is not None]
+    items = _gyeongju_items(raw_items)
     if items:
         return KeywordSearchResponse(items=items[:_SEARCH_ROWS], source="tourapi")
 

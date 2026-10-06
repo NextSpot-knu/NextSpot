@@ -35,11 +35,12 @@ def client():
 
 @pytest.fixture(autouse=True)
 def _reset_rate_limit_state():
-    """전역 인메모리 레이트리밋·재작성 예산 상태를 테스트마다 격리(reports.py 관례 미러)."""
+    """전역 인메모리 레이트리밋·재작성 예산·TourAPI 목록 캐시를 테스트마다 격리(reports.py 관례 미러)."""
     search._search_hits.clear()
     search._place_search_hits.clear()
     search._ingest_hits.clear()
     search._rewrite_hits.clear()
+    search.tourapi._list_cache.clear()
     search_rewrite_service._budget_day = None
     search_rewrite_service._budget_used = 0
     yield
@@ -47,6 +48,7 @@ def _reset_rate_limit_state():
     search._place_search_hits.clear()
     search._ingest_hits.clear()
     search._rewrite_hits.clear()
+    search.tourapi._list_cache.clear()
     search_rewrite_service._budget_day = None
     search_rewrite_service._budget_used = 0
 
@@ -196,14 +198,69 @@ def test_search_keyword_happy_path_caps_at_five():
     body = res.json()
     assert body["source"] == "tourapi"
     assert len(body["items"]) == 5  # 상위 5개 캡
-    # 경주 지역 필터(legacy areaCode=35/sigunguCode=2) + rows=5 가 실제로 전달되는지 회귀 방지
+    # 경주 지역 필터(법정동 lDongRegnCd=47/lDongSignguCd=130) + rows=5 가 실제로 전달되는지 회귀 방지.
+    # 구 코드(35/2)는 보내지 않는다 — 구 코드가 빈 레코드(골굴사 127693)가 0건이 된다(2026-10-06 실측).
     kwargs = mock.await_args.kwargs
-    assert kwargs["area_code"] == 35 and kwargs["sigungu_code"] == 2 and kwargs["rows"] == 5
+    assert kwargs["ldong_regn_cd"] == 47 and kwargs["ldong_signgu_cd"] == 130 and kwargs["rows"] == 5
+    assert kwargs.get("area_code") is None and kwargs.get("sigungu_code") is None
 
 
-def test_search_keyword_rate_limited_after_five_calls(client):
+def test_search_keyword_sends_ldong_codes_to_tourapi(client):
+    """라우터 → 클라이언트 → 실제 쿼리 파라미터까지: 법정동 코드만 실리고 구 코드는 빠진다."""
+    get_mock = AsyncMock(return_value=_payload([_kw_item("127693", "골굴사(경주)")]))
+    with patch.object(search.tourapi, "_get", get_mock):
+        res = client.get("/api/v1/search/keyword", params={"q": "골굴사"})
+    assert res.status_code == 200
+    assert [it["contentid"] for it in res.json()["items"]] == ["127693"]
+    endpoint, params = get_mock.await_args.args
+    assert endpoint == "searchKeyword2"
+    assert params["keyword"] == "골굴사"
+    assert params["lDongRegnCd"] == 47 and params["lDongSignguCd"] == 130
+    assert params.get("areaCode") is None and params.get("sigunguCode") is None
+
+
+def test_search_keyword_keeps_only_gyeongju_items(client):
+    """법정동 필터를 TourAPI 가 무시해도 경주 밖 장소는 걸러진다(주소 우선, 주소가 없으면 좌표)."""
+    items = [
+        # 주소가 포항이면 좌표가 경주 사각형 안이어도 버린다(사각형은 포항 남부와 겹친다).
+        {"contentid": "1", "title": "포항 절", "addr1": "경상북도 포항시 남구 오천읍", "mapx": "129.40", "mapy": "35.96"},
+        {"contentid": "2", "title": "골굴사(경주)", "addr1": "경상북도 경주시 문무대왕면 기림로 101-5",
+         "mapx": "129.406572", "mapy": "35.802359"},
+        {"contentid": "3", "title": "주소 없음·경주 좌표", "mapx": "129.2247", "mapy": "35.8350"},
+        {"contentid": "4", "title": "주소 없음·서울 좌표", "mapx": "126.9780", "mapy": "37.5665"},
+        {"contentid": "5", "title": "주소·좌표 모두 없음"},
+        {"contentid": "6", "title": "경북 약칭 주소", "addr1": "경북 경주시 양북면", "mapx": "0", "mapy": "0"},
+    ]
+    with patch.object(search.tourapi, "search_keyword", AsyncMock(return_value=_payload(items))):
+        res = client.get("/api/v1/search/keyword", params={"q": "절"})
+    assert res.status_code == 200
+    assert [it["contentid"] for it in res.json()["items"]] == ["2", "3", "6"]
+
+
+def test_empty_keyword_payload_is_not_cached(client):
+    """0건 응답은 캐시하지 않는다 — 같은 검색어를 다시 치면 TourAPI 에 다시 묻는다."""
+    get_mock = AsyncMock(return_value=_payload([]))
+    with patch.object(search.tourapi, "_get", get_mock):
+        first = client.get("/api/v1/search/keyword", params={"q": "골굴사"})
+        second = client.get("/api/v1/search/keyword", params={"q": "골굴사"})
+    assert first.json()["items"] == [] and second.json()["items"] == []
+    assert get_mock.await_count == 2
+
+
+def test_keyword_hit_payload_is_still_cached(client):
+    """결과가 있는 응답은 그대로 24h 캐시된다 — 같은 검색어의 두 번째 요청은 TourAPI 를 부르지 않는다."""
+    get_mock = AsyncMock(return_value=_payload([_kw_item("127693", "골굴사(경주)")]))
+    with patch.object(search.tourapi, "_get", get_mock):
+        first = client.get("/api/v1/search/keyword", params={"q": "골굴사"})
+        second = client.get("/api/v1/search/keyword", params={"q": "골굴사"})
+    assert first.json()["items"] == second.json()["items"] != []
+    assert get_mock.await_count == 1
+
+
+def test_search_keyword_rate_limited_after_twelve_calls(client):
+    """IP 당 분당 12회 — 12번째까지 200, 13번째는 429(재검색 여유를 두되 무인증 남용은 막는다)."""
     with patch.object(search.tourapi, "search_keyword", AsyncMock(side_effect=RuntimeError("no key"))):
-        for _ in range(5):
+        for _ in range(12):
             ok = client.get("/api/v1/search/keyword", params={"q": "황리단길"})
             assert ok.status_code == 200
         limited = client.get("/api/v1/search/keyword", params={"q": "황리단길"})
@@ -279,6 +336,33 @@ def test_rewrite_triggers_on_zero_hit_and_merges_dedup(client, monkeypatch):
     assert sorted(calls[1:]) == ["공원", "어린이 체험"]
 
 
+def test_rewrite_research_uses_same_gyeongju_filter(client, monkeypatch):
+    """재작성어 재검색도 원 검색과 같은 법정동 코드를 쓰고, 경주 밖 결과는 같은 규칙으로 버린다."""
+    monkeypatch.setattr(search.llm_client, "is_enabled", lambda: True)
+    monkeypatch.setattr(search.search_rewrite_service, "rewrite_query", AsyncMock(return_value=["사찰"]))
+    seen_kwargs: list[dict] = []
+
+    async def _fake(keyword, **kwargs):
+        seen_kwargs.append(kwargs)
+        if keyword == "사찰":
+            return _payload([
+                _kw_item("10", "기림사"),
+                {"contentid": "11", "title": "보경사", "addr1": "경상북도 포항시 북구 송라면",
+                 "mapx": "129.33", "mapy": "36.25"},
+            ])
+        return _payload([])
+
+    with patch.object(search.tourapi, "search_keyword", _fake):
+        res = client.get("/api/v1/search/keyword", params={"q": "조용한 절"})
+    body = res.json()
+    assert body["rewritten"] is True
+    assert [it["contentid"] for it in body["items"]] == ["10"]
+    assert len(seen_kwargs) == 2
+    for kwargs in seen_kwargs:
+        assert kwargs["ldong_regn_cd"] == 47 and kwargs["ldong_signgu_cd"] == 130
+        assert kwargs.get("area_code") is None and kwargs.get("sigungu_code") is None
+
+
 def test_rewrite_not_attempted_when_items_found(client, monkeypatch):
     """원 질의가 1건이라도 있으면 재작성 미발동(주 경로 무개입) — 관찰 필드도 미설정."""
     monkeypatch.setattr(search.llm_client, "is_enabled", lambda: True)
@@ -346,7 +430,7 @@ def test_rewrite_daily_budget_cap_blocks_llm(client, monkeypatch):
 
 
 def test_rewrite_rate_limit_is_tighter_and_separate(client, monkeypatch):
-    """재작성 전용 리밋(분당 2회)은 검색 5/min 과 별도 — 초과 시 429 없이 LLM 만 스킵(gated)."""
+    """재작성 전용 리밋(분당 2회)은 검색 12/min 과 별도 — 초과 시 429 없이 LLM 만 스킵(gated)."""
     monkeypatch.setattr(search.llm_client, "is_enabled", lambda: True)
     rewrite_mock = AsyncMock(return_value=None)
     monkeypatch.setattr(search.search_rewrite_service, "rewrite_query", rewrite_mock)
@@ -363,7 +447,7 @@ def test_rewrite_rate_limit_is_tighter_and_separate(client, monkeypatch):
 def test_client_ip_uses_last_xff_value(client):
     """XFF 마지막 값 통일(§-14 백로그) — 첫 값 위조로 분당 제한을 우회할 수 없다."""
     with patch.object(search.tourapi, "search_keyword", AsyncMock(return_value=_payload([]))):
-        for i in range(5):
+        for i in range(12):
             ok = client.get(
                 "/api/v1/search/keyword", params={"q": "불국사"},
                 headers={"x-forwarded-for": f"10.0.0.{i}, 203.0.113.9"},  # 첫 값만 매번 위조

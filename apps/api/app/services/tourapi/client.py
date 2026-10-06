@@ -166,15 +166,19 @@ async def _get(endpoint: str, params: dict) -> dict:
     return payload
 
 
-async def _get_cached(endpoint: str, params: dict) -> dict:
-    """목록성 호출용 TTL 캐시 래퍼(일 1회 캐싱). serviceKey 는 키에 포함하지 않는다."""
+async def _get_cached(endpoint: str, params: dict, *, cache_empty: bool = True) -> dict:
+    """목록성 호출용 TTL 캐시 래퍼(일 1회 캐싱). serviceKey 는 키에 포함하지 않는다.
+
+    cache_empty=False 면 0건 응답은 저장하지 않는다 — 다음 호출이 다시 물어본다.
+    """
     cache_key = (endpoint, tuple(sorted((k, str(v)) for k, v in params.items() if v is not None)))
     now = time.time()
     hit = _list_cache.get(cache_key)
     if hit is not None and (now - hit[0]) < CACHE_TTL_SECONDS:
         return hit[1]
     payload = await _get(endpoint, params)
-    _list_cache[cache_key] = (now, payload)
+    if cache_empty or parse_items(payload):
+        _list_cache[cache_key] = (now, payload)
     return payload
 
 
@@ -264,20 +268,29 @@ async def search_keyword(
     content_type_id: Optional[int] = None,
     page: int = 1,
     rows: int = 10,
+    *,
+    ldong_regn_cd: Optional[int] = None,
+    ldong_signgu_cd: Optional[int] = None,
 ) -> dict:
     """searchKeyword2 — 전체 TourAPI POI 키워드 검색(로컬 적재분 밖 커버리지).
 
     런타임 검색 폴백용 — 키워드별 24h 캐시(_get_cached)로 쿼터를 보호하고,
     호출 빈도 제한(레이트리밋)은 라우터 계층에서 별도로 건다.
+
+    ⚠️ 2026-10-06 실측(골굴사, contentid 127693): 구 지역코드(35/2) → 0건, 법정동 코드(47/130) → 1건,
+    필터 없음 → 1건. 구 areacode/sigungucode 가 빈 레코드라 구 코드로는 안 나온다(area_based_list 와 같은 함정).
+    0건 응답은 캐시하지 않는다 — 한 번 비어 나온 답이 24시간 동안 그 검색어를 막지 않게.
     """
     return await _get_cached("searchKeyword2", {
         "keyword": keyword,
         "areaCode": area_code,
         "sigunguCode": sigungu_code,
+        "lDongRegnCd": ldong_regn_cd,
+        "lDongSignguCd": ldong_signgu_cd,
         "contentTypeId": content_type_id,
         "pageNo": page,
         "numOfRows": rows,
-    })
+    }, cache_empty=False)
 
 
 async def detail_common(content_id: str) -> dict:

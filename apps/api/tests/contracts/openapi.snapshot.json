@@ -8526,7 +8526,7 @@
   },
   "/api/v1/search/keyword": {
    "get": {
-    "description": "지도 검색 0건일 때만 프런트가 호출하는 TourAPI 키워드 폴백. 상위 5건만 반환한다.\n\n무인증 + IP 당 분당 5회 제한. TOURAPI_KEY 미설정/호출 실패는 500 이 아니라\n{items: [], source: 'unavailable'} 무해 폴백(events.py 축제 라우터와 동일 관례).\n정상 응답(source='tourapi')인데 0건이면 LLM 질의 재작성 폴백(P1-3)을 한 번 시도한다 —\n원 질의 우선 검색은 무개입, unavailable 위에는 LLM 을 쌓지 않는다.",
+    "description": "지도 검색 0건일 때만 프런트가 호출하는 TourAPI 키워드 폴백. 상위 5건만 반환한다.\n\n무인증 + IP 당 분당 12회 제한. TOURAPI_KEY 미설정/호출 실패는 500 이 아니라\n{items: [], source: 'unavailable'} 무해 폴백(events.py 축제 라우터와 동일 관례).\n경주(법정동 코드)로 검색하고, 경주 밖 장소는 주소·좌표로 한 번 더 거른다.\n정상 응답(source='tourapi')인데 0건이면 LLM 질의 재작성 폴백(P1-3)을 한 번 시도한다 —\n원 질의 우선 검색은 무개입, unavailable 위에는 LLM 을 쌓지 않는다.",
     "operationId": "search_keyword_endpoint_api_v1_search_keyword_get",
     "parameters": [
      {
