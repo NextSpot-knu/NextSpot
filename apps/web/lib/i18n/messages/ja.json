@@ -668,8 +668,7 @@
     "evidenceNone": "混雑の根拠なし",
     "spotTooltipEvidenceOrder": "確認された混雑根拠のある場所を優先して表示します。",
     "estimateLevel": "推定混雑: {label}",
-    "evidenceEstimated": "推定 · 駐車場の実測に基づく · {time} 観測 · 半径{km}km",
-    "evidenceEstimatedCalibrated": "推定 · 駐車場の実測に基づく（ソウル実測で補正） · {time} 観測 · 半径{km}km",
+    "evidenceEstimated": "推定 · 慶州の公営駐車場の実測に基づく · {time}観測",
     "lastObserved": "最終観測 {time}",
     "lastObservedLevel": "最終観測 {time} · {label}",
     "peek": {
@@ -983,9 +982,11 @@
       "family_check": "子ども連れで確認する点は？"
     },
     "headerKicker": "行列の代わりに",
+    "nearbyKicker": "近くのおすすめ",
     "header": "今 {anchor} は{anchorCrowd} → 代わりに {candidate} · 徒歩{walk}分 · {candidateCrowd}",
-    "anchorFallback": "人気スポット",
-    "crowdPopular": "人気",
+    "benefitWalk": "徒歩{walk}分",
+    "benefitOpen": "到着時に営業中",
+    "benefitTaste": "好み一致{pct}%",
     "collecting": "収集中",
     "congestionCollecting": "混雑推定 · 収集中",
     "demandCollectingHint": "駐車実測・観光統計の根拠が届くとここに表示されます。",

@@ -668,8 +668,7 @@
     "evidenceNone": "No congestion evidence",
     "spotTooltipEvidenceOrder": "Places with verified congestion evidence come first.",
     "estimateLevel": "Estimated crowd: {label}",
-    "evidenceEstimated": "Estimate · based on live parking · observed {time} · {km}km radius",
-    "evidenceEstimatedCalibrated": "Estimate · based on live parking (calibrated on Seoul data) · observed {time} · {km}km radius",
+    "evidenceEstimated": "Estimate · from live Gyeongju public parking · observed {time}",
     "lastObserved": "Last observed {time}",
     "lastObservedLevel": "Last observed {time} · {label}",
     "peek": {
@@ -983,9 +982,11 @@
       "family_check": "What should families check?"
     },
     "headerKicker": "Skip the queue",
+    "nearbyKicker": "Nearby pick",
     "header": "Skip {anchor} ({anchorCrowd}) → try {candidate} · {walk} min walk · {candidateCrowd}",
-    "anchorFallback": "a popular spot",
-    "crowdPopular": "popular",
+    "benefitWalk": "{walk} min walk",
+    "benefitOpen": "Open when you arrive",
+    "benefitTaste": "{pct}% match for you",
     "collecting": "collecting",
     "congestionCollecting": "Crowd estimate · collecting",
     "demandCollectingHint": "Parking and tourism evidence will show up here once it arrives.",

@@ -13,9 +13,9 @@ import { displayWalkingMinutes } from '@/lib/recommender';
 import { haptic, interactionSpring, sheetSpring, tapMotion } from '@/lib/motion';
 import { areaDemandDisclosure } from '@/lib/areaDemandPresentation';
 import { useCountUp } from '@/lib/useCountUp';
-import { congestionDisplay, estimateRadiusKm, formatEstimateTime, formatLastObserved } from '@/lib/congestionEstimate';
+import { congestionDisplay, formatEstimateTime, formatLastObserved } from '@/lib/congestionEstimate';
 import { congestionKey as gradeKey } from '@/lib/congestionScale';
-import { candidateAreaCrowdLevel, resolveAnchorCrowd, resolveCandidateCrowd } from '@/lib/compareHeader';
+import { candidateAreaCrowdLevel, chooseCompareHeadline, resolveAnchorCrowd, resolveCandidateCrowd } from '@/lib/compareHeader';
 import { useBusyThreshold } from '@/components/shell/PublicSettingsProvider';
 import { creditedPhotoUrls, creditForDisplayedPhoto } from '@/lib/photoCredit';
 import { PhotoCreditLink } from '@/components/PhotoCreditLink';
@@ -142,6 +142,11 @@ interface RecommendationCardProps {
   // "…기준 · 후보와 184m" 로 쓰고 있는 그 값)을 쓴다. 테마 칩이 켜지면 그 테마의 대표
   // 랜드마크로 덮어쓴다.
   compareAnchorName?: string | null;
+  /**
+   * 기준 명소와 이 장소 사이 거리(m). 100m 안쪽이면 같은 자리라 화살표 비교를 하지 않는다.
+   * compareAnchorName 을 넘기지 않으면 관광 근거의 distanceM 을 쓴다. 모르면 null.
+   */
+  compareAnchorDistanceM?: number | null;
   /** 기준 명소 자체의 혼잡 추정(0~1). 있으면 등급 문구의 1순위 근거가 된다. */
   compareAnchorLevel?: number | null;
   /** '가정 시각' 프리셋 라벨(예: '토 14:00'). 지금(실시간)이면 넘기지 않는다. */
@@ -200,6 +205,7 @@ export function RecommendationCard({
   congestionEstimate,
   showCompare = false,
   compareAnchorName,
+  compareAnchorDistanceM,
   compareAnchorLevel,
   assumedTimeLabel,
   contextBadge,
@@ -314,7 +320,8 @@ export function RecommendationCard({
   // 사용자가 방금 남긴 로컬 제보는 무조건 이긴다(본인이 눈으로 본 값이고, 서버 판정이 붙기 전이다).
   // 그 밖에는 서버가 내려준 congestionIsCurrent 를 그대로 따른다: true/미제공이면 종전처럼 실측·
   // 예측이 추정을 덮고, false(30분이 지난·단건 관측)면 신선한 추정이 '지금' 자리를 가져가고 그
-  // 관측은 아래 '마지막 관측 HH:MM' 으로 남는다. 관측을 화면에서 지우지는 않는다.
+  // 관측은 아래 '마지막 관측 HH:MM' 으로 남는다 — 24시간 안쪽일 때만(lib/congestionEstimate.ts).
+  // 관측 시각은 혼잡 관측 시각만 쓴다. 시설 기록의 갱신 시각(dataUpdatedAt 등)은 혼잡을 본 때가 아니다.
   const display = congestionDisplay(
     localReport
       ? { congestionLevel: displayCongestionLevel, congestionSource: 'measured' }
@@ -322,7 +329,7 @@ export function RecommendationCard({
           congestionLevel: displayCongestionLevel,
           congestionSource: displayCongestionSource,
           congestionIsCurrent,
-          congestionTimestamp: congestionTimestamp ?? dataSource?.lastUpdated ?? null,
+          congestionTimestamp: congestionTimestamp ?? null,
           congestionEstimate,
         },
   );
@@ -729,13 +736,17 @@ export function RecommendationCard({
   // 패널의 행동 문장(showQualitativeLevel 일 때만)과 같은 규칙이다. 그때는 기본 칩('취향·거리 맞춤')을 쓴다.
   const chipArrivalAction = demandDisclosure.showQualitativeLevel ? arrivalAction : undefined;
 
-  // ── P2 비교 헤더 ────────────────────────────────────────────────────────────
-  // "지금 천마총(대릉원) 혼잡 → 대신 우직 · 도보 3분 · 여유"
+  // ── P2 비교 헤더(카드 첫 줄 · 가치 문장) ───────────────────────────────────────
+  // 화살표 "지금 천마총(대릉원) 혼잡 → 대신 우직 · 도보 3분 · 여유" 는 정말 덜 붐비는 다른 곳일 때만,
+  // 아니면 혜택 문장 "우직 · 도보 3분 · 도착 시 영업 · 취향 80% 일치"(chooseCompareHeadline).
   // 재료는 전부 이미 카드에 있는 값이다(새 호출 없음). 근거가 하나도 없어도 문장은 만들어진다 —
   // 이 줄이 사라지면 접힌 카드가 매번 다른 높이로 뜨고, 서비스의 약속도 함께 사라진다.
   const compareAnchorLabelName = compareAnchorName
     ?? areaDemandTourismEvidence?.referenceName
     ?? null;
+  const compareAnchorDistance = compareAnchorName != null
+    ? compareAnchorDistanceM ?? null
+    : areaDemandTourismEvidence?.distanceM ?? null;
   const anchorCrowd = resolveAnchorCrowd({
     estimateLevel: compareAnchorLevel,
     parkingLevel: areaDemandParkingEvidence?.level,
@@ -745,7 +756,7 @@ export function RecommendationCard({
   // 후보 쪽 등급: 카드가 '지금'으로 칠한 실측 → 점선 추정 → 주변 공영주차 수요.
   // 관광 상대지수가 섞인 종합값은 단일 혼잡률로 말하지 않는다(areaDemandPresentation 계약) — 주차만이면
   // 종합값(주차 + 근처 축제·날씨 보정), 관광 근거가 섞이면 **주차 실측·이력 값만으로** 말한다(기준 명소 쪽
-  // resolveAnchorCrowd 와 같은 규칙). 주차 근거가 없으면(관광 상대지수뿐) null → '수집 중'.
+  // resolveAnchorCrowd 와 같은 규칙). 주차 근거가 없으면(관광 상대지수뿐) null → 비교하지 않는다.
   // 휴대폰 미리보기의 혼잡 배지도 이 값을 그대로 쓴다 — 펼치기 한 번 사이에 두 곳이 다른 말을 하지 않게.
   const candidateCrowdGrade = resolveCandidateCrowd({
     congestionLevel: shownCongestionLevel,
@@ -757,13 +768,26 @@ export function RecommendationCard({
     }),
     busyAt,
   });
-  const compareHeaderText = t('compare.header', {
-    anchor: compareAnchorLabelName ?? t('compare.anchorFallback'),
-    anchorCrowd: anchorCrowd.grade ? t(`congestion.${anchorCrowd.grade}`) : t('compare.crowdPopular'),
-    candidate: title,
-    walk: displayedTravelMins,
-    candidateCrowd: candidateCrowdGrade ? t(`congestion.${candidateCrowdGrade}`) : t('compare.collecting'),
+  const compareHeadline = chooseCompareHeadline({
+    anchorName: compareAnchorLabelName,
+    anchorDistanceM: compareAnchorDistance,
+    candidateName: title,
+    anchorGrade: anchorCrowd.grade,
+    candidateGrade: candidateCrowdGrade,
   });
+  // 화살표 문장 — chooseCompareHeadline 이 'compare' 면 기준 명소와 두 등급이 모두 있다.
+  const compareHeaderText = compareHeadline.kind === 'compare' && compareAnchorLabelName && anchorCrowd.grade && candidateCrowdGrade
+    ? t('compare.header', {
+        anchor: compareAnchorLabelName,
+        anchorCrowd: t(`congestion.${anchorCrowd.grade}`),
+        candidate: title,
+        walk: displayedTravelMins,
+        candidateCrowd: t(`congestion.${candidateCrowdGrade}`),
+      })
+    : null;
+  const compareKicker = t(compareHeadline.kind === 'benefit' && compareHeadline.candidateIsAnchor
+    ? 'compare.nearbyKicker'
+    : 'compare.headerKicker');
 
   // 혼잡 배지(실측 → 점선 추정 → 주변 수요 → '수집 중') — 전체 카드의 배지 줄 맨 앞과 휴대폰 미리보기가
   // 같은 요소를 쓴다. 두 곳이 서로 다른 말을 하지 않게 한 곳에서만 만든다.
@@ -922,12 +946,27 @@ export function RecommendationCard({
           단, 대신할 기준 명소 자체가 없는 화면(showCompare=false, 예: 저장 목록)에서는 아예 띄우지 않는다. */}
       {showCompare && !(peekMode && isMinimized) && (
       <div className="rounded-2xl border border-terracotta/25 bg-gradient-to-r from-terracotta/10 via-gold/10 to-jade/10 px-3 py-2">
-        <p className="text-[9px] font-extrabold uppercase tracking-wide text-terracotta">
-          {t('compare.headerKicker')}
+        <p className="text-[12px] font-bold text-terracotta">
+          {compareKicker}
         </p>
-        <p className="mt-0.5 break-keep text-[12px] font-extrabold leading-snug text-muk">
-          {compareHeaderText}
-        </p>
+        {/* 카드에서 가장 큰 글씨 — 이 추천이 관광객에게 무엇을 주는지가 첫 문장이다. */}
+        {compareHeaderText ? (
+          <p className="mt-0.5 break-keep text-[16px] md:text-[17px] font-extrabold leading-snug text-muk">
+            {compareHeaderText}
+          </p>
+        ) : (
+          <p className="mt-0.5 break-keep text-[16px] md:text-[17px] font-extrabold leading-snug text-muk">
+            {title}
+            {' · '}
+            <span className="inline-block rounded-full bg-jade/15 px-2 text-jade">
+              {t('compare.benefitWalk', { walk: displayedTravelMins })}
+            </span>
+            {displayedOpenStatus === 'open_expected' && <>{' · '}{t('compare.benefitOpen')}</>}
+            {typeof preferencePercent === 'number' && Number.isInteger(preferencePercent) && (
+              <>{' · '}{t('compare.benefitTaste', { pct: preferencePercent })}</>
+            )}
+          </p>
+        )}
         {(assumedTimeLabel || contextBadge) && (
           <div className="mt-1.5 flex flex-wrap items-center gap-1">
             {assumedTimeLabel && (
@@ -1066,15 +1105,10 @@ export function RecommendationCard({
                   {t(`card.congestionSource.${displayCongestionSource}`)}
                 </span>
               ) : estimate ? (
-                // 근거를 스스로 밝힌다: 무엇에서(주차 실측)·언제(관측 시각, KST)·어디까지(반경).
-                // 서울 실측 보정이 실제로 적용된 값이면 같은 칩 안에서 한 마디만 더 붙인다 —
-                // 새 배지를 만들지 않는다(보정은 추정의 성질이지 별개의 근거가 아니다).
-                // 백엔드가 주는 calibrationBasis 는 한국어 문장이라 쓰지 않는다(4로케일 불가).
+                // 근거를 스스로 밝힌다: 무엇에서(경주 공영주차 실측)·언제(관측 시각, KST).
+                // 보정 여부·반경은 관광객이 고르는 데 쓰지 않는 내부 사정이라 말하지 않는다.
                 <span className="px-2 py-0.5 rounded-md text-[10px] font-medium border border-dashed border-line bg-transparent text-muk-soft">
-                  {t(estimate.calibrated ? 'card.evidenceEstimatedCalibrated' : 'card.evidenceEstimated', {
-                    time: formatEstimateTime(estimate.observedAt) ?? '—',
-                    km: estimateRadiusKm(estimate.radiusM),
-                  })}
+                  {t('card.evidenceEstimated', { time: formatEstimateTime(estimate.observedAt) ?? '—' })}
                 </span>
               ) : null}
               {/* '지금' 자격을 잃은 관측을 **지우지 않고** 맥락으로 남긴다.
@@ -1172,6 +1206,9 @@ export function RecommendationCard({
             // 여기서 'n일 전 기준' 을 또 쓰면 (a) 같은 말이 두 번이고 (b) 지금 칠해진 값(추정)이
             // n일 전 값이라고 읽힌다. 한 화면이 두 말을 하지 않게 이 줄은 비운다.
             if (lastObserved) return null;
+            // 이 줄은 칠한 실측·예측 등급이 언제 값인지를 말한다 — 칠한 등급이 없으면(추정·없음, 24시간이
+            // 넘어 버린 관측 포함) 말할 대상이 없다.
+            if (shownCongestionLevel === null) return null;
             if (!displayDataSource) return null;
             if (displayDataSource.isStale) {
               return <p className="text-[10px] text-muk-soft/60 mt-2">{t('card.freshStale')}</p>;

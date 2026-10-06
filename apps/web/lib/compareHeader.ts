@@ -1,4 +1,4 @@
-// 비교 헤더(P2) — "지금 A 혼잡 → 대신 B" 한 줄을 만들기 위한 **표시 전용** 계산.
+// 비교 헤더(P2) — 카드 첫 줄(가치 문장)을 만들기 위한 **표시 전용** 계산.
 //
 // 왜 필요한가: 추천 카드는 "우직 · SPOT 74점"으로 시작해, 이 추천이 **무슨 줄을 대신하는지**를
 // 접힌 상태에서는 말하지 않았다. 서비스의 약속("줄 서는 대신, 경주를 한 곳 더")이 카드에서
@@ -7,10 +7,10 @@
 //
 // 정직성 규칙 두 가지:
 //   1) **등급은 근거가 있을 때만.** 기준 명소의 혼잡을 말할 근거가 하나도 없으면 등급 단어를
-//      만들지 않고 '인기 명소'라는 사실만 남긴다(basis === 'none').
-//   2) **헤더는 사라지지 않는다.** 근거가 전부 없어도 문장은 만들어진다 — 화면에서 줄이
+//      만들지 않는다(basis === 'none').
+//   2) **첫 줄은 사라지지 않는다.** 근거가 전부 없어도 문장은 만들어진다 — 화면에서 줄이
 //      나타났다 없어지면 카드 레이아웃이 매번 달라지고, 그게 심사 중 '깨진 화면'으로 읽힌다.
-//      따라서 이 모듈은 절대 null 을 반환하지 않고, 호출부가 폴백 문구를 고르게 한다.
+//      비교가 성립하지 않으면 chooseCompareHeadline 이 '혜택 문장'을 고른다(아래).
 
 import {
   areaDemandDisclosure,
@@ -34,7 +34,7 @@ export interface AnchorCrowdInput {
 }
 
 export interface AnchorCrowd {
-  /** 근거가 없으면 null — 호출부가 등급 단어 대신 '인기 명소'로 말한다. */
+  /** 근거가 없으면 null — 비교가 성립하지 않아 카드는 혜택 문장으로 말한다. */
   grade: CongestionKey | null;
   basis: AnchorCrowdBasis;
 }
@@ -98,7 +98,7 @@ export interface CandidateAreaCrowdInput {
  *  - 공영주차 근거만 있으면: 종합값(주차 + 근처 축제·날씨 보정) — 카드의 주변 수요 등급과 같다.
  *  - 관광 상대지수가 섞였으면: **주차 실측·이력 값만**. 관광 지수는 명소마다 자기 최고 시기가 100 이라
  *    붐빔 등급으로 말하지 않는다(기준 명소 쪽 resolveAnchorCrowd 도 주차 값을 관광 지수보다 먼저 쓴다).
- *  - 주차 근거가 없으면(관광 지수·축제뿐) null — 호출부가 '수집 중'으로 말한다.
+ *  - 주차 근거가 없으면(관광 지수·축제뿐) null — 호출부가 붐빔 등급을 말하지 않는다.
  */
 export function candidateAreaCrowdLevel(input: CandidateAreaCrowdInput): number | null {
   if (finite(input.areaDemandLevel) === null) return null;
@@ -108,11 +108,73 @@ export function candidateAreaCrowdLevel(input: CandidateAreaCrowdInput): number 
   return finite(input.parking?.level);
 }
 
-/** 후보(추천 장소) 쪽 혼잡 등급. 근거가 하나도 없으면 null — 호출부가 '수집 중'으로 말한다. */
+/** 후보(추천 장소) 쪽 혼잡 등급. 근거가 하나도 없으면 null — 호출부가 등급 단어를 말하지 않는다. */
 export function resolveCandidateCrowd(input: CandidateCrowdInput): CongestionKey | null {
   const busyAt = finite(input.busyAt) ?? DEFAULT_BUSY_THRESHOLD;
   const level = finite(input.congestionLevel)
     ?? finite(input.estimateLevel)
     ?? finite(input.areaDemandLevel);
   return level === null ? null : congestionKey(clamp01(level), busyAt);
+}
+
+// ── 카드 첫 줄(가치 문장) 고르기 ─────────────────────────────────────────────
+//
+// "지금 A 혼잡 → 대신 B" 는 **B 가 정말 A 보다 덜 붐빌 때만** 참이다. 예전 헤더는 언제나 화살표를
+// 그려서 "지금 경주 첨성대 혼잡 → 대신 경주 첨성대"(자기 자신과 비교) · "지금 인기 명소 인기 → …"
+// (근거 없음) · 혼잡 → 혼잡(같은 지역 추정이라 등급이 같다)처럼 서비스의 약속을 첫 줄에서 스스로
+// 깨뜨렸다(심사 시뮬레이션 2026-10-06). 그래서 화살표는 아래 네 조건이 **모두** 맞을 때만 쓰고,
+// 아니면 관광객이 얻는 것(이름 · 도보 N분 · 도착 시 영업 · 취향 N% 일치)을 말한다.
+
+/** 지구·일원 같은 넓은 구역 기록 — '대신 피할 한 곳'으로 부를 수 없다. */
+const DISTRICT_ANCHOR = /(사적지대|관광단지|유적지구|지구|일원|일대|권역)$/;
+/** 이보다 가까우면 같은 자리다 — '대신 가 볼 다른 곳'이 아니다. */
+const MIN_ANCHOR_DISTANCE_M = 100;
+const GRADE_ORDER: Record<CongestionKey, number> = { quiet: 0, relaxed: 1, moderate: 2, busy: 3 };
+
+/** 이름 비교용 — 공백과 맨 앞 '경주'를 뗀다('첨성대' = '경주 첨성대'). */
+function normalizePlaceName(name: string): string {
+  return name.replace(/\s+/g, '').replace(/^경주/, '');
+}
+
+export interface CompareHeadlineInput {
+  anchorName?: string | null;
+  /** 기준 명소와 후보 사이 거리(m). 모르면 null — 거리 조건은 통과로 본다. */
+  anchorDistanceM?: number | null;
+  candidateName: string;
+  anchorGrade: CongestionKey | null;
+  candidateGrade: CongestionKey | null;
+}
+
+export type CompareHeadline =
+  /** "지금 {A} {등급} → 대신 {B} · 도보 N분 · {등급}" — B 가 정말 덜 붐빌 때만. */
+  | { kind: 'compare' }
+  /** "{B} · 도보 N분 · 도착 시 영업 · 취향 N% 일치". candidateIsAnchor 면 머리표가 '지금 가까운 추천'이다. */
+  | { kind: 'benefit'; candidateIsAnchor: boolean };
+
+export function chooseCompareHeadline(input: CompareHeadlineInput): CompareHeadline {
+  const anchor = input.anchorName?.trim() ?? '';
+  const distance = finite(input.anchorDistanceM);
+  const anchorKey = normalizePlaceName(anchor);
+  const candidateKey = normalizePlaceName(input.candidateName);
+  // 같은 곳: 이름이 같거나 한쪽이 다른 쪽을 품는다('대릉원' ⊂ '천마총(대릉원)'), 또는 거리가 0 —
+  // 관광 근거가 그 장소 자신의 기록과 맞물리면 서버가 거리 0 으로 준다.
+  const candidateIsAnchor = !!anchor && (
+    anchorKey === candidateKey
+    || anchorKey.includes(candidateKey)
+    || candidateKey.includes(anchorKey)
+    || (distance !== null && distance < 1)
+  );
+  const calmer = input.anchorGrade !== null
+    && input.candidateGrade !== null
+    && GRADE_ORDER[input.candidateGrade] < GRADE_ORDER[input.anchorGrade];
+  if (
+    anchor
+    && !DISTRICT_ANCHOR.test(anchor)
+    && !candidateIsAnchor
+    && (distance === null || distance >= MIN_ANCHOR_DISTANCE_M)
+    && calmer
+  ) {
+    return { kind: 'compare' };
+  }
+  return { kind: 'benefit', candidateIsAnchor };
 }

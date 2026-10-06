@@ -3627,6 +3627,18 @@ export default function MainPage() {
           const compareAnchorLevel: number | null =
             (typeof compareAnchorEstimate?.level === 'number' ? compareAnchorEstimate.level : null)
             ?? (typeof compareAnchorFacility?.congestionLevel === 'number' ? compareAnchorFacility.congestionLevel : null);
+          // 기준 명소까지 거리 — 100m 안쪽(같은 자리)이면 카드가 "A → 대신 B" 화살표를 쓰지 않는다.
+          // 관광 근거면 서버가 준 거리, 테마 랜드마크면 두 좌표 사이 거리, 모르면 null.
+          const compareAnchorDistanceM: number | null = activeDiscovery?.anchorName
+            ? (compareAnchorFacility
+                && typeof compareAnchorFacility.latitude === 'number' && typeof compareAnchorFacility.longitude === 'number'
+                && typeof selectedFacility.latitude === 'number' && typeof selectedFacility.longitude === 'number'
+                ? haversineMeters(
+                    compareAnchorFacility.latitude, compareAnchorFacility.longitude,
+                    selectedFacility.latitude, selectedFacility.longitude,
+                  )
+                : null)
+            : spot.areaDemandTourismEvidence?.distanceM ?? null;
           const assumedTimeLabel = assumedPreset !== 'now'
             ? t(ASSUMED_TIME_PRESETS.find((p) => p.id === assumedPreset)?.labelKey ?? 'timeSim.now')
             : null;
@@ -3728,8 +3740,9 @@ export default function MainPage() {
                   source: selectedFacility.congestionSource === 'measured'
                     ? selectedFacility.congestionLogSource ?? 'measured'
                     : selectedFacility.congestionSource ?? selectedFacility.source ?? null,
+                  // 혼잡을 본 시각만 — dataUpdatedAt 은 시설 기록의 갱신 시각이라 "N시간 전 기준" 이 될 수 없다.
+                  // (lastUpdated 는 지도 시설의 혼잡 로그 시각이다 — loadFacilities 참조.)
                   lastUpdated: selectedFacility.congestionTimestamp
-                    ?? selectedFacility.dataUpdatedAt
                     ?? selectedFacility.lastUpdated
                     ?? null,
                   isStale: selectedFacility.congestionIsStale ?? !!selectedFacility.isStale,
@@ -3752,6 +3765,7 @@ export default function MainPage() {
                 // 비교 헤더·주변 수요 자리는 이 화면에서만 켠다 — 지도에서 고른 명소가 '대신할 A' 다.
                 showCompare
                 compareAnchorName={compareAnchorName}
+                compareAnchorDistanceM={compareAnchorDistanceM}
                 compareAnchorLevel={compareAnchorLevel}
                 assumedTimeLabel={assumedTimeLabel}
                 contextBadge={cardContextBadge}

@@ -668,8 +668,7 @@
     "evidenceNone": "无拥挤依据",
     "spotTooltipEvidenceOrder": "优先显示拥挤依据已核实的地点。",
     "estimateLevel": "估算拥挤度: {label}",
-    "evidenceEstimated": "估算 · 基于停车场实测 · {time} 观测 · 半径{km}km",
-    "evidenceEstimatedCalibrated": "估算 · 基于停车场实测（已用首尔实测校准） · {time} 观测 · 半径{km}km",
+    "evidenceEstimated": "估算 · 基于庆州公共停车实测 · {time}观测",
     "lastObserved": "最后观测 {time}",
     "lastObservedLevel": "最后观测 {time} · {label}",
     "peek": {
@@ -983,9 +982,11 @@
       "family_check": "带孩子前要确认什么？"
     },
     "headerKicker": "与其排队",
+    "nearbyKicker": "附近推荐",
     "header": "此刻 {anchor} {anchorCrowd} → 改去 {candidate} · 步行{walk}分钟 · {candidateCrowd}",
-    "anchorFallback": "热门景点",
-    "crowdPopular": "热门",
+    "benefitWalk": "步行{walk}分钟",
+    "benefitOpen": "到达时营业中",
+    "benefitTaste": "口味匹配{pct}%",
     "collecting": "收集中",
     "congestionCollecting": "拥挤推算 · 收集中",
     "demandCollectingHint": "停车实测与旅游统计依据到达后会显示在这里。",

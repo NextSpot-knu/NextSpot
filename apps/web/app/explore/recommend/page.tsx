@@ -23,7 +23,7 @@ import { openDrivingDirections, openWalkingDirections } from "@/lib/navigation";
 import { track } from "@/lib/analytics";
 import { loadTravelContext } from "@/lib/travelContext";
 import { relativeParts } from "@/lib/freshness";
-import { congestionDisplay, estimateRadiusKm, formatEstimateTime, formatLastObserved } from "@/lib/congestionEstimate";
+import { congestionDisplay, formatEstimateTime, formatLastObserved } from "@/lib/congestionEstimate";
 import { congestionKey } from "@/lib/congestionScale";
 import { useBusyThreshold } from "@/components/shell/PublicSettingsProvider";
 import { buildSpotComparisons, formatSpotComparison } from "@/lib/spotComparison";
@@ -1481,7 +1481,8 @@ function RecommendContent() {
               // 오늘 휴무 — 보수 파서 확정(true)일 때만 배지(과판정 금지 원칙).
               const closedToday =
                 isClosedToday((recFeatures?.restDateRaw ?? recFeatures?.rest_date_raw) as string | undefined) === true;
-              const freshness = relativeParts(rec.congestionTimestamp ?? rec.dataUpdatedAt);
+              // 혼잡을 본 시각만 — dataUpdatedAt(시설 기록 갱신 시각)은 "N일 전 기준" 이 될 수 없다.
+              const freshness = relativeParts(rec.congestionTimestamp);
               // 무엇을 '지금' 으로 칠할지 — 추천 카드·코스와 **같은 함수**로 정한다
               // (lib/congestionEstimate.ts congestionDisplay). 이 화면이 따로 판정하지 않는다.
               // 추정은 '지금' 자격이 있는 실측·예측이 없을 때만 — 대기 분·인원은 만들지 않는다.
@@ -1618,11 +1619,7 @@ function RecommendContent() {
                             {t("card.estimateLevel", { label: t(`congestion.${estimateKey}`) })}
                           </span>
                           <span className="text-[10px] font-medium px-2 py-0.5 rounded-md border border-dashed border-line text-muk-soft">
-                            {/* 보정이 실제로 적용된 값이면 같은 칩 안에서 한 마디만 더 — 새 배지는 만들지 않는다. */}
-                            {t(estimate.calibrated ? "card.evidenceEstimatedCalibrated" : "card.evidenceEstimated", {
-                              time: formatEstimateTime(estimate.observedAt) ?? "—",
-                              km: estimateRadiusKm(estimate.radiusM),
-                            })}
+                            {t("card.evidenceEstimated", { time: formatEstimateTime(estimate.observedAt) ?? "—" })}
                           </span>
                         </>
                       ) : display.mode === "none" && (
@@ -1645,8 +1642,9 @@ function RecommendContent() {
                         </span>
                       )}
                       {/* 24시간 배지는 '마지막 관측' 칩이 없을 때만 — 같은 말을 두 번 하지 않는다
-                          (구 서버 응답처럼 '지금' 판정이 없을 때 남는 경로다). */}
-                      {rec.congestionSource === "measured" && rec.congestionIsStale && !lastObserved && (
+                          (구 서버 응답처럼 '지금' 판정이 없을 때 남는 경로다). 그 낡은 값을 실제로
+                          칠했을 때만 — 24시간이 넘어 칠하지 않은 관측은 말하지 않는다. */}
+                      {display.mode === "measured" && rec.congestionIsStale && !lastObserved && (
                         <span className="text-[10px] font-medium px-2 py-0.5 rounded-md border bg-hanji-deep border-line text-muk-soft/70">
                           {t("card.freshStale")}
                         </span>
@@ -1661,8 +1659,8 @@ function RecommendContent() {
                         {rec.facility.name}
                       </h4>
                       {/* lastObserved 가 있으면 위 칩이 이미 '언제' 를 말했다 — 'n일 전 기준' 을 또 쓰면
-                          지금 칠해진 값(추정)이 n일 전 값으로 읽힌다. */}
-                      {rec.congestionSource !== 'none' && freshnessText && !lastObserved && (
+                          지금 칠해진 값(추정)이 n일 전 값으로 읽힌다. 칠한 실측·예측 등급이 없으면 말할 대상도 없다. */}
+                      {shownLevel !== null && freshnessText && !lastObserved && (
                         <p className="mt-1 text-[10px] text-muk-soft">
                           {rec.congestionLogSource === 'user_report'
                             ? t('card.freshReport', { rel: freshnessText })

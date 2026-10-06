@@ -3,7 +3,8 @@ import { stubExternalServices } from './support/stubs';
 import { expandPeek } from './support/recCard';
 
 // 심사위원 경로 회귀 테스트 ② — 메인 지도(/main)에서 손으로 눌러야만 드러나는 것들.
-//   · 비교 헤더("지금 A … → 대신 B · 도보 N분 · 등급")가 **근거가 하나도 없어도** 사라지지 않는가
+//   · 카드 첫 줄이 참인가 — 화살표("지금 A … → 대신 B · 도보 N분 · 등급")는 B 가 정말 덜 붐빌 때만,
+//     근거가 하나도 없으면 혜택 문장("B · 도보 N분 · …")으로 남는다(사라지지 않는다)
 //   · 🕒 가정 시간 셀렉트와 ✨ 경주 테마 칩이 스켈레톤 → 카드 교체 → 토스트로 응답하는가
 //   · 🏮 축제 패널이 열리고, 바깥을 누르면 닫히는가
 //
@@ -100,7 +101,7 @@ function recWithoutEvidence(row: { id: string; name: string; type: string }, ind
 }
 
 interface MainOptions {
-  /** 추천 응답에 근거를 실을지. false 면 폴백 문구('인기 명소' / '수집 중') 경로를 탄다. */
+  /** 추천 응답에 근거를 실을지. false 면 비교가 성립하지 않아 혜택 문장 경로를 탄다. */
   evidence?: boolean;
   /** GET /api/v1/events 응답. null 이면 source=unavailable(칩 자체가 숨는다). */
   events?: unknown[] | null;
@@ -191,12 +192,12 @@ async function expectTappable(target: Locator): Promise<void> {
   expect(probe.bottom).toBeLessThanOrEqual(probe.navTop);
 }
 
-/** 비교 헤더 한 줄의 모양. 근거 유무와 무관하게 이 모양은 항상 성립해야 한다. */
+/** 화살표 비교 한 줄의 모양 — 두 곳 모두 실제 등급 단어로만 말한다('인기'·'수집 중' 같은 대체어 없음). */
 const COMPARE_HEADER =
-  /지금 .+ (혼잡|보통|여유|한산|인기) → 대신 .+ · 도보 \d+분 · (혼잡|보통|여유|한산|수집 중)/;
+  /지금 .+ (혼잡|보통|여유|한산) → 대신 .+ · 도보 \d+분 · (혼잡|보통|여유|한산)/;
 
 // ───────────────────────────────────────────────────────────────────────────
-// ② 비교 헤더 — 근거가 있든 없든 사라지지 않는다.
+// ② 카드 첫 줄 — 근거가 있든 없든 사라지지 않고, 언제나 참이다(lib/compareHeader.ts chooseCompareHeadline).
 // ───────────────────────────────────────────────────────────────────────────
 
 test('comparison header renders when the response carries evidence', async ({ page }) => {
@@ -208,24 +209,29 @@ test('comparison header renders when the response carries evidence', async ({ pa
   await expandPeek(page); // 390px — 비교 헤더는 펼친 카드에 있다
   const header = page.getByText(COMPARE_HEADER).first();
   await expect(header).toBeVisible();
-  // 근거가 있으면 기준 명소 이름과 등급 단어를 그대로 말한다(폴백 문구가 아니다).
-  await expect(header).toContainText('대릉원');
-  await expect(header).not.toContainText('인기 명소');
-  await expect(header).not.toContainText('수집 중');
+  // 대릉원(주변 공영주차 혼잡, 184m) → 우직 쌈밥집(실측 한산): 정말 덜 붐비는 다른 곳이라 화살표가 참이다.
+  await expect(header).toContainText('지금 대릉원 혼잡 → 대신 우직 쌈밥집');
+  await expect(header).toContainText('한산');
+  await expect(page.getByText('줄 서는 대신', { exact: true })).toBeVisible();
 });
 
-test('comparison header still renders with no congestion estimate and no parking evidence', async ({ page }) => {
+test('with no congestion estimate and no parking evidence the first line is the benefit line', async ({ page }) => {
   test.setTimeout(90_000);
   await mockMain(page, { evidence: false });
   await page.goto('/main');
 
   await expect(page.getByRole('heading', { name: '우직 쌈밥집' })).toBeVisible({ timeout: 25_000 });
-  await expandPeek(page); // 390px — 비교 헤더는 펼친 카드에 있다
-  const header = page.getByText(COMPARE_HEADER).first();
-  await expect(header).toBeVisible();
-  // 근거가 전부 없을 때의 폴백 문구(lib/compareHeader.ts 계약 ①·②).
-  await expect(header).toContainText('인기 명소');
-  await expect(header).toContainText('수집 중');
+  await expandPeek(page); // 390px — 카드 첫 줄은 펼친 카드에 있다
+  // 비교할 근거가 없으면 화살표 대신 관광객이 얻는 것: 이름 · 도보 N분 · 도착 시 영업 · 취향 N% 일치.
+  const card = page.getByTestId('recommendation-card');
+  const line = card.locator('p').filter({ hasText: /^우직 쌈밥집 · 도보 \d+분/ }).first();
+  await expect(line).toBeVisible();
+  await expect(line).toContainText('도착 시 영업');
+  await expect(line).toContainText(/취향 \d+% 일치/);
+  await expect(page.getByText(COMPARE_HEADER)).toHaveCount(0);
+  await expect(card).not.toContainText('→');
+  await expect(card).not.toContainText('인기 명소');
+  await expect(line).not.toContainText('수집 중');
 });
 
 // ───────────────────────────────────────────────────────────────────────────

@@ -668,8 +668,7 @@
     "evidenceNone": "혼잡 근거 없음",
     "spotTooltipEvidenceOrder": "확인된 혼잡 근거가 있는 곳을 먼저 보여드려요.",
     "estimateLevel": "추정 혼잡: {label}",
-    "evidenceEstimated": "추정 · 주차 실측 기반 · {time} 관측 · 반경 {km}km",
-    "evidenceEstimatedCalibrated": "추정 · 주차 실측 기반(서울 실측 보정) · {time} 관측 · 반경 {km}km",
+    "evidenceEstimated": "추정 · 경주 공영주차 실측 기반 · {time} 관측",
     "lastObserved": "마지막 관측 {time}",
     "lastObservedLevel": "마지막 관측 {time} · {label}",
     "peek": {
@@ -983,9 +982,11 @@
       "family_check": "아이와 가기 전 확인할 점은?"
     },
     "headerKicker": "줄 서는 대신",
+    "nearbyKicker": "지금 가까운 추천",
     "header": "지금 {anchor} {anchorCrowd} → 대신 {candidate} · 도보 {walk}분 · {candidateCrowd}",
-    "anchorFallback": "인기 명소",
-    "crowdPopular": "인기",
+    "benefitWalk": "도보 {walk}분",
+    "benefitOpen": "도착 시 영업",
+    "benefitTaste": "취향 {pct}% 일치",
     "collecting": "수집 중",
     "congestionCollecting": "혼잡 추정 · 수집 중",
     "demandCollectingHint": "주차 실측·관광 통계 근거가 도착하면 여기에 표시돼요.",

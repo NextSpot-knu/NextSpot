@@ -26,7 +26,7 @@ import {
   getStoredAssumedPreset,
   setStoredAssumedPreset,
 } from "@/lib/api-client";
-import { displayableEstimate, estimateRadiusKm, formatEstimateTime } from "@/lib/congestionEstimate";
+import { displayableEstimate, formatEstimateTime } from "@/lib/congestionEstimate";
 import { REGION, isWithinRegion } from "@/lib/region";
 import { toast } from "sonner";
 import { useT } from "@/lib/i18n/I18nProvider";
@@ -1551,11 +1551,7 @@ function StopRow({
           </div>
           {est && (
             <p className="mt-1 text-[10px] leading-relaxed text-muk-soft">
-              {/* 보정이 적용된 값이면 같은 문장에 한 마디만 더 — 새 배지는 만들지 않는다. */}
-              {t(est.calibrated ? 'card.evidenceEstimatedCalibrated' : 'card.evidenceEstimated', {
-                time: formatEstimateTime(est.observedAt) ?? '—',
-                km: estimateRadiusKm(est.radiusM),
-              })}
+              {t('card.evidenceEstimated', { time: formatEstimateTime(est.observedAt) ?? '—' })}
             </p>
           )}
 
