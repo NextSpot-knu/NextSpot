@@ -26,11 +26,12 @@ import {
   assumedAtIsoForPreset,
   getStoredAssumedPreset,
   setStoredAssumedPreset,
+  type RecommendationResponse,
 } from "@/lib/api-client";
 import { recToSpot } from "@/lib/recommender";
 import { congestionDisplay, parseCongestionEstimate } from "@/lib/congestionEstimate";
 // 보드의 세 숫자(예상 대기 · 혼잡 등급 · 한산해지는 시각)의 단일 소스.
-import { estimateWait, displayHour, showsCalmLine, heroWaitCandidate, type WaitEstimate } from "@/lib/waitEstimate";
+import { estimateWait, displayArrivalTime, showsCalmLine, calmAfterClose, heroWaitCandidate, type WaitEstimate } from "@/lib/waitEstimate";
 import { curveForBase, fetchAreaDemandCurve, mergeAreaCurve, type AreaDemandCurve } from "@/lib/areaDemandCurve";
 import { areaDemandDisclosure } from "@/lib/areaDemandPresentation";
 // 분으로 말할 근거가 없는 카드는 등급으로 말한다 — 등급 경계는 지도·카드와 같은 공용 판정을 쓴다.
@@ -40,7 +41,7 @@ import { countKey } from "@/lib/i18n/count";
 import { useI18n, useT } from "@/lib/i18n/I18nProvider";
 import { GoldenHourBadge } from "@/components/GoldenHourBadge";
 import NowChip from "@/components/NowChip";
-import LoadingReveal from "@/components/LoadingReveal";
+import LoadingReveal, { WaitingSectorSkeleton } from "@/components/LoadingReveal";
 // T2: 휴무 원문(rest_date_raw) 파서 — 오늘 휴무 '확정'만 판정(모르면 null, 과판정 금지). 공용 단일 소스.
 import { isClosedToday } from "@/lib/restDate";
 // Wikimedia(CC BY/BY-SA)·경주시 사진은 출처와 함께만 — 출처 줄은 지금 보이는 사진이 그 사진일 때만 붙는다.
@@ -133,6 +134,9 @@ interface BoardRow {
   closedToday: boolean;
   // TourAPI 대표·취급 메뉴를 합친 실제 메뉴(최대 5개).
   menus: string[];
+  // 영업시간 원본({open, closed} 등) — 문 닫은 뒤의 '한산해지는 시각'을 걸러 낸다.
+  // 옛 캐시 행에는 없다(undefined) — 그때는 한산 줄을 그대로 둔다(닫았다고 확정할 때만 지운다).
+  operatingHours?: Record<string, unknown> | null;
 }
 
 // 섹터 = 한 시설 유형의 대기 짧은 순 정렬 목록. rows 가 비면 섹터 자체를 렌더하지 않는다.
@@ -309,14 +313,14 @@ function headlineOf(est: WaitEstimate, row: BoardRow, estimateLevel: number | un
  * 카드의 주인공 한 줄. 분으로 말할 근거가 있으면 분을, 없으면 그 근거가 **실제로 아는 것**
  * (시설 추정 혼잡 · 주변 권역 수요 등급 · 관광 상대지수)을 그대로 말한다(무엇을 말할지는 lib/boardOrder
  * waitHeadlineOf — 보드의 동점 판정도 같은 결과를 쓴다). 주변 주차·관광 상대지수를 '대기 N분'으로 바꾸지 않는다
- * (docs/CONGESTION_DATA.md §2 원칙 3·4).
+ * (docs/CONGESTION_DATA.md §2 원칙 3·4). 아무 근거도 없으면 null — 그 카드는 머리줄을 세우지 않는다.
  */
 function waitHeadline(
   est: WaitEstimate,
   row: BoardRow,
   estimateLevel: number | undefined,
   t: (key: string, vars?: Record<string, string | number>) => string,
-): string {
+): string | null {
   const h = headlineOf(est, row, estimateLevel);
   switch (h.kind) {
     case "minutes":
@@ -333,8 +337,8 @@ function waitHeadline(
     case "tourism":
       return t("recommend.tourismEvidenceIndex", { n: h.n });
     default:
-      // 아무 근거도 없을 때 — 0분을 만들지 않고 '수집 중'이라고 둔다.
-      return t("waiting.waitUnavailable");
+      // 아무 근거도 없을 때 — 0분을 만들지 않고, '수집 중' 같은 빈 약속도 세우지 않는다(카드는 이름·도착 시각만).
+      return null;
   }
 }
 
@@ -346,13 +350,15 @@ function WaitStats({ est, row, estimateLevel }: { est: WaitEstimate; row: BoardR
     <div className="shrink-0 space-y-1 mt-1.5">
       {/* ① 예상 대기 — 카드의 주인공. 골드 박스로 가장 크게 세운다.
           분으로 말할 근거가 없는 카드는 여기에 등급·지수가 그대로 들어온다(waitHeadline). */}
-      {/* 한국어는 띄어쓰기에서만 접는다(break-keep) — 좁은 카드에서 '예상 대기 약 10 / 분'·'수집 / 중'처럼
+      {/* 한국어는 띄어쓰기에서만 접는다(break-keep) — 좁은 카드에서 '예상 대기 약 10 / 분'처럼
           숫자와 단위가 갈라져 잘린 글처럼 보였다. 일본어·중국어는 띄어쓰기가 없어 글자 사이 줄바꿈을 그대로 둔다. */}
-      <p className={`rounded-lg border border-gold/30 bg-gold/10 px-2 py-1 text-xs font-extrabold text-gold-deep leading-snug tabular-nums break-words ${
-        locale === "ko" ? "break-keep" : ""
-      }`}>
-        {headline}
-      </p>
+      {headline !== null && (
+        <p className={`rounded-lg border border-gold/30 bg-gold/10 px-2 py-1 text-xs font-extrabold text-gold-deep leading-snug tabular-nums break-words ${
+          locale === "ko" ? "break-keep" : ""
+        }`}>
+          {headline}
+        </p>
+      )}
       <div className="flex flex-wrap items-center gap-1">
         {/* ② 혼잡 등급 — 분이 있을 때만 붙인다. 분이 없으면 대기 등급도 말할 수 없고,
             0분이면 위 골드 박스가 이미 같은 말('대기 없음'·'여유')을 하고 있다. */}
@@ -374,8 +380,8 @@ function WaitStats({ est, row, estimateLevel }: { est: WaitEstimate; row: BoardR
       </div>
       {/* ③ 한산해지는 시각 — 분이 있는 카드는 8시간 안에 없으면 '지금이 가장 한산'. 분이 없는 카드는
           권역 수요 곡선에서 실제로 찾은 시각이 있을 때만 쓴다(showsCalmLine): 내장 시간대 곡선만으로
-          한산하다고 말할 수는 없다. */}
-      {showsCalmLine(est) && (
+          한산하다고 말할 수는 없다. 그 시각에 문을 닫은 것이 확실하면 쓰지 않는다(calmAfterClose). */}
+      {!calmAfterClose(est, row.operatingHours) && showsCalmLine(est) && (
         <p className="text-[10px] font-bold leading-snug text-jade">
           {est.calmHour === null
             ? t("wait.calmNow")
@@ -385,10 +391,12 @@ function WaitStats({ est, row, estimateLevel }: { est: WaitEstimate; row: BoardR
       {/* 줄 수를 자르지 않는다 — 영어는 좁은 카드에서 세 줄로 접혀, 두 줄에서 자르면 숫자를 받치는 근거
           ('… measured data')가 통째로 사라졌다. 늘어난 만큼은 위 소개 블록이 온전한 줄로 양보한다(min-h-72). */}
       <p className="text-[9px] leading-snug text-muk-soft break-words">
-        {/* 근거가 하나도 없는 카드에는 근거 문구를 붙이지 않는다 — 위 한 줄이 '수집 중'이라고
-            말해 놓고 옆에서 무슨 근거라고 하면 한 카드가 두 말을 한다. */}
-        {t("wait.arrivalBasis", { h: displayHour(est.arrivalHour) })}
-        {est.basis !== "default" && ` · ${t(basisKey(est.basis))}`}
+        {/* 근거가 하나도 없는 카드(basis 'default')는 예측을 보여 주지 않는다 — 도착 시각만 말하고('12:20 도착')
+            근거 문구도 붙이지 않는다. 보여 준 숫자가 없는데 '도착 예측'·근거를 말하면 없는 예측을 약속한다
+            (zh '按12:20到达预测'). 도착 시각은 분까지(옆의 '현재 HH:MM 기준'과 같은 해상도). */}
+        {est.basis === "default"
+          ? t("wait.arrivalOnly", { time: displayArrivalTime(est.arrivalHour) })
+          : `${t("wait.arrivalBasis", { time: displayArrivalTime(est.arrivalHour) })} · ${t(basisKey(est.basis))}`}
       </p>
     </div>
   );
@@ -400,15 +408,17 @@ function WaitRowChips({ est, row, estimateLevel }: { est: WaitEstimate; row: Boa
   const headline = waitHeadline(est, row, estimateLevel, t);
   return (
     <div className="flex flex-wrap items-center gap-1.5 mt-1">
-      <span className="text-[11px] font-bold px-2 py-1 rounded-md bg-gold/10 border border-gold/25 text-gold-deep whitespace-nowrap tabular-nums">
-        {headline}
-      </span>
+      {headline !== null && (
+        <span className="text-[11px] font-bold px-2 py-1 rounded-md bg-gold/10 border border-gold/25 text-gold-deep whitespace-nowrap tabular-nums">
+          {headline}
+        </span>
+      )}
       {est.grade !== null && est.minutes !== null && est.minutes > 0 && (
         <span className={`text-[11px] font-bold px-2 py-1 rounded-md border whitespace-nowrap ${gradeBadgeClass(est.grade)}`}>
           {t(`wait.grade.${est.grade}`)}
         </span>
       )}
-      {showsCalmLine(est) && (
+      {!calmAfterClose(est, row.operatingHours) && showsCalmLine(est) && (
         <span className="text-[11px] font-bold text-jade whitespace-nowrap">
           {est.calmHour === null ? t("wait.calmNow") : t("wait.calmAt", { h: est.calmHour })}
         </span>
@@ -426,6 +436,101 @@ function WaitRowChips({ est, row, estimateLevel }: { est: WaitEstimate; row: Boa
   );
 }
 
+/**
+ * 한 유형의 by-type 응답 → 보드 섹터 한 판. 응답이 빈 유형은 null(섹터 자체를 숨긴다 — PM 지시).
+ * 도착하는 대로 그리는 부분 보드와 마지막 커밋이 **같은 함수**로 만든다 — 같은 섹터는 같은 내용·같은 key 라
+ * 마지막 커밋에서 카드가 다시 그려지지 않는다(이미 받은 사진도 그대로).
+ */
+function buildSector(type: string, recs: RecommendationResponse[], currentLocale: string): Sector | null {
+  const rows: BoardRow[] = recs.map((rec) => {
+    const spot = recToSpot(rec);
+    // apiClient 응답 변환(keysToCamel)이 features 내부 키까지 재귀적으로 camelCase 로 바꾸므로
+    // (rest_date_raw → restDateRaw) 두 표기를 모두 확인한다(main/page.tsx의 barrierFree 방어 패턴과 동일).
+    const restDateRaw = (rec.facility.features?.rest_date_raw ?? rec.facility.features?.restDateRaw) as
+      | string
+      | null
+      | undefined;
+    // 공식 대표·취급 메뉴를 합쳐 최대 5개. 없는 메뉴는 지어내지 않는다.
+    const firstMenuRaw = (rec.facility.features?.first_menu ?? rec.facility.features?.firstMenu) as
+      | string
+      | null
+      | undefined;
+    const treatMenuRaw = (rec.facility.features?.treat_menu ?? rec.facility.features?.treatMenu) as
+      | string
+      | null
+      | undefined;
+    const menus = Array.from(new Set(
+      [firstMenuRaw, treatMenuRaw]
+        .filter((value): value is string => typeof value === "string")
+        .flatMap((value) => value.split(/[,/\n·]+/).map((item) => item.trim()).filter(Boolean))
+    )).slice(0, 5);
+    // 소개(overview) 다국어 — 배치 번역(apps/api/scripts/translate_overviews.py)이
+    // features.overview_i18n = {en, ja, zh} 에 저장(스키마 변경 없음). RecommendationCard 와 동일하게
+    // camelCase(overviewI18n)·원본 snake_case(overview_i18n) 두 표기를 모두 지원한다.
+    // 로케일이 ko 면 항상 원문만 쓴다(번역 유무와 무관 — 기존 동작 불변).
+    const overviewI18n = (rec.facility.features?.overviewI18n ?? rec.facility.features?.overview_i18n) as
+      | Record<string, string>
+      | null
+      | undefined;
+    const translatedOverview = currentLocale !== "ko" ? overviewI18n?.[currentLocale] : undefined;
+    const overviewText = (translatedOverview || rec.facility.overview)?.trim();
+    return {
+      facilityId: rec.facility.id,
+      name: rec.facility.name,
+      type: rec.facility.type,
+      // 대표 사진(firstimage)부터 detailImage2 갤러리 순으로 시도한다. 동일 URL은 한 번만 로드한다.
+      imageUrls: photoCandidates(rec.facility.imageUrl, rec.facility.galleryImages),
+      // TourAPI 소개(비-ko 로케일이면 배치 번역 우선)를 우선하고, 없으면 실제 주소를 짧은 보조
+      // 설명으로 사용한다. 둘 다 없을 때는 내용을 지어내지 않고 설명 영역을 숨긴다.
+      summary: overviewText || rec.facility.address?.trim() || null,
+      ...photoCreditFeatures(rec.facility.features),
+      // 카드·추천 목록과 **같은 판정**을 쓴다. 이 보드는 같은 RecommendItem 을 받으면서
+      // 원시 congestionLevel 만 읽어, 추천 화면이 '추정 · 여유' 라고 말하는 시설을
+      // '혼잡' 으로 그리고 있었다(2026-09-20 적대적 검토). 추정은 여기서 그리지 않고
+      // (이 보드는 대기 예측 화면이라 추정 어휘가 없다) '근거 없음' 으로 둔다.
+      congestionLevel: (() => {
+        const display = congestionDisplay(rec);
+        return display.mode === "measured" || display.mode === "predicted" ? display.level : null;
+      })(),
+      areaDemandLevel: typeof spot.areaDemandLevel === "number" ? spot.areaDemandLevel : null,
+      areaDemandMode: spot.areaDemandMode ?? null,
+      areaDemandRadiusM: typeof spot.areaDemandRadiusM === "number" ? spot.areaDemandRadiusM : null,
+      areaDemandParkingEvidence: spot.areaDemandParkingEvidence ?? null,
+      areaDemandTourismEvidence: spot.areaDemandTourismEvidence ?? null,
+      arrivalAction: spot.arrivalAction ?? null,
+      recommendedDepartureDelayMinutes: spot.recommendedDepartureDelayMinutes ?? null,
+      expectedWait:
+        typeof rec.breakdown?.waitTime === "number" ? rec.breakdown.waitTime : null,
+      rankingWait:
+        typeof rec.breakdown?.rankingWaitTime === "number" ? rec.breakdown.rankingWaitTime : null,
+      // 구 서버 응답에는 없는 키라 TS 계약에 없다 — 있으면 쓰고, 없으면 조용히 null.
+      baselineWait: (() => {
+        const b = rec.breakdown as Record<string, unknown> | undefined;
+        const raw = b?.industryBaselineWaitTime ?? b?.industry_baseline_wait_time;
+        return typeof raw === "number" && Number.isFinite(raw) ? raw : null;
+      })(),
+      capacity: typeof rec.facility.capacity === "number" ? rec.facility.capacity : null,
+      expectedTravel: spot.expectedTravel,
+      // 휴무 '확정'(true)만 표시 — 모름(null)/영업 확정(false)은 평소처럼 취급(정직성: 과판정 금지).
+      closedToday: isClosedToday(restDateRaw) === true,
+      menus,
+      operatingHours: rec.facility.operatingHours ?? null,
+    };
+  });
+  // 대기 짧은 순 정렬은 그대로 유지하되, 오늘 휴무 확정 시설은 항상 맨 뒤로 보낸다
+  // (대표 카드가 rows 앞쪽 3개를 그대로 슬라이스하지 않도록 아래에서 open/closed 를 명시적으로 분리한다).
+  rows.sort((a, b) => {
+    if (a.closedToday !== b.closedToday) return a.closedToday ? 1 : -1;
+    if (a.expectedWait === null && b.expectedWait === null) return 0;
+    if (a.expectedWait === null) return 1;
+    if (b.expectedWait === null) return -1;
+    return a.expectedWait - b.expectedWait;
+  });
+
+  // 응답이 빈 유형은 섹터 자체를 숨긴다(PM 지시).
+  return rows.length > 0 ? { type, rows } : null;
+}
+
 export default function WaitingBoardPage() {
   const router = useRouter();
   const { t, locale } = useI18n();
@@ -433,6 +538,10 @@ export default function WaitingBoardPage() {
   const [sectors, setSectors] = useState<Sector[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
+  // 보드가 다 차기 전에 먼저 도착한 섹션들(I36) — 로딩 중에만 그린다. 어느 프리셋의 조각인지 함께 둔다:
+  // 프리셋을 바꾼 직후 한 렌더 동안 옛 프리셋의 조각이 새 배지 아래 보이지 않게. 캐시·'화면의 프리셋'은
+  // 이 조각으로 바뀌지 않는다(다 찬 보드만이 '그 프리셋의 보드'다).
+  const [partialBoard, setPartialBoard] = useState<{ preset: string; sectors: Sector[] } | null>(null);
 
   // 데모 '가정 시각' 프리셋 — /main·/course 와 localStorage 한 키로 공유하고 이벤트로 동기화한다.
   // 초기값은 'now'(SSR/정적 export 안전) → 마운트 후 저장값으로 맞춘다.
@@ -495,11 +604,12 @@ export default function WaitingBoardPage() {
 
   // 'now' 프리셋의 기준 시각은 **상태로 고정**한다. 렌더 중 new Date() 를 부르면 정적 export 의
   // 프리렌더 HTML 과 하이드레이션 결과가 갈리고, 리렌더마다 숫자가 미세하게 흔들린다.
-  // 5분마다 한 번만 갱신 — 대기 추정의 시간 해상도(정시 곡선)에는 충분하다.
+  // 30초마다 갱신 — 카드가 도착 시각을 분까지 말하므로(HH:MM 도착 예측) 옆의 NowChip(30초)과 같은 박자로 간다.
+  // 5분 간격이면 '현재 12:14 기준' 옆에 '12:13 도착 예측'처럼 출발보다 이른 도착이 설 수 있었다.
   const [nowMs, setNowMs] = useState<number | null>(null);
   useEffect(() => {
     setNowMs(Date.now());
-    const id = setInterval(() => setNowMs(Date.now()), 5 * 60 * 1000);
+    const id = setInterval(() => setNowMs(Date.now()), 30 * 1000);
     return () => clearInterval(id);
   }, []);
   const effectiveBaseMs = baseAtMs ?? nowMs;
@@ -623,6 +733,8 @@ export default function WaitingBoardPage() {
     const stale = () =>
       signal.aborted || boardRunRef.current !== thisRun || latestPresetRef.current !== assumedPreset;
     if (stale()) return; // 예약된 재시도가 돌 때 이미 새 조회가 시작됐으면 — 그 조회가 따로 돈다
+    // 이전 run 의 부분 섹션은 버린다 — 이 run 이 처음부터 다시 채운다.
+    setPartialBoard(null);
     // 화면에 같은 가정 시각의 결과가 이미 있으면 조용한 새로고침(로더 생략) — 스테일-우선.
     // 다른 프리셋을 불러오던 로더가 떠 있을 수 있으니 여기서 내린다: 화면의 보드가 곧 이 프리셋의 보드다.
     const silentRefresh = hasRenderedResultsRef.current && renderedPresetRef.current === assumedPreset;
@@ -631,6 +743,7 @@ export default function WaitingBoardPage() {
     const showFailed = () => {
       setFailed(true);
       setSectors(null);
+      setPartialBoard(null);
       setLoading(false);
       // 화면에 보드가 없다 — 이 프리셋으로 다시 와도 빈 화면에서 조용히 기다리지 않고 로더부터 보여 준다.
       hasRenderedResultsRef.current = false;
@@ -652,6 +765,15 @@ export default function WaitingBoardPage() {
         results.push({ status: "fulfilled", value });
       } catch (reason) {
         results.push({ status: "rejected", reason });
+      }
+      // 섹션은 도착하는 대로 그린다(첫 섹션 ~2초, 예전엔 4유형이 다 올 때까지 6~8초 로더). 요청은 그대로 하나씩이다.
+      // 앞 유형이 하나라도 실패했으면 뒤 섹션은 마지막 커밋까지 기다린다 — 두 번째 패스에서 앞 유형이 채워질 때
+      // 이미 보이는 섹션 위로 끼어들지 않게. 조용한 새로고침은 화면의 보드를 그대로 두므로 여기서 그리지 않는다.
+      if (!silentRefresh && !stale() && results.every((r) => r.status === "fulfilled")) {
+        const shown = results
+          .map((r, i) => (r.status === "fulfilled" ? buildSector(BOARD_TYPES[i], r.value, localeRef.current) : null))
+          .filter((sector): sector is Sector => sector !== null);
+        if (shown.length > 0) setPartialBoard({ preset: assumedPreset, sectors: shown });
       }
     }
 
@@ -679,94 +801,8 @@ export default function WaitingBoardPage() {
     results.forEach((r, i) => {
       if (r.status !== "fulfilled") return;
       anySucceeded = true;
-
-      const rows: BoardRow[] = r.value.map((rec) => {
-        const spot = recToSpot(rec);
-        // apiClient 응답 변환(keysToCamel)이 features 내부 키까지 재귀적으로 camelCase 로 바꾸므로
-        // (rest_date_raw → restDateRaw) 두 표기를 모두 확인한다(main/page.tsx의 barrierFree 방어 패턴과 동일).
-        const restDateRaw = (rec.facility.features?.rest_date_raw ?? rec.facility.features?.restDateRaw) as
-          | string
-          | null
-          | undefined;
-        // 공식 대표·취급 메뉴를 합쳐 최대 5개. 없는 메뉴는 지어내지 않는다.
-        const firstMenuRaw = (rec.facility.features?.first_menu ?? rec.facility.features?.firstMenu) as
-          | string
-          | null
-          | undefined;
-        const treatMenuRaw = (rec.facility.features?.treat_menu ?? rec.facility.features?.treatMenu) as
-          | string
-          | null
-          | undefined;
-        const menus = Array.from(new Set(
-          [firstMenuRaw, treatMenuRaw]
-            .filter((value): value is string => typeof value === "string")
-            .flatMap((value) => value.split(/[,/\n·]+/).map((item) => item.trim()).filter(Boolean))
-        )).slice(0, 5);
-        // 소개(overview) 다국어 — 배치 번역(apps/api/scripts/translate_overviews.py)이
-        // features.overview_i18n = {en, ja, zh} 에 저장(스키마 변경 없음). RecommendationCard 와 동일하게
-        // camelCase(overviewI18n)·원본 snake_case(overview_i18n) 두 표기를 모두 지원한다.
-        // 로케일이 ko 면 항상 원문만 쓴다(번역 유무와 무관 — 기존 동작 불변).
-        const overviewI18n = (rec.facility.features?.overviewI18n ?? rec.facility.features?.overview_i18n) as
-          | Record<string, string>
-          | null
-          | undefined;
-        const currentLocale = localeRef.current;
-        const translatedOverview = currentLocale !== "ko" ? overviewI18n?.[currentLocale] : undefined;
-        const overviewText = (translatedOverview || rec.facility.overview)?.trim();
-        return {
-          facilityId: rec.facility.id,
-          name: rec.facility.name,
-          type: rec.facility.type,
-          // 대표 사진(firstimage)부터 detailImage2 갤러리 순으로 시도한다. 동일 URL은 한 번만 로드한다.
-          imageUrls: photoCandidates(rec.facility.imageUrl, rec.facility.galleryImages),
-          // TourAPI 소개(비-ko 로케일이면 배치 번역 우선)를 우선하고, 없으면 실제 주소를 짧은 보조
-          // 설명으로 사용한다. 둘 다 없을 때는 내용을 지어내지 않고 설명 영역을 숨긴다.
-          summary: overviewText || rec.facility.address?.trim() || null,
-          ...photoCreditFeatures(rec.facility.features),
-          // 카드·추천 목록과 **같은 판정**을 쓴다. 이 보드는 같은 RecommendItem 을 받으면서
-          // 원시 congestionLevel 만 읽어, 추천 화면이 '추정 · 여유' 라고 말하는 시설을
-          // '혼잡' 으로 그리고 있었다(2026-09-20 적대적 검토). 추정은 여기서 그리지 않고
-          // (이 보드는 대기 예측 화면이라 추정 어휘가 없다) '근거 없음' 으로 둔다.
-          congestionLevel: (() => {
-            const display = congestionDisplay(rec);
-            return display.mode === "measured" || display.mode === "predicted" ? display.level : null;
-          })(),
-          areaDemandLevel: typeof spot.areaDemandLevel === "number" ? spot.areaDemandLevel : null,
-          areaDemandMode: spot.areaDemandMode ?? null,
-          areaDemandRadiusM: typeof spot.areaDemandRadiusM === "number" ? spot.areaDemandRadiusM : null,
-          areaDemandParkingEvidence: spot.areaDemandParkingEvidence ?? null,
-          areaDemandTourismEvidence: spot.areaDemandTourismEvidence ?? null,
-          arrivalAction: spot.arrivalAction ?? null,
-          recommendedDepartureDelayMinutes: spot.recommendedDepartureDelayMinutes ?? null,
-          expectedWait:
-            typeof rec.breakdown?.waitTime === "number" ? rec.breakdown.waitTime : null,
-          rankingWait:
-            typeof rec.breakdown?.rankingWaitTime === "number" ? rec.breakdown.rankingWaitTime : null,
-          // 구 서버 응답에는 없는 키라 TS 계약에 없다 — 있으면 쓰고, 없으면 조용히 null.
-          baselineWait: (() => {
-            const b = rec.breakdown as Record<string, unknown> | undefined;
-            const raw = b?.industryBaselineWaitTime ?? b?.industry_baseline_wait_time;
-            return typeof raw === "number" && Number.isFinite(raw) ? raw : null;
-          })(),
-          capacity: typeof rec.facility.capacity === "number" ? rec.facility.capacity : null,
-          expectedTravel: spot.expectedTravel,
-          // 휴무 '확정'(true)만 표시 — 모름(null)/영업 확정(false)은 평소처럼 취급(정직성: 과판정 금지).
-          closedToday: isClosedToday(restDateRaw) === true,
-          menus,
-        };
-      });
-      // 대기 짧은 순 정렬은 그대로 유지하되, 오늘 휴무 확정 시설은 항상 맨 뒤로 보낸다
-      // (대표 카드가 rows 앞쪽 3개를 그대로 슬라이스하지 않도록 아래에서 open/closed 를 명시적으로 분리한다).
-      rows.sort((a, b) => {
-        if (a.closedToday !== b.closedToday) return a.closedToday ? 1 : -1;
-        if (a.expectedWait === null && b.expectedWait === null) return 0;
-        if (a.expectedWait === null) return 1;
-        if (b.expectedWait === null) return -1;
-        return a.expectedWait - b.expectedWait;
-      });
-
-      // 응답이 빈 유형은 섹터 자체를 숨긴다(PM 지시).
-      if (rows.length > 0) nextSectors.push({ type: BOARD_TYPES[i], rows });
+      const sector = buildSector(BOARD_TYPES[i], r.value, localeRef.current);
+      if (sector) nextSectors.push(sector);
     });
 
     if (!anySucceeded) {
@@ -780,7 +816,7 @@ export default function WaitingBoardPage() {
           setTimeout(() => { void fetchBoard(thisRun); }, 500);
           return; // loading 유지 — 503 자동 재시도는 1회로 제한
         }
-        if (silentRefresh) { setLoading(false); return; } // 캐시 결과 유지 — 에러로 갈아치우지 않는다
+        if (silentRefresh) { setPartialBoard(null); setLoading(false); return; } // 캐시 결과 유지 — 에러로 갈아치우지 않는다
         showFailed();
         return;
       }
@@ -792,12 +828,14 @@ export default function WaitingBoardPage() {
         setTimeout(() => { void fetchBoard(thisRun); }, 2500);
         return; // loading 유지(스켈레톤) — 유예는 유한(1회)이라 무한 스켈레톤 아님
       }
-      if (silentRefresh) { setLoading(false); return; } // 캐시 결과 유지
+      if (silentRefresh) { setPartialBoard(null); setLoading(false); return; } // 캐시 결과 유지
       showFailed();
       return;
     }
 
+    // 마지막 커밋 — 보드가 다 찼다. 부분 섹션은 같은 렌더에서 내려간다(같은 key 라 카드는 그대로 남는다).
     setSectors(nextSectors);
+    setPartialBoard(null);
     setLoading(false);
     hasRenderedResultsRef.current = true;
     renderedPresetRef.current = assumedPreset;
@@ -826,10 +864,14 @@ export default function WaitingBoardPage() {
   // 아무것도 모르는 곳이 '최단 대기'가 된다. 추정 0분도 빠진다(heroWaitCandidate) — 카드는 그것을
   // '여유'라고만 말하는데 히어로가 '0분'이라 단언하면 같은 값이 두 말을 한다. 추정값이 이기면 카드와
   // 똑같이 '추정'을 함께 단다.
+  // 화면에 보이는 섹션만 본다: 로딩 중에는 이 프리셋의 부분 섹션(없으면 로더 — 칩도 없다), 다 찬 뒤에는 보드.
+  // 로더 뒤에 남은 옛 프리셋 보드의 최단 대기가 새 배지 옆에 서지 않는다. 섹션이 늘수록 칩은 내려가기만 한다.
+  const partialSectors = partialBoard?.preset === assumedPreset ? partialBoard.sectors : null;
+  const shownSectors = loading ? partialSectors : sectors;
   const bestWait = (() => {
-    if (!sectors) return null;
+    if (!shownSectors) return null;
     let best: { minutes: number; estimated: boolean } | null = null;
-    for (const sector of sectors) {
+    for (const sector of shownSectors) {
       for (const row of sector.rows) {
         if (row.closedToday) continue;
         const est = waitOf(row);
@@ -920,16 +962,16 @@ export default function WaitingBoardPage() {
           </div>
         </section>
 
-        {/* 본문 */}
-        {loading ? (
+        {/* 본문 — 로더는 첫 섹션이 도착할 때까지만. 그 뒤로는 도착한 섹션 + 아직 오는 자리 한 판(자리표시). */}
+        {loading && !partialSectors?.length ? (
           <LoadingReveal variant="waiting" />
         ) : failed ? (
           <ErrorState onRetry={() => { void fetchBoard(); }} />
-        ) : !sectors || sectors.length === 0 ? (
+        ) : !shownSectors || shownSectors.length === 0 ? (
           <EmptyState />
         ) : (
-          <div className="flex flex-col gap-6">
-            {sectors.map((sector, sectorIdx) => {
+          <div className="flex flex-col gap-6" aria-busy={loading}>
+            {shownSectors.map((sector, sectorIdx) => {
               // 오늘 휴무 확정 시설은 대표 카드(topRows) 선정에서 아예 배제 — open 이 3곳 미만이어도
               // closed 로 자리를 채우지 않는다(rows 는 이미 closedToday 를 맨 뒤로 정렬해 뒀다).
               // 정렬 기준을 **화면이 실제로 보여주는 숫자**로 맞춘다. fetchBoard 의 1차 정렬은
@@ -1050,8 +1092,10 @@ export default function WaitingBoardPage() {
                   </div>
 
                   {/* 섹터 1위 골든타임 — 카드 밖 한 줄(컴팩트 카드 폭 안에 배지+알림 버튼이 안 들어감).
-                      available:false/실패면 GoldenHourBadge 자체가 조용히 숨는다. */}
-                  {topRows[0] && (
+                      available:false/실패면 GoldenHourBadge 자체가 조용히 숨는다.
+                      다 찬 보드에서만 단다 — 배지는 뜨자마자 GET /predict/golden-hour 를 보낸다. 부분 섹션에 달면
+                      아직 하나씩 도는 by-type 조회와 겹친다(0.5CPU 서버라 일부러 순차로 보내는 중). */}
+                  {!loading && topRows[0] && (
                     <div className="mt-2">
                       <GoldenHourBadge facilityId={topRows[0].facilityId} />
                     </div>
@@ -1104,6 +1148,8 @@ export default function WaitingBoardPage() {
                 </section>
               );
             })}
+            {/* 아직 오는 섹션 자리 — 글자 없는 시머 한 판. 새 섹션은 늘 이 자리(맨 아래)에 붙는다. */}
+            {loading && <WaitingSectorSkeleton />}
           </div>
         )}
         <p className="mt-6 border-t border-line pt-4 text-center text-[11px] leading-relaxed text-muk-soft">

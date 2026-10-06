@@ -4,7 +4,15 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { compareWaitMinutes, estimateWait, heroWaitCandidate, showsCalmLine, type WaitEstimate } from './waitEstimate';
+import {
+  calmAfterClose,
+  compareWaitMinutes,
+  displayArrivalTime,
+  estimateWait,
+  heroWaitCandidate,
+  showsCalmLine,
+  type WaitEstimate,
+} from './waitEstimate';
 
 const WEB = process.cwd();
 
@@ -68,7 +76,7 @@ assert.equal(
 
 // --- 근거가 하나도 없을 때 ------------------------------------------------------
 {
-  // 0분도, '지금이 가장 한산'도 만들지 않는다 — 화면은 '대기 정보 수집 중'으로 둔다(§2 원칙 6).
+  // 0분도, '지금이 가장 한산'도 만들지 않는다 — 화면은 대기 머리줄을 비워 둔다(§2 원칙 6).
   const est = estimateWait({ ...base });
   assert.equal(est.minutes, null);
   assert.equal(est.grade, null);
@@ -111,7 +119,7 @@ for (const input of [
     assert.equal(showsCalmLine(est), false, '분도 시각도 없는 카드에 한산 줄이 그려진다');
   }
   const shaped = (minutes: number | null, calmHour: number | null, basis: WaitEstimate['basis']): WaitEstimate =>
-    ({ minutes, grade: null, estimated: minutes !== null, calmHour, arrivalHour: 12, basis });
+    ({ minutes, grade: null, estimated: minutes !== null, calmHour, calmAt: null, arrivalHour: 12, basis });
   // 분이 있는 카드는 calmHour 가 null 이어도(이미 한산) 그 줄을 쓴다.
   assert.equal(showsCalmLine(shaped(2, null, 'measured')), true);
   // 분이 없어도 곡선에서 실제로 찾은 시각이 있으면 쓴다.
@@ -135,12 +143,59 @@ for (const input of [
     grade: null,
     estimated: true,
     calmHour: null,
+    calmAt: null,
     arrivalHour: 12,
     basis: 'ranking',
   });
   const rows = [withMinutes(null), withMinutes(30), withMinutes(0), withMinutes(null), withMinutes(5)];
   const sorted = rows.slice().sort(compareWaitMinutes).map((e) => e.minutes);
   assert.deepEqual(sorted, [0, 5, 30, null, null], '분 없는 카드가 0분처럼 앞으로 올라왔다');
+}
+
+// --- 도착 시각은 분까지(옆의 '현재 12:14 기준'과 어긋나는 '도착 12시'를 만들지 않는다) -----------
+{
+  // 규칙: 가장 가까운 분으로 반올림한다(12시 19.8분 → 12:20). 60분이 되면 다음 시로 넘긴다.
+  assert.equal(displayArrivalTime(12.33), '12:20');
+  assert.equal(displayArrivalTime(9.5), '09:30');
+  assert.equal(displayArrivalTime(12.999), '13:00');
+  assert.equal(displayArrivalTime(23.995), '00:00');
+  // 카드가 쓰는 값 그대로 — KST 12:14 출발 + 도보 6분 = 12:20 도착.
+  const est = estimateWait({ ...base, baseAt: new Date('2026-09-21T03:14:00Z'), travelMinutes: 6 });
+  assert.equal(displayArrivalTime(est.arrivalHour), '12:20');
+}
+
+// --- '한산해지는 시각'은 그 시각에 문을 닫은 곳에는 쓰지 않는다 ---------------------------
+{
+  // KST 12:00 식당·실측 0.9 → 15시에 절반 이하로 내려간다. calmAt 은 그 정시의 실제 시각(같은 날 15:00 KST).
+  const est = estimateWait({ ...base, measuredLevel: 0.9 });
+  assert.equal(est.calmHour, 15);
+  assert.equal(est.calmAt?.toISOString(), '2026-09-21T06:00:00.000Z');
+  // 밤 22시 도착 → 자정에 한산 — calmAt 은 **다음 날** 00:00 KST(요일·휴무일 판정이 그날을 본다).
+  const night = estimateWait({
+    ...base,
+    measuredLevel: 0.9,
+    baseAt: new Date('2026-09-21T13:00:00Z'),
+    areaCurve: { 22: 1, 23: 1, 0: 0 },
+  });
+  assert.equal(night.calmHour, 0);
+  assert.equal(night.calmAt?.toISOString(), '2026-09-21T15:00:00.000Z');
+  // 한산한 시각을 못 찾았으면 calmAt 도 없다.
+  assert.equal(estimateWait({ ...base }).calmAt, null);
+
+  assert.equal(calmAfterClose(est, { open: '09:30~14:30' }), true, '14:30 에 닫는 곳에 15시 이후 한산이 붙는다');
+  assert.equal(calmAfterClose(est, { open: '09:00~21:00' }), false);
+  // 못 읽는 영업시간·영업시간 없음(옛 캐시 행)은 줄을 지우지 않는다 — 닫았다고 확정할 때만.
+  assert.equal(calmAfterClose(est, { open: '상시 개방' }), false);
+  assert.equal(calmAfterClose(est, null), false);
+  assert.equal(calmAfterClose(est, undefined), false);
+  // 라이브 실측 사례(경주 최부자댁 09:30~17:30)에 '20시 이후 한산'이 붙어 있었다.
+  const evening: WaitEstimate = {
+    minutes: null, grade: null, estimated: false, calmHour: 20,
+    calmAt: new Date('2026-09-21T11:00:00Z'), arrivalHour: 12, basis: 'area',
+  };
+  assert.equal(calmAfterClose(evening, { open: '09:30~17:30' }), true);
+  // '지금이 가장 한산'(calmHour 없음)은 이 판정과 무관하다.
+  assert.equal(calmAfterClose({ ...evening, minutes: 2, calmHour: null, calmAt: null }, { open: '09:30~10:00' }), false);
 }
 
 // --- 화면 배선 가드 --------------------------------------------------------------
@@ -169,6 +224,43 @@ for (const input of [
   assert.match(page, /bestWait\.estimated && \(/, '히어로 최단 대기에 추정 라벨이 빠졌다');
   assert.match(page, /!heroWaitCandidate\(est\)/, '히어로 후보 선별이 heroWaitCandidate 를 거치지 않는다');
   assert.equal((page.match(/showsCalmLine\(est\) && \(/g) ?? []).length, 2, "'한산해지는 시각' 두 렌더가 showsCalmLine 을 거치지 않는다");
+  assert.equal(
+    (page.match(/!calmAfterClose\(est, row\.operatingHours\) && showsCalmLine\(est\) && \(/g) ?? []).length,
+    2,
+    "'한산해지는 시각' 두 렌더가 문 닫은 뒤의 한산을 거르지 않는다",
+  );
+  assert.match(page, /operatingHours: rec\.facility\.operatingHours \?\? null/, '보드 행이 영업시간을 싣지 않는다');
+  // 도착 시각은 분까지 — 정수 시('도착 12시 기준')로 뭉개지 않는다.
+  assert.match(page, /t\("wait\.arrivalBasis", \{ time: displayArrivalTime\(est\.arrivalHour\) \}\)/, '도착 시각이 분 단위가 아니다');
+  assert.doesNotMatch(page, /displayHour\(/, '정수 시 도착 표기가 남아 있다');
+  // 근거가 하나도 없는 카드(basis 'default')는 머리줄·등급·한산 줄이 모두 없다 — 주석만 남는데 그것이
+  // '도착 예측'(zh '按12:20到达预测')이면 보여 주지 않는 예측을 약속한다. 그 카드는 도착 시각만 말한다.
+  assert.match(
+    page,
+    /est\.basis === "default"\s*\?\s*t\("wait\.arrivalOnly", \{ time: displayArrivalTime\(est\.arrivalHour\) \}\)/,
+    '근거 없는 카드의 주석이 도착 시각만 말하지 않는다',
+  );
+  for (const locale of ['ko', 'en', 'ja', 'zh'] as const) {
+    const wait = (JSON.parse(readFileSync(join(WEB, `lib/i18n/messages/${locale}.json`), 'utf8')) as {
+      wait: Record<string, string>;
+    }).wait;
+    assert.ok(wait.arrivalOnly?.includes('{time}'), `${locale}: wait.arrivalOnly 에 도착 시각이 없다`);
+    assert.doesNotMatch(wait.arrivalOnly, /예측|predict|forecast|予測|预测|預測/i, `${locale}: 근거 없는 카드가 예측을 약속한다`);
+  }
+  // 골든타임 배지는 뜨자마자 GET /predict/golden-hour 를 보낸다 — 다 찬 보드에서만 달아야 순차 by-type 조회와 겹치지 않는다.
+  assert.match(page, /\{!loading && topRows\[0\] && \(\s*<div className="mt-2">\s*<GoldenHourBadge /, '골든타임 조회가 부분 섹션에서 by-type 조회와 겹친다');
+  // 근거가 하나도 없는 카드에 '대기 정보 수집 중' 머리줄을 세우지 않는다.
+  assert.doesNotMatch(page, /waiting\.waitUnavailable/, "'대기 정보 수집 중' 머리줄이 남아 있다");
+
+  // 섹션은 도착하는 대로(I36) — 그러나 '이 프리셋의 보드'(캐시)는 다 찼을 때 한 번만 남긴다.
+  const cacheWrites = page.match(/localStorage\.setItem\(\s*BOARD_CACHE_KEY/g) ?? [];
+  assert.equal(cacheWrites.length, 1, '보드 캐시를 쓰는 자리가 하나가 아니다');
+  const finalCommit = page.indexOf('setSectors(nextSectors)');
+  assert.ok(finalCommit >= 0 && finalCommit < page.search(/localStorage\.setItem\(\s*BOARD_CACHE_KEY/), '캐시가 마지막 커밋 전에 쓰인다');
+  // 앞 유형이 하나라도 실패했으면 뒤 섹션은 마지막 커밋까지 기다린다(먼저 보인 섹션 위로 끼어들지 않게).
+  assert.match(page, /!silentRefresh && !stale\(\) && results\.every\(\(r\) => r\.status === "fulfilled"\)/, '부분 섹션의 앞부분 규칙이 없다');
+  // 히어로 최단 대기는 화면에 보이는 섹션에서만 — 로더 뒤의 옛 프리셋 보드에서 뽑지 않는다.
+  assert.match(page, /const bestWait = [\s\S]*?for \(const sector of shownSectors\)/, '히어로 최단 대기가 보이는 섹션을 보지 않는다');
 }
 
 console.log('waitEstimate tests passed');
