@@ -444,7 +444,8 @@ test('voice "양식 먹고 싶어" lights the 🍕 chip and opens the chip\'s #1
   });
   await expect(card(page).getByRole('heading', { name: '황남 쌈밥' })).toBeVisible({ timeout: 25_000 });
   await startVoiceAndSay(page, '양식 먹고 싶어');
-  await expect(page.getByRole('button', { name: /피자·양식/ })).toHaveAttribute('aria-pressed', 'true');
+  // 데스크톱의 음식 종류는 계획 B3 부터 '🍽 메뉴 ▾' 하나다 — 칩을 누른 것과 같이 그 메뉴가 고른 값이 된다.
+  await expect(page.getByRole('combobox', { name: '메뉴 고르기' })).toHaveValue('western');
   await expect(card(page).getByRole('heading', { name: '이사부피자' })).toBeVisible();
   expect(turnCalls).toBe(0);
 });

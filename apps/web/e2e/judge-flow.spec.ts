@@ -5,7 +5,7 @@ import { expandPeek } from './support/recCard';
 // 심사위원 경로 회귀 테스트 ② — 메인 지도(/main)에서 손으로 눌러야만 드러나는 것들.
 //   · 카드 첫 줄이 참인가 — 화살표("지금 A … → 대신 B · 도보 N분 · 등급")는 B 가 정말 덜 붐빌 때만,
 //     근거가 하나도 없으면 혜택 문장("B · 도보 N분 · …")으로 남는다(사라지지 않는다)
-//   · 🕒 가정 시간 셀렉트와 ✨ 경주 테마 칩이 스켈레톤 → 카드 교체 → 토스트로 응답하는가
+//   · '다른 시간 ▾'(요일 가정 시각, 계획 B3)과 ✨ 경주 테마 칩이 스켈레톤 → 카드 교체 → 토스트로 응답하는가
 //   · 🏮 축제 패널이 열리고, 바깥을 누르면 닫히는가
 //
 // 모든 네트워크는 스텁이다. 카탈-올을 먼저 등록하고 구체 경로를 나중에 등록한다
@@ -237,14 +237,14 @@ test('with no congestion estimate and no parking evidence the first line is the 
 });
 
 // ───────────────────────────────────────────────────────────────────────────
-// ③ 가정 시간 셀렉트 · 경주 테마 칩 — 스켈레톤 → 카드 → 토스트
+// ③ 가정 시각(혼잡 예측 줄의 '다른 시간 ▾') · 경주 테마 칩 — 스켈레톤 → 카드 → 토스트
 // ───────────────────────────────────────────────────────────────────────────
 
 const skeletonOf = (page: Page) => page.getByText(/기준으로 다시 계산 중…/);
 
 test.describe('recalculation feedback (desktop toolbar)', () => {
-  // 🕒 가정 시간 셀렉트는 `hidden … md:flex` 툴바 안에 있어 모바일 폭에서는 렌더되지 않는다.
-  // 기능 자체를 검증하기 위해 데스크톱 폭으로 연다(휴대폰 시간 조작은 지도 위 '혼잡 예측' 줄 쪽 e2e 가 잠근다).
+  // 요일 가정 시각은 계획 B3 부터 '🔮 혼잡 예측' 줄의 '다른 시간 ▾' 메뉴에 있다(툴바의 셀렉트와 '가정:' 알약은 없다).
+  // 데스크톱 폭으로 연다(+N시간 · 휴대폰 줄은 e2e/map-time-strip.spec.ts 가 잠근다).
   test.use({ viewport: { width: 1280, height: 900 } });
 
   test('assumed-time select shows a skeleton, swaps the card and toasts', async ({ page }) => {
@@ -256,14 +256,16 @@ test.describe('recalculation feedback (desktop toolbar)', () => {
     const skeleton = skeletonOf(page);
     const sameToast = page.getByText('이 시간대에도 같은 추천이 유효해요');
 
-    await page.getByLabel('가정 시간').selectOption('weekday_noon');
+    await page.getByTestId('forecast-strip').getByRole('button', { name: '다른 시간' }).click();
+    await page.getByRole('menuitemradio', { name: '평일 12:00' }).click();
     await expect(skeleton).toBeVisible();
     // 스텁 응답이 그대로라 추천도 그대로 — 그 사실을 침묵이 아니라 문장으로 말해야 한다.
     await expect(sameToast).toBeVisible({ timeout: 15_000 });
     await expect(skeleton).toBeHidden();
     await expect(page.getByRole('heading', { name: '우직 쌈밥집' })).toBeVisible();
-    // 가정 시각 배지도 함께 올라온다.
-    await expect(page.getByText('가정: 평일 12:00')).toBeVisible();
+    // 가정 시각은 카드 첫 상자의 '🕒 … 기준' 알약이 말한다(계획 B2) — 툴바의 '가정:' 알약은 없어졌다(계획 B3).
+    await expect(page.getByTestId('value-box')).toContainText('평일 12:00 기준');
+    await expect(page.getByText('가정: 평일 12:00')).toHaveCount(0);
   });
 
   test('discovery theme chips recalculate with a skeleton and a toast', async ({ page }) => {
@@ -461,12 +463,14 @@ test.describe('phone recommendation peek', () => {
 
     const peek = page.getByTestId('rec-card-peek');
     await expect(peek).toBeVisible({ timeout: 25_000 });
-    // 미리보기에는 관광객이 지금 알아야 할 것만 — 이름 · 도보 N분 · 혼잡(전체 카드와 같은 배지 문구).
+    // 미리보기에는 관광객이 지금 알아야 할 것만 — 가치 문장(계획 B3: 미리보기도 첫 줄을 말한다) · 이름 · 도보 N분 · 길안내.
+    // 화살표가 이미 '한산' 을 말하므로 혼잡 칩은 얼굴과 같은 규칙으로 빠진다(같은 사실을 두 번 말하지 않는다).
     await expect(peek.getByRole('heading', { name: '우직 쌈밥집' })).toBeVisible();
     await expect(peek).toContainText('도보 4분');
-    await expect(peek).toContainText('혼잡도: 한산');
+    await expect(peek.getByTestId('peek-value')).toHaveText(COMPARE_HEADER);
+    await expect(peek.getByTestId('peek-value')).toContainText('한산');
     await expect(peek.getByRole('button', { name: '여기로 길안내 시작' })).toBeVisible();
-    await expect(page.getByText(COMPARE_HEADER)).toHaveCount(0);
+    await expect(page.getByTestId('value-box')).toHaveCount(0);
 
     // 미리보기 줄을 누르면 전체 카드.
     await peek.getByRole('heading', { name: '우직 쌈밥집' }).click();
@@ -505,7 +509,8 @@ test.describe('phone recommendation peek', () => {
     expect(active.status).toBe('navigating');
     expect(active.navigationMode).toBe('walk');
     expect(await page.evaluate(() => (window as unknown as { __opened?: string }).__opened)).toContain('map.kakao.com');
-    await expect(page.getByText(COMPARE_HEADER)).toHaveCount(0);
+    // 전체 카드로 펼쳐지지 않았다(얼굴의 가치 상자가 없다 — 미리보기의 가치 문장만).
+    await expect(page.getByTestId('value-box')).toHaveCount(0);
   });
 
   for (const viewport of [
