@@ -532,7 +532,8 @@ function RecommendContent() {
 
   // Load Original Facility Details
   useEffect(() => {
-    originalTypeRef.current = null;
+    // 대기 보드에서 왔으면 URL 의 종류로 먼저 채운다(I25) — 원래 장소 응답보다 대안 폴백이 먼저 돌아도 같은 종류를 묻는다.
+    originalTypeRef.current = originTypeParam;
     if (!facilityId) return;
 
     async function fetchOriginalFacility() {
@@ -590,7 +591,7 @@ function RecommendContent() {
     }
 
     fetchOriginalFacility();
-  }, [facilityId]);
+  }, [facilityId, originTypeParam]);
 
   // 원래 장소에 실측 로그가 없으면 대기 보드와 같은 추정 피드에서 그 장소의 지금 등급을 읽는다(I25) —
   // 보드가 방금 '혼잡' 이라고 보여 준 곳을 이 화면이 '모름' 으로 말하지 않게. 실패하면 알약을 그리지 않는다.
@@ -663,7 +664,7 @@ function RecommendContent() {
         // 유형은 클로저가 아니라 ref 에서 호출 시점에 읽는다(원래 장소가 effect 시작 뒤에 도착한다).
         const byTypeFallback = () =>
           recommendByType(
-            originalTypeRef.current ?? originTypeParam ?? "restaurant",
+            originalTypeRef.current ?? "restaurant",
             { lat, lng },
             [facilityId],
             5,
