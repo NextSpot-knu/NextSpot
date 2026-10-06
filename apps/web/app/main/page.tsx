@@ -20,7 +20,7 @@ import {
   parseCongestionEstimate,
   revalidateIsCurrent,
 } from '@/lib/congestionEstimate';
-import { sessionAreaDemandCurve } from '@/lib/areaDemandCurve';
+import { sessionAreaDemandAt } from '@/lib/areaDemandCurve';
 import { isPredictModelTrained } from '@/lib/predictModel';
 import {
   STRIP_NOW,
@@ -38,12 +38,12 @@ import { getHeatGradient, getHeatRadius } from '@/lib/map/heatmap';
 import { useVoiceAssistant } from '@/lib/voice/useVoiceAssistant';
 import { useSpeechSearch } from '@/lib/voice/useSpeechSearch';
 import { speechLangFor } from '@/lib/voice/speechLocale';
-import { classifyIntent } from '@/lib/voice/voiceIntent';
+import { classifyIntent, localeVoiceCommand } from '@/lib/voice/voiceIntent';
 import { buildCardSentence, buildVoiceReason } from '@/lib/voice/voiceReason';
 import { CUISINE_CHIPS, cuisineChipForUtterance, cuisineChipPool, voiceCandidatePayload, type CuisineChip } from '@/lib/voice/voiceCandidates';
 import { VoiceCaptionBar, VoicePill } from '@/components/VoiceSlot';
 import { DESKTOP_PANEL_CLASS, desktopPanelReservePx } from '@/lib/mainPanelLayout';
-import { hasFinalConsonant, pickFirstViewCategory } from '@/lib/firstViewCategory';
+import { pickFirstViewCategory } from '@/lib/firstViewCategory';
 import { usePhoneViewport } from '@/lib/usePhoneViewport';
 import type { CardCondition } from '@/components/RecommendationCard';
 import { recordActiveTrip } from '@/lib/visits';
@@ -455,10 +455,12 @@ export default function MainPage() {
   useEffect(() => { selectedFacilityRef.current = selectedFacility; }, [selectedFacility]);
   // 첫 카드를 고르는 중(스켈레톤) — 서버 답을 최대 FIRST_PICK_WAIT_MS 기다린다.
   const [pickingFirst, setPickingFirst] = useState(false);
-  // 사용자가 직접 고른 카드(핀 · 검색 · ?place= 링크). 같은 칩에 있는 동안 추천 effect 가 다시 돌아도 이 카드를
-  // 바꾸지 않는다(시설 목록 갱신 · 조건 변경 때 카드가 손 밑에서 바뀌지 않게). kind 가 search·place 면 목록에
-  // 있어도 머리 배지는 '선택한 장소' 다(교차 레인 계약 2).
-  const userPickRef = useRef<{ id: string; filter: string; kind: 'pin' | 'search' | 'place' } | null>(null);
+  // 사용자가 직접 고른 카드(핀 · 검색 · ?place= 링크). 같은 칩 · 같은 순위 기준(basis — 여행 조건 · 혼잡 예측 +N ·
+  // 요일 프리셋)에 있는 동안만 추천 effect 가 다시 돌아도 이 카드를 둔다(시설 목록 갱신 때 카드가 손 밑에서 바뀌지
+  // 않게). ♿ · 조건 ✕ · +N시간 · 다른 시간 처럼 사용자가 순위를 다시 매기라고 한 것은 basis 가 바뀌므로 카드를
+  // 다시 고른다(리뷰 10-07: 핀을 누른 뒤 ♿ · +2시간 후가 무시되고 '같은 추천' 이라고 말했다). kind 가 search·place 면
+  // 목록에 있어도 머리 배지는 '선택한 장소' 다(교차 레인 계약 2).
+  const userPickRef = useRef<{ id: string; filter: string; kind: 'pin' | 'search' | 'place'; basis: string } | null>(null);
   // 밤의 첫 화면(계획 B2 잔여 항목) — 처음 열린 칩에 지금 추천할 곳이 없으면 한 번만 다른 칩으로 옮긴다.
   // 사용자가 칩·테마·음식 칩을 직접 고르면 꺼진다.
   const firstViewPendingRef = useRef(true);
@@ -525,7 +527,11 @@ export default function MainPage() {
   }, []);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [outOfRegionNotice, setOutOfRegionNotice] = useState(false);
+  const [locationFallbackNotice, setLocationFallbackNotice] = useState(false);
   const [travelContext, setTravelContext] = useState<TravelContext>(EMPTY_TRAVEL_CONTEXT);
+  // 서버가 실제 걷는 길로는 도보 제한 안에 0곳이라 제한을 풀고 다시 매긴 칩 · 순위 기준(`${칩}|${rankBasis}`). 그 칩 ·
+  // 기준에 있는 동안 카드 머리의 '🚶 도보 N분 이내' 칩을 감춘다(아래 walkLimitRelaxed — 리뷰 10-07).
+  const [serverWalkRelaxedFor, setServerWalkRelaxedFor] = useState<string | null>(null);
   const [showMobileTools, setShowMobileTools] = useState(false);
   const [showDiscoveryThemes, setShowDiscoveryThemes] = useState(false);
   const [activeDiscovery, setActiveDiscovery] = useState<{
@@ -564,6 +570,8 @@ export default function MainPage() {
   const cardHours = stripHours(strip);
   const stripForecast = strip.status === 'forecast' ? strip.forecast : null;
   const forecastMode = stripForecast !== null;
+  // 추천 순위의 기준 — 여행 조건 · 혼잡 예측 +N · 요일 프리셋. 사용자가 고른 카드(userPickRef)는 이 값이 같을 때만 남는다.
+  const rankBasis = `${cardHours}|${assumedPreset}|${JSON.stringify(travelContext)}`;
   // 휴대폰 카드가 미리보기인가(펼치면 시간 줄을 감춘다 — 펼친 카드가 검색창 아래까지 올라온다).
   const [cardPeek, setCardPeek] = useState(true);
   // 지도에 등급이 칠해진 핀 수(마커 effect 가 센다) — 범례를 보일지 정한다.
@@ -689,8 +697,13 @@ export default function MainPage() {
   // 지도 검색바 음성 받아쓰기(STT) — 마이크 탭 → 한 발화를 검색어로 넣어 기존 마커 필터(searchQuery)를 그대로 재사용.
   // 미지원 브라우저면 supported=false → 마이크는 아래에서 '준비 중' 비활성으로 유지(정적 export/SSR 안전).
   // 인식 실패 시 무음으로 꺼지지 않도록 토스트로 안내(권한 거부/그 외 실패를 구분).
+  // 음성 검색 한 발화 = 검색창에 넣고 Enter(아래 commitSearchHit) — 찾은 우리 장소가 곧 카드다(I84).
+  const commitSearchRef = useRef<(query: string) => void>(() => {});
   const speechSearch = useSpeechSearch(
-    (text) => setSearchQuery(text),
+    (text) => {
+      setSearchQuery(text);
+      commitSearchRef.current(text);
+    },
     (kind) => showToast(kind === 'denied' ? t('map.sttMicDenied') : t('map.sttFailed')),
     // 화면 언어로 받아쓰고(I21), 검색 마이크를 켜면 음성 비서를 끈다 — 두 마이크가 동시에 듣지 않게(I84).
     { lang: speechLangFor(locale), onStart: () => voiceRef.current?.stop() },
@@ -945,9 +958,6 @@ export default function MainPage() {
   }, [mockHour]);
 
   const [rankedFacilities, setRankedFacilities] = useState<any[]>([]);
-  // 검색 effect 처럼 목록을 dep 으로 두면 안 되는 곳이 지금 목록을 읽는다(목록이 바뀔 때마다 외부 검색을 다시 부르지 않게).
-  const rankedFacilitiesRef = useRef<any[]>(rankedFacilities);
-  rankedFacilitiesRef.current = rankedFacilities;
   const [noRecommendation, setNoRecommendation] = useState(false); // 현재 카테고리 추천 후보 0건 여부(빈 상태 안내용)
   // 후보 소진의 원인이 '남은 곳 전부 오늘 휴무'일 때 true — 빈 상태 문구를 구분(데이터 부족/엔진 실패로 오해 방지).
   const [noOpenTodayOnly, setNoOpenTodayOnly] = useState(false);
@@ -1067,21 +1077,27 @@ export default function MainPage() {
         (error) => {
           console.warn("Geolocation failed, using default:", error);
           // 위치 권한 거부/실패 시 조용히 경주 중심으로 폴백하면 거리·도보시간이 이유 없이 어긋나 보인다.
-          // 흐름을 막지 않는 가벼운 토스트로 '경주 중심 기준'임을 알린다.
-          showToast(t('map.locationFallback'));
+          // 흐름을 막지 않는 가벼운 토스트로 '경주 중심 기준'임을 알린다 — 문장은 아래 effect 가 지금 로케일로 만든다
+          // (이 콜백은 첫 렌더의 t(늘 ko)를 쥐고 있다 — en 화면에 한국어가 떴다, 리뷰 10-07).
+          setLocationFallbackNotice(true);
         }
       );
     }
   }, []);
 
-  // 경주 밖 안내 — 위치 콜백은 마운트 때의 t(첫 렌더는 늘 ko)를 쥐고 있어 거기서 문장을 만들면 en 화면에
-  // 한국어가 뜬다. 여기서 지금 로케일로 만들고, 토스트가 떠 있는 동안 언어가 바뀌면 그 언어로 다시 띄운다.
+  // 경주 밖 안내 · 위치를 못 잡은 안내 — 위치 콜백은 마운트 때의 t(첫 렌더는 늘 ko)를 쥐고 있어 거기서 문장을 만들면
+  // en 화면에 한국어가 뜬다. 여기서 지금 로케일로 만들고, 토스트가 떠 있는 동안 언어가 바뀌면 그 언어로 다시 띄운다.
+  // (둘은 같은 위치 요청의 성공 · 실패 쪽이라 함께 서지 않는다.)
   useEffect(() => {
-    if (!outOfRegionNotice) return;
-    showToast(t('map.outOfRegionStart'));
-    const timer = setTimeout(() => setOutOfRegionNotice(false), 3000);
+    const key = outOfRegionNotice ? 'map.outOfRegionStart' : locationFallbackNotice ? 'map.locationFallback' : null;
+    if (!key) return;
+    showToast(t(key));
+    const timer = setTimeout(() => {
+      setOutOfRegionNotice(false);
+      setLocationFallbackNotice(false);
+    }, 3000);
     return () => clearTimeout(timer);
-  }, [outOfRegionNotice, t]);
+  }, [outOfRegionNotice, locationFallbackNotice, t]);
 
   // 주차장 탭은 장소 DB가 아니라 경주시 ITS의 공식 위치·실시간 잔여면을 직접 사용한다.
   useEffect(() => {
@@ -1641,7 +1657,8 @@ export default function MainPage() {
         }
         return predictions;
       },
-      areaCurve: () => sessionAreaDemandCurve(),
+      // 그 시각 하나만 묻는다(GET 1회, 세션 · 정시마다 한 번) — 6점 곡선 전체를 기다리지 않는다(계획 3.2 호출 예산).
+      areaCurve: (h) => sessionAreaDemandAt(h),
     }, Date.now()).then((forecast) => {
       dispatchStrip({ type: 'resolved', hours: requested, forecast });
       if (!forecast && stripRequestRef.current === requested) {
@@ -1671,6 +1688,9 @@ export default function MainPage() {
   useEffect(() => {
     // 첫 카드 스켈레톤은 이 실행이 다시 켤 때만 남는다(같은 effect 안의 setState 는 한 번에 그려진다).
     setPickingFirst(false);
+    // 순위 기준이 바뀌었으면(♿ · 조건 ✕ · 실내 · +N시간 · 다른 시간) 직접 고른 카드도 놓아준다 — 사용자가 다시
+    // 매기라고 했다. 시설 목록 갱신 · 위치 갱신처럼 기준이 그대로인 재실행에서는 고른 카드를 둔다.
+    if (userPickRef.current && userPickRef.current.basis !== rankBasis) userPickRef.current = null;
     // 이 두 갈래는 요청을 아예 보내지 않는다 — 비상 타이머(요청 타임아웃 뒤)를 기다리지 말고
     // 그 자리에서 스켈레톤을 걷는다. 말할 결과가 없으니 토스트도 띄우지 않는다.
     if (activeFilter === '주차장') {
@@ -1878,6 +1898,8 @@ export default function MainPage() {
     const showingThisChip = !!shownNow && shownNow.type === targetType;
     const willAskServer = !voiceFilterIdsRef.current && liveMode && realCands.length > 0;
     let firstPickTimer: ReturnType<typeof setTimeout> | null = null;
+    // 서버를 FIRST_PICK_WAIT_MS 넘게 기다려 띄운 즉시 카드(서버 답이 오면 이 카드를 되도록 그대로 둔다).
+    let instantShownId: string | null = null;
     if (willAskServer && !userPick && !showingThisChip) {
       setSelectedFacility(null);
       setPickingFirst(true);
@@ -1886,7 +1908,10 @@ export default function MainPage() {
         if (cancelled || gen !== recommendationGenRef.current || immediate.length === 0) return;
         setRankedFacilities(immediate);
         // 기다리는 사이 사용자가 핀·검색으로 직접 고른 카드가 있으면 그 카드를 그대로 둔다.
-        if (userPickRef.current?.filter !== activeFilter) setSelectedFacility(immediate[0]);
+        if (userPickRef.current?.filter !== activeFilter) {
+          setSelectedFacility(immediate[0]);
+          instantShownId = String(immediate[0].id);
+        }
         setPickingFirst(false);
       }, FIRST_PICK_WAIT_MS);
     } else if (!willAskServer && immediate.length > 0) {
@@ -1930,7 +1955,10 @@ export default function MainPage() {
               let recs = await requestByType(rankContext);
               // 서버는 실제 걷는 길로 도보 제한을 잰다 — 직선거리로는 남았어도 0곳일 수 있다. 그때 한 번만 넓힌다.
               const relaxedContext = recs.length === 0 ? relaxWalkLimit(rankContext) : null;
-              if (relaxedContext) recs = await requestByType(relaxedContext);
+              if (relaxedContext) {
+                recs = await requestByType(relaxedContext);
+                if (!cancelled && gen === recommendationGenRef.current) setServerWalkRelaxedFor(`${activeFilter}|${rankBasis}`);
+              }
               const byId = new Map(realCands.map(f => [f.id, f]));
               realRanked = recs
                 .filter(r => byId.has(r.facility.id))
@@ -2006,9 +2034,12 @@ export default function MainPage() {
         setRankedFacilities(all);
         setPickingFirst(false);
         // 응답을 기다리는 사이 사용자가 직접 고른 카드(핀 · 검색 · 링크)가 생겼을 수 있다 — 지금 값으로 다시 본다.
-        const pickNow = userPickRef.current && userPickRef.current.filter === activeFilter ? userPickRef.current : null;
+        const pickNow = userPickRef.current && userPickRef.current.filter === activeFilter && userPickRef.current.basis === rankBasis
+          ? userPickRef.current
+          : null;
+        // 고른 카드를 그대로 두는 경로는 결과를 비교하지 않았다 — '같은 추천이 유효해요' 도 '다시 계산했어요' 도 말하지 않는다.
         if (all.length === 0) {
-          if (pickNow) { finishRecalc(pickNow.id); return; }
+          if (pickNow) { abandonRecalc(); return; }
           setSelectedFacility(null);
           setNoOpenTodayOnly(false); // 랭킹 0건 — 휴무 소진과 구분
           setNoRecommendation(true); // (b) 랭킹 결과 0건 → 빈 상태 안내
@@ -2025,11 +2056,22 @@ export default function MainPage() {
           // 직접 고른 카드는 그대로 — 목록에 있으면 서버 값(사유·근거)으로만 채운다(연 방식 표시는 유지).
           const listed = all.find((f) => String(f.id) === pickNow.id);
           if (listed) setSelectedFacility({ ...listed, pickKind: pickNow.kind });
-          finishRecalc(pickNow.id);
+          abandonRecalc();
+          return;
+        }
+        const current = selectedFacilityRef.current as Facility | null;
+        // 서버가 늦어(3.5초 넘게) 즉시 카드를 먼저 띄웠으면, 서버 목록에 그곳이 있는 한 그 카드를 둔다 — 값과 목록
+        // 순위만 서버 것으로 바꾸고 지도도 옮기지 않는다(I34 의 '손 밑에서 바뀌는 카드' 가 늦게 다시 일어나지 않게,
+        // 리뷰 10-07). 서버가 그곳을 뺐을 때만 서버 1위로 바꾼다.
+        const keptInstant = instantShownId !== null && String(current?.id ?? '') === instantShownId
+          ? all.find((f) => String(f.id) === instantShownId) ?? null
+          : null;
+        if (keptInstant) {
+          setSelectedFacility(keptInstant);
+          finishRecalc(String(keptInstant.id));
           return;
         }
         const top = all[0];
-        const current = selectedFacilityRef.current as Facility | null;
         setSelectedFacility(top);
         finishRecalc(String(top.id));
         // 서버가 지금 카드와 같은 곳을 확인했으면 지도를 다시 움직이지 않는다(숫자도 다시 굴리지 않는다 —
@@ -2360,6 +2402,14 @@ export default function MainPage() {
     return { anchorName, anchorLevel, anchorDistanceM };
   };
 
+  // 가정 시각에서 이 장소에 칠한 예측 혼잡도 — 지도 핀과 같은 규칙(마커 effect 의 forecastLevel): 장소별 모델이면 그 장소의
+  // 예측, 이 일대 예측이면 순위 핀(서버 상위 5곳)에만. 예측을 받기 전이거나 핀이 칠하지 않는 곳이면 null.
+  const forecastLevelFor = (f: Facility): number | null => {
+    if (!stripForecast) return null;
+    if (stripForecast.basis === 'model') return stripForecast.predictions[String(f.id)]?.level ?? null;
+    return pinRankById.has(String(f.id)) ? stripForecast.level : null;
+  };
+
   // 음성 비서가 카드마다 읽는 이유(계획 B2 · I46) — 카드가 보여 주는 값으로: 이름 한 번 · 걸어서 N분 · 취향 %,
   // '대신' 은 카드 첫 줄이 화살표일 때만, '지금 여유로운 편이에요' 는 그곳 등급이 한산·여유일 때만.
   const voiceReasonFor = (f: Facility): string => {
@@ -2371,10 +2421,12 @@ export default function MainPage() {
       tourismRelativeIndex: spot.areaDemandTourismEvidence?.relativeIndex,
       busyAt,
     });
-    const measuredNow = typeof f.congestionLevel === 'number' && f.congestionIsCurrent !== false && f.congestionSource !== 'predicted'
+    // 가정 시각(+N시간 · 요일)이면 지금 값을 쓰지 않는다 — 카드 · 지도 핀과 같은 예측 값만(그래서 '지금 여유로운 편이에요' 도 없다).
+    const shifted = cardHours > 0 || assumedPreset !== 'now';
+    const measuredNow = !shifted && typeof f.congestionLevel === 'number' && f.congestionIsCurrent !== false && f.congestionSource !== 'predicted'
       ? f.congestionLevel
-      : null;
-    const estimate = displayableEstimate({
+      : shifted ? forecastLevelFor(f) : null;
+    const estimate = shifted ? null : displayableEstimate({
       congestionLevel: f.congestionLevel,
       congestionSource: f.congestionSource ?? null,
       congestionIsCurrent: f.congestionIsCurrent,
@@ -2405,7 +2457,7 @@ export default function MainPage() {
       walkMin: displayWalkingMinutes(spot.expectedTravel),
       preferencePercent: spot.preferencePercent,
       insteadOf: headline.kind === 'compare' ? anchorName : null,
-      crowdGrade: ownGrade,
+      crowdGrade: shifted ? null : ownGrade,
     });
   };
 
@@ -2471,7 +2523,7 @@ export default function MainPage() {
       const pool = expandGroups(facilities)
         .filter((f) => set.has(f.id) && !rejectedIds.has(f.id) && !savedIds.has(f.id));
       if (pool.length === 0) {
-        showToast(t('map.voiceNoMatch')); // 빈 결과 → 필터 미적용(현재 카드 유지)
+        showToast(t('map.voiceNoMatch')); // 빈 결과 → 필터 미적용(현재 카드 유지), 다음에 말할 것을 알린다
         return;
       }
       setActiveDiscovery(null);
@@ -2514,10 +2566,8 @@ export default function MainPage() {
         max_walk_minutes: transition.context.maxWalkMinutes ?? null,
       };
       track('voice_tool_executed', eventProps);
-      if (!eligible) {
-        showToast(t('map.voiceNoMatch'));
-        return false;
-      }
+      // 맞는 곳이 없으면 비서가 '지금 추천을 그대로 이어갈게요' 라고 말한다(useVoiceAssistant keepGoing) — 토스트를 겹치지 않는다.
+      if (!eligible) return false;
 
       applyVoiceFilter(null);
       setActiveDiscovery(null);
@@ -2554,6 +2604,10 @@ export default function MainPage() {
         const intent = classifyIntent([utterance], locale);
         const action = ({ accept: 'accept', next: 'next', negative: 'next', rejectAll: 'next', detail: 'details', cancel: 'stop' } as Record<string, string>)[intent];
         if (action) return { action };
+        // 장소 종류 · 실내 · 도보 N분 — 서버 분류기는 한국어만 알아듣는다. 비서가 권한 "show me cafés" 가 재질문으로
+        // 끝나지 않게 여기서 앱 명령으로 바꾼다(리뷰 10-07).
+        const command = localeVoiceCommand(utterance, locale);
+        if (command) return { action: 'command', command };
       }
 
       const excluded = new Set<string>([...rejectedIds, ...savedIds]);
@@ -3030,7 +3084,10 @@ export default function MainPage() {
   // 온보딩에서 고른 음식(있으면) — 데스크톱 🍽 메뉴 ▾ 의 안내 문구와 휴대폰 시트의 칩 고리(계획 B3 · A12 I39).
   // 고른 것만 알려 준다(거르지 않는다) — 그 취향은 이미 추천의 취향 일치율에 들어가 있다.
   const setupCuisine = travelContext.cuisine;
-  const setupCuisineHint = setupCuisine ? t('map.menuSetupHint', { cuisine: t(SETUP_FOOD_KEY[setupCuisine]) }) : null;
+  // 🍽 메뉴 ▾ 에 고를 칸이 있는 음식만 알려 준다 — '카페·디저트' 는 음식점 메뉴 칸에 없다(리뷰 10-07).
+  const setupCuisineHint = setupCuisine && SETUP_CUISINE_CHIP[setupCuisine]
+    ? t('map.menuSetupHint', { cuisine: t(SETUP_FOOD_KEY[setupCuisine]) })
+    : null;
   const setupCuisineChipId = setupCuisine ? SETUP_CUISINE_CHIP[setupCuisine] ?? null : null;
   // 툴바 둘째 줄 칩(히트맵·♿·🅿·🐾) — 불투명 바탕, 켜지면 청록.
   const layerChipClass = (on: boolean) => `flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 text-[13px] font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 ${
@@ -3102,18 +3159,33 @@ export default function MainPage() {
     const nextFilter = CATEGORY_FILTERS.find((filter) => filter.type === next)?.id;
     if (!nextFilter) return;
     selectCategory(nextFilter);
-    const from = t(`category.${current}`);
-    const to = t(`category.${next}`);
-    const ko = locale === 'ko';
-    showToast(t('map.firstViewSwitched', {
-      from: ko ? `${from}${hasFinalConsonant(from) ? '이' : '가'}` : from,
-      to: ko ? `${to}${hasFinalConsonant(to) ? '을' : '를'}` : to,
-    }));
+    // 모자란 쪽이 아니라 지금 열 곳이 많은 쪽을 먼저 말한다(리뷰 10-07 — 부정적인 첫 문장 금지).
+    showToast(t('map.firstViewSwitched', { to: t(`category.${next}`) }));
   };
 
   // 지금 걸린 여행 조건(도보 N분 이내 · 실내 · 무장애) — 카드 머리의 칩, ✕ 로 바로 푼다(계획 B2 9번 · I67).
+  // 지금 칩의 순위를 도보 제한 없이 매겼는가 — 그 조건으로는 0곳이라 한 번 넓혔다(추천 effect 와 같은 chipCandidates ·
+  // 서버 0곳 뒤 relaxWalkLimit). 그러면 '🚶 도보 N분 이내' 칩은 카드가 말하는 실제 도보 분과 다른 말을 한다
+  // (리뷰 10-07: '도보 6분' 카드 위에 '도보 2분 이내').
+  const clientWalkRelaxed = useMemo(() => {
+    const type = CATEGORY_FILTERS.find(({ id }) => id === activeFilter)?.type;
+    if (!type || activeDiscovery || travelContext.maxWalkMinutes === undefined) return false;
+    return chipCandidates(
+      facilities.filter((f) => f.type === type && !(type === 'restaurant' && isBarFacility(f))),
+      travelContext,
+      (context) => (f: Facility) => matchesTravelContext(f, context, userLocation, haversineMeters),
+    ).context.maxWalkMinutes === undefined;
+  }, [activeFilter, activeDiscovery, facilities, travelContext, userLocation]);
+  const walkLimitRelaxed = clientWalkRelaxed || serverWalkRelaxedFor === `${activeFilter}|${rankBasis}`;
+  // 도보 칩은 그 조건이 지금 카드에 정말 걸려 있을 때만 — 순위가 제한을 풀고 매겨졌거나 카드가 말하는 도보 분이 조건보다
+  // 길면(직선거리로는 남았는데 실제 걷는 길이 더 길다 · 직접 고른 먼 곳) 띄우지 않는다.
+  const cardWalkMin = selectedFacility
+    ? displayWalkingMinutes((selectedFacility.spot || calculateSPOT(selectedFacility)).expectedTravel)
+    : null;
+  const walkConditionHolds = !!travelContext.maxWalkMinutes && !walkLimitRelaxed
+    && (cardWalkMin === null || cardWalkMin <= travelContext.maxWalkMinutes);
   const cardConditions: CardCondition[] = [
-    ...(travelContext.maxWalkMinutes
+    ...(travelContext.maxWalkMinutes && walkConditionHolds
       ? [{ key: 'walk' as const, label: t('condition.walk', { n: travelContext.maxWalkMinutes }), name: t('condition.walkName', { n: travelContext.maxWalkMinutes }) }]
       : []),
     ...(travelContext.requiredAttributes.includes('indoor')
@@ -3198,8 +3270,12 @@ export default function MainPage() {
     return counts;
   }, [facilities, travelContext, userLocation]);
   // 무장애 확인 핀(이 유형)을 지도 한 화면에 모은다 — 카드에 오를 곳이 없어도 어디에 있는지는 보여 준다.
+  // 서버의 0곳 답이 지도보다 먼저 오면(느린 기기 · 첫 진입) 맞출 지도가 아직 없다 — 지도가 뜨는 대로 한 번 맞춘다(빈 지도로
+  // 두지 않게). 지도의 첫 중심 보정(initMap) 뒤에 돌도록 mapLoaded effect 에서 부른다.
+  const pendingBarrierFitRef = useRef<PlaceCategory | null>(null);
   const fitBarrierFreePins = (type: PlaceCategory) => {
     const map = mapInstanceRef.current;
+    if (!map) pendingBarrierFitRef.current = type;
     if (!map || typeof window === 'undefined' || !window.kakao) return;
     const pins = facilities.filter((f) => f.type === type
       && (f?.barrierFree ?? f?.barrier_free ?? f?.features?.barrier_free) === true
@@ -3218,6 +3294,13 @@ export default function MainPage() {
     const bottom = Math.min(insets.bottom, Math.round(h * 0.4));
     try { map.setBounds(bounds, top + 16, (insets.right || 8) + 16, bottom + 16, 24); } catch { /* 투영 실패 — 지도는 그대로 둔다 */ }
   };
+  useEffect(() => {
+    const type = pendingBarrierFitRef.current;
+    if (!mapLoaded || !type) return;
+    pendingBarrierFitRef.current = null;
+    fitBarrierFreePins(type);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mapLoaded]);
   const onBarrierFreeChip = () => {
     toggleBarrierFree();
     // 켜는 순간 지금 칩에 카드에 오를 무장애 장소가 없으면 빈 지도로 두지 않고 가장 많은 칩으로 옮긴다.
@@ -3299,21 +3382,7 @@ export default function MainPage() {
           panToVisible(nearest.latitude, nearest.longitude);
         }
       }
-      // 찾은 장소(우리 DB)가 곧 카드다 — 지도만 옮기고 옛 추천을 그대로 두면 검색이 카드와 따로 논다(I84).
-      // 음성 검색도 같은 길이다(받아쓴 말이 검색어가 된다).
-      if (q.length >= 2 && searchMatchCount > 0 && activeFilter !== '주차장') {
-        const hit = facilities
-          .filter((facility) => facilityMatchesSearch(facility as Facility, q))
-          .sort((a, b) => (
-            haversineMeters(userLocation.lat, userLocation.lng, a.latitude, a.longitude)
-            - haversineMeters(userLocation.lat, userLocation.lng, b.latitude, b.longitude)
-          ))[0];
-        if (hit && String(selectedFacilityRef.current?.id ?? '') !== String(hit.id)) {
-          const listed = (rankedFacilitiesRef.current as Facility[]).find((f) => String(f.id) === String(hit.id));
-          userPickRef.current = { id: String(hit.id), filter: activeFilter, kind: 'search' };
-          setSelectedFacility({ ...(listed ?? hit), pickKind: 'search' });
-        }
-      }
+      // 찾은 장소를 카드로 여는 것은 Enter · 음성 검색 한 발화(commitSearchHit)다 — 글자마다 카드를 바꾸지 않는다.
       return;
     }
     setLiveSearchLoading(true);
@@ -3455,7 +3524,7 @@ export default function MainPage() {
     pendingPlaceRef.current = null;
     const filter = CATEGORY_FILTERS.find(({ type }) => type === place.type)?.id ?? activeFilter;
     if (filter !== activeFilter) selectCategory(filter);
-    userPickRef.current = { id: placeId, filter, kind: 'place' };
+    userPickRef.current = { id: placeId, filter, kind: 'place', basis: rankBasis };
     firstViewPendingRef.current = false;
     setPickingFirst(false);
     setSelectedFacility({ ...place, pickKind: 'place' });
@@ -3465,7 +3534,7 @@ export default function MainPage() {
 
   // 지도·검색에서 사용자가 직접 고른 장소가 도착 후 30분 안에 닫히면 조용히 바꾸지 않는다.
   // 이유를 먼저 알린 뒤, 서버가 이미 검증한 SPOT 후보 중 다음 장소로 전환한다.
-  const selectFacilityWithHoursGuard = (facility: any): boolean => {
+  const selectFacilityWithHoursGuard = (facility: any, pick: { kind?: 'pin' | 'search'; filter?: string } = {}): boolean => {
     const arrivalStatusFor = (candidate: any) => {
       if (candidate.openStatusAtArrival) return candidate.openStatusAtArrival;
       const latitude = Number(candidate.latitude);
@@ -3485,8 +3554,9 @@ export default function MainPage() {
     const target = listed ?? facility;
     const arrivalStatus = arrivalStatusFor(target);
     if (arrivalStatus !== 'closing_soon') {
-      userPickRef.current = { id: String(target.id), filter: activeFilter, kind: 'pin' };
-      setSelectedFacility(target);
+      const kind = pick.kind ?? 'pin';
+      userPickRef.current = { id: String(target.id), filter: pick.filter ?? activeFilter, kind, basis: rankBasis };
+      setSelectedFacility(kind === 'search' ? { ...target, pickKind: 'search' } : target);
       return true;
     }
 
@@ -3508,6 +3578,28 @@ export default function MainPage() {
     return false;
   };
 
+  // 검색창 Enter · 음성 검색 한 발화 → 찾은 우리 DB 장소를 카드로(I84, '선택한 장소'). 글자마다 바꾸지 않는다 — 두 글자부터
+  // 글자마다 카드가 바뀌고, 지금 칩과 다른 종류도 영업시간 확인 없이 떴다(리뷰 10-07). 지금 칩의 종류 중 가장 가까운
+  // 곳을 먼저, 없으면 가장 가까운 다른 종류로 칩을 옮겨 연다. 도착 직후 닫히는 곳이면 핀과 같은 안내(시간 확인).
+  const commitSearchHit = (raw: string) => {
+    const q = raw.trim();
+    if (q.length < 2 || activeFilter === '주차장') return;
+    const distance = (f: Facility) => haversineMeters(userLocation.lat, userLocation.lng, f.latitude, f.longitude);
+    const matches = (facilities as Facility[])
+      .filter((f) => CATEGORY_FILTERS.some(({ type }) => type === f.type) && facilityMatchesSearch(f, q))
+      .sort((a, b) => distance(a) - distance(b));
+    const currentType = CATEGORY_FILTERS.find(({ id }) => id === activeFilter)?.type;
+    const hit = matches.find((f) => f.type === currentType) ?? matches[0];
+    const filter = hit ? CATEGORY_FILTERS.find(({ type }) => type === hit.type)?.id : undefined;
+    if (!hit || !filter) return;
+    if (filter !== activeFilter) selectCategory(filter);
+    if (selectFacilityWithHoursGuard(hit, { kind: 'search', filter })
+      && mapInstanceRef.current && Number.isFinite(hit.latitude) && Number.isFinite(hit.longitude)) {
+      panToVisible(hit.latitude, hit.longitude);
+    }
+  };
+  useEffect(() => { commitSearchRef.current = commitSearchHit; });
+
   // ── 🔮 혼잡 예측 줄에 넘길 값(계획 B3) ─────────────────────────────────────────────
   const stripPresets = ASSUMED_TIME_PRESETS.filter((p) => p.id !== 'now').map((p) => ({ id: p.id, label: t(p.labelKey) }));
   const activeStripType = CATEGORY_FILTERS.find(({ id }) => id === activeFilter)?.type ?? null;
@@ -3523,7 +3615,7 @@ export default function MainPage() {
     const text = stripForecast.basis === 'area'
       ? t('forecast.badgeArea', { h: stripForecast.hours, level: levelText })
       : `${t('forecast.badgeModel', { h: stripForecast.hours, level: levelText })}${stripForecast.anchored ? '' : ` · ${t('map.forecastEstimateTag')}`}`;
-    return { text, grade };
+    return { text, short: t('forecast.badgeShort', { level: levelText }), grade };
   })();
   // 범례 — 등급이 칠해진 핀이 화면에 있거나, 히트맵·예측이 켜져 있을 때만. 아니면 '지금 이 일대 … · 추정' 칩 하나(추정 피드).
   const showStripLegend = forecastMode || showHeatmap || gradedPinCount > 0;
@@ -3533,6 +3625,10 @@ export default function MainPage() {
   const stripAreaChip = !showStripLegend && areaNowLevel !== null
     ? t('forecast.areaNow', { level: t(`congestion.${congestionKey(areaNowLevel, busyAt)}`) })
     : null;
+  // 가정 시각(+N시간 · 요일 프리셋)의 카드 — 지금 값(실측 '지금' · 추정 피드)을 그 시각의 값처럼 말하지 않는다.
+  // 등급은 지도 핀이 같은 시각에 칠한 값으로만(순위 핀 = 이 일대 예측, 장소별 모델이면 그 장소). 리뷰 10-07: 핀은 '여유'
+  // 인데 카드는 지금의 '한산' 을 '+2시간 후 기준' 옆에 말했다.
+  const timeShifted = cardHours > 0 || assumedPreset !== 'now';
   const phoneCardExpanded = isPhone && !!selectedFacility && !recalcLabel && !cardPeek;
   const showStrip = activeFilter !== '주차장' && !isLoadingFacilities && !facilitiesLoadError && facilities.length > 0 && !phoneCardExpanded;
 
@@ -3613,6 +3709,11 @@ export default function MainPage() {
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
+            onKeyDown={(e) => {
+              // 한글 조합 중의 Enter 는 글자를 마무리할 뿐이다 — 조합이 끝난 Enter 로 연다.
+              if (e.key === 'Enter' && !e.nativeEvent.isComposing) commitSearchHit(searchQuery);
+            }}
+            enterKeyHint="search"
             placeholder={t('map.searchPlaceholder')}
             className="min-w-0 flex-1 bg-transparent text-muk outline-none placeholder:text-muk-soft text-sm"
           />
@@ -3646,7 +3747,8 @@ export default function MainPage() {
               )}
             </button>
           ) : null}
-          <NextSpotMascot className="ml-3 w-9 short:max-md:hidden" />
+          {/* 데스크톱은 정체성 줄이 이미 브랜드를 말한다 — 검색 안내 글자가 잘리지 않게 마스코트를 뺀다(리뷰 10-07). */}
+          <NextSpotMascot className="ml-3 w-9 short:max-md:hidden md:hidden" />
         </div>
 
         {/* 날씨 · 첫 방문(✨) 알약 한 줄 — 검색 중에는 감춘다(언마운트하지 않아 날씨를 다시 부르지 않는다). */}
@@ -3970,7 +4072,9 @@ export default function MainPage() {
           className="flex flex-col gap-2 md:pointer-events-auto md:min-w-0 md:flex-1 md:gap-1 md:rounded-2xl md:border md:border-line md:bg-hanji md:p-1 md:shadow-[0_4px_18px_rgba(43,35,32,0.12)]"
           style={{ '--cluster-w': `${(topClusterPx ?? 288) + 12}px` } as CSSProperties}
         >
-        <div data-testid="toolbar-row-1" className="pointer-events-auto flex items-center gap-2 overflow-x-auto no-scrollbar md:gap-1.5 md:pr-[var(--cluster-w)]">
+        {/* 묶음 폭은 스크롤 줄 안쪽 여백이 아니라 바깥 여백으로 비운다 — 안쪽 여백은 넘친 칩이 묶음 밑으로 들어가는 것을
+            막지 못했다(1024px 에서 '주차장' 이 언어 고르기 밑, 리뷰 10-07). 1280px 아래에서는 칩이 다음 줄로 넘어간다. */}
+        <div data-testid="toolbar-row-1" className="pointer-events-auto flex items-center gap-2 overflow-x-auto no-scrollbar md:mr-[var(--cluster-w)] md:flex-wrap md:gap-1.5 xl:flex-nowrap">
           {/* 휴대폰: 필터·편의가 칩 줄 맨 앞(히트맵·♿·🅿·음식 종류·축제·화장실은 시트 안). */}
           {activeFilter !== '주차장' && (
             <button
@@ -4303,6 +4407,8 @@ export default function MainPage() {
                   : assumedPreset !== 'now'
                     ? t(ASSUMED_TIME_PRESETS.find((p) => p.id === assumedPreset)?.labelKey ?? 'timeSim.now')
                     : null;
+                // '+2시간 후 기준' — 영어는 'Based on +2 hr' 가 아니라 'Forecast for +2 hr'(forecast.basis). 요일 프리셋은 종전 그대로.
+                const assumedTimeBadge = cardHours > 0 ? t('forecast.basis', { h: cardHours }) : null;
                 const cardContextBadge = activeDiscovery
                   ? t('compare.contextBadge', { label: t(`discovery.theme.${activeDiscovery.themeId}`) })
                   : null;
@@ -4372,21 +4478,23 @@ export default function MainPage() {
                     openStatusAtArrival={selectedFacility.openStatusAtArrival}
                     congestionSource={selectedFacility.congestionSource}
                     // 서버 판정: 이 실측이 '지금' 을 말할 자격이 있는가(verified/corroborated · 30분).
-                    congestionIsCurrent={selectedFacility.congestionIsCurrent}
+                    congestionIsCurrent={timeShifted ? false : selectedFacility.congestionIsCurrent}
                     congestionTimestamp={selectedFacility.congestionTimestamp ?? selectedFacility.lastUpdated}
                     scoringMode={selectedFacility.scoringMode}
                     // 지도에서 고른 시설은 추정 피드의 **최신** 값을, 추천 카드는 응답이 실어 준 값을 쓴다.
-                    congestionEstimate={
+                    congestionEstimate={timeShifted ? null : (
                       (estimateById[selectedFacility.id] as CongestionEstimate | undefined)
                         ?? selectedFacility.congestionEstimate
                         ?? null
-                    }
+                    )}
+                    forecastLevel={timeShifted ? forecastLevelFor(selectedFacility) : null}
                     // 비교 헤더·주변 수요 자리는 이 화면에서만 켠다 — 지도에서 고른 명소가 '대신할 A' 다.
                     showCompare
                     compareAnchorName={compareAnchorName}
                     compareAnchorDistanceM={compareAnchorDistanceM}
                     compareAnchorLevel={compareAnchorLevel}
                     assumedTimeLabel={assumedTimeLabel}
+                    assumedTimeBadge={assumedTimeBadge}
                     contextBadge={cardContextBadge}
                     // 휴대폰에서는 짧은 미리보기로 연다 — 지도와 톱바(검색·✨·칩·필터·편의)가 가려지지 않게.
                     mobilePeek

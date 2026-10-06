@@ -188,6 +188,14 @@ interface RecommendationCardProps {
   compareAnchorLevel?: number | null;
   /** '가정 시각' 프리셋 라벨(예: '토 14:00'). 지금(실시간)이면 넘기지 않는다. */
   assumedTimeLabel?: string | null;
+  /** 상자 안 '🕒 …' 알약의 글 전체(예: '+2시간 후 기준'). 없으면 assume.basisBadge(라벨 + '기준'). */
+  assumedTimeBadge?: string | null;
+  /**
+   * 가정 시각(+N시간 · 요일 프리셋)에서 이 장소의 예측 혼잡도(0~1) — 지도 순위 핀이 같은 시각에 칠한 값과 같다.
+   * 시각이 '지금' 이 아니면 부모는 지금 값(실측 '지금' · 추정 피드)을 넘기지 않고, 카드는 이 값으로 등급을 말한다
+   * (핀은 '여유' 인데 카드는 지금의 '한산' 을 말하던 모순 — 리뷰 10-07). 없으면 등급을 지어내지 않는다.
+   */
+  forecastLevel?: number | null;
   /** 테마 칩 맥락 배지 문구(예: '신라 핵심 산책 기준 대안'). */
   contextBadge?: string | null;
   /**
@@ -255,6 +263,8 @@ export function RecommendationCard({
   compareAnchorDistanceM,
   compareAnchorLevel,
   assumedTimeLabel,
+  assumedTimeBadge,
+  forecastLevel,
   contextBadge,
   mobilePeek = false,
   conditions = [],
@@ -591,6 +601,21 @@ export function RecommendationCard({
     }
   };
 
+  // 실시간 정보 새로고침이 상세를 열면, 새로 받은 줄(운영시간 · 소개 · 전화 · 홈페이지) 중 첫 줄을 보이는 영역으로
+  // 끌어온다 — 키 낮은 노트북(1366×650)에서는 반짝이는 줄이 스크롤 아래에 있어 사진만 반짝이는 것처럼 보였다(리뷰 10-07).
+  // 펼침 애니메이션이 끝나야 스크롤 높이가 다 생기므로 한 번 더 맞춘다. 이름 막대(sticky)에 가리지 않게 그 높이만큼 띄운다.
+  const revealRefreshedRow = () => {
+    const align = () => {
+      const scroller = scrollRef.current;
+      const row = detailsRef.current?.querySelector<HTMLElement>('[data-refreshed="true"]');
+      if (!scroller || !row) return;
+      const bar = detailsRef.current?.querySelector<HTMLElement>('[data-testid="details-name-bar"]');
+      const top = row.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop - (bar?.offsetHeight ?? 0) - 8;
+      scroller.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+    };
+    liveTimersRef.current.push(window.setTimeout(align, 120), window.setTimeout(align, 450));
+  };
+
   // 카드 안에서 새로 연 상자(SPOT 설명 · 추천 근거)를 보이는 영역으로 — 아래에 열려 보이지 않으면 눌러도 아무 일 없어 보인다.
   const revealInScroller = (id: string, block: 'nearest' | 'start') => {
     window.setTimeout(() => {
@@ -755,6 +780,7 @@ export function RecommendationCard({
         setFlashFields(refreshedFields(next));
         setLiveCooldown(true);
         setIsExpanded(true);
+        revealRefreshedRow();
         toast.success(t('card.liveRefreshedToast'));
         liveTimersRef.current.push(
           window.setTimeout(() => setFlashFields([]), LIVE_FLASH_MS),
@@ -894,8 +920,10 @@ export function RecommendationCard({
   // 관광 상대지수가 섞인 종합값은 단일 혼잡률로 말하지 않는다(areaDemandPresentation 계약) — 주차만이면
   // 종합값(주차 + 근처 축제·날씨 보정), 관광 근거가 섞이면 **주차 실측·이력 값만으로** 말한다(기준 명소 쪽
   // resolveAnchorCrowd 와 같은 규칙). 주차 근거가 없으면(관광 상대지수뿐) null → 비교하지 않는다.
+  // 가정 시각이면 지도 핀과 같은 예측 값이 먼저다(부모가 그때는 지금 값을 넘기지 않는다).
+  const forecastCrowdLevel = typeof forecastLevel === 'number' && Number.isFinite(forecastLevel) ? forecastLevel : null;
   const candidateCrowdGrade = resolveCandidateCrowd({
-    congestionLevel: shownCongestionLevel,
+    congestionLevel: forecastCrowdLevel ?? shownCongestionLevel,
     estimateLevel: estimate?.level,
     areaDemandLevel: candidateAreaCrowdLevel({
       areaDemandLevel,
@@ -939,13 +967,16 @@ export function RecommendationCard({
     ? candidateCrowdGrade
     : null;
   const crowdChipData: { grade: 'busy' | 'moderate' | 'relaxed' | 'quiet'; text: string; dashed: boolean } | null =
-    shownCongestionLevel !== null
-      ? { grade: congestionKey(shownCongestionLevel), text: `${t('card.congestion')}: ${congestionLabel(shownCongestionLevel)}`, dashed: false }
-      : estimate
-        ? { grade: gradeKey(estimate.level, busyAt), text: t('card.estimateLevel', { label: t(`congestion.${gradeKey(estimate.level, busyAt)}`) }), dashed: true }
-        : areaCrowdGrade
-          ? { grade: areaCrowdGrade, text: `${t('recommend.areaDemandForRanking')}: ${t(`congestion.${areaCrowdGrade}`)}`, dashed: false }
-          : null;
+    forecastCrowdLevel !== null
+      // 가정 시각의 예측 — 지도의 점선 고리 핀처럼 점선(추정)으로.
+      ? { grade: gradeKey(forecastCrowdLevel, busyAt), text: t('card.estimateLevel', { label: t(`congestion.${gradeKey(forecastCrowdLevel, busyAt)}`) }), dashed: true }
+      : shownCongestionLevel !== null
+        ? { grade: congestionKey(shownCongestionLevel), text: `${t('card.congestion')}: ${congestionLabel(shownCongestionLevel)}`, dashed: false }
+        : estimate
+          ? { grade: gradeKey(estimate.level, busyAt), text: t('card.estimateLevel', { label: t(`congestion.${gradeKey(estimate.level, busyAt)}`) }), dashed: true }
+          : areaCrowdGrade
+            ? { grade: areaCrowdGrade, text: `${t('recommend.areaDemandForRanking')}: ${t(`congestion.${areaCrowdGrade}`)}`, dashed: false }
+            : null;
   const measuredNow = !!localReport || display.mode === 'measured';
   const crowdChipRule = {
     measuredNow,
@@ -965,6 +996,10 @@ export function RecommendationCard({
     ...(displayedOpenStatus === 'open_expected' ? [t('compare.benefitOpen')] : []),
     ...(tastePct !== null ? [t('compare.benefitTaste', { pct: tastePct })] : []),
   ].join(' · ');
+  const peekValueShown = showCompare && !!peekValueText;
+  // 출발 → 도착은 지금 시각으로 센다 — 가정 시각(+N시간 · 요일)의 카드에서는 '🕒 … 기준' 과 다른 시각을 말하게 되므로
+  // 그리지 않는다(리뷰 10-07: '04:44 출발' 옆에 '+2시간 후 기준').
+  const showArrivalLine = !assumedTimeLabel && !!currentTime && !!arrivalTime;
   const crowdChip = (compact: boolean) => crowdChipData ? (
     compact ? (
       <span className={`rounded-md border px-2 py-0.5 text-[10px] font-bold ${crowdChipData.dashed ? 'border-dashed bg-white/70' : ''} ${
@@ -972,7 +1007,7 @@ export function RecommendationCard({
           busy: 'bg-terracotta/10 border-terracotta/30 text-terracotta',
           moderate: 'bg-gold/10 border-gold/30 text-gold-deep',
           relaxed: 'benefit-relaxed',
-          quiet: 'bg-jade/10 border-jade/30 text-jade',
+          quiet: 'benefit-quiet',
         }[crowdChipData.grade]
       }`}>{crowdChipData.text}</span>
     ) : (
@@ -1133,7 +1168,7 @@ export function RecommendationCard({
         // 붐비나(얼굴과 같은 규칙 — 화살표가 이미 말하면 빼고) · 바로 출발(도보 길안내, 전체 카드와 같은 동작). 혜택형
         // 문장은 이름이 아래 줄에 있으므로 이름을 뺀다(계획 B3). 줄을 누르면 전체 카드.
         <div className="flex flex-col gap-1.5 px-1 pb-0.5" data-testid="rec-card-peek">
-          {showCompare && peekValueText && (
+          {peekValueShown && (
             <p
               data-testid="peek-value"
               onClick={openFromPeek}
@@ -1153,10 +1188,18 @@ export function RecommendationCard({
               )}
               <ChevronUp size={14} className="shrink-0 text-gold-deep" aria-hidden />
             </div>
-            <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-              <span className="whitespace-nowrap rounded-md border border-jade/30 bg-jade/10 px-2 py-0.5 text-[10px] font-bold text-jade">
-                {t('card.peek.walk', { n: displayedTravelMins })}
-              </span>
+            <div className="mt-1.5 flex flex-wrap items-center gap-1.5 empty:hidden">
+              {/* 가치 문장이 이미 '도보 N분' 을 말하면 되풀이하지 않는다(계획 B2 — 사실 하나는 한 번). 화살표 문장이면
+                  그 자리에 문장에 없는 '도착 시 영업' 을 둔다. */}
+              {!peekValueShown ? (
+                <span className="whitespace-nowrap rounded-md border border-jade/30 bg-jade/10 px-2 py-0.5 text-[10px] font-bold text-jade">
+                  {t('card.peek.walk', { n: displayedTravelMins })}
+                </span>
+              ) : compareHeaderText && displayedOpenStatus === 'open_expected' ? (
+                <span className="whitespace-nowrap rounded-md border border-jade/30 bg-jade/10 px-2 py-0.5 text-[10px] font-bold text-jade">
+                  {t('compare.benefitOpen')}
+                </span>
+              ) : null}
               {facility && crowdChipOnPeek && crowdChip(true)}
               {closedToday && (
                 <span className="px-2 py-0.5 rounded-md text-[10px] font-bold border bg-terracotta/10 border-terracotta/30 text-terracotta">
@@ -1232,7 +1275,7 @@ export function RecommendationCard({
           <div className="mt-1.5 flex flex-wrap items-center gap-1">
             {assumedTimeLabel && (
               <span className="rounded-full border border-gold/40 bg-gold/15 px-2 py-0.5 text-[11px] font-bold text-gold-deep">
-                🕒 {t('assume.basisBadge', { label: assumedTimeLabel })}
+                🕒 {assumedTimeBadge ?? t('assume.basisBadge', { label: assumedTimeLabel })}
               </span>
             )}
             {contextBadge && (
@@ -1253,6 +1296,8 @@ export function RecommendationCard({
 
       {/* 2. 사진 띠 — 접힌 카드에서 바로 보인다(I38). TourAPI 사진이면 'ⓒ한국관광공사' 표를 사진 위에, Wikimedia·경주시
           사진이면 그 사진의 출처 줄을 사진 아래에. 사진이 없거나 전부 깨지면 장소 표지(경주 문양 판)가 남는다. */}
+      {/* 저장 목록(/saved · showCompare 없음)은 사진이 있을 때만 — 사진 없는 저장 장소에 112px 표지를 새로 끼우지 않는다. */}
+      {(showCompare || cardImageUrls.length > 0) && (
       <div>
         <div
           className={`rec-photo relative overflow-hidden rounded-2xl border border-line ${flashClass('photo')}`}
@@ -1285,6 +1330,7 @@ export function RecommendationCard({
           <PhotoCreditLink credit={cardImageCredit} className={`-mt-px -mb-[5px] ${cardImageLoaded ? '' : 'invisible'}`} />
         )}
       </div>
+      )}
 
       {/* 3. 실시간 정보 새로고침 — 기능설명서 F3 ② 를 누를 수 있는 진짜 버튼으로, 사진 바로 아래(P6). */}
       {canLiveRefresh && (
@@ -1395,10 +1441,10 @@ export function RecommendationCard({
 
       {/* 5·6. 혜택 칩(가치 문장이 이미 한 말은 되풀이하지 않는다) 다음에 출발 → 도착(lib/cardTimes — 도착 = 출발 +
           도보 칩 분). 한 줄에 들어가면 같은 줄에 선다 — 키 낮은 노트북에서도 '상세 정보 펼치기' 가 첫 화면에 남게. */}
-      {(faceChips.length > 0 || (currentTime && arrivalTime)) && (
+      {(faceChips.length > 0 || showArrivalLine) && (
         <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5" data-testid="benefit-chips">
           {faceChips}
-          {currentTime && arrivalTime && (
+          {showArrivalLine && currentTime && arrivalTime && (
             <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-[13px] font-semibold text-muk" data-testid="arrival-line">
               <Clock size={14} className="shrink-0 text-jade" aria-hidden />
               {t('card.arrivalLine', { depart: formatTime(currentTime), arrive: formatTime(arrivalTime) })}
@@ -1461,7 +1507,7 @@ export function RecommendationCard({
 
           {/* 운영시간 — 실제 영업시간이 있을 때만. 인제스트는 {open: 영업시간, closed: 휴무일} 저장. */}
           {openHourLines.length > 0 && (
-            <div className={`flex items-start gap-2 ${flashClass('hours')}`} data-refreshed={flashAttr('hours')}>
+            <div className={`flex items-start gap-2 ${flashClass('hours')}`} data-refreshed={flashAttr('hours')} data-testid="detail-hours">
               <Clock size={14} className="text-muk-soft mt-0.5 flex-shrink-0" />
               <div>
                 <span className="text-muk-soft block text-[10px] font-bold">{t('card.hours')}</span>

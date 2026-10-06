@@ -158,6 +158,8 @@ export async function fetchAreaDemandCurve(
 
 type CurveFetcher = typeof fetchAreaDemandCurve;
 const sessionCurves = new Map<string, Promise<AreaDemandCurve>>();
+/** 다 받은 세션 곡선 — 시간 줄이 기다리지 않고 꺼내 쓴다(받는 중인 곡선은 기다리지 않는다). */
+const sessionCurveValues = new Map<string, AreaDemandCurve>();
 
 /** 지금 정시 기준 경주 중심 권역 곡선 — 같은 정시 안에서는 요청 한 번을 공유한다. */
 export function sessionAreaDemandCurve(nowMs: number = Date.now(), fetcher: CurveFetcher = fetchAreaDemandCurve): Promise<AreaDemandCurve> {
@@ -167,6 +169,7 @@ export function sessionAreaDemandCurve(nowMs: number = Date.now(), fetcher: Curv
   const pending = fetcher(REGION.center.lat, REGION.center.lng, new Date(nowMs), undefined, nowMs).then(
     (curve) => {
       if (Object.keys(curve).length === 0) sessionCurves.delete(key);
+      else sessionCurveValues.set(key, curve);
       return curve;
     },
     (error: unknown) => {
@@ -178,7 +181,77 @@ export function sessionAreaDemandCurve(nowMs: number = Date.now(), fetcher: Curv
   return pending;
 }
 
+// ── 한 시각만(혼잡 예측 시간 줄 +N) ───────────────────────────────────────────────────────────────
+//
+// 시간 줄은 '+N시간 후' 한 시각의 이 일대 값만 쓴다. 그 한 시각을 보려고 6점 곡선 전체(선행 1회 + 5회)를 기다리면
+// 첫 +N 이 차가운 서버에서 몇 초씩 걸리고 Render 호출 6회를 쓴다(계획 3.2 의 여정 12회 예산). 그래서 그 정시 하나만
+// 묻고(GET 1회), 세션 정시 · KST 정시마다 한 번만 묻는다 — +1 · +2 · +3 을 다 눌러도 3회. 그 정시가 '표본 부족' 이면
+// 가까운 쪽 이웃 정시를 한 번 더 본다(areaLevelAt 과 같은 순서). 같은 세션의 6점 곡선을 이미 다 받아 두었으면
+// (예: /waiting 을 먼저 열었다) 새로 묻지 않는다. 묻는 도착 시각은 forecastArrivalTimes 와 같은 규칙(정시를 서버 창
+// 안으로 당긴다)이라 같은 정시는 언제나 같은 시각으로 묻는다.
+
+type PointFetcher = (lat: number, lng: number, at: Date) => Promise<number | null>;
+const sessionPoints = new Map<string, Promise<number | null>>();
+
+/**
+ * 지금 + hoursAhead 에 가장 가까운 정시(shift 만큼 옮긴 정시)와 서버 창 안으로 당긴 도착 시각. 순수 함수.
+ * 당긴 시각이 30분 이상 움직이면 다른 정시로 반올림되므로 null(forecastArrivalTimes 와 같은 규칙).
+ */
+export function forecastPointAt(nowMs: number, hoursAhead: number, shift = 0): ForecastArrival | null {
+  const t = Math.round((nowMs + hoursAhead * HOUR_MS) / HOUR_MS) * HOUR_MS + shift * HOUR_MS;
+  const at = Math.min(nowMs + WINDOW_MAX_MS, Math.max(nowMs + WINDOW_MIN_MS, t));
+  if (Math.abs(at - t) >= MAX_SHIFT_MS) return null;
+  return { hourKst: new Date(t + KST_OFFSET_MS).getUTCHours(), at: new Date(at) };
+}
+
+/** 한 시각의 권역 전망(0~1) — GET 1회. 표본 부족(available=false)이면 null, 전송 실패는 throw. */
+export async function fetchAreaDemandPoint(lat: number, lng: number, at: Date): Promise<number | null> {
+  const data: ForecastResponse = await apiClient.get("/api/v1/area-demand/forecast", {
+    params: { lat: String(lat), lng: String(lng), arrivalAt: at.toISOString() },
+    timeoutMs: 8000,
+    noRetry: true,
+  });
+  const level = data?.forecast?.level;
+  return data?.available && typeof level === "number" && Number.isFinite(level) ? Math.min(1, Math.max(0, level)) : null;
+}
+
+/**
+ * 지금 + hoursAhead 시각의 경주 중심 권역 수요를 그 정시 하나만 담은 곡선으로 준다(areaLevelAt 이 그대로 읽는다).
+ * 세션 정시 · KST 정시마다 요청 한 번을 공유한다. 전송 실패는 담아 두지 않고 throw(이웃 정시를 묻지 않는다 —
+ * 서버가 쓰러졌으면 이웃도 같은 시간 초과를 기다린다). 둘 다 표본이 없으면 빈 곡선.
+ */
+export async function sessionAreaDemandAt(
+  hoursAhead: number,
+  nowMs: number = Date.now(),
+  fetchPoint: PointFetcher = fetchAreaDemandPoint,
+): Promise<AreaDemandCurve> {
+  const sessionKey = String(Math.floor(nowMs / HOUR_MS));
+  const target = nowMs + hoursAhead * HOUR_MS;
+  const towardLater = target - Math.floor(target / HOUR_MS) * HOUR_MS >= HOUR_MS / 2;
+  const full = sessionCurveValues.get(sessionKey);
+  for (const shift of [0, towardLater ? -1 : 1]) {
+    const point = forecastPointAt(nowMs, hoursAhead, shift);
+    if (!point) continue;
+    const known = full?.[point.hourKst];
+    if (typeof known === "number") return { [point.hourKst]: known };
+    const key = `${sessionKey}:${point.hourKst}`;
+    let pending = sessionPoints.get(key);
+    if (!pending) {
+      pending = fetchPoint(REGION.center.lat, REGION.center.lng, point.at).catch((error: unknown) => {
+        sessionPoints.delete(key);
+        throw error;
+      });
+      sessionPoints.set(key, pending);
+    }
+    const level = await pending;
+    if (level !== null) return { [point.hourKst]: level };
+  }
+  return {};
+}
+
 /** 테스트 전용 — 모듈 캐시를 비운다. */
 export function resetSessionAreaDemandCurve(): void {
   sessionCurves.clear();
+  sessionCurveValues.clear();
+  sessionPoints.clear();
 }

@@ -7,6 +7,9 @@
 // 화면 언어마다 명령어가 다르다(계획 B5 · I21): ko 는 예전 그대로(기본값), en/ja/zh 는 아래 LEXICONS.
 // en 은 낱말 단위로만 맞춘다('go' 가 'good' 안에서 걸리지 않게).
 
+import type { PlaceCategory } from "../travelContext";
+import type { VoiceAppCommand } from "./voiceCommands";
+
 export type VoiceIntent =
   | "accept" // 이 추천 수락 → 길안내
   | "detail" // 자세한 정보 다시 듣기
@@ -147,6 +150,66 @@ function classifyWithLexicon(transcripts: string[], lexicon: Lexicon): VoiceInte
   if (firstYes || hit(group("accept"))) return "accept";
   if (hit(group("detail"))) return "detail";
   return "unknown";
+}
+
+// ── en/ja/zh 화면의 '장소 종류 · 실내 · 도보 N분' 말(계획 B5 · I21, 리뷰 10-07) ─────────────────────────
+//
+// 서버의 키워드 분류기는 한국어만 알아듣는다. 그래서 en/ja/zh 화면에서 비서가 스스로 권하는 "show me cafés" ·
+// 「カフェを見せて」 · "看看咖啡厅" 나 기능설명서 F4 ④ 의 "10분 이내" · "실내" 가 LLM 보조가 꺼져 있으면 재질문으로 끝났다.
+// 같은 뜻의 앱 명령(VoiceAppCommand)으로 여기서 바로 바꾼다 — 서버를 부르지 않는다. 한국어는 종전대로 서버가 맡는다.
+
+const LOCALE_TYPE_WORDS: Record<string, { type: PlaceCategory; pattern: RegExp }[]> = {
+  en: [
+    { type: "cafe", pattern: /(^|[^a-z])(caf[eé]s?|coffee|dessert)([^a-z]|$)/ },
+    { type: "restaurant", pattern: /(^|[^a-z])(restaurants?|food|eat|lunch|dinner|meal)([^a-z]|$)/ },
+    { type: "culture", pattern: /(^|[^a-z])(museums?|galler(y|ies)|culture|cultural|exhibitions?)([^a-z]|$)/ },
+    { type: "attraction", pattern: /(^|[^a-z])(attractions?|sights?|sightseeing|landmarks?|tourist spots?)([^a-z]|$)/ },
+  ],
+  ja: [
+    { type: "cafe", pattern: /カフェ|コーヒー|喫茶|スイーツ/ },
+    { type: "restaurant", pattern: /レストラン|食事|ご飯|ごはん|食堂|グルメ|食べ/ },
+    { type: "culture", pattern: /博物館|美術館|文化施設|展示/ },
+    { type: "attraction", pattern: /観光地|観光スポット|名所|見どころ/ },
+  ],
+  zh: [
+    { type: "cafe", pattern: /咖啡|甜品/ },
+    { type: "restaurant", pattern: /餐厅|饭店|吃饭|美食|餐馆/ },
+    { type: "culture", pattern: /博物馆|美术馆|文化设施|展览/ },
+    { type: "attraction", pattern: /景点|名胜|观光/ },
+  ],
+};
+const LOCALE_INDOOR: Record<string, RegExp> = {
+  en: /(^|[^a-z])(indoors?|inside)([^a-z]|$)/,
+  ja: /屋内|室内/,
+  zh: /室内|屋内/,
+};
+const LOCALE_WALK: Record<string, RegExp> = {
+  en: /(\d+)\s*-?\s*(?:min|mins|minute|minutes)(?![a-z])/,
+  ja: /(\d+)\s*分/,
+  zh: /(\d+)\s*分钟/,
+};
+
+/** 도보 N분 → 앱이 아는 세 칸(5 · 10 · 20분) 중 그 안에 드는 가장 짧은 것. */
+function walkStep(minutes: number): 5 | 10 | 20 {
+  return minutes <= 5 ? 5 : minutes <= 10 ? 10 : 20;
+}
+
+/**
+ * en/ja/zh 발화 → 앱 명령. 도보 N분 > 실내 > 장소 종류 순으로 하나만 고른다. 한국어(또는 모르는 언어)·못 알아들으면 null.
+ * 숫자는 전각(１０)도 읽는다.
+ */
+export function localeVoiceCommand(utterance: string, locale: string): VoiceAppCommand | null {
+  if (locale === "ko" || !LOCALE_TYPE_WORDS[locale]) return null;
+  const text = normLocale(utterance).replace(/[０-９]/g, (d) => String.fromCharCode(d.charCodeAt(0) - 0xfee0));
+  if (!text) return null;
+  const walk = LOCALE_WALK[locale].exec(text);
+  const minutes = walk ? Number(walk[1]) : NaN;
+  if (Number.isFinite(minutes) && minutes > 0 && minutes <= 60) {
+    return { name: "set_max_walk_minutes", args: { maxWalkMinutes: walkStep(minutes) } };
+  }
+  if (LOCALE_INDOOR[locale].test(text)) return { name: "set_indoor_mode", args: { enabled: true } };
+  const type = LOCALE_TYPE_WORDS[locale].find(({ pattern }) => pattern.test(text))?.type;
+  return type ? { name: "set_facility_type", args: { facilityType: type } } : null;
 }
 
 /**

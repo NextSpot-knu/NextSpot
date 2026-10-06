@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { buildCardSentence, buildVoiceReason, type VoiceTranslator } from "./voiceReason";
+import { buildCardSentence, buildRankedCardSentence, buildVoiceReason, type VoiceTranslator } from "./voiceReason";
 
 // 실제 사전으로 문장을 만든다 — 키가 빠지거나 자리표시가 어긋나면 여기서 드러난다.
 const load = (locale: string) =>
@@ -64,5 +64,18 @@ for (const locale of ["en", "ja", "zh"]) {
 assert.equal(buildCardSentence(ko, "계림", ""), "계림. 여기로 안내할까요?");
 // 서버 문장이 이름을 품고 있지 않으면 앞에 붙인다.
 assert.equal(buildCardSentence(ko, "계림", "걸어서 4분이에요."), "계림. 걸어서 4분이에요. 여기로 안내할까요?");
+
+// 추천 목록의 'N번째 추천' 문장도 이름을 두 번 읽지 않는다(리뷰 10-07 — 'Pick 1: X. X is a 3-min walk away.').
+for (const locale of ["ko", "en", "ja", "zh"]) {
+  const t = translator(locale);
+  const named = buildRankedCardSentence(t, 2, "Gyerim", "Gyerim is a 3-min walk away.");
+  assert.equal(count(named, "Gyerim"), 1, `${locale}: ranked sentence names the place once — "${named}"`);
+  assert.ok(named.includes("2"), `${locale}: says the rank`);
+  assert.ok(!named.includes("{"), `${locale}: placeholders filled`);
+  const plain = buildRankedCardSentence(t, 1, "Gyerim", "A 3-min walk away.");
+  assert.equal(count(plain, "Gyerim"), 1, `${locale}: a reason without the name gets it once`);
+  assert.equal(count(buildRankedCardSentence(t, 1, "Gyerim", ""), "Gyerim"), 1);
+}
+assert.equal(buildRankedCardSentence(ko, 1, "계림", "계림 추천: 도보 4분이에요."), "1번째 추천이에요. 계림 추천: 도보 4분이에요. 여기로 안내할까요?");
 
 console.log("PASS voiceReason");

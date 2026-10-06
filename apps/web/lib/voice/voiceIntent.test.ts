@@ -1,7 +1,7 @@
 // voiceIntent 의도 분류 단위 테스트 (프레임워크 불필요).
 // 실행: apps/web 에서 `npm run test` (scripts/run-web-tests.mjs 가 lib/**/*.test.ts 를 전부 tsx 로 돌린다)
 //   단독: npx tsx lib/voice/voiceIntent.test.ts
-import { classifyIntent, buildCardSpeech, type VoiceIntent } from "./voiceIntent";
+import { classifyIntent, buildCardSpeech, localeVoiceCommand, type VoiceIntent } from "./voiceIntent";
 
 const cases: [string, VoiceIntent][] = [
   // accept
@@ -105,6 +105,44 @@ for (const [locale, phrase, expected] of localeCases) {
   console.log(`${ok ? "PASS" : "FAIL"}  [${locale}] "${phrase}" -> ${got}${ok ? "" : ` (expected ${expected})`}`);
 }
 
-const total = cases.length + 3 + localeCases.length;
+// en/ja/zh 의 장소 종류 · 실내 · 도보 N분 — 서버(한국어 전용 분류기) 없이 앱 명령으로(리뷰 10-07: 비서가 권한 "show me cafés" 가
+// 재질문으로 끝났다). 한국어는 null — 종전대로 서버가 맡는다.
+const commandCases: [string, string, string | null][] = [
+  ["en", "show me cafés", "set_facility_type:cafe"],
+  ["en", "Show me cafes nearby", "set_facility_type:cafe"],
+  ["en", "somewhere to eat", "set_facility_type:restaurant"],
+  ["en", "a museum please", "set_facility_type:culture"],
+  ["en", "sights around here", "set_facility_type:attraction"],
+  ["en", "something indoors", "set_indoor_mode:true"],
+  ["en", "within 10 minutes walk", "set_max_walk_minutes:10"],
+  ["en", "a 5-minute walk", "set_max_walk_minutes:5"],
+  ["en", "15 min", "set_max_walk_minutes:20"],
+  ["en", "good morning", null],
+  ["en", "cafeteria talk", null],
+  ["ja", "カフェを見せて", "set_facility_type:cafe"],
+  ["ja", "ご飯を食べたい", "set_facility_type:restaurant"],
+  ["ja", "室内がいい", "set_indoor_mode:true"],
+  ["ja", "徒歩１０分以内", "set_max_walk_minutes:10"],
+  ["ja", "こんにちは", null],
+  ["zh", "看看咖啡厅", "set_facility_type:cafe"],
+  ["zh", "附近的景点", "set_facility_type:attraction"],
+  ["zh", "室内的地方", "set_indoor_mode:true"],
+  ["zh", "步行10分钟以内", "set_max_walk_minutes:10"],
+  ["zh", "你好", null],
+  ["ko", "카페 보여줘", null],
+];
+for (const [locale, phrase, expected] of commandCases) {
+  const command = localeVoiceCommand(phrase, locale);
+  const got = command
+    ? `${command.name}:${command.name === "set_facility_type" ? command.args.facilityType
+      : command.name === "set_indoor_mode" ? command.args.enabled
+        : command.name === "set_max_walk_minutes" ? command.args.maxWalkMinutes : ""}`
+    : null;
+  const ok = got === expected;
+  if (!ok) fail++;
+  console.log(`${ok ? "PASS" : "FAIL"}  command [${locale}] "${phrase}" -> ${got}${ok ? "" : ` (expected ${expected})`}`);
+}
+
+const total = cases.length + 3 + localeCases.length + commandCases.length;
 console.log(`\n${total - fail}/${total} passed`);
 if (fail) process.exit(1);

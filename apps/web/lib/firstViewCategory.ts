@@ -26,11 +26,3 @@ export function pickFirstViewCategory(
   }
   return best?.type ?? null;
 }
-
-/** 한국어 받침 유무 — 토스트의 '이/가' · '을/를' 을 고른다(받침 판단이 불가하면 받침 없음으로 본다). */
-export function hasFinalConsonant(word: string): boolean {
-  const last = word.trim().slice(-1);
-  const code = last.charCodeAt(0);
-  if (!last || code < 0xac00 || code > 0xd7a3) return false;
-  return (code - 0xac00) % 28 !== 0;
-}

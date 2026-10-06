@@ -11,6 +11,7 @@ import { apiClient, getRecommendations, isRequestTimeout, recommendByType, repor
 import { displayWalkingMinutes } from "@/lib/recommender";
 import { classifyIntent } from "@/lib/voice/voiceIntent";
 import { pickVoice, speechLangFor } from "@/lib/voice/speechLocale";
+import { buildRankedCardSentence } from "@/lib/voice/voiceReason";
 import { getArrivalOpenDisplayStatus, isClosedToday } from "@/lib/restDate";
 import { REGION, isWithinRegion } from "@/lib/region";
 import { toast } from "sonner";
@@ -1219,9 +1220,8 @@ function RecommendContent() {
       );
     const reasonText = locale === 'ko' && rec.reason ? rec.reason : localizedFallback;
     const reasonTrimmed = (reasonText || "").slice(0, 200).trim();
-    const sentence = reasonTrimmed
-      ? t("voice.cardRanked", { n: index + 1, name: rec.facility.name, reason: reasonTrimmed })
-      : t("voice.cardRankedNoReason", { n: index + 1, name: rec.facility.name });
+    // 이유가 이미 이름을 말하면(서버 '… 추천: …' · 현지어 '{name} is a 3-min walk away') 이름을 다시 읽지 않는다.
+    const sentence = buildRankedCardSentence(t, index + 1, rec.facility.name, reasonTrimmed);
     setVoice("speaking");
     setSpokenCaption(sentence); // 발화 텍스트를 자막으로(청각 정보 시각 동시 제공 + 추천 사유 가시화)
     speak(sentence, () => scheduleListen());

@@ -9,18 +9,21 @@
 //   · '다른 시간 ▾' — 요일 프리셋(평일 12:00 · 금 18:00 · 토 14:00 · 일 11:00). 이 값은 /waiting·/course 와 나눈다.
 //   · 예측을 받으면 등급색 배지 한 줄 + 범례. 범례는 등급이 칠해진 핀이 화면에 있거나 예측 중일 때만, 아니면
 //     '지금 이 일대 … · 추정' 칩 하나(추정 피드가 있을 때만).
+//   · 휴대폰은 배지를 따로 한 줄로 두지 않고 '🔮 혼잡 예측' 자리에 짧은 배지('🔮 여유 예측')를 둔다. 키 낮은 휴대폰
+//     (높이 720 미만)은 범례 줄도 감춘다 — 360×640 의 지도 띠(180px 이상, 계획 3.2)가 예측 중에도 남게(리뷰 10-07).
+//   · 768~1023px(태블릿 · 좁은 창)는 휴대폰 글자 크기를 쓴다 — 칸 이름('+1시간 후')이 좁은 트랙에서 겹치지 않게.
 // 자료를 부르지 않는다 — 고른 값만 부모에 알린다(lib/forecastStrip.ts 가 규칙).
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import { ChevronDown, Clock3 } from 'lucide-react';
 import { useT } from '@/lib/i18n/I18nProvider';
 import { FORECAST_STOPS, clampForecastHours, type ForecastHours } from '@/lib/forecastStrip';
-import { PIN_GRADE_COLORS } from '@/lib/map/markerSvg';
+import { PIN_GRADE_COLORS, RANK_BADGE } from '@/lib/map/markerSvg';
 import type { CongestionKey } from '@/lib/congestionScale';
 
 const GRADES: CongestionKey[] = ['quiet', 'relaxed', 'moderate', 'busy'];
 
 const BADGE_TONE: Record<CongestionKey, string> = {
-  quiet: 'border-jade/40 bg-jade/10 text-jade',
+  quiet: 'benefit-quiet',
   relaxed: 'benefit-relaxed',
   moderate: 'border-gold/45 bg-gold/15 text-gold-deep',
   busy: 'border-terracotta/40 bg-terracotta/10 text-terracotta',
@@ -42,8 +45,8 @@ export interface ForecastTimeStripProps {
   presets: ForecastPreset[];
   onSelectHours: (hours: ForecastHours) => void;
   onSelectPreset: (id: string) => void;
-  /** 예측 배지(등급색). 없으면 그리지 않는다. */
-  badge: { text: string; grade: CongestionKey | null } | null;
+  /** 예측 배지(등급색). 없으면 그리지 않는다. short = 휴대폰 줄 안의 짧은 배지('🔮 여유 예측'). */
+  badge: { text: string; short: string; grade: CongestionKey | null } | null;
   /** 범례 — 보일 때만 제목을 준다. 예측 중이면 dashed. */
   legend: { title: string; dashed: boolean } | null;
   /** 칠한 핀이 없을 때의 '지금 이 일대 … · 추정' 칩. */
@@ -139,7 +142,7 @@ export default function ForecastTimeStrip({
         <p
           data-testid="forecast-badge"
           role="status"
-          className={`mb-1.5 flex items-center gap-1.5 rounded-xl border px-2.5 py-1 text-[13px] font-extrabold leading-snug md:text-[15px] ${badge.grade ? BADGE_TONE[badge.grade] : 'border-line bg-hanji-deep text-muk'}`}
+          className={`mb-1.5 flex items-center gap-1.5 rounded-xl border px-2.5 py-1 text-[13px] font-extrabold leading-snug max-md:hidden md:text-[15px] ${badge.grade ? BADGE_TONE[badge.grade] : 'border-line bg-hanji-deep text-muk'}`}
         >
           {badge.grade && (
             <span aria-hidden className="h-2.5 w-2.5 shrink-0 rounded-full border border-dashed border-white" style={{ backgroundColor: PIN_GRADE_COLORS[badge.grade].base }} />
@@ -148,7 +151,19 @@ export default function ForecastTimeStrip({
         </p>
       )}
       <div className="flex items-center gap-1.5 md:gap-2.5">
-        <span className="shrink-0 whitespace-nowrap text-[11px] font-extrabold text-muk md:text-[14px]">{t('forecast.title')}</span>
+        <span className={`shrink-0 whitespace-nowrap text-[11px] font-extrabold text-muk lg:text-[14px] ${badge ? 'max-md:hidden' : ''}`}>{t('forecast.title')}</span>
+        {badge && (
+          // 휴대폰: 배지 줄 대신 이 자리에 짧은 배지(등급색) — 줄 높이가 늘지 않는다. 읽는 이름은 긴 배지 그대로.
+          <span
+            data-testid="forecast-badge-short"
+            role="status"
+            title={badge.text}
+            className={`shrink-0 whitespace-nowrap rounded-full border px-1.5 py-0.5 text-[11px] font-extrabold leading-tight md:hidden ${badge.grade ? BADGE_TONE[badge.grade] : 'border-line bg-hanji-deep text-muk'}`}
+          >
+            <span aria-hidden>{badge.short}</span>
+            <span className="sr-only">{badge.text}</span>
+          </span>
+        )}
         <div
           ref={trackRef}
           role="slider"
@@ -178,7 +193,7 @@ export default function ForecastTimeStrip({
             <span
               key={h}
               data-stop={h}
-              className={`relative z-10 flex items-center justify-center gap-1 whitespace-nowrap px-1 py-1.5 text-center text-[11px] font-bold leading-none md:py-2 md:text-[13px] ${shown === h ? 'text-hanji' : 'text-muk-soft'}`}
+              className={`relative z-10 flex items-center justify-center gap-1 whitespace-nowrap px-1 py-1.5 text-center text-[11px] font-bold leading-none md:py-2 lg:text-[13px] ${shown === h ? 'text-hanji' : 'text-muk-soft'}`}
             >
               {loading && shown === h && h > 0 && (
                 <span aria-hidden className="inline-block h-2.5 w-2.5 animate-spin rounded-full border-[1.5px] border-hanji/40 border-t-hanji" />
@@ -196,10 +211,10 @@ export default function ForecastTimeStrip({
             aria-controls={menuId}
             aria-label={activePreset ? `${t('forecast.otherTimes')}: ${activePreset.label}` : t('forecast.otherTimes')}
             data-testid="forecast-other-times"
-            className={`flex h-8 items-center gap-1 whitespace-nowrap rounded-full border px-2 text-[12px] font-bold focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 md:h-9 md:px-3 md:text-[13px] ${presetActive ? 'border-gold bg-gold/15 text-gold-deep' : 'border-line bg-white text-muk-soft hover:text-muk'}`}
+            className={`flex h-8 items-center gap-1 whitespace-nowrap rounded-full border px-2 text-[12px] font-bold focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 md:h-9 lg:px-3 lg:text-[13px] ${presetActive ? 'border-gold bg-gold/15 text-gold-deep' : 'border-line bg-white text-muk-soft hover:text-muk'}`}
           >
             <Clock3 size={14} aria-hidden className="shrink-0" />
-            <span className="max-md:sr-only">{activePreset ? activePreset.label : t('forecast.otherTimes')}</span>
+            <span className="max-lg:sr-only">{activePreset ? activePreset.label : t('forecast.otherTimes')}</span>
             <ChevronDown size={14} aria-hidden className="shrink-0" />
           </button>
           {menuOpen && (
@@ -228,7 +243,8 @@ export default function ForecastTimeStrip({
       </div>
       {(legend || areaChip) && (
         // 휴대폰은 예측 중일 때만 범례 줄을 둔다 — 지금 모드의 범례·이 일대 칩까지 올리면 360×640 에서 지도 띠가 모자란다.
-        <div className={`mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 px-1 text-[11px] font-bold text-muk-soft ${legend?.dashed ? '' : 'max-md:hidden'}`} data-testid="forecast-legend">
+        // 키 낮은 휴대폰은 예측 중에도 감춘다(짧은 배지가 등급을 말하고, 지도 띠 180px 을 지킨다).
+        <div className={`mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 px-1 text-[11px] font-bold text-muk-soft ${legend?.dashed ? 'short:max-md:hidden' : 'max-md:hidden'}`} data-testid="forecast-legend">
           {legend ? (
             <>
               <span className="text-muk">{legend.title}</span>
@@ -242,8 +258,20 @@ export default function ForecastTimeStrip({
                   {t(`congestion.${grade}`)}
                 </span>
               ))}
-              <span className="flex items-center gap-1">
-                <span aria-hidden className="h-2.5 w-2.5 rounded-full border-2 border-gold bg-white" />
+              <span className="flex items-center gap-1" data-testid="forecast-legend-pick">
+                {legend.dashed ? (
+                  // 예측 중의 순위 핀은 금색 고리가 아니라 번호 원 + 흰 점선 고리다 — 범례도 그 모양(리뷰 10-07).
+                  <span
+                    aria-hidden
+                    data-swatch="rank-dashed"
+                    className="flex h-3.5 w-3.5 items-center justify-center rounded-full text-[8px] font-black leading-none outline outline-1 outline-dashed outline-offset-1 outline-muk/40"
+                    style={{ backgroundColor: RANK_BADGE.fill, color: RANK_BADGE.text }}
+                  >
+                    1
+                  </span>
+                ) : (
+                  <span aria-hidden data-swatch="gold-ring" className="h-2.5 w-2.5 rounded-full border-2 border-gold bg-white" />
+                )}
                 {t('forecast.legendPick')}
               </span>
             </>

@@ -455,6 +455,13 @@ html.nextspot-dark .rec-fade-bottom { background: linear-gradient(to top, rgb(41
   color: #047857;
 }
 html.nextspot-dark .benefit-relaxed { color: #6ee7b7; }
+/* 한산 — 지도 핀 · 범례의 파랑(#1d4ed8, lib/map/markerSvg PIN_GRADE_COLORS.quiet)과 같은 색. */
+.benefit-quiet {
+  border-color: rgb(29 78 216 / 0.35);
+  background-color: rgb(29 78 216 / 0.10);
+  color: #1d4ed8;
+}
+html.nextspot-dark .benefit-quiet { color: #93c5fd; border-color: rgb(147 197 253 / 0.4); }
 
 /* 실시간 정보 새로고침 뒤 새로 받아 온 줄을 1.5초 반짝인다(I47). */
 @keyframes live-flash {

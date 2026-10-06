@@ -3,8 +3,8 @@
 //   · 줄은 지금 · +1시간 후 · +2시간 후 · +3시간 후 네 칸이다. +N 은 **이 화면의 상태로만** 산다 — 저장하지 않고,
 //     /waiting·/course 와 나누는 '가정 시각' 프리셋(ASSUMED_TIME_PRESETS)에도 더하지 않는다(레드팀: 상대 시각이
 //     공유 캐시에 새면 다른 화면이 엉뚱한 시각의 보드를 그린다).
-//   · +N 을 고르면: 예측 모델이 학습돼 있으면 장소별 예측(/predict/batch)을, 아니거나 실패하면 세션에 한 번 받는
-//     경주 중심 권역 곡선(lib/areaDemandCurve.sessionAreaDemandCurve — /waiting 과 공유)에서 그 시각의 이 일대 값을 쓴다.
+//   · +N 을 고르면: 예측 모델이 학습돼 있으면 장소별 예측(/predict/batch)을, 아니거나 실패하면 경주 중심 권역 전망에서
+//     그 시각 하나의 이 일대 값을 쓴다(lib/areaDemandCurve.sessionAreaDemandAt — 세션 · 정시마다 GET 1회).
 //     둘 다 없으면 null — 화면은 알림 한 줄과 함께 '지금' 으로 돌아간다.
 //   · 카드도 그 시각 기준으로 다시 고른다 — 추천 요청의 assumedAt = 지금 + N시간.
 import type { AreaDemandCurve } from './areaDemandCurve';
@@ -62,8 +62,8 @@ export interface ForecastDeps {
   modelTrained: () => Promise<boolean>;
   /** POST /predict/batch — 장소별 예측. 실패는 throw. */
   batch: (hours: ForecastHours) => Promise<ModelPredictions>;
-  /** 세션 공용 권역 곡선(lib/areaDemandCurve.sessionAreaDemandCurve). 실패는 throw. */
-  areaCurve: () => Promise<AreaDemandCurve>;
+  /** 세션 공용 권역 값 — 그 시각 하나만 담은 곡선(lib/areaDemandCurve.sessionAreaDemandAt, GET 1회). 실패는 throw. */
+  areaCurve: (hours: ForecastHours) => Promise<AreaDemandCurve>;
 }
 
 /**
@@ -87,7 +87,7 @@ export async function resolveStripForecast(hours: number, deps: ForecastDeps, no
     }
   }
   try {
-    const level = areaLevelAt(await deps.areaCurve(), nowMs, h);
+    const level = areaLevelAt(await deps.areaCurve(h), nowMs, h);
     if (level !== null) return { hours: h, basis: 'area', level };
   } catch {
     // 곡선도 없다 — null.

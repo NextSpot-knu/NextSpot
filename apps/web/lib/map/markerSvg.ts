@@ -48,7 +48,8 @@ const HOLLOW = {
   dark: { body: "#3a3027", stroke: "#c4b49f", glyph: "#efe4d2" },
 } as const;
 const GOLD_RING = "#c19a3e";
-const RANK_BADGE = { fill: "#8a6a1c", text: "#ffffff" } as const;
+/** 순위 핀의 번호 원 — 혼잡 예측 줄의 범례도 같은 색으로 그린다. */
+export const RANK_BADGE = { fill: "#8a6a1c", text: "#ffffff" } as const;
 
 /** 실측을 '지금 칠할 수 있는' 최대 나이(24시간). lib/congestionEstimate.ts 의 LAST_OBSERVED_MAX_AGE_MS 와 같다. */
 export const PIN_MEASURED_MAX_AGE_MS = 24 * 60 * 60 * 1000;

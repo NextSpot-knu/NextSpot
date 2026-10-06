@@ -29,6 +29,17 @@ export default function WeatherChip({ indoorRequired, onIndoorRequiredChange }: 
   const [data, setData] = useState<WeatherResponse | null>(null);
   const [expanded, setExpanded] = useState(false);
   const boxRef = useRef<HTMLDivElement>(null);
+  // 펼친 판을 화면 안으로 — 알약 왼쪽 끝에 붙이되, 화면 오른쪽(16px 여백)을 넘으면 그만큼 왼쪽으로 민다. 키 낮은 휴대폰은
+  // 알약이 검색창 오른쪽 옆에 서서 288px 판이 화면 밖으로 잘렸다(리뷰 10-07 — 6시간 예보 중 4칸만 보였다).
+  const [popoverLeft, setPopoverLeft] = useState(0);
+  const toggle = () => {
+    if (!expanded && boxRef.current) {
+      const left = boxRef.current.getBoundingClientRect().left;
+      const width = Math.min(288, window.innerWidth - 32);
+      setPopoverLeft(Math.max(16 - left, Math.min(0, window.innerWidth - 16 - (left + width))));
+    }
+    setExpanded((value) => !value);
+  };
 
   useEffect(() => {
     let active = true;
@@ -56,7 +67,7 @@ export default function WeatherChip({ indoorRequired, onIndoorRequiredChange }: 
     <div ref={boxRef} className="pointer-events-auto relative shrink-0">
       <button
         type="button"
-        onClick={() => setExpanded((value) => !value)}
+        onClick={toggle}
         aria-expanded={expanded}
         aria-label={`${full} · ${summary}`}
         title={summary}
@@ -69,7 +80,7 @@ export default function WeatherChip({ indoorRequired, onIndoorRequiredChange }: 
         {expanded ? <ChevronUp size={14} aria-hidden /> : <ChevronDown size={14} aria-hidden />}
       </button>
       {expanded && (
-        <section className="absolute left-0 top-full z-30 mt-2 w-72 rounded-2xl border border-line bg-white px-3.5 pb-3 pt-2.5 shadow-[0_10px_30px_rgba(43,35,32,0.18)]">
+        <section style={{ left: popoverLeft }} className="absolute top-full z-30 mt-2 w-72 max-w-[calc(100vw-2rem)] rounded-2xl border border-line bg-white px-3.5 pb-3 pt-2.5 shadow-[0_10px_30px_rgba(43,35,32,0.18)]">
           <p className="text-[12px] font-semibold text-muk">{summary}</p>
           <div className="mt-2 grid grid-cols-6 gap-1" aria-label={t('weather.sixHour')}>
             {data.forecasts.slice(0, 6).map((forecast) => (

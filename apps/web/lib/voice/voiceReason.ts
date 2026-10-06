@@ -45,3 +45,15 @@ export function buildCardSentence(t: VoiceTranslator, name: string, reason: stri
   if (!body) return t('voice.cardNoReason', { name });
   return body.includes(name) ? `${body} ${t('voice.askGuide')}` : t('voice.card', { name, reason: body });
 }
+
+/**
+ * 추천 목록(/explore/recommend)의 'N번째 추천이에요. …' 문장 — buildCardSentence 와 같은 규칙: 이유가 이미 이름을
+ * 말하면(서버 사유 '… 추천: …', 현지어 사유 '{name} is a 3-min walk away') 이름을 앞에 다시 붙이지 않는다.
+ */
+export function buildRankedCardSentence(t: VoiceTranslator, rank: number, name: string, reason: string): string {
+  const body = reason.trim();
+  if (!body) return t('voice.cardRankedNoReason', { n: rank, name });
+  return body.includes(name)
+    ? t('voice.cardRankedReasonOnly', { n: rank, reason: body })
+    : t('voice.cardRanked', { n: rank, name, reason: body });
+}
