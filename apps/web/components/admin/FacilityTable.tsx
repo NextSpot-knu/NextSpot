@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { Settings, Plus, Edit2, Trash2, X, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
 import { toast } from 'sonner';
 import { createPublicClient } from '@/lib/supabase';
-import { adminApi } from '@/lib/admin-api';
+import { adminApi, adminApiForbiddenDetail } from '@/lib/admin-api';
 import { REGION } from '@/lib/region';
 import {
   countNameMatchesByType,
@@ -164,7 +164,8 @@ export function FacilityTable() {
             })
             .catch((err: unknown) => {
               console.error('Failed to delete facility:', err);
-              toast.error('삭제를 잠시 후 다시 시도해 주세요.');
+              // 서버가 이 계정의 삭제를 거절한 경우(403)는 서버가 준 사유 문장을 그대로 보인다.
+              toast.error(adminApiForbiddenDetail(err) ?? '삭제를 잠시 후 다시 시도해 주세요.');
             });
         },
       },
@@ -205,7 +206,7 @@ export function FacilityTable() {
         <div className="p-6 border-b border-hanok-line flex justify-between items-center bg-hanok-card/30">
           <div className="flex items-center gap-2">
             <Settings className="text-hanok-muted" size={20} />
-            <h3 className="text-lg font-bold text-hanok-ink">장소 관리 (CRUD)</h3>
+            <h3 className="text-lg font-bold text-hanok-ink">장소 관리</h3>
           </div>
           <button
             onClick={openCreateModal}

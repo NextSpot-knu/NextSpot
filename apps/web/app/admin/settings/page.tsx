@@ -1,13 +1,13 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   Bell, Settings as SettingsIcon, Sliders, Save, Database,
   RefreshCw, Building2, Activity, Clock, Loader2, CheckCircle2, AlertCircle
 } from 'lucide-react';
 import { AdminSidebar } from '@/components/AdminSidebar';
 import { createPublicClient } from '@/lib/supabase';
-import { adminApi } from '@/lib/admin-api';
+import { adminApi, adminApiForbiddenDetail } from '@/lib/admin-api';
 import { errorMessage } from '@/lib/errors';
 import { countLabel, settingsSaveGuard, type LoadStatus, type SettingsLoad } from '@/lib/adminLoadState';
 
@@ -40,6 +40,9 @@ export default function SettingsPage() {
   // 덮이지 않는다. 즉 이 값은 지금 '읽어서 그대로 돌려주는' 통과 값이다.
   const [weight, setWeight] = useState(50);
   const [settingsLoad, setSettingsLoad] = useState<SettingsLoad>({ status: 'loading' });
+  // 서버에 실제로 저장돼 있는 값(마지막 조회·저장 성공 시점). 서버가 저장을 거절(403)하면 화면을 이 값으로
+  // 되돌린다 — 거절된 값이 폼에 남으면 사유 문장이 4초 뒤 사라진 다음 '저장된 것처럼' 보인다.
+  const storedRef = useRef({ isMaintenance: false, notice: DEFAULT_NOTICE, threshold: 80 });
 
   const [stats, setStats] = useState<{ facilities: number | null; logs: number | null; lastLog: string | null }>({
     facilities: null, logs: null, lastLog: null,
@@ -87,9 +90,15 @@ export default function SettingsPage() {
         const data: SystemSettingsRow | null = await adminApi.get('/api/v1/admin/settings');
         if (!active) return;
         if (data) {
-          setIsMaintenance(!!data.maintenance_mode);
-          if (typeof data.notice_text === 'string') setNotice(data.notice_text);
-          if (typeof data.congestion_threshold === 'number') setThreshold(data.congestion_threshold);
+          const stored = {
+            isMaintenance: !!data.maintenance_mode,
+            notice: typeof data.notice_text === 'string' ? data.notice_text : DEFAULT_NOTICE,
+            threshold: typeof data.congestion_threshold === 'number' ? data.congestion_threshold : 80,
+          };
+          storedRef.current = stored;
+          setIsMaintenance(stored.isMaintenance);
+          setNotice(stored.notice);
+          setThreshold(stored.threshold);
           if (typeof data.coldstart_weight === 'number') setWeight(data.coldstart_weight);
           setSettingsLoad({ status: 'ok' });
         } else {
@@ -127,11 +136,20 @@ export default function SettingsPage() {
       });
       setSaveMsg({ type: 'ok', text: '시스템 설정이 저장되었습니다.' });
       // 저장에 성공했다면 서버에 우리가 보낸 값이 실제로 들어 있다 — 이제 화면 값은 서버 값이다.
+      storedRef.current = { isMaintenance, notice, threshold };
       setSettingsLoad({ status: 'ok' });
     } catch (e) {
-      // 원인 상세(권한·연결·서버 응답)는 콘솔에만 남긴다 — 화면에는 다음 행동만 적는다.
+      // 원인 상세(연결·서버 응답)는 콘솔에만 남긴다 — 화면에는 다음 행동만 적는다. 단 서버가 이 계정의
+      // 저장을 거절한 경우(403)는 서버가 준 사유 문장을 그대로 보인다(재시도로 풀리지 않는다).
       console.warn('설정 저장 실패:', e);
-      setSaveMsg({ type: 'err', text: '저장에 실패했습니다. 잠시 후 다시 시도해 주세요.' });
+      const denied = adminApiForbiddenDetail(e);
+      if (denied) {
+        // 거절은 재시도로 풀리지 않는다 — 폼을 저장돼 있는 값으로 되돌린다(일시 장애면 고친 값을 그대로 둬 다시 누를 수 있게).
+        setIsMaintenance(storedRef.current.isMaintenance);
+        setNotice(storedRef.current.notice);
+        setThreshold(storedRef.current.threshold);
+      }
+      setSaveMsg({ type: 'err', text: denied ?? '저장에 실패했습니다. 잠시 후 다시 시도해 주세요.' });
     } finally {
       setSaving(false);
       setTimeout(() => setSaveMsg(null), 4000);
@@ -170,7 +188,7 @@ export default function SettingsPage() {
             <div className="flex justify-between items-end">
               <div>
                 <h3 className="text-2xl font-bold text-hanok-ink mb-2">환경 설정</h3>
-                <p className="text-hanok-muted">앱 서비스의 상태 및 AI 추천 알고리즘의 세부 파라미터를 조정합니다.</p>
+                <p className="text-hanok-muted">서비스 점검 안내·상단 공지·혼잡 등급 경계를 설정합니다.</p>
               </div>
               <div className="flex items-center gap-3">
                 {saveMsg && (
@@ -218,7 +236,7 @@ export default function SettingsPage() {
             <section className="bg-hanok-panel rounded-2xl border border-hanok-line shadow-sm overflow-hidden">
               <div className="p-5 border-b border-hanok-line bg-hanok-card/30 flex items-center gap-2">
                 <SettingsIcon size={20} className="text-hanok-muted" />
-                <h4 className="font-bold text-hanok-ink">일반 설정 (General)</h4>
+                <h4 className="font-bold text-hanok-ink">일반 설정</h4>
               </div>
               <div className="p-6 flex flex-col gap-6">
 
@@ -278,9 +296,9 @@ export default function SettingsPage() {
                 <div>
                   <div className="flex justify-between items-end mb-2">
                     <div>
-                      <h5 className="font-bold text-hanok-ink mb-1">혼잡 등급 경계 (Congestion Threshold)</h5>
+                      <h5 className="font-bold text-hanok-ink mb-1">혼잡 등급 경계</h5>
                       <p className="text-sm text-hanok-muted">
-                        인프라 수용량 대비 몇 %부터 &apos;혼잡(Red)&apos;으로 표시할지 정합니다.
+                        인프라 수용량 대비 몇 %부터 &apos;혼잡(빨강)&apos;으로 표시할지 정합니다.
                         여유·보통 등급 경계는 기본값을 그대로 유지합니다.
                       </p>
                     </div>

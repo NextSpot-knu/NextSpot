@@ -431,7 +431,7 @@ export default function InfrastructurePage() {
       <main className="flex-1 flex flex-col h-full overflow-hidden">
         {/* Top Header */}
         <header className="h-20 bg-hanok-panel border-b border-hanok-line flex items-center justify-between px-8 flex-shrink-0">
-          <h2 className="text-xl font-bold text-hanok-ink">관광지 모니터링</h2>
+          <h2 className="text-xl font-bold text-hanok-ink">장소 관리</h2>
           <div className="flex items-center gap-6">
             {/* 검색: 로드된 시설을 이름/유형으로 클라이언트 필터 */}
             <div className="relative">
@@ -867,7 +867,7 @@ export default function InfrastructurePage() {
                       onClick={handleOverride}
                       className="flex-1 bg-hanok-card border border-hanok-line hover:bg-hanok-line text-hanok-ink font-semibold py-3 rounded-xl transition-colors"
                     >
-                      수동 상태 변경 (Override)
+                      혼잡도 직접 입력
                     </button>
                     <button
                       onClick={handleDispatch}

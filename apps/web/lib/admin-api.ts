@@ -47,6 +47,9 @@ export class AdminApiError extends Error {
     /** 서버가 준 HTTP 상태. 응답을 못 받은 실패(세션 없음·타임아웃·연결 실패)는 null —
      *  0 으로 채우면 화면이 'HTTP 0' 이라는 있지도 않은 코드를 보여준다. */
     readonly status: number | null = null,
+    /** 서버가 준 detail 원문(문자열일 때만). message 에는 싣지 않는다 — 화면에 내도 되는 경우는
+     *  adminApiForbiddenDetail 이 고른다. */
+    readonly detail: string | null = null,
   ) {
     super(message);
     this.name = "AdminApiError";
@@ -61,6 +64,17 @@ export function adminApiStatus(err: unknown): number | null {
     if (typeof status === "number" && Number.isFinite(status)) return status;
   }
   return null;
+}
+
+/**
+ * 서버가 403 으로 쓰기를 거절하며 준 사유 문장(없으면 null).
+ *
+ * 403 의 detail 은 서버(app/core/authz.py · routers/admin.py)가 관리자에게 보여 줄 한국어 문장으로 쓴다
+ * ('심사용 계정에서는 전체 설정을 바꿀 수 없어요.' 등) — 이 상태에 한해 원문을 화면에 낸다. '잠시 후 다시
+ * 시도해 주세요' 는 재시도로 풀리지 않는 거절에 거짓 안내가 된다. 다른 상태(5xx 등)의 원문은 여전히 콘솔 전용이다.
+ */
+export function adminApiForbiddenDetail(err: unknown): string | null {
+  return err instanceof AdminApiError && err.status === 403 ? err.detail : null;
 }
 
 /** 에러의 실패 종류(모르면 null). */
@@ -121,6 +135,7 @@ async function adminRequest(path: string, options: RequestInit = {}): Promise<an
       '관제 데이터를 다시 불러오는 중입니다. 잠시 후 자동으로 표시됩니다.',
       "http",
       response.status,
+      typeof errorData?.detail === 'string' && errorData.detail.trim() ? errorData.detail.trim() : null,
     );
   }
   return response.json();

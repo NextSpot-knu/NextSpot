@@ -15,8 +15,8 @@ export default function SimulatorPage() {
         {/* Top Header */}
         <header className="h-20 bg-hanok-panel border-b border-hanok-line flex items-center justify-between px-8 flex-shrink-0">
           <div>
-            <h2 className="text-xl font-bold text-hanok-ink">SPOT 알고리즘 관제소</h2>
-            <p className="text-xs text-hanok-muted mt-0.5">추천 알고리즘(Preference, Time Cost, Incentive) 가중치 시뮬레이션 및 다봉 분포 분석</p>
+            <h2 className="text-xl font-bold text-hanok-ink">SPOT 시뮬레이터</h2>
+            <p className="text-xs text-hanok-muted mt-0.5">취향·이동시간·혜택 가중치를 바꿔 추천 점수가 어떻게 달라지는지 미리 봅니다</p>
           </div>
         </header>
 
