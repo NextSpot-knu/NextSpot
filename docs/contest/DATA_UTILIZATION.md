@@ -267,11 +267,11 @@ TourAPI는 **장소(POI)** 를 준다. 장소가 "지금 붐비는지"는 주지
 |---|---|---|---|---|
 | **① 일배치(cron)** | GitHub Actions 스케줄, 매일 KST 04:00 | `locationBasedList2`(contentTypeId 12/14/39 페이지네이션) → POI당 `detailCommon2`/`detailIntro2`/`detailInfo2`/`detailImage2`(`--details`) → `areaBasedSyncList2`(지역 전체 showflag 동기화) | 없음 — 배치 자체가 매일의 "새로고침"이라 매 실행이 곧 새 실호출 | `.github/workflows/ingest.yml:63`, `apps/api/scripts/ingest_tourapi.py`(`fetch_pois`/`enrich_row`/`fetch_showflag_map`) |
 | **② 축제 피드(런타임)** | 메인 화면 진입 시 `GET /api/v1/events` | `searchFestival2`(목록) + 진행 중 축제당 `detailCommon2`/`detailIntro2` | 목록 24h·상세 1h TTL(`client.py` `CACHE_TTL_SECONDS`, `events.py` `_DETAIL_TTL_SECONDS`) — 창이 지나면 다음 요청이 실호출을 새로 낸다 | `apps/api/app/routers/events.py:213`(목록), `:153`·`:169`(상세) |
-| **③ 키워드 검색 폴백(런타임)** | 지도 검색(로컬 `facilities`)과 Kakao 장소 검색이 **둘 다 0건**일 때만 `GET /api/v1/search/keyword` | `searchKeyword2` | 키워드별 24h TTL(같은 캐시 함수) | `apps/web/app/main/page.tsx:2455-2469`(순서: 로컬→Kakao→관광공사), `apps/api/app/routers/search.py:221-231,285-295` |
+| **③ 키워드 검색 폴백(런타임)** | 지도 검색(로컬 `facilities`)과 Kakao 장소 검색이 **둘 다 0건**일 때만 `GET /api/v1/search/keyword` | `searchKeyword2` | 결과가 있는 응답만 키워드별 24h TTL(0건은 미캐시) · 법정동 `lDongRegnCd=47`·`lDongSignguCd=130` + 경주 주소/좌표 후필터 · IP당 분당 12회 | `apps/web/app/main/page.tsx:2743-2797`(순서: 로컬→Kakao→관광공사), `apps/api/app/routers/search.py:242-250`(`_search_gyeongju`), `:220-239`(경주 후필터), `:299-337`(엔드포인트·재작성 폴백), `apps/api/app/services/tourapi/client.py:264-293`(`search_keyword`, `cache_empty=False`) |
 
 부가로 한 곳 더 있다 — **관리자 검수 승인**(`POST /api/v1/search/ingest-requests/approve`)도 승인
 버튼을 누르는 순간 해당 1건에 대해 `detailCommon2`/`detailIntro2`를 캐시 없이 그 자리에서 부른다
-(`apps/api/app/routers/search.py:415,435` `_enrich_and_transform`). 위 세 지점의 "덤"이라 표에는
+(`apps/api/app/routers/search.py:437` `_enrich_and_transform` — `detail_common` :444, `detail_intro` :464). 위 세 지점의 "덤"이라 표에는
 넣지 않았지만, 배치·이벤트·검색 밖에 또 다른 실호출 경로가 있다는 근거로 남긴다.
 
 **메인 POI 목록·지도 마커 자체는 실시간 호출이 아니다.** 지도·추천 카드가 읽는 것은 위 ①이 매일
