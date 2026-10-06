@@ -1,5 +1,13 @@
 import assert from 'node:assert/strict';
-import { FEATURE_SHORTCUT_KEYS, MAIN_FOCUS_PATHS, featureShortcuts } from './featureShortcuts';
+import {
+  FEATURE_SHORTCUT_KEYS,
+  MAIN_FOCUS_EVENT,
+  MAIN_FOCUS_PATHS,
+  featureShortcuts,
+  isMainPath,
+  onMainFocus,
+  requestMainFocus,
+} from './featureShortcuts';
 import { ADMIN_CONSOLE_PATH, ADMIN_DEMO_PATH, MERCHANT_CONSOLE_PATH, MERCHANT_DEMO_PATH } from './consoleLinks';
 import { parseAccount, type Account, type AccountRole } from './accountRoles';
 import { keysToCamel } from './caseTransform';
@@ -44,5 +52,33 @@ assert.deepEqual(
   featureShortcuts(acct('admin')).slice(0, 4).map((row) => row.href),
   guestRows.slice(0, 4).map((row) => row.href),
 );
+
+// ── 이미 /main 에 있을 때: 주소 대신 이벤트 — 쏘는 쪽과 받는 쪽이 같은 이름·같은 키를 쓴다 ─────────
+// (지도 화면 레일의 '서비스 소개' 모달에서 누르면 /main → /main?focus=… 소프트 이동이라 지도 화면이
+//  다시 마운트되지 않는다. 마운트 때 한 번 읽는 처리기만으로는 모달만 닫히고 아무 데도 불이 안 켜졌다.)
+assert.equal(MAIN_FOCUS_EVENT, 'nextspot:main-focus');
+assert.equal(isMainPath('/main'), true);
+assert.equal(isMainPath('/main/'), true);
+assert.equal(isMainPath('/'), false);
+assert.equal(isMainPath('/mainx'), false);
+assert.equal(isMainPath('/guide'), false);
+assert.equal(isMainPath(null), false);
+{
+  const target = new EventTarget();
+  const seen: string[] = [];
+  const off = onMainFocus((key) => seen.push(key), target);
+  requestMainFocus('voice', target);
+  requestMainFocus('forecast', target);
+  requestMainFocus('live', target);
+  requestMainFocus('card', target);
+  // 모르는 키·다른 이벤트 모양은 흘려보낸다(지도 화면이 엉뚱한 갈래를 타지 않는다).
+  target.dispatchEvent(new CustomEvent(MAIN_FOCUS_EVENT, { detail: 'console' }));
+  target.dispatchEvent(new CustomEvent(MAIN_FOCUS_EVENT, { detail: { key: 'voice' } }));
+  target.dispatchEvent(new Event(MAIN_FOCUS_EVENT));
+  assert.deepEqual(seen, ['voice', 'forecast', 'live', 'card']);
+  off();
+  requestMainFocus('voice', target);
+  assert.deepEqual(seen, ['voice', 'forecast', 'live', 'card'], '해제 뒤에는 받지 않는다');
+}
 
 console.log('featureShortcuts tests passed');

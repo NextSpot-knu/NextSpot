@@ -25,7 +25,10 @@ import NextSpotMascot from '@/components/NextSpotMascot';
 //  · 그보다 좁은 화면(폰·태블릿): 예전 세로 첫 화면 그대로 — 가치 칩, 화면 아무 곳이나 눌러 시작, 첫 방문엔 소개
 //    모달이 한 번 열린다(모달 첫 칸에 같은 '이렇게 써 보세요'가 있다). 콘솔 입구 한 줄과 더 큰 출처 줄이 더해졌다.
 // 둘 다 DOM 에 있고 CSS(lg:)로 하나만 보인다 — 숨은 쪽은 접근성 트리·클릭에서 빠진다.
-const DESKTOP_QUERY = '(min-width: 1024px)';
+// JS 판정은 Tailwind lg 와 **같은 단위**(64rem)로 한다. px 로 쓰면 브라우저 기본 글자 크기가 16px 이 아닐 때
+// (크롬 '글꼴 크게' = 20px → lg 는 1280px) 보이는 배치와 JS 판정이 갈려, 폰 배치가 보이는데 화면 탭이 안 먹거나
+// 데스크톱 배치에서 소개 모달이 저절로 열린다.
+const DESKTOP_QUERY = '(min-width: 64rem)';
 
 function isDesktopViewport(): boolean {
   try {
@@ -235,10 +238,14 @@ export default function LoadingPage() {
 
       {/* ── 폰·태블릿(<1024px) 첫 화면 ── 첫 그림은 300ms 옅게 떠오르기만 한다(예전처럼 1초 넘게 비워 두지 않는다). */}
       <div
-        className={`z-10 flex w-full flex-1 flex-col items-center justify-center px-6 pb-8 pt-20 text-center lg:hidden ${guideStyles.landingFade}`}
+        className={`z-10 flex w-full flex-1 flex-col items-center justify-center px-6 pb-8 pt-14 text-center lg:hidden ${guideStyles.landingFade}`}
       >
-        {/* 길잡이 마스코트는 장식 전용이며 aria-hidden은 컴포넌트 내부에서 처리한다. */}
-        <NextSpotMascot variant="full" className="w-20 sm:w-24 shadow-[0_10px_28px_rgba(43,35,32,0.14)]" />
+        {/* 길잡이 마스코트는 장식 전용이며 aria-hidden은 컴포넌트 내부에서 처리한다. 키가 낮은 화면(≤700px)에서는
+            작아지고, 아주 낮은 화면(≤660px, 예: 360×640)에서는 자리를 '바로 시작'·축제 배너에 내준다. */}
+        <NextSpotMascot
+          variant="full"
+          className="w-20 sm:w-24 shadow-[0_10px_28px_rgba(43,35,32,0.14)] [@media(max-height:700px)]:w-14 [@media(max-height:660px)]:hidden"
+        />
 
         {/* 서비스 지역 배지 */}
         <span className="mt-3 inline-flex items-center px-3 py-1.5 rounded-full bg-gold/15 border border-gold/30 text-xs font-bold text-gold-deep">
@@ -308,24 +315,43 @@ export default function LoadingPage() {
           <FestivalBanner variant="banner" />
         </div>
 
-        {/* 보조 CTA — 로그인은 선택이다. 기기 간 동기화를 원하는 사용자만 여기로 가고,
-            게스트로 쌓은 저장·취향은 나중에 가입해도 그대로 승계된다(익명→정회원 전환, uid 유지). */}
+        {/* 공공데이터 출처 — 누르면 서비스 소개의 '데이터' 절(어떤 공공 API 를 어느 화면에 쓰는지
+            표 + 실시간 신선도)이 펼쳐진 채로 열린다. 화면 전체 onClick(go)과 겹치므로 전파를 막는다.
+            예전 12px 회색 줄은 심사 기준(데이터 활용)에 비해 너무 작았다 — 13px 진한 글자로 키웠고, 맨 아래가 아니라
+            '바로 시작'·축제 배너 바로 아래에 둔다(축제가 서면 맨 아래 줄은 390×844 첫 화면 밖으로 밀렸다). */}
         <button
-          onClick={(e) => {
-            e.stopPropagation();
-            goLogin();
-          }}
-          className="toss-pressable mt-3 inline-flex min-h-11 items-center rounded-lg px-4 text-sm font-semibold text-muk-soft underline decoration-line underline-offset-4 transition-colors hover:text-muk focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold-deep"
+          type="button"
+          onClick={openDataSection}
+          className="toss-pressable mt-2 inline-flex min-h-11 items-center gap-1 rounded-lg px-3 text-[13px] font-semibold text-muk underline decoration-line underline-offset-4 transition-colors hover:text-gold-deep focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold-deep"
         >
-          {t('landing.ctaLogin')}
+          {t('landing.dataAttribution')}
+          <ChevronRight size={14} aria-hidden />
+          <span className="sr-only">{t('dataTab.footerHint')}</span>
         </button>
-        <span ref={phoneTriggerRef} className="contents">
-          <GuideButton compact className="mt-2 min-h-11 px-5" />
-        </span>
+
+        {/* 보조 CTA — 로그인은 선택이다. 기기 간 동기화를 원하는 사용자만 여기로 가고,
+            게스트로 쌓은 저장·취향은 나중에 가입해도 그대로 승계된다(익명→정회원 전환, uid 유지).
+            서비스 소개와 한 줄(데스크톱 배치와 같다) — 두 줄이면 출처·콘솔 줄이 첫 화면 밖으로 밀린다. */}
+        <div className="mt-1 flex flex-wrap items-center justify-center gap-x-1">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              goLogin();
+            }}
+            className="toss-pressable inline-flex min-h-11 items-center rounded-lg px-3 text-sm font-semibold text-muk-soft underline decoration-line underline-offset-4 transition-colors hover:text-muk focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold-deep"
+          >
+            {t('landing.ctaLogin')}
+          </button>
+          <span aria-hidden className="text-muk-soft">·</span>
+          <span ref={phoneTriggerRef} className="contents">
+            <GuideButton compact className="min-h-11 px-3" />
+          </span>
+        </div>
 
         {/* 기능 5 입구 — 작은 글자 링크 한 줄(사장님 콘솔 · 관제 대시보드). 목적지는 역할로 갈린다
             (lib/consoleLinks.ts — 게스트는 로그인 없이 보는 데모). */}
-        <div onClick={stopTap} className="mt-3 flex flex-wrap items-center justify-center gap-x-1 text-[13px] font-semibold text-muk-soft">
+        <div onClick={stopTap} className="mt-1 flex flex-wrap items-center justify-center gap-x-1 text-[13px] font-semibold text-muk-soft">
           <Link
             href={consoles.merchant}
             prefetch={false}
@@ -346,23 +372,9 @@ export default function LoadingPage() {
         </div>
       </div>
 
-      {/* 공공데이터 출처 — 누르면 서비스 소개의 '데이터' 절(어떤 공공 API 를 어느 화면에 쓰는지
-          표 + 실시간 신선도)이 펼쳐진 채로 열린다. 화면 전체 onClick(go)과 겹치므로 전파를 막는다.
-          예전 12px 회색 줄은 심사 기준(데이터 활용)에 비해 너무 작았다 — 13px 진한 글자로 키웠다. */}
-      <div className="relative z-10 shrink-0 px-4 pb-3 text-center lg:hidden">
-        <button
-          type="button"
-          onClick={openDataSection}
-          className="toss-pressable inline-flex min-h-11 items-center gap-1 rounded-lg px-3 text-[13px] font-semibold text-muk underline decoration-line underline-offset-4 transition-colors hover:text-gold-deep focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold-deep"
-        >
-          {t('landing.dataAttribution')}
-          <ChevronRight size={14} aria-hidden />
-          <span className="sr-only">{t('dataTab.footerHint')}</span>
-        </button>
-      </div>
-
-      {/* ── 데스크톱(≥1024px) 첫 화면 ── 서비스 소개와 같은 두 칸 히어로(components/guide/GuideHero.tsx). */}
-      <div className={`relative z-10 hidden w-full flex-1 lg:block ${guideStyles.landingFade}`}>
+      {/* ── 데스크톱(≥1024px) 첫 화면 ── 서비스 소개와 같은 두 칸 히어로(components/guide/GuideHero.tsx).
+          이 안의 클릭은 바깥 화면 탭(go)으로 흘려보내지 않는다 — 바로가기를 눌렀는데 /setup 으로 새면 안 된다. */}
+      <div onClick={stopTap} className={`relative z-10 hidden w-full flex-1 lg:block ${guideStyles.landingFade}`}>
         <GuideHero
           variant="landing"
           lead={(
@@ -411,7 +423,7 @@ export default function LoadingPage() {
           {/* 데이터 띠 — 무엇으로 고르는지 한 줄 + 출처 + 출처 표(서비스 소개 '데이터' 절을 펼친 채로 연다).
               공공기관은 출처(ⓒ)로만 적는다 — 운영 주체처럼 쓰지 않는다. */}
           <div className="mt-4 max-w-[560px] rounded-2xl border border-line bg-hanji-deep/80 px-4 py-3">
-            <p className="flex items-start gap-2 text-[15px] font-semibold leading-snug text-muk">
+            <p className="flex items-start gap-2 text-[15px] font-semibold leading-snug text-muk [&:lang(ja)]:[word-break:auto-phrase]">
               <Database size={17} aria-hidden className="mt-0.5 shrink-0 text-gold-deep" />
               {t('featureMap.dataLine')}
             </p>
@@ -420,7 +432,7 @@ export default function LoadingPage() {
               <button
                 type="button"
                 onClick={openDataSection}
-                className="toss-pressable inline-flex min-h-8 items-center gap-0.5 rounded font-semibold text-gold-deep underline decoration-gold/40 underline-offset-4 transition-colors hover:text-muk focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold-deep"
+                className="toss-pressable inline-flex min-h-8 items-center gap-0.5 rounded font-semibold text-muk underline decoration-gold-deep underline-offset-4 transition-colors hover:text-gold-deep focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold-deep"
               >
                 {t('featureMap.dataMore')}
                 <ChevronRight size={14} aria-hidden />

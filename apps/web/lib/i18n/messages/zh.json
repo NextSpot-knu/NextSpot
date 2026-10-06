@@ -237,7 +237,7 @@
     },
     "console": {
       "label": "商家限时优惠 · 区域运营",
-      "desc": "商家开启优惠，地区分散人潮"
+      "desc": "商家开启优惠，区域分散人潮"
     },
     "dataLine": "从庆州1,600多处景点与餐厅、实时公共停车信息和天气预报中为你挑选",
     "dataMore": "数据来源详情"
@@ -320,7 +320,7 @@
     "showMore": "查看更多",
     "showLess": "收起",
     "aiSummary": "AI 摘要",
-    "bannerLabel": "庆州正在举办",
+    "bannerLabel": "庆州节庆进行中",
     "bannerUntil": "至{date}",
     "bannerMore": "另有{n}项",
     "bannerCredit": "来源：ⓒ韩国旅游发展局",
@@ -1025,7 +1025,6 @@
     "benefitTaste": "口味匹配{pct}%",
     "contextBadge": "以{label}为基准的备选",
     "heatLegendTitle": "拥挤地图",
-    "festivalEmpty": "目前没有正在举行的活动",
     "showOnMap": "在地图上查看"
   },
   "trip": {

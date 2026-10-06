@@ -32,3 +32,32 @@ export function featureShortcuts(account: Account | null): FeatureShortcut[] {
     key === 'console' ? { key, consoles: consoleLinks(account) } : { key, href: MAIN_FOCUS_PATHS[key] },
   );
 }
+
+// ── 이미 /main 에 있을 때(지도 화면 레일의 '서비스 소개' 모달에서 누른 경우) ─────────────────────────
+// /main → /main?focus=… 는 같은 화면 안의 소프트 이동이라 지도 화면이 다시 마운트되지 않고, 마운트 때 한 번
+// 읽는 ?focus 처리기도 다시 돌지 않는다 — 모달만 닫히고 아무 데도 불이 안 켜졌다(2026-10-07 리뷰).
+// 그래서 /main 위에서는 주소를 바꾸지 않고 이 이벤트를 쏜다. /main 은 ?focus 와 같은 갈래를 이 이벤트로도
+// 돌린다(onMainFocus 로 구독). detail 은 줄 키 — 'card'(대안 추천 카드)는 이미 그 화면이라 무시해도 된다.
+
+export type MainFocusKey = keyof typeof MAIN_FOCUS_PATHS;
+export const MAIN_FOCUS_EVENT = 'nextspot:main-focus';
+
+/** /main 에서 누른 바로가기 — 지도 화면에 '이 기능에 불을 켜라'고 알린다. */
+export function requestMainFocus(key: MainFocusKey, target: EventTarget = window): void {
+  target.dispatchEvent(new CustomEvent<MainFocusKey>(MAIN_FOCUS_EVENT, { detail: key }));
+}
+
+/** 지도 화면 쪽 구독 — 해제 함수를 돌려준다(useEffect 의 정리 함수로 그대로 쓴다). */
+export function onMainFocus(handler: (key: MainFocusKey) => void, target: EventTarget = window): () => void {
+  const listener = (event: Event) => {
+    const key = (event as CustomEvent<unknown>).detail;
+    if (typeof key === 'string' && Object.prototype.hasOwnProperty.call(MAIN_FOCUS_PATHS, key)) handler(key as MainFocusKey);
+  };
+  target.addEventListener(MAIN_FOCUS_EVENT, listener);
+  return () => target.removeEventListener(MAIN_FOCUS_EVENT, listener);
+}
+
+/** 지금 화면이 지도 화면(/main)인가 — 이때만 바로가기가 이동 대신 이벤트를 쏜다. */
+export function isMainPath(pathname: string | null | undefined): boolean {
+  return pathname === '/main' || pathname === '/main/';
+}

@@ -296,7 +296,8 @@ test.describe('recalculation feedback (desktop toolbar)', () => {
 
 test('festival chip lives in the 필터·편의 sheet at 390px', async ({ page }) => {
   test.setTimeout(90_000);
-  await mockMain(page, { events: [] });
+  // 축제가 1건 이상일 때만 칩이 선다(0건이면 숨는다 — 아래 'hidden' 테스트).
+  await mockMain(page, { events: EVENTS });
   await page.goto('/main');
   await expect(page.getByRole('heading', { name: '우직 쌈밥집' })).toBeVisible({ timeout: 25_000 });
 
@@ -394,15 +395,19 @@ test.describe('festival panel (desktop toolbar)', () => {
     await expect(panel).toBeHidden();
   });
 
-  test('festival panel says so honestly when there is no ongoing event', async ({ page }) => {
+  // 0건이면 칩을 숨긴다 — 눌러서 '현재 진행 중인 행사가 없어요'를 보이는 버튼은 빈 상태 문구다
+  // (PM 문구 규칙: 빈 상태는 요소를 숨기거나 다음 행동을 보인다, 2026-10-07 리뷰).
+  test('festival chip is hidden when there is no event', async ({ page }) => {
     test.setTimeout(90_000);
     await mockMain(page, { events: [] });
+    const eventsServed = page.waitForResponse((response) => new URL(response.url()).pathname === '/api/v1/events');
     await page.goto('/main');
     await expect(page.getByRole('heading', { name: '우직 쌈밥집' })).toBeVisible({ timeout: 25_000 });
+    await eventsServed;
+    await page.waitForTimeout(500);
 
-    const panel = await openFestivalPanel(page);
-    await expect(panel).toBeVisible();
-    await expect(panel.getByText('현재 진행 중인 행사가 없어요')).toBeVisible();
+    await expect(page.getByRole('button', { name: /경주 축제·행사/ })).toHaveCount(0);
+    await expect(page.locator('body')).not.toContainText('행사가 없어요');
   });
 });
 

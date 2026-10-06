@@ -4,9 +4,9 @@
 //
 // 동작: 마운트 시 목록을 한 번 가져와(세션 캐시 6h) "🏮 축제 N" 칩을 노출하고, 탭하면 패널로
 //   전체 목록(행사명·기간·장소·거리·포스터·카카오맵 링크)을 보여준다. 백엔드 다운·키 미설정
-//   (source=unavailable)이면 칩 자체를 렌더하지 않는다(무해 폴백). 응답은 받았는데 0건이면
-//   칩은 남기고 패널에서 "현재 진행 중인 행사가 없어요"라고 말한다 — 눌렀을 때 아무 일도 없는
-//   버튼은 심사에서 '고장'으로 기록된다.
+//   (source=unavailable)이면 칩 자체를 렌더하지 않는다(무해 폴백). 응답은 받았는데 0건이어도 칩을
+//   숨긴다 — 눌러서 '행사가 없어요'를 보이는 버튼은 빈 상태 문구다(PM 문구 규칙, 2026-10-07 리뷰).
+//   판정은 lib/festivalBanner.ts 의 festivalTriggerVisible.
 //
 // 패널 구현은 **RestroomChip 의 것을 그대로 따른다**(body 포털 + z-[1000] + 단순 div).
 //   이전 구현은 framer-motion AnimatePresence + z-[60] 조합이었고, 실측에서 칩을 눌러도
@@ -15,10 +15,12 @@
 // 배치: 메인 지도 상단 레이어 컨트롤 행(히트맵 토글 옆)에 마운트 — 지도 앱의 행사 배너 관례.
 //
 // 모양(variant) 셋 — 패널은 셋이 같다(2026-10-06 감사 I80):
-//   chip(기본)   "🏮 축제 N" 칩. 위 동작 그대로(0건이어도 칩을 남긴다).
+//   chip(기본)   "🏮 축제 N" 칩. 1건 이상일 때(예정만 있어도 — 패널이 예정 축제를 보여 준다).
 //   banner      포스터 + "🏮 지금 경주 축제 · 10.24까지" + 축제 이름 + 출처. 랜딩 '바로 시작' 아래.
 //   compact     한 줄 "🏮 {축제 이름} · 10.24까지"(최대 16rem). 지도 툴바·폰 지도 위처럼 자리가 좁은 곳.
 //   banner·compact 는 **진행 중인 축제가 있을 때만** 선다 — 없으면 자리째 숨는다(lib/festivalBanner.ts).
+//   축제 이름은 TourAPI 한국어 원문뿐이라 en·ja·zh 에서는 배너에 이름 줄을 세우지 않는다(이름은 aria-label 과
+//   패널에 남고, 패널은 그 언어의 AI 요약을 보여 준다). 날짜는 그 언어의 월·일 표기.
 //   행사장까지의 거리·도보 시간은 배너에 적지 않는다(엑스포공원처럼 시내에서 7km 떨어진 축제가 많다).
 // 요청은 화면당 한 번 — 여러 개가 마운트돼도(랜딩의 폰·데스크톱 배치, 지도의 툴바·시트) 모듈 하나의
 // 진행 중 요청을 같이 기다리고, 받은 목록은 세션 캐시(6h)로 다음 화면(랜딩 → 지도)이 다시 쓴다.
@@ -27,7 +29,7 @@ import { useEffect, useState, type ReactElement } from 'react';
 import { createPortal } from 'react-dom';
 import { CalendarDays, ChevronRight, MapPin, Phone, X, ExternalLink, Map as MapIcon } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
-import { festivalBannerModel, festivalShortDate } from '@/lib/festivalBanner';
+import { festivalBannerModel, festivalDateLabel, festivalTriggerVisible } from '@/lib/festivalBanner';
 import { haversineMeters } from '@/lib/recommender';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 
@@ -193,10 +195,12 @@ export function FestivalBanner({ className = '', onFocus, location, variant = 'c
     return () => window.removeEventListener('keydown', onKey);
   }, [isOpen]);
 
-  if (!available) return null;
-  // banner·compact 는 진행 중 축제가 있을 때만 — 없으면 자리째 숨긴다(빈 상태 문구를 세우지 않는다).
+  // 응답이 없거나, 칩인데 0건이거나, 배너·한 줄인데 진행 중 축제가 없으면 자리째 숨긴다(빈 상태 문구를 세우지 않는다).
+  if (!available || !festivalTriggerVisible(variant, events)) return null;
   const model = variant === 'chip' ? null : festivalBannerModel(events);
-  if (variant !== 'chip' && !model) return null;
+  const dateLabel = (iso: string) => festivalDateLabel(iso, locale);
+  // TourAPI 축제 이름은 한국어 원문뿐 — en·ja·zh 첫 화면에 번역 안 된 줄을 세우지 않는다.
+  const showTitle = locale === 'ko';
 
   let trigger: ReactElement;
   if (model && variant === 'banner') {
@@ -220,12 +224,12 @@ export function FestivalBanner({ className = '', onFocus, location, variant = 'c
         <span className="min-w-0 flex-1">
           <span className="flex flex-wrap items-center gap-x-1.5 text-[12px] font-bold leading-snug text-terracotta">
             <span><span aria-hidden>🏮 </span>{t('festival.bannerLabel')}</span>
-            <span className="font-semibold text-muk-soft">· {t('festival.bannerUntil', { date: festivalShortDate(model.first.endDate) })}</span>
+            <span className="font-semibold text-muk-soft">· {t('festival.bannerUntil', { date: dateLabel(model.first.endDate) })}</span>
             {model.moreCount > 0 && (
               <span className="font-semibold text-muk-soft">· {t('festival.bannerMore', { n: String(model.moreCount) })}</span>
             )}
           </span>
-          <span className="mt-0.5 block truncate text-[14px] font-bold leading-snug text-muk">{model.first.title}</span>
+          {showTitle && <span className="mt-0.5 block truncate text-[14px] font-bold leading-snug text-muk">{model.first.title}</span>}
           <span className="block text-[11px] leading-snug text-muk-soft">{t('festival.bannerCredit')}</span>
         </span>
         <ChevronRight size={16} aria-hidden className="shrink-0 text-muk-soft" />
@@ -242,8 +246,8 @@ export function FestivalBanner({ className = '', onFocus, location, variant = 'c
         className={`toss-pressable flex min-w-0 max-w-[16rem] shrink items-center gap-1.5 rounded-full border border-terracotta/35 bg-white/90 px-3 py-1.5 text-[12px] font-semibold text-muk shadow-[0_2px_10px_rgba(43,35,32,0.06)] hover:border-terracotta/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 ${className}`}
       >
         <span aria-hidden>🏮</span>
-        <span className="truncate">{model.first.title}</span>
-        <span className="shrink-0 text-muk-soft">· {t('festival.bannerUntil', { date: festivalShortDate(model.first.endDate) })}</span>
+        <span className="truncate">{showTitle ? model.first.title : t('festival.bannerLabel')}</span>
+        <span className="shrink-0 text-muk-soft">· {t('festival.bannerUntil', { date: dateLabel(model.first.endDate) })}</span>
       </button>
     );
   } else {
@@ -258,13 +262,11 @@ export function FestivalBanner({ className = '', onFocus, location, variant = 'c
       >
         <span aria-hidden>🏮</span>
         {t('festival.chip')}
-        {events.length > 0 && (
-          <span className={`min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold flex items-center justify-center ${
-            events.some((ev) => ev.isOngoing) ? 'bg-terracotta text-white' : 'bg-gold/20 text-gold-deep'
-          }`}>
-            {events.length}
-          </span>
-        )}
+        <span className={`min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold flex items-center justify-center ${
+          events.some((ev) => ev.isOngoing) ? 'bg-terracotta text-white' : 'bg-gold/20 text-gold-deep'
+        }`}>
+          {events.length}
+        </span>
       </button>
     );
   }
@@ -305,150 +307,144 @@ export function FestivalBanner({ className = '', onFocus, location, variant = 'c
               </button>
             </div>
 
-            {events.length === 0 ? (
-              <p className="rounded-2xl border border-line bg-white/70 px-4 py-6 text-center text-sm font-semibold text-muk-soft">
-                {t('compare.festivalEmpty')}
-              </p>
-            ) : (
-              <div className="flex flex-col gap-3">
-                {events.map((ev) => {
-                  const place = eventPlaceOf(ev) ?? ev.address ?? null;
-                  const distance = distanceLabel(ev, location);
-                  const canFocus = !!onFocus && ev.latitude != null && ev.longitude != null;
-                  const homepage = extractHomepageUrl(ev.homepage);
-                  return (
-                    <div key={ev.contentId} className="overflow-hidden rounded-2xl border border-line bg-white/70">
-                      {ev.imageUrl && (
-                        /* TourAPI 포스터 원본은 도메인이 다양해 next/image 최적화 대상이 아님(정적 export) — img 사용 */
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={ev.imageUrl} alt={ev.title} loading="lazy" className="h-24 w-full object-cover" />
+            <div className="flex flex-col gap-3">
+              {events.map((ev) => {
+                const place = eventPlaceOf(ev) ?? ev.address ?? null;
+                const distance = distanceLabel(ev, location);
+                const canFocus = !!onFocus && ev.latitude != null && ev.longitude != null;
+                const homepage = extractHomepageUrl(ev.homepage);
+                return (
+                  <div key={ev.contentId} className="overflow-hidden rounded-2xl border border-line bg-white/70">
+                    {ev.imageUrl && (
+                      /* TourAPI 포스터 원본은 도메인이 다양해 next/image 최적화 대상이 아님(정적 export) — img 사용 */
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={ev.imageUrl} alt={ev.title} loading="lazy" className="h-24 w-full object-cover" />
+                    )}
+                    <div className="flex flex-col gap-2 p-4">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                          ev.isOngoing ? 'bg-terracotta/15 text-terracotta' : 'bg-jade/15 text-jade'
+                        }`}>
+                          {ev.isOngoing ? t('festival.ongoing') : t('festival.upcoming')}
+                        </span>
+                        {/* 기간 */}
+                        <span className="flex items-center gap-1 text-[11px] font-medium text-muk-soft">
+                          <CalendarDays size={12} aria-hidden />
+                          {dateLabel(ev.startDate)} ~ {dateLabel(ev.endDate)}
+                        </span>
+                        {/* 거리 — 좌표가 있을 때만 */}
+                        {distance && (
+                          <span className="flex items-center gap-1 text-[11px] font-bold text-gold">
+                            <MapPin size={12} aria-hidden />{distance}
+                          </span>
+                        )}
+                      </div>
+
+                      {/* 행사명 */}
+                      <p className="text-sm font-bold leading-snug text-muk">{ev.title}</p>
+
+                      {/* 장소 */}
+                      {place && (
+                        <p className="flex items-start gap-1 whitespace-pre-line break-words text-[11px] leading-snug text-muk-soft">
+                          <MapPin size={12} className="mt-0.5 shrink-0" aria-hidden />
+                          {place}
+                        </p>
                       )}
-                      <div className="flex flex-col gap-2 p-4">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
-                            ev.isOngoing ? 'bg-terracotta/15 text-terracotta' : 'bg-jade/15 text-jade'
-                          }`}>
-                            {ev.isOngoing ? t('festival.ongoing') : t('festival.upcoming')}
-                          </span>
-                          {/* 기간 */}
-                          <span className="flex items-center gap-1 text-[11px] font-medium text-muk-soft">
-                            <CalendarDays size={12} aria-hidden />
-                            {festivalShortDate(ev.startDate)} ~ {festivalShortDate(ev.endDate)}
-                          </span>
-                          {/* 거리 — 좌표가 있을 때만 */}
-                          {distance && (
-                            <span className="flex items-center gap-1 text-[11px] font-bold text-gold">
-                              <MapPin size={12} aria-hidden />{distance}
-                            </span>
-                          )}
-                        </div>
+                      {ev.playtime && (
+                        <p className="flex items-start gap-1 whitespace-pre-line break-words text-[11px] leading-snug text-muk-soft">
+                          <span aria-hidden>🕐</span>
+                          {ev.playtime}
+                        </p>
+                      )}
+                      {usetimeFestivalOf(ev) && (
+                        <p className="flex items-start gap-1 whitespace-pre-line break-words text-[11px] leading-snug text-muk-soft">
+                          <span aria-hidden>💰</span>
+                          {usetimeFestivalOf(ev)}
+                        </p>
+                      )}
 
-                        {/* 행사명 */}
-                        <p className="text-sm font-bold leading-snug text-muk">{ev.title}</p>
-
-                        {/* 장소 */}
-                        {place && (
-                          <p className="flex items-start gap-1 whitespace-pre-line break-words text-[11px] leading-snug text-muk-soft">
-                            <MapPin size={12} className="mt-0.5 shrink-0" aria-hidden />
-                            {place}
-                          </p>
-                        )}
-                        {ev.playtime && (
-                          <p className="flex items-start gap-1 whitespace-pre-line break-words text-[11px] leading-snug text-muk-soft">
-                            <span aria-hidden>🕐</span>
-                            {ev.playtime}
-                          </p>
-                        )}
-                        {usetimeFestivalOf(ev) && (
-                          <p className="flex items-start gap-1 whitespace-pre-line break-words text-[11px] leading-snug text-muk-soft">
-                            <span aria-hidden>💰</span>
-                            {usetimeFestivalOf(ev)}
-                          </p>
-                        )}
-
-                        {/* 소개 — 값 없는 필드는 행 자체 생략('지어내지 않기'). */}
-                        {ev.overview && (() => {
-                          const isExpanded = expandedOverviewIds.has(ev.contentId);
-                          // P1-4: 비-ko 로케일은 캐시된 AI 요약(overviewI18n)을 우선 표시하고, 필드 부재면
-                          // 한국어 원문 폴백(무해). 표기 우선순위는 docs/archive/TOURAPI_EXPANSION.md 4-4.
-                          const aiSummary = locale !== 'ko' ? (ev.overviewI18n?.[locale] ?? null) : null;
-                          const overviewText = aiSummary ?? ev.overview;
-                          return (
-                            <div className="text-[11px] leading-snug">
-                              <span className="mb-0.5 flex items-center gap-1.5 text-[10px] font-bold text-muk-soft">
-                                {t('festival.about')}
-                                {aiSummary && (
-                                  <span className="rounded-full border border-gold/30 bg-gold/10 px-1.5 py-px text-[9px] font-bold text-gold-deep">
-                                    {t('festival.aiSummary')}
-                                  </span>
-                                )}
-                              </span>
-                              <p className={`whitespace-pre-line break-words leading-relaxed text-muk-soft ${isExpanded ? '' : 'line-clamp-3'}`}>
-                                {overviewText}
-                              </p>
-                              {overviewText.length > OVERVIEW_CLAMP_THRESHOLD && (
-                                <button
-                                  type="button"
-                                  onClick={() => toggleOverview(ev.contentId)}
-                                  className="mt-1 rounded text-[11px] font-bold text-gold-deep hover:text-gold focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/50"
-                                >
-                                  {isExpanded ? t('festival.showLess') : t('festival.showMore')}
-                                </button>
+                      {/* 소개 — 값 없는 필드는 행 자체 생략('지어내지 않기'). */}
+                      {ev.overview && (() => {
+                        const isExpanded = expandedOverviewIds.has(ev.contentId);
+                        // P1-4: 비-ko 로케일은 캐시된 AI 요약(overviewI18n)을 우선 표시하고, 필드 부재면
+                        // 한국어 원문 폴백(무해). 표기 우선순위는 docs/archive/TOURAPI_EXPANSION.md 4-4.
+                        const aiSummary = locale !== 'ko' ? (ev.overviewI18n?.[locale] ?? null) : null;
+                        const overviewText = aiSummary ?? ev.overview;
+                        return (
+                          <div className="text-[11px] leading-snug">
+                            <span className="mb-0.5 flex items-center gap-1.5 text-[10px] font-bold text-muk-soft">
+                              {t('festival.about')}
+                              {aiSummary && (
+                                <span className="rounded-full border border-gold/30 bg-gold/10 px-1.5 py-px text-[9px] font-bold text-gold-deep">
+                                  {t('festival.aiSummary')}
+                                </span>
                               )}
-                            </div>
-                          );
-                        })()}
+                            </span>
+                            <p className={`whitespace-pre-line break-words leading-relaxed text-muk-soft ${isExpanded ? '' : 'line-clamp-3'}`}>
+                              {overviewText}
+                            </p>
+                            {overviewText.length > OVERVIEW_CLAMP_THRESHOLD && (
+                              <button
+                                type="button"
+                                onClick={() => toggleOverview(ev.contentId)}
+                                className="mt-1 rounded text-[11px] font-bold text-gold-deep hover:text-gold focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/50"
+                              >
+                                {isExpanded ? t('festival.showLess') : t('festival.showMore')}
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })()}
 
-                        <div className="flex flex-wrap items-center gap-2 pt-1">
-                          {/* 지도에서 보기 — 우리 지도에 핀/영역으로 표시하고 패널을 닫는다(1초 안의 변화). */}
-                          {canFocus && (
-                            <button
-                              type="button"
-                              onClick={() => { onFocus!(ev); setIsOpen(false); }}
-                              className="inline-flex items-center gap-1 rounded-full border border-gold/40 bg-gold/15 px-2.5 py-1.5 text-[11px] font-bold text-gold-deep transition-colors hover:bg-gold/25 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/50"
-                            >
-                              <MapIcon size={11} aria-hidden />
-                              {t('compare.showOnMap')}
-                            </button>
-                          )}
-                          {ev.latitude != null && ev.longitude != null && (
-                            <a
-                              href={`https://map.kakao.com/link/map/${encodeURIComponent(ev.title)},${ev.latitude},${ev.longitude}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1 rounded-full border border-line bg-hanji-deep px-2.5 py-1.5 text-[11px] font-bold text-muk-soft transition-colors hover:border-gold/40 hover:text-gold-deep focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/50"
-                            >
-                              <ExternalLink size={11} aria-hidden />
-                              {t('festival.openMap')}
-                            </a>
-                          )}
-                          {homepage && (
-                            <a
-                              href={homepage}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1 rounded-full border border-line bg-hanji-deep px-2.5 py-1.5 text-[11px] font-bold text-muk-soft transition-colors hover:border-gold/40 hover:text-gold-deep focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/50"
-                            >
-                              <ExternalLink size={11} aria-hidden />
-                              {t('festival.homepage')}
-                            </a>
-                          )}
-                          {ev.tel && (
-                            <a
-                              href={`tel:${ev.tel.replace(/[^\d+-]/g, '')}`}
-                              className="inline-flex items-center gap-1 rounded-full border border-line bg-hanji-deep px-2.5 py-1.5 text-[11px] font-bold text-muk-soft transition-colors hover:border-jade/40 hover:text-jade focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/50"
-                            >
-                              <Phone size={11} aria-hidden />
-                              {t('festival.call')}
-                            </a>
-                          )}
-                        </div>
+                      <div className="flex flex-wrap items-center gap-2 pt-1">
+                        {/* 지도에서 보기 — 우리 지도에 핀/영역으로 표시하고 패널을 닫는다(1초 안의 변화). */}
+                        {canFocus && (
+                          <button
+                            type="button"
+                            onClick={() => { onFocus!(ev); setIsOpen(false); }}
+                            className="inline-flex items-center gap-1 rounded-full border border-gold/40 bg-gold/15 px-2.5 py-1.5 text-[11px] font-bold text-gold-deep transition-colors hover:bg-gold/25 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/50"
+                          >
+                            <MapIcon size={11} aria-hidden />
+                            {t('compare.showOnMap')}
+                          </button>
+                        )}
+                        {ev.latitude != null && ev.longitude != null && (
+                          <a
+                            href={`https://map.kakao.com/link/map/${encodeURIComponent(ev.title)},${ev.latitude},${ev.longitude}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 rounded-full border border-line bg-hanji-deep px-2.5 py-1.5 text-[11px] font-bold text-muk-soft transition-colors hover:border-gold/40 hover:text-gold-deep focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/50"
+                          >
+                            <ExternalLink size={11} aria-hidden />
+                            {t('festival.openMap')}
+                          </a>
+                        )}
+                        {homepage && (
+                          <a
+                            href={homepage}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 rounded-full border border-line bg-hanji-deep px-2.5 py-1.5 text-[11px] font-bold text-muk-soft transition-colors hover:border-gold/40 hover:text-gold-deep focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/50"
+                          >
+                            <ExternalLink size={11} aria-hidden />
+                            {t('festival.homepage')}
+                          </a>
+                        )}
+                        {ev.tel && (
+                          <a
+                            href={`tel:${ev.tel.replace(/[^\d+-]/g, '')}`}
+                            className="inline-flex items-center gap-1 rounded-full border border-line bg-hanji-deep px-2.5 py-1.5 text-[11px] font-bold text-muk-soft transition-colors hover:border-jade/40 hover:text-jade focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/50"
+                          >
+                            <Phone size={11} aria-hidden />
+                            {t('festival.call')}
+                          </a>
+                        )}
                       </div>
                     </div>
-                  );
-                })}
-              </div>
-            )}
+                  </div>
+                );
+              })}
+            </div>
           </section>
         </div>,
         document.body,

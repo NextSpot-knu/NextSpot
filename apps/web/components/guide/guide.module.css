@@ -497,16 +497,27 @@ a.shortcutRow:hover {
 
 /* ---- 데스크톱 랜딩(≥1024px): 소개 히어로를 그대로 첫 화면으로 ----
    화면 높이를 채우고, 노트북 창(1536×730·1366×650)에서 오른쪽 다섯 줄과 왼쪽 데이터 띠까지 첫 화면에
-   들어가게 글자·여백을 한 단계 줄인다. 배경은 비워 랜딩의 노을·반딧불이 그대로 비친다. */
+   들어가게 글자·여백을 한 단계 줄인다. 배경은 비워 랜딩의 노을·반딧불이 그대로 비친다.
+   세로 가운데 맞춤을 하지 않고 위에 붙인다(위 여백만 창 높이로 정한다) — 축제 배너는 GET /events 가 온 뒤에
+   끼어드는데, 가운데 맞춤이면 왼쪽 칸 전체가 40px 남짓 위로 뛰어 '바로 시작'을 누르려던 손이 배너를 누른다.
+   위에 붙이면 늦게 온 것은 아래로만 자란다. */
 .heroLanding {
   min-height: 100dvh;
-  padding: 72px 48px 40px;
+  padding: clamp(40px, calc(50dvh - 320px), 220px) 48px 40px;
+  place-items: start center;
   background: none;
 }
 
 .heroLanding .heroLayout {
   grid-template-columns: minmax(0, 1fr) minmax(440px, 500px);
+  align-items: start;
   gap: clamp(40px, 5vw, 88px);
+}
+
+/* 오른쪽 '이렇게 써 보세요'는 왼쪽 로고 줄(40px + 20px)만큼 내려 제목과 윗선을 맞춘다 — 낮은 창(1366×650)에서
+   위로 붙은 판이 오른쪽 위 언어 선택과 겹치지 않는다. */
+.heroLanding .heroAside {
+  margin-top: 60px;
 }
 
 .heroLanding .heroTitle {
@@ -522,7 +533,7 @@ a.shortcutRow:hover {
 
 @media (max-height: 800px) {
   .heroLanding {
-    padding: 48px 40px 24px;
+    padding: clamp(32px, calc(50dvh - 320px), 220px) 40px 12px;
   }
 
   .heroLanding .heroTitle {

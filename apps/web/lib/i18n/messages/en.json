@@ -218,7 +218,7 @@
   },
   "featureMap": {
     "title": "Try it like this",
-    "hint": "Tap one to jump straight there",
+    "hint": "Pick one to go straight there",
     "forecast": {
       "label": "Crowd forecast map",
       "desc": "See how busy this area gets, now to 3 hours ahead"
@@ -237,7 +237,7 @@
     },
     "console": {
       "label": "Store time sales · Area operations",
-      "desc": "Stores open discounts, the area spreads out the crowds"
+      "desc": "Shops run time sales, and crowds spread across the area"
     },
     "dataLine": "Picked for you from 1,600+ Gyeongju sights and restaurants, live public parking and the weather forecast",
     "dataMore": "Data sources in detail"
@@ -1025,7 +1025,6 @@
     "benefitTaste": "{pct}% match for you",
     "contextBadge": "Alternatives for {label}",
     "heatLegendTitle": "Crowd map",
-    "festivalEmpty": "No events are running right now",
     "showOnMap": "Show on map"
   },
   "trip": {
