@@ -293,7 +293,12 @@
     "about": "About this event",
     "showMore": "Show more",
     "showLess": "Show less",
-    "aiSummary": "AI summary"
+    "aiSummary": "AI summary",
+    "bannerLabel": "On now in Gyeongju",
+    "bannerUntil": "until {date}",
+    "bannerMore": "+{n} more",
+    "bannerCredit": "Source: ⓒ Korea Tourism Organization",
+    "bannerAria": "See details of {title}, on now in Gyeongju"
   },
   "weather": {
     "gyeongjuNow": "Gyeongju now {n}°C",

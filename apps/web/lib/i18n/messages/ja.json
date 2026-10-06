@@ -293,7 +293,12 @@
     "about": "イベント紹介",
     "showMore": "もっと見る",
     "showLess": "閉じる",
-    "aiSummary": "AI要約"
+    "aiSummary": "AI要約",
+    "bannerLabel": "開催中の慶州の祭り",
+    "bannerUntil": "{date}まで",
+    "bannerMore": "ほか{n}件",
+    "bannerCredit": "出典: ⓒ韓国観光公社",
+    "bannerAria": "開催中の慶州の祭り「{title}」の詳細を見る"
   },
   "weather": {
     "gyeongjuNow": "現在の慶州 {n}℃",

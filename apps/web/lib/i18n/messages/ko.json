@@ -287,7 +287,12 @@
     "about": "행사 소개",
     "showMore": "더보기",
     "showLess": "접기",
-    "aiSummary": "AI 요약"
+    "aiSummary": "AI 요약",
+    "bannerLabel": "지금 경주 축제",
+    "bannerUntil": "{date}까지",
+    "bannerMore": "외 {n}건",
+    "bannerCredit": "출처: ⓒ한국관광공사",
+    "bannerAria": "진행 중인 경주 축제 {title} 자세히 보기"
   },
   "weather": {
     "gyeongjuNow": "지금 경주 {n}℃",

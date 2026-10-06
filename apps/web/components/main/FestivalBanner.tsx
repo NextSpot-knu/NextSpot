@@ -13,11 +13,21 @@
 //   시트가 열리지 않았다. 같은 화면의 화장실 패널은 문제없이 열리므로 이미 동작이 확인된 쪽의
 //   구조를 복사해 변수를 없앤다.
 // 배치: 메인 지도 상단 레이어 컨트롤 행(히트맵 토글 옆)에 마운트 — 지도 앱의 행사 배너 관례.
+//
+// 모양(variant) 셋 — 패널은 셋이 같다(2026-10-06 감사 I80):
+//   chip(기본)   "🏮 축제 N" 칩. 위 동작 그대로(0건이어도 칩을 남긴다).
+//   banner      포스터 + "🏮 지금 경주 축제 · 10.24까지" + 축제 이름 + 출처. 랜딩 '바로 시작' 아래.
+//   compact     한 줄 "🏮 {축제 이름} · 10.24까지"(최대 16rem). 지도 툴바·폰 지도 위처럼 자리가 좁은 곳.
+//   banner·compact 는 **진행 중인 축제가 있을 때만** 선다 — 없으면 자리째 숨는다(lib/festivalBanner.ts).
+//   행사장까지의 거리·도보 시간은 배너에 적지 않는다(엑스포공원처럼 시내에서 7km 떨어진 축제가 많다).
+// 요청은 화면당 한 번 — 여러 개가 마운트돼도(랜딩의 폰·데스크톱 배치, 지도의 툴바·시트) 모듈 하나의
+// 진행 중 요청을 같이 기다리고, 받은 목록은 세션 캐시(6h)로 다음 화면(랜딩 → 지도)이 다시 쓴다.
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactElement } from 'react';
 import { createPortal } from 'react-dom';
-import { CalendarDays, MapPin, Phone, X, ExternalLink, Map as MapIcon } from 'lucide-react';
+import { CalendarDays, ChevronRight, MapPin, Phone, X, ExternalLink, Map as MapIcon } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
+import { festivalBannerModel, festivalShortDate } from '@/lib/festivalBanner';
 import { haversineMeters } from '@/lib/recommender';
 import { useI18n } from '@/lib/i18n/I18nProvider';
 
@@ -99,10 +109,34 @@ function readCache(): FestivalEvent[] | null {
   }
 }
 
-// "2026-10-09" → "10.09" (연도는 기간 표기에서 생략 — 관광객 UI 는 올해/내년 축제만 다룬다)
-function shortDate(iso: string): string {
-  const [, m, d] = iso.split('-');
-  return m && d ? `${m}.${d}` : iso;
+// 한 화면에서 진행 중인 요청 하나를 모든 인스턴스가 같이 기다린다. 끝나면 비워 둔다 — 실패는 다음 화면이
+// 다시 물을 수 있게, 성공은 세션 캐시가 이어받는다.
+let inflight: Promise<FestivalEvent[] | null> | null = null;
+
+function loadFestivalEvents(): Promise<FestivalEvent[] | null> {
+  const cached = readCache();
+  if (cached) return Promise.resolve(cached);
+  if (inflight) return inflight;
+  const request = (async () => {
+    try {
+      const res = await apiClient.get('/api/v1/events');
+      if (res?.source !== 'tourapi' || !Array.isArray(res.events)) return null;
+      const events = res.events as FestivalEvent[];
+      dispatchFestivalLlmDebug(events); // 응답 파싱 직후 중앙 발행(api-client 관례 미러)
+      try {
+        sessionStorage.setItem(CACHE_KEY, JSON.stringify({ at: Date.now(), events }));
+      } catch { /* 시크릿 모드 등 저장 실패는 무시 */ }
+      return events;
+    } catch {
+      // 백엔드 다운/네트워크 오류 — 축제는 부가 정보라 조용히 숨긴다(칩·배너 미노출).
+      return null;
+    }
+  })();
+  inflight = request;
+  void request.finally(() => {
+    if (inflight === request) inflight = null;
+  });
+  return request;
 }
 
 // 내 위치에서 행사장까지의 직선 거리. 좌표가 없으면 숫자를 지어내지 않고 표기 자체를 생략한다.
@@ -116,18 +150,22 @@ function distanceLabel(
   return meters < 1000 ? `${Math.round(meters)}m` : `${(meters / 1000).toFixed(1)}km`;
 }
 
-export function FestivalBanner({ className = '', onFocus, location }: {
+export function FestivalBanner({ className = '', onFocus, location, variant = 'chip' }: {
   className?: string;
   // 축제 1건을 지도에 표시(핀/영역)하도록 부모에 위임. 제공되면 '지도에서 보기' 버튼이 뜬다.
   onFocus?: (ev: FestivalEvent) => void;
   // 거리 표기용 현재 위치(선택). 없으면 거리 표기만 빠진다.
   location?: { lat: number; lng: number } | null;
+  // 트리거 모양 — 위 파일 머리 주석 참조. banner·compact 는 진행 중 축제가 없으면 아무것도 그리지 않는다.
+  variant?: 'chip' | 'banner' | 'compact';
 }) {
   const { t, locale } = useI18n();
   const [events, setEvents] = useState<FestivalEvent[]>([]);
   // TourAPI 응답을 실제로 받았는가. false 면 칩 자체를 감춘다(백엔드 다운·키 미설정).
   const [available, setAvailable] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
+  // 포스터가 깨지면(원본 도메인 차단·삭제) 등불 타일로 바꾼다 — 빈 이미지 상자를 남기지 않는다.
+  const [posterFailed, setPosterFailed] = useState(false);
   const [expandedOverviewIds, setExpandedOverviewIds] = useState<Set<string>>(new Set());
   const toggleOverview = (contentId: string) => {
     setExpandedOverviewIds((prev) => {
@@ -139,27 +177,12 @@ export function FestivalBanner({ className = '', onFocus, location }: {
   };
 
   useEffect(() => {
-    const cached = readCache();
-    if (cached) {
-      setEvents(cached);
-      setAvailable(true);
-      return;
-    }
     let cancelled = false;
-    (async () => {
-      try {
-        const res = await apiClient.get('/api/v1/events');
-        if (cancelled || res?.source !== 'tourapi' || !Array.isArray(res.events)) return;
-        setEvents(res.events);
-        setAvailable(true);
-        dispatchFestivalLlmDebug(res.events); // 응답 파싱 직후 중앙 발행(api-client 관례 미러)
-        try {
-          sessionStorage.setItem(CACHE_KEY, JSON.stringify({ at: Date.now(), events: res.events }));
-        } catch { /* 시크릿 모드 등 저장 실패는 무시 */ }
-      } catch {
-        // 백엔드 다운/네트워크 오류 — 축제는 부가 정보라 조용히 숨긴다(칩 미노출).
-      }
-    })();
+    void loadFestivalEvents().then((list) => {
+      if (cancelled || !list) return;
+      setEvents(list);
+      setAvailable(true);
+    });
     return () => { cancelled = true; };
   }, []);
 
@@ -171,10 +194,61 @@ export function FestivalBanner({ className = '', onFocus, location }: {
   }, [isOpen]);
 
   if (!available) return null;
+  // banner·compact 는 진행 중 축제가 있을 때만 — 없으면 자리째 숨긴다(빈 상태 문구를 세우지 않는다).
+  const model = variant === 'chip' ? null : festivalBannerModel(events);
+  if (variant !== 'chip' && !model) return null;
 
-  return (
-    <>
-      {/* 트리거 칩 — 히트맵 토글과 동일 문법(pill + fractal-glass). 진행 중 축제가 있으면 붉은 배지. */}
+  let trigger: ReactElement;
+  if (model && variant === 'banner') {
+    const poster = !posterFailed ? model.first.imageUrl : null;
+    trigger = (
+      /* 배너 — 포스터 + "🏮 지금 경주 축제 · 10.24까지(· 외 N건)" + 축제 이름 + 출처. 누르면 같은 패널이 열린다. */
+      <button
+        type="button"
+        onClick={() => setIsOpen(true)}
+        aria-haspopup="dialog"
+        aria-label={t('festival.bannerAria', { title: model.first.title })}
+        className={`toss-pressable flex w-full max-w-[24rem] items-center gap-3 rounded-2xl border border-terracotta/35 bg-white/90 py-2 pl-2 pr-3 text-left shadow-[0_4px_18px_rgba(43,35,32,0.08)] hover:border-terracotta/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 ${className}`}
+      >
+        {poster ? (
+          /* TourAPI 포스터 원본은 도메인이 다양해 next/image 최적화 대상이 아님(정적 export) — img 사용 */
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={poster} alt="" onError={() => setPosterFailed(true)} className="h-12 w-12 shrink-0 rounded-xl object-cover" />
+        ) : (
+          <span aria-hidden className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-terracotta/10 text-xl">🏮</span>
+        )}
+        <span className="min-w-0 flex-1">
+          <span className="flex flex-wrap items-center gap-x-1.5 text-[12px] font-bold leading-snug text-terracotta">
+            <span><span aria-hidden>🏮 </span>{t('festival.bannerLabel')}</span>
+            <span className="font-semibold text-muk-soft">· {t('festival.bannerUntil', { date: festivalShortDate(model.first.endDate) })}</span>
+            {model.moreCount > 0 && (
+              <span className="font-semibold text-muk-soft">· {t('festival.bannerMore', { n: String(model.moreCount) })}</span>
+            )}
+          </span>
+          <span className="mt-0.5 block truncate text-[14px] font-bold leading-snug text-muk">{model.first.title}</span>
+          <span className="block text-[11px] leading-snug text-muk-soft">{t('festival.bannerCredit')}</span>
+        </span>
+        <ChevronRight size={16} aria-hidden className="shrink-0 text-muk-soft" />
+      </button>
+    );
+  } else if (model) {
+    trigger = (
+      /* 한 줄 — 자리가 좁은 곳용. 출처는 열리는 패널 머리에 있다. */
+      <button
+        type="button"
+        onClick={() => setIsOpen(true)}
+        aria-haspopup="dialog"
+        aria-label={t('festival.bannerAria', { title: model.first.title })}
+        className={`toss-pressable flex min-w-0 max-w-[16rem] shrink items-center gap-1.5 rounded-full border border-terracotta/35 bg-white/90 px-3 py-1.5 text-[12px] font-semibold text-muk shadow-[0_2px_10px_rgba(43,35,32,0.06)] hover:border-terracotta/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 ${className}`}
+      >
+        <span aria-hidden>🏮</span>
+        <span className="truncate">{model.first.title}</span>
+        <span className="shrink-0 text-muk-soft">· {t('festival.bannerUntil', { date: festivalShortDate(model.first.endDate) })}</span>
+      </button>
+    );
+  } else {
+    trigger = (
+      /* 트리거 칩 — 히트맵 토글과 동일 문법(pill + fractal-glass). 진행 중 축제가 있으면 붉은 배지. */
       <button
         type="button"
         onClick={() => setIsOpen(true)}
@@ -192,6 +266,12 @@ export function FestivalBanner({ className = '', onFocus, location }: {
           </span>
         )}
       </button>
+    );
+  }
+
+  return (
+    <>
+      {trigger}
 
       {/* 목록 패널 — body 포털(상단 오버레이 pointer-events-none 조상 탈출) + z-[1000].
           구조·z-index 는 동작이 확인된 RestroomChip 패널과 동일하게 유지한다. */}
@@ -253,7 +333,7 @@ export function FestivalBanner({ className = '', onFocus, location }: {
                           {/* 기간 */}
                           <span className="flex items-center gap-1 text-[11px] font-medium text-muk-soft">
                             <CalendarDays size={12} aria-hidden />
-                            {shortDate(ev.startDate)} ~ {shortDate(ev.endDate)}
+                            {festivalShortDate(ev.startDate)} ~ {festivalShortDate(ev.endDate)}
                           </span>
                           {/* 거리 — 좌표가 있을 때만 */}
                           {distance && (

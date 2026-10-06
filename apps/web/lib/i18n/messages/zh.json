@@ -293,7 +293,12 @@
     "about": "活动介绍",
     "showMore": "查看更多",
     "showLess": "收起",
-    "aiSummary": "AI 摘要"
+    "aiSummary": "AI 摘要",
+    "bannerLabel": "庆州正在举办",
+    "bannerUntil": "至{date}",
+    "bannerMore": "另有{n}项",
+    "bannerCredit": "来源：ⓒ韩国旅游发展局",
+    "bannerAria": "查看庆州正在举办的“{title}”详情"
   },
   "weather": {
     "gyeongjuNow": "庆州当前 {n}℃",
