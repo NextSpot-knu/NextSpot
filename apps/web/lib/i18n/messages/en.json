@@ -323,13 +323,13 @@
   },
   "visit": {
     "askTitle": "Did you visit {name}?",
-    "askDesc": "Confirming visits builds your history and sharpens recommendations",
+    "askDesc": "Let us know you went and we'll use it for your next picks",
     "yes": "Yes, I did",
     "notYet": "Not yet",
     "feedbackTitle": "How was it? A quick crowd report helps a lot",
     "liked": "Liked it",
     "disliked": "Not great",
-    "thanks": "Recorded! Your next picks just got smarter 🎯"
+    "thanks": "Recorded! We'll use it for your next picks 🙌"
   },
   "calm": {
     "chip": "Quiet now",

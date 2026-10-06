@@ -323,13 +323,13 @@
   },
   "visit": {
     "askTitle": "去过{name}了吗？",
-    "askDesc": "确认访问会积累记录，让推荐更精准",
+    "askDesc": "告诉我们你去过，下次推荐时会参考",
     "yes": "去过了",
     "notYet": "还没有",
     "feedbackTitle": "感觉如何？顺手上报一下拥挤度会很有帮助",
     "liked": "不错",
     "disliked": "一般",
-    "thanks": "已记录！下次推荐会更准 🎯"
+    "thanks": "已记录！下次推荐时会参考 🙌"
   },
   "calm": {
     "chip": "现在人少",
