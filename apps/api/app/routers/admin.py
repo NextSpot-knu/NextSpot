@@ -16,7 +16,7 @@ import structlog
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from app.core.authz import ROLE_ADMIN, get_current_profile, require_role
+from app.core.authz import ROLE_ADMIN, forbid_judge_admin, get_current_profile, require_role
 from app.core.executors import run_admin_io
 from app.core.supabase import fetch_all_rows, supabase_admin
 from app.services import briefing_service, congestion_estimator_service, estimated_report_service
@@ -40,6 +40,11 @@ INQUIRY_STATUSES = {"new", "in_progress", "resolved"}  # inquiries.status CHECK 
 # ⚠️ 이 값은 CHECK 제약에 매여 있다. 마이그레이션 20260906120000 이 적용되지 않은 DB 에
 # 이 코드가 먼저 닿으면 오버라이드가 통째로 500 이 된다(배포 순서: 마이그레이션 먼저).
 _ADMIN_OVERRIDE_SOURCE = "admin_override"
+
+# 심사용 관리자 계정(authz.JUDGE_ADMIN_EMAIL)으로는 막는 쓰기 두 곳의 거부 문구.
+# 쿠폰 정책 슬라이더(PATCH /facilities/{id})는 기능설명서 F5 ⑤ 시연 경로라 막지 않는다.
+_JUDGE_SETTINGS_DETAIL = "심사용 계정에서는 전체 설정을 바꿀 수 없어요."
+_JUDGE_DELETE_DETAIL = "심사용 계정에서는 장소를 삭제할 수 없어요."
 
 
 # =========================================================================
@@ -161,7 +166,7 @@ async def update_facility(facility_id: str, req: FacilityUpdate):
         raise HTTPException(status_code=500, detail="시설 수정에 실패했습니다.")
 
 
-@router.delete("/facilities/{facility_id}")
+@router.delete("/facilities/{facility_id}", dependencies=[Depends(forbid_judge_admin(_JUDGE_DELETE_DETAIL))])
 async def delete_facility(facility_id: str):
     try:
         res = await run_admin_io(
@@ -278,7 +283,7 @@ async def get_settings():
         raise HTTPException(status_code=500, detail="시스템 설정 조회에 실패했습니다.")
 
 
-@router.put("/settings")
+@router.put("/settings", dependencies=[Depends(forbid_judge_admin(_JUDGE_SETTINGS_DETAIL))])
 async def update_settings(req: SettingsUpdate):
     try:
         payload = req.model_dump()
