@@ -298,13 +298,13 @@ export default function LoadingPage() {
         </ul>
 
         {/* '바로 시작'(게스트, 로그인 불필요) — 화면 탭/키 입력과 동일한 go() 재사용.
-            금→주칠 그라디언트 CTA(/course·/waiting·추천 카드와 동일 문법) + toss-pressable 눌림. */}
+            주 행동 한 가지 스타일 cta-primary(짙은 금→주칠, 흰 글자 4.5:1 이상 — 계획 B3 I86) + toss-pressable 눌림. */}
         <button
           onClick={(e) => {
             e.stopPropagation();
             go();
           }}
-          className="toss-pressable mt-6 inline-flex min-h-[52px] items-center gap-1.5 rounded-full bg-gradient-to-r from-gold to-terracotta px-10 text-[17px] font-bold text-white shadow-[0_8px_24px_rgba(193,85,59,0.28)] hover:from-gold-deep hover:to-terracotta focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold-deep focus-visible:ring-offset-2 focus-visible:ring-offset-hanji"
+          className="toss-pressable mt-6 inline-flex min-h-[52px] items-center gap-1.5 rounded-full cta-primary px-10 text-[17px] font-bold shadow-[0_8px_24px_rgba(168,70,47,0.28)] transition-[filter] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold-deep focus-visible:ring-offset-2 focus-visible:ring-offset-hanji"
         >
           {t('landing.ctaStart')}
           <ChevronRight size={20} aria-hidden />
@@ -408,7 +408,7 @@ export default function LoadingPage() {
             <button
               type="button"
               onClick={go}
-              className="toss-pressable inline-flex min-h-[52px] items-center gap-1.5 rounded-full bg-gradient-to-r from-gold to-terracotta px-10 text-[17px] font-bold text-white shadow-[0_8px_24px_rgba(193,85,59,0.28)] hover:from-gold-deep hover:to-terracotta focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold-deep focus-visible:ring-offset-2 focus-visible:ring-offset-hanji"
+              className="toss-pressable inline-flex min-h-[52px] items-center gap-1.5 rounded-full cta-primary px-10 text-[17px] font-bold shadow-[0_8px_24px_rgba(168,70,47,0.28)] transition-[filter] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold-deep focus-visible:ring-offset-2 focus-visible:ring-offset-hanji"
             >
               {t('landing.ctaStart')}
               <ChevronRight size={20} aria-hidden />

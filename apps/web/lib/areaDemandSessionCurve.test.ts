@@ -9,6 +9,8 @@ import {
   type AreaDemandCurve,
 } from "./areaDemandCurve";
 import { areaLevelAt } from "./forecastStrip";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
 // 교차 레인 계약 3 — 경주 중심 '지금' 곡선은 같은 정시 안에서 한 번만 묻는다(/main 시간 줄과 /waiting 이 공유).
 async function main() {
@@ -107,6 +109,12 @@ async function main() {
   }
   assert.equal(forecastPointAt(Date.UTC(2026, 9, 7, 14, 40), 1)?.hourKst, 1, "23:40 + 1 → 1시");
   assert.equal(forecastPointAt(Date.UTC(2026, 9, 7, 3, 29), 1)?.at.toISOString(), "2026-10-07T04:01:00.000Z", "12:29 + 1 → 13시를 13:01 로");
+
+  // 배선(통합 10-07, 계획 3.2 예산) — /waiting 의 '지금' 곡선은 세션 곡선을 쓴다. 그래야 /waiting 을 먼저 본 심사위원이
+  // /main 에서 +N 을 눌러도 새 GET 이 없다(sessionAreaDemandAt 이 다 받은 곡선을 그대로 꺼낸다). 가정 시각 곡선은
+  // 기준이 달라 세션 곡선과 섞지 않는다.
+  const waiting = readFileSync(join(process.cwd(), "app", "waiting", "page.tsx"), "utf8") // 러너가 cwd 를 apps/web 으로 고정한다;
+  assert.match(waiting, /baseAtMs\s*\?[\s\S]{0,240}fetchAreaDemandCurve\([\s\S]{0,240}:\s*await sessionAreaDemandCurve\(\)/, "/waiting '지금' 곡선이 세션 곡선을 쓰지 않는다");
 }
 
 main()

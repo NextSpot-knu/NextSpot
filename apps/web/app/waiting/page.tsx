@@ -39,7 +39,7 @@ import { buildRecommendHref } from "@/lib/recommendOrigin";
 import { congestionDisplay, parseCongestionEstimate } from "@/lib/congestionEstimate";
 // 보드의 세 숫자(예상 대기 · 혼잡 등급 · 한산해지는 시각)의 단일 소스.
 import { estimateWait, displayArrivalTime, showsCalmLine, calmAfterClose, heroWaitCandidate, arrivalHourOf, boardWaitBaseMs, type WaitEstimate } from "@/lib/waitEstimate";
-import { curveForBase, fetchAreaDemandCurve, mergeAreaCurve, type AreaDemandCurve } from "@/lib/areaDemandCurve";
+import { curveForBase, fetchAreaDemandCurve, mergeAreaCurve, sessionAreaDemandCurve, type AreaDemandCurve } from "@/lib/areaDemandCurve";
 import { areaDemandDisclosure } from "@/lib/areaDemandPresentation";
 // 분으로 말할 근거가 없는 카드는 등급으로 말한다 — 등급 경계는 지도·카드와 같은 공용 판정을 쓴다.
 import { REGION } from "@/lib/region";
@@ -740,12 +740,11 @@ export default function WaitingBoardPage() {
     let alive = true;
     const controller = new AbortController();
     void (async () => {
-      const curve = await fetchAreaDemandCurve(
-        REGION.center.lat,
-        REGION.center.lng,
-        baseAtMs ? new Date(baseAtMs) : new Date(),
-        controller.signal,
-      );
+      // '지금' 곡선은 세션 곡선(경주 중심 · 정시마다 한 번)을 쓴다 — /main 의 혼잡 예측 줄이 같은 값을 꺼내 쓰므로
+      // /waiting 을 본 뒤 +N 을 눌러도 새 요청이 없다(계획 3.2 의 여정 12회 예산). 가정 시각은 기준이 달라 따로 묻는다.
+      const curve = baseAtMs
+        ? await fetchAreaDemandCurve(REGION.center.lat, REGION.center.lng, new Date(baseAtMs), controller.signal)
+        : await sessionAreaDemandCurve();
       if (!alive) return;
       // 빈 재조회가 같은 기준의 좋은 곡선을 지우지 않는다. 처음부터 빈 결과면 '알고 보니 없음' 으로 기록한다.
       setAreaCurves((prev) => mergeAreaCurve(prev, baseKey, curve));

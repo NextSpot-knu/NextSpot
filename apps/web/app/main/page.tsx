@@ -44,6 +44,7 @@ import { CUISINE_CHIPS, cuisineChipForUtterance, cuisineChipPool, voiceCandidate
 import { VoiceCaptionBar, VoicePill } from '@/components/VoiceSlot';
 import { DESKTOP_PANEL_CLASS, desktopPanelReservePx } from '@/lib/mainPanelLayout';
 import { pickFirstViewCategory } from '@/lib/firstViewCategory';
+import { onMainFocus } from '@/lib/featureShortcuts';
 import { usePhoneViewport } from '@/lib/usePhoneViewport';
 import type { CardCondition } from '@/components/RecommendationCard';
 import { recordActiveTrip } from '@/lib/visits';
@@ -1845,7 +1846,10 @@ export default function MainPage() {
       candidates = contextEligible;
     }
     if (candidates.length === 0) {
-      setSelectedFacility(null);
+      // 이 칩에서 직접 고른 카드(검색 · 핀 · ?place=)는 여행 조건 밖이어도 그대로 둔다 — '실내로 바꿔줘' 뒤에 이름을
+      // 불러 찾은 관광지가 카드 대신 '근처의 다른 곳' 안내로 바뀌었다(통합 10-07, 기능설명서 4-④ → 4-⑤ 순서).
+      const keepPick = !!userPickRef.current && userPickRef.current.filter === activeFilter;
+      if (!keepPick) setSelectedFacility(null);
       setNoOpenTodayOnly(false); // 이 경로는 유형 자체가 0건 — 휴무 소진과 구분
       setNoRecommendation(true); // (b) 후보 0건 → 카드 자리에 빈 상태 안내
       finishRecalc(null);
@@ -3482,13 +3486,10 @@ export default function MainPage() {
   // 소개 화면 바로가기·콘솔 링크(교차 레인 계약 1·2) — 마운트 때 한 번만 읽는다.
   //   ?focus=forecast — 히트맵을 켜고 시간 조절에 고리 · ?focus=live — 관광지(실시간 정보 새로고침이 있는 TourAPI 카드)
   //   ?focus=voice — 음성 비서 알약에 고리 · ?place=<시설 id> — 그 장소를 '선택한 장소' 카드로.
-  const urlIntentHandledRef = useRef(false);
-  useEffect(() => {
-    if (urlIntentHandledRef.current || typeof window === 'undefined') return;
-    urlIntentHandledRef.current = true;
-    let params: URLSearchParams;
-    try { params = new URLSearchParams(window.location.search); } catch { return; }
-    const focus = params.get('focus');
+  // 같은 갈래를 지도 화면 위 소개 모달의 바로가기(이벤트 nextspot:main-focus)도 탄다 — /main 에서 /main?focus= 로는
+  // 다시 마운트되지 않아 마운트 때 한 번 읽는 처리기가 돌지 않기 때문이다(lib/featureShortcuts onMainFocus).
+  // 쓰는 것이 setter·ref·selectCategory(setter·ref 만 만진다)뿐이라 첫 렌더의 함수를 붙들어도 안전하다.
+  const applyMainFocus = (focus: string | null) => {
     if (focus === 'forecast') {
       setShowHeatmap(true);
       setFocusRing('forecast');
@@ -3497,6 +3498,17 @@ export default function MainPage() {
     } else if (focus === 'live') {
       selectCategory('관광지');
     }
+  };
+  useEffect(() => onMainFocus((key) => applyMainFocus(key)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []);
+  const urlIntentHandledRef = useRef(false);
+  useEffect(() => {
+    if (urlIntentHandledRef.current || typeof window === 'undefined') return;
+    urlIntentHandledRef.current = true;
+    let params: URLSearchParams;
+    try { params = new URLSearchParams(window.location.search); } catch { return; }
+    applyMainFocus(params.get('focus'));
     const place = params.get('place');
     if (place) {
       pendingPlaceRef.current = place;

@@ -208,6 +208,22 @@ html:lang(zh) [class*="heroTitle"] {
 html:lang(en) [class*="heroTitle"] {
   letter-spacing: -0.02em;
 }
+/* 데스크톱 랜딩 히어로(.heroLanding)는 노트북 창(1366×650·1536×730)에 맞춰 제목을 한 단계 줄인 크기다 — 위의 칸 폭
+   크기가 그보다 커지면 중국어 제목만 74px 로 한국어(48~54px)보다 커졌다(통합 10-07). 랜딩 크기를 넘지 않게 묶는다. */
+html:lang(ja) [class*="heroLanding"] [class*="heroTitle"] {
+  font-size: min(clamp(44px, 4.1vw, 64px), 10cqi);
+}
+html:lang(zh) [class*="heroLanding"] [class*="heroTitle"] {
+  font-size: min(clamp(44px, 4.1vw, 64px), 13cqi);
+}
+@media (max-height: 800px) {
+  html:lang(ja) [class*="heroLanding"] [class*="heroTitle"] {
+    font-size: min(clamp(40px, 3.5vw, 54px), 10cqi);
+  }
+  html:lang(zh) [class*="heroLanding"] [class*="heroTitle"] {
+    font-size: min(clamp(40px, 3.5vw, 54px), 13cqi);
+  }
+}
 
 /* Five primary tabs plus a 36px help row on mobile. Shared by sheets and page padding. */
 @media (max-width: 767px) {

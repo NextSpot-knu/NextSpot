@@ -1490,7 +1490,7 @@
     "hint": "Pick one to go straight there",
     "forecast": {
       "label": "Crowd forecast map",
-      "desc": "See how busy this area gets, now to 3 hours ahead"
+      "desc": "See crowds in color on the map, now to 3 hours ahead"
     },
     "card": {
       "label": "Alternative pick",

@@ -49,4 +49,11 @@ const WEB = process.cwd();
   assert.doesNotMatch(card, /from-gold to-terracotta[^"`]*text-white/, "옛 금→주칠(대비 미달) 버튼이 남아 있다");
 }
 
+// 4) 배선 — 랜딩 '바로 시작'(휴대폰·데스크톱 히어로 둘 다)도 같은 한 가지 스타일(계획 B3 I86 · 통합 10-07).
+{
+  const landing = readFileSync(join(WEB, "app/page.tsx"), "utf8");
+  assert.ok((landing.match(/cta-primary/g) ?? []).length >= 2, "랜딩 '바로 시작'(휴대폰·데스크톱)이 cta-primary 를 쓰지 않는다");
+  assert.doesNotMatch(landing, /from-gold to-terracotta[^"`]*text-white/, "랜딩에 옛 금→주칠(대비 미달) 버튼이 남아 있다");
+}
+
 console.log("contrast tests passed");
