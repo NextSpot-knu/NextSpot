@@ -14,7 +14,7 @@
 // ② **바로 붙어 있는** 같은 말 카드 묶음 안에서만 사진 있는 곳을 앞으로 모은다(안정). 그래서 어떤 카드도
 // 다른 말을 하는 카드를 건너뛰지 않는다 — 사진 카드는 자기와 같은 대기를 보여 주는 이웃만 앞지른다.
 
-import { congestionKey, type CongestionKey } from '@/lib/congestionScale';
+import { congestionKey, DEFAULT_BUSY_THRESHOLD, type CongestionKey } from '@/lib/congestionScale';
 import { compareWaitMinutes, type WaitEstimate } from '@/lib/waitEstimate';
 
 /** 카드의 주인공 한 줄이 무엇을 말하는지(문구가 아니라 뜻). 화면 문구(page.tsx waitHeadline)와 정렬이 같이 쓴다. */
@@ -39,18 +39,23 @@ export interface WaitHeadlineEvidence {
 /**
  * 분으로 말할 근거가 있으면 분을, 없으면 그 근거가 **실제로 아는 것**(시설 추정 혼잡 · 주변 권역 수요 등급 ·
  * 관광 상대지수)을, 그것도 없으면 'unavailable'(화면은 머리줄을 세우지 않는다). 주변 주차·관광 상대지수를 '대기 N분'으로 바꾸지 않는다.
+ * busyAt: 운영자 '혼잡' 경계(useBusyThreshold) — 지도·대안·코스와 같은 눈금으로 등급을 매긴다.
  */
-export function waitHeadlineOf(est: WaitEstimate, ev: WaitHeadlineEvidence): WaitHeadline {
+export function waitHeadlineOf(
+  est: WaitEstimate,
+  ev: WaitHeadlineEvidence,
+  busyAt: number = DEFAULT_BUSY_THRESHOLD,
+): WaitHeadline {
   if (est.minutes !== null) {
     if (est.minutes > 0) return { kind: 'minutes', n: est.minutes };
     // '대기 없음'은 검증 예측(server)에만 — 추정으로 0분을 단언하지 않는다.
     return est.basis === 'server' ? { kind: 'noWait' } : { kind: 'relaxed' };
   }
   if (est.basis === 'estimate' && typeof ev.estimateLevel === 'number') {
-    return { kind: 'estimate', level: congestionKey(ev.estimateLevel) };
+    return { kind: 'estimate', level: congestionKey(ev.estimateLevel, busyAt) };
   }
   if (est.basis === 'area' && typeof ev.areaDemandLevel === 'number') {
-    return { kind: 'area', level: congestionKey(ev.areaDemandLevel) };
+    return { kind: 'area', level: congestionKey(ev.areaDemandLevel, busyAt) };
   }
   if (est.basis === 'tourism' && typeof ev.tourismRelativeIndex === 'number') {
     return { kind: 'tourism', n: Math.round(ev.tourismRelativeIndex) };
@@ -144,14 +149,18 @@ export interface BoardCrowdSpread {
  * '혼잡', 밤에는 '보통' 한 가지가 되기 쉽다 — 그때 카드마다 '추정 혼잡: 혼잡' 을 23번 쓰지 않고 이 일대 등급을 한 번만
  * 말한다. 3곳 이상이고, 모두 같은 등급이거나 가장 큰 값과 작은 값의 차이가 UNIFORM_CROWD_SPREAD 미만일 때만.
  * 보드 순서와 무관하다(화면 문구만 바뀐다). 다 찬 보드에만 쓴다 — 도착 중인 섹션으로 판정하면 섹션이 올 때마다 뒤집힌다.
+ * busyAt: 운영자 '혼잡' 경계 — 카드 머리줄(waitHeadlineOf)·대안 화면의 알약·칩과 같은 눈금이어야 한 줄과 카드가 같은 말을 한다.
  */
-export function boardCrowdSpread(levels: readonly number[]): BoardCrowdSpread {
+export function boardCrowdSpread(
+  levels: readonly number[],
+  busyAt: number = DEFAULT_BUSY_THRESHOLD,
+): BoardCrowdSpread {
   const known = levels.filter((l) => Number.isFinite(l));
   if (known.length < 3) return { uniform: false, grade: null };
   const min = Math.min(...known);
   const max = Math.max(...known);
-  const sameGrade = new Set(known.map((l) => congestionKey(l))).size === 1;
+  const sameGrade = new Set(known.map((l) => congestionKey(l, busyAt))).size === 1;
   if (!sameGrade && max - min >= UNIFORM_CROWD_SPREAD) return { uniform: false, grade: null };
   const mean = known.reduce((sum, l) => sum + l, 0) / known.length;
-  return { uniform: true, grade: sameGrade ? congestionKey(known[0]) : congestionKey(mean) };
+  return { uniform: true, grade: sameGrade ? congestionKey(known[0], busyAt) : congestionKey(mean, busyAt) };
 }

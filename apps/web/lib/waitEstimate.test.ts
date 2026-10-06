@@ -212,7 +212,16 @@ for (const input of [
   assert.match(boardOrder, /function compareBoardKeys[\s\S]*?const byWait = compareWaitMinutes\(a\.wait, b\.wait\);\s*if \(byWait !== 0\) return byWait;/, '보드가 null 안전 정렬을 쓰지 않는다');
   // 카드 한 줄의 문구와 동점 판정이 같은 판정(waitHeadlineOf)을 쓴다.
   assert.match(page, /waitHeadlineKey\(headlineOf\(/, '동점 판정이 카드 문구와 다른 값을 본다');
-  assert.match(page, /const h = headlineOf\(est, row, estimateLevel\);/, '카드 문구가 waitHeadlineOf 를 거치지 않는다');
+  assert.match(page, /const h = headlineOf\(est, row, estimateLevel, busyAt\);/, '카드 문구가 waitHeadlineOf 를 거치지 않는다');
+  // 등급은 운영자 '혼잡' 경계로 — 보드 한 줄·카드·동점 판정이 같은 눈금을 쓴다(지도·대안·코스와 같다).
+  assert.match(page, /boardCrowdSpread\(uniformLevels, busyAt\)/, '보드 한 줄이 운영자 혼잡 경계를 쓰지 않는다');
+  // 세션이 없을 때 로더 뒤 재시도는 5초를 넘기지 않는다 — 여러 번 거절된 탭에서 2~5분 동안 '다시 시도' 없는 로더가 돌았다.
+  assert.match(
+    page,
+    /Math\.min\(5000, Math\.max\(2500, ensureAnonymousSession\.retryInMs\(\)\)\)/,
+    '세션 재시도 대기가 가입 창(최대 5분)을 그대로 따른다',
+  );
+  assert.match(page, /waitHeadlineKey\(headlineOf\(wait, row, estimateLevels\[row\.facilityId\], busyAt\)\)/, '동점 판정이 다른 눈금을 쓴다');
   assert.doesNotMatch(
     page,
     /waitOf\(a\)\.minutes\s*-\s*waitOf\(b\)\.minutes/,

@@ -1377,7 +1377,7 @@
     "previewAdmin": "运营仪表盘"
   },
   "wait": {
-    "minutes": "预计等待 约{n}分钟",
+    "minutes": "预计等待约{n}分钟",
     "noWait": "无需等待",
     "grade": {
       "relaxed": "宽松",
@@ -1391,8 +1391,9 @@
     "arrivalOnly": "{time}到达",
     "legend": "每张卡片显示到达时的拥挤程度和变空闲的时间。",
     "legendArrival": "每张卡片显示到达时的拥挤程度。",
-    "legendUniform": "每张卡片显示步行所需时间。",
+    "legendUniform": "卡片上的步行时间以皇理团路为起点。",
     "areaNow": "庆州市中心此刻：{label} · 估算",
+    "areaAt": "{time}时，庆州市中心：{label} · 估算",
     "walk": "步行{n}分钟",
     "basisServer": "基于实测的预测",
     "basisRanking": "按业态与时段估算",

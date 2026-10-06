@@ -71,6 +71,9 @@ import { PlacePhotoFallback } from "@/components/PlacePhotoFallback";
 import { placeVisual, placeVisualsForRow, type PlaceVisual } from "@/lib/placeVisual";
 // 섹터 줄 세우기 — 대기 짧은 순, 대기가 같을 때만 사진 있는 곳이 앞(PM 결정 2026-09-28).
 import { boardCrowdSpread, orderByWaitThenPhoto, waitHeadlineKey, waitHeadlineOf, type WaitHeadline } from "@/lib/boardOrder";
+import { splitHeadlineValue } from "@/lib/headlineSplit";
+// '혼잡' 경계는 운영자 설정(지도·대안·코스와 같은 눈금) — 이 보드만 0.75 로 등급을 매기면 같은 곳이 화면마다 다른 등급이 된다.
+import { useBusyThreshold } from "@/components/shell/PublicSettingsProvider";
 
 // 시설 종류 이모지 — course/page.tsx TYPE_OPTIONS 와 동일 매핑(레포 전역 관례 통일).
 const TYPE_EMOJI: Record<string, string> = {
@@ -357,12 +360,12 @@ function basisKey(basis: WaitEstimate["basis"]): string {
 }
 
 /** 카드 한 장이 가진 대기 근거(시설 추정 · 권역 수요 · 관광 상대지수) — 문구와 줄 세우기가 같은 값을 본다. */
-function headlineOf(est: WaitEstimate, row: BoardRow, estimateLevel: number | undefined): WaitHeadline {
+function headlineOf(est: WaitEstimate, row: BoardRow, estimateLevel: number | undefined, busyAt: number): WaitHeadline {
   return waitHeadlineOf(est, {
     estimateLevel,
     areaDemandLevel: row.areaDemandLevel,
     tourismRelativeIndex: row.areaDemandTourismEvidence?.relativeIndex ?? null,
-  });
+  }, busyAt);
 }
 
 /**
@@ -400,20 +403,13 @@ function waitHeadline(
 }
 
 /**
- * 한국어가 아닌 머리줄은 값(쌍점 뒤 '普通'·'Moderate', 또는 숫자+단위 '約10分'·'10 min')을 한 덩어리로 둔다(I52/I53) —
+ * 한국어가 아닌 머리줄은 값(쌍점 뒤 '普通'·'Moderate', 또는 숫자+단위 '約10分'·'约10分钟'·'10 min')을 한 덩어리로 둔다(I52/I53) —
  * 좁은 카드에서 '推定混雑: 普 / 通' 처럼 값 한가운데서 접혔다. 한국어는 break-keep 이 띄어쓰기에서만 접는다.
+ * 값 찾기는 lib/headlineSplit — 중국어·일본어는 공백 없이 '约12分钟' 만 묶는다.
  */
 function HeadlineText({ text, locale }: { text: string; locale: string }) {
   if (locale === "ko") return <>{text}</>;
-  const colon = Math.max(text.lastIndexOf(": "), text.lastIndexOf("："));
-  let parts: [string, string, string] | null = null;
-  if (colon >= 0) {
-    const at = text[colon] === ":" ? colon + 2 : colon + 1;
-    parts = [text.slice(0, at), text.slice(at), ""];
-  } else {
-    const m = /\S*\d+\S*(?:\s+min\b)?/.exec(text);
-    if (m) parts = [text.slice(0, m.index), m[0], text.slice(m.index + m[0].length)];
-  }
+  const parts = splitHeadlineValue(text);
   if (!parts || !parts[1]) return <>{text}</>;
   return (
     <>
@@ -432,7 +428,8 @@ function WaitStats({
   display = PLAIN_DISPLAY,
 }: { est: WaitEstimate; row: BoardRow; estimateLevel?: number; display?: CardDisplay }) {
   const { t, locale } = useI18n();
-  const h = headlineOf(est, row, estimateLevel);
+  const busyAt = useBusyThreshold();
+  const h = headlineOf(est, row, estimateLevel, busyAt);
   const headline = waitHeadline(h, row, display.walk, t);
   return (
     <div data-wait-stats className="shrink-0 space-y-1 mt-1.5">
@@ -500,7 +497,8 @@ function WaitRowChips({
   display = PLAIN_DISPLAY,
 }: { est: WaitEstimate; row: BoardRow; estimateLevel?: number; display?: CardDisplay }) {
   const t = useT();
-  const h = headlineOf(est, row, estimateLevel);
+  const busyAt = useBusyThreshold();
+  const h = headlineOf(est, row, estimateLevel, busyAt);
   const headline = waitHeadline(h, row, display.walk, t);
   return (
     <div className="flex flex-wrap items-center gap-1.5 mt-1">
@@ -632,6 +630,7 @@ function buildSector(type: string, recs: RecommendationResponse[], currentLocale
 export default function WaitingBoardPage() {
   const router = useRouter();
   const { t, locale } = useI18n();
+  const busyAt = useBusyThreshold();
 
   const [sectors, setSectors] = useState<Sector[] | null>(null);
   const [loading, setLoading] = useState(true);
@@ -871,7 +870,10 @@ export default function WaitingBoardPage() {
     if (!session) {
       if (!retriedRef.current) {
         retriedRef.current = true;
-        setTimeout(() => { void fetchBoard(thisRun); }, Math.max(2500, ensureAnonymousSession.retryInMs()));
+        // 다음 가입 창까지 기다리되 5초를 넘기지 않는다 — 앞서 여러 번 거절된 탭은 창이 2~5분이라, 그동안 다시 시도할
+        // 버튼도 없이 로더만 돌았다. 5초 뒤에도 없으면 실패 카드('다시 시도')로 내려가고, 가입이 나중에 성공하면
+        // 아래 SIGNED_IN 구독이 보드를 스스로 채운다.
+        setTimeout(() => { void fetchBoard(thisRun); }, Math.min(5000, Math.max(2500, ensureAnonymousSession.retryInMs())));
         return;
       }
       if (silentRefresh) { setPartialBoard(null); setLoading(false); return; } // 캐시 결과 유지
@@ -1037,7 +1039,7 @@ export default function WaitingBoardPage() {
     for (const row of sector.rows) {
       if (row.closedToday) continue;
       const est = waitOf(row);
-      const h = headlineOf(est, row, estimateLevels[row.facilityId]);
+      const h = headlineOf(est, row, estimateLevels[row.facilityId], busyAt);
       const level = h.kind === "estimate" ? estimateLevels[row.facilityId] : h.kind === "area" ? row.areaDemandLevel : null;
       if (typeof level !== "number") continue;
       uniformRows.add(row.facilityId);
@@ -1045,7 +1047,7 @@ export default function WaitingBoardPage() {
       uniformCalmHours.push(!calmAfterClose(est, row.operatingHours) && showsCalmLine(est) ? est.calmHour : null);
     }
   }
-  const crowdSpread = boardCrowdSpread(uniformLevels);
+  const crowdSpread = boardCrowdSpread(uniformLevels, busyAt);
   // 모든 카드가 같은 '{h}시 이후 한산' 을 말하면 그 한 줄도 위로 옮긴다.
   const sharedCalmHour =
     crowdSpread.uniform && uniformCalmHours.length > 0 && uniformCalmHours.every((h) => h !== null && h === uniformCalmHours[0])
@@ -1153,7 +1155,13 @@ export default function WaitingBoardPage() {
           <p data-testid="waiting-area-line" className="flex items-center gap-2 px-1 text-sm font-bold text-muk">
             <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${crowdKeyDot(crowdSpread.grade)}`} aria-hidden />
             <span>
-              {t("wait.areaNow", { label: t(`congestion.${crowdSpread.grade}`) })}
+              {/* 가정 시간(예: 토 14:00)으로 본 보드는 '지금' 이라고 말하지 않는다 — 그 시각 기준 한 줄. */}
+              {assumedPreset === "now"
+                ? t("wait.areaNow", { label: t(`congestion.${crowdSpread.grade}`) })
+                : t("wait.areaAt", {
+                    time: t(ASSUMED_TIME_PRESETS.find((p) => p.id === assumedPreset)?.labelKey ?? "timeSim.now"),
+                    label: t(`congestion.${crowdSpread.grade}`),
+                  })}
               {sharedCalmHour !== null && ` · ${t("wait.calmAt", { h: sharedCalmHour })}`}
             </span>
           </p>
@@ -1185,7 +1193,7 @@ export default function WaitingBoardPage() {
                   const wait = waitOf(row);
                   return {
                     wait,
-                    headlineKey: waitHeadlineKey(headlineOf(wait, row, estimateLevels[row.facilityId])),
+                    headlineKey: waitHeadlineKey(headlineOf(wait, row, estimateLevels[row.facilityId], busyAt)),
                     hasPhoto: creditedPhotoUrls(row.imageUrls, rowPhotoFeatures(row)).length > 0,
                   };
                 },

@@ -77,11 +77,36 @@ test('a one-grade board says the grade once and shows walking minutes on the car
   await expect(areaLine(page)).toContainText('지금 경주 시내 중심 혼잡 · 추정');
   await expect(cards(page).filter({ hasText: '추정 혼잡' })).toHaveCount(0);
   await expect(cards(page).first()).toContainText('도보 3분');
-  // 머리글은 카드가 보여 주는 것만 약속한다 — 카드는 걷는 시간을 보여 준다.
-  await expect(page.getByText('카드마다 걸어서 가는 시간을 보여드려요.')).toBeVisible();
+  // 머리글은 카드가 보여 주는 것만 약속한다 — 카드는 걷는 시간을 보여 주고, 그 걷는 시간이 어디서 출발하는지 말한다
+  // (보드는 황리단길에서 잰다 — 서울의 심사위원이 '내 자리에서 3분' 으로 읽지 않게).
+  await expect(page.getByText('카드의 걷는 시간은 황리단길에서 출발한 기준이에요.')).toBeVisible();
   await expect(page.getByText('카드마다 도착할 때의 붐빔')).toHaveCount(0);
   // 대표 카드마다 무엇이 열리는지 글로.
   await expect(cards(page).filter({ hasText: '대신 갈 곳 보기' })).toHaveCount(await cards(page).count());
+});
+
+test('under an assumed time the one-grade line names that time and never says now', async ({ page }) => {
+  test.setTimeout(90_000);
+  await routeBoard(page, Object.fromEntries(allIds().map((id) => [id, 0.88])));
+  // routeBoard 의 'now' 뒤에 등록 — 나중 스크립트가 이긴다.
+  await page.addInitScript(() => localStorage.setItem('nextspot_assumed_at', 'sat_afternoon'));
+  await page.goto('/waiting');
+  await expect(board(page)).toHaveAttribute('aria-busy', 'false', { timeout: 60_000 });
+  await expect(areaLine(page)).toContainText('토 14:00 기준 경주 시내 중심 혼잡 · 추정');
+  await expect(areaLine(page)).not.toContainText('지금');
+});
+
+test("the board grades with the operator's busy threshold, like the map and the alternatives", async ({ page }) => {
+  test.setTimeout(90_000);
+  await routeBoard(page, Object.fromEntries(allIds().map((id) => [id, 0.7])));
+  // 운영자가 '혼잡' 을 65%부터로 정했다 — 0.7 은 기본 눈금(75%)이면 '보통', 이 설정이면 '혼잡'.
+  await page.route('**/api/v1/system/public-settings', (route) => route.fulfill({
+    status: 200, contentType: 'application/json',
+    body: JSON.stringify({ maintenanceMode: false, noticeText: '', congestionThreshold: 65 }),
+  }));
+  await page.goto('/waiting');
+  await expect(board(page)).toHaveAttribute('aria-busy', 'false', { timeout: 60_000 });
+  await expect(areaLine(page)).toContainText('지금 경주 시내 중심 혼잡 · 추정');
 });
 
 test('partial sections never switch the board to the one-grade line', async ({ page }) => {

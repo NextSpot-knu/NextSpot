@@ -192,5 +192,12 @@ assert.deepEqual(boardCrowdSpread([0.26, 0.4, 0.49]), { uniform: true, grade: 'r
 assert.deepEqual(boardCrowdSpread([0.9, 0.9]), { uniform: false, grade: null }, '3곳 미만은 판단하지 않는다');
 assert.deepEqual(boardCrowdSpread([]), { uniform: false, grade: null });
 assert.deepEqual(boardCrowdSpread([0.5, Number.NaN, 0.52, 0.55]), { uniform: true, grade: 'moderate' }, '숫자가 아닌 값은 뺀다');
+// 운영자 '혼잡' 경계(busyAt)를 따른다 — 0.65 부터 혼잡이면 0.7 보드는 '혼잡' 한 줄(기본 0.75 눈금이면 '보통').
+assert.deepEqual(boardCrowdSpread([0.7, 0.7, 0.71]), { uniform: true, grade: 'moderate' });
+assert.deepEqual(boardCrowdSpread([0.7, 0.7, 0.71], 0.65), { uniform: true, grade: 'busy' }, '한 줄이 운영자 경계를 무시한다');
+// 카드 머리줄도 같은 경계 — 한 줄과 카드, 대안 화면이 같은 등급을 말한다.
+assert.deepEqual(waitHeadlineOf(est(null, 'estimate'), { estimateLevel: 0.7 }), { kind: 'estimate', level: 'moderate' });
+assert.deepEqual(waitHeadlineOf(est(null, 'estimate'), { estimateLevel: 0.7 }, 0.65), { kind: 'estimate', level: 'busy' });
+assert.deepEqual(waitHeadlineOf(est(null, 'area'), { areaDemandLevel: 0.7 }, 0.65), { kind: 'area', level: 'busy' });
 
 console.log('boardOrder: ok');
