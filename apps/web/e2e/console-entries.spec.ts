@@ -229,9 +229,13 @@ for (const account of [ANON, 'unauthorized'] as const) {
     const demo = page.getByRole('button', { name: '데모로 둘러보기' });
     await expect(login).toBeVisible();
     await expect(demo).toBeVisible();
+    // 카드가 떠오르는 애니메이션 도중에 한 번 재면 두 버튼의 y 가 몇 px 어긋나게 잡힌다(6회 중 1회 9.75px) —
+    // 자리가 잡힐 때까지 다시 잰다.
+    await expect
+      .poll(async () => Math.abs((await box(login)).y - (await box(demo)).y), { message: '로그인·데모가 나란히 있지 않다' })
+      .toBeLessThan(1);
     const loginBox = await box(login);
     const demoBox = await box(demo);
-    expect(Math.abs(loginBox.y - demoBox.y), '로그인·데모가 나란히 있지 않다').toBeLessThan(1);
     expect(loginBox.x + loginBox.width).toBeLessThanOrEqual(demoBox.x);
 
     const hint = page.getByRole('region', { name: '공모전 심사용 계정' });
