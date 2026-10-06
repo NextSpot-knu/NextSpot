@@ -7,7 +7,7 @@
 import assert from 'node:assert/strict';
 import { bestQuietHour, quietHourCopy, QUIET_HOUR_MIN_SPREAD } from './forecastInsight';
 import type { HourlyCongestionPoint } from './api';
-import { DEMO_MERCHANT_FORECAST } from '../demoFixtures';
+import { demoMerchantForecast } from '../demoFixtures';
 
 function curve(startHour: number, values: number[]): HourlyCongestionPoint[] {
   return values.map((congestion, hoursAhead) => ({
@@ -67,12 +67,30 @@ function curve(startHour: number, values: number[]): HourlyCongestionPoint[] {
 // 빈 곡선.
 assert.equal(bestQuietHour([]), null);
 
-// 데모 곡선(13~19시, 19시 0.41)은 '19시' 를 고른다 — 데모 화면이 보여 줄 문장.
+// 데모 곡선은 지금 KST 시각부터 6시간이다 — 고정 13~19시를 그리면 15시에 연 화면의 X축이
+// '지금 → 14시' 로 실제 시계와 어긋났다. 13시에 열면 예전 화면 그대로(19시 0.41 → '19시').
+const KST_13 = Date.UTC(2026, 9, 6, 4, 0, 0); // 2026-10-06 13:00 KST
 {
-  const best = bestQuietHour(DEMO_MERCHANT_FORECAST);
+  const at13 = demoMerchantForecast(KST_13);
+  assert.deepEqual(
+    at13.map((p) => [p.hour, p.congestion]),
+    [[13, 0.62], [14, 0.74], [15, 0.86], [16, 0.91], [17, 0.78], [18, 0.55], [19, 0.41]],
+    '13시 데모 곡선이 브리핑 문구(15~16시 91%)와 다르다',
+  );
+  const best = bestQuietHour(at13);
   assert.ok(best);
   assert.equal(best.hour, 19);
   assert.equal(quietHourCopy(best).title, '19시가 가장 한가할 것 같아요');
+
+  const at1530 = demoMerchantForecast(KST_13 + 2.5 * 3600_000);
+  assert.deepEqual(at1530.map((p) => p.hour), [15, 16, 17, 18, 19, 20, 21], '데모 X축이 실제 시계를 따르지 않는다');
+  assert.equal(bestQuietHour(at1530)?.hour, 21);
+
+  // 자정을 넘기면 0시로 돈다(심야엔 영업 시간대 점이 모자라 콜아웃이 없다).
+  const at22 = demoMerchantForecast(KST_13 + 9 * 3600_000);
+  assert.deepEqual(at22.map((p) => p.hour), [22, 23, 0, 1, 2, 3, 4]);
+  assert.ok(at22.every((p) => Number.isFinite(p.congestion)));
+  assert.equal(bestQuietHour(at22), null);
 }
 
 // 문구 — 사장님이 바로 행동할 수 있는 말만 쓴다.

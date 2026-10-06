@@ -8,7 +8,8 @@ import { stubExternalServices } from './support/stubs';
 //   2. 곡선 맨 위 눈금은 '100%' 로 읽힌다(예전에는 축 폭이 좁아 '00%' 로 잘렸다).
 //   3. 가장 한가한 시간 콜아웃 → '타임세일 열기' 가 ③ 으로 데려간다.
 //   4. 개발자 사과·면책 문구가 없다. 데모 표시는 톱바의 '예시 화면' 칩 하나뿐이다.
-//   5. 기본 쿠폰율 조건 문장은 고른 할인율이 그 쿠폰율에 묻힐 때만 보인다.
+//   5. 기본 쿠폰율 조건 문장은 고른 할인율이 그 쿠폰율에 묻힐 때만, 한 화면에 한 번 보인다.
+//   6. 데모 ① 의 X축은 실제 시계를 따른다. 발행 확인 단계는 손님이 실제로 볼 배지(활성 세일 중 최댓값)를 말한다.
 //
 // 이 파일은 우리 API·Supabase 로 나가는 요청을 전부 가로챈다 — 실 DB 에는 어떤 쓰기도 닿지 않는다.
 
@@ -53,6 +54,8 @@ async function stubConsoleNetwork(page: Page, account: 'guest' | 'merchant'): Pr
 }
 
 const DEMO_CHIP = '예시 화면';
+// 데모 ① 곡선은 지금 KST 시각부터 6시간이다 — 콜아웃 문장('19시가 …')을 단언하려면 시계를 고정한다.
+const KST_13 = new Date('2026-10-06T13:00:00+09:00');
 
 for (const viewport of [
   { width: 1536, height: 730 },
@@ -67,6 +70,7 @@ for (const viewport of [
       test.setTimeout(90_000);
       const calls = recordBackendCalls(page);
       await stubConsoleNetwork(page, 'guest');
+      await page.clock.setFixedTime(KST_13);
       await page.goto('/merchant?demo=1');
 
       // 데모 표시는 톱바 칩 하나 — 떠다니는 배지·'(데모)' 꼬리표 없음.
@@ -110,6 +114,35 @@ for (const viewport of [
     });
   });
 }
+
+test('demo ① follows the real clock; the confirm step previews the live 20% badge when 15% is chosen', async ({
+  page,
+}) => {
+  test.setTimeout(90_000);
+  await page.setViewportSize({ width: 1536, height: 730 });
+  await stubConsoleNetwork(page, 'guest');
+  // 15:30 KST — 고정 13~19시 곡선이면 X축이 '지금 → 14시' 로 시계와 어긋났다.
+  await page.clock.setFixedTime(new Date('2026-10-06T15:30:00+09:00'));
+  await page.goto('/merchant?demo=1');
+
+  const forecast = page.locator('section', { hasText: '① 예상 혼잡' });
+  await expect(forecast).toBeVisible({ timeout: 20_000 });
+  const tick = (label: RegExp) => forecast.locator('text.recharts-cartesian-axis-tick-value', { hasText: label });
+  await expect(tick(/^지금$/)).toBeVisible();
+  await expect(tick(/^16시$/)).toBeVisible();
+  await expect(tick(/^21시$/)).toBeVisible();
+  await expect(tick(/^14시$/)).toHaveCount(0);
+  await expect(forecast.getByText('21시가 가장 한가할 것 같아요')).toBeVisible();
+
+  // 데모 가게에는 20% 세일이 진행 중이다(기본 쿠폰 10%). 15% 를 골라도 손님 카드의 배지는 20% 그대로다.
+  await expect(page.getByText('20% 할인 중')).toBeVisible();
+  await page.getByRole('group', { name: '할인율' }).getByRole('button', { name: '15%' }).click();
+  await page.getByRole('group', { name: '지속 시간' }).getByRole('button', { name: '1시간' }).click();
+  await page.getByRole('button', { name: '타임세일 발행' }).click();
+  await expect(page.getByText('⚡ 타임세일 20%')).toBeVisible();
+  await expect(page.getByText(/손님 추천 카드에는 지금 진행 중인/)).toBeVisible();
+  await expect(page.getByText('⚡ 타임세일 15%')).toHaveCount(0);
+});
 
 test('real merchant console draws ① from the weekday/hour pattern without any /predict/batch call', async ({
   page,
@@ -170,13 +203,25 @@ test('real merchant console draws ① from the weekday/hour pattern without any 
   await expect(page.getByText('발행하면 바로 손님 추천에서 우리 가게가 더 잘 보여요.', { exact: false })).toBeVisible();
   const rates = page.getByRole('group', { name: '할인율' });
   const hint = page.getByText(/기본 쿠폰이 20%라 20% 타임세일은 추천 순위에 더해지지 않아요/);
+  const suggestion = page.getByText(/더 높은 할인율을 골라 보세요/);
   await rates.getByRole('button', { name: '20%' }).click();
   await expect(hint).toBeVisible();
+  await expect(suggestion).toBeVisible();
+
+  // 20% 그대로 확인 단계를 열면 같은 사실은 확인 상자 안에 한 번만, '골라 보세요' 권유 없이 나온다
+  // (발행 직전에 '다른 걸 고르라' 와 '이대로 발행할까요?' 를 한 번에 말하지 않는다). 발행은 누르지 않는다.
+  const durations = page.getByRole('group', { name: '지속 시간' });
+  await durations.getByRole('button', { name: '1시간' }).click();
+  await page.getByRole('button', { name: '타임세일 발행' }).click();
+  await expect(page.getByText(/이대로 발행할까요/)).toBeVisible();
+  await expect(hint).toHaveCount(1);
+  await expect(suggestion).toHaveCount(0);
+  await page.getByRole('button', { name: '다시 고르기' }).click();
+
   await rates.getByRole('button', { name: '30%' }).click();
   await expect(page.getByText(/기본 쿠폰이/)).toHaveCount(0);
 
   // 30% + 1시간 → 확인 단계는 손님이 보게 될 배지를 미리 보여 준다(쓰기 전 단계 — 발행은 누르지 않는다).
-  await page.getByRole('group', { name: '지속 시간' }).getByRole('button', { name: '1시간' }).click();
   await page.getByRole('button', { name: '타임세일 발행' }).click();
   await expect(page.getByText('⚡ 타임세일 30%')).toBeVisible();
   await expect(page.getByText(/할인율이 기본 쿠폰율보다 높으면/)).toHaveCount(0);

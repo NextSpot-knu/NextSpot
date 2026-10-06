@@ -60,16 +60,22 @@ export const DEMO_MERCHANT_STATS: MerchantStats = {
   visit_confirmations_note: '',
 };
 
-/** ① 시간대별 예상 혼잡 — 지금부터 6시간. */
-export const DEMO_MERCHANT_FORECAST: HourlyCongestionPoint[] = [
-  { hoursAhead: 0, hour: 13, congestion: 0.62, anchored: true },
-  { hoursAhead: 1, hour: 14, congestion: 0.74, anchored: true },
-  { hoursAhead: 2, hour: 15, congestion: 0.86, anchored: true },
-  { hoursAhead: 3, hour: 16, congestion: 0.91, anchored: false },
-  { hoursAhead: 4, hour: 17, congestion: 0.78, anchored: false },
-  { hoursAhead: 5, hour: 18, congestion: 0.55, anchored: false },
-  { hoursAhead: 6, hour: 19, congestion: 0.41, anchored: false },
+/** 데모 가게(카페)의 하루 혼잡 흐름 — 인덱스 = KST 시(0~23). 13~19시는 데모 브리핑 문구
+ *  (15~16시 91%, 앞뒤 13시·18시)와 같은 값이다. */
+const DEMO_MERCHANT_DAY_CURVE: readonly number[] = [
+  0.04, 0.03, 0.02, 0.02, 0.02, 0.03, 0.06, 0.1, 0.16, 0.24, 0.33, 0.44,
+  0.55, 0.62, 0.74, 0.86, 0.91, 0.78, 0.55, 0.41, 0.3, 0.2, 0.12, 0.07,
 ];
+
+/** ① 시간대별 예상 혼잡 — 지금 KST 시각부터 6시간을 위 하루 흐름에서 잘라 온다.
+ *  고정 시각(13~19시)을 그리면 13시가 아닐 때 X축이 '지금 → 14시' 처럼 실제 시계와 어긋난다
+ *  (adminPredictedView 가 이 파일을 import 하므로 kstParts 대신 +9시간을 직접 더한다). */
+export function demoMerchantForecast(now: number = Date.now()): HourlyCongestionPoint[] {
+  return Array.from({ length: 7 }, (_, hoursAhead) => {
+    const hour = new Date(now + (hoursAhead + 9) * 3_600_000).getUTCHours();
+    return { hoursAhead, hour, congestion: DEMO_MERCHANT_DAY_CURVE[hour], anchored: hoursAhead <= 2 };
+  });
+}
 
 /** ③ 현재 진행 중인 타임세일 — 20% 할인, 약 1시간 12분 남음. */
 export function demoActiveTimesale(now: number = Date.now()): MerchantTimesale {

@@ -16,6 +16,8 @@ import {
   fetchFacilityCongestionForecast,
   forecastNote,
   hasTimesaleOverlapNotice,
+  resetPredictModelInfoMemo,
+  timesaleConfirmPreview,
   timesalePublishNotice,
   timesaleRateHint,
   type MerchantTimesaleCreated,
@@ -34,6 +36,8 @@ type Route = (
 ) => { status: number; body: unknown } | 'network-error' | 'aborted';
 
 function withFetch<T>(route: Route, run: () => Promise<T>): Promise<T> {
+  // 케이스마다 새 탭처럼 — 앞 케이스가 기억시킨 모델 상태가 호출 수 계약을 흐리지 않게.
+  resetPredictModelInfoMemo();
   const original = globalThis.fetch;
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
@@ -226,6 +230,77 @@ async function main() {
     }
   }
 
+  // model-info 는 4초, batch 는 12초 타임아웃이다(계획 A9). 위 'abort' 케이스는 신호가 있는지만 보므로
+  // 여기서 timeoutFetch 가 요청마다 실제로 건 시간을 잰다 — model-info 를 12초 기본값으로 되돌리면 실패한다.
+  {
+    const delays: number[] = [];
+    const armed: { url: string; ms: number }[] = [];
+    const realSetTimeout = globalThis.setTimeout;
+    globalThis.setTimeout = ((handler: () => void, ms?: number) => {
+      delays.push(Number(ms));
+      return realSetTimeout(handler, ms);
+    }) as unknown as typeof setTimeout;
+    try {
+      await withFetch(
+        (url, init) => {
+          // timeoutFetch 는 타이머를 건 직후 fetch 를 부른다 — 마지막 타이머가 이 요청의 것이다.
+          armed.push({ url, ms: delays[delays.length - 1] });
+          if (url.includes('/predict/model-info')) return { status: 200, body: { trained: true } };
+          const hoursAhead = JSON.parse(String(init?.body ?? '{}')).hours_ahead as number;
+          return {
+            status: 200,
+            body: {
+              generated_at: new Date(NOW).toISOString(),
+              hours_ahead: hoursAhead,
+              predictions: [{ facility_id: 'f-1', predicted_congestion: 0.5, anchored: false, event_boost: 0 }],
+            },
+          };
+        },
+        () => fetchFacilityCongestionForecast('f-1', 'restaurant', 6, NOW),
+      );
+    } finally {
+      globalThis.setTimeout = realSetTimeout;
+    }
+    assert.deepEqual(
+      armed.filter((a) => a.url.includes('/predict/model-info')).map((a) => a.ms),
+      [4000],
+      'model-info 는 4초 안에 답이 없으면 기다리지 않고 패턴으로 그려야 한다',
+    );
+    const batchTimeouts = armed.filter((a) => a.url.includes('/predict/batch')).map((a) => a.ms);
+    assert.equal(batchTimeouts.length, 7);
+    assert.ok(batchTimeouts.every((ms) => ms === 12000), `batch 타임아웃이 12초가 아니다: ${batchTimeouts}`);
+  }
+
+  // 한 탭 안에서는 model-info 를 한 번만 묻는다(콘솔 재진입·가게 변경). 답을 못 받았으면 다시 묻는다.
+  {
+    const net = counter();
+    await withFetch(
+      (url) => {
+        net.calls.push(url);
+        if (url.includes('/predict/model-info')) return { status: 200, body: { trained: false } };
+        throw new Error(`예상치 못한 요청: ${url}`);
+      },
+      async () => {
+        await fetchFacilityCongestionForecast('f-1', 'restaurant', 6, NOW);
+        await fetchFacilityCongestionForecast('f-2', 'cafe', 6, NOW);
+      },
+    );
+    assert.equal(net.count('/predict/model-info'), 1, '같은 탭에서 모델 상태를 또 물었다');
+
+    const retry = counter();
+    await withFetch(
+      (url) => {
+        retry.calls.push(url);
+        return { status: 500, body: {} };
+      },
+      async () => {
+        await fetchFacilityCongestionForecast('f-1', 'restaurant', 6, NOW);
+        await fetchFacilityCongestionForecast('f-1', 'restaurant', 6, NOW);
+      },
+    );
+    assert.equal(retry.count('/predict/model-info'), 2, '답을 못 받은 결과까지 기억해 다시 묻지 않는다');
+  }
+
   // --- (3) 실제 적용 할인율 안내 ---------------------------------------------
 
   const overlapped: MerchantTimesaleCreated = {
@@ -290,6 +365,21 @@ async function main() {
     '우리 가게 기본 쿠폰이 30%라 30% 타임세일은 추천 순위에 더해지지 않아요.',
     '더 높은 선택지가 없으면 고르라고 권하지 않는다',
   );
+
+  // 발행 확인 단계 — 손님 카드에 실제로 붙을 배지를 말한다. 배지는 활성 세일 중 최댓값이다
+  // (merchant_boost). 30% 세일이 진행 중인데 15% 를 고르면 손님은 계속 '⚡ 타임세일 30%' 를 본다.
+  assert.deepEqual(timesaleConfirmPreview(null, 0.15, [0.3]), { kind: 'badge', rate: 0.3, ongoing: true });
+  assert.deepEqual(timesaleConfirmPreview(0.1, 0.15, [0.3]), { kind: 'badge', rate: 0.3, ongoing: true });
+  assert.deepEqual(timesaleConfirmPreview(null, 0.3, [0.15]), { kind: 'badge', rate: 0.3, ongoing: false });
+  assert.deepEqual(timesaleConfirmPreview(0.1, 0.2, [0.2]), { kind: 'badge', rate: 0.2, ongoing: false });
+  assert.deepEqual(timesaleConfirmPreview(0.1, 0.15), { kind: 'badge', rate: 0.15, ongoing: false });
+  // 기본 쿠폰에 묻히면 사실 한 줄만 — '이대로 발행할까요?' 앞에서 다른 할인율을 권하지 않는다.
+  const buried = timesaleConfirmPreview(0.2, 0.2, []);
+  assert.deepEqual(buried, {
+    kind: 'baseCoupon',
+    text: '우리 가게 기본 쿠폰이 20%라 20% 타임세일은 추천 순위에 더해지지 않아요.',
+  });
+  assert.doesNotMatch(JSON.stringify(buried), /골라 보세요/, '확인 단계가 발행과 다른 할인율 고르기를 한 번에 권한다');
 
   // 서버가 활성 세일 조회에 실패해 세 필드가 전부 null 인 경우 — 없는 안내를 지어내지 않는다.
   const unknownRates: MerchantTimesaleCreated = {
@@ -378,6 +468,18 @@ async function main() {
     '사장님 콘솔에 개발자용 안내·면책 문구나 떠다니는 데모 배지가 남아 있다',
   );
   assert.match(dashboardSrc, /timesaleRateHint\(/, '기본 쿠폰율 조건 안내가 조건부로 배선되지 않았다');
+  // 확인 단계는 활성 세일까지 넣어 배지를 미리 보이고, 버튼 아래 힌트는 그동안 감춘다(같은 문장 두 번 금지).
+  assert.match(
+    dashboardSrc,
+    /timesaleConfirmPreview\(baseCouponRate, publishConfirm\.rate, activeSales\.map/,
+    '확인 단계 배지 미리보기가 진행 중인 세일을 보지 않는다',
+  );
+  assert.doesNotMatch(
+    dashboardSrc,
+    /timesaleRateHint\(baseCouponRate, publishConfirm/,
+    "확인 단계가 '더 높은 할인율을 골라 보세요' 힌트를 또 보인다",
+  );
+  assert.match(dashboardSrc, /rateHint && !publishConfirm/, '확인 단계가 열려도 버튼 아래 힌트가 남아 같은 문장이 두 번 보인다');
   assert.doesNotMatch(
     dashboardSrc,
     /할인율이 기본 쿠폰율보다 높으면/,

@@ -158,6 +158,24 @@ export function timesaleRateHint(baseCouponRate: number | null | undefined, rate
   return higherExists ? `${line} 더 높은 할인율을 골라 보세요.` : line;
 }
 
+/** 발행 확인 단계가 말할 것 — 손님 추천 카드에 실제로 붙을 배지, 또는 붙지 않는 이유 한 줄.
+ *  확인 단계는 '이대로 발행할까요?' 로 끝나므로 다른 할인율을 권하지 않는다(권유는 버튼 아래 힌트 몫).
+ *  배지는 활성 세일 중 최댓값이다(merchant_boost) — 30% 세일이 진행 중이면 15% 를 골라도 손님은 30% 를 본다. */
+export type TimesaleConfirmPreview =
+  | { kind: "baseCoupon"; text: string }
+  | { kind: "badge"; rate: number; ongoing: boolean };
+
+export function timesaleConfirmPreview(
+  baseCouponRate: number | null | undefined,
+  rate: number,
+  activeRates: readonly number[] = []
+): TimesaleConfirmPreview {
+  const line = baseCouponLine(baseCouponRate, rate);
+  if (line) return { kind: "baseCoupon", text: line };
+  const shown = Math.max(rate, ...activeRates);
+  return { kind: "badge", rate: shown, ongoing: shown > rate };
+}
+
 /** 발행 직후 사장님에게 보여줄 설명 문구.
  *
  * 서버가 '실제 적용 할인율' 안내를 실어 보냈으면 **그것을 우선한다.** 예전에는 서버가 이
@@ -325,7 +343,7 @@ interface PredictModelInfo {
 }
 
 /** 모델 학습 여부를 서버에 직접 묻는다. 못 물어봤으면 null(=판정 불가, 지어내지 않는다). */
-async function fetchPredictModelInfo(): Promise<PredictModelInfo | null> {
+async function requestPredictModelInfo(): Promise<PredictModelInfo | null> {
   try {
     const res = await timeoutFetch(`${BASE_URL}/predict/model-info`, undefined, MODEL_INFO_TIMEOUT_MS);
     if (!res.ok) return null;
@@ -335,6 +353,26 @@ async function fetchPredictModelInfo(): Promise<PredictModelInfo | null> {
   } catch {
     return null;
   }
+}
+
+// 한 탭 안에서는 모델 상태를 한 번만 묻는다 — 콘솔을 다시 열거나 가게를 바꿔도 답은 같다.
+// 답을 못 받았으면(null) 기억하지 않는다 — 다음 진입에서 다시 묻는다.
+let modelInfoMemo: Promise<PredictModelInfo | null> | null = null;
+
+function fetchPredictModelInfo(): Promise<PredictModelInfo | null> {
+  if (!modelInfoMemo) {
+    const pending = requestPredictModelInfo();
+    modelInfoMemo = pending;
+    void pending.then((info) => {
+      if (!info && modelInfoMemo === pending) modelInfoMemo = null;
+    });
+  }
+  return modelInfoMemo;
+}
+
+/** 테스트 전용 — 기억한 모델 상태를 비운다(케이스마다 model-info 호출 수를 정확히 세려고). */
+export function resetPredictModelInfoMemo(): void {
+  modelInfoMemo = null;
 }
 
 export interface HourlyCongestionPoint {

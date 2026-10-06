@@ -63,6 +63,7 @@ import {
   fetchMerchantBriefing,
   forecastNote,
   patternForecastPoints,
+  timesaleConfirmPreview,
   timesalePublishNotice,
   timesaleRateHint,
   hasTimesaleOverlapNotice,
@@ -80,13 +81,13 @@ import { useT } from '@/lib/i18n/I18nProvider';
 import { useDemoToast } from '@/components/DemoBadge';
 import {
   DEMO_MERCHANT_FACILITY,
-  DEMO_MERCHANT_FORECAST,
   DEMO_MERCHANT_SEAT,
   DEMO_MERCHANT_SEAT_BY_HOUR,
   DEMO_MERCHANT_STATS,
   DEMO_MERCHANT_TODAY,
   DEMO_MERCHANT_WEEKLY,
   demoActiveTimesale,
+  demoMerchantForecast,
 } from '@/lib/demoFixtures';
 
 const TYPE_LABEL: Record<string, string> = {
@@ -348,9 +349,9 @@ function ForecastSection({
   facilityType: string;
   demo?: boolean;
 }) {
-  // 데모: 고정 곡선을 즉시 그린다(예측 API 호출 없음).
-  const [forecast, setForecast] = useState<FacilityForecast | null>(
-    demo ? { points: DEMO_MERCHANT_FORECAST, basis: 'model' } : null
+  // 데모: 고정 하루 흐름에서 지금부터 6시간을 즉시 그린다(예측 API 호출 없음).
+  const [forecast, setForecast] = useState<FacilityForecast | null>(() =>
+    demo ? { points: demoMerchantForecast(), basis: 'model' } : null
   );
 
   useEffect(() => {
@@ -693,6 +694,10 @@ function TimesaleSection({
     () => sales.filter((s) => !s.canceled_at && new Date(s.ends_at).getTime() > now),
     [sales, now]
   );
+  // 확인 단계의 배지 미리보기 — 진행 중인 세일이 더 높으면 손님은 그 값을 본다.
+  const confirmPreview = publishConfirm
+    ? timesaleConfirmPreview(baseCouponRate, publishConfirm.rate, activeSales.map((s) => s.rate))
+    : null;
 
   const openPublishConfirm = () => {
     if (selectedRate === null || selectedDuration === null) return;
@@ -852,8 +857,9 @@ function TimesaleSection({
                 </button>
               ))}
             </div>
-            {/* 고른 할인율이 기본 쿠폰율에 묻힐 때만 — 그 밖에는 조건을 되풀이하지 않는다. */}
-            {rateHint && (
+            {/* 고른 할인율이 기본 쿠폰율에 묻힐 때만 — 그 밖에는 조건을 되풀이하지 않는다.
+                확인 단계가 열려 있으면 그쪽이 같은 사실을 말하므로 여기서는 감춘다(한 화면에 한 번). */}
+            {rateHint && !publishConfirm && (
               <p className="mb-3 rounded-xl border border-line bg-hanji px-3 py-2.5 text-[13px] leading-relaxed text-muk">
                 {rateHint}
               </p>
@@ -900,15 +906,18 @@ function TimesaleSection({
                   <span className="font-bold">{formatClock(publishConfirm.endsAtMs)}</span>.
                 </p>
                 <p className="text-[13px] text-muk-soft leading-relaxed">
-                  {timesaleRateHint(baseCouponRate, publishConfirm.rate) ?? (
-                    <>
-                      손님 추천 카드에{' '}
-                      <span className="whitespace-nowrap rounded-md border border-gold/60 bg-gold/25 px-1.5 py-px font-black text-gold-deep">
-                        ⚡ 타임세일 {Math.round(publishConfirm.rate * 100)}%
-                      </span>{' '}
-                      배지가 붙어요.
-                    </>
-                  )}{' '}
+                  {confirmPreview &&
+                    (confirmPreview.kind === 'baseCoupon' ? (
+                      confirmPreview.text
+                    ) : (
+                      <>
+                        {confirmPreview.ongoing ? '손님 추천 카드에는 지금 진행 중인' : '손님 추천 카드에'}{' '}
+                        <span className="whitespace-nowrap rounded-md border border-gold/60 bg-gold/25 px-1.5 py-px font-black text-gold-deep">
+                          ⚡ 타임세일 {Math.round(confirmPreview.rate * 100)}%
+                        </span>{' '}
+                        {confirmPreview.ongoing ? '배지가 그대로 붙어요.' : '배지가 붙어요.'}
+                      </>
+                    ))}{' '}
                   이대로 발행할까요?
                 </p>
                 <div className="grid grid-cols-2 gap-2">
