@@ -6,7 +6,9 @@ import {
 } from 'lucide-react';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { useT } from '@/lib/i18n/I18nProvider';
+import FeatureShortcuts from './FeatureShortcuts';
 import GuideDataSection from './GuideDataSection';
+import GuideHero from './GuideHero';
 import styles from './guide.module.css';
 
 const problemItems = [
@@ -50,17 +52,21 @@ export default function GuideContent({ onNavigate }: { onNavigate?: () => void }
         <LanguageSwitcher />
       </div>
 
-      <section className={styles.hero}>
-        <div className={styles.heroLayout}>
-          <div className={styles.heroCopy}>
-            <p className={styles.eyebrow}>{t('guide.eyebrow')}</p>
-            <h1 className={styles.heroTitle}>{t('guide.heroTitle')}</h1>
-            <p className={styles.heroBody}>{t('guide.heroBody')}</p>
-            <Link href="/setup" prefetch={false} onClick={onNavigate} className={styles.primary}>
-              {t('guide.explore')}<ArrowRight size={18} aria-hidden />
-            </Link>
-          </div>
+      {/* 첫 화면 = 데스크톱 랜딩과 같은 히어로 — 오른쪽 칸은 핵심 기능 다섯 개로 바로 가는 '이렇게 써 보세요'
+          (2026-10-06 감사 PH07: 소개 첫 화면에 '무엇을 눌러 볼지'가 없었다). */}
+      <GuideHero
+        lead={<p className={styles.eyebrow}>{t('guide.eyebrow')}</p>}
+        cta={(
+          <Link href="/setup" prefetch={false} onClick={onNavigate} className={styles.primary}>
+            {t('guide.explore')}<ArrowRight size={18} aria-hidden />
+          </Link>
+        )}
+        aside={<FeatureShortcuts onNavigate={onNavigate} />}
+      />
 
+      {/* 문제 → 해결 판은 한 절 아래로 내려왔다 — 히어로 오른쪽 칸을 기능 지도에 내주었다. */}
+      <section className={`${styles.section} ${styles.answerSection}`}>
+        <div className={styles.sectionInner}>
           <div className={styles.answer} role="group" aria-label={t('guide.answerLabel')}>
             <section className={styles.problemCard} aria-labelledby="nextspot-problem">
               <p>{t('guide.problemLabel')}</p>

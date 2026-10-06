@@ -306,6 +306,252 @@
   }
 }
 
+.heroAside {
+  min-width: 0;
+}
+
+/* ---- 문제 → 해결 판: 히어로 오른쪽 칸을 기능 지도에 내주고 한 절 아래로 ---- */
+.answerSection {
+  padding-top: 8px;
+}
+
+.answerSection .answer {
+  max-width: 860px;
+  margin: 0 auto;
+}
+
+/* ---- 이렇게 써 보세요: 핵심 기능 1~5 로 바로 가는 다섯 줄(히어로 오른쪽 칸) ----
+   줄 높이 64~72px · 이름 15px · 한 줄 설명 13px. 1~4번은 줄 전체가 링크, 5번은 콘솔 버튼 둘. */
+.shortcuts {
+  padding: 20px;
+  border: 1px solid var(--color-line);
+  border-radius: 28px;
+  background: color-mix(in srgb, var(--color-hanji) 94%, transparent);
+  box-shadow: 0 24px 80px color-mix(in srgb, var(--color-muk) 10%, transparent);
+}
+
+.shortcutsHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 12px;
+  padding: 2px 6px 14px;
+}
+
+.shortcutsTitle {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 800;
+  line-height: 1.3;
+  letter-spacing: -.03em;
+  word-break: keep-all;
+}
+
+.shortcutsHint {
+  margin: 0;
+  color: var(--color-muk-soft);
+  font-size: 13px;
+  line-height: 1.5;
+  word-break: keep-all;
+}
+
+.shortcutList {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.shortcutRow {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 68px;
+  padding: 10px 14px;
+  border: 1px solid var(--color-line);
+  border-radius: 18px;
+  color: var(--color-muk);
+  background: var(--color-hanji-deep);
+  text-decoration: none;
+  transition: border-color .2s, background .2s, transform .2s;
+}
+
+a.shortcutRow:hover {
+  border-color: var(--color-gold-deep);
+  background: color-mix(in srgb, var(--color-gold) 10%, var(--color-hanji-deep));
+  transform: translateY(-1px);
+}
+
+.shortcutRow:focus-visible,
+.shortcutConsole:focus-visible {
+  outline: 2px solid var(--color-gold-deep);
+  outline-offset: 3px;
+}
+
+.shortcutIcon {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  color: var(--color-gold-deep);
+  background: color-mix(in srgb, var(--color-gold) 18%, transparent);
+}
+
+.shortcutText {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.shortcutLabel {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  font-size: 15px;
+  font-weight: 750;
+  line-height: 1.35;
+  letter-spacing: -.02em;
+  word-break: keep-all;
+}
+
+.shortcutNum {
+  flex: none;
+  color: var(--color-gold-deep);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.shortcutDesc {
+  color: var(--color-muk-soft);
+  font-size: 13px;
+  line-height: 1.45;
+  word-break: keep-all;
+}
+
+.shortcutChevron {
+  flex: none;
+  color: var(--color-muk-soft);
+}
+
+.shortcutConsoles {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.shortcutConsole {
+  display: inline-flex;
+  min-height: 32px;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border: 1.5px solid var(--color-line);
+  border-radius: 999px;
+  color: var(--color-muk);
+  background: var(--color-hanji);
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+  text-decoration: none;
+  transition: border-color .2s, background .2s;
+}
+
+.shortcutConsole:hover {
+  border-color: var(--color-gold-deep);
+  background: color-mix(in srgb, var(--color-gold) 10%, var(--color-hanji));
+}
+
+.shortcutConsole svg {
+  color: var(--color-gold-deep);
+}
+
+@media (max-width: 767px) {
+  .shortcuts {
+    padding: 14px;
+    border-radius: 22px;
+  }
+
+  .shortcutRow {
+    gap: 12px;
+    padding: 10px 12px;
+  }
+
+  .shortcutRowConsoles {
+    flex-wrap: wrap;
+  }
+
+  .shortcutConsoles {
+    width: 100%;
+    flex-direction: row;
+    flex-wrap: wrap;
+    padding-left: 52px;
+  }
+}
+
+/* ---- 데스크톱 랜딩(≥1024px): 소개 히어로를 그대로 첫 화면으로 ----
+   화면 높이를 채우고, 노트북 창(1536×730·1366×650)에서 오른쪽 다섯 줄과 왼쪽 데이터 띠까지 첫 화면에
+   들어가게 글자·여백을 한 단계 줄인다. 배경은 비워 랜딩의 노을·반딧불이 그대로 비친다. */
+.heroLanding {
+  min-height: 100dvh;
+  padding: 72px 48px 40px;
+  background: none;
+}
+
+.heroLanding .heroLayout {
+  grid-template-columns: minmax(0, 1fr) minmax(440px, 500px);
+  gap: clamp(40px, 5vw, 88px);
+}
+
+.heroLanding .heroTitle {
+  font-size: clamp(44px, 4.1vw, 64px);
+}
+
+.heroLanding .heroBody {
+  max-width: 560px;
+  margin: 18px 0 26px;
+  font-size: 16.5px;
+  line-height: 1.7;
+}
+
+@media (max-height: 800px) {
+  .heroLanding {
+    padding: 48px 40px 24px;
+  }
+
+  .heroLanding .heroTitle {
+    font-size: clamp(40px, 3.5vw, 54px);
+  }
+
+  .heroLanding .heroBody {
+    margin: 14px 0 20px;
+    font-size: 15.5px;
+    line-height: 1.65;
+  }
+
+  .heroLanding .shortcutRow {
+    min-height: 64px;
+    padding-block: 9px;
+  }
+}
+
+/* 랜딩 첫 그림 — 300ms 옅게 떠오르기만 한다. 투명도만 바꿔 transform 을 남기지 않는다
+   (남으면 그 상자가 position:fixed 자식의 기준이 된다 — globals.css page-enter 주석). */
+.landingFade {
+  animation: landing-fade .3s ease-out both;
+}
+
+@keyframes landing-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
 /* ---- 발전성: 12주 실증 · 사업 모델 · 함께하는 역할 ---- */
 
 .section {
