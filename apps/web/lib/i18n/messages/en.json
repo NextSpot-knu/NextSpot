@@ -564,6 +564,8 @@
     "slotOverTimeBudget": "It does not fit in the trip time you set",
     "slotPinUnavailable": "The place you kept cannot go in this stop",
     "slotHint": "Try another type, or widen your walking or trip time",
+    "widenTime": "Allow {n} min and search again",
+    "widenTimeNoLimit": "Search again with no time limit",
     "slotLateNight": "Choose a daytime schedule to expand restaurant and café options.",
     "emptyReasonsTitle": "Try these adjustments",
     "replanRemoved": "Replanned for your filters · {n} dropped",

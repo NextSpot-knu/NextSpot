@@ -564,6 +564,8 @@
     "slotOverTimeBudget": "設定した滞在時間には収まりません",
     "slotPinUnavailable": "固定した場所をこの位置に入れられません",
     "slotHint": "種類を変えるか、徒歩時間・滞在時間を広げてみてください",
+    "widenTime": "旅行時間を{n}分に広げて探し直す",
+    "widenTimeNoLimit": "時間の制限なしで探し直す",
     "slotLateNight": "昼の時間帯に変えると、飲食店・カフェの選択肢が広がります。",
     "emptyReasonsTitle": "次の条件を調整してみてください",
     "replanRemoved": "条件に合わせて組み直しました · {n} 件が外れました",
