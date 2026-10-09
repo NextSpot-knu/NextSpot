@@ -23,7 +23,7 @@ function item(kind: Kind, i: number) {
   const facility = {
     id: idOf(kind, i), name: NAMES[kind][i], type: kind, latitude: 35.83 + i * 0.001, longitude: 129.21 + i * 0.001,
     capacity: 30, congestion: null, image_url: null, gallery_images: null, features: {},
-    operating_hours: { open: '00:00~23:59', closed: '연중무휴' },
+    operating_hours: { open: '24시간', closed: '연중무휴' },
   };
   return {
     recommendation_id: `rec-${facility.id}`, facility, spot_score: 0.8 - i * 0.01,

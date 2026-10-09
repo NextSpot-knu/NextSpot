@@ -29,7 +29,7 @@ function mapRow(place: Place) {
     features: {},
     barrier_free: place.barrierFree ?? null,
     congestion: null,
-    operating_hours: { open: '00:00~23:59', closed: '연중무휴' },
+    operating_hours: { open: '24시간', closed: '연중무휴' },
   };
 }
 

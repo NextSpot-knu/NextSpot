@@ -26,7 +26,7 @@ function place(id: string, name: string, type: string, i: number): Row {
     latitude: LAT + (i % 3) * 0.0006,
     longitude: LNG + Math.floor(i / 3) * 0.0007,
     capacity: 30, features: {}, congestion: null,
-    operating_hours: { open: '00:00~23:59', closed: '연중무휴' },
+    operating_hours: { open: '24시간', closed: '연중무휴' },
   };
 }
 const ROWS: Record<string, Row[]> = {

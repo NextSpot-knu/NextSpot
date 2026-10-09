@@ -83,7 +83,7 @@ function place(id: string, name: string, rank: number) {
   return {
     id, name, type: 'restaurant', latitude: 35.8363 + rank * 0.0006, longitude: 129.2107, capacity: 30, congestion: null,
     image_url: null, gallery_images: null, features: { first_menu: LONG_MENU }, overview: `${name}은 황리단길에서오래사랑받아온곳입니다`,
-    operating_hours: { open: '00:00~23:59', closed: '연중무휴' }, address: '경상북도 경주시 포석로1050번길', coupon_rate: 0,
+    operating_hours: { open: '24시간', closed: '연중무휴' }, address: '경상북도 경주시 포석로1050번길', coupon_rate: 0,
   };
 }
 
