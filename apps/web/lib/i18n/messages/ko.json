@@ -558,6 +558,8 @@
     "slotOverTimeBudget": "설정한 여행 시간 안에 들르기 어려워요",
     "slotPinUnavailable": "고정한 곳을 이 자리에 넣을 수 없어요",
     "slotHint": "종류를 바꾸거나 도보 시간·여행 시간을 넓혀 보세요",
+    "widenTime": "여행 시간을 {n}분으로 늘려 다시 찾기",
+    "widenTimeNoLimit": "여행 시간 제한 없이 다시 찾기",
     "slotLateNight": "가정 시간을 낮 시간대로 바꾸면 식당·카페 선택지가 넓어져요.",
     "emptyReasonsTitle": "다음 조건을 바꿔 보세요",
     "replanRemoved": "조건에 맞춰 다시 짰어요 · {n}곳이 빠졌어요",

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { CUISINES, CUISINE_INTENT, EMPTY_TRAVEL_CONTEXT, chipCandidates, chipRankingContext, isIndoorEligible, matchesTravelContext, relaxWalkLimit, type TravelContext } from './travelContext';
+import { CUISINES, CUISINE_INTENT, EMPTY_TRAVEL_CONTEXT, chipCandidates, chipRankingContext, isIndoorEligible, matchesTravelContext, relaxWalkLimit, widenTimeBudget, type TravelContext } from './travelContext';
 
 const origin = { lat: 35.84, lng: 129.21 };
 const distance = (_lat1: number, _lng1: number, lat2: number, _lng2: number) => lat2;
@@ -110,5 +110,16 @@ console.log('travelContext empty-context tests passed');
   const none = chipCandidates([{ ...base, latitude: 5000 }], context({}), matcher);
   assert.deepEqual(none.items, []);
 }
+
+// 코스 '여행 시간 늘리기' — 30 → 60 → 120 → 제한 없음(키 자체를 뺀다), 고르지 않았으면 넓힐 것이 없다.
+assert.equal(widenTimeBudget(context({ availableMinutes: 30 }))?.availableMinutes, 60);
+assert.equal(widenTimeBudget(context({ availableMinutes: 60 }))?.availableMinutes, 120);
+{
+  const unlimited = widenTimeBudget(context({ availableMinutes: 120, maxWalkMinutes: 10 }));
+  assert.ok(unlimited);
+  assert.equal('availableMinutes' in unlimited, false);
+  assert.equal(unlimited.maxWalkMinutes, 10);
+}
+assert.equal(widenTimeBudget(context({})), null);
 
 console.log('travelContext chip ranking tests passed');
