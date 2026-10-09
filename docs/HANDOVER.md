@@ -18,7 +18,11 @@
 - Web: https://nextspot-nu.vercel.app — 루트 `vercel.json`이 `npm run build --workspace=apps/web` → `apps/web/out`.
   Vercel 대시보드에 Root Directory를 **설정하지 않는다**(설정하면 워크스페이스 빌드가 깨진다).
 - API: https://nextspot-api.onrender.com (`/health`, `/docs`) — `render.yaml` Blueprint, docker, `plan: free`.
-  다른 문서·기록은 '0.5 CPU/512MB'(유료 Starter 모양)로 적는다 — 실제 플랜은 Render 대시보드로만 확인된다(10-09 미확인).
+  **실제 플랜은 Starter**(`0.5c-512mb` · 0.5 CPU · 512 MB · 슬립 없음 — 10-09 PM 대시보드 확인). `render.yaml` 의 `free` 는
+  틀린 값이라 이 파일이 바뀌는 푸시의 Blueprint 동기화가 무료(0.1 CPU · 슬립)로 되돌릴 수 있다 — `fix/render-plan-starter` 로 고친다.
+  **리전: API 는 오리건, Supabase 는 싱가포르**(10-09 PM 확인) — DB 왕복이 태평양을 건넌다(기존 기록의 '오리건↔서울'은 틀렸다).
+  Render 는 리전을 바꿀 수 없어 이전 = 싱가포르에 새 서비스 + API 주소 교체(Vercel `NEXT_PUBLIC_FASTAPI_URL` · Vault 수집 URL 2개 ·
+  Actions 변수 `BACKEND_HEALTH_URL` · `warmup.yml`·`uptime.yml`) — 절차는 아래 2026-10-09 항목. PM 이 시간 될 때(심사 1차 뒤 권장).
   `render.yaml` 에 빌드 필터가 없다. 웹·문서만 푸시에 Render 가 다시 뜨지 않은 근거는 10-07 push 2 관측 1회뿐이다 —
   대시보드 Build Filters 를 확인하기 전에는 낮 푸시가 API 를 재시작할 수 있다고 본다.
 - DB · Auth · Storage: Supabase 팀 프로젝트. 원격 마이그레이션 적용 상태는 아래 "마이그레이션 확인" 쿼리로만 믿는다.
@@ -253,7 +257,7 @@ from checks order by seq;
 - 검증: check-docs
 - 3차 감사(같은 날 저녁, 클라우드): 10-07 노트북 3차는 10-08 19:25 KST 세션 한도로 끊겨 산출물 없이 사라졌고(캡처는 노트북에만) 새로 했다. 라이브 05af862 를 데스크톱 1366·1536·1920 · 폰 390·360 × ko·en·ja·zh × 라이트·다크 × 11화면 = 139쪽 캡처(익명 세션 1개, API 는 첫 호출만 실제·나머지 캐시 재생 — Render 실호출 수십 건) + 카드 상호작용 실측. **환경 제약**: Kakao 지도 SDK·사이트 글꼴(jsDelivr)·TourAPI/Wikimedia 사진 호스트가 egress 정책에 막혀 지도·사진·글꼴은 못 봤다(잘림 판정은 근사). push 1 뒤 메모 중 이미 해결: 1536×730 '상세 정보 펼치기' 첫 화면 안(하단 557px, 1366·1920 도) · SPOT 설명은 카드 흐름 안 상자(펼쳐도 버튼 674px) · 폰 펼친 카드 위끝 173/160px 로 검색창(107px) 안 가림 · ♿ 저장 뒤 하이드레이션 오류 없음 · /waiting 빈 상태 행동형 문구 · 관제 데모 알약 단일 · 브랜드 404 · 콘솔 데모 입구. 새로 찾아 고친 것(PR #14 `fix/judge-view-r3`, 웹만): '경주가 처음이라면' 신라 핵심 산책·한옥 카페가 눌러도 무반응(기준점 별칭 '대릉원(천마총)' ↔ 운영 이름 '천마총(대릉원)') · 코스가 여행 시간 때문에 비면 막다른 길 → '여행 시간을 {n}분으로 늘려 다시 찾기' · 마이페이지 게스트 이름·연결 문구가 en·ja·zh 에서 한국어. PM 결정으로 넘김: 가정 시간을 바꿔도 1위가 그대로(웹은 다시 요청, 서버 순위 — 21번) · en·ja·zh 장소 소개 한국어 원문(I32) · 코스 첫 정류지 '추정 혼잡' · 첫 카드에 혼잡 정보 없음(24시간 넘은 관측 숨김) · 콜드 캐시 로딩 · 대기 분 올림/반올림. 외부 평가 2건(PM 공유, 71·79점)의 항목은 라이브로 하나씩 대조 — 콘솔 로그인 필요·404·마이 임팩트 무반응·축제 재열기·부정 문구('영업시간 미확인'·'N일 전 기준')는 이미 해결이거나 재현 안 됨.
 - 다음·미결: `fix/llm-rate-limits-1002` 는 main 위로 다시 올려 PR #13 `fix/llm-rate-limits-1009`(search.py 충돌 해결, CI 전부 초록 — e2e 포함) — main 반영(API 재시작)은 PM. 원격 `-1002` 는 지워도 된다. 노트북 전용 `perf/waiting-board-1002`(`f7471f2` 유형별 리팩터 · `2cde078` `/waiting` 한 요청 보드, `WAITING_BOARD_ENDPOINT` 기본 꺼짐)은 심사 뒤, 원하면 PM 이 원격에 올린다 · Keep-Warm 이 4~7시간마다라 심사일 캐시 예열을 믿을 수 없다 — pg_cron 이 `/api/v1/warmup` 도 10분마다 부르는 잡(마이그레이션 + SQL Editor 적용)을 PM 결정으로 · 실사진 DB 정리 ①~③ 적용 여부 미확인(10-03 전 예정이었다) — 적용됐으면 줄을 지우고 ⑤ 변수 확인.
-- 사람 작업: Actions Secret `JWT_SECRET`(+ 시크릿 5개 확인) · Render 대시보드에서 실제 플랜과 Build Filters 확인 · 클라우드 세션 환경의 허용 도메인에 `nextspot-nu.vercel.app`·`nextspot-api.onrender.com`·`*.supabase.co`(라이브 확인·3차 감사 전제) · PR #12·#13·#14 main 반영(이 세션의 main 푸시는 권한 분류기가 막는다 — GitHub 에서 병합하거나 권한 규칙 추가) · 3차 화면 확인용 추가 허용 도메인 `dapi.kakao.com`·`*.daumcdn.net`·`cdn.jsdelivr.net`·`tong.visitkorea.or.kr`·`upload.wikimedia.org`
+- 사람 작업: Actions Secret `JWT_SECRET`(+ 시크릿 5개 확인) · Render 대시보드에서 Build Filters 확인(플랜은 Starter 확인됨) · Render 싱가포르 이전(새 서비스 `nextspot-api-sg` · 환경변수 복사 · /health 확인 → Vercel `NEXT_PUBLIC_FASTAPI_URL` 교체·재배포 → `configure_area_demand_collection`·`configure_seoul_citydata_collection` 로 Vault URL 교체 → Actions `BACKEND_HEALTH_URL` → 오리건 2~3일 유지 뒤 정지, 되돌림 = Vercel 즉시 롤백) · 클라우드 세션 환경의 허용 도메인에 `nextspot-nu.vercel.app`·`nextspot-api.onrender.com`·`*.supabase.co`(라이브 확인·3차 감사 전제) · PR #12·#13·#14 main 반영(이 세션의 main 푸시는 권한 분류기가 막는다 — GitHub 에서 병합하거나 권한 규칙 추가) · 3차 화면 확인용 추가 허용 도메인 `dapi.kakao.com`·`*.daumcdn.net`·`cdn.jsdelivr.net`·`tong.visitkorea.or.kr`·`upload.wikimedia.org`
 
 ## 2026-10-07 — 심사 화면 배치 B(B1~B5): 랜딩 바로 가기 · 추천 카드·음성 비서 · 혼잡 예측 줄 · 콘솔 배치 · 대기 보드·대안·코스 → `fix/judge-view-1007`
 
