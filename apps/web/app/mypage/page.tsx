@@ -13,7 +13,7 @@ import {
 import { toast } from 'sonner';
 import { createPublicClient } from '@/lib/supabase';
 // 소셜 identity 추림 — 이메일 없는 계정의 표시 신원 판정에 쓴다(단일 소스).
-import { deriveAuthState } from '@/lib/oauthFlow';
+import { deriveAuthState, type OAuthProvider } from '@/lib/oauthFlow';
 // 콘솔 진입점은 역할로 가른다 — 일반 유저에게는 노출하지 않는다(lib/account.tsx).
 import {
   useAccount,
@@ -170,8 +170,11 @@ function ConsoleEntries() {
 }
 
 interface UserProfile {
-  name: string;
+  /** null = 게스트(표시 이름은 렌더 때 현재 언어로 — 아래 effect 는 로케일이 정해지기 전에 돈다). */
+  name: string | null;
   email: string;
+  /** 이메일 없는 소셜 계정이 어디로 연결됐는가. 문구는 렌더 때 현재 언어로 만든다. */
+  linkedProvider: OAuthProvider | null;
   /** 익명이 아닌 계정으로 로그인했는가(세션 기준). 게스트에게는 로그아웃을 보이지 않는다. */
   isMember: boolean;
   routes: number;
@@ -270,12 +273,15 @@ export default function MyPage() {
       setIsLoading(true);
       try {
         // 프로필명/이메일은 하드코딩 실명 대신 로그인 세션에서 파생한다.
-        // 비로그인·목 세션이면 user 가 null 이므로 명확한 플레이스홀더로 폴백(회귀 없이 데모 무중단).
-        let displayName = t('mypage.guestName');
+        // 비로그인·목 세션이면 user 가 null 이므로 게스트(null)로 둔다 — 문구는 렌더 때 고른다.
+        // 이 effect 는 [] 라 첫 렌더의 t(정적 export 의 첫 렌더는 늘 ko)를 잡는다. 여기서 문장을 만들면
+        // en·ja·zh 방문자에게도 '게스트 탐험가' 가 남는다(10-09 라이브 감사).
+        let displayName: string | null = null;
         // 빈 문자열 = 표시할 신원이 없음(아래 렌더에서 줄 자체를 숨긴다).
         // 예전엔 'guest@nextspot.app' 을 기본값으로 뒀는데, 카카오처럼 이메일을 주지 않는
         // 소셜 계정으로 **로그인한** 사용자에게도 그 가짜 주소가 그대로 보였다(게스트가 아닌데 게스트 주소).
         let displayEmail = '';
+        let linkedProvider: UserProfile['linkedProvider'] = null;
         let avatar: string | null = null;
         let hasRemoteName = false;
         let isMember = false;
@@ -292,11 +298,7 @@ export default function MyPage() {
             // (카카오는 account_email 이 비즈 앱 전용이라 이메일이 없을 수 있다 — OAUTH_PLAN.)
             // 표시 이름은 handle_new_user 가 넣어 둔 public.users.nickname 이 아래에서 덮어쓴다.
             const [provider] = deriveAuthState(user).providers;
-            if (provider) {
-              displayEmail = t('auth.linkedVia', {
-                provider: t(provider === 'kakao' ? 'auth.providerKakao' : 'auth.providerGoogle'),
-              });
-            }
+            if (provider) linkedProvider = provider;
           }
           // OAuth 연동 사용자면 public.users 의 nickname/avatar_url(트리거·백필로 채워짐)을 우선 사용한다.
           if (user) {
@@ -341,6 +343,7 @@ export default function MyPage() {
         setProfile({
           name: displayName,
           email: displayEmail,
+          linkedProvider,
           isMember,
           routes: 0,
           saved: savedCount,
@@ -357,9 +360,16 @@ export default function MyPage() {
     fetchProfile();
   }, []);
 
+  // 게스트 이름과 '…로 연결됨' 은 지금 언어로 — effect 가 저장한 것은 사실(null·연결처)뿐이다.
+  const profileName = profile?.name ?? t('mypage.guestName');
+  const profileEmail = profile?.email
+    || (profile?.linkedProvider
+      ? t('auth.linkedVia', { provider: t(profile.linkedProvider === 'kakao' ? 'auth.providerKakao' : 'auth.providerGoogle') })
+      : '');
+
   // 프로필 수정 모달 열기 — 현재 표시 이름을 입력값 초기값으로 채운다.
   const handleOpenEdit = () => {
-    setNameInput(profile?.name ?? '');
+    setNameInput(profile?.name ?? t('mypage.guestName'));
     setIsEditOpen(true);
   };
 
@@ -491,7 +501,7 @@ export default function MyPage() {
                       {/* OAuth 연동 시 프로바이더 아바타, 아니면 기본 아이콘 */}
                       {profile.avatar ? (
                         // eslint-disable-next-line @next/next/no-img-element
-                        <img src={profile.avatar} alt={profile.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                        <img src={profile.avatar} alt={profileName} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                       ) : (
                         <div className="w-full h-full flex items-center justify-center text-gold">
                           <User size={40} />
@@ -499,9 +509,9 @@ export default function MyPage() {
                       )}
                     </div>
                   </div>
-                  <h2 className="text-2xl font-bold font-serif text-muk mb-1 break-words max-w-full text-center">{profile.name}</h2>
-                  {profile.email && (
-                    <p className="text-sm text-muk-soft mb-4 break-all max-w-full text-center">{profile.email}</p>
+                  <h2 className="text-2xl font-bold font-serif text-muk mb-1 break-words max-w-full text-center">{profileName}</h2>
+                  {profileEmail && (
+                    <p className="text-sm text-muk-soft mb-4 break-all max-w-full text-center">{profileEmail}</p>
                   )}
 
                   <div className="px-4 py-1 rounded-full bg-gold/15 border border-gold/30 text-gold-deep text-xs font-semibold mb-6">

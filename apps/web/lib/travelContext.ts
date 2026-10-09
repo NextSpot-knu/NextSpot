@@ -96,6 +96,16 @@ export function relaxWalkLimit(context: TravelContext): TravelContext | null {
   return rest;
 }
 
+/** 코스가 '설정한 여행 시간 안에 들르기 어려워요' 로 비었을 때 한 번에 넓힐 다음 여행 시간.
+ *  30 → 60 → 120 → 제한 없음(키를 뺀다 — 서버에 null 로 실려 가지 않게). 고르지 않았으면 넓힐 것이 없어 null. */
+export function widenTimeBudget(context: TravelContext): TravelContext | null {
+  if (context.availableMinutes === undefined) return null;
+  if (context.availableMinutes === 30) return { ...context, availableMinutes: 60 };
+  if (context.availableMinutes === 60) return { ...context, availableMinutes: 120 };
+  const { availableMinutes: _dropped, ...rest } = context;
+  return rest;
+}
+
 /** 칩 하나의 후보와 그때 쓴 조건 — 엄격한 조건으로 0곳이고 도보 제한이 있으면 그것만 풀어 한 번 더 본다.
  *  카드는 실제 도보 분을 그대로 말하므로(예: '도보 12분') 넓힌 사실을 따로 알리지 않는다. */
 export function chipCandidates<T>(

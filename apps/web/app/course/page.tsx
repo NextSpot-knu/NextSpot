@@ -43,7 +43,7 @@ import LoadingReveal from "@/components/LoadingReveal";
 import { encodeStops, parseShareParam } from "@/lib/courseShare";
 import { describeReplan } from "@/lib/coursePlanDiff";
 import { stopCalmerOnArrival } from "@/lib/courseStopReason";
-import { loadTravelContext } from "@/lib/travelContext";
+import { loadTravelContext, saveTravelContext, widenTimeBudget } from "@/lib/travelContext";
 import { recordActiveTrip } from "@/lib/visits";
 import { track } from "@/lib/analytics";
 import { openDrivingDirections, openWalkingDirections } from "@/lib/navigation";
@@ -583,6 +583,16 @@ function CourseContent() {
     // 억제할 exhaustive-deps 경고가 없다 — 예전에는 hasLoadedOnce 를 읽느라 필요했다.
   }, [fetchCourse]);
 
+  // 빈 코스가 '설정한 여행 시간 안에 들르기 어려워요' 일 때의 한 번 누르기 — 여행 시간을 한 단계 넓혀 저장하고
+  // 곧바로 다시 짠다(조언 문장만 남기고 /setup 으로 돌려보내던 막다른 길, 10-09 감사). 서명에 조건이 들어가므로
+  // 조용한 새로고침이 아니라 보통 로딩으로 다시 짠다.
+  const widenTimeAndReplan = useCallback(() => {
+    const next = widenTimeBudget(loadTravelContext());
+    if (!next) return;
+    saveTravelContext(next);
+    void fetchCourse();
+  }, [fetchCourse]);
+
   // 3b) 공유 모드 정류지 복원 — anon RLS(createPublicClient)로 facilities 를 id in (...) 조회해
   //     이름/좌표는 조회 시점 최신값으로, 도착 오프셋/혼잡은 공유 시점 스냅샷(parsedShare) 그대로 채운다.
   //     spotScore/reason 은 URL 에 싣지 않는 값이라 정직하게 비워두고, StopRow 가 readOnly 일 때 숨긴다.
@@ -926,7 +936,7 @@ function CourseContent() {
                 ) : activeError ? (
                   <ErrorState message={activeError} onRetry={isShareMode ? fetchSharedStops : fetchCourse} />
                 ) : activeStops.length === 0 ? (
-                  <EmptyState outcomes={isShareMode ? [] : slotOutcomes} />
+                  <EmptyState outcomes={isShareMode ? [] : slotOutcomes} onWidenTime={isShareMode ? undefined : widenTimeAndReplan} />
                 ) : (
                   <div className="space-y-3">
                     <ViewToggle mode={viewMode} onChange={setViewMode} />
@@ -1846,8 +1856,13 @@ function CourseSkeleton({ mode }: { mode: "course" | "shared" }) {
  * 그걸 받고도 쓰지 않아, 밤에 심야 규칙으로 후보가 전부 빠져도 사용자는 "추천할 코스를
  * 찾지 못했어요" 한 줄만 봤다 — 조건을 바꿔야 하는지, 기다려야 하는지, 앱이 고장인지
  * 구분할 방법이 없었다. 사유가 있으면 그것부터 말한다. */
-function EmptyState({ outcomes = [] }: { outcomes?: SlotOutcome[] }) {
+function EmptyState({ outcomes = [], onWidenTime }: { outcomes?: SlotOutcome[]; onWidenTime?: () => void }) {
   const t = useT();
+  // 여행 시간 때문에 빈 자리가 있고 넓힐 여지가 있을 때만 — 30 → 60 → 120 → 제한 없음.
+  // 이 상자는 계획 응답 뒤에만 그려지므로(첫 렌더·프리렌더에는 없다) 저장소를 읽어도 하이드레이션과 무관하다.
+  const widened = onWidenTime && outcomes.some((o) => o.status === 'over_time_budget')
+    ? widenTimeBudget(loadTravelContext())
+    : null;
   // 같은 사유가 자리마다 반복되므로(대개 전 자리가 같은 이유로 빈다) 한 번씩만 보여 준다.
   // 사유 문구는 종류 이름을 품을 수 있으므로(자리마다 다르다) 키가 아니라 **완성된 문장**으로
   // 모아 중복을 없앤다. 키로만 묶으면 '식당이 없어요' 와 '카페가 없어요' 가 하나로 뭉개진다.
@@ -1876,6 +1891,18 @@ function EmptyState({ outcomes = [] }: { outcomes?: SlotOutcome[] }) {
             ))}
           </ul>
           <p className="pt-1 text-[11px] text-muk-soft leading-relaxed">{t('course.slotHint')}</p>
+          {widened && (
+            <button
+              type="button"
+              onClick={onWidenTime}
+              data-testid="course-widen-time"
+              className="toss-pressable mt-2 inline-flex min-h-11 items-center gap-1.5 px-5 rounded-full cta-primary text-[13px] font-bold shadow-[0_4px_14px_rgba(168,70,47,0.28)] transition-[filter] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+            >
+              {widened.availableMinutes
+                ? t('course.widenTime', { n: widened.availableMinutes })
+                : t('course.widenTimeNoLimit')}
+            </button>
+          )}
         </div>
       ) : (
         <p className="text-xs text-muk-soft leading-relaxed">{t('course.emptyBody')}</p>

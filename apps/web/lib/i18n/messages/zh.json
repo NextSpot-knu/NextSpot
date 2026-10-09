@@ -564,6 +564,8 @@
     "slotOverTimeBudget": "超出你设定的行程时间",
     "slotPinUnavailable": "固定的地点无法放入此站",
     "slotHint": "换个种类，或放宽步行时间与行程时间",
+    "widenTime": "将行程时间放宽到{n}分钟后重新查找",
+    "widenTimeNoLimit": "不限行程时间重新查找",
     "slotLateNight": "切换到白天时段，可获得更多餐厅和咖啡馆选择。",
     "emptyReasonsTitle": "试试调整这些条件",
     "replanRemoved": "已按条件重新规划 · 移除 {n} 处",

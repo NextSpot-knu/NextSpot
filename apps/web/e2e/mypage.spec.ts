@@ -128,6 +128,23 @@ for (const [locale, footer] of [
   });
 }
 
+// 게스트 이름은 고른 언어로 — 프로필 effect 가 첫 렌더(늘 ko)의 t 로 문장을 만들어 en·ja·zh 에도
+// '게스트 탐험가' 가 남던 것(10-09 라이브 감사). 고치기 전에는 세 로케일 모두 실패한다.
+for (const [locale, guest] of [
+  ['en', 'Guest Explorer'],
+  ['ja', 'ゲスト探検家'],
+  ['zh', '访客探索者'],
+] as const) {
+  test(`${locale} guest profile name is in the chosen language`, async ({ page }) => {
+    test.setTimeout(90_000);
+    await stubApis(page, { role: 'tourist', is_anonymous: true }, ZERO_IMPACT);
+    await page.addInitScript((code) => localStorage.setItem('nextspot_locale', code), locale);
+    await page.goto('/mypage');
+    await expect(page.getByRole('heading', { name: guest, exact: true })).toBeVisible({ timeout: 30_000 });
+    await expect(page.locator('body')).not.toContainText('게스트 탐험가');
+  });
+}
+
 // ── 마이페이지 콘솔 카드 ────────────────────────────────────────────────────
 
 test('mypage shows the console preview right under the profile, in the first desktop view', async ({ page }) => {

@@ -19,8 +19,12 @@ jobs:
   warm:
     runs-on: ubuntu-latest
     timeout-minutes: 3
+    # API 주소는 Repository Variable BACKEND_HEALTH_URL(…/health) 하나로 정한다 — 리전 이전처럼 주소가 바뀔 때
+    # 그 값만 바꾸면 이 워크플로·uptime·area-demand-alert 가 함께 따라간다. 미설정이면 지금 운영 주소.
+    env:
+      API_HEALTH_URL: ${{ vars.BACKEND_HEALTH_URL || 'https://nextspot-api.onrender.com/health' }}
     steps:
       - name: Trigger cache warmup
-        run: curl -fsS --max-time 30 https://nextspot-api.onrender.com/api/v1/warmup || true
+        run: curl -fsS --max-time 30 "${API_HEALTH_URL%/health}/api/v1/warmup" || true
       - name: Health ping
-        run: curl -fsS --max-time 60 https://nextspot-api.onrender.com/health || true
+        run: curl -fsS --max-time 60 "$API_HEALTH_URL" || true

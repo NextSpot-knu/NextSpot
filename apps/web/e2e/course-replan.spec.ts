@@ -399,3 +399,39 @@ test('빈 코스에서 다음 선택을 안내한다', async ({ page }) => {
   await expect(page.getByText('도보 시간이나 조건을 넓혀 주변 장소를 더 찾아보세요.')).toBeVisible();
   await expect(page.getByText('가정 시간을 낮 시간대로 바꾸면 식당·카페 선택지가 넓어져요.')).toBeVisible();
 });
+
+// 빈 코스가 '설정한 여행 시간 안에 들르기 어려워요' 면 한 번 눌러 여행 시간을 넓혀 다시 짠다(10-09 감사 —
+// 30분을 고른 심사위원이 조언 문장만 보고 멈추던 막다른 길). 고치기 전에는 버튼이 없어 실패한다.
+test('an empty course caused by the trip time offers a one-tap wider time and replans', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('nextspot_setup_prefs', JSON.stringify({
+      version: 2, categories: [], availableMinutes: 30, requiredAttributes: [], excludeVisited: false, visitedFacilityIds: [],
+    }));
+  });
+  let calls = 0;
+  const requests = await stubCoursePlan(page, {
+    respondWith: () => {
+      calls += 1;
+      if (calls > 1) return buildPlan({});
+      return {
+        plan_id: 'empty',
+        stops: [],
+        slot_outcomes: AUTO_SEQUENCE.map((type, index) => ({
+          order: index + 1, requested_type: type, status: 'over_time_budget', facility_id: null, pinned: false,
+        })),
+      };
+    },
+  });
+  await page.goto('/course');
+
+  const widen = page.getByRole('button', { name: '여행 시간을 60분으로 늘려 다시 찾기' });
+  await expect(widen).toBeVisible({ timeout: 30_000 });
+  await widen.click();
+
+  await expect(stopHeadings(page).first()).toBeVisible({ timeout: 20_000 });
+  await expect.poll(() => requests.length).toBe(2);
+  const sent = requests[1] as unknown as { context?: { available_minutes?: number } };
+  expect(sent.context?.available_minutes).toBe(60);
+  const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('nextspot_setup_prefs') ?? '{}').availableMinutes);
+  expect(saved).toBe(60);
+});

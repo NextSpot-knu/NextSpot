@@ -8,7 +8,10 @@ services:
     runtime: docker
     dockerfilePath: ./apps/api/Dockerfile
     dockerContext: ./apps/api
-    plan: free
+    # 운영은 Starter(0.5 CPU · 512 MB, 슬립 없음 — 2026-10-09 PM 대시보드 확인). 플랜 ID 는 2026-08 개편 뒤 이름
+    # (구 이름 'starter' 도 유효). 'free'(0.1 CPU · 15분 무요청 시 슬립)로 두면 이 파일이 바뀌는 푸시의
+    # Blueprint 동기화가 서비스를 무료로 되돌릴 수 있다 — 대시보드와 같은 값으로 둔다.
+    plan: 0.5c-512mb
     healthCheckPath: /health
     envVars:
       # --- Supabase (apps/api/app/core/config.py 필수값) ---
