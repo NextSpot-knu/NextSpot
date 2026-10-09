@@ -6,7 +6,7 @@
 
 ## 배포 상태
 
-- **main = 프로덕션.** main push가 Vercel(web)·Render(api)를 자동 배포한다. **2026-10-07 15:31 KST main `f031140..c347129`(push 2 = 배치 B1~B5 웹·문서만, PR #11, 아래 2026-10-07) — PR CI green(e2e 12분 43초), Vercel 프로덕션 `dpl_4VwJyqBNkn5yYZqsNKrGiPJf41mn` READY 15:32, Render 는 재배포하지 않음(API 파일이 안 바뀌면 다시 뜨지 않는다 — 10분 `/health` 40회 200, 프로세스 그대로), 라이브 확인: 데스크톱 랜딩 '이렇게 써 보세요' 바로가기 5·자동 팝업 없음, 🔮 혼잡 예측 '+2시간 후' → '+2시간 후 예측' 배지 2.7초·카드 '+2시간 후 기준', 첫 카드 1.6~2.9초(배포 직후 첫 1분은 24초 — 캐시 빔), /waiting 다수결 한 줄, 사장님·관제 데모, 5명 동시 첫 방문 5xx·429 0. 되돌림 = Vercel `dpl_Gx96gkGe2D7ZAEdRoTefpc3W1dcs`(push 1). 그 전 2026-10-07 01:29 KST `0be9872..f031140`(push 1 = B0 + 배치 A + C1, PR #10, 아래 2026-10-06) — CI green, Vercel `dpl_Gx96gkGe2D7ZAEdRoTefpc3W1dcs`, Render 재시작 01:30·`/health` 44회 200, 골굴사 검색 127693, 데스크톱·폰 스모크.** 그 전 origin/main 은 `0be9872`(10-02 `release/1002`, 아래 2026-10-02 — 이 줄에 배포 확인 기록 없음). 그 전 확인된 반영은 2026-09-30 01:24 KST `dd2afc9`(사용자 푸시, `f0f440b` 위 fast-forward) — 추천 카드 합성 id 수정 `afa4ec0`(아래 2026-09-29b) · P3 배치 B csr 커널(스위치 꺼진 채 memo — API 동작 불변, 아래 2026-09-29c) · 문서. CI green(4잡, e2e 포함 01:28 KST) · Vercel 번들에 `afa4ec0` 확인 · Render `/health` 새 프로세스(참조 스냅샷 ready·1,684곳, `parking_history` rpc) — 데스크톱 확인 09-30 01:30. 그 전 2026-09-29 오후 `f0f440b`(= `release/0930`, CI green 15:44 KST) — API 재설계 P3 배치 A(아래 2026-09-28e) · 대기 보드 웹 27건(아래 2026-09-29). Vercel 은 이 번들을 낸다(09-29 23시, i18n 청크 해시가 로컬 빌드와 같음 — 데스크톱 확인). Render 배포 커밋은 `/health` 로는 안 보인다(`reference_snapshot` ready·1,684곳, `parking_history.mode=rpc`). 그 전 2026-09-29 새벽 야간 배치 — API 재설계 P2a(주차 이력 행렬 · 스위치 `AREA_DEMAND_SOURCE` 기본 `rpc` = 손님 쪽 동작 불변, 아래 2026-09-28d) · Wikimedia 사진 출처 줄·ⓒ 표시 자리 · P0b 웹 7건(아래 2026-09-28c). 그 전 2026-09-28 P0c 일배치·수집 경보(`367514c`, 아래 2026-09-28b). 그 전 같은 날 API 참조 스냅샷 P0a·P1(`fd5af2d`..`4d56afa`, 아래 2026-09-28 — 사용자가 직접 푸시, Render 가동 확인: `/health.reference_snapshot` ready·1,682곳, 지도 TTFB 0.24~0.54초·304 동작). 그 전 2026-09-27 TourAPI 일배치 재시도(`58c8bfc`). 그 전 같은 날 Supabase 키 공백 정리(아래 2026-09-26c 끝). 그 전 2026-09-26 Supabase 연결 격리(`bd44110`, 아래 2026-09-26c). 그 전 같은 날 관제 대시보드 추정·예측·시나리오 모드(`990b315`..`c2f97ad`, 아래 2026-09-26b). 그 전 같은 날 운영 긴급 수정·메모리·관광객 CPU(`0ae42b8`..`6b80f50`, 아래 2026-09-26). 그 전 2026-09-25 API OOM 대응(`0408bd7`..`0ce394d`). 그 전 2026-09-22 `ec127ee`, 09-21 —
+- **main = 프로덕션.** main push가 Vercel(web)·Render(api)를 자동 배포한다. **2026-10-07 15:47 KST main `c347129..05af862`(CI 만 — e2e 잡 상한 15 → 30분) — main CI green(run 37583488645, 4잡), Vercel 프로덕션 `dpl_BQEyd1sREmLTUDpYWtRwZZmo3ij4` READY(웹 코드 무변경). 10-09 클라우드 세션 재확인: origin/main·Vercel id 그대로, 예약 워크플로 정상(학습 제외 — 아래 2026-10-09). 되돌림 = Vercel `dpl_4VwJyqBNkn5yYZqsNKrGiPJf41mn`(push 2).** 그 전 **2026-10-07 15:31 KST main `f031140..c347129`(push 2 = 배치 B1~B5 웹·문서만, PR #11, 아래 2026-10-07) — PR CI green(e2e 12분 43초), Vercel 프로덕션 `dpl_4VwJyqBNkn5yYZqsNKrGiPJf41mn` READY 15:32, Render 는 재배포하지 않음(API 파일이 안 바뀌면 다시 뜨지 않는다 — 10분 `/health` 40회 200, 프로세스 그대로), 라이브 확인: 데스크톱 랜딩 '이렇게 써 보세요' 바로가기 5·자동 팝업 없음, 🔮 혼잡 예측 '+2시간 후' → '+2시간 후 예측' 배지 2.7초·카드 '+2시간 후 기준', 첫 카드 1.6~2.9초(배포 직후 첫 1분은 24초 — 캐시 빔), /waiting 다수결 한 줄, 사장님·관제 데모, 5명 동시 첫 방문 5xx·429 0. 되돌림 = Vercel `dpl_Gx96gkGe2D7ZAEdRoTefpc3W1dcs`(push 1). 그 전 2026-10-07 01:29 KST `0be9872..f031140`(push 1 = B0 + 배치 A + C1, PR #10, 아래 2026-10-06) — CI green, Vercel `dpl_Gx96gkGe2D7ZAEdRoTefpc3W1dcs`, Render 재시작 01:30·`/health` 44회 200, 골굴사 검색 127693, 데스크톱·폰 스모크.** 그 전 origin/main 은 `0be9872`(10-02 `release/1002`, 아래 2026-10-02 — 이 줄에 배포 확인 기록 없음). 그 전 확인된 반영은 2026-09-30 01:24 KST `dd2afc9`(사용자 푸시, `f0f440b` 위 fast-forward) — 추천 카드 합성 id 수정 `afa4ec0`(아래 2026-09-29b) · P3 배치 B csr 커널(스위치 꺼진 채 memo — API 동작 불변, 아래 2026-09-29c) · 문서. CI green(4잡, e2e 포함 01:28 KST) · Vercel 번들에 `afa4ec0` 확인 · Render `/health` 새 프로세스(참조 스냅샷 ready·1,684곳, `parking_history` rpc) — 데스크톱 확인 09-30 01:30. 그 전 2026-09-29 오후 `f0f440b`(= `release/0930`, CI green 15:44 KST) — API 재설계 P3 배치 A(아래 2026-09-28e) · 대기 보드 웹 27건(아래 2026-09-29). Vercel 은 이 번들을 낸다(09-29 23시, i18n 청크 해시가 로컬 빌드와 같음 — 데스크톱 확인). Render 배포 커밋은 `/health` 로는 안 보인다(`reference_snapshot` ready·1,684곳, `parking_history.mode=rpc`). 그 전 2026-09-29 새벽 야간 배치 — API 재설계 P2a(주차 이력 행렬 · 스위치 `AREA_DEMAND_SOURCE` 기본 `rpc` = 손님 쪽 동작 불변, 아래 2026-09-28d) · Wikimedia 사진 출처 줄·ⓒ 표시 자리 · P0b 웹 7건(아래 2026-09-28c). 그 전 2026-09-28 P0c 일배치·수집 경보(`367514c`, 아래 2026-09-28b). 그 전 같은 날 API 참조 스냅샷 P0a·P1(`fd5af2d`..`4d56afa`, 아래 2026-09-28 — 사용자가 직접 푸시, Render 가동 확인: `/health.reference_snapshot` ready·1,682곳, 지도 TTFB 0.24~0.54초·304 동작). 그 전 2026-09-27 TourAPI 일배치 재시도(`58c8bfc`). 그 전 같은 날 Supabase 키 공백 정리(아래 2026-09-26c 끝). 그 전 2026-09-26 Supabase 연결 격리(`bd44110`, 아래 2026-09-26c). 그 전 같은 날 관제 대시보드 추정·예측·시나리오 모드(`990b315`..`c2f97ad`, 아래 2026-09-26b). 그 전 같은 날 운영 긴급 수정·메모리·관광객 CPU(`0ae42b8`..`6b80f50`, 아래 2026-09-26). 그 전 2026-09-25 API OOM 대응(`0408bd7`..`0ce394d`). 그 전 2026-09-22 `ec127ee`, 09-21 —
   `fafdd06`+(심사용 계정 안내 + yunseong 데모 콘솔·비교 헤더·데이터 절 통합, 아래 `2026-09-21b`·`c`; 그전 `374254c`·소개 개편
   `a3b8a6b` 포함). `/guide`는 줄·혼잡으로 잃는 여행 시간과 주변 대안·이동 코스라는
   문제·해결 한 화면만 남겼다. Vercel 응답에서 새 제목·문제 카드·해결 카드가 있고 이전 취향 서사와 기술 설명은 없는 것을 확인했다.
@@ -17,14 +17,18 @@
   실제로 09-06 승격 뒤 e2e 잡이 이틀간 빨간불인 채 main 이 계속 배포됐다. 승격 전에 CI 초록을 확인할 것.
 - Web: https://nextspot-nu.vercel.app — 루트 `vercel.json`이 `npm run build --workspace=apps/web` → `apps/web/out`.
   Vercel 대시보드에 Root Directory를 **설정하지 않는다**(설정하면 워크스페이스 빌드가 깨진다).
-- API: https://nextspot-api.onrender.com (`/health`, `/docs`) — `render.yaml` Blueprint, docker, free plan.
+- API: https://nextspot-api.onrender.com (`/health`, `/docs`) — `render.yaml` Blueprint, docker, `plan: free`.
+  다른 문서·기록은 '0.5 CPU/512MB'(유료 Starter 모양)로 적는다 — 실제 플랜은 Render 대시보드로만 확인된다(10-09 미확인).
+  `render.yaml` 에 빌드 필터가 없다. 웹·문서만 푸시에 Render 가 다시 뜨지 않은 근거는 10-07 push 2 관측 1회뿐이다 —
+  대시보드 Build Filters 를 확인하기 전에는 낮 푸시가 API 를 재시작할 수 있다고 본다.
 - DB · Auth · Storage: Supabase 팀 프로젝트. 원격 마이그레이션 적용 상태는 아래 "마이그레이션 확인" 쿼리로만 믿는다.
 - 스케줄: **Supabase pg_cron**이 10분 주기(`nextspot-area-demand-primary`/`-retry`)로
   `POST /api/v1/area-demand/snapshots/collect`를 서비스 토큰으로 호출(헤더 이름은 `X-Admin-Authorization: Bearer` —
   pg_cron 함수가 아직 이 이름을 쓴다. 정식 `X-Service-Token`도 함께 수용, `authz.py`). GitHub Actions 예약은 **네 개** —
   `ingest`(매일 KST 04:00) · `train-recommendation-model`(매주 월 03:00 KST — **08-23 이후 매주 실패**, 아래 "사람 작업 대기") ·
   `area-demand-alert`(매시 28분 예약, 실제 발화는 3~7시간 간격 — Supabase `area_demand_snapshots` 최신 행이 35분보다 오래면 실패) ·
-  `warmup`(API Keep-Warm, 10분 예약 — `/api/v1/warmup`·`/health`, 역시 best-effort). `collect-area-demand`·`uptime`은 수동이다.
+  `warmup`(API Keep-Warm, 10분 예약 — `/api/v1/warmup`·`/health`, 역시 best-effort: **실제 발화는 4~7시간 간격**,
+  10-06 20:37 ~ 10-09 07:34 UTC 12회 — 캐시 예열을 보장하지 않는다. API 를 깨워 두는 것은 pg_cron 10분 수집이다). `collect-area-demand`·`uptime`은 수동이다.
   `area-demand-alert`는 09-28 이후 실행마다 Supabase 단계로 실제 판정한다(skip 아님 — 09-29 데스크톱이 Actions 단계 결과로 확인).
   Supabase 시크릿이 없으면 옛 API 판정(`BACKEND_HEALTH_URL`), 그것도 없으면 skip.
 - 환경변수 이름·위치·시크릿 목록: [`DEPLOY_AND_ENV.md`](./DEPLOY_AND_ENV.md).
@@ -34,21 +38,22 @@
 
 ## 우선순위
 
-1. **1차 심사자료 제출** — 절차는 저장소 루트 `announcements/` 의
-   `2026 관광데이터 활용 공모전 웹·앱 개발 부문 1차 심사자료 제출 절차 안내 매뉴얼.pdf`,
+1. **심사 기간 운영 유지** — 1차 심사자료는 09-21 제출 끝. 1차 기능 심사는 10월 중(날짜 미공지 — 심사위원이 라이브 URL 에
+   혼자 들어와 심사 계정으로 로그인, TourAPI 호출 이력도 본다) · 10-21 본선 발표 · 10-28 발표 심사 · 11-05 시상(PM 안내 기준 —
+   저장소 문서에는 없다). 세션마다 `/health`·Actions·04:00 적재를 확인하고, API 를 건드리는 푸시는 KST 밤에만.
    데모 전 체크리스트는 [`contest/DEMO_SCENARIO.md`](./contest/DEMO_SCENARIO.md) §0.
-2. **사람 작업 대기** 처리 — 특히 토큰 회전과 Kakao 비즈 앱 전환(아래).
-3. **결정 필요 3건** — "알려진 이슈" ①~③.
-4. 정리 후속: 보안 진단의 상·중 항목 구현(아래 "알려진 이슈") · `ingest.yml` 리포트를 artifact로 보존 ·
-   `apps/web/lib`·`apps/api/app/services`의 점진 이동(규칙은 `AGENTS.md` "새 파일은 어디에").
-5. [`archive/IMPROVEMENT_PLAN.md`](./archive/IMPROVEMENT_PLAN.md) "2026-08-21 갱신" 절의 미완 항목 재확인(09-04 기준 미실측).
+2. **사람 작업 대기** 처리 — 특히 `JWT_SECRET` 시크릿(주간 학습), 배치 D 의 D3·D6, 실사진 DB 정리 ①~③ 적용 여부(아래).
+3. **심사 화면 3차(웹만)** — 라이브 재감사 → 웹 수정 → PR(아래 2026-10-09 "다음·미결").
+4. **`fix/llm-rate-limits-1002`** — "알려진 이슈" ③ 의 구현. main 위로 다시 올리고 게이트 → KST 밤(API 변경).
+5. 심사 뒤: "알려진 이슈" ①·② 결정 · 보안 진단 상·중 항목 · `ingest.yml` 리포트 artifact 보존 ·
+   `apps/web/lib`·`apps/api/app/services` 점진 이동(`AGENTS.md` "새 파일은 어디에") ·
+   [`archive/IMPROVEMENT_PLAN.md`](./archive/IMPROVEMENT_PLAN.md) "2026-08-21 갱신" 절 미완 항목 재확인.
 
 ## 사람 작업 대기
 
 외부 콘솔 접근이 필요해 코드로 못 하는 일. 끝나면 줄을 지우고 "최근 세션"에 한 줄 남긴다.
 
-- [ ] **D2-④ 관광지 1위 '경상북도교육청 발명체험교육관' 숨기기**(10-07 사용자 결정 ④ = 데이터만) — 교육청 학생 체험시설(TourAPI 3453929, 이색체험)이 황리단길 관광지 추천 1위로 뜬다. 같은 테마거리(경주 쌈밥거리 2609826 · 경주 금리단길 2992067)는 실제 관광지라 둔다. SQL Editor: `update public.facilities set is_active = false, features = coalesce(features, '{}'::jsonb) || jsonb_build_object('manual_hidden', jsonb_build_object('reason', '교육청 학생 체험시설 — 관광지 추천 1위로 부적합(심사 화면 감사)', 'decided', '2026-10-07')) where id = '9ffe4a0d-19d5-4e45-935c-938d910b4f57' and contentid = '3453929';` (1행 갱신 확인 · 밤 적재가 `manual_hidden` 을 지킨다 · 되돌림 `update public.facilities set is_active = true, features = features - 'manual_hidden' where id = '9ffe4a0d-19d5-4e45-935c-938d910b4f57';`).
-- [ ] **심사 대비 배치 D(아래 2026-10-06) — D1 끝(2026-10-06 사용자 설정: Supabase Auth Rate Limits 익명 로그인 30 → **300/h per IP**, `DEPLOY_AND_ENV.md` 1-2)**: D2 끝(10-07 사용자 '계속' = 권장안 그대로 — ① 유지 ② 승인 ③ 34회 수용 ④ 데이터만, 아래 D2-④ SQL) — 당시 결정 4가지: ① 밤의 첫 화면 자동 칩 전환(계획 밖) 유지/끄기 ② 앞면 취향 일치율 규칙(60% 이상·후보마다 다를 때만, 50% 문턱 질문과 함께) ③ 차가운 심사 여정 Render 호출 수(계획 12회 — 잰 값은 아래) 수용 여부와 배포 직후 밤 5세션 스모크 ④ 관광지 1위가 교육청 체험관·상점가·먹자골목인 것(데이터·순위 — 21번 미룸, 데이터만 재분류 / 관광지 후보에서 제외 / I28 열린 관광지 단계 중 택1) · D3 심사 가게(이풍녀 구로쌈밥·맥심가옥) `coupon_rate` < 15% 와 `system_settings`(점검 꺼짐·공지 빔) 읽기 확인 — 심사 예상 주 아침마다 · D4 월정교 시드 연결만(PM_STEPS 6·7) · D5 반려동물 API 활용신청(🐾 원할 때) · D6 배포 뒤 `openapi@naver.com`·`openapi@gmail.com` 로그인 첫 화면 확인 · D7(선택) 심사일 전날 밤 API Keep-Warm 수동 1회.
+- [ ] **심사 대비 배치 D(아래 2026-10-06) — D1 끝(2026-10-06 사용자 설정: Supabase Auth Rate Limits 익명 로그인 30 → **300/h per IP**, `DEPLOY_AND_ENV.md` 1-2)**: D2 끝(10-07 사용자 '계속' = 권장안 그대로 — ① 유지 ② 승인 ③ 34회 수용 ④ 데이터만 — ④ 숨기기 SQL 은 10-08 ~19:25 KST PM 적용, 아래 2026-10-09) — 당시 결정 4가지: ① 밤의 첫 화면 자동 칩 전환(계획 밖) 유지/끄기 ② 앞면 취향 일치율 규칙(60% 이상·후보마다 다를 때만, 50% 문턱 질문과 함께) ③ 차가운 심사 여정 Render 호출 수(계획 12회 — 잰 값은 아래) 수용 여부와 배포 직후 밤 5세션 스모크 ④ 관광지 1위가 교육청 체험관·상점가·먹자골목인 것(데이터·순위 — 21번 미룸, 데이터만 재분류 / 관광지 후보에서 제외 / I28 열린 관광지 단계 중 택1) · D3 심사 가게(이풍녀 구로쌈밥·맥심가옥) `coupon_rate` < 15% 와 `system_settings`(점검 꺼짐·공지 빔) 읽기 확인 — 심사 예상 주 아침마다 · D4 월정교 시드 연결만(PM_STEPS 6·7) · D5 반려동물 API 활용신청(🐾 원할 때) · D6 배포 뒤 `openapi@naver.com`·`openapi@gmail.com` 로그인 첫 화면 확인 · D7(선택) 심사일 전날 밤 API Keep-Warm 수동 1회.
 - [ ] **P2a shadow 게이트** — Render `AREA_DEMAND_SOURCE=shadow` 는 **2026-09-30 01:37 KST 가동**(사용자 설정, `/health`: ready·rows 5,352·lots 4·failures 0·동기화 31초). **10-01 01:37 이후**(재시작 1회 포함) 게이트와 go/no-go 측정 → `matrix`.
       순서·게이트·되돌림(`rpc`, 재시작 1~2분)·볼 것은 [`API_ARCHITECTURE_PLAN.md`](./API_ARCHITECTURE_PLAN.md) "P2a 전환 절차".
 - [ ] **P3 배치 A Render 로그 확인**(09-29 `f0f440b` 로 반영) — 예열은 Keep-Warm 워크플로가 이미 부른다(반영 뒤 06:53Z·10:36Z 실행). Render 로그에서 `walking_graph_presnap`·`warmup_run_done` 이 보이는지, `merchant_boost_timesale_fetch_failed`·`availability_evidence_unavailable`(추천·by-type·지도)이 늘지 않았는지. 되돌림 env `WALKING_ROUTE_KERNEL=legacy`(재시작) — 아래 2026-09-28e. 반영 전 PM 확인으로 적었던 두 가지(영업 근거 한 번 조회의 실패 범위가 `/infrastructures` 지도에도 적용 · 기존 테스트 두 곳 변경)는 이미 운영에 있다.
@@ -139,11 +144,13 @@
 - [ ] **Render 로그에서 `X-Forwarded-For` 원 헤더 모양 1회 확인** — 리미터의 IP 추출 방향(첫 항목/마지막 항목/`CF-Connecting-IP`)을
       정하기 위한 관측(보안 진단 중 항목). 결과를 이 문서 "알려진 이슈"에 적는다.
 - [ ] **심사 계정 2개 브라우저 로그인 확인** — `openapi@naver.com` → `/merchant`, `openapi@gmail.com` → `/admin/dashboard`.
-- [ ] **주간 학습 `train-recommendation-model` 이 08-23 이후 6주 연속 실패** — 매번 `Create candidate` 단계(`scripts/train.py`).
-      Actions 탭 → 최근 실행 → 그 단계 로그 끝 한 줄로 갈린다: `verified observations N < M`·`holdout`·`observations` 면
-      학습 자료 게이트가 일부러 멈춘 것(시크릿 문제 아님 — 자료가 차기 전까지는 정상), 설정·부팅 오류면 시크릿 누락이다
-      (`JWT_SECRET`·`ADMIN_API_TOKEN`·`SUPABASE_URL`·`SUPABASE_ANON_KEY`·`SUPABASE_SERVICE_ROLE_KEY`·`TOURAPI_KEY`·
-      `KAKAO_REST_API_KEY`, `LOCALDATA_AUTH_KEY` 선택 — 플레이스홀더 폴백 없음). 로그는 로그인해야 보인다(공개 API 로는 단계 결과만).
+- [ ] **주간 학습 `train-recommendation-model` 이 08-23 이후 7회 연속 실패 — GitHub Actions Secret `JWT_SECRET` 추가.**
+      7회차(10-04, run 37233349285) 로그 끝: `ValidationError … JWT_SECRET must be a non-empty secret` — 시크릿 누락으로
+      `app.core.config` 가 부팅하지 못한다. 검증 오류가 이 한 건이라 `ADMIN_API_TOKEN` 은 들어 있다는 것만 확인된다 — 없는 시크릿은
+      빈 문자열로 넘어오고 `SUPABASE_URL`·`SUPABASE_ANON_KEY`·`SUPABASE_SERVICE_ROLE_KEY` 는 빈 값도 검증을 통과한다.
+      워크플로가 넘기는 시크릿 5개(`SUPABASE_URL`·`SUPABASE_ANON_KEY`·`SUPABASE_SERVICE_ROLE_KEY`·`JWT_SECRET`·`ADMIN_API_TOKEN`)가
+      Settings → Secrets 에 모두 있는지 같이 본다. 추가 뒤 `workflow_dispatch` 1회 →
+      로그 끝 줄이 `verified observations N < M`·`seven-day holdout` 이면 학습 자료 게이트가 일부러 멈춘 것(자료가 차기 전까지는 정상 정지).
 - [ ] `docs/MERCHANT_CONSOLE_RBAC_PLAN.md`(로컬 전용, 심사 자격증명 포함이라 미커밋)가 새 클론에는 없다 — 원본 보유자가
       필요하면 보관. 없어도 운영에는 지장 없음(내용은 로그 §-44에 요약).
 
@@ -236,6 +243,17 @@ from checks order by seq;
 ## 최근 세션
 
 최신이 위. 10개를 넘으면 가장 오래된 항목을 `archive/HANDOVER_LOG.md` 맨 위로 옮긴다.
+
+## 2026-10-09 — 클라우드 세션 상태 재확인 · HANDOVER 동기화(문서만) · 심사 화면 3차 중단 기록
+
+- 도구·브랜치: Claude Code(클라우드) / `claude/nextspot-continuation-hiebei`(origin/main `05af862` 위, 문서만)
+- 커밋: 이 기록 1건
+- 한 것: 상태 재확인 — origin/main `05af862` 그대로 · 그 CI(run 37583488645) green · Vercel 프로덕션 `dpl_BQEyd1sREmLTUDpYWtRwZZmo3ij4` = `05af862` READY · 열린 PR·이슈 0 · 04:00 적재는 10-07·10-08 첫 시도 실패 → 자동 재시도 성공, 10-09 첫 시도 성공 · `area-demand-alert` 전부 성공 · 주간 학습 7회 연속 실패(원인 `JWT_SECRET` — "사람 작업 대기"). 라이브 `/health`·웹은 **못 봤다**(클라우드 환경 egress 정책이 `nextspot-api.onrender.com`·`nextspot-nu.vercel.app` 을 막음).
+  문서: D2-④ 숨기기(교육청 발명체험교육관 TourAPI 3453929)는 10-08 ~19:25 KST PM 이 적용 — 대기 줄 삭제(DB 는 이 세션이 읽지 못해 미확인) · 우선순위를 심사 기간 기준으로 · Keep-Warm 실제 간격 · `plan: free`·빌드 필터 없음 · 학습 실패 원인.
+- 검증: check-docs
+- 다음·미결: **심사 화면 3차(웹만) — 새로 시작.** 10-07 ~16:20 시작(push 1·2 뒤 라이브 재감사 → 웹만 수정), 데스크톱 캡처 에이전트가 스크린샷 ~170장으로 문맥을 넘겨 멈췄고 10-08 18:45 재개 뒤 19:25 KST 세션 한도로 끊겼다 — 코드·리뷰 산출물 없음, 캡처는 노트북에만, 로컬 `fix/judge-view-r3` 는 `05af862` 와 같음(빈 브랜치). 범위: 데스크톱 1366·1536·1920 · 폰 390·360 · en·ja·zh · 라이트·다크 · 기능설명서 §5 다섯 기능. API·순위·데이터 변경은 PM 결정으로 넘긴다. 먼저 볼 것(push 1 뒤 메모 — push 2 가 일부 고쳤을 수 있다): 1536×730 '상세 정보 펼치기' 접힘선 아래 · 폰 펼친 카드가 검색창을 가림 · SPOT 툴팁 위치 흔들림 · 카드 사실 반복 · 대기 분 올림/반올림(PM 서명 필요) · ♿ 서버 `[]` 일 때 자동 맞춤 · ♿ 저장 상태 하이드레이션 불일치 · `/waiting` emptyTitle 이 부정형으로 읽힘 · 관제 데모 알약 이중. 캡처 에이전트는 이미지 읽기 30장 이하·텍스트 덤프 먼저·파일로 저장하며 진행.
+  `fix/llm-rate-limits-1002`(원격, 2건 `249f529`·`dbaa150` — 비인증·게스트 LLM 경로 IP 제한 + 전역 일일 LLM 예산, 한도 때 웹은 칩 선택으로 안내; 10-02 게이트 green, 이 문서에 기록이 없었다): main 보다 105커밋 뒤, `git merge-tree` 로 `apps/api/app/routers/search.py` 충돌(push 1 C1 의 키워드 분당 제한) — main 위로 다시 올리고 게이트, API 라 KST 밤 · 노트북 전용 `perf/waiting-board-1002`(`f7471f2` 유형별 리팩터 · `2cde078` `/waiting` 한 요청 보드, `WAITING_BOARD_ENDPOINT` 기본 꺼짐)은 심사 뒤, 원하면 PM 이 원격에 올린다 · Keep-Warm 이 4~7시간마다라 심사일 캐시 예열을 믿을 수 없다 — pg_cron 이 `/api/v1/warmup` 도 10분마다 부르는 잡(마이그레이션 + SQL Editor 적용)을 PM 결정으로 · 실사진 DB 정리 ①~③ 적용 여부 미확인(10-03 전 예정이었다) — 적용됐으면 줄을 지우고 ⑤ 변수 확인.
+- 사람 작업: Actions Secret `JWT_SECRET`(+ 시크릿 5개 확인) · Render 대시보드에서 실제 플랜과 Build Filters 확인 · 클라우드 세션 환경의 허용 도메인에 `nextspot-nu.vercel.app`·`nextspot-api.onrender.com`·`*.supabase.co`(라이브 확인·3차 감사 전제)
 
 ## 2026-10-07 — 심사 화면 배치 B(B1~B5): 랜딩 바로 가기 · 추천 카드·음성 비서 · 혼잡 예측 줄 · 콘솔 배치 · 대기 보드·대안·코스 → `fix/judge-view-1007`
 
@@ -347,17 +365,6 @@ from checks order by seq;
   2차 리뷰 수리: 종료 때 아직 도는 shadow 비교(탐침·요청 비교)를 최대 3초 기다려 final 요약에 넣는다(shadow 모드만, 못 끝나면 `parking_history_shadow_drain_timeout`).
 - 다음·미결: go/no-go 측정(Render 모양 0.5 CPU/512MB, 운영 시설 좌표 읽기 1회 승인됨)은 아직 — `matrix` 전 필수. P2b(격자 캐시·RPC 경로 삭제, 수집 실시간 공급)는 `matrix` 24시간 무폴백 뒤. `_points_locks` 누수(기존)는 P2b 에서.
 - 사람 작업: main 반영 뒤 Render `AREA_DEMAND_SOURCE=shadow`(위 "사람 작업 대기").
-
-## 2026-09-28c — P0b: 웹만 — 관제 장소 표 전량 · 지도 비상 경로 활성만 · /waiting 곡선 6점 · 숨은 탭 폴링 멈춤 (09-29 야간 배치로 main 반영)
-
-- 도구·브랜치: Claude Code(하위 에이전트) / `web/batch-0928`(main `367514c` + 사진 출처 `40db900..bd2663b` 위)
-- 커밋: 880b2e1..96e31ae (6건) + 이 기록. 스펙은 3렌즈 레드팀 뒤 PM 승인(2026-09-28, C1~C7 트레이드오프 포함). 단계 표는 [`API_ARCHITECTURE_PLAN.md`](./API_ARCHITECTURE_PLAN.md) P0b
-- 한 것: 관제 장소 표가 이름순 1,000곳에서 잘리던 것 → (name,id) 전량·비활성 배지·이름 검색 · 지도 비상 경로(API 재시작 중)가 폐업 16곳을 그리던 것 → 활성만·id 페이지·최신 혼잡 RPC·갤러리 사진 · `/waiting` 곡선이 분 30 이후 통째로 안 쓰이던 것 → 서버 창 안으로 당긴 정시 6점·선행 1회 후 동시 3·noRetry·기준 시각별 곡선 · 숨은 관제 탭 폴링 멈춤('알림 받기' 켜짐이면 유지)·안전 화면 첫 진입 1회 · 탭 복귀 `/account/me` 5분 생략(실패 뒤·심사 대기 제외) · 추천 타임아웃 뒤 같은 POST 재전송 대신 by-type 대안(45초). 재시도 추가 없음(B4), 프리페치·Supabase 폴백 유지, API 계약·i18n 키 변화 없음.
-- 검증: web lint 0 errors(경고 154 — 바뀐 파일마다 기준과 같은 수) · typecheck · test 62파일 · build 39페이지 · e2e 51 passed(새 2건) · check-docs. 새·확장 단위 테스트 7파일은 bd2663b 소스에서 전부 실패, 새 e2e 2건도 실패(C2 최신 혼잡 RPC 미호출 · C3 13:00 을 15분 앞에 물음 — 서버 창 밖).
-- 리뷰 수정 c7b2f47..1c4d6a0 (4건): 추천 대안이 원래 장소 유형을 호출 시점에 읽음(카페 화면 대안이 음식점으로 차던 것 — C6 이 이 경로를 흔하게 만들었다, 새 e2e 로 수정 전 실패 확인) · 관제 이름 검색 대소문자·공백 무시, 지금 탭에 0곳이면 "카페 탭에 N곳" 한 번에 이동 · `/waiting` 곡선은 선행이 전망을 줬을 때만 동시 3(아니면 하나씩), 저장된 프리셋을 읽은 뒤 조회(먼 프리셋에서 'now' 선행 요청 제거), 병합 순수 함수 · 가드 보강(갤러리 매핑·안전 화면 비교·탭 복귀 겹침, 각각 변이로 실패 확인). 검증: lint 0 errors(경고 153) · typecheck · test 62파일 · build 39페이지 · e2e 52 passed · check-docs.
-- 최종 리뷰 수정 a0d6c82..866b79d (5건, 사진 출처 작업 포함): 대기 보드 조회도 저장된 프리셋을 읽은 뒤 시작·조회 중 프리셋이 바뀌면 옛 조회는 남은 유형을 묻지 않고 결과·캐시를 버림(곡선만 막던 2e9c202 의 나머지 — 프로덕션부터 있던 'now' 한 벌 중복) · `/waiting`·추천 하단 ⓒ한국관광공사 TourAPI 줄에 '(출처를 따로 적은 사진 제외)' 4로케일(기존 키 값만) · 영어·일본어 대기 카드 2·3번이 이름 없이 뜨던 것 → 이름 한 줄 최소 높이 · 가드 보강(출처가 사진보다 늦게 붙는 프레임 탐침·소스 확인 복원, 두 줄 출처 누르는 폭을 글자로, 카카오 리뷰 줄 아래 ⓒ 자리, 관제 표 is_active 읽기 1곳). 새 테스트는 모두 고치기 전 코드·변이에서 실패 확인. 검증: lint 0 errors(경고 153) · typecheck · test 63파일 · build 39페이지 · e2e 61 passed · check-docs.
-- 다음·미결: 09-29 새벽 반영됨(C1~C7 한 번에). 폰 스모크(스펙 §9.4)는 기록이 없다 — 위 "사람 작업 대기". 관제 대시보드는 390px 에서 사이드바 256px + `grid-cols-3` 라 장소 표 카드가 약 39px 로 눌린다 — 이번 이전부터의 문제로 범위 밖, 폰으로 관제를 여는 심사 대비는 별도 결정. 위 2026-09-28 항목의 "웹 경계 파라미터 이름 불일치"는 틀렸다(경계 필터는 적용된다 — 계획 문서에서 정정).
-- 사람 작업: 없음
 
 ## 기록 규칙
 
