@@ -15,7 +15,7 @@ function item(name: string, extra: { type?: string; wait?: number } = {}) {
   const facility = {
     id: `f-${name}`, name, type: extra.type ?? 'restaurant', latitude: 35.8363, longitude: 129.2107,
     capacity: 30, congestion: null, image_url: null, gallery_images: null, features: {},
-    operating_hours: { open: '00:00~23:59', closed: '연중무휴' },
+    operating_hours: { open: '24시간', closed: '연중무휴' },
   };
   return {
     recommendation_id: `rec-${name}`, facility, spot_score: 0.8,

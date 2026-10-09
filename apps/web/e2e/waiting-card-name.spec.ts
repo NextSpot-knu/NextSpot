@@ -23,7 +23,7 @@ function item(id: string, name: string, rank: number, level: number | null, long
   const facility = {
     id, name, type: extra.type ?? 'restaurant', latitude: 35.8363 + rank * 0.0006, longitude: 129.2107,
     capacity: 30, congestion: level, image_url: null, gallery_images: null, features: long ? LONG_FEATURES : {},
-    overview: long ? LONG_OVERVIEW : '황리단길 국밥집', operating_hours: { open: '00:00~23:59', closed: '연중무휴' },
+    overview: long ? LONG_OVERVIEW : '황리단길 국밥집', operating_hours: { open: '24시간', closed: '연중무휴' },
   };
   return {
     recommendation_id: `rec-${id}`, facility, spot_score: 0.8 - rank * 0.01,

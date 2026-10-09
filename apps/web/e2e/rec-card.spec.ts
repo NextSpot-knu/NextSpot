@@ -27,13 +27,6 @@ const PHONES = [{ width: 390, height: 844 }, { width: 360, height: 640 }];
 
 type Row = Record<string, unknown> & { id: string; name: string; type: string };
 
-// 시계를 오늘(KST) 정오에 고정한다. 아래 고정 장소는 '00:00~23:59' 영업이라, KST 23시 무렵부터는 도착 시각이
-// 마감에 닿아 앱이 (의도대로) 음식점·목록 밖 장소를 카드에서 뺀다 — 시계를 안 잡은 시험은 CI 가 밤에 돌면 실패했다.
-async function pinDaytime(page: Page): Promise<void> {
-  const kst = new Date(Date.now() + 9 * 3_600_000);
-  await page.clock.install({ time: new Date(Date.UTC(kst.getUTCFullYear(), kst.getUTCMonth(), kst.getUTCDate(), 3)) });
-}
-
 function place(id: string, name: string, type: string, i: number, extra: Record<string, unknown> = {}): Row {
   return {
     id, name, type,
@@ -42,7 +35,7 @@ function place(id: string, name: string, type: string, i: number, extra: Record<
     capacity: 30,
     features: {},
     congestion: null,
-    operating_hours: { open: '00:00~23:59', closed: '연중무휴' },
+    operating_hours: { open: '24시간', closed: '연중무휴' },
     ...extra,
   };
 }
@@ -492,7 +485,6 @@ test('en: the assistant speaks and listens in English and understands "next" wit
 
 test('voice "양식 먹고 싶어" lights the 🍕 chip and opens the chip\'s #1', async ({ page }) => {
   test.setTimeout(120_000);
-  await pinDaytime(page);
   await page.setViewportSize({ width: 1536, height: 730 });
   let turnCalls = 0;
   await openMain(page, {
@@ -678,7 +670,6 @@ test('night first view: with no open restaurant the first screen opens 관광지
 
 test('a pin outside the list opens as 선택한 장소, a search hit too, and a list pin keeps its rank', async ({ page }) => {
   test.setTimeout(120_000);
-  await pinDaytime(page);
   await page.setViewportSize({ width: 1536, height: 730 });
   await openMain(page, { fakeMap: true });
   await expect(card(page).getByTestId('card-rank')).toHaveText('베스트 추천', { timeout: 25_000 });

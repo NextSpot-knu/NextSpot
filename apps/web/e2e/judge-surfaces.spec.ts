@@ -52,7 +52,7 @@ function boardRows(type: string) {
       capacity: row.capacity,
       features: {},
       address: `경주시 스텁로 ${index + 1}`,
-      operating_hours: { open: '00:00~23:59', closed: '연중무휴' },
+      operating_hours: { open: '24시간', closed: '연중무휴' },
     },
     spot_score: 0.8 - index * 0.05,
     distance_m: 200 + index * 120,
