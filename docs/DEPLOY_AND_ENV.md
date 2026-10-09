@@ -111,7 +111,7 @@
 | Secret | `KAKAO_REST_API_KEY` | ingest(Kakao 장소 보완 · 좌표 대조) |
 | Secret | `LOCALDATA_AUTH_KEY` (선택) | ingest(공공 인허가 변경분 동기화) |
 | Secret | `SERVICE_API_TOKEN` (선택) | collect-area-demand · area-demand-alert(Supabase 시크릿이 없을 때만. 없으면 `ADMIN_API_TOKEN`) |
-| Variable | `BACKEND_HEALTH_URL` | uptime · collect-area-demand · area-demand-alert(Supabase 시크릿이 없을 때만) |
+| Variable | `BACKEND_HEALTH_URL` | warmup · uptime · collect-area-demand · area-demand-alert(Supabase 시크릿이 없을 때만) — API 주소의 단일 정의점(`…/health`). warmup·uptime 은 미설정이면 `https://nextspot-api.onrender.com/health`. 리전 이전 때 이 값만 바꾼다 |
 | Variable | `AREA_DEMAND_COLLECTION_ENABLED=true` | collect-area-demand |
 | Variable | `AREA_DEMAND_ALERT_ALLOW_EMPTY=true` (새 환경만) | area-demand-alert(스냅샷 표가 비어도 통과 — 운영에는 두지 않는다) |
 | Secret | `GYEONGJU_FOOD_API_KEY` (선택) | ingest(경주 메뉴별음식점 보강 — `GYEONGJU_FOOD_ENABLED=true` 일 때만) |
