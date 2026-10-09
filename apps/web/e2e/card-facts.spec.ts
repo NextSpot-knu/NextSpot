@@ -35,7 +35,7 @@ function rec(type: string, options: RecOptions = {}) {
     capacity: 30,
     features: options.features ?? {},
     congestion: null,
-    operating_hours: options.operatingHours === undefined ? { open: '00:00~23:59', closed: '연중무휴' } : options.operatingHours,
+    operating_hours: options.operatingHours === undefined ? { open: '24시간', closed: '연중무휴' } : options.operatingHours,
     phone: options.phone ?? null,
   };
   return {

@@ -35,7 +35,7 @@ function facility(row: { id: string; name: string; type: string }, index: number
     capacity: 20 + index * 10,
     features: {},
     congestion: null,
-    operating_hours: { open: '00:00~23:59', closed: '연중무휴' },
+    operating_hours: { open: '24시간', closed: '연중무휴' },
   };
 }
 

@@ -124,6 +124,12 @@ class Settings(BaseSettings):
     # 무인증 검색 경로의 유료 호출 비용 소진 공격에 대한 최종 안전판(IP 분당 리밋과 별도).
     # KST 일 단위 리셋, 0 이하면 재작성 전면 비활성. 캡 도달 시 LLM 미호출 → 현행 빈 결과(무해 폴백).
     SEARCH_REWRITE_DAILY_BUDGET: int = 200
+    # 모든 LLM 호출(llm_client.chat_text — 음성·선호·현장조건·사유 다듬기·브리핑·검색 재작성 전부)의
+    # 전역 일일 상한. 경로별 IP 리밋 뒤의 마지막 비용 안전판 — 우회된 리밋·공유 키 오판에도 하루 비용이
+    # 이 횟수(solar-pro3 기준 1회 수백 토큰)를 넘지 않는다. KST 일 단위 리셋, 프로세스 메모리(재기동 시 리셋).
+    # 소진되면 chat_text 가 네트워크 없이 None — 모든 호출자는 이미 결정적 경로(키워드·템플릿)로 폴백한다.
+    # 0 이하 = LLM 전면 비활성(키 제거와 같은 효과). '무제한' 값은 없다 — 크게 잡으려면 큰 수를 넣는다.
+    LLM_DAILY_BUDGET: int = 2000
 
     # 참조 스냅샷(app/services/reference_snapshot.py) — "snapshot"(기본) | "legacy".
     # legacy 면 갱신 루프도 돌지 않고, /infrastructures 는 요청마다 Supabase 를 읽는 도입 전 경로로 답한다

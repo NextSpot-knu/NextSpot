@@ -44,7 +44,7 @@ function boardItem(name: string) {
     recommendation_id: `rec-${name}`,
     facility: {
       id: `f-${name}`, name, type: 'restaurant', latitude: 35.8363, longitude: 129.2107, capacity: 30,
-      congestion: null, image_url: null, gallery_images: null, features: {}, operating_hours: { open: '00:00~23:59' },
+      congestion: null, image_url: null, gallery_images: null, features: {}, operating_hours: { open: '24시간' },
     },
     spot_score: 0.8, breakdown: { preference: 0.8, wait_time: null, travel_time: 2, incentive: 0 },
     distance_m: 120, reason: '테스트', reason_source: 'template', congestion_level: null, congestion_source: 'none',

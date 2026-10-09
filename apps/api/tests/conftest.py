@@ -112,6 +112,28 @@ def _isolate_event_boost(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _isolate_llm_limits():
+    """LLM 전역 일일 예산과 비인증 LLM 경로의 IP 리밋 저장소를 테스트마다 비운다.
+
+    TestClient 의 피어는 늘 'testclient' 한 키라, 비우지 않으면 앞 테스트의 요청 수가 뒤 테스트의 429 로 샌다.
+    """
+    from app.routers import preferences, travel_context
+    from app.services import llm_client
+
+    def _reset():
+        llm_client.reset_budget_for_tests()
+        for store in (
+            travel_context._parse_hits, travel_context._llm_hits,
+            preferences._parse_hits, preferences._llm_hits,
+        ):
+            store.clear()
+
+    _reset()
+    yield
+    _reset()
+
+
+@pytest.fixture(autouse=True)
 def _isolate_reference_snapshot():
     """참조 스냅샷의 프로세스 전역 상태(베이스·오버레이·조립본·쓰기 알림)를 테스트마다 비운다."""
     from app.services import reference_snapshot

@@ -60,7 +60,7 @@ function recommendation(p: Place, rank: number, total: number) {
     id: p.id, name: p.name, type: p.type,
     latitude: 35.8363 + rank * 0.0002, longitude: 129.2107, capacity: 30, congestion: null,
     image_url: p.image_url ?? null, gallery_images: p.gallery_images ?? null, features: p.features ?? {},
-    operating_hours: { open: '00:00~23:59', closed: '연중무휴' },
+    operating_hours: { open: '24시간', closed: '연중무휴' },
   };
   return {
     recommendation_id: `rec-${p.id}`, facility, spot_score: 0.8 - rank * 0.01,

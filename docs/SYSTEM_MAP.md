@@ -569,7 +569,9 @@ UPSTAGE_API_KEY 미설정 → is_enabled() False → 네트워크 없이 즉시 
 | `lab` 라우터 | 거절 사유 분류 | 사용자 선택 |
 
 비용 방어: 무인증 검색 경로에는 **IP 분당 리밋 + 전역 일일 예산 캡**
-(`SEARCH_REWRITE_DAILY_BUDGET`, 기본 200회, KST 리셋) 2중 장치.
+(`SEARCH_REWRITE_DAILY_BUDGET`, 기본 200회, KST 리셋) 2중 장치. `/travel-context/parse`(무인증)·`/preferences/parse`(게스트 허용)는
+IP 분당 요청 리밋(30·20회 초과 → 429) + LLM 백스톱 전용 IP 리밋(분당 5회 초과 → LLM 없이 `gated`). 모든 LLM 호출은
+`llm_client`의 전역 일일 예산(`LLM_DAILY_BUDGET`, 기본 2000회, KST 리셋)을 함께 쓴다 — 소진 시 결정적 경로. 리미터 공용 헬퍼는 `app/core/rate_limit.py`.
 
 ---
 

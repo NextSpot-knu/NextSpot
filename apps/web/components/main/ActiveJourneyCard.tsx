@@ -33,7 +33,9 @@ export default function ActiveJourneyCard({ location }: { location: { lat: numbe
   const [changeOpen, setChangeOpen] = useState(false);
   const [changeText, setChangeText] = useState('');
   const [draft, setDraft] = useState<Partial<TravelContext> | null>(null);
-  const [parseError, setParseError] = useState(false);
+  // 'empty' = 서버가 읽었지만 조건이 없었다(표현을 바꾸면 된다). 'unavailable' = 서버에 닿지 못했다
+  // (요청 한도 429·네트워크 — 다시 보내지 않는다, B4). 그때 '표현을 바꿔 보세요' 는 틀린 안내라 칩 선택으로 보낸다.
+  const [parseError, setParseError] = useState<'empty' | 'unavailable' | null>(null);
   // 재계획이 대체지 없이 끝난 '이유'. 예전에는 불리언 하나였고, 장애·타임아웃·0건이 전부
   // '추천할 곳이 없어요' 로 나갔다(lib/replanOutcome 주석 참조).
   const [replanOutcome, setReplanOutcome] = useState<ReplanOutcome | null>(null);
@@ -71,14 +73,14 @@ export default function ActiveJourneyCard({ location }: { location: { lat: numbe
     if (!changeText.trim() || busy) return;
     setBusy(true);
     setReplanOutcome(null);
-    setParseError(false);
+    setParseError(null);
     try {
       const result = await parseTravelContext(changeText.trim());
       setDraft(result.context);
-      setParseError(Object.keys(result.context).length === 0);
+      setParseError(Object.keys(result.context).length === 0 ? 'empty' : null);
     } catch {
       setDraft({});
-      setParseError(true);
+      setParseError('unavailable');
     } finally { setBusy(false); }
   };
   const replan = async (confirmed?: Partial<TravelContext>) => {
@@ -157,7 +159,7 @@ export default function ActiveJourneyCard({ location }: { location: { lat: numbe
     } finally { setBusy(false); }
   };
   const updateDraft = (update: (current: Partial<TravelContext>) => Partial<TravelContext>) => {
-    setParseError(false);
+    setParseError(null);
     setDraft((current) => update(current ?? {}));
   };
   const toggleCategory = (category: PlaceCategory) => updateDraft((current) => {
@@ -184,7 +186,7 @@ export default function ActiveJourneyCard({ location }: { location: { lat: numbe
       <div className="grid grid-cols-3 gap-2 mt-3 text-xs font-bold">
         <button type="button" onClick={arrived} className="toss-pressable rounded-xl bg-jade text-white py-2">{t('trip.arrived')}</button>
         <button type="button" onClick={() => { haptic('selection'); setTrip(null); }} className="toss-pressable rounded-xl border border-line py-2">{t('trip.stillGoing')}</button>
-        <button type="button" disabled={busy} onClick={() => { haptic('selection'); setChangeOpen(true); setDraft({}); setParseError(false); }} className="toss-pressable rounded-xl border border-gold/40 bg-gold/10 py-2 flex items-center justify-center gap-1"><RefreshCw size={12} />{t('trip.changed')}</button>
+        <button type="button" disabled={busy} onClick={() => { haptic('selection'); setChangeOpen(true); setDraft({}); setParseError(null); }} className="toss-pressable rounded-xl border border-gold/40 bg-gold/10 py-2 flex items-center justify-center gap-1"><RefreshCw size={12} />{t('trip.changed')}</button>
       </div>
       <AnimatePresence initial={false}>
       {changeOpen && (
@@ -217,7 +219,7 @@ export default function ActiveJourneyCard({ location }: { location: { lat: numbe
           <button type="button" disabled={busy || !changeText.trim()} onClick={() => void parseChange()} className="mt-2 w-full rounded-xl border border-jade/30 bg-jade/5 py-2 text-xs font-bold text-jade disabled:opacity-50">{busy ? t('trip.parsing') : t('trip.parse')}</button>
           {draft && (
             <div className="mt-2">
-              <p className="text-[11px] text-muk-soft">{parseError ? t('trip.noContext') : t('trip.manualHint')}</p>
+              <p className="text-[11px] text-muk-soft">{parseError === 'empty' ? t('trip.noContext') : parseError === 'unavailable' ? t('trip.pickBelow') : t('trip.manualHint')}</p>
               <div className="mt-2 flex flex-wrap gap-1.5">
                 {CATEGORIES.map((category) => <ChoiceChip key={category} active={draft.categories?.includes(category) ?? false} onClick={() => toggleCategory(category)}>{t(`category.${category}`)}</ChoiceChip>)}
               </div>

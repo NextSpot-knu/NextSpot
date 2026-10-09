@@ -7,10 +7,10 @@ test.beforeEach(async ({ page }) => stubExternalServices(page));
 const facilities = [
   { id: 'restaurant-1', name: '실내 식당', type: 'restaurant', latitude: 35.8363, longitude: 129.2107,
     capacity: 30, features: {}, congestion: null,
-    operating_hours: { open: '00:00~23:59', closed: '연중무휴' } },
+    operating_hours: { open: '24시간', closed: '연중무휴' } },
   { id: 'cafe-1', name: '실내 카페', type: 'cafe', latitude: 35.8364, longitude: 129.2107,
     capacity: 20, features: {}, congestion: null,
-    operating_hours: { open: '00:00~23:59', closed: '연중무휴' } },
+    operating_hours: { open: '24시간', closed: '연중무휴' } },
 ];
 
 async function mockMainWithSpeech(page: Page) {

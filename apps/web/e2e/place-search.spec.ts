@@ -31,7 +31,7 @@ const PNG_1PX = Buffer.from(
 const FACILITIES = [
   {
     id: 'r1', name: '황남 쌈밥', type: 'restaurant', latitude: 35.8372, longitude: 129.2095, capacity: 30,
-    features: {}, congestion: null, operating_hours: { open: '00:00~23:59', closed: '연중무휴' },
+    features: {}, congestion: null, operating_hours: { open: '24시간', closed: '연중무휴' },
   },
 ];
 

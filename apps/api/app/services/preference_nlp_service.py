@@ -16,11 +16,12 @@ LLM 은 어디까지나 백스톱이며 주 경로를 LLM 으로 바꾸지 않�
 vector/is_fallback/llm_status)는 라우터가 그대로 소비한다. is_fallback 은 LLM 이 실제로
 구조화에 기여했을 때만 False — 키워드·폴백 경로는 True(프런트가 이 값으로
 'AI 반영' vs '키워드 분석' 토스트를 분기한다).
-llm_status(개발 디버그용 — 음성 경로와 동일 명명): keyword|llm|llm_failed|disabled.
+llm_status(개발 디버그용 — 음성 경로와 동일 명명): keyword|llm|llm_failed|disabled|gated.
 """
 
 import json
 import re
+from collections.abc import Callable
 
 import structlog
 
@@ -196,7 +197,7 @@ async def _llm_parse(text: str) -> dict | None:
     return coerced
 
 
-async def parse_preference(text: str) -> dict:
+async def parse_preference(text: str, *, llm_gate: Callable[[], bool] | None = None) -> dict:
     """자연어 선호 문장을 구조화 선호로 변환.
 
     반환: { preferred_categories, attributes, summary, vector, is_fallback, llm_status }
@@ -213,6 +214,10 @@ async def parse_preference(text: str) -> dict:
         llm_status = "keyword"  # 빈 입력 — 애초에 LLM 시도 대상이 아니다
     elif not llm_client.is_enabled():
         llm_status = "disabled"  # UPSTAGE_API_KEY 미설정
+    elif not llm_client.budget_available() or (llm_gate is not None and not llm_gate()):
+        # 전역 일일 예산 소진 또는 라우터의 IP별 LLM 리밋 초과(게이트는 LLM 직전에만 평가 —
+        # 키워드로 끝난 요청은 리밋을 쓰지 않는다) → 키워드 빈 결과 유지(무해 폴백).
+        llm_status = "gated"
     else:
         llm_parsed = await _llm_parse(text)
         if llm_parsed is not None:

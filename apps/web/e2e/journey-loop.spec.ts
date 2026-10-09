@@ -277,3 +277,31 @@ test('empty replan preserves the current journey and shows guidance', async ({ p
   expect(active.facilityId).toBe('fixture-cafe');
   expect(active.status).toBe('navigating');
 });
+
+test('rate-limited condition parse is sent once and leads to manual condition chips', async ({ page }) => {
+  await page.addInitScript(() => {
+    const trip = { version: 1, facilityId: 'fixture-cafe', name: 'Fixture Cafe', type: 'cafe',
+      lat: 35.838, lng: 129.209, acceptedAt: Date.now(), status: 'navigating', navigationMode: 'walk' };
+    localStorage.setItem('nextspot_active_trip', JSON.stringify(trip));
+    localStorage.setItem('nextspot_pending_visit', JSON.stringify(trip));
+  });
+  let parseCalls = 0;
+  await page.route('**/api/v1/**', async route => {
+    if (route.request().url().includes('/api/v1/travel-context/parse')) {
+      parseCalls += 1;
+      await route.fulfill({ status: 429, contentType: 'application/json', headers: { 'Retry-After': '30' },
+        body: JSON.stringify({ detail: 'rate limited' }) });
+      return;
+    }
+    await route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
+  });
+  await page.goto('/main');
+  await page.getByRole('button', { name: '상황 변경' }).click();
+  await page.locator('#trip-change').fill('그냥 좀 다른 데');
+  await page.getByRole('button', { name: '조건 확인', exact: true }).click();
+  // 429 를 '표현을 바꿔 보세요' 로 안내하지 않고, 칩으로 바로 고르게 한다(재시도 없음 — B4).
+  await expect(page.getByText('아래에서 조건을 직접 골라 주세요.')).toBeVisible();
+  await expect(page.getByText('조건을 찾지 못했어요')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '이 조건으로 재추천' }).first()).toBeEnabled();
+  expect(parseCalls).toBe(1);
+});
