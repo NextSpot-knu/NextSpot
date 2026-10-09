@@ -26,7 +26,9 @@ export const DISCOVERY_THEMES: readonly DiscoveryTheme[] = [
   {
     id: 'silla_core',
     emoji: '👑',
-    anchorAliases: ['대릉원', '대릉원 천마총', '대릉원(천마총)'],
+    // '천마총(대릉원)' 은 운영 DB 의 실제 이름(TourAPI 126214) — 이것이 없으면 이 테마는 기준점을 못 찾아
+    // 눌러도 카드가 그대로였다(10-09 라이브 감사).
+    anchorAliases: ['대릉원', '대릉원 천마총', '대릉원(천마총)', '천마총(대릉원)'],
     candidateType: 'attraction',
     filterId: '관광지',
     preferenceIntent: '신라 역사 유적 산책',
@@ -42,7 +44,7 @@ export const DISCOVERY_THEMES: readonly DiscoveryTheme[] = [
   {
     id: 'hanok_cafe',
     emoji: '☕',
-    anchorAliases: ['황리단길 공예공방거리', '황리단길', '대릉원', '대릉원 천마총', '대릉원(천마총)'],
+    anchorAliases: ['황리단길 공예공방거리', '황리단길', '대릉원', '대릉원 천마총', '대릉원(천마총)', '천마총(대릉원)'],
     candidateType: 'cafe',
     filterId: '카페',
     preferenceIntent: '한옥 감성 카페 디저트',
