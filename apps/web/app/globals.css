@@ -76,6 +76,7 @@
   --background: #faf5ec;
   --foreground: #2b2320;
   --nextspot-hanji: #faf5ec;
+  --nextspot-glass-tint: 78%;
   --nextspot-hanji-deep: #f1e7d3;
   --nextspot-muk: #2b2320;
   --nextspot-muk-soft: #6b5d4f;
@@ -246,6 +247,7 @@ html.nextspot-dark {
   --background: #17130f;
   --foreground: #f3eadb;
   --nextspot-hanji: #17130f;
+  --nextspot-glass-tint: 78%;
   --nextspot-hanji-deep: #231c15;
   --nextspot-muk: #f3eadb;
   --nextspot-muk-soft: #c4b49f;
@@ -382,6 +384,137 @@ html.nextspot-dark .toss-pressable:not(:disabled):active {
    동작 줄이기에서는 길이만 0 이 되고 기다림은 남는다(움직임 없이 나타난다). */
 .strip-enter {
   animation: sheet-content-in 180ms ease-out 240ms both;
+}
+
+/* Liquid Glass(regular) — Apple HIG Materials(iOS 26): 지도 위에 떠 있는 탐색 층(검색 · 카테고리 · 언어 · 시계)에만 쓴다.
+   내용 층(추천 카드)에는 쓰지 않고, 유리 위에 유리를 겹치지 않는다. 지도처럼 글자를 방해할 수 있는 바탕 위라 투명한 clear 가
+   아니라 흐리고 밝기를 맞추는 regular 쪽 — 바탕을 78% 한지로 덮고 흐린다. 이 비율의 글자 대비는 lib/contrast.test.ts 7번이
+   잠근다(먹은 바탕이 완전히 검거나 흰 최악에도, 먹 연·금 진은 중간 회색 지도 위에서 4.5:1) — 유리 위 주 글자는 먹.
+   .liquid-glass 는 모든 폭, -phone 은 휴대폰(<768px)만, -desk 는 데스크톱(≥768px)만 칠한다.
+   · 그림자는 Tailwind 포커스 링 변수(--tw-ring-*)를 앞에 이어 둔다 — 유리 그림자가 box-shadow 를 덮어 키보드 포커스 링이
+     사라지지 않게(focus-visible:ring-2 도 box-shadow 로 그린다).
+   · 바탕색은 color-mix 를 직접 쓴다 — 변수에 담으면 못 읽는 브라우저에서 투명이 되지만, 직접 쓰면 그 줄만 버려지고 한지가 남는다.
+   · 야간에는 'html.nextspot-dark .bg-white { … !important }' 가 흰 바탕을 불투명한 판으로 덮으므로 같은 무게로 다시 반투명하게.
+   · backdrop-filter 미지원 · '투명도 줄이기' · '대비 높이기'(테두리도 진하게)에서는 불투명한 한지 판. iOS Safari 는 아직
+     prefers-reduced-transparency 를 모른다 — 그 설정은 웹에서는 지킬 수 없고, '대비 높이기'는 지킨다. */
+.liquid-glass,
+.liquid-glass-phone,
+.liquid-glass-desk {
+  --glass-edge: rgb(255 255 255 / 0.6);
+  --glass-shadow: inset 0 1px 0 rgb(255 255 255 / 0.7), 0 4px 18px rgb(43 35 32 / 0.12);
+}
+html.nextspot-dark .liquid-glass,
+html.nextspot-dark .liquid-glass-phone,
+html.nextspot-dark .liquid-glass-desk {
+  --glass-edge: rgb(255 255 255 / 0.12);
+  --glass-shadow: inset 0 1px 0 rgb(255 255 255 / 0.08), 0 4px 18px rgb(0 0 0 / 0.35);
+}
+.liquid-glass {
+  background-color: var(--nextspot-hanji);
+  background-color: color-mix(in srgb, var(--nextspot-hanji) var(--nextspot-glass-tint), transparent);
+  -webkit-backdrop-filter: blur(20px) saturate(170%);
+  backdrop-filter: blur(20px) saturate(170%);
+  border-color: var(--glass-edge);
+  box-shadow: var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--glass-shadow);
+}
+html.nextspot-dark .liquid-glass {
+  background-color: color-mix(in srgb, var(--nextspot-hanji) var(--nextspot-glass-tint), transparent) !important;
+}
+@media (max-width: 767.98px) {
+  .liquid-glass-phone {
+    background-color: var(--nextspot-hanji);
+    background-color: color-mix(in srgb, var(--nextspot-hanji) var(--nextspot-glass-tint), transparent);
+    -webkit-backdrop-filter: blur(20px) saturate(170%);
+    backdrop-filter: blur(20px) saturate(170%);
+    border-color: var(--glass-edge);
+    box-shadow: var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--glass-shadow);
+  }
+  html.nextspot-dark .liquid-glass-phone {
+    background-color: color-mix(in srgb, var(--nextspot-hanji) var(--nextspot-glass-tint), transparent) !important;
+  }
+}
+@media (min-width: 768px) {
+  .liquid-glass-desk {
+    background-color: var(--nextspot-hanji);
+    background-color: color-mix(in srgb, var(--nextspot-hanji) var(--nextspot-glass-tint), transparent);
+    -webkit-backdrop-filter: blur(20px) saturate(170%);
+    backdrop-filter: blur(20px) saturate(170%);
+    border-color: var(--glass-edge);
+    box-shadow: var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--glass-shadow);
+  }
+  html.nextspot-dark .liquid-glass-desk {
+    background-color: color-mix(in srgb, var(--nextspot-hanji) var(--nextspot-glass-tint), transparent) !important;
+  }
+}
+@supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  .liquid-glass, html.nextspot-dark .liquid-glass {
+    background-color: var(--nextspot-hanji) !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+}
+@supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  @media (max-width: 767.98px) {
+    .liquid-glass-phone, html.nextspot-dark .liquid-glass-phone {
+      background-color: var(--nextspot-hanji) !important;
+      -webkit-backdrop-filter: none !important;
+      backdrop-filter: none !important;
+    }
+  }
+}
+@supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  @media (min-width: 768px) {
+    .liquid-glass-desk, html.nextspot-dark .liquid-glass-desk {
+      background-color: var(--nextspot-hanji) !important;
+      -webkit-backdrop-filter: none !important;
+      backdrop-filter: none !important;
+    }
+  }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .liquid-glass, html.nextspot-dark .liquid-glass {
+    background-color: var(--nextspot-hanji) !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+}
+@media (prefers-reduced-transparency: reduce) and (max-width: 767.98px) {
+  .liquid-glass-phone, html.nextspot-dark .liquid-glass-phone {
+    background-color: var(--nextspot-hanji) !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+}
+@media (prefers-reduced-transparency: reduce) and (min-width: 768px) {
+  .liquid-glass-desk, html.nextspot-dark .liquid-glass-desk {
+    background-color: var(--nextspot-hanji) !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+}
+@media (prefers-contrast: more) {
+  .liquid-glass, html.nextspot-dark .liquid-glass {
+    background-color: var(--nextspot-hanji) !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+    border-color: var(--nextspot-muk-soft) !important;
+  }
+}
+@media (prefers-contrast: more) and (max-width: 767.98px) {
+  .liquid-glass-phone, html.nextspot-dark .liquid-glass-phone {
+    background-color: var(--nextspot-hanji) !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+    border-color: var(--nextspot-muk-soft) !important;
+  }
+}
+@media (prefers-contrast: more) and (min-width: 768px) {
+  .liquid-glass-desk, html.nextspot-dark .liquid-glass-desk {
+    background-color: var(--nextspot-hanji) !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+    border-color: var(--nextspot-muk-soft) !important;
+  }
 }
 
 .toss-surface {

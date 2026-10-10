@@ -87,6 +87,15 @@
 - 화면 사이 전환(View Transitions)은 심사 뒤: Next.js 16 은 `experimental.viewTransition` 플래그로만 켜고 문서가 "실험 기능 —
   운영에 권장하지 않음"이라고 적는다(nextjs.org/docs/app/api-reference/config/next-config-js/viewTransition, 10-10 확인).
 
+## 재질 (Apple HIG Materials · iOS 26 Liquid Glass → NextSpot)
+
+- **유리는 탐색 층에만**: 지도 위에 떠 있는 검색 · 카테고리 · 필터·편의 · 언어 · 시계 · 출처(휴대폰), 데스크톱 툴바 판이 `.liquid-glass`
+  (휴대폰만 `-phone`, 데스크톱만 `-desk`)다. 추천 카드 같은 내용 층에는 쓰지 않는다 — HIG "Don't use Liquid Glass in the content layer".
+  유리 위에 유리를 겹치지 않는다(데스크톱 툴바 판 안의 칩은 흰 알약 그대로).
+- **regular 쪽**: 지도는 글자를 방해할 수 있는 바탕이라 투명한 clear 가 아니라 흐리고(20px) 한지를 78% 덮는다(`--nextspot-glass-tint`).
+  유리 위 주 글자는 먹, 선택된 칩만 진하게 채운다. 대비는 `lib/contrast.test.ts` 7번이 잠근다(먹은 최악 바탕에도, 먹 연·금 진은 중간 회색 지도 위에서 4.5:1).
+- **설정 존중**: '투명도 줄이기' · '대비 높이기' · backdrop-filter 미지원에서는 불투명한 한지 판(대비 높이기는 테두리도 진하게).
+
 ## 측정 기준 (지키는 장치)
 
 | 항목 | 기준 | 지금 지키는 장치 |
@@ -111,5 +120,5 @@
   추천 하나: toss.tech/article/21004 · 라이팅 8원칙: toss.tech/article/8-writing-principles-of-toss
   (10-10 에는 이 환경에서 사이트가 열리지 않아 검색 결과에 보인 원문 발췌로 확인했다) · TDS 수치: npm `@toss/tds-mobile@2.5.1` 번들.
 - Apple: developer.apple.com/design/human-interface-guidelines/design-principles (원문 확인) · …/layout · …/loading · …/maps ·
-  …/accessibility · …/motion · …/playing-haptics · WWDC23 "Animate with springs" · WWDC25 "Meet Liquid Glass".
+  …/accessibility · …/motion · …/playing-haptics · …/materials(원문 확인) · WWDC23 "Animate with springs" · WWDC25 "Meet Liquid Glass".
 - WCAG 2.2: 1.4.3 · 1.4.11 · 2.4.11 · 2.5.8.

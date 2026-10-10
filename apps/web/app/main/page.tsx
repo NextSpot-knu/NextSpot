@@ -3679,22 +3679,23 @@ export default function MainPage() {
         className={`nextspot-map nextspot-main-map w-full h-full absolute inset-0 z-0${mapUnavailable ? ' bg-gradient-to-b from-hanji-deep/70 via-hanji-deep/40 to-hanji' : ''}`}
       />
 
-      {/* 언어 · 시계(계획 B3 — 오른쪽 위, 불투명). 휴대폰은 언어(+출처)가 왼쪽 위, 시계가 오른쪽 위. 데스크톱은 둘이 오른쪽
+      {/* 언어 · 시계(계획 B3 — 오른쪽 위. 휴대폰은 Liquid Glass, 데스크톱은 유리 툴바와 겹치지 않게 불투명). 휴대폰은 언어(+출처)가 왼쪽 위, 시계가 오른쪽 위. 데스크톱은 둘이 오른쪽
           위에 나란히 서고, 툴바 첫 줄이 이 묶음의 폭만큼 비운다(topClusterPx). */}
       <div
         ref={topClusterRef}
         className="pointer-events-none absolute inset-x-3 top-[calc(env(safe-area-inset-top)+0.5rem)] z-30 flex items-start justify-between gap-2 md:inset-x-auto md:right-5 md:top-5 md:items-center md:justify-end"
       >
         <div className="flex max-w-[220px] flex-col items-start gap-1 md:max-w-none">
-          <LanguageSwitcher className="pointer-events-auto" />
+          {/* 데스크톱에서는 언어·시계가 유리 툴바 판 위에 떠 있어 유리 위 유리가 된다 — 휴대폰에서만 유리(데스크톱은 툴바 안 칩처럼 흰 알약). */}
+          <LanguageSwitcher className="pointer-events-auto liquid-glass-phone" />
           {/* 휴대폰 출처 — 데스크톱은 툴바 둘째 줄 끝의 출처 칩 하나(P8). */}
-          <SourceCredit compact className="md:hidden" />
+          <SourceCredit compact className="md:hidden liquid-glass" />
         </div>
         {/* 장소 카드와 분리된 경주 현지 시계 — 영업 여부·도착 시각의 기준(KST). */}
         {clockLabels && (
           <div
             aria-label={`${clockLabels.date} ${clockLabels.time} KST`}
-            className="flex items-center gap-2 rounded-2xl border border-line bg-white px-3 py-2 text-right shadow-[0_3px_16px_rgba(43,35,32,0.12)] md:py-1"
+            className="liquid-glass-phone flex items-center gap-2 rounded-2xl border border-line bg-white px-3 py-2 text-right shadow-[0_3px_16px_rgba(43,35,32,0.12)] md:py-1"
           >
             <Clock3 size={16} className="shrink-0 text-gold" aria-hidden />
             <div className="leading-none">
@@ -3708,7 +3709,7 @@ export default function MainPage() {
         )}
       </div>
 
-      {/* Top Layer: Search & Filters — 판마다 불투명 바탕(지도가 글자 뒤로 비치지 않게). 휴대폰 머리는 280px 안(계획 B3):
+      {/* Top Layer: Search & Filters — 판마다 Liquid Glass(regular: 한지 78% + 흐림, globals.css — 지도 글자가 그대로 비치지 않게). 휴대폰 머리는 280px 안(계획 B3):
           검색 · 날씨/첫 방문 한 줄 · '필터·편의' 가 맨 앞인 칩 한 줄. 키 낮은 휴대폰은 날씨/첫 방문을 검색 줄 옆에 붙인다. */}
       <div ref={topBarRef} className="absolute top-0 w-full z-20 pt-[calc(env(safe-area-inset-top)+4.25rem)] md:pt-5 pb-4 px-4 flex flex-col gap-2 md:gap-4 pointer-events-none">
 
@@ -3730,7 +3731,7 @@ export default function MainPage() {
         <div className="flex flex-col gap-2 md:w-[22%] md:min-w-[290px] md:max-w-[400px] md:shrink-0">
 
         {/* 정체성 한 줄(데스크톱) — 워드마크 + '줄 서는 대신, 경주를 한 곳 더.'(landing.tagline). */}
-        <div className="pointer-events-auto hidden w-fit max-w-full items-center gap-2 rounded-full border border-line bg-white px-3 py-1 shadow-[0_2px_10px_rgba(43,35,32,0.08)] md:flex" data-testid="identity-line">
+        <div className="liquid-glass pointer-events-auto hidden w-fit max-w-full items-center gap-2 rounded-full border px-3 py-1 md:flex" data-testid="identity-line">
           <Image src="/nextspot-logo.png" alt="NextSpot" width={505} height={109} className="nextspot-logo-light h-4 w-auto shrink-0" />
           <Image src="/nextspot-logo-dark.png" alt="NextSpot" width={505} height={109} className="nextspot-logo-dark h-4 w-auto shrink-0" />
           <span className="min-w-0 text-[12px] font-bold leading-tight text-muk">{t('landing.tagline')}</span>
@@ -3741,7 +3742,7 @@ export default function MainPage() {
 
         {/* Search Bar — (c) 로컬 시설명 검색(마커 필터). 음성 검색(Mic)은 브라우저 STT 로 받아쓰기 → 검색어 주입.
             (Web Speech 미지원 브라우저에선 '준비 중' 비활성으로 graceful 폴백.) */}
-        <div className="flex min-w-0 items-center bg-white rounded-full px-4 short:max-md:flex-1 short:max-md:px-3 border border-line shadow-[0_2px_14px_rgba(43,35,32,0.06)] pointer-events-auto">
+        <div className="liquid-glass flex min-w-0 items-center rounded-full px-4 short:max-md:flex-1 short:max-md:px-3 border pointer-events-auto">
           <Search size={20} className="text-muk-soft mr-3" />
           <input
             type="text"
@@ -3816,7 +3817,7 @@ export default function MainPage() {
               aria-expanded={showDiscoveryThemes}
               title={t('discovery.entryHint')}
               aria-label={t('discovery.entry')}
-              className="toss-pressable pointer-events-auto flex h-8 min-w-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-gold/40 bg-white px-3 text-[12px] font-extrabold text-muk shadow-[0_2px_10px_rgba(43,35,32,0.08)] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+              className="toss-pressable pointer-events-auto flex h-8 min-w-0 items-center gap-1.5 whitespace-nowrap rounded-full liquid-glass border px-3 text-[12px] font-extrabold text-muk focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
             >
               <span aria-hidden className="text-[14px] leading-none">✨</span>
               <span className="truncate short:max-md:sr-only">{t('discovery.entry')}</span>
@@ -4101,13 +4102,13 @@ export default function MainPage() {
 
         </div>{/* /왼쪽 열(검색) */}
 
-        {/* 오른쪽 열(모바일은 아래): 불투명 툴바 판 두 줄(계획 B3 · I37/P8). 1줄 = 카테고리(+ 음식점이면 🍽 메뉴 ▾),
+        {/* 오른쪽 열(모바일은 아래): 유리 툴바 판 두 줄(계획 B3 · I37/P8 — 10-10 불투명 → Liquid Glass). 1줄 = 카테고리(+ 음식점이면 🍽 메뉴 ▾),
             2줄 = 지도 레이어 · 편의 칩 + 출처 칩 하나. 줄은 넘쳐도 접히지 않는다 — 칩 무리는 가로로 밀리고 출처 칩은 늘 보인다.
             언어·시계 묶음이 첫 줄 오른쪽 끝에 떠 있으므로 첫 줄만 그 폭(--cluster-w)을 비운다. 휴대폰은 칩 한 줄. */}
         <div
           ref={chipColumnRef}
           data-testid="map-toolbar"
-          className="flex flex-col gap-2 md:pointer-events-auto md:min-w-0 md:flex-1 md:gap-1 md:rounded-2xl md:border md:border-line md:bg-hanji md:p-1 md:shadow-[0_4px_18px_rgba(43,35,32,0.12)]"
+          className="flex flex-col gap-2 md:pointer-events-auto md:min-w-0 md:flex-1 md:gap-1 md:rounded-2xl md:border md:p-1 liquid-glass-desk"
           style={{ '--cluster-w': `${(topClusterPx ?? 288) + 12}px` } as CSSProperties}
         >
         {/* 묶음 폭은 스크롤 줄 안쪽 여백이 아니라 바깥 여백으로 비운다 — 안쪽 여백은 넘친 칩이 묶음 밑으로 들어가는 것을
@@ -4118,7 +4119,7 @@ export default function MainPage() {
             <button
               type="button"
               onClick={() => setShowMobileTools(true)}
-              className="toss-pressable flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-line bg-white px-3 text-[13px] font-bold text-muk shadow-[0_2px_10px_rgba(43,35,32,0.08)] short:max-md:h-[34px] md:hidden"
+              className="toss-pressable liquid-glass flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 text-[13px] font-bold text-muk short:max-md:h-[34px] md:hidden"
             >
               <SlidersHorizontal size={14} aria-hidden /> {t('map.mobileTools')}
             </button>
@@ -4134,7 +4135,7 @@ export default function MainPage() {
                 className={`toss-pressable flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3.5 text-[13px] font-semibold shadow-[0_2px_10px_rgba(43,35,32,0.06)] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 short:max-md:h-[34px] md:h-8 md:px-3 md:shadow-none ${
                   isActive
                     ? 'border-muk bg-muk text-hanji'
-                    : 'border-line bg-white text-muk-soft hover:border-gold/60 hover:text-muk'
+                    : 'liquid-glass-phone border-line bg-white text-muk-soft max-md:text-muk hover:border-gold/60 hover:text-muk'
                 }`}
               >
                 <Icon size={15} aria-hidden className={isActive ? 'text-hanji' : 'text-gold-deep'} />

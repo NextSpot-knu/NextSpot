@@ -96,4 +96,33 @@ for (const page of ["app/explore/recommend/page.tsx", "app/waiting/page.tsx", "a
   }
 }
 
+// 7) Liquid Glass(app/globals.css .liquid-glass) — 지도 위 탐색 층의 바탕은 한지를 --nextspot-glass-tint 만큼 덮은 반투명이라
+//    뒤의 지도 색에 따라 달라진다. 그래서 두 가지를 잠근다: 주 글자(먹)는 뒤가 완전히 검거나(라이트) 흰(야간) 최악에도 4.5:1,
+//    보조 글자(먹 연·금 진)는 중간 회색(#808080) 지도 위에서 4.5:1. 비율을 낮추면 이 테스트가 먼저 깨진다.
+{
+  const css = readFileSync(join(WEB, "app/globals.css"), "utf8");
+  for (const [label, selector, worst] of [
+    ["light", /^:root\s*\{/m, "#000000"],
+    ["dark", /^html\.nextspot-dark\s*\{/m, "#ffffff"],
+  ] as const) {
+    const start = css.search(selector);
+    const block = css.slice(start, css.indexOf("}", start));
+    const hex = (name: string) => {
+      const m = block.match(new RegExp(`--nextspot-${name}:\\s*(#[0-9a-fA-F]{6})`));
+      assert.ok(m, `${label} 토큰 없음: --nextspot-${name}`);
+      return m![1];
+    };
+    const tintMatch = block.match(/--nextspot-glass-tint:\s*(\d+(?:\.\d+)?)%/);
+    assert.ok(tintMatch, `${label} 토큰 없음: --nextspot-glass-tint`);
+    const tint = Number(tintMatch![1]) / 100;
+    const glassOver = (backdrop: string) => mixHex(backdrop, hex("hanji"), tint);
+    const primary = contrastRatio(hex("muk"), glassOver(worst));
+    assert.ok(primary >= 4.5, `${label} glass: muk over ${worst} ${primary.toFixed(2)} < 4.5`);
+    for (const name of ["muk-soft", "gold-deep"]) {
+      const ratio = contrastRatio(hex(name), glassOver("#808080"));
+      assert.ok(ratio >= 4.5, `${label} glass: ${name} over mid-gray ${ratio.toFixed(2)} < 4.5`);
+    }
+  }
+}
+
 console.log("contrast tests passed");
