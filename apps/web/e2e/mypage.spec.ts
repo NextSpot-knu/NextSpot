@@ -270,3 +270,56 @@ test('ko: the radar face has no engine words; +10% and −5% sit behind 자세�
   await expect(radar).toContainText('+10%');
   await expect(radar).toContainText('−5%');
 });
+
+// 기기 언어 — 언어를 고른 적 없는 첫 방문은 기기 언어로 보인다(10-10 실서비스 비교: 외국인 관광객이 한국어 첫 화면에서
+// 언어 선택을 찾아야 했다). 자동으로 고른 언어는 저장하지 않고, 사용자가 고른 언어가 늘 이긴다.
+test.describe('browser language on a first visit', () => {
+  test.use({ locale: 'ja-JP' });
+
+  // 첫 렌더는 늘 한국어다(정적 export) — 언어 바꾸기가 끝난 뒤를 봐야 '한국어로 남았다' 를 확인할 수 있다.
+  const settle = async (page: Page) => {
+    await page.waitForLoadState('networkidle');
+    await page.waitForTimeout(2_000);
+  };
+
+  test('a Japanese browser with no saved choice sees Japanese, and nothing is saved', async ({ page }) => {
+    test.setTimeout(90_000);
+    await stubApis(page, { role: 'tourist', is_anonymous: true }, ZERO_IMPACT);
+    await page.goto('/mypage');
+    await expect(page.getByRole('heading', { name: 'ゲスト探検家', exact: true })).toBeVisible({ timeout: 30_000 });
+    expect(await page.evaluate(() => localStorage.getItem('nextspot_locale'))).toBeNull();
+  });
+
+  test('Korean anywhere in the browser list keeps Korean (English-first browser of a Korean user)', async ({ page }) => {
+    test.setTimeout(90_000);
+    await stubApis(page, { role: 'tourist', is_anonymous: true }, ZERO_IMPACT);
+    await page.addInitScript(() => Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'ko-KR'] }));
+    await page.goto('/mypage');
+    await expect(page.getByRole('heading', { name: '게스트 탐험가', exact: true })).toBeVisible({ timeout: 30_000 });
+    await settle(page);
+    await expect(page.getByRole('heading', { name: '게스트 탐험가', exact: true })).toBeVisible();
+    await expect(page.getByText('Guest Explorer')).toHaveCount(0);
+    expect(await page.evaluate(() => document.documentElement.lang)).toBe('ko');
+  });
+
+  test('the merchant console ignores the browser language (it has no language picker)', async ({ page }) => {
+    test.setTimeout(90_000);
+    await stubApis(page, { role: 'tourist', is_anonymous: true }, ZERO_IMPACT);
+    await page.goto('/merchant?demo=1');
+    await expect(page.getByRole('heading', { name: '지금 할인, 지금 발행' })).toBeVisible({ timeout: 30_000 });
+    await settle(page);
+    await expect(page.getByRole('heading', { name: '지금 할인, 지금 발행' })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.lang)).toBe('ko');
+  });
+
+  test('a saved choice wins over the browser language', async ({ page }) => {
+    test.setTimeout(90_000);
+    await stubApis(page, { role: 'tourist', is_anonymous: true }, ZERO_IMPACT);
+    await page.addInitScript(() => localStorage.setItem('nextspot_locale', 'ko'));
+    await page.goto('/mypage');
+    await expect(page.getByRole('heading', { name: '게스트 탐험가', exact: true })).toBeVisible({ timeout: 30_000 });
+    await settle(page);
+    await expect(page.getByText('ゲスト探検家')).toHaveCount(0);
+    expect(await page.evaluate(() => document.documentElement.lang)).toBe('ko');
+  });
+});
