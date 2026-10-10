@@ -16,6 +16,7 @@ import { telHref } from '@/lib/phoneLink';
 import { hoursLines } from '@/lib/hoursLines';
 import { isPredictModelTrained } from '@/lib/predictModel';
 import { haptic, sheetSpring } from '@/lib/motion';
+import { nextSheetState, sheetElastic, type SheetState } from '@/lib/sheetSnap';
 import { areaDemandDisclosure } from '@/lib/areaDemandPresentation';
 import { useCountUp } from '@/lib/useCountUp';
 import { congestionDisplay, formatEstimateTime, formatLastObserved } from '@/lib/congestionEstimate';
@@ -566,32 +567,23 @@ export function RecommendationCard({
     return () => observer.disconnect();
   }, [updateScrollEdges, isMinimized, isExpanded, whyOpen, spotOpen]);
 
-  // Framer Motion Drag Handler
+  // 끌어 놓기 — 어느 높이로 걸릴지는 lib/sheetSnap(놓은 속도까지 본 투영 위치)이 정한다.
+  // 미리보기를 먼저 본다 — 화면도 isMinimized 를 먼저 보고 미리보기를 그린다(펼침 표시가 남은 채 미리보기로 바뀐
+  // 경우: 휴대폰 폭 전환 · 실시간 새로고침 중 접기). 예전처럼 펼침으로 보면 보이는 미리보기가 위로 밀어도 안 열렸다.
+  const sheetState: SheetState = isMinimized ? 'minimized' : isExpanded ? 'expanded' : 'normal';
   const handleDragEnd = (event: MouseEvent | TouchEvent | PointerEvent, info: PanInfo) => {
-    const offset = info.offset.y;
-    const velocity = info.velocity.y;
-
+    // 탭으로 보는 움직임(클릭 가드 SWIPE_GUARD_PX 미만)은 높이를 바꾸지 않는다 — 흔들린 탭이 버튼도 누르고 카드도
+    // 접는 두 가지 일을 하지 않게.
+    if (Math.abs(info.offset.y) < SWIPE_GUARD_PX) return;
+    const next = nextSheetState(sheetState, info.offset.y, info.velocity.y);
+    if (next === sheetState) return;
+    if (sheetState === 'expanded') setIsExpanded(false);
+    else if (sheetState === 'minimized') { setIsMinimized(false); setIsExpanded(false); }
+    else if (next === 'minimized') setIsMinimized(true);
+    else setIsExpanded(true);
     // 높이가 실제로 바뀔 때만 짧은 진동 한 번(안드로이드) — 자리를 잡았다는 확인. 그대로면 울리지 않는다
     // (Apple HIG: 햅틱은 뚜렷한 원인이 있는 사건에만 · Toss: 누름이 끝날 때 약하게).
-    const down = offset > 50 || velocity > 200;
-    const up = offset < -50 || velocity < -200;
-    if (isExpanded) {
-      if (down) {
-        setIsExpanded(false);
-        haptic('selection');
-      }
-    } else if (isMinimized) {
-      if (up) {
-        setIsMinimized(false);
-        haptic('selection');
-      }
-    } else if (down) {
-      setIsMinimized(true);
-      haptic('selection');
-    } else if (up) {
-      setIsExpanded(true);
-      haptic('selection');
-    }
+    haptic('selection');
   };
 
   // 손으로 '상세 정보 펼치기' 를 누르면 펼친 상세로 스크롤한다 — 예전에는 버튼 글자만 '접기' 로 바뀌고 새 내용은
@@ -1124,7 +1116,11 @@ export function RecommendationCard({
       animate={{ opacity: 1, y: 0, scale: 1 }}
       drag="y"
       dragConstraints={{ top: 0, bottom: 0 }}
-      dragElastic={0.2}
+      dragElastic={sheetElastic(sheetState)}
+      // 놓으면 제자리로 돌아오는 스프링을 시트 스프링과 맞춘다(framer 기본 200/40 은 과감쇠라 0.7초쯤 끈다 → 약 0.25초).
+      // 위아래 한계가 둘 다 0 이라 놓는 순간 이미 한계 밖이고, framer 는 이 경우 정지 상태에서 되돌린다(놓은 속도는
+      // 높이 결정 — nextSheetState — 에만 쓰인다).
+      dragTransition={{ bounceStiffness: 380, bounceDamping: 32 }}
       onDrag={handleDrag}
       onDragEnd={handleDragEndWithClickGuard}
       layout
