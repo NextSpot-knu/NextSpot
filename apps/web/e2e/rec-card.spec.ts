@@ -787,6 +787,11 @@ test('the card face says what the place serves — a real menu as 대표 메뉴,
   const menu = card(page).getByTestId('card-menu');
   await expect(menu).toBeVisible({ timeout: 25_000 });
   await expect(menu).toHaveText('대표 메뉴쌈밥 정식 · 된장찌개 · 제육볶음');
+  // 이름표는 화면 읽기 프로그램에만 — 보이는 폭은 음식 이름에. 이름 위 배지 줄에 있어 카드를 높이지 않는다.
+  await expect(menu.locator('.sr-only')).toHaveText('대표 메뉴');
+  const [menuBox, rankBox] = await Promise.all([menu.boundingBox(), card(page).getByTestId('card-rank').boundingBox()]);
+  if (!menuBox || !rankBox) throw new Error('card badge row is not on screen');
+  expect(Math.abs(menuBox.y + menuBox.height / 2 - (rankBox.y + rankBox.height / 2))).toBeLessThan(2);
 });
 
 test('a place with only a Kakao category shows the food type without calling it a menu', async ({ page }) => {
@@ -801,6 +806,7 @@ test('a place with only a Kakao category shows the food type without calling it 
   const menu = card(page).getByTestId('card-menu');
   await expect(menu).toBeVisible({ timeout: 25_000 });
   await expect(menu).toHaveText('한식 · 곱창·막창');
+  await expect(menu.locator('.sr-only')).toHaveCount(0);
 });
 
 test('390px: the peek shows the dishes in its chip row without growing', async ({ page }) => {

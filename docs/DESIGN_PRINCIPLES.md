@@ -83,7 +83,8 @@
 - **크기가 바뀌는 판의 내용은 늘이지 않는다**: framer `layout` 은 판을 크기 변환으로 키워 글자·사진까지 눌렀다 폈다(10-10 녹화).
   판 안의 내용은 `layout="position"` 래퍼 하나로 묶어 처음부터 제 크기로 그리고, 판이 자라며 드러낸다. 둥글기는 `style` 로 준다
   (framer 는 style 둥글기만 보정). 미리보기 ↔ 전체처럼 내용이 바뀌면 새 내용만 160ms 떠오른다(`.sheet-content-in`).
-- 다음 단계(PM 결정 대기): 화면 사이 View Transitions.
+- 화면 사이 전환(View Transitions)은 심사 뒤: Next.js 16 은 `experimental.viewTransition` 플래그로만 켜고 문서가 "실험 기능 —
+  운영에 권장하지 않음"이라고 적는다(nextjs.org/docs/app/api-reference/config/next-config-js/viewTransition, 10-10 확인).
 
 ## 측정 기준 (지키는 장치)
 

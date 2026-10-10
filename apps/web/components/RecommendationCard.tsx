@@ -1419,15 +1419,18 @@ export function RecommendationCard({
                   : 'recommend.alternativeBasis.timing')}
               </span>
             )}
+            {/* 무엇을 파는 곳인가 — 이름 바로 위 배지 줄의 남은 폭에(카드가 높아지지 않게). 이름 아래 새 줄로 두면 휴대폰
+                영어 화면에서 '상세 정보 펼치기' 가 스크롤 흐림 밑으로 밀렸다(10-10 화면 점검). '대표 메뉴' 이름표는 화면 읽기
+                프로그램에만 — 보이는 폭은 음식 이름에(상세의 '대표 메뉴' 칸에 전체 목록과 이름표가 있다). */}
+            {faceMenu && (
+              <span data-testid="card-menu" className="inline-flex min-w-[5rem] basis-0 grow items-center gap-1 text-[12px] font-semibold leading-4 text-muk-soft">
+                <FaceMenuIcon size={13} className="shrink-0" aria-hidden />
+                {faceMenu.kind === 'menu' && <span className="sr-only">{t('card.signatureMenu')}</span>}
+                <span className="min-w-0 truncate">{faceMenu.items.join(' · ')}</span>
+              </span>
+            )}
           </div>
           <h3 className="font-serif text-[20px] xl:text-[22px] font-bold leading-tight tracking-tight text-muk">{title}</h3>
-          {faceMenu && (
-            <p data-testid="card-menu" className="mt-1 flex min-w-0 items-center gap-1.5 text-[13px] font-semibold leading-5 text-muk-soft">
-              <FaceMenuIcon size={14} className="shrink-0" aria-hidden />
-              {faceMenu.kind === 'menu' && <span className="shrink-0 font-bold text-gold-deep">{t('card.signatureMenu')}</span>}
-              <span className="min-w-0 truncate">{faceMenu.items.join(' · ')}</span>
-            </p>
-          )}
         </div>
 
         {hasSpotMetrics ? (
