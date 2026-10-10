@@ -22,6 +22,7 @@ SPOT(Smart Place Optimization for Tourism) 점수로 분산·재배치하는 AI 
 | DB 스키마 | `supabase/migrations/` (`RESET_AND_SETUP.sql`은 자동 생성물) |
 | SPOT 산식 · 가중치 | `apps/api/app/services/spot/score.py` ↔ `packages/shared-types/spot.ts` (CI 패리티 테스트) |
 | 환경변수 이름 · 배포 절차 | `docs/DEPLOY_AND_ENV.md`, `render.yaml`, `apps/*/.env.example` |
+| 디자인 원칙 · 글쓰기 · 대비·탭 영역 기준 | `docs/DESIGN_PRINCIPLES.md` (대비는 `apps/web/lib/contrast.test.ts`가 잠근다) |
 | 발표 대본 · 심사 답변 | `docs/contest/DEMO_SCENARIO.md`, `docs/contest/JUDGE_QA.md` |
 | 과거 결정 · 끝난 계획 | `docs/archive/` (읽기 전용) |
 

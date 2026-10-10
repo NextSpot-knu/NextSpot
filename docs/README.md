@@ -35,6 +35,7 @@
 | [`MODEL_CARD.md`](./MODEL_CARD.md) | 혼잡 예측 모델의 운영 계약 · 품질 게이트 · 승격 절차 | living | 2026-09-04 |
 | [`CONGESTION_DATA.md`](./CONGESTION_DATA.md) | 혼잡 데이터 원칙 · 외부 데이터 라이선스 · 공공 협업 우선순위 정본 (§10 = 주차 실측 기반 추정 `parking_derived`) | living | 2026-09-08 |
 | [`API_ARCHITECTURE_PLAN.md`](./API_ARCHITECTURE_PLAN.md) | API 재설계 — 참조 스냅샷 · 사전 계산 · 패치 층 제거. 실측 근거, 단계 P0a~P8 상태, 레드팀 제약 B1~B6 | living | 2026-09-28 |
+| [`DESIGN_PRINCIPLES.md`](./DESIGN_PRINCIPLES.md) | 디자인 원칙 — Toss·Apple·Google 철학에서 가져온 NextSpot 원칙 9가지, 글쓰기 규칙, 측정 기준(대비·탭 영역·글자)과 지키는 장치, 남은 결정 | living | 2026-10-10 |
 | [`CONGESTION_ENGINE_PLAN.md`](./CONGESTION_ENGINE_PLAN.md) | 혼잡 엔진 계획 — 서울 실시간 도시데이터를 검증 지역으로, 경주는 주차·집중률 기반 "추정 모드". **초안, 결정 D1~D6 대기** | living | 2026-09-09 |
 
 ## 심사 자료 (`docs/contest/`)
