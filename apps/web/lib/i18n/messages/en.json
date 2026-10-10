@@ -146,7 +146,7 @@
     "sigLearning": "Recommendations that remember your choices",
     "sigLearningBody": "Each response updates your taste vector, and the radar chart on My Page shows how it changes.",
     "sigBarrierFree": "Barrier-free mode",
-    "sigBarrierFreeBody": "An accessibility filter recommends only places that suit your mobility needs.",
+    "sigBarrierFreeBody": "A wheelchair & stroller filter recommends only places that suit your mobility needs.",
     "featureMap": "Map, search and themed discovery",
     "featureMapBody": "Search places, browse Gyeongju themes, and compare with the congestion heatmap and arrival-time slider on one map. Voice control is available in supported environments.",
     "featureTime": "If you leave now",
@@ -249,7 +249,7 @@
     "minutes": "{n} min",
     "twoHoursPlus": "2 hours+",
     "indoorOnly": "Indoor places only",
-    "accessibleOnly": "Verified accessibility only",
+    "accessibleOnly": "Confirmed wheelchair & stroller access only",
     "excludeVisited": "Exclude places visited today"
   },
   "saved": {
@@ -363,10 +363,10 @@
   "map": {
     "heatmap": "Heatmap",
     "forecast": "AI forecast",
-    "barrierFree": "Barrier-free",
-    "barrierFreeSwitched": "♿ Showing barrier-free spots: {category} ({n})",
-    "barrierFreeElsewhere": "♿ Barrier-free places are over here",
-    "barrierFreeOnMap": "♿ Barrier-free places on the map: {n}",
+    "barrierFree": "Wheelchair & stroller",
+    "barrierFreeSwitched": "♿ Showing {category} with wheelchair & stroller access ({n})",
+    "barrierFreeElsewhere": "♿ Places with wheelchair & stroller access are over here",
+    "barrierFreeOnMap": "♿ Places with wheelchair & stroller access on the map: {n}",
     "searchPlaceholder": "Search Gyeongju places",
     "searchClear": "Clear search",
     "voiceSearchSoon": "Voice search coming soon",
@@ -864,7 +864,7 @@
     "onboardingTitle": "Personalized recommendation onboarding",
     "onboardingBody": "Pick 3 or more place types you love. We'll instantly recommend the next spot that fits your taste.",
     "nlLabel": "Tell or type your preferences in your own words (AI analyzes them)",
-    "nlPlaceholder": "e.g. I like quiet hanok cafes and nearby barrier-free attractions",
+    "nlPlaceholder": "e.g. I like quiet hanok cafes and nearby attractions that are easy with a wheelchair",
     "speakByVoice": "Speak by voice",
     "nlAnalyzing": "AI analyzing...",
     "nlAnalyzeCta": "Analyze preferences with AI ✨",
@@ -1042,7 +1042,7 @@
     "availableChip": "{n} min remaining",
     "attribute": {
       "indoor": "Indoor required",
-      "accessible": "Verified accessible only"
+      "accessible": "Confirmed wheelchair & stroller access only"
     }
   },
   "password": {
@@ -1436,10 +1436,10 @@
   "condition": {
     "walk": "🚶 Within a {n}-min walk",
     "indoor": "🏠 Indoor",
-    "barrierFree": "♿ Barrier-free",
+    "barrierFree": "♿ Wheelchair & stroller",
     "walkName": "within a {n}-min walk",
     "indoorName": "indoor",
-    "barrierFreeName": "barrier-free",
+    "barrierFreeName": "wheelchair & stroller",
     "removeAria": "Remove “{label}”"
   },
   "voice": {

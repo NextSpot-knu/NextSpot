@@ -146,7 +146,7 @@
     "sigLearning": "選択を覚えるおすすめ",
     "sigLearningBody": "おすすめへの反応が好みベクトルを更新し、マイページのレーダーチャートで変化を確認できます。",
     "sigBarrierFree": "バリアフリーモード",
-    "sigBarrierFreeBody": "移動に配慮が必要な方向けのフィルターで、条件に合う場所だけをおすすめします。",
+    "sigBarrierFreeBody": "車いす・ベビーカーのフィルターで、移動の条件に合う場所だけをおすすめします。",
     "featureMap": "地図・検索・テーマ探索",
     "featureMapBody": "場所検索と慶州テーマのおすすめ、混雑ヒートマップと到着時点予測スライダーまで一つの地図で比較。対応環境では音声でも操作できます。",
     "featureTime": "今出発したら？",
@@ -249,7 +249,7 @@
     "minutes": "{n}分",
     "twoHoursPlus": "2時間以上",
     "indoorOnly": "屋内のみ",
-    "accessibleOnly": "バリアフリー確認済みのみ",
+    "accessibleOnly": "車いす・ベビーカー対応を確認済みのみ",
     "excludeVisited": "今日訪れた場所を除外"
   },
   "saved": {
@@ -363,10 +363,10 @@
   "map": {
     "heatmap": "ヒートマップ",
     "forecast": "AI予測",
-    "barrierFree": "バリアフリー",
-    "barrierFreeSwitched": "♿ バリアフリー確認済みの{category}を{n}か所表示します",
-    "barrierFreeElsewhere": "♿ バリアフリー確認済みの場所はこちら",
-    "barrierFreeOnMap": "♿ バリアフリー確認済みの場所が地図に{n}か所あります",
+    "barrierFree": "車いす・ベビーカー",
+    "barrierFreeSwitched": "♿ 車いす・ベビーカー対応を確認済みの{category}を{n}か所表示します",
+    "barrierFreeElsewhere": "♿ 車いす・ベビーカー対応を確認済みの場所はこちら",
+    "barrierFreeOnMap": "♿ 車いす・ベビーカー対応を確認済みの場所が地図に{n}か所あります",
     "searchPlaceholder": "慶州の施設・メニュー・雰囲気を検索",
     "searchClear": "検索をクリア",
     "voiceSearchSoon": "音声検索は準備中",
@@ -864,7 +864,7 @@
     "onboardingTitle": "パーソナライズおすすめオンボーディング",
     "onboardingBody": "好きな場所の種類を3つ以上選んでください。好みにぴったりの次の場所をすぐにおすすめします。",
     "nlLabel": "好みを自分の言葉で話すか入力してください（AIが分析）",
-    "nlPlaceholder": "例：静かな韓屋カフェとバリアフリーの近い観光地がいいです",
+    "nlPlaceholder": "例：静かな韓屋カフェと、車いすで回りやすい近くの観光地がいいです",
     "speakByVoice": "音声で話す",
     "nlAnalyzing": "AI分析中...",
     "nlAnalyzeCta": "AIで好みを分析する ✨",
@@ -1042,7 +1042,7 @@
     "availableChip": "残り{n}分",
     "attribute": {
       "indoor": "屋内必須",
-      "accessible": "バリアフリー確認済みのみ"
+      "accessible": "車いす・ベビーカー対応を確認済みのみ"
     }
   },
   "password": {
@@ -1436,10 +1436,10 @@
   "condition": {
     "walk": "🚶 徒歩{n}分以内",
     "indoor": "🏠 屋内",
-    "barrierFree": "♿ バリアフリー",
+    "barrierFree": "♿ 車いす・ベビーカー",
     "walkName": "徒歩{n}分以内",
     "indoorName": "屋内",
-    "barrierFreeName": "バリアフリー",
+    "barrierFreeName": "車いす・ベビーカー",
     "removeAria": "「{label}」を解除"
   },
   "voice": {

@@ -591,7 +591,7 @@ test('♿ saved in storage renders without a hydration mismatch', async ({ page 
     prefs: { version: 2, categories: ['attraction'], requiredAttributes: ['accessible'], excludeVisited: false, visitedFacilityIds: [] },
   });
   await expect(card(page)).toBeVisible({ timeout: 25_000 });
-  await expect(page.getByRole('button', { name: /무장애/ }).first()).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByRole('button', { name: /휠체어·유모차/ }).first()).toHaveAttribute('aria-pressed', 'true');
   expect(errors).toEqual([]);
 });
 
@@ -667,7 +667,7 @@ test('a tapped pin gives way to ♿: the card re-ranks to a barrier-free place a
 
   await page.getByTestId('toolbar-row-2').getByRole('button', { name: /♿/ }).click();
   await expect(card(page).getByRole('heading', { name: '경주 계림' })).toBeVisible({ timeout: 20_000 });
-  await expect(card(page).getByTestId('card-conditions')).toContainText('♿ 무장애');
+  await expect(card(page).getByTestId('card-conditions')).toContainText('♿ 휠체어·유모차');
   await expect(card(page).getByTestId('card-rank')).toHaveText('베스트 추천');
   await page.waitForTimeout(800);
   await expect(page.getByText('이 시간대에도 같은 추천이 유효해요')).toHaveCount(0);

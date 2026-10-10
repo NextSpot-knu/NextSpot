@@ -142,15 +142,15 @@ test('♿ switches to the category that has barrier-free places, and an empty ch
   await openMain(page, places);
   await expect(cardHeading(page, '황남 쌈밥')).toBeVisible({ timeout: 25_000 });
 
-  await page.getByRole('button', { name: '♿ 무장애' }).click();
-  await expect(page.getByText('♿ 무장애 확인된 관광지 2곳을 보여드려요')).toBeVisible();
+  await page.getByRole('button', { name: '♿ 휠체어·유모차' }).click();
+  await expect(page.getByText('♿ 휠체어·유모차 편의가 확인된 관광지 2곳을 보여드려요')).toBeVisible();
   await expect(cardHeading(page, '대릉원 산책길')).toBeVisible({ timeout: 25_000 });
 
   // ♿ 를 켠 채 무장애 확인 장소가 없는 칩으로 — '없어요' 대신 갈 칩을 고르는 카드 하나.
   await page.getByRole('button', { name: '음식점', exact: true }).click();
   const suggestion = page.getByTestId('category-suggestion');
   await expect(suggestion).toBeVisible({ timeout: 25_000 });
-  await expect(suggestion).toContainText('♿ 무장애 확인 장소는 이쪽에 있어요');
+  await expect(suggestion).toContainText('♿ 휠체어·유모차 편의가 확인된 곳은 이쪽에 있어요');
   await expect(page.getByText(/없어요/)).toHaveCount(0);
   await suggestion.getByRole('button', { name: '관광지 2곳 보기' }).click();
   await expect(cardHeading(page, '대릉원 산책길')).toBeVisible({ timeout: 25_000 });
@@ -168,10 +168,10 @@ test('♿ with barrier-free pins only beyond walking range moves to their catego
   await openMain(page, places);
   await expect(cardHeading(page, '황남 쌈밥')).toBeVisible({ timeout: 25_000 });
 
-  await page.getByRole('button', { name: '♿ 무장애' }).click();
+  await page.getByRole('button', { name: '♿ 휠체어·유모차' }).click();
   const suggestion = page.getByTestId('category-suggestion');
   await expect(suggestion).toBeVisible({ timeout: 25_000 });
-  await expect(suggestion).toContainText('♿ 무장애 확인 장소 1곳이 지도에 있어요');
+  await expect(suggestion).toContainText('♿ 휠체어·유모차 편의가 확인된 1곳이 지도에 있어요');
   await expect(suggestion.getByRole('button', { name: '지도에서 보기' })).toBeVisible();
   await expect(page.getByTestId('recommendation-card')).toHaveCount(0);
   await expect(page.getByText(/없어요/)).toHaveCount(0);
@@ -192,10 +192,10 @@ test('♿ whose category the server leaves empty still opens the barrier-free pl
   });
   await expect(cardHeading(page, '황남 쌈밥')).toBeVisible({ timeout: 25_000 });
 
-  await page.getByRole('button', { name: '♿ 무장애' }).click();
-  await expect(page.getByText('♿ 무장애 확인된 관광지 1곳을 보여드려요')).toBeVisible();
+  await page.getByRole('button', { name: '♿ 휠체어·유모차' }).click();
+  await expect(page.getByText('♿ 휠체어·유모차 편의가 확인된 관광지 1곳을 보여드려요')).toBeVisible();
   await expect(cardHeading(page, '대릉원 산책길')).toBeVisible({ timeout: 25_000 });
-  await expect(page.getByTestId('recommendation-card').getByRole('button', { name: '무장애 조건 해제' })).toBeVisible();
+  await expect(page.getByTestId('recommendation-card').getByRole('button', { name: '휠체어·유모차 조건 해제' })).toBeVisible();
   await expect(page.getByTestId('category-suggestion')).toHaveCount(0);
   // 카드의 '관심 없어요' 버튼 말고는 '없어요' 가 없다.
   await expect(page.getByText(/(?<!관심 )없어요/)).toHaveCount(0);
@@ -217,6 +217,6 @@ for (const viewport of [{ width: 1536, height: 730 }, { width: 390, height: 844 
     } else {
       await expect(page.getByRole('button', { name: /히트맵/ })).toBeVisible();
     }
-    await expect(page.getByRole('button', { name: /무장애|배리어프리/ })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /휠체어·유모차|무장애|배리어프리/ })).toHaveCount(0);
   });
 }

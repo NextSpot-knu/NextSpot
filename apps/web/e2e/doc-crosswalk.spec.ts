@@ -349,7 +349,7 @@ for (const viewport of [DESKTOP, PHONE]) {
       await test.step('④ 무장애(♿)·주차(🅿)·반려동물(🐾) 필터 — 조건을 만족하는 시설만 남는다', async () => {
         await expect.poll(() => markers(page)).toContain('대릉원');
         const filters = [
-          { name: /^♿ 무장애$/, keeps: '경주 계림' },
+          { name: /^♿ 휠체어·유모차$/, keeps: '경주 계림' },
           { name: /^🅿 주차$/, keeps: '경주 계림' },
           // 🐾 는 반려동물 동반 정보가 있을 때만 서는 칩이고, 휴대폰 시트에는 없다(데스크톱 툴바 둘째 줄).
           ...(isPhone(page) ? [] : [{ name: /^🐾 반려동물$/, keeps: '첨성대 꽃밭' }]),

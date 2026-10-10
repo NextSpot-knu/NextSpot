@@ -146,7 +146,7 @@
     "sigLearning": "记住你选择的推荐",
     "sigLearningBody": "每次反馈都会更新偏好向量，并可在“我的页面”雷达图中查看变化。",
     "sigBarrierFree": "无障碍模式",
-    "sigBarrierFreeBody": "通过无障碍筛选，只推荐符合出行条件的地点。",
+    "sigBarrierFreeBody": "通过轮椅·婴儿车筛选，只推荐符合出行条件的地点。",
     "featureMap": "地图、搜索与主题推荐",
     "featureMapBody": "在同一张地图上完成地点搜索、庆州主题推荐、拥挤热力图与到达时点预测滑块比较，支持的环境下也可语音操作。",
     "featureTime": "现在出发会怎样？",
@@ -249,7 +249,7 @@
     "minutes": "{n}分钟",
     "twoHoursPlus": "2小时以上",
     "indoorOnly": "仅室内地点",
-    "accessibleOnly": "仅无障碍信息已确认",
+    "accessibleOnly": "仅限已确认方便轮椅·婴儿车的地点",
     "excludeVisited": "排除今天去过的地点"
   },
   "saved": {
@@ -363,10 +363,10 @@
   "map": {
     "heatmap": "热力图",
     "forecast": "AI预测",
-    "barrierFree": "无障碍",
-    "barrierFreeSwitched": "♿ 为你显示{n}处已确认无障碍的{category}",
-    "barrierFreeElsewhere": "♿ 已确认无障碍的地点在这里",
-    "barrierFreeOnMap": "♿ 地图上有{n}处已确认无障碍的地点",
+    "barrierFree": "轮椅·婴儿车",
+    "barrierFreeSwitched": "♿ 为你显示{n}处已确认方便轮椅·婴儿车的{category}",
+    "barrierFreeElsewhere": "♿ 已确认方便轮椅·婴儿车的地点在这里",
+    "barrierFreeOnMap": "♿ 地图上有{n}处已确认方便轮椅·婴儿车的地点",
     "searchPlaceholder": "搜索庆州的地点、菜单或氛围",
     "searchClear": "清除搜索",
     "voiceSearchSoon": "语音搜索即将上线",
@@ -864,7 +864,7 @@
     "onboardingTitle": "个性化推荐引导",
     "onboardingBody": "请选择3种及以上你喜欢的地点类型，我们会立即推荐最适合你的下一站。",
     "nlLabel": "用你自己的话说出或输入偏好（AI分析）",
-    "nlPlaceholder": "例如：我喜欢安静的韩屋咖啡厅和附近的无障碍景点",
+    "nlPlaceholder": "例如：我喜欢安静的韩屋咖啡厅和附近方便轮椅通行的景点",
     "speakByVoice": "用语音说",
     "nlAnalyzing": "AI分析中...",
     "nlAnalyzeCta": "用AI分析偏好 ✨",
@@ -1042,7 +1042,7 @@
     "availableChip": "剩余{n}分钟",
     "attribute": {
       "indoor": "必须室内",
-      "accessible": "仅限已确认无障碍"
+      "accessible": "仅限已确认方便轮椅·婴儿车"
     }
   },
   "password": {
@@ -1436,10 +1436,10 @@
   "condition": {
     "walk": "🚶 步行{n}分钟内",
     "indoor": "🏠 室内",
-    "barrierFree": "♿ 无障碍",
+    "barrierFree": "♿ 轮椅·婴儿车",
     "walkName": "步行{n}分钟内",
     "indoorName": "室内",
-    "barrierFreeName": "无障碍",
+    "barrierFreeName": "轮椅·婴儿车",
     "removeAria": "取消“{label}”"
   },
   "voice": {
