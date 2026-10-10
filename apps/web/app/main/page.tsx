@@ -4112,8 +4112,10 @@ export default function MainPage() {
           style={{ '--cluster-w': `${(topClusterPx ?? 288) + 12}px` } as CSSProperties}
         >
         {/* 묶음 폭은 스크롤 줄 안쪽 여백이 아니라 바깥 여백으로 비운다 — 안쪽 여백은 넘친 칩이 묶음 밑으로 들어가는 것을
-            막지 못했다(1024px 에서 '주차장' 이 언어 고르기 밑, 리뷰 10-07). 1280px 아래에서는 칩이 다음 줄로 넘어간다. */}
-        <div data-testid="toolbar-row-1" className="pointer-events-auto flex items-center gap-2 overflow-x-auto no-scrollbar md:mr-[var(--cluster-w)] md:flex-wrap md:gap-1.5 xl:flex-nowrap">
+            막지 못했다(1024px 에서 '주차장' 이 언어 고르기 밑, 리뷰 10-07). 데스크톱은 넘치면 어느 폭이든 다음 줄로 넘어간다 —
+            예전 1280px 이상은 한 줄 고정이라 음식점에서 🍽 메뉴 ▾ 가 숨은 가로 스크롤 밖으로 잘렸고(영어 1280~1440 · 일본어 1280~1366),
+            스크롤바가 없어 마우스로는 닿을 수 없었다(10-10 실측). 판 높이는 재서 추천 열을 그 아래에 둔다(toolbarClearPx). */}
+        <div data-testid="toolbar-row-1" className="pointer-events-auto flex items-center gap-2 overflow-x-auto no-scrollbar md:mr-[var(--cluster-w)] md:flex-wrap md:gap-1.5">
           {/* 휴대폰: 필터·편의가 칩 줄 맨 앞(히트맵·♿·🅿·음식 종류·축제·화장실은 시트 안). */}
           {activeFilter !== '주차장' && (
             <button
@@ -4164,8 +4166,9 @@ export default function MainPage() {
 
         {/* 2줄(데스크톱): 🔥 히트맵 · ♿ 무장애 · 🅿 주차 · (🐾) · 🏮 축제 · 🚻 화장실 · 🍃 지금 한산, 그리고 출처 칩 하나. */}
         <div data-testid="toolbar-row-2" className="pointer-events-auto hidden items-center gap-2 md:flex">
-          {/* 축제·화장실·지금 한산 칩은 각자 컴포넌트의 크기를 갖고 있다 — 이 줄에서는 같은 높이(32px)로 맞춘다. */}
-          <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto no-scrollbar [&>button]:h-8 [&>button]:py-0 [&>button]:px-3 [&>button]:text-[13px]">
+          {/* 축제·화장실·지금 한산 칩은 각자 컴포넌트의 크기를 갖고 있다 — 이 줄에서는 같은 높이(32px)로 맞춘다.
+              넘치면 다음 줄로(첫 줄과 같은 이유 — 예전에는 1024px 에서 축제·화장실·지금 한산이 숨은 스크롤 밖에 있었다). */}
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5 overflow-x-auto no-scrollbar [&>button]:h-8 [&>button]:py-0 [&>button]:px-3 [&>button]:text-[13px]">
           {activeFilter !== '주차장' && (
             <>
               <button

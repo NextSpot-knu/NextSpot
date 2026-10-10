@@ -478,6 +478,51 @@ for (const viewport of [{ width: 1366, height: 650 }, { width: 1536, height: 730
   }
 }
 
+// 음식점을 고르면 첫 줄에 🍽 메뉴 ▾ 가 붙는다 — 넘친 칩은 숨은 가로 스크롤이 아니라 다음 줄로(10-10 실측: 예전 1280px 이상은 한 줄 고정이라
+// 영어 1280~1440 · 일본어 1280~1366 에서 메뉴가 잘려 마우스로 닿을 수 없었고, 1024px 은 둘째 줄의 축제·화장실·지금 한산이 숨어 있었다).
+// 판이 높아지면 추천 열은 그 아래에서 시작한다(toolbarClearPx).
+const RESTAURANT_CHIP = { ko: '음식점', en: 'Restaurant', ja: '飲食店', zh: '餐厅' } as const;
+for (const width of [1024, 1280, 1366]) {
+  for (const locale of ['ko', 'en', 'ja', 'zh'] as const) {
+    test(`${width} ${locale}: with 음식점 every toolbar chip and the 🍽 menu stay in view, and the card starts below the toolbar`, async ({ page }) => {
+      test.setTimeout(90_000);
+      await page.setViewportSize({ width, height: 768 });
+      const restaurants = [
+        place('rest-pizza', '이사부피자', 'restaurant', 8, { features: { cuisine_tags: ['양식', '피자'] } }),
+        place('rest-korean', '황남 쌈밥', 'restaurant', 9, { features: { cuisine_tags: ['한식'] } }),
+      ];
+      await openMain(page, {
+        locale,
+        liveRow2: true,
+        facilities: [...restaurants, DAEREUNGWON],
+        byType: (type) => (type === 'restaurant' ? [rec(restaurants[1], 1), rec(restaurants[0], 2)] : []),
+        prefs: { version: 2, categories: ['restaurant'], cuisine: '한식', requiredAttributes: [], excludeVisited: false, visitedFacilityIds: [] },
+      });
+      const row1 = page.getByTestId('toolbar-row-1');
+      await row1.getByRole('button', { name: RESTAURANT_CHIP[locale], exact: true }).click();
+      await expect(row1.locator('select')).toBeVisible({ timeout: 15_000 });
+      await expect(page.getByTestId('toolbar-row-2').locator('button', { hasText: '🏮' }).first()).toBeVisible({ timeout: 20_000 });
+      const inView = (row: HTMLElement) => {
+        const rb = row.getBoundingClientRect();
+        return {
+          overflow: row.scrollWidth - row.clientWidth,
+          clipped: Array.from(row.querySelectorAll('button, label'))
+            .map((el) => ({ text: (el.textContent ?? '').trim(), r: el.getBoundingClientRect() }))
+            .filter(({ r }) => r.width > 0 && (r.right > rb.right + 1 || r.left < rb.left - 1))
+            .map(({ text }) => text),
+        };
+      };
+      await expect.poll(() => row1.evaluate(inView)).toEqual({ overflow: 0, clipped: [] });
+      const row2 = await page.getByTestId('toolbar-row-2').locator(':scope > div').first().evaluate(inView);
+      expect(row2, 'row 2 hides chips in a sideways scroll').toEqual({ overflow: 0, clipped: [] });
+      const toolbar = await box(page.getByTestId('map-toolbar'));
+      const toolbarBottom = toolbar.y + toolbar.height;
+      await expect(card(page).getByRole('heading', { name: '황남 쌈밥' })).toBeVisible({ timeout: 25_000 });
+      await expect.poll(async () => (await box(card(page))).y).toBeGreaterThanOrEqual(toolbarBottom);
+    });
+  }
+}
+
 test('desktop 🍽 메뉴 ▾ replaces the cuisine chip row and shows the setup taste until a menu is picked', async ({ page }) => {
   test.setTimeout(90_000);
   await page.setViewportSize({ width: 1536, height: 730 });
