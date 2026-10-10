@@ -4614,9 +4614,11 @@ export default function MainPage() {
 
       {/* 🔮 혼잡 예측 줄(계획 B3) — 데스크톱: 지도 빈 자리(오른쪽 추천 패널 왼쪽) 아래 가운데, Kakao 로고(왼쪽 아래)보다 위.
           휴대폰: 카드 미리보기 바로 위 한 줄(카드 열 높이를 재서 그 위에 선다). 펼친 휴대폰 카드 위에서는 감춘다. */}
+      {/* strip-enter: 카드를 미리보기로 접으면 이 줄은 접힌 카드 높이(recPanelHeight)로 곧장 내려앉는데 카드는 시트 스프링으로
+          줄어드는 중이라, 줄어드는 카드 위에 이 줄이 한동안 겹쳐 보였다(10-10 녹화). 카드가 다 줄어든 뒤 떠오르게 한다. */}
       {showStrip && (
         <div
-          className="pointer-events-none absolute inset-x-4 z-20 flex justify-center bottom-[calc(var(--tourist-nav-clearance)+env(safe-area-inset-bottom)+var(--strip-dock))] md:left-4 md:right-[var(--strip-right)] md:bottom-8"
+          className="strip-enter pointer-events-none absolute inset-x-4 z-20 flex justify-center bottom-[calc(var(--tourist-nav-clearance)+env(safe-area-inset-bottom)+var(--strip-dock))] md:left-4 md:right-[var(--strip-right)] md:bottom-8"
           style={{
             '--strip-dock': `${(recPanelEl ? recPanelHeight : 0) + 8}px`,
             '--strip-right': `${desktopPanelReservePx(viewportWidth) + 16}px`,

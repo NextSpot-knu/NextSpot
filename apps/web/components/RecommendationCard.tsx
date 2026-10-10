@@ -1178,7 +1178,7 @@ export function RecommendationCard({
         // 휴대폰 미리보기 — 관광객이 지금 알아야 할 것만: 가치 문장(2줄, 키 낮은 화면 1줄) · 이름 + SPOT 점수 · 도보 N분 ·
         // 붐비나(얼굴과 같은 규칙 — 화살표가 이미 말하면 빼고) · 바로 출발(도보 길안내, 전체 카드와 같은 동작). 혜택형
         // 문장은 이름이 아래 줄에 있으므로 이름을 뺀다(계획 B3). 줄을 누르면 전체 카드.
-        <div className="sheet-content-in flex flex-col gap-1.5 px-1 pb-0.5" data-testid="rec-card-peek">
+        <div className="flex flex-col gap-1.5 px-1 pb-0.5" data-testid="rec-card-peek">
           {peekValueShown && (
             <p
               data-testid="peek-value"
