@@ -3,7 +3,7 @@
 import { useState, useEffect, useId, useRef, useCallback, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
 import { motion, PanInfo, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
-import { Bookmark, Check, Sparkles, Star, Phone, MapPin, Clock, ChevronUp, ChevronDown, Globe, Utensils, RefreshCw, X } from 'lucide-react';
+import { Bookmark, Check, Sparkles, Star, Phone, MapPin, Clock, ChevronUp, ChevronDown, Globe, Utensils, RefreshCw, X, Camera } from 'lucide-react';
 import { apiClient, reportFacilityAvailability, type AvailabilityReportResult, type CongestionEstimate } from '@/lib/api-client';
 import { CongestionReportButton } from '@/components/CongestionReportButton';
 import { GoldenHourBadge } from '@/components/GoldenHourBadge';
@@ -1335,6 +1335,20 @@ export function RecommendationCard({
             <span className="absolute bottom-1.5 left-1.5 rounded-full bg-black/55 px-2 py-0.5 text-[11px] font-bold text-white">
               {t('card.photoCredit')}
             </span>
+          )}
+          {/* 사진이 없는 가게(음식점·카페의 96% — 카카오 장소 데이터에는 사진이 없다)는 표지만 보면 '사진이 안 뜬다'로 읽힌다
+              (10-10 PM). 사진을 가진 곳(카카오맵 장소 페이지)으로 바로 보내 준다 — 우리가 사진을 퍼 오지 않고 링크만. */}
+          {!cardImageUrl && kakaoPlaceUrl && (
+            <a
+              href={kakaoPlaceUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              data-testid="card-photo-kakao"
+              className="absolute bottom-2 right-2 inline-flex h-11 items-center gap-1.5 rounded-full border border-line bg-white/95 px-3 text-[12px] font-bold text-muk shadow-[0_2px_10px_rgba(43,35,32,0.12)] hover:bg-white focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+            >
+              <Camera size={14} aria-hidden />
+              {t('card.photoOnKakao')}
+            </a>
           )}
         </div>
         {/* 누르는 자리 24px 중 글자 줄만 사진 4px 아래에 보이게 — 위 -1px·아래 -5px. */}

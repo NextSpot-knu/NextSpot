@@ -710,7 +710,8 @@
       "collapse": "Show less"
     },
     "profileToast": "Added to your taste profile",
-    "profileToastView": "View"
+    "profileToastView": "View",
+    "photoOnKakao": "Photos on Kakao Map"
   },
   "report": {
     "trigger": "Report crowding",

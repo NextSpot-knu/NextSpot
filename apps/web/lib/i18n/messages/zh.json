@@ -710,7 +710,8 @@
       "collapse": "收起推荐"
     },
     "profileToast": "已更新你的口味档案",
-    "profileToastView": "查看"
+    "profileToastView": "查看",
+    "photoOnKakao": "在Kakao地图看照片"
   },
   "report": {
     "trigger": "上报拥挤",

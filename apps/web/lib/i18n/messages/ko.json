@@ -704,7 +704,8 @@
       "collapse": "추천 간단히 보기"
     },
     "profileToast": "취향 프로필에 반영했어요",
-    "profileToastView": "보기"
+    "profileToastView": "보기",
+    "photoOnKakao": "카카오맵에서 사진 보기"
   },
   "report": {
     "trigger": "혼잡 제보",

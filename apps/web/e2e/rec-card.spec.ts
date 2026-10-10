@@ -106,6 +106,8 @@ interface OpenOptions {
   locale?: 'ko' | 'en' | 'ja' | 'zh';
   /** 첫 요청보다 먼저 걸어야 하는 라우트(나중에 건 라우트가 stubMain 보다 먼저 받는다). */
   beforeGoto?: (page: Page) => Promise<unknown>;
+  /** 지도·목록이 읽는 시설 목록을 바꿀 때(기본 = 위 고정 장소). */
+  facilities?: Row[];
 }
 
 async function openMain(page: Page, options: OpenOptions = {}): Promise<void> {
@@ -115,7 +117,7 @@ async function openMain(page: Page, options: OpenOptions = {}): Promise<void> {
   }));
   await stubMain(page, {
     locale: options.locale,
-    facilities: [...ATTRACTIONS, DAEREUNGWON, OUTSIDE_LIST, ...RESTAURANTS],
+    facilities: options.facilities ?? [...ATTRACTIONS, DAEREUNGWON, OUTSIDE_LIST, ...RESTAURANTS],
     byType: options.byType ?? ((type) => (type === 'attraction' ? ATTRACTION_RECS() : [])),
   });
   if (options.fakeMap) await stubFakeKakaoMap(page);
@@ -739,4 +741,33 @@ test('contract: ?focus=live opens 관광지, ?focus=voice rings the pill, ?focus
   await page.goto('/main?focus=forecast');
   await expect(page.getByRole('button', { name: /히트맵/ }).first()).toHaveAttribute('aria-pressed', 'true', { timeout: 25_000 });
   await expect(page.locator('[data-focus-target="forecast"]')).toHaveClass(/ring-gold/);
+});
+
+// 사진이 없는 가게 — 음식점·카페의 96% 가 사진 없는 카카오 장소 데이터다(10-10). 표지만 두면 '사진이 안 뜬다'로 읽혀서,
+// 카카오맵 장소 페이지(사진이 있는 곳)로 보내는 버튼을 표지 위에 둔다. 사진이 있는 카드에는 없다.
+test('a card with no photo links to the place photos on Kakao Map', async ({ page }) => {
+  test.setTimeout(90_000);
+  await page.setViewportSize({ width: 1536, height: 730 });
+  const noPhoto = { ...RESTAURANTS[2], features: { cuisine_tags: ['한식'], kakao_place_url: 'http://place.map.kakao.com/12345' } };
+  await openMain(page, {
+    categories: ['restaurant'],
+    facilities: [...ATTRACTIONS, DAEREUNGWON, OUTSIDE_LIST, RESTAURANTS[0], RESTAURANTS[1], noPhoto],
+    byType: (type) => (type === 'restaurant' ? [rec(noPhoto, 1)] : type === 'attraction' ? ATTRACTION_RECS() : []),
+  });
+  await expect(card(page).getByRole('heading', { name: '황남 쌈밥' })).toBeVisible({ timeout: 25_000 });
+  const link = card(page).getByTestId('card-photo-kakao');
+  await expect(link).toBeVisible();
+  await expect(link).toHaveText(/카카오맵에서 사진 보기/);
+  await expect(link).toHaveAttribute('href', 'https://place.map.kakao.com/12345');
+  await expect(link).toHaveAttribute('target', '_blank');
+  expect((await link.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+});
+
+test('a card with a photo has no Kakao photo link', async ({ page }) => {
+  test.setTimeout(90_000);
+  await page.setViewportSize({ width: 1536, height: 730 });
+  await openMain(page);
+  await expect(card(page).getByRole('heading', { name: '경주 계림' })).toBeVisible({ timeout: 25_000 });
+  await expect(card(page).getByTestId('card-photo').locator('img')).toBeVisible();
+  await expect(card(page).getByTestId('card-photo-kakao')).toHaveCount(0);
 });

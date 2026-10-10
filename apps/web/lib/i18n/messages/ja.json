@@ -710,7 +710,8 @@
       "collapse": "おすすめをコンパクト表示"
     },
     "profileToast": "好みプロフィールに反映しました",
-    "profileToastView": "見る"
+    "profileToastView": "見る",
+    "photoOnKakao": "カカオマップで写真を見る"
   },
   "report": {
     "trigger": "混雑を報告",

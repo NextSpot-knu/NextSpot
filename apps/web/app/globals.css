@@ -366,7 +366,8 @@ html.nextspot-dark .nextspot-logo-dark { display: block; }
 
 /* 작은 아이콘 버튼의 누를 수 있는 영역을 44×44 로 넓힌다(Apple HIG 최소 탭 영역 · WCAG 2.5.8 보다 넉넉하게).
    보이는 크기와 배치는 그대로 — 투명한 가상 요소만 버튼 가운데에서 바깥으로 퍼진다. 이웃 버튼과 44px 안쪽으로
-   붙어 있는 곳에는 쓰지 않는다(겹친 영역은 DOM 순서상 뒤의 요소가 가져간다). */
+   붙어 있는 곳에는 쓰지 않는다(겹친 영역은 DOM 순서상 뒤의 요소가 가져간다). position: relative 를 걸므로 absolute·fixed
+   로 놓인 요소에는 쓰지 않는다 — 그런 요소는 실제 크기를 44px 로. */
 .tap-target {
   position: relative;
 }
