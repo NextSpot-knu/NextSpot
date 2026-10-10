@@ -230,9 +230,9 @@ test('the SPOT badge opens an in-flow box with the weights in tourist words, wit
   const before = (await heading.boundingBox())!;
   const badge = card(page).getByRole('button', { name: 'SPOT 점수 설명 보기' });
   await expect(badge).toContainText('SPOT 점수');
-  const badgeBox = (await badge.boundingBox())!;
-  expect(badgeBox.width).toBeGreaterThanOrEqual(60);
-  expect(badgeBox.height).toBeGreaterThanOrEqual(60);
+  // 카드는 살짝 커지며 들어온다(scale .985 → 1) — 들어오는 중에 재면 59.9px 가 나온다(CI 10-10). 다 자란 뒤를 잰다.
+  await expect.poll(async () => (await badge.boundingBox())?.width ?? 0).toBeGreaterThanOrEqual(60);
+  await expect.poll(async () => (await badge.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(60);
   await badge.click();
   const box = card(page).getByTestId('spot-info');
   await expect(box).toBeVisible();
@@ -760,7 +760,8 @@ test('a card with no photo links to the place photos on Kakao Map', async ({ pag
   await expect(link).toHaveText(/카카오맵에서 사진 보기/);
   await expect(link).toHaveAttribute('href', 'https://place.map.kakao.com/12345');
   await expect(link).toHaveAttribute('target', '_blank');
-  expect((await link.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  // 카드 등장 애니메이션(scale .985 → 1)이 끝난 뒤를 잰다 — 도중에는 43.9px(CI 10-10).
+  await expect.poll(async () => (await link.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
 });
 
 test('a card with a photo has no Kakao photo link', async ({ page }) => {

@@ -1008,7 +1008,7 @@ export function RecommendationCard({
   const showArrivalLine = !assumedTimeLabel && !!currentTime && !!arrivalTime;
   const crowdChip = (compact: boolean) => crowdChipData ? (
     compact ? (
-      <span className={`rounded-md border px-2 py-0.5 text-[11px] font-bold ${crowdChipData.dashed ? 'border-dashed bg-white/70' : ''} ${
+      <span className={`rounded-md border px-2 py-0.5 text-[11px] leading-[15px] font-bold ${crowdChipData.dashed ? 'border-dashed bg-white/70' : ''} ${
         {
           busy: 'bg-terracotta/10 border-terracotta/30 text-terracotta',
           moderate: 'bg-gold/10 border-gold/30 text-gold-deep',
@@ -1194,7 +1194,7 @@ export function RecommendationCard({
             <div className="flex items-center gap-1.5">
               <h3 className="min-w-0 truncate font-serif text-base font-bold leading-tight tracking-tight text-muk">{title}</h3>
               {hasSpotMetrics && (
-                <span className="shrink-0 whitespace-nowrap rounded-md border border-gold/40 bg-gold/10 px-1.5 py-0.5 text-[11px] font-extrabold text-gold-deep" data-testid="peek-spot">
+                <span className="shrink-0 whitespace-nowrap rounded-md border border-gold/40 bg-gold/10 px-1.5 py-0.5 text-[11px] leading-[15px] font-extrabold text-gold-deep" data-testid="peek-spot">
                   {t('card.peek.spot', { n: Math.round(spotScore || 0) })}
                 </span>
               )}
@@ -1204,17 +1204,17 @@ export function RecommendationCard({
               {/* 가치 문장이 이미 '도보 N분' 을 말하면 되풀이하지 않는다(계획 B2 — 사실 하나는 한 번). 화살표 문장이면
                   그 자리에 문장에 없는 '도착 시 영업' 을 둔다. */}
               {!peekValueShown ? (
-                <span className="whitespace-nowrap rounded-md border border-jade/30 bg-jade/10 px-2 py-0.5 text-[11px] font-bold text-jade">
+                <span className="whitespace-nowrap rounded-md border border-jade/30 bg-jade/10 px-2 py-0.5 text-[11px] leading-[15px] font-bold text-jade">
                   {t('card.peek.walk', { n: displayedTravelMins })}
                 </span>
               ) : compareHeaderText && displayedOpenStatus === 'open_expected' ? (
-                <span className="whitespace-nowrap rounded-md border border-jade/30 bg-jade/10 px-2 py-0.5 text-[11px] font-bold text-jade">
+                <span className="whitespace-nowrap rounded-md border border-jade/30 bg-jade/10 px-2 py-0.5 text-[11px] leading-[15px] font-bold text-jade">
                   {t('compare.benefitOpen')}
                 </span>
               ) : null}
               {facility && crowdChipOnPeek && crowdChip(true)}
               {closedToday && (
-                <span className="px-2 py-0.5 rounded-md text-[11px] font-bold border bg-terracotta/10 border-terracotta/30 text-terracotta">
+                <span className="px-2 py-0.5 rounded-md text-[11px] leading-[15px] font-bold border bg-terracotta/10 border-terracotta/30 text-terracotta">
                   {t('card.closedToday')}
                 </span>
               )}
