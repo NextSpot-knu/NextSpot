@@ -66,6 +66,9 @@ import { errorMessage } from '@/lib/errors';
 import NextSpotMascot from '@/components/NextSpotMascot';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { SourceCredit } from '@/components/SourceCredit';
+import { AnimatePresence, motion } from 'framer-motion';
+import { PresenceLayer } from '@/components/shell/PresenceLayer';
+import { sheetSpring } from '@/lib/motion';
 import ForecastTimeStrip from '@/components/main/ForecastTimeStrip';
 import { buildSpotComparisons, formatSpotComparison } from '@/lib/spotComparison';
 import { anchorNowLevel, candidateAreaCrowdLevel, chooseCompareHeadline, resolveAnchorCrowd, resolveCandidateCrowd } from '@/lib/compareHeader';
@@ -4222,9 +4225,12 @@ export default function MainPage() {
         </div>{/* /구글맵스식 톱바 행 */}
       </div>
 
+      {/* 필터·편의 시트 — 다른 바닥 시트(혼잡 제보 · 지금 한산 · 설치 안내)와 같은 문법: 바탕은 흐려지며 나타나고 시트는 40px 아래에서
+          시트 스프링으로 올라온다. 예전에는 움직임 없이 툭 나타나고 사라져 이 시트만 따로 놀았다(10-10 화면 점검). */}
+      <AnimatePresence>
       {showMobileTools && activeFilter !== '주차장' && (
-        <div className="fixed inset-0 z-50 flex items-end bg-muk/35 md:hidden" onClick={() => setShowMobileTools(false)}>
-          <section className="w-full rounded-t-3xl bg-hanji px-4 pb-[calc(20px+env(safe-area-inset-bottom))] pt-3 shadow-2xl" onClick={(event) => event.stopPropagation()}>
+        <PresenceLayer key="mobile-tools" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.18 }} className="fixed inset-0 z-50 flex items-end bg-muk/35 md:hidden" onClick={() => setShowMobileTools(false)}>
+          <motion.section initial={{ y: 40, opacity: 0, scale: 0.98 }} animate={{ y: 0, opacity: 1, scale: 1 }} exit={{ y: 40, opacity: 0, scale: 0.98 }} transition={sheetSpring} className="w-full rounded-t-3xl bg-hanji px-4 pb-[calc(20px+env(safe-area-inset-bottom))] pt-3 shadow-2xl" onClick={(event) => event.stopPropagation()}>
             <div className="mb-4 flex items-center justify-between">
               <div><h2 className="font-bold text-muk">{t('map.mobileToolsTitle')}</h2><p className="text-xs text-muk-soft">{t('map.mobileToolsDesc')}</p></div>
               <button type="button" onClick={() => setShowMobileTools(false)} aria-label={t('common.close')} className="rounded-full border border-line bg-white p-2 text-muk"><X size={18} /></button>
@@ -4241,9 +4247,10 @@ export default function MainPage() {
               ))}</div></div>
             )}
             <div className="mt-4 flex flex-wrap gap-2"><FestivalBanner onFocus={focusFestivalOnMap} location={userLocation} /><RestroomChip location={userLocation} /></div>
-          </section>
-        </div>
+          </motion.section>
+        </PresenceLayer>
       )}
+      </AnimatePresence>
 
       {/* (a) 시설 로드 상태 안내 — 로딩 스피너 / 로드 실패 재시도 / 전체 빈 상태 (데모 사고 방지선) */}
       {activeFilter !== '주차장' && isLoadingFacilities && (

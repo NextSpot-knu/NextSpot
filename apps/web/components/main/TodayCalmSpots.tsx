@@ -12,6 +12,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { loadTravelContext } from '@/lib/travelContext';
 import { motion, AnimatePresence } from 'framer-motion';
+import { sheetSpring } from '@/lib/motion';
 import { Leaf, MapPin, X } from 'lucide-react';
 import { haversineMeters, formatDistance } from '@/lib/map/geo';
 import { useT } from '@/lib/i18n/I18nProvider';
@@ -147,7 +148,7 @@ export function TodayCalmSpots({
                   initial={{ y: 40, opacity: 0, scale: 0.98 }}
                   animate={{ y: 0, opacity: 1, scale: 1 }}
                   exit={{ y: 40, opacity: 0, scale: 0.98 }}
-                  transition={{ type: 'spring', bounce: 0.25, duration: 0.5 }}
+                  transition={sheetSpring}
                   role="dialog"
                   aria-modal="true"
                   aria-labelledby="calm-sheet-title"

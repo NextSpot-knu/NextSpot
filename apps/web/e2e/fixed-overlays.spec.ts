@@ -34,9 +34,12 @@ test('the phone filter sheet draws over the tab bar, so its food chips are reach
   await expect(sheet).toBeVisible();
 
   // 시트는 화면 바닥에 붙는다(페이지 상자가 아니라 뷰포트 기준).
+  // 시트는 아래에서 시트 스프링으로 올라온다(10-10) — 다 올라온 뒤를 잰다.
   const viewport = page.viewportSize()!;
-  const sheetBox = (await sheet.boundingBox())!;
-  expect(Math.abs(sheetBox.y + sheetBox.height - viewport.height)).toBeLessThan(2);
+  await expect.poll(async () => {
+    const box = await sheet.boundingBox();
+    return box ? Math.abs(box.y + box.height - viewport.height) : Infinity;
+  }).toBeLessThan(2);
 
   // 음식 종류 칩 — 예전에는 하단 탭·서비스 소개 줄 아래 깔려 눌리지 않았다.
   const firstFoodChip = sheet.getByRole('button', { name: /한식/ });

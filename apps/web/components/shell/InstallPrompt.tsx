@@ -22,6 +22,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
+import { sheetSpring } from '@/lib/motion';
 import { X, Share, SquarePlus, Smartphone } from 'lucide-react';
 import { useT } from '@/lib/i18n/I18nProvider';
 
@@ -179,7 +180,7 @@ export function InstallPrompt() {
           initial={{ opacity: 0, y: 24 }}
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: 24 }}
-          transition={{ type: 'spring', bounce: 0.25, duration: 0.5 }}
+          transition={sheetSpring}
           className="fixed z-[54] left-1/2 -translate-x-1/2 bottom-[calc(var(--tourist-nav-clearance)+8px+env(safe-area-inset-bottom))] w-full max-w-sm px-4"
         >
           <div className="relative bg-white/95 backdrop-blur-2xl border border-line rounded-3xl p-4 shadow-[0_8px_30px_rgba(43,35,32,0.16)]">
@@ -242,7 +243,7 @@ export function InstallPrompt() {
               initial={{ y: 40, opacity: 0, scale: 0.98 }}
               animate={{ y: 0, opacity: 1, scale: 1 }}
               exit={{ y: 40, opacity: 0, scale: 0.98 }}
-              transition={{ type: 'spring', bounce: 0.25, duration: 0.5 }}
+              transition={sheetSpring}
               role="dialog"
               aria-modal="true"
               aria-labelledby="install-ios-sheet-title"
