@@ -279,7 +279,7 @@ function LoginForm() {
             {t(mode === 'login' ? 'login.submitLogin' : 'login.submitSignup')}
           </button>
           {mode === 'login' && (
-            <button type="button" onClick={() => router.push('/forgot-password')} className="self-end text-xs text-muk-soft underline hover:text-muk">
+            <button type="button" onClick={() => router.push('/forgot-password')} className="self-end inline-flex min-h-6 items-center px-1 text-xs text-muk-soft underline hover:text-muk">
               {t('password.forgot')}
             </button>
           )}
