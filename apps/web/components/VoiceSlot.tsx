@@ -31,7 +31,7 @@ export function VoicePill({ active, voiceState, onClick, ringed = false, classNa
       aria-pressed={active}
       data-testid="voice-pill"
       data-voice-state={voiceState}
-      className={`pointer-events-auto inline-flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full bg-muk px-3.5 text-[13px] font-extrabold text-hanji shadow-[0_4px_14px_rgba(43,35,32,0.22)] transition-transform active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/70 ${ringed ? "ring-4 ring-gold ring-offset-2 ring-offset-hanji" : ""} ${className}`}
+      className={`pointer-events-auto inline-flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full bg-muk px-3.5 text-[13px] font-extrabold text-hanji shadow-[0_4px_14px_rgba(43,35,32,0.22)] toss-pressable focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/70 ${ringed ? "ring-4 ring-gold ring-offset-2 ring-offset-hanji" : ""} ${className}`}
     >
       <span aria-hidden>🎙</span>
       <span>{t("voice.pill")}</span>

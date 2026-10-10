@@ -145,7 +145,7 @@ export function CongestionReportButton({ facility, onReported, isFirst = false, 
         }}
         aria-haspopup="dialog"
         aria-label={t('report.triggerAria', { name: facility.name })}
-        className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-full border text-xs font-bold transition-all active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/50 ${
+        className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-full border text-xs font-bold toss-pressable focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/50 ${
           isFirst
             ? 'bg-jade/10 border-jade/35 text-jade hover:bg-jade/20 hover:border-jade/55'
             : 'bg-hanji-deep border-line text-muk-soft hover:bg-gold/10 hover:border-gold/40 hover:text-gold-deep'
@@ -243,7 +243,7 @@ export function CongestionReportButton({ facility, onReported, isFirst = false, 
                       aria-checked={active}
                       disabled={submitting}
                       onClick={() => void submit(opt.value)}
-                      className={`flex flex-col items-center gap-1.5 py-4 rounded-2xl border-2 bg-white/60 transition-all active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/50 disabled:opacity-60 ${
+                      className={`flex flex-col items-center gap-1.5 py-4 rounded-2xl border-2 bg-white/60 toss-pressable focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/50 disabled:opacity-60 ${
                         active ? opt.activeBg : `border-line text-muk-soft ${opt.ring}`
                       }`}
                     >

@@ -8,7 +8,7 @@ import { motion } from 'framer-motion';
 import { useT } from '@/lib/i18n/I18nProvider';
 import NextSpotMascot from '@/components/NextSpotMascot';
 import { GuideButton } from '@/components/guide/GuideProvider';
-import { haptic, interactionSpring, tapMotion } from '@/lib/motion';
+import { haptic, interactionSpring } from '@/lib/motion';
 import { useAccount } from '@/lib/account';
 import { consoleLinks } from '@/lib/consoleLinks';
 
@@ -105,10 +105,8 @@ export default function BottomNav() {
               <motion.button
                 key={tab.id}
                 onClick={() => handleTabClick(tab)}
-                whileTap={tapMotion}
-                transition={interactionSpring}
                 aria-current={isActive ? 'page' : undefined}
-                className={`relative z-10 flex flex-col items-center justify-center gap-1 transition-colors w-16 h-16 short:h-14 rounded-2xl ${
+                className={`toss-pressable relative z-10 flex flex-col items-center justify-center gap-1 w-16 h-16 short:h-14 rounded-2xl ${
                   isActive ? 'text-gold-deep' : 'text-muk-soft hover:text-muk'
                 }`}
               >
@@ -175,13 +173,18 @@ export default function BottomNav() {
           </div>
         </div>
         <div className="relative flex justify-around items-center w-full">
-          {/* 활성 탭 가로 슬라이딩 인디케이터 — 탭 수 기반 일반화(중심 = (idx+0.5)/N). */}
+          {/* 활성 탭 가로 슬라이딩 인디케이터 — 탭 한 칸 폭(100/N %)의 틀을 transform 으로만 옮긴다(x = 칸 수 × 100%).
+              예전에는 left 를 움직여 매 프레임 배치를 다시 계산했다(10-10 인터랙션 감사). 알약은 틀 가운데. */}
           <motion.div
             aria-hidden
-            className="absolute top-0 h-12 w-14 bg-gold/15 rounded-2xl pointer-events-none"
-            animate={{ left: `calc(${(activeIndex + 0.5) * (100 / tabs.length)}% - 1.75rem)` }}
+            className="pointer-events-none absolute inset-y-0 left-0 flex justify-center"
+            style={{ width: `${100 / tabs.length}%` }}
+            initial={false}
+            animate={{ x: `${activeIndex * 100}%` }}
             transition={interactionSpring}
-          />
+          >
+            <span className="h-12 w-14 rounded-2xl bg-gold/15" />
+          </motion.div>
           {tabs.map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
@@ -189,10 +192,8 @@ export default function BottomNav() {
               <motion.button
                 key={tab.id}
                 onClick={() => handleTabClick(tab)}
-                whileTap={tapMotion}
-                transition={interactionSpring}
                 aria-current={isActive ? 'page' : undefined}
-                className={`relative z-10 flex flex-col items-center justify-center transition-colors flex-1 min-w-0 h-12 ${
+                className={`toss-pressable relative z-10 flex flex-col items-center justify-center flex-1 min-w-0 h-12 ${
                   isActive ? 'text-gold-deep' : 'text-muk-soft hover:text-muk'
                 }`}
               >

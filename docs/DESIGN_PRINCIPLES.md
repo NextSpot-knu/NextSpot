@@ -65,6 +65,18 @@
 - 서비스가 스스로 "솔직하다"·"투명하다"·"확실하다"·"믿을 수 있다"고 평가하지 않는다(AGENTS.md 가드레일).
 - 4로케일은 같은 뜻을 각 언어의 자연스러운 말로 쓴다. 직역하지 않는다.
 
+## 모션 (Toss TDS · Apple 스프링 → NextSpot)
+
+- **누름은 한 가지 문법**: 누를 수 있는 것은 `.toss-pressable`(globals.css) 하나로 0.96 으로 줄고 살짝 어두워진다(어두운 테마는 밝아진다).
+  누를 때 90ms, 뗄 때 200ms — TDS 가 누름에 더 빠른 스프링을 쓰는 것과 같은 비대칭이다. 순수 CSS 라 JS 가 바빠도 늦지 않는다.
+  framer `whileTap`·Tailwind `active:scale-*` 를 같이 쓰지 않는다(두 번 줄어든다). 동작 줄이기 설정에서는 줄어듦만 빼고 어두워짐은 남긴다.
+- **움직이는 것은 transform·opacity 만**: 위치는 `left`·`top` 대신 `x`·`y` 로 옮긴다(레이아웃 재계산 없음). 휴대폰 탭 표시는 이 규칙대로다.
+- **스프링은 두 가지**: `interactionSpring`(작은 요소, 거의 튀지 않음) · `sheetSpring`(시트). 값은 `lib/motion.ts` 에만 둔다.
+  Apple 기준(튐 0 이 기본, 0.15 는 경쾌, 0.4 넘게 튀지 않는다)을 넘지 않는다.
+- **진동은 상태가 바뀔 때만**: 시트가 다른 높이로 걸릴 때 · 탭 전환 · 제보·방문 확인 완료처럼 결과가 생길 때(HIG "원인이 분명한 곳에만").
+  스크롤·끌기 도중에는 주지 않는다. 웹 진동은 Android 만 된다 — iPhone 은 진동 없이도 같은 흐름이어야 한다.
+- 다음 단계(PM 결정 대기): 시트가 손가락을 1:1 로 따라오고 놓을 때 속도를 이어받기 · 화면 사이 View Transitions.
+
 ## 측정 기준 (지키는 장치)
 
 | 항목 | 기준 | 지금 지키는 장치 |
@@ -89,5 +101,5 @@
   추천 하나: toss.tech/article/21004 · 라이팅 8원칙: toss.tech/article/8-writing-principles-of-toss
   (10-10 에는 이 환경에서 사이트가 열리지 않아 검색 결과에 보인 원문 발췌로 확인했다) · TDS 수치: npm `@toss/tds-mobile@2.5.1` 번들.
 - Apple: developer.apple.com/design/human-interface-guidelines/design-principles (원문 확인) · …/layout · …/loading · …/maps ·
-  …/accessibility · WWDC25 "Meet Liquid Glass".
+  …/accessibility · …/motion · …/playing-haptics · WWDC23 "Animate with springs" · WWDC25 "Meet Liquid Glass".
 - WCAG 2.2: 1.4.3 · 1.4.11 · 2.4.11 · 2.5.8.

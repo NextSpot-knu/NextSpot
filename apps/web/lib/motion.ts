@@ -16,8 +16,7 @@ export const sheetSpring: Transition = {
   mass: 0.82,
 };
 
-export const tapMotion = { scale: 0.96 } as const;
-export const softTapMotion = { scale: 0.98 } as const;
+// 누름 피드백은 JS 가 아니라 CSS 한 곳(globals.css `.toss-pressable`)에서만 준다 — whileTap 과 겹치면 두 번 줄어든다.
 
 type HapticKind = 'selection' | 'confirm' | 'success';
 

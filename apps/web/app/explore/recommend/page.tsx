@@ -2189,7 +2189,7 @@ function RecommendContent() {
               aria-label={assistantActive ? t("recommend.stopAria") : t("recommend.listenCta")}
               aria-pressed={assistantActive}
               data-voice-state={voiceState}
-              className={`toss-pressable inline-flex h-12 w-12 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-full bg-muk text-hanji shadow-[0_4px_14px_rgba(43,35,32,0.22)] transition-transform active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/70 md:h-9 md:w-auto md:px-3.5 ${assistantActive ? "max-md:ring-2 max-md:ring-gold" : ""}`}
+              className={`toss-pressable inline-flex h-12 w-12 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-full bg-muk text-hanji shadow-[0_4px_14px_rgba(43,35,32,0.22)] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/70 md:h-9 md:w-auto md:px-3.5 ${assistantActive ? "max-md:ring-2 max-md:ring-gold" : ""}`}
             >
               <span aria-hidden className="text-lg md:text-[13px]">🎙</span>
               <span className="hidden text-[13px] font-extrabold md:inline">{t("voice.pill")}</span>

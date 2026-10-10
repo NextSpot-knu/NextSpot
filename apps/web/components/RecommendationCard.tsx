@@ -15,7 +15,7 @@ import { cardTimes } from '@/lib/cardTimes';
 import { telHref } from '@/lib/phoneLink';
 import { hoursLines } from '@/lib/hoursLines';
 import { isPredictModelTrained } from '@/lib/predictModel';
-import { haptic, interactionSpring, sheetSpring, tapMotion } from '@/lib/motion';
+import { haptic, sheetSpring } from '@/lib/motion';
 import { areaDemandDisclosure } from '@/lib/areaDemandPresentation';
 import { useCountUp } from '@/lib/useCountUp';
 import { congestionDisplay, formatEstimateTime, formatLastObserved } from '@/lib/congestionEstimate';
@@ -571,20 +571,26 @@ export function RecommendationCard({
     const offset = info.offset.y;
     const velocity = info.velocity.y;
 
+    // 높이가 실제로 바뀔 때만 짧은 진동 한 번(안드로이드) — 자리를 잡았다는 확인. 그대로면 울리지 않는다
+    // (Apple HIG: 햅틱은 뚜렷한 원인이 있는 사건에만 · Toss: 누름이 끝날 때 약하게).
+    const down = offset > 50 || velocity > 200;
+    const up = offset < -50 || velocity < -200;
     if (isExpanded) {
-      if (offset > 50 || velocity > 200) {
+      if (down) {
         setIsExpanded(false);
+        haptic('selection');
       }
     } else if (isMinimized) {
-      if (offset < -50 || velocity < -200) {
+      if (up) {
         setIsMinimized(false);
+        haptic('selection');
       }
-    } else {
-      if (offset > 50 || velocity > 200) {
-        setIsMinimized(true);
-      } else if (offset < -50 || velocity < -200) {
-        setIsExpanded(true);
-      }
+    } else if (down) {
+      setIsMinimized(true);
+      haptic('selection');
+    } else if (up) {
+      setIsExpanded(true);
+      haptic('selection');
     }
   };
 
@@ -1223,10 +1229,8 @@ export function RecommendationCard({
           <motion.button
             type="button"
             onClick={handlePeekAcceptClick}
-            whileTap={tapMotion}
-            transition={interactionSpring}
             aria-label={t('card.acceptAria')}
-            className="min-h-11 max-w-[46%] shrink-0 break-keep rounded-2xl cta-primary px-4 py-3 text-xs font-bold leading-tight shadow-[0_4px_14px_rgba(168,70,47,0.28)] transition-all active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+            className="toss-pressable min-h-11 max-w-[46%] shrink-0 break-keep rounded-2xl cta-primary px-4 py-3 text-xs font-bold leading-tight shadow-[0_4px_14px_rgba(168,70,47,0.28)] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
           >
             <span className="inline-flex items-center justify-center gap-1.5">
               {confirmedAction === 'accepted' && <Check size={14} aria-hidden />}
@@ -2024,10 +2028,8 @@ export function RecommendationCard({
       <div className="flex shrink-0 gap-2 pt-1">
           <motion.button
             onClick={() => { haptic('selection'); onReject(); }}
-            whileTap={tapMotion}
-            transition={interactionSpring}
             aria-label={t('card.rejectAria')}
-            className="min-h-11 flex-1 bg-hanji-deep hover:bg-terracotta/10 hover:text-terracotta hover:border-terracotta/30 text-muk-soft font-bold py-2.5 rounded-2xl border border-line transition-all active:scale-95 text-xs focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+            className="toss-pressable min-h-11 flex-1 bg-hanji-deep hover:bg-terracotta/10 hover:text-terracotta hover:border-terracotta/30 text-muk-soft font-bold py-2.5 rounded-2xl border border-line text-xs focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
           >
             {t('card.reject')}
           </motion.button>
@@ -2038,10 +2040,8 @@ export function RecommendationCard({
                 setConfirmedAction('saved');
                 onPutOff();
               }}
-              whileTap={tapMotion}
-              transition={interactionSpring}
               aria-label={t('card.putOffAria')}
-              className="group min-h-11 flex-1 flex items-center justify-center gap-1.5 bg-hanji-deep hover:bg-gold/10 hover:text-gold-deep hover:border-gold/30 text-muk-soft font-bold py-2.5 rounded-2xl border border-line transition-all active:scale-95 text-xs focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+              className="toss-pressable group min-h-11 flex-1 flex items-center justify-center gap-1.5 bg-hanji-deep hover:bg-gold/10 hover:text-gold-deep hover:border-gold/30 text-muk-soft font-bold py-2.5 rounded-2xl border border-line text-xs focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
             >
               {/* 저장 인지 강화용 북마크 — hover/press 시 채워지며 살짝 팝(순수 Tailwind, 과하지 않게) */}
               {confirmedAction === 'saved'
@@ -2052,10 +2052,8 @@ export function RecommendationCard({
           )}
           <motion.button
             onClick={handleAcceptClick}
-            whileTap={tapMotion}
-            transition={interactionSpring}
             aria-label={t('card.acceptAria')}
-            className="min-h-11 flex-1 cta-primary font-bold py-2.5 rounded-2xl transition-all active:scale-95 text-xs shadow-[0_4px_14px_rgba(168,70,47,0.28)] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+            className="toss-pressable min-h-11 flex-1 cta-primary font-bold py-2.5 rounded-2xl text-xs shadow-[0_4px_14px_rgba(168,70,47,0.28)] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
           >
             <span className="inline-flex items-center justify-center gap-1.5">
               {confirmedAction === 'accepted' && <Check size={14} aria-hidden />}
