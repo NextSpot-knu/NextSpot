@@ -2919,7 +2919,7 @@ export default function MainPage() {
           content.className = 'bg-white/90 backdrop-blur border border-line rounded-2xl p-2 shadow-[0_2px_14px_rgba(43,35,32,0.1)] flex flex-col gap-1 min-w-[180px] max-w-[280px] max-h-[260px] overflow-y-auto no-scrollbar pointer-events-auto';
 
           const titleEl = document.createElement('div');
-          titleEl.className = 'text-[10px] text-gold font-bold px-2 py-1 mb-1 border-b border-line tracking-wider';
+          titleEl.className = 'text-[11px] text-gold-deep font-bold px-2 py-1 mb-1 border-b border-line tracking-wider';
           titleEl.innerText = f.name;
           content.appendChild(titleEl);
 
@@ -3697,7 +3697,7 @@ export default function MainPage() {
             <div className="leading-none">
               <p className="whitespace-nowrap text-[10px] font-semibold text-muk-soft">{clockLabels.date}</p>
               <p className="mt-1 whitespace-nowrap text-[13px] font-extrabold tracking-tight text-muk">
-                <span className="mr-1 text-[9px] font-bold tracking-wider text-gold-deep">KST</span>
+                <span className="mr-1 text-[10px] font-bold tracking-wider text-gold-deep">KST</span>
                 {clockLabels.time}
               </p>
             </div>
@@ -3738,7 +3738,7 @@ export default function MainPage() {
 
         {/* Search Bar — (c) 로컬 시설명 검색(마커 필터). 음성 검색(Mic)은 브라우저 STT 로 받아쓰기 → 검색어 주입.
             (Web Speech 미지원 브라우저에선 '준비 중' 비활성으로 graceful 폴백.) */}
-        <div className="flex min-w-0 items-center bg-white rounded-full px-4 py-2.5 short:max-md:flex-1 short:max-md:px-3 short:max-md:py-2 border border-line shadow-[0_2px_14px_rgba(43,35,32,0.06)] pointer-events-auto">
+        <div className="flex min-w-0 items-center bg-white rounded-full px-4 short:max-md:flex-1 short:max-md:px-3 border border-line shadow-[0_2px_14px_rgba(43,35,32,0.06)] pointer-events-auto">
           <Search size={20} className="text-muk-soft mr-3" />
           <input
             type="text"
@@ -3750,7 +3750,7 @@ export default function MainPage() {
             }}
             enterKeyHint="search"
             placeholder={t('map.searchPlaceholder')}
-            className="min-w-0 flex-1 bg-transparent text-muk outline-none placeholder:text-muk-soft text-sm"
+            className="min-w-0 flex-1 self-stretch bg-transparent py-[18px] text-muk outline-none placeholder:text-muk-soft text-sm short:max-md:py-2 md:py-2.5"
           />
           {searchQuery ? (
             <button
@@ -3758,7 +3758,7 @@ export default function MainPage() {
               onClick={() => setSearchQuery('')}
               title={t('map.searchClear')}
               aria-label={t('map.searchClear')}
-              className="ml-3 rounded-full text-muk-soft hover:text-muk transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+              className="tap-target ml-3 rounded-full text-muk-soft hover:text-muk transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
             >
               <X size={18} />
             </button>
@@ -3771,7 +3771,7 @@ export default function MainPage() {
               title={speechSearch.listening ? t('map.voiceSearchListening') : t('map.voiceSearchStart')}
               aria-label={speechSearch.listening ? t('map.voiceSearchListening') : t('map.voiceSearchStart')}
               aria-pressed={speechSearch.listening}
-              className={`ml-3 flex items-center gap-1 rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 ${speechSearch.listening ? 'text-gold animate-pulse' : 'text-muk-soft hover:text-muk'}`}
+              className={`tap-target ml-3 flex items-center gap-1 rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 ${speechSearch.listening ? 'text-gold animate-pulse' : 'text-muk-soft hover:text-muk'}`}
             >
               <Mic size={18} />
               {speechSearch.listening ? (
@@ -3869,7 +3869,7 @@ export default function MainPage() {
                           type="button"
                           onClick={() => focusPlaceSearchResult(item)}
                           title={t('map.placeSearchView')}
-                          className="shrink-0 text-[11px] font-semibold rounded-full px-2.5 py-1.5 border text-gold border-gold/50 hover:bg-gold/10 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+                          className="shrink-0 text-[11px] font-semibold rounded-full px-2.5 py-1.5 border text-gold-deep border-gold/50 hover:bg-gold/10 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
                         >
                           {t('map.placeSearchView')}
                         </button>
@@ -4053,21 +4053,21 @@ export default function MainPage() {
                       aria-pressed={selected}
                       className={`toss-pressable min-w-[148px] flex-1 rounded-2xl border px-3 py-2.5 text-left ${selected ? 'border-jade bg-jade/10' : 'border-line bg-hanji hover:border-jade/40'}`}
                     >
-                      <span className="block text-[9px] font-extrabold text-jade">
+                      <span className="block text-[11px] font-extrabold text-jade">
                         {t('discovery.alternativeRank', { rank: index + 1 })}
                       </span>
                       <span className="mt-0.5 block truncate text-xs font-extrabold text-muk">{facility.name}</span>
                       {facility.discoveryThemeMatch && (
-                        <span className="mt-1 block text-[9px] font-semibold text-jade">
+                        <span className="mt-1 block text-[11px] font-semibold text-jade">
                           {t(facility.discoveryThemeMatch.source === 'tourapi_related'
                             ? 'discovery.match.related'
                             : 'discovery.match.fact')}
                         </span>
                       )}
-                      <span className="mt-1 block text-[10px] font-semibold text-muk-soft">
+                      <span className="mt-1 block text-[11px] font-semibold text-muk-soft">
                         {t('discovery.walkMinutes', { n: displayWalkingMinutes(spot.expectedTravel) })}
                       </span>
-                      <span className="mt-1 line-clamp-2 block text-[9px] leading-snug text-muk-soft">
+                      <span className="mt-1 line-clamp-2 block text-[11px] leading-snug text-muk-soft">
                         {spotComparisonById.get(String(facility.id))?.text}
                       </span>
                     </button>

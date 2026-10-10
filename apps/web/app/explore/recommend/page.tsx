@@ -1659,7 +1659,7 @@ function RecommendContent() {
                     </div>
                     {/* SPOT 점수 — 골드 스탯 박스 문법(/course 도착 ETA 스탯과 동일 톤). */}
                     <div className="flex shrink-0 flex-col items-center justify-center rounded-xl border border-gold/40 bg-gold/15 px-3 py-2 text-center shadow-[0_2px_10px_rgba(193,154,62,0.16)]">
-                      <span className="text-[9px] font-bold uppercase tracking-wide text-muk-soft whitespace-nowrap">{t("recommend.spotIndex")}</span>
+                      <span className="text-[10px] font-bold uppercase tracking-wide text-muk-soft whitespace-nowrap">{t("recommend.spotIndex")}</span>
                       <span className="text-base font-extrabold text-gold-deep leading-none mt-1 tabular-nums">
                         {Math.round(rec.spotScore <= 1.0 ? rec.spotScore * 100 : rec.spotScore)}{t("card.pointSuffix")}
                       </span>
@@ -1844,7 +1844,7 @@ function RecommendContent() {
 
                   {spotComparison && (
                     <div className="rounded-xl border border-jade/20 bg-jade/5 px-3 py-2.5">
-                      <p className="text-[9px] font-extrabold uppercase tracking-wide text-jade">
+                      <p className="text-[10px] font-extrabold uppercase tracking-wide text-jade">
                         {t('recommend.spotComparison.current')}
                       </p>
                       <p className="mt-0.5 text-[11px] font-semibold leading-snug text-muk">

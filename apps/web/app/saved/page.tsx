@@ -421,7 +421,7 @@ export default function SavedPage() {
                         </div>
                         {/* 대기 시간 라벨 */}
                         {serviceTime && waitMins !== null && <div className="absolute top-[-10px] left-[75%] -translate-x-1/2 z-10">
-                          <span className="text-[10px] font-medium text-gold bg-hanji px-1.5 py-0.5 rounded border border-gold/25">{t('saved.waitLabel', { n: waitMins })}</span>
+                          <span className="text-[11px] font-medium text-gold-deep bg-hanji px-1.5 py-0.5 rounded border border-gold/25">{t('saved.waitLabel', { n: waitMins })}</span>
                         </div>}
 
                         {/* 출발 시점 */}

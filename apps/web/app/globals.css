@@ -81,7 +81,9 @@
   --nextspot-muk-soft: #6b5d4f;
   --nextspot-line: #e6dcc6;
   --nextspot-gold: #c19a3e;
-  --nextspot-gold-deep: #a37f2a;
+  /* 작은 글자로 많이 쓰인다(라벨·배지·활성 탭). 흰·한지·한지 진 바탕과 금 10~25% 칩(흰·한지 위)·금 15% 칩(한지 진 위)에서
+     4.5:1 이상 — lib/contrast.test.ts 가 이 목록만 잠근다(그보다 짙은 금 칩 위 글자는 따로 확인). 예전 #a37f2a 는 3.0~3.7:1. */
+  --nextspot-gold-deep: #705819;
   --nextspot-jade: #3e7c6a;
   --nextspot-terracotta: #c1553b;
   --nextspot-dan-red: #b5322e;
@@ -94,7 +96,7 @@
   --nextspot-tile-stone: #77736c;
   --nextspot-tile-mix: 13%;
   /* 주요 버튼(도보 길안내 · 시작하기 · 로그인 · 바로 시작) — 흰 글자가 그라데이션 전 구간에서 4.5:1 이상(I86).
-     금(#c19a3e)·금 진(#a37f2a) 위 흰 글자는 3.7:1 이라 기준에 못 미쳤다. lib/contrast.test.ts 가 잠근다. */
+     금(#c19a3e)·예전 금 진(#a37f2a) 위 흰 글자는 3.7:1 이라 기준에 못 미쳤다. lib/contrast.test.ts 가 잠근다. */
   --nextspot-cta-from: #8a6a1c;
   --nextspot-cta-to: #a8462f;
   color-scheme: light;
@@ -360,6 +362,23 @@ html.nextspot-dark .nextspot-logo-dark { display: block; }
   box-shadow:
     0 1px 2px rgb(43 35 32 / 0.05),
     0 10px 30px rgb(43 35 32 / 0.10);
+}
+
+/* 작은 아이콘 버튼의 누를 수 있는 영역을 44×44 로 넓힌다(Apple HIG 최소 탭 영역 · WCAG 2.5.8 보다 넉넉하게).
+   보이는 크기와 배치는 그대로 — 투명한 가상 요소만 버튼 가운데에서 바깥으로 퍼진다. 이웃 버튼과 44px 안쪽으로
+   붙어 있는 곳에는 쓰지 않는다(겹친 영역은 DOM 순서상 뒤의 요소가 가져간다). */
+.tap-target {
+  position: relative;
+}
+
+.tap-target::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: max(100%, 44px);
+  height: max(100%, 44px);
+  transform: translate(-50%, -50%);
 }
 
 /* OS의 '동작 줄이기' 설정을 존중한다. 상태 변화는 유지하고 이동·확대만 사실상 제거한다. */

@@ -476,7 +476,7 @@ function WaitStats({
       )}
       {/* 줄 수를 자르지 않는다 — 영어는 좁은 카드에서 세 줄로 접혀, 두 줄에서 자르면 숫자를 받치는 근거
           ('… measured data')가 통째로 사라졌다. 늘어난 만큼은 위 소개 블록이 온전한 줄로 양보한다(min-h-[316px]). */}
-      <p className="text-[9px] lg:text-[10px] leading-snug text-muk-soft break-words">
+      <p className="text-[11px] leading-snug text-muk-soft break-words">
         {/* 근거가 하나도 없는 카드(basis 'default')는 예측을 보여 주지 않는다 — 도착 시각만 말하고('12:20 도착')
             근거 문구도 붙이지 않는다. 보여 준 숫자가 없는데 '도착 예측'·근거를 말하면 없는 예측을 약속한다
             (zh '按12:20到达预测'). 도착 시각은 분까지(옆의 '현재 HH:MM 기준'과 같은 해상도).
@@ -1126,14 +1126,14 @@ export default function WaitingBoardPage() {
                 )}
               </span>
             )}
-            <label className="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-line bg-white px-3 py-2 text-xs font-medium shadow-[0_2px_10px_rgba(43,35,32,0.06)] focus-within:ring-2 focus-within:ring-gold/60">
+            <label className="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-line bg-white px-3 text-xs font-medium shadow-[0_2px_10px_rgba(43,35,32,0.06)] focus-within:ring-2 focus-within:ring-gold/60">
               <span aria-hidden>🕒</span>
               <span className="text-muk-soft">{t("timeSim.label")}</span>
               <select
                 value={assumedPreset}
                 onChange={(e) => setStoredAssumedPreset(e.target.value)}
                 aria-label={t("timeSim.label")}
-                className="bg-transparent font-bold text-muk focus:outline-none cursor-pointer"
+                className="self-stretch cursor-pointer bg-transparent font-bold text-muk focus:outline-none"
               >
                 {ASSUMED_TIME_PRESETS.map((p) => (
                   <option key={p.id} value={p.id}>{t(p.labelKey)}</option>

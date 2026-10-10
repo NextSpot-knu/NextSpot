@@ -880,14 +880,14 @@ function CourseContent() {
                     )}
                     {!isShareMode && (
                       <>
-                        <label className="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-line bg-white px-3 py-2 text-xs font-medium shadow-[0_2px_10px_rgba(43,35,32,0.06)] focus-within:ring-2 focus-within:ring-gold/60">
+                        <label className="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-line bg-white px-3 text-xs font-medium shadow-[0_2px_10px_rgba(43,35,32,0.06)] focus-within:ring-2 focus-within:ring-gold/60">
                           <span aria-hidden>🕒</span>
                           <span className="text-muk-soft">{t('timeSim.label')}</span>
                           <select
                             value={assumedPreset}
                             onChange={(e) => setStoredAssumedPreset(e.target.value)}
                             aria-label={t('timeSim.label')}
-                            className="bg-transparent font-bold text-muk focus:outline-none cursor-pointer"
+                            className="self-stretch cursor-pointer bg-transparent font-bold text-muk focus:outline-none"
                           >
                             {ASSUMED_TIME_PRESETS.map((p) => (
                               <option key={p.id} value={p.id}>{t(p.labelKey)}</option>
@@ -1636,7 +1636,7 @@ function StopRow({
                 </span>
                 <span className="min-w-0 break-words line-clamp-2">{stop.facility.name}</span>
                 {pinned && (
-                  <span className="mt-0.5 shrink-0 px-1.5 py-0.5 rounded-full bg-gold/15 border border-gold/30 text-[9px] font-bold text-gold-deep">
+                  <span className="mt-0.5 shrink-0 px-1.5 py-0.5 rounded-full bg-gold/15 border border-gold/30 text-[10px] font-bold text-gold-deep">
                     📌 {t('course.pinnedBadge')}
                   </span>
                 )}

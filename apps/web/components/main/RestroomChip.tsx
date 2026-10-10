@@ -57,7 +57,7 @@ export default function RestroomChip({ location }: { location: { lat: number; ln
               className="flex items-center justify-between rounded-2xl border border-line bg-white/70 p-3"
             >
               <div className="min-w-0"><p className="truncate text-sm font-bold text-muk">{item.name}</p><p className="truncate text-xs text-muk-soft">{item.address}</p></div>
-              <span className="ml-3 flex shrink-0 items-center gap-1 text-xs font-bold text-gold"><MapPin size={13} />{item.distanceM < 1000 ? `${item.distanceM}m` : `${(item.distanceM / 1000).toFixed(1)}km`}</span>
+              <span className="ml-3 flex shrink-0 items-center gap-1 text-xs font-bold text-gold-deep"><MapPin size={13} />{item.distanceM < 1000 ? `${item.distanceM}m` : `${(item.distanceM / 1000).toFixed(1)}km`}</span>
             </a>)}
           </div>
         </section>

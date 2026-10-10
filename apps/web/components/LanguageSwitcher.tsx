@@ -10,14 +10,14 @@ export function LanguageSwitcher({ className = '' }: { className?: string }) {
   const { locale, setLocale } = useI18n();
   return (
     <label
-      className={`inline-flex items-center gap-1.5 rounded-full border border-line bg-white px-3 py-1.5 text-sm text-muk shadow-[0_2px_14px_rgba(43,35,32,0.08)] ${className}`}
+      className={`inline-flex items-center gap-1.5 rounded-full border border-line bg-white px-3 text-sm text-muk shadow-[0_2px_14px_rgba(43,35,32,0.08)] ${className}`}
     >
       <Globe size={16} className="text-muk-soft" aria-hidden />
       <span className="sr-only">언어 선택</span>
       <select
         value={locale}
         onChange={(e) => setLocale(e.target.value as Locale)}
-        className="cursor-pointer bg-transparent pr-1 font-medium text-muk outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+        className="cursor-pointer self-stretch bg-transparent py-1.5 pr-1 font-medium text-muk outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-gold/60"
       >
         {LOCALES.map((l) => (
           <option key={l.code} value={l.code}>

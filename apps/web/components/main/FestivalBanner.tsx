@@ -334,7 +334,7 @@ export function FestivalBanner({ className = '', onFocus, location, variant = 'c
                         </span>
                         {/* 거리 — 좌표가 있을 때만 */}
                         {distance && (
-                          <span className="flex items-center gap-1 text-[11px] font-bold text-gold">
+                          <span className="flex items-center gap-1 text-[11px] font-bold text-gold-deep">
                             <MapPin size={12} aria-hidden />{distance}
                           </span>
                         )}
@@ -375,7 +375,7 @@ export function FestivalBanner({ className = '', onFocus, location, variant = 'c
                             <span className="mb-0.5 flex items-center gap-1.5 text-[10px] font-bold text-muk-soft">
                               {t('festival.about')}
                               {aiSummary && (
-                                <span className="rounded-full border border-gold/30 bg-gold/10 px-1.5 py-px text-[9px] font-bold text-gold-deep">
+                                <span className="rounded-full border border-gold/30 bg-gold/10 px-1.5 py-px text-[10px] font-bold text-gold-deep">
                                   {t('festival.aiSummary')}
                                 </span>
                               )}

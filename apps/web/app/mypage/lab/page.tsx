@@ -409,7 +409,7 @@ export default function LabPage() {
                       disabled={busy}
                       aria-pressed={freeOpen}
                       onClick={() => toggleFreeText(item.id)}
-                      className="text-xs font-semibold text-gold hover:text-gold-deep disabled:opacity-50 transition-colors px-2 py-1 rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+                      className="text-xs font-semibold text-gold-deep hover:text-muk disabled:opacity-50 transition-colors px-2 py-1 rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
                     >
                       {t('lab.freeText')}
                     </button>

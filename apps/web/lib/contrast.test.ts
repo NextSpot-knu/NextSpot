@@ -65,4 +65,35 @@ for (const page of ["app/explore/recommend/page.tsx", "app/waiting/page.tsx", "a
   assert.doesNotMatch(source, /from-gold to-terracotta text-\[\d+px\] font-bold text-white/, `${page} 에 옛 금→주칠(대비 미달) 버튼이 남아 있다`);
 }
 
+// 6) 글자 토큰 — 라이트 화면의 본문(먹)·보조(먹 연)·강조 라벨(금 진)은 앉는 바탕(흰 · 한지 · 한지 진 · 금 10~15% 칩)
+//    어디서나 4.5:1 이상(WCAG 1.4.3, Apple HIG). 금 칩은 흰·한지 위 10~25%, 한지 진 위 15% 까지. 금 진은 라벨·배지·활성 탭 글자로 249곳에 쓰여 예전 #a37f2a(3.0~3.7:1)가
+//    가장 넓은 미달이었다(10-10 실서비스 비교 감사). 금(#c19a3e)은 장식·아이콘 색이라 글자 기준에서 뺀다.
+{
+  const css = readFileSync(join(WEB, "app/globals.css"), "utf8");
+  const root = css.slice(css.search(/^:root\s*\{/m), css.indexOf("}", css.search(/^:root\s*\{/m)));
+  const tok = (name: string) => {
+    const m = root.match(new RegExp(`--nextspot-${name}:\\s*(#[0-9a-fA-F]{6})`));
+    assert.ok(m, `토큰 없음: --nextspot-${name}`);
+    return m![1];
+  };
+  const gold = tok("gold");
+  const surfaces: Record<string, string> = {
+    white: "#ffffff",
+    hanji: tok("hanji"),
+    "hanji-deep": tok("hanji-deep"),
+    "gold/10 on white": mixHex("#ffffff", gold, 0.1),
+    "gold/15 on white": mixHex("#ffffff", gold, 0.15),
+    "gold/15 on hanji": mixHex(tok("hanji"), gold, 0.15),
+    "gold/25 on white": mixHex("#ffffff", gold, 0.25),
+    "gold/25 on hanji": mixHex(tok("hanji"), gold, 0.25),
+    "gold/15 on hanji-deep": mixHex(tok("hanji-deep"), gold, 0.15),
+  };
+  for (const name of ["muk", "muk-soft", "gold-deep"]) {
+    for (const [bg, hex] of Object.entries(surfaces)) {
+      const ratio = contrastRatio(tok(name), hex);
+      assert.ok(ratio >= 4.5, `${name} on ${bg}: ${ratio.toFixed(2)} < 4.5`);
+    }
+  }
+}
+
 console.log("contrast tests passed");

@@ -1008,7 +1008,7 @@ export function RecommendationCard({
   const showArrivalLine = !assumedTimeLabel && !!currentTime && !!arrivalTime;
   const crowdChip = (compact: boolean) => crowdChipData ? (
     compact ? (
-      <span className={`rounded-md border px-2 py-0.5 text-[10px] font-bold ${crowdChipData.dashed ? 'border-dashed bg-white/70' : ''} ${
+      <span className={`rounded-md border px-2 py-0.5 text-[11px] font-bold ${crowdChipData.dashed ? 'border-dashed bg-white/70' : ''} ${
         {
           busy: 'bg-terracotta/10 border-terracotta/30 text-terracotta',
           moderate: 'bg-gold/10 border-gold/30 text-gold-deep',
@@ -1194,7 +1194,7 @@ export function RecommendationCard({
             <div className="flex items-center gap-1.5">
               <h3 className="min-w-0 truncate font-serif text-base font-bold leading-tight tracking-tight text-muk">{title}</h3>
               {hasSpotMetrics && (
-                <span className="shrink-0 whitespace-nowrap rounded-md border border-gold/40 bg-gold/10 px-1.5 py-0.5 text-[10px] font-extrabold text-gold-deep" data-testid="peek-spot">
+                <span className="shrink-0 whitespace-nowrap rounded-md border border-gold/40 bg-gold/10 px-1.5 py-0.5 text-[11px] font-extrabold text-gold-deep" data-testid="peek-spot">
                   {t('card.peek.spot', { n: Math.round(spotScore || 0) })}
                 </span>
               )}
@@ -1204,17 +1204,17 @@ export function RecommendationCard({
               {/* 가치 문장이 이미 '도보 N분' 을 말하면 되풀이하지 않는다(계획 B2 — 사실 하나는 한 번). 화살표 문장이면
                   그 자리에 문장에 없는 '도착 시 영업' 을 둔다. */}
               {!peekValueShown ? (
-                <span className="whitespace-nowrap rounded-md border border-jade/30 bg-jade/10 px-2 py-0.5 text-[10px] font-bold text-jade">
+                <span className="whitespace-nowrap rounded-md border border-jade/30 bg-jade/10 px-2 py-0.5 text-[11px] font-bold text-jade">
                   {t('card.peek.walk', { n: displayedTravelMins })}
                 </span>
               ) : compareHeaderText && displayedOpenStatus === 'open_expected' ? (
-                <span className="whitespace-nowrap rounded-md border border-jade/30 bg-jade/10 px-2 py-0.5 text-[10px] font-bold text-jade">
+                <span className="whitespace-nowrap rounded-md border border-jade/30 bg-jade/10 px-2 py-0.5 text-[11px] font-bold text-jade">
                   {t('compare.benefitOpen')}
                 </span>
               ) : null}
               {facility && crowdChipOnPeek && crowdChip(true)}
               {closedToday && (
-                <span className="px-2 py-0.5 rounded-md text-[10px] font-bold border bg-terracotta/10 border-terracotta/30 text-terracotta">
+                <span className="px-2 py-0.5 rounded-md text-[11px] font-bold border bg-terracotta/10 border-terracotta/30 text-terracotta">
                   {t('card.closedToday')}
                 </span>
               )}
@@ -1226,7 +1226,7 @@ export function RecommendationCard({
             whileTap={tapMotion}
             transition={interactionSpring}
             aria-label={t('card.acceptAria')}
-            className="max-w-[46%] shrink-0 break-keep rounded-2xl cta-primary px-4 py-3 text-xs font-bold leading-tight shadow-[0_4px_14px_rgba(168,70,47,0.28)] transition-all active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+            className="min-h-11 max-w-[46%] shrink-0 break-keep rounded-2xl cta-primary px-4 py-3 text-xs font-bold leading-tight shadow-[0_4px_14px_rgba(168,70,47,0.28)] transition-all active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
           >
             <span className="inline-flex items-center justify-center gap-1.5">
               {confirmedAction === 'accepted' && <Check size={14} aria-hidden />}
@@ -1706,7 +1706,7 @@ export function RecommendationCard({
                     </div>
                   )}
                   {travelSource && (
-                    <span className="mt-1 text-[9px] font-semibold text-muk-soft">
+                    <span className="mt-1 text-[11px] font-semibold text-muk-soft">
                       {t(travelSource === 'osm_pedestrian' ? 'card.travelRoute' : 'card.travelEstimate')}
                     </span>
                   )}
@@ -2013,7 +2013,7 @@ export function RecommendationCard({
             whileTap={tapMotion}
             transition={interactionSpring}
             aria-label={t('card.rejectAria')}
-            className="flex-1 bg-hanji-deep hover:bg-terracotta/10 hover:text-terracotta hover:border-terracotta/30 text-muk-soft font-bold py-2.5 rounded-2xl border border-line transition-all active:scale-95 text-xs focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+            className="min-h-11 flex-1 bg-hanji-deep hover:bg-terracotta/10 hover:text-terracotta hover:border-terracotta/30 text-muk-soft font-bold py-2.5 rounded-2xl border border-line transition-all active:scale-95 text-xs focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
           >
             {t('card.reject')}
           </motion.button>
@@ -2027,7 +2027,7 @@ export function RecommendationCard({
               whileTap={tapMotion}
               transition={interactionSpring}
               aria-label={t('card.putOffAria')}
-              className="group flex-1 flex items-center justify-center gap-1.5 bg-hanji-deep hover:bg-gold/10 hover:text-gold-deep hover:border-gold/30 text-muk-soft font-bold py-2.5 rounded-2xl border border-line transition-all active:scale-95 text-xs focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+              className="group min-h-11 flex-1 flex items-center justify-center gap-1.5 bg-hanji-deep hover:bg-gold/10 hover:text-gold-deep hover:border-gold/30 text-muk-soft font-bold py-2.5 rounded-2xl border border-line transition-all active:scale-95 text-xs focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
             >
               {/* 저장 인지 강화용 북마크 — hover/press 시 채워지며 살짝 팝(순수 Tailwind, 과하지 않게) */}
               {confirmedAction === 'saved'
@@ -2041,7 +2041,7 @@ export function RecommendationCard({
             whileTap={tapMotion}
             transition={interactionSpring}
             aria-label={t('card.acceptAria')}
-            className="flex-1 cta-primary font-bold py-2.5 rounded-2xl transition-all active:scale-95 text-xs shadow-[0_4px_14px_rgba(168,70,47,0.28)] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+            className="min-h-11 flex-1 cta-primary font-bold py-2.5 rounded-2xl transition-all active:scale-95 text-xs shadow-[0_4px_14px_rgba(168,70,47,0.28)] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
           >
             <span className="inline-flex items-center justify-center gap-1.5">
               {confirmedAction === 'accepted' && <Check size={14} aria-hidden />}
@@ -2056,7 +2056,7 @@ export function RecommendationCard({
                 {t('card.checkHoursKakaoHint')}
               </p>
             ) : onDrive ? (
-              <button type="button" onClick={onDrive} className="min-h-9 min-w-0 flex-1 rounded-xl border border-line bg-white py-2 text-[12px] font-bold text-muk-soft hover:border-gold/40 hover:text-gold-deep">
+              <button type="button" onClick={onDrive} className="min-h-11 min-w-0 flex-1 rounded-xl border border-line bg-white py-2 text-[12px] font-bold text-muk-soft hover:border-gold/40 hover:text-gold-deep">
                 {t('card.drive')}
               </button>
             ) : <span className="flex-1" />}
