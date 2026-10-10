@@ -772,3 +772,57 @@ test('a card with a photo has no Kakao photo link', async ({ page }) => {
   await expect(card(page).getByTestId('card-photo').locator('img')).toBeVisible();
   await expect(card(page).getByTestId('card-photo-kakao')).toHaveCount(0);
 });
+
+// 무엇을 파는 곳인가 — 카드 맨 앞에(10-10 PM "대표 메뉴를 카드 맨 앞에"). 실제 메뉴가 있으면 '대표 메뉴', 없으면 카카오
+// 분류를 이름표 없이(분류는 메뉴가 아니다). 휴대폰 미리보기는 폭이 좁아 그림 + 음식 이름만.
+test('the card face says what the place serves — a real menu as 대표 메뉴, otherwise the food type', async ({ page }) => {
+  test.setTimeout(90_000);
+  await page.setViewportSize({ width: 1536, height: 730 });
+  const withMenu = { ...RESTAURANTS[2], features: { cuisine_tags: ['한식'], first_menu: '쌈밥 정식, 된장찌개', treat_menu: '제육볶음' } };
+  await openMain(page, {
+    categories: ['restaurant'],
+    facilities: [...ATTRACTIONS, DAEREUNGWON, OUTSIDE_LIST, RESTAURANTS[0], RESTAURANTS[1], withMenu],
+    byType: (type) => (type === 'restaurant' ? [rec(withMenu, 1)] : type === 'attraction' ? ATTRACTION_RECS() : []),
+  });
+  const menu = card(page).getByTestId('card-menu');
+  await expect(menu).toBeVisible({ timeout: 25_000 });
+  await expect(menu).toHaveText('대표 메뉴쌈밥 정식 · 된장찌개 · 제육볶음');
+});
+
+test('a place with only a Kakao category shows the food type without calling it a menu', async ({ page }) => {
+  test.setTimeout(90_000);
+  await page.setViewportSize({ width: 1536, height: 730 });
+  const tagged = { ...RESTAURANTS[2], features: { cuisine_tags: ['한식', '육류,고기', '곱창,막창'] } };
+  await openMain(page, {
+    categories: ['restaurant'],
+    facilities: [...ATTRACTIONS, DAEREUNGWON, OUTSIDE_LIST, RESTAURANTS[0], RESTAURANTS[1], tagged],
+    byType: (type) => (type === 'restaurant' ? [rec(tagged, 1)] : type === 'attraction' ? ATTRACTION_RECS() : []),
+  });
+  const menu = card(page).getByTestId('card-menu');
+  await expect(menu).toBeVisible({ timeout: 25_000 });
+  await expect(menu).toHaveText('한식 · 곱창·막창');
+});
+
+test('390px: the peek shows the dishes in its chip row without growing', async ({ page }) => {
+  test.setTimeout(90_000);
+  const withMenu = { ...RESTAURANTS[2], features: { cuisine_tags: ['한식'], first_menu: '쌈밥 정식, 된장찌개' } };
+  const options = {
+    categories: ['restaurant'],
+    facilities: [...ATTRACTIONS, DAEREUNGWON, OUTSIDE_LIST, RESTAURANTS[0], RESTAURANTS[1], withMenu],
+    byType: (type: string) => (type === 'restaurant' ? [rec(withMenu, 1)] : type === 'attraction' ? ATTRACTION_RECS() : []),
+  };
+  await openMain(page, options);
+  const peekMenu = page.getByTestId('peek-menu');
+  await expect(peekMenu).toBeVisible({ timeout: 25_000 });
+  await expect(peekMenu).toContainText('쌈밥 정식 · 된장찌개');
+  // 이름표는 화면 읽기 프로그램에만 — 보이는 글자는 음식 이름부터.
+  await expect(peekMenu.locator('.sr-only')).toHaveText('대표 메뉴');
+  // 칩 줄 안에 들어간다: 이 고정 데이터에 늘 있는 '도착 시 영업' 칩과 같은 줄이고, 줄은 한 줄 그대로다.
+  const row = peekMenu.locator('xpath=..');
+  const openChip = row.getByText('도착 시 영업', { exact: true });
+  await expect(openChip).toBeVisible();
+  const [menuBox, chipBox, rowBox] = await Promise.all([peekMenu.boundingBox(), openChip.boundingBox(), row.boundingBox()]);
+  if (!menuBox || !chipBox || !rowBox) throw new Error('peek chip row is not on screen');
+  expect(Math.abs(menuBox.y + menuBox.height / 2 - (chipBox.y + chipBox.height / 2))).toBeLessThan(2);
+  expect(rowBox.height).toBeLessThan(chipBox.height + 4);
+});

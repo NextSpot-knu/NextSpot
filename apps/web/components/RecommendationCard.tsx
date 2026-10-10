@@ -3,7 +3,7 @@
 import { useState, useEffect, useId, useRef, useCallback, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
 import { motion, PanInfo, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
-import { Bookmark, Check, Sparkles, Star, Phone, MapPin, Clock, ChevronUp, ChevronDown, Globe, Utensils, RefreshCw, X, Camera } from 'lucide-react';
+import { Bookmark, Check, Sparkles, Star, Phone, MapPin, Clock, ChevronUp, ChevronDown, Globe, Utensils, Coffee, RefreshCw, X, Camera } from 'lucide-react';
 import { apiClient, reportFacilityAvailability, type AvailabilityReportResult, type CongestionEstimate } from '@/lib/api-client';
 import { CongestionReportButton } from '@/components/CongestionReportButton';
 import { GoldenHourBadge } from '@/components/GoldenHourBadge';
@@ -17,6 +17,7 @@ import { hoursLines } from '@/lib/hoursLines';
 import { isPredictModelTrained } from '@/lib/predictModel';
 import { haptic, sheetSpring } from '@/lib/motion';
 import { nextSheetState, sheetElastic, type SheetState } from '@/lib/sheetSnap';
+import { cardMenu, menuItems } from '@/lib/cardMenu';
 import { areaDemandDisclosure } from '@/lib/areaDemandPresentation';
 import { useCountUp } from '@/lib/useCountUp';
 import { congestionDisplay, formatEstimateTime, formatLastObserved } from '@/lib/congestionEstimate';
@@ -822,17 +823,14 @@ export function RecommendationCard({
     ? /(^|\.)instagram\.com$|(^|\.)blog\.naver\.com$/.test(homepageHost.toLowerCase())
     : false;
 
-  // 대표 메뉴(TourAPI detailIntro2 first_menu) — apiClient(/infrastructures, by-type)는 features
-  // 내부 키까지 재귀적으로 camelCase 변환하므로 firstMenu 로 오지만, supabase 직접 폴백 경로는
-  // 원본 컬럼(snake_case)을 그대로 들고 오므로 둘 다 지원한다(main/page.tsx barrierFree 폴백과 동일 관례).
-  // 공식 대표메뉴와 취급메뉴를 합쳐 중복 없이 최대 5개만 노출한다.
-  const firstMenuRaw = (facility?.features?.firstMenu ?? facility?.features?.first_menu) as string | undefined;
-  const treatMenuRaw = (facility?.features?.treatMenu ?? facility?.features?.treat_menu) as string | undefined;
-  const firstMenuTokens = Array.from(new Set(
-    [firstMenuRaw, treatMenuRaw]
-      .filter((value): value is string => typeof value === 'string')
-      .flatMap((value) => value.split(/[,/\n·]+/).map((item) => item.trim()).filter(Boolean))
-  )).slice(0, 5);
+  // 무엇을 파는 곳인가(lib/cardMenu) — 실제 메뉴(TourAPI 대표·취급 + 경주시 맛집 메뉴)가 있으면 그것, 없으면 카카오 분류
+  // ('한식 · 곱창·막창'). 카드 맨 앞(미리보기 칩 줄 · 전체 카드 이름 아래)에 한 줄로 — 10-10 PM "대표 메뉴를 카드 맨 앞에".
+  // 상세의 '대표 메뉴' 칩은 실제 메뉴만, 최대 5개(분류는 메뉴가 아니므로 거기에 넣지 않는다).
+  const firstMenuTokens = menuItems(facility?.features, 5);
+  // /saved 는 facility 에 type 을 싣지 않고 facilityType 으로 따로 넘긴다(장소 표지 tileVisual 과 같은 순서로 읽는다).
+  const faceMenuType = facilityType ?? facility?.type;
+  const faceMenu = cardMenu(faceMenuType, title, facility?.features);
+  const FaceMenuIcon = faceMenuType === 'cafe' ? Coffee : Utensils;
 
   // 오늘 휴무 — rest_date_raw 보수 파서(restDate.ts). true 확정일 때만 배지 노출(과판정 금지 원칙).
   const restDateRaw = (facility?.features?.restDateRaw ?? facility?.features?.rest_date_raw) as string | undefined;
@@ -1124,11 +1122,17 @@ export function RecommendationCard({
       onDrag={handleDrag}
       onDragEnd={handleDragEndWithClickGuard}
       layout
+      // 크기가 바뀌는 동안 모서리가 찌그러지지 않게 — framer 는 style 로 준 둥글기만 보정한다(rounded-3xl 과 같은 24px).
+      style={{ borderRadius: 24 }}
       transition={sheetSpring}
     >
       {/* 상단 장식 라인 — 콜드 블루 글로우를 신라금 웜 그라디언트로 */}
       <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-gold/50 to-transparent" />
 
+      {/* 카드 높이가 바뀔 때(미리보기 ↔ 전체 ↔ 펼침) 바깥 판은 framer layout 이 크기를 늘이며 움직이는데, 그 늘이기가
+          글자·사진까지 눌렀다 펴는 것처럼 보였다(10-10 PM "여닫기가 어설프다" — 녹화로 확인). 내용은 이 래퍼 하나로 묶어
+          위치만 따라가게 해(layout="position") 처음부터 제 크기로 그리고, 바깥 판이 자라며 드러낸다(overflow-hidden). */}
+      <motion.div layout="position" transition={sheetSpring} className={`flex min-h-0 flex-1 flex-col ${isMinimized ? 'gap-1' : 'gap-2'}`}>
       {/* 손잡이 — 모든 폭에서 남긴다(끌어 올리기·내리기, 계획 B2 · I31). 키보드·스크린리더의 펼치기 경로는
           아래 '상세 정보 펼치기' 버튼이다. */}
       {peekMode ? (
@@ -1174,7 +1178,7 @@ export function RecommendationCard({
         // 휴대폰 미리보기 — 관광객이 지금 알아야 할 것만: 가치 문장(2줄, 키 낮은 화면 1줄) · 이름 + SPOT 점수 · 도보 N분 ·
         // 붐비나(얼굴과 같은 규칙 — 화살표가 이미 말하면 빼고) · 바로 출발(도보 길안내, 전체 카드와 같은 동작). 혜택형
         // 문장은 이름이 아래 줄에 있으므로 이름을 뺀다(계획 B3). 줄을 누르면 전체 카드.
-        <div className="flex flex-col gap-1.5 px-1 pb-0.5" data-testid="rec-card-peek">
+        <div className="sheet-content-in flex flex-col gap-1.5 px-1 pb-0.5" data-testid="rec-card-peek">
           {peekValueShown && (
             <p
               data-testid="peek-value"
@@ -1220,6 +1224,15 @@ export function RecommendationCard({
                   {t('card.closedToday')}
                 </span>
               )}
+              {/* 무엇을 파는 곳인가 — 남은 폭을 채우고 넘치면 말줄임(줄을 늘리지 않게 basis-0, 너무 좁으면 다음 줄). */}
+              {faceMenu && (
+                <span data-testid="peek-menu" className="inline-flex min-w-[4.5rem] basis-0 grow items-center gap-1 text-[11px] leading-[15px] font-semibold text-muk-soft">
+                  {/* 미리보기는 폭이 좁아 '대표 메뉴' 이름표가 음식 이름을 잘랐다 — 그림만 두고 음식 이름을 먼저(전체 카드는 이름표까지). */}
+                  <FaceMenuIcon size={12} className="shrink-0" aria-hidden />
+                  {faceMenu.kind === 'menu' && <span className="sr-only">{t('card.signatureMenu')}</span>}
+                  <span className="min-w-0 truncate">{faceMenu.items.join(' · ')}</span>
+                </span>
+              )}
             </div>
           </div>
           <motion.button
@@ -1249,7 +1262,7 @@ export function RecommendationCard({
         <>
           {/* 버튼 위 내용만 이 래퍼 안에서 스크롤한다 — 버튼 두 줄은 래퍼 밖(바닥 고정)이라 카드가 아무리 길어도 보인다.
               데스크톱 패널은 얇은 금빛 스크롤바와 위·아래 가장자리 흐림으로 더 있는 내용을 알린다(I31). */}
-          <div className="relative flex min-h-0 flex-1 flex-col">
+          <div className="sheet-content-in relative flex min-h-0 flex-1 flex-col">
           <div
             ref={scrollRef}
             onScroll={updateScrollEdges}
@@ -1408,6 +1421,13 @@ export function RecommendationCard({
             )}
           </div>
           <h3 className="font-serif text-[20px] xl:text-[22px] font-bold leading-tight tracking-tight text-muk">{title}</h3>
+          {faceMenu && (
+            <p data-testid="card-menu" className="mt-1 flex min-w-0 items-center gap-1.5 text-[13px] font-semibold leading-5 text-muk-soft">
+              <FaceMenuIcon size={14} className="shrink-0" aria-hidden />
+              {faceMenu.kind === 'menu' && <span className="shrink-0 font-bold text-gold-deep">{t('card.signatureMenu')}</span>}
+              <span className="min-w-0 truncate">{faceMenu.items.join(' · ')}</span>
+            </p>
+          )}
         </div>
 
         {hasSpotMetrics ? (
@@ -2082,6 +2102,7 @@ export function RecommendationCard({
         ) : null}
       </>
       )}
+      </motion.div>
     </motion.div>
   );
 }
