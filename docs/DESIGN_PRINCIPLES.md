@@ -2,7 +2,8 @@
 
 화면·문구·구현을 정할 때 기준으로 삼는 원칙이다. 숫자(탭 44px, 대비 4.5:1)는 원칙의 결과일 뿐이라, 숫자만 옮기면
 간격은 맞아도 판단이 어긋난다. 그래서 이 문서는 **철학 → NextSpot 원칙 → 지킬 수 있는 규칙 → 지금 상태** 순서로 적는다.
-2026-10-10 실서비스 비교(Toss · Apple · Google 지도)에서 만들었다. 출처는 맨 아래에 있다.
+2026-10-10 실서비스 비교에서 만들었다. **기준은 Toss 와 Apple 둘만 쓴다**(PM 결정 10-10 — Google·Material 은 기준에서 뺀다).
+접근성 수치는 디자인 취향이 아니라 표준이라 WCAG 2.2 를 함께 쓴다. 출처는 맨 아래에 있다.
 
 ## 출발점 — NextSpot 의 철학
 
@@ -22,7 +23,6 @@
 | **Toss 라이팅 8원칙** | Predictable hint · Weed cutting(잡초 뽑기) · Remove empty sentences · Focus on key message · Easy to speak · Suggest over force · Universal words · Find hidden emotion | 해요체 · 군더더기 없는 한 문장 · 겁주지 않고 제안 |
 | **Apple HIG 원칙**(2026 재정리) | Purpose · Agency · Responsibility · Familiarity · Flexibility(모두를 위한 설계) · Simplicity(모든 요소가 제자리를 벌어야 한다) · Delight(장식과 혼동하지 말 것, 예: 명상 앱은 차분하게) | 접근성은 처음부터 · 필요한 이유를 말하고 묻기 · 차분함 |
 | **Apple Liquid Glass** | 위계 · 조화 · 일관성. UI 는 경험을 섬기고 필요 없을 땐 물러난다. 지도 위의 누를 수 없는 요소는 기대를 방해한다 | 콘텐츠(지도·장소)가 주인공, 크롬은 물러남 |
-| **Google** | Focus on the user. "지도가 곧 UI". 인기 시간대는 **그 장소의 평소 대비** 상대 표현이고, 표본이 적으면 숨긴다. M3 Expressive 연구: 큰 버튼과 높은 대비로 45세 이상 사용자의 수행이 젊은 층과 비슷해졌다(발췌·2차 보도) | 혼잡은 쉬운 상대 표현 · 근거가 약하면 말하지 않음 · 큰 터치 영역 |
 
 ## NextSpot 원칙 9가지
 
@@ -40,19 +40,19 @@
 4. **분명한 행동 하나** — 글을 읽지 않아도 다음에 누를 것이 보인다. (Toss Clear Action)
    - 규칙: 주 행동은 카드마다 하나다(`cta-primary`, 금→주칠 그라데이션, 흰 글자 4.5:1 이상). 보조 행동은 시각적으로 약하게. 모든 행동은 44px 이상.
    - 지금: ✅ 버튼 중에서는 도보 길안내만 주 버튼이다. ⏳ 목록 순위 배지(`card-rank`)가 같은 그라데이션을 써서 주 버튼과 시선을 나눈다. 🔧 카드 행동 버튼 36~40px → 44px.
-5. **콘텐츠가 주인공, 크롬은 물러난다** — 지도와 장소가 화면을 차지한다. 브랜드·출처·시계는 작고 조용하게. (HIG Hierarchy · Maps · Google "지도가 곧 UI")
+5. **콘텐츠가 주인공, 크롬은 물러난다** — 지도와 장소가 화면을 차지한다. 브랜드·출처·시계는 작고 조용하게. (HIG Hierarchy · HIG Maps "지도를 가리는 누를 수 없는 요소는 기대를 방해한다")
    - 규칙: 지도 위에는 누를 수 있는 것만 띄운다. 출처 표기(ⓒ한국관광공사 TourAPI 등 의무 표기)는 지우지 않되 가장 작은 단계로 둔다.
    - 지금: ⏳ 지도 위에 누를 수 없는 요소 2개(시계 위젯, 출처 칩)가 떠 있다. ⏳ 탭 막대 위 콘솔 줄이 지도 높이 40px 를 차지한다. 심사 입구라 둔다.
 6. **기다리게 하지 않는다** — 빈 화면을 보여 주지 않는다. (Toss No More Loading · HIG Loading)
    - 규칙: 첫 페인트에 지도 틀과 카드 자리(스켈레톤)를 둔다. 첫 카드는 서버 1위를 스켈레톤으로 최대 3.5초 기다린다.
    - 지금: ✅ 스켈레톤이 있다. ✅ API 를 싱가포르로 옮겨 DB 왕복이 줄었다(10-09). 차가운 첫 호출은 여전히 몇 초 걸린다.
-7. **혼잡은 쉬운 상대 표현으로, 근거가 약하면 말하지 않는다** — "여유·보통·혼잡"에 '추정'·'실측' 표시를 붙인다. 색만으로 말하지 않는다. (Google 인기 시간대 · Universal words)
+7. **혼잡은 쉬운 상대 표현으로, 근거가 약하면 말하지 않는다** — "여유·보통·혼잡"에 '추정'·'실측' 표시를 붙인다. 색만으로 말하지 않는다. (Toss Universal words · Explain Why · HIG Responsibility · [`CONGESTION_DATA.md`](./CONGESTION_DATA.md))
    - 규칙: 등급에는 늘 글자 라벨을 붙인다. 추정이면 '추정'이라고 쓴다. 24시간 안의 실측만 핀을 칠한다.
    - 지금: ✅ 지킨다. 실측 데이터는 1,728곳 중 6곳이라 대부분 '추정'이다. 데이터 확보가 가장 큰 과제다(HANDOVER).
-8. **모두를 위한 설계** — 외국인·노년층·저시력·손이 큰 사람도 같은 경험을 한다. (HIG Flexibility · M3 Expressive 45+ · WCAG 2.2)
+8. **모두를 위한 설계** — 외국인·노년층·저시력·손이 큰 사람도 같은 경험을 한다. (HIG Flexibility · WCAG 2.2)
    - 규칙: 아래 "측정 기준" 표.
    - 지금: 🔧 금 진 글자 대비 3.0~3.7 → 4.5:1 이상. 🔧 음성 검색·지우기 아이콘 18px → 44×44 탭 영역(`.tap-target`). 알약 안 select·검색 입력은 알약 높이를 꽉 채운다(언어 36px · 가정 시간 44px · 검색 58/38/42px). 🔧 9px 글자 → 11px. 🔧 **첫 방문은 기기 언어로** — 외국인이 한국어 화면에서 언어 선택을 찾지 않게. 목록에 한국어가 있으면 한국어로 하고, 언어 선택이 없는 콘솔(관제·사장님·개발자)은 제외한다. 직접 고른 언어가 늘 이긴다. ⏳ 12px 미만 글자가 아직 약 420곳.
-9. **차분하게** — 감정 목표는 '차분함'이다. 움직임은 상태를 알릴 때만 쓰고, 강조는 카드와 주 행동에만 둔다. (HIG Delight · M3 Expressive 의 주의)
+9. **차분하게** — 감정 목표는 '차분함'이다. 움직임은 상태를 알릴 때만 쓰고, 강조는 카드와 주 행동에만 둔다. (HIG Delight · HIG Motion "자주 하는 동작에는 움직임을 더하지 않는다")
    - 규칙: 동작 줄이기 설정을 존중한다(globals.css 전역 규칙 · MotionConfig). 반복 애니메이션은 '듣는 중' 같은 상태에만 쓴다.
    - 지금: ✅ 지킨다.
 
@@ -90,6 +90,4 @@
   (10-10 에는 이 환경에서 사이트가 열리지 않아 검색 결과에 보인 원문 발췌로 확인했다) · TDS 수치: npm `@toss/tds-mobile@2.5.1` 번들.
 - Apple: developer.apple.com/design/human-interface-guidelines/design-principles (원문 확인) · …/layout · …/loading · …/maps ·
   …/accessibility · WWDC25 "Meet Liquid Glass".
-- Google: about.google/philosophy · blog.google "Maps 101: Popular times and live busyness" · Area Busyness(2021-11-16) ·
-  design.google "Expressive Material Design" 연구(발췌) · material-components-android 문서(칩·바텀시트 수치).
 - WCAG 2.2: 1.4.3 · 1.4.11 · 2.4.11 · 2.5.8.
