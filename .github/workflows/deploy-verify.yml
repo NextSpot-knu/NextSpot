@@ -1,0 +1,49 @@
+# NextSpot API 배포 확인 — main 에 API 변경이 올라가면 운영 /health 의 deploy.commit 이 그 커밋으로 바뀌는지 본다.
+# Render 는 빌드가 실패하거나 Build Filters 로 건너뛰면 실행 중인 옛 배포를 그대로 두고, 성공 알림은 기본으로 보내지
+# 않는다 — 그래서 '최신 API 가 안 떴다'는 사실이 아무 신호 없이 묻힐 수 있었다(10-09 빌드 실패 메일 뒤 확인 불가).
+# 25분 안에 바뀌지 않으면 이 잡이 실패하고, GitHub 가 실패한 워크플로를 푸시한 사람에게 알린다.
+# 주소는 다른 워크플로와 같은 Repository Variable BACKEND_HEALTH_URL(…/health) 하나를 쓴다.
+name: API Deploy Verify
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/api/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# 짧은 간격으로 두 번 올리면 앞 확인은 의미가 없다 — Render 도 마지막 커밋을 배포한다.
+concurrency:
+  group: deploy-verify
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      API_HEALTH_URL: ${{ vars.BACKEND_HEALTH_URL || 'https://nextspot-api.onrender.com/health' }}
+      EXPECTED_SHA: ${{ github.sha }}
+    steps:
+      - name: Wait until the live API reports the pushed commit
+        run: |
+          want="${EXPECTED_SHA:0:12}"
+          deadline=$(( $(date +%s) + 25 * 60 ))
+          live=""
+          service=""
+          while [ "$(date +%s)" -lt "$deadline" ]; do
+            body=$(curl -fsS --max-time 20 "$API_HEALTH_URL" || true)
+            live=$(printf '%s' "$body" | jq -r '.deploy.commit // empty' 2>/dev/null || true)
+            service=$(printf '%s' "$body" | jq -r '.deploy.service // empty' 2>/dev/null || true)
+            if [ "$live" = "$want" ]; then
+              echo "live: ${service:-unknown} @ $live"
+              exit 0
+            fi
+            echo "waiting: live=${live:-unknown} want=$want"
+            sleep 30
+          done
+          echo "::error::운영 API(${API_HEALTH_URL})가 25분 안에 ${want} 로 바뀌지 않았다 — 지금 ${service:-알 수 없는 서비스} @ ${live:-알 수 없음}. Render 대시보드 → 서비스 → Events 에서 빌드 실패·건너뜀(Build Filters 경로)을 확인한다."
+          exit 1

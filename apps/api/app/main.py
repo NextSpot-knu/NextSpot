@@ -1,5 +1,6 @@
 import asyncio
 import concurrent.futures
+import os
 import sys
 import time
 from contextlib import asynccontextmanager
@@ -343,7 +344,15 @@ async def health_check():
     body = {
         "status": "healthy",
         "project": settings.PROJECT_NAME,
-        "environment": settings.ENV
+        "environment": settings.ENV,
+        # 이 프로세스가 어느 커밋·어느 서비스로 떠 있는지 — Render 가 런타임에 주는 기본 환경변수. main 에 올린 API 변경이
+        # 실제로 떴는지를 대시보드 없이 밖에서 확인한다(.github/workflows/deploy-verify.yml). Render 는 빌드가 실패하거나
+        # Build Filters 로 건너뛰면 옛 배포를 그대로 돌리므로, 이 값이 없으면 '배포가 빠졌다'를 알 길이 없었다(10-09).
+        # 로컬·테스트처럼 값이 없으면 null. 커밋 해시 앞 12자리와 서비스 이름뿐이라 공개해도 되는 정보다.
+        "deploy": {
+            "commit": (os.environ.get("RENDER_GIT_COMMIT") or "")[:12] or None,
+            "service": os.environ.get("RENDER_SERVICE_NAME") or None,
+        },
     }
     # 참조 스냅샷 상태(준비 여부·부분별 나이·실패 수·판 번호) — 메모리 읽기만 한다. 오류 원문은 싣지 않는다
     # (공개 엔드포인트 — 예외 종류 이름만). 스냅샷이 준비 전이어도 헬스는 healthy 다: 그동안은 실시간 경로가

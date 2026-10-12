@@ -58,6 +58,7 @@
 
 외부 콘솔 접근이 필요해 코드로 못 하는 일. 끝나면 줄을 지우고 "최근 세션"에 한 줄 남긴다.
 
+- [ ] **Render 배포 확인(10-12 — 10-09 빌드 실패 메일)** — 대시보드에서 ① 실패한 서비스가 싱가포르 `nextspot-t2ib` 인지 오리건 `nextspot-api` 인지 · 그 커밋과 로그 첫 오류 줄(Events) ② `nextspot-t2ib` Settings → Branch `main` · **Build Filters 포함 경로가 저장소 루트 기준 `apps/api/**`**(서비스 폴더 기준 `app/**` 이면 API 변경이 영원히 배포되지 않는다) ③ 워크스페이스 Integrations → Notifications 가 '실패만'이면 성공 메일은 원래 오지 않는다. 실패가 싱가포르였고 원인이 남아 있으면 #13 병합 전에 Manual Deploy → "Deploy latest commit" 로 통과 확인. 코드 쪽 재현은 통과(아래 2026-10-12).
 - [ ] **음식 카드 사진 — GitHub → Settings → Variables `GYEONGJU_CITY_PHOTO_ENABLED=true`**(10-10 PM 지적 "음식 카드에 사진이 안 뜬다"). 운영 음식점 1,121곳 중 1,082곳·카페 556곳 중 538곳이 사진이 없다 — 거의 전부 카카오 로컬 행이고 카카오 장소 API 는 사진을 주지 않는다. 경주시 「메뉴별음식점」 사진 보강은 이 변수가 꺼져 있어 `features.city_photo` 0행. 전제(웹 '사진: 경주시' 출처)는 main 에 있다(`lib/photoCredit.ts`). 켜면 다음 04:00 적재부터 매칭된 사진 없는 행에 들어간다(10-02 시뮬레이션 첫 밤 약 39곳 — 전체를 덮지는 못한다). 나머지는 카드의 '카카오맵에서 사진 보기'(PR #17)가 받는다.
 - [ ] **(선택) 휠체어·유모차 필터 데이터 — data.go.kr '한국관광공사_무장애 여행 정보'(15101897, KorWithService2) 활용신청**(10-10 PM "무장애 필터가 안 와닿는다"). 지금 판정은 TourAPI 상세 글에 '휠체어·엘리베이터' 같은 낱말이 있는지뿐이라 운영 1,728곳 중 2곳(김유신묘·천마총, 음식점·카페 0곳)이다. 신청되면 공식 항목(휠체어 대여·승강기·장애인 화장실 등)으로 적재·필터를 바꾼다(API — 밤 배포, 경주 표본 수는 적재 전엔 모름). 칩 이름은 10-10 '무장애' → '휠체어·유모차' 로 바꿨다(PR #17).
 - [ ] **PR #13 병합(KST 밤 · API 재시작)** — [`#13`](https://github.com/NextSpot-knu/NextSpot/pull/13) head `c678db4`, CI 4잡 green · 충돌 없음(10-10 확인). GitHub 에서 **'Create a merge commit'**(가지에 'update branch' 병합 커밋이 있어 rebase 는 거절될 수 있다). 에이전트의 병합 호출은 권한 분류기가 '프로덕션 배포'로 막는다(10-10) — PM 이 누르거나 "merge #13" + 권한 규칙. 되돌림: 웹 Vercel `dpl_Fy1mTVx5F8vRcV9V3w1KzozpbDpk`, API 는 #13 커밋 revert. 병합 뒤: main CI · 싱가포르 `/health` · `/travel-context/parse` 한 번.
@@ -253,6 +254,14 @@ from checks order by seq;
 
 최신이 위. 10개를 넘으면 가장 오래된 항목을 `archive/HANDOVER_LOG.md` 맨 위로 옮긴다.
 
+## 2026-10-12 — Render 배포 확인: 10-09 빌드 실패 메일 뒤 '성공 알림 없음' 진단 · /health 에 배포 커밋 · 배포 확인 워크플로
+
+- 도구·브랜치: Claude Code(클라우드) / `claude/nextspot-continuation-hiebei`(main `3a61300` 위)
+- 한 것: PM "10-09 Render 빌드 실패 메일 뒤 성공 알림이 없다" → 빠진 배포 없음. main 의 API 코드 마지막 변경은 10-06 `599a7a2`, 10-09 이후 main 커밋은 웹·문서와 `render.yaml`(오리건 Blueprint)뿐이고 Build Filters 가 그 푸시를 건너뛴다. 싱가포르·오리건 `/health` 모두 healthy · 운영 웹 번들은 싱가포르만 부른다 · 웹 최신(`3a61300`)은 운영 CSS 로 확인. 현재 main 은 Render 와 같은 조건(Dockerfile `apps/api/Dockerfile` · 컨텍스트 `apps/api`)으로 Docker 빌드·부팅·`/health` 200 — 10-09 실패는 지금 코드로 재현되지 않는다(어느 서비스였는지는 대시보드에만 있다). 재발 방지: `/health` 에 `deploy.commit`·`deploy.service`(Render 기본 환경변수 `RENDER_GIT_COMMIT`·`RENDER_SERVICE_NAME`), `deploy-verify.yml` — main 에 `apps/api/**` 가 바뀌면 운영 `/health` 가 그 커밋으로 25분 안에 바뀌는지 보고, 아니면 실패(GitHub 알림).
+- 검증: api ruff · pytest 2479 · 새 시험(환경변수 있음/없음) · 컨테이너에서 `deploy` 칸 확인 · 워크플로 대기 고리를 가짜 `/health` 로 일치·옛 커밋·응답 없음 3경우 시험 · check-docs.
+- 다음·미결: 이 변경은 API 라 KST 밤 반영(PR #13 과 같은 밤이면 #13 먼저 — 그 병합 커밋을 이 워크플로가 바로 확인한다). 반영 전 PM 이 Render Build Filters 경로를 확인해야 확인 잡이 의미 있다(아래 사람 작업). `requirements.txt` 가 `>=` 라 빌드마다 최신 패키지를 받는다(10-12 빌드 fastapi 0.143.0) — 고정은 심사 뒤 검토.
+- 사람 작업: "사람 작업 대기" 맨 위 Render 확인 줄.
+
 ## 2026-10-10 — PR #12 병합 · PR #13 밤 e2e 원인 수정 · 실서비스 UI 비교 접근성 정리
 
 - 도구·브랜치: Claude Code(클라우드) / `fix/llm-rate-limits-1009`(PR #13 — `6adb171` main 병합 · `4a37ab4` · `c678db4`) · 이 기록은 `claude/nextspot-continuation-hiebei`(main `dc56bab` 위, 문서만)
@@ -361,23 +370,6 @@ from checks order by seq;
 - 검증: CI green(f0f440b — web·api·e2e) · 09-29 데스크톱 재실행 web lint 0 errors·typecheck·test 69파일·build
 - 다음·미결: 위 2026-09-29b(점검에서 나온 `/waiting` 재배열 · 추천 카드 합성 id 수정)
 - 사람 작업: 폰 스모크("사람 작업 대기")
-
-## 2026-09-28e — API 재설계 P3 배치 A: 보행 목적지 스냅 기억 · 시설 조회 왕복·복사 줄이기 (09-29 `f0f440b` 로 main 반영)
-
-- 도구·브랜치: Claude Code(검증된 P3 명세 → 커밋별 구현 · 10ea2d4 원문과 동등성 대조) / `perf/p3a-0929`(10ea2d4 = release/0928 위) → `release/0930` → main
-- 커밋: 4ab6eb7..(이 기록) (6건 + 리뷰 수리 3건 — 경계 테스트 둘·이 공개 보강). 순서는 스냅 기억 → 사각형 먼저 복사 → prior 스레드 → 타임세일 한 번 → 영업 근거 한 번. 기존 테스트 계약을 바꾼 마지막 두 건은 끝에 두어 따로 뺄 수 있다(각각 `git revert` 가능).
-- 한 것: 보행 목적지 스냅을 그래프 객체에 기억 + 예열(`/warmup`) 때 시설 전체 사전 스냅(스위치 `WALKING_ROUTE_KERNEL` 기본 `memo`, `legacy` = 되돌림) ·
-  `fetch_all_facilities` 가 사각형으로 먼저 좁히고 남은 행만 깊은 복사 · 관광 prior 붙이기를 스레드로 · 타임세일(조각 둘 이상) 한 번 조회 · 영업 근거(조각 둘 이상) 한 번 조회.
-  손님이 받는 답은 같다. 공개된 차이는 영업 근거 둘(같은 마이크로초 동률은 id 순, 실패하면 그 호출의 근거가 통째로 빈다 — PM 수락).
-  한 번 조회를 타는 곳(id 150개 초과): 메인 추천·by-type·부팅 예열 **그리고 `/infrastructures` 실시간 지도 경로**(참조 스냅샷 준비 전·낡음·`REFERENCE_SNAPSHOT_SERVE=legacy` 때,
-  활성 시설 전체 ~1,682곳) — 명세 §4.3·611eb13 메시지에는 지도가 빠져 있었다. 실패 범위 차이는 지도에도 같다(그 요청의 근거가 통째로 빈다).
-- 검증: api ruff + pytest 2077 passed(리뷰 수리 뒤) · OpenAPI 스냅샷·score.py 10ea2d4 와 동일 · check-docs · 10ea2d4 원문 대조 불일치 0(경로 실제 시설 1,682곳 × 출발 50곳 = 84,100쌍 ·
-  시설 사각형 50개(실제 1,682행) · 타임세일 45가지 · 영업 근거 35가지 · prior 실제 1,682행). 기존 테스트 변경: 타임세일 조각 테스트는 단언 그대로 캡 폴백 경로를 타게 픽스처만,
-  영업 근거 조각 테스트 둘은 새 계약으로(조각 크기 → 'URL 에 id 없음', 한 조각 실패 → 통째로 빈다).
-  **이 두 곳은 '기존 테스트 단언 불변' 규칙의 예외라 PM 확인 필요**(611eb13 `test_availability_service.py` 단언 교체 · 7ee6821 `test_merchant_boost.py` 픽스처만).
-  리뷰 수리로 새 테스트만 더했다: 타임세일 정확히 1000행(PostgREST 캡) 응답 → 조각 폴백 · 시설 사각형 경계 위 포함/한 칸 바깥 제외(변이 `>=`→`>`·`<=`→`<` 잡힘).
-- 다음·미결: 배치 B(csr 커널 + 커밋된 바이너리, 부팅 사전 스냅 — `main.py` 훅은 이미 있고 csr 전까지 꺼져 있다)는 09-30 18:00 KST 까지 증명될 때만. 서명 전 Render 모양(0.5 CPU/512MB) 컨테이너에서 by-type·추천 콜드/웜 재측정(명세 §8).
-- 사람 작업: main 반영 뒤 `/api/v1/warmup` 한 번 → Render 로그 `walking_graph_presnap`·`warmup_run_done` 확인, `merchant_boost_timesale_fetch_failed`·`availability_evidence_unavailable`(추천·by-type·**지도 요청 포함**)이 늘지 않는지. 되돌림은 env `WALKING_ROUTE_KERNEL=legacy`(재시작) 또는 커밋별 `git revert`.
 
 ## 기록 규칙
 

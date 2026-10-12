@@ -221,6 +221,17 @@ def test_health_check(client):
     assert body["project"] == settings.PROJECT_NAME
 
 
+def test_health_reports_the_deployed_commit_and_service(client, monkeypatch):
+    """배포 확인(deploy-verify.yml)이 읽는 칸 — Render 기본 환경변수에서 커밋 앞 12자리와 서비스 이름. 없으면 null."""
+    monkeypatch.delenv("RENDER_GIT_COMMIT", raising=False)
+    monkeypatch.delenv("RENDER_SERVICE_NAME", raising=False)
+    assert client.get("/health").json()["deploy"] == {"commit": None, "service": None}
+
+    monkeypatch.setenv("RENDER_GIT_COMMIT", "3a6130064ae24b2c3c767d782a7025d65652e44a")
+    monkeypatch.setenv("RENDER_SERVICE_NAME", "nextspot-t2ib")
+    assert client.get("/health").json()["deploy"] == {"commit": "3a6130064ae2", "service": "nextspot-t2ib"}
+
+
 # =========================================================================
 # 2. 추천(POST /api/v1/recommendations) — 인증·IDOR 가드·행복 경로
 # =========================================================================

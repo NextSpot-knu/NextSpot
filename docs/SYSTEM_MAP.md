@@ -81,7 +81,7 @@ NextSpot/
 │   ├── migrations/             # 스키마 정본 (타임스탬프 순)
 │   └── RESET_AND_SETUP.sql     # scripts/build_reset.mjs 가 마이그레이션에서 자동 생성
 ├── scripts/                    # build_reset.mjs · check-i18n-keys.mjs · check-docs.mjs · run-web-tests.mjs
-├── .github/workflows/          # ci · ingest · train-recommendation-model · area-demand-alert · warmup
+├── .github/workflows/          # ci · ingest · train-recommendation-model · area-demand-alert · warmup · deploy-verify
 │                               # + 수동: collect-area-demand · uptime
 └── docs/                       # 운영 문서 · contest/ · archive/ (색인 docs/README.md)
 ```
@@ -648,6 +648,7 @@ system_settings
 | (워크플로 아님) Supabase pg_cron — **서울 실시간 도시데이터** | 10분(분 4·14·… 주 호출 / 9·19·… 버킷이 비었을 때만 보충) | `POST /api/v1/engine-validation/seoul/collect` 호출 → `seoul_citydata_snapshots` 적재. URL 은 Vault `nextspot_seoul_citydata_api_url`, 토큰은 경주 수집기와 같은 Vault 비밀을 **공유**한다(회전 한 번이면 둘 다 반영). 마이그레이션 `20260920121000` — 2026-09-20 기준 **적용 대기** |
 | `warmup.yml` (API Keep-Warm) | 10분 예약(best-effort — 실측 몇 시간 간격) | `/api/v1/warmup`(무인증 캐시 예열 — P3 배치 A 의 보행 목적지 사전 스냅 포함)·`/health` 호출 |
 | `uptime.yml` | 수동 | 헬스체크(장애 진단용) |
+| `deploy-verify.yml` (API Deploy Verify) | main 푸시 중 `apps/api/**` 변경 · 수동 | 운영 `/health` 의 `deploy.commit`(Render `RENDER_GIT_COMMIT` 앞 12자리)이 푸시한 커밋으로 25분 안에 바뀌는지 30초마다 확인 — 안 바뀌면 실패. Render 는 빌드 실패·Build Filters 건너뜀 때 옛 배포를 조용히 계속 돌린다(10-12) |
 
 **왜 감시 워크플로가 따로 있나** — 정기 수집은 pg_cron 이 `net.http_post` 로 **발사 후 잊는** 구조라
 API 가 401 을 주든 500 을 주든 `cron.job_run_details` 에는 succeeded 로 남는다. 그래서
