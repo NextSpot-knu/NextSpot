@@ -4102,20 +4102,20 @@ export default function MainPage() {
 
         </div>{/* /왼쪽 열(검색) */}
 
-        {/* 오른쪽 열(모바일은 아래): 유리 툴바 판 두 줄(계획 B3 · I37/P8 — 10-10 불투명 → Liquid Glass). 1줄 = 카테고리(+ 음식점이면 🍽 메뉴 ▾),
-            2줄 = 지도 레이어 · 편의 칩 + 출처 칩 하나. 줄은 넘쳐도 접히지 않는다 — 칩 무리는 가로로 밀리고 출처 칩은 늘 보인다.
+        {/* 오른쪽 열(모바일은 아래): 유리 툴바 판 두 장(계획 B3 · I37/P8 — 10-10 불투명 → Liquid Glass, 10-19 PM "카테고리 층과 히트맵·♿·주차 층을 분리" —
+            한 판이던 것을 줄마다 따로). 1판 = 카테고리(+ 음식점이면 🍽 메뉴 ▾), 2판 = 지도 레이어 · 편의 칩 + 출처 칩 하나. 줄은 넘쳐도 접히지 않는다 — 칩 무리는 가로로 밀리고 출처 칩은 늘 보인다.
             언어·시계 묶음이 첫 줄 오른쪽 끝에 떠 있으므로 첫 줄만 그 폭(--cluster-w)을 비운다. 휴대폰은 칩 한 줄. */}
         <div
           ref={chipColumnRef}
           data-testid="map-toolbar"
-          className="flex flex-col gap-2 md:pointer-events-auto md:min-w-0 md:flex-1 md:gap-1 md:rounded-2xl md:border md:p-1 liquid-glass-desk"
+          className="flex flex-col gap-2 md:pointer-events-none md:min-w-0 md:flex-1"
           style={{ '--cluster-w': `${(topClusterPx ?? 288) + 12}px` } as CSSProperties}
         >
         {/* 묶음 폭은 스크롤 줄 안쪽 여백이 아니라 바깥 여백으로 비운다 — 안쪽 여백은 넘친 칩이 묶음 밑으로 들어가는 것을
             막지 못했다(1024px 에서 '주차장' 이 언어 고르기 밑, 리뷰 10-07). 데스크톱은 넘치면 어느 폭이든 다음 줄로 넘어간다 —
             예전 1280px 이상은 한 줄 고정이라 음식점에서 🍽 메뉴 ▾ 가 숨은 가로 스크롤 밖으로 잘렸고(영어 1280~1440 · 일본어 1280~1366),
             스크롤바가 없어 마우스로는 닿을 수 없었다(10-10 실측). 판 높이는 재서 추천 열을 그 아래에 둔다(toolbarClearPx). */}
-        <div data-testid="toolbar-row-1" className="pointer-events-auto flex items-center gap-2 overflow-x-auto no-scrollbar md:mr-[var(--cluster-w)] md:flex-wrap md:gap-1.5">
+        <div data-testid="toolbar-row-1" className="pointer-events-auto flex items-center gap-2 overflow-x-auto no-scrollbar md:w-fit md:max-w-[calc(100%-var(--cluster-w))] md:flex-wrap md:gap-1.5 md:rounded-2xl md:border md:p-1 liquid-glass-desk">
           {/* 휴대폰: 필터·편의가 칩 줄 맨 앞(히트맵·♿·🅿·음식 종류·축제·화장실은 시트 안). */}
           {activeFilter !== '주차장' && (
             <button
@@ -4165,7 +4165,7 @@ export default function MainPage() {
         </div>
 
         {/* 2줄(데스크톱): 🔥 히트맵 · ♿ 무장애 · 🅿 주차 · (🐾) · 🏮 축제 · 🚻 화장실 · 🍃 지금 한산, 그리고 출처 칩 하나. */}
-        <div data-testid="toolbar-row-2" className="pointer-events-auto hidden items-center gap-2 md:flex">
+        <div data-testid="toolbar-row-2" className="pointer-events-auto hidden items-center gap-2 md:flex md:rounded-2xl md:border md:p-1 liquid-glass-desk">
           {/* 축제·화장실·지금 한산 칩은 각자 컴포넌트의 크기를 갖고 있다 — 이 줄에서는 같은 높이(32px)로 맞춘다.
               넘치면 다음 줄로(첫 줄과 같은 이유 — 예전에는 1024px 에서 축제·화장실·지금 한산이 숨은 스크롤 밖에 있었다). */}
           <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5 overflow-x-auto no-scrollbar [&>button]:h-8 [&>button]:py-0 [&>button]:px-3 [&>button]:text-[13px]">

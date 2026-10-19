@@ -402,7 +402,7 @@ const TAGLINE: Record<E2eLocale, string> = {
 
 for (const viewport of [{ width: 1366, height: 650 }, { width: 1536, height: 730 }]) {
   for (const locale of ['ko', 'en', 'ja', 'zh'] as const) {
-    test(`${viewport.width}x${viewport.height} ${locale}: the toolbar is two glass rows with one credit chip`, async ({ page }) => {
+    test(`${viewport.width}x${viewport.height} ${locale}: the toolbar is two separate glass plates with one credit chip`, async ({ page }) => {
       test.setTimeout(90_000);
       await page.setViewportSize(viewport);
       // 라이브 둘째 줄(리뷰 10-07) — 축제 · 화장실 칩까지 선 상태로 잰다. 예전 스텁은 /api/v1/** 를 '{}' 로 닫아 두 칩이 숨은 채였다.
@@ -421,19 +421,31 @@ for (const viewport of [{ width: 1366, height: 650 }, { width: 1536, height: 730
         centers.sort((x, y) => x - y);
         let lines = centers.length ? 1 : 0;
         for (let i = 1; i < centers.length; i += 1) if (centers[i] - centers[i - 1] > 12) lines += 1;
-        const style = getComputedStyle(el);
-        return { distinctRows: lines, height: el.getBoundingClientRect().height, background: style.backgroundColor, backdrop: style.backdropFilter };
+        // 10-19 PM: 카테고리 판(1줄)과 히트맵·♿·주차 판(2줄)은 각자 유리 판이다 — 바깥 묶음은 칠하지 않는다.
+        const plate = (id: string) => {
+          const node = el.querySelector(`[data-testid="${id}"]`) as HTMLElement;
+          const s = getComputedStyle(node);
+          const r = node.getBoundingClientRect();
+          return { top: r.top, bottom: r.bottom, background: s.backgroundColor, backdrop: s.backdropFilter };
+        };
+        const outer = getComputedStyle(el);
+        return { distinctRows: lines, height: el.getBoundingClientRect().height, outerBackground: outer.backgroundColor, outerBorder: outer.borderTopWidth, plates: [plate('toolbar-row-1'), plate('toolbar-row-2')] };
       });
       expect(rows.distinctRows, 'toolbar wrapped into a third row').toBeLessThanOrEqual(2);
-      expect(rows.height).toBeLessThanOrEqual(84);
+      expect(rows.height, 'two plates + gap; a third row would add ~34px more').toBeLessThanOrEqual(104);
+      expect(rows.plates[1].top - rows.plates[0].bottom, 'the two glass plates touch — they must be separate').toBeGreaterThanOrEqual(4);
+      expect(rows.outerBorder, 'the outer toolbar wrapper must not be a third glass plate').toBe('0px');
+      expect(rows.outerBackground, 'the outer toolbar wrapper must not be painted').toMatch(/^rgba\(0, 0, 0, 0\)$|^transparent$/);
       // 툴바 판은 Liquid Glass(regular, 10-10 PM 요청 — 예전 '불투명 판'을 대신한다): 한지가 35% 이상 덮고(10-19 PM "유리처럼 비치게" — 78% → 라이트 35% · 야간 40%), 비치면 반드시 흐린다.
       // 그 비율에서 글자 대비는 lib/contrast.test.ts 7번이 잠근다. 바탕이 투명해지거나(지도 글자가 그대로 비침) 흐림이 빠지면 여기서 깨진다.
       const alpha = (color: string) => {
         const m = color.match(/^rgba\(.*,\s*([\d.]+)\)$/) ?? color.match(/\/\s*([\d.]+)\)$/);
         return m ? Number(m[1]) : /^(rgb|color)\(/.test(color) ? 1 : 0;
       };
-      expect(alpha(rows.background), `toolbar glass too thin: ${rows.background}`).toBeGreaterThanOrEqual(0.35);
-      if (alpha(rows.background) < 1) expect(rows.backdrop, 'a see-through toolbar must blur the map').toMatch(/blur\(/);
+      for (const [i, plate] of rows.plates.entries()) {
+        expect(alpha(plate.background), `toolbar plate ${i + 1} glass too thin: ${plate.background}`).toBeGreaterThanOrEqual(0.35);
+        if (alpha(plate.background) < 1) expect(plate.backdrop, `a see-through toolbar plate ${i + 1} must blur the map`).toMatch(/blur\(/);
+      }
       // 카테고리 칩과 🍽 메뉴는 첫 줄 안에 다 보이고(가로로 잘리지 않는다), 언어·시계 밑에 깔리지 않는다.
       const cluster = await page.locator('[aria-label$="KST"]').boundingBox();
       const language = await page.getByRole('combobox').first().boundingBox();

@@ -255,6 +255,16 @@ from checks order by seq;
 
 최신이 위. 10개를 넘으면 가장 오래된 항목을 `archive/HANDOVER_LOG.md` 맨 위로 옮긴다.
 
+## 2026-10-19b — /main 데스크톱 툴바를 유리 판 두 장으로 분리(카테고리 / 히트맵·♿·주차)
+
+- 도구·브랜치: Claude Code / `feat/split-toolbar-glass-1019`(main `7559795` 위)
+- 커밋: 이 기록 포함 1건(웹·문서만 — API·스키마 무변경)
+- 한 것: PM "카테고리 층과 히트맵·♿·주차 층을 분리해" → 한 판(`map-toolbar`)이 감싸던 두 줄을 각자 유리 판으로. 바깥 묶음은 칠하지 않고(`pointer-events-none` — 판 사이 틈은 지도를 누를 수 있다) 1판은 칩 폭에 맞게(`md:w-fit`, 언어·시계 묶음 폭만큼은 비운다), 2판은 전체 폭. 휴대폰은 변화 없음(칩마다 유리).
+  **동작 변경(공개)**: 데스크톱 툴바 전체 높이 ≈ 84 → ≈ 92~98px(판 두 장 + 틈 8px) — 추천 열은 재서(`toolbarClearPx`) 그 아래에 놓이므로 겹치지 않는다. e2e `map-time-strip` 의 높이 상한 84 → 104, 유리 단언을 판마다로.
+- 검증: web lint·typecheck·test·build · check-docs · e2e `map-time-strip` · 데스크톱 1366/1536 × 4로케일 화면 확인(스텁 지도).
+- 다음·미결: main 반영은 PM 확인 뒤(웹만 — API 재시작 없음).
+- 사람 작업: 없음.
+
 ## 2026-10-19 — /main 지도 위 탐색 층 유리를 더 비치게(라이트 35% · 야간 40%) · 날씨 알약도 유리
 
 - 도구·브랜치: Claude Code / `feat/stronger-glass-1019`(main `f80454c` 위)
@@ -359,18 +369,6 @@ from checks order by seq;
 - 다음·미결: P3 의 나머지(소비자가 스냅샷 읽기 · 예측 표)는 대기. `/health` 에 커널 칸은 없다 — 켠 뒤 로그 `walking_graph_csr_loaded origin=bin`·`walking_graph_presnap kernel=csr` 로 본다(`origin=json`·`walking_graph_csr_load_failed`·`walking_graph_presnap_skipped` 가 보이면 되돌린다).
   시험 한 줄 변경: `test_walking_graph.py` 의 `("csr", "memo")` 는 배치 B 를 기다리던 자리라 `("csr", "csr")` 로.
 - 사람 작업: main 반영 뒤 Render `WALKING_ROUTE_KERNEL=csr`("사람 작업 대기")
-
-## 2026-09-29b — 데스크톱: 노트북 124커밋 동기화 · 전수 점검(5영역 리뷰 → 반박 검증) · 문서 어긋남 정리
-
-- 도구·브랜치: Claude Code(데스크톱) · 리뷰 워크플로(5영역 리뷰 → 영역별 반박 검증, 9에이전트, 읽기 전용) / `docs/handover-0929-sync`(main `f0f440b` 위) → main(09-30 `dd2afc9`, 사용자 푸시)
-- 커밋: afa4ec0 (수정 1건) + 이 기록
-- 한 것: 3cf5bf9..f0f440b(124커밋) 동기화 → 게이트 재실행 → 운영 확인(Vercel 번들 = f0f440b · CI green · `/health` 참조 스냅샷 ready·`parking_history` rpc · 경보가 Supabase 단계로 실제 판정 · Keep-Warm 이 반영 뒤 `/warmup` 호출) → 5영역 리뷰. P2a(rpc 는 스레드·DB 호출 없이 불변)·P3a 는 결함 없음, 확인 2건·가능성 1건(09-28b 다음·미결).
-  고친 것: 저장 실패로 같은 합성 id(`mock-rec-id`)가 여러 추천 카드에 오면 카드마다 다른 id(`lib/recommendationIds.ts`) — 사진 커서가 서로를 되돌리며 깜빡이던 것·카드 하나 지우면 합성 id 카드가 다 사라지던 것.
-  문서: 배포 상태 · 사람 작업 대기(조건부 문구 · 경보 설명 · 주간 학습 6주 실패 · 폰 스모크) · 09-28b/d/e 의 없는 해시·미푸시·3차 커밋 · 계획 표(P0a·P0b·P2a·P3 상태, B2·B4 예외, 9쪽) · SYSTEM_MAP 경보 판정·warmup · AGENTS 워크플로 목록.
-- 검증: 동기화 직후 기준선 api ruff + pytest 2077 · web lint 0 errors(경고 153)·typecheck·test 69파일·build · 스키마 파리티 · check-docs. 수정 뒤 web lint 0 errors(경고 153)·typecheck·test 70파일(새 `recommendationIds.test.ts`)·build · check-docs. 리뷰 원자료는 저장소 밖(세션 워크플로 기록).
-- 다음·미결: `/waiting` 을 캐시로 먼저 그린 뒤 0.3~2초에 추정 피드가 오면 같은 대기 카드끼리의 사진 우선 묶음이 갈라져 순위 배지가 바뀔 수 있다(de722e2 부터, 데모에서 같은 기기로 다시 열 때 보인다). 카드 한 줄이 추정 등급으로 바뀌는 것이 원인이라 '추정이 올 때까지 사진 묶음 보류'는 반대 방향 재배열일 뿐이고, 낡은 추정을 캐시에서 쓰는 안은 60분 신선도 규칙과 부딪힌다 — PM 결정 뒤 고친다.
-  P3 배치 B 는 09-30 18:00 KST 까지 증명될 때만 · 데스크톱의 잠긴 빈 워크트리 `.claude/worktrees/agent-a20b30c1e3d0047f1`(3cf5bf9, 변경 없음)는 지워도 된다.
-- 사람 작업: 폰 스모크 · 주간 학습 실패 로그 한 줄 · P3a Render 로그 · shadow 전환(모두 "사람 작업 대기")
 
 ## 기록 규칙
 
