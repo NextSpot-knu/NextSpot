@@ -432,7 +432,7 @@ for (const viewport of [{ width: 1366, height: 650 }, { width: 1536, height: 730
         return { distinctRows: lines, height: el.getBoundingClientRect().height, outerBackground: outer.backgroundColor, outerBorder: outer.borderTopWidth, plates: [plate('toolbar-row-1'), plate('toolbar-row-2')] };
       });
       expect(rows.distinctRows, 'toolbar wrapped into a third row').toBeLessThanOrEqual(2);
-      expect(rows.height, 'two plates + gap; a third row would add ~34px more').toBeLessThanOrEqual(104);
+      expect(rows.height, 'two plates + gap; a third row would add ~34px more').toBeLessThanOrEqual(112);
       expect(rows.plates[1].top - rows.plates[0].bottom, 'the two glass plates touch — they must be separate').toBeGreaterThanOrEqual(4);
       expect(rows.outerBorder, 'the outer toolbar wrapper must not be a third glass plate').toBe('0px');
       expect(rows.outerBackground, 'the outer toolbar wrapper must not be painted').toMatch(/^rgba\(0, 0, 0, 0\)$|^transparent$/);

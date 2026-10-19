@@ -426,6 +426,30 @@ export default function MainPage() {
   // 첫 렌더는 서버 렌더와 같은 기본값(음식점) — 저장된 온보딩 칩은 마운트 뒤에 읽는다(아래 저장소 effect).
   // 렌더 중에 localStorage 를 읽으면 서버 HTML 과 달라 하이드레이션 오류가 났다(10-07 검토 — ♿ 저장 상태도 같은 원인).
   const [activeFilter, setActiveFilter] = useState<string>('음식점');
+  // 데스크톱 툴바: 위 판 = 상위 범주(카테고리), 아래 판 = 그 하위(지도 레이어·편의). 아래 판은 말풍선 모양 유리이고 꼬리가 선택된 상위 칩을 가리킨다(10-19 PM).
+  const toolbarRow1Ref = useRef<HTMLDivElement>(null);
+  const toolbarRow2Ref = useRef<HTMLDivElement>(null);
+  const [bubbleTailX, setBubbleTailX] = useState<number | null>(null);
+  useEffect(() => {
+    const row1 = toolbarRow1Ref.current;
+    const row2 = toolbarRow2Ref.current;
+    if (!row1 || !row2) return;
+    const measure = () => {
+      const active = row1.querySelector<HTMLElement>('button[aria-pressed="true"]');
+      const plate = row2.getBoundingClientRect();
+      if (!active || plate.width === 0) { setBubbleTailX(null); return; }
+      const chip = active.getBoundingClientRect();
+      const x = chip.left + chip.width / 2 - plate.left;
+      setBubbleTailX(Math.round(Math.min(Math.max(x, 24), plate.width - 24)));
+    };
+    measure();
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
+    observer?.observe(row1);
+    observer?.observe(row2);
+    window.addEventListener('resize', measure);
+    void document.fonts?.ready.then(measure);
+    return () => { observer?.disconnect(); window.removeEventListener('resize', measure); };
+  }, [activeFilter]);
   const [searchQuery, setSearchQuery] = useState(''); // 상호·주소·검증 메뉴/업종/소개 검색 + Kakao 0건 폴백.
   // 로컬 검색이 0건일 때만 GET /api/v1/search/places 로 장소를 찾는다(적재 전 POI —
   // 행 목록 + '지도에서 보기' 임시 마커까지만, 상세 카드는 없다).
@@ -4108,14 +4132,14 @@ export default function MainPage() {
         <div
           ref={chipColumnRef}
           data-testid="map-toolbar"
-          className="flex flex-col gap-2 md:pointer-events-none md:min-w-0 md:flex-1"
+          className="flex flex-col gap-2 md:pointer-events-none md:min-w-0 md:flex-1 md:gap-3"
           style={{ '--cluster-w': `${(topClusterPx ?? 288) + 12}px` } as CSSProperties}
         >
         {/* 묶음 폭은 스크롤 줄 안쪽 여백이 아니라 바깥 여백으로 비운다 — 안쪽 여백은 넘친 칩이 묶음 밑으로 들어가는 것을
             막지 못했다(1024px 에서 '주차장' 이 언어 고르기 밑, 리뷰 10-07). 데스크톱은 넘치면 어느 폭이든 다음 줄로 넘어간다 —
             예전 1280px 이상은 한 줄 고정이라 음식점에서 🍽 메뉴 ▾ 가 숨은 가로 스크롤 밖으로 잘렸고(영어 1280~1440 · 일본어 1280~1366),
             스크롤바가 없어 마우스로는 닿을 수 없었다(10-10 실측). 판 높이는 재서 추천 열을 그 아래에 둔다(toolbarClearPx). */}
-        <div data-testid="toolbar-row-1" className="pointer-events-auto flex items-center gap-2 overflow-x-auto no-scrollbar md:w-fit md:max-w-[calc(100%-var(--cluster-w))] md:flex-wrap md:gap-1.5 md:rounded-2xl md:border md:p-1 liquid-glass-desk">
+        <div ref={toolbarRow1Ref} data-testid="toolbar-row-1" className="pointer-events-auto flex items-center gap-2 overflow-x-auto no-scrollbar md:w-fit md:max-w-[calc(100%-var(--cluster-w))] md:flex-wrap md:gap-1.5 md:rounded-2xl md:border md:p-1 liquid-glass-desk">
           {/* 휴대폰: 필터·편의가 칩 줄 맨 앞(히트맵·♿·🅿·음식 종류·축제·화장실은 시트 안). */}
           {activeFilter !== '주차장' && (
             <button
@@ -4165,7 +4189,7 @@ export default function MainPage() {
         </div>
 
         {/* 2줄(데스크톱): 🔥 히트맵 · ♿ 무장애 · 🅿 주차 · (🐾) · 🏮 축제 · 🚻 화장실 · 🍃 지금 한산, 그리고 출처 칩 하나. */}
-        <div data-testid="toolbar-row-2" className="pointer-events-auto hidden items-center gap-2 md:flex md:rounded-2xl md:border md:p-1 liquid-glass-desk">
+        <div ref={toolbarRow2Ref} data-testid="toolbar-row-2" className="pointer-events-auto relative hidden items-center gap-2 md:flex md:rounded-2xl md:border md:p-1 liquid-glass-desk">
           {/* 축제·화장실·지금 한산 칩은 각자 컴포넌트의 크기를 갖고 있다 — 이 줄에서는 같은 높이(32px)로 맞춘다.
               넘치면 다음 줄로(첫 줄과 같은 이유 — 예전에는 1024px 에서 축제·화장실·지금 한산이 숨은 스크롤 밖에 있었다). */}
           <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5 overflow-x-auto no-scrollbar [&>button]:h-8 [&>button]:py-0 [&>button]:px-3 [&>button]:text-[13px]">
@@ -4223,6 +4247,8 @@ export default function MainPage() {
           </div>
           {/* 출처 칩 하나 — 'ⓒ한국관광공사 TourAPI · N시간 전 동기화'. 시각을 모르면 출처만(지어내지 않는다). */}
           <SourceCredit syncedAt={tourapiSyncAt} className="max-w-[17rem] shrink-0" />
+          {/* 말풍선 꼬리 — 선택된 상위 칩(위 판) 가운데를 가리킨다. 마지막 자식이어야 한다(e2e 가 첫 자식을 칩 스크롤 줄로 읽는다). */}
+          {bubbleTailX !== null && <span aria-hidden data-testid="toolbar-tail" className="glass-tail" style={{ left: bubbleTailX }} />}
         </div>
 
         </div>{/* /오른쪽 열(툴바) */}

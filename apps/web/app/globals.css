@@ -535,6 +535,47 @@ html.nextspot-dark .liquid-glass {
   }
 }
 
+/* 말풍선 꼬리 — 데스크톱 툴바 아래 판(하위 범주)이 위 판(상위 범주)의 선택된 칩을 가리킨다(10-19 PM). 판과 같은 유리: 한지 비율 · 흐림 ·
+   밝은 테두리(--glass-edge 는 부모인 아래 판 .liquid-glass-desk 에서 물려받는다). 18×9px 상자가 아래쪽 절반을 잘라 삼각형만 보이게 하고
+   (겹쳐 두 겹으로 짙어지는 것 방지), 안쪽 마름모의 위 두 변만 테두리를 긋는다. 판은 md 이상에서만 있으므로 꼬리도 md 이상.
+   설정 존중은 판과 같다(투명도 줄이기 · 대비 높이기 · backdrop-filter 미지원 → 불투명 한지). */
+.glass-tail {
+  position: absolute;
+  bottom: 100%;
+  width: 18px;
+  height: 9px;
+  overflow: hidden;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+.glass-tail::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 100%;
+  width: 12.73px;
+  height: 12.73px;
+  transform: translate(-50%, -50%) rotate(45deg);
+  border-top: 1px solid var(--glass-edge);
+  border-left: 1px solid var(--glass-edge);
+  background-color: var(--nextspot-hanji);
+  background-color: color-mix(in srgb, var(--nextspot-hanji) var(--nextspot-glass-tint), transparent);
+  -webkit-backdrop-filter: blur(8px) saturate(180%);
+  backdrop-filter: blur(8px) saturate(180%);
+}
+@media (max-width: 767.98px) {
+  .glass-tail { display: none; }
+}
+@supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  .glass-tail::before { background-color: var(--nextspot-hanji); -webkit-backdrop-filter: none; backdrop-filter: none; }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .glass-tail::before { background-color: var(--nextspot-hanji); -webkit-backdrop-filter: none; backdrop-filter: none; }
+}
+@media (prefers-contrast: more) {
+  .glass-tail::before { background-color: var(--nextspot-hanji); -webkit-backdrop-filter: none; backdrop-filter: none; border-color: var(--nextspot-muk-soft); }
+}
+
 .toss-surface {
   box-shadow:
     0 1px 2px rgb(43 35 32 / 0.05),
