@@ -76,10 +76,10 @@
   --background: #faf5ec;
   --foreground: #2b2320;
   --nextspot-hanji: #faf5ec;
-  --nextspot-glass-tint: 45%;
-  /* 유리 위 보조 글자(먹 연·금 진) — 한지가 45% 만 덮어 지도가 비치므로 유리 안에서만 짙게(lib/contrast.test.ts 7번). */
-  --nextspot-glass-muk-soft: #4f443b;
-  --nextspot-glass-gold-deep: #55431c;
+  --nextspot-glass-tint: 35%;
+  /* 유리 위 보조 글자(먹 연·금 진) — 한지가 35% 만 덮어 지도가 비치므로 유리 안에서만 짙게(lib/contrast.test.ts 7번). */
+  --nextspot-glass-muk-soft: #463b34;
+  --nextspot-glass-gold-deep: #4b3b1d;
   --nextspot-hanji-deep: #f1e7d3;
   --nextspot-muk: #2b2320;
   --nextspot-muk-soft: #6b5d4f;
@@ -250,8 +250,8 @@ html.nextspot-dark {
   --background: #17130f;
   --foreground: #f3eadb;
   --nextspot-hanji: #17130f;
-  --nextspot-glass-tint: 50%;
-  --nextspot-glass-muk-soft: #c9b9a5;
+  --nextspot-glass-tint: 40%;
+  --nextspot-glass-muk-soft: #d6c9b6;
   --nextspot-glass-gold-deep: #efcd78;
   --nextspot-hanji-deep: #231c15;
   --nextspot-muk: #f3eadb;
@@ -393,7 +393,7 @@ html.nextspot-dark .toss-pressable:not(:disabled):active {
 
 /* Liquid Glass(regular) — Apple HIG Materials(iOS 26): 지도 위에 떠 있는 탐색 층(검색 · 카테고리 · 언어 · 시계)에만 쓴다.
    내용 층(추천 카드)에는 쓰지 않고, 유리 위에 유리를 겹치지 않는다. 지도처럼 글자를 방해할 수 있는 바탕 위라 투명한 clear 가
-   아니라 흐리고 밝기를 맞추는 regular 쪽 — 바탕을 한지로 덮고(라이트 45% · 야간 50%, 10-19 PM "유리처럼 비치게") 8px 흐리고,
+   아니라 흐리고 밝기를 맞추는 regular 쪽 — 바탕을 한지로 덮고(라이트 35% · 야간 40%, 10-19 PM "유리처럼 비치게") 8px 흐리고,
    밝은 테두리·위쪽 빛 반사(라이트만)를 얹는다. 글자 대비는 lib/contrast.test.ts 7번이 잠근다 — 흐린 지도(중간 회색) 위에서
    유리 위 모든 글자 4.5:1(10-10 의 '바탕이 완전히 검거나 흰 최악' 기준은 이 비율에서 PM 결정으로 내려놓았다). 주 글자는 먹,
    보조 글자는 유리 안에서만 --nextspot-glass-* 로 짙게.
@@ -409,7 +409,7 @@ html.nextspot-dark .toss-pressable:not(:disabled):active {
 .liquid-glass-desk {
   --glass-edge: rgb(255 255 255 / 0.85);
   --glass-shadow: inset 0 1px 0 rgb(255 255 255 / 0.95), inset 0 -1px 0 rgb(255 255 255 / 0.35), 0 6px 22px rgb(43 35 32 / 0.16);
-  --glass-sheen: linear-gradient(180deg, rgb(255 255 255 / 0.45), rgb(255 255 255 / 0) 50%);
+  --glass-sheen: linear-gradient(180deg, rgb(255 255 255 / 0.22), rgb(255 255 255 / 0) 45%);
 }
 html.nextspot-dark .liquid-glass,
 html.nextspot-dark .liquid-glass-phone,
