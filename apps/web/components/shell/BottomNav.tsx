@@ -6,7 +6,6 @@ import { Home, Bookmark, Timer, Route, User, Store, Landmark } from 'lucide-reac
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useT } from '@/lib/i18n/I18nProvider';
-import NextSpotMascot from '@/components/NextSpotMascot';
 import { GuideButton } from '@/components/guide/GuideProvider';
 import { haptic, interactionSpring } from '@/lib/motion';
 import { useAccount } from '@/lib/account';
@@ -82,7 +81,7 @@ export default function BottomNav() {
       {/* ── 데스크톱: 왼쪽 떠 있는 유리 캡슐 세 개 (10-19 PM — iOS 26 탭 바처럼 화면 옆을 막지 않고 지도 위에 뜬다) ──
           · 자리를 차지하지 않는다(nav 는 fixed). /main 은 지도가 바 뒤까지 이어지고, 다른 페이지는 아래 투명 여백(--rail-gutter)만큼 비워
             본문이 캡슐에 가려지지 않게 한다. nav 자체는 pointer-events-none — 캡슐 바깥 빈 곳은 그 밑 지도·본문을 그대로 누른다.
-          · 캡슐 셋: 마스코트(둥근 유리) · 탭 5개 · 콘솔 입구 둘 + 서비스 소개. 한 줄로 두면 키 낮은 창에서 넘쳐 역할별로 나눴다.
+          · 캡슐 둘(10-19 PM: 고양이 프로필 아이콘은 뺐다): 탭 5개 · 콘솔 입구 둘 + 서비스 소개. 한 줄로 두면 키 낮은 창에서 넘쳐 역할별로 나눴다.
             탭은 위쪽, 콘솔은 아래쪽(bottom-10 — Kakao 지도 로고(왼쪽 아래)를 가리지 않는다). 세로 순서는 e2e 가 잠근다(탭 → 콘솔 → 서비스 소개).
           · 키 낮은 창(short: 높이 720px 미만)에서는 칸을 64→56px 로 줄여 콘솔 입구·서비스 소개까지 스크롤 없이 들어간다(1366×650 실측 기준). */}
       {pathname !== '/main' && <div aria-hidden className="hidden shrink-0 md:block w-[var(--rail-gutter)]" />}
@@ -90,13 +89,8 @@ export default function BottomNav() {
         aria-label="주요 내비게이션"
         className="pointer-events-none fixed inset-y-0 left-3 z-40 hidden w-20 md:block"
       >
-        {/* 데스크톱에서도 브랜드가 한눈에 기억되도록 여행 길잡이 얼굴을 둥근 유리 안에 둔다. */}
-        <div className="rail-glass pointer-events-auto absolute left-1/2 top-4 flex h-14 w-14 -translate-x-1/2 items-center justify-center rounded-full border short:top-3 short:h-12 short:w-12">
-          <NextSpotMascot className="w-9 short:w-8" />
-        </div>
-
         {/* 탭 캡슐 — --rail-step = 탭 높이 + 간격. 인디케이터가 같은 값으로 움직여야 짧은 창에서도 탭에 맞는다. */}
-        <div className="rail-glass pointer-events-auto absolute left-0 top-[76px] flex w-20 flex-col items-center rounded-[2rem] border px-[7px] py-2 short:top-[68px]">
+        <div className="rail-glass pointer-events-auto absolute left-0 top-4 flex w-20 flex-col items-center rounded-[2rem] border px-[7px] py-2 short:top-3">
           <div className="relative flex flex-col items-center gap-2 [--rail-step:4.5rem] short:gap-1 short:[--rail-step:3.75rem]">
             {/* 활성 탭 세로 슬라이딩 인디케이터 — iOS 26 처럼 밝은 유리 알약(어두운 캡슐 위) */}
             <motion.div
