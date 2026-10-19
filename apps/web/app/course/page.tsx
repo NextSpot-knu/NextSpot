@@ -804,10 +804,10 @@ function CourseContent() {
       {activeLoading && !hasLoadedOnce ? (
         <CourseSkeleton mode={isShareMode ? "shared" : "course"} />
       ) : (
-        <div className="relative z-10">
+        <div className="relative z-10 flex min-h-screen flex-col">
           {/* 지도 + 플로팅 버튼(뒤로/공유) — CourseMap 이 null 을 반환하면(키 부재 등) 이 블록은
               0 높이로 접혀 시트가 자연히 위로 붙는다(무해 폴백). */}
-          <div className="relative">
+          <div className="relative shrink-0">
             <CourseMap stops={activeStops} userLocation={coords} />
             <Link
               href="/main"
@@ -827,7 +827,7 @@ function CourseContent() {
           </div>
 
           {/* 바텀시트 — 배민 배달 추적 화면 문법(그랩바 + rounded-t-3xl + -mt-6 겹침). */}
-          <div className="relative -mt-6 rounded-t-3xl bg-white shadow-[0_-8px_30px_rgba(43,35,32,0.12)]">
+          <div className="relative -mt-6 flex-1 rounded-t-3xl bg-white shadow-[0_-8px_30px_rgba(43,35,32,0.12)]">
             <div className="w-12 h-1.5 rounded-full bg-line mx-auto mt-3" aria-hidden />
 
             <div className="mx-auto w-full max-w-md md:max-w-2xl px-4 md:px-6 pt-4 pb-[calc(var(--tourist-nav-clearance)+env(safe-area-inset-bottom))] md:pb-10 space-y-5">
@@ -1834,12 +1834,12 @@ function StopRow({
 // 로딩 스켈레톤 — 실제 레이아웃(지도 자리 + 시트 헤더/스텝퍼/행)을 그대로 흉내내 레이아웃 시프트를 줄인다.
 function CourseSkeleton({ mode }: { mode: "course" | "shared" }) {
   return (
-    <div className="relative z-10" aria-hidden>
+    <div className="relative z-10 flex min-h-screen flex-col" aria-hidden>
       {/* 지도 자리 */}
-      <div className="h-[38dvh] md:h-[42dvh] lg:h-[30dvh] w-full bg-hanji-deep animate-pulse" />
+      <div className="h-[38dvh] shrink-0 md:h-[42dvh] lg:h-[30dvh] w-full bg-hanji-deep animate-pulse" />
 
       {/* 시트 자리 */}
-      <div className="relative -mt-6 rounded-t-3xl bg-white shadow-[0_-8px_30px_rgba(43,35,32,0.12)]">
+      <div className="relative -mt-6 flex-1 rounded-t-3xl bg-white shadow-[0_-8px_30px_rgba(43,35,32,0.12)]">
         <div className="w-12 h-1.5 rounded-full bg-line mx-auto mt-3" />
 
         <div className="mx-auto w-full max-w-md md:max-w-2xl px-4 md:px-6 pt-4 pb-[calc(var(--tourist-nav-clearance)+env(safe-area-inset-bottom))] md:pb-10 space-y-6">
