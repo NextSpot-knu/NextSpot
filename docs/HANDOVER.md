@@ -255,6 +255,16 @@ from checks order by seq;
 
 최신이 위. 10개를 넘으면 가장 오래된 항목을 `archive/HANDOVER_LOG.md` 맨 위로 옮긴다.
 
+## 2026-10-19c — 데스크톱 왼쪽 바를 떠 있는 유리 캡슐 셋으로(iOS 26 탭 바처럼) · /main 지도가 바 뒤까지
+
+- 도구·브랜치: Claude Code / `feat/floating-rail-1019`(main 위)
+- 커밋: 이 기록 포함 1건(웹·문서만 — API·스키마 무변경, Render 재시작 없음)
+- 한 것: PM "iOS 탭처럼 바를 다 잡아먹지 않고 플로팅" → 계획 승인(캡슐 별도 · /main 만 지도 확장 · 폰은 다음 단계). 왼쪽 레일(76px 흰 막대, 폭 차지)을 fixed 유리 캡슐 셋(마스코트 · 탭 5 · 콘솔 2 + 서비스 소개)으로. 선택 탭은 하얀 유리 알약. nav 는 `pointer-events-none`(빈 곳은 밑을 누른다). `/main` 은 폭을 차지하지 않아 지도가 왼쪽 끝까지, 다른 페이지는 투명 여백 `--rail-gutter`(100px).
+  **동작 변경(공개)**: /main 검색·툴바·예측 줄 시작 ≈ +8px(`--rail-gutter` 100px · 지도 가시영역 왼쪽 여백 `DESKTOP_RAIL_GUTTER_PX`) · 다른 페이지 본문 시작 +24px(76 → 100px) · 지도 왼쪽 가장자리 마커가 캡슐 뒤에 가려질 수 있다 · 콘솔 캡슐은 바닥에서 40px 띄워 Kakao 로고를 가리지 않는다.
+- 검증: web typecheck · e2e `console-entries` · `fixed-overlays`(캡슐 순서 탭 → 콘솔 → 서비스 소개, 창 안, 라벨이 nav 밖으로 안 나감). 나머지 e2e 는 푸시 뒤 CI.
+- 다음·미결: 휴대폰 아래 바도 같은 방식으로 띄울지(`--tourist-nav-clearance` 사용처 25곳이라 따로) · 화면 확인은 PM 이 라이브에서.
+- 사람 작업: 없음.
+
 ## 2026-10-19b — /main 데스크톱 툴바를 유리 판 두 장으로 분리(카테고리 / 히트맵·♿·주차)
 
 - 도구·브랜치: Claude Code / `feat/split-toolbar-glass-1019`(main `7559795` 위)
@@ -358,18 +368,6 @@ from checks order by seq;
   무거운 화면은 인증 POST(쓰기 포함)라 운영에서 재지 않는다. 구조 발견: `/waiting` 은 by-type 4유형(각 8곳)을 **순차 4요청**으로 부른다(waiting/page.tsx — 동시 요청 503 이력 때문) — 요청마다 한국↔오리건 왕복·사용자 조회·같은 출발점 보행 탐색·근거 조회·저장이 되풀이된다.
 - 다음: 로컬 하니스(실 DB 읽기만 — httpx 층에서 GET·읽기 RPC(`latest_congestion_for_facilities`·`area_demand_points_near`)만 통과, 나머지 쓰기·외부 LLM/카카오 호출은 가짜 응답, 인증은 dependency_overrides) + py-spy(설치됨)로 by-type(4유형·새 사용자)·보드 4연속·`/recommendations`·`/courses/plan` 의 CPU 핫스팟·DB 왕복 수를 잰다 → 오리건↔서울 왕복(~130ms)×왕복 수 + CPU 로 Render 시간을 추정 → 후보: 보드 한 요청(4유형을 한 번의 후보·경로·근거 계산으로) · 요청당 DB 왕복 줄이기 · 핫스팟 제거. 설계는 레드팀 뒤, 결과가 같음을 시험으로 잠근 다음 구현.
 - 사람 작업: 없음(shadow 게이트는 10-01 01:37 KST 이후)
-
-## 2026-09-29c — API 재설계 P3 배치 B: 보행 경로 csr 커널 (스위치 꺼진 채 — memo, 09-30 `dd2afc9` 로 main 반영)
-
-- 도구·브랜치: Claude Code(데스크톱) · 독립 리뷰 워크플로(동등성·운영 2렌즈 → 반박 검증, 4에이전트) / `perf/p3b-csr-0929`(`docs/handover-0929-sync` 위)
-- 커밋: b6181be..(이 기록) (구현 1 · 리뷰 수리 1 · 이 기록)
-- 한 것: `services/spot/walking_csr.py`(순수 — 표준 `array` CSR, numpy/scipy 없음. 원본 순서 노드 번호·같은 공간 칸과 칸 안 순서·같은 엄격한 비교·정수 미터·무방향 연결 요소로 다른 요소 목적지를 미리 뺌) + 커밋된 `app/data/gyeongju_walking_graph.csr.bin`(1.07MB, `build_walking_graph.py --emit-csr`, 머리에 원본·본문 sha256) + `WALKING_ROUTE_KERNEL=csr`(기본 memo 그대로).
-  이진이 원본과 안 맞거나 깨졌으면 원본 JSON 에서 만들고, 그것도 안 되면 memo 경로. csr 에서는 dict 그래프를 올리지 않고 부팅 훅(`main._start_boot_presnap`, 이미 있던 것)이 시설 목적지를 미리 스냅한다. csr 을 못 읽으면 예열은 0(dict 그래프를 부팅에 올리지 않음).
-- 검증: api ruff + pytest 2100 · legacy 와 repr 까지 같음 — 데스크톱 36,000쌍·스냅 불일치 0, 리뷰 퍼즈(합성 ~4,900 질의 묶음·실제 스냅 20,000·쌍 ~4,700) 불일치 0 · 변이 3종과 리뷰 수리 시험 5건은 고치기 전 코드에서 실패 ·
-  Render 모양(WSL systemd scope CPUQuota 50%·MemoryMax 512M, py3.12, 2회): 그래프 적재 뒤 RSS +29.4~29.8MB → **+5.5MB**, 적재 96~124ms → 20~23ms, 목적지 300곳 웜 호출 41 → 25ms.
-- 다음·미결: P3 의 나머지(소비자가 스냅샷 읽기 · 예측 표)는 대기. `/health` 에 커널 칸은 없다 — 켠 뒤 로그 `walking_graph_csr_loaded origin=bin`·`walking_graph_presnap kernel=csr` 로 본다(`origin=json`·`walking_graph_csr_load_failed`·`walking_graph_presnap_skipped` 가 보이면 되돌린다).
-  시험 한 줄 변경: `test_walking_graph.py` 의 `("csr", "memo")` 는 배치 B 를 기다리던 자리라 `("csr", "csr")` 로.
-- 사람 작업: main 반영 뒤 Render `WALKING_ROUTE_KERNEL=csr`("사람 작업 대기")
 
 ## 기록 규칙
 

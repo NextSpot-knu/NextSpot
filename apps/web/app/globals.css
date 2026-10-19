@@ -73,6 +73,8 @@
 
 :root {
   --tourist-nav-clearance: 80px;
+  /* 데스크톱 왼쪽 유리 캡슐(left-3 + w-20 = 92px) 뒤 여백 — lib/mainPanelLayout.ts 의 DESKTOP_RAIL_GUTTER_PX 와 같은 값. */
+  --rail-gutter: 100px;
   --background: #faf5ec;
   --foreground: #2b2320;
   --nextspot-hanji: #faf5ec;

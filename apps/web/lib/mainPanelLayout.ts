@@ -38,3 +38,6 @@ export function desktopPanelReservePx(viewportWidth?: number): number {
   const panel = desktopPanelWidthPx(width);
   return panel > 0 ? panel + DESKTOP_PANEL_GUTTER_PX : 0;
 }
+
+/** 데스크톱 왼쪽 유리 캡슐 뒤 여백(px) — globals.css 의 --rail-gutter 와 같은 값. /main 은 지도가 캡슐 뒤까지 이어져 이만큼을 비워 중심을 맞춘다. */
+export const DESKTOP_RAIL_GUTTER_PX = 100;

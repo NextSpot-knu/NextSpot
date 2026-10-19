@@ -1,4 +1,16 @@
 # HANDOVER 로그 (2026-06-30 ~ 2026-08-28) 
+## 2026-09-29c — API 재설계 P3 배치 B: 보행 경로 csr 커널 (스위치 꺼진 채 — memo, 09-30 `dd2afc9` 로 main 반영)
+
+- 도구·브랜치: Claude Code(데스크톱) · 독립 리뷰 워크플로(동등성·운영 2렌즈 → 반박 검증, 4에이전트) / `perf/p3b-csr-0929`(`docs/handover-0929-sync` 위)
+- 커밋: b6181be..(이 기록) (구현 1 · 리뷰 수리 1 · 이 기록)
+- 한 것: `services/spot/walking_csr.py`(순수 — 표준 `array` CSR, numpy/scipy 없음. 원본 순서 노드 번호·같은 공간 칸과 칸 안 순서·같은 엄격한 비교·정수 미터·무방향 연결 요소로 다른 요소 목적지를 미리 뺌) + 커밋된 `app/data/gyeongju_walking_graph.csr.bin`(1.07MB, `build_walking_graph.py --emit-csr`, 머리에 원본·본문 sha256) + `WALKING_ROUTE_KERNEL=csr`(기본 memo 그대로).
+  이진이 원본과 안 맞거나 깨졌으면 원본 JSON 에서 만들고, 그것도 안 되면 memo 경로. csr 에서는 dict 그래프를 올리지 않고 부팅 훅(`main._start_boot_presnap`, 이미 있던 것)이 시설 목적지를 미리 스냅한다. csr 을 못 읽으면 예열은 0(dict 그래프를 부팅에 올리지 않음).
+- 검증: api ruff + pytest 2100 · legacy 와 repr 까지 같음 — 데스크톱 36,000쌍·스냅 불일치 0, 리뷰 퍼즈(합성 ~4,900 질의 묶음·실제 스냅 20,000·쌍 ~4,700) 불일치 0 · 변이 3종과 리뷰 수리 시험 5건은 고치기 전 코드에서 실패 ·
+  Render 모양(WSL systemd scope CPUQuota 50%·MemoryMax 512M, py3.12, 2회): 그래프 적재 뒤 RSS +29.4~29.8MB → **+5.5MB**, 적재 96~124ms → 20~23ms, 목적지 300곳 웜 호출 41 → 25ms.
+- 다음·미결: P3 의 나머지(소비자가 스냅샷 읽기 · 예측 표)는 대기. `/health` 에 커널 칸은 없다 — 켠 뒤 로그 `walking_graph_csr_loaded origin=bin`·`walking_graph_presnap kernel=csr` 로 본다(`origin=json`·`walking_graph_csr_load_failed`·`walking_graph_presnap_skipped` 가 보이면 되돌린다).
+  시험 한 줄 변경: `test_walking_graph.py` 의 `("csr", "memo")` 는 배치 B 를 기다리던 자리라 `("csr", "csr")` 로.
+- 사람 작업: main 반영 뒤 Render `WALKING_ROUTE_KERNEL=csr`("사람 작업 대기")
+
 ## 2026-09-29b — 데스크톱: 노트북 124커밋 동기화 · 전수 점검(5영역 리뷰 → 반박 검증) · 문서 어긋남 정리
 
 - 도구·브랜치: Claude Code(데스크톱) · 리뷰 워크플로(5영역 리뷰 → 영역별 반박 검증, 9에이전트, 읽기 전용) / `docs/handover-0929-sync`(main `f0f440b` 위) → main(09-30 `dd2afc9`, 사용자 푸시)

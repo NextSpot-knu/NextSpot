@@ -13,7 +13,7 @@ import { useAccount } from '@/lib/account';
 import { consoleLinks } from '@/lib/consoleLinks';
 
 // 관광객 앱 주 내비게이션 — 반응형:
-//  · 데스크톱(md+): 왼쪽 세로 레일(인플로우 flex 자식 → 콘텐츠 폭을 차지).
+//  · 데스크톱(md+): 왼쪽에 떠 있는 유리 캡슐 셋(fixed → 폭을 차지하지 않는다. /main 외 페이지는 투명 여백 --rail-gutter 만 비운다).
 //  · 모바일(<md): 기존 하단 가로 바(fixed 오버레이 → 페이지는 pb-[120px] 로 클리어런스 확보).
 // 숨김 경로에서는 null 을 반환하므로 레이아웃 flex-row 에서 레일이 사라지면 콘텐츠가 전체폭을 차지한다.
 //
@@ -79,54 +79,61 @@ export default function BottomNav() {
 
   return (
     <>
-      {/* ── 데스크톱: 왼쪽 세로 레일 (인플로우) ──
-          키 낮은 창(short: 높이 720px 미만)에서는 칸을 64→56px 로 줄여 콘솔 입구·서비스 소개까지 스크롤 없이 들어간다
-          (1366×650 실측 기준 — 줄이지 않으면 서비스 소개가 화면 밖으로 밀린다). */}
+      {/* ── 데스크톱: 왼쪽 떠 있는 유리 캡슐 세 개 (10-19 PM — iOS 26 탭 바처럼 화면 옆을 막지 않고 지도 위에 뜬다) ──
+          · 자리를 차지하지 않는다(nav 는 fixed). /main 은 지도가 바 뒤까지 이어지고, 다른 페이지는 아래 투명 여백(--rail-gutter)만큼 비워
+            본문이 캡슐에 가려지지 않게 한다. nav 자체는 pointer-events-none — 캡슐 바깥 빈 곳은 그 밑 지도·본문을 그대로 누른다.
+          · 캡슐 셋: 마스코트(둥근 유리) · 탭 5개 · 콘솔 입구 둘 + 서비스 소개. 한 줄로 두면 키 낮은 창에서 넘쳐 역할별로 나눴다.
+            탭은 위쪽, 콘솔은 아래쪽(bottom-10 — Kakao 지도 로고(왼쪽 아래)를 가리지 않는다). 세로 순서는 e2e 가 잠근다(탭 → 콘솔 → 서비스 소개).
+          · 키 낮은 창(short: 높이 720px 미만)에서는 칸을 64→56px 로 줄여 콘솔 입구·서비스 소개까지 스크롤 없이 들어간다(1366×650 실측 기준). */}
+      {pathname !== '/main' && <div aria-hidden className="hidden shrink-0 md:block w-[var(--rail-gutter)]" />}
       <nav
         aria-label="주요 내비게이션"
-        className="hidden md:flex shrink-0 w-[76px] sticky top-0 h-screen z-40 bg-white/90 backdrop-blur-xl border-r border-line shadow-[2px_0_14px_rgba(43,35,32,0.06)] flex-col items-center py-6 short:py-4"
+        className="pointer-events-none fixed inset-y-0 left-3 z-40 hidden w-20 md:block"
       >
-        {/* 데스크톱 레일에서도 브랜드가 한눈에 기억되도록 여행 길잡이 얼굴을 사용한다. */}
-        <NextSpotMascot className="mb-8 w-11 short:mb-4" />
-
-        {/* --rail-step = 탭 높이 + 간격. 인디케이터가 같은 값으로 움직여야 짧은 창에서도 탭에 맞는다. */}
-        <div className="relative flex flex-col items-center gap-2 [--rail-step:4.5rem] short:gap-1 short:[--rail-step:3.75rem]">
-          {/* 활성 탭 세로 슬라이딩 인디케이터 */}
-          <motion.div
-            aria-hidden
-            className="absolute left-0 w-16 h-16 short:h-14 bg-gold/15 rounded-2xl pointer-events-none"
-            animate={{ top: `calc(${activeIndex} * var(--rail-step))` }}
-            transition={interactionSpring}
-          />
-          {tabs.map((tab) => {
-            const Icon = tab.icon;
-            const isActive = activeTab === tab.id;
-            return (
-              <motion.button
-                key={tab.id}
-                onClick={() => handleTabClick(tab)}
-                aria-current={isActive ? 'page' : undefined}
-                className={`toss-pressable relative z-10 flex flex-col items-center justify-center gap-1 w-16 h-16 short:h-14 rounded-2xl ${
-                  isActive ? 'text-gold-deep' : 'text-muk-soft hover:text-muk'
-                }`}
-              >
-                <div className="transition-transform duration-300 ease-out hover:scale-110">
-                  <Icon size={24} className={isActive ? 'text-gold-deep' : 'text-muk-soft'} />
-                </div>
-                {/* 긴 라벨('지금 출발하면?')은 공백 기준 2줄로 자연 래핑 — h-16 안에 수용된다. */}
-                <span className={`text-[11px] font-medium leading-tight text-center break-keep ${isActive ? 'text-gold-deep' : ''}`}>
-                  {tab.label}
-                </span>
-              </motion.button>
-            );
-          })}
+        {/* 데스크톱에서도 브랜드가 한눈에 기억되도록 여행 길잡이 얼굴을 둥근 유리 안에 둔다. */}
+        <div className="liquid-glass pointer-events-auto absolute left-1/2 top-4 flex h-14 w-14 -translate-x-1/2 items-center justify-center rounded-full border short:top-3 short:h-12 short:w-12">
+          <NextSpotMascot className="w-9 short:w-8" />
         </div>
 
-        {/* 콘솔 입구 — 관광객 탭과 구분선으로 나눈다. 라벨은 낱말 사이에서만 두 줄로 접는다(keep-all).
+        {/* 탭 캡슐 — --rail-step = 탭 높이 + 간격. 인디케이터가 같은 값으로 움직여야 짧은 창에서도 탭에 맞는다. */}
+        <div className="liquid-glass pointer-events-auto absolute left-0 top-[76px] flex w-20 flex-col items-center rounded-[2rem] border px-[7px] py-2 short:top-[68px]">
+          <div className="relative flex flex-col items-center gap-2 [--rail-step:4.5rem] short:gap-1 short:[--rail-step:3.75rem]">
+            {/* 활성 탭 세로 슬라이딩 인디케이터 — iOS 26 처럼 하얀 유리 알약 */}
+            <motion.div
+              aria-hidden
+              className="absolute left-0 w-16 h-16 short:h-14 rounded-2xl bg-white/70 shadow-[0_1px_6px_rgba(43,35,32,0.14),inset_0_1px_0_rgba(255,255,255,0.9)] pointer-events-none"
+              animate={{ top: `calc(${activeIndex} * var(--rail-step))` }}
+              transition={interactionSpring}
+            />
+            {tabs.map((tab) => {
+              const Icon = tab.icon;
+              const isActive = activeTab === tab.id;
+              return (
+                <motion.button
+                  key={tab.id}
+                  onClick={() => handleTabClick(tab)}
+                  aria-current={isActive ? 'page' : undefined}
+                  className={`toss-pressable relative z-10 flex flex-col items-center justify-center gap-1 w-16 h-16 short:h-14 rounded-2xl ${
+                    isActive ? 'text-gold-deep' : 'text-muk-soft hover:text-muk'
+                  }`}
+                >
+                  <div className="transition-transform duration-300 ease-out hover:scale-110">
+                    <Icon size={24} className={isActive ? 'text-gold-deep' : 'text-muk-soft'} />
+                  </div>
+                  {/* 긴 라벨('지금 출발하면?')은 공백 기준 2줄로 자연 래핑 — h-16 안에 수용된다. */}
+                  <span className={`text-[11px] font-medium leading-tight text-center break-keep ${isActive ? 'text-gold-deep' : ''}`}>
+                    {tab.label}
+                  </span>
+                </motion.button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* 콘솔 캡슐 — 콘솔 입구 둘 + 서비스 소개. 라벨은 낱말 사이에서만 두 줄로 접는다(keep-all).
             ja 는 띄어쓰기가 없어 사전에 폭 없는 공백(U+200B)으로 낱말 경계를 둔다('オーナー|コンソール'·'運営|ダッシュボード').
-            'ダッシュボード' 는 일곱 자라 칸(64px)보다 길다 — 라벨만 레일 폭(76px)까지 쓰고 ja 는 10px 로 한 줄에 넣는다. */}
-        <div aria-hidden className="my-2 h-px w-10 bg-line short:my-1.5" />
-        <div className="flex flex-col items-center gap-2 short:gap-1">
+            'ダッシュボード' 는 일곱 자라 칸(64px)보다 길다 — 라벨만 캡슐 폭(80px)까지 쓰고 ja 는 10px 로 한 줄에 넣는다. */}
+        <div className="liquid-glass pointer-events-auto absolute bottom-10 left-0 flex w-20 flex-col items-center gap-1 rounded-[2rem] border px-[7px] py-2">
           {consoles.map((item) => {
             const Icon = item.icon;
             return (
@@ -135,15 +142,16 @@ export default function BottomNav() {
                 href={item.href}
                 prefetch={false}
                 data-console-entry={item.id}
-                className="flex w-16 h-16 short:h-14 flex-col items-center justify-center gap-1 rounded-2xl text-muk-soft transition-colors hover:bg-gold/10 hover:text-muk focus-visible:outline-2 focus-visible:outline-gold-deep"
+                className="flex w-16 h-14 flex-col items-center justify-center gap-1 rounded-2xl text-muk-soft transition-colors hover:bg-gold/10 hover:text-muk focus-visible:outline-2 focus-visible:outline-gold-deep"
               >
                 <Icon size={22} aria-hidden />
                 <span className="-mx-1.5 w-[calc(100%+0.75rem)] text-[11px] font-medium leading-tight text-center [word-break:keep-all] [&:lang(ja)]:text-[10px]">{item.label}</span>
               </Link>
             );
           })}
+          <div aria-hidden className="my-1 h-px w-10 bg-line" />
+          <GuideButton className="min-h-14 w-16 flex-col py-1.5" />
         </div>
-        <GuideButton className="mt-auto min-h-16 w-16 flex-col py-2 short:min-h-14 short:py-1.5" />
       </nav>
 
       {/* ── 모바일: 하단 가로 바 (fixed 오버레이) ── */}

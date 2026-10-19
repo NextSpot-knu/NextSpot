@@ -44,7 +44,7 @@ import { classifyIntent, localeVoiceCommand } from '@/lib/voice/voiceIntent';
 import { buildCardSentence, buildVoiceReason } from '@/lib/voice/voiceReason';
 import { CUISINE_CHIPS, cuisineChipForUtterance, cuisineChipPool, voiceCandidatePayload, type CuisineChip } from '@/lib/voice/voiceCandidates';
 import { VoiceCaptionBar, VoicePill } from '@/components/VoiceSlot';
-import { DESKTOP_PANEL_CLASS, desktopPanelReservePx } from '@/lib/mainPanelLayout';
+import { DESKTOP_PANEL_CLASS, DESKTOP_RAIL_GUTTER_PX, desktopPanelReservePx } from '@/lib/mainPanelLayout';
 import { pickFirstViewCategory } from '@/lib/firstViewCategory';
 import { onMainFocus } from '@/lib/featureShortcuts';
 import { usePhoneViewport } from '@/lib/usePhoneViewport';
@@ -1427,7 +1427,7 @@ export default function MainPage() {
       top: Math.max(0, headerBottom - box.top + 8),
       right: desktopPanelReservePx(),
       bottom: Math.max(0, box.bottom - bottomEdge + 8),
-      left: 0,
+      left: phone ? 0 : DESKTOP_RAIL_GUTTER_PX, // 데스크톱은 지도가 왼쪽 유리 캡슐 뒤까지 이어진다
     };
   };
 
@@ -3735,7 +3735,7 @@ export default function MainPage() {
 
       {/* Top Layer: Search & Filters — 판마다 Liquid Glass(regular: 한지 35%(야간 40%) + 흐림, globals.css — 지도 글자가 그대로 비치지 않게). 휴대폰 머리는 280px 안(계획 B3):
           검색 · 날씨/첫 방문 한 줄 · '필터·편의' 가 맨 앞인 칩 한 줄. 키 낮은 휴대폰은 날씨/첫 방문을 검색 줄 옆에 붙인다. */}
-      <div ref={topBarRef} className="absolute top-0 w-full z-20 pt-[calc(env(safe-area-inset-top)+4.25rem)] md:pt-5 pb-4 px-4 flex flex-col gap-2 md:gap-4 pointer-events-none">
+      <div ref={topBarRef} className="absolute top-0 w-full z-20 pt-[calc(env(safe-area-inset-top)+4.25rem)] md:pt-5 pb-4 px-4 md:pl-[var(--rail-gutter)] flex flex-col gap-2 md:gap-4 pointer-events-none">
 
         {/* 지도 SDK 로드 실패(8초 타임아웃) 안내 칩 — 검색/배리어프리 빈 상태 칩과 동일 스타일 재사용.
             추천 카드 등 나머지 UI 는 지도 유무와 무관하게 계속 동작한다. */}
@@ -4660,7 +4660,7 @@ export default function MainPage() {
           줄어드는 중이라, 줄어드는 카드 위에 이 줄이 한동안 겹쳐 보였다(10-10 녹화). 카드가 다 줄어든 뒤 떠오르게 한다. */}
       {showStrip && (
         <div
-          className="strip-enter pointer-events-none absolute inset-x-4 z-20 flex justify-center bottom-[calc(var(--tourist-nav-clearance)+env(safe-area-inset-bottom)+var(--strip-dock))] md:left-4 md:right-[var(--strip-right)] md:bottom-8"
+          className="strip-enter pointer-events-none absolute inset-x-4 z-20 flex justify-center bottom-[calc(var(--tourist-nav-clearance)+env(safe-area-inset-bottom)+var(--strip-dock))] md:left-[var(--rail-gutter)] md:right-[var(--strip-right)] md:bottom-8"
           style={{
             '--strip-dock': `${(recPanelEl ? recPanelHeight : 0) + 8}px`,
             '--strip-right': `${desktopPanelReservePx(viewportWidth) + 16}px`,
