@@ -91,17 +91,17 @@ export default function BottomNav() {
         className="pointer-events-none fixed inset-y-0 left-3 z-40 hidden w-20 md:block"
       >
         {/* 데스크톱에서도 브랜드가 한눈에 기억되도록 여행 길잡이 얼굴을 둥근 유리 안에 둔다. */}
-        <div className="liquid-glass pointer-events-auto absolute left-1/2 top-4 flex h-14 w-14 -translate-x-1/2 items-center justify-center rounded-full border short:top-3 short:h-12 short:w-12">
+        <div className="rail-glass pointer-events-auto absolute left-1/2 top-4 flex h-14 w-14 -translate-x-1/2 items-center justify-center rounded-full border short:top-3 short:h-12 short:w-12">
           <NextSpotMascot className="w-9 short:w-8" />
         </div>
 
         {/* 탭 캡슐 — --rail-step = 탭 높이 + 간격. 인디케이터가 같은 값으로 움직여야 짧은 창에서도 탭에 맞는다. */}
-        <div className="liquid-glass pointer-events-auto absolute left-0 top-[76px] flex w-20 flex-col items-center rounded-[2rem] border px-[7px] py-2 short:top-[68px]">
+        <div className="rail-glass pointer-events-auto absolute left-0 top-[76px] flex w-20 flex-col items-center rounded-[2rem] border px-[7px] py-2 short:top-[68px]">
           <div className="relative flex flex-col items-center gap-2 [--rail-step:4.5rem] short:gap-1 short:[--rail-step:3.75rem]">
-            {/* 활성 탭 세로 슬라이딩 인디케이터 — iOS 26 처럼 하얀 유리 알약 */}
+            {/* 활성 탭 세로 슬라이딩 인디케이터 — iOS 26 처럼 밝은 유리 알약(어두운 캡슐 위) */}
             <motion.div
               aria-hidden
-              className="absolute left-0 w-16 h-16 short:h-14 rounded-2xl bg-white/70 shadow-[0_1px_6px_rgba(43,35,32,0.14),inset_0_1px_0_rgba(255,255,255,0.9)] pointer-events-none"
+              className="absolute left-0 w-16 h-16 short:h-14 rounded-2xl bg-hanji/20 shadow-[inset_0_1px_0_rgba(255,255,255,0.28)] pointer-events-none"
               animate={{ top: `calc(${activeIndex} * var(--rail-step))` }}
               transition={interactionSpring}
             />
@@ -133,7 +133,7 @@ export default function BottomNav() {
         {/* 콘솔 캡슐 — 콘솔 입구 둘 + 서비스 소개. 라벨은 낱말 사이에서만 두 줄로 접는다(keep-all).
             ja 는 띄어쓰기가 없어 사전에 폭 없는 공백(U+200B)으로 낱말 경계를 둔다('オーナー|コンソール'·'運営|ダッシュボード').
             'ダッシュボード' 는 일곱 자라 칸(64px)보다 길다 — 라벨만 캡슐 폭(80px)까지 쓰고 ja 는 10px 로 한 줄에 넣는다. */}
-        <div className="liquid-glass pointer-events-auto absolute bottom-10 left-0 flex w-20 flex-col items-center gap-1 rounded-[2rem] border px-[7px] py-2">
+        <div className="rail-glass pointer-events-auto absolute bottom-10 left-0 flex w-20 flex-col items-center gap-1 rounded-[2rem] border px-[7px] py-2">
           {consoles.map((item) => {
             const Icon = item.icon;
             return (
