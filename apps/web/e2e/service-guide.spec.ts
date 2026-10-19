@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { darkTest } from './support/theme';
 import { stubExternalServices } from './support/stubs';
 
 test.beforeEach(async ({ page }) => {
@@ -60,7 +61,7 @@ test('landing guide is keyboard accessible, traps focus and Escape restores its 
   await expect(page).toHaveURL(/\/$/);
 });
 
-test('opening guide preserves theme and current page; CTA closes before navigation', async ({ page }) => {
+darkTest('opening guide preserves theme and current page; CTA closes before navigation', async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem('nextspot_theme', 'dark'));
   await page.goto('/mypage/settings');
   const navHeight = await page.locator('nav:visible').evaluate(el => el.getBoundingClientRect().height);

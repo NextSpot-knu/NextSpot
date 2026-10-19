@@ -3,6 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { usePathname } from 'next/navigation';
 import {
+  DARK_MODE_ENABLED,
   THEME_STORAGE_KEY,
   parseThemeMode,
   resolveTheme,
@@ -35,7 +36,7 @@ export default function ThemeProvider({ children }: { children: ReactNode }) {
   const [resolvedTheme, setResolvedTheme] = useState<ResolvedTheme>('light');
 
   const refresh = useCallback((nextMode: ThemeMode) => {
-    const next = resolveTheme(nextMode);
+    const next = DARK_MODE_ENABLED ? resolveTheme(nextMode) : 'light';
     setResolvedTheme(next);
     applyTheme(next, supportsTouristTheme(pathname));
   }, [pathname]);

@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page, type Route } from '@playwright/test';
+import { THEMES } from './support/theme';
 import { stubMain, type E2eLocale } from './support/mainStubs';
 import { expandPeek } from './support/recCard';
 import { stubFakeKakaoMap, type FakePin, type KakaoFakeWindow } from './support/fakeKakaoMap';
@@ -197,7 +198,7 @@ function expectHoursAhead(assumedAt: string | null | undefined, sentAt: number, 
 // ───────────────────────────────────────────────────────────────────────────
 
 for (const viewport of [{ width: 1536, height: 730 }, { width: 1366, height: 650 }]) {
-  for (const theme of ['light', 'dark'] as const) {
+  for (const theme of THEMES) {
     test(`${viewport.width}x${viewport.height} ${theme}: the forecast strip is in the first view, clear of the card and the Kakao logo`, async ({ page }, testInfo) => {
       test.setTimeout(90_000);
       await page.setViewportSize(viewport);
@@ -576,7 +577,7 @@ async function headerBottom(page: Page): Promise<number> {
   });
 }
 
-for (const theme of ['light', 'dark'] as const) {
+for (const theme of THEMES) {
   test(`390x844 ${theme}: header ≤ 280px, 필터·편의 first, the strip sits right above the peek`, async ({ page }, testInfo) => {
     test.setTimeout(90_000);
     await page.setViewportSize({ width: 390, height: 844 });

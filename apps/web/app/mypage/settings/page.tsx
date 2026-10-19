@@ -14,7 +14,7 @@ import { createPublicClient } from '@/lib/supabase';
 import { clearUserScopedData } from '@/lib/userData';
 import { clearSavedAll } from '@/lib/savedFacilities';
 import { useTheme } from '@/components/shell/ThemeProvider';
-import type { ThemeMode } from '@/lib/theme';
+import { DARK_MODE_ENABLED, type ThemeMode } from '@/lib/theme';
 
 // 앱 정보 표시용 버전 — package.json 과 동기(정적 export 라 런타임 import 대신 상수 단일 정의점).
 const APP_VERSION = '0.1.0';
@@ -120,7 +120,8 @@ export default function SettingsPage() {
           </div>
         </section>
 
-        {/* 화면 테마 — 자동은 경주 현지 시각 18:00~06:00에 다크모드. */}
+        {/* 화면 테마(DARK_MODE_ENABLED 가 true 일 때만 — 다크모드 임시 비활성 중에는 숨긴다) — 자동은 경주 현지 시각 18:00~06:00에 다크모드. */}
+        {DARK_MODE_ENABLED && (
         <section className="bg-white border border-line rounded-3xl p-5 shadow-[0_2px_14px_rgba(43,35,32,0.06)]">
           <div className="mb-4 flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gold/10">
@@ -154,6 +155,7 @@ export default function SettingsPage() {
             })}
           </div>
         </section>
+        )}
 
         {/* 혼잡 알림 */}
         <section className="bg-white border border-line rounded-3xl p-5 shadow-[0_2px_14px_rgba(43,35,32,0.06)]">

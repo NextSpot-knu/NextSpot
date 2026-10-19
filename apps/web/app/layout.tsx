@@ -12,6 +12,7 @@ import { I18nProvider } from "@/lib/i18n/I18nProvider";
 import { AccountProvider } from "@/lib/account";
 import MotionProvider from "@/components/shell/MotionProvider";
 import ThemeProvider from "@/components/shell/ThemeProvider";
+import { DARK_MODE_ENABLED } from "@/lib/theme";
 import ThemeToaster from "@/components/shell/ThemeToaster";
 // 운영자 공개 설정(점검 모드·공지·혼잡 경계) — 부팅 시 1회 조회. 조회 실패는 평소 화면 그대로.
 import PublicSettingsProvider from "@/components/shell/PublicSettingsProvider";
@@ -58,7 +59,7 @@ export const viewport = {
 
 // React가 하이드레이션되기 전에 적용해 야간 첫 화면이 밝게 번쩍이는 현상을 막는다.
 // 자동 판정은 관광객의 기기 시간대가 아니라 서비스 현장인 Asia/Seoul을 기준으로 한다.
-const themeBootstrapScript = `(function(){try{var p=location.pathname;var enabled=!/^\\\/(admin|merchant)(\\\/|$)/.test(p);var saved=localStorage.getItem('nextspot_theme');var mode=saved==='light'||saved==='dark'?saved:'auto';var h=Number(new Intl.DateTimeFormat('en-US',{timeZone:'Asia/Seoul',hour:'2-digit',hourCycle:'h23'}).formatToParts(new Date()).find(function(x){return x.type==='hour';}).value);var dark=enabled&&(mode==='dark'||(mode==='auto'&&(h>=18||h<6)));document.documentElement.classList.toggle('nextspot-dark',dark);document.documentElement.dataset.nextspotTheme=enabled?(dark?'dark':'light'):'system';}catch(e){}})();`;
+const themeBootstrapScript = `(function(){try{var p=location.pathname;var enabled=!/^\\\/(admin|merchant)(\\\/|$)/.test(p);var saved=localStorage.getItem('nextspot_theme');var mode=saved==='light'||saved==='dark'?saved:'auto';var h=Number(new Intl.DateTimeFormat('en-US',{timeZone:'Asia/Seoul',hour:'2-digit',hourCycle:'h23'}).formatToParts(new Date()).find(function(x){return x.type==='hour';}).value);var dark=${DARK_MODE_ENABLED}&&enabled&&(mode==='dark'||(mode==='auto'&&(h>=18||h<6)));document.documentElement.classList.toggle('nextspot-dark',dark);document.documentElement.dataset.nextspotTheme=enabled?(dark?'dark':'light'):'system';}catch(e){}})();`;
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (

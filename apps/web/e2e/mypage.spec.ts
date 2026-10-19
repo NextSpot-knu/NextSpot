@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { darkTest } from './support/theme';
 import { stubExternalServices } from './support/stubs';
 
 // 마이페이지 — 새로 온 게스트에게 지어낸 '나의' 숫자를 보이지 않는다(2026-10-06 감사 I18, PM 결정 4.19a).
@@ -240,7 +241,7 @@ test('en: the taste radar speaks English end to end', async ({ page }) => {
 });
 
 // 어두운 테마(18~06시 자동) — 축 글자·격자가 밝은 테마 색으로 박혀 있으면 어두운 카드에서 거의 안 보인다.
-test('dark: the radar axis labels and grid follow the theme colours', async ({ page }) => {
+darkTest('dark: the radar axis labels and grid follow the theme colours', async ({ page }) => {
   test.setTimeout(90_000);
   await page.addInitScript(() => localStorage.setItem('nextspot_theme', 'dark'));
   await stubRadar(page, 'ko');

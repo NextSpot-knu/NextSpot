@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
+import { darkTest } from './support/theme';
 import { stubExternalServices } from './support/stubs';
 
 // 첫 화면(랜딩) — 2026-10-06 감사 계획 B1(I35 · PE06 · PH07 · I80).
@@ -560,7 +561,7 @@ function luminance(rgb: string): number {
 }
 
 for (const viewport of [{ width: 1536, height: 730 }, { width: 390, height: 844 }]) {
-  test(`dark theme landing stays readable at ${viewport.width}px`, async ({ page }, testInfo) => {
+  darkTest(`dark theme landing stays readable at ${viewport.width}px`, async ({ page }, testInfo) => {
     test.setTimeout(90_000);
     await page.emulateMedia({ colorScheme: 'dark' });
     await stubLanding(page, { events: [ONGOING] });

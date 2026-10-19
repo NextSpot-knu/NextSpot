@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { darkTest } from './support/theme';
 import { stubExternalServices } from './support/stubs';
 
 // 외부로 나가는 호출을 전부 막는다 — 지도 SDK 와 Supabase 인증(support/stubs.ts).
@@ -58,7 +59,7 @@ test('external Kakao navigation is fixed and does not leave the test page', asyn
   expect(opened).toContain('map.kakao.com');
 });
 
-test('manual dark theme is restored before the tourist screen renders', async ({ page }) => {
+darkTest('manual dark theme is restored before the tourist screen renders', async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem('nextspot_theme', 'dark'));
   await page.goto('/mypage/settings');
   await expect(page.locator('html')).toHaveClass(/nextspot-dark/);

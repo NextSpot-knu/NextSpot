@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
+import { darkTest } from './support/theme';
 import { stubExternalServices } from './support/stubs';
 
 // 사진이 없는 장소의 사진 자리 — '사진이 깨졌다' 가 아니라 처음부터 디자인된 표지로 보여야 한다.
@@ -379,7 +380,7 @@ test('waiting board: without minutes, a photo only moves ahead of a card showing
   expect(await topCardNames(page, 1)).toEqual(['조용한 카페', '고요한 카페']);
 });
 
-test('waiting board (dark, after 18:00): the tile is a visible panel, not a dark hole', async ({ page }) => {
+darkTest('waiting board (dark, after 18:00): the tile is a visible panel, not a dark hole', async ({ page }) => {
   await mockBoard(page, [
     { id: 'kakao-cafe-201', name: '대릉원 찻집', type: 'cafe' },
     { id: 'kakao-cafe-202', name: '첨성대 커피', type: 'cafe' },

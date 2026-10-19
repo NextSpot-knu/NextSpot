@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page, type Route } from '@playwright/test';
+import { THEMES } from './support/theme';
 import { stubMain } from './support/mainStubs';
 import { expandPeek } from './support/recCard';
 import { stubFakeKakaoMap, type KakaoFakeWindow } from './support/fakeKakaoMap';
@@ -184,7 +185,7 @@ async function expectInFirstView(target: Locator, viewport: { width: number; hei
 // ───────────────────────────────────────────────────────────────────────────
 
 for (const viewport of DESKTOPS) {
-  for (const theme of ['light', 'dark'] as const) {
+  for (const theme of THEMES) {
     test(`${viewport.width}x${viewport.height} ${theme}: value line, photo, live refresh and 상세 정보 펼치기 are in the first view`, async ({ page }) => {
       test.setTimeout(90_000);
       await page.setViewportSize(viewport);
@@ -551,7 +552,7 @@ test('a 5-minute walk limit no place meets on foot is not shown as a card chip o
   await expect(card(page).getByText('🚶 도보 5분 이내')).toHaveCount(0);
 });
 
-for (const theme of ['light', 'dark'] as const) {
+for (const theme of THEMES) {
   test(`390px ${theme}: the voice pill sits on the card and the caption is not covered by the clock`, async ({ page }) => {
     test.setTimeout(90_000);
     await page.setViewportSize({ width: 390, height: 844 });
@@ -615,7 +616,7 @@ test('1536x730: the voice caption sits beside the card and never covers the valu
 // ───────────────────────────────────────────────────────────────────────────
 
 for (const viewport of PHONES) {
-  for (const theme of ['light', 'dark'] as const) {
+  for (const theme of THEMES) {
     test(`${viewport.width}x${viewport.height} ${theme}: peek and full card keep the new face without horizontal overflow`, async ({ page }) => {
       test.setTimeout(90_000);
       await page.setViewportSize(viewport);
