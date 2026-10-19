@@ -535,51 +535,42 @@ html.nextspot-dark .liquid-glass {
   }
 }
 
-/* 말풍선 꼬리 — 데스크톱 툴바 아래 판(하위 범주)이 위 판(상위 범주)의 선택된 칩을 가리킨다(10-19 PM). 26×13px 상자가 아래쪽 절반을 잘라
-   삼각형만 보이게 하고(겹쳐 두 겹으로 짙어지는 것 방지), 안쪽 마름모의 위 두 변만 윤곽선을 긋는다. 판 가장자리(밝은 선)만으로는 밝은 지도에서
-   안 보여 꼬리만 어두운 윤곽선(--tail-edge)과 판보다 짙은 한지(--tail-fill)를 쓴다("티가 안 난다"). 판은 md 이상에서만 있으므로 꼬리도 md 이상.
-   설정 존중은 판과 같다(투명도 줄이기 · 대비 높이기 · backdrop-filter 미지원 → 불투명 한지). */
+/* 말풍선 꼬리 — 데스크톱 툴바 아래 판(하위 범주)이 위 판(상위 범주)의 선택된 칩을 가리킨다(10-19 PM). 26×13px 삼각형(clip-path)에 판과 같은
+   한지 유리를 칠하고, 윤곽선 대신 꼬리 둘레에 옅은 검정 외부 광선(드롭 섀도 둘: 가까운 것 + 넓게 번지는 것)을 깐다("어두운 윤곽선 말고 은은하게").
+   광선은 위·양옆으로만 번지고 판 안쪽(기준선 아래)은 잘라 칩을 어둡게 하지 않는다. 야간은 어두운 지도 위에서 검정이 안 보여 옅은 밝은 광선.
+   판은 md 이상에서만 있으므로 꼬리도 md 이상. 설정 존중: 투명도 줄이기 → 불투명 한지, 대비 높이기 → 광선 대신 또렷한 윤곽. */
 .glass-tail {
-  --tail-edge: rgb(43 35 32 / 0.3);
-  --tail-fill: 68%;
   position: absolute;
   bottom: 100%;
   width: 26px;
   height: 13px;
-  overflow: hidden;
   transform: translateX(-50%);
   pointer-events: none;
+  filter: drop-shadow(0 -1px 3px rgb(0 0 0 / 0.22)) drop-shadow(0 -2px 9px rgb(0 0 0 / 0.14));
+  clip-path: inset(-24px -24px 0 -24px);
 }
 html.nextspot-dark .glass-tail {
-  --tail-edge: rgb(243 234 219 / 0.5);
-  --tail-fill: 72%;
+  filter: drop-shadow(0 -1px 3px rgb(243 234 219 / 0.3)) drop-shadow(0 -2px 9px rgb(243 234 219 / 0.16));
 }
 .glass-tail::before {
   content: '';
   position: absolute;
-  left: 50%;
-  top: 100%;
-  width: 18.38px;
-  height: 18.38px;
-  transform: translate(-50%, -50%) rotate(45deg);
-  border-top: 1.5px solid var(--tail-edge);
-  border-left: 1.5px solid var(--tail-edge);
+  inset: 0;
+  clip-path: polygon(50% 0, 0 100%, 100% 100%);
   background-color: var(--nextspot-hanji);
-  background-color: color-mix(in srgb, var(--nextspot-hanji) var(--tail-fill), transparent);
-  -webkit-backdrop-filter: blur(8px) saturate(180%);
-  backdrop-filter: blur(8px) saturate(180%);
+  background-color: color-mix(in srgb, var(--nextspot-hanji) 68%, transparent);
 }
 @media (max-width: 767.98px) {
   .glass-tail { display: none; }
 }
-@supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
-  .glass-tail::before { background-color: var(--nextspot-hanji); -webkit-backdrop-filter: none; backdrop-filter: none; }
-}
 @media (prefers-reduced-transparency: reduce) {
-  .glass-tail::before { background-color: var(--nextspot-hanji); -webkit-backdrop-filter: none; backdrop-filter: none; }
+  .glass-tail::before { background-color: var(--nextspot-hanji); }
 }
 @media (prefers-contrast: more) {
-  .glass-tail::before { background-color: var(--nextspot-hanji); -webkit-backdrop-filter: none; backdrop-filter: none; border-color: var(--nextspot-muk-soft); }
+  .glass-tail, html.nextspot-dark .glass-tail {
+    filter: drop-shadow(1px 0 0 var(--nextspot-muk-soft)) drop-shadow(-1px 0 0 var(--nextspot-muk-soft)) drop-shadow(0 -1px 0 var(--nextspot-muk-soft));
+  }
+  .glass-tail::before { background-color: var(--nextspot-hanji); }
 }
 
 .toss-surface {
