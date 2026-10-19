@@ -1275,11 +1275,18 @@ export function RecommendationCard({
           예: 저장 목록)에서는 띄우지 않는다. 지금 걸린 조건 칩(9번)도 이 상자 머리에 둔다. */}
       {showCompare ? (
       <div className="rounded-2xl border border-terracotta/25 bg-gradient-to-r from-terracotta/10 via-gold/10 to-jade/10 px-3 py-2" data-testid="value-box">
-        <div className="flex items-start gap-2">
-          <p className="min-w-0 flex-1 pt-0.5 text-[12px] font-bold text-terracotta">
+        {/* '줄 서는 대신' 줄에 출발 → 도착을 함께 — 이 카드가 지금 무엇을 주는지(몇 시에 나가면 몇 시에 닿는지)가 첫 줄에서 읽힌다(10-19 PM). */}
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <p className="pt-0.5 text-[12px] font-bold text-terracotta">
             {compareKicker}
           </p>
-          {voiceSlot && <div className="shrink-0">{voiceSlot}</div>}
+          {showArrivalLine && currentTime && arrivalTime && (
+            <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full bg-jade/15 px-2.5 py-0.5 text-[13px] font-extrabold text-jade" data-testid="arrival-line">
+              <Clock size={14} className="shrink-0" aria-hidden />
+              {t('card.arrivalLine', { depart: formatTime(currentTime), arrive: formatTime(arrivalTime) })}
+            </span>
+          )}
+          {voiceSlot && <div className="ml-auto shrink-0">{voiceSlot}</div>}
         </div>
         {compareHeaderText ? (
           <p className="mt-0.5 break-keep text-[16px] md:text-[17px] xl:text-[18px] font-extrabold leading-snug text-muk">
@@ -1490,10 +1497,10 @@ export function RecommendationCard({
 
       {/* 5·6. 혜택 칩(가치 문장이 이미 한 말은 되풀이하지 않는다) 다음에 출발 → 도착(lib/cardTimes — 도착 = 출발 +
           도보 칩 분). 한 줄에 들어가면 같은 줄에 선다 — 키 낮은 노트북에서도 '상세 정보 펼치기' 가 첫 화면에 남게. */}
-      {(faceChips.length > 0 || showArrivalLine) && (
+      {(faceChips.length > 0 || (showArrivalLine && !showCompare)) && (
         <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5" data-testid="benefit-chips">
           {faceChips}
-          {showArrivalLine && currentTime && arrivalTime && (
+          {showArrivalLine && !showCompare && currentTime && arrivalTime && (
             <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-[13px] font-semibold text-muk" data-testid="arrival-line">
               <Clock size={14} className="shrink-0 text-jade" aria-hidden />
               {t('card.arrivalLine', { depart: formatTime(currentTime), arrive: formatTime(arrivalTime) })}
