@@ -426,13 +426,13 @@ for (const viewport of [{ width: 1366, height: 650 }, { width: 1536, height: 730
       });
       expect(rows.distinctRows, 'toolbar wrapped into a third row').toBeLessThanOrEqual(2);
       expect(rows.height).toBeLessThanOrEqual(84);
-      // 툴바 판은 Liquid Glass(regular, 10-10 PM 요청 — 예전 '불투명 판'을 대신한다): 한지가 78% 이상 덮고, 비치면 반드시 흐린다.
+      // 툴바 판은 Liquid Glass(regular, 10-10 PM 요청 — 예전 '불투명 판'을 대신한다): 한지가 45% 이상 덮고(10-19 PM "유리처럼 비치게" — 78% → 라이트 45% · 야간 50%), 비치면 반드시 흐린다.
       // 그 비율에서 글자 대비는 lib/contrast.test.ts 7번이 잠근다. 바탕이 투명해지거나(지도 글자가 그대로 비침) 흐림이 빠지면 여기서 깨진다.
       const alpha = (color: string) => {
         const m = color.match(/^rgba\(.*,\s*([\d.]+)\)$/) ?? color.match(/\/\s*([\d.]+)\)$/);
         return m ? Number(m[1]) : /^(rgb|color)\(/.test(color) ? 1 : 0;
       };
-      expect(alpha(rows.background), `toolbar glass too thin: ${rows.background}`).toBeGreaterThanOrEqual(0.78);
+      expect(alpha(rows.background), `toolbar glass too thin: ${rows.background}`).toBeGreaterThanOrEqual(0.45);
       if (alpha(rows.background) < 1) expect(rows.backdrop, 'a see-through toolbar must blur the map').toMatch(/blur\(/);
       // 카테고리 칩과 🍽 메뉴는 첫 줄 안에 다 보이고(가로로 잘리지 않는다), 언어·시계 밑에 깔리지 않는다.
       const cluster = await page.locator('[aria-label$="KST"]').boundingBox();

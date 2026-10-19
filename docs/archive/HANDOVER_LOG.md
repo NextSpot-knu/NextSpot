@@ -1,4 +1,14 @@
 # HANDOVER 로그 (2026-06-30 ~ 2026-08-28) 
+## 2026-09-29 — 대기 보드 웹 27건: 사진 없는 장소 표지 · 같은 대기일 때만 사진 우선 · 줄 단위 자르기 (main 반영 f0f440b)
+
+- 도구·브랜치: Claude Code(노트북) / `release/0930` → main(CI green 15:44 KST). 노트북 세션의 기록이 없어 09-29 데스크톱이 커밋에서 복원했다.
+- 커밋: 8ad6266..f0f440b (27건 — fix 12 · feat 4 · test 11)
+- 한 것: 대기 보드 조회를 run 단위로(A→B→A 에 옛 조회·예약 재시도가 되살아나지 않음, 버려진 by-type 요청은 AbortSignal) · 대표 카드 이름·메뉴·소개를 줄 단위로만 자름(`wholeLines`) · 사진 없는 장소 표지(장소 id 로 고른 경주 문양 + 유형 그림, `PlacePhotoFallback`·`placeVisual`) · 예상 대기가 같을 때만 사진 있는 장소를 앞에(`orderByWaitThenPhoto` — 더 짧은 대기를 앞지르지 않음) ·
+  Wikimedia 출처는 그 사진이 드러난 뒤에만 · /explore 추천 카드 대표 사진이 깨지면 갤러리 사진 · 한국어 대기 한 줄은 띄어쓰기에서만 접음 · 영어 개수 칩 단수 · 하단 ⓒ TourAPI 줄 단축(4로케일). 새 재시도 없음(B4).
+- 검증: CI green(f0f440b — web·api·e2e) · 09-29 데스크톱 재실행 web lint 0 errors·typecheck·test 69파일·build
+- 다음·미결: 위 2026-09-29b(점검에서 나온 `/waiting` 재배열 · 추천 카드 합성 id 수정)
+- 사람 작업: 폰 스모크("사람 작업 대기")
+
 ## 2026-09-28e — API 재설계 P3 배치 A: 보행 목적지 스냅 기억 · 시설 조회 왕복·복사 줄이기 (09-29 `f0f440b` 로 main 반영)
 
 - 도구·브랜치: Claude Code(검증된 P3 명세 → 커밋별 구현 · 10ea2d4 원문과 동등성 대조) / `perf/p3a-0929`(10ea2d4 = release/0928 위) → `release/0930` → main

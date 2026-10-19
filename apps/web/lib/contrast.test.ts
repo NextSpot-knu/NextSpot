@@ -97,13 +97,25 @@ for (const page of ["app/explore/recommend/page.tsx", "app/waiting/page.tsx", "a
 }
 
 // 7) Liquid Glass(app/globals.css .liquid-glass) — 지도 위 탐색 층의 바탕은 한지를 --nextspot-glass-tint 만큼 덮은 반투명이라
-//    뒤의 지도 색에 따라 달라진다. 그래서 두 가지를 잠근다: 주 글자(먹)는 뒤가 완전히 검거나(라이트) 흰(야간) 최악에도 4.5:1,
-//    보조 글자(먹 연·금 진)는 중간 회색(#808080) 지도 위에서 4.5:1. 비율을 낮추면 이 테스트가 먼저 깨진다.
+//    뒤의 지도 색에 따라 달라진다. 유리 위 모든 글자(주 글자 먹 · 유리용 먹 연·금 진)는 흐린 지도를 대표하는 중간 회색(#808080)
+//    위에서 4.5:1 — 비율을 낮추면 이 테스트가 먼저 깨진다. 10-19 PM "유리처럼 비치게"(라이트 45% · 야간 50%)로 10-10 의
+//    '뒤가 완전히 검거나 흰 최악' 기준은 내려놓았다(그 기준이면 78% 근처에 묶여 지도가 거의 비치지 않는다).
+//    보조 글자는 유리 안에서 --nextspot-glass-* 로 바뀌므로 그 토큰을 재고, 유리 규칙이 실제로 바꾸는지도 잠근다.
 {
   const css = readFileSync(join(WEB, "app/globals.css"), "utf8");
-  for (const [label, selector, worst] of [
-    ["light", /^:root\s*\{/m, "#000000"],
-    ["dark", /^html\.nextspot-dark\s*\{/m, "#ffffff"],
+  for (const glass of ["liquid-glass", "liquid-glass-phone", "liquid-glass-desk"]) {
+    // 유리를 칠하는(backdrop-filter 가 있는) 규칙 — 공용 변수만 담은 묶음 선택자 규칙은 건너뛴다.
+    const paint = [...css.matchAll(new RegExp(`\\n\\s*\\.${glass}\\s*\\{([^}]*)\\}`, "g"))]
+      .map((m) => m[1])
+      .find((body) => /backdrop-filter:\s*blur/.test(body));
+    assert.ok(paint, `유리 규칙 없음: .${glass}`);
+    for (const name of ["muk-soft", "gold-deep"]) {
+      assert.match(paint!, new RegExp(`--nextspot-${name}:\\s*var\\(--nextspot-glass-${name}\\)`), `.${glass} 가 ${name} 를 유리용으로 바꾸지 않는다`);
+    }
+  }
+  for (const [label, selector] of [
+    ["light", /^:root\s*\{/m],
+    ["dark", /^html\.nextspot-dark\s*\{/m],
   ] as const) {
     const start = css.search(selector);
     const block = css.slice(start, css.indexOf("}", start));
@@ -116,9 +128,7 @@ for (const page of ["app/explore/recommend/page.tsx", "app/waiting/page.tsx", "a
     assert.ok(tintMatch, `${label} 토큰 없음: --nextspot-glass-tint`);
     const tint = Number(tintMatch![1]) / 100;
     const glassOver = (backdrop: string) => mixHex(backdrop, hex("hanji"), tint);
-    const primary = contrastRatio(hex("muk"), glassOver(worst));
-    assert.ok(primary >= 4.5, `${label} glass: muk over ${worst} ${primary.toFixed(2)} < 4.5`);
-    for (const name of ["muk-soft", "gold-deep"]) {
+    for (const name of ["muk", "glass-muk-soft", "glass-gold-deep"]) {
       const ratio = contrastRatio(hex(name), glassOver("#808080"));
       assert.ok(ratio >= 4.5, `${label} glass: ${name} over mid-gray ${ratio.toFixed(2)} < 4.5`);
     }

@@ -3709,7 +3709,7 @@ export default function MainPage() {
         )}
       </div>
 
-      {/* Top Layer: Search & Filters — 판마다 Liquid Glass(regular: 한지 78% + 흐림, globals.css — 지도 글자가 그대로 비치지 않게). 휴대폰 머리는 280px 안(계획 B3):
+      {/* Top Layer: Search & Filters — 판마다 Liquid Glass(regular: 한지 45%(야간 50%) + 흐림, globals.css — 지도 글자가 그대로 비치지 않게). 휴대폰 머리는 280px 안(계획 B3):
           검색 · 날씨/첫 방문 한 줄 · '필터·편의' 가 맨 앞인 칩 한 줄. 키 낮은 휴대폰은 날씨/첫 방문을 검색 줄 옆에 붙인다. */}
       <div ref={topBarRef} className="absolute top-0 w-full z-20 pt-[calc(env(safe-area-inset-top)+4.25rem)] md:pt-5 pb-4 px-4 flex flex-col gap-2 md:gap-4 pointer-events-none">
 

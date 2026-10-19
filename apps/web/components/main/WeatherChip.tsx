@@ -71,7 +71,9 @@ export default function WeatherChip({ indoorRequired, onIndoorRequiredChange }: 
         aria-expanded={expanded}
         aria-label={`${full} · ${summary}`}
         title={summary}
-        className={`flex h-8 items-center gap-1.5 whitespace-nowrap rounded-full border bg-white px-3 text-[12px] font-bold text-muk shadow-[0_2px_10px_rgba(43,35,32,0.08)] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 ${data.indoorRecommended ? 'border-gold/60' : 'border-line'}`}
+        className="liquid-glass flex h-8 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 text-[12px] font-bold text-muk focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+        // 지도 위 탐색 층이라 유리(10-19 PM). 유리 테두리가 클래스 색을 덮으므로 실내 추천의 금 테두리는 인라인으로 지킨다.
+        style={data.indoorRecommended ? { borderColor: 'color-mix(in srgb, var(--nextspot-gold) 60%, transparent)' } : undefined}
       >
         <span aria-hidden className="text-[15px] leading-none">{iconOf(now)}</span>
         <span className="short:max-md:hidden">{full}</span>

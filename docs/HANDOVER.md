@@ -254,6 +254,16 @@ from checks order by seq;
 
 최신이 위. 10개를 넘으면 가장 오래된 항목을 `archive/HANDOVER_LOG.md` 맨 위로 옮긴다.
 
+## 2026-10-19 — /main 지도 위 탐색 층 유리를 더 비치게(라이트 45% · 야간 50%) · 날씨 알약도 유리
+
+- 도구·브랜치: Claude Code / `feat/stronger-glass-1019`(main `f80454c` 위)
+- 커밋: 이 기록 포함 1건(웹·문서만 — API·스키마 무변경, Render 재시작 없음)
+- 한 것: PM "반투명 유리같이 위에 — iOS 26 가이드처럼" → 10-10 유리(78%)가 밝은 지도 위에서 거의 불투명해 보였다. 라이트 45% · 야간 50% · 흐림 20→8px · 밝은 테두리·아래 안쪽 빛·위쪽 빛 반사(라이트) · 날씨 알약(`WeatherChip`)을 유리로(실내 추천 금 테두리는 인라인으로 유지). 유리 안의 보조 글자는 `--nextspot-glass-muk-soft`·`--nextspot-glass-gold-deep` 로 짙게.
+  **동작·기준 변경(공개)**: `lib/contrast.test.ts` 7번의 주 글자 기준을 '바탕이 완전히 검거나 흰 최악'에서 '흐린 지도(중간 회색 #808080)'로 — PM 이 비교 화면을 보고 '더 비치는 유리'를 골랐다(옛 기준이면 78% 근처에 묶인다). 유리 위 모든 글자는 그 바탕에서 4.5:1 이상. e2e `map-time-strip` 툴바 단언 0.78 → 0.45. 데스크톱 툴바 판 안 흰 칩의 보조 글자도 한 단계 짙어진다.
+- 검증: web lint(0 errors)·typecheck·test(contrast 포함)·build · check-docs · e2e `map-time-strip.spec.ts` · 라이브 `/main` 에 같은 CSS 를 주입한 전후 화면(휴대폰 390 · 데스크톱 1536 × 라이트·야간).
+- 다음·미결: main 반영은 PM 확인 뒤(웹만이라 낮에도 API 재시작 없음). 반영 뒤 Vercel 프로덕션 id 기록.
+- 사람 작업: 없음.
+
 ## 2026-10-12 — Render 배포 확인: 10-09 빌드 실패 메일 뒤 '성공 알림 없음' 진단 · /health 에 배포 커밋 · 배포 확인 워크플로
 
 - 도구·브랜치: Claude Code(클라우드) / `claude/nextspot-continuation-hiebei`(main `3a61300` 위)
@@ -360,16 +370,6 @@ from checks order by seq;
 - 다음·미결: `/waiting` 을 캐시로 먼저 그린 뒤 0.3~2초에 추정 피드가 오면 같은 대기 카드끼리의 사진 우선 묶음이 갈라져 순위 배지가 바뀔 수 있다(de722e2 부터, 데모에서 같은 기기로 다시 열 때 보인다). 카드 한 줄이 추정 등급으로 바뀌는 것이 원인이라 '추정이 올 때까지 사진 묶음 보류'는 반대 방향 재배열일 뿐이고, 낡은 추정을 캐시에서 쓰는 안은 60분 신선도 규칙과 부딪힌다 — PM 결정 뒤 고친다.
   P3 배치 B 는 09-30 18:00 KST 까지 증명될 때만 · 데스크톱의 잠긴 빈 워크트리 `.claude/worktrees/agent-a20b30c1e3d0047f1`(3cf5bf9, 변경 없음)는 지워도 된다.
 - 사람 작업: 폰 스모크 · 주간 학습 실패 로그 한 줄 · P3a Render 로그 · shadow 전환(모두 "사람 작업 대기")
-
-## 2026-09-29 — 대기 보드 웹 27건: 사진 없는 장소 표지 · 같은 대기일 때만 사진 우선 · 줄 단위 자르기 (main 반영 f0f440b)
-
-- 도구·브랜치: Claude Code(노트북) / `release/0930` → main(CI green 15:44 KST). 노트북 세션의 기록이 없어 09-29 데스크톱이 커밋에서 복원했다.
-- 커밋: 8ad6266..f0f440b (27건 — fix 12 · feat 4 · test 11)
-- 한 것: 대기 보드 조회를 run 단위로(A→B→A 에 옛 조회·예약 재시도가 되살아나지 않음, 버려진 by-type 요청은 AbortSignal) · 대표 카드 이름·메뉴·소개를 줄 단위로만 자름(`wholeLines`) · 사진 없는 장소 표지(장소 id 로 고른 경주 문양 + 유형 그림, `PlacePhotoFallback`·`placeVisual`) · 예상 대기가 같을 때만 사진 있는 장소를 앞에(`orderByWaitThenPhoto` — 더 짧은 대기를 앞지르지 않음) ·
-  Wikimedia 출처는 그 사진이 드러난 뒤에만 · /explore 추천 카드 대표 사진이 깨지면 갤러리 사진 · 한국어 대기 한 줄은 띄어쓰기에서만 접음 · 영어 개수 칩 단수 · 하단 ⓒ TourAPI 줄 단축(4로케일). 새 재시도 없음(B4).
-- 검증: CI green(f0f440b — web·api·e2e) · 09-29 데스크톱 재실행 web lint 0 errors·typecheck·test 69파일·build
-- 다음·미결: 위 2026-09-29b(점검에서 나온 `/waiting` 재배열 · 추천 카드 합성 id 수정)
-- 사람 작업: 폰 스모크("사람 작업 대기")
 
 ## 기록 규칙
 

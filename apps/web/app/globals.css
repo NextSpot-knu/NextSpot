@@ -76,7 +76,10 @@
   --background: #faf5ec;
   --foreground: #2b2320;
   --nextspot-hanji: #faf5ec;
-  --nextspot-glass-tint: 78%;
+  --nextspot-glass-tint: 45%;
+  /* 유리 위 보조 글자(먹 연·금 진) — 한지가 45% 만 덮어 지도가 비치므로 유리 안에서만 짙게(lib/contrast.test.ts 7번). */
+  --nextspot-glass-muk-soft: #4f443b;
+  --nextspot-glass-gold-deep: #55431c;
   --nextspot-hanji-deep: #f1e7d3;
   --nextspot-muk: #2b2320;
   --nextspot-muk-soft: #6b5d4f;
@@ -247,7 +250,9 @@ html.nextspot-dark {
   --background: #17130f;
   --foreground: #f3eadb;
   --nextspot-hanji: #17130f;
-  --nextspot-glass-tint: 78%;
+  --nextspot-glass-tint: 50%;
+  --nextspot-glass-muk-soft: #c9b9a5;
+  --nextspot-glass-gold-deep: #efcd78;
   --nextspot-hanji-deep: #231c15;
   --nextspot-muk: #f3eadb;
   --nextspot-muk-soft: #c4b49f;
@@ -388,8 +393,10 @@ html.nextspot-dark .toss-pressable:not(:disabled):active {
 
 /* Liquid Glass(regular) — Apple HIG Materials(iOS 26): 지도 위에 떠 있는 탐색 층(검색 · 카테고리 · 언어 · 시계)에만 쓴다.
    내용 층(추천 카드)에는 쓰지 않고, 유리 위에 유리를 겹치지 않는다. 지도처럼 글자를 방해할 수 있는 바탕 위라 투명한 clear 가
-   아니라 흐리고 밝기를 맞추는 regular 쪽 — 바탕을 78% 한지로 덮고 흐린다. 이 비율의 글자 대비는 lib/contrast.test.ts 7번이
-   잠근다(먹은 바탕이 완전히 검거나 흰 최악에도, 먹 연·금 진은 중간 회색 지도 위에서 4.5:1) — 유리 위 주 글자는 먹.
+   아니라 흐리고 밝기를 맞추는 regular 쪽 — 바탕을 한지로 덮고(라이트 45% · 야간 50%, 10-19 PM "유리처럼 비치게") 8px 흐리고,
+   밝은 테두리·위쪽 빛 반사(라이트만)를 얹는다. 글자 대비는 lib/contrast.test.ts 7번이 잠근다 — 흐린 지도(중간 회색) 위에서
+   유리 위 모든 글자 4.5:1(10-10 의 '바탕이 완전히 검거나 흰 최악' 기준은 이 비율에서 PM 결정으로 내려놓았다). 주 글자는 먹,
+   보조 글자는 유리 안에서만 --nextspot-glass-* 로 짙게.
    .liquid-glass 는 모든 폭, -phone 은 휴대폰(<768px)만, -desk 는 데스크톱(≥768px)만 칠한다.
    · 그림자는 Tailwind 포커스 링 변수(--tw-ring-*)를 앞에 이어 둔다 — 유리 그림자가 box-shadow 를 덮어 키보드 포커스 링이
      사라지지 않게(focus-visible:ring-2 도 box-shadow 로 그린다).
@@ -400,20 +407,25 @@ html.nextspot-dark .toss-pressable:not(:disabled):active {
 .liquid-glass,
 .liquid-glass-phone,
 .liquid-glass-desk {
-  --glass-edge: rgb(255 255 255 / 0.6);
-  --glass-shadow: inset 0 1px 0 rgb(255 255 255 / 0.7), 0 4px 18px rgb(43 35 32 / 0.12);
+  --glass-edge: rgb(255 255 255 / 0.85);
+  --glass-shadow: inset 0 1px 0 rgb(255 255 255 / 0.95), inset 0 -1px 0 rgb(255 255 255 / 0.35), 0 6px 22px rgb(43 35 32 / 0.16);
+  --glass-sheen: linear-gradient(180deg, rgb(255 255 255 / 0.45), rgb(255 255 255 / 0) 50%);
 }
 html.nextspot-dark .liquid-glass,
 html.nextspot-dark .liquid-glass-phone,
 html.nextspot-dark .liquid-glass-desk {
-  --glass-edge: rgb(255 255 255 / 0.12);
-  --glass-shadow: inset 0 1px 0 rgb(255 255 255 / 0.08), 0 4px 18px rgb(0 0 0 / 0.35);
+  --glass-edge: rgb(255 255 255 / 0.18);
+  --glass-shadow: inset 0 1px 0 rgb(255 255 255 / 0.14), inset 0 -1px 0 rgb(255 255 255 / 0.05), 0 6px 22px rgb(0 0 0 / 0.45);
+  --glass-sheen: none;
 }
 .liquid-glass {
+  --nextspot-muk-soft: var(--nextspot-glass-muk-soft);
+  --nextspot-gold-deep: var(--nextspot-glass-gold-deep);
   background-color: var(--nextspot-hanji);
   background-color: color-mix(in srgb, var(--nextspot-hanji) var(--nextspot-glass-tint), transparent);
-  -webkit-backdrop-filter: blur(20px) saturate(170%);
-  backdrop-filter: blur(20px) saturate(170%);
+  background-image: var(--glass-sheen);
+  -webkit-backdrop-filter: blur(8px) saturate(180%);
+  backdrop-filter: blur(8px) saturate(180%);
   border-color: var(--glass-edge);
   box-shadow: var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--glass-shadow);
 }
@@ -422,10 +434,13 @@ html.nextspot-dark .liquid-glass {
 }
 @media (max-width: 767.98px) {
   .liquid-glass-phone {
+    --nextspot-muk-soft: var(--nextspot-glass-muk-soft);
+    --nextspot-gold-deep: var(--nextspot-glass-gold-deep);
     background-color: var(--nextspot-hanji);
     background-color: color-mix(in srgb, var(--nextspot-hanji) var(--nextspot-glass-tint), transparent);
-    -webkit-backdrop-filter: blur(20px) saturate(170%);
-    backdrop-filter: blur(20px) saturate(170%);
+    background-image: var(--glass-sheen);
+    -webkit-backdrop-filter: blur(8px) saturate(180%);
+    backdrop-filter: blur(8px) saturate(180%);
     border-color: var(--glass-edge);
     box-shadow: var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--glass-shadow);
   }
@@ -435,10 +450,13 @@ html.nextspot-dark .liquid-glass {
 }
 @media (min-width: 768px) {
   .liquid-glass-desk {
+    --nextspot-muk-soft: var(--nextspot-glass-muk-soft);
+    --nextspot-gold-deep: var(--nextspot-glass-gold-deep);
     background-color: var(--nextspot-hanji);
     background-color: color-mix(in srgb, var(--nextspot-hanji) var(--nextspot-glass-tint), transparent);
-    -webkit-backdrop-filter: blur(20px) saturate(170%);
-    backdrop-filter: blur(20px) saturate(170%);
+    background-image: var(--glass-sheen);
+    -webkit-backdrop-filter: blur(8px) saturate(180%);
+    backdrop-filter: blur(8px) saturate(180%);
     border-color: var(--glass-edge);
     box-shadow: var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--glass-shadow);
   }
