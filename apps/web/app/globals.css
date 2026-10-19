@@ -535,31 +535,37 @@ html.nextspot-dark .liquid-glass {
   }
 }
 
-/* 말풍선 꼬리 — 데스크톱 툴바 아래 판(하위 범주)이 위 판(상위 범주)의 선택된 칩을 가리킨다(10-19 PM). 판과 같은 유리: 한지 비율 · 흐림 ·
-   밝은 테두리(--glass-edge 는 부모인 아래 판 .liquid-glass-desk 에서 물려받는다). 18×9px 상자가 아래쪽 절반을 잘라 삼각형만 보이게 하고
-   (겹쳐 두 겹으로 짙어지는 것 방지), 안쪽 마름모의 위 두 변만 테두리를 긋는다. 판은 md 이상에서만 있으므로 꼬리도 md 이상.
+/* 말풍선 꼬리 — 데스크톱 툴바 아래 판(하위 범주)이 위 판(상위 범주)의 선택된 칩을 가리킨다(10-19 PM). 26×13px 상자가 아래쪽 절반을 잘라
+   삼각형만 보이게 하고(겹쳐 두 겹으로 짙어지는 것 방지), 안쪽 마름모의 위 두 변만 윤곽선을 긋는다. 판 가장자리(밝은 선)만으로는 밝은 지도에서
+   안 보여 꼬리만 어두운 윤곽선(--tail-edge)과 판보다 짙은 한지(--tail-fill)를 쓴다("티가 안 난다"). 판은 md 이상에서만 있으므로 꼬리도 md 이상.
    설정 존중은 판과 같다(투명도 줄이기 · 대비 높이기 · backdrop-filter 미지원 → 불투명 한지). */
 .glass-tail {
+  --tail-edge: rgb(43 35 32 / 0.3);
+  --tail-fill: 68%;
   position: absolute;
   bottom: 100%;
-  width: 18px;
-  height: 9px;
+  width: 26px;
+  height: 13px;
   overflow: hidden;
   transform: translateX(-50%);
   pointer-events: none;
+}
+html.nextspot-dark .glass-tail {
+  --tail-edge: rgb(243 234 219 / 0.5);
+  --tail-fill: 72%;
 }
 .glass-tail::before {
   content: '';
   position: absolute;
   left: 50%;
   top: 100%;
-  width: 12.73px;
-  height: 12.73px;
+  width: 18.38px;
+  height: 18.38px;
   transform: translate(-50%, -50%) rotate(45deg);
-  border-top: 1px solid var(--glass-edge);
-  border-left: 1px solid var(--glass-edge);
+  border-top: 1.5px solid var(--tail-edge);
+  border-left: 1.5px solid var(--tail-edge);
   background-color: var(--nextspot-hanji);
-  background-color: color-mix(in srgb, var(--nextspot-hanji) var(--nextspot-glass-tint), transparent);
+  background-color: color-mix(in srgb, var(--nextspot-hanji) var(--tail-fill), transparent);
   -webkit-backdrop-filter: blur(8px) saturate(180%);
   backdrop-filter: blur(8px) saturate(180%);
 }

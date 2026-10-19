@@ -433,7 +433,7 @@ export default function MainPage() {
   useEffect(() => {
     const row1 = toolbarRow1Ref.current;
     const row2 = toolbarRow2Ref.current;
-    if (!row1 || !row2) return;
+    if (!row1 || !row2) { setBubbleTailX(null); return; }
     const measure = () => {
       const active = row1.querySelector<HTMLElement>('button[aria-pressed="true"]');
       const plate = row2.getBoundingClientRect();
@@ -4132,7 +4132,7 @@ export default function MainPage() {
         <div
           ref={chipColumnRef}
           data-testid="map-toolbar"
-          className="flex flex-col gap-2 md:pointer-events-none md:min-w-0 md:flex-1 md:gap-3"
+          className="flex flex-col gap-2 md:pointer-events-none md:min-w-0 md:flex-1 md:gap-4"
           style={{ '--cluster-w': `${(topClusterPx ?? 288) + 12}px` } as CSSProperties}
         >
         {/* 묶음 폭은 스크롤 줄 안쪽 여백이 아니라 바깥 여백으로 비운다 — 안쪽 여백은 넘친 칩이 묶음 밑으로 들어가는 것을
@@ -4189,10 +4189,13 @@ export default function MainPage() {
         </div>
 
         {/* 2줄(데스크톱): 🔥 히트맵 · ♿ 무장애 · 🅿 주차 · (🐾) · 🏮 축제 · 🚻 화장실 · 🍃 지금 한산, 그리고 출처 칩 하나. */}
-        <div ref={toolbarRow2Ref} data-testid="toolbar-row-2" className="pointer-events-auto relative hidden items-center gap-2 md:flex md:rounded-2xl md:border md:p-1 liquid-glass-desk">
+        {/* 유리 판(말풍선)은 칩만 감싼다 — 출처 칩은 판 밖 오른쪽 끝에 따로 선다(10-19 PM: 투명 바가 출처까지 이어지지 않게). */}
+        <div data-testid="toolbar-row-2-line" className="pointer-events-none hidden items-center gap-2 md:flex">
+        {activeFilter !== '주차장' && (
+        <div ref={toolbarRow2Ref} data-testid="toolbar-row-2" className="pointer-events-auto relative min-w-0 md:rounded-2xl md:border md:p-1 liquid-glass-desk">
           {/* 축제·화장실·지금 한산 칩은 각자 컴포넌트의 크기를 갖고 있다 — 이 줄에서는 같은 높이(32px)로 맞춘다.
               넘치면 다음 줄로(첫 줄과 같은 이유 — 예전에는 1024px 에서 축제·화장실·지금 한산이 숨은 스크롤 밖에 있었다). */}
-          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5 overflow-x-auto no-scrollbar [&>button]:h-8 [&>button]:py-0 [&>button]:px-3 [&>button]:text-[13px]">
+          <div className="flex min-w-0 flex-wrap items-center gap-1.5 overflow-x-auto no-scrollbar [&>button]:h-8 [&>button]:py-0 [&>button]:px-3 [&>button]:text-[13px]">
           {activeFilter !== '주차장' && (
             <>
               <button
@@ -4245,10 +4248,12 @@ export default function MainPage() {
             </>
           )}
           </div>
-          {/* 출처 칩 하나 — 'ⓒ한국관광공사 TourAPI · N시간 전 동기화'. 시각을 모르면 출처만(지어내지 않는다). */}
-          <SourceCredit syncedAt={tourapiSyncAt} className="max-w-[17rem] shrink-0" />
           {/* 말풍선 꼬리 — 선택된 상위 칩(위 판) 가운데를 가리킨다. 마지막 자식이어야 한다(e2e 가 첫 자식을 칩 스크롤 줄로 읽는다). */}
           {bubbleTailX !== null && <span aria-hidden data-testid="toolbar-tail" className="glass-tail" style={{ left: bubbleTailX }} />}
+        </div>
+        )}
+          {/* 출처 칩 하나 — 'ⓒ한국관광공사 TourAPI · N시간 전 동기화'. 시각을 모르면 출처만(지어내지 않는다). */}
+          <SourceCredit syncedAt={tourapiSyncAt} className="pointer-events-auto ml-auto max-w-[17rem] shrink-0" />
         </div>
 
         </div>{/* /오른쪽 열(툴바) */}
