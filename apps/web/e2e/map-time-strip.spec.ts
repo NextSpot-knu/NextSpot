@@ -431,8 +431,9 @@ for (const viewport of [{ width: 1366, height: 650 }, { width: 1536, height: 730
         const outer = getComputedStyle(el);
         return { distinctRows: lines, height: el.getBoundingClientRect().height, outerBackground: outer.backgroundColor, outerBorder: outer.borderTopWidth, plates: [plate('toolbar-row-1'), plate('toolbar-row-2')] };
       });
-      expect(rows.distinctRows, 'toolbar wrapped into a third row').toBeLessThanOrEqual(2);
-      expect(rows.height, 'two plates + gap; a third row would add ~34px more').toBeLessThanOrEqual(112);
+      // 판 두 장 × 최대 두 줄(1366px 에서 🍽 메뉴가 아래 판으로 내려와 아래 판이 두 줄이 될 수 있다) — 셋째 판 줄이 생기면 깨진다.
+      expect(rows.distinctRows, 'a toolbar plate wrapped into a third line').toBeLessThanOrEqual(4);
+      expect(rows.height, 'two plates (up to two lines each) + gap').toBeLessThanOrEqual(150);
       expect(rows.plates[1].top - rows.plates[0].bottom, 'the two glass plates touch — they must be separate').toBeGreaterThanOrEqual(4);
       expect(rows.outerBorder, 'the outer toolbar wrapper must not be a third glass plate').toBe('0px');
       expect(rows.outerBackground, 'the outer toolbar wrapper must not be painted').toMatch(/^rgba\(0, 0, 0, 0\)$|^transparent$/);
@@ -512,7 +513,9 @@ for (const width of [1024, 1280, 1366]) {
       });
       const row1 = page.getByTestId('toolbar-row-1');
       await row1.getByRole('button', { name: RESTAURANT_CHIP[locale], exact: true }).click();
-      await expect(row1.locator('select')).toBeVisible({ timeout: 15_000 });
+      // 10-19 PM: 🍽 메뉴 ▾ 는 위 판(카테고리)이 아니라 아래 말풍선(하위 범주)에서 고른다.
+      await expect(page.getByTestId('toolbar-row-2').locator('select')).toBeVisible({ timeout: 15_000 });
+      await expect(row1.locator('select'), 'the menu moved down to the bubble').toHaveCount(0);
       await expect(page.getByTestId('toolbar-row-2').locator('button', { hasText: '🏮' }).first()).toBeVisible({ timeout: 20_000 });
       const inView = (row: HTMLElement) => {
         const rb = row.getBoundingClientRect();

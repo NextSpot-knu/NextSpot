@@ -554,25 +554,37 @@ html.nextspot-dark .liquid-glass {
 html.nextspot-dark .glass-tail {
   filter: drop-shadow(0 -1px 3px rgb(243 234 219 / 0.3)) drop-shadow(0 -2px 9px rgb(243 234 219 / 0.16));
 }
+/* 하위 범주 말풍선(데스크톱 툴바 아래 판) — 위 판에서 음식점을 누르면 뜨는 진한 갈색(먹 #2b2320)의 반투명(10-19 PM). 칩은 각자 흰 알약이라 글자색은 그대로. */
+.sub-bubble {
+  background-color: rgb(43 35 32 / 0.72);
+  -webkit-backdrop-filter: blur(10px) saturate(160%);
+  backdrop-filter: blur(10px) saturate(160%);
+  border-color: rgb(255 255 255 / 0.16);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.18), 0 6px 22px rgb(0 0 0 / 0.25);
+}
 .glass-tail::before {
   content: '';
   position: absolute;
   inset: 0;
   clip-path: polygon(50% 0, 0 100%, 100% 100%);
-  background-color: var(--nextspot-hanji);
-  background-color: color-mix(in srgb, var(--nextspot-hanji) 68%, transparent);
+  background-color: rgb(43 35 32 / 0.72);
 }
 @media (max-width: 767.98px) {
   .glass-tail { display: none; }
 }
 @media (prefers-reduced-transparency: reduce) {
-  .glass-tail::before { background-color: var(--nextspot-hanji); }
+  .sub-bubble { background-color: rgb(43 35 32 / 0.96); -webkit-backdrop-filter: none; backdrop-filter: none; }
+  .glass-tail::before { background-color: rgb(43 35 32 / 0.96); }
+}
+@supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  .sub-bubble { background-color: rgb(43 35 32 / 0.96); }
 }
 @media (prefers-contrast: more) {
   .glass-tail, html.nextspot-dark .glass-tail {
     filter: drop-shadow(1px 0 0 var(--nextspot-muk-soft)) drop-shadow(-1px 0 0 var(--nextspot-muk-soft)) drop-shadow(0 -1px 0 var(--nextspot-muk-soft));
   }
-  .glass-tail::before { background-color: var(--nextspot-hanji); }
+  .sub-bubble { background-color: rgb(43 35 32 / 0.98); -webkit-backdrop-filter: none; backdrop-filter: none; border-color: #f3eadb; }
+  .glass-tail::before { background-color: rgb(43 35 32 / 0.98); }
 }
 
 /* 왼쪽 내비게이션 캡슐(BottomNav) — 매우 어두운 갈색 반투명 유리(10-19 PM). 밝은 지도 위에서 또렷하고, 위쪽 밝은 툴바 유리와 겹치지 않는 별개의 층으로 읽힌다.

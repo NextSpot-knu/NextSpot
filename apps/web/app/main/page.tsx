@@ -3145,7 +3145,7 @@ export default function MainPage() {
   const setupCuisineChipId = setupCuisine ? SETUP_CUISINE_CHIP[setupCuisine] ?? null : null;
   // 툴바 둘째 줄 칩(히트맵·♿·🅿·🐾) — 불투명 바탕, 켜지면 청록.
   const layerChipClass = (on: boolean) => `flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 text-[13px] font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 ${
-    on ? 'border-jade bg-jade/15 text-muk' : 'border-line bg-white text-muk-soft hover:border-jade/60 hover:text-muk'
+    on ? 'border-jade bg-[color-mix(in_srgb,var(--nextspot-jade)_18%,var(--nextspot-hanji))] text-muk' : 'border-line bg-white text-muk-soft hover:border-jade/60 hover:text-muk'
   }`;
 
   // 칩 적용 — 칩 탭과 음성 음식 요청이 같은 길: 매칭 id 집합 → applyVoiceFilter(마커·추천 풀 공통 필터)
@@ -4169,6 +4169,19 @@ export default function MainPage() {
               </button>
             );
           })}
+        </div>
+
+        {/* 2줄(데스크톱): 🔥 히트맵 · ♿ 무장애 · 🅿 주차 · (🐾) · 🏮 축제 · 🚻 화장실 · 🍃 지금 한산, 그리고 출처 칩 하나. */}
+        {/* 유리 판(말풍선)은 칩만 감싼다 — 출처 칩은 판 밖 오른쪽 끝에 따로 선다(10-19 PM: 투명 바가 출처까지 이어지지 않게). */}
+        <div data-testid="toolbar-row-2-line" className="pointer-events-none hidden items-center gap-2 md:flex">
+        {activeFilter !== '주차장' && (
+        <div ref={toolbarRow2Ref} data-testid="toolbar-row-2" className="pointer-events-auto relative min-w-0 md:rounded-2xl md:border md:p-1 sub-bubble">
+          {/* 축제·화장실·지금 한산 칩은 각자 컴포넌트의 크기를 갖고 있다 — 이 줄에서는 같은 높이(32px)로 맞춘다.
+              넘치면 다음 줄로(첫 줄과 같은 이유 — 예전에는 1024px 에서 축제·화장실·지금 한산이 숨은 스크롤 밖에 있었다). */}
+          <div className="flex min-w-0 flex-wrap items-center gap-1.5 overflow-x-auto no-scrollbar [&>button]:h-8 [&>button]:py-0 [&>button]:px-3 [&>button]:text-[13px]">
+          {activeFilter !== '주차장' && (
+            <>
+          {/* 🍽 메뉴 ▾ — 위 판에서 음식점을 누르면 그 하위(메뉴)를 이 말풍선에서 고른다(10-19 PM: 위 층 → 하위 층으로 내림). */}
           {/* 데스크톱 음식 종류 — 칩 줄 대신 🍽 메뉴 ▾ 하나(음식점에서만). 온보딩에서 고른 음식이 있으면 그 취향을 알려 준다
               (추천의 취향 일치율이 이미 그 음식을 본다 — 고르기 전에는 거르지 않는다). 칩과 같은 길(selectCuisineChip). */}
           {activeFilter === '음식점' && (
@@ -4186,18 +4199,6 @@ export default function MainPage() {
               </select>
             </label>
           )}
-        </div>
-
-        {/* 2줄(데스크톱): 🔥 히트맵 · ♿ 무장애 · 🅿 주차 · (🐾) · 🏮 축제 · 🚻 화장실 · 🍃 지금 한산, 그리고 출처 칩 하나. */}
-        {/* 유리 판(말풍선)은 칩만 감싼다 — 출처 칩은 판 밖 오른쪽 끝에 따로 선다(10-19 PM: 투명 바가 출처까지 이어지지 않게). */}
-        <div data-testid="toolbar-row-2-line" className="pointer-events-none hidden items-center gap-2 md:flex">
-        {activeFilter !== '주차장' && (
-        <div ref={toolbarRow2Ref} data-testid="toolbar-row-2" className="pointer-events-auto relative min-w-0 md:rounded-2xl md:border md:p-1 liquid-glass-desk">
-          {/* 축제·화장실·지금 한산 칩은 각자 컴포넌트의 크기를 갖고 있다 — 이 줄에서는 같은 높이(32px)로 맞춘다.
-              넘치면 다음 줄로(첫 줄과 같은 이유 — 예전에는 1024px 에서 축제·화장실·지금 한산이 숨은 스크롤 밖에 있었다). */}
-          <div className="flex min-w-0 flex-wrap items-center gap-1.5 overflow-x-auto no-scrollbar [&>button]:h-8 [&>button]:py-0 [&>button]:px-3 [&>button]:text-[13px]">
-          {activeFilter !== '주차장' && (
-            <>
               <button
                 type="button"
                 onClick={() => setShowHeatmap((prev) => !prev)}
