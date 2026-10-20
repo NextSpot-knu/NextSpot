@@ -610,7 +610,7 @@
   },
   "card": {
     "reject": "Don't show again",
-    "putOff": "Save this and see the next pick",
+    "putOff": "Save this place\nSee the next pick",
     "accept": "Let's go (walking directions)",
     "drive": "Driving directions",
     "rejectAria": "Don't show this place again",

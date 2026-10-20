@@ -790,11 +790,11 @@ test('the card face says what the place serves — a real menu as 대표 메뉴,
   await expect(menu).toHaveText('대표 메뉴쌈밥 정식 · 된장찌개 · 제육볶음');
   await expect(card(page).getByTestId('value-box')).toContainText(/지금 도보 \d+분이면 쌈밥 정식 먹으러 갈 수 있어요/);
   await expect(card(page).getByRole('button', { name: '이 장소 다시 안볼래요' })).toHaveText('다시 안볼래요');
-  // 이름표는 화면 읽기 프로그램에만 — 보이는 폭은 음식 이름에. 이름 위 배지 줄에 있어 카드를 높이지 않는다.
+  // 이름표는 화면 읽기 프로그램에만 두고, 메뉴는 순위 아래의 전체 폭에서 끝까지 읽힌다.
   await expect(menu.locator('.sr-only')).toHaveText('대표 메뉴');
   const [menuBox, rankBox] = await Promise.all([menu.boundingBox(), card(page).getByTestId('card-rank').boundingBox()]);
   if (!menuBox || !rankBox) throw new Error('card badge row is not on screen');
-  expect(Math.abs(menuBox.y + menuBox.height / 2 - (rankBox.y + rankBox.height / 2))).toBeLessThan(2);
+  expect(menuBox.y).toBeGreaterThanOrEqual(rankBox.y + rankBox.height);
 });
 
 test('a place with only a Kakao category shows the food type without calling it a menu', async ({ page }) => {
@@ -829,7 +829,7 @@ test('a restaurant with a model wait shows the estimated minutes until the meal'
   await expect(card(page).getByTestId('value-box')).toContainText('지금 출발하면 쌈밥 정식 먹기까지 약 11분 예상');
 });
 
-test('390px: the peek shows the dishes in its chip row without growing', async ({ page }) => {
+test('390px: the peek shows every displayed dish on its own full-width row', async ({ page }) => {
   test.setTimeout(90_000);
   const withMenu = { ...RESTAURANTS[2], features: { cuisine_tags: ['한식'], first_menu: '쌈밥 정식, 된장찌개' } };
   const options = {
@@ -846,14 +846,15 @@ test('390px: the peek shows the dishes in its chip row without growing', async (
   await expect(nextPick).toBeVisible();
   // 이름표는 화면 읽기 프로그램에만 — 보이는 글자는 음식 이름부터.
   await expect(peekMenu.locator('.sr-only')).toHaveText('대표 메뉴');
-  // 칩 줄 안에 들어간다: 이 고정 데이터에 늘 있는 '도착 시 영업' 칩과 같은 줄이고, 줄은 한 줄 그대로다.
+  // 메뉴가 칩 다음 줄의 전체 폭을 써서 음식 이름을 줄임표 없이 읽을 수 있다.
   const row = peekMenu.locator('xpath=..');
   const openChip = row.getByText('도착 시 영업', { exact: true });
   await expect(openChip).toBeVisible();
   const [menuBox, chipBox, rowBox] = await Promise.all([peekMenu.boundingBox(), openChip.boundingBox(), row.boundingBox()]);
   if (!menuBox || !chipBox || !rowBox) throw new Error('peek chip row is not on screen');
-  expect(Math.abs(menuBox.y + menuBox.height / 2 - (chipBox.y + chipBox.height / 2))).toBeLessThan(2);
-  expect(rowBox.height).toBeLessThan(chipBox.height + 4);
+  expect(menuBox.y).toBeGreaterThanOrEqual(chipBox.y + chipBox.height);
+  expect(menuBox.width).toBeGreaterThan(chipBox.width);
+  expect(rowBox.height).toBeGreaterThan(chipBox.height);
   await nextPick.click();
   await expect(card(page).getByRole('heading', { name: '이사부피자' })).toBeVisible();
 });

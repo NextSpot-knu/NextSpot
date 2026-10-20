@@ -1205,7 +1205,7 @@ export function RecommendationCard({
             <p
               data-testid="peek-value"
               onClick={openFromPeek}
-              className="line-clamp-2 cursor-pointer break-keep text-[14px] font-extrabold leading-snug text-muk short:line-clamp-1"
+              className={`cursor-pointer break-keep text-[14px] font-extrabold leading-snug text-muk ${foodHeadline ? '' : 'line-clamp-2 short:line-clamp-1'}`}
             >
               {/* 가정 시각으로 다시 매긴 카드는 미리보기에서도 어느 시각 기준인지 먼저 말한다(리뷰 10-07 — 휴대폰 미리보기에는
                   '+2시간 후' 단서가 없었다). 펼친 카드의 '🕒 … 기준' 알약과 같은 라벨. */}
@@ -1252,13 +1252,13 @@ export function RecommendationCard({
                   {t('card.closedToday')}
                 </span>
               )}
-              {/* 무엇을 파는 곳인가 — 남은 폭을 채우고 넘치면 말줄임(줄을 늘리지 않게 basis-0, 너무 좁으면 다음 줄). */}
+              {/* 메뉴 이름은 좁은 화면에서도 끝까지 읽히도록 칩 한 줄을 온전히 쓴다. */}
               {faceMenu && (
-                <span data-testid="peek-menu" className="inline-flex min-h-6 min-w-[4.5rem] basis-0 grow items-center gap-1 rounded-lg border border-gold/35 bg-gold/10 px-2 text-[12px] leading-4 font-bold text-muk">
+                <span data-testid="peek-menu" className="flex min-h-6 w-full basis-full items-start gap-1 rounded-lg border border-gold/35 bg-gold/10 px-2 py-1 text-[12px] leading-4 font-bold text-muk">
                   {/* 미리보기는 폭이 좁아 '대표 메뉴' 이름표가 음식 이름을 잘랐다 — 그림만 두고 음식 이름을 먼저(전체 카드는 이름표까지). */}
                   <FaceMenuIcon size={14} className="shrink-0 text-gold-deep" aria-hidden />
                   {faceMenu.kind === 'menu' && <span className="sr-only">{t('card.signatureMenu')}</span>}
-                  <span className="min-w-0 truncate">{faceMenu.items.join(' · ')}</span>
+                  <span className="min-w-0 break-words">{faceMenu.items.join(' · ')}</span>
                 </span>
               )}
             </div>
@@ -1464,14 +1464,12 @@ export function RecommendationCard({
                   : 'recommend.alternativeBasis.timing')}
               </span>
             )}
-            {/* 무엇을 파는 곳인가 — 이름 바로 위 배지 줄의 남은 폭에(카드가 높아지지 않게). 이름 아래 새 줄로 두면 휴대폰
-                영어 화면에서 '상세 정보 펼치기' 가 스크롤 흐림 밑으로 밀렸다(10-10 화면 점검). '대표 메뉴' 이름표는 화면 읽기
-                프로그램에만 — 보이는 폭은 음식 이름에(상세의 '대표 메뉴' 칸에 전체 목록과 이름표가 있다). */}
+            {/* 메뉴 이름을 끝까지 읽을 수 있도록 순위 아래에서 한 줄의 전체 폭을 쓴다. */}
             {faceMenu && (
-              <span data-testid="card-menu" className="inline-flex min-h-6 min-w-[5rem] basis-0 grow items-center gap-1 rounded-lg border border-gold/35 bg-gold/10 px-2 text-[13px] font-bold leading-4 text-muk">
+              <span data-testid="card-menu" className="flex min-h-6 w-full basis-full items-start gap-1 rounded-lg border border-gold/35 bg-gold/10 px-2 py-1 text-[13px] font-bold leading-4 text-muk">
                 <FaceMenuIcon size={14} className="shrink-0 text-gold-deep" aria-hidden />
                 {faceMenu.kind === 'menu' && <span className="sr-only">{t('card.signatureMenu')}</span>}
-                <span className="min-w-0 truncate">{faceMenu.items.join(' · ')}</span>
+                <span className="min-w-0 break-words">{faceMenu.items.join(' · ')}</span>
               </span>
             )}
           </div>
@@ -2111,7 +2109,7 @@ export function RecommendationCard({
               {confirmedAction === 'saved'
                 ? <Check size={14} className="text-jade" aria-hidden />
                 : <Bookmark size={14} className="fill-transparent transition-all duration-300 group-hover:fill-gold group-hover:scale-110 group-active:scale-125" />}
-              {t('card.putOff')}
+              <span className="whitespace-pre-line text-center leading-tight">{t('card.putOff')}</span>
             </motion.button>
           )}
           <motion.button
