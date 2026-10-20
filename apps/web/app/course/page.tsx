@@ -812,7 +812,7 @@ function CourseContent() {
             <Link
               href="/main"
               aria-label={t('course.backToMap')}
-              className="toss-pressable absolute top-4 left-4 z-20 flex items-center justify-center w-11 h-11 rounded-full bg-white/90 backdrop-blur border border-line shadow-[0_2px_10px_rgba(43,35,32,0.15)] text-muk hover:bg-white focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+              className="toss-pressable absolute top-4 left-4 md:left-[var(--rail-gutter)] z-20 flex items-center justify-center w-11 h-11 rounded-full bg-white/90 backdrop-blur border border-line shadow-[0_2px_10px_rgba(43,35,32,0.15)] text-muk hover:bg-white focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
             >
               <ArrowLeft size={18} />
             </Link>
@@ -827,7 +827,7 @@ function CourseContent() {
           </div>
 
           {/* 바텀시트 — 배민 배달 추적 화면 문법(그랩바 + rounded-t-3xl + -mt-6 겹침). */}
-          <div className="relative -mt-6 flex-1 rounded-t-3xl bg-white shadow-[0_-8px_30px_rgba(43,35,32,0.12)]">
+          <div className="relative -mt-6 flex-1 rounded-t-3xl bg-white shadow-[0_-8px_30px_rgba(43,35,32,0.12)] md:pl-[var(--rail-gutter)]">
             <div className="w-12 h-1.5 rounded-full bg-line mx-auto mt-3" aria-hidden />
 
             <div className="mx-auto w-full max-w-md md:max-w-2xl px-4 md:px-6 pt-4 pb-[calc(var(--tourist-nav-clearance)+env(safe-area-inset-bottom))] md:pb-10 space-y-5">
@@ -1839,7 +1839,7 @@ function CourseSkeleton({ mode }: { mode: "course" | "shared" }) {
       <div className="h-[38dvh] shrink-0 md:h-[42dvh] lg:h-[30dvh] w-full bg-hanji-deep animate-pulse" />
 
       {/* 시트 자리 */}
-      <div className="relative -mt-6 flex-1 rounded-t-3xl bg-white shadow-[0_-8px_30px_rgba(43,35,32,0.12)]">
+      <div className="relative -mt-6 flex-1 rounded-t-3xl bg-white shadow-[0_-8px_30px_rgba(43,35,32,0.12)] md:pl-[var(--rail-gutter)]">
         <div className="w-12 h-1.5 rounded-full bg-line mx-auto mt-3" />
 
         <div className="mx-auto w-full max-w-md md:max-w-2xl px-4 md:px-6 pt-4 pb-[calc(var(--tourist-nav-clearance)+env(safe-area-inset-bottom))] md:pb-10 space-y-6">

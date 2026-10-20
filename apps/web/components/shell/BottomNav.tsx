@@ -84,13 +84,16 @@ export default function BottomNav() {
           · 캡슐 둘(10-19 PM: 고양이 프로필 아이콘은 뺐다): 탭 5개 · 콘솔 입구 둘 + 서비스 소개. 한 줄로 두면 키 낮은 창에서 넘쳐 역할별로 나눴다.
             탭은 위쪽, 콘솔은 아래쪽(bottom-10 — Kakao 지도 로고(왼쪽 아래)를 가리지 않는다). 세로 순서는 e2e 가 잠근다(탭 → 콘솔 → 서비스 소개).
           · 키 낮은 창(short: 높이 720px 미만)에서는 칸을 64→56px 로 줄여 콘솔 입구·서비스 소개까지 스크롤 없이 들어간다(1366×650 실측 기준). */}
-      {pathname !== '/main' && <div aria-hidden className="hidden shrink-0 md:block w-[var(--rail-gutter)]" />}
+      {/* 지도(/main)와 분산코스(/course)는 화면이 캡슐 뒤까지 이어진다(10-20 PM: 캡슐 뒤가 잘린 듯 비어 보이지 않게) — 본문 쪽에서 --rail-gutter 만큼 비운다. */}
+      {!['/main', '/course'].some((r) => pathname === r || pathname.startsWith(r + '/')) && <div aria-hidden className="hidden shrink-0 md:block w-[var(--rail-gutter)]" />}
       <nav
         aria-label="주요 내비게이션"
         className="pointer-events-none fixed inset-y-0 left-3 z-40 hidden w-20 md:block"
       >
         {/* 탭 캡슐 — --rail-step = 탭 높이 + 간격. 인디케이터가 같은 값으로 움직여야 짧은 창에서도 탭에 맞는다. */}
-        <div className="rail-glass pointer-events-auto absolute left-0 top-4 flex w-20 flex-col items-center rounded-[2rem] border px-[7px] py-2 short:top-3">
+        {/* 두 캡슐을 한 묶음으로 세로 가운데에(10-20 PM: 위에 붙어 너무 높았다). 묶음이 가운데라 키 낮은 창에서도 서로 겹치지 않고, 바닥의 Kakao 로고도 비켜 간다. */}
+        <div className="pointer-events-none absolute inset-y-0 left-0 flex w-20 flex-col justify-center gap-3">
+        <div className="rail-glass pointer-events-auto flex w-20 shrink-0 flex-col items-center rounded-[2rem] border px-[7px] py-2">
           <div className="relative flex flex-col items-center gap-2 [--rail-step:4.5rem] short:gap-1 short:[--rail-step:3.75rem]">
             {/* 활성 탭 세로 슬라이딩 인디케이터 — iOS 26 처럼 밝은 유리 알약(어두운 캡슐 위) */}
             <motion.div
@@ -127,7 +130,7 @@ export default function BottomNav() {
         {/* 콘솔 캡슐 — 콘솔 입구 둘 + 서비스 소개. 라벨은 낱말 사이에서만 두 줄로 접는다(keep-all).
             ja 는 띄어쓰기가 없어 사전에 폭 없는 공백(U+200B)으로 낱말 경계를 둔다('オーナー|コンソール'·'運営|ダッシュボード').
             'ダッシュボード' 는 일곱 자라 칸(64px)보다 길다 — 라벨만 캡슐 폭(80px)까지 쓰고 ja 는 10px 로 한 줄에 넣는다. */}
-        <div className="rail-glass pointer-events-auto absolute bottom-10 left-0 flex w-20 flex-col items-center gap-1 rounded-[2rem] border px-[7px] py-2">
+        <div className="rail-glass pointer-events-auto flex w-20 shrink-0 flex-col items-center gap-1 rounded-[2rem] border px-[7px] py-2">
           {consoles.map((item) => {
             const Icon = item.icon;
             return (
@@ -145,6 +148,7 @@ export default function BottomNav() {
           })}
           <div aria-hidden className="my-1 h-px w-10 bg-line" />
           <GuideButton className="min-h-14 w-16 flex-col py-1.5" />
+        </div>
         </div>
       </nav>
 
