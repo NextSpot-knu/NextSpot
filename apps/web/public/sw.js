@@ -7,11 +7,11 @@
  *  - 정적 동일출처 GET: stale-while-revalidate(먼저 캐시로 응답, 백그라운드 갱신)
  *  - API/교차출처: 절대 가로채지 않음 → 항상 네트워크(신선도 보장, 인증/실시간)
  *
- * 캐시 버전은 이름에 박아 두고(nextspot-v1), skipWaiting + clients.claim 로
+ * 캐시 버전은 이름에 박아 두고(nextspot-v2), skipWaiting + clients.claim 로
  * 새 워커가 즉시 활성화되며 activate 에서 옛 버전 캐시를 정리한다.
  */
 
-const CACHE_VERSION = 'nextspot-v1';
+const CACHE_VERSION = 'nextspot-v2';
 
 // 안전하게 참조 가능한 앱 셸 / 핵심 정적 자산.
 // (실패해도 설치를 막지 않도록 개별 add — 일부 경로가 export 산출에 없더라도 무해)
@@ -23,6 +23,16 @@ const CORE_ASSETS = [
   '/icon.svg',
   '/icon-192.png',
   '/icon-512.png',
+  // 오프라인에서도 앱의 기본 서체를 유지한다.
+  '/fonts/Freesentation-1Thin.woff2',
+  '/fonts/Freesentation-2ExtraLight.woff2',
+  '/fonts/Freesentation-3Light.woff2',
+  '/fonts/Freesentation-4Regular.woff2',
+  '/fonts/Freesentation-5Medium.woff2',
+  '/fonts/Freesentation-6SemiBold.woff2',
+  '/fonts/Freesentation-7Bold.woff2',
+  '/fonts/Freesentation-8ExtraBold.woff2',
+  '/fonts/Freesentation-9Black.woff2',
 ];
 
 const OFFLINE_URL = '/offline.html';
