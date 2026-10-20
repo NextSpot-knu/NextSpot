@@ -1226,9 +1226,9 @@ export function RecommendationCard({
               )}
               {/* 무엇을 파는 곳인가 — 남은 폭을 채우고 넘치면 말줄임(줄을 늘리지 않게 basis-0, 너무 좁으면 다음 줄). */}
               {faceMenu && (
-                <span data-testid="peek-menu" className="inline-flex min-w-[4.5rem] basis-0 grow items-center gap-1 text-[11px] leading-[15px] font-semibold text-muk-soft">
+                <span data-testid="peek-menu" className="inline-flex min-h-6 min-w-[4.5rem] basis-0 grow items-center gap-1 rounded-lg border border-gold/35 bg-gold/10 px-2 text-[12px] leading-4 font-bold text-muk">
                   {/* 미리보기는 폭이 좁아 '대표 메뉴' 이름표가 음식 이름을 잘랐다 — 그림만 두고 음식 이름을 먼저(전체 카드는 이름표까지). */}
-                  <FaceMenuIcon size={12} className="shrink-0" aria-hidden />
+                  <FaceMenuIcon size={14} className="shrink-0 text-gold-deep" aria-hidden />
                   {faceMenu.kind === 'menu' && <span className="sr-only">{t('card.signatureMenu')}</span>}
                   <span className="min-w-0 truncate">{faceMenu.items.join(' · ')}</span>
                 </span>
@@ -1430,8 +1430,8 @@ export function RecommendationCard({
                 영어 화면에서 '상세 정보 펼치기' 가 스크롤 흐림 밑으로 밀렸다(10-10 화면 점검). '대표 메뉴' 이름표는 화면 읽기
                 프로그램에만 — 보이는 폭은 음식 이름에(상세의 '대표 메뉴' 칸에 전체 목록과 이름표가 있다). */}
             {faceMenu && (
-              <span data-testid="card-menu" className="inline-flex min-w-[5rem] basis-0 grow items-center gap-1 text-[12px] font-semibold leading-4 text-muk-soft">
-                <FaceMenuIcon size={13} className="shrink-0" aria-hidden />
+              <span data-testid="card-menu" className="inline-flex min-h-6 min-w-[5rem] basis-0 grow items-center gap-1 rounded-lg border border-gold/35 bg-gold/10 px-2 text-[13px] font-bold leading-4 text-muk">
+                <FaceMenuIcon size={14} className="shrink-0 text-gold-deep" aria-hidden />
                 {faceMenu.kind === 'menu' && <span className="sr-only">{t('card.signatureMenu')}</span>}
                 <span className="min-w-0 truncate">{faceMenu.items.join(' · ')}</span>
               </span>

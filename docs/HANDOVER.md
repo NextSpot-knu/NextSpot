@@ -6,6 +6,7 @@
 
 ## 배포 상태
 
+- **2026-10-21 KST main `8d4b56b..`(이 기록 커밋, 웹·문서만).** 추천 카드의 메뉴 표시 대비 강화. Vercel 배포·라이브 확인은 푸시 뒤 확인 대기. API·스키마 무변경. 되돌림 = 이 기록 커밋 revert.
 - **2026-10-21 KST main `ee5bf19..`(이 기록 커밋, 웹 CSS·문서만).** 1366×650 추천 카드 상세 펼치기 첫 화면 노출 수정. Vercel 프로덕션 배포·라이브 화면 확인은 푸시 뒤 확인 대기. API·스키마 무변경, Render 재시작 없음. 되돌림 = 이 기록 커밋 revert.
 - **2026-10-19 낮 KST main `f80454c..20a42fe`(PM "푸시해" · "그냥 바로 올려" — 웹·문서만: `/main` 지도 위 탐색 층 유리 라이트 35% · 야간 40% · 날씨 알약 유리, 아래 2026-10-19).** PR #18 의 web·api·schema·docs 4잡과 Vercel 미리보기 통과(e2e 는 푸시 시점에 진행 중 — 푸시는 PM 지시로 먼저), 로컬은 마지막 값 조정 뒤 web lint·typecheck·test·build·check-docs·e2e `map-time-strip` 통과. Vercel 프로덕션 배포 완료·라이브 CSS 에 35%/40% 확인, API `/health` `deploy.commit=f80454c07ba1` 그대로(재시작 없음). 되돌림 = Vercel `dpl_2D3C72kz7f2dC42CUE85CZ3DiYZr`(10-12 웹 그대로).
 - **API 싱가포르 이전(2026-10-09 KST 21시, PM).** 새 Render 서비스 `nextspot-t2ib`(srv-db4dg1d9fdbs73bk7lo0, Singapore, `0.5c-512mb`, Dockerfile `./apps/api/Dockerfile` · 컨텍스트 `./apps/api` — 대시보드 수동 생성이라 Blueprint 밖) → https://nextspot-t2ib.onrender.com. Vercel `NEXT_PUBLIC_FASTAPI_URL`(Config 형식) 교체 뒤 프로덕션 재배포 `dpl_6st1eMPc85jHbBCukXnyNmiU3PFr`(같은 `05af862`) — 번들에 새 주소 3·오리건 0, 라이브 /main·/waiting·/course 정상·API 실패·CORS 오류 0(10-09 클라우드 세션 확인). 같은 게스트로 by-type 첫 호출 서버 시간 오리건 ≈2.9초 → 싱가포르 ≈0.75초(표본 1). Actions 변수 `BACKEND_HEALTH_URL` 교체 끝. Vault 수집 URL 2개(`configure_*_collection`) 교체 · Render Build Filters 설정도 PM 이 끝냈다(10-09). **남은 것**: 10분 수집이 새 서비스로 가는지 Render 로그(`nextspot-t2ib` 에 `POST /api/v1/area-demand/snapshots/collect` 10분마다)로 확인 — `/health` 로는 구분 안 됨, 이 세션은 Render 에 연결돼 있지 않다 · 오리건 `nextspot-api` 2~3일 유지 뒤 정지 · `render.yaml`(Blueprint 는 아직 오리건 서비스를 관리) 정리. 되돌림 = Vercel `dpl_BQEyd1sREmLTUDpYWtRwZZmo3ij4`.
@@ -256,6 +257,15 @@ from checks order by seq;
 
 최신이 위. 10개를 넘으면 가장 오래된 항목을 `archive/HANDOVER_LOG.md` 맨 위로 옮긴다.
 
+## 2026-10-21b — 추천 카드의 메뉴 표시 강조
+
+- 도구·브랜치: Codex / `fix/rail-indicator-round-1020`(main `8d4b56b` 위)
+- 커밋: 이 기록 포함 1건(웹·문서만)
+- 한 것: 추천 카드 전체와 휴대폰 미리보기의 메뉴·음식 종류에 금빛 배경과 테두리, 진한 글자와 큰 아이콘을 적용해 한눈에 읽히게 했다. 메뉴 데이터·순서·접근성 이름은 유지.
+- 검증: web build · check-docs. 간단한 UI 변경이라 테스트는 실행하지 않음(PM 지시).
+- 다음·미결: Vercel 배포·라이브 카드 확인.
+- 사람 작업: 없음.
+
 ## 2026-10-21 — 1366×650 지도 추천 카드의 상세 펼치기 노출
 
 - 도구·브랜치: Codex / `fix/rail-indicator-round-1020`(main `ee5bf19` 위)
@@ -358,17 +368,6 @@ from checks order by seq;
 - 다음·미결: **미룬 것** — 배치 B1~B5(랜딩·카드 재배치·지도 시간 띠·콘솔 레이아웃·/waiting·/explore·/course), 순위를 바꾸는 API(I28 개방형 관광지 등급·I09 서버 카테고리 게이트·I01/I06 장소별 예측·I33 — 심사 뒤), 15번 수락률 재정의(안 함). **PM 서명 대기** — B0 화면(D2), 화살표 다섯째 조건(관광 지수만으로 정한 기준지 등급이면 화살표 없음)·'취향 N% 일치' 50% 하한, en '{time} 도착' 문구('Arriving {time}'), 대기 분 정수화 — /main 카드는 올림(A4), 서버 사유(`card_minutes.wait_minutes`)·/explore 대기 칸·Top 3 표·/waiting 은 반올림이라 9.2분이 '10분'·'9분'으로 갈릴 수 있다(모델 미학습인 지금은 /main 카드에 대기 칸이 없어 화면에 안 드러남) — 제안: B2/B5 때 한 릴리스로 올림 통일(`tests/services/test_card_minutes.py` 가 웹 규칙과 대조). **심사 뒤** — 엔진 검증 메뉴 되살리기(`AdminSidebar.tsx` `HIDDEN_FROM_MENU`), 서버 `visit_confirmations_note` 빼기.
   **배포 순서·되돌림(한 경로)**: 이 브랜치는 웹과 API(C1)를 함께 담고, main 푸시 한 번이 Vercel·Render 를 **같이** 배포한다(`render.yaml` 에 자동 배포 끄기 없음 — 웹만 먼저 내보낼 수 없다. C1 병합 `2c0219c` 위에 웹 403 충돌 해결과 뒤 커밋이 얹혀 API 만 떼어 낼 수도 없다). 그래서 **main 푸시 자체를 KST 밤(심사가 없을 시간)에만** 한다 — 낮에 푸시하면 Render 512MB 인스턴스가 재시작해 메모리 캐시·분당 제한 상태가 비는 순간 심사위원이 들어올 수 있다. 푸시 전에 둘 다 적는다: Vercel 현재 프로덕션 배포 id, Render "이전 배포". 되돌림: 웹은 그 id 로 Vercel instant rollback, API 는 그 Render 배포 재배포(또는 `0be9872..` 범위의 커밋을 최신부터 차례로 `git revert` — 병합 6건은 `-m 1` — 해 푸시. 통합 후속 커밋이 병합 내용에 기대므로 병합만 골라 되돌리지 않는다). 배포 뒤 `/health`·메모리, `GET /api/v1/search/keyword?q=골굴사` 가 contentid 127693 을 주는지, `?q=불국사` 에 불국사가 나오는지, 1536×730·390 라이브 스모크(F1~F5, ⓒ한국관광공사 출처 4화면, 심사 계정 2개 첫 화면). `60d80ad`(사유 올림)는 `599a7a2`(웹 규칙 그대로)와 함께만 나간다 — 같은 레인이라 이 브랜치에서는 늘 함께다.
 - 사람 작업: 배치 D — D1(Supabase 익명 로그인 300/h)은 10-06 밤 사용자가 끝냄. 나머지는 "사람 작업 대기" 맨 위.
-
-## 2026-10-02 — 실사진 적재(경주시 사진 · 법정동 목록 · 관광지 17곳) + 웹 '사진: 경주시' 출처 → `release/1002`
-
-- 도구·브랜치: Claude Code(노트북) · 리뷰 워크플로(웹·적재 2렌즈 → 반박 검증) / `release/1002`(main `e8cfb33` 위 — 09-29 노트북에만 있던 `feat/real-photos-ingest`·`web/city-credit` 를 10-02 원격에 올리고 코드 커밋만 옮김, 그쪽 HANDOVER 커밋 5건은 이 항목으로 합침) + 데스크톱 `docs/switches-0930` 2건
-- 커밋: 526ff09..1a47316(적재 9건) · e5f3d41..14b65b5(웹 5건) · 001d358·dd92462(데스크톱 기록) · 이 기록
-- 한 것: ① 경주시 「메뉴별음식점」 대표 사진을 사진이 하나도 없는 매칭 행에만 `gallery_images` + 출처 `features.city_photo` 로(TourAPI 사진이 오면 둘 다 뺀다) — **변수 `GYEONGJU_CITY_PHOTO_ENABLED` 기본 꺼짐**. ② TourAPI 음식점·문화시설·관광지를 법정동 목록으로도 받아 사각지대를 메움(새 행 중복 가드 80m·관광지 300m, 보류 4곳 `EXCLUDED_CONTENTIDS`, 이름 겹치는 이웃 관광지 쌍은 적재 로그). ③ `features.manual_hidden` 행을 밤 적재가 다시 켜지 않는다. ④ 웹: 경주시 사진이 **보인 뒤에만** '사진: 경주시'(4로케일, 관광객 화면 4곳), 짝 없는 경주시 사진은 띄우지 않음 · 320px 영어에서 말줄임 대신 접기 · 대기 보드에서 옆 카드 Wikimedia 출처와 첫 줄 높이 맞춤(`14b65b5` — 09-29 리뷰 2건, 각 3표 확인).
-  첫 밤 예상(09-29 대조 + 10-02 리뷰 재현): 새 행 약 31곳(관광지 17 · 문화시설 7 · 음식점 7, 전부 사진) · 적재 쿼터 약 +100콜/밤.
-- 검증: api ruff + pytest 2419(보류 반영 뒤 2420) · 스키마 파리티 · check-docs · web lint 0 errors(경고 153)·typecheck·test 71파일·build · e2e 108 passed(3100, 재시도 0) · `14b65b5` 의 새 e2e 2건은 고치기 전 컴포넌트에서 실패 · 독립 리뷰: 웹 0건, 적재 minor 2건(2표 확인 — 아래).
-- 다음·미결: **PM 결정 10-02 "추천대로" — 아래 5곳을 `EXCLUDED_CONTENTIDS` 로 보류(`1492402`·`2781625`·`2756694`·`3036159`·`3036287`, 시험 1건 — 목록 없이는 실패), 첫 밤 새 행 약 26곳(관광지 14 · 문화시설 5 · 음식점 7). 월성이랑 숨기기는 반영 뒤 SQL(사람 작업 ⑦).** 당시 안 — ⓐ 한 곳에 카드 두 장: 대릉원 일원 1492402(천마총 204m · 경주역사유적지구 61m) · 금장대 수변공원 2781625 · 흥무로 벚꽃길 2756694 는 넣지 않기, 월성이랑 숨기기를 추천(반영 전이면 `EXCLUDED_CONTENTIDS` 한 줄씩). ⓑ 리뷰가 찾은 같은 자리 새 행 — 가드가 새 행끼리·음식점↔비음식점을 견주지 않는다: 플레이스 씨 3036159(Kakao 플레이스씨 한식당 6m, 같은 가게) · 경주쪽샘유적발굴관 3036287(쪽샘지구 3032585 와 같은 주소 0m) — 둘 다 보류 추천, 국립경주박물관 ↔ 신라천년서고(186m, 다른 건물)는 넣기.
-  알아 둘 것: 가드는 숨긴(비활성) 행을 견주지 않는다 — 사람 작업 ③(Kakao 중복 숨기고 TourAPI 행이 대신 들어오게)은 이 동작에 기댄다. 거꾸로 **폐업으로 Kakao 행을 숨길 때는 같은 가게의 TourAPI contentid 를 `EXCLUDED_CONTENTIDS` 에도** 넣어야 다음 밤 새 카드로 돌아오지 않는다(운영 숨김 행 0개 — 지금은 해당 없음).
-- 사람 작업: main 반영 뒤 실사진 DB 정리(①~⑦) · 경주시 확인 메일 · 웹 출처가 운영에 뜬 뒤 변수 켜기("사람 작업 대기"). 09-29 의 "오늘 밤 신라고분정보센터 사진 23장" 은 PM 이 09-29 16:00 에 적용했다(빠짐).
 
 ## 기록 규칙
 
