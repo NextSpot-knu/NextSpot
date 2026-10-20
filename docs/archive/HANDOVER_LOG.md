@@ -1,4 +1,13 @@
 # HANDOVER 로그 (2026-06-30 ~ 2026-08-28) 
+## 2026-09-30 — 진행 중: "아직 느리다" — 대기 보드·추천·코스 요청 경로 정밀 최적화 (조사 단계, 코드 변경 없음)
+
+- 도구·브랜치: Claude Code(데스크톱) / `docs/switches-0930`(main `e8cfb33` 위, 문서만)
+- 커밋: 4fd6a00 + 이 기록
+- 한 것: 사용자 지시(09-30 01:4x) — "Render 에 부하를 더하지 말고, 제한된 자원 안에서 정밀하게 최적화". 운영 공개 GET 실측(데스크톱 → Render, 한 번씩만): `/health` p50 0.25초(한국↔오리건 왕복이 바닥) · `/infrastructures` 0.26~0.57초(유휴 뒤 첫 요청 3.3초 1회 — 시각 경계 재조립 의심, 미확인) · `/congestion/estimates` 0.27~1.5초 · `/area-demand/forecast` 0.26~1.19초.
+  무거운 화면은 인증 POST(쓰기 포함)라 운영에서 재지 않는다. 구조 발견: `/waiting` 은 by-type 4유형(각 8곳)을 **순차 4요청**으로 부른다(waiting/page.tsx — 동시 요청 503 이력 때문) — 요청마다 한국↔오리건 왕복·사용자 조회·같은 출발점 보행 탐색·근거 조회·저장이 되풀이된다.
+- 다음: 로컬 하니스(실 DB 읽기만 — httpx 층에서 GET·읽기 RPC(`latest_congestion_for_facilities`·`area_demand_points_near`)만 통과, 나머지 쓰기·외부 LLM/카카오 호출은 가짜 응답, 인증은 dependency_overrides) + py-spy(설치됨)로 by-type(4유형·새 사용자)·보드 4연속·`/recommendations`·`/courses/plan` 의 CPU 핫스팟·DB 왕복 수를 잰다 → 오리건↔서울 왕복(~130ms)×왕복 수 + CPU 로 Render 시간을 추정 → 후보: 보드 한 요청(4유형을 한 번의 후보·경로·근거 계산으로) · 요청당 DB 왕복 줄이기 · 핫스팟 제거. 설계는 레드팀 뒤, 결과가 같음을 시험으로 잠근 다음 구현.
+- 사람 작업: 없음(shadow 게이트는 10-01 01:37 KST 이후)
+
 ## 2026-09-29c — API 재설계 P3 배치 B: 보행 경로 csr 커널 (스위치 꺼진 채 — memo, 09-30 `dd2afc9` 로 main 반영)
 
 - 도구·브랜치: Claude Code(데스크톱) · 독립 리뷰 워크플로(동등성·운영 2렌즈 → 반박 검증, 4에이전트) / `perf/p3b-csr-0929`(`docs/handover-0929-sync` 위)

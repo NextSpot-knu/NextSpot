@@ -772,6 +772,8 @@ html.nextspot-dark .glass-tail {
 @container recpanel (max-height: 600px) { .rec-photo { height: 80px; } }
 @container recpanel (max-height: 540px) { .rec-photo { height: 56px; } }
 @container recpanel (max-height: 480px) { .rec-photo { height: 40px; } }
+/* 짧은 데스크톱 패널에서는 내용 간격을 압축해 상세 펼치기까지 첫 화면에 둔다. */
+@container recpanel (max-height: 540px) { .rec-scroll > div { gap: 4px; } }
 
 /* 카드 안쪽 스크롤 — 휴대폰은 막대를 숨기고, 데스크톱은 얇은 금빛 막대로 더 있는 내용을 알린다. */
 .rec-scroll { scrollbar-width: none; -ms-overflow-style: none; }
