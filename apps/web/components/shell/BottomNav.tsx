@@ -90,11 +90,16 @@ export default function BottomNav() {
         aria-label="주요 내비게이션"
         className="pointer-events-none fixed inset-y-0 left-3 z-40 hidden w-20 md:block"
       >
-        {/* 탭 캡슐 — 선택 표시는 탭 사이에서 공유 레이아웃으로 이동해 짧은 창에서도 실제 탭 위치에 맞는다. */}
+        {/* 탭 캡슐 — 선택 표시는 합성 가능한 transform 으로 이동해 페이지 전환 중에도 부드럽게 반응한다. */}
         {/* 두 캡슐을 한 묶음으로 세로 가운데에(10-20 PM: 위에 붙어 너무 높았다). 묶음이 가운데라 키 낮은 창에서도 서로 겹치지 않고, 바닥의 Kakao 로고도 비켜 간다. */}
         <div className="pointer-events-none absolute inset-y-0 left-0 flex w-20 flex-col justify-center gap-3">
         <div className="rail-glass pointer-events-auto flex w-20 shrink-0 flex-col items-center rounded-[2rem] border px-[7px] py-2">
-          <div className="relative flex flex-col items-center gap-2 short:gap-1">
+          <div className="relative flex flex-col items-center gap-2 [--rail-step:4.5rem] short:gap-1 short:[--rail-step:3.75rem]">
+            <span
+              aria-hidden
+              className="pointer-events-none absolute left-0 top-0 w-16 h-16 short:h-14 rounded-[1.5rem] bg-hanji/20 shadow-[inset_0_1px_0_rgba(255,255,255,0.28)] transition-transform duration-200 ease-out will-change-transform"
+              style={{ transform: `translate3d(0, calc(${activeIndex} * var(--rail-step)), 0)` }}
+            />
             {tabs.map((tab) => {
               const Icon = tab.icon;
               const isActive = activeTab === tab.id;
@@ -107,16 +112,7 @@ export default function BottomNav() {
                     isActive ? 'text-gold-deep' : 'text-muk-soft hover:text-muk'
                   }`}
                 >
-                  {isActive && (
-                    <motion.span
-                      layoutId="desktop-rail-active-tab"
-                      initial={false}
-                      transition={interactionSpring}
-                      aria-hidden
-                      className="pointer-events-none absolute inset-0 rounded-[1.5rem] bg-hanji/20 shadow-[inset_0_1px_0_rgba(255,255,255,0.28)]"
-                    />
-                  )}
-                  <div className="relative z-10 transition-transform duration-300 ease-out hover:scale-110">
+                  <div className="relative z-10">
                     <Icon size={24} className={isActive ? 'text-gold-deep' : 'text-muk-soft'} />
                   </div>
                   {/* 긴 라벨('지금 출발하면?')은 공백 기준 2줄로 자연 래핑 — h-16 안에 수용된다. */}
