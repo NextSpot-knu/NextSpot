@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono, Noto_Sans_KR, Noto_Serif_KR } from "next/font/google";
 import "./globals.css";
 import Script from "next/script";
 import PageTransition from "@/components/shell/PageTransition";
@@ -18,11 +17,6 @@ import ThemeToaster from "@/components/shell/ThemeToaster";
 import PublicSettingsProvider from "@/components/shell/PublicSettingsProvider";
 import GuideProvider from "@/components/guide/GuideProvider";
 
-const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
-const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
-// 본문 한글 산세(Noto Sans KR) + 제목 한글 명조(Noto Serif KR) — 경주 관광 헤리티지 톤.
-const notoSansKr = Noto_Sans_KR({ variable: "--font-noto-sans-kr", weight: ["400", "500", "700"], subsets: ["latin"] });
-const notoSerifKr = Noto_Serif_KR({ variable: "--font-noto-serif-kr", weight: ["500", "700"], subsets: ["latin"] });
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://nextspot-nu.vercel.app";
 
 export const metadata: Metadata = {
@@ -63,7 +57,7 @@ const themeBootstrapScript = `(function(){try{var p=location.pathname;var enable
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html suppressHydrationWarning lang="ko" className={`${geistSans.variable} ${geistMono.variable} ${notoSansKr.variable} ${notoSerifKr.variable} h-full antialiased`}>
+    <html suppressHydrationWarning lang="ko" className="h-full antialiased">
       <head>
         <Script id="nextspot-theme" strategy="beforeInteractive" dangerouslySetInnerHTML={{ __html: themeBootstrapScript }} />
         <Script

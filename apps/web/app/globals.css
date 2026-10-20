@@ -117,12 +117,12 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  /* 서체: 전역 통일 — Freesentation 우선, 로드 전/실패 시 기존 한글 폴백 스택 유지.
+  /* 서체: 전역 통일 — Freesentation 우선, 로드 전/실패 시 기기 서체로 폴백.
      본문·제목·버튼·카드·가이드 등 모든 텍스트가 font-sans/font-serif 토큰을 거치므로
      여기 한 곳만 바꾸면 앱 전체에 전파된다("다 같은 글씨체"가 목표). */
-  --font-sans: 'Freesentation', var(--font-noto-sans-kr), var(--font-geist-sans), system-ui, sans-serif;
-  --font-serif: 'Freesentation', var(--font-noto-serif-kr), Georgia, serif;
-  --font-mono: var(--font-geist-mono);
+  --font-sans: 'Freesentation', 'Apple SD Gothic Neo', 'Malgun Gothic', system-ui, sans-serif;
+  --font-serif: 'Freesentation', Georgia, serif;
+  --font-mono: ui-monospace, 'SFMono-Regular', Consolas, monospace;
 
   /* 한지(관광객 라이트) */
   --color-hanji: var(--nextspot-hanji);           /* 배경 — 한지 아이보리 */
@@ -176,11 +176,11 @@ html:lang(ko) body {
    ko 는 그대로다. 레이어 밖 규칙이라 Tailwind 의 font-sans/font-serif 유틸보다 앞선다. */
 html:lang(ja),
 html:lang(ja) :is(body, .font-sans, .font-serif) {
-  font-family: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", "Noto Sans CJK JP", Meiryo, "Yu Gothic UI", 'Freesentation', var(--font-noto-sans-kr), system-ui, sans-serif;
+  font-family: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", "Noto Sans CJK JP", Meiryo, "Yu Gothic UI", 'Freesentation', system-ui, sans-serif;
 }
 html:lang(zh),
 html:lang(zh) :is(body, .font-sans, .font-serif) {
-  font-family: "PingFang SC", "Noto Sans SC", "Noto Sans CJK SC", "Microsoft YaHei UI", "Microsoft YaHei", 'Freesentation', var(--font-noto-sans-kr), system-ui, sans-serif;
+  font-family: "PingFang SC", "Noto Sans SC", "Noto Sans CJK SC", "Microsoft YaHei UI", "Microsoft YaHei", 'Freesentation', system-ui, sans-serif;
 }
 /* 금칙(줄 머리에 '、' '。' '，' 가 홀로 오지 않게) — 엄격하게. break-keep(한국어용 낱말 단위)은 띄어쓰기가 없는
    일본어·중국어에서 줄을 끊을 자리를 없애 칸 밖으로 밀거나 엉뚱한 곳에서 잘랐다 — 그 언어의 규칙으로 되돌린다.

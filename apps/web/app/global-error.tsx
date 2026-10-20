@@ -9,8 +9,7 @@ import { AlertTriangle, RotateCcw } from 'lucide-react';
 //
 // 루트 레이아웃이 무너진 상황이라 I18nProvider(lib/i18n/I18nProvider.tsx)도 함께 못 붙어있을
 // 수 있어 t() 를 쓰지 않고 한국어 문구 + 영어 한 줄을 하드코딩한다. 같은 이유로 layout.tsx 가
-// next/font 로 <html> 에 심는 폰트 CSS 변수(--font-noto-sans-kr 등)도 여기서는 없으므로
-// globals.css 의 font-sans 유틸(그 변수 체인에 의존)은 쓰지 않고 브라우저 기본 sans-serif 를 쓴다.
+// 서체 로드도 보장되지 않으므로 font-sans 유틸 대신 브라우저 기본 sans-serif 를 쓴다.
 // 색 토큰(bg-hanji/text-muk/bg-gold 등)은 :root 에 고정 hex 로 정의돼 있어 정상 동작한다.
 //
 // 정적 export(output:'export') 호환 — 서버 액션/route handler 없이 클라이언트 전용 로직만 사용.
