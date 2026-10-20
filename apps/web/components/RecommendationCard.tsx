@@ -1217,6 +1217,12 @@ export function RecommendationCard({
               {peekValueText}
             </p>
           )}
+          {showArrivalLine && currentTime && arrivalTime && (
+            <span className="inline-flex w-fit items-center gap-1.5 rounded-full bg-jade/15 px-2.5 py-0.5 text-[12px] font-extrabold text-jade" data-testid="peek-arrival-line">
+              <Clock size={13} className="shrink-0" aria-hidden />
+              {t('card.arrivalLine', { depart: formatTime(currentTime), arrive: formatTime(arrivalTime) })}
+            </span>
+          )}
           <div className="flex flex-col gap-2">
           <div className="min-w-0 w-full cursor-pointer" onClick={openFromPeek}>
             <div className="flex items-center gap-1.5">

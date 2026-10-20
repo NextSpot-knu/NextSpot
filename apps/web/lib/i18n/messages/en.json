@@ -609,13 +609,13 @@
     "authCta": "Go to the map"
   },
   "card": {
-    "reject": "See next pick",
-    "putOff": "Save for later",
-    "accept": "Walk there",
+    "reject": "Don't show again",
+    "putOff": "Save this and see the next pick",
+    "accept": "Let's go",
     "drive": "Driving directions",
-    "rejectAria": "See the next recommended place",
-    "putOffAria": "Save this place to view later",
-    "acceptAria": "Start navigation here",
+    "rejectAria": "Don't show this place again",
+    "putOffAria": "Save this place and see the next pick",
+    "acceptAria": "Let's go, start walking directions",
     "checkHoursKakaoHint": "Before you set off, we'll show the opening hours on Kakao Map.",
     "likelyClosedReason": "Expected arrival {time} · late at night, we recommend checking hours before you go.",
     "open": "Open",
@@ -1554,8 +1554,8 @@
     "tooltipLabel": "Preference strength",
     "radarName": "Taste profile",
     "setupCta": "Set your preferences to build your own profile",
-    "learnHint": "Taking directions or tapping “See next pick” updates this profile right away.",
+    "learnHint": "Taking directions or tapping “Don't show again” updates this profile right away.",
     "detailsToggle": "Details",
-    "detailsBody": "Taking directions (+10%) or tapping “See next pick” (−5%) adjusts all 8 taste axes right away."
+    "detailsBody": "Taking directions (+10%) or tapping “Don't show again” (−5%) adjusts all 8 taste axes right away."
   }
 }

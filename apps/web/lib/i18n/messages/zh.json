@@ -609,13 +609,13 @@
     "authCta": "前往地图"
   },
   "card": {
-    "reject": "查看下一个推荐",
-    "putOff": "稍后再看",
-    "accept": "步行导航",
+    "reject": "不再显示",
+    "putOff": "先收藏，再看下一个推荐",
+    "accept": "现在就去",
     "drive": "驾车导航",
-    "rejectAria": "查看下一个推荐地点",
-    "putOffAria": "将此地点保存到稍后查看",
-    "acceptAria": "开始导航到这里",
+    "rejectAria": "不再显示这个地点",
+    "putOffAria": "收藏这个地点并查看下一个推荐",
+    "acceptAria": "现在就去，开始步行导航",
     "checkHoursKakaoHint": "出发前，我们会先在Kakao地图为您显示营业时间。",
     "likelyClosedReason": "预计 {time} 抵达 · 深夜出行前建议先确认营业时间。",
     "open": "展开",
@@ -1554,8 +1554,8 @@
     "tooltipLabel": "偏好强度",
     "radarName": "口味档案",
     "setupCta": "设置偏好，即可生成专属于你的档案",
-    "learnHint": "使用导航或点“查看下一个推荐”，都会立即更新这份档案。",
+    "learnHint": "使用导航或点“不再显示”，都会立即更新这份档案。",
     "detailsToggle": "详情",
-    "detailsBody": "使用导航（+10%）或点“查看下一个推荐”（−5%）会立即调整8个口味维度。"
+    "detailsBody": "使用导航（+10%）或点“不再显示”（−5%）会立即调整8个口味维度。"
   }
 }

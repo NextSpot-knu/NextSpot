@@ -474,7 +474,7 @@ test.describe('phone recommendation peek', () => {
     await expect(peek).toContainText('도보 4분');
     await expect(peek.getByTestId('peek-value')).toHaveText(COMPARE_HEADER);
     await expect(peek.getByTestId('peek-value')).toContainText('한산');
-    await expect(peek.getByRole('button', { name: '여기로 길안내 시작' })).toBeVisible();
+    await expect(peek.getByRole('button', { name: '바로 갈래요, 도보 길안내 시작' })).toBeVisible();
     await expect(page.getByTestId('value-box')).toHaveCount(0);
 
     // 미리보기 줄을 누르면 전체 카드.
@@ -491,7 +491,7 @@ test.describe('phone recommendation peek', () => {
     await expect(page.getByText(COMPARE_HEADER).first()).toBeVisible();
 
     // 전체 카드의 도보 길안내.
-    await page.getByRole('button', { name: '여기로 길안내 시작' }).click();
+    await page.getByRole('button', { name: '바로 갈래요, 도보 길안내 시작' }).click();
     const active = await page.evaluate(() => JSON.parse(localStorage.getItem('nextspot_active_trip') ?? 'null'));
     expect(active.facilityId).toBe('cand-restaurant');
     expect(active.status).toBe('navigating');
@@ -506,7 +506,7 @@ test.describe('phone recommendation peek', () => {
 
     const peek = page.getByTestId('rec-card-peek');
     await expect(peek).toBeVisible({ timeout: 25_000 });
-    const go = peek.getByRole('button', { name: '여기로 길안내 시작' });
+    const go = peek.getByRole('button', { name: '바로 갈래요, 도보 길안내 시작' });
     await expectTappable(go);
     await go.click();
     const active = await page.evaluate(() => JSON.parse(localStorage.getItem('nextspot_active_trip') ?? 'null'));
@@ -535,7 +535,7 @@ test.describe('phone recommendation peek', () => {
       const discovery = page.getByRole('button', { name: /경주가 처음이라면/ });
       const cafe = page.getByRole('button', { name: '카페', exact: true });
       const tools = page.getByRole('button', { name: '필터·편의' });
-      const go = page.getByTestId('rec-card-peek').getByRole('button', { name: '여기로 길안내 시작' });
+      const go = page.getByTestId('rec-card-peek').getByRole('button', { name: '바로 갈래요, 도보 길안내 시작' });
       for (const control of [search, discovery, page.getByRole('button', { name: '음식점', exact: true }), cafe, tools, go]) {
         await expectTappable(control);
       }
@@ -612,7 +612,7 @@ test.describe('phone recommendation peek', () => {
     test('a slightly shaky tap on the peek 도보 길안내 still starts the walk', async ({ page }) => {
       test.setTimeout(90_000);
       const peek = await openPeek(page);
-      const go = peek.getByRole('button', { name: '여기로 길안내 시작' });
+      const go = peek.getByRole('button', { name: '바로 갈래요, 도보 길안내 시작' });
       await expectTappable(go);
       const [x, y] = await centerOf(go);
       // 6px 흔들린 탭 — 드래그 시작(3px)은 넘지만 밀기는 아니다.
@@ -634,7 +634,7 @@ test.describe('phone recommendation peek', () => {
     test('a swipe up that starts on 도보 길안내 opens the card and does not start the walk', async ({ page }) => {
       test.setTimeout(90_000);
       const peek = await openPeek(page);
-      const [x, y] = await centerOf(peek.getByRole('button', { name: '여기로 길안내 시작' }));
+      const [x, y] = await centerOf(peek.getByRole('button', { name: '바로 갈래요, 도보 길안내 시작' }));
       await touchPath(page, [[x, y], [x, y - 20], [x, y - 45], [x, y - 70], [x, y - 90]], 16);
       await expect(peek).toBeHidden();
       await page.waitForTimeout(500);

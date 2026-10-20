@@ -204,7 +204,7 @@ for (const viewport of DESKTOPS) {
       // 바닥 버튼보다 위에서 끝난다(타일이 바닥 버튼에 반쯤 가리던 화면 — 10-06 실측).
       const [detailsBox, rejectBox] = await Promise.all([
         details.boundingBox(),
-        card(page).getByRole('button', { name: '다음 추천 장소 보기' }).boundingBox(),
+        card(page).getByRole('button', { name: '이 장소 다시 안볼래요' }).boundingBox(),
       ]);
       expect(detailsBox!.y + detailsBox!.height).toBeLessThanOrEqual(rejectBox!.y);
       // 순위 타일·근거 원자료는 얼굴에 없다(추천 근거 자세히 안).
@@ -703,12 +703,12 @@ test('a pin outside the list opens as 선택한 장소, a search hit too, and a 
   await expect(card(page).getByTestId('card-rank')).toHaveText('선택한 장소');
 });
 
-test('다음 후보 보기 opens the next recommendation and updates the taste profile', async ({ page }) => {
+test('다시 안볼래요 opens the next recommendation and updates the taste profile', async ({ page }) => {
   test.setTimeout(90_000);
   await page.setViewportSize({ width: 1536, height: 730 });
   await openMain(page);
   await expect(card(page).getByRole('heading', { name: '경주 계림' })).toBeVisible({ timeout: 25_000 });
-  await card(page).getByRole('button', { name: '다음 추천 장소 보기' }).click();
+  await card(page).getByRole('button', { name: '이 장소 다시 안볼래요' }).click();
   await expect(page.getByText('취향 프로필에 반영했어요')).toBeVisible();
   await expect(page.getByRole('button', { name: '보기', exact: true })).toBeVisible();
   await expect(card(page).getByRole('heading', { name: '경주 향교' })).toBeVisible();
@@ -789,7 +789,7 @@ test('the card face says what the place serves — a real menu as 대표 메뉴,
   await expect(menu).toBeVisible({ timeout: 25_000 });
   await expect(menu).toHaveText('대표 메뉴쌈밥 정식 · 된장찌개 · 제육볶음');
   await expect(card(page).getByTestId('value-box')).toContainText(/지금 도보 \d+분이면 쌈밥 정식 먹으러 갈 수 있어요/);
-  await expect(card(page).getByRole('button', { name: '다음 추천 장소 보기' })).toHaveText('다음 후보 보기');
+  await expect(card(page).getByRole('button', { name: '이 장소 다시 안볼래요' })).toHaveText('다시 안볼래요');
   // 이름표는 화면 읽기 프로그램에만 — 보이는 폭은 음식 이름에. 이름 위 배지 줄에 있어 카드를 높이지 않는다.
   await expect(menu.locator('.sr-only')).toHaveText('대표 메뉴');
   const [menuBox, rankBox] = await Promise.all([menu.boundingBox(), card(page).getByTestId('card-rank').boundingBox()]);
@@ -842,7 +842,7 @@ test('390px: the peek shows the dishes in its chip row without growing', async (
   await expect(peekMenu).toBeVisible({ timeout: 25_000 });
   await expect(peekMenu).toContainText('쌈밥 정식 · 된장찌개');
   await expect(page.getByTestId('peek-value')).toContainText(/지금 도보 \d+분이면 쌈밥 정식 먹으러 갈 수 있어요/);
-  const nextPick = page.getByTestId('rec-card-peek').getByRole('button', { name: '다음 추천 장소 보기' });
+  const nextPick = page.getByTestId('rec-card-peek').getByRole('button', { name: '이 장소 다시 안볼래요' });
   await expect(nextPick).toBeVisible();
   // 이름표는 화면 읽기 프로그램에만 — 보이는 글자는 음식 이름부터.
   await expect(peekMenu.locator('.sr-only')).toHaveText('대표 메뉴');
