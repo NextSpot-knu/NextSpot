@@ -438,7 +438,7 @@ for (const viewport of [DESKTOP, PHONE]) {
         await expect(card(page)).not.toContainText('경주 계림');
         await fullCard(page);
         const go = card(page).getByRole('button', { name: DOC.guide }).locator('visible=true').first();
-        await expect(go).toHaveText('바로 갈래요');
+        await expect(go).toHaveText('바로 갈래요 (도보 길안내)');
         await go.click();
         expect(await page.evaluate(() => (window as unknown as { __opened?: string }).__opened)).toContain('map.kakao.com');
       });

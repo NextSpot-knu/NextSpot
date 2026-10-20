@@ -200,7 +200,7 @@ test('SPOT order is stable, comparison falls back, and navigation persists', asy
   await page.getByRole('button', { name: /왜 1위인가요/ }).click();
   await expect(page.getByText('설명을 다시 불러올게요 — 위의 수치는 그대로 보실 수 있어요.')).toBeVisible();
 
-  await page.getByRole('button', { name: '바로 갈래요', exact: true }).first().click();
+  await page.getByRole('button', { name: '바로 갈래요 (도보 길안내)', exact: true }).first().click();
   const active = await page.evaluate(() => JSON.parse(localStorage.getItem('nextspot_active_trip') ?? 'null'));
   expect(active.facilityId).toBe('facility-0');
   expect(active.status).toBe('navigating');
@@ -249,7 +249,7 @@ test('unknown hours require Kakao confirmation before navigation', async ({ page
   await mockRecommendationPage(page, { unknownHours: true });
   await page.goto('/explore/recommend?facilityId=origin&lat=35.838&lng=129.209');
 
-  await page.getByRole('button', { name: '바로 갈래요', exact: true }).first().click();
+  await page.getByRole('button', { name: '바로 갈래요 (도보 길안내)', exact: true }).first().click();
   await expect(page.getByText('카카오맵에서 지금 영업 중인지 확인하셨나요?')).toBeVisible();
   expect(await page.evaluate(() => (window as unknown as { __opened?: string }).__opened))
     .toBe('https://place.map.kakao.com/123456');

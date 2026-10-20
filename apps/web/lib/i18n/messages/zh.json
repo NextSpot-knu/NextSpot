@@ -611,7 +611,7 @@
   "card": {
     "reject": "不再显示",
     "putOff": "先收藏，再看下一个推荐",
-    "accept": "现在就去",
+    "accept": "现在就去（步行导航）",
     "drive": "驾车导航",
     "rejectAria": "不再显示这个地点",
     "putOffAria": "收藏这个地点并查看下一个推荐",

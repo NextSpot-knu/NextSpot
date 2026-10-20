@@ -206,8 +206,7 @@ for (const locale of ['ko', 'en'] as const) {
     const card = page.getByTestId('recommendation-card');
     await expect(card).not.toContainText(/영업시간 미확인|Hours unverified|카카오맵에서 영업 확인|Check hours on Kakao Map/);
     const go = card.getByRole('button', { name: locale === 'ko' ? '바로 갈래요, 도보 길안내 시작' : "Let's go, start walking directions" });
-    // 영어 버튼 라벨도 좁은 카드에서 짧게 읽히는 'Let's go'를 쓴다.
-    await expect(go).toHaveText(locale === 'ko' ? '바로 갈래요' : "Let's go");
+    await expect(go).toHaveText(locale === 'ko' ? '바로 갈래요 (도보 길안내)' : "Let's go (walking directions)");
     await expect(card).toContainText(locale === 'ko'
       ? '출발 전에 카카오맵에서 영업시간을 먼저 보여 드려요.'
       : "Before you set off, we'll show the opening hours on Kakao Map.");
