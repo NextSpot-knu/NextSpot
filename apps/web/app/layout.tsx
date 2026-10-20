@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { preload } from "react-dom";
 import "./globals.css";
 import Script from "next/script";
 import PageTransition from "@/components/shell/PageTransition";
@@ -56,13 +57,11 @@ export const viewport = {
 const themeBootstrapScript = `(function(){try{var p=location.pathname;var enabled=!/^\\\/(admin|merchant)(\\\/|$)/.test(p);var saved=localStorage.getItem('nextspot_theme');var mode=saved==='light'||saved==='dark'?saved:'auto';var h=Number(new Intl.DateTimeFormat('en-US',{timeZone:'Asia/Seoul',hour:'2-digit',hourCycle:'h23'}).formatToParts(new Date()).find(function(x){return x.type==='hour';}).value);var dark=${DARK_MODE_ENABLED}&&enabled&&(mode==='dark'||(mode==='auto'&&(h>=18||h<6)));document.documentElement.classList.toggle('nextspot-dark',dark);document.documentElement.dataset.nextspotTheme=enabled?(dark?'dark':'light'):'system';}catch(e){}})();`;
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
+  // 기본 화면에서 쓰는 굵기는 자연 로드하고, 다른 탭에서 처음 등장하는 Black만 선로딩한다.
+  preload('/fonts/Freesentation-9Black.woff2', { as: 'font', type: 'font/woff2', crossOrigin: 'anonymous' });
   return (
     <html suppressHydrationWarning lang="ko" className="h-full antialiased">
       <head>
-        {/* 탭마다 처음 쓰는 굵기가 늦게 도착하며 글자가 바뀌지 않도록 공통 서체를 선로딩한다. */}
-        {['4Regular', '5Medium', '6SemiBold', '7Bold', '8ExtraBold', '9Black'].map((weight) => (
-          <link key={weight} rel="preload" href={`/fonts/Freesentation-${weight}.woff2`} as="font" type="font/woff2" crossOrigin="anonymous" />
-        ))}
         <Script id="nextspot-theme" strategy="beforeInteractive" dangerouslySetInnerHTML={{ __html: themeBootstrapScript }} />
         <Script
           id="kakao-maps-sdk"
