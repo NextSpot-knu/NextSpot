@@ -766,8 +766,9 @@ html.nextspot-dark .glass-tail {
    컨테이너 질의가 줄인다 — '상세 정보 펼치기' 가 첫 화면에서 바닥 버튼에 가리지 않게(I31). */
 .rec-photo { height: 112px; }
 
-/* 데스크톱 패널 열(md+) — 높이가 정해진 열이라 그 높이로 카드 안을 맞춘다. */
-@media (min-width: 768px) {
+/* 넓은 지도 패널 열(lg+) — 높이가 정해진 열에만 size containment 를 적용한다.
+   태블릿 하단 카드는 내용 높이로 자라므로 여기에 걸면 높이가 0으로 접힌다. */
+@media (min-width: 1024px) {
   .rec-panel { container-type: size; container-name: recpanel; }
 }
 @container recpanel (max-height: 600px) { .rec-photo { height: 80px; } }
@@ -777,7 +778,7 @@ html.nextspot-dark .glass-tail {
 /* 카드 안쪽 스크롤 — 휴대폰은 막대를 숨기고, 데스크톱은 얇은 금빛 막대로 더 있는 내용을 알린다. */
 .rec-scroll { scrollbar-width: none; -ms-overflow-style: none; }
 .rec-scroll::-webkit-scrollbar { display: none; }
-@media (min-width: 768px) {
+@media (min-width: 1024px) {
   .rec-scroll { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--nextspot-gold) 75%, transparent) transparent; }
   .rec-scroll::-webkit-scrollbar { display: block; width: 6px; }
   .rec-scroll::-webkit-scrollbar-thumb { border-radius: 9999px; background: color-mix(in srgb, var(--nextspot-gold) 75%, transparent); }

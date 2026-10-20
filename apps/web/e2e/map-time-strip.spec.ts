@@ -856,6 +856,33 @@ test('1024x768: toolbar chips never slide under the language picker and clock', 
   }
 });
 
+for (const locale of ['ko', 'en', 'ja', 'zh'] as const) {
+  test(`768px tablet (${locale}) keeps the judging links, a usable map band, and the same recommendation card when resized`, async ({ page }) => {
+    test.setTimeout(90_000);
+    await page.setViewportSize({ width: 768, height: 650 });
+    await openMain(page, { locale });
+    const card = page.getByTestId('recommendation-card');
+    const forecast = strip(page);
+    await expect(card).toBeVisible({ timeout: 25_000 });
+    await expect(forecast).toBeVisible();
+    await expect(page.locator('.rail-glass')).toHaveCount(2);
+    await expect(page.locator('[data-console-entry]:visible')).toHaveCount(2);
+    await expect(page.getByTestId('toolbar-row-1').locator('button').first()).toBeVisible();
+
+    const toolbar = await box(page.getByTestId('map-toolbar'));
+    const forecastBox = await box(forecast);
+    const cardBox = await box(card);
+    expect(forecastBox.y - (toolbar.y + toolbar.height), 'map remains visible between tools and forecast').toBeGreaterThan(100);
+    expect(cardBox.y - (forecastBox.y + forecastBox.height), 'forecast stays above the card').toBeGreaterThanOrEqual(0);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth), 'tablet fits horizontally').toBeLessThanOrEqual(1);
+
+    await card.evaluate((element) => { element.dataset.resizeProbe = 'same-card'; });
+    await page.setViewportSize({ width: 1024, height: 650 });
+    await expect(card).toHaveAttribute('data-resize-probe', 'same-card');
+    await expect(page.getByTestId('toolbar-row-2')).toBeVisible();
+  });
+}
+
 // 리뷰 10-07(ja · zh D2 화면): 휴대폰 +2시간 후에서 짧은 배지 옆 칸이 좁아 '+1時間後+2時間後' 가 칸을 넘쳐 겹쳤다.
 for (const locale of ['ja', 'zh'] as const) {
   for (const viewport of [{ width: 390, height: 844 }, { width: 360, height: 640 }]) {

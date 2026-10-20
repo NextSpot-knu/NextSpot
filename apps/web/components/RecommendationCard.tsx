@@ -37,7 +37,7 @@ import { creditedPhotoUrls, creditForDisplayedPhoto } from '@/lib/photoCredit';
 import { PhotoCreditLink } from '@/components/PhotoCreditLink';
 import { PlacePhotoFallback } from '@/components/PlacePhotoFallback';
 import { placeVisual } from '@/lib/placeVisual';
-import { isPhoneViewportNow, usePhoneViewport } from '@/lib/usePhoneViewport';
+import { isCompactMapViewportNow, useCompactMapViewport } from '@/lib/useCompactMapViewport';
 
 // 이만큼(세로 px) 이상 움직여야 '밀기' 로 보고 뒤따르는 click 을 무시한다. 이보다 작게 흔들린 터치는
 // 탭이다 — 브라우저가 click 을 보내면 그대로 받는다(handleDrag 주석 참조).
@@ -203,20 +203,20 @@ interface RecommendationCardProps {
   /** 테마 칩 맥락 배지 문구(예: '신라 핵심 산책 기준 대안'). */
   contextBadge?: string | null;
   /**
-   * 휴대폰(<768px)에서 카드를 **짧은 미리보기**로 연다 — 이름 · 도보 N분 · 혼잡 배지 · 도보 길안내.
-   * 지도 위에 떠 있는 /main 카드만 켠다. 태블릿·데스크톱에서는 아무 영향이 없다.
+   * 간결한 지도 배치(<1024px)에서 카드를 **짧은 미리보기**로 연다.
+   * 지도 위에 떠 있는 /main 카드만 켠다. 넓은 화면에서는 아무 영향이 없다.
    */
-  mobilePeek?: boolean;
+  compactPeek?: boolean;
   /** 지금 걸린 여행 조건 칩(도보 N분 이내 · 실내 · 무장애) — 카드 머리에 ✕ 와 함께. */
   conditions?: CardCondition[];
   onRemoveCondition?: (key: CardCondition['key']) => void;
-  /** 휴대폰: 카드 오른쪽 위에 둘 음성 비서 알약(미리보기·펼침 모두). 데스크톱은 부모가 카드 위 칸에 둔다. */
+  /** 간결한 지도: 카드 오른쪽 위 음성 비서 알약. 넓은 화면은 부모가 카드 위 칸에 둔다. */
   voiceSlot?: ReactNode;
-  /** 값이 바뀔 때마다 휴대폰 카드를 미리보기로 접는다(음성 비서를 켰을 때 — 자막이 지도를 가리지 않게). */
+  /** 값이 바뀔 때마다 간결한 지도 카드를 미리보기로 접는다(음성 비서 자막 자리). */
   peekRequest?: number;
-  /** 데스크톱(md+)에서 카드가 오른쪽 열의 높이를 채운다(/main 패널). 푸터는 열 바닥에 붙고 안쪽만 스크롤한다. */
+  /** 넓은 화면(lg+)에서 카드가 오른쪽 열의 높이를 채운다(/main 패널). */
   desktopFill?: boolean;
-  /** 휴대폰 미리보기(true) ↔ 펼친 카드(false)가 바뀔 때 — /main 은 펼친 동안 혼잡 예측 줄을 감춘다(계획 B3). */
+  /** 간결한 지도 미리보기(true) ↔ 펼친 카드(false)가 바뀔 때 혼잡 예측 줄을 조정한다. */
   onPeekChange?: (peek: boolean) => void;
 }
 
@@ -271,7 +271,7 @@ export function RecommendationCard({
   assumedTimeBadge,
   forecastLevel,
   contextBadge,
-  mobilePeek = false,
+  compactPeek = false,
   conditions = [],
   onRemoveCondition,
   voiceSlot,
@@ -293,13 +293,13 @@ export function RecommendationCard({
   const [isExpanded, setIsExpanded] = useState(false);
   // '추천 근거 자세히'(계획 B2) — 상세를 열어도 닫힌 채로 시작한다. 순위 근거·근거 원자료는 여기 안에만.
   const [whyOpen, setWhyOpen] = useState(false);
-  // 휴대폰 미리보기(mobilePeek) — 기존 '최소화' 상태를 그대로 쓰되, 휴대폰에서는 그 모습을 짧은
+  // 간결한 지도 배치의 미리보기 — 기존 '최소화' 상태를 그대로 쓰되 그 모습을 짧은
   // 미리보기 줄로 그리고 **새 추천은 이 상태로 연다.** 카드가 톱바(검색·✨·칩·필터·편의)를 덮지 않게
   // 하기 위해서다(PM 2026-09-26). 첫 렌더부터 미리보기여야 전체 카드가 잠깐 떴다 접히는 깜빡임이 없다.
-  const isPhone = usePhoneViewport();
-  const peekMode = mobilePeek && isPhone;
-  const [isMinimized, setIsMinimized] = useState(() => mobilePeek && isPhoneViewportNow());
-  // 부모에 미리보기 여부를 알린다 — 휴대폰이 아니면(미리보기가 없으면) 언제나 false.
+  const isCompactMap = useCompactMapViewport();
+  const peekMode = compactPeek && isCompactMap;
+  const [isMinimized, setIsMinimized] = useState(() => compactPeek && isCompactMapViewportNow());
+  // 부모에 미리보기 여부를 알린다 — 넓은 배치에서는 언제나 false.
   const peekShown = peekMode && isMinimized;
   useEffect(() => { onPeekChange?.(peekShown); }, [peekShown, onPeekChange]);
   // 미리보기에서 위로 끌어 올린 손가락이 '도보 길안내' 위에서 떨어져도 길안내가 시작되지 않게,
@@ -1109,7 +1109,7 @@ export function RecommendationCard({
   return (
     <motion.div
       data-testid="recommendation-card"
-      className={`w-full ${desktopFill ? 'md:h-full md:max-h-full' : ''} max-h-[calc(100dvh-var(--tourist-nav-clearance)-10rem)] bg-white/95 backdrop-blur-2xl border border-line rounded-3xl ${isMinimized ? 'p-3' : 'px-4 pb-3 pt-2 md:px-5'} toss-surface flex flex-col ${isMinimized ? 'gap-1' : 'gap-2'} select-none relative overflow-hidden`}
+      className={`w-full ${desktopFill ? 'lg:h-full lg:max-h-full' : ''} max-h-[calc(100dvh-var(--tourist-nav-clearance)-10rem)] md:max-lg:max-h-[calc(100dvh-var(--panel-top,14rem)-2rem)] bg-white/95 backdrop-blur-2xl border border-line rounded-3xl ${isMinimized ? 'p-3' : 'px-4 pb-3 pt-2 md:px-5'} toss-surface flex flex-col ${isMinimized ? 'gap-1' : 'gap-2'} select-none relative overflow-hidden`}
       initial={{ opacity: 0, y: 18, scale: 0.985 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       drag="y"

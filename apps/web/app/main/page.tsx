@@ -44,10 +44,10 @@ import { classifyIntent, localeVoiceCommand } from '@/lib/voice/voiceIntent';
 import { buildCardSentence, buildVoiceReason } from '@/lib/voice/voiceReason';
 import { CUISINE_CHIPS, cuisineChipForUtterance, cuisineChipPool, voiceCandidatePayload, type CuisineChip } from '@/lib/voice/voiceCandidates';
 import { VoiceCaptionBar, VoicePill } from '@/components/VoiceSlot';
-import { DESKTOP_PANEL_CLASS, DESKTOP_RAIL_GUTTER_PX, desktopPanelReservePx } from '@/lib/mainPanelLayout';
+import { DESKTOP_PANEL_CLASS, DESKTOP_RAIL_GUTTER_PX, MAP_DESKTOP_MIN_WIDTH, desktopPanelReservePx } from '@/lib/mainPanelLayout';
 import { pickFirstViewCategory } from '@/lib/firstViewCategory';
 import { onMainFocus } from '@/lib/featureShortcuts';
-import { usePhoneViewport } from '@/lib/usePhoneViewport';
+import { useCompactMapViewport } from '@/lib/useCompactMapViewport';
 import type { CardCondition } from '@/components/RecommendationCard';
 import { recordActiveTrip } from '@/lib/visits';
 import { queueRecommendationOutcome } from '@/lib/recommendationOutcomes';
@@ -389,19 +389,11 @@ export default function MainPage() {
     observer.observe(cluster);
     return () => observer.disconnect();
   }, []);
-  // 지도 띠 계산용 — 검색 줄(검색창 + 날씨·첫 방문 줄), 혼잡 예측 줄, 휴대폰 카드 열.
+  // 지도 띠 계산용 — 검색 줄(검색창 + 날씨·첫 방문 줄), 혼잡 예측 줄, 추천 카드 열.
   const searchRowRef = useRef<HTMLDivElement>(null);
   const stripRef = useRef<HTMLDivElement>(null);
-  const [recPanelEl, setRecPanelEl] = useState<HTMLDivElement | null>(null);
-  const [recPanelHeight, setRecPanelHeight] = useState(0);
-  useEffect(() => {
-    if (!recPanelEl || typeof ResizeObserver === 'undefined') return;
-    const measure = () => setRecPanelHeight(Math.round(recPanelEl.getBoundingClientRect().height));
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(recPanelEl);
-    return () => observer.disconnect();
-  }, [recPanelEl]);
+  // 높이 변화는 하단 스택의 CSS 배치가 처리한다. 애니메이션 프레임마다 이 큰 페이지를 다시 렌더하지 않는다.
+  const recPanelRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<kakao.maps.Map | null>(null);
   const markersRef = useRef<kakao.maps.Marker[]>([]);
   const searchMatchLabelsRef = useRef<kakao.maps.CustomOverlay[]>([]);
@@ -498,9 +490,9 @@ export default function MainPage() {
   const pendingPlaceRef = useRef<string | null>(null);
   // /main?focus=forecast|voice — 소개 화면 바로가기로 들어왔을 때 그 기능에 고리를 둘러 찾기 쉽게(교차 레인 계약 1).
   const [focusRing, setFocusRing] = useState<'forecast' | 'voice' | null>(null);
-  // 휴대폰: 음성 비서를 켜면 카드를 미리보기로 접는다(자막이 카드 위에 뜬다).
+  // 간결한 지도: 음성 비서를 켜면 카드를 미리보기로 접는다(자막이 카드 위에 뜬다).
   const [peekRequest, setPeekRequest] = useState(0);
-  const isPhone = usePhoneViewport();
+  const isCompactMap = useCompactMapViewport();
   // 추정 모드 피드(GET /congestion/estimates) — {facilityId: 원본 추정}. 시설 목록과 **따로** 둔다.
   // 시설은 API·Supabase 폴백·24시간 localStorage 캐시 중 어느 경로로도 그려질 수 있는데, 추정은
   // 60분이면 만료되는 '지금' 값이라 그 어느 저장소에도 섞으면 안 된다. 그릴 때 덧씌운다.
@@ -591,14 +583,14 @@ export default function MainPage() {
   const forecastMode = stripForecast !== null;
   // 추천 순위의 기준 — 여행 조건 · 혼잡 예측 +N · 요일 프리셋. 사용자가 고른 카드(userPickRef)는 이 값이 같을 때만 남는다.
   const rankBasis = `${cardHours}|${assumedPreset}|${JSON.stringify(travelContext)}`;
-  // 휴대폰 카드가 미리보기인가(펼치면 시간 줄을 감춘다 — 펼친 카드가 검색창 아래까지 올라온다).
+  // 간결한 지도 카드가 미리보기인가(펼치면 시간 줄을 감춘다).
   const [cardPeek, setCardPeek] = useState(true);
   // 지도에 등급이 칠해진 핀 수(마커 effect 가 센다) — 범례를 보일지 정한다.
   const [gradedPinCount, setGradedPinCount] = useState(0);
-  // 창 폭 — 데스크톱 추천 패널이 가리는 폭(시간 줄 자리 · 지도 띠)을 다시 잰다.
-  const [viewportWidth, setViewportWidth] = useState(0);
+  // 시간 줄이 비울 패널 폭은 중단점에서만 달라진다. 창을 드래그할 때 픽셀마다 페이지를 다시 렌더하지 않는다.
+  const [stripPanelReservePx, setStripPanelReservePx] = useState(0);
   useEffect(() => {
-    const update = () => setViewportWidth(window.innerWidth);
+    const update = () => setStripPanelReservePx(desktopPanelReservePx(window.innerWidth));
     update();
     window.addEventListener('resize', update);
     return () => window.removeEventListener('resize', update);
@@ -1414,18 +1406,24 @@ export default function MainPage() {
     };
     const headerBottom = Math.max(box.top, bottomOf(searchRowRef.current) ?? box.top, bottomOf(chipColumnRef.current) ?? box.top);
     const phone = window.innerWidth < 768;
+    const compactMap = window.innerWidth < MAP_DESKTOP_MIN_WIDTH;
     let bottomEdge = box.bottom;
     const stripTop = topOf(stripRef.current);
     if (stripTop !== null) bottomEdge = Math.min(bottomEdge, stripTop);
-    if (phone) {
-      const nav = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--tourist-nav-clearance')) || 0;
-      bottomEdge = Math.min(bottomEdge, box.bottom - nav);
-      const panelTop = topOf(recPanelEl);
+    if (compactMap) {
+      if (phone) {
+        const nav = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--tourist-nav-clearance')) || 0;
+        bottomEdge = Math.min(bottomEdge, box.bottom - nav);
+      }
+      const panelTop = topOf(recPanelRef.current);
       if (panelTop !== null) bottomEdge = Math.min(bottomEdge, panelTop);
     }
+    const panelBox = recPanelRef.current?.getBoundingClientRect();
     return {
       top: Math.max(0, headerBottom - box.top + 8),
-      right: desktopPanelReservePx(),
+      right: compactMap ? 0 : panelBox && panelBox.width > 0
+        ? Math.max(0, box.right - panelBox.left)
+        : desktopPanelReservePx(),
       bottom: Math.max(0, box.bottom - bottomEdge + 8),
       left: phone ? 0 : DESKTOP_RAIL_GUTTER_PX, // 데스크톱은 지도가 왼쪽 유리 캡슐 뒤까지 이어진다
     };
@@ -2536,10 +2534,10 @@ export default function MainPage() {
       greet: t('voice.greet'),
     },
     cardSentence: (name, reason) => buildCardSentence(t, name, reason),
-    // 비서를 켜면 검색 마이크를 끄고(두 마이크가 동시에 듣지 않게), 휴대폰은 카드를 미리보기로 접는다(자막 자리).
+    // 비서를 켜면 검색 마이크를 끄고(두 마이크가 동시에 듣지 않게), 간결한 지도는 카드를 접는다(자막 자리).
     onSessionStart: () => {
       speechSearchRef.current.stop();
-      if (isPhone) setPeekRequest((n) => n + 1);
+      if (isCompactMap) setPeekRequest((n) => n + 1);
     },
     getName: (f) => f?.name ?? '',
     // 서버가 고르며 만든 한국어 문장(voiceSpoken)은 한국어 화면에서만, 그 밖에는 카드 값으로 만든 이유.
@@ -3691,8 +3689,8 @@ export default function MainPage() {
   // 등급은 지도 핀이 같은 시각에 칠한 값으로만(순위 핀 = 이 일대 예측, 장소별 모델이면 그 장소). 리뷰 10-07: 핀은 '여유'
   // 인데 카드는 지금의 '한산' 을 '+2시간 후 기준' 옆에 말했다.
   const timeShifted = cardHours > 0 || assumedPreset !== 'now';
-  const phoneCardExpanded = isPhone && !!selectedFacility && !recalcLabel && !cardPeek;
-  const showStrip = activeFilter !== '주차장' && !isLoadingFacilities && !facilitiesLoadError && facilities.length > 0 && !phoneCardExpanded;
+  const compactCardExpanded = isCompactMap && !!selectedFacility && !recalcLabel && !cardPeek;
+  const showStrip = activeFilter !== '주차장' && !isLoadingFacilities && !facilitiesLoadError && facilities.length > 0 && !compactCardExpanded;
 
   return (
     <div className="relative w-full h-[100dvh] overflow-hidden flex flex-col">
@@ -3712,8 +3710,8 @@ export default function MainPage() {
         <div className="flex max-w-[220px] flex-col items-start gap-1 md:max-w-none">
           {/* 데스크톱에서는 언어·시계가 유리 툴바 판 위에 떠 있어 유리 위 유리가 된다 — 휴대폰에서만 유리(데스크톱은 툴바 안 칩처럼 흰 알약). */}
           <LanguageSwitcher className="pointer-events-auto liquid-glass-phone" />
-          {/* 휴대폰 출처 — 데스크톱은 툴바 둘째 줄 끝의 출처 칩 하나(P8). */}
-          <SourceCredit compact className="md:hidden liquid-glass" />
+          {/* 간결한 지도 배치의 출처 — 넓은 화면은 툴바 둘째 줄 끝의 출처 칩 하나(P8). */}
+          <SourceCredit compact className="lg:hidden liquid-glass" />
         </div>
         {/* 장소 카드와 분리된 경주 현지 시계 — 영업 여부·도착 시각의 기준(KST). */}
         {clockLabels && (
@@ -3735,7 +3733,7 @@ export default function MainPage() {
 
       {/* Top Layer: Search & Filters — 판마다 Liquid Glass(regular: 한지 35%(야간 40%) + 흐림, globals.css — 지도 글자가 그대로 비치지 않게). 휴대폰 머리는 280px 안(계획 B3):
           검색 · 날씨/첫 방문 한 줄 · '필터·편의' 가 맨 앞인 칩 한 줄. 키 낮은 휴대폰은 날씨/첫 방문을 검색 줄 옆에 붙인다. */}
-      <div ref={topBarRef} className="absolute top-0 w-full z-20 pt-[calc(env(safe-area-inset-top)+4.25rem)] md:pt-5 pb-4 px-4 md:pl-[var(--rail-gutter)] flex flex-col gap-2 md:gap-4 pointer-events-none">
+      <div ref={topBarRef} className="absolute top-0 w-full z-20 pt-[calc(env(safe-area-inset-top)+4.25rem)] md:max-lg:pt-[calc(env(safe-area-inset-top)+5.5rem)] lg:pt-5 pb-4 px-4 md:pl-[var(--rail-gutter)] flex flex-col gap-2 md:gap-4 pointer-events-none">
 
         {/* 지도 SDK 로드 실패(8초 타임아웃) 안내 칩 — 검색/배리어프리 빈 상태 칩과 동일 스타일 재사용.
             추천 카드 등 나머지 UI 는 지도 유무와 무관하게 계속 동작한다. */}
@@ -3747,15 +3745,14 @@ export default function MainPage() {
           </div>
         )}
 
-        {/* PC(md+)는 구글맵스식 톱바 — 왼쪽 열(정체성 한 줄 · 검색 · 날씨/첫 방문)과 오른쪽 툴바 판(두 줄)을 나란히.
-            모바일은 세로 스택. */}
-        <div className="flex flex-col gap-2 md:flex-row md:items-start md:gap-4">
+        {/* 넓은 화면(lg+)은 검색 열과 두 줄 툴바를 나란히, 그 아래는 한 열로 둔다. */}
+        <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:gap-4">
 
         {/* 왼쪽 열: 정체성 한 줄 + 검색 줄 + 검색 결과 */}
-        <div className="flex flex-col gap-2 md:w-[22%] md:min-w-[290px] md:max-w-[400px] md:shrink-0">
+        <div className="flex flex-col gap-2 lg:w-[22%] lg:min-w-[290px] lg:max-w-[400px] lg:shrink-0">
 
         {/* 정체성 한 줄(데스크톱) — 워드마크 + '줄 서는 대신, 경주를 한 곳 더.'(landing.tagline). */}
-        <div className="liquid-glass pointer-events-auto hidden w-fit max-w-full items-center gap-2 rounded-full border px-3 py-1 md:flex" data-testid="identity-line">
+        <div className="liquid-glass pointer-events-auto hidden w-fit max-w-full items-center gap-2 rounded-full border px-3 py-1 lg:flex" data-testid="identity-line">
           <Image src="/nextspot-logo.png" alt="NextSpot" width={505} height={109} className="nextspot-logo-light h-4 w-auto shrink-0" />
           <Image src="/nextspot-logo-dark.png" alt="NextSpot" width={505} height={109} className="nextspot-logo-dark h-4 w-auto shrink-0" />
           <span className="min-w-0 text-[12px] font-bold leading-tight text-muk">{t('landing.tagline')}</span>
@@ -4132,20 +4129,20 @@ export default function MainPage() {
         <div
           ref={chipColumnRef}
           data-testid="map-toolbar"
-          className="flex flex-col gap-2 md:pointer-events-none md:min-w-0 md:flex-1 md:gap-4"
+          className="flex flex-col gap-2 lg:pointer-events-none lg:min-w-0 lg:flex-1 lg:gap-4"
           style={{ '--cluster-w': `${(topClusterPx ?? 288) + 12}px` } as CSSProperties}
         >
         {/* 묶음 폭은 스크롤 줄 안쪽 여백이 아니라 바깥 여백으로 비운다 — 안쪽 여백은 넘친 칩이 묶음 밑으로 들어가는 것을
             막지 못했다(1024px 에서 '주차장' 이 언어 고르기 밑, 리뷰 10-07). 데스크톱은 넘치면 어느 폭이든 다음 줄로 넘어간다 —
             예전 1280px 이상은 한 줄 고정이라 음식점에서 🍽 메뉴 ▾ 가 숨은 가로 스크롤 밖으로 잘렸고(영어 1280~1440 · 일본어 1280~1366),
             스크롤바가 없어 마우스로는 닿을 수 없었다(10-10 실측). 판 높이는 재서 추천 열을 그 아래에 둔다(toolbarClearPx). */}
-        <div ref={toolbarRow1Ref} data-testid="toolbar-row-1" className="pointer-events-auto flex items-center gap-2 overflow-x-auto no-scrollbar md:w-fit md:max-w-[calc(100%-var(--cluster-w))] md:flex-wrap md:gap-1.5 md:rounded-2xl md:border md:p-1 liquid-glass-desk">
+        <div ref={toolbarRow1Ref} data-testid="toolbar-row-1" className="pointer-events-auto flex items-center gap-2 overflow-x-auto no-scrollbar md:flex-wrap md:gap-1.5 lg:w-fit lg:max-w-[calc(100%-var(--cluster-w))] lg:rounded-2xl lg:border lg:p-1 liquid-glass-desk">
           {/* 휴대폰: 필터·편의가 칩 줄 맨 앞(히트맵·♿·🅿·음식 종류·축제·화장실은 시트 안). */}
           {activeFilter !== '주차장' && (
             <button
               type="button"
               onClick={() => setShowMobileTools(true)}
-              className="toss-pressable liquid-glass flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 text-[13px] font-bold text-muk short:max-md:h-[34px] md:hidden"
+              className="toss-pressable liquid-glass flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 text-[13px] font-bold text-muk short:max-md:h-[34px] lg:hidden"
             >
               <SlidersHorizontal size={14} aria-hidden /> {t('map.mobileTools')}
             </button>
@@ -4158,7 +4155,7 @@ export default function MainPage() {
                 key={filter.id}
                 onClick={() => selectCategory(filter.id)}
                 aria-pressed={isActive}
-                className={`toss-pressable flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3.5 text-[13px] font-semibold shadow-[0_2px_10px_rgba(43,35,32,0.06)] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 short:max-md:h-[34px] md:h-8 md:px-3 md:shadow-none ${
+                className={`toss-pressable flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3.5 text-[13px] font-semibold shadow-[0_2px_10px_rgba(43,35,32,0.06)] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 short:max-md:h-[34px] lg:h-8 lg:px-3 lg:shadow-none ${
                   isActive
                     ? 'border-muk bg-muk text-hanji'
                     : 'liquid-glass-phone border-line bg-white text-muk-soft max-md:text-muk hover:border-gold/60 hover:text-muk'
@@ -4173,7 +4170,7 @@ export default function MainPage() {
 
         {/* 2줄(데스크톱): 🔥 히트맵 · ♿ 무장애 · 🅿 주차 · (🐾) · 🏮 축제 · 🚻 화장실 · 🍃 지금 한산, 그리고 출처 칩 하나. */}
         {/* 유리 판(말풍선)은 칩만 감싼다 — 출처 칩은 판 밖 오른쪽 끝에 따로 선다(10-19 PM: 투명 바가 출처까지 이어지지 않게). */}
-        <div data-testid="toolbar-row-2-line" className="pointer-events-none hidden items-center gap-2 md:flex">
+        <div data-testid="toolbar-row-2-line" className="pointer-events-none hidden items-center gap-2 lg:flex">
         {activeFilter !== '주차장' && (
         <div ref={toolbarRow2Ref} data-testid="toolbar-row-2" className="pointer-events-auto relative min-w-0 md:rounded-2xl md:border md:p-1 sub-bubble">
           {/* 축제·화장실·지금 한산 칩은 각자 컴포넌트의 크기를 갖고 있다 — 이 줄에서는 같은 높이(32px)로 맞춘다.
@@ -4265,7 +4262,7 @@ export default function MainPage() {
           시트 스프링으로 올라온다. 예전에는 움직임 없이 툭 나타나고 사라져 이 시트만 따로 놀았다(10-10 화면 점검). */}
       <AnimatePresence>
       {showMobileTools && activeFilter !== '주차장' && (
-        <PresenceLayer key="mobile-tools" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.18 }} className="fixed inset-0 z-50 flex items-end bg-muk/35 md:hidden" onClick={() => setShowMobileTools(false)}>
+        <PresenceLayer key="mobile-tools" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.18 }} className="fixed inset-0 z-50 flex items-end bg-muk/35 lg:hidden" onClick={() => setShowMobileTools(false)}>
           <motion.section initial={{ y: 40, opacity: 0, scale: 0.98 }} animate={{ y: 0, opacity: 1, scale: 1 }} exit={{ y: 40, opacity: 0, scale: 0.98 }} transition={sheetSpring} className="w-full rounded-t-3xl bg-hanji px-4 pb-[calc(20px+env(safe-area-inset-bottom))] pt-3 shadow-2xl" onClick={(event) => event.stopPropagation()}>
             <div className="mb-4 flex items-center justify-between">
               <div><h2 className="font-bold text-muk">{t('map.mobileToolsTitle')}</h2><p className="text-xs text-muk-soft">{t('map.mobileToolsDesc')}</p></div>
@@ -4326,10 +4323,10 @@ export default function MainPage() {
 
       <ActiveJourneyCard location={userLocation} />
 
-      {/* AI Recommendation Card — 휴대폰: 하단 시트. 데스크톱(md+): 오른쪽 열(380/420/460px, lib/mainPanelLayout)을
-          툴바 아래부터 바닥까지 채운다(I31). 주차장 탭도 같은 열을 쓴다. */}
+      {/* AI Recommendation Card — 간결한 지도: 하단 미리보기. 넓은 화면(lg+): 오른쪽 열(380/420/460px)을
+          툴바 아래부터 바닥까지 채운다. 주차장 탭도 같은 열을 쓴다. */}
       {activeFilter === '주차장' && parkingLoading && parkingLots.length === 0 && (
-        <div className={`absolute z-20 px-4 bottom-[calc(var(--tourist-nav-clearance)+env(safe-area-inset-bottom))] w-full md:bottom-6 ${DESKTOP_PANEL_CLASS} pointer-events-none`}>
+        <div className={`absolute z-20 px-4 bottom-[calc(var(--tourist-nav-clearance)+env(safe-area-inset-bottom))] w-full md:bottom-4 lg:bottom-6 ${DESKTOP_PANEL_CLASS} pointer-events-none`}>
           <div className="rounded-2xl border border-line bg-white/95 px-5 py-4 text-sm font-semibold text-muk shadow-lg">
             {t('map.parkingLoading')}
           </div>
@@ -4337,7 +4334,7 @@ export default function MainPage() {
       )}
 
       {activeFilter === '주차장' && !parkingLoading && parkingLots.length === 0 && (
-        <div className={`absolute z-20 px-4 bottom-[calc(var(--tourist-nav-clearance)+env(safe-area-inset-bottom))] w-full md:bottom-6 ${DESKTOP_PANEL_CLASS} pointer-events-none`}>
+        <div className={`absolute z-20 px-4 bottom-[calc(var(--tourist-nav-clearance)+env(safe-area-inset-bottom))] w-full md:bottom-4 lg:bottom-6 ${DESKTOP_PANEL_CLASS} pointer-events-none`}>
           <div className="pointer-events-auto rounded-2xl border border-line bg-white/95 px-5 py-4 text-sm font-semibold text-muk shadow-lg">
             <p>{t(parkingLoadError ? 'map.parkingLoadFailed' : 'map.parkingEmpty')}</p>
             {parkingLoadError && (
@@ -4354,7 +4351,7 @@ export default function MainPage() {
       )}
 
       {selectedParkingLot && activeFilter === '주차장' && (
-        <div className={`absolute z-20 px-4 bottom-[calc(var(--tourist-nav-clearance)+env(safe-area-inset-bottom))] w-full md:bottom-6 ${DESKTOP_PANEL_CLASS} pointer-events-none`}>
+        <div className={`absolute z-20 px-4 bottom-[calc(var(--tourist-nav-clearance)+env(safe-area-inset-bottom))] w-full md:bottom-4 lg:bottom-6 ${DESKTOP_PANEL_CLASS} pointer-events-none`}>
           <div className="pointer-events-auto rounded-3xl border border-line bg-white/95 p-5 shadow-[0_8px_30px_rgba(43,35,32,0.16)] backdrop-blur">
             <div className="flex items-start justify-between gap-3">
               <div>
@@ -4383,6 +4380,8 @@ export default function MainPage() {
         </div>
       )}
 
+      {/* 간결한 지도 배치는 시간 줄과 추천 카드를 한 스택에 둔다. 높이 측정 없이 줄이 카드 위를 따른다. */}
+      <div className={`pointer-events-none absolute inset-x-4 bottom-[calc(var(--tourist-nav-clearance)+env(safe-area-inset-bottom))] flex flex-col gap-2 md:left-[var(--rail-gutter)] md:bottom-4 lg:contents ${voice.active ? 'z-40' : 'z-20'}`}>
       {activeFilter !== '주차장' && (() => {
         // 이 열 하나에 음성 비서 칸 · 스켈레톤(첫 카드 고르는 중 / 다시 계산 중) · 추천 카드 · 제안 카드가 차례로 선다.
         const showSkeleton = !!recalcLabel || (pickingFirst && !selectedFacility);
@@ -4411,18 +4410,17 @@ export default function MainPage() {
           // pointer-events-none(열): 카드·알약·제안 카드만 auto — 빈 열 자리를 누르면 지도가 받는다.
           // 음성이 켜져 있는 동안은 자막 막대가 시계 위로 오도록 열을 한 층 올린다.
           <div
-            ref={setRecPanelEl}
+            ref={recPanelRef}
             data-testid="rec-panel"
-            className={`rec-panel absolute ${voice.active ? 'z-40' : 'z-20'} px-4 bottom-[calc(var(--tourist-nav-clearance)+env(safe-area-inset-bottom))] w-full md:bottom-4 md:top-[var(--panel-top,6rem)] ${DESKTOP_PANEL_CLASS} md:flex md:flex-col md:gap-2 pointer-events-none`}
+            className={`rec-panel relative w-full md:max-lg:ml-auto md:max-lg:max-w-[480px] lg:absolute lg:bottom-4 lg:top-[var(--panel-top,6rem)] ${voice.active ? 'lg:z-40' : 'lg:z-20'} ${DESKTOP_PANEL_CLASS} lg:flex lg:flex-col lg:gap-2 pointer-events-none`}
             style={panelStyle}
           >
             {/* 데스크톱: 카드 바로 위 44px 칸의 '🎙 AI 음성 비서' 알약(P7). */}
-            {pill && <div data-testid="voice-slot" className="hidden h-11 shrink-0 items-center justify-end md:flex">{pill}</div>}
+            {pill && <div data-testid="voice-slot" className="hidden h-11 shrink-0 items-center justify-end lg:flex">{pill}</div>}
             {/* 휴대폰: 카드가 있으면 카드 오른쪽 위(카드가 그린다), 없으면 이 열 오른쪽 위. */}
-            {pill && !showCard && <div className="mb-2 flex justify-end md:hidden">{pill}</div>}
-            {/* 자막 막대 — 떠 있는 막대라 아래 내용을 밀지 않는다(I27). 휴대폰은 카드 바로 위(화면 아래쪽 — 시계에 가리지
-                않는다). 넓은 데스크톱(≥1024)은 카드 왼쪽 지도 위 — 리뷰 10-07: 열 맨 위에 겹치면 지금 읽어 주는 바로 그 가치
-                문장(카드 맨 위)을 덮었다. 좁은 데스크톱(768~1023)은 왼쪽에 자리가 없어 종전처럼 열 맨 위. */}
+            {pill && !showCard && <div className="mb-2 flex justify-end lg:hidden">{pill}</div>}
+            {/* 자막 막대 — 간결한 지도에서는 카드 바로 위, 넓은 화면에서는 카드 왼쪽 지도 위에 뜬다.
+                열 맨 위에 겹치면 카드의 첫 가치 문장을 덮으므로 본문 흐름과 분리한다. */}
             {voice.active && (
               <VoiceCaptionBar
                 voiceState={voice.voiceState}
@@ -4431,7 +4429,7 @@ export default function MainPage() {
                 sttSupported={voice.sttSupported}
                 hint={t('recommend.voiceHint')}
                 onStop={voice.stop}
-                className="absolute inset-x-4 bottom-full z-10 mb-2 md:inset-x-0 md:bottom-auto md:top-0 md:mb-0 lg:left-auto lg:right-full lg:mr-3 lg:w-[22rem]"
+                className="absolute inset-x-4 bottom-full z-10 mb-2 lg:inset-x-0 lg:bottom-auto lg:top-0 lg:mb-0 lg:left-auto lg:right-full lg:mr-3 lg:w-[22rem]"
               />
             )}
 
@@ -4449,13 +4447,13 @@ export default function MainPage() {
                   <span className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-gold/30 border-t-gold-deep" />
                   {recalcLabel ? t('assume.recalculating', { label: recalcLabel }) : t('map.pickingFirst')}
                 </p>
-                {/* 휴대폰: 결과 카드가 짧은 미리보기로 뜨므로 스켈레톤도 그 높이만 쓴다(max-md:hidden). */}
+                {/* 간결한 지도: 결과 카드가 짧은 미리보기로 뜨므로 스켈레톤도 그 높이만 쓴다. */}
                 <div className="mt-3 flex flex-col gap-2">
-                  <div className="h-3 w-2/5 animate-pulse rounded-full bg-hanji-deep max-md:hidden" />
+                  <div className="h-3 w-2/5 animate-pulse rounded-full bg-hanji-deep max-lg:hidden" />
                   <div className="h-6 w-4/5 animate-pulse rounded-lg bg-hanji-deep" />
                   <div className="h-3 w-3/5 animate-pulse rounded-full bg-hanji-deep" />
-                  <div className="mt-1 h-16 w-full animate-pulse rounded-2xl bg-hanji-deep max-md:hidden" />
-                  <div className="mt-1 flex gap-2 max-md:hidden">
+                  <div className="mt-1 h-16 w-full animate-pulse rounded-2xl bg-hanji-deep max-lg:hidden" />
+                  <div className="mt-1 flex gap-2 max-lg:hidden">
                     <div className="h-10 flex-1 animate-pulse rounded-2xl bg-hanji-deep" />
                     <div className="h-10 flex-1 animate-pulse rounded-2xl bg-hanji-deep" />
                   </div>
@@ -4506,7 +4504,7 @@ export default function MainPage() {
                   ? t('recommend.reasonInstead', { anchor: compareAnchorName, name: selectedFacility.name, walk })
                   : null;
                 return (
-                  <div className="pointer-events-auto md:flex md:min-h-0 md:flex-1 md:flex-col">
+                  <div className="pointer-events-auto lg:flex lg:min-h-0 lg:flex-1 lg:flex-col">
                   <RecommendationCard
                     title={selectedFacility.name}
                     reason={reason}
@@ -4576,11 +4574,11 @@ export default function MainPage() {
                     assumedTimeLabel={assumedTimeLabel}
                     assumedTimeBadge={assumedTimeBadge}
                     contextBadge={cardContextBadge}
-                    // 휴대폰에서는 짧은 미리보기로 연다 — 지도와 톱바(검색·✨·칩·필터·편의)가 가려지지 않게.
-                    mobilePeek
+                    // 간결한 지도에서는 짧은 미리보기로 연다 — 지도와 톱바가 가려지지 않게.
+                    compactPeek
                     conditions={cardConditions}
                     onRemoveCondition={removeCondition}
-                    voiceSlot={isPhone ? pill ?? undefined : undefined}
+                    voiceSlot={isCompactMap ? pill ?? undefined : undefined}
                     peekRequest={peekRequest}
                     desktopFill
                     onPeekChange={setCardPeek}
@@ -4655,16 +4653,12 @@ export default function MainPage() {
         );
       })()}
 
-      {/* 🔮 혼잡 예측 줄(계획 B3) — 데스크톱: 지도 빈 자리(오른쪽 추천 패널 왼쪽) 아래 가운데, Kakao 로고(왼쪽 아래)보다 위.
-          휴대폰: 카드 미리보기 바로 위 한 줄(카드 열 높이를 재서 그 위에 선다). 펼친 휴대폰 카드 위에서는 감춘다. */}
-      {/* strip-enter: 카드를 미리보기로 접으면 이 줄은 접힌 카드 높이(recPanelHeight)로 곧장 내려앉는데 카드는 시트 스프링으로
-          줄어드는 중이라, 줄어드는 카드 위에 이 줄이 한동안 겹쳐 보였다(10-10 녹화). 카드가 다 줄어든 뒤 떠오르게 한다. */}
+      {/* 혼잡 예측 줄은 간결한 지도에서 같은 스택의 첫 항목이다. 넓은 화면에서는 지도 빈 자리 아래에 선다. */}
       {showStrip && (
         <div
-          className="strip-enter pointer-events-none absolute inset-x-4 z-20 flex justify-center bottom-[calc(var(--tourist-nav-clearance)+env(safe-area-inset-bottom)+var(--strip-dock))] md:left-[var(--rail-gutter)] md:right-[var(--strip-right)] md:bottom-8"
+          className="strip-enter pointer-events-none order-first flex justify-center md:max-lg:ml-auto md:max-lg:w-full md:max-lg:max-w-[480px] lg:absolute lg:inset-x-4 lg:left-[var(--rail-gutter)] lg:right-[var(--strip-right)] lg:bottom-8 lg:z-20"
           style={{
-            '--strip-dock': `${(recPanelEl ? recPanelHeight : 0) + 8}px`,
-            '--strip-right': `${desktopPanelReservePx(viewportWidth) + 16}px`,
+            '--strip-right': `${stripPanelReservePx + 16}px`,
           } as CSSProperties}
         >
           <div ref={stripRef} className="w-full md:max-w-[640px]">
@@ -4683,6 +4677,7 @@ export default function MainPage() {
           </div>
         </div>
       )}
+      </div>
 
       {/* Test Mock Sidebar (Right Side) — 개발/QA 전용 데모 컨트롤(위치·시간 모킹).
           실제 관광객에게 내부 도구가 노출되지 않도록 NEXT_PUBLIC_DEMO_CONTROLS==='1' 일 때만 렌더.

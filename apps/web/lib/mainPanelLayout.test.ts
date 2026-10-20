@@ -7,10 +7,11 @@ import {
   desktopPanelWidthPx,
 } from "./mainPanelLayout";
 
-// 패널 폭: 380 / 420 / 460 (md / xl / 2xl), 휴대폰은 0.
+// 패널 폭: 380 / 420 / 460 (lg / xl / 2xl), 간결한 지도 배치는 0.
 assert.equal(desktopPanelWidthPx(390), 0);
 assert.equal(desktopPanelWidthPx(767), 0);
-assert.equal(desktopPanelWidthPx(768), 380);
+assert.equal(desktopPanelWidthPx(768), 0);
+assert.equal(desktopPanelWidthPx(1023), 0);
 assert.equal(desktopPanelWidthPx(1024), 380);
 assert.equal(desktopPanelWidthPx(1279), 380);
 assert.equal(desktopPanelWidthPx(1280), 420);
@@ -28,7 +29,7 @@ assert.equal(desktopPanelReservePx(1536), 476);
 assert.equal(desktopPanelReservePx(1920), 476);
 
 // 클래스 문자열이 표와 같은 폭을 말한다 — 한쪽만 바꾸면 카드와 지도 계산이 갈린다.
-const prefixFor: Record<number, string> = { 768: "md", 1280: "xl", 1536: "2xl" };
+const prefixFor: Record<number, string> = { 1024: "lg", 1280: "xl", 1536: "2xl" };
 for (const step of DESKTOP_PANEL_STEPS) {
   const prefix = prefixFor[step.minWidth];
   assert.ok(prefix, `unknown breakpoint ${step.minWidth}`);
@@ -37,6 +38,6 @@ for (const step of DESKTOP_PANEL_STEPS) {
     `${prefix}:w-[${step.width}px] missing from DESKTOP_PANEL_CLASS`,
   );
 }
-assert.ok(DESKTOP_PANEL_CLASS.includes("md:right-4"), "gutter class must match DESKTOP_PANEL_GUTTER_PX (right-4 = 16px)");
+assert.ok(DESKTOP_PANEL_CLASS.includes("lg:right-4"), "gutter class must match DESKTOP_PANEL_GUTTER_PX (right-4 = 16px)");
 
 console.log("PASS mainPanelLayout");
