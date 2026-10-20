@@ -204,7 +204,7 @@ for (const viewport of DESKTOPS) {
       // 바닥 버튼보다 위에서 끝난다(타일이 바닥 버튼에 반쯤 가리던 화면 — 10-06 실측).
       const [detailsBox, rejectBox] = await Promise.all([
         details.boundingBox(),
-        card(page).getByRole('button', { name: '이 추천에 관심 없음, 다른 장소 추천받기' }).boundingBox(),
+        card(page).getByRole('button', { name: '다음 추천 장소 보기' }).boundingBox(),
       ]);
       expect(detailsBox!.y + detailsBox!.height).toBeLessThanOrEqual(rejectBox!.y);
       // 순위 타일·근거 원자료는 얼굴에 없다(추천 근거 자세히 안).
@@ -703,12 +703,12 @@ test('a pin outside the list opens as 선택한 장소, a search hit too, and a 
   await expect(card(page).getByTestId('card-rank')).toHaveText('선택한 장소');
 });
 
-test('관심 없어요 tells once that the taste profile was updated, with a link to My page', async ({ page }) => {
+test('다음 후보 보기 opens the next recommendation and updates the taste profile', async ({ page }) => {
   test.setTimeout(90_000);
   await page.setViewportSize({ width: 1536, height: 730 });
   await openMain(page);
   await expect(card(page).getByRole('heading', { name: '경주 계림' })).toBeVisible({ timeout: 25_000 });
-  await card(page).getByRole('button', { name: '이 추천에 관심 없음, 다른 장소 추천받기' }).click();
+  await card(page).getByRole('button', { name: '다음 추천 장소 보기' }).click();
   await expect(page.getByText('취향 프로필에 반영했어요')).toBeVisible();
   await expect(page.getByRole('button', { name: '보기', exact: true })).toBeVisible();
   await expect(card(page).getByRole('heading', { name: '경주 향교' })).toBeVisible();
@@ -788,6 +788,8 @@ test('the card face says what the place serves — a real menu as 대표 메뉴,
   const menu = card(page).getByTestId('card-menu');
   await expect(menu).toBeVisible({ timeout: 25_000 });
   await expect(menu).toHaveText('대표 메뉴쌈밥 정식 · 된장찌개 · 제육볶음');
+  await expect(card(page).getByTestId('value-box')).toContainText(/지금 도보 \d+분이면 쌈밥 정식 먹으러 갈 수 있어요/);
+  await expect(card(page).getByRole('button', { name: '다음 추천 장소 보기' })).toHaveText('다음 후보 보기');
   // 이름표는 화면 읽기 프로그램에만 — 보이는 폭은 음식 이름에. 이름 위 배지 줄에 있어 카드를 높이지 않는다.
   await expect(menu.locator('.sr-only')).toHaveText('대표 메뉴');
   const [menuBox, rankBox] = await Promise.all([menu.boundingBox(), card(page).getByTestId('card-rank').boundingBox()]);
@@ -807,7 +809,24 @@ test('a place with only a Kakao category shows the food type without calling it 
   const menu = card(page).getByTestId('card-menu');
   await expect(menu).toBeVisible({ timeout: 25_000 });
   await expect(menu).toHaveText('한식 · 곱창·막창');
+  await expect(card(page).getByTestId('value-box')).toContainText(/지금 도보 \d+분이면 한식 먹으러 갈 수 있어요/);
   await expect(menu.locator('.sr-only')).toHaveCount(0);
+});
+
+test('a restaurant with a model wait shows the estimated minutes until the meal', async ({ page }) => {
+  test.setTimeout(90_000);
+  await page.setViewportSize({ width: 1536, height: 730 });
+  const withMenu = { ...RESTAURANTS[2], features: { cuisine_tags: ['한식'], first_menu: '쌈밥 정식' } };
+  const modeled = rec(withMenu, 1, {
+    scoring_mode: 'model',
+    breakdown: { ...rec(withMenu, 1).breakdown, wait_time: 5.2 },
+  });
+  await openMain(page, {
+    categories: ['restaurant'],
+    facilities: [...ATTRACTIONS, DAEREUNGWON, OUTSIDE_LIST, RESTAURANTS[0], RESTAURANTS[1], withMenu],
+    byType: (type) => (type === 'restaurant' ? [modeled] : type === 'attraction' ? ATTRACTION_RECS() : []),
+  });
+  await expect(card(page).getByTestId('value-box')).toContainText('지금 출발하면 쌈밥 정식 먹기까지 약 11분 예상');
 });
 
 test('390px: the peek shows the dishes in its chip row without growing', async ({ page }) => {
@@ -816,12 +835,15 @@ test('390px: the peek shows the dishes in its chip row without growing', async (
   const options = {
     categories: ['restaurant'],
     facilities: [...ATTRACTIONS, DAEREUNGWON, OUTSIDE_LIST, RESTAURANTS[0], RESTAURANTS[1], withMenu],
-    byType: (type: string) => (type === 'restaurant' ? [rec(withMenu, 1)] : type === 'attraction' ? ATTRACTION_RECS() : []),
+    byType: (type: string) => (type === 'restaurant' ? [rec(withMenu, 1), rec(RESTAURANTS[1], 2)] : type === 'attraction' ? ATTRACTION_RECS() : []),
   };
   await openMain(page, options);
   const peekMenu = page.getByTestId('peek-menu');
   await expect(peekMenu).toBeVisible({ timeout: 25_000 });
   await expect(peekMenu).toContainText('쌈밥 정식 · 된장찌개');
+  await expect(page.getByTestId('peek-value')).toContainText(/지금 도보 \d+분이면 쌈밥 정식 먹으러 갈 수 있어요/);
+  const nextPick = page.getByTestId('rec-card-peek').getByRole('button', { name: '다음 추천 장소 보기' });
+  await expect(nextPick).toBeVisible();
   // 이름표는 화면 읽기 프로그램에만 — 보이는 글자는 음식 이름부터.
   await expect(peekMenu.locator('.sr-only')).toHaveText('대표 메뉴');
   // 칩 줄 안에 들어간다: 이 고정 데이터에 늘 있는 '도착 시 영업' 칩과 같은 줄이고, 줄은 한 줄 그대로다.
@@ -832,4 +854,6 @@ test('390px: the peek shows the dishes in its chip row without growing', async (
   if (!menuBox || !chipBox || !rowBox) throw new Error('peek chip row is not on screen');
   expect(Math.abs(menuBox.y + menuBox.height / 2 - (chipBox.y + chipBox.height / 2))).toBeLessThan(2);
   expect(rowBox.height).toBeLessThan(chipBox.height + 4);
+  await nextPick.click();
+  await expect(card(page).getByRole('heading', { name: '이사부피자' })).toBeVisible();
 });

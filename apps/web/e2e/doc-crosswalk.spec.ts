@@ -19,7 +19,7 @@ const DOC = {
   spotInfo: 'SPOT 점수 설명 보기', // SPOT 점수 배지 옆 정보 아이콘 → 60px 배지 'SPOT 점수 ⓘ'(배지 전체가 단추)
   details: '상세 정보 펼치기', // 카드를 위로 끌어 올려 → 손잡이 끌기 + '상세 정보 펼치기'
   guide: /여기로 (길)?안내/, // "여기로 안내" → '도보 길안내'(접근 이름 '여기로 길안내 시작')
-  reject: /관심 없음/, // "관심 없음" → '관심 없어요'(접근 이름 '이 추천에 관심 없음, …')
+  reject: /다음 추천 장소 보기/, // 기능설명서의 "관심 없음" → 카드의 '다음 후보 보기'
   liveRefresh: '실시간 정보 새로고침', // 같은 이름
   ingest: '다음 배치 추가 요청', // 같은 이름
   orb: 'AI 음성 추천 듣기', // 추천 카드 위 음성 오브 → '🎙 AI 음성 비서' 알약(접근 이름은 그대로)
@@ -425,7 +425,7 @@ for (const viewport of [DESKTOP, PHONE]) {
         await expect(card(page).getByRole('button', { name: '상세 정보 접기' })).toBeVisible();
       });
 
-      await test.step('④ "여기로 안내"로 길찾기 · "관심 없음"으로 다음 대안', async () => {
+      await test.step('④ "여기로 안내"로 길찾기 · "다음 후보 보기"로 다음 대안', async () => {
         const reject = card(page).getByRole('button', { name: DOC.reject }).locator('visible=true').first();
         await reject.scrollIntoViewIfNeeded();
         await reject.click();

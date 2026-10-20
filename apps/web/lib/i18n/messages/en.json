@@ -609,11 +609,11 @@
     "authCta": "Go to the map"
   },
   "card": {
-    "reject": "Not interested",
+    "reject": "See next pick",
     "putOff": "Save for later",
     "accept": "Walk there",
     "drive": "Driving directions",
-    "rejectAria": "Not interested, recommend another place",
+    "rejectAria": "See the next recommended place",
     "putOffAria": "Save this place to view later",
     "acceptAria": "Start navigation here",
     "checkHoursKakaoHint": "Before you set off, we'll show the opening hours on Kakao Map.",
@@ -1014,6 +1014,12 @@
     "nearbyKicker": "Nearby pick",
     "atTimeKicker": "Pick for that time",
     "arrowLine": "{anchor} ({anchorCrowd}) → {candidate} ({candidateCrowd}) · {walk} min walk",
+    "foodKicker": "Where to eat now",
+    "foodNow": "Walk {walk} min now for {food}",
+    "foodWithWait": "Leave now for {food} · about {total} min including the expected wait",
+    "foodAtTime": "Walk {walk} min for {food}",
+    "menuWalk": "Signature dish: {food} · {walk} min walk",
+    "cuisineWalk": "{food} restaurant · {walk} min walk",
     "benefitWalk": "{walk} min walk",
     "benefitOpen": "Open when you arrive",
     "benefitTaste": "{pct}% match for you",
@@ -1548,8 +1554,8 @@
     "tooltipLabel": "Preference strength",
     "radarName": "Taste profile",
     "setupCta": "Set your preferences to build your own profile",
-    "learnHint": "Taking directions or tapping “Not interested” updates this profile right away.",
+    "learnHint": "Taking directions or tapping “See next pick” updates this profile right away.",
     "detailsToggle": "Details",
-    "detailsBody": "Accepting a pick (+10%) or tapping “Not interested” (−5%) adjusts all 8 taste axes right away."
+    "detailsBody": "Taking directions (+10%) or tapping “See next pick” (−5%) adjusts all 8 taste axes right away."
   }
 }

@@ -609,11 +609,11 @@
     "authCta": "前往地图"
   },
   "card": {
-    "reject": "不感兴趣",
+    "reject": "查看下一个推荐",
     "putOff": "稍后再看",
     "accept": "步行导航",
     "drive": "驾车导航",
-    "rejectAria": "不感兴趣，推荐其他地点",
+    "rejectAria": "查看下一个推荐地点",
     "putOffAria": "将此地点保存到稍后查看",
     "acceptAria": "开始导航到这里",
     "checkHoursKakaoHint": "出发前，我们会先在Kakao地图为您显示营业时间。",
@@ -1014,6 +1014,12 @@
     "nearbyKicker": "附近推荐",
     "atTimeKicker": "该时段推荐",
     "arrowLine": "{anchor}{anchorCrowd} → {candidate}{candidateCrowd} · 步行{walk}分钟",
+    "foodKicker": "现在去吃什么",
+    "foodNow": "现在步行{walk}分钟即可去吃{food}",
+    "foodWithWait": "现在出发，吃到{food}预计约{total}分钟（含等候）",
+    "foodAtTime": "步行{walk}分钟去吃{food}",
+    "menuWalk": "招牌菜 {food} · 步行{walk}分钟",
+    "cuisineWalk": "{food}餐厅 · 步行{walk}分钟",
     "benefitWalk": "步行{walk}分钟",
     "benefitOpen": "到达时营业中",
     "benefitTaste": "口味匹配{pct}%",
@@ -1548,8 +1554,8 @@
     "tooltipLabel": "偏好强度",
     "radarName": "口味档案",
     "setupCta": "设置偏好，即可生成专属于你的档案",
-    "learnHint": "使用导航或点“不感兴趣”，都会立即更新这份档案。",
+    "learnHint": "使用导航或点“查看下一个推荐”，都会立即更新这份档案。",
     "detailsToggle": "详情",
-    "detailsBody": "接受推荐（+10%）或点“不感兴趣”（−5%）会立即调整8个口味维度。"
+    "detailsBody": "使用导航（+10%）或点“查看下一个推荐”（−5%）会立即调整8个口味维度。"
   }
 }

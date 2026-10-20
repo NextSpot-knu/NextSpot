@@ -609,11 +609,11 @@
     "authCta": "地図へ移動"
   },
   "card": {
-    "reject": "興味なし",
+    "reject": "次の候補を見る",
     "putOff": "後で見る",
     "accept": "徒歩ルート案内",
     "drive": "車ルート案内",
-    "rejectAria": "このおすすめに興味なし、別の場所を提案",
+    "rejectAria": "次のおすすめスポットを見る",
     "putOffAria": "この場所を後で見る一覧に保存",
     "acceptAria": "ここへの案内を開始",
     "checkHoursKakaoHint": "出発前に、まずKakao Mapで営業時間をお見せします。",
@@ -1014,6 +1014,12 @@
     "nearbyKicker": "近くのおすすめ",
     "atTimeKicker": "この時間帯のおすすめ",
     "arrowLine": "{anchor}は{anchorCrowd} → {candidate}は{candidateCrowd} · 徒歩{walk}分",
+    "foodKicker": "今食べに行くなら",
+    "foodNow": "今から徒歩{walk}分で{food}を食べに行けます",
+    "foodWithWait": "今出発すると{food}まで待ち時間込みで約{total}分",
+    "foodAtTime": "{food}を食べに徒歩{walk}分",
+    "menuWalk": "代表メニュー {food} · 徒歩{walk}分",
+    "cuisineWalk": "{food}のお店 · 徒歩{walk}分",
     "benefitWalk": "徒歩{walk}分",
     "benefitOpen": "到着時に営業中",
     "benefitTaste": "好み一致{pct}%",
@@ -1548,8 +1554,8 @@
     "tooltipLabel": "好みの強さ",
     "radarName": "好みプロフィール",
     "setupCta": "好みを設定すると、あなただけのプロフィールができます",
-    "learnHint": "道案内を選んだり「興味なし」を押したりすると、このプロフィールにすぐ反映されます。",
+    "learnHint": "道案内を選んだり「次の候補を見る」を押したりすると、このプロフィールにすぐ反映されます。",
     "detailsToggle": "詳しく",
-    "detailsBody": "受け入れ（+10%）や「興味なし」（−5%）で、8つの好みの軸がすぐに調整されます。"
+    "detailsBody": "道案内（+10%）や「次の候補を見る」（−5%）で、8つの好みの軸がすぐに調整されます。"
   }
 }

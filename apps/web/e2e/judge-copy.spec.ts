@@ -502,12 +502,12 @@ type A12Locale = (typeof A12_LOCALES)[number];
 const REJECT_TOAST: Record<A12Locale, string> = { ko: '알겠어요, 다른 곳을 보여드릴게요', en: 'Got it — here\'s another place' };
 const SAVE_TOAST: Record<A12Locale, string> = { ko: '나중에 볼 곳에 담았어요', en: 'Saved for later' };
 const CARD_BUTTONS: Record<A12Locale, { reject: string; putOff: string }> = {
-  ko: { reject: '이 추천에 관심 없음, 다른 장소 추천받기', putOff: '이 장소를 나중에 볼 목록에 저장' },
-  en: { reject: 'Not interested, recommend another place', putOff: 'Save this place to view later' },
+  ko: { reject: '다음 추천 장소 보기', putOff: '이 장소를 나중에 볼 목록에 저장' },
+  en: { reject: 'See the next recommended place', putOff: 'Save this place to view later' },
 };
 
 for (const locale of A12_LOCALES) {
-  test(`${locale}: 관심 없어요 / 나중에 볼게요 toasts are short and friendly`, async ({ page }) => {
+  test(`${locale}: 다음 후보 보기 / 나중에 볼게요 actions show the expected result`, async ({ page }) => {
     test.setTimeout(90_000);
     await page.setViewportSize({ width: 1536, height: 730 });
     const second = mapFacility('cand-second', '우직 쌈밥집', 'restaurant', 1);
@@ -533,7 +533,7 @@ for (const locale of A12_LOCALES) {
   });
 }
 
-test('관심 없어요 on the last open place promises nothing it cannot show', async ({ page }) => {
+test('다음 후보 보기 on the last open place shows the available options', async ({ page }) => {
   test.setTimeout(90_000);
   await page.setViewportSize({ width: 1536, height: 730 });
   // 음식점 두 곳 모두 오늘 휴무 확정이고, 다른 칩에는 장소가 없다 — 거절하면 보여 줄 다음 곳이 없다.

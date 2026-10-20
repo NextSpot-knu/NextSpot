@@ -954,7 +954,23 @@ export function RecommendationCard({
         candidateCrowd: t(`congestion.${candidateCrowdGrade}`),
       })
     : null;
-  const compareKicker = t(compareHeadline.kind === 'benefit' && compareHeadline.candidateIsAnchor
+  // 메뉴 이름은 실제 메뉴가 있으면 그것, 없으면 음식 종류다. 도보 시간만으로 식사 시작 시각을 단정하지 않고,
+  // 대기 정보가 있을 때만 합계를 '예상'으로 말한다. 가정 시각에서는 '지금'을 쓰지 않는다.
+  const foodName = faceMenuType === 'restaurant' ? faceMenu?.items[0] : null;
+  const foodHeadline = showCompare && foodName
+    ? displayedOpenStatus === 'open_expected' && !closedToday
+      ? assumedTimeLabel
+        ? t('compare.foodAtTime', { food: foodName, walk: displayedTravelMins })
+        : waitMins !== null && waitMins > 0
+          ? t('compare.foodWithWait', { food: foodName, total: times.totalMin })
+          : t('compare.foodNow', { food: foodName, walk: displayedTravelMins })
+      : t(faceMenu?.kind === 'menu' ? 'compare.menuWalk' : 'compare.cuisineWalk', {
+          food: foodName, walk: displayedTravelMins,
+        })
+    : null;
+  const compareKicker = foodHeadline && displayedOpenStatus === 'open_expected' && !closedToday && !assumedTimeLabel
+    ? t('compare.foodKicker')
+    : t(compareHeadline.kind === 'benefit' && compareHeadline.candidateIsAnchor
     // 가정 시각(+N시간 · 요일)에는 '가까운' 이라고 하지 않는다 — 다시 매긴 카드가 걸어서 16분이어도 '가까운 추천' 이라
     // 했다(리뷰 10-07). 그 시각을 위한 추천이라는 말만 하고, 어느 시각인지는 아래 '🕒 … 기준' 알약이 말한다.
     ? (assumedTimeLabel ? 'compare.atTimeKicker' : 'compare.nearbyKicker')
@@ -988,12 +1004,12 @@ export function RecommendationCard({
   };
   const crowdChipOnFace = !!crowdChipData && showFaceCrowdChip({
     ...crowdChipRule,
-    valueLineSaysCrowd: showCompare && compareHeaderText !== null,
+    valueLineSaysCrowd: showCompare && foodHeadline === null && compareHeaderText !== null,
   });
   // 휴대폰 미리보기도 가치 문장을 먼저 말한다(계획 B3) — 그래서 칩 규칙도 얼굴과 같다(화살표가 붐빔을 말하면 칩은 뺀다).
   const crowdChipOnPeek = crowdChipOnFace;
   // 미리보기의 가치 문장 — 화살표면 그대로, 혜택형이면 이름(아래 줄에 있다)을 뺀 혜택만.
-  const peekValueText = compareHeaderText ?? [
+  const peekValueText = foodHeadline ?? compareHeaderText ?? [
     t('compare.benefitWalk', { walk: displayedTravelMins }),
     ...(displayedOpenStatus === 'open_expected' ? [t('compare.benefitOpen')] : []),
     ...(tastePct !== null ? [t('compare.benefitTaste', { pct: tastePct })] : []),
@@ -1067,6 +1083,12 @@ export function RecommendationCard({
     event.stopPropagation();
     if (justDraggedRef.current) return;
     handleAcceptClick();
+  };
+  const handleRejectClick = (event: ReactMouseEvent) => {
+    event.stopPropagation();
+    if (justDraggedRef.current) return;
+    haptic('selection');
+    onReject();
   };
 
   // 조건 칩(도보 N분 이내 · 실내 · 무장애) — 카드 머리, ✕ 로 바로 푼다.
@@ -1195,8 +1217,8 @@ export function RecommendationCard({
               {peekValueText}
             </p>
           )}
-          <div className="flex items-center gap-3">
-          <div className="min-w-0 flex-1 cursor-pointer" onClick={openFromPeek}>
+          <div className="flex flex-col gap-2">
+          <div className="min-w-0 w-full cursor-pointer" onClick={openFromPeek}>
             <div className="flex items-center gap-1.5">
               <h3 className="min-w-0 truncate font-serif text-base font-bold leading-tight tracking-tight text-muk">{title}</h3>
               {hasSpotMetrics && (
@@ -1235,17 +1257,27 @@ export function RecommendationCard({
               )}
             </div>
           </div>
+          <div className="flex w-full gap-2">
           <motion.button
             type="button"
             onClick={handlePeekAcceptClick}
             aria-label={t('card.acceptAria')}
-            className="toss-pressable min-h-11 max-w-[46%] shrink-0 break-keep rounded-2xl cta-primary px-4 py-3 text-xs font-bold leading-tight shadow-[0_4px_14px_rgba(168,70,47,0.28)] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+            className="toss-pressable min-h-11 min-w-0 flex-1 break-keep rounded-2xl cta-primary px-3 py-2 text-xs font-bold leading-tight shadow-[0_4px_14px_rgba(168,70,47,0.28)] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
           >
             <span className="inline-flex items-center justify-center gap-1.5">
               {confirmedAction === 'accepted' && <Check size={14} aria-hidden />}
               {t('card.accept')}
             </span>
           </motion.button>
+          <motion.button
+            type="button"
+            onClick={handleRejectClick}
+            aria-label={t('card.rejectAria')}
+            className="toss-pressable min-h-11 min-w-0 flex-1 break-keep rounded-2xl border border-line bg-hanji-deep px-2 py-2 text-xs font-bold leading-tight text-muk-soft focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+          >
+            {t('card.reject')}
+          </motion.button>
+          </div>
           </div>
         </div>
       ) : isMinimized ? (
@@ -1288,9 +1320,9 @@ export function RecommendationCard({
           )}
           {voiceSlot && <div className="ml-auto shrink-0">{voiceSlot}</div>}
         </div>
-        {compareHeaderText ? (
+        {foodHeadline || compareHeaderText ? (
           <p className="mt-0.5 break-keep text-[16px] md:text-[17px] xl:text-[18px] font-extrabold leading-snug text-muk">
-            {compareHeaderText}
+            {foodHeadline ?? compareHeaderText}
           </p>
         ) : (
           <p className="mt-0.5 break-keep text-[16px] md:text-[17px] xl:text-[18px] font-extrabold leading-snug text-muk">
@@ -2050,10 +2082,10 @@ export function RecommendationCard({
           {scrollEdges.down && <div aria-hidden className="rec-fade-bottom pointer-events-none absolute inset-x-0 bottom-0 h-6" />}
           </div>
 
-      {/* 바닥 버튼 두 줄(I31): [관심 없어요][나중에 볼게요][도보 길안내] / [자동차 길안내][혼잡 제보] */}
+      {/* 바닥 버튼 두 줄(I31): [다음 후보 보기][나중에 볼게요][도보 길안내] / [자동차 길안내][혼잡 제보] */}
       <div className="flex shrink-0 gap-2 pt-1">
           <motion.button
-            onClick={() => { haptic('selection'); onReject(); }}
+            onClick={handleRejectClick}
             aria-label={t('card.rejectAria')}
             className="toss-pressable min-h-11 flex-1 bg-hanji-deep hover:bg-terracotta/10 hover:text-terracotta hover:border-terracotta/30 text-muk-soft font-bold py-2.5 rounded-2xl border border-line text-xs focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
           >

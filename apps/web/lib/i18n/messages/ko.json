@@ -603,11 +603,11 @@
     "authCta": "지도로 가기"
   },
   "card": {
-    "reject": "관심 없어요",
+    "reject": "다음 후보 보기",
     "putOff": "나중에 볼게요",
     "accept": "도보 길안내",
     "drive": "자동차 길안내",
-    "rejectAria": "이 추천에 관심 없음, 다른 장소 추천받기",
+    "rejectAria": "다음 추천 장소 보기",
     "putOffAria": "이 장소를 나중에 볼 목록에 저장",
     "acceptAria": "여기로 길안내 시작",
     "checkHoursKakaoHint": "출발 전에 카카오맵에서 영업시간을 먼저 보여 드려요.",
@@ -1008,6 +1008,12 @@
     "nearbyKicker": "지금 가까운 추천",
     "atTimeKicker": "이 시간대 추천",
     "arrowLine": "{anchor} {anchorCrowd} → {candidate} {candidateCrowd} · 도보 {walk}분",
+    "foodKicker": "지금 먹으러 갈 곳",
+    "foodNow": "지금 도보 {walk}분이면 {food} 먹으러 갈 수 있어요",
+    "foodWithWait": "지금 출발하면 {food} 먹기까지 약 {total}분 예상",
+    "foodAtTime": "{food} 먹으러 도보 {walk}분",
+    "menuWalk": "대표 메뉴 {food} · 도보 {walk}분",
+    "cuisineWalk": "{food} 음식점 · 도보 {walk}분",
     "benefitWalk": "도보 {walk}분",
     "benefitOpen": "도착 시 영업",
     "benefitTaste": "취향 {pct}% 일치",
@@ -1548,8 +1554,8 @@
     "tooltipLabel": "선호 강도",
     "radarName": "취향 프로필",
     "setupCta": "선호를 설정하면 나만의 프로필이 만들어져요",
-    "learnHint": "길안내를 받거나 '관심 없어요'를 누르면 이 프로필에 바로 반영돼요.",
+    "learnHint": "길안내를 받거나 '다음 후보 보기'를 누르면 이 프로필에 바로 반영돼요.",
     "detailsToggle": "자세히",
-    "detailsBody": "길안내(수락)는 +10%, 관심 없어요(거절)는 −5%만큼 8가지 취향 축이 바로 조정돼요."
+    "detailsBody": "길안내(수락)는 +10%, 다음 후보 보기(거절)는 −5%만큼 8가지 취향 축이 바로 조정돼요."
   }
 }

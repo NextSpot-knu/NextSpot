@@ -197,7 +197,7 @@ test('♿ whose category the server leaves empty still opens the barrier-free pl
   await expect(cardHeading(page, '대릉원 산책길')).toBeVisible({ timeout: 25_000 });
   await expect(page.getByTestId('recommendation-card').getByRole('button', { name: '휠체어·유모차 조건 해제' })).toBeVisible();
   await expect(page.getByTestId('category-suggestion')).toHaveCount(0);
-  // 카드의 '관심 없어요' 버튼 말고는 '없어요' 가 없다.
+  // 카드의 '다음 후보 보기' 버튼과 별개로 카테고리 전환을 확인한다.
   await expect(page.getByText(/(?<!관심 )없어요/)).toHaveCount(0);
 });
 
