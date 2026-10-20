@@ -59,6 +59,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html suppressHydrationWarning lang="ko" className="h-full antialiased">
       <head>
+        {/* 탭마다 처음 쓰는 굵기가 늦게 도착하며 글자가 바뀌지 않도록 공통 서체를 선로딩한다. */}
+        {['4Regular', '5Medium', '6SemiBold', '7Bold', '8ExtraBold', '9Black'].map((weight) => (
+          <link key={weight} rel="preload" href={`/fonts/Freesentation-${weight}.woff2`} as="font" type="font/woff2" crossOrigin="anonymous" />
+        ))}
         <Script id="nextspot-theme" strategy="beforeInteractive" dangerouslySetInnerHTML={{ __html: themeBootstrapScript }} />
         <Script
           id="kakao-maps-sdk"
