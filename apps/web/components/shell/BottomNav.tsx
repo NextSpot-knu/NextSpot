@@ -98,7 +98,7 @@ export default function BottomNav() {
             {/* 활성 탭 세로 슬라이딩 인디케이터 — iOS 26 처럼 밝은 유리 알약(어두운 캡슐 위) */}
             <motion.div
               aria-hidden
-              className="absolute left-0 w-16 h-16 short:h-14 rounded-2xl bg-hanji/20 shadow-[inset_0_1px_0_rgba(255,255,255,0.28)] pointer-events-none"
+              className="absolute left-0 w-16 h-16 short:h-14 rounded-full bg-hanji/20 shadow-[inset_0_1px_0_rgba(255,255,255,0.28)] pointer-events-none"
               animate={{ top: `calc(${activeIndex} * var(--rail-step))` }}
               transition={interactionSpring}
             />
@@ -110,7 +110,7 @@ export default function BottomNav() {
                   key={tab.id}
                   onClick={() => handleTabClick(tab)}
                   aria-current={isActive ? 'page' : undefined}
-                  className={`toss-pressable relative z-10 flex flex-col items-center justify-center gap-1 w-16 h-16 short:h-14 rounded-2xl ${
+                  className={`toss-pressable relative z-10 flex flex-col items-center justify-center gap-1 w-16 h-16 short:h-14 rounded-full ${
                     isActive ? 'text-gold-deep' : 'text-muk-soft hover:text-muk'
                   }`}
                 >
