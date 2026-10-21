@@ -23,11 +23,17 @@ const ThemeContext = createContext<ThemeContextValue | null>(null);
 function applyTheme(theme: ResolvedTheme, enabled: boolean) {
   const root = document.documentElement;
   const dark = enabled && theme === 'dark';
-  root.classList.toggle('nextspot-dark', dark);
-  root.dataset.nextspotTheme = enabled ? theme : 'system';
+  if (root.classList.contains('nextspot-dark') !== dark) {
+    root.classList.toggle('nextspot-dark', dark);
+  }
+  const nextTheme = enabled ? theme : 'system';
+  if (root.dataset.nextspotTheme !== nextTheme) {
+    root.dataset.nextspotTheme = nextTheme;
+  }
 
   const meta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
-  if (meta && enabled) meta.content = dark ? '#17130f' : '#faf5ec';
+  const nextColor = dark ? '#17130f' : '#faf5ec';
+  if (meta && enabled && meta.content !== nextColor) meta.content = nextColor;
 }
 
 export default function ThemeProvider({ children }: { children: ReactNode }) {
