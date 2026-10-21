@@ -4255,6 +4255,10 @@ DROP POLICY IF EXISTS seoul_citydata_snapshots_service_all ON public.seoul_cityd
 CREATE POLICY seoul_citydata_snapshots_service_all ON public.seoul_citydata_snapshots
     FOR ALL TO service_role USING (true) WITH CHECK (true);
 
+-- 2026-10-30부터 새 public 테이블은 Data API 권한을 자동으로 받지 않는다.
+-- 수집·관리자 API 는 service_role 로 이 표를 읽고 쓰므로 명시적으로 허용한다.
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.seoul_citydata_snapshots TO service_role;
+
 -- 익명·로그인 사용자에게는 어떤 경로로도 열지 않는다(RLS 정책이 없어 이미 막히지만 두 겹으로).
 REVOKE ALL ON TABLE public.seoul_citydata_snapshots FROM anon, authenticated;
 

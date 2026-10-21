@@ -24,6 +24,10 @@
   시드 POI는 대부분 비활성(`unverified_demo_seed`)이라 실제 장소는 `ingest_tourapi.py` 적재로 채운다.
 - **기존 프로젝트**: `supabase/migrations/` 미적용분만 적용 → `HANDOVER.md` "마이그레이션 확인" 쿼리로 실측 →
   `NOTIFY pgrst, 'reload schema';`(PostgREST 스키마 캐시 갱신 — 빼먹으면 새 컬럼을 한동안 못 본다).
+- **2026-10-30부터 새 `public` 테이블**: 기존 프로젝트에서도 Data API 권한이 자동 부여되지 않는다. 새 테이블을
+  만드는 마이그레이션에 사용 역할별 `GRANT`를 함께 적는다(`service_role`만 사용하는 표는 해당 역할에만,
+  브라우저가 접근하는 표는 필요한 `anon`/`authenticated` 권한만). RLS 정책은 별도로 유지하고,
+  시퀀스를 쓰는 테이블이면 필요한 시퀀스 권한도 명시한다. 기존 테이블의 권한은 이 변경으로 바뀌지 않는다.
 - `RESET_AND_SETUP.sql`은 자동 생성물 — 직접 수정 금지.
 
 ### 1-2. Auth

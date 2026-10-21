@@ -1597,34 +1597,53 @@ export function RecommendationCard({
             </div>
             <div className="space-y-3 pt-3 text-xs text-muk-soft">
 
-          {/* 운영시간 — 실제 영업시간이 있을 때만. 인제스트는 {open: 영업시간, closed: 휴무일} 저장. */}
-          {openHourLines.length > 0 && (
-            <div className={`flex items-start gap-2 ${flashClass('hours')}`} data-refreshed={flashAttr('hours')} data-testid="detail-hours">
-              <Clock size={14} className="text-muk-soft mt-0.5 flex-shrink-0" />
+          {/* TourAPI의 대표·취급 메뉴 — 근거가 있는 항목만 최대 5개. */}
+          {firstMenuTokens.length > 0 && (
+            <div className="flex items-start gap-2">
+              <Utensils size={14} className="text-muk-soft mt-0.5 flex-shrink-0" />
               <div>
-                <span className="text-muk-soft block text-[10px] font-bold">{t('card.hours')}</span>
-                {/* 철·문·요일마다 한 줄(원문의 '<br>' 은 줄바꿈으로). 옛 시드의 close/weekday 는 마지막 줄 뒤에. */}
-                {openHourLines.map((line, index) => (
-                  <span key={`${index}-${line}`} className="block text-muk">
-                    {line}
-                    {index === openHourLines.length - 1 && displayOperatingHours?.close && ` ~ ${displayOperatingHours.close}`}
-                    {index === openHourLines.length - 1 && displayOperatingHours?.weekday && ` (${displayOperatingHours.weekday})`}
-                  </span>
-                ))}
+                <span className="text-muk-soft block text-[10px] font-bold">{t('card.signatureMenu')}</span>
+                <div className="mt-1 flex flex-wrap gap-1">
+                  {firstMenuTokens.map((menu) => (
+                    <span key={menu} className="rounded-full bg-gold/10 px-2 py-0.5 text-[11px] font-semibold text-muk">
+                      {menu}
+                    </span>
+                  ))}
+                </div>
               </div>
             </div>
           )}
 
-          {/* 휴무일 — closed 가 있을 때만 별도 라인(운영시간과 키 의미가 다름: closed=휴무일 텍스트) */}
-          {closedDayLines.length > 0 && (
-            <div className={`flex items-start gap-2 ${flashClass('hours')}`} data-refreshed={flashAttr('hours')}>
-              <Clock size={14} className="text-muk-soft mt-0.5 flex-shrink-0" />
-              <div>
-                <span className="text-muk-soft block text-[10px] font-bold">{t('card.closedDays')}</span>
-                {closedDayLines.map((line, index) => (
-                  <span key={`${index}-${line}`} className="block text-muk">{line}</span>
-                ))}
-              </div>
+          {/* 운영시간과 휴무일은 같은 행에 표시한다. */}
+          {(openHourLines.length > 0 || closedDayLines.length > 0) && (
+            <div className="grid grid-cols-2 gap-3">
+              {openHourLines.length > 0 && (
+                <div className={`flex min-w-0 items-start gap-2 ${flashClass('hours')}`} data-refreshed={flashAttr('hours')} data-testid="detail-hours">
+                  <Clock size={14} className="text-muk-soft mt-0.5 flex-shrink-0" />
+                  <div className="min-w-0 break-words">
+                    <span className="text-muk-soft block text-[10px] font-bold">{t('card.hours')}</span>
+                    {/* 철·문·요일마다 한 줄(원문의 '<br>' 은 줄바꿈으로). 옛 시드의 close/weekday 는 마지막 줄 뒤에. */}
+                    {openHourLines.map((line, index) => (
+                      <span key={`${index}-${line}`} className="block text-muk">
+                        {line}
+                        {index === openHourLines.length - 1 && displayOperatingHours?.close && ` ~ ${displayOperatingHours.close}`}
+                        {index === openHourLines.length - 1 && displayOperatingHours?.weekday && ` (${displayOperatingHours.weekday})`}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {closedDayLines.length > 0 && (
+                <div className={`flex min-w-0 items-start gap-2 ${flashClass('hours')}`} data-refreshed={flashAttr('hours')}>
+                  <Clock size={14} className="text-muk-soft mt-0.5 flex-shrink-0" />
+                  <div className="min-w-0 break-words">
+                    <span className="text-muk-soft block text-[10px] font-bold">{t('card.closedDays')}</span>
+                    {closedDayLines.map((line, index) => (
+                      <span key={`${index}-${line}`} className="block text-muk">{line}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -1636,31 +1655,33 @@ export function RecommendationCard({
             </div>
           )}
 
-          {/* Address — 실제 주소가 있을 때만(TourAPI 컬럼 우선, 카카오 Places 검색값 폴백) */}
-          {displayAddress && (
-            <div className="flex items-start gap-2">
-              <MapPin size={14} className="text-muk-soft mt-0.5 flex-shrink-0" />
-              <div>
-                <span className="text-muk-soft block text-[10px] font-bold">{t('card.address')}</span>
-                <span className="text-muk leading-relaxed">{displayAddress}</span>
-              </div>
-            </div>
-          )}
-
-          {/* Phone — 실제 전화번호가 있을 때만(TourAPI 컬럼 우선, 카카오 Places 검색값 폴백). 누르면 바로 건다. */}
-          {displayPhone && (
-            <div className={`flex items-start gap-2 ${flashClass('phone')}`} data-refreshed={flashAttr('phone')}>
-              <Phone size={14} className="text-muk-soft mt-0.5 flex-shrink-0" />
-              <div>
-                <span className="text-muk-soft block text-[10px] font-bold">{t('card.phone')}</span>
-                {phoneHref ? (
-                  <a href={phoneHref} className="text-gold-deep hover:text-gold underline font-bold tracking-tight">
-                    {displayPhone}
-                  </a>
-                ) : (
-                  <span className="text-muk">{displayPhone}</span>
-                )}
-              </div>
+          {/* 주소와 전화번호는 같은 행에 표시한다. 확인된 값만 노출한다. */}
+          {(displayAddress || displayPhone) && (
+            <div className="grid grid-cols-2 gap-3">
+              {displayAddress && (
+                <div className="flex min-w-0 items-start gap-2">
+                  <MapPin size={14} className="text-muk-soft mt-0.5 flex-shrink-0" />
+                  <div className="min-w-0 break-words">
+                    <span className="text-muk-soft block text-[10px] font-bold">{t('card.address')}</span>
+                    <span className="text-muk leading-relaxed">{displayAddress}</span>
+                  </div>
+                </div>
+              )}
+              {displayPhone && (
+                <div className={`flex min-w-0 items-start gap-2 ${flashClass('phone')}`} data-refreshed={flashAttr('phone')}>
+                  <Phone size={14} className="text-muk-soft mt-0.5 flex-shrink-0" />
+                  <div className="min-w-0 break-words">
+                    <span className="text-muk-soft block text-[10px] font-bold">{t('card.phone')}</span>
+                    {phoneHref ? (
+                      <a href={phoneHref} className="text-gold-deep hover:text-gold underline font-bold tracking-tight">
+                        {displayPhone}
+                      </a>
+                    ) : (
+                      <span className="text-muk">{displayPhone}</span>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -1680,23 +1701,6 @@ export function RecommendationCard({
                 >
                   {homepageHost}
                 </a>
-              </div>
-            </div>
-          )}
-
-          {/* TourAPI의 대표·취급 메뉴 — 근거가 있는 항목만 최대 5개. */}
-          {firstMenuTokens.length > 0 && (
-            <div className="flex items-start gap-2">
-              <Utensils size={14} className="text-muk-soft mt-0.5 flex-shrink-0" />
-              <div>
-                <span className="text-muk-soft block text-[10px] font-bold">{t('card.signatureMenu')}</span>
-                <div className="mt-1 flex flex-wrap gap-1">
-                  {firstMenuTokens.map((menu) => (
-                    <span key={menu} className="rounded-full bg-gold/10 px-2 py-0.5 text-[11px] font-semibold text-muk">
-                      {menu}
-                    </span>
-                  ))}
-                </div>
               </div>
             </div>
           )}
