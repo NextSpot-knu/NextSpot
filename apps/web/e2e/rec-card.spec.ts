@@ -228,12 +228,13 @@ test('the SPOT badge opens an in-flow box with the weights in tourist words, wit
   await openMain(page);
   const heading = card(page).getByRole('heading', { name: '경주 계림' });
   await expect(heading).toBeVisible({ timeout: 25_000 });
-  const before = (await heading.boundingBox())!;
   const badge = card(page).getByRole('button', { name: 'SPOT 점수 설명 보기' });
   await expect(badge).toContainText('SPOT 점수');
   // 카드는 살짝 커지며 들어온다(scale .985 → 1) — 들어오는 중에 재면 59.9px 가 나온다(CI 10-10). 다 자란 뒤를 잰다.
   await expect.poll(async () => (await badge.boundingBox())?.width ?? 0).toBeGreaterThanOrEqual(60);
   await expect.poll(async () => (await badge.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(60);
+  // 제목의 기준 위치도 다 자란 뒤에 잰다 — 들어오는 중에 재면 그 차이(최대 ~3px)가 '밀림'으로 읽힌다(CI 10-21, 1.3px).
+  const before = (await heading.boundingBox())!;
   await badge.click();
   const box = card(page).getByTestId('spot-info');
   await expect(box).toBeVisible();
@@ -242,8 +243,8 @@ test('the SPOT badge opens an in-flow box with the weights in tourist words, wit
   await expect(box).toContainText('내 취향 · 78% 일치');
   await expect(box).toContainText(/걷는 시간 · 도보 \d+분/);
   await expect(badge).toHaveAttribute('aria-expanded', 'true');
-  const after = (await heading.boundingBox())!;
-  expect(Math.abs(after.x - before.x)).toBeLessThanOrEqual(0.5);
+  // 상자가 열리며 카드 높이가 바뀌면 바깥 판의 layout 스프링이 돈다 — 멈춘 자리를 비교한다.
+  await expect.poll(async () => Math.abs(((await heading.boundingBox())?.x ?? Number.NaN) - before.x)).toBeLessThanOrEqual(0.5);
   const overflow = await card(page).evaluate((el) => {
     const scroller = el.querySelector('.rec-scroll') as HTMLElement;
     return { cardX: scroller.scrollWidth - scroller.clientWidth, page: document.documentElement.scrollWidth - document.documentElement.clientWidth };
