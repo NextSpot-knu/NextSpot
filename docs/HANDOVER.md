@@ -6,6 +6,7 @@
 
 ## 배포 상태
 
+- **2026-10-22 KST main 갱신 예정(API·문서 — `chore/llm-off-1022`).** LLM 전체 스위치 `LLM_ENABLED` 기본 꺼짐 → Upstage 호출 0(아래 2026-10-22b). API 파일이 바뀌어 Render 가 재시작한다(1~2분). 되돌림 = Render env `LLM_ENABLED=true`(재시작) 또는 이 커밋 revert.
 - **2026-10-22 21:43 KST main `b6d428e..e2a1b0e`(PR #19 fast-forward, PM "push" — 웹·e2e·문서만).** main e2e 빨간불(10-19~) 정리 · 관제 데모 튕김 수정 · 휴대폰 미리보기 한 줄 줄임(아래 2026-10-22). PR CI · main CI(run 39780712139) 4잡 green — e2e 518 통과 · 실패 0 · flaky 0(10-11 뒤 첫 초록). Vercel 프로덕션 `dpl_6obwmrWUvtonWSGH2GZACmM2hqif` READY, 싱가포르 `/health` healthy · `deploy.commit=f80454c07ba1` 그대로(재시작 없음). 되돌림 = Vercel `dpl_95jwYS6iC13PbgftCzFsDQf4myiL`(`b6d428e`).
 - **2026-10-21 KST main 갱신 예정(웹·문서만).** 탭 이동 때 동일한 테마 속성을 반복 기록하던 동작을 제거했다. Vercel 배포·사용자 환경의 글꼴 깜빡임 확인은 푸시 뒤 대기. API·스키마 무변경.
 - **2026-10-21 KST main `7dba684..`(이번 기록 커밋).** 추천 카드 상세를 대표메뉴 → 운영시간·휴무일 → 소개 → 주소·전화번호 순서로 배치하고, 서울 검증 테이블의 `service_role` GRANT를 마이그레이션에 명시했다. Vercel 배포·라이브 확인은 푸시 뒤 확인 대기. SQL은 원격 DB에 적용하지 않았다.
@@ -264,6 +265,15 @@ from checks order by seq;
 
 최신이 위. 10개를 넘으면 가장 오래된 항목을 `archive/HANDOVER_LOG.md` 맨 위로 옮긴다.
 
+## 2026-10-22b — LLM(Upstage) 전체 스위치 · 기본 꺼짐
+
+- 도구·브랜치: Claude Code / `chore/llm-off-1022`(main `9bd5584` 위)
+- 커밋: 이 기록 포함 1건(API·문서)
+- 한 것: PM "당분간 Upstage 꺼놔 — 보여 줄 사람도 없으니". `LLM_ENABLED`(기본 `false`)를 두고 `llm_client.is_enabled()` 가 스위치와 키를 함께 본다. 모든 Upstage 호출이 `chat_text()` → `is_enabled()` 를 지나므로 음성 해석·검색 재작성·조건 해석·사유·브리핑이 전부 기존 키워드·규칙·템플릿 폴백으로 간다(키 없는 운영과 같은 경로). 키는 Render 에 그대로 둔다.
+- 검증: api ruff · pytest(테스트는 `tests/conftest.py` 가 스위치를 켜 기존 LLM 경로 검증을 그대로 유지).
+- 다음·미결: 다시 켤 때는 Render `nextspot-t2ib` 환경변수 `LLM_ENABLED=true`. `render.yaml` 에는 넣지 않았다 — Blueprint 가 아직 정지된 오리건 서비스(`nextspot-api`)를 가리켜, 그 파일을 고치면 동기화가 그쪽을 건드린다. PR #13(LLM IP 리밋·전역 예산)은 LLM 이 꺼진 동안 급하지 않다 — 그 안의 밤 23시 e2e 수정만 필요하면 따로 뗀다.
+- 사람 작업: 없음.
+
 ## 2026-10-22 — main e2e 빨간불(10-19~) 정리 · 관제 데모 튕김 수정 · 휴대폰 미리보기 한 줄 줄임 · 오리건 API 정지
 
 - 도구·브랜치: Claude Code / `fix/ci-e2e-1022`(main `b6d428e` 위)
@@ -349,14 +359,6 @@ from checks order by seq;
 - 검증: web lint(0 errors)·typecheck·test(contrast 포함)·build · check-docs · e2e `map-time-strip.spec.ts` · 라이브 `/main` 에 같은 CSS 를 주입한 전후 화면(휴대폰 390 · 데스크톱 1536 × 라이트·야간).
 - 다음·미결: main 반영은 PM 확인 뒤(웹만이라 낮에도 API 재시작 없음). 반영 뒤 Vercel 프로덕션 id 기록.
 - 사람 작업: 없음.
-
-## 2026-10-12 — Render 배포 확인: 10-09 빌드 실패 메일 뒤 '성공 알림 없음' 진단 · /health 에 배포 커밋 · 배포 확인 워크플로
-
-- 도구·브랜치: Claude Code(클라우드) / `claude/nextspot-continuation-hiebei`(main `3a61300` 위)
-- 한 것: PM "10-09 Render 빌드 실패 메일 뒤 성공 알림이 없다" → 빠진 배포 없음. main 의 API 코드 마지막 변경은 10-06 `599a7a2`, 10-09 이후 main 커밋은 웹·문서와 `render.yaml`(오리건 Blueprint)뿐이고 Build Filters 가 그 푸시를 건너뛴다. 싱가포르·오리건 `/health` 모두 healthy · 운영 웹 번들은 싱가포르만 부른다 · 웹 최신(`3a61300`)은 운영 CSS 로 확인. 현재 main 은 Render 와 같은 조건(Dockerfile `apps/api/Dockerfile` · 컨텍스트 `apps/api`)으로 Docker 빌드·부팅·`/health` 200 — 10-09 실패는 지금 코드로 재현되지 않는다(어느 서비스였는지는 대시보드에만 있다). 재발 방지: `/health` 에 `deploy.commit`·`deploy.service`(Render 기본 환경변수 `RENDER_GIT_COMMIT`·`RENDER_SERVICE_NAME`) · `deploy-verify.yml` — main 에서 apps/api 를 마지막으로 바꾼 커밋(시험·문서·`[skip render]` 제외)이 운영에 떴는지(그 커밋이거나 그 뒤 커밋) 25분 기다려 보고, 아니면 실패. **지금은 수동 실행만** — 독립 리뷰가 Render Auto-Deploy 'After CI Checks Pass' 면 이 잡과 Render 가 서로 기다려 배포가 막힌다고 지적해, 'On Commit' 확인 뒤 push 트리거를 켠다(사람 작업 ④).
-- 검증: api ruff · pytest 2479 · 새 시험(환경변수 있음/없음) · 컨테이너에서 `deploy` 칸 확인 · 워크플로 단계를 임시 git 이력 + 가짜 `/health` 로 `bash -eo pipefail` 아래 6경우(대상 · 뒤 커밋 · 옛 커밋 · JSON 아님 · 응답 없음 · 주소 변수 없음) 시험 · 독립 리뷰 1회(지적 5건 반영) · check-docs.
-- 다음·미결: 이 변경은 API 라 KST 밤 반영(PR #13 과 같은 밤이면 순서는 상관없다 — 확인은 수동 실행이고 main 의 마지막 API 커밋을 본다). 반영 전 PM 이 Render Build Filters 경로를 확인해야 확인 잡이 의미 있다(아래 사람 작업). `requirements.txt` 가 `>=` 라 빌드마다 최신 패키지를 받는다(10-12 빌드 fastapi 0.143.0) — 고정은 심사 뒤 검토.
-- 사람 작업: "사람 작업 대기" 맨 위 Render 확인 줄.
 
 ## 기록 규칙
 

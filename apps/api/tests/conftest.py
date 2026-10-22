@@ -22,6 +22,9 @@ os.environ.setdefault("MERCHANT_API_TOKEN", "nextspot-merchant-local")
 # 빈 값으로 고정해 is_enabled()=False(전 테스트 LLM 네트워크 차단). LLM 경로가 필요한 테스트는
 # llm_client 함수를 개별 monkeypatch 한다(TOURAPI 차단 픽스처와 동일 원칙).
 os.environ.setdefault("UPSTAGE_API_KEY", "")
+# 운영 기본값은 LLM 전체 스위치 꺼짐(2026-10-22)이다. 테스트는 키 monkeypatch 만으로 LLM 경로를 검증해 왔으므로
+# 스위치는 켜 두고, 네트워크 차단은 위의 빈 키가 계속 맡는다.
+os.environ.setdefault("LLM_ENABLED", "true")
 # 참조 스냅샷 갱신 루프는 테스트에서 기본으로 **끈다**(legacy) — 48개 `with TestClient(app)` 블록이 lifespan 을
 # 돌리므로, 켜 두면 테스트마다 placeholder Supabase 로 적재를 시도하고 전용 스레드가 종료를 붙잡는다.
 # 기존 지도 테스트는 그대로 실시간 경로를 검증한다. 스냅샷 경로는 test_reference_snapshot.py 가 켜서 검증한다.

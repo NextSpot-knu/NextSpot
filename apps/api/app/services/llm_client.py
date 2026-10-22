@@ -5,7 +5,8 @@
 2026 관광데이터 공모전 규정에 외부 AI API 제한 없음(TourAPI 필수 활용 조건은 별도 충족).
 
 설계 원칙 — 무해 폴백(이 저장소의 LLM 재도입 조건):
-  - UPSTAGE_API_KEY 미설정 → is_enabled() False, 호출은 네트워크 없이 즉시 None.
+  - LLM_ENABLED 꺼짐(기본, 2026-10-22~) 또는 UPSTAGE_API_KEY 미설정 → is_enabled() False,
+    호출은 네트워크 없이 즉시 None.
   - 타임아웃(기본 3초)·HTTP 오류·JSON 파싱 실패 → 전부 None. 호출자는 None 이면 기존
     결정적 경로(키워드 분류기·템플릿)를 그대로 쓴다 — LLM 장애가 기능 장애로 승격되지 않는다.
   - 예외 원문·응답 본문은 서버 로그에만 남긴다(인증키·발화 원문 노출 방지).
@@ -44,8 +45,8 @@ def _get_client() -> httpx.AsyncClient:
 
 
 def is_enabled() -> bool:
-    """키가 설정돼 있을 때만 True — 호출자는 False 면 LLM 경로 자체를 건너뛴다."""
-    return bool((settings.UPSTAGE_API_KEY or "").strip())
+    """전체 스위치(LLM_ENABLED)가 켜져 있고 키가 설정돼 있을 때만 True — 호출자는 False 면 LLM 경로 자체를 건너뛴다."""
+    return settings.LLM_ENABLED and bool((settings.UPSTAGE_API_KEY or "").strip())
 
 
 async def aclose() -> None:

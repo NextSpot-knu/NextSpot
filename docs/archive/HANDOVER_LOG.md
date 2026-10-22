@@ -1,4 +1,12 @@
 # HANDOVER 로그 (2026-06-30 ~ 2026-08-28)
+## 2026-10-12 — Render 배포 확인: 10-09 빌드 실패 메일 뒤 '성공 알림 없음' 진단 · /health 에 배포 커밋 · 배포 확인 워크플로
+
+- 도구·브랜치: Claude Code(클라우드) / `claude/nextspot-continuation-hiebei`(main `3a61300` 위)
+- 한 것: PM "10-09 Render 빌드 실패 메일 뒤 성공 알림이 없다" → 빠진 배포 없음. main 의 API 코드 마지막 변경은 10-06 `599a7a2`, 10-09 이후 main 커밋은 웹·문서와 `render.yaml`(오리건 Blueprint)뿐이고 Build Filters 가 그 푸시를 건너뛴다. 싱가포르·오리건 `/health` 모두 healthy · 운영 웹 번들은 싱가포르만 부른다 · 웹 최신(`3a61300`)은 운영 CSS 로 확인. 현재 main 은 Render 와 같은 조건(Dockerfile `apps/api/Dockerfile` · 컨텍스트 `apps/api`)으로 Docker 빌드·부팅·`/health` 200 — 10-09 실패는 지금 코드로 재현되지 않는다(어느 서비스였는지는 대시보드에만 있다). 재발 방지: `/health` 에 `deploy.commit`·`deploy.service`(Render 기본 환경변수 `RENDER_GIT_COMMIT`·`RENDER_SERVICE_NAME`) · `deploy-verify.yml` — main 에서 apps/api 를 마지막으로 바꾼 커밋(시험·문서·`[skip render]` 제외)이 운영에 떴는지(그 커밋이거나 그 뒤 커밋) 25분 기다려 보고, 아니면 실패. **지금은 수동 실행만** — 독립 리뷰가 Render Auto-Deploy 'After CI Checks Pass' 면 이 잡과 Render 가 서로 기다려 배포가 막힌다고 지적해, 'On Commit' 확인 뒤 push 트리거를 켠다(사람 작업 ④).
+- 검증: api ruff · pytest 2479 · 새 시험(환경변수 있음/없음) · 컨테이너에서 `deploy` 칸 확인 · 워크플로 단계를 임시 git 이력 + 가짜 `/health` 로 `bash -eo pipefail` 아래 6경우(대상 · 뒤 커밋 · 옛 커밋 · JSON 아님 · 응답 없음 · 주소 변수 없음) 시험 · 독립 리뷰 1회(지적 5건 반영) · check-docs.
+- 다음·미결: 이 변경은 API 라 KST 밤 반영(PR #13 과 같은 밤이면 순서는 상관없다 — 확인은 수동 실행이고 main 의 마지막 API 커밋을 본다). 반영 전 PM 이 Render Build Filters 경로를 확인해야 확인 잡이 의미 있다(아래 사람 작업). `requirements.txt` 가 `>=` 라 빌드마다 최신 패키지를 받는다(10-12 빌드 fastapi 0.143.0) — 고정은 심사 뒤 검토.
+- 사람 작업: "사람 작업 대기" 맨 위 Render 확인 줄.
+
 ## 2026-10-10 — PR #12 병합 · PR #13 밤 e2e 원인 수정 · 실서비스 UI 비교 접근성 정리
 
 - 도구·브랜치: Claude Code(클라우드) / `fix/llm-rate-limits-1009`(PR #13 — `6adb171` main 병합 · `4a37ab4` · `c678db4`) · 이 기록은 `claude/nextspot-continuation-hiebei`(main `dc56bab` 위, 문서만)

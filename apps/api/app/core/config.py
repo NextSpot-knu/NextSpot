@@ -116,6 +116,10 @@ class Settings(BaseSettings):
     # 선택값: 비어 있으면 LLM 기능이 전부 조용히 비활성(기존 결정적 경로 그대로 — 무해 폴백).
     # 제공자 교체는 BASE_URL/MODEL 만 바꾸면 된다(OpenAI 호환 chat completions 라면 무엇이든).
     UPSTAGE_API_KEY: str = ""
+    # 전체 스위치 — 기본 꺼짐(2026-10-22 PM "당분간 꺼놔"). 꺼져 있으면 키가 있어도 LLM 을 부르지 않는다.
+    # 다시 켜려면 Render 환경변수 LLM_ENABLED=true(저장하면 재시작). render.yaml 에는 넣지 않았다 —
+    # Blueprint 가 아직 정지된 오리건 서비스를 가리켜 그 파일을 고치면 동기화가 그쪽을 건드린다.
+    LLM_ENABLED: bool = False
     LLM_BASE_URL: str = "https://api.upstage.ai/v1"
     LLM_MODEL: str = "solar-pro3"  # 2026-07-17 실측: 0.8~1.1초, JSON 신뢰성 solar-mini 대비 우위
     LLM_TIMEOUT_SECONDS: float = 3.0  # 음성 UX 상한 — 초과 시 None 반환, 호출자는 키워드 경로 유지
