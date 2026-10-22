@@ -36,7 +36,12 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   // useSearchParams 대신 location 을 마운트 후에 읽는다: 레이아웃에 Suspense 경계를 두지
   // 않아도 되고(정적 export 의 CSR bailout 회피), 프리렌더 HTML 과도 어긋나지 않는다.
   // 데모는 **화면만** 연다 — 데이터는 전부 고정값이고 관리자 API 는 세션이 없으면 여전히 403 이다.
-  const [demo, setDemo] = useState(false);
+  // 판정은 어느 경로에서 읽었는지와 함께 둔다. 레이아웃이 살아 있는 채 경로가 바뀌면(로그인 화면의
+  // '데모로 둘러보기' → /admin/dashboard?demo=1) 새 경로의 첫 렌더는 아직 옛 판정을 들고 있다 —
+  // 그 렌더에서 리다이렉트를 걸면 데모가 로그인으로 튕긴다(10-21 CI e2e 실측).
+  const [demoCheck, setDemoCheck] = useState<{ path: string | null; on: boolean }>({ path: null, on: false });
+  const demoChecked = demoCheck.path === pathname;
+  const demo = demoChecked && demoCheck.on;
 
   useEffect(() => {
     setMounted(true);
@@ -56,10 +61,12 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   // /admin(인덱스)은 쿼리를 들고 대시보드로 보내는 리다이렉트뿐이라 함께 통과시킨다 — 여기서 막으면
   // 자식 페이지가 마운트되지 못해 /admin?demo=1 이 로그인 화면으로 떨어진다.
   useEffect(() => {
+    let on = false;
     try {
-      setDemo((pathname === '/admin/dashboard' || pathname === '/admin')
-        && isDemoParam(new URLSearchParams(window.location.search).get('demo')));
-    } catch { setDemo(false); /* URL 파싱 불가 — 평소 게이트 경로 그대로 */ }
+      on = (pathname === '/admin/dashboard' || pathname === '/admin')
+        && isDemoParam(new URLSearchParams(window.location.search).get('demo'));
+    } catch { /* URL 파싱 불가 — 평소 게이트 경로 그대로 */ }
+    setDemoCheck({ path: pathname, on });
   }, [pathname]);
 
   // 마운트 후에만 localStorage 평가(서버 프리렌더/하이드레이션 불일치 방지).
@@ -88,10 +95,11 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   }, [gate.cache]);
 
   useEffect(() => {
-    if (gate.redirectToLogin) {
+    // 이 경로의 데모 판정을 읽기 전에는 보내지 않는다(위 demoCheck).
+    if (gate.redirectToLogin && demoChecked) {
       router.replace('/admin/login');
     }
-  }, [gate.redirectToLogin, pathname, router]);
+  }, [gate.redirectToLogin, demoChecked, pathname, router]);
 
   // 로그인 페이지·데모·확인된 관리자는 통과. 캐시된 긍정 판정은 판정이 '부정으로 끝나기 전까지' 낙관
   // 렌더한다(서버에 닿지 못한 동안에도 콘솔을 유지) — 부정으로 끝나면 즉시 로더+리다이렉트로 떨어진다.
