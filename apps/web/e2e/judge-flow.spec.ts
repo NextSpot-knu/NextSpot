@@ -229,8 +229,8 @@ test('with no congestion estimate and no parking evidence the first line is the 
   await expect(line).toContainText('도착 시 영업');
   await expect(line).toContainText(/취향 \d+% 일치/);
   await expect(page.getByText(COMPARE_HEADER)).toHaveCount(0);
-  // 가치 문장에 화살표가 없다(얼굴의 '출발 → 도착' 한 줄은 시간 줄이라 따로 둔다 — 계획 B2).
-  await expect(card.getByTestId('value-box')).not.toContainText('→');
+  // 가치 문장에 화살표가 없다. '출발 → 도착' 시간 줄(arrival-line)은 10-19 부터 같은 상자 머리에 있지만 비교가 아니다 — 계획 B2.
+  await expect(card.getByTestId('value-sentence')).not.toContainText('→');
   await expect(card).not.toContainText('인기 명소');
   // 근거가 없다고 빈 자리('혼잡 추정 · 수집 중' · '주변 붐빔 · 수집 중' · '수집 중 · 혼잡 제보')를 그리지 않는다.
   await expect(card).not.toContainText('수집 중');

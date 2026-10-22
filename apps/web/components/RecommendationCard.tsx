@@ -1327,11 +1327,11 @@ export function RecommendationCard({
           {voiceSlot && <div className="ml-auto shrink-0">{voiceSlot}</div>}
         </div>
         {foodHeadline || compareHeaderText ? (
-          <p className="mt-0.5 break-keep text-[16px] md:text-[17px] xl:text-[18px] font-extrabold leading-snug text-muk">
+          <p className="mt-0.5 break-keep text-[16px] md:text-[17px] xl:text-[18px] font-extrabold leading-snug text-muk" data-testid="value-sentence">
             {foodHeadline ?? compareHeaderText}
           </p>
         ) : (
-          <p className="mt-0.5 break-keep text-[16px] md:text-[17px] xl:text-[18px] font-extrabold leading-snug text-muk">
+          <p className="mt-0.5 break-keep text-[16px] md:text-[17px] xl:text-[18px] font-extrabold leading-snug text-muk" data-testid="value-sentence">
             {title}
             {' · '}
             <span className="inline-block rounded-full bg-jade/15 px-2 text-jade">

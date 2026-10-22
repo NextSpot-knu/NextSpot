@@ -124,8 +124,8 @@ for (const viewport of [{ width: 1536, height: 730 }, { width: 390, height: 844 
     await expect(line).toBeVisible();
     await expect(line).toContainText('도착 시 영업');
     await expect(line).toContainText('취향 81% 일치');
-    // 가치 문장에 화살표가 없다(얼굴의 '출발 → 도착' 시간 줄은 비교가 아니다 — 계획 B2).
-  await expect(card.getByTestId('value-box')).not.toContainText('→');
+    // 가치 문장에 화살표가 없다. '출발 → 도착' 시간 줄(arrival-line)은 10-19 부터 같은 상자 머리에 있지만 비교가 아니다 — 계획 B2.
+    await expect(card.getByTestId('value-sentence')).not.toContainText('→');
     await expect(card).not.toContainText('대신 경주 첨성대');
   });
 }
@@ -424,8 +424,8 @@ test('a 46-day-old anchor log never becomes "지금 대릉원 혼잡 →"', asyn
   await openWithAnchor(page, daereungwon({ level: 0.92, ageMs: 46 * DAY_MS, isCurrent: false }), '대릉원');
   const card = page.getByTestId('recommendation-card');
   await expect(card.locator('p').filter({ hasText: /^우직 · 도보 \d+분/ }).first()).toBeVisible();
-  // 가치 문장에 화살표가 없다(얼굴의 '출발 → 도착' 시간 줄은 비교가 아니다 — 계획 B2).
-  await expect(card.getByTestId('value-box')).not.toContainText('→');
+  // 가치 문장에 화살표가 없다. '출발 → 도착' 시간 줄(arrival-line)은 10-19 부터 같은 상자 머리에 있지만 비교가 아니다 — 계획 B2.
+  await expect(card.getByTestId('value-sentence')).not.toContainText('→');
 });
 
 test('an anchor known only by its tourism index gets no arrow', async ({ page }) => {
@@ -434,8 +434,8 @@ test('an anchor known only by its tourism index gets no arrow', async ({ page })
   await openWithAnchor(page, null, '분황사');
   const card = page.getByTestId('recommendation-card');
   await expect(card.locator('p').filter({ hasText: /^우직 · 도보 \d+분/ }).first()).toBeVisible();
-  // 가치 문장에 화살표가 없다(얼굴의 '출발 → 도착' 시간 줄은 비교가 아니다 — 계획 B2).
-  await expect(card.getByTestId('value-box')).not.toContainText('→');
+  // 가치 문장에 화살표가 없다. '출발 → 도착' 시간 줄(arrival-line)은 10-19 부터 같은 상자 머리에 있지만 비교가 아니다 — 계획 B2.
+  await expect(card.getByTestId('value-sentence')).not.toContainText('→');
 });
 
 test('a calm pick next to a landmark that is busy right now keeps the arrow', async ({ page }) => {
