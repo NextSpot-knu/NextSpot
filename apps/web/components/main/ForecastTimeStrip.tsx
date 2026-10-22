@@ -10,7 +10,7 @@
 //   · 예측을 받으면 등급색 배지 한 줄 + 범례. 범례는 등급이 칠해진 핀이 화면에 있거나 예측 중일 때만, 아니면
 //     '지금 이 일대 … · 추정' 칩 하나(추정 피드가 있을 때만).
 //   · 휴대폰은 배지를 따로 한 줄로 두지 않고 '🔮 혼잡 예측' 자리에 짧은 배지('🔮 여유 예측')를 둔다. 키 낮은 휴대폰
-//     (높이 720 미만)은 범례 줄도 감춘다 — 360×640 의 지도 띠(180px 이상, 계획 3.2)가 예측 중에도 남게(리뷰 10-07).
+//     (높이 720 미만)은 범례 줄도 감춘다 — 360×640 의 지도 띠(125px 이상 — 계획 3.2 의 180px 은 10-22 PM 결정으로 125px)가 예측 중에도 남게(리뷰 10-07).
 //   · 768~1023px(태블릿 · 좁은 창)는 휴대폰 글자 크기를 쓴다 — 칸 이름('+1시간 후')이 좁은 트랙에서 겹치지 않게.
 // 자료를 부르지 않는다 — 고른 값만 부모에 알린다(lib/forecastStrip.ts 가 규칙).
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react';
@@ -251,7 +251,7 @@ export default function ForecastTimeStrip({
       </div>
       {(legend || areaChip) && (
         // 휴대폰은 예측 중일 때만 범례 줄을 둔다 — 지금 모드의 범례·이 일대 칩까지 올리면 360×640 에서 지도 띠가 모자란다.
-        // 키 낮은 휴대폰은 예측 중에도 감춘다(짧은 배지가 등급을 말하고, 지도 띠 180px 을 지킨다).
+        // 키 낮은 휴대폰은 예측 중에도 감춘다(짧은 배지가 등급을 말하고, 지도 띠 125px 을 지킨다).
         <div className={`mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 px-1 text-[11px] font-bold text-muk-soft ${legend?.dashed ? 'short:max-md:hidden' : 'max-md:hidden'}`} data-testid="forecast-legend">
           {legend ? (
             <>

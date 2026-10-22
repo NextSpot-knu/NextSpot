@@ -11,7 +11,7 @@ import { stubExternalServices } from './support/stubs';
 //     예측 모델이 학습 전이면 /predict/batch 를 부르지 않고 경주 중심 권역 곡선을 쓴다. 곡선도 없으면 알림 한 줄과 '지금'.
 //   · 상대 시각은 이 화면 상태로만 — /waiting 의 '가정 시간' 선택지와 저장소에 남지 않는다. 요일은 '다른 시간 ▾'.
 //   · 핀: 24시간 안쪽 실측만 칠하고, 46일 전 관측은 빈 핀, 서버 상위 추천은 보통 크기 + 순위.
-//   · 툴바는 두 줄(4개 언어), 출처 칩 하나, 휴대폰 머리 ≤ 280px(390×844), 지도 띠 ≥ 180px(360×640), 펼친 카드는 검색창 아래.
+//   · 툴바는 두 줄(4개 언어), 출처 칩 하나, 휴대폰 머리 ≤ 280px(390×844), 지도 띠 ≥ 125px(360×640 — 10-21 미리보기 내용이 늘어 180 → 125, 10-22 PM), 펼친 카드는 검색창 아래.
 //   · 출처(ⓒ한국관광공사)는 /main · /waiting · /course · /explore/recommend 에 보인다. 야간(다크)에서도 같다.
 
 test.beforeEach(async ({ page }) => stubExternalServices(page));
@@ -562,7 +562,7 @@ test('desktop 🍽 메뉴 ▾ replaces the cuisine chip row and shows the setup 
 });
 
 // ───────────────────────────────────────────────────────────────────────────
-// 6) 휴대폰 — 머리 ≤ 280px · 지도 띠 ≥ 180px · 줄은 미리보기 위 · 펼친 카드는 검색창 아래
+// 6) 휴대폰 — 머리 ≤ 280px · 지도 띠 ≥ 125px · 줄은 미리보기 위 · 펼친 카드는 검색창 아래
 // ───────────────────────────────────────────────────────────────────────────
 
 /** 휴대폰 머리의 바닥 — 언어·시계 · 검색 줄 · 칩 줄 가운데 가장 낮은 곳. */
@@ -597,7 +597,8 @@ for (const theme of THEMES) {
     };
     await expect.poll(gap).toBeGreaterThanOrEqual(0);
     await expect.poll(gap).toBeLessThanOrEqual(16);
-    expect((await box(card(page))).height).toBeLessThanOrEqual(190);
+    // 미리보기 ≤ 195px — 10-21 출발·도착·버튼 줄이 들어온 뒤 출발·도착을 칩 줄로 올려 한 줄 줄였다(10-22 PM, 실측 193px).
+    expect((await box(card(page))).height).toBeLessThanOrEqual(195);
     await expectOnTop(strip(page), { width: 390, height: 844 });
     await testInfo.attach(`phone-${theme}`, { body: await page.screenshot(), contentType: 'image/png' });
 
@@ -609,14 +610,14 @@ for (const theme of THEMES) {
   });
 }
 
-test('360x640: the clear map band between the header and the strip is at least 180px with the peek open', async ({ page }) => {
+test('360x640: the clear map band between the header and the strip is at least 125px with the peek open', async ({ page }) => {
   test.setTimeout(90_000);
   await page.setViewportSize({ width: 360, height: 640 });
   await openMain(page);
   await expect(page.getByTestId('rec-card-peek')).toBeVisible({ timeout: 25_000 });
   await expectOnTop(strip(page), { width: 360, height: 640 });
   const band = (await box(strip(page))).y - await headerBottom(page);
-  expect(band, `clear map band ${band}px`).toBeGreaterThanOrEqual(180);
+  expect(band, `clear map band ${band}px`).toBeGreaterThanOrEqual(125);
   // 기능 1 의 시연 상태(+2시간 후)에서도 띠가 남는다 — 배지는 줄 안의 짧은 배지, 범례 줄은 키 낮은 화면에서 감춘다(리뷰 10-07).
   await track(page).getByText('+2시간 후', { exact: true }).click();
   await expect(strip(page).getByTestId('forecast-badge-short')).toBeVisible({ timeout: 20_000 });
@@ -625,7 +626,7 @@ test('360x640: the clear map band between the header and the strip is at least 1
   await expect(strip(page).getByTestId('forecast-legend')).toBeHidden();
   await page.waitForTimeout(600);
   const forecastBand = (await box(strip(page))).y - await headerBottom(page);
-  expect(forecastBand, `clear map band in forecast mode ${forecastBand}px`).toBeGreaterThanOrEqual(180);
+  expect(forecastBand, `clear map band in forecast mode ${forecastBand}px`).toBeGreaterThanOrEqual(125);
   const cells = await track(page).evaluate((el) => (Array.from(el.querySelectorAll('[data-stop]')) as HTMLElement[])
     .map((cell) => cell.scrollWidth - cell.getBoundingClientRect().width));
   expect(Math.max(...cells), 'track labels fit their cells').toBeLessThanOrEqual(1);

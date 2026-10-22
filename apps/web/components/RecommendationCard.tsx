@@ -1217,12 +1217,6 @@ export function RecommendationCard({
               {peekValueText}
             </p>
           )}
-          {showArrivalLine && currentTime && arrivalTime && (
-            <span className="inline-flex w-fit items-center gap-1.5 rounded-full bg-jade/15 px-2.5 py-0.5 text-[12px] font-extrabold text-jade" data-testid="peek-arrival-line">
-              <Clock size={13} className="shrink-0" aria-hidden />
-              {t('card.arrivalLine', { depart: formatTime(currentTime), arrive: formatTime(arrivalTime) })}
-            </span>
-          )}
           <div className="flex flex-col gap-2">
           <div className="min-w-0 w-full cursor-pointer" onClick={openFromPeek}>
             <div className="flex items-center gap-1.5">
@@ -1235,6 +1229,13 @@ export function RecommendationCard({
               <ChevronUp size={14} className="shrink-0 text-gold-deep" aria-hidden />
             </div>
             <div className="mt-1.5 flex flex-wrap items-center gap-1.5 empty:hidden">
+              {/* 출발 → 도착은 따로 한 줄을 쓰지 않고 이 칩 줄 맨 앞에 — 미리보기가 한 줄 낮아져 지도가 그만큼 더 보인다(10-22 PM). */}
+              {showArrivalLine && currentTime && arrivalTime && (
+                <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-jade/30 bg-jade/15 px-2 py-0.5 text-[11px] leading-[15px] font-extrabold text-jade" data-testid="peek-arrival-line">
+                  <Clock size={12} className="shrink-0" aria-hidden />
+                  {t('card.arrivalLine', { depart: formatTime(currentTime), arrive: formatTime(arrivalTime) })}
+                </span>
+              )}
               {/* 가치 문장이 이미 '도보 N분' 을 말하면 되풀이하지 않는다(계획 B2 — 사실 하나는 한 번). 화살표 문장이면
                   그 자리에 문장에 없는 '도착 시 영업' 을 둔다. */}
               {!peekValueShown ? (
