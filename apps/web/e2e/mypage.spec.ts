@@ -115,10 +115,10 @@ test('real impact numbers use thousands separators and drop the store count', as
 });
 
 for (const [locale, footer] of [
-  ['ko', '최종 업데이트 · 2026-10-06'],
-  ['en', 'Last updated · 2026-10-06'],
-  ['ja', '最終更新 · 2026-10-06'],
-  ['zh', '最后更新 · 2026-10-06'],
+  ['ko', '최종 업데이트 · 2026-10-23'],
+  ['en', 'Last updated · 2026-10-23'],
+  ['ja', '最終更新 · 2026-10-23'],
+  ['zh', '最后更新 · 2026-10-23'],
 ] as const) {
   test(`${locale} privacy footer shows the update date, not a contest edition`, async ({ page }) => {
     await stubApis(page, { role: 'tourist', is_anonymous: true }, UNAUTHORIZED);
