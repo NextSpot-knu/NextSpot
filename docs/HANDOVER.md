@@ -6,6 +6,7 @@
 
 ## 배포 상태
 
+- **2026-10-23 KST main 갱신 예정(웹·스키마·문서 — `feat/usage-events-1023`).** 익명 이용 분석 `public.usage_events`(아래 2026-10-23). API 무변경(Render 배포 불필요). 표는 PM 이 SQL Editor 로 적용("사람 작업 대기" 첫 줄) — 적용 전에는 웹이 첫 실패 뒤 그 탭에서 기록을 멈출 뿐이다.
 - **2026-10-22 KST main 갱신 예정(e2e·문서 — `test/night-e2e-1022`, PR #21).** 밤 23시 이후에만 깨지던 e2e 두 원인(PR #13 에서 테스트 수정만 분리 — `4a37ab4`·`c678db4`). 웹·API 무변경.
 - **2026-10-22 23:53 KST API 반영 `a9ecd92`(PR #20, main `9bd5584..a9ecd92` 22:39 KST 푸시).** LLM 전체 스위치 `LLM_ENABLED` 기본 꺼짐 → Upstage 호출 0(아래 2026-10-22b). **Render 가 자동 배포하지 않아** PM 이 Manual Deploy — 싱가포르 `/health` `deploy.commit=a9ecd921cb02` · healthy · 스냅샷 ready · 1,747곳. main CI 는 e2e 잡이 두 번 실패(Playwright 설치 8분 초과 · 23시 이후 e2e — PR #21). 되돌림 = Render env `LLM_ENABLED=true`(재시작) 또는 이 커밋 revert.
 - **2026-10-22 21:43 KST main `b6d428e..e2a1b0e`(PR #19 fast-forward, PM "push" — 웹·e2e·문서만).** main e2e 빨간불(10-19~) 정리 · 관제 데모 튕김 수정 · 휴대폰 미리보기 한 줄 줄임(아래 2026-10-22). PR CI · main CI(run 39780712139) 4잡 green — e2e 518 통과 · 실패 0 · flaky 0(10-11 뒤 첫 초록). Vercel 프로덕션 `dpl_6obwmrWUvtonWSGH2GZACmM2hqif` READY, 싱가포르 `/health` healthy · `deploy.commit=f80454c07ba1` 그대로(재시작 없음). 되돌림 = Vercel `dpl_95jwYS6iC13PbgftCzFsDQf4myiL`(`b6d428e`).
@@ -70,6 +71,7 @@
 
 외부 콘솔 접근이 필요해 코드로 못 하는 일. 끝나면 줄을 지우고 "최근 세션"에 한 줄 남긴다.
 
+- [ ] **이용 분석 표 적용(10-23)** — Supabase SQL Editor 에서 `supabase/migrations/20261023090000_usage_events.sql` 전체 실행 → `NOTIFY pgrst, 'reload schema';` → 아래 "마이그레이션 확인" 16번이 '적용됨'. 그다음 휴대폰으로 사이트를 한 번 열고 `select count(*) from public.usage_events;` 가 0 보다 크면 끝(집계 예시는 그 파일 맨 아래 주석).
 - [ ] **Render API 자동 배포 고치기(10-22 재확인 — API 변경 `a9ecd92` 가 자동 배포되지 않아 PM Manual Deploy, 10-14 `f80454c` 도 수동)** — 원인 후보는 아래 ② Build Filters 경로 또는 ④ Auto-Deploy 'After CI Checks Pass'(그날 main CI 가 인프라·밤 e2e 로 실패). 가장 간단한 길: `nextspot-t2ib` Settings → **Deploy Hook** URL 을 GitHub Secret `RENDER_DEPLOY_HOOK` 으로 등록 → 에이전트가 main API 변경 뒤 배포·확인까지 한다. 기존 점검 항목: 대시보드에서 ① 실패한 서비스가 싱가포르 `nextspot-t2ib` 인지 오리건 `nextspot-api` 인지 · 그 커밋과 로그 첫 오류 줄(Events) ② `nextspot-t2ib` Settings → Branch `main` · **Build Filters 포함 경로가 저장소 루트 기준 `apps/api/**`**(서비스 폴더 기준 `app/**` 이면 API 변경이 영원히 배포되지 않는다) ③ 워크스페이스 Integrations → Notifications 가 '실패만'이면 성공 메일은 원래 오지 않는다 ④ `nextspot-t2ib` Settings → Auto-Deploy 가 **'On Commit'** 인지(→ 확인되면 `deploy-verify.yml` 의 push 트리거를 켠다 — 'After CI Checks Pass' 면 켜지 않는다) · Build Filters 에 무시 경로를 두었다면 알려 줄 것(워크플로 대상과 맞춘다). 실패가 싱가포르였고 원인이 남아 있으면 #13 병합 전에 Manual Deploy → "Deploy latest commit" 로 통과 확인. 코드 쪽 재현은 통과(아래 2026-10-12).
 - [ ] **음식 카드 사진 — GitHub → Settings → Variables `GYEONGJU_CITY_PHOTO_ENABLED=true`**(10-10 PM 지적 "음식 카드에 사진이 안 뜬다"). 운영 음식점 1,121곳 중 1,082곳·카페 556곳 중 538곳이 사진이 없다 — 거의 전부 카카오 로컬 행이고 카카오 장소 API 는 사진을 주지 않는다. 경주시 「메뉴별음식점」 사진 보강은 이 변수가 꺼져 있어 `features.city_photo` 0행. 전제(웹 '사진: 경주시' 출처)는 main 에 있다(`lib/photoCredit.ts`). 켜면 다음 04:00 적재부터 매칭된 사진 없는 행에 들어간다(10-02 시뮬레이션 첫 밤 약 39곳 — 전체를 덮지는 못한다). 나머지는 카드의 '카카오맵에서 사진 보기'(PR #17)가 받는다.
 - [ ] **(선택) 휠체어·유모차 필터 데이터 — data.go.kr '한국관광공사_무장애 여행 정보'(15101897, KorWithService2) 활용신청**(10-10 PM "무장애 필터가 안 와닿는다"). 지금 판정은 TourAPI 상세 글에 '휠체어·엘리베이터' 같은 낱말이 있는지뿐이라 운영 1,728곳 중 2곳(김유신묘·천마총, 음식점·카페 0곳)이다. 신청되면 공식 항목(휠체어 대여·승강기·장애인 화장실 등)으로 적재·필터를 바꾼다(API — 밤 배포, 경주 표본 수는 적재 전엔 모름). 칩 이름은 10-10 '무장애' → '휠체어·유모차' 로 바꿨다(PR #17).
@@ -256,7 +258,10 @@ with checks(seq, migration, applied) as (values
   (14, '20260904091000_inquiries_insert_ownership', exists (select 1 from pg_policies
       where schemaname='public' and tablename='inquiries' and policyname='inquiries_insert_own_or_anonymous')),
   (15, '20260906120000_admin_override_source', (select count(*)>0 from pg_constraint
-      where conname='congestion_logs_source_check' and pg_get_constraintdef(oid) like '%admin_override%'))
+      where conname='congestion_logs_source_check' and pg_get_constraintdef(oid) like '%admin_override%')),
+  (16, '20261023090000_usage_events', to_regclass('public.usage_events') is not null
+      and has_column_privilege('anon','public.usage_events','event','INSERT')
+      and not has_table_privilege('anon','public.usage_events','SELECT'))
 )
 select seq, migration, case when applied then '적용됨' else '미적용' end as status
 from checks order by seq;
@@ -265,6 +270,15 @@ from checks order by seq;
 ## 최근 세션
 
 최신이 위. 10개를 넘으면 가장 오래된 항목을 `archive/HANDOVER_LOG.md` 맨 위로 옮긴다.
+
+## 2026-10-23 — 익명 이용 분석(우리 DB) — 화면·추천 카드 반응·도착을 센다
+
+- 도구·브랜치: Claude Code / `feat/usage-events-1023`(main `9cf767c` 위)
+- 커밋: 이 기록 포함 1건(웹·스키마·API 테스트·문서, API 코드 무변경)
+- 한 것: PM 결정(10-23) — 외부 분석 업체 없이 Supabase `public.usage_events` 에 익명 이벤트를 쌓는다. 브라우저는 고른 칼럼에 INSERT 만(읽기 없음, user_id 칼럼 없음), 이벤트 이름은 CHECK 화이트리스트(`lib/usageEvents.ts` 와 같은 목록 — `tests/migrations/test_usage_events_migration.py` 가 대조), 1년 보관(pg_cron 매일 삭제). 웹은 `page_view`(화면 이동) · `rec_shown`(카드) · `rec_accept`/`rec_drive`/`rec_next`/`rec_later`(카드 버튼) · `visit_arrived`/`visit_congestion`(도착 확인) · `congestion_report` 를 운영 주소에서만, 자동화(`navigator.webdriver`)·Do Not Track 은 빼고 2초씩 모아 보낸다. 실패하면 그 탭에서 멈춘다. 개인정보 안내(`/mypage/privacy`)에 '이용 기록' 절을 4로케일로 더하고 '수집하는 정보' 문장을 고쳤다(최종 업데이트 2026-10-23).
+- 검증: web lint(0 error)·typecheck·test(110파일)·build · api ruff · migrations pytest 65 · RESET 재생성.
+- 다음·미결: 표 적용("사람 작업 대기" 첫 줄) 뒤 실적 확인 — 집계 예시는 마이그레이션 파일 맨 아래. 관제 대시보드 패널은 다음 단계. 익명 INSERT 라 누구나 행을 넣을 수 있다(행 하나 ~1.3 KB 상한) — 쌓임이 이상하면 이 표만 비우면 된다.
+- 사람 작업: 표 적용 1회(위).
 
 ## 2026-10-22b — LLM(Upstage) 전체 스위치 · 기본 꺼짐
 
@@ -350,16 +364,6 @@ from checks order by seq;
   **동작 변경(공개)**: 데스크톱 툴바 전체 높이 ≈ 84 → ≈ 100~106px(판 두 장 + 틈 8px) — 추천 열은 재서(`toolbarClearPx`) 그 아래에 놓이므로 겹치지 않는다. e2e `map-time-strip` 의 높이 상한 84 → 104, 유리 단언을 판마다로.
 - 검증: web lint·typecheck·test·build · check-docs · e2e `map-time-strip` · 데스크톱 1366/1536 × 4로케일 화면 확인(스텁 지도).
 - 다음·미결: main 반영은 PM 확인 뒤(웹만 — API 재시작 없음).
-- 사람 작업: 없음.
-
-## 2026-10-19 — /main 지도 위 탐색 층 유리를 더 비치게(라이트 35% · 야간 40%) · 날씨 알약도 유리
-
-- 도구·브랜치: Claude Code / `feat/stronger-glass-1019`(main `f80454c` 위)
-- 커밋: 이 기록 포함 1건(웹·문서만 — API·스키마 무변경, Render 재시작 없음)
-- 한 것: PM "반투명 유리같이 위에 — iOS 26 가이드처럼" → 10-10 유리(78%)가 밝은 지도 위에서 거의 불투명해 보였다. 라이트 35% · 야간 40%(처음 45%·50% 를 보고 PM "좀 더 투명하게") · 흐림 20→8px · 밝은 테두리·아래 안쪽 빛·위쪽 빛 반사(라이트) · 날씨 알약(`WeatherChip`)을 유리로(실내 추천 금 테두리는 인라인으로 유지). 유리 안의 보조 글자는 `--nextspot-glass-muk-soft`·`--nextspot-glass-gold-deep` 로 짙게.
-  **동작·기준 변경(공개)**: `lib/contrast.test.ts` 7번의 주 글자 기준을 '바탕이 완전히 검거나 흰 최악'에서 '흐린 지도(중간 회색 #808080)'로 — PM 이 비교 화면을 보고 '더 비치는 유리'를 골랐다(옛 기준이면 78% 근처에 묶인다). 유리 위 모든 글자는 그 바탕에서 4.5:1 이상. e2e `map-time-strip` 툴바 단언 0.78 → 0.35. 유리 위 보조 글자는 거의 먹색, 금 아이콘은 짙은 청동색이 된다(대비 유지). 데스크톱 툴바 판 안 흰 칩의 보조 글자도 한 단계 짙어진다.
-- 검증: web lint(0 errors)·typecheck·test(contrast 포함)·build · check-docs · e2e `map-time-strip.spec.ts` · 라이브 `/main` 에 같은 CSS 를 주입한 전후 화면(휴대폰 390 · 데스크톱 1536 × 라이트·야간).
-- 다음·미결: main 반영은 PM 확인 뒤(웹만이라 낮에도 API 재시작 없음). 반영 뒤 Vercel 프로덕션 id 기록.
 - 사람 작업: 없음.
 
 ## 기록 규칙

@@ -10,6 +10,7 @@ import { GoldenHourBadge } from '@/components/GoldenHourBadge';
 import { BenefitChip, crowdTone } from '@/components/main/BenefitChip';
 import { relativeParts } from '@/lib/freshness';
 import { useI18n } from '@/lib/i18n/I18nProvider';
+import { trackEvent, usageCardProps } from '@/lib/usageEvents';
 import { getArrivalOpenDisplayStatus, getArrivalOpenStatus, isClosedToday } from '@/lib/restDate';
 import { cardTimes } from '@/lib/cardTimes';
 import { telHref } from '@/lib/phoneLink';
@@ -279,6 +280,12 @@ export function RecommendationCard({
   desktopFill = false,
   onPeekChange,
 }: RecommendationCardProps) {
+  // 익명 이용 기록 — 카드가 새 장소를 보여 줄 때 한 건(화면 경로가 /main·/saved 등을 가른다, lib/usageEvents).
+  // 같은 장소의 순위·데이터가 바뀌어 다시 그려질 때는 세지 않는다.
+  useEffect(() => {
+    if (facility?.id != null) trackEvent('rec_shown', usageCardProps(facility, rank ?? null));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [facility?.id]);
   const { t, locale } = useI18n();
   // 운영자 '혼잡' 경계. 지금은 **새 추정 배지만** 이 값을 따른다 — 지도 점선 핀·코스 칩이 이미
   // congestionKey(level, busyAt) 로 칠하므로, 같은 추정이 지도에서는 '혼잡' 인데 카드에서는 '보통' 이면

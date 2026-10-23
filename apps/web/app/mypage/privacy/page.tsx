@@ -1,11 +1,11 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { ChevronLeft, FileText, HardDrive, ShieldCheck, Scale, Mail } from 'lucide-react';
+import { ChevronLeft, FileText, HardDrive, BarChart3, ShieldCheck, Scale, Mail } from 'lucide-react';
 import { useT } from '@/lib/i18n/I18nProvider';
 
 // 이 안내문을 마지막으로 고친 날 — 문구를 바꾸면 함께 바꾼다(푸터 '최종 업데이트 · {date}').
-const PRIVACY_UPDATED_AT = '2026-10-06';
+const PRIVACY_UPDATED_AT = '2026-10-23';
 
 export default function PrivacyPage() {
   const router = useRouter();
@@ -15,6 +15,8 @@ export default function PrivacyPage() {
   const sections = [
     { id: 'collect', icon: FileText, titleKey: 'privacy.collectTitle', bodyKey: 'privacy.collectBody' },
     { id: 'storage', icon: HardDrive, titleKey: 'privacy.storageTitle', bodyKey: 'privacy.storageBody' },
+    // 익명 이용 기록(lib/usageEvents · public.usage_events, 2026-10-23).
+    { id: 'usage', icon: BarChart3, titleKey: 'privacy.usageTitle', bodyKey: 'privacy.usageBody' },
     { id: 'thirdParty', icon: ShieldCheck, titleKey: 'privacy.thirdPartyTitle', bodyKey: 'privacy.thirdPartyBody' },
     { id: 'terms', icon: Scale, titleKey: 'privacy.termsTitle', bodyKey: 'privacy.termsBody' },
     { id: 'contact', icon: Mail, titleKey: 'privacy.contactTitle', bodyKey: 'privacy.contactBody' },

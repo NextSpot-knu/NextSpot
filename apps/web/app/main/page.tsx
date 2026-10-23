@@ -12,6 +12,7 @@ import { centerTargetFor, type BandInsets } from '@/lib/map/visibleBand';
 import { scoreFacility, compareSpot, displayWalkingMinutes, rankFacilities, rankFacilitiesDegraded, recToSpot, haversineMeters, filterReachable, isBarFacility, type Spot } from '@/lib/recommender';
 import { REGION, isWithinRegion } from '@/lib/region';
 import { cleanGalleryImages, loadMapFacilitiesFromSupabase } from '@/lib/mapFacilityFallback';
+import { trackEvent, usageCardProps } from '@/lib/usageEvents';
 import { getRecommendations, recommendByType, rejectRecommendation, voiceTurn, apiClient, loadSharedCongestionEstimates, type CongestionEstimate, ASSUMED_TIME_PRESETS, ASSUMED_TIME_EVENT, assumedAtIsoForPreset, getStoredAssumedPreset, setStoredAssumedPreset, prefetchDemoHotPaths } from '@/lib/api-client';
 import {
   displayableEstimate,
@@ -4510,10 +4511,10 @@ export default function MainPage() {
                     reason={reason}
                     insteadReason={insteadReason}
                     spotComparisonReason={spotComparisonReason}
-                    onAccept={() => handleAccept(selectedFacility)}
-                    onDrive={() => handleAccept(selectedFacility, 'car')}
-                    onReject={() => handleReject(selectedFacility)}
-                    onPutOff={() => handlePutOff(selectedFacility)}
+                    onAccept={() => { trackEvent('rec_accept', usageCardProps(selectedFacility, listRank)); handleAccept(selectedFacility); }}
+                    onDrive={() => { trackEvent('rec_drive', usageCardProps(selectedFacility, listRank)); handleAccept(selectedFacility, 'car'); }}
+                    onReject={() => { trackEvent('rec_next', usageCardProps(selectedFacility, listRank)); handleReject(selectedFacility); }}
+                    onPutOff={() => { trackEvent('rec_later', usageCardProps(selectedFacility, listRank)); handlePutOff(selectedFacility); }}
                     spotScore={spot.score}
                     preferencePercent={spot.preferencePercent}
                     tastePeers={tastePeers}

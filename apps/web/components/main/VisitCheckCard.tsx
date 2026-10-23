@@ -18,6 +18,7 @@ import { getDueVisit, completeVisit, dismissVisitCheck, type PendingVisit } from
 import { useT } from '@/lib/i18n/I18nProvider';
 import { queueRecommendationOutcome, type ObservedCongestion, type OutcomeRating } from '@/lib/recommendationOutcomes';
 import { haptic, interactionSpring, sheetSpring } from '@/lib/motion';
+import { trackEvent } from '@/lib/usageEvents';
 
 export function VisitCheckCard({ showToast }: { showToast?: (msg: string) => void }) {
   const t = useT();
@@ -64,6 +65,7 @@ export function VisitCheckCard({ showToast }: { showToast?: (msg: string) => voi
   // [예] — 여기서 확정하지 않는다. 혼잡 → 👍/👎 단계로 넘기고, 이력 적립과 클리어는
   // 마지막 finishRating 의 completeVisit 이 한다.
   const confirmArrival = () => {
+    trackEvent('visit_arrived', { facility_id: due.facilityId != null ? String(due.facilityId).slice(0, 64) : null, type: due.type ?? null });
     haptic('confirm');
     queueRecommendationOutcome(due.recommendationId, 'arrival_confirmed');
     setObservedCongestion(null);
@@ -71,6 +73,7 @@ export function VisitCheckCard({ showToast }: { showToast?: (msg: string) => voi
   };
 
   const selectCongestion = (value?: ObservedCongestion) => {
+    trackEvent('visit_congestion', { level: value ?? null });
     haptic(value ? 'confirm' : 'selection');
     setObservedCongestion(value ?? null);
     setStage('feedback');

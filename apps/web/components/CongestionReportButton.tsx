@@ -17,6 +17,7 @@ import { Users, X } from 'lucide-react';
 import { apiClient, httpStatus, isAuthError } from '@/lib/api-client';
 import { useT } from '@/lib/i18n/I18nProvider';
 import { haptic, sheetSpring } from '@/lib/motion';
+import { trackEvent } from '@/lib/usageEvents';
 
 // 최소 시설 형태만 요구(id/name). 추천 응답 facility·지도 마커 등 id/name 을 가진 어떤 객체와도 호환.
 interface ReportableFacility {
@@ -95,6 +96,7 @@ export function CongestionReportButton({ facility, onReported, isFirst = false, 
 
   const submit = async (level: Level) => {
     if (submitting) return;
+    trackEvent('congestion_report', { facility_id: String(facility.id).slice(0, 64), level });
     setSelected(level);
     haptic('confirm');
     setSubmitting(true);

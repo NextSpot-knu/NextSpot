@@ -104,6 +104,8 @@ DROP TABLE IF EXISTS public.app_events CASCADE;
 DROP TABLE IF EXISTS public.admin_ingest_requests CASCADE;
 -- 서울 실시간 도시데이터 검증 표본(엔진 검증 전용, FK 없음 — CONGESTION_ENGINE_PLAN §5.3).
 DROP TABLE IF EXISTS public.seoul_citydata_snapshots CASCADE;
+-- 익명 이용 기록(제품 분석, FK 없음 — 20261023090000).
+DROP TABLE IF EXISTS public.usage_events CASCADE;
 DROP FUNCTION IF EXISTS public.get_auth_user_info() CASCADE;
 DROP FUNCTION IF EXISTS public.get_auth_user_role() CASCADE;
 DROP FUNCTION IF EXISTS public.is_admin_or_dev() CASCADE;
