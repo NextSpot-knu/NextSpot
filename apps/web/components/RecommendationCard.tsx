@@ -1001,10 +1001,27 @@ export function RecommendationCard({
       : parts.unit === 'min' ? t('freshness.minAgo', { n: parts.value })
       : t('freshness.hourAgo', { n: parts.value });
   })();
+  // 사장님이 30분 안에 알린 좌석 상태(사장님 콘솔 원탭 — 서버가 30분 안일 때만 준다)가 있으면 칩이 그걸 먼저 말한다
+  // (디벨롭 로드맵 2-2, 10-24). 지금까지는 '추천 근거 자세히' 안의 '사장님 확인 · N분 전'에만 있었다.
+  const ownerSeatLevel = seatStatusFreshRaw?.level === 'low' || seatStatusFreshRaw?.level === 'mid' || seatStatusFreshRaw?.level === 'full'
+    ? seatStatusFreshRaw.level
+    : null;
+  const ownerSeatChip = ownerSeatLevel && seatStatusFreshMinutes !== null
+    ? {
+        grade: ({ low: 'relaxed', mid: 'moderate', full: 'busy' } as const)[ownerSeatLevel],
+        text: t('card.seatByOwner', {
+          rel: seatStatusFreshMinutes < 1 ? t('freshness.justNow') : t('freshness.minAgo', { n: seatStatusFreshMinutes }),
+          label: t({ low: 'card.seatLow', mid: 'card.seatMid', full: 'card.seatFull' }[ownerSeatLevel]),
+        }),
+        dashed: false,
+      }
+    : null;
   const crowdChipData: { grade: 'busy' | 'moderate' | 'relaxed' | 'quiet'; text: string; dashed: boolean } | null =
     forecastCrowdLevel !== null
       // 가정 시각의 예측 — 지도의 점선 고리 핀처럼 점선(추정)으로.
       ? { grade: gradeKey(forecastCrowdLevel, busyAt), text: t('card.estimateLevel', { label: t(`congestion.${gradeKey(forecastCrowdLevel, busyAt)}`) }), dashed: true }
+      : ownerSeatChip
+        ? ownerSeatChip
       : shownCongestionLevel !== null
         ? {
             grade: congestionKey(shownCongestionLevel),
