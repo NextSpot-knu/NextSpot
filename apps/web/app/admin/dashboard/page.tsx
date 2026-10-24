@@ -16,6 +16,7 @@ import { ModelTrustPanel } from '@/components/admin/ModelTrustPanel';
 import { StepNav } from '@/components/admin/StepNav';
 import { AreaDemandReliabilityPanel } from '@/components/admin/AreaDemandReliabilityPanel';
 import { DataFreshnessBadge } from '@/components/admin/DataFreshnessBadge';
+import { UsageSummaryPanel } from '@/components/admin/UsageSummaryPanel';
 
 import { adminApi, getDashboardBriefing } from '@/lib/admin-api';
 import {
@@ -1584,6 +1585,9 @@ function DashboardPage() {
               ? <DashboardCharts distribution={distribution.rows} mode={distribution.mode} />
               : <ChartGhost />}
           </div>
+
+          {/* 서비스 이용 현황 — 익명 방문 기록 집계(관리자 전용 RPC). 조회가 안 되면 패널이 스스로 숨는다. */}
+          <UsageSummaryPanel />
 
           {/* Bottom Section — 장소 관리 표는 1800px 미만에서 전폭(관리 열이 가로 스크롤 뒤로 숨지 않게, I70),
               이상 혼잡 알림은 그 아래로 쌓는다. */}

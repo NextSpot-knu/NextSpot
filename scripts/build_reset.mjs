@@ -113,6 +113,8 @@ DROP FUNCTION IF EXISTS public.is_admin_or_dev() CASCADE;
 DROP FUNCTION IF EXISTS public.set_merchant_photo(UUID, TEXT) CASCADE;
 DROP FUNCTION IF EXISTS public.clear_merchant_photo(UUID) CASCADE;
 DROP FUNCTION IF EXISTS public.owns_facility_folder(TEXT) CASCADE;
+-- 익명 이용 기록 집계(20261024100000).
+DROP FUNCTION IF EXISTS public.usage_summary(INTEGER) CASCADE;
 DROP FUNCTION IF EXISTS public.guard_users_privileged_columns() CASCADE;
 DROP FUNCTION IF EXISTS public.latest_congestion_for_facilities(UUID[]) CASCADE;
 DROP FUNCTION IF EXISTS public.apply_localdata_sync(JSONB) CASCADE;
