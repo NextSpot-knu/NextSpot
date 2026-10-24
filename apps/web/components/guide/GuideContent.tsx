@@ -102,7 +102,8 @@ export default function GuideContent({ onNavigate }: { onNavigate?: () => void }
       </section>
 
       {/* 이런 분께 · 자주 묻는 질문 — 문제 → 해결 바로 다음에 '나에게 맞나'와 '궁금한 점'에 답한다(10-24, 소개 문구를
-          문제 공감 → 해결 → 이런 분께 → FAQ 순서로). 질문은 펼치기(details)라 스크립트 없이 열고 닫힌다. */}
+          문제 공감 → 해결 → 이런 분께 → FAQ 순서로). 답은 짧아 펼쳐 둔다 — 소개 화면의 접힘은 '계획'·'데이터' 둘뿐이다
+          (e2e service-guide 가 잠근다). */}
       <section className={styles.section} aria-labelledby="nextspot-audience">
         <div className={styles.sectionInner}>
           <p className={styles.kicker}>{t('guide.audienceKicker')}</p>
@@ -119,14 +120,14 @@ export default function GuideContent({ onNavigate }: { onNavigate?: () => void }
         <div className={styles.sectionInner}>
           <p className={styles.kicker}>{t('guide.faqKicker')}</p>
           <h2 id="nextspot-faq" className={styles.sectionTitle}>{t('guide.faqTitle')}</h2>
-          <div className={styles.faqList}>
+          <dl className={styles.faqList}>
             {faqKeys.map((key) => (
-              <details key={key} className={styles.faqItem}>
-                <summary>{t(`guide.${key}Q`)}<ChevronDown size={18} aria-hidden /></summary>
-                <p>{t(`guide.${key}A`)}</p>
-              </details>
+              <div key={key} className={styles.faqItem}>
+                <dt>{t(`guide.${key}Q`)}</dt>
+                <dd>{t(`guide.${key}A`)}</dd>
+              </div>
             ))}
-          </div>
+          </dl>
         </div>
       </section>
 

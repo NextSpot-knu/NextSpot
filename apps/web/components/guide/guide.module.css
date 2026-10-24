@@ -994,40 +994,19 @@ a.shortcutRow:hover {
 }
 
 .faqItem {
+  padding: 16px 4px;
   border-bottom: 1px solid var(--color-line);
 }
 
-.faqItem summary {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  min-height: 52px;
-  padding: 14px 4px;
-  cursor: pointer;
-  list-style: none;
+.faqItem dt {
   font-size: 16px;
   font-weight: 700;
   line-height: 1.5;
   word-break: keep-all;
 }
 
-.faqItem summary::-webkit-details-marker {
-  display: none;
-}
-
-.faqItem summary svg {
-  flex-shrink: 0;
-  color: var(--color-muk-soft);
-  transition: transform .2s;
-}
-
-.faqItem[open] summary svg {
-  transform: rotate(180deg);
-}
-
-.faqItem p {
-  padding: 0 4px 16px;
+.faqItem dd {
+  margin-top: 6px;
   color: var(--color-muk-soft);
   font-size: 15px;
   line-height: 1.75;
