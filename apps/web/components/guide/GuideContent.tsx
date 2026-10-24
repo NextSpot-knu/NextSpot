@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import {
-  ArrowRight, BarChart3, Building2, ChevronDown, Clock, Compass, Handshake, Home, Landmark, MapPin, Route, Store,
+  ArrowRight, BarChart3, Building2, CheckCircle2, ChevronDown, Clock, Compass, Handshake, Home, Landmark, MapPin, Route, Store,
 } from 'lucide-react';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { useT } from '@/lib/i18n/I18nProvider';
@@ -22,6 +22,10 @@ const solutionItems = [
   { key: 'solutionAlternative', icon: MapPin },
   { key: 'solutionRoute', icon: Route },
 ] as const;
+
+const audienceKeys = ['audience1', 'audience2', 'audience3', 'audience4', 'audience5'] as const;
+
+const faqKeys = ['faq1', 'faq2', 'faq3', 'faq4', 'faq5', 'faq6', 'faq7'] as const;
 
 const pilotPhases = [
   { key: 'pilot14', weeks: '1~4' },
@@ -93,6 +97,35 @@ export default function GuideContent({ onNavigate }: { onNavigate?: () => void }
             </section>
 
             <strong className={styles.result}>{t('guide.resultLine')}</strong>
+          </div>
+        </div>
+      </section>
+
+      {/* 이런 분께 · 자주 묻는 질문 — 문제 → 해결 바로 다음에 '나에게 맞나'와 '궁금한 점'에 답한다(10-24, 소개 문구를
+          문제 공감 → 해결 → 이런 분께 → FAQ 순서로). 질문은 펼치기(details)라 스크립트 없이 열고 닫힌다. */}
+      <section className={styles.section} aria-labelledby="nextspot-audience">
+        <div className={styles.sectionInner}>
+          <p className={styles.kicker}>{t('guide.audienceKicker')}</p>
+          <h2 id="nextspot-audience" className={styles.sectionTitle}>{t('guide.audienceTitle')}</h2>
+          <ul className={styles.audienceList}>
+            {audienceKeys.map((key) => (
+              <li key={key}><CheckCircle2 size={18} aria-hidden /><span>{t(`guide.${key}`)}</span></li>
+            ))}
+          </ul>
+        </div>
+      </section>
+
+      <section className={styles.section} aria-labelledby="nextspot-faq">
+        <div className={styles.sectionInner}>
+          <p className={styles.kicker}>{t('guide.faqKicker')}</p>
+          <h2 id="nextspot-faq" className={styles.sectionTitle}>{t('guide.faqTitle')}</h2>
+          <div className={styles.faqList}>
+            {faqKeys.map((key) => (
+              <details key={key} className={styles.faqItem}>
+                <summary>{t(`guide.${key}Q`)}<ChevronDown size={18} aria-hidden /></summary>
+                <p>{t(`guide.${key}A`)}</p>
+              </details>
+            ))}
           </div>
         </div>
       </section>

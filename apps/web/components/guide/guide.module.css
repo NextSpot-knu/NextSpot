@@ -958,3 +958,84 @@ a.shortcutRow:hover {
     border-radius: 15px;
   }
 }
+
+/* 이런 분께 · 자주 묻는 질문(10-24) — 소개를 문제 공감 → 해결 → 이런 분께 → FAQ 순서로. */
+.audienceList {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 14px;
+  margin-top: 28px;
+  list-style: none;
+}
+
+.audienceList li {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 16px 18px;
+  border: 1px solid var(--color-line);
+  border-radius: 16px;
+  background: var(--color-hanji-deep);
+  font-size: 15px;
+  font-weight: 650;
+  line-height: 1.6;
+  word-break: keep-all;
+}
+
+.audienceList svg {
+  flex-shrink: 0;
+  margin-top: 3px;
+  color: var(--color-jade);
+}
+
+.faqList {
+  margin-top: 28px;
+  border-top: 1px solid var(--color-line);
+}
+
+.faqItem {
+  border-bottom: 1px solid var(--color-line);
+}
+
+.faqItem summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 52px;
+  padding: 14px 4px;
+  cursor: pointer;
+  list-style: none;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.5;
+  word-break: keep-all;
+}
+
+.faqItem summary::-webkit-details-marker {
+  display: none;
+}
+
+.faqItem summary svg {
+  flex-shrink: 0;
+  color: var(--color-muk-soft);
+  transition: transform .2s;
+}
+
+.faqItem[open] summary svg {
+  transform: rotate(180deg);
+}
+
+.faqItem p {
+  padding: 0 4px 16px;
+  color: var(--color-muk-soft);
+  font-size: 15px;
+  line-height: 1.75;
+  word-break: keep-all;
+}
+
+@media (max-width: 640px) {
+  .audienceList {
+    grid-template-columns: 1fr;
+  }
+}
