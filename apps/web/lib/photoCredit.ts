@@ -111,6 +111,21 @@ function isCreditedCityPhoto(url: string, features: Record<string, unknown> | nu
   return cityUrl !== '' && url.trim() === cityUrl;
 }
 
+/** 사장님이 올린 가게 사진이 사는 공개 버킷(supabase/migrations/20261024090000_merchant_photos.sql). */
+export const MERCHANT_PHOTO_BUCKET = 'facility-photos';
+
+/**
+ * 사장님이 사장님 콘솔에서 올린 가게 사진의 공개 URL — features.merchant_photo.path(API 응답은 camel merchantPhoto).
+ * 카드는 이 사진을 첫 후보로 둔다(사장님이 고른 대표 사진). 출처 줄은 붙이지 않는다 — 가게가 직접 올린 사진이다.
+ */
+export function merchantPhotoUrl(features: Record<string, unknown> | null | undefined): string | null {
+  const raw = (features?.merchantPhoto ?? features?.merchant_photo) as { path?: unknown } | null | undefined;
+  const path = raw && typeof raw === 'object' && typeof raw.path === 'string' ? raw.path.trim() : '';
+  const base = (process.env.NEXT_PUBLIC_SUPABASE_URL || '').replace(/\/+$/, '');
+  if (!path || !base) return null;
+  return `${base}/storage/v1/object/public/${MERCHANT_PHOTO_BUCKET}/${path.split('/').map(encodeURIComponent).join('/')}`;
+}
+
 /**
  * 한 장소의 사진 후보 — 대표 사진(firstimage)부터 갤러리(detailImage2) 순. 빈 값·문자열 아닌 값은 빼고,
  * 같은 URL 은 한 번만(처음 자리). URL 문자열 자체는 고치지 않는다(출처 판정·커서 키가 URL 그대로 쓴다).

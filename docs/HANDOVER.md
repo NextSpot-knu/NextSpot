@@ -6,6 +6,7 @@
 
 ## 배포 상태
 
+- **2026-10-24 KST main 갱신 예정(웹·스키마·API 테스트·문서 — `feat/merchant-wait-1024` 뒤 `feat/merchant-photos-1024`).** 사장님 가게 사진(아래 2026-10-24). 마이그레이션 `20261024090000` 은 PR CI 초록 뒤 Supabase MCP 로 적용. API 코드 무변경 — Render 배포 불필요.
 - **2026-10-24 KST main `9cf767c..49c2067`(PR #22, 웹·스키마·문서) + 표 적용.** 익명 이용 분석 `public.usage_events`(아래 2026-10-23). CI 4잡 green · Vercel 프로덕션 반영. 표는 10-24 Supabase MCP(`apply_migration`, PM 지시)로 적용 + `NOTIFY pgrst` — 확인: RLS on · anon INSERT 201 · anon SELECT 거부(42501) · 목록 밖 이벤트 400 · 보관 예약 `23 18 * * *`(cron 4→5개), 검증 행은 지움. API 무변경.
 - **2026-10-22 KST main 갱신 예정(e2e·문서 — `test/night-e2e-1022`, PR #21).** 밤 23시 이후에만 깨지던 e2e 두 원인(PR #13 에서 테스트 수정만 분리 — `4a37ab4`·`c678db4`). 웹·API 무변경.
 - **2026-10-22 23:53 KST API 반영 `a9ecd92`(PR #20, main `9bd5584..a9ecd92` 22:39 KST 푸시).** LLM 전체 스위치 `LLM_ENABLED` 기본 꺼짐 → Upstage 호출 0(아래 2026-10-22b). **Render 가 자동 배포하지 않아** PM 이 Manual Deploy — 싱가포르 `/health` `deploy.commit=a9ecd921cb02` · healthy · 스냅샷 ready · 1,747곳. main CI 는 e2e 잡이 두 번 실패(Playwright 설치 8분 초과 · 23시 이후 e2e — PR #21). 되돌림 = Render env `LLM_ENABLED=true`(재시작) 또는 이 커밋 revert.
@@ -260,7 +261,10 @@ with checks(seq, migration, applied) as (values
       where conname='congestion_logs_source_check' and pg_get_constraintdef(oid) like '%admin_override%')),
   (16, '20261023090000_usage_events', to_regclass('public.usage_events') is not null
       and has_column_privilege('anon','public.usage_events','event','INSERT')
-      and not has_table_privilege('anon','public.usage_events','SELECT'))
+      and not has_table_privilege('anon','public.usage_events','SELECT')),
+  (17, '20261024090000_merchant_photos', exists (select 1 from storage.buckets where id='facility-photos' and public)
+      and exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+                   where n.nspname = 'public' and p.proname = 'set_merchant_photo'))
 )
 select seq, migration, case when applied then '적용됨' else '미적용' end as status
 from checks order by seq;
@@ -269,6 +273,15 @@ from checks order by seq;
 ## 최근 세션
 
 최신이 위. 10개를 넘으면 가장 오래된 항목을 `archive/HANDOVER_LOG.md` 맨 위로 옮긴다.
+
+## 2026-10-24 — 사장님 가게 사진 · '지금 가도 되나' 칩 · 서비스 소개 FAQ · 대기 카드 가로 넘김
+
+- 도구·브랜치: Claude Code / `feat/merchant-photos-1024` 외 4개(PR #23~#26 은 이미 main)
+- 커밋: 이 기록 포함(웹·스키마·API 테스트·문서, API 코드 무변경)
+- 한 것: 디벨롭 로드맵. ① 사장님 가게 사진(PM 10-24: 바로 공개 · 관리자 사후 관리) — 공개 버킷 `facility-photos/<가게 id>/`, 올리기·기록은 그 가게의 현재 사장님만(`owns_facility_folder` 스토리지 정책 · `set_merchant_photo` RPC), 내리기는 사장님 또는 관리자(`clear_merchant_photo`). 사진 자리는 `features.merchant_photo`(밤 적재가 `image_url` 은 지울 수 있지만 features 는 병합한다). 사장님 콘솔 '⑤ 가게 사진'(올리기·바꾸기·내리기, 데모는 토스트만), 추천 카드·'지금 출발하면?'은 이 사진을 첫 후보로. ② 같은 날 웹만: 혼잡 칩이 사장님 30분 안 좌석 상태('사장님 5분 전: 자리 여유', #26) · 방문객 2시간 안 제보('방문객 12분 전: 한산', #25)를 먼저 말한다 · `/guide` '이런 분께'·'자주 묻는 질문'(#24, 펼친 채) · `/waiting` 대표 카드 3장 폰 가로 넘김(#23).
+- 검증: web lint(0 error)·typecheck·test(110)·build · migrations pytest(새 계약 4) · RESET 재생성.
+- 다음·미결: 관리자 화면의 '사진 내리기' 버튼은 아직 없다 — 그때까지는 관리자 세션에서 `select public.clear_merchant_photo('<가게 id>')` 또는 SQL Editor 로 `features - 'merchant_photo'`(마이그레이션 맨 아래). 웨이팅 '정확한 분' 입력은 API 변경이라 Render 배포 문제("사람 작업 대기" 첫 줄) 뒤로.
+- 사람 작업: 없음.
 
 ## 2026-10-23 — 익명 이용 분석(우리 DB) — 화면·추천 카드 반응·도착을 센다
 
@@ -352,17 +365,6 @@ from checks order by seq;
   **동작 변경(공개)**: /main 검색·툴바·예측 줄 시작 ≈ +8px(`--rail-gutter` 100px · 지도 가시영역 왼쪽 여백 `DESKTOP_RAIL_GUTTER_PX`) · 다른 페이지 본문 시작 +24px(76 → 100px) · 지도 왼쪽 가장자리 마커가 캡슐 뒤에 가려질 수 있다 · 콘솔 캡슐은 바닥에서 40px 띄워 Kakao 로고를 가리지 않는다.
 - 검증: web typecheck · e2e `console-entries` · `fixed-overlays`(캡슐 순서 탭 → 콘솔 → 서비스 소개, 창 안, 라벨이 nav 밖으로 안 나감). 나머지 e2e 는 푸시 뒤 CI.
 - 다음·미결: 휴대폰 아래 바도 같은 방식으로 띄울지(`--tourist-nav-clearance` 사용처 25곳이라 따로) · 화면 확인은 PM 이 라이브에서.
-- 사람 작업: 없음.
-
-## 2026-10-19b — /main 데스크톱 툴바를 유리 판 두 장으로 분리(카테고리 / 히트맵·♿·주차)
-
-- 도구·브랜치: Claude Code / `feat/split-toolbar-glass-1019`(main `7559795` 위)
-- 커밋: 이 기록 포함 1건(웹·문서만 — API·스키마 무변경)
-- 한 것: PM "카테고리 층과 히트맵·♿·주차 층을 분리해" → 한 판(`map-toolbar`)이 감싸던 두 줄을 각자 유리 판으로. 바깥 묶음은 칠하지 않고(`pointer-events-none` — 판 사이 틈은 지도를 누를 수 있다) 1판은 칩 폭에 맞게(`md:w-fit`, 언어·시계 묶음 폭만큼은 비운다), 2판은 전체 폭. 휴대폰은 변화 없음(칩마다 유리).
-  이어서 PM "하위 범주를 말풍선 모양 유리로" → 2판을 말풍선으로(꼬리 `.glass-tail` 이 위 판의 선택된 상위 칩 가운데를 가리킨다, 칩·언어·폭이 바뀌면 다시 잰다, 판 사이 틈 8 → 16px). 이어서 PM "삼각형이 티가 안 난다 · 투명 바가 출처까지 이어지지 않게" → 꼬리 26×13px 삼각형 · 윤곽선 없이 둘레에 옅은 검정 외부 광선(야간은 옅은 밝은 광선), 출처 칩은 유리 판 밖 오른쪽 끝에 따로(`toolbar-row-2-line` 이 판 + 출처 칩을 담는다, 주차장 탭은 판 없이 출처 칩만).
-  **동작 변경(공개)**: 데스크톱 툴바 전체 높이 ≈ 84 → ≈ 100~106px(판 두 장 + 틈 8px) — 추천 열은 재서(`toolbarClearPx`) 그 아래에 놓이므로 겹치지 않는다. e2e `map-time-strip` 의 높이 상한 84 → 104, 유리 단언을 판마다로.
-- 검증: web lint·typecheck·test·build · check-docs · e2e `map-time-strip` · 데스크톱 1366/1536 × 4로케일 화면 확인(스텁 지도).
-- 다음·미결: main 반영은 PM 확인 뒤(웹만 — API 재시작 없음).
 - 사람 작업: 없음.
 
 ## 기록 규칙

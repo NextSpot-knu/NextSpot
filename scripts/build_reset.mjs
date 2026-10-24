@@ -109,6 +109,10 @@ DROP TABLE IF EXISTS public.usage_events CASCADE;
 DROP FUNCTION IF EXISTS public.get_auth_user_info() CASCADE;
 DROP FUNCTION IF EXISTS public.get_auth_user_role() CASCADE;
 DROP FUNCTION IF EXISTS public.is_admin_or_dev() CASCADE;
+-- 사장님 가게 사진(20261024090000).
+DROP FUNCTION IF EXISTS public.set_merchant_photo(UUID, TEXT) CASCADE;
+DROP FUNCTION IF EXISTS public.clear_merchant_photo(UUID) CASCADE;
+DROP FUNCTION IF EXISTS public.owns_facility_folder(TEXT) CASCADE;
 DROP FUNCTION IF EXISTS public.guard_users_privileged_columns() CASCADE;
 DROP FUNCTION IF EXISTS public.latest_congestion_for_facilities(UUID[]) CASCADE;
 DROP FUNCTION IF EXISTS public.apply_localdata_sync(JSONB) CASCADE;

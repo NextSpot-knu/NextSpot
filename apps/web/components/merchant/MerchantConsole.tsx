@@ -14,7 +14,7 @@
 // 정상 동작하고 실패한 섹션만 "우아한 폴백"(재시도 버튼)으로 저하된다(무한 스켈레톤 금지).
 // ① 예상 혼잡만은 예외로 실패해도 같은 업종의 요일·시간대 패턴 곡선으로 그린다(항상 보인다).
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
@@ -47,6 +47,7 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import { createPublicClient } from '@/lib/supabase';
+import { MERCHANT_PHOTO_BUCKET, merchantPhotoUrl } from '@/lib/photoCredit';
 import {
   getMerchantFacility,
   clearMerchantFacility,
@@ -300,6 +301,7 @@ export function MerchantConsole({ demo = false }: { demo?: boolean }) {
             onActiveChange={setSaleActive}
           />
           <SeatStatusSection facilityId={facility.id} demo={demo} />
+          <PhotoSection facilityId={facility.id} demo={demo} />
         </div>
       </main>
 
@@ -1385,6 +1387,157 @@ function SeatStatusSection({ facilityId, demo = false }: { facilityId: string; d
             </div>
           )}
           {submitError && <p className="text-[13px] text-terracotta">{submitError}</p>}
+        </div>
+      )}
+    </SectionCard>
+  );
+}
+
+// ⑤ 가게 사진 — 사장님이 고른 사진이 손님 카드의 첫 사진이 된다(디벨롭 로드맵 3, 10-24 PM: 바로 공개 · 관리자 사후 관리).
+// 파일은 공개 버킷 facility-photos/<가게 id>/ 에 올리고, set_merchant_photo RPC 가 가게 주인을 다시 확인한 뒤
+// features.merchant_photo 에 기록한다(밤 적재가 지우지 않는 자리 — 마이그레이션 20261024090000 머리말).
+// 바꾸면 앞 파일은 지운다. 데모는 아무것도 부르지 않는다(토스트만).
+const PHOTO_MAX_BYTES = 5 * 1024 * 1024;
+const PHOTO_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+
+function PhotoSection({ facilityId, demo = false }: { facilityId: string; demo?: boolean }) {
+  const demoToast = useConsoleDemoToast();
+  const [photoPath, setPhotoPath] = useState<string | null>(null);
+  const [state, setState] = useState<AsyncState>(demo ? 'ready' : 'loading');
+  const [busy, setBusy] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (demo) return;
+    let alive = true;
+    (async () => {
+      try {
+        const { data, error } = await createPublicClient()
+          .from('facilities')
+          .select('features')
+          .eq('id', facilityId)
+          .maybeSingle();
+        if (error) throw error;
+        const raw = (data?.features as Record<string, unknown> | null)?.merchant_photo as { path?: unknown } | undefined;
+        if (!alive) return;
+        setPhotoPath(typeof raw?.path === 'string' && raw.path ? raw.path : null);
+        setState('ready');
+      } catch {
+        if (alive) setState('error');
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [facilityId, demo]);
+
+  const photoUrl = photoPath ? merchantPhotoUrl({ merchant_photo: { path: photoPath } }) : null;
+
+  const upload = async (file: File) => {
+    if (!PHOTO_TYPES.includes(file.type)) {
+      toast.error('JPG·PNG·WEBP 사진만 올릴 수 있어요.', TOAST_TOP);
+      return;
+    }
+    if (file.size > PHOTO_MAX_BYTES) {
+      toast.error('5MB 이하 사진으로 올려 주세요.', TOAST_TOP);
+      return;
+    }
+    setBusy(true);
+    const supabase = createPublicClient();
+    const ext = file.type === 'image/png' ? 'png' : file.type === 'image/webp' ? 'webp' : 'jpg';
+    const path = `${facilityId}/${Date.now()}.${ext}`;
+    try {
+      const { error: uploadError } = await supabase.storage
+        .from(MERCHANT_PHOTO_BUCKET)
+        .upload(path, file, { contentType: file.type, upsert: false });
+      if (uploadError) throw uploadError;
+      const { error: rpcError } = await supabase.rpc('set_merchant_photo', { p_facility_id: facilityId, p_path: path });
+      if (rpcError) {
+        await supabase.storage.from(MERCHANT_PHOTO_BUCKET).remove([path]);
+        throw rpcError;
+      }
+      const previous = photoPath;
+      setPhotoPath(path);
+      if (previous && previous !== path) void supabase.storage.from(MERCHANT_PHOTO_BUCKET).remove([previous]);
+      toast.success('가게 사진을 올렸어요. 손님 카드에 바로 보여요.', TOAST_TOP);
+    } catch {
+      toast.error('사진을 올리지 못했어요. 잠시 뒤 다시 시도해 주세요.', TOAST_TOP);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = async () => {
+    if (demo) {
+      demoToast();
+      return;
+    }
+    setBusy(true);
+    const supabase = createPublicClient();
+    try {
+      const { data: previous, error } = await supabase.rpc('clear_merchant_photo', { p_facility_id: facilityId });
+      if (error) throw error;
+      if (typeof previous === 'string' && previous) void supabase.storage.from(MERCHANT_PHOTO_BUCKET).remove([previous]);
+      setPhotoPath(null);
+      toast.success('가게 사진을 내렸어요.', TOAST_TOP);
+    } catch {
+      toast.error('사진을 내리지 못했어요. 잠시 뒤 다시 시도해 주세요.', TOAST_TOP);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <SectionCard
+      badge="⑤ 가게 사진"
+      id="merchant-photo"
+      title="손님 카드의 대표 사진"
+      honestNote="올리면 손님 추천 카드와 '지금 출발하면?'에서 이 사진이 가장 먼저 보여요."
+    >
+      <input
+        ref={inputRef}
+        type="file"
+        accept={PHOTO_TYPES.join(',')}
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          e.target.value = '';
+          if (file) void upload(file);
+        }}
+      />
+      {state === 'loading' ? (
+        <SkeletonBlock heightClass="h-40" />
+      ) : state === 'error' ? (
+        <p className="text-sm text-muk-soft">사진 정보를 불러오지 못했어요. 새로고침해 주세요.</p>
+      ) : (
+        <div className="flex flex-col gap-3">
+          <div className="relative aspect-[4/3] w-full overflow-hidden rounded-2xl border border-line bg-hanji-deep">
+            {photoUrl ? (
+              <img src={photoUrl} alt="지금 손님 카드에 보이는 가게 사진" className="h-full w-full object-cover" />
+            ) : (
+              <div className="flex h-full items-center justify-center text-sm font-bold text-muk-soft">아직 올린 사진이 없어요</div>
+            )}
+          </div>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => (demo ? demoToast() : inputRef.current?.click())}
+              disabled={busy}
+              className="toss-pressable min-h-11 flex-1 rounded-2xl cta-primary px-3 text-sm font-bold disabled:opacity-60"
+            >
+              {photoUrl ? '사진 바꾸기' : '사진 올리기'}
+            </button>
+            {photoUrl && (
+              <button
+                type="button"
+                onClick={remove}
+                disabled={busy}
+                className="toss-pressable min-h-11 rounded-2xl border border-line bg-hanji-deep px-4 text-sm font-bold text-muk-soft disabled:opacity-60"
+              >
+                내리기
+              </button>
+            )}
+          </div>
         </div>
       )}
     </SectionCard>

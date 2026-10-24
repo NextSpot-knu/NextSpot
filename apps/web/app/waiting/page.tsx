@@ -60,6 +60,7 @@ import {
   isCityPhotoUrl,
   isWikimediaUrl,
   mayShowPhotoCredit,
+  merchantPhotoUrl,
   photoCandidates,
   photoCreditFeatures,
   type PhotoCursor,
@@ -575,8 +576,11 @@ function buildSector(type: string, recs: RecommendationResponse[], currentLocale
       type: rec.facility.type,
       latitude: typeof rec.facility.latitude === "number" ? rec.facility.latitude : null,
       longitude: typeof rec.facility.longitude === "number" ? rec.facility.longitude : null,
-      // 대표 사진(firstimage)부터 detailImage2 갤러리 순으로 시도한다. 동일 URL은 한 번만 로드한다.
-      imageUrls: photoCandidates(rec.facility.imageUrl, rec.facility.galleryImages),
+      // 사장님이 올린 가게 사진(있으면 맨 앞, 로드맵 3) → 대표 사진(firstimage) → detailImage2 갤러리 순. 동일 URL은 한 번만.
+      imageUrls: Array.from(new Set([
+        ...[merchantPhotoUrl(rec.facility.features)].filter((url): url is string => !!url),
+        ...photoCandidates(rec.facility.imageUrl, rec.facility.galleryImages),
+      ])),
       // TourAPI 소개(비-ko 로케일이면 배치 번역 우선)를 우선하고, 없으면 실제 주소를 짧은 보조
       // 설명으로 사용한다. 둘 다 없을 때는 내용을 지어내지 않고 설명 영역을 숨긴다.
       summary: overviewText || rec.facility.address?.trim() || null,

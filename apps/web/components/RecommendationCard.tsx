@@ -34,7 +34,7 @@ import {
 import { cardRankLabel, cardRankText } from '@/lib/cardRank';
 import { LIVE_FLASH_MS, LIVE_REFRESH_COOLDOWN_MS, refreshedFields, type LiveField } from '@/lib/liveDetailDiff';
 import { useBusyThreshold } from '@/components/shell/PublicSettingsProvider';
-import { creditedPhotoUrls, creditForDisplayedPhoto } from '@/lib/photoCredit';
+import { creditedPhotoUrls, creditForDisplayedPhoto, merchantPhotoUrl } from '@/lib/photoCredit';
 import { PhotoCreditLink } from '@/components/PhotoCreditLink';
 import { PlacePhotoFallback } from '@/components/PlacePhotoFallback';
 import { placeVisual } from '@/lib/placeVisual';
@@ -849,7 +849,8 @@ export function RecommendationCard({
   const cardImageUrls = creditedPhotoUrls(
     Array.from(
       new Set(
-        [liveDetail?.imageUrl, facility?.imageUrl, ...(facility?.galleryImages ?? [])].filter(
+        // 사장님이 올린 가게 사진이 있으면 맨 앞(로드맵 3, 10-24).
+        [merchantPhotoUrl(facility?.features), liveDetail?.imageUrl, facility?.imageUrl, ...(facility?.galleryImages ?? [])].filter(
           (url): url is string => typeof url === 'string' && url.trim().length > 0
         )
       )
