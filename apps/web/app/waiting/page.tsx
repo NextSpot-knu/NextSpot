@@ -68,6 +68,7 @@ import { PhotoCreditLink } from "@/components/PhotoCreditLink";
 import { TrailingNoteText } from "@/components/TrailingNoteText";
 // 사진이 없는 장소의 표지(경주 문양 + 유형 그림) — 사진 자리를 같은 크기로 채운다. 사진은 그 위로 서서히 드러난다.
 import { PlacePhotoFallback } from "@/components/PlacePhotoFallback";
+import { SwipeDots } from "@/components/waiting/SwipeDots";
 import { placeVisual, placeVisualsForRow, type PlaceVisual } from "@/lib/placeVisual";
 // 섹터 줄 세우기 — 대기 짧은 순, 대기가 같을 때만 사진 있는 곳이 앞(PM 결정 2026-09-28).
 import { boardCrowdMembers, boardCrowdSpread, orderByWaitThenPhoto, waitHeadlineKey, waitHeadlineOf, type WaitHeadline } from "@/lib/boardOrder";
@@ -1229,10 +1230,14 @@ export default function WaitingBoardPage() {
                   </div>
 
                   {/* 대표 카드 3장 — 도착 대기 짧은 순 상위 3곳, 세로로 긴 포트레이트 카드.
-                      폰(<640)은 두 칸 — 세 칸(약 104px)이면 이름·주소가 글자마다 꺾였다(리뷰 10-07). 셋째 카드는 다음 줄 왼쪽 칸
-                      (카드 폭은 모두 같다 — 출처 줄이 열을 넓히지 않는다는 계약). 1~2곳뿐인 섹션은 그 수만큼의 칸으로 폭을 다 쓴다
-                      (한 장이 1/3 만 차고 2/3 가 비지 않게). */}
-                  <div data-testid="waiting-top-cards" className={`grid ${topRows.length >= 3 ? "grid-cols-2 sm:grid-cols-3" : topRows.length === 2 ? "grid-cols-2" : "grid-cols-1"} items-stretch gap-2`}>
+                      폰(<640)에서 세 장이면 가로로 넘기는 한 줄(10-24 PM) — 세 칸(약 104px)이면 이름·주소가 글자마다 꺾였고
+                      (리뷰 10-07), 두 칸이면 셋째가 다음 줄로 떨어져 2/1 로 보였다. 카드는 화면의 80% 폭이라 다음 카드가 옆에
+                      보여 넘길 수 있다는 걸 알리고, 넘김은 브라우저 기본 관성 스크롤 + 스냅, 아래 점(SwipeDots)이 몇 번째인지 보여 준다.
+                      sm 이상은 세 칸 격자(카드 폭은 모두 같다 — 출처 줄이 열을 넓히지 않는다는 계약). 1~2곳뿐인 섹션은 그 수만큼의
+                      칸으로 폭을 다 쓴다(한 장이 1/3 만 차고 2/3 가 비지 않게). */}
+                  <div data-testid="waiting-top-cards" className={topRows.length >= 3
+                    ? "flex snap-x snap-mandatory items-stretch gap-2 overflow-x-auto overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:grid sm:grid-cols-3 sm:overflow-visible"
+                    : `grid ${topRows.length === 2 ? "grid-cols-2" : "grid-cols-1"} items-stretch gap-2`}>
                     {(() => {
                     // 이 줄의 카드 중 하나라도 출처가 붙는 사진(Wikimedia·경주시)을 띄울 수 있으면 출처 자리를
                     // 처음부터 잡아 둔다 — 대표 사진이 깨져 출처가 나중에 생겨도 아래 내용이 밀리지 않는다.
@@ -1251,7 +1256,7 @@ export default function WaitingBoardPage() {
                       // 출처는 그 사진이 **보일 때만** — 받는 동안은 표지가 보이므로 출처도 없다(자리는 rowMayCredit 가 잡아 둔다).
                       const photoCredit = photoLoaded ? creditForDisplayedPhoto(photoUrl, photoFeatures) : null;
                       return (
-                      <div key={row.facilityId} className="grid min-w-0 grid-rows-[1fr_auto]">
+                      <div key={row.facilityId} className={`grid min-w-0 grid-rows-[1fr_auto] ${topRows.length >= 3 ? "w-[80%] shrink-0 snap-start sm:w-auto" : ""}`}>
                       <button
                         type="button"
                         onClick={() => goToDetail(row)}
@@ -1307,6 +1312,7 @@ export default function WaitingBoardPage() {
                     });
                     })()}
                   </div>
+                  {topRows.length >= 3 && <SwipeDots count={topRows.length} />}
 
                   {/* 섹터 1위 골든타임 — 카드 밖 한 줄(컴팩트 카드 폭 안에 배지+알림 버튼이 안 들어감).
                       available:false/실패면 GoldenHourBadge 자체가 조용히 숨는다.
