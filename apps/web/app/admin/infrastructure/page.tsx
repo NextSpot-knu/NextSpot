@@ -36,6 +36,7 @@ import {
   type CategoryShares,
 } from '@/lib/demandPressure';
 import { toast } from 'sonner';
+import { MerchantPhotoReview } from '@/components/admin/MerchantPhotoReview';
 
 // --- Types ---
 interface Infrastructure {
@@ -779,6 +780,8 @@ export default function InfrastructurePage() {
 
           {/* Detail Panel */}
           <div className="flex-1 bg-hanok p-4 lg:p-8 lg:overflow-y-auto">
+            {/* 사장님 가게 사진 사후 관리 — 올라온 사진이 있을 때만 보인다(10-24). */}
+            <MerchantPhotoReview />
             {loading && !selectedInfra ? (
               <div className="flex flex-col items-center justify-center h-full text-hanok-muted">
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gold mb-4" />
