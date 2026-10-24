@@ -6,6 +6,7 @@ import Image from 'next/image';
 import { Compass, Star, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { RecommendationCard } from '@/components/RecommendationCard';
+import { GoldenHourBadge } from '@/components/GoldenHourBadge';
 import { CongestionAlertToggle } from '@/components/CongestionAlertToggle';
 import NowChip from '@/components/NowChip';
 import { submitFeedback } from '@/lib/api-client';
@@ -448,6 +449,8 @@ export default function SavedPage() {
                     </div>
                   );
                 })()}
+                {/* 가기 좋은 시간 — 오늘 남은 시간 중 가장 한산한 60분(로드맵 3 '여행 전 계획', 10-24). 근거가 없으면 배지가 스스로 숨는다. */}
+                <GoldenHourBadge facilityId={bookmark.id} className="mt-2" />
               </div>
             ))}
             </div>
