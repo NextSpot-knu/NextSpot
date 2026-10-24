@@ -991,12 +991,28 @@ export function RecommendationCard({
   const areaCrowdGrade = shownCongestionLevel === null && !estimate && typeof areaDemandLevel === 'number'
     ? candidateCrowdGrade
     : null;
+  // 지금 혼잡이 방문객 제보에서 왔으면(2시간 안) 칩에 '누가·언제'를 함께 말한다 — 가기 전에 확인한 사람이 있다는 확신
+  // (디벨롭 로드맵 2, 10-24). 지금까지는 '추천 근거 자세히' 안의 신선도 표에만 있었다.
+  const visitorReportRel = (() => {
+    if (shownCongestionLevel === null || displayDataSource?.source !== 'user_report' || displayDataSource.isStale) return null;
+    const parts = relativeParts(displayDataSource.lastUpdated);
+    if (!parts || parts.unit === 'day' || (parts.unit === 'hour' && parts.value >= 2)) return null;
+    return parts.unit === 'now' ? t('freshness.justNow')
+      : parts.unit === 'min' ? t('freshness.minAgo', { n: parts.value })
+      : t('freshness.hourAgo', { n: parts.value });
+  })();
   const crowdChipData: { grade: 'busy' | 'moderate' | 'relaxed' | 'quiet'; text: string; dashed: boolean } | null =
     forecastCrowdLevel !== null
       // 가정 시각의 예측 — 지도의 점선 고리 핀처럼 점선(추정)으로.
       ? { grade: gradeKey(forecastCrowdLevel, busyAt), text: t('card.estimateLevel', { label: t(`congestion.${gradeKey(forecastCrowdLevel, busyAt)}`) }), dashed: true }
       : shownCongestionLevel !== null
-        ? { grade: congestionKey(shownCongestionLevel), text: `${t('card.congestion')}: ${congestionLabel(shownCongestionLevel)}`, dashed: false }
+        ? {
+            grade: congestionKey(shownCongestionLevel),
+            text: visitorReportRel
+              ? t('card.crowdByVisitor', { rel: visitorReportRel, label: congestionLabel(shownCongestionLevel) })
+              : `${t('card.congestion')}: ${congestionLabel(shownCongestionLevel)}`,
+            dashed: false,
+          }
         : estimate
           ? { grade: gradeKey(estimate.level, busyAt), text: t('card.estimateLevel', { label: t(`congestion.${gradeKey(estimate.level, busyAt)}`) }), dashed: true }
           : areaCrowdGrade

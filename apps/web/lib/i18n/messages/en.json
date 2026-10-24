@@ -628,6 +628,7 @@
     "aiRec": "AI pick",
     "freshLive": "as of {rel}",
     "freshReport": "Visitor report · {rel}",
+    "crowdByVisitor": "Visitor {rel}: {label}",
     "freshStale": "Latest observation · a day ago",
     "congestion": "Congestion",
     "noData": "Collecting",

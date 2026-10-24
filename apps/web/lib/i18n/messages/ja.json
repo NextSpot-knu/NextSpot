@@ -628,6 +628,7 @@
     "aiRec": "AIおすすめ",
     "freshLive": "{rel}時点",
     "freshReport": "訪問者レポート · {rel}",
+    "crowdByVisitor": "訪問者 {rel}: {label}",
     "freshStale": "最新観測 · 1日前",
     "congestion": "混雑度",
     "noData": "収集中",

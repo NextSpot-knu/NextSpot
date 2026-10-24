@@ -628,6 +628,7 @@
     "aiRec": "AI推荐",
     "freshLive": "截至{rel}",
     "freshReport": "游客上报 · {rel}",
+    "crowdByVisitor": "游客 {rel}：{label}",
     "freshStale": "最近观测 · 一天前",
     "congestion": "拥挤度",
     "noData": "收集中",

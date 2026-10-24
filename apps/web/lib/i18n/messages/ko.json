@@ -622,6 +622,7 @@
     "aiRec": "AI 추천",
     "freshLive": "{rel} 기준",
     "freshReport": "방문객 제보 · {rel}",
+    "crowdByVisitor": "방문객 {rel}: {label}",
     "freshStale": "최근 관측 기준 · 하루 전",
     "congestion": "혼잡도",
     "noData": "수집 중",
