@@ -18,9 +18,19 @@ export default function NowChip({ className = '' }: { className?: string }) {
       setNow(`${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`);
     };
     fmt();
-    // 30초 간격 갱신 — 분 단위 표시라 충분하고, 타이머 부하 최소화. 언마운트 시 정리.
-    const id = setInterval(fmt, 30_000);
-    return () => clearInterval(id);
+    // 분 경계에 맞춰 갱신 — 분 단위 표시인데 30초 고정 간격이면 분이 바뀐 뒤 최대 30초 동안
+    // 이전 분이 남는다("14:32" 인데 실제는 14:33). 다음 분 시작까지 기다렸다가 1분 간격으로 돈다.
+    // 타이머 수는 분당 1회로 오히려 줄어든다. 언마운트 시 둘 다 정리.
+    let interval: ReturnType<typeof setInterval> | undefined;
+    const msToNextMinute = 60_000 - (Date.now() % 60_000);
+    const timeout = setTimeout(() => {
+      fmt();
+      interval = setInterval(fmt, 60_000);
+    }, msToNextMinute);
+    return () => {
+      clearTimeout(timeout);
+      if (interval) clearInterval(interval);
+    };
   }, []);
 
   if (!now) return null; // 마운트 전(서버 렌더 포함)에는 그리지 않음
