@@ -61,6 +61,10 @@ class _FakeQuery:
         self._filters.append(("lte", column, value))
         return self
 
+    def in_(self, column: str, values) -> "_FakeQuery":
+        self._filters.append(("in", column, tuple(values)))
+        return self
+
     def order(self, column: str, desc: bool = False) -> "_FakeQuery":
         self._orders.append((column, desc))
         return self
@@ -83,6 +87,8 @@ class _FakeQuery:
             if op == "gte" and not (cell is not None and cell >= value):
                 return False
             if op == "lte" and not (cell is not None and cell <= value):
+                return False
+            if op == "in" and cell not in value:
                 return False
         return True
 
@@ -348,25 +354,39 @@ def test_metrics_returns_the_whole_window_past_the_row_cap(client):
 # =========================================================================
 
 def test_impact_sums_every_accepted_recommendation_past_the_row_cap(client):
+    # 재배치(P1-1) = 수락 · 원본 ≠ 목적지 · 도착 확인. 1,200건 전부 그 조건을 채우게 만들고, 도착 확인 행도
+    # 1,200건이라 두 조회가 **둘 다** 캡을 넘겨 두 번째 페이지를 받아야 한다.
     now = datetime.now(timezone.utc)
     recs = [
         {
             "id": f"rec-{i:05d}",
+            "user_id": f"u-{i % 7}",
             "accepted": True,
+            "original_facility_id": "fac-crowded",
+            "recommended_facility_id": "fac-quiet",
             "created_at": _iso(now - timedelta(minutes=i)),
-            "score_breakdown": {"original_wait_time": 20.0, "wait_time": 19.0},  # 1분 절감
+            "score_breakdown": {"original_wait_time": 20.0, "wait_time": 19.0},  # 예상 대기 차이 1분
         }
         for i in range(1200)
     ]
     # 잘못 포함되면 즉시 드러나도록 미수락 행을 섞어 둔다(필터가 살아 있는지 함께 잠근다).
     recs.append({
         "id": "rec-rejected", "accepted": False, "created_at": _iso(now),
+        "original_facility_id": "fac-crowded", "recommended_facility_id": "fac-quiet",
         "score_breakdown": {"original_wait_time": 999.0, "wait_time": 0.0},
     })
+    outcomes = [
+        {
+            "recommendation_id": f"rec-{i:05d}",
+            "arrival_confirmed_at": _iso(now - timedelta(minutes=i) + timedelta(minutes=20)),
+            "created_at": _iso(now - timedelta(minutes=i) + timedelta(minutes=1)),
+        }
+        for i in range(1200)
+    ]
     calls: list = []
     with patch(
         "app.routers.admin.supabase_admin",
-        new=_CappedFakeSupabase({"recommendations": recs}, calls),
+        new=_CappedFakeSupabase({"recommendations": recs, "recommendation_outcomes": outcomes}, calls),
     ):
         # 쿼리스트링의 '+' 는 공백으로 디코딩되므로 UTC 오프셋은 'Z' 표기로 넘긴다.
         since = _iso(now - timedelta(days=2)).replace("+00:00", "Z")
@@ -374,10 +394,14 @@ def test_impact_sums_every_accepted_recommendation_past_the_row_cap(client):
 
     assert res.status_code == 200
     body = res.json()
-    assert body["relocations"] == 1200, "수락 추천이 캡에서 잘렸다"
+    assert body["accepted_total"] == 1200, "수락 추천이 캡에서 잘렸다"
+    assert body["relocations"] == 1200, "도착 확인이 캡에서 잘렸다"
     assert body["measured"] == 1200
     assert body["saved_wait_minutes"] == 1200.0
+    assert body["expected_wait_diff_minutes"] == 1200.0
     assert body["truncated"] is False
+    assert _ranges(calls, "recommendations") == [(0, 999), (1000, 1999)]
+    assert _ranges(calls, "recommendation_outcomes") == [(0, 999), (1000, 1999)]
 
 
 # =========================================================================
@@ -426,3 +450,85 @@ def test_dashboard_today_aggregates_every_log_past_the_row_cap(client):
         "hasLogs", "avgCongestion", "anomalyCount", "heatmap", "anomalies",
         "sampleCount", "latestObservedAt", "fallback", "sourceComposition", "estimated",
     }
+
+
+# =========================================================================
+# 6. /dashboard/today — 비관측 행(모의·시드·관리자 입력·주차 파생)이 상한을 먼저 채우지 않는다
+# =========================================================================
+# 파이썬 필터(_is_observation)만 있으면 **상한에서 잘린 뒤에** 거른다. simulate-peak 세 번(시설 수만큼 × 3 ≈
+# 5,000행)이면 최신순 상한이 모의 행으로 꽉 차서, 그 너머의 실제 관측이 있는데도 마지막 관측 시각과 폴백일이
+# null 이 됐다(독립 검토 지적). 상한을 작게 줄여 같은 모양을 만든다 — 이 페이크는 neq 를 실제로 적용한다.
+
+def _congestion_row(row_id: str, level: float, at: datetime, source: str) -> dict:
+    return {
+        "id": row_id,
+        "congestion_level": level,
+        "current_count": 10,
+        "timestamp": _iso(at),
+        "source": source,
+        "facility": {"name": f"{source}-시설", "type": "attraction"},
+    }
+
+
+def test_dashboard_fallback_scan_reaches_observations_behind_simulated_rows(client, monkeypatch):
+    monkeypatch.setattr(admin, "_DASHBOARD_FALLBACK_SCAN_CAP", 50)
+    now = datetime.now(timezone.utc)
+    # 최신 60행 = 모의 발생(상한 50 을 통째로 채운다). 그 너머 사흘 전에 실제 관측 6건.
+    simulated = [_congestion_row(f"sim-{i:03d}", 0.99, now - timedelta(seconds=i + 1), "simulated") for i in range(60)]
+    observed_day = now - timedelta(days=3)
+    # 몇 초 간격으로 둔다 — 분 단위로 벌리면 KST 자정 근처에서 두 날로 갈라질 수 있다.
+    observed = [_congestion_row(f"obs-{i}", 0.4, observed_day - timedelta(seconds=i), "user_report") for i in range(6)]
+    calls: list = []
+    with patch(
+        "app.routers.admin.supabase_admin",
+        new=_CappedFakeSupabase({"congestion_logs": simulated + observed}, calls),
+    ):
+        res = client.get("/api/v1/admin/dashboard/today", headers=admin_headers())
+
+    assert res.status_code == 200
+    body = res.json()
+    # 오늘은 모의 행뿐 — 실측 하루가 아니다.
+    assert body["hasLogs"] is False
+    assert body["sampleCount"] == 0
+    # 상한을 모의 행이 채웠어도 마지막 '관측' 과 폴백일은 실제 관측에서 나온다.
+    assert body["latestObservedAt"] == _iso(observed_day), "모의 행이 상한을 채워 마지막 관측이 사라졌다"
+    assert body["fallback"] is not None, "모의 행이 상한을 채워 폴백일을 못 찾았다"
+    assert body["fallback"]["sampleCount"] == 6
+    assert body["fallback"]["avgCongestion"]["value"] == 0.4
+
+
+def test_dashboard_today_counts_observations_behind_non_observation_rows(client, monkeypatch):
+    monkeypatch.setattr(admin, "_DASHBOARD_LOG_CAP", 50)
+    monkeypatch.setattr(admin, "_DASHBOARD_YESTERDAY_CAP", 50)
+    start, _end = admin._kst_today_range_utc()
+    today_start = datetime.fromisoformat(start)
+    yesterday_start = today_start - timedelta(days=1)
+    # 오름차순 조회라 하루의 **앞쪽** 이 상한을 채운다 — 이른 시각의 비관측 60행 뒤에 관측 5건.
+    def day_rows(prefix: str, day_start: datetime) -> list[dict]:
+        sources = ("simulated", "seed", "admin_override", "parking_derived")
+        noise = [
+            _congestion_row(f"{prefix}-n{i:03d}", 0.99, day_start + timedelta(seconds=i), sources[i % len(sources)])
+            for i in range(60)
+        ]
+        real = [
+            _congestion_row(f"{prefix}-r{i}", 0.5, day_start + timedelta(hours=2, minutes=i), "user_report")
+            for i in range(5)
+        ]
+        return noise + real
+
+    calls: list = []
+    with patch(
+        "app.routers.admin.supabase_admin",
+        new=_CappedFakeSupabase({"congestion_logs": day_rows("t", today_start) + day_rows("y", yesterday_start)}, calls),
+    ):
+        res = client.get("/api/v1/admin/dashboard/today", headers=admin_headers())
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["hasLogs"] is True, "비관측 행이 상한을 채워 오늘 관측이 잘렸다"
+    assert body["sampleCount"] == 5
+    assert body["avgCongestion"]["value"] == 0.5
+    assert body["anomalyCount"] == 0, "모의·관리자 입력(0.99)이 이상 혼잡으로 세였다"
+    # 전일 비교도 같은 이유로 관측 5건을 본다(잘렸다면 0건 — 비교 불가).
+    assert body["avgCongestion"]["prevSampleCount"] == 5
+    assert body["sourceComposition"] == {"user_report": 5}

@@ -653,7 +653,8 @@ for (const viewport of [DESKTOP, PHONE]) {
         await expect(page.getByText('쿠폰 정책 개입', { exact: true }).first()).toBeVisible();
         await nav.getByRole('button', { name: '③ 분산 효과' }).click();
         await expect(page.locator('#step-effect')).toBeInViewport();
-        await expect(page.getByRole('heading', { name: '도입 30일 분산 효과 시나리오' })).toBeVisible();
+        // 운영 화면은 시나리오 곡선을 그리지 않는다(P0-3) — 관측이 모자라면 같은 제목 아래 '표본 부족' 을 말한다.
+        await expect(page.getByRole('heading', { name: '최근 30일 혼잡·추천 수락 추이' })).toBeVisible();
         const trust = page.getByRole('region', { name: '추천 모델 신뢰도' });
         await trust.scrollIntoViewIfNeeded();
         await expect(trust).toBeVisible();

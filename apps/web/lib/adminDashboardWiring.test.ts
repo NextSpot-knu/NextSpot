@@ -224,7 +224,11 @@ const estimateView = stripComments(read('lib/adminEstimateView.ts'));
   assert.doesNotMatch(kpiBlock, /border-dashed/, 'KPI 카드에 점선 테두리가 남아 있다');
   assert.doesNotMatch(kpiBlock, /text-\[11px\][^"]*mt-1 leading-snug/, 'KPI 숫자 아래 근거 줄이 남아 있다(배지 툴팁으로 옮길 것)');
   assert.doesNotMatch(kpiBlock, /<MetricNoSample hint="추천 기록이/, "추천이 0건일 때 수락률 타일이 '—' 로 그려진다");
-  assert.match(kpiBlock, /추천 제시 0건/, '추천이 0건일 때 수락률 타일이 제시 건수를 말하지 않는다');
+  // P0-3 · P1-1(2026-10-31): 결정이 5건 미만이면 수락률 대신 '표본 부족' 과 건수(n / 필요 m) — 시나리오 값이 아니다.
+  assert.match(kpiBlock, /<MetricInsufficient /, '결정이 모자랄 때 수락률 타일이 표본 부족을 말하지 않는다');
+  assert.match(kpiBlock, /건 \/ 필요 \{MIN_RATE_SAMPLES\}건/, "표본 부족 타일이 'n건 / 필요 m건' 을 적지 않는다");
+  assert.match(kpiBlock, /acceptanceSampleLine\(acceptRate\.value\)/, '수락률 타일이 표본 수(결정 n건 중 m건)를 적지 않는다');
+  assert.match(kpiBlock, /이용 기록 \{activeUsers\.value\.events/, 'DAU 타일이 표본 수(이용 기록 n건)를 적지 않는다');
 
   // 장소 관리 표 — 1800px 미만에서는 전폭(관리 열이 가로 스크롤 뒤로 숨지 않게), 관리 열은 오른쪽 고정 + 글자 버튼.
   const bottomGrid = page.slice(page.lastIndexOf('<div className="grid', tableAt), tableAt);
@@ -236,17 +240,39 @@ const estimateView = stripComments(read('lib/adminEstimateView.ts'));
   assert.match(table, /<Trash2[^>]*\/> 삭제/, "삭제 버튼에 '삭제' 글자가 없다");
   assert.match(table, /min-\[1800px\]:col-span-2/, '장소 관리 카드가 넓은 화면의 2칸을 쓰지 않는다');
 
-  // 분산 효과 — 최근 30일 창, 0건이면 카드 없이(쿠폰 정책이 줄을 다 쓴다).
+  // 추천 수락 결과(P1-1, 2026-10-31) — 최근 30일 창. '재배치' 는 원본 ≠ 목적지 · 도착 확인이고, 수락의 나머지 갈래를
+  // 함께 적는다. 예상 대기 차이는 모델 추정이라 '절감' 이라 부르지 않는다. 표본이 모자라면 합계 대신 표본 부족이다.
   const impactSrc = stripComments(read('components/admin/ImpactWidget.tsx'));
-  assert.match(impactSrc, /IMPACT_WINDOW_DAYS = 30/, '분산 효과 창이 30일이 아니다');
-  assert.match(impactSrc, /relocationsMeasured === 0 && loopBasis === 'measured'\) return null/, '0건 분산 효과 카드가 그려진다');
-  assert.match(page, /const impactHidden = impactSamples === 0 && loopBasis === 'measured'/, '분산 효과가 숨을 때 쿠폰 정책이 줄을 다 쓰지 않는다');
-  // 리뷰(10-07): 시나리오 숫자는 '오늘' 값이지만 실측 표본은 30일 수락이다 — 실측 건수·전환 조건에는 30일 창을 붙이고,
-  // '실측 5건이 쌓이면 … (KST 오늘 기준)' 처럼 틀린 창으로 전환 조건을 말하지 않는다.
-  assert.doesNotMatch(impactSrc, /실측으로 전환됩니다 \(KST 오늘 기준\)/, '분산 효과 시나리오가 전환 조건을 오늘 창으로 말한다');
-  assert.match(impactSrc, /최근 \$\{IMPACT_WINDOW_DAYS\}일 실측 \$\{MIN_MEASURED_SAMPLES\}건이 쌓이면/, '전환 조건에 30일 창이 없다');
-  assert.match(impactSrc, /최근 \$\{IMPACT_WINDOW_DAYS\}일 실측 \$\{relocationsMeasured\}건 수집 중/, "'실측 N건 수집 중' 에 30일 창이 없다");
-  assert.match(impactSrc, /unit: `건\(최근 \$\{IMPACT_WINDOW_DAYS\}일\)`/, '시나리오 근거 줄의 실측 건수에 30일 창이 없다');
+  assert.match(impactSrc, /IMPACT_WINDOW_DAYS = 30/, '수락 결과 창이 30일이 아니다');
+  assert.match(impactSrc, /readImpact\(res\)/, '수락 결과가 응답 모양 검증(readImpact)을 거치지 않는다 — 옛 서버의 수락 행 수를 재배치로 그린다');
+  assert.match(impactSrc, /재배치 \(도착 확인\)/, "'재배치' 의 정의(도착 확인)가 카드에 없다");
+  assert.match(impactSrc, /예상 대기 차이 합 \(모델 추정\)/, "예상 대기 차이가 '모델 추정' 이라고 적히지 않는다");
+  assert.match(impactSrc, /insufficientSampleLabel\(data\.relocations/, '재배치가 모자랄 때 표본 부족을 말하지 않는다');
+  assert.match(impactSrc, /도착 미확인 \{data\.movesUnconfirmed/, '도착 미확인 수락이 따로 적히지 않는다');
+  assert.match(impactSrc, /같은 장소 \{data\.sameFacility/, '같은 장소 수락이 따로 적히지 않는다');
+  assert.doesNotMatch(impactSrc, /절감 대기시간|덜어낸|수요 재배치 \(추천 수락\)|실측 \{data\.measured\}건/, '수락 결과 카드에 옛 문구(절감·덜어낸·실측 N건)가 남아 있다');
+  // 0건·표본 부족이어도 카드를 숨기지 않는다 — 숨기면 '집계 없음' 과 '0건' 이 구분되지 않는다.
+  assert.doesNotMatch(impactSrc, /return null/, '수락 결과 카드가 스스로 숨는다');
+  assert.doesNotMatch(page, /impactHidden/, '쿠폰 정책 줄이 수락 결과 숨김에 따라 출렁인다');
+}
+
+// ── (7) 운영 화면에 데모 숫자를 두지 않는다(P0-3, 2026-10-31) ─────────────────────────────────────────────
+// 공문서에 인용될 수 있는 화면이다. 표본이 모자라면 '표본 부족 · n / 필요 m' 을 말하고, 시나리오·합성 곡선은
+// 데모 화면(?demo=1 → components/admin/DemoDashboard.tsx)에만 남는다.
+{
+  assert.doesNotMatch(page, /buildDemoDistribution|mode: 'demo'|scenarioKpis|ScenarioBadge|SCENARIO_TIP/, '운영 대시보드에 시나리오·합성 곡선이 남아 있다');
+  assert.match(page, /return \{ mode: 'insufficient'/, '30일 추이가 표본 부족일 때 표본 부족 모드로 가지 않는다');
+  assert.match(page, /distribution\.mode === 'failed'/, '30일 추이 조회 실패가 표본 부족·예시 곡선과 구분되지 않는다');
+  assert.match(heatmap, /mode === 'insufficient'/, '30일 차트에 표본 부족 모드가 없다');
+  assert.match(heatmap, /insufficientSampleLabel\(observedDays, MIN_MEASURED_TREND_DAYS, '일'\)/, "30일 차트의 표본 부족이 '관측 n일 / 필요 3일' 을 말하지 않는다");
+  // 데모는 그대로다 — 데모 진입점은 실화면을 렌더하지 않고 데모 대시보드만 그린다.
+  assert.match(read('app/admin/dashboard/page.tsx'), /if \(demo\) return <AdminDemoDashboard \/>;/, '데모 진입점이 바뀌었다');
+  const demo = stripComments(read('components/admin/DemoDashboard.tsx'));
+  assert.match(demo, /<DashboardCharts distribution=\{distribution\} mode="demo" \/>/, '데모 화면의 시나리오 차트가 바뀌었다');
+  // 'AI 브리핑 · Solar' 배지는 LLM 이 실제로 쓴 브리핑에만.
+  assert.match(page, /briefing\.llmStatus === 'llm' && \(/, "꺼진 브리핑에도 'AI 브리핑 · Solar' 배지가 붙는다");
+  // 이상 알림이 없을 때 '안정적으로 운영 중' 같은 판단을 말하지 않는다.
+  assert.doesNotMatch(page, /안정적으로 운영 중|이내로 유지/, '이상 알림 목록이 판단 문장을 말한다');
 }
 
 console.log('adminDashboardWiring.test.ts OK');

@@ -36,18 +36,24 @@ _LOGS_08 = [
     for _ in range(5)
 ]
 
-# get_impact(accepted=True 필터는 FakeTable 이 흡수) — 재배치 1건, 절감 20-5=15.0분.
+# get_impact(accepted=True 필터는 FakeTable 이 흡수) — 재배치 1건(원본 ≠ 목적지 · 도착 확인),
+# 예상 대기 차이 20-5=15.0분. 재배치는 도착 확인이 있어야 세므로 결과 행(recommendation_outcomes)을 함께 둔다.
 _ACCEPTED_RECS = [
     {
+        "id": "rec-1",
+        "user_id": "u-tourist",
         "accepted": True,
+        "original_facility_id": "fac-crowded",
+        "recommended_facility_id": "fac-quiet",
         "created_at": _NOW_ISO,
         "score_breakdown": {"original_wait_time": 20.0, "wait_time": 5.0},
     }
 ]
+_ARRIVALS = [{"recommendation_id": "rec-1", "arrival_confirmed_at": _NOW_ISO}]
 
 # 숫자 없이 플레이스홀더만 쓰는 정직한 템플릿 — 서버가 80.0%/1건/15분으로 치환한다.
-_HONEST_TEMPLATE = "오늘 평균 혼잡도는 {avg}이며, 수락된 재배치 {relocations}으로 대기시간 {saved}을 절감했습니다."
-_RENDERED_TEXT = "오늘 평균 혼잡도는 80.0%이며, 수락된 재배치 1건으로 대기시간 15분을 절감했습니다."
+_HONEST_TEMPLATE = "오늘 평균 혼잡도는 {avg}이며, 도착이 확인된 재배치 {relocations}의 예상 대기 차이는 {saved}입니다."
+_RENDERED_TEXT = "오늘 평균 혼잡도는 80.0%이며, 도착이 확인된 재배치 1건의 예상 대기 차이는 15분입니다."
 
 
 @pytest.fixture
@@ -98,7 +104,11 @@ def llm_calls(monkeypatch):
 
 
 def _patched_db(tables: dict):
-    return patch("app.routers.admin.supabase_admin", new=FakeSupabase(tables))
+    # 재배치를 세려면 도착 확인 행이 필요하다 — 테스트마다 따로 적지 않게 기본값으로 넣는다.
+    return patch(
+        "app.routers.admin.supabase_admin",
+        new=FakeSupabase({"recommendation_outcomes": _ARRIVALS, **tables}),
+    )
 
 
 # =========================================================================
@@ -262,9 +272,30 @@ def test_briefing_success_renders_placeholders(client, llm_calls):
     assert len(llm_calls["prompts"]) == 1
     facts = json.loads(llm_calls["prompts"][0])
     assert facts["avg_congestion_percent"] == "80.0%"
-    assert facts["accepted_relocations_today"] == 1
-    assert facts["saved_wait_minutes_today"] == 15.0
+    assert facts["confirmed_relocations_today"] == 1
+    assert facts["expected_wait_diff_minutes_today"] == 15.0
     assert "avg" in facts["available_placeholders"]
+
+
+def test_briefing_counts_only_confirmed_relocations(client, llm_calls):
+    """브리핑의 {relocations} 는 대시보드와 같은 정의다 — 도착 확인이 없는 수락은 재배치가 아니다."""
+    with _patched_db({
+        "congestion_logs": _LOGS_08,
+        "recommendations": _ACCEPTED_RECS,
+        "recommendation_outcomes": [{"recommendation_id": "rec-1", "arrival_confirmed_at": None}],
+    }):
+        res = client.get(BRIEFING_PATH, headers=_admin_headers())
+    assert res.status_code == 200
+    facts = json.loads(llm_calls["prompts"][0])
+    assert facts["confirmed_relocations_today"] == 0
+    assert facts["expected_wait_diff_minutes_today"] == 0
+
+
+def test_saved_placeholder_is_not_accepted_in_a_savings_only_context():
+    """{saved} 는 모델이 계산한 예상 대기 차이다 — '절감' 문맥만으로는 자리를 인정하지 않는다."""
+    allowed = {"avg", "relocations", "saved"}
+    assert not briefing_service.is_honest_briefing("재배치 {relocations}으로 절감 {saved}을 냈습니다.", allowed)
+    assert briefing_service.is_honest_briefing("재배치 {relocations}의 예상 대기 차이는 {saved}입니다.", allowed)
 
 
 def test_briefing_change_placeholder_direction_is_server_owned(client, llm_calls):

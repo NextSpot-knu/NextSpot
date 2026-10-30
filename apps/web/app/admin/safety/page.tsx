@@ -2,26 +2,37 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  AlertTriangle, Bell, BellOff, CheckCircle2, Clock, Info,
+  AlertTriangle, Bell, BellOff, CheckCircle2, CircleHelp, Clock, Info,
   MapPin, RefreshCw, SlidersHorizontal, TrendingUp, Users,
 } from 'lucide-react';
 import { AdminSidebar } from '@/components/AdminSidebar';
 import { adminApi } from '@/lib/admin-api';
+import { ADMIN_ALERT_LEVEL, ADMIN_WARN_LEVEL, levelPercent } from '@/lib/adminAlertLevels';
+import {
+  kstClockLabel,
+  relativeAgeLabel,
+  resolveSafetyJudgement,
+  zoneSourceLine,
+  type SafetyJudgement,
+} from '@/lib/adminSafetyView';
 import { errorMessage } from '@/lib/errors';
 import { usePolling } from '@/lib/usePolling';
 
 // 인파 밀집 안전 경보(B2G 관제) — GET /api/v1/admin/safety/status (apps/api/app/routers/safety.py) 미러.
 //
-// 정직성 원칙(반드시 유지):
-//  - 이 화면은 실측 제보·혼잡 로그 기반의 '근사' 경보다. 문자/카톡 등 실 발송 연동은 2단계(추후) 작업이며
-//    이 화면은 관제 열람 + 브라우저 알림 옵트인까지만 제공한다.
+// 반드시 유지할 것:
+//  - 판정은 서버가 **최근 30분 안의 관측**으로만 한다. 관측이 없거나 오래됐으면 회색 '판정 불가' 다 —
+//    '정상' 이 아니다(판정 규칙은 lib/adminSafetyView.ts 한곳에 있고 테스트가 잠근다).
+//  - 이 화면은 현장 제보·좌석 방송·관리자 입력 기반의 '근사' 경보다. 문자/카톡 등 실 발송 연동은 아직 없고,
+//    브라우저 알림은 이 화면을 열어 둔 탭에만 뜬다.
 //  - '존'은 좌표를 소수점 셋째 자리(≈150m)로 반올림한 격자 근사다. 행정동·실제 골목 경계가 아니다.
 //  - 임계값 슬라이더는 세션 로컬 상태로만 반영되며 즉시 조회 쿼리에 실린다. 백엔드 기본값 자체를
-//    바꾸는 '저장'은 2단계 작업 — 이 화면에는 없다.
+//    바꾸는 '저장'은 이 화면에 없다.
 
 const REFRESH_INTERVAL_MS = 30_000;
-const DEFAULT_ALERT_PCT = 85; // 백엔드 기본 threshold(0.85)와 동일
-const DEFAULT_WARN_PCT = 70;  // 백엔드 기본 warn(0.7)과 동일
+// 기본값은 관제 대시보드 '이상 혼잡' 과 같은 기준이다(서버 safety.DEFAULT_ALERT_THRESHOLD = ANOMALY_LEVEL).
+const DEFAULT_ALERT_PCT = levelPercent(ADMIN_ALERT_LEVEL);
+const DEFAULT_WARN_PCT = levelPercent(ADMIN_WARN_LEVEL);
 
 // 로딩 스켈레톤 — 회색 판 대신 대시보드와 같은 시머('초점이 맞는 중') 연출.
 // 대시보드의 dash-* 스타일은 이 페이지에 로드되지 않으므로 saf-* 로 자족한다(<style> 인라인).
@@ -45,6 +56,9 @@ interface SafetyFacilityItem {
   congestion: number;
   nextHourCongestion: number | null;
   timestamp: string | null;
+  /** 판정 근거의 출처·신뢰 등급 — 새 서버만 싣는다. */
+  source?: string | null;
+  evidenceTier?: string | null;
 }
 
 interface SafetyZone {
@@ -56,6 +70,10 @@ interface SafetyZone {
   facilityCount: number;
   level: 'alert' | 'warn' | 'normal';
   nextHourCongestion: number | null;
+  /** 이 존에서 가장 최근 관측 시각(UTC ISO) — 새 서버만 싣는다. */
+  observedAt?: string | null;
+  /** 출처별 시설 수 — 새 서버만 싣는다. */
+  sourceCounts?: Record<string, number>;
 }
 
 interface SafetySummary {
@@ -64,13 +82,19 @@ interface SafetySummary {
   normalZones: number;
   alertFacilities: number;
   warnFacilities: number;
+  observedZones?: number;
 }
 
 interface SafetyStatusResponse {
   generatedAt: string;
+  /** 'unavailable' = 최근 30분 안의 관측이 없다(판정 불가). 옛 서버는 이 키가 없다. */
+  judgement?: 'available' | 'unavailable';
   sampleEmpty: boolean;
   thresholds: { alert: number; warn: number };
-  meta: { zoneMethod: string };
+  meta: { zoneMethod: string; maxObservationAgeMinutes?: number };
+  observedFacilities?: number;
+  staleFacilities?: number;
+  latestObservedAt?: string | null;
   facilityAlerts: SafetyFacilityItem[];
   facilityWarnings: SafetyFacilityItem[];
   zones: SafetyZone[];
@@ -104,12 +128,14 @@ function notificationSupported(): boolean {
 }
 
 function KpiCard({
-  label, value, tone, icon,
+  label, value, tone, icon, hint,
 }: {
   label: string;
-  value: number;
+  /** null = 판정하지 않았다('—'). 0 과 다르다 — 관측이 없는 날의 '0' 은 '없다' 로 읽힌다. */
+  value: number | null;
   tone: 'red' | 'amber' | 'emerald';
   icon: React.ReactNode;
+  hint?: string;
 }) {
   // 라이트 종이 배경 — 다크용 -300/-400 톤은 씻겨 보인다. 큰 숫자는 -600 으로 대비 확보.
   const toneClass: Record<string, string> = {
@@ -118,18 +144,27 @@ function KpiCard({
     emerald: 'border-l-emerald-500 text-emerald-700',
   };
   return (
-    <div className={`flex-1 bg-hanok-panel p-5 rounded-2xl border border-hanok-line border-l-4 shadow-sm ${toneClass[tone]}`}>
+    <div
+      title={hint}
+      className={`flex-1 bg-hanok-panel p-5 rounded-2xl border border-hanok-line border-l-4 shadow-sm ${
+        value === null ? 'border-l-hanok-line text-hanok-muted' : toneClass[tone]
+      }`}
+    >
       <div className="flex items-center gap-2 text-hanok-muted mb-2">
         {icon}
         <span className="text-sm font-semibold">{label}</span>
       </div>
-      <div className="text-3xl font-black tabular-nums">{value}</div>
+      <div className="text-3xl font-black tabular-nums">{value === null ? '—' : value}</div>
     </div>
   );
 }
 
-function ZoneCard({ zone }: { zone: SafetyZone }) {
+function ZoneCard({ zone, nowMs }: { zone: SafetyZone; nowMs: number | null }) {
   const isAlert = zone.level === 'alert';
+  // 판정 근거 — 관측 시각(KST)과 나이, 출처. 옛 서버 응답에는 없다(그때는 '관측 시각 미확인').
+  const clock = nowMs !== null ? kstClockLabel(zone.observedAt, nowMs) : null;
+  const age = nowMs !== null ? relativeAgeLabel(zone.observedAt, nowMs) : null;
+  const sources = zoneSourceLine(zone.sourceCounts);
   return (
     <div
       className={`p-5 rounded-2xl border shadow-sm flex flex-col gap-3 ${
@@ -167,19 +202,53 @@ function ZoneCard({ zone }: { zone: SafetyZone }) {
           <div className="font-bold text-hanok-ink tabular-nums">{zone.facilityCount}개</div>
         </div>
       </div>
-      <div className="flex items-center gap-1.5 text-xs text-hanok-muted border-t border-hanok-line/60 pt-2">
-        <TrendingUp size={13} />
-        다음 1시간 예측:{' '}
-        <span className="font-semibold text-hanok-ink">
-          {zone.nextHourCongestion !== null ? pct(zone.nextHourCongestion) : '수집 중'}
-        </span>
+      <div className="flex flex-col gap-1 text-xs text-hanok-muted border-t border-hanok-line/60 pt-2">
+        <div className="flex min-w-0 items-center gap-1.5">
+          <Clock size={13} className="flex-shrink-0" />
+          <span className="flex-shrink-0">관측</span>
+          <span className="flex-shrink-0 font-semibold text-hanok-ink">
+            {clock ? `${clock}${age ? ` · ${age}` : ''}` : '시각 미확인'}
+          </span>
+          {sources && <span className="min-w-0 truncate" title={sources}>· {sources}</span>}
+        </div>
+        <div className="flex items-center gap-1.5">
+          <TrendingUp size={13} />
+          다음 1시간 예측:{' '}
+          <span className="font-semibold text-hanok-ink">
+            {zone.nextHourCongestion !== null ? pct(zone.nextHourCongestion) : '예측 없음'}
+          </span>
+        </div>
       </div>
+    </div>
+  );
+}
+
+/** 판정 불가(회색) — 관측이 없거나 판정 창을 넘었다. '정상' 과 다른 색·아이콘·문장이다. */
+function UnavailablePanel({ judgement, nowMs }: { judgement: Extract<SafetyJudgement, { kind: 'unavailable' }>; nowMs: number | null }) {
+  const last = judgement.latestObservedAt && nowMs !== null
+    ? `${kstClockLabel(judgement.latestObservedAt, nowMs)}${relativeAgeLabel(judgement.latestObservedAt, nowMs) ? ` · ${relativeAgeLabel(judgement.latestObservedAt, nowMs)}` : ''}`
+    : null;
+  return (
+    <div className="p-8 text-center bg-hanok-card rounded-2xl border border-hanok-line">
+      <CircleHelp className="mx-auto mb-2 text-hanok-muted" size={28} />
+      <p className="text-sm font-bold text-hanok-ink">
+        {judgement.ageKnown ? `판정 불가 — 최근 ${judgement.windowMinutes}분 관측 없음` : '판정 불가 — 관측 시각을 확인할 수 없음'}
+      </p>
+      <p className="mt-1 text-xs text-hanok-muted">
+        {judgement.ageKnown
+          ? last
+            ? `마지막 관측 ${last}. 관측이 들어오면 다음 갱신(${REFRESH_INTERVAL_MS / 1000}초)에 판정합니다.`
+            : `아직 관측이 없습니다. 관측이 들어오면 다음 갱신(${REFRESH_INTERVAL_MS / 1000}초)에 판정합니다.`
+          : '서버 응답에 관측 시각이 없어 정상 여부를 판정하지 않습니다.'}
+      </p>
     </div>
   );
 }
 
 export default function SafetyPage() {
   const [data, setData] = useState<SafetyStatusResponse | null>(null);
+  // 응답을 받은 시각(ms) — 관측 나이('12분 전')의 기준. 렌더 중에 시계를 읽지 않는다(같은 응답은 같은 문구).
+  const [loadedAt, setLoadedAt] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -233,6 +302,7 @@ export default function SafetyPage() {
         `/api/v1/admin/safety/status?threshold=${alertQ}&warn=${warnQ}`,
       );
       setData(res);
+      setLoadedAt(Date.now());
       setError(null);
 
       if (notifEnabledRef.current && prevAlertCountRef.current !== null
@@ -300,6 +370,12 @@ export default function SafetyPage() {
   const alertZones = zones.filter((z) => z.level === 'alert');
   const warnZones = zones.filter((z) => z.level === 'warn');
   const cardZones = [...alertZones, ...warnZones];
+  // 판정 — 관측 없음·오래됨이면 '판정 불가'. '정상' 은 관측이 있는 존에만(lib/adminSafetyView.ts).
+  const judgement = data ? resolveSafetyJudgement(data) : null;
+  // KPI 숫자 — 판정하지 않았으면 '—'(0 이 아니다). 옛 서버(나이 모름)는 경보·주의만 세고 '정상' 은 비운다.
+  const judged = judgement !== null && judgement.kind !== 'unavailable';
+  const normalKnown = judged && !(judgement.kind === 'zones' && !judgement.ageKnown);
+  const windowMinutes = judgement?.windowMinutes ?? 30;
 
   return (
     <div className="flex flex-col lg:flex-row h-screen bg-hanok text-hanok-ink font-sans overflow-hidden">
@@ -349,20 +425,26 @@ export default function SafetyPage() {
         <div className="flex-1 overflow-y-auto p-4 lg:p-8">
           <div className="max-w-5xl mx-auto flex flex-col gap-6 pb-16">
 
-            {/* 정직성 라벨 */}
+            {/* 판정 방식 — 무엇으로 판정하고 무엇은 판정하지 않는지. */}
             <div className="flex items-start gap-2 px-4 py-3 rounded-xl bg-hanok-card border border-hanok-line text-xs text-hanok-muted">
               <Info size={15} className="flex-shrink-0 mt-0.5 text-gold-deep" />
               <span>
-                현장 제보와 혼잡 로그를 150m 격자 단위로 집계한 골목 단위 조기경보입니다.
-                경보 발생 시 관제 화면과 브라우저 알림으로 즉시 전달됩니다.
+                최근 {windowMinutes}분 안의 현장 관측(손님 제보·좌석 방송·관리자 입력)을 150m 격자로 묶어 판정합니다.
+                관측이 없거나 {windowMinutes}분이 지난 구역은 판정하지 않습니다. 브라우저 알림은 이 화면을 열어 둔 탭에만 뜹니다.
               </span>
             </div>
 
-            {/* KPI */}
+            {/* KPI — 판정하지 않았으면 '—'. 관측 없는 구역은 어느 칸에도 세지 않는다. */}
             <div className="flex gap-4">
-              <KpiCard label="경보" value={data?.summary.alertZones ?? 0} tone="red" icon={<AlertTriangle size={16} />} />
-              <KpiCard label="주의" value={data?.summary.warnZones ?? 0} tone="amber" icon={<AlertTriangle size={16} />} />
-              <KpiCard label="정상" value={data?.summary.normalZones ?? 0} tone="emerald" icon={<CheckCircle2 size={16} />} />
+              <KpiCard label="경보" value={judged ? data?.summary.alertZones ?? 0 : null} tone="red" icon={<AlertTriangle size={16} />} />
+              <KpiCard label="주의" value={judged ? data?.summary.warnZones ?? 0 : null} tone="amber" icon={<AlertTriangle size={16} />} />
+              <KpiCard
+                label="정상"
+                value={normalKnown ? data?.summary.normalZones ?? 0 : null}
+                tone="emerald"
+                icon={<CheckCircle2 size={16} />}
+                hint={`최근 ${windowMinutes}분 안에 관측된 존 가운데 주의 임계값 미만인 존의 수입니다.`}
+              />
             </div>
 
             {/* 임계값 슬라이더 */}
@@ -436,22 +518,22 @@ export default function SafetyPage() {
                     다시 시도
                   </button>
                 </div>
-              ) : data?.sampleEmpty ? (
+              ) : !judgement || judgement.kind === 'unavailable' ? (
+                // 관측 없음·오래됨 — 회색 '판정 불가'. 초록 '정상' 을 그리면 '모름' 이 '안전' 으로 읽힌다.
+                judgement ? <UnavailablePanel judgement={judgement} nowMs={loadedAt} /> : null
+              ) : judgement.kind === 'clear' ? (
+                // 관측된 존만 '정상' 이다 — 관측이 없는 구역까지 정상이라고 말하지 않는다.
                 <div className="p-8 text-center bg-hanok-panel rounded-2xl border border-hanok-line">
                   <CheckCircle2 className="mx-auto mb-2 text-emerald-600" size={28} />
                   <p className="text-sm font-semibold text-hanok-ink">
-                    현재 경보 임계치를 넘은 구역이 없습니다 — 전 구역 정상 운영 중입니다.
+                    최근 {judgement.windowMinutes}분 안에 관측된 {judgement.observedZones}개 존은 모두 주의 임계값({warnPct}%) 미만입니다.
                   </p>
-                </div>
-              ) : cardZones.length === 0 ? (
-                <div className="p-8 text-center bg-hanok-panel rounded-2xl border border-hanok-line">
-                  <CheckCircle2 className="mx-auto mb-2 text-emerald-600" size={28} />
-                  <p className="text-sm font-semibold text-hanok-ink">현재 경보·주의 존이 없습니다. 전체 정상입니다.</p>
+                  <p className="mt-1 text-xs text-hanok-muted">관측이 없는 구역은 판정하지 않습니다.</p>
                 </div>
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   {cardZones.map((zone) => (
-                    <ZoneCard key={zone.zoneId} zone={zone} />
+                    <ZoneCard key={zone.zoneId} zone={zone} nowMs={loadedAt} />
                   ))}
                 </div>
               )}

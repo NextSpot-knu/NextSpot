@@ -80,7 +80,9 @@ _TOKEN_CONTEXT_KEYWORDS: dict[str, tuple[str, ...]] = {
     "anomalies": ("이상", "감지", "경보"),
     "threshold": ("기준", "임계", "이상"),
     "relocations": ("재배치", "분산", "수락"),
-    "saved": ("대기", "절감", "시간"),
+    # {saved} 는 모델로 계산한 '예상 대기 차이' 다(admin.get_impact) — 측정한 절감이 아니라서 '절감' 문맥을
+    # 근거로 인정하지 않는다. '대기 … 차이' 처럼 대기를 말하는 자리에만 놓인다.
+    "saved": ("대기", "차이", "시간"),
 }
 _CONTEXT_WINDOW_CHARS = 25
 
@@ -166,8 +168,10 @@ def build_facts(today: dict, impact: dict) -> Optional[dict]:
         "avg_change_vs_yesterday": placeholders.get("change"),  # None 이면 언급 불가 지표
         "anomaly_count": anomaly_count,
         "anomaly_threshold_percent": 90,
-        "accepted_relocations_today": relocations,
-        "saved_wait_minutes_today": saved_minutes,
+        # admin.get_impact 의 정의 — 원본 ≠ 목적지이고 도착이 확인된 수락만 '재배치' 다.
+        "confirmed_relocations_today": relocations,
+        # 재배치 건의 예상 대기 차이 합(모델 추정, 분) — 측정한 절감이 아니다.
+        "expected_wait_diff_minutes_today": saved_minutes,
         "available_placeholders": sorted(placeholders),
     }
     return {"facts": facts, "placeholders": placeholders}
@@ -228,11 +232,11 @@ def _system_prompt(available: list[str]) -> str:
         "① 숫자를 직접 쓰지 마라 — 아라비아 숫자·한글 수사(삼 건 등) 모두 금지다. "
         "수치는 반드시 다음 플레이스홀더 토큰으로만 지칭해라(치환은 서버가 한다): "
         "{avg}=오늘 평균 혼잡도, {anomalies}=이상 혼잡 감지 건수, {threshold}=이상 판정 기준, "
-        "{relocations}=분산 수락 건수, {saved}=절감된 대기시간"
+        "{relocations}=도착이 확인된 재배치 건수, {saved}=재배치 건의 예상 대기 차이(모델 추정, 측정한 절감이 아님)"
         + (", {change}=전일 대비 변화(방향 포함 문구)" if "change" in available else "")
         + ". 사용 가능 토큰: " + ", ".join("{" + p + "}" for p in available) + ". "
         "② 각 토큰은 반드시 해당 지표를 서술하는 자리에만 놓아라 — 예: '이상 감지는 {anomalies}', "
-        "'재배치 {relocations}', '대기시간 {saved} 절감'. 토큰을 다른 지표 자리에 두면 폐기된다. "
+        "'재배치 {relocations}', '예상 대기 차이 {saved}'. 토큰을 다른 지표 자리에 두면 폐기된다. "
         "③ 비교·추세·극값 표현(증가/감소/어제/전일/대비/상승/하락/최고/처음 등)을 직접 쓰지 마라 — "
         "전일 대비 서술이 필요하면 {change} 토큰이 문구를 대신한다. "
         "④ 설명·마크다운·따옴표 없이 브리핑 문장만 출력해라."
