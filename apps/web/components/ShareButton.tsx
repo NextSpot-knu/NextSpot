@@ -63,15 +63,22 @@ export function ShareButton({ title, text = '', url, shareText, className = '' }
     toast.error(t('common.shareFailed'), { description: shareUrl, duration: 10000 });
   }, [title, message, url, t]);
 
+  // 복사 직후 2초 동안은 버튼 자체가 "링크를 복사했어요"로 바뀐다. 토스트는 화면 밖(지도 위·하단 시트 뒤)에
+  // 가려지는 일이 잦아 아이콘만 체크로 바뀌면 "눌렸나?" 하고 다시 누르게 된다 — 기존 common.linkCopied 재사용.
+  const label = copied ? t('common.linkCopied') : t('common.share');
+
   return (
     <button
       type="button"
       onClick={onShare}
-      aria-label={t('common.share')}
-      className={`inline-flex items-center gap-1.5 rounded-full border border-line bg-white/80 px-3 py-1.5 text-xs font-semibold text-muk-soft transition-colors hover:text-muk hover:bg-white ${className}`}
+      aria-label={label}
+      aria-live="polite"
+      className={`inline-flex items-center gap-1.5 rounded-full border border-line bg-white/80 px-3 py-1.5 text-xs font-semibold transition-colors hover:bg-white ${
+        copied ? 'text-jade' : 'text-muk-soft hover:text-muk'
+      } ${className}`}
     >
-      {copied ? <Check size={15} className="text-jade" /> : <Share2 size={15} />}
-      <span>{t('common.share')}</span>
+      {copied ? <Check size={15} aria-hidden /> : <Share2 size={15} aria-hidden />}
+      <span>{label}</span>
     </button>
   );
 }
