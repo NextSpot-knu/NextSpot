@@ -136,6 +136,28 @@ def _isolate_admin_coalesce():
 
 
 @pytest.fixture(autouse=True)
+def _isolate_report_cooldowns():
+    """제보 쿨다운(app/routers/reports.py)의 프로세스 전역 표를 테스트마다 비운다.
+
+    'IP·시설당 한 계정' 규칙이 생기면서(2026-10-30) 사용자를 바꿔도 막힌다 — TestClient 의 요청은 전부 같은
+    피어('testclient')에서 오므로, 앞 테스트의 제보가 다음 테스트의 다른 계정 제보를 429 로 만든다.
+    """
+    from app.routers import reports
+
+    stores = (
+        reports._last_report_at,
+        reports._last_report_by_ip,
+        reports._last_availability_report_at,
+        reports._last_availability_report_by_ip,
+    )
+    for store in stores:
+        store.clear()
+    yield
+    for store in stores:
+        store.clear()
+
+
+@pytest.fixture(autouse=True)
 def _isolate_response_cache(monkeypatch):
     """by-type·코스 응답 캐시(180초)를 테스트에서는 기본으로 **끈다**.
 

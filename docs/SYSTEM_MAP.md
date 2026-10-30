@@ -268,7 +268,7 @@ SessionBootstrap: 익명 세션 자동 발급
 | ″ | 추천 사유·비교 설명 (`RecommendationComparison`) | `POST /recommendations/{id}/explain` | `reason_service` `recommendation_explanation_service` |
 | ″ | 수락 / 거절 / 만족도 피드백 | `POST /feedback` | `feedback_service` `preference_vector_service` |
 | ″ | 자연어 취향 입력 | `POST /preferences/parse` | `preference_nlp_service` |
-| ″ | 현장 좌석·대기 제보 | `POST /reports/availability` | `availability_service` |
+| ″ | 영업 상태 확인(영업 중·닫힘 — 계정 로그인 필수. 게스트 403 · 같은 네트워크 다른 계정 429 면 답은 그 화면에만 적용) | `POST /reports/availability` | `availability_service` |
 | `/course` | 멀티스톱 분산 코스 | `POST /courses/plan` (구 번들은 `POST /courses/recommend`) | 누적 도착시각 기반 SPOT 반복 · 자리마다 현재 위치 기준 후보 재선정 |
 | ″ | 자리 고정·대안 갈아끼우기 | `POST /courses/plan` 의 `pins` | 고정된 자리 뒤를 다시 그리디 (§6.1) |
 | `/waiting` | 스마트 줄서기 보드 — 4유형 섹터별 '도착 시점 대기' 순 | `POST /recommendations/by-type` (유형당 1회) | SPOT `breakdown.waitTime/travelTime` 재사용 (새 예약 백엔드 없음) |
@@ -280,7 +280,7 @@ SessionBootstrap: 익명 세션 자동 발급
 | `/mypage/settings` | 회원 탈퇴 | `DELETE /account/me` | `account` 라우터 |
 | `/account/business` | 역할 신청 — 제출·내역·**철회·수정** | `POST /account/verification-requests` · `GET …/mine` · `PATCH …/{id}` · `POST …/{id}/withdraw` | `account` 라우터 (심사는 `/dev` — §5.4) |
 | 추천 카드(전역) | 최적 방문 시각 · 골든아워 배지 | `GET /predict/day` · `/predict/golden-hour` | `predict_service` |
-| 전역 | 혼잡 제보 | `POST /reports/congestion` | `congestion_evidence` |
+| 전역 | 혼잡 제보(계정 로그인 필수 — 게스트는 403) | `POST /reports/congestion` | `congestion_evidence` |
 | 전역 | 방문 결과 기록 | `PATCH /recommendations/{id}/outcome` | `recommendationOutcomes.ts` (오프라인 큐) |
 | 전역 | 사용성 트래킹 | `POST /events/track` | `tracking` (무인증, IP 쿨다운) |
 
@@ -496,7 +496,7 @@ seed/simulated  → 공개 조회에서 아예 제외 (개발 이력으로만 �
 
 | 출처 | 등급 | 경로 |
 |---|---|---|
-| 사용자 혼잡 제보 | `single_report` → 교차검증 시 `corroborated` | `POST /reports/congestion` → `correlate_congestion_report_evidence` |
+| 사용자 혼잡 제보(계정만 — 게스트 403 · 사용자·시설당 5분 · IP·시설당 30분 한 계정, 2026-10-30) | `single_report` → 교차검증 시 `corroborated` | `POST /reports/congestion` → `correlate_congestion_report_evidence` |
 | 방문 후 체감 혼잡 | 투영 | `recommendation_outcomes` → `project_outcome_congestion_log` |
 | 사장님 좌석 방송 | `merchant_report` / `verified` | `POST /merchant/seat-status` |
 

@@ -14,6 +14,7 @@ from pydantic import AliasChoices, BaseModel, Field, field_validator, model_vali
 # anon 클라이언트는 요청별 JWT 를 PostgREST 로 싣지 않아 auth.uid()=null → RLS 거부가 된다.
 # (ingest/preferences 라우터가 동일 사유로 supabase_admin 을 쓴다.) 따라서 service_role 클라이언트로
 # 통일하고, 신뢰 경계는 아래 get_recommendations/submit_feedback 의 소유권 가드로 강제한다.
+from app.core.client_ip import client_ip
 from app.core.failure_log import record_failure
 from app.core.response_cache import (
     ResponseCache,
@@ -1298,21 +1299,6 @@ _VOICE_LLM_RATE_LIMIT = 5  # IP당 분당 LLM 보조 해석 상한
 _voice_llm_hits: dict[str, list[float]] = {}
 
 
-def _voice_client_ip(request: Request) -> str:
-    """레이트리밋 키용 클라이언트 IP.
-
-    ⚠️ XFF 의 '첫 값'은 클라이언트가 위조 가능하다(프록시는 뒤에 append) — 요청마다 다른
-    가짜 첫 값으로 분당 제한을 무한 우회할 수 있다(Codex 리뷰 P1). 신뢰 프록시(Render 엣지)가
-    마지막에 덧붙인 값이 실제 피어이므로 **마지막 항목**을 쓴다. 프록시 없는 로컬은 소켓 피어.
-    """
-    xff = request.headers.get("x-forwarded-for")
-    if xff:
-        parts = [p.strip() for p in xff.split(",") if p.strip()]
-        if parts:
-            return parts[-1]
-    return request.client.host if request.client else "unknown"
-
-
 def _voice_llm_allowed(ip: str) -> bool:
     """분당 상한 내면 True(호출 1회 소비), 초과면 False — 초과 시 타임스탬프 미기록(윈도우 밀림 방지)."""
     now = time.monotonic()
@@ -1353,7 +1339,7 @@ async def voice_turn(req: VoiceTurnRequest, request: Request):
         pass
     # 1) 백엔드: 의도 분류 + 한국어 응답 + search_query(선호를 구체 메뉴로 확장)(역할 분리의 '대화' 쪽).
     #    llm_gate: 무인증 유료 호출 레이트리밋 — LLM 이 실제로 필요할 때만 카운트를 소비한다.
-    ip = _voice_client_ip(request)
+    ip = client_ip(request)
     result = await interpret_turn(
         req.utterance, type_ko, req.current_name, candidates,
         llm_gate=lambda: _voice_llm_allowed(ip),

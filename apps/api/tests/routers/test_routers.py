@@ -1843,6 +1843,146 @@ def test_report_congestion_rate_limited_429(auth_client):
     assert "Retry-After" in second.headers
 
 
+# ── 게스트(익명 세션) 차단 · IP·시설당 한 계정 (2026-10-30, 보안 진단 '중') ─────────────
+# SessionBootstrap 이 모든 방문자에게 익명 세션을 자동 발급하므로, 게스트 제보가 열려 있으면
+# 세션을 갈아 끼우는 것만으로 사용자 쿨다운이 풀리고 게스트 둘의 맞장구가 corroborated 가 된다.
+# 계정이 있어도 한 단말에서 계정을 돌리면 같은 일이 되므로, 교차검증 창(30분) 동안 IP·시설당 한 계정만 받는다.
+
+_IP_A, _IP_B = "198.51.100.7", "198.51.100.8"
+_REPORT_FACILITY = _facility("f-1", "cafe", 0.0002)
+_REPORT_INSERTED = {
+    "id": "log-1", "facility_id": "f-1", "congestion_level": 0.9,
+    "current_count": 45, "source": "user_report", "timestamp": "2026-07-10T05:00:00+00:00",
+}
+_CONGESTION_URL = "/api/v1/reports/congestion"
+_CONGESTION_BODY = {"facility_id": "f-1", "level": "혼잡"}
+
+
+class _NoWriteSupabase:
+    """게스트 거부는 DB 를 건드리기 전에 끝나야 한다 — 어떤 표·RPC 든 열면 실패."""
+
+    def table(self, name):
+        raise AssertionError(f"게스트 제보가 {name} 표에 닿았다")
+
+    def rpc(self, name, _params):
+        raise AssertionError(f"게스트 제보가 {name} RPC 를 불렀다")
+
+
+def _as_user(user_id: str, *, anonymous: bool = False) -> None:
+    app.dependency_overrides[get_current_user] = lambda: {
+        "id": user_id,
+        "email": None if anonymous else f"{user_id}@example.com",
+        "role": "authenticated",
+        "payload": {"is_anonymous": anonymous},
+    }
+
+
+def _post_as(c, user_id: str, ip: str, url: str = _CONGESTION_URL, body: dict | None = None):
+    _as_user(user_id)
+    return c.post(url, json=body or _CONGESTION_BODY, headers={"x-forwarded-for": ip})
+
+
+def _age_report_slots(seconds: float) -> None:
+    """쿨다운 표의 기록을 seconds 만큼 과거로 민다 — 시계를 건드리지 않고 시간 경과를 흉내 낸다."""
+    for store in (reports._last_report_at, reports._last_availability_report_at):
+        for key in store:
+            store[key] -= seconds
+    for store in (reports._last_report_by_ip, reports._last_availability_report_by_ip):
+        for key, (user_id, at) in store.items():
+            store[key] = (user_id, at - seconds)
+
+
+@pytest.fixture
+def report_client():
+    try:
+        with TestClient(app) as c, patch(
+            "app.routers.reports.supabase_admin",
+            new=FakeSupabase({"facilities": [_REPORT_FACILITY], "congestion_logs": [_REPORT_INSERTED]}),
+        ):
+            yield c
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+
+@pytest.mark.parametrize("path, body", [
+    (_CONGESTION_URL, _CONGESTION_BODY),
+    ("/api/v1/reports/availability", {"facility_id": "f-1", "status": "closed"}),
+])
+def test_reports_reject_guest_session_before_touching_db(path, body):
+    from app.core import authz
+
+    _as_user("guest-1", anonymous=True)
+    try:
+        with TestClient(app) as c, patch("app.routers.reports.supabase_admin", new=_NoWriteSupabase()):
+            res = c.post(path, json=body)
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+    assert res.status_code == 403
+    assert "게스트" in res.json()["detail"]
+    # 프로필(users 표) 조회도 하지 않는다 — 조회 장애가 게스트 거부를 503 으로 바꾸지 않게.
+    authz._load_profile.assert_not_awaited()
+
+
+def test_report_congestion_one_account_per_ip_for_the_whole_corroboration_window(report_client):
+    c = report_client
+    assert _post_as(c, "u-a", _IP_A).status_code == 200
+
+    # 같은 IP 의 다른 계정 — XFF 첫 값을 바꿔도 마지막 값(실제 피어)으로 묶인다.
+    blocked = _post_as(c, "u-b", f"10.0.0.9, {_IP_A}")
+    assert blocked.status_code == 429
+    assert 1790 <= int(blocked.headers["Retry-After"]) <= 1800
+
+    # 사용자 쿨다운(5분)이 지나도 교차검증 창(30분) 안이면 여전히 막힌다 — 5분 1초 뒤의 두 번째 계정이
+    # corroborated 를 만들던 구멍(쿨다운 길이로만 걸었을 때)이 닫혔는지 본다.
+    _age_report_slots(6 * 60)
+    assert _post_as(c, "u-b", _IP_A).status_code == 429
+
+    assert _post_as(c, "u-b", _IP_B).status_code == 200  # 다른 IP 의 같은 계정은 통과
+    _age_report_slots(25 * 60)  # u-a 기준 31분 경과 — 창이 닫혔다
+    assert _post_as(c, "u-c", _IP_A).status_code == 200
+
+
+def test_report_congestion_user_cooldown_applies_across_ips(report_client):
+    # IP 를 바꿔도 같은 계정의 5분 쿨다운은 그대로다(IP 규칙과 독립).
+    assert _post_as(report_client, "u-a", _IP_A).status_code == 200
+    again = _post_as(report_client, "u-a", _IP_B)
+    assert again.status_code == 429
+    assert 299 <= int(again.headers["Retry-After"]) <= 300
+
+
+def test_report_congestion_reserves_slot_before_the_write_and_releases_it_on_failure():
+    # 검사와 자리 잡기 사이에 await 가 없어야 동시에 온 두 계정이 함께 통과하지 못한다 — INSERT 시점에
+    # 이미 자리가 잡혀 있는지 본다. 저장이 실패하면 그 자리는 되돌린다(재시도를 막지 않는다).
+    seen: list[bool] = []
+
+    class _FailingInsertTable:
+        def insert(self, _row):
+            return self
+
+        def execute(self):
+            seen.append(
+                reports._last_report_at.get(("u-a", "f-1")) is not None
+                and reports._last_report_by_ip.get((_IP_A, "f-1"), ("",))[0] == "u-a"
+            )
+            raise RuntimeError("supabase down")
+
+    class _FailingInsert(FakeSupabase):
+        def table(self, name):
+            return _FailingInsertTable() if name == "congestion_logs" else super().table(name)
+
+    try:
+        with TestClient(app) as c, patch(
+            "app.routers.reports.supabase_admin", new=_FailingInsert({"facilities": [_REPORT_FACILITY]})
+        ):
+            failed = _post_as(c, "u-a", _IP_A)
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+    assert failed.status_code == 503
+    assert seen == [True]
+    assert reports._last_report_at == {}
+    assert reports._last_report_by_ip == {}
+
+
 # =========================================================================
 # 9-1. 제보 보상(reward 필드) — 누적 카운트·3배수 쿠폰 발급·다음 보상까지
 # =========================================================================
@@ -1959,6 +2099,42 @@ def test_report_availability_returns_evidence_state(auth_client):
         "reported_at": "2026-08-25T03:00:00+00:00",
         "expires_at": "2026-08-25T03:30:00+00:00",
     }
+
+
+def test_report_availability_one_account_per_ip_for_the_whole_corroboration_window():
+    # 영업 상태도 같은 단말에서 계정만 바꿔 '닫힘' 을 맞추지 못한다 — 2명 일치가 곧 60분 추천 제외다.
+    # 사용자 쿨다운(1분)이 지나도 RPC 의 집계 창(최근 30분) 안이면 막힌다.
+    calls: list[str] = []
+
+    class AvailabilitySupabase(FakeSupabase):
+        def rpc(self, _name, params):
+            calls.append(params["p_reporter_user_id"])
+            return FakeTable([{
+                "facility_id": "f-1", "status": "closed", "evidence_tier": "single_report",
+                "corroborating_count": 1, "reported_at": "2026-08-25T03:00:00+00:00",
+                "expires_at": "2026-08-25T04:00:00+00:00",
+            }])
+
+    url = "/api/v1/reports/availability"
+    body = {"facility_id": "f-1", "status": "closed"}
+    try:
+        with TestClient(app) as c, patch(
+            "app.routers.reports.supabase_admin",
+            new=AvailabilitySupabase({"facilities": [{"id": "f-1"}]}),
+        ):
+            first = _post_as(c, "u-a", _IP_A, url, body)
+            same_ip = _post_as(c, "u-b", _IP_A, url, body)
+            _age_report_slots(2 * 60)
+            same_ip_later = _post_as(c, "u-b", _IP_A, url, body)
+            other_ip = _post_as(c, "u-b", _IP_B, url, body)
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+    assert first.status_code == 200
+    assert same_ip.status_code == 429
+    assert same_ip_later.status_code == 429
+    assert int(same_ip_later.headers["Retry-After"]) > 60
+    assert other_ip.status_code == 200
+    assert calls == ["u-a", "u-b"]  # 막힌 시도는 RPC 까지 가지 않는다
 
 
 # =========================================================================

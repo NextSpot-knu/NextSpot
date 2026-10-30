@@ -4,7 +4,7 @@ import { useState, useEffect, useId, useRef, useCallback, type MouseEvent as Rea
 import { motion, PanInfo, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
 import { Bookmark, Check, Sparkles, Star, Phone, MapPin, Clock, ChevronUp, ChevronDown, Globe, Utensils, Coffee, RefreshCw, X, Camera } from 'lucide-react';
-import { apiClient, reportFacilityAvailability, type AvailabilityReportResult, type CongestionEstimate } from '@/lib/api-client';
+import { apiClient, httpStatus, reportFacilityAvailability, type AvailabilityReportResult, type CongestionEstimate } from '@/lib/api-client';
 import { CongestionReportButton } from '@/components/CongestionReportButton';
 import { GoldenHourBadge } from '@/components/GoldenHourBadge';
 import { BenefitChip, crowdTone } from '@/components/main/BenefitChip';
@@ -324,6 +324,8 @@ export function RecommendationCard({
   const [hoursSubmitting, setHoursSubmitting] = useState(false);
   const [hoursSubmitError, setHoursSubmitError] = useState(false);
   const [localAvailability, setLocalAvailability] = useState<AvailabilityReportResult | null>(null);
+  // 서버가 받지 않은(게스트 403 · 같은 네트워크 다른 계정 429) 영업 상태 답 — 이 화면의 판단에만 쓴다.
+  const [localHoursAnswer, setLocalHoursAnswer] = useState<'open' | 'closed' | null>(null);
   // '실시간 정보 새로고침'(TourAPI live-detail) 결과 — 캐시된 표시값 위에 덧씌운다(비면 캐시값 유지).
   const [liveDetail, setLiveDetail] = useState<{
     operatingHours?: RecommendationCardFacility['operatingHours'];
@@ -374,6 +376,7 @@ export function RecommendationCard({
     setHoursPromptOpen(false);
     setHoursSubmitError(false);
     setLocalAvailability(null);
+    setLocalHoursAnswer(null);
     // 다른 장소로 바뀌면 이전 장소의 '최적 방문 시각' 데이터가 남아 깜빡이지 않게 초기화
     setDayPred(null);
     // 이전 장소의 실시간 조회 결과가 새 장소에 덧씌워지지 않게 초기화
@@ -667,8 +670,9 @@ export function RecommendationCard({
   const waitMins = times.waitMin;
   const arrivalTime = times.arrival;
   const availabilityEvidence = localAvailability ?? facility?.availabilityEvidence;
-  const localObservedStatus = localAvailability
-    ? (localAvailability.status === 'open' ? 'open_expected' : 'closed_confirmed')
+  const localAnsweredStatus = localAvailability?.status ?? localHoursAnswer;
+  const localObservedStatus = localAnsweredStatus
+    ? (localAnsweredStatus === 'open' ? 'open_expected' : 'closed_confirmed')
     : undefined;
   const corroboratedStatus = availabilityEvidence?.evidenceTier === 'corroborated'
     && availabilityEvidence.corroboratingCount >= 2
@@ -710,6 +714,16 @@ export function RecommendationCard({
     ? `https://map.kakao.com/?q=${encodeURIComponent(`${title} ${facility?.address ?? '경주'}`)}`
     : null);
 
+  const applyHoursAnswer = (status: 'open' | 'closed') => {
+    setHoursPromptOpen(false);
+    haptic('success');
+    if (status === 'closed') onReject();
+    else {
+      setConfirmedAction('accepted');
+      onAccept();
+    }
+  };
+
   const submitHoursStatus = async (status: 'open' | 'closed') => {
     if (!facility?.id || hoursSubmitting) return;
     setHoursSubmitting(true);
@@ -717,14 +731,17 @@ export function RecommendationCard({
     try {
       const result = await reportFacilityAvailability(facility.id, status);
       setLocalAvailability(result);
-      setHoursPromptOpen(false);
-      haptic('success');
-      if (status === 'closed') onReject();
-      else {
-        setConfirmedAction('accepted');
-        onAccept();
+      applyHoursAnswer(status);
+    } catch (err) {
+      // 서버가 이 답을 받지 않는 경우 — 게스트(403)와 같은 네트워크의 다른 계정이 이미 알린 장소(429).
+      // 이유는 apps/api/app/routers/reports.py 상단. 그 사람의 판단으로 수락·거절은 그대로 잇되, 기록된 근거가
+      // 아니므로 '확인' 칩(localAvailability)은 만들지 않고 이 카드의 영업 판단에만 쓴다(localHoursAnswer).
+      const notRecorded = httpStatus(err);
+      if (notRecorded === 403 || notRecorded === 429) {
+        setLocalHoursAnswer(status);
+        applyHoursAnswer(status);
+        return;
       }
-    } catch {
       haptic('selection');
       setHoursSubmitError(true);
     } finally {

@@ -185,7 +185,7 @@
   관광공사 집중률은 지점별 기준선 대비 상대값이라 "100 = 만석"이 아니다. 사용자에게 보이는 숫자가 바뀌는 문제라 데이터를 놓고 결정.
 - ② **developer의 좌석 방송이 `verified`로 학습에 들어간다** — 소유자가 아닌 사람의 방송은 `single_report`로 낮추는 안.
 - ③ **인증 없는·게스트 LLM/쓰기 경로에 유량 제한이 없다** — 순서는 아래 "보안 진단"대로: `travel-context/parse`·
-  `preferences/parse`(상) → `/reports/*`(중) → `/voice/turn`·`events/track`·`search/ingest-request`.
+  `preferences/parse`(상) → `/voice/turn`·`events/track`·`search/ingest-request`. (`/reports/*` 는 2026-10-30 게스트 차단 + IP 쿨다운.)
 - **main 의 e2e 가 KST 23:29 이후 CI 에서 실패한다(PR #13 병합 전까지)** — e2e 고정 장소가 '하루 종일'을 `'00:00~23:59'` 로 적어, 앱의 '도착 뒤 30분 안 마감 제외'(`lib/restDate.ts` `isRecommendationOpen`)에 밤마다 걸린다. 앱 버그가 아니라 시험 고정값 문제. 고침은 #13 의 `c678db4`(`'24시간'`). 그 전에 밤 main CI 가 빨가면 rec-card·category-chips·doc-crosswalk 음성부터 의심.
 - 스테이징이 없다 — **실 DB는 읽기만**, 쓰기 검증은 로컬 대역으로(08-28에 실 DB에 가짜 verified 3행을 쓴 전례).
 - 프로필 캐시가 프로세스 내부(30초) — 워커 1개라 지금은 무해, `--workers N`을 붙이면 공유 무효화 필요.
@@ -205,12 +205,10 @@
   `POST /preferences/parse`(익명 JWT 허용, 제한 없음)는 요청마다 Upstage 호출을 낼 수 있다. 일일 예산은 검색 재작성에만 있다
   (`config.py` `SEARCH_REWRITE_DAILY_BUDGET`). 조치: `routers/search.py`의 `_check_rate_limit`를 두 경로에 재사용 +
   `services/llm_client.py`에 전역 일일 예산 + `preferences/parse`는 `is_anonymous` 거부.
-- **중 — 게스트가 혼잡 근거를 오염시킬 수 있다.** `/reports/congestion`·`/reports/availability`가 `is_anonymous`를 검사하지
-  않고 쿨다운 키가 (user, facility)라 새 익명 세션마다 우회된다. 두 게스트가 맞장구치면 `corroborated`가 된다.
-  조치: `routers/account.py`처럼 비익명 요구 + IP 키 쿨다운.
-- **중 — X-Forwarded-For 해석 방향 미검증.** 세 리미터(`search.py`·`tracking.py`의 `_client_ip`, `recommendations.py`의 `_voice_client_ip`)가
-  마지막 항목을 쓴다. Render가 hop을 덧붙이면 전원이 한 키(자기 DoS), 아니면 첫 항목이 위조 가능. 조치: Render에서 원 헤더를
-  1회 로깅해 모양을 확인한 뒤 `CF-Connecting-IP`/`True-Client-IP` 우선으로 통일.
+- **중 — X-Forwarded-For 해석 방향 미검증.** 모든 IP 리미터(검색·추적·음성·실시간 상세, 2026-10-30 부터 제보 쿨다운도)가
+  `app/core/client_ip.py` 한 함수로 마지막 항목을 쓴다. Render가 hop을 덧붙이면 전원이 한 키(자기 DoS — 제보는 같은 장소 30분에
+  한 계정만), 아니면 첫 항목이 위조 가능. 조치: Render에서 원 헤더를 1회 로깅해 모양을 확인한 뒤 그 함수에서
+  `CF-Connecting-IP`/`True-Client-IP` 우선으로 바꾼다.
 - **중 — 토큰 회전·CORS**: 위 "사람 작업 대기"의 `ADMIN_API_TOKEN` 회전과 `ALLOWED_ORIGINS`(현재 와일드카드 — 제3자 페이지가
   방문자 브라우저로 비인증 쓰기·LLM 경로를 두드릴 수 있어 IP 제한이 무력화된다).
 - **하** — `bvr_insert_own` RLS에 `document_path` 접두 검사가 없다(API만 검사) → 마이그레이션에
@@ -276,6 +274,16 @@ from checks order by seq;
 ## 최근 세션
 
 최신이 위. 10개를 넘으면 가장 오래된 항목을 `archive/HANDOVER_LOG.md` 맨 위로 옮긴다.
+
+## 2026-10-30 — 게스트(익명 세션) 혼잡·영업 제보 차단 + IP·시설당 한 계정
+
+- 도구·브랜치: Claude Code / `yunseong`(main `168f979` 위)
+- 커밋: 이 기록 포함 1건(API·웹·API 테스트·문서, 스키마 무변경)
+- 한 것: 보안 진단 '중 — 게스트가 혼잡 근거를 오염'(사용자 결정: 완전 차단). `POST /reports/congestion`·`/reports/availability` 가 새 가드 `authz.get_registered_user`(JWT `is_anonymous`, DB 안 읽음)로 게스트를 403. 계정 여러 개를 한 단말에서 돌려 '두 사람의 일치' 를 꾸미지 못하게 **IP·시설당 한 계정 30분**(DB 교차검증 창과 같은 길이)을 더했다 — 처음엔 IP 쪽도 쿨다운 길이(5분·1분)로 걸었는데, 리뷰 에이전트가 '두 번째 계정이 5분 1초 뒤에 보내면 그대로 corroborated' 임을 짚어 바꿨다. 같은 리뷰로 검사→기록 사이 await 경합(동시 두 계정이 함께 통과)도 닫았다(`_reserve_report_slot` 이 await 없이 자리를 잡고, 저장 실패면 되돌린다). 네 라우터에 복제돼 있던 XFF 해석은 `app/core/client_ip.py` 하나로. 웹: 혼잡 제보 403 → '로그인 후 제보할 수 있어요'(기존 키). 영업 상태 확인이 403(게스트)·429(같은 네트워크 다른 계정)면 답을 서버에 남기지 않고 그 화면에서만 수락·제외를 잇는다(`RecommendationCard` · `explore/recommend` — 영업시간 미확인 가게의 '바로 갈래요' 가 막히지 않는다).
+  **동작 변경(공개)**: 게스트는 혼잡을 제보할 수 없고 '방문객 n분 전' 칩·제보 쿠폰 보상은 계정 사용자 제보로만 채워진다. 같은 와이파이·같은 공인 IP(통신사 CGNAT 포함)의 두 번째 계정은 같은 장소를 30분 동안 제보할 수 없다(혼잡 → '잠시 후 다시', 영업 → 그 화면에만 적용). 로그인 사용자의 제보에서 역할 조회가 빠졌다(전보다 DB 읽기 1회 적음).
+- 검증: api ruff · pytest 2497 · 새 테스트 6건(게스트 403 두 경로가 DB·프로필 조회 전에 끝남 · 30분 창이 사용자 쿨다운 뒤에도 유지되고 닫히면 풀림(두 경로) · IP 를 바꿔도 사용자 쿨다운 유지 · INSERT 시점에 자리가 이미 잡혀 있고 실패하면 되돌림) · OpenAPI 스냅샷은 두 경로 설명 문구만 · web lint(0 error)·typecheck·test·build · check-docs.
+- 다음·미결: main 반영은 사용자 확인 뒤 KST 밤(API 변경 — Render 자동 배포가 안 되므로 반영 뒤 Manual Deploy 또는 Deploy Hook, "사람 작업 대기" 첫 줄). XFF 방향 관측(보안 진단 '중')은 그대로 — Render 가 hop 을 덧붙인다면 IP 규칙이 '전원 한 키' 가 되어 한 장소를 30분에 한 계정만 제보하게 된다(관측 전 위험). IPv6 는 /64 안에서 주소를 바꿔 IP 규칙을 피할 수 있다(정규화 미구현). 영업 확인 안내문(`card.hoursCheckPrivacy` '…만 기록해요')은 게스트에게는 기록하지 않는 경우라 과소가 아닌 과대 진술 — 문구는 그대로 뒀다.
+- 사람 작업: 없음(위 배포 항목은 기존 줄).
 
 ## 2026-10-24 — 사장님 가게 사진 · '지금 가도 되나' 칩 · 서비스 소개 FAQ · 대기 카드 가로 넘김
 
@@ -358,16 +366,6 @@ from checks order by seq;
 - 한 것: 짧은 데스크톱 추천 패널에서 내부 내용 간격을 8→4px로 줄여, 카드의 ‘상세 정보 펼치기’가 스크롤 아래에 가려지지 않고 첫 화면에 보이게 했다. 시간대 표시·지도·운영 링크는 변경하지 않았다.
 - 검증: 현재 작업본 별도 서버(3101)에서 1366×650 및 1536×730의 해당 E2E 각 2건 통과 · web build 통과.
 - 다음·미결: main 반영 뒤 Vercel 배포 상태 확인. 다른 E2E 실패 항목은 이번 범위 밖.
-- 사람 작업: 없음.
-
-## 2026-10-19c — 데스크톱 왼쪽 바를 떠 있는 유리 캡슐 셋으로(iOS 26 탭 바처럼) · /main 지도가 바 뒤까지
-
-- 도구·브랜치: Claude Code / `feat/floating-rail-1019`(main 위)
-- 커밋: 이 기록 포함 1건(웹·문서만 — API·스키마 무변경, Render 재시작 없음)
-- 한 것: PM "iOS 탭처럼 바를 다 잡아먹지 않고 플로팅" → 계획 승인(캡슐 별도 · /main 만 지도 확장 · 폰은 다음 단계). 왼쪽 레일(76px 흰 막대, 폭 차지)을 fixed 유리 캡슐 셋(마스코트 · 탭 5 · 콘솔 2 + 서비스 소개)으로. 선택 탭은 하얀 유리 알약. nav 는 `pointer-events-none`(빈 곳은 밑을 누른다). `/main` 은 폭을 차지하지 않아 지도가 왼쪽 끝까지, 다른 페이지는 투명 여백 `--rail-gutter`(100px).
-  **동작 변경(공개)**: /main 검색·툴바·예측 줄 시작 ≈ +8px(`--rail-gutter` 100px · 지도 가시영역 왼쪽 여백 `DESKTOP_RAIL_GUTTER_PX`) · 다른 페이지 본문 시작 +24px(76 → 100px) · 지도 왼쪽 가장자리 마커가 캡슐 뒤에 가려질 수 있다 · 콘솔 캡슐은 바닥에서 40px 띄워 Kakao 로고를 가리지 않는다.
-- 검증: web typecheck · e2e `console-entries` · `fixed-overlays`(캡슐 순서 탭 → 콘솔 → 서비스 소개, 창 안, 라벨이 nav 밖으로 안 나감). 나머지 e2e 는 푸시 뒤 CI.
-- 다음·미결: 휴대폰 아래 바도 같은 방식으로 띄울지(`--tourist-nav-clearance` 사용처 25곳이라 따로) · 화면 확인은 PM 이 라이브에서.
 - 사람 작업: 없음.
 
 ## 기록 규칙

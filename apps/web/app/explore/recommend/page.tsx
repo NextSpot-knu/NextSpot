@@ -7,7 +7,7 @@ import { ErrorState } from "@/components/ErrorState";
 import NowChip from "@/components/NowChip";
 import { createPublicClient } from "@/lib/supabase";
 const supabase = createPublicClient();
-import { apiClient, loadSharedCongestionEstimates, getRecommendations, isRequestTimeout, recommendByType, reportFacilityAvailability, submitFeedback, parsePreference, RecommendationResponse } from "@/lib/api-client";
+import { apiClient, httpStatus, loadSharedCongestionEstimates, getRecommendations, isRequestTimeout, recommendByType, reportFacilityAvailability, submitFeedback, parsePreference, RecommendationResponse, type AvailabilityReportResult } from "@/lib/api-client";
 import { displayWalkingMinutes } from "@/lib/recommender";
 import { classifyIntent } from "@/lib/voice/voiceIntent";
 import { pickVoice, speechLangFor } from "@/lib/voice/speechLocale";
@@ -957,7 +957,17 @@ function RecommendContent() {
     setHoursSubmitting(true);
     setHoursSubmitError(false);
     try {
-      const result = await reportFacilityAvailability(rec.facility.id, status);
+      let result: AvailabilityReportResult | null;
+      try {
+        result = await reportFacilityAvailability(rec.facility.id, status);
+      } catch (err) {
+        // 서버가 이 답을 받지 않는 경우 — 게스트(403)와 같은 네트워크의 다른 계정이 이미 알린 장소(429).
+        // 이유는 apps/api/app/routers/reports.py 상단. 그 사람의 판단으로 수락·제외는 그대로 잇되, 기록된 근거가
+        // 아니므로 availabilityEvidence 는 바꾸지 않는다.
+        const notRecorded = httpStatus(err);
+        if (notRecorded !== 403 && notRecorded !== 429) throw err;
+        result = null;
+      }
       setHoursPrompt(null);
       if (status === 'closed') {
         setRecommendations((current) => current.filter(
@@ -969,7 +979,7 @@ function RecommendContent() {
       const confirmed: RecommendationResponse = {
         ...rec,
         openStatusAtArrival: 'open_expected',
-        facility: { ...rec.facility, availabilityEvidence: result },
+        facility: result ? { ...rec.facility, availabilityEvidence: result } : rec.facility,
       };
       setRecommendations((current) => current.map((item) => (
         item.recommendationId === rec.recommendationId ? confirmed : item

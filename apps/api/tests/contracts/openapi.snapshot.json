@@ -8224,7 +8224,7 @@
   },
   "/api/v1/reports/availability": {
    "post": {
-    "description": "Record a short-lived opening-status check using server time.\n\nThe database RPC atomically keeps one current report per user/place and promotes\nonly two-user agreement to corroborated evidence. A single report never affects\nrecommendation eligibility.",
+    "description": "Record a short-lived opening-status check using server time.\n\nThe database RPC atomically keeps one current report per user/place and promotes\nonly two-user agreement to corroborated evidence. A single report never affects\nrecommendation eligibility. Guest (anonymous) sessions are rejected with 403.",
     "operationId": "report_availability_api_v1_reports_availability_post",
     "requestBody": {
      "content": {
@@ -8271,7 +8271,7 @@
   },
   "/api/v1/reports/congestion": {
    "post": {
-    "description": "관광객의 실시간 혼잡 제보를 congestion_logs 에 기록한다(source='user_report').\n\n흐름: 인증(get_current_user) → level 정규화 → 시설 존재 검증 →\nsupabase_admin 으로 로그 INSERT. current_count 는 capacity×level 로 추정한다\n(congestion_logs 에 실인원 컬럼은 있으나 제보는 인원을 모르므로 수용량 기반 추정).",
+    "description": "관광객의 실시간 혼잡 제보를 congestion_logs 에 기록한다(source='user_report').\n\n흐름: 인증 + 게스트 거부(get_registered_user, 403) → level 정규화 → 시설 존재 검증 →\n쿨다운(사용자 5분 · IP 한 계정 30분) → supabase_admin 으로 로그 INSERT. current_count 는 capacity×level 로 추정한다\n(congestion_logs 에 실인원 컬럼은 있으나 제보는 인원을 모르므로 수용량 기반 추정).",
     "operationId": "report_congestion_api_v1_reports_congestion_post",
     "requestBody": {
      "content": {
