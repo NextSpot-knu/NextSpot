@@ -242,18 +242,42 @@ const ZERO_STATS = {
   congestion_reports: 0,
   recommendations_exposed: 0,
   recommendations_accepted: 0,
-  visit_confirmations: null,
+  visit_confirmations: null as number | null,
   visit_confirmations_note: '',
 };
 
-/** 실계정 사장님 콘솔(심사 가게 모양) — 진행 중인 20% 타임세일 하나, 기본 쿠폰 5%. */
+/** P1-2 응답의 지표 하나 — previous=null 은 '비교할 수 없음'(0 이 아니다). */
+type Metric = { current: number | null; previous: number | null; people: number | null; counted_since: string | null };
+const metric = (current: number | null, previous: number | null = null, people: number | null = null, countedSince: string | null = null): Metric => ({
+  current,
+  previous,
+  people,
+  counted_since: countedSince,
+});
+
+/** 성적표 응답 — 예전 칸 + P1-2 칸(기준 · 지표별 직전 기간 · 사람 수). 예전 칸만 주면 구 API 모양이다. */
+type StatsBody = typeof ZERO_STATS & {
+  exposure_basis?: 'card_shown' | 'list_rows';
+  internal_accounts_excluded?: boolean;
+  metrics?: Partial<Record<string, Metric>>;
+};
+
+/** 실계정 사장님 콘솔(심사 가게 모양) — 진행 중인 20% 타임세일 하나, 기본 쿠폰 5%.
+ *  statsFor 를 주면 요청한 기간(?days=)마다 다른 성적표를 돌려준다. */
 async function openRealConsole(
   page: Page,
-  { stats = {}, activeSale = true }: { stats?: Partial<typeof ZERO_STATS>; activeSale?: boolean } = {},
+  {
+    stats = {},
+    activeSale = true,
+    statsFor,
+  }: { stats?: Partial<StatsBody>; activeSale?: boolean; statsFor?: (days: number) => Partial<StatsBody> } = {},
 ): Promise<void> {
   await stubConsoleNetwork(page, 'merchant');
   await page.route('**/api/v1/merchant/briefing**', (route) => json(route, 200, { briefing: null, llm_status: 'skipped' }));
-  await page.route('**/api/v1/merchant/stats**', (route) => json(route, 200, { ...ZERO_STATS, ...stats }));
+  await page.route('**/api/v1/merchant/stats**', (route) => {
+    const days = Number(new URL(route.request().url()).searchParams.get('days') ?? 7);
+    return json(route, 200, { ...ZERO_STATS, window_days: days, ...stats, ...(statsFor?.(days) ?? {}) });
+  });
   const now = Date.now();
   await page.route('**/api/v1/merchant/timesale**', (route) =>
     json(
@@ -417,9 +441,14 @@ test('데모 가게는 실제 지도에 없으니 손님 화면 링크를 두지
 test('성적표 — 0 타일 없이 노출이 맨 앞, 쿠폰을 안 줬고 진행 중인 세일이 없으면 타임세일 안내(PM 4.18)', async ({ page }) => {
   test.setTimeout(90_000);
   await page.setViewportSize({ width: 1536, height: 730 });
-  await openRealConsole(page, { stats: { recommendations_exposed: 3120, recommendations_accepted: 1 }, activeSale: false });
+  // 서버가 화면 카드 기준(rec_shown)으로 셌다고 말한 응답 — 이름은 '손님 화면에 뜬 추천 카드'(P1-2).
+  await openRealConsole(page, {
+    stats: { recommendations_exposed: 3120, recommendations_accepted: 1, exposure_basis: 'card_shown' },
+    activeSale: false,
+  });
   const card = page.locator('section', { hasText: '② 성적표' });
-  await expect(card.getByText('손님 추천에 노출', { exact: true })).toBeVisible();
+  const exposedLabel = '손님 화면에 뜬 추천 카드';
+  await expect(card.getByText(exposedLabel, { exact: true })).toBeVisible();
   await expect(card.getByText('3,120회', { exact: true })).toBeVisible();
   await expect(card.getByText('길안내 시작', { exact: true })).toBeVisible();
   await expect(card.getByText(/0 \/ 0/)).toHaveCount(0);
@@ -429,13 +458,140 @@ test('성적표 — 0 타일 없이 노출이 맨 앞, 쿠폰을 안 줬고 진�
   // 지난 세일 이력은 이 화면이 모른다 — '첫' 을 붙이지 않는다(리뷰 10-07).
   await expect(card.getByText(/첫 타임세일/)).toHaveCount(0);
   // 노출이 길안내보다 앞(맨 앞 타일).
-  const exposed = await card.getByText('손님 추천에 노출', { exact: true }).boundingBox();
+  const exposed = await card.getByText(exposedLabel, { exact: true }).boundingBox();
   const guide = await card.getByText('길안내 시작', { exact: true }).boundingBox();
   expect(exposed!.y).toBeLessThan(guide!.y);
   // 맨 앞 타일 뒤에 하나뿐인 '길안내 시작' 은 반 칸 옆 빈칸을 남기지 않고 두 칸을 쓴다(리뷰 10-07).
   const tileOf = (label: string) => card.locator('div.rounded-2xl', { has: page.getByText(label, { exact: true }) }).last();
-  const [heroBox, loneBox] = [await tileOf('손님 추천에 노출').boundingBox(), await tileOf('길안내 시작').boundingBox()];
+  const [heroBox, loneBox] = [await tileOf(exposedLabel).boundingBox(), await tileOf('길안내 시작').boundingBox()];
   expect(Math.abs(loneBox!.width - heroBox!.width), '외톨이 타일이 반 칸이다').toBeLessThanOrEqual(1);
+});
+
+// P1-2 — 서버가 기준을 말하지 않는 응답(구 API: 추천 목록 행 수)은 '노출' 이라고 부르지 않는다.
+// /main 이 미리 받아 두는 4업종×8곳 목록까지 들어간 숫자라, 손님이 봤다는 뜻으로 읽히면 안 된다.
+test('성적표 — 목록 행 기준 숫자는 이름을 바꾸고 손님이 봤는지 모른다고 말한다(P1-2)', async ({ page }) => {
+  test.setTimeout(90_000);
+  await page.setViewportSize({ width: 1536, height: 730 });
+  await openRealConsole(page, { stats: { recommendations_exposed: 3120, recommendations_accepted: 1 }, activeSale: false });
+  const card = page.locator('section', { hasText: '② 성적표' });
+  await expect(card.getByText('추천 목록에 포함된 횟수', { exact: true })).toBeVisible();
+  await expect(card.getByText('3,120회', { exact: true })).toBeVisible();
+  await expect(card.getByText(/손님이 실제로 봤는지는 이 숫자로 알 수 없어요/)).toBeVisible();
+  await expect(card.getByText('손님 화면에 뜬 추천 카드', { exact: true })).toHaveCount(0);
+  // 구 API 는 ?days= 를 무시하고 늘 7일을 준다 — 눌러도 7일 숫자가 나오는 30일 토글을 두지 않는다.
+  await expect(card.getByRole('group', { name: '성적표 기간' })).toHaveCount(0);
+});
+
+test('성적표 — 사람 수 · 직전 기간 비교 · 30일 보기, 7일로 돌아오면 다시 묻지 않는다(P1-2)', async ({ page }) => {
+  test.setTimeout(90_000);
+  await page.setViewportSize({ width: 1536, height: 730 });
+  const requested: number[] = [];
+  await openRealConsole(page, {
+    activeSale: false,
+    statsFor: (days) => {
+      requested.push(days);
+      return days === 30
+        ? {
+            exposure_basis: 'card_shown',
+            recommendations_exposed: 410,
+            recommendations_accepted: 12,
+            metrics: { exposures: metric(410, null, 120, '2026-10-24T03:00:00+00:00'), accepts: metric(12, 9, 10) },
+          }
+        : {
+            exposure_basis: 'card_shown',
+            recommendations_exposed: 128,
+            recommendations_accepted: 5,
+            visit_confirmations: 3,
+            metrics: { exposures: metric(128, 97, 41), accepts: metric(5, 3, 4), arrivals: metric(3, 1, 3) },
+          };
+    },
+  });
+  const card = page.locator('section', { hasText: '② 성적표' });
+  await expect(card.getByRole('heading', { name: '최근 7일 활동' })).toBeVisible();
+  await expect(card.getByText('128회', { exact: true })).toBeVisible();
+  await expect(card.getByText('41명 · 직전 7일 97회(+31)', { exact: true })).toBeVisible();
+  await expect(card.getByText('4명 · 직전 7일 3건(+2)', { exact: true })).toBeVisible();
+  // 도착 확인은 서버 숫자 그대로(예전에는 실계정에서 늘 비어 있었다).
+  await expect(card.getByText('도착 확인', { exact: true })).toBeVisible();
+  await expect(card.getByText('3명 · 직전 7일 1건(+2)', { exact: true })).toBeVisible();
+
+  const toggle = card.getByRole('group', { name: '성적표 기간' });
+  await toggle.getByRole('button', { name: '30일' }).click();
+  await expect(toggle.getByRole('button', { name: '30일' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(card.getByRole('heading', { name: '최근 30일 활동' })).toBeVisible();
+  await expect(card.getByText('410회', { exact: true })).toBeVisible();
+  // 카드 기록은 10-24 에 생겼다 — 30일 전체가 아니라 그날부터 센 숫자이고, 직전 30일과 비교하지 않는다.
+  await expect(card.getByText('120명 · 10월 24일부터 집계', { exact: true })).toBeVisible();
+  await expect(card.getByText('10명 · 직전 30일 9건(+3)', { exact: true })).toBeVisible();
+
+  const asked = requested.length;
+  await toggle.getByRole('button', { name: '7일' }).click();
+  await expect(card.getByText('128회', { exact: true })).toBeVisible();
+  expect(requested.length, '한 번 받은 기간을 다시 묻는다').toBe(asked);
+  expect(new Set(requested)).toEqual(new Set([7, 30]));
+});
+
+// P1-2 · 브리핑 자리 — LLM 이 꺼져 있으면(운영의 평소 상태) 맨 위를 비우지 않고 성적표 숫자 요약을 그린다.
+// 'AI 실행 브리핑' 제목 아래 숫자 요약을 두면 그것도 거짓말이라 제목도 바꾼다.
+test('AI 브리핑이 없으면 맨 위 자리는 성적표 숫자 요약이다 — AI 제목을 달지 않는다(390px)', async ({ page }) => {
+  test.setTimeout(90_000);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openRealConsole(page, {
+    activeSale: false,
+    statsFor: (days) => ({
+      exposure_basis: 'card_shown',
+      recommendations_exposed: days === 30 ? 410 : 128,
+      recommendations_accepted: 5,
+      visit_confirmations: 3,
+      metrics: { exposures: metric(days === 30 ? 410 : 128, 97, 41), accepts: metric(5, 3, 4), arrivals: metric(3, 1, 3) },
+    }),
+  });
+  const summary = page.locator('section', { hasText: '성적표 요약' });
+  await expect(summary.getByRole('heading', { name: '최근 7일 한눈에' })).toBeVisible();
+  await expect(summary).toContainText(
+    '최근 7일 동안 우리 가게가 손님 화면에 추천 카드로 128번 떴고, 길안내 시작 5건 · 도착 확인 3건이 있었어요.',
+  );
+  await expect(summary).toContainText('도착 확인은 직전 7일(1건)보다 2건 늘었어요.');
+  await expect(page.getByText('AI 실행 브리핑')).toHaveCount(0);
+  await expect(page.getByText('오늘의 실행 브리핑')).toHaveCount(0);
+  // 요약은 ① 보다 위(브리핑 자리)다.
+  const forecast = page.locator('section', { hasText: '① 예상 혼잡' });
+  expect((await summary.boundingBox())!.y).toBeLessThan((await forecast.boundingBox())!.y);
+  // ② 를 30일로 바꿔도 맨 위 요약은 최근 7일 그대로다(위쪽이 들썩이지 않게).
+  const card = page.locator('section', { hasText: '② 성적표' });
+  await card.getByRole('group', { name: '성적표 기간' }).getByRole('button', { name: '30일' }).click();
+  await expect(card.getByText('410회', { exact: true })).toBeVisible();
+  await expect(summary).toContainText('128번');
+});
+
+test('AI 브리핑도 손님 흐름도 없으면 맨 위에 빈 카드·제목을 남기지 않는다', async ({ page }) => {
+  test.setTimeout(90_000);
+  await page.setViewportSize({ width: 1536, height: 730 });
+  await openRealConsole(page, { activeSale: false });
+  await expect(page.locator('section', { hasText: '② 성적표' }).getByText('우리 가게 성적표가 여기에 쌓입니다')).toBeVisible();
+  await expect(page.getByText('성적표 요약')).toHaveCount(0);
+  await expect(page.getByText('AI 실행 브리핑')).toHaveCount(0);
+  // 왼쪽 열의 첫 카드는 ① 예상 혼잡이다(그 위에 빈 자리가 없다). 열은 ① 카드의 부모로 찾는다.
+  const forecast = page.locator('section', { hasText: '① 예상 혼잡' });
+  const leftColumn = forecast.locator('xpath=..');
+  await expect(leftColumn.locator('section').first()).toContainText('① 예상 혼잡');
+});
+
+// 평가 M4 — 발행 직전에 비용을 말한다: 쿠폰은 세일이 끝나도 7일 살고, 20% 를 넘는 할인율은 추천에 더 보태지 않는다.
+test('발행 확인 단계는 비용 안내 한 줄을 질문보다 먼저 보인다', async ({ page }) => {
+  test.setTimeout(90_000);
+  await page.setViewportSize({ width: 1536, height: 730 });
+  await stubConsoleNetwork(page, 'guest');
+  await page.goto('/merchant?demo=1');
+  await page.getByRole('group', { name: '할인율' }).getByRole('button', { name: '30%' }).click({ timeout: 20_000 });
+  await page.getByRole('group', { name: '지속 시간' }).getByRole('button', { name: '1시간' }).click();
+  await page.getByRole('button', { name: '타임세일 발행', exact: true }).click();
+  const note = page.getByTestId('timesale-confirm').getByTestId('timesale-cost-note');
+  await expect(note).toBeVisible();
+  await expect(note).toContainText('세일이 끝나도 발급 후 7일 동안 쓸 수 있어요');
+  await expect(note).toContainText('할인율이 20%를 넘어도 추천에 더해지는 효과는 20%와 같아요');
+  const question = page.getByTestId('timesale-confirm').getByText(/이대로 발행할까요/);
+  expect((await note.boundingBox())!.y, "'이대로 발행할까요?' 가 버튼 바로 위에 남지 않는다").toBeLessThan((await question.boundingBox())!.y);
 });
 
 // 리뷰(10-07) blocking — 심사위원이 ③ 에서 세일을 열면 쿠폰은 아직 0 이다(손님이 추천을 받아들여야 발급된다).

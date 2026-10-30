@@ -62,23 +62,32 @@ def _merchant_profile():
     ):
         yield profile
 # =========================================================================
-# 2. 성적표(GET /api/v1/merchant/stats) — 집계 산식 + 정직한 미집계 항목
+# 2. 성적표(GET /api/v1/merchant/stats) — 예전 칸의 집계 산식
+# 기간 비교·노출 기준·도착 확인·내부 계정·중복 수락은 test_merchant_scorecard_v2.py 가 따로 잠근다.
+# 공용 FakeTable 은 필터도 select 별칭도 흉내 내지 않는다 — 그래서 canned 행에 별칭 칸(travel_time)을
+# 직접 넣고, 라우터가 Python 에서 한 번 더 거르는 조건(accepted·source)을 그대로 검증한다.
 # =========================================================================
+
+
+def _hours_ago(hours: float) -> str:
+    """성적표는 요청 시각에서 거꾸로 잰 기간이라, 고정 날짜를 쓰면 날이 갈수록 기간 밖으로 밀려난다."""
+    return (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
 
 
 def test_merchant_stats_aggregation(client):
     coupons = [
-        {"status": "issued", "issued_at": "2026-07-14T01:00:00+00:00"},
-        {"status": "used", "issued_at": "2026-07-13T01:00:00+00:00"},
-        {"status": "used", "issued_at": "2026-07-12T01:00:00+00:00"},
+        {"user_id": "u1", "status": "issued", "issued_at": _hours_ago(10)},
+        {"user_id": "u2", "status": "used", "issued_at": _hours_ago(30)},
+        {"user_id": "u3", "status": "used", "issued_at": _hours_ago(50)},
     ]
     reports = [
-        {"id": "log-1", "timestamp": "2026-07-14T02:00:00+00:00"},
+        {"id": "log-1", "timestamp": _hours_ago(5)},
     ]
+    # travel_time = select 별칭(score_breakdown->travel_time). 있으면 추천 목록에서 온 행이다.
     recs = [
-        {"accepted": True, "created_at": "2026-07-14T03:00:00+00:00"},
-        {"accepted": False, "created_at": "2026-07-13T03:00:00+00:00"},
-        {"accepted": True, "created_at": "2026-07-12T03:00:00+00:00"},
+        {"user_id": "u1", "source": "spot", "accepted": True, "created_at": _hours_ago(3), "travel_time": 5},
+        {"user_id": "u2", "source": "spot", "accepted": False, "created_at": _hours_ago(27), "travel_time": 7},
+        {"user_id": "u3", "source": "spot", "accepted": True, "created_at": _hours_ago(51), "travel_time": 4},
     ]
     with patch(
         "app.routers.merchant.supabase_admin",
@@ -91,14 +100,17 @@ def test_merchant_stats_aggregation(client):
     assert res.status_code == 200
     body = res.json()
     assert body["facility_id"] == "f-1"
+    assert body["window_days"] == 7
     assert body["coupons_issued"] == 3
     assert body["coupons_used"] == 2
     assert body["congestion_reports"] == 1
+    # 카드 기록(usage_events)이 없으면 목록 행으로 물러서고, 그 사실을 기준 칸으로 알린다.
+    assert body["exposure_basis"] == "list_rows"
     assert body["recommendations_exposed"] == 3
     assert body["recommendations_accepted"] == 2
-    # 방문확인은 서버 미집계 — 지어내지 않고 null + 사유 문구
-    assert body["visit_confirmations"] is None
-    assert "로컬" in body["visit_confirmations_note"]
+    # 도착 확인은 이제 서버가 센다 — 기록이 없으면 null 이 아니라 0 이다(예전 null + '로컬 기록' 안내는 사실이 아니었다).
+    assert body["visit_confirmations"] == 0
+    assert "로컬" not in body["visit_confirmations_note"]
 
 
 def test_merchant_stats_empty(client):
@@ -126,15 +138,18 @@ def test_merchant_stats_excludes_browse_rejections(client):
             return SourceFilteringTable(self._tables.get(name, []))
 
     recs = [
-        {"source": "spot", "accepted": True, "created_at": "2026-07-14T03:00:00+00:00"},
-        {"source": "browse", "accepted": False, "created_at": "2026-07-14T04:00:00+00:00"},
+        {"user_id": "u1", "source": "spot", "accepted": True, "created_at": _hours_ago(4), "travel_time": 5},
+        # browse 행에 목록 표시(travel_time)를 일부러 붙였다 — 빈 score_breakdown 이 아니라 source 로 빠지는지 본다.
+        {"user_id": "u2", "source": "browse", "accepted": True, "created_at": _hours_ago(3), "travel_time": 6},
         # 마이그레이션 전 행은 DB 기본/백필 의미상 spot 으로 취급된다.
-        {"accepted": False, "created_at": "2026-07-14T05:00:00+00:00"},
+        {"user_id": "u3", "accepted": False, "created_at": _hours_ago(2), "travel_time": 4},
     ]
     with patch("app.routers.merchant.supabase_admin", new=SourceFilteringSupabase({"recommendations": recs})):
         res = client.get("/api/v1/merchant/stats", params={"facility_id": "f-1"}, headers=_merchant_headers())
     assert res.status_code == 200
     assert res.json()["recommendations_exposed"] == 2
+    # '관심 없음' 은 길안내 실적도 아니다.
+    assert res.json()["recommendations_accepted"] == 1
 
 
 # =========================================================================

@@ -20,6 +20,7 @@ import { useRouter } from 'next/navigation';
 import {
   Loader2,
   RefreshCw,
+  ChevronDown,
   ChevronLeft,
   Ticket,
   MessageCircleWarning,
@@ -67,18 +68,28 @@ import {
   forecastNote,
   patternForecastPoints,
   timesaleConfirmPreview,
+  timesaleCostNote,
   timesalePublishNotice,
   timesaleRateHint,
   hasTimesaleOverlapNotice,
   MerchantApiError,
+  STATS_WINDOW_OPTIONS,
   TIMESALE_RATE_OPTIONS,
   type FacilityForecast,
   type MerchantStats,
   type MerchantTimesale,
   type SeatLevel,
+  type StatsWindowDays,
 } from '@/lib/merchant/api';
 import { bestQuietHour, quietHourCopy } from '@/lib/merchant/forecastInsight';
-import { TIMESALE_PROMPT, scorecardIsEmpty, scorecardTiles, type ScorecardTileKey } from '@/lib/merchant/scorecard';
+import {
+  TIMESALE_PROMPT,
+  scorecardIsEmpty,
+  scorecardNotes,
+  scorecardSummary,
+  scorecardTiles,
+  type ScorecardTileKey,
+} from '@/lib/merchant/scorecard';
 import { PREDICTED_BADGE } from '@/lib/adminPredictedView';
 
 import { useT } from '@/lib/i18n/I18nProvider';
@@ -151,6 +162,9 @@ export function MerchantConsole({ demo = false }: { demo?: boolean }) {
   // ③ 에 진행 중인 타임세일이 있는가 — ② 성적표의 '타임세일을 열어 보세요' 가 진행 중 배너 옆에 서지 않게 ③ 이 알려 준다.
   // null = 아직 모름(불러오는 중·실패) — 그동안 ② 는 그 줄을 감춘다.
   const [saleActive, setSaleActive] = useState<boolean | null>(null);
+  // ② 가 받은 최근 7일 성적표 — AI 브리핑이 없을 때 맨 위 자리에 쓰는 요약의 재료다(같은 숫자를 두 번 묻지 않는다).
+  // ② 를 30일로 바꿔도 이 값은 7일 그대로다 — 위 요약이 아래 토글을 따라 바뀌면 화면 위쪽이 들썩인다.
+  const [weeklyStats, setWeeklyStats] = useState<MerchantStats | null>(null);
 
   useEffect(() => {
     setMounted(true);
@@ -283,11 +297,17 @@ export function MerchantConsole({ demo = false }: { demo?: boolean }) {
           카드 그림자가 상자에 잘려 ③ 과 ④ 사이에 각진 띠가 생겼다(왼쪽 열 카드와 그림자 모양이 달랐다). */}
       <main className="mx-auto max-w-2xl px-4 py-6 pb-28 lg:grid lg:max-w-6xl lg:grid-cols-2 lg:items-start lg:gap-5 lg:pb-6 lg:pt-4">
         <div className="flex flex-col gap-5">
-          {/* key=시설 id — 가게가 바뀌면 카드 상태(이전 가게 브리핑)를 통째로 리셋한다 */}
-          <BriefingCard key={facility.id} facilityId={facility.id} demo={demo} />
+          {/* key=시설 id — 가게가 바뀌면 카드 상태(이전 가게 브리핑·성적표)를 통째로 리셋한다 */}
+          <BriefingCard key={facility.id} facilityId={facility.id} demo={demo} weeklyStats={weeklyStats} />
           {demo && <DemoTodaySummary />}
           <ForecastSection facilityId={facility.id} facilityType={facility.type} demo={demo} />
-          <StatsSection facilityId={facility.id} demo={demo} saleActive={saleActive} />
+          <StatsSection
+            key={facility.id}
+            facilityId={facility.id}
+            demo={demo}
+            saleActive={saleActive}
+            onWeeklyStats={setWeeklyStats}
+          />
           {demo && <DemoWeeklyTrend />}
         </div>
         <div
@@ -341,6 +361,7 @@ function SectionCard({
   title,
   tag,
   honestNote,
+  action,
   children,
 }: {
   /** 콘솔 안 다른 곳에서 이 섹션으로 스크롤해 올 때의 앵커(예: ① 콜아웃 → ③). */
@@ -350,6 +371,8 @@ function SectionCard({
   /** 제목 옆 작은 칩(예: ① 의 '예측'). */
   tag?: string;
   honestNote?: string;
+  /** 제목 줄 오른쪽 조작(예: ② 의 7일·30일). 좁은 화면에서는 다음 줄로 내려간다. */
+  action?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
@@ -366,6 +389,7 @@ function SectionCard({
             </span>
           )}
         </div>
+        {action}
       </div>
       {honestNote && <p className="text-[13px] text-muk-soft mb-3 leading-relaxed">{honestNote}</p>}
       {children}
@@ -393,26 +417,39 @@ function SkeletonBlock({ heightClass = 'h-24' }: { heightClass?: string }) {
 
 // =========================================================================
 // AI 브리핑 카드(P1-5) — GET /api/v1/merchant/briefing 후행(비차단) fetch.
-// 예측 섹션 렌더를 막지 않는 독립 카드다: 로딩 중·실패·briefing=null 이면 아무것도 렌더하지
-// 않는다(스켈레톤·에러 UI 없음 — LLM 은 항상 '보조'라 없어도 대시보드는 완전하다).
+// 예측 섹션 렌더를 막지 않는 독립 카드다(스켈레톤·에러 UI 없음 — LLM 은 항상 '보조'다).
 // 문구의 모든 수치는 서버가 계산·치환한 값이다(LLM 은 프로즈만) — merchant_briefing_service 참조.
+//
+// 브리핑이 없을 때(LLM 꺼짐·모델 없음·실패 — 운영의 평소 상태) 이 자리는 비워 두지 않고, ② 가 받은 최근 7일
+// 성적표 숫자로 쓴 요약 두 문장을 그린다(lib/merchant/scorecard.ts scorecardSummary — LLM 없음). 제목도 그 내용에
+// 맞춘다 — 'AI 브리핑' 제목 아래 숫자 요약을 두면 그것도 거짓말이다. 요약할 손님 흐름이 없으면 아무것도 그리지 않는다.
 // =========================================================================
 
-function BriefingCard({ facilityId, demo = false }: { facilityId: string; demo?: boolean }) {
+function BriefingCard({
+  facilityId,
+  demo = false,
+  weeklyStats = null,
+}: {
+  facilityId: string;
+  demo?: boolean;
+  /** ② 가 받은 최근 7일 성적표(없으면 null). AI 브리핑이 없을 때 요약의 재료다. */
+  weeklyStats?: MerchantStats | null;
+}) {
   const t = useT();
-  const [briefing, setBriefing] = useState<string | null>(null);
+  // undefined = 아직 묻는 중 · null = 서버가 브리핑을 주지 않았다(꺼짐·실패) · 문자열 = AI 브리핑.
+  const [briefing, setBriefing] = useState<string | null | undefined>(undefined);
 
   useEffect(() => {
     if (demo) return; // 데모: 서버 브리핑을 부르지 않는다(아래에서 고정 문구를 쓴다).
     let alive = true;
     fetchMerchantBriefing(facilityId)
       .then((data) => {
-        if (alive && data && typeof data.briefing === 'string' && data.briefing.trim()) {
-          setBriefing(data.briefing);
-        }
+        if (!alive) return;
+        setBriefing(data && typeof data.briefing === 'string' && data.briefing.trim() ? data.briefing : null);
       })
       .catch(() => {
-        /* 실패 시 미렌더 — 브리핑은 부가 기능이라 에러 UI 도 띄우지 않는다 */
+        // 실패 — 에러 UI 는 띄우지 않고(브리핑은 부가 기능) 성적표 요약으로 내려간다.
+        if (alive) setBriefing(null);
       });
     return () => {
       alive = false;
@@ -420,7 +457,17 @@ function BriefingCard({ facilityId, demo = false }: { facilityId: string; demo?:
   }, [facilityId, demo]);
 
   const text = demo ? t('demo.merchantBriefingText') : briefing;
-  if (!text) return null;
+  if (!text) {
+    // 브리핑이 없다고 확정된 뒤에만 요약을 그린다 — 묻는 동안 요약을 띄웠다가 브리핑으로 갈아 끼우면 카드가 깜빡인다.
+    if (demo || briefing === undefined) return null;
+    const summary = weeklyStats && weeklyStats.facility_id === facilityId ? scorecardSummary(weeklyStats) : null;
+    if (!summary) return null;
+    return (
+      <SectionCard badge="성적표 요약" title={summary.title}>
+        <p className="text-[15px] text-muk leading-relaxed">{summary.text}</p>
+      </SectionCard>
+    );
+  }
 
   // 브리핑은 '오늘 무엇을 할지' 를 알려주는 카드라 일반 섹션보다 반 톤 밝은 금빛 서페이스로 띄운다.
   return (
@@ -557,61 +604,133 @@ function ForecastSection({
 }
 
 // =========================================================================
-// ② 성적표 — GET /api/v1/merchant/stats (최근 7일)
+// ② 성적표 — GET /api/v1/merchant/stats?days=7|30
+// 최근 7일·30일을 고르고, 각 숫자 아래에 사람 수(표본)와 직전 같은 기간 값을 함께 보인다(P1-2).
+// 무엇을 어떻게 세는지는 서버(merchant.py 성적표 머리말)와 lib/merchant/scorecard.ts 가 정한다 — 여기서는 그리기만.
 // =========================================================================
+
+/** 기간 하나의 불러오기 상태. 기간마다 따로 둔다 — 7일을 보다가 30일을 고르면 7일 숫자를 버리지 않는다. */
+type StatsEntry =
+  | { state: 'loading' }
+  | { state: 'ready'; stats: MerchantStats }
+  | { state: 'error'; message: string };
+
+const STATS_DEFAULT_DAYS: StatsWindowDays = STATS_WINDOW_OPTIONS[0];
+
+/** 받아 둔 숫자의 자리 — 가게와 기간을 함께 쓴다. 다른 가게의 숫자가 같은 '7일' 자리에 앉을 수 없다. */
+const statsSlot = (facilityId: string, period: StatsWindowDays) => `${facilityId}|${period}`;
 
 function StatsSection({
   facilityId,
   demo = false,
   saleActive = null,
+  onWeeklyStats,
 }: {
   facilityId: string;
   demo?: boolean;
   /** ③ 에 진행 중인 타임세일이 있는가(null = 모름). 있거나 모르면 '타임세일을 열어 보세요' 를 감춘다. */
   saleActive?: boolean | null;
+  /** 최근 7일 숫자를 받으면 콘솔에 알린다 — 맨 위 요약(AI 브리핑이 없을 때)이 같은 숫자를 쓴다.
+   *  아래 효과의 의존값이라 **안정된 함수**여야 한다(지금은 useState 의 setter) — 렌더마다 새 함수를 넘기면 효과가
+   *  매번 정리돼 진행 중인 요청을 버리고 다시 묻는다. */
+  onWeeklyStats?: (stats: MerchantStats) => void;
 }) {
-  const [state, setState] = useState<AsyncState>('loading');
-  const [stats, setStats] = useState<MerchantStats | null>(null);
-  const [errorMessage, setErrorMessage] = useState('');
+  const [days, setDays] = useState<StatsWindowDays>(STATS_DEFAULT_DAYS);
+  // 데모: 최근 7일 성적표를 고정값으로 채운다(집계 API 호출 없음). 데모 숫자는 화면 카드 기준으로 보인다 —
+  // 고정값(lib/demoFixtures.ts)에는 기준 칸이 없고, 없으면 '목록 행' 으로 읽히기 때문이다. 데모의 맨 위 자리는
+  // 고정 브리핑 문구라 요약 재료(onWeeklyStats)를 올리지 않는다.
+  const [entries, setEntries] = useState<Record<string, StatsEntry>>(() =>
+    demo
+      ? {
+          [statsSlot(facilityId, STATS_DEFAULT_DAYS)]: {
+            state: 'ready',
+            stats: { ...DEMO_MERCHANT_STATS, exposure_basis: 'card_shown' },
+          },
+        }
+      : {}
+  );
+  // '다시 시도' 횟수 — 바뀌면 아래 효과가 지금 고른 가게·기간을 다시 묻는다.
+  const [retryCount, setRetryCount] = useState(0);
+  // 받아 둔 자리(가게|기간) — 7일·30일을 오갈 때 다시 묻지 않는다(스켈레톤이 깜빡이지 않게). 효과 안에서만 읽고 쓴다.
+  const loaded = useRef(new Set<string>());
 
-  const load = useCallback(async () => {
-    // 데모: 최근 7일 성적표를 고정값으로 채운다(집계 API 호출 없음).
-    if (demo) {
-      setStats(DEMO_MERCHANT_STATS);
-      setState('ready');
-      return;
-    }
-    setState('loading');
-    try {
-      const data = await fetchMerchantStats(facilityId);
-      setStats(data);
-      setState('ready');
-    } catch (e) {
-      setErrorMessage(e instanceof MerchantApiError ? e.message : '성적표를 다시 불러올게요.');
-      setState('error');
-    }
-  }, [facilityId, demo]);
-
+  // 요청 하나는 그것을 시작한 효과가 주인이다 — 그 효과가 정리되면(가게가 바뀌어 섹션이 내려가거나 facilityId 가
+  // 바뀜, 다른 기간을 고름) 늦게 온 응답은 버린다(current=false). 예전에는 취소가 없어, 가게를 바꾼 직후 이전 가게의
+  // 7일 응답이 onWeeklyStats 로 콘솔의 숫자를 덮었고 맨 위 요약이 사라졌다(가게 id 가 달라 요약이 숨는다).
+  // React 개발 모드의 이중 실행(StrictMode)에서도 같다 — 첫 요청은 버리고 다시 시작한 요청만 반영한다.
   useEffect(() => {
-    load();
-  }, [load]);
+    if (demo) return;
+    const slot = statsSlot(facilityId, days);
+    if (loaded.current.has(slot)) return;
+    let current = true;
+    fetchMerchantStats(facilityId, days).then(
+      (data) => {
+        if (!current) return;
+        loaded.current.add(slot);
+        setEntries((prev) => ({ ...prev, [slot]: { state: 'ready', stats: data } }));
+        if (days === STATS_DEFAULT_DAYS) onWeeklyStats?.(data);
+      },
+      (e: unknown) => {
+        if (!current) return;
+        setEntries((prev) => ({
+          ...prev,
+          [slot]: { state: 'error', message: e instanceof MerchantApiError ? e.message : '성적표를 다시 불러올게요.' },
+        }));
+      }
+    );
+    return () => {
+      current = false;
+    };
+  }, [facilityId, days, demo, onWeeklyStats, retryCount]);
 
-  // 모든 항목이 0 이면 숫자 타일 대신 '아직 기록 없음 + 다음 행동'을 보여준다 — 0 만 늘어놓으면
+  const retry = () => {
+    // 오류 상자를 스켈레톤으로 되돌린 뒤 다시 묻는다(효과 밖 — 버튼을 누른 그 순간에 바꾼다).
+    setEntries((prev) => ({ ...prev, [statsSlot(facilityId, days)]: { state: 'loading' } }));
+    setRetryCount((n) => n + 1);
+  };
+
+  const entry = entries[statsSlot(facilityId, days)];
+  const stats = entry?.state === 'ready' ? entry.stats : null;
+  // 보여 줄 숫자가 하나도 없으면 숫자 타일 대신 '아직 기록 없음 + 다음 행동'을 보여준다 — 0 만 늘어놓으면
   // 사장님이 "고장났나?" 로 읽는다(감사 P1). 0 이 아닌 숫자만 타일로 세운다(lib/merchant/scorecard.ts, PM 4.18).
   const isEmpty = !!stats && scorecardIsEmpty(stats);
   const card = stats ? scorecardTiles(stats, { saleActive }) : null;
+  const notes = stats ? scorecardNotes(stats) : [];
+
+  // 기간 토글은 서버가 기간을 고를 수 있다고 확인된 뒤에만 둔다(7일 응답에 metrics 가 있다 = P1-2 서버). 구 API 는
+  // ?days= 를 무시하고 늘 7일을 준다 — 웹이 먼저 배포된 동안 '30일' 을 눌러 7일 숫자를 받는 토글을 만들지 않는다.
+  // 데모 고정값도 최근 7일뿐이다 — 30일을 고르게 하면 같은 숫자를 30일이라고 보이게 된다.
+  const weekly = entries[statsSlot(facilityId, STATS_DEFAULT_DAYS)];
+  const periodsSupported = weekly?.state === 'ready' && !!weekly.stats.metrics;
+  const periodToggle = demo || !periodsSupported ? null : (
+    <div role="group" aria-label="성적표 기간" className="flex rounded-xl border border-line bg-hanji p-0.5">
+      {STATS_WINDOW_OPTIONS.map((option) => (
+        <button
+          key={option}
+          type="button"
+          onClick={() => setDays(option)}
+          aria-pressed={days === option}
+          className={`toss-pressable min-h-11 min-w-14 rounded-[10px] px-3 text-[13px] font-bold tabular-nums transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 ${
+            days === option ? 'bg-muk text-hanji' : 'text-muk-soft hover:text-muk'
+          }`}
+        >
+          {option}일
+        </button>
+      ))}
+    </div>
+  );
 
   return (
-    <SectionCard badge="② 성적표" title={`최근 ${stats?.window_days ?? 7}일 활동`}>
-      {state === 'loading' && <SkeletonBlock heightClass="h-32" />}
-      {state === 'error' && <ErrorFallback message={errorMessage} onRetry={load} />}
-      {state === 'ready' && stats && isEmpty && (
+    <SectionCard badge="② 성적표" title={`최근 ${stats?.window_days ?? days}일 활동`} action={periodToggle}>
+      {(!entry || entry.state === 'loading') && <SkeletonBlock heightClass="h-32" />}
+      {entry?.state === 'error' && <ErrorFallback message={entry.message} onRetry={retry} />}
+      {stats && isEmpty && (
         <div className="flex flex-col gap-3">
           <div className="px-3 py-4 rounded-xl bg-hanji border border-line">
             <p className="text-[15px] font-bold text-muk mb-1">우리 가게 성적표가 여기에 쌓입니다</p>
             <p className="text-[13px] text-muk-soft leading-relaxed">
-              손님 추천 노출·길안내·쿠폰 사용이 최근 {stats.window_days}일 기준으로 쌓여요. 아래 두 가지부터
-              시작해 보세요.
+              손님 화면의 추천 카드·길안내·도착 확인·쿠폰 사용이 최근 {stats.window_days}일 기준으로 쌓여요. 아래 두
+              가지부터 시작해 보세요.
             </p>
           </div>
           <div className="px-3 py-3 rounded-xl bg-hanji border border-line">
@@ -623,12 +742,19 @@ function StatsSection({
           </div>
         </div>
       )}
-      {state === 'ready' && card && !isEmpty && (
+      {card && !isEmpty && (
         <div className="flex flex-col gap-3">
           <div className="grid grid-cols-2 gap-3">
             {card.tiles.map((tile) => (
               <div key={tile.key} className={tile.hero || tile.wide ? 'col-span-2' : undefined}>
-                <StatTile icon={STAT_ICONS[tile.key]} label={tile.label} value={tile.value} sub={tile.sub} hero={tile.hero} />
+                <StatTile
+                  icon={STAT_ICONS[tile.key]}
+                  label={tile.label}
+                  value={tile.value}
+                  detail={tile.detail}
+                  sub={tile.sub}
+                  hero={tile.hero}
+                />
               </div>
             ))}
           </div>
@@ -644,6 +770,22 @@ function StatsSection({
                 <Zap size={14} aria-hidden="true" /> 타임세일 열기
               </button>
             </div>
+          )}
+          {/* 무엇을 어떻게 셌는지 — 접어 둔다(숫자 옆에 늘 펼쳐 두면 타일보다 길다). 문장은 서버가 실제로 그렇게 셌을
+              때만 들어간다(scorecardNotes). summary 는 44px 탭 영역. */}
+          {notes.length > 0 && (
+            <details className="group rounded-xl border border-line bg-hanji px-3.5 text-[13px] text-muk-soft">
+              {/* summary 를 flex 로 두면 브라우저 기본 펼침 표시가 사라진다 — 화살표를 직접 그린다. */}
+              <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-2 rounded-lg font-semibold text-muk focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 [&::-webkit-details-marker]:hidden">
+                숫자는 이렇게 셉니다
+                <ChevronDown size={16} aria-hidden="true" className="flex-shrink-0 text-muk-soft transition-transform group-open:rotate-180" />
+              </summary>
+              <ul className="flex list-disc flex-col gap-1 pb-3 pl-4 leading-relaxed">
+                {notes.map((note) => (
+                  <li key={note}>{note}</li>
+                ))}
+              </ul>
+            </details>
           )}
         </div>
       )}
@@ -663,18 +805,21 @@ function StatTile({
   icon,
   label,
   value,
+  detail,
   sub,
   hero = false,
 }: {
   icon: React.ReactNode;
   label: string;
   value: number | string;
+  /** 표본·직전 기간 비교 한 줄(예: '4명 · 직전 7일 3건(+2)') — 숫자 바로 아래, 먹색으로(뜻 설명보다 먼저 읽힌다). */
+  detail?: string;
   sub?: string;
   /** 두 칸을 쓰는 맨 앞 타일 — 숫자를 한 단계 크게. */
   hero?: boolean;
 }) {
   return (
-    <div className="flex flex-col gap-1 px-3.5 py-3.5 rounded-2xl bg-hanji border border-line">
+    <div className="flex h-full flex-col gap-1 px-3.5 py-3.5 rounded-2xl bg-hanji border border-line">
       <div className="flex items-center gap-1.5">
         {/* 아이콘만 금색으로 — 숫자(먹빛)와 역할이 섞이지 않게 한다. */}
         <span aria-hidden="true" className="flex items-center text-gold-deep">
@@ -683,6 +828,7 @@ function StatTile({
         <span className="text-[13px] font-semibold text-muk-soft">{label}</span>
       </div>
       <span className={`${hero ? 'text-3xl' : 'text-2xl'} font-bold tabular-nums text-muk`}>{value}</span>
+      {detail && <span className="text-[13px] tabular-nums text-muk">{detail}</span>}
       {sub && <span className="text-[13px] text-muk-soft">{sub}</span>}
     </div>
   );
@@ -1071,6 +1217,12 @@ function TimesaleSection({
                   <span className="font-bold">{Math.round(publishConfirm.rate * 100)}% 할인</span>을 지금부터{' '}
                   <span className="font-bold">{publishConfirm.label}</span> 동안 발행합니다. 종료 예정{' '}
                   <span className="font-bold">{formatClock(publishConfirm.endsAtMs)}</span>.
+                </p>
+                {/* 비용 안내(평가 M4) — 쿠폰은 세일보다 오래 살고(7일), 상한을 넘는 할인율은 추천에 더 보태지 않는다.
+                    숫자는 서버 상수에서 온다(lib/merchant/api.ts timesaleCostNote). 발행을 묻는 문장보다 앞에 둬
+                    '이대로 발행할까요?' 가 버튼 바로 위에 남게 한다. */}
+                <p data-testid="timesale-cost-note" className="text-[13px] text-muk leading-relaxed">
+                  <span className="font-bold">비용 안내</span> · {timesaleCostNote()}
                 </p>
                 <p className="text-[13px] text-muk-soft leading-relaxed">
                   {confirmPreview &&

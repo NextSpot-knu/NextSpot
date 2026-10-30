@@ -1,6 +1,7 @@
 // 사장님 콘솔(머천트) 전용 API 헬퍼 — apps/web/lib/api-client.ts·lib/supabase.ts 의 타임아웃 관례를 미러한다.
 // 정적 export 앱이라 모든 호출은 클라이언트에서 직접 FastAPI 를 부른다(서버 액션/route handler 없음).
 
+import { SPOT_INCENTIVE } from "shared-types";
 import { createPublicClient } from "@/lib/supabase";
 import { kstParts, predictedLevel } from "@/lib/adminPredictedView";
 // model-info 요청·판정(4초 타임아웃)은 추천 카드와 같은 함수를 쓴다. 탭 안 기억 규칙만 콘솔 쪽(아래)에 있다.
@@ -91,6 +92,38 @@ async function merchantFetch(path: string, init: RequestInit = {}) {
 }
 
 // --- 성적표 ---
+
+/** 성적표 기간(일) — 서버(merchant.py _STATS_WINDOW_CHOICES)도 이 두 값만 받는다. 맨 앞이 기본값이다. */
+export const STATS_WINDOW_OPTIONS = [7, 30] as const;
+export type StatsWindowDays = (typeof STATS_WINDOW_OPTIONS)[number];
+
+/** 서버가 '노출' 을 무엇으로 셌는가.
+ *  card_shown — 손님 화면에 이 가게 추천 카드가 실제로 그려진 횟수(usage_events rec_shown).
+ *  list_rows  — 계산된 추천 목록에 들어간 행 수. /main 이 미리 받아 두는 목록까지 들어가 화면에 보였는지는 모른다.
+ *  서버가 카드 기록을 못 읽을 때만 list_rows 로 물러선다. 구 API(칸 없음)는 언제나 행 수를 셌다. */
+export type ExposureBasis = "card_shown" | "list_rows";
+
+export type MerchantMetricKey =
+  | "exposures"
+  | "accepts"
+  | "arrivals"
+  | "coupons_issued"
+  | "coupons_used"
+  | "congestion_reports";
+
+export interface MerchantMetric {
+  /** 이번 기간 값. null = 서버가 그 기록을 읽지 못했다. */
+  current: number | null;
+  /** 직전 같은 길이 기간의 값. null 은 '비교할 수 없음' 이다 — 0 이 아니다(그 기간에는 기록 자체가 없었다). */
+  previous: number | null;
+  /** 이번 기간 숫자를 만든 사람 수(표본). 지표마다 세는 단위가 다르다 — 카드 기준 노출(card_shown)은 익명 기기,
+   *  목록 행 기준 노출(list_rows)·길안내·도착은 앱 계정(관광객 게스트 세션 포함)이다. */
+  people: number | null;
+  /** 이번 기간의 일부만 셌을 때, 센 시작 시각(ISO) — 기록이 그때 생겼다. */
+  counted_since: string | null;
+  basis?: ExposureBasis;
+}
+
 export interface MerchantStats {
   facility_id: string;
   since: string;
@@ -102,10 +135,22 @@ export interface MerchantStats {
   recommendations_accepted: number;
   visit_confirmations: number | null;
   visit_confirmations_note: string;
+  // P1-2 에 더한 칸 — 구 API 에는 없다. 배포 순서가 어긋나도(웹 먼저) 화면은 위의 예전 칸으로 그린다.
+  until?: string;
+  previous_since?: string;
+  exposure_basis?: ExposureBasis;
+  /** 관리자·개발자 계정의 쿠폰·제보·길안내·도착을 뺀 숫자인가. */
+  internal_accounts_excluded?: boolean;
+  metrics?: Partial<Record<MerchantMetricKey, MerchantMetric>>;
 }
 
-export function fetchMerchantStats(facilityId: string): Promise<MerchantStats> {
-  return merchantFetch(`/api/v1/merchant/stats?facility_id=${encodeURIComponent(facilityId)}`);
+export function fetchMerchantStats(
+  facilityId: string,
+  days: StatsWindowDays = STATS_WINDOW_OPTIONS[0]
+): Promise<MerchantStats> {
+  return merchantFetch(
+    `/api/v1/merchant/stats?facility_id=${encodeURIComponent(facilityId)}&days=${days}`
+  );
 }
 
 // --- 셀프 타임세일 ---
@@ -174,6 +219,28 @@ export function timesaleConfirmPreview(
   if (line) return { kind: "baseCoupon", text: line };
   const shown = Math.max(rate, ...activeRates);
   return { kind: "badge", rate: shown, ongoing: shown > rate };
+}
+
+// --- 발행 확인 단계의 비용 안내 -------------------------------------------------
+// 사장님이 세일을 열기 전에 알아야 할 두 사실이다(평가 M4): 쿠폰은 세일보다 오래 살고, 할인율을 높여도 추천에서
+// 더 올라가는 데는 상한이 있다. 숫자는 서버 상수에서 온다 — 여기서 새로 정하지 않는다.
+
+/** 쿠폰 유효 기간(일, 발급 시각부터). 정본은 apps/api/app/services/coupon_service.py 의 COUPON_TTL_DAYS 다.
+ *  웹에는 이 한 곳에만 둔다 — API 테스트 tests/routers/test_merchant_cost_terms.py 가 두 값이 같은지 잠근다. */
+export const COUPON_VALID_DAYS = 7;
+
+/** 할인율이 추천 점수에 더해지는 상한(0.20). 정본은 apps/api/app/services/spot/score.py 의 COUPON_RATE_CAP 이고,
+ *  shared-types 의 같은 값과 패리티 테스트(test_spot.py)로 묶여 있다 — 그래서 숫자를 다시 적지 않고 거기서 읽는다. */
+export const COUPON_RATE_CAP: number = SPOT_INCENTIVE.couponRateCap;
+
+/** 발행 확인 단계의 비용 안내 한 줄. 세일 길이(1~3시간)와 쿠폰 수명(7일)이 다르다는 것, 상한을 넘는 할인율은
+ *  추천에 더 보태지 않는다는 것 — 할인율과 무관하게 같은 문장이다(고른 값에 따라 사실이 바뀌지 않는다). */
+export function timesaleCostNote(): string {
+  const cap = pct(COUPON_RATE_CAP);
+  return (
+    `세일 중에 발급된 쿠폰은 세일이 끝나도 발급 후 ${COUPON_VALID_DAYS}일 동안 쓸 수 있어요. ` +
+    `할인율이 ${cap}를 넘어도 추천에 더해지는 효과는 ${cap}와 같아요.`
+  );
 }
 
 /** 발행 직후 사장님에게 보여줄 설명 문구.
@@ -265,7 +332,8 @@ export function clearSeatStatus(facilityId: string): Promise<SeatStatusClearResu
 // --- 오늘의 실행 브리핑 (P1-5) — GET /api/v1/merchant/briefing ---
 // 백엔드(merchant_briefing_service)가 '앞으로 6시간' 예측 창의 최저 혼잡 시간대 + 타임세일
 // 현황을 Solar 로 2~3문장 프로즈화한 결과. briefing=null(스킵/폐기/장애/키 미설정)이면
-// 프런트는 카드 자체를 렌더하지 않는다(무해 폴백).
+// 콘솔은 그 자리에 성적표 숫자로 만든 요약(scorecard.ts scorecardSummary — LLM 없음)을 그리고,
+// 요약할 숫자도 없으면 아무것도 그리지 않는다(빈 자리·제목만 남은 카드 금지).
 export interface MerchantBriefing {
   briefing: string | null;
   llmStatus: string; // "llm" | "rejected" | "llm_failed" | "disabled" | "skipped" (관찰 필드)
