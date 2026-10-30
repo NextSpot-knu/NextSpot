@@ -186,6 +186,10 @@
 - ② **developer의 좌석 방송이 `verified`로 학습에 들어간다** — 소유자가 아닌 사람의 방송은 `single_report`로 낮추는 안.
 - ③ **인증 없는·게스트 LLM/쓰기 경로에 유량 제한이 없다** — 순서는 아래 "보안 진단"대로: `travel-context/parse`·
   `preferences/parse`(상) → `/voice/turn`·`events/track`·`search/ingest-request`. (`/reports/*` 는 2026-10-30 게스트 차단 + IP 쿨다운.)
+- **일요일 휴무 오판(버그, 10-31 재현)** — "매주 월요일 휴무"·"매주 화요일"처럼 요일이 적힌 휴무 문구의 가게가 일요일마다 `closed_confirmed` 가 된다.
+  정규식 `(?:매주|매월|요일|휴무)[^\n]{0,12}일` 이 '요일'의 '일'에 걸린다(API `services/travel_context.py:94`, 웹 `lib/restDate.ts:107-109`). 고침은 [`PRODUCT_EVALUATION_PLAN.md`](./PRODUCT_EVALUATION_PLAN.md) P0-1.
+- **게스트 차단 빈틈** — 방문 확인의 체감 혼잡(`PATCH /recommendations/{id}/outcome` 의 `observed_congestion`)은 아직 게스트를 받는다.
+  DB 트리거가 `user_report` 로 옮겨 계정 둘이 일치하면 corroborated 가 된다(`20260820123000:83-95`). 같은 문서 P0-2 · D3.
 - **main 의 e2e 가 KST 23:29 이후 CI 에서 실패한다(PR #13 병합 전까지)** — e2e 고정 장소가 '하루 종일'을 `'00:00~23:59'` 로 적어, 앱의 '도착 뒤 30분 안 마감 제외'(`lib/restDate.ts` `isRecommendationOpen`)에 밤마다 걸린다. 앱 버그가 아니라 시험 고정값 문제. 고침은 #13 의 `c678db4`(`'24시간'`). 그 전에 밤 main CI 가 빨가면 rec-card·category-chips·doc-crosswalk 음성부터 의심.
 - 스테이징이 없다 — **실 DB는 읽기만**, 쓰기 검증은 로컬 대역으로(08-28에 실 DB에 가짜 verified 3행을 쓴 전례).
 - 프로필 캐시가 프로세스 내부(30초) — 워커 1개라 지금은 무해, `--workers N`을 붙이면 공유 무효화 필요.
@@ -275,6 +279,20 @@ from checks order by seq;
 
 최신이 위. 10개를 넘으면 가장 오래된 항목을 `archive/HANDOVER_LOG.md` 맨 위로 옮긴다.
 
+## 2026-10-31 — 제품 평가·다음 작업 계획 + 서울 테스트베드 이해 정리(검토 대기)
+
+- 도구·브랜치: Claude Code / `yunseong`(`e8b64ed` 위)
+- 커밋: 이 기록 포함 1건(문서만 — 코드·스키마 무변경)
+- 한 것: 사용자 요청으로 공모전 이후 할 일을 정리했다.
+  - 평가 기준: 2026 공고문 원본 배점(가점 2종·PT 상위 5팀 포함)에 다른 대회(범정부 공공데이터·AI 창업, 병무청 합동, 서울시 빅데이터, 예비관광벤처, 혁신제품)와 품질 프레임워크(Nielsen·ISO 25010·KRDS·KWCAG·UNWTO·ETIS)를 더했다.
+  - 평가: 관광객·사장님·기관·공통 관점을 각각 다른 검토 에이전트가 코드 근거로 채점했고, 핵심 주장은 메인 세션이 다시 확인했다.
+  - 결과: [`PRODUCT_EVALUATION_PLAN.md`](./PRODUCT_EVALUATION_PLAN.md)(평균 관광객 2.6 · 사장님 2.1 · 기관 2.0 · 공통 3.0, Phase 0~3, 결정 D1~D7).
+  - 서울 건은 문서·코드만 읽고 [`SEOUL_TESTBED_PLAN.md`](./SEOUL_TESTBED_PLAN.md)(검토 대기)로 정리했다. 요지: 지금까지는 추정기 검증이고, '분산 알고리즘 유효성'은 새 평가 층(분산 결정 재생)이 필요하다. 질문 10개가 있다.
+  - 색인의 `CONGESTION_ENGINE_PLAN.md` '초안' 표기를 바로잡았다.
+- 검증: check-docs. 일요일 휴무 오판은 `open_status_at_arrival` 직접 실행으로 재현했다(위 "알려진 이슈").
+- 다음·미결: 사용자 검토 뒤 Phase 0(일요일 휴무 버그 · 게스트 방문 확인 체감 혼잡 · 운영 시나리오 값 제거 · 안전 '판정 불가' · 문구 정리)부터.
+- 사람 작업: Phase 0-7 의 세 건(`JWT_SECRET` 시크릿 · Render Deploy Hook · 서울 수집 점검 SQL)은 이미 "사람 작업 대기"에 있는 항목이다.
+
 ## 2026-10-30 — 게스트(익명 세션) 혼잡·영업 제보 차단 + IP·시설당 한 계정
 
 - 도구·브랜치: Claude Code / `yunseong`(main `168f979` 위)
@@ -357,15 +375,6 @@ from checks order by seq;
 - 한 것: 추천 카드 전체와 휴대폰 미리보기의 메뉴·음식 종류에 금빛 배경과 테두리, 진한 글자와 큰 아이콘을 적용해 한눈에 읽히게 했다. 메뉴 데이터·순서·접근성 이름은 유지.
 - 검증: web build · check-docs. 간단한 UI 변경이라 테스트는 실행하지 않음(PM 지시).
 - 다음·미결: Vercel 배포·라이브 카드 확인.
-- 사람 작업: 없음.
-
-## 2026-10-21 — 1366×650 지도 추천 카드의 상세 펼치기 노출
-
-- 도구·브랜치: Codex / `fix/rail-indicator-round-1020`(main `ee5bf19` 위)
-- 커밋: 이 기록 포함 1건(웹 CSS·문서만, API·스키마 무변경)
-- 한 것: 짧은 데스크톱 추천 패널에서 내부 내용 간격을 8→4px로 줄여, 카드의 ‘상세 정보 펼치기’가 스크롤 아래에 가려지지 않고 첫 화면에 보이게 했다. 시간대 표시·지도·운영 링크는 변경하지 않았다.
-- 검증: 현재 작업본 별도 서버(3101)에서 1366×650 및 1536×730의 해당 E2E 각 2건 통과 · web build 통과.
-- 다음·미결: main 반영 뒤 Vercel 배포 상태 확인. 다른 E2E 실패 항목은 이번 범위 밖.
 - 사람 작업: 없음.
 
 ## 기록 규칙
